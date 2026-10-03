@@ -196,7 +196,7 @@ window.MS_PORTAL_DATA = {
       "descEn": "Network Unavailability Rate in-depth analysis, based on RAN UME data to calculate downtime loss duration by site, region and fault root cause, aligned with MS SLA dashboard caliber.",
       "platform": "myapp",
       "platformZh": "自研 my_app",
-      "url": "http://192.168.100.20/myapp/?page=nur&t=b8120a4265a6e8569c6ccc27d1c7af6a2a87e568598fced2464dcdfb4bf072d5",
+      "url": "http://192.168.100.20/myapp/?page=nur",
       "tags": [
         "NUR",
         "Unavailability Rate",
@@ -227,7 +227,7 @@ window.MS_PORTAL_DATA = {
       "descEn": "Managed service operation core assessment dashboard: NUR, WO SLA achievement rate, Network KPI, Per-Site ratio and ticket timeliness, daily/monthly dual-dimension summary, data source ms_sla_dashboard database.",
       "platform": "myapp",
       "platformZh": "自研 my_app",
-      "url": "http://192.168.100.20/myapp/?page=ms_sla&t=b8120a4265a6e8569c6ccc27d1c7af6a2a87e568598fced2464dcdfb4bf072d5",
+      "url": "http://192.168.100.20/myapp/?page=ms_sla",
       "tags": [
         "MS KPI",
         "SLA",
@@ -258,7 +258,7 @@ window.MS_PORTAL_DATA = {
       "descEn": "Leaflet-based Liberia network-wide GIS map, overlaying site faults, ticket distribution and transmission links, supports filtering by level/status and popup drill-down.",
       "platform": "myapp",
       "platformZh": "自研 my_app",
-      "url": "http://192.168.100.20/myapp/?page=gis&t=b8120a4265a6e8569c6ccc27d1c7af6a2a87e568598fced2464dcdfb4bf072d5",
+      "url": "http://192.168.100.20/myapp/?page=gis",
       "tags": [
         "GIS",
         "地图拓扑",
@@ -289,7 +289,7 @@ window.MS_PORTAL_DATA = {
       "descEn": "Monthly and weekly availability per site and technology (2G/3G/4G), including days below threshold, VIP sites, FME/supervisor dimensions and related tickets (total/open/closed), with filtering and Excel export.",
       "platform": "myapp",
       "platformZh": "自研 my_app",
-      "url": "http://192.168.100.20/myapp/?page=site_avail&t=b8120a4265a6e8569c6ccc27d1c7af6a2a87e568598fced2464dcdfb4bf072d5",
+      "url": "http://192.168.100.20/myapp/?page=site_avail",
       "tags": [
         "Site Availability",
         "Availability",
@@ -449,7 +449,7 @@ window.MS_PORTAL_DATA = {
       "descEn": "Displays real-time critical network element faults across the network based on eFlow FM data, supports alarm grading (Critical/Major/Warning/Info), classification statistics and drill-down details.",
       "platform": "myapp",
       "platformZh": "自研 my_app",
-      "url": "http://192.168.100.20/myapp/?page=alarm&t=b8120a4265a6e8569c6ccc27d1c7af6a2a87e568598fced2464dcdfb4bf072d5",
+      "url": "http://192.168.100.20/myapp/?page=alarm",
       "tags": [
         "告警监控",
         "故障定位",
@@ -483,7 +483,7 @@ window.MS_PORTAL_DATA = {
       "descEn": "Network-wide real-time alarm geographic distribution based on FM Active data, supports filtering by alarm level, specialty and region, click site popup to view alarm details.",
       "platform": "myapp",
       "platformZh": "自研 my_app",
-      "url": "http://192.168.100.20/myapp/?page=realtime_alarm&t=b8120a4265a6e8569c6ccc27d1c7af6a2a87e568598fced2464dcdfb4bf072d5",
+      "url": "http://192.168.100.20/myapp/?page=realtime_alarm",
       "tags": [
         "活动告警",
         "地图红点",
@@ -551,7 +551,7 @@ window.MS_PORTAL_DATA = {
       "descEn": "Trouble Ticket (TT) and Work Order (WO) lifecycle closed-loop tracking, SLA processing timeliness and regional completion rate, all components support drill-down tables, column filtering/sorting and Excel export.",
       "platform": "myapp",
       "platformZh": "自研 my_app",
-      "url": "http://192.168.100.20/myapp/?page=ttwo&t=b8120a4265a6e8569c6ccc27d1c7af6a2a87e568598fced2464dcdfb4bf072d5",
+      "url": "http://192.168.100.20/myapp/?page=ttwo",
       "tags": [
         "工单流转",
         "TT",
@@ -586,7 +586,7 @@ window.MS_PORTAL_DATA = {
       "descEn": "Major incident overview: P1/P2 level fault timeline, impact scope, root cause analysis and post-mortem reports, supports filtering by time/region.",
       "platform": "myapp",
       "platformZh": "自研 my_app",
-      "url": "http://192.168.100.20/myapp/?page=incident_overview&t=b8120a4265a6e8569c6ccc27d1c7af6a2a87e568598fced2464dcdfb4bf072d5",
+      "url": "http://192.168.100.20/myapp/?page=incident_overview",
       "tags": [
         "重大故障",
         "Incident",
@@ -973,7 +973,7 @@ window.MS_PORTAL_DATA = {
       "descEn": "IP RAN network-wide packet loss rate monitoring, based on iPRAN UME data to calculate packet loss rate, latency and jitter by site, region and link, supports drill-down details.",
       "platform": "myapp",
       "platformZh": "自研 my_app",
-      "url": "http://192.168.100.20/myapp/?page=packet_loss&t=b8120a4265a6e8569c6ccc27d1c7af6a2a87e568598fced2464dcdfb4bf072d5",
+      "url": "http://192.168.100.20/myapp/?page=packet_loss",
       "tags": [
         "丢包率",
         "QoS",
@@ -1004,7 +1004,7 @@ window.MS_PORTAL_DATA = {
       "descEn": "Microwave network link topology and site connections based on UME MW management data, supports date-slider lookback, link status coloring and faulty link drill-down.",
       "platform": "myapp",
       "platformZh": "自研 my_app",
-      "url": "http://192.168.100.20/myapp/?page=mwUmeTopology&t=b8120a4265a6e8569c6ccc27d1c7af6a2a87e568598fced2464dcdfb4bf072d5",
+      "url": "http://192.168.100.20/myapp/?page=mwUmeTopology",
       "tags": [
         "微波",
         "MW",
@@ -1035,7 +1035,7 @@ window.MS_PORTAL_DATA = {
       "descEn": "MW UME real-time NOC monitoring dashboard: live link status, alarms and performance metrics continuously refreshed, with date lookback and link detail drill-down to quickly locate microwave transmission outages.",
       "platform": "myapp",
       "platformZh": "自研 my_app",
-      "url": "http://192.168.100.20/myapp/?page=mwRealTime&t=b8120a4265a6e8569c6ccc27d1c7af6a2a87e568598fced2464dcdfb4bf072d5",
+      "url": "http://192.168.100.20/myapp/?page=mwRealTime",
       "tags": [
         "微波",
         "MW",
@@ -1067,7 +1067,7 @@ window.MS_PORTAL_DATA = {
       "descEn": "IP link trace tool: supports traceroute/mtr visualization, packet loss rate and hop count statistics, quickly locate transmission bottlenecks.",
       "platform": "myapp",
       "platformZh": "自研 my_app",
-      "url": "http://192.168.100.20/myapp/?page=ip_trace&t=b8120a4265a6e8569c6ccc27d1c7af6a2a87e568598fced2464dcdfb4bf072d5",
+      "url": "http://192.168.100.20/myapp/?page=ip_trace",
       "tags": [
         "IP Trace",
         "路由追踪",
@@ -1193,7 +1193,7 @@ window.MS_PORTAL_DATA = {
       "descEn": "Spare parts warehouse management: full process of spare parts inbound/outbound/transfer/stocktaking, supports safety stock warning and consumption trend analysis.",
       "platform": "myapp",
       "platformZh": "自研 my_app",
-      "url": "http://192.168.100.20/myapp/?page=warehouse&t=b8120a4265a6e8569c6ccc27d1c7af6a2a87e568598fced2464dcdfb4bf072d5",
+      "url": "http://192.168.100.20/myapp/?page=warehouse",
       "tags": [
         "备件库存",
         "板卡调拨",
@@ -1295,7 +1295,7 @@ window.MS_PORTAL_DATA = {
       "descEn": "Battery and power environment monitoring: battery voltage, temperature, charge/discharge status and alarms, supports filtering by site/region and historical trend analysis.",
       "platform": "myapp",
       "platformZh": "自研 my_app",
-      "url": "http://192.168.100.20/myapp/?page=battery&t=b8120a4265a6e8569c6ccc27d1c7af6a2a87e568598fced2464dcdfb4bf072d5",
+      "url": "http://192.168.100.20/myapp/?page=battery",
       "tags": [
         "蓄电池",
         "基站动环",
@@ -1328,7 +1328,7 @@ window.MS_PORTAL_DATA = {
       "descEn": "Schedules all 34 automation tasks: ZTE eFlow API sync, RAN/iPRAN/CNN UME KPI, battery, packet loss, email reports and WhatsApp push, supports manual trigger, auto-retry on failure and Cron modification.",
       "platform": "myapp",
       "platformZh": "自研 my_app",
-      "url": "http://192.168.100.20/myapp/?page=sync&t=b8120a4265a6e8569c6ccc27d1c7af6a2a87e568598fced2464dcdfb4bf072d5",
+      "url": "http://192.168.100.20/myapp/?page=sync",
       "tags": [
         "eFlow API",
         "Task Manager",
@@ -1362,7 +1362,7 @@ window.MS_PORTAL_DATA = {
       "descEn": "Data table browser: supports query, filter, sort and export for any business table, built-in SQL editor and data preview.",
       "platform": "myapp",
       "platformZh": "自研 my_app",
-      "url": "http://192.168.100.20/myapp/?page=tables&t=b8120a4265a6e8569c6ccc27d1c7af6a2a87e568598fced2464dcdfb4bf072d5",
+      "url": "http://192.168.100.20/myapp/?page=tables",
       "tags": [
         "原始数据",
         "Table Browser",
@@ -1392,7 +1392,7 @@ window.MS_PORTAL_DATA = {
       "descEn": "Data upload and cleansing tool: supports Excel/CSV batch import, field mapping, data validation and cleansing rule configuration.",
       "platform": "myapp",
       "platformZh": "自研 my_app",
-      "url": "http://192.168.100.20/myapp/?page=upload&t=b8120a4265a6e8569c6ccc27d1c7af6a2a87e568598fced2464dcdfb4bf072d5",
+      "url": "http://192.168.100.20/myapp/?page=upload",
       "tags": [
         "Excel导入",
         "CSV上传",
@@ -1423,7 +1423,7 @@ window.MS_PORTAL_DATA = {
       "descEn": "Centralized credential management (credentials table), email recipient configuration and system parameter settings, supporting unified credential maintenance for multi-device deployment.",
       "platform": "myapp",
       "platformZh": "自研 my_app",
-      "url": "http://192.168.100.20/myapp/?page=settings&t=b8120a4265a6e8569c6ccc27d1c7af6a2a87e568598fced2464dcdfb4bf072d5",
+      "url": "http://192.168.100.20/myapp/?page=settings",
       "tags": [
         "凭据管理",
         "系统配置",
@@ -1453,7 +1453,7 @@ window.MS_PORTAL_DATA = {
       "descEn": "Collects the latest report files (Excel/HTML) generated by email tasks, FineBI FTP reports synced hourly and the eFlow TT severity rule check result; click a file name to download.",
       "platform": "myapp",
       "platformZh": "自研 my_app",
-      "url": "http://192.168.100.20/myapp/?page=email_reports&t=b8120a4265a6e8569c6ccc27d1c7af6a2a87e568598fced2464dcdfb4bf072d5",
+      "url": "http://192.168.100.20/myapp/?page=email_reports",
       "tags": [
         "报告文件",
         "报表下载",
@@ -1484,7 +1484,7 @@ window.MS_PORTAL_DATA = {
       "descEn": "Centralized account management and one-click auto login for NMS portals (UME / eFlow), showing live login status per portal with retry and session close.",
       "platform": "myapp",
       "platformZh": "自研 my_app",
-      "url": "http://192.168.100.20/myapp/?page=portalLogin&t=b8120a4265a6e8569c6ccc27d1c7af6a2a87e568598fced2464dcdfb4bf072d5",
+      "url": "http://192.168.100.20/myapp/?page=portalLogin",
       "tags": [
         "一键登录",
         "门户",
@@ -1514,7 +1514,7 @@ window.MS_PORTAL_DATA = {
       "descEn": "Operation overview: network availability, ticket completion rate, alarm trends and KPI achievement rate, one screen to master NOC/SOC core metrics.",
       "platform": "myapp",
       "platformZh": "自研 my_app",
-      "url": "http://192.168.100.20/myapp/?page=overview&t=b8120a4265a6e8569c6ccc27d1c7af6a2a87e568598fced2464dcdfb4bf072d5",
+      "url": "http://192.168.100.20/myapp/?page=overview",
       "tags": [
         "全景看板",
         "数据新鲜度",
@@ -1544,7 +1544,7 @@ window.MS_PORTAL_DATA = {
       "descEn": "Historical archive: reports and data that have been decommissioned or are low-frequency, retain query entry but no longer maintained daily.",
       "platform": "myapp",
       "platformZh": "自研 my_app",
-      "url": "http://192.168.100.20/myapp/?page=archive&t=b8120a4265a6e8569c6ccc27d1c7af6a2a87e568598fced2464dcdfb4bf072d5",
+      "url": "http://192.168.100.20/myapp/?page=archive",
       "tags": [
         "分析归档",
         "历史回溯",
@@ -1574,7 +1574,7 @@ window.MS_PORTAL_DATA = {
       "descEn": "One-click smart analysis for any business table: distribution, mean comparison, trends, quality radar and SLA heatmap, chart linkage filtering and archivable.",
       "platform": "myapp",
       "platformZh": "自研 my_app",
-      "url": "http://192.168.100.20/myapp/?page=dashboard&t=b8120a4265a6e8569c6ccc27d1c7af6a2a87e568598fced2464dcdfb4bf072d5",
+      "url": "http://192.168.100.20/myapp/?page=dashboard",
       "tags": [
         "Smart Analysis",
         "Chart Linkage",
@@ -1637,7 +1637,7 @@ window.MS_PORTAL_DATA = {
       "descEn": "eFlow alarm & ticket knowledge base: a catalog tree of rules/experience docs, full-text search and TT quick analysis (root-cause ownership, CSD/PSD, dispatch rules and timeliness) to help front-line staff locate faults and dispatch quickly.",
       "platform": "myapp",
       "platformZh": "自研 my_app",
-      "url": "http://192.168.100.20/myapp/?page=eflow_qa&t=b8120a4265a6e8569c6ccc27d1c7af6a2a87e568598fced2464dcdfb4bf072d5",
+      "url": "http://192.168.100.20/myapp/?page=eflow_qa",
       "tags": [
         "eFlow",
         "Knowledge Base",
@@ -1668,7 +1668,7 @@ window.MS_PORTAL_DATA = {
       "descEn": "Built-in help and user manual for my_app (Data Insight MVP): feature notes, per-dashboard usage guides and FAQs to help new users get started quickly.",
       "platform": "myapp",
       "platformZh": "自研 my_app",
-      "url": "http://192.168.100.20/myapp/?page=help&t=b8120a4265a6e8569c6ccc27d1c7af6a2a87e568598fced2464dcdfb4bf072d5",
+      "url": "http://192.168.100.20/myapp/?page=help",
       "tags": [
         "Help",
         "User Guide",
@@ -1699,7 +1699,7 @@ window.MS_PORTAL_DATA = {
       "descEn": "Built-in issue desk for my_app: report functional defects, data anomalies and improvement ideas with a category (defect / data / requirement / other), priority and status workflow. Administrators can assign owners and write back resolutions, with filtering by status/category and keyword search.",
       "platform": "myapp",
       "platformZh": "自研 my_app",
-      "url": "http://192.168.100.20/myapp/?page=feedback&t=b8120a4265a6e8569c6ccc27d1c7af6a2a87e568598fced2464dcdfb4bf072d5",
+      "url": "http://192.168.100.20/myapp/?page=feedback",
       "tags": [
         "Issue Feedback",
         "问题反馈",
@@ -1830,7 +1830,7 @@ window.MS_PORTAL_DATA = {
       "descEn": "Ranks field maintenance engineers (FME) by the availability of the sites they own and by their work orders (WO). Supports filters for month, technology (2G/3G/4G/TDD), supervisor and FME, with a top-15 comparison chart, a detail table and Excel export.",
       "platform": "myapp",
       "platformZh": "自研 my_app",
-      "url": "http://192.168.100.20/myapp/?page=fme_ranking&t=b8120a4265a6e8569c6ccc27d1c7af6a2a87e568598fced2464dcdfb4bf072d5",
+      "url": "http://192.168.100.20/myapp/?page=fme_ranking",
       "tags": ["FME", "工程师排名", "站点可用率", "工单", "排名"],
       "owner": "FLM 总监",
       "ownerEn": "FLM Director",
@@ -1854,7 +1854,7 @@ window.MS_PORTAL_DATA = {
       "descEn": "Quantifies each NOC operator (based on eFlow TT last processor) by root-cause mismatch rate, average handling time, night-shift ticket share and SLA pass rate, with red-flag alerts; supports month / NOC filters and detail drill-down.",
       "platform": "myapp",
       "platformZh": "自研 my_app",
-      "url": "http://192.168.100.20/myapp/?page=noc_analyst&t=b8120a4265a6e8569c6ccc27d1c7af6a2a87e568598fced2464dcdfb4bf072d5",
+      "url": "http://192.168.100.20/myapp/?page=noc_analyst",
       "tags": ["NOC", "操作人分析", "根因错位", "SLA"],
       "owner": "运维分析师",
       "ownerEn": "O&M Analyst",
@@ -1878,7 +1878,7 @@ window.MS_PORTAL_DATA = {
       "descEn": "Focused MS-technology (2G/3G/4G/TDD) Network Unavailability Rate analysis based on RAN UME data, isolating the MS dimension to rank downtime loss duration by site and region, aligned with MS SLA dashboard caliber.",
       "platform": "myapp",
       "platformZh": "自研 my_app",
-      "url": "http://192.168.100.20/myapp/?page=ms_nur_only&t=b8120a4265a6e8569c6ccc27d1c7af6a2a87e568598fced2464dcdfb4bf072d5",
+      "url": "http://192.168.100.20/myapp/?page=ms_nur_only",
       "tags": ["NUR", "MS", "Unavailability Rate", "SLA"],
       "owner": "MS 项目总监",
       "ownerEn": "MS Project Director",
@@ -1902,7 +1902,7 @@ window.MS_PORTAL_DATA = {
       "descEn": "Standalone direct-link view of the SLA portion of the MS Operation KPI dashboard (page=ms_sla): focuses on MS-technology (2G/3G/4G/TDD) SLA achievement, WO SLA and contract KPIs, with NUR/Network/Per-Site dimensions stripped out; bookmarkable and big-screen ready.",
       "platform": "myapp",
       "platformZh": "自研 my_app",
-      "url": "http://192.168.100.20/myapp/?page=ms_sla_only&t=b8120a4265a6e8569c6ccc27d1c7af6a2a87e568598fced2464dcdfb4bf072d5",
+      "url": "http://192.168.100.20/myapp/?page=ms_sla_only",
       "tags": ["SLA", "MS", "WO SLA", "Contract KPI"],
       "owner": "MS 项目总监",
       "ownerEn": "MS Project Director",

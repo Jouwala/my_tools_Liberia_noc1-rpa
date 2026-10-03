@@ -87,13 +87,22 @@ export default function PortalLogin() {
     document.documentElement.getAttribute(PORTAL_EXTENSION_READY_ATTR) === 'ready')
   // client = 在访问者自己的浏览器里登录（经 nginx 反代 + 注入脚本自动填表）
   // server = 在 my_app 服务器桌面弹浏览器登录（eFlow 走直接鉴权 + CDP 种 cookie）
-  // 选择持久化：eFlow 必须直连、不适合 client 模式，用户通常固定用 server。
+  //
+  // 2026-10-02 改：**默认值从 client 改为 server**（用户要求「Portal Login 要默认是
+  // server，其实这个只有 server 在用」）。
+  //   · 为什么：这个页面实际只有 RDP 到服务器的运维在用，而 eFlow / RAIS 是「直连门户」，
+  //     在 client 模式下**根本无法一键登录**（只能打开登录页让人手输，见
+  //     portal.clientOpenedDirect 文案）。默认给 client 会让每次进来都先撞一次这个坑，
+  //     还得手动切一下 —— 默认值应当贴合绝大多数真实用法。
+  //   · 判定改成「只有明确选过 client 才是 client」：null/非法值/隐私模式抛错一律落
+  //     server。**已选过 client 的用户不受影响**（他们的 localStorage 里存着 'client'），
+  //     所以这不是把老用户的选择覆盖掉，只是改了「没选过」时的初始值。
   const MODE_KEY = 'myapp_portal_login_mode'
   const [mode, setMode] = useState<'client' | 'server'>(() => {
     try {
-      return localStorage.getItem(MODE_KEY) === 'server' ? 'server' : 'client'
+      return localStorage.getItem(MODE_KEY) === 'client' ? 'client' : 'server'
     } catch {
-      return 'client'
+      return 'server'
     }
   })
   const changeMode = useCallback((v: 'client' | 'server') => {

@@ -3,6 +3,8 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "//xlsxNote": "Apache-2.0，仅供 EflowQa.tsx / TableBrowser.tsx 解析用户上传的 xlsx/xls。勿改成 npm 上的 `xlsx`——registry 版停留在 0.18.5 且带已知 CVE；SheetJS 新版只从自家 CDN 分发。升级前须人工核验 tarball 完整性，并同步更新 docs/THIRD-PARTY-NOTICES.md。注意 exceljs 读不了旧版 .xls（BIFF8），故不能简单替换。详见 docs/THIRD-PARTY-NOTICES.md 第一节。",
+  "//xlsxNote为什么放这里": "这段说明原先是 dependencies 里的 \"//xlsx\" 键。npm 会校验 dependencies 的**每一个键**，非法键名会让**任何** npm install 直接报 EINVALIDPACKAGENAME 失败（2026-10-02 实测），等于整个前端依赖树无法安装/更新。放到顶层后 npm 不再校验，说明得以保留。此键在 dependencies 外，不构成依赖，也不参与安装。",
   "scripts": {
     "dev": "node ../scripts/start-app.mjs dev",
     "build": "node scripts/check-i18n.mjs && tsc && vite build",
@@ -29,12 +31,12 @@
     "echarts-for-react": "^3.0.6",
     "exceljs": "^4.4.0",
     "leaflet": "^1.9.4",
+    "protomaps-leaflet": "^5.1.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1",
     "tslib": "^2.8.1",
-    "//xlsx": "Apache-2.0，仅供 EflowQa.tsx / TableBrowser.tsx 解析用户上传的 xlsx/xls。勿改成 npm 上的 `xlsx`——registry 版停留在 0.18.5 且带已知 CVE；SheetJS 新版只从自家 CDN 分发。升级前须人工核验 tarball 完整性，并同步更新 docs/THIRD-PARTY-NOTICES.md。注意 exceljs 读不了旧版 .xls（BIFF8），故不能简单替换。",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   }
 }

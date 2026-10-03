@@ -1,0 +1,58 @@
+<Slide>
+  <Box style={{width: '100%', height: '100%', paddingTop: 32, paddingBottom: 20, paddingLeft: 64, paddingRight: 64}}>
+    {/* A · Title */}
+    <Box style={{height: 88, flexDirection: 'row', alignItems: 'flex-start', gap: 12}}>
+      <Box style={{width: 4, height: 40, background: '#0072BC', marginTop: 4}} />
+      <Box style={{flex: 1}}>
+        <Text style={{fontSize: 34, fontWeight: 700, color: '#0F2C4D', lineHeight: 1.3}}>每个数字都是一扇门</Text>
+        <Text style={{fontSize: 16, fontWeight: 400, color: '#64748B', marginTop: 6}}>
+          二十四个功能页面，页面上任意一个数字都能点开它背后的记录。
+        </Text>
+      </Box>
+    </Box>
+
+    {/* B · Content */}
+    <Box style={{height: 516, marginTop: 12, flexDirection: 'row', gap: 32}}>
+      <Box style={{width: 620, height: '100%', borderRadius: 10, overflow: 'hidden', border: '1px solid #E2E8F0'}}>
+        <Image src="assets/insight_screen.png" style={{width: '100%', height: '100%', objectFit: 'cover'}} />
+      </Box>
+
+      <Box style={{flex: 1, height: '100%', justifyContent: 'space-between'}}>
+        <Box>
+          <Text style={{fontSize: 19, fontWeight: 700, color: '#0F2C4D'}}>覆盖，而不是一张图</Text>
+          <Text style={{fontSize: 15, fontWeight: 400, color: '#64748B', marginTop: 8, lineHeight: 1.5}}>
+            故障工单与工作单、实时与历史告警、网络不可用率（NUR）、MS SLA 与合同
+            KPI、丢包、动力与电池、备件与仓储、微波与传输、GIS 站点视图，
+            以及经营层总览。
+          </Text>
+        </Box>
+        <Box>
+          <Text style={{fontSize: 19, fontWeight: 700, color: '#0F2C4D'}}>点数字，出记录</Text>
+          <Text style={{fontSize: 15, fontWeight: 400, color: '#64748B', marginTop: 8, lineHeight: 1.5}}>
+            任意指标点击即打开底层明细行，可按站点、区域、归属或表里真实存在的
+            字段检索过滤——不用再找工程师要，也不用手工拼表。
+          </Text>
+        </Box>
+        <Box>
+          <Text style={{fontSize: 19, fontWeight: 700, color: '#0F2C4D'}}>所见即所导出</Text>
+          <Text style={{fontSize: 15, fontWeight: 400, color: '#64748B', marginTop: 8, lineHeight: 1.5}}>
+            导出走的是与页面完全相同的过滤条件，交给客户或监管机构的文件与
+            会上讨论的数字严格一致。
+          </Text>
+        </Box>
+        <Box style={{background: '#F2F6FA', borderRadius: 10, padding: 18, borderLeft: '3px solid #FF922B'}}>
+          <Text style={{fontSize: 15, fontWeight: 400, color: '#0F2C4D', lineHeight: 1.5}}>
+            取不到值的地方显示「—」而不是 0。缺失的数字保持可见的缺失，
+            不会被悄悄算成满分。
+          </Text>
+        </Box>
+      </Box>
+    </Box>
+
+    {/* C · Footer */}
+    <Box style={{height: 40, marginTop: 12, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid #E2E8F0'}}>
+      <Text style={{fontSize: 14, color: '#94A3B8'}}>OLR MS 运维工具平台</Text>
+      <Text style={{fontSize: 14, color: '#94A3B8'}}>13 / 17</Text>
+    </Box>
+  </Box>
+</Slide>

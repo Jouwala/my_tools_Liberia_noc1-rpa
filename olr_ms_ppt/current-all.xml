@@ -1,0 +1,878 @@
+<presentation id="UJQ4suaKsltIjfdRDZocftvCnkc" xmlns="https://www.larkoffice.com/sml/2.0" width="960" height="540">
+  <title>OLR MS 运维平台功能展示</title>
+  <theme>
+    <textStyles>
+      <headline fontColor="rgba(31, 35, 41, 1)"/>
+      <sub-headline fontColor="rgba(31, 35, 41, 1)"/>
+      <body fontColor="rgba(31, 35, 41, 1)"/>
+      <caption fontColor="rgba(155, 158, 162, 1)" fontSize="14"/>
+    </textStyles>
+  </theme>
+  <slide id="pII">
+    <style>
+      <fill id="fII">
+        <fillColor color="linear-gradient(135deg,rgba(0, 48, 135, 1) 0%,rgba(0, 112, 186, 1) 100%)"/>
+      </fill>
+    </style>
+    <data>
+      <shape width="800" height="80" topLeftX="80" topLeftY="140" type="text" id="bra">
+        <content textType="title" fontSize="48" fontFamily="思源黑体" color="rgba(255, 255, 255, 1)" bold="true">
+          <p>OLR MS 智能运维平台</p>
+        </content>
+      </shape>
+      <shape width="800" height="60" topLeftX="80" topLeftY="240" type="text" id="brW">
+        <content textType="headline" fontSize="28" fontFamily="思源黑体" color="rgba(212, 229, 247, 1)" bold="true">
+          <p>两大系统协同 · 全栈运维数字化能力展示</p>
+        </content>
+      </shape>
+      <line id="brr" startX="80" startY="320" endX="240.00312496948303" endY="320">
+        <border color="rgba(255, 255, 255, 0.6)"/>
+      </line>
+      <shape width="800" height="40" topLeftX="80" topLeftY="350" type="text" id="brL">
+        <content fontSize="16" fontFamily="思源黑体" color="rgba(180, 200, 230, 1)">
+          <p>ZTE LIBERIA INC · OLR MS Project</p>
+        </content>
+      </shape>
+      <shape width="800" height="30" topLeftX="80" topLeftY="420" type="text" id="brp">
+        <content textType="caption" fontSize="12" fontFamily="思源黑体" color="rgba(150, 175, 210, 1)">
+          <p>Ver 1.0 · 客户展示版 · 2026-10</p>
+        </content>
+      </shape>
+    </data>
+    <note id="brP">
+      <content>
+        <p>各位领导好，今天向大家展示我们 OLR MS 智能运维平台的整体情况。平台由两大核心系统组成：面向客户的运维门户和后台数据洞察引擎。</p>
+        <p>整个平台覆盖了从日常监控、告警处理、工单管理到报表自动生成的全流程运维场景。</p>
+      </content>
+    </note>
+  </slide>
+  <slide id="pIo">
+    <style>
+      <fill id="fIo">
+        <fillColor color="rgba(255, 255, 255, 1)"/>
+      </fill>
+    </style>
+    <data>
+      <shape width="840" height="50" topLeftX="60" topLeftY="40" type="text" id="bLx">
+        <content textType="title" fontSize="32" fontFamily="思源黑体" color="rgba(0, 28, 84, 1)" bold="true">
+          <p>OLR MS 运维门户</p>
+        </content>
+      </shape>
+      <shape width="840" height="30" topLeftX="60" topLeftY="90" type="text" id="bLU">
+        <content fontSize="16" fontFamily="思源黑体" color="rgba(71, 85, 105, 1)">
+          <p>面向客户的一站式运维可视化平台 · 60+ 看板 · 10 大业务分组</p>
+        </content>
+      </shape>
+      <line id="bLT" startX="60" startY="130" endX="900.0005952378843" endY="130">
+        <border color="rgba(0, 48, 135, 0.15)" width="1"/>
+      </line>
+      <shape width="380" height="30" topLeftX="60" topLeftY="150" type="text" id="bpp">
+        <content textType="headline" fontSize="18" fontFamily="思源黑体" color="rgba(0, 48, 135, 1)" bold="true">
+          <p>日常运营概览</p>
+        </content>
+      </shape>
+      <shape width="115" height="90" topLeftX="60" topLeftY="195" presetHandlers="8" type="rect" id="bLB">
+        <fill>
+          <fillColor color="rgba(244, 247, 252, 1)"/>
+        </fill>
+        <content fontSize="16" fontFamily="思源黑体" color="rgba(31, 35, 41, 1)"/>
+      </shape>
+      <shape width="95" height="20" topLeftX="70" topLeftY="205" type="text" id="bLM">
+        <content textType="caption" fontSize="11" fontFamily="思源黑体" color="rgba(71, 85, 105, 1)">
+          <p>告警 Alarm</p>
+        </content>
+      </shape>
+      <shape width="95" height="40" topLeftX="70" topLeftY="230" type="text" id="bLX">
+        <content textType="headline" fontSize="32" fontFamily="思源黑体" color="rgba(0, 48, 135, 1)" bold="true">
+          <p>65</p>
+        </content>
+      </shape>
+      <shape width="115" height="90" topLeftX="185" topLeftY="195" presetHandlers="8" type="rect" id="bpP">
+        <fill>
+          <fillColor color="rgba(244, 247, 252, 1)"/>
+        </fill>
+        <content fontSize="16" fontFamily="思源黑体" color="rgba(31, 35, 41, 1)"/>
+      </shape>
+      <shape width="95" height="20" topLeftX="195" topLeftY="205" type="text" id="bLf">
+        <content textType="caption" fontSize="11" fontFamily="思源黑体" color="rgba(71, 85, 105, 1)">
+          <p>故障工单 TT</p>
+        </content>
+      </shape>
+      <shape width="95" height="40" topLeftX="195" topLeftY="230" type="text" id="bLd">
+        <content textType="headline" fontSize="32" fontFamily="思源黑体" color="rgba(0, 48, 135, 1)" bold="true">
+          <p>77</p>
+        </content>
+      </shape>
+      <shape width="115" height="90" topLeftX="310" topLeftY="195" presetHandlers="8" type="rect" id="bLD">
+        <fill>
+          <fillColor color="rgba(244, 247, 252, 1)"/>
+        </fill>
+        <content fontSize="16" fontFamily="思源黑体" color="rgba(31, 35, 41, 1)"/>
+      </shape>
+      <shape width="95" height="20" topLeftX="320" topLeftY="205" type="text" id="bpr">
+        <content textType="caption" fontSize="11" fontFamily="思源黑体" color="rgba(71, 85, 105, 1)">
+          <p>任务工单 WO</p>
+        </content>
+      </shape>
+      <shape width="95" height="40" topLeftX="320" topLeftY="230" type="text" id="bLi">
+        <content textType="headline" fontSize="32" fontFamily="思源黑体" color="rgba(0, 48, 135, 1)" bold="true">
+          <p>176</p>
+        </content>
+      </shape>
+      <shape width="380" height="30" topLeftX="60" topLeftY="310" type="text" id="bLZ">
+        <content textType="headline" fontSize="18" fontFamily="思源黑体" color="rgba(0, 48, 135, 1)" bold="true">
+          <p>网络状态监控</p>
+        </content>
+      </shape>
+      <shape width="115" height="90" topLeftX="60" topLeftY="355" presetHandlers="8" type="rect" id="bLu">
+        <fill>
+          <fillColor color="rgba(240, 248, 255, 1)"/>
+        </fill>
+        <content fontSize="16" fontFamily="思源黑体" color="rgba(31, 35, 41, 1)"/>
+      </shape>
+      <shape width="95" height="20" topLeftX="70" topLeftY="365" type="text" id="bpL">
+        <content textType="caption" fontSize="11" fontFamily="思源黑体" color="rgba(71, 85, 105, 1)">
+          <p>总流量 TB</p>
+        </content>
+      </shape>
+      <shape width="95" height="40" topLeftX="70" topLeftY="390" type="text" id="bLy">
+        <content textType="headline" fontSize="26" fontFamily="思源黑体" color="rgba(0, 112, 186, 1)" bold="true">
+          <p>273.95</p>
+        </content>
+      </shape>
+      <shape width="115" height="90" topLeftX="185" topLeftY="355" presetHandlers="8" type="rect" id="bLV">
+        <fill>
+          <fillColor color="rgba(240, 248, 255, 1)"/>
+        </fill>
+        <content fontSize="16" fontFamily="思源黑体" color="rgba(31, 35, 41, 1)"/>
+      </shape>
+      <shape width="95" height="20" topLeftX="195" topLeftY="365" type="text" id="bLm">
+        <content textType="caption" fontSize="11" fontFamily="思源黑体" color="rgba(71, 85, 105, 1)">
+          <p>活跃用户 K</p>
+        </content>
+      </shape>
+      <shape width="95" height="40" topLeftX="195" topLeftY="390" type="text" id="bLH">
+        <content textType="headline" fontSize="26" fontFamily="思源黑体" color="rgba(0, 112, 186, 1)" bold="true">
+          <p>478.6</p>
+        </content>
+      </shape>
+      <shape width="115" height="90" topLeftX="310" topLeftY="355" presetHandlers="8" type="rect" id="bpq">
+        <fill>
+          <fillColor color="rgba(240, 248, 255, 1)"/>
+        </fill>
+        <content fontSize="16" fontFamily="思源黑体" color="rgba(31, 35, 41, 1)"/>
+      </shape>
+      <shape width="95" height="20" topLeftX="320" topLeftY="365" type="text" id="bLN">
+        <content textType="caption" fontSize="11" fontFamily="思源黑体" color="rgba(71, 85, 105, 1)">
+          <p>4G 可用率 %</p>
+        </content>
+      </shape>
+      <shape width="95" height="40" topLeftX="320" topLeftY="390" type="text" id="bLC">
+        <content textType="headline" fontSize="26" fontFamily="思源黑体" color="rgba(0, 112, 186, 1)" bold="true">
+          <p>99.35</p>
+        </content>
+      </shape>
+      <shape width="410" height="30" topLeftX="490" topLeftY="150" type="text" id="bLh">
+        <content textType="headline" fontSize="18" fontFamily="思源黑体" color="rgba(0, 48, 135, 1)" bold="true">
+          <p>核心功能模块</p>
+        </content>
+      </shape>
+      <shape width="410" height="30" topLeftX="490" topLeftY="190" type="text" id="bLO">
+        <content fontSize="14" fontFamily="思源黑体" color="rgba(13, 19, 38, 1)" bold="true">
+          <p>· 多视角团队看板</p>
+        </content>
+      </shape>
+      <shape width="390" height="25" topLeftX="510" topLeftY="215" type="text" id="bLz">
+        <content textType="caption" fontSize="12" fontFamily="思源黑体" color="rgba(83, 97, 116, 1)">
+          <p>CXO / SP / MS / FLM / FO / BO 六大视图分组</p>
+        </content>
+      </shape>
+      <shape width="410" height="30" topLeftX="490" topLeftY="250" type="text" id="bpc">
+        <content fontSize="14" fontFamily="思源黑体" color="rgba(13, 19, 38, 1)" bold="true">
+          <p>· 竞品基准对比分析</p>
+        </content>
+      </shape>
+      <shape width="390" height="25" topLeftX="510" topLeftY="275" type="text" id="bLK">
+        <content textType="caption" fontSize="12" fontFamily="思源黑体" color="rgba(83, 97, 116, 1)">
+          <p>Orange vs MTN 速率/时延/综合评分逐日落胜对比</p>
+        </content>
+      </shape>
+      <shape width="410" height="30" topLeftX="490" topLeftY="310" type="text" id="bLF">
+        <content fontSize="14" fontFamily="思源黑体" color="rgba(13, 19, 38, 1)" bold="true">
+          <p>· GIS 实时告警地图</p>
+        </content>
+      </shape>
+      <shape width="390" height="25" topLeftX="510" topLeftY="335" type="text" id="bLb">
+        <content textType="caption" fontSize="12" fontFamily="思源黑体" color="rgba(83, 97, 116, 1)">
+          <p>利比里亚全国站点分布 · 告警/微波图层切换</p>
+        </content>
+      </shape>
+      <shape width="410" height="30" topLeftX="490" topLeftY="370" type="text" id="bLv">
+        <content fontSize="14" fontFamily="思源黑体" color="rgba(13, 19, 38, 1)" bold="true">
+          <p>· 自动化报告中心</p>
+        </content>
+      </shape>
+      <shape width="390" height="25" topLeftX="510" topLeftY="395" type="text" id="bpa">
+        <content textType="caption" fontSize="12" fontFamily="思源黑体" color="rgba(83, 97, 116, 1)">
+          <p>FINEBI 报告 · eFlow TT 规则检查 · 邮件自动推送</p>
+        </content>
+      </shape>
+      <shape width="410" height="30" topLeftX="490" topLeftY="430" type="text" id="bLJ">
+        <content fontSize="14" fontFamily="思源黑体" color="rgba(13, 19, 38, 1)" bold="true">
+          <p>· 升级机制与知识问答</p>
+        </content>
+      </shape>
+      <shape width="390" height="25" topLeftX="510" topLeftY="455" type="text" id="bLS">
+        <content textType="caption" fontSize="12" fontFamily="思源黑体" color="rgba(83, 97, 116, 1)">
+          <p>4 级值班联系人双网号码 · RAG 知识检索</p>
+        </content>
+      </shape>
+      <shape width="840" height="20" topLeftX="60" topLeftY="500" type="text" id="bLI">
+        <content textType="caption" fontSize="10" fontFamily="思源黑体" color="rgba(148, 163, 184, 1)">
+          <p>数据来源：OLR MS 运维门户 · 数据截至 2026-09-30</p>
+        </content>
+      </shape>
+    </data>
+    <note id="bpW">
+      <content>
+        <p>这是我们面向客户展示的运维门户首页。左侧是日常运营的核心指标一览，包括告警、工单等实时状态，以及网络流量、用户数和可用率等关键网络指标。</p>
+        <p>右侧是平台的六大核心功能模块，覆盖从高层 CXO 视图到一线工程师操作的全层级需求。</p>
+        <p>特别值得一提的是竞品基准对比功能，我们用 Speedtest 真实测试数据，逐日落胜分析 Orange 和 MTN 的网络表现差异。</p>
+      </content>
+    </note>
+  </slide>
+  <slide id="pIK">
+    <style>
+      <fill id="fIK">
+        <fillColor color="rgba(255, 255, 255, 1)"/>
+      </fill>
+    </style>
+    <data>
+      <shape width="840" height="50" topLeftX="60" topLeftY="40" type="text" id="brs">
+        <content textType="title" fontSize="28" fontFamily="思源黑体" color="rgba(0, 28, 84, 1)" bold="true">
+          <p>亮点一：竞品基准对比 · 网络质量可量化</p>
+        </content>
+      </shape>
+      <shape width="840" height="25" topLeftX="60" topLeftY="85" type="text" id="brk">
+        <content fontSize="14" fontFamily="思源黑体" color="rgba(71, 85, 105, 1)">
+          <p>基于 Speedtest &amp; Meta 真实测试数据，逐日落胜分析 Orange vs MTN</p>
+        </content>
+      </shape>
+      <line id="bri" startX="60" startY="120" endX="900.0005952378843" endY="120">
+        <border color="rgba(0, 48, 135, 0.15)" width="1"/>
+      </line>
+      <table id="brZ" width="840" height="140" topLeftX="60" topLeftY="145">
+        <colgroup>
+          <col span="1" width="160"/>
+          <col span="2" width="180"/>
+          <col span="2" width="160"/>
+        </colgroup>
+        <tr height="37">
+          <td id="brF">
+            <fill>
+              <fillColor color="rgba(0, 48, 135, 1)"/>
+            </fill>
+            <content fontSize="12" fontFamily="思源黑体" color="rgba(255, 255, 255, 1)" bold="true">
+              <p>对比维度</p>
+            </content>
+          </td>
+          <td id="brO">
+            <fill>
+              <fillColor color="rgba(0, 48, 135, 1)"/>
+            </fill>
+            <content fontSize="12" fontFamily="思源黑体" color="rgba(255, 255, 255, 1)" bold="true">
+              <p>Orange 领先</p>
+            </content>
+          </td>
+          <td id="brw">
+            <fill>
+              <fillColor color="rgba(0, 48, 135, 1)"/>
+            </fill>
+            <content fontSize="12" fontFamily="思源黑体" color="rgba(255, 255, 255, 1)" bold="true">
+              <p>MTN 数据</p>
+            </content>
+          </td>
+          <td id="brA">
+            <fill>
+              <fillColor color="rgba(0, 48, 135, 1)"/>
+            </fill>
+            <content fontSize="12" fontFamily="思源黑体" color="rgba(255, 255, 255, 1)" bold="true">
+              <p>测试样本</p>
+            </content>
+          </td>
+          <td id="brJ">
+            <fill>
+              <fillColor color="rgba(0, 48, 135, 1)"/>
+            </fill>
+            <content fontSize="12" fontFamily="思源黑体" color="rgba(255, 255, 255, 1)" bold="true">
+              <p>数据来源</p>
+            </content>
+          </td>
+        </tr>
+        <tr height="34">
+          <td id="brS">
+            <content fontSize="11" fontFamily="思源黑体">
+              <p>下载速率</p>
+            </content>
+          </td>
+          <td id="brI">
+            <content fontSize="11" fontFamily="思源黑体" color="rgba(220, 38, 38, 1)" bold="true">
+              <p>93.5 Mbps</p>
+            </content>
+          </td>
+          <td id="brn">
+            <content fontSize="11" fontFamily="思源黑体">
+              <p>74.0 Mbps</p>
+            </content>
+          </td>
+          <td id="brY">
+            <content fontSize="11" fontFamily="思源黑体">
+              <p>1,019 次</p>
+            </content>
+          </td>
+          <td id="brx">
+            <content fontSize="11" fontFamily="思源黑体">
+              <p>Speedtest</p>
+            </content>
+          </td>
+        </tr>
+        <tr height="34">
+          <td id="brB">
+            <content fontSize="11" fontFamily="思源黑体">
+              <p>上传速率</p>
+            </content>
+          </td>
+          <td id="brU">
+            <content fontSize="11" fontFamily="思源黑体" color="rgba(220, 38, 38, 1)" bold="true">
+              <p>21.9 Mbps</p>
+            </content>
+          </td>
+          <td id="brq">
+            <content fontSize="11" fontFamily="思源黑体">
+              <p>18.5 Mbps</p>
+            </content>
+          </td>
+          <td id="brg">
+            <content fontSize="11" fontFamily="思源黑体">
+              <p>1,019 次</p>
+            </content>
+          </td>
+          <td id="brG">
+            <content fontSize="11" fontFamily="思源黑体">
+              <p>Speedtest</p>
+            </content>
+          </td>
+        </tr>
+        <tr height="35">
+          <td id="brf">
+            <content fontSize="11" fontFamily="思源黑体">
+              <p>综合评分</p>
+            </content>
+          </td>
+          <td id="brM">
+            <content fontSize="11" fontFamily="思源黑体" color="rgba(22, 163, 74, 1)" bold="true">
+              <p>98.9 分</p>
+            </content>
+          </td>
+          <td id="brc">
+            <content fontSize="11" fontFamily="思源黑体">
+              <p>100.0 分</p>
+            </content>
+          </td>
+          <td id="brQ">
+            <content fontSize="11" fontFamily="思源黑体">
+              <p>22 天</p>
+            </content>
+          </td>
+          <td id="bro">
+            <content fontSize="11" fontFamily="思源黑体">
+              <p>Meta</p>
+            </content>
+          </td>
+        </tr>
+      </table>
+      <shape width="840" height="30" topLeftX="60" topLeftY="310" type="text" id="brE">
+        <content textType="headline" fontSize="18" fontFamily="思源黑体" color="rgba(0, 48, 135, 1)" bold="true">
+          <p>全制式网络可用率监控</p>
+        </content>
+      </shape>
+      <shape width="260" height="110" topLeftX="60" topLeftY="355" presetHandlers="8" type="rect" id="brt">
+        <fill>
+          <fillColor color="rgba(248, 250, 252, 1)"/>
+        </fill>
+        <border color="rgba(0, 48, 135, 0.2)" width="1"/>
+        <content fontSize="16" fontFamily="思源黑体" color="rgba(31, 35, 41, 1)"/>
+      </shape>
+      <shape width="220" height="25" topLeftX="80" topLeftY="370" type="text" id="bry">
+        <content fontSize="14" fontFamily="思源黑体" color="rgba(71, 85, 105, 1)">
+          <p>2G 可用率</p>
+        </content>
+      </shape>
+      <shape width="220" height="50" topLeftX="80" topLeftY="400" type="text" id="brC">
+        <content textType="headline" fontSize="36" fontFamily="思源黑体" color="rgba(0, 48, 135, 1)" bold="true">
+          <p>97.61%</p>
+        </content>
+      </shape>
+      <shape width="260" height="110" topLeftX="350" topLeftY="355" presetHandlers="8" type="rect" id="brR">
+        <fill>
+          <fillColor color="rgba(248, 250, 252, 1)"/>
+        </fill>
+        <border color="rgba(0, 48, 135, 0.2)" width="1"/>
+        <content fontSize="16" fontFamily="思源黑体" color="rgba(31, 35, 41, 1)"/>
+      </shape>
+      <shape width="220" height="25" topLeftX="370" topLeftY="370" type="text" id="brj">
+        <content fontSize="14" fontFamily="思源黑体" color="rgba(71, 85, 105, 1)">
+          <p>3G 可用率</p>
+        </content>
+      </shape>
+      <shape width="220" height="50" topLeftX="370" topLeftY="400" type="text" id="brN">
+        <content textType="headline" fontSize="36" fontFamily="思源黑体" color="rgba(0, 48, 135, 1)" bold="true">
+          <p>98.44%</p>
+        </content>
+      </shape>
+      <shape width="260" height="110" topLeftX="640" topLeftY="355" presetHandlers="8" type="rect" id="brb">
+        <fill>
+          <fillColor color="rgba(240, 249, 245, 1)"/>
+        </fill>
+        <border color="rgba(22, 163, 74, 0.3)" width="1"/>
+        <content fontSize="16" fontFamily="思源黑体" color="rgba(31, 35, 41, 1)"/>
+      </shape>
+      <shape width="220" height="25" topLeftX="660" topLeftY="370" type="text" id="bre">
+        <content fontSize="14" fontFamily="思源黑体" color="rgba(22, 101, 52, 1)">
+          <p>4G 可用率 · 达标</p>
+        </content>
+      </shape>
+      <shape width="220" height="50" topLeftX="660" topLeftY="400" type="text" id="brl">
+        <content textType="headline" fontSize="36" fontFamily="思源黑体" color="rgba(22, 163, 74, 1)" bold="true">
+          <p>99.35%</p>
+        </content>
+      </shape>
+      <shape width="840" height="20" topLeftX="60" topLeftY="500" type="text" id="brK">
+        <content textType="caption" fontSize="10" fontFamily="思源黑体" color="rgba(148, 163, 184, 1)">
+          <p>数据来源：OLR MS 网络状态概览 · 阈值 99.65% · 数据截至 2026-09-29</p>
+        </content>
+      </shape>
+    </data>
+    <note id="brd">
+      <content>
+        <p>这一页展示我们平台的第一个核心亮点：网络质量可量化、可对比。</p>
+        <p>通过 Speedtest 和 Meta 的真实测试数据，我们可以逐日落胜分析 Orange 和 MTN 的网络表现。从数据看，Orange 在下载和上传速率上都有明显领先。</p>
+        <p>下方是全制式网络可用率监控，4G 可用率已达到 99.35%，接近 SLA 阈值要求。</p>
+      </content>
+    </note>
+  </slide>
+  <slide id="pIk">
+    <style>
+      <fill id="fIk">
+        <fillColor color="rgba(13, 19, 38, 1)"/>
+      </fill>
+    </style>
+    <data>
+      <shape width="840" height="40" topLeftX="60" topLeftY="25" type="text" id="bPy">
+        <content textType="title" fontSize="24" fontFamily="思源黑体" color="rgba(255, 255, 255, 1)" bold="true">
+          <p>智能运维中枢 · 告警到关单全链路自动化</p>
+        </content>
+      </shape>
+      <shape width="840" height="20" topLeftX="60" topLeftY="65" type="text" id="bPM">
+        <content fontSize="12" fontFamily="思源黑体" color="rgba(184, 188, 194, 1)">
+          <p>41 个定时任务 · 23 个功能页 · 看门狗进程自愈 · 24/7 无人值守</p>
+        </content>
+      </shape>
+      <line id="bPD" startX="60" startY="90" endX="900.0005952378843" endY="90">
+        <border color="rgba(255, 255, 255, 0.12)" width="1"/>
+      </line>
+      <shape width="500" height="22" topLeftX="60" topLeftY="100" type="text" id="baP">
+        <content fontSize="13" fontFamily="思源黑体" color="rgba(147, 197, 253, 1)" bold="true">
+          <p>▎ 告警 → TT → 派单 → 关单 端到端自动化</p>
+        </content>
+      </shape>
+      <shape width="130" height="60" topLeftX="60" topLeftY="130" presetHandlers="6" type="rect" id="bae">
+        <fill>
+          <fillColor color="rgba(220, 38, 38, 0.15)"/>
+        </fill>
+        <border color="rgba(220, 38, 38, 0.4)" width="1"/>
+        <content fontSize="16" fontFamily="思源黑体" color="rgba(31, 35, 41, 1)"/>
+      </shape>
+      <shape width="110" height="20" topLeftX="70" topLeftY="138" type="text" id="baj">
+        <content textType="caption" fontSize="11" fontFamily="思源黑体" color="rgba(252, 165, 165, 1)" bold="true" textAlign="center">
+          <p>① 告警接入</p>
+        </content>
+      </shape>
+      <shape width="110" height="25" topLeftX="70" topLeftY="160" type="text" id="bPi">
+        <content textType="caption" fontSize="9" fontFamily="思源黑体" color="rgba(184, 188, 194, 1)" textAlign="center">
+          <p>17 类规则自动处理</p>
+        </content>
+      </shape>
+      <line id="bPU" startX="195" startY="160" endX="215.0249843945008" endY="160">
+        <border color="rgba(147, 197, 253, 0.5)" width="1"/>
+        <endArrow type="arrow"/>
+      </line>
+      <shape width="130" height="60" topLeftX="220" topLeftY="130" presetHandlers="6" type="rect" id="bPX">
+        <fill>
+          <fillColor color="rgba(37, 99, 235, 0.15)"/>
+        </fill>
+        <border color="rgba(59, 130, 246, 0.4)" width="1"/>
+        <content fontSize="16" fontFamily="思源黑体" color="rgba(31, 35, 41, 1)"/>
+      </shape>
+      <shape width="110" height="20" topLeftX="230" topLeftY="138" type="text" id="bap">
+        <content textType="caption" fontSize="11" fontFamily="思源黑体" color="rgba(147, 197, 253, 1)" bold="true" textAlign="center">
+          <p>② TT 自动创建</p>
+        </content>
+      </shape>
+      <shape width="110" height="25" topLeftX="230" topLeftY="160" type="text" id="baR">
+        <content textType="caption" fontSize="9" fontFamily="思源黑体" color="rgba(184, 188, 194, 1)" textAlign="center">
+          <p>告警驱动自动建单</p>
+        </content>
+      </shape>
+      <line id="baY" startX="355" startY="160" endX="375.0249843945008" endY="160">
+        <border color="rgba(147, 197, 253, 0.5)" width="1"/>
+        <endArrow type="arrow"/>
+      </line>
+      <shape width="130" height="60" topLeftX="380" topLeftY="130" presetHandlers="6" type="rect" id="baA">
+        <fill>
+          <fillColor color="rgba(37, 99, 235, 0.15)"/>
+        </fill>
+        <border color="rgba(59, 130, 246, 0.4)" width="1"/>
+        <content fontSize="16" fontFamily="思源黑体" color="rgba(31, 35, 41, 1)"/>
+      </shape>
+      <shape width="110" height="20" topLeftX="390" topLeftY="138" type="text" id="bPK">
+        <content textType="caption" fontSize="11" fontFamily="思源黑体" color="rgba(147, 197, 253, 1)" bold="true" textAlign="center">
+          <p>③ 智能定级</p>
+        </content>
+      </shape>
+      <shape width="110" height="25" topLeftX="390" topLeftY="160" type="text" id="bPb">
+        <content textType="caption" fontSize="9" fontFamily="思源黑体" color="rgba(184, 188, 194, 1)" textAlign="center">
+          <p>P1~P4 自动定级</p>
+        </content>
+      </shape>
+      <line id="bPZ" startX="515" startY="160" endX="535.0249843945007" endY="160">
+        <border color="rgba(147, 197, 253, 0.5)" width="1"/>
+        <endArrow type="arrow"/>
+      </line>
+      <shape width="130" height="60" topLeftX="540" topLeftY="130" presetHandlers="6" type="rect" id="bPm">
+        <fill>
+          <fillColor color="rgba(37, 99, 235, 0.15)"/>
+        </fill>
+        <border color="rgba(59, 130, 246, 0.4)" width="1"/>
+        <content fontSize="16" fontFamily="思源黑体" color="rgba(31, 35, 41, 1)"/>
+      </shape>
+      <shape width="110" height="20" topLeftX="550" topLeftY="138" type="text" id="baL">
+        <content textType="caption" fontSize="11" fontFamily="思源黑体" color="rgba(147, 197, 253, 1)" bold="true" textAlign="center">
+          <p>④ 自动派单</p>
+        </content>
+      </shape>
+      <shape width="110" height="25" topLeftX="550" topLeftY="160" type="text" id="ban">
+        <content textType="caption" fontSize="9" fontFamily="思源黑体" color="rgba(184, 188, 194, 1)" textAlign="center">
+          <p>FO/BO 智能路由</p>
+        </content>
+      </shape>
+      <line id="bPN" startX="675" startY="160" endX="695.0249843945007" endY="160">
+        <border color="rgba(147, 197, 253, 0.5)" width="1"/>
+        <endArrow type="arrow"/>
+      </line>
+      <shape width="130" height="60" topLeftX="700" topLeftY="130" presetHandlers="6" type="rect" id="bPC">
+        <fill>
+          <fillColor color="rgba(34, 197, 94, 0.12)"/>
+        </fill>
+        <border color="rgba(34, 197, 94, 0.35)" width="1"/>
+        <content fontSize="16" fontFamily="思源黑体" color="rgba(31, 35, 41, 1)"/>
+      </shape>
+      <shape width="110" height="20" topLeftX="710" topLeftY="138" type="text" id="bPd">
+        <content textType="caption" fontSize="11" fontFamily="思源黑体" color="rgba(74, 222, 128, 1)" bold="true" textAlign="center">
+          <p>⑤ 确认关单</p>
+        </content>
+      </shape>
+      <shape width="110" height="25" topLeftX="710" topLeftY="160" type="text" id="bPu">
+        <content textType="caption" fontSize="9" fontFamily="思源黑体" color="rgba(184, 188, 194, 1)" textAlign="center">
+          <p>处理确认后自动关单</p>
+        </content>
+      </shape>
+      <shape width="500" height="22" topLeftX="60" topLeftY="210" type="text" id="bar">
+        <content fontSize="13" fontFamily="思源黑体" color="rgba(147, 197, 253, 1)" bold="true">
+          <p>▎ 智能触达与知识赋能</p>
+        </content>
+      </shape>
+      <shape width="270" height="95" topLeftX="60" topLeftY="240" presetHandlers="6" type="rect" id="baw">
+        <fill>
+          <fillColor color="rgba(220, 38, 38, 0.12)"/>
+        </fill>
+        <border color="rgba(220, 38, 38, 0.3)" width="1"/>
+        <content fontSize="16" fontFamily="思源黑体" color="rgba(31, 35, 41, 1)"/>
+      </shape>
+      <shape width="240" height="22" topLeftX="75" topLeftY="250" type="text" id="bPS">
+        <content fontSize="13" fontFamily="思源黑体" color="rgba(252, 165, 165, 1)" bold="true">
+          <p>P1 告警 WhatsApp 实时推送</p>
+        </content>
+      </shape>
+      <shape width="240" height="55" topLeftX="75" topLeftY="275" type="text" id="bPh">
+        <content textType="caption" fontSize="10" fontFamily="思源黑体" color="rgba(184, 188, 194, 1)" lineSpacing="multiple:1.4">
+          <p>每 15 分钟扫描 P1 级未清除告警</p>
+          <p>自动渲染 TT 单详情推送群组</p>
+          <p>发送状态落库追踪 · 零遗漏</p>
+        </content>
+      </shape>
+      <shape width="270" height="95" topLeftX="345" topLeftY="240" presetHandlers="6" type="rect" id="bPz">
+        <fill>
+          <fillColor color="rgba(212, 233, 44, 0.1)"/>
+        </fill>
+        <border color="rgba(212, 233, 44, 0.3)" width="1"/>
+        <content fontSize="16" fontFamily="思源黑体" color="rgba(31, 35, 41, 1)"/>
+      </shape>
+      <shape width="240" height="22" topLeftX="360" topLeftY="250" type="text" id="bac">
+        <content fontSize="13" fontFamily="思源黑体" color="rgba(212, 233, 44, 1)" bold="true">
+          <p>WhatsApp 知识库助手</p>
+        </content>
+      </shape>
+      <shape width="240" height="55" topLeftX="360" topLeftY="275" type="text" id="baQ">
+        <content textType="caption" fontSize="10" fontFamily="思源黑体" color="rgba(184, 188, 194, 1)" lineSpacing="multiple:1.4">
+          <p>端到端规则知识库 · 7 大模块</p>
+          <p>告警→TT→派单全链路问答</p>
+          <p>TT 快速复盘 · 排障 SOP 检索</p>
+        </content>
+      </shape>
+      <shape width="270" height="95" topLeftX="630" topLeftY="240" presetHandlers="6" type="rect" id="bPF">
+        <fill>
+          <fillColor color="rgba(37, 99, 235, 0.12)"/>
+        </fill>
+        <border color="rgba(59, 130, 246, 0.3)" width="1"/>
+        <content fontSize="16" fontFamily="思源黑体" color="rgba(31, 35, 41, 1)"/>
+      </shape>
+      <shape width="240" height="22" topLeftX="645" topLeftY="250" type="text" id="bPV">
+        <content fontSize="13" fontFamily="思源黑体" color="rgba(147, 197, 253, 1)" bold="true">
+          <p>多渠道消息触达</p>
+        </content>
+      </shape>
+      <shape width="240" height="55" topLeftX="645" topLeftY="275" type="text" id="bPH">
+        <content textType="caption" fontSize="10" fontFamily="思源黑体" color="rgba(184, 188, 194, 1)" lineSpacing="multiple:1.4">
+          <p>WhatsApp 群 · 邮件 · 语音播报</p>
+          <p>15+ 种日报/周报自动推送</p>
+          <p>宕站 1h/8h 分级报告机制</p>
+        </content>
+      </shape>
+      <shape width="500" height="22" topLeftX="60" topLeftY="355" type="text" id="baq">
+        <content fontSize="13" fontFamily="思源黑体" color="rgba(147, 197, 253, 1)" bold="true">
+          <p>▎ 可靠性与自愈保障</p>
+        </content>
+      </shape>
+      <shape width="270" height="22" topLeftX="60" topLeftY="385" type="text" id="bag">
+        <content fontSize="11" fontFamily="思源黑体" color="rgba(255, 255, 255, 1)">
+          <p>· 看门狗进程自愈</p>
+        </content>
+      </shape>
+      <shape width="255" height="18" topLeftX="75" topLeftY="407" type="text" id="bPf">
+        <content textType="caption" fontSize="10" fontFamily="思源黑体" color="rgba(148, 163, 184, 1)">
+          <p>后端+worker 心跳检测 · 超时强杀重拉</p>
+        </content>
+      </shape>
+      <shape width="270" height="22" topLeftX="345" topLeftY="385" type="text" id="bPI">
+        <content fontSize="11" fontFamily="思源黑体" color="rgba(255, 255, 255, 1)">
+          <p>· 失败任务自动补漏</p>
+        </content>
+      </shape>
+      <shape width="255" height="18" topLeftX="360" topLeftY="407" type="text" id="bPT">
+        <content textType="caption" fontSize="10" fontFamily="思源黑体" color="rgba(148, 163, 184, 1)">
+          <p>10 分钟扫描 · 漏跑自动补投 · 24h 上限</p>
+        </content>
+      </shape>
+      <shape width="270" height="22" topLeftX="630" topLeftY="385" type="text" id="baW">
+        <content fontSize="11" fontFamily="思源黑体" color="rgba(255, 255, 255, 1)">
+          <p>· 数据新鲜度巡检</p>
+        </content>
+      </shape>
+      <shape width="255" height="18" topLeftX="645" topLeftY="407" type="text" id="baE">
+        <content textType="caption" fontSize="10" fontFamily="思源黑体" color="rgba(148, 163, 184, 1)">
+          <p>每小时巡检 · 滞后告警 · 检查方向指引</p>
+        </content>
+      </shape>
+      <shape width="840" height="40" topLeftX="60" topLeftY="450" presetHandlers="6" type="rect" id="bPB">
+        <fill>
+          <fillColor color="rgba(255, 255, 255, 0.06)"/>
+        </fill>
+        <content fontSize="16" fontFamily="思源黑体" color="rgba(31, 35, 41, 1)"/>
+      </shape>
+      <shape width="180" height="26" topLeftX="80" topLeftY="457" type="text" id="bPO">
+        <content fontSize="13" fontFamily="思源黑体" color="rgba(147, 197, 253, 1)" bold="true">
+          <p>41 个定时任务</p>
+        </content>
+      </shape>
+      <shape width="180" height="26" topLeftX="270" topLeftY="457" type="text" id="bPv">
+        <content fontSize="13" fontFamily="思源黑体" color="rgba(147, 197, 253, 1)" bold="true">
+          <p>23 个功能页</p>
+        </content>
+      </shape>
+      <shape width="200" height="26" topLeftX="460" topLeftY="457" type="text" id="baa">
+        <content fontSize="13" fontFamily="思源黑体" color="rgba(212, 233, 44, 1)" bold="true">
+          <p>24/7 无人值守运行</p>
+        </content>
+      </shape>
+      <shape width="200" height="26" topLeftX="670" topLeftY="457" type="text" id="bas">
+        <content fontSize="13" fontFamily="思源黑体" color="rgba(147, 197, 253, 1)" bold="true">
+          <p>10+ 上游系统接入</p>
+        </content>
+      </shape>
+    </data>
+    <note id="brm">
+      <content>
+        <p>这一页详细介绍我们的智能运维中枢。最上方是告警到关单的端到端自动化流程：告警接入后经过 17 类规则处理，自动创建 TT 工单，然后智能定级为 P1-P4，再自动派单到 FO 现场或 BO 后台，最后处理确认后自动关单。</p>
+        <p>中间是三大智能触达能力：P1 告警 WhatsApp 实时推送、WhatsApp 知识库助手（支持告警→TT→派单全链路问答和 TT 快速复盘）、以及多渠道消息触达体系。</p>
+        <p>底部是可靠性保障机制：看门狗进程自愈、失败任务自动补漏、数据新鲜度巡检，确保整个系统 24/7 稳定运行。</p>
+      </content>
+    </note>
+  </slide>
+  <slide id="pIZ">
+    <style>
+      <fill id="fIZ">
+        <fillColor color="rgba(255, 255, 255, 1)"/>
+      </fill>
+    </style>
+    <data>
+      <shape width="840" height="50" topLeftX="60" topLeftY="50" type="text" id="bpY">
+        <content textType="title" fontSize="30" fontFamily="思源黑体" color="rgba(0, 28, 84, 1)" bold="true">
+          <p>双平台协同 · 运维效率全面提升</p>
+        </content>
+      </shape>
+      <line id="bpK" startX="60" startY="110" endX="200.0035713830186" endY="110">
+        <border color="rgba(0, 112, 186, 1)" width="3"/>
+      </line>
+      <shape width="400" height="35" topLeftX="60" topLeftY="140" type="text" id="bpb">
+        <content textType="headline" fontSize="18" fontFamily="思源黑体" color="rgba(0, 48, 135, 1)" bold="true">
+          <p>前端：客户展示门户</p>
+        </content>
+      </shape>
+      <shape width="400" height="25" topLeftX="60" topLeftY="175" type="text" id="bpw">
+        <content fontSize="13" fontFamily="思源黑体" color="rgba(71, 85, 105, 1)">
+          <p>OLR MS Portal · 面向客户与管理层</p>
+        </content>
+      </shape>
+      <shape width="400" height="30" topLeftX="60" topLeftY="210" type="text" id="bpA">
+        <content fontSize="14" fontFamily="思源黑体" color="rgba(13, 19, 38, 1)">
+          <p>· 60+ 业务看板 · 10 大视图分组</p>
+        </content>
+      </shape>
+      <shape width="400" height="30" topLeftX="60" topLeftY="240" type="text" id="bpN">
+        <content fontSize="14" fontFamily="思源黑体" color="rgba(13, 19, 38, 1)">
+          <p>· CXO 经营视图 · 竞品基准对比</p>
+        </content>
+      </shape>
+      <shape width="400" height="30" topLeftX="60" topLeftY="270" type="text" id="bpC">
+        <content fontSize="14" fontFamily="思源黑体" color="rgba(13, 19, 38, 1)">
+          <p>· GIS 实时地图 · 告警可视化</p>
+        </content>
+      </shape>
+      <shape width="400" height="30" topLeftX="60" topLeftY="300" type="text" id="bpe">
+        <content fontSize="14" fontFamily="思源黑体" color="rgba(13, 19, 38, 1)">
+          <p>· 一键登录 10+ OSS 系统</p>
+        </content>
+      </shape>
+      <shape width="50" height="50" topLeftX="455" topLeftY="220" type="ellipse" id="bpl">
+        <fill>
+          <fillColor color="rgba(0, 112, 186, 1)"/>
+        </fill>
+        <content fontSize="16" fontFamily="思源黑体" color="rgba(31, 35, 41, 1)"/>
+      </shape>
+      <shape width="50" height="30" topLeftX="455" topLeftY="230" type="text" id="bpy">
+        <content fontSize="16" fontFamily="思源黑体" color="rgba(255, 255, 255, 1)" bold="true" textAlign="center">
+          <p>+</p>
+        </content>
+      </shape>
+      <shape width="400" height="35" topLeftX="510" topLeftY="140" type="text" id="bpR">
+        <content textType="headline" fontSize="18" fontFamily="思源黑体" color="rgba(0, 48, 135, 1)" bold="true">
+          <p>后端：自动化数据引擎</p>
+        </content>
+      </shape>
+      <shape width="400" height="25" topLeftX="510" topLeftY="175" type="text" id="bpj">
+        <content fontSize="13" fontFamily="思源黑体" color="rgba(71, 85, 105, 1)">
+          <p>Data Insight MVP · 面向运维与数据团队</p>
+        </content>
+      </shape>
+      <shape width="400" height="30" topLeftX="510" topLeftY="210" type="text" id="bpi">
+        <content fontSize="14" fontFamily="思源黑体" color="rgba(13, 19, 38, 1)">
+          <p>· 68 个自动化任务 · 24/7 运行</p>
+        </content>
+      </shape>
+      <shape width="400" height="30" topLeftX="510" topLeftY="240" type="text" id="bpd">
+        <content fontSize="14" fontFamily="思源黑体" color="rgba(13, 19, 38, 1)">
+          <p>· 10+ 数据源自动同步 · 增量更新</p>
+        </content>
+      </shape>
+      <shape width="400" height="30" topLeftX="510" topLeftY="270" type="text" id="bpE">
+        <content fontSize="14" fontFamily="思源黑体" color="rgba(13, 19, 38, 1)">
+          <p>· 报告自动生成 · 邮件自动推送</p>
+        </content>
+      </shape>
+      <shape width="400" height="30" topLeftX="510" topLeftY="300" type="text" id="bpt">
+        <content fontSize="14" fontFamily="思源黑体" color="rgba(13, 19, 38, 1)">
+          <p>· 失败自动重试 · 数据新鲜度巡检</p>
+        </content>
+      </shape>
+      <line id="bpf" startX="60" startY="360" endX="900.0005952378843" endY="360">
+        <border color="rgba(0, 48, 135, 0.15)" width="1"/>
+      </line>
+      <shape width="840" height="35" topLeftX="60" topLeftY="380" type="text" id="bps">
+        <content textType="headline" fontSize="18" fontFamily="思源黑体" color="rgba(0, 48, 135, 1)" bold="true">
+          <p>客户价值</p>
+        </content>
+      </shape>
+      <shape width="260" height="70" topLeftX="60" topLeftY="425" presetHandlers="8" type="rect" id="bpk">
+        <fill>
+          <fillColor color="rgba(240, 248, 255, 1)"/>
+        </fill>
+        <content fontSize="16" fontFamily="思源黑体" color="rgba(31, 35, 41, 1)"/>
+      </shape>
+      <shape width="220" height="25" topLeftX="80" topLeftY="435" type="text" id="bpB">
+        <content fontSize="14" fontFamily="思源黑体" color="rgba(0, 48, 135, 1)" bold="true">
+          <p>运维效率提升</p>
+        </content>
+      </shape>
+      <shape width="220" height="25" topLeftX="80" topLeftY="462" type="text" id="bpQ">
+        <content textType="caption" fontSize="12" fontFamily="思源黑体" color="rgba(71, 85, 105, 1)">
+          <p>自动化任务替代 80% 手工报表工作</p>
+        </content>
+      </shape>
+      <shape width="260" height="70" topLeftX="350" topLeftY="425" presetHandlers="8" type="rect" id="bpo">
+        <fill>
+          <fillColor color="rgba(240, 248, 255, 1)"/>
+        </fill>
+        <content fontSize="16" fontFamily="思源黑体" color="rgba(31, 35, 41, 1)"/>
+      </shape>
+      <shape width="220" height="25" topLeftX="370" topLeftY="435" type="text" id="bpx">
+        <content fontSize="14" fontFamily="思源黑体" color="rgba(0, 48, 135, 1)" bold="true">
+          <p>SLA 可视可控</p>
+        </content>
+      </shape>
+      <shape width="230" height="25" topLeftX="370" topLeftY="462" type="text" id="bpS">
+        <content textType="caption" fontSize="12" fontFamily="思源黑体" color="rgba(71, 85, 105, 1)">
+          <p>全链路 KPI 监控 · 达标率一目了然</p>
+        </content>
+      </shape>
+      <shape width="260" height="70" topLeftX="640" topLeftY="425" presetHandlers="8" type="rect" id="bpg">
+        <fill>
+          <fillColor color="rgba(240, 248, 255, 1)"/>
+        </fill>
+        <content fontSize="16" fontFamily="思源黑体" color="rgba(31, 35, 41, 1)"/>
+      </shape>
+      <shape width="220" height="25" topLeftX="660" topLeftY="435" type="text" id="bpG">
+        <content fontSize="14" fontFamily="思源黑体" color="rgba(0, 48, 135, 1)" bold="true">
+          <p>决策数据支撑</p>
+        </content>
+      </shape>
+      <shape width="220" height="25" topLeftX="660" topLeftY="462" type="text" id="bpJ">
+        <content textType="caption" fontSize="12" fontFamily="思源黑体" color="rgba(71, 85, 105, 1)">
+          <p>竞品对比 · 趋势分析 · 数据驱动决策</p>
+        </content>
+      </shape>
+      <shape width="840" height="20" topLeftX="60" topLeftY="510" type="text" id="bpF">
+        <content textType="caption" fontSize="10" fontFamily="思源黑体" color="rgba(148, 163, 184, 1)" textAlign="center">
+          <p>ZTE LIBERIA INC · OLR MS 智能运维平台 · 2026</p>
+        </content>
+      </shape>
+    </data>
+    <note id="bpn">
+      <content>
+        <p>最后一页总结两大平台的协同价值。前端的运维门户面向客户和管理层，提供可视化的运营概览和业务看板；后端的数据引擎面向运维团队，提供自动化的数据采集、处理和推送能力。</p>
+        <p>两大平台协同，最终为客户带来三大价值：运维效率提升、SLA 可视可控、以及数据驱动的决策支撑。</p>
+        <p>我的介绍就到这里，谢谢大家。</p>
+      </content>
+    </note>
+  </slide>
+</presentation>

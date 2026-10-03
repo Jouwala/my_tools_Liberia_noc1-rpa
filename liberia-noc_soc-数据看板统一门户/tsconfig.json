@@ -27,5 +27,13 @@
   // 产物，三者都不在前端模块图里。本文件没有 include，所以 tsc 默认收整个项目目录，
   // 不显式排除的话 TMP 里一个语法错的旧探针就能把 `npm run lint` 打挂
   // （2026-09-25 实测：TMP/probe_color_inventory.cjs:54 TS1005，该文件 9 月 17 日就在了）。
-  "exclude": ["node_modules", "dist", "scripts", "TMP", "log", "auth-data"]
+  //
+  // _audit_*/ 与 _* 前缀件：CDP 体检脚本、截图与转储，`.gitignore` 的 `_*` 已忽略。
+  // 与 TMP 同理，它们不在前端模块图里；不排除的话一个截断的探针脚本
+  // （2026-10-01 实测：_audit_20261001/cdp.cjs:195 TS1005，'}' expected）就会打挂 lint。
+  // 用 `_*` 通配而非写死目录名，避免以后每建一个 _audit_ 目录就得再补一条。
+  // 注意：`_*` 是 tsc 的 glob，会连同源码目录里的 `src/pages/_TemplatePage.tsx`
+  // 一起排除，故额外显式 include 源码目录把它们捞回来。
+  "include": ["src", "server", "v1", "scripts/check-cleanliness.mjs", "vite.config.ts"],
+  "exclude": ["node_modules", "dist", "scripts", "TMP", "log", "auth-data", "_*"]
 }

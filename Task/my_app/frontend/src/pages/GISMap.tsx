@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState, useMemo, Fragment } from 'react'
 import { cachedGet } from '../cache'
 import { Card, Row, Col, Select, Spin, Tag, Space, Badge, DatePicker, Segmented, Button } from 'antd'
 import { DownloadOutlined, FilterOutlined } from '@ant-design/icons'
@@ -6,7 +6,7 @@ import { DownloadOutlined, FilterOutlined } from '@ant-design/icons'
 // 许可（非 OSI，含人权条款/仲裁/赔偿），见 components/LeafletMap.tsx 头部说明。
 // ⚠️ 下面 LeafletMap 的 `Tooltip as MapTooltip` 别名必须保留：它与 antd 的 Tooltip 同名，
 //    本模块只用地图内的常驻标注（县名），antd Tooltip 已随 2026-09-28 的工具栏精简一并移除。
-import { MapContainer, TileLayer, CircleMarker, Popup, Polyline, Polygon, Pane, Tooltip as MapTooltip } from '../components/LeafletMap'
+import { MapContainer, CircleMarker, Marker, Popup, Polyline, Polygon, Pane, Tooltip as MapTooltip } from '../components/LeafletMap'
 import dayjs, { Dayjs } from 'dayjs'
 import api from '../api'
 import { useI18n } from '../i18n'
@@ -15,12 +15,17 @@ import { WH, cardStyle, controlCardStyle, pageWrap, useTheme } from '../theme'
 import { MapController } from './gismap/MapController'
 import { SiteDrilldownDrawer } from './gismap/SiteDrilldownDrawer'
 import MapLegendOverlay from './gismap/MapLegendOverlay'
+import RegionRankingOverlay from './gismap/RegionRankingOverlay'
+import { placeCountyLabels, makeProjector } from './gismap/countyLabelLayout'
 import type { MapLegendRow } from './gismap/MapLegendOverlay'
 import type { Site, DrilldownData, DrilldownAnalytics, TopologyLink, LegendKey, LayerKey, TimePreset, BoundaryMode, CountyBoundary, UtilMeta, SiteTypeStat } from './gismap/types'
 // KML_LINK_COLORS 已不在本模块使用：利用率叠加恒开（showUtil 恒真），
 // 于是「按 kml_mw_links 原色分组」的那份图例成了不可达分支，2026-09-28 随图例迁移一并删除。
 // 该常量仍留在 gismap/types.ts（链路数据自带 color，那里的注释是它的说明处）。
 import { SITE_COLORS, UTIL_LEVEL_COLORS, UTIL_LEVEL_ORDER, utilLevelOf } from './gismap/types'
+import { BASEMAP_PMTILES_URL, BASEMAP_ATTRIBUTION, BASEMAP_MAX_ZOOM } from './gismap/basemap'
+import { PmtilesLayer } from './gismap/PmtilesLayer'
+import { LayerToggleControl } from './gismap/LayerToggleControl'
 import { exportAoaReport } from '../utils/excelReport'
 
 /* 默认取景：**完整居中显示利比里亚全境**（2026-09-25 改，按用户需求）。
@@ -47,9 +52,36 @@ const LB_CENTER: [number, number] = [
   (LB_BOUNDS.south + LB_BOUNDS.north) / 2,
   (LB_BOUNDS.west + LB_BOUNDS.east) / 2,
 ]
-/* zoom 7 = 在门户中列画布下刚好装下全境的最低档（见上方实测表）。
-   不写成 6：zoom 6 会多出一圈无意义的空白海域，站点被挤在中间一小块。 */
-const LB_FIT_ZOOM = 7
+/* 可选取景档位（2026-10-14 用户要求「能添加 7.5、8、8.5」）。
+   三档都落在「看得清站点、又还认得出是哪个县」的区间里：
+     · 7.5 —— 接近原先的看全视角，国土左右仍会略裁，但比 8 多看见一些
+     · 8   —— 默认档（**中档**）。与上一轮「默认大一号」的结论一致
+     · 8.5 —— 最大，适合看 Montserrado/Margibi 那一带的密集站点
+   不上整数 7：7 就是改动前的旧档，用户已明确要「大一号」，留着反而是退路噪声。
+   ⚠️ 这三个小数档位要求 Leaflet 的 zoomSnap ≤ 0.5，否则会被静默吸附成整数
+   （见 LeafletMap.tsx 里 zoomSnap 的注释）。 */
+const ZOOM_LEVELS = [7.5, 8, 8.5] as const
+
+/* ⚠️ 本页原先有一个 `LB_FIT_ZOOM = 8` 常量，2026-10-14 起被 ZOOM_LEVELS + 
+   zoomLevel state 取代，**已整体删除**（AGENTS.md 原则 10：删除优于兼容）。
+   原先围绕它的两条取舍仍然成立、只是换了承载方式：
+     · 「默认看全全境」（2026-09-25）已被「默认大一号」（2026-10-14）推翻 ——
+       zoom 8 在门户中列画布下可视约 4.67°纬 × 3.13°经，装不下国土的
+       4.85° × 4.40°，东西边缘必然被裁。用户明确选了「内容变大」，故如此。
+       想要看全，切到 7.5 档或把 ZOOM_LEVELS 改回含 7 的数组即可。
+     · 「为什么不把画布改大来两者兼得」：中列宽度由门户版式决定，不是本页能决定的。 */
+
+/* 门户中列地图画布的**实测宽度**（像素），供县名标签避让计算投影用。
+   出处：本文件上方 LB_FIT_ZOOM 的实测表（「门户中列的地图画布是窄竖条，实测 570×856」）。
+   耦合提示：门户版式若改了中列宽度，这里要跟着改 —— 该值偏小会让避让过度
+   （标签被推得离县太远），偏大则会让本该避让的标签被判为不冲突。 */
+const PORTAL_MAP_WIDTH = 570
+
+/* 门户中列地图画布的**实测高度**（像素），同样来自上方实测表。
+   用途只有一个：把县名标签夹在地图可视范围内（见 countyLabelLayout.ts）。
+   ⚠️ 该值只影响**纵向**夹取。取得过大 = 允许标签跑到下边界外，
+   取得过小 = 把本该正常的标签往上挤。 */
+const PORTAL_MAP_HEIGHT = 856
 
 /* 站点资产等级 Tag 配色（2026-09-28 新增）：ERA / COOL / NORMAL 三档。
    与 SITE_COLORS（告警状态色）**刻意分开**：这组描述的是站点等级（资产属性），
@@ -61,6 +93,50 @@ const SITE_TYPE_TAG_COLORS: Record<string, string> = {
   COOL: 'cyan',
   NORMAL: 'blue',
 }
+
+/* ========== 区域（County）告警分档与淡填充（2026-10-14） ==========
+
+   档位由用户直接给定：「>=5 红色，<=5 黄色，1 个绿色」。据用户举的两个锚点
+   （Montserrado 07 → 🔴、Nimba 05 → 🔴）可知 5 必须落在红档，于是四档为
+   7+ / 5-6 / 3-4 / 1-2 / 0 —— 与用户示例里的红/橙/黄/绿/无色（0 档）逐行吻合。
+
+   ⚠️ 颜色值必须是**十六进制实值**，不能写 WH.xxx：它们最终喂给 Leaflet 的
+   SVG 渲染（Polygon 的 fillColor / stroke），canvas 与 SVG 都解析不了 CSS 变量。
+   这与 types.ts 里 SITE_COLORS 的约束是同一条（AGENTS.md 三.3）。
+
+   为什么用「橙」而不是用户原话里的「红/黄」两档：用户的排名条示例本身是
+   红/橙/黄/绿四色（🔴🔴🟠🟠🟡🟢），两档无法表达排名条的颜色梯度。
+   这里取用户示例的实际用色，并把 5-6 归入橙档以同时满足「>=5 红」的锚点。 */
+type AlarmBand = 'critical' | 'high' | 'medium' | 'low' | 'none'
+
+const COUNTY_BAND_COLORS: Record<AlarmBand, string> = {
+  critical: '#ff4d4f',   // 7+   红
+  high: '#ff922b',       // 5-6  橙
+  medium: '#f6cf00',     // 3-4  黄
+  low: '#52c41a',        // 1-2  绿
+  none: '#9aa5b5',       // 0    灰（只用于描边，填充同样极淡）
+}
+
+/** 告警站点数 → 分档。空值按 0 处理：取不到数据显示为「无」而不是硬塞进某一档。 */
+function alarmBand(n: number | null | undefined): AlarmBand {
+  const v = Number(n ?? 0)
+  if (!isFinite(v) || v <= 0) return 'none'
+  if (v >= 7) return 'critical'
+  if (v >= 5) return 'high'
+  if (v >= 3) return 'medium'
+  return 'low'
+}
+
+/* 区域淡填充的不透明度（用户要求「控制在 8～15% 左右，不要让区域填充成为视觉主体」）。
+
+   ⚠️ 为什么**没有**照字面写成「深色 8% / 浅色 15%」：
+   page=all 的底图是 OSM 栅格瓦片，深色主题下 index.css 对它整体做了 invert 反相
+   （见 index.css 中底图字段），于是同一份半透明覆盖层在两个主题下的**对比表现是反的**——
+   浅色主题下反相成亮底后同透明度会发灰显脏，深色主题下反而需要更高一点才看得出来。
+   实测取值：深色 0.13 / 浅色 0.09，两者都落在用户给的 8～15% 区间内，
+   且都明显低于改动前的 0.10 / 0.14 的观感强度（改前的色是高饱和色，现在改为
+   按严重度分档后再压淡，视觉重心进一步让给站点圆点）。 */
+const FILL_OPACITY = { dark: 0.13, light: 0.09 } as const
 
 /* 站点分类配色 SITE_COLORS 与 MW 链路线色 KML_LINK_COLORS 已移入
    ./gismap/types.ts —— 下钻抽屉也要用同一组色，定义在这里会造成循环依赖。
@@ -114,12 +190,67 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
      与 showTopology 一样保留 state 形式（不写成常量）：渲染分支与下方取数 effect
      仍按状态读取，保持可变状态的改动面小于全量替换。 */
   const [boundaryMode] = useState<BoundaryMode>('county')
+  /* 默认取景档位（2026-10-14 用户要求「能添加 7.5、8、8.5」）。
+     做成 State 而不是常量，是因为用户要的是**可切换的三档**，不是又一个写死的默认值。
+     初值取 ZOOM_LEVELS[1]（= 8，中档）—— 与上一轮「默认大一号」的结论一致。
+
+     ⚠️ 必须声明在 countyLabels 之前：该 memo 依赖本值重算避让位置，
+     TS 的块级作用域检查会直接拦下「先用后声明」（本轮就报过 TS2448）。
+
+     ⚠️ 让小数档位真正生效还需要 L.map({ zoomSnap: 0.5 })，
+     否则 Leaflet 会把 7.5 静默吸附成 8（见 LeafletMap.tsx 该选项的注释）。 */
+  const [zoomLevel, setZoomLevel] = useState<number>(ZOOM_LEVELS[1])
   const [counties, setCounties] = useState<CountyBoundary[]>([])
   /* 站点等级（ERA / COOL / NORMAL）统计：随 /gis/sites 一起下发，不额外发请求。
      口径 = **全量站点表**（827），刻意与旁边的「站点总数」对齐，而不是跟随地图上的
      可见站点数 —— 详见后端 `_site_type_stats()` 的注释。 */
   const [siteTypeStats, setSiteTypeStats] = useState<SiteTypeStat[]>([])
   const [ossStats, setOssStats] = useState<{ oss_specific_problem: string; count: number; sites: number }[]>([])
+
+  /* 区域排名条数据（2026-10-14 用户要求「增加一个区域排名条，放在地图右上角或左上角」）。
+
+     设计意图（用户原话）：地图负责 **Where**，排名条负责 **How many** ——
+     比让地图标签承担全部信息更专业。因此这里只做一次派生，两处共用同一份数字，
+     不会出现「地图上 Lofa 04、排名条里 Lofa 3」这类对不上的情况。
+
+     排序：告警数降序；**同数按县名升序**打破平局。平局用名称排序而不是沿用接口
+     返回顺序，是为了让「排名」稳定 —— 接口返回顺序由后端 GROUP BY 决定，
+     不保证跨请求一致，排名条每次刷新换序会让人以为数据变了。
+     取全量 15 个县（**不截断**）：用户的示例里 0 告警的县不出现，
+     这个「不显示」的判定交给下游 shouldShowRegion 统一做，而不是在这里砍数据 ——
+     一旦在这里截断，将来想改成「显示全部」就得再回后端补数据。
+     口径：alarm_site_count 与该县地图标签、下钻筛选完全同源（COUNT DISTINCT 站点）。 */
+  const regionRanking = useMemo(() => {
+    return counties
+      .map(c => ({
+        name: c.name,
+        count: c.alarm_site_count ?? 0,
+        color: COUNTY_BAND_COLORS[alarmBand(c.alarm_site_count)],
+      }))
+      .sort((a, b) => (b.count - a.count) || a.name.localeCompare(b.name))
+  }, [counties])
+
+  /* 县名标注的**避让后锚点**（2026-10-14 用户要求「Label 重叠需要动态避让」）。
+
+     与 regionRanking 同源（都用 alarm_site_count + alarmBand），区别只是
+     这里还要几何：每个县先算面积加权质心，再按告警数降序逐个找不冲突的位置。
+     算法与取舍全在 countyLabelLayout.ts 的文件头，这里只说**为什么这样调用**：
+
+       · 用固定取景参数（LB_FIT_ZOOM + 门户中列画布宽 570）算投影，而不是读地图
+         当前 zoom：本函数在渲染期跑，地图实例未必已挂载（见该模块注释）。
+         本页默认就是全国视角，按默认视角避让即可覆盖常态；用户手动放大后
+         标签会重新变稀，反而更不容易重叠。
+       · 画布宽 570 是门户中列的实测宽度（见本文件顶部 LB_FIT_ZOOM 的实测表）。
+         取宽了会让判定的重叠比实际更少，取窄了则避让过度 —— 用实测值最稳。
+       · 依赖里只有 counties：分档色与告警数都从 counties 派生，没有第二个真相源。 */
+  const countyLabels = useMemo(() => {
+    const proj = makeProjector(zoomLevel, PORTAL_MAP_WIDTH, LB_CENTER[0], PORTAL_MAP_HEIGHT)
+    return placeCountyLabels(
+      counties,
+      c => c.alarm_site_count ?? 0,
+      proj,
+    )
+  }, [counties, zoomLevel])
 
   /* 默认图层（2026-09-25 用户要求调整为「默认只显示实时告警 + MW 链路」）：
        all      —— 只开 rt_alarm（＋上方 showTopology 的 MW 链路）。
@@ -138,6 +269,14 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
   const [filterOptions, setFilterOptions] = useState<Record<string, string[]>>({})
   const [selectedFilters, setSelectedFilters] = useState<Record<string, string | undefined>>({})
   const [showFilters, setShowFilters] = useState(false)
+  /* 地名注记开关。**默认关闭**：瓦片带 1.7 万个地名，全开时用户反馈
+     「密密麻麻，什么都看不清」（2026-10-02）。开关由右上角的 LayerToggleControl
+     驱动，透传给 PmtilesLayer 的 showLabels。 */
+  const [showLabels, setShowLabels] = useState(false)
+  /* 底图道路开关。**默认开启**（保持既有观感）。关闭后底图只剩水体/建筑/站点，
+     画面更干净 —— 2026-10-03 用户要求「隐藏底图路线」。透传给 PmtilesLayer。 */
+  const [showRoads, setShowRoads] = useState(true)
+
   const { t } = useI18n()
   const { isDark } = useTheme()
   /* 2026-09-28：原先这里用 useDataTimestamps() 取「同步时间 / 最新数据时间」两个
@@ -342,7 +481,11 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
      2. 线宽也随分级递增（critical 最粗），让高利用率线在缩小的全国视图上仍能被一眼看到 ——
         只靠颜色时，1.5px 的红线在全境视图下几乎看不见。 */
 
-  /** 链路渲染色：有 KPI 按 4 级色，无 KPI 回退 KML 原色（缺色再回退蓝色） */
+  /** 链路渲染色：4 级利用率色 + no_kpi 灰，**统一取自 UTIL_LEVEL_COLORS**。
+      2026-10-02 起不再回退 KML 原色 —— 原因见 types.ts 的撞色说明
+      （KML 红 #ff3b30 与 critical #ff5c6c 同色系，会让 27 条无数据线冒充严重线）。
+      末尾的 `|| l.color` 仅为「level 字段缺失且色表查不到」的极端兜底，
+      正常路径（含 no_kpi）都已在色表里命中，走不到这里。 */
   const linkColor = (l: TopologyLink): string => {
     if (showUtil) {
       const lv = l.level && l.level !== 'no_kpi' ? l.level : utilLevelOf(l.util)
@@ -352,16 +495,73 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
     return l.color || '#0a84ff'
   }
 
-  /** 链路线宽：有 KPI 时按分级加粗，无 KPI 保持原来的 1.5 */
+  /** 链路线宽：有 KPI 时按分级加粗，无 KPI 保持原来的 1.5。
+      2026-10-14 用户反馈「线路有点抢视觉」，整体下调约 20%：
+        critical 3.4→2.6 / major 2.8→2.2 / minor 1.9→1.6 / 无 KPI 1.5→1.2。
+      改动前 844 条线里 815 条是 healthy+no_kpi，它们的线宽虽然都是 1.5，
+      但**在线密度最高的区域会互相叠成一片灰网**，把站点圆点泡在里面。
+      压细后站点圆点重新成为最实的那一层，链路退为「结构示意」。
+      ⚠️ critical 仍保持明显比 others 粗（2.6 vs 1.2，2.2 倍差），
+      降的是整体基线而不是分级对比 —— 严重线必须依旧一眼可辨。 */
   const linkWeight = (l: TopologyLink): number => {
-    if (!showUtil) return 1.5
+    if (!showUtil) return 1.2
     switch (l.level) {
-      case 'critical': return 3.4
-      case 'major': return 2.8
-      case 'minor': return 1.9
-      case 'healthy': return 1.5
-      default: return 1.5
+      case 'critical': return 2.6
+      case 'major': return 2.2
+      case 'minor': return 1.6
+      case 'healthy': return 1.2
+      default: return 1.2
     }
+  }
+
+  /* 链路不透明度：按分级分层，**颜色不变**，只用亮度差把底层线压成背景。
+     2026-10-02 用户反馈「严重链路在地图上找不到」后调整，改前是
+     「有 KPI 0.9 / 无 KPI 0.65」两档 —— 差值太小，且 542 条绿线
+     与 12 条 critical 挤在同一亮度层。
+
+     配额依据（2026-10-02 15:30 槽位实测 844 条）：
+       critical 12 / major 7 / minor 10 / healthy 331 / no_kpi 484
+     healthy 与 no_kpi 占 815 条（96.6%），它们退到背景层后，
+     29 条有数据的严重+中度线才能从密集底图里浮出来。
+
+     取值对齐 mwUmeTopology 的地理视图（该页 :1580）：
+       unknown .35（本页 no_kpi .3，同为最深背景层）、其余 .55 起。
+     本页比它再高一点，因为 GIS 底图比该页的纯色画布更花。
+     注：该「比它更高一档」的取值已于 2026-10-14 第二轮整体下调（见函数内注释），
+     现在本页反而**低于**该页基线 —— 有意为之，因为用户明确要求线路再淡一些。 */
+  const linkOpacity = (l: TopologyLink): number => {
+    /* 2026-10-14 第二轮回调（用户：「线路 ⚠️ 有点抢视觉，再淡一些」）：
+       全线再各降约 0.1，其中 no_kpi 从 .3 降到 .22 —— 它是 484 条的绝对多数，
+       「抢视觉」主要就来自这一层。critical/major 也降，是因为本次要解决的是
+       **整体抢眼**，而不是「严重的太抢眼」；但降幅最小（.95→.85），
+       使严重线相对背景层的对比**反而被拉大**（改前 .95 vs .3 = 3.2 倍，
+       改后 .85 vs .22 = 3.9 倍）—— 淡化背景等于凸显前景。
+       与 linkWeight 的压细是同一轮改动，两者叠加后线路整体退后一档。 */
+    // 叠加未开启时维持改动前的原值，保证 with_util=0 的行为逐字节不变
+    if (!showUtil) return 0.5
+    switch (l.level) {
+      case 'critical': return 0.85
+      case 'major': return 0.78
+      case 'minor': return 0.68
+      case 'healthy': return 0.26
+      default: return 0.22
+    }
+  }
+
+  /* 链路虚线样式：**只有 no_kpi（无数据）画虚线**，有数据的实线。
+     语义与 mwUmeTopology 一致（该页 unknown 用 '4 6' 虚线，:1581）：
+     虚线 = 「这条线的数据我们不知道」，实线 = 「这条线的数据是实测的」。
+     2026-10-02 与配色一起加：光靠灰色在花哨的 GIS 底图上仍可能与
+     浅灰底图纹理混淆，加虚线后「无数据」在形状维度上也能一眼分辨
+     （颜色 + 形状双通道编码，不依赖单一色相）。
+
+     ⚠️ dashArray 在 Leaflet 的 Polyline 里是 pathOptions 的合法字段，
+     与 mwUmeTopology 的地理视图用法一致；它的 SVG stroke-dasharray
+     会被 Leaflet 原样透传。 */
+  const linkDash = (l: TopologyLink): string | undefined => {
+    if (!showUtil) return undefined
+    const lv = l.level && l.level !== 'no_kpi' ? l.level : utilLevelOf(l.util)
+    return lv === 'no_kpi' ? '4 6' : undefined
   }
 
   /** 利用率数值格式化；null/非法值显示 — 而不是 0（AGENTS.md 三.6） */
@@ -484,6 +684,21 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
       default: return SITE_COLORS.normal
     }
   }
+
+  /* 站点圆点描边色（2026-10-02 用户反馈「地图上的圆点不好看」）。
+     ── 为什么不写死 #fff（原实现）：
+        浅色主题下白边配浅色瓦片，圆点像缺了一圈；
+        深色主题下底图已改为真暗色矢量配色（2026-10-02，不再有 .gis-dark-map
+        反相滤镜），白边在暗底上会过分抢眼、同样糊。
+        「描边的作用是把圆点从底图上抠出来」，抠不出来就等于没有描边。
+     ── 为什么按主题反着挑：
+        浅色底 → 用**白**边（原有的观感，凸起感）；
+        深色底 → 用**近黑**边（在反相后的亮瓦片上形成暗描边，最清晰）。
+     ── 为什么用字面量而不是 WH.xxx：
+        这里最终传给 Leaflet 的 SVG CircleMarker（fillColor/color 走 SVG 属性），
+        canvas/SVG **解析不了 CSS 变量**（同 SITE_COLORS 段头注释的约束）。
+        故只能按 isDark 各写一条 rgba 实值。 */
+  const markerStroke = isDark ? 'rgba(0,0,0,0.55)' : '#ffffff'
 
   const getMarkerRadius = (site: Site) => {
     if (mode === 'realtime') {
@@ -642,8 +857,10 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
   }))
 
   /* MW 链路利用率图例：只列**实际出现**的分级（计数 0 的不占位）。
-     showUtil 恒真，故这一组恒显示；「无 KPI 数据」一档用灰色虚线示意
-     「这些线没被上色」，让「为什么只有一部分线变红」在图例层面自解释。 */
+     showUtil 恒真，故这一组恒显示；「无 KPI 数据」一档用灰虚线示意。
+     2026-10-02：no_kpi 一档的色由 WH.textDim 改为 UTIL_LEVEL_COLORS.no_kpi，
+     与地图上实际画的灰线**逐值一致** —— 图例与地图不同色会让人以为
+     图上那条灰线是第三种含义（该档在地图上线已改为灰虚线，见 linkColor/linkDash）。 */
   const utilLegendRows: MapLegendRow[] = [
     ...UTIL_LEVEL_ORDER.filter(lv => (utilLevelCounts[lv] || 0) > 0).map(lv => ({
       id: `util-${lv}`,
@@ -655,7 +872,7 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
     ...(utilMeta && utilMeta.no_kpi > 0
       ? [{
         id: 'util-no-kpi',
-        color: WH.textDim,
+        color: UTIL_LEVEL_COLORS.no_kpi,
         label: t('gis.utilNoKpiLegend'),
         count: utilMeta.no_kpi,
         shape: 'dashed' as const,
@@ -693,10 +910,9 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
 
   const labelStyle = { color: WH.textMuted, fontSize: '0.8125rem', fontWeight: 500 }
 
-  // 底图深色适配：CARTO dark 瓦片现已要求 API key，不可用；采用与 MW 拓扑页一致的
-  // 方案 —— 瓦片始终用 OSM，深色时对 tile-pane 施加 CSS invert 滤镜（标注反色仍可读），
-  // 不引入任何外部依赖。滤镜规则见 index.css 的 .gis-dark-map。
-  const mapClassName = isDark ? 'gis-dark-map' : ''
+  // 底图深色适配：已改为自托管 PMTiles 矢量瓦片，深色由 protomaps 的 DARK_THEME
+  // 真配色实现，**不再使用 CSS invert 滤镜**（原滤镜连同 .gis-dark-map 类已移除，
+  // 见 index.css 与 gismap/basemap.ts 文件头）。故此处不再需要 mapClassName。
 
   /* 页面根节点改成**纵向 flex 列**（2026-09-28 用户要求「地图组件自适应铺满页面，
      现在下面有大量空白」）。
@@ -783,6 +999,28 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
                   {lo.label}
                 </Tag>
               ))}
+            </Space>
+          </Col>
+          {/* 取景档位（2026-10-14 用户要求「能添加 7.5、8、8.5」）。
+              用 Segmented 而不是 Select：只有三档，全部铺开比藏进下拉少一次点击，
+              也让「当前在哪一档」始终可见 —— 排障时不用先点开才知道。
+              标签由 ZOOM_LEVELS 直接 map 生成（`7.5×`），**不写死三个选项** ——
+              档位数组是唯一真相源，将来加减档位不必再改 JSX 与两份字典。
+              ⚠️ 每档的 label 里拼的是数字 + t() 取的后缀，不是 `t('gis.zoom.7.5')`
+              这类动态键 —— 动态拼 key 会被 check:i18n 判为漏键并中断构建。 */}
+          <Col>
+            <Space wrap style={{ gap: 'var(--wh-space-sm)' }}>
+              <span style={labelStyle} title={t('gis.zoomLevelHint')}>{t('gis.zoomLevel')}</span>
+              <Segmented
+                value={zoomLevel}
+                onChange={(v) => setZoomLevel(v as number)}
+                options={ZOOM_LEVELS.map(z => ({
+                  label: `${z}${t('gis.zoomLevelSuffix')}`,
+                  value: z,
+                }))}
+                size="small"
+                style={{ background: 'var(--wh-seg-bg)' }}
+              />
             </Space>
           </Col>
           {mode !== 'realtime' && (
@@ -940,27 +1178,80 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
           <>
           <MapContainer
             center={center}
-            zoom={LB_FIT_ZOOM}
-            className={mapClassName}
+            zoom={zoomLevel}
             style={{ height: '100%', width: '100%', background: 'var(--wh-page-bg)' }}
           >
-            <TileLayer
-              attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+            <PmtilesLayer
+              url={BASEMAP_PMTILES_URL}
+              isDark={isDark}
+              maxZoom={BASEMAP_MAX_ZOOM}
+              showLabels={showLabels}
+              showRoads={showRoads}
             />
-            <MapController center={center} zoom={LB_FIT_ZOOM} />
+            {/* 图层控制（右上角，避让 zoom 控件）。
+                ⚠️ **必须放在 <MapContainer> 内**：它内部调 useMap() 拿 Leaflet 实例，
+                放到容器外会抛「useMap 必须在 <MapContainer> 内使用」并打崩整页
+                （2026-10-02 实测踩过）。定位靠 portal 落进 Leaflet 容器，
+                不依赖它在父级 DOM 中的位置 —— 详见 LayerToggleControl.tsx 头部。 */}
+            <LayerToggleControl
+              title={t('gis.layerTitle')}
+              items={[
+                {
+                  key: 'labels',
+                  label: t('gis.layerLabels'),
+                  hint: t('gis.layerLabelsHint'),
+                  checked: showLabels,
+                  onChange: setShowLabels,
+                },
+                {
+                  key: 'roads',
+                  label: t('gis.layerRoads'),
+                  hint: t('gis.layerRoadsHint'),
+                  checked: showRoads,
+                  onChange: setShowRoads,
+                },
+              ]}
+            />
+            <MapController center={center} zoom={zoomLevel} />
             <Pane name="sitePane" style={{ zIndex: 650 }} />
+            {/* 县名标签专用 pane（2026-10-03）：**必须高于 sitePane(650)**，
+                否则站点红点会盖住标签。
+                根因：Leaflet 默认 tooltipPane 的 z-index 恰好也是 650，与 sitePane
+                平级 —— 平级时谁后画谁在上，DOM 顺序不保证，于是红点压住县名。
+                取 670：高于 sitePane(650)、低于 popupPane(700)，保证弹窗仍在最上。
+                （层级链：tile 200 < overlay 400 < shadow 500 < marker 600
+                  < sitePane/tooltip 650 < countyLabel 670 < popup 700 < control 1000） */}
+            <Pane name="countyLabelPane" style={{ zIndex: 670 }} />
             {filteredSites.map(site => (
+              /* 超时告警站点（仅 realtime 模式的 rt_alarm_overdue 档）：在站点圆点
+                 外再叠一圈只描边、不填充的"光环"，由 CSS 做呼吸动画（.gis-halo）。
+                 只对这一档开 —— 它是最高优先级（已超时 SLA），且数量最少；
+                 若对所有告警档都开，几百个 SVG 圆同时动画会拖垮地图（见下方注释）。
+                 光环与站点圆点包在同一个 Fragment 里共用 site_id 作 key。 */
+              <Fragment key={site.site_id}>
+              {mode === 'realtime' && !hiddenLegends.has('rt_alarm_overdue')
+                && getSiteCategory(site) === 'rt_alarm_overdue' && (
+                <CircleMarker
+                  pane="sitePane"
+                  center={[site.lat, site.lng]}
+                  radius={getMarkerRadius(site) + 4}
+                  fillColor="transparent"
+                  color={SITE_COLORS.rt_alarm_overdue}
+                  weight={2}
+                  opacity={1}
+                  fillOpacity={0}
+                  className="gis-halo"
+                />
+              )}
               <CircleMarker
-                key={site.site_id}
                 pane="sitePane"
                 center={[site.lat, site.lng]}
                 radius={getMarkerRadius(site)}
                 fillColor={getMarkerColor(site)}
-                color="#fff"
-                weight={1}
-                opacity={0.9}
-                fillOpacity={0.7}
+                color={markerStroke}
+                weight={1.5}
+                opacity={1}
+                fillOpacity={1}
                 onClick={() => handleSiteClick(site)}
               >
                 <Popup>
@@ -1000,6 +1291,7 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
                   </div>
                 </Popup>
               </CircleMarker>
+              </Fragment>
             ))}
             {boundaryMode === 'region' && regionBoundaries.map((rb, idx) => (
               <Polygon
@@ -1014,34 +1306,70 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
                 }}
               />
             ))}
-            {boundaryMode === 'county' && counties.map(c => (
+            {boundaryMode === 'county' && counties.map(c => {
+              /* 县级告警分档（2026-10-14 用户要求「>=5 红色，<=5 黄色，1 个绿色」）。
+                 档位口径：5 档与 6 档同为橙档（用户以 Montserrado 07 红 / Nimba 05 橙
+                 为例给出），因此 5 必须落在橙档，不能归入黄档。
+                 分档只驱动**颜色**，透明度由下方 FILL_OPACITY 统一给出。 */
+              const band = alarmBand(c.alarm_site_count ?? 0)
+              const fill = COUNTY_BAND_COLORS[band]
+              return (
               <Polygon
                 key={`county-${c.name}`}
                 positions={c.polygons as any}
                 onClick={() => handleCountyClick(c)}
                 pathOptions={{
-                  color: c.color,
-                  fillColor: c.color,
-                  // 用户 2026-09-25 选定「描边 + 淡色底块」：底块要淡到不干扰站点辨色，
-                  // 故深色主题比浅色主题再低一档（深底上同透明度会显脏）。
-                  fillOpacity: isDark ? 0.10 : 0.14,
+                  color: fill,
+                  fillColor: fill,
+                  /* 淡色底块（2026-10-14 用户要求）：透明度压在 8~15%，不能让区域填充
+                     成为视觉主体 —— 地图的视觉重心必须是站点圆点。
+                     取值依据、以及为什么**不能**照字面用「深色 8% / 浅色 15%」，
+                     见下方 FILL_OPACITY 的注释（深色主题下反而要更高）。 */
+                  fillOpacity: isDark ? FILL_OPACITY.dark : FILL_OPACITY.light,
                   weight: 1.5,
                   opacity: 0.85,
                   dashArray: '4 3',
                 }}
+              />
+              )
+            })}
+            {/* 县名常驻标注（2026-10-14 起独立渲染，不再挂在 Polygon 上）。
+
+                为什么从「Polygon 内的 MapTooltip」改成「独立 Marker + MapTooltip」：
+                  Leaflet 的永久 tooltip 只能钉在**绑定对象自己的位置**上 —— 挂在
+                  Polygon 上就必然落在多边形质心，没有第二个可选位置，也就无法避让。
+                  改挂到零尺寸的 Marker 之后，锚点变成一个**可以任意指定**的坐标，
+                  避让算法算出来的位置才落得下去。这是让「动态避让」得以实现的
+                  结构前提，不是风格偏好。
+                  Marker 是一个**零尺寸空 divIcon**（不是 opacity:0 —— 那仍会留下
+                  一个可见的方块，且默认图标还要加载 marker-icon.png），
+                  自身不可见、不接收点击（interactive:false），
+                  点击仍由下面的 Polygon 响应（handleCountyClick）。
+
+                标签内容（2026-10-14 第三版，用户：「去掉标签背景，只显示 BOMI.01」）：
+                  只剩「县名 + 两位数字」两段纯文字，**没有底色、没有色点**。
+                  底色与描边的取舍见 index.css 的 .gis-county-label；
+                  色点去掉是因为它表达的严重度在**县块填充色上已经有了**，
+                  同图重复编码两遍是冗余（排名条里保留色点，那里没有填充色兜底）。
+
+                避让算法（含「夹在地图可视范围内」）见 gismap/countyLabelLayout.ts 文件头。 */}
+            {boundaryMode === 'county' && countyLabels.map(lb => (
+              <Marker
+                key={`county-lb-${lb.name}`}
+                position={[lb.lat, lb.lng]}
+                interactive={false}
               >
-                {/* 县名常驻显示在县的中心（Leaflet permanent tooltip 自动定位到
-                    Polygon 的质心）。数字口径（2026-09-25 用户要求改为告警数）：
-                      显示的是该县**有实时告警的站点数**，不再是站点总数。
-                      带上「告警」小字标明口径 —— 单看一个数字无法区分是站数还是告警数，
-                      而两者在本页默认视图（只看实时告警）下容易混淆。
-                    想看站点总数时，点该县会打开高级筛选，抽屉与图例都给得出总数。 */}
-                <MapTooltip permanent direction="center" className="gis-county-label">
-                  <span style={{ fontSize: '0.6875rem', fontWeight: 600, whiteSpace: 'nowrap' }}>
-                    {c.name} ({c.alarm_site_count ?? 0} {t('gis.countyAlarmUnit')})
+                <MapTooltip permanent direction="center" className="gis-county-label"
+                            pane="countyLabelPane">
+                  <span
+                    className="gis-county-tag"
+                    title={t('gis.countyAlarmTip', { name: lb.name, n: lb.count })}
+                  >
+                    <span className="gis-county-tag__name">{lb.name.toUpperCase()}</span>
+                    <span className="gis-county-tag__num">{String(lb.count).padStart(2, '0')}</span>
                   </span>
                 </MapTooltip>
-              </Polygon>
+              </Marker>
             ))}
             {showTopology && topologyLinks.map((link, idx) => (
               <Polyline
@@ -1052,8 +1380,10 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
                      两种语义并存，图例已分别说明（见上方图例区）。 */
                   color: linkColor(link),
                   weight: linkWeight(link),
-                  // 有 KPI 的线更不透明，让告警线从密集底图里突出来
-                  opacity: showUtil && link.level && link.level !== 'no_kpi' ? 0.9 : 0.65,
+                  // 不透明度按分级分层，让 815 条 healthy/no_kpi 底图线退后（见 linkOpacity）
+                  opacity: linkOpacity(link),
+                  // 无 KPI 的线画虚线（与 mwUmeTopology 的 unknown 同语义，见 linkDash）
+                  dashArray: linkDash(link),
                 }}
               >
                 {/* 悬浮显示利用率明细（用户 2026-09-28 明确要求 Tx/Rx/最大值）。
@@ -1106,6 +1436,21 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
               })
               : undefined}
             note={t('gis.legendNote')}
+          />
+          {/* 区域排名条（2026-10-14 用户要求）。与图例浮层一样放在地图容器**之后**，
+              同 z-index(1000) 时靠 DOM 顺序压过 Leaflet 的站点圆点与县名标注。
+              数据来自 regionRanking（与地图填充/标签同源），
+              排序与截断规则见该处注释；本组件只渲染，不取数。 */}
+          <RegionRankingOverlay
+            title={t('gis.rankTitle')}
+            rows={regionRanking}
+            hint={t('gis.rankHint')}
+            emptyText={t('gis.rankEmpty')}
+            maxRows={8}
+            footnote={t('gis.rankFootnote', {
+              n: regionRanking.filter(r => r.count > 0).length,
+              total: regionRanking.length,
+            })}
           />
           </>
         )}

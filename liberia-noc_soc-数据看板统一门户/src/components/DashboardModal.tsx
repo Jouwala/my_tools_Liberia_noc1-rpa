@@ -24,6 +24,7 @@ import { AVAILABLE_ICONS } from '../data/initialDashboards';
 import { getFinebiHomeUrl, getMyappHomeUrl, buildRel } from '../config';
 import { DynamicIcon } from './DynamicIcon';
 import { useI18n, translateTag } from '../i18n';
+import { useModalA11y } from '../hooks/useModalA11y';
 
 interface DashboardModalProps {
   isOpen: boolean;
@@ -59,6 +60,9 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({
   const [isFavorite, setIsFavorite] = useState(false);
   const [isPinned, setIsPinned] = useState(false);
   const [themeColor, setThemeColor] = useState<DashboardItem['themeColor']>('indigo');
+
+  // 可访问性：焦点陷阱 + Esc 关闭 + 关闭后焦点归还（见 src/hooks/useModalA11y.ts）
+  const modalRef = useModalA11y<HTMLDivElement>({ isOpen, onClose });
 
   useEffect(() => {
     if (dashboardToEdit) {
@@ -168,7 +172,14 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
-      <div className="spatial-modal-surface bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl w-full max-w-[95vw] sm:max-w-2xl max-h-[92vh] sm:max-h-[94vh] flex flex-col overflow-hidden">
+      <div
+        ref={modalRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="dashboard-modal-title"
+        tabIndex={-1}
+        className="spatial-modal-surface bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl w-full max-w-[95vw] sm:max-w-2xl max-h-[92vh] sm:max-h-[94vh] flex flex-col overflow-hidden outline-none"
+      >
         {/* Header */}
         <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
           <div className="flex items-center gap-2 sm:gap-2.5 min-w-0">
@@ -176,7 +187,7 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({
               {dashboardToEdit ? <Save className="w-4 h-4 sm:w-5 sm:h-5" /> : <Plus className="w-4 h-4 sm:w-5 sm:h-5" />}
             </div>
             <div className="min-w-0">
-              <h3 className="font-semibold text-slate-900 dark:text-slate-100 text-sm sm:text-base truncate">
+              <h3 id="dashboard-modal-title" className="font-semibold text-slate-900 dark:text-slate-100 text-sm sm:text-base truncate">
                 {dashboardToEdit ? t('modal.editTitle') : t('modal.addTitle')}
               </h3>
               <p className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400 truncate hidden sm:block">
@@ -186,9 +197,10 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({
           </div>
           <button
             onClick={onClose}
+            aria-label={t('common.close')}
             className="p-2 sm:p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors shrink-0"
           >
-            <X className="w-5 h-5 sm:w-5 sm:h-5" />
+            <X className="w-5 h-5 sm:w-5 sm:h-5" aria-hidden="true" />
           </button>
         </div>
 
@@ -372,6 +384,8 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({
                     key={ico.name}
                     onClick={() => setIconName(ico.name)}
                     title={ico.label}
+                    aria-label={ico.label}
+                    aria-pressed={iconName === ico.name}
                     className={`p-1.5 sm:p-2 rounded-lg flex items-center justify-center transition-colors ${
                       iconName === ico.name
                         ? 'bg-teal-600 text-white shadow-sm'
@@ -394,6 +408,7 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({
                     type="button"
                     key={opt.id}
                     onClick={() => setThemeColor(opt.id)}
+                    aria-pressed={themeColor === opt.id}
                     className={`w-full flex items-center gap-2 sm:gap-2.5 px-2 sm:px-2.5 py-1 sm:py-1.5 rounded-lg text-xs transition-all ${
                       themeColor === opt.id
                         ? 'bg-teal-50 dark:bg-teal-950/60 border border-teal-300 dark:border-teal-800 font-medium'

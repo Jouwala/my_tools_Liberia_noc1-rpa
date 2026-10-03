@@ -158,10 +158,17 @@ interface ServerCatalog {
  * 从服务端加载全局默认目录（本机 localhost:9267 「保存为默认目录」写入的
  * portal-default.json）。未保存过（404）或网络异常时返回 null，由调用方回退到内置目录。
  * 兼容两种格式：旧版纯 DashboardItem[] 数组 / 新版 { version, groups, dashboards } 对象。
+ *
+ * 2026-10-01 修复 B3：服务端 GET /portal-default 现要求登录态（此前匿名可读，
+ * 局域网零凭据即可拿到完整目录 + 内网 IP + 看板 token）。故此处必须携带 Bearer token，
+ * 与「保存为默认目录」的 POST 走同一鉴权路径。免登录开发模式下 resolveCaller 会
+ * 按开发管理员放行，故本机调试不受影响。
  */
-async function fetchServerDefault(): Promise<ServerCatalog | null> {
+async function fetchServerDefault(token: string | null): Promise<ServerCatalog | null> {
   try {
-    const res = await fetch(`${PORTAL_API}/portal-default`);
+    const headers = new Headers();
+    if (token) headers.set('Authorization', `Bearer ${token}`);
+    const res = await fetch(`${PORTAL_API}/portal-default`, { headers });
     if (!res.ok) return null;
     const data = (await res.json()) as unknown;
     const items = Array.isArray(data)
@@ -184,7 +191,7 @@ async function fetchServerDefault(): Promise<ServerCatalog | null> {
 
 export default function App() {
   const { t, lang } = useI18n();
-  const { status, user, apiFetch, logout, authEnabled, refreshAuthMode } = useAuth();
+  const { status, user, apiFetch, token, logout, authEnabled, refreshAuthMode } = useAuth();
   const [darkMode, setDarkMode] = useState<boolean>(() => {
     const saved = localStorage.getItem(THEME_KEY);
     if (saved !== null) {
@@ -220,10 +227,15 @@ export default function App() {
   // 这里只存「运行时新增/改名」的分组标签，避免两处真相源打架。
   const [groupLabels, setGroupLabels] = useState<GroupLabels>({});
 
-  // 挂载后拉取服务端默认目录覆盖本页（首次渲染先用内置目录避免白屏）
+  // 拉取服务端默认目录覆盖本页（首次渲染先用内置目录避免白屏）。
+  //
+  // 2026-10-01 修复 B3：服务端 GET /portal-default 现在要求登录态，故必须等鉴权
+  // 状态确定后再拉，且带上 Bearer token；在 status 还是 'loading' 时拉会拿到 401。
+  // status 变 authed（含免登录开发模式）或 token 变化时重拉，保证登录后目录即时生效。
   useEffect(() => {
+    if (status === 'loading') return;
     let cancelled = false;
-    fetchServerDefault().then((catalog) => {
+    fetchServerDefault(token).then((catalog) => {
       if (cancelled || !catalog) return;
       setDashboards(
         applySavedOrder(applyPrefs(normalizeCatalogItems(catalog.dashboards), loadPrefs()))
@@ -235,7 +247,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [status, token]);
 
   // 只持久化个人偏好；目录本身不再写 localStorage（统一以服务端默认为准）
   useEffect(() => {
@@ -552,7 +564,8 @@ export default function App() {
   const handleResetDefaults = async () => {
     if (window.confirm(t('app.confirmReset'))) {
       // 有服务端默认目录则恢复它，否则恢复内置目录；分组同步恢复
-      const serverDefault = await fetchServerDefault();
+      // （此路径由已登录用户点「恢复默认」触发，带上 token 以通过 B3 后的鉴权门）
+      const serverDefault = await fetchServerDefault(token);
       if (serverDefault) {
         const nextGroups = deriveGroups(serverDefault.dashboards, serverDefault.groups ?? DEFAULT_GROUPS);
         setDashboards(applyPrefs(normalizeCatalogItems(serverDefault.dashboards), loadPrefs()));
@@ -743,6 +756,12 @@ export default function App() {
 
   return (
     <div className="app-spatial-root min-h-screen bg-slate-100/60 dark:bg-navy-950 text-slate-900 dark:text-slate-100 flex flex-col font-sans transition-colors duration-200">
+      {/* 跳转链接（可访问性）：键盘用户第一个 Tab 就能跳过顶栏直达主内容。
+          平时视觉隐藏，获得焦点时浮出（见 index.css 的 .skip-link）。 */}
+      <a href="#main-content" className="skip-link">
+        {t('a11y.skipToContent')}
+      </a>
+
       {/* Hidden File Input for JSON import */}
       <input
         type="file"
@@ -811,7 +830,11 @@ export default function App() {
       />
 
       {/* Main Content Area */}
-      <main className="flex-1 w-full mx-auto px-3 sm:px-6 lg:px-8 xl:px-10 py-4 sm:py-6">
+      <main
+        id="main-content"
+        tabIndex={-1}
+        className="flex-1 w-full mx-auto px-3 sm:px-6 lg:px-8 xl:px-10 py-4 sm:py-6 outline-none"
+      >
         {/* Quick Stats & Environment Overview */}
         <QuickStatsBar
           dashboards={dashboards}

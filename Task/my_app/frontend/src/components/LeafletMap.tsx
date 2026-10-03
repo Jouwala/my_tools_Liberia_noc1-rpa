@@ -9,7 +9,8 @@
  *
  * 因此这里用原生 leaflet 重新实现所需的那一层绑定，保持与原来一致的声明式写法，
  * 使页面 JSX 几乎不用改、地图行为完全不变。所需能力很少：
- *   MapContainer / TileLayer / CircleMarker / Polyline / Polygon / Popup / Tooltip / Pane
+ *   MapContainer / TileLayer / Marker / CircleMarker / Polyline / Polygon / Popup / Tooltip / Pane
+ *   （Marker 是 2026-10-14 为「县名标注动态避让」新增的不可见锚点，见该组件注释）
  *
  * 设计要点（都是原 react-leaflet 已经处理、我们必须自己保证的）：
  *   1. **图层生命周期**：子组件在「属于它的那层 map/父图层」就绪后再 addLayer，
@@ -36,11 +37,14 @@ type LatLngInput = LatLngTuple | LatLngTuple[] | LatLngTuple[][] | any
  * ------------------------------------------------------------------ */
 
 const MapCtx = createContext<L.Map | null>(null)
-/** 最近的父图层（CircleMarker / Polyline / Polygon 都是 L.Path，均实现 addTo） */
-const LayerCtx = createContext<L.Path | null>(null)
+/** 最近的父图层（CircleMarker / Polyline / Polygon 是 L.Path；
+ *  Marker 是 L.Marker —— 两者唯一的共同点就是都能 addTo 与承载 Popup/Tooltip，
+ *  故类型取 L.Layer。2026-10-14 放宽：此前写死 L.Path 是为了表达「只有 path
+ *  类图层才当父节点」，但县名标注改成 Marker 承载后该前提不再成立。 */
+const LayerCtx = createContext<L.Layer | null>(null)
 
 /** 当前子树应该把图层加到哪儿：有父图层就加父图层，否则直接加 map */
-function useLeafletParent(): { map: L.Map | null; parent: L.Path | L.Map | null } {
+function useLeafletParent(): { map: L.Map | null; parent: L.Layer | L.Map | null } {
   const map = useContext(MapCtx)
   const layer = useContext(LayerCtx)
   return { map, parent: layer ?? map }
@@ -49,8 +53,9 @@ function useLeafletParent(): { map: L.Map | null; parent: L.Path | L.Map | null 
 /** map 是否已被销毁（Leaflet 的 remove() 会摘掉 _container 与 panes）。
  *  往这种 map 上 addLayer 会抛 `appendChild(undefined)`，且因为是 render/effect
  *  期间抛出，会连带把整个 React 树打崩（2026-09-28 白屏事故的最终表现）。
- *  故所有 addTo/addLayer 之前都先过这一道闸。 */
-function isMapAlive(map: L.Map | null | undefined): map is L.Map {
+ *  故所有 addTo/addLayer 之前都先过这一道闸。
+ *  2026-10-02 起导出：gismap/PmtilesLayer.tsx 加图层时同样需要这道闸。 */
+export function isMapAlive(map: L.Map | null | undefined): map is L.Map {
   if (!map) return false
   const anyMap = map as any
   if (anyMap._container == null) return false
@@ -167,10 +172,13 @@ export function TileLayer({
   url,
   attribution,
   pane,
+  maxZoom,
 }: {
   url: string
   attribution?: string
   pane?: string
+  /** 瓦片最大层级。不传走 Leaflet 默认 18；OSM 标准瓦片支持到 19。 */
+  maxZoom?: number
 }) {
   const { map } = useLeafletParent()
   useEffect(() => {
@@ -181,14 +189,78 @@ export function TileLayer({
      * GridLayer 类默认的 'tilePane' 抹成 undefined，随后 onAdd 里
      * getPane() → map.getPane(undefined) → _panes[undefined] → undefined，
      * 执行 undefined.appendChild(...) 直接抛异常，整个地图页白屏。
-     * 这个坑 tsc 与 vite build 都发现不了，只有真正跑起来才暴露。 */
-    const layer = L.tileLayer(url, pane ? { attribution, pane } : { attribution })
+     * 这个坑 tsc 与 vite build 都发现不了，只有真正跑起来才暴露。
+     * maxZoom 同理用条件展开，避免显式传 undefined 覆盖类默认值。 */
+    const opts: L.TileLayerOptions = { attribution }
+    if (pane) opts.pane = pane
+    if (maxZoom != null) opts.maxZoom = maxZoom
+    const layer = L.tileLayer(url, opts)
     layer.addTo(map)
     return () => {
       layer.remove()
     }
-  }, [map, url, attribution, pane])
+  }, [map, url, attribution, pane, maxZoom])
   return null
+}
+
+/* ------------------------------------------------------------------ *
+ * Marker —— 不可见的锚点，专供「需要任意定位的常驻 Tooltip」使用
+ * ------------------------------------------------------------------ */
+
+type MarkerProps = {
+  position: LatLngTuple
+  /** 是否响应鼠标事件。默认 true（Leaflet 默认）；
+      县名标注传 false —— 它只负责承载 tooltip，不该拦截地图拖拽与站点点击。 */
+  interactive?: boolean
+  children?: ReactNode
+}
+
+/**
+ * 一个**零视觉**的 Marker，仅作为 Popup/Tooltip 的挂载锚点。
+ *
+ * 为什么需要它（2026-10-14 县名避让）：
+ *   Leaflet 的 Tooltip 必须 bind 到一个 L.Layer，且**只能显示在该图层自己的
+ *   坐标上**。原先县名 tooltip 绑在 Polygon 上，锚点就被钉死为多边形质心，
+ *   无法避让重叠。改挂到 Marker 后，锚点变成可任意指定的坐标 ——
+ *   这是「动态避让」得以实现的结构前提。
+ *
+ * 为什么用 divIcon 画一个空 div，而不是把 Marker 设成 opacity:0：
+ *   L.Marker 的默认图标是**一张图片**（marker-icon.png），本项目改用自研
+ *   LeafletMap 的原因之一就是不引入额外的图片资源与版权问题（见文件头）。
+ *   传一个空 divIcon 既能避免加载图片，又能保证「零尺寸、零视觉」，
+ *   不会像默认图标那样在避让后的位置上留下一个可见的图钉。
+ */
+export function Marker({ position, interactive = true, children }: MarkerProps) {
+  const { map, parent } = useLeafletParent()
+
+  const layer = useMemo(() => {
+    if (!parent) return null
+    return L.marker(position, {
+      interactive,
+      // 空 divIcon：零尺寸、无图片请求（理由见上方注释）
+      icon: L.divIcon({ className: 'leaflet-empty-anchor', html: '', iconSize: [0, 0] }),
+    })
+    // 刻意只依赖 parent：初值即可，position 变更走下方 setter
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [parent])
+
+  useEffect(() => {
+    if (!layer || !parent) return
+    // 父图层或地图已销毁时不再 addTo（见 isMapAlive 注释）
+    if (parent instanceof L.Map ? !isMapAlive(parent) : !(parent as any)._map) return
+    layer.addTo(parent as any)
+    return () => {
+      layer.remove()
+    }
+  }, [layer, parent])
+
+  useEffect(() => {
+    if (!layer) return
+    layer.setLatLng(position)
+  }, [layer, position])
+
+  if (!layer) return null
+  return <LayerCtx.Provider value={layer}>{children}</LayerCtx.Provider>
 }
 
 /* ------------------------------------------------------------------ *
@@ -204,12 +276,17 @@ type CircleMarkerProps = {
   opacity?: number
   fillOpacity?: number
   pane?: string
+  /** 附加到 Leaflet SVG path 上的 class（Leaflet Path 的 className 选项）。
+      2026-10-02 新增，供 GIS 超时告警圆点的 CSS 呼吸动画选中（.gis-halo）。
+      CSS 动画只能作用在 DOM 元素上，而 CircleMarker 的 props 走的是 SVG 属性，
+      没有 className 就无从在 CSS 里选到它 —— 故这里透传一层。 */
+  className?: string
   onClick?: () => void
   children?: ReactNode
 }
 
 export function CircleMarker({
-  center, radius, fillColor, color, weight, opacity, fillOpacity, pane, onClick, children,
+  center, radius, fillColor, color, weight, opacity, fillOpacity, pane, className, onClick, children,
 }: CircleMarkerProps) {
   const { map, parent } = useLeafletParent()
 
@@ -223,6 +300,7 @@ export function CircleMarker({
      * 与 TileLayer 同一类坑（见该组件注释）。 */
     return L.circleMarker(center, {
       radius, fillColor, color, weight, opacity, fillOpacity,
+      ...(className ? { className } : {}),
       ...(pane ? { pane } : {}),
     })
     // 刻意只依赖 parent：初值即可，变更由下面的 effect 处理
@@ -364,6 +442,19 @@ export function MapContainer({
       scrollWheelZoom,
       // 与 react-leaflet 默认一致：右上角只有 zoom 控件
       zoomControl: true,
+      /* zoomSnap: 0.5 —— 允许 zoom 取 7.5 / 8.5 这类**半级**档位。
+       *
+       * Leaflet 默认 zoomSnap=1，会把传入的 zoom **吸附到整数**：
+       * 传 7.5 进去，地图实际渲染在 8 —— 也就是说没有这行，
+       * 「加一个 7.5 档」在界面上不会报错，但会静默地表现成 8，
+       * 是个查起来很费劲的坑。
+       *
+       * 选 0.5 而不是更细的 0.1：0.5 正好覆盖调用方要的三档（7.5 / 8 / 8.5），
+       * 也让滚轮与 +/- 按钮的每一格步进是半级 —— 步进太小（0.1）时
+       * 用户要滚十几次才明显变化，观感是「滚不动」。
+       * 该值同时对初始 zoom、setView、zoomIn/zoomOut 生效（Leaflet 内部统一走
+       * _limitZoom 吸附），故本页传小数 zoom 时不必再各自处理。 */
+      zoomSnap: 0.5,
     })
     mapRef.current = m
     // L.map() 内部同步完成 _initLayout/_initPanes，

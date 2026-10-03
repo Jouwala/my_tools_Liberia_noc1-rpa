@@ -1,0 +1,240 @@
+<slide xmlns="https://www.larkoffice.com/sml/2.0">
+  <style>
+    <fill>
+      <fillColor color="rgba(13,19,38,1)"/>
+    </fill>
+  </style>
+  <data>
+    <!-- 标题区 -->
+    <shape type="text" topLeftX="60" topLeftY="30" width="840" height="45">
+      <content textType="title" fontSize="26" color="rgba(255,255,255,1)" bold="true">
+        <p>数据洞察引擎 · 智能运维中枢</p>
+      </content>
+    </shape>
+    <shape type="text" topLeftX="60" topLeftY="72" width="840" height="22">
+      <content textType="body" fontSize="13" color="rgba(184,188,194,1)">
+        <p>68 个自动化任务 · 全链路数据采集处理 · 多渠道智能触达</p>
+      </content>
+    </shape>
+    <line startX="60" startY="102" endX="900" endY="102">
+      <border color="rgba(255,255,255,0.12)" width="1"/>
+    </line>
+
+    <!-- 第一行：四层数据流水线 -->
+    <shape type="text" topLeftX="60" topLeftY="115" width="400" height="22">
+      <content textType="body" fontSize="13" color="rgba(147,197,253,1)" bold="true">
+        <p>▎ 四层数据流水线架构</p>
+      </content>
+    </shape>
+
+    <!-- 4个层块 -->
+    <shape type="rect" topLeftX="60" topLeftY="145" width="190" height="55" presetHandlers="6">
+      <fill><fillColor color="rgba(37,99,235,0.15)"/></fill>
+      <border color="rgba(59,130,246,0.4)" width="1"/>
+    </shape>
+    <shape type="text" topLeftX="72" topLeftY="152" width="170" height="20">
+      <content textType="caption" fontSize="11" color="rgba(147,197,253,1)" bold="true">
+        <p>数据源层</p>
+      </content>
+    </shape>
+    <shape type="text" topLeftX="72" topLeftY="172" width="170" height="22">
+      <content textType="caption" fontSize="10" color="rgba(184,188,194,1)">
+        <p>eFlow · UME · SFTP · FTP</p>
+      </content>
+    </shape>
+
+    <line startX="255" startY="172" endX="275" endY="172">
+      <border color="rgba(147,197,253,0.5)" width="1"/>
+      <endArrow type="arrow"/>
+    </line>
+
+    <shape type="rect" topLeftX="280" topLeftY="145" width="190" height="55" presetHandlers="6">
+      <fill><fillColor color="rgba(37,99,235,0.15)"/></fill>
+      <border color="rgba(59,130,246,0.4)" width="1"/>
+    </shape>
+    <shape type="text" topLeftX="292" topLeftY="152" width="170" height="20">
+      <content textType="caption" fontSize="11" color="rgba(147,197,253,1)" bold="true">
+        <p>采集同步层</p>
+      </content>
+    </shape>
+    <shape type="text" topLeftX="292" topLeftY="172" width="170" height="22">
+      <content textType="caption" fontSize="10" color="rgba(184,188,194,1)">
+        <p>定时调度 · 增量更新 · 失败重试</p>
+      </content>
+    </shape>
+
+    <line startX="475" startY="172" endX="495" endY="172">
+      <border color="rgba(147,197,253,0.5)" width="1"/>
+      <endArrow type="arrow"/>
+    </line>
+
+    <shape type="rect" topLeftX="500" topLeftY="145" width="190" height="55" presetHandlers="6">
+      <fill><fillColor color="rgba(37,99,235,0.15)"/></fill>
+      <border color="rgba(59,130,246,0.4)" width="1"/>
+    </shape>
+    <shape type="text" topLeftX="512" topLeftY="152" width="170" height="20">
+      <content textType="caption" fontSize="11" color="rgba(147,197,253,1)" bold="true">
+        <p>数据存储层</p>
+      </content>
+    </shape>
+    <shape type="text" topLeftX="512" topLeftY="172" width="170" height="22">
+      <content textType="caption" fontSize="10" color="rgba(184,188,194,1)">
+        <p>PostgreSQL · SQLite · CSV</p>
+      </content>
+    </shape>
+
+    <line startX="695" startY="172" endX="715" endY="172">
+      <border color="rgba(212,233,44,0.5)" width="1"/>
+      <endArrow type="arrow"/>
+    </line>
+
+    <shape type="rect" topLeftX="720" topLeftY="145" width="180" height="55" presetHandlers="6">
+      <fill><fillColor color="rgba(212,233,44,0.12)"/></fill>
+      <border color="rgba(212,233,44,0.35)" width="1"/>
+    </shape>
+    <shape type="text" topLeftX="732" topLeftY="152" width="160" height="20">
+      <content textType="caption" fontSize="11" color="rgba(212,233,44,1)" bold="true">
+        <p>应用展示层</p>
+      </content>
+    </shape>
+    <shape type="text" topLeftX="732" topLeftY="172" width="160" height="22">
+      <content textType="caption" fontSize="10" color="rgba(184,188,194,1)">
+        <p>看板 · 报告 · 邮件 · WhatsApp</p>
+      </content>
+    </shape>
+
+    <!-- 第二行：三大核心能力 -->
+    <shape type="text" topLeftX="60" topLeftY="220" width="400" height="22">
+      <content textType="body" fontSize="13" color="rgba(147,197,253,1)" bold="true">
+        <p>▎ 智能告警与多渠道触达</p>
+      </content>
+    </shape>
+
+    <!-- P1 WhatsApp 推送 -->
+    <shape type="rect" topLeftX="60" topLeftY="250" width="270" height="90" presetHandlers="6">
+      <fill><fillColor color="rgba(220,38,38,0.12)"/></fill>
+      <border color="rgba(220,38,38,0.3)" width="1"/>
+    </shape>
+    <shape type="text" topLeftX="75" topLeftY="260" width="240" height="22">
+      <content textType="body" fontSize="13" color="rgba(252,165,165,1)" bold="true">
+        <p>P1 告警 WhatsApp 实时推送</p>
+      </content>
+    </shape>
+    <shape type="text" topLeftX="75" topLeftY="285" width="240" height="48">
+      <content textType="caption" fontSize="10" color="rgba(184,188,194,1)" lineSpacing="multiple:1.4">
+        <p>每 15 分钟扫描 P1 级未清除告警</p>
+        <p>自动渲染 TT 单详情推送群组</p>
+        <p>发送状态落库追踪 · 不遗漏</p>
+      </content>
+    </shape>
+
+    <!-- 多渠道触达 -->
+    <shape type="rect" topLeftX="345" topLeftY="250" width="270" height="90" presetHandlers="6">
+      <fill><fillColor color="rgba(37,99,235,0.12)"/></fill>
+      <border color="rgba(59,130,246,0.3)" width="1"/>
+    </shape>
+    <shape type="text" topLeftX="360" topLeftY="260" width="240" height="22">
+      <content textType="body" fontSize="13" color="rgba(147,197,253,1)" bold="true">
+        <p>多渠道消息触达</p>
+      </content>
+    </shape>
+    <shape type="text" topLeftX="360" topLeftY="285" width="240" height="48">
+      <content textType="caption" fontSize="10" color="rgba(184,188,194,1)" lineSpacing="multiple:1.4">
+        <p>WhatsApp 群 · 备件报表 / 宕站截图</p>
+        <p>邮件自动推送 · 15+ 种日报/周报</p>
+        <p>失败任务自动语音播报提醒</p>
+      </content>
+    </shape>
+
+    <!-- RAG 智能知识库 -->
+    <shape type="rect" topLeftX="630" topLeftY="250" width="270" height="90" presetHandlers="6">
+      <fill><fillColor color="rgba(212,233,44,0.1)"/></fill>
+      <border color="rgba(212,233,44,0.3)" width="1"/>
+    </shape>
+    <shape type="text" topLeftX="645" topLeftY="260" width="240" height="22">
+      <content textType="body" fontSize="13" color="rgba(212,233,44,1)" bold="true">
+        <p>RAG 智能知识库</p>
+      </content>
+    </shape>
+    <shape type="text" topLeftX="645" topLeftY="285" width="240" height="48">
+      <content textType="caption" fontSize="10" color="rgba(184,188,194,1)" lineSpacing="multiple:1.4">
+        <p>本地知识问答 · Open WebUI 集成</p>
+        <p>eFlow 知识库 · TT 单快速复盘分析</p>
+        <p>历史工单经验沉淀 · 快速检索</p>
+      </content>
+    </shape>
+
+    <!-- 第三行：自愈保障 + 底部数字 -->
+    <shape type="text" topLeftX="60" topLeftY="360" width="400" height="22">
+      <content textType="body" fontSize="13" color="rgba(147,197,253,1)" bold="true">
+        <p>▎ 自愈与可靠性保障</p>
+      </content>
+    </shape>
+
+    <!-- 3个自愈能力点 -->
+    <shape type="text" topLeftX="60" topLeftY="390" width="270" height="22">
+      <content textType="body" fontSize="11" color="rgba(255,255,255,1)">
+        <p>· 失败任务自动重试</p>
+      </content>
+    </shape>
+    <shape type="text" topLeftX="75" topLeftY="412" width="255" height="18">
+      <content textType="caption" fontSize="10" color="rgba(148,163,184,1)">
+        <p>10 分钟扫描 · 漏跑自动补投 · 24h 上限</p>
+      </content>
+    </shape>
+
+    <shape type="text" topLeftX="345" topLeftY="390" width="270" height="22">
+      <content textType="body" fontSize="11" color="rgba(255,255,255,1)">
+        <p>· 数据新鲜度巡检</p>
+      </content>
+    </shape>
+    <shape type="text" topLeftX="360" topLeftY="412" width="255" height="18">
+      <content textType="caption" fontSize="10" color="rgba(148,163,184,1)">
+        <p>每小时巡检 · 滞后告警 · 检查方向指引</p>
+      </content>
+    </shape>
+
+    <shape type="text" topLeftX="630" topLeftY="390" width="270" height="22">
+      <content textType="body" fontSize="11" color="rgba(255,255,255,1)">
+        <p>· EWS 邮件补发机制</p>
+      </content>
+    </shape>
+    <shape type="text" topLeftX="645" topLeftY="412" width="255" height="18">
+      <content textType="caption" fontSize="10" color="rgba(148,163,184,1)">
+        <p>故障恢复后自动补发 · 防重复发送</p>
+      </content>
+    </shape>
+
+    <!-- 底部数字条 -->
+    <shape type="rect" topLeftX="60" topLeftY="455" width="840" height="40" presetHandlers="6">
+      <fill><fillColor color="rgba(255,255,255,0.06)"/></fill>
+    </shape>
+    <shape type="text" topLeftX="80" topLeftY="462" width="200" height="26">
+      <content textType="body" fontSize="13" color="rgba(147,197,253,1)" bold="true">
+        <p>68 个自动化任务</p>
+      </content>
+    </shape>
+    <shape type="text" topLeftX="290" topLeftY="462" width="200" height="26">
+      <content textType="body" fontSize="13" color="rgba(147,197,253,1)" bold="true">
+        <p>15+ 种自动报告</p>
+      </content>
+    </shape>
+    <shape type="text" topLeftX="500" topLeftY="462" width="200" height="26">
+      <content textType="body" fontSize="13" color="rgba(212,233,44,1)" bold="true">
+        <p>24/7 无人值守运行</p>
+      </content>
+    </shape>
+    <shape type="text" topLeftX="710" topLeftY="462" width="180" height="26">
+      <content textType="body" fontSize="13" color="rgba(147,197,253,1)" bold="true">
+        <p>分钟级数据刷新</p>
+      </content>
+    </shape>
+  </data>
+  <note>
+    <content textType="body">
+      <p>这一页详细介绍我们的后台智能运维中枢。整个系统采用四层流水线架构：数据源层 → 采集同步层 → 数据存储层 → 应用展示层。</p>
+      <p>在上半部分，我们重点展示三大智能能力：第一是 P1 告警的 WhatsApp 实时推送，每 15 分钟扫描一次，确保重大告警不遗漏；第二是多渠道触达体系，包括 WhatsApp 群组、自动邮件推送和语音播报；第三是 RAG 智能知识库，支持本地知识问答和 TT 单快速复盘分析。</p>
+      <p>下半部分是我们的自愈与可靠性保障机制，包括失败自动重试、数据新鲜度巡检、EWS 邮件补发等，确保整个系统 24/7 稳定运行。</p>
+    </content>
+  </note>
+</slide>

@@ -174,7 +174,11 @@ check(/put your question after the @mention/.test(srcWhatsapp),
   'whatsapp.js：「只 @ 没提问」的回复也有英文版');
 check(/detectLang\(question\)/.test(srcWhatsapp),
   'whatsapp.js：在接入层判定提问语言（源头唯一）');
-check(/onQuestion\(question, \{ chatJid, sender, lang \}\)/.test(srcWhatsapp),
+// 传入的对象跨多行，且后续加入了 onRetry —— 用 [\s\S] 跨行匹配，
+// 只断言「chatJid / sender / lang 都在这个对象里」这个实质，
+// 不绑定换行与缩进（否则每次调整格式都要改测试）。
+check(/onQuestion\(question,\s*\{[\s\S]{0,200}?\blang\b[\s\S]{0,200}?\}\)/.test(srcWhatsapp) &&
+  /onQuestion\(question,\s*\{[\s\S]{0,100}?\bchatJid\b/.test(srcWhatsapp),
   'whatsapp.js：把 lang 传给上层（避免重复判定 / 口径不一致）');
 
 check(/pickText\(lang, cfg\.notFoundText, cfg\.notFoundTextEn\)/.test(srcRag),
@@ -187,10 +191,25 @@ for (const key of ['timeout', 'error', 'empty', 'unknown']) {
   const n = (srcTt.match(new RegExp(`^\\s+${key}:`, 'gm')) || []).length;
   check(n >= 2, `tt.js：失败文案 '${key}' 同时提供 zh / en（实得 ${n} 处）`);
 }
+// 实时兜底（本地库 miss → 回 eFlow 实时查）的文案同样不能写死中文：
+// 英文提问时收到「我去 eFlow 实时查一下」会显得很突兀，
+// 而这几句是**不经过模型**的固定回复，改 prompt 管不到。
+for (const key of ['goingLive', 'liveMiss', 'liveError']) {
+  const n = (srcTt.match(new RegExp(`^\\s+${key}:`, 'gm')) || []).length;
+  check(n >= 2, `tt.js：实时兜底文案 '${key}' 同时提供 zh / en（实得 ${n} 处）`);
+}
+// 垫话必须真的被发出去 —— 只配文案不发，等于用户还是干等十几秒。
+check(/onLive\?\.\(F\.goingLive\(ttNo\)\)/.test(srcTt),
+  'tt.js：实时查询前确实调用了 onLive（垫话有发出去）');
+check(/onLive:/.test(srcWhatsapp), 'whatsapp.js：把 onLive 垫话接到 send');
+
 check(/const F = FAIL_TEXT\[replyLang\]/.test(srcTt), 'tt.js：按 replyLang 取失败文案表');
 check(!/text: `分析 \$\{ttNo\}/.test(srcTt), 'tt.js：已无写死中文的失败文案');
 
-check(/onQuestion: async \(question, \{ lang \} = \{\}\)/.test(srcIndex),
+// 接入层把 lang 交给 onQuestion，index.js 必须**原样接收**（而不是丢掉再自己判一次）。
+// 这里只锚定「解构里有 lang」，不锚定它后面跟哪个键 ——
+// 后续接入 onLive 之类的回调时不该再改这条测试（曾经就是写死了 `lang, onRetry` 才误报）。
+check(/onQuestion: async \(question, \{ lang\b/.test(srcIndex),
   'index.js：onQuestion 接收 lang');
 check(/^\s*lang,\s*$/m.test(srcIndex), 'index.js：把 lang 转发给 routeAnswer');
 

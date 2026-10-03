@@ -244,16 +244,124 @@ const LANG_HINT = {
   en: '\n\nThis question is in English — reply in English, keeping the same concise style.',
 };
 
-/** 组装喂给模型的消息；只使用 confident 的条目作为依据 */
-export function buildMessages(question, hits, lang = 'zh') {
+/**
+ * 带上下文时追加到 systemPrompt 末尾的护栏。
+ *
+ * 必须是护栏而不是礼貌提醒：硬性规则 1 说「只使用资料中的内容」，而历史里
+ * 恰好有一段**看起来像依据**的上轮答案。不加这句时模型会走上省事的路线 ——
+ * 直接复用（甚至加工）上轮答案的数字与结论，等于把上一轮可能的误差滚雪球。
+ */
+const CONTEXT_NOTE =
+  '\n\n补充：下面附有本会话此前的问答，仅用于理解指代（「它」「第二种」「刚才那个」指的是什么）。' +
+  '结论仍必须来自最后一条消息里的「资料」，不要用历史答案中的数字或结论代替资料作答；' +
+  '资料与历史不一致时，以资料为准。';
+
+/**
+ * 组装喂给模型的消息；只使用 confident 的条目作为依据。
+ * @param {Array<{q:string,a:string}>} [history] 最近几轮问答（时间正序）
+ */
+export function buildMessages(question, hits, lang = 'zh', history = []) {
   const usable = hits.filter((h) => h.confident);
   const context = usable
     .map((h, i) => `【${i + 1}】${h.text}`)
     .join('\n\n');
+  const withHistory = (history || []).flatMap((t) => [
+    { role: 'user', content: t.q },
+    { role: 'assistant', content: t.a },
+  ]);
   return [
-    { role: 'system', content: CONFIG.systemPrompt + (LANG_HINT[lang] || LANG_HINT.zh) },
+    {
+      role: 'system',
+      content:
+        CONFIG.systemPrompt +
+        (withHistory.length ? CONTEXT_NOTE : '') +
+        (LANG_HINT[lang] || LANG_HINT.zh),
+    },
+    ...withHistory,
     { role: 'user', content: `资料：\n${context}\n\n问题：${question}` },
   ];
+}
+
+/* ------------------------------- 追问补全 ------------------------------- */
+
+/**
+ * 把口语追问补全成「不需要上文也能看懂」的检索问题。
+ *
+ * 为什么必须做这一步：嵌入检索的输入只有当前这句。追问「那第二种情况呢」
+ * 十几个字没有任何领域词，向量落到语料中心，必然判未命中 —— 光把历史喂给
+ * 生成模型没用，历史影响的是**答案**，而召回早在答案之前就失败了。
+ *
+ * 顺带拿到「是不是在延续上文」这个信号：是新话题就把历史丢掉，
+ * 这是多轮记忆最主要的污染来源（同一个人连问两个不相关的模块时，
+ * 旧话题会持续拽着召回和措辞）。
+ *
+ * 失败（超时 / 格式不对 / 云端报错）返回 null，调用方退回原句 —— 
+ * 补全是增强，不是依赖（同 retryWithRewrite 的取舍）。
+ */
+const RESOLVE_PROMPT =
+  '你在帮一个知识库问答机器人理解追问。下面给出这个人最近几轮的问答，以及他新的提问。\n' +
+  '1) 判断新提问是否在延续上文（问的是同一件事）：延续 = yes，另起话题 = no。\n' +
+  '2) 把新提问改写成一句**不看上文也能读懂**的检索问题，补出它省略的主语和对象；\n' +
+  '   保持新提问的语言（中文就写中文，英文就写英文），不要扩写成长句。\n' +
+  '只输出两行，不要解释：\n' +
+  'CONTINUE: yes 或 no\n' +
+  'QUERY: <改写后的独立问题>';
+
+/** 解析模型的两行输出；缺 QUERY 视为失败。 */
+export function parseResolve(content) {
+  const s = String(content || '');
+  const q = s.match(/^\s*QUERY\s*[:：]\s*(.+)$/im);
+  if (!q) return null;
+  const query = q[1].trim();
+  if (query.length < 2) return null;
+  const c = s.match(/^\s*CONTINUE\s*[:：]\s*(yes|no|true|false|是|否)/im);
+  const yes = c && /^(yes|true|是)/i.test(c[1]);
+  return { query, continue: c ? !!yes : true };
+}
+
+/** 渲染进 prompt 的历史块（只用于补全判断，不进正式对话消息）。 */
+export function renderHistoryForResolve(history) {
+  return (history || [])
+    .map((t, i) => `${i + 1}) 问：${t.q}\n   答：${t.a}`)
+    .join('\n');
+}
+
+async function resolveFollowUp(question, history, lang) {
+  try {
+    const { content } = await chat(
+      [
+        {
+          role: 'system',
+          content: RESOLVE_PROMPT + (LANG_HINT[lang] || LANG_HINT.zh),
+        },
+        {
+          role: 'user',
+          content: `最近问答：\n${renderHistoryForResolve(history)}\n\n新提问：${question}`,
+        },
+      ],
+      { maxTokens: 160, temperature: 0 }
+    );
+    return parseResolve(content);
+  } catch {
+    return null;
+  }
+}
+
+/* -------------------------------- 网页版兜底 -------------------------------- */
+
+/**
+ * 未命中时附上网页版助手地址。
+ *
+ * 只给链接、不代查：网页版能用模型通用知识、能多轮追问，那是它擅长的；
+ * 机器人这边一旦放开通用知识，运维参数类问题就可能出现编造，
+ * 而同事会把机器人说的话当依据去执行 —— 这条界线不动。
+ */
+export function withWebHint(text, lang, cfg = CONFIG) {
+  const url = String(cfg.webUiFallbackUrl || '').trim();
+  if (!url) return text;
+  const tpl = pickText(lang, cfg.webUiFallbackText, cfg.webUiFallbackTextEn);
+  if (!tpl) return text;
+  return `${text}\n${tpl.replace(/\{url\}/g, url)}`;
 }
 
 /**

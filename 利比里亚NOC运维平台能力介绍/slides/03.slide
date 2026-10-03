@@ -1,0 +1,34 @@
+<Slide>
+  <Box style={{position: 'relative', width: '100%', height: '100%', overflow: 'hidden', background: 'linear-gradient(120deg, #0F2C4D 0%, #0072BC 100%)'}}>
+    <Box style={{position: 'absolute', inset: 0, opacity: 0.16}}>
+      <svg width={1280} height={720} viewBox='0 0 1280 720'>
+        <path d='M0 600 L220 470 L430 560 L640 380 L860 500 L1080 330 L1280 420' fill='none' stroke='#FFFFFF' strokeWidth='2' />
+        <path d='M0 660 L220 560 L430 630 L640 500 L860 600 L1080 460 L1280 540' fill='none' stroke='#FFFFFF' strokeWidth='2' />
+        <circle cx='220' cy='470' r='7' fill='#FFFFFF' />
+        <circle cx='430' cy='560' r='7' fill='#FFFFFF' />
+        <circle cx='640' cy='380' r='7' fill='#FFFFFF' />
+        <circle cx='860' cy='500' r='7' fill='#FFFFFF' />
+        <circle cx='1080' cy='330' r='7' fill='#FFFFFF' />
+        <path d='M640 380 L640 120' fill='none' stroke='#FFFFFF' strokeWidth='2' />
+        <path d='M600 160 L640 120 L680 160' fill='none' stroke='#FFFFFF' strokeWidth='2' />
+      </svg>
+    </Box>
+    <Box style={{position: 'absolute', left: 64, right: 64, top: 150, zIndex: 1}}>
+      <Box style={{flexDirection: 'row', alignItems: 'flex-end', gap: 28}}>
+        <Text style={{fontSize: 96, fontWeight: 900, color: 'rgba(255,255,255,0.28)', lineHeight: 1}}>01</Text>
+        <Box style={{paddingBottom: 14}}>
+          <Text style={{fontSize: 44, fontWeight: 700, color: '#FFFFFF', lineHeight: 1.25}}>
+            运维现状
+          </Text>
+        </Box>
+      </Box>
+      <Box style={{width: 72, height: 4, background: '#FF922B', marginTop: 28}} />
+      <Text style={{fontSize: 19, fontWeight: 400, color: 'rgba(255,255,255,0.82)', marginTop: 24, lineHeight: 1.55, maxWidth: 820}}>
+        一张什么都在报的网络，为什么值班的人还是只能靠猜。
+      </Text>
+    </Box>
+    <Box style={{position: 'absolute', left: 64, bottom: 48, zIndex: 1}}>
+      <Text style={{fontSize: 14, color: 'rgba(255,255,255,0.5)', letterSpacing: '1.5px'}}>OLR MS 运维工具平台</Text>
+    </Box>
+  </Box>
+</Slide>

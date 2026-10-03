@@ -228,7 +228,8 @@
     #pdf-print-sheet .pdf-title{font:700 20px "Segoe UI","Microsoft YaHei",sans-serif; margin:0 0 5mm}
     #pdf-print-sheet .pdf-meta{font:12px "Segoe UI","Microsoft YaHei",sans-serif; color:#52616b; margin-bottom:4mm}
     #pdf-print-sheet svg{display:block; width:100%; height:auto; max-height:178mm; page-break-inside:avoid}
-    /* 链路编号标签与节点标记全部保留：PDF 放大后可按 L#/K# 编号逐条辨认链路 */
+    /* 链路编号（L#/K#）不在地图上绘制：编号另见明细表与 KML Placemark 属性，
+       链路数量远多于站点，编号框会在密集区域互相压盖。站点名保留。 */
     #pdf-print-sheet .pdf-links h2{font:700 20px "Segoe UI","Microsoft YaHei",sans-serif}
     #pdf-print-sheet table{width:100%; border-collapse:collapse; font:11px "Segoe UI","Microsoft YaHei",sans-serif}
     #pdf-print-sheet th,#pdf-print-sheet td{border:1px solid #cbd5e1; padding:4px 6px; text-align:left}
@@ -2556,9 +2557,10 @@ function topologySvg(options){
   out.push(`<rect width="${W}" height="${H}" fill="#ffffff"/><rect x="28" y="28" width="${W-56}" height="${H-56}" fill="none" stroke="#d7e0e8" stroke-width="2"/>`);
   out.push(`<text x="70" y="88" font-family="Microsoft YaHei,Segoe UI,sans-serif" font-size="34" font-weight="700" fill="#16233b">MW UME ${g.kind==='geo'?'地理':'逻辑'}拓扑</text>`);
   // 先画主链路：密集区域节点连接右侧展开框中的同名节点；其余保持真实屏幕位置。
-  g.links.forEach(e=>{const a=by[e.source],b=by[e.target];if(!a||!b)return;const pa=pos(a),pb=pos(b),x1=pa.x,y1=pa.y,x2=pb.x,y2=pb.y,mx=(x1+x2)/2,my=(y1+y2)/2,dx=x2-x1,dy=y2-y1,len=Math.hypot(dx,dy)||1,key=[e.source,e.target].sort().join('|'),pi=pairSeen[key]||0;pairSeen[key]=pi+1;const bend=((pi%7)-3)*0.06*len,cx=mx-dy/len*bend,cy=my+dx/len*bend,sw=e.status==='critical'?2.8:e.status==='major'?2.4:e.status==='minor'?1.7:1.3,d=`M ${x1.toFixed(1)} ${y1.toFixed(1)} Q ${cx.toFixed(1)} ${cy.toFixed(1)} ${x2.toFixed(1)} ${y2.toFixed(1)}`;out.push(`<path d="${d}" fill="none" stroke="${color(e)}" stroke-width="${sw}" stroke-linecap="round" stroke-dasharray="${e.status==='unknown'?'10 8':'none'}" opacity="${e.status==='unknown'?.62:'.9'}"/>`);const lx=cx,ly=cy;out.push(`<g class="link-label"><rect x="${(lx-20).toFixed(1)}" y="${(ly-13).toFixed(1)}" width="40" height="24" rx="6" fill="#ffffff" stroke="${color(e)}" stroke-width="1.5"/><text x="${lx.toFixed(1)}" y="${(ly+4).toFixed(1)}" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="12" font-weight="700" fill="#16233b">L${e.id}</text></g>`);});
-  // KML(Orange)：保持真实地理屏幕坐标，矢量绘制。
-  (g.kml||[]).forEach(k=>{ if(!k.points || k.points.length<2) return; const d=k.points.map((p,i)=>(i?'L':'M')+' '+px(p.x).toFixed(1)+' '+py(p.y).toFixed(1)).join(' '); const a=k.points[0],b=k.points[k.points.length-1],lx=(px(a.x)+px(b.x))/2,ly=(py(a.y)+py(b.y))/2; out.push(`<path d="${d}" fill="none" stroke="${k.color}" stroke-width="1.6" stroke-linecap="round" opacity=".9"/>`); out.push(`<g class="kml-link-label"><rect x="${(lx-24).toFixed(1)}" y="${(ly-13).toFixed(1)}" width="48" height="24" rx="6" fill="#fff7ed" stroke="${k.color}" stroke-width="1.5"/><text x="${lx.toFixed(1)}" y="${(ly+4).toFixed(1)}" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="12" font-weight="700" fill="#7c2d12">K${k.id}</text></g>`); });
+  // 只画矢量路径，不写 L# 编号标签（编号见末尾「链路明细」表）。站点名保留。
+  g.links.forEach(e=>{const a=by[e.source],b=by[e.target];if(!a||!b)return;const pa=pos(a),pb=pos(b),x1=pa.x,y1=pa.y,x2=pb.x,y2=pb.y,mx=(x1+x2)/2,my=(y1+y2)/2,dx=x2-x1,dy=y2-y1,len=Math.hypot(dx,dy)||1,key=[e.source,e.target].sort().join('|'),pi=pairSeen[key]||0;pairSeen[key]=pi+1;const bend=((pi%7)-3)*0.06*len,cx=mx-dy/len*bend,cy=my+dx/len*bend,sw=e.status==='critical'?2.8:e.status==='major'?2.4:e.status==='minor'?1.7:1.3,d=`M ${x1.toFixed(1)} ${y1.toFixed(1)} Q ${cx.toFixed(1)} ${cy.toFixed(1)} ${x2.toFixed(1)} ${y2.toFixed(1)}`;out.push(`<path d="${d}" fill="none" stroke="${color(e)}" stroke-width="${sw}" stroke-linecap="round" stroke-dasharray="${e.status==='unknown'?'10 8':'none'}" opacity="${e.status==='unknown'?.62:'.9'}"/>`);});
+  // KML(Orange)：保持真实地理屏幕坐标，矢量绘制；同样不写 K# 编号标签。
+  (g.kml||[]).forEach(k=>{ if(!k.points || k.points.length<2) return; const d=k.points.map((p,i)=>(i?'L':'M')+' '+px(p.x).toFixed(1)+' '+py(p.y).toFixed(1)).join(' '); out.push(`<path d="${d}" fill="none" stroke="${k.color}" stroke-width="1.6" stroke-linecap="round" opacity=".9"/>`); });
   // 密集城市总览锚点与连接线；展开后的节点在右侧框中逐一可见。
   bubbles.forEach((b,i)=>{
     const ox=px(b.cx),oy=py(b.cy),box=b.box;
@@ -2568,7 +2570,7 @@ function topologySvg(options){
     out.push(`<rect x="${box.x}" y="${box.y}" width="${box.w}" height="${box.h}" rx="12" fill="${cssVar('--panel','#08122c')}" stroke="${cssVar('--accent','#00d9ff')}" stroke-width="2"/>`);
     out.push(`<text x="${box.x+24}" y="${box.y+32}" font-family="Segoe UI,sans-serif" font-size="18" font-weight="700" fill="#16233b">${b.id} ${svgEsc(b.name)} · ${b.nodes.length} nodes</text>`);
   });
-  // 节点与名称：密集节点画到展开框，普通节点保留真实位置。
+  // 节点：标记点 + 站点名（站点名保留）；不保留的是链路编号 L#/K#。
   g.nodes.forEach(n=>{
     const p=pos(n),c=LVL_COLOR[n.status]||LVL_COLOR.unknown;
     if(!expandedNode.has(n.id)) out.push(`<circle class="node-marker" cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="5" fill="#eaf2f7" stroke="${c}" stroke-width="1.8"/>`);
@@ -2727,32 +2729,27 @@ function geoVectorSvg(g, prj, meta){
   out.push('<g id="pdf-vector-layer">');
   /* ---- 主链路（矢量 path，宽度固定 mm，放大只变长不变糊） ---- */
   const LVL_W_MM = { critical:0.5, major:0.38, minor:0.28, healthy:0.22 };
+  /* 主链路：只画矢量路径，不写 L# 编号标签。链路数量远多于站点，编号框在密集区域互相压盖；
+     编号另见 PDF 末尾「链路明细」表与 KML Placemark 属性。站点名保留（见下）。 */
   g.links.forEach(e=>{
     let d=geoLinkPathMm(e,prj); if(!d) return;
     const sw=LVL_W_MM[e.status]||0.22, col=LVL_COLOR[e.status]||LVL_COLOR.unknown;
     const dash=e.status==='unknown' ? ' stroke-dasharray="2.6 2"' : '';
     out.push('<path d="'+d+'" fill="none" stroke="'+col+'" stroke-width="'+sw+'" stroke-linecap="round" opacity="0.92"'+dash+'/>');
-    const mid=geoLinkMid(e), lx=prj.X(mid[1]), ly=prj.Y(mid[0]);
-    const tag='L'+e.id, w=tag.length*1.9+2.4;
-    out.push('<g class="link-label"><rect x="'+(lx-w/2).toFixed(2)+'" y="'+(ly-2.1).toFixed(2)+'" width="'+w.toFixed(2)+'" height="4.2" rx="1.2" fill="#ffffff" fill-opacity="0.92" stroke="'+col+'" stroke-width="0.22"/>'+
-      '<text x="'+lx.toFixed(2)+'" y="'+(ly+1.15).toFixed(2)+'" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="3.1" font-weight="bold" fill="#16233b">'+tag+'</text></g>');
   });
-  /* ---- KML / Orange 链路：矢量线段 + 端点圆点 ---- */
+  /* KML / Orange 链路：矢量线段 + 端点圆点；同样不写 K# 编号标签（编号见表与 KML 属性） */
   (g.kml||[]).forEach(k=>{
     const pts=(k.latlngs||[]).filter(p=>p && isFinite(p[0]) && isFinite(p[1]));
     if(pts.length<2) return;
     const d=pts.map((p,i)=>(i?'L':'M')+' '+prj.X(p[1]).toFixed(2)+' '+prj.Y(p[0]).toFixed(2)).join(' ');
     out.push('<path d="'+d+'" fill="none" stroke="'+(k.color||'#ff9500')+'" stroke-width="0.3" stroke-linecap="round" opacity="0.9"/>');
-    const a=pts[0], b=pts[pts.length-1], lx=prj.X((a[1]+b[1])/2), ly=prj.Y((a[0]+b[0])/2);
-    const tag='K'+k.id, w=tag.length*1.9+2.4;
-    out.push('<g class="kml-link-label"><rect x="'+(lx-w/2).toFixed(2)+'" y="'+(ly-2.1).toFixed(2)+'" width="'+w.toFixed(2)+'" height="4.2" rx="1.2" fill="#fff7ed" fill-opacity="0.92" stroke="'+(k.color||'#ff9500')+'" stroke-width="0.22"/>'+
-      '<text x="'+lx.toFixed(2)+'" y="'+(ly+1.15).toFixed(2)+'" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="3.1" font-weight="bold" fill="#7c2d12">'+tag+'</text></g>');
   });
   (meta.kmlSites||[]).forEach(s=>{
     if(!s || !isFinite(s.lat)||!isFinite(s.lon)) return;
     out.push('<circle cx="'+prj.X(s.lon).toFixed(2)+'" cy="'+prj.Y(s.lat).toFixed(2)+'" r="0.7" fill="'+(s.color||'#ff9500')+'" opacity="0.85"/>');
   });
-  /* ---- 站点 + 站点名称（矢量文本） ---- */
+  /* 站点：圆点 + 站点名（站点名保留 —— 是辨认拓扑的必要信息）。
+     不保留的是链路编号 L#/K#：链路数量远多于站点，编号框在密集区域互相压盖。 */
   g.nodes.forEach(n=>{
     if(!isFinite(n.lat)||!isFinite(n.lon)) return;
     const x=prj.X(n.lon), y=prj.Y(n.lat), c=LVL_COLOR[n.status]||LVL_COLOR.unknown;

@@ -1,0 +1,69 @@
+<Slide>
+  <Box style={{width: '100%', height: '100%', paddingTop: 32, paddingBottom: 20, paddingLeft: 64, paddingRight: 64}}>
+    {/* A · Title */}
+    <Box style={{height: 88, flexDirection: 'row', alignItems: 'flex-start', gap: 12}}>
+      <Box style={{width: 4, height: 40, background: '#0072BC', marginTop: 4}} />
+      <Box style={{flex: 1}}>
+        <Text style={{fontSize: 34, fontWeight: 700, color: '#0F2C4D', lineHeight: 1.3}}>所有看板，一屏可达</Text>
+        <Text style={{fontSize: 16, fontWeight: 400, color: '#64748B', marginTop: 6}}>
+          目录本身就是产品：找到正确的看板不再是一场记忆考试。
+        </Text>
+      </Box>
+    </Box>
+
+    {/* B · Content : image left 56% */}
+    <Box style={{height: 516, marginTop: 12, flexDirection: 'row', gap: 32}}>
+      <Box style={{width: 620, height: '100%', borderRadius: 10, overflow: 'hidden', border: '1px solid #E2E8F0'}}>
+        <Image src="assets/portal_screen.png" style={{width: '100%', height: '100%', objectFit: 'cover'}} />
+      </Box>
+
+      <Box style={{flex: 1, height: '100%', justifyContent: 'space-between'}}>
+        <Box>
+          <Text style={{fontSize: 19, fontWeight: 700, color: '#0F2C4D'}}>一份目录，十个业务域</Text>
+          <Text style={{fontSize: 15, fontWeight: 400, color: '#64748B', marginTop: 8, lineHeight: 1.55}}>
+            五十六张看板与报表，按贵司实际的组织方式来分组：MS 综合运维、告警与工单、
+            网络性能、传输承载、动力与备件、自动化调度等等。
+          </Text>
+        </Box>
+        <Box>
+          <Text style={{fontSize: 19, fontWeight: 700, color: '#0F2C4D'}}>四种看法</Text>
+          <Text style={{fontSize: 15, fontWeight: 400, color: '#64748B', marginTop: 8, lineHeight: 1.55}}>
+            卡片网格用来浏览、高密清单用来检索、业务域矩阵给管理层俯瞰、
+            任务视图显示平台此刻正在跑什么。
+          </Text>
+        </Box>
+        <Box>
+          <Text style={{fontSize: 19, fontWeight: 700, color: '#0F2C4D'}}>值班室和会议室都能用</Text>
+          <Text style={{fontSize: 15, fontWeight: 400, color: '#64748B', marginTop: 8, lineHeight: 1.55}}>
+            中英文一键切换，深浅两套主题适配现场光线；任意看板可扫码在手机上打开，
+            也可以就地内嵌预览。
+          </Text>
+        </Box>
+        <Box style={{background: '#0F2C4D', borderRadius: 10, padding: 18, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center'}}>
+          <Box>
+            <Text style={{fontSize: 30, fontWeight: 900, color: '#FFFFFF'}}>56</Text>
+            <Text style={{fontSize: 12, color: 'rgba(255,255,255,0.65)'}}>张看板</Text>
+          </Box>
+          <Box>
+            <Text style={{fontSize: 30, fontWeight: 900, color: '#FFFFFF'}}>10</Text>
+            <Text style={{fontSize: 12, color: 'rgba(255,255,255,0.65)'}}>个业务域</Text>
+          </Box>
+          <Box>
+            <Text style={{fontSize: 30, fontWeight: 900, color: '#FFFFFF'}}>4</Text>
+            <Text style={{fontSize: 12, color: 'rgba(255,255,255,0.65)'}}>种视图</Text>
+          </Box>
+          <Box>
+            <Text style={{fontSize: 30, fontWeight: 900, color: '#FF922B'}}>2</Text>
+            <Text style={{fontSize: 12, color: 'rgba(255,255,255,0.65)'}}>种语言</Text>
+          </Box>
+        </Box>
+      </Box>
+    </Box>
+
+    {/* C · Footer */}
+    <Box style={{height: 40, marginTop: 12, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid #E2E8F0'}}>
+      <Text style={{fontSize: 14, color: '#94A3B8'}}>OLR MS 运维工具平台</Text>
+      <Text style={{fontSize: 14, color: '#94A3B8'}}>08 / 17</Text>
+    </Box>
+  </Box>
+</Slide>

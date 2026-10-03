@@ -1,0 +1,144 @@
+<slide xmlns="https://www.larkoffice.com/sml/2.0">
+  <style>
+    <fill>
+      <fillColor color="rgba(255,255,255,1)"/>
+    </fill>
+  </style>
+  <data>
+    <!-- 标题区 -->
+    <shape type="text" topLeftX="60" topLeftY="40" width="840" height="50">
+      <content textType="title" fontSize="28" color="rgba(0,28,84,1)" bold="true">
+        <p>亮点一：竞品基准对比 · 网络质量可量化</p>
+      </content>
+    </shape>
+    <shape type="text" topLeftX="60" topLeftY="85" width="840" height="25">
+      <content textType="body" fontSize="14" color="rgba(71,85,105,1)">
+        <p>基于 Speedtest &amp; Meta 真实测试数据，逐日落胜分析 Orange vs MTN</p>
+      </content>
+    </shape>
+    <line startX="60" startY="120" endX="900" endY="120">
+      <border color="rgba(0,48,135,0.15)" width="1"/>
+    </line>
+
+    <!-- 上半部分：对比指标表 -->
+    <table topLeftX="60" topLeftY="145" width="840" height="140">
+      <colgroup>
+        <col width="160"/>
+        <col width="180"/>
+        <col width="180"/>
+        <col width="160"/>
+        <col width="160"/>
+      </colgroup>
+      <tr height="32">
+        <td>
+          <fill><fillColor color="rgba(0,48,135,1)"/></fill>
+          <content textType="body" fontSize="12" bold="true" color="rgba(255,255,255,1)" textAlign="center"><p>对比维度</p></content>
+        </td>
+        <td>
+          <fill><fillColor color="rgba(0,48,135,1)"/></fill>
+          <content textType="body" fontSize="12" bold="true" color="rgba(255,255,255,1)" textAlign="center"><p>Orange 领先</p></content>
+        </td>
+        <td>
+          <fill><fillColor color="rgba(0,48,135,1)"/></fill>
+          <content textType="body" fontSize="12" bold="true" color="rgba(255,255,255,1)" textAlign="center"><p>MTN 数据</p></content>
+        </td>
+        <td>
+          <fill><fillColor color="rgba(0,48,135,1)"/></fill>
+          <content textType="body" fontSize="12" bold="true" color="rgba(255,255,255,1)" textAlign="center"><p>测试样本</p></content>
+        </td>
+        <td>
+          <fill><fillColor color="rgba(0,48,135,1)"/></fill>
+          <content textType="body" fontSize="12" bold="true" color="rgba(255,255,255,1)" textAlign="center"><p>数据来源</p></content>
+        </td>
+      </tr>
+      <tr height="30">
+        <td><content textType="body" fontSize="11" textAlign="center"><p>下载速率</p></content></td>
+        <td><content textType="body" fontSize="11" textAlign="center" color="rgba(220,38,38,1)" bold="true"><p>93.5 Mbps</p></content></td>
+        <td><content textType="body" fontSize="11" textAlign="center"><p>74.0 Mbps</p></content></td>
+        <td><content textType="body" fontSize="11" textAlign="center"><p>1,019 次</p></content></td>
+        <td><content textType="body" fontSize="11" textAlign="center"><p>Speedtest</p></content></td>
+      </tr>
+      <tr height="30">
+        <td><content textType="body" fontSize="11" textAlign="center"><p>上传速率</p></content></td>
+        <td><content textType="body" fontSize="11" textAlign="center" color="rgba(220,38,38,1)" bold="true"><p>21.9 Mbps</p></content></td>
+        <td><content textType="body" fontSize="11" textAlign="center"><p>18.5 Mbps</p></content></td>
+        <td><content textType="body" fontSize="11" textAlign="center"><p>1,019 次</p></content></td>
+        <td><content textType="body" fontSize="11" textAlign="center"><p>Speedtest</p></content></td>
+      </tr>
+      <tr height="30">
+        <td><content textType="body" fontSize="11" textAlign="center"><p>综合评分</p></content></td>
+        <td><content textType="body" fontSize="11" textAlign="center" color="rgba(22,163,74,1)" bold="true"><p>98.9 分</p></content></td>
+        <td><content textType="body" fontSize="11" textAlign="center"><p>100.0 分</p></content></td>
+        <td><content textType="body" fontSize="11" textAlign="center"><p>22 天</p></content></td>
+        <td><content textType="body" fontSize="11" textAlign="center"><p>Meta</p></content></td>
+      </tr>
+    </table>
+
+    <!-- 下半部分：网络 KPI 概览 -->
+    <shape type="text" topLeftX="60" topLeftY="310" width="840" height="30">
+      <content textType="headline" fontSize="18" color="rgba(0,48,135,1)" bold="true">
+        <p>全制式网络可用率监控</p>
+      </content>
+    </shape>
+
+    <!-- 3个制式指标 -->
+    <shape type="rect" topLeftX="60" topLeftY="355" width="260" height="110" presetHandlers="8">
+      <fill><fillColor color="rgba(248,250,252,1)"/></fill>
+      <border color="rgba(0,48,135,0.2)" width="1"/>
+    </shape>
+    <shape type="text" topLeftX="80" topLeftY="370" width="220" height="25">
+      <content textType="body" fontSize="14" color="rgba(71,85,105,1)">
+        <p>2G 可用率</p>
+      </content>
+    </shape>
+    <shape type="text" topLeftX="80" topLeftY="400" width="220" height="50">
+      <content textType="headline" fontSize="36" color="rgba(0,48,135,1)" bold="true">
+        <p>97.61%</p>
+      </content>
+    </shape>
+
+    <shape type="rect" topLeftX="350" topLeftY="355" width="260" height="110" presetHandlers="8">
+      <fill><fillColor color="rgba(248,250,252,1)"/></fill>
+      <border color="rgba(0,48,135,0.2)" width="1"/>
+    </shape>
+    <shape type="text" topLeftX="370" topLeftY="370" width="220" height="25">
+      <content textType="body" fontSize="14" color="rgba(71,85,105,1)">
+        <p>3G 可用率</p>
+      </content>
+    </shape>
+    <shape type="text" topLeftX="370" topLeftY="400" width="220" height="50">
+      <content textType="headline" fontSize="36" color="rgba(0,48,135,1)" bold="true">
+        <p>98.44%</p>
+      </content>
+    </shape>
+
+    <shape type="rect" topLeftX="640" topLeftY="355" width="260" height="110" presetHandlers="8">
+      <fill><fillColor color="rgba(240,249,245,1)"/></fill>
+      <border color="rgba(22,163,74,0.3)" width="1"/>
+    </shape>
+    <shape type="text" topLeftX="660" topLeftY="370" width="220" height="25">
+      <content textType="body" fontSize="14" color="rgba(22,101,52,1)">
+        <p>4G 可用率 · 达标</p>
+      </content>
+    </shape>
+    <shape type="text" topLeftX="660" topLeftY="400" width="220" height="50">
+      <content textType="headline" fontSize="36" color="rgba(22,163,74,1)" bold="true">
+        <p>99.35%</p>
+      </content>
+    </shape>
+
+    <!-- 页脚 -->
+    <shape type="text" topLeftX="60" topLeftY="500" width="840" height="20">
+      <content textType="caption" fontSize="10" color="rgba(148,163,184,1)">
+        <p>数据来源：OLR MS 网络状态概览 · 阈值 99.65% · 数据截至 2026-09-29</p>
+      </content>
+    </shape>
+  </data>
+  <note>
+    <content textType="body">
+      <p>这一页展示我们平台的第一个核心亮点：网络质量可量化、可对比。</p>
+      <p>通过 Speedtest 和 Meta 的真实测试数据，我们可以逐日落胜分析 Orange 和 MTN 的网络表现。从数据看，Orange 在下载和上传速率上都有明显领先。</p>
+      <p>下方是全制式网络可用率监控，4G 可用率已达到 99.35%，接近 SLA 阈值要求。</p>
+    </content>
+  </note>
+</slide>

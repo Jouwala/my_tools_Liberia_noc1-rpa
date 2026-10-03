@@ -176,13 +176,19 @@ if (-not $npm -and -not $nodeExe) {
     exit 2
 }
 
-# ---------- 1) Portal dev server (vite, 9267) ----------
-Add-Report '----- 1) Portal dev server (9267) -----'
+# ---------- 1) Portal production server (Express, 9267) ----------
+# B1 (2026-10-01): production no longer runs `npm run dev` (Vite dev server).
+# The dev server leaked @vite/client + react-refresh to LAN clients, kept the
+# HMR endpoint open, and hosted the whole auth stack in a non-production process.
+# `npm run start` now runs the Express entry (server/index.ts via tsx), which
+# serves the hashed build output from dist/ and binds 127.0.0.1 only.
+# Rollback: restore start_hidden.ps1_bak_20261001_B1_prod_switch and package.json.
+Add-Report '----- 1) Portal production server (9267) -----'
 function Ensure-Portal {
     if (Test-PortListening 9267) {
         $owner = Get-PortOwnerPid 9267
         if (Test-OwnedByProject $owner 'liberia-noc_soc') {
-            Add-Report ("[OK] Portal dev server already running (pid={0}, port 9267)" -f $owner)
+            Add-Report ("[OK] Portal production server already running (pid={0}, port 9267)" -f $owner)
             return $true
         }
         Add-Report ("[WARN] Port 9267 is held by pid={0}, which is NOT this project - the portal will not be reachable as expected." -f $owner)
@@ -190,34 +196,33 @@ function Ensure-Portal {
         $script:warnCount++
         return $false
     }
-    # 1st attempt: the project's own script (npm run dev).
+    # 1st attempt: the project's own script (npm run start -> tsx server/index.ts).
     if ($npm) {
-        if ((Start-Hidden $npm.Source @('run', 'dev') $base 'portal_dev.log') -and (Wait-Port 9267 60)) {
-            return (Confirm-Http 'Portal dev server' 9267 'http://127.0.0.1:9267/uniplam/')
+        if ((Start-Hidden $npm.Source @('run', 'start') $base 'portal_prod.log') -and (Wait-Port 9267 60)) {
+            return (Confirm-Http 'Portal production server' 9267 'http://127.0.0.1:9267/uniplam/')
         }
-        Add-Report '[WARN] npm run dev did not open port 9267'
+        Add-Report '[WARN] npm run start did not open port 9267'
         $script:warnCount++
     }
-    # 2nd attempt: bypass npm and run the vite CLI with node directly. npm's
-    # PATH shim for node_modules\.bin can fail ("'vite' is not recognized as an
-    # internal or external command"), and without this the portal would just
-    # stay down.
-    $viteJs = Join-Path $base 'node_modules\vite\bin\vite.js'
-    if ($nodeExe -and (Test-Path $viteJs)) {
-        Add-Report '[*] Retrying with: node node_modules\vite\bin\vite.js --port=9267'
-        if ((Start-Hidden $nodeExe @($viteJs, '--port=9267', '--host=0.0.0.0') $base 'portal_dev.log') -and (Wait-Port 9267 60)) {
-            return (Confirm-Http 'Portal dev server' 9267 'http://127.0.0.1:9267/uniplam/')
+    # 2nd attempt: bypass npm and run tsx directly with node. npm's PATH shim for
+    # node_modules\.bin can fail ("'tsx' is not recognized as an internal or
+    # external command"), and without this the portal would just stay down.
+    $tsxCli = Join-Path $base 'node_modules\tsx\dist\cli.mjs'
+    if ($nodeExe -and (Test-Path $tsxCli)) {
+        Add-Report '[*] Retrying with: node node_modules\tsx\dist\cli.mjs server/index.ts'
+        if ((Start-Hidden $nodeExe @($tsxCli, 'server/index.ts') $base 'portal_prod.log') -and (Wait-Port 9267 60)) {
+            return (Confirm-Http 'Portal production server' 9267 'http://127.0.0.1:9267/uniplam/')
         }
     }
-    Add-Report '[FAIL] Portal dev server did not listen on 9267, check log\portal_dev.log and log\portal_dev.log.err'
+    Add-Report '[FAIL] Portal production server did not listen on 9267, check log\portal_prod.log and log\portal_prod.log.err'
     $script:failCount++
     return $false
 }
 $portalOk = Ensure-Portal
-# See Set-ServicePriority: without this the dev server stays at BelowNormal (inherited
+# See Set-ServicePriority: without this the server stays at BelowNormal (inherited
 # from the Portal_EnsureRunning scheduled task) and the portal API stalls for tens of
 # seconds whenever the machine is busy. Runs on every 5-minute task tick.
-Set-ServicePriority 9267 'Portal dev server (9267)'
+Set-ServicePriority 9267 'Portal production server (9267)'
 
 # ---------- 2) WhatsApp local analysis service (9268) ----------
 # This is the service the portal page calls directly from the browser at

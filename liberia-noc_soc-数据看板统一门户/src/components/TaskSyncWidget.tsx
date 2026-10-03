@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { getMyappTasksApi, getMyappLink } from '../config';
 import { useI18n } from '../i18n';
+import { formatMetric } from '../utils/format';
 
 interface ApiTaskRun {
   success: boolean;
@@ -129,12 +130,26 @@ export const TaskSyncWidget: React.FC = () => {
       }
     };
 
+    // 2026-10-01 修复 B6：原实现无脑每 60s 拉一次 /api/tasks，且响应体大（~77KB），
+    // 就绪度检测实测单标签页 10 分钟 212 次请求 ≈ 100MB/小时。改为「仅在标签页可见时
+    // 轮询」：隐藏时完全停，重新可见时立刻补一次拉取，避免后台标签页持续空耗带宽。
     load();
-    const timer = window.setInterval(load, REFRESH_INTERVAL);
+    let timer = window.setInterval(load, REFRESH_INTERVAL);
+    const onVisibility = () => {
+      if (document.hidden) {
+        window.clearInterval(timer);
+      } else {
+        load();
+        window.clearInterval(timer);
+        timer = window.setInterval(load, REFRESH_INTERVAL);
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibility);
     return () => {
       cancelled = true;
       controller.abort();
       window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisibility);
     };
   }, [lang]);
 
@@ -294,7 +309,7 @@ export const TaskSyncWidget: React.FC = () => {
                 <div className="flex items-center justify-between">
                   <span>{t('task.elapsed')}</span>
                   <span className="font-mono text-slate-700 dark:text-slate-300">
-                    {task.lastElapsed !== null ? `${task.lastElapsed.toFixed(1)}s` : '—'}
+                    {formatMetric(task.lastElapsed, { digits: 1, suffix: 's' })}
                   </span>
                 </div>
               </div>

@@ -1,0 +1,83 @@
+<Slide>
+  <Box style={{width: '100%', height: '100%', paddingTop: 32, paddingBottom: 20, paddingLeft: 64, paddingRight: 64}}>
+    {/* A · Title */}
+    <Box style={{height: 88, flexDirection: 'row', alignItems: 'flex-start', gap: 12}}>
+      <Box style={{width: 4, height: 40, background: '#0072BC', marginTop: 4}} />
+      <Box style={{flex: 1}}>
+        <Text style={{fontSize: 34, fontWeight: 700, color: '#0F2C4D', lineHeight: 1.3}}>自动化引擎</Text>
+        <Text style={{fontSize: 16, fontWeight: 400, color: '#64748B', marginTop: 6}}>
+          六十八个已登记的任务在驱动平台。排程里没有「某人的早晨」这一项。
+        </Text>
+      </Box>
+    </Box>
+
+    {/* B · Content : 65 / 35 */}
+    <Box style={{height: 516, marginTop: 12, flexDirection: 'row', gap: 32}}>
+      {/* Left 65% */}
+      <Box style={{width: 730, height: '100%', background: '#0F2C4D', borderRadius: 10, padding: 28, justifyContent: 'space-between'}}>
+        <Box style={{flexDirection: 'row', alignItems: 'flex-end', gap: 20}}>
+          <Text style={{fontSize: 130, fontWeight: 900, color: '#FFFFFF', lineHeight: 1, letterSpacing: '-3px'}}>68</Text>
+          <Box style={{paddingBottom: 18}}>
+            <Text style={{fontSize: 22, fontWeight: 700, color: '#FF922B'}}>个定时任务</Text>
+            <Text style={{fontSize: 15, fontWeight: 400, color: 'rgba(255,255,255,0.65)', marginTop: 4}}>
+              统一登记在一处
+            </Text>
+          </Box>
+        </Box>
+        <Text style={{fontSize: 16, fontWeight: 400, color: 'rgba(255,255,255,0.82)', lineHeight: 1.6}}>
+          每个上游数据源都有自己的时钟：工单与告警每小时、性能计数每天凌晨、
+          留存期短的源每十五分钟。报表生成、Excel 产出、邮件投递和群组通知
+          都在同一份登记表中——于是「谁去跑」不再是问题，「跑没跑」由记录回答。
+        </Text>
+        <Box style={{flexDirection: 'row', gap: 14}}>
+          <Box style={{flex: 1, background: 'rgba(255,255,255,0.08)', borderRadius: 8, padding: 16}}>
+            <Text style={{fontSize: 24, fontWeight: 900, color: '#FFFFFF'}}>24</Text>
+            <Text style={{fontSize: 13, color: 'rgba(255,255,255,0.65)', marginTop: 4}}>个功能页面</Text>
+          </Box>
+          <Box style={{flex: 1, background: 'rgba(255,255,255,0.08)', borderRadius: 8, padding: 16}}>
+            <Text style={{fontSize: 24, fontWeight: 900, color: '#FFFFFF'}}>7×24</Text>
+            <Text style={{fontSize: 13, color: 'rgba(255,255,255,0.65)', marginTop: 4}}>无人值守运行</Text>
+          </Box>
+          <Box style={{flex: 1, background: 'rgba(255,255,255,0.08)', borderRadius: 8, padding: 16}}>
+            <Text style={{fontSize: 24, fontWeight: 900, color: '#FFFFFF'}}>1</Text>
+            <Text style={{fontSize: 13, color: 'rgba(255,255,255,0.65)', marginTop: 4}}>处改排程的地方</Text>
+          </Box>
+        </Box>
+      </Box>
+
+      {/* Right 35% */}
+      <Box style={{flex: 1, height: '100%', justifyContent: 'space-between'}}>
+        <Box style={{height: 118, background: '#FFFFFF', border: '1px solid #E2E8F0', borderLeft: '3px solid #0072BC', borderRadius: 10, padding: 16}}>
+          <Text style={{fontSize: 17, fontWeight: 700, color: '#0F2C4D'}}>失败自动重试</Text>
+          <Text style={{fontSize: 14, fontWeight: 400, color: '#64748B', marginTop: 6, lineHeight: 1.45}}>
+            跑失败的任务自己重试一遍，不等人发现。
+          </Text>
+        </Box>
+        <Box style={{height: 118, background: '#FFFFFF', border: '1px solid #E2E8F0', borderLeft: '3px solid #0072BC', borderRadius: 10, padding: 16}}>
+          <Text style={{fontSize: 17, fontWeight: 700, color: '#0F2C4D'}}>漏跑自动补投</Text>
+          <Text style={{fontSize: 14, fontWeight: 400, color: '#64748B', marginTop: 6, lineHeight: 1.45}}>
+            没跑到的时间窗事后补齐，缺口不会变成盲区。
+          </Text>
+        </Box>
+        <Box style={{height: 118, background: '#FFFFFF', border: '1px solid #E2E8F0', borderLeft: '3px solid #0072BC', borderRadius: 10, padding: 16}}>
+          <Text style={{fontSize: 17, fontWeight: 700, color: '#0F2C4D'}}>进程有人看着</Text>
+          <Text style={{fontSize: 14, fontWeight: 400, color: '#64748B', marginTop: 6, lineHeight: 1.45}}>
+            后端与 worker 由守护进程托管，卡死即重启，而不是事后上报。
+          </Text>
+        </Box>
+        <Box style={{height: 118, background: '#FFFFFF', border: '1px solid #E2E8F0', borderLeft: '3px solid #FF922B', borderRadius: 10, padding: 16}}>
+          <Text style={{fontSize: 17, fontWeight: 700, color: '#0F2C4D'}}>每次运行都留记录</Text>
+          <Text style={{fontSize: 14, fontWeight: 400, color: '#64748B', marginTop: 6, lineHeight: 1.45}}>
+            单任务与全局历史都可查——被问到之前，证据就已经在了。
+          </Text>
+        </Box>
+      </Box>
+    </Box>
+
+    {/* C · Footer */}
+    <Box style={{height: 40, marginTop: 12, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid #E2E8F0'}}>
+      <Text style={{fontSize: 14, color: '#94A3B8'}}>OLR MS 运维工具平台</Text>
+      <Text style={{fontSize: 14, color: '#94A3B8'}}>12 / 17</Text>
+    </Box>
+  </Box>
+</Slide>

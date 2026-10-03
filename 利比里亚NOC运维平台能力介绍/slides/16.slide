@@ -1,0 +1,69 @@
+<Slide>
+  <Box style={{width: '100%', height: '100%', paddingTop: 32, paddingBottom: 20, paddingLeft: 64, paddingRight: 64}}>
+    {/* A · Title */}
+    <Box style={{height: 88, flexDirection: 'row', alignItems: 'flex-start', gap: 12}}>
+      <Box style={{width: 4, height: 40, background: '#0072BC', marginTop: 4}} />
+      <Box style={{flex: 1}}>
+        <Text style={{fontSize: 34, fontWeight: 700, color: '#0F2C4D', lineHeight: 1.3}}>这改变了什么</Text>
+        <Text style={{fontSize: 16, fontWeight: 400, color: '#64748B', marginTop: 6}}>
+          四项转变，每一项今天都已经在利比里亚 NOC / SOC 上运行。
+        </Text>
+      </Box>
+    </Box>
+
+    {/* B · Content : staggered four blocks */}
+    <Box style={{height: 516, marginTop: 12}}>
+      {/* Row 1 : 60 / 40 */}
+      <Box style={{height: 240, flexDirection: 'row', gap: 16}}>
+        <Box style={{width: 690, background: '#0F2C4D', borderRadius: 10, padding: 24, flexDirection: 'row', alignItems: 'center', gap: 24}}>
+          <Text style={{fontSize: 76, fontWeight: 900, color: '#FFFFFF', lineHeight: 1, letterSpacing: '-2px'}}>68</Text>
+          <Box style={{flex: 1}}>
+            <Text style={{fontSize: 20, fontWeight: 700, color: '#FF922B'}}>手工 → 定时</Text>
+            <Text style={{fontSize: 15, fontWeight: 400, color: 'rgba(255,255,255,0.78)', marginTop: 8, lineHeight: 1.5}}>
+              采集、报表与投递都登记在同一张任务表里。数据新鲜度不再取决于
+              有没有人记得，跑失败的任务还会自己重试。
+            </Text>
+          </Box>
+        </Box>
+        <Box style={{flex: 1, background: '#FFFFFF', border: '1px solid #E2E8F0', borderTop: '3px solid #0072BC', borderRadius: 10, padding: 22, justifyContent: 'space-between'}}>
+          <Text style={{fontSize: 56, fontWeight: 900, color: '#0072BC', lineHeight: 1, letterSpacing: '-1px'}}>56</Text>
+          <Box>
+            <Text style={{fontSize: 18, fontWeight: 700, color: '#0F2C4D'}}>分散 → 一个入口</Text>
+            <Text style={{fontSize: 14, fontWeight: 400, color: '#64748B', marginTop: 6, lineHeight: 1.45}}>
+              两个平台的看板，按十个业务域收进一次登录之后。
+            </Text>
+          </Box>
+        </Box>
+      </Box>
+
+      {/* Row 2 : 40 / 60 */}
+      <Box style={{height: 240, marginTop: 16, flexDirection: 'row', gap: 16}}>
+        <Box style={{width: 420, background: '#FFFFFF', border: '1px solid #E2E8F0', borderTop: '3px solid #0072BC', borderRadius: 10, padding: 22, justifyContent: 'space-between'}}>
+          <Text style={{fontSize: 56, fontWeight: 900, color: '#0072BC', lineHeight: 1, letterSpacing: '-1px'}}>24</Text>
+          <Box>
+            <Text style={{fontSize: 18, fontWeight: 700, color: '#0F2C4D'}}>不透明 → 可追溯</Text>
+            <Text style={{fontSize: 14, fontWeight: 400, color: '#64748B', marginTop: 6, lineHeight: 1.45}}>
+              每个数字都能点开底层记录，导出与页面所见一致。
+            </Text>
+          </Box>
+        </Box>
+        <Box style={{flex: 1, background: '#0F2C4D', borderRadius: 10, padding: 24, flexDirection: 'row', alignItems: 'center', gap: 24}}>
+          <Text style={{fontSize: 62, fontWeight: 900, color: '#FF922B', lineHeight: 1, letterSpacing: '-2px'}}>100%</Text>
+          <Box style={{flex: 1}}>
+            <Text style={{fontSize: 20, fontWeight: 700, color: '#FFFFFF'}}>记忆 → 规则</Text>
+            <Text style={{fontSize: 15, fontWeight: 400, color: 'rgba(255,255,255,0.78)', marginTop: 8, lineHeight: 1.5}}>
+              哪条规则把单派到了哪里，是反推出来给你看的，不是凭回忆说的。
+              500 张工单现场验证：可确认项全部一致，99.2% 能给出规则解释。
+            </Text>
+          </Box>
+        </Box>
+      </Box>
+    </Box>
+
+    {/* C · Footer */}
+    <Box style={{height: 40, marginTop: 12, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid #E2E8F0'}}>
+      <Text style={{fontSize: 14, color: '#94A3B8'}}>OLR MS 运维工具平台</Text>
+      <Text style={{fontSize: 14, color: '#94A3B8'}}>16 / 17</Text>
+    </Box>
+  </Box>
+</Slide>

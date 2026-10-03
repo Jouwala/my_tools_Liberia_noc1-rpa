@@ -59,6 +59,20 @@ export const CONFIG = {
   idBonus: Number(process.env.ID_BONUS ?? raw.idBonus ?? 0.15),
   cooldownMs: Number(process.env.COOLDOWN_MS ?? raw.cooldownMs),
   maxTokens: Number(process.env.MAX_TOKENS ?? raw.maxTokens ?? 512),
+
+  // —— 会话记忆 ——
+  memoryEnabled:
+    process.env.MEMORY_ENABLED != null
+      ? !(process.env.MEMORY_ENABLED === '0' || process.env.MEMORY_ENABLED === 'false')
+      : raw.memoryEnabled !== false,
+  memoryMaxTurns: Number(process.env.MEMORY_MAX_TURNS ?? raw.memoryMaxTurns ?? 3),
+  memoryTtlMs: Number(process.env.MEMORY_TTL_MS ?? raw.memoryTtlMs ?? 600000),
+  memoryMaxChats: Number(process.env.MEMORY_MAX_CHATS ?? raw.memoryMaxChats ?? 200),
+  // 追问消解：有历史时多花一次小模型调用，把「那第二种情况呢」补全成可检索的独立问题。
+  memoryResolve:
+    process.env.MEMORY_RESOLVE != null
+      ? !(process.env.MEMORY_RESOLVE === '0' || process.env.MEMORY_RESOLVE === 'false')
+      : raw.memoryResolve !== false,
 };
 
 /** 供 --check-only / 日志展示用 */
@@ -73,5 +87,9 @@ export function describeConfig() {
     回复模式: CONFIG.replyMode,
     群白名单: CONFIG.allowGroups,
     命中阈值: `minAbs=${CONFIG.minAbs}, minGap=${CONFIG.minGap}`,
+    会话记忆: CONFIG.memoryEnabled
+      ? `开（每人最近 ${CONFIG.memoryMaxTurns} 轮，闲置 ${Math.round(CONFIG.memoryTtlMs / 60000)} 分钟过期` +
+        `${CONFIG.memoryResolve ? '，追问自动补全成独立问题' : ''}）`
+      : '关（每条提问都是全新对话）',
   };
 }

@@ -1,0 +1,197 @@
+<slide xmlns="https://www.larkoffice.com/sml/2.0">
+  <style>
+    <fill>
+      <fillColor color="rgba(13,19,38,1)"/>
+    </fill>
+  </style>
+  <data>
+    <!-- 标题区 -->
+    <shape type="text" topLeftX="60" topLeftY="40" width="840" height="50">
+      <content textType="title" fontSize="28" color="rgba(255,255,255,1)" bold="true">
+        <p>数据洞察引擎 · 68 个自动化任务统一调度</p>
+      </content>
+    </shape>
+    <shape type="text" topLeftX="60" topLeftY="85" width="840" height="25">
+      <content textType="body" fontSize="14" color="rgba(184,188,194,1)">
+        <p>后台数据采集 · 处理 · 分析 · 推送全链路自动化</p>
+      </content>
+    </shape>
+    <line startX="60" startY="120" endX="900" endY="120">
+      <border color="rgba(255,255,255,0.15)" width="1"/>
+    </line>
+
+    <!-- 上半部分：数据流水线四层架构 -->
+    <shape type="text" topLeftX="60" topLeftY="140" width="840" height="30">
+      <content textType="headline" fontSize="16" color="rgba(212,233,255,1)" bold="true">
+        <p>四层数据流水线架构</p>
+      </content>
+    </shape>
+
+    <!-- 数据源层 -->
+    <shape type="rect" topLeftX="60" topLeftY="180" width="180" height="80" presetHandlers="6">
+      <fill><fillColor color="rgba(37,99,235,0.2)"/></fill>
+      <border color="rgba(59,130,246,0.5)" width="1"/>
+    </shape>
+    <shape type="text" topLeftX="70" topLeftY="190" width="160" height="25">
+      <content textType="body" fontSize="13" color="rgba(147,197,253,1)" bold="true">
+        <p>数据源层</p>
+      </content>
+    </shape>
+    <shape type="text" topLeftX="70" topLeftY="220" width="160" height="35">
+      <content textType="caption" fontSize="11" color="rgba(184,188,194,1)">
+        <p>eFlow · UME NMS · SFTP · FTP</p>
+      </content>
+    </shape>
+
+    <!-- 箭头1 -->
+    <line startX="245" startY="220" endX="275" endY="220">
+      <border color="rgba(147,197,253,0.6)" width="1"/>
+      <endArrow type="arrow"/>
+    </line>
+
+    <!-- 采集同步层 -->
+    <shape type="rect" topLeftX="280" topLeftY="180" width="180" height="80" presetHandlers="6">
+      <fill><fillColor color="rgba(37,99,235,0.2)"/></fill>
+      <border color="rgba(59,130,246,0.5)" width="1"/>
+    </shape>
+    <shape type="text" topLeftX="290" topLeftY="190" width="160" height="25">
+      <content textType="body" fontSize="13" color="rgba(147,197,253,1)" bold="true">
+        <p>采集同步层</p>
+      </content>
+    </shape>
+    <shape type="text" topLeftX="290" topLeftY="220" width="170" height="35">
+      <content textType="caption" fontSize="11" color="rgba(184,188,194,1)">
+        <p>定时调度 · 增量更新 · 失败重试</p>
+      </content>
+    </shape>
+
+    <!-- 箭头2 -->
+    <line startX="465" startY="220" endX="495" endY="220">
+      <border color="rgba(147,197,253,0.6)" width="1"/>
+      <endArrow type="arrow"/>
+    </line>
+
+    <!-- 数据存储层 -->
+    <shape type="rect" topLeftX="500" topLeftY="180" width="180" height="80" presetHandlers="6">
+      <fill><fillColor color="rgba(37,99,235,0.2)"/></fill>
+      <border color="rgba(59,130,246,0.5)" width="1"/>
+    </shape>
+    <shape type="text" topLeftX="510" topLeftY="190" width="160" height="25">
+      <content textType="body" fontSize="13" color="rgba(147,197,253,1)" bold="true">
+        <p>数据存储层</p>
+      </content>
+    </shape>
+    <shape type="text" topLeftX="510" topLeftY="220" width="160" height="35">
+      <content textType="caption" fontSize="11" color="rgba(184,188,194,1)">
+        <p>PostgreSQL · SQLite · CSV 快照</p>
+      </content>
+    </shape>
+
+    <!-- 箭头3 -->
+    <line startX="685" startY="220" endX="715" endY="220">
+      <border color="rgba(147,197,253,0.6)" width="1"/>
+      <endArrow type="arrow"/>
+    </line>
+
+    <!-- 应用展示层 -->
+    <shape type="rect" topLeftX="720" topLeftY="180" width="180" height="80" presetHandlers="6">
+      <fill><fillColor color="rgba(212,233,44,0.15)"/></fill>
+      <border color="rgba(212,233,44,0.4)" width="1"/>
+    </shape>
+    <shape type="text" topLeftX="730" topLeftY="190" width="160" height="25">
+      <content textType="body" fontSize="13" color="rgba(212,233,44,1)" bold="true">
+        <p>应用展示层</p>
+      </content>
+    </shape>
+    <shape type="text" topLeftX="730" topLeftY="220" width="160" height="35">
+      <content textType="caption" fontSize="11" color="rgba(184,188,194,1)">
+        <p>看板 · 报告 · 邮件 · 推送</p>
+      </content>
+    </shape>
+
+    <!-- 下半部分：核心能力点 -->
+    <shape type="text" topLeftX="60" topLeftY="290" width="840" height="30">
+      <content textType="headline" fontSize="16" color="rgba(212,233,255,1)" bold="true">
+        <p>核心自动化能力</p>
+      </content>
+    </shape>
+
+    <!-- 左列能力 -->
+    <shape type="text" topLeftX="60" topLeftY="330" width="400" height="28">
+      <content textType="body" fontSize="14" color="rgba(255,255,255,1)" bold="true">
+        <p>· 多源数据自动同步</p>
+      </content>
+    </shape>
+    <shape type="text" topLeftX="80" topLeftY="358" width="380" height="25">
+      <content textType="caption" fontSize="12" color="rgba(148,163,184,1)">
+        <p>eFlow 告警/工单 · RAN/CN/MW/iPRAN KPI · SP 备件</p>
+      </content>
+    </shape>
+
+    <shape type="text" topLeftX="60" topLeftY="395" width="400" height="28">
+      <content textType="body" fontSize="14" color="rgba(255,255,255,1)" bold="true">
+        <p>· 全场景监控看板</p>
+      </content>
+    </shape>
+    <shape type="text" topLeftX="80" topLeftY="423" width="380" height="25">
+      <content textType="caption" fontSize="12" color="rgba(148,163,184,1)">
+        <p>实时告警 · TT/WO · SLA · GIS 地图 · 仓库备件</p>
+      </content>
+    </shape>
+
+    <!-- 右列能力 -->
+    <shape type="text" topLeftX="490" topLeftY="330" width="410" height="28">
+      <content textType="body" fontSize="14" color="rgba(255,255,255,1)" bold="true">
+        <p>· 报告自动生成推送</p>
+      </content>
+    </shape>
+    <shape type="text" topLeftX="510" topLeftY="358" width="390" height="25">
+      <content textType="caption" fontSize="12" color="rgba(148,163,184,1)">
+        <p>SLA 日报 · 备件报表 · 电池 KPI · 丢包看板邮件</p>
+      </content>
+    </shape>
+
+    <shape type="text" topLeftX="490" topLeftY="395" width="410" height="28">
+      <content textType="body" fontSize="14" color="rgba(255,255,255,1)" bold="true">
+        <p>· 自愈与可靠性保障</p>
+      </content>
+    </shape>
+    <shape type="text" topLeftX="510" topLeftY="423" width="390" height="25">
+      <content textType="caption" fontSize="12" color="rgba(148,163,184,1)">
+        <p>失败自动重试 · 数据新鲜度巡检 · P1 告警 WhatsApp 推送</p>
+      </content>
+    </shape>
+
+    <!-- 底部数字条 -->
+    <shape type="rect" topLeftX="60" topLeftY="465" width="840" height="45" presetHandlers="6">
+      <fill><fillColor color="rgba(255,255,255,0.05)"/></fill>
+    </shape>
+    <shape type="text" topLeftX="80" topLeftY="472" width="200" height="30">
+      <content textType="body" fontSize="14" color="rgba(147,197,253,1)" bold="true">
+        <p>68 个自动化任务</p>
+      </content>
+    </shape>
+    <shape type="text" topLeftX="300" topLeftY="472" width="200" height="30">
+      <content textType="body" fontSize="14" color="rgba(147,197,253,1)" bold="true">
+        <p>10+ 数据源接入</p>
+      </content>
+    </shape>
+    <shape type="text" topLeftX="520" topLeftY="472" width="200" height="30">
+      <content textType="body" fontSize="14" color="rgba(212,233,44,1)" bold="true">
+        <p>24/7 无人值守运行</p>
+      </content>
+    </shape>
+    <shape type="text" topLeftX="730" topLeftY="472" width="160" height="30">
+      <content textType="body" fontSize="14" color="rgba(147,197,253,1)" bold="true">
+        <p>分钟级数据刷新</p>
+      </content>
+    </shape>
+  </data>
+  <note>
+    <content textType="body">
+      <p>这一页介绍我们平台的后台引擎——数据洞察与自动化系统。</p>
+      <p>整个系统采用四层流水线架构：从 eFlow、UME、SFTP 等数据源采集数据，经过定时调度和增量更新，存储到 PostgreSQL 和 SQLite，最终通过看板、报告和邮件推送给各级用户。</p>
+      <p>整个平台有 68 个自动化任务在 24/7 无人值守运行，覆盖数据采集、处理、分析和推送的全链路。</p>
+    </content>
+  </note>
+</slide>

@@ -3,6 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- 2026-10-02：本页会出现指向**外部网管**的跳转（Friends Link 里的 ZTE UME /
+     FineBI 等）。这类系统的授权端点按 host 做防跨站校验，一旦带上 Referer 就回
+     403 {"code":3329008}。这里把整页的默认 Referrer 策略设为 no-referrer 兜底 ——
+     即便将来有人新写 <a href> 或 window.open 时漏了 rel="noreferrer"，
+     也不会把本页地址泄露给外部系统、更不会因此触发那个 403。
+     ⚠️ 与 viewer.js 的 openExternal() 是同一件事的两道防线，不要只留一道。 -->
+<meta name="referrer" content="no-referrer">
 <title>MS View · 看板查看器</title>
 <!-- 2026-09-21 同步新 Logo：与 index.html 一致，改用官方品牌资产降采样版。
      原来这里指的是 favicon.svg，该文件已归档改名（favicon.svg_bak_20260921_改用PNG前），

@@ -66,6 +66,8 @@ interface AuthContextValue {
   setToken: (token: string) => void;
   /** 自动携带 Bearer token 的 fetch；遇 401 自动清除会话回到登录态 */
   apiFetch: (path: string, init?: RequestInit) => Promise<Response>;
+  /** 当前会话 token（未登录为 null）。供无法直接用 apiFetch 的场景手动加 Authorization 头 */
+  token: string | null;
   /** 服务端鉴权总开关：false = 免登录（仅日常开发）。null = 尚未探测到 */
   authEnabled: boolean | null;
   /** 当前是否为真实登录（false = 免登录占位身份，无法执行关闭鉴权等敏感操作） */
@@ -290,6 +292,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       updateUser,
       setToken,
       apiFetch,
+      token,
       authEnabled,
       realLogin: !!user && user.id !== DEV_USER_ID,
       refreshAuthMode,
@@ -302,6 +305,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       updateUser,
       setToken,
       apiFetch,
+      token,
       authEnabled,
       refreshAuthMode,
     ]

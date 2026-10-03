@@ -37,6 +37,50 @@ function docTitle(raw, fallback) {
   return m ? m[1].trim() : fallback;
 }
 
+/**
+ * 分块去重：同一段文本只保留一份。
+ *
+ * 为什么必须做：实测索引 816 块里有 **73 块是纯重复**（占 9%），
+ * 其中 `07_iMind-eFlow-Function-Operation-Guide.md` 里同一段
+ * "Prerequisite - The system is deployed successfully..." 样板文字
+ * 被切成 **34 份**、另一段 23 份。
+ *
+ * 危害不是"浪费磁盘"，而是**直接吃掉检索名额**：
+ * 实测查 "Prerequisite for eFlow deployment" 时 topK=6 全部命中
+ * 同一段重复文本 —— 6 个名额只带回 1 条信息，模型看到的"资料"
+ * 严重退化，答非所问的比例随之上升。
+ *
+ * 归一化：**删除所有空白**再比对，而不是「把连续空白压成一个空格」。
+ * 原因：分块器会在断点处重新拼接，同一段原文可能落成
+ * `系统\n部署成功` 与 `系统部署成功` 两种形态；压成单空格时两者仍不相等
+ * （`系统 部署成功` ≠ `系统部署成功`），重复块会漏网。
+ * 中文语料里空白本就不承载语义，整体删除是安全且更彻底的做法。
+ *
+ * 不做模糊匹配 —— 宁可漏合并，不可误合并
+ * （把两段不同的规则当成一段，比留几份重复严重得多）。
+ *
+ * @returns {{chunks: Array, removed: number, groups: number}}
+ */
+export function dedupeChunks(chunks) {
+  const seen = new Map(); // 归一化文本 → 首次出现的下标
+  const out = [];
+  let removed = 0;
+
+  for (const c of chunks) {
+    const key = c.text.replace(/\s+/g, '').trim();
+    if (seen.has(key)) {
+      removed++;
+      // 记录被合并的出处，便于事后核对（同一文档内的重复是主要来源）
+      const first = out[seen.get(key)];
+      if (first && first.source !== c.source) first.alsoIn = [...(first.alsoIn || []), c.source];
+      continue;
+    }
+    seen.set(key, out.length);
+    out.push(c);
+  }
+  return { chunks: out, removed, groups: seen.size };
+}
+
 /* --------------------------------- 主流程 -------------------------------- */
 
 async function main() {
@@ -94,6 +138,16 @@ async function main() {
     console.error('  ✗ 分块结果为空，请检查文件内容。');
     process.exit(1);
   }
+
+  // 2.5 去重：同一段文本只留一份（详见 dedupeChunks 的注释）
+  const { chunks: unique, removed } = dedupeChunks(chunks);
+  if (removed > 0) {
+    console.log(`  去重：移除 ${removed} 个重复块 → ${unique.length} 块（省下 ${(removed / chunks.length * 100).toFixed(1)}% 检索名额）`);
+  } else {
+    console.log('  去重：无重复块');
+  }
+  chunks.length = 0;
+  chunks.push(...unique);
 
   // 3. 嵌入
   console.log(`\n[3/4] 生成向量（${CONFIG.embedModel}）…`);

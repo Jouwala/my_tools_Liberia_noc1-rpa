@@ -542,10 +542,12 @@ window.OLBR_DATA = (function () {
       /* 2026-09-25 改名：门户整体品牌由「OLR MS 门户 · Liberia NOC/SOC 统一入口
          (ZTE OLR MS Portal)」统一为「ZTE OLR MS O&M Tools Platform」，
          中英两份字典同值（用户点名要这个名字）。
+         2026-10-01 再改名：上述名字统一为「ZTE OLR MS Intelligent O&M Platform」，
+         中英两份字典仍同值（用户点名）。改的是品牌名，不是功能名 —— 页面职责不变。
          ⚠️ doc.title 会写进 document.title（olbr.js:3635），
          顶栏 h1 是 index.html 里的静态结构（.mp-title），两处必须一起改。 */
-      'doc.title': 'ZTE OLR MS O&M Tools Platform',
-      'doc.desc': 'ZTE OLR MS O&M Tools Platform —— 利比里亚 NOC/SOC 自动化工具平台入口（展示版）。',
+      'doc.title': 'ZTE OLR MS Intelligent O&M Platform',
+      'doc.desc': 'ZTE OLR MS Intelligent O&M Platform —— 利比里亚 NOC/SOC 自动化工具平台入口（展示版）。',
       'attr.theme': '深色 / 浅色',
       'attr.adminTitle': '看板维护仍在 MsPortal 完成（本页改分组、子分组、排序与用户权限）',
       'attr.searchAria': '搜索看板', 'attr.chipsAria': '分组筛选', 'attr.statusAria': '状态筛选',
@@ -1068,8 +1070,8 @@ window.OLBR_DATA = (function () {
       'dr.noData': 'Nothing to export',
       'env.local': 'Local host', 'env.lr': 'Liberia',
       'foot.ver': 'Ver 1.0-OLBR · showcase edition',
-      'doc.title': 'ZTE OLR MS O&M Tools Platform',
-      'doc.desc': 'ZTE OLR MS O&M Tools Platform — entry to the Liberia NOC/SOC automation tool platform (showcase edition).',
+      'doc.title': 'ZTE OLR MS Intelligent O&M Platform',
+      'doc.desc': 'ZTE OLR MS Intelligent O&M Platform — entry to the Liberia NOC/SOC automation tool platform (showcase edition).',
       'attr.theme': 'Dark / Light',
       'attr.adminTitle': 'Dashboard maintenance stays in MsPortal (this page edits groups, sub-groups, order and user access)',
       'attr.searchAria': 'Search dashboards', 'attr.chipsAria': 'Group filter', 'attr.statusAria': 'Status filter',
@@ -1263,9 +1265,102 @@ window.OLBR_DATA = (function () {
        表现：门户内嵌时图例永远是一块不透明白底，直开 /myapp/?page=gis 才是透明浮字 ——
        同一份 CSS 在两种入口下观感不同。
        故把浮层排除在外。**保留**这条规则本身：将来若有别的小块与地图同级，
-       仍需「贴底浮层」这个待遇，删掉它会静默退回「被地图挤出裁掉」。 */
-    'main#main-content .ant-card-body:has(.leaflet-container) > *:not(.leaflet-container):not(:has(.leaflet-container)):not(.gis-legend-overlay){position:absolute!important;left:0!important;right:0!important;bottom:0!important;z-index:900!important;background:rgba(255,255,255,.88)!important;margin:0!important;padding:2px 8px!important}',
-    '.leaflet-container{height:100%!important;min-height:0!important;max-height:none!important;width:100%!important;border-radius:0!important}'
+       仍需「贴底浮层」这个待遇，删掉它会静默退回「被地图挤出裁掉」。
+
+       ⚠️⚠️ 2026-10-15 同一个坑**又踩了一次**：2026-10-14 GIS 页新增了
+       .gis-rank-overlay（区域排名排名条，右上角），当时只往这里排除了图例，
+       忘了排名条也满足「.ant-card-body 里非 .leaflet-container 的直接子元素」，
+       于是它被这条规则整套接管，三处同时被改坏（实测两种入口对比）：
+         · background  自己的 rgba(255,255,255,.78) → 注入的 .88（白底，最深的一处）
+         · z-index     自己的 1000 → 注入的 900（**掉到 Leaflet 控件之下**）
+         · 定位        right:1rem/top:1rem 被 left:0;right:0;bottom:0 覆盖，
+                       整块被拉成 [0,10,189,842] —— 从「右上角小面板」变成
+                       「左侧通高一条」，把地图左缘盖掉。
+       用户报的是「背景说明都异常，不匹配」，实际连带定位与层级一起错了。
+       **教训：这条排除表是"白名单"，GIS 页每新增一个地图同级浮层都必须登记**，
+       否则症状会以"样式不匹配"的形式在门户侧单独出现（直开永远是好的，
+       因为 MAP_STRIP_CSS 只在门户侧注入 —— 这类 bug 只有对比两种入口才看得见）。
+       → 新增浮层时请同时更新这里与 MsPortal/assets/portal.js 的同一份列表
+         （那边的孪生规则在 MsPortal/assets/portal.js:3705，同样只排除了图例）。 */
+    'main#main-content .ant-card-body:has(.leaflet-container) > *:not(.leaflet-container):not(:has(.leaflet-container)):not(.gis-legend-overlay):not(.gis-rank-overlay){position:absolute!important;left:0!important;right:0!important;bottom:0!important;z-index:900!important;background:rgba(255,255,255,.88)!important;margin:0!important;padding:2px 8px!important}',
+    '.leaflet-container{height:100%!important;min-height:0!important;max-height:none!important;width:100%!important;border-radius:0!important}',
+    /* 地图内容左移，避免被右上角的 MAINTENANCE ALERTS 面板遮挡。
+       ⚠️ 这个数值经历过三次决定，改动前请读完，别只看最后一行。
+       ---- 为什么用 margin-left 而不是 transform ----
+       Leaflet 每次拖拽/缩放都会重写 .leaflet-map-pane 的**行内 transform**
+       （实测基线就是 `translate3d(0px,0px,0px)`），写在 transform 上的位移会被冲掉；
+       margin 不在 Leaflet 的管辖范围内，实测拖拽后仍存活
+       （见 TMP/_diag_v1_pansurvive.cjs 第 3 步）。
+       ---- 2026-10-15：用户要求左移，取值 -160px ----
+       原话：「/myapp/?page=gis 这个页面已经是 8 了，所以不用再放大了，
+       但是要把地图向左平移，避免右边的图例遮挡地图」。
+       ---- 2026-10-03（上一轮）：曾归零为 0 ----
+       用户反馈「不点击的时候地图右边也有空白」「那个空白不是海」。
+       查明确实不是海：左移 160px 时瓦片层被推出容器右缘约 151px，
+       露出的是**没画任何瓦片的画布底色**。故当时归零，空白消失。
+       ---- 2026-10-03（本轮）：重新左移，但取值改为 -89px ----
+       用户反馈「利比里亚的地图被 MAINTENANCE ALERTS 图例遮挡了」，
+       并提议「地图的中心要往左平移 10% 的宽度」。10% = 885*0.10 ≈ 89px。
+       实测（TMP/_probe_rank_fix.py，行内覆盖扫描）确认方向正确：
+         · MAINTENANCE ALERTS(.gis-rank-overlay) 实测矩形 x=573..829 y=124..398，
+           盖住 **35** 个站点圆点（左下角那个 .gis-legend-overlay 只盖 2 个）。
+         · 基线   0px → 被盖 35，右缝 -70px（铺满）
+           -40px      → 被盖 24
+           -89px      → 被盖 **10**（降 71%），右缝 +19px  ← **本次取值**
+           -140px     → 被盖  0（完全避开），但右缝 +70px
+           +40..+240px→ 被盖 24~40（**反方向无用甚至更差**）
+       为什么选 -89 而不是能完全避开的 -140：-140 会让地图右缘空出 70px
+       画布底色，正是上一轮刚修掉的那个空白问题（只是换到右边）。
+       -89 是「遮挡降 71%」与「地图仍铺满」的交点，且它正是用户说的 10%。
+       ⚠️ 已知取舍：被盖的 10 个站点仍在面板底下。若哪天要彻底避开，
+          优先考虑**缩窄 .gis-rank-overlay**（实测 width 150px → 被盖 7，
+          width 120px → 被盖 0），那是比继续推地图更干净的办法 ——
+          推地图总会以某一侧的空白为代价。
+       ---- 与浮层的关系（重要，别再耦合）----
+       **margin-left 只平移地图内容，不会移动任何浮层。** 这条已专项复核
+       （TMP/_probe_pane_coupling.py，取 -140/-89/+40/+80/+120 六档）：
+       .gis-rank-overlay 恒为 [573,124,829,398]、.gis-legend-overlay 恒为
+       [9,571,230,849]，**纹丝不动**。原因是 .leaflet-map-pane 是零尺寸定位元素
+       （实测 offsetWidth=0），margin 只影响其子内容的绘制位置。
+       所以**不要**给这两个浮层加任何"配套位移"——2026-10-15 已踩过：
+       给 .gis-rank-overlay 加 translateX 会让它悬到中间，
+       用户当场就问「MAINTENANCE ALERTS 为什么没有在最右边」。
+       另注：.gis-rank-overlay 现由 index.css 的 `right:56px` 定位（原 196px），
+       与 LAYERS 面板右缘对齐，那是另有决定的事，与地图位移无关。
+       ---- 为什么选择器要带 :has(.gis-rank-overlay)（**别简化成裸 .leaflet-map-pane**）----
+       这条 CSS 是 **Alarm 与 MW 两个页签共用**的（同一份 MAP_STRIP_CSS），
+       而 -89px 只对 Alarm 有意义：MW 页签**没有** MAINTENANCE ALERTS 面板，
+       它的地图本来就铺满，左移 89px 是纯损失 —— 实测 MW 右缝会从 -9px 变 +82px，
+       即把上一轮刚修掉的那个「右边空白」原样带回来（已验证过一次，别重犯）。
+       故用 :has(.gis-rank-overlay) 把位移限定在"存在该面板的页面"。
+       ⚠️ 判据选择说明：.gis-rank-overlay 与 .leaflet-container 是**兄弟**
+       （同在 .ant-card-body 下），所以 :has 必须挂在 .ant-card-body 上；
+       写成 `.leaflet-container:has(~ .gis-rank-overlay)` 实测命中 **0** 个，是错的。
+       为什么不用 `html:not(.mw-embed)`：那个也能工作（实测 Alarm=1 / MW=0），
+       但它是"排除 MW"的写法，与"哪里需要避让"这个真实意图隔了一层，
+       且依赖 MW 页自己声明的嵌入态 class；一旦 MW 改用别的标记就会静默失效。
+       :has() 在现代 Chrome/Edge（本平台目标浏览器）已支持，实测 CSS.supports 为 true。
+       选择器命中数已逐条实测（TMP/_probe_selector_check.py）：
+         · .ant-card-body:has(.gis-rank-overlay) .leaflet-map-pane  → Alarm 1 / MW 0  ✅
+         · html:not(.mw-embed) .leaflet-map-pane                    → Alarm 1 / MW 0  ✅（备选）
+         · .leaflet-map-pane（裸写）                                 → Alarm 1 / MW 1  ❌ 会伤 MW */
+    '.ant-card-body:has(.gis-rank-overlay) .leaflet-map-pane{margin-left:-89px!important}',
+    /* ⚠️ 2026-10-15 修正：**不要**给 .gis-rank-overlay 加位移。
+       我第一版顺手写了 `.gis-rank-overlay{transform:translateX(-160px)}`，
+       理由是"地图左移了、浮层不跟着移会撞在一起" —— 那是**想当然，实测是错的**：
+       排名条本来就靠 index.css 的 `right:196px` 定位，那个 196 是专门为
+       让开右上角的「图层」开关（right:56 + 宽 132 + 8 间隙）算出来的，
+       它相对右边缘的位置**本来就是对的**，跟地图往哪边移没有关系。
+       把它一起左移 160px 的后果就是用户 2026-10-15 立刻看出来的那句
+       「MAINTENANCE ALERTS 为什么没有在最右边」：
+         加了我这条 → 排名条右缘距容器右边 216px（悬在中间）
+         去掉我这条 → 右缘距容器右边 56px（与直开一致）
+       实测见 TMP/_diag_v1_rankgap.cjs（把 transform 覆盖为 none 前后对比）。
+       结论：**地图内容平移与浮层定位是两件事，别把它们耦合起来。** */
+    /* 图例（左下角）同理不参与平移：它本来就贴左边，跟着左移会直接出界。
+       注：图例与排名条都在"地图同级浮层"这一类里，但两者的定位诉求相反，
+       这也是为什么不能给 .ant-card-body 加一个统一位移。 */
+    '.gis-legend-overlay{transform:none!important}'
   ].join('');
 
   /* ----------------------------------------------------- qc thresholds -- */

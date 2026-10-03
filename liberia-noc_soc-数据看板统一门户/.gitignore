@@ -72,6 +72,13 @@ out.txt
 *.bak-*
 *.bak.*
 *bak
+# 2026-10-01 补：B5 就绪度检测发现另两种"归档/停用"后缀没被覆盖，
+# 且它们会被 nginx 当静态文件直接发出去（实测可下载）：
+#   MsPortal/assets/portal.js.fixed                 → 240,919 字节
+#   MsPortal/tailwind.config.v3.js.archived         → 936 字节
+# 与上面的快照规则同类，都属磁盘回滚件，不该进版本库。
+*.fixed
+*.archived
 
 # 运行日志与构建缓存
 log/

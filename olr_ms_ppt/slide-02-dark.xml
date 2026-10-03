@@ -1,0 +1,209 @@
+<slide xmlns="https://www.larkoffice.com/sml/2.0">
+  <style>
+    <fill>
+      <fillColor color="rgba(13,19,38,1)"/>
+    </fill>
+  </style>
+  <data>
+    <!-- 标题区 -->
+    <shape width="840" height="50" topLeftX="60" topLeftY="40" type="text">
+      <content textType="title" fontSize="32" fontFamily="思源黑体" color="rgba(255, 255, 255, 1)" bold="true">
+        <p>OLR MS 运维门户</p>
+      </content>
+    </shape>
+    <shape width="840" height="30" topLeftX="60" topLeftY="90" type="text">
+      <content fontSize="16" fontFamily="思源黑体" color="rgba(184, 188, 194, 1)">
+        <p>面向客户的一站式运维可视化平台 · 60+ 看板 · 10 大业务分组</p>
+      </content>
+    </shape>
+    <line startX="60" startY="130" endX="900" endY="130">
+      <border color="rgba(255, 255, 255, 0.12)" width="1"/>
+    </line>
+
+    <!-- 左列：日常运营概览 -->
+    <shape width="380" height="30" topLeftX="60" topLeftY="150" type="text">
+      <content textType="headline" fontSize="18" fontFamily="思源黑体" color="rgba(147, 197, 253, 1)" bold="true">
+        <p>日常运营概览</p>
+      </content>
+    </shape>
+
+    <!-- 指标卡片1 -->
+    <shape width="115" height="90" topLeftX="60" topLeftY="195" presetHandlers="8" type="rect">
+      <fill><fillColor color="rgba(255,255,255,0.06)"/></fill>
+      <border color="rgba(255,255,255,0.1)" width="1"/>
+    </shape>
+    <shape width="95" height="20" topLeftX="70" topLeftY="205" type="text">
+      <content textType="caption" fontSize="11" fontFamily="思源黑体" color="rgba(148, 163, 184, 1)">
+        <p>告警 Alarm</p>
+      </content>
+    </shape>
+    <shape width="95" height="40" topLeftX="70" topLeftY="230" type="text">
+      <content textType="headline" fontSize="32" fontFamily="思源黑体" color="rgba(252, 165, 165, 1)" bold="true">
+        <p>65</p>
+      </content>
+    </shape>
+
+    <!-- 指标卡片2 -->
+    <shape width="115" height="90" topLeftX="185" topLeftY="195" presetHandlers="8" type="rect">
+      <fill><fillColor color="rgba(255,255,255,0.06)"/></fill>
+      <border color="rgba(255,255,255,0.1)" width="1"/>
+    </shape>
+    <shape width="95" height="20" topLeftX="195" topLeftY="205" type="text">
+      <content textType="caption" fontSize="11" fontFamily="思源黑体" color="rgba(148, 163, 184, 1)">
+        <p>故障工单 TT</p>
+      </content>
+    </shape>
+    <shape width="95" height="40" topLeftX="195" topLeftY="230" type="text">
+      <content textType="headline" fontSize="32" fontFamily="思源黑体" color="rgba(147, 197, 253, 1)" bold="true">
+        <p>77</p>
+      </content>
+    </shape>
+
+    <!-- 指标卡片3 -->
+    <shape width="115" height="90" topLeftX="310" topLeftY="195" presetHandlers="8" type="rect">
+      <fill><fillColor color="rgba(255,255,255,0.06)"/></fill>
+      <border color="rgba(255,255,255,0.1)" width="1"/>
+    </shape>
+    <shape width="95" height="20" topLeftX="320" topLeftY="205" type="text">
+      <content textType="caption" fontSize="11" fontFamily="思源黑体" color="rgba(148, 163, 184, 1)">
+        <p>任务工单 WO</p>
+      </content>
+    </shape>
+    <shape width="95" height="40" topLeftX="320" topLeftY="230" type="text">
+      <content textType="headline" fontSize="32" fontFamily="思源黑体" color="rgba(147, 197, 253, 1)" bold="true">
+        <p>176</p>
+      </content>
+    </shape>
+
+    <!-- 网络状态监控 -->
+    <shape width="380" height="30" topLeftX="60" topLeftY="310" type="text">
+      <content textType="headline" fontSize="18" fontFamily="思源黑体" color="rgba(147, 197, 253, 1)" bold="true">
+        <p>网络状态监控</p>
+      </content>
+    </shape>
+
+    <!-- 流量卡片 -->
+    <shape width="115" height="90" topLeftX="60" topLeftY="355" presetHandlers="8" type="rect">
+      <fill><fillColor color="rgba(59, 130, 246, 0.1)"/></fill>
+      <border color="rgba(59, 130, 246, 0.25)" width="1"/>
+    </shape>
+    <shape width="95" height="20" topLeftX="70" topLeftY="365" type="text">
+      <content textType="caption" fontSize="11" fontFamily="思源黑体" color="rgba(148, 163, 184, 1)">
+        <p>总流量 TB</p>
+      </content>
+    </shape>
+    <shape width="95" height="40" topLeftX="70" topLeftY="390" type="text">
+      <content textType="headline" fontSize="26" fontFamily="思源黑体" color="rgba(147, 197, 253, 1)" bold="true">
+        <p>273.95</p>
+      </content>
+    </shape>
+
+    <!-- 用户卡片 -->
+    <shape width="115" height="90" topLeftX="185" topLeftY="355" presetHandlers="8" type="rect">
+      <fill><fillColor color="rgba(59, 130, 246, 0.1)"/></fill>
+      <border color="rgba(59, 130, 246, 0.25)" width="1"/>
+    </shape>
+    <shape width="95" height="20" topLeftX="195" topLeftY="365" type="text">
+      <content textType="caption" fontSize="11" fontFamily="思源黑体" color="rgba(148, 163, 184, 1)">
+        <p>活跃用户 K</p>
+      </content>
+    </shape>
+    <shape width="95" height="40" topLeftX="195" topLeftY="390" type="text">
+      <content textType="headline" fontSize="26" fontFamily="思源黑体" color="rgba(147, 197, 253, 1)" bold="true">
+        <p>478.6</p>
+      </content>
+    </shape>
+
+    <!-- 可用率卡片 -->
+    <shape width="115" height="90" topLeftX="310" topLeftY="355" presetHandlers="8" type="rect">
+      <fill><fillColor color="rgba(34, 197, 94, 0.1)"/></fill>
+      <border color="rgba(34, 197, 94, 0.25)" width="1"/>
+    </shape>
+    <shape width="95" height="20" topLeftX="320" topLeftY="365" type="text">
+      <content textType="caption" fontSize="11" fontFamily="思源黑体" color="rgba(148, 163, 184, 1)">
+        <p>4G 可用率 %</p>
+      </content>
+    </shape>
+    <shape width="95" height="40" topLeftX="320" topLeftY="390" type="text">
+      <content textType="headline" fontSize="26" fontFamily="思源黑体" color="rgba(74, 222, 128, 1)" bold="true">
+        <p>99.35</p>
+      </content>
+    </shape>
+
+    <!-- 右列：核心功能模块 -->
+    <shape width="410" height="30" topLeftX="490" topLeftY="150" type="text">
+      <content textType="headline" fontSize="18" fontFamily="思源黑体" color="rgba(147, 197, 253, 1)" bold="true">
+        <p>核心功能模块</p>
+      </content>
+    </shape>
+
+    <shape width="410" height="30" topLeftX="490" topLeftY="190" type="text">
+      <content fontSize="14" fontFamily="思源黑体" color="rgba(255, 255, 255, 1)" bold="true">
+        <p>· 多视角团队看板</p>
+      </content>
+    </shape>
+    <shape width="390" height="25" topLeftX="510" topLeftY="215" type="text">
+      <content textType="caption" fontSize="12" fontFamily="思源黑体" color="rgba(148, 163, 184, 1)">
+        <p>CXO / SP / MS / FLM / FO / BO 六大视图分组</p>
+      </content>
+    </shape>
+
+    <shape width="410" height="30" topLeftX="490" topLeftY="250" type="text">
+      <content fontSize="14" fontFamily="思源黑体" color="rgba(255, 255, 255, 1)" bold="true">
+        <p>· 竞品基准对比分析</p>
+      </content>
+    </shape>
+    <shape width="390" height="25" topLeftX="510" topLeftY="275" type="text">
+      <content textType="caption" fontSize="12" fontFamily="思源黑体" color="rgba(148, 163, 184, 1)">
+        <p>Orange vs MTN 速率/时延/综合评分逐日落胜对比</p>
+      </content>
+    </shape>
+
+    <shape width="410" height="30" topLeftX="490" topLeftY="310" type="text">
+      <content fontSize="14" fontFamily="思源黑体" color="rgba(255, 255, 255, 1)" bold="true">
+        <p>· GIS 实时告警地图</p>
+      </content>
+    </shape>
+    <shape width="390" height="25" topLeftX="510" topLeftY="335" type="text">
+      <content textType="caption" fontSize="12" fontFamily="思源黑体" color="rgba(148, 163, 184, 1)">
+        <p>利比里亚全国站点分布 · 告警/微波图层切换</p>
+      </content>
+    </shape>
+
+    <shape width="410" height="30" topLeftX="490" topLeftY="370" type="text">
+      <content fontSize="14" fontFamily="思源黑体" color="rgba(255, 255, 255, 1)" bold="true">
+        <p>· 自动化报告中心</p>
+      </content>
+    </shape>
+    <shape width="390" height="25" topLeftX="510" topLeftY="395" type="text">
+      <content textType="caption" fontSize="12" fontFamily="思源黑体" color="rgba(148, 163, 184, 1)">
+        <p>FINEBI 报告 · eFlow TT 规则检查 · 邮件自动推送</p>
+      </content>
+    </shape>
+
+    <shape width="410" height="30" topLeftX="490" topLeftY="430" type="text">
+      <content fontSize="14" fontFamily="思源黑体" color="rgba(255, 255, 255, 1)" bold="true">
+        <p>· 升级机制与知识问答</p>
+      </content>
+    </shape>
+    <shape width="390" height="25" topLeftX="510" topLeftY="455" type="text">
+      <content textType="caption" fontSize="12" fontFamily="思源黑体" color="rgba(148, 163, 184, 1)">
+        <p>4 级值班联系人双网号码 · RAG 知识检索</p>
+      </content>
+    </shape>
+
+    <!-- 底部数据来源 -->
+    <shape width="840" height="20" topLeftX="60" topLeftY="500" type="text">
+      <content textType="caption" fontSize="10" fontFamily="思源黑体" color="rgba(100, 116, 139, 1)">
+        <p>数据来源：OLR MS 运维门户 · 数据截至 2026-09-30</p>
+      </content>
+    </shape>
+  </data>
+  <note>
+    <content>
+      <p>这是我们面向客户展示的运维门户首页。左侧是日常运营的核心指标一览，包括告警、工单等实时状态，以及网络流量、用户数和可用率等关键网络指标。</p>
+      <p>右侧是平台的六大核心功能模块，覆盖从高层 CXO 视图到一线工程师操作的全层级需求。</p>
+      <p>特别值得一提的是竞品基准对比功能，我们用 Speedtest 真实测试数据，逐日落胜分析 Orange 和 MTN 的网络表现差异。</p>
+    </content>
+  </note>
+</slide>

@@ -2403,11 +2403,12 @@
 
      ⚠️ 两页的**嵌套深度不同**，取景相关的结论别互相照抄：
        · gis        —— 单层：Leaflet 直接在门户 iframe 里；不暴露任何全局，
-                       refitLeaflet 对它无效。但它自己就落在 zoom 7（实测）。
+                       refitLeaflet 对它无效。它自己落 zoom 7，由 zoomOnce 放大一级。
        · mwRealTime —— 双层：外层 React 壳 + 内层 mw_real_time.html；
-                       会往 window 上挂 fitAllSites()，refitLeaflet 生效。
-     两页**都落在 zoom 7**（实测，见 MAP_DEFAULT_ZOOM_IN 处），
-     所以那个全局开关取 false 对两页同时成立，不需要按 page 分档。 */
+                       会往 window 上挂 fitAllSites()，refitLeaflet 生效（含放大）。
+     两页**都落在 zoom 7**（内层页自己的取景档，实测），
+     放大一级后的落点见 MAP_ZOOM_IN_BY_PAGE 处（2026-10-16 起按页配置：
+     Alarm/gis 不放大、MW/mwRealTime 放大）。 */
   /* 兜底页：mapItems() 展开后为空时（理论上不会，MAP_TABS 非空）用它兜底，
      否则 curMap() 取不到对象、下面各处读 .src/.page 会抛错。 */
   var MAP_FALLBACK = { page: '', src: 'about:blank', title: '' };
@@ -5617,6 +5618,39 @@
   }
   /* 内层纯静态页（mw_real_time.html）：从 Leaflet 画布逐层向上把兄弟节点整块藏掉。
      这里只能用内联样式 —— 它是静态页，没有 React 会重渲染把 style 覆盖回去。 */
+  /* ⚠️ 2026-10-03：「藏兄弟」时必须**跳过的浮层白名单**。
+     用户反馈「GIS Map 组件的 ALARM 都能点击弹出下钻，MW 能不能一样」——
+     点 MW 的链路时链路会高亮（说明 selectEdge 跑到了、DOM 也填好了），
+     但抽屉不弹出。根因有两层，这是**第二层、也是真正拦住的这一层**：
+       · 第一层在 my_app 侧：mw_real_time.html 的 html.mw-embed 规则里
+         #drawer/#drawer-mask 被 display:none !important（2026-10-03 已摘除）；
+       · 第二层就是这里：下面的 while 循环从 .leaflet-container 逐层向上，
+         把每一层祖先的**所有兄弟节点**统统刷成 display:none !important。
+         MW 页里 .leaflet-container 挂在 #topo-leaflet → #topo-wrap → #left → #main，
+         于是走到 #main 这一层时，#drawer 与 #drawer-mask（body 的直接子元素、
+         与 #main 同级，见 mw_real_time.html 的 body 结构）被一并刷成 display:none。
+         而且这是**内联样式的 !important**，优先级高于页面自己的任何 CSS ——
+         所以只改 mw_real_time.html 的 CSS 是没用的，这里必须同步放行。
+       · 另外上面还把 body 设成 overflow:hidden，position:fixed 的抽屉本身不受影响，
+         但遮罩 #drawer-mask 需要能盖住整屏，故两者都要留下。
+
+     为什么不干脆「只留地图、其余全藏」保持不变，而是开这个口子：
+       抽屉与遮罩不是「地图外的另一套 UI」，它们是**地图自身的下钻出口**。
+       藏掉它们 = 把地图点选这个功能整个砍掉，与「只要地图」的初衷相悖
+       （初衷是去掉页面自带的工具栏/KPI/侧栏那类**重复**控件）。
+     判据用 id，不用 :has()/class 猜：mw_real_time.html 里这两个节点的 id 是稳定的，
+       且 mw_ume_topology.html 等其它内层页也用同名 id（同一套抽屉实现）。
+       一并放行 kpi-modal / kpi-modal-mask：那是 KPI 卡的明细弹窗，同属**点击下钻**出口。
+     ⚠️ 实测留档（TMP/_probe_mw_drawer_embed.py，改前/改后各跑一次做对照）：
+       改前：#drawer 被刷 display:none，getBoundingClientRect() 全 0；
+       改后：抽屉 rect=[465,0,420,858]、computed right=0px、遮罩 display:block，
+             抽屉内的趋势图也渲染出来（用户症状「点了没反应」消失）。
+     ⚠️ 与「地图右侧空白」无关：经对照实测（TMP/_probe_mw_rightgap.py），
+       该空白在**本白名单生效前后都存在**（缝隙 151px ↔ 153px），属既存问题，
+       不是本改动引入的 —— 别把它记到这条改动头上。
+     ⚠️ MsPortal/assets/portal.js 与 olbrportal/assets/olbr.js 各有一份孪生实现，
+       改这里时三份都要改，否则同一份 my_app 页在不同门户入口下表现不一致。 */
+  var KEEP_OVERLAY_IDS = { 'drawer': 1, 'drawer-mask': 1, 'kpi-modal': 1, 'kpi-modal-mask': 1 };
   function keepOnlyMap(doc) {
     var lc = doc.querySelector('.leaflet-container');
     if (!lc) return false;
@@ -5628,6 +5662,9 @@
         if (sib === node) return;
         var tag = sib.tagName;
         if (tag === 'STYLE' || tag === 'SCRIPT' || tag === 'LINK') return;
+        /* 浮层白名单：抽屉 / 遮罩 / KPI 弹窗留给用户点选与查阅，见上方注释。
+           这些节点都是 position:fixed，即便祖先被设成 overflow:hidden 也照样浮在上层。 */
+        if (KEEP_OVERLAY_IDS[sib.id]) return;
         sib.style.setProperty('display', 'none', 'important');
       });
       node = parent;
@@ -5721,49 +5758,101 @@
     }
     return false;
   }
-  /* 默认取景：**完整居中显示利比里亚全境**（2026-09-25 改，按用户需求）。
-     需求演化：
+  /* 默认取景：**打开就比内层页自己的取景再放大一级**（= 用户点一次 + 号的效果）。
+     需求演化（同一栏、同一位用户，四次表态，全部记录在案）：
        · 2026-09-22：「跟手动点一次加号一个效果」→ 默认在前一级基础上再放大一级。
-       · 2026-09-25：明确「打开不能是点一下减号的效果，并且要保持利比里亚居中」
-                    → 回到内层页自己的全国 fitBounds 取景（不再加一级）。
-     本开关就是这次回退的落点：置 false 时 zoomOnce / refitLeaflet 都不再放大。
-     置 true 可恢复到 2026-09-22 的行为（两条放大路径的代码都原样保留）。
+       · 2026-09-25：「打开不能是点一下减号的效果，并且要保持利比里亚居中」
+                    → 回到内层页自己的全国 fitBounds 取景（不加一级）。
+       · 2026-10-02：「两个地图能打开后要默认显示比当前大一号的，类似鼠标点击了一下+号」
+                    → 要回放大一级（本次）。
+       · 2026-10-02（同日复述）：「实际上只要能做到居中，放大一级（zoom 8）是正好，
+                                  7 的话有点小了」
+                    → **确认 zoom 8 就是目标档位**；那点裁边可以接受，**居中**才是判据。
+     故本开关置 true：zoomOnce（gis）与 refitLeaflet（mwRealTime）两条路径都放大一级。
+     置 false 即回到 2026-09-25 的「完整居中显示全国」行为（两条路径的代码都在，
+     改一个布尔即可，不需要恢复实现）。
 
-     ⚠️ 为什么这两件事无法同时满足（与 MsPortal 侧同一次实测结论）：
-       各档可视范围 vs 国土跨度（LB_BOUNDS 4.85°纬 × 4.40°经）：
-         zoom 7 → 装得下全境（本次实测：约 9.66°纬 × 8.87°经）
-         zoom 8 → 只剩约一半（由本次实测反推：约 4.83°纬 × 4.43°经）
-                  ❌ 纬向 4.83° < 国土的 4.85°，已经把南北边缘裁掉
-       内置站点（mwRealTime）的 fitAllSites() 本身就落在 zoom 7，
-       所以「不加一级」= 完整居中，正是本次要求的结果。
-       （早先按 572×858 画布估算出的 9.36°/6.28° 与 4.68°/3.14° 已由实测取代，
-        差异来自实际画布是 767×856 且 fitBounds 带 padding。）
+     ⚠️ zoom 8 会裁掉国土**极窄**一条南北边缘，但这是用户拍板要的效果，不是缺陷：
+         各档可视范围 vs 国土跨度（LB_BOUNDS 4.85°纬 × 4.40°经）：
+           zoom 7 → 约 9.66°纬 × 8.87°经，全境装得下，但**四周留白多、显小**（用户嫌小）
+           zoom 8 → 约 4.83°纬 × 4.43°经，纬向只差 0.02°（≈2km 量级）
+        别被"裁边了"误导成"切掉一半"—— 实际只裁掉一条边，主体完整。
+        用户 2026-10-02 明确「7 有点小了」，所以
+        **不要再单凭"裁边了"就把开关改回 false**；要改先问清是哪一侧的需求变了。
 
-     ⚠️ 2026-09-29：本开关是**全局**的，而本栏有两个页签（gis / mwRealTime）。
-     ✅ 实测两页**都落在 zoom 7**（见下面的实测记录），所以 false 对两页都成立，
-     不需要按 page 分档。早先"gis 没有 fitAllSites 所以会偏低、需要单独补一级"
-     的推断是**错的** —— gis 页自己就会落到 zoom 7（它内层是 React 外壳，
-     不是靠 window 上的函数，所以在门户侧看不到它的取景入口，但结果一样是 zoom 7）。
-     将来若真的出现两页档位不一致，正确做法是**按 page 分档**
-     （在 curMap().page === 'gis' 时才走 zoomOnce），而不是把这里改成 true ——
-     改 true 会让两级放大叠在已经正确的 zoom 7 上，直接裁边。
-     实测数据见下。
+     ✅ 居中已实测（TMP/_probe_v1_centered.cjs，4 条断言全绿）—— 这是本节最该看的数据：
+        · mwRealTime：649 个站点真实经纬的包围盒中心 = 6.405N/9.493W，
+                      与国土中心 6.325N/9.500W 偏差 **1.6% 纬 / 0.2% 经**，几乎正中。
+        · gis       ：站点像素包围盒中心相对容器中心偏移 **9.8% 横 / 1.9% 纵**。
+        即：放大一级之后**本来就是居中的**，无需为"居中"再补任何取景逻辑。
 
-     ✅ 2026-09-29 实测（TMP/_probe_v1_mwfit.cjs，切到 mwRealTime 页签后测）：
-        内层 mw_real_time.html 的瓦片取自 7 级（网络层证据），
-        画面视野约 9.66°纬 × 8.87°经，649 个站点全在画面内、无裁边；
-        视野中心在利比里亚附近。
-        反向校验（TMP/_probe_v1_mwfit_neg.cjs）：把视野按 zoom+1 腰斩后只剩
-        4.83°纬 × 4.43°经，纬向已小于国土的 4.85°，B4c 判据会失败 ——
-        说明上面那个「通过」不是永真断言，确实分辨得出多放大一级。 */
-  var MAP_DEFAULT_ZOOM_IN = false;  /* 2026-09-29：内嵌页回到 mwRealTime，取全国取景 */
+     ⚠️ 2026-09-29 的旧结论「两页都落在 zoom 7，所以一个全局开关就够」**仍然成立**，
+     但当时写在本处的推论「改 true 会让两级放大叠在已经正确的 zoom 7 上、直接裁边」
+     只对**当时的实现**成立：那时 mwRealTime 的 zoomOnce 会因暴露 fitAllSites 而早退，
+     只有 refitLeaflet 一条路；现在两页各走一条路（见 zoomOnce / refitLeaflet），
+     每页都只放大**一次**，不会叠加。
+
+     ✅ 2026-10-02 验收（TMP/_verify_v1_defaultzoom.cjs，7 条断言全绿，连续 3 轮复跑）：
+        · mwRealTime —— 打开后**不加任何操作**，栅格瓦片级别 = 8（内层全国档 7 +1，
+                        网络层证据）；再点一次 `-` 回到 7，证明没有累加。
+        · gis        —— 打开态站点要素像素跨度是「缩小一级」后的 **2.00 倍**
+                        （752px vs 376px），恰好一级；静置 12s 跨度不变，不会继续放大。
+        · 两页 `.leaflet-control-zoom-in` 都在（hasZoomBtn=true），
+          说明「点控件」这条路径对两页都可用，不依赖任何地图实例挂载点。
+        截图留档：TMP/_shot_defaultzoom_gis.png、TMP/_shot_defaultzoom_mwRealTime.png
+        （由 TMP/_shot_v1_defaultzoom.cjs 生成）。
+     ✅ 2026-09-29 基线实测（TMP/_probe_v1_mwfit.cjs）：
+        内层页自己落 zoom 7、画面约 9.66°纬 × 8.87°经、站点全在画面内。
+        反向校验（TMP/_probe_v1_mwfit_neg.cjs）：视野按 zoom+1 腰斩后纬向只剩
+        4.83° < 国土 4.85°，判据会失败 —— 证明该判据确实分辨得出多放大一级。 */
+  /* 打开后是否自动放大的**分页**开关（2026-10-16 起由单一布尔改为按页配置）。
+     ---- 需求演变（四次，按时间）----
+       2026-09-22 用户：跟手动点一次加号一个效果            → 两页都放大
+       2026-09-25 用户：别放大了                            → 两页都不放大
+       2026-10-02 用户：又改回「打开就大一号」                → 两页都放大
+       2026-10-16 用户：「alarm 这个地图不要在点一次放大了」   → **只关 gis，MW 保持放大**
+     所以不能再用一个全局布尔：需求已经**按页分叉**了。键就是 MAP_TABS 的 page 值，
+     将来某一个页要单独调整，只改它自己那一行，不会误伤另一页。
+     ⚠️ 目前两页各走一条独立实现（见 zoomOnce / refitLeaflet 的说明）：
+          · gis（= 界面上那个 "Alarm" 页签）→ zoomOnce
+          · mwRealTime（= "MW" 页签）        → refitLeaflet
+        两个函数各自查自己那一页的开关，互不影响。 */
+  var MAP_ZOOM_IN_BY_PAGE = {
+    /* 2026-10-16：用户要求 Alarm 页不要再自动放大，就用它自己的默认取景。
+       实测该页默认落在 zoom 7（内层 React 页自己的取景），即"打开即所见"。 */
+    gis: false,
+    /* MW 页保持 2026-10-02 的决定：打开的取景比内层 fitAllSites 的全国档大一号。 */
+    mwRealTime: true
+  };
+  /* 取某页是否要自动放大。未知页（例如将来新增的地图页）默认**不放大** ——
+     宁可不放大（用户看得见全境、最多觉得小），也不要擅自改变他的视野。 */
+  function shouldZoomIn(page) {
+    return MAP_ZOOM_IN_BY_PAGE[page] === true;
+  }
+  /* 从 iframe 反查它属于哪一页：src 形如 /myapp/?page=gis&mwembed=1… */
+  function framePage(f) {
+    try {
+      var src = (f && (f.getAttribute('src') || '')) || '';
+      var m = /[?&]page=([^&#]+)/.exec(src);
+      return m ? decodeURIComponent(m[1]) : null;
+    } catch (e) { return null; }
+  }
 
   /* 默认比内层页自己的取景再近一级（2026-09-22 用户：「跟手动点一次加号一个效果」）。
      只在本页面这一侧做：/myapp/ 是两个门户共用的预编译产物，改它的默认 zoom 等于
      把展示版的偏好推给 MsPortal，而且要连带重新发布一批与本次无关的源码。
      先点内层页自己的 + 控件（走它自己的行为链，maxZoom 和它自己的 zoomend 都由它管），
      控件不存在（有的内层页关了 zoomControl）才退到直接改地图实例。
-     ⚠️ 2026-09-25 起只在 MAP_DEFAULT_ZOOM_IN=true 时才调用，见上方开关。 */
+     ⚠️ 只有 shouldZoomIn('gis')=true 时才会真正放大（2026-10-16 起为 false，
+        见 MAP_ZOOM_IN_BY_PAGE；2026-09-25~10-02 期间也曾整体关闭过）。
+     ⚠️ 调用方有**两个**，一页一个，别让同一页同时走到两条：
+        · zoomOnce（gis，React 页，无 fitAllSites）
+        · refitLeaflet（mwRealTime，每轮 fit 之后）
+     ✅ 2026-10-02 实测：两页的 .leaflet-control-zoom-in 都在，
+        所以「点控件」这条主路径对两页都成立；退到实例那条路（findLeafletMap）
+        对 PMTiles 的 gis 页拿不到实例（栅格瓦片无 src 级别段、也无挂载点），
+        但既然控件在，就不影响本需求 —— 万一将来内层页关掉 zoomControl，
+        gis 页会静默不放大（不报错、不白屏），届时需另找入口。 */
   function zoomInLeaflet(d) {
     var btn = d.querySelector('.leaflet-control-zoom-in');
     if (btn) { try { btn.click(); return true; } catch (e) { /* 落到实例 */ } }
@@ -5776,15 +5865,23 @@
       return true;
     } catch (e) { return false; }
   }
-  /* stripFrame 在 0 / 1.4s / 3.4s 会被反复调用，所以必须去重，否则变成 +3。
-     延迟到 1.8s：内层 React 应用在挂载时才 setView，早于它的取景加一级会被盖掉。 */
+  /* 延迟到 1.8s：内层 React 应用在挂载时才 setView，早于它的取景加一级会被盖掉。
+     stripFrame 在 0 / 1.4s / 3.4s 会被反复调用，所以 zoomOnce 必须靠 d.__olbrZoomed
+     去重（否则 +3）；refitLeaflet 那条路不需要去重，理由见它内部的说明。 */
   var MAP_ZOOM_DELAY = 1800;
   function zoomOnce(d) {
     var w = d.defaultView;
-    /* 会自己重新取景的内层页（暴露 fitAllSites）不在这里加：它每次 fit 都会把视野
-       拉回「刚好包住所有站点」，加一级得跟在每次 fit 之后做，见 refitLeaflet。 */
+    /* 会自己重新取景的内层页（暴露 fitAllSites）**不走这条路**：它每次 fit 都会把视野
+       拉回「刚好包住所有站点」，在这里加一级会被随后的 fit 盖掉。它由
+       refitLeaflet 在**每次 fit 之后**加一级（见那里），两条路各管一页、互不重叠：
+         · gis（React 页，无 fitAllSites）      → 本函数
+         · mwRealTime（暴露 fitAllSites）        → refitLeaflet
+        所以两页都开启放大时每页仍只放大一次，不会叠加两级；
+       2026-10-16 起 gis 那项已关，实际只有 mwRealTime 会放大。 */
     if (!w || typeof w.fitAllSites === 'function') return;
-    if (!MAP_DEFAULT_ZOOM_IN) return;      // 2026-09-25：默认回到全国取景，不再放大
+    /* 本函数只服务 gis（会自己重新取景的页由 refitLeaflet 管），
+       所以这里查的就是 gis 那一项。2026-10-16 起该项为 false（用户要求不再放大）。 */
+    if (!shouldZoomIn('gis')) return;
     if (d.__olbrZoomed) return;
     window.setTimeout(function () {
       if (d.__olbrZoomed || !d.querySelector('.leaflet-container')) return;
@@ -5793,7 +5890,9 @@
   }
   /* 只有暴露了 fitAllSites 的内层页（当前是 mwRealTime）需要重新取景：
      fitBounds 跑在容器还矮的时刻，zoom 会低一级。容器高度每落定一次就重跑一次，
-     直到约 12s 的观察窗口结束 —— 中途存在「前 strip 的假稳态」，只做一次会被骗。 */
+     直到约 12s 的观察窗口结束 —— 中途存在「前 strip 的假稳态」，只做一次会被骗。
+     ⚠️ 它同时也是 mwRealTime 的**放大一路**（zoomOnce 对暴露 fitAllSites 的页早退）：
+     见下方 apply() 里的说明，两页各走一条路、互不重叠。 */
   function refitLeaflet(d) {
     var w = d.defaultView;
     if (!w || typeof w.fitAllSites !== 'function') return false;
@@ -5807,9 +5906,17 @@
       if (h <= 0 || h !== st.lastH) return;
       try { w.fitAllSites(); } catch (e) { /* 内层页自己会兜底 */ }
       /* fit 之后才加一级（fit 会重置视野）；再晚一点：fit 带动画时立刻 setZoom 会被忽略。
-         这里不去重是刻意的 —— 每轮都是「重新 fit + 一级」，反复收敛到 fit+1，不会累加。
-         2026-09-25：MAP_DEFAULT_ZOOM_IN=false 时整段跳过，只保留 fitAllSites 的全国取景。 */
-      if (MAP_DEFAULT_ZOOM_IN) {
+         这里不去重是刻意的 —— 每轮都是「重新 fit + 一级」，不会累加：
+         fitAllSites() 内部是 fitBounds(全国, animate:false)，**每次都会把 zoom 重新压回 7**，
+         所以每轮「fit → +1」都收敛到同一个 8，而不是 8→9→10。
+         ✅ 2026-10-02 实测（TMP/_verify_v1_defaultzoom.cjs 的 A3 断言）：点一次 `-` 即回到 7，
+            而不是 6/5 —— 证明重复 apply 没有累加。
+         2026-10-02：MAP_ZOOM_IN_BY_PAGE 重新开启时（打开即大一号），故本段生效；
+         置 false 时整段跳过，只保留 fitAllSites 的全国取景（2026-09-25 的行为）。 */
+      /* 2026-10-16：开关改为**按页**。本函数只服务 mwRealTime（界面上的 "MW" 页签），
+         故查 'mwRealTime' 那一项，当前仍为 true —— **MW 页行为不变**。
+         同一轮里 gis（"Alarm" 页签）那一项被置为 false，由 zoomOnce 提前早退实现。 */
+      if (shouldZoomIn('mwRealTime')) {
         window.setTimeout(function () { zoomInLeaflet(d); }, 700);
       }
     };

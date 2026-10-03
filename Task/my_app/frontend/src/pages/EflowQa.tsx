@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+﻿import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Alert,
   Checkbox,
@@ -30,6 +30,7 @@ import {
   MenuOutlined,
   ReloadOutlined,
   RobotOutlined,
+  ScissorOutlined,
   SearchOutlined,
   ThunderboltOutlined,
   UploadOutlined,
@@ -41,6 +42,7 @@ import * as XLSX from 'xlsx'
 import api from '../api'
 import { useI18n } from '../i18n'
 import TtPostmortemPanel from '../components/TtPostmortemPanel'
+import WoClosePanel from '../components/WoClosePanel'
 import { useIsMobile, useTheme } from '../theme'
 import { exportAoaReport, exportReport } from '../utils/excelReport'
 
@@ -892,6 +894,9 @@ export default function EflowQa() {
   const [batchError, setBatchError] = useState('')
   const [batchOnlyAdjust, setBatchOnlyAdjust] = useState(false)
 
+  // ===== WO 清理（批量关闭 WaitConfirm 工单）=====
+  const [woCloseView, setWoCloseView] = useState(false)
+
   // ===== RAN UME 告警分析 =====
   const [umeKey, setUmeKey] = useState('')
   const [umeView, setUmeView] = useState(false)
@@ -1299,6 +1304,18 @@ export default function EflowQa() {
         </Tooltip>
       </div>
 
+      <div style={{ borderTop: isDark ? '1px solid rgba(0, 217, 255,0.15)' : '1px solid #e5eef5', margin: '2px 0' }} />
+      <div id="wo-close" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <ScissorOutlined style={{ color: '#B5121B' }} />
+        <Text strong style={{ fontSize: 13 }}>{t('qa.woClose.label')}</Text>
+      </div>
+      <Button
+        block
+        icon={<ScissorOutlined style={{ color: '#B5121B' }} />}
+        onClick={() => { setWoCloseView(true); setTtView(false); setTtBatchView(false); setUmeView(false) }}
+      >
+        {t('qa.woClose.openBtn')}
+      </Button>
       <div style={{ borderTop: isDark ? '1px solid rgba(0, 217, 255,0.15)' : '1px solid #e5eef5', margin: '2px 0' }} />
       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
         <FileSearchOutlined style={{ color: '#eb2f96' }} />
@@ -1718,6 +1735,16 @@ export default function EflowQa() {
           </div>
         )}
 
+        {/* ===== WO 清理（批量关闭）视图 ===== */}
+        {woCloseView && (
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
+              <Button size="small" onClick={() => setWoCloseView(false)}>{t('qa.woClose.back')}</Button>
+            </div>
+            <WoClosePanel isMobile={isMobile} />
+          </div>
+        )}
+
         {/* ===== TT 批量级别核查视图 ===== */}
         {ttBatchView && (
           <div>
@@ -1949,7 +1976,7 @@ export default function EflowQa() {
           />
         )}
 
-        {!ttView && !umeView && !ttBatchView && searched && !docLoading && hits !== null && (
+        {!ttView && !umeView && !ttBatchView && !woCloseView && searched && !docLoading && hits !== null && (
           <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
               <Text strong>
@@ -1999,12 +2026,12 @@ export default function EflowQa() {
         )}
 
         {/* 文档视图 */}
-        {!ttView && !umeView && !ttBatchView && docLoading && <div style={{ textAlign: 'center', padding: 60 }}><Spin size="large" /></div>}
-        {!ttView && !umeView && !ttBatchView && !docLoading && docError && <Text type="danger">{docError}</Text>}
-        {!ttView && !umeView && !ttBatchView && !docLoading && !doc && !searched && (
+        {!ttView && !umeView && !ttBatchView && !woCloseView && docLoading && <div style={{ textAlign: 'center', padding: 60 }}><Spin size="large" /></div>}
+        {!ttView && !umeView && !ttBatchView && !woCloseView && !docLoading && docError && <Text type="danger">{docError}</Text>}
+        {!ttView && !umeView && !ttBatchView && !woCloseView && !docLoading && !doc && !searched && (
           <Empty description={isMobile ? t('qa.selectDocMobile') : t('qa.selectDoc')} style={{ marginTop: isMobile ? 32 : 80 }} />
         )}
-        {!ttView && !umeView && !ttBatchView && !docLoading && doc && (
+        {!ttView && !umeView && !ttBatchView && !woCloseView && !docLoading && doc && (
           <div>
             <Title level={4} style={{ marginTop: 0, marginBottom: 8, fontSize: isMobile ? 17 : undefined }}>{doc.title}</Title>
             <div style={{ marginBottom: 12, display: 'flex', gap: 8, flexWrap: 'wrap' }}>

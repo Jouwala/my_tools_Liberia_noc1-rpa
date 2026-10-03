@@ -3708,6 +3708,24 @@
 
   /** 内层纯静态页（mw_real_time.html）：从 Leaflet 画布逐层向上隐藏所有兄弟，
       只留地图，并让整条祖先链撑满 iframe，最后触发 resize 让 Leaflet 重算尺寸。 */
+  /* ⚠️ 2026-10-03：「藏兄弟」时必须**跳过的浮层白名单**。
+     用户反馈「GIS Map 组件的 ALARM 都能点击弹出下钻，MW 能不能一样」——
+     点 MW 的链路时链路会高亮（说明 selectEdge 跑到了、DOM 也填好了），
+     但抽屉不弹出。根因有两层，这是**第二层、也是真正拦住的这一层**：
+       · 第一层在 my_app 侧：mw_real_time.html 的 html.mw-embed 规则里
+         #drawer/#drawer-mask 被 display:none !important（2026-10-03 已摘除）；
+       · 第二层就是这里：下面的 while 循环从 .leaflet-container 逐层向上，
+         把每一层祖先的**所有兄弟节点**统统刷成 display:none !important。
+         MW 页里 .leaflet-container 挂在 #topo-leaflet → #topo-wrap → #left → #main，
+         于是走到 #main 这一层时，#drawer 与 #drawer-mask（body 的直接子元素、
+         与 #main 同级）被一并刷成 display:none。
+         而且这是**内联样式的 !important**，优先级高于页面自己的任何 CSS ——
+         所以只改 mw_real_time.html 的 CSS 是没用的，这里必须同步放行。
+     抽屉与遮罩不是「地图外的另一套 UI」，它们是**地图自身的下钻出口**；
+     藏掉等于把地图点选功能整个砍掉，与「只要地图」的初衷相悖。
+     ⚠️ olbrportal/assets/olbr.js、v1/olbrportal/assets/olbr.js 各有一份孪生实现，
+       改这里时三份都要改，否则同一份 my_app 页在不同门户入口下表现不一致。 */
+  var KEEP_OVERLAY_IDS = { 'drawer': 1, 'drawer-mask': 1, 'kpi-modal': 1, 'kpi-modal-mask': 1 };
   function keepOnlyMap(doc) {
     var lc = doc.querySelector('.leaflet-container');
     if (!lc) return false;
@@ -3720,6 +3738,9 @@
         if (sib === node) return;
         var tag = sib.tagName;
         if (tag === 'STYLE' || tag === 'SCRIPT' || tag === 'LINK') return;
+        /* 浮层白名单：抽屉 / 遮罩 / KPI 弹窗留给用户点选与查阅，见上方注释。
+           这些节点都是 position:fixed，即便祖先被设成 overflow:hidden 也照样浮在上层。 */
+        if (KEEP_OVERLAY_IDS[sib.id]) return;
         sib.style.setProperty('display', 'none', 'important');
       });
       node = parent;

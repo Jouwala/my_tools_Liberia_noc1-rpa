@@ -1,0 +1,107 @@
+<Slide>
+  <Box style={{width: '100%', height: '100%', paddingTop: 32, paddingBottom: 20, paddingLeft: 64, paddingRight: 64}}>
+    {/* A · Title */}
+    <Box style={{height: 88, flexDirection: 'row', alignItems: 'flex-start', gap: 12}}>
+      <Box style={{width: 4, height: 40, background: '#0072BC', marginTop: 4}} />
+      <Box style={{flex: 1}}>
+        <Text style={{fontSize: 34, fontWeight: 700, color: '#0F2C4D', lineHeight: 1.3}}>链条上的三处断点</Text>
+        <Text style={{fontSize: 16, fontWeight: 400, color: '#64748B', marginTop: 6}}>
+          数据一直都在。断的是从源头系统到决策之间的那条路。
+        </Text>
+      </Box>
+    </Box>
+
+    {/* B · Content : 60 / 40 */}
+    <Box style={{height: 516, marginTop: 12, flexDirection: 'row', gap: 40}}>
+      {/* Left 60% : chain diagram */}
+      <Box style={{width: 660, height: '100%', background: '#F2F6FA', borderRadius: 10, padding: 20}}>
+        <svg width={620} height={476} viewBox='0 0 620 476'>
+          {/* sources */}
+          <rect x='10' y='10' width='600' height='86' rx='8' fill='#FFFFFF' stroke='#E2E8F0' strokeWidth='1' />
+          <text x='24' y='34' font-size='14' font-weight='700' fill='#0F2C4D'>源头系统</text>
+          <rect x='24' y='46' width='98' height='34' rx='5' fill='#E8F1FA' />
+          <text x='50' y='68' font-size='13' fill='#0F2C4D'>eFlow</text>
+          <rect x='132' y='46' width='98' height='34' rx='5' fill='#E8F1FA' />
+          <text x='150' y='68' font-size='13' fill='#0F2C4D'>RAN UME</text>
+          <rect x='240' y='46' width='98' height='34' rx='5' fill='#E8F1FA' />
+          <text x='254' y='68' font-size='13' fill='#0F2C4D'>iPRAN / MW</text>
+          <rect x='348' y='46' width='98' height='34' rx='5' fill='#E8F1FA' />
+          <text x='366' y='68' font-size='13' fill='#0F2C4D'>CN EMS</text>
+          <rect x='456' y='46' width='140' height='34' rx='5' fill='#E8F1FA' />
+          <text x='480' y='68' font-size='13' fill='#0F2C4D'>BI 导出 / 邮箱</text>
+
+          {/* break 1 */}
+          <path d='M310 96 L310 140' stroke='#FF922B' strokeWidth='3' stroke-dasharray='7 6' />
+          <rect x='186' y='112' width='248' height='30' rx='15' fill='rgba(255,146,43,0.14)' />
+          <text x='310' y='132' font-size='13' font-weight='700' fill='#C2410C' text-anchor='middle'>断点 1 · 到达时间各不相同</text>
+
+          {/* collection */}
+          <rect x='10' y='146' width='600' height='66' rx='8' fill='#FFFFFF' stroke='#E2E8F0' strokeWidth='1' />
+          <text x='24' y='172' font-size='14' font-weight='700' fill='#0F2C4D'>采集与入库</text>
+          <text x='24' y='194' font-size='13' fill='#64748B'>每个源头在被查看的那一刻刚好发布了什么，就拿到什么</text>
+
+          {/* break 2 */}
+          <path d='M310 212 L310 256' stroke='#FF922B' strokeWidth='3' stroke-dasharray='7 6' />
+          <rect x='186' y='228' width='248' height='30' rx='15' fill='rgba(255,146,43,0.14)' />
+          <text x='310' y='248' font-size='13' font-weight='700' fill='#C2410C' text-anchor='middle'>断点 2 · 要在两个系统里找</text>
+
+          {/* dashboards */}
+          <rect x='10' y='262' width='600' height='66' rx='8' fill='#FFFFFF' stroke='#E2E8F0' strokeWidth='1' />
+          <text x='24' y='288' font-size='14' font-weight='700' fill='#0F2C4D'>看板与报表</text>
+          <text x='24' y='310' font-size='13' fill='#64748B'>两个平台、两套登录，同一张网络却有两套说法</text>
+
+          {/* break 3 */}
+          <path d='M310 328 L310 372' stroke='#FF922B' strokeWidth='3' stroke-dasharray='7 6' />
+          <rect x='186' y='344' width='248' height='30' rx='15' fill='rgba(255,146,43,0.14)' />
+          <text x='310' y='364' font-size='13' font-weight='700' fill='#C2410C' text-anchor='middle'>断点 3 · 手工拼装、口头解释</text>
+
+          {/* decision */}
+          <rect x='10' y='378' width='600' height='76' rx='8' fill='#0F2C4D' />
+          <text x='24' y='404' font-size='14' font-weight='700' fill='#FFFFFF'>决策</text>
+          <text x='24' y='426' font-size='13' fill='rgba(255,255,255,0.75)'>值班判断、升级、SLA 立场——都基于一个没人能完整追回去的数字</text>
+          <text x='24' y='444' font-size='13' fill='#FF922B' font-weight='700'>结果：质量争议靠记忆裁决，而不是靠记录</text>
+        </svg>
+      </Box>
+
+      {/* Right 40% : three cards */}
+      <Box style={{flex: 1, height: '100%', justifyContent: 'space-between'}}>
+        <Box style={{height: 160, background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: 10, padding: 20, justifyContent: 'space-between'}}>
+          <Box>
+            <Text style={{fontSize: 18, fontWeight: 700, color: '#0F2C4D'}}>1 · 数据从不同时到达</Text>
+            <Text style={{fontSize: 15, fontWeight: 400, color: '#64748B', marginTop: 8, lineHeight: 1.5}}>
+              工单、告警、性能计数和 BI 导出各按各的时间落地，任何一次交叉核对
+              都比最新状态慢半拍。
+            </Text>
+          </Box>
+          <Box style={{width: 36, height: 3, background: '#FF922B'}} />
+        </Box>
+        <Box style={{height: 160, background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: 10, padding: 20, justifyContent: 'space-between'}}>
+          <Box>
+            <Text style={{fontSize: 18, fontWeight: 700, color: '#0F2C4D'}}>2 · 没人知道该去哪看</Text>
+            <Text style={{fontSize: 15, fontWeight: 400, color: '#64748B', marginTop: 8, lineHeight: 1.5}}>
+              看板分散在两个平台、两套登录里。找到正确的那一张靠的是记性，
+              不是检索。
+            </Text>
+          </Box>
+          <Box style={{width: 36, height: 3, background: '#FF922B'}} />
+        </Box>
+        <Box style={{height: 160, background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: 10, padding: 20, justifyContent: 'space-between'}}>
+          <Box>
+            <Text style={{fontSize: 18, fontWeight: 700, color: '#0F2C4D'}}>3 · 规则只存在于人脑里</Text>
+            <Text style={{fontSize: 15, fontWeight: 400, color: '#64748B', marginTop: 8, lineHeight: 1.5}}>
+              哪条规则把这张单派给了哪个组，从来没有写下来。被质疑时，答案只能是
+              某个人的回忆。
+            </Text>
+          </Box>
+          <Box style={{width: 36, height: 3, background: '#FF922B'}} />
+        </Box>
+      </Box>
+    </Box>
+
+    {/* C · Footer */}
+    <Box style={{height: 40, marginTop: 12, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid #E2E8F0'}}>
+      <Text style={{fontSize: 14, color: '#94A3B8'}}>OLR MS 运维工具平台</Text>
+      <Text style={{fontSize: 14, color: '#94A3B8'}}>04 / 17</Text>
+    </Box>
+  </Box>
+</Slide>

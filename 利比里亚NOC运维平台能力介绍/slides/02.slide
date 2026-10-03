@@ -1,0 +1,88 @@
+<Slide>
+  <Box style={{width: '100%', height: '100%', paddingTop: 32, paddingBottom: 20, paddingLeft: 64, paddingRight: 64}}>
+    {/* A · Title block */}
+    <Box style={{height: 88, flexDirection: 'row', alignItems: 'flex-start', gap: 12}}>
+      <Box style={{width: 4, height: 40, background: '#0072BC', marginTop: 4}} />
+      <Box style={{flex: 1}}>
+        <Text style={{fontSize: 34, fontWeight: 700, color: '#0F2C4D', lineHeight: 1.3}}>目录</Text>
+        <Text style={{fontSize: 16, fontWeight: 400, color: '#64748B', marginTop: 6}}>
+          我们做了什么、为什么做、以及它给你的运维带来什么改变。
+        </Text>
+      </Box>
+    </Box>
+
+    {/* B · Content */}
+    <Box style={{height: 516, marginTop: 12, flexDirection: 'row', gap: 40}}>
+      {/* Left rail */}
+      <Box style={{width: 300, height: '100%'}}>
+        <Box style={{background: '#0F2C4D', borderRadius: 10, padding: 28, height: '100%', justifyContent: 'space-between'}}>
+          <Box>
+            <Text style={{fontSize: 15, fontWeight: 600, color: '#0072BC', letterSpacing: '1.5px'}}>议程</Text>
+            <Text style={{fontSize: 26, fontWeight: 700, color: '#FFFFFF', marginTop: 14, lineHeight: 1.3}}>
+              五章内容，<br />讲同一件事
+            </Text>
+          </Box>
+          <Text style={{fontSize: 15, fontWeight: 400, color: 'rgba(255,255,255,0.62)', lineHeight: 1.6}}>
+            你的网络本来就在产生数据。缺的是一个地方：数据按时到达、说得出依据、
+            并且直接送到该行动的人手上。
+          </Text>
+        </Box>
+      </Box>
+
+      {/* Right list */}
+      <Box style={{flex: 1, height: '100%', justifyContent: 'space-between'}}>
+        <Box style={{flexDirection: 'row', alignItems: 'center', gap: 24, paddingBottom: 18, borderBottom: '1px solid #E2E8F0'}}>
+          <Text style={{fontSize: 30, fontWeight: 900, color: '#0072BC', width: 44}}>01</Text>
+          <Box style={{flex: 1}}>
+            <Text style={{fontSize: 21, fontWeight: 600, color: '#0F2C4D'}}>运维现状</Text>
+            <Text style={{fontSize: 15, fontWeight: 400, color: '#64748B', marginTop: 3}}>
+              一天的工作真正断在哪里：源头分散、看板两处、报表靠手工拼。
+            </Text>
+          </Box>
+        </Box>
+        <Box style={{flexDirection: 'row', alignItems: 'center', gap: 24, paddingBottom: 18, borderBottom: '1px solid #E2E8F0'}}>
+          <Text style={{fontSize: 30, fontWeight: 900, color: '#0072BC', width: 44}}>02</Text>
+          <Box style={{flex: 1}}>
+            <Text style={{fontSize: 21, fontWeight: 600, color: '#0F2C4D'}}>一个平台，一条流水线</Text>
+            <Text style={{fontSize: 15, fontWeight: 400, color: '#64748B', marginTop: 3}}>
+              从七类上游系统到一个对外发布的数字，中间没有任何一步需要人。
+            </Text>
+          </Box>
+        </Box>
+        <Box style={{flexDirection: 'row', alignItems: 'center', gap: 24, paddingBottom: 18, borderBottom: '1px solid #E2E8F0'}}>
+          <Text style={{fontSize: 30, fontWeight: 900, color: '#0072BC', width: 44}}>03</Text>
+          <Box style={{flex: 1}}>
+            <Text style={{fontSize: 21, fontWeight: 600, color: '#0F2C4D'}}>统一运维门户</Text>
+            <Text style={{fontSize: 15, fontWeight: 400, color: '#64748B', marginTop: 3}}>
+              所有看板、质量指标和报表都在一个登录之后，电脑和手机都能看。
+            </Text>
+          </Box>
+        </Box>
+        <Box style={{flexDirection: 'row', alignItems: 'center', gap: 24, paddingBottom: 18, borderBottom: '1px solid #E2E8F0'}}>
+          <Text style={{fontSize: 30, fontWeight: 900, color: '#0072BC', width: 44}}>04</Text>
+          <Box style={{flex: 1}}>
+            <Text style={{fontSize: 21, fontWeight: 600, color: '#0F2C4D'}}>数据洞察平台</Text>
+            <Text style={{fontSize: 15, fontWeight: 400, color: '#64748B', marginTop: 3}}>
+              数字背后的引擎：定时采集、逐层下钻、任务失败自愈。
+            </Text>
+          </Box>
+        </Box>
+        <Box style={{flexDirection: 'row', alignItems: 'center', gap: 24}}>
+          <Text style={{fontSize: 30, fontWeight: 900, color: '#0072BC', width: 44}}>05</Text>
+          <Box style={{flex: 1}}>
+            <Text style={{fontSize: 21, fontWeight: 600, color: '#0F2C4D'}}>智能助手与价值</Text>
+            <Text style={{fontSize: 15, fontWeight: 400, color: '#64748B', marginTop: 3}}>
+              值班群里直接问到答案，以及这套平台带来的四项转变。
+            </Text>
+          </Box>
+        </Box>
+      </Box>
+    </Box>
+
+    {/* C · Footer */}
+    <Box style={{height: 40, marginTop: 12, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid #E2E8F0'}}>
+      <Text style={{fontSize: 14, color: '#94A3B8'}}>OLR MS 运维工具平台</Text>
+      <Text style={{fontSize: 14, color: '#94A3B8'}}>02 / 17</Text>
+    </Box>
+  </Box>
+</Slide>

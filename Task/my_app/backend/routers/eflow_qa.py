@@ -1188,3 +1188,61 @@ def _render_postmortem_md(rep: Dict[str, Any]) -> str:
     lines.append("")
     lines.append("*本报告由 my_app /api/eflow-qa/_tt_postmortem/{tt_no} 自动生成；模板与 TT202609160106/TT202609210140 双单复盘报告一致。*")
     return "\n".join(lines)
+
+
+# ========== WO 清理（批量关闭 WaitConfirm 工单，2026-10-01） ==========
+# 背景：FE 处理完成后大量 WO 停在 WaitConfirm，需 NOC 确认关闭；此前只能逐单在
+# eFlow 界面点确认。本组端点把 TMP 探针验证过的「detail → process → 复核」三步
+# 链路（见 backend/services/eflow_wo_close.py 模块注释）开放为页面能力。
+# 设计：① /wo-close/check 只读预检；② /wo-close/submit 真正提交（逐单串行+间隔）；
+# 两者都不碰已有路由；写入操作仅限 opName=Confirm 且 status=WaitConfirm 的单。
+
+class WoCloseIn(BaseModel):
+    """WO 批量关闭入参：wos 为已解析单号数组；text 为粘贴原始文本（二者取并集）。"""
+
+    wos: Optional[List[str]] = Field(default=None, description="WO 单号数组（WO+12位数字）")
+    text: Optional[str] = Field(default=None, description="原始文本，按换行/逗号/分号/制表符拆分")
+    limit: Optional[int] = Field(default=None, ge=1, le=200, description="单次上限（默认 200）")
+
+
+@router.post("/wo-close/check")
+def wo_close_check(payload: WoCloseIn):
+    """批量只读预检：逐单判断「是否处于 WaitConfirm 且有待办 Confirm」。
+
+    不做任何提交。返回 rows（逐单：woId/状态/站点/能否关闭/原因）+ summary，
+    供页面先给用户过目，再决定是否真正提交。
+    """
+    from backend.services.eflow_wo_close import batch_check, normalize_wo_list, MAX_BATCH
+
+    valid, invalid = normalize_wo_list(payload.text, payload.wos)
+    if not valid:
+        raise HTTPException(status_code=400, detail="没有解析到有效的 WO 单号（格式：WO+12位数字）")
+    limit = int(payload.limit or MAX_BATCH)
+    res = batch_check(valid, limit=limit)
+    res["invalid"] = invalid
+    logger.info("WO 清理预检：输入 %s 条，可关 %s，忽略 %s",
+                res["input"]["valid"], res["summary"]["closable"], len(invalid))
+    return res
+
+
+@router.post("/wo-close/submit")
+def wo_close_submit(payload: WoCloseIn):
+    """批量关闭：只对预检通过的单逐单提交 Confirm To Close（operationResult="7"）。
+
+    逐单串行 + 1s 间隔；每单提交后立即回读 detail 复核是否真的 Closed。
+    幂等性：已 Closed / 非 WaitConfirm 的单会被跳过而不是报错，重跑安全。
+    """
+    from backend.services.eflow_wo_close import batch_close, normalize_wo_list, MAX_BATCH
+
+    valid, invalid = normalize_wo_list(payload.text, payload.wos)
+    if not valid:
+        raise HTTPException(status_code=400, detail="没有解析到有效的 WO 单号（格式：WO+12位数字）")
+    limit = int(payload.limit or MAX_BATCH)
+    res = batch_close(valid, limit=limit)
+    res["invalid"] = invalid
+    logger.info(
+        "WO 清理提交：输入 %s 条，关闭 %s，跳过 %s，失败 %s，未找到 %s",
+        res["input"]["valid"], res["summary"]["closed"], res["summary"]["skipped"],
+        res["summary"]["failed"], res["summary"]["not_found"],
+    )
+    return res

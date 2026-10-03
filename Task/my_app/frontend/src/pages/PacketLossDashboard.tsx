@@ -15,7 +15,10 @@ import {
 import ReactECharts from 'echarts-for-react'
 // 用自研的 LeafletMap（原生 leaflet）取代 react-leaflet —— 后者是 Hippocratic-2.1
 // 许可（非 OSI，含人权条款/仲裁/赔偿），见 components/LeafletMap.tsx 头部说明。
-import { MapContainer, TileLayer, CircleMarker, Popup, Polyline } from '../components/LeafletMap'
+import { MapContainer, CircleMarker, Popup, Polyline } from '../components/LeafletMap'
+import { BASEMAP_PMTILES_URL, BASEMAP_ATTRIBUTION, BASEMAP_MAX_ZOOM } from './gismap/basemap'
+import { PmtilesLayer } from './gismap/PmtilesLayer'
+import { LayerToggleControl } from './gismap/LayerToggleControl'
 import { exportAoaReport } from '../utils/excelReport'
 import dayjs from 'dayjs'
 import api from '../api'
@@ -218,6 +221,11 @@ export default function PacketLossDashboard() {
   const [hiddenStatuses, setHiddenStatuses] = useState<Set<string>>(new Set())
   // 拓扑显示开关：开启后复用 GIS Map 的真实拓扑链路（/api/gis/topology），按传输类型着色
   const [showTopology, setShowTopology] = useState(false)
+  /* 地名注记开关。**默认关闭**：瓦片带 1.7 万个地名，全开时用户反馈
+     「密密麻麻，什么都看不清」（2026-10-02），与 GISMap.tsx 同处理。 */
+  const [showLabels, setShowLabels] = useState(false)
+  /* 底图道路开关。**默认开启**，与 GISMap.tsx 同处理（2026-10-03）。 */
+  const [showRoads, setShowRoads] = useState(true)
   const [gisTopology, setGisTopology] = useState<any[]>([])
   useEffect(() => {
     if (showTopology && gisTopology.length === 0) {
@@ -598,8 +606,35 @@ export default function PacketLossDashboard() {
               <MapWheelZoomOnClick /> —— 内嵌门户时"点击后才允许滚轮缩放"，
               该设计已按用户要求撤销，辅助组件也已删除。
               Leaflet 默认 scrollWheelZoom=true，故不再显式传参。 */}
-          <MapContainer center={[6.4, -9.4]} zoom={8} className={isDark ? 'gis-dark-map' : ''} style={{ height: isMobile ? '55vh' : 'calc(100vh - 180px)', minHeight: isMobile ? '18.75rem' : '26.25rem', width: '100%', background: 'var(--wh-page-bg)', borderRadius: 'var(--wh-radius-md)' }}>
-            <TileLayer attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+          <MapContainer center={[6.4, -9.4]} zoom={8} style={{ height: isMobile ? '55vh' : 'calc(100vh - 180px)', minHeight: isMobile ? '18.75rem' : '26.25rem', width: '100%', background: 'var(--wh-page-bg)', borderRadius: 'var(--wh-radius-md)' }}>
+            <PmtilesLayer
+              url={BASEMAP_PMTILES_URL}
+              isDark={isDark}
+              maxZoom={BASEMAP_MAX_ZOOM}
+              showLabels={showLabels}
+              showRoads={showRoads}
+            />
+            {/* 图层控制（右上角）。作为 MapContainer 的子节点，靠 portal 落进
+                Leaflet 容器定位 —— 理由见 LayerToggleControl.tsx 头部。 */}
+            <LayerToggleControl
+              title={t('gis.layerTitle')}
+              items={[
+                {
+                  key: 'labels',
+                  label: t('gis.layerLabels'),
+                  hint: t('gis.layerLabelsHint'),
+                  checked: showLabels,
+                  onChange: setShowLabels,
+                },
+                {
+                  key: 'roads',
+                  label: t('gis.layerRoads'),
+                  hint: t('gis.layerRoadsHint'),
+                  checked: showRoads,
+                  onChange: setShowRoads,
+                },
+              ]}
+            />
             {/* 拓扑连线：复用 GIS Map 真实链路，按传输类型着色（MW / IPRAN 等）。
                 先白色描边(casing)增强对比，再画彩色线；hub 链路更粗。 */}
             {showTopology && topology.edges.map((e, i) => (

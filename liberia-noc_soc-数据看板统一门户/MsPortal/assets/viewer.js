@@ -526,6 +526,19 @@
     syncEmbedTheme();   // 必须在赋 src 之前：my_app 只在启动时读一次 localStorage
     frame.src = embedSrc(it);
   }
+
+  /* 打开外部系统的**唯一入口**（2026-10-02 新增）。
+     为什么不让各处自己写 window.open：'noreferrer' 漏一个地方就复现 403
+     （Referer 一旦带上，ZTE UME 的 /api/oauth2/v1/authorize 就按 host 拒掉，
+     见文件上方 select() 里的说明）。收成一处，将来加参数也只改这里。
+
+     'noopener' + 'noreferrer' 两个都要：
+       · noopener   —— 切断 window.opener，防被打开的外部页反向操纵本页；
+       · noreferrer —— 不发 Referer，这才是 UME 放行的关键（noopener 单独不够）。 */
+  function openExternal(url) {
+    if (!url) return;
+    window.open(url, '_blank', 'noopener,noreferrer');
+  }
   function showExternal(it) {
     frame.style.visibility = 'hidden';
     frame.src = 'about:blank';
@@ -602,15 +615,24 @@
     e.preventDefault();
     var it = findItem(a.getAttribute('data-no'));
     if (!it) return;
-    /* 清单本身已按权限过滤，这里再判一次：外链分支是 window.open(真实报告地址)，
-       一旦漏进来就是直接把越权报告开在用户面前，不能只靠清单过滤。 */
+    /* 清单本身已按权限过滤，这里再判一次：下面是 showExternal(真实报告地址)，
+       一旦漏进来就是把越权报告摆在用户面前，不能只靠清单过滤。 */
     if (!allowed(it)) { showDenied(it); return; }
-    if (!isEmbeddable(it)) {
-      // 外部系统：直接新窗口打开（用户手势，弹窗不被拦截），当前内嵌视图保持不变
-      window.open(it.url, '_blank', 'noopener');
-      current = it; elCurTitle.textContent = titleOf(it); renderList();
-      return;
-    }
+    /* 2026-10-02 改（用户要求「点击左边的页签，就不要自动打开新页面，等用户自己点
+       Open in new window」）：外部系统一律**不再自动弹窗**，改为走 select() →
+       showExternal()，在右侧显示占位说明 + 一颗「在新窗口打开」按钮，由用户自己点。
+
+       为什么必须去掉自动 window.open（两个独立原因，缺一都要改）：
+       ① 报错：原来这里是 window.open(it.url, '_blank', 'noopener') —— 只有 noopener、
+          **没有 noreferrer**，浏览器会带上 Referer。而 ZTE UME 网管的授权端点
+          （/api/oauth2/v1/authorize）按 host 做防跨站校验：Referer 不是它自己那个 host
+          就回 403 {"message":"...cross-site access...","code":3329008}（2026-10-02 实测，
+          见 docs/architecture.md 当日决策小节）。带上 noreferrer 即可，但仍不够 ——
+       ② 体验：侧栏每点一下外部看板就弹一个新标签页，用户只是想在清单里翻看一下也会
+          被弹一堆窗口。占位页把「跳转」变成一次**显式**动作，顺带解决了 ①。
+
+       isEmbeddable 为假的看板（FineBI / 第三方）永远走不到 iframe：它们带
+       X-Frame-Options: sameorigin 与 CSP frame-ancestors 'self'，内嵌必被浏览器拒绝。 */
     select(it);
   });
 
@@ -624,10 +646,10 @@
   });
   document.getElementById('reloadBtn').addEventListener('click', function () {
     if (current && isEmbeddable(current)) { loading.style.display = 'flex'; syncEmbedTheme(); try { frame.contentWindow.location.reload(); } catch (e) { frame.src = embedSrc(current); } }
-    else if (current) { window.open(current.url, '_blank', 'noopener'); }
+    else if (current) { openExternal(current.url); }
   });
   document.getElementById('openBtn').addEventListener('click', function () {
-    if (current) window.open(current.url, '_blank', 'noopener');
+    if (current) openExternal(current.url);
   });
 
   /* 门户在**另一个标签页**切了主题 → 本页外壳和内嵌看板一起跟着切。

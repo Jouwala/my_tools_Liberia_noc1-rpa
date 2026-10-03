@@ -1,0 +1,109 @@
+<Slide>
+  <Box style={{width: '100%', height: '100%', paddingTop: 32, paddingBottom: 20, paddingLeft: 64, paddingRight: 64}}>
+    {/* A · Title */}
+    <Box style={{height: 88, flexDirection: 'row', alignItems: 'flex-start', gap: 12}}>
+      <Box style={{width: 4, height: 40, background: '#0072BC', marginTop: 4}} />
+      <Box style={{flex: 1}}>
+        <Text style={{fontSize: 34, fontWeight: 700, color: '#0F2C4D', lineHeight: 1.3}}>该打给谁，文件在哪</Text>
+        <Text style={{fontSize: 16, fontWeight: 400, color: '#64748B', marginTop: 6}}>
+          值班工程师凌晨两点会问的两个问题，在同一页上得到回答。
+        </Text>
+      </Box>
+    </Box>
+
+    {/* B · Content */}
+    <Box style={{height: 516, marginTop: 12, flexDirection: 'row', gap: 32}}>
+      {/* Left narrow title rail */}
+      <Box style={{width: 320, height: '100%', background: '#0F2C4D', borderRadius: 10, padding: 24, justifyContent: 'space-between'}}>
+        <Box>
+          <Text style={{fontSize: 15, fontWeight: 600, color: '#0072BC', letterSpacing: '1.5px'}}>值班与交付</Text>
+          <Text style={{fontSize: 26, fontWeight: 700, color: '#FFFFFF', marginTop: 14, lineHeight: 1.3}}>
+            升级链与凭据
+          </Text>
+        </Box>
+        <Text style={{fontSize: 15, fontWeight: 400, color: 'rgba(255,255,255,0.72)', lineHeight: 1.6}}>
+          写在某个人笔记本里的升级机制不算升级机制。这里把阶梯、两张网的联系人
+          和平台产出的每一份报表，都放在值班工程师本来就开着的那个页面上。
+        </Text>
+        <Box style={{width: 44, height: 4, background: '#FF922B'}} />
+      </Box>
+
+      {/* Right */}
+      <Box style={{flex: 1, height: '100%'}}>
+        {/* Escalation ladder */}
+        <Box style={{height: 260, background: '#F2F6FA', borderRadius: 10, padding: 16}}>
+          <svg width={770} height={228} viewBox='0 0 770 228'>
+            <text x='6' y='14' font-size='12' font-weight='700' fill='#64748B'>升级阶梯 · 双网联系人</text>
+
+            <rect x='6' y='26' width='740' height='44' rx='8' fill='#FFFFFF' stroke='#E2E8F0' />
+            <rect x='6' y='26' width='5' height='44' rx='2' fill='#0072BC' />
+            <text x='26' y='53' font-size='14' font-weight='700' fill='#0F2C4D'>一级 · 值班工程师</text>
+            <text x='230' y='53' font-size='13' fill='#64748B'>Orange 号码</text>
+            <text x='430' y='53' font-size='13' fill='#64748B'>LONESTAR 号码</text>
+            <text x='648' y='53' font-size='12' font-weight='700' fill='#0072BC'>一键复制</text>
+
+            <rect x='6' y='78' width='740' height='44' rx='8' fill='#FFFFFF' stroke='#E2E8F0' />
+            <rect x='6' y='78' width='5' height='44' rx='2' fill='#0072BC' />
+            <text x='26' y='105' font-size='14' font-weight='700' fill='#0F2C4D'>二级 · 团队负责人</text>
+            <text x='230' y='105' font-size='13' fill='#64748B'>Orange 号码</text>
+            <text x='430' y='105' font-size='13' fill='#64748B'>LONESTAR 号码</text>
+            <text x='648' y='105' font-size='12' font-weight='700' fill='#0072BC'>一键复制</text>
+
+            <rect x='6' y='130' width='740' height='44' rx='8' fill='#FFFFFF' stroke='#E2E8F0' />
+            <rect x='6' y='130' width='5' height='44' rx='2' fill='#0072BC' />
+            <text x='26' y='157' font-size='14' font-weight='700' fill='#0F2C4D'>三级 · 运维经理</text>
+            <text x='230' y='157' font-size='13' fill='#64748B'>Orange 号码</text>
+            <text x='430' y='157' font-size='13' fill='#64748B'>LONESTAR 号码</text>
+            <text x='648' y='157' font-size='12' font-weight='700' fill='#0072BC'>一键复制</text>
+
+            <rect x='6' y='182' width='740' height='44' rx='8' fill='#FFFFFF' stroke='#E2E8F0' />
+            <rect x='6' y='182' width='5' height='44' rx='2' fill='#FF922B' />
+            <text x='26' y='209' font-size='14' font-weight='700' fill='#0F2C4D'>四级 · 项目层升级</text>
+            <text x='230' y='209' font-size='13' fill='#64748B'>Orange 号码</text>
+            <text x='430' y='209' font-size='13' fill='#64748B'>LONESTAR 号码</text>
+            <text x='648' y='209' font-size='12' font-weight='700' fill='#FF922B'>一键复制</text>
+          </svg>
+        </Box>
+
+        {/* Report centre */}
+        <Box style={{height: 240, marginTop: 16, flexDirection: 'row', gap: 16}}>
+          <Box style={{flex: 1, background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: 10, padding: 18, justifyContent: 'space-between'}}>
+            <Box>
+              <Text style={{fontSize: 18, fontWeight: 700, color: '#0F2C4D'}}>报告文件中心</Text>
+              <Text style={{fontSize: 14, fontWeight: 400, color: '#64748B', marginTop: 8, lineHeight: 1.5}}>
+                邮件附件、定时 BI 报表和规则检查产物，统一归档、可下载。
+              </Text>
+            </Box>
+            <Text style={{fontSize: 13, fontWeight: 600, color: '#0072BC'}}>一份清单，不用翻</Text>
+          </Box>
+          <Box style={{flex: 1, background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: 10, padding: 18, justifyContent: 'space-between'}}>
+            <Box>
+              <Text style={{fontSize: 18, fontWeight: 700, color: '#0F2C4D'}}>任务运行状态</Text>
+              <Text style={{fontSize: 14, fontWeight: 400, color: '#64748B', marginTop: 8, lineHeight: 1.5}}>
+                门户直接显示此刻哪些采集任务在跑；链路中断时自动回退到最后
+                一次已知状态，不会假装正常。
+              </Text>
+            </Box>
+            <Text style={{fontSize: 13, fontWeight: 600, color: '#0072BC'}}>看得见，不用猜</Text>
+          </Box>
+          <Box style={{flex: 1, background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: 10, padding: 18, justifyContent: 'space-between'}}>
+            <Box>
+              <Text style={{fontSize: 18, fontWeight: 700, color: '#0F2C4D'}}>受控的访问</Text>
+              <Text style={{fontSize: 14, fontWeight: 400, color: '#64748B', marginTop: 8, lineHeight: 1.5}}>
+                用户、角色、分组和每个人的落地页面集中配置——每个人看到的是
+                属于自己的入口。
+              </Text>
+            </Box>
+            <Text style={{fontSize: 13, fontWeight: 600, color: '#0072BC'}}>一次配置，全局生效</Text>
+          </Box>
+        </Box>
+      </Box>
+    </Box>
+
+    {/* C · Footer */}
+    <Box style={{height: 40, marginTop: 12, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid #E2E8F0'}}>
+      <Text style={{fontSize: 14, color: '#94A3B8'}}>OLR MS 运维工具平台</Text>
+      <Text style={{fontSize: 14, color: '#94A3B8'}}>10 / 17</Text>
+    </Box>
+  </Box>
+</Slide>

@@ -284,14 +284,30 @@
      GIS Map / MW Real-Time / Realtime Alarm / Packet Loss 页签）。
      本文件自己那套工具栏（布局切换 / 级别筛选 / 站点搜索 / 刷新 / 全屏 等）
      在嵌入时全部隐藏，避免同一件事出现两套控件。
-     由 URL 参数 ?mwembed=1 触发（门户会带上）；独立打开本页时行为完全不变。 */
+     由 URL 参数 ?mwembed=1 触发（门户会带上）；独立打开本页时行为完全不变。
+
+     ⚠️ 2026-10-02：**#drawer / #drawer-mask 已从本规则移出**（原先一起被隐藏）。
+     原因：用户反馈「GIS Map 组件的 ALARM 都能点击弹出下钻，MW 能不能一样」
+     —— Alarm 页（GISMap.tsx 的 SiteDrilldownDrawer）在嵌入态下正常弹出，
+     而本页点链路却毫无反应。根因就是这条：链路命中区绑的
+     click → selectEdge(..., true) → openDrawerFor() 一直是对的
+     （见下方 hit.on('click') 与 openDrawerFor），DOM 也照常填好、照常加 .open，
+     只是抽屉与遮罩被这里的 display:none !important 整个抹掉，
+     于是「JS 跑完了但屏幕上看不见」，表现为点了没反应。
+
+     为什么抽屉应当放行、而其它几条继续隐藏：
+       · header / #kpis / #right / #topo-head 是**工具栏与图表栏**，
+         门户自己已有等价的标题栏与页签，藏掉确实避免两套控件（原注释的意图）；
+       · #drawer 不是控件栏，它是**本页唯一的下钻出口** —— 藏掉等于把功能砍了。
+     抽屉是 position:fixed + z-index:100（见上方 #drawer 规则），
+     在门户 iframe 内相对内层视口贴右显示，与 Alarm 抽屉观感一致。
+     ⚠️ 窄视口另有 #drawer{width:100%; right:-100%} 的移动端规则
+     （见下方 @media max-width:768px 段），门户栏较窄时会走那条，属预期。 */
   html.mw-embed header,
   html.mw-embed #kpis,
   html.mw-embed #topo-head,
   html.mw-embed #bottom,
-  html.mw-embed #right,
-  html.mw-embed #drawer,
-  html.mw-embed #drawer-mask{ display:none !important; }
+  html.mw-embed #right{ display:none !important; }
   /* 级别多选下拉 */
   .msel{position:relative; display:inline-block}
   .msel .btn{padding:0.25rem 0.625rem; font-size:0.75rem}
@@ -2596,7 +2612,9 @@ applyTheme(APP_THEME);
 syncRightToggle();
 
 /* ---------- 嵌入模式初始化（由门户 MsPortal 触发） ----------
-   1) 给 <html> 加 mw-embed，隐藏本页自带的工具栏/KPI/图表（见上方 CSS）；
+   1) 给 <html> 加 mw-embed，隐藏本页自带的工具栏/KPI/图表（见上方 CSS）。
+      ⚠️ 2026-10-02 起**不再隐藏下钻抽屉**（#drawer / #drawer-mask），
+         理由见上方那条 CSS 的注释 —— 它是本页唯一的下钻出口，不是控件栏；
    2) 需要时强制深色底图 —— 为「视觉决定」而非安全边界，故不写
       localStorage['myapp-theme']（那会污染整个 my_app）。
 

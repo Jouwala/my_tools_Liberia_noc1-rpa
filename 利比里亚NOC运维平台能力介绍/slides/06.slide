@@ -1,0 +1,111 @@
+<Slide>
+  <Box style={{width: '100%', height: '100%', paddingTop: 32, paddingBottom: 20, paddingLeft: 64, paddingRight: 64}}>
+    {/* A · Title */}
+    <Box style={{height: 88, flexDirection: 'row', alignItems: 'flex-start', gap: 12}}>
+      <Box style={{width: 4, height: 40, background: '#0072BC', marginTop: 4}} />
+      <Box style={{flex: 1}}>
+        <Text style={{fontSize: 34, fontWeight: 700, color: '#0F2C4D', lineHeight: 1.3}}>从源头系统到决策</Text>
+        <Text style={{fontSize: 16, fontWeight: 400, color: '#64748B', marginTop: 6}}>
+          一条流水线、四个环节，没有任何一步需要人去记得做。
+        </Text>
+      </Box>
+    </Box>
+
+    {/* B · Content */}
+    <Box style={{height: 516, marginTop: 12}}>
+      {/* Top 58% : architecture */}
+      <Box style={{height: 300, background: '#F2F6FA', borderRadius: 10, padding: 16}}>
+        <svg width={1120} height={268} viewBox='0 0 1120 268'>
+          <text x='14' y='24' font-size='12' font-weight='700' fill='#64748B'>源头系统</text>
+          <rect x='14' y='36' width='196' height='34' rx='6' fill='#FFFFFF' stroke='#E2E8F0' />
+          <text x='30' y='58' font-size='13' fill='#0F2C4D'>eFlow 工单与告警</text>
+          <rect x='14' y='78' width='196' height='34' rx='6' fill='#FFFFFF' stroke='#E2E8F0' />
+          <text x='30' y='100' font-size='13' fill='#0F2C4D'>各制式网管（UME）</text>
+          <rect x='14' y='120' width='196' height='34' rx='6' fill='#FFFFFF' stroke='#E2E8F0' />
+          <text x='30' y='142' font-size='13' fill='#0F2C4D'>微波与传输</text>
+          <rect x='14' y='162' width='196' height='34' rx='6' fill='#FFFFFF' stroke='#E2E8F0' />
+          <text x='30' y='184' font-size='13' fill='#0F2C4D'>BI 导出、FTP、邮箱</text>
+          <rect x='14' y='204' width='196' height='34' rx='6' fill='#FFFFFF' stroke='#E2E8F0' />
+          <text x='30' y='226' font-size='13' fill='#0F2C4D'>IP 链路、动力、备件</text>
+
+          <path d='M210 125 L268 125' stroke='#0072BC' strokeWidth='3' />
+          <path d='M258 117 L268 125 L258 133' fill='#0072BC' />
+
+          <rect x='272' y='58' width='230' height='134' rx='10' fill='#0F2C4D' />
+          <text x='292' y='90' font-size='14' font-weight='700' fill='#FFFFFF'>定时</text>
+          <text x='292' y='112' font-size='14' font-weight='700' fill='#FFFFFF'>采集</text>
+          <text x='292' y='138' font-size='12' fill='rgba(255,255,255,0.7)'>68 个任务</text>
+          <text x='292' y='156' font-size='12' fill='rgba(255,255,255,0.7)'>全年无休</text>
+          <text x='292' y='180' font-size='12' font-weight='700' fill='#FF922B'>重试 · 补跑 · 守护</text>
+
+          <path d='M502 125 L560 125' stroke='#0072BC' strokeWidth='3' />
+          <path d='M550 117 L560 125 L550 133' fill='#0072BC' />
+
+          <rect x='564' y='58' width='200' height='134' rx='10' fill='#FFFFFF' stroke='#0072BC' strokeWidth='2' />
+          <text x='584' y='90' font-size='14' font-weight='700' fill='#0F2C4D'>统一存储</text>
+          <text x='584' y='114' font-size='12' fill='#64748B'>每个数字都来自</text>
+          <text x='584' y='132' font-size='12' fill='#64748B'>同一张表、同一个</text>
+          <text x='584' y='150' font-size='12' fill='#64748B'>版本、同一个</text>
+          <text x='584' y='168' font-size='12' fill='#64748B'>时间点。</text>
+
+          <path d='M764 125 L822 125' stroke='#0072BC' strokeWidth='3' />
+          <path d='M812 117 L822 125 L812 133' fill='#0072BC' />
+
+          <rect x='826' y='36' width='280' height='50' rx='8' fill='#E8F1FA' />
+          <text x='846' y='60' font-size='14' font-weight='700' fill='#0F2C4D'>看板与逐层下钻</text>
+          <text x='846' y='78' font-size='12' fill='#64748B'>统一运维门户</text>
+
+          <rect x='826' y='96' width='280' height='50' rx='8' fill='#E8F1FA' />
+          <text x='846' y='120' font-size='14' font-weight='700' fill='#0F2C4D'>Excel 与定时报表</text>
+          <text x='846' y='138' font-size='12' fill='#64748B'>日报、周报、月报</text>
+
+          <rect x='826' y='156' width='280' height='50' rx='8' fill='#E8F1FA' />
+          <text x='846' y='180' font-size='14' font-weight='700' fill='#0F2C4D'>邮件与群组通知</text>
+          <text x='846' y='198' font-size='12' fill='#64748B'>送到人已经在用的地方</text>
+
+          <text x='826' y='234' font-size='12' font-weight='700' fill='#C2410C'>没有任何一个环节需要人去触发</text>
+        </svg>
+      </Box>
+
+      {/* Bottom : three cards */}
+      <Box style={{height: 200, marginTop: 16, flexDirection: 'row', gap: 16}}>
+        <Box style={{flex: 1, background: '#FFFFFF', border: '1px solid #E2E8F0', borderTop: '3px solid #0072BC', borderRadius: 10, padding: 20, justifyContent: 'space-between'}}>
+          <Box>
+            <Text style={{fontSize: 19, fontWeight: 700, color: '#0F2C4D'}}>主动采集，不用催</Text>
+            <Text style={{fontSize: 15, fontWeight: 400, color: '#64748B', marginTop: 8, lineHeight: 1.5}}>
+              每个源头按自己的节奏被拉取——每小时、每天凌晨或每十五分钟——
+              数据新鲜度是系统的属性，不是某个人的早晨。
+            </Text>
+          </Box>
+          <Text style={{fontSize: 13, fontWeight: 600, color: '#0072BC'}}>零人工取数</Text>
+        </Box>
+        <Box style={{flex: 1, background: '#FFFFFF', border: '1px solid #E2E8F0', borderTop: '3px solid #0072BC', borderRadius: 10, padding: 20, justifyContent: 'space-between'}}>
+          <Box>
+            <Text style={{fontSize: 19, fontWeight: 700, color: '#0F2C4D'}}>只有一个版本的真相</Text>
+            <Text style={{fontSize: 15, fontWeight: 400, color: '#64748B', marginTop: 8, lineHeight: 1.5}}>
+              看板、Excel 报表和智能助手读的是同一份存储，同一个问题在同一天
+              问两次，得到的是同一个答案。
+            </Text>
+          </Box>
+          <Text style={{fontSize: 13, fontWeight: 600, color: '#0072BC'}}>不再开对账会</Text>
+        </Box>
+        <Box style={{flex: 1, background: '#FFFFFF', border: '1px solid #E2E8F0', borderTop: '3px solid #0072BC', borderRadius: 10, padding: 20, justifyContent: 'space-between'}}>
+          <Box>
+            <Text style={{fontSize: 19, fontWeight: 700, color: '#0F2C4D'}}>发布到工作发生的地方</Text>
+            <Text style={{fontSize: 15, fontWeight: 400, color: '#64748B', marginTop: 8, lineHeight: 1.5}}>
+              产出自己离开平台：一块给值班工程师的屏幕、一份给报表包的文件、
+              一条给行动群组的消息。
+            </Text>
+          </Box>
+          <Text style={{fontSize: 13, fontWeight: 600, color: '#0072BC'}}>邮件 · 群组 · 大屏</Text>
+        </Box>
+      </Box>
+    </Box>
+
+    {/* C · Footer */}
+    <Box style={{height: 40, marginTop: 12, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid #E2E8F0'}}>
+      <Text style={{fontSize: 14, color: '#94A3B8'}}>OLR MS 运维工具平台</Text>
+      <Text style={{fontSize: 14, color: '#94A3B8'}}>06 / 17</Text>
+    </Box>
+  </Box>
+</Slide>

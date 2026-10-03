@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>评估复核报告 · NOC/SOC 门户</title>
+<style>
+  :root{
+    color-scheme: light;
+    --bg:#f6f7f9; --panel:#ffffff; --ink:#1a1d21; --muted:#5b6472;
+    --line:#e3e6ea; --brand:#0b6bcb; --ok:#1a7f4b; --bad:#c0392b; --warn:#b8860b;
+    --chip:#eef2f7;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:15px/1.65 -apple-system,"Segoe UI","Microsoft YaHei",system-ui,sans-serif;}
+  .wrap{max-width:1080px;margin:0 auto;padding:32px 24px 64px;}
+  h1{font-size:26px;margin:0 0 4px;letter-spacing:-.01em}
+  h2{font-size:19px;margin:34px 0 12px;padding-bottom:8px;border-bottom:1px solid var(--line)}
+  h3{font-size:16px;margin:22px 0 8px}
+  .sub{color:var(--muted);font-size:13.5px;margin:0 0 20px}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px 20px;margin:14px 0;
+    box-shadow:0 1px 2px rgba(16,24,40,.04)}
+  .verdict{background:linear-gradient(180deg,#fff,#fbfdff);border-left:4px solid var(--brand)}
+  .verdict .big{font-size:22px;font-weight:700;color:var(--brand)}
+  table{width:100%;border-collapse:collapse;margin:10px 0;font-size:14px}
+  th,td{border:1px solid var(--line);padding:8px 10px;text-align:left;vertical-align:top}
+  th{background:var(--chip);font-weight:600;white-space:nowrap}
+  td.c{text-align:center;white-space:nowrap}
+  code{background:#f1f3f6;border:1px solid var(--line);border-radius:4px;padding:1px 5px;font-size:12.5px;
+    font-family:"Cascadia Code",Consolas,monospace}
+  .ok{color:var(--ok);font-weight:600}
+  .bad{color:var(--bad);font-weight:600}
+  .warn{color:var(--warn);font-weight:600}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin:12px 0}
+  .kpi{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+  .kpi .n{font-size:26px;font-weight:700;line-height:1.1}
+  .kpi .l{color:var(--muted);font-size:12.5px;margin-top:4px}
+  .chartbox{position:relative;height:380px;margin-top:8px}
+  ul{margin:8px 0 8px 18px;padding:0}
+  li{margin:4px 0}
+  .tag{display:inline-block;font-size:11.5px;padding:2px 8px;border-radius:999px;background:var(--chip);color:var(--muted);margin-left:6px}
+  .foot{color:var(--muted);font-size:12.5px;margin-top:28px;border-top:1px solid var(--line);padding-top:14px}
+  blockquote{margin:12px 0;padding:10px 16px;background:#fff8e6;border-left:4px solid var(--warn);border-radius:6px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>评估复核报告 —— 利比里亚 NOC/SOC 数据看板统一门户</h1>
+  <p class="sub">基准 2026-10-01 · 只读源码实测（wc / grep / find + 仓库既有就绪度报告） · 复核对象：<code>Y:\liberia-noc_soc-数据看板统一门户</code></p>
+
+  <div class="panel verdict">
+    <div class="big">修正总分 ≈ 75–78 / 100</div>
+    <p style="margin:8px 0 0">原判 <b>85</b> 仅在「纯前端体验」口径下勉强成立。原评估方向对，但<b>事实基准偏了</b>——
+    它描述的是门户的一个<b>子集</b>（<code>olbrportal/</code> 原生 JS 版 + <code>MsPortal/</code>），
+    未覆盖真正在迭代的 <b>React 主门户</b>与<b>模块化后端</b>，并漏掉了团队自查出的 <b>6 项 P0 安全阻塞</b>。</p>
+  </div>
+
+  <div class="grid">
+    <div class="kpi"><div class="n bad">3 处</div><div class="l">"没有"被误报（构建链 / 类型系统 / 模块化 —— 均已存在）</div></div>
+    <div class="kpi"><div class="n bad">6 项</div><div class="l">P0 安全阻塞被漏评（含匿名凭据泄漏）</div></div>
+    <div class="kpi"><div class="n ok">0</div><div class="l">自动化测试（原评估此点正确）</div></div>
+    <div class="kpi"><div class="n warn">123 个</div><div class="l">仓库内 <code>*.bak_*</code> 快照文件</div></div>
+  </div>
+
+  <h2>1. 事实对照：原评估 vs 实测</h2>
+  <table>
+    <thead><tr><th>#</th><th>原评估断言</th><th>实测证据</th><th>判定</th></tr></thead>
+    <tbody>
+      <tr><td class="c">1</td><td>「无构建链」</td>
+        <td><code>package.json:9 "build":"vite build"</code>；<code>dist/index.html</code> 引内容哈希产物 <code>index-PtAycsAy.js</code>；vite 6</td>
+        <td class="bad">错</td></tr>
+      <tr><td class="c">2</td><td>「无类型系统（JSDoc 刚起步）」</td>
+        <td><code>tsconfig.json</code>（TS 5.8）；<code>"lint":"tsc --noEmit"</code>；<code>src/**/*.tsx</code>、<code>server/auth/*.ts</code> 全量 TS</td>
+        <td class="bad">错</td></tr>
+      <tr><td class="c">3</td><td>「原生 JS / 无模块化 / 单文件」</td>
+        <td>主门户 = React 19 + TS：<code>src/</code> 下 <b>27 个组件</b> + AuthContext + i18n + types；后端 <code>server/auth/</code> 拆 <b>7 模块</b>（2183 行）</td>
+        <td class="bad">错</td></tr>
+      <tr><td class="c">4</td><td>「<code>olbr.js</code> 单文件 6000+ 行」</td>
+        <td><code>v1/olbrportal/assets/olbr.js</code>=<b>6390 行</b>；<code>olbrportal/assets/olbr.js</code>=<b>3938 行</b>（两版本，非"唯一主文件"）</td>
+        <td class="warn">半对</td></tr>
+      <tr><td class="c">5</td><td>「无自动化测试」</td>
+        <td>package.json 无 test 脚本；无 <code>*.test/spec</code>、无 CI、无 vitest/jest/playwright</td>
+        <td class="ok">对</td></tr>
+      <tr><td class="c">6</td><td>「CSS 全令牌化」</td>
+        <td>olbr 门户：<b>142 token / 1019 处 <code>var(--</code> / 仅 101 裸 hex</b> → 成立；React 侧仅 26 变量、用 Tailwind → 不成立</td>
+        <td class="warn">分对象</td></tr>
+      <tr><td class="c">7</td><td>「数据与渲染分离」</td>
+        <td><code>src/data/initialDashboards.ts</code>(1140行) 独立；但 <code>App.tsx</code> 仍是 <b>43KB/1078 行</b>状态中枢</td>
+        <td class="ok">基本对</td></tr>
+      <tr><td class="c">8</td><td>「未见系统 ARIA / 对比度校验」</td>
+        <td>MsPortal 实测：iframe 全有 title、img 全有 alt、<b>33 处 aria-label</b>；React 侧仅 7 处 aria、0 处 role</td>
+        <td class="warn">部分对</td></tr>
+      <tr><td class="c">9</td><td>「安全未评估，不纳入分数」</td>
+        <td>仓库内就绪度报告<b>已实测 6 项 P0</b>：匿名凭据泄漏 / 无 TLS / 生产跑 dev server …</td>
+        <td class="bad">漏评</td></tr>
+      <tr><td class="c">10</td><td>「注释含'为何/回滚'→ 工程文化成熟」</td>
+        <td>AGENTS.md 硬约束 + 「数字绝不撒谎」+ pre-commit 守卫；但 <b>123 个 <code>*.bak</code> 入库</b>、<code>.git</code> 缺失</td>
+        <td class="warn">部分对</td></tr>
+    </tbody>
+  </table>
+
+  <h2>2. 被漏掉的重大事实</h2>
+  <h3>2.1 真实主门户 = React 19 应用，而非单文件原生 JS</h3>
+  <p><span class="tag">src/App.tsx 43KB 状态中枢</span><span class="tag">27 个组件</span><span class="tag">i18n.tsx 117KB / ≈1091 key</span><span class="tag">types/dashboard.ts</span><span class="tag">server/auth/ 7 模块</span></p>
+  <p>技术栈（<code>docs/AGENTS.md</code> 原话）：<b>React 19 + Vite 6 + Tailwind v4 + lucide-react + TypeScript</b>；门户后端在 <code>server/</code>（Express/TS）。</p>
+
+  <h3>2.2 工程实践比原评估以为的更成熟（原评估全未提及）</h3>
+  <ul>
+    <li><b>环境单一真相源</b>：<code>src/config.ts</code> 顶部注释规定主机只定义一处，优先级 <code>localStorage &gt; VITE_* &gt; 硬编码</code>；</li>
+    <li><b>机器守卫整洁度</b>：<code>scripts/check-cleanliness.mjs</code> + pre-commit 拦截探针/快照入库；</li>
+    <li><b>已知架构坑有正式文档</b>：<code>/uniplam</code> 前缀为何必须（防 <code>405</code>），写在 config.ts 注释里。</li>
+  </ul>
+
+  <h3>2.3 安全不是"没验证"，而是"已查出致命问题"</h3>
+  <p>仓库内 <code>MsPortal 商用就绪度检测</code> 结论：<b>「按现状不能商用交付」</b>，6 项 P0：</p>
+  <table>
+    <thead><tr><th>编号</th><th>问题</th><th>实测数据</th></tr></thead>
+    <tbody>
+      <tr><td class="c bad">B4 最严重</td><td>7090 端口 = 匿名管理员出口</td><td>LAN 零凭据 <code>GET :7090/api/credentials</code> → <b>200 / 5,494 字节</b>，凭据库直读；<code>/api/auth/me</code> 回 <code>{"role":"admin"}</code></td></tr>
+      <tr><td class="c">B1</td><td>生产跑在 Vite dev server</td><td>响应含 <code>@vite/client</code> + <code>react-refresh</code>；登录/鉴权全在该 dev 中间件</td></tr>
+      <tr><td class="c">B2</td><td>全站无 TLS</td><td><code>https://localhost/</code> 直接失败，仅 80 与 8081-8088 明文</td></tr>
+      <tr><td class="c">B3</td><td>匿名接口泄漏完整目录</td><td>零凭据 <code>GET /uniplam/api/portal-default</code> → 200 / 47,696 字节，含 <b>51 处内网 IP + 30 条带 token 的 URL</b></td></tr>
+      <tr><td class="c">B5</td><td>备份文件可公网下载</td><td><code>portal_bak_*.js</code>(135,804B)、<code>index_bak_*.html</code>(19,579B) 等直接可下</td></tr>
+      <tr><td class="c">B6</td><td><code>/api/tasks</code> 轮询风暴</td><td>10 分钟 212 次请求（≈每 2.7s），单响应 77KB → <b>单标签页 ≈100MB/小时</b></td></tr>
+    </tbody>
+  </table>
+  <blockquote>原评估把安全"悬置为未评估"，等于把最影响商用性的部分排除在分数外。按它自己写的"若弱则下修"规则，分数必须下修。</blockquote>
+
+  <h2>3. 修正后的分维度打分</h2>
+  <div class="chartbox"><canvas id="scoreChart"></canvas></div>
+  <table>
+    <thead><tr><th>维度</th><th>原分</th><th>修正</th><th>依据</th></tr></thead>
+    <tbody>
+      <tr><td>数据呈现与口径严谨</td><td class="c">93</td><td class="c ok">93</td><td>AGENTS.md「取不到显示 <code>—</code>，绝不显示 <code>0</code>」；QC 六卡走真实 API 无写死值</td></tr>
+      <tr><td>视觉一致性与专业度</td><td class="c">90</td><td class="c ok">90</td><td>olbr 门户 142 token / 1019 处 <code>var(--</code> 引用</td></tr>
+      <tr><td>前端工程规范</td><td class="c">88</td><td class="c">84</td><td>有 Vite+TS+lint+守卫（强于原判）；扣分：App.tsx 43KB、i18n.tsx 117KB、123 个 .bak 入库</td></tr>
+      <tr><td>信息架构 / 易用性</td><td class="c">86</td><td class="c">86</td><td>三视图 + 二维码 + 收藏置顶，维持</td></tr>
+      <tr><td>可访问性</td><td class="c">72</td><td class="c">76</td><td>MsPortal a11y 到位；React 侧仅 7 aria、0 role</td></tr>
+      <tr><td>代码架构 / 可维护性</td><td class="c">70</td><td class="c">72</td><td>"无构建/无类型"不成立；仍无测试</td></tr>
+      <tr><td><b>安全 / 部署</b>（新增）</td><td class="c">—</td><td class="c bad">45</td><td>6 项 P0 未清：匿名凭据泄漏、无 TLS、生产跑 dev server</td></tr>
+      <tr><td><b>测试覆盖</b>（新增）</td><td class="c">—</td><td class="c bad">30</td><td>零测试：无单测 / 无 CI / 无 e2e</td></tr>
+    </tbody>
+  </table>
+
+  <h2>4. "想上 90+" 的优先级（修正版）</h2>
+  <p>原评估 TOP3 的<b>第 1 项（模块化+构建）已不成立</b>——构建链和模块化都有。修正优先级：</p>
+  <table>
+    <thead><tr><th>优先级</th><th>事项</th><th>理由</th></tr></thead>
+    <tbody>
+      <tr><td class="c bad">P0</td><td>安全整改 B1–B6：关 7090 匿名出口、上 TLS、删可下载备份、修轮询风暴</td><td>决定"能否商用交付"，当前结论是<b>不能</b></td></tr>
+      <tr><td class="c bad">P0</td><td>生产脱 dev server，改 nginx 直出 <code>dist/</code> 静态产物</td><td>dev server 崩溃即全站掉登录</td></tr>
+      <tr><td class="c warn">P1</td><td>补最小测试（数据口径单测 + 渲染快照）</td><td>守住"数字绝不撒谎"核心价值</td></tr>
+      <tr><td class="c warn">P1</td><td>清理仓库：归档 123 个 <code>*.bak_*</code>；补齐 <code>.git</code> 与守卫</td><td>快照入库是维护隐患</td></tr>
+      <tr><td class="c">P2</td><td>拆分 <code>App.tsx</code>(43KB) / <code>i18n.tsx</code>(117KB)</td><td>规模再大成本上升</td></tr>
+      <tr><td class="c">P2</td><td>主门户 a11y（aria / role / 对比度系统校验）</td><td>桌面门户专业短板</td></tr>
+    </tbody>
+  </table>
+
+  <h2>5. 复核结论</h2>
+  <div class="panel">
+    <p>原评估结论「内部运维门户，专业可信好用（85）」——<b>若限定在"前端体验层"，方向站得住</b>；
+    但其技术事实基准错误（误判无构建 / 无类型 / 无模块化），并遗漏了安全这一致命维度。
+    把安全与测试按团队自有证据纳入后，真实落地分数约 <b>75–78</b>：
+    <b>差距不在界面或数据，而在"安全与上线工程化"。</b></p>
+  </div>
+
+  <p class="foot">复核方式：源码只读实测（<code>wc / grep / find</code>）+ 仓库内既有就绪度报告交叉验证。所有数字均可在仓库中复现，命令清单见同名 Markdown 版附录。</p>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.js" integrity="sha384-iU8HYtnGQ8Cy4zl7gbNMOhsDTTKX02BTXptVP/vqAWIaTfM7isw76iyZCsjL2eVi" crossorigin="anonymous"></script>
+<script>
+(function(){
+  var labels = ['数据严谨','视觉一致','前端工程','信息架构','可访问性','代码架构','安全/部署','测试覆盖'];
+  var original = [93,90,88,86,72,70,null,null];
+  var revised  = [93,90,84,86,76,72,45,30];
+  var el = document.getElementById('scoreChart');
+  if(!el || typeof Chart === 'undefined') return;
+  new Chart(el.getContext('2d'), {
+    type:'bar',
+    data:{
+      labels:labels,
+      datasets:[
+        {label:'原评估', data:original, backgroundColor:'rgba(11,107,203,.45)', borderColor:'#0b6bcb', borderWidth:1, borderRadius:4},
+        {label:'修正后（实测）', data:revised, backgroundColor:'rgba(26,127,75,.65)', borderColor:'#1a7f4b', borderWidth:1, borderRadius:4}
+      ]
+    },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      scales:{
+        y:{beginAtZero:true, max:100, title:{display:true,text:'分数'}, grid:{color:'#eceef1'}},
+        x:{grid:{display:false}}
+      },
+      plugins:{
+        legend:{position:'top'},
+        tooltip:{callbacks:{label:function(c){return c.dataset.label+': '+(c.parsed.y==null?'未评估':c.parsed.y);}}}
+      }
+    }
+  });
+})();
+</script>
+</body>
+</html>

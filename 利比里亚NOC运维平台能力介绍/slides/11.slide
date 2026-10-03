@@ -1,0 +1,37 @@
+<Slide>
+  <Box style={{position: 'relative', width: '100%', height: '100%', overflow: 'hidden', background: 'linear-gradient(120deg, #0F2C4D 0%, #0072BC 100%)'}}>
+    <Box style={{position: 'absolute', inset: 0, opacity: 0.16}}>
+      <svg width={1280} height={720} viewBox='0 0 1280 720'>
+        <circle cx='640' cy='330' r='150' fill='none' stroke='#FFFFFF' strokeWidth='2' />
+        <circle cx='640' cy='330' r='100' fill='none' stroke='#FFFFFF' strokeWidth='2' />
+        <circle cx='640' cy='330' r='50' fill='none' stroke='#FFFFFF' strokeWidth='2' />
+        <path d='M640 180 L640 60' stroke='#FFFFFF' strokeWidth='2' />
+        <path d='M640 480 L640 600' stroke='#FFFFFF' strokeWidth='2' />
+        <path d='M490 330 L330 330' stroke='#FFFFFF' strokeWidth='2' />
+        <path d='M790 330 L950 330' stroke='#FFFFFF' strokeWidth='2' />
+        <circle cx='640' cy='330' r='10' fill='#FFFFFF' />
+        <circle cx='640' cy='60' r='7' fill='#FFFFFF' />
+        <circle cx='640' cy='600' r='7' fill='#FFFFFF' />
+        <circle cx='330' cy='330' r='7' fill='#FFFFFF' />
+        <circle cx='950' cy='330' r='7' fill='#FFFFFF' />
+      </svg>
+    </Box>
+    <Box style={{position: 'absolute', left: 64, right: 64, top: 150, zIndex: 1}}>
+      <Box style={{flexDirection: 'row', alignItems: 'flex-end', gap: 28}}>
+        <Text style={{fontSize: 96, fontWeight: 900, color: 'rgba(255,255,255,0.28)', lineHeight: 1}}>04</Text>
+        <Box style={{paddingBottom: 14}}>
+          <Text style={{fontSize: 44, fontWeight: 700, color: '#FFFFFF', lineHeight: 1.25}}>
+            数据洞察平台
+          </Text>
+        </Box>
+      </Box>
+      <Box style={{width: 72, height: 4, background: '#FF922B', marginTop: 28}} />
+      <Text style={{fontSize: 19, fontWeight: 400, color: 'rgba(255,255,255,0.82)', marginTop: 24, lineHeight: 1.55, maxWidth: 820}}>
+            数字背后的引擎：它采集什么，以及任意一个数字能追到多深。
+      </Text>
+    </Box>
+    <Box style={{position: 'absolute', left: 64, bottom: 48, zIndex: 1}}>
+      <Text style={{fontSize: 14, color: 'rgba(255,255,255,0.5)', letterSpacing: '1.5px'}}>OLR MS 运维工具平台</Text>
+    </Box>
+  </Box>
+</Slide>

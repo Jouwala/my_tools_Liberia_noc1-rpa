@@ -1,4 +1,4 @@
-// GISMap 页面类型定义
+﻿// GISMap 页面类型定义
 
 export interface Site {
   site_id: string
@@ -259,25 +259,38 @@ export const KML_LINK_COLORS = [
   { color: '#34c759', labelKey: 'gis.topologyColorGreen' },
 ] as const
 
-/* MW 链路利用率分级配色 —— 与 `?page=mwRealTime` 的 4 级色阶**逐值一致**。
-   色值取自 mw_real_time.html 的 --vmax-lvl-* **深色档**（readLvlColors）：
-     healthy #0bc78c | minor #f6cf00 | major #ff7a45 | critical #ff5c6c
-   两页显示同一个指标，配色不一致会让人以为是两套口径，故此处刻意复刻。
+/* MW 链路利用率分级配色 —— 对齐 `?page=mwUmeTopology` 的链路色阶。
+   色值取自 frontend/public/legacy-vmax-theme.css 的 --vmax-lvl-* **深色档**
+   （该文件是唯一真相源，见 legacy-vmax-theme.css:82-86）：
+     healthy #0bc78c | minor #f6cf00 | major #ff7a45 | critical #ff5c6c | unknown #6f8cb4
 
-   ⚠️ 与 KML_LINK_COLORS 的关系（重要，避免误以为二者冲突）：
-     KML 4 色（红/黄/蓝/绿）是 KML 原作者的**人工标注**，语义未知；
-     这里的 4 级色是**利用率数据本身**的分级。
-     叠加开启后，**只有能匹配到 KPI 的线**改用 4 级色，匹配不到的仍用 KML 原色 ——
-     两种语义在图上并存，故图例必须**同时**展示两组并说明差别（见 GISMap.tsx 图例区）。
+   2026-10-02 用户要求「按 mwUmeTopology 的链路颜色显示」，故本表与那一页对齐。
+   前三档与 mwRealTime 本就逐值相同（两页共用同一套 --vmax-lvl-*），
+   本次实质变化只有 no_kpi 一档：由「回退 KML 原色」改为 **unknown 灰 #6f8cb4**。
+
+   为什么 no_kpi 必须换掉 KML 原色（本次改动的核心，别改回去）：
+     KML 原色含红 #ff3b30，与 critical 的 #ff5c6c 是**同色系**，在深色底图上几乎
+     分不开。实测 844 条线里 27 条「无 KPI 的 KML 红线」会被读成 critical ——
+     运维照着红线去排障，有 7 成概率查错链路。改灰后「红色 = 严重」才唯一。
+     mwUmeTopology 页正是这么做的：unknown 用灰 + 虚线（该页 :1580-1581），
+     本页照搬同一语义（虚线在 GISMap.tsx 的 linkDashOf 里加）。
+
+   与 KML_LINK_COLORS 的关系：
+     KML 4 色（红/黄/蓝/绿）是 KML 原作者的**人工标注**，语义未知。
+     原先「匹配不到 KPI 就保留 KML 原色」的做法正是撞色根源；
+     现改为统一灰虚线后，KML 原色只作历史说明保留在 KML_LINK_COLORS 里，
+     不再参与 no_kpi 的实际渲染。两页显示同一指标，配色不一致会让人
+     以为是两套口径，故本次刻意与 mwUmeTopology 复刻到逐值一致。
 
    同 KML_LINK_COLORS：值必须是十六进制实值，不能用 WH.xxx
    （Leaflet 走 SVG/Canvas，解析不了 CSS 变量）。 */
+
 export const UTIL_LEVEL_COLORS: Record<UtilLevel, string> = {
   critical: '#ff5c6c',
   major: '#ff7a45',
   minor: '#f6cf00',
   healthy: '#0bc78c',
-  no_kpi: '', // 空串 = 不上色，回退 KML 原色；由 _linkColor 统一处理
+  no_kpi: '#6f8cb4',
 }
 
 /* 图例/提示里的分级展示顺序：由重到轻，与 mwRealTime 的分级顺序一致 */

@@ -14,7 +14,7 @@
 import { CONFIG } from './config.js';
 import { detectLang } from './lang.js';
 import { answer as ragAnswer } from './rag.js';
-import { extractTtNo, analyzeTt } from './tt.js';
+import { extractTtNos, analyzeTickets } from './tt.js';
 
 /**
  * @param {string} question  用户原始问题
@@ -22,10 +22,12 @@ import { extractTtNo, analyzeTt } from './tt.js';
  * @param {object} [opts]
  * @param {Function} [opts.onDebug]  检索诊断回调，仅知识库通道会触发
  * @param {Function} [opts.onRoute]  路由回调 ({channel, ttNo, ms, ok, lang})
+ * @param {Function} [opts.onRetry]  工单通道失败即将自动重试时的回调（可发垫话）
+ * @param {Function} [opts.onLive]   本地库查不到、即将回 eFlow 实时查时的回调（可发垫话）
  * @param {'zh'|'en'} [opts.lang]    回复语言；不传则按提问语言自动判定
  * @returns {Promise<{text:string, answered:boolean, channel:'tt'|'kb', stats?:object}>}
  */
-export async function routeAnswer(question, index, { onDebug, onRoute, lang } = {}) {
+export async function routeAnswer(question, index, { onDebug, onRoute, onRetry, onLive, lang } = {}) {
   // 回复语言跟着提问语言走（英文提问 → 英文回复）。
   // 两条通道的机制不同，所以处理方式也不同：
   //   · TT 通道是脚本渲染的**模板**，没有模型参与 → 必须显式把语言传下去（--lang）；
@@ -34,13 +36,22 @@ export async function routeAnswer(question, index, { onDebug, onRoute, lang } = 
   // 另外还有几句**不经过模型**的固定回复（未命中 / 排队 / 故障 / TT 失败），
   // 它们只能靠调用方按语言取文案（pickText）—— 改 prompt 管不到。
   const replyLang = lang || detectLang(question);
-  const ttNo = extractTtNo(question);
+  const ttNos = extractTtNos(question);
 
-  if (ttNo) {
+  if (ttNos.length) {
     const t0 = Date.now();
-    const r = await analyzeTt(ttNo, { lang: replyLang });
+    const r = await analyzeTickets(question, { lang: replyLang, onRetry, onLive });
     const ms = Date.now() - t0;
-    onRoute?.({ channel: 'tt', ttNo, ms, ok: r.ok, lang: replyLang });
+    onRoute?.({
+      channel: 'tt',
+      ttNo: ttNos[0],
+      ttNos: r.ttNos,
+      count: r.total,
+      okCount: r.okCount,
+      ms,
+      ok: r.ok,
+      lang: replyLang,
+    });
     return {
       text: r.text,
       answered: r.ok,
@@ -57,7 +68,8 @@ export async function routeAnswer(question, index, { onDebug, onRoute, lang } = 
 /** 给日志/输出用的一行描述。 */
 export function describeRoute(r) {
   if (r.channel === 'tt') {
-    return `通道=TT单（实时查工单库${r.stats?.totalMs != null ? `，${r.stats.totalMs}ms` : ''}）`;
+    const multi = r.stats?.count > 1 ? `，${r.stats.count} 个单` : '';
+    return `通道=TT单（实时查工单库${multi}${r.stats?.totalMs != null ? `，${r.stats.totalMs}ms` : ''}）`;
   }
   return `通道=知识库（${CONFIG.embedModel} 嵌入 + 混合检索）`;
 }

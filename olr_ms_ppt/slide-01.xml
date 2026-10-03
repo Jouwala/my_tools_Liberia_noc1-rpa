@@ -1,0 +1,38 @@
+<slide xmlns="https://www.larkoffice.com/sml/2.0">
+  <style>
+    <fill>
+      <fillColor color="linear-gradient(135deg,rgba(0,48,135,1) 0%,rgba(0,112,186,1) 100%)"/>
+    </fill>
+  </style>
+  <data>
+    <shape type="text" topLeftX="80" topLeftY="140" width="800" height="80">
+      <content textType="title" fontSize="48" color="rgba(255,255,255,1)" bold="true">
+        <p>OLR MS 智能运维平台</p>
+      </content>
+    </shape>
+    <shape type="text" topLeftX="80" topLeftY="240" width="800" height="60">
+      <content textType="headline" fontSize="28" color="rgba(212,229,247,1)">
+        <p>两大系统协同 · 全栈运维数字化能力展示</p>
+      </content>
+    </shape>
+    <line startX="80" startY="320" endX="240" endY="320">
+      <border color="rgba(255,255,255,0.6)" width="2"/>
+    </line>
+    <shape type="text" topLeftX="80" topLeftY="350" width="800" height="40">
+      <content textType="body" fontSize="16" color="rgba(180,200,230,1)">
+        <p>ZTE LIBERIA INC · OLR MS Project</p>
+      </content>
+    </shape>
+    <shape type="text" topLeftX="80" topLeftY="420" width="800" height="30">
+      <content textType="caption" fontSize="12" color="rgba(150,175,210,1)">
+        <p>Ver 1.0 · 客户展示版 · 2026-10</p>
+      </content>
+    </shape>
+  </data>
+  <note>
+    <content textType="body">
+      <p>各位领导好，今天向大家展示我们 OLR MS 智能运维平台的整体情况。平台由两大核心系统组成：面向客户的运维门户和后台数据洞察引擎。</p>
+      <p>整个平台覆盖了从日常监控、告警处理、工单管理到报表自动生成的全流程运维场景。</p>
+    </content>
+  </note>
+</slide>

@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import fs from 'node:fs';
 import { createAuthPersistence, type AuthPersistence, type StorageInfo } from '../authDb';
 import { hashPassword, verifyPassword, newId, newSessionToken } from './password';
 import {
@@ -64,9 +65,26 @@ export class AuthStore {
     };
     this.users.push(admin);
     this.persist();
-    console.warn(
-      `[auth] 已创建初始管理员：用户名 admin，初始密码 ${password} —— 首次登录会强制修改密码，请立即修改并妥善保管！`
-    );
+    // 2026-10-01 修复：初始密码**不再写入日志/控制台**。此前用 console.warn 打印明文，
+    // 而 log/portal_dev.log 会被 B5 那类静态暴露读到，等于把管理员口令写进可下载的文件。
+    // 现改为把密码一次性写入数据目录下的受限文件（auth-data/ 已 .gitignore 且在 web 根之外），
+    // 日志只提示文件路径；运维首次登录后应删除该文件。
+    const pwdFile = `${this.dataDir}${process.platform === 'win32' ? '\\' : '/'}initial-admin-password.txt`;
+    try {
+      fs.writeFileSync(
+        pwdFile,
+        `username: admin\npassword: ${password}\n（首次登录会强制修改密码；改完请删除本文件）\n`,
+        { encoding: 'utf-8', mode: 0o600 }
+      );
+      console.warn(
+        `[auth] 已创建初始管理员 admin。初始密码已写入：${pwdFile}（首次登录强制改密，改完请删除该文件）。为安全起见不再向控制台/日志输出明文口令。`
+      );
+    } catch {
+      // 写文件失败时也不打印明文；提示操作者可重置密码或查看数据目录。
+      console.warn(
+        `[auth] 已创建初始管理员 admin，但初始密码文件写入失败。请在数据目录 ${this.dataDir} 下用「重置密码」流程重新设置，不再输出明文口令。`
+      );
+    }
     console.warn(`[auth] 账号与看板权限的存储位置：${this.storageInfo().location}`);
   }
 

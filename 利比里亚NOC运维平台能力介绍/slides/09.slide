@@ -1,0 +1,120 @@
+<Slide>
+  <Box style={{width: '100%', height: '100%', paddingTop: 32, paddingBottom: 20, paddingLeft: 64, paddingRight: 64}}>
+    {/* A · Title */}
+    <Box style={{height: 88, flexDirection: 'row', alignItems: 'flex-start', gap: 12}}>
+      <Box style={{width: 4, height: 40, background: '#0072BC', marginTop: 4}} />
+      <Box style={{flex: 1}}>
+        <Text style={{fontSize: 34, fontWeight: 700, color: '#0F2C4D', lineHeight: 1.3}}>质量与速率，一眼看清</Text>
+        <Text style={{fontSize: 16, fontWeight: 400, color: '#64748B', marginTop: 6}}>
+          每一类会积压的对象都被盯着、有阈值、可追溯——不需要靠争论。
+        </Text>
+      </Box>
+    </Box>
+
+    {/* B · Content */}
+    <Box style={{height: 516, marginTop: 12, flexDirection: 'row', gap: 36}}>
+      {/* Left : anchor numerals */}
+      <Box style={{width: 330, height: '100%', justifyContent: 'space-between'}}>
+        <Box>
+          <Text style={{fontSize: 130, fontWeight: 900, color: '#0072BC', lineHeight: 1, letterSpacing: '-2px'}}>7</Text>
+          <Text style={{fontSize: 17, fontWeight: 700, color: '#0F2C4D', marginTop: 6}}>类质量对象</Text>
+          <Text style={{fontSize: 15, fontWeight: 400, color: '#64748B', marginTop: 10, lineHeight: 1.5}}>
+            未清除告警、故障工单（TT）、工作单（WO）、变更、预防性维护、
+            备件，以及 SLA 达成情况。
+          </Text>
+        </Box>
+        <Box>
+          <Text style={{fontSize: 60, fontWeight: 900, color: '#FF922B', lineHeight: 1, letterSpacing: '-1px'}}>30天</Text>
+          <Text style={{fontSize: 17, fontWeight: 700, color: '#0F2C4D', marginTop: 6}}>统一的统计口径</Text>
+          <Text style={{fontSize: 15, fontWeight: 400, color: '#64748B', marginTop: 10, lineHeight: 1.5}}>
+            所有对象都按同一个 30 天口径判定，今天的讨论和上个月的报表
+            用的是同一套算法。
+          </Text>
+        </Box>
+        <Box style={{background: '#0F2C4D', borderRadius: 10, padding: 18}}>
+          <Text style={{fontSize: 15, fontWeight: 400, color: 'rgba(255,255,255,0.8)', lineHeight: 1.5}}>
+            每张卡片都能点开看底层记录——一个数字从来不是谈话的终点，
+            只是起点。
+          </Text>
+        </Box>
+      </Box>
+
+      {/* Right : threshold bars */}
+      <Box style={{flex: 1}}>
+        <Box style={{height: 348, background: '#F2F6FA', borderRadius: 10, padding: 18}}>
+          <svg width={768} height={312} viewBox='0 0 768 312'>
+            <text x='8' y='16' font-size='12' font-weight='700' fill='#64748B'>质量对象</text>
+            <text x='470' y='16' font-size='12' font-weight='700' fill='#C2410C'>预警线</text>
+            <text x='640' y='16' font-size='12' font-weight='700' fill='#C2410C'>严重线</text>
+
+            <text x='8' y='48' font-size='14' fill='#0F2C4D'>未清除告警</text>
+            <rect x='150' y='36' width='560' height='16' rx='8' fill='#E2E8F0' />
+            <rect x='150' y='36' width='170' height='16' rx='8' fill='#0072BC' opacity='0.75' />
+            <line x1='470' y1='30' x2='470' y2='58' stroke='#FF922B' strokeWidth='3' />
+            <line x1='640' y1='30' x2='640' y2='58' stroke='#C2410C' strokeWidth='3' />
+
+            <text x='8' y='92' font-size='14' fill='#0F2C4D'>故障工单 TT</text>
+            <rect x='150' y='80' width='560' height='16' rx='8' fill='#E2E8F0' />
+            <rect x='150' y='80' width='210' height='16' rx='8' fill='#0072BC' opacity='0.75' />
+            <line x1='470' y1='74' x2='470' y2='102' stroke='#FF922B' strokeWidth='3' />
+            <line x1='640' y1='74' x2='640' y2='102' stroke='#C2410C' strokeWidth='3' />
+
+            <text x='8' y='136' font-size='14' fill='#0F2C4D'>工作单 WO</text>
+            <rect x='150' y='124' width='560' height='16' rx='8' fill='#E2E8F0' />
+            <rect x='150' y='124' width='250' height='16' rx='8' fill='#0072BC' opacity='0.75' />
+            <line x1='470' y1='118' x2='470' y2='146' stroke='#FF922B' strokeWidth='3' />
+            <line x1='640' y1='118' x2='640' y2='146' stroke='#C2410C' strokeWidth='3' />
+
+            <text x='8' y='180' font-size='14' fill='#0F2C4D'>变更单 CR</text>
+            <rect x='150' y='168' width='560' height='16' rx='8' fill='#E2E8F0' />
+            <rect x='150' y='168' width='130' height='16' rx='8' fill='#0072BC' opacity='0.75' />
+            <line x1='470' y1='162' x2='470' y2='190' stroke='#FF922B' strokeWidth='3' />
+            <line x1='640' y1='162' x2='640' y2='190' stroke='#C2410C' strokeWidth='3' />
+
+            <text x='8' y='224' font-size='14' fill='#0F2C4D'>预防性维护</text>
+            <rect x='150' y='212' width='560' height='16' rx='8' fill='#E2E8F0' />
+            <rect x='150' y='212' width='290' height='16' rx='8' fill='#0072BC' opacity='0.75' />
+            <line x1='470' y1='206' x2='470' y2='234' stroke='#FF922B' strokeWidth='3' />
+            <line x1='640' y1='206' x2='640' y2='234' stroke='#C2410C' strokeWidth='3' />
+
+            <text x='8' y='268' font-size='14' fill='#0F2C4D'>备件</text>
+            <rect x='150' y='256' width='560' height='16' rx='8' fill='#E2E8F0' />
+            <rect x='150' y='256' width='195' height='16' rx='8' fill='#0072BC' opacity='0.75' />
+            <line x1='470' y1='250' x2='470' y2='278' stroke='#FF922B' strokeWidth='3' />
+            <line x1='640' y1='250' x2='640' y2='278' stroke='#C2410C' strokeWidth='3' />
+
+            <text x='8' y='306' font-size='13' fill='#64748B'>每类对象两道阈值 · 源头有趋势数据的画趋势 · 点击即打开底层记录</text>
+          </svg>
+        </Box>
+
+        {/* Speed benchmark strip */}
+        <Box style={{height: 150, marginTop: 16, background: '#FFFFFF', border: '1px solid #E2E8F0', borderLeft: '4px solid #FF922B', borderRadius: 10, padding: 20, justifyContent: 'space-between'}}>
+          <Box>
+            <Text style={{fontSize: 19, fontWeight: 700, color: '#0F2C4D'}}>用户感知速率，同台对标</Text>
+            <Text style={{fontSize: 14, fontWeight: 400, color: '#64748B', marginTop: 8, lineHeight: 1.5}}>
+              下载与上传速率、综合评分按 Ookla Speedtest 方法对两张网同时测量并并排呈现——
+              质量讨论从一个实测数字开始。
+            </Text>
+          </Box>
+          <Box style={{flexDirection: 'row', gap: 12}}>
+            <Box style={{background: '#E8F1FA', borderRadius: 6, paddingLeft: 14, paddingRight: 14, paddingTop: 7, paddingBottom: 7}}>
+              <Text style={{fontSize: 13, fontWeight: 700, color: '#0F2C4D'}}>2G / 3G / 4G 可用率</Text>
+            </Box>
+            <Box style={{background: '#E8F1FA', borderRadius: 6, paddingLeft: 14, paddingRight: 14, paddingTop: 7, paddingBottom: 7}}>
+              <Text style={{fontSize: 13, fontWeight: 700, color: '#0F2C4D'}}>下载与上传速率</Text>
+            </Box>
+            <Box style={{background: '#E8F1FA', borderRadius: 6, paddingLeft: 14, paddingRight: 14, paddingTop: 7, paddingBottom: 7}}>
+              <Text style={{fontSize: 13, fontWeight: 700, color: '#0F2C4D'}}>综合评分与胜场</Text>
+            </Box>
+          </Box>
+        </Box>
+      </Box>
+    </Box>
+
+    {/* C · Footer */}
+    <Box style={{height: 40, marginTop: 12, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid #E2E8F0'}}>
+      <Text style={{fontSize: 14, color: '#94A3B8'}}>OLR MS 运维工具平台</Text>
+      <Text style={{fontSize: 14, color: '#94A3B8'}}>09 / 17</Text>
+    </Box>
+  </Box>
+</Slide>

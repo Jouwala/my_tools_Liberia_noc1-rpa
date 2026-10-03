@@ -6,9 +6,11 @@
 - /api/tasks/{task_id}、/run、/status、/stats、/history
 - /api/tasks/{task_id}/schedule、/toggle
 """
+import hashlib
+import json
 import logging
 
-from fastapi import APIRouter, Request, Depends, HTTPException
+from fastapi import APIRouter, Request, Depends, HTTPException, Response
 
 from backend.security import require_protected
 from backend.services import task_runner
@@ -57,9 +59,38 @@ def eflow_sync_status():
 # ========== 通用任务管理 API ==========
 
 @router.get("/api/tasks")
-def list_all_tasks(request: Request):
-    """列出所有已注册的定时任务（含最新执行记录，单次返回，避免前端 N+1）"""
-    return {"tasks": task_runner.list_tasks(include_runs=True, lang=_req_lang(request))}
+def list_all_tasks(request: Request, response: Response):
+    """列出所有已注册的定时任务（含最新执行记录，单次返回，避免前端 N+1）
+
+    B6 轮询风暴整改（2026-10-01）：MW 实时看板子帧曾以 ~2.7s/次 的频率轮询本接口
+    （单响应 ~77KB，单标签页 10 分钟 212 次 ≈ 100MB/小时）。前端已改为仅标签页可见时
+    轮询（TaskSyncWidget 60s + visibilitychange）；本接口在此之上支持 ETag 协商缓存：
+    - 首次请求：正常返回 200，并带 `ETag: "<sha1-16hex>"`；
+    - 后续请求带 `If-None-Match: "<etag>"`：内容无变化（序列化后 sha1 相同）→ 304 空体，
+      传输量从 ~77KB 降到 ~200B；有变化（任务状态/最新执行记录变了）→ 200 全量 + 新 ETag。
+    - 为什么用内容哈希而不是版本号：list_tasks 每次现算（队列状态、新鲜度、重试预测
+      都是活的），没有可靠的递增版本可用；sha1(序列化结果) 语义即"内容没变就不重传"。
+    - Cache-Control: no-cache：允许客户端缓存副本但要求每次协商，绝不返回过期任务状态。
+    """
+    payload = {"tasks": task_runner.list_tasks(include_runs=True, lang=_req_lang(request))}
+    body = json.dumps(payload, ensure_ascii=False, default=str).encode("utf-8")
+    etag = '"' + hashlib.sha1(body).hexdigest()[:16] + '"'
+
+    inm = request.headers.get("if-none-match")
+    if inm:
+        # 容忍多值/弱验证器形态：W/"..."、"a, b"、带引号
+        candidates = [c.strip().removeprefix("W/").strip() for c in inm.split(",")]
+        if etag in candidates:
+            # 304 必须直接 return Response —— 若只改 response.status_code 再 return dict，
+            # FastAPI 会用返回值重新序列化并覆盖状态码，304 退化成 200 全量（已实测踩坑）。
+            return Response(
+                status_code=304,
+                headers={"ETag": etag, "Cache-Control": "no-cache"},
+            )
+
+    response.headers["ETag"] = etag
+    response.headers["Cache-Control"] = "no-cache"
+    return payload
 
 
 # 必须定义在 /api/tasks/{task_id} 之前，否则 "running" 会被当成 task_id

@@ -342,7 +342,11 @@ ZXMW 微波网络拓扑与带宽利用率 NOC 看板（`MwUmeDashboard.tsx:4-8`�
   - 取舍：没有做「展开/收起」按钮 —— 那要在浮层里再加一个控件，而 ⓘ 是本项目既有约定（`gis.explain.note` 等 20 余处同款），一致性优先。
 - **⚠️ 浅色/深色都要看**：浮层直接压在瓦片上，是最容易出「浅底浅字」的位置。
   - ⚠️ 本条曾写作「用 `WH.cardBg`（浅色档是 rgba 白渐变）+ `backdrop-filter: blur(8px)`」—— **已过时**。2026-10-14 用户连续三轮要求提高透明度，最终两主题的 `background` 都是 `transparent`（面板背景完全不可见，只剩文字 + 描边 + 阴影），模糊提到 `blur(34px) saturate(160%)`。完整推导、被否决的 `text-shadow` 描边方案、以及「深色下瓦片被 invert、白字可能压不住亮块」这个**已知代价**，都写在 `frontend/src/index.css` 的 `.gis-legend-overlay` 段与 `MapLegendOverlay.tsx` 头部注释里 —— **调数值前先读那两处**。
-  - 判据的落点是 `frontend/src/pages/gismap/MapLegendOverlay.tsx` 的第 7 条注释：深色主题下 OSM 瓦片被 invert 反相（`index.css` 的 `:root[data-theme='dark'] .gis-dark-map .leaflet-tile-pane`），深色公路/注记会变成**亮白**，全透明面板的白字压上去会看不见。**这是用户明确选择后的取舍，不要当成 bug 自动加回背景色**；彻底解法在底图（深色主题改用真正的暗色瓦片源）。
+  - 判据的落点是 `frontend/src/pages/gismap/MapLegendOverlay.tsx` 的第 7 条注释。**该注释描述的「深色下 OSM 瓦片被 invert 反相、深色公路变亮白」问题已于 2026-10-02 从根上消除**：底图换成自托管 PMTiles 矢量瓦片，深色用真配色（`gismap/basemap.ts` 的 `DARK_THEME`），不再有 invert 滤镜与 `.gis-dark-map` 类。全透明面板 + 白字现在压在**真正的暗色底图**上，不再需要为「反相亮块」担忧。**这是用户明确选择后的取舍，不要当成 bug 自动加回背景色**。
+  - **底图方案（2026-10-02 定案，替换 OSM/CARTO 公网瓦片）**：`frontend/src/pages/gismap/` 下 `basemap.ts`（配色与 URL）+ `pmtilesPaint.ts`（绘制/标注规则）+ `PmtilesLayer.tsx`（Leaflet 图层）三件套，用 `protomaps-leaflet` 渲染自托管 `https://192.168.100.20/tiles/liberia.pmtiles`（nginx `location ^~ /tiles/`，需 Range 支持）。**必须用自定义 paintRules**：protomaps 内置 flavor 面向 OpenMapTiles schema，与本项目瓦片图层名只命中 `water` 一个（实测 1/6），直接用会得到近乎空白的地图。**改瓦片配置（`D:\tiles-work\config-basic.json`）必须同步改绘制规则**，否则新图层只是不显示、不报错。低缩放（z0~z4）只有 `place` 一个图层，故绘制规则**必须给 place 兜底**，否则 z0~z3 是纯底色空白（2026-10-02 实测踩过）。
+  - **地名注记默认关闭（2026-10-02 用户反馈「密密麻麻的地理名字，什么都看不清」）**：根因是 `pmtilesPaint.ts` 里 z8 起的 place 规则**没有任何过滤**，把瓦片里 1.7 万个地名（hamlet 12607 + isolated_dwelling 2590）全标了出来。现改为**整层默认关闭**，由地图右上角的 `gismap/LayerToggleControl.tsx`（「图层 → 地名注记」复选框）按需打开；`PmtilesLayer` 的 `showLabels` 默认 `false`，关闭时传**空 labelRules 数组**（protomaps 无开关参数）。
+    - ⚠️ **`LayerToggleControl` 必须放在 `<MapContainer>` 内部**：它调 `useMap()` 取 Leaflet 实例，放到容器外会抛「useMap 必须在 `<MapContainer>` 内使用」并打崩整页（实测 GIS 页 0 个 leaflet 容器、整页空白）。定位靠 `createPortal` 落进 Leaflet 容器，不依赖它在父级 DOM 中的位置。
+    - ⚠️ 该控件与 `MapLegendOverlay` 同约定：**文案不进 i18n**，由页面 `t()` 好再传入（守卫才看得见字面量键）。
 
 #### 10a-2. ⚠️ 门户内嵌与直开的主题一致性（2026-10-14 修，两条根因）
 
@@ -3088,7 +3092,77 @@ UME 只是自动同步的补充。**这个优先级是口径决定，不是性�
 | `TMP\_probe_vlr_oldvsnew.py` | **对比线上运行中的后端与修复后代码的逐日值**，直接打印倍数与极差。改完代码未重启时用它确认"是不是还没生效"（重启后两者应一致，倍数恒为 1.00x） |
 | `TMP\_probe_restart_ready.py` | 按 `main.py` 的导入顺序重新 import 相关模块，**确认重启不会起不来**；改动模块级常量后、重启前跑一次 |
 
+#### GIS 地图浮层遮挡 / 地图位移（2026-10-03 新增）
+
+门户 `v1/olbrportal/` 的 GIS Map 面板把内层页塞进 iframe，再由
+`olbr-data.js` 的 `MAP_STRIP_CSS` 注入样式。**Alarm(gis) 与 MW 两个页签共用这份 CSS**，
+所以任何"给地图加位移"的改动都要先确认它只落在该落的页签上（踩过：裸写
+`.leaflet-map-pane{margin-left:-89px}` 会把 MW 右侧推出 82px 空白）。
+
+排查这类问题一律先量**矩形与命中**，不要靠"哪边看着空"推断——已经被纠正过两次。
+
+| 脚本 | 用途 |
+| --- | --- |
+| `TMP\_probe_alarm_overlay.py` | 量 Alarm 页图例/排名条矩形，并按"图元尺寸小且近方"筛出站点圆点，输出**被浮层压住的站点数**。注意 gis 页的站点是 react-leaflet `CircleMarker`，**没有 per-site class**，按 `.geo-node` 之类找永远是 0 个 |
+| `TMP\_probe_rank_overlay.py` | 专项量 MAINTENANCE ALERTS(`.gis-rank-overlay`)，含**被盖站点的左右/上下分布**——判断"该往哪边移"的关键依据 |
+| `TMP\_probe_alarm_pan.py` | 扫描地图左移各档位的「遮挡数 vs 出界数 vs 瓦片缝隙」，用于定值 |
+| `TMP\_probe_pan_sweep.py` | 扫 `.leaflet-map-pane` 的 `margin-left`（-160..+200），同时输出右缝与内容越界，是"右边空白 / 左边出界"的第一诊断 |
+| `TMP\_probe_pan_result.py` | 改完后的两页签验收：`pane.marginLeft` / 右缝 / 排名条是否被挪动 |
+| `TMP\_probe_mw_drawer_embed.py` | MW 页签下钻抽屉在**嵌入态**下能否弹出（含"抽屉未被内联 display:none 隐藏"这条关键断言） |
+| `TMP\_probe_map_tabs_regression.py` | 两页签地图尺寸回归（Alarm 885×858 / MW 883×856），防改动互相压坏 |
+
+> 现役取值与完整取舍写在 `v1\olbrportal\assets\olbr-data.js` 的 `MAP_STRIP_CSS`
+> 注释里（`.leaflet-map-pane` 那一条），改前务必读完再动。
+
 > 运行前记得 `$env:PYTHONIOENCODING='utf-8'`，否则中文日志在 GBK 控制台会抛
 > `UnicodeEncodeError`。
+
+## 34. WO 清理 —— 批量关闭待确认工单（`?page=eflow_qa` 左栏，2026-10-01 新增）
+
+eFlow 里 FE 处理完后大量 WO 停在 `WaitConfirm`（待 NOC 确认关闭），
+此前只能逐单在 eFlow 界面点「Confirm」。本功能在 eFlow 知识库页左栏提供
+**批量预检 + 勾选二次确认 + 批量关闭**，并支持粘贴 / Excel 导入 / 模板下载。
+
+### 34.1 入口与文件
+
+| 位置 | 内容 |
+| --- | --- |
+| 页面入口 | `?page=eflow_qa` 左栏「WO 清理」→「批量关闭工单」按钮（`frontend/src/pages/EflowQa.tsx` 的 `woCloseView`） |
+| 面板组件 | `frontend/src/components/WoClosePanel.tsx`（预检表 / 勾选 / 二次确认 / 结果导出 / 模板下载） |
+| 服务层 | `backend/services/eflow_wo_close.py`（三步链路 + 批量编排，**模块头注释有全部实测依据**） |
+| 路由 | `backend/routers/eflow_qa.py` 末尾 `POST /api/eflow-qa/wo-close/check`（只读预检）与 `/wo-close/submit`（提交关闭） |
+
+### 34.2 eFlow 关闭链路（三个必须知道的事实，全部 2026-10-01 实机验证）
+
+1. **`opEntity.id` 不是 woId** —— 它是 `POST /eflow-wo/v1/eflow-wo/base/detail?woId={id}`
+   返回的 `opEntities[]` 里**待办 Confirm 记录的主键**（如 106037）。
+   缺了它提交报 `48990009 "Failed to build entity!"`。
+2. **`base/detail` 的参数在查询串**（`?woId=`）且 **body 为空**；参数放 body 报 `48990007`。
+   `taskId` / `verifyKey` 是**隐式字段**：不能写进 `base/list` 的 `field`（会 500），
+   但 detail 默认返回。
+3. **`operationResult="7"` = Confirm To Close**（终态 Closed，字符串）；`base/list`
+   的 `filter` 支持 `((status eq "A") or ...) and (lastModifiedTime ge n) and (woNum contains "xx")`
+   复合表达式，但单测 `status eq` 看不出效果。
+
+### 34.3 安全边界（不要放松）
+
+- 服务层只对 `status=WaitConfirm 且 opName=Confirm 且存在待办 Confirm op` 的单提交；
+  其它状态一律 `skipped` 并写明原因，**已 Closed 的单重跑安全（幂等）**。
+- 只做关闭，不做 Reject / 重开 / 删除；`MAX_BATCH=200`、逐单串行 + 1s 间隔。
+- 前端强制「预检只读 → 勾选 → Modal 二次确认」才提交，预检与提交是**两个独立接口**。
+- 提交后逐单**回读 detail 复核**是否真的 Closed（HTTP 200 不代表成功）。
+
+### 34.4 已知行为
+
+- 单号格式严格 `WO + 12 位数字`，其它内容进 `invalid` 列表提示但不阻断合法部分。
+- `not_found` = eFlow 活跃集合没有这单（通常是**已被别人关闭**或单号写错；
+  本地库 `eflow_wo.status` 是同步快照，不能作为是否需要关闭的依据）。
+- 关闭后本地 `eflow_wo` 表要等下一次 eflow 同步任务才会变 `Closed`。
+- **关闭 ≠ 删除，但 eFlow 默认列表视图看不到已关单**（2026-10-01 实测虚惊）：
+  WO 关闭后立即从 eFlow 的默认工单列表消失，必须把状态筛选设为 `Closed`
+  才能查到（API 侧 `base/list` 不带 status 过滤同样查不到，加
+  `status eq "Closed"` + 时间窗即可命中）。预检报 `not_found`、或用户在
+  eFlow 界面"找不到刚关的单"时，先想到这一条，不要误判为删除。
+
 
 

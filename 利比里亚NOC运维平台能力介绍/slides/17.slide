@@ -1,0 +1,41 @@
+<Slide>
+  <Box style={{position: 'relative', width: '100%', height: '100%', overflow: 'hidden'}}>
+    <Image src="assets/hero_noc.png" style={{width: '100%', height: '100%', objectFit: 'cover'}} />
+    <Box style={{position: 'absolute', inset: 0, background: 'rgba(15,44,77,0.72)'}} />
+    <Box style={{position: 'absolute', inset: 0, opacity: 0.12}}>
+      <svg width={1280} height={720} viewBox='0 0 1280 720'>
+        <path d='M0 560 L220 440 L440 520 L660 340 L880 460 L1100 300 L1280 390' fill='none' stroke='#FFFFFF' strokeWidth='2' />
+        <circle cx='220' cy='440' r='6' fill='#FFFFFF' />
+        <circle cx='440' cy='520' r='6' fill='#FFFFFF' />
+        <circle cx='660' cy='340' r='6' fill='#FFFFFF' />
+        <circle cx='880' cy='460' r='6' fill='#FFFFFF' />
+        <circle cx='1100' cy='300' r='6' fill='#FFFFFF' />
+      </svg>
+    </Box>
+    <Box style={{position: 'absolute', left: 64, right: 64, top: 200, zIndex: 1}}>
+      <Box style={{width: 72, height: 4, background: '#FF922B'}} />
+      <Text style={{fontSize: 56, fontWeight: 700, color: '#FFFFFF', marginTop: 28, lineHeight: 1.2}}>
+        一张统一的运维视图
+      </Text>
+      <Text style={{fontSize: 20, fontWeight: 400, color: 'rgba(255,255,255,0.85)', marginTop: 22, lineHeight: 1.55, maxWidth: 860}}>
+        已经运行在利比里亚 NOC / SOC：值班团队每班都要打开的门户、在背后填数的引擎，
+        以及在群里作答的助手。下一步，是把同一套做法延伸到尚未纳入的业务域。
+      </Text>
+      <Box style={{flexDirection: 'row', gap: 14, marginTop: 40}}>
+        <Box style={{background: 'rgba(0,114,188,0.9)', borderRadius: 6, paddingLeft: 18, paddingRight: 18, paddingTop: 10, paddingBottom: 10}}>
+          <Text style={{fontSize: 14, fontWeight: 700, color: '#FFFFFF'}}>统一运维门户</Text>
+        </Box>
+        <Box style={{background: 'rgba(255,255,255,0.14)', borderRadius: 6, paddingLeft: 18, paddingRight: 18, paddingTop: 10, paddingBottom: 10}}>
+          <Text style={{fontSize: 14, fontWeight: 700, color: '#FFFFFF'}}>数据洞察平台</Text>
+        </Box>
+        <Box style={{background: 'rgba(255,255,255,0.14)', borderRadius: 6, paddingLeft: 18, paddingRight: 18, paddingTop: 10, paddingBottom: 10}}>
+          <Text style={{fontSize: 14, fontWeight: 700, color: '#FFFFFF'}}>智能助手</Text>
+        </Box>
+      </Box>
+    </Box>
+    <Box style={{position: 'absolute', left: 64, bottom: 44, right: 64, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', zIndex: 1}}>
+      <Text style={{fontSize: 14, color: 'rgba(255,255,255,0.5)', letterSpacing: '1.5px'}}>ZTE · 运维服务 · 利比里亚</Text>
+      <Text style={{fontSize: 14, color: 'rgba(255,255,255,0.5)'}}>17 / 17</Text>
+    </Box>
+  </Box>
+</Slide>

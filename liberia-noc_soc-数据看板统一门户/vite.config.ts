@@ -1,10 +1,9 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
-import fs from 'fs';
 import path from 'path';
 import {defineConfig, type Plugin} from 'vite';
-import type {IncomingMessage, ServerResponse} from 'node:http';
-import {getAuthStore, portalAuthPlugin, resolveCaller, sendJson as sendJsonShared} from './server/auth';
+import {getAuthStore, portalAuthPlugin} from './server/auth';
+import {APP_BASE, createPortalDefaultHandler} from './server/portalDefault';
 
 // ============================================================================
 // 门户默认目录（portal-default.json）服务端持久化
@@ -24,8 +23,7 @@ import {getAuthStore, portalAuthPlugin, resolveCaller, sendJson as sendJsonShare
 //   兼容旧的纯数组格式（旧客户端 POST 数组时仍写数组）。
 // ============================================================================
 
-/** 应用部署子路径（nginx 的 /uniplam/ 反代），与下方 base 保持一致 */
-const APP_BASE = '/uniplam/';
+// 应用部署子路径 APP_BASE 由 server/portalDefault.ts 导出（dev 与 prod 共用一个定义）。
 
 // 全局默认目录落盘位置；可用环境变量 PORTAL_DEFAULT_FILE 覆盖
 // （便于起隔离实例做端到端验证，避免动到线上正在使用的默认目录）。
@@ -40,133 +38,16 @@ const AUTH_DATA_DIR = process.env.PORTAL_AUTH_DATA_DIR
   : path.resolve(__dirname, 'auth-data');
 const authStore = getAuthStore(AUTH_DATA_DIR);
 
-const LOOPBACK_ADDRESSES = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
-
-/** 是否来自本机的请求（回环 IP + localhost/127.0.0.1 Host 头双重校验，端口不限） */
-function isLocalhostSaveRequest(req: {socket?: {remoteAddress?: string}; headers: Record<string, string | string[] | undefined>}): boolean {
-  const remote = req.socket?.remoteAddress || '';
-  if (!LOOPBACK_ADDRESSES.has(remote)) return false;
-  const host = String(req.headers.host || '').replace(/:\d+$/, '');
-  return host === 'localhost' || host === '127.0.0.1';
-}
-
-/** 组名归一化：去首尾/折叠空白、丢弃空值与「全部」伪分组、忽略大小写去重（与前端同规则） */
-function sanitizeGroupNames(raw: unknown): string[] {
-  if (!Array.isArray(raw)) return [];
-  const out: string[] = [];
-  for (const item of raw) {
-    if (typeof item !== 'string') continue;
-    const name = item.replace(/\s+/g, ' ').trim();
-    if (!name || name === '全部') continue;
-    if (out.some((g) => g.toLowerCase() === name.toLowerCase())) continue;
-    out.push(name);
-  }
-  return out;
-}
-
-/** 分组英文标签归一化：key 必须落在现存分组内，value 必须是非空字符串（与前端同规则） */
-function sanitizeGroupLabels(raw: unknown, groups: string[]): Record<string, string> {
-  const out: Record<string, string> = {};
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return out;
-  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
-    const name = String(key).replace(/\s+/g, ' ').trim();
-    if (!groups.includes(name) || typeof value !== 'string') continue;
-    const label = value.replace(/\s+/g, ' ').trim();
-    if (!label) continue;
-    out[name] = label;
-  }
-  return out;
-}
-
+/**
+ * portal-default 插件的 vite 适配层。
+ * 真正的 GET/POST 逻辑（含 B3 鉴权门）已收敛到 `server/portalDefault.ts`，
+ * 与生产入口 `server/index.ts` 共用同一份实现，这里只负责挂载，不再各写一份。
+ */
 function portalDefaultStorePlugin(): Plugin {
   return {
     name: 'portal-default-store',
     configureServer(server) {
-      const handler = (req: IncomingMessage, res: ServerResponse) => {
-        // 复用鉴权模块的 sendJson，不再本地重定义（消除第二份实现）
-        const sendJson = (status: number, payload: unknown) => sendJsonShared(res, status, payload);
-
-        if (req.method === 'GET') {
-          try {
-            if (fs.existsSync(DEFAULT_FILE)) {
-              res.setHeader('Content-Type', 'application/json; charset=utf-8');
-              res.end(fs.readFileSync(DEFAULT_FILE, 'utf-8'));
-            } else {
-              sendJson(404, {detail: 'portal default catalog not saved yet'});
-            }
-          } catch (e) {
-            sendJson(500, {detail: `read portal-default.json failed: ${String(e)}`});
-          }
-          return;
-        }
-
-        if (req.method === 'POST') {
-          // 鉴权门：必须携带有效管理员会话（前端 apiFetch 自动注入 Bearer token）
-          // 日常开发免登录模式下（见 server/authSwitch.ts）无 token 也按开发管理员放行，
-          // 「只有本机可保存」的约束仍然保留，不随鉴权开关放宽。
-          //
-          // 调用者解析统一走 server/auth 的 resolveCaller —— 此前这里有一份与
-          // server/auth 路由内联判断重复的副本（且免登录旁路写法不一致），
-          // 2026-09-25 收口，见 docs/auth-module-design.md 第三节问题 2。
-          const auth = resolveCaller(req, authStore);
-          if (!auth) {
-            sendJson(401, {detail: '请先登录后再保存默认目录'});
-            return;
-          }
-          if (auth.caller.role !== 'admin') {
-            sendJson(403, {detail: '仅管理员可保存默认目录'});
-            return;
-          }
-          if (!isLocalhostSaveRequest(req)) {
-            sendJson(403, {detail: '只有 http://localhost:9267/uniplam/ 允许保存默认目录'});
-            return;
-          }
-          let body = '';
-          req.on('data', (chunk) => {
-            body += chunk;
-            // 防御超大请求体（目录 JSON 正常几百 KB 以内）
-            if (body.length > 8 * 1024 * 1024) {
-              req.destroy();
-            }
-          });
-          req.on('end', () => {
-            try {
-              const parsed = JSON.parse(body) as unknown;
-              const legacyArray = Array.isArray(parsed);
-              const items = legacyArray
-                ? (parsed as unknown[])
-                : (parsed as {dashboards?: unknown[]})?.dashboards;
-              if (!Array.isArray(items) || items.length === 0) {
-                sendJson(400, {detail: 'payload must be a non-empty dashboards array'});
-                return;
-              }
-              // 分组列表：只接受字符串、去空、忽略大小写去重（与 src/utils/groups.ts 同规则）
-              const rawGroups = legacyArray ? [] : (parsed as {groups?: unknown})?.groups;
-              const groups = sanitizeGroupNames(rawGroups);
-              // 分组英文标签：key 必须是现存分组，value 必须是非空字符串
-              const rawLabels = legacyArray ? undefined : (parsed as {groupLabels?: unknown})?.groupLabels;
-              const groupLabels = sanitizeGroupLabels(rawLabels, groups);
-              const savedAt = new Date().toISOString();
-              const payload = legacyArray
-                ? items
-                : {version: 2, savedAt, groups, groupLabels, dashboards: items};
-              fs.writeFileSync(DEFAULT_FILE, JSON.stringify(payload, null, 2), 'utf-8');
-              sendJson(200, {
-                ok: true,
-                count: items.length,
-                groupCount: groups.length,
-                savedAt,
-                file: DEFAULT_FILE,
-              });
-            } catch (e) {
-              sendJson(400, {detail: `invalid JSON payload: ${String(e)}`});
-            }
-          });
-          return;
-        }
-
-        sendJson(405, {detail: 'method not allowed'});
-      };
+      const handler = createPortalDefaultHandler({ authStore, defaultFile: DEFAULT_FILE });
 
       // 同时挂在根路径与 base 前缀路径：
       //  - /api/portal-default          → 直连 9267 时（旧路径，兼容保留）

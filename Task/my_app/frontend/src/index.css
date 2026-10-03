@@ -692,12 +692,13 @@ html {
   color: #0d9488;
 }
 
-/* Leaflet 底图深色适配：OSM 瓦片 + invert 滤镜（与 mw_ume_topology.html 同款方案）。
-   滤镜只作用于 tile-pane，标记/链路/弹窗不受影响；标注文字反色后仍可读。 */
-:root[data-theme='dark'] .gis-dark-map .leaflet-tile-pane {
-  filter: brightness(0.62) invert(1) contrast(3) hue-rotate(200deg) saturate(0.4) brightness(0.72);
-  transition: filter 0.3s ease;
-}
+/* Leaflet 底图深色适配：**已移除 invert 滤镜**（2026-10-02）。
+   底图已从 OSM 栅格瓦片换成自托管 PMTiles 矢量瓦片，深色主题由 protomaps 的
+   DARK_THEME 真配色实现（见 gismap/basemap.ts），不再需要滤镜硬凑。
+   移除本条同时解决了它的已知副作用：原先 invert 会把 OSM 的深色公路/注记
+   反成亮白块，正是图例「深色下白底白字」问题的根因（见 gismap/MapLegendOverlay.tsx）。
+   历史：曾试过改用 CARTO 原生暗色瓦片但失败（需 API Key），已回滚；
+   现方案为内网自托管，无 key、无额度限制。详见 gismap/basemap.ts 文件头。 */
 
 /* Leaflet 控件/弹窗在深色主题下的适配 */
 :root[data-theme='dark'] .leaflet-control-zoom a {
@@ -730,24 +731,124 @@ html {
 }
 
 /* ---------- GIS 县（County）边界名称标注（2026-09-25 新增） ----------
-   Leaflet permanent tooltip 的默认样式是白底深字 + 三角箭头，压在淡色县界底块上
-   会显得突兀、且箭头指向不准（tooltip 落在质心而非边界线上）。
-   这里把箭头去掉、底色改为半透明浅色药丸，保证在深/浅两套主题和卫星底图上都可读。 */
+
+   2026-10-14 第三版（用户：**「去掉标签背景，只显示 BOMI.01」**）：
+   底色、边框、圆角、色点全部去掉，只留「县名 + 数字」两段纯文字。
+   为什么这样反而更清楚：
+     · 底色原先是为了把小字从瓦片纹理上托起来。但改版后标签已经**让开了**
+       重叠（见 countyLabelLayout.ts），每个标签周围都是有留白的，
+       再套一层雾底就成了没有必要的装饰 —— 用户看的就是这份多余。
+     · 色点也去掉：它表达的是「严重度」，而**同一信息在县块填充色上已经有了**，
+       在同一张图上重复编码两遍是冗余；排名条里保留色点，那里没有填充色兜底。
+   可读性改由**文字描边**保证（见下方 text-shadow）—— 无底色时这是唯一
+   能把小字从花哨底图上托起来的手段。
+   ⚠️ 注意与 .gis-legend-overlay 的取舍**正好相反**：那里用户明确否决过描边
+   （0.75rem 小字套同色晕会脏污/重影）。此处字号更小、底图更花，
+   且已无底色可选，故改用**细描边 + 高对比纯白/纯黑字**，而不是模糊的晕。 */
 .gis-county-label.leaflet-tooltip {
-  background: rgba(255, 255, 255, 0.78);
+  background: transparent;
   border: none;
-  border-radius: 999px;
-  padding: 1px 6px;
+  border-radius: 0;
+  padding: 0;
   box-shadow: none;
-  color: #0f2744;
+  color: #ffffff;
   pointer-events: none;
+  /* 深色细描边：在浅色瓦片与淡色县块上都能排出字形轮廓 */
+  text-shadow:
+    0 0 2px rgba(0, 0, 0, 0.9),
+    0 0 1px rgba(0, 0, 0, 0.95),
+     1px 1px 0 rgba(0, 0, 0, 0.55),
+    -1px -1px 0 rgba(0, 0, 0, 0.55);
 }
 .gis-county-label.leaflet-tooltip::before {
   display: none; /* 去掉箭头 */
 }
-:root[data-theme='dark'] .gis-county-label.leaflet-tooltip {
-  background: rgba(8, 18, 44, 0.72);
-  color: #f5f7ff;
+:root[data-theme='light'] .gis-county-label.leaflet-tooltip {
+  /* 浅色主题：翻成深字 + 白色描边。纯白字压在浅瓦片上会彻底消失，
+     这是「无底色」方案必须按主题分档的原因。 */
+  color: #0b1f38;
+  text-shadow:
+    0 0 2px rgba(255, 255, 255, 0.95),
+    0 0 1px rgba(255, 255, 255, 1),
+     1px 1px 0 rgba(255, 255, 255, 0.8),
+    -1px -1px 0 rgba(255, 255, 255, 0.8);
+}
+
+/* 县名标注的承载锚点（2026-10-14）：一个零尺寸、零视觉的 divIcon。
+   它存在的唯一目的是给 tooltip 一个**可任意指定**的坐标（见 LeafletMap.tsx
+   的 Marker 注释）。必须显式压掉 Leaflet 给 divIcon 的默认定位样式，
+   否则会留下一个可见的空方块，正好落在避让后的标签旁边。 */
+.leaflet-empty-anchor {
+  width: 0 !important;
+  height: 0 !important;
+  margin: 0 !important;
+  border: none !important;
+  background: transparent !important;
+  pointer-events: none !important;
+}
+
+/* 标签内部结构：**只剩**县名 + 数字两段（色点与底色已于 2026-10-14 第三版去掉，
+   理由见上方 .gis-county-label 的注释）。
+   字距的拉开是为了让「县名」与「数字」在字形上天然分层 ——
+   没有底色和色点之后，可读性全靠文字本身，这层区分就更有必要。 */
+.gis-county-tag {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  font-size: 0.6875rem;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+.gis-county-tag__name {
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+/* 数字用等宽数字：各标签的序号宽度一致，竖排下来右边缘自然对齐。
+   **不补零**（用户要的是 `BOMI 01` 这种「名 + 号」的写法，
+   补零成 `01` 与写成 `1` 在这里等价 —— 保留补零是因为它对单数字更整齐，
+   且与排名条的数字风格一致）。 */
+.gis-county-tag__num {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum';
+}
+
+/* ---------- GIS 超时告警站点：外圈呼吸光环（2026-10-02 新增） ----------
+   用户要求「严重告警加脉冲/外圈」。只作用于 realtime 模式的 rt_alarm_overdue
+   （已超时）一档 —— 它是最高优先级且数量最少。见 GISMap.tsx 对应注释。
+
+   实现：GISMap 为这类站点额外渲染一个只描边、不填充的 CircleMarker
+   （radius = 站点半径 + 4），带 className="gis-halo"（Leaflet 会把 className
+   写到 SVG <path> 上，见 components/LeafletMap.tsx 的 CircleMarker.className）。
+   这里只做动画，**颜色/粗细由 JS 传入**，避免两处各写一份色值。
+
+   为什么用「缩放 + 透明度」而不是改 r：
+     SVG 的 r 是几何属性，CSS 动画改不动；transform: scale() 能跑在合成层上，
+     且缩放以元素中心为原点（Leaflet 给每个 path 已设好 transform-origin），
+     圆点不会位移。fill: none 保证缩放时内部不出现实心块（只缩放描边圈）。
+
+   性能：只对超时档开，通常个位数到几十个；用 will-change 提升为合成层。
+   若将来要扩到更多档，需先评估同时动画的 SVG 数量。 */
+.gis-halo {
+  fill: none;
+  transform-box: fill-box;
+  transform-origin: center;
+  will-change: transform, opacity;
+  animation: gis-halo-pulse 1.8s ease-out infinite;
+  pointer-events: none; /* 光环不吞站点点击（站点圆点在它之上，但仍稳妥起见） */
+}
+@keyframes gis-halo-pulse {
+  0%   { transform: scale(1);   opacity: 0.85; }
+  70%  { transform: scale(1.6); opacity: 0; }
+  100% { transform: scale(1.6); opacity: 0; }
+}
+/* 尊重「减少动态效果」偏好：关掉呼吸，仅保留一圈静态描边，语义不丢 */
+@media (prefers-reduced-motion: reduce) {
+  .gis-halo {
+    animation: none;
+    opacity: 0.6;
+    transform: scale(1.25);
+  }
 }
 
 /* ---------- GIS 地图图例浮层：地图瓦片底不透明，所以改用深模糊玻璃透出瓦片 ----------
@@ -765,9 +866,12 @@ html {
  * 高光渐变（--wh-glass-card 的 145deg / --wh-glass-specular），因为面板只有
  * 13rem 宽、压在小字上，高光会读成「一条白线」。
  *
- * 对比度估算：深色档 0.18 × #08122c 叠在 OSM 瓦片上，即使瓦片被 ::after
- * 反相成亮色（:root[data-theme='dark'] .gis-dark-map .leaflet-tile-pane，
- * index.css:690），合成后亮度也远低于 --wh-text(#f5f7ff)，白字可读；
+ * 对比度估算：深色档 0.18 × #08122c 叠在底图上。
+ * ⚠️ 2026-10-02 起底图已是**自托管 PMTiles 矢量瓦片**，深色主题用真配色
+ * （gismap/basemap.ts 的 DARK_THEME），**不再有 invert 反相** —— 下方
+ * 第三轮/第五轮记录里「瓦片被反相成亮白」这个前提已不复存在。保留原文是为了
+ * 说明当初为何走到 alpha 0；现状下白字压的是**真正的暗色底图**，可读性反而更好。
+ * 合成后亮度远低于 --wh-text(#f5f7ff)，白字可读；
  * 浅色档 0.30 白雾同理，深字 #16233b 可读。
  *
  * 2026-10-14 第二轮：用户要求「继续增加透明度」，0.38 / 0.55 → 0.18 / 0.30，
@@ -795,10 +899,12 @@ html {
  * 图例变成纯文字直接浮在瓦片上，没有任何底色。
  *
  * ⚠️ 已知代价，务必先读再改：alpha 0 意味着**完全没有底色可依靠**，
- * 这是本页图例有史以来可读性最低的一档。深色主题下瓦片被 invert 反相
- * （:690），OSM 的深色公路/注记会变成**亮白**，白字压在这些亮块上会直接
- * 看不见 —— 也就是用户最初反馈的「白底白字」，只是这次没有任何面板兜底。
- * 这是用户连续三轮要求提高透明度后的**明确选择**，不是回归，
+ * 这是本页图例有史以来可读性最低的一档。
+ * 下文原文写的是「深色主题下瓦片被 invert 反相（:690），OSM 的深色公路/注记
+ * 会变成亮白，白字压在这些亮块上看不见」—— **该前提已于 2026-10-02 失效**：
+ * 底图改为自托管 PMTiles 矢量瓦片后用真暗色配色，不再有 invert，也就不再有亮块。
+ * 故这条「已知代价」现在只对**浅色主题**（浅底 + 白字）成立。
+ * 但 alpha 0 是用户连续三轮要求提高透明度后的**明确选择**，不是回归，
  * **不要**当成 bug 自动加回背景色。
  *
  * 之所以保留 backdrop-filter：alpha 0 时模糊仍然作用于**面板后面的瓦片**，
@@ -834,6 +940,96 @@ html {
  * 会在某些环境偷偷加回背景的规则。删掉后所有浏览器行为一致 —— 都是透明。
  * 代价是不支持 backdrop-filter 的浏览器上，文字底下没有模糊、地图细节更碎。
  * 这是可接受的：那类浏览器已属少数，且比「同页两种观感」更容易排查。 */
+
+/* ---------- GIS 区域排名条浮层（2026-10-14 新增） ----------
+   用户要求「增加一个区域排名条，放在地图右上角或左上角」，让
+   「地图负责 Where，排名条负责 How many」。组件见
+   pages/gismap/RegionRankingOverlay.tsx（结构 + 排序口径 + 交互取舍都在那里）。
+
+   定位说明（2026-10-14 第二轮改版）：
+     用户要求「MAINTENANCE ALERTS 要放到 LAYERS 的下面，靠最右边缘」。
+     故本面板由原先的「LAYERS 左侧」改为**正下方、右边缘对齐**：
+       · `right` 与 LayerToggleControl 的 Box 相同（56px）——
+         这个 56 是「避开右上角 zoom 控件」的值，两侧共用同一条右边缘线
+         才会显得是一组（用户要的正是这种「上下相接」的关系）。
+       · `top` **不由本文件决定** —— 它由 RegionRankingOverlay 的 useAnchorTop
+         实测 LAYERS 面板实际高度后经 inline style 注入，这里只留兜底值。
+         不写死的原因：LAYERS 的高度随字号/行高/内边距变化，写死会在
+         字体或主题变动后悄悄错位，而「紧贴其下」是用户明确要的语义。
+       ⚠️ 改 LayerToggleControl 的 right 时这里要一起改（两处没有共享常量：
+       一个是 inline style、一个是 CSS 类，做成变量反而更难追踪）。
+
+   背景：与图例浮层**刻意不同** —— 图例是 alpha 0 全透明（用户连续三轮的要求
+   只针对图例），排名条是本次新增的独立浮层，走的是 LayerToggleControl 那条
+   「必须有底」的路线：它是一列密集小字，压在高频纹理上读不清。
+   用极低不透明度的暗玻璃底，兼顾「不挡地图」与「读得清」。 */
+.gis-rank-overlay {
+  /* top 的兜底值：正常由组件实测后覆盖（见上方定位说明）。
+     取 124 = LAYERS 典型高度（顶 10 + 面板 ~51 + 间距 8）向上取整留余量。 */
+  top: 124px;
+  right: 56px;
+  background: rgba(10, 20, 40, 0.55);
+  -webkit-backdrop-filter: blur(10px) saturate(150%);
+  backdrop-filter: blur(10px) saturate(150%);
+}
+:root[data-theme='light'] .gis-rank-overlay {
+  background: rgba(255, 255, 255, 0.78);
+}
+
+/* 一行：色点 + 县名（左，自动省略） + 两位数字（右，等宽对齐）
+   2026-10-14 用户要求「再大一点」：整组字号上调约 15%、行高与间距同步放宽。
+   只放大面板宽度而不放大字，多出来的宽度会变成县名后的空白，等于没变大。 */
+.gis-rank-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 1.5px 0;
+}
+.gis-rank-row__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+.gis-rank-row__name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.8125rem;
+}
+.gis-rank-row__num {
+  flex: 0 0 auto;
+  font-weight: 700;
+  font-size: 0.8125rem;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum';
+}
+/* .gis-rank-row__unit 已于 2026-10-14 删除：用户要求「数字后面的告警不要显示了」，
+   该规则随之成为死样式（AGENTS.md 原则 10：删除优于兼容）。 */
+/* 折叠行（还有 N 个县没显示）。**显式暴露截断**，不做静默砍数据 */
+.gis-rank-more {
+  margin-top: 1px;
+  padding-left: 13px; /* 与上面的县名左缘对齐（色点 7px + gap 6px） */
+  font-size: 0.6875rem;
+  opacity: 0.75;
+}
+/* 覆盖率脚注：说明「有几个县有告警」，避免把排名条误读成全部 15 个县 */
+.gis-rank-footnote {
+  margin-top: var(--wh-space-xs);
+  padding-top: 3px;
+  border-top: 1px solid rgba(255, 255, 255, 0.14);
+  font-size: 0.625rem;
+  opacity: 0.75;
+}
+:root[data-theme='light'] .gis-rank-footnote {
+  border-top-color: rgba(15, 39, 68, 0.14);
+}
+.gis-rank-hint {
+  cursor: help;
+  opacity: 0.8;
+}
 
 /* ---------- 响应式工具类（与 antd 共存，不覆盖其组件核心样式） ---------- */
 
