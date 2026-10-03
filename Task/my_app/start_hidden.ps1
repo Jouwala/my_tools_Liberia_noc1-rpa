@@ -99,26 +99,97 @@ function Start-Hidden {
     }
 }
 
-# ---------- Python detection (pythonw preferred; fallback to local venv) ----------
+# ---------- Python detection ----------
+# 2026-10-03 重写。旧逻辑的缺陷（实测确认，不是猜测）：
+#   旧顺序是「① PATH 里的 pythonw/python → ② 4 个硬编码系统路径 → ③ 仓库内 Scripts\pythonw.exe」，
+#   且**只看文件存不存在，不看它有没有依赖**。于是任何一台机器上都能"找到"一个 Python，
+#   哪怕它缺 fastapi/uvicorn —— 现象是 watchdog 被拉起后立刻 ImportError 退出，
+#   而脚本只会报「port 7038 not listening within 45s」，把根因藏起来。
+#
+#   本机实测（2026-10-03）：
+#     %LOCALAPPDATA%\Programs\Python\Python312\python.exe  → import fastapi,uvicorn,psycopg2,sqlalchemy = OK
+#     <repo>\Scripts\python.exe                             → ModuleNotFoundError: No module named 'fastapi'
+#   7038 上真正在跑的进程正是前者（pythonw，Path=...Python312\pythonw.exe）。
+#
+#   注意 Scripts\ 不是"废 venv"，它是**另一个用途的 venv**（pyvenv.cfg 显示它由
+#   .workbuddy 的 Python 3.13 创建，含 numpy/opencv/pywin32，且同目录放着
+#   realtime_proxy.py / fms_session.json）。它服务 8787 的 FMS 实时代理，
+#   **不装后端依赖**。所以"回落仓库 venv"这个思路在本项目里本就不成立。
+#
+# 新逻辑：按**候选顺序**逐个探测，第一个「能 import 后端依赖」的才被选中；
+#   一个都不可用时报 FAIL 并打印每个候选缺什么，让人一眼知道该 pip install 到哪。
+#   候选顺序刻意保持与旧版**一致**（系统优先），这样本机行为不变、不影响线上；
+#   变的是"不再盲选第一个存在的文件"。
 $py = $null
+$pyProbe = 'import fastapi, uvicorn'   # 后端与 watchdog 的最小依赖集
+$pyCandidates = [System.Collections.Generic.List[string]]::new()
+
+# ① PATH（保持旧版第一顺位）
 foreach ($c in @('pythonw.exe', 'python.exe')) {
     $found = Get-Command $c -ErrorAction SilentlyContinue
-    if ($found) { $py = $found.Source; break }
+    if ($found) { $pyCandidates.Add($found.Source) }
 }
-if (-not $py) {
-    foreach ($k in @(
-        "$env:LOCALAPPDATA\Programs\Python\Python312\pythonw.exe",
-        "$env:LOCALAPPDATA\Programs\Python\Python311\pythonw.exe",
-        'C:\Python312\pythonw.exe',
-        "$env:LOCALAPPDATA\Programs\Python\Python312\python.exe"
-    )) { if (Test-Path $k) { $py = $k; break } }
+# ② 常见系统安装位置
+foreach ($k in @(
+    "$env:LOCALAPPDATA\Programs\Python\Python312\pythonw.exe",
+    "$env:LOCALAPPDATA\Programs\Python\Python312\python.exe",
+    "$env:LOCALAPPDATA\Programs\Python\Python311\pythonw.exe",
+    "$env:LOCALAPPDATA\Programs\Python\Python311\python.exe",
+    'C:\Python312\pythonw.exe',
+    'C:\Python311\pythonw.exe'
+)) { if (Test-Path $k) { $pyCandidates.Add($k) } }
+# ③ 项目内虚拟环境（新机器按 docs\manual\10-quickstart.md 建 .venv 时的落点）
+foreach ($k in @(
+    (Join-Path $base '.venv\Scripts\pythonw.exe'),
+    (Join-Path $base '.venv\Scripts\python.exe'),
+    (Join-Path $base 'Scripts\pythonw.exe'),
+    (Join-Path $base 'Scripts\python.exe')
+)) { if (Test-Path $k) { $pyCandidates.Add($k) } }
+
+$pyTried = [System.Collections.Generic.List[string]]::new()
+$pyUsable = [System.Collections.Generic.List[string]]::new()
+foreach ($cand in ($pyCandidates | Select-Object -Unique)) {
+    if (-not (Test-Path $cand)) { continue }
+    # pythonw.exe 无控制台，用它跑 -c 拿不到输出；同名目录下的 python.exe 用来探测依赖
+    $probeExe = $cand
+    if ((Split-Path $cand -Leaf) -eq 'pythonw.exe') {
+        $alt = Join-Path (Split-Path $cand -Parent) 'python.exe'
+        if (Test-Path $alt) { $probeExe = $alt }
+    }
+    $probeErr = $null
+    try {
+        $probeErr = & $probeExe -c $pyProbe 2>&1
+        if ($LASTEXITCODE -eq 0) {
+            if (-not $py) { $py = $cand }
+            $pyUsable.Add($cand)
+        } else {
+            $pyTried.Add(("{0}  ->  {1}" -f $cand, (($probeErr | Select-Object -First 1) -join ' ')))
+        }
+    } catch {
+        $pyTried.Add(("{0}  ->  {1}" -f $cand, $_.Exception.Message))
+    }
 }
-if (-not $py) {
-    $venv = Join-Path $base 'Scripts\pythonw.exe'
-    if (Test-Path $venv) { $py = $venv }
-}
-if (-not $py) {
-    Add-Report '[FAIL] Python not found (pythonw/python.exe), cannot start any services'
+
+if ($py) {
+    Add-Report ("[OK] Python selected: {0}" -f $py)
+    if ($pyTried.Count -gt 0) {
+        Add-Report ("     (skipped {0} interpreter(s) missing backend deps; see below)" -f $pyTried.Count)
+    }
+    # 记下所有可用解释器，供"依赖装错地方"的排障使用
+    if ($pyUsable.Count -gt 1) {
+        Add-Report ("     other usable: {0}" -f (($pyUsable | Where-Object { $_ -ne $py }) -join '; '))
+    }
+} else {
+    Add-Report '[FAIL] No Python interpreter with backend dependencies (fastapi, uvicorn) was found.'
+    Add-Report '       Install deps into ONE of the interpreters below, then re-run this script:'
+    if ($pyTried.Count -gt 0) {
+        foreach ($t in $pyTried) { Add-Report ("         - {0}" -f $t) }
+    } else {
+        Add-Report '         - (no python.exe found at all)'
+    }
+    Add-Report '       Correct command (pick the interpreter you want to use):'
+    Add-Report '         <that python.exe> -m pip install -r requirements.txt'
+    Add-Report '       See docs\manual\10-quickstart.md and docs\新机器部署清单.md section 4.'
     $script:failCount++
     $report | Set-Content -Path $resultFile -Encoding UTF8
     exit 2

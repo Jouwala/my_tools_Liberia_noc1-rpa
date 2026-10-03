@@ -168,7 +168,7 @@ foreach ($r in $roots) {
 | 门户 `TMP\probe_shot.py` | 给任意区块截图（亮/暗各一张）做人工目视比对。用法：`python TMP\probe_shot.py [选择器] [文件名前缀] [--click s1,s2] [--lang zh\|en]`，默认 `#kpi` → `TMP\_shot_<theme>.png`。例：`python TMP\probe_shot.py "#band" _band`；截登录闸门要先点开：`python TMP\probe_shot.py "#gate" _gate --click "#umBtn,#gmreq"`。脚本会先清掉门户 token，否则已登录状态下截不到闸门 |
 | 门户 `TMP\v1_auth_test.py` | `/v1/olbrportal/` 的**鉴权链路回归**：入口可达（`local` 占位身份下 `#umBtn` 必须可见）→ 点击唤起闸门 → 取消退回 → 登录/注册两态切换 → 本地校验（不足 8 位 / 两次不一致，且**不得发请求**）→ 注册成功（校验 `{username,password,note}` 载荷与 `ar.ok` 文案）→ 四种错误码文案映射（`username_taken`/`request_pending`/`too_many_requests`/断网）→ 登录成功（token 落共享键、闸门收起、用户管理面板自动打开）。结果写 `TMP\_auth_out.json`，失败 exit 1。**关键：全程用 Playwright 路由拦截替掉后端** —— 真发一次注册申请会往 `auth-data\portal-auth.db` 写一行真实待审批记录，只有管理员能删，所以这个测试刻意不碰真库。用法：`python TMP\v1_auth_test.py` |
 | 门户 `TMP\probe_sweep.py` | 地图/报告文件那一行的列宽与 Leaflet 像素高度核对（`--maprow-h` 与 `GISMap.tsx` 的 `zoom=8` 绑定，改 zoom 要重跑） |
-| `Task\my_app\TMP\_pull_readiness_check.py` | **提交并推送之后的「别人 pull 能不能跑」总自检**（2026-09-27 加，当天就靠它抓到 `db/uploads` 那个让后端起不来的缺陷；2026-09-30 因 TMP 被清重写了一遍，口径按下面的实测改过）。做法是**从 GitHub 做 depth=1 真克隆**再验，不是本地 copy：① 克隆里 `import backend.main` 数注册接口；② 门户 `server\`+`src\`、kb-bot `src\`、my_app `frontend\src\` 的相对 import 是否都落到文件（跳过注释行，否则 `components/cards/index.ts` 里的示例代码会误报）—— **仓库里有两个门户目录**：`liberia-noc_soc-…`（主）与 `liberia-noc-soc-…`（连字符，只放 `OlrPortal` 壳），按 `liberia-noc*` 收齐再遍历，只认下划线那个会永远漏掉一份；③ kb-bot 逐文件 `node --check`；④ 静态壳的资源引用：绝对路径按 nginx 路由前缀放行，且 **js/css 里的 `src`/`href` 要按壳根解析、html 里的按自身目录解析**（浏览器是按加载它的页面解析的，按文件目录算会误报），`_bak_` 快照整个跳过（不是线上入口）；⑤ 22 项关键运行文件（requirements / alembic.ini / pyproject / 两个 watchdog / 两份 geojson / `Task\my_app\nginx\` 的三段 conf / 门户 config 等 —— nginx 主配置不在库里，见第四节第 6b 条）。用法：`git clone --depth 1 <远端> Task\my_app\TMP\_clone` 然后 `python Task\my_app\TMP\_pull_readiness_check.py Task\my_app\TMP\_clone`；不想等网络也可以 `git worktree add --detach Task\my_app\TMP\_wt HEAD` 拿 HEAD 的独立检出跑同一份检查（用完 `git worktree remove --force`）。**只读**，退出码 0 = 全通过。⚠️ 正常少 1 个接口：SPA 兜底路由 `/{full_path}` 只在 `Task\_fe_dist` 存在时挂载，产物按约定不入库 |
+| `Task\my_app\TMP\_pull_readiness_check.py` | **提交并推送之后的「别人 pull 能不能跑」总自检**（2026-09-27 加，当天就靠它抓到 `db/uploads` 那个让后端起不来的缺陷；2026-09-30 因 TMP 被清重写了一遍，口径按下面的实测改过）。做法是**从 GitHub 做 depth=1 真克隆**再验，不是本地 copy：① 克隆里 `import backend.main` 数注册接口；② 门户 `server\`+`src\`、kb-bot `src\`、my_app `frontend\src\` 的相对 import 是否都落到文件（跳过注释行，否则 `components/cards/index.ts` 里的示例代码会误报）—— **门户目录只有一个**：`liberia-noc_soc-…`（主）；2026-10-01 前存在的连字符目录 `liberia-noc-soc-…`（只放 `OlrPortal` 壳）已合入主门户的 `OlrPortal\`。脚本仍按 `liberia-noc*` 前缀收齐再遍历，将来再出现静态壳目录时不会漏检；③ kb-bot 逐文件 `node --check`；④ 静态壳的资源引用：绝对路径按 nginx 路由前缀放行，且 **js/css 里的 `src`/`href` 要按壳根解析、html 里的按自身目录解析**（浏览器是按加载它的页面解析的，按文件目录算会误报），`_bak_` 快照整个跳过（不是线上入口）；⑤ 22 项关键运行文件（requirements / alembic.ini / pyproject / 两个 watchdog / 两份 geojson / `Task\my_app\nginx\` 的三段 conf / 门户 config 等 —— nginx 主配置不在库里，见第四节第 6b 条）。用法：`git clone --depth 1 <远端> Task\my_app\TMP\_clone` 然后 `python Task\my_app\TMP\_pull_readiness_check.py Task\my_app\TMP\_clone`；不想等网络也可以 `git worktree add --detach Task\my_app\TMP\_wt HEAD` 拿 HEAD 的独立检出跑同一份检查（用完 `git worktree remove --force`）。**只读**，退出码 0 = 全通过。⚠️ 正常少 1 个接口：SPA 兜底路由 `/{full_path}` 只在 `Task\_fe_dist` 存在时挂载，产物按约定不入库 |
 | `Task\my_app\TMP\_secret_scan_staged.py` | **提交前的凭据扫描**：只扫 `git show :路径` 的**已暂存内容**（不是工作树），八类模式（password/secret/token 字面量、Bearer 头、私钥块、AKIA、Slack/Telegram 长串、带口令的 URL），并逐条与 `git show HEAD:路径` 对比，**只报本次新增的命中** —— 否则仓库里既有的配置项名会被当成新泄露反复报，报三次之后人就免疫了。用法：`git add -A` 之后 `python Task\my_app\TMP\_secret_scan_staged.py`，新增命中为 0 才 exit 0。注意它**不匹配** `default_secret` 这种复合键名（词边界不成立），那是刻意的：凭据组的 `default_user/default_secret` 按既定约定照原样入库（见 `docs\manual\05-security-and-credentials.md`），要复核的是**新出现的**明文字面量 |
 
 ### B. 门户（`liberia-noc_soc-数据看板统一门户\`）
@@ -198,9 +198,27 @@ foreach ($r in $roots) {
 ### D. 部署相关
 
 - [ ] nginx 配置改动后 `nginx -t` 通过
+- [ ] **改了 `nginx-1.28.0\conf\` 下任一份配置后，已同步回 `docs\nginx-reference\`**（否则副本立刻变成新的分叉源，见 `docs\新机器部署清单.md` §2）
 - [ ] 子路径部署时 `vite.config.ts` 的 `base` 已同步并**重新构建**
 - [ ] 日志轮转任务正常（`install_nginx_log_rotate_task.bat`、`rotate_nginx_logs.ps1`）
 - [ ] 不在值班高峰期重启生产服务（7038/7090/9267）
+- [ ] **换机器 / 新克隆后跑过 `python Task\my_app\tools\clone_doctor.py`**（期望 0 FAIL）
+
+> **新机器搭建全流程**见 `docs\新机器部署清单.md`：哪些必须上传、哪些必须重建、哪些只能手工拷贝。
+> **换机器 / 排查环境缺失时，先跑这一条**（只读，列出全部缺失项与补法）：
+> ```
+> cd Task\my_app && python tools\clone_doctor.py
+> ```
+> 三条最容易踩的：① **真实数据在 PostgreSQL（`MY_APP_DB_MODE=pg`，97 张表 / 310 万行），不是 `db\app.db`**；
+> ② **启动脚本按「有无依赖」选解释器**，仓库内 `Scripts\` 是 8787/8790 实时代理专用的另一个 venv；
+> ③ `nginx-1.28.0\` 二进制不上传，但配置文本已在 `docs\nginx-reference\`。
+> 库迁移用 `Task\my_app\tools\pg_migrate.ps1 dump|restore`。
+> ⚠ **两个实时代理脚本现已迁到 `Task\my_app\tools\`**（`realtime_proxy.py` / `realtime_proxy_vmax.py` /
+> `start-app.mjs`，2026-10-03）。它们原先在 `scripts\` 里被 `/Scripts/` 静默忽略、换机器即丢失。
+> `scripts\` 现在只剩 venv（launcher + 解释器）与会话文件，**仍然不可删**。
+> ⚠ **`Task\my_app\scripts\` 是陷阱目录**：`.gitignore:9` 的 `/Scripts/` 在本机**大小写不敏感**生效，
+> 写在这个目录里的任何新文件都**不会入库**；而它同时又装着不可重建的 FMS/VMAX 实时代理脚本
+> + venv launcher。**别往这里放源码，也别整个删掉** —— 2026-10-03 已因此丢过一次代理脚本。
 
 ## 五、常见开发陷阱
 
@@ -220,6 +238,15 @@ foreach ($r in $roots) {
 | 运行产出的 `.md` 当文档入库 | **每天 +1 的提交噪声**，还把业务对话内容写进了版本历史。门户 `scripts\whatsapp_analysis\reports\` 由 node-cron 逐日生成，它自己的 README 写着「所有数据只保存在本机（`data\assistant.db` 与 `reports\`）」，实测已有 26 份在库里。同目录的 `data\` 被根规则的 `data/` 挡住了，`reports\` 因为名字里没有 data 而漏网 —— 规则按**目录名关键字**写，就会漏掉语义相同、名字不同的那一个 | 按「是不是运行产出」判，不按扩展名或目录名关键字判；数据类目录一律显式点名（见门户 `.gitignore` 的 `scripts/whatsapp_analysis/reports/`） |
 
 | 把 db/log 加进版本库 | 956M / 152M 进 git | 已被 `.gitignore` 忽略，别绕开 |
+| 以为「拷 `db\app.db` 就有数据」 | **白忙**：当前 `MY_APP_DB_MODE=pg`（`backend\.env`），真数据在 PostgreSQL `myapp`（2183MB / 97 张表 / 约 310 万行），`db\app.db` 在 pg 模式下**根本没被读**。它是 `MY_APP_DB_MODE=sqlite` 熔断回退（`database.py:23-26`）的落点，不可删但也不够用。且 `alembic\versions\` 5 个迁移里**只有 CREATE INDEX、零 INSERT**，`git ls-files db/` = 0 → **无任何 seed 可重建** | 迁移库用 `Task\my_app\tools\pg_migrate.ps1 dump\|restore`。页面数据实际分三处（PG / `data\*.sqlite3` / `db\app.db`），**漏任一处都是「页面能开但数据空」**。详见 `docs\新机器部署清单.md` §3 |
+| `pg_dump -n public` 做迁移备份 | **得到一个「成功但空」的备份**。本库的表**根本不在 public** —— `search_path` 是 `app, eflow, lte_pl, battery, ms_sla, fw, ipran_ume, ran_ume, public`，实测 `pg_dump -t 'public.*'` 直接报 `no matching tables were found` | **不加 `-n`**（dump 全部非系统 schema）。`pg_migrate.ps1` 已内建此防护，并会先打印将要备份的 11 个 schema |
+| 用业务账号建库 | `createdb -U myapp` 报「创建数据库权限不够」—— 实测 `myapp` 的 `rolcreatedb=f / rolsuper=f`。**但这不代表业务账号不能恢复数据**：已验证它能建 schema、建表、写入 | 建库用超级用户（`pg_migrate.ps1 restore -SuperUser postgres`），**恢复数据仍用业务账号**；新库 **owner 必须是业务账号** |
+| 把新脚本写进 `Task\my_app\scripts\` | **它会静默不入库**：`Task\my_app\.gitignore:9` 的 `/Scripts/` 在本机大小写不敏感，`scripts\` 一起被忽略。实测 `git check-ignore -v Task/my_app/scripts/x.py` → `Task/my_app/.gitignore:9:/Scripts/`。换机器后别人**根本没有这个文件** | 源码放 **`Task\my_app\tools\`**（已验证不被忽略）。写完先 `git check-ignore -v <路径>` 确认能进库 |
+| `Remove-Item scripts -Recurse -Force`「清空目录」 | **`scripts\` 不是空目录，也不只是 venv**：它是 venv 的 launcher 目录（`python.exe`/`pip.exe`/`activate.*`），2026-10-03 前**还**装着 `realtime_proxy.py`(940 行)、`realtime_proxy_vmax.py`、`start-app.mjs` —— 三者当时**从未入库、无处可 clone**。2026-10-03 实际发生，代理脚本被删（8787/8790 靠进程内存续命，靠 `.pyc` 才反推回来） | **删目录前先 `Get-ChildItem -Force -Recurse` 列一眼**。`Remove-Item` 对非空目录不报错。真要清理只删具体文件，别删目录。脚本现已迁 `tools\` 入库，但 venv 仍在，**依然不可删** |
+| `python -m venv --upgrade <my_app 根>` | **会把 `.gitignore` 覆盖成 venv 的 2 行样板（内容就一个 `*`）**。该 `*` 忽略 `my_app\` 下所有**未跟踪**文件 —— 已跟踪的不受影响，所以 `git status` 看着正常，**但新写的源码永远不出现**（本项目历史上因此连续三周漏提交）。2026-10-03 实际发生 | `.gitignore` 在 HEAD 里是完好的 146 行版本：`git checkout HEAD -- Task/my_app/.gitignore` 即可复原。只想补 launcher 就别跑 venv，改逐包 `pip install --force-reinstall` 或直接复制 `activate.*` 模板 |
+| 把代理会话文件当成普通运行时文件 | `fms_session.json` / `vmax_session.json` 内含两个内网门户的**有效登录 Cookie + csrf**，等同凭据。脚本迁到 `tools\` 后它们**跟着落到 `tools\`**，而旧的 `/Scripts/` 忽略规则**不再覆盖**，一旦 `git add -A` 就会把凭据推到远端 | 已在 `Task\my_app\.gitignore` 加 `/tools/*_session.json`（2026-10-03）。新增同类文件后**务必 `git check-ignore -v` 复核**；文件本身可随时删，下次启动重新登录 |
+| 往仓库里的 `Scripts\` 或 `.venv\` 装依赖 | **装错地方，后端依然起不来**。`start_hidden.ps1` 的解析顺序是「① PATH → ② 4 个硬编码系统路径 → ③ 最后才 `$base\Scripts\pythonw.exe`」，实测 7038 的进程来自 `%LOCALAPPDATA%\Programs\Python\Python312\pythonw.exe`；`.\Scripts\python.exe -c "import fastapi"` 直接 `ModuleNotFoundError`。**注意 `Scripts\` 不是废 venv**：它的 `pyvenv.cfg` 指向 `.workbuddy` 的 Python 3.13，装着 numpy/opencv/pywin32，服务 8787/8790 两个实时代理，**不要清掉** | 先 `python -c "import sys; print(sys.executable)"` 确认**会被选中的**解释器，再往里装 `pip install -r requirements.txt`；Playwright 浏览器另跑 `playwright install`。2026-10-03 起 `start_hidden.ps1` 已改为**按有无依赖探测**并打印选中项，装错地方会显式 `[FAIL]` 而不是只报「45 秒内未监听」 |
+| 新机器缺 nginx 配置 | **页面打不开**，且现象隐蔽（少一条 `location` 只在某个 URL 上 404，不容易联想到配置缺失）。`nginx-1.28.0\` 整目录被根 `.gitignore:264` 忽略，其 `conf\` 下三份配置（`nginx.conf` / `portal_ports.conf` / `portal_eflow_common.conf`，共约 47KB）此前**零入库副本** | 配置文本副本已入库在 `docs\nginx-reference\`（2026-10-03 补）。**改完生效配置并 reload 成功后必须同步回副本** —— 加上 `.19` 那台，实际是**三份**要保持一致 |
 | 模块级 `Path(...).mkdir(exist_ok=True)` 建在 `db\`、`data\` 这类被忽略目录下 | **别人 pull 完后端直接起不来**：全新克隆里没有 `db\`，`import backend.routers.upload` 在 `:20` 抛 `FileNotFoundError`，连 `init_db` 都跑不到（2026-09-27 实测，`routers/mw_links.py:27` 同病） | 一律 `mkdir(parents=True, exist_ok=True)`（Node 侧 `{recursive:true}`）；推送后跑 `Task\my_app\TMP\_pull_readiness_check.py` 验一遍 |
 
 ## 六、相关文档
@@ -232,6 +259,8 @@ foreach ($r in $roots) {
 | my_app 代码清理 | `Task\my_app\docs\CODE_CLEANUP_GUIDE.md` |
 | 导出规范 | `Task\my_app\docs\EXCEL_EXPORT_STANDARD.md` |
 | 门户构建部署 | `liberia-noc_soc-数据看板统一门户\README.md` |
+| **新机器部署清单** | `docs\新机器部署清单.md`（上传/重建/手拷三类清单） |
+| **nginx 配置参考副本** | `docs\nginx-reference\`（改配置后须同步） |
 | 鉴权开关 | `AUTH_SWITCH.md` |
 | 架构与数据流 | `architecture.md` |
 | 视觉规则 | `DESIGN.md` |

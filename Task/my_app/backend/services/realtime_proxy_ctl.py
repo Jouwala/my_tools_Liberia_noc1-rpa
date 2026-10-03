@@ -22,7 +22,7 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-# 代理清单（与 scripts/start-app.mjs 的 PROXIES 对齐）
+# 代理清单（与 tools/start-app.mjs 的 PROXIES 对齐）
 PROXIES = [
     {"port": 8787, "script": "realtime_proxy.py", "label": "FMS"},
     {"port": 8790, "script": "realtime_proxy_vmax.py", "label": "VMAX"},
@@ -30,7 +30,17 @@ PROXIES = [
 
 # my_app 仓库根（backend/services/ -> 上溯两级到 my_app）
 _ROOT = Path(__file__).resolve().parent.parent.parent
-_SCRIPTS = _ROOT / "scripts"
+
+# 2026-10-03：代理脚本从 scripts/ 迁到 tools/。
+# 起因：scripts/ 命中 my_app/.gitignore 的 /Scripts/（Windows 下大小写不敏感），
+# 脚本写在那里**永远不会入库**，换机器 clone 后两个看板的实时数据全灭。
+# tools/ 不被忽略，脚本随仓库走。
+#
+# 注意这里刻意拆成两个常量，二者职责不同，不可合并：
+#   _TOOLS   —— 脚本源码所在，随 git 走
+#   _RUNTIME —— venv 解释器 + 会话文件落点，是本机运行时状态，不入库
+_TOOLS = _ROOT / "tools"
+_RUNTIME = _ROOT / "scripts"
 
 try:
     from backend.log_writer import resolve_free_path
@@ -40,7 +50,8 @@ except ImportError:  # pragma: no cover - 兼容非包方式导入
 
 
 def _find_python() -> str:
-    venv = _SCRIPTS / "python.exe"
+    # venv 解释器仍在 scripts/（它是 venv 的 launcher 目录，随本机存在，不入库）
+    venv = _RUNTIME / "python.exe"
     if venv.exists():
         return str(venv)
     return "python.exe"
@@ -110,7 +121,7 @@ def ensure_proxy(cfg: dict, timeout: int = 25) -> dict:
         _kill_port(port)
         time.sleep(0.8)
 
-    script = _SCRIPTS / cfg["script"]
+    script = _TOOLS / cfg["script"]
     if not script.exists():
         return {"port": port, "label": label, "status": "missing",
                 "error": f"缺少 {cfg['script']}（脚本未部署）"}
@@ -145,7 +156,12 @@ def ensure_proxy(cfg: dict, timeout: int = 25) -> dict:
         with open(log_path, "ab") as logf:
             subprocess.Popen(
                 [py, str(script)],
-                cwd=str(_SCRIPTS),
+                # cwd 固定为 scripts/（venv launcher 目录），仅保证运行目录确定；
+                # 会话文件不依赖 cwd —— 两个代理都用
+                # SESSION_FILE = dirname(abspath(__file__)) 定位，即随脚本落在
+                # tools\（fms_session.json / vmax_session.json，已确认不被忽略，
+                # 但属运行时状态、无需入库）。
+                cwd=str(_RUNTIME),
                 stdout=logf,
                 stderr=subprocess.STDOUT,
                 close_fds=True,

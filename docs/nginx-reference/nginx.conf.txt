@@ -1,0 +1,554 @@
+# =============================================================================
+# 本文件是生产 nginx 配置的【参考副本】，不是生效文件。
+# 生效文件（本机 .20）: D:\01_RPA\nginx-1.28.0\conf\nginx.conf
+# 生效文件（.19 那台） : \\192.168.100.19\e\01_RPA\nginx-1.28.0\conf\nginx.conf
+# 快照：2026-10-03  |  来源 32367 B  |  编码 UTF-8
+# 改完生效配置并 reload 成功后，请把改动同步回本副本（两份一起改）。
+# 重载须先 cd 进 nginx 目录，否则信号发给已死的 pid 且不报错。
+# 详见同目录 README.md 与 docs\新机器部署清单.md。
+# =============================================================================
+
+
+#user  nobody;
+worker_processes  1;
+
+#error_log  logs/error.log;
+#error_log  logs/error.log  notice;
+#error_log  logs/error.log  info;
+
+#pid        logs/nginx.pid;
+
+
+events {
+    worker_connections  1024;
+}
+
+
+http {
+    include       mime.types;
+    default_type  application/octet-stream;
+
+    # -------------------------------------------------------------------------
+    # 访问日志 / 错误日志（2026-09-21 排查「门户页面打开变慢」时补上）
+    # -------------------------------------------------------------------------
+    # 改动前 access_log / error_log 都是注释状态，走默认值 logs/access.log、
+    # logs/error.log。而 conf 和 logs 都在 \\192.168.100.19\e 这个共享上，本机
+    # (MSNOC1) 与 .19 两台机器的 nginx 往同一批文件里写：混在一起没法归因，而且
+    # access.log 已经涨到 826MB、没人轮转。现在：
+    #   · 文件名带 $hostname —— 两台机器各写各的（access-MSNOC1.log 等）。conf 是
+    #     两台共用的，所以 .19 那边的 nginx 也要各自 reload 一次才会切到新文件名。
+    #   · 格式 timed 里带 rt/urt/uct/uht（总耗时 / 上游耗时 / 连上游耗时 / 上游首字节）。
+    #     下次再出现「某个请求慢」，直接从 access log 就能看出慢在哪一段，不用再靠
+    #     CDP + curl 一点点试。
+    #   · error_log 不支持变量，只能固定文件名，所以仍与 .19 共用一份 error.log。
+    #   · 注意：nginx 不允许「带变量的文件名 + buffer=」（实测报
+    #     [emerg] buffered logs cannot have variables in name），所以这里没法同时
+    #     用 buffer 省掉 SMB 写日志的往返；这一点与改动前一致（原来也是不缓冲），
+    #     不算回退。要缓冲就得用固定文件名、放弃按机器分文件。
+    # 轮转：仓库根目录 rotate_nginx_logs.ps1 + install_nginx_log_rotate_task.bat
+    # -------------------------------------------------------------------------
+    log_format  timed  '$remote_addr - $remote_user [$time_local] "$request" '
+                       '$status $body_bytes_sent "$http_referer" "$http_user_agent" '
+                       'rt=$request_time urt=$upstream_response_time '
+                       'uct=$upstream_connect_time uht=$upstream_header_time';
+    access_log  logs/access-$hostname.log  timed;
+    open_log_file_cache max=100 inactive=60s valid=1m;
+    error_log   logs/error.log  warn;
+
+    #log_format  main  '$remote_addr - $user [$time_local] "$request" '
+    #                  '$status $body_bytes_sent "$http_referer" '
+    #                  '"$http_user_agent" "$http_x_forwarded_for"';
+
+    #access_log  logs/access.log  main;
+
+    sendfile        on;
+    #tcp_nopush     on;
+
+    #keepalive_timeout  0;
+    keepalive_timeout  65;
+
+    #gzip  on;
+
+    # -------------------------------------------------------------------------
+    # 所有服务收在 80 端口，按「路径」区分：根=导航总览，各服务走子路径
+    # -------------------------------------------------------------------------
+    # =========================================================================
+    # 门户反代：按 Referer 识别「门户自己发出的请求」
+    # -------------------------------------------------------------------------
+    # 门户页面里用的是根绝对路径（/api/oauth2/...、/uportal/...、/iui/...），
+    # 早期方案用 sub_filter 把 "…/api/" 改写成 "…/portal/eflow/api/"，结果门户 JS
+    # 会再对字符串做一次拼接，出现 /portal/eflow/uportal/portal/eflow/api/... 双前缀
+    # 404。改为：内容一律不改写，nginx 依据 Referer 把门户的请求原样转给上游。
+    # 门户与 my_app 同源（都是 192.168.100.20），浏览器默认策略对同源请求发完整
+    # Referer，因此可以准确区分「门户发的」与「my_app 发的」/api/ 请求。
+    # =========================================================================
+    map $http_referer $portal_ref {
+        default                                       "";
+        "~^https?://[^/]+/portal/eflow/"              "eflow";
+        "~^https?://[^/]+/(uportal|iui|framework)/"   "eflow";
+    }
+
+    # 门户有跨站访问防护（实测：带会话但来源不符时返回 403
+    # "This request is prohibited for cross-site access"），故把 Origin/Referer 改成
+    # 门户自己的地址。客户端没发 Origin 时保持为空（凭空加 Origin 反而会触发校验）。
+    map $http_origin $portal_origin_rewritten {
+        ""        "";
+        default   "https://10.100.20.8:28001";
+    }
+
+    # =========================================================================
+    # B2 安全整改（2026-10-01）：80 端口强制跳 HTTPS
+    # -------------------------------------------------------------------------
+    # 修复前实测：全站只有 80 明文，https://localhost/ 连接直接失败(000)，
+    # 登录口令与 Bearer token 明文穿越客户机房网络。
+    #
+    # 实现方式（关键，别改成"复制一份 443 server"）：
+    #   本文件的服务 location 清单有 200 余行，**复制成两份必然分叉** ——
+    #   本文件历史上已因 Y:/D: 两份配置不一致出过线上事故（AGENTS.md 第四节 6b）。
+    #   因此这里不复制：同一个 server 块**同时监听 80 与 443**，location 只写一份。
+    #   下面这个只含 return 的 server 块（listen 80 default_server）负责把
+    #   纯 HTTP 请求 301 到 HTTPS —— nginx 会优先匹配 default_server，
+    #   故 80 上的请求全部先跳走，不会走到下面那个双监听块。
+    #
+    # 证书：自签（certs/portal.crt），SAN 含 192.168.100.20 / .19 / localhost / 127.0.0.1，
+    #       有效期至 2036-09-28。浏览器首次访问会提示"不受信任"，这是自签的固有表现；
+    #       换客户企业 CA 证书时只替换 certs 下这两个文件，配置无需改动。
+    #
+    # 回滚：删掉本 server 块 + 下方双监听块里的 443 两行与 ssl_* 指令即可。
+    # =========================================================================
+    server {
+        listen       80 default_server;
+        listen       [::]:80 default_server;
+        server_name  _;
+        return 301 https://$host$request_uri;
+    }
+
+    server {
+        listen       80;
+        # ---- B2：同一 location 清单同时服务 443，避免维护两份 ----
+        listen       443 ssl;
+        listen       [::]:443 ssl;
+        ssl_certificate     D:/01_RPA/nginx-1.28.0/certs/portal.crt;
+        ssl_certificate_key D:/01_RPA/nginx-1.28.0/certs/portal.key;
+        ssl_protocols       TLSv1.2 TLSv1.3;
+        ssl_ciphers         HIGH:!aNULL:!MD5;
+        ssl_session_cache   shared:SSL:10m;
+        ssl_session_timeout 10m;
+        # IPv6 监听（2026-09-21 补）：Windows 上 localhost 会先解析成 ::1，而 nginx
+        # 原来只 listen 80（= 0.0.0.0，纯 IPv4），于是走 localhost 的客户端要先等
+        # ::1:80 连接失败（实测 curl 约 2.0s）才回落到 127.0.0.1。补上 IPv6 监听后
+        # http://localhost/... 与 http://[::1]/... 直接命中，浏览器之外的工具
+        # （curl / 脚本 / Invoke-WebRequest）不再吃这个惩罚。
+        # 注：本机 IPv6 只有回环 ::1，够用；.19 已确认有 IPv6（fe80:: 已注册），
+        # 所以这条对 .19 也不会导致 nginx 起不来。
+        server_name  localhost;
+
+        # ---- 请求体上限（FineBI 导入 Excel/数据集等），默认 1m 会报 413 ----
+        client_max_body_size 1024m;
+
+        # ---- B5 安全整改（2026-10-01）：禁止下载备份/归档/源码映射文件 ----
+        # 背景：/MsPortal/ 与 /olbrportal/ 等 location 直接 alias 到磁盘目录、无扩展名白名单，
+        # 于是 portal.js.fixed(240,919B)、index_bak_*.html(19,579B)、*.archived 等历史快照
+        # 可被任何人经 80/443 直接下载，其中还夹带内网地址与旧 token。
+        # 实测修复前：/MsPortal/assets/portal.js.fixed -> 200；修复后 -> 404。
+        # 注：本仓库既有习惯把备份命名为 _bak_<日期>_<说明>，故一并拦下。
+        location ~* (_bak_|_bak\.|\.bak$|\.bak_|\.fixed$|\.archived$|\.qcbak$|\.old$|\.map$|\.orig$) {
+            deny all;
+            return 404;
+        }
+
+        # ---- 根路径 = 服务导航总览页 ----
+        location / {
+            root   html;
+            index  index.html index.htm;
+        }
+
+        # ---- B5 安全整改（2026-10-01）：禁止下载备份/归档/源码映射文件 ----
+        # 背景：/MsPortal/ 与 /olbrportal/ 等 location 直接 alias 到磁盘目录、无扩展名白名单，
+        # 于是 portal.js.fixed(240,919B)、index_bak_*.html(19,579B)、*.archived 等
+        # 历史快照可被任何人经 80 端口直接下载，其中还夹带内网地址与旧 token。
+        # 实测修复前：/MsPortal/assets/portal.js.fixed -> 200。
+        # 注：本仓库既有习惯把备份命名为 _bak_<日期>_<说明>，故一并拦下。
+        location ~* (_bak_|_bak\.|\.bak$|\.bak_|\.fixed$|\.archived$|\.qcbak$|\.old$|\.map$|\.orig$) {
+            deny all;
+            return 404;
+        }
+
+        # ---- 无尾斜杠的访问 301 到各服务入口（否则会落到根导航页或 404）----
+        location = /webroot  { return 301 /webroot/decision; }
+        location = /myapp    { return 301 /myapp/; }
+        location = /ollama   { return 301 /ollama/; }
+        location = /openclaw { return 301 /openclaw/; }
+        location = /uniplam   { return 301 /uniplam/; }
+        location = /MsPortal  { return 301 /MsPortal/; }
+                location = /my-finebi { return 301 /my-finebi/; }
+        # olbrportal 是 MsPortal 的只读展示版（独立目录、共用 data.js/access.js），
+        # 与上面 /MsPortal 那条同性质，只多这一条 301，不动任何既有 location。
+        location = /olbrportal { return 301 /olbrportal/; }
+
+        # ---- Webroot → FineBI：http://localhost/webroot/ ----
+        location /webroot/ {
+            proxy_pass         http://127.0.0.1:26738;
+            proxy_http_version 1.1;
+            proxy_set_header   Host              $host;
+            proxy_set_header   X-Real-IP         $remote_addr;
+            proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+            proxy_set_header   X-Forwarded-Proto $scheme;
+            proxy_set_header   Upgrade           $http_upgrade;
+            proxy_set_header   Connection        "upgrade";
+            # 长连接/WebSocket 空闲超时（默认 60s 会切断 FineBI 实时推送）
+            proxy_read_timeout 3600s;
+            proxy_send_timeout 3600s;
+        }
+
+        # ---- my_app 任务管理器：http://localhost/myapp/ ----
+        # 注意：proxy_pass 末尾「不要」加斜杠 = 不剥 /myapp 前缀，
+        # 原样把 /myapp/... 转给 vite(7090)；vite 的 base 已是 /myapp/，
+        # 若剥前缀会让 vite 把 / 重定向回 /myapp/ 造成死循环。
+        location /myapp/ {
+            proxy_pass         http://127.0.0.1:7090;
+            proxy_http_version 1.1;
+            proxy_set_header   Host              $host;
+            proxy_set_header   X-Real-IP         $remote_addr;
+            proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+            proxy_set_header   X-Forwarded-Proto $scheme;
+            # 支持 vite 热更新(HMR)的 WebSocket
+            proxy_set_header   Upgrade           $http_upgrade;
+            proxy_set_header   Connection        "upgrade";
+            proxy_read_timeout 3600s;
+            proxy_send_timeout 3600s;
+        }
+
+        # =====================================================================
+        # 门户反代（客户端本机登录）
+        # ---------------------------------------------------------------------
+        # 背景：my_app 原本在后端(.20)桌面弹 Chrome 自动登录门户，别的电脑点了按钮
+        # 只是在服务器上开浏览器。这里把门户反代到 80 口，使其与 my_app 同源，
+        # 即可在登录页注入自动填表脚本 → 「在哪台电脑点，就在哪台电脑的浏览器登录」，
+        # 会话 Cookie 落在访问者本机。
+        # 入口统一走 /portal/eflow/（剥前缀转上游），门户页面的根绝对路径由下面
+        # /uportal/ /iui/ /framework/ /api/(按 Referer) 承接。公共参数见
+        # conf/portal_eflow_common.conf（Cookie 域改写、去 secure、摘 HSTS 等）。
+        # =====================================================================
+        location /help/     { proxy_pass https://10.100.20.8:28001; include portal_eflow_common.conf; }
+
+        # 注：早期版本把登录页放在 /portal/eflow/ 前缀下，实测会导致门户前端按 URL 上下文
+        # 拼出带前缀的 localStorage 键名（/portal/eflow_csrftoken），与登录后的主页不一致，
+        # CSRF token 取不到 → 全部接口 403 "cross-site access"。已改为原生路径（见上）。
+
+        # 门户登录后主页及其资源的根绝对路径（与 my_app 无冲突，直接转发）
+        location /uportal/   { proxy_pass https://10.100.20.8:28001; include portal_eflow_common.conf; }
+        location /iui/       { proxy_pass https://10.100.20.8:28001; include portal_eflow_common.conf; }
+        location /framework/ { proxy_pass https://10.100.20.8:28001; include portal_eflow_common.conf; }
+
+        # 登录页必须走「门户原生路径」/api/oauth2/v1/authorize，不能放在 /portal/eflow/ 前缀下：
+        # 实测门户前端按 URL 上下文拼 localStorage 键名（csrftoken 存 CSRF token），
+        # 前缀下的登录页会存成 /portal/eflow_csrftoken，而登录后的主页按无前缀去找，
+        # 取不到 token → 所有接口 403 "cross-site access"。故这里按原生路径反代。
+        location /api/oauth2/ {
+            proxy_pass https://10.100.20.8:28001;
+            include    portal_eflow_common.conf;
+            sub_filter '</head>' '<script src="/api/portals/inject.js?system=eflow"></script></head>';
+        }
+
+        # ---- 数字化运维平台（单文件工作台，由 my_app:7038 静态服务）----
+        # 让 http://host/digital-ops-platform.html 走 80 口也能打开。
+        # 页面内相对路径 /api/tasks 会落到下面的通用 /api/ 兜底，已确认可达 my_app。
+        location = /digital-ops-platform.html {
+            proxy_pass         http://127.0.0.1:7038;
+            proxy_http_version 1.1;
+            proxy_set_header   Host              $host;
+            proxy_set_header   X-Real-IP         $remote_addr;
+            proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+            proxy_set_header   X-Forwarded-Proto $scheme;
+        }
+
+        # ---- localhost:3000 服务：http://localhost/app/ ----
+        location /app/ {
+            proxy_pass         http://127.0.0.1:3000/;
+            proxy_http_version 1.1;
+            proxy_set_header   Host              $host;
+            proxy_set_header   X-Real-IP         $remote_addr;
+            proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+            proxy_set_header   X-Forwarded-Proto $scheme;
+            proxy_set_header   Upgrade           $http_upgrade;
+            proxy_set_header   Connection        "upgrade";
+            proxy_read_timeout 3600s;
+            proxy_send_timeout 3600s;
+        }
+        location = /app { return 301 /app/; }
+
+        # ---- my-finebi 后端 API（必须放在通用 /api/ 之前，按最长前缀优先匹配）----
+        # my-finebi 前端 axios baseURL=/api，用绝对路径调本机 7138 的 FastAPI；
+        # 不加这三条会被下面的通用 /api/ 兜底规则抢走到 192.168.100.20。
+        # uniplam 用的 /api/tasks 不在这些前缀内，仍走 .20，互不影响。
+        location /api/dashboards {
+            proxy_pass         http://127.0.0.1:7138;
+            proxy_http_version 1.1;
+            proxy_set_header   Host              $host;
+            proxy_set_header   X-Real-IP         $remote_addr;
+            proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+            proxy_set_header   X-Forwarded-Proto $scheme;
+        }
+        location /api/data/sources {
+            proxy_pass         http://127.0.0.1:7138;
+            proxy_http_version 1.1;
+            proxy_set_header   Host              $host;
+            proxy_set_header   X-Real-IP         $remote_addr;
+            proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+            proxy_set_header   X-Forwarded-Proto $scheme;
+        }
+        # 注意：location 必须带尾部斜杠 /api/finebi/ ——
+        # 否则前缀匹配会连带劫持 my_app 后端(7038)的 /api/finebi-reports/*，导致 502。
+        location /api/finebi/ {
+            proxy_pass         http://127.0.0.1:7138;
+            proxy_http_version 1.1;
+            proxy_set_header   Host              $host;
+            proxy_set_header   X-Real-IP         $remote_addr;
+            proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+            proxy_set_header   X-Forwarded-Proto $scheme;
+        }
+
+        # ---- my_app 实时告警看板 FMS 代理（Alarm Management 实时刷新）----
+        # 前端 alarm-management.html 经同源 /api/realtime-proxy/fms 拉实时数据；
+        # nginx 原样转发到本机 8787 FMS 实时代理（代理只绑回环，不对局域网暴露，
+        # 远程访问者经 nginx 中转）。精确匹配优先于下方通用 /api/ 兜底；
+        # backend 7038 将来重启后即使自带同名转发路由，此处亦不冲突。
+        location = /api/realtime-proxy/fms {
+            proxy_pass         http://127.0.0.1:8787/proxy;
+            proxy_http_version 1.1;
+            proxy_set_header   Host              $host;
+            proxy_set_header   X-Real-IP         $remote_addr;
+            proxy_connect_timeout 5s;
+            proxy_read_timeout 60s;
+            proxy_send_timeout 60s;
+        }
+
+        # ---- API 兜底：默认直连本机 my_app 后端（7038）----
+        # 若请求来自门户页面（Referer 命中 $portal_ref），则原样转给门户上游，
+        # 解决门户 JS 用根绝对路径 /api/oauth2/... 与 my_app 自身 /api/ 撞车的问题。
+        location /api/ {
+            set $api_upstream http://127.0.0.1:7038;
+            set $api_host     $host;
+            set $api_referer  $http_referer;
+            set $api_origin   $http_origin;
+            if ($portal_ref = "eflow") {
+                set $api_upstream https://10.100.20.8:28001;
+                set $api_host     10.100.20.8:28001;
+                set $api_referer  https://10.100.20.8:28001/;
+                set $api_origin   $portal_origin_rewritten;
+            }
+            # my_app 自己的端点即使在门户页面里被引用（如自动填表脚本
+            # /api/portals/inject.js）也必须回本机，否则会被上面规则误转给门户上游 → 501
+            if ($uri ~ ^/api/portals/) {
+                set $api_upstream http://127.0.0.1:7038;
+                set $api_host     $host;
+            }
+            proxy_pass         $api_upstream;
+            proxy_http_version 1.1;
+            proxy_set_header   Host              $api_host;
+            proxy_set_header   X-Real-IP         $remote_addr;
+            proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+            proxy_set_header   X-Forwarded-Proto $scheme;
+            proxy_set_header   Referer           $api_referer;
+            proxy_set_header   Origin            $api_origin;
+            proxy_set_header   Upgrade           $http_upgrade;
+            proxy_set_header   Connection        "upgrade";
+            proxy_connect_timeout 5s;
+            proxy_read_timeout 300s;
+            proxy_send_timeout 300s;
+            # 门户上游需要的修正（对 my_app 无影响：无 10.100.20.8 的域、my_app 不发 secure cookie）
+            proxy_ssl_verify   off;
+            proxy_ssl_server_name on;
+            proxy_cookie_domain 10.100.20.8 $host;
+            proxy_cookie_flags   ~ nosecure;
+            proxy_hide_header    Strict-Transport-Security;
+            proxy_hide_header    Content-Encoding;
+        }
+
+        # ---- Ollama：http://localhost/ollama/ ----
+        location /ollama/ {
+            proxy_pass         http://127.0.0.1:11434/;
+            proxy_http_version 1.1;
+            proxy_set_header   Host              $host;
+            proxy_set_header   X-Real-IP         $remote_addr;
+            proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+            proxy_set_header   Upgrade           $http_upgrade;
+            proxy_set_header   Connection        "upgrade";
+            # 关闭缓冲：流式（逐 token）输出实时下推，不攒块
+            proxy_buffering    off;
+            proxy_read_timeout 3600s;
+            proxy_send_timeout 3600s;
+        }
+
+        # ---- OpenClaw 网关：http://localhost/openclaw/ ----
+        location /openclaw/ {
+            proxy_pass         http://127.0.0.1:18789/;
+            proxy_http_version 1.1;
+            proxy_set_header   Host              $host;
+            proxy_set_header   X-Real-IP         $remote_addr;
+            proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+            proxy_set_header   Upgrade           $http_upgrade;
+            proxy_set_header   Connection        "upgrade";
+            # 关闭缓冲：SSE/流式响应实时下推
+            proxy_buffering    off;
+            proxy_read_timeout 3600s;
+            proxy_send_timeout 3600s;
+        }
+
+        # ---- uniplam 数据看板：http://localhost/uniplam/ ----
+        # 应用 Vite base 已设为 /uniplam/，故 proxy_pass 末尾不加斜杠、不剥前缀，
+        # 原样把 /uniplam/... 转给 9267 的 vite dev server。
+        location /uniplam/ {
+            proxy_pass         http://127.0.0.1:9267;
+            proxy_http_version 1.1;
+            proxy_set_header   Host              $host;
+            proxy_set_header   X-Real-IP         $remote_addr;
+            proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+            proxy_set_header   X-Forwarded-Proto $scheme;
+            proxy_set_header   Upgrade           $http_upgrade;
+            proxy_set_header   Connection        "upgrade";
+            proxy_read_timeout 3600s;
+            proxy_send_timeout 3600s;
+        }
+
+        # ---- MsPortal 自动化工具平台入口（ZTE OLR MS Management Platform）：http://localhost/MsPortal/ ----
+        location /MsPortal/ {
+            alias              "D:/01_RPA/liberia-noc_soc-数据看板统一门户/MsPortal/";
+            index              index.html index.htm;
+            add_header         Cache-Control "no-cache, no-store, must-revalidate";
+        }
+
+        # ---- olbrportal：MsPortal 的只读展示版：http://localhost/olbrportal/ ----
+        # 2026-09-21 新增，纯追加：MsPortal 那一块一行未改。
+        # 页面本身只 **读** MsPortal 的静态资产与接口（/MsPortal/assets/data.js、
+        # access.js、viewer.html、/api/portal-qc/*、/uniplam/api/auth/*），
+        # 不写任何 msportal.* 的 localStorage 键（用的是 olbr.*），所以两页可同开。
+        location /olbrportal/ {
+            alias              "D:/01_RPA/liberia-noc_soc-数据看板统一门户/olbrportal/";
+            index              index.html index.htm;
+            add_header         Cache-Control "no-cache, no-store, must-revalidate";
+        }
+
+        # ---- v1/olbrportal：上面那页的 v1 改版：http://localhost/v1/olbrportal/ ----
+        # 2026-09-24 新增，纯追加：/olbrportal/ 与 MsPortal 那两块一行未改。
+        # 为什么是 /v1/olbrportal/ 而不是 /v1/：目录深度必须与 /olbrportal/ 一致。
+        #   olbrportal/assets/olbr.js 里引用 MsPortal 的静态资源、打开查看器时
+        #   走的是相对路径 `../MsPortal/assets/...` / `../MsPortal/viewer.html` ——
+        #   只要本页仍然待在「某个前缀目录 /olbrportal/」下，那些相对路径就自动成立。
+        #   若直接把这一页铺在 /v1/ 上，相对路径会全部 404（得改 JS 里的基址计算，
+        #   而那份 JS 两个门户共用，不该为部署路径去改）。加这一条 location
+        #   是「不动一行 JS」的最小代价。
+        # 后端 /api/portal-catalog、/api/portal-qc/*、/uniplam/api/auth/* 全部同源共用，
+        # 所以两个页面看到的是同一份目录、同一份数据（这是刻意要的）。
+        location /v1/olbrportal/ {
+            alias              "D:/01_RPA/liberia-noc_soc-数据看板统一门户/v1/olbrportal/";
+            index              index.html index.htm;
+            add_header         Cache-Control "no-cache, no-store, must-revalidate";
+        }
+
+        # ---- v2/olbrportal：v1 那页的 v2 改版：http://localhost/v2/olbrportal/ ----
+        # 2026-09-28 新增，纯追加：/olbrportal/、/v1/olbrportal/ 与 MsPortal 三块一行未改。
+        # 与 v1 同样是「目录深度必须与 /olbrportal/ 一致」的理由（见上一条注释）：
+        #   放到 /v2/olbrportal/ 下，olbr.js 里的 `../MsPortal/assets/...` 相对路径
+        #   才会指回同一份文件；改成 /v2/ 直接铺开会让这些相对路径全部 404。
+        # ⚠️ v1 与 v2 是**并列共存**的两份副本（各自独立目录），不是同一份东西：
+        #   改哪一版的界面只改那一版的目录，方便逐条对照这一轮的改动。
+        # 后端 /api/portal-catalog、/api/portal-qc/*、/uniplam/api/auth/* 同源共用，
+        # 所以三个页面看到的是同一份目录、同一份数据（刻意如此）。
+        location /v2/olbrportal/ {
+            alias              "D:/01_RPA/liberia-noc_soc-数据看板统一门户/v2/olbrportal/";
+            index              index.html index.htm;
+            add_header         Cache-Control "no-cache, no-store, must-revalidate";
+        }
+
+        # ---- my-finebi：http://localhost/my-finebi/ ----
+        location /my-finebi/ {
+            proxy_pass         http://127.0.0.1:7138;
+            proxy_http_version 1.1;
+            proxy_set_header   Host              $host;
+            proxy_set_header   X-Real-IP         $remote_addr;
+            proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+            proxy_set_header   X-Forwarded-Proto $scheme;
+            proxy_set_header   Upgrade           $http_upgrade;
+            proxy_set_header   Connection        "upgrade";
+            proxy_read_timeout 3600s;
+            proxy_send_timeout 3600s;
+        }
+
+        # =====================================================================
+        # 自托管地图瓦片（利比里亚全境，tilemaker 生成）
+        # ---------------------------------------------------------------------
+        # 背景：GIS 页原先用 OSM 公共瓦片 + 深色主题靠 CSS invert 滤镜，
+        # 既受 OSM usage policy 限制，invert 又把深色公路反成亮白。改为自托管。
+        #
+        # 数据：D:\tiles-work\liberia.pmtiles（tilemaker v2.4.0 生成，z0–z14，
+        # 19,802 瓦片，29.4 MB）。PMTiles 是**单文件**归档，浏览器按 HTTP Range
+        # 分段取瓦片，故 nginx 必须正确响应 206 —— 实测 1.28.0 原生支持，
+        # 无需任何额外模块（2026-10-02 验证：Range: bytes=0-15 → 206 +
+        # Content-Range: bytes 0-15/30874449）。
+        #
+        # 三个关键点（都踩过或差点踩到）：
+        #  1) location 用 `^~` 前缀匹配而非普通前缀。因为文件里已有两条
+        #     `location ~* (_bak_|...|\.map$|...)` 正则 location（B5 安全整改），
+        #     **正则 location 优先级高于普通前缀 location** —— 若将来瓦片被命名成
+        #     liberia_bak_20261002.pmtiles 之类，会被那条规则 404 掉，且现象是
+        #     「地图全白」很难联想到安全规则。`^~` 命中后不再尝试正则，彻底规避。
+        #  2) alias 末尾与 location 的 /tiles/ 都**必须**带斜杠，否则路径拼接出错。
+        #  3) 必须发 Accept-Ranges（nginx 静态文件默认已发）。若将来改成 proxy_pass
+        #     到别处，要显式透传 Range 与 206，否则 PMTiles 前端会整包下载或直接失败。
+        #
+        # CORS：前端若与瓦片不同源（例如 dev 模式 vite:5173 直连）需要放行。
+        # 生产走同源 /tiles/ 用不到，但保留可省去将来排查跨域的时间。
+        #
+        # 回滚：删掉本 location 块即可（配置备份 nginx.conf.bak_20261002_tiles前）。
+        # =====================================================================
+        location ^~ /tiles/ {
+            alias      "D:/01_RPA/nginx-1.28.0/html/tiles/";
+            add_header Accept-Ranges bytes always;
+            add_header Access-Control-Allow-Origin "*" always;
+            add_header Access-Control-Expose-Headers "Content-Range, Content-Length, Accept-Ranges" always;
+            types { }                    # 清空 MIME 表，避免 .pmtiles 走到无类型分支
+            default_type application/octet-stream;
+            # 缓存：实测要点（2026-10-02，nginx 1.28.0）——
+            #   a) `expires 30d immutable;` 是**非法**语法，会 emerg: invalid value
+            #      （nginx 的 expires 不接受 immutable 参数）；
+            #   b) 同时写 `expires` 与 `add_header Cache-Control` 会发出**两条**
+            #      Cache-Control 头，nginx 并不会合并它们。
+            # 故这里只用 expires 产出唯一一条 Cache-Control: max-age=2592000。
+            # 不追加 immutable：瓦片文件名将来若被覆盖（同名重生成），immutable 会让
+            # 浏览器 30 天内拒绝重新验证，反而制造"改了不生效"的疑难问题；
+            # max-age 已足够，且保留 ETag/Last-Modified 供条件请求。
+            expires    30d;
+            access_log off;              # 瓦片请求量大，且每个瓦片是一次 Range 请求
+        }
+
+        error_page   500 502 503 504  /50x.html;
+        location = /50x.html {
+            root   html;
+        }
+    }
+
+
+    # -------------------------------------------------------------------------
+    # 想加更多服务，复制下面模板，改 location 路径和 proxy_pass 端口即可：
+    #
+    # location /<名字>/ {
+    #     proxy_pass         http://127.0.0.1:<端口>/;
+    #     proxy_http_version 1.1;
+    #     proxy_set_header   Host              $host;
+    #     proxy_set_header   X-Real-IP         $remote_addr;
+    #     proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+    #     proxy_set_header   Upgrade           $http_upgrade;
+    #     proxy_set_header   Connection        "upgrade";
+    #     proxy_read_timeout 3600s;    # 有 WebSocket/长连接必加（默认 60s 会断）
+    #     proxy_buffering    off;      # 有流式输出(SSE/逐token)必加
+    # }
+    # 同时加一条无尾斜杠跳转：
+    # location = /<名字> { return 301 /<名字>/; }
+    # -------------------------------------------------------------------------
+
+    # ---- 门户独立端口反代（8081=ZTE UME 8082=CCN 8083=iPRAN 8084=MW 8085=FW 8086=VMAX）----
+    include portal_ports.conf;
+
+}

@@ -1,0 +1,60 @@
+# =============================================================================
+# 本文件是生产 nginx 配置的【参考副本】，不是生效文件。
+# 生效文件（本机 .20）: D:\01_RPA\nginx-1.28.0\conf\portal_eflow_common.conf
+# 快照：2026-10-03  |  来源 3372 B
+# ⚠ 源文件的中文注释本身就是 mojibake（UTF-8 被按 CP1252 解读后再存为 UTF-8，
+#   改动前既有问题）。本副本已按 CP1252 反解修复，中文可读；
+#   nginx 只读下列 proxy_* / sub_filter 指令，注释乱码不影响运行。
+# 改完生效配置并 reload 成功后，请把改动同步回本副本。
+# 详见同目录 README.md 与 docs\新机器部署清单.md。
+# =============================================================================
+
+# =============================================================================
+# 门户反代公共片段（eflow 上游）
+# -----------------------------------------------------------------------------
+# 由各 location include 复用。要点（均来自实测，见门户上游原始响应头）：
+#   1) Set-Cookie 原为 domain=10.100.20.8;secure → 改写 domain 到访问用主机并去掉
+#      secure，否则浏览器丢弃（域不匹配 + 反代为 http）。"~" = 正则匹配全部 cookie。
+#   2) 门户下发 Strict-Transport-Security(max-age=1年, includeSubDomains)，
+#      会让浏览器对整个 192.168.100.20 强制 https 从而搞挂 myapp，必须摘掉。
+#   3) upstream 下发非法的 Content-Encoding: utf-8，摘掉免浏览器解码失败。
+#   4) Content-Security-Policy: frame-ancestors 'self' / X-Frame-Options 同样摘掉，
+#      便于必要时把门户嵌进 my_app 页面。
+# =============================================================================
+proxy_ssl_verify          off;
+proxy_ssl_server_name     on;
+proxy_http_version        1.1;
+proxy_set_header Host               10.100.20.8:28001;
+proxy_set_header X-Real-IP          $remote_addr;
+proxy_set_header X-Forwarded-For    $proxy_add_x_forwarded_for;
+proxy_set_header X-Forwarded-Proto  https;
+proxy_set_header Upgrade            $http_upgrade;
+proxy_set_header Connection         "upgrade";
+proxy_set_header Accept-Encoding    "";   # 关压缩，保证 sub_filter 可改写正文
+# 门户跨站防护：把来源伪装成门户自身，否则带会话的请求会被判 403 cross-site
+proxy_set_header Referer            https://10.100.20.8:28001/;
+proxy_set_header Origin             $portal_origin_rewritten;
+proxy_redirect            default;
+proxy_cookie_domain       10.100.20.8 $host;
+proxy_cookie_flags        ~ nosecure;
+proxy_hide_header         Strict-Transport-Security;
+proxy_hide_header         Content-Security-Policy;
+proxy_hide_header         X-Frame-Options;
+proxy_hide_header         Content-Encoding;
+proxy_read_timeout        3600s;
+proxy_send_timeout        3600s;
+# Client-side eFlow same-origin compatibility: prevent internal absolute URLs
+# from sending the browser to its own localhost after login.
+proxy_redirect http://localhost/ /;
+proxy_redirect https://localhost/ /;
+proxy_redirect http://10.100.20.8:28001/ /;
+proxy_redirect https://10.100.20.8:28001/ /;
+proxy_set_header Accept-Encoding "";
+proxy_hide_header Content-Encoding;
+sub_filter_once off;
+sub_filter_types text/html application/javascript text/javascript;
+sub_filter 'http://localhost' '';
+sub_filter 'https://localhost' '';
+sub_filter 'http://127.0.0.1' '';
+sub_filter 'https://127.0.0.1' '';
+

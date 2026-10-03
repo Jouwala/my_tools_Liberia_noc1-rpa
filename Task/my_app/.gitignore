@@ -51,6 +51,15 @@
 *.bak_*
 /backend/services/cn_ems/jab_setup/backup_*/
 
+# 实时代理的上游会话文件（FMS 8787 / VMAX 8790）。
+# 内容是两个内网门户的**有效登录 Cookie + csrf**，等同于凭据 —— 严禁入库。
+# 2026-10-03：代理脚本迁到 tools/ 后，会话文件按 dirname(__file__) 跟着落到
+# tools/，而 /Scripts/ 那条旧规则不再覆盖它，故在此显式忽略。
+# 运行时自动生成，删除无碍（下次启动重新登录）。
+/tools/fms_session.json
+/tools/vmax_session.json
+/tools/*_session.json
+
 # 任务运行产出（每次运行重写，入库只会造成永久 diff 噪声）
 /backend/services/cn_ems/daily_raw.json
 /backend/services/cn_ems/kpi_result.json
