@@ -285,3 +285,25 @@ Task/nginx_monitor.state
 #       同名真文件（AGENTS.md 第四节第 7 条：探针只能落各子系统的 TMP\）。
 # 只加忽略规则，**不动磁盘** —— 这 76 个文件留在本机，本次仅脱离跟踪。
 /tmp_*.txt
+
+# 浏览器自动化临时 profile（2026-10-03 新增）
+# 背景：`chrome_xhs_profile/` 是小红书发布流程用的 Chrome 用户数据目录，
+#       实测 **1,092,938 KB / 3911 个文件**（缓存、Cookies、Local Storage、
+#       GPU 缓存等）。它既非源码也非构建输入，且内含登录态与浏览轨迹，
+#       一旦 `git add -A` 就会把 1GB 垃圾和凭据一起推到 GitHub。
+# 为什么此前没被忽略：根 .gitignore 只有针对 my_app 的
+#       `/data/portal_profiles/_tmp_*/`，管不到工作区根这一层。
+# 只加忽略规则，**不动磁盘** —— 目录留着本机自用。
+/chrome_*_profile/
+
+# 一次性 PPT / 探针产物（2026-10-03 新增）
+# `_ppt_probe2/`（*.slide / *.pptx 草稿）与 AI 工作目录 `.workbuddy-ai/`（仅 memory/）
+# 都是过程产物，不是交付源码。按 AGENTS.md 第四节第 7 条，探针应落各子系统 TMP\；
+# 这两处落在工作区根，此前无规则覆盖。
+/_ppt_probe*/
+/.workbuddy-ai/
+
+# 工具自建的同步备份目录（2026-10-03 新增）
+# `Task/whatsapp-kb-bot/.sync-backup-<时间戳>/` 由同步脚本在覆盖前整目录备份生成，
+# 属可重建的中间态，不入库。
+**/.sync-backup-*/
