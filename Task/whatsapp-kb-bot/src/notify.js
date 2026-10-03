@@ -46,6 +46,7 @@ import makeWASocket, {
   isJidGroup,
 } from 'baileys';
 import P from 'pino';
+import qrcode from 'qrcode-terminal';
 import { existsSync, mkdirSync, appendFileSync, readFileSync, writeFileSync, renameSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { CONFIG, ROOT } from './config.js';
@@ -54,6 +55,27 @@ const logger = P({ level: 'silent' });
 
 const CHECK_ONLY = process.argv.includes('--check');
 const LIST_GROUPS = process.argv.includes('--groups');
+
+/**
+ * 本进程专用的凭据目录。
+ *
+ * ⚠️ **绝不能与 src/index.js 共用 `CONFIG.authDirAbs`（data/auth）。**
+ *
+ * 2026-10-03 事故：两个进程同读一份 creds.json，等于同一个 WhatsApp 号
+ * 双端登录。服务端发现后不断把其中一方顶掉（close code=440 conflict），
+ * 两边的重连逻辑又互相把对方顶回来 —— 表现为**无限互踢**：
+ * 日志里「2 秒连一次、连上 3 秒又断」，且**两个进程都收不到消息**，
+ * 机器人对外看起来就是"启动了但不回答"。
+ *
+ * 凭据分开后，每个进程各自持有一个独立的已关联设备，互不干扰。
+ * 代价：notify.js 首次启用需要单独扫一次码（`npm run relogin:notify`）。
+ *
+ * 可用环境变量 NOTIFY_AUTH_DIR 覆盖（容器/换机时用）。
+ */
+const AUTH_DIR = process.env.NOTIFY_AUTH_DIR || join(ROOT, 'data', 'auth-notify');
+
+/** Baileys 的设备标识。两个进程必须不同，否则手机端「已关联的设备」里会混淆。 */
+const DEVICE_LABEL = process.env.NOTIFY_DEVICE_LABEL || 'P1-Notify';
 
 /* --------------------------------- 单实例锁 --------------------------------- */
 
@@ -326,25 +348,30 @@ async function start() {
     lockFile = acquireLock();
   }
 
-  if (!existsSync(CONFIG.authDirAbs)) {
-    log(`✗ 凭据目录不存在：${CONFIG.authDirAbs}`);
-    log('  请先在 whatsapp-kb-bot 目录执行 npm run relogin 扫码登录。');
-    process.exit(1);
-  }
-  if (!existsSync(join(CONFIG.authDirAbs, 'creds.json'))) {
-    log(`✗ 缺 creds.json：${CONFIG.authDirAbs}`);
-    log('  请先执行 npm run relogin 扫码登录。');
-    process.exit(1);
+  // 凭据目录**不存在不算错误** —— 首次部署就是这样，此时应当逐个出二维码让用户扫码。
+  //
+  // 早先这里直接 exit(1) 并提示「请执行 npm run relogin:notify」，而 relogin.mjs
+  // 发现目录不存在时又回一句「直接运行 npm run notify 即可」——
+  // **两个脚本互相指向对方，用户被卡死在中间**（2026-10-03 实测踩到）。
+  //
+  // 根因是把职责搞混了：`relogin` 的职责是**清掉旧凭据**，它并不产生新凭据；
+  // 新凭据是 Baileys 连接时通过二维码生成的。所以「首次登录」必须由本进程自己
+  // 承担 —— 目录不存在就建一个空的，让 useMultiFileAuthState 正常出二维码。
+  if (!existsSync(AUTH_DIR)) {
+    log(`! 凭据目录不存在，按首次登录处理：${AUTH_DIR}`);
+    mkdirSync(AUTH_DIR, { recursive: true });
   }
 
-  const { state, saveCreds } = await useMultiFileAuthState(CONFIG.authDirAbs);
+  const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
   const { version } = await fetchLatestBaileysVersion().catch(() => ({ version: undefined }));
 
   const sock = makeWASocket({
     version,
     auth: state,
     logger,
-    browser: ['Chrome (Linux)', '', ''],
+    // 设备名区分两个进程，否则手机端「已关联的设备」里两个都叫同一个名字，
+    // 排查 440 时根本分不清该踢哪一个。
+    browser: [DEVICE_LABEL, 'Desktop', '1.0.0'],
     syncFullHistory: false,
     markOnlineOnConnect: false,
     generateHighQualityLinkPreview: false,
@@ -355,16 +382,33 @@ async function start() {
 
   sock.ev.on('connection.update', async ({ connection, lastDisconnect, qr }) => {
     if (qr) {
-      // 推送进程是隐藏运行的，二维码打出来也没人看得见 —— 直接说清怎么办。
-      log('✗ 需要重新扫码登录（凭据已失效）。');
-      log('  请停止本进程，改为在 whatsapp-kb-bot 目录执行：npm run relogin');
+      // 二维码该不该打出来，取决于**有没有人看得见**，而不是取决于它是哪个进程。
+      //
+      // 早先这里无条件 exit(1)，理由是「推送进程隐藏运行，二维码没人看得见」。
+      // 那个理由只在**由计划任务以隐藏窗口拉起**时成立；用户手动在前台跑
+      // `npm run notify` 时窗口是可见的，二维码完全应该正常显示 ——
+      // 否则首次登录永远没有出路（见上面 AUTH_DIR 那段注释里的死循环）。
+      //
+      // 判据用 stderr 是否为 TTY：前台跑 → TTY，可以扫码；
+      // 计划任务/重定向 → 非 TTY，打出来只会污染日志，此时才拒绝并说明怎么办。
+      if (process.stderr.isTTY) {
+        console.log('\n=== 请用 WhatsApp 扫码登录（P1 告警推送通道）===');
+        console.log('手机 WhatsApp → 设置 → 已关联的设备 → 关联设备\n');
+        qrcode.generate(qr, { small: true });
+        console.log(`\n（扫码后凭据会保存在 ${AUTH_DIR}，之后免扫码）`);
+        console.log('（这是与知识库机器人**相互独立**的一个设备，两边各扫各的）\n');
+        return; // 继续等下一次 connection.update，扫完就会 open
+      }
+      log('✗ 需要扫码登录，但当前是隐藏运行（无人可见二维码）。');
+      log('  请在可见的终端里手动执行：npm run notify');
+      log('  扫码成功后 Ctrl+C 退出，再由计划任务托管常驻。');
       process.exit(1);
     }
 
     if (connection === 'open') {
       reconnectAttempts = 0;
       connected = true;
-      log(`✓ 已连接。凭据目录：${CONFIG.authDirAbs}`);
+      log(`✓ 已连接。凭据目录：${AUTH_DIR}`);
       await refreshGroups(sock);
       heartbeat({ event: 'connected' });
       if (CHECK_ONLY) {
@@ -393,8 +437,20 @@ async function start() {
       const code = lastDisconnect?.error?.output?.statusCode;
       if (code === DisconnectReason.loggedOut) {
         log('✗ 已被登出（手机端可能移除了该设备）。');
-        log('  请执行 npm run relogin 重新扫码后重启本进程。');
+        log('  请执行 npm run relogin:notify 重新扫码后重启本进程。');
         process.exit(1);
+      }
+
+      // 440 = connectionReplaced：同账号的另一个会话把本连接顶掉了。重连只会互相顶号，
+      // 两个进程都收不到消息 —— 详见 src/whatsapp.js 里同一处判断的说明。
+      // 本进程已改用独立凭据目录（AUTH_DIR），正常情况下不该再出现 440；
+      // 一旦出现，说明仍有第二个进程在用 data/auth-notify，或凭据又被共用。
+      // （枚举名是 connectionReplaced；baileys 6.7.24 没有 `conflict` 成员。）
+      if (code === DisconnectReason.connectionReplaced || code === 440) {
+        log('✗ 连接被同账号的另一个会话顶掉（code=440 conflict）。');
+        log(`  检查是否有第二个进程在用凭据目录 ${AUTH_DIR}。`);
+        log('  本进程不再重连（继续重连只会与对方互相顶号）。');
+        process.exit(2);
       }
 
       try {

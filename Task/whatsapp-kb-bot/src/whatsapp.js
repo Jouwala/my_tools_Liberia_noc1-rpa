@@ -152,6 +152,31 @@ export async function startWhatsApp({ onQuestion, builtins = null }) {
         process.exit(1);
       }
 
+      // 440 = connectionReplaced：同一个 WhatsApp 账号的**另一个会话**把本连接顶掉了。
+      // 这不是网络抖动，重连只会把对方顶掉、对方再顶回来 —— 两个进程无限互踢，
+      // 日志表现为「2 秒连一次、连上 3 秒又断」，且**两个进程都收不到消息**。
+      //
+      // 本仓库的实际成因：src/notify.js（P1 告警推送）与 src/index.js **共用
+      // data/auth 同一份凭据**，等于同号双开。2026-10-03 实测：只要 notify.js 在跑，
+      // index.js 就永远停在 440 循环；杀掉 notify.js 后数秒内连接即稳定。
+      //
+      // 因此 440 刻意**不重连**：继续重连既救不活自己，又会让对方也收不到消息。
+      // 直接退出，把问题暴露给看门狗/值班人，而不是伪装成"一直在重连"的正常状态。
+      //
+      // 注意枚举名：本仓库装的 baileys 6.7.24 里叫 `connectionReplaced`，
+      // 没有 `conflict` 这个成员（写 conflict 会得到 undefined，判断永远不成立）。
+      if (code === DisconnectReason.connectionReplaced || code === 440) {
+        log('✗ 连接被同账号的另一个会话顶掉（code=440 connectionReplaced）。');
+        log('  通常是有第二个进程在用同一份 data/auth 凭据。已知来源：');
+        log('    · src/notify.js（P1 告警推送）—— 与机器人同号共用凭据，两者只能留一个；');
+        log('    · 手动多开了 npm start / relogin.mjs 没退出。');
+        log('  排查： Get-CimInstance Win32_Process -Filter "Name=\'node.exe\'" |');
+        log("          Where-Object { $_.CommandLine -match 'whatsapp-kb-bot' } |");
+        log('          Select-Object ProcessId,CommandLine');
+        log('  本进程不再重连（继续重连只会与对方互相顶号）。');
+        process.exit(2);
+      }
+
       // 清理旧 socket，否则其事件监听器会一直挂在内存里
       try {
         sock.ev.removeAllListeners('messages.upsert');
@@ -315,7 +340,18 @@ export async function startWhatsApp({ onQuestion, builtins = null }) {
 
       try {
         await sock.sendPresenceUpdate('composing', chatJid).catch(() => {});
-        const result = await onQuestion(question, { chatJid, sender, lang });
+        const result = await onQuestion(question, {
+          chatJid,
+          sender,
+          lang,
+          // 工单通道失败即将自动重试 → 先把垫话发出去，别让用户干等
+          onRetry: (text) =>
+            send(chatJid, text, CONFIG.replyQuote ? msg : undefined).catch(() => {}),
+          // 本地工单库查不到、即将回 eFlow 实时查 → 同样先垫一句。
+          // 实时查询要登录 eFlow + 翻页扫描，比本地慢得多，不垫话就是十几秒静默。
+          onLive: (text) =>
+            send(chatJid, text, CONFIG.replyQuote ? msg : undefined).catch(() => {}),
+        });
         const text2 = truncate(result.text, CONFIG.maxReplyChars);
         if (pendingTimer) {
           clearTimeout(pendingTimer);
@@ -327,6 +363,9 @@ export async function startWhatsApp({ onQuestion, builtins = null }) {
             // 记录回复语言：语言类问题（英文提问收到中文回答）必须能事后审计，
             // 否则只能靠群里截图定位 —— 这次排查就卡在这里。
             `｜lang=${lang}` +
+            // 多单提问：记录「成功几个/共几个」，否则事后无法判断
+            // 用户贴了 3 个单是不是只回了 1 个。
+            (result.stats?.count > 1 ? `｜单=${result.stats.okCount}/${result.stats.count}` : '') +
             (result.retrieval
               ? `｜gap=${result.retrieval.gap.toFixed(3)} top=${result.retrieval.topBase.toFixed(3)} base=${result.retrieval.baseline.toFixed(3)}`
               : '')

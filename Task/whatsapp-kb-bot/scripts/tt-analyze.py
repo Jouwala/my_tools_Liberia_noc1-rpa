@@ -6,9 +6,10 @@
     python tt-analyze.py TT202609150073
     python tt-analyze.py TT202609150073 --json
 
-数据来源：
-    工单库  Y:/Task/my_app/db/app.db            （表 eflow_tt，只读打开）
-    级别规则 Y:/Task/my_app/backend/services/eflow_rules/eflow_TT_rules.xlsx
+数据来源（my_app 根目录自动定位，可用环境变量 MY_APP_DIR 覆盖，
+详见 scripts/my_app_paths.py）：
+    工单库   <my_app>/db/app.db            （表 eflow_tt，只读打开）
+    级别规则 <my_app>/backend/services/eflow_rules/eflow_TT_rules.xlsx
 
 匹配口径**精确复刻** my_app 的
 `backend/services/eflow_rules/eflow_rules_matcher.py`
@@ -53,18 +54,22 @@ for _stream in (sys.stdout, sys.stderr):
 # 路径配置（可用环境变量覆盖）
 # ------------------------------------------------------------------ #
 
-MY_APP_DIR = os.environ.get('MY_APP_DIR', r'Y:/Task/my_app')
-DB_PATH = os.environ.get('MY_APP_DB', os.path.join(MY_APP_DIR, 'db', 'app.db'))
-RULES_XLSX = os.environ.get(
-    'MY_APP_TT_RULES',
-    os.path.join(MY_APP_DIR, 'backend', 'services', 'eflow_rules', 'eflow_TT_rules.xlsx'),
+# my_app 根目录的定位收在 scripts/my_app_paths.py 里 —— 不再写死 Y: 盘。
+# 2026-10-03：写死 Y:/Task/my_app 导致换机后 TT 分析直接 Errno 2
+#（Y: 在别的机器上指向的盘里根本没有 Task/my_app）。详见该模块的说明。
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import my_app_paths  # noqa: E402
+
+MY_APP_DIR = my_app_paths.find_my_app_dir()
+DB_PATH = my_app_paths.resolve('MY_APP_DB', 'db', 'app.db')
+RULES_XLSX = my_app_paths.resolve(
+    'MY_APP_TT_RULES', 'backend', 'services', 'eflow_rules', 'eflow_TT_rules.xlsx'
 )
 
 # 推单/派单规则（配置中心全量规则）。用来回答「这单排给谁、依据哪条规则」。
 # 由 my_app 的 eflow_Push_Rule_Collector.py 导出，与级别规则表同目录。
-PUSH_RULES_XLSX = os.environ.get(
-    'MY_APP_PUSH_RULES',
-    os.path.join(MY_APP_DIR, 'backend', 'services', 'eflow_rules', 'eflow_push_rules.xlsx'),
+PUSH_RULES_XLSX = my_app_paths.resolve(
+    'MY_APP_PUSH_RULES', 'backend', 'services', 'eflow_rules', 'eflow_push_rules.xlsx'
 )
 
 
@@ -92,8 +97,9 @@ def _import_openpyxl(lang: str = DEFAULT_LANG):
 
     本机 openpyxl 并不在解释器的 site-packages 里（实测 Python312 / 3.14 都没有），
     而是躺在 my_app 的 `Lib/site-packages` 下（my_app 内嵌 venv 的 shim 已失效）
-    —— 所以还要带上这个回退路径。注意该路径在 Y 盘，网络盘断开时会一并失效，
-    此时报错信息要能让人一眼看出「是缺依赖，不是数据没了」。
+    —— 所以还要带上这个回退路径。路径由 my_app_paths 解析，**不再写死盘符**：
+    早先写死 Y: 盘，换机后该目录不存在，回退静默失效，报错就变成了
+    「缺 openpyxl」这种指向错误方向的结论。
     """
     try:
         import openpyxl  # noqa: PLC0415 —— 刻意延迟导入
@@ -102,9 +108,7 @@ def _import_openpyxl(lang: str = DEFAULT_LANG):
     except ImportError:
         pass
 
-    fallback = os.path.join(MY_APP_DIR, 'Lib', 'site-packages')
-    if os.path.isdir(fallback) and fallback not in sys.path:
-        sys.path.append(fallback)
+    my_app_paths.apply_fallback_site_packages(MY_APP_DIR)
     try:
         import openpyxl  # noqa: PLC0415
 
@@ -395,6 +399,37 @@ def match_rules(vf: dict, rules: list[dict]) -> dict | None:
         if build_rule_match(vf, rule['conds']):
             return rule
     return None
+
+
+def missing_rule_fields(vf: dict, rules: list[dict]) -> list[str]:
+    """返回「取值缺失、导致规则无法判定」的字段名（去重保序）。
+
+    为什么需要它：`build_value_frame` **总是**输出全部键，缺的字段变成空串；
+    而 `eval_one` 对空串求值为 False —— 与「字段有值但不匹配」**完全无法区分**。
+    于是实时行（eFlow 只回 24 个紧凑字段）下，11/15 条级别规则全部静默失配，
+    报告一律显示「规则未命中，需人工确认」。
+
+    这比「查不到」更糟：它是一句**看起来有依据、实际没查过**的结论。
+    实测同一单号本地判 P4「与规则一致，正常」，实时判 P4「规则未命中」——
+    同一张单，两种口径。
+
+    判据：字段在 vf 里为空（'' 或 None），且**至少有一条规则**用到它。
+    空值是「本行没这个数据」，「值不匹配」才是真的不匹配，必须分开。
+    """
+    used = {}
+    for rule in rules:
+        for c in rule['conds']:
+            used.setdefault(c['field'], str(vf.get(c['field']) or '').strip())
+    return [f for f, v in used.items() if not v]
+
+
+def conds_all_evaluable(vf: dict, conds: list[dict]) -> bool:
+    """这条规则的所有条件字段是否都有值可判。
+
+    缺一个字段就可能让整条规则误判（尤其 AND 链），所以**宁可整条弃权**，
+    也不给一个基于空值的「不匹配」结论。
+    """
+    return all(str(vf.get(c['field']) or '').strip() for c in conds)
 
 
 # ------------------------------------------------------------------ #
@@ -1131,8 +1166,31 @@ def latest_tt_no() -> str:
 
 
 def analyze(tt_no: str, rules: list[dict], lang: str = DEFAULT_LANG,
-            push_rules: list[dict] | None = None) -> dict:
-    row = fetch_tt(tt_no, lang)
+            push_rules: list[dict] | None = None,
+            live_row: dict | None = None) -> dict:
+    """分析一个单。
+
+    `live_row` 非空时**跳过本地库**，直接用这份「实时行」分析 —— 它是
+    `eflow-live-tt.py` 从 eFlow API 实时拉回来的、已经映射成 eflow_tt 列名的
+    dict（见 my_app 的 `_normalize_tt_live_row`）。
+
+    走 live 时返回结构里会多两个键：
+      · `live`   = True，供上游/测试区分「实时」与「本地快照」；
+      · `_sync_time` 缺失是正常的（实时行没有「同步时间」这个概念），
+        渲染层会自动省略那一行。
+
+    渲染与规则匹配**完全复用同一套代码** —— 否则「本地查到的单」和
+    「实时查到的单」会呈现两种格式，用户一眼就能看出差异，且要维护两份口径。
+    """
+    if live_row is not None:
+        row = dict(live_row)
+        # 单号以调用方传入的为准：实时行的 tt_no 可能为空（eFlow 有时只回 woNum）
+        row.setdefault('tt_no', tt_no)
+        if not row.get('tt_no'):
+            row['tt_no'] = tt_no
+    else:
+        row = fetch_tt(tt_no, lang)
+
     if not row:
         return {'found': False, 'tt_no': tt_no, 'latest_tt_no': latest_tt_no()}
 
@@ -1148,6 +1206,12 @@ def analyze(tt_no: str, rules: list[dict], lang: str = DEFAULT_LANG,
     # 缺了它照样出级别判定与处理链路，只是没有「派单依据」这一段。
     assign = resolve_assign(vf, row, push_rules or [])
 
+    # 「没命中」分两种，必须区别对待（见 missing_rule_fields 的说明）：
+    #   · 真没命中：字段都有值，规则就是不匹配 → 可信的「需人工确认」；
+    #   · 判不了  ：有字段是空的（实时行只有 24 个紧凑字段）→ 规则**根本没被真正评估**，
+    #               此时说「未命中」等于把「数据不全」包装成「已核实不匹配」。
+    absent = missing_rule_fields(vf, rules) if not rule else []
+
     cur_sev = str(row.get('ticket_severity') or '').strip().upper()
     if rule:
         new_sev = rule['severity']
@@ -1156,12 +1220,14 @@ def analyze(tt_no: str, rules: list[dict], lang: str = DEFAULT_LANG,
     else:
         new_sev = ''
         changed = False
-        verdict = 'unknown'
+        verdict = 'incomplete' if absent else 'unknown'
 
     return {
         'found': True,
+        'live': live_row is not None,
         'tt_no': row.get('tt_no') or row.get('ticket_no') or tt_no,
         'verdict': verdict,
+        'missing_rule_fields': absent,
         'current_severity': cur_sev,
         'suggested_severity': new_sev,
         'need_change': changed,
@@ -1292,6 +1358,13 @@ _LABELS: dict[str, dict[str, str]] = {
         'level_ok': '（与规则一致，正常）',
         'level_adjust': ' → 【建议改 {sev}】（与规则不一致）',
         'level_unknown': '（规则未命中，需人工确认）',
+        # 「判不了」≠「没命中」。实时行只有 eFlow 的紧凑字段，级别规则要的
+        # vip_site / down_site_count / domain / site_information 都不在里面，
+        # 15 条规则里有 11 条因此**根本没被真正评估**。这时必须说清楚是数据不全，
+        # 否则用户会以为「已核实过、确实没有匹配规则」—— 那是假的。
+        'level_incomplete': '（实时数据不含级别判定所需字段，未能核对规则）',
+        # 缺哪些字段 —— 让用户知道为什么判不了、该去补什么
+        'missing_fields': '缺失字段：',
         'rule': '命中规则：', 'basis': '判定依据：',
         # 派单依据（见 resolve_assign）。`assign_none` 是**降级措辞** ——
         # 反推不出来时宁可说不知道，也不报一条猜的规则。
@@ -1337,6 +1410,8 @@ _LABELS: dict[str, dict[str, str]] = {
         'fault_duration': '时长 {v}', 'fault_occurred': '发生 {v}',
         'fault_cleared': '清除 {v}',
         'resolved': '已恢复', 'unresolved': '未恢复',
+        # 实时兜底来源标记（本地库 miss、改从 eFlow 实时拉的）
+        'live_src': '⚡ 本地库暂无此单，已实时查 eFlow',
     },
     'en': {
         'need_openpyxl': 'openpyxl is missing, so the rules workbook cannot be read '
@@ -1365,6 +1440,10 @@ _LABELS: dict[str, dict[str, str]] = {
         'level_ok': ' (matches rule)',
         'level_adjust': ' → [suggest {sev}] (differs from rule)',
         'level_unknown': ' (no rule matched — manual check needed)',
+        # 「判不了」≠「没命中」；纯 ASCII，见中文同名键的说明
+        'level_incomplete':
+            ' (live data lacks the fields severity rules need — rules not evaluated)',
+        'missing_fields': 'Missing fields: ',
         'rule': 'Matched rule: ', 'basis': 'Basis: ',
         # 与中文同义；`assign_none` 是降级措辞
         'assign': '[Assignment basis]',
@@ -1416,6 +1495,9 @@ _LABELS: dict[str, dict[str, str]] = {
         'fault_duration': 'Duration {v}', 'fault_occurred': 'Occurred {v}',
         'fault_cleared': 'Cleared {v}',
         'resolved': 'resolved', 'unresolved': 'unresolved',
+        # Live-fallback source marker (local DB missed, fetched from eFlow live).
+        # 纯 ASCII —— 英文输出要过「零中文残留」断言（见 test-tt-lang.py）。
+        'live_src': '[live] not in local DB yet - fetched from eFlow in real time',
     },
 }
 
@@ -1987,6 +2069,12 @@ def render_text(res: dict, lang: str = DEFAULT_LANG) -> str:
     r = res['record']
     out: list[str] = []
 
+    # 实时兜底标记：必须**显式**告诉用户这份数据是刚问 eFlow 要的，
+    # 而不是本地快照 —— 两者可能不一致（实时行没有「同步时间」，且本地同步有延迟）。
+    # 不标的话，用户无从知道刚才那句「本地库里没有」和现在这份报告的关系。
+    if res.get('live'):
+        out.append(L['live_src'])
+
     # ── 抬头：单号 · 站点(站号) | 区域 | 站点等级 ──
     # ── 抬头：单号 · 站点(站号) | 区域 | 站点类型 | 站点子类型 ──
     # 站点类型/子类型走归一化函数（`site_type` → NORMAL/COOL、
@@ -2049,6 +2137,14 @@ def render_text(res: dict, lang: str = DEFAULT_LANG) -> str:
         )
     elif res['verdict'] == 'ok':
         out.append(f"{L['level']}{res['current_severity']}{L['level_ok']}")
+    elif res['verdict'] == 'incomplete':
+        # 数据不全 → 明确说「没核对成」，而不是「没命中」。
+        # 并列出到底缺哪些字段，用户才知道该去看本地报告 / 去 eFlow 手工确认。
+        miss = '、'.join(res.get('missing_rule_fields') or []) if lang == 'zh' \
+            else ', '.join(res.get('missing_rule_fields') or [])
+        out.append(f"{L['level']}{res['current_severity'] or '-'}{L['level_incomplete']}")
+        if miss:
+            out.append(L['missing_fields'] + miss)
     else:
         out.append(f"{L['level']}{res['current_severity'] or '-'}{L['level_unknown']}")
     if res['matched_rule_id']:
@@ -2134,6 +2230,9 @@ def main() -> int:
     ap.add_argument('--json', action='store_true', help='输出 JSON')
     ap.add_argument('--lang', default=DEFAULT_LANG, choices=list(SUPPORTED_LANGS),
                     help='回复语言：zh（默认）/ en —— 由上游按提问语言判定后传入')
+    ap.add_argument('--live-row',
+                    help='改用这份 JSON（eflow-live-tt.py 的实时结果）分析，跳过本地库。'
+                         '传 - 表示从 stdin 读入。')
     ap.add_argument('--rebuild-index', action='store_true',
                     help='重建本地单号索引后退出（首次部署、或数据大量更新后跑一次）')
     args = ap.parse_args()
@@ -2158,8 +2257,22 @@ def main() -> int:
     except Exception:
         push_rules = []
 
+    # 实时行：本地库查不到时由 eflow-live-tt.py 从 eFlow 实时拉回来的。
+    # 解析失败**不静默降级成「查本地库」** —— 否则用户发一个本地没有的新单，
+    # 会收到「工单库里没有找到」这句话，而事实是我们没去实时查。
+    live_row = None
+    if args.live_row is not None:
+        try:
+            raw = sys.stdin.read() if args.live_row == '-' else args.live_row
+            live_row = json.loads(raw)
+            if not isinstance(live_row, dict):
+                raise ValueError('实时行必须是 JSON 对象')
+        except Exception as e:
+            print(f'实时行解析失败：{e}', file=sys.stderr)
+            return 2
+
     try:
-        res = analyze(args.tt_no, rules, args.lang, push_rules)
+        res = analyze(args.tt_no, rules, args.lang, push_rules, live_row=live_row)
     except Exception as e:
         print(str(e), file=sys.stderr)
         return 3

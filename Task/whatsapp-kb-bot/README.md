@@ -271,6 +271,8 @@ echo 'AGNES_API_KEY=你的key' > .env
 | `notFoundText` / `notFoundTextEn` | （见文件） | 未命中时的兜底话术（中 / 英） |
 | `errorText` / `errorTextEn` | （见文件） | 程序故障时的兜底话术（中 / 英） |
 | `busyText` / `busyTextEn` | （见文件） | 排队已满时的提示（中 / 英） |
+| `ttLiveFallback` | `true` | 工单本地查不到时是否回 eFlow 实时查，见「查不到单号时：先回 eFlow 实时查」 |
+| `ttLiveTimeoutMs` | 240000 | 实时查询超时（比本地宽松得多，见该节） |
 | `systemPrompt` | （见文件） | 约束模型只依据资料作答 |
 
 > 上面三组 `*Text` 是**不经过模型**的固定回复，必须成对配置。
@@ -384,13 +386,23 @@ gap      = top1 − baseline
 
 ---
 
-## TT 单分析（实时查工单库）
+## TT / WO 单分析（实时查工单库）
 
-除了知识库问答，机器人还能**实时分析 TT 单**。群里 @机器人 并带上单号即可：
+除了知识库问答，机器人还能**实时分析工单**。群里 @机器人 并带上单号即可：
 
 ```
 @机器人 分析TT单TT202609150073
+@机器人 WO202609220055 Please analyze this Work Order.
 ```
+
+**TT 和 WO 单号都支持。** WO 号会自动回溯到它的父 TT 单再分析（工单库里
+`eflow_tt.wo_no` 列可反查），回复格式与直接查 TT 一致。
+
+> ⚠️ **WO 曾是个静默错误**：早期正则只认 `TT\d{6,}`，`WO202609220055` 抽不出来
+> → 落到知识库通道 → 模型看到 `WO` 前缀把它当成 **PCT 专利文献号**，
+> 一本正经地回答「资料里没有该专利的技术内容」。是**自信的跨领域错误答案**，
+> 比"查不到"危险得多。现在 `TT_RE = /\b(?:TT|WO)\d{6,}\b/gi`。
+> 回归测试见 `scripts/test-tt-extract.mjs`。
 
 机器人会去 my_app 的工单库查这一单，套用 eFlow 的 TT 级别规则，回出：
 
@@ -598,7 +610,9 @@ ERA 站点因为 `site_type` 为空、回退到 `site_information` 拿到 `ERA` 
 | `TT_TIMEOUT_MS` | `180000` | 子进程超时。按**最坏情况**给：常规查询 1.3 秒，但索引失效时要整表重建，而全表扫描在 Y 盘实测 11 ~ **100 秒**都出现过（`SELECT count(*)` 实测 100.0s） |
 | `TT_INDEX_CACHE` | `data/tt-index.json` | 本地单号索引缓存位置 |
 | `TT_INDEX_TTL` | `600` | 索引新鲜度（秒），超期后触发增量同步 |
-| `MY_APP_DIR` | `Y:/Task/my_app` | my_app 根目录 |
+| `TT_LIVE_TIMEOUT_MS` | `240000` | 实时兜底（查 eFlow）的超时。比本地宽松得多：要先探测解释器、再登录 eFlow、再分页扫描 |
+| `TT_LIVE_FALLBACK` | （未设即开启） | 置 `0` 关闭实时兜底，行为回到改造前 |
+| `MY_APP_DIR` | 自动定位（与本项目并列的 `Task/my_app`） | my_app 根目录。**通常不用设** —— 见下面「my_app 路径的自动定位」 |
 | `MY_APP_DB` | `$MY_APP_DIR/db/app.db` | 工单库路径 |
 | `MY_APP_TT_RULES` | `$MY_APP_DIR/backend/services/eflow_rules/eflow_TT_rules.xlsx` | 级别规则表 |
 | `MY_APP_PUSH_RULES` | 同目录下 `eflow_push_rules.xlsx` | 推单/派单规则表（**可选**：读不到就整段不输出「派单依据」，其余照常） |
@@ -687,6 +701,43 @@ UnicodeEncodeError: 'charmap' codec can't encode characters in position 28-30
 - `scripts/tt-analyze.py` 开头对 `stdout`/`stderr` 做 `reconfigure`：
   被管道接走（机器人在用）时强制 UTF-8；人在控制台看时保留原编码，只保证不因个别字符崩掉。
 
+### ⚠️ my_app 路径的自动定位（换机后 TT 分析 Errno 2 的治本项）
+
+**症状**（2026-10-03 实际发生，把本项目拷到另一台机器后）：
+
+```
+Something went wrong while analyzing TT202610020060:
+[Errno 2] No such file or directory:
+'Y:/Task/my_app\\backend\\services\\eflow_rules\\eflow_TT_rules.xlsx'
+```
+
+报错里那个 **`/` 与 `\\` 混用**的路径就是这个 bug 的指纹 ——
+它是「硬编码的正斜杠盘符」+「`os.path.join` 拼出来的反斜杠」凑成的。
+
+**根因**：`tt-analyze.py` / `export-tt-knowledge.py` / `eflow-live-tt.py` 都把
+my_app 路径**写死**成 `Y:/Task/my_app`。`Y:` 是 `192.168.100.19` 那台的 E 盘
+网络映射（`\\192.168.100.19\e`）。换到别的机器后：
+* 若没挂 `Y:` → 直接失败；
+* **更糟的情况**：像本机 .20 这样 `Y:` 挂着、但 `Y:\Task\my_app` 不存在
+  （那台的 my_app 在 D 盘）—— 失败得更隐蔽，因为盘符看起来是"在的"。
+
+**修复**：路径解析统一收进 `scripts/my_app_paths.py`，按优先级定位：
+
+1. 环境变量 `MY_APP_DIR`（显式指定，运维可覆盖）；
+2. **从本仓库自身位置推导** —— `../../my_app`，与本项目并列。**与盘符无关**，
+   拷到任何机器都成立（前提是两项目按仓库布局并排放）；
+3. 候选盘符回退：`Y:` → `D:\01_RPA\Task\my_app` → `C:\01_RPA\Task\my_app`。
+
+命中后会**校验规则表文件确实存在**（不只看目录在不在）—— 目录在但缺文件
+照样会让下游抛那个含糊的 `Errno 2`，那正是要消灭的故障形态。全都不可用时，
+抛的是一个说清「怎么办」的错误（含已尝试的路径清单），而不是把底层 `Errno 2`
+原样丢进群里。
+
+> **换机部署清单**：拷完项目后直接跑一次 `npm run tt -- <任一TT单号>` 验证。
+> 正常应输出分析结果；若报「找不到 my_app 目录」，按提示设 `MY_APP_DIR` 即可。
+> 顺带说明：`Y:` 在 .19 那台是**正常**的（my_app 确实在它的 E 盘），
+> 所以本改动对那台机器是**行为不变**的 —— 它仍会命中候选 1 或 3。
+
 ### ⚠️ 工单库在网络盘上，必须用 `immutable=1` 打开
 
 这不是性能优化，是**正确性修复**。SQLite 的 WAL 模式依赖共享内存（`-shm` 文件），
@@ -703,9 +754,107 @@ Windows fatal exception: page error
 改成 `immutable=1`（告诉 SQLite「文件不会被修改」，跳过全部 WAL 与加锁处理）后实测稳定。
 代价：若 my_app 正在写入，可能读到稍旧的快照，对本用途可接受。
 
-### 查不到单号时
+### 查不到单号时：先回 eFlow 实时查
 
-工单库同步有延迟，用户报的单号常常比库里最新的还新。这时机器人会**顺带告知库内最新单号**，
+工单库同步有延迟，用户报的单号常常比库里最新的还新。**这种情况下不能只说一句
+「库里没有」就完事** —— my_app 本身就有实时按单号查 eFlow 的能力
+（`eflow_data_mapper.fetch_tt_live`，见 my_app 的
+`.trae/documents/eflow-tt-real-time-fallback.md`），只是机器人这条通道以前没接上。
+
+现在的行为：本地 miss → **先垫一句**再实时查 → 拿到就把完整分析回给用户。
+
+```
+本地工单库还没有 TT202609290052（同步有延迟），我去 eFlow 实时查一下，请稍等…
+```
+
+垫话是必须的：实时查询要登录 eFlow（OAuth2 + RSA）再分页扫描（每页 2000 行 / ~4s / 3MB），
+比本地查询慢一个数量级。不垫这句，用户看到的就是十几秒静默，只会以为机器人掉线了。
+
+实时命中的报告**会标出来源**，让用户知道这不是本地快照：
+
+```
+⚡ 本地库暂无此单，已实时查 eFlow
+TT202609290052 · Bokessa(3283)｜Lofa｜站点类型 NORMAL
+...
+```
+
+三种收尾，都不会让用户误判：
+
+| 情形 | 回复 |
+|---|---|
+| 实时命中 | 完整报告 + `⚡ 已实时查 eFlow` 标记 |
+| 本地 + 实时都没有 | 「本地库和 eFlow 实时都没查到 X，请核对单号」+ 库内最新单号 |
+| 实时通道不可用/出错 | 说明「实时没查成」+ **保留**原来那句「库里没有 + 库内最新单号」 |
+
+> ⚠️ **第 3 行是关键，也是最容易写错的地方。** 实时通道会因为「my_app 的解释器
+> 装不齐 pandas/sqlalchemy」「eFlow 登录失败」等原因不可用。这时如果直接把
+> 「库里没有找到」当成最终答案，用户会以为**实时也确认过了**，从而得出「这单不存在」
+> 的错误结论。所以必须显式区分「查过了没有」和「没查成」。
+
+实现拆成两段，各管一件事：
+
+- `scripts/eflow-live-tt.py` —— **桥接**。用 my_app 自己的 `fetch_tt_live` 取数，
+  只往 stdout 吐 JSON。它**自己探测**一个能 import `pandas` + `sqlalchemy` 的解释器
+  （my_app 的内嵌 venv 在部分机器上是坏的，不能假定某个固定路径可用），
+  探测不到就以退出码 2 表示「永久不可用」，绝不重试、也绝不影响本地查询。
+- `scripts/tt-analyze.py --live-row -` —— **渲染**。实时行从 stdin 喂进来，
+  与本地行**共用同一套**规则匹配和渲染代码，避免两种格式并存。
+
+> 凭据只读 my_app 那一份（`backend/services/eflow_config.json` + `EFLOW_*` 环境变量），
+> 机器人侧不另存密码 —— 免得以后改密码漏改一处。
+
+`eflow-live-tt.py` 的退出码（与 `tt-analyze.py` 同一套语义）：
+
+| 码 | 含义 | 上游怎么处理 |
+|---|---|---|
+| `0` | 实时命中，stdout 是单行 JSON | 交给 `tt-analyze.py --live-row` 渲染 |
+| `1` | 实时也查无此单 | 回「本地和实时都没有」，**不重试** |
+| `2` | 实时通道不可用（缺解释器/依赖） | 降级回原来那句「库里没有」，**不重试** |
+| `3` | 实时查询真出错（登录失败/网络异常） | 告知「实时没查成」，属暂时性 |
+
+> ⚠️ **`1` 和「取数进程崩溃」必须分清。** 早期实现让取数子进程用 `sys.exit(1)`
+> 表示「没查到」，但 Python 遇到未捕获异常（比如 `ImportError`）**也是退出码 1**。
+> 两者撞车后，my_app 依赖装坏时机器人会对客户说「本地和实时都没有这一单」——
+> 明明一次都没查成。现在「没查到」改用 stdout 哨兵表达，非零退出码**一律**当出错。
+> 回归测试见 `scripts/test-tt-live-bridge.py`。
+
+实时兜底可以关（`config.json` 的 `ttLiveFallback: false`，或环境变量
+`TT_LIVE_FALLBACK=0`），关掉后行为与改造前完全一致。
+
+排障：`node scripts/run-py.mjs eflow-live-tt.py --which` 会打印探测到的解释器，
+或告诉你实时兜底为什么不可用。
+
+#### ⚠️ 实时行的字段比本地行少得多（级别判定会明确说「没核对成」）
+
+eFlow 的 `base/list` 只返回 **24 个紧凑字段**（见 my_app `_TT_LIVE_COL_MAP`），
+而 `eflow_tt` 有 67 列、级别规则要用其中的 `vip_site` / `down_site_count` /
+`domain` / `site_information` —— **这些实时行里根本没有**。
+
+后果一度很严重：`build_value_frame` 总是输出全部键，缺的字段变成空串，
+而 `eval_one` 对空串返回 `False`，与「字段有值但不匹配」**无法区分**。
+于是 15 条级别规则里有 **11 条静默失配**，报告一律显示「规则未命中，需人工确认」。
+实测同一单号 `TT202609290052`：本地判「与规则一致，正常」，实时判「需人工确认」。
+**同一张单，两种口径** —— 而「规则未命中」读起来像是已经核实过了。
+
+现在把「判不了」和「没命中」分开：
+
+| 情形 | verdict | 输出 |
+|---|---|---|
+| 字段齐全、规则不匹配 | `unknown` | `级别：P4（规则未命中，需人工确认）` |
+| 字段缺失、规则没被真正评估 | `incomplete` | `级别：P4（实时数据不含级别判定所需字段，未能核对规则）`<br>`缺失字段：downSiteCount、vipSite、netWorkType、siteSubType` |
+
+`--json` 调用方可以读 `verdict` 与 `missing_rule_fields`。
+
+> 实时报告**仍然有用**：站点、告警码、状态、时间线、派单依据都是真的。
+> 只有「级别判定」这一段在实时通道下不可靠 —— 现在它会如实承认，
+> 而不是给一个看不出来的错结论。要准确判定级别，等本地库同步后再查一次。
+>
+> 回归测试见 `scripts/test-tt-live.py` 的 `[7]`/`[8]`：`[7]` 用**真实** eFlow 字段集
+> 复现该场景，`[8]` 反向确认字段齐全时判定不受影响（防止修复矫枉过正）。
+
+### 查不到单号时（本地库视角）
+
+工单库里没有、且实时通道也没查到时，顺带告知**库内最新单号**，
 让用户自己判断是等一等还是核对单号：
 
 ```
@@ -726,6 +875,62 @@ The newest ticket in the database is TT202609150073. If yours is newer it is mos
 likely not synced yet (sync has a delay) — retry later. If it is much older,
 please double-check the number.
 ```
+
+### 一次可以问多个单
+
+用户经常一次贴好几个单号：
+
+```
+@机器人 check these TTs TT202609140078, TT202609140077
+```
+
+机器人会**逐个分析**，用分隔线隔开，每个单前面标出单号：
+
+```
+【TT202609140078】
+TT202609140078 · Bokessa(3283) | Lofa | ...
+────────
+【TT202609140077】
+TT202609140077 · Green Forest Comm(4588) | Montserrado | ...
+```
+
+> ⚠️ **旧实现只取第一个单号，后面的一个字都不提** —— 用户无从知道被漏了，
+> 只会以为其余单子也查过了。这比报错更危险。
+
+**上限 3 个单**（`MAX_TICKETS_PER_QUESTION`）。超过时明确告知，把选择权交回用户：
+
+```
+（你一次提了 4 个单，这里只分析了前 3 个。其余请分开问，或再 @我 一次。）
+```
+
+上限定在 3 是因为单个分析就要回上千字，再堆会让聊天窗口没法读。
+**超限必须显式告知** —— 静默截断等于变回旧行为。
+
+### 失败会自动重试一次
+
+工单查询失败多是**暂时性**的（Y 盘网络盘首次建索引实测 11s~100s 波动、瞬时不可达），
+再跑一次通常就好。日志里能看到用户为同一单**连问 5 次**（`TT202609110023`，
+前 3 次都失败）—— 让用户手动重试等于把基础设施抖动转嫁成人工成本。
+
+现在失败时自动重试一次，重试前先发一条垫话：
+
+```
+分析 TT202609220113 没成功，正在自动重试一次…
+```
+
+**只有「值得重试」的失败才重试**（超时 / 真异常 / 空结果 / 库读不到）；
+**「查无此单」不重试** —— 那是数据还没同步，重试没有意义，直接返回
+带最新单号的提示文案。
+
+| 失败类型 | 会重试吗 | 理由 |
+|---|---|---|
+| 超时（timeout） | ✅ | 几乎总是首次建索引慢 |
+| 真异常（exit 2/3） | ✅ | 多为库忙 / 网络盘瞬时不可达 |
+| 返回空结果 | ✅ | 瞬时读失败 |
+| 查无此单（exit 1） | ❌ | 数据未同步，重试无用 —— **改走 eFlow 实时兜底**（见上文） |
+
+> 「查无此单」不重试、但**会去实时查**：重试只是把同一个本地快照再读一遍，
+> 而实时查能真正拿到本地还没有的数据。两者是互补的，不是二选一。
 
 ## 回复语言（中英双语）
 
@@ -822,7 +1027,7 @@ Matched: alarmCode=9991 in 9971/9981 (7 total)
 
 ## 知识库内容（TT 领域）
 
-`knowledge/` 下现有 9 个文档，分三个来源：
+`knowledge/` 下现有 10 个文档，分三个来源：
 
 **① 从 my_app 自动导出**（`npm run export-kb`）
 
@@ -841,6 +1046,15 @@ Matched: alarmCode=9991 in 9971/9981 (7 total)
 | `04_TT指派与推单规则.md` | ttDispatchRule / ttGroupConfigRule / ttGroupDefaultRule / ttPushOrderRule |
 | `05_指派一致性校验.md` | 推单目标组 vs 环节可处理名单的一致性判定 |
 | `06_配置巡检与排障SOP.md` | 新告警接入的端到端配置检查单 |
+| `08_级别缺失与排查.md` | 「为什么没有级别 / 没有 Severity」的四种成因 + 排查口诀 |
+
+> `08_` 是**为现场高频提问补的**：群里反复问「这几个单为什么没有级别 /
+> 站点告警为什么没有 Severity」。原先知识库里**一个字都没有**，
+> 机器人只能如实回答「资料没有解释为什么」。
+>
+> 补语料而非改检索 —— 这类问题属于**内容缺口**，不是召回问题：
+> 检索明明命中了（top1=0.51、gap=0.16，远超阈值），但资料里确实没有答案。
+> **检索调参救不了没有的内容。**
 
 **③ iMind eFlow 官方操作手册**
 
@@ -884,9 +1098,96 @@ python scripts/docx-to-md.py 输入.docx 输出.md
 > 这份手册是**英文**的，而群里提问多为中文。实测跨语言检索有效
 > （问「怎么创建一个用户组」能命中 `Creating A User Group` 章节，`lex=0`，纯靠语义匹配）。
 
+### 索引去重（`dedupeChunks`）
+
+建索引时同一段文本只保留一份，落库前按**删除所有空白后的全文**比对。
+
+```
+去重：移除 9 个重复块 → 822 块（省下 1.1% 检索名额）
+```
+
+为什么必须做：重复块的危害**不是占空间，而是吃掉 topK 名额**。
+实测查 `Prerequisite for eFlow deployment` 时 topK=6 **全部命中同一段重复文本**
+—— 6 个名额只带回 1 条信息，模型看到的"资料"严重退化。
+
+两个实现上的坑：
+
+1. **归一化要删空白、不能只压缩**。分块器会在断点处重新拼接，同一段原文可能落成
+   `系统\n部署成功` 与 `系统部署成功` —— 压成单空格时两者仍然不相等
+   （`系统 部署成功` ≠ `系统部署成功`），重复块会漏网。中文语料里空白不承载语义。
+2. **只做精确匹配，不做模糊匹配**。宁可漏合并，不可误合并：
+   把两段不同的级别规则当成一段，比留几份重复严重得多。
+   实测「告警码 X → 父告警码 Y」这类高度同质的规则条目**一条都没被误合并**。
+
+> ⚠️ **别用「前缀相同」判断重复**。`chunkOverlap=80` 的滑动窗口会让相邻块开头
+> 相同而结尾不同 —— 那是**有意保留的上下文**，不是重复。
+> 按前 120 字符比对会得出"73 块重复"的错误结论（真实值 9 块）；
+> 按 120 字符前缀删会误删大量有用上下文。必须比全文。
+
+回归测试：`node scripts/test-dedupe.mjs`（含用线上 `data/index.json` 实测的用例）。
+
 ---
 
 ## 运维与排障
+
+### ⚠️ 连接反复断开、code=440：同号双开互踢（2026-10-03 事故）
+
+**症状**：日志里 `! 连接断开（code=440），2s 后第 1 次重连…` 与 `✓ 已连接` 交替刷屏，
+大约每 3~4 秒一轮，看起来「一直在重连、其实从没稳定过」。机器人**完全不回消息**，
+而且重连次数始终显示「第 1 次」——因为每轮都真的连上过，退避被重置了。
+
+**根因**：`src/index.js`（知识库机器人）与 `src/notify.js`（P1 告警推送）**共用
+`data/auth/` 同一份凭据**。两个进程等于同一个 WhatsApp 号双端登录，服务端不断把
+其中一方顶掉（`connectionReplaced` = 440），而两边的重连逻辑又互相把对方顶回来，
+于是**无限互踢**——两个进程都收不到消息。
+
+**定位方法**（本次就是这么找到的）：
+
+```powershell
+# 看有几个 node 进程在跑本目录的东西
+Get-CimInstance Win32_Process -Filter "Name='node.exe'" |
+  Where-Object { $_.CommandLine -match 'whatsapp-kb-bot' } |
+  Select-Object ProcessId,CreationDate,CommandLine
+```
+
+本次实测：`index.js` 与 `notify.js` 同时在跑，时间戳完全吻合 —
+bot 每次 `16:xx:40` 连上，notify 就 `16:xx:44` 断；notify `16:xx:48` 连上，
+bot `16:xx:51` 断。**杀掉 notify.js 后，bot 数秒内即稳定，不再出现 440。**
+
+**修复**（两层，都已落地）：
+
+1. **进程层**：`notify.js` 改用独立凭据目录 `data/auth-notify/`（可用环境变量
+   `NOTIFY_AUTH_DIR` 覆盖），两个进程各自持有一个独立的「已关联设备」，互不干扰。
+   首次启用直接跑 `npm run notify` —— **它会自己打出二维码**让你扫。
+2. **代码层**：两个入口都**不再对 440 重连**，而是打印排查指引后 `exit(2)`。
+   440 继续重连既救不活自己、又会让对方也收不到消息，还会把「同号双开」这个真实
+   故障伪装成「网络不稳」。退出才能让看门狗和值班人看到。
+
+#### 首次登录：谁负责出二维码
+
+**`npm run notify` 自己出二维码**，不需要先跑 `relogin`。
+
+> ⚠️ 这里曾经有个死循环，2026-10-03 实测踩到：`relogin.mjs` 发现目录不存在时说
+> 「直接运行 `npm run notify` 扫码即可」，而 `notify.js` 又说「请执行
+> `npm run relogin:notify` 扫码登录」—— **两个脚本互相指向对方，用户卡在中间无路可走。**
+>
+> 根因是职责搞混了：`relogin` 的职责是**清掉旧凭据**（换号用），它**不产生**新凭据；
+> 新凭据是 Baileys 连接时通过二维码生成的。所以「首次登录」只能由目标进程自己承担 ——
+> 现在 `notify.js` 发现目录不存在就建一个空的，正常出码。
+
+二维码是否打印**取决于有没有人看得见**（判据：`stderr` 是否 TTY），而不是取决于它是哪个进程：
+
+| 运行方式 | 行为 |
+|---|---|
+| 前台 `npm run notify` | 打印二维码，扫码即登录 |
+| 计划任务隐藏拉起（无 TTY） | 不打印（打出来只会污染日志），记录指引后退出 |
+
+计划任务拉起时若发现未登录，日志会明确写「请在可见的终端里手动执行 `npm run notify`」。
+
+> 顺带修正一处 API 误用：本仓库装的 baileys 6.7.24 里 440 的枚举名是
+> **`DisconnectReason.connectionReplaced`**，**没有 `conflict` 这个成员**
+> （写 `conflict` 会得到 `undefined`，判断永远不成立）。改动这块前先
+> `node -e "import('baileys').then(m=>console.log(m.DisconnectReason))"` 核对一遍。
 
 ### 换一个手机号
 
@@ -903,16 +1204,22 @@ npm start
 `relogin` 会把 `data/auth/` 改名成 `data/auth.bak-<时间戳>`，然后提示你下一步。
 想换回原来的号，把它改回 `data/auth` 即可。
 
+> P1 告警推送（`notify.js`）用的是**另一份**凭据，换号时它要单独处理：
+> `npm run relogin:notify`，操作同上是把 `data/auth-notify/` 改名备份。
+> 两条通道可以挂在不同的手机号上——**但绝不能共用一份凭据**（原因见上一节）。
+>
+> **首次登录不需要跑 `relogin`** —— 那是换号用的。直接 `npm run notify` 就会出二维码。
+
 > 前提：新号码上 WhatsApp 必须已经正常登录。这里做的是「关联设备」，
 > 不是重新注册——不需要接收验证码，扫个码就行。
 
 ### 常用命令
 
 ```bash
-npm test                    # 跑全部单测（390 项，不需要 Ollama / API Key / WhatsApp）
-npm run test:js             # 只跑 JS 单测（204 项）
+npm test                    # 跑全部单测（487 项，不需要 Ollama / API Key / WhatsApp）
+npm run test:js             # 只跑 JS 单测（257 项）
 npm run test:tt             # 只跑 TT 规则单测（31 项，需要 Y 盘的规则表）
-npm run test:lang           # 只跑语言适配单测（157 项，纯离线）
+npm run test:lang           # 只跑语言适配单测（234 项，纯离线）
 npm run doctor              # 环境自检，不写索引
 npm run diag                # 云端对话模型诊断（对照实验，定位"返回空内容"）
 npm run tt -- TT202609150073   # 单条 TT 单分析（实时查工单库）
@@ -922,7 +1229,11 @@ npm run docx2md -- 手册.docx 手册.md   # docx → markdown（入库前转换
 npm run ingest              # 重建索引（改完资料必跑）
 npm start                   # 启动机器人
 npm start -- --debug        # 启动并打印每次检索的诊断信息
-npm run relogin             # 换号 / 重新登录
+npm run relogin             # 换号 / 重新登录（机器人本体）
+npm run relogin:notify      # 换号 / 重新登录（P1 告警推送，独立凭据）
+npm run notify              # 前台启动 P1 告警推送（首次登录用它出二维码）
+npm run notify:check        # 告警通道自检：连一次、确认发送能力后退出
+npm run notify:groups       # 列出该通道可见的群名 → JID
 npm run ask -- "分析TT单TT202609150073"  # 离线测一条，不连 WhatsApp
 npm run ask -- --debug "年假有几天"       # 离线测一条 + 检索诊断
 ```
@@ -936,11 +1247,16 @@ npm run ask -- --debug "年假有几天"       # 离线测一条 + 检索诊断
 |---|---|---|
 | `test-mentions.mjs` | 39 | @提及识别：手机号 JID / LID / 设备后缀 / 引用回复 / LID 延迟下发 / 凭据兜底 / 准入规则 |
 | `test-chunking.mjs` | 23 | 分块不变量（任何输入下块长 ≤ chunkSize）、无标点长文本、覆盖率 |
-| `test-runtime.mjs` | 14 | 重连退避序列、消息 id 集合上限、关闭幂等性 |
+| `test-dedupe.mjs` | 21 | 索引去重：空白差异归一、**相似规则不被误合并**、跨文档 alsoIn、用线上 `index.json` 实测 |
+| `test-runtime.mjs` | 26 | 重连退避序列、消息 id 集合上限、关闭幂等性 |
 | `test-llm.mjs` | 47 | provider 分发、请求构造、密钥优先级、thinking 三态、空内容处理、启动自检不阻断、错误翻译（用 mock fetch，无需真实密钥） |
-| `test-lang.mjs` | 69 | 提问语言判定（含「英文句子 + 全角问号」边界）、`pickText` 回退、三组固定文案的中英配对、`buildMessages` 语言提示落点、各调用点是否真的按语言取 |
+| `test-lang.mjs` | 74 | 提问语言判定（含「英文句子 + 全角问号」边界）、`pickText` 回退、三组固定文案的中英配对、`buildMessages` 语言提示落点、各调用点是否真的按语言取、实时垫话的中英配对 |
+| `test-tt-extract.mjs` | 32 | 单号抽取：**WO 前缀**、词边界（`ATT202609...` 不误判）、非单号文本不入工单通道、多单去重保序、路由分流、上限常量 |
 | `test-tt-rules.py` | 31 | TT 规则匹配：条件解析（`>=` 不被误吞为 `=`）、运算符边界、AND/OR 左折叠、字段归一化、真实规则表排序不变式 |
-| `test-tt-lang.py` | 88 | 中英文案表键集一致、**英文输出零中文残留**（含 164 种「缺字段」组合的矩阵扫描）、链路顺序、超期双信号、查无此单、失败文案前缀 |
+| `test-tt-lang.py` | 165 | 中英文案表键集一致、**英文输出零中文残留**（含 167 种「缺字段」组合的矩阵扫描）、链路顺序、超期双信号、查无此单、失败文案前缀、实时来源标记 |
+| `test-tt-live.py` | 42 | 实时行（`--live-row`）渲染：完整报告 + `⚡ 已实时查 eFlow` 标记、缺字段不崩、`tt_no` 缺失用入参兜底、**非法 JSON 报错退出而非静默退回本地库**、**真实 eFlow 字段集下级别判定如实说「未能核对规则」而非「未命中」** |
+| `test-tt-live-bridge.py` | 28 | 桥接退出码契约：哨兵常量、**子进程崩溃(exit 1) 必须映射为 3 而非 1**（曾把「依赖坏了」误报成「eFlow 没这单」）、空/坏 JSON、无解释器 → 2 |
+| `test-tt-live-route.mjs` | 33 | 编排：本地 miss → **先发垫话**再实时查、实时命中不残留「库里没有」、实时不可用退回原文案、**超时走重试而不走实时**、英文回复**零中文残留**、`TT_LIVE_FALLBACK=0` 退回旧行为 |
 
 > `test-tt-rules.py` 的第 5 段需要读 Y 盘的规则表。读不到时打印 `SKIP` 而非失败——
 > 那是环境问题不是代码问题，不该让离线环境下整个 `npm test` 变红、掩盖前几段回归。
@@ -952,6 +1268,8 @@ npm run ask -- --debug "年假有几天"       # 离线测一条 + 检索诊断
 - **分块长度不变量**：任何输入下每块 ≤ `chunkSize`。早期版本对**无句末标点的长文本**（长列表、代码块、无标点中文）会原样成块——实测 5000 字符变成一块，严重稀释检索精度。现在有硬切兜底，并加了回归测试。
 - **重叠量的 `slice(-0)` 陷阱**：`String.slice(-0)` 等价于 `slice(0)`，返回**整个字符串**。当 `chunkOverlap=0` 时重叠量会变成 100%，内容成倍膨胀。已显式判断 `overlap > 0`。
 - **重连退避**：`2s → 4s → 8s → 16s → 32s → 60s` 封顶。计数变量必须放在模块级——放在函数内会随每次重连重置，退避永远停在 2 秒，等于断网时每 2 秒狂试。
+- **440 不重连，直接退出**（`connectionReplaced`）：440 是「同账号另一个会话把我顶掉了」，不是网络抖动。重连只会互相顶号，让两个进程都收不到消息，还把故障伪装成「一直在重连」。改成打印排查指引后 `exit(2)`。**注意枚举名是 `connectionReplaced`，6.7.24 里没有 `conflict`。**
+- **两个 Baileys 进程绝不共用凭据目录**：`index.js` 用 `data/auth/`，`notify.js` 用 `data/auth-notify/`。共用即同号双开，必然 440 互踢（2026-10-03 事故）。
 - **内存上限**：记录机器人消息 id 的集合做 FIFO 淘汰（上限 500），会话冷却表上限 1000。否则长期运行会持续增长。
 - **队列保护**：串行处理下排队时间会累加（单次回答 1~10 秒）。队列超过 `maxQueue`（默认 3）时直接回 `busyText`，而不是让第 4 个人等几分钟。
 - **顶层 `import` 会绑住整个模块**（`tt-analyze.py`）：openpyxl 只被 `load_rules()` 用到，但早期写在模块顶层。后果有两个，都很难排查 ——
@@ -998,6 +1316,20 @@ npm run ask -- --debug "年假有几天"       # 离线测一条 + 检索诊断
 
 **扫码后一直连不上**
 手机端检查「已关联的设备」是否出现新设备。若反复失败，删掉 `data/auth/` 重新扫码。
+
+**连接一直断、一直重连，而且完全不回消息（code=440）**
+同号双开互踢，几乎总是 `notify.js` 和 `index.js` 同时跑。见前面
+「⚠️ 连接反复断开、code=440：同号双开互踢」一节。
+先确认并只保留一个进程：
+
+```powershell
+Get-CimInstance Win32_Process -Filter "Name='node.exe'" |
+  Where-Object { $_.CommandLine -match 'whatsapp-kb-bot' } |
+  Select-Object ProcessId,CommandLine
+```
+
+修好之后 `notify.js` 用独立凭据 `data/auth-notify/`（需 `npm run relogin:notify` 扫一次码），
+两个进程就不再有冲突。
 
 **回复「知识库里没有找到依据」，但资料里明明有**
 说明检索没命中。用 `node scripts/ask.mjs --debug "你的问题"` 看 `top1` 和 `gap`：
@@ -1099,10 +1431,12 @@ whatsapp-kb-bot/
 ├── knowledge/               你的资料（放这里）
 ├── data/
 │   ├── index.json           生成的向量索引（可重建，已 gitignore）
-│   ├── auth/                登录凭据（已 gitignore，删掉即登出）
+│   ├── auth/                机器人登录凭据（已 gitignore，删掉即登出）
+│   ├── auth-notify/         P1 告警推送的登录凭据（独立一份，见 440 那一节）
 │   └── logs/                运行日志
 ├── src/
 │   ├── index.js             入口：自检 → 载索引 → 启动；信号处理与兜底
+│   ├── notify.js            P1 告警推送守护进程（独立凭据、无 Ollama/RAG 依赖）
 │   ├── config.js            配置加载（config.json + 环境变量覆盖）
 │   ├── llm.js               对话 provider 分发（ollama / OpenAI 兼容）+ 密钥解析
 │   ├── ollama.js            Ollama HTTP 封装（embed / warmup / 常驻检测）
@@ -1117,19 +1451,26 @@ whatsapp-kb-bot/
 └── scripts/
     ├── calibrate.mjs        阈值校准
     ├── ask.mjs              离线问答测试（走与群里一致的链路）
-    ├── relogin.mjs          换号 / 重新登录（备份后重置凭据）
+    ├── relogin.mjs          换号 / 重新登录（备份后重置凭据；--notify 切到告警通道）
     ├── diag-chat.mjs        云端对话模型诊断（对照实验定位空内容）
     ├── run-py.mjs           用 my_app 的 Python 跑脚本（统一解释器路径）
-    ├── tt-analyze.py        TT 单分析（查工单库 + 套级别规则）
+    ├── my_app_paths.py      定位 my_app 根目录（自动探测，不写死盘符）
+    ├── tt-analyze.py        TT 单分析（查工单库 + 套级别规则；支持 --live-row 渲染实时行）
+    ├── eflow-live-tt.py     实时兜底桥接：用 my_app 的 fetch_tt_live 去 eFlow 实时拉单
     ├── export-tt-knowledge.py  从 my_app 导出 TT 知识库文档
     ├── docx-to-md.py        docx → markdown（保留标题层级，纯标准库）
     ├── test-mentions.mjs    @提及识别单测（39 项）
     ├── test-chunking.mjs    分块器单测（23 项）
-    ├── test-runtime.mjs     运行时健壮性单测（14 项）
+    ├── test-dedupe.mjs      索引去重单测（21 项）
+    ├── test-runtime.mjs     运行时健壮性单测（26 项）
     ├── test-llm.mjs         provider 层单测（47 项）
-    ├── test-lang.mjs        语言判定与固定文案单测（69 项）
-    ├── test-tt-rules.py     TT 规则匹配单测（31 项）
-    └── test-tt-lang.py      TT 多语言渲染单测（88 项）
+    ├── test-lang.mjs        语言判定与固定文案单测（74 项）
+    ├── test-tt-extract.mjs  工单号抽取与多单路由单测（32 项）
+    ├── test-tt-live-route.mjs 实时兜底编排单测（33 项）
+    ├── test-tt-rules.py     TT 规则匹配单测（65 项）
+    ├── test-tt-live.py      实时行渲染单测（42 项）
+    ├── test-tt-live-bridge.py 桥接退出码契约单测（28 项）
+    └── test-tt-lang.py      TT 多语言渲染单测（165 项）
 ```
 
 ---

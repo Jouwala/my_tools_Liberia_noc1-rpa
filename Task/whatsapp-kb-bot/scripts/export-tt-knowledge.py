@@ -20,19 +20,21 @@ from __future__ import annotations
 import os
 import sys
 
-try:
-    import openpyxl
-except ImportError:  # pragma: no cover
-    _FALLBACK = r'Y:/Task/my_app/Lib/site-packages'
-    if os.path.isdir(_FALLBACK) and _FALLBACK not in sys.path:
-        sys.path.append(_FALLBACK)
-    import openpyxl
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+import my_app_paths  # noqa: E402
 
-MY_APP_DIR = os.environ.get('MY_APP_DIR', r'Y:/Task/my_app')
+MY_APP_DIR = my_app_paths.find_my_app_dir()
 RULES_DIR = os.path.join(MY_APP_DIR, 'backend', 'services', 'eflow_rules')
 DATA_DIR = os.path.join(MY_APP_DIR, 'data')
 
-HERE = os.path.dirname(os.path.abspath(__file__))
+try:
+    import openpyxl
+except ImportError:  # pragma: no cover
+    # 回退路径由 my_app_paths 解析，不再写死 Y: 盘（换机后那里的目录不存在）。
+    my_app_paths.apply_fallback_site_packages(MY_APP_DIR)
+    import openpyxl
+
 OUT_DIR = os.path.join(os.path.dirname(HERE), 'knowledge')
 
 
