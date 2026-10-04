@@ -366,9 +366,10 @@ def invalidate_cache(host: str, port: int):
 #      调用方会话瞬时 401（hasLogged:true），几秒后自愈 200。
 #      程序化清理时建议**每 100 条暂停几秒**。
 #
-# `AUTH_LOGOUT_ENABLED` 默认仍为 False —— 不是"不可用"，而是"不默认开启"：
-# 开启后每次登录会多两次上游请求（列表快照 + 定位），且登出会**主动销毁**会话，
-# 影响面需要按部署场景评估。置 1 即为真正可用的登出：登录即释放、不再堆僵尸。
+# `AUTH_LOGOUT_ENABLED` 默认为 False，**且是有意如此**：上游 1440 分钟会自动回收
+# 僵尸会话（自限），而开启后每次登录会多两次上游请求（列表快照 + 定位）。
+# 2026-10-04 定下的策略是「先不全局开，问题发生再打开」；真遇到堆积，
+# 首选直接清（`TMP/_verify_logout.py kill`），其次才临时置 1。
 LOGOUT_PATH = os.environ.get(
     "AUTH_LOGOUT_PATH",
     "/api/oauth2/v1/delete/login/remove",
@@ -378,6 +379,12 @@ LOGIN_USERS_PATH = os.environ.get(
     "AUTH_LOGIN_USERS_PATH",
     "/api/oauth2/v1/login/users",
 )
+# `AUTH_LOGOUT_ENABLED` **默认关闭**，且这是**有意的运维决定**，不是"还没做完"：
+#   上游 Max Idle Time = 1440 分钟，僵尸会话**会自行回收**，所以常态下不需要它。
+#   开启的代价是每次登录多两次上游请求（快照 + 定位），而收益只在**僵尸堆积时**
+#   才体现。2026-10-04 定下的策略是「先不全局开，问题发生再打开」——
+#   真遇到会话堆积（如代理风暴），再临时置 1 或直接用 `TMP/_verify_logout.py kill`
+#   清理即可，不必常态承担这个开销。
 LOGOUT_ENABLED = os.environ.get("AUTH_LOGOUT_ENABLED", "0").strip().lower() in ("1", "true", "yes", "on")
 
 
