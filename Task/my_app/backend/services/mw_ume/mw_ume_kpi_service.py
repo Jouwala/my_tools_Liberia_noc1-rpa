@@ -401,10 +401,140 @@ def _http_request_with_retry(method, path, headers_extra=None, body=None,
 
 
 # ============================================================
+# 共享鉴权（auth_manager 跨进程缓存）—— 2026-10-04 新增
+# ============================================================
+# 为什么需要：本模块的 `login()` 每次调用都**完整走一遍 4 步 OAuth2**，函数内
+# 没有任何缓存检查。而 `mw_ume_kpi_sync_rt` 的 cron 是 `*/15 * * * *`，
+# 即**每 15 分钟真实登录一次上游**。实测（worker 日志按分钟聚合）登录发生在
+# 每小时的第 00/15/30/45 分钟各一次，10 天累计 **935 次**，是同期 eFlow 的 2.5 倍。
+#
+# 这个频率此前被记录成"调度频率"（worker_watchdog.py:159 写着"实测 153 次/天"），
+# 但没人把它换算成"上游会话数"——上游每次登录新建一个服务端会话且从不释放。
+#
+# 修复思路与 eFlow 一致：**先尝试复用 auth_manager 的跨进程缓存**，复用不到才
+# 走本模块自己的登录。MW 的门户路径（/uportal/framework/default.html）与
+# auth_manager 内置的完全一致，协议同为 ZTE `login_rsa`，因此可直接接入。
+#
+# 三件套缺一不可（"接入共享"≠"少登录"，每一步都是实测踩出来的）：
+#   1. `_try_shared_auth()` 复用前先读缓存；
+#   2. `_probe_session_alive()` 采纳前探测（TTL 未过期 ≠ 会话可用）；
+#   3. `_write_shared_auth()` 登录成功后回写（否则共享只有一半，白探每轮）。
+#
+# ⚠ 读缓存**必须用 `_read_cache()` 而不是 `get_auth()`**：`get_auth()` 不是只读的
+# ——缓存未命中时它会**直接走到 `_do_login()` 真实登录**（auth_manager.py:634-646）。
+# 若直接调 `get_auth()`，就会变成"共享没命中 → auth_manager 登录一次 → 本模块
+# 又登录一次"的**双重登录**，比不接共享更糟。
+
+
+def _probe_session_alive(cookie: str, forgery_token: str) -> bool:
+    """用**真实业务端点**探测会话是否还能用。
+
+    为什么必须探测（2026-10-04 实测教训）：接入共享缓存后第一次运行，
+    worker 日志显示「复用共享会话，跳过登录」，紧接着
+    `Create query status: HTTP/1.1 401 Unauthorized`、
+    `{"hasLogged":true,"source":"smagent",...}`，两个 MW 任务全部失败。
+    也就是说：**缓存没过期 ≠ 会话可用**。
+
+    实测细节：探测 `LOGIN_PORTAL` 首页返回 200（误导性的"看起来正常"），
+    但 `HISTORY_PATH` 返回 401。所以**必须探业务端点**，
+    探首页会得到假绿，把死会话放行。
+
+    用 `HISTORY_PATH` 而不是首页，是因为它正是失败发生的地方；
+    探不到就等于没探。
+    """
+    try:
+        headers = _auth_headers(cookie, forgery_token)
+        # 故意发一个空 body 的 POST：上游会先做鉴权再解析参数，
+        # 因此 401 = 会话死，其它状态码（400/500）= 会话活着只是参数不对。
+        status, _hdrs, _raw, _body = _http_request(
+            "POST", HISTORY_PATH, headers_extra=headers, body=b"{}",
+        )
+        code = 0
+        for token in status.split():
+            if token.isdigit():
+                code = int(token)
+                break
+        alive = code not in (401, 403)
+        if not alive:
+            logger.info("[LOGIN] 共享会话已失效（探测 %s -> %s）", HISTORY_PATH, status)
+        return alive
+    except Exception as e:
+        # 打印而非静默：探测本身坏掉和会话真失效必须能区分
+        logger.warning("[LOGIN] 会话探测异常（%s: %s），按不可用处理", type(e).__name__, e)
+        return False
+
+
+def _try_shared_auth():
+    """尝试从 auth_manager 取**已存在且确认可用**的跨进程共享会话。
+
+    只读缓存，**绝不触发登录**：缓存未命中、读不出或探活失败时一律返回 None，
+    交由调用方走自己的 `login()`。失败不抛异常——本模块必须能在
+    auth_manager 不可用时独立工作。
+    """
+    try:
+        from backend.services.auth_manager import _read_cache
+    except ImportError:
+        try:
+            from auth_manager import _read_cache  # 兼容独立运行
+        except ImportError:
+            return None
+
+    try:
+        cached = _read_cache(HOST, PORT)
+        if not cached:
+            return None                      # 未命中：交给调用方自行登录
+        cookie = cached.get("cookie") or ""
+        if not cookie:
+            return None
+        csrf = cached.get("forgery_token", "")
+        # 采纳前必须探活：TTL 未过期不代表会话还能用（实测会 401）
+        if not _probe_session_alive(cookie, csrf):
+            logger.info("[LOGIN] 共享会话不可用，改为自行登录")
+            return None
+        logger.info("[LOGIN] 复用共享会话（auth_manager 跨进程缓存），跳过登录")
+        return {"cookie": cookie, "forgery_token": csrf}
+    except Exception as e:
+        # 打印而非静默：否则"共享鉴权坏了"会与"缓存未命中"无法区分
+        logger.warning("[LOGIN] 共享鉴权不可用（%s: %s），回退自行登录", type(e).__name__, e)
+        return None
+
+
+def _write_shared_auth(cookie: str, forgery_token: str, username: str = "") -> None:
+    """把本模块登录得到的会话回写 auth_manager 跨进程缓存。
+
+    这是共享的另一半：只读不写的话，每轮登录产生的新会话都进不了共享缓存，
+    下一轮探活拿到的还是旧会话、必然 401，共享等于没接。
+
+    失败只告警不抛出——回写失败不应影响本轮任务（会话在本次运行内仍然可用）。
+    """
+    try:
+        from backend.services.auth_manager import _write_cache
+    except ImportError:
+        try:
+            from auth_manager import _write_cache  # 兼容独立运行
+        except ImportError:
+            return
+    try:
+        _write_cache(HOST, PORT, cookie, forgery_token, username or "mw_ume")
+        logger.info("[LOGIN] 已回写共享缓存（%s:%s）", HOST, PORT)
+    except Exception as e:
+        logger.warning("[LOGIN] 回写共享缓存失败（%s: %s），不影响本轮任务",
+                       type(e).__name__, e)
+
+
+# ============================================================
 # 登录（与原脚本一致）
 # ============================================================
 def login():
-    """执行 MW UME 登录流程，返回包含 cookie 和 forgery_token 的字典。"""
+    """执行 MW UME 登录流程，返回包含 cookie 和 forgery_token 的字典。
+
+    优先复用 auth_manager 的跨进程缓存（见 `_try_shared_auth`）；
+    复用不到时才真正走 4 步 OAuth2 登录。
+    """
+    shared = _try_shared_auth()
+    if shared:
+        return shared
+
     logger.info("[LOGIN] Starting authentication...")
     session_cookie = ""
     forgery_token = ""
@@ -506,6 +636,12 @@ def login():
         else:
             logger.info(f"[LOGIN] Response: {resp_text[:300]}")
             raise Exception("登录失败 - 未获取到鉴权 Cookie")
+
+        # 回写 auth_manager 跨进程缓存 —— 这是共享的另一半。
+        # 只读不写的话，本模块每轮登录产生的新会话永远不会进入共享缓存，
+        # 于是下一轮探活拿到的仍是旧会话、必然 401，共享形同虚设。
+        # 实测（2026-10-04 05:20/05:30）：只读不写时每轮都探活失败并重新登录。
+        _write_shared_auth(session_cookie, forgery_token, user)
 
     except Exception as e:
         logger.error(f"[LOGIN] FAILED: {e}")
