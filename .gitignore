@@ -113,6 +113,16 @@ my_tools_Liberia_noc1-rpa/
 #   my_app/.gitignore 管不到它。
 **/session_state.json
 
+# OpenClaw API 优选器的**每日运行产物**（2026-10-04 新增）。
+# 两个文件都是 api_selector.py 的纯写入目标 —— 只在 :872/:996 以 "w" 模式打开，
+# **从不被读回**当配置（脚本 :64/:65 定义路径）。内容每天 03:00 被
+# 计划任务覆盖，唯一变化就是里面的日期，属于运行时输出而非源码。
+# 它们此前被误跟踪，导致每天工作区都"脏"两个文件，干扰 `git status` 判读。
+# ⚠ 必须配合 `git rm --cached` 才生效：只加忽略规则**不会**让已跟踪文件消失。
+openclaw_api_selector/last_run.json
+openclaw_api_selector/test_results.md
+openclaw_api_selector/scheduler.log
+
 # IDE / 工具文件
 .vscode/
 .idea/
