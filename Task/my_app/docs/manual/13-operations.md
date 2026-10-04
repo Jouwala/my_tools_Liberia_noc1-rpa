@@ -475,6 +475,13 @@ tools/fms_session.json 已重建（cookie 有 / csrf 有）
 > - `python TMP/_verify_schedule_override_warn.py` —— **离线**断言（6 项），校验
 >   "代码 `default_cron` ≠ 数据库生效值"的 WARNING 真会打出来，并列出当前**全部**
 >   错配任务（2026-10-04 实测 19 条）。怀疑"改了 cron 却没生效"时先跑这个。
+> - `python TMP/_verify_eflow_pagination_guard.py` —— **离线**断言（10 项），
+>   `ticket_export_rpa/get_eflow_table.py` 的分页风暴防护：硬上限、页间间隔、
+>   CR 页大小、原退出条件未被破坏，并模拟 total 异常时的请求数。改分页逻辑后跑。
+> - `python TMP/_probe_login_race.py` —— 扫全部日志找「并发登录同一上游」的证据
+>   （8s 窗口、跨文件判定）。用于复查上面那条**已知竞态**是否真的触发了。
+> - `python TMP/_probe_watchdog_restart_storm.py` —— 统计 worker 看门狗的
+>   崩溃/重启次数，判断有无"崩溃↔重启"循环。**2026-10-04 实测 16 天 0 次崩溃。**
 >
 > 📌 **统计口径提醒**：worker 日志按 GBK 落盘，用 `Select-String` 匹配**中文**特征串
 > （如"复用共享会话"）会**静默匹配不到**，统计结果假性为 0。做登录计数时
@@ -963,7 +970,7 @@ current_cron = saved_cron if saved_cron else default_cron   # ← 数据库赢
 | `worker_watchdog.py` | `POLL_INTERVAL=2.0`、`MAX_BACKOFF=30.0`、`STARTUP_FAIL_LIMIT=10`（`:83-86`）；退避 `2**crashes`（`:550`）；连续 10 次崩溃**主动摘除不再拉起**（`:555-560`）→ 无"崩溃↔重启"快速循环 |
 | `backend_watchdog.py` | 同上 30s/10 次上限（`:54-55`） |
 | `auto_retry.py` | `MAX_ATTEMPTS=2`、`COOLDOWN_MIN=15`、`SCAN_WINDOW_HOURS=24`（`:93-95`）；永久错误不重试（`:558`） |
-| `auth_manager.py` | `MAX_RETRIES=2`（`:114`）、退避 `2**(attempt-1)`（`:506`）、登录锁串行化 |
+| `auth_manager.py` | `MAX_RETRIES=2`（`:114`）、退避 `2**(attempt-1)`（`:506`）。⚠ **`_do_login()` 未加锁**（`:646`）—— 见下方"已知竞态" |
 | `eflow_api_client.py` | `HTTP_READ_TIMEOUT=90`、socket 显式 `settimeout`（`:171,174`）→ 无超时挂死 |
 | 6 份 `_http_request_with_retry` | 全为 `for attempt in range(max_retries+1)` + `2**attempt` 指数退避，**上限 1~3、无递归** |
 | 并发参数 | 全部有界且 ≤8（`eflow_api_client.py:47`=3、`ipran_ume_kpi_service.py:94`=6 等） |
@@ -973,6 +980,32 @@ current_cron = saved_cron if saved_cron else default_cron   # ← 数据库赢
 > **MW 探活的调用位置约束**已在 `mw_ume_kpi_service.py:445` 用注释锁死：
 > `_probe_session_alive()` 只允许在**登录路径**调用（每轮最多一次）。
 > 若日后被挪进请求热路径，就会变成新的风暴源。
+
+### 已知竞态：`get_auth()` 的「检查-再登录」（2026-10-04 发现，**未修**）
+
+`get_auth()` 的流程是 `_read_cache()` → 无缓存则 `_do_login()`
+（`auth_manager.py:635` 与 `:646`），而 **`_do_login()` 没有加锁**：
+
+```
+进程 A: _read_cache() → 无缓存 ─┐
+进程 B: _read_cache() → 无缓存 ─┤ 两者都判定"需要登录"
+进程 A: _do_login() ────────────┤ 同时向上游登录 → 重复会话
+进程 B: _do_login() ────────────┘
+```
+
+**别被 `auth_manager.py:38-71` 的 `msvcrt.locking`/`fcntl.flock` 误导**：
+那两把锁只用在 `_read_cache`（`:243`，共享锁）与 `_write_cache` 里，
+保护的是**缓存文件**的读写，**不保护登录动作本身**。
+
+**为什么这次不改**：修它需要引入跨进程的登录互斥（文件锁或 DB 行锁），
+而登录路径本身是"上次事故的中心"，在没有复现证据时改它，风险高于收益。
+
+**实测未触发**：扫过 107 个日志文件的全部 `[AUTH]` 行，按"一次 OAuth2 登录
+耗时数秒"的量级取 8s 窗口统计，**未观察到跨文件的相邻登录**
+（探针：`TMP/_probe_login_race.py`，在 `my_app/TMP/`）。
+
+**什么时候必须修**：一旦出现"同一上游在数秒内出现两次真实登录"、
+或上游开始报"会话互踢/超出最大用户数"，就先查这里。
 
 ### 网络风暴排查速查（下次直接照做）
 
@@ -984,6 +1017,33 @@ current_cron = saved_cron if saved_cron else default_cron   # ← 数据库赢
 4. **轮询不要叠加重试**，也不要靠调小 interval 提速。
 5. 日志是 **GBK**：用中文串 `Select-String` 会**静默返回 0**
    （实测 `复用=0` 与日志内容矛盾），改用 ASCII 特征串。
+6. **`paramiko.Transport()` + `connect()` 默认无超时** —— 这是全工作区反复
+   出现的一类隐患。上游 SFTP 半死不活时进程**永久挂起**，被巡检重跑就变成
+   "每 5 分钟叠加一个挂起进程"。已修 18 处（见下节），新写 SFTP 代码请照抄
+   `sp_report_gen/gernarate_sp_report.py:476-490` 的写法：socket 建连
+   `timeout=30` + `set_keepalive(30)` + `chan.settimeout(180)`。
+   ⚠ 判断某个 SFTP 脚本安不安全，**不要看它有没有 `try/except`**，要看
+   建连处有没有超时参数。
+7. **分页循环必须自己设硬上限**，不能只依赖服务端返回的 `total`：
+   上游 total 报错或忽略分页参数时，`while True` 会一路翻下去。
+
+### 工作区级同类整改（2026-10-04，提交 `27130d27`）
+
+| 项 | 位置 | 改前 → 改后 |
+| --- | --- | --- |
+| SFTP 无超时 | 18 个文件（`WareHouseDashBoard/`、`Unified_Tools/`、`Task/sp/`、`Task/MTN_Comsal/` 等） | 无超时（永久挂起）→ `timeout=30` + keepalive + `chan.settimeout(180)` |
+| eFlow 分页无界 | `ticket_export_rpa/get_eflow_table.py:441` | 退出条件全靠服务端 `total` → 加 `MAX_PAGES=500` 硬上限 + 页间 0.5s |
+| CR 页大小异常 | 同上 `:315` `CR_PAYLOAD_BASE` | `length: 50` → `2000`（2 万条的分页次数 400 → 10） |
+
+> 这些脚本**均未被计划任务调用**（已扫描 222 个计划任务与全部
+> `.bat/.ps1/.vbs`，0 命中），是手工运行的工具，所以整改不影响线上服务；
+> 但"永久挂起"的风险对人工操作同样成立。
+>
+> 同时删除了 3 个与正规版**逐字节相同**的副本脚本
+> （`Unified_Tools/WareHouseDashBoard/` 下），以及 my_app 内 2 个未登记、
+> 无人 import 的遗留 SSH 探针（`cn_ems/_mml_ssh_probe*.py`）。
+> 依据 `AGENTS.md` 第三节原则 10「删除优于兼容」—— 留着副本只会重演
+> "改了正规版、副本仍带病"（本次整改中它们就已经分叉了）。
 
 
 | 目标 | 位置 | 安全性 |
