@@ -526,6 +526,9 @@ tools/fms_session.json 已重建（cookie 有 / csrf 有）
 >   （`credentials.py` 文件 vs `shared/` 目录）。**幂等**，可重复跑。
 > - `python TMP/_verify_shared_credentials.py` —— 验证共享凭据入口在 7 种真实
 >   cwd（仓库根、各脚本目录、my_app）下都能找到凭据库。
+> - `python TMP/_verify_goal_objective.py` —— 逐条核对"明文口令清零"这个目标的
+>   五项是否达成（凭据组可解析 / 已入库文件无明文 / 文档无明文 / 回归通过 /
+>   已推送）。**用实测而非记忆**，适合作为本专题的收尾验收。
 >
 > 📌 **统计口径提醒**：worker 日志按 GBK 落盘，用 `Select-String` 匹配**中文**特征串
 > （如"复用共享会话"）会**静默匹配不到**，统计结果假性为 0。做登录计数时
