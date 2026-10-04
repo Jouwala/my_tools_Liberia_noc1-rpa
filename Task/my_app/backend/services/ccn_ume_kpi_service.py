@@ -580,10 +580,184 @@ def _http_request_with_retry(method, path, headers_extra=None, body=None,
 
 
 # ============================================================
+# 共享鉴权（auth_manager 跨进程缓存）与 401 恢复 —— 2026-10-04 新增
+# ============================================================
+# 为什么需要：本服务的 `_login()` 每次调用都**完整走一遍 4 步 OAuth2**，函数内
+# 没有任何缓存检查，全文也没有 401 处理（会话中途失效只能整轮失败）。
+# cnn_kpi_sync 的 cron 是 `0 4 * * *`，登录频次本身不高（实测 3 次/天），但结构
+# 与 MW UME 修复前同款（见 3a77798e）：门户一键登录（portal_login_service 的
+# ccn_ume 门户，走 auth_manager.get_auth）与本服务各自独立登录同一上游
+# （10.121.1.2:28808，凭据组 ccn_ume），互不知道对方手里的活会话，各自新建
+# 服务端会话。接入共享缓存后两边复用同一条会话，登录次数收敛到 TTL 内一次。
+#
+# 三件套缺一不可（MW 实测踩坑，见 3a77798e 提交说明）：
+#   1. `_try_shared_auth()` 复用前先读缓存；
+#   2. `_probe_session_alive()` 采纳前探测业务端点（TTL 未过期 ≠ 会话可用，
+#      MW 实测探首页 200 假绿、业务端点 401）；
+#   3. `_write_shared_auth()` 登录成功后回写（只读不写则共享形同虚设）。
+#
+# ⚠ 读缓存必须用 `_read_cache()` 而不是 `get_auth()`：后者不是只读的——缓存
+# 未命中时它会直接走到 `_do_login()` 真实登录。盲目调 get_auth() 会变成
+# "共享没命中 → auth_manager 登录一次 → 本模块又登录一次"的双重登录，
+# 比不接共享更糟。
+
+
+def _probe_session_alive(cookie: str, forgery_token: str) -> bool:
+    """用本服务真实在用的业务端点（创建历史查询）探测会话是否还能用。
+
+    为什么必须探业务端点而不是登录首页：TTL 未过期 ≠ 会话可用（MW 接入共享
+    缓存后第一次运行就复用了死会话 → 401，见 3a77798e）。探 LOGIN_PORTAL
+    首页会得到 200 假绿；这里探 HISTORY_PATH（create_history_query 实际在用
+    的端点），它先过鉴权再解析参数：401/403 = 会话死，400/500 = 会话活着
+    只是探测参数不完整。探测故意发空 body 的 POST，不会真的创建查询任务。
+    """
+    try:
+        headers = _auth_headers(cookie, forgery_token)
+        status, _hdrs, _raw_hdrs, _body = _http_request(
+            "POST", HISTORY_PATH, headers_extra=headers, body=b"{}",
+        )
+        code = 0
+        for token in status.split():
+            if token.isdigit():
+                code = int(token)
+                break
+        alive = code not in (401, 403)
+        if not alive:
+            logger.info("[CNN] 共享会话已失效（探测 %s -> %s）", HISTORY_PATH, status)
+        return alive
+    except Exception as e:
+        # 打印而非静默：探测链路坏掉和会话真失效必须在日志里可区分
+        logger.warning("[CNN] 会话探测异常（%s: %s），按不可用处理", type(e).__name__, e)
+        return False
+
+
+def _try_shared_auth():
+    """尝试从 auth_manager 取**已存在且确认可用**的跨进程共享会话。
+
+    只读缓存，绝不触发登录：缓存未命中、读不出或探活失败时一律返回 None，
+    交由调用方走自己的 `_login()`。失败不抛异常——本服务必须能在
+    auth_manager 不可用时独立工作。
+    """
+    try:
+        from backend.services.auth_manager import _read_cache
+    except ImportError:
+        try:
+            from auth_manager import _read_cache  # 兼容独立运行
+        except ImportError:
+            return None
+
+    try:
+        cached = _read_cache(HOST, PORT)
+        if not cached:
+            return None  # 未命中：交给调用方自行登录
+        cookie = cached.get("cookie") or ""
+        forgery_token = cached.get("forgery_token") or ""
+        # _read_cache 内部已要求两者非空，这里再兜一层：缺 forgery_token 的
+        # 会话发业务请求必 403，与其放行后撞 401 再恢复，不如现在就当作未命中
+        if not cookie or not forgery_token:
+            return None
+        # 采纳前必须探活：TTL 未过期不代表会话还能用（MW 实测会 401）
+        if not _probe_session_alive(cookie, forgery_token):
+            logger.info("[CNN] 共享会话不可用，改为自行登录")
+            return None
+        logger.info("[CNN] 复用共享会话（auth_manager 跨进程缓存），跳过登录")
+        return {"cookie": cookie, "forgery_token": forgery_token}
+    except Exception as e:
+        # 打印而非静默：否则"共享鉴权坏了"会与"缓存未命中"在日志里无法区分
+        logger.warning("[CNN] 共享鉴权不可用（%s: %s），回退自行登录", type(e).__name__, e)
+        return None
+
+
+def _write_shared_auth(cookie: str, forgery_token: str, username: str = "") -> None:
+    """把本服务登录得到的会话回写 auth_manager 跨进程缓存（失败只告警）。
+
+    这是共享的另一半：只读不写的话，本服务每次自有登录产生的新会话都进不了
+    共享缓存，消费方（门户一键登录等）与下一轮探活拿到的还是旧会话，共享形同
+    虚设。仅在 cookie 与 forgery_token 都非空时回写——auth_manager._read_cache
+    要求两者非空，缺一写进去也永远读不回来，白写。
+    """
+    if not cookie or not forgery_token:
+        logger.info("[CNN] 缺 cookie 或 forgery_token，跳过回写共享缓存")
+        return
+    try:
+        from backend.services.auth_manager import _write_cache
+    except ImportError:
+        try:
+            from auth_manager import _write_cache  # 兼容独立运行
+        except ImportError:
+            return
+    try:
+        _write_cache(HOST, PORT, cookie, forgery_token, username or "ccn_ume")
+        logger.info("[CNN] 已回写共享缓存（%s:%s）", HOST, PORT)
+    except Exception as e:
+        # 回写失败不影响本轮任务：会话在本次运行内仍然可用
+        logger.warning("[CNN] 回写共享缓存失败（%s: %s）", type(e).__name__, e)
+
+
+def _looks_like_auth_failure(exc: Exception) -> bool:
+    """从异常信息识别鉴权类失败（401/403）。
+
+    为什么用字符串匹配而不是专门的异常类型：create/export 等请求函数把非 200
+    统一抛成 Exception(f"...: {status}")，没有鉴权专用异常；为最小改动，对
+    状态行做特征匹配（状态行形如 "HTTP/1.1 401 Unauthorized"，状态码两侧带
+    空格）。带空格匹配是为了排除 "Response truncated: 12/403 bytes" 这类
+    把字节数巧合误判成状态码的情况。
+    """
+    text = str(exc)
+    return " 401 " in text or " 403 " in text
+
+
+# 401 恢复的全局锁：16 个查询任务共享同一份 auth，会话失效时会几乎同时撞上
+# 401，必须串行化恢复——不加锁就是 N 个线程各登录一次，把"一次会话失效"放大成
+# N 个新服务端会话（与 auth_manager.get_auth 跨进程锁同一动机）。
+_relogin_lock = threading.Lock()
+
+
+def _refresh_auth_on_401(auth: dict) -> bool:
+    """会话中途失效（业务请求 401/403）时恢复鉴权，成功返回 True。
+
+    拿到锁后先复查：并行任务里可能已有别的线程把 auth 刷成活会话，探活通过
+    就直接复用，不再登录。恢复路径 = 清共享缓存里的死会话 → 重新登录
+    （_login 成功后自带回写）。_login 失败时异常向上抛：没有可用会话时重试
+    没有意义，让任务带着登录失败的原因结束，比吞掉后反复重试更诚实。
+    """
+    with _relogin_lock:
+        if _probe_session_alive(auth.get("cookie", ""), auth.get("forgery_token", "")):
+            return True  # 双检命中：别的线程已恢复，直接复用它的会话
+        # invalidate 只删本地缓存文件、不发网络请求（见 auth_manager.invalidate_cache）。
+        # 不清的话，下面 _login 里的 _try_shared_auth 会把这条死会话再捡回来白探一次。
+        try:
+            from backend.services.auth_manager import invalidate_cache
+        except ImportError:
+            try:
+                from auth_manager import invalidate_cache  # 兼容独立运行
+            except ImportError:
+                invalidate_cache = None
+        if invalidate_cache is not None:
+            try:
+                invalidate_cache(HOST, PORT)
+            except Exception as e:
+                logger.warning("[CNN] 清除共享缓存失败（%s: %s），继续重新登录",
+                               type(e).__name__, e)
+        fresh = _login()
+        auth["cookie"] = fresh["cookie"]
+        auth["forgery_token"] = fresh["forgery_token"]
+        return True
+
+
+# ============================================================
 # 登录
 # ============================================================
 def _login():
-    """执行 CNN UME 登录流程，返回 {cookie, forgery_token}。"""
+    """执行 CNN UME 登录流程，返回 {cookie, forgery_token}。
+
+    优先复用 auth_manager 的跨进程共享会话（见 `_try_shared_auth`），
+    复用不到才走下面的 4 步 OAuth2 自有登录。
+    """
+    shared = _try_shared_auth()
+    if shared:
+        return shared
+
     logger.info("[CNN] Starting authentication...")
     session_cookie = ""
     forgery_token = ""
@@ -658,17 +832,31 @@ def _login():
     session_cookie = "; ".join(cookies)
     resp_text = body.decode('utf-8', errors='replace')
 
-    success = (
-        "302" in status
-        or "em-portal" in resp_text
-        or "default.html" in resp_text
-        or any("Z-AUTH-CODE" in c for c in cookies)
-        or len(cookies) > 3
-    )
-    if not success:
-        raise Exception(f"CNN UME 登录失败: {resp_text[:200]}")
+    # 成功判定收紧（2026-10-04）：唯一判据 = 拿到 Z-AUTH-CODE cookie，与
+    # auth_manager._do_login 的判定对齐（auth_manager.py 同款写法）。
+    # 旧判定是猜测式大杂烩："302"（登录失败也常 302 跳回登录页）、
+    # "em-portal"/"default.html" 字样（任一响应都可能带）、len(cookies) > 3
+    # （与登录无关的 cookie 也能凑数）——任何一条命中就把半截会话当成功，
+    # 真正的鉴权失败要到业务请求 401 才暴露，而且没有 Z-AUTH-CODE 的会话
+    # 也无法进共享缓存复用。旧信号降级为日志观测，不再参与判定。
+    legacy_signals = [name for name, hit in (
+        ("status含302", "302" in status),
+        ("resp含em-portal", "em-portal" in resp_text),
+        ("resp含default.html", "default.html" in resp_text),
+        ("cookie数>3", len(cookies) > 3),
+    ) if hit]
+    if not any("Z-AUTH-CODE" in c for c in cookies):
+        logger.info("[CNN] 登录未通过 Z-AUTH-CODE 判据（旧式疑似信号=%s，仅观测）resp=%s",
+                    legacy_signals or "无", resp_text[:200])
+        raise Exception(f"CNN UME 登录失败: 未获取到 Z-AUTH-CODE cookie (status={status})")
 
-    logger.info(f"[CNN] Login SUCCESS - {len(cookies)} cookies")
+    logger.info(f"[CNN] Login SUCCESS - {len(cookies)} cookies"
+                f" (旧式疑似信号={legacy_signals or '无'}，仅观测不作判据)")
+
+    # 回写 auth_manager 跨进程缓存 —— 共享的另一半，只读不写则共享形同虚设。
+    # 失败只告警：会话在本次运行内仍然可用，不应因回写失败拖垮本轮任务。
+    _write_shared_auth(session_cookie, forgery_token, _cred_user)
+
     return {"cookie": session_cookie, "forgery_token": forgery_token}
 
 
@@ -792,6 +980,11 @@ def wait_history_ready(cookie: str, forgery_token: str, queryid: str,
         status, hdrs, raw_hdrs, resp_body = _http_request_with_retry(
             "GET", path, headers_extra=headers, max_retries=1,
         )
+        # 401/403 显式抛出（2026-10-04 新增）：死会话若不在这里拦下，会在轮询里
+        # 空转到 300s 超时；且超时异常没有 401 特征，上层无法识别成"鉴权失效"
+        # 做恢复重试，只能整轮失败。
+        if "401" in status or "403" in status:
+            raise Exception(f"Poll KPI query auth failed: {status}")
         data = json.loads(resp_body.decode('utf-8', errors='replace'))
         if data.get("querystate") == 1 or data.get("progress", 0) >= 100:
             return data
@@ -1026,7 +1219,13 @@ def import_to_database(export_results: dict = None):
 # 单任务执行
 # ============================================================
 def _run_single_kpi_query(auth: dict, task: dict, start_index: int = 0) -> tuple:
-    """执行单个 KPI 查询 + 导出，返回 (file_prefix, xlsx_bytes) 内存数据。"""
+    """执行单个 KPI 查询 + 导出，返回 (file_prefix, xlsx_bytes) 内存数据。
+
+    会话中途失效（401/403）时恢复鉴权并重试**一次**（2026-10-04 新增）：
+    有限重试防循环——若新会话依然 401，问题多半不在会话（账号锁定/权限
+    变更），继续重试只会重复制造登录。cookie/forgery_token 每次尝试都从
+    auth 现取：恢复可能已由并行中的其他任务完成并原地更新了 auth。
+    """
     monthly = task.get("monthly", False)
     cfg = CNN_KPI_MONTHLY_QUERY_CONFIGS[task["key"]] if monthly else CNN_KPI_QUERY_CONFIGS[task["key"]]
     file_prefix = build_filename(cfg)
@@ -1037,17 +1236,24 @@ def _run_single_kpi_query(auth: dict, task: dict, start_index: int = 0) -> tuple
 
     logger.info(f"[CNN] Starting: {cfg['templatename']} (gr={cfg['gr']})")
     payload = build_cnn_kpi_payload(cfg, monthly=monthly)
-    cookie = auth["cookie"]
-    forgery_token = auth["forgery_token"]
 
-    queryid = create_history_query(cookie, forgery_token, payload)
-    wait_history_ready(cookie, forgery_token, queryid)
+    for attempt in (1, 2):
+        cookie = auth["cookie"]
+        forgery_token = auth["forgery_token"]
+        try:
+            queryid = create_history_query(cookie, forgery_token, payload)
+            wait_history_ready(cookie, forgery_token, queryid)
 
-    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-    filename = f"{file_prefix}_{timestamp}"
-    xlsx_bytes = export_history(cookie, forgery_token, queryid, filename)
-
-    return file_prefix, xlsx_bytes
+            timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+            filename = f"{file_prefix}_{timestamp}"
+            xlsx_bytes = export_history(cookie, forgery_token, queryid, filename)
+            return file_prefix, xlsx_bytes
+        except Exception as e:
+            if attempt == 1 and _looks_like_auth_failure(e) and _refresh_auth_on_401(auth):
+                logger.warning("[CNN] [%s] 会话中途失效（%s），已恢复鉴权，重试一次",
+                               task["key"], e)
+                continue
+            raise
 
 
 # ============================================================

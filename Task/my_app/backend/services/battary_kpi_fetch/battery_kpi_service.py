@@ -1138,8 +1138,215 @@ def _run_battery_email_impl(to: str | None = None, cc: str | None = None) -> dic
 # 抓取
 # ---------------------------------------------------------------------------
 
+# ========== 共享鉴权三件套（auth_manager 跨进程缓存） ==========
+# 为什么需要（2026-10-04 生产实测）：battery_kpi_sync 的 cron 是 `5 * * * *`
+# （每小时第 5 分钟），而本服务每次运行都无条件调 fetcher.login_rsa() 完整走
+# 4 步 RSA 登录，实测每天 15+ 次真实登录，且每次都会在上游 Battery UME
+# （192.168.170.2:443）堆积一个永不释放的服务端会话 —— 与 eFlow 2026-10-04
+# 的「用户数持续增长」登录风暴同构（背景见 docs/manual/13-operations.md
+# 「登录频率治理」一节；MW UME 的同款修复见 mw_ume/mw_ume_kpi_service.py）。
+#
+# 修复思路：先复用 auth_manager 的跨进程共享会话，复用不到才走本服务的
+# RSA 登录，登录成功后回写共享缓存。三件套缺一不可（每条都是 MW 接入时
+# 实测踩过的坑，教训原文保留）：
+#   1. _try_shared_auth()      复用前读缓存（必须 _read_cache，绝不能 get_auth）
+#   2. _probe_session_alive()  采纳前探业务端点（探登录首页会得到假绿 200）
+#   3. _write_shared_auth()    登录成功后回写（只读不写 = 每轮白探照样登录）
+
+# 共享缓存 TTL。auth_manager 默认 DEFAULT_TTL=1800s（30 分钟，backend/.env 未配置
+# AUTH_TOKEN_TTL），但本任务每小时才跑一轮 —— 沿用默认值会让缓存永远在下轮之前
+# 过期、共享形同虚设。因此显式写 8 小时：与 fetcher.auth_info_is_fresh 对 UME
+# 会话「8 小时内视为可用」的既有信任窗口一致。TTL 只是"过期前不再探测"的粗门槛，
+# 会话真死了由探活（401/403）和 401 重登恢复兜底 —— 宁可多探一次，绝不放行死会话。
+_SHARED_AUTH_TTL_SEC = 8 * 3600
+
+
+def _import_auth_manager():
+    """按「后端包 / 独立运行」两种环境导入 auth_manager，不可用时返回 None。
+
+    ⚠ 读缓存必须用模块的 _read_cache()，**绝不能调 get_auth()**：
+    get_auth() 不是只读的，缓存未命中时它会直接走到 _do_login() 真实登录，
+    盲目调用会变成"共享没命中 → auth_manager 登录一次 → 本服务又登录一次"
+    的双重登录，比不接共享更糟（MW 接入时实测踩过，见
+    docs/manual/13-operations.md 普查章节）。
+    """
+    try:
+        import backend.services.auth_manager as am
+        return am
+    except ImportError:
+        try:
+            import auth_manager as am  # 兼容独立运行
+            return am
+        except ImportError:
+            return None
+
+
+def _probe_session_alive(fetcher, cookie: str, forgery_token: str,
+                         host: str, port: int) -> bool:
+    """采纳共享会话前，用**真实业务端点**探测它是否还活着。
+
+    为什么必须探测（MW UME 2026-10-04 实测教训，Battery 同构）：缓存 TTL
+    未过期 ≠ 会话可用。探登录首页会拿到误导性的 200（假绿），而业务端点
+    返回 401 —— 所以这里直接探本服务每小时真正在用的 get-by-condition
+    分页接口，探不到就等于没探。
+
+    判定：401/403 = 会话死；其它状态（400/500 等）= 会话活着、只是探测
+    body 不合法（上游先鉴权后解析参数）。探测异常按不可用处理，但必须打
+    日志区分「探测本身坏了」和「会话死了」。
+    """
+    try:
+        path = fetcher._api_path_with_token(fetcher.PATH_GET_BY_CONDITION, forgery_token)
+        headers = fetcher._auth_headers(
+            cookie, forgery_token,
+            referer=f"https://{host}:{port}/uportal/framework/default.html",
+        )
+        # 空 body 的 POST：上游先做鉴权再解析参数，401/403 = 死，其余 = 活
+        status, _hdrs, _raw, _body = fetcher._http_request(
+            "POST", path, host, port, headers_extra=headers, body=b"{}",
+        )
+        code = 0
+        for token in status.split():
+            if token.isdigit():
+                code = int(token)
+                break
+        alive = code not in (401, 403)
+        if not alive:
+            logger.info("[Battery] 共享会话已失效（探测 %s -> %s）",
+                        fetcher.PATH_GET_BY_CONDITION, status)
+        return alive
+    except Exception as e:
+        logger.warning("[Battery] 会话探测异常（%s: %s），按不可用处理",
+                       type(e).__name__, e)
+        return False
+
+
+def _try_shared_auth(fetcher, host: str, port: int) -> dict | None:
+    """尝试取 auth_manager 的跨进程共享会话（只读缓存，绝不触发登录）。
+
+    缓存未命中、读不出或探活失败一律返回 None，交回调用方走自有登录；
+    任何异常都不外抛 —— 本服务必须在 auth_manager 不可用时独立工作。
+    """
+    am = _import_auth_manager()
+    if am is None:
+        return None
+    try:
+        cached = am._read_cache(host, port)
+        if not cached:
+            return None                      # 未命中：交给调用方自行登录
+        cookie = cached.get("cookie") or ""
+        if not cookie:
+            return None
+        forgery_token = cached.get("forgery_token") or ""
+        # 采纳前必须探活：TTL 未过期不代表会话还能用（实测会 401）
+        if not _probe_session_alive(fetcher, cookie, forgery_token, host, port):
+            logger.info("[Battery] 共享会话不可用，改为自有登录")
+            return None
+        logger.info("[Battery] 复用共享会话（auth_manager 跨进程缓存），跳过登录")
+        return {"cookie": cookie, "forgery_token": forgery_token,
+                "host": host, "port": port}
+    except Exception as e:
+        # 打印而非静默：否则"共享鉴权坏了"会与"缓存未命中"无法区分
+        logger.warning("[Battery] 共享鉴权不可用（%s: %s），回退自有登录",
+                       type(e).__name__, e)
+        return None
+
+
+def _write_shared_auth(host: str, port: int, auth: dict, username: str = "") -> None:
+    """把本服务真实登录得到的会话回写 auth_manager 共享缓存（共享的另一半）。
+
+    ⚠ 只有 cookie 与 forgery_token **都非空**才回写：auth_manager._read_cache
+    要求两者都非空才返回数据，缺 forgerydefense 的会话写进去只会制造永远
+    miss 的无效缓存。Battery UME 的 RSA 登录响应正常会带 forgerydefense
+    cookie（裸名或带 -443 端口后缀，fetcher.login_rsa 按 "forgerydefense"
+    子串匹配两者，且业务请求把该 token 同时放进请求头与 URL 参数）；万一
+    上游某天不再下发，这里会跳过回写并告警 —— 共享走不上、行为退回修复前
+    （每小时一次登录），无害但能从日志立刻看出来。
+
+    回写失败只告警不抛出 —— 会话在本轮内仍然可用，不应影响本轮任务。
+    """
+    am = _import_auth_manager()
+    if am is None:
+        return
+    cookie = (auth.get("cookie") or "").strip()
+    forgery_token = (auth.get("forgery_token") or "").strip()
+    if not cookie or not forgery_token:
+        logger.warning("[Battery] 会话缺少 forgery_token（上游未下发 forgerydefense？），"
+                       "跳过共享缓存回写")
+        return
+    try:
+        am._write_cache(host, port, cookie, forgery_token,
+                        username or "battery_ume", ttl=_SHARED_AUTH_TTL_SEC)
+        logger.info("[Battery] 已回写共享缓存（%s:%s，ttl=%ss）",
+                    host, port, _SHARED_AUTH_TTL_SEC)
+    except Exception as e:
+        logger.warning("[Battery] 回写共享缓存失败（%s: %s），不影响本轮任务",
+                       type(e).__name__, e)
+
+
+def _invalidate_shared_auth(host: str, port: int) -> None:
+    """作废共享缓存（401 恢复用）。auth_manager.invalidate_cache 只删本地
+    缓存文件、不触网；失败只告警，不能阻断重登流程。"""
+    am = _import_auth_manager()
+    if am is None:
+        return
+    try:
+        am.invalidate_cache(host, port)
+    except Exception as e:
+        logger.warning("[Battery] 作废共享缓存失败（%s: %s）", type(e).__name__, e)
+
+
+def _acquire_auth(fetcher, credentials: dict, allow_shared: bool = True) -> dict:
+    """取得可用会话：共享缓存 → RSA 登录（回写共享）→ auth_info.json 回退链。
+
+    allow_shared=False 供 401 后的重登使用：刚被作废的缓存不该再读，
+    且刚失效的那个会话正是从缓存里来的。
+    原有的 auth_info.json 回退链逻辑保留不动（共享缓存不可用时的第二层）。
+    """
+    host, port = credentials["host"], credentials["port"]
+
+    if allow_shared:
+        shared = _try_shared_auth(fetcher, host, port)
+        if shared:
+            return shared
+
+    auth = fetcher.login_rsa(credentials)
+    if auth:
+        # 真实登录成功：回写共享缓存，让下一小时（以及未来其它消费方）复用
+        _write_shared_auth(host, port, auth, credentials.get("username", ""))
+    else:
+        logger.warning("[Battery] RSA 登录失败，尝试回退 auth_info.json")
+        auth = fetcher.load_auth_info_fallback()
+        if auth is None:
+            # 回退文件不存在/已失效：用 credential_store 的账号密码再试一次并落盘，
+            # 避免"回退链是空的"导致任务必然失败（详见 fetcher.ensure_auth_info）
+            logger.warning("[Battery] auth_info.json 不可用，尝试经 RSA 接口重新生成")
+            if fetcher.ensure_auth_info(force=True):
+                auth = fetcher.load_auth_info_fallback()
+                if auth:
+                    # ensure_auth_info(force=True) 内部刚完成一次真实登录，同样回写
+                    _write_shared_auth(host, port, auth, credentials.get("username", ""))
+    if auth is None:
+        raise RuntimeError(
+            "Battery UME 鉴权失败：RSA 登录未成功且无可用 auth_info.json。"
+            "请检查「设置 → 凭据管理 → Battery UME」的账号密码，"
+            "或确认该 UME 是否已启用图形验证码（需人工登录一次）"
+        )
+    # 回退场景下 host/port 可能缺失，用凭据补全并同步 fetcher 的建连目标
+    if not auth.get("host"):
+        auth["host"] = host
+        auth["port"] = port
+        fetcher._HOST = host
+        fetcher._PORT = port
+    return auth
+
+
 def fetch_battery_records() -> list[dict]:
-    """登录 UME 并分页拉取全部电池实时数据（内存返回，不落盘）。"""
+    """登录 UME 并分页拉取全部电池实时数据（内存返回，不落盘）。
+
+    鉴权顺序（2026-10-04 接入共享鉴权后）：共享缓存（探活通过才采纳）
+    → RSA 登录（成功后回写共享缓存）→ auth_info.json 回退链。
+    业务请求返回 401/403 时作废共享缓存、强制重登并重试一次（有限次，不循环）。
+    """
     try:
         from . import battary_kpi_fetch_socket as fetcher
     except ImportError:  # 独立运行
@@ -1149,32 +1356,24 @@ def fetch_battery_records() -> list[dict]:
     # fetcher 内部通过模块级 _HOST/_PORT 建连，必须显式注入
     fetcher._HOST = credentials["host"]
     fetcher._PORT = credentials["port"]
-    logger.info(f"[Battery] 登录 UME {credentials['host']}:{credentials['port']} "
+    # 措辞刻意用"目标"而非"登录"：本行每轮必打，未来按日志统计真实登录次数时
+    # 不能把这一行算进去（真实登录的证据是 fetcher 的 "[LOGIN] Step/SUCCESS"）
+    logger.info(f"[Battery] 目标 UME {credentials['host']}:{credentials['port']} "
                 f"user={credentials['username']}")
 
-    auth = fetcher.login_rsa(credentials)
-    if auth is None:
-        logger.warning("[Battery] RSA 登录失败，尝试回退 auth_info.json")
-        auth = fetcher.load_auth_info_fallback()
-        if auth is None:
-            # 回退文件不存在/已失效：用 credential_store 的账号密码再试一次并落盘，
-            # 避免"回退链是空的"导致任务必然失败（详见 fetcher.ensure_auth_info）
-            logger.warning("[Battery] auth_info.json 不可用，尝试经 RSA 接口重新生成")
-            if fetcher.ensure_auth_info(force=True):
-                auth = fetcher.load_auth_info_fallback()
-        if auth is None:
-            raise RuntimeError(
-                "Battery UME 鉴权失败：RSA 登录未成功且无可用 auth_info.json。"
-                "请检查「设置 → 凭据管理 → Battery UME」的账号密码，"
-                "或确认该 UME 是否已启用图形验证码（需人工登录一次）"
-            )
-    if not auth.get("host"):
-        auth["host"] = credentials["host"]
-        auth["port"] = credentials["port"]
-        fetcher._HOST = auth["host"]
-        fetcher._PORT = auth["port"]
+    auth = _acquire_auth(fetcher, credentials, allow_shared=True)
 
-    _first_page, records = fetcher.fetch_all_realtime(auth)
+    try:
+        _first_page, records = fetcher.fetch_all_realtime(auth)
+    except fetcher.AuthExpiredError as exc:
+        # 会话在探活通过之后、拉取中途失效（TTL 内被上游踢下线等）。
+        # 原实现里 401 不在任何重试名单，整轮直接失败；现在作废共享缓存后
+        # 强制真实重登一次再试 —— 只重试一次，避免上游持续 401 时无限循环。
+        logger.warning("[Battery] 会话中途失效（%s），作废共享缓存并重登重试一次", exc)
+        _invalidate_shared_auth(credentials["host"], credentials["port"])
+        auth = _acquire_auth(fetcher, credentials, allow_shared=False)
+        _first_page, records = fetcher.fetch_all_realtime(auth)
+
     logger.info(f"[Battery] 拉取完成，记录数={len(records)}")
     return records
 

@@ -114,6 +114,56 @@ DEFAULT_TTL = int(os.environ.get("AUTH_TOKEN_TTL", "1800"))
 MAX_RETRIES = 2
 
 
+# ========== 跨进程登录锁 ==========
+# 为什么需要（2026-10-04 eFlow 风暴的次生放大器）：worker 是 u/n/v/m/c 多进程，
+# TTL 到期或上游互踢时，多个进程会在同一分钟内各自收到 401 并**各自真实登录**
+# —— eflow_api_client._reauthenticate_on_401 的锁只在本进程内合并线程，
+# 管不到进程间。一次会话失效最多放大成 7 个僵尸会话。
+#
+# 实现：auth_cache 下的锁文件 + 排他文件锁。锁随进程退出自动释放（OS 级），
+# 持锁进程崩溃不会死锁。等锁方拿到锁后**必须复查缓存**（double-checked）：
+# 等待期间其他进程很可能已完成登录并回写了缓存，直接复用即可。
+#
+# Windows 的 msvcrt.LK_LOCK 最多重试 10 秒后抛 OSError —— 登录本身只需几秒，
+# 足够覆盖；万一拿锁失败就退化为"无锁直接登录"（与历史行为一致，只多花
+# 一次登录，不比没锁更糟），但会打 warning 留痕。
+import contextlib
+
+
+@contextlib.contextmanager
+def _login_lock(host: str, port: int):
+    """跨进程互斥登录锁。失败时退化为无锁（记 warning），绝不阻塞登录。"""
+    lock_path = AUTH_CACHE_DIR / f".login_{host}_{port}.lock"
+    f = None
+    try:
+        f = open(lock_path, "a+")
+        if sys.platform == "win32":
+            msvcrt.locking(f.fileno(), msvcrt.LK_LOCK, 1)
+        else:
+            fcntl.flock(f, fcntl.LOCK_EX)
+    except (IOError, OSError) as e:
+        logger.warning(
+            "[AUTH] 登录锁获取失败（%s: %s），退化为无锁登录 %s:%s",
+            type(e).__name__, e, host, port,
+        )
+        if f is not None:
+            f.close()
+            f = None
+    try:
+        yield
+    finally:
+        if f is not None:
+            try:
+                if sys.platform == "win32":
+                    f.seek(0)
+                    msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
+                else:
+                    fcntl.flock(f, fcntl.LOCK_UN)
+            except (IOError, OSError):
+                pass
+            f.close()
+
+
 # ========== SSL / HTTP 底层 ==========
 def _create_ssl_socket(host: str, port: int):
     """创建绕过证书校验的 TLS socket。"""
@@ -534,8 +584,14 @@ def _do_login(host: str, port: int, username: str, password: str) -> dict:
 
     # 登录前拍快照：该账户当前已有的会话 authCode。
     # 登录后取差集就能**确定**找出自己刚建的那一行（见 _record_own_auth_code）。
-    # 只在已有可用会话时拍（列表接口需要鉴权）；拍不到就拿空集，
-    # 退化为"登录后该账户的新增行"，仍然比"取最新一行"可靠。
+    # 只在已有可用会话时拍（列表接口需要鉴权）——注意快照恰恰在**主路径上拍不到**：
+    # _do_login 只在缓存过期/无效时才被调用，而快照用的 _read_cache 对过期缓存
+    # 返回 None，所以 TTL 到期重登（生产常态）时 before=空集，
+    # `_record_own_auth_code` 的过滤退化为"该账户全部行取最新"。
+    # 窗口评估：登录刚成功的瞬间"自己最新"大概率成立，但同账户并发登录
+    # （多 worker 同时等锁→顺序登录）的相邻几秒内可能取到别人的行。
+    # 这是已知残余风险而非已消除项 —— 上游列表行没有与会话 cookie 关联的
+    # 字段，无法做到精确归属；因此登出前的最后一道闸是"宁可不登出，不猜"。
     _pre_codes = set()
     if LOGOUT_ENABLED:
         try:
@@ -743,7 +799,16 @@ def _record_own_auth_code(host: str, port: int, username: str,
                 "登出将跳过（宁可不登出，也不误删别人的会话）"
             )
             return ""
-        mine.sort(key=lambda r: r.get("loginTime") or 0, reverse=True)
+        # loginTime 实测是毫秒数，但防御性处理：字段缺失/类型不一（None、
+        # 字符串数字、非数字字符串）都不能让排序抛 TypeError —— 那会把
+        # "定位失败"变成异常路径，登出静默失效。
+        def _ts(r):
+            try:
+                return int(r.get("loginTime") or 0)
+            except (TypeError, ValueError):
+                return 0
+
+        mine.sort(key=_ts, reverse=True)
         return mine[0].get("authCode") or ""
     except Exception as e:
         logger.warning(f"[AUTH] 定位本次登录会话失败（忽略）{host}:{port}: {e}")
@@ -756,6 +821,10 @@ def get_auth(host: str, port: int, username: str, password: str,
     """
     获取鉴权信息（优先从缓存读取，缓存无效则重新登录）。
 
+    登录段在**跨进程锁内**执行（见 _login_lock）：多进程同时缓存失效时，
+    只有拿锁的进程真实登录，其余等锁后复查缓存直接复用 —— 这是
+    「一次会话失效放大成 N 个僵尸会话」的治本项。
+
     Args:
         host: 网管系统 IP
         port: 端口
@@ -763,14 +832,20 @@ def get_auth(host: str, port: int, username: str, password: str,
         password: 密码
         ttl: token 有效期（秒），默认取 DEFAULT_TTL（即 AUTH_TOKEN_TTL，
             默认 1800；2026-10-04 起生产环境设为 86400 = 24 小时，见 backend/.env）
-        force_refresh: 强制重新登录（忽略缓存）
+        force_refresh: 强制重新登录（忽略缓存）。用于 401 恢复 —— 会话已确认
+            死亡。锁内**不做**缓存复查（语义就是"必须真登录"）；若担心与其他
+            进程刚登录的新会话重复，靠调用方先探活再决定是否 force。
 
     Returns:
-        {"cookie": str, "forgery_token": str, "from_cache": bool}
+        {"cookie": str, "forgery_token": str, "from_cache": bool,
+         "auth_code": str}  —— auth_code 是**登出接口用的**在线列表行值
+        （len≈121），缓存路径与登录路径都带出；调用方登出时应显式传它，
+        而不是让 logout() 从共享缓存回读（缓存可能已被其他进程的
+        另一次登录覆盖，错读成别人的会话 → 误杀）。
     """
     start_time = time.time()
 
-    # 1. 尝试从缓存获取
+    # 1. 快速路径：无锁读缓存（绝大多数调用命中这里）
     if not force_refresh:
         cached = _read_cache(host, port)
         if cached:
@@ -780,14 +855,31 @@ def get_auth(host: str, port: int, username: str, password: str,
                 "cookie": cached["cookie"],
                 "forgery_token": cached["forgery_token"],
                 "from_cache": True,
+                "auth_code": cached.get("auth_code", ""),
             }
 
-    # 2. 缓存无效，执行登录
-    result = _do_login(host, port, username, password)
+    # 2. 缓存无效，跨进程锁内登录
+    with _login_lock(host, port):
+        # 拿到锁后复查缓存（double-checked）：等锁期间其他进程可能刚好
+        # 登录完成并回写了缓存 —— 此时复用，本进程不再登录。
+        if not force_refresh:
+            cached = _read_cache(host, port)
+            if cached:
+                logger.info(
+                    f"[AUTH] 等锁期间已被其他进程登录，复用其会话 ({host}:{port})",
+                )
+                return {
+                    "cookie": cached["cookie"],
+                    "forgery_token": cached["forgery_token"],
+                    "from_cache": True,
+                    "auth_code": cached.get("auth_code", ""),
+                }
 
-    # 3. 写入缓存
-    _write_cache(host, port, result["cookie"], result["forgery_token"], username, ttl,
-                 auth_code=result.get("auth_code", ""))
+        result = _do_login(host, port, username, password)
+
+        # 3. 写入缓存
+        _write_cache(host, port, result["cookie"], result["forgery_token"], username, ttl,
+                     auth_code=result.get("auth_code", ""))
 
     elapsed = time.time() - start_time
     logger.info(f"[AUTH] 重新登录完成 ({host}:{port})，耗时 {elapsed:.2f}s")
@@ -795,6 +887,7 @@ def get_auth(host: str, port: int, username: str, password: str,
         "cookie": result["cookie"],
         "forgery_token": result["forgery_token"],
         "from_cache": False,
+        "auth_code": result.get("auth_code", ""),
     }
 
 

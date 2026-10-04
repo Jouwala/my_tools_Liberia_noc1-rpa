@@ -363,9 +363,142 @@ class UmeRepeatedQueryError(UmeBusinessError):
     pass
 
 
+# ============================================================
+# 共享鉴权（auth_manager 跨进程缓存）—— 2026-10-04 新增
+# ============================================================
+# 【实测背景·为什么接】本服务的任务 ipran_kpi_sync 生产 cron 为 0 * * * *（每小时），
+# 但会话只在**本进程内存**里共享（UmeSessionClient.logged_in_at + SESSION_REFRESH_SEC=1500）：
+# worker 每小时起新一轮任务、新建 client，进程内会话年龄必然已超 1500s → 每轮真实重登，
+# 实测 17 次/天。上游 10.100.2.99:28001（ZTE UME，OAuth2 login_rsa）是**单账号单会话**，
+# 重登会踢掉旧会话 —— 包括人工在同一账号上的登录。
+#
+# 【与谁共享】auth_manager 的跨进程文件缓存（backend/services/auth_cache/<host>_<port>.json）。
+# portal_login_service 的 iPRAN「直接鉴权」已经在用 auth_manager 管理同一 (host, port)
+# 的会话 —— 接入后小时任务与门户登录共享同一上游会话，而不是互相踢。
+#
+# 【三件套缺一不可】与 MW UME 的接入（commit 3a77798e）同一套模式，每条都是实测踩坑：
+#   1. _try_shared_auth()     复用前先读缓存；
+#   2. _probe_session_alive() 采纳前探测（缓存 TTL 未过期 ≠ 会话可用，死会话必须拦在登录前）；
+#   3. _write_shared_auth()   自有登录成功后回写（只读不写 = 缓存永远空，每轮白探一遍照样登录，
+#                             MW 接入时 05:20~05:45 实测复现过这个"只做一半"的中间态）。
+#
+# ⚠ 读缓存必须用 _read_cache() 而不是 get_auth()：get_auth() 不是只读的，缓存未命中时
+# 它会直接走到 _do_login() 真实登录 —— "共享没命中 → auth_manager 登录一次 → 本模块
+# 又登录一次"的双重登录，比不接共享更糟。
+
+
+def _session_cookie_string(session) -> str:
+    """把 requests 会话的 cookie jar 序列化成 auth_manager 缓存期望的格式。
+
+    auth_manager 缓存里的 cookie 是 "k1=v1; k2=v2" 的 Cookie 头字符串
+    （其自有登录就是这么拼接的），回写与读回必须使用同一格式。
+    """
+    return "; ".join(f"{c.name}={c.value}" for c in session.cookies)
+
+
+def _probe_session_alive(cookie: str, forgery_token: str) -> bool:
+    """用真实业务端点探测共享会话是否可用（401/403=死，其余状态码=活）。
+
+    为什么必须探测：缓存文件里的 TTL（expires_in）只说明"写入方当时认为它可用"，
+    上游单会话随时可能被下一次登录踢掉。实测（MW 接入同款教训）：探登录首页
+    LOGIN_PORTAL 会拿到 200（假绿——首页对未登录也放行），必须探真正要鉴权的业务端点。
+    这里选本服务实际在用的 HISTORY_PATH（POST 空参数）：上游先校验会话再解析参数，
+    因此 401/403 = 会话死；400/499/500 = 会话活着只是参数不合法。
+
+    🔒 调用位置约束：只允许在登录路径（_try_shared_auth）调用，每轮登录至多一发；
+    绝不能挪进请求热路径，否则探测本身会变成新的请求风暴源。
+    """
+    try:
+        headers = {
+            "Cookie": cookie,
+            "Content-Type": "application/json; charset=UTF-8",
+            "Referer": HISTORY_REFERER,
+            "X-Requested-With": "XMLHttpRequest",
+        }
+        if forgery_token:
+            # 头名必须是不带端口后缀的裸 forgerydefense：cookie 名可能带 -28001 后缀，
+            # 但请求头带后缀同样 403（见 auth_manager 顶部实测记录）
+            headers["forgerydefense"] = forgery_token
+        resp = requests.post(
+            f"https://{HOST}:{PORT}{HISTORY_PATH}",
+            data="{}", headers=headers, timeout=10, verify=tls_verify("ume"),
+        )
+        alive = resp.status_code not in (401, 403)
+        if not alive:
+            logger.info("[LOGIN] 共享会话已失效（探测 %s -> %s），改走自有登录",
+                        HISTORY_PATH, resp.status_code)
+        return alive
+    except Exception as e:
+        # 探测坏了和会话死了必须能区分，打日志而不是静默；按不可用处理（回退自有登录）
+        logger.warning("[LOGIN] 共享会话探测异常（%s: %s），按不可用处理", type(e).__name__, e)
+        return False
+
+
+def _try_shared_auth():
+    """尝试取一份「已存在且探活通过」的跨进程共享会话；取不到返回 None，绝不抛异常。
+
+    只读缓存（_read_cache），绝不触发登录；本模块必须能在 auth_manager 不可用
+    （导入失败/缓存损坏）时独立工作，此时静默回退自有登录路径。
+    """
+    try:
+        from backend.services.auth_manager import _read_cache
+    except ImportError:
+        try:
+            from auth_manager import _read_cache  # 兼容独立运行
+        except ImportError:
+            return None
+
+    try:
+        cached = _read_cache(HOST, PORT)
+        if not cached:
+            return None                      # 未命中：交给调用方走自有登录
+        cookie = cached.get("cookie") or ""
+        if not cookie:
+            return None
+        forgery = cached.get("forgery_token", "")
+        # 采纳前必须探活：TTL 未过期不代表会话还能用（上游随时可能因别处登录把它踢掉）
+        if not _probe_session_alive(cookie, forgery):
+            return None
+        logger.info("[LOGIN] 复用共享会话（auth_manager 跨进程缓存），跳过真实登录")
+        return {"cookie": cookie, "forgery_token": forgery}
+    except Exception as e:
+        # 打印而非静默：否则"共享鉴权坏了"会与"缓存未命中"混在一起无法定位
+        logger.warning("[LOGIN] 共享鉴权不可用（%s: %s），回退自有登录", type(e).__name__, e)
+        return None
+
+
+def _write_shared_auth(cookie: str, forgery_token: str, username: str = "") -> None:
+    """自有登录成功后把会话回写 auth_manager 跨进程缓存（共享的另一半）。
+
+    只读不写的话，本模块每轮真实登录产生的新会话永远进不了缓存，下一轮探活
+    拿到的还是死会话，共享形同虚设。失败只告警不抛出——回写失败不影响本轮任务
+    （会话在本轮内仍然可用），下轮自有登录后还有机会再回写。
+    """
+    if not cookie or not forgery_token:
+        # _read_cache 要求 cookie 与 forgery_token 都非空，缺一个的缓存永远 miss；
+        # 与其写入一份永远读不回来的无效缓存，不如不写（保留 401 自动重登兜底）。
+        logger.warning("[LOGIN] cookie 或 forgerydefense 缺失，跳过回写共享缓存")
+        return
+    try:
+        from backend.services.auth_manager import _write_cache
+    except ImportError:
+        try:
+            from auth_manager import _write_cache  # 兼容独立运行
+        except ImportError:
+            return
+    try:
+        _write_cache(HOST, PORT, cookie, forgery_token, username or "ipran_ume")
+        logger.info("[LOGIN] 已回写共享缓存（%s:%s）", HOST, PORT)
+    except Exception as e:
+        logger.warning("[LOGIN] 回写共享缓存失败（%s: %s），不影响本轮任务",
+                       type(e).__name__, e)
+
+
 class UmeSessionClient:
     """封装 requests.Session，配有连接池与重试机制，专为并发优化"""
     def __init__(self, host: str, port: int):
+        self.host = host
+        self.port = port
         self.base_url = f"https://{host}:{port}"
         self.session = requests.Session()
         # TLS 校验策略由 backend/security_tls.py 统一控制（env UME_TLS_VERIFY，默认关闭以兼容自签证书）
@@ -399,8 +532,60 @@ class UmeSessionClient:
         encrypted = public_key.encrypt(plaintext.encode('utf-8'), asym_padding.PKCS1v15())
         return base64.b64encode(encrypted).decode('ascii')
 
+    def _apply_session_headers(self) -> None:
+        """登录成功后（自有登录或采纳共享会话）统一设置业务请求头。
+
+        两条进入路径的头必须完全一致：原先这套头只在自有登录尾部设置，
+        共享采纳若跳过它，业务请求会缺 Referer/language-option 等头，
+        与自有登录行为不一致且难以排查。
+        """
+        self.session.headers.update({
+            "Content-Type": "application/json; charset=UTF-8",
+            "Referer": HISTORY_REFERER,
+            "X-Requested-With": "XMLHttpRequest",
+            "language-option": "en-US",
+            "timeZoneInfo": "Default,Atlantic/Reykjavik,",
+        })
+        if self.forgery_token:
+            # 头名是不带端口后缀的裸 forgerydefense（与自有登录路径一致）
+            self.session.headers["forgerydefense"] = self.forgery_token
+
+    def _adopt_shared_auth(self, cookie_str: str, forgery_token: str) -> None:
+        """把共享缓存里的会话装进本模块会话状态，使其等价于"刚登录完"。
+
+        - 先清空 cookie jar：401 恢复路径可能带着已死的旧 cookie 进来，
+          不清的话新旧 cookie 会同时进请求头，上游取哪个值不可预期。
+        - cookie 按本服务 (host, /) 写入 jar：与上游 Set-Cookie 的落点一致，
+          后续自有登录的服务端新 Set-Cookie 能按同名同域同路径覆盖它们。
+        - logged_in_at 取"现在"：ensure_session_fresh 的 1500s 规则据此把
+          共享会话视为新鲜，避免采纳后立刻又触发一轮重登（否则共享等于没接）。
+          共享会话若在采纳后确实过期/被踢，由 request_with_retry 的 401
+          自动重登兜底（重登同样先试共享、失败走自有并回写）。
+        """
+        self.session.cookies.clear()
+        for pair in cookie_str.split(";"):
+            pair = pair.strip()
+            if not pair or "=" not in pair:
+                continue
+            name, _, value = pair.partition("=")
+            self.session.cookies.set(name, value, domain=self.host, path="/")
+        self.forgery_token = forgery_token or ""
+        self._apply_session_headers()
+        self.logged_in_at = time.time()
+        logger.info("[LOGIN] 已采纳共享会话（%s:%s），跳过真实登录", self.host, self.port)
+
     def login(self):
+        # 共享鉴权接入：先尝试复用 auth_manager 跨进程缓存（见模块内共享鉴权小节）。
+        # 命中且探活通过 → 装进本模块会话状态直接返回，绝不真实登录；
+        # 未命中/探活失败/异常 → 返回 None，静默回退下方自有登录路径。
+        shared = _try_shared_auth()
+        if shared:
+            self._adopt_shared_auth(shared["cookie"], shared["forgery_token"])
+            return
         logger.info("[LOGIN] Starting authentication via requests.Session...")
+        # 清空旧 cookie：首次登录时本就为空（行为不变）；401 恢复重登时带着已死
+        # 会话进来，不清的话服务端新 Set-Cookie 与旧值可能在 jar 里并存，干扰后续请求。
+        self.session.cookies.clear()
         auth_url = f"{self.base_url}/api/oauth2/v1/authorize?scope=user.login&response_type=code&redirect_uri={LOGIN_PORTAL}"
         resp1 = self.session.get(auth_url, timeout=20)
         
@@ -443,18 +628,14 @@ class UmeSessionClient:
         if resp3.status_code not in (200, 302):
             raise Exception(f"登录失败: {resp3.status_code}, response: {resp3.text[:200]}")
 
-        self.session.headers.update({
-            "Content-Type": "application/json; charset=UTF-8",
-            "Referer": HISTORY_REFERER,
-            "X-Requested-With": "XMLHttpRequest",
-            "language-option": "en-US",
-            "timeZoneInfo": "Default,Atlantic/Reykjavik,",
-        })
-        if self.forgery_token:
-            self.session.headers["forgerydefense"] = self.forgery_token
+        self._apply_session_headers()
 
         logger.info("[LOGIN] SUCCESS - Session pool ready for parallel queries.")
         self.logged_in_at = time.time()
+
+        # 回写 auth_manager 跨进程缓存 —— 共享的另一半（见 _write_shared_auth 注释）。
+        # 401 自动重登（request_with_retry）走的也是本 login()，因此重登成功后同样回写。
+        _write_shared_auth(_session_cookie_string(self.session), self.forgery_token, _cred_user)
 
     def ensure_session_fresh(self, max_age: int = SESSION_REFRESH_SEC):
         """多任务共用同一 UME 会话（单账号单会话限制），需加锁避免并发重复登录。

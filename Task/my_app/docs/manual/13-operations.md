@@ -901,21 +901,68 @@ MW 的门户路径 `/uportal/framework/default.html` 与 `auth_manager` 内置�
 > 绝不触网**）。覆盖：无缓存回退、有效缓存复用、探活失败弃用、探活成功复用、
 > 损坏 `created_at` 回退、回写正确性、回写→复用闭环。
 
-#### 其余上游评估（无需改动）
+#### 其余上游评估（2026-10-04 晚已全部整改，见表后说明）
 
 | 上游 | 鉴权方式 | 评价 |
 | --- | --- | --- |
-| IPRAN | 自实现 `login()` + `ensure_session_fresh()` + `_login_lock` + 401 重登（`ipran_ume_kpi_service.py:459-482`） | ✅ 进程内复用与主动刷新最完善 |
+| IPRAN | 自实现 `login()` + `ensure_session_fresh()` + `_login_lock` + 401 重登（`ipran_ume_kpi_service.py:459-482`） | ⚠→✅ 旧评价"进程内复用最完善"漏算了跨进程：cron 每小时，session 年龄必超 1500s，实测 **17 次/天 churn**（单账号单会话互踢）。已接三件套，见下节 |
 | VMAX | `_ensure_session()` 带 `if not self._logged_in` 守卫；代理模式由 8790 代理持会话（`vmax_report_client.py:451`） | ✅ 健康 |
-| CM data | 每轮登录一次 + 401 重登（`cm_data_export.py:2088-2096`），cron 每天 | ✅ 低风险 |
-| RAN UME | 走 `auth_manager`，`force_refresh=True` 仅用于 401 恢复（`ran_ume_service.py:745`） | ✅ 用法正确 |
-| CNN/CCN | 每轮登录，cron 每天 06:00；判定偏松但频率无害 | ⚠ 可择机收紧 |
-| FW / UME IN / Battery | 各自 login，均为日级任务 | ✅ 低风险 |
+| CM data | 每轮登录一次 + 401 重登（`cm_data_export.py:2088-2096`），cron 每天 | ⚠→✅ 存有 FALLBACK_COOKIE 死会话回退，已删除（见下节） |
+| RAN UME | 走 `auth_manager`，`force_refresh=True` 仅用于 401 恢复（`ran_ume_service.py:745`） | ✅ 用法正确；实测 ~2 次/天 |
+| CNN/CCN | 每轮登录，cron 每天；判定偏松但频率无害 | ⚠→✅ 已接三件套 + 判定收紧 + 401 处理，见下节 |
+| FW / UME IN / Battery | 各自 login，均为日级任务 | ❌→✅ **旧评价错误**：Battery 实际 cron `5 * * * *`（每小时），实测 **15+ 次/天真实登录**（堆积型）。已接三件套，见下节 |
 
 > **一处易错点**：`ipran_ume_kpi_service.py` **并不使用** `auth_manager`，
 > 它有自己的 `UmeSessionClient`。用 `grep auth_manager` 判断"是否已接入共享"
 > 会把 `ran_ume_*` 与 `ipran_ume_*` 混为一谈 —— 按文件名前缀匹配会漏判，
 > 应逐个文件读实现。
+
+### 登录频率治理（三）：第二轮整改 —— 登录锁、auth_code 同源、三服务接入（2026-10-04 晚）
+
+eFlow 闭环（c931101c）当晚的交叉核查与全量普查发现了四类残余缺陷，一并处理：
+
+1. **auth_manager 跨进程登录锁**（`_login_lock`，`auth_manager.py`）。
+   worker 是 u/n/v/m/c 多进程，TTL 到期或上游互踢时多进程会**各自真实登录**
+   —— eflow_api_client 的锁只合并本进程线程，管不到进程间，一次会话失效
+   最多放大成 7 个僵尸会话。现在登录段在 `auth_cache/.login_<host>_<port>.lock`
+   排他文件锁内执行，拿锁后**复查缓存**（double-checked）：等锁期间别人
+   刚登录写入的会话直接复用。锁获取失败退化为无锁登录（记 warning），
+   锁随进程退出自动释放，无死锁面。
+   回归：`python TMP/_verify_login_lock.py`（9 进程冷启动并发，断言真实登录
+   恰 1 次；无锁时为 9 次）。
+2. **auth_code 与 cookie 同源绑定**。`get_auth()` 现在把 `auth_code`
+   （在线列表行值）随结果带出；`eflow_api_client.login()` 存入
+   `_session_auth_code`，`logout()` **显式传它** —— 不再让 auth_manager
+   从共享缓存回读。旧路径的隐患：缓存文件按 host:port 命名、全 worker 共用，
+   A 登录后 B 重登覆盖缓存，A 登出时回读到的是 B 的 authCode → 误杀 B 的会话。
+3. **FALLBACK_COOKIE 死会话字面量全部清除**（6 个文件）：
+   `ran_ume_service.py`、`ms_sla_sync.py`、`ran_ume_network_kpi.py`、
+   `ran_ume_main_kpi.py`、`cm_data/cm_data_export.py`。旧实现曾在
+   auth_manager 失败时回退到硬编码的陈旧会话 —— 违反「绝不写敏感值」，
+   且静默拿死会话打出一片 401 掩盖故障。现在登录失败明确抛出，交给
+   auto_retry。 `_do_login` 快照注释同时修正：TTL 过期重登（主路径）时
+   登录前快照拍不到，差集退化为"该账户最新一行"，存在同账户并发登录窗口
+   内取错行的残余风险 —— 这是已知局限（上游列表行无会话 cookie 关联字段），
+   不是已消除项。
+4. **Battery / iPRAN / CNN 三个上游按 MW 三件套接入共享缓存**（此前普查表
+   低估了 Battery 与 IPRAN 的频率，实测分别为 15+/天堆积型、17/天互踢型）：
+   - `battery_kpi_service.py`：`fetch_battery_records` 先共享后登录；
+     401 恢复（invalidate + force 重登 + 整体重试一次）；socket 版补
+     `AuthExpiredError` 防 401 半截数据静默落库；回写 ttl=8h（与自有
+     auth_info.json 信任窗口一致）。回归：`TMP/_verify_battery_shared_auth.py`
+   - `ipran_ume_kpi_service.py`：`UmeSessionClient.login()` 先共享后登录；
+     采纳时回填 `logged_in_at` 防止 1500s 规则立刻又重登；401 自动重登
+     原样保留并获得共享闭环。回归：`TMP/_verify_ipran_shared_auth.py`
+   - `ccn_ume_kpi_service.py`：三件套 + 成功判定收紧为「拿到 Z-AUTH-CODE」
+     （旧 302/em-portal/len(cookies)>3 猜测式判定降级为观测日志）+
+     401 恢复（锁内双检复用）。回归：`TMP/_verify_ccn_shared_auth.py`
+
+   三个上游均核实登录响应带 forgerydefense（可带端口后缀），回写路径完整；
+   `_write_shared_auth` 保留"cookie 或 forgery_token 为空不回写"的守卫，
+   上游行为变化时共享自动退化为 miss（行为与修复前一致 + warning 留痕）。
+   **首次上线各有一次真实登录**（共享缓存尚无该 host 的文件），之后收敛到
+   每日 1~3 次；上线后观察 `auth_cache/192.168.170.2_443.json`、
+   `10.100.2.99_28001.json`、`10.121.1.2_28808.json` 是否生成。
 
 ### KPI 残缺日的识别与修复（2026-09-24 事故）
 

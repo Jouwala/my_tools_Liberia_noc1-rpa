@@ -165,6 +165,10 @@ SITE_TX_SOURCE_COL = "TRM Type"
 # ========== 会话状态 ==========
 _session_cookie = ""
 _forgery_token = ""
+# 本会话对应的登出 authCode（在线列表行值，len≈121）。与 _session_cookie 同源
+# 绑定（login() 一起拿到），logout() 显式传给 auth_manager —— 避免登出时从
+# 共享缓存回读到其他进程后登录覆盖的 authCode 而误杀别人的会话。
+_session_auth_code = ""
 # 本进程内会话的取得时刻（time.time()），供 ensure_login_fresh() 判断"本进程会话年龄"。
 # 注意它与 auth_manager 缓存里的 created_at 不是一回事：后者是**跨进程**的
 # token 签发时刻，前者只是本进程拿到它的时刻。
@@ -464,6 +468,7 @@ def login(force_refresh: bool = False):
     后者在**本进程已有会话**时直接返回，连磁盘缓存都不读。
     """
     global _session_cookie, _forgery_token, _auth_generation, _session_obtained_at
+    global _session_auth_code
 
     try:
         try:
@@ -478,6 +483,12 @@ def login(force_refresh: bool = False):
         logger.info(f"eFlow 鉴权成功（来源: {source}）")
         _session_cookie = result["cookie"]
         _forgery_token = result["forgery_token"]
+        # auth_code 与 cookie 必须**同源**绑定：这是本进程拿到的那个会话的
+        # 登出 authCode（在线列表行值）。登出时显式传它，而不是让
+        # auth_manager.logout() 从共享缓存回读 —— 缓存文件按 host:port 命名、
+        # 全部 worker 共用，若 A 登录后 B 又重登覆盖了缓存，A 登出时回读到的
+        # 就是 B 的 authCode，会误杀 B 的会话。
+        _session_auth_code = result.get("auth_code", "")
         _session_obtained_at = time.time()
         _auth_generation += 1
     except Exception as e:
@@ -542,27 +553,32 @@ def logout():
 
     行为：
     - 调用 `auth_manager.logout()` 发登出请求（**默认未启用**，需置
-      `AUTH_LOGOUT_ENABLED=1`，因为登出接口路径尚待实测确认）；
+      `AUTH_LOGOUT_ENABLED=1`；authCode 已由 c931101c 打通 —— 取自在线用户
+      列表行的值，len≈121，实测 remove 后会话真正消失）；
+    - 登出时显式传本进程 login() 时存下的 `_session_auth_code`，与
+      `_session_cookie` 同源 —— 绝不从共享缓存回读（缓存可能已被其他进程
+      的另一次登录覆盖，回读会误杀别人的会话）；
     - 无论登出是否成功，都清空本进程的 `_session_cookie`/`_forgery_token`，
       使下次 ensure_login() 必定重新取会话。
 
     注意：本函数不会抛异常，适合放在任务收尾的 finally 里。
     """
-    global _session_cookie, _forgery_token, _session_obtained_at
+    global _session_cookie, _forgery_token, _session_obtained_at, _session_auth_code
 
-    cookie, forgery = _session_cookie, _forgery_token
+    cookie, forgery, auth_code = _session_cookie, _forgery_token, _session_auth_code
     try:
         try:
             from backend.services.auth_manager import logout as _logout
         except ImportError:
             from auth_manager import logout as _logout
-        _logout(HOST, PORT, cookie=cookie, forgery_token=forgery)
+        _logout(HOST, PORT, cookie=cookie, forgery_token=forgery, auth_code=auth_code)
     except Exception as e:
         logger.warning(f"eFlow 登出失败（忽略）: {e}")
 
     # 本地状态一律清空：即使登出未启用/失败，也让下次取会话走正常流程
     _session_cookie = ""
     _forgery_token = ""
+    _session_auth_code = ""
     _session_obtained_at = 0.0
 
 

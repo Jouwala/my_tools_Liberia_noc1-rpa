@@ -764,6 +764,25 @@ def write_csv_safe(path: Path, df: pd.DataFrame) -> Path:
 # ---------------------------------------------------------------------------
 
 
+class AuthExpiredError(Exception):
+    """上游返回 401/403（会话失效）专用异常。
+
+    与普通请求失败区分开的原因：普通失败（网络抖动、单页 5xx）在分页循环里
+    的既有语义是"丢一页、保留已取数据"；而会话失效后继续用同一会话翻页只会
+    页页 401，并且 battery_kpi_service 落库时对 battery_latest 是"先清空再整表
+    写入"—— 把半截数据当全量快照落库等于看板丢站点。上层捕获本异常后作废
+    共享缓存（auth_manager.invalidate_cache）、强制重登并整体重试一次。
+    """
+
+
+def _status_code(status_line: str) -> int:
+    """从状态行（如 'HTTP/1.1 401 Unauthorized'）解析数字状态码，解析失败返回 0。"""
+    for token in status_line.split():
+        if token.isdigit():
+            return int(token)
+    return 0
+
+
 def _post_json(path: str, auth: dict, payload: dict) -> tuple[str, dict, bytes]:
     """POST JSON 到指定 API path，返回 (status, headers, body_bytes)。"""
     full_path = _api_path_with_token(path, auth["forgery_token"])
@@ -800,6 +819,13 @@ def fetch_realtime_page(auth: dict, page_no: int, page_size: int) -> dict:
         "position": [],
     }
     status, hdrs, resp_body = _post_json(PATH_GET_BY_CONDITION, auth, payload)
+    code = _status_code(status)
+    if code in (401, 403):
+        # 401/403 = 会话死了：既不属于可重试的瞬时错误，也不属于"丢一页保其余"
+        # 的数据错误（继续翻页只会页页 401）。抛专用异常交上层做重登恢复，
+        # 见 AuthExpiredError 与 battery_kpi_service.fetch_battery_records。
+        raise AuthExpiredError(
+            f"get-by-condition 第 {page_no} 页会话失效: {status}, body={resp_body[:200]}")
     if "200" not in status:
         raise Exception(f"get-by-condition 第 {page_no} 页失败: {status}, body={resp_body[:500]}")
     return json.loads(resp_body.decode('utf-8', errors='replace'))
@@ -822,6 +848,11 @@ def fetch_all_realtime(auth: dict) -> tuple[dict, list[dict]]:
     for page_no in range(2, total_pages + 1):
         try:
             page_data = fetch_realtime_page(auth, page_no, PAGE_SIZE)
+        except AuthExpiredError:
+            # 会话失效：向上抛给调用方做 401 恢复（作废缓存+重登+整体重试）。
+            # 绝不能像普通失败那样 break —— 那会把半截数据当全量快照交给落库
+            # （battery_latest 先清空再整表写入，半截数据 = 看板丢站点）
+            raise
         except Exception as exc:
             log(f"[API] 第 {page_no} 页拉取失败：{exc}，停止分页")
             break

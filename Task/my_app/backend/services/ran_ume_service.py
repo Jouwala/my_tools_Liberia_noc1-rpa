@@ -141,14 +141,10 @@ TECHS = ["2G", "3G", "FDD", "TDD"]
 # 可用性报表输出目录
 AVAILABILITY_OUTPUT_DIR = RAN_UME_DATA_DIR
 
-# 备用鉴权信息
-FALLBACK_COOKIE = (
-    "X-Rm-Data-Version-zenap=1773367620002_0_0_0_0_0_0_0_0; "
-    "Z-AUTH-CODE-28001=1154983705_f188b025b7b64878ae0f4511e90ab1a2; "
-    "x-dexmesh-user-28001=D86935A99B38A02CDAEA05C225E9303A21FA22B872499884D7B2A1E26A5645FE; "
-    "forgerydefense-28001=cfe68ff2abd4792b0b08eadcd739630fa22737448c5908a53f1c688d2f28c08a"
-)
-FALLBACK_FORGERY = "cfe68ff2abd4792b0b08eadcd739630fa22737448c5908a53f1c688d2f28c08a"
+# （2026-10-04 删除 FALLBACK_COOKIE/FALLBACK_FORGERY）旧实现曾在 auth_manager
+# 失败时回退到这段硬编码的陈旧会话字面量：既违反「绝不写敏感值」约定，又会
+# 静默拿死会话打出一片 401、把故障掩盖成"接口坏"。现在登录失败就明确抛出，
+# 交给任务的失败处理 / auto_retry 链路。
 
 # Availability 配置
 TARGET_SHEETS = ['Availability-NW', 'Availability-Regular', 'Availability-COOL', 'Availability-ERA']
@@ -417,8 +413,10 @@ def _login(max_retries=2):
         logger.info(f"[RAN_UME] 鉴权成功（来源: {source}）")
         return {"cookie": result["cookie"], "forgery_token": result["forgery_token"]}
     except Exception as e:
-        logger.error(f"[RAN_UME] auth_manager 失败: {e}, using fallback cookies")
-        return {"cookie": FALLBACK_COOKIE, "forgery_token": FALLBACK_FORGERY}
+        # 明确失败而非回退死 cookie（FALLBACK_COOKIE 已删，见其定义处的说明）：
+        # 让任务失败进入 auto_retry，好过静默拿陈旧会话打出一片 401。
+        logger.error(f"[RAN_UME] auth_manager 失败: {e}")
+        raise
 
 
 # ========== PM 查询 ==========
