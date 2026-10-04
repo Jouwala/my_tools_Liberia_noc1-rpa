@@ -35,6 +35,32 @@ from ftplib import FTP, error_perm
 from datetime import datetime, timezone, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+
+# --- 凭据引导（2026-10-04）：口令不写在源码里，统一走共享入口 ---
+# 优先环境变量，其次「设置 → 凭据管理」页面（credential_store）。
+import os as _os, sys as _sys
+# 注意：判据是 credentials.py 这个**文件**，不是 shared/ 这个**目录**。
+# Task/Unified_Tools/shared 也存在但里面没有 credentials.py，只判目录会
+# 命中它、import 失败后被 except 吞掉 -> 静默降级为空口令（实测踩过）。
+_ws = _os.path.dirname(_os.path.abspath(__file__))
+_cand = None
+while _ws:
+    _try = _os.path.join(_ws, "Unified_Tools", "shared", "credentials.py")
+    if _os.path.isfile(_try):
+        _cand = _try
+        break
+    _p = _os.path.dirname(_ws)
+    if _p == _ws:
+        break
+    _ws = _p
+if _cand:
+    _sys.path.insert(0, _os.path.dirname(_os.path.dirname(_cand)))
+try:
+    from shared.credentials import get_credential as _get_credential
+except Exception:  # 凭据库不可用时降级，不让脚本直接崩
+    def _get_credential(_key, env=None, default=""):
+        return (_os.environ.get(env, "") if env else "") or default
+
 # 强制 UTF-8 输出（修复 Windows CMD 中文编码问题）
 try:
     sys.stdout.reconfigure(encoding='utf-8')
@@ -50,7 +76,7 @@ warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
 HOST = "10.121.1.2"
 PORT = 28808
 USERNAME = "oss"
-PASSWORD = "Mwebazeaaron@25"
+PASSWORD = _get_credential("ccn_ume", env="CCN_UME_PASS")
 LOGIN_PORTAL = "/em-portal"
 
 # 脚本目录与输出目录

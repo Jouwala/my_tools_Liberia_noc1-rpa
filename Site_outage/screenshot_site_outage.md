@@ -13,7 +13,7 @@
 | 参数 | 默认值 | 说明 |
 |------|--------|------|
 | `USERNAME` | `admin` | 登录用户名 |
-| `PASSWORD` | `Brysj*8*` | 登录密码 |
+| `PASSWORD` | 见凭据库 `eflow` 组 | 登录密码（设置页可改，不写在此文档） |
 | `HEADLESS` | `False` | 是否无头模式运行浏览器 |
 | `USER_DATA_DIR` | `browser_session` | 浏览器持久化会话目录 |
 | `OUTPUT_DIR` | `screenshots` | 截图输出目录 |

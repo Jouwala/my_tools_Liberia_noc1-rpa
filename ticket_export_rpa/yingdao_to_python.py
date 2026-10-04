@@ -6,7 +6,7 @@
 1. 打开网页：https://10.100.20.8:28001/api/oauth2/v1/authorize?...
 2. 获取窗口对象并最大化
 3. 若屏幕上出现指定图像，则依次点击两张图
-4. 检测用户名输入框是否可见，若可见则输入 admin / Brysj*8* 并点击 Login
+4. 检测用户名输入框是否可见，若可见则输入 admin / <口令见凭据库 eflow 组> 并点击 Login
 5. 登录后进入 Trouble Ticket 页面，查询并导出数据
 
 使用到的库：
@@ -31,6 +31,24 @@ import time
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 
+
+# --- 凭据引导（2026-10-04）：口令不写在源码里，统一走共享入口 ---
+# 优先环境变量，其次「设置 → 凭据管理」页面（credential_store）。
+import os as _os, sys as _sys
+_ws = _os.path.dirname(_os.path.abspath(__file__))
+while _ws and not _os.path.isdir(_os.path.join(_ws, "Unified_Tools", "shared")):
+    _p = _os.path.dirname(_ws)
+    if _p == _ws:
+        break
+    _ws = _p
+if _os.path.isdir(_os.path.join(_ws, "Unified_Tools", "shared")):
+    _sys.path.insert(0, _os.path.join(_ws, "Unified_Tools"))
+try:
+    from shared.credentials import get_credential as _get_credential
+except Exception:  # 凭据库不可用时降级，不让脚本直接崩
+    def _get_credential(_key, env=None, default=""):
+        return (_os.environ.get(env, "") if env else "") or default
+
 # ---------------------------------------------------------------------------
 # 配置区（请按需修改）
 # ---------------------------------------------------------------------------
@@ -40,7 +58,7 @@ TARGET_URL = "https://10.100.20.8:28001/api/oauth2/v1/authorize?scope=user.login
 
 # 登录凭据
 USERNAME = "admin"
-PASSWORD = "Brysj*8*"
+PASSWORD = _get_credential("eflow", env="EFLOW_PASS")
 
 # 图像识别用截图路径（不需要该分支可留空）
 IMG_ADVANCED = ""  # 对应原流程 "图像|高级"

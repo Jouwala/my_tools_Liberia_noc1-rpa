@@ -2,6 +2,12 @@
 eFlow Login Module
 从 ZTE eFlow 网管系统登录并获取鉴权 Cookie / forgery token
 可独立运行，也可被其他脚本导入使用。
+
+⚠ 这是**留档样例**（`.txt`，不参与运行）。口令与备用 cookie 已于
+2026-10-04 移除：它们原本是明文，且备用 cookie 是**可用的活会话**，
+实质等同于把口令写在版本库里。
+现役实现在 `Task/my_app/backend/services/` 与 `Site_outage/`，
+取值一律走 `credential_store`（设置页可改可轮换）。
 """
 
 import ssl
@@ -21,16 +27,15 @@ except Exception:
 HOST = "10.100.20.8"
 PORT = 28001
 USERNAME = "admin"
-PASSWORD = "Brysj*8*"
+# 口令不写在这里：见凭据库 eflow 组（或环境变量 EFLOW_PASS）
+PASSWORD = ""
 
-# 备用鉴权信息：当自动登录失败时回退使用
-FALLBACK_COOKIE = (
-    "X-Rm-Data-Version-zenap=1773367620002_0_0_0_0_0_0_0_0; "
-    "Z-AUTH-CODE-28001=1154983705_f188b025b7b64878ae0f4511e90ab1a2; "
-    "x-dexmesh-user-28001=D86935A99B38A02CDAEA05C225E9303A21FA22B872499884D7B2A1E26A5645FE; "
-    "forgerydefense-28001=cfe68ff2abd4792b0b08eadcd739630fa22737448c5908a53f1c688d2f28c08a"
-)
-FALLBACK_FORGERY = "cfe68ff2abd4792b0b08eadcd739630fa22737448c5908a53f1c688d2f28c08a"
+# 备用鉴权信息：当自动登录失败时回退使用。
+# ⚠ 2026-10-04 已清空 —— 原先这里贴着一组**仍然有效**的 cookie，
+# 等于把会话凭证当源码入库。需要兜底请改用 credential_store，
+# 不要往版本库里写活会话。
+FALLBACK_COOKIE = ""
+FALLBACK_FORGERY = ""
 
 
 def _create_ssl_socket():

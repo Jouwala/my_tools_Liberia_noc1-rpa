@@ -104,9 +104,9 @@
    - `POST /api/tasks/{id}/run`（`main.py:550`）—— 任何人可远程触发 20 个任务，含**向真实名单群发邮件报告**、抢占单会话 UME 账号。
    - `POST /api/upload`（`routers/upload.py:91`）—— `df.to_sql(table_name, if_exists='replace')`，表名由文件名推导 → 上传 `master_site_db.xlsx` 即可**整表覆盖站点主表**。
 2. **明文凭据硬编码**（已整理进本地 `CREDENTIALS_LOCAL_REFERENCE.txt`，但代码与 git 历史仍含）：
-   - UME 网管：**3 套不同密码** `Zte@2025!` / `Zte@lbr202607` / `Mwebazeaaron@25`（见凭据参考文件，跨 8 个文件）；
-   - eFlow `Brysj*8*`、SFTP `UbuntU1!2@3#4$`、126 邮箱授权码 `LQcTaMMuWmhvAfRB`；
-   - 微信 PushPlus `f9cf7778…`、Server酱 `SCT389311…`。
+   - UME 网管：**3 套不同口令**，分属凭据库的 `zte_ume` / `ipran_ume` / `ccn_ume` 组（跨 8 个文件）—— 口令本体不入文档，2026-10-04 起已从源码迁入凭据库；
+   - eFlow（`eflow`）、SFTP（`sftp_sp`）、126 邮箱授权码（`mail_126`）；
+   - 微信推送 Token（`weixin` 组，含 PushPlus 与 Server酱两种）。
 3. **SQL 注入（2 处真漏洞）**：`routers/tables.py:69` `ORDER BY "{sort_by}"`、`:131` `SELECT "{column}"` —— 列名/排序参数**无白名单**，拼接进 SQL。
 
 ### 🟠 中危 (Medium)

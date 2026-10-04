@@ -31,7 +31,7 @@ auth = get_auth(
     host="10.100.28.27",
     port=28001,
     username="NOC",
-    password="Zte@2025!"
+    password=None  # 由 credential_store 的 zte_ume 组提供
 )
 
 cookie = auth["cookie"]
@@ -55,7 +55,8 @@ invalidate_cache("10.100.28.27", 28001)
 ### 独立运行测试
 
 ```bash
-python auth_manager.py --host 10.100.28.27 --port 28001 --user NOC --pass "Zte@2025!"
+python auth_manager.py --host 10.100.28.27 --port 28001 --user NOC
+# --pass 可不传：默认从 credential_store 的 zte_ume 组取（或环境变量 RAN_UME_PASS）
 python auth_manager.py --force  # 强制重新登录
 ```
 

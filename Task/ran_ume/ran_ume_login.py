@@ -23,6 +23,32 @@ from ftplib import FTP, error_perm
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone, timedelta
 
+
+# --- 凭据引导（2026-10-04）：口令不写在源码里，统一走共享入口 ---
+# 优先环境变量，其次「设置 → 凭据管理」页面（credential_store）。
+import os as _os, sys as _sys
+# 注意：判据是 credentials.py 这个**文件**，不是 shared/ 这个**目录**。
+# Task/Unified_Tools/shared 也存在但里面没有 credentials.py，只判目录会
+# 命中它、import 失败后被 except 吞掉 -> 静默降级为空口令（实测踩过）。
+_ws = _os.path.dirname(_os.path.abspath(__file__))
+_cand = None
+while _ws:
+    _try = _os.path.join(_ws, "Unified_Tools", "shared", "credentials.py")
+    if _os.path.isfile(_try):
+        _cand = _try
+        break
+    _p = _os.path.dirname(_ws)
+    if _p == _ws:
+        break
+    _ws = _p
+if _cand:
+    _sys.path.insert(0, _os.path.dirname(_os.path.dirname(_cand)))
+try:
+    from shared.credentials import get_credential as _get_credential
+except Exception:  # 凭据库不可用时降级，不让脚本直接崩
+    def _get_credential(_key, env=None, default=""):
+        return (_os.environ.get(env, "") if env else "") or default
+
 try:
     import openpyxl
 except ImportError:
@@ -37,7 +63,7 @@ except Exception:
 HOST = "10.100.28.27"
 PORT = 28001
 USERNAME = "NOC"
-PASSWORD = "Zte@2025!"
+PASSWORD = _get_credential("zte_ume", env="RAN_UME_PASS")
 
 # PM 导出文件保存目录（与 ran_kpi_precess.py 保持一致，使用 Downloads 目录）
 OUTPUT_DIR = os.path.join(os.path.expanduser("~"), "Downloads")

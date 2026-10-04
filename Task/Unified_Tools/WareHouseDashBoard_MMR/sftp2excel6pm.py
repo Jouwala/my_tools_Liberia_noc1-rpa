@@ -2,6 +2,32 @@ import paramiko
 import os
 import sys
 import io
+
+# --- 凭据引导（2026-10-04）：口令不写在源码里，统一走共享入口 ---
+# 优先环境变量，其次「设置 → 凭据管理」页面（credential_store）。
+import os as _os, sys as _sys
+# 注意：判据是 credentials.py 这个**文件**，不是 shared/ 这个**目录**。
+# Task/Unified_Tools/shared 也存在但里面没有 credentials.py，只判目录会
+# 命中它、import 失败后被 except 吞掉 -> 静默降级为空口令（实测踩过）。
+_ws = _os.path.dirname(_os.path.abspath(__file__))
+_cand = None
+while _ws:
+    _try = _os.path.join(_ws, "Unified_Tools", "shared", "credentials.py")
+    if _os.path.isfile(_try):
+        _cand = _try
+        break
+    _p = _os.path.dirname(_ws)
+    if _p == _ws:
+        break
+    _ws = _p
+if _cand:
+    _sys.path.insert(0, _os.path.dirname(_os.path.dirname(_cand)))
+try:
+    from shared.credentials import get_credential as _get_credential
+except Exception:  # 凭据库不可用时降级，不让脚本直接崩
+    def _get_credential(_key, env=None, default=""):
+        return (_os.environ.get(env, "") if env else "") or default
+
 # 强制设置标准输出和错误输出的编码为 utf-8
 if sys.stdout.encoding != 'utf-8':
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
@@ -11,7 +37,7 @@ if sys.stderr.encoding != 'utf-8':
 host = "10.100.20.11"
 port = 22
 username = "ubuntu"
-password = "UbuntU1!2@3#4$"
+password = _get_credential("sftp_sp", env="SFTP_SP_PASS")
 
 # ⚠ 超时是必需项（2026-10-04 网络风暴专项整改）。
 # paramiko 的 Transport((host, port)) 与 connect() **默认都没有超时**：

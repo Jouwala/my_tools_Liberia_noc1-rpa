@@ -131,10 +131,48 @@
 `site_outage` 连续两轮实测均复用会话、0 次登录、各 4 张截图（凭据全部来自 DB）；
 设置页 `/myapp/?page=settings` 17 组可见。
 
-**尚未完成**：工作区 `my_app` **之外**的 52 个已入库文件仍有明文副本，
-已在守卫的 `_PENDING_WORKSPACE_CLEANUP` / `_PENDING_TASK_SUBDIRS` 里**逐目录列明**
-（不是降低检查强度：已清过的 `my_app` 仍受完整检查，清完一个就从清单删一个，
-清空后删除该清单即可）。做法与 my_app 一致，见清单上方注释。
+### 2026-10-04（续）：工作区其余 40 个文件也已清零
+
+上一条只做了 `my_app` 内部（12 个文件）。同日把**其余 40 个已入库文件**清完，
+现在**全工作区已入库文件里 0 处明文口令**。
+
+**跨子系统的取值入口：`Unified_Tools/shared/credentials.py`（新增）。**
+`credential_store` 住在 `Task/my_app/backend/services/` 里，只有 my_app 能直接
+import。工作区那几十个独立 RPA 脚本历史上各自把口令写成常量，所以本轮新增一个
+薄适配层：它自己负责找到 `Task/my_app` 并挂 `sys.path`，对外只暴露
+`get_credential(key, env=...)`，优先级 `环境变量 > 凭据库 > ""`（**没有**代码默认值）。
+
+> **不要让每个脚本各写一份 `sys.path` 引导** —— 那等于把引导逻辑复制几十遍，
+> 又是新的重复真相源（AGENTS.md 三.7：抽象在第二个真实用例出现时才引入，
+> 而这里已经有几十个用例）。
+
+| 处理的文件类 | 数量 | 改法 |
+| --- | --- | --- |
+| `.py` | 30 | 字面量 → `_get_credential("组名", env="…")` |
+| `.ps1` | 2 | 改读环境变量；未设置时 **`throw` 明确报错**，不静默降级 |
+| `.md` | 5 | 口令改为**凭据组名**（AGENTS.md 四.2） |
+| `.txt` | 1 | `Task/eflow_python/eflow_login.py.txt` 留档样例，另含一组**仍有效**的备用 cookie，一并清空 |
+
+**一个必须记住的坑（实测踩到）：引导的判据必须是 `credentials.py` 这个文件，
+不是 `shared/` 这个目录。**
+`Task/Unified_Tools/shared/` 也存在，但里面**没有** `credentials.py`。
+只判目录时，`Task/**` 下的脚本向上查找会先命中 `Task/`，把
+`Task/Unified_Tools` 挂上 `sys.path`，然后 `import shared.credentials` 失败 →
+被 `except` 吞掉 → **静默降级为空口令**。症状极具迷惑性：语法全对、`py_compile`
+全过、看起来"已经修好了"，实际每次登录都拿空口令。
+（`TMP/_fix_boot_block.py` 记录了修正过程，`TMP/_verify_scrubbed_scripts.py`
+按文件逐个验证，32/32 通过。）
+
+**另一处：`.ps1` 是 UTF-16 LE。** 按 UTF-8 重写会让 PowerShell 解析失败
+（中文报错信息变成乱码 token）。改这两个文件时必须用
+`[System.IO.File]::WriteAllText($p, $txt, [System.Text.Encoding]::Unicode)`。
+
+**守卫已升级为全工作区**：上一轮的 `_PENDING_WORKSPACE_CLEANUP` /
+`_PENDING_TASK_SUBDIRS` 两份按目录白名单**已删除**，`_SCAN_ROOTS` 全量生效，
+不再有任何放行。反证脚本增加到两个：
+`TMP/_verify_guard_catches_secrets.py`（my_app 内）与
+`TMP/_verify_guard_workspace_scope.py`（**my_app 之外 6 个位置**，
+专门证明上一轮的盲区已堵上）。
 
 ## 上游站点会话
 

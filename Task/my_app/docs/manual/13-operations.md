@@ -509,6 +509,23 @@ tools/fms_session.json 已重建（cookie 有 / csrf 有）
 >   **守卫有盲区时它自己是发现不了的**，需要这个脚本从外部对照。
 > - `python TMP/_verify_guard_catches_secrets.py` —— **反证**：临时把口令写回源码，
 >   确认守卫**确实失败**，再还原。**改了守卫一定要跑它** —— 永远通过的守卫没有价值。
+> - `python TMP/_verify_guard_workspace_scope.py` —— 同上，但专测 **my_app 之外**
+>   的 6 个位置（`Task/sp/`、`Site_outage/`、`ticket_export_rpa/`、
+>   `WareHouseDashBoard/`、`report/`、`Task/ccn_ume/`）。
+>   2026-10-04 之前守卫只扫 my_app，这些位置**写回密码也不会失败**；本脚本钉住这个盲区。
+> - `python TMP/_scrub_workspace_secrets.py [--apply]` —— 把工作区脚本里的
+>   明文口令批量改为走共享凭据入口（`Unified_Tools/shared/credentials.py`）。
+>   逐处列出"原文→新文"并校验唯一命中，**不做正则批量替换**。
+> - `python TMP/_scrub_workspace_docs.py [--apply]` —— 文档类文件的口令改为
+>   **凭据组名**（AGENTS.md 四.2：文档只写配置项名，不写口令本体）。
+> - `python TMP/_verify_scrubbed_scripts.py` —— **按文件逐个**执行改写后的
+>   引导段，确认真能取到口令（32 个文件）。
+>   ⚠ 编译通过**不等于**取得到口令 —— 引导段若找不到 `credentials.py` 会被
+>   `except` 吞掉、静默降级为空，而 `py_compile` 全绿。**改完必须跑它。**
+> - `python TMP/_fix_boot_block.py` —— 修正已插入的引导段判据
+>   （`credentials.py` 文件 vs `shared/` 目录）。**幂等**，可重复跑。
+> - `python TMP/_verify_shared_credentials.py` —— 验证共享凭据入口在 7 种真实
+>   cwd（仓库根、各脚本目录、my_app）下都能找到凭据库。
 >
 > 📌 **统计口径提醒**：worker 日志按 GBK 落盘，用 `Select-String` 匹配**中文**特征串
 > （如"复用共享会话"）会**静默匹配不到**，统计结果假性为 0。做登录计数时

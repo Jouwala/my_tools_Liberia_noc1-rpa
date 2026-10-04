@@ -161,17 +161,17 @@
 
 | 凭据类型 | 值特征 | 出现位置（部分） |
 |---|---|---|
-| ZTE UME 网管口令 | `Zte@2025!` | `ran_ume_network_kpi.py:61`、`ran_ume_main_kpi.py:61`、`ms_sla_service.py:111`、`auth_manager.py:14`、`Task/ran_ume/ran_ume_login.py:40`、`Task/RAN/MS_SLA/ran_ume_sla.py:59` |
-| IPRAN UME 口令 | `Zte@lbr202607` | `ipran_ume_kpi_service.py:56`、`Task/ip_ran/ipran_ume_kpi.py:60` |
-| CCN UME 口令 | `Mwebazeaaron@25` | `ccn_ume_kpi_service.py:54`、`Task/ccn_ume/ccn_ume_kpi.py:53` |
-| eFlow 口令 | `Brysj*8*` | `ticket_export_rpa/*.py` × 6、`Site_outage/*.py` × 2 |
-| SFTP 口令 | `UbuntU1!2@3#4$` | `sp.py`、`sftp2excel6pm.py`、`sp_remote_check.py` 等 **8 处** |
-| 126 邮箱授权码 | `LQcTaMMuWmhvAfRB` | `mail_126.py` × 3、`sp_remote_126mial.py` × 2 |
+| ZTE UME 网管口令 | 凭据库 `zte_ume` 组 | `ran_ume_network_kpi.py:61`、`ran_ume_main_kpi.py:61`、`ms_sla_service.py:111`、`auth_manager.py:14`、`Task/ran_ume/ran_ume_login.py:40`、`Task/RAN/MS_SLA/ran_ume_sla.py:59` |
+| IPRAN UME 口令 | 凭据库 `ipran_ume` 组 | `ipran_ume_kpi_service.py:56`、`Task/ip_ran/ipran_ume_kpi.py:60` |
+| CCN UME 口令 | 凭据库 `ccn_ume` 组 | `ccn_ume_kpi_service.py:54`、`Task/ccn_ume/ccn_ume_kpi.py:53` |
+| eFlow 口令 | 凭据库 `eflow` 组 | `ticket_export_rpa/*.py` × 6、`Site_outage/*.py` × 2 |
+| SFTP 口令 | 凭据库 `sftp_sp` 组 | `sp.py`、`sftp2excel6pm.py`、`sp_remote_check.py` 等 **8 处** |
+| 126 邮箱授权码 | 凭据库 `mail_126` 组 | `mail_126.py` × 3、`sp_remote_126mial.py` × 2 |
 | OpenAI API Key | `sk-proj-VZKSR4s7...` | `Unified_Tools/IP_Trace_Tool/ip_detect_tool.py:25` |
 | NVIDIA API Key | `nvapi-YCowbBHk...` | `test_more_models.py:8`、`openclaw.json` |
 | Agnes API Key | `sk-p2urnUzv9gy...` | `test_more_models.py:59` |
 | Google API Key | `AIzaSyBbkE6SAQ...` | `openclaw.json` |
-| PushPlus / Server酱 Token | `f9cf7778...` / `SCT389311...` | `weixin_notifier.py:38,41` |
+| PushPlus / Server酱 Token | 凭据库 `weixin` 组 | `weixin_notifier.py:38,41` |
 | CodeBuddy Key + gateway token | `sk-cp-tPLgq6Ls...`（125 字符） | `Task/PS_CS_CORE_Scripts/openclaw_new.json` |
 | 默认弱口令 | `admin/admin123` | `captrue_sp_dashboard.py:89,229`（× 4 份） |
 

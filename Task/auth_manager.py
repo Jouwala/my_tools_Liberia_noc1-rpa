@@ -11,9 +11,15 @@ auth_manager.py - 多任务共享鉴权管理模块
     from auth_manager import get_auth
 
     auth = get_auth(host="10.100.28.27", port=28001,
-                    username="NOC", password="Zte@2025!")
+                    username="NOC", password=None)  # 口令见下
     cookie = auth["cookie"]
     forgery_token = auth["forgery_token"]
+
+口令来源（2026-10-04 起）:
+    口令不再写在本文件里。`password=None` 时由 `credential_store` 的
+    `zte_ume` 分组提供（可在「设置 → 凭据管理」页面修改与轮换），
+    也可用环境变量 `RAN_UME_PASS` 覆盖。两级都取不到时为空口令，
+    让鉴权**明确失败**，而不是静默使用可能过期的旧口令。
 """
 
 import ssl
@@ -28,6 +34,30 @@ import os
 import logging
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
+
+# --- 凭据引导（2026-10-04）：口令不写在源码里，统一走共享入口 ---
+# 优先环境变量，其次「设置 → 凭据管理」页面（credential_store）。
+# 注意：判据是 credentials.py 这个**文件**，不是 shared/ 这个**目录**。
+# Task/Unified_Tools/shared 也存在但里面没有 credentials.py，只判目录会
+# 命中它、import 失败后被下面的 except 吞掉 -> 静默降级为空口令（实测踩过）。
+_ws = os.path.dirname(os.path.abspath(__file__))
+_cand = None
+while _ws:
+    _try = os.path.join(_ws, "Unified_Tools", "shared", "credentials.py")
+    if os.path.isfile(_try):
+        _cand = _try
+        break
+    _p = os.path.dirname(_ws)
+    if _p == _ws:
+        break
+    _ws = _p
+if _cand:
+    sys.path.insert(0, os.path.dirname(os.path.dirname(_cand)))
+try:
+    from shared.credentials import get_credential as _get_credential
+except Exception:  # 凭据库不可用时降级，不让脚本直接崩
+    def _get_credential(_key, env=None, default=""):
+        return (os.environ.get(env, "") if env else "") or default
 
 # 跨平台文件锁
 if sys.platform == 'win32':
@@ -391,7 +421,8 @@ def get_auth(host: str, port: int, username: str, password: str,
         host: 网管系统 IP
         port: 端口
         username: 用户名
-        password: 密码
+        password: 密码。传 None 时自动从 `credential_store` 的 `zte_ume` 分组取
+            （环境变量 `RAN_UME_PASS` 优先），见文件头「口令来源」。
         ttl: token 有效期（秒），默认 1800
         force_refresh: 强制重新登录（忽略缓存）
 
@@ -399,6 +430,12 @@ def get_auth(host: str, port: int, username: str, password: str,
         {"cookie": str, "forgery_token": str, "from_cache": bool}
     """
     start_time = time.time()
+
+    # 口令兜底：调用方没给（None）时才去凭据库取。
+    # 放在这里而不是 def 默认值里 —— 默认值在 import 时就固定了，
+    # 而环境变量/设置页的值应当**每次调用**重新读取。
+    if not password:
+        password = _get_credential("zte_ume", env="RAN_UME_PASS")
 
     # 1. 尝试从缓存获取
     if not force_refresh:
@@ -437,7 +474,7 @@ if __name__ == "__main__":
     parser.add_argument("--host", default="10.100.28.27")
     parser.add_argument("--port", type=int, default=28001)
     parser.add_argument("--user", default="NOC")
-    parser.add_argument("--pass", dest="password", default="Zte@2025!")
+    parser.add_argument("--pass", dest="password", default=None)  # 口令不设默认值；由 credential_store(zte_ume) 提供
     parser.add_argument("--force", action="store_true", help="强制重新登录")
     args = parser.parse_args()
 

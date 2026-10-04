@@ -79,7 +79,7 @@ set YD_HEADLESS=1
 | 变量 | 说明 | 默认值 |
 |------|------|--------|
 | `TARGET_URL` | 完整授权 URL | 已填好 |
-| `USERNAME` / `PASSWORD` | 登录凭据 | `admin` / `Brysj*8*` |
+| `USERNAME` / `PASSWORD` | 登录凭据 | `admin` / 见凭据库 `eflow` 组（不写在此文档） |
 | `ENABLE_IMAGE_BRANCH` | 是否启用图像识别点击 | `True` |
 | `ENABLE_EXPORT_FLOW` | 是否执行登录后导出流程（或 `YD_EXPORT=0` 关闭） | `True` |
 | `CLEAR_TIME_FIELD_LABEL` | 高级查询里需清空预填时间的字段 | `"Last Modified Time"` |

@@ -240,34 +240,27 @@ _KNOWN_SECRETS = (
     "ZXvmax_2017",                        # vmax_gbase（2026-10-04 补）
 )
 
-# ---------------------------------------------------------------- 待清理清单
-# 2026-10-04 本轮只清理了 **my_app 内部**（已全部干净）。工作区其余 52 个
-# 已入库文件仍带明文口令，属**已知未完成项**，按用户决定留到下一轮。
+# ------------------------------------------------------- 2026-10-04 全量清理完成
+# 本轮把工作区**其余 40 个已入库文件**的明文口令也清掉了，所以
+# `_PENDING_WORKSPACE_CLEANUP` / `_PENDING_TASK_SUBDIRS` 两份白名单已**删除**，
+# `_SCAN_ROOTS` 现在对全工作区**全量生效**（不再有任何按目录的放行）。
 #
-# 这些条目**逐目录白名单**而非"降低检查强度"：
-#   * 本轮清过的 my_app 仍受**完整**检查 —— 任何回归立刻失败；
-#   * 未清理部分**显式列出**，谁清完谁就把对应项删掉，清单缩短即进度可见；
-#   * 新增目录不会被静默放过。
+# 清掉的东西（供追溯，勿"顺手改回去"）：
+#   * 30 个 .py：`PASSWORD = "<口令>"` 等字面量 -> `_get_credential("组名", env=...)`
+#   * 2 个 .ps1：改读环境变量（ps1 无法 import Python；未设时**明确 throw**，
+#     不静默降级 —— 静默用旧口令正是 2026-09-18 那次 65 小时故障的形态）
+#   * 5 个 .md：文档里的口令改为**凭据组名**（AGENTS.md 四.2：
+#     文档可写配置项/环境变量/分组 key，不得写口令本体）
+#   * 1 个 .txt：`Task/eflow_python/eflow_login.py.txt` 的留档样例，
+#     除口令外还贴着一组**仍然有效**的备用 cookie（等于把活会话入库），一并清空
 #
-# ⚠ 清理下一批时的做法（与 my_app 一致）：
-#   1) 确认该凭据组已在 credentials 表（TMP/_migrate_credentials_to_db.py）；
-#   2) 把代码里的字面量改为走 credential_store / 环境变量；
-#   3) 从本清单删掉该目录，跑本用例确认；
-#   4) 文档里的明文同样要删（AGENTS.md 四.2）。
+# 跨子系统引导统一走 `Unified_Tools/shared/credentials.py` —— 不要让每个脚本
+# 各写一份 sys.path 引导，那又成了新的重复真相源。
 #
-# 完全清空后请**删除本清单**，让 _SCAN_ROOTS 全量生效。
-_PENDING_WORKSPACE_CLEANUP = {
-    "Site_outage": "含 eflow 口令副本（fetch_site_outage_v2.py:44 等）",
-    "ticket_export_rpa": "含 eflow / mail_126 口令副本（get_eflow_table.py:37 等）",
-    "Unified_Tools": "含 sftp_sp / mail_126 口令副本（WareHouseDashBoard/*.py）",
-    "WareHouseDashBoard": "含 sftp_sp / mail_126 口令副本（sp_remote_*.py）",
-    "report": "含多组口令（CODE_AUDIT_*.md 的清单表）",
-}
-# Task/ 下本轮未清的子目录（Task/my_app 已清，不在列）
-_PENDING_TASK_SUBDIRS = {
-    "auth_manager.py", "auth_manager.md", "ccn_ume", "eflow_python",
-    "ip_ran", "ran_ume", "sp", "Monthly_Report", "RAN", "Unified_Tools",
-}
+# ⚠ 引导的判据是 `credentials.py` 这个**文件**，不是 `shared/` 这个**目录**：
+#   `Task/Unified_Tools/shared/` 也存在但里面没有 credentials.py，只判目录时
+#   `Task/**` 的脚本会先命中它、import 失败后被 except 吞掉，**静默降级为空口令**
+#   —— 语法全对、编译全过，跑起来却拿不到口令。实测踩过这个坑。
 
 
 _SCAN_SKIP_DIRS = {
@@ -329,19 +322,6 @@ def test_no_hardcoded_secrets_in_source():
                 shown = path.resolve().relative_to(WORKSPACE_ROOT).as_posix()
             except ValueError:
                 shown = str(path)
-            # 已知未清理项（2026-10-04 本轮只做了 my_app）——见清单中的说明。
-            # 逐目录放行，不做"整体降级"：清完一个就从清单删一个。
-            if root != PROJECT_ROOT:
-                # shown 形如 "Site_outage/x.py"、"Task/sp/y.py"（相对仓库根），
-                # 取首段作为顶层目录名。
-                head = shown.split("/", 1)[0]
-                if root.name == "Task":
-                    # Task/ 下按**第二段**判断（my_app 已清，故不在清单里）
-                    sub = shown.split("/", 1)[1].split("/", 1)[0] if "/" in shown else ""
-                    if sub in _PENDING_TASK_SUBDIRS:
-                        continue
-                elif head in _PENDING_WORKSPACE_CLEANUP:
-                    continue
             try:
                 text = path.read_text(encoding="utf-8", errors="replace")
             except OSError:
