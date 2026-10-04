@@ -103,6 +103,16 @@ Task/whatsapp_session/
 **/browser_session/
 my_tools_Liberia_noc1-rpa/
 
+# Site Outage 的会话副本（2026-10-04 新增）。
+# 内容与 browser_session/ 里的 cookie 等价 —— 是 eFlow admin 的**有效登录会话**
+# （JSESSIONID / Z-AUTH-CODE / forgerydefense / x-dexmesh-user），
+# 按 AGENTS.md 四.2「绝不写敏感值」必须拦住。
+# 由 backend/services/site_outage_session.py 运行时生成，删除无碍
+# （下一轮任务重新登录并重建）。
+# ⚠ 规则要写成 **/ 前缀：文件落在 Task/Site_outage/，不在 my_app 内，
+#   my_app/.gitignore 管不到它。
+**/session_state.json
+
 # IDE / 工具文件
 .vscode/
 .idea/

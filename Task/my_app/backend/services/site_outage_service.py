@@ -14,6 +14,7 @@ import os
 import sys
 import time
 import re
+import json
 import logging
 from pathlib import Path
 
@@ -192,6 +193,16 @@ WAIT_TIMEOUT = 120000
 # 顶层任务最大重试次数
 MAX_TOTAL_RETRY = 2
 
+# 会话持久化（修复"每小时重复登录"）已抽到独立模块，成因与用法见其模块文档。
+# 这里只做别名导入，保持调用点简洁。
+from site_outage_session import (  # noqa: E402
+    STATE_FILE,
+    state_is_fresh as _state_is_fresh,
+    load_state as _load_state,
+    save_state as _save_state,
+    clear_state as _clear_state,
+)
+
 
 def _sanitize_filename(name):
     name = name.strip()
@@ -344,14 +355,34 @@ def _wait_for_data_refresh(frame, trigger_action, timeout=15000):
     _wait_for_charts_rendered(frame, timeout=timeout)
 
 
-def _login(page):
-    """使用内联 _zte_login 完成登录。
+def _session_still_valid(page):
+    """探测回灌的会话是否仍然可用（不触发登录）。
+
+    实现已抽到 site_outage_session.session_still_valid（那里记录了
+    "按需验证而非定时心跳"的设计理由）。此处只做参数绑定。
+    """
+    import site_outage_session
+
+    return site_outage_session.session_still_valid(
+        page, DASHBOARD_URL, wait_timeout=WAIT_TIMEOUT
+    )
+
+
+def _login(page, allow_reuse=True):
+    """完成登录。若磁盘上有可用会话，则先尝试复用，避免重复登录。
+
+    allow_reuse=False 时强制走完整登录（用于会话确证失效后的重试）。
 
     改进点：
+    - 先复用上次落盘的会话（见 STATE_FILE 注释），会话有效则完全不登录
     - 包一层 retry_transient（最多 3 次），瞬时失败可恢复
     - 登录失败时保存现场截图 + HTML，便于事后复盘
     - 区分异常：凭据失效/凭据错误视为 TransientError；找不到登录表单视为 FatalError
     """
+    # ---- 复用路径：会话还在有效期就直接用，一次登录都不发生 ----
+    if allow_reuse and _state_is_fresh() and _session_still_valid(page):
+        return True
+
     logger.info("[SiteOutage] 正在打开登录页...")
 
     def _attempt():
@@ -367,6 +398,8 @@ def _login(page):
         retry_transient(_attempt, max_attempts=3, backoff_base=2.0, label="zte_login")
     except TransientError:
         save_debug_snapshot(page, DEBUG_DIR, "login_final_fail")
+        # 登录确证失败 → 清掉可能已损坏的会话副本，避免下一轮又拿坏凭据去撞
+        _clear_state()
         raise
 
 
@@ -1123,6 +1156,14 @@ def _run_site_outage_once() -> dict:
                 f"浏览器启动失败，已尝试所有模式 {modes_to_try}: {last_launch_err}"
             )
 
+        # 回灌上次会话（cookie + localStorage），让本轮无需重新登录。
+        # 见 STATE_FILE 处注释：eFlow 的会话 cookie 是 session cookie，
+        # 随 browser.close() 消失，必须靠这份磁盘副本跨轮传递。
+        # 会话是否真的还能用，由 _login() 里的 _session_still_valid() 判定，
+        # 这里只负责把凭据放进去。
+        if _state_is_fresh():
+            _load_state(browser)
+
         page = browser.new_page()
 
         # Login（瞬时失败会抛 TransientError，由顶层重试）
@@ -1180,6 +1221,18 @@ def _run_site_outage_once() -> dict:
 
     finally:
         if browser:
+            # ⚠ 必须在 close() 之前保存会话。
+            # eFlow 的会话 cookie 是 session cookie，browser.close() 一执行
+            # 就被 Chrome 丢弃，之后再想序列化已经拿不到了。
+            # 只在**本轮成功**时保存，避免把"登录成功但截图失败"之外的
+            # 坏状态固化下去；只要登录成功，会话本身对下一轮就是有效的。
+            if page is not None and not result["errors"]:
+                try:
+                    _save_state(browser, page)
+                except Exception:
+                    logging.getLogger(__name__).warning(
+                        "[SILENT-EXCEPT] _save_state swallowed", exc_info=True
+                    )
             try:
                 browser.close()
             except Exception:
@@ -1222,15 +1275,40 @@ def run_site_outage_screenshot() -> dict:
             return _run_site_outage_once()
 
         def _on_retry(attempt_no, err):
-            """重试前清理可能损坏的持久化 session，让下次冷启动重建登录态。
+            """重试前清理**确实损坏**的登录态，而不是逢错就清。
 
-            典型场景：session cookie 失效导致 /oauth2/v1/authorize 反复重定向、
-            登录表单始终不出现。此时清掉 USER_DATA_DIR，下一次 _run_site_outage_once
-            会走全新登录流程，而非在坏 session 上死循环。
+            （2026-10-04 收窄。原实现在任何失败上都清空整个 USER_DATA_DIR，
+            包括 Page.goto 网络超时这类与登录态无关的故障。后果有两层：
+              1. 每次清理都让下一轮**必然重新登录**，与"复用会话"的目标相反；
+              2. 网络抖动时反复清理/重建 143MB profile，既慢又伤磁盘。
+              实测 10-03~10-04 产生了 7 个 session_bak，其中多数由超时触发。）
+
+            现在只清两类与登录态真正相关的信号：
+              - 凭据/表单类失败：登录确证失败（TransientError 来自 _login 且
+                错误信息含"ZTE 登录失败"）
+              - 重定向环：session cookie 失效导致 authorize 反复重定向
+            其余情况（网络超时、iframe 找不到等）保留 profile 与会话副本。
             """
-            logger.warning(
-                f"[SiteOutage] 第 {attempt_no} 次重试前清理可能损坏的 session: {err}"
+            msg = str(err)
+            credential_issue = (
+                "ZTE 登录失败" in msg
+                or "authorize" in msg
+                or "重定向" in msg
             )
+
+            if not credential_issue:
+                logger.warning(
+                    f"[SiteOutage] 第 {attempt_no} 次重试（保留 profile 与会话，"
+                    f"不属登录态故障）: {msg[:120]}"
+                )
+                return
+
+            logger.warning(
+                f"[SiteOutage] 第 {attempt_no} 次重试前清理可能损坏的登录态: {msg[:120]}"
+            )
+            # 会话副本与 profile 是两份独立的登录态载体，都要清，
+            # 否则回灌进坏 profile 的旧 cookie 会让下一轮继续失败。
+            _clear_state()
             # 1) 先确保没有残留 chrome 进程占用 profile（防目录被锁定）
             try:
                 kill_chrome_by_profile(USER_DATA_DIR)

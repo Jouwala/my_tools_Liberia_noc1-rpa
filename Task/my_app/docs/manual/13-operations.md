@@ -482,6 +482,16 @@ tools/fms_session.json 已重建（cookie 有 / csrf 有）
 >   （8s 窗口、跨文件判定）。用于复查上面那条**已知竞态**是否真的触发了。
 > - `python TMP/_probe_watchdog_restart_storm.py` —— 统计 worker 看门狗的
 >   崩溃/重启次数，判断有无"崩溃↔重启"循环。**2026-10-04 实测 16 天 0 次崩溃。**
+> - `python TMP/_verify_site_outage_session.py` —— **离线**断言（21 项），
+>   site_outage 会话持久化的结构 + 往返 + 反例检查（含"`_save_state` 必须在
+>   `browser.close()` 之前"这一关键顺序）。改会话逻辑后跑。
+> - `python TMP/_verify_session_reuse_live.py` —— **真实**连跑两轮 site_outage，
+>   验证第 2 轮确实复用会话、**0 次登录**。⚠ 会真实登录并覆盖截图，手动按需跑。
+> - `python TMP/_verify_proxy_setcookie.py` —— **离线**断言（15 项），
+>   用实测的 4 条 `Set-Cookie` 复现"`.get()` 丢 `forgerydefense`"并验证修复。
+> - `python TMP/_probe_profile_cookies.py` —— 只读 profile 的 Cookies 库，
+>   看会话是否落盘。怀疑"每次都在重新登录"时先跑它。
+>   ⚠ 注意 profile 在 `Task\Site_outage\`，不是根目录那个同名旧目录。
 >
 > 📌 **统计口径提醒**：worker 日志按 GBK 落盘，用 `Select-String` 匹配**中文**特征串
 > （如"复用共享会话"）会**静默匹配不到**，统计结果假性为 0。做登录计数时
@@ -1044,6 +1054,86 @@ current_cron = saved_cron if saved_cron else default_cron   # ← 数据库赢
 > 无人 import 的遗留 SSH 探针（`cn_ems/_mml_ssh_probe*.py`）。
 > 依据 `AGENTS.md` 第三节原则 10「删除优于兼容」—— 留着副本只会重演
 > "改了正规版、副本仍带病"（本次整改中它们就已经分叉了）。
+
+### 每小时重复登录：site_outage 会话不持久化（2026-10-04 修复）
+
+**现象**：`site_outage_screenshot` 每小时整点跑一次（DB 覆盖 `0 */1 * * *`，
+这是**有意**的，截图需要每小时更新），每次耗时 17~25s，都在走完整登录流程。
+shared `auth_cache` 里 admin 的 token 明明还有 14.6 小时有效期，却仍在登录。
+
+**根因（与 token 过期无关）**：eFlow 签发的 5 个会话 cookie
+（`JSESSIONID` / `Z-AUTH-CODE-28001` / `forgerydefense-28001` /
+`x-dexmesh-user-28001` / `X-Rm-Data-Version-zenap`）**全部是 session cookie**
+（`expires=-1`），Chrome 在**浏览器关闭时一律丢弃**。而任务每轮结束都执行
+`browser.close()`，于是持久化 profile 里的会话**每轮都被清空**，
+下一轮必然回到登录页。实测证据：`browser_session/Default/Network/Cookies`
+的 cookie 表**为空**，且该文件长期不被写入。
+
+**这不是"token 还没过期就重复登录"**，而是"会话压根没保住"。
+所以"加 keepalive 心跳探测"对它无效 —— 心跳只会多一步"发现已失效再登录"。
+
+**修法**：Chrome 丢弃 session cookie 是**浏览器行为**，改 profile 没用，
+必须由我们自己把会话序列化到磁盘。用 Playwright 的 `storage_state()`
+（含 cookie + localStorage）在 `browser.close()` **之前**落盘，
+下次启动用 `add_cookies()` + `add_init_script()` 回灌：
+
+| 位置 | 作用 |
+| --- | --- |
+| `site_outage_service.py:190-224` | `STATE_FILE`（会话副本路径）与成因注释 |
+| `:253-350` | `_state_is_fresh` / `_load_state` / `_save_state` / `_clear_state` |
+| `:355-380` | `_session_still_valid()`：回灌后先探一次看板页，未被重定向即复用 |
+| `_login()` | 会话有效则**完全不登录**；确证失败才清副本 |
+| `_run_site_outage_once()` 的 `finally` | **`_save_state` 必须在 `browser.close()` 之前** |
+
+副本路径是 `Task\Site_outage\session_state.json`（由 `__file__` 推算）。
+⚠ 本机另有 `D:\01_RPA\Site_outage\`，那是 **7 月的陈旧 profile**，不要拿它排查。
+
+**顺带收窄了一处过度清理**：`_on_retry` 原实现在**任何**失败上都清空整个
+`USER_DATA_DIR`（含 `Page.goto` 网络超时这类与登录态无关的故障），
+后果是每次清理都让下一轮必然重新登录，且反复重建 143MB profile。
+实测 10-03~10-04 产生了 7 个 `session_bak`。现改为只清理
+**登录态相关**信号（凭据失败 / authorize 重定向环）。
+
+**实测验证**（`TMP/_verify_session_reuse_live.py`，连续两轮）：
+
+| 轮次 | 复用会话 | 走登录流程 | 填登录表单 | 截图 | 耗时 |
+| --- | --- | --- | --- | --- | --- |
+| 第 1 轮 | 是 | 否 | 否 | 4 张 | 15.4s |
+| 第 2 轮 | 是 | 否 | 否 | 4 张 | 15.8s |
+
+且 `auth_cache` 的 `created_at` 未变（`04:39`），证明**没有产生新的登录**。
+
+### 代理 `result:0` 误判 + Set-Cookie 丢凭据（2026-10-04 修复）
+
+`tools/realtime_proxy.py` 是 FMS 看板的本地代理（8787）。今日日志里
+`login start` **281 次**、其中 **279 次失败**（`cookie=yes, csrf=no`），
+形成"403 → 登录 → 还是失败 → 再 403"的自激循环（10-03 峰值 **3822 次/天**）。
+
+这里其实是**两个独立缺陷**叠在同一段逻辑上：
+
+**缺陷一：`result:0` 被当成失败。** 原判据是「响应体含 `"result":"1"`」，
+但这版 eFlow 的 `login_rsa` **恒返回 `"result":"0"`**，同时正常签发
+凭据（实测历史日志里 `"result":"1"` 出现 **0 次**）。而同一时刻
+`auth_manager`（只认 `Z-AUTH-CODE`）登录**成功** —— 说明登录一直是成功的，
+是这里判错了。
+
+**缺陷二（本次新发现，更隐蔽）：`Set-Cookie` 有多条，`.get()` 只返回第一条。**
+实测 `login_rsa` 一次返回 **4 条** `Set-Cookie`：
+
+```
+[0] Z-AUTH-CODE-28001=...            <-- .get() 只拿到这条
+[1] Z-LOGIN-PUBLIC-CODE-28001=;Max-Age=0
+[2] x-dexmesh-user-28001=...
+[3] forgerydefense-28001=...          <-- csrf 在这里，被 .get() 丢掉
+```
+
+而 `headers.get("Set-Cookie")` **只返回第一条**，于是 `forgerydefense`
+被静默丢弃 → 兜底分支永远匹配不到 → csrf 恒为空 → 判登录失败 →
+会话不落盘 → 下个请求又 403。**这才是 279 次 `csrf=no` 的直接原因。**
+
+修法：新增 `_all_set_cookie()`（`:422`）用 `get_all("Set-Cookie")` 取全；
+并加 `[diag] jar cookies = [...]` 诊断输出，让下次一眼分辨
+"上游没签发"与"我们没取到"（本次正是后者）。
 
 
 | 目标 | 位置 | 安全性 |

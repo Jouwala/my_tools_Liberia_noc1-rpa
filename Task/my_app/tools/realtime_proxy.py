@@ -419,6 +419,33 @@ def _cookie_header_from_jar():
     return "; ".join(cookies)
 
 
+def _all_set_cookie(headers):
+    """取回**全部** Set-Cookie 头，拼成一个字符串。
+
+    ⚠ 必须用 get_all()，不能用 get()。
+    实测（2026-10-04）eFlow 的 login_rsa 一次返回 **4 条** Set-Cookie：
+        [0] Z-AUTH-CODE-28001=...
+        [1] Z-LOGIN-PUBLIC-CODE-28001=;Max-Age=0
+        [2] x-dexmesh-user-28001=...
+        [3] forgerydefense-28001=...        <-- csrf 在这里
+    而 `headers.get("Set-Cookie")` **只返回第一条**（Z-AUTH-CODE），
+    forgerydefense 被静默丢掉。原代码用 .get() 做兜底提取，因此
+    **永远匹配不到 forgerydefense** → csrf 取不到 → 判登录失败
+    → 会话不落盘 → 下个请求又 403 → 自激重试（实测 279 次/天）。
+
+    这是 2026-10-04「eFlow 用户数风暴」的**第二个独立缺陷**，与
+    "result:0 被误判为失败" 是同一段逻辑上的两个不同错误。
+    """
+    try:
+        parts = headers.get_all("Set-Cookie") or []
+    except AttributeError:
+        parts = []
+    if not parts:
+        one = headers.get("Set-Cookie", "") or ""
+        return one
+    return ", ".join(parts)
+
+
 def do_login(api_url):
     """
     保留原有用户名 + RSA 加密密码登录方式。
@@ -540,11 +567,11 @@ def do_login(api_url):
         )
         raw2 = lr2.read()
         status2 = lr2.status
-        set_cookie = lr2.headers.get("Set-Cookie", "") or ""
+        set_cookie = _all_set_cookie(lr2.headers)
     except HTTPError as e:
         raw2 = e.read()
         status2 = e.code
-        set_cookie = e.headers.get("Set-Cookie", "") or ""
+        set_cookie = _all_set_cookie(e.headers)
 
     # 取 csrf（forgerydefense）。
     # ⚠ eFlow 的 cookie 名带**端口后缀**，实测为 `forgerydefense-28001`，
@@ -558,14 +585,16 @@ def do_login(api_url):
         if c.name == "forgerydefense" or c.name.startswith("forgerydefense-"):
             csrf = c.value
             break
+    # 兜底：从**全部** Set-Cookie 里找（见 _all_set_cookie 的成因说明）。
+    # 只有在 jar 里确实没有时才走这里 —— jar 是权威，兜底只为诊断与容错。
     if not csrf and set_cookie:
         for part in set_cookie.split(","):
             for seg in part.split(";"):
                 seg = seg.strip()
                 if seg.lower().startswith("forgerydefense"):
-                    csrf = seg.split("=", 1)[1]
-                    if csrf == "deleted":
-                        csrf = ""
+                    val = seg.split("=", 1)[1] if "=" in seg else ""
+                    if val and val != "deleted":
+                        csrf = val
 
     if status2 and status2 >= 300:
         print("login_rsa HTTP ", status2)
@@ -608,6 +637,15 @@ def do_login(api_url):
             "yes" if csrf else "no",
         )
         return "", ""
+
+    # 诊断增强（2026-10-04）：把 jar 里实际有哪些 cookie 名打出来。
+    # 原日志只有 "cookie=yes, csrf=no"，无法区分两种成因：
+    #   (a) 上游没签发 forgerydefense  → 上游问题
+    #   (b) 签发了但我们没取到          → 我们的提取问题（本次就是这个）
+    # 打出名字后一眼可辨，避免下次又靠猜。
+    jar_names = sorted({c.name for c in _COOKIE_JAR})
+    print("  [diag] jar cookies =", jar_names)
+    print("  [diag] set-cookie  =", (set_cookie or "(空)")[:300])
 
     print(
         "login failed: cookie=",
