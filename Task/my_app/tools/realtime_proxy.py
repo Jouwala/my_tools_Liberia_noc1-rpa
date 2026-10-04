@@ -35,6 +35,7 @@ import os
 import re
 import ssl
 import threading
+import time
 import urllib.parse
 import http.cookiejar as cookiejar
 import urllib.request
@@ -96,6 +97,44 @@ _SSL.verify_mode = ssl.CERT_NONE
 
 _LOCK = threading.RLock()
 _SESSION = {"cookie": "", "csrf": ""}
+
+# 共享会话**结构性**不可用标记（import/路径问题）。会话失效不算，见 _try_adopt_shared()
+_SHARED_BROKEN = False
+
+# ---------------------------------------------------------------------------
+# 登录节流 / 失败退避（2026-10-04「eFlow 用户数风暴」事故的治本项）
+#
+# 背景：本代理每个上游 403 都会触发一次 refresh_session()，而上游每次登录都会
+# 新建一个**永不释放**的服务端会话。会话文件缺失 + 登录被拒时形成正反馈：
+#   403 → 登录 → csrf 取不到 → 会话没更新 → 又 403 → …（实测 3822 次/天）
+# 因此登录必须被节流，且失败后必须退避，否则 my_app 的重试会打死上游。
+#
+# 三个常量都可用环境变量覆盖，便于现场应急调参而不改代码。
+# ---------------------------------------------------------------------------
+
+def _env_float(name, default):
+    """读环境变量为 float；非法值回退默认，避免现场手滑写错导致起不来。"""
+    try:
+        v = float(os.environ.get(name, "").strip())
+        return v if v >= 0 else default
+    except (TypeError, ValueError):
+        return default
+
+
+# 成功登录后的冷却期（秒）：期间即使收到 403 也只复用现有会话，不再登录。
+# 默认 30s —— 足以吸收前端并发刷新，又不至于让真失效的会话卡太久。
+_LOGIN_MIN_INTERVAL = _env_float("PROXY_LOGIN_MIN_INTERVAL", 30.0)
+
+# 失败退避基数（秒）：第 1 次失败等 1×，第 2 次 2×，第 3 次 4× …… 指数增长。
+_LOGIN_BACKOFF = _env_float("PROXY_LOGIN_BACKOFF", 30.0)
+
+# 退避上限（秒）：防止退避窗口无限增长导致永远不再尝试。
+_LOGIN_BACKOFF_MAX = _env_float("PROXY_LOGIN_BACKOFF_MAX", 600.0)
+
+# 运行时状态（受 _LOCK 保护）
+_LOGIN_LAST_OK = 0.0        # 上次**成功**登录的时刻（0 = 从未成功）
+_LOGIN_LAST_FAIL = 0.0      # 上次**失败**登录的时刻
+_LOGIN_FAIL_COUNT = 0       # 连续失败次数（成功后清零）
 # ---------------------------------------------------------------------------
 
 
@@ -115,7 +154,16 @@ _OPENER = build_opener(
 
 
 def load_session():
-    """从 fms_session.json 读取 cookie / csrf。"""
+    """从 fms_session.json 读取 cookie / csrf。
+
+    ⚠ 本文件是**本代理私有**的会话快照，与 `auth_manager` 的
+    `backend/services/auth_cache/<host>_<port>.json` **是两份独立的存储**。
+    因此 `AUTH_TOKEN_TTL` 对本文件**不生效** —— 这是 2026-10-04
+    「TTL 配了 1440 分钟却仍在频繁登录」的原因之一。
+
+    真正的共享靠 `adopt_shared_session()`：它优先去读 auth_manager 的缓存，
+    让本代理与所有 worker 共用同一个 token（用户最初的要求就是这个）。
+    """
     try:
         with open(SESSION_FILE, "r", encoding="utf-8") as f:
             obj = json.load(f)
@@ -131,6 +179,139 @@ def load_session():
     except Exception as e:
         print("[proxy] no valid session file: ", e)
     return _SESSION["cookie"], _SESSION["csrf"]
+
+
+def adopt_shared_session():
+    """优先复用 `auth_manager` 的**跨进程共享** eFlow 会话。
+
+    这是「eFlow 登录要用已经获取的 token，不要每个任务申请一次」这条要求的落地：
+    worker（sp_online_sync 等）与其它进程都通过 auth_manager 读写同一份
+    `auth_cache`，本代理接入它之后，**全项目只有一个 token 来源**，
+    避免"代理自己登录一份、worker 又登录一份"地把上游会话数顶上去。
+
+    返回 True 表示成功拿到共享会话并已写入本进程；False 表示拿不到
+    （缓存不存在/已过期/模块不可用），调用方应回退到自己的登录流程。
+
+    ⚠ **必须验证会话真的可用，不能只信 TTL**（2026-10-04 踩坑）：
+    `auth_manager` 只按 `expires_in` 判过期，而 eFlow 可能**提前**作废会话
+    （实测：缓存里 created_at 才 10 分钟、TTL 86400，但请求返回
+     401 {"hasLogged":true,"source":"smagent",...}）。
+    早期版本直接采纳这个"看着有效其实已死"的会话，导致 `refresh_session()`
+    把死会话又还给调用方 → 重试仍 401 → 502，**比不接共享还糟**。
+    因此这里**先探活**：拿一个轻量 API 验一次，通过才采纳。
+
+    注意：**失败不抛异常**。代理必须能独立启动 —— 若 auth_manager 不可用，
+    本代理仍应能靠 `load_session()` + `do_login()` 自给自足。
+    """
+    try:
+        import sys as _sys
+        from pathlib import Path as _Path
+
+        here = _Path(__file__).resolve()
+        for cand in (here.parent, *here.parents):
+            if (cand / "backend" / "services" / "auth_manager.py").exists():
+                if str(cand) not in _sys.path:
+                    _sys.path.insert(0, str(cand))
+                break
+        else:
+            return False
+
+        from backend.services.auth_manager import get_auth
+
+        # 从 TARGET_HOST 解析出 host/port，**不另建一份常量**（避免两个真相源）。
+        _p = urllib.parse.urlsplit(TARGET_HOST)
+        _host, _port = _p.hostname, (_p.port or 443)
+
+        # force_refresh=False（默认）：**只读缓存**，缓存有效就绝不触网登录。
+        # 这正是关键 —— 代理启动不该触发一次真实登录。
+        auth = get_auth(_host, _port, USER, PASS)
+        cookie = auth.get("cookie", "")
+        csrf = auth.get("forgery_token", "")
+        if not cookie:
+            return False
+
+        # ★ 关键一步：拿一个**轻量只读** API 验证会话是否真的还活着。
+        # 为什么不能省：`get_auth()` 只按 TTL 判过期，eFlow 却可能提前作废。
+        # 不验证就采纳 = 把一个死会话当成"刷新成功"还给调用方，
+        # 调用方重试仍 401，最终 502（这正是本函数早期版本的 bug）。
+        if not _probe_session_alive(cookie, csrf):
+            print("[proxy] shared session is stale (probe failed); will self-login")
+            return False
+
+        _SESSION["cookie"] = cookie
+        _SESSION["csrf"] = csrf
+        save_session(cookie, csrf)  # 同步到本代理私有快照，便于离线诊断
+        print(
+            "[proxy] shared session adopted from auth_manager: "
+            f"cookie=yes, csrf={'yes' if csrf else 'no'}, "
+            f"from_cache={auth.get('from_cache')}, probe=ok"
+        )
+        return True
+    except Exception as e:
+        print(f"[proxy] shared session unavailable ({type(e).__name__}: {e}); will self-login")
+        return False
+
+
+# 探活用的轻量 API（只读、不产生副作用、上游返回小）。
+# 选 getConfigCenterSiteTypeList 而不是看板 API：后者可能很慢，探活不该拖慢启动。
+_PROBE_PATH = ("/api/alarmstatistics-service/v1/levelregion/"
+               "getConfigCenterSiteTypeList?sitetype=ALL")
+
+
+def _probe_session_alive(cookie, csrf):
+    """用一次轻量请求判断会话是否真的可用。返回 True=可用。
+
+    判据是**响应状态码 200**，而不是响应体内容 —— 我们要回答的只是
+    "这个会话还能不能取数"，业务内容对探活无关。
+    """
+    if not cookie:
+        return False
+    try:
+        url = normalize_target_url(TARGET_HOST + _PROBE_PATH)
+    except Exception:
+        return False
+
+    hdrs = {"Cookie": cookie, "Accept": "application/json, text/plain, */*",
+            "X-Requested-With": "XMLHttpRequest",
+            "Referer": TARGET_HOST + "/uportal/framework/default.html"}
+    if csrf:
+        hdrs["forgerydefense"] = csrf
+    try:
+        req = Request(url, headers=hdrs, method="GET")
+        with _OPENER.open(req, timeout=15) as resp:
+            return 200 <= resp.status < 300
+    except HTTPError as e:
+        # 401/403 = 会话确实失效，这是探活要抓的主要情况
+        if e.code in (401, 403):
+            return False
+        # 其它 4xx/5xx 不能断定会话有问题（可能是探活 API 本身变了），
+        # 保守起见当作"不可用"，让调用方走自己的登录流程（更安全）。
+        return False
+    except Exception as e:
+        # 打印真实原因：静默 return False 会让"探活恒失败"无法定位
+        # （2026-10-04 踩过 —— 探活恒 False 导致共享会话从未被采纳）。
+        print(f"[proxy] probe failed: {type(e).__name__}: {e}")
+        return False
+
+
+def _try_adopt_shared():
+    """轻量包装 `adopt_shared_session()`，供热路径调用（带失败缓存）。
+
+    ⚠ 只缓存**"模块不可用"**这种真失败，**不缓存"会话暂时失效"**。
+    早期版本把"探活失败"也记成不可用，于是**一次失效就永久关闭共享**，
+    之后每次都自己登录 —— 反而加剧了登录风暴。会话失效是**可恢复的正常状态**
+    （下次别的进程登录后缓存就新了），必须允许重试。
+    """
+    global _SHARED_BROKEN
+    if _SHARED_BROKEN:
+        return False
+    try:
+        return adopt_shared_session()
+    except Exception as e:
+        # 只有 import/路径这类"结构性"错误才永久关闭；会话问题上面已返回 False
+        print(f"[proxy] shared session disabled for this run ({type(e).__name__}: {e})")
+        _SHARED_BROKEN = True
+        return False
 
 
 def save_session(cookie, csrf):
@@ -365,15 +546,23 @@ def do_login(api_url):
         status2 = e.code
         set_cookie = e.headers.get("Set-Cookie", "") or ""
 
+    # 取 csrf（forgerydefense）。
+    # ⚠ eFlow 的 cookie 名带**端口后缀**，实测为 `forgerydefense-28001`，
+    #   而不是裸 `forgerydefense`。原实现用 `c.name == "forgerydefense"` 精确匹配，
+    #   因此**永远取不到 csrf** → do_login() 恒定返回 ("", "") → 会话永不生效
+    #   → 每个请求 403 → 再次登录。这是 2026-10-04「eFlow 用户数风暴」的
+    #   真正触发缺陷（与下面 result 判据是同一段逻辑上的两个独立错误）。
+    #   改用前缀匹配，兼容裸名与带后缀名。
     csrf = ""
     for c in _COOKIE_JAR:
-        if c.name == "forgerydefense":
+        if c.name == "forgerydefense" or c.name.startswith("forgerydefense-"):
             csrf = c.value
+            break
     if not csrf and set_cookie:
         for part in set_cookie.split(","):
             for seg in part.split(";"):
                 seg = seg.strip()
-                if seg.lower().startswith("forgerydefense="):
+                if seg.lower().startswith("forgerydefense"):
                     csrf = seg.split("=", 1)[1]
                     if csrf == "deleted":
                         csrf = ""
@@ -382,45 +571,53 @@ def do_login(api_url):
         print("login_rsa HTTP ", status2)
 
     cookie = _cookie_header_from_jar()
-    result_ok = (
-        '"result":"1"' in raw2.decode("utf-8", "ignore")
-        or '"result": 1' in raw2.decode("utf-8", "ignore")
-    )
-    if not result_ok:
-        txt = raw2.decode("utf-8", "ignore")
-        if '"result":"0"' in txt or '"result": 0' in txt:
+
+    # ------------------------------------------------------------------
+    # 登录成功判据（2026-10-04 修正）
+    #
+    # 原判据是「响应体含 "result":"1"」，但**这版 eFlow 的 login_rsa 恒返回
+    # "result":"0"**，同时正常签发 Z-AUTH-CODE / forgerydefense / x-dexmesh-user。
+    # 实测：全部历史日志里 "result":"1" 出现 **0 次**，"result":"0" 出现 2422 次；
+    # 而同一时刻 backend.services.auth_manager（只认 Z-AUTH-CODE）登录**成功**。
+    # 也就是说登录一直是成功的，是这里判错了 —— 会话因此永不生效，每个请求
+    # 都 403 并再次触发登录，这正是 2026-10-04「eFlow 用户数风暴」的核心缺陷。
+    #
+    # 新判据与 auth_manager 对齐：**拿到会话凭据即为成功**。
+    # 顺序上先信凭据（cookie + csrf），因为那是后续请求真正要用的东西；
+    # 没有任何凭据时才回落到 result 标记，用于给出可诊断的失败信息。
+    # ------------------------------------------------------------------
+    txt = raw2.decode("utf-8", "ignore")
+    body_says_ok = ('"result":"1"' in txt or '"result": 1' in txt)
+    body_says_fail = ('"result":"0"' in txt or '"result": 0' in txt)
+
+    if cookie and csrf:
+        # 会话凭据齐全 = 成功。若响应体带 result:0，仅记一行说明，不算失败。
+        if body_says_fail:
             print(
-                "login failed: cookie=",
-                "yes" if cookie else "no",
-                ", csrf=",
-                "yes" if csrf else "no",
-                ", body=",
-                txt[:300],
+                "[auth] note: resp has result:0 but session issued "
+                "(Z-AUTH-CODE + csrf ok) -- treating as SUCCESS"
             )
-            return "", ""
-        if cookie and csrf:
-            print(
-                "[auth] warning: login response has no explicit result 0/1; "
-                "accepting because cookie + csrf are present"
-            )
-        else:
-            print(
-                "login failed: cookie=",
-                "yes" if cookie else "no",
-                ", csrf=",
-                "yes" if csrf else "no",
-                ", body=",
-                txt[:300],
-            )
-            return "", ""
+        return cookie, csrf
+
+    if body_says_ok:
+        # 上游说成功但没给全凭据：仍按失败处理，否则后续请求必然 403
+        print(
+            "login failed: result:1 but incomplete session: cookie=",
+            "yes" if cookie else "no",
+            ", csrf=",
+            "yes" if csrf else "no",
+        )
+        return "", ""
 
     print(
-        "[auth] login success: cookie=",
+        "login failed: cookie=",
         "yes" if cookie else "no",
         ", csrf=",
-        (csrf[:16] + "…") if csrf else "no",
+        "yes" if csrf else "no",
+        ", body=",
+        txt[:300],
     )
-    return cookie, csrf
+    return "", ""
 
 
 def ensure_session(api_url):
@@ -439,14 +636,92 @@ def ensure_session(api_url):
 
 
 def refresh_session(api_url):
-    """会话失效后重登并落盘。"""
+    """会话失效后重登并落盘（带**节流 + 失败退避**）。
+
+    为什么必须节流（2026-10-04 事故复盘）
+    ------------------------------------
+    本函数由 `Handler._proxy` 在收到 401/403/406/407 时调用，而每个代理请求
+    都是独立触发的。会话文件缺失或登录被上游拒绝时，会形成正反馈死循环：
+
+        请求 403 → refresh_session() 登录 → csrf 取不到 → 会话没更新
+          → 下一个请求又 403 → 又登录 → …… （实测达 3822 次/天、几秒一次）
+
+    上游（eFlow）每次登录都会**新建一个服务端会话且从不释放**，于是 my_app
+    自己的重试把 eFlow 的会话数顶爆 —— 这正是 2026-10-04 的"用户数风暴"。
+
+    三道闸门（缺一不可）：
+      1. **成功冷却** `_LOGIN_MIN_INTERVAL`：距上次成功登录不足该秒数就直接复用
+         现有会话，不再登录。用于吸收"前端并发刷新"这种正常但密集的触发。
+      2. **失败退避** `_LOGIN_BACKOFF`：登录失败后，在指数增长的窗口内
+         （失败次数越多等得越久，上限 `_LOGIN_BACKOFF_MAX`）**一律不再尝试登录**，
+         直接让调用方走失败分支。这切断正反馈，避免把上游打死。
+      3. **并发合并**：`_LOCK` 保证同一时刻只有一个登录在飞；配合 1/2，
+         并发的 N 个 403 最多只换 1 次真实登录。
+
+    返回 (cookie, csrf)。**被节流或退避拦下时返回 ("", "")**，明确告诉调用方
+    "本次没有刷新成功" —— 调用方据此走失败分支（502），而不是拿着同一个失效
+    会话重试。这一点很关键：调用方判定成功的条件是 `[0]` 非空，若这里回填现有
+    cookie，调用方会误以为刷新成功并 continue，白白多打一次上游（又是一次 403）。
+    """
+    global _LOGIN_LAST_OK, _LOGIN_LAST_FAIL, _LOGIN_FAIL_COUNT
     with _LOCK:
+        now = time.time()
+
+        # 闸门 2：失败退避中，直接放弃（不触网）
+        if _LOGIN_FAIL_COUNT > 0:
+            wait = min(
+                _LOGIN_BACKOFF * (2 ** (_LOGIN_FAIL_COUNT - 1)),
+                _LOGIN_BACKOFF_MAX,
+            )
+            elapsed = now - _LOGIN_LAST_FAIL
+            if elapsed < wait:
+                print(
+                    f"[auth] backoff: skip login "
+                    f"(failed {_LOGIN_FAIL_COUNT}x, {wait - elapsed:.0f}s left)"
+                )
+                return "", ""
+
+        # 闸门 1：成功冷却期内，复用现有会话（不触网）
+        if _LOGIN_LAST_OK and (now - _LOGIN_LAST_OK) < _LOGIN_MIN_INTERVAL:
+            print(
+                f"[auth] throttle: reuse session "
+                f"({now - _LOGIN_LAST_OK:.0f}s < {_LOGIN_MIN_INTERVAL}s)"
+            )
+            # 返回空 = 告诉调用方"本次没有真正刷新"。若这里返回现有 cookie，
+            # 调用方会以为刷新成功并 continue 重试同一个失效会话，
+            # 白白多打一次上游（每次重试都是一次 403）。
+            return "", ""
+
+        # 闸门 0：**先尝试复用共享会话**（auth_manager 缓存），完全不触网。
+        #
+        # 为什么放在最前面：403 可能只是因为**本代理手里的会话旧了**，而别的
+        # 进程（worker）刚登录过、缓存是新鲜的。此时直接复用即可，**无需登录**
+        # —— 这正是"不要每个任务申请一次 token"的落地。只有共享缓存也拿不到
+        # 可用会话时，才退回到自己登录。
+        #
+        # 放在退避/冷却判断**之后**是有意的：若刚经历失败退避，说明上游可能
+        # 正在拒绝，此时连共享缓存也不该抢先复用（保持退避语义），交由调用方
+        # 走失败分支。
+        if _try_adopt_shared():
+            print("[auth] reused shared session from auth_manager (no login needed)")
+            return _SESSION["cookie"], _SESSION["csrf"]
+
         cookie, csrf = do_login(api_url)
-        if cookie:
+
+        if cookie and csrf:
             _SESSION["cookie"] = cookie
             _SESSION["csrf"] = csrf
             save_session(cookie, csrf)
+            _LOGIN_LAST_OK = time.time()
+            _LOGIN_FAIL_COUNT = 0
             print("[proxy] session refreshed csrf=", (csrf[:16] + "…") if csrf else "no")
+        else:
+            # 登录失败：记一次失败，进入退避；**不**落盘半截会话
+            _LOGIN_FAIL_COUNT += 1
+            _LOGIN_LAST_FAIL = time.time()
+            print(
+                f"[auth] login failed ({_LOGIN_FAIL_COUNT}x) -- entering backoff"
+            )
         return cookie, csrf
 
 
@@ -649,6 +924,12 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     load_session()
+    # 启动时优先接入 auth_manager 的**跨进程共享会话**：worker 等进程若已有
+    # 可用 token，本代理直接复用，**不再自己登录一份**。这是"全项目一个 token
+    # 来源"的关键 —— 否则代理与 worker 各登录一份，上游会话数翻倍。
+    adopted = adopt_shared_session()
+    if not adopted:
+        print("[proxy] no shared session at startup; will self-login if needed")
     try:
         cookie, _csrf = ensure_session(
             TARGET_HOST + "/api/alarmstatistics-service/v1/levelregion/getsitelocations"
@@ -660,10 +941,12 @@ def main():
 
     srv = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
     print("实时代理已启动: http://127.0.0.1:", PORT, " (目标 ", TARGET_HOST, ", 用户 ", USER, ")")
+    print("共享会话: ", "已接入 auth_manager 缓存" if adopted else "未接入（独立登录）")
     print("自动登录: 用户名 + RSA 加密密码方式（未改变）")
     print("动态 redirect_uri: 已启用")
     print("多业务 API: 已启用")
     print("自动重登: 已启用")
+    print("登录节流: 已启用")
     print("日志: 已启用")
     try:
         srv.serve_forever()

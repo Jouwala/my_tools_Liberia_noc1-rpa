@@ -39,7 +39,7 @@ logger = logging.getLogger("eflow_alarm_rule_collector")
 
 # ========== 导入项目中的 eflow API 客户端 ==========
 from backend.services.eflow_api_client import (
-    login, get_session_headers, _http_request, HOST, PORT
+    ensure_login, get_session_headers, _http_request, HOST, PORT
 )
 
 
@@ -74,8 +74,10 @@ class EflowAlarmRuleCollector:
         """收集规则类型目录 + 全部关联规则"""
         try:
             # Step 1: 确保已登录
+            # 用 ensure_login() 而非 login()：本进程已有会话时直接复用，
+            # 没有才去读 auth_manager 的跨进程缓存（2026-10-04 修正登录风暴）
             logger.info("Step 1: 确保 eFlow 会话已登录")
-            login()
+            ensure_login()
             cookie, forgery_token = get_session_headers()
             logger.info(f"✓ 登录成功 - Cookie: {cookie[:50]}...")
 

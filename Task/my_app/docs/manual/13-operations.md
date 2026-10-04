@@ -323,6 +323,379 @@ WHERE task_id='cells_kpi_sync' ORDER BY started_at DESC LIMIT 5;
 > 该任务 2026-09-25 才上线，**10/1 是它第一次遇到月份边界**，故此前从未暴露。
 > 回归：`python -m pytest tests\test_job_zombie_and_month_start.py -q`
 
+### eFlow 登录风暴：前端打不开 + 上游用户数暴涨（2026-10-04 事故）
+
+**症状**（两个表象，两组独立缺陷）：`?page=portalLogin` 等页面**打不开**（7090 未监听）；
+同时 eFlow 上**用户数持续增长**、"几秒一次登录"。
+
+#### 缺陷一：前端路径未随脚本搬迁更新（页面打不开）
+
+提交 `0e6071ed`（2026-10-03 21:58「代理脚本迁出被忽略的 scripts/ 并入 tools/」）
+把 `start-app.mjs` 移到 `tools/`，但**没有同步修改 `frontend/package.json`**
+（已核对：该提交的文件列表里根本没有它）：
+
+```
+frontend/package.json:9,12   "node ../scripts/start-app.mjs"   ← 文件已不在
+→ Error: Cannot find module '...\scripts\start-app.mjs'
+→ 7090 未监听 → nginx /myapp/ 502 → 页面打不开
+```
+
+> **为什么当时没暴露**：该提交自己写明"线上两个代理 ensure_proxy 返回 reuse，
+> **未重启**" —— 当时跑的还是搬迁前启动的旧进程，路径错误**只在下次冷启动时**
+> 才暴露，而那个时刻落在了 2026-10-04。
+
+**修复**：`frontend/package.json:9,12` 改指 `../tools/start-app.mjs`。
+
+#### 缺陷二：`do_login()` 的两个判据同时错了（登录风暴）
+
+**这是风暴的核心。** `tools/realtime_proxy.py` 的 `do_login()` 有**两个独立错误**，
+任一存在都会让"登录明明成功却判定失败"，进而永不写会话、每个请求 403 并再次登录。
+
+**错误 A：csrf 取不到（`c.name == "forgerydefense"` 精确匹配）**
+
+eFlow 的 cookie 名**带端口后缀**，实测为 `forgerydefense-28001`，不是裸名。
+原实现用精确相等匹配，**永远匹配不上**，于是 `csrf` 恒为空：
+
+```python
+for c in _COOKIE_JAR:
+    if c.name == "forgerydefense":     # ← 实际叫 forgerydefense-28001，永不命中
+        csrf = c.value
+```
+
+现场实测 jar 内容（`forgerydefense-28001` 明明有 64 字节）：
+```
+Z-AUTH-CODE-28001 = <非空 len=41>
+x-dexmesh-user-28001 = <非空 len=64>
+forgerydefense-28001 = <非空 len=64>     ← csrf 就在这，但取不到
+```
+
+**错误 B：成功判据要求 `"result":"1"`，而 eFlow 恒返回 `"result":"0"`**
+
+```python
+result_ok = '"result":"1"' in raw2.decode(...)   # ← eFlow 从来不发这个值
+```
+
+实测：**全部历史日志里 `"result":"1"` 出现 0 次，`"result":"0"` 出现 2422 次。**
+而同一时刻 `backend.services.auth_manager`（判据只看是否拿到 `Z-AUTH-CODE`）
+登录**成功**（cookie 350 字节、forgery_token 64 字节）。
+**证明登录一直是成功的，是代理自己判错了。**
+
+> ⚠ **`result:"0"` 不是"被拒绝"语义**，这版 `login_rsa` 恒回 `0`，
+> 同时正常签发 `Z-AUTH-CODE` / `forgerydefense` / `x-dexmesh-user`。
+> 用 `result` 判断登录成败是本事故最大的认知陷阱 —— 排障时别再把 `result:0`
+> 读成"上游拒绝登录"。**判定登录是否成功，看是否拿到会话 Cookie。**
+
+**正反馈如何放大**（`refresh_session` 修复前无任何退避）：
+
+```
+冷启动读不到会话 → do_login() 登录成功但判失败 → 返回 ("", "")
+  → 会话没写进 _SESSION、没 save_session()
+    → 下个请求仍无有效会话 → 403 → 又登录 → 又"失败" → …
+      → 实测 10-03 单日 3822 次；上游侧堆 3822 个永不释放的会话
+        → 「用户数一直在增加」（my_app 全程没有任何 eFlow 登出逻辑）
+```
+
+实测每日 `[auth] login start`：**09-27~10-02 全部 0 次**，**10-03 骤增至 3822 次**。
+
+> **为什么"之前运行的好好的"**：会话文件原先有效时，`do_login()` **从不被执行**
+> ——两个判据错误**潜伏已久但从未被触发**。是缺陷一（冷启动丢会话）第一次让它
+> 执行到，`refresh_session` 的无退避再把它放大成灾难。
+> **不是代码变坏了，是一个一直存在的 bug 终于被执行到了。**
+
+#### 判定（三条命令）
+
+```powershell
+# ① 页面打不开：7090 是否在监听
+Get-NetTCPConnection -LocalPort 7090 -State Listen
+# ② 登录风暴：当天日志首行是 "no valid session file" 而非 "session loaded"
+Select-String -Path log\realtime_proxy_fms_*_console.log -Pattern "session loaded|no valid session" | Select-Object -First 5
+# ③ 登录次数；正常为个位数，异常时可达数千
+(Select-String -Path log\realtime_proxy_fms_*_console.log -Pattern "\[auth\] login start").Count
+```
+
+#### 已做的修复
+
+1. `frontend/package.json:9,12` 改指 `../tools/start-app.mjs` —— 恢复 7090。
+2. `tools/realtime_proxy.py` 的 `do_login()`：
+   **csrf 改用前缀匹配**（兼容裸名与 `-<port>` 后缀）；
+   **成功判据改为"拿到 cookie + csrf 即成功"**，与 `auth_manager` 对齐。
+3. `tools/realtime_proxy.py` 的 `refresh_session()` **新增三道闸门**：
+   成功冷却 `_LOGIN_MIN_INTERVAL`（默认 30s）、失败退避 `_LOGIN_BACKOFF`
+   指数增长至 `_LOGIN_BACKOFF_MAX`（默认 600s）、`_LOCK` 串行化。
+   均可用环境变量 `PROXY_LOGIN_MIN_INTERVAL` / `PROXY_LOGIN_BACKOFF` /
+   `PROXY_LOGIN_BACKOFF_MAX` 现场调参。**被拦下时返回 `("", "")`**，
+   避免调用方拿着同一失效会话 `continue` 重试（那会白打一次上游）。
+4. `tools/realtime_proxy_vmax.py`：
+   - `ensure_login()` 施加同样三道闸门；
+   - `forgerydefense` 同样改用前缀匹配；
+   - 修掉一个**既存** `UnboundLocalError`：`_proxy()` 的 `except Exception`
+     分支从不给 `status` 赋值，上游不可达时抛异常，把本该 502 变成 500 堆栈；
+   - `/health` 的 `auth` 判据原先要求 `bool(CSRF)`，但该门户（`10.123.255.12:26180`）
+     **只签发 JSESSIONID、从不签发 forgerydefense**，导致登录成功后
+     `auth` 仍永久显示 `false`（误导排障）；改为按会话 Cookie 判定。
+     `csrf` 单独作为字段暴露。
+
+**验证结果**（2026-10-04 网线恢复后实测）：
+
+```
+8787 {"status":"ok","proxy":"ready","target":"https://10.100.20.8:28001","auth":true,"user":"admin"}
+8790 {"status":"ok","proxy":"ready","auth":true,"csrf":false,"user":"ZeeshanM"}
+tools/fms_session.json 已重建（cookie 有 / csrf 有）
+/proxy?url=...getSitedomain?type=RAN → HTTP 200，返回真实站点数据
+60 秒内新增 [auth] login start：0 次（修复前为 10~20 次）
+```
+
+> **教训一：搬迁脚本时，"按脚本位置推导"的资源路径必须一起搬。**
+> 本次受害点是 `dirname(__file__)` 型路径（`realtime_proxy.py:91-92`）。
+> 搬迁前应 `git grep` 该文件名找出**所有**引用点 —— `package.json` 就是这样被漏掉的。
+>
+> **教训二：判定上游成败，要以上游真正给的东西为准，不要臆断字段语义。**
+> `result:"0"` 被当成"拒绝"读了很久；真正的成功凭据（会话 Cookie）一直就在响应里。
+> **交叉验证手段**：拿同仓库另一条已工作的路径（这里是 `auth_manager`）做对照 ——
+> 它成功而这边失败，就说明问题在本侧，不在上游。
+
+> 回归：`python TMP\_verify_proxy_throttle.py`（13 项断言，不触网；
+> 覆盖冷却、退避、指数增长封顶、成功后清零）。
+
+> **登录频率治理的回归脚本**（2026-10-04 起，两者都留在 `TMP/`）：
+> - `python TMP/_verify_login_frequency.py` —— **离线**断言（4 项，含"5 次调用 0 次登录"），
+>   不触网、不污染上游，**改完鉴权相关代码优先跑这个**。
+> - `python TMP/_measure_login_rate.py [秒]` —— **在线**实测真实登录次数，
+>   判据是 `auth_cache` 的 `created_at` 变化 + 代理日志 `[auth] login start` 增量。
+>   它会真的触发上游登录（若缓存确实失效），**跑之前先确认可以接受**。
+
+### 上游会话数控制：TTL 调长 + 登出（2026-10-04）
+
+**背景**：登录风暴的另一半原因是**只登录、从不登出**。eFlow 每次登录都新建一个
+服务端会话，而本项目没有任何释放它的代码，于是登录次数直接等于会话堆积量。
+
+#### 1) TTL 调长（已生效）
+
+`backend\.env` 新增 `AUTH_TOKEN_TTL=86400`（1440 分钟 = 24 小时）。
+`auth_manager.py:87` 的 `DEFAULT_TTL` 读取它。
+
+**为什么**：`sp_online_sync` 的 cron 是 `35 * * * *`（每小时一次），原默认 TTL
+1800 秒（30 分钟）**每次运行前必然过期** → 每小时真实登录一次 ≈ **24 次/天**。
+TTL 改为 24 小时后，一天只有第 1 次真实登录，其余命中缓存。
+
+> ⚠ `DEFAULT_TTL` 在**模块导入时求值**，且 `auth_manager.py` **自己不加载 `.env`**
+> —— 它依赖 `backend/database.py:9-21` 的 import 副作用先完成 `load_dotenv`。
+> 因此改完必须**重启后端与 worker** 才生效，且单独 import `auth_manager` 会读到旧默认值。
+
+**验证**：`python TMP\_verify_auth_ttl.py` → `ALL_TTL_CHECKS_PASSED`
+（断言 `DEFAULT_TTL==86400`、缓存文件 `expires_in==86400`、二次读取 `from_cache=True`）。
+
+#### 2) 登出接口：已定位契约，但**尚未验证生效**（默认关闭）
+
+**已确认的部分**（2026-10-04 实测）：
+
+```
+POST /api/oauth2/v1/delete/login/remove
+Body: {"authCode":["<值>"]}
+必需请求头: forgerydefense: <会话 forgerydefense cookie 的值>
+```
+
+- 缺 `forgerydefense` 头**一律 403**：`{"code":3329008,"message":"This request
+  is prohibited for cross-site access"}`。实测 Referer/Origin 的 7 种组合全部 403，
+  **只有**加上该头才返回 204。头名必须是**不带端口后缀的裸 `forgerydefense`**
+  —— 用 `forgerydefense-28001` 同样 403（cookie 名带后缀，头名不带）。
+- 业务接口同样需要这个头：不带它请求业务 API 也是 403。
+
+**尚未解决的部分 —— `204` 不能作为成功判据**：
+
+| 场景 | 响应 | 该会话随后是否仍可用 |
+| --- | --- | --- |
+| 用**同一次**登录的 `loginParameters` 当 authCode | 204 | **仍 200** |
+| 故意用**陈旧/错误**的 authCode | 204 | **仍 200** |
+| 对**已登出过**的会话重复调用 | 204 | — |
+
+**该接口无条件返回 204**，所以它既不证明成功、也不证明 authCode 正确。
+我们的实现能拿到 204，但**会话没有被销毁**。
+
+`authCode` 的正确取值**仍未确定**：
+
+| 来源 | 长度 | 结尾 |
+| --- | --- | --- |
+| 浏览器 F12 抓到的真实 payload | **121** | `$10` |
+| 我们从 authorize 页 `loginParameters` 取到的 | **225** | `$10` |
+
+形状一致但长度差一倍，两者都不生效。
+
+> **下一步（需要人工在浏览器操作）**：登录 eFlow → **F12 → Network → 点"注销"** →
+> 右键该请求 → **Copy as cURL**，把完整请求贴出（关键是 **Cookie 头全部内容**、
+> **所有自定义请求头**、以及 payload 原值）。据此比对才能定值。
+>
+> 在那之前 `AUTH_LOGOUT_ENABLED` **保持关闭**（默认 False）。实现已就绪：
+> 关闭时 `logout()` 直接返回 False 不发请求；开启后即使不生效也**无害**
+> —— 幂等、且异常被吞掉不阻断任务。
+>
+> **判据教训**：早先版本把 `ok = "5" not in status[:1]`（只排 5xx）当成功，
+> 于是 **403 被误判为"已登出"**。现已改为**只认 2xx**，并对非 2xx 记
+> `[AUTH] 登出未生效`。这个错误是靠**受控对照实验**（同会话、同请求头，
+> 唯一变量是"是否登出"）才发现的 —— 单看"请求返回成功"会一直以为它是好的。
+
+#### 3) eFlow 侧会话会自动过期（重要，可能使登出功能变得不必要）
+
+2026-10-04 从 eFlow 的**用户连接数页面**实测到一条关键事实：
+
+| 列 | 值 | 含义 |
+| --- | --- | --- |
+| **Max Idle Time (Minutes)** | **1440** | 上游自身对会话的**空闲上限就是 1440 分钟 = 24 小时** |
+| Idled Time (Minutes) | 0 | 该会话当前空闲时长 |
+| Login Time | — | 可用于将列表条目与某次登录对应起来 |
+| Operation | Force Logout | 上游提供**手动强制登出**按钮 |
+
+**两个结论**：
+
+1. **堆积的会话会自行回收** —— 空闲满 1440 分钟后消失。所以 2026-10-04 的会话
+   堆积**不会永久占用**，不必依赖我们写登出代码去清。
+2. **`AUTH_TOKEN_TTL=86400`（= 1440 分钟）与上游上限完全吻合**，是最优取值：
+   本地缓存不会晚于上游失效，也不会无谓地触发重新登录。
+
+> ✅ **清理现有堆积会话的首选手段是上游页面的 `Force Logout` 按钮**，
+> 不是我们的代码 —— 它直接、可见、无需猜测接口语义。
+
+> ⚠ **排障时务必先确认流量的真实来源。** 2026-10-04 排查中一度把
+> 「eFlow 连接数持续增长」归因为 my_app 仍在登录，实测发现当时 my_app
+> **一个进程都没跑**，与 eFlow 保持连接的是**本机浏览器**（用户在查看该会话
+> 列表页，页面轮询产生大量连接）。
+> 判定方法：`Get-NetTCPConnection -RemoteAddress 10.100.20.8` 看 `OwningProcess`，
+> 再用 `Get-CimInstance Win32_Process -Filter "ProcessId=<pid>"` 看进程名，
+> **不要**只凭"连接数是 my_app 的目标 IP"就下结论。
+
+> **操作纪律**：不要在生产 eFlow 上做密集的登录实验。每次 `get_auth(force_refresh=True)`
+> 都会在上游**真实新建一个会话**并出现在用户连接数列表里，直到 1440 分钟后才回收。
+> 2026-10-04 的验证过程中因此产生了 11 个测试会话（04:20~04:22）。
+> 验证登出这类"会改变上游状态"的功能前，先想清楚**是否会污染生产**，
+> 并优先用上游现成的可观测手段（如该列表页）做判定，而非反复打接口。
+
+### 登录频率治理：三道防线（2026-10-04，已实测生效）
+
+**症状**：`AUTH_TOKEN_TTL` 已配 86400（1440 分钟），但登录依然频繁。
+
+**排查结论：TTL 本身是对的，问题是它"管不到"另外两条路径。**
+共三个独立缺陷，任一都会导致重复登录：
+
+#### 缺陷 1：`DEFAULT_TTL` 的求值依赖导入顺序（已修）
+
+`DEFAULT_TTL` 在**模块导入时**求值，而 `auth_manager.py` 此前**自己不加载 `.env`**
+—— 只在 `backend.database` 被先导入时才"顺带"读到。实测两种结果：
+
+```
+先 import backend.database → DEFAULT_TTL = 86400  ✓
+直接 import auth_manager    → DEFAULT_TTL = 1800   ✗
+```
+
+worker 是多进程（u/n/v/m/c），**导入顺序不受控**，于是"配了 1440 分钟却仍按
+30 分钟过期"，且**静默无提示**。
+
+**修复**：`auth_manager.py:81-105` 自己调 `load_dotenv(..., override=False)`，
+不依赖任何导入副作用。验证：直接 import 也得到 86400。
+
+#### 缺陷 2：`realtime_proxy` 有**独立**的会话存储，TTL 对它无效（已修）
+
+项目里有**两套 eFlow 会话存储**：
+
+| 存储 | 文件 | 判过期依据 |
+| --- | --- | --- |
+| `auth_manager` | `backend/services/auth_cache/<host>_<port>.json` | **`expires_in`（TTL）** |
+| `realtime_proxy` | `tools/fms_session.json` | 不看 TTL，只看会话是否被拒 |
+
+`realtime_proxy.py` 里对 `AUTH_TOKEN_TTL` 的引用是**零** —— 它自持一份会话，
+403 就自己登录。这正是用户最初抱怨的"每个任务申请一次 token"的最后一块拼图。
+
+**修复**：新增 `adopt_shared_session()`（`tools/realtime_proxy.py:178`），
+启动时与 403 恢复时都**优先复用 `auth_manager` 的跨进程缓存**，让全项目只有一个 token 来源。
+
+> ⚠ **踩坑记录一（只信 TTL 就采纳 → 502）**：第一版实现**只信 TTL 就直接采纳**缓存会话，
+> 结果把一个"看着有效其实已死"的会话当成刷新成功还给调用方 → 重试仍 401 → **502**，
+> 比不接共享还糟。日志特征：
+> ```
+> auth error 401 → shared session adopted (from_cache=True) → attempt=2 → auth error 401
+> ```
+> **根因**：`auth_manager` 只按 `expires_in` 判过期，而 eFlow 可能**提前**作废会话
+> （实测：缓存 `created_at` 才 10 分钟、TTL 86400，请求却返回
+> `401 {"hasLogged":true,"source":"smagent",...}`）。
+> **修正**：采纳前必须 `_probe_session_alive()` **探活**（打一个轻量只读 API，
+> 判据是 HTTP 200）。探活不过就**不采纳**，回退自己的登录流程。
+> 同时"会话失效"**不得**被记成"共享永久不可用" —— 那是可恢复的正常状态，
+> 缓存在别的进程登录后会变新；只有 import/路径这类结构性错误才永久关闭。
+
+> ⚠ **踩坑记录二（探活函数自己坏了，且静默失败）**：加完探活后，**所有**采纳请求都返回
+> "会话已失效"，而同一个会话直接打接口明明是 200 —— 即**探活函数恒 False**，
+> 于是共享会话**从未真正生效**，每个请求都退化成自己登录（反而更糟）。
+> **根因**：探活函数里写了 `request.Request(...)`（`request` 未绑定）和
+> `urllib.error.HTTPError`（该模块只 `from urllib.error import ...`），
+> 抛 `NameError`，却被 `except Exception: return False` **静默吞掉**。
+> **两条教训**：
+> 1. **兜底 `except` 必须打印异常**。`return False` 不写日志，让"探活永远失败"
+>    看起来和"会话确实失效"一模一样，排查时极易误判为上游问题。
+> 2. **判断"某功能是否生效"要看正向证据**（日志里出现 `probe=ok`、真实取数返回 200），
+>    不能只看"没有报错"。本 bug 的离线断言最初还报 PASS —— 因为断言写的是
+>    "采纳必须成功"这一**假设**，而不是"会话真的可用"。修完断言与探活才一致。
+
+> 🔎 **附带发现（重要，但不改变本轮结论）**：eFlow 会话可能**提前**失效，
+> 与 TTL 无关。实测同一个 `admin` 会话：
+> - `04:22` 建的缓存在 `04:39` 前后开始返回 `401 {"hasLogged":true,...}`；
+> - 而新登录的会话**立刻可用**，且连续 3 次请求稳定 200；
+> - 同时验证：**新登录不会踢掉旧会话**（A 登录 → B 登录 → A 仍 200），
+>   即上游**允许多会话并存**，不是"单会话互踢"。
+>
+> 含义：`AUTH_TOKEN_TTL=86400` 是**上限**，不是保证 —— 会话可能因上游策略
+> （空闲回收、重启、安全策略）提前失效。**因此探活是必需的**，
+> 只靠 TTL 会在"缓存说有效、实际已失效"时整片 502。
+> 上游用户连接页的 `Max Idle Time = 1440` 分钟与此吻合。
+
+#### 缺陷 3：`sp_online_sync` 的触发间隔 > 原 TTL（已修）
+
+`sp_online_sync` 旧 cron 是 `35 * * * *`（每小时），而旧 `AUTH_TOKEN_TTL=1800`（30 分钟）
+—— **每轮运行前缓存必然已过期**，于是每小时真实登录一次 = **24 次/天**。
+
+日志完全吻合（修前）：`09-26`~`10-03` 每天 **15/22/23/21/24/21/23/26** 次登录。
+
+**修复**：cron 改为 `35 */6 * * *`（4 次/天，`backend/task_registry.py:665`）。
+即使 TTL 配置失效或缓存被清，登录次数也**封顶 4 次/天**，不会退化成 24 次/天。
+
+> 为什么"每小时"本来就不必要：本任务拉的是全量在线工单（非增量流水），
+> 看板呈现"当前工单状态"，6 小时粒度对工单场景足够。
+
+#### 验证方法与实测结果
+
+**离线断言**（不触网）：`python TMP/_verify_login_frequency.py`
+→ `ALL_LOGIN_FREQUENCY_CHECKS_PASSED`（4/4，含"5 次 get_auth 触发 0 次登录"）。
+
+**在线实测**：`python TMP/_measure_login_rate.py 300`
+判据是 `auth_cache` 的 `created_at` 是否变化 + 代理日志 `[auth] login start` 增量
+—— **不问代码看起来对不对，只数真实登录次数**。
+
+修复后 5 分钟窗口结果：
+
+| 指标 | 结果 |
+| --- | --- |
+| 代理 200 响应 | **165 次**（确在满负荷服务） |
+| 代理 502 响应 | **0** |
+| `auth error 401` | **0** |
+| `[auth] login start` | **0** |
+| **真实登录次数** | **0** |
+
+即"**165 次成功取数、0 次登录**"。修复前同样流量会触发多次登录。
+`/health` 返回 `{"status":"ok","proxy":"ready","auth":true}`，业务取数 200。
+
+#### eFlow 任务全景（改后已全部落在 24h TTL 内）
+
+| 任务 | cron | 间隔 | 说明 |
+| --- | --- | --- | --- |
+| `eflow_active_alarm` | `*/30 * * * *` | 0.5h | 靠缓存命中 |
+| `eflow_sync` | `22 * * * *` | 1h | 靠缓存命中 |
+| `eflow_history_alarm` | `0 */3 * * *` | 3h | 靠缓存命中 |
+| `sp_online_sync` | `35 */6 * * *` | 6h | **本轮已放宽** |
+| `eflow_sync_full` | `0 1 * * *` | 24h | 一天一次，正常 |
+| `eflow_tt_rules_check` | `20 4 * * *` | 24h | 正常 |
+| `eflow_alarm_rules_collect` / `eflow_push_rules_collect` | `59 23 */3 * *` | 3 天 | 正常 |
+
+**结论**：所有 eFlow 任务的触发间隔都 ≤ 24h，因此**全部命中缓存**，
+正常情况下**每天只会有 1 次真实登录**（TTL 到期那次）。
+
 ### KPI 残缺日的识别与修复（2026-09-24 事故）
 
 现象：`?page=vmaxCxoDashboard_90Days` 的「Active Users」停在某天之前，之后全是空，

@@ -24,6 +24,7 @@ import os
 import re
 import ssl
 import threading
+import time
 import urllib.parse
 
 import http.cookiejar as cookiejar
@@ -79,6 +80,30 @@ CJ = cookiejar.CookieJar()
 CSRF = ""
 _OPENER = None
 _LOCK = threading.Lock()
+
+# ---------------------------------------------------------------------------
+# 登录节流 / 失败退避（2026-10-04「eFlow 用户数风暴」事故的治本项）
+# 事故：上游持续 403 时，ensure_login() 被每个请求触发 → 每次登录都在上游
+# 新建一个永不释放的会话 → 会话数暴涨、上游开始拒绝登录 → 更凶的重试。
+# 三道闸门见 ensure_login() 的 docstring。均可用环境变量覆盖，便于应急调参。
+# ---------------------------------------------------------------------------
+def _env_float(name, default):
+    """读环境变量为 float；非法值回退默认，避免现场手滑写错导致起不来。"""
+    try:
+        v = float(os.environ.get(name, "").strip())
+        return v if v >= 0 else default
+    except (TypeError, ValueError):
+        return default
+
+
+_LOGIN_MIN_INTERVAL = _env_float("PROXY_LOGIN_MIN_INTERVAL", 30.0)   # 成功冷却
+_LOGIN_BACKOFF = _env_float("PROXY_LOGIN_BACKOFF", 30.0)             # 退避基数
+_LOGIN_BACKOFF_MAX = _env_float("PROXY_LOGIN_BACKOFF_MAX", 600.0)    # 退避上限
+
+_LOGIN_LAST_OK = 0.0
+_LOGIN_LAST_FAIL = 0.0
+_LOGIN_FAIL_COUNT = 0
+# ---------------------------------------------------------------------------
 
 
 def load_session():
@@ -211,9 +236,15 @@ def vmax_login():
         return False
 
     global CSRF
+    # ⚠ eFlow 的 cookie 名带**端口后缀**（如 `forgerydefense-26180`），
+    #   原实现用精确相等匹配裸名，**永远取不到 csrf**，导致后续请求缺 CSRF 头
+    #   而被上游拒绝、进而反复重登。2026-10-04 与 realtime_proxy.py 同源缺陷
+    #   一起修正：改用前缀匹配，兼容裸名与带后缀名。
     for c in CJ:
-        if c.name.lower() == "forgerydefense":
+        if c.name.lower() == "forgerydefense" \
+                or c.name.lower().startswith("forgerydefense-"):
             CSRF = c.value
+            break
 
     print(
         "[login] ok as ",
@@ -300,15 +331,66 @@ def _probe_session():
         return False
 
 
-def ensure_login():
-    """持锁确保会话可用：先复用磁盘会话，探活失败则重新登录。"""
+def ensure_login(force=False):
+    """持锁确保会话可用：先复用磁盘会话，探活失败则重新登录。
+
+    ⚠ 带**节流 / 失败退避**（2026-10-04「eFlow 用户数风暴」事故的治本项）。
+    本函数由 `fetch` 处理器在收到 401/403/407 时调用，而每个代理请求都是独立
+    触发的。若上游持续拒绝，会形成「403 → 重登 → 又 403 → 又重登」的正反馈，
+    每次登录都在上游**新建一个永不释放的会话**，把上游会话数顶爆。
+
+    三道闸门与 tools/realtime_proxy.py 一致：
+      1. 成功冷却 `_LOGIN_MIN_INTERVAL`：冷却期内即使被拒也不重登；
+      2. 失败退避 `_LOGIN_BACKOFF`：失败后指数增长窗口内一律不再尝试；
+      3. `_LOCK` 串行化，并发触发最多换 1 次真实登录。
+
+    Args:
+        force: True 时跳过节流（仅用于进程启动时的首次登录）。
+    """
+    global _LOGIN_LAST_OK, _LOGIN_LAST_FAIL, _LOGIN_FAIL_COUNT
     with _LOCK:
+        now = time.time()
+
+        # 闸门 2：失败退避中 —— 不触网，直接返回"不可用"
+        if _LOGIN_FAIL_COUNT > 0 and not force:
+            wait = min(
+                _LOGIN_BACKOFF * (2 ** (_LOGIN_FAIL_COUNT - 1)),
+                _LOGIN_BACKOFF_MAX,
+            )
+            elapsed = now - _LOGIN_LAST_FAIL
+            if elapsed < wait:
+                print(
+                    f"[auth] backoff: skip login "
+                    f"(failed {_LOGIN_FAIL_COUNT}x, {wait - elapsed:.0f}s left)",
+                    flush=True,
+                )
+                return False
+
+        # 闸门 1：成功冷却期内 —— 直接复用，不重登
+        if _LOGIN_LAST_OK and not force \
+                and (now - _LOGIN_LAST_OK) < _LOGIN_MIN_INTERVAL:
+            print(
+                f"[auth] throttle: reuse session "
+                f"({now - _LOGIN_LAST_OK:.0f}s < {_LOGIN_MIN_INTERVAL}s)",
+                flush=True,
+            )
+            return bool(len(CJ))  # 有 Cookie 即认为可复用
+
         if load_session() and _probe_session():
             _activate_dashboard()
+            _LOGIN_LAST_OK = time.time()
+            _LOGIN_FAIL_COUNT = 0
             return True
         if vmax_login():
             save_session()
+            _LOGIN_LAST_OK = time.time()
+            _LOGIN_FAIL_COUNT = 0
             return True
+
+        # 登录失败：记一次失败并进入退避
+        _LOGIN_FAIL_COUNT += 1
+        _LOGIN_LAST_FAIL = time.time()
+        print(f"[auth] login failed ({_LOGIN_FAIL_COUNT}x) -- entering backoff", flush=True)
         return False
 
 
@@ -346,10 +428,21 @@ class Handler(BaseHTTPRequestHandler):
             self._cors()
             self.send_header("Content-Type", "application/json")
             self.end_headers()
-            ok = bool(CSRF) and len(list(CJ)) > 0
+            # ⚠ 判据不能用 `bool(CSRF)`：本门户（10.123.255.12:26180）实测
+            #   **只签发 JSESSIONID，从不签发 forgerydefense**，所以 CSRF 恒为空，
+            #   原判据会让登录成功后 auth 仍永久显示 false，误导排障
+            #   （2026-10-04 实测：vmax_login() 返回 True、fetch 可用，但 auth=false）。
+            #   改为「有会话 Cookie 且有 CSRF 头则算带 CSRF；仅凭 Cookie 也算已鉴权」。
+            ok = len(list(CJ)) > 0
             self.wfile.write(
                 json.dumps(
-                    {"status": "ok", "proxy": "ready", "auth": ok, "user": USER}
+                    {
+                        "status": "ok",
+                        "proxy": "ready",
+                        "auth": ok,
+                        "csrf": bool(CSRF),
+                        "user": USER,
+                    }
                 ).encode()
             )
             return
@@ -382,6 +475,13 @@ class Handler(BaseHTTPRequestHandler):
         if ln:
             body = self.rfile.read(ln).decode("utf-8", "ignore")
 
+        # status/payload 必须**先绑定**：下面的 except 分支（网络异常）拿不到
+        # HTTP 状态码，而循环末尾与失败分支都要用它们。2026-10-04 修复
+        # UnboundLocalError（之前 except Exception 路径从未给 status 赋值，
+        # 一旦上游不可达就抛 UnboundLocalError，把 502 变成 500 堆栈）。
+        status = 0
+        payload = b""
+
         for _ in range(2):
             try:
                 status, resp = fetch(target, method, body if method == "POST" else None)
@@ -401,7 +501,9 @@ class Handler(BaseHTTPRequestHandler):
                 payload = e.read()
                 session_rejected = status in (401, 407, 403)
             except Exception as e:
+                # 网络层异常（超时/拒连/TLS）：没有 HTTP 状态码，用 0 表示
                 print("[proxy] network error, re-login:", e)
+                status = 0
                 session_rejected = True
                 payload = b""
 
@@ -411,6 +513,8 @@ class Handler(BaseHTTPRequestHandler):
                     continue
                 self.send_response(502)
                 self._cors()
+                self.send_header("Content-Type", "text/plain; charset=utf-8")
+                self.send_header("Content-Length", "0")
                 self.end_headers()
                 self.wfile.write(b"login failed (portal connection limit?)")
                 return
@@ -432,7 +536,8 @@ def main():
     import atexit
 
     _OPENER_INIT = build_opener()
-    ok = ensure_login()
+    # force=True：进程启动时的首次登录是**有意为之**的，不应被节流拦下
+    ok = ensure_login(force=True)
     if ok:
         save_session()
         atexit.register(vmax_logout)

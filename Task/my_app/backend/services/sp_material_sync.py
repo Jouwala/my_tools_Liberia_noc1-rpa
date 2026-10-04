@@ -295,7 +295,9 @@ def run_sp_material_sync():
     result = {"success": False, "rows": 0, "total": 0, "unique_keys": 0,
               "dropped": 0, "table": TABLE, "elapsed_seconds": 0, "errors": []}
     try:
-        EF.login()
+        # ensure_login()：复用本进程会话或跨进程磁盘缓存，避免与其它 eFlow
+        # 任务重复申请 token（2026-10-04 修正登录风暴）。
+        EF.ensure_login()
         if not EF._session_cookie:
             raise RuntimeError("eFlow 登录失败")
 

@@ -35,7 +35,7 @@ logging.basicConfig(
 logger = logging.getLogger("eflow_push_rule_collector")
 
 from backend.services.eflow_api_client import (
-    login, get_session_headers, _http_request, HOST, PORT
+    ensure_login, get_session_headers, _http_request, HOST, PORT
 )
 
 
@@ -67,9 +67,11 @@ class EflowPushRuleCollector:
 
     def collect_all_rules(self):
         """登录 → 列表(filter="") → 逐条详情合并"""
-        login()
+        # ensure_login()：本进程已有会话即复用，否则读跨进程缓存。
+        # 此前直接 login() 会每次运行都走一遍鉴权流程（2026-10-04 修正）。
+        ensure_login()
         cookie, _ = get_session_headers()
-        logger.info(f"✓ 登录成功 - Cookie: {cookie[:50]}...")
+        logger.info(f"✓ 会话就绪 - Cookie: {cookie[:50]}...")
 
         logger.info("查询全量规则列表 (filter=\"\")...")
         rules_list = self._query_rules_list()

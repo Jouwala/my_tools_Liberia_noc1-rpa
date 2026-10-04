@@ -39,7 +39,7 @@ logger = logging.getLogger("eflow_rule_collector")
 
 # ========== 导入项目中的 eflow API 客户端 ==========
 from backend.services.eflow_api_client import (
-    login, get_session_headers, HOST, PORT
+    ensure_login, get_session_headers, HOST, PORT
 )
 
 
@@ -59,8 +59,10 @@ class EflowTTRuleCollector:
         """收集所有激活的 TT Update Severity Rule"""
         try:
             # Step 1: 确保已登录
+            # ensure_login()：本进程已有会话即复用，否则读跨进程缓存，
+            # 不再像此前那样每次运行都无条件走一遍鉴权（2026-10-04 修正）。
             logger.info("Step 1: 确保 eFlow 会话已登录")
-            login()
+            ensure_login()
             cookie, forgery_token = get_session_headers()
             logger.info(f"✓ 登录成功 - Cookie: {cookie[:50]}..., ForgeryToken: {forgery_token[:40]}...")
             

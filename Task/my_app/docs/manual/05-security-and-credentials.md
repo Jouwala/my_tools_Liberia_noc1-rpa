@@ -76,9 +76,62 @@
 
 ## 上游站点会话
 
-`backend/services/auth_manager.py:81` 把登录后的站点会话 cookie 缓存在 `backend/services/auth_cache/`（RSA 加密登录流程 + `forgery_token`，带 TTL）。
+`backend/services/auth_manager.py:83` 把登录后的站点会话 cookie 缓存在 `backend/services/auth_cache/`（RSA 加密登录流程 + `forgery_token`，带 TTL）。
 
 含义：`auth_cache/` 目录里的内容等同于**有效登录态**，与口令同等对待——不外发、不入 git、不放进截图。
+
+### 会话必须跨任务/跨进程复用（2026-10-04 修正）
+
+`auth_cache/` 的存在意义就是**让多个任务/多个 worker 进程共用一份已申请的 token**，
+避免同一账号反复登录把 eFlow 登录接口打崩。三条使用纪律：
+
+| 场景 | 应当用 | 说明 |
+| --- | --- | --- |
+| 任务入口「确保已登录」 | `eflow_api_client.ensure_login()` | 本进程已有会话直接返回（零网络）；没有才走 `login()`，而 `login()` 先读磁盘缓存 |
+| 长任务中途自检会话 | `eflow_api_client.ensure_login_fresh(max_age_seconds=…)` | 同上仍优先命中缓存，仅在本进程会话超龄时重新确认 |
+| 已确认服务器会话已死（HTTP 401） | `login(force_refresh=True)` | **仅此一处**应强制真实登录，由 `_reauthenticate_on_401()` 调用（`eflow_api_client.py:210-219`） |
+
+**反例（2026-10-04 修正前的缺陷）**：三个规则收集器
+（`eflow_rules/eflow_Alarm_Rule_Collector.py:78`、`eflow_Push_Rule_Collector.py:70`、
+`eflow_TT_Rule_Collector.py:63`）与两个 SP 同步任务曾**无条件裸调 `login()`**，
+每次运行都走一遍鉴权流程，完全不看本进程是否已有会话。
+（修正后分别改为 `eflow_Alarm_Rule_Collector.py:80`、`eflow_Push_Rule_Collector.py:72`、
+`eflow_TT_Rule_Collector.py:65` 的 `ensure_login()`。）
+
+**为什么这件事特别容易踩**：`eflow_api_client._session_cookie`（`:150`）是
+**进程内全局变量**，而 worker 是 `u/n/v/m/c` 多进程分组（见 `AGENTS.md` 第七节）——
+每个进程第一次碰 eFlow 都各自登录一次，磁盘上明明有可用 token 也发现不了。
+
+**TTL 与调度周期的边界问题**：`auth_manager.DEFAULT_TTL = 1800`（30 分钟，
+`auth_manager.py:87`，可用环境变量 `AUTH_TOKEN_TTL` 覆盖）与最密调度
+`eflow_active_alarm`（`*/30 * * * *`，`task_registry.py:240`）**正好撞在边界上**——
+缓存每次都在任务触发时「刚好过期」，于是每个周期都真实登录一次。
+调长 TTL 前**必须先实测 eFlow 服务端会话的真实有效期**，测法见
+`TMP/_probe_eflow_session_lifetime.py`；TTL 设为超过实测值会长期使用死会话。
+
+### 登出能力（2026-10-04 新增，默认关闭）
+
+**修正前的缺口：全仓库没有任何 eFlow 登出调用。** `auth_manager.invalidate_cache()`
+（`auth_manager.py:284`）**只删本地缓存文件、不发网络请求**，服务端会话照旧挂着。
+于是每次 TTL 过期后的"重新登录"都在上游**新增一个永不释放的会话**，旧会话只能等
+自己超时 —— 高频任务叠加短 TTL，会在上游堆积大量僵尸会话，最终把登录接口拖垮。
+
+新增 `auth_manager.logout()`（`auth_manager.py:319`）与
+`eflow_api_client.logout()`（`eflow_api_client.py:511-540`）：
+
+| 行为 | 说明 |
+| --- | --- |
+| 默认状态 | **未启用**。需置 `AUTH_LOGOUT_ENABLED=1` 才真正发请求 |
+| 路径来源 | `AUTH_LOGOUT_PATH`，默认 `/web/res/web-common/loginOut?SSOAction=SSOLogout` |
+| 失败处理 | 任何异常都吞掉并记 warning —— **登出失败不得阻断任务**（会话交给上游超时回收） |
+| 幂等 | 可重复调用；无论成败都清空本进程 `_session_cookie`，使下次必定重新取会话 |
+
+> ⚠️ **默认路径尚未实测确认。** 它来自
+> `_myapp_trash_20260918/root_tmp/_tmp_menu.json`（一份真实的 ZTE 门户菜单 dump）
+> 中"注销"菜单项的 URL，属于**强线索但非实测结论**。
+> 确认方法：浏览器登录 eFlow → F12 Network → 点"注销" → 读真实请求的 URL 与方法。
+> 辅助探针：`TMP/_probe_eflow_logout.py`（默认 dry-run，`--execute` 才发请求）。
+> **在确认之前不要打开 `AUTH_LOGOUT_ENABLED`。**
 
 ## TLS
 

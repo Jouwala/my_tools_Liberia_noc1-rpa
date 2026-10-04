@@ -149,6 +149,10 @@ SITE_TX_SOURCE_COL = "TRM Type"
 # ========== 会话状态 ==========
 _session_cookie = ""
 _forgery_token = ""
+# 本进程内会话的取得时刻（time.time()），供 ensure_login_fresh() 判断"本进程会话年龄"。
+# 注意它与 auth_manager 缓存里的 created_at 不是一回事：后者是**跨进程**的
+# token 签发时刻，前者只是本进程拿到它的时刻。
+_session_obtained_at = 0.0
 _http_local = threading.local()
 # 401 自动重登录用：锁串行化登录（避免多线程同时登录互踢），代数用于并发线程
 # 判断「是否已有其他线程刷新过会话」。
@@ -422,7 +426,18 @@ def _rsa_encrypt_pem(plaintext, public_key_b64):
 
 # ========== 登录认证 ==========
 def login(force_refresh: bool = False):
-    global _session_cookie, _forgery_token, _auth_generation
+    """取得 eFlow 会话（cookie + forgery_token）。
+
+    Args:
+        force_refresh: True = 跳过 auth_manager 磁盘缓存，**强制真实登录**。
+            仅应用于"已确认服务器会话已死"的场景（即 401 恢复，
+            见 _reauthenticate_on_401）。日常任务入口一律用 False，
+            以便复用其他进程/任务已申请的 token，避免把 eFlow 登录接口打崩。
+
+    ⚠ 任务代码不要直接调本函数做"确保已登录"，应改用 ensure_login()：
+    后者在**本进程已有会话**时直接返回，连磁盘缓存都不读。
+    """
+    global _session_cookie, _forgery_token, _auth_generation, _session_obtained_at
 
     try:
         try:
@@ -433,10 +448,11 @@ def login(force_refresh: bool = False):
         # force_refresh=True：跳过 auth_manager 磁盘缓存（其仅按 TTL 判过期，
         # 服务器会话可能已死但未到 TTL），401 恢复时务必强制真实登录。
         result = get_auth(HOST, PORT, *_runtime_credentials(), force_refresh=force_refresh)
-        source = "强制刷新" if force_refresh else ("缓存" if result["from_cache"] else "重新登录")
+        source = "强制刷新" if force_refresh else ("跨进程缓存复用" if result["from_cache"] else "真实登录")
         logger.info(f"eFlow 鉴权成功（来源: {source}）")
         _session_cookie = result["cookie"]
         _forgery_token = result["forgery_token"]
+        _session_obtained_at = time.time()
         _auth_generation += 1
     except Exception as e:
         logger.error(f"eFlow auth_manager 失败: {e}")
@@ -451,10 +467,77 @@ def get_session_headers():
 
 
 def ensure_login():
-    """确保会话已登录（Phase 4：跨模块会话访问器，避免子模块导入时绑定过期 cookie）。"""
+    """确保会话已登录（Phase 4：跨模块会话访问器，避免子模块导入时绑定过期 cookie）。
+
+    ⚠ 与 login() 的区别（2026-10-04 修正，此前语义有歧义导致登录风暴）：
+    - 本进程内存里**已有**会话 → 直接返回，绝不触网；
+    - 本进程内存里没有会话 → 调 login()，而 login() 会先读
+      auth_manager 的**跨进程磁盘缓存**，缓存有效就拿别人（其他 worker
+      进程/其他任务）已经申请到的 token，不重复登录。
+
+    修正前的问题：`_session_cookie` 只是本模块的进程内全局变量，而 worker 是
+    u/n/v/m/c 多进程分组，于是**每个进程第一次碰 eFlow 都会真实登录一次**，
+    磁盘上明明有可用 token 也发现不了 —— 这正是「每个任务申请一次 token」
+    把 eFlow 登录接口打崩的直接原因。
+    """
     if not _session_cookie:
         login()
     return _session_cookie
+
+
+def ensure_login_fresh(max_age_seconds: float | None = None):
+    """确保会话存在，且在 max_age_seconds 内**由本进程**刷过（用于长任务中途自检）。
+
+    与 ensure_login() 相同地复用磁盘缓存；额外接受一个"本进程内会话年龄"上限，
+    超龄时重新走 login()（仍优先命中磁盘缓存，非无条件重登）。
+
+    Args:
+        max_age_seconds: 本进程内会话允许的最大年龄（秒）。None = 不限制。
+    """
+    global _session_obtained_at
+    if not _session_cookie:
+        login()
+        return _session_cookie
+    if max_age_seconds is not None and _session_obtained_at:
+        if time.time() - _session_obtained_at > max_age_seconds:
+            logger.info(
+                "[AUTH] 本进程会话已用 %.0fs（>%.0fs），重新确认会话",
+                time.time() - _session_obtained_at, max_age_seconds,
+            )
+            login()
+    return _session_cookie
+
+
+def logout():
+    """登出 eFlow，释放服务端会话并清空本进程会话状态。
+
+    为什么需要：本仓库此前**只登录、从不登出**，每次 TTL 过期后的重登都会在
+    eFlow 侧新增一个永不释放的会话 —— 高频任务叠加短 TTL 会把登录接口拖垮。
+
+    行为：
+    - 调用 `auth_manager.logout()` 发登出请求（**默认未启用**，需置
+      `AUTH_LOGOUT_ENABLED=1`，因为登出接口路径尚待实测确认）；
+    - 无论登出是否成功，都清空本进程的 `_session_cookie`/`_forgery_token`，
+      使下次 ensure_login() 必定重新取会话。
+
+    注意：本函数不会抛异常，适合放在任务收尾的 finally 里。
+    """
+    global _session_cookie, _forgery_token, _session_obtained_at
+
+    cookie, forgery = _session_cookie, _forgery_token
+    try:
+        try:
+            from backend.services.auth_manager import logout as _logout
+        except ImportError:
+            from auth_manager import logout as _logout
+        _logout(HOST, PORT, cookie=cookie, forgery_token=forgery)
+    except Exception as e:
+        logger.warning(f"eFlow 登出失败（忽略）: {e}")
+
+    # 本地状态一律清空：即使登出未启用/失败，也让下次取会话走正常流程
+    _session_cookie = ""
+    _forgery_token = ""
+    _session_obtained_at = 0.0
 
 
 def _headers_extra(referer):

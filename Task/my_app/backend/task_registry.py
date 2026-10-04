@@ -662,12 +662,30 @@ TASK_SPECS = [
          description_en="Every morning, step by step: run the ume_in KPI sync (UME portal 172.17.208.1:28808, 7 templates into ume_in_customer_kpi), build the OSG Weekly QoS Analysis Report Excel from the latest 7 days (backend/services/ume_in/t_osg_build.py), then email that Excel to djoumene.reussite1@zte.com.cn, cc dong.xinmin@zte.com.cn (recipients editable under Settings → Email Recipient Settings, group ume_in_osg_report)",
          default_cron="30 6 * * *", category="ume_in"),
 
-    # 34b. SP Online 在线工单同步（每小时第 35 分钟）：从 eFlow SP 接口拉全量
+    # 34b. SP Online 在线工单同步（每 6 小时的第 35 分钟）：从 eFlow SP 接口拉全量
+    #
+    # ⚠ cron 于 2026-10-04 由 `35 * * * *` 改为 `35 */6 * * *`，原因是**登录频率**：
+    #   本任务走 eFlow，而旧的 `AUTH_TOKEN_TTL=1800`（30 分钟）< 本任务的触发间隔
+    #   3600 秒（1 小时）—— 意味着**每一轮运行前缓存必然已过期**，于是每小时都真实
+    #   登录一次 = 24 次/天。eFlow 每次登录**新建一个服务端会话且从不释放**，
+    #   这是 2026-10-04「eFlow 用户数持续增长」的主要贡献者（日志实测
+    #   09-26~10-03 每天 15~26 次登录，与"每小时一次"完全吻合）。
+    #
+    #   两道防线（互相独立，任一生效即可压住频率）：
+    #     1. `AUTH_TOKEN_TTL=86400`（24 小时，见 backend/.env）—— 正常路径下
+    #        一天只有第 1 轮真实登录，其余命中缓存。
+    #     2. 本 cron 放宽到 6 小时 —— **即使 TTL 配置失效或缓存被清**，
+    #        登录次数也封顶在 4 次/天，不会再退化成 24 次/天。
+    #
+    #   为什么"每小时"本来就不必要：本任务拉的是**全量在线工单**（非增量流水），
+    #   看板上呈现的是"当前在线工单状态"，6 小时的刷新粒度对工单场景足够
+    #   —— 工单不是秒级变化的实时指标。若日后确需更高频，**同时**把 TTL 调长
+    #   或确认缓存命中，不要只把 cron 调密。
     dict(task_id="sp_online_sync", name="SP Online 工单同步", name_en="SP Online Ticket Sync",
          loader=("backend.services.sp_online_sync", "run_sp_online_sync"),
-         description="从 eFlow SP 接口（sp-outbound/sp-inbound/sp-transfer）拉全量在线工单，写入 app.db 表 sp_outbound / sp_inbound / sp_transfer（Table Browser 可查）",
-         description_en="Fetch all online tickets from eFlow SP APIs (sp-outbound/sp-inbound/sp-transfer) into app.db tables sp_outbound / sp_inbound / sp_transfer (visible in Table Browser)",
-         default_cron="35 * * * *", category="sp_online"),
+         description="从 eFlow SP 接口（sp-outbound/sp-inbound/sp-transfer）拉全量在线工单，写入 app.db 表 sp_outbound / sp_inbound / sp_transfer（Table Browser 可查）。每 6 小时一轮，避免每轮都触发一次 eFlow 登录",
+         description_en="Fetch all online tickets from eFlow SP APIs (sp-outbound/sp-inbound/sp-transfer) into app.db tables sp_outbound / sp_inbound / sp_transfer (visible in Table Browser). Runs every 6 hours to avoid a fresh eFlow login each round",
+         default_cron="35 */6 * * *", category="sp_online"),
 
     # 34c. SP 物料主数据同步（每天 04:55）：从 eFlow SP 物料接口拉全量写入 sp_material
     dict(task_id="sp_material_sync", name="SP 物料主数据同步", name_en="SP Material Master Sync",
