@@ -74,6 +74,68 @@
 > ⚠️ **删源码 ≠ 消除泄露。这些口令已经进入 git 历史，必须轮换才能真正失效。**
 > 本清理只解决了"不再继续留在工作树里"，**不能替代轮换**。
 
+### 2026-10-04：清理收尾 —— my_app 内明文口令归零
+
+**上一轮（09-27）遗留了两个问题**，本轮补齐。
+
+**问题一：`default_secret` 仍是唯一真相源。**
+上一轮把调用方的字面量删了，但 `credential_store.py` 自己还留着 **17 组明文默认值**，
+并把它称为"唯一真相源"。实测这 17 组里有 **14 组从未在设置页配置过** ——
+也就是说代码里的明文就是**唯一**来源，口令不仅入了库，**还无法在页面轮换**（改页面没用，
+代码默认值仍在兜底）。
+
+处理分两步，顺序不能反：
+1. **先迁进 DB**：`TMP/_migrate_credentials_to_db.py` 把 14 组当前生效值写入 `credentials` 表。
+   因为 `get_credential` 优先级是 `env > DB > 代码默认`，先写 DB **不改变任何行为**。
+   迁移后 17 组全部有 DB 值，设置页可见可改。
+2. **再清空代码**：`TMP/_strip_credential_defaults.py` 把 17 处 `default_secret` 置为空串。
+   此时删掉它已无行为影响（DB 已兜住），但明文不再入库。
+
+**问题二：守卫的两个盲区（比前者更危险）。**
+- **只扫 `my_app`**：工作区其余 **52 个已入库文件**的明文副本完全不受检查
+  （`Site_outage/`、`ticket_export_rpa/`、`Task/sp/`、`WareHouseDashBoard/` 等）。
+- **黑名单少 5 个口令**：只有 12 条，漏了 `fms_portal` / `rais` / `ume_in` / `vmax_cxo` / `vmax_gbase`
+  —— 这 5 个**写回源码也不会被拦**，守卫形同虚设。
+
+已修：`_SCAN_ROOTS` 扩到全工作区，黑名单补到 17 条，扫描后缀加入 `.md`/`.txt`
+（文档里的明文同样是泄露，`ticket_export_rpa/README.md` 就曾写着口令）。
+**守卫必须能被反证**：`TMP/_verify_guard_catches_secrets.py` 会临时把口令写回源码、
+确认守卫**确实失败**，再还原 —— 一个永远通过的守卫没有价值。
+
+**本轮实际清理范围（my_app 内 12 个文件）**：
+
+| 文件 | 处理 |
+| --- | --- |
+| `backend/services/credential_store.py` | 17 组 `default_secret` 清空；`weixin` 的 `default_user` 清空（那是 SendKey，本身就是凭据） |
+| `backend/services/eflow_api_client.py`、`site_outage_service.py` | `os.environ.get("EFLOW_PASS", "<明文>")` → 空串，口令只从 env/凭据库取 |
+| `tools/realtime_proxy.py`、`realtime_proxy_vmax.py` | `_load_cred(..., default_secret)` 传空串 |
+| `backend/services/ume_in/ume_in_kpi_service.py` | 同上（`UME_IN_PASSWORD`） |
+| `backend/services/vmax_multi_data/vmax_report_client.py` | 同上（vmax_cxo） |
+| `backend/services/ume_in/url.txt` | 抓包记录里的 `password:` 行改为指向凭据库 |
+| `backend/services/vmax_gbase/vmax_gbase_client.py`、`olib_soc_report/*.py` | 连接串示例中的口令改为 `<password>` 占位符 |
+| `backend/services/credential_store.md`、`eFlow_API集成方案.md`、`.workbuddy-ai/memory/2026-09-13.md` | 文档里的明文删除 |
+| `tests/test_olib_soc_report.py` | 脱敏测试改用**假哨兵**口令（原先是真实口令，等于写进版本库） |
+
+**09-27 的两个"刻意例外"现已都不成立**（该表已作废）：
+
+- `credential_store.py`：不再是例外 —— 17 组 `default_secret` 已清空，它的 docstring 里
+  也补了"为什么这里必须留空、新环境首次部署该怎么办"。
+- `email_reports/owa_credentials.py`：**按其 docstring 自己给出的正确做法执行** ——
+  "让 credential_store 成为唯一来源并删掉第 3 级"。`DEFAULT_PASSWORD` 清空、
+  `_LEGACY_DEFAULTS` 置空集（把历史口令列在里面等于又写进口令）。
+  实参默认值本身已不存在，识别逻辑改为"空串即视为没传"。
+  两级都取不到时返回空口令让认证**明确失败** —— 而不是静默用可能过期的旧口令，
+  那正是 2026-09-18 那次 65 小时故障的形态。
+
+**验证**：17 组凭据全部仍能解析（`ALL_CREDENTIALS_RESOLVE`）；离线回归 274 项通过；
+`site_outage` 连续两轮实测均复用会话、0 次登录、各 4 张截图（凭据全部来自 DB）；
+设置页 `/myapp/?page=settings` 17 组可见。
+
+**尚未完成**：工作区 `my_app` **之外**的 52 个已入库文件仍有明文副本，
+已在守卫的 `_PENDING_WORKSPACE_CLEANUP` / `_PENDING_TASK_SUBDIRS` 里**逐目录列明**
+（不是降低检查强度：已清过的 `my_app` 仍受完整检查，清完一个就从清单删一个，
+清空后删除该清单即可）。做法与 my_app 一致，见清单上方注释。
+
 ## 上游站点会话
 
 `backend/services/auth_manager.py:83` 把登录后的站点会话 cookie 缓存在 `backend/services/auth_cache/`（RSA 加密登录流程 + `forgery_token`，带 TTL）。

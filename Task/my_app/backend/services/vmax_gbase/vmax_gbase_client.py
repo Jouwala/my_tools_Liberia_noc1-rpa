@@ -3,8 +3,10 @@
 实测环境（2026-09-16 由用户提供的 notebook + 本机验证得到）
 ----------------------------------------------------------
 * 连接串（notebook 里 `VmaxTool.GetDBConn("GBASE")` 打印出来的）:
-      ['GBASE', '10.123.255.12', '5258', 'gbase', 'ZXvmax_2017', 'zxvmax']
-      ['SPARK', '10.123.255.10', '18000', 'zxvmax', 'ZXvmax_2017', 'zxvmax']  # Spark ThriftServer，本包不用
+      ['GBASE', '10.123.255.12', '5258', 'gbase', <password>, 'zxvmax']
+      ['SPARK', '10.123.255.10', '18000', 'zxvmax', <password>, 'zxvmax']  # Spark ThriftServer，本包不用
+  （口令原样抄在这里会入库，2026-10-04 已改为占位符；实际值走 `credential_store`
+    的 `vmax_gbase` 分组，可在「设置 → 凭据管理」页面查看与轮换。）
 * 协议指纹（本机读首包，未登录）: MySQL 协议 v10，服务端版本串
       `8.6.2.43-R35.5_patch.1674d63d6`
   → 用 `pymysql` 即可（纯 Python，无编译依赖）；GBase 8a 不是 PostgreSQL，`psycopg2` 用不上。

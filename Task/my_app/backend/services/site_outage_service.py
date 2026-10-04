@@ -137,7 +137,13 @@ def _zte_login(page):
 
 # ========== 配置 ==========
 USERNAME = os.environ.get("EFLOW_USER", "admin")
-PASSWORD = os.environ.get("EFLOW_PASS", "Brysj*8*")
+# ⚠ 口令不在这里写默认值（2026-10-04）。
+# 原先这里是 os.environ.get("EFLOW_PASS", "<明文>")，那既是口令明文入库
+# （AGENTS.md 四.2），也是 credential_store 里 eflow 组的**重复副本** ——
+# 改一处忘一处，无法轮换。现在统一由 _runtime_credentials() 提供，
+# 其优先级为：环境变量 EFLOW_PASS > 凭据库(设置页 eflow 组) > 空。
+# 空口令会让登录**明确失败**，而不是静默用错值。
+PASSWORD = ""
 HOST = os.environ.get("EFLOW_HOST", "10.100.20.8")
 PORT = os.environ.get("EFLOW_PORT", "28001")
 

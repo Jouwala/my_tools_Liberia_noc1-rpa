@@ -51,7 +51,7 @@ CREATE TABLE credentials (
 ## 用法
 ```python
 from backend.services.credential_store import get_credential
-user, pwd = get_credential("zte_ume", "NOC", "Zte@2025!")
+user, pwd = get_credential("zte_ume")   # 口令不写在代码/文档里
 ```
 
 ## 调用方约定（重要）

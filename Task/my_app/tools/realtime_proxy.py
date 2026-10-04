@@ -81,7 +81,11 @@ def _load_cred(key, default_user, default_secret, env_user, env_secret):
     )
 
 
-USER, PASS = _load_cred("fms_portal", "admin", "Brysj*8*", "FMS_PORTAL_USER", "FMS_PORTAL_PASS")
+# ⚠ default_secret 传空串（2026-10-04）：原先这里写的是 fms_portal 组的
+# 口令明文，既入库（AGENTS.md 四.2），又是 credential_store 的重复副本。
+# 现在凭据只从「环境变量 FMS_PORTAL_PASS > 凭据库 fms_portal 组」取，
+# 两处都没有时会拿到空口令并让登录**明确失败**，而不是静默用错值。
+USER, PASS = _load_cred("fms_portal", "admin", "", "FMS_PORTAL_USER", "FMS_PORTAL_PASS")
 
 _UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "

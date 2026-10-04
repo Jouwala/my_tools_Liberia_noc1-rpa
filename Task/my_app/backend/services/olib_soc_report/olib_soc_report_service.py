@@ -3,7 +3,8 @@
 数据来源
 --------
 用户 JupyterLab 上的 `OLIB SOC VMAX Routine Report` notebook：`import VmaxTool as vt`，
-`vt.GetDBConn("GBASE")` 拿到 `['GBASE','10.123.255.12','5258','gbase','ZXvmax_2017','zxvmax']`，
+`vt.GetDBConn("GBASE")` 拿到 `['GBASE','10.123.255.12','5258','gbase',<password>,'zxvmax']`
+（口令不写在这里，2026-10-04 改为占位符；实际值走 `credential_store` 的 `vmax_gbase` 分组），
 然后按天循环 `vt.QueryDB_df(dsn, sql)`，最后写成一个多 sheet 的 Excel。本模块把那 9 段 SQL
 原样移植过来（只把表名做成参数），并补上窗口/分片/容错/落库/可选邮件。
 

@@ -67,7 +67,11 @@ def _load_cred(key, default_user, default_secret, env_user, env_secret):
 # ---------------------------------------------------------------------------
 
 
-USER, PASS = _load_cred("vmax_cxo", "ZeeshanM", "Zte@1a2b3c", "VMAX_CXO_USER", "VMAX_CXO_PASS")
+# ⚠ default_secret 传空串（2026-10-04）：原先这里写的是 vmax_cxo 组的口令明文，
+# 既入库（AGENTS.md 四.2），也是 credential_store 的重复副本，无法轮换。
+# 现在凭据只从「环境变量 VMAX_CXO_PASS > 凭据库 vmax_cxo 组」取，
+# 两处都空时会拿到空口令并让登录**明确失败**，而不是静默用错值。
+USER, PASS = _load_cred("vmax_cxo", "ZeeshanM", "", "VMAX_CXO_USER", "VMAX_CXO_PASS")
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 SESSION_FILE = os.path.join(BASE_DIR, "vmax_session.json")

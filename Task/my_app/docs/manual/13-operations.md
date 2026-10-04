@@ -493,6 +493,23 @@ tools/fms_session.json 已重建（cookie 有 / csrf 有）
 >   看会话是否落盘。怀疑"每次都在重新登录"时先跑它。
 >   ⚠ 注意 profile 在 `Task\Site_outage\`，不是根目录那个同名旧目录。
 >
+> **明文口令清理相关（2026-10-04）**：
+> - `python TMP/_audit_credential_groups.py` —— 列出 17 个凭据组各自
+>   **是否已在 credentials 表**。判据是"能否安全删除代码默认值"：
+>   有 DB 值的组删了无影响；没有的组删了会登录失败。**改凭据前先跑它。**
+> - `python TMP/_migrate_credentials_to_db.py [--apply]` —— 把尚未在设置页配置的
+>   凭据组从代码默认值迁进 `credentials` 表（不带 `--apply` 只预览）。
+>   因 `get_credential` 优先级是 `env > DB > 代码默认`，**先写 DB 不改变行为**。
+> - `python TMP/_strip_credential_defaults.py` —— 把 `credential_store.py` 里
+>   17 处 `default_secret` 置空。**必须在迁移脚本之后跑**，否则会断凭据。
+> - `python TMP/_audit_plaintext_secrets.py` —— 扫全库明文口令并汇总到文件级。
+> - `python TMP/_classify_secret_leaks.py` —— 把命中**分为"已入库"与"仅本机"**；
+>   只有已入库的才会随克隆分发出去。这份清单是 `_PENDING_*` 的收尾依据。
+> - `python TMP/_audit_guard_gaps.py` —— 检查守卫自身的盲区（扫描范围、黑名单缺项）。
+>   **守卫有盲区时它自己是发现不了的**，需要这个脚本从外部对照。
+> - `python TMP/_verify_guard_catches_secrets.py` —— **反证**：临时把口令写回源码，
+>   确认守卫**确实失败**，再还原。**改了守卫一定要跑它** —— 永远通过的守卫没有价值。
+>
 > 📌 **统计口径提醒**：worker 日志按 GBK 落盘，用 `Select-String` 匹配**中文**特征串
 > （如"复用共享会话"）会**静默匹配不到**，统计结果假性为 0。做登录计数时
 > **一律用 ASCII 特征串**（`LOGIN] Starting authentication` / `LOGIN] SUCCESS`），

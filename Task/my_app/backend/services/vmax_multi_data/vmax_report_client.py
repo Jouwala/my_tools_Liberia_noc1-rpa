@@ -423,8 +423,11 @@ class VmaxReportClient:
         from cryptography.hazmat.primitives.asymmetric import padding
         from backend.services import credential_store
 
+        # ⚠ default_secret 传空串（2026-10-04）：原先这里写死了 vmax_cxo 组的
+        # 口令明文（入库，AGENTS.md 四.2），也是 credential_store 的重复副本。
+        # 现在只从「环境变量 > 凭据库」取，两处都空时登录会**明确失败**。
         user, password = credential_store.get_credential(
-            self.credential_key, "ZeeshanM", "Zte@1a2b3c",
+            self.credential_key, "ZeeshanM", "",
             "VMAX_CXO_USER", "VMAX_CXO_PASS")
         ua = {"User-Agent": "Mozilla/5.0", "Accept": "*/*",
               "Referer": self.host + "/rdk/app/portal/web/"}

@@ -10,7 +10,7 @@ db/app.db 的 credentials 表，通过前端"设置"页面维护，服务运行�
 
 用法:
     from backend.services.credential_store import get_credential
-    user, pwd = get_credential("zte_ume", "NOC", "Zte@2025!")
+    user, pwd = get_credential("zte_ume")   # 口令不写在代码/文档里
 """
 
 import os
@@ -33,7 +33,31 @@ _cache: dict = {}
 _cache_lock = threading.Lock()
 
 # ============================================================
-# 凭据组注册表（key、显示名、代码默认值、是否可自动测试）
+# 凭据组注册表（key、显示名、默认用户名、是否可自动测试）
+# ============================================================
+#
+# ⚠ `default_secret` 一律为空串（2026-10-04 清理）。
+#
+# 为什么不在这里写口令明文：
+#   1. 这是**进版本库的源码**。AGENTS.md 第四节第 2 条明令不得写敏感值；
+#      口令一旦入库就永久留在 git 历史里，删除源码并不能让它失效。
+#   2. 这里写死的值会成为**第二真相源** —— 实测本轮清理前，工作区共有
+#      42 个文件散落着这些口令的副本，改一处忘一处，无法轮换。
+#   3. 口令的真正归属是**运行时可改的存储**：`/myapp/?page=settings`
+#      页面（credentials 表）。在那里改密**免重启即时生效**，
+#      这正是"轮换"该有的样子。
+#
+# 现在 17 组的当前值都已在 credentials 表里（迁移脚本见 TMP/），
+# 因此 `get_credential(key)` 取到的值与清理前**完全一致**。
+#
+# 新环境首次部署（凭据表为空）时怎么办：
+#   在 `/myapp/?page=settings` 页面逐组填入，或用环境变量临时覆盖
+#   （每组都有 env_user / env_secret，优先级高于数据库）。
+#   **不要**为了图省事把口令写回这里。
+#
+# `get_credential()` 的优先级：环境变量 > 数据库(credentials 表) > 本处默认。
+# 正因为本处默认恒为空，前两级任一有值即可正常工作；
+# 两级都空时会拿到空口令并让登录**明确失败**，而不是静默用错值。
 # ============================================================
 CREDENTIAL_GROUPS = [
     {
@@ -43,7 +67,7 @@ CREDENTIAL_GROUPS = [
         "usage": "RAN KPI / MS SLA 报表抓取任务使用此账号登录 ZTE UME 网管拉取性能数据。",
         "usage_en": "Used by the RAN KPI / MS SLA report tasks to log into ZTE UME NMS and pull performance data.",
         "default_user": "NOC",
-        "default_secret": "Zte@2025!",
+        "default_secret": "",
         "username_label": "用户名",
         "username_label_en": "Username",
         "secret_label": "密码",
@@ -62,7 +86,7 @@ CREDENTIAL_GROUPS = [
         "usage": "CXO 经营看板（my_app 内嵌页面）的实时数据代理 realtime_proxy_vmax.py 使用此账号登录 VMAX 门户拉取经营数据。",
         "usage_en": "Used by the CXO Dashboard's realtime proxy (realtime_proxy_vmax.py) to log into the VMAX portal and pull business data.",
         "default_user": "ZeeshanM",
-        "default_secret": "Zte@1a2b3c",
+        "default_secret": "",
         "username_label": "用户名",
         "username_label_en": "Username",
         "secret_label": "密码",
@@ -82,7 +106,7 @@ CREDENTIAL_GROUPS = [
                     "to query the GBase data warehouse directly (MySQL protocol, database zxvmax); "
                     "read-only SELECT/SHOW statements only.",
         "default_user": "gbase",
-        "default_secret": "ZXvmax_2017",
+        "default_secret": "",
         "username_label": "用户名",
         "username_label_en": "Username",
         "secret_label": "密码",
@@ -99,7 +123,7 @@ CREDENTIAL_GROUPS = [
         "usage": "iPRAN UME KPI 抓取任务使用此账号登录 iPRAN UME 网管拉取数据。",
         "usage_en": "Used by iPRAN UME KPI tasks to log into the iPRAN UME NMS.",
         "default_user": "noc1",
-        "default_secret": "Zte@lbr202607",
+        "default_secret": "",
         "username_label": "用户名",
         "username_label_en": "Username",
         "secret_label": "密码",
@@ -118,7 +142,7 @@ CREDENTIAL_GROUPS = [
         "usage": "CCN UME KPI 抓取任务使用此账号登录 CCN UME 网管拉取数据。",
         "usage_en": "Used by CCN UME KPI tasks to log into the CCN UME NMS.",
         "default_user": "oss",
-        "default_secret": "Mwebazeaaron@25",
+        "default_secret": "",
         "username_label": "用户名",
         "username_label_en": "Username",
         "secret_label": "密码",
@@ -137,7 +161,7 @@ CREDENTIAL_GROUPS = [
         "usage": "eFlow 告警系统数据同步任务使用此账号获取告警 / 工单数据。",
         "usage_en": "Used by eFlow alarm-system sync tasks to fetch alarm/ticket data.",
         "default_user": "admin",
-        "default_secret": "Brysj*8*",
+        "default_secret": "",
         "username_label": "用户名",
         "username_label_en": "Username",
         "secret_label": "密码",
@@ -158,7 +182,7 @@ CREDENTIAL_GROUPS = [
         "usage_en": "Used by the one-click portal login for RAIS (Unified Permission Platform / "
                     "uacliteweb) direct authentication.",
         "default_user": "admin",
-        "default_secret": "ZXUniPOS_rais",
+        "default_secret": "",
         "username_label": "用户名",
         "username_label_en": "Username",
         "secret_label": "密码",
@@ -177,7 +201,7 @@ CREDENTIAL_GROUPS = [
         "usage": "FMS 实时数据代理 realtime_proxy.py（支撑 Alarm Management / 站点宕机看板）使用此账号登录 FMS 门户拉取实时数据。",
         "usage_en": "Used by the FMS realtime proxy (realtime_proxy.py, backing Alarm Management / site-outage dashboard) to log into the FMS portal.",
         "default_user": "admin",
-        "default_secret": "Brysj*8*",
+        "default_secret": "",
         "username_label": "用户名",
         "username_label_en": "Username",
         "secret_label": "密码",
@@ -196,7 +220,7 @@ CREDENTIAL_GROUPS = [
         "usage": "FW 整机吞吐 KPI 抓取任务使用此账号登录 UMC 拉取吞吐数据。",
         "usage_en": "Used by the FW throughput KPI task to log into UMC and pull throughput data.",
         "default_user": "admin",
-        "default_secret": "Zte@orange123!",
+        "default_secret": "",
         "username_label": "用户名",
         "username_label_en": "Username",
         "secret_label": "密码",
@@ -213,7 +237,7 @@ CREDENTIAL_GROUPS = [
         "usage": "MW UME KPI 同步任务使用此账号登录 ZXMW 微波网管拉取带宽利用率等指标；一键门户登录也复用此凭据。",
         "usage_en": "Used by the MW UME KPI sync task to log into the ZXMW microwave NMS and pull bandwidth-utilization KPIs; also reused by the one-click portal login.",
         "default_user": "NOC_MW",
-        "default_secret": "Zte@202608",
+        "default_secret": "",
         "username_label": "用户名",
         "username_label_en": "Username",
         "secret_label": "密码",
@@ -232,7 +256,7 @@ CREDENTIAL_GROUPS = [
         "usage": "客户业务 KPI 看板（IVR / P4M / VC / USSD / PPS / CPU / Memory）的同步任务使用此账号登录 UME em-portal 拉取周度业务指标。",
         "usage_en": "Used by the Customer Service KPI dashboard sync task (IVR / P4M / VC / USSD / PPS / CPU / Memory) to log into the UME em-portal and pull weekly service KPIs.",
         "default_user": "10172755",
-        "default_secret": "Zte@liberia202609",
+        "default_secret": "",
         "username_label": "用户名",
         "username_label_en": "Username",
         "secret_label": "密码",
@@ -255,7 +279,7 @@ CREDENTIAL_GROUPS = [
                     "to log into the UME and pull r32.uedm.batt realtime data (health / SOC / charge-discharge status). "
                     "This is a different UME from the RAN UME; the accounts are not interchangeable.",
         "default_user": "zeeshan mazhar",
-        "default_secret": "Zte_ZM2028",
+        "default_secret": "",
         "username_label": "用户名",
         "username_label_en": "Username",
         "secret_label": "密码",
@@ -276,7 +300,7 @@ CREDENTIAL_GROUPS = [
         "usage_en": "Used by the RAN CM cell-master sync task (cm_data_sync) to log into the RAN UME NMS "
                     "and export cell-level configuration data via moquery / exportmultivermofile.",
         "default_user": "NOC",
-        "default_secret": "Zte@2025!",
+        "default_secret": "",
         "username_label": "用户名",
         "username_label_en": "Username",
         "secret_label": "密码",
@@ -295,7 +319,7 @@ CREDENTIAL_GROUPS = [
         "usage": "备件报表上传 / 下载任务使用此 SFTP 账号推送备件报表文件。",
         "usage_en": "Used by spare-parts report upload/download tasks over SFTP.",
         "default_user": "ubuntu",
-        "default_secret": "UbuntU1!2@3#4$",
+        "default_secret": "",
         "username_label": "用户名",
         "username_label_en": "Username",
         "secret_label": "密码",
@@ -312,7 +336,7 @@ CREDENTIAL_GROUPS = [
         "usage": "邮件报告任务使用此 126 邮箱账号发送运营报告。",
         "usage_en": "Used by the email-report task to send ops reports via 126 mailbox.",
         "default_user": "xin83min@126.com",
-        "default_secret": "LQcTaMMuWmhvAfRB",
+        "default_secret": "",
         "username_label": "邮箱账号",
         "username_label_en": "Email Account",
         "secret_label": "SMTP 授权码",
@@ -329,7 +353,7 @@ CREDENTIAL_GROUPS = [
         "usage": "运维报告与邮箱清理任务使用此 Exchange/OWA 域账号。",
         "usage_en": "Used by ops-report and mailbox-cleanup tasks via Exchange/OWA.",
         "default_user": "ZTENOC_OLR",
-        "default_secret": "Postcode@202608",
+        "default_secret": "",
         "username_label": "登录账号 (域账号)",
         "username_label_en": "Login Account (Domain)",
         "secret_label": "邮箱密码",
@@ -345,8 +369,11 @@ CREDENTIAL_GROUPS = [
         "name_en": "WeChat/IM Notification",
         "usage": "Server酱 / PushPlus 推送任务使用此 Token 发送微信 / IM 通知。",
         "usage_en": "Used by ServerChan/PushPlus push tasks to send WeChat/IM notifications.",
-        "default_user": "SCT389311TrwFJS9k0ZxfX5Plb9g0gozix",
-        "default_secret": "f9cf7778112f486ab618d153456e2553",
+        # ⚠ default_user 也清空（2026-10-04）：这里的"用户名"实际是 Server酱
+        # SendKey，本身就是凭据，与口令同等敏感。它原先明文写在这里，
+        # 已被 git 历史记录。现在由 credentials 表的 weixin 组提供。
+        "default_user": "",
+        "default_secret": "",
         "username_label": "Server酱 SendKey",
         "username_label_en": "ServerChan SendKey",
         "secret_label": "PushPlus Token",

@@ -1,5 +1,5 @@
 Username: 10172755
-password: Zte@liberia202609
+password: <见 credential_store 的 ume_in 分组 / 设置页 >
 https://172.17.208.1:28808/em-portal/
 
 

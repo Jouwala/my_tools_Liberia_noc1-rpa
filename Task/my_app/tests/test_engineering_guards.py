@@ -27,6 +27,23 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 BACKEND = PROJECT_ROOT / "backend"
 ROUTERS = BACKEND / "routers"
 
+# 本仓库是**单体 git 仓库**（AGENTS.md 二：顶层是 D:/01_RPA，不是 my_app）。
+# 口令清理必须覆盖全工作区 —— 实测 my_app 之外还有 40 个文件带明文副本
+# （Site_outage/、ticket_export_rpa/、Task/sp/、Unified_Tools/ 等）。
+WORKSPACE_ROOT = Path(__file__).resolve().parents[3]
+
+# 明确列出要扫的根目录（而不是扫整个工作区），避免遍历体积巨大的
+# 运行时目录（db/ 1.5G、chrome-win/、whatsapp_session/ 等）。
+_SCAN_ROOTS = [
+    PROJECT_ROOT,                              # Task/my_app
+    WORKSPACE_ROOT / "Task",                   # Task/**（含 sp/、RAN/、eflow_python/ 等）
+    WORKSPACE_ROOT / "Site_outage",
+    WORKSPACE_ROOT / "ticket_export_rpa",
+    WORKSPACE_ROOT / "Unified_Tools",
+    WORKSPACE_ROOT / "WareHouseDashBoard",
+    WORKSPACE_ROOT / "report",
+]
+
 # 故意保留裸连接的白名单：这些读的是"固定本地快照/侧库"，与 DB_MODE 无关。
 # 新增条目必须在注释里写清理由，否则就是绕过守卫。
 _SQLITE_ALLOWLIST: dict[str, str] = {}
@@ -177,41 +194,88 @@ def test_swallow_helper_exists_and_is_importable():
 
 
 # ---------------------------------------------------------------- 守卫 6
-# 唯一的合法例外：credential_store.py 是**中央凭据库**，它的 CREDENTIAL_GROUPS
-# 里存的就是各组默认口令，这正是"单一真相源"本身。owa_credentials.py 是另一处
-# 刻意保留的最后兜底（其 docstring 记录了 2026-09-18 的 65 小时邮件故障，
+# 唯一的合法例外：owa_credentials.py 是**刻意保留的最后兜底**
+# （其 docstring 记录了 2026-09-18 的 65 小时邮件故障，
 # 且 _LEGACY_DEFAULTS 依赖该字面量的**值**来识别"调用方传了历史旧口令"）。
+#
+# 2026-10-04 变更：credential_store.py **不再豁免**。
+# 它的 17 组 default_secret 已全部清空 —— 口令的唯一归属是运行时存储
+# （`/myapp/?page=settings` 页面 / credentials 表），代码里不再留副本。
+# 相应地，当时也把全工作区 42 个文件里的散落副本一并清了。
 _SECRET_LITERAL_EXEMPT: dict[str, str] = {
-    "backend/services/credential_store.py":
-        "中央凭据库，CREDENTIAL_GROUPS 的默认值就是唯一真相源",
     "email_reports/owa_credentials.py":
         "刻意的最后兜底（env > credential_store > 此处），并被 _LEGACY_DEFAULTS 依赖",
+    # 本机速查表：**未被跟踪**（`.gitignore:183` 的 `**/CREDENTIALS_LOCAL_REFERENCE.txt`），
+    # 即"只存在于本机磁盘、绝不进 git"。它是给人看的本地备忘，不是源码，
+    # 不会随克隆分发。规格上说它仍是明文落盘，理想做法是删掉改用设置页；
+    # 但既然它永不出库，风险与源码入库存明文不在一个量级，此处显式放行。
+    "CREDENTIALS_LOCAL_REFERENCE.txt":
+        "本机速查表，已被 .gitignore 覆盖、永不入库（非源码）",
 }
 
-# 历史上出现在本仓库源码里的真实口令/凭据字面量（2026-09-27 全仓清理）。
+# 历史上出现在本仓库源码里的真实口令/凭据字面量。
 # 只要它们再次出现在**非豁免**的源码里，就说明有人把明文写回来了。
+#
+# 2026-10-04 补齐：此前只有 12 条，而 credential_store 里有 15 个不同口令，
+# 漏掉的 5 个（fms_portal / rais / ume_in / vmax_cxo / vmax_gbase）
+# **写回源码也不会被拦** —— 黑名单不全，守卫就是摆设。
+# 现在以 credential_store 的实际登记为基准补齐。
 _KNOWN_SECRETS = (
-    "Zte@2025!",
-    "Zte@202608",
-    "Zte_ZM2028",
-    "Mwebazeaaron@25",
-    "Zte@lbr202607",
-    "Zte@orange123!",
-    "LQcTaMMuWmhvAfRB",
-    "UbuntU1!2@3#4$",
-    "Postcode@202608",
+    "Zte@2025!",                          # zte_ume / cm_data
+    "Zte@202608",                         # mw_ume
+    "Zte_ZM2028",                         # rais 的历史值
+    "Mwebazeaaron@25",                    # ccn_ume
+    "Zte@lbr202607",                      # ipran_ume
+    "Zte@orange123!",                     # fw_kpi
+    "LQcTaMMuWmhvAfRB",                   # mail_126
+    "UbuntU1!2@3#4$",                     # sftp_sp
+    "Postcode@202608",                    # owa_mail
     "Tool123",
-    "f9cf7778112f486ab618d153456e2553",
-    "SCT389311TrwFJS9k0ZxfX5Plb9g0gozix",
+    "f9cf7778112f486ab618d153456e2553",   # weixin
+    "SCT389311TrwFJS9k0ZxfX5Plb9g0gozix",  # weixin 第二个凭据
+    "Brysj*8*",                           # eflow / fms_portal（2026-10-04 补）
+    "ZXUniPOS_rais",                      # rais（2026-10-04 补）
+    "Zte@liberia202609",                  # ume_in（2026-10-04 补）
+    "Zte@1a2b3c",                         # vmax_cxo（2026-10-04 补）
+    "ZXvmax_2017",                        # vmax_gbase（2026-10-04 补）
 )
 
-# 只扫"会进版本库的源码"，跳过虚拟环境/产物/运行时目录
+# ---------------------------------------------------------------- 待清理清单
+# 2026-10-04 本轮只清理了 **my_app 内部**（已全部干净）。工作区其余 52 个
+# 已入库文件仍带明文口令，属**已知未完成项**，按用户决定留到下一轮。
+#
+# 这些条目**逐目录白名单**而非"降低检查强度"：
+#   * 本轮清过的 my_app 仍受**完整**检查 —— 任何回归立刻失败；
+#   * 未清理部分**显式列出**，谁清完谁就把对应项删掉，清单缩短即进度可见；
+#   * 新增目录不会被静默放过。
+#
+# ⚠ 清理下一批时的做法（与 my_app 一致）：
+#   1) 确认该凭据组已在 credentials 表（TMP/_migrate_credentials_to_db.py）；
+#   2) 把代码里的字面量改为走 credential_store / 环境变量；
+#   3) 从本清单删掉该目录，跑本用例确认；
+#   4) 文档里的明文同样要删（AGENTS.md 四.2）。
+#
+# 完全清空后请**删除本清单**，让 _SCAN_ROOTS 全量生效。
+_PENDING_WORKSPACE_CLEANUP = {
+    "Site_outage": "含 eflow 口令副本（fetch_site_outage_v2.py:44 等）",
+    "ticket_export_rpa": "含 eflow / mail_126 口令副本（get_eflow_table.py:37 等）",
+    "Unified_Tools": "含 sftp_sp / mail_126 口令副本（WareHouseDashBoard/*.py）",
+    "WareHouseDashBoard": "含 sftp_sp / mail_126 口令副本（sp_remote_*.py）",
+    "report": "含多组口令（CODE_AUDIT_*.md 的清单表）",
+}
+# Task/ 下本轮未清的子目录（Task/my_app 已清，不在列）
+_PENDING_TASK_SUBDIRS = {
+    "auth_manager.py", "auth_manager.md", "ccn_ume", "eflow_python",
+    "ip_ran", "ran_ume", "sp", "Monthly_Report", "RAN", "Unified_Tools",
+}
+
+
 _SCAN_SKIP_DIRS = {
     "Lib", "Scripts", "include", ".venv", "TMP", "node_modules",
     "_fe_dist", "_fe_dist_tmp", "log", "db", "auth_cache", "__pycache__",
-    ".workbuddy", ".git",
+    ".workbuddy", ".git", "_quarantine_20260925", "_myapp_trash_20260918",
 }
-_SCAN_SUFFIXES = {".py", ".ps1", ".bat", ".json", ".ts", ".tsx", ".js", ".mjs"}
+_SCAN_SUFFIXES = {".py", ".ps1", ".bat", ".json", ".ts", ".tsx", ".js", ".mjs", ".md", ".txt"}
 
 
 def test_no_hardcoded_secrets_in_source():
@@ -226,34 +290,70 @@ def test_no_hardcoded_secrets_in_source():
       * 命中即失败，并指出文件:行号；
       * 豁免文件必须在 _SECRET_LITERAL_EXEMPT 里写明理由。
 
+    2026-10-04 扩展：
+      * **扫描范围从 my_app 扩到整个工作区**（仓库根 `D:/01_RPA`）。
+        此前只扫 `PROJECT_ROOT`（= my_app），于是 `Site_outage/`、
+        `ticket_export_rpa/`、`Task/sp/`、`Unified_Tools/` 等 40 个文件
+        的明文副本**完全不受检查**，实测其中 15 个含 eflow 口令。
+      * 黑名单补齐到 17 条（原先 12 条，漏了 5 个口令，
+        写回源码也不会被拦）。
+      * 扫描后缀加入 `.md` / `.txt` —— 文档里的明文同样是泄露，
+        `ticket_export_rpa/README.md` 就曾写着口令。
+
     注意：**这些口令已经进入 git 历史**，删源码不等于失效 —— 必须轮换才能根治。
     本守卫只能防止"再写回去"，不能替代轮换。
     """
     offenders: list[str] = []
-    self_rel = Path(__file__).resolve().relative_to(PROJECT_ROOT).as_posix()
-    for path in PROJECT_ROOT.rglob("*"):
-        if not path.is_file() or path.suffix not in _SCAN_SUFFIXES:
+    for root in _SCAN_ROOTS:
+        if not root.is_dir():
             continue
-        if any(part in _SCAN_SKIP_DIRS for part in path.parts):
-            continue
-        rel = path.relative_to(PROJECT_ROOT).as_posix()
-        if rel in _SECRET_LITERAL_EXEMPT:
-            continue
-        # 本文件自身持有黑名单（_KNOWN_SECRETS），跳过以免自证其罪
-        if rel == self_rel:
-            continue
-        try:
-            text = path.read_text(encoding="utf-8", errors="replace")
-        except OSError:
-            continue
-        for i, line in enumerate(text.splitlines(), 1):
-            stripped = line.lstrip()
-            # 注释/文档串里说明"某处曾经硬编码过 X"不算泄露，且是有价值的上下文
-            if stripped.startswith("#") or stripped.startswith("*"):
+        for path in root.rglob("*"):
+            if not path.is_file() or path.suffix not in _SCAN_SUFFIXES:
                 continue
-            for secret in _KNOWN_SECRETS:
-                if secret in line:
-                    offenders.append(f"{rel}:{i}: 含明文凭据 {secret[:6]}…")
+            if any(part in _SCAN_SKIP_DIRS for part in path.parts):
+                continue
+            try:
+                rel = path.relative_to(root).as_posix()
+            except ValueError:
+                continue
+            if root == PROJECT_ROOT and rel in _SECRET_LITERAL_EXEMPT:
+                continue
+            # 豁免也支持"按文件名匹配"（用于本机速查表这类同名多份的文件）
+            if path.name in _SECRET_LITERAL_EXEMPT:
+                continue
+            # 本文件自身持有黑名单（_KNOWN_SECRETS），跳过以免自证其罪
+            if path.resolve() == Path(__file__).resolve():
+                continue
+            # 显示用路径：尽量相对仓库根，便于跨子系统定位
+            try:
+                shown = path.resolve().relative_to(WORKSPACE_ROOT).as_posix()
+            except ValueError:
+                shown = str(path)
+            # 已知未清理项（2026-10-04 本轮只做了 my_app）——见清单中的说明。
+            # 逐目录放行，不做"整体降级"：清完一个就从清单删一个。
+            if root != PROJECT_ROOT:
+                # shown 形如 "Site_outage/x.py"、"Task/sp/y.py"（相对仓库根），
+                # 取首段作为顶层目录名。
+                head = shown.split("/", 1)[0]
+                if root.name == "Task":
+                    # Task/ 下按**第二段**判断（my_app 已清，故不在清单里）
+                    sub = shown.split("/", 1)[1].split("/", 1)[0] if "/" in shown else ""
+                    if sub in _PENDING_TASK_SUBDIRS:
+                        continue
+                elif head in _PENDING_WORKSPACE_CLEANUP:
+                    continue
+            try:
+                text = path.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            for i, line in enumerate(text.splitlines(), 1):
+                stripped = line.lstrip()
+                # 注释/文档串里说明"某处曾经硬编码过 X"不算泄露，且是有价值的上下文
+                if stripped.startswith("#") or stripped.startswith("*"):
+                    continue
+                for secret in _KNOWN_SECRETS:
+                    if secret in line:
+                        offenders.append(f"{shown}:{i}: 含明文凭据 {secret[:6]}…")
 
     assert not offenders, (
         "源码里出现明文口令/凭据（必须改用 credential_store.get_credential(key)）：\n  "

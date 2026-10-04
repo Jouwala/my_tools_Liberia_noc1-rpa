@@ -27,22 +27,31 @@ import os
 import sys
 from pathlib import Path
 
-# 代码默认值：仅作最后兜底。正常运行时应由 credential_store（设置页）提供真实凭据。
+# 代码默认值：**已删除**（2026-10-04）。
 #
-# ⚠ 2026-09-27 说明：全仓库硬编码口令清理后，这里是**唯一**保留明文默认口令的地方，
-#   属刻意设计，不是漏网：
-#     1) 它是"三级优先级的最后一跳"（env > credential_store > 这里），删掉会让
-#        credential_store 不可用时直接认证失败，反而更难诊断；
-#     2) _LEGACY_DEFAULTS 依赖它的**值**来识别"调用方传了历史硬编码旧口令"，
-#        从而把这种传值当作"没传"。改这个值会同时改变那套识别逻辑。
-#   真要彻底消除明文，正确做法是让 credential_store 成为唯一来源并删掉第 3 级，
-#   而不是单独改这一行。
+# ⚠ 2026-09-27 这里曾是全仓库**唯一**保留明文默认口令的地方，当时记录的理由是
+#   "删掉会让 credential_store 不可用时直接认证失败，反而更难诊断"。本次清理
+#   按该记录自己给出的正确做法执行：**让 credential_store 成为唯一来源，
+#   删掉第 3 级**，而不是留着明文那一行。
+#
+# 现在 `owa_mail` 分组的值已经在 credentials 表里（设置页可查可改），
+#   所以删掉第 3 级**不改变行为**，只是不再有明文入库。
+#
+# 两级都取不到时（凭据库被清空 + 环境变量未设）：
+#   `resolve_owa_credentials()` 返回空口令，让认证**明确失败**并报错，
+#   而不是静默用一个可能已经过期的旧口令去认证 —— 那正是 2026-09-18
+#   那次 65 小时故障的形态（"探测说正常、发送 401"，排查方向被带偏）。
 DEFAULT_USERNAME = "ZTENOC_OLR"
-DEFAULT_PASSWORD = "Postcode@202608"
+DEFAULT_PASSWORD = ""
 
 # 历史上出现过的硬编码默认值。调用方若"显式"传了这些值，等同于没传 ——
 # 它们一定不是设置页里的当前密码。
-_LEGACY_DEFAULTS = frozenset({DEFAULT_PASSWORD})
+#
+# ⚠ 这个集合的**值**（历史口令字面量）已随 2026-10-04 清理一并移除：
+#   把它们列在这里等于又把口令写进了版本库，与本次清理目的相悖。
+#   识别逻辑改为"空串即视为没传"（见 resolve_owa_credentials），
+#   而实参默认值本身也已不存在，无需再靠黑名单识别。
+_LEGACY_DEFAULTS = frozenset()
 
 # 用户名同理：DEFAULT_USERNAME 就是兜底值，显式传它 ≡ 没传。
 _UNSPECIFIED_USERS = frozenset({DEFAULT_USERNAME})

@@ -179,9 +179,12 @@ def test_client_utils():
           all(_raises(lambda s=s: vgc.VmaxGbaseClient._assert_readonly(s))
               for s in ("delete from t", "update t set a=1", "drop table t", "insert into t values(1)",
                         "create table x (a int)", "truncate t")))
+    # 用**假**口令作哨兵即可验证脱敏；原先这里抄了真实口令，等于把它写进版本库
+    # （2026-10-04 改）。哨兵值与真实口令无关，断言依然有效。
+    _SENTINEL_PW = "SENTINEL-NOT-A-REAL-PASSWORD"
     check("dsn_summary 脱敏（不含密码）",
-          "ZXvmax_2017" not in vgc.dsn_summary({"user": "gbase", "host": "h", "port": 5258,
-                                                "database": "zxvmax", "password": "ZXvmax_2017"}))
+          _SENTINEL_PW not in vgc.dsn_summary({"user": "gbase", "host": "h", "port": 5258,
+                                               "database": "zxvmax", "password": _SENTINEL_PW}))
 
 
 def _raises(fn):

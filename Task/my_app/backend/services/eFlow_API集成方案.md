@@ -99,7 +99,9 @@ GET  http://localhost:8000/api/eflow/status
 EFLOW_HOST=10.100.20.8    # eFlow 服务器地址
 EFLOW_PORT=28001           # eFlow 端口
 EFLOW_USER=admin           # 登录用户名
-EFLOW_PASS=Brysj*8*        # 登录密码
+EFLOW_PASS=<口令>          # 登录密码。优先级：环境变量 > 凭据库 eflow 组（设置页）
+                           # 不设此变量时走设置页，改密免重启即时生效。
+                           # ⚠ 不要把口令写进本文档（AGENTS.md 四.2）
 ```
 
 ## 运行验证结果

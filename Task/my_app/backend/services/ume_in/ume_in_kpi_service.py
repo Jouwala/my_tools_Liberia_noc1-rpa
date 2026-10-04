@@ -57,7 +57,11 @@ HOST = os.environ.get("UME_IN_HOST", "172.17.208.1")
 PORT = int(os.environ.get("UME_IN_PORT", "28808"))
 LOGIN_PORTAL = os.environ.get("UME_IN_PORTAL", "/em-portal/")
 USERNAME = os.environ.get("UME_IN_USER", "10172755")
-PASSWORD = os.environ.get("UME_IN_PASSWORD", "Zte@liberia202609")
+# ⚠ 口令不在这里写默认值（2026-10-04）：原先 os.environ.get(
+# "UME_IN_PASSWORD", "<明文>") 把口令写进了版本库（AGENTS.md 四.2），
+# 也是 credential_store ume_in 组的重复副本，无法轮换。
+# 现在由 _runtime_credentials() 提供：环境变量 > 凭据库 ume_in 组。
+PASSWORD = ""
 
 REFERER = f"https://{HOST}:{PORT}{LOGIN_PORTAL}"
 HISTORY_PATH = "/api/pm-analysis/v2/history"
