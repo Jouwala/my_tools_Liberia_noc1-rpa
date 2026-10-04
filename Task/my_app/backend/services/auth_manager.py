@@ -282,10 +282,10 @@ def _write_cache(host: str, port: int, cookie: str, forgery_token: str,
         "cookie": cookie,
         "forgery_token": forgery_token,
         # auth_code：登出接口 `POST /api/oauth2/v1/delete/login/remove` 的 payload
-        # 需要它（`{"authCode":[<此值>]}`）。**它不是 Z-AUTH-CODE cookie**，
-        # 而是登录第 1 步 authorize 页面里的 `loginParameters`（形如 `<长hex>$10`，
-        # 2026-10-04 实测确认，见 _do_login）。登录时顺手落盘，登出时直接复用，
-        # 避免登出再去多打一次上游页面。
+        # 需要它（`{"authCode":[<此值>]}`）。**它来自在线用户列表的行字段**
+        # （由 _record_own_auth_code 在登录后取回，形如 `<长hex>$10`，len≈121），
+        # **不是** authorize 页面的 loginParameters（len=225，实测登出无效），
+        # 也**不是** Z-AUTH-CODE cookie（len=43 无后缀）。见文件顶部登出小节。
         "auth_code": auth_code or "",
         "created_at": datetime.now(timezone.utc).isoformat(),
         "expires_in": ttl,
@@ -333,8 +333,8 @@ def invalidate_cache(host: str, port: int):
 # 高频任务（如 sp_online_sync 每小时一轮）叠加短 TTL 后，会在上游堆积大量僵尸
 # 会话 —— 这正是 2026-10-04「eFlow 用户数持续增长」的直接原因。
 #
-# ============ ⚠ 当前状态：接口已定位，但**尚未验证生效** ============
-# 2026-10-04 实测结论（务必先读，避免重复踩坑）：
+# ============ ✅ 2026-10-04 已解决：authCode 取值确定，登出真正生效 ============
+# 结论（受控实验，务必先读，避免重复踩坑）：
 #
 #   1) 接口与必需请求头**已确认**：
 #      POST /api/oauth2/v1/delete/login/remove
@@ -344,25 +344,39 @@ def invalidate_cache(host: str, port: int):
 #        实测 Referer/Origin 怎么组合都过不了，只有加这个头才返回 204。
 #        注意**头名是不带端口后缀的裸 `forgerydefense`**（带 `-28001` 同样 403）。
 #
-#   2) 但 **204 不代表登出真的生效**：
-#      - 用「同一次登录的 loginParameters」当 authCode → 204，但该会话**随后仍能 200**
-#      - 故意用「陈旧/错误的 authCode」                    → 同样 204，会话也仍能 200
-#      - 对已登出过的会话**重复**调用                       → 依然 204
-#      => 该接口**无条件返回 204**，204 不能作为成功判据。
+#   2) ✅ **authCode 的正确取值已确定**：来自「在线用户列表」
+#      POST /api/oauth2/v1/login/users 的**行字段** `authCode`（len≈121）。
+#      `_record_own_auth_code` 在登录刚成功时取它并落盘。
 #
-#   3) authCode 的正确取值**仍未确定**：
-#      - 浏览器抓到的样本：len=121，以 `$10` 结尾
-#      - 我们从 authorize 页面 loginParameters 取到的：len=225，同样以 `$10` 结尾
-#      两者形状一致但长度差一倍，用哪个都不生效。
-#      **下一步**：在浏览器里登出，F12 → 该请求 → "Copy as cURL"，
-#      贴出**完整请求**（尤其 Cookie 头、全部自定义头、payload 原值），
-#      据此比对才能定值。在那之前，本函数不应被当作"可用"。
+#   3) ⚠ **不能用 authorize 页面的 `loginParameters`**（len=225）：
+#      它同样以 `$10` 结尾、形状极像，但受控实验证明——
+#        - 用 loginParameters 调 remove → 204，**该会话随后仍能 200**（没生效）
+#        - 用列表行 authCode   调 remove → 204，**会话随即 401、并从列表消失**
+#      2026-10-04 之前缓存里存的就是前者，所以「204 不代表成功」这个现象出现过。
+#      **204 不是判据**：上游对无效 authCode 也无条件返回 204。
+#      真正的判据是「登出后该会话再请求变 401」。
 #
-# 因此 `AUTH_LOGOUT_ENABLED` 默认保持 False。开启它只会多打一次上游请求，
-# **不会**释放会话 —— 但也不会造成危害（幂等、且失败被吞掉）。
+#   4) **"取最新一行"有竞态，必须用差集**：
+#      admin 名下实测有 8 条会话，登录时刻彼此只差 18s / 81s / 116s
+#      —— 多个 worker 的登录是交错的。等到登出时再"取最新一行"，
+#      那一刻的最新行可能是**别的 worker 刚建的会话**，登出就会误杀别人。
+#      所以：登录**前**拍该账户 authCode 快照，登录后取差集定位自己的行。
+#
+#   5) 上游对**连续批量**登出有短暂抖动：实测批量删到第 139 条时，
+#      调用方会话瞬时 401（hasLogged:true），几秒后自愈 200。
+#      程序化清理时建议**每 100 条暂停几秒**。
+#
+# `AUTH_LOGOUT_ENABLED` 默认仍为 False —— 不是"不可用"，而是"不默认开启"：
+# 开启后每次登录会多两次上游请求（列表快照 + 定位），且登出会**主动销毁**会话，
+# 影响面需要按部署场景评估。置 1 即为真正可用的登出：登录即释放、不再堆僵尸。
 LOGOUT_PATH = os.environ.get(
     "AUTH_LOGOUT_PATH",
     "/api/oauth2/v1/delete/login/remove",
+)
+# 「在线用户列表」只读接口 —— 登出 authCode 的唯一正确来源（见 _record_own_auth_code）
+LOGIN_USERS_PATH = os.environ.get(
+    "AUTH_LOGIN_USERS_PATH",
+    "/api/oauth2/v1/login/users",
 )
 LOGOUT_ENABLED = os.environ.get("AUTH_LOGOUT_ENABLED", "0").strip().lower() in ("1", "true", "yes", "on")
 
@@ -370,8 +384,12 @@ LOGOUT_ENABLED = os.environ.get("AUTH_LOGOUT_ENABLED", "0").strip().lower() in (
 def _read_cached_auth_code(host: str, port: int) -> str:
     """从缓存文件读取登录时落盘的 authCode（登出 payload 用）。
 
+    该值由 `_record_own_auth_code` 在登录后从「在线用户列表」取回并落盘，
+    是**真正可用的**登出 authCode（len≈121）。
+
     注意：**不要**从 Z-AUTH-CODE cookie 推导 —— 实测两者不是同一个值
-    （cookie len=43 无后缀；authCode len≈99~225 以 `$10` 结尾）。
+    （cookie len=43 无后缀；authCode len≈121 以 `$10` 结尾）。
+    也**不要**回退去用 loginParameters（len=225）—— 见文件顶部第 3 条。
     """
     import json as _json
     p = _cache_file_path(host, port)
@@ -389,19 +407,24 @@ def logout(host: str, port: int, cookie: str = None, forgery_token: str = None,
     """登出上游网管，释放服务端会话（可选同时清本地缓存）。
 
     默认**不启用**（`AUTH_LOGOUT_ENABLED` 未置位时直接返回 False 并记一条日志）。
-    接口契约已实测确认，置位 `AUTH_LOGOUT_ENABLED=1` 即可生效。
+    接口契约与 authCode 取值均已实测确认，置位 `AUTH_LOGOUT_ENABLED=1` 即为
+    真正可用的登出（登录即释放、不再堆僵尸）—— 见文件顶部登出小节。
 
     Args:
         host/port: 上游网管地址。
         cookie: 要登出的会话；不传则读本地缓存里的 cookie。
-        forgery_token: 同上（本接口实际未用到，保留以兼容调用方）。
+        forgery_token: 上游跨站防护要求，缺它必 403（本接口**需要**它）。
         auth_code: 登出 payload 的 authCode；不传则读缓存里登录时落盘的值。
-            **注意它不是 Z-AUTH-CODE cookie**，见 _do_login 的说明。
+            **它必须来自在线用户列表，不是 loginParameters**，见 _record_own_auth_code。
         clear_cache: 登出成功后是否删掉本地缓存文件（默认 True —— 登出后缓存即失效）。
 
     Returns:
-        True 表示已发出登出请求且上游返回非 5xx；False 表示未启用/无会话/失败。
+        True 表示上游返回 2xx **且**本地已清缓存；False 表示未启用/无会话/失败。
         任何异常都吞掉并记 warning：**登出失败不应阻断任务主流程**。
+
+    ⚠ 成功判据：本函数以 2xx 为「已发出且被受理」。上游对**无效** authCode 也
+      返回 204，所以 2xx **不等于**会话真被销毁。真正的端到端判据是
+      「登出后该会话再请求变 401」，那需要调用方自测，本函数不做（会多打上游）。
     """
     if not LOGOUT_ENABLED:
         logger.debug(
@@ -489,16 +512,32 @@ def _do_login(host: str, port: int, username: str, password: str) -> dict:
     执行 ZTE 网管 OAuth2 RSA 登录流程。
     返回 {"cookie": str, "forgery_token": str, "auth_code": str}
 
-    `auth_code` 即第 1 步 authorize 页面里的 `loginParameters`（形如 `<长hex>$10`），
-    是**登出接口 payload 需要的值** —— 注意它**不是** Z-AUTH-CODE cookie
-    （2026-10-04 实测：cookie 值 len=43 且无 `$` 后缀，而登出 payload 里的
-    authCode len≈99~225 且以 `$10` 结尾）。此处顺手带出，供 _write_cache 落盘。
+    `auth_code` 是**登出接口 payload 需要的值**，它在登录成功之后由
+    `_record_own_auth_code` 从「在线用户列表」取回（形如 `<长hex>$10`，len≈121）。
+
+    ⚠ 不要误用第 1 步 authorize 页面的 `loginParameters`：它形状极像
+    （同样以 `$10` 结尾）但 len=225，实测登出**无效**（返回 204 但会话不死）。
+    ⚠ 也**不是** Z-AUTH-CODE cookie（cookie 值 len=43 且无 `$` 后缀）。
     """
     logger.info(f"[AUTH] 开始登录 {host}:{port} (用户: {username})")
     session_cookie = ""
     forgery_token = ""
     auth_code = ""
     last_error = None
+
+    # 登录前拍快照：该账户当前已有的会话 authCode。
+    # 登录后取差集就能**确定**找出自己刚建的那一行（见 _record_own_auth_code）。
+    # 只在已有可用会话时拍（列表接口需要鉴权）；拍不到就拿空集，
+    # 退化为"登录后该账户的新增行"，仍然比"取最新一行"可靠。
+    _pre_codes = set()
+    if LOGOUT_ENABLED:
+        try:
+            _c = _read_cache(host, port)
+            if _c:
+                _pre_codes = _snapshot_auth_codes(
+                    host, port, username, _c.get("cookie", ""), _c.get("forgery_token", ""))
+        except Exception as e:
+            logger.debug(f"[AUTH] 登录前会话快照失败（不影响登录）: {e}")
 
     for attempt in range(1, MAX_RETRIES + 1):
         try:
@@ -525,7 +564,7 @@ def _do_login(host: str, port: int, username: str, password: str) -> dict:
 
             init_cookie_str = "; ".join(init_cookies)
 
-            # 提取 loginParameters（同时也是登出 payload 要用的 authCode）
+            # 提取 loginParameters（登出**不能**用它 —— 见下方 _record_own_auth_code）
             html = body.decode('utf-8', errors='replace')
             lp_match = re.search(r'var\s+loginParameters\s*=\s*["\']([^"\']+)["\']', html)
             login_parameters = lp_match.group(1) if lp_match else ""
@@ -597,6 +636,18 @@ def _do_login(host: str, port: int, username: str, password: str) -> dict:
                 raise Exception("登录失败 - 未获取到 Z-AUTH-CODE cookie")
 
             logger.info(f"[AUTH] 登录成功 ({len(cookies)} cookies)")
+
+            # 取**真正可用的**登出 authCode（在线列表行的值，len≈121）。
+            # 失败不影响登录：宁可登出时跳过，也不拿一个必然 204-but-无效 的值。
+            if LOGOUT_ENABLED:
+                real_ac = _record_own_auth_code(
+                    host, port, username, session_cookie, forgery_token, _pre_codes)
+                if real_ac:
+                    auth_code = real_ac
+                    logger.info(f"[AUTH] 已记录本会话登出 authCode (len={len(real_ac)})")
+                else:
+                    auth_code = ""  # 明确置空：登出时据此跳过，不拿旧值去猜
+
             return {
                 "cookie": session_cookie,
                 "forgery_token": forgery_token,
@@ -608,6 +659,88 @@ def _do_login(host: str, port: int, username: str, password: str) -> dict:
             logger.warning(f"[AUTH] 登录尝试 {attempt} 失败: {e}")
 
     raise Exception(f"[AUTH] 登录最终失败 ({host}:{port}): {last_error}")
+
+
+def _list_login_users(host: str, port: int, cookie: str, forgery_token: str) -> list:
+    """读取上游「在线用户列表」（只读，无副作用）。
+
+    这是**唯一**能拿到有效登出 authCode 的地方 —— 见本文件顶部登出小节。
+
+    Returns:
+        行列表（每行含 username / loginIp / loginTime / authCode）；失败返回 []。
+    """
+    body = json.dumps({
+        "pageNo": 1, "pageSize": 500, "searchName": "", "searchIp": "",
+        "sort": {"key": "", "type": ""},
+    }, ensure_ascii=False).encode("utf-8")
+    headers_extra = (
+        f"Content-Type: application/json; charset=utf-8\r\n"
+        f"Cookie: {cookie}\r\n"
+        f"Accept: application/json, text/plain, */*\r\n"
+        f"X-Requested-With: XMLHttpRequest\r\n"
+        f"language-option: en-US\r\n"
+        f"Origin: https://{host}:{port}\r\n"
+        f"Referer: https://{host}:{port}/iui/sm/page/index.html\r\n"
+    )
+    if forgery_token:
+        headers_extra += f"forgerydefense: {forgery_token}\r\n"
+    try:
+        _status, _hdrs, _raw, raw = _http_request(
+            host, port, "POST", LOGIN_USERS_PATH, headers_extra=headers_extra, body=body,
+        )
+        data = json.loads(raw.decode("utf-8", "ignore"))
+    except Exception as e:
+        logger.warning(f"[AUTH] 读取在线用户列表失败（忽略）{host}:{port}: {e}")
+        return []
+    rows = data.get("data") if isinstance(data, dict) else data
+    return rows if isinstance(rows, list) else []
+
+
+def _snapshot_auth_codes(host: str, port: int, username: str,
+                         cookie: str, forgery_token: str) -> set:
+    """登录前拍一张"该账户已有会话的 authCode"快照，供登录后取差集。"""
+    rows = _list_login_users(host, port, cookie, forgery_token)
+    return {r.get("authCode") for r in rows if r.get("username") == username}
+
+
+def _record_own_auth_code(host: str, port: int, username: str,
+                          cookie: str, forgery_token: str, before: set) -> str:
+    """登录**刚成功**时调用：查在线列表，找出「刚建的那一行」的 authCode。
+
+    为什么要在登录后立刻查、而不是登出时再查：
+        admin 名下实测有 8 条会话，登录时刻彼此只差 18s / 81s / 116s
+        —— 多个 worker 的登录是交错的。若等到**登出时**才"取最新一行"，
+        那一刻的最新行很可能是别的 worker 刚建的会话，登出就会**误杀别人**。
+        刚登录完这个瞬间，"自己是最新的"这件事竞态窗口最小。
+
+    为什么不能直接用缓存里的 auth_code：
+        那是 authorize 页面的 `loginParameters`（len=225）。2026-10-04 受控实验：
+        用它调 remove → 上游返回 204，但**该会话随后仍能 200**（登出没生效）；
+        而用列表行的 authCode（len=121）→ 会话随即 401 且从列表消失。
+        两者形状相似（都以 `$10` 结尾）但**长度差近一倍、语义不同**。
+
+    Args:
+        before: 登录前该账户名下已有的 authCode 集合（见 _snapshot_auth_codes），
+            登录后取差集即自己的行 —— 比"取最新一行"可靠，不易误伤并发登录。
+
+    Returns:
+        自己的 authCode；定位不到时返回 ""（调用方据此跳过登出，**不猜**）。
+    """
+    try:
+        rows = _list_login_users(host, port, cookie, forgery_token)
+        mine = [r for r in rows
+                if r.get("username") == username and r.get("authCode") not in before]
+        if not mine:
+            logger.info(
+                f"[AUTH] 在线列表中未找到本次登录的会话 ({username}@{host}:{port})，"
+                "登出将跳过（宁可不登出，也不误删别人的会话）"
+            )
+            return ""
+        mine.sort(key=lambda r: r.get("loginTime") or 0, reverse=True)
+        return mine[0].get("authCode") or ""
+    except Exception as e:
+        logger.warning(f"[AUTH] 定位本次登录会话失败（忽略）{host}:{port}: {e}")
+        return ""
 
 
 # ========== 对外主接口 ==========
