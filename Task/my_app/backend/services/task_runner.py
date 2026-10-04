@@ -327,6 +327,23 @@ def register_task(
     current_cron = saved_cron if saved_cron else default_cron
     final_enabled = saved_enabled if saved_enabled is not None else enabled
 
+    # ⚠ 启动期把"代码默认值 ≠ 生效值"显式打出来（2026-10-04 网络风暴专项）。
+    #
+    # 为什么需要这条日志：生效 cron 的真相源有**两个** —— 代码里的 default_cron
+    # 和数据库 task_schedule_config.cron，而后者**永远优先**（上一行三目运算）。
+    # 于是"改代码默认值"对已存在的任务**完全无效**，且不留任何痕迹：
+    # 2026-10-04 曾以为把 sp_online_sync 从 `35 * * * *` 放宽到 `35 */6 * * *`
+    # 已经生效，实际数据库里仍是旧的每小时，登录频率根本没降下来
+    # （实测 task_execution_log 里它依旧按小时跑）。
+    # 这条日志让"我以为改了、其实没生效"当场可见，不必再去翻数据库。
+    if saved_cron and default_cron and saved_cron != default_cron:
+        logger.warning(
+            "[SCHEDULE] 任务 %s 的生效 cron 来自数据库覆盖，与代码默认值不同："
+            "代码=%r 实际=%r（想改生效值请用任务管理页，或删掉该任务的 "
+            "task_schedule_config 行让它回落到代码默认）",
+            task_id, default_cron, saved_cron,
+        )
+
     # 调用链在注册期一次性烘焙：中/英两份同源同长，请求期按 Accept-Language 取用
     _chain_raw = call_chain if call_chain is not None else _auto_call_chain(func)
 

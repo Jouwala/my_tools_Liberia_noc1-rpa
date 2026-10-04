@@ -666,6 +666,13 @@ worker 是多进程（u/n/v/m/c），**导入顺序不受控**，于是"配了 1
 **修复**：cron 改为 `35 */6 * * *`（4 次/天，`backend/task_registry.py:665`）。
 即使 TTL 配置失效或缓存被清，登录次数也**封顶 4 次/天**，不会退化成 24 次/天。
 
+> ⚠️ **这条修复当时并未真正生效（2026-10-04 晚发现并修正认知）**：
+> 生效 cron 的真相源有**两个**，数据库 `task_schedule_config.cron` **永远优先**于
+> 代码 `default_cron`（`backend/services/task_runner.py:327` 的三目运算）。
+> 当时数据库里 `sp_online_sync` 仍是旧的 `35 * * * *`，所以**实际仍按小时跑**，
+> 登录频率并没有降下来。详见下面的「调度覆盖」小节。
+> 现在的防线只剩一条真的：`AUTH_TOKEN_TTL=86400`（24 小时）。
+
 > 为什么"每小时"本来就不必要：本任务拉的是全量在线工单（非增量流水），
 > 看板呈现"当前工单状态"，6 小时粒度对工单场景足够。
 
@@ -859,7 +866,118 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 - 自启脚本硬编码了 `C:\Program Files\PostgreSQL\16\*` 与当前用户目录下的 Python 路径（`start_autostart.bat:14,25`、`start_ensure.bat:15,20`、`stop.bat:25,100`）。换用户/换机必须改。
 - **改 `.bat` 后必须实跑一次并用 PID 前后对比验证**——本项目吃过亏：cmd 把 UTF-8 无 BOM 的中文注释按 ANSI 解析会吞掉后续行，脚本照样显示成功但 `taskkill` 根本没执行。所有 bat 保持 CRLF + 英文 `REM`（`start.bat:21-22`）。
 
-## 定期清理
+## 网络风暴专项审计（请求量放大，2026-10-04）
+
+**背景**：eFlow 曾因"每任务登录一次"被打崩（3822 次登录）。登录频率治住之后，
+把审视范围扩到**所有会造成上游请求量放大的结构** —— 重试、轮询、并发扇出、
+超时缺失、看门狗重启循环、失败重投、cron 密度。方法是**只读审计 + 逐个核对
+真实参数值**，不接受"看名字像是有防护"。
+
+### 结论：未发现正在发生的风暴，但有一处真实的放大结构（已修）
+
+#### 🔴 `_wait_export_ready` 轮询 × 重试 × 并发（已修）
+
+`backend/services/eflow_api_client.py:739` 是"等 eFlow 生成导出文件"的轮询。
+改前参数 `max_wait=300, interval=10` → **每条管道轮询 30 次**；TT/WO/CR/PM
+**四条管道全部用默认值**（`eflow_data_mapper.py:276,447,484,522`），并且
+`_http_request` 自身还带 `HTTP_MAX_RETRIES=3` 的指数退避重试
+（`eflow_api_client.py:50`）。上游一旦变慢：
+
+```
+4 条管道 × 30 次轮询 × 4 次重试（1 次原始 + 3 次重试）≈ 480 次请求
+```
+
+全部集中打在 eFlow **同一个导出 list 端点**上，且 `fetch_all_data` 由
+`eflow_sync` 驱动，**每轮都来一次**。
+
+**改法（三处同时生效才真正降下来）**：
+
+| # | 改动 | 位置 |
+| --- | --- | --- |
+| 1 | 轮询间隔 10s→15s、总轮询次数 30→8（窗口 120s） | `eflow_api_client.py:62-63,739` |
+| 2 | **轮询不叠加重试**（`max_retries=0`） | `eflow_api_client.py:774` |
+| 3 | 并发 6→3 | `eflow_api_client.py:47` |
+
+结果：`4 × 8 × 1 = 32` 次，约为改前的 **1/15**。
+
+> **为什么必须给 `_http_request` 加 `max_retries` 形参**：改前它只有内部
+> `retry` 计数，上限硬编码取模块级 `HTTP_MAX_RETRIES`，**调用方无法按场景
+> 覆盖**。"轮询要少重试"这个诉求根本无法表达，所以才只能靠调大 interval
+> 硬扛。现在三处重试分支统一走 `limit`（`eflow_api_client.py:298,329,396`）。
+>
+> ⚠️ **401 重登录分支必须透传 `max_retries`**（`eflow_api_client.py:428-431`）。
+> 漏了它，会话过期时重试次数会**悄悄恢复成默认上限** —— 而那正是负载最糟的
+> 时机。第一版就漏了，靠离线断言 `[4] 401 分支透传 max_retries` 抓出来。
+
+**离线验证**：`python TMP/_verify_export_poll_storm.py`
+→ `ALL_EXPORT_POLL_STORM_CHECKS_PASSED`（10/10，含改前后请求量核算）。
+
+#### 🟡 调度覆盖：改了代码默认值却不生效（已加告警）
+
+**生效 cron 的真相源有两个，数据库永远优先**：
+
+```python
+# backend/services/task_runner.py:327
+saved_cron, saved_enabled = _load_schedule_config(task_id)
+current_cron = saved_cron if saved_cron else default_cron   # ← 数据库赢
+```
+
+`task_schedule_config` 有 **51 条**记录，其中 **19 条与代码 `default_cron`
+不同**（在任务管理页改过）。这意味着**改 `task_registry.py` 的默认值对已存在
+的任务完全无效，且不留任何痕迹**。
+
+实测踩到的坑：`sp_online_sync` 代码已改为 `35 */6 * * *`，但数据库仍是
+`35 * * * *`，**实际仍按小时跑**（见上文"缺陷 3"的更正）。
+
+高频覆盖示例（2026-10-04 实测）：
+
+| 任务 | 代码默认 | **实际生效** | 频率 |
+| --- | --- | --- | --- |
+| `eflow_active_alarm` | `*/30 * * * *` | **`*/5 * * * *`** | 288 次/天 |
+| `sp_online_sync` | `35 */6 * * *` | `35 * * * *` | 24 次/天 |
+| `ipran_kpi_sync` | `0 8 * * *` | `0 * * * *` | 24 次/天 |
+
+**处置**：① **不改用户已配置的值**（`eflow_active_alarm` 的 `*/5` 经确认保留，
+实时告警看板需要该粒度；且它走 `ensure_login()` 共享会话，**实测今日 eFlow
+真实登录 0 次**，不构成登录风暴）；② 在注册期对"代码默认值 ≠ 生效值"打
+**WARNING**（`task_runner.py:330-346`），让"以为改了其实没生效"当场可见。
+
+**离线验证**：`python TMP/_verify_schedule_override_warn.py`
+→ `ALL_SCHEDULE_OVERRIDE_WARN_CHECKS_PASSED`（6/6，并列出全部 19 条错配）。
+
+> **想改生效 cron 的正确做法**：用任务管理页（`PUT /api/tasks/{id}/schedule`，
+> `backend/routers/tasks.py:175`），或删掉该任务的 `task_schedule_config` 行
+> 让它回落到代码默认。**不要**只改 `task_registry.py` 就以为生效了。
+
+#### ⚪ 已确认安全（不必重复审计）
+
+| 模块 | 核对到的参数 |
+| --- | --- |
+| `worker_watchdog.py` | `POLL_INTERVAL=2.0`、`MAX_BACKOFF=30.0`、`STARTUP_FAIL_LIMIT=10`（`:83-86`）；退避 `2**crashes`（`:550`）；连续 10 次崩溃**主动摘除不再拉起**（`:555-560`）→ 无"崩溃↔重启"快速循环 |
+| `backend_watchdog.py` | 同上 30s/10 次上限（`:54-55`） |
+| `auto_retry.py` | `MAX_ATTEMPTS=2`、`COOLDOWN_MIN=15`、`SCAN_WINDOW_HOURS=24`（`:93-95`）；永久错误不重试（`:558`） |
+| `auth_manager.py` | `MAX_RETRIES=2`（`:114`）、退避 `2**(attempt-1)`（`:506`）、登录锁串行化 |
+| `eflow_api_client.py` | `HTTP_READ_TIMEOUT=90`、socket 显式 `settimeout`（`:171,174`）→ 无超时挂死 |
+| 6 份 `_http_request_with_retry` | 全为 `for attempt in range(max_retries+1)` + `2**attempt` 指数退避，**上限 1~3、无递归** |
+| 并发参数 | 全部有界且 ≤8（`eflow_api_client.py:47`=3、`ipran_ume_kpi_service.py:94`=6 等） |
+| MW `wait_history_ready` | `timeout=600` 由 `deadline` 封顶、`max_retries=1`（`mw_ume_kpi_service.py:759-772`）；实测每轮 12 次轮询 / 12 次成功，**未打满** |
+| `_wait_export_ready` 之外的轮询 | `mw_ume` 探活、`_wait_export_ready` 均已定界 |
+
+> **MW 探活的调用位置约束**已在 `mw_ume_kpi_service.py:445` 用注释锁死：
+> `_probe_session_alive()` 只允许在**登录路径**调用（每轮最多一次）。
+> 若日后被挪进请求热路径，就会变成新的风暴源。
+
+### 网络风暴排查速查（下次直接照做）
+
+1. **数真实请求，不看代码意图**：`task_execution_log` 数运行次数，
+   `auth_cache/*.json` 的 `created_at` 数真实登录。
+2. **并发 × 次数 × 重试 = 放大倍数**，三者相乘才是真实压力。
+3. **cron 要查两个地方**：代码 `default_cron` **和**数据库
+   `task_schedule_config.cron`（后者优先，见上）。
+4. **轮询不要叠加重试**，也不要靠调小 interval 提速。
+5. 日志是 **GBK**：用中文串 `Select-String` 会**静默返回 0**
+   （实测 `复用=0` 与日志内容矛盾），改用 ASCII 特征串。
+
 
 | 目标 | 位置 | 安全性 |
 | --- | --- | --- |

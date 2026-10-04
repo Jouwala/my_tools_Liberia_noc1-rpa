@@ -44,13 +44,23 @@ def _runtime_credentials():
         from credential_store import get_credential
     return get_credential("eflow", USERNAME, PASSWORD,
                           env_user="EFLOW_USER", env_secret="EFLOW_PASS")
-MAX_PARALLEL_DOWNLOADS = max(1, int(os.environ.get("EFLOW_MAX_PARALLEL_DOWNLOADS", "6")))
+MAX_PARALLEL_DOWNLOADS = max(1, int(os.environ.get("EFLOW_MAX_PARALLEL_DOWNLOADS", "3")))
 
 # ========== 重试配置 ==========
 HTTP_MAX_RETRIES = max(0, int(os.environ.get("EFLOW_HTTP_MAX_RETRIES", "3")))
 HTTP_RETRY_DELAY = float(os.environ.get("EFLOW_HTTP_RETRY_DELAY", "1"))
 HTTP_CONNECT_TIMEOUT = float(os.environ.get("EFLOW_CONNECT_TIMEOUT", "15"))
 HTTP_READ_TIMEOUT = float(os.environ.get("EFLOW_READ_TIMEOUT", "90"))
+
+# ========== 导出轮询配置（网络风暴专项，2026-10-04）==========
+# 这两个值共同决定"等待导出完成"期间打向 eFlow 的请求量。
+# 改前的 300/10 → 每条管道 30 次轮询；4 条管道并发 × 30 次 × 最多 4 次重试
+# ≈ 480 次请求集中打同一个 list 端点（每半小时一轮）。
+# 现在：每条管道最多 8 次轮询，且轮询不叠加重试 → 4×8×1 = 32 次。
+# ⚠ 不要用"调小 interval"来提速：导出是生成文件的慢操作，缩短间隔只是
+#   把等待变成无效请求，上游慢时反而更容易把它压垮。
+EXPORT_POLL_MAX_WAIT = float(os.environ.get("EFLOW_EXPORT_POLL_MAX_WAIT", "120"))
+EXPORT_POLL_INTERVAL = float(os.environ.get("EFLOW_EXPORT_POLL_INTERVAL", "15"))
 
 # ========== FTP 配置 ==========
 # FTP 主机/端口已统一收敛到 backend.config.remote_host（get_ftp_host / get_ftp_port），
@@ -269,22 +279,28 @@ def _chunked_complete(buf, start):
         pos += size + 2
 
 
-def _http_request(method, path, headers_extra=None, body=None, retry=0, _auth_retried=False):
+def _http_request(method, path, headers_extra=None, body=None, retry=0,
+                  _auth_retried=False, max_retries=None):
     """
     发送 HTTP 请求，带重试机制。
 
     Args:
         retry: 内部使用，表示当前是第几次重试（不传则为首次）
         _auth_retried: 内部使用，标记是否已因 401 做过一次重登录重试
+        max_retries: 本次调用的重试上限；None = 用模块默认 ``HTTP_MAX_RETRIES``。
+            **轮询类调用应传 0**（见 ``_wait_export_ready``）——轮询本身有多个
+            间隔，再叠加重试会让请求量相乘放大。
     """
+    limit = HTTP_MAX_RETRIES if max_retries is None else max(0, int(max_retries))
     try:
         ssock = _get_thread_socket()
     except (ssl.SSLError, socket.timeout, ConnectionError, OSError) as e:
-        if retry < HTTP_MAX_RETRIES:
+        if retry < limit:
             delay = HTTP_RETRY_DELAY * (2 ** retry)
-            logger.warning(f"Socket connect failed (attempt {retry+1}/{HTTP_MAX_RETRIES+1}): {e}, retrying in {delay}s")
+            logger.warning(f"Socket connect failed (attempt {retry+1}/{limit+1}): {e}, retrying in {delay}s")
             time.sleep(delay)
-            return _http_request(method, path, headers_extra=headers_extra, body=body, retry=retry + 1)
+            return _http_request(method, path, headers_extra=headers_extra, body=body,
+                                 retry=retry + 1, max_retries=max_retries)
         raise
 
     headers = (
@@ -310,11 +326,12 @@ def _http_request(method, path, headers_extra=None, body=None, retry=0, _auth_re
         ssock.sendall(request_bytes)
     except (socket.timeout, ConnectionError, OSError) as e:
         _close_thread_socket()
-        if retry < HTTP_MAX_RETRIES:
+        if retry < limit:
             delay = HTTP_RETRY_DELAY * (2 ** retry)
-            logger.warning(f"Socket send failed (attempt {retry+1}/{HTTP_MAX_RETRIES+1}): {e}, retrying in {delay}s")
+            logger.warning(f"Socket send failed (attempt {retry+1}/{limit+1}): {e}, retrying in {delay}s")
             time.sleep(delay)
-            return _http_request(method, path, headers_extra=headers_extra, body=body, retry=retry + 1)
+            return _http_request(method, path, headers_extra=headers_extra, body=body,
+                                 retry=retry + 1, max_retries=max_retries)
         raise
 
     # bytearray avoids quadratic copying for large ZIP/XLSX exports.
@@ -376,11 +393,12 @@ def _http_request(method, path, headers_extra=None, body=None, retry=0, _auth_re
 
     header_end = response_data.find(b"\r\n\r\n")
     if header_end == -1:
-        if retry < HTTP_MAX_RETRIES:
+        if retry < limit:
             delay = HTTP_RETRY_DELAY * (2 ** retry)
-            logger.warning(f"Cannot parse HTTP response (attempt {retry+1}/{HTTP_MAX_RETRIES+1}), retrying in {delay}s")
+            logger.warning(f"Cannot parse HTTP response (attempt {retry+1}/{limit+1}), retrying in {delay}s")
             time.sleep(delay)
-            return _http_request(method, path, headers_extra=headers_extra, body=body, retry=retry + 1)
+            return _http_request(method, path, headers_extra=headers_extra, body=body,
+                                 retry=retry + 1, max_retries=max_retries)
         raise Exception("Cannot parse HTTP response")
 
     header_part = response_data[:header_end].decode('utf-8', errors='replace')
@@ -407,8 +425,10 @@ def _http_request(method, path, headers_extra=None, body=None, retry=0, _auth_re
         _close_thread_socket()
         _reauthenticate_on_401()
         headers_extra = _rebuild_auth_headers(headers_extra)
+        # 必须把 max_retries 一并传下去：否则 401 重试会悄悄恢复成模块默认上限，
+        # 让"轮询传 0 次重试"的约束在会话过期这个最糟的时机失效。
         return _http_request(method, path, headers_extra=headers_extra, body=body,
-                             retry=retry, _auth_retried=True)
+                             retry=retry, _auth_retried=True, max_retries=max_retries)
 
     return status_line, resp_headers, header_part, resp_body
 
@@ -716,13 +736,43 @@ def _create_export_task(async_path, referer, payload, label):
     return ftp_file_path, file_name
 
 
-def _wait_export_ready(list_path, referer, file_name, label, max_wait=300, interval=10):
-    """轮询等待导出完成，返回 (ftp_path, item)"""
+def _wait_export_ready(list_path, referer, file_name, label,
+                       max_wait=None, interval=None):
+    """轮询等待导出完成，返回 (ftp_path, item)。
+
+    ⚠ 参数选择直接决定打向 eFlow 的请求量（2026-10-04 网络风暴专项整改）：
+
+    放大链路（改前）：4 条管道（TT/WO/CR/PM）**并发**跑本函数，每条 30 次轮询
+    （``max_wait=300 / interval=10``），而 ``_http_request`` 自身还带最多 3 次
+    指数退避重试 —— 上游一旦变慢，最坏 ≈ 4×30×4 = **480 次请求**集中打在
+    eFlow 同一个导出 list 端点上，每半小时一轮。
+
+    改法（三条同时生效才真正降下来）：
+      1. **轮询间隔加倍、总次数减半**（默认 15s × 8 次 = 120s 窗口）——
+         导出是"生成文件"而非秒级任务，10s 轮询过密；
+      2. **轮询本身不叠加重试**（``max_retries=0``）—— 轮询是"再看一眼"，
+         不需要重试语义；失败就等下一个间隔，天然自愈；
+      3. 并发降为 3（见 ``MAX_PARALLEL_DOWNLOADS``）。
+
+    这样最坏请求量从 ~480 降到 4×8×1 = **32 次**，约 1/15。
+
+    为什么保留 max_wait 可配：不同报表导出耗时差异大，调用方可显式放宽；
+    但**不要**通过调小 interval 来提速，那是在拿上游稳定性换算速度。
+    """
+    if max_wait is None:
+        max_wait = EXPORT_POLL_MAX_WAIT
+    if interval is None:
+        interval = EXPORT_POLL_INTERVAL
+
     headers_extra = _headers_extra(referer)
     body = json.dumps({})
 
-    for attempt in range(max_wait // interval):
-        status, hdrs, raw_hdrs, resp_body = _http_request("POST", list_path, headers_extra=headers_extra, body=body)
+    attempts = max(1, int(max_wait // interval))
+    for attempt in range(attempts):
+        # max_retries=0：轮询不叠加重试，避免"轮询次数 × 重试次数"相乘放大
+        status, hdrs, raw_hdrs, resp_body = _http_request(
+            "POST", list_path, headers_extra=headers_extra, body=body, max_retries=0,
+        )
 
         if "gzip" in hdrs.get("content-encoding", "").lower() and resp_body:
             try:

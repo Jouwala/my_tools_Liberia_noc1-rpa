@@ -441,6 +441,12 @@ def _probe_session_alive(cookie: str, forgery_token: str) -> bool:
 
     用 `HISTORY_PATH` 而不是首页，是因为它正是失败发生的地方；
     探不到就等于没探。
+
+    🔒 **调用位置约束（勿违反）**：本函数**只允许**在登录路径
+    （`_try_shared_auth`，即每轮同步最多一次）调用。
+    它每次调用都会向上游发**一发真实 POST**。若把它挪进请求热路径
+    （例如每次 KPI 查询前都探一次），就会变成新的网络风暴源——
+    本项目已经因为"每任务登录一次"把 eFlow 打崩过一次，不要重蹈覆辙。
     """
     try:
         headers = _auth_headers(cookie, forgery_token)
