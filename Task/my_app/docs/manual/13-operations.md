@@ -468,6 +468,13 @@ tools/fms_session.json 已重建（cookie 有 / csrf 有）
 > - `python TMP/_measure_login_rate.py [秒]` —— **在线**实测真实登录次数，
 >   判据是 `auth_cache` 的 `created_at` 变化 + 代理日志 `[auth] login start` 增量。
 >   它会真的触发上游登录（若缓存确实失效），**跑之前先确认可以接受**。
+> - `python TMP/_verify_export_poll_storm.py` —— **离线**断言（10 项），eFlow 导出轮询
+>   的请求量放大核算：轮询次数、间隔下限、轮询不叠加重试、三处重试分支都走 `limit`、
+>   401 分支透传 `max_retries`、并发上限，以及改前/改后请求量对比。改 `eflow_api_client`
+>   的轮询或重试逻辑后跑这个。
+> - `python TMP/_verify_schedule_override_warn.py` —— **离线**断言（6 项），校验
+>   "代码 `default_cron` ≠ 数据库生效值"的 WARNING 真会打出来，并列出当前**全部**
+>   错配任务（2026-10-04 实测 19 条）。怀疑"改了 cron 却没生效"时先跑这个。
 >
 > 📌 **统计口径提醒**：worker 日志按 GBK 落盘，用 `Select-String` 匹配**中文**特征串
 > （如"复用共享会话"）会**静默匹配不到**，统计结果假性为 0。做登录计数时
