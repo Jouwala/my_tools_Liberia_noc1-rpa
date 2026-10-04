@@ -13,9 +13,26 @@ port = 22
 username = "ubuntu"
 password = "UbuntU1!2@3#4$"
 
-client = paramiko.Transport((host, port))
+# ⚠ 超时是必需项（2026-10-04 网络风暴专项整改）。
+# paramiko 的 Transport((host, port)) 与 connect() **默认都没有超时**：
+# 上游 SFTP 一旦半死不活（TCP 建连成功但不出 banner），本进程会**永久挂起**，
+# 不报错、不退出，并一直占着连接。若被巡检/看门狗重跑，就会每 5 分钟
+# 叠加一个挂起进程 —— 这是"请求量放大"里最难排查的一类。
+# 写法照搬 my_app 已修复的同类问题：
+# Task/my_app/backend/services/sp_report_gen/gernarate_sp_report.py:476-490
+import socket as _socket
+
+_sock = _socket.create_connection((host, port), timeout=30)
+client = paramiko.Transport(_sock)
+client.set_keepalive(30)
 client.connect(username=username, password=password)
 sftp = paramiko.SFTPClient.from_transport(client)
+try:
+    _chan = sftp.get_channel()
+    if _chan is not None:
+        _chan.settimeout(180)  # 服务端应用层挂死时，channel 读不再永久阻塞
+except Exception as _e:
+    print(f"  [WARN] SFTP channel 超时设置失败（退回无超时模式）: {_e}")
 
 remote_base = "sp"
 folders = {

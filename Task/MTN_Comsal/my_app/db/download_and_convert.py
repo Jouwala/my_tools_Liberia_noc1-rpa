@@ -42,9 +42,26 @@ def find_latest_xlsx(sftp, remote_dir):
 def download_latest_file():
     """通过 SFTP 下载最新的 xlsx 文件"""
     print(f"连接 SFTP {SFTP_HOST}...")
-    transport = paramiko.Transport((SFTP_HOST, SFTP_PORT))
+    # ⚠ 超时是必需项（2026-10-04 网络风暴专项整改）。
+    # paramiko 的 Transport((host, port)) 与 connect() **默认都没有超时**：
+    # 上游 SFTP 一旦半死不活（TCP 建连成功但不出 banner），本进程会**永久挂起**，
+    # 不报错、不退出，并一直占着连接。若被巡检/看门狗重跑，就会每 5 分钟
+    # 叠加一个挂起进程 —— 这是"请求量放大"里最难排查的一类。
+    # 写法照搬 my_app 已修复的同类问题：
+    # Task/my_app/backend/services/sp_report_gen/gernarate_sp_report.py:476-490
+    import socket as _socket
+    
+    _sock = _socket.create_connection((SFTP_HOST, SFTP_PORT), timeout=30)
+    transport = paramiko.Transport(_sock)
+    transport.set_keepalive(30)
     transport.connect(username=SFTP_USER, password=SFTP_PASS)
     sftp = paramiko.SFTPClient.from_transport(transport)
+    try:
+        _chan = sftp.get_channel()
+        if _chan is not None:
+            _chan.settimeout(180)  # 服务端应用层挂死时，channel 读不再永久阻塞
+    except Exception as _e:
+        print(f"  [WARN] SFTP channel 超时设置失败（退回无超时模式）: {_e}")
 
     try:
         print(f"递归查找远程目录: {REMOTE_DIR}")

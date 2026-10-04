@@ -316,7 +316,10 @@ CR_PAYLOAD_BASE = {
     "customInfo": {"pageType": "allTicket"},
     "field": CR_FIELDS,
     "order": "lastModifiedTime desc",
-    "length": 50,
+    # 2026-10-04 网络风暴专项：原为 50 —— 与其余 payload 的默认 2000 不一致，
+    # 使 CR 路径的分页次数被放大到 40 倍（CR 上万条 = 数百次请求）。
+    # 其余 payload（TT/WO/PM）都没写 length 而走默认 2000，这里对齐为 2000。
+    "length": 2000,
 }
 
 CR_REFERER = f"https://{HOST}:{PORT}/iui/am-mgt/v1/"
@@ -427,6 +430,20 @@ def fetch_paginated_data(api_path, payload_base, referer, label, page_param="sta
     page_size = payload_base.get(size_param, 2000)
     start = 0
 
+    # 网络风暴防护（2026-10-04 专项整改）。
+    # 改前：本循环退出条件**完全依赖服务端返回的 total**，且页与页之间背靠背
+    # 无任何间隔。两条放大路径：
+    #   1. 服务端 total 报错为大值，或忽略分页参数导致 len(rows) 恒 == page_size
+    #      → start 会一直推进，环内无硬上限，请求量无界；
+    #   2. CR 的 payload 把 length 写成了 50（其余走默认 2000），CR 总量上万时
+    #      → 数百次不间断请求。
+    # 同项目的 alarm 脚本本来就有硬上限（get_eflow_realtime_alarm.py:429 的
+    # `if page > 500`、:526 的 `if offset > 100000`），说明作者知道要设，
+    # 只是这两处漏了。此处补齐，并在页间加最小间隔让上游能喘口气。
+    MAX_PAGES = 500              # 硬上限：与 alarm 脚本的 500 页口径一致
+    PAGE_SLEEP_SEC = 0.5         # 页间最小间隔，避免背靠背打满上游
+    page_count = 0
+
     headers_extra = (
         f"Cookie: {SESSION_COOKIE}\r\n"
         f"language-option: en-US\r\n"
@@ -439,6 +456,16 @@ def fetch_paginated_data(api_path, payload_base, referer, label, page_param="sta
     )
 
     while True:
+        if page_count >= MAX_PAGES:
+            print(f"[WARN] {label} 已达分页硬上限 {MAX_PAGES} 页，提前停止"
+                  f"（已收 {len(all_rows)} 条，total={total}）。"
+                  f"若这是正常数据量，请调大 MAX_PAGES；若是 total 异常，请查上游。")
+            break
+        page_count += 1
+
+        if page_count > 1:
+            time.sleep(PAGE_SLEEP_SEC)  # 页间最小间隔，避免背靠背打满上游
+
         payload = dict(payload_base)
         payload[size_param] = page_size
         payload[page_param] = start
