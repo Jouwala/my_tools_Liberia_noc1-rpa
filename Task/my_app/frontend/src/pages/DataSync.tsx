@@ -472,15 +472,29 @@ export default function DataSync() {
   // pendingAllToggle 记录「待确认的目标状态」：Switch 点击时只记录意图，
   // 由 Popconfirm 确认后真正提交；取消则丢弃（Switch 受控于 allEnabled，自动回弹）
   const [pendingAllToggle, setPendingAllToggle] = useState<boolean | null>(null)
-  const allEnabled = allTasks.length > 0 && allTasks.every(t => t.enabled)
+  // 主开关只统计**非豁免**任务：被豁免的任务按业务决定长期关闭（如 whatsapp_send_ext），
+  // 若把它算进 every() 判定，开关会永远显示关闭——用户点开→后端写入→重新拉取后它依旧关闭
+  // →当场弹回，表现为「怎么点都关着」（2026-10-05 排查）。豁免名单在后端单一真相源。
+  const switchTasks = allTasks.filter(t => !t.master_switch_exempt)
+  const exemptTasks = allTasks.filter(t => t.master_switch_exempt)
+  const allEnabled = switchTasks.length > 0 && switchTasks.every(t => t.enabled)
+  // 已启用/总数：在开关旁显示 68/69 这类实情，避免 ON/OFF 二值掩盖「部分启用」状态
+  const enabledCount = switchTasks.filter(t => t.enabled).length
   const handleToggleAll = async (enabled: boolean) => {
     try {
       const res = await api.post('/tasks/toggle-all', { enabled })
       if (res.data.success) {
-        message.success(t(enabled ? 'sync.allEnabled' : 'sync.allDisabled', { count: res.data.changed }))
+        // changed 只统计真正变更的数量；全量已达标时后端返回 0，据此给出如实反馈，
+        // 不再无脑报「已启用 N 个」（旧实现让用户无法判断操作是否真的做了什么）
+        const changed = res.data.changed ?? 0
+        message.success(changed > 0
+          ? t(enabled ? 'sync.allEnabled' : 'sync.allDisabled', { count: changed })
+          : t('sync.allNoChange'))
         loadTasks(true)
       } else {
-        message.error(res.data.error || t('sync.toggleAllFailed'))
+        // 后端失败时返回的是 errors 数组（旧实现读 res.data.error，永远取不到 → 只显示兜底文案）
+        const errs: string[] = res.data.errors || []
+        message.error(errs.length ? `${t('sync.toggleAllFailed')}: ${errs.join('; ')}` : t('sync.toggleAllFailed'))
       }
     } catch {
       message.error(t('sync.toggleAllFailed'))
@@ -1061,10 +1075,13 @@ export default function DataSync() {
               <Switch size="small" checked={autoSpeak} onChange={toggleAutoSpeak} />
             </Space>
           </Tooltip>
-          {/* 统一开关：一键启用/禁用全部任务 */}
-          <Tooltip title={t('sync.toggleAllHint')}>
+          {/* 统一开关：一键启用/禁用全部任务（豁免任务除外，见 switchTasks 注释） */}
+          <Tooltip title={exemptTasks.length > 0
+            ? `${t('sync.toggleAllHint')}\n${t('sync.toggleAllExemptHint', { names: exemptTasks.map(x => x.name).join(', ') })}`
+            : t('sync.toggleAllHint')}>
             <Space size={6} align="center">
               <Text style={{ fontSize: 12, color: WH.textMuted }}>{t('sync.toggleAll')}</Text>
+              <Text style={{ fontSize: 12, color: WH.textDim }}>{enabledCount}/{switchTasks.length}</Text>
               <Popconfirm
                 title={pendingAllToggle === false ? t('sync.disableAllConfirm') : t('sync.enableAllConfirm')}
                 onConfirm={() => { if (pendingAllToggle !== null) handleToggleAll(pendingAllToggle) }}
@@ -1073,7 +1090,7 @@ export default function DataSync() {
                 <Switch
                   size="small"
                   checked={allEnabled}
-                  disabled={allTasks.length === 0}
+                  disabled={switchTasks.length === 0}
                   onChange={(v) => setPendingAllToggle(v)}
                 />
               </Popconfirm>

@@ -1003,6 +1003,9 @@ def list_tasks(include_runs: bool = False, lang: str = "zh") -> list[dict]:
             "category": task["category"],
             "gateway": task.get("gateway", "system"),
             "enabled": task["enabled"],
+            # 主开关豁免：前端据此把它排除在「是否全部启用」判定之外，
+            # 否则一个按业务长期关闭的任务会把主开关永久钉在关闭态
+            "master_switch_exempt": bool(task.get("master_switch_exempt")),
             "current_cron": task["current_cron"],
             "default_cron": task["default_cron"],
             "next_run": str(job.next_run_time) if job else None,
@@ -1247,7 +1250,7 @@ def toggle_all_tasks(enabled: bool) -> dict:
             if enabled:
                 schedule_task(task_id)
             else:
-                if sched.get(job_id):
+                if sched.get_job(job_id):
                     sched.remove_job(job_id)
             changed += 1
         except Exception as e:
