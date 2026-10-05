@@ -148,11 +148,11 @@ export const TASK_DOCS: TaskDoc[] = [
     },
   },
   {
-    id: 'tt_alarm_whatsapp_alert', group: 'm', cron: '*/5 * * * *',
+    id: 'tt_alarm_whatsapp_alert', group: 'm', cron: '2-59/5 * * * *',
     script: 'services/tt_alarm_whatsapp_service.py → run_tt_alarm_whatsapp_alert',
     zh: {
       name: 'eFlow P1 告警 WhatsApp 推送',
-      desc: '触发制推送：每 5 分钟扫 realtime_alarm 实时告警表，发现「带 TT + 触发窗口内 + 告警码白名单」的 P1 告警后实时回 eFlow 查单，首推后按「20 分钟未更新」重报（带 REMINDER 横幅），告警清除即止损。发送状态（是否已发/发了几次）落 eflow_tt_whatsapp_alert_log',
+      desc: '触发制推送：每 5 分钟（相位 2-59/5，与上游同步错开 2 分钟）扫 realtime_alarm 实时告警表，发现「带 TT + 触发窗口内 + 告警码白名单」的 P1 告警后实时回 eFlow 查单，首推后按「20 分钟未更新」重报（带 REMINDER 横幅），告警清除即止损。发送状态（是否已发/发了几次）落 eflow_tt_whatsapp_alert_log',
       flow: [
         '扫 realtime_alarm（由 eflow_active_alarm 同步，注册表默认 */30、实际周期以任务配置页为准，生产已配 */5）：tt_id 非空、alarmraisedtime 在触发窗口内、告警码过白名单，按 tt_id 去重',
         '对触发单实时回 eFlow 查单（fetch_tt_live_batch，一次分页遍历），拿最新 ticket_severity / last_modified_time / alarm_clear_time；实时查不到回退本地 eflow_tt 镜像',
@@ -169,7 +169,7 @@ export const TASK_DOCS: TaskDoc[] = [
     },
     en: {
       name: 'eFlow P1 Alarm WhatsApp Push',
-      desc: 'Trigger-based push: every 5 min scan realtime_alarm for TT-linked P1 alarms inside the trigger window, live-fetch eFlow for each ticket, first-push, then re-notify every 20 min while the ticket has no update (with a REMINDER banner), and stop when the alarm clears. Send status (sent? how many times) is recorded in eflow_tt_whatsapp_alert_log',
+      desc: 'Trigger-based push: every 5 min (phase 2-59/5, offset 2 min from the upstream sync) scan realtime_alarm for TT-linked P1 alarms inside the trigger window, live-fetch eFlow for each ticket, first-push, then re-notify every 20 min while the ticket has no update (with a REMINDER banner), and stop when the alarm clears. Send status (sent? how many times) is recorded in eflow_tt_whatsapp_alert_log',
       flow: [
         'Scan realtime_alarm (synced by eflow_active_alarm — registry default */30, actual schedule from the task config page, currently */5): tt_id present, alarmraisedtime inside the trigger window, alarm code whitelisted, deduped by tt_id',
         'Live-fetch each triggered ticket from eFlow (fetch_tt_live_batch, one paged walk) for the latest ticket_severity / last_modified_time / alarm_clear_time; fall back to the local eflow_tt mirror',

@@ -100,6 +100,8 @@ def estimate_cron_interval_minutes(cron: str) -> Optional[int]:
 
     只覆盖这个项目里实际出现的形态（**不追求通用 cron 解析**）：
       * ``*/5 * * * *``       → 5（分钟步进，eflow_active_alarm 生产在用）
+      * ``2-59/5 * * * *``    → 5（区间步进，周期与 */5 等价 —— 本推送任务用的
+        就是这种相位错开形态，上游若同样做相位错开仍能正确推导）
       * ``22 * * * *``        → 60（每小时固定分钟，eflow_sync 在用）
       * ``0 */6 * * *``       → 360（每 N 小时）
       * ``0 5 * * *``         → 1440（每天固定时刻）
@@ -107,8 +109,10 @@ def estimate_cron_interval_minutes(cron: str) -> Optional[int]:
     cron = (cron or "").strip()
     if not cron:
         return None
-    if re.fullmatch(r"\*/(\d+) \* \* \* \*", cron):
-        return int(cron.split()[0][2:])
+    # 分钟位：*/N 或 M-H/N（区间步进与全域步进周期相同）
+    m = re.fullmatch(r"(?:\*/(\d+)|\d+-\d+/(\d+)) \* \* \* \*", cron)
+    if m:
+        return int(m.group(1) or m.group(2))
     if re.fullmatch(r"\d+ \* \* \* \*", cron):
         return 60
     if re.fullmatch(r"\d+ \*/(\d+) \* \* \*", cron):

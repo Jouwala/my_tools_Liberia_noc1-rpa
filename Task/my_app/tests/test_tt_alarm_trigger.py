@@ -189,6 +189,7 @@ def test_parse_epoch_ms():
 def test_estimate_cron_interval_minutes():
     """只识别项目里实际出现的 cron 形态，识别不了的返回 None 走兜底。"""
     assert T.estimate_cron_interval_minutes("*/5 * * * *") == 5
+    assert T.estimate_cron_interval_minutes("2-59/5 * * * *") == 5,         "区间步进（相位错开形态）必须与全域步进等价推导周期"
     assert T.estimate_cron_interval_minutes("22 * * * *") == 60
     assert T.estimate_cron_interval_minutes("0 */6 * * *") == 360
     assert T.estimate_cron_interval_minutes("0 5 * * *") == 1440
