@@ -11,6 +11,7 @@ import { useI18n } from '../i18n'
 import { formatDateTime } from '../datetime'
 import { useTheme, WH, WH_COLORS, useIsMobile, darkTooltip, axisLabel, axisLine, splitLine } from '../theme'
 import DraggableClickModal from '../components/DraggableClickModal'
+import NurCalcChainNote, { type WarningDetail } from '../components/NurCalcChainNote'
 
 const { Text } = Typography
 const { RangePicker } = DatePicker
@@ -69,6 +70,10 @@ interface OverviewResp {
   network: Record<Gran, ScalarRow[]>
   persite: Record<Gran, ScalarRow[]>
   wo: Record<Gran, WoRow[]>
+  /** nur_calc 口径告警（如"站点在 cm_site_summary 找不到小区信息，已排除不计"） */
+  warnings?: string[]
+  /** 告警的结构化明细（如未匹配站点清单），供告警条点击展开 */
+  warning_details?: WarningDetail[]
 }
 
 // NUR 展示口径：原始值 × 100000（与 NurDashboard 一致）
@@ -780,6 +785,18 @@ export default function MsSlaDashboard({ only }: { only?: 'nur' | 'sla' } = {}) 
       {error && <Alert type="error" showIcon message={`${t('msSla.loadFailed')}: ${error}`} style={{ marginBottom: 'var(--wh-space-md)' }} />}
       {data && !lastSync && (
         <Alert type="warning" showIcon message={t('msSla.noData')} style={{ marginBottom: 'var(--wh-space-md)' }} />
+      )}
+
+      {/* ---------- NUR 计算链路说明（默认收起，点击展开） ----------
+          本页也渲染 KPI List NUR（与 NurDashboard 同源同口径），故共用同一份说明，
+          避免同一个口径在两页各写一套、日后再分叉。
+          只在显示 NUR 时出现：ms_sla_only（only='sla'）不出 NUR，挂上去只会误导。 */}
+      {showNur && (
+        <NurCalcChainNote
+          warnings={data?.warnings}
+          warningDetails={data?.warning_details}
+          withSla={showSla}
+        />
       )}
 
       <Spin spinning={loading}>

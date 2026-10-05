@@ -8,7 +8,7 @@
 
 | 前缀 | 对应页面/用途 |
 | --- | --- |
-| `/api/tables` | 表浏览器（数据、画像、导入导出、视图模板） |
+| `/api/tables` | 表浏览器（数据、画像、导入导出、视图模板）；`/api/tables/import-exclude` 与 `/exclude-meta` 为 NUR 排除名单专用（同前缀，见 `routers/tt_exclude.py`） |
 | `/api/upload` | 数据上传 |
 | `/api/analysis` | 分析仪表盘 + 分析归档 |
 | `/api/gis` | GIS 地图 / 实时告警地图（含 `/gis/realtime/*`） |

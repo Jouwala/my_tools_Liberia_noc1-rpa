@@ -114,7 +114,7 @@
 | G3 | **多语句阻断**：禁止 `;` 分隔的第二条语句 | `sql_guard.py` | 防 `SELECT 1; DROP …` |
 | G4 | **注释/字符串剥离后再校验** | `sql_guard.py` | 防 `/* */` 与引号内藏关键字 |
 | G5 | **表名白名单**：SQL 中出现的表必须来自真实 `list_tables()` | `sql_guard.py` | 防跨 schema 乱查 |
-| G6 | **强制 LIMIT**：无 LIMIT 自动补，超上限自动压 | `sql_guard.py` | 防全表扫描拖垮生产库 |
+| G6 | **强制 LIMIT**：无 LIMIT 自动补，超上限自动压到 `MAX_LIMIT` | `sql_guard.py` | 防全表扫描拖垮生产库 |
 | G7 | **`_` 前缀内部表不可见** | `nl2sql_service.py` | 与 TableBrowser 既有约定一致 |
 | G8 | **PG 只读事务**：`SET TRANSACTION READ ONLY` | `nl2sql_service.py` | 纵深防御（注意：连接是 autocommit，此项为显式加设） |
 
@@ -178,12 +178,10 @@
   `data-agent` 串在 `_fe_dist/assets/TableBrowser-CEBzGtOc.js`，i18n 键在 `index-Bu15-OGP.js`。
 - ✅ `main.py` 导入无副作用：OpenAPI 共 227 条路径，含 4 条 `data-agent`，既有路由未受影响。
 
-### 8.3 待重启验证（**需你操作**）
+### 8.3 重启验证（2026-10-05 已完成）
 
-后端 :7038 运行中且**未带 `--reload`**，故新路由要重启进程才生效。
-当前鉴权已开启（`auth-switch.json` 的 `authEnabled=true`），重启会有数秒中断，故未自行执行。
-
-重启后按此清单确认：
+后端 :7038 运行中且**未带 `--reload`**，故新路由需重启进程才生效。
+**2026-10-05 已通过看门狗完成重启并逐条验证**（详见第十节），以下清单当时全部通过：
 
 ```
 # ① 端点已注册（回环免鉴权，返回 JSON 而非 SPA 的 HTML）
@@ -222,3 +220,204 @@ Invoke-WebRequest http://127.0.0.1:7038/api/data-agent/ask -Method POST `
 | 鉴权总开关现状 | `D:\01_RPA\auth-switch.json`（`authEnabled=true`） |
 | 回环免鉴权规则 | `backend/main.py:288`（`portal_auth.client_is_local`） |
 | 非公开路径默认要求会话 | `backend/main.py:262-291`（`_PUBLIC_API` 不含 `data-agent`） |
+
+## 十、2026-10-05 修正：base_url 死参数与三处一致性问题
+
+用户反馈「Ask AI 不能用，也没有配置 base URL」。排查结论：**链路是好的**，
+`GET /api/data-agent/schema` 实测 200（53 张可见表），`POST /ask` 带有效 key 能真正打到
+provider —— 界面不显示 base URL 框是**设计如此**（端点由服务端按 provider 内置，
+见 `nl2sql_service.py:215-222`），不是缺陷。顺手查出并修掉四处真问题：
+
+| # | 问题 | 原状 | 修正 |
+| --- | --- | --- | --- |
+| 1 | **归因链路 `base_url` 被静默丢弃** | `AttributeIn.base_url` 声明了、`attribute()` 也收下了，但转手调 `ai_svc.dispatch()` 时**没放进 payload**（`dispatch` 只认 api_key/prompt/model），想接自建模型的人得不到任何反馈 | 显式给 `base_url` 时改走本服务自己的 `_call_openai_compatible()`；留空则保持原 dispatch 路径不变 |
+| 2 | **`gemini` 是无法打通的选项** | 前端下拉有 7 项，NL2SQL 的 `defaults` 只有 6 项（无 gemini），选中必报「需提供 base_url」——**诱导用户去填一个必然失败的地址** | NL2SQL 侧显式说明 generateContent 协议不同构；前端下拉就地标注「不支持问数」 |
+| 3 | **G6 存在静默灰区** | `LIMIT 500`（介于 `DEFAULT_LIMIT=200` 与 `MAX_LIMIT=1000`）既不被收敛，执行端也不置 `truncated`（`nl2sql_service.py:298` 比较对象是 `DEFAULT_LIMIT`），用户无法判断是否拿到全量 | `enforce_limit()` 改为**一律压到 `MAX_LIMIT`**，不再抛错；请求值与护栏上限始终自洽 |
+| 4 | **缺 key 时无操作指引** | 只回「缺少 API key」，新用户不知道 key 从哪来、也不知道 base URL 不必填 | 界面常驻提示条 + 空 key 时前置拦截，文案说明「Key 仅存本机浏览器、端点无需配置」 |
+
+### 设计取舍（记录理由，便于日后回看）
+
+- **为什么 `base_url` 选「接通」而不是「删除」**：本项目原则 10 是「删除优于兼容」，
+  但该字段已在 `AskIn` / `AttributeIn` 两个 schema 中公开声明，删除会让既有调用方
+  从「静默失效」变成「请求失败」；且自建/代理模型是真实需求（数据不出内网）。
+  故按「让声明的能力真正生效」处理。
+- **`incident_ai_service.py` 一行未改**：该文件恰好 500 行（项目单文件上限），
+  其 `PROVIDERS` 分发表的结构无法表达自定义端点，因此自建端点逻辑放在
+  `alarm_attribution_service.py` 内自行实现，返回形状与 `dispatch()` 保持
+  `(payload, status)` 一致，调用方无需分支。
+- **协议边界如实暴露**：Gemini 走 `generateContent`，与 OpenAI 兼容的
+  `/chat/completions` 不同构，**即便给了 base_url 也不适用**。此处选择显式报错，
+  而不是发一个必然 404 的请求让用户去猜。
+
+### 验证状态（2026-10-05 实测，后端已重启）
+
+- ✅ `pytest tests/test_sql_guard.py` —— 34 例全通过（含 3 例新增/改写的 LIMIT 收敛用例）。
+- ✅ 归因带 `base_url` → 报错中出现**用户指定的地址** `127.0.0.1:9`，证明参数真正生效。
+- ✅ 归因 `gemini` + `base_url` → 明确回「gemini 使用 generateContent 协议，不支持自定义 base_url」（降级本地规则，非 500）。
+- ✅ 归因 `provider=local` → 正常降级，无 `note`，与改动前一致。
+- ✅ NL2SQL `gemini` → 明确的中文原因；带自定义 `base_url` → 错误中出现该地址。
+- ✅ NL2SQL 空 key → 「缺少 API key」（前端已前置拦截，此路径为兜底）。
+- ✅ `LIMIT 999999` → 收敛为 `LIMIT 1000` 并返回数据（此前为 400 拒绝）。
+- ✅ `npm run check:i18n` 通过；`npm run build` 成功。
+- ✅ 产物已上线：`index.html` 与服务端返回均为 `index-DEbRlaYj.js`，
+  新代码在 `_fe_dist/assets/TableBrowser-gj8oIvFC.js` 与 `index-DEbRlaYj.js` 中。
+
+> **UI 路径**：`TableBrowser` → 页签「智能问答 → Ask AI」。
+> 填写自己的 API Key 即可提问；端点默认由服务端内置，无需配置，需要接自建模型时再点「高级设置」。
+
+## 十一、2026-10-05 二次修正：`_extract_sql` 误命中散文中的 `with`
+
+用户用 `agnes-2.5-flash` 提问「查找告警已经清除后派单的TT」，界面报：
+
+```
+Query failed
+错误:  语法错误 在 "AND" 或附近的
+LINE 5: AND created_time > alarm_clear_time
+SELECT site_name, COUNT(*) AS alarm_count FROM eflow_tt GROUP BY ... LIMIT 10
+```
+
+**这条报错的形状本身就是线索**：SQL 看着是完整的 `SELECT … LIMIT 10`，
+可报错却说第 5 行有个悬空的 `AND` —— 说明**真正拿去执行的字符串不是显示的这一条**。
+
+### 根因（已确定性复现）
+
+`_extract_sql()` 原来用 `re.search(r"\b(select|with)\b", t)` 在**全文**找语句起点。
+`with` 是普通英文词，模型又常先写一句解释：
+
+```
+I will build this by joining tickets with their alarm records.   ← 这个 with 被命中
+```sql
+SELECT site_name, COUNT(*) AS alarm_count FROM eflow_tt ... LIMIT 10
+```
+AND created_time > alarm_clear_time                              ← 悬空尾句
+```
+
+正则从散文里的 `with` 处截断，于是**代码围栏被绕过、散文被当成 SQL 开头**，
+残留尾句就成了悬空的 `AND`。致命之处在于：截取结果以 `with` 开头，
+能**通过** `sql_guard.py:216` 的 `SELECT|WITH` 白名单，一路跑到数据库才炸 ——
+用户看到的是 PostgreSQL 原始错误，完全无从下手。
+
+### 修正
+
+`_extract_sql()` 改为按可靠性取来源（`nl2sql_service.py`，新增 `_anchor_statement` 辅助）：
+
+1. **代码围栏优先**（```sql / ```）—— 模型明确标注的 SQL，最可信；
+2. **行首锚定** —— 找真正以 `SELECT` 开头的**行**；`WITH` 要求后接
+   `RECURSIVE` 或「标识符 + `AS`(」的 CTE 形态，排除散文里的 `with`；
+3. 都没有 → 原样返回，交给 `sql_guard` 明确拒绝（宁可拒绝，不可猜错后误执行）。
+
+> 顺带说明：这条路径此前**没有测试覆盖**，所以坏了很久没人发现。
+> 新增 `tests/test_nl2sql_extract.py`（12 例）用**确定性**用例锁住，
+> 不需要联网、不依赖模型行为。
+
+### 关于「同一次提问、SQL 却不一样」
+
+实测同一问题连跑 4 次，`agnes-2.5-flash` 的**输出形态会变**（有/无围栏、有/无前置说明），
+甚至偶发返回 `CANNOT_ANSWER`。这是 LLM 的固有非确定性，与本次缺陷叠加后表现为
+「时好时坏」。修复后无论哪种形态都能正确提取。
+
+### 验证状态
+
+- ✅ `pytest tests/test_nl2sql_extract.py` —— 12 例全通过（含线上故障的最小复现）。
+- ✅ 用故障原文回放：提取结果不再含悬空 `AND`，护栏放行后**执行成功返回 10 行**。
+- ✅ 全量相关测试 49 例通过（`test_sql_guard` 34 + `test_nl2sql_extract` 12 + `test_ms_sla_warning_details` 3）。
+
+## 十二、2026-10-05 三次修正：NUR 未匹配站点清单在 `page=ms_sla` 上丢失
+
+用户问「337 条告警的站点在 cm_site_summary 中找不到…这个能点击显示全部站点名字吗」。
+
+**能力其实已经实现**（`NurCalcChainNote.tsx:112-206` 的 `UnmatchedSitesAlert`，
+含可搜索、可按影响行数排序的弹层），但**只在 `page=nur` 上能用，`page=ms_sla` 上点不开**。
+
+### 根因
+
+`backend/routers/ms_sla_dashboard.py:_load_overview()` 只把上游 `nur_calc` 的
+`warnings` 拷进响应，**漏拷了配对的 `warning_details`**：
+
+- 上游 `_load_live_nur_sla()` 实际**已经**透传了 `warning_details`（该文件 `:196`）；
+- 但 `_load_overview()` 在 `:248` 只写 `out["warnings"] = live.get("warnings")`，
+  明细被丢在 `live` 里没往上传；
+- 前端 `NurCalcChainNote.tsx:128-131` 找不到 `kind == "unmatched_sites"` 的明细，
+  就**退化成不可点击的纯文案**（该组件刻意不做「点了没反应」的死入口）。
+
+所以现象是「**文案完全正常、入口凭空消失**」—— 比直接报错更难发现。
+两个端点行为不一致也是这个原因：`/api/nur/overview` 直接返回
+`nur_calc.compute_overview()`（`nur_dashboard.py:56`），字段是齐的。
+
+### 修正
+
+`_load_overview()` 补上 `out["warning_details"] = live.get("warning_details") or []`，
+与 `warnings` 成对透传；空值兜底为空列表，前端可安全 `.find()`。
+
+> 这类「两个字段必须成对透传」的漏拷，静态读代码很难发现，故用
+> `tests/test_ms_sla_warning_details.py`（3 例）锁住，其中一例专门断言
+> **空值时也必须是 `[]` 而不是 `None`/缺字段**。
+
+### 验证状态（后端已重启，PID 78560）
+
+| 端点 | 修复前 | 修复后 |
+| --- | --- | --- |
+| `/api/ms-sla-dashboard/overview`（page=ms_sla） | `warning_details` **为空** | **26 个站点 / 480 行** |
+| `/api/nur/overview`（page=nur） | 26 个站点（本就正常） | 26 个站点（未受影响） |
+
+实测拿到全部 26 个站点及各自影响行数，其中 `VMAX-DC` **336 行**、`HQ_Site` 24 行、
+`Cow field 2` 37 行、`Gbarplay` 20 行 —— 点开即可知道该先修哪个站点。
+
+> 注：文案里的数字会随数据更新变化（用户看到 337 条 / 19 个站点，
+> 本次验证时为 480 条 / 26 个站点），这是**正常的时间漂移**，不是缺陷。
+
+## 十三、2026-10-05 新增：手动 SQL 模式 + 结果导出
+
+用户诉求：「除了 AI 查询，把手动查询的窗口也显示出来，手动输入查询命令查询，
+并且查询结果要可以导出。」
+
+### 关键发现：后端早就支持，缺的只是入口
+
+`POST /api/data-agent/ask` 的 `sql` 字段**非空时跳过 AI 生成、直接执行**
+（`nl2sql_service.py:362-365` 的 `if sql:` 分支）。所以手动 SQL 能力一直存在，
+只是**界面把它藏在「AI 问完一次之后」**：
+
+- 旧交互要先配 API key → 跑一次 AI 问数 → 结果区出现 SQL 框 → 改 SQL → 点「按当前 SQL 重跑」；
+- 想直接写 SQL 的人被迫先配一个**根本用不到的 key**。
+
+新增 `Segmented` 模式切换（AI 问数 / 手动 SQL），手动模式下：
+
+- **不需要 API key**、不选 provider、不填模型 —— 这组控件整块隐藏，
+  因为留着会让人以为「不填 key 也能跑 AI」，也会让手动模式看起来仍依赖 AI；
+- SQL 直接写在主输入框（等宽字体、Ctrl/Cmd+Enter 执行；回车保持换行，因为 SQL 天然多行）；
+- 提供「示例」按钮一键填入用户给的例句
+  `SELECT * FROM eflow_tt WHERE alarm_clear_time < created_time`。
+
+### 导出
+
+用项目统一入口 `utils/excelReport.exportAoaReport`（**没有**裸 `XLSX.*`，
+符合 `Task/my_app/AGENTS.md` 第三节第 3 条）。三个刻意的设计决定：
+
+1. **只导出已返回的行，不重新查询全量。** 结果被服务端 LIMIT 截断时拿到的就是这一批，
+   导出一个「看起来是全量」的文件是更坏的行为。
+2. **截断时显式告知。** 新增 `dataAgent.truncatedExport` 文案，在原有的截断告警条里
+   补一句「导出的是当前返回的这批数据，不是全量」。
+3. `null`/`undefined` 导出为**空单元格**（而非界面上的 `—`）——
+   表格里的 `—` 是给人看的占位，Excel 里应是真空值，便于排序与筛选。
+
+### 护栏在手动模式下**不打折**
+
+手动模式复用同一个 `run()` 请求函数与同一个服务端端点 —— 若另写一套请求，
+迟早出现「AI 模式拦住了 DROP、手动模式没拦住」。实测：
+
+| 手动输入 | 结果 |
+| --- | --- |
+| `SELECT * FROM eflow_tt WHERE alarm_clear_time < created_time` | ✅ 200 行（161 列） |
+| `DROP TABLE eflow_tt` | ❌ 只允许 SELECT 或 WITH 开头的只读查询 |
+| `SELECT 1; DROP TABLE eflow_tt` | ❌ 只允许执行单条语句（检测到分号分隔的多条语句） |
+
+### 验证状态
+
+- ✅ `tests/test_manual_sql_mode.py` —— 11 例全通过。其中两例专门把
+  **「手动模式不需要 API key」**这条契约钉死：`ask()` 的 key 校验在 `generate_sql()`
+  内部，只要有人把校验提到 `ask()` 开头「统一收口」，手动模式就会立刻开始要求一个
+  用不到的 key。另一例用「把 `generate_sql` 换成会抛异常的实现」证明手动模式
+  **完全不产生 AI 请求**。
+- ✅ 相关测试共 60 例通过。
+- ✅ `npm run check:i18n` 通过、`npm run build` 成功，产物 `index-DoFY7Iwx.js` 已上线，
+  新文案键与导出逻辑均可在 bundle 中查到。

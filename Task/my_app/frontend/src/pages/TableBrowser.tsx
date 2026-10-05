@@ -9,6 +9,7 @@ import { cardStyle, controlCardStyle } from '../theme'
 // Data Agent 只读 NL2SQL 入口（探索性副驾，不参与定时报表/看板产出）。
 // 定位、护栏与风险清单见 docs/DATA_AGENT_EVALUATION.md。
 import DataAgentBar from '../components/DataAgentBar'
+import ExcludeListUpload from '../components/ExcludeListUpload'
 
 interface TableInfo {
   name: string
@@ -106,6 +107,11 @@ export default function TableBrowser() {
     loadTableData(1, '')
     loadTemplates()
 }, [selectedTable])
+
+  // ---- NUR 排除名单上传（TT_Exclude → 固定表 tt_exclude） ----
+  // 实现在 components/ExcludeListUpload.tsx：与「自定义导入」是两套语义
+  // （那个由用户指定表名，这个是固定表名 + 全量替换 + dry-run 护栏）。
+  const [exOpen, setExOpen] = useState(false)
 
   // ---- 自定义导入（Excel/CSV → 自定义表名） ----
   const [importOpen, setImportOpen] = useState(false)
@@ -509,6 +515,9 @@ export default function TableBrowser() {
               <Button icon={<UploadOutlined />} onClick={openImport}>
                 {t('table.import')}
               </Button>
+              <Button icon={<UploadOutlined />} onClick={() => setExOpen(true)}>
+                {t('table.exBtn')}
+              </Button>
               <Button icon={<UploadOutlined />} onClick={openMwImport}>
                 {t('table.mwImport')}
               </Button>
@@ -522,6 +531,9 @@ export default function TableBrowser() {
           </Col>
         </Row>
       </Card>
+
+      {/* NUR 排除名单上传：固定表名 + 全量替换 + dry-run 预览 */}
+      <ExcludeListUpload open={exOpen} onClose={() => setExOpen(false)} />
 
       <Modal
         title={t('table.colModalTitle')}

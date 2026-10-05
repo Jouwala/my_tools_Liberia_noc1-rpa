@@ -7,17 +7,28 @@ NUR / SLA 看板计算引擎
 
 口径
 ----
-1. Tech 模糊匹配（title 最后一个 "]" 之后的告警类型段，避免站名 "Ganta 4" 误匹配）：
-   - 单制式：2G/3G/4G(含 LTE)/5G 关键字
-   - 整站  ：CSD/PSD/SITE DOWN DUE TO POWER OFF → 该站在 CM 中的全部制式小区
-   - 其余  ：小区数 0，不计入 NUR（仍计入 SLA 统计）
-2. MTTR = (alarm_clear_time - alarm_occur_time) 分钟，剔除 <=0 或 >=43200；未清除不计 NUR
-3. NUR_tech = Σ(小区数×MTTR)×60 / (分母小区数×GR)；GR 日=86400、周=604800、月=天数×86400
+1. 告警归属（2026-10-05 改为**精确规则表** ALARM_RULES：告警段 → 制式）：
+   - 单制式：2G/3G/4G CELL DOWN、2G/3G/4G SITE DOWN，以及 CELL INTERRUPTION
+     ALARM→2G、CELL IS OUT OF SERVICE→3G、LTE CELL OUTAGE→4G；
+     这些**只**计入本制式，不拆分到其他制式。
+   - 整站：CSD/PSD/MW LINK DOWN/FIBER BREAK/SITE DOWN DUE TO POWER OFF 等，
+     以及**所有未显式列出的告警**（业务口径：其余告警都算 2/3/4G/5G），
+     按该站在 CM 中各制式的小区数**分别**归属（含 5G）。
+   - 取段方式：title 最后一个 "]" 之后、upper + strip，**精确匹配整段**
+     （不再用 "2G" in seg 之类子串匹配，避免 "DUEUtranCellFDDLTE" 误判）。
+2. **小区数按站名取**（2026-10-05 修正，2G_NUR 恒为 0 的根因）：
+   TT 的 site_id 是 4G 命名空间，同一站的 2G/3G 小区在 cm_site_summary 里
+   属于**另一个 Site_ID**（如 JFK：2G=1397 / 3G=3397 / 4G=4397，TT 只存 4397）。
+   故：先按**站名**查（同名多 ID 求和），查不到再回退按 site_id 查；
+   两者都查不到 → **不参与计算**（如机房 VMAX-DC）。详见 build_name_pivot。
+   分母仍按 site_id 汇总（实测与按站名汇总结果一致：3225/4627/7222/104）。
+3. MTTR = (alarm_clear_time - alarm_occur_time) 分钟，剔除 <=0 或 >=43200；未清除不计 NUR
+4. NUR_tech = Σ(小区数×MTTR)×60 / (分母小区数×GR)；GR 日=86400、周=604800、月=天数×86400
    （当期未过完按已过天数），输出原始数值（不乘 100）
-4. 分母：默认全网该制式小区总数；Project 筛选生效时按 site_caregory 与站点类型
+5. 分母：默认全网该制式小区总数；Project 筛选生效时按 site_caregory 与站点类型
    归一化包含匹配圈定小区数（分子分母同口径）
-5. SLA：ticket_severity 分组 Total / Within SLA(sla_status='Pass') / 达成率
-6. 站点维度过滤（trm_type / site_caregory / province_county / region /
+6. SLA：ticket_severity 分组 Total / Within SLA(sla_status='Pass') / 达成率
+7. 站点维度过滤（trm_type / site_caregory / province_county / region /
    starlink_recently_migrated，2026-09-30 新增，2026-10-05 增补 starlink）：
    属性一律取自站点主数据 master_site_db，**精确匹配**；分子（TT 行）与分母
    （cm_site_summary 小区数）走同一份属性索引，保证两侧圈定的是同一批站点。
@@ -46,18 +57,48 @@ logger = logging.getLogger("nur_calc")
 TECHS = ["2G", "3G", "4G", "5G"]
 GRANULARITIES = ["daily", "weekly", "monthly"]
 
-# ---------- Tech 模糊匹配规则（对 29244 条 title 实测验证） ----------
-TECH_KEYWORDS: List[Tuple[str, Tuple[str, ...]]] = [
-    ("2G", ("2G",)),
-    ("3G", ("3G",)),
-    ("4G", ("4G", "LTE")),
-    ("5G", ("5G",)),
-]
-SITEWIDE_KEYWORDS = (
-    "COMPLETE SITE DOWN", "CSD",
-    "PARTIAL SITE DOWN", "PSD",
-    "SITE DOWN DUE TO POWER OFF",
-)
+# ---------- 告警归属规则（业务口径表，2026-10-05） ----------
+# 语义：告警段 → 该告警计入哪些制式的 outage。
+#   "2G"/"3G"/"4G" : **只**计入该制式（单制式，不拆分到其他制式）
+#   "SW"           : 整站类，按该站在 cm_site_summary 中各制式的小区数
+#                    **分别**归属（2G/3G/4G/5G 四个制式都算）
+#
+# ⚠ 必须**精确匹配整个告警段**（title 最后一个 "]" 之后的部分，已 strip + upper），
+#   不得再做 "2G" in seg 这类子串匹配：实测 4G 的原始小区类型串
+#   "DUEUtranCellFDDLTE" 同时含 "UTRAN" 与 "LTE"，子串匹配会把制式判错。
+#   段名大小写在不同链路下不一致，故键统一以 upper 形式存放，匹配前对段做 upper()。
+#
+# 覆盖实测：全表 37088 行命中 18 条显式规则 36612 行，其余走 FALLBACK_ATTR（=SW），
+# 即**所有**告警都有归属，不再有"未匹配则丢弃"的情况。
+ALARM_RULES: Dict[str, str] = {
+    # ---- 单制式：小区/站点级，只算本制式 ----
+    "2G CELL DOWN": "2G",
+    "2G SITE DOWN": "2G",
+    "3G CELL DOWN": "3G",
+    "3G SITE DOWN": "3G",
+    "4G CELL DOWN": "4G",
+    "4G SITE DOWN": "4G",
+    # 告警名里不含制式字样，但业务上确定归属单一制式（2026-10-05 明确）
+    "CELL INTERRUPTION ALARM": "2G",
+    "CELL IS OUT OF SERVICE": "3G",
+    "LTE CELL OUTAGE": "4G",
+    # ---- 整站类：拆到该站全部制式（含 5G） ----
+    "BOARD POWER-OFF DUE TO OVERTEMPERATURE PROTECTION": "SW",
+    "COMPLETE SITE DOWN (CSD)": "SW",
+    "ETHERNET PHYSICAL (ETPI) LOS": "SW",
+    "FIBER BREAK": "SW",
+    "FIBER/LINK BREAK": "SW",
+    "MW LINK DOWN": "SW",
+    "OSPF NEIGHBOUR DOWN ALARM": "SW",
+    "PARTIAL SITE DOWN (PSD)": "SW",
+    "SITE DOWN DUE TO POWER OFF": "SW",
+}
+
+# 未在 ALARM_RULES 中显式列出的告警，一律按整站处理（业务口径：其余告警都算 2/3/4G/5G）。
+FALLBACK_ATTR = "SW"
+
+# 「整站」多制式归属的制式集合（含 5G——2026-10-05 由 2/3/4G 扩为 2/3/4G/5G）
+SW_TECHS: Tuple[str, ...] = ("2G", "3G", "4G", "5G")
 
 EXCLUDE_FTP_PATH = "/webroot/WEB-INF/reportlets/excel/TT_Exclude.xlsx"
 EXCLUDE_CACHE_TTL = 1800  # 秒
@@ -311,7 +352,24 @@ def _fetch_exclude_xlsx_bytes() -> bytes:
 
 
 def get_exclude_info(force_refresh: bool = False) -> Dict:
-    """加载排除名单（缓存 30 分钟）。FTP 失败降级：有旧缓存用旧缓存，否则空集。"""
+    """加载排除名单。
+
+    ==================== 2026-10-06 起改为「库优先」 ====================
+    真相源从 FTP 上的 `TT_Exclude.xlsx` 改为数据库表 `app.tt_exclude`
+    （人工上传维护，见 `services/tt_exclude.py`）。原因：xlsx 名单是隐形的、
+    无法审计，且「拉取时间 ≠ 内容时间」会让人把「名单过时导致 NUR 全 0」
+    误判成「算错了」（真实踩坑）。
+
+    读取顺序：
+      1. **库**（`tt_exclude.fetch_tickets()`）—— 正常路径，命中即返回；
+      2. **FTP 兜底** —— 仅在表不可用/读失败时启用（如尚未建表的旧部署），
+         行为与改造前一致，保证灰度期不中断；
+      3. **旧缓存兜底** —— FTP 也失败时用上次成功结果，避免口径静默变化；
+      4. **空集** —— 全部失败，显式标记 `fallback_empty` 并进 warnings。
+
+    区分「库为空」与「库不可用」很重要：**空名单 = 没有任何单被排除**，
+    会让 NUR 口径静默变化，调用方需据此告警，不能当成正常状态。
+    """
     now = time.time()
     if not force_refresh and _exclude_cache.get("loaded_at") \
             and now - _exclude_cache["loaded_at"] < EXCLUDE_CACHE_TTL:
@@ -321,6 +379,31 @@ def get_exclude_info(force_refresh: bool = False) -> Dict:
         "count": 0, "column": None, "loaded_at": None,
         "error": None, "source": "ftp", "set": set(),
     }
+
+    # ---- 1) 库优先 ----
+    try:
+        from backend.services import tt_exclude as _tx
+        tickets_db = _tx.fetch_tickets()
+        if tickets_db is not None:
+            meta = _tx.fetch_meta()
+            if tickets_db:
+                info.update(count=len(tickets_db), column="ticket_no", loaded_at=now,
+                            set=tickets_db, source="db",
+                            # 内容时间与上传人：页面显示它，取代原先误导性的「拉取时间」
+                            import_time=meta.get("import_time"),
+                            uploaded_by=meta.get("uploaded_by"),
+                            source_file=meta.get("source_file"))
+                _exclude_cache.update(info)
+                return dict(info)
+            # 表在但名单为空：**不是**正常状态，继续走 FTP 兜底并留下痕迹。
+            # 若 FTP 也拿不到，最终会以空集返回 —— 此时 error 字段会说明原因。
+            logger.warning("[NUR] tt_exclude 表存在但名单为空，尝试 FTP 兜底")
+            info["error"] = "tt_exclude 表为空（可能尚未上传名单）"
+    except Exception as e:  # noqa: BLE001 - 读库异常不应阻断页面
+        logger.warning(f"[NUR] 读取 tt_exclude 表失败，降级 FTP: {e}")
+        info["error"] = f"tt_exclude 读取失败: {e}"
+
+    # ---- 2) FTP 兜底（灰度期兼容：尚未建表/表为空的部署）----
     try:
         data = _fetch_exclude_xlsx_bytes()
         df = pd.read_excel(io.BytesIO(data))
@@ -335,7 +418,7 @@ def get_exclude_info(force_refresh: bool = False) -> Dict:
         if col is not None:
             tickets = {v for v in _norm_series(df[col]) if v}
         info.update(count=len(tickets), column=str(col) if col is not None else None,
-                    loaded_at=now, set=tickets)
+                    loaded_at=now, set=tickets, source="ftp")
     except Exception as e:
         logger.warning(f"[NUR] TT_Exclude.xlsx 加载失败，降级处理: {e}")
         if _exclude_cache.get("set"):
@@ -354,15 +437,22 @@ def get_exclude_info(force_refresh: bool = False) -> Dict:
 # Tech 匹配 + 小区数关联
 # ============================================================
 def classify_title(title: str):
-    """返回 ('tech','2G') / ('sitewide',None) / ('none',None)。"""
-    s = _norm_str(title).upper()
-    seg = s.rsplit("]", 1)[-1]  # 取最后一个 ] 之后的告警类型段
-    for tech, kws in TECH_KEYWORDS:
-        if any(kw in seg for kw in kws):
-            return ("tech", tech)
-    if any(kw in seg for kw in SITEWIDE_KEYWORDS):
+    """返回 ('tech', '2G'|'3G'|'4G') / ('sitewide', None)。
+
+    规则见 :data:`ALARM_RULES`：精确匹配告警段（最后一个 "]" 之后，upper + strip）；
+    未命中显式规则时走 :data:`FALLBACK_ATTR`（= 整站），因此**不会**再出现
+    "归不了制式、被静默排除" 的情况。
+
+    注意：整站类的实际归属在 :func:`attach_cells` 里按该站各制式小区数展开，
+    这里只给出"按制式"还是"按整站"两类语义。
+    """
+    seg = _norm_str(title).upper()
+    if "]" in seg:
+        seg = seg.rsplit("]", 1)[-1].strip()
+    attr = ALARM_RULES.get(seg, FALLBACK_ATTR)
+    if attr == "SW":
         return ("sitewide", None)
-    return ("none", None)
+    return ("tech", attr)
 
 
 def build_cell_pivot(cm: pd.DataFrame) -> Tuple[pd.DataFrame, Dict[str, int]]:
@@ -370,6 +460,11 @@ def build_cell_pivot(cm: pd.DataFrame) -> Tuple[pd.DataFrame, Dict[str, int]]:
 
     返回 (pivot: index=site_key, columns=2G/3G/4G/5G, 值=小区数,
           cells_by_tech: 全网每制式小区总数)。
+
+    口径说明（2026-10-05）：本表按 **Site_ID** 汇总，用于 NUR 的**分母**（全网
+    各制式小区总数）。分母按 ID 汇总与按站名汇总的实测结果完全一致
+    （2G=3225 / 3G=4627 / 4G=7222 / 5G=104），故分母口径不变。
+    **分子侧的小区数改用 :func:`build_name_pivot`**，原因见该函数注释。
     """
     if cm.empty:
         empty = pd.DataFrame(0, index=pd.Index([], name="site_key"), columns=TECHS)
@@ -391,13 +486,67 @@ def build_cell_pivot(cm: pd.DataFrame) -> Tuple[pd.DataFrame, Dict[str, int]]:
     return pivot, cells_by_tech
 
 
-def attach_cells(tt: pd.DataFrame, pivot: pd.DataFrame) -> pd.DataFrame:
-    """向量化关联：site_id 匹配（空值回退 _站名小写），计算每 TT 的小区数。
+def build_name_pivot(cm: pd.DataFrame) -> pd.DataFrame:
+    """站名×制式小区数透视（index = **站名小写**，columns = 2G/3G/4G/5G）。
+
+    为什么分子必须按**站名**取小区数（2026-10-05 修正的核心）：
+    ``eflow_tt.site_id`` 存的是**4G 命名空间**的站点 ID，而同一物理站点在
+    ``cm_site_summary`` 里按制式分属**不同 Site_ID**（末三位相同、首位不同）。
+    实测样例：
+
+    ===========  ==========  ==========  ==========
+    站名         2G          3G          4G
+    ===========  ==========  ==========  ==========
+    JFK          1397(6)     3397(9)     4397(12)   ← TT 里只存 4397
+    Palala       1092(3)     3092(6)     4092(3)
+    Buttein      2211(1)     —           9211(1)
+    ===========  ==========  ==========  ==========
+
+    因此拿 TT 的 site_id 去配 2G 小区**永远配不到**（实测 2G 命中 0 个站点，
+    导致 2G_NUR 恒为 0）；按站名配则命中 756 个。
+
+    ⚠ **必须 groupby 求和，不能做表连接**：实测 839 个站名对应多个 Site_ID
+    （最大扇出 5，如 'webo'）。若按站名 join，TT 行会翻 N 倍、分子被放大。
+    """
+    if cm.empty:
+        return pd.DataFrame(0, index=pd.Index([], name="nm"), columns=TECHS)
+    d = cm.copy()
+    d["nm"] = _norm_series(d["site_name"]).str.lower()
+    d["tech"] = _norm_series(d["tech"]).str.upper()
+    d = d[(d["nm"] != "") & (d["tech"].isin(TECHS))]
+    d["cells"] = pd.to_numeric(d["numberofcells"], errors="coerce").fillna(0).astype(int)
+    if d.empty:
+        return pd.DataFrame(0, index=pd.Index([], name="nm"), columns=TECHS)
+    pivot = (d.groupby(["nm", "tech"], as_index=False)["cells"].sum()
+              .pivot(index="nm", columns="tech", values="cells").fillna(0).astype(int))
+    for t in TECHS:
+        if t not in pivot.columns:
+            pivot[t] = 0
+    return pivot[TECHS]
+
+
+def attach_cells(tt: pd.DataFrame, pivot: pd.DataFrame,
+                 name_pivot: Optional[pd.DataFrame] = None) -> pd.DataFrame:
+    """给每条 TT 行关联各制式小区数，并算出 NUR 分子用的小区数权重。
+
+    **查找顺序（2026-10-05 业务口径）**：
+    1. 先按 **站名小写**（``site_name``）在 ``name_pivot`` 中查该站各制式小区数
+       —— 这是主路径（业务要求：「站点名字能在 cm_site_summary 找到，就按告警
+       规则取相应制式的小区数」）；
+    2. 站名查不到时，回退按 **site_id** 在 ``pivot`` 中查（救回 9 个站名有拼写
+       差异、但 ID 能命中的站点，如 'forkelleh' / 'salayea'）；
+    3. 两者都查不到 → 该行小区数为 0，**不参与 NUR 计算**
+       （如 'VMAX-DC'（机房，非无线站点）/ 'HQ_Site' / 'ODC_Site' /
+       'Jamaica Road' / 'Cocacola Co' / 'Duport Road Co' 共 6 个站点、
+       361 条有效行会被排除）。
+
+    反向的原因见 :func:`build_name_pivot`：TT 的 site_id 是 4G 命名空间，
+    2G/3G 小区挂在同名的另一个 Site_ID 下，按 ID 配 2G 永远命中 0 个站点。
 
     新增列：
     - site_cells_2G..5G : 该站在各制式的小区数（未匹配为 0）
-    - cells_weight      : NUR 分子用小区数——tech=对应制式小区数；
-                          sitewide=该站所有制式小区数之和；none=0
+    - cells_weight      : 单制式行=该制式小区数；整站行=该站**全部**制式小区数之和
+    - cells_matched     : 是否取到了小区数（0/1），供告警与下钻区分"未匹配"与"真 0"
     """
     tt = tt.copy()
     cls = tt["title"].map(classify_title)
@@ -410,28 +559,45 @@ def attach_cells(tt: pd.DataFrame, pivot: pd.DataFrame) -> pd.DataFrame:
     # 预存站点键：站点级 NUR 占比对每个制式都要用一次，不存的话要在
     # _site_nur_ratio_for_tech 里对 3.5 万行重复归一化 8 次（实测约 400ms）
     tt["site_key"] = site_key
+    tt["site_name_key"] = site_name_n
 
     for t in TECHS:
         tt[f"site_cells_{t}"] = 0
-    if pivot.empty:
+    if pivot.empty and (name_pivot is None or name_pivot.empty):
         tt["cells_weight"] = 0
+        tt["cells_matched"] = 0
         return tt
 
-    pv = pivot.reindex(site_key.values).fillna(0).astype(int)
-    pv.index = tt.index
+    # ---- 主路径：按站名查（同名多 ID 已在 name_pivot 里求和，不会扇出）----
+    by_name = None
+    if name_pivot is not None and not name_pivot.empty:
+        by_name = name_pivot.reindex(site_name_n.values).fillna(0).astype(int)
+        by_name.index = tt.index
+    # ---- 回退：按 site_id 查 ----
+    by_id = pivot.reindex(site_key.values).fillna(0).astype(int)
+    by_id.index = tt.index
+
+    name_ok = by_name is not None and by_name[TECHS].sum(axis=1).values > 0
     for t in TECHS:
-        tt[f"site_cells_{t}"] = pv[t].values
+        if by_name is not None:
+            tt[f"site_cells_{t}"] = np.where(name_ok, by_name[t].values, by_id[t].values)
+        else:
+            tt[f"site_cells_{t}"] = by_id[t].values
+
+    # pv 取的是刚写入的 site_cells_* 列（列名带制式后缀，与裸制式名不同）
+    pv = tt[[f"site_cells_{t}" for t in TECHS]]
     tech_arr = tt["cls_tech"].values
     vals = np.where(
         tt["cls_kind"].values == "sitewide",
-        pv[TECHS].sum(axis=1).values,
+        pv.sum(axis=1).values,          # 整站：该站全部制式小区数之和
         np.select(
             [tech_arr == t for t in TECHS],
-            [pv[t].values for t in TECHS],
+            [pv[f"site_cells_{t}"].values for t in TECHS],
             default=0,
         ),
     )
-    tt["cells_weight"] = np.where(tt["cls_kind"].values == "none", 0, vals).astype(int)
+    tt["cells_weight"] = vals.astype(int)
+    tt["cells_matched"] = (tt["cells_weight"] > 0).astype(int)
     return tt
 
 
@@ -530,29 +696,35 @@ def _site_nur_ratio_for_tech(df: pd.DataFrame, col: str, periods: List[str],
     - 分母：CM 中该制式小区数 > 0 的站点（不受 TT 有无影响）
     - 分子：当期站点 NUR < SITE_NUR_RATIO_THRESHOLD 的站点
     全向量化：先按 (期间, 站点) 聚合分子小区分钟，再 reindex 到 期间×站点 全格。
+
+    ⚠ 站点维度**按站名小写**（``site_name_key``）聚合，与分子侧 attach_cells 的
+    站名优先查找保持一致（2026-10-05）。若沿用 site_id 聚合，2G 会因
+    「TT 存 4G ID、2G 小区挂另一个 ID」而全部落空，达标率恒为 1.0（100%）。
     """
     denom_sites = site_cells[site_cells > 0]
     if denom_sites.empty:
         return {p: None for p in periods}
-    d = df[df["mttr_valid"]]
-    # site_key 已由 attach_cells 预存；只有外部传入未经处理的 df 时才兜底重算
-    if "site_key" not in d.columns:
-        _sid = _norm_series(d["site_id"])
-        d = d.assign(site_key=_sid.where(_sid != "",
-                                        "_" + _norm_series(d["site_name"]).str.lower()))
+    d = df[df["mttr_valid"]].copy()
+    # 站名键由 attach_cells 预存；外部传入未处理 df 时兜底重算
+    if "site_name_key" not in d.columns:
+        d["site_name_key"] = _norm_series(d["site_name"]).str.lower()
+    d = d[d["site_name_key"] != ""]
+    if d.empty:
+        return {p: 1.0 for p in periods}
 
-    # 分子：tech 单按 (期间, 站点) 聚合；sitewide 单按该站该制式小区数拆分。
+    # 分子：tech 单按 (期间, 站名) 聚合；sitewide 单按该站该制式小区数拆分。
     # 增量合并而非从空 Series 起步，避免 pandas3 空 Series 与 MultiIndex add 时
     #  “cannot join with no overlapping index names” 报错。
+    site_col = "site_name_key"
     tech_part = d[(d["cls_kind"] == "tech") & (d["cls_tech"] == tech)]
-    num = (tech_part.groupby([col, "site_key"], observed=True)["cell_minutes"].sum()
+    num = (tech_part.groupby([col, site_col], observed=True)["cell_minutes"].sum()
            if not tech_part.empty else None)
     sw = d[d["cls_kind"] == "sitewide"]
     if not sw.empty:
         cmt = sw[f"site_cells_{tech}"].values * sw["mttr_min"].values
-        g2 = (pd.DataFrame({col: sw[col].values, "site_key": sw["site_key"].values,
+        g2 = (pd.DataFrame({col: sw[col].values, site_col: sw[site_col].values,
                             "cm": cmt})
-              .groupby([col, "site_key"], observed=True)["cm"].sum())
+              .groupby([col, site_col], observed=True)["cm"].sum())
         num = g2 if num is None else num.add(g2, fill_value=0)
     if num is None or num.empty:
         # 当期无任何故障：全部站点达标
@@ -560,7 +732,7 @@ def _site_nur_ratio_for_tech(df: pd.DataFrame, col: str, periods: List[str],
 
     # 全格展开：无故障站点 reindex 后为 0（NUR=0 达标）
     idx = pd.MultiIndex.from_product([periods, denom_sites.index],
-                                     names=[col, "site_key"])
+                                     names=[col, site_col])
     num = num.reindex(idx, fill_value=0.0)
     gr = num.index.get_level_values(0).map(
         lambda p: period_seconds(gran, p, today)).to_numpy()
@@ -594,10 +766,11 @@ _result_cache: Dict[str, Dict] = {}
 
 
 def get_base_data(force: bool = False):
-    """返回 (enriched_tt, cm, site_pivot, cells_all, site_index)，带 TTL 缓存。
+    """返回 (enriched_tt, cm, site_pivot, cells_all, site_index, name_pivot)，带 TTL 缓存。
 
     - enriched_tt / cm 都已挂上站点维度属性列（``s_trm_type`` 等，见 attach_site_attrs）；
-    - site_index 是站点主数据索引，供下钻（compute_detail）等非缓存路径复用。
+    - site_index 是站点主数据索引，供下钻（compute_detail）等非缓存路径复用；
+    - name_pivot 是「站名×制式小区数」表，分子侧关联用（见 build_name_pivot）。
 
     ⚠ 调用方**不得就地修改**返回的 tt / cm（要加列请先 ``.copy()``），否则会污染缓存。
     """
@@ -607,28 +780,31 @@ def get_base_data(force: bool = False):
 
     if not force and _fresh():
         return (_base_cache["tt"], _base_cache["cm"], _base_cache["site_pivot"],
-                _base_cache["cells_all"], _base_cache["site_index"])
+                _base_cache["cells_all"], _base_cache["site_index"],
+                _base_cache["name_pivot"])
     with _base_lock:
         if not force and _fresh():          # 双检：并发下只重建一次
             return (_base_cache["tt"], _base_cache["cm"], _base_cache["site_pivot"],
-                    _base_cache["cells_all"], _base_cache["site_index"])
+                    _base_cache["cells_all"], _base_cache["site_index"],
+                    _base_cache["name_pivot"])
         t0 = time.time()
         tt = load_tt_df()
         cm = load_cm_summary()
         site_index = build_site_index(load_site_master())
         site_pivot, cells_all = build_cell_pivot(cm)
+        name_pivot = build_name_pivot(cm)
         # 站点属性：TT 行与 CM 行走**同一份索引**，分子分母必然落在同一批站点上
         cm = attach_site_attrs(cm, "site_id", "site_name", site_index)
         if not tt.empty:
-            tt = attach_site_attrs(attach_cells(tt, site_pivot),
+            tt = attach_site_attrs(attach_cells(tt, site_pivot, name_pivot),
                                    "site_id", "site_name", site_index)
             tt = enrich_periods(tt)
         _base_cache.update({"at": time.time(), "tt": tt, "cm": cm,
                             "site_pivot": site_pivot, "cells_all": cells_all,
-                            "site_index": site_index})
+                            "site_index": site_index, "name_pivot": name_pivot})
         logger.info("[NUR] 基础数据已重建 %.0fms (tt=%d 行)",
                     (time.time() - t0) * 1000, len(tt))
-        return tt, cm, site_pivot, cells_all, site_index
+        return tt, cm, site_pivot, cells_all, site_index, name_pivot
 
 
 def invalidate_base_cache() -> None:
@@ -705,16 +881,30 @@ def compute_overview(vendor: str = "", project: str = "", exclude: str = "",
             out["elapsed_seconds"] = round(time.time() - t0, 3)
             return out
 
-    tt, cm, site_pivot, cells_all, _site_index = get_base_data()
+    tt, cm, site_pivot, cells_all, _site_index, name_pivot = get_base_data()
     if tt.empty:
+        # 键集合与正常返回保持一致（tt_total / warning_details 都要给），
+        # 否则前端在两条路径上要写两套判空逻辑。
         return {"nur": {}, "sla": {}, "cells_by_tech": {}, "denominator_cells": {},
                 "exclude": get_exclude_info(refresh_exclude), "warnings": ["eflow_tt 无数据"],
+                "warning_details": [], "tt_total": 0,
                 "elapsed_seconds": round(time.time() - t0, 2)}
 
     # 基础表来自共享缓存：下面要加 "excluded" 列，必须先复制，否则污染后续请求
     tt = tt.copy()
 
     # ---- 排除名单标记 ----
+    # 语义（2026-10-06 按业务确认修正，**与修正前相反，别改回去**）：
+    #   exclude=空值 → 全部参与计算，**完全不看** TT_Exclude；
+    #   exclude=N    → 全部参与计算，不看 TT_Exclude（与空值同义）；
+    #   exclude=Y    → 从**全部**里**扣掉**名单内的单（"排除掉它们"之后剩下的）。
+    #
+    # ⚠ 修正前的实现是 `df[df["excluded"] == exclude]`，即 Y=只保留名单内、
+    #   N=只保留名单外 —— 那是"筛选出名单"而不是"排除名单"，方向正好反了。
+    #   实测（名单 46 单全在 2026-08-03~09）：旧实现 Y=46 / N=1061，
+    #   而业务要的是 Y=1061（扣掉名单）/ N=1107（全部）。这是**用户报的真 bug**。
+    #
+    # 空名单时 Y 扣掉空集 = 全部，三档自然一致，不会出现"全 0 页面"让人误以为系统坏了。
     ex_info = get_exclude_info(refresh_exclude)
     ex_set: Set[str] = ex_info.get("set") or set()
     if ex_info.get("error"):
@@ -724,6 +914,7 @@ def compute_overview(vendor: str = "", project: str = "", exclude: str = "",
         ttno = _norm_series(tt["tt_no"])
         tt["excluded"] = (tno.isin(ex_set) | ttno.isin(ex_set)).map({True: "Y", False: "N"})
     else:
+        # 名单不可用/为空：没有任何单需要被扣掉，全部视为"未排除"
         tt["excluded"] = "N"
 
     # ---- 筛选（分子口径）----
@@ -732,8 +923,9 @@ def compute_overview(vendor: str = "", project: str = "", exclude: str = "",
         df = df[df["vendor"] == vendor]
     if project:
         df = df[df["site_information"].map(_norm_str) == project]
-    if exclude in ("Y", "N"):
-        df = df[df["excluded"] == exclude]
+    # 空值与 N 都是"全部不看名单"；只有 Y 才扣掉名单内的单
+    if exclude == "Y":
+        df = df[df["excluded"] != "Y"]
     # 站点维度过滤：精确匹配（与 /options 下发的候选值同源），不用 LIKE ——
     # 概览与下钻必须逐字同口径，否则「表里的数」与「下钻的行数」对不上。
     for c, v in site_filters.items():
@@ -753,7 +945,12 @@ def compute_overview(vendor: str = "", project: str = "", exclude: str = "",
             mask &= cm["site_caregory"].map(lambda v: _cat_match(_norm_str(v), project))
         for c, v in site_filters.items():
             mask &= (cm[_site_col(c)] == v)
-        site_pivot, denom = build_cell_pivot(cm[mask])
+        cm_scoped = cm[mask]
+        site_pivot, denom = build_cell_pivot(cm_scoped)
+        # ⚠ name_pivot 必须与 site_pivot 用**同一批站点**重建：分子按站名取小区数，
+        # 若沿用未筛选的全量 name_pivot，筛选生效时分子会取到范围外站点的小区数，
+        # 与分母口径不一致（正是本文件反复强调的「分子分母同口径」纪律）。
+        name_pivot = build_name_pivot(cm_scoped)
         if sum(denom.values()) == 0:
             if project:
                 warnings.append(f"Project={project} 未匹配到任何站点（site_caregory），NUR 分母为 0")
@@ -763,6 +960,34 @@ def compute_overview(vendor: str = "", project: str = "", exclude: str = "",
                     f"站点筛选（{desc}）未圈定到任何站点（master_site_db），NUR 分母为 0")
     else:
         denom = cells_all
+
+    # ---- 未匹配站点告警（2026-10-05）----
+    # 业务口径：站名在 cm_site_summary 查不到、且 site_id 也兜不住的行**不参与计算**。
+    # 这类行以前会静默变成 0（2G_NUR 恒为 0 就是这么被当成"算错了"的），
+    # 故显式暴露数量与站点名，避免再次出现"看起来是 0、其实是没匹配上"。
+    #
+    # 站点名清单同时以**结构化形式**放进 warning_details：告警文案里只放前 8 个加省略号，
+    # 而实际情况可达 26 个站点，用户需要能展开看全（前端做成可点击弹层）。
+    # 不要把全量塞进文案字符串 —— 那样告警条会被撑成一大段，且前端无法做展开/搜索。
+    warning_details: List[Dict] = []
+    if not df.empty:
+        unmatched = df[df["cells_weight"] == 0]
+        if not unmatched.empty:
+            bad_names = sorted({_norm_str(v) for v in unmatched["site_name"].unique() if _norm_str(v)})
+            preview = "、".join(bad_names[:8]) + ("…" if len(bad_names) > 8 else "")
+            warnings.append(
+                f"{len(unmatched)} 条告警的站点在 cm_site_summary 中找不到小区信息"
+                f"（{len(bad_names)} 个站点：{preview}），已按业务口径排除，不计入 NUR")
+            # 按站点给出「行数 + 各自告警量」，点开弹层即知哪个站点影响最大
+            cnt = unmatched["site_name"].map(_norm_str).value_counts()
+            warning_details.append({
+                "kind": "unmatched_sites",
+                "title": f"{len(unmatched)} 条告警 / {len(bad_names)} 个站点未匹配到小区信息",
+                "note": "这些站点在 cm_site_summary 中按站名与 site_id 都查不到小区数，"
+                        "按业务口径整行排除，不计入 NUR（分子分母都不含）。",
+                "rows": len(unmatched),
+                "sites": [{"name": n, "rows": int(cnt.get(n, 0))} for n in bad_names],
+            })
 
     today = date.today()
     nur_out: Dict[str, List[Dict]] = {}
@@ -851,8 +1076,13 @@ def compute_overview(vendor: str = "", project: str = "", exclude: str = "",
         periods = enumerate_periods(gran, tt, start or None, end or None)
         site_nur_out[gran] = {}
         for t in TECHS:
+            # 分母传**按站名**索引的该制式小区数（与分子侧站名聚合同口径）；
+            # name_pivot 已在上面按同一批筛选站点重建过（见分母段）
             site_nur_out[gran][t] = _site_nur_ratio_for_tech(
-                df, col, periods, site_pivot[t], t, gran, today)
+                df, col, periods,
+                name_pivot[t] if t in name_pivot.columns
+                else pd.Series(0, index=pd.Index([], name="nm")),
+                t, gran, today)
 
     out = {
         "nur": nur_out,
@@ -863,6 +1093,9 @@ def compute_overview(vendor: str = "", project: str = "", exclude: str = "",
         "tt_total": int(len(df)),
         "exclude": {k: v for k, v in ex_info.items() if k != "set"},
         "warnings": warnings,
+        # 告警的结构化明细（当前只有 unmatched_sites 一种）；前端据此做「点击看全部站点」弹层。
+        # 与 warnings 文案**并列**而非替代：文案供日志/接口消费者，details 供界面展开。
+        "warning_details": warning_details,
         "cached": False,
         "elapsed_seconds": round(time.time() - t0, 2),
     }
@@ -911,13 +1144,16 @@ def compute_detail(metric: str = "nur", gran: str = "daily", period: str = "",
         province_county=province_county, region=region,
         starlink_recently_migrated=starlink_recently_migrated)
 
-    # 下钻不走基础数据缓存（明细要读全列），站点属性索引现建：与缓存路径同一实现
+    # 下钻不走基础数据缓存（明细要读全列），站点属性索引现建：与缓存路径同一实现。
+    # ⚠ name_pivot 必须一起传：下钻的 cells_weight / site_cells_* 若与概览算法不同，
+    #   「表格里的数字」与「下钻的行数」就会对不上（本文件反复强调的纪律）。
     site_index = build_site_index(load_site_master())
-    tt = attach_site_attrs(attach_cells(tt, build_cell_pivot(cm)[0]),
-                           "site_id", "site_name", site_index)
+    tt = attach_site_attrs(
+        attach_cells(tt, build_cell_pivot(cm)[0], build_name_pivot(cm)),
+        "site_id", "site_name", site_index)
     tt = enrich_periods(tt)
 
-    # ---- 排除名单标记（与 compute_overview 相同口径）----
+    # ---- 排除名单标记（与 compute_overview 相同口径，含 2026-10-06 的语义修正）----
     ex_info = get_exclude_info()
     ex_set: Set[str] = ex_info.get("set") or set()
     if ex_set:
@@ -928,13 +1164,14 @@ def compute_detail(metric: str = "nur", gran: str = "daily", period: str = "",
         tt["excluded"] = "N"
 
     # ---- 筛选（与 overview 的分子口径一致）----
+    # 空值与 N 都是"全部不看名单"；只有 Y 才扣掉名单内的单（见 compute_overview 的说明）
     df = tt
     if vendor in ("ZTE", "3RD"):
         df = df[df["vendor"] == vendor]
     if project:
         df = df[df["site_information"].map(_norm_str) == project]
-    if exclude in ("Y", "N"):
-        df = df[df["excluded"] == exclude]
+    if exclude == "Y":
+        df = df[df["excluded"] != "Y"]
     for c, v in site_filters.items():
         df = df[df[_site_col(c)] == v]
     col = {"daily": "day", "weekly": "week", "monthly": "month"}[gran]

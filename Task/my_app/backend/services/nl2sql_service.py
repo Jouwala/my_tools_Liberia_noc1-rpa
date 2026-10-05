@@ -133,19 +133,62 @@ def _extract_sql(text: str) -> str:
 
     模型即使被要求「只输出 SQL」，仍可能带 ```sql 围栏或一句解释 —— 这是实测常见行为，
     所以这里做容错提取，而不是指望 prompt 完全约束住它。
+
+    ⚠ 2026-10-05 修正（真实故障：`错误: 语法错误 在 "AND" 或附近的 ... LINE 5`）
+    --------------------------------------------------------------------------
+    原实现是「无脑从第一个 `\\b(select|with)\\b` 处截断」。问题在于 `with` 是**普通英文词**：
+    模型常先写一句解释，例如
+
+        I will build this by joining tickets with their alarm records.
+        ```sql
+        SELECT ... FROM eflow_tt ... LIMIT 10
+        ```
+        AND created_time > alarm_clear_time
+
+    正则命中的是散文里的 `with`，于是**围栏被绕过、散文被当成 SQL 开头**，
+    残留的尾句就成了悬空的 `AND created_time > alarm_clear_time`。更糟的是，截取结果
+    以 `with` 开头，能**通过** sql_guard 的 `SELECT|WITH` 白名单（`sql_guard.py:216`），
+    直到真正执行才在数据库层炸掉 —— 用户看到的是 PG 的原始语法错误，完全无从下手。
+
+    现按可靠性从高到低取来源：
+      1. **代码围栏**（```sql / ```）：模型明确标注的 SQL，最可信，直接取内容；
+      2. **行首锚定**：找真正以 SELECT / WITH 开头的**行**，且要求 `with` 后紧跟
+         `RECURSIVE`/标识符+`AS`（CTE 形态），避免散文里的 `with` 被误判；
+      3. 都没有 → 返回原文，交给 sql_guard 拒绝（宁可明确拒绝，不可猜错后误执行）。
     """
     if not text:
         return ""
     t = text.strip()
-    # 去掉 markdown 代码围栏
-    fence = re.search(r"```(?:sql)?\s*(.+?)```", t, re.IGNORECASE | re.DOTALL)
-    if fence:
-        t = fence.group(1).strip()
-    # 从第一个 SELECT / WITH 开始截取
-    m = re.search(r"\b(select|with)\b", t, re.IGNORECASE)
-    if m:
-        t = t[m.start():]
-    return t.strip().rstrip(";").strip()
+
+    # ① 代码围栏：优先取带 sql 标注的围栏，退而取任意围栏
+    for pat in (r"```sql\s*(.+?)```", r"```\s*(.+?)```"):
+        fence = re.search(pat, t, re.IGNORECASE | re.DOTALL)
+        if fence:
+            body = fence.group(1).strip()
+            if body:
+                return body.strip().rstrip(";").strip()
+
+    return _anchor_statement(t).strip().rstrip(";").strip()
+
+
+def _anchor_statement(text: str) -> str:
+    """无围栏时：按「行首」锚定语句起点，避免命中散文中的 with/select。
+
+    返回从锚点起的全部内容（含后续行）——多行 SQL 必须整段保留。
+    """
+    lines = text.splitlines()
+    for idx, line in enumerate(lines):
+        stripped = line.strip()
+        if not stripped:
+            continue
+        # CTE：with 后面必须跟 recursive 或「标识符 + as」(，排除散文里的 with
+        if re.match(r"(?i)^with\s+(recursive\s+)?[\w\"`\[\]]+\s+as\s*\(", stripped):
+            return "\n".join(lines[idx:])
+        # 普通语句：整行以 select 开头（允许前导括号，如 (SELECT ...)）
+        if re.match(r"(?i)^\(?\s*select\b", stripped):
+            return "\n".join(lines[idx:])
+    # 没有任何行首锚点：原样返回，让 sql_guard 去拒绝
+    return text
 
 
 class Nl2SqlError(ValueError):
@@ -222,6 +265,15 @@ def _call_provider(provider: str, api_key: str, model: str,
     }
     url = base_url or defaults.get(provider)
     if not url:
+        # gemini 走的是 generateContent 协议，与这里统一的 OpenAI 兼容
+        # `/chat/completions` 不同构，**不能**靠默认值兜底打通，也不接受 base_url。
+        # 此前只报「需提供 base_url」，会诱导用户去填一个必然失败的地址 —— 这里把
+        # 真实原因说清楚（前端 DataAgentBar 已同步把它标注为「仅归因可用」）。
+        if provider == "gemini":
+            raise Nl2SqlError(
+                "gemini 不支持 NL2SQL：它使用 generateContent 协议，与本功能的 "
+                "OpenAI 兼容调用不同构。请改用 deepseek / openai / qianwen 等 provider。"
+            )
         raise Nl2SqlError(
             f"provider {provider} 暂不支持 NL2SQL（需提供 base_url）"
         )

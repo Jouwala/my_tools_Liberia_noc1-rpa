@@ -30,7 +30,7 @@ MOCK 说明：本模块不写任何数据；api_key 由前端传入，服务端�
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from backend.database import get_raw_connection
 
@@ -219,10 +219,23 @@ def attribute(site: Optional[str] = None, days: int = 7,
     prompt = build_prompt(evidence, lang=lang)
     try:
         # 复用既有 provider 分发（不修改 incident_ai_service.py）
-        from backend.services import incident_ai_service as ai_svc
-        payload, status = ai_svc.dispatch(
-            provider, {"api_key": api_key, "prompt": prompt, "model": model}
-        )
+        #
+        # base_url 的处置（2026-10-05 修正）：
+        # 此前这里**没有把 base_url 放进 payload**，于是 `AttributeIn.base_url` 声明的字段
+        # 一路传到这里后被静默丢弃 —— 想接自建/代理模型的人得不到任何反馈，只是结果不对。
+        # 收敛规则：
+        #   · 显式给了 base_url → 走 OpenAI 兼容端点直连（dispatch 不认识 base_url，
+        #     由本服务自己发请求），使自建模型真正可用；
+        #   · 未给 base_url → 保持原样走 dispatch，provider 的既有默认端点/回退策略不变。
+        if base_url:
+            payload, status = _call_openai_compatible(
+                provider, api_key, model, prompt, base_url
+            )
+        else:
+            from backend.services import incident_ai_service as ai_svc
+            payload, status = ai_svc.dispatch(
+                provider, {"api_key": api_key, "prompt": prompt, "model": model}
+            )
         if status != 200 or not payload.get("analysis"):
             raise RuntimeError(payload.get("error") or f"status={status}")
         base["analysis"] = payload["analysis"]
@@ -237,3 +250,68 @@ def attribute(site: Optional[str] = None, days: int = 7,
         base["provider"] = "local"
         base["note"] = f"AI 调用失败，已回退本地规则：{e}"
     return base
+
+
+def _default_model_for(provider: str) -> str:
+    """自建模型未指定 model 时的兜底默认值（各 provider 官方对话模型）。"""
+    return {
+        "openai": "gpt-4o-mini",
+        "deepseek": "deepseek-chat",
+        "qianwen": "qwen-plus",
+        "glm-coding": "glm-4",
+        "doubao": "doubao-pro-32k",
+        "agnes": "agnes-2.5-flash",
+    }.get((provider or "").lower(), "")
+
+
+def _call_openai_compatible(provider: str, api_key: str, model: str,
+                            prompt: str, base_url: str) -> Tuple[Dict[str, Any], int]:
+    """自建/代理 base_url 的 OpenAI 兼容调用。
+
+    为什么单独实现而不是复用 `incident_ai_service.dispatch()`：
+    该文件的 `PROVIDERS` 分发表只接受 (api_key, prompt, model)，**无法表达自定义端点**，
+    且该文件已达项目 500 行上限（AGENTS.md 第三节原则 2），不适合再加参数。
+    故这里按 OpenAI 兼容协议自行发请求，返回形状与 dispatch 保持一致 (payload, status)，
+    使调用方无需分支处理。
+
+    兼容性边界（诚实说明）：仅适用于 OpenAI 兼容的 `/chat/completions` 端点。
+    Gemini 走的是 `generateContent` 协议，即便给了 base_url 也不适用 —— 此处会显式报错，
+    而不是发一个必然 404 的请求让用户去猜。
+    """
+    import requests
+
+    if (provider or "").lower() == "gemini":
+        return {"error": "gemini 使用 generateContent 协议，不支持自定义 base_url"}, 400
+
+    url = (base_url or "").strip()
+    if not url:
+        return {"error": "base_url 为空"}, 400
+    # 允许用户只填到 /v1（常见习惯），自动补全为 chat/completions
+    if not url.rstrip("/").endswith("/chat/completions"):
+        url = url.rstrip("/") + "/chat/completions"
+
+    payload = {
+        "model": model or _default_model_for(provider),
+        "messages": [
+            {"role": "system", "content": "You are a telecom NOC analyst."},
+            {"role": "user", "content": prompt},
+        ],
+        "temperature": 0.7,
+        "max_tokens": 1500,
+    }
+    try:
+        r = requests.post(
+            url,
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            json=payload, timeout=60,
+        )
+    except requests.exceptions.RequestException as e:
+        return {"error": f"请求自建模型失败: {e}"}, 500
+
+    if r.status_code != 200:
+        return {"error": f"AI 服务返回 {r.status_code}: {r.text[:200]}"}, r.status_code
+    try:
+        analysis = (r.json()["choices"][0]["message"]["content"] or "").strip()
+    except Exception as e:  # noqa: BLE001
+        return {"error": f"无法解析 AI 响应: {e}"}, 500
+    return {"analysis": analysis}, 200

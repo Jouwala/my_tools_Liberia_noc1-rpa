@@ -10,6 +10,7 @@ import api from '../api'
 import { useI18n } from '../i18n'
 import { useTheme, WH, useIsMobile, darkTooltip, axisLabel, axisLine, splitLine } from '../theme'
 import DraggableClickModal from '../components/DraggableClickModal'
+import NurCalcChainNote, { type WarningDetail } from '../components/NurCalcChainNote'
 
 const { RangePicker } = DatePicker
 const { Text } = Typography
@@ -99,6 +100,8 @@ interface OverviewResp {
   tt_total: number
   exclude: ExcludeStatus
   warnings: string[]
+  /** 告警的结构化明细（如未匹配站点清单），供告警条点击展开 */
+  warning_details?: WarningDetail[]
   elapsed_seconds: number
 }
 interface OptionsResp {
@@ -642,7 +645,9 @@ export default function NurDashboard({ only }: { only?: 'nur' | 'sla' } = {}) {
       `${t('nur.exportProject')}: ${project || t('nur.all')}`,
       ...SITE_FILTER_COLS.map((c: string) =>
         `${t(siteFilterLabelKey(c))}: ${activeSiteFilters[c] || t('nur.all')}`),
-      `${t('nur.exportExclude')}: ${exclude || t('nur.all')}`,
+      // 导出件脱离界面语境，裸 "Y"/"N" 会被误读，故写自解释文案
+      `${t('nur.exportExclude')}: ${exclude === 'Y' ? t('nur.excludeY')
+        : exclude === 'N' ? t('nur.excludeN') : t('nur.excludeAll')}`,
       `${t('nur.exportRange')}: ${range && range[0] && range[1]
         ? `${range[0].format('YYYY-MM-DD')} ${t('nur.exportTo')} ${range[1].format('YYYY-MM-DD')}`
         : t('nur.exportRangeAll')}`,
@@ -711,6 +716,18 @@ export default function NurDashboard({ only }: { only?: 'nur' | 'sla' } = {}) {
 
   return (
     <div style={{ padding: 'var(--wh-space-md)' }}>
+      {/* NUR 计算链路说明（默认收起，点击展开；含后端 warnings 常驻告警）。
+          内容与 page=ms_sla 共用 NurCalcChainNote，避免同口径两处各写一套后分叉。
+          只在显示 NUR 时出现：ms_sla_only 不出 NUR，挂上去只会误导。 */}
+      {showNur && (
+        <NurCalcChainNote
+          warnings={data?.warnings}
+          warningDetails={data?.warning_details}
+          withSla={showSla}
+          style={{ marginBottom: 'var(--wh-space-md)' }}
+        />
+      )}
+
       {/* ---------- 筛选条 ---------- */}
       <Card size="small" style={{ ...cardStyle, marginBottom: 'var(--wh-space-md)' }} styles={{ body: { padding: 'var(--wh-space-sm) var(--wh-space-md)' } }}>
         <Space wrap style={{ gap: 'var(--wh-space-md)' }}>
@@ -748,9 +765,15 @@ export default function NurDashboard({ only }: { only?: 'nur' | 'sla' } = {}) {
           })}
           <Space wrap style={{ gap: 'var(--wh-space-xs)' }}>
             <Text style={{ color: WH.textMuted }}>{t('nur.exclude')}</Text>
-            <Select allowClear placeholder={t('nur.all')} value={exclude || undefined}
-              onChange={v => setExclude(v || '')} style={{ width: 'min(100%, 5rem)' as any }}
-              options={[{ value: 'Y', label: 'Y' }, { value: 'N', label: 'N' }]} />
+            {/* 三档语义（2026-10-06 按业务确认）：
+                  空值 = 全部参与，不看排除名单；N = 同空值；Y = 从全部里扣掉名单内的单。
+                选项写成自解释文案而非裸 'Y'/'N' —— 裸字母正是语义被误读的根源。 */}
+            <Select allowClear placeholder={t('nur.excludeAll')} value={exclude || undefined}
+              onChange={v => setExclude(v || '')} style={{ width: 'min(100%, 13rem)' as any }}
+              options={[
+                { value: 'Y', label: t('nur.excludeY') },
+                { value: 'N', label: t('nur.excludeN') },
+              ]} />
           </Space>
           <Space wrap style={{ gap: 'var(--wh-space-xs)' }}>
             <Text style={{ color: WH.textMuted }}>{t('nur.timeRange')}</Text>
@@ -780,9 +803,7 @@ export default function NurDashboard({ only }: { only?: 'nur' | 'sla' } = {}) {
       </Card>
 
       {error && <Alert type="error" showIcon message={error} style={{ marginBottom: 'var(--wh-space-md)' }} />}
-      {data && data.warnings.length > 0 && (
-        <Alert type="warning" showIcon message={data.warnings.join('; ')} style={{ marginBottom: 'var(--wh-space-md)' }} />
-      )}
+      {/* data.warnings 已由上方 NurCalcChainNote 的常驻告警渲染（不随收起隐藏），此处不再重复 */}
       {exStatus?.error && (
         <Alert type="warning" showIcon style={{ marginBottom: 'var(--wh-space-md)' }}
           message={`${t('nur.excludeLoadFail')}: ${exStatus.error}`} />

@@ -3,5 +3,5 @@
   "resend_minutes": 20,
   "severities": "P1",
   "alarm_codes": "",
-  "groups": "OLR Eflow Issues"
+  "groups": "*P1 OLR ZTE MS Manager*"
 }

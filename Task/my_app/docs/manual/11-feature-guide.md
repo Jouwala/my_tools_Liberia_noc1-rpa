@@ -208,7 +208,35 @@
     导出当前 Vendor / Project / 站点维度 / Exclude / 时间范围筛选后的汇总卡与三档 NUR+SLA；筛选条件写进每个 sheet 的 `subtitle`（含各档粒度与 NUR 量纲说明）。
     站点维度在副标题里沿用筛选条同一批标签键（`nur.trmType` 等），不另建 `nur.exportXxx` 重复键。
     **派生页 `?page=ms_nur_only`（`MsNurOnly.tsx`）自动获得该按钮**（同上，参数化复用 + 顶部工具栏）。
+- **Exclude 筛选的三档语义（2026-10-06 修正，此前实现反了）**：
+
+  | Exclude | 含义 |
+  | --- | --- |
+  | 空值 | **全部**参与计算，**完全不看**排除名单 |
+  | `N` | 全部参与计算，不看排除名单（**与空值同义**） |
+  | `Y` | 从**全部**里**扣掉**名单内的单 |
+
+  ⚠ **修正前的实现是 `df[df["excluded"] == exclude]`**（`nur_calc.py`），即 `Y`=只保留名单内、
+  `N`=只保留名单外 —— 那是"筛选出名单"而不是"排除名单"，**方向正好反了**。
+  实测（名单 46 单全在 2026-08-03~09）：旧实现 `Y`=46 / `N`=1061，业务要的是 `Y`=1061 / `N`=1107。
+  这就是用户报的「选 Exclude=Y 最近 NUR 全是 0」的真实原因 —— 不是名单过时，是语义反了。
+  回归守卫见 `tests/test_nur_exclude_semantics.py`（5 条断言，含"Y 不得退化成名单本身"）。
+  界面上把裸 `Y`/`N` 换成了自解释文案（`nur.excludeY`/`excludeN`），导出件同样写全称 ——
+  裸字母正是语义被误读的根源。
 - 表格与趋势图复用同一套"项目统一下钻规范"，与 TT&WO / MS SLA 三页保持一致。
+- **排除名单（Exclude）2026-10-06 起改为落库 + 人工上传**：
+  - 名单存 `app.tt_exclude`（业务列仅 `ticket_no`，加 `_source_file`/`_source_sheet`/`_import_time`/`_uploaded_by` 溯源列，迁移 `0005_tt_exclude_table`）。
+    `nur_calc.get_exclude_info()`（`backend/services/nur_calc.py:354`）改为**库优先**，仅在表不可用/为空时回退 FTP，行为与改造前一致。
+  - **上传入口**：数据浏览页（`?page=tables`）工具栏「排除名单」按钮 → `components/ExcludeListUpload.tsx` → `POST /api/tables/import-exclude`（`backend/routers/tt_exclude.py`）。
+    **表名固定为 `tt_exclude`**，不走通用导入的「文件名即表名」—— 否则会建出 `tt_exclude_xlsx`，`nur_calc` 读不到，表现为「传了文件但数字没变」。
+  - **语义为全量替换**（单事务 DELETE+INSERT），三道护栏：**禁止空导入**（空名单 = 没有任何单被排除，NUR 口径会静默变化）、
+    **票号格式校验**（须形如 `TT202608090116`，异常占比 >10% 判为传错文件）、**`dry_run` 预览**（先看 `N → M 行、新增/移除各多少` 再落库）。
+  - **为什么落库**：xlsx 名单是隐形的、无法审计，且**「拉取时间 ≠ 内容时间」**—— 页面上 `(10-05 16:47)` 看着很新，内容却全是 8 月初的，
+    用户会把「名单过时导致最近几天 NUR 全 0」误判成「计算算错了」（2026-10-05 真实踩坑）。现在展示 `_import_time`（内容时间）与上传来源。
+  - 上传人记**客户端 IP** 而非用户名：本项目无多用户体系（`helpContent.ts:950`「No multi-user system」），假的审计数据比没有更危险。
+  - **单条记录**：`services/tt_exclude.py`（解析/读写/播种，含 `ExcludeImportError`）、`routers/tt_exclude.py`（两个端点）。
+    首次播种来自 FTP 现网 46 条（`tt_exclude.seed_from_ftp()`）；此后**真相源是数据库**，FTP 仅兜底。
+  - 注意：`vip_site_list` 是「有上游 Excel、可批量导入」的表，**不是本表的先例** —— 排除名单是人工维护的，两者是不同写入路径。
 
 ## 6. MS Operation KPI 看板（`?page=ms_sla`）
 

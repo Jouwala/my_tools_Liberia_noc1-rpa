@@ -14,7 +14,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from backend.services.sql_guard import (  # noqa: E402
-    SqlGuardError, enforce_limit, extract_tables, validate_sql,
+    DEFAULT_LIMIT, MAX_LIMIT, SqlGuardError, enforce_limit, extract_tables, validate_sql,
 )
 
 TABLES = ["eflow_tt", "history_alarm", "realtime_alarm", "site_master"]
@@ -84,11 +84,35 @@ def test_limit_preserved_when_present():
     assert enforce_limit(sql, limit=50) == sql
 
 
-def test_oversized_limit_rejected():
-    with pytest.raises(SqlGuardError):
-        enforce_limit("SELECT * FROM eflow_tt LIMIT 999999999")
+def test_oversized_limit_capped_not_rejected():
+    """超上限的 LIMIT 收敛为 MAX_LIMIT。
+
+    2026-10-05 行为变更：此前抛 SqlGuardError，导致介于 DEFAULT_LIMIT 与 MAX_LIMIT
+    之间的值既不被收敛、也不会触发截断标记，形成静默灰区。现改为「一律压到
+    MAX_LIMIT」，请求值与护栏上限始终自洽。上限本身同日由 1000 放宽到 50000。
+    """
+    out = enforce_limit("SELECT * FROM eflow_tt LIMIT 999999999")
+    assert f"LIMIT {MAX_LIMIT}" in out
+    assert "999999999" not in out
+
+
+def test_midrange_limit_tightened_to_max_consistently():
+    """中间值 LIMIT 不再被原样放行 —— 与超限值走同一条收敛路径。"""
+    assert enforce_limit(f"SELECT * FROM eflow_tt LIMIT {MAX_LIMIT}") == \
+        f"SELECT * FROM eflow_tt LIMIT {MAX_LIMIT}"
+    assert f"LIMIT {MAX_LIMIT}" in enforce_limit(f"SELECT * FROM eflow_tt LIMIT {MAX_LIMIT + 1}")
 
 
 def test_limit_capped_at_max():
     out = enforce_limit("SELECT * FROM eflow_tt", limit=10 ** 9)
-    assert "LIMIT 1000" in out
+    assert f"LIMIT {MAX_LIMIT}" in out
+
+
+def test_default_limit_is_generous():
+    """默认上限应足够宽松（2026-10-05 用户反馈 200 太紧）。
+
+    这条断言是**防回退**的：若有人把上限调回小数值，正常查询会重新开始频繁触顶，
+    而用户已经明确表示「数据不会导出很大、不需要限制 200」。
+    """
+    assert DEFAULT_LIMIT >= 10000, f"默认上限 {DEFAULT_LIMIT} 过小，会让正常查询频繁触顶"
+    assert DEFAULT_LIMIT == MAX_LIMIT, "默认值与最大值应一致，避免再出现静默灰区"

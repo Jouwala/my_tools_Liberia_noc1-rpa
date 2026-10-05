@@ -59,7 +59,10 @@
 | `backend/migrations/` | **不是 Alembic**，是一次性数据搬迁/校验脚本（`transfer_*`、`reconcile`、`smoke_test_pg`） | 手工按需执行，不在正常发布流程里 |
 | `backend/scripts/init_db.py` | 首次初始化建表 | 全新环境第一步 |
 
-`alembic/versions/` 当前 5 个版本：`0001_baseline`（6 张结构表）、`0002_task_queue`、`0003`、`0004`、`5415704359dc_phase4_coverage`。
+`alembic/versions/` 当前 6 个版本：`0001_baseline`（6 张结构表）、`0002_task_queue`、`0003`、`0004`、`5415704359dc_phase4_coverage`、`0005_tt_exclude_table`。
+
+> `0005_tt_exclude_table`（2026-10-06）建 `app.tt_exclude` —— NUR 排除名单，由人工在数据浏览页上传维护（见 `11-feature-guide.md` 第 5 节）。
+> 它是**结构表**（人工维护、列固定），因此走 Alembic；不要与「采集任务运行时自建」的动态表混为一谈。
 
 **约定：动态 eFlow 表不进 migration**（`0001_baseline.py:13-15`）。这类表由采集任务在运行时按上游字段自行建表，因此 `alembic upgrade head` 之后表数量少于页面上看到的表数量是**正常现象**，不是迁移失败。
 

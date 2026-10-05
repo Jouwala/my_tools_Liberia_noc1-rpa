@@ -154,7 +154,13 @@ def _load_live_nur_sla(start: str = "", end: str = ""):
         "sla": _empty_by_gran(),
         "wo": _empty_by_gran(),
         "persite_nur": {gran: {} for gran in GRANULARITIES},
+        "warnings": [],
+        # 告警的结构化明细（未匹配站点清单），供前端「点击看全部站点」弹层
+        "warning_details": [],
     }
+    # ⚠ ov 必须在 try 外先绑定：异常时下面按 ov.get(...) 取 persite_nur/warnings 会 NameError，
+    #   把「实时计算失败降级为空表」变成「整个接口 500」。
+    ov: dict = {}
     try:
         ov = nur_calc.compute_overview(start=start, end=end)
         for gran in GRANULARITIES:
@@ -185,6 +191,9 @@ def _load_live_nur_sla(start: str = "", end: str = ""):
     # 站点级 NUR 达标占比（PS_NUR_2G/3G 数据源；早退分支无该键时降级空）
     for gran in GRANULARITIES:
         out["persite_nur"][gran] = ov.get("persite_nur", {}).get(gran, {})
+    # nur_calc 口径告警透传给前端（站在 NUR 说明条里常驻展示）
+    out["warnings"] = ov.get("warnings", []) or []
+    out["warning_details"] = ov.get("warning_details", []) or []
     return out
 
 
@@ -223,6 +232,10 @@ def _load_overview(start: str = "", end: str = ""):
         "network": _empty_by_gran(),
         "persite": _empty_by_gran(),
         "wo": _empty_by_gran(),
+        # nur_calc 口径告警（如"站点在 cm_site_summary 找不到小区信息，已排除不计"）。
+        # 前端 NUR 计算链路说明条常驻展示，不随收起隐藏。
+        "warnings": [],
+        "warning_details": [],
     }
 
     # NUR/SLA/WO/Per-Site 站点占比以 nur_calc 实时计算为准（不依赖看板快照库；本地
@@ -232,6 +245,16 @@ def _load_overview(start: str = "", end: str = ""):
     out["nur"] = live["nur"]
     out["sla"] = live["sla"]
     out["wo"] = live["wo"]
+    out["warnings"] = live.get("warnings") or []
+    # warning_details 必须与 warnings **一起**透传：前端 NurCalcChainNote 靠它渲染
+    # 「查看全部 N 个站点」的弹层（NurCalcChainNote.tsx:128-131 找不到 unmatched_sites
+    # 就退化成不可点击的纯文案）。此前这里只拷了 warnings，导致上游 nur_calc 明明算出了
+    # 26 个站点、HTTP 返回里 warning_details 却是空的 —— 告警条看着正常，但点不开。
+    out["warning_details"] = live.get("warning_details") or []
+    # Per-Site 的 NUR 行（PS_NUR_2G/PS_NUR_3G）替换为 nur_calc 站点 NUR 达标占比。
+    # ⚠ 必须在下面「快照库不存在就提前返回」之前执行：否则装了快照库的环境有 Per-Site、
+    #   没装的环境静默丢失该数据集（同一份代码两种行为）。
+    out["persite"] = _apply_live_nur_to_persite(out["persite"], live["persite_nur"])
 
     if not DASH_DB_PATH.exists():
         return _cache_set(cache_key, out)
@@ -261,8 +284,7 @@ def _load_overview(start: str = "", end: str = ""):
     finally:
         conn.close()
 
-    # Per-Site 的 NUR 行（PS_NUR_2G/PS_NUR_3G）替换为 nur_calc 站点 NUR 达标占比
-    out["persite"] = _apply_live_nur_to_persite(out["persite"], live["persite_nur"])
+    # Per-Site 的 NUR 行已在上方（提前返回之前）替换为 nur_calc 站点 NUR 达标占比
     return _cache_set(cache_key, out)
 
 

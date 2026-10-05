@@ -86,8 +86,23 @@ _CTE_RE = re.compile(
     re.IGNORECASE,
 )
 
-DEFAULT_LIMIT = 200
-MAX_LIMIT = 1000
+# 返回行数上限（2026-10-05 调整 200 → 50000）
+#
+# 原为 DEFAULT_LIMIT=200 / MAX_LIMIT=1000。用户反馈两点：
+#   1. 200 行对探索性查询太紧，动不动就「已达上限」，而实际数据量并不大；
+#   2. 截断告警条在结果接近上限时频繁弹出，属于噪声。
+#
+# 现把上限一次性放宽到 50000，与 `remote_readonly.MAX_LIMIT`（远端数据库单次
+# 读取上限）对齐 —— 两者是同类约束，用同一个数量级避免「本地放行、远端拒绝」
+# 的错配。取值依据：本功能是排查用的只读副驾，结果在浏览器里渲染并导出 Excel，
+# 5 万行 × 有限列仍在可接受范围；且真正的防护是**只读白名单 + 单语句**
+# （见本文件顶部的三道闸），而非行数限制。
+#
+# 注意：`enforce_limit` 对无 LIMIT 的查询会外层包裹 `LIMIT {DEFAULT_LIMIT}`，
+# 放宽后意味着「用户不写 LIMIT」时会**真的返回最多 5 万行**。这是刻意的 ——
+# 与「不写 LIMIT 就不该被悄悄砍到 200 行」的直觉一致。
+DEFAULT_LIMIT = 50000
+MAX_LIMIT = 50000
 
 
 class SqlGuardError(ValueError):
@@ -245,7 +260,19 @@ def enforce_limit(sql: str, limit: int = DEFAULT_LIMIT) -> str:
 
     - 无 LIMIT：包一层 `SELECT * FROM (<sql>) AS _guard_sub LIMIT n`，
       比「在末尾追加 LIMIT」更稳 —— 后者遇到已有 ORDER BY / 括号结尾会语法错误。
-    - 有 LIMIT：解析出数值，超过 MAX_LIMIT 则拒绝（避免用户写 LIMIT 999999999）。
+    - 有 LIMIT：解析出数值统一**收敛到 MAX_LIMIT 以内**。
+
+    收敛策略（2026-10-05 修正）：
+    此前是「超过 MAX_LIMIT 就抛错」，于是出现一个静默灰区 ——
+    用户写 `LIMIT 1000` 原样放行、写 `LIMIT 999999` 直接报错，而 `LIMIT 500`
+    这类介于 DEFAULT_LIMIT(200) 与 MAX_LIMIT(1000) 之间的值，既不被收敛，
+    执行端也不会置 `truncated`（`nl2sql_service.py:298` 用的是
+    `len(rows) >= limit`，比较对象是 DEFAULT_LIMIT），用户无法判断
+    自己拿到的是否为全量 —— 与项目「截断必须显式暴露」的约定相抵。
+
+    现改为：一律把用户写法**压到 MAX_LIMIT**（而非拒绝），
+    使「请求的 LIMIT」与「护栏允许的上限」始终自洽；
+    是否真的截断，仍由执行端按实际返回行数判定。
     """
     if limit < 1:
         limit = DEFAULT_LIMIT
@@ -255,7 +282,8 @@ def enforce_limit(sql: str, limit: int = DEFAULT_LIMIT) -> str:
     m = re.search(r"\blimit\s+(\d+)\s*$", body.strip(), re.IGNORECASE)
     if m:
         if int(m.group(1)) > MAX_LIMIT:
-            raise SqlGuardError(f"LIMIT 超过上限 {MAX_LIMIT}")
+            # 超上限：把数值改写成 MAX_LIMIT 而不是抛错（见上方 docstring 的收敛策略）
+            return sql[:m.start(1)] + str(MAX_LIMIT) + sql[m.end(1):]
         return sql
     # 无 LIMIT：外层包裹，强制收敛返回行数
     return f"SELECT * FROM (\n{sql}\n) AS _guard_sub LIMIT {limit}"

@@ -51,6 +51,7 @@ from backend.database import Base, engine, DB_PATH, DB_MODE
 from backend.models.analysis import AnalysisArchive, UploadedFile
 from backend.routers import (
     tables, upload, analysis, gis, tt_wo_dashboard, alarm_dashboard,
+    tt_exclude as tt_exclude_router,
     wo_dashboard,
     packet_loss_dashboard, battery_dashboard, credentials,
     tasks, sp_dashboard, sp_material_summary, sp_details, sp_report, system,
@@ -150,6 +151,10 @@ app.add_middleware(
 
 # 注册路由
 app.include_router(tables.router)
+# NUR 排除名单上传：与 tables.router 同前缀 /api/tables，但表名固定为 tt_exclude
+# （不能走通用导入的「文件名即表名」，否则 NUR 读不到）。路由不冲突：
+# 本路由只注册 /import-exclude 与 /exclude-meta 两个静态路径。
+app.include_router(tt_exclude_router.router)
 app.include_router(upload.router)
 app.include_router(analysis.router)
 app.include_router(gis.router)
