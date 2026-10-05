@@ -42,10 +42,11 @@ TARGETS = {"P1": 4, "P2": 8, "P3": 16, "P4": 48}
 SEVERITIES = ["P1", "P2", "P3", "P4"]
 # 源表有少量工单没填 Ticket Severity，单列一块，避免被四个等级块静默丢掉
 BLOCKS = SEVERITIES + ["N/A"]
-# 每次生成一个新文件（文件名带时间戳），本目录只保留最近 KEEP_FILES 份。
-# 不能不设上限：本任务写的是 tt_reports，而 eflow_data_mapper._cleanup_old_tt_reports
+# 每次生成一个新文件（文件名带时间戳），本目录**只保留最新一份**（2026-10-05 用户要求）。
+# 为什么不能完全不清理：本任务写的是 tt_reports，而 eflow_data_mapper._cleanup_old_tt_reports
 # 的清理名单里没有本产物（它只清自己那 8 个 pattern），旧文件没人管就会一直堆。
-KEEP_FILES = 10
+# 为什么先前是 10：留几份便于对比历次生成；现改为 1，目录里始终只有当期报告。
+KEEP_FILES = 1
 
 BAR, LINE, TGT = "#8EA9DB", "#00B0F0", "#FF0000"
 
@@ -70,12 +71,22 @@ def _output_path(now: datetime) -> Path:
     return target
 
 
-def _prune_old_outputs() -> int:
-    """只保留最近 KEEP_FILES 份本任务产物，返回删除数（被占用的文件跳过）。"""
-    old = sorted(glob.glob(str(REPORT_DIR / f"{OUTPUT_PREFIX}_*.xlsx")),
-                 key=os.path.getmtime, reverse=True)[KEEP_FILES:]
+def _prune_old_outputs(keep: Path | None = None) -> int:
+    """只保留最新一份本任务产物（KEEP_FILES=1），返回删除数（被占用的文件跳过）。
+
+    ⚠ 匹配用 `OUTPUT_PREFIX*.xlsx` 而不是 `OUTPUT_PREFIX_*.xlsx`：
+    早期人工核对留下的 `TTs and MTTR (Hour).xlsx`（无下划线）也属于本任务产物，
+    且它同样在 email_reports._SOURCES 的下载白名单里，用带下划线的窄通配
+    会把它永久留下 —— 用户要的是「目录里只剩最新一份」。
+    `keep` 传本次刚写出的文件，避免极端情况下（同秒重跑）把自己删掉。
+    """
+    cands = sorted(glob.glob(str(REPORT_DIR / f"{OUTPUT_PREFIX}*.xlsx")),
+                   key=os.path.getmtime, reverse=True)
+    if keep is not None:
+        keep_res = str(keep.resolve())
+        cands = [p for p in cands if str(Path(p).resolve()) != keep_res]
     removed = 0
-    for path in old:
+    for path in cands[KEEP_FILES - 1:]:
         try:
             os.remove(path)
             removed += 1
@@ -343,7 +354,7 @@ def run_tt_mttr_report() -> dict:
 
     out = _output_path(datetime.now())
     _write_workbook(out, src, df, raw, flt, raw_cols, flt_cols, months, truth)
-    removed = _prune_old_outputs()
+    removed = _prune_old_outputs(keep=out)
 
     elapsed = round(time.time() - t0, 2)
     result = {

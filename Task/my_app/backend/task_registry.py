@@ -812,7 +812,7 @@ TASK_SPECS = [
     #     产出「分月 TTs / MTTR / SLA 目标」组合图工作簿给 EmailReports 页签下载。
     #     纯本地文件读写（实测 9.4 秒），不调 eFlow API，故归 m 组；
     #     排在 07:20 是为了读到 eflow_sync(每小时 :00) 当天第一期产出的数据。
-    #     需要更高频的话在任务管理页改 cron 即可，不必改代码（产物按 mtime 只留最近 10 份）。
+    #     需要更高频的话在任务管理页改 cron 即可，不必改代码（产物按 mtime 只留最新 1 份）。
     dict(task_id="tt_mttr_report_generate", name="TTs and MTTR 报表生成", name_en="TTs and MTTR Report Generate",
          loader=("backend.services.tt_mttr_report", "run_tt_mttr_report"),
          description="从最新 Site Down hourly Report 生成 TTs and MTTR (Hour).xlsx：有 WO + 告警发生→清除历时<48h + Site Category 非空 + 2026-01 起，Summary 用 COUNTIFS/AVERAGEIFS 公式分月统计并出 P1~P4 组合图",

@@ -1,6 +1,6 @@
 # my_app 使用帮助
 
-> 面向使用者的平台功能与操作指南。本文件由「使用帮助」页面同源生成（frontend/src/helpMarkdown.ts），内容依据 docs/manual/ 各章与 backend/task_registry.py 整理。生成日期：2026-10-04。
+> 面向使用者的平台功能与操作指南。本文件由「使用帮助」页面同源生成（frontend/src/helpMarkdown.ts），内容依据 docs/manual/ 各章与 backend/task_registry.py 整理。生成日期：2026-10-05。
 
 > 站内入口：侧边栏「使用帮助」，或直链 `http://<host>/myapp/?page=help`。
 
@@ -1378,7 +1378,7 @@
 1. 每天 07:20 读 data/eflow/tt_reports 下最新的 hourly Report（Processed Data 页）
 1. 筛出有 WO 的工单进 Raw Data，再按「告警发生→告警清除历时 < 48 小时 + Site Category 非空 + 告警月份 ≥ 2026-01」进 ZTE 页
 1. Summary 页用 COUNTIFS/AVERAGEIFS 公式分月统计 P1~P4 的 TTs 与 MTTR，并插 4 张组合图（柱=TTs、青线=MTTR、红线=SLA 目标）
-1. 产物文件名带时间戳，同目录只保留最近 10 份
+1. 产物文件名带时间戳，同目录只保留最新 1 份：新报告写出后自动删掉旧的
 
 **维护要点**:
 

@@ -1316,7 +1316,7 @@ export const TASK_DOCS: TaskDoc[] = [
     zh: {
       name: 'TTs and MTTR 报表生成',
       desc: '从最新一份 Site Down hourly Report 生成 TTs and MTTR (Hour) 月粒度工作簿，供邮件报告页「TTs and MTTR」页签下载',
-      flow: ['每天 07:20 读 data/eflow/tt_reports 下最新的 hourly Report（Processed Data 页）', '筛出有 WO 的工单进 Raw Data，再按「告警发生→告警清除历时 < 48 小时 + Site Category 非空 + 告警月份 ≥ 2026-01」进 ZTE 页', 'Summary 页用 COUNTIFS/AVERAGEIFS 公式分月统计 P1~P4 的 TTs 与 MTTR，并插 4 张组合图（柱=TTs、青线=MTTR、红线=SLA 目标）', '产物文件名带时间戳，同目录只保留最近 10 份'],
+      flow: ['每天 07:20 读 data/eflow/tt_reports 下最新的 hourly Report（Processed Data 页）', '筛出有 WO 的工单进 Raw Data，再按「告警发生→告警清除历时 < 48 小时 + Site Category 非空 + 告警月份 ≥ 2026-01」进 ZTE 页', 'Summary 页用 COUNTIFS/AVERAGEIFS 公式分月统计 P1~P4 的 TTs 与 MTTR，并插 4 张组合图（柱=TTs、青线=MTTR、红线=SLA 目标）', '产物文件名带时间戳，同目录只保留最新 1 份：新报告写出后自动删掉旧的'],
       maintain: [
         'SLA 达成一律按「告警发生 → 告警清除」的实际历时算，不看源表的 SLA Time 目标列（那是目标值不是耗时）',
         '未填 Ticket Severity 的工单单列 N/A 块统计，不出图（无 SLA 目标），否则这部分工单会被静默丢掉',
@@ -1327,7 +1327,7 @@ export const TASK_DOCS: TaskDoc[] = [
     en: {
       name: 'TTs and MTTR Report Generate',
       desc: 'Builds the TTs and MTTR (Hour) monthly workbook from the latest Site Down hourly Report, downloadable from the "TTs and MTTR" tab of the report files page',
-      flow: ['Daily 07:20 read the newest hourly Report under data/eflow/tt_reports (Processed Data sheet)', 'Tickets with a WO go to Raw Data; then filter on occur-to-clear < 48h + non-empty Site Category + month >= 2026-01 into the ZTE sheet', 'Summary tallies TTs and MTTR per month per P1-P4 with COUNTIFS/AVERAGEIFS formulas and inserts 4 combo charts (bars = TTs, cyan line = MTTR, red line = SLA target)', 'Output name carries a timestamp; only the latest 10 files are kept'],
+      flow: ['Daily 07:20 read the newest hourly Report under data/eflow/tt_reports (Processed Data sheet)', 'Tickets with a WO go to Raw Data; then filter on occur-to-clear < 48h + non-empty Site Category + month >= 2026-01 into the ZTE sheet', 'Summary tallies TTs and MTTR per month per P1-P4 with COUNTIFS/AVERAGEIFS formulas and inserts 4 combo charts (bars = TTs, cyan line = MTTR, red line = SLA target)', 'Output name carries a timestamp; only the newest single file is kept — the previous one is deleted as soon as the new report is written'],
       maintain: [
         'SLA attainment is always the actual occur-to-clear duration, never the source table SLA Time column (that one holds the target, not the duration)',
         'Tickets with an empty Ticket Severity are tallied in a separate N/A block without a chart (no SLA target) — otherwise they would be dropped silently',

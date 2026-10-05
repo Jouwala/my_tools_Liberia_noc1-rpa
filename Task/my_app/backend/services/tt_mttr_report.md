@@ -25,10 +25,15 @@
 |---|---|
 | 输入 | `data/eflow/tt_reports/Liberia Orange Site Down hourly Report_*.xlsx` 的 **`Processed Data`** 页，按 mtime 取最新一份 |
 | 输出 | 同目录 `TTs and MTTR (Hour)_YYYY-MM-DD_HH-MM-SS.xlsx`（文件名带时间戳，每次生成一份新文件） |
-| 保留 | 同前缀只留最近 `KEEP_FILES = 10` 份 |
+| 保留 | **只留最新一份**（`KEEP_FILES = 1`，2026-10-05 按用户要求从 10 改为 1） |
 
 **为什么保留份数要本任务自己管**：`eflow_data_mapper.py::_cleanup_old_tt_reports` 的清理名单是**写死的 8 个 pattern**
 （hourly/8h/TT Summary 三份 xlsx + 五份 png），不含本产物；漏了就会每天堆一份 3 MB 文件而无人回收。
+
+**清理的匹配通配是 `OUTPUT_PREFIX*.xlsx`（无下划线），不是 `OUTPUT_PREFIX_*.xlsx`**：
+早期人工核对留下的 `TTs and MTTR (Hour).xlsx` / `..._1.xlsx` 也属于本任务产物
+（且同样在 `email_reports._SOURCES` 的下载白名单里），用窄通配会把它永久留在目录里。
+`_prune_old_outputs(keep=<本次刚写出的文件>)` 显式排除本次产物，避免同秒重跑时把自己删掉。
 
 ## 三个 sheet 与过滤口径
 
