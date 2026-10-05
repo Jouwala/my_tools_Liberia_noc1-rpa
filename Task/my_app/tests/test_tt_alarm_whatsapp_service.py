@@ -1,13 +1,15 @@
 # -*- coding: utf-8 -*-
 """TT 告警 WhatsApp 推送：纯函数单测（不连库、不打网络，可安全被 pytest 收集）。
 
-覆盖三类真正会出错的地方：
+覆盖几类真正会出错的地方：
   1. 告警码归一化 —— 库里 '99933' 与 '99933.0' 并存，只判前者会漏掉该排除的那批；
-  2. 消息渲染 —— 字段兜底与「0 不渲染成 0」的规则（实测 27254 行 down_site_count='0'）；
-  3. 重推节流 —— 20 分钟语义（无记录发 / 失败发 / 未到期不发 / 到期发）。
+  2. 消息渲染 —— 字段兜底、「0 不渲染成 0」、Occurred 行、重报横幅；
+  3. 发送决策 `decide_push` —— 首推 / 停滞重报 / 冷却 / 有更新不打扰 / 未知退化；
+  4. 级别白名单 `severity_passes` —— 「留空 = 不过滤」不是「一单都不发」；
+  5. 三层来源合并 `merged_render_row` —— 实时 > 镜像 > 触发行。
 
-渲染断言以需求样例单 TT202609270103 为基准（该单字段已 2026-09-28 从库中核对）。
-配置项（级别/告警码白名单/时间窗/群组）的用例在 test_tt_alarm_config.py。
+配置项（级别/告警码白名单/窗口/群组）的用例在 test_tt_alarm_config.py；
+触发扫描（realtime_alarm 口径）在 test_tt_alarm_trigger.py。
 """
 from datetime import datetime
 
@@ -35,7 +37,7 @@ def test_norm_alarm_code_empty_and_none():
 def test_99933_both_forms_normalize_to_same_code():
     """两种写法的 99933 归一化后必须相等（这正是不能写进 SQL 的原因）。
 
-    注意归属已变：99933 不再由代码硬编码排除，而是**默认不在告警码白名单里**故被排除；
+    注意归属：99933 不由代码硬编码排除，而是**默认不在告警码白名单里**故被排除；
     用户若把它填进白名单就会推送。此处只锁定归一化行为。
     """
     for raw in ("99933", "99933.0", 99933.0):
@@ -53,6 +55,7 @@ def _sample_row(**kw):
         "region_level1": "Nimba",
         "site_type": "NORMAL",
         "site_information": "REGULAR",
+        "alarm_occur_time": "2026-09-27 01:03:00",
         "title": " 4530.[Ganta 4]Complete site down (CSD)",
         "alarm_code": "9920",
         "alarm_severity": "Critical",
@@ -73,21 +76,21 @@ def _sample_row(**kw):
     return base
 
 
-def test_build_message_matches_reference_sample():
-    """逐行对照需求里给出的样例（这是本任务的验收基准）。"""
-    expected = "\n".join([
-        "TT202609270103 · Ganta 4(4530) | Nimba | Site type NORMAL | Site subtype REGULAR",
-        "Title: 4530.[Ganta 4]Complete site down (CSD)",
-        "Alarm: 9920(Critical) | RAN | Communication Alarm",
-        "Alarm object: BSC1(1)/Ganta 4 | 10.17.17.129/129.0.1.1 | 2G SITE DOWN",
-        "Impact: 2G,3G,4G outage | site outage | 1 site(s) down | VIP Yes",
-        "Severity: P1 (matches rule)",
-    ])
-    assert S.build_tt_message(_sample_row()) == expected
+def test_build_message_contains_occurred_line():
+    """告警发生时间是消息最关键的元素之一，降级模板里绝不能缺。"""
+    msg = S.build_tt_message(_sample_row())
+    assert msg.split("\n")[1] == "Occurred: 2026-09-27 01:03:00"
 
 
-def test_message_is_exactly_six_lines():
-    assert len(S.build_tt_message(_sample_row()).split("\n")) == 6
+def test_build_message_severity_line_does_not_claim_rule_match():
+    """降级模板没跑过规则引擎，绝不能谎报 '(matches rule)'（完整引擎输出才带判定）。"""
+    msg = S.build_tt_message(_sample_row())
+    assert "Severity: P1" in msg
+    assert "matches rule" not in msg
+
+
+def test_message_is_exactly_seven_lines():
+    assert len(S.build_tt_message(_sample_row()).split("\n")) == 7
 
 
 def test_zero_down_site_count_is_not_rendered_as_zero():
@@ -114,7 +117,7 @@ def test_alarm_object_falls_back_for_legacy_rows():
     """历史遗留未清除单的 sub_alarm_* 实测全为空，须回退到 ne_name / specific_problem。"""
     row = _sample_row(sub_alarm_ne_name=None, sub_alarm_ne_ip=None, sub_alarm_name=None,
                       ne_name="Ganta 4")
-    line = S.build_tt_message(row).split("\n")[3]
+    line = S.build_tt_message(row).split("\n")[4]
     assert line.startswith("Alarm object: ")
     assert "Ganta 4" in line and "Complete site down (CSD)" in line
     assert line != "Alarm object: —"
@@ -123,7 +126,7 @@ def test_alarm_object_falls_back_for_legacy_rows():
 def test_alarm_object_dash_when_everything_missing():
     row = _sample_row(sub_alarm_ne_name=None, sub_alarm_ne_ip=None, sub_alarm_name=None,
                       ne_name=None, specific_problem=None, alarm_description=None)
-    assert S.build_tt_message(row).split("\n")[3] == "Alarm object: —"
+    assert S.build_tt_message(row).split("\n")[4] == "Alarm object: —"
 
 
 def test_multi_value_split_handles_semicolon_and_newline():
@@ -134,62 +137,168 @@ def test_multi_value_split_handles_semicolon_and_newline():
 
 
 def test_alarm_code_from_row_when_norm_missing():
-    """未经 fetch 构造的行（无 _alarm_code_norm）也要能正确渲染告警码。"""
+    """未经来源层构造的行（无 _alarm_code_norm）也要能正确渲染告警码。"""
     row = _sample_row(alarm_code="9920.0")
     row.pop("_alarm_code_norm")
     assert "Alarm: 9920(Critical)" in S.build_tt_message(row)
 
 
-# ---------------- 3. 重推节流（20 分钟） ----------------
-
-_NOW = datetime(2026, 9, 28, 20, 0, 0)
-
-
-def test_due_when_no_record():
-    assert S.is_due(None, _NOW) is True
-
-
-def test_due_when_previous_attempt_failed():
-    rec = {"send_status": "N", "last_send_time": "2026-09-28 19:59:00"}
-    assert S.is_due(rec, _NOW) is True
+def test_live_row_renders_without_missing_key_errors():
+    """实时查单行（base/list 紧凑字段集）缺大量列时也能渲染，不抛 KeyError。"""
+    live = {"tt_no": "TT202610050001", "site_name": "LEC", "site_id": "5002",
+            "alarm_occur_time": "2026-10-05 08:00:00", "alarm_code": "9971",
+            "alarm_severity": "Critical", "ticket_severity": "P1"}
+    msg = S.build_tt_message(live)
+    assert msg.startswith("TT202610050001 · LEC(5002)")
+    assert "Occurred: 2026-10-05 08:00:00" in msg
 
 
-def test_not_due_within_throttle_window():
-    rec = {"send_status": "Y", "last_send_time": "2026-09-28 19:55:00"}
-    assert S.is_due(rec, _NOW) is False
+# ---------------- 2b. 重报横幅 ----------------
+
+def test_reminder_banner_format():
+    assert S.reminder_banner(3, 125, 22) == \
+        "⚠️ REMINDER #3 · open 2h05m · no update for 22m"
+    assert S.reminder_banner(2, 45, 20) == \
+        "⚠️ REMINDER #2 · open 45m · no update for 20m"
 
 
-def test_due_exactly_at_throttle_boundary():
-    rec = {"send_status": "Y", "last_send_time": "2026-09-28 19:40:00"}
-    assert S.is_due(rec, _NOW) is True
+def test_reminder_banner_clamps_negatives():
+    assert "open 0m" in S.reminder_banner(2, -5, -1)
 
 
-def test_due_when_sent_long_ago_regardless_of_tt_update():
-    """单子信息没有更新时也要继续推 —— 这正是需求里的 20 分钟语义。"""
-    rec = {"send_status": "Y", "last_send_time": "2026-09-28 19:00:00"}
-    assert S.is_due(rec, _NOW) is True
+# ---------------- 3. 发送决策 decide_push（20 分钟停滞 + 冷却） ----------------
+
+_NOW = datetime(2026, 10, 5, 10, 25, 0)
 
 
-def test_due_when_status_y_but_time_unparsable():
-    assert S.is_due({"send_status": "Y", "last_send_time": None}, _NOW) is True
-    assert S.is_due({"send_status": "Y", "last_send_time": "bogus"}, _NOW) is True
-
-
-def test_select_due_filters_and_keeps_order():
-    rows = [{"tt_no": "A"}, {"tt_no": "B"}, {"tt_no": "C"}]
-    records = {
-        "A": {"send_status": "Y", "last_send_time": "2026-09-28 19:58:00"},  # 节流内 → 跳过
-        "B": {"send_status": "N", "last_send_time": "2026-09-28 19:58:00"},  # 失败 → 发
+def _rec(**kw):
+    base = {
+        "send_status": "Y",
+        "last_send_time": "2026-10-05 10:00:00",     # 25 分钟前（冷却已过）
+        "first_seen_time": "2026-10-05 09:00:00",
+        "last_known_update_time": "2026-10-05 09:30:00",  # 55 分钟前（停滞已足）
     }
-    due = S.select_due_tts(rows, records, _NOW)
-    assert [r["tt_no"] for r in due] == ["B", "C"]
+    base.update(kw)
+    return base
+
+
+def test_first_push_when_no_record():
+    assert S.decide_push(None, _NOW) == (True, "first")
+
+
+def test_repush_when_stalled_and_cooled():
+    """距更新 55m、距上次发送 25m —— 「20 分钟没有更新」满足，重报。"""
+    assert S.decide_push(_rec(), _NOW) == (True, "stalled")
+
+
+def test_no_repush_while_ticket_progressing():
+    """工单 15 分钟前刚有更新（有人在处理）→ 不打扰。"""
+    rec = _rec(last_known_update_time="2026-10-05 10:10:00")
+    assert S.decide_push(rec, _NOW) == (False, "recent-update")
+
+
+def test_no_repush_within_cooldown():
+    """停滞够久但距上次发送只有 5 分钟 → 冷却中。"""
+    rec = _rec(last_send_time="2026-10-05 10:20:00")
+    assert S.decide_push(rec, _NOW) == (False, "cooldown")
+
+
+def test_live_update_time_beats_recorded_one():
+    """实时查到的更新时间比记录里的新：以实时为准（单子其实有进展）。"""
+    rec = _rec(last_known_update_time="2026-10-05 09:00:00")
+    from datetime import datetime as dt
+    live_upd = dt(2026, 10, 5, 10, 15)
+    assert S.decide_push(rec, _NOW, last_modified_dt=live_upd) == (False, "recent-update")
+
+
+def test_stale_unknown_update_falls_back_to_cooldown_only():
+    """更新时间完全不可知 → 退化为纯冷却节流，绝不静默停推。"""
+    rec = _rec(last_known_update_time="")
+    assert S.decide_push(rec, _NOW) == (True, "stale-unknown-update")
+    rec2 = _rec(last_known_update_time="", last_send_time="2026-10-05 10:20:00")
+    assert S.decide_push(rec2, _NOW) == (False, "cooldown")
+
+
+def test_never_confirmed_send_retries():
+    """从未确认送达（send_status=N 且无 last_send_time）的重试路径。
+
+    * 更新时间已知且已停滞 → 按停滞重报（内容照常，横幅 #1）；
+    * 更新时间未知 → 退回首见时间起算的纯节流，首见 25 分钟后放行。
+    """
+    rec = _rec(send_status="N", last_send_time=None,
+               first_seen_time="2026-10-05 10:00:00")
+    assert S.decide_push(rec, _NOW) == (True, "stalled")
+    rec_unknown = _rec(send_status="N", last_send_time=None,
+                       first_seen_time="2026-10-05 10:00:00",
+                       last_known_update_time="")
+    assert S.decide_push(rec_unknown, _NOW) == (True, "stale-unknown-update")
+    # 首见才 5 分钟（且从未成功送达）→ 仍在节流内，下一轮再试
+    rec_soon = _rec(send_status="N", last_send_time=None,
+                    first_seen_time="2026-10-05 10:20:00",
+                    last_known_update_time="")
+    assert S.decide_push(rec_soon, _NOW) == (False, "cooldown")
+
+
+def test_custom_resend_minutes():
+    rec = _rec(last_send_time="2026-10-05 10:10:00")
+    # 默认 20 分钟：冷却中；放宽到 10 分钟：冷却已过且停滞 55m → 重报
+    assert S.decide_push(rec, _NOW)[0] is False
+    assert S.decide_push(rec, _NOW, resend_minutes=10)[0] is True
+
+
+# ---------------- 3b. 级别白名单 ----------------
+
+def test_empty_severities_means_no_filter_not_drop_all():
+    """级别留空 = 不过滤（推送所有级别），**不是**一单都不发。
+
+    回归锁：曾写成 `if sev not in SEVERITIES: continue`，空集时每一行都被 continue
+    （`x in set()` 恒为 False），表现为「级别留空 → 一单都不发」。
+    实测于 2026-09-28，2026-10-05 重构后由 severity_passes 纯函数继续锁定。
+    """
+    assert S.severity_passes("P4", severities=set()) is True
+    assert S.severity_passes("p2", severities=set()) is True
+
+
+def test_severity_filter_still_applies_when_set():
+    assert S.severity_passes("P1", severities={"P1"}) is True
+    assert S.severity_passes("P4", severities={"P1"}) is False
+    assert S.severity_passes("p1", severities={"P1"}) is True   # 大小写不敏感
+    assert S.severity_passes(None, severities={"P1"}) is False  # 空级别不通过
+
+
+# ---------------- 3c. 三层来源合并（tt_alarm_sources） ----------------
+
+def test_merged_render_row_live_wins_over_mirror_over_trigger():
+    from backend.services.tt_alarm_sources import merged_render_row
+    trig = {"tt_no": "T1", "site_name": "触发行站", "status": "trig"}
+    mirror = {"tt_no": "T1", "site_name": "镜像站", "status": "mirror", "vip_site": "Yes"}
+    live = {"tt_no": "T1", "site_name": "实时站", "last_modified_time": "2026-10-05 10:00:00"}
+    row = merged_render_row(trig, mirror, live)
+    assert row["site_name"] == "实时站"          # 实时最优先
+    assert row["vip_site"] == "Yes"             # 镜像独有字段保留
+    assert row["status"] == "mirror"            # 镜像覆盖触发行
+
+
+def test_merged_render_row_falls_back_to_raised_time():
+    """实时/镜像都没有 alarm_occur_time 时，退回触发行的告警升起时间。"""
+    from backend.services.tt_alarm_sources import merged_render_row
+    trig = {"tt_no": "T1", "alarm_raised_time": "2026-10-05 09:00:00"}
+    row = merged_render_row(trig, {"site_name": "x"}, {"ticket_severity": "P1"})
+    assert row["alarm_occur_time"] == "2026-10-05 09:00:00"
+
+
+def test_merged_render_row_live_occur_time_wins():
+    from backend.services.tt_alarm_sources import merged_render_row
+    trig = {"tt_no": "T1", "alarm_raised_time": "2026-10-05 09:00:00"}
+    row = merged_render_row(trig, None, {"alarm_occur_time": "2026-10-05 09:30:00"})
+    assert row["alarm_occur_time"] == "2026-10-05 09:30:00"
 
 
 # ---------------- 4. 时间解析 ----------------
 
 def test_parse_ts_accepts_project_formats():
-    assert S._parse_ts("2026-09-28 20:00:00") == _NOW
-    assert S._parse_ts("2026-09-28 20:00") == _NOW
+    assert S._parse_ts("2026-09-28 20:00:00") == datetime(2026, 9, 28, 20, 0, 0)
+    assert S._parse_ts("2026-09-28 20:00") == datetime(2026, 9, 28, 20, 0)
     assert S._parse_ts("2026-09-28") == datetime(2026, 9, 28)
 
 
@@ -198,13 +307,13 @@ def test_parse_ts_rejects_garbage():
         assert S._parse_ts(bad) is None
 
 
-# ---------------- 5. 投递守卫 ----------------
+# ---------------- 5. 投递守卫（Baileys 通道，wa_notify_service 同名接口） ----------------
 
 def test_dispatch_refuses_empty_group_list():
     """显式传空群组列表 → 拒投递（群组是必填的投递地址）。
 
-    注意：任务入口在群组为空时会先回退到 DEFAULT_GROUPS（见 test_group_fallback_*），
-    所以正常路径不会走到这里；此断言锁的是「有人显式传空列表」这个底层契约。
+    正常路径任务入口会先回退到 DEFAULT_GROUPS，不会走到这里；
+    此断言锁的是「有人显式传空列表」这个底层契约。
     """
     res = S.dispatch([{"tt_no": "T1", "text": "x"}], groups=[])
     assert res["ok"] is False
@@ -217,98 +326,7 @@ def test_dispatch_refuses_empty_messages():
     assert res["ok"] is False and res["dispatched"] == 0
 
 
-# ---------------- 7. 窗口字段锁定：只认 alarm_occur_time ----------------
-
-def test_window_anchor_is_alarm_occur_time_not_created_or_modified(tmp_path, monkeypatch):
-    """「近 N 小时」必须按 alarm_occur_time 判，不得按 created_time / last_modified_time。
-
-    用 sqlite 临时库造 3 张时间字段互相矛盾的单，断言只有「occur 在窗口内」的被选中。
-    这个断言存在的意义：三个时间字段选错**不会报错**，只会静默漏单/多单，
-    而需求方（业务）明确口径就是「告警发生时间」。
-    """
-    import sqlite3
-    from datetime import timedelta
-
-    from backend import database as db
-    from backend.services import tt_alarm_whatsapp_service as svc2
-
-    monkeypatch.setattr(db, "DB_MODE", "sqlite")
-    monkeypatch.setattr(db, "DB_PATH", tmp_path / "win.db")
-
-    now = datetime.now()
-    new = (now - timedelta(minutes=30)).strftime("%Y-%m-%d %H:%M:%S")
-    old = (now - timedelta(days=30)).strftime("%Y-%m-%d %H:%M:%S")
-
-    conn = sqlite3.connect(tmp_path / "win.db")
-    conn.execute(
-        "CREATE TABLE eflow_tt (tt_no TEXT, ticket_severity TEXT, alarm_code TEXT, "
-        "alarm_occur_time TEXT, alarm_clear_time TEXT, created_time TEXT, "
-        "last_modified_time TEXT, site_id TEXT, site_name TEXT, title TEXT)")
-    for tt, occur, created in (("A_occur_new", new, old),
-                               ("B_created_new", old, new),
-                               ("C_all_new", new, new)):
-        conn.execute("INSERT INTO eflow_tt VALUES (?,?,?,?,?,?,?,?,?,?)",
-                     (tt, "P1", "9920", occur, None, created, created, "1", "s", "t"))
-    conn.commit()
-    conn.close()
-
-    picked, _meta = svc2.fetch_candidate_tts()
-    assert [r["tt_no"] for r in picked] == ["A_occur_new", "C_all_new"], \
-        "窗口锚点不是 alarm_occur_time —— B 单 occur 在窗口外却被选中了"
-
-
-def test_window_excludes_rows_with_unparsable_occur_time(tmp_path, monkeypatch):
-    """alarm_occur_time 为空/非法的行不能入选（无法判定是否在窗口内）。"""
-    import sqlite3
-
-    from backend import database as db
-    from backend.services import tt_alarm_whatsapp_service as svc2
-
-    monkeypatch.setattr(db, "DB_MODE", "sqlite")
-    monkeypatch.setattr(db, "DB_PATH", tmp_path / "win2.db")
-
-    now_s = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    conn = sqlite3.connect(tmp_path / "win2.db")
-    conn.execute(
-        "CREATE TABLE eflow_tt (tt_no TEXT, ticket_severity TEXT, alarm_code TEXT, "
-        "alarm_occur_time TEXT, alarm_clear_time TEXT)")
-    conn.execute("INSERT INTO eflow_tt VALUES ('OK','P1','9920',?,NULL)", (now_s,))
-    conn.execute("INSERT INTO eflow_tt VALUES ('NO_TIME','P1','9920',NULL,NULL)")
-    conn.execute("INSERT INTO eflow_tt VALUES ('BAD_TIME','P1','9920','bogus',NULL)")
-    conn.commit()
-    conn.close()
-
-    picked, _meta = svc2.fetch_candidate_tts()
-    assert [r["tt_no"] for r in picked] == ["OK"]
-
-
-def test_window_uses_uncleared_definition(tmp_path, monkeypatch):
-    """「未清除」= alarm_clear_time 为空；已清除的单必须排除。"""
-    import sqlite3
-
-    from backend import database as db
-    from backend.services import tt_alarm_whatsapp_service as svc2
-
-    monkeypatch.setattr(db, "DB_MODE", "sqlite")
-    monkeypatch.setattr(db, "DB_PATH", tmp_path / "win3.db")
-
-    now_s = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    conn = sqlite3.connect(tmp_path / "win3.db")
-    conn.execute(
-        "CREATE TABLE eflow_tt (tt_no TEXT, ticket_severity TEXT, alarm_code TEXT, "
-        "alarm_occur_time TEXT, alarm_clear_time TEXT)")
-    conn.execute("INSERT INTO eflow_tt VALUES ('UNCLEARED','P1','9920',?,NULL)", (now_s,))
-    conn.execute("INSERT INTO eflow_tt VALUES ('CLEARED','P1','9920',?,?)", (now_s, now_s))
-    conn.execute("INSERT INTO eflow_tt VALUES ('BLANK_CLEAR','P1','9920',?,'')", (now_s,))
-    conn.commit()
-    conn.close()
-
-    picked, _meta = svc2.fetch_candidate_tts()
-    assert sorted(r["tt_no"] for r in picked) == ["BLANK_CLEAR", "UNCLEARED"], \
-        "「未清除」口径不对：已清除的单被选入，或空串未被当作未清除"
-
-
-# ---------------- 6. 作业状态机（tt_alarm_job） ----------------
+# ---------------- 6. 作业状态机（tt_alarm_job，扩展通道自测端点仍在用） ----------------
 
 def test_job_state_machine_roundtrip(tmp_path, monkeypatch):
     """pending → running → done 全链路；且认领后不可重复认领。"""
@@ -363,3 +381,84 @@ def test_job_file_is_valid_utf8_json(tmp_path, monkeypatch):
     raw = (tmp_path / "job.json").read_text(encoding="utf-8")
     assert "告警未清除" in raw and "群组" in raw
     assert J.read_job()["messages"][0]["text"] == "告警未清除 · 站点断站"
+
+
+# ---------------- 7. 日志表：建表幂等补列 + 跟踪字段 ----------------
+
+def test_store_ensure_log_table_adds_track_columns_to_legacy_table(tmp_path):
+    """老表（没有跟踪列）必须被幂等补列，且原有数据不丢。"""
+    import sqlite3
+
+    from backend.services import tt_alarm_store as store
+
+    db_path = tmp_path / "log.db"
+    conn = sqlite3.connect(db_path)
+    # 造一张 2026-10-05 之前的**老结构**表（无跟踪列）
+    conn.execute(
+        "CREATE TABLE eflow_tt_whatsapp_alert_log ("
+        "tt_no TEXT PRIMARY KEY, send_status TEXT, send_count INTEGER, "
+        "last_send_time TEXT, first_seen_time TEXT, last_error TEXT, updated_time TEXT)")
+    conn.execute("INSERT INTO eflow_tt_whatsapp_alert_log VALUES "
+                 "('T1','Y',2,'2026-09-28 10:00:00','2026-09-28 09:00:00','',"
+                 "'2026-09-28 10:00:00')")
+    conn.commit()
+
+    store.ensure_log_table(conn)
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(eflow_tt_whatsapp_alert_log)")}
+    assert {"last_alarm_seen_time", "last_known_update_time", "last_check_time"} <= cols
+    # 原有数据不丢
+    row = conn.execute("SELECT send_status, send_count FROM eflow_tt_whatsapp_alert_log "
+                       "WHERE tt_no='T1'").fetchone()
+    assert row == ("Y", 2)
+    conn.close()
+
+
+def test_store_refresh_tracking_does_not_touch_send_fields(tmp_path):
+    """refresh_tracking 只动跟踪列；记录不存在时不创建（不给日志表留垃圾行）。"""
+    import sqlite3
+
+    from backend.services import tt_alarm_store as store
+
+    conn = sqlite3.connect(":memory:")
+    store.ensure_log_table(conn)
+
+    # 记录不存在 → 不创建
+    assert store.refresh_tracking(conn, "GHOST", {"last_check_time": "2026-10-05 10:00:00"}) is False
+    assert conn.execute("SELECT COUNT(*) FROM eflow_tt_whatsapp_alert_log").fetchone()[0] == 0
+
+    # 先落一条成功发送记录，再刷跟踪
+    store.record_result(conn, {"tt_no": "T1", "site_name": "s"}, ok=True)
+    before = dict(zip(("send_status", "send_count", "last_send_time"),
+                      conn.execute("SELECT send_status, send_count, last_send_time "
+                                   "FROM eflow_tt_whatsapp_alert_log WHERE tt_no='T1'").fetchone()))
+    assert store.refresh_tracking(
+        conn, "T1", {"last_known_update_time": "2026-10-05 10:00:00",
+                     "last_check_time": "2026-10-05 10:01:00",
+                     "last_alarm_seen_time": "2026-10-05 10:01:00"}) is True
+    after = dict(zip(("send_status", "send_count", "last_send_time"),
+                     conn.execute("SELECT send_status, send_count, last_send_time "
+                                  "FROM eflow_tt_whatsapp_alert_log WHERE tt_no='T1'").fetchone()))
+    assert before == after, "refresh_tracking 不得触碰 send_* 字段"
+    got = conn.execute("SELECT last_known_update_time, last_check_time "
+                       "FROM eflow_tt_whatsapp_alert_log WHERE tt_no='T1'").fetchone()
+    assert got == ("2026-10-05 10:00:00", "2026-10-05 10:01:00")
+    conn.close()
+
+
+def test_store_send_count_counts_confirmed_sends_only(tmp_path):
+    """send_status/send_count 就是「发没发过 / 发过几次」：失败不计数、不置 Y。"""
+    import sqlite3
+
+    from backend.services import tt_alarm_store as store
+
+    conn = sqlite3.connect(":memory:")
+    store.ensure_log_table(conn)
+    store.record_result(conn, {"tt_no": "T1"}, ok=False, error="通道离线")
+    row = conn.execute("SELECT send_status, send_count FROM eflow_tt_whatsapp_alert_log "
+                       "WHERE tt_no='T1'").fetchone()
+    assert row == ("N", 0), "失败不得计入发送次数，也不得置 Y"
+    store.record_result(conn, {"tt_no": "T1"}, ok=True)
+    row = conn.execute("SELECT send_status, send_count, last_error "
+                       "FROM eflow_tt_whatsapp_alert_log WHERE tt_no='T1'").fetchone()
+    assert row == ("Y", 1, "")
+    conn.close()

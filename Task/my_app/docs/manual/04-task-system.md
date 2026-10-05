@@ -127,7 +127,7 @@ APScheduler 到点 (backend 进程内)
 | `olib_soc_vmax_report` | OLIB SOC VMAX 例行报表 | `30 7 1 * *` | m |
 | `olib_soc_kpi_daily_sync` | OLIB SOC 看板 KPI 增量 | `20 6 * * *` | m |
 | `whatsapp_send_ext` | WhatsApp 消息发送（扩展） | `0 3 * * *` | m |
-| `tt_alarm_whatsapp_alert` | eFlow P1 告警 WhatsApp 推送（**可在「任务配置」页调级别/告警码/时间窗/群组**） | `*/15 * * * *` | m |
+| `tt_alarm_whatsapp_alert` | eFlow P1 告警 WhatsApp 推送（**可在「任务配置」页调级别/告警码/触发窗口/重报间隔/群组**） | `*/5 * * * *` | m |
 | `cells_kpi_sync` | RAN Cells KPI 同步 | `50 4 * * *` | u |
 | `sp_email_details` | SP 备件明细报表邮件 | `0 7 * * *` | m |
 | `sp_details_files_email` | SP 备件明细分文件邮件（6 份 xlsx 一文件一邮件发 NOC） | `5 10 * * *` | m |
@@ -356,10 +356,21 @@ USSD 的日表当时只剩 2026-08-25~27 三行，而月表里有完整的 6 个
 > 排查同类问题的第一步：`SELECT day, blocks_ok FROM daily_kpi ORDER BY day DESC`，
 > **`blocks_ok` 小于块总数（看板为 7）的那天就是残缺日**。
 
-### `tt_alarm_whatsapp_alert` 的口径与三个实测坑（2026-09-28）
+### `tt_alarm_whatsapp_alert` 的口径与实测坑（2026-09-28 首版，2026-10-05 机制切换）
 
-每 15 分钟把「近 3 小时内 + 告警未清除 + 告警码在白名单内 + `ticket_severity` 命中级别」
-的 TT 单渲染成文本推送到 WhatsApp，发送状态落 `eflow_tt_whatsapp_alert_log`。
+**触发制**（2026-10-05 起）：每 **5 分钟**扫 `realtime_alarm`（`eflow_active_alarm`
+每 30 分钟同步的实时告警表），挑出「带 TT（`tt_id` 非空）+ 告警升起时间
+（`alarmraisedtime`，epoch 毫秒）在触发窗口内 + 告警码在白名单内」的告警，
+随后**实时回 eFlow 查单**（`eflow_data_mapper.fetch_tt_live_batch`，一次分页遍历
+匹配全部目标单）拿当前 `ticket_severity` / `last_modified_time` / `alarm_clear_time`，
+只推级别命中的单。发送状态落 `eflow_tt_whatsapp_alert_log`。
+
+> **为什么触发源不是 `eflow_tt`**：那张表由 `eflow_sync` 每小时 :22 才落库，
+> 旧机制（每 15 分钟扫它的 3 小时窗口）端到端时延 45~75 分钟，对 P1 太慢。
+> `realtime_alarm` 30 分钟新鲜度 + 本任务 5 分钟轮询 + 实时查单，
+> 首推时延压到分钟级。触发扫描的完整口径见
+> `backend/services/tt_alarm_trigger.py` 的模块 docstring；三层单据来源
+> （实时/镜像/触发行）的取舍见 `tt_alarm_sources.py`。
 
 **消息内容 = `whatsapp-kb-bot` 的完整 TT 分析**（2026-09-29 按用户要求改）：
 
@@ -377,15 +388,17 @@ USSD 的日表当时只剩 2026-08-25~27 三行，而月表里有完整的 6 个
 > 封装见 `backend/services/tt_alarm_render.py`。
 >
 > **引擎读的是 SQLite 副本 `db/app.db`，不是生产的 PG**（`tt-analyze.py:57`），
-> 而该副本由 `pg_to_sqlite_sync` **每小时第 45 分**才刷新一次 —— 本任务却每 15 分钟跑一次。
+> 而该副本由 `pg_to_sqlite_sync` **每小时第 45 分**才刷新一次 —— 本任务每 5 分钟跑一次。
 > 2026-09-29 实测到最坏情况：副本落后 **84 分钟**（SQLite 最新 `alarm_occur_time` 16:17
 > vs PG 17:41；17 点这一小时 PG 有 5 单、SQLite **0 单**）。
 >
-> 后果：**副本落后期间每一条新告警都会降级成 6 行模板** —— 这不是偶发异常，
+> 后果：**副本落后期间每一条新告警都会降级成 7 行模板** —— 这不是偶发异常，
 > 而是这个任务的常态，也正是用户报「发的信息不是我想要的」的真正原因。
 >
-> 修法是渲染前用 `tt_alarm_render._snapshot_tt()` 把**这一单**从 PG 抄进临时 SQLite，
-> 用 `MY_APP_DB` 指给引擎（只抄一单，开销与单量无关，实测每次 <50ms）。
+> 修法是渲染前用 `tt_alarm_render._snapshot_tt()` 造一份「这一单」的新鲜快照指给引擎
+> （只抄一单，开销与单量无关，实测每次 <50ms）：本地镜像已有该单时从 PG 抄；
+> **刚触发、镜像里还没有的新单直接用实时查单行造快照**（引擎读快照时按
+> `PRAGMA table_info` 与自己的列清单取交集，实时行的紧凑字段集不会让它报错）。
 > 拿不到快照时退回镜像库 —— 宁可降级，也不能因快照失败就漏发整条告警。
 > 不去改引擎本身：它是 `whatsapp-kb-bot` 的共享组件（群机器人也在用），
 > 且它依赖 `immutable=1` 打开 SQLite，改成 PG 会牵动全文。
@@ -412,8 +425,8 @@ USSD 的日表当时只剩 2026-08-25~27 三行，而月表里有完整的 6 个
 
 | 配置项 | 页面标签 | 留空 / 默认的含义 |
 | --- | --- | --- |
-| `window_minutes` | 时间窗（分钟） | 默认 180（=「近 3 小时」） |
-| `resend_minutes` | 重推间隔（分钟） | 默认 20 |
+| `window_minutes` | 触发窗口（分钟） | 默认 180；**2026-10-05 语义已变** —— 指 realtime_alarm 中 `alarmraisedtime` 距今 N 分钟内才触发首推（兼防首次部署把历史积压一次性全推出），不再是 eflow_tt 的 occur 窗口 |
+| `resend_minutes` | 重报间隔（分钟） | 默认 20；工单停滞满 N 分钟且距上次发送满 N 分钟 → 重报 |
 | `severities` | 级别 | 默认 `P1`；**留空 = 不限级别**（P1/P2/…全推） |
 | `alarm_codes` | 告警码 | 默认不含 `99933`；**这是白名单**，留空 = 不限告警码 |
 | `groups` | WhatsApp 群组 | 默认 `test123`；**留空会回退到测试群并在结果里告警**（见下） |
@@ -430,22 +443,22 @@ USSD 的日表当时只剩 2026-08-25~27 三行，而月表里有完整的 6 个
 > `if SEVERITIES and ... not in SEVERITIES`，并有变异测试守着
 > （`tests/test_tt_alarm_config.py::test_empty_severities_means_no_filter_not_drop_all`）。
 
-**口径来源**：「告警未清除」= `alarm_clear_time` 为空。实测（2026-09-28，全表 36348 行）
-该列为空的形态**只有 NULL 一种**（74 行；空串 / `'None'` / `'nan'` 均为 0 行），
-故当前数据上等价于 `alarm_clear_time IS NULL`；代码仍保留空串防御分支，与
-`backend/routers/portal_qc.py` 的 `_TT_UNCLEARED` 逐字一致 —— 两处必须同源，
-不要各写一份。
+**级别过滤口径**：以**实时查单行**的 `ticket_severity` 为准（镜像兜底）；留空语义见
+`tt_alarm_config.py`（级别/告警码留空 = 不过滤）。在跟单的级别若被 eFlow 改掉
+（P1→P2），同样停止推送。配置优先级为**环境变量 > 配置文件 > 内置默认**，且在
+**模块导入期**解析一次 —— 故页面保存后由 `PUT /api/task-configs/{task_id}` 触发
+worker 分组重启才生效（`backend/routers/task_configs.py`）。
 
-**窗口锚点是 `alarm_occur_time`（告警发生时间）**，不是 `created_time` 也不是
-`last_modified_time`。三者选错**不会报错**，只会静默漏单/多单，故用
-`test_window_anchor_is_alarm_occur_time_not_created_or_modified`（三张时间字段互相
-矛盾的单）锁死。配置优先级为**环境变量 > 配置文件 > 内置默认**，且在**模块导入期**
-解析一次 —— 故页面保存后由 `PUT /api/task-configs/{task_id}` 触发 worker 分组重启才生效
-（`backend/routers/task_configs.py`）。
+**重报语义（2026-10-05 起，判定函数 `decide_push()`）**：
 
-**重推语义**：同一单距上次**成功发送**满 `resend_minutes`（默认 20）分钟后继续推，
-与单子是否更新无关（工单没更新也照推）。15 分钟调度 × 20 分钟节流
-⇒ 实际约每 30 分钟重推一次。判定函数 `tt_alarm_whatsapp_service.is_due()`。
+1. **首推** —— 单子首次触发（日志表无记录）即推；
+2. **重报** —— 距「最近一次已知工单更新」（实时查单 > 记录里的
+   `last_known_update_time`）满 `resend_minutes`（默认 20）**且**距上次成功发送
+   满 20 分钟（冷却）→ 再次通报，消息头带
+   `⚠️ REMINDER #N · open Xh Ym · no update for Zm` 横幅（N = 该单第几次发送）；
+3. **不报** —— 工单 20 分钟内有更新（有人在处理）只刷新跟踪字段，不打扰群里；
+   告警清除（`alarm_clear_time` 非空，或告警从 realtime_alarm 消失）自然止损；
+   更新时间完全不可知时退化为纯冷却节流，**绝不静默停推**。
 
 三个**实测**坑，改这个任务前务必知道（都有单测守着，见
 `tests/test_tt_alarm_whatsapp_service.py`）：
@@ -456,39 +469,40 @@ USSD 的日表当时只剩 2026-08-25~27 三行，而月表里有完整的 6 个
 | `down_site_count` 的 `'0'` 是有效值 | 全表 27254 行为 `'0'`；`site_outage` 是 `'Yes'/'No'` 文本 | 只在 `> 0` 时输出 `N site(s) down`；只有 `site_outage='Yes'` 才算断站。旧写法把 `'0'` 当假值、把 `'No'` 当断站，两条都错 |
 | 历史单的告警对象字段为空 | `sub_alarm_*` 在近 30 天单上填充率 >95%，但在**未清除的老单上 100% 为空** | 回退链：`sub_alarm_ne_name → ne_name`、`sub_alarm_name → specific_problem → alarm_description` |
 
-> ⚠️ **「每轮 0 条」是正常结果，不是故障**：`eflow_tt` 里「未清除 + P1」的单绝大多数是
-> 历史遗留（2026-09-28 实测 16 单中最新一单 `alarm_occur_time` 停在 2026-06-24），
-> 近 7 天只有 2 张 P1 单且都已清除。要扩大推送面，在**页面上**把级别改成 `P1,P2`
-> 或放宽时间窗即可，**不需要改代码**。
+> ⚠️ **「每轮 0 条」是正常结果，不是故障**：触发窗口内「带 TT + P1 + 白名单告警码」
+> 的实时告警本来就少（告警升起 → eFlow 建 TT 有时差，power-off 类 99933 告警默认不推），
+> 每轮候选为 0 是常态。要扩大推送面，在**页面上**把级别改成 `P1,P2`、放宽触发窗口
+> 或把 `99933` 填进告警码白名单即可，**不需要改代码**。
 
-> **发送通道**：后端只投递作业（`data/tt_alert_job.json`），由 Chrome 扩展在
-> 已登录的 WhatsApp Web 里发送并回报。**2026-09-29 起扩展已支持纯文本发送**
-> （`simpleSendTextViaDebugger`，剪贴板粘贴 + 可信回车），故作业会被真正认领并发出。
-> 在此之前扩展只发图片，作业投递后无人认领、`send_status` 停在 `'N'`。
-> 无论何时，**只有扩展回报的 `sent` 列表里的 `tt_no` 才会被置 `'Y'`** —— 超时或未确认
-> 一律写 `'N'` + `last_error`，**绝不写假 `'Y'`**。
+> **发送通道（2026-10-01 起为 Baileys 推送进程，不再依赖浏览器）**：后端把文本作业
+> 写进 `whatsapp-kb-bot/data/notify_job.json`，常驻的 `src/notify.js`（Baileys，
+> WhatsApp WebSocket 协议，凭据独立于问答 bot）轮询消费，`sendMessage()` 返回的
+> **服务端 message id** 就是发送回执。切换理由与两通道对比见
+> `backend/services/wa_notify_service.py` 的模块 docstring；通道在线检查、投递前
+> 心跳预检也都在该模块。
+> 无论何时，**只有推送进程回报的 `sent` 列表里的 `tt_no` 才会被置 `'Y'`** —— 超时或
+> 未确认一律写 `'N'` + `last_error`，**绝不写假 `'Y'`**；一条都没确认发出的轮次会
+> 通过 `warnings` 走微信/邮件主动喊人（2026-10-01「群内静默数小时」事故的治本项）。
 >
 > 群组在页面上配置，留空回退测试群 `test123` 并显式告警（见上文）。
 >
-> **对接端点**：扩展实际走**统一认领口** `GET /api/whatsapp/ext/job`
-> （发图与文本两个作业源由 `backend/services/whatsapp_job_claim.py` 收敛，按 `kind` 分发）；
-> `GET/POST /api/whatsapp/tt-alert/job[/result]` 是文本作业的**独立自测通道**
-> （认领同一个作业文件，不会双发），`GET /api/whatsapp/tt-alert/log` 用于核对发送状态。
-> 改动这条交界时注意三个易错点：回报必须带 `kind`、作业体必须带 `pending: true`
-> （扩展据此判定有无作业）、文本回 `sent` 而发图回 `groups_sent`。
-> 契约由 `tests/test_whatsapp_job_claim.py` 锁定。
+> `GET /api/whatsapp/tt-alert/log` 可核对发送状态；`GET/POST
+> /api/whatsapp/tt-alert/job[/result]` 是旧扩展通道的**自测端点**（P1 文本作业
+> 2026-10-01 起已不走扩展）。
 
 **模块拆分**（单文件 500 行上限，故按职责拆开；改哪块去哪个文件）：
 
 | 文件 | 职责 |
 | --- | --- |
-| `backend/services/tt_alarm_whatsapp_service.py` | 取数、节流、编排（任务入口 `run_tt_alarm_whatsapp_alert`） |
+| `backend/services/tt_alarm_whatsapp_service.py` | 编排与**发送决策** `decide_push()`（任务入口 `run_tt_alarm_whatsapp_alert`） |
+| `backend/services/tt_alarm_trigger.py` | **触发扫描**：realtime_alarm 里带 TT 的白名单告警 + 表新鲜度检查 |
+| `backend/services/tt_alarm_sources.py` | **单据来源层**：实时查单 / 本地镜像兜底 / 三层合并 |
 | `backend/services/tt_alarm_config.py` | 配置读取、归一化、「留空」语义 |
-| `backend/services/tt_alarm_message.py` | 消息渲染（纯函数，**降级模板**：只出头部 6 行） |
+| `backend/services/tt_alarm_message.py` | 消息渲染（纯函数，**降级模板**：头部 7 行 + 重报横幅） |
 | `backend/services/tt_alarm_render.py` | **主渲染路径**：子进程调 kb-bot 分析引擎出完整消息 |
-| `backend/services/tt_alarm_job.py` | 投递作业状态机（`pending → running → done/failed`） |
-| `backend/services/tt_alarm_store.py` | 日志表建表与读写 |
-| `backend/services/whatsapp_job_claim.py` | **扩展作业统一认领口**（发图 + 文本两个源的收敛与回报分发） |
+| `backend/services/tt_alarm_store.py` | 日志表建表、幂等补列与读写 |
+| `backend/services/wa_notify_service.py` | **Baileys 发送通道**（投递/回报/心跳/通道预检） |
+| `backend/services/eflow_data_mapper.py` | 实时查单实现（`fetch_tt_live_batch`，base/list 分页遍历） |
 
 ## 任务凭据分组对应表
 

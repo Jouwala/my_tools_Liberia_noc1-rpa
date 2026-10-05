@@ -1232,18 +1232,23 @@ register_config(ConfigResource(
         "severities": "P1", "alarm_codes": "", "groups": "test123",
     },
     schema={
-        "window_minutes": _num("时间窗（分钟）—— 按告警发生时间 alarm_occur_time 取近 N 分钟", 5, 43200),
-        "resend_minutes": _num("重推间隔（分钟）—— 距上次成功发送超过该值且告警仍未清除则继续推", 1, 1440),
+        "window_minutes": _num("触发窗口（分钟）—— realtime_alarm 中告警升起时间在近 N 分钟内才触发首推"
+                               "（兼防首次部署把历史积压告警一次性全推出去）", 5, 43200),
+        "resend_minutes": _num("重报间隔（分钟）—— TT 距最近一次更新停滞满 N 分钟且距上次发送满 N 分钟，"
+                               "则再次通报（带 REMINDER 横幅）；工单有更新则不打扰", 1, 1440),
         "severities": _txt("推送级别（逗号分隔，如 P1 或 P1,P2；留空=所有级别）"),
         "alarm_codes": _txt("推送告警码白名单（逗号分隔，如 9920,9995；**留空=推送所有告警码**）"
                             "—— 99933 是「免推单」码，需显式填入才会推送"),
         "groups": _txt("WhatsApp 群组名（逗号分隔；留空=回退测试群 test123 并告警）"),
     },
     defaults_factory=_tt_alert_defaults,
-    description="eFlow P1 告警 WhatsApp 推送：时间窗、重推间隔、推送级别、告警码白名单、目标群组。"
-                "消息内容为未清除告警单的头部摘要（单号/站点/标题/告警/告警对象/影响面/级别）；"
-                "发送经浏览器扩展，发送成功（扩展确认）才把 send_status 置 Y。",
-    description_en="eFlow P1 alarm WhatsApp push: time window, resend interval, severities, "
-                   "alarm-code whitelist, target groups. Messages are sent via the browser "
-                   "extension; send_status is set to Y only after the extension confirms delivery.",
+    description="eFlow P1 告警 WhatsApp 推送：触发源为 realtime_alarm（每 30 分钟同步），"
+                "触发后实时回 eFlow 查单拿最新更新时间；P1 首推、停滞 20 分钟重报（带横幅）、"
+                "有更新不打扰、清除即止损。发送走 Baileys 推送进程，发送成功（服务端回执）才把 "
+                "send_status 置 Y；send_count 记录该单已发送次数。",
+    description_en="eFlow P1 alarm WhatsApp push: triggered from realtime_alarm (synced every 30 min), "
+                   "then live-fetches eFlow for the latest update time; first-push P1, re-notify after "
+                   "20 min of no update (with banner), stay quiet while progressing, stop when cleared. "
+                   "Sent via the Baileys push process; send_status is set to Y only on server-side "
+                   "ack, and send_count tracks how many times the ticket was sent.",
 ))

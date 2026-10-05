@@ -168,6 +168,43 @@ uvicorn 后端 (:7038)
 
 > 本仓库无独立 ADR 目录，按 `AGENTS.md` 第三节第 8 条在此追加带日期的决策小节。
 
+### 2026-10-05：P1 告警推送由「eflow_tt 定时窗口扫描」改为「realtime_alarm 触发 + eFlow 实时查单」
+
+**背景。** `tt_alarm_whatsapp_alert`（每 15 分钟）旧机制扫 `eflow_tt` 的 3 小时窗口找
+未清除 P1 单，但该表只由 `eflow_sync` **每小时 :22** 落库一次，端到端时延
+（告警发生 → 值班群看到）平均 ~45 分钟、最坏 ~75 分钟；且重推是纯时间节流
+（工单毫无变化也每 ~30 分钟重发 30 行完整分析，有进展反而不推）。
+
+**决策。** 改为**触发制**（`backend/services/tt_alarm_trigger.py` +
+`tt_alarm_sources.py`，编排重写于 `tt_alarm_whatsapp_service.py`）：
+
+1. **触发源换 `realtime_alarm`**（`eflow_active_alarm` 每 30 分钟同步，行带
+   `tt_id`/`alarmraisedtime`/`alarmcode`）—— 触发条件：带 TT + 升起时间在触发窗口内 +
+   告警码白名单；调度从 `*/15` 提到 `*/5`；
+2. **详情实时查单**：复用 `eflow_data_mapper.fetch_tt_live_batch`（一次分页遍历
+   base/list 匹配全部目标单）拿当前 `ticket_severity`/`last_modified_time`/
+   `alarm_clear_time`，本地 `eflow_tt` 镜像只作停滞老单的兜底；
+3. **重报 delta 化**：停滞（距最近一次工单更新 ≥20 分钟）且冷却（距上次成功发送
+   ≥20 分钟）才重报并带 `REMINDER` 横幅；工单有更新只记跟踪字段不打扰群里；
+   告警清除（`alarm_clear_time` 非空 / 从 realtime_alarm 消失）自然止损；
+4. 日志表 `eflow_tt_whatsapp_alert_log` 幂等补列 `last_alarm_seen_time` /
+   `last_known_update_time` / `last_check_time`（服务内建表惯例，不走 Alembic）。
+
+**效果。** 首推时延从 45~75 分钟压到分钟级（≤30 分钟告警同步 + ≤5 分钟轮询）；
+重报从「定时刷屏」变为「停滞才报」，且值班能靠横幅区分首推与第 N 次提醒。
+
+**代价与注意。**
+1. 依赖链变长：`eflow_active_alarm` 挂了触发面就静默变空 —— 已加**表新鲜度检查**
+   （`_sync_time` 滞后 >45 分钟 → warnings 走微信/邮件喊人）；
+2. 每轮多一次 eFlow API 分页遍历（仅在有候选单时；会话复用 `auth_manager`
+   跨进程缓存，登录风暴整改后该路径安全）；
+3. `window_minutes` 配置项语义已变（触发窗口，非 occur 窗口），页面标签已同步；
+4. 旧路径（`fetch_candidate_tts`/`is_due`/UNCLEARED_SQL 等）已按「删除优于兼容」移除，
+   相关单测重写；`portal_qc.py` 的 `_TT_UNCLEARED` 与本任务不再同源，各自独立演进。
+
+**回滚路径。** revert 本次提交即可恢复旧扫描机制；日志表新列只增不改，
+旧代码读它不受影响。
+
 ### 2026-10-01：.20 本机 nginx 从网络映射盘 Y: 迁到本地盘 D:
 
 **背景。** MSNOC1（.20）的 nginx 原先运行在 `Y:\01_RPA\nginx-1.28.0\` —— 那是网络映射盘

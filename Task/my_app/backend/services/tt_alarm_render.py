@@ -87,16 +87,19 @@ def render_message(row, lang: str = "en") -> str:
 def render_message_ex(row, lang: str = "en"):
     """同 `render_message`，并返回降级原因（成功时为空串）。
 
-    降级是**静默**的：消息从 ~30 行缩成 6 行，群里的人只会觉得「这次信息怎么这么少」。
+    降级是**静默**的：消息从 ~30 行缩成 7 行，群里的人只会觉得「这次信息怎么这么少」。
     任务入口据此把降级原因汇总进 `out["errors"]`，让运维在任务页上直接看到
     「本轮 N 单降级：引擎超时」，而不是等用户来问。
+
+    `row` 会透传给 `_snapshot_tt`：调用方手里已有该单的行（实时查单行或镜像行）
+    时直接喂给引擎造快照，省一次查库；镜像里查无此单的新单也靠它出完整格式。
     """
     # 延迟导入：tt_alarm_message 是纯函数模块，放在这里避免与本模块的循环依赖
     from backend.services.tt_alarm_message import build_tt_message
 
     tt_no = str(row.get("tt_no") or "").strip()
     try:
-        text, reason = render_with_reason(tt_no, lang=lang)
+        text, reason = render_with_reason(tt_no, lang=lang, row=row)
     except Exception as e:  # noqa: BLE001
         # render_with_reason 自身不抛异常；这里防的是未来改动引入的意外
         logger.warning("[TTAlert] 渲染器异常，降级到内置模板: %s", tt_no, exc_info=True)
@@ -154,29 +157,43 @@ def _engine_env(db_override: Optional[Path] = None) -> dict:
 _SNAPSHOT_LOCK = threading.Lock()
 
 
-def _snapshot_tt(tt_no: str) -> Optional[Path]:
+def _snapshot_tt(tt_no: str, row: Optional[dict] = None) -> Optional[Path]:
     """把单号 `tt_no` 从生产库抄进临时 SQLite，返回该文件路径（失败返回 None）。
 
     为什么要绕这一圈而不是改引擎：引擎是 `whatsapp-kb-bot` 的**共享组件**
     （群里机器人也在用），把它的取数改成 PG 会影响另一个系统；
     且它依赖 `immutable=1` 打开数据库，SQLite 与 PG 的 SQL 方言差异会牵动全文。
     在这里造一份「最新鲜的单行快照」是最小侵入的修法。
-    """
-    try:
-        from backend.database import get_raw_connection
-    except Exception:  # noqa: BLE001
-        return None
 
-    try:
-        with get_raw_connection() as conn:
-            cur = conn.execute("SELECT * FROM eflow_tt WHERE tt_no = ?", (tt_no,))
-            cols = [d[0] for d in cur.description]
-            rows = cur.fetchall()
-    except Exception as e:  # noqa: BLE001
-        logger.warning("[TTAlert] 取 PG 单行失败，退回镜像库: %s (%s)", tt_no, e)
-        return None
-    if not rows:
-        return None
+    `row` 不为空时直接用它造快照，**跳过查库** —— 这是给「刚触发、镜像里还没有」
+    的新单准备的：实时查单行（`fetch_tt_live_batch` 的归一化行）的字段集是
+    base/list 的紧凑子集，而引擎读快照时按 `PRAGMA table_info` 与自己的列清单
+    取交集（tt-analyze.py fetch_tt），缺的列只是不 SELECT，不会报错 ——
+    所以部分字段的实时行也能喂出带里程碑骨架的完整格式，而不是降级成 6 行模板。
+    """
+    if row is None:
+        try:
+            from backend.database import get_raw_connection
+        except Exception:  # noqa: BLE001
+            return None
+
+        try:
+            with get_raw_connection() as conn:
+                cur = conn.execute("SELECT * FROM eflow_tt WHERE tt_no = ?", (tt_no,))
+                cols = [d[0] for d in cur.description]
+                rows = cur.fetchall()
+        except Exception as e:  # noqa: BLE001
+            logger.warning("[TTAlert] 取 PG 单行失败，退回镜像库: %s (%s)", tt_no, e)
+            return None
+        if not rows:
+            return None
+        col_names = cols
+        row_tuples = rows
+    else:
+        # 实时行：丢弃内部键（`_tt_live_raw` 是嵌套 dict，str() 进快照只会添乱），
+        # 其余值统一 TEXT（与查库路径同规则）。
+        col_names = [c for c in row.keys() if not str(c).startswith("_")]
+        row_tuples = [tuple(None if row[c] is None else str(row[c]) for c in col_names)]
 
     import sqlite3
     import tempfile
@@ -186,13 +203,12 @@ def _snapshot_tt(tt_no: str) -> Optional[Path]:
         con = sqlite3.connect(str(tmp))
         try:
             # 引擎用的是 `SELECT ... FROM eflow_tt`，故只要这一张表。
-            # 列定义按 PG 的列名与顺序生成；类型统一 TEXT —— 引擎只做字符串比较与
-            # 正则提取，不依赖数值亲和性，TEXT 足够且避免类型转换抛错。
-            decl = ", ".join(f'"{c}" TEXT' for c in cols)
+            # 列定义按来源行的列名与顺序生成；类型统一 TEXT —— 引擎只做字符串
+            # 比较与正则提取，不依赖数值亲和性，TEXT 足够且避免类型转换抛错。
+            decl = ", ".join(f'"{c}" TEXT' for c in col_names)
             con.execute(f'CREATE TABLE eflow_tt ({decl})')
-            ph = ", ".join("?" for _ in cols)
-            con.executemany(f'INSERT INTO eflow_tt VALUES ({ph})',
-                            [tuple(None if v is None else str(v) for v in r) for r in rows])
+            ph = ", ".join("?" for _ in col_names)
+            con.executemany(f'INSERT INTO eflow_tt VALUES ({ph})', row_tuples)
             con.commit()
         finally:
             con.close()
@@ -224,13 +240,16 @@ def render_tt_analysis(tt_no: str, lang: str = "en") -> Optional[str]:
     return render_with_reason(tt_no, lang)[0]
 
 
-def render_with_reason(tt_no: str, lang: str = "en") -> "tuple[Optional[str], str]":
+def render_with_reason(tt_no: str, lang: str = "en",
+                       row: Optional[dict] = None) -> "tuple[Optional[str], str]":
     """同 `render_tt_analysis`，但把失败原因一并返回：`(文本或None, 原因)`。
 
-    **为什么要返回原因**：降级是静默的 —— 消息从 30 行缩成 6 行，群里的人只会
+    **为什么要返回原因**：降级是静默的 —— 消息从 30 行缩成 7 行，群里的人只会
     觉得「这次信息怎么这么少」，不会知道是引擎超时了。把原因带回任务结果，
     运维才能在页面上看到「本轮 3 单降级：引擎超时」并去查磁盘 IO，
     而不是等用户来问为什么消息变短了。
+
+    `row` 不为空时快照直接用它（见 `_snapshot_tt`），不再查本地库。
     """
     tt_no = (tt_no or "").strip()
     if not tt_no:
@@ -241,9 +260,10 @@ def render_with_reason(tt_no: str, lang: str = "en") -> "tuple[Optional[str], st
         logger.warning("[TTAlert] 分析引擎不存在，降级到内置模板: %s", script)
         return None, f"引擎脚本不存在：{script}"
 
-    # 先从生产库造一份「这一单」的新鲜快照 —— 引擎读的镜像库每小时才刷新一次，
+    # 先造一份「这一单」的新鲜快照 —— 引擎读的镜像库每小时才刷新一次，
     # 直接跑它对刚发生的单必然查不到（见 _snapshot_tt 的注释与实测数据）。
-    snapshot = _snapshot_tt(tt_no)
+    # 调用方已备好行（实时/镜像）时直接用，省一次查库。
+    snapshot = _snapshot_tt(tt_no, row=row)
     try:
         return _run_engine(script, tt_no, lang, snapshot)
     finally:

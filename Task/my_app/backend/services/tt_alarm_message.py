@@ -7,20 +7,23 @@
   2. 渲染规则的微调（改文案、加字段）频率远高于取数与调度，独立后改动面收敛。
      （拆出时主服务 611 代码行，已越过 `AGENTS.md` 三.2 的 500 行上限。）
 
-渲染格式以需求样例单 TT202609270103 为基准，逐行对照：
+渲染格式以需求样例单 TT202609270103 为基准，逐行对照（在样例基础上补了
+`Occurred:` 行 —— 告警发生时间是本消息最关键的元素，见 build_tt_message 内注释）：
 
     TT202609270103 · Ganta 4(4530) | Nimba | Site type NORMAL | Site subtype REGULAR
+    Occurred: 2026-09-27 01:03
     Title: 4530.[Ganta 4]Complete site down (CSD)
     Alarm: 9920(Critical) | RAN | Communication Alarm
     Alarm object: BSC1(1)/Ganta 4 | 10.17.17.129/129.0.1.1 | 2G SITE DOWN
     Impact: 2G,3G,4G outage | site outage | 1 site(s) down | VIP Yes
-    Severity: P1 (matches rule)
+    Severity: P1
 
 **取值一律「取不到给 —，不得给 0」**（`AGENTS.md` 三.6）。
 """
 from typing import Any, Dict, List
 
-__all__ = ["s", "dash", "norm_alarm_code", "split_multi", "build_tt_message"]
+__all__ = ["s", "dash", "norm_alarm_code", "split_multi", "build_tt_message",
+           "reminder_banner"]
 
 
 def s(val: Any) -> str:
@@ -67,8 +70,8 @@ def _first(val: Any) -> str:
 def build_tt_message(row: Dict[str, Any]) -> str:
     """把一行 eflow_tt 渲染成 WhatsApp 文本消息（纯函数）。
 
-    `row` 可直接用 `fetch_candidate_tts` 返回的行（含预处理好的 `_alarm_code_norm`），
-    也可用任意同名字典 —— 缺失键按空值处理，不会抛 KeyError。
+    `row` 可用实时查单行（`eflow_data_mapper.fetch_tt_live_batch` 的归一化行）、
+    本地镜像行或任意同名字典 —— 缺失键按空值处理，不会抛 KeyError。
     """
     # ---- 第 1 行：单号 · 站名(站号) | 区域 | 站点类型 | 站点子类型 ----
     line1 = (f"{dash(row.get('tt_no'))} · {dash(row.get('site_name'))}"
@@ -77,10 +80,16 @@ def build_tt_message(row: Dict[str, Any]) -> str:
              f"Site type {dash(row.get('site_type'))} | "
              f"Site subtype {dash(row.get('site_information'))}")
 
-    # ---- 第 2 行：标题 ----
-    line2 = f"Title: {s(row.get('title')) or s(row.get('description')) or '—'}"
+    # ---- 第 2 行：告警发生时间 ----
+    # 这是告警消息最关键的元素之一（"发生多久了"），降级模板里绝不能缺 ——
+    # 降级在这个任务里不是异常路径而是常态（引擎超时/镜像滞后），缺时间会把
+    # 值班群晾在"不知道这条告警是刚发生还是三天前的"的状态里。
+    line2 = f"Occurred: {dash(row.get('alarm_occur_time'))}"
 
-    # ---- 第 3 行：告警码(级别) | 域 | 告警类型 ----
+    # ---- 第 3 行：标题 ----
+    line3 = f"Title: {s(row.get('title')) or s(row.get('description')) or '—'}"
+
+    # ---- 第 4 行：告警码(级别) | 域 | 告警类型 ----
     code = row.get("_alarm_code_norm")
     if code is None:
         code = norm_alarm_code(row.get("alarm_code"))
@@ -88,9 +97,9 @@ def build_tt_message(row: Dict[str, Any]) -> str:
     alarm_type = s(row.get("alarm_type")) or s(row.get("alarm_category"))
     alarm_head = f"Alarm: {code or '—'}({alarm_sev or '—'})"
     alarm_rest = " | ".join(x for x in (s(row.get("domain")), alarm_type) if x)
-    line3 = f"{alarm_head} | {alarm_rest}" if alarm_rest else alarm_head
+    line4 = f"{alarm_head} | {alarm_rest}" if alarm_rest else alarm_head
 
-    # ---- 第 4 行：告警对象 ----
+    # ---- 第 5 行：告警对象 ----
     #
     # 格式对照样例 `BSC1(1)/Ganta 4 | 10.17.17.129/129.0.1.1 | 2G SITE DOWN`：
     # **所有网元名用 `/` 连成一组，所有 IP 用 `/` 连成一组**，两组之间用 ` | `，
@@ -118,9 +127,9 @@ def build_tt_message(row: Dict[str, Any]) -> str:
         sub_alarm = ""
     if sub_alarm:
         obj_groups.append(sub_alarm)
-    line4 = "Alarm object: " + (" | ".join(obj_groups) if obj_groups else "—")
+    line5 = "Alarm object: " + (" | ".join(obj_groups) if obj_groups else "—")
 
-    # ---- 第 5 行：影响面 ----
+    # ---- 第 6 行：影响面 ----
     #
     # ⚠️ 两个已实测的坑（2026-09-28 全表核对）：
     #   1) `down_site_count` 的 '0' 是**有效值**（全表 27254 行为 '0'），不是缺数据；
@@ -145,9 +154,29 @@ def build_tt_message(row: Dict[str, Any]) -> str:
     vip = s(row.get("vip_site"))
     if vip:
         impact_parts.append(f"VIP {vip}")
-    line5 = "Impact: " + (" | ".join(impact_parts) if impact_parts else "—")
+    line6 = "Impact: " + (" | ".join(impact_parts) if impact_parts else "—")
 
-    # ---- 第 6 行：级别 ----
-    line6 = f"Severity: {dash(row.get('ticket_severity'))} (matches rule)"
+    # ---- 第 7 行：级别 ----
+    # 只报级别，不写 "(matches rule)"：本模板是**降级路径**，此时规则引擎
+    # 根本没跑过（完整引擎的输出才带派单依据/规则判定），写 matches 是谎报。
+    line7 = f"Severity: {dash(row.get('ticket_severity'))}"
 
-    return "\n".join([line1, line2, line3, line4, line5, line6])
+    return "\n".join([line1, line2, line3, line4, line5, line6, line7])
+
+
+def reminder_banner(reminder_no: int, open_minutes: int, stale_minutes: int) -> str:
+    """重报横幅：让值班一眼分清「首推」与「第 N 次提醒仍未解决」。
+
+    重报消息的正文与首推几乎相同（同一单的同一份渲染），没有横幅时群里
+    无法区分新告警和旧提醒。三个数字的口径（由调用方保证）：
+      * reminder_no —— 本次是第几次发送（已成功发送次数 + 1）；
+      * open_minutes —— 告警发生至今（alarm_occur_time 到 now）；
+      * stale_minutes —— 距最近一次工单更新（last_modified_time 到 now）。
+    首推（reminder_no <= 1）应返回空串，调用方不拼横幅。
+    """
+    total = max(0, int(open_minutes))
+    hours, mins = divmod(total, 60)
+    open_txt = f"{hours}h{mins:02d}m" if hours else f"{mins}m"
+    stale = max(0, int(stale_minutes))
+    return (f"⚠️ REMINDER #{int(reminder_no)} · open {open_txt}"
+            f" · no update for {stale}m")

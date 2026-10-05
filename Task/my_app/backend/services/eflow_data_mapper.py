@@ -383,31 +383,51 @@ def _fetch_tt_page(start: int) -> list:
     return res if isinstance(res, list) else []
 
 
-def fetch_tt_live(tt_clean: str) -> dict | None:
-    """按单号实时回 eFlow 拉取单条 TT（本地库 miss 时的兜底）。
+def fetch_tt_live_batch(tt_nos) -> dict:
+    """按单号批量实时拉取 TT：一次分页遍历匹配全部目标单（纯内存不落库）。
 
-    纯内存：不做任何写库。命中返回归一化后的 eflow_tt 列名 dict；未命中返回 None。
+    为什么是批量而不是逐单调 `fetch_tt_live`：base/list 按最近修改倒序分页，
+    单页 ~4s/3MB。P1 推送一轮要对多个在跟单做「20 分钟未更新」判断，
+    逐单查询会把同一批分页重复拉 N 遍；本函数把整轮查询压成**一次**遍历。
+
+    返回 `{单号大写: 归一化行}`；扫完 `_TT_MAX_SCAN` 行仍未命中的单不在结果里，
+    由调用方自行回退本地镜像（那里的 last_modified 对「一直没更新的停滞单」
+    恰好是准确的 —— 它本来就没更新过）。
     """
-    tt_clean = (tt_clean or "").strip().upper()
-    if not tt_clean:
-        return None
+    targets = {str(t or "").strip().upper() for t in (tt_nos or []) if str(t or "").strip()}
+    if not targets:
+        return {}
     ensure_login()
 
+    found: dict = {}
     scanned = 0
     start = 0
-    while scanned < _TT_MAX_SCAN:
+    while scanned < _TT_MAX_SCAN and len(found) < len(targets):
         rows = _fetch_tt_page(start)
         if not rows:
             break
-        match = next((r for r in rows
-                      if str(r.get("woNum") or "").strip().upper() == tt_clean), None)
-        if match:
-            return _normalize_tt_live_row(match)
+        for r in rows:
+            num = str(r.get("woNum") or "").strip().upper()
+            if num in targets and num not in found:
+                found[num] = _normalize_tt_live_row(r)
         scanned += len(rows)
         if len(rows) < _TT_PAGE_LEN:
             break
         start += _TT_PAGE_LEN
-    return None
+    return found
+
+
+def fetch_tt_live(tt_clean: str) -> dict | None:
+    """按单号实时回 eFlow 拉取单条 TT（本地库 miss 时的兜底）。
+
+    纯内存：不做任何写库。命中返回归一化后的 eflow_tt 列名 dict；未命中返回 None。
+    多个单号一起查时请用 `fetch_tt_live_batch` —— 一次分页遍历匹配全部，
+    逐单调用会把同一批分页重复拉 N 遍。
+    """
+    tt_clean = (tt_clean or "").strip().upper()
+    if not tt_clean:
+        return None
+    return fetch_tt_live_batch([tt_clean]).get(tt_clean)
 
 
 def _fetch_wo_pipeline(start_ms, end_ms, tmp_dir):

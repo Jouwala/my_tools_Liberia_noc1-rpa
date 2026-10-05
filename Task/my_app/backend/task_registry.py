@@ -206,19 +206,23 @@ TASK_SPECS = [
          description_en="Dispatch a send job; a browser extension sends Site Outage screenshots in the logged-in WhatsApp Web",
          default_cron="0 3 * * *", category="whatsapp"),
 
-    # 5c. eFlow P1 未清除 TT 告警 → WhatsApp（每 15 分钟）。
-    #     口径：近 3 小时内、告警未清除（alarm_clear_time 为空）、alarm_code≠99933、
-    #     ticket_severity=P1 的单；落库 eflow_tt_whatsapp_alert_log，发送状态置 Y。
-    #     同一单距上次发送满 20 分钟（TT_ALERT_RESEND_MINUTES）后继续推。
-    #     ⚠️ 依赖浏览器扩展的**纯文本**发送能力（现有扩展只发图片），扩展未就绪时
-    #     作业会被投递但无人认领 → 状态保持 'N' 并记 last_error，不会伪造 Y。
-    #     群组由 TT_ALERT_WHATSAPP_GROUPS 配置，未配置则拒发（不发默认测试群）。
+    # 5c. eFlow P1 告警 → WhatsApp（每 5 分钟，触发制，2026-10-05 机制切换）。
+    #     触发：扫 realtime_alarm（eflow_active_alarm 每 30 分钟同步）里「带 TT +
+    #     告警升起时间在触发窗口内 + 告警码白名单」的告警；随后**实时回 eFlow 查单**
+    #     （fetch_tt_live_batch）拿最新级别/更新时间/清除状态，不再受 eflow_tt
+    #     每小时才落库的时延制约（旧机制端到端 45~75 分钟 → 现在分钟级）。
+    #     重报：距最近一次工单更新 ≥20 分钟（停滞）且距上次成功发送 ≥20 分钟（冷却）
+    #     → 再次通报（带 REMINDER 横幅）；工单有更新只刷新跟踪字段不打扰群里；
+    #     告警清除（alarm_clear_time 非空 / 从 realtime_alarm 消失）自然止损。
+    #     落库 eflow_tt_whatsapp_alert_log：send_status（发没发过）/ send_count
+    #     （发送几次）/ last_known_update_time / last_alarm_seen_time（恢复通知的数据基础）。
+    #     发送走 Baileys 推送进程（whatsapp-kb-bot/src/notify.js），投递前查心跳。
     dict(task_id="tt_alarm_whatsapp_alert", name="eFlow P1 告警 WhatsApp 推送",
          name_en="eFlow P1 Alarm WhatsApp Push",
          loader=("backend.services.tt_alarm_whatsapp_service", "run_tt_alarm_whatsapp_alert"),
-         description="每 15 分钟取近 3 小时内「告警未清除 + alarm_code≠99933 + P1」的 TT 单，渲染成文本推送到 WhatsApp，发送状态落 eflow_tt_whatsapp_alert_log（同一单 20 分钟后未更新则继续推）",
-         description_en="Every 15 min: pick P1 TTs from the last 3h that are still uncleared and not alarm_code 99933, push as WhatsApp text, and record send status in eflow_tt_whatsapp_alert_log (re-push after 20 min if unchanged)",
-         default_cron="*/15 * * * *", category="whatsapp"),
+         description="每 5 分钟扫 realtime_alarm 触发（带 TT + 窗口内 + 告警码白名单），实时查 eFlow 拿最新更新时间；P1 单首推，之后每停滞 20 分钟重报一次（带 REMINDER 横幅），工单有更新不打扰、告警清除即止损；状态（是否已发/发了几次）落 eflow_tt_whatsapp_alert_log",
+         description_en="Every 5 min: trigger from realtime_alarm (TT-linked, within window, code whitelist), live-fetch eFlow for the latest update time; first-push P1 tickets, re-notify with a REMINDER banner after 20 min of no update, stay quiet while the ticket is progressing, stop when cleared; send status (sent? how many times) recorded in eflow_tt_whatsapp_alert_log",
+         default_cron="*/5 * * * *", category="whatsapp"),
 
     # 6. MS SLA 完整同步（每天 05:00）
     #    时序约束（2026-09-18 修复）：必须在 kpi_ms_contract(05:30) / kpi_ms_wo_sla(05:35)

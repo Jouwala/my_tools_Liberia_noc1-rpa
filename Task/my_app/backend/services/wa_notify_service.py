@@ -242,6 +242,53 @@ def _humanize(seconds: float) -> str:
     return f"{h} 小时{m} 分钟" if m else f"{h} 小时"
 
 
+def check_channel_before_dispatch(out: Dict[str, Any], due_count: int,
+                                  resend_minutes: int) -> None:
+    """投递前查推送通道在线状态，离线则把告警塞进 `out["warnings"]`。
+
+    放在本模块而不是业务编排层：它本质是**通道自感知** —— 与 `is_online`
+    读同一份心跳、用同一套三态语义，调用方（P1 推送任务）只负责把结果
+    汇进任务结果里。
+
+    ## 为什么不等超时
+
+    告警链路依赖一个**常驻的推送进程**。它没在跑时，作业投出去没人消费，
+    任务要干等 `WAIT_SECONDS` 才发现，而这段时间值班群其实一条告警都收不到 ——
+    2026-10-01 实测正是如此（04:15~04:55 连续 4 轮未达、群内静默，
+    作业还把邮箱堵死 4.3 小时）。
+
+    所以这里**不等超时**：投递前先看推送进程的心跳，没有就立刻报出去，
+    把「几分钟后才知道」压缩成「这一轮就知道」。
+
+    ## 三态语义（与 `ext_liveness` 同口径）
+
+      * `online`  → 静默（正常路径）；
+      * `offline` → 追加 warning，经 `task_runner` 汇总成微信/邮件喊人；
+      * `unknown` → **不告警**，仅记日志。推送进程刚重启时心跳还没写，
+        此时若判离线，每次重启都会误报一次，会让人对告警脱敏。
+
+    只写 `out`，不抛异常：在线检查属可观测性设施，不能反过来弄坏发送主流程。
+    """
+    try:
+        live = is_online()
+    except Exception:  # noqa: BLE001
+        logger.warning("[WANotify] 推送通道在线检查异常（忽略，继续发送）", exc_info=True)
+        return
+
+    out["channel_status"] = live.get("status")
+    out["channel_heartbeat_at"] = live.get("at") or None
+
+    if live.get("status") == "offline":
+        warn = (f"P1 告警推送通道离线：{live.get('reason')}。本轮 {due_count} 单告警"
+                f"**大概率发不出去** —— 请在 whatsapp-kb-bot 目录确认推送进程在运行"
+                f"（`node src/notify.js --check` 可自检），必要时 `npm run relogin` 重新扫码。"
+                f"未确认发送的单会按 {resend_minutes} 分钟节流重推")
+        out["warnings"].append(warn)
+        logger.warning("[WANotify] %s", warn)
+    elif live.get("status") == "unknown":
+        logger.info("[WANotify] 推送通道状态未知（本轮不告警）：%s", live.get("reason"))
+
+
 def dispatch(messages: List[Dict[str, Any]], groups: List[str]) -> Dict[str, Any]:
     """投递一批文本到推送通道。
 

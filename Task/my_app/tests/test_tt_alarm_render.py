@@ -18,6 +18,8 @@ SLA 时效），而那是 `Task/whatsapp-kb-bot/scripts/tt-analyze.py` 的输出
 **真实层**（引擎在时才跑）用真实单号回放，确认与用户要求的格式逐字一致。
 """
 import subprocess
+import sqlite3
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -25,8 +27,34 @@ import pytest
 from backend.services import tt_alarm_render as R
 from backend.services import tt_alarm_whatsapp_service as S
 
-# 复用 config 测试里已有的建库/切库小工具，避免两处各写一份（改了一处漏另一处）
-from tests.test_tt_alarm_config import _mk_tt_db, _now, _use_db
+# 本文件专用的建库/切库小工具（原与 test_tt_alarm_config 共用；2026-10-05 机制切换后
+# config 测试不再碰库，为避免"为复用而跨文件耦合"改为本文件自带）。
+def _now():
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _use_db(monkeypatch, tmp_path, eflow_rows=None):
+    """把 DB 切到临时 sqlite（patch DB_MODE/DB_PATH 属性，与旧测试同模式），
+    可选预置 eflow_tt 行。
+
+    快照路径 `_snapshot_tt(tt)` 会 `SELECT * FROM eflow_tt WHERE tt_no=?`；
+    任务入口的 ensure_log_table / load_records 也在同一张库上跑。
+    """
+    db_path = tmp_path / "raw.db"
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS eflow_tt (tt_no TEXT, ticket_severity TEXT, "
+        "alarm_code TEXT, alarm_occur_time TEXT, alarm_clear_time TEXT, "
+        "site_id TEXT, site_name TEXT, title TEXT)")
+    for row in (eflow_rows or []):
+        conn.execute("INSERT INTO eflow_tt VALUES (?,?,?,?,?,?,?,?)", row)
+    conn.commit()
+    conn.close()
+
+    from backend import database as db
+    monkeypatch.setattr(db, "DB_MODE", "sqlite")
+    monkeypatch.setattr(db, "DB_PATH", db_path)
+    return db_path
 
 # 用户 2026-09-29 指定的「应该长这样」样例（真实单号，头部 8 行）
 SAMPLE_TT = "TT202609290045"
@@ -211,18 +239,32 @@ def test_service_survives_renderer_exception(monkeypatch):
 def test_task_result_surfaces_degradation(monkeypatch, tmp_path):
     """任务结果里必须有 degraded 计数与可读的降级说明。
 
-    降级**不报错、照样发得出去**，只是内容从 ~30 行缩成 6 行 ——
+    降级**不报错、照样发得出去**，只是内容从 ~30 行缩成 7 行 ——
     没有这个字段，运维只能靠群里的人问「这次信息怎么这么少」才发现问题。
     """
-    now = _now()
-    _mk_tt_db(tmp_path, [("TT1", "P1", "9920", now, None)])
-    svc2 = _use_db(monkeypatch, tmp_path)
-    monkeypatch.setattr(svc2, "render_message_ex", lambda *a, **k: (None, "引擎超时（>120s）"))
-    monkeypatch.setattr(svc2, "dispatch", lambda *a, **k: {"ok": True, "job_id": "j1", "dispatched": 1})
-    monkeypatch.setattr(svc2, "wait_for_job_result",
+    from backend.services import tt_alarm_sources as src
+    from backend.services import tt_alarm_trigger as trig
+
+    now = datetime.now()
+    trig_row = {"tt_no": "TT1", "_alarm_code_norm": "9920",
+                "alarm_raised_time": _now(), "_alarm_raised_dt": now,
+                "site_id": "1", "site_name": "s"}
+    monkeypatch.setattr(trig, "fetch_triggered_tts",
+                        lambda *a, **k: ([trig_row],
+                                         {"window_since": "x", "table_exists": True,
+                                          "truncated": False, "sync_lag_seconds": None}))
+    # 实时层查不到 → 镜像兜底给出级别与更新时间（级别命中 P1）
+    monkeypatch.setattr(src, "live_tt_rows", lambda tt_nos: {})
+    monkeypatch.setattr(src, "mirror_rows", lambda conn, nos: {
+        "TT1": {"tt_no": "TT1", "ticket_severity": "P1", "site_name": "s",
+                "alarm_occur_time": _now(), "last_modified_time": _now()}})
+    _use_db(monkeypatch, tmp_path)   # 日志表落临时 sqlite
+    monkeypatch.setattr(S, "render_message_ex", lambda *a, **k: (None, "引擎超时（>120s）"))
+    monkeypatch.setattr(S, "dispatch", lambda *a, **k: {"ok": True, "job_id": "j1", "dispatched": 1})
+    monkeypatch.setattr(S, "wait_for_job_result",
                         lambda *a, **k: {"confirmed": True, "ok": True, "sent": ["TT1"]})
 
-    out = svc2.run_tt_alarm_whatsapp_alert()
+    out = S.run_tt_alarm_whatsapp_alert()
     assert out["degraded"] == 1
     assert any("降级" in e and "TT1" in e for e in out["errors"]), \
         f"任务结果应显式说明降级，实际 errors={out['errors']}"
@@ -239,8 +281,10 @@ def test_analyze_lang_defaults_to_english():
 # 真实层：引擎在时才跑（回放用户给的真实单号）
 # ==========================================================
 requires_engine = pytest.mark.skipif(
-    not R.engine_available(),
-    reason="分析引擎不在本机（whatsapp-kb-bot 未部署），跳过真实回放",
+    not R.engine_available()
+    or not (R._MY_APP_DIR / "backend" / "services" / "eflow_rules"
+            / "eflow_TT_rules.xlsx").is_file(),
+    reason="分析引擎或规则表 xlsx 不在本机（gitignore 的产物文件），跳过真实回放",
 )
 
 
@@ -283,10 +327,7 @@ def test_real_engine_returns_none_for_unknown_tt():
 
 def test_snapshot_writes_eflow_tt_with_all_columns(tmp_path, monkeypatch):
     """快照必须是引擎能直接查的 SQLite：表名 eflow_tt、列名齐全。"""
-    import sqlite3
-
-    _mk_tt_db(tmp_path, [("TT9", "P1", "9920", _now(), None)])
-    _use_db(monkeypatch, tmp_path)
+    _use_db(monkeypatch, tmp_path, eflow_rows=[("TT9", "P1", "9920", _now(), None, "1", "s", "t")])
 
     path = R._snapshot_tt("TT9")
     try:
@@ -305,10 +346,39 @@ def test_snapshot_writes_eflow_tt_with_all_columns(tmp_path, monkeypatch):
         R._cleanup_snapshot(path)
 
 
+def test_snapshot_from_live_row_skips_db(tmp_path, monkeypatch):
+    """调用方已备好行（实时查单行）时直接用它造快照，不再查库。
+
+    这是「刚触发、镜像里还没有的新单」也能出完整格式的关键 ——
+    引擎读快照时按实际列取交集，实时行的紧凑字段集不会让它报错。
+    """
+    # get_raw_connection 一被调用就炸：断言这条路真的没走
+    from backend import database as db
+    monkeypatch.setattr(db, "get_raw_connection",
+                        lambda *a, **k: (_ for _ in ()).throw(AssertionError("不应查库")))
+
+    live_row = {"tt_no": "TTX", "ticket_severity": "P1",
+                "alarm_occur_time": _now(), "site_name": "LEC", "_tt_live_raw": {"x": 1}}
+    path = R._snapshot_tt("TTX", row=live_row)
+    try:
+        assert path is not None and path.is_file()
+        con = sqlite3.connect(str(path))
+        try:
+            # PRAGMA table_info 行结构是 (cid, name, type, ...)，列名在 r[1]
+            names = {r[1] for r in con.execute("PRAGMA table_info(eflow_tt)")}
+            assert "tt_no" in names and "ticket_severity" in names
+            assert "_tt_live_raw" not in names, "内部键不应进快照"
+            row = con.execute("SELECT tt_no, site_name FROM eflow_tt").fetchone()
+            assert row == ("TTX", "LEC")
+        finally:
+            con.close()
+    finally:
+        R._cleanup_snapshot(path)
+
+
 def test_snapshot_is_none_for_missing_tt(tmp_path, monkeypatch):
     """查不到的单返回 None → 调用方退回镜像库，而不是崩。"""
-    _mk_tt_db(tmp_path, [("TT1", "P1", "9920", _now(), None)])
-    _use_db(monkeypatch, tmp_path)
+    _use_db(monkeypatch, tmp_path, eflow_rows=[("TT1", "P1", "9920", _now(), None, "1", "s", "t")])
     path = R._snapshot_tt("TT-NOT-EXIST")
     assert path is None
     R._cleanup_snapshot(path)
@@ -316,8 +386,7 @@ def test_snapshot_is_none_for_missing_tt(tmp_path, monkeypatch):
 
 def test_cleanup_removes_file_and_dir(tmp_path, monkeypatch):
     """快照用完必须删干净（临时文件不清理会堆满磁盘）。"""
-    _mk_tt_db(tmp_path, [("TT9", "P1", "9920", _now(), None)])
-    _use_db(monkeypatch, tmp_path)
+    _use_db(monkeypatch, tmp_path, eflow_rows=[("TT9", "P1", "9920", _now(), None, "1", "s", "t")])
     path = R._snapshot_tt("TT9")
     assert path is not None
     parent = path.parent
@@ -340,7 +409,7 @@ def test_render_passes_db_override_to_engine(monkeypatch):
         raise subprocess.TimeoutExpired(cmd, 1)   # 借超时退出，不真跑引擎
 
     monkeypatch.setattr(R.subprocess, "run", fake_run)
-    monkeypatch.setattr(R, "_snapshot_tt", lambda tt: Path("X:/snap/tt.db"))
+    monkeypatch.setattr(R, "_snapshot_tt", lambda tt, row=None: Path("X:/snap/tt.db"))
     monkeypatch.setattr(R, "_cleanup_snapshot", lambda p: None)
 
     R.render_with_reason("TT9", lang="en")
@@ -359,7 +428,7 @@ def test_render_still_runs_when_snapshot_unavailable(monkeypatch):
         raise subprocess.TimeoutExpired(cmd, 1)
 
     monkeypatch.setattr(R.subprocess, "run", fake_run)
-    monkeypatch.setattr(R, "_snapshot_tt", lambda tt: None)   # 快照失败
+    monkeypatch.setattr(R, "_snapshot_tt", lambda tt, row=None: None)   # 快照失败
 
     R.render_with_reason("TT9", lang="en")
     assert seen.get("db"), "快照不可用时也应给引擎一个库路径"

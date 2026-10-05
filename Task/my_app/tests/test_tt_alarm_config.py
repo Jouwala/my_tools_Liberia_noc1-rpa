@@ -1,117 +1,22 @@
 # -*- coding: utf-8 -*-
-"""TT 告警推送的**配置项**单测：级别/告警码白名单、时间窗、重推间隔、群组回退。
+"""TT 告警推送的**配置项**单测：级别/告警码白名单、窗口、重报间隔、群组回退。
 
 拆自 `test_tt_alarm_whatsapp_service.py`（原文件超 500 行上限），
 对应 `backend/services/tt_alarm_config.py` 的职责边界。
 
 这里锁的是三类**真实发生过或极易踩**的错：
-  1. 白名单字段「留空」被当成「全部排除」→ 一单都不发（真实发生过，见下）；
-  2. env 与配置文件优先级验错（import 后再 setenv 不会重算常量）；
-  3. 群组留空时静默发往测试群而无人知晓。
+  1. env 与配置文件优先级验错（import 后再 setenv 不会重算常量）；
+  2. 群组留空时静默发往测试群而无人知晓；
+  3. 「留空」语义被记反（级别/告警码留空 = 不过滤）。
+
+过滤行为的业务用例：级别白名单见 test_tt_alarm_whatsapp_service.py（severity_passes），
+告警码白名单见 test_tt_alarm_trigger.py（fetch_triggered_tts）。
 """
 import os
-from datetime import datetime
 
 from backend.services import tt_alarm_config as C
 from backend.services import tt_alarm_whatsapp_service as S
 from backend.services.tt_alarm_message import norm_alarm_code
-
-
-def _mk_tt_db(tmp_path, rows):
-    """造一个最小 eflow_tt（sqlite），rows: [(tt_no, sev, code, occur, clear)]"""
-    import sqlite3
-    conn = sqlite3.connect(tmp_path / "f.db")
-    conn.execute("CREATE TABLE eflow_tt (tt_no TEXT, ticket_severity TEXT, "
-                 "alarm_code TEXT, alarm_occur_time TEXT, alarm_clear_time TEXT)")
-    conn.executemany("INSERT INTO eflow_tt VALUES (?,?,?,?,?)", rows)
-    conn.commit()
-    conn.close()
-
-
-def _use_db(monkeypatch, tmp_path):
-    from backend import database as db
-    from backend.services import tt_alarm_whatsapp_service as svc2
-    monkeypatch.setattr(db, "DB_MODE", "sqlite")
-    monkeypatch.setattr(db, "DB_PATH", tmp_path / "f.db")
-    return svc2
-
-
-def _now():
-    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-
-# ---------------- 白名单字段「留空」的语义 ----------------
-
-def test_empty_severities_means_no_filter_not_drop_all(tmp_path, monkeypatch):
-    """级别留空 = 不过滤（推送所有级别），**不是**一条都不发。
-
-    回归锁：曾写成 `if sev not in SEVERITIES: continue`，空集时每一行都被 continue
-    （`x in set()` 恒为 False），表现为「级别留空 → 一单都不发」，
-    与页面标注的"留空=所有级别"完全相反。实测于 2026-09-28。
-    """
-    now = _now()
-    _mk_tt_db(tmp_path, [("T1", "P1", "9920", now, None),
-                         ("T2", "P4", "9920", now, None),
-                         ("T3", "P2", "9920", now, None)])
-    svc2 = _use_db(monkeypatch, tmp_path)
-    monkeypatch.setattr(svc2, "SEVERITIES", set())
-
-    picked, _ = svc2.fetch_candidate_tts()
-    assert sorted(r["tt_no"] for r in picked) == ["T1", "T2", "T3"], \
-        "级别留空时应不过滤，但部分/全部单被丢弃了"
-
-
-def test_severity_filter_still_applies_when_set(tmp_path, monkeypatch):
-    """级别非空时仍按白名单过滤。"""
-    now = _now()
-    _mk_tt_db(tmp_path, [("T1", "P1", "9920", now, None),
-                         ("T2", "P4", "9920", now, None)])
-    svc2 = _use_db(monkeypatch, tmp_path)
-    monkeypatch.setattr(svc2, "SEVERITIES", {"P1"})
-
-    picked, _ = svc2.fetch_candidate_tts()
-    assert [r["tt_no"] for r in picked] == ["T1"]
-
-
-def test_empty_alarm_codes_means_no_filter(tmp_path, monkeypatch):
-    """告警码白名单留空 = 全部推送（含 99933）。"""
-    now = _now()
-    _mk_tt_db(tmp_path, [("A", "P1", "9920", now, None),
-                         ("B", "P1", "99933", now, None),
-                         ("C", "P1", "99933.0", now, None)])
-    svc2 = _use_db(monkeypatch, tmp_path)
-    monkeypatch.setattr(svc2, "ALARM_CODES", set())
-
-    picked, _ = svc2.fetch_candidate_tts()
-    assert sorted(r["tt_no"] for r in picked) == ["A", "B", "C"], \
-        "告警码留空时应不过滤"
-
-
-def test_alarm_code_whitelist_filters_and_normalizes(tmp_path, monkeypatch):
-    """白名单命中才算；且 '9920.0' 与 '9920' 归一化后视为同一码。"""
-    now = _now()
-    _mk_tt_db(tmp_path, [("A", "P1", "9920", now, None),
-                         ("B", "P1", "99933", now, None),
-                         ("C", "P1", "99933.0", now, None),
-                         ("D", "P1", "9920.0", now, None)])
-    svc2 = _use_db(monkeypatch, tmp_path)
-    monkeypatch.setattr(svc2, "ALARM_CODES", {"9920"})
-
-    picked, _ = svc2.fetch_candidate_tts()
-    assert sorted(r["tt_no"] for r in picked) == ["A", "D"], \
-        "白名单应同时命中 '9920' 与 '9920.0'，并排除 99933 的两种写法"
-
-
-def test_non_numeric_alarm_code_does_not_crash(tmp_path, monkeypatch):
-    """文本告警码不能让过滤崩掉（库里确有 'Ethernet Physical...' 这类值）。"""
-    now = _now()
-    _mk_tt_db(tmp_path, [("TXT", "P1", "The link between the server and the ME is broken", now, None),
-                         ("NUM", "P1", "9920", now, None)])
-    svc2 = _use_db(monkeypatch, tmp_path)
-    monkeypatch.setattr(svc2, "ALARM_CODES", {"9920"})
-
-    picked, _ = svc2.fetch_candidate_tts()
-    assert [r["tt_no"] for r in picked] == ["NUM"]
 
 
 # ---------------- parse_config 纯函数：优先级与归一化 ----------------
