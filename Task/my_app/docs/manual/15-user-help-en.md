@@ -1,6 +1,6 @@
 # my_app User Help & Guide
 
-> User-facing platform features & operations guide. Generated from the same source as the in-app Help page (frontend/src/helpMarkdown.ts), compiled from docs/manual/ and backend/task_registry.py. Generated on 2026-10-01.
+> User-facing platform features & operations guide. Generated from the same source as the in-app Help page (frontend/src/helpMarkdown.ts), compiled from docs/manual/ and backend/task_registry.py. Generated on 2026-10-04.
 
 > In-app entry: the "Help" sidebar item, or `http://<host>/myapp/?page=help` directly.
 
@@ -10,7 +10,7 @@
 
 - [1. Platform Overview](#1-platform-overview)
 - [2. General Usage](#2-general-usage)
-- [3. Task Manager Deep Dive (68 tasks)](#3-task-manager-deep-dive)
+- [3. Task Manager Deep Dive (69 tasks)](#3-task-manager-deep-dive)
 - [4. Pages Guide](#4-pages-guide)
 - [5. Ops & Troubleshooting](#5-ops-troubleshooting)
 - [6. FAQ](#6-faq)
@@ -78,7 +78,7 @@ Built for the NOC scenario "boards every day, reports must go out": 41+ schedule
 
 > ⚠️ **New tasks MUST also be registered in `GROUP_TASK_MAP` in worker_watchdog.py** — declaring them only in TASK_SPECS leaves them pending forever. This accident happened four times (finebi_report_sync / whatsapp_send_ext / sp_email_details / the olib_soc and vmax_multi_data_sync tasks found on 2026-09-18).
 
-### 3.3 Full task catalog (68 tasks)
+### 3.3 Full task catalog (69 tasks)
 
 | Task | task_id | Default cron | Group | Workflow script |
 | --- | --- | --- | --- | --- |
@@ -150,6 +150,7 @@ Built for the NOC scenario "boards every day, reports must go out": 41+ schedule
 | eFlow Push Rules Collect | `eflow_push_rules_collect` | `59 23 */3 * *` | n | `services/eflow_rules/eflow_Push_Rule_Collector.py → run_eflow_push_rules` |
 | Log Files Cleanup | `log_cleanup` | `17 3 * * *` | m | `services/log_cleanup.py → run_log_cleanup` |
 | TMP Directory Cleanup | `tmp_cleanup` | `47 3 * * *` | m | `services/tmp_cleanup.py → run_tmp_cleanup` |
+| TTs and MTTR Report Generate | `tt_mttr_report_generate` | `20 7 * * *` | m | `services/tt_mttr_report.py → run_tt_mttr_report` |
 
 Workflow & maintenance notes per task:
 
@@ -1365,6 +1366,27 @@ Workflow & maintenance notes per task:
 - Service paths (charts/dl/state files) are whitelisted and never touched; add new ones to WHITELIST
 - Staggered against log_cleanup (03:17) so the two full scans do not overlap
 
+#### TTs and MTTR Report Generate（`tt_mttr_report_generate`）
+
+- Default cron: `20 7 * * *`　|　worker group: **m**
+- Workflow script: `services/tt_mttr_report.py → run_tt_mttr_report`
+
+**What it does**: Builds the TTs and MTTR (Hour) monthly workbook from the latest Site Down hourly Report, downloadable from the "TTs and MTTR" tab of the report files page
+
+**Workflow & data flow**:
+
+1. Daily 07:20 read the newest hourly Report under data/eflow/tt_reports (Processed Data sheet)
+1. Tickets with a WO go to Raw Data; then filter on occur-to-clear < 48h + non-empty Site Category + month >= 2026-01 into the ZTE sheet
+1. Summary tallies TTs and MTTR per month per P1-P4 with COUNTIFS/AVERAGEIFS formulas and inserts 4 combo charts (bars = TTs, cyan line = MTTR, red line = SLA target)
+1. Output name carries a timestamp; only the latest 10 files are kept
+
+**Maintenance**:
+
+- SLA attainment is always the actual occur-to-clear duration, never the source table SLA Time column (that one holds the target, not the duration)
+- Tickets with an empty Ticket Severity are tallied in a separate N/A block without a chart (no SLA target) — otherwise they would be dropped silently
+- The MTTR axis max is left to Excel auto-scaling so out-of-range months (e.g. P1 2026-05 at 16.37h) are not clipped
+- Re-pause Summary against an independent pandas recomputation before changing the filter; this output is not in _cleanup_old_tt_reports, its size is bounded by KEEP_FILES here
+
 ### 3.4 Reliability mechanisms (timeout / retry / self-healing)
 
 | Mechanism | Description |
@@ -1424,11 +1446,12 @@ Central control room for all scheduled sync/collection tasks: view status & sche
 
 #### Task Report Files（`email_reports`）
 
-Collects three kinds of task artifacts for download: latest email report attachments, FineBI FTP reports, and eFlow rule check results. The bottom of the eFlow tab lists **every rule sheet collected from eFlow** (TT severity rules / alarm correlation rules / push & config rules) plus this run's outputs (severity correction sheet / matching report).
+Collects four kinds of task artifacts for download: latest email report attachments, FineBI FTP reports, eFlow rule check results, and the TTs and MTTR monthly workbook. The bottom of the eFlow tab lists **every rule sheet collected from eFlow** (TT severity rules / alarm correlation rules / push & config rules) plus this run's outputs (severity correction sheet / matching report).
 
 - Switch categories via tabs; click a file name or "Download" to save; set how many recent files to keep per category
 - The three "Run Now / Collect" buttons on the eFlow tab trigger the matching task manually: TT check + severity correction, alarm rule collection, push rule collection; each auto-refreshes once after 3s (refresh manually if the task is slow)
 - Table at the bottom of the eFlow tab: blue tag = rule sheet (TT rules refresh with the daily 04:20 check; alarm/push rules normally refresh every 3 days at 23:59 — use the "Collect" buttons to refresh them on demand), grey = this run's outputs
+- On the "TTs and MTTR" tab, "Generate now" submits one `tt_mttr_report_generate` run (scheduled daily at 07:20; raise the frequency from the Schedule column in Task Manager). The page polls the file timestamps and only reports success once a newer file appears. Scope: has a WO, alarm occur-to-clear under 48 hours, non-empty Site Category, occur month from 2026-01.
 
 #### Data Upload（`upload`）
 

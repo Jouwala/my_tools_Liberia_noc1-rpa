@@ -1,6 +1,6 @@
 # my_app 使用帮助
 
-> 面向使用者的平台功能与操作指南。本文件由「使用帮助」页面同源生成（frontend/src/helpMarkdown.ts），内容依据 docs/manual/ 各章与 backend/task_registry.py 整理。生成日期：2026-10-01。
+> 面向使用者的平台功能与操作指南。本文件由「使用帮助」页面同源生成（frontend/src/helpMarkdown.ts），内容依据 docs/manual/ 各章与 backend/task_registry.py 整理。生成日期：2026-10-04。
 
 > 站内入口：侧边栏「使用帮助」，或直链 `http://<host>/myapp/?page=help`。
 
@@ -10,7 +10,7 @@
 
 - [1. 平台简介](#1-平台简介)
 - [2. 通用操作](#2-通用操作)
-- [3. 任务管理详解（68 个任务）](#3-任务管理详解)
+- [3. 任务管理详解（69 个任务）](#3-任务管理详解)
 - [4. 页面指南](#4-页面指南)
 - [5. 运维与排障](#5-运维与排障)
 - [6. 常见问题](#6-常见问题)
@@ -78,7 +78,7 @@
 
 > ⚠️ **新增任务必须同时登记进 `worker_watchdog.py` 的 `GROUP_TASK_MAP`** —— 只写 `TASK_SPECS` 不分组 = 任务入队后永远 pending。这是本项目已发生过四次的事故模式（finebi_report_sync / whatsapp_send_ext / sp_email_details / 2026-09-18 的 olib_soc 与 vmax_multi_data_sync）。
 
-### 3.3 全量任务清单（68 个）
+### 3.3 全量任务清单（69 个）
 
 | 任务 | task_id | 默认 cron | 组 | 工作流脚本 |
 | --- | --- | --- | --- | --- |
@@ -150,6 +150,7 @@
 | eFlow 推单规则收集 | `eflow_push_rules_collect` | `59 23 */3 * *` | n | `services/eflow_rules/eflow_Push_Rule_Collector.py → run_eflow_push_rules` |
 | 日志文件清理 | `log_cleanup` | `17 3 * * *` | m | `services/log_cleanup.py → run_log_cleanup` |
 | TMP 目录清理 | `tmp_cleanup` | `47 3 * * *` | m | `services/tmp_cleanup.py → run_tmp_cleanup` |
+| TTs and MTTR 报表生成 | `tt_mttr_report_generate` | `20 7 * * *` | m | `services/tt_mttr_report.py → run_tt_mttr_report` |
 
 每个任务的工作流与维护要点：
 
@@ -1365,6 +1366,27 @@
 - charts/dl/状态文件等服务在用路径在 WHITELIST 里，永不处理；新增此类路径要补白名单
 - 与 log_cleanup（03:17）错峰，避免同一时段两次全盘扫描
 
+#### TTs and MTTR 报表生成（`tt_mttr_report_generate`）
+
+- 默认 cron: `20 7 * * *`　|　worker 组: **m**
+- 工作流脚本: `services/tt_mttr_report.py → run_tt_mttr_report`
+
+**功能**: 从最新一份 Site Down hourly Report 生成 TTs and MTTR (Hour) 月粒度工作簿，供邮件报告页「TTs and MTTR」页签下载
+
+**工作流与数据流**:
+
+1. 每天 07:20 读 data/eflow/tt_reports 下最新的 hourly Report（Processed Data 页）
+1. 筛出有 WO 的工单进 Raw Data，再按「告警发生→告警清除历时 < 48 小时 + Site Category 非空 + 告警月份 ≥ 2026-01」进 ZTE 页
+1. Summary 页用 COUNTIFS/AVERAGEIFS 公式分月统计 P1~P4 的 TTs 与 MTTR，并插 4 张组合图（柱=TTs、青线=MTTR、红线=SLA 目标）
+1. 产物文件名带时间戳，同目录只保留最近 10 份
+
+**维护要点**:
+
+- SLA 达成一律按「告警发生 → 告警清除」的实际历时算，不看源表的 SLA Time 目标列（那是目标值不是耗时）
+- 未填 Ticket Severity 的工单单列 N/A 块统计，不出图（无 SLA 目标），否则这部分工单会被静默丢掉
+- MTTR 纵轴上限交给 Excel 自动缩放：超标月份（如 P1 2026-05 的 16.37h）不能被裁掉
+- 口径改动前先跑一次并把 Summary 与 pandas 独立复算对拍；产物不在 _cleanup_old_tt_reports 的清理名单里，靠本任务自己的 KEEP_FILES 控制体积
+
 ### 3.4 可靠性机制（超时 / 重试 / 自愈）
 
 | 机制 | 说明 |
@@ -1424,11 +1446,12 @@
 
 #### 任务报告文件（`email_reports`）
 
-汇总三类任务产物并供下载：邮件发送的最新报告附件、FineBI FTP 报表、eFlow 规则检查结果。eFlow 页签底部列出**从 eFlow 获取的全部规则表**（TT 级别矫正规则 / 告警关联规则 / 推单·配置规则）与本次检查产物（级别矫正表 / 匹配报告）。
+汇总四类任务产物并供下载：邮件发送的最新报告附件、FineBI FTP 报表、eFlow 规则检查结果、TTs and MTTR 月粒度报表。eFlow 页签底部列出**从 eFlow 获取的全部规则表**（TT 级别矫正规则 / 告警关联规则 / 推单·配置规则）与本次检查产物（级别矫正表 / 匹配报告）。
 
 - 顶部页签切换类别，点文件名或「下载」保存；可设每类保留最近 N 份
 - eFlow 页签三个「立即…」按钮分别手动触发对应任务：立即检查（TT 规则 + 匹配矫正）、收集告警规则、收集推单规则；触发后 3 秒自动刷新一次，任务慢时需手动再刷
 - eFlow 页签底部表格：蓝色标签为规则表（TT 规则随每日 04:20 检查刷新；告警/推单规则原本每 3 天 23:59 刷新，可用上面的「收集…」按钮随时刷新），灰色为本次检查产物
+- 「TTs and MTTR」页签的「立即生成」投一次 `tt_mttr_report_generate`（定时为每天 07:20，要更高频在任务管理页改排程），页面按文件生成时间轮询，出现更新的文件才提示「报告已生成」；口径：有 WO + 告警发生→告警清除历时 < 48 小时 + Site Category 非空 + 告警月份 ≥ 2026-01
 
 #### 数据上传（`upload`）
 

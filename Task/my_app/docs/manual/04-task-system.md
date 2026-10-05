@@ -33,7 +33,7 @@ APScheduler 到点 (backend 进程内)
 | `s` | 1 | SP 备件 SFTP（独立 SFTP 服务器 + UNC 镜像库）。2026-09-27 从 `n` 拆出：它是 `n` 组最大单体负载（实测 347min/天）且是已知挂死源（SFTP channel 读挂死 5.5h 曾拖停整组） | `sp_data_sync` |
 | `w` | 2 | MW UME 微波网管（凭证分组 `mw_ume`），独立会话。2026-09-27 从 `n` 拆出：`mw_ume_kpi_sync_rt` 为 `*/15` 高频任务，此前每次排在 `sp_data_sync` 后，实测队列等待 964s（全场最久） | `mw_ume_kpi_sync`, `mw_ume_kpi_sync_rt` |
 | `v` | 3 | VMAX 门户（本机 8790 单会话代理）：三个任务共用同一个 VMAX 会话，必须彼此串行；2026-09-18 从 `n` 组拆出（原先排在 `sp_data_sync` 这类 1.5~2h 长任务后面，小时级采集滞后一个多小时） | `cxo_dashboard_cache_sync`, `vmax_cxo_daily_sync`, `vmax_multi_data_sync` |
-| `m` | 34 | 内务轻任务：EWS 邮件会话 + 截图/WhatsApp 文件依赖 + VMAX 数仓 GBase 直连取数 | `site_outage_screenshot`, `whatsapp_send`, `whatsapp_send_ext`, `tt_alarm_whatsapp_alert`, `liberia_email_1h`, `liberia_email_8h`, `kpi_ms_contract`, `kpi_ms_wo_sla`, `kpi_sp_spareparts`, `kpi_sp_consumables`, `kpi_ran_availability`, `email_recovery`, `ipran_m6k_chart_email`, `ccn_free_rating_chart_email`, `battery_email`, `mailbox_cleanup`, `incident_overview_sync`, `auto_retry_failed`, `db_freshness_check`, `sp_report_generate`, `sp_email_details`, `sp_details_files_email`, `sp_online_report_generate`, `sp_online_report_send`, `sp_whatsapp_report`, `sp_material_report`, `finebi_report_sync`, `pg_to_sqlite_sync`, `log_cleanup`, `tmp_cleanup`, `mttr_tt_sync`, `progress_sync`, `olib_soc_kpi_daily_sync`, `olib_soc_vmax_report` |
+| `m` | 35 | 内务轻任务：EWS 邮件会话 + 截图/WhatsApp 文件依赖 + VMAX 数仓 GBase 直连取数 | `site_outage_screenshot`, `whatsapp_send`, `whatsapp_send_ext`, `tt_alarm_whatsapp_alert`, `liberia_email_1h`, `liberia_email_8h`, `kpi_ms_contract`, `kpi_ms_wo_sla`, `kpi_sp_spareparts`, `kpi_sp_consumables`, `kpi_ran_availability`, `email_recovery`, `ipran_m6k_chart_email`, `ccn_free_rating_chart_email`, `battery_email`, `mailbox_cleanup`, `incident_overview_sync`, `auto_retry_failed`, `db_freshness_check`, `sp_report_generate`, `sp_email_details`, `sp_details_files_email`, `sp_online_report_generate`, `sp_online_report_send`, `sp_whatsapp_report`, `sp_material_report`, `finebi_report_sync`, `pg_to_sqlite_sync`, `log_cleanup`, `tmp_cleanup`, `mttr_tt_sync`, `progress_sync`, `olib_soc_kpi_daily_sync`, `olib_soc_vmax_report`, `tt_mttr_report_generate` |
 | `c` | 2 | CN EMS 独立会话，两个任务共享 `_pmcache`/`daily_raw.json`，同组保证互斥 | `ems_kpi_cache_sync`, `ems_kpi_daily` |
 
 > **2026-09-27 拆组（`n` → `n`/`s`/`w`）的实测依据**：`n` 组近 24h 单 worker 串行占用
@@ -149,6 +149,7 @@ APScheduler 到点 (backend 进程内)
 | `tmp_cleanup` | TMP 目录清理 | `47 3 * * *` | m |
 | `mttr_tt_sync` | MTTR/TT 宽表重建 | `40 7 * * *` | m |
 | `progress_sync` | Progress 宽表重建 | `50 7 * * *` | m |
+| `tt_mttr_report_generate` | TTs and MTTR 报表生成（供 EmailReports 页「TTs and MTTR」页签下载） | `20 7 * * *` | m |
 
 ### FineBI `schedule/` 的重算空档：读它的任务一律排在 :06 之后（2026-09-30）
 

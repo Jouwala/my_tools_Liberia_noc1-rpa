@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { Card, Table, Button, Space, Select, Tag, Typography, message, Empty, Tabs, Row, Col, Statistic } from 'antd'
 import { ReloadOutlined, DownloadOutlined, FileExcelOutlined, FileTextOutlined, ThunderboltOutlined } from '@ant-design/icons'
 import api from '../api'
@@ -109,6 +109,15 @@ function stamp(): string {
   return new Date().toISOString().slice(0, 19).replace(/[-:T]/g, '')
 }
 
+// ===== TTs and MTTR 页签 =====
+// 生成任务（tt_mttr_report_generate）实测约 10 秒，但要排 m 组 worker 的串行队列，
+// 完成时刻并不确定。后端没有可靠的「本次触发是否已结束」信号（任务由 worker 子进程执行），
+// 因此判据取产物本身：目录里出现 mtime 更新的文件即视为生成完成 —— 这既当进度提示，
+// 也是「文件真的写出来了」的证据，比按固定秒数盲刷（见 runTaskNow 的 setTimeout(3000)）可靠。
+const TT_MTTR_TASK = 'tt_mttr_report_generate'
+const MTTR_POLL_MS = 3000
+const MTTR_POLL_TRIES = 30   // 最长约 90 秒，之后提示用户改用刷新
+
 export default function EmailReports() {
   const { t } = useI18n()
   // 每次挂载求值一次即可：嵌入方式由 URL 决定，本页挂载后不会再变。
@@ -126,6 +135,9 @@ export default function EmailReports() {
   const [eflowLoading, setEflowLoading] = useState(false)
   // 正在触发的任务 id（tt 检查 / 告警规则收集 / 推单规则收集），用于各自按钮的 loading
   const [eflowRunningTask, setEflowRunningTask] = useState<string | null>(null)
+  // TTs and MTTR 页签：生成中标志 + 轮询定时器（卸载时要能取消，否则页面切走后仍在打接口）
+  const [mttrGenerating, setMttrGenerating] = useState(false)
+  const mttrTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -187,7 +199,12 @@ export default function EmailReports() {
   const runTaskNow = useCallback(async (taskId: string, okMsg: string, failMsg: string) => {
     setEflowRunningTask(taskId)
     try {
-      await api.post(`/tasks/${taskId}/run`)
+      // 同 generateMttr：/run 失败时也是 200，必须看响应体的 accepted
+      const res = await api.post(`/tasks/${taskId}/run`)
+      if (!res.data?.accepted) {
+        message.error(res.data?.error ? `${failMsg}：${res.data.error}` : failMsg)
+        return
+      }
       message.success(okMsg)
       // 任务在后台线程/队列执行，3 秒后刷新一次（再由用户手动刷新补全）
       setTimeout(loadEflowCheck, 3000)
@@ -201,6 +218,16 @@ export default function EmailReports() {
   useEffect(() => { load() }, [load])
   useEffect(() => { loadFinebi() }, [loadFinebi])
   useEffect(() => { loadEflowCheck() }, [loadEflowCheck])
+  useEffect(() => () => {
+    if (mttrTimer.current) clearTimeout(mttrTimer.current)
+  }, [])
+
+  // 只取 tt_mttr 一个源的当前文件列表（轮询用，绕开 load() 的 setState，避免读到旧 state）
+  const fetchMttrFiles = useCallback(async (): Promise<ReportFile[]> => {
+    const res = await api.get('/email-reports/latest', { params: { limit: 10 } })
+    const src = ((res.data?.reports || []) as ReportSource[]).find(s => s.source_id === 'tt_mttr')
+    return src?.files || []
+  }, [])
 
   const downloadUrl = (row: Row) =>
     `/api/email-reports/download/${row.source_id}/${encodeURIComponent(row.name)}`
@@ -210,6 +237,61 @@ export default function EmailReports() {
 
   const eflowDownloadUrl = (f: EflowFile) =>
     `/api/email-reports/download/eflow_tt_rules_check/${encodeURIComponent(f.name)}`
+
+  // 该页签的行取自 /email-reports/latest 已展平的结果，只留 tt_mttr 源
+  // （与「Email Reports」页签共用一次请求，且受同一个「保留最近 N 份」选择控制）
+  const mttrRows = useMemo(() => rows.filter(r => r.source_id === 'tt_mttr'), [rows])
+
+  const generateMttr = useCallback(async () => {
+    setMttrGenerating(true)
+    const prevMax = mttrRows.reduce((m, r) => Math.max(m, r.mtime), 0)
+    try {
+      // ⚠ 只判 HTTP 状态码会误报成功：/tasks/{id}/run 在「任务未找到 / 已禁用 /
+      // 队列不可用」时同样返回 200，失败信号只在响应体的 accepted=false 里
+      // （见 backend/services/task_runner.py:632-648 的 run_task_async）。
+      // 2026-10-05 事故：后端进程启动早于任务注册，注册表里没有本任务，
+      // 页面弹「已提交生成任务」后干等 90 秒超时，目录里始终没有文件。
+      const res = await api.post(`/tasks/${TT_MTTR_TASK}/run`)
+      if (!res.data?.accepted) {
+        const running = Boolean(res.data?.running)
+        message.error(
+          running
+            ? t('emailReports.mttrRunBusy')
+            : t('emailReports.mttrRunFail') + (res.data?.error ? `：${res.data.error}` : ''),
+        )
+        setMttrGenerating(false)
+        return
+      }
+      message.success(t('emailReports.mttrRunOk'))
+    } catch (e) {
+      message.error(t('emailReports.mttrRunFail'))
+      setMttrGenerating(false)
+      return
+    }
+    let tries = 0
+    const poll = async () => {
+      tries += 1
+      let fresh: ReportFile[] = []
+      try {
+        fresh = await fetchMttrFiles()
+      } catch (e) {
+        // 拉取失败按「尚未就绪」处理，下一轮再试（接口抖动不该直接判生成失败）
+      }
+      if (fresh.some(f => f.mtime > prevMax)) {
+        setMttrGenerating(false)
+        void load()
+        message.success(t('emailReports.mttrDone'))
+        return
+      }
+      if (tries >= MTTR_POLL_TRIES) {
+        setMttrGenerating(false)
+        message.warning(t('emailReports.mttrTimeout'))
+        return
+      }
+      mttrTimer.current = setTimeout(poll, MTTR_POLL_MS)
+    }
+    mttrTimer.current = setTimeout(poll, MTTR_POLL_MS)
+  }, [mttrRows, fetchMttrFiles, load, t])
 
   const columns = [
     {
@@ -412,6 +494,48 @@ export default function EmailReports() {
     },
   ]
 
+  // TTs and MTTR 页签的文件表：同一目录里只有本产物，任务名/类型列没有信息量，
+  // 只留 文件 / 大小 / 生成时间 / 下载（下载走通用的 downloadUrl，按 row.source_id 拼）
+  const mttrColumns = [
+    {
+      title: t('emailReports.colFile'),
+      dataIndex: 'name',
+      key: 'name',
+      minWidth: 320,
+      render: (v: string, row: Row) => (
+        <a href={downloadUrl(row)} download={row.name} title={row.dir}>
+          <FileExcelOutlined style={{ marginRight: '0.375rem', color: '#1d6f42' }} />
+          {v}
+        </a>
+      ),
+    },
+    {
+      title: t('emailReports.colSize'),
+      dataIndex: 'size',
+      key: 'size',
+      minWidth: 110,
+      align: 'right' as const,
+      render: (v: number) => formatSize(v),
+    },
+    {
+      title: t('emailReports.colTime'),
+      dataIndex: 'mtime',
+      key: 'mtime',
+      minWidth: 180,
+      render: (v: number) => formatDateTime(v),
+    },
+    {
+      title: t('emailReports.colAction'),
+      key: 'action',
+      minWidth: 110,
+      render: (_: unknown, row: Row) => (
+        <Button size="small" icon={<DownloadOutlined />} href={downloadUrl(row)} download={row.name}>
+          {t('emailReports.download')}
+        </Button>
+      ),
+    },
+  ]
+
   // ========== 导出 ==========
   /* 三个页签各导一份「当前页签表格的全量行」——与界面显示的列一一对应，
      不含操作列（下载按钮在 Excel 里没有意义）。
@@ -509,6 +633,18 @@ export default function EmailReports() {
     }
     await exportReport(sheets, `eflow_tt_rules_check_${stamp()}.xlsx`)
   }, [eflowSummary, eflowFiles, t])
+
+  const exportMttr = useCallback(async () => {
+    if (!mttrRows.length) return
+    await exportReport([{
+      name: 'TTs and MTTR Files',
+      title: t('emailReports.tabTtMttr'),
+      header: [t('emailReports.colFile'), t('emailReports.colSize'), t('emailReports.colTime')],
+      rows: mttrRows.map(r => [r.name, formatSize(r.size), formatDateTime(r.mtime)]),
+      columnWidths: [46, 12, 20],
+      tabColor: '#C55A11',
+    }], `tt_mttr_reports_${stamp()}.xlsx`)
+  }, [mttrRows, t])
 
   return (
     <div style={pageWrap}>
@@ -702,6 +838,51 @@ export default function EmailReports() {
                       </div>
                     </div>
                   )}
+                </>
+              ),
+            },
+            {
+              key: 'tt_mttr',
+              label: t('emailReports.tabTtMttr'),
+              children: (
+                <>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', gap: 'var(--wh-space-sm)', marginBottom: '0.75rem' }}>
+                    <Text type="secondary" style={{ maxWidth: '60rem' }}>{t('emailReports.mttrHint')}</Text>
+                    <Space wrap>
+                      <Button
+                        size="small"
+                        type="primary"
+                        icon={<ThunderboltOutlined />}
+                        onClick={() => void generateMttr()}
+                        loading={mttrGenerating}
+                      >
+                        {mttrGenerating ? t('emailReports.mttrGenerating') : t('emailReports.mttrRunNow')}
+                      </Button>
+                      <Button size="small" icon={<ReloadOutlined />} onClick={load} loading={loading}>
+                        {t('emailReports.refresh')}
+                      </Button>
+                      <Button size="small" icon={<DownloadOutlined />} onClick={() => void exportMttr()} disabled={!mttrRows.length}>
+                        {t('common.exportExcel')}
+                      </Button>
+                    </Space>
+                  </div>
+                  {mttrGenerating && (
+                    <div style={{ marginBottom: '0.75rem' }}>
+                      <Text type="secondary">{t('emailReports.mttrWaiting')}</Text>
+                    </div>
+                  )}
+                  <div className="wh-table-responsive">
+                    <Table
+                      size="small"
+                      rowKey="key"
+                      loading={loading}
+                      columns={mttrColumns as any}
+                      dataSource={mttrRows}
+                      pagination={false}
+                      scroll={{ x: 'max-content' }}
+                      locale={{ emptyText: <Empty description={t('emailReports.mttrEmpty')} image={Empty.PRESENTED_IMAGE_SIMPLE} /> }}
+                    />
+                  </div>
                 </>
               ),
             },

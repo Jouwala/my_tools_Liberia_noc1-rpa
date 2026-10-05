@@ -234,7 +234,12 @@ GROUP_TASK_MAP = {
         # 新任务必须显式分组，否则无 worker 认领 → 队列 pending 卡死直到 300s 超时
         # （finebi_report_sync / whatsapp_send_ext / sp_email_details / vmax_multi_data_sync
         #   已四次踩坑，见上）
-        "sp_details_files_email"),
+        "sp_details_files_email,"
+        # tt_mttr_report_generate 2026-10-04 注册：TTs and MTTR (Hour) 月粒度报表（每天 07:20）。
+        # 归 m 组理由：只读 data/eflow/tt_reports 下最新一份 hourly Report、只写同目录自己的
+        # 产物，不占任何上游会话，与同组 liberia_email_1h 共用同一份数据目录，属内务轻任务。
+        # 新任务必须显式分组，否则无 worker 认领 → 队列 pending 卡死直到 300s 超时
+        "tt_mttr_report_generate"),
     "c": (  # CN EMS (10.100.2.240) 独立会话：缓存同步与日聚合共享 _pmcache/daily_raw.json，
         # 同组串行保证互斥（ems_kpi_cache_sync 每15分钟 + ems_kpi_daily 每天00:20）
         "ems_kpi_cache_sync,ems_kpi_daily"),

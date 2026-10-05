@@ -135,11 +135,12 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
       usage: ['数据没更新时第一个打开这里：点统计卡即筛选，用「失败聚合」排查昨天夜里哪些任务挂了', '单任务「排程」弹窗修改 cron（写入 task_schedule_config，持久化，重启不丢）', '「全局历史」跨任务检索执行记录；任务完成后语音播报可在本页开关'],
     },
     email_reports: {
-      desc: '汇总三类任务产物并供下载：邮件发送的最新报告附件、FineBI FTP 报表、eFlow 规则检查结果。eFlow 页签底部列出**从 eFlow 获取的全部规则表**（TT 级别矫正规则 / 告警关联规则 / 推单·配置规则）与本次检查产物（级别矫正表 / 匹配报告）。',
+      desc: '汇总四类任务产物并供下载：邮件发送的最新报告附件、FineBI FTP 报表、eFlow 规则检查结果、TTs and MTTR 月粒度报表。eFlow 页签底部列出**从 eFlow 获取的全部规则表**（TT 级别矫正规则 / 告警关联规则 / 推单·配置规则）与本次检查产物（级别矫正表 / 匹配报告）。',
       usage: [
         '顶部页签切换类别，点文件名或「下载」保存；可设每类保留最近 N 份',
         'eFlow 页签三个「立即…」按钮分别手动触发对应任务：立即检查（TT 规则 + 匹配矫正）、收集告警规则、收集推单规则；触发后 3 秒自动刷新一次，任务慢时需手动再刷',
         'eFlow 页签底部表格：蓝色标签为规则表（TT 规则随每日 04:20 检查刷新；告警/推单规则原本每 3 天 23:59 刷新，可用上面的「收集…」按钮随时刷新），灰色为本次检查产物',
+        '「TTs and MTTR」页签的「立即生成」投一次 `tt_mttr_report_generate`（定时为每天 07:20，要更高频在任务管理页改排程），页面按文件生成时间轮询，出现更新的文件才提示「报告已生成」；口径：有 WO + 告警发生→告警清除历时 < 48 小时 + Site Category 非空 + 告警月份 ≥ 2026-01',
       ],
     },
     alarm: {
@@ -505,11 +506,12 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
       usage: ['First stop when data looks stale: click a stat card to filter, use the failure summary to see which tasks failed overnight', 'Edit cron in the "Schedule" dialog (persisted in task_schedule_config, survives restarts)', '"Global History" searches runs across tasks; voice announcement on completion toggles here'],
     },
     email_reports: {
-      desc: 'Collects three kinds of task artifacts for download: latest email report attachments, FineBI FTP reports, and eFlow rule check results. The bottom of the eFlow tab lists **every rule sheet collected from eFlow** (TT severity rules / alarm correlation rules / push & config rules) plus this run\'s outputs (severity correction sheet / matching report).',
+      desc: 'Collects four kinds of task artifacts for download: latest email report attachments, FineBI FTP reports, eFlow rule check results, and the TTs and MTTR monthly workbook. The bottom of the eFlow tab lists **every rule sheet collected from eFlow** (TT severity rules / alarm correlation rules / push & config rules) plus this run\'s outputs (severity correction sheet / matching report).',
       usage: [
         'Switch categories via tabs; click a file name or "Download" to save; set how many recent files to keep per category',
         'The three "Run Now / Collect" buttons on the eFlow tab trigger the matching task manually: TT check + severity correction, alarm rule collection, push rule collection; each auto-refreshes once after 3s (refresh manually if the task is slow)',
         'Table at the bottom of the eFlow tab: blue tag = rule sheet (TT rules refresh with the daily 04:20 check; alarm/push rules normally refresh every 3 days at 23:59 — use the "Collect" buttons to refresh them on demand), grey = this run\'s outputs',
+        'On the "TTs and MTTR" tab, "Generate now" submits one `tt_mttr_report_generate` run (scheduled daily at 07:20; raise the frequency from the Schedule column in Task Manager). The page polls the file timestamps and only reports success once a newer file appears. Scope: has a WO, alarm occur-to-clear under 48 hours, non-empty Site Category, occur month from 2026-01.',
       ],
     },
     alarm: {

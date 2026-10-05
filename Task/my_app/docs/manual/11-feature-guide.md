@@ -56,9 +56,9 @@
 
 ## 2. 任务报告文件（`?page=email_reports`）
 
-取回三类产物并下载：**邮件附件**、**FineBI 报表**、**eFlow TT 规则检查结果**。
+取回四类产物并下载：**邮件附件**、**FineBI 报表**、**eFlow TT 规则检查结果**、**TTs and MTTR 月粒度报表**。
 
-- 三页签切换（`EmailReports.tsx:331`）；可设「保留最近 N 份」（:348）。
+- 四页签切换（`EmailReports.tsx:636` 的 `Tabs items`，key 依次为 `email` / `finebi` / `eflow_tt_rules_check` / `tt_mttr`）；可设「保留最近 N 份」（:348）。
 - 各页独立刷新按钮（:350 / :377 / :407）；行内下载（:231 / :277 / 表格内「下载」列）。
 - eFlow 规则页有**三个手动触发按钮**（:463/:471/:479），点击后 3 秒做一次刷新（:157，**不是轮询**，任务慢时得手动再点刷新）：
   | 按钮 | 触发任务 | 端点 |
@@ -71,13 +71,24 @@
 - **eFlow 规则页底部列出「从 eFlow 获取的全部规则表」**（2026-09-23 新增）：TT 级别矫正规则 `eflow_TT_rules.xlsx`、告警关联规则 `eflow_alarm_rules*.xlsx`、推单/配置规则 `eflow_push_rules*.xlsx`，外加本次检查产物（级别矫正表 / 匹配报告）。此前只暴露 TT 规则表，另外两份规则收集任务的产物在界面上**无处可下**。
   - 文件清单由 `backend/routers/email_reports.py` 的 `_EFLOW_FILE_SPECS` 定义（`kind=rule|report` + 中英展示名），排序为「规则表在前（TT → 告警 → 推单）、检查产物在后」。
   - ⚠ `_EFLOW_FILE_SPECS` 的 pattern 必须与 `_SOURCES` 中 `eflow_tt_rules_check` 源的 `patterns` 一致 —— 下载接口 `_resolve_download_file` 按 `patterns` 做白名单校验，只改一处会出现「列得出来、点下载 403」。
+- **TTs and MTTR 页签**（2026-10-04 新增，`key: 'tt_mttr'`，`EmailReports.tsx:825`）：下载按月统计 TTs / MTTR 的组合图工作簿。
+  - 「立即生成」（`generateMttr`，:240）投一次 `POST /api/tasks/tt_mttr_report_generate/run`，任务由 m 组 worker 执行（实测 9.4 秒），
+    定时口径为每天 07:20，**要更高频在任务管理页改排程即可，不必改代码**。
+  - 与 eFlow 页那三个「点完 3 秒刷一次」的按钮不同，本页签是**按产物 mtime 轮询**（3 秒一次、最多 30 次，:118-119）：
+    出现更新的文件才提示「报告已生成」，超过 90 秒提示可能仍在排队并让用户改点刷新。
+    理由：任务在 worker 子进程里跑，接口层没有可靠的「本次触发是否已结束」信号，按固定秒数盲刷会在 worker 忙时显示为空。
+  - 文件清单**不新增端点**，复用 `GET /api/email-reports/latest` 里 `source_id='tt_mttr'` 的那一项
+    （`_SOURCES` 注册见 `backend/routers/email_reports.py:44`），下载同样走通用 `/download/{source}/{file}`；
+    页签表格只留 文件/大小/生成时间/下载（任务名与类型在该目录内恒定，没有信息量）。
+  - 口径、公式写法与验证步骤见 `backend/services/tt_mttr_report.md`。
 - 接口：`GET /api/email-reports/latest`、`GET /api/finebi-reports/latest`、`GET /api/email-reports/eflow_tt_rules_check`、下载 `GET /api/.../download/{source}/{file}`。
 - **导出 Excel**（2026-09-27 新增）：**每个页签各一个导出按钮**，导的是该页签表格当前的全量行
   （这些表 `pagination={false}`，无分页截断）——
   - 邮件报表 `exportEmail` → `EmailReports_*.xlsx`（任务/类型/文件/大小/时间，不含「下载」操作列）；
   - FineBI 报表 `exportFinebi` → `finebi_reports_*.xlsx`（文件夹/文件/大小/时间）；
   - eFlow 规则检查 `exportEflowCheck` → `eflow_tt_rules_check_*.xlsx`，多 sheet：`Summary`（统计卡 + 变更方向）、
-    `Rules`（规则明细，变更列走数值着色）、`Files`（可下载产物清单）。
+    `Rules`（规则明细，变更列走数值着色）、`Files`（可下载产物清单）；
+  - TTs and MTTR `exportMttr`（:617）→ `tt_mttr_reports_*.xlsx`（文件/大小/时间）。
 
 ## 3. 实时告警看板（`?page=alarm`）
 

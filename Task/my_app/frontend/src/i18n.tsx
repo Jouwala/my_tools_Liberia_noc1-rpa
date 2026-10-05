@@ -1678,6 +1678,18 @@ const translations: Record<Locale, Record<string, string>> = {
     'emailReports.rulesFileMissing': ' · 规则文件缺失',
     'emailReports.changeDir': '变更方向：',
     'emailReports.eflowFilesLabel': 'eFlow 规则表与检查产物（蓝色标签为从 eFlow 收集的规则表；点击文件名或「下载」保存）：',
+    // TTs and MTTR 页签（2026-10-04 新增，产物由 tt_mttr_report_generate 生成）
+    'emailReports.tabTtMttr': 'TTs and MTTR',
+    'emailReports.mttrHint': '口径：有 WO + 告警发生→告警清除历时 < 48 小时 + Site Category 非空 + 告警月份 ≥ 2026-01。Summary 页的分月 TTs / MTTR 是 Excel 公式（COUNTIFS / AVERAGEIFS），不是写死的值。定时任务每天 07:20 自动生成，也可点「立即生成」。',
+    'emailReports.mttrRunNow': '立即生成',
+    'emailReports.mttrGenerating': '生成中…',
+    'emailReports.mttrWaiting': '已提交生成任务，正在等待新文件落盘（生成约 10 秒；若 m 组 worker 正忙会先排队）…',
+    'emailReports.mttrRunOk': '已提交生成任务',
+    'emailReports.mttrRunFail': '触发生成失败',
+    'emailReports.mttrRunBusy': '该任务已在运行或排队中，请等它跑完再试',
+    'emailReports.mttrDone': '报告已生成',
+    'emailReports.mttrTimeout': '尚未看到新生成的文件：任务可能仍在排队，或后端尚未加载该任务（需要重启后端）。请到「数据同步」页查看该任务的执行记录，稍后再点「刷新」',
+    'emailReports.mttrEmpty': '暂无 TTs and MTTR 报告文件，点「立即生成」产出第一份',
 
     // MS SLA Dashboard
     'msSla.lastSync': '最近同步（UTC）',
@@ -5340,6 +5352,18 @@ const translations: Record<Locale, Record<string, string>> = {
     'emailReports.rulesFileMissing': ' · rules file missing',
     'emailReports.changeDir': 'Change direction: ',
     'emailReports.eflowFilesLabel': 'eFlow rule sheets & check outputs (blue tag = rule sheet collected from eFlow; click the file name or "Download" to save):',
+    // TTs and MTTR tab (added 2026-10-04, output built by tt_mttr_report_generate)
+    'emailReports.tabTtMttr': 'TTs and MTTR',
+    'emailReports.mttrHint': 'Scope: has a WO, cleared within 48 hours (alarm occur to alarm clear), non-empty Site Category, and an occur month from 2026-01. The monthly TTs / MTTR cells on the Summary sheet are live Excel formulas (COUNTIFS / AVERAGEIFS), not hard-coded values. A scheduled task rebuilds the workbook daily at 07:20; use Generate now for an on-demand copy.',
+    'emailReports.mttrRunNow': 'Generate now',
+    'emailReports.mttrGenerating': 'Generating...',
+    'emailReports.mttrWaiting': 'Generation task submitted, waiting for the new file to land (about 10s; it queues behind the m worker when that is busy)...',
+    'emailReports.mttrRunOk': 'Generation task submitted',
+    'emailReports.mttrRunFail': 'Failed to trigger generation',
+    'emailReports.mttrRunBusy': 'This task is already running or queued. Wait for it to finish and try again.',
+    'emailReports.mttrDone': 'Report generated',
+    'emailReports.mttrTimeout': 'No new file yet: the task may still be queued, or the backend has not loaded this task (a restart is required). Check its run history on the Data Sync page, then click Refresh.',
+    'emailReports.mttrEmpty': 'No TTs and MTTR report file yet. Click Generate now to build the first one.',
 
     // MS SLA Dashboard
     'msSla.lastSync': 'Last Sync (UTC)',

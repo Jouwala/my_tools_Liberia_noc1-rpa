@@ -806,6 +806,18 @@ TASK_SPECS = [
          description="隔离 my_app/TMP 下超过保留期（默认7天）的临时产物到 _quarantine_ 目录，隔离满 7 天后彻底删除；白名单保护服务在用路径",
          description_en="Quarantine TMP entries idle beyond retention (default 7 days) into _quarantine_ dirs, purge quarantine after another 7 days; service paths whitelisted",
          default_cron="47 3 * * *", category="general"),
+
+    # 45. TTs and MTTR 月粒度报表生成（每天 07:20，2026-10-04 新增）
+    #     读 eflow_sync 每小时产出的 Site Down hourly Report（Processed Data 页），
+    #     产出「分月 TTs / MTTR / SLA 目标」组合图工作簿给 EmailReports 页签下载。
+    #     纯本地文件读写（实测 9.4 秒），不调 eFlow API，故归 m 组；
+    #     排在 07:20 是为了读到 eflow_sync(每小时 :00) 当天第一期产出的数据。
+    #     需要更高频的话在任务管理页改 cron 即可，不必改代码（产物按 mtime 只留最近 10 份）。
+    dict(task_id="tt_mttr_report_generate", name="TTs and MTTR 报表生成", name_en="TTs and MTTR Report Generate",
+         loader=("backend.services.tt_mttr_report", "run_tt_mttr_report"),
+         description="从最新 Site Down hourly Report 生成 TTs and MTTR (Hour).xlsx：有 WO + 告警发生→清除历时<48h + Site Category 非空 + 2026-01 起，Summary 用 COUNTIFS/AVERAGEIFS 公式分月统计并出 P1~P4 组合图",
+         description_en="Build TTs and MTTR (Hour).xlsx from the latest Site Down hourly Report: WO present + occur-to-clear < 48h + non-empty Site Category + from 2026-01; Summary counts via COUNTIFS/AVERAGEIFS formulas with P1-P4 combo charts",
+         default_cron="20 7 * * *", category="eflow"),
 ]
 
 # ========== 网关分组（按「获取数据的外部系统」归类，与 category 平行） ==========
