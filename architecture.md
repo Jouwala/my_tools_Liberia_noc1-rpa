@@ -178,7 +178,8 @@ uvicorn 后端 (:7038)
 **决策。** 改为**触发制**（`backend/services/tt_alarm_trigger.py` +
 `tt_alarm_sources.py`，编排重写于 `tt_alarm_whatsapp_service.py`）：
 
-1. **触发源换 `realtime_alarm`**（`eflow_active_alarm` 每 30 分钟同步，行带
+1. **触发源换 `realtime_alarm`**（由 `eflow_active_alarm` 同步；注册表默认 `*/30`、
+   **实际周期以任务配置页的调度为准**，生产已配置 `*/5`。行带
    `tt_id`/`alarmraisedtime`/`alarmcode`）—— 触发条件：带 TT + 升起时间在触发窗口内 +
    告警码白名单；调度从 `*/15` 提到 `*/5`；
 2. **详情实时查单**：复用 `eflow_data_mapper.fetch_tt_live_batch`（一次分页遍历
@@ -190,12 +191,17 @@ uvicorn 后端 (:7038)
 4. 日志表 `eflow_tt_whatsapp_alert_log` 幂等补列 `last_alarm_seen_time` /
    `last_known_update_time` / `last_check_time`（服务内建表惯例，不走 Alembic）。
 
-**效果。** 首推时延从 45~75 分钟压到分钟级（≤30 分钟告警同步 + ≤5 分钟轮询）；
+**效果。** 首推时延从 45~75 分钟压到分钟级：告警同步周期（生产 `*/5`）+
+本任务轮询（`*/5`）+ 实时查单秒级，平均 ~5 分钟、最坏 ~10 分钟；
 重报从「定时刷屏」变为「停滞才报」，且值班能靠横幅区分首推与第 N 次提醒。
 
 **代价与注意。**
 1. 依赖链变长：`eflow_active_alarm` 挂了触发面就静默变空 —— 已加**表新鲜度检查**
-   （`_sync_time` 滞后 >45 分钟 → warnings 走微信/邮件喊人）；
+   （`_sync_time` 滞后超过阈值 → warnings 走微信/邮件喊人）。**阈值随实际调度
+   自适应**：优先读 `task_schedule_config` 里该任务的生效 cron 推导
+   （周期 × 1.5，下限 5 分钟），env `TT_TRIGGER_SYNC_STALE_SECONDS` 可显式覆盖，
+   读不到时退回 2700 秒兜底 —— 初始版写死 45 分钟，在用户把周期调到 `*/5` 后
+   迟钝 9 倍，2026-10-05 复盘订正；
 2. 每轮多一次 eFlow API 分页遍历（仅在有候选单时；会话复用 `auth_manager`
    跨进程缓存，登录风暴整改后该路径安全）；
 3. `window_minutes` 配置项语义已变（触发窗口，非 occur 窗口），页面标签已同步；

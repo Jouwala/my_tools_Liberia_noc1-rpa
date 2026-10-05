@@ -19,10 +19,13 @@ def _ms(dt: datetime) -> int:
     return int(dt.timestamp() * 1000)
 
 
-def _use_alarm_db(monkeypatch, tmp_path, rows, now: datetime):
+def _use_alarm_db(monkeypatch, tmp_path, rows, now: datetime,
+                  schedule_cron: str = None):
     """造最小 realtime_alarm（sqlite）并把 get_raw_connection 指过去。
 
     rows: [(tt_id, alarmraisedtime_ms, alarmcode)]；其余列给占位值。
+    schedule_cron 非空时额外建 task_schedule_config 并写入该行
+    （模拟用户在任务配置页给 eflow_active_alarm 配的实际调度）。
     """
     conn = sqlite3.connect(tmp_path / "alarm.db")
     conn.execute(
@@ -37,6 +40,13 @@ def _use_alarm_db(monkeypatch, tmp_path, rows, now: datetime):
             (tt_id, raised_ms, code, "5002", "LEC", "Montserrado",
              "4G CELL DOWN", "title", "Critical", "Uncleared",
              now.isoformat(timespec="seconds")))
+    if schedule_cron:
+        conn.execute(
+            "CREATE TABLE task_schedule_config ("
+            "task_id TEXT PRIMARY KEY, cron TEXT, enabled INTEGER, updated_at TEXT)")
+        conn.execute(
+            "INSERT INTO task_schedule_config VALUES (?,?,1,?)",
+            ("eflow_active_alarm", schedule_cron, now.isoformat(timespec="seconds")))
     conn.commit()
     conn.close()
 
@@ -172,3 +182,64 @@ def test_parse_epoch_ms():
     assert T.parse_epoch_ms(None) is None
     assert T.parse_epoch_ms("") is None
     assert T.parse_epoch_ms("bogus") is None
+
+
+# ---------------- 新鲜度阈值自适应（跟随 eflow_active_alarm 实际调度） ----------------
+
+def test_estimate_cron_interval_minutes():
+    """只识别项目里实际出现的 cron 形态，识别不了的返回 None 走兜底。"""
+    assert T.estimate_cron_interval_minutes("*/5 * * * *") == 5
+    assert T.estimate_cron_interval_minutes("22 * * * *") == 60
+    assert T.estimate_cron_interval_minutes("0 */6 * * *") == 360
+    assert T.estimate_cron_interval_minutes("0 5 * * *") == 1440
+    assert T.estimate_cron_interval_minutes("*/15 * * * *") == 15
+    assert T.estimate_cron_interval_minutes("bogus") is None
+    assert T.estimate_cron_interval_minutes("") is None
+    assert T.estimate_cron_interval_minutes(None) is None
+
+
+def test_sync_threshold_adapts_to_configured_cron(monkeypatch, tmp_path):
+    """任务配置页把 eflow_active_alarm 改成 */5 后，阈值应为 5×60×1.5 = 450 秒。
+
+    回归锁：初始版写死 45 分钟（按注册表默认 */30 定的），生产实际 */5 下
+    告警挂了也要 45 分钟才有人知道 —— 阈值必须跟生效 cron 走，不跟默认值走。
+    """
+    now = datetime.now()
+    monkeypatch.delenv("TT_TRIGGER_SYNC_STALE_SECONDS", raising=False)
+    _use_alarm_db(monkeypatch, tmp_path, [("T1", _ms(now - timedelta(minutes=1)), "9971")],
+                  now, schedule_cron="*/5 * * * *")
+
+    _, meta = T.fetch_triggered_tts(now, 180, set())
+    assert meta["sync_stale_threshold_seconds"] == 450
+
+
+def test_sync_threshold_falls_back_without_schedule_config(monkeypatch, tmp_path):
+    """task_schedule_config 不存在（表未建）或 cron 识别不了 → 退回内置兜底。"""
+    now = datetime.now()
+    monkeypatch.delenv("TT_TRIGGER_SYNC_STALE_SECONDS", raising=False)
+    _use_alarm_db(monkeypatch, tmp_path, [("T1", _ms(now - timedelta(minutes=1)), "9971")], now)
+
+    _, meta = T.fetch_triggered_tts(now, 180, set())
+    assert meta["sync_stale_threshold_seconds"] == T.SYNC_STALE_SECONDS == 2700
+
+
+def test_sync_threshold_env_overrides_everything(monkeypatch, tmp_path):
+    """显式环境变量优先级最高（运维人工定阈值的出口）。"""
+    now = datetime.now()
+    monkeypatch.setenv("TT_TRIGGER_SYNC_STALE_SECONDS", "600")
+    _use_alarm_db(monkeypatch, tmp_path, [("T1", _ms(now - timedelta(minutes=1)), "9971")],
+                  now, schedule_cron="*/5 * * * *")
+
+    _, meta = T.fetch_triggered_tts(now, 180, set())
+    assert meta["sync_stale_threshold_seconds"] == 600
+
+
+def test_sync_threshold_has_floor_against_tight_cron(monkeypatch, tmp_path):
+    """周期配得再密（如 */1 → 90s 推导值）也不低于 5 分钟，防同步抖动误报。"""
+    now = datetime.now()
+    monkeypatch.delenv("TT_TRIGGER_SYNC_STALE_SECONDS", raising=False)
+    _use_alarm_db(monkeypatch, tmp_path, [("T1", _ms(now - timedelta(minutes=1)), "9971")],
+                  now, schedule_cron="*/1 * * * *")
+
+    _, meta = T.fetch_triggered_tts(now, 180, set())
+    assert meta["sync_stale_threshold_seconds"] == T.SYNC_STALE_FLOOR_SECONDS == 300

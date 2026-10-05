@@ -4,9 +4,9 @@
 
 旧机制每 15 分钟扫 `eflow_tt`（按 alarm_occur_time 取 3 小时窗口），但那张表
 只由 `eflow_sync` **每小时 :22** 刷新一次 —— 告警发生到群里看到，平均 ~45 分钟、
-最坏 ~75 分钟，对 P1 来说太慢。而 `realtime_alarm` 由 `eflow_active_alarm`
-每 30 分钟同步（实时告警接口 `/api/fm-active/v1/activealarms/table`），
-行里带 `tt_id`（格式与 eflow_tt.tt_no 一致，实测 'TT202610030077'）、
+最坏 ~75 分钟。而 `realtime_alarm` 由 `eflow_active_alarm` 同步（注册表默认
+`*/30`，**实际周期以任务配置页的调度为准**，生产已配置 `*/5`），行里带
+`tt_id`（格式与 eflow_tt.tt_no 一致，实测 'TT202610030077'）、
 `alarmraisedtime`（epoch 毫秒）、`alarmcode` —— 是现成的「新 P1 告警出现」信号。
 触发之后的详情（级别/更新时间/是否清除）由主服务**实时回 eFlow 查单**补齐，
 不再受任何镜像的同步周期约束。
@@ -23,13 +23,17 @@
 同一 `tt_id` 关联多条告警（如同站 2G/4G CELL DOWN 各一条）时**只保留
 alarmraisedtime 最新的一条** —— 推送对象是 TT 不是告警，一条 TT 推一次。
 
-## 表新鲜度检查
+## 表新鲜度检查（阈值自适应）
 
 `realtime_alarm` 停止同步（eflow_active_alarm 挂了/登录失效）时，本模块扫出的
 候选会**静默变空**，推送任务表面一切正常 —— 这正是 2026-10-01「群内静默」事故
-的形态。故每轮顺带检查 `max(_sync_time)`：落后超过 `SYNC_STALE_SECONDS`
-（默认 45 分钟 = 1.5 个同步周期）即置 `meta["sync_lag_seconds"]`，
-由调用方把告警塞进 warnings 喊人。
+的形态。故每轮顺带检查 `max(_sync_time)` 滞后，超过阈值即由调用方喊人。
+
+⚠️ **阈值必须跟随实际调度周期**，不能写死：eflow_active_alarm 的 cron 在任务
+配置页可改（注册表默认 `*/30`，生产已配 `*/5`）——按 30 分钟定的 45 分钟阈值在
+5 分钟周期下形同虚设，告警真挂了也要 45 分钟才有人知道。故阈值按优先级取：
+显式环境变量 `TT_TRIGGER_SYNC_STALE_SECONDS` > 从 `task_schedule_config` 读
+实际 cron 推导（周期 × 1.5，下限 5 分钟防抖）> 内置默认 2700 秒。
 
 ## 时间口径
 
@@ -39,6 +43,7 @@ alarmraisedtime 最新的一条** —— 推送对象是 TT 不是告警，一�
 """
 import logging
 import os
+import re
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Set, Tuple
 
@@ -47,10 +52,12 @@ from backend.services.tt_alarm_message import norm_alarm_code, s as _s
 logger = logging.getLogger("tt_alarm_whatsapp")
 
 TRIGGER_TABLE = "realtime_alarm"
+SYNC_TASK_ID = "eflow_active_alarm"
 
-# 心跳滞后阈值（秒）：realtime_alarm 每 30 分钟同步一次，45 分钟没动静
-# 说明至少错过一轮同步，触发面可能已经失真，必须喊人。
+# 兜底阈值（秒）：仅当 env 未设、且读不到/解析不了实际 cron 时使用。
 SYNC_STALE_SECONDS = int(os.environ.get("TT_TRIGGER_SYNC_STALE_SECONDS", "2700"))
+# 自适应推导的下限（秒）：周期配得再密（如 */1）也不低于 5 分钟，防同步抖动误报。
+SYNC_STALE_FLOOR_SECONDS = 300
 
 # 本模块要读的列。与表实际列求交集（兼容不同同步版本的列差异）；
 # alarm_title/codename/perceivedseverityname 仅用于任务结果的现场信息，非必填。
@@ -87,6 +94,55 @@ def parse_epoch_ms(val: Any) -> Optional[datetime]:
         return None
 
 
+def estimate_cron_interval_minutes(cron: str) -> Optional[int]:
+    """把常见形态的 cron 估算成周期（分钟）；识别不了的返回 None。
+
+    只覆盖这个项目里实际出现的形态（**不追求通用 cron 解析**）：
+      * ``*/5 * * * *``       → 5（分钟步进，eflow_active_alarm 生产在用）
+      * ``22 * * * *``        → 60（每小时固定分钟，eflow_sync 在用）
+      * ``0 */6 * * *``       → 360（每 N 小时）
+      * ``0 5 * * *``         → 1440（每天固定时刻）
+    """
+    cron = (cron or "").strip()
+    if not cron:
+        return None
+    if re.fullmatch(r"\*/(\d+) \* \* \* \*", cron):
+        return int(cron.split()[0][2:])
+    if re.fullmatch(r"\d+ \* \* \* \*", cron):
+        return 60
+    if re.fullmatch(r"\d+ \*/(\d+) \* \* \*", cron):
+        return int(cron.split()[1][2:]) * 60
+    if re.fullmatch(r"\d+ \d+ \* \* \*", cron):
+        return 1440
+    return None
+
+
+def _resolve_sync_stale_threshold(conn, env: Optional[Dict[str, str]] = None) -> int:
+    """解析表新鲜度阈值（秒）。优先级：env > 实际 cron 推导 > 内置默认。
+
+    读 `task_schedule_config` 里 SYNC_TASK_ID 的**生效** cron —— 任务配置页改的
+    就是这张表，注册表里的 default_cron 只是首次注册的初值（2026-10-05 实测：
+    默认 */30 但生产已配 */5，静态 45 分钟阈值在 5 分钟周期下迟钝 9 倍）。
+    表不存在/行不存在/cron 识别不了 → 退回 SYNC_STALE_SECONDS 兜底。
+    """
+    env_val = (env or os.environ).get("TT_TRIGGER_SYNC_STALE_SECONDS")
+    if env_val:
+        try:
+            return int(env_val)
+        except ValueError:
+            pass
+    try:
+        row = conn.execute(
+            "SELECT cron FROM task_schedule_config WHERE task_id = ?",
+            (SYNC_TASK_ID,)).fetchone()
+    except Exception:  # noqa: BLE001 - 表可能还没建（task_runner 未初始化），走兜底
+        return SYNC_STALE_SECONDS
+    minutes = estimate_cron_interval_minutes(row[0] if row else None)
+    if minutes is None:
+        return SYNC_STALE_SECONDS
+    return max(SYNC_STALE_FLOOR_SECONDS, int(minutes * 60 * 1.5))
+
+
 def fetch_triggered_tts(now: datetime,
                         window_minutes: int,
                         alarm_codes: Set[str],
@@ -110,6 +166,7 @@ def fetch_triggered_tts(now: datetime,
         "scanned": 0,
         "truncated": False,
         "sync_lag_seconds": None,
+        "sync_stale_threshold_seconds": SYNC_STALE_SECONDS,
         "table_exists": True,
     }
 
@@ -134,6 +191,8 @@ def fetch_triggered_tts(now: datetime,
         raw_rows = [dict(zip(names, r)) for r in cur.fetchall()]
 
         # 表新鲜度：_sync_time 由 eflow_active_alarm 每轮写入（isoformat 文本）。
+        # 阈值随实际调度自适应（见 _resolve_sync_stale_threshold），与滞后值一并返回。
+        meta["sync_stale_threshold_seconds"] = _resolve_sync_stale_threshold(conn)
         if "_sync_time" in cols:
             cur = conn.execute(f"SELECT MAX(_sync_time) FROM {TRIGGER_TABLE}")
             max_sync = cur.fetchone()[0] if cur.description else None

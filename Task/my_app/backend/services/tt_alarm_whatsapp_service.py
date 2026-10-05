@@ -2,7 +2,8 @@
 
 ## 业务口径（2026-10-05 机制切换，每 5 分钟运行一次）
 
-**触发**：扫描 `realtime_alarm`（`eflow_active_alarm` 每 30 分钟同步的实时告警表），
+**触发**：扫描 `realtime_alarm`（由 `eflow_active_alarm` 同步的实时告警表；
+注册表默认 `*/30`，**实际周期以任务配置页的调度为准**，生产已配置 `*/5`），
 挑出「带 TT + 告警升起时间在窗口内 + 告警码白名单」的告警（口径细节与
 「为什么触发源不是 eflow_tt」见 `tt_alarm_trigger.py` 的模块 docstring）。
 
@@ -21,8 +22,9 @@
 3. 不报 —— 工单 20 分钟内有更新（有人在处理）只刷新跟踪字段，不打扰群里；
    告警已清除（`alarm_clear_time` 非空，或告警从 realtime_alarm 消失）自然止损。
 
-首推时延 ≈ realtime_alarm 同步周期（≤30 分钟）+ 本任务轮询（≤5 分钟），
-对比旧机制（eflow_tt 每小时 :22 才落库）的 45~75 分钟大幅缩短。
+首推时延 ≈ realtime_alarm 同步周期（生产 */5）+ 本任务轮询（≤5 分钟），
+平均 ~5 分钟、最坏 ~10 分钟，对比旧机制（eflow_tt 每小时 :22 才落库）的
+45~75 分钟大幅缩短。
 
 ## 配置 / 告警码过滤 / 发送通道 / 状态落库
 
@@ -272,9 +274,12 @@ def run_tt_alarm_whatsapp_alert() -> Dict[str, Any]:
         if meta.get("truncated"):
             out["errors"].append(f"触发扫描达到采样上限 {QUERY_LIMIT}，结果可能被截断")
         lag = meta.get("sync_lag_seconds")
-        if lag is not None and lag > trigger.SYNC_STALE_SECONDS:
+        # 阈值随 eflow_active_alarm 实际调度自适应（任务配置页改 cron 即生效），
+        # meta 缺键时退回静态兜底 —— 只防老快照，正常路径不会走。
+        stale_at = int(meta.get("sync_stale_threshold_seconds") or trigger.SYNC_STALE_SECONDS)
+        if lag is not None and lag > stale_at:
             warn = (f"realtime_alarm 已 {int(lag // 60)} 分钟未同步"
-                    f"（阈值 {trigger.SYNC_STALE_SECONDS // 60} 分钟），"
+                    f"（阈值 {stale_at // 60} 分钟），"
                     f"新 P1 告警可能触发不了 —— 请检查 eflow_active_alarm 任务")
             out["warnings"].append(warn)
             logger.warning("[TTAlert] %s", warn)

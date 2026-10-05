@@ -358,8 +358,9 @@ USSD 的日表当时只剩 2026-08-25~27 三行，而月表里有完整的 6 个
 
 ### `tt_alarm_whatsapp_alert` 的口径与实测坑（2026-09-28 首版，2026-10-05 机制切换）
 
-**触发制**（2026-10-05 起）：每 **5 分钟**扫 `realtime_alarm`（`eflow_active_alarm`
-每 30 分钟同步的实时告警表），挑出「带 TT（`tt_id` 非空）+ 告警升起时间
+**触发制**（2026-10-05 起）：每 **5 分钟**扫 `realtime_alarm`（由 `eflow_active_alarm`
+同步的实时告警表，注册表默认 `*/30`、**实际周期以任务配置页的调度为准**，生产已配
+`*/5`），挑出「带 TT（`tt_id` 非空）+ 告警升起时间
 （`alarmraisedtime`，epoch 毫秒）在触发窗口内 + 告警码在白名单内」的告警，
 随后**实时回 eFlow 查单**（`eflow_data_mapper.fetch_tt_live_batch`，一次分页遍历
 匹配全部目标单）拿当前 `ticket_severity` / `last_modified_time` / `alarm_clear_time`，
@@ -367,7 +368,7 @@ USSD 的日表当时只剩 2026-08-25~27 三行，而月表里有完整的 6 个
 
 > **为什么触发源不是 `eflow_tt`**：那张表由 `eflow_sync` 每小时 :22 才落库，
 > 旧机制（每 15 分钟扫它的 3 小时窗口）端到端时延 45~75 分钟，对 P1 太慢。
-> `realtime_alarm` 30 分钟新鲜度 + 本任务 5 分钟轮询 + 实时查单，
+> `realtime_alarm` 新鲜度（生产 `*/5` 同步）+ 本任务 5 分钟轮询 + 实时查单，
 > 首推时延压到分钟级。触发扫描的完整口径见
 > `backend/services/tt_alarm_trigger.py` 的模块 docstring；三层单据来源
 > （实时/镜像/触发行）的取舍见 `tt_alarm_sources.py`。
