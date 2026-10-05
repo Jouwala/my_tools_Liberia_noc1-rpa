@@ -92,4 +92,59 @@ class TestTruncationIsExposed:
 
     def test_truncated_flag_set_when_limit_reached(self):
         # 显式要 5 行，表里远超 5 行，护栏保留用户的 LIMIT → 必然触顶
-        out = nl2s
+        out = nl2sql.ask(
+            question="", provider="", api_key="", model="", run=True,
+            sql="SELECT * FROM eflow_tt LIMIT 5",
+        )
+        assert out["truncated"] is True
+        assert out["row_count"] == 5
+
+    def test_default_cap_is_generous(self):
+        """放宽后，普通查询不应再动辄触顶 —— 这正是用户反馈的问题。"""
+        out = nl2sql.ask(
+            question="", provider="", api_key="", model="", run=True,
+            sql="SELECT * FROM eflow_tt WHERE alarm_clear_time < created_time",
+        )
+        assert out["truncated"] is False, (
+            f"默认上限仍然过紧：{out['row_count']} 行就触顶了"
+        )
+        assert out["row_count"] > 200, "默认上限应高于原先的 200"
+
+
+class TestEffectiveLimitDetection:
+    """截断判定必须按**实际生效的 LIMIT**，而不是函数参数。
+
+    这是放宽上限时顺带发现的既有逻辑缺陷（`execute_readonly` 原用
+    `len(rows) >= limit` 与函数参数比较）：
+      - 用户写 `LIMIT 5` 时 `enforce_limit` 原样保留 5，返回 5 行，
+        但 5 >= 50000 为假 → **明明触顶却报未截断**；
+      - 旧默认值 200 下，用户写 `LIMIT 1000` 拿到 1000 行 → 被误判成未截断。
+
+    两种都会让前端的「已达上限」标签与实际不符，故逐条锁住。
+    """
+
+    def test_explicit_small_limit_reports_truncated(self):
+        out = nl2sql.ask(question="", provider="", api_key="", model="",
+                         run=True, sql="SELECT * FROM eflow_tt LIMIT 3")
+        assert out["row_count"] == 3
+        assert out["truncated"] is True
+
+    def test_explicit_large_limit_below_cap_not_truncated(self):
+        """子查询内部的 LIMIT 不得被误当成外层生效值。"""
+        out = nl2sql.ask(
+            question="", provider="", api_key="", model="", run=True,
+            sql="SELECT * FROM (SELECT * FROM eflow_tt LIMIT 5) AS t",
+        )
+        # 外层无 LIMIT → 由护栏包裹 DEFAULT_LIMIT；只返回 5 行说明未触顶
+        assert out["row_count"] == 5
+        assert out["truncated"] is False
+
+    def test_effective_limit_helper_reads_trailing_limit(self):
+        from backend.services.nl2sql_service import _effective_limit
+
+        assert _effective_limit("SELECT * FROM t LIMIT 42", 50000) == 42
+        assert _effective_limit("SELECT * FROM (\nSELECT 1\n) AS _guard_sub LIMIT 7", 50000) == 7
+        # 没有 LIMIT 时回退到传入的 fallback
+        assert _effective_limit("SELECT * FROM t", 123) == 123
+        # 字面量里的 'LIMIT 9' 不得干扰（结尾无真 LIMIT）
+        assert _effective_limit("SELECT 'LIMIT 9' AS x FROM t", 500) == 500

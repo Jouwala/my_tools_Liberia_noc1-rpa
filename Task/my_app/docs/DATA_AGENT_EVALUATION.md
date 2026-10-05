@@ -421,3 +421,51 @@ AND created_time > alarm_clear_time                              ← 悬空尾�
 - ✅ 相关测试共 60 例通过。
 - ✅ `npm run check:i18n` 通过、`npm run build` 成功，产物 `index-DoFY7Iwx.js` 已上线，
   新文案键与导出逻辑均可在 bundle 中查到。
+
+## 十四、2026-10-05 调整：放宽行数上限、去掉常驻截断告警
+
+用户反馈两点：**「其实不用限制 200，数据不会导出很大」**、
+**「也不用显示 Result hit the 685-row cap and may be truncated」**。
+
+### 上限放宽 200 → 50000
+
+`sql_guard.DEFAULT_LIMIT` / `MAX_LIMIT` 由 `200 / 1000` 改为 `50000 / 50000`。
+
+取值依据：与 `remote_readonly.MAX_LIMIT`（远端数据库单次读取上限，同为 50000）
+对齐 —— 两者是同类约束，用同一数量级可避免「本地放行、远端拒绝」的错配。
+真正的防护是**只读白名单 + 单语句**（`sql_guard.py` 顶部三道闸），不是行数。
+
+> `DEFAULT_LIMIT` 与 `MAX_LIMIT` 取同值，顺带消除了此前 DEFAULT/MAX 之间的
+> **静默灰区**（见第十节）—— 现在「不写 LIMIT」与「写超限 LIMIT」收敛到同一个数。
+
+### 顺带修掉一个既有逻辑缺陷：截断判定用错了比较对象
+
+`execute_readonly` 原本是 `truncated = len(rows) >= limit`，其中 `limit` 是**函数参数**
+而不是 SQL 里**实际生效**的 LIMIT。后果：
+
+- 用户写 `LIMIT 5` → `enforce_limit` 原样保留 5 → 返回 5 行，
+  但 `5 >= 50000` 为假 → **明明触顶却报未截断**；
+- 旧默认值 200 下，用户写 `LIMIT 1000` 拿到 1000 行 → 同样被误判成未截断。
+
+新增 `_effective_limit(sql, fallback)` 从 SQL 结尾解析真实生效值
+（复用 `sql_guard._strip_literals` 剥离字面量，不另写一份词法器），
+`truncated` 改用它判定。这个缺陷在 200 行上限下不易暴露，
+放宽上限时因测试构造方式变化才浮出来。
+
+### 告警条改为小标签
+
+原来的 `Alert`（两行文案、占版面）移除，改为**只在真的触顶时**在行数旁显示
+一个橙色「已达上限」`Tag`，悬浮给出说明。正常查询下不再有任何提示 ——
+这正是用户要的「不要显示」。
+
+> 「拿到的可能不是全量」这个事实没有被删掉，只是从常驻告警降级为按需提示。
+> 与之配套，导出仍只导已返回的这批行（不做偷偷重查全量）。
+
+### 验证状态
+
+- ✅ 用户那条查询：**685 行、`truncated=False`**（修复前 200 行且触顶）——
+  685 正是用户反馈文案里的数字。
+- ✅ 对照：`SELECT * FROM eflow_tt LIMIT 5` → 5 行、`truncated=True`（标签仍正确出现）。
+- ✅ `SELECT * FROM history_alarm`（不写 LIMIT）→ **14271 行、未触顶**。
+- ✅ 测试 62 例通过；新增 4 例锁定「有效 LIMIT 解析」，1 例防回退
+  （断言 `DEFAULT_LIMIT >= 10000`，防止有人把上限调回小数值）。

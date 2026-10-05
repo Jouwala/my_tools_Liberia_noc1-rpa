@@ -35,7 +35,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from backend.database import get_raw_connection, list_tables
 from backend.services.sql_guard import (
-    DEFAULT_LIMIT, SqlGuardError, enforce_limit, validate_sql,
+    DEFAULT_LIMIT, SqlGuardError, _strip_literals, enforce_limit, validate_sql,
 )
 
 logger = logging.getLogger(__name__)
@@ -326,6 +326,13 @@ def execute_readonly(sql: str, limit: int = DEFAULT_LIMIT) -> Dict[str, Any]:
     except SqlGuardError as e:
         raise Nl2SqlError(str(e)) from e
 
+    # 判定截断要按**实际生效的 LIMIT**，而不是本函数的 limit 参数。
+    # 此前用 `len(rows) >= limit` 是错的：用户写 `LIMIT 5` 时，enforce_limit 会
+    # 原样保留 5，返回 5 行，但比较对象仍是 limit（默认上限），于是 5 >= 50000 为假，
+    # **明明触顶却不报截断**。反之在旧默认值 200 下，用户写 `LIMIT 1000` 拿到 1000 行
+    # 也会被判成「未截断」。两种都让前端拿到错的信号。
+    effective_limit = _effective_limit(sql, fallback=limit)
+
     with get_raw_connection() as conn:
         try:
             # 只读事务（PG）：SQLite 分支忽略该语句也不应报错，故做容错
@@ -346,9 +353,25 @@ def execute_readonly(sql: str, limit: int = DEFAULT_LIMIT) -> Dict[str, Any]:
         "columns": columns,
         "rows": out_rows,
         "row_count": len(out_rows),
-        # 达到 LIMIT 说明可能被截断，显式暴露（沿用项目下钻截断的约定）
-        "truncated": len(out_rows) >= limit,
+        # 达到生效的 LIMIT 说明可能被截断，显式暴露（沿用项目下钻截断的约定）。
+        # 前端用它决定是否显示「已达上限」标签 —— 只在真的触顶时才出现。
+        "truncated": len(out_rows) >= effective_limit,
     }
+
+
+def _effective_limit(sql: str, fallback: int) -> int:
+    """取出 SQL 实际生效的 LIMIT 数值，供截断判定使用。
+
+    `enforce_limit` 之后的 SQL 必然是这两种形态之一：
+      - 结尾自带 `LIMIT n`（用户写的，或超限被改写成 MAX_LIMIT）；
+      - 外层包裹 `... ) AS _guard_sub LIMIT n`（原本没有 LIMIT）。
+    两者都能用同一个正则从**结尾**匹配到 —— 只看 `$` 锚定的那一处，
+    避免命中子查询内部的 LIMIT。
+    """
+    m = re.search(r"\blimit\s+(\d+)\s*$", _strip_literals(sql).strip(), re.IGNORECASE)
+    if m:
+        return int(m.group(1))
+    return fallback
 
 
 def ask(question: str, provider: str, api_key: str, model: str = "",
