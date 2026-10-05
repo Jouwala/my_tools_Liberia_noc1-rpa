@@ -1531,14 +1531,14 @@ The eflow_wo-sourced twin of the TT Dashboard: the layout matches page=tt block 
 Network Unavailability Rate (NUR) daily/weekly/monthly trends, multi-dimension analysis and site compliance.
 
 - Switch granularity and date range, filter by dimensions
-- Site dimensions can be narrowed by TRM type / Site category / Province-County / Region (attributes come from the site master, exact match; numerator and denominator share the same scope, so NUR still means this subset of sites)
+- Site dimensions can be narrowed by TRM type / Site category / Province-County / Region / Starlink migrated (attributes come from the site master, exact match; numerator and denominator share the same scope, so NUR still means this subset of sites)
 - Click numbers to drill into a detail table (in-column filters & sorting); export to Excel — the drill-down inherits every active filter
 
 #### NUR Dashboard (NUR only)（`ms_nur_only`）
 
 The "NUR only" cut of the NUR Dashboard: identical to the NUR half of page=nur (NUR daily/weekly/monthly tables + trends), with the three SLA blocks removed — handy for a NUR-only desk or wall screen.
 
-- Filters, drill-down and Excel export are shared with the NUR Dashboard, so usage is identical
+- Filters, drill-down and Excel export are shared with the NUR Dashboard, so usage is identical (including site dimensions: TRM type / Site category / Province-County / Region / Starlink migrated)
 - Direct link http://<host>/myapp/?page=ms_nur_only; the other half is page=ms_sla_only (SLA scope, from the MS Operation KPI Dashboard)
 
 #### MS Operation KPI Dashboard（`ms_sla`）

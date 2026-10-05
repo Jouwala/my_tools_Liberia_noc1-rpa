@@ -2942,14 +2942,17 @@ stop.bat all    # 连 PostgreSQL 一起停
 <p>网络不可用率（NUR）的日/周/月趋势与站点达标情况。口径见 <code>01-overview.md</code> 术语表。</p>
 <ul>
 <li>粒度切换 <code>daily|weekly|monthly</code>（<code>NurDashboard.tsx:29-30</code>）、日期区间、多维下拉（<code>GET /api/nur/options</code>，:421）。</li>
-<li><strong>站点四维筛选</strong>（2026-09-30 新增）：<code>trm_type</code> / <code>site_caregory</code> / <code>province_county</code> / <code>region</code>，
+<li><strong>站点维度筛选</strong>（2026-09-30 新增四维，2026-10-05 增补 <code>starlink_recently_migrated</code>）：
+<code>trm_type</code> / <code>site_caregory</code> / <code>province_county</code> / <code>region</code> / <code>starlink_recently_migrated</code>，
 候选值由 <code>/api/nur/options</code> 的 <code>site_filters</code> 下发（<code>nur_calc.get_site_filter_options</code>，取自站点主数据 <code>master_site_db</code>），
 <strong>精确匹配</strong>、<strong>同时作用于分子（TT）与分母（小区数）</strong> —— 只筛分子会让 NUR 比值不再是「这批站点的不可用率」。
-口径、归属规则与未归属行的处理见 <code>backend/routers/nur_dashboard.md</code> 的「站点四维过滤」一节。
+口径、归属规则与未归属行的处理见 <code>backend/routers/nur_dashboard.md</code> 的「站点维度过滤」一节。
 站点归属 <code>site_id</code> 优先、重名站名不回退（11 个重名站，猜哪个都是静默错归）。
-界面下拉按 <code>SITE_FILTER_COLS</code> 顺序渲染，标签走显式 <code>switch</code>（<code>siteFilterLabelKey</code>）而非动态拼 i18n 键（同 1b 条）。</li>
+界面下拉按 <code>SITE_FILTER_COLS</code> 顺序渲染，标签走显式 <code>switch</code>（<code>siteFilterLabelKey</code>）而非动态拼 i18n 键（同 1b 条）。
+<code>starlink_recently_migrated</code> 是 Yes/No 二值列（实测 827 站中 Yes=48 / No=779），与其余多值分类共用同一套精确匹配机制；
+<strong>它与 <code>trm_type='Starlink'</code> 是两个不同维度</strong>（前者=星链迁移状态，后者=传输承载类型），可叠加且有交集。</li>
 <li>主数据 <code>GET /api/nur/overview</code>（:411）；点数字下钻明细表 <code>GET /api/nur/detail</code>（:448），下钻表带列内筛选与排序（<code>strSorter</code>/<code>getUniqueFilters</code>，:17-27）。
-<strong>下钻继承当前全部筛选（含站点四维）</strong>，与概览逐条同口径 —— 实测 SLA Total 行与下钻行数在 5 组筛选下逐一对齐。</li>
+<strong>下钻继承当前全部筛选（含站点维度）</strong>，与概览逐条同口径 —— 实测 SLA Total 行与下钻行数在 7 组筛选下逐一对齐（含 <code>starlink=Yes/No</code>）。</li>
 <li><strong>导出</strong>：分两级，别混淆 ——
 <ul>
 <li><strong>下钻弹窗内</strong>：导出当前下钻明细行（<code>exportToExcel</code>）；</li>
@@ -2960,8 +2963,8 @@ stop.bat all    # 连 PostgreSQL 一起停
 </blockquote>
 <ul>
 <li><strong>页面级</strong>（2026-09-27 新增）：筛选条末尾的导出按钮，多 sheet（<code>汇总</code> + <code>KPI List NUR/SLA</code> 日/周/月各一档）。
-导出当前 Vendor / Project / 站点四维 / Exclude / 时间范围筛选后的汇总卡与三档 NUR+SLA；筛选条件写进每个 sheet 的 <code>subtitle</code>（含各档粒度与 NUR 量纲说明）。
-站点四维在副标题里沿用筛选条同一批标签键（<code>nur.trmType</code> 等），不另建 <code>nur.exportXxx</code> 重复键。
+导出当前 Vendor / Project / 站点维度 / Exclude / 时间范围筛选后的汇总卡与三档 NUR+SLA；筛选条件写进每个 sheet 的 <code>subtitle</code>（含各档粒度与 NUR 量纲说明）。
+站点维度在副标题里沿用筛选条同一批标签键（<code>nur.trmType</code> 等），不另建 <code>nur.exportXxx</code> 重复键。
 <strong>派生页 <code>?page=ms_nur_only</code>（<code>MsNurOnly.tsx</code>）自动获得该按钮</strong>（同上，参数化复用 + 顶部工具栏）。</li>
 </ul>
 </li>
@@ -11880,14 +11883,14 @@ shared <code>auth_cache</code> 里 admin 的 token 明明还有 14.6 小时有�
 <p>网络不可用率（NUR）的日/周/月趋势、多维分析与站点达标情况。</p>
 <ul>
 <li>切换粒度与日期区间，多维下拉筛选</li>
-<li>站点维度可再按 TRM 类型 / 站点等级 / 省县 / 区域筛选（属性取自站点主数据，精确匹配；分子与分母同口径，NUR 仍表示这批站点的不可用率）</li>
+<li>站点维度可再按 TRM 类型 / 站点等级 / 省县 / 区域 / 星链近期迁移筛选（属性取自站点主数据，精确匹配；分子与分母同口径，NUR 仍表示这批站点的不可用率）</li>
 <li>点数字下钻明细表（支持列内筛选与排序），可一键导出 Excel；下钻自动继承当前全部筛选</li>
 </ul>
 <p><a id="ch-15-s93"></a></p>
 <h5>NUR 看板（仅 NUR）（<code>ms_nur_only</code>）</h5>
 <p>NUR 看板的「只保留 NUR」版：内容与 page=nur 的 NUR 部分完全一致（NUR 日/周/月 的表格 + 趋势），不再渲染 SLA 三档，适合只看 NUR 的值班位或大屏。</p>
 <ul>
-<li>筛选条、下钻明细与导出与 NUR 看板同源，用法一致</li>
+<li>筛选条、下钻明细与导出与 NUR 看板同源，用法一致（含站点维度：TRM 类型 / 站点等级 / 省县 / 区域 / 星链近期迁移）</li>
 <li>直链 http://<host>/myapp/?page=ms_nur_only；另一半内容见 page=ms_sla_only（SLA 口径，来自 MS Operation KPI 看板）</li>
 </ul>
 <p><a id="ch-15-s94"></a></p>

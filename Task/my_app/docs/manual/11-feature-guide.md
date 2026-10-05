@@ -189,21 +189,24 @@
 网络不可用率（NUR）的日/周/月趋势与站点达标情况。口径见 `01-overview.md` 术语表。
 
 - 粒度切换 `daily|weekly|monthly`（`NurDashboard.tsx:29-30`）、日期区间、多维下拉（`GET /api/nur/options`，:421）。
-- **站点四维筛选**（2026-09-30 新增）：`trm_type` / `site_caregory` / `province_county` / `region`，
+- **站点维度筛选**（2026-09-30 新增四维，2026-10-05 增补 `starlink_recently_migrated`）：
+  `trm_type` / `site_caregory` / `province_county` / `region` / `starlink_recently_migrated`，
   候选值由 `/api/nur/options` 的 `site_filters` 下发（`nur_calc.get_site_filter_options`，取自站点主数据 `master_site_db`），
   **精确匹配**、**同时作用于分子（TT）与分母（小区数）** —— 只筛分子会让 NUR 比值不再是「这批站点的不可用率」。
-  口径、归属规则与未归属行的处理见 `backend/routers/nur_dashboard.md` 的「站点四维过滤」一节。
+  口径、归属规则与未归属行的处理见 `backend/routers/nur_dashboard.md` 的「站点维度过滤」一节。
   站点归属 `site_id` 优先、重名站名不回退（11 个重名站，猜哪个都是静默错归）。
   界面下拉按 `SITE_FILTER_COLS` 顺序渲染，标签走显式 `switch`（`siteFilterLabelKey`）而非动态拼 i18n 键（同 1b 条）。
+  `starlink_recently_migrated` 是 Yes/No 二值列（实测 827 站中 Yes=48 / No=779），与其余多值分类共用同一套精确匹配机制；
+  **它与 `trm_type='Starlink'` 是两个不同维度**（前者=星链迁移状态，后者=传输承载类型），可叠加且有交集。
 - 主数据 `GET /api/nur/overview`（:411）；点数字下钻明细表 `GET /api/nur/detail`（:448），下钻表带列内筛选与排序（`strSorter`/`getUniqueFilters`，:17-27）。
-  **下钻继承当前全部筛选（含站点四维）**，与概览逐条同口径 —— 实测 SLA Total 行与下钻行数在 5 组筛选下逐一对齐。
+  **下钻继承当前全部筛选（含站点维度）**，与概览逐条同口径 —— 实测 SLA Total 行与下钻行数在 7 组筛选下逐一对齐（含 `starlink=Yes/No`）。
 - **导出**：分两级，别混淆 ——
   - **下钻弹窗内**：导出当前下钻明细行（`exportToExcel`）；
   - **页面级**（2026-09-27 新增）：导出当前筛选下的全部汇总数据。
   > 本节曾把弹窗内那个按钮记作本页的「导出」，读起来像是页面上有导出入口，**实为误记**（同 `page=ttwo` 的问题），2026-09-27 已纠正。
   - **页面级**（2026-09-27 新增）：筛选条末尾的导出按钮，多 sheet（`汇总` + `KPI List NUR/SLA` 日/周/月各一档）。
-    导出当前 Vendor / Project / 站点四维 / Exclude / 时间范围筛选后的汇总卡与三档 NUR+SLA；筛选条件写进每个 sheet 的 `subtitle`（含各档粒度与 NUR 量纲说明）。
-    站点四维在副标题里沿用筛选条同一批标签键（`nur.trmType` 等），不另建 `nur.exportXxx` 重复键。
+    导出当前 Vendor / Project / 站点维度 / Exclude / 时间范围筛选后的汇总卡与三档 NUR+SLA；筛选条件写进每个 sheet 的 `subtitle`（含各档粒度与 NUR 量纲说明）。
+    站点维度在副标题里沿用筛选条同一批标签键（`nur.trmType` 等），不另建 `nur.exportXxx` 重复键。
     **派生页 `?page=ms_nur_only`（`MsNurOnly.tsx`）自动获得该按钮**（同上，参数化复用 + 顶部工具栏）。
 - 表格与趋势图复用同一套"项目统一下钻规范"，与 TT&WO / MS SLA 三页保持一致。
 

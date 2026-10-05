@@ -46,6 +46,8 @@ def nur_overview(
     site_caregory: str = Query("", description="站点主数据 site_caregory 精确匹配，空=全部"),
     province_county: str = Query("", description="站点主数据 province_county 精确匹配，空=全部"),
     region: str = Query("", description="站点主数据 region 精确匹配，空=全部"),
+    starlink_recently_migrated: str = Query(
+        "", description="站点主数据 starlink_recently_migrated 精确匹配（Yes/No），空=全部"),
     start: str = Query("", description="起始日期 YYYY-MM-DD（含），作用于 alarm_occur_time"),
     end: str = Query("", description="结束日期 YYYY-MM-DD（含），作用于 alarm_occur_time"),
     refresh_exclude: bool = Query(False, description="强制刷新 FTP 排除名单缓存"),
@@ -56,6 +58,7 @@ def nur_overview(
         start=start, end=end, refresh_exclude=refresh_exclude,
         trm_type=trm_type, site_caregory=site_caregory,
         province_county=province_county, region=region,
+        starlink_recently_migrated=starlink_recently_migrated,
     )
 
 
@@ -74,6 +77,8 @@ def nur_detail(
     site_caregory: str = Query("", description="站点主数据 site_caregory 精确匹配，空=全部"),
     province_county: str = Query("", description="站点主数据 province_county 精确匹配，空=全部"),
     region: str = Query("", description="站点主数据 region 精确匹配，空=全部"),
+    starlink_recently_migrated: str = Query(
+        "", description="站点主数据 starlink_recently_migrated 精确匹配（Yes/No），空=全部"),
 ):
     """单元格下钻：返回构成该数值的 TT 明细（筛选口径与 /overview 一致）。
     详见 nur_calc.compute_detail。"""
@@ -83,4 +88,5 @@ def nur_detail(
         project=project, exclude=exclude,
         trm_type=trm_type, site_caregory=site_caregory,
         province_county=province_county, region=region,
+        starlink_recently_migrated=starlink_recently_migrated,
     )

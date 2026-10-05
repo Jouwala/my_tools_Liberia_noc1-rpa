@@ -1775,11 +1775,12 @@ const translations: Record<Locale, Record<string, string>> = {
         'nur.monthly': 'Monthly',
         'nur.vendor': 'Vendor',
         'nur.project': 'Project',
-        // 站点四维筛选（2026-09-30 新增）：属性取自站点主数据 master_site_db，精确匹配
+        // 站点维度筛选（2026-09-30 新增，2026-10-05 增补 starlink）：属性取自站点主数据 master_site_db，精确匹配
         'nur.region': '区域',
         'nur.provinceCounty': '省/县',
         'nur.trmType': 'TRM 类型',
         'nur.siteCategory': '站点等级',
+        'nur.starlinkMigrated': '星链近期迁移',
         'nur.exclude': 'Exclude',
         'nur.timeRange': '时间范围',
         'nur.all': '无限制',
@@ -5446,11 +5447,12 @@ const translations: Record<Locale, Record<string, string>> = {
         'nur.monthly': 'Monthly',
         'nur.vendor': 'Vendor',
         'nur.project': 'Project',
-        // Site-dimension filters (2026-09-30): attributes come from site master master_site_db, exact match
+        // Site-dimension filters (2026-09-30; starlink added 2026-10-05): attributes come from site master master_site_db, exact match
         'nur.region': 'Region',
         'nur.provinceCounty': 'Province/County',
         'nur.trmType': 'TRM type',
         'nur.siteCategory': 'Site category',
+        'nur.starlinkMigrated': 'Starlink migrated',
         'nur.exclude': 'Exclude',
         'nur.timeRange': 'Time Range',
         'nur.all': 'All',

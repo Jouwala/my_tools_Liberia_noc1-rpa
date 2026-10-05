@@ -30,16 +30,20 @@ type Gran = 'daily' | 'weekly' | 'monthly'
 const GRANS: Gran[] = ['daily', 'weekly', 'monthly']
 const TECHS = ['2G', '3G', '4G', '5G']
 
-/* ---------- 站点维度筛选（2026-09-30 新增）----------
- * 四列属性全部来自站点主数据 master_site_db（后端 /nur/options 的 site_filters 下发候选值），
+/* ---------- 站点维度筛选（2026-09-30 新增，2026-10-05 增补 starlink）----------
+ * 列属性全部来自站点主数据 master_site_db（后端 /nur/options 的 site_filters 下发候选值），
  * 顺序即界面上下拉的展示顺序；列名与后端 nur_calc.SITE_FILTER_COLS 一一对应。
  * 过滤同时作用于分子（TT）与分母（小区数），因此切换筛选后 NUR 比值仍是「这批站点的
- * 不可用率」，不是只筛分子得出的假象。 */
-const SITE_FILTER_COLS = ['trm_type', 'site_caregory', 'province_county', 'region'] as const
+ * 不可用率」，不是只筛分子得出的假象。
+ * starlink_recently_migrated 是 Yes/No 二值列，与其余多值分类共用同一套筛选机制。 */
+const SITE_FILTER_COLS = [
+  'trm_type', 'site_caregory', 'province_county', 'region', 'starlink_recently_migrated',
+] as const
 type SiteFilterCol = typeof SITE_FILTER_COLS[number]
 // 下拉宽度（按候选值长度给：province_county 有 'Grand Cape Mount' 这类长值）
 const SITE_FILTER_WIDTH: Record<SiteFilterCol, string> = {
   trm_type: '8.75rem', site_caregory: '7.5rem', province_county: '10.625rem', region: '7.5rem',
+  starlink_recently_migrated: '8.125rem',
 }
 /**
  * 站点筛选列的 i18n 键映射。
@@ -54,6 +58,7 @@ const siteFilterLabelKey = (col: string): string => {
     case 'site_caregory': return 'nur.siteCategory'
     case 'province_county': return 'nur.provinceCounty'
     case 'region': return 'nur.region'
+    case 'starlink_recently_migrated': return 'nur.starlinkMigrated'
     default: return col
   }
 }
@@ -100,7 +105,7 @@ interface OptionsResp {
   vendors: string[]
   projects: string[]
   exclude_options: string[]
-  /** 站点四维筛选候选值：{trm_type|site_caregory|province_county|region: [值...]} */
+  /** 站点维度筛选候选值：{trm_type|site_caregory|province_county|region|starlink_recently_migrated: [值...]} */
   site_filters?: Record<string, string[]>
   exclude_status: ExcludeStatus
 }
@@ -476,7 +481,7 @@ export default function NurDashboard({ only }: { only?: 'nur' | 'sla' } = {}) {
   const [vendor, setVendor] = useState('')
   const [project, setProject] = useState('')
   const [exclude, setExclude] = useState('')
-  // 站点四维筛选（trm_type/site_caregory/province_county/region），空值=不筛。
+  // 站点维度筛选（trm_type/site_caregory/province_county/region/starlink_recently_migrated），空值=不筛。
   // 用 Record<string,string> 而非键联合类型：与 TTWODashboard 的高级过滤一致，
   // 避免 `{...prev, [col]: v}` 在联合键下被 TS 推成宽泛索引签名。
   const [siteFilters, setSiteFilters] = useState<Record<string, string>>({})
@@ -721,7 +726,8 @@ export default function NurDashboard({ only }: { only?: 'nur' | 'sla' } = {}) {
               onChange={v => setProject(v || '')} style={{ width: 'min(100%, 10.625rem)' as any }}
               options={(options?.projects || []).map(v => ({ value: v, label: v }))} />
           </Space>
-          {/* 站点四维筛选（trm_type / site_caregory / province_county / region）：
+          {/* 站点维度筛选（trm_type / site_caregory / province_county / region /
+              starlink_recently_migrated）：
               候选值由 /nur/options 的 site_filters 下发（站点主数据 master_site_db），
               后端按精确匹配过滤，分子与分母同口径。候选为空的列不渲染下拉。 */}
           {SITE_FILTER_COLS.map(col => {

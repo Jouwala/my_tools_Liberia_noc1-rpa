@@ -218,11 +218,11 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
     },
     nur: {
       desc: '网络不可用率（NUR）的日/周/月趋势、多维分析与站点达标情况。',
-      usage: ['切换粒度与日期区间，多维下拉筛选', '站点维度可再按 TRM 类型 / 站点等级 / 省县 / 区域筛选（属性取自站点主数据，精确匹配；分子与分母同口径，NUR 仍表示这批站点的不可用率）', '点数字下钻明细表（支持列内筛选与排序），可一键导出 Excel；下钻自动继承当前全部筛选'],
+      usage: ['切换粒度与日期区间，多维下拉筛选', '站点维度可再按 TRM 类型 / 站点等级 / 省县 / 区域 / 星链近期迁移筛选（属性取自站点主数据，精确匹配；分子与分母同口径，NUR 仍表示这批站点的不可用率）', '点数字下钻明细表（支持列内筛选与排序），可一键导出 Excel；下钻自动继承当前全部筛选'],
     },
     ms_nur_only: {
       desc: 'NUR 看板的「只保留 NUR」版：内容与 page=nur 的 NUR 部分完全一致（NUR 日/周/月 的表格 + 趋势），不再渲染 SLA 三档，适合只看 NUR 的值班位或大屏。',
-      usage: ['筛选条、下钻明细与导出与 NUR 看板同源，用法一致', '直链 http://<host>/myapp/?page=ms_nur_only；另一半内容见 page=ms_sla_only（SLA 口径，来自 MS Operation KPI 看板）'],
+      usage: ['筛选条、下钻明细与导出与 NUR 看板同源，用法一致（含站点维度：TRM 类型 / 站点等级 / 省县 / 区域 / 星链近期迁移）', '直链 http://<host>/myapp/?page=ms_nur_only；另一半内容见 page=ms_sla_only（SLA 口径，来自 MS Operation KPI 看板）'],
     },
     ms_sla: {
       desc: 'MS 合同 KPI 与工单 SLA 达成情况：NUR / Network KPI / Per-Site / WO SLA（指标为行、期间为列）。',
@@ -589,11 +589,11 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
     },
     nur: {
       desc: 'Network Unavailability Rate (NUR) daily/weekly/monthly trends, multi-dimension analysis and site compliance.',
-      usage: ['Switch granularity and date range, filter by dimensions', 'Site dimensions can be narrowed by TRM type / Site category / Province-County / Region (attributes come from the site master, exact match; numerator and denominator share the same scope, so NUR still means this subset of sites)', 'Click numbers to drill into a detail table (in-column filters & sorting); export to Excel — the drill-down inherits every active filter'],
+      usage: ['Switch granularity and date range, filter by dimensions', 'Site dimensions can be narrowed by TRM type / Site category / Province-County / Region / Starlink migrated (attributes come from the site master, exact match; numerator and denominator share the same scope, so NUR still means this subset of sites)', 'Click numbers to drill into a detail table (in-column filters & sorting); export to Excel — the drill-down inherits every active filter'],
     },
     ms_nur_only: {
       desc: 'The "NUR only" cut of the NUR Dashboard: identical to the NUR half of page=nur (NUR daily/weekly/monthly tables + trends), with the three SLA blocks removed — handy for a NUR-only desk or wall screen.',
-      usage: ['Filters, drill-down and Excel export are shared with the NUR Dashboard, so usage is identical', 'Direct link http://<host>/myapp/?page=ms_nur_only; the other half is page=ms_sla_only (SLA scope, from the MS Operation KPI Dashboard)'],
+      usage: ['Filters, drill-down and Excel export are shared with the NUR Dashboard, so usage is identical (including site dimensions: TRM type / Site category / Province-County / Region / Starlink migrated)', 'Direct link http://<host>/myapp/?page=ms_nur_only; the other half is page=ms_sla_only (SLA scope, from the MS Operation KPI Dashboard)'],
     },
     ms_sla: {
       desc: 'MS contract KPIs and WO SLA attainment: NUR / Network KPI / Per-Site / WO SLA (metrics as rows, periods as columns).',

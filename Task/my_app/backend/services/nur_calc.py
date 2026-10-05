@@ -17,7 +17,8 @@ NUR / SLA 看板计算引擎
 4. 分母：默认全网该制式小区总数；Project 筛选生效时按 site_caregory 与站点类型
    归一化包含匹配圈定小区数（分子分母同口径）
 5. SLA：ticket_severity 分组 Total / Within SLA(sla_status='Pass') / 达成率
-6. 站点四维过滤（trm_type / site_caregory / province_county / region，2026-09-30 新增）：
+6. 站点维度过滤（trm_type / site_caregory / province_county / region /
+   starlink_recently_migrated，2026-09-30 新增，2026-10-05 增补 starlink）：
    属性一律取自站点主数据 master_site_db，**精确匹配**；分子（TT 行）与分母
    （cm_site_summary 小区数）走同一份属性索引，保证两侧圈定的是同一批站点。
    站点归属规则见 attach_site_attrs（site_id 命中优先，重名站点不做站名回退）。
@@ -65,11 +66,21 @@ _TT_COLS = ("title, ticket_no, tt_no, ticket_severity, sla_status, "
             "alarm_occur_time, alarm_clear_time, site_id, site_name, site_information")
 _CM_COLS = ('"Site_ID", "Site_Name", "NumberOfCells", "Tech", "site_caregory"')
 
-# ---------- 站点四维过滤（trm_type / site_caregory / province_county / region） ----------
+# ---------- 站点维度过滤（trm_type / site_caregory / province_county / region /
+#            starlink_recently_migrated） ----------
 # 属性来源固定为站点主数据 master_site_db（与 GISMap、TT&WO Dashboard 同一个真相源）；
 # 元组顺序即前端下拉的展示顺序，也是 /options 下发的顺序。
-SITE_FILTER_COLS: Tuple[str, ...] = ("trm_type", "site_caregory", "province_county", "region")
-_SITE_COLS = "site_id, site_name, trm_type, site_caregory, province_county, region"
+# 各列取值形态不同但**统一走精确匹配**，因此共用同一套机制：
+#   - trm_type / site_caregory / province_county / region 为多值分类；
+#   - starlink_recently_migrated 是 Yes/No 二值列（2026-10-05 新增，实测 827 行中
+#     Yes=48 / No=779，无大小写或空白变体，48 个 Yes 站点在 cm_site_summary 中均有
+#     小区记录，故选中 Yes 时分母不会为 0）。
+SITE_FILTER_COLS: Tuple[str, ...] = (
+    "trm_type", "site_caregory", "province_county", "region",
+    "starlink_recently_migrated",
+)
+_SITE_COLS = ("site_id, site_name, trm_type, site_caregory, province_county, region, "
+              "starlink_recently_migrated")
 # TT 行/CM 行上挂载的属性列前缀，避免与 eflow_tt 自身的 site_caregory 之类同名列冲突
 _SITE_PREFIX = "s_"
 
@@ -155,7 +166,7 @@ def get_project_options() -> List[str]:
 
 
 # ============================================================
-# 站点四维过滤：主数据加载 / 索引 / 挂载 / 候选值
+# 站点维度过滤：主数据加载 / 索引 / 挂载 / 候选值
 # ------------------------------------------------------------
 # 为什么属性取自 master_site_db 而不是 cm_site_summary：
 #   - cm_site_summary 只有 region / province_county / site_caregory 三列、没有
@@ -165,7 +176,7 @@ def get_project_options() -> List[str]:
 #     四列齐全（实测 827 行，site_id 无重复）。
 # ============================================================
 def load_site_master() -> pd.DataFrame:
-    """读取站点主数据 master_site_db 的四维属性；列名统一转小写。"""
+    """读取站点主数据 master_site_db 的维度属性；列名统一转小写。"""
     from sqlalchemy import text
     try:
         df = pd.read_sql(text(f"SELECT {_SITE_COLS} FROM master_site_db"), engine)
@@ -215,8 +226,9 @@ def build_site_index(sm: pd.DataFrame) -> Dict[str, object]:
 
 def attach_site_attrs(df: pd.DataFrame, sid_col: str, name_col: str,
                       site_index: Dict[str, object]) -> pd.DataFrame:
-    """给数据帧挂上站点四维属性列 ``s_trm_type`` / ``s_site_caregory`` /
-    ``s_province_county`` / ``s_region`` 以及归属标志 ``s_matched``。
+    """给数据帧挂上站点维度属性列 ``s_trm_type`` / ``s_site_caregory`` /
+    ``s_province_county`` / ``s_region`` / ``s_starlink_recently_migrated``
+    以及归属标志 ``s_matched``。
 
     归属规则见 :func:`build_site_index`（site_id 优先、重名站名不回退）。
     未归属的行属性为空串，站点过滤生效时会被自然排除。
@@ -242,7 +254,7 @@ def attach_site_attrs(df: pd.DataFrame, sid_col: str, name_col: str,
 
 
 def get_site_filter_options() -> Dict[str, List[str]]:
-    """站点四维过滤的候选值（与过滤实现同源：master_site_db 精确匹配）。
+    """站点维度过滤的候选值（与过滤实现同源：master_site_db 精确匹配）。
 
     列名来自模块常量 :data:`SITE_FILTER_COLS`（**不来自请求输入**），因此这里
     拼接列名没有注入面；每列最多 200 个候选，与 TT&WO Dashboard 的
@@ -584,7 +596,7 @@ _result_cache: Dict[str, Dict] = {}
 def get_base_data(force: bool = False):
     """返回 (enriched_tt, cm, site_pivot, cells_all, site_index)，带 TTL 缓存。
 
-    - enriched_tt / cm 都已挂上站点四维属性列（``s_trm_type`` 等，见 attach_site_attrs）；
+    - enriched_tt / cm 都已挂上站点维度属性列（``s_trm_type`` 等，见 attach_site_attrs）；
     - site_index 是站点主数据索引，供下钻（compute_detail）等非缓存路径复用。
 
     ⚠ 调用方**不得就地修改**返回的 tt / cm（要加列请先 ``.copy()``），否则会污染缓存。
@@ -646,25 +658,42 @@ def warmup() -> None:
 # ============================================================
 # 主计算
 # ============================================================
+def _collect_site_filters(**kwargs) -> Dict[str, str]:
+    """把请求参数里的站点维度筛选项收成 {列: 值}，空值一律丢弃。
+
+    ⚠ 键名必须落在 :data:`SITE_FILTER_COLS` 内（列名是代码常量，不来自请求输入，
+    因此下游拼 SQL / 取列名没有注入面）。传了不在白名单里的键会被忽略。
+    """
+    out: Dict[str, str] = {}
+    for c in SITE_FILTER_COLS:
+        v = _norm_str(kwargs.get(c))
+        if v:
+            out[c] = v
+    return out
+
+
 def compute_overview(vendor: str = "", project: str = "", exclude: str = "",
                      start: str = "", end: str = "",
                      refresh_exclude: bool = False,
                      trm_type: str = "", site_caregory: str = "",
-                     province_county: str = "", region: str = "") -> Dict:
+                     province_county: str = "", region: str = "",
+                     starlink_recently_migrated: str = "") -> Dict:
     """一次计算 6 张表：nur/sla × daily/weekly/monthly。
 
     筛选适配原则：Vendor/时间/Exclude 只作用于分子（TT 行）；
     Project 同时作用于分子（site_information）与分母（site_caregory 圈定小区数）；
-    站点四维（trm_type / site_caregory / province_county / region）同样**同时作用于
-    分子与分母**（属性取自主数据 master_site_db，精确匹配）—— 只筛分子会让 NUR
-    的分子分母不同口径，比值不再是「这批站点的不可用率」。
+    站点维度（trm_type / site_caregory / province_county / region /
+    starlink_recently_migrated）同样**同时作用于分子与分母**（属性取自主数据
+    master_site_db，精确匹配）—— 只筛分子会让 NUR 的分子分母不同口径，
+    比值不再是「这批站点的不可用率」。
     """
     t0 = time.time()
     warnings: List[str] = []
 
-    site_filters = {c: _norm_str(v) for c, v in zip(
-        SITE_FILTER_COLS, (trm_type, site_caregory, province_county, region))}
-    site_filters = {c: v for c, v in site_filters.items() if v}
+    site_filters = _collect_site_filters(
+        trm_type=trm_type, site_caregory=site_caregory,
+        province_county=province_county, region=region,
+        starlink_recently_migrated=starlink_recently_migrated)
 
     rkey = "|".join([vendor, project, exclude, start, end,
                      *[f"{c}={site_filters.get(c, '')}" for c in SITE_FILTER_COLS]])
@@ -705,7 +734,7 @@ def compute_overview(vendor: str = "", project: str = "", exclude: str = "",
         df = df[df["site_information"].map(_norm_str) == project]
     if exclude in ("Y", "N"):
         df = df[df["excluded"] == exclude]
-    # 站点四维过滤：精确匹配（与 /options 下发的候选值同源），不用 LIKE ——
+    # 站点维度过滤：精确匹配（与 /options 下发的候选值同源），不用 LIKE ——
     # 概览与下钻必须逐字同口径，否则「表里的数」与「下钻的行数」对不上。
     for c, v in site_filters.items():
         df = df[df[_site_col(c)] == v]
@@ -714,7 +743,7 @@ def compute_overview(vendor: str = "", project: str = "", exclude: str = "",
     if end:
         df = df[(df["occur_dt"] <= pd.to_datetime(end) + pd.Timedelta(days=1))]
 
-    # ---- 分母小区数（Project / 站点四维生效时按同一批站点圈定）----
+    # ---- 分母小区数（Project / 站点维度生效时按同一批站点圈定）----
     # site_pivot 同时供站点级 NUR 达标占比使用（分母站点集合与全网分母同口径）
     # 注：未筛选的 site_pivot/cells_all 已随基础数据缓存，无需重复透视
     if (project or site_filters) and not cm.empty:
@@ -853,6 +882,7 @@ def compute_detail(metric: str = "nur", gran: str = "daily", period: str = "",
                    vendor: str = "", project: str = "", exclude: str = "",
                    trm_type: str = "", site_caregory: str = "",
                    province_county: str = "", region: str = "",
+                   starlink_recently_migrated: str = "",
                    max_rows: int = 2000) -> Dict:
     """下钻：返回构成某单元格数值的 TT 明细，筛选口径与 compute_overview 完全一致。
 
@@ -875,10 +905,11 @@ def compute_detail(metric: str = "nur", gran: str = "daily", period: str = "",
     if metric not in ("nur", "sla"):
         raise ValueError(f"metric 必须是 nur/sla，got {metric}")
 
-    # 站点四维过滤参数（与 overview 同源同口径；空串=不筛）
-    site_filters = {c: _norm_str(v) for c, v in zip(
-        SITE_FILTER_COLS, (trm_type, site_caregory, province_county, region))}
-    site_filters = {c: v for c, v in site_filters.items() if v}
+    # 站点维度过滤参数（与 overview 同源同口径；空串=不筛）
+    site_filters = _collect_site_filters(
+        trm_type=trm_type, site_caregory=site_caregory,
+        province_county=province_county, region=region,
+        starlink_recently_migrated=starlink_recently_migrated)
 
     # 下钻不走基础数据缓存（明细要读全列），站点属性索引现建：与缓存路径同一实现
     site_index = build_site_index(load_site_master())

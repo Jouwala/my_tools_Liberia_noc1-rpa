@@ -7,7 +7,7 @@
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | /api/nur/options | 筛选项：vendors(ZTE/3RD)、projects(site_information 去重值)、site_filters(站点四维候选值)、排除名单加载状态 |
+| GET | /api/nur/options | 筛选项：vendors(ZTE/3RD)、projects(site_information 去重值)、site_filters(站点维度候选值)、排除名单加载状态 |
 | GET | /api/nur/overview | 一次返回 6 张表（NUR/SLA × daily/weekly/monthly） |
 | GET | /api/nur/detail | 单元格下钻（TT 明细），筛选口径与 /overview 逐条一致 |
 
@@ -22,10 +22,11 @@
 | site_caregory | 站点主数据 site_caregory 精确匹配，空=全部 |
 | province_county | 站点主数据 province_county 精确匹配，空=全部 |
 | region | 站点主数据 region 精确匹配，空=全部 |
+| starlink_recently_migrated | 站点主数据 starlink_recently_migrated 精确匹配（Yes/No），空=全部 |
 | start / end | YYYY-MM-DD，作用于 alarm_occur_time（end 含当天） |
 | refresh_exclude | true=强制刷新 FTP 排除名单缓存 |
 
-`/detail` 除上述筛选参数（vendor/project/exclude + 站点四维）外，另有
+`/detail` 除上述筛选参数（vendor/project/exclude + 站点维度）外，另有
 `metric` / `gran` / `period` / `tech` / `severity` / `item`。
 
 ## NUR 计算口径
@@ -45,20 +46,28 @@
 5. 分母适配：默认全网该制式小区总数；Project 筛选生效时改为
    cm_site_summary.site_caregory 与所选站点类型归一化包含匹配（去括号小写，
    如 'REGULAR（Normal)' 匹配 'REGULAR'）圈定的小区数。Vendor/时间/Exclude 仅作用于分子。
-6. 站点四维过滤（trm_type / site_caregory / province_county / region，2026-09-30 新增）：
-   见下节。
+6. 站点维度过滤（trm_type / site_caregory / province_county / region /
+   starlink_recently_migrated，2026-09-30 新增，2026-10-05 增补 starlink）：见下节。
 
-## 站点四维过滤（trm_type / site_caregory / province_county / region）
+## 站点维度过滤（trm_type / site_caregory / province_county / region / starlink_recently_migrated）
 
 - **属性来源是站点主数据 `master_site_db`**，不是 `cm_site_summary` —— 后者只有
-  region / province_county / site_caregory 三列、没有 trm_type；四列同源才能保证
+  region / province_county / site_caregory 三列、没有 trm_type；各列同源才能保证
   「分子圈定的站点」与「分母圈定的站点」是同一批。口径与 GISMap / TT&WO Dashboard 的
   站点维度筛选一致（同一个真相源）。
+- **列集合的唯一真相源是 `nur_calc.SITE_FILTER_COLS`**：`/options` 下发顺序、
+  `compute_overview` / `compute_detail` 的过滤列、前端下拉渲染顺序都从它派生，
+  新增一维只需改这一处 + 前端 `NurDashboard.tsx` 的对应常量与标签键。
 - **精确匹配**（`=`，不用 LIKE），候选值由 `/api/nur/options` 的 `site_filters` 下发，
   前端不硬编码（`nur_calc.get_site_filter_options`，每列上限 200 个）。
 - **同时作用于分子与分母**：TT 行按站点属性过滤，`cm_site_summary` 小区数按同一属性
   圈定后重算 `denominator_cells` 与 `persite_nur` 的分母站点集合。只筛分子会让 NUR
   的比值不再是「这批站点的不可用率」（`nur_calc.compute_overview` 的 `site_filters`）。
+- **`starlink_recently_migrated` 是 Yes/No 二值列**（2026-10-05 新增）：实测主数据 827 行中
+  Yes=48 / No=779，取值无大小写或空白变体，48 个 Yes 站点在 `cm_site_summary` 中均有小区
+  记录，因此选 Yes 时不会出现分母为 0 的空警告。它与其他多值分类**共用同一套精确匹配机制**。
+  注意它与 `trm_type='Starlink'` 是**两个不同维度**（前者=星链迁移状态，后者=传输承载类型），
+  二者可叠加（AND）且有交集。
 - **站点归属规则**（`nur_calc.attach_site_attrs` / `build_site_index`）：
   1. `site_id` 命中优先（实测 36510 行 TT 中 36040 行命中，主库 site_id 唯一，不产生扇出）；
   2. 未命中时回退**站名小写**匹配，但**重名站点不参与回退** —— 主数据有 11 个重名站
@@ -67,7 +76,7 @@
   实测 TT 36067/36510（差 443 行）、小区数 14069/15064（差 995 个）—— 这是
   「只统计能证明属于该筛选项的站点」的预期结果，不是漏算。
 - 与 `project` 筛选**叠加**（AND），二者语义不同：`project` 取 `eflow_tt.site_information`
-  （REGULAR / ERA），四维里的 `site_caregory` 取主数据（NORMAL / ERA / COOL）。
+  （REGULAR / ERA），维度里的 `site_caregory` 取主数据（NORMAL / ERA / COOL）。
 
 ## SLA 口径
 
@@ -89,7 +98,8 @@ compute_overview 全量（约 3 万行）实测 < 1 秒（pandas 全向量化）
 
 ## 回归自检脚本
 
-`Task/my_app/TMP/_probe_nur_site_filters.py`（2026-09-30 随站点四维过滤一起落地）：
+`Task/my_app/TMP/_probe_nur_site_filters.py`（2026-09-30 随站点维度过滤一起落地，
+2026-10-05 增补 starlink 用例）：
 核对「过滤后分子分母同步收窄」「各 region 分档求和 ≈ 全网（差额=未归属站）」以及
 **概览数字 ↔ 下钻行数逐字一致**（SLA 用 `<period>__total` 对账、NUR 用 Σ(小区数×MTTR)
 复原分子对账）。改动 `nur_calc` 的筛选口径后先跑它，再让人看页面：
