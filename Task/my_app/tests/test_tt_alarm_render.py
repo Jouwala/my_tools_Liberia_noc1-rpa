@@ -261,8 +261,10 @@ def test_task_result_surfaces_degradation(monkeypatch, tmp_path):
     _use_db(monkeypatch, tmp_path)   # 日志表落临时 sqlite
     monkeypatch.setattr(S, "render_message_ex", lambda *a, **k: (None, "引擎超时（>120s）"))
     monkeypatch.setattr(S, "dispatch", lambda *a, **k: {"ok": True, "job_id": "j1", "dispatched": 1})
+    # 桩必须含 timed_out（与 wait_for_job_result 的真实返回同形）
     monkeypatch.setattr(S, "wait_for_job_result",
-                        lambda *a, **k: {"confirmed": True, "ok": True, "sent": ["TT1"]})
+                        lambda *a, **k: {"confirmed": True, "ok": True, "timed_out": False,
+                                         "sent": ["TT1"], "message_ids": {}, "errors": []})
 
     out = S.run_tt_alarm_whatsapp_alert()
     assert out["degraded"] == 1
@@ -275,6 +277,54 @@ def test_task_result_surfaces_degradation(monkeypatch, tmp_path):
 def test_analyze_lang_defaults_to_english():
     """告警发给利比里亚现场团队，历史上群里用英文。"""
     assert S.ANALYZE_LANG in ("en", "zh")
+
+
+def test_task_result_reports_due_count(monkeypatch, tmp_path):
+    """`out["due"]` 必须是本轮**真实要发**的单数，不能恒为 0。
+
+    2026-10-05 实测缺陷：`out["due"]` 自初始化后再无赋值，于是任务结果里
+    出现过 `{"candidates":7,"due":0,"dispatched":6,"sent":6}` 这种自相矛盾的
+    组合（due=0 却 dispatched=6），任务管理页永远显示「应发 0 单」，
+    调参与排障时看不出本轮到底该发几单。
+    """
+    from backend.services import tt_alarm_sources as src
+    from backend.services import tt_alarm_trigger as trig
+
+    now = datetime.now()
+    # 两单：都通过过滤，都应进入 due
+    rows = [
+        {"tt_no": "TT1", "_alarm_code_norm": "9920", "alarm_raised_time": _now(),
+         "_alarm_raised_dt": now, "site_id": "1", "site_name": "s1"},
+        {"tt_no": "TT2", "_alarm_code_norm": "9995", "alarm_raised_time": _now(),
+         "_alarm_raised_dt": now, "site_id": "2", "site_name": "s2"},
+    ]
+    monkeypatch.setattr(trig, "fetch_triggered_tts",
+                        lambda *a, **k: (rows,
+                                         {"window_since": "x", "table_exists": True,
+                                          "truncated": False, "sync_lag_seconds": None}))
+    monkeypatch.setattr(src, "live_tt_rows", lambda tt_nos: {})
+    monkeypatch.setattr(src, "mirror_rows", lambda conn, nos: {
+        r["tt_no"]: {"tt_no": r["tt_no"], "ticket_severity": "P1",
+                     "site_name": r["site_name"], "alarm_occur_time": _now(),
+                     "last_modified_time": _now()}
+        for r in rows})
+    _use_db(monkeypatch, tmp_path)
+    monkeypatch.setattr(S, "render_message_ex", lambda *a, **k: ("msg", None))
+    monkeypatch.setattr(S, "dispatch",
+                        lambda msgs, groups: {"ok": True, "job_id": "j1",
+                                              "dispatched": len(msgs)})
+    # 桩必须与 wait_for_job_result 的真实契约同形（含 timed_out）——
+    # 少了它任务会在 `out["timed_out"] = rep["timed_out"]` 抛 KeyError。
+    monkeypatch.setattr(S, "wait_for_job_result",
+                        lambda *a, **k: {"confirmed": True, "ok": True, "timed_out": False,
+                                         "sent": ["TT1", "TT2"], "message_ids": {},
+                                         "errors": []})
+
+    out = S.run_tt_alarm_whatsapp_alert()
+    assert out["candidates"] == 2
+    assert out["due"] == 2, f"due 应为本轮要发的单数 2，实际 {out['due']}"
+    # due 与 dispatched 语义不同但本轮应一致（无失败）
+    assert out["dispatched"] == 2
 
 
 # ==========================================================

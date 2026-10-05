@@ -121,6 +121,11 @@ echo.
 echo   New config is live. Verify the site if you changed a proxy target.
 
 :done
+echo.
+echo ============================================================
+echo   Press Enter to close this window.
+echo   nginx keeps running in the background.
+echo ============================================================
 pause >nul
 endlocal
 exit /b

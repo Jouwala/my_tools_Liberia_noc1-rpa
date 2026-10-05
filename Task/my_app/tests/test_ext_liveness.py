@@ -4,8 +4,12 @@
 覆盖三件事：
   1. 三态判定（online / offline / unknown）与边界、坏值容错；
   2. `record_activity` 的落盘与「写失败不影响主流程」；
-  3. `_check_ext_before_dispatch` 只在 **offline** 时告警 —— unknown 不告警是
+  3. `check_channel_before_dispatch` 只在 **offline** 时告警 —— unknown 不告警是
      **刻意的**，否则服务每次重启都会误报一次，会让人对告警脱敏。
+
+> 注：第 3 项在 2026-10-01 通道切换时函数由 `_check_ext_before_dispatch` 更名为
+> `check_channel_before_dispatch`（去掉了下划线前缀），本文件当时漏改，
+> 5 条用例自那以后一直 AttributeError 全红（2026-10-05 修复）。
 """
 import json
 from datetime import datetime, timedelta
@@ -124,7 +128,7 @@ class TestRecordActivity:
 # 三、投递前告警（只在该喊时喊）
 #
 # 发送通道已于 2026-10-01 由 Chrome 扩展切换为 Baileys 推送进程
-# （`whatsapp-kb-bot/src/notify.js`），故这里改测 `_check_channel_before_dispatch`。
+# （`whatsapp-kb-bot/src/notify.js`），故这里改测 `check_channel_before_dispatch`。
 # 三态语义不变（离线才喊、未知不喊），只是证据来源从「扩展认领时刻」换成「推送进程心跳」。
 # ==========================================================
 class TestCheckChannelBeforeDispatch:
@@ -133,7 +137,8 @@ class TestCheckChannelBeforeDispatch:
                             lambda *a, **k: {"status": status, "at": "x",
                                              "reason": "测试原因"})
         out = {"warnings": [], "errors": []}
-        svc._check_channel_before_dispatch(out, due_count=3)
+        # 第三参 resend_minutes 用于拼「未确认发送的单会按 N 分钟节流重推」
+        svc.wa_notify.check_channel_before_dispatch(out, due_count=3, resend_minutes=20)
         return out
 
     def test_offline_时告警且写明影响面(self, monkeypatch):
@@ -164,7 +169,7 @@ class TestCheckChannelBeforeDispatch:
             raise RuntimeError("读心跳炸了")
         monkeypatch.setattr(svc.wa_notify, "is_online", _boom)
         out = {"warnings": [], "errors": []}
-        svc._check_channel_before_dispatch(out, due_count=1)  # 不应抛
+        svc.wa_notify.check_channel_before_dispatch(out, due_count=1, resend_minutes=20)  # 不应抛
         assert out["warnings"] == []
 
 

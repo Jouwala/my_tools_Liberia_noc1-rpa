@@ -167,6 +167,18 @@ const HEARTBEAT_FILE = join(ROOT, 'data', 'notify_heartbeat.json');
 /** 轮询间隔（毫秒）。告警是分钟级业务，5 秒足够，又不至于空转太凶。 */
 const POLL_MS = Number(process.env.NOTIFY_POLL_MS || 5000);
 
+/**
+ * 僵尸作业判定阈值（毫秒）：作业处于 `running` 超过此时长仍未回报，
+ * 视为僵尸并允许重新认领（见 `claimJob`）。
+ *
+ * 取 10 分钟 —— 必须**远大于**正常发送耗时（`sendMessage` 是秒级，
+ * 多群多单最坏也就几十秒），否则会把**正在发送中**的作业当僵尸抢走，
+ * 又变回重复发送。这与 `tt_alarm_job.STALE_RUNNING_SECONDS`（1 小时）
+ * 是同一道防线，取值更短是因为 Baileys 不需要等浏览器渲染。
+ * 需要更快恢复时可调环境变量 `NOTIFY_STALE_RUNNING_MS`。
+ */
+const STALE_RUNNING_MS = Number(process.env.NOTIFY_STALE_RUNNING_MS || 600000);
+
 function readJsonSafe(p) {
   try {
     return JSON.parse(readFileSync(p, 'utf8'));
@@ -245,12 +257,64 @@ function heartbeat(extra = {}) {
   }
 }
 
-/** 认领待发作业（有则返回，无则 null）。 */
+/**
+ * 认领待发作业（有则返回，无则 null）。
+ *
+ * ## 为什么认领时必须就地把状态推进到 `running`（2026-10-05 修复）
+ *
+ * 早先这里只判 `pending` 就返回，**不改状态** —— 当时认为「本进程单实例，
+ * 不存在多实例重复认领的问题」（见 `wa_notify_service.py` 的模块 docstring）。
+ * 那个推理只覆盖了「多实例」，**漏掉了「单实例重入」**：
+ *
+ * 轮询是 `setInterval(async () => { await runJob(...) })`（见文件末尾），
+ * 而 **`setInterval` 不会等待上一次 async 回调结束**。`runJob` 里每条消息
+ * 都要 `await sock.sendMessage()` 走网络往返（秒级），这段时间作业文件**始终是
+ * `pending`**（终态要等 `finishJob` 才写）。于是**每一个 tick 都会重新认领同一单、
+ * 再发一遍**，发送次数 = 网络往返时长 ÷ `POLL_MS`。
+ *
+ * 实测仿真（`POLL_MS=5000`、往返 1s 时约 2~3 遍；`WAIT_SECONDS=120`，
+ * 极端情况可叠到二十几遍）：同一条 P1 告警在值班群里重复出现。
+ *
+ * 这正是旧扩展通道**本来就有的**防护 —— `tt_alarm_job.py` 与
+ * `whatsapp_ext_service.py` 的 `claim_pending_job` 都是「认领即置 `running`」，
+ * 注释写明是为了「避免多个扩展实例重复发送同一作业」（`tt_alarm_job.py:11,142`）。
+ * 换通道时不该把它丢掉。
+ *
+ * 故这里恢复该语义：**读到 `pending` 就立刻原子写回 `running` + `claimed_at`**。
+ * 这样第二轮 tick 读到的是 `running`，直接不认领。同时它与「僵尸回收」天然兼容——
+ * 进程若在发送中途被杀，作业停在 `running`，重启后由 `claimJob` 的
+ * `STALE_RUNNING_MS` 判定允许重新认领（否则一次崩溃会把信箱永久堵死，
+ * 那正是 `tt_alarm_job.py:14-24` 记录的 2026-10-01 事故形态）。
+ */
 function claimJob() {
   const job = readJsonSafe(JOB_FILE);
   if (!job || typeof job !== 'object') return null;
-  if (job.status !== 'pending') return null;
-  return job;
+
+  const status = String(job.status || '');
+  if (status === 'running') {
+    // 僵尸回收：认领后迟迟不回写（进程被杀 / 崩溃）时允许重新认领。
+    // 阈值必须**远大于**正常发送耗时（秒级），否则正常发送中的作业会被当僵尸抢走，
+    // 又变回重复发送。
+    const claimedAt = Date.parse(job.claimed_at || '');
+    const age = Number.isFinite(claimedAt) ? Date.now() - claimedAt : Infinity;
+    if (age < STALE_RUNNING_MS) return null;
+    log(`! 作业 ${job.job_id || '(无 id)'} 自认领后 ${Math.round(age / 1000)}s 未回报，`
+      + `判定为僵尸并重新认领（阈值 ${STALE_RUNNING_MS / 1000}s）`);
+  } else if (status !== 'pending') {
+    return null;
+  }
+
+  // 认领即置 running：这是防重入的**关键一步**，不能省。
+  // 写失败则**不认领**（宁可这一轮不发，也不能在状态未推进的情况下发出去 ——
+  // 那等于退回到"每 tick 重发一遍"）。
+  const claimed = { ...job, status: 'running', claimed_at: new Date().toISOString() };
+  try {
+    writeJsonAtomic(JOB_FILE, claimed);
+  } catch (err) {
+    log(`! 认领作业写回失败（本轮不发送，避免重复）：${err.message}`);
+    return null;
+  }
+  return claimed;
 }
 
 /** 回写作业结果。`sent` 里的 message id 是服务端回执，my_app 据此置 'Y'。 */

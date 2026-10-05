@@ -3,9 +3,16 @@
 ## 业务口径（2026-10-05 机制切换，每 5 分钟运行一次）
 
 **触发**：扫描 `realtime_alarm`（由 `eflow_active_alarm` 同步的实时告警表；
-注册表默认 `*/30`，**实际周期以任务配置页的调度为准**，生产已配置 `*/5`），
+该任务注册表默认 `*/30`，2026-10-05 核定生产实际为 `*/5`），
 挑出「带 TT + 告警升起时间在窗口内 + 告警码白名单」的告警（口径细节与
 「为什么触发源不是 eflow_tt」见 `tt_alarm_trigger.py` 的模块 docstring）。
+
+⚠️ **本任务的周期与相位以 `task_schedule_config` 为准，不是代码默认值**
+（2026-10-05 定：本任务 `2-59/5`、上游 `eflow_active_alarm` 为 `*/5`，错开 2 分钟
+起跑以保证每次读到的都是刚同步完的数据）。这里此前长期写着「生产已配置 `*/5`」
+而库里其实是 `*/15` —— 改 cron 请用任务管理页，**改代码默认值对已存在的任务
+完全无效**（`task_runner.py:330-345` 有专门的启动告警来暴露这种「以为改了其实
+没生效」，2026-10-04 的 sp_online_sync 就栽在这里）。
 
 **实时查单**：对触发单实时回 eFlow 拉取最新工单行（`fetch_tt_live_batch`，
 一次分页遍历匹配全部目标单），拿到**当前**的 `ticket_severity` /
@@ -363,6 +370,14 @@ def run_tt_alarm_whatsapp_alert() -> Dict[str, Any]:
             except Exception:  # noqa: BLE001
                 logger.warning("[TTAlert] 刷新跟踪字段异常 tt_no=%s", tt_no, exc_info=True)
         out["tracked_skipped"] = len(tracking_updates)
+
+        # ⚠️ 必须把 due 的**真实条数**写回 out（2026-10-05 修复）：
+        # `out["due"]` 此前从初始化后**再没有任何一处赋值**，于是任务结果里恒为 0，
+        # 而实际发出 6 单 —— 出现过 `{"candidates":7,"due":0,"dispatched":6,"sent":6}`
+        # 这种自相矛盾的结果，任务管理页永远显示「应发 0 单」，运维据此看不出
+        # 本轮到底该发几单（调参与排障时尤其误导）。
+        # 口径：due = 通过全部过滤、**本轮确实要投递**的单数（不含冷却/有更新被跳过的）。
+        out["due"] = len(due)
 
         if not due:
             out["success"] = True

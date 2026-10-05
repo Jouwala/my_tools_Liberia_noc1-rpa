@@ -95,6 +95,10 @@ echo.
 echo   Entry points are now unreachable until nginx is started again.
 
 :done
+echo.
+echo ============================================================
+echo   Press Enter to close this window.
+echo ============================================================
 pause >nul
 endlocal
 exit /b

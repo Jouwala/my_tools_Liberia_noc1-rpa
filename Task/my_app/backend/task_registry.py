@@ -207,7 +207,7 @@ TASK_SPECS = [
          default_cron="0 3 * * *", category="whatsapp"),
 
     # 5c. eFlow P1 告警 → WhatsApp（每 5 分钟，触发制，2026-10-05 机制切换）。
-    #     触发：扫 realtime_alarm（eflow_active_alarm 每 30 分钟同步）里「带 TT +
+    #     触发：扫 realtime_alarm（eflow_active_alarm 每 5 分钟同步）里「带 TT +
     #     告警升起时间在触发窗口内 + 告警码白名单」的告警；随后**实时回 eFlow 查单**
     #     （fetch_tt_live_batch）拿最新级别/更新时间/清除状态，不再受 eflow_tt
     #     每小时才落库的时延制约（旧机制端到端 45~75 分钟 → 现在分钟级）。
@@ -217,12 +217,20 @@ TASK_SPECS = [
     #     落库 eflow_tt_whatsapp_alert_log：send_status（发没发过）/ send_count
     #     （发送几次）/ last_known_update_time / last_alarm_seen_time（恢复通知的数据基础）。
     #     发送走 Baileys 推送进程（whatsapp-kb-bot/src/notify.js），投递前查心跳。
+    #
+    #     ⚠️ cron 相位是 `2-59/5` 而**不是** `*/5`（2026-10-05 定）：本任务的触发源
+    #     `eflow_active_alarm` 跑 `*/5`，若两者同相位（都在 :00/:05/... 起跑），本任务
+    #     有概率读到**上一轮**的 realtime_alarm（同步那 0.3~0.5s 还没写完），
+    #     白等一个周期。错开 2 分钟起跑，保证每次都读到刚同步完的数据。
+    #     这一相位选择与整点并发拥挤无关，只是为了让「同步 → 推送」的先后关系确定；
+    #     调度器在整点会丢触发（见 `task_runner._scheduled_run` 的投递拒绝），
+    #     那是全平台共性问题，不靠本任务的相位解决。
     dict(task_id="tt_alarm_whatsapp_alert", name="eFlow P1 告警 WhatsApp 推送",
          name_en="eFlow P1 Alarm WhatsApp Push",
          loader=("backend.services.tt_alarm_whatsapp_service", "run_tt_alarm_whatsapp_alert"),
          description="每 5 分钟扫 realtime_alarm 触发（带 TT + 窗口内 + 告警码白名单），实时查 eFlow 拿最新更新时间；P1 单首推，之后每停滞 20 分钟重报一次（带 REMINDER 横幅），工单有更新不打扰、告警清除即止损；状态（是否已发/发了几次）落 eflow_tt_whatsapp_alert_log",
          description_en="Every 5 min: trigger from realtime_alarm (TT-linked, within window, code whitelist), live-fetch eFlow for the latest update time; first-push P1 tickets, re-notify with a REMINDER banner after 20 min of no update, stay quiet while the ticket is progressing, stop when cleared; send status (sent? how many times) recorded in eflow_tt_whatsapp_alert_log",
-         default_cron="*/5 * * * *", category="whatsapp"),
+         default_cron="2-59/5 * * * *", category="whatsapp"),
 
     # 6. MS SLA 完整同步（每天 05:00）
     #    时序约束（2026-09-18 修复）：必须在 kpi_ms_contract(05:30) / kpi_ms_wo_sla(05:35)
@@ -873,6 +881,34 @@ for _spec in TASK_SPECS:
     _spec.setdefault("gateway", CATEGORY_GATEWAY.get(_spec.get("category"), "system"))
 
 
+# ========== 主开关豁免名单（Task Manager Master switch exemption）==========
+# 背景（2026-10-05 排查）：主开关的 ON 语义是「全部任务都启用」，前端判定为
+# `allTasks.every(t => t.enabled)`。但有些任务**按业务决定就该长期保持关闭**
+# （典型：`whatsapp_send_ext` 与 Playwright 版 `whatsapp_send` 并存，只保留一条
+# 发送通道即可）。这类任务一旦被单独关闭，`every()` 恒为 false，主开关会永远显示
+# 关闭 —— 用户点开它，后端把 69 个全部写成启用，重新拉取后该任务仍是关闭
+# （数据库覆盖优先），开关当场弹回，表现为「怎么点都关着」，且**每次都把用户
+# 刻意关掉的任务重新打开**，属于静默违背用户意图。
+#
+# 因此引入显式豁免：列入本名单的 task_id 有两层语义 ——
+#   ① `toggle_all_tasks` 跳过它们，一键操作不再擅自打开/关闭；
+#   ② 前端主开关的「是否全部启用」判定排除它们，开关状态得以稳定保持。
+# 任务自身的 enabled 仍可在界面上单独开关（豁免只针对「一键」）。
+#
+# 维护约定：新增豁免必须在此写明**为什么它应当长期保持关闭**，否则后来又有人
+# 把它当成「忘开的任务」加回主开关，问题会复发。
+MASTER_SWITCH_EXEMPT_IDS = frozenset({
+    # 与 whatsapp_send 功能重叠（同为 Site Outage 截图投递，一个走 Playwright、
+    # 一个走浏览器扩展），业务上只需保留一条通道，故长期关闭扩展版。
+    "whatsapp_send_ext",
+})
+
+
+def is_master_switch_exempt(task_id: str) -> bool:
+    """该任务是否豁免于主开关（一键启用/禁用全部）的批量操作与状态判定。"""
+    return task_id in MASTER_SWITCH_EXEMPT_IDS
+
+
 def register_all_tasks(task_runner) -> int:
     """将 TASK_SPECS 中的全部任务注册到 task_runner，返回注册数量"""
     for spec in TASK_SPECS:
@@ -895,6 +931,8 @@ def register_all_tasks(task_runner) -> int:
             category=spec["category"],
             gateway=spec.get("gateway", CATEGORY_GATEWAY.get(spec.get("category"), "system")),
             call_chain=call_chain,
+            # 主开关豁免随注册一并注入，供 task_runner 的批量切换与 /api/tasks 回传使用
+            master_switch_exempt=is_master_switch_exempt(spec["task_id"]),
         )
     logger.info(f"任务注册完成：{len(TASK_SPECS)} 个任务")
     return len(TASK_SPECS)

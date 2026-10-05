@@ -5,7 +5,7 @@
 旧机制每 15 分钟扫 `eflow_tt`（按 alarm_occur_time 取 3 小时窗口），但那张表
 只由 `eflow_sync` **每小时 :22** 刷新一次 —— 告警发生到群里看到，平均 ~45 分钟、
 最坏 ~75 分钟。而 `realtime_alarm` 由 `eflow_active_alarm` 同步（注册表默认
-`*/30`，**实际周期以任务配置页的调度为准**，生产已配置 `*/5`），行里带
+`*/30`，**实际周期以任务配置页的调度为准**，2026-10-05 核定生产为 `*/5`），行里带
 `tt_id`（格式与 eflow_tt.tt_no 一致，实测 'TT202610030077'）、
 `alarmraisedtime`（epoch 毫秒）、`alarmcode` —— 是现成的「新 P1 告警出现」信号。
 触发之后的详情（级别/更新时间/是否清除）由主服务**实时回 eFlow 查单**补齐，
@@ -30,10 +30,11 @@ alarmraisedtime 最新的一条** —— 推送对象是 TT 不是告警，一�
 的形态。故每轮顺带检查 `max(_sync_time)` 滞后，超过阈值即由调用方喊人。
 
 ⚠️ **阈值必须跟随实际调度周期**，不能写死：eflow_active_alarm 的 cron 在任务
-配置页可改（注册表默认 `*/30`，生产已配 `*/5`）——按 30 分钟定的 45 分钟阈值在
-5 分钟周期下形同虚设，告警真挂了也要 45 分钟才有人知道。故阈值按优先级取：
-显式环境变量 `TT_TRIGGER_SYNC_STALE_SECONDS` > 从 `task_schedule_config` 读
-实际 cron 推导（周期 × 1.5，下限 5 分钟防抖）> 内置默认 2700 秒。
+配置页可改（注册表默认 `*/30`，2026-10-05 核定生产为 `*/5`）——按 30 分钟定的
+45 分钟阈值在 5 分钟周期下形同虚设，告警真挂了也要 45 分钟才有人知道。故阈值按
+优先级取：显式环境变量 `TT_TRIGGER_SYNC_STALE_SECONDS` > 从
+`task_schedule_config` 读实际 cron 推导（周期 × 1.5，下限 5 分钟防抖）>
+内置默认 2700 秒。
 
 ## 时间口径
 
@@ -121,8 +122,8 @@ def _resolve_sync_stale_threshold(conn, env: Optional[Dict[str, str]] = None) ->
     """解析表新鲜度阈值（秒）。优先级：env > 实际 cron 推导 > 内置默认。
 
     读 `task_schedule_config` 里 SYNC_TASK_ID 的**生效** cron —— 任务配置页改的
-    就是这张表，注册表里的 default_cron 只是首次注册的初值（2026-10-05 实测：
-    默认 */30 但生产已配 */5，静态 45 分钟阈值在 5 分钟周期下迟钝 9 倍）。
+    就是这张表，注册表里的 default_cron 只是首次注册的初值（2026-10-05 核定：
+    该任务默认 */30、生产实际 */5，静态 45 分钟阈值在 5 分钟周期下迟钝 9 倍）。
     表不存在/行不存在/cron 识别不了 → 退回 SYNC_STALE_SECONDS 兜底。
     """
     env_val = (env or os.environ).get("TT_TRIGGER_SYNC_STALE_SECONDS")

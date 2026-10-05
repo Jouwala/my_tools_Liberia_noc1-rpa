@@ -156,18 +156,19 @@ function Test-PortListening {
 
 # Run a repo .bat in its OWN console window so the operator can read its report.
 #
-# WHY A SEPARATE WINDOW: these bats already handle their own hard parts (layered
-# process kills, stopped.flag, UAC retry, nginx's own-directory signal). Running
-# them with Start-Process gives each one a genuine console, so their output and
-# any UAC prompt behave exactly as they do when double-clicked directly.
+# WHY EACH BAT GETS ITS OWN WINDOW: these bats already handle their own hard
+# parts (layered process kills, stopped.flag, UAC retry, nginx's own-directory
+# signal). Running them with Start-Process gives each one a genuine console, so
+# their output and any UAC prompt behave exactly as they do when double-clicked
+# directly. Each bat ends with `pause`, so the operator reads that stage's
+# report and presses Enter to dismiss it before the next stage starts.
 #
-# WHY STDIN IS REDIRECTED: every one of these bats ends with `pause >nul`,
-# which waits for a keypress. If we did not redirect, the operator would have
-# to press a key once per bat AND again for this controller - and 8-start_all
-# runs three bats, so that is four separate keypresses. Redirecting an empty
-# input stream makes each child's `pause` return immediately; the child window
-# still prints its full report and closes itself, and the single "press any key"
-# prompt the user was promised happens once, in this controller's window.
+# WHY STDIN IS *NOT* REDIRECTED: an earlier revision piped an empty stream in so
+# the children's `pause` returned instantly (one keypress for the whole run).
+# That had to go: Windows' timeout.exe refuses to run without a console
+# ("ERROR: Input redirection is not supported"), and my_app's start.bat waits
+# with `timeout /t 6 /nobreak`. Letting the children inherit the real console
+# fixes `timeout` and lets each window behave like a normal double-clicked bat.
 function Invoke-ChildBat {
     param(
         [Parameter(Mandatory = $true)][string]$BatPath,
@@ -482,14 +483,44 @@ switch -Regex ($normalized) {
     }
 }
 
+# ---------------------------------------------------------------------------
+#  Closing prompt
+# ---------------------------------------------------------------------------
+# One consistent ending for every command: read the report, press Enter, the
+# window closes. The child bats end the same way (their own `pause`), so the
+# whole set behaves identically - which is what the operator asked for.
+#
+# The note under the prompt says what closing the window actually does, because
+# "did that just stop everything?" is the obvious worry after pressing a key on
+# a window that was stopping services a second ago.
+$CloseNote = switch -Regex ($normalized) {
+    # Commands that START or only REPORT: services stay up after the window
+    # closes. Say so, so nobody thinks closing the window shuts things down.
+    '^0([-_].*)?$|^status$'             { 'Nothing is stopped. Services keep running.'; break }
+    '^1([-_].*)?$|^(start[-_]?)?nginx$' { 'nginx keeps running in the background.';    break }
+    '^3([-_].*)?$|^reload[-_]?nginx$'   { 'nginx keeps running in the background.';    break }
+    '^4([-_].*)?$|^start[-_]?myapp$'    { 'my_app keeps running in the background.';  break }
+    '^6([-_].*)?$|^start[-_]?portal$'   { 'The portal keeps running in the background.'; break }
+    '^8([-_].*)?$|^start[-_]?all$'      { 'All services keep running in the background.'; break }
+    default {
+        # Stop commands, and an unknown command (nothing was started anyway).
+        'The services listed above are now stopped.'
+    }
+}
+
 Write-Host ''
-Write-Host 'Press any key to close this window (services keep running).' -ForegroundColor White
+Write-Host '============================================================' -ForegroundColor DarkGray
+Write-Host ' Press Enter to close this window.' -ForegroundColor White
+Write-Host " $CloseNote" -ForegroundColor DarkGray
+Write-Host '============================================================' -ForegroundColor DarkGray
 try {
     # ReadKey needs an attached interactive console. When the script is driven
     # by a scheduled task, a pipe, or an automation harness there is no console
     # to read from - ReadKey would either throw or block forever. Test first.
     if ([Environment]::UserInteractive -and -not [Console]::IsInputRedirected) {
-        # $null = ... keeps the pressed key from being echoed into the window.
+        # 'NoEcho,IncludeKeyDown': Enter closes it, and (like any key) nothing is
+        # echoed. This matches the child bats, which end with `pause`, so the
+        # whole set behaves the same way: read the report, press Enter, done.
         $null = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown')
     } else {
         Write-Host '(no interactive console - not waiting for a key)' -ForegroundColor DarkGray

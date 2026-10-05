@@ -37,9 +37,21 @@ Baileys 走 WhatsApp 的 WebSocket 协议，**不碰页面**，于是：
 ## 与扩展通道的状态机差异
 
 扩展通道是「扩展主动来认领」（后端不推，等扩展拉）。本通道沿用**同一种信箱语义**
-（投递 `pending` → 消费端置 `done`/`failed`），但**消费端不回写 `running`** ——
-`notify.js` 是单进程单实例，不存在多实例重复认领的问题，省掉一次写盘。
-僵尸判定仍保留（消费端崩溃时作业会停在 `pending`，由 `wait_for_job_result` 超时兜底）。
+（投递 `pending` → 消费端认领置 `running` → 置 `done`/`failed`），但**消费端不回写
+`running` 的「多实例互斥」那一层** —— `notify.js` 是单进程单实例，不存在多实例
+重复认领的问题，省掉一次写盘。
+
+> ⚠️ **但 `running` 本身不能省（2026-10-05 修复）**：上述「省掉一次写盘」最初被
+> 实现成了「认领时不改状态」，结果踩中了**单实例内的重入** —— `notify.js` 的轮询是
+> `setInterval(async () => { await runJob(...) })`，而 `setInterval` **不等待**上一次
+> 异步回调结束；`sendMessage()` 的网络往返期间作业文件一直是 `pending`，于是每个 tick
+> 都重新认领同一单并重发（仿真实测同一单被发 5 次）。
+> 现在 `notify.js` 的 `claimJob` **认领即原地置 `running` + `claimed_at`**，
+> 并保留基于时间的僵尸回收。这里的教训是：**单实例 ≠ 无并发**，
+> `setInterval` + async 回调本身就是并发来源。
+
+僵尸判定仍保留（消费端崩溃时作业会停在 `running`/`pending`，
+由 `notify.js` 的 `STALE_RUNNING_MS` 回收，`wait_for_job_result` 超时兜底）。
 """
 import json
 import logging

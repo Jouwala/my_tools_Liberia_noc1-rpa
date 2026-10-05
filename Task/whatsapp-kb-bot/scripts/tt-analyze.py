@@ -237,6 +237,30 @@ def norm_site_sub_type(v) -> str:
     return _SITE_SUB_TYPE_MAP.get(key, s.upper())
 
 
+def norm_alarm_code_text(v) -> str:
+    """展示用：剥掉告警码的浮点文本尾巴（'9910.0' → '9910'）。
+
+    ## 为什么展示侧要单独有一个归一化（2026-10-05 修复）
+
+    `eflow_tt.alarm_code` 经同步链路后是**文本列**，`'99933'` 与 `'99933.0'`
+    两种形态**并存**（my_app 侧 `tt_alarm_message.norm_alarm_code` 注释里有同一记载）。
+    于是 `Alarm: 9910.0(Critical)` 这种带尾巴的告警码会直接发到值班群。
+
+    这里与 `build_value_frame` 的 `alarmCode` 是**两条独立的路**，不是重复：
+      * `build_value_frame` → `alarmCode`：供**规则匹配**判等用；
+      * `render_text` → `record['alarm_code']`：供**人看**。
+
+    两条路各错各的（本次就是：匹配侧正则写坏、展示侧压根没归一化），
+    所以别把其中一个当成另一个的等价物 —— 改一处务必核对另一处。
+
+    与 `Task/my_app/backend/services/tt_alarm_message.py:42` 的 `norm_alarm_code`
+    语义对齐（那边只去一次 '.0'，此处去 '.000' 等多零形态）。
+    """
+    if v is None:
+        return ''
+    return re.sub(r'\.0+$', '', str(v).strip())
+
+
 def build_value_frame(row: dict) -> dict:
     """把规则用到的字段归一化，键名对应规则里的 field。
 
@@ -268,6 +292,19 @@ def build_value_frame(row: dict) -> dict:
         return row.get(k)
 
     alarm_code = str(g('alarm_code') or '').strip()
+    # 剥掉浮点文本尾巴：'9910.0' → '9910'（供**规则匹配**用，见下方 alarmCode）。
+    #
+    # ⚠️ 2026-10-05 修复：这里原本写成 `re.sub(r'\.0+\$', ...)` —— `$` 被反斜杠
+    # 转义成了**字面量 `$` 字符**，正则要求码尾真的有一个 '$' 才匹配，于是
+    # **永远匹配不上**。
+    #
+    # 注意本行只影响 `alarmCode`（规则匹配字段）。**展示**用的告警码走
+    # `res['record']['alarm_code']`（下方 :1254 的原始行），故渲染侧另有
+    # `norm_alarm_code_text` 处理 —— 两处都要正确，否则会出现
+    # 「规则判命中 9910、消息里却显示 9910.0」的错位。
+    #
+    # 语义与 `Task/my_app/backend/services/tt_alarm_message.py:42` 的
+    # `norm_alarm_code` 一致（那边只去一次 '.0'，此处去 '.000' 等多零形态）。
     alarm_code = re.sub(r'\.0+$', '', alarm_code)
 
     return {
@@ -2101,7 +2138,7 @@ def render_text(res: dict, lang: str = DEFAULT_LANG) -> str:
 
     # ── 告警与影响面 ──
     alarm = (
-        f"{L['alarm']}{r.get('alarm_code') or '-'}"
+        f"{L['alarm']}{norm_alarm_code_text(r.get('alarm_code')) or '-'}"
         f"{L['lparen']}{r.get('alarm_severity') or '-'}{L['rparen']}"
     )
     if r.get('domain'):

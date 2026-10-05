@@ -80,6 +80,11 @@ echo     https://localhost/webroot/decision  FineBI ^(proxied^)
 echo.
 
 :done
+echo.
+echo ============================================================
+echo   Press Enter to close this window.
+echo   nginx keeps running in the background.
+echo ============================================================
 pause >nul
 endlocal
 exit /b

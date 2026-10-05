@@ -1,11 +1,13 @@
 # -*- coding: utf-8 -*-
 """`wa_notify_service`（P1 告警 Baileys 推送通道）的回归测试。
 
-覆盖四件事：
+覆盖五件事：
   1. 在线判定三态 + **进程被杀时的假健康窗口**（本次发现的真实缺陷）；
   2. 投递与作业文件原子写；
   3. 等回报的三种终局（done / failed / 超时），且**超时绝不算成功**；
-  4. 局部失败不整体放弃 —— 否则 my_app 会以为全没发而重发，群里出现重复告警。
+  4. 局部失败不整体放弃 —— 否则 my_app 会以为全没发而重发，群里出现重复告警；
+  5. 消费端（`notify.js`）认领的**防重入** —— `setInterval` + async 回调会重入，
+     认领若不置 `running` 就会重复发送（2026-10-05 实测缺陷）。
 
 ⚠️ 测试全部把作业/心跳文件指到 `tmp_path`，**绝不碰 bot 的真实信箱**
 （真实信箱里有生产告警，写坏了会直接影响值班群）。
@@ -172,3 +174,64 @@ class TestWaitForResult:
         assert r["sent"] == ["TT1"]
         assert r["ok"] is True
         assert "TT2" in r["errors"][0]
+
+
+# ==========================================================
+# 四、消费端认领的防重入（2026-10-05 重复告警缺陷的守卫）
+# ==========================================================
+class TestNotifyClaimAntiReentry:
+    """锁死「认领即置 running」这条不变量。
+
+    背景（2026-10-05 实测缺陷）：`notify.js` 的轮询是
+    `setInterval(async () => { await runJob(...) })`，而 **`setInterval` 不等待
+    上一次异步回调结束**。若认领时只读不改状态，`sendMessage()` 的网络往返期间
+    作业文件一直是 `pending`，于是**每个 tick 都重新认领同一单并重发**
+    （仿真实测同一条 P1 告警被发了 5 次）。
+
+    旧扩展通道本来有这道防护（`tt_alarm_job.claim_pending_job` 认领即置
+    `running`），换到 Baileys 通道时丢了。这里用**真实源码**做断言，
+    避免「改了 JS 但测试测的是 Python 侧的假实现」。
+    """
+
+    @staticmethod
+    def _notify_js() -> str:
+        from pathlib import Path
+        p = (Path(__file__).resolve().parents[1].parent
+             / "whatsapp-kb-bot" / "src" / "notify.js")
+        if not p.is_file():
+            pytest.skip("whatsapp-kb-bot 不在本机，跳过消费端源码断言")
+        return p.read_text(encoding="utf-8")
+
+    def test_认领函数必须把状态推进到_running(self):
+        """核心不变量：读到 pending 后**就地写回 running**，否则会重复发送。"""
+        src = self._notify_js()
+        body = src.split("function claimJob()", 1)[1].split("\n}", 1)[0]
+        assert "status: 'running'" in body, (
+            "claimJob 认领后未把状态推进到 running —— `setInterval` 的异步回调会重入，"
+            "同一单会被重复发送（2026-10-05 事故）")
+        assert "claimed_at" in body, "认领必须记录 claimed_at，否则僵尸回收无法判定"
+        assert "writeJsonAtomic" in body, "状态推进必须是原子写回"
+
+    def test_保留僵尸回收(self):
+        """置了 running 就必须有回收，否则一次崩溃把信箱永久堵死。
+
+        这正是 `tt_alarm_job.py:14-24` 记录的 2026-10-01 事故形态
+        （作业停在 running，后续所有告警投递失败，而任务自己 success=True）。
+        """
+        src = self._notify_js()
+        body = src.split("function claimJob()", 1)[1].split("\n}", 1)[0]
+        assert "STALE_RUNNING_MS" in body, "缺僵尸回收：进程被杀后信箱会被永久堵死"
+        assert "age < STALE_RUNNING_MS" in body
+        # 阈值必须远大于正常发送耗时（秒级），否则会把发送中的作业当僵尸抢走
+        stale_ms = int(
+            src.split("NOTIFY_STALE_RUNNING_MS", 1)[1].split("||", 1)[1]
+            .split(")", 1)[0].strip())
+        assert stale_ms >= 60_000, (
+            f"僵尸阈值 {stale_ms}ms 过小，会把正在发送的作业当僵尸抢走 → 重复发送")
+
+    def test_写回失败时不认领(self):
+        """状态没推进就发出去 = 退回「每 tick 重发一遍」，宁可本轮不发。"""
+        src = self._notify_js()
+        body = src.split("function claimJob()", 1)[1].split("\n}", 1)[0]
+        assert "catch" in body and "return null" in body, \
+            "认领写回失败必须放弃本轮（return null），不能照发"

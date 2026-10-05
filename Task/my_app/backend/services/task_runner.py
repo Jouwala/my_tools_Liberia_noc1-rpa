@@ -307,6 +307,7 @@ def register_task(
     name_en: str = "",
     description_en: str = "",
     call_chain: list | None = None,
+    master_switch_exempt: bool = False,
 ):
     """
     注册一个可调度的任务。
@@ -321,6 +322,10 @@ def register_task(
         default_cron: 默认 cron 表达式 (分 时 日 月 周)
         category: 分类 (eflow / ran_ume / whatsapp / site_outage / general)
         enabled: 是否启用
+        master_switch_exempt: 是否豁免 Task Manager 主开关（一键全部启用/禁用）。
+            豁免任务不参与批量切换，也不计入前端「是否全部启用」的判定，
+            以免「按业务长期关闭」的任务把主开关永久钉在关闭态 —— 见
+            task_registry.MASTER_SWITCH_EXEMPT_IDS 的说明。
     """
     # 尝试加载用户自定义的调度配置
     saved_cron, saved_enabled = _load_schedule_config(task_id)
@@ -359,6 +364,7 @@ def register_task(
         "category": category,
         "gateway": gateway,
         "enabled": final_enabled,
+        "master_switch_exempt": bool(master_switch_exempt),
         "registered_at": datetime.now().isoformat(),
         "call_chain": _annotate_call_chain(_chain_raw, task_id),
         "call_chain_en": _annotate_call_chain(_chain_raw, task_id, lang="en"),
@@ -1212,12 +1218,26 @@ def toggle_all_tasks(enabled: bool) -> dict:
 
     与 toggle_task 相同的语义：更新内存状态 + 持久化 task_schedule_config
     + 增删 APScheduler job。逐任务 try/except，单个失败不中断其余任务。
+
+    豁免（master_switch_exempt，见 task_registry.MASTER_SWITCH_EXEMPT_IDS）：
+    这类任务**按业务决定长期关闭**，批量操作跳过它们，否则「一键启用」会把用户
+    刻意关掉的通道重新打开（2026-10-05 的 whatsapp_send_ext 重复发送事故根因）。
+    它们不计入 changed/total，单独通过返回值的 exempt 列表告知前端。
+
+    返回值的 changed 只统计**真正发生状态变更**的任务数（此前无脑返回
+    changed=总数，导致「一键启用」在全部已启用的情况下仍报「已启用 69 个」，
+    用户无法据此判断操作是否真的做了什么）。
     """
     sched = get_scheduler()
     changed = 0
     errors: list[str] = []
-    total = len(_task_registry)
+    exempt: list[str] = []
+    total = 0                      # 参与本次批量操作的任务数（已扣除豁免）
     for task_id, task in list(_task_registry.items()):
+        if task.get("master_switch_exempt"):
+            exempt.append(task_id)
+            continue
+        total += 1
         if task["enabled"] == enabled:
             continue
         try:
@@ -1227,7 +1247,7 @@ def toggle_all_tasks(enabled: bool) -> dict:
             if enabled:
                 schedule_task(task_id)
             else:
-                if sched.get_job(job_id):
+                if sched.get(job_id):
                     sched.remove_job(job_id)
             changed += 1
         except Exception as e:
@@ -1238,6 +1258,7 @@ def toggle_all_tasks(enabled: bool) -> dict:
         "changed": changed,
         "total": total,
         "enabled": enabled,
+        "exempt": exempt,
         "errors": errors[:5],
     }
 

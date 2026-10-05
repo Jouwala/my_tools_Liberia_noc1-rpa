@@ -26,8 +26,21 @@
 | `8-start_all.lnk` | 依次启动 my_app → 门户 → nginx（nginx 静默） |
 | `9-stop_all.lnk` | 依次停 nginx → 门户 → my_app |
 
-**交互约定**：双击即运行，弹出的控制台窗口显示过程，按提示按键关闭；
+**交互约定**：双击即运行，弹出的控制台窗口显示过程，**看完后按回车键（Enter）关闭**；
 **关闭窗口不会停掉服务**，服务继续在后台跑。
+
+结尾提示统一长这样（每条命令都会告诉你会后服务的状态）：
+
+```
+============================================================
+ Press Enter to close this window.
+ Nothing is stopped. Services keep running.
+============================================================
+```
+
+单服务命令会再弹一个子窗口跑仓库里的 bat，那个子窗口同样是**按回车关闭**，
+所以从开始到结束的操作方式完全一致。`9-stop_all` 之类的停止命令，
+提示语会变成 `The services listed above are now stopped.`。
 
 ## 二、为什么所有快捷方式都指向 `my_portal_ctl.ps1`
 
@@ -65,21 +78,22 @@ Get-ChildItem -LiteralPath $Root -Directory | Where-Object { $_.Name -like 'libe
 
 ## 四、重新生成快捷方式
 
-移动了 `my_portal_ctl.ps1`、或想重建桌面快捷方式时：
+移动了 `my_portal_ctl.ps1`、改了桌面文件夹名、或手工删掉了某个快捷方式时：
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File D:\01_RPA\TMP\_make_desktop_shortcuts.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File D:\01_RPA\desktop_shortcuts\make_desktop_shortcuts.ps1
 ```
 
-生成脚本用 Windows Script Host 的 `WScript.Shell` COM 对象写真正的 `.lnk`。
-它会自动建好 `my_portal\` 目录，并**顺手清掉桌面根目录上同名的旧快捷方式**
+生成脚本（`make_desktop_shortcuts.ps1`，**已入库**）用 Windows Script Host
+的 `WScript.Shell` COM 对象写真正的 `.lnk`。它会自动建好 `my_portal\` 目录，
+并**顺手清掉桌面根目录上同名的旧快捷方式**
 （早期版本曾把它们直接放在桌面根目录；不清掉就会有两套看起来一样的图标，
 而且旧的那套不会再跟随 `my_portal_ctl.ps1` 的参数变化）。
 
-> 该脚本放在 `TMP\`（一次性探针目录，已被 `.gitignore` 覆盖）。
-> 若日后删掉了它，按第二节的约定重写即可：目标 `powershell.exe`，
+> 万一这个脚本也丢了，按第二节的约定重建即可：目标是 `powershell.exe`，
 > 参数 `-NoProfile -ExecutionPolicy Bypass -File D:\01_RPA\my_portal_ctl.ps1 <命令>`，
-> 工作目录 `D:\01_RPA`。
+> 工作目录 `D:\01_RPA`，10 个快捷方式的命令名见第一节表格对应的连字符写法
+> （如 `1-start_nginx.lnk` → 参数 `1-start-nginx`）。
 
 ## 五、nginx 的三个 bat（`D:\01_RPA\nginx-1.28.0\`）
 
