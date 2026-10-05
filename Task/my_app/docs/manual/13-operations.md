@@ -605,6 +605,19 @@ Body: {"pageNo":1,"pageSize":500,"searchName":"","searchIp":"","sort":{"key":"",
 > 2026-10-04 之前正是被这一点误导，得出了"接口调不通"的错误结论。
 > 真正的判据只有一条：**登出后该会话再请求应变 401**。
 
+> ⚠ **关闭 `AUTH_LOGOUT_ENABLED` 时，缓存里落盘的仍是 225 那个错值。**
+> 因为 `_do_login` 把"取列表行 authCode"这一步放在 `if LOGOUT_ENABLED:` 之内
+> （`auth_manager.py:705-712`）—— 关闭时该分支不执行，`auth_code` 保持
+> `loginParameters`（225）。实测确认：关闭时缓存 `auth_code` len=225；
+> 置 1 后同一路径返回 len=121、登出后会话 401。
+>
+> **这个组合当前是安全的**（登出关着，错值不会被用），但它是**隐式耦合**：
+> 谁若绕过 `AUTH_LOGOUT_ENABLED` 直接调 `logout()`（例如运维脚本、
+> 或把 `eflow_api_client.logout()` 接进任务收尾的 `finally`），
+> 就会拿 225 去登出 → **204 但会话不死，且看起来"成功"**。
+> 所以：**要用登出，必须先置 `AUTH_LOGOUT_ENABLED=1` 并让进程重新登录一次**
+> （旧缓存里是错值），不要只接调用点。
+
 **「取最新一行」有竞态，必须用差集定位自己的会话**：
 
 `admin` 名下实测有 8 条会话，登录时刻彼此只差 **18s / 81s / 116s** —— 多个 worker
