@@ -9115,9 +9115,37 @@ iMonitor）、<code>10.100.20.9:8766</code>（RAIS），原先记为「一律回
 见下方「第二真相源」条）。</p>
 </li>
 </ul>
-<p><code>ume_in</code> / <code>battery_ume</code> 的探活端点登记在 <code>portal_login_service.PORTAL_PROBE_PATHS</code>
-（未登记的门户返回 <code>None</code>＝不探活，退回「只信 TTL」）。<strong>登记前必须实测该端点
-确实要求鉴权</strong>（探登录首页会得到假绿 200），否则会把好会话判死、无谓增加登录。</p>
+<p><code>ume_in</code> / <code>battery_ume</code> / <code>eflow</code> 的探活端点登记在
+<code>portal_login_service.PORTAL_PROBE_PATHS</code>（未登记的门户返回 <code>None</code>＝不探活，
+退回「只信 TTL」）。<strong>登记前必须实测该端点确实要求鉴权</strong>（探登录首页会得到
+假绿 200），否则会把好会话判死、无谓增加登录。</p>
+<blockquote>
+<p>✅ <strong>eflow 已登记（2026-10-06 实测）</strong>：<code>/api/fm-active/v1/activealarms/table</code>
+（取自 <code>eflow_api_client.py:122</code> 的 <code>ALARM_API_PATH</code>，生产真在用的活动告警接口）。
+三态实测：无 cookie → <code>401 {&quot;source&quot;:&quot;smagent&quot;,...}</code>、垃圾 cookie →
+<code>401 {&quot;hasLogged&quot;:true,...}</code>、真实会话 → <code>200</code>（真实告警 JSON）。三项全对。</p>
+<p>⚠️ <strong>探测 eFlow 必须复用生产请求路径</strong>（含 <code>forgerydefense</code> 头）。自己用
+urllib 拼请求会得到 <code>403 code=3329008 &quot;prohibited for cross-site access&quot;</code>
+—— 那是<strong>探测脚本的 bug</strong>，不是会话死了；照它下结论会把好会话判死。</p>
+<p>🔧 <strong>生效范围：只重启 worker 不够。</strong> <code>portal_login_service</code> 只被后端
+（<code>routers/portals.py</code>、<code>routers/credentials.py</code>）导入，<strong>worker 不加载它</strong>，
+所以 eflow 探活要<strong>重启后端 7038</strong> 才生效（<code>stop.bat</code> + <code>start.bat</code>，
+或杀掉 7038 由 <code>backend_watchdog.py</code> 拉起）。只重启 worker 组是无效动作。</p>
+</blockquote>
+<blockquote>
+<p>🚫 <strong>rais / vmax_cxo / fw_kpi 不登记探针，这是有意的、不是遗漏</strong>：
+它们<strong>根本不走 <code>auth_manager.get_auth</code></strong>（<code>kind</code> 分别是 <code>rais</code> / <code>vmax</code> /
+<code>umc</code>，各有自己的登录流程：RAIS 是 POST <code>verify4web.serv</code> 换 SSO token，
+VMAX 走填表且<strong>有图形验证码</strong>，FW 是 UMC 的 DES/SM3 页面加密）。
+它们的会话「当场登录、当场用 CDP 种进浏览器」，<strong>没有可复用的共享缓存</strong>，
+所以「缓存快路径把死会话发出去」这个失效模式在它们身上<strong>不存在</strong>。
+给它们登记探针是<strong>死代码没人调用</strong>，只会让人误以为已经覆盖了。</p>
+<p>结论：这三台若出现「落回登录页」，<strong>不是 TTL/探活能修的</strong>（那是 eFlow/RAN
+那类「吃缓存」门户的病）。排查方向应转向：VMAX 验证码是否人工通过、
+RAIS 的 SSO token 是否过期、上游是否在建新会话时踢掉旧会话（mutual-kick）。
+判定脚本：<code>TMP/_which_portals_can_probe.py</code>（列出每个门户的鉴权路径与
+能否受益于探活）。</p>
+</blockquote>
 <blockquote>
 <p>⚠️ <strong>Battery 全链路已闭合（2026-10-06 补最后一处裸露点）</strong>，四层逐一核对：</p>
 <ol>
