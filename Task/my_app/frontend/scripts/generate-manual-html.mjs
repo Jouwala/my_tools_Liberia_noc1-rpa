@@ -6,6 +6,20 @@
  * 用法：cd frontend && node scripts/generate-manual-html.mjs
  * 内容源：docs/manual/*.md（改 MD 后重跑本脚本 + npm run build 同步站点）。
  * MD→HTML 使用仓库内已有的 micromark + micromark-extension-gfm（表格/删除线等）。
+ *
+ * ⚠️ 只提交自己那几章时，别在脏工作区直接重跑（2026-10-06 实证）
+ * 本脚本读的是**整个** docs/manual/，会把当前工作区里**所有**未提交的 MD 改动
+ * 一起烤进产物。若你只想同步自己写的章节，而同事的 12-configuration.md 等
+ * 还在在途（未提交），直接重跑就会把**别人的半成品**打进 manual.html 并随你的
+ * 提交入库 —— 产物是生成物，diff 里看不出哪句是谁的，事后极难拆。
+ * 正确做法：从一个**只含已提交状态**的干净 worktree 生成，再把产物拷回来：
+ *     git worktree add ..\_manual_gen_wt HEAD
+ *     # 该 worktree 没有 node_modules，用 junction 借用主仓库依赖（只读）
+ *     New-Item -ItemType Junction -Path ..\_manual_gen_wt\...\frontend\node_modules `
+ *              -Target <主仓库>\frontend\node_modules
+ *     cd ..\_manual_gen_wt\...\frontend; node scripts\generate-manual-html.mjs
+ *     # 核对产物不含他人未提交的独有字样后，拷回主仓库
+ *     git worktree remove ..\_manual_gen_wt --force
  * ================================================ */
 import { readFile, writeFile, stat } from 'node:fs/promises'
 import path from 'node:path'

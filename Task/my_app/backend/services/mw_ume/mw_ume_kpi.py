@@ -31,7 +31,6 @@ MW UME KPI 数据获取脚本（Microwave - ZXMW 系列微波设备性能指标�
 - cnn_ume_kpi.py：同一套接口 + ZIP 解包 + 临时表去重
 """
 
-import base64
 import gc
 import glob
 import gzip
@@ -52,6 +51,11 @@ from datetime import datetime, timezone, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # 强制 UTF-8 输出（修复 Windows CMD 中文编码问题）
+try:
+    from ..rsa_util import rsa_encrypt_pem  # RSA 公钥加密（PKCS#1 v1.5）统一实现
+except ImportError:
+    from rsa_util import rsa_encrypt_pem  # type: ignore
+
 try:
     sys.stdout.reconfigure(encoding='utf-8')
     sys.stderr.reconfigure(encoding='utf-8')
@@ -266,18 +270,8 @@ def _http_request(method, path, headers_extra=None, body=None):
     return status_line, resp_headers, header_part, resp_body
 
 
-def _rsa_encrypt_pem(plaintext, public_key_b64):
-    """使用 RSA 公钥（Base64 编码）对明文进行 PKCS1v15 加密，返回 Base64 密文。"""
-    from cryptography.hazmat.primitives.asymmetric import padding as asym_padding
-    from cryptography.hazmat.primitives import serialization
-
-    pem = f"-----BEGIN PUBLIC KEY-----\n{public_key_b64}\n-----END PUBLIC KEY-----"
-    public_key = serialization.load_pem_public_key(pem.encode())
-    encrypted = public_key.encrypt(
-        plaintext.encode('utf-8'),
-        asym_padding.PKCS1v15()
-    )
-    return base64.b64encode(encrypted).decode('ascii')
+# RSA 加密实现已收敛到 backend/services/rsa_util.py（2026-10-06，原先 9 处重复实现）。
+_rsa_encrypt_pem = rsa_encrypt_pem
 
 
 def _auth_headers(cookie: str, forgery_token: str, extra: dict = None) -> str:

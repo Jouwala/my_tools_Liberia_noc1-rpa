@@ -191,6 +191,28 @@ import。工作区那几十个独立 RPA 脚本历史上各自把口令写成常
 
 含义：`auth_cache/` 目录里的内容等同于**有效登录态**，与口令同等对待——不外发、不入 git、不放进截图。
 
+### RSA 公钥加密收敛到一处（2026-10-06）
+
+上游 ZTE 系（UME / eFlow）的 OAuth2 登录是：`GET /api/oauth2/v1/login/publickey`
+拿公钥（**裸 Base64，无 PEM 头尾**）→ 用它加密口令 → `POST login_rsa`。
+填充固定 PKCS#1 v1.5。
+
+这段逻辑原先在**9 个文件**里各写一遍（`auth_manager`、`eflow_api_client`、
+`ms_sla_sync`、`ran_ume_service`、`ran_ume_main_kpi`、`ran_ume_network_kpi`、
+`cm_data_export`、`mw_ume_kpi`、`battary_kpi_fetch_socket`）。经 **AST 比对**
+确认 9 处语义完全一致（差异仅在 docstring、类型注解、换行），已收敛到
+`backend/services/rsa_util.rsa_encrypt_pem()`，只此一处可改。
+
+> 合并前先用 AST 证明同构，而不是"看起来一样"就动手 —— 首次用文本归一化比对时
+> 因为 docstring 未被剥离，误得出「有 5 种不同实现」的结论。逐步比对法见
+> `TMP/_diff_rsa_ast.py`。
+>
+> 其中 5 处（`eflow_api_client` / `ms_sla_sync` / `ran_ume_service` /
+> `ran_ume_main_kpi` / `ran_ume_network_kpi`）经核实**从未被调用**（`HEAD` 里
+> 只有定义、无调用点），已直接删除而非保留别名。保留 `_rsa_encrypt_pem`
+> 一行别名的是确实有调用点的 4 处：`auth_manager`、`battary_kpi_fetch_socket`、
+> `cm_data_export`、`mw_ume_kpi`。
+
 ### 会话必须跨任务/跨进程复用（2026-10-04 修正）
 
 `auth_cache/` 的存在意义就是**让多个任务/多个 worker 进程共用一份已申请的 token**，

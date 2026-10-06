@@ -7,7 +7,6 @@
 路径/FTP/UME 等共享常量仍由 ms_sla_service 提供（本模块单向依赖，无循环）。
 """
 
-import base64
 import gc
 import glob
 import gzip
@@ -593,14 +592,10 @@ def _http_request(method, path, headers_extra=None, body=None, retry=0):
     return status_line, resp_headers, header_part, resp_body
 
 
-def _rsa_encrypt_pem(plaintext, public_key_b64):
-    """使用 RSA 公钥对明文进行 PKCS1v15 加密，返回 Base64 密文。"""
-    from cryptography.hazmat.primitives.asymmetric import padding as asym_padding
-    from cryptography.hazmat.primitives import serialization
-    pem = f"-----BEGIN PUBLIC KEY-----\n{public_key_b64}\n-----END PUBLIC KEY-----"
-    public_key = serialization.load_pem_public_key(pem.encode())
-    encrypted = public_key.encrypt(plaintext.encode('utf-8'), asym_padding.PKCS1v15())
-    return base64.b64encode(encrypted).decode('ascii')
+# 本模块原先的 _rsa_encrypt_pem 经核实**从未被调用**（HEAD 里只有定义、无调用点），
+# 故 2026-10-06 直接删除而非留别名 —— 给死代码留别名会让人误以为这里还在用它
+# （AGENTS.md 第三节原则 10「删除优于兼容」）。如需 RSA 加密请用
+# backend/services/rsa_util.py 的 rsa_encrypt_pem。
 
 
 def probe_sla_session(cookie, forgery_token) -> bool:

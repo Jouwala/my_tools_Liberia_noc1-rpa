@@ -711,8 +711,10 @@ iMonitor）、`10.100.20.9:8766`（RAIS），原先记为「一律回退 86400�
   实测依据（用原样多段 cookie 串）：垃圾 cookie → `401 {"source":"smagent",...}`、
   无 cookie → `401`、真实会话 + 空 body → `200 {"code":0,...}`，与生产同路径
   `_post_json` 结果一致（`total=1532`），不误杀。
-  **该 UME 的会话寿命同样是实测的**（见 `auth_manager.AUTH_TTL_OVERRIDES` 与
-  `battary_kpi_fetch_socket.auth_info_is_fresh` 的 1 小时窗口）。
+  **该 UME 的会话寿命同样是实测的**（见 `auth_manager.AUTH_TTL_OVERRIDES`）。
+  回退文件的新鲜度窗口 `battary_kpi_fetch_socket.auth_info_is_fresh()` **不再自己
+  写死数字**，而是实时取 `auth_manager._resolve_ttl()`（2026-10-06 收敛，
+  见下方「第二真相源」条）。
 
 `ume_in` / `battery_ume` 的探活端点登记在 `portal_login_service.PORTAL_PROBE_PATHS`
 （未登记的门户返回 `None`＝不探活，退回「只信 TTL」）。**登记前必须实测该端点
@@ -736,9 +738,20 @@ iMonitor）、`10.100.20.9:8766`（RAIS），原先记为「一律回退 86400�
 2. `battery_kpi_service.py` 原 `_SHARED_AUTH_TTL_SEC = 8 * 3600`，注释理由是
    「`backend/.env` 未配置 `AUTH_TOKEN_TTL`」—— 前半句错（10-04 就配了 86400），
    后半句被实测推翻（8 小时窗口 100% 是空头信任）。现在该常量已删，回写走
-   `_resolve_ttl`；配套的 `battary_kpi_fetch_socket.auth_info_is_fresh()` /
-   `ensure_auth_info()` 默认窗口也从 8 小时压到 1 小时（生产路径走
-   `ensure_auth_info(force=True)`，不受影响）。
+   `_resolve_ttl`。
+3. **`auth_info.json` 的新鲜度窗口曾是"第二个真相源"（2026-10-06 收敛）**：
+   `battary_kpi_fetch_socket.auth_info_is_fresh()` / `ensure_auth_info()` 原先各自
+   硬编码 `max_age_hours = 1.0`，与 `AUTH_TTL_OVERRIDES` 是两个独立数字 ——
+   该文件注释自己都写着"改一处要改两处"。实测这个分叉**每一台都对不上**：
+   - eFlow / MW UME（覆盖表 86400）：窗口只有 1h，**比口径紧 24 倍**，
+     把本可信任 24 小时的会话反复重登；
+   - Battery / RAN / iPRAN / CNN（覆盖表 1800）：窗口 1h，**比口径松 2 倍**，
+     正好是"死 cookie 被发出去"的失效模式。
+   现在两个参数默认 `None`，由 `_fresh_window_hours()` 实时问
+   `auth_manager._resolve_ttl()`，覆盖表改了它自动跟着变。
+   回归：`tests/test_auth_probe_policy.py::test_auth_info_fresh_window_has_single_source_of_truth`。
+   （注意：该函数**只按时间判**，不探活；窗口内但已被上游作废的会话它仍返回 True，
+   所以 `_acquire_auth` 返回前的那次补探不能省。）
 
 **验证**：`python TMP/_verify_ttl_overrides.py` → 末行 `结论：全部通过`，退出码 0。
 它只用**临时目录**当缓存、`_do_login` 打桩，**不碰** `backend/services/auth_cache/`、
@@ -757,6 +770,9 @@ iMonitor）、`10.100.20.9:8766`（RAIS），原先记为「一律回退 86400�
 `python -c "import sys;sys.path.insert(0,'.');import backend.services.auth_manager as m;print(m.DEFAULT_TTL, m.AUTH_TTL_OVERRIDES)"`
 → 应打出 `86400 {'10.100.28.27:28001': 1800, '10.100.2.99:28001': 1800, '192.168.170.2:443': 1800, '10.121.1.2:28808': 1800}`。
 **不必删 `auth_cache/`**：`_read_cache` 的夹紧逻辑下一轮调度就会把压短主机的旧缓存判过期。
+
+**可复用脚本**：`TMP/_check_item1_impact.py` 逐台列出「覆盖表口径 / 旧硬编码 1h /
+当前窗口」三者对比，用来确认新鲜度窗口确实跟着覆盖表走（改动覆盖表后可重跑核对）。
 
 > 📌 **顺带纠正本节上方（:544）的口径**：worker/backend 运行时日志实际是 **UTF-8**
 > 落盘（2026-10-06 用 UTF-8 读同一批文件，中文特征串「共享会话已失效」「复用共享会话」

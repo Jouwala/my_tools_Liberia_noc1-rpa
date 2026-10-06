@@ -35,7 +35,6 @@ RAN UME CM MO Export Script (v2)
   Sheet 3 "Tech_Summary"  : Tech, Total_Sites, Total_Cells
 """
 
-import base64
 import gc
 import glob
 import gzip
@@ -55,6 +54,13 @@ from datetime import datetime
 
 import openpyxl
 import pandas as pd
+
+# rsa_util 在 services 包根，不在本子包内：用 `..rsa_util`，
+# 与下面后续的 `from backend.services.credential_store import ...` 同一目标。
+try:
+    from ..rsa_util import rsa_encrypt_pem  # RSA 公钥加密（PKCS#1 v1.5）统一实现
+except ImportError:
+    from rsa_util import rsa_encrypt_pem  # type: ignore  # 独立运行（本脚本可顶层执行）
 
 try:
     # line_buffering=True：worker 长驻进程 stdout 是块缓冲，裸 print() 的
@@ -381,13 +387,8 @@ def _http_request(method, path, headers_extra=None, body=None):
     raise last_err
 
 
-def _rsa_encrypt_pem(plaintext, public_key_b64):
-    from cryptography.hazmat.primitives.asymmetric import padding as asym_padding
-    from cryptography.hazmat.primitives import serialization
-    pem = f"-----BEGIN PUBLIC KEY-----\n{public_key_b64}\n-----END PUBLIC KEY-----"
-    public_key = serialization.load_pem_public_key(pem.encode())
-    encrypted = public_key.encrypt(plaintext.encode('utf-8'), asym_padding.PKCS1v15())
-    return base64.b64encode(encrypted).decode('ascii')
+# RSA 加密实现已收敛到 backend/services/rsa_util.py（2026-10-06，原先 9 处重复实现）。
+_rsa_encrypt_pem = rsa_encrypt_pem
 
 
 def _runtime_credentials():

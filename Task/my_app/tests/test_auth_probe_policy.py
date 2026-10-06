@@ -250,8 +250,8 @@ def test_unregistered_portals_still_return_no_probe():
 def test_auth_info_freshness_is_time_based_only():
     """钉住 `auth_info_is_fresh` 的现状语义：**只按时间**判新鲜度。
 
-    这是它必须被探活兜住的原因 —— 落在 1 小时窗口内、但已被上游作废的
-    会话，它一样返回 True。上游实测寿命 58~60 分钟，且可能被同账户别处
+    这是它必须被探活兜住的原因 —— 落在窗口内、但已被上游作废的会话，
+    它一样返回 True。上游实测寿命 58~60 分钟，且可能被同账户别处
     登录踢掉。若哪天改成会探活，本测试会失败，提醒同步更新
     `_acquire_auth` 里的那次补探（否则变成探两次）。
     """
@@ -262,6 +262,41 @@ def test_auth_info_freshness_is_time_based_only():
     src = inspect.getsource(sock.auth_info_is_fresh)
     assert "probe" not in src.lower(), "若改为探活，请同步 _acquire_auth 的补探"
     assert "max_age_hours" in src
+
+
+def test_auth_info_fresh_window_has_single_source_of_truth():
+    """钉住新鲜度窗口**不再自己写死数字**，必须来自 `auth_manager._resolve_ttl`。
+
+    2026-10-06 之前的写法是 `max_age_hours: float = 1.0` —— 与 auth_manager 的
+    `AUTH_TTL_OVERRIDES`（该主机 1800s）是两个独立数字，正是工作区约束第 5 条
+    禁止的"第二个真相源"。一旦只改一边就会静默分叉。
+    """
+    import inspect
+
+    from backend.services import auth_manager as am
+    from backend.services.battary_kpi_fetch import battary_kpi_fetch_socket as sock
+
+    # 1) 窗口函数必须真的去问 auth_manager，而不是返回常量
+    fsrc = inspect.getsource(sock._fresh_window_hours)
+    assert "_resolve_ttl" in fsrc, "新鲜度窗口必须复用 auth_manager._resolve_ttl"
+
+    # 2) 两个入口的默认值都必须是 None（表示"去问 auth_manager"），不得写死
+    for fn in (sock.auth_info_is_fresh, sock.ensure_auth_info):
+        sig = inspect.signature(fn)
+        assert sig.parameters["max_age_hours"].default is None, (
+            f"{fn.__name__} 的 max_age_hours 默认值必须是 None（动态取 TTL），"
+            "写死数字会重新变成第二个真相源"
+        )
+
+    # 3) 真的算一遍：窗口应与 auth_manager 对同一主机给出的值一致
+    sock._HOST, sock._PORT = "192.168.170.2", 443
+    expected = am._resolve_ttl("192.168.170.2", 443) / 3600.0
+    assert abs(sock._fresh_window_hours() - expected) < 1e-9
+
+    # 4) 换一台主机要跟着变（证明不是巧合写死成 0.5）
+    sock._HOST, sock._PORT = "10.100.20.8", 28001
+    assert sock._fresh_window_hours() == am._resolve_ttl("10.100.20.8", 28001) / 3600.0
+    assert sock._fresh_window_hours() != expected, "不同主机的窗口应不同"
 
 
 def test_battery_acquire_auth_backstop_probes_before_return():

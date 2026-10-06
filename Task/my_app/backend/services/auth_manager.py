@@ -24,12 +24,18 @@ import sys
 import json
 import time
 import re
-import base64
 import gzip
 import os
 import logging
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
+
+# RSA 公钥加密（PKCS#1 v1.5）统一实现；本模块可作为顶层脚本独立运行
+# （backend 包不在 sys.path 时），故保留裸导入回退，与下方 credential_store 的写法一致。
+try:
+    from backend.services.rsa_util import rsa_encrypt_pem
+except ImportError:
+    from rsa_util import rsa_encrypt_pem
 
 # 跨平台文件锁
 if sys.platform == 'win32':
@@ -316,14 +322,12 @@ def _http_request(host: str, port: int, method: str, path: str,
     return status_line, resp_headers, header_part, resp_body
 
 
+# RSA 加密实现已收敛到 backend/services/rsa_util.py（2026-10-06，原先 9 处重复实现）。
+# 保留这个一行别名：本模块内 _rsa_encrypt_pem 是多轮登录路径的既有叫法，
+# 别名比改名调用点更稳，且语义完全一致（PKCS#1 v1.5，同一实现）。
 def _rsa_encrypt_pem(plaintext: str, public_key_b64: str) -> str:
     """使用 RSA 公钥加密（PKCS#1 v1.5），返回 base64 字符串。"""
-    from cryptography.hazmat.primitives.asymmetric import padding as asym_padding
-    from cryptography.hazmat.primitives import serialization
-    pem = f"-----BEGIN PUBLIC KEY-----\n{public_key_b64}\n-----END PUBLIC KEY-----"
-    public_key = serialization.load_pem_public_key(pem.encode())
-    encrypted = public_key.encrypt(plaintext.encode('utf-8'), asym_padding.PKCS1v15())
-    return base64.b64encode(encrypted).decode('ascii')
+    return rsa_encrypt_pem(plaintext, public_key_b64)
 
 
 # ========== 缓存读写（带文件锁） ==========

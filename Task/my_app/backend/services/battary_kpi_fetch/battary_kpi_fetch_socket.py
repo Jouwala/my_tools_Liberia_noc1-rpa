@@ -39,7 +39,6 @@ auth_info.json 回退说明（2026-09-23）：
 
 from __future__ import annotations
 
-import base64
 import gzip
 import importlib.util
 import json
@@ -414,19 +413,19 @@ def _http_request_with_retry(method: str, path: str, host: str, port: int,
 
 
 # ---------------------------------------------------------------------------
-# RSA 加密（参考 ran_network_kpi_zs.py）
+# RSA 加密（实现已收敛到 backend/services/rsa_util.py，2026-10-06）
 # ---------------------------------------------------------------------------
 
+# 本脚本支持脱离后端独立运行（见 _check_dependencies/_runtime_credentials 的回退写法），
+# 故这里同样带裸导入回退；rsa_util 内部对 cryptography 仍是延迟导入，不影响本脚本
+# 顶部 _check_dependencies() 的依赖诊断。
+try:
+    from backend.services.rsa_util import rsa_encrypt_pem
+except ImportError:
+    from rsa_util import rsa_encrypt_pem  # type: ignore  # 独立运行
 
-def _rsa_encrypt_pem(plaintext: str, public_key_b64: str) -> str:
-    """使用 RSA 公钥（Base64 编码）对明文进行 PKCS1v15 加密，返回 Base64 密文。"""
-    from cryptography.hazmat.primitives.asymmetric import padding as asym_padding
-    from cryptography.hazmat.primitives import serialization
-
-    pem = f"-----BEGIN PUBLIC KEY-----\n{public_key_b64}\n-----END PUBLIC KEY-----"
-    public_key = serialization.load_pem_public_key(pem.encode())
-    encrypted = public_key.encrypt(plaintext.encode('utf-8'), asym_padding.PKCS1v15())
-    return base64.b64encode(encrypted).decode('ascii')
+# 模块内保留 _rsa_encrypt_pem 这个既有叫法（login_rsa 调用点不改）；语义与原实现一致。
+_rsa_encrypt_pem = rsa_encrypt_pem
 
 
 # ---------------------------------------------------------------------------
@@ -600,7 +599,31 @@ def load_auth_info_fallback() -> dict | None:
         return None
 
 
-def auth_info_is_fresh(max_age_hours: float = 1.0) -> bool:
+def _fresh_window_hours() -> float:
+    """auth_info.json 的新鲜度窗口（小时）—— **单一真相源是 auth_manager._resolve_ttl**。
+
+    2026-10-06：此前这里是硬编码 `max_age_hours=1.0`，与 auth_manager 的
+    `AUTH_TTL_OVERRIDES`（该主机 1800s）是两个独立的数字，本文件注释自己都写着
+    "改一处要改两处" —— 这正是"第二个真相源"，一旦只改了一边就会静默分叉：
+    共享缓存放短了、这个回退文件还按旧窗口自欺（或反之）。
+    现在直接问 auth_manager 该主机应取多少秒，两边永远一致。
+
+    auth_manager 不可导入时（本脚本支持脱离后端独立运行）回退到 1800s ——
+    与该主机当前的实测口径一致，并且宁可取短（多登一次）也不取长（发死 cookie）。
+    """
+    try:
+        try:
+            from backend.services import auth_manager as _am
+        except ImportError:
+            import auth_manager as _am  # type: ignore  # 独立运行
+        return _am._resolve_ttl(_HOST, _PORT) / 3600.0
+    except Exception as e:  # noqa: BLE001
+        log(f"[AUTH] 取不到 auth_manager 的 TTL 口径（{type(e).__name__}: {e}），"
+            f"回退 0.5h")
+        return 0.5
+
+
+def auth_info_is_fresh(max_age_hours: float | None = None) -> bool:
     """判断 auth_info.json 是否存在且未过期。
 
     UME 会话通常几小时就失效，过期文件继续用只会拿到 401；此处按文件内
@@ -608,10 +631,18 @@ def auth_info_is_fresh(max_age_hours: float = 1.0) -> bool:
 
     2026-10-06：默认窗口由 8 小时压到 1 小时。192.168.170.2 的会话寿命是**实测**
     出来的（最近 8 天日志：21 次诞生、20 次在下一轮之前被 401 证实已死，
-    证死年龄 58~60 分钟），8 小时窗口全是空头信任。口径与 auth_manager 的
-    AUTH_TTL_OVERRIDES 中该主机一致，改一处要改两处，否则共享缓存放短了、
-    这个回退文件还按 8 小时自欺。
+    证死年龄 58~60 分钟），8 小时窗口全是空头信任。
+
+    同日晚些时候：窗口改为**动态取 `auth_manager._resolve_ttl()`**（见
+    `_fresh_window_hours`）—— 原先这里硬编码 1.0 与覆盖表是两个数字，
+    改一处漏一处就会静默分叉。现在 cover 表改了这里自动跟着变。
+
+    ⚠️ 本函数**只按时间**判新鲜度，不探活：落在窗口内但已被上游作废的会话
+    它一样返回 True。调用方必须在拿到会话后补探一次 —— 见
+    `battery_kpi_service._acquire_auth` 末尾的兜底探活。
     """
+    if max_age_hours is None:
+        max_age_hours = _fresh_window_hours()
     if not AUTH_INFO_FILE.exists():
         return False
     try:
@@ -623,14 +654,14 @@ def auth_info_is_fresh(max_age_hours: float = 1.0) -> bool:
             logged_at = datetime.fromtimestamp(AUTH_INFO_FILE.stat().st_mtime)
         age_h = (datetime.now() - logged_at).total_seconds() / 3600.0
         if age_h > max_age_hours:
-            log(f"[AUTH] auth_info.json 已过期（{age_h:.1f}h > {max_age_hours}h）")
+            log(f"[AUTH] auth_info.json 已过期（{age_h:.2f}h > {max_age_hours:.2f}h）")
             return False
         return True
     except Exception:
         return False
 
 
-def ensure_auth_info(force: bool = False, max_age_hours: float = 1.0) -> bool:
+def ensure_auth_info(force: bool = False, max_age_hours: float | None = None) -> bool:
     """确保 auth_info.json 可用（浏览器登录脚本已不在仓库，此处用 RSA 接口兜底生成）。
 
     背景：RSA 纯接口登录失败时会回退读 auth_info.json，但该文件原本由
@@ -640,6 +671,9 @@ def ensure_auth_info(force: bool = False, max_age_hours: float = 1.0) -> bool:
 
     这里用 credential_store 的账号密码（battery_ume 分组）调同一套 RSA 接口，
     成功后写出与浏览器脚本兼容的 auth_info.json，让回退链真正可用。
+
+    ``max_age_hours=None``（默认）表示取 `auth_manager._resolve_ttl()` 的口径，
+    与共享缓存永远一致；显式传值仅用于测试或特殊情况。
 
     Returns:
         True 表示存在可用的 auth_info.json（含本次新生成）。

@@ -9,7 +9,6 @@ import json
 import io
 import time
 import re
-import base64
 import uuid
 import logging
 import gzip
@@ -441,17 +440,6 @@ def _http_request(method, path, headers_extra=None, body=None, retry=0,
                              retry=retry, _auth_retried=True, max_retries=max_retries)
 
     return status_line, resp_headers, header_part, resp_body
-
-
-# ========== RSA 加密 ==========
-def _rsa_encrypt_pem(plaintext, public_key_b64):
-    from cryptography.hazmat.primitives.asymmetric import padding as asym_padding
-    from cryptography.hazmat.primitives import serialization
-
-    pem = f"-----BEGIN PUBLIC KEY-----\n{public_key_b64}\n-----END PUBLIC KEY-----"
-    public_key = serialization.load_pem_public_key(pem.encode())
-    encrypted = public_key.encrypt(plaintext.encode('utf-8'), asym_padding.PKCS1v15())
-    return base64.b64encode(encrypted).decode('ascii')
 
 
 # ========== 登录认证 ==========
