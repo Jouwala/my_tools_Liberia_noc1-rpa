@@ -549,6 +549,10 @@ export default function NurDashboard({ only }: { only?: 'nur' | 'sla' } = {}) {
     // 继承看板当前筛选（vendor/project/exclude + 站点四维），period 已在 params 中精确定位
     // ⚠ 下钻必须与 /overview 逐条同口径，否则「表里的数字」与「下钻的行数」对不上
     const p: Record<string, string> = { ...params }
+    // 时间窗：概览把 weekly/monthly 单元格裁到用户选定的窗口，下钻不裁就会返回
+    // 整个 ISO 周/自然月（实测 W31 概览 2 / 下钻 1259）。这里与 :515-516 同源同格式。
+    if (range && range[0]) p.start = range[0].format('YYYY-MM-DD')
+    if (range && range[1]) p.end = range[1].format('YYYY-MM-DD')
     if (vendor) p.vendor = vendor
     if (project) p.project = project
     if (exclude) p.exclude = exclude
@@ -557,7 +561,7 @@ export default function NurDashboard({ only }: { only?: 'nur' | 'sla' } = {}) {
       .then(res => setDrillData(res.data?.rows || []))
       .catch(() => setDrillData([]))
       .finally(() => setDrillLoading(false))
-  }, [vendor, project, exclude, activeSiteFilters])
+  }, [vendor, project, exclude, activeSiteFilters, range])
 
   const handleNurDrill = (e: React.MouseEvent, g: Gran, tech: string, period: string) => {
     openDrill(e, { metric: 'nur', gran: g, period, tech },

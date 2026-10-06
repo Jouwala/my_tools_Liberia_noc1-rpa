@@ -635,6 +635,7 @@ def tt_wo_drilldown(
     region: str = Query(None),
     owner: str = Query(None, description="ZTE / 3rd；与 overview 同一口径"),
     adv: str = Query(None, description="高级过滤，JSON 对象 {站点列名: 精确值}；与 overview 同一口径"),
+    severity: str = Query(None, description="Ticket Severity（P1~P4）；MTTR 趋势图下钻专用，与 overview 同一归一化口径"),
     dimension: str = Query("all_tt"),
     value: str = Query(None),
 ):
@@ -642,6 +643,10 @@ def tt_wo_drilldown(
 
     过滤口径必须与 /overview 逐条一致（同一时间字段、同一站点 JOIN、同一 owner
     判定、同一高级过滤），否则下钻行数会与看板上的数字对不上。
+
+    ``severity``：MTTR 趋势图按 Ticket Severity 拆成 4 张，柱高是「该级别该桶的单数」
+    （overview 的 ``total_by_sev``，:415-418）。缺了这个过滤，点 P2 与点 P4 会返回
+    同一批「该桶全部级别」的单（2026-10-06 实测 2026-08 两处均为 5086）。
     """
     S = _detect_schema()
     adv_filters = _parse_adv(adv)
@@ -700,12 +705,24 @@ def tt_wo_drilldown(
                 ORDER BY t.alarm_occur_time DESC
             """, tt_params).fetchall()
             cols = [c.strip().split('.')[-1] for c in TT_FIELDS.split(",")]
-            data = [
-                dict(zip(cols, row)) for row in rows
-                if _period_label(str(dict(zip(cols, row)).get("alarm_occur_time") or ""), dimension) == value
-            ]
+            # severity 过滤走 _ticket_severity_key 归一化（strip + 排除 Unknown），
+            # 与 overview:407 同源；不能直接 SQL `col = ?`，否则空串/空白/大小写
+            # 变体会在两边归到不同桶里，口径又分叉。
+            sev_want = _ticket_severity_key(severity) if severity else None
+            data = []
+            for row in rows:
+                rec = dict(zip(cols, row))
+                if _period_label(str(rec.get("alarm_occur_time") or ""), dimension) != value:
+                    continue
+                if sev_want is not None:
+                    if _ticket_severity_key(rec.get("ticket_severity")) != sev_want:
+                        continue
+                data.append(rec)
             conn.close()
-            return {"title": f"TT - {dimension.title()}: {value}", "count": len(data), "data": data}
+            title = f"TT - {dimension.title()}: {value}"
+            if sev_want:
+                title = f"{title} · {sev_want}"
+            return {"title": title, "count": len(data), "data": data}
 
         # 站点维度
         if dim_type == "site" and value:

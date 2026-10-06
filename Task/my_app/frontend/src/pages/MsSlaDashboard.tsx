@@ -580,11 +580,16 @@ export default function MsSlaDashboard({ only }: { only?: 'nur' | 'sla' } = {}) 
     setDrillSearch('')
     setDrillTitle(title)
     setDrillKey(key)
-    api.get('/nur/detail', { params })
+    // 时间窗：概览把 weekly/monthly 单元格裁到用户选定的窗口，下钻不裁就会返回
+    // 整个 ISO 周/自然月（实测 W31 概览 2 / 下钻 1259）。与 :537-538 同源同格式。
+    const p: Record<string, string> = { ...params }
+    if (range && range[0]) p.start = range[0].format('YYYY-MM-DD')
+    if (range && range[1]) p.end = range[1].format('YYYY-MM-DD')
+    api.get('/nur/detail', { params: p })
       .then(res => setDrillData(res.data?.rows || []))
       .catch(() => setDrillData([]))
       .finally(() => setDrillLoading(false))
-  }, [])
+  }, [range])
 
   const handleNurDrill = (e: React.MouseEvent, g: Gran, tech: string, period: string) => {
     openDrill(e, { metric: 'nur', gran: g, period, tech },

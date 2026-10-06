@@ -1116,6 +1116,7 @@ def compute_detail(metric: str = "nur", gran: str = "daily", period: str = "",
                    trm_type: str = "", site_caregory: str = "",
                    province_county: str = "", region: str = "",
                    starlink_recently_migrated: str = "",
+                   start: str = "", end: str = "",
                    max_rows: int = 2000) -> Dict:
     """下钻：返回构成某单元格数值的 TT 明细，筛选口径与 compute_overview 完全一致。
 
@@ -1124,6 +1125,10 @@ def compute_detail(metric: str = "nur", gran: str = "daily", period: str = "",
       输出附加 drill 列：tech（归属制式，sitewide 单标 SITEWIDE）、cells（归属小区数）。
     - metric='sla'：severity=P1~P4/Unknown/Total；item=total/achieve 返回全部，
       item=pass 仅 sla_status='Pass'。
+    - start/end：与 compute_overview 同一时间字段（occur_dt）、同一含端语义
+      （end 含当日，+1 天）。**缺了它**，weekly/monthly 单元格会被概览裁到用户选的
+      时间窗、而下钻按 period 标签返回**整个 ISO 周/自然月**，行数与表格数字对不上
+      （2026-10-06 实测：窗口 2026-08-01~08-31 时 W31 概览 2 / 下钻 1259）。
     明细默认按 alarm_occur_time 降序（项目下钻规范）。
     """
     t0 = time.time()
@@ -1174,6 +1179,13 @@ def compute_detail(metric: str = "nur", gran: str = "daily", period: str = "",
         df = df[df["excluded"] != "Y"]
     for c, v in site_filters.items():
         df = df[df[_site_col(c)] == v]
+    # ⚠ 时间窗必须与 compute_overview:933-936 逐字同口径（同字段 occur_dt、同含端 +1 天）。
+    #   缺了它时下面的 period 全等只能定位「整个 ISO 周 / 自然月」，
+    #   会把用户时间窗之外的行一并返回（2026-10-06 实测 W31 概览 2 / 下钻 1259）。
+    if start:
+        df = df[df["occur_dt"] >= pd.to_datetime(start)]
+    if end:
+        df = df[df["occur_dt"] <= pd.to_datetime(end) + pd.Timedelta(days=1)]
     col = {"daily": "day", "weekly": "week", "monthly": "month"}[gran]
     if period:
         df = df[df[col] == period]
@@ -1191,6 +1203,10 @@ def compute_detail(metric: str = "nur", gran: str = "daily", period: str = "",
             df["drill_tech"] = np.where(df["cls_kind"] == "sitewide", "SITEWIDE", df["cls_tech"])
             df["drill_cells"] = df["cells_weight"]
     else:  # sla
+        # 概览在算 SLA 时先剔掉「期间标签为空」的行（:1041 `df[df[col].notna()]`），
+        # 即 alarm_occur_time 解析不出该粒度桶的行不计入 total。下钻必须同口径，
+        # 否则这些行会被下钻算进去而概览不算（2026-10-06 实测 W31 概览 2 / 下钻 335）。
+        df = df[df["occur_dt"].notna()]
         sev = _norm_series(df["ticket_severity"]).where(
             _norm_series(df["ticket_severity"]) != "", "Unknown")
         if severity and severity != "Total":

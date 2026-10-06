@@ -79,9 +79,15 @@ def nur_detail(
     region: str = Query("", description="站点主数据 region 精确匹配，空=全部"),
     starlink_recently_migrated: str = Query(
         "", description="站点主数据 starlink_recently_migrated 精确匹配（Yes/No），空=全部"),
+    start: str = Query("", description="时间窗起点 YYYY-MM-DD；必须与 /overview 同值，否则周/月单元格下钻会超出窗口"),
+    end: str = Query("", description="时间窗终点 YYYY-MM-DD（含当日）；必须与 /overview 同值"),
 ):
     """单元格下钻：返回构成该数值的 TT 明细（筛选口径与 /overview 一致）。
-    详见 nur_calc.compute_detail。"""
+    详见 nur_calc.compute_detail。
+
+    ``start``/``end`` 是 weekly/monthly 下钻的**必需**参数：概览会把整周/整月裁到
+    用户选的时间窗，下钻若不裁就会返回整个 ISO 周/自然月（实测 2 vs 1259）。
+    """
     return nur_calc.compute_detail(
         metric=metric, gran=gran, period=period, tech=tech,
         severity=severity, item=item, vendor=vendor,
@@ -89,4 +95,5 @@ def nur_detail(
         trm_type=trm_type, site_caregory=site_caregory,
         province_county=province_county, region=region,
         starlink_recently_migrated=starlink_recently_migrated,
+        start=start, end=end,
     )

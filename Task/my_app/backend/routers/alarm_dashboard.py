@@ -251,6 +251,17 @@ REALTIME_DIMENSION_FILTER = {
         r for r in rows if _safe_str(r.get("networktype")) == v
     ],
     "duration": lambda rows, v: [r for r in rows if r.get("_bucket") == v],
+    # 「受影响站点」卡片：概览按 site_id **去重**计数（:503），下钻必须同口径。
+    # 缺这一项时卡片点开走 dimension='all'，返回的是告警**行数**，
+    # 于是「卡片 42」与「弹窗 47 条」对不上（2026-10-06 实测）。
+    "affected_site": lambda rows, v: [r for r in rows if _safe_str(r.get("site_id")) == v],
+    # 区域图 tooltip 的「受影响站点」是**该区域内**的 site_id 去重数（:481-487），
+    # 与柱子高度（告警行数）是两个量。同一区域内再按站点去重，
+    # 才能让 tooltip 那一行也点得下去且数字对得上（实测 ML 8 vs 11 行）。
+    "region_affected_site": lambda rows, v: [
+        r for r in rows
+        if _safe_str(r.get("site_id")) and _safe_str(r.get("_region_code")) == v
+    ],
 }
 
 REALTIME_DIMENSION_TITLE = {
@@ -262,7 +273,18 @@ REALTIME_DIMENSION_TITLE = {
     "site_attribute": "站点属性 = {v}",
     "networktype": "网络类型 = {v}",
     "duration": "持续时长 = {v}",
+    # 下面两项是「去重/求和」类卡片的下钻口径，总表按唯一站点列出
+    "affected_site": "受影响站点 = {v}",
+    "affected_sites": "受影响站点（按 site_id 去重，共 {v} 个）",
+    "region_affected_site": "受影响站点（区域 {v}，按 site_id 去重）",
+    "total_hours": "告警累计时长（全部活动告警明细）",
 }
+
+# 概览卡片里属于「聚合度量」而非「行计数」的下钻维度：
+# 它们点开时不能按行返回，必须复现概览的度量（去重计数 / 求和），
+# 否则弹窗里的数字与卡片上的大字是两个不同的量。
+_DEDUP_SITE_DIMENSIONS = ("affected_sites", "region_affected_site")
+_AGGREGATE_DIMENSIONS = _DEDUP_SITE_DIMENSIONS + ("total_hours",)
 
 
 def _realtime_record(r: dict) -> dict:
@@ -606,15 +628,45 @@ def alarm_realtime_drilldown(
     limit: int = Query(500, ge=1, le=5000),
 ):
     """实时告警明细下钻。
-    dimension: all | severity | tech | region | alarm_type | site_attribute | networktype | duration
-    value: 维度对应的取值（severity/tech/region/alarm_type/site_attribute/networktype/duration 需要）
+
+    dimension: all | severity | tech | region | alarm_type | site_attribute
+               | networktype | duration | affected_sites | total_hours
+    value: 维度对应的取值（severity/tech/region/alarm_type/site_attribute/
+           networktype/duration/affected_site 需要）
     limit: 返回明细行数上限（默认500）
+
+    **聚合类维度（affected_sites / total_hours）**：概览卡片显示的是「去重站点数」
+    与「时长求和」（:503 / :506），不是行数。这两个维度下钻时按度量返回 ——
+    去重维度每站只留一行代表、求和维度返回全部活动告警明细，
+    并在响应里用 ``measure`` / ``measure_value`` 显式标明度量，供前端对账。
     """
     rows = _load_realtime_rows()
     if not rows:
         return {"title": "No data", "count": 0, "total": 0, "data": []}
 
-    if dimension in ("all", "", None):
+    # 聚合度量维度：先把「用于展示/计数的行集合」算出来，再走统一的排序截断
+    measure = "rows"
+    measure_value = None
+    if dimension in _DEDUP_SITE_DIMENSIONS:
+        # 先按维度圈定行集合（affected_sites = 全部；region_affected_site = 该区域），
+        # 再按 site_id 去重 —— 与概览 affected_sites:503 / region_sites_count:481-487 同源
+        base = rows if dimension == "affected_sites" else REALTIME_DIMENSION_FILTER["region_affected_site"](rows, value)
+        seen: set = set()
+        deduped = []
+        for r in base:
+            sid = _safe_str(r.get("site_id"))
+            if not sid or sid in seen:
+                continue
+            seen.add(sid)
+            deduped.append(r)
+        filtered = deduped
+        measure = "distinct_site"
+        measure_value = len(deduped)
+    elif dimension == "total_hours":
+        filtered = rows
+        measure = "sum_hours"
+        measure_value = round(sum(r.get("_hours") or 0 for r in rows), 1)
+    elif dimension in ("all", "", None):
         filtered = rows
     else:
         fn = REALTIME_DIMENSION_FILTER.get(dimension)
@@ -630,10 +682,20 @@ def alarm_realtime_drilldown(
     title_tmpl = REALTIME_DIMENSION_TITLE.get(dimension, dimension)
     title = title_tmpl.format(v=value) if "{v}" in title_tmpl else title_tmpl
 
+    # 非聚合维度里，"region" 这一项有个易混点：区域图的 column 高度是告警**行数**，
+    # 而同一张图的 tooltip 还写了一行「受影响站点」（区域内 site_id 去重数，:481-487）。
+    # 后者不是本次下钻的度量，随行数一起回传专供弹窗对账，避免用户以为下钻少了站点。
+    distinct_sites = None
+    if dimension == "region":
+        distinct_sites = len({_safe_str(r.get("site_id")) for r in filtered if _safe_str(r.get("site_id"))})
+
     return {
         "title": title,
         "count": len(records),
         "total": total_matched,
+        "measure": measure,
+        "measure_value": measure_value if measure_value is not None else total_matched,
+        "distinct_sites": distinct_sites,
         "data": records,
     }
 

@@ -37,10 +37,11 @@ def wo_dashboard_drilldown(
     time_end: str = Query(None),
     region: str = Query(None),
     adv: str = Query(None, description="高级过滤，JSON 对象 {站点列名: 精确值}；与 overview 同一口径"),
+    severity: str = Query(None, description="Ticket Severity（P1~P4）；MTTR 趋势图下钻专用"),
 ):
     """WO 明细下钻。过滤口径与 `/overview` 完全一致，否则行数对不上看板数字。"""
     return wo_drilldown(
         dimension=dimension, value=value,
         time_start=time_start, time_end=time_end,
-        region=region, adv=adv,
+        region=region, adv=adv, severity=severity,
     )

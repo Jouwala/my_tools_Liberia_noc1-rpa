@@ -279,12 +279,17 @@ def wo_drilldown(
     time_end: str | None = None,
     region: str | None = None,
     adv: str | None = None,
+    severity: str | None = None,
 ) -> dict:
     """WO 明细下钻。
 
     **WHERE 必须与 :func:`wo_overview` 逐条一致**（同一 `alarm_occur_time`、
     同一站点 JOIN、同一高级过滤），否则「卡片上的数字」与「下钻的行数」对不上，
     用户会当成 bug（AGENTS.md 第三节第 1b 条）。
+
+    ``severity``：MTTR 趋势图按 Ticket Severity 拆成 4 张，柱高是「该级别该桶的
+    单数」（:138-141 的 ``total_by_sev``）。缺了这个过滤，点 P2 与点 P4 会返回
+    同一批「该桶全部级别」的单 —— TT 侧同一缺陷 2026-10-06 实测 5086/5086。
     """
     S = _detect_schema()
     adv_filters = _parse_adv(adv)
@@ -329,12 +334,22 @@ def wo_drilldown(
             cols = ["wo_no", "tt_no", "title", "status", "sla_status", "ticket_severity",
                     "alarm_occur_time", "alarm_clear_time", "source", "domain",
                     "creator", "created_time"]
-            data = [
-                dict(zip(cols, r)) for r in rows
-                if _period_label(str(dict(zip(cols, r)).get("alarm_occur_time") or ""), dimension) == value
-            ]
+            # severity 过滤走 _ticket_severity_key 归一化，与 wo_overview:138 同源
+            sev_want = _ticket_severity_key(severity) if severity else None
+            data = []
+            for r in rows:
+                rec = dict(zip(cols, r))
+                if _period_label(str(rec.get("alarm_occur_time") or ""), dimension) != value:
+                    continue
+                if sev_want is not None:
+                    if _ticket_severity_key(rec.get("ticket_severity")) != sev_want:
+                        continue
+                data.append(rec)
             conn.close()
-            return {"title": f"WO - {dimension.title()}: {value}", "count": len(data), "data": data}
+            title = f"WO - {dimension.title()}: {value}"
+            if sev_want:
+                title = f"{title} · {sev_want}"
+            return {"title": title, "count": len(data), "data": data}
 
         # 站点维度：先在站点表里把该取值对应的站点 ID 找出来（与 TT 侧同写法，
         # 精确匹配不用 LIKE），再按下钻维度过滤 WO

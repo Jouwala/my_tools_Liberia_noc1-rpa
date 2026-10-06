@@ -284,7 +284,10 @@ export default function TTWODashboard({ only, source }: { only?: TTWOOnly; sourc
   const fmt = (n: number) => n?.toLocaleString(numLocale(locale)) || '0'
 
   // 下钻功能
-  const openDrilldown = useCallback((e?: React.MouseEvent | null, dimension?: string, value?: string) => {
+  // severity：MTTR 趋势图按 Ticket Severity 拆成 4 张图，柱高/点值是「**该级别**该桶的单数」。
+  // 概览按 sv 分桶（tt_wo_dashboard.py:415-418），下钻若不带上它就会返回「该桶全部级别」，
+  // 于是 P2 与 P4 点同一个月会下钻出同一个数（2026-10-06 实测 5086/5086）。
+  const openDrilldown = useCallback((e?: React.MouseEvent | null, dimension?: string, value?: string, severity?: string) => {
     if (e && typeof e.clientX === 'number') setDrillAnchor({ x: e.clientX, y: e.clientY })
     else setDrillAnchor(null)
     setDrillVisible(true)
@@ -295,6 +298,8 @@ export default function TTWODashboard({ only, source }: { only?: TTWOOnly; sourc
     setDrillValue(value || '')
     const params: Record<string, string> = { dimension: dimension || '' }
     if (value) params.value = value
+    // 与概览同源的级别过滤 —— 只有 MTTR 趋势图会传
+    if (severity) params.severity = severity
     if (timeRange) {
       params.time_start = timeRange.start
       params.time_end = timeRange.end
@@ -1008,7 +1013,7 @@ export default function TTWODashboard({ only, source }: { only?: TTWOOnly; sourc
                       // dataZoom 窗口与点位残留造成「日图看着像周图」
                       notMerge
                       onChartReady={onMttrChartReady}
-                      onEvents={onChartClick(gran)}
+                      onEvents={onChartClick(gran, sev)}
                     />
                   </div>
                 ) : (
@@ -1025,10 +1030,11 @@ export default function TTWODashboard({ only, source }: { only?: TTWOOnly; sourc
   }
 
   // 图表点击事件
-  const onChartClick = (dimension: string) => ({
+  // severity 仅在 MTTR 趋势图上给出（每张图固定一个级别），其余图不传 → 下钻不带该过滤。
+  const onChartClick = (dimension: string, severity?: string) => ({
     click: (params: any) => {
       const name = params.name || params.data?.name
-      if (name) openDrilldown(null, dimension, name)
+      if (name) openDrilldown(null, dimension, name, severity)
     }
   })
 

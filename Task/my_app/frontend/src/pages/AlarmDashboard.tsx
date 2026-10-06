@@ -125,6 +125,9 @@ export default function AlarmDashboard() {
   const [drillTitle, setDrillTitle] = useState('')
   const [drillSearch, setDrillSearch] = useState('')
   const [drillTotal, setDrillTotal] = useState(0)
+  // 区域图下钻专用：区域内 site_id 去重数（tooltip 里那一行「受影响站点」），
+  // 与行数是两个量，随响应回传专供弹窗对账。null = 该维度没有这个附加度量。
+  const [drillDistinctSites, setDrillDistinctSites] = useState<number | null>(null)
   const [drillAnchor, setDrillAnchor] = useState<{ x: number; y: number } | null>(null)
 
   useEffect(() => {
@@ -155,6 +158,7 @@ export default function AlarmDashboard() {
     setDrillData([])
     setDrillSearch('')
     setDrillTitle(req.title)
+    setDrillDistinctSites(null)
     const isHistory = req.source === 'history'
     const url = isHistory ? '/alarm-dashboard/history-drilldown' : '/alarm-dashboard/realtime-drilldown'
     const params = isHistory
@@ -165,6 +169,9 @@ export default function AlarmDashboard() {
         setDrillData(res.data.data || [])
         setDrillTitle(res.data.title || req.title)
         setDrillTotal(res.data.total || 0)
+        setDrillDistinctSites(
+          typeof res.data.distinct_sites === 'number' ? res.data.distinct_sites : null
+        )
       })
       .catch(err => {
         console.error('Drilldown API error:', err)
@@ -689,7 +696,9 @@ export default function AlarmDashboard() {
             label={t('alarm.affectedSites')}
             color={WH.blue}
             explain={t('alarm.explain.affectedSites')}
-            onClick={() => openDrilldown(null, { source: 'realtime', dimension: 'all', title: t('alarm.affectedSitesFull') })} />
+            // 卡片大字是「按 site_id 去重」的站数，下钻必须用同口径维度；
+            // 用 'all' 会返回告警行数（实测 42 vs 47），两个量对不上。
+            onClick={() => openDrilldown(null, { source: 'realtime', dimension: 'affected_sites', title: t('alarm.affectedSitesFull') })} />
         </Col>
         <Col xs={12} sm={12} md={6}>
           <SummaryCard
@@ -698,7 +707,8 @@ export default function AlarmDashboard() {
             label={t('alarm.totalHours')}
             color={WH.indigo}
             explain={t('alarm.explain.totalHours')}
-            onClick={() => openDrilldown(null, { source: 'realtime', dimension: 'all', title: t('alarm.totalHoursFull') })} />
+            // 同上：概览是时长**求和**（alarm_dashboard.py:506），不是行数
+            onClick={() => openDrilldown(null, { source: 'realtime', dimension: 'total_hours', title: t('alarm.totalHoursFull') })} />
         </Col>
         <Col xs={12} sm={12} md={6}>
           <SummaryCard
@@ -916,7 +926,7 @@ export default function AlarmDashboard() {
         open={drillOpen}
         anchor={drillAnchor}
         onClose={() => setDrillOpen(false)}
-        title={<span style={{ color: WH.text }}>{drillTitle} <Tag color="cyan" style={{ borderRadius: 10 }}>{t('common.records', { n: filteredDrillData.length })}</Tag>{drillTotal > drillData.length && <Tag color="red" style={{ borderRadius: 10 }}>{t('alarm.recordCount', { total: fmt(drillTotal), shown: drillData.length })}</Tag>}</span>}
+        title={<span style={{ color: WH.text }}>{drillTitle} <Tag color="cyan" style={{ borderRadius: 10 }}>{t('common.records', { n: filteredDrillData.length })}</Tag>{drillTotal > drillData.length && <Tag color="red" style={{ borderRadius: 10 }}>{t('alarm.recordCount', { total: fmt(drillTotal), shown: drillData.length })}</Tag>}{drillDistinctSites !== null && <Tag color="blue" style={{ borderRadius: 10 }}>{t('alarm.drillDistinctSites', { n: fmt(drillDistinctSites) })}</Tag>}</span>}
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 'var(--wh-space-sm)', marginBottom: '0.75rem' }}>
           <Input
