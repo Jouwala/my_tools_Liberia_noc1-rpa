@@ -85,6 +85,50 @@ function Test-Healthy {
   return ($age -le $staleSeconds)
 }
 
+# Report "connected but no message has been handled for a long time".
+#
+# WHY THIS EXISTS (2026-10-06 incident): Test-Healthy above only proves the
+# CONNECTION is up. That day the bot sat in a 408/428 reconnect loop - every
+# successful reconnect rewrote connected=true, so the heartbeat stayed fresh,
+# Test-Healthy returned true, and the watchdog never restarted it. Meanwhile
+# the log contained zero '[reply]' lines: messages were not getting through.
+# The fault ran for hours until a human noticed the bot ignoring people.
+#
+# lastMessageAt is the BUSINESS-level liveness signal; 'at'+'connected' is only
+# TRANSPORT-level. When the two disagree, the business one is the truth.
+#
+# This only WARNS - it deliberately does not restart:
+#   * a quiet group for hours is completely normal (this bot answers on @mention);
+#   * restarting cannot fix "connected but deaf", and would interrupt service.
+# So the point is to make the silent failure VISIBLE, not to auto-heal it.
+function Test-Deaf {
+  param([int]$DeafHours = 6)
+
+  $hb = Get-Heartbeat
+  if (-not $hb) { return $false }
+  # Only meaningful while we believe we are connected and actually serving.
+  if (-not $hb.connected) { return $false }
+  if (-not $hb.lastMessageAt) { return $false }   # never handled one yet: not a signal
+
+  try {
+    $last = [datetime]::Parse($hb.lastMessageAt).ToUniversalTime()
+  } catch {
+    return $false
+  }
+  return (([datetime]::UtcNow - $last).TotalHours -ge $DeafHours)
+}
+
+function Write-DeafWarning {
+  $hb = Get-Heartbeat
+  $hours = try { [math]::Round(([datetime]::UtcNow - [datetime]::Parse($hb.lastMessageAt).ToUniversalTime()).TotalHours, 1) } catch { -1 }
+  Write-Host "WARNING: whatsapp-kb-bot is connected but has not handled a message for ${hours}h."
+  Write-Host "         lastMessageAt=$($hb.lastMessageAt) messagesHandled=$($hb.messagesHandled)"
+  Write-Host "         Connection is up, so Test-Healthy says healthy - but messages may not be arriving."
+  Write-Host "         Check: count reply lines in data\logs\bot-<date>.log"
+  Write-Host "         Check: count reconnect cycles (a reconnect loop keeps connected=true forever)"
+  Write-Host "         Check: data\auth\sender-key-*.json mtime - newer than start means decryption works"
+}
+
 function Show-Status {
   $p = Find-BotProcess
   $hb = Get-Heartbeat
@@ -93,10 +137,12 @@ function Show-Status {
     Write-Host "heartbeat         : at=$($hb.at) connected=$($hb.connected) pid=$($hb.pid)"
     $age = try { [int]([datetime]::UtcNow - [datetime]::Parse($hb.at).ToUniversalTime()).TotalSeconds } catch { -1 }
     Write-Host "heartbeat age     : ${age}s (stale threshold ${staleSeconds}s)"
+    Write-Host "lastMessageAt     : $(if ($hb.lastMessageAt) { $hb.lastMessageAt } else { '(never)' })  handled=$($hb.messagesHandled)"
   } else {
     Write-Host "heartbeat         : (none)"
   }
   Write-Host "healthy           : $(Test-Healthy)"
+  if (Test-Deaf) { Write-DeafWarning }
 }
 
 if ($Status) { Show-Status; exit 0 }
@@ -167,7 +213,14 @@ if ($Stop) {
 $existing = Find-BotProcess
 if ($existing -and (Test-Healthy)) {
   $existing.ProcessId | Set-Content -Path $pidFile
-  if (-not $Watch) { Write-Host "whatsapp-kb-bot already running and healthy (pid $($existing.ProcessId))" }
+  # Healthy by transport, but still check the business-level signal. This branch
+  # is exactly where the 2026-10-06 fault hid: connection fine, watchdog happy,
+  # bot deaf. Warn (do NOT restart) so a human can look.
+  if (Test-Deaf) {
+    Write-DeafWarning
+  } elseif (-not $Watch) {
+    Write-Host "whatsapp-kb-bot already running and healthy (pid $($existing.ProcessId))"
+  }
   exit 0
 }
 

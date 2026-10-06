@@ -48,12 +48,34 @@ function writeJsonAtomic(p, data) {
 
 let heartbeatConnected = false;
 
+/**
+ * 最近一次**成功处理完**消息的时刻（ISO 字符串），以及累计处理条数。
+ *
+ * 为什么需要它（2026-10-06 事故的直接教训）：
+ *   `connected` + `at` 新鲜**只能证明连接在**，不能证明消息进得来。
+ *   当时机器人陷入 408/428 重连循环，每次重连成功都把 `connected` 写回 true，
+ *   心跳一直新鲜 —— 看门狗据此判定「健康」，于是永不重启，
+ *   故障从下午持续到人工发现。而同期日志里 `[提问]` 一条都没有。
+ *
+ *   `lastMessageAt` 才是「真的在工作」的正据：它是**业务层**的活性，
+ *   而不是**传输层**的活性。两者会背离，且背离时说不上话的那一方才是真相。
+ *
+ * 刻意记录在**处理完之后**（见 handleMessage 末尾），不是收到就算：
+ * 收到但抛异常说明链路仍是坏的，不该让计数器好看。
+ */
+let lastMessageAt = null;
+let messagesHandled = 0;
+
 function heartbeat(extra = {}) {
   try {
     writeJsonAtomic(HEARTBEAT_FILE, {
       at: new Date().toISOString(),
       connected: heartbeatConnected,
       pid: process.pid,
+      // 从没处理过消息时是 null，而不是伪造一个当前时间 ——
+      // 看门狗必须能区分「刚启动还没人说话」与「一直在正常工作」。
+      lastMessageAt,
+      messagesHandled,
       ...extra,
     });
   } catch {
@@ -487,6 +509,13 @@ export async function startWhatsApp({ onQuestion, builtins = null }) {
               ? `｜gap=${result.retrieval.gap.toFixed(3)} top=${result.retrieval.topBase.toFixed(3)} base=${result.retrieval.baseline.toFixed(3)}`
               : '')
         );
+        // 业务层活性打点：**处理完之后**才记，不是收到就记。
+        // 写进心跳，让看门狗能区分「连着但没人说话」与「连着但消息进不来」
+        // —— 2026-10-06 那次故障里，前者是正常的，后者才是病，而当时
+        // 心跳对这两种情况给出的信号完全一样（都是 connected: true）。
+        lastMessageAt = new Date().toISOString();
+        messagesHandled++;
+        heartbeat();
       } catch (err) {
         if (pendingTimer) {
           clearTimeout(pendingTimer);

@@ -1239,10 +1239,11 @@ bot `16:xx:51` 断。**杀掉 notify.js 后，bot 数秒内即稳定，不再出
 **排查这类问题的顺序**（心跳会骗人，别只看它）：
 
 1. `data/bot_heartbeat.json` 的 `at` 是否在 30s 内 → 只能证明**进程活着**；
-2. 数日志里 `已连接` 的次数 → 次数多说明在**反复重连**，这才是病根；
-3. `data/logs/bot-<日期>.log` 里搜 `[提问]` → 一条都没有 = 消息根本没进来；
-4. `data/auth/sender-key-*.json` 的 mtime → 晚于进程启动 = 确实解密过消息（链路通）；
-5. `git log` 看同类 bug 是否在另一个进程里修过而这里没修。
+2. 看 `lastMessageAt` / `messagesHandled` → 这才是**消息进没进来**的证据；
+3. 数日志里 `已连接` 的次数 → 次数多说明在**反复重连**，这才是病根；
+4. `data/logs/bot-<日期>.log` 里搜 `[提问]` → 一条都没有 = 消息根本没进来；
+5. `data/auth/sender-key-*.json` 的 mtime → 晚于进程启动 = 确实解密过消息（链路通）；
+6. `git log` 看同类 bug 是否在另一个进程里修过而这里没修。
 
 #### 以后怎么避免同类问题（2026-10-06 复盘）
 
@@ -1260,9 +1261,48 @@ return ($age -le $staleSeconds)             # 心跳也一直新鲜
 ```
 
 **判断「真的在工作」而不是「看起来在连」的正据是：最近有没有成功处理过消息。**
-心跳只能证伪「进程死了」，不能证明「消息能进来」。真要加固，应当让心跳额外带一个
-`lastMessageAt`，看门狗在「连接正常但 N 小时零消息」时告警 —— 注意是**告警而非重启**，
-因为群里本来就可能几小时没人说话，重启也解决不了。
+心跳只能证伪「进程死了」，不能证明「消息能进来」。
+
+**已于 2026-10-06 落地**：心跳新增 `lastMessageAt` 与 `messagesHandled`，
+看门狗新增 `Test-Deaf`，在「连接正常但 ≥6 小时零消息」时**告警**（不重启）：
+
+```jsonc
+// data/bot_heartbeat.json
+{
+  "at": "2026-10-06T18:04:10.869Z",   // 传输层：心跳新鲜度
+  "connected": true,                   // 传输层：连接状态
+  "pid": 19388,
+  "lastMessageAt": null,               // 业务层：最近一次**成功处理完**消息
+  "messagesHandled": 0                 // 业务层：累计处理条数
+}
+```
+
+`lastMessageAt` 记在**处理成功之后**（`whatsapp.js` 里 `[回复]` 日志之后），
+不是收到消息就记 —— 收到但抛异常说明链路仍是坏的，不该让指标好看。
+
+`null` 表示**从未处理过消息**，刻意不伪造成当前时间：看门狗必须能区分
+「刚启动还没人说话」和「一直在正常工作」。这两种情况都不该告警。
+
+手动查看：
+
+```powershell
+.\autostart.ps1 -Status
+# lastMessageAt     : (never)  handled=0
+# healthy           : True
+```
+
+命中时会打印（纯 ASCII，因为 PS 5.1 会把无 BOM 的 UTF-8 当 GBK 读）：
+
+```
+WARNING: whatsapp-kb-bot is connected but has not handled a message for 8h.
+         Connection is up, so Test-Healthy says healthy - but messages may not be arriving.
+         Check: count reconnect cycles (a reconnect loop keeps connected=true forever)
+```
+
+> **为什么只告警、不重启**：群里几小时没人说话是**完全正常**的（本机器人只在被
+> @ 时才答），自动重启会造成无谓的中断；而且「连着但收不到消息」重启**治不好**。
+> 这个检查的价值在于**让静默故障可见**，不是自动治愈。
+> 阈值 6 小时可在 `Test-Deaf -DeafHours` 调整。
 
 **二、重连路径必须当成一等公民来设计。**
 

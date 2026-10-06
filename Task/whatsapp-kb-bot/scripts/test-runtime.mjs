@@ -193,6 +193,60 @@ check(
   'notify.js 仍通过全局 sockRef 发包（9ccfed0f 的修复未被改回）'
 );
 
+/* ------------- 心跳必须带业务层活性 lastMessageAt（2026-10-06） ------------- */
+
+// 2026-10-06 故障的根源是心跳只反映**传输层**活性（connected + at 新鲜），
+// 而重连循环恰好让这两项一直好看，于是看门狗判定健康、永不重启，
+// 机器人却一条消息都没处理。lastMessageAt 是**业务层**活性，两者会背离。
+// 这些断言防止它被"简化"掉 —— 去掉就等于把那个盲区重新打开。
+
+console.log('\n[7] 心跳的业务层活性（lastMessageAt）');
+check(/^let lastMessageAt\s*=/m.test(waSrc), 'lastMessageAt 声明在模块级（跨重连保持）');
+check(/^let messagesHandled\s*=/m.test(waSrc), 'messagesHandled 声明在模块级');
+check(
+  /lastMessageAt,\s*\n\s*messagesHandled,/.test(waSrc),
+  'heartbeat() 真的把 lastMessageAt / messagesHandled 写进 JSON'
+);
+check(
+  /lastMessageAt = new Date\(\)\.toISOString\(\)/.test(waSrc),
+  '处理完一条消息后才更新 lastMessageAt'
+);
+check(
+  /messagesHandled\+\+/.test(waSrc),
+  '有累计处理条数（便于区分「从没工作过」与「工作过但停了」）'
+);
+
+// 顺序很关键：必须在 log('[回复]') 之后，即**处理成功之后**才打点。
+// 若挪到收到消息就打点，链路坏了但能收到半截消息时依然会显示"活着"。
+const replyLogIdx = waSrc.indexOf("`[回复] ${Date.now() - t0}ms");
+const stampIdx = waSrc.indexOf('lastMessageAt = new Date().toISOString()');
+check(
+  replyLogIdx > 0 && stampIdx > replyLogIdx,
+  '打点在「处理成功」之后，而不是收到消息就记',
+  `[回复] 在 ${replyLogIdx}，打点在 ${stampIdx}`
+);
+
+console.log('\n[8] 看门狗能读出来并告警');
+const autoSrc = readFileSync(join(ROOT_DIR, 'autostart.ps1'), 'utf8');
+check(/function Test-Deaf/.test(autoSrc), 'autostart.ps1 有 Test-Deaf（连接正常但长期无消息）');
+check(
+  /lastMessageAt/.test(autoSrc),
+  'autostart.ps1 读取 lastMessageAt'
+);
+check(
+  /Test-Deaf[\s\S]{0,200}Write-DeafWarning|if\s*\(Test-Deaf\)\s*\{\s*Write-DeafWarning/.test(autoSrc),
+  '命中 Test-Deaf 时会打印告警'
+);
+// 只告警、不重启：群里几小时没人说话是正常的，重启既治不好也打断服务。
+check(
+  !/if\s*\(Test-Deaf\)\s*\{\s*Stop-BotProcess/.test(autoSrc),
+  'Test-Deaf 不触发重启（只告警）'
+);
+check(
+  autoSrc === [...autoSrc].filter((c) => c.charCodeAt(0) <= 127).join(''),
+  'autostart.ps1 保持纯 ASCII（PS 5.1 会把无 BOM 的 UTF-8 当 GBK 读）'
+);
+
 /* -------------------------------- 结果 -------------------------------- */
 
 console.log(`\n${'='.repeat(50)}`);
