@@ -326,6 +326,28 @@ nginx 从**自己所在目录**的 `logs\nginx.pid` 读 master pid。在别的�
 > 教训：**一个没有任何可观测信号的常驻服务，等于没有在运维它。**
 > 心跳不只是给看门狗用的，也是给人看的。
 
+### 又一次踩到「语法检查查不出运行时错误」
+
+改上面那段时，一次编辑**吞掉了一个换行**，把两行 `Write-Host` 挤成了一行：
+
+```powershell
+Write-Host 'Entry points:' -ForegroundColor White    Write-Host '  (port 80 redirects ...' -ForegroundColor DarkGray
+```
+
+后果是 `0-status` 每次都往 stderr 吐一片红：
+
+```
+Cannot bind parameter because parameter 'ForegroundColor' is specified more than once.
+```
+
+关键教训：**这类错误 `Parser::ParseFile` 查不出来**（0 个语法错误）——
+它在语法上完全合法，只在**运行到那一行**时才炸。
+所以「语法 PASS」不能当作「功能 PASS」，**必须真正跑一遍并检查 stderr**。
+
+本次的验证方式因此改成：每条命令都**同时捕获 stdout 与 stderr**，
+要求 **stderr 行数为 0**。9 条命令实测全绿。
+（原先只看 stdout 里有没有已知报错串，正好漏掉 stderr —— 这就是它能溜过去的原因。）
+
 ### 两个必须知道的注意点
 
 > ⚠️ **`9-stop_all` 停不掉机器人超过 5 分钟。** 它有 `_EnsureRunning` 看门狗，

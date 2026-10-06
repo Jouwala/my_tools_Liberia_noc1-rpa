@@ -107,6 +107,59 @@ try:
 except (TypeError, ValueError):
     STALE_PENDING_SECONDS = 6 * 3600
 
+# ---------------------------------------------------------------
+# 人为停机标记（2026-10-06 新增）：把「重启打断」与「进程崩溃」区分开
+#
+# 背景：stop.bat 用 taskkill /F 硬杀 worker，正在跑的任务必然留下 running 残留。
+# 下一轮启动时 _recover_stale_running 会把它标 **failed** 并补一条失败日志 →
+# 任务管理页立刻出现失败横幅。用户实测「stop all / start all 后任务显示失败」，
+# 但任务本身没错（只是被重启打断）。
+#
+# 方案：停机前由 stop.bat 写 backend/worker_stopping.flag；_recover_stale_running
+# 读到该标记时，把打断的任务**重新入队（running→pending）**而不是判失败 ——
+# 新 worker 启动后会重新执行它，等价于「优雅中断、稍后继续」。
+#
+# 安全性：
+#   * 标记有**时效**（STOPPING_FLAG_TTL_SECONDS，默认 30 分钟）—— 过期即忽略，
+#     避免上次停机遗留的标记永久掩盖真实的进程崩溃；
+#   * 重新入队前仍走 already_done 检查：若该任务在 started_at 之后已成功执行过，
+#     只置 done，不再重复投递（杜绝重复执行）；
+#   * worker 启动完成回收后**立即删除标记**，防止同一标记被后续启动复用；
+#   * 无标记时行为与旧版**逐字节一致**（仍判 failed），崩溃诊断能力不受影响。
+# ---------------------------------------------------------------
+STOPPING_FLAG_FILE = Path(os.environ.get(
+    "MY_APP_WORKER_STOPPING_FLAG",
+    str(Path(__file__).parent / "worker_stopping.flag")))
+try:
+    STOPPING_FLAG_TTL_SECONDS = max(
+        60, int(os.environ.get("WORKER_STOPPING_FLAG_TTL_SECONDS", str(30 * 60))))
+except (TypeError, ValueError):
+    STOPPING_FLAG_TTL_SECONDS = 30 * 60
+
+
+def _is_stopping_flagged() -> bool:
+    """是否存在**新鲜的**人为停机标记（供 _recover_stale_running 判定）。
+
+    过期（mtime 早于 TTL）或读取失败的标记一律视为不存在 —— 宁可回归
+    「判失败」的保守行为，也不能让陈旧标记掩盖真实崩溃。
+    """
+    try:
+        if not STOPPING_FLAG_FILE.exists():
+            return False
+        age = time.time() - STOPPING_FLAG_FILE.stat().st_mtime
+        return age <= STOPPING_FLAG_TTL_SECONDS
+    except OSError:
+        return False
+
+
+def _clear_stopping_flag() -> None:
+    """回收完成后清除停机标记（防止被后续启动复用）。"""
+    try:
+        if STOPPING_FLAG_FILE.exists():
+            STOPPING_FLAG_FILE.unlink()
+    except OSError as e:
+        logger.warning(f"清除停机标记失败: {e}")
+
 
 def _pid_alive(pid) -> bool:
     """核对 worker_pid 是否仍存活（Windows 用 OpenProcess，POSIX 用 kill 0）。
@@ -177,10 +230,19 @@ def _recover_stale_running():
     队列行未回写 finished（_finish 写库遇锁/超时失败，或进程在 run_task 返回与
     _finish 之间被强杀）。此时仅把队列行置为 done，不再补写失败记录，避免
     「成功却被记成失败」导致前端失败横幅多算；否则才按原逻辑标 failed 并补记录。
+
+    人为停机（2026-10-06 新增）：若存在**新鲜的**停机标记（stop.bat 停机前写入，
+    见 `_is_stopping_flagged`），说明这次残留是「被重启打断」而非「进程崩溃」——
+    此时把任务 **重新入队（running→pending）** 而不是判失败，新 worker 启动后
+    会重新执行它。已有成功记录（already_done）的情况仍优先置 done，杜绝重复执行。
     """
     try:
+        stopping = _is_stopping_flagged()
+        if stopping:
+            logger.info("检测到人为停机标记：本次残留 running 将重新入队而非判失败")
         stale_cutoff = (datetime.now() - timedelta(seconds=STALE_RUNNING_SECONDS)).isoformat()
         recovered = []  # (task_id, trigger_type, started_at, marked_done)
+        requeued = []   # (task_id, trigger_type, started_at)
         with get_raw_connection(str(DB_PATH), timeout=30) as conn:
             _ensure_queue_table(conn)
             task_runner._ensure_task_log_table(conn)
@@ -249,6 +311,18 @@ def _recover_stale_running():
                         (now_iso, qid),
                     )
                     recovered.append((task_id, trigger_type, started_at, True, ""))
+                elif stopping and pid_dead:
+                    # 人为停机打断（stop.bat 写了标记）→ 重新入队，不判失败。
+                    # 置回 pending 并清空 running 相关字段（started_at/worker_pid），
+                    # 让新 worker 像对待一条普通待执行记录那样重新认领。
+                    # 注意：这里只处理 pid_dead（进程确实已退出）。too_old 兜底
+                    # （无 pid 无法核对，pid_dead 为 False）不走此分支，保持保守判失败。
+                    conn.execute(
+                        "UPDATE task_queue SET status = 'pending', started_at = NULL, "
+                        "worker_pid = NULL WHERE id = ?",
+                        (qid,),
+                    )
+                    requeued.append((task_id, trigger_type, started_at))
                 else:
                     # 2026-09-30 修复措辞：旧文案一律写"Worker 进程中断"，但 pid 存活、
                     # 只是被新 worker 判定为"不属于已知 worker"时，进程其实**没中断**
@@ -284,6 +358,11 @@ def _recover_stale_running():
                     "error": err_text,
                     "error_trace": None,
                 })
+        if requeued:
+            logger.warning(
+                f"人为停机打断：{len(requeued)} 条 running 记录已**重新入队**"
+                f"（不判失败）: " + "、".join(t for t, _, _ in requeued)
+            )
         if recovered:
             real_failed = [r for r in recovered if not r[3]]
             logger.warning(
@@ -291,6 +370,10 @@ def _recover_stale_running():
                 + (f"（其中 {len(real_failed)} 条确为失败，{len(recovered) - len(real_failed)} 条实为成功已置 done）"
                    if real_failed else "（均为成功执行，未补写失败记录）")
             )
+        # 回收处理完毕即清除停机标记，防止被后续启动复用（否则后续的真实崩溃
+        # 一旦落在 TTL 窗口内会被误判为「人为停机」而重新入队，掩盖问题）。
+        if stopping:
+            _clear_stopping_flag()
     except Exception as e:
         logger.warning(f"回收残留 running 记录失败: {e}")
 

@@ -279,6 +279,111 @@ class TestStoreMailColumns:
 
 
 # ==========================================================
+# 三点五、老表自动补列（2026-10-06 生产事故回归）
+#
+# 事故：PG 库里的 eflow_tt_whatsapp_alert_log 是早期版本建的，缺 last_error。
+# `CREATE TABLE IF NOT EXISTS` 对已存在的表是 no-op（不加列），而旧
+# `_ensure_columns` 的补列清单**只覆盖 TRACK+MAIL，漏了 last_error** →
+# 每次 record_result upsert 带 last_error → PG 报
+# `UndefinedColumn: 字段 "last_error" 不存在`，任务整轮失败。
+#
+# 修复：补列集合 = 建表列全集（ENSURE_COLUMNS），加列只改 LOG_COLUMNS 一处。
+# 这里锁死「老表缺任意列 → ensure_log_table 都能补齐 → 写路径可跑」。
+# ==========================================================
+# 事故现场：一张缺 last_error 及全部跟踪/邮件列的"老表"
+_OLD_TABLE_COLS = (
+    "tt_no", "alarm_occur_time", "ticket_severity", "alarm_code",
+    "site_id", "site_name", "title", "send_status", "send_count",
+    "last_send_time", "last_tt_modified", "first_seen_time", "updated_time",
+)
+
+
+class TestEnsureColumnsBackfill:
+    ROW = {"tt_no": "TT1", "alarm_code": "99933", "ticket_severity": "P1"}
+
+    def _make_old_table(self):
+        conn = sqlite3.connect(":memory:")
+        col_defs = ", ".join(
+            f"{c} {'INTEGER' if c in store.COLUMN_TYPES else 'TEXT'}"
+            + (" PRIMARY KEY" if c in store.LOG_PK else "")
+            for c in _OLD_TABLE_COLS
+        )
+        conn.execute(f"CREATE TABLE {store.LOG_TABLE} ({col_defs})")
+        return conn
+
+    def test_old_table_missing_last_error_is_upgraded(self):
+        """核心回归：老表缺 last_error，ensure_log_table 必须补上（否则 PG 报错）。"""
+        conn = self._make_old_table()
+        before = {r[1] for r in conn.execute(f"PRAGMA table_info({store.LOG_TABLE})")}
+        assert "last_error" not in before, "前置条件：老表本应缺 last_error"
+
+        store.ensure_log_table(conn)
+
+        after = {r[1] for r in conn.execute(f"PRAGMA table_info({store.LOG_TABLE})")}
+        assert "last_error" in after, "补列后仍缺 last_error（事故未修复）"
+        conn.close()
+
+    def test_all_create_columns_covered_by_backfill(self):
+        """⚠️ 结构不变量：建表列全集必须等于补列集合 + 主键。
+
+        这条测试是**防止未来加列时又只改建表、忘改补列**的根本保障 ——
+        LOG_COLUMNS 是单一事实来源，建表与补列都从它派生。
+        """
+        assert set(store.ENSURE_COLUMNS) == set(store.LOG_COLUMNS) - set(store.LOG_PK), (
+            "ENSURE_COLUMNS 与 LOG_COLUMNS 分叉了：加列必须只改 LOG_COLUMNS 一处"
+        )
+
+    def test_old_table_fully_reconciled(self):
+        """老表补齐后，列集合必须完整（一个不缺）。"""
+        conn = self._make_old_table()
+        store.ensure_log_table(conn)
+        cols = {r[1] for r in conn.execute(f"PRAGMA table_info({store.LOG_TABLE})")}
+        assert set(store.LOG_COLUMNS) <= cols, (
+            f"补齐后仍缺列: {set(store.LOG_COLUMNS) - cols}"
+        )
+        conn.close()
+
+    def test_write_path_succeeds_on_upgraded_old_table(self):
+        """事故的真实触发点是写路径 —— 补列后 record_result 必须能跑通。
+
+        （PG 下缺列时 upsert 带该列会直接 UndefinedColumn；这里用 sqlite 复现
+        同一路径：若补列没生效，INSERT 会因列不存在而报错。）
+        """
+        conn = self._make_old_table()
+        store.ensure_log_table(conn)
+        store.record_result(conn, self.ROW, ok=False, error="down")
+        row = conn.execute(
+            f"SELECT send_status, last_error FROM {store.LOG_TABLE} WHERE tt_no='TT1'"
+        ).fetchone()
+        assert row[0] == "N"
+        assert row[1] == "down"
+        conn.close()
+
+    def test_old_table_existing_data_preserved(self):
+        """补列是纯增量：老数据不得丢失。"""
+        conn = self._make_old_table()
+        conn.execute(
+            f"INSERT INTO {store.LOG_TABLE} (tt_no, send_status, send_count) "
+            f"VALUES ('OLD1', 'Y', 3)"
+        )
+        store.ensure_log_table(conn)
+        row = conn.execute(
+            f"SELECT send_status, send_count FROM {store.LOG_TABLE} WHERE tt_no='OLD1'"
+        ).fetchone()
+        assert row == ("Y", 3)
+        conn.close()
+
+    def test_repeated_ensure_is_idempotent(self):
+        """补列必须幂等：反复调用不得报错、不得重复加列。"""
+        conn = self._make_old_table()
+        store.ensure_log_table(conn)
+        store.ensure_log_table(conn)  # 第二次：所有列已存在，应静默通过
+        n = len([r for r in conn.execute(f"PRAGMA table_info({store.LOG_TABLE})")])
+        assert n == len(store.LOG_COLUMNS), "重复调用导致列重复或缺失"
+        conn.close()
+
+
+# ==========================================================
 # 四、服务层：触发点（首次通报 / 结束汇总）
 # ==========================================================
 class TestServiceMailTriggers:

@@ -42,6 +42,9 @@ from backend.dialect_helpers import upsert
 LOG_TABLE = "eflow_tt_whatsapp_alert_log"
 LOG_TABLE_INDEX = f"idx_{LOG_TABLE}_status"
 
+# 主键列（不参与补列，建表时即存在）
+LOG_PK = ("tt_no",)
+
 # 日志表列（upsert 与 SELECT 共用，避免两处列名分叉）
 LOG_COLUMNS = (
     "tt_no", "alarm_occur_time", "ticket_severity", "alarm_code",
@@ -49,7 +52,22 @@ LOG_COLUMNS = (
     "send_status", "send_count", "last_send_time", "last_tt_modified",
     "first_seen_time", "last_error", "updated_time",
     "last_alarm_seen_time", "last_known_update_time", "last_check_time",
+    "mail_notified_time", "mail_summary_time",
 )
+
+# ==========================================================
+# 幂等补列的**单一事实来源**（2026-10-06 事故修复）
+#
+# 事故：PG 库里的 `eflow_tt_whatsapp_alert_log` 是**早期版本**建的，缺
+# `last_error` 列。`CREATE TABLE IF NOT EXISTS` 对已存在的表是 no-op，不会加列；
+# 而旧 `_ensure_columns` 的补列清单**漏了 `last_error`**（只覆盖 TRACK + MAIL），
+# 于是每次 `record_result` upsert 都带 `last_error` → PG 报
+# `UndefinedColumn: 字段 "last_error" 不存在`，任务整轮失败。
+#
+# 根因：补列清单与建表列集合**两处各写一份**，加列时容易只改建表、忘了改补列。
+# 修复：补列集合 = 建表列全集（LOG_COLUMNS 去掉主键），从此「加列只需改
+# LOG_COLUMNS 一处」，结构上杜绝再漏。
+# ==========================================================
 
 # 2026-10-05 新增的跟踪列：老库没有这些列，由 _ensure_columns 幂等补上
 TRACK_COLUMNS = (
@@ -66,6 +84,12 @@ TRACK_COLUMNS = (
 MAIL_COLUMNS = (
     "mail_notified_time", "mail_summary_time",
 )
+
+# 需要向老表补齐的列全集：建表列 - 主键。老表缺哪列补哪列（幂等）。
+ENSURE_COLUMNS = tuple(c for c in LOG_COLUMNS if c not in LOG_PK)
+
+# 列类型映射（建表与补列共用；缺省 TEXT）。本表除 send_count(INTEGER) 外全 TEXT。
+COLUMN_TYPES = {"send_count": "INTEGER"}
 
 
 def _is_sqlite(conn) -> bool:
@@ -85,40 +109,53 @@ def _existing_columns(conn, table: str) -> set:
 
 
 def _ensure_columns(conn, table: str) -> None:
-    """给已存在的老表幂等补列（sqlite / PG 的 ADD COLUMN 语法在此场景一致）。"""
+    """给已存在的老表幂等补列（sqlite / PG 的 ADD COLUMN 语法在此场景一致）。
+
+    补列集合 = **建表列全集去掉主键**（`ENSURE_COLUMNS`），不再是一份手写的
+    局部清单 —— 2026-10-06 事故正是因为旧清单漏了 `last_error`，导致老库上
+    upsert 报 `UndefinedColumn`。现在加列只需改 `LOG_COLUMNS` / CREATE TABLE 一处。
+
+    类型按 `COLUMN_TYPES`（缺省 TEXT）——老库缺列按 TEXT 补对齐 sqlite 宽容语义。
+
+    并发：PG 下两个进程同时补列会 TOCTOU（duplicate_column, 42701）。本函数逐列
+    `try/except` 吞掉「已存在」类错误，保证幂等（另一进程刚补上就算成功）。
+    """
     present = _existing_columns(conn, table)
-    for col in TRACK_COLUMNS + MAIL_COLUMNS:
-        if col not in present:
-            conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} TEXT")
+    for col in ENSURE_COLUMNS:
+        if col in present:
+            continue
+        col_type = COLUMN_TYPES.get(col, "TEXT")
+        try:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {col_type}")
+        except Exception as e:  # noqa: BLE001
+            # 唯一可接受的失败：并发补列时本列已被别的进程加上（duplicate_column）。
+            # 其余异常（权限/连接）应上抛，不能静默留下缺列的表。
+            _code = getattr(getattr(e, "diag", None), "sqlstate", "") or ""
+            _msg = str(e)
+            if _code == "42701" or "already exists" in _msg.lower() or "duplicate" in _msg.lower():
+                continue
+            raise
+
+
+def _build_create_sql(table: str) -> str:
+    """按 `LOG_COLUMNS` / `COLUMN_TYPES` 生成建表 DDL（单一事实来源）。
+
+    这样「加列」只需改 `LOG_COLUMNS` 一处，建表与补列（`_ensure_columns`）自动
+    同步 —— 2026-10-06 事故即两处各写一份导致漏列，此生成法从结构上消除该类缺陷。
+    """
+    defs = []
+    for col in LOG_COLUMNS:
+        col_type = COLUMN_TYPES.get(col, "TEXT")
+        if col in LOG_PK:
+            defs.append(f"    {col} {col_type} PRIMARY KEY")
+        else:
+            defs.append(f"    {col} {col_type}")
+    return f"CREATE TABLE IF NOT EXISTS {table} (\n" + ",\n".join(defs) + "\n)"
 
 
 def ensure_log_table(conn, table: str = LOG_TABLE) -> None:
     """幂等建表 + 建索引 + 老表补列（双模：sqlite / PG）。"""
-    conn.execute(
-        f"""
-        CREATE TABLE IF NOT EXISTS {table} (
-            tt_no            TEXT PRIMARY KEY,
-            alarm_occur_time TEXT,
-            ticket_severity  TEXT,
-            alarm_code       TEXT,
-            site_id          TEXT,
-            site_name        TEXT,
-            title            TEXT,
-            send_status      TEXT,
-            send_count       INTEGER,
-            last_send_time   TEXT,
-            last_tt_modified TEXT,
-            first_seen_time  TEXT,
-            last_error       TEXT,
-            updated_time     TEXT,
-            last_alarm_seen_time   TEXT,
-            last_known_update_time TEXT,
-            last_check_time        TEXT,
-            mail_notified_time     TEXT,
-            mail_summary_time      TEXT
-        )
-        """
-    )
+    conn.execute(_build_create_sql(table))
     _ensure_columns(conn, table)
     conn.execute(
         f"CREATE INDEX IF NOT EXISTS idx_{table}_status "

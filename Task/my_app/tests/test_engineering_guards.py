@@ -457,3 +457,31 @@ def test_worker_recovery_message_distinguishes_hang_from_crash():
     assert "Worker 进程已失效" in w, "worker.py 缺少「进程已失效」分支的明确文案"
 
 
+# ---------------------------------------------------------------- 守卫 11
+def test_intentional_stop_requeues_instead_of_failing():
+    """stop.bat 停机打断的任务必须**重新入队**而非判失败（2026-10-06）。
+
+    用户实测：`stop all / start all` 之后任务管理页出现失败横幅，但任务本身
+    没错 —— 只是被 taskkill /F 打断、留下 running 残留，下一轮启动被
+    `_recover_stale_running` 误判为失败。修复方案是停机前写
+    `worker_stopping.flag`，worker 启动回收时据此把打断的任务重新入队。
+
+    这里钉死三件事，缺一即回归：
+      1. stop.bat 必须在杀进程**之前**写标记（否则标记晚于进程死亡 = 无效）；
+      2. worker.py 必须在有标记时走「重新入队」分支（不是 failed）；
+      3. 标记必须有时效（TTL）—— 否则陈标记会永久掩盖真实崩溃。
+    """
+    st = (PROJECT_ROOT / "stop.bat").read_text(encoding="utf-8", errors="replace")
+    assert "worker_stopping.flag" in st, (
+        "stop.bat 不再写停机标记 —— 重启后任务会再次被误判为失败"
+    )
+    w = (BACKEND / "worker.py").read_text(encoding="utf-8", errors="replace")
+    assert "_is_stopping_flagged" in w, "worker.py 不再读取停机标记"
+    assert "worker_stopping.flag" in w, "worker.py 未引用停机标记文件名"
+    assert "重新入队" in w, "worker.py 缺少「重新入队而非判失败」的分支或文案"
+    # TTL 兜底：必须有失效逻辑，否则陈旧标记会掩盖真实崩溃
+    assert "STOPPING_FLAG_TTL_SECONDS" in w, (
+        "停机标记无时效（TTL）—— 陈旧标记会永久掩盖真实进程崩溃"
+    )
+
+

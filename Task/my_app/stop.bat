@@ -32,6 +32,13 @@ echo ============================================
 echo   Stopping Data Insight MVP (all tasks)...
 echo ============================================
 
+REM ---- 0) Write "intentional stop" marker BEFORE killing anything ----
+REM 让下一次 worker 启动时把「被本次停机打断的 running 记录」重新入队，
+REM 而不是判为失败（否则任务管理页在重启后出现失败横幅，但任务本身没错）。
+REM 标记有 30 分钟时效，worker 完成回收后会自行删除；真实崩溃仍按失败处理。
+echo %date% %time% stopping by %USERNAME%> "%BASE%backend\worker_stopping.flag"
+echo [*] Wrote backend\worker_stopping.flag (interrupted tasks will be re-queued, not failed)
+
 REM ---- 1) Stop watchdog trees first (children die with them) ----
 if exist "%BASE%backend\worker_watchdog.pid" (
     for /f "usebackq tokens=*" %%a in ("%BASE%backend\worker_watchdog.pid") do (
