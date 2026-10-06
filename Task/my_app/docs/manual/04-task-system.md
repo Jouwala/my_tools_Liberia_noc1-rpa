@@ -493,6 +493,37 @@ USSD 的日表当时只剩 2026-08-25~27 三行，而月表里有完整的 6 个
 > 另：`liberia_email_report.py` 里「后端未装 exchangelib、须用托管 venv 子进程」的
 > 注释**已过时** —— 实测后端 Python 3.12 自带 exchangelib 5.6.0，本通道**进程内直发**。
 
+> 🔴 **测试误发真信事故（2026-10-06，本特性引入，已修）** —— 加外部副作用时必读。
+>
+> **现象**：用户收到十几封 `P1 TT Progress Notification`，正文是
+> `TT No: TT1 / Site: s / Alarm: 9920`，即**测试夹具值**而非真实单号。
+>
+> **根因**：本特性给 `run_tt_alarm_whatsapp_alert()` 加了"发信"这个**外部副作用**。
+> 而 `tests/test_tt_alarm_render.py` 里两条**早就存在**的用例
+> （`test_task_result_surfaces_degradation`、`test_task_result_reports_due_count`）
+> 会调用这个真实函数，它们只桩了 `dispatch` / `wait_for_job_result` /
+> `render_message_ex` —— 因为**当时还没有邮件这回事**。于是每跑一次全量回归
+> 就真发 2 封，我反复跑了几轮回归，累计十几封。
+> 实测证伪：关掉下面的防线后单跑那条用例，`real_send_attempts = 2`。
+>
+> **这不是"某条用例忘了桩"**，而是**给被测试直接调用的函数新增了外部副作用** ——
+> 指望每个写测试的人记得桩新通道，是治标的。故按纵深防御在**入口统一封死**：
+>
+> | 层 | 位置 | 作用 |
+> | --- | --- | --- |
+> | 主防线 | `tests/conftest.py` 的 `_block_real_email`（autouse fixture） | 把 `send_mail` 换成"记录但不发"的替身，返回记录列表供断言 |
+> | 兜底 | `tt_alarm_mailer.send_mail()` 函数体内 | `"pytest" in sys.modules` 时拒发 |
+>
+> ⚠️ **兜底闸门必须放在收件人解析之后**。放到函数开头会把「空收件人不发」这条
+> 校验也一起短路掉，于是测它的用例即使断言写错也会恒返回 False 而"通过" ——
+> **假绿比不过更危险**（这个坑在本次修复过程中真的踩到了，5 条用例先"通过"后暴露）。
+> 需要测闸门之后的真实异常逻辑时，用 `tests/test_tt_alarm_mail.py` 的
+> `fresh_mailer` fixture（从磁盘再加载一份未打补丁的同源副本，
+> 并把 `_get_account` 换成地雷，因此仍然不碰网络）。
+>
+> **验证真实发信能力请手工跑探针**（`.qoder/rules` 的一次性探针约定），
+> 不要在 pytest 里放开。回归锁见 `tests/test_tt_alarm_mail.py::TestNoRealMailFromTests`。
+
 **级别过滤口径**：以**实时查单行**的 `ticket_severity` 为准（镜像兜底）；留空语义见
 `tt_alarm_config.py`（级别/告警码留空 = 不过滤）。在跟单的级别若被 eFlow 改掉
 （P1→P2），同样停止推送。配置优先级为**环境变量 > 配置文件 > 内置默认**，且在

@@ -31,6 +31,7 @@
 """
 import logging
 import os
+import sys
 from typing import List, Optional
 
 logger = logging.getLogger("tt_alarm_mailer")
@@ -121,6 +122,20 @@ def send_mail(subject: str, body: str, to: Optional[str], cc: Optional[str] = No
     if not to_list:
         # 无主送地址 = 配置为空 = 明确不发（不猜、不兜底到某个人）
         logger.info("[%s] 主送为空，跳过发信: %s", source, subject)
+        return False
+
+    # 纵深防御：pytest 进程里**一律不发真信**。
+    # 2026-10-06 事故 —— 给 `run_tt_alarm_whatsapp_alert()` 加发信副作用后，
+    # tests/ 里几条既有用例会走到这里（它们只桩了 dispatch/render），
+    # 每跑一次全量回归就真发几封，用户最终收到十几封 "TT No: TT1"。
+    # 主防线在 tests/conftest.py 的 autouse fixture（替换本函数），
+    # 这里再兜一层：即便将来有人在测试里直接 import 本模块也发不出去。
+    #
+    # ⚠️ 位置很关键：必须放在**收件人解析之后**。放到函数开头会把上面那段
+    # 「空收件人不发」的校验逻辑也一起短路掉，于是测它的用例即使断言错了
+    # 也会因为恒返回 False 而"通过" —— 那是假绿，比不过更危险。
+    if "pytest" in sys.modules:
+        logger.warning("[%s] 检测到 pytest 环境，拒绝发信: %s", source, subject)
         return False
 
     try:

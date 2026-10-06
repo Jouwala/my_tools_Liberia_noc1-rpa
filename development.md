@@ -75,6 +75,37 @@ git log --oneline -20      # 看最近在做什么
 - [ ] `git status --porcelain` 复查：没有运行时产物（db/log/pid/缓存）混入
 - [ ] 没有提交任何敏感值（口令、Token、账号、IP 之外的内网主机名）
 - [ ] 改动涉及的文档已同步（见第三节第 6/7/8 条）
+- [ ] **给「被测试直接调用的函数」加了外部副作用？** 见下面 A0。
+
+#### A0. 新增外部副作用时的必查项（2026-10-06 事故后加）
+
+**事故**：给 `run_tt_alarm_whatsapp_alert()` 加了"发邮件"副作用，而 `tests/` 里两条
+**早就存在**的用例会调用这个真实函数 —— 它们当年只桩了 `dispatch` / `render`，
+**因为那时还没有邮件这回事**。于是每跑一次全量回归就真发几封到生产收件人，
+用户最终收到十几封测试夹具内容的邮件。
+
+**要点**：这不是"某条用例忘了桩"，而是**副作用是被测函数的，不是测试的**。
+写测试的人没有义务知道每个被测函数内部会碰哪些外部系统。
+
+改之前先问：**这个函数/模块现在有外部副作用吗（发信、写生产库、调外部 API、投递消息）？**
+
+- [ ] 有 → 副作用**统一在测试入口封死**，而不是逐条用例去桩：
+  my_app 已在 `Task\my_app\tests\conftest.py` 装了 autouse fixture
+  `_block_real_email`，新增同类通道（短信、企业微信、Teams…）时**加到那里**。
+- [ ] 关键发信/投递函数内部再兜一层（本项目样板：`tt_alarm_mailer.send_mail()`
+  检测 `"pytest" in sys.modules` 即拒发）。⚠️ 闸门位置要放在**参数校验之后**，
+  否则会把「非法参数不发」这类逻辑一起短路，让对应用例**假绿** —— 比不过更危险。
+- [ ] **用「地雷」证伪一次**：把真实发信函数换成 `raise AssertionError`，
+      跑一遍相关用例，必须全绿；若红，说明还有路径在真发信。
+
+```powershell
+# 证伪样板：确认测试期间没有任何真实发送
+cd D:\01_RPA\Task\my_app
+python -c "import sys; sys.path.insert(0,'.'); import backend.services.tt_alarm_mailer as M; M.send_mail=lambda *a,**k:(_ for _ in ()).throw(AssertionError('REAL SEND')); import pytest; raise SystemExit(pytest.main(['tests/','-q','-p','no:warnings']))"
+```
+
+- [ ] 需要验证**真实**发信能力时，手工跑 `TMP\_` 探针（用完即删），
+      **不要**为了让测试"能发"而放开防线。
 
 **版本库整洁自检**（`AGENTS.md` 第四节第 4/7 条的落地命令，2026-09-24 加）：
 

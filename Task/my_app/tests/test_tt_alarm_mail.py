@@ -40,6 +40,30 @@ def _now():
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
+@pytest.fixture()
+def fresh_mailer():
+    """加载一份**未被 conftest 打补丁**的 `tt_alarm_mailer` 副本。
+
+    为什么需要它：`tests/conftest.py` 的 autouse fixture 会把
+    `tt_alarm_mailer.send_mail` 换成"记录但不发送"的替身（防测试误发真信）。
+    替身恒返回 True、永不抛异常，于是"发送失败要收敛成 False""失败要清缓存"
+    这类用例在替身上根本测不到。本 fixture 从磁盘把同一份源码再加载一次，
+    得到干净的实现，同时把 `sys.modules` 里的 pytest 摘掉以越过模块内闸门 ——
+    但 `_get_account` 仍由各用例换成地雷，所以**依然不会真的连 EWS**。
+    """
+    import importlib.util
+    import types
+
+    spec = importlib.util.spec_from_file_location("_tt_mailer_fresh", M.__file__)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    # 模块内闸门靠 `"pytest" in sys.modules` 判断；这里给它一个假的 sys，
+    # 使闸门放行，从而能测到闸门之后的真实异常处理逻辑。
+    fake_sys = types.SimpleNamespace(modules={})
+    mod.sys = fake_sys
+    return mod
+
+
 # ==========================================================
 # 一、纯函数层：正文与主题（不碰网络、不碰库）
 # ==========================================================
@@ -110,13 +134,20 @@ class TestMailBody:
 # ==========================================================
 class TestMailerGuards:
     @pytest.mark.parametrize("bad", ["", "   ", None, ";;", " , "])
-    def test_empty_to_never_sends(self, monkeypatch, bad):
-        """主送为空 → 直接 False，且**不得调用** EWS。"""
+    def test_empty_to_never_sends(self, fresh_mailer, monkeypatch, bad):
+        """主送为空 → 直接 False，且**不得调用** EWS。
+
+        用 `fresh_mailer`：conftest 的防误发替身会无条件返回 True，
+        在它上面测不出"空收件人拒绝发送"这条真实逻辑。
+        """
         called = []
-        monkeypatch.setattr(M, "_get_account",
-                            lambda: called.append(1) or (_ for _ in ()).throw(
-                                AssertionError("空收件人竟然去登录 EWS 了")))
-        assert M.send_mail("s", "b", to=bad) is False
+
+        def boom():
+            called.append(1)
+            raise AssertionError("空收件人竟然去登录 EWS 了")
+
+        monkeypatch.setattr(fresh_mailer, "_get_account", boom)
+        assert fresh_mailer.send_mail("s", "b", to=bad) is False
         assert called == []
 
     @pytest.mark.parametrize("text,expected", [
@@ -129,20 +160,27 @@ class TestMailerGuards:
     def test_split_addrs(self, text, expected):
         assert M._split_addrs(text) == expected
 
-    def test_send_failure_returns_false_not_raises(self, monkeypatch):
-        """EWS 抛异常时必须收敛成 False —— 邮件失败不能炸掉推送任务。"""
+    def test_send_failure_returns_false_not_raises(self, fresh_mailer, monkeypatch):
+        """EWS 抛异常时必须收敛成 False —— 邮件失败不能炸掉推送任务。
+
+        用 `fresh_mailer`（未被 conftest 打补丁的同源副本）才能真正走到异常
+        分支：打了补丁的那个 `send_mail` 恒返回 True、永远不抛。
+        """
         def boom():
             raise RuntimeError("EWS 挂了")
-        monkeypatch.setattr(M, "_get_account", boom)
-        assert M.send_mail("s", "b", to="a@x.com") is False
+        monkeypatch.setattr(fresh_mailer, "_get_account", boom)
+        assert fresh_mailer.send_mail("s", "b", to="a@x.com") is False
 
-    def test_failure_resets_cached_account(self, monkeypatch):
+    def test_failure_resets_cached_account(self, fresh_mailer, monkeypatch):
         """失败要丢弃缓存会话，否则改密后每次都会失败。"""
-        monkeypatch.setattr(M, "_ACCOUNT_CACHE", object())
-        monkeypatch.setattr(M, "_get_account",
-                            lambda: (_ for _ in ()).throw(RuntimeError("x")))
-        M.send_mail("s", "b", to="a@x.com")
-        assert M._ACCOUNT_CACHE is None
+        monkeypatch.setattr(fresh_mailer, "_ACCOUNT_CACHE", object())
+
+        def boom():
+            raise RuntimeError("x")
+
+        monkeypatch.setattr(fresh_mailer, "_get_account", boom)
+        fresh_mailer.send_mail("s", "b", to="a@x.com")
+        assert fresh_mailer._ACCOUNT_CACHE is None
 
 
 # ==========================================================
@@ -353,3 +391,63 @@ class TestMailConfig:
         from backend.services import tt_alarm_config as C
         cfg = C.parse_config({"mail_enabled": "maybe"}, "test", env={})
         assert cfg["mail_enabled"] is True
+
+
+# ==========================================================
+# 六、测试防误发（2026-10-06 事故后的回归锁）
+# ==========================================================
+class TestNoRealMailFromTests:
+    """锁死「测试永远不发真信」。
+
+    事故：本特性给 `run_tt_alarm_whatsapp_alert()` 加了发信副作用，而
+    `test_tt_alarm_render.py` 里两条**既有**用例会调用它（只桩了 dispatch /
+    wait_for_job_result / render_message_ex，没桩邮件）。于是每跑一次全量回归
+    就真发几封 "TT No: TT1 / Site: s" 到生产收件人，反复跑几轮后用户收到十几封。
+
+    这几条断言是**回归锁**：谁再把这个洞打开，这里就会红。
+    """
+
+    def test_conftest_guard_is_installed(self, _block_real_email):
+        """conftest 的全局替身必须生效 —— 否则下面几条都是空测。"""
+        from backend.services import tt_alarm_mailer as M
+        # 直接调用应当被拦截并记录，而不是真的连 EWS
+        assert M.send_mail("s", "b", to="nobody@example.invalid") is True
+        assert len(_block_real_email) == 1
+        assert _block_real_email[0]["to"] == "nobody@example.invalid"
+
+    def test_mailer_refuses_to_send_under_pytest(self, monkeypatch):
+        """纵深防御：即便绕过 conftest 替身，模块自身在 pytest 下也拒发。
+
+        主防线是 conftest 的 autouse fixture（替换 `send_mail`）。这条锁的是
+        `send_mail` 函数体内的第二道闸 —— 将来有人直接 import 本模块写测试、
+        或把 conftest 的替身删了，依然发不出去。
+
+        做法：把本模块**当普通文件再加载一份**（`_tt_mailer_probe`），
+        那份副本没被 conftest 打过补丁，于是走的是真实函数体。
+        用合法收件人调用它：若没有闸门，就会去连 EWS ——
+        故把 `_get_account` 换成地雷来判定。
+        """
+        import importlib.util
+        import sys as _sys
+        from backend.services import tt_alarm_mailer as M
+        assert "pytest" in _sys.modules, "本用例前提：跑在 pytest 下"
+
+        spec = importlib.util.spec_from_file_location("_tt_mailer_probe", M.__file__)
+        probe = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(probe)
+
+        touched = []
+
+        def _tripwire():
+            touched.append(1)
+            raise AssertionError("pytest 下竟然真的去连 EWS 了")
+
+        monkeypatch.setattr(probe, "_get_account", _tripwire)
+        assert probe.send_mail("s", "b", to="a@x.com") is False
+        assert touched == [], "模块内闸门没拦住，测试环境真的会发信"
+
+    def test_channel_helpers_exist(self):
+        """确认用的是 Orange EWS 通道（用户明确否决 126）。"""
+        from backend.services import tt_alarm_mailer as M
+        assert "orange" in M.DEFAULT_EWS_SERVER
+        assert "orange" in M.DEFAULT_SMTP_ADDRESS
