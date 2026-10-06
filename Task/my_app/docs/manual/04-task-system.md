@@ -75,6 +75,20 @@ APScheduler 到点 (backend 进程内)
 
 > 同期修掉两个既有缺陷：`_cron_next_and_interval` 因 aware/naive datetime 相减抛 `TypeError` 被裸 `except` 吞掉，「成功逾期」维度自 2026-08-13 上线以来**从未生效**；以及「24h 无执行记录」对每 3 天跑一次的低频任务每小时误报一次。守卫见 `tests/test_task_health_detect.py`（检测判据）与 `tests/test_task_health_alert.py`（告警翻转去重，6 场景）。
 
+### 测试任务不得进入运维告警（2026-10-06）
+
+**现象**：运维收到一封失败告警邮件，内容为「统计失败 / `agg failure sample`」，堆栈落在 `tests/test_task_runner.py`。
+
+**根因**：`tests/test_task_runner.py::test_get_task_stats_and_failures` 会**故意注册并运行一个必失败的任务** `__t_stat_bad__`（`raise RuntimeError("agg failure sample")`），以验证失败统计与失败聚类。测试 fixture 只 `monkeypatch` 了微信通知 `notify_task_failure`，**漏了邮件通知 `notify_task_failure_email`** —— 于是 `run_task` 的失败分支每次都会真发一封告警邮件给 126 邮箱。测试任务用 `__t_` 前缀命名，但统计/告警查询并未排除它们。
+
+**修复（两层防御）**：
+
+1. **测试侧堵源**：fixture 补 `monkeypatch.setattr(tr, "notify_task_failure_email", ...)`，与微信通知一起屏蔽；`test_get_task_stats_and_failures` 的失败聚合断言改用**非测试 ID**，并新增「`__t_` 任务不得出现在聚合里」的契约断言。
+2. **运维视图隔离**：`backend/services/task_stats.py` 新增 `TEST_TASK_PREFIX = "__t_"`，在面向运维/前端的查询里排除测试任务 —— `get_recent_failures`（失败聚类 + active/recovered/needs_attention 分层）、`get_task_history`（最近历史）、`get_global_history`（含内存兜底）、`_fetch_latest_runs`（任务卡片最新记录）。`get_task_stats` / `get_task_history_by_task` 是**按 ID 精确查**，不过滤，以免破坏测试自身断言。
+3. **`run_task` 新增 `is_test` 开关**（`register_task(..., is_test=...)`，默认 `False`）：测试任务仍正常落库（便于测试断言 `task_execution_log`），但**跳过微信/邮件/降级通知**。默认不影响线上行为。
+
+> 约定：单元测试注册的任务一律以 `__t_` 开头。
+
 ## 全量任务清单（默认 cron）
 
 下表与 `GROUP_TASK_MAP` 逐一对应（task_id 覆盖与组名由 `tests/test_worker_group_coverage.py` 校验，其中组名校验针对前端帮助；本表本身无守卫，新增任务后请手工补行）。

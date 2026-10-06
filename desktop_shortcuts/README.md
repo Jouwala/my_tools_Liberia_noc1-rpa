@@ -5,7 +5,7 @@
 
 本目录（`desktop_shortcuts\`）**不放快捷方式本体**，只保存生成脚本与说明。
 快捷方式实际落在桌面下的专用文件夹：
-**`C:\Users\ZTEEMS\Desktop\my_portal\`**，共 10 个。
+**`C:\Users\ZTEEMS\Desktop\my_portal\`**，共 12 个。
 
 > 放在 `my_portal\` 子文件夹里而不是散在桌面根目录 —— 桌面更整洁，
 > 且 `.lnk` 内部存的是**绝对路径**，放进子目录不影响任何行为
@@ -15,7 +15,7 @@
 
 | 快捷方式 | 作用 |
 | --- | --- |
-| `0-status.lnk` | 状态检查：80/443/7038/7090/9267/9268 是否在监听 + 入口地址 |
+| `0-status.lnk` | 状态检查：80/443/7038/7090/9267/9268 是否在监听 + **机器人心跳** + 入口地址 |
 | `1-start_nginx.lnk` | 弹窗运行 `start_nginx.bat`（已在跑则不重复启动） |
 | `2-stop_nginx.lnk` | 弹窗运行 `stop_nginx.bat`（在 nginx 自身目录发信号） |
 | `3-reload_nginx.lnk` | 弹窗运行 `reload_nginx.bat`（先 `-t` 验证，通过才 reload） |
@@ -23,8 +23,14 @@
 | `5-stop_myapp.lnk` | 调 `Task\my_app\stop.bat`：分层停干净，并写 `stopped.flag` |
 | `6-start_portal.lnk` | 调门户 `start.bat`：门户 9267 + WhatsApp 分析 9268 |
 | `7-stop_portal.lnk` | 调门户 `stop.bat`：停 9267/9268 |
-| `8-start_all.lnk` | 依次启动 my_app → 门户 → nginx（nginx 静默） |
-| `9-stop_all.lnk` | 依次停 nginx → 门户 → my_app |
+| `8-start_all.lnk` | 依次启动 my_app → 门户 → **whatsapp 机器人** → nginx（nginx 静默） |
+| `9-stop_all.lnk` | 依次停 nginx → 门户 → my_app → **whatsapp 机器人** |
+| `10-start_bot.lnk` | 单独启动 whatsapp 知识库机器人（`Task\whatsapp-kb-bot\src\index.js`） |
+| `11-stop_bot.lnk` | 单独停 whatsapp 机器人（优雅退出，避免损坏扫码凭据） |
+
+> `10/11` 是 2026-10-06 补的：机器人**不监听任何端口**，所以原先的
+> `0-status` 与 `8-start_all` 都看不见它 —— 重启电脑后它没起来也无人察觉。
+> 详见第八节。
 
 **交互约定**：双击即运行，弹出的控制台窗口显示过程，**看完后按回车键（Enter）关闭**；
 **关闭窗口不会停掉服务**，服务继续在后台跑。
@@ -68,16 +74,21 @@ Get-ChildItem -LiteralPath $Root -Directory | Where-Object { $_.Name -like 'libe
 ```
 桌面 .lnk（C:\Users\ZTEEMS\Desktop\my_portal\）
   └─ powershell.exe -NoProfile -ExecutionPolicy Bypass -File my_portal_ctl.ps1 <命令>
-       ├─ 0-status        自己实现（TCP 探活 + 入口地址清单）
-       ├─ 1/2/3-*nginx    弹窗运行 nginx-1.28.0\start_nginx.bat | stop_nginx.bat | reload_nginx.bat
+       ├─ 0-status        自己实现（TCP 探活 + 机器人心跳 + 入口地址清单）
+       ├─ 1/2/3-*nginx    运行 nginx-1.28.0\start_nginx.bat | stop_nginx.bat | reload_nginx.bat
        ├─ 4/5-*myapp      运行 Task\my_app\start.bat | stop.bat
        ├─ 6/7-*portal     运行 <门户>\start.bat | stop.bat
+       ├─ 10/11-*bot      运行 Task\whatsapp-kb-bot\autostart.ps1（-Stop 时带 -Stop）
        └─ 8/9-*all        按顺序串起上述步骤（nginx 静默）
 ```
 
 单服务的启停**刻意委托给仓库里现成的 bat**，不在 PowerShell 里重写一遍 ——
 那些 bat 已经处理好了分层杀进程、`stopped.flag`、UAC 重试等细节，
-复制一份就会产生第二个真相源。
+复制一份就会产生第二个真相源。机器人没有 `.bat`，因此委托给它的
+`autostart.ps1`（那个脚本已经会幂等启动、等握手、并如实报告结果）。
+
+> 机器人**不占端口**，所以它不在下面那套端口探活里，
+> 而是靠 `data\bot_heartbeat.json` 判断「活着且已连接」。详见第八节。
 
 ## 四、重新生成快捷方式
 
@@ -95,7 +106,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File D:\01_RPA\desktop_shortcuts\
 
 > 万一这个脚本也丢了，按第二节的约定重建即可：目标是 `powershell.exe`，
 > 参数 `-NoProfile -ExecutionPolicy Bypass -File D:\01_RPA\my_portal_ctl.ps1 <命令>`，
-> 工作目录 `D:\01_RPA`，10 个快捷方式的命令名见第一节表格对应的连字符写法
+> 工作目录 `D:\01_RPA`，12 个快捷方式的命令名见第一节表格对应的连字符写法
 > （如 `1-start_nginx.lnk` → 参数 `1-start-nginx`）。
 
 ## 五、nginx 的三个 bat（`D:\01_RPA\nginx-1.28.0\`）
@@ -157,6 +168,8 @@ nginx 从**自己所在目录**的 `logs\nginx.pid` 读 master pid。在别的�
 | `timeout` 命令被 Git 覆盖 | Git for Windows 的 `C:\Program Files\Git\usr\bin` 排在 System32 之前，使 `timeout` 解析到 GNU 版本，`start.bat` 的 `timeout /t 6 /nobreak` 会失败（退出码 255，但服务其实都起来了）。`my_portal_ctl.ps1` 在启动子 bat 前**把 System32 提到 PATH 最前**来规避，并在 bat 被驱动时改用 `ping -n` 计时。 |
 | nginx 会被巡检任务拉起 | 计划任务 `Nginx_EnsureRunning` 每 5 分钟探 80 端口，挂了自动拉起。手动停 nginx 后最长 10 分钟内可能被重新拉起 —— 这是刻意设计，需要长期停用请先禁用该任务。 |
 | 停止 my_app 后重启 | `5-stop_myapp` 会写 `backend\stopped.flag`，阻止开机自启/巡检偷偷拉起；下次 `4-start_myapp` 会自动清掉它（`Clear-StopFlag`）。 |
+| whatsapp 机器人会被看门狗拉起 | 计划任务 `WhatsAppKB_Bot_EnsureRunning` 每 5 分钟检查一次心跳，挂了或掉线就拉回。`11-stop_bot` 停掉后**最长 5 分钟会被拉回来** —— 要长期停用请先禁用 `WhatsAppKB_Bot_Autostart` 与 `WhatsAppKB_Bot_EnsureRunning`。 |
+| 机器人停不掉 / 停时报红 | 它跑在隐藏窗口里，`taskkill` 不带 `/F` 的 `WM_CLOSE` 没人接收，Node 的 SIGINT 也不触发。`-Stop` 因此直接用强杀（`/F`）。详见第八节。 |
 
 ## 七、修复记录：为什么曾经"点 6/8 不启动"（2026-10-06）
 
@@ -217,3 +230,116 @@ nginx 从**自己所在目录**的 `logs\nginx.pid` 读 master pid。在别的�
 > $b=[IO.File]::ReadAllBytes('Task\my_app\stop.bat')
 > ($b|?{$_ -eq 13}).Count; ($b|?{$_ -eq 10}).Count
 > ```
+
+## 八、修复记录：重启后 whatsapp 机器人没起来（2026-10-06）
+
+现象：15:15 重启电脑后，`notify`（P1 告警推送）起来了，**知识库机器人没起来**，
+而且没有任何提示。
+
+### 根因：机器人既没有开机自启、也没有看门狗
+
+`Task\whatsapp-kb-bot` 下其实是**两个互相独立**的常驻进程：
+
+| 进程 | 作用 | 凭据目录 | 本次修复前的任务 |
+| --- | --- | --- | --- |
+| `src/index.js` | 知识库问答机器人 | `data/auth` | **一个都没有** ❌ |
+| `src/notify.js` | P1 告警推送 | `data/auth-notify` | 自启 + 看门狗 ✅ |
+
+`register_notify_tasks.ps1`（旧脚本）只注册了 notify 的两个任务，
+机器人的 `autostart.ps1` **全工作区没有任何地方调用它**
+（唯一提到它的是 `autostart-notify.ps1` 的一句注释，只是拿它当写法参照）。
+所以重启后机器人不会自己回来 —— 这次不是操作失误，是**配置缺口**。
+
+### 顺带纠正一条过时的代码注释
+
+`src/whatsapp.js` 里原本写着「notify.js 与 index.js **共用 data/auth** 同一份凭据，
+两者只能留一个，否则 440 互相顶号」。**这条已经过时且是错的**：
+凭据早已拆开（`config.js:48` → `data/auth`，`notify.js:75` → `data/auth-notify`），
+只是那句注释没跟着改。实测佐证：最后一批 440 出现在 **10-03**，
+而拆分之后机器人一直正常连接（10-04 ~ 10-06 日志里连上十几次）。
+
+**结论：两个进程应当同时运行，不是二选一。** 已把该注释订正，
+以免后来者照它把其中一个停掉。本次也实测确认两者可共存
+（两个心跳文件同时为 `connected=true`）。
+
+### 改了什么
+
+1. **机器人加心跳**（`src/whatsapp.js`）
+   连接成功写 `data/bot_heartbeat.json`（`{at, connected, pid}`），每 30s 刷新一次，
+   沿用 `notify.js` 的原子写做法。为什么不能只扫进程：**进程活着 ≠ 已连接**，
+   掉线后进程仍在，看门狗会以为一切正常。
+
+2. **`autostart.ps1` 重写**：判活改为**读心跳**，并补上 `-Status` / `-Stop`。
+   原先的判活是 `CommandLine -match 'src[\\/]index\.js'`，**任何**命令行里
+   出现过这个字符串的进程都会被当成机器人 —— 实测把 agent 自己的 shell
+   认成了 bot，还写进了 `bot.pid`。现在要求该路径紧跟 node 且排除 shell 包装器，
+   并以心跳为权威判据。
+
+3. **注册四个计划任务**（`register_whatsapp_tasks.ps1` + `bot_watchdog_hidden.vbs`）
+   - `WhatsAppKB_Bot_Autostart` / `WhatsAppKB_Bot_EnsureRunning`（新增）
+   - `WhatsAppKB_Notify_Autostart` / `WhatsAppKB_Notify_EnsureRunning`（原有）
+   原来的 `register_notify_tasks.ps1` 已被这个更通用的脚本取代。
+
+4. **并入快捷方式**：`8-start_all` 增加第 3 阶段（现为 `1/4`~`4/4`），
+   `9-stop_all` 增加第 4 阶段，并新增 `10-start_bot` / `11-stop_bot`。
+   `0-status` 也会报告机器人心跳（它不占端口，端口扫描看不见它）。
+
+### 已验证
+
+- **开机自启**：杀掉机器人后运行 `WhatsAppKB_Bot_Autostart`（即登录时执行的那个），
+  **9 秒内自己回来了**且 `connected=true`，四个任务 `LastTaskResult=0`。
+- **看门狗**：杀掉机器人后由 `_EnsureRunning` 拉回，心跳从
+  `connected=false`（连接中）转为 `connected=true`。
+- **`10-start_bot` / `11-stop_bot`**：启动 11s 连上、重复调用不重复启动；
+  停止无报错、进程消失、心跳被标为 `connected=false`。
+- **`0/8/9` 全量回归**：全部退出码 0，零批处理报错、零超时。
+
+### 一个副产品：机器人曾经"看起来没启动"
+
+修好之后仍有人反馈"`stop all` / `start all` 之后机器人还是没起来"，实测**机器人其实一直是好的**
+（进程在跑、`connected=true`、日志有 `✓ 已连接`）。真正的问题是**它完全不可见**：
+
+- **不占端口** —— 端口清单里没有它；
+- **没有窗口** —— 它是隐藏窗口运行的 node 进程，不会自己打印任何东西；
+- **进程名是通用 `node.exe`** —— 任务管理器里认不出来。
+
+于是"启动成功"和"根本没启动"在屏幕上**长得一模一样**，这正是最初那个遗漏能藏半天的原因。
+
+**改法**：`my_portal_ctl.ps1` 新增 `Write-BotHeartbeat`，**凡是碰到机器人的命令都在结尾
+再报一次心跳**，且**即使"已经在跑"也报**：
+
+```
+--- 3/4  whatsapp bot ---
+  whatsapp-kb-bot already running and healthy (pid 6524)
+  heartbeat: connected (pid 6524, updated 5s ago)
+```
+
+出问题时也一眼能看出来（且给出恢复命令）：
+
+```
+  heartbeat: NOT connected (pid 6524, updated 24s ago)
+             the process is up but WhatsApp is not linked - if this
+             persists, the credentials need a fresh QR scan:
+               cd D:\01_RPA\Task\whatsapp-kb-bot ; npm run relogin
+```
+
+> 教训：**一个没有任何可观测信号的常驻服务，等于没有在运维它。**
+> 心跳不只是给看门狗用的，也是给人看的。
+
+### 两个必须知道的注意点
+
+> ⚠️ **`9-stop_all` 停不掉机器人超过 5 分钟。** 它有 `_EnsureRunning` 看门狗，
+> 5 分钟内会把它拉回来。要长期停用必须先禁用两个任务：
+> ```powershell
+> Disable-ScheduledTask -TaskName WhatsAppKB_Bot_Autostart
+> Disable-ScheduledTask -TaskName WhatsAppKB_Bot_EnsureRunning
+> ```
+> 控制器在 `9-stop_all` 结尾会提示这一点。
+>
+> ⚠️ **停机器人用的是强杀，不是优雅退出。**
+> 机器人跑在**隐藏窗口**里，`taskkill`（不带 `/F`）发的 `WM_CLOSE` 没人接收，
+> Node 的 SIGINT 处理器也只在真实控制台 Ctrl+C 时触发 —— 实测不生效，
+> 还因 stderr 触发 `$ErrorActionPreference='Stop'` 弹出一片红色报错。
+> 所以 `-Stop` 直接用 `taskkill /F`（必要时再 `Stop-Process`）。
+> 风险是「写入凭据到一半被杀」，极端情况下需要重新扫码；
+> 正常停止（进程空闲）不受影响。这一条与 `autostart.ps1` 顶部的注释一致。

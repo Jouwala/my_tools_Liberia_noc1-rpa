@@ -251,6 +251,52 @@ uvicorn 后端 (:7038)
 `nginx_monitor.ps1` 的两个路径参数与 `rotate_nginx_logs.ps1` 的 `-Prefix` 改回 Y:。
 （服务本身无状态，回滚不涉及数据。）
 
+### 2026-10-06：WhatsApp 知识库机器人补上开机自启与看门狗
+
+**背景。** `Task\whatsapp-kb-bot\` 下有**两个互相独立**的长驻进程，此前只运维了其中一个：
+
+| 进程 | 作用 | 凭据目录 | 本次之前的计划任务 |
+| --- | --- | --- | --- |
+| `src/index.js` | 知识库问答机器人 | `data/auth` | **无** |
+| `src/notify.js` | P1 告警推送 | `data/auth-notify` | 自启 + 看门狗 |
+
+**触发事件。** 2026-10-06 15:15 重启电脑后，推送进程（有任务）自己起来了，
+**问答机器人再没起来**。日志显示它最后活动于 `08:25:02`。全工作区检索确认：
+`autostart.ps1` **没有任何调用方** —— 唯一的引用是 `autostart-notify.ps1` 里的一句
+注释（拿它当写法参照）。即这是**配置缺口**，不是误操作。
+
+**顺带纠正的错误注释。** `src/whatsapp.js` 曾写着「notify.js 与 index.js 共用
+`data/auth`，两者只能留一个，否则 440 互相顶号」。该描述**已过时且为假**：
+凭据早已拆分（`config.js:48` → `data/auth`，`notify.js:75` → `data/auth-notify`）。
+日志佐证：最后一批 440 出现在 10-03，之后两者长期正常并存。
+
+**决策。**
+1. 机器人写心跳 `data/bot_heartbeat.json`（`{at, connected, pid}`，30s 刷新，原子写），
+   沿用 `notify.js` 的既有做法；
+2. `autostart.ps1` 的判活**改为读心跳**。原判据
+   `CommandLine -match 'src[\\/]index\.js'` 会把**任何**命令行里含该串的进程认成机器人
+   —— 实测把 agent shell 误判为 bot 并写入了 `bot.pid`；
+3. 注册四个计划任务（`WhatsAppKB_{Bot,Notify}_{Autostart,EnsureRunning}`），
+   注册脚本 `register_whatsapp_tasks.ps1` 取代了只管 notify 的旧脚本；
+4. 并入桌面快捷方式体系：`8-start_all` / `9-stop_all` 各增一个阶段，
+   新增 `10-start_bot` / `11-stop_bot`，`0-status` 报告心跳。
+
+**为什么用心跳而非进程扫描判活。** **进程活着 ≠ 已连接**：凭据失效或掉线时进程仍在，
+只扫进程的看门狗会认为一切正常，而业务消息已经收不到了 —— 这正是 2026-10-01
+「监控全绿、业务已坏」事故的形态。心跳同时携带 `connected` 与 `at`，
+可区分「进程没了」「进程在但没连上」「进程连上了但卡住」。
+
+**代价与注意。**
+1. `9-stop_all` 停掉机器人后，`_EnsureRunning` **最长 5 分钟内会把它拉回来**；
+   要长期停用必须先禁用两个任务（控制器结尾会提示）。
+2. 停机器人用的是**强杀**：进程跑在隐藏窗口里，`taskkill`（不带 `/F`）发的 `WM_CLOSE`
+   无人接收，Node 的 SIGINT 处理也只在真实控制台 Ctrl+C 时触发 —— 实测均无效。
+   风险是「写凭据到一半被杀」，极端情况需重新扫码；空闲时停止不受影响。
+3. 机器人**不监听端口**，因此任何基于端口的巡检都看不见它，只能靠心跳。
+
+**回滚路径。** `Get-ScheduledTask -TaskName 'WhatsAppKB_*' | Unregister-ScheduledTask -Confirm:$false`
+即回到「只有自启、无看门狗」的状态；心跳文件是纯增量产物，删除不影响机器人运行。
+
 ## 九、相关文档
 
 | 内容 | 去哪里 |

@@ -1,5 +1,5 @@
 # =============================================================================
-#  make_desktop_shortcuts.ps1 - create the 10 "my_portal" desktop shortcuts
+#  make_desktop_shortcuts.ps1 - create the 12 "my_portal" desktop shortcuts
 #
 #  REUSABLE MAINTENANCE SCRIPT (kept in version control on purpose - it is the
 #  only thing that can regenerate the shortcuts). Re-run it after moving
@@ -38,7 +38,7 @@ if (-not (Test-Path -LiteralPath $OutDir)) {
 }
 
 # ---------------------------------------------------------------------------
-#  Shortcut definitions: 0-status .. 9-stop_all
+#  Shortcut definitions: 0-status .. 11-stop_bot
 # ---------------------------------------------------------------------------
 # Name      = .lnk file name (no extension)
 # Command   = argument passed to my_portal_ctl.ps1 (matches its dispatch table)
@@ -52,8 +52,10 @@ $Shortcuts = @(
     @{ Name = '5-stop_myapp';    Command = '5-stop-myapp';    Comment = 'Stop my_app in layers and write backend\stopped.flag' }
     @{ Name = '6-start_portal';  Command = '6-start-portal';  Comment = 'Start the portal: 9267 + WhatsApp analysis service 9268' }
     @{ Name = '7-stop_portal';   Command = '7-stop-portal';   Comment = 'Stop the portal: 9267 and 9268' }
-    @{ Name = '8-start_all';     Command = '8-start-all';     Comment = 'Start everything: my_app -> portal -> nginx (nginx silent)' }
-    @{ Name = '9-stop_all';      Command = '9-stop-all';      Comment = 'Stop everything: nginx -> portal -> my_app' }
+    @{ Name = '8-start_all';     Command = '8-start-all';     Comment = 'Start everything: my_app -> portal -> whatsapp bot -> nginx' }
+    @{ Name = '9-stop_all';      Command = '9-stop-all';      Comment = 'Stop everything: nginx -> portal -> my_app -> whatsapp bot' }
+    @{ Name = '10-start_bot';    Command = '10-start-bot';    Comment = 'Start the WhatsApp knowledge-base bot (src/index.js)' }
+    @{ Name = '11-stop_bot';     Command = '11-stop-bot';     Comment = 'Stop the WhatsApp bot gracefully (flushes credentials)' }
 )
 
 # ---------------------------------------------------------------------------
@@ -111,8 +113,7 @@ foreach ($m in $made) { Write-Host "  $(Split-Path -Leaf $m)" }
 # ---------------------------------------------------------------------------
 #  Remove the old copies that used to sit loose on the desktop root
 # ---------------------------------------------------------------------------
-# Earlier runs put these 10 .lnk files directly on the desktop. Now that they
-# live in my_portal\, leaving the old ones behind would give the user two
+# Earlier runs put these 10 .lnk files directly on the desktop. Now that they# live in my_portal\, leaving the old ones behind would give the user two
 # identical-looking sets - and the stale pair would silently stop tracking any
 # future edit to my_portal_ctl.ps1's arguments. Only delete the exact names we
 # manage, never a wildcard over the desktop.

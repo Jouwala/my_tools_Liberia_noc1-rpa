@@ -75,6 +75,7 @@ if (-not (Test-Path (Join-Path $Root 'Task\my_app'))) {
 $MyAppDir  = Join-Path $Root 'Task\my_app'
 $NginxDir  = Join-Path $Root 'nginx-1.28.0'
 $NginxExe  = Join-Path $NginxDir 'nginx.exe'
+$BotDir    = Join-Path $Root 'Task\whatsapp-kb-bot'
 
 # Portal directory: name is non-ASCII, so match it by wildcard. The distinctive
 # ASCII prefix/suffix avoids hardcoding Chinese text in this file at all.
@@ -432,6 +433,14 @@ function Invoke-Status {
     }
     Write-Host ''
 
+    # The whatsapp bot listens on NO port, so the port sweep above cannot see
+    # it. It reports liveness through data\bot_heartbeat.json instead (written
+    # by src/whatsapp.js on every connect and refreshed every 30s), which also
+    # distinguishes "process gone" from "process alive but disconnected".
+    Write-Host 'WhatsApp bot (no port - judged from its heartbeat):' -ForegroundColor White
+    Write-BotHeartbeat
+    Write-Host ''
+
     Write-Host 'Entry points:' -ForegroundColor White
     Write-Host '  (port 80 redirects to HTTPS; the certificate is self-signed - a' -ForegroundColor DarkGray
     Write-Host '   browser "not trusted" warning is expected, not a fault)' -ForegroundColor DarkGray
@@ -445,7 +454,8 @@ function Invoke-Status {
     } else {
         Write-Warn "$downCount of $($PortMap.Count) ports are not listening."
         Write-Host '       Shortcuts 1/4/6 start nginx / my_app / portal respectively;' -ForegroundColor DarkGray
-        Write-Host '       shortcut 8-start_all brings up all three in order.' -ForegroundColor DarkGray
+        Write-Host '       shortcut 10-start_bot starts the whatsapp bot.' -ForegroundColor DarkGray
+        Write-Host '       shortcut 8-start_all brings all of them up in order.' -ForegroundColor DarkGray
     }
     Write-Host ''
 }
@@ -526,9 +536,78 @@ function Invoke-StopPortal {
     Invoke-ChildBat -BatPath (Join-Path $PortalDir 'stop.bat') -WorkDir $PortalDir | Out-Null
 }
 
+function Invoke-StartBot {
+    Write-Head 'Start WhatsApp bot'
+    Write-Host 'knowledge-base Q&A bot (src/index.js) - listens on WhatsApp, no port.' -ForegroundColor DarkGray
+    Write-Host "dir: $BotDir" -ForegroundColor DarkGray
+    Write-Host ''
+    if (-not (Test-Path (Join-Path $BotDir 'autostart.ps1'))) {
+        Write-Err "Not found: $BotDir\autostart.ps1"
+        Write-Err 'The bot step was skipped.'
+        return
+    }
+    # The bot is a node daemon, not a .bat, so it does not go through
+    # Invoke-ChildBat. autostart.ps1 already knows how to start it idempotently,
+    # waits for the Baileys handshake, and reports what happened - reuse it
+    # rather than duplicating the launch logic here.
+    #
+    # Why the extra heartbeat line at the end: autostart.ps1 prints "already
+    # running and healthy" and nothing else when the bot is already up, and the
+    # bot itself is INVISIBLE - it opens no port and no window. On 2026-10-06 a
+    # successful start_all was mistaken for a failure for exactly this reason:
+    # there was nothing on screen to confirm the bot. So always finish this step
+    # with an explicit, current heartbeat reading.
+    $ps = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+    & $ps -NoProfile -ExecutionPolicy Bypass -File (Join-Path $BotDir 'autostart.ps1') 2>&1 |
+        ForEach-Object { Write-Host "  $_" }
+    Write-BotHeartbeat
+}
+
+# One-line verdict on the bot, read straight from its heartbeat file. This is
+# the only way to see whether the bot is alive AND actually connected: it owns
+# no port, so the port sweep cannot see it, and its process name is a generic
+# node.exe. Used by both the start step and the status view.
+function Write-BotHeartbeat {
+    $hbFile = Join-Path $BotDir 'data\bot_heartbeat.json'
+    if (-not (Test-Path -LiteralPath $hbFile)) {
+        Write-Host '  heartbeat: (none - the bot has never run, or just stopped)' -ForegroundColor Yellow
+        return
+    }
+    try {
+        $hb = Get-Content -LiteralPath $hbFile -Raw -Encoding UTF8 | ConvertFrom-Json
+        $age = -1
+        try { $age = [int]([datetime]::UtcNow - [datetime]::Parse($hb.at).ToUniversalTime()).TotalSeconds } catch { }
+        if ($hb.connected -and $age -ge 0 -and $age -le 300) {
+            Write-Host "  heartbeat: connected (pid $($hb.pid), updated ${age}s ago)" -ForegroundColor Green
+        } else {
+            Write-Host "  heartbeat: NOT connected (pid $($hb.pid), updated ${age}s ago)" -ForegroundColor Yellow
+            Write-Host '             the process is up but WhatsApp is not linked - if this' -ForegroundColor Yellow
+            Write-Host '             persists, the credentials need a fresh QR scan:' -ForegroundColor Yellow
+            Write-Host "               cd $BotDir ; npm run relogin" -ForegroundColor Yellow
+        }
+    } catch {
+        Write-Host "  heartbeat: unreadable - $($_.Exception.Message)" -ForegroundColor Yellow
+    }
+}
+
+function Invoke-StopBot {
+    Write-Head 'Stop WhatsApp bot'
+    Write-Host 'src/index.js - stops it gracefully so Baileys can flush credentials.' -ForegroundColor DarkGray
+    Write-Host "dir: $BotDir" -ForegroundColor DarkGray
+    Write-Host ''
+    if (-not (Test-Path (Join-Path $BotDir 'autostart.ps1'))) {
+        Write-Err "Not found: $BotDir\autostart.ps1"
+        Write-Err 'The bot step was skipped.'
+        return
+    }
+    $ps = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+    & $ps -NoProfile -ExecutionPolicy Bypass -File (Join-Path $BotDir 'autostart.ps1') -Stop 2>&1 |
+        ForEach-Object { Write-Host "  $_" }
+}
+
 function Invoke-StartAll {
     Write-Head 'Start everything'
-    Write-Host 'Order: my_app -> portal -> nginx' -ForegroundColor DarkGray
+    Write-Host 'Order: my_app -> portal -> whatsapp bot -> nginx' -ForegroundColor DarkGray
     Write-Host 'Every stage reports here; nginx runs quietly.' -ForegroundColor DarkGray
     Write-Host ''
 
@@ -538,11 +617,11 @@ function Invoke-StartAll {
     Clear-StopFlag -Path (Join-Path $MyAppDir 'backend\stopped.flag')
     if ($PortalDir) { Clear-StopFlag -Path (Join-Path $PortalDir 'stopped.flag') }
 
-    Write-Host '--- 1/3  my_app ---' -ForegroundColor White
+    Write-Host '--- 1/4  my_app ---' -ForegroundColor White
     Invoke-ChildBat -BatPath (Join-Path $MyAppDir 'start.bat') -WorkDir $MyAppDir | Out-Null
     Write-Host ''
 
-    Write-Host '--- 2/3  portal ---' -ForegroundColor White
+    Write-Host '--- 2/4  portal ---' -ForegroundColor White
     if ($PortalDir) {
         Invoke-ChildBat -BatPath (Join-Path $PortalDir 'start.bat') -WorkDir $PortalDir | Out-Null
     } else {
@@ -550,7 +629,11 @@ function Invoke-StartAll {
     }
     Write-Host ''
 
-    Write-Host '--- 3/3  nginx (silent) ---' -ForegroundColor White
+    Write-Host '--- 3/4  whatsapp bot ---' -ForegroundColor White
+    Invoke-StartBot
+    Write-Host ''
+
+    Write-Host '--- 4/4  nginx (silent) ---' -ForegroundColor White
     if (Test-PortListening -Port 80) {
         Write-Ok 'Port 80 already listening - nginx left as is.'
     } else {
@@ -563,11 +646,11 @@ function Invoke-StartAll {
 
 function Invoke-StopAll {
     Write-Head 'Stop everything'
-    Write-Host 'Order: nginx -> portal -> my_app' -ForegroundColor DarkGray
+    Write-Host 'Order: nginx -> portal -> my_app -> whatsapp bot' -ForegroundColor DarkGray
     Write-Host '(nginx first so the entry points close before their upstreams go away)' -ForegroundColor DarkGray
     Write-Host ''
 
-    Write-Host '--- 1/3  nginx ---' -ForegroundColor White
+    Write-Host '--- 1/4  nginx ---' -ForegroundColor White
     if (Test-Path (Join-Path $NginxDir 'nginx.exe')) {
         Invoke-ChildBat -BatPath (Get-NginxBat 'stop_nginx.bat') -WorkDir $NginxDir | Out-Null
     } else {
@@ -575,7 +658,7 @@ function Invoke-StopAll {
     }
     Write-Host ''
 
-    Write-Host '--- 2/3  portal ---' -ForegroundColor White
+    Write-Host '--- 2/4  portal ---' -ForegroundColor White
     if ($PortalDir) {
         Invoke-ChildBat -BatPath (Join-Path $PortalDir 'stop.bat') -WorkDir $PortalDir | Out-Null
     } else {
@@ -583,8 +666,12 @@ function Invoke-StopAll {
     }
     Write-Host ''
 
-    Write-Host '--- 3/3  my_app ---' -ForegroundColor White
+    Write-Host '--- 3/4  my_app ---' -ForegroundColor White
     Invoke-ChildBat -BatPath (Join-Path $MyAppDir 'stop.bat') -WorkDir $MyAppDir | Out-Null
+    Write-Host ''
+
+    Write-Host '--- 4/4  whatsapp bot ---' -ForegroundColor White
+    Invoke-StopBot
     Write-Host ''
 
     Write-Host 'NOTE: nginx is watched by the Nginx_EnsureRunning scheduled task, which' -ForegroundColor Yellow
@@ -593,6 +680,12 @@ function Invoke-StopAll {
     Write-Host ''
     Write-Host 'my_app wrote backend\stopped.flag - autostart and the ensure task will' -ForegroundColor Yellow
     Write-Host 'not restart it. The next 4-start_myapp clears that flag.' -ForegroundColor Yellow
+    Write-Host ''
+    Write-Host 'WARNING: the whatsapp bot is also watched by the WhatsAppKB_Bot_EnsureRunning' -ForegroundColor Yellow
+    Write-Host '      task, which brings it back within 5 minutes. Disable these two tasks' -ForegroundColor Yellow
+    Write-Host '      if you need it to stay down:' -ForegroundColor Yellow
+    Write-Host '        Disable-ScheduledTask -TaskName WhatsAppKB_Bot_Autostart' -ForegroundColor Yellow
+    Write-Host '        Disable-ScheduledTask -TaskName WhatsAppKB_Bot_EnsureRunning' -ForegroundColor Yellow
     Write-Host ''
 
     Invoke-Status
@@ -616,6 +709,8 @@ switch -Regex ($normalized) {
     '^7([-_].*)?$|^stop[-_]?portal$'       { Invoke-StopPortal;  break }
     '^8([-_].*)?$|^start[-_]?all$'         { Invoke-StartAll;    break }
     '^9([-_].*)?$|^stop[-_]?all$'          { Invoke-StopAll;     break }
+    '^10([-_].*)?$|^start[-_]?bot$'        { Invoke-StartBot;    break }
+    '^11([-_].*)?$|^stop[-_]?bot$'         { Invoke-StopBot;     break }
     default {
         Write-Err "Unknown command: '$Command'"
         Write-Host ''
@@ -646,6 +741,7 @@ $CloseNote = switch -Regex ($normalized) {
     '^4([-_].*)?$|^start[-_]?myapp$'    { 'my_app keeps running in the background.';  break }
     '^6([-_].*)?$|^start[-_]?portal$'   { 'The portal keeps running in the background.'; break }
     '^8([-_].*)?$|^start[-_]?all$'      { 'All services keep running in the background.'; break }
+    '^10([-_].*)?$|^start[-_]?bot$'     { 'The whatsapp bot keeps running in the background.'; break }
     default {
         # Stop commands, and an unknown command (nothing was started anyway).
         'The services listed above are now stopped.'

@@ -13,13 +13,59 @@ import makeWASocket, {
 } from 'baileys';
 import P from 'pino';
 import qrcode from 'qrcode-terminal';
-import { existsSync, mkdirSync, appendFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, mkdirSync, appendFileSync, writeFileSync, renameSync } from 'node:fs';
+import { join, dirname } from 'node:path';
 import { CONFIG } from './config.js';
 import { detectLang, pickText } from './lang.js';
 import { selfIdentifiers, extractText, detectTrigger, stripMentions, isAllowedChat } from './mentions.js';
 
 const logger = P({ level: 'silent' });
+
+/* -------------------------------- 心跳文件 -------------------------------- */
+
+/**
+ * 心跳文件：机器可读的「本进程还活着、且是否已连接」。
+ *
+ * 为什么不能只靠 bot.pid 或扫命令行（2026-10-06）：
+ *   `autostart.ps1` 原先用 `CommandLine -match 'src[\\/]index\.js'` 判活，
+ *   只要**任何**进程的命令行里出现过这个字符串就会被当成机器人（实测把
+ *   agent 的 shell 自己认成了 bot，还写进 bot.pid），而且进程活着 ≠ 已连接：
+ *   掉线后进程仍在，看门狗却以为一切正常。
+ *
+ *   `src/notify.js` 早就用同样思路解决了这个问题（data/notify_heartbeat.json），
+ *   这里对齐它的做法：原子写，且把 `connected` 一并写进去，让看门狗能区分
+ *   「进程没了」和「进程在但掉线了」——后者同样需要重启。
+ */
+const HEARTBEAT_FILE = join(CONFIG.authDirAbs, '..', 'bot_heartbeat.json');
+
+/** 原子写：先写临时文件再 rename，避免读到写了一半的 JSON。 */
+function writeJsonAtomic(p, data) {
+  mkdirSync(dirname(p), { recursive: true });
+  const tmp = `${p}.${process.pid}.tmp`;
+  writeFileSync(tmp, JSON.stringify(data, null, 2), 'utf8');
+  renameSync(tmp, p);
+}
+
+let heartbeatConnected = false;
+
+function heartbeat(extra = {}) {
+  try {
+    writeJsonAtomic(HEARTBEAT_FILE, {
+      at: new Date().toISOString(),
+      connected: heartbeatConnected,
+      pid: process.pid,
+      ...extra,
+    });
+  } catch {
+    /* 心跳失败不影响收发消息 */
+  }
+}
+
+/** 供 index.js 优雅退出时把心跳标成已断开（可选，让状态更即时）。 */
+export function markDisconnected() {
+  heartbeatConnected = false;
+  heartbeat({ event: 'stopped' });
+}
 
 /* --------------------------------- 日志 --------------------------------- */
 
@@ -140,9 +186,13 @@ export async function startWhatsApp({ onQuestion, builtins = null }) {
       selfIds = selfIdentifiers(sock, state.creds?.me);
       log(`✓ 已连接。机器人标识：${[...selfIds].join(' / ')}`);
       log(`  回复模式：${CONFIG.replyMode}｜群白名单：${CONFIG.allowGroups.join(', ')}`);
+      heartbeatConnected = true;
+      heartbeat({ event: 'connected' });
     }
 
     if (connection === 'close') {
+      heartbeatConnected = false;
+      heartbeat({ event: 'closed' });
       if (shuttingDown) return;
 
       const code = lastDisconnect?.error?.output?.statusCode;
@@ -156,20 +206,27 @@ export async function startWhatsApp({ onQuestion, builtins = null }) {
       // 这不是网络抖动，重连只会把对方顶掉、对方再顶回来 —— 两个进程无限互踢，
       // 日志表现为「2 秒连一次、连上 3 秒又断」，且**两个进程都收不到消息**。
       //
-      // 本仓库的实际成因：src/notify.js（P1 告警推送）与 src/index.js **共用
-      // data/auth 同一份凭据**，等于同号双开。2026-10-03 实测：只要 notify.js 在跑，
-      // index.js 就永远停在 440 循环；杀掉 notify.js 后数秒内连接即稳定。
+      // ⚠️ 成因订正（2026-10-06）：此处原先写「notify.js 与 index.js 共用 data/auth
+      // 同一份凭据，两者只能留一个」——**该说法已过时且是错的**。凭据早已拆开：
+      //     · src/index.js  → data/auth        （config.js:48，AUTH_DIR 可覆盖）
+      //     · src/notify.js → data/auth-notify （notify.js:75，NOTIFY_AUTH_DIR 可覆盖）
+      // 拆分的原因写在 notify.js 的注释里（同号双开会被互相顶掉），这里只是没同步。
+      // 实测佐证：最后一批 440 出现在 2026-10-03，而拆分之后机器人一直正常连接
+      // （10-04 ~ 10-06 日志里连上十几次），两者并不互斥。
       //
-      // 因此 440 刻意**不重连**：继续重连既救不活自己，又会让对方也收不到消息。
+      // 所以 440 的真实来源收窄为「同一份凭据被第二个会话使用」，常见的是手动
+      // 多开了 `npm start` / `relogin.mjs` 没退出，或另一台机器用了同一账号。
+      //
+      // 440 仍然刻意**不重连**：继续重连既救不活自己，又会让对方也收不到消息。
       // 直接退出，把问题暴露给看门狗/值班人，而不是伪装成"一直在重连"的正常状态。
       //
       // 注意枚举名：本仓库装的 baileys 6.7.24 里叫 `connectionReplaced`，
       // 没有 `conflict` 这个成员（写 conflict 会得到 undefined，判断永远不成立）。
       if (code === DisconnectReason.connectionReplaced || code === 440) {
         log('✗ 连接被同账号的另一个会话顶掉（code=440 connectionReplaced）。');
-        log('  通常是有第二个进程在用同一份 data/auth 凭据。已知来源：');
-        log('    · src/notify.js（P1 告警推送）—— 与机器人同号共用凭据，两者只能留一个；');
-        log('    · 手动多开了 npm start / relogin.mjs 没退出。');
+        log('  通常是有第二个进程在用同一份凭据（本机 data/auth，或另一台机器）。');
+        log('  已知来源：手动多开了 npm start / relogin.mjs 没退出。');
+        log('  （注意 notify.js 用的是 data/auth-notify，与本进程不冲突。）');
         log('  排查： Get-CimInstance Win32_Process -Filter "Name=\'node.exe\'" |');
         log("          Where-Object { $_.CommandLine -match 'whatsapp-kb-bot' } |");
         log('          Select-Object ProcessId,CommandLine');
@@ -196,6 +253,13 @@ export async function startWhatsApp({ onQuestion, builtins = null }) {
       }, delay);
     }
   });
+
+  // 定时刷新心跳：连接正常但长时间没人提问时，也要让看门狗看到「还活着」。
+  // 周期取 30s —— 远小于看门狗的 STALE 阈值（300s），同时开销可忽略。
+  // unref() 让这个定时器**不阻止进程退出**，否则 Ctrl+C / 停止脚本会挂住。
+  const hbTimer = setInterval(() => heartbeat(), 30_000);
+  if (typeof hbTimer.unref === 'function') hbTimer.unref();
+  heartbeat();
 
   sock.ev.on('messages.upsert', async ({ messages, type }) => {
     if (type !== 'notify') return;

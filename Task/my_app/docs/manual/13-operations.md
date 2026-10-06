@@ -286,18 +286,29 @@ node --env-file-if-exists=.env src/notify.js --check
 node --env-file-if-exists=.env src/notify.js --groups
 ```
 
-**常驻与看门狗**（2026-10-01 新增）：两个计划任务，注册脚本
-`whatsapp-kb-bot\register_notify_tasks.ps1`：
+**常驻与看门狗**（2026-10-01 新增，2026-10-06 扩展到机器人）：四个计划任务，注册脚本
+`whatsapp-kb-bot\register_whatsapp_tasks.ps1`：
 
 | 任务 | 频率 | 作用 |
 | --- | --- | --- |
-| `WhatsAppKB_Notify_Autostart` | 登录时 | 开机自启 |
-| `WhatsAppKB_Notify_EnsureRunning` | 每 5 分钟 | 进程不在 / 心跳不健康就重启 |
+| `WhatsAppKB_Notify_Autostart` | 登录时 | 推送进程开机自启 |
+| `WhatsAppKB_Notify_EnsureRunning` | 每 5 分钟 | 推送进程不在 / 心跳不健康就重启 |
+| `WhatsAppKB_Bot_Autostart` | 登录时 | **问答机器人**开机自启 |
+| `WhatsAppKB_Bot_EnsureRunning` | 每 5 分钟 | **问答机器人**不在 / 心跳不健康就重启 |
 
 > 两个都要：只做自启的话，进程中途死掉**没人知道**，值班群会静默收不到 P1 告警
 > —— 这正是 2026-10-01 事故的形态（监控全绿、业务已坏）。
 >
 > 巡检脚本判「不健康」包含**活着但未连接**（如凭据失效），此时重启是正确动作。
+
+> **机器人也必须看门狗**（2026-10-06 补）：`src/index.js`（问答机器人）与
+> `src/notify.js`（告警推送）是**两个互相独立**的常驻进程，凭据目录不同
+> （`data/auth` vs `data/auth-notify`），**应当同时在跑**。
+> 此前只给推送建了任务，机器人**既无自启也无看门狗** ——
+> 2026-10-06 15:15 重启后机器人再没起来，直到人工发现。
+> 两者各自写心跳：`data/bot_heartbeat.json` 与 `data/notify_heartbeat.json`。
+> 桌面快捷方式 `10-start_bot` / `11-stop_bot` 可手动启停机器人，
+> 且 `8-start_all` / `9-stop_all` 已把它并入流程。
 
 **单实例保护**：`notify.js` 启动时写 `data\notify.lock`（含 pid）。
 已有存活实例时**拒绝启动并说明原因** —— 否则两个实例会各自轮询同一个信箱，
