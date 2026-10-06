@@ -729,6 +729,11 @@ iMonitor）、`10.100.20.9:8766`（RAIS），原先记为「一律回退 86400�
 > ⚠️ **探测 eFlow 必须复用生产请求路径**（含 `forgerydefense` 头）。自己用
 > urllib 拼请求会得到 `403 code=3329008 "prohibited for cross-site access"`
 > —— 那是**探测脚本的 bug**，不是会话死了；照它下结论会把好会话判死。
+>
+> 🔧 **生效范围：只重启 worker 不够。** `portal_login_service` 只被后端
+> （`routers/portals.py`、`routers/credentials.py`）导入，**worker 不加载它**，
+> 所以 eflow 探活要**重启后端 7038** 才生效（`stop.bat` + `start.bat`，
+> 或杀掉 7038 由 `backend_watchdog.py` 拉起）。只重启 worker 组是无效动作。
 
 > 🚫 **rais / vmax_cxo / fw_kpi 不登记探针，这是有意的、不是遗漏**：
 > 它们**根本不走 `auth_manager.get_auth`**（`kind` 分别是 `rais` / `vmax` /
