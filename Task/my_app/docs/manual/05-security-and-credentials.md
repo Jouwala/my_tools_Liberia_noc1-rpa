@@ -176,7 +176,7 @@ import。工作区那几十个独立 RPA 脚本历史上各自把口令写成常
 
 ## 上游站点会话
 
-`backend/services/auth_manager.py:83` 把登录后的站点会话 cookie 缓存在 `backend/services/auth_cache/`（RSA 加密登录流程 + `forgery_token`，带 TTL）。
+`backend/services/auth_manager.py:106` 把登录后的站点会话 cookie 缓存在 `backend/services/auth_cache/`（RSA 加密登录流程 + `forgery_token`，带 TTL）。
 
 含义：`auth_cache/` 目录里的内容等同于**有效登录态**，与口令同等对待——不外发、不入 git、不放进截图。
 
@@ -202,21 +202,36 @@ import。工作区那几十个独立 RPA 脚本历史上各自把口令写成常
 **进程内全局变量**，而 worker 是 `u/n/v/m/c` 多进程分组（见 `AGENTS.md` 第七节）——
 每个进程第一次碰 eFlow 都各自登录一次，磁盘上明明有可用 token 也发现不了。
 
-**TTL 与调度周期的边界问题**：`auth_manager.DEFAULT_TTL = 1800`（30 分钟，
-`auth_manager.py:87`，可用环境变量 `AUTH_TOKEN_TTL` 覆盖）与最密调度
+**TTL 与调度周期的边界问题**：`auth_manager.DEFAULT_TTL` 的代码回退值是 1800（30 分钟），
+生产由 `backend/.env` 的 `AUTH_TOKEN_TTL` 覆盖（当前 86400）。当年它等于 1800 时与最密调度
 `eflow_active_alarm`（`*/30 * * * *`，`task_registry.py:240`）**正好撞在边界上**——
 缓存每次都在任务触发时「刚好过期」，于是每个周期都真实登录一次。
-调长 TTL 前**必须先实测 eFlow 服务端会话的真实有效期**，测法见
-`TMP/_probe_eflow_session_lifetime.py`；TTL 设为超过实测值会长期使用死会话。
+调长 TTL 前**必须先实测该上游服务端会话的真实有效期**；TTL 超过实测值就会长期发出死会话。
+
+**⚠ TTL 不是全域一个数（2026-10-06）**：逐台实测后，各上游寿命差两个数量级 ——
+eFlow 空闲超时 1440 分钟、MW UME 在 `*/15` 活动顶持下可被信任 1455 分钟，
+而 RAN UME / iPRAN / Battery 的会话在 55~113 分钟内就被 401 证实死亡。
+所以 `backend/.env` 增加 `AUTH_TTL_OVERRIDES=host:port=秒,…`（解析在
+`auth_manager._parse_ttl_overrides`，取值在 `_resolve_ttl`，未列出的主机回退
+`AUTH_TOKEN_TTL`），把短寿主机单独压到 1800。**判定一台主机该用多少秒**的方法与
+逐台结论写在 `docs/manual/13-operations.md`「1b) 按主机分别设 TTL」，
+统计脚本 `TMP/_audit_ttl_v3.py`、回归脚本 `TMP/_verify_ttl_overrides.py` 保留可复用。
+
+**读缓存的采信边界**（同一条教训的两侧）：`auth_manager.get_auth()` 的缓存快路径
+**不探活**，TTL 说有效它就照发；而 iPRAN / CNN / MW / Battery 各服务读缓存走
+`_read_cache()` 且**采纳前用真实业务端点探活**（探登录首页会得到假绿 200）。
+因此「缓存里存的 cookie 是否可用」在不同消费方眼里的可靠性不一样：
+调长 TTL 对被探活保护的主机只是多一次无效探测，对 `get_auth()` 消费方
+（含门户一键登录 `portal_login_service.py:983`）则是**直接把死会话用出去**。
 
 ### 登出能力（2026-10-04 新增，默认关闭）
 
 **修正前的缺口：全仓库没有任何 eFlow 登出调用。** `auth_manager.invalidate_cache()`
-（`auth_manager.py:284`）**只删本地缓存文件、不发网络请求**，服务端会话照旧挂着。
+（`auth_manager.py:432`）**只删本地缓存文件、不发网络请求**，服务端会话照旧挂着。
 于是每次 TTL 过期后的"重新登录"都在上游**新增一个永不释放的会话**，旧会话只能等
 自己超时 —— 高频任务叠加短 TTL，会在上游堆积大量僵尸会话，最终把登录接口拖垮。
 
-新增 `auth_manager.logout()`（`auth_manager.py:319`）与
+新增 `auth_manager.logout()`（`auth_manager.py:530`）与
 `eflow_api_client.logout()`（`eflow_api_client.py:511-540`）：
 
 | 行为 | 说明 |

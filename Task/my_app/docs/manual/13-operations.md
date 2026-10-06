@@ -554,18 +554,109 @@ tools/fms_session.json 已重建（cookie 有 / csrf 有）
 #### 1) TTL 调长（已生效）
 
 `backend\.env` 新增 `AUTH_TOKEN_TTL=86400`（1440 分钟 = 24 小时）。
-`auth_manager.py:87` 的 `DEFAULT_TTL` 读取它。
+`auth_manager.py` 的 `DEFAULT_TTL` 读取它（当前在 `:112`；本小节写下时是 `:87`，
+行号会随改动漂移，**按符号名找而不是按行号找**）。
 
 **为什么**：`sp_online_sync` 的 cron 是 `35 * * * *`（每小时一次），原默认 TTL
 1800 秒（30 分钟）**每次运行前必然过期** → 每小时真实登录一次 ≈ **24 次/天**。
 TTL 改为 24 小时后，一天只有第 1 次真实登录，其余命中缓存。
 
-> ⚠ `DEFAULT_TTL` 在**模块导入时求值**，且 `auth_manager.py` **自己不加载 `.env`**
-> —— 它依赖 `backend/database.py:9-21` 的 import 副作用先完成 `load_dotenv`。
-> 因此改完必须**重启后端与 worker** 才生效，且单独 import `auth_manager` 会读到旧默认值。
+> ⚠ 2026-10-04 写下这段时，`DEFAULT_TTL` 还依赖 `backend/database.py` 的
+> `load_dotenv` 副作用，所以「单独 import `auth_manager` 会读到旧默认值」。
+> 该缺陷同日已修（见下方「缺陷 1」）：`auth_manager.py:93-99` 现在**自己**加载
+> `backend/.env`（`override=False`），无论谁先导入结果都一致。
+> **仍然成立的只有一条**：`DEFAULT_TTL` 与 `AUTH_TTL_OVERRIDES` 都在**模块导入时
+> 求值**，改 `.env` 后必须重启后端与 worker 才生效。
+> ⚠ 另：`AUTH_TOKEN_TTL` 是**全域回退值**，只对实测寿命够长的 eFlow / MW UME 合适；
+> 其余主机由下一小节的 `AUTH_TTL_OVERRIDES` 按实测压短。
 
 **验证**：`python TMP\_verify_auth_ttl.py` → `ALL_TTL_CHECKS_PASSED`
 （断言 `DEFAULT_TTL==86400`、缓存文件 `expires_in==86400`、二次读取 `from_cache=True`）。
+（2026-10-06 注：`_verify_auth_ttl.py` 与 `TMP/_probe_eflow_session_lifetime.py` 都是
+当时的一次性探针，按「探针只能落 TMP 且用完自清」的约定已删除；现在的等价校验
+见下一小节，脚本 `TMP/_verify_ttl_overrides.py` **保留**可复用。）
+
+#### 1b) 按主机分别设 TTL（2026-10-06 新增，`AUTH_TTL_OVERRIDES`）
+
+**为什么 86400 不能是全域唯一值**：2026-10-06 的任务管理有 6 条失败，根因是一条 ——
+RAN UME（`10.100.28.27:28001`，NOC 账号）的共享缓存会话**服务端早已死亡**，而
+`AUTH_TOKEN_TTL=86400` 让 `auth_manager` 的快路径继续把它发出去（8 天内发出 76 次，
+其中 30 条落在 401 上）。`get_auth()` 的缓存快路径**不做任何探活**，只有
+`eflow_api_client._reauthenticate_on_401()`（`eflow_api_client.py:230`）和
+`ran_ume_service.py:727-765` 有 401 自愈；`packet_loss_sync` / `bp_report_sync` /
+`main_kpi_sync` / `ms_sla_sync` 以及门户一键登录（`portal_login_service.py:983`）
+都没有，于是它们只能整批失败，等 `ran_ume_service` 的 PM 循环把会话救活。
+
+**机制**：`backend/services/auth_manager.py` 新增
+
+| 符号 | 作用 |
+| --- | --- |
+| `AUTH_TTL_OVERRIDES` | 由 `backend/.env` 的 `AUTH_TTL_OVERRIDES=host:port=秒,…` 解析；坏条目只跳过并告警 |
+| `_resolve_ttl(host, port)` | 覆盖表优先，未列出的主机回退 `DEFAULT_TTL`（即 `AUTH_TOKEN_TTL`） |
+| `_write_cache(..., ttl=None)` | 默认按主机口径写入 `expires_in`；**不再**把导入时刻的全局值钉进文件 |
+| `get_auth(..., ttl=None)` | 默认值同样从 `DEFAULT_TTL` 改为 `None`，写入按主机口径；`force_refresh=True` 的 401 恢复语义不变 |
+| `_read_cache` 夹紧 | 过期判断用 `min(文件里的 expires_in, 现口径)` —— 只收紧不放宽 |
+
+**夹紧这一条是关键**：存量缓存文件里写的是**写入当时**的 86400，只改 `.env` 不会让它们
+改口。夹紧之后，下调 TTL 不必手工删 `auth_cache/`、也不必等一个完整周期，下一轮调度
+就判过期并真实重登；反向调长仍以文件旧值为准（保守）。
+
+**实测寿命 → 取值**（口径：会话诞生 = `auth_manager` 落盘或服务回写；证死 = 剥掉
+时间戳与 logger 字段后的消息体里出现严格 `HTTP/1.1 401` / `401 Unauthorized` /
+`hasLogged":true` / 「会话已失效」。⚠ 直接对整行搜 `401` 会被时间戳毫秒位 `,401`
+和 `"401 rows, 157 columns"` 这类正常 INFO 行污染，2026-10-06 第一版就因此误报；
+统计脚本 `TMP/_audit_ttl_v3.py` **保留**可复用）：
+
+| 主机 | 最近 8 天实测 | 取值 | 理由 |
+| --- | --- | --- | --- |
+| RAN UME `10.100.28.27:28001` | 30 条证死，最早出现在登录后 **113 分钟** | `1800` | 全域 86400 期间缓存被信任到 1452 分钟 |
+| iPRAN `10.100.2.99:28001` | 23 次诞生 22 次证死，年龄 **55~65 分钟** | `1800` | 消费方每小时都要重登，压短只是省掉一次注定 401 的探活 |
+| Battery `192.168.170.2:443` | 21 次诞生 20 次证死，年龄 **58~60 分钟** | `1800` | 同上；本模块原先显式写 8 小时（已删，见下） |
+| CNN `10.121.1.2:28808` | 8 天仅 1 次登录、**0 次复用**，测不出寿命 | `1800` | 同族 ZTE UME 三台实测空闲超时都 ≤ 2 小时；该任务本来每天重新登录，压短零成本 |
+| eFlow `10.100.20.8:28001` | 服务端 Max Idle Time 1440 分钟，**0 条证死** | 不列 = `86400` | 调短会退回本节上方 2026-10-04 的登录风暴 |
+| MW UME `192.168.169.247:28001` | `*/15` 实时任务复用共享会话 197 次，两次回写之间被信任最长 **1455 分钟**且无失效证据 | 不列 = `86400` | 15 分钟的活动一直顶住空闲计时器；压到 1800 会变成 48 次/天的登录风暴 |
+
+> ⚠ **MW 的 86400 有前提**：它靠 `mw_ume_kpi_sync_rt`（`*/15 * * * *`）不停活动把会话
+> 顶活。一旦该任务被停用，缓存就会发出死 cookie（该主机的消费方有探活，能自愈，
+> 但门户一键登录没有）。
+>
+> ⚠ **未列入覆盖表的主机**（门户目录里还有 `10.123.255.12:26180`、
+> `172.17.208.1:28808`、`10.100.20.9:8766`）一律回退 86400，**没有实测依据**。
+> 如果某台的一键登录总落到登录页，就按同样方法统计它的证死年龄再加进覆盖表。
+
+**同时修掉的两个"配置项与事实不符"**：
+
+1. `backend/.env` 原注释写「401 由 `auth_manager._reauthenticate_on_401()` 兜底」——
+   `auth_manager` 里**没有这个函数**，自愈只在 `eflow_api_client`（见上）。
+2. `battery_kpi_service.py` 原 `_SHARED_AUTH_TTL_SEC = 8 * 3600`，注释理由是
+   「`backend/.env` 未配置 `AUTH_TOKEN_TTL`」—— 前半句错（10-04 就配了 86400），
+   后半句被实测推翻（8 小时窗口 100% 是空头信任）。现在该常量已删，回写走
+   `_resolve_ttl`；配套的 `battary_kpi_fetch_socket.auth_info_is_fresh()` /
+   `ensure_auth_info()` 默认窗口也从 8 小时压到 1 小时（生产路径走
+   `ensure_auth_info(force=True)`，不受影响）。
+
+**验证**：`python TMP/_verify_ttl_overrides.py` → 末行 `结论：全部通过`，退出码 0。
+它只用**临时目录**当缓存、`_do_login` 打桩，**不碰** `backend/services/auth_cache/`、
+**不发真实登录**；断言覆盖：`.env` 解析出 4 条、按主机取值正确、旧 `expires_in=86400`
+的 4 小时存量文件在被压短的主机判过期而在 eFlow/MW 仍判有效、`get_auth` 默认落盘 1800、
+显式 `ttl=` 仍优先、坏配置容错。
+
+**生效方式**：`AUTH_TTL_OVERRIDES` 与 `DEFAULT_TTL` 一样在**模块导入时求值** ——
+改 `.env` 后必须**后端与全部 worker 组都重启**才生效（重启动作由运维执行，
+时机不当会打断正在看看板的人，所以这里只指路）：worker 侧
+`python restart_workers.py --mode worker --reason "AUTH_TTL_OVERRIDES 生效"`
+（`--mode watchdog` 只在改分组清单时才需要，见本文开头排查表）；后端侧
+`stop.bat` + `start.bat`，或杀掉 7038 的进程由 `backend_watchdog.py` 拉起
+（注意后端每次重启会换 `backend_runtime_<日期>.log`）。
+重启后自查一行：
+`python -c "import sys;sys.path.insert(0,'.');import backend.services.auth_manager as m;print(m.DEFAULT_TTL, m.AUTH_TTL_OVERRIDES)"`
+→ 应打出 `86400 {'10.100.28.27:28001': 1800, '10.100.2.99:28001': 1800, '192.168.170.2:443': 1800, '10.121.1.2:28808': 1800}`。
+**不必删 `auth_cache/`**：`_read_cache` 的夹紧逻辑下一轮调度就会把压短主机的旧缓存判过期。
+
+> 📌 **顺带纠正本节上方（:544）的口径**：worker/backend 运行时日志实际是 **UTF-8**
+> 落盘（2026-10-06 用 UTF-8 读同一批文件，中文特征串「共享会话已失效」「复用共享会话」
+> 都能命中）。原文「按 GBK 落盘、匹配中文会静默为 0」不再成立；但**用 ASCII 特征串
+> 统计**这条建议仍然有效，因为最可靠的坑是日志里带逗号的毫秒时间戳（见上面的证死口径）。
 
 #### 2) 登出接口：契约与 authCode 取值**均已解决**（2026-10-04 闭环验证）
 
@@ -685,6 +776,11 @@ worker 刚建的会话**，登出就会**误杀别人的会话**。
    **不会永久占用**，不清理也不会把系统压垮。
 2. **`AUTH_TOKEN_TTL=86400`（= 1440 分钟）与上游上限完全吻合**，是最优取值：
    本地缓存不会晚于上游失效，也不会无谓地触发重新登录。
+   **⚠ 这只对 eFlow 成立**（本节的实测对象就是 eFlow）。2026-10-06 逐台实测发现
+   其余 ZTE UME 的空闲超时只有 1~2 小时，把 86400 当**全域**值用会让缓存长期发出
+   死 cookie（当天 6 条任务失败就是这么来的），已改为
+   「`AUTH_TOKEN_TTL` 作回退 + `AUTH_TTL_OVERRIDES` 按主机压短」，
+   见上面「1b) 按主机分别设 TTL」。
 
 > **但"会自动回收"不等于"不必管"**：2026-10-04 的代理风暴一次堆了 146 条僵尸，
 > 在 24 小时的回收窗口内会持续占用上游连接数、并把真实活跃会话淹没在列表里，

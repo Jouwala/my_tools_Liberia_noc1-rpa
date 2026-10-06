@@ -106,9 +106,60 @@ except ImportError:  # python-dotenv 未安装时退回纯环境变量，不中�
 AUTH_CACHE_DIR = Path(os.path.dirname(os.path.abspath(__file__))) / "auth_cache"
 AUTH_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
-# 默认token有效期（秒）。由 .env 的 AUTH_TOKEN_TTL 配置（生产 86400 = 24 小时，
-# 与 eFlow 自身的 Max Idle Time 1440 分钟一致，见 docs/manual/13-operations.md）。
+# 默认token有效期（秒）。由 .env 的 AUTH_TOKEN_TTL 配置（生产 86400 = 24 小时）。
+# 24 小时只对**实测过寿命够长**的主机成立（eFlow、MW UME，见下方覆盖表的注释），
+# 其余主机一律用 AUTH_TTL_OVERRIDES 按实测值单独压短，不要靠调这个全局值解决。
 DEFAULT_TTL = int(os.environ.get("AUTH_TOKEN_TTL", "1800"))
+
+
+# ========== 按主机的 TTL 覆盖（2026-10-06 新增） ==========
+# 为什么不能只靠一个全局 AUTH_TOKEN_TTL：各上游会话的**真实寿命差了两个数量级**，
+# 单个值必然对一边过长（长期把死 cookie 发出去）、对另一边过短（白登录）。
+# 2026-10-06 用日志把六台主机逐台量化（口径：会话诞生 = auth_manager 落盘/服务回写，
+# 证死 = 剥掉时间戳后的消息体里出现严格 401/hasLogged，最近 8 天）：
+#   · eFlow 10.100.20.8:28001        服务端 Max Idle Time 实测 1440 分钟（2026-10-04，
+#     见 docs/manual/13-operations.md）；TTL 调到 86400 后登录次数从 ~20 次/天降到 1 次/天，
+#     8 天内**无一条会话证死**。→ 保持 DEFAULT_TTL=86400。
+#   · MW UME 192.168.169.247:28001   `mw_ume_kpi_sync_rt`（*/15）每轮探活复用共享会话
+#     197 次，两次回写之间最长被信任 1455 分钟且期间无失效证据 —— 15 分钟的活动把
+#     空闲计时器一直顶住。→ 保持 86400；压短只会造成 48 次/天的登录风暴。
+#     ⚠ 前提是实时任务在跑：一旦停掉它，缓存就会发出死 cookie（消费方有探活，能自愈）。
+#   · RAN UME 10.100.28.27:28001     8 天内证死 30 条，最早在登录后 113 分钟（10-06 登录
+#     04:45 → 06:38 401；10-04 登录 04:37 → 06:38 401），而缓存被信任到 24 小时 ——
+#     auth_manager 把死 cookie 发出去 76 次，`packet_loss_sync`/`bp_report_sync`/
+#     `main_kpi_sync` 因此整批失败（本表的由来）。→ 1800。
+#   · iPRAN UME 10.100.2.99:28001    每小时证死一段，年龄 55~65 分钟（22/23 段）。→ 1800。
+#   · Battery 192.168.170.2:443      同上，58~60 分钟（20/21 段）。→ 1800。
+#   · CNN UME 10.121.1.2:28808       8 天只登录 1 次、一次复用都没有，**没有实测寿命**；
+#     但它与 iPRAN/Battery 同属 ZTE UME 系，同族三台的空闲超时都 ≤ 2 小时，且
+#     `cnn_kpi_sync` 本来就每天重新登录（压短零成本）。→ 按同族保守值 1800。
+# 为什么是 1800 而不是 3600：1800 是上面三台的证死年龄（55~113min）往下取的保守值，
+# 且 10-04 之前全域就是 1800，那段时间这三台从未出现 401 风暴，属回归验证过的安全档。
+# 写法：`AUTH_TTL_OVERRIDES=host:port=秒[,host:port=秒...]`，未列出的主机用 DEFAULT_TTL。
+# ⚠ 与 DEFAULT_TTL 一样在**模块导入时求值**，改 .env 后必须重启后端与 worker 才生效。
+def _parse_ttl_overrides(raw: str) -> dict:
+    """解析 `AUTH_TTL_OVERRIDES`。写错的条目只跳过并告警，绝不因配置笔误让鉴权整体不可用。"""
+    overrides = {}
+    for item in (raw or "").split(","):
+        item = item.strip()
+        if not item or "=" not in item:
+            continue
+        key, _, value = item.partition("=")
+        try:
+            overrides[key.strip()] = int(value.strip())
+        except ValueError:
+            logging.getLogger(__name__).warning(
+                "[AUTH] AUTH_TTL_OVERRIDES 条目无法解析，已忽略: %r", item)
+    return overrides
+
+
+AUTH_TTL_OVERRIDES = _parse_ttl_overrides(os.environ.get("AUTH_TTL_OVERRIDES", ""))
+
+
+def _resolve_ttl(host: str, port: int) -> int:
+    """该主机应使用的缓存有效期：覆盖表优先，未列出则回退 DEFAULT_TTL。"""
+    return AUTH_TTL_OVERRIDES.get(f"{host}:{port}", DEFAULT_TTL)
+
 
 # 登录重试次数
 MAX_RETRIES = 2
@@ -299,7 +350,18 @@ def _read_cache(host: str, port: int) -> dict | None:
 
     # 检查过期
     created_at = data.get("created_at", "")
-    expires_in = data.get("expires_in", DEFAULT_TTL)
+    # 2026-10-06：缓存文件里写的是**写入当时**的 expires_in（下调 TTL 之前那是 86400），
+    # 只改 .env 并不会让它们改口 —— 于是 RAN UME 那份死 cookie 还要再活 24 小时。
+    # 这里按当前口径**夹紧**（min(文件里的旧值, 现口径)，只收紧不放宽），所以下调 TTL
+    # 后不必手工删缓存、也不必等一个完整周期，下一轮调度就会判过期并真实重登；
+    # 反向调长 TTL 时仍以文件旧值为准（保守，不会因为一次改配置就放宽信任窗口）。
+    # 2026-10-06 之前唯一"显式传更长 ttl"的调用方是 battery_kpi_service 的 8 小时常量，
+    # 它已按实测寿命（58~60 分钟证死）删除，现在所有写入方都走 _resolve_ttl。
+    ttl_now = _resolve_ttl(host, port)
+    try:
+        expires_in = min(int(data.get("expires_in", ttl_now)), ttl_now)
+    except (TypeError, ValueError):
+        expires_in = ttl_now
     try:
         created_time = datetime.fromisoformat(created_at)
         if datetime.now(timezone.utc) - created_time > timedelta(seconds=expires_in):
@@ -317,13 +379,19 @@ def _read_cache(host: str, port: int) -> dict | None:
 
 
 def _write_cache(host: str, port: int, cookie: str, forgery_token: str,
-                 username: str, ttl: int = DEFAULT_TTL, auth_code: str = ""):
+                 username: str, ttl: int | None = None, auth_code: str = ""):
     """将鉴权信息写入缓存文件。
+
+    `ttl=None`（默认）表示"按该主机当前口径取"（`_resolve_ttl`，即
+    `AUTH_TTL_OVERRIDES` 优先、否则 `DEFAULT_TTL`）；显式传值的调用方保持不变。
+    之所以默认值不再写死 `DEFAULT_TTL`：那样会把导入时刻的全局值钉进每次写入，
+    按主机的覆盖就永远进不了缓存文件。
 
     用「临时文件 + os.replace」并带重试，扛 WPS云同步/Defender/索引服务瞬时锁：
     之前直接 open(..., 'w') 在目标被占用时抛 Permission denied，缓存写不进去，
     后续任务就会拿到过期 cookie → 401。
     """
+    ttl = _resolve_ttl(host, port) if ttl is None else int(ttl)
     cache_file = _cache_file_path(host, port)
     data = {
         "host": host,
@@ -817,7 +885,7 @@ def _record_own_auth_code(host: str, port: int, username: str,
 
 # ========== 对外主接口 ==========
 def get_auth(host: str, port: int, username: str, password: str,
-             ttl: int = DEFAULT_TTL, force_refresh: bool = False) -> dict:
+             ttl: int | None = None, force_refresh: bool = False) -> dict:
     """
     获取鉴权信息（优先从缓存读取，缓存无效则重新登录）。
 
@@ -830,8 +898,11 @@ def get_auth(host: str, port: int, username: str, password: str,
         port: 端口
         username: 用户名
         password: 密码
-        ttl: token 有效期（秒），默认取 DEFAULT_TTL（即 AUTH_TOKEN_TTL，
-            默认 1800；2026-10-04 起生产环境设为 86400 = 24 小时，见 backend/.env）
+        ttl: token 有效期（秒）。默认 None = 按该主机口径取（_resolve_ttl：
+            AUTH_TTL_OVERRIDES 优先，否则 DEFAULT_TTL=AUTH_TOKEN_TTL）。
+            2026-10-06 起不再把默认值写成 DEFAULT_TTL：那样会把**导入时刻**的
+            全局值钉进每次写入，按主机的覆盖表也就只能管住 _read_cache 的读取
+            口径，写出来的文件仍带 86400，读起来自相矛盾。
         force_refresh: 强制重新登录（忽略缓存）。用于 401 恢复 —— 会话已确认
             死亡。锁内**不做**缓存复查（语义就是"必须真登录"）；若担心与其他
             进程刚登录的新会话重复，靠调用方先探活再决定是否 force。
@@ -877,7 +948,8 @@ def get_auth(host: str, port: int, username: str, password: str,
 
         result = _do_login(host, port, username, password)
 
-        # 3. 写入缓存
+        # 3. 写入缓存。ttl=None 时由 _write_cache 按该主机口径取（覆盖表优先），
+        #    这里不再兜一层，避免同一个默认值在两处各解一遍。
         _write_cache(host, port, result["cookie"], result["forgery_token"], username, ttl,
                      auth_code=result.get("auth_code", ""))
 

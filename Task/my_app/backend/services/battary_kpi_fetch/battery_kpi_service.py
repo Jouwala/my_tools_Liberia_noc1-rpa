@@ -1153,12 +1153,18 @@ def _run_battery_email_impl(to: str | None = None, cc: str | None = None) -> dic
 #   2. _probe_session_alive()  采纳前探业务端点（探登录首页会得到假绿 200）
 #   3. _write_shared_auth()    登录成功后回写（只读不写 = 每轮白探照样登录）
 
-# 共享缓存 TTL。auth_manager 默认 DEFAULT_TTL=1800s（30 分钟，backend/.env 未配置
-# AUTH_TOKEN_TTL），但本任务每小时才跑一轮 —— 沿用默认值会让缓存永远在下轮之前
-# 过期、共享形同虚设。因此显式写 8 小时：与 fetcher.auth_info_is_fresh 对 UME
-# 会话「8 小时内视为可用」的既有信任窗口一致。TTL 只是"过期前不再探测"的粗门槛，
-# 会话真死了由探活（401/403）和 401 重登恢复兜底 —— 宁可多探一次，绝不放行死会话。
-_SHARED_AUTH_TTL_SEC = 8 * 3600
+# 共享缓存 TTL：2026-10-06 起**不在本模块写死**，改由 auth_manager 按主机解析
+# （`AUTH_TTL_OVERRIDES` 里 192.168.170.2:443=1800；主机未列出才回退 AUTH_TOKEN_TTL）。
+# 原来这里显式写 8 小时，注释给的理由是「backend/.env 未配置 AUTH_TOKEN_TTL，默认
+# 1800 而本任务每小时一轮，沿用默认会让缓存永远在下轮之前过期」—— 前半句是错的
+# （.env 早在 2026-10-04 就配了 86400），后半句推出的结论也被实测推翻：2026-10-06
+# 统计最近 8 天日志，本主机 21 次会话诞生里 20 次都在**下一轮之前**被证实已死，
+# 证死年龄 58~60 分钟。也就是说 8 小时信任窗口整段都是空的，缓存到下一轮（每小时
+# :05）时**必然**已是死 cookie，只是被下面的探活挡掉、改成自行登录。
+# 压到 1800 后登录次数一次没多（原本每轮都要重登），省的是一次注定 401 的探活；
+# 真正被治好的是门户一键登录 —— portal_login_service 走 auth_manager 快路径、
+# **不探活**，8 小时窗口会把一个死会话种进浏览器，用户看到的是又回到登录页。
+# 会话真死了仍由探活（401/403）+ 401 重登兜底 —— 宁可多探一次，绝不放行死会话。
 
 
 def _import_auth_manager():
@@ -1274,10 +1280,12 @@ def _write_shared_auth(host: str, port: int, auth: dict, username: str = "") -> 
                        "跳过共享缓存回写")
         return
     try:
+        # 不传 ttl：按主机口径由 auth_manager 的 _resolve_ttl 决定（见上方注释）。
+        # 日志里也不再重复打印 TTL —— 生效值以缓存文件的 expires_in 为准，
+        # 与 MW/CNN/iPRAN 三处的写法一致。
         am._write_cache(host, port, cookie, forgery_token,
-                        username or "battery_ume", ttl=_SHARED_AUTH_TTL_SEC)
-        logger.info("[Battery] 已回写共享缓存（%s:%s，ttl=%ss）",
-                    host, port, _SHARED_AUTH_TTL_SEC)
+                        username or "battery_ume")
+        logger.info("[Battery] 已回写共享缓存（%s:%s）", host, port)
     except Exception as e:
         logger.warning("[Battery] 回写共享缓存失败（%s: %s），不影响本轮任务",
                        type(e).__name__, e)

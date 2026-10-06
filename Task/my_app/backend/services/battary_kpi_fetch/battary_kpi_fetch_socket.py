@@ -600,11 +600,17 @@ def load_auth_info_fallback() -> dict | None:
         return None
 
 
-def auth_info_is_fresh(max_age_hours: float = 8.0) -> bool:
+def auth_info_is_fresh(max_age_hours: float = 1.0) -> bool:
     """判断 auth_info.json 是否存在且未过期。
 
     UME 会话通常几小时就失效，过期文件继续用只会拿到 401；此处按文件内
-    ``login_time``（缺失时回退文件 mtime）判断，默认 8 小时内视为可用。
+    ``login_time``（缺失时回退文件 mtime）判断。
+
+    2026-10-06：默认窗口由 8 小时压到 1 小时。192.168.170.2 的会话寿命是**实测**
+    出来的（最近 8 天日志：21 次诞生、20 次在下一轮之前被 401 证实已死，
+    证死年龄 58~60 分钟），8 小时窗口全是空头信任。口径与 auth_manager 的
+    AUTH_TTL_OVERRIDES 中该主机一致，改一处要改两处，否则共享缓存放短了、
+    这个回退文件还按 8 小时自欺。
     """
     if not AUTH_INFO_FILE.exists():
         return False
@@ -624,7 +630,7 @@ def auth_info_is_fresh(max_age_hours: float = 8.0) -> bool:
         return False
 
 
-def ensure_auth_info(force: bool = False, max_age_hours: float = 8.0) -> bool:
+def ensure_auth_info(force: bool = False, max_age_hours: float = 1.0) -> bool:
     """确保 auth_info.json 可用（浏览器登录脚本已不在仓库，此处用 RSA 接口兜底生成）。
 
     背景：RSA 纯接口登录失败时会回退读 auth_info.json，但该文件原本由
