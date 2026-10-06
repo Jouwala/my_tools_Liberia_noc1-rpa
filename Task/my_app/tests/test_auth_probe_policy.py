@@ -237,12 +237,31 @@ def test_ume_portals_share_pm_history_but_battery_does_not():
     assert p.PORTAL_PROBE_PATHS["battery_ume"] != "/api/pm-analysis/v2/history"
 
 
-def test_unregistered_portals_still_return_no_probe():
-    """未登记的直连门户保持不探活（宁可只信 TTL，也不拿猜的端点误杀好会话）。"""
+def test_eflow_now_registered_with_measured_endpoint():
+    """eflow 已登记（2026-10-06 实测），且必须是**业务接口**而非门户首页。"""
     from backend.services import portal_login_service as p
 
-    for k in ("eflow", "rais", "vmax_cxo", "fw_kpi"):
+    path = p.PORTAL_PROBE_PATHS.get("eflow")
+    assert path, "eflow 应已登记探活端点"
+    assert "uportal" not in path, "不得用门户首页当探针（对未登录也返回 200）"
+    assert path == "/api/fm-active/v1/activealarms/table"
+    assert p._portal_probe(p.PORTALS["eflow"]) is not None
+
+
+def test_non_getauth_portals_still_return_no_probe():
+    """**不走 auth_manager.get_auth 的门户**必须保持不探活。
+
+    rais / vmax_cxo / fw_kpi 的会话是「当场登录、当场种进浏览器」，
+    从不经过 auth_manager 缓存 —— 给它们登记探针是**死代码没人调用**，
+    只会让人以为覆盖到了。它们"落回登录页"另有原因（验证码、SSO 过期、
+    互踢），不是 TTL/探活能修的。
+    """
+    from backend.services import portal_login_service as p
+
+    for k in ("rais", "vmax_cxo", "fw_kpi"):
         assert p._portal_probe(p.PORTALS[k]) is None, f"{k} 不应被探活"
+        # 顺便钉住"它们确实不走 get_auth"这个前提，前提变了本测试要重审
+        assert p.PORTALS[k]["kind"] in ("rais", "vmax", "umc")
 
 
 # ---------- 电池回退链探活（2026-10-06 补） ----------

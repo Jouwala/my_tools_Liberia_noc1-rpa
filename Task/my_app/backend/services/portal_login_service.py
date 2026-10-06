@@ -1079,6 +1079,24 @@ PORTAL_PROBE_PATHS: dict[str, str] = {
     # 它对「无 cookie」也返回 200（SPA 外壳，响应体与带垃圾 cookie 时逐字节相同）。
     # 用它探活会把死会话判成活的（假绿），这正是「一键登录落回登录页」的成因之一。
     "battery_ume": "/api/monitor-manager/v1/realtime-data/get-by-condition",
+    # eFlow（10.100.20.8:28001）：kind=oauth2 → 走 auth_manager.get_auth，
+    # 所以探活确实生效（与 battery_ume 同一条路径）。
+    #
+    # 端点取自 eflow_api_client.py:122 的 ALARM_API_PATH —— **生产真在用的**
+    # 活动告警列表接口，不是猜的路径。
+    #
+    # 实测（2026-10-06，POST 空 body {}，走生产 _http_request 含 forgerydefense 头）：
+    #   · 无 cookie   -> 401 {"source":"smagent","redirect_uri":"/api/oauth2/v1/authorize?..."}
+    #   · 垃圾 cookie -> 401 {"hasLogged":true,"source":"smagent",...}   -> 判死 ✅
+    #   · 真实会话    -> 200（真实告警 JSON，含 alarmtitle/mename 等字段）-> 判活 ✅
+    #
+    # ⚠ 两个坑，都实际踩过：
+    #   1) `/uportal/framework/default.html`（门户首页）对无 cookie 也返回 200
+    #      —— SPA 外壳，与 battery 那个首页同一种假绿，**不可作探针**。
+    #   2) 自己用 urllib 拼请求会得到 403 `code=3329008 cross-site access`，
+    #      因为漏了生产头的 `forgerydefense`。**探针必须复用生产请求路径**，
+    #      否则会把真实会话误判成死的。这一点与 battery_ume 的探针同理。
+    "eflow": "/api/fm-active/v1/activealarms/table",
 }
 
 

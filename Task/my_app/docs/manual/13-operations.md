@@ -716,9 +716,33 @@ iMonitor）、`10.100.20.9:8766`（RAIS），原先记为「一律回退 86400�
   写死数字**，而是实时取 `auth_manager._resolve_ttl()`（2026-10-06 收敛，
   见下方「第二真相源」条）。
 
-`ume_in` / `battery_ume` 的探活端点登记在 `portal_login_service.PORTAL_PROBE_PATHS`
-（未登记的门户返回 `None`＝不探活，退回「只信 TTL」）。**登记前必须实测该端点
-确实要求鉴权**（探登录首页会得到假绿 200），否则会把好会话判死、无谓增加登录。
+`ume_in` / `battery_ume` / `eflow` 的探活端点登记在
+`portal_login_service.PORTAL_PROBE_PATHS`（未登记的门户返回 `None`＝不探活，
+退回「只信 TTL」）。**登记前必须实测该端点确实要求鉴权**（探登录首页会得到
+假绿 200），否则会把好会话判死、无谓增加登录。
+
+> ✅ **eflow 已登记（2026-10-06 实测）**：`/api/fm-active/v1/activealarms/table`
+> （取自 `eflow_api_client.py:122` 的 `ALARM_API_PATH`，生产真在用的活动告警接口）。
+> 三态实测：无 cookie → `401 {"source":"smagent",...}`、垃圾 cookie →
+> `401 {"hasLogged":true,...}`、真实会话 → `200`（真实告警 JSON）。三项全对。
+>
+> ⚠️ **探测 eFlow 必须复用生产请求路径**（含 `forgerydefense` 头）。自己用
+> urllib 拼请求会得到 `403 code=3329008 "prohibited for cross-site access"`
+> —— 那是**探测脚本的 bug**，不是会话死了；照它下结论会把好会话判死。
+
+> 🚫 **rais / vmax_cxo / fw_kpi 不登记探针，这是有意的、不是遗漏**：
+> 它们**根本不走 `auth_manager.get_auth`**（`kind` 分别是 `rais` / `vmax` /
+> `umc`，各有自己的登录流程：RAIS 是 POST `verify4web.serv` 换 SSO token，
+> VMAX 走填表且**有图形验证码**，FW 是 UMC 的 DES/SM3 页面加密）。
+> 它们的会话「当场登录、当场用 CDP 种进浏览器」，**没有可复用的共享缓存**，
+> 所以「缓存快路径把死会话发出去」这个失效模式在它们身上**不存在**。
+> 给它们登记探针是**死代码没人调用**，只会让人误以为已经覆盖了。
+>
+> 结论：这三台若出现「落回登录页」，**不是 TTL/探活能修的**（那是 eFlow/RAN
+> 那类「吃缓存」门户的病）。排查方向应转向：VMAX 验证码是否人工通过、
+> RAIS 的 SSO token 是否过期、上游是否在建新会话时踢掉旧会话（mutual-kick）。
+> 判定脚本：`TMP/_which_portals_can_probe.py`（列出每个门户的鉴权路径与
+> 能否受益于探活）。
 
 > ⚠️ **Battery 全链路已闭合（2026-10-06 补最后一处裸露点）**，四层逐一核对：
 > 1. 门户一键登录 → `_oauth2_direct_auth` → `get_auth(probe=_portal_probe(spec))` ✅
