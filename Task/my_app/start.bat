@@ -21,7 +21,16 @@ if exist "%~dp0backend\stopped.flag" (
 :: NOTE: keep this bat ASCII-only. UTF-8 Chinese breaks cmd batch parsing
 :: and silently corrupts the powershell command line below.
 echo [*] Starting backend / worker / frontend hidden...
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0start_hidden.ps1"
+:: MY_PORTAL_NO_POPUP is set by the desktop-shortcut controller
+:: (D:\01_RPA\my_portal_ctl.ps1) when it drives this bat. In that mode we must
+:: pass -Quiet, otherwise start_hidden.ps1 opens a modal MessageBox on any
+:: warning and BLOCKS until someone clicks it - the dialog can open behind other
+:: windows, which made 4-start_myapp / 8-start_all look like they never start.
+:: The controller clears backend\stopped.flag before calling, so -Quiet's
+:: stop-flag check cannot wrongly skip a start the operator asked for.
+set "_PSQUIET="
+if defined MY_PORTAL_NO_POPUP set "_PSQUIET=-Quiet"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0start_hidden.ps1" %_PSQUIET%
 
 :: Wait for backend (otherwise frontend proxy gets 502)
 set /a BACKEND_WAIT=0

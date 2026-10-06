@@ -23,7 +23,16 @@ if exist "%~dp0stopped.flag" (
 )
 
 echo [*] Starting portal (9267) + WhatsApp analysis (9268) hidden...
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0start_hidden.ps1"
+:: MY_PORTAL_NO_POPUP is set by the desktop-shortcut controller
+:: (D:\01_RPA\my_portal_ctl.ps1) when it drives this bat. In that mode we must
+:: pass -Quiet, otherwise start_hidden.ps1 opens a modal MessageBox on any
+:: warning and BLOCKS until someone clicks it - the dialog can open behind other
+:: windows, which made 6-start_portal / 8-start_all look like they never start.
+:: The controller clears stopped.flag before calling, so -Quiet's stop-flag
+:: check cannot wrongly skip a start the operator asked for.
+set "_PSQUIET="
+if defined MY_PORTAL_NO_POPUP set "_PSQUIET=-Quiet"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0start_hidden.ps1" %_PSQUIET%
 if errorlevel 1 echo [WARN] Startup reported problems - see log\start_hidden_result.txt
 
 echo.

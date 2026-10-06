@@ -154,6 +154,31 @@ function Test-PortListening {
     }
 }
 
+# Remove a stop marker before an explicit, user-initiated start.
+#
+# WHY THE CONTROLLER DOES THIS: stop.bat (my_app) and stop.bat (portal) write a
+# stopped.flag so that the logon autostart and the ensure/watchdog tasks will
+# NOT quietly resurrect a service the operator deliberately stopped. That is the
+# right default for unattended starts.
+#
+# But when a human double-clicks "start", the intent is unambiguous: start it,
+# even though I stopped it earlier. The repo scripts already clear the flag on a
+# non-Quiet start - but this controller runs them in a non-interactive way (see
+# Invoke-ChildBat), which means the flag has to be cleared here instead, so the
+# behaviour the operator expects is preserved.
+function Clear-StopFlag {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    if (Test-Path -LiteralPath $Path) {
+        try {
+            Remove-Item -LiteralPath $Path -Force -ErrorAction Stop
+            Write-Host "      cleared $(Split-Path -Leaf (Split-Path -Parent $Path))\$(Split-Path -Leaf $Path) (manual start)" -ForegroundColor DarkGray
+        } catch {
+            Write-Warn "Could not clear $Path - the service may skip starting."
+        }
+    }
+}
+
 # Run a repo .bat in its OWN console window so the operator can read its report.
 #
 # WHY EACH BAT GETS ITS OWN WINDOW: these bats already handle their own hard
@@ -175,7 +200,6 @@ function Invoke-ChildBat {
         [string]$WorkDir,
         [switch]$Hidden
     )
-
     if (-not (Test-Path -LiteralPath $BatPath)) {
         Write-Err "Not found: $BatPath"
         return $false
@@ -223,6 +247,34 @@ function Invoke-ChildBat {
         Wait             = $true
     }
     if ($Hidden) { $startArgs.WindowStyle = 'Hidden' }
+
+    # ---------------------------------------------------------------------
+    # Suppress the startup result dialogs (THE "nothing happens" BUG).
+    #
+    # start.bat (my_app and portal) delegates to start_hidden.ps1, which - when
+    # NOT given -Quiet and when there is at least one warning - calls
+    # [System.Windows.Forms.MessageBox]::Show(...). That call BLOCKS until a
+    # human clicks OK, and the dialog can open *behind* other windows, so the
+    # operator sees nothing at all:
+    #
+    #   6-start_portal / 8-start_all  ->  start.bat
+    #     -> start_hidden.ps1  ->  MessageBox (waits for a click)
+    #       -> start.bat's own `pause` never runs
+    #         -> this Start-Process -Wait never returns
+    #           => the shortcut looks like it "does not start".
+    # (Reproduced 2026-10-06: a "Portal Startup Result" window was found parked
+    #  on screen; the chain had been blocked the whole time.)
+    #
+    # The portal always trips this, because its WhatsApp 9268 check reports a
+    # warning even on a healthy start.
+    #
+    # FIX: run the child bat in "no popup" mode. The bats already support this
+    # through -Quiet, but -Quiet ALSO makes them honour stopped.flag, which must
+    # not block a deliberate start - so Clear-StopFlag() removes that flag first
+    # (see its comment). MY_PORTAL_NO_POPUP is exported for the bats to pass
+    # -Quiet through; the fallback below keeps working even if they do not.
+    # ---------------------------------------------------------------------
+    $env:MY_PORTAL_NO_POPUP = '1'
 
     # NOTE: stdin is deliberately NOT redirected here.
     # `RedirectStandardInput` gives the child a pipe instead of a console, and
@@ -348,6 +400,7 @@ function Invoke-StartMyApp {
     Write-Head 'Start my_app'
     Write-Host 'backend 7038 + 7 worker groups + frontend 7090' -ForegroundColor DarkGray
     Write-Host ''
+    Clear-StopFlag -Path (Join-Path $MyAppDir 'backend\stopped.flag')
     Invoke-ChildBat -BatPath (Join-Path $MyAppDir 'start.bat') -WorkDir $MyAppDir | Out-Null
 }
 
@@ -371,6 +424,7 @@ function Invoke-StartPortal {
     Write-Host 'portal 9267 + WhatsApp analysis service 9268' -ForegroundColor DarkGray
     Write-Host "dir: $PortalDir" -ForegroundColor DarkGray
     Write-Host ''
+    Clear-StopFlag -Path (Join-Path $PortalDir 'stopped.flag')
     Invoke-ChildBat -BatPath (Join-Path $PortalDir 'start.bat') -WorkDir $PortalDir | Out-Null
 }
 
