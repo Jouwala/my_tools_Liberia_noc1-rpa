@@ -55,6 +55,8 @@ PNG 截图，都不属于本页数据源 —— 汇总工作簿的文件名是�
   两者都为空的行**不计入**任何期间合计（不猜时间），但会进入 ``total_consumption``，
   因此 ``month/week <= total`` 恒成立。末尾附加一行 ``Total``，由后端算，
   **不交给前端二次求和**（否则页面与接口口径容易漂移）。
+  这两个时间窗的**起点**随 ``get_summary`` 的 ``period_starts`` 一并下发，供前端下钻
+  复用同一口径（见 ``_parse_time_filters`` 的 ``@gte`` 算子）。
 - ``frequent_materials``：「高频消耗物料」表。取 ``Summary-Current`` 的行，
   按 ``Consumption Qty`` 降序**全量返回**（页面每 10 行分页显示所有物料）。
   ``top_n``（= ``FREQUENT_TOP_N``）只作为"排在最前的若干条"的展示提示，
@@ -748,6 +750,8 @@ def _frequent_materials(current: Optional[SheetData], top_n: int = FREQUENT_TOP_
 def get_summary(kind: str = DEFAULT_KIND) -> Dict[str, Any]:
     """页面统计卡片 + 各 sheet 元信息 + 每日矩阵 + 报表自带口径说明。"""
     data = _load(kind)
+    now = datetime.now()
+    starts = _period_starts(now)
 
     sheets = [_sheet_stats(sd) for sd in data.sheets.values()]
     current = data.sheets.get("Summary-Current")
@@ -769,8 +773,16 @@ def get_summary(kind: str = DEFAULT_KIND) -> Dict[str, Any]:
         "matrix": data.matrix,
         # 「仓库汇总报表」页面（?page=warehouse_summary）专用：结构对齐
         # WarehouseSummaryReport.xlsx 的两段表；既有键一个不动，保证 SpReportBase 不受影响
-        "warehouse_summary": _warehouse_summary(data),
+        "warehouse_summary": _warehouse_summary(data, now),
         "frequent_materials": _frequent_materials(current),
+        # 段① month/week 两列的时间窗起点。**必须由后端下发**：前端下钻要用它与
+        # 概览完全同一时刻的口径去筛明细（下钻铁律），自己算一遍会因为两次请求
+        # 跨过零点/跨周而错位。
+        "period_starts": {
+            "week": starts["week"].isoformat(sep=" "),
+            "month": starts["month"].isoformat(sep=" "),
+            "outbound_time_column": OUTBOUND_TIME_COLUMNS[0],
+        },
         "notes": current.notes if current is not None else [],
         "warnings": data.warnings,
         "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -809,16 +821,102 @@ def _sort_key(value: Any, numeric: bool):
     return (s == "", s.lower())
 
 
-def _filtered_rows(sd: SheetData, q: str, filters: Dict[str, List[str]]) -> List[List[Any]]:
+#: 时间区间筛选用到的算子键后缀。``filters`` 里 ``<列>@gte`` / ``<列>@lte``
+#: 表示「该时间列 >= / <= 某时刻」，用于下钻时把「本周 / 本月」这类**运行时时间窗**
+#: 带进明细查询 —— 否则下钻行数与表格里的数字对不上（见 ``_warehouse_summary``）。
+TIME_OP_GTE = "@gte"
+TIME_OP_LTE = "@lte"
+
+
+def _parse_time_filters(raw: Optional[str]) -> Dict[str, Dict[str, datetime]]:
+    """从 ``filters`` 里抽出 ``<列>@gte`` / ``<列>@lte`` 形式的时间区间条件。
+
+    返回 ``{列名: {"gte": datetime, "lte": datetime}}``。值解析不出时间就忽略该条
+    （宁可少筛也不要筛出空结果 —— 与 ``_parse_filters`` 同样的软失败策略）。
+    """
+    if not raw:
+        return {}
+    try:
+        obj = json.loads(raw)
+    except (ValueError, TypeError):
+        return {}
+    if not isinstance(obj, dict):
+        return {}
+
+    out: Dict[str, Dict[str, datetime]] = {}
+    for k, v in obj.items():
+        if not isinstance(k, str):
+            continue
+        for op, suffix in ((TIME_OP_GTE, "gte"), (TIME_OP_LTE, "lte")):
+            if not k.endswith(op):
+                continue
+            column = k[: -len(op)]
+            t = _parse_time(v)
+            if column and t is not None:
+                out.setdefault(column, {})[suffix] = t
+    return out
+
+
+def _row_time(row: List[Any], columns: Sequence[str],
+              idx: Dict[str, int]) -> Optional[datetime]:
+    """按 ``columns`` 的优先级取该行的时间（第一个有值的列生效）。
+
+    与 ``_outbound_time`` 同一套回落逻辑，但列名可参数化 —— 时间区间筛选要能用于
+    任意时间列，而不只是 Outbound 的两列。
+    """
+    for column in columns:
+        i = idx.get(column)
+        if i is None:
+            continue
+        t = _parse_time(row[i] if i < len(row) else None)
+        if t is not None:
+            return t
+    return None
+
+
+def _filtered_rows(sd: SheetData, q: str, filters: Dict[str, List[str]],
+                   time_filters: Optional[Dict[str, Dict[str, datetime]]] = None) -> List[List[Any]]:
+    """按精确匹配 + 关键字 + 可选时间区间筛出明细行。
+
+    ``time_filters`` 的列若不在该 sheet 里就跳过（两种报表的列并不完全相同）。
+    时间取值走 ``TIME_COLUMNS`` 声明的多列回落，**与概览口径逐条一致** ——
+    概览用哪一列算的本周/本月，这里就必须用同一列判区间。
+    """
     idx = {c: i for i, c in enumerate(sd.columns)}
     active = [(idx[c], set(vals)) for c, vals in filters.items() if c in idx]
     needle = q.strip().lower()
+
+    #: 生效的时间区间条件：(取值列序列, {gte, lte})
+    time_active: List[Tuple[Tuple[str, ...], Dict[str, datetime]]] = []
+    for column, bounds in (time_filters or {}).items():
+        if column not in idx or not bounds:
+            continue
+        # 取该列的回落序列（如 Outbound Time -> Create Time）；未声明的列就只看它自己
+        columns = TIME_COLUMNS.get(sd.key, ()) if column in TIME_COLUMNS.get(sd.key, ()) else (column,)
+        if column not in columns:
+            columns = (column,) + tuple(c for c in TIME_COLUMNS.get(sd.key, ()) if c != column)
+        time_active.append((columns, bounds))
 
     out: List[List[Any]] = []
     for r in sd.rows:
         ok = True
         for i, allowed in active:
             if _to_text(r[i] if i < len(r) else None) not in allowed:
+                ok = False
+                break
+        if not ok:
+            continue
+        for columns, bounds in time_active:
+            t = _row_time(r, columns, idx)
+            # 时间取不到的行**不计入**任何时间窗（与概览口径一致：不猜时间，
+            # 这类行只进 total_consumption，所以 month/week <= total 恒成立）
+            if t is None:
+                ok = False
+                break
+            if "gte" in bounds and t < bounds["gte"]:
+                ok = False
+                break
+            if "lte" in bounds and t > bounds["lte"]:
                 ok = False
                 break
         if not ok:
@@ -854,7 +952,8 @@ def get_rows(
         }
 
     flt = _parse_filters(filters)
-    matched = _filtered_rows(sd, q, flt)
+    time_flt = _parse_time_filters(filters)
+    matched = _filtered_rows(sd, q, flt, time_flt)
 
     if sort and sort in sd.columns:
         i = sd.columns.index(sort)

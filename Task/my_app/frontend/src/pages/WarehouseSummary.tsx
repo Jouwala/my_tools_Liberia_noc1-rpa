@@ -57,12 +57,19 @@ interface FrequentBlock {
   consumption_column: string
   material_count: number
 }
+/** 段① month/week 两列的时间窗起点（后端下发，与概览同一时刻的口径） */
+interface PeriodStarts {
+  week: string
+  month: string
+  outbound_time_column: string
+}
 interface SummaryResp {
   kind: string
   kind_label_en: string
   source: { file: string; generated_at: string }
   warehouse_summary: WarehouseRow[]
   frequent_materials: FrequentBlock
+  period_starts: PeriodStarts
   notes: string[]
   warnings: string[]
   generated_at: string
@@ -73,6 +80,9 @@ interface RowsResp {
   columns: string[]
   rows: Row[]
   total: number
+  /** 按当前筛选合计的数量列（用于与概览单元格对账） */
+  qty_column?: string
+  filtered_qty_total?: number
 }
 
 /** 页签（= Excel 的两个 sheet），顺序与 Excel 一致 */
@@ -99,11 +109,21 @@ function cellNum(v: unknown, loc: string): React.ReactNode {
   return num(v).toLocaleString(loc, { maximumFractionDigits: 2 })
 }
 
-/** 下钻弹窗要查的明细（sheet + 后端 filters 的 JSON） */
+/** 下钻弹窗要查的明细（sheet + 后端 filters 的 JSON + 用于对账的数量口径） */
 interface Drill {
   title: string
   sheet: string
   filters: Record<string, string>
+  /** 本次下钻对应的时间窗说明（仅 month/week 有；显示在标题里便于核对范围） */
+  windowLabel?: string
+  /**
+   * 该行概览单元格的数字，用于弹窗顶部「合计 vs 概览」对账。
+   * ``expectedColumn`` 是它对应的数量列 —— **只有与下钻返回的 `qty_column`
+   * 同名时才比较**。段② 的单元格是「消耗量」而 `Summary-Current` 的数量列是
+   * `Inventory Qty`，两者本就不是一个口径，硬比会一直亮红（假告警）。
+   */
+  expected?: number
+  expectedColumn?: string
   row: Row | null
   x: number
   y: number
@@ -125,6 +145,8 @@ export default function WarehouseSummary() {
   const [freqPage, setFreqPage] = useState(1)
   const [drillRows, setDrillRows] = useState<Row[]>([])
   const [drillCols, setDrillCols] = useState<string[]>([])
+  /** 下钻结果按当前筛选合计的数量（用于与概览单元格对账），null = 该 sheet 无数量列 */
+  const [drillQty, setDrillQty] = useState<{ column: string; total: number } | null>(null)
   const [drillLoading, setDrillLoading] = useState(false)
   const [drillError, setDrillError] = useState('')
   const [exporting, setExporting] = useState(false)
@@ -169,6 +191,9 @@ export default function WarehouseSummary() {
         const d = res.data as RowsResp & { warnings?: string[] }
         setDrillRows(d.rows ?? [])
         setDrillCols(d.columns ?? [])
+        setDrillQty(d.qty_column
+          ? { column: d.qty_column, total: d.filtered_qty_total ?? 0 }
+          : null)
         setDrillError(d.warnings?.length ? d.warnings.join('；') : '')
       })
       .catch((e: unknown) => {
@@ -176,6 +201,7 @@ export default function WarehouseSummary() {
         const err = e as { response?: { data?: { detail?: string } }; message?: string }
         setDrillError(String(err?.response?.data?.detail || err?.message || e))
         setDrillRows([])
+        setDrillQty(null)
       })
       .finally(() => { if (alive) setDrillLoading(false) })
     return () => { alive = false }
@@ -199,45 +225,57 @@ export default function WarehouseSummary() {
   }, [])
 
   const warehouseColumns = useMemo<ColumnsType<WarehouseRow>>(() => {
-    // 消耗列点得动：落到 Outbound 明细，按仓库筛选。
-    // ⚠️ 后端 filters 只支持**精确匹配**，没有时间区间算子，所以下钻只按仓库筛，
-    //    不做「本月/本周」的二次过滤 —— 筛出来的是该仓库的全部出库行（含 Total 口径）。
-    //    宁可在标题里写明范围，也不能筛出与表格数字不一致的行（下钻口径铁律）。
+    // 消耗列点得动：落到 Outbound 明细，按仓库 + 对应时间窗筛。
+    //
+    // ⚠️ 时间窗条件必须与概览**同一时刻**的口径：起点由后端 `period_starts` 下发
+    //    （`month/week` 两列的合计就是用它算的），前端不复算 —— 前端自己取
+    //    「本周一 00:00」会在跨零点/跨周的两次请求间错位，下钻行数就与单元格对不上。
+    //    下钻端点按 `Outbound Time@gte` 走与概览一致的「Outbound Time → Create Time」
+    //    回落取值，因此三方（单元格 / 概览口径 / 下钻行）逐条同源（AGENTS.md 三.1b 下钻铁律）。
+    const starts = data?.period_starts
+    const timeCol = starts?.outbound_time_column || 'Outbound Time'
+
     const qtyCol = (
-      title: string, key: keyof WarehouseRow,
+      title: string, key: keyof WarehouseRow, window?: 'week' | 'month',
     ): ColumnsType<WarehouseRow>[number] => ({
       title,
       dataIndex: key as string,
       key: key as string,
       align: 'right',
-      render: (v: number, r: WarehouseRow) => (
-        <Tooltip title={t('whSum.drill.hint')}>
-          <span
-            role="button"
-            tabIndex={0}
-            style={{ cursor: 'pointer', color: WH.teal, fontWeight: 600 }}
-            onClick={e => openDrill({
-              title: `${r.warehouse} · ${title}`,
-              sheet: 'Outbound',
-              filters: { 'Warehouse Name': r.warehouse },
-              row: null,
-              x: e.clientX, y: e.clientY,
-            })}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                openDrill({
-                  title: `${r.warehouse} · ${title}`,
-                  sheet: 'Outbound',
-                  filters: { 'Warehouse Name': r.warehouse },
-                  row: null,
-                })
-              }
-            }}
-          >
-            {cellNum(v, loc)}
-          </span>
-        </Tooltip>
-      ),
+      render: (v: number, r: WarehouseRow) => {
+        const buildFilters = (): Record<string, string> => {
+          const f: Record<string, string> = { 'Warehouse Name': r.warehouse }
+          // Total 列不带时间窗（口径＝该仓全部出库，与单元格精确相等）
+          const start = window ? starts?.[window] : ''
+          if (start) f[`${timeCol}@gte`] = start
+          return f
+        }
+        const label = window === 'week'
+          ? t('whSum.window.week')
+          : window === 'month' ? t('whSum.window.month') : ''
+        const open = (x?: number, y?: number) => openDrill({
+          title: `${r.warehouse} · ${title}`,
+          sheet: 'Outbound',
+          filters: buildFilters(),
+          windowLabel: label ? `${label}: ${starts?.[window!] ?? '-'}` : undefined,
+          expected: num(v),
+          expectedColumn: 'Outbound Qty',
+          row: null, x, y,
+        })
+        return (
+          <Tooltip title={t('whSum.drill.hint')}>
+            <span
+              role="button"
+              tabIndex={0}
+              style={{ cursor: 'pointer', color: WH.teal, fontWeight: 600 }}
+              onClick={e => open(e.clientX, e.clientY)}
+              onKeyDown={(e) => { if (e.key === 'Enter') open() }}
+            >
+              {cellNum(v, loc)}
+            </span>
+          </Tooltip>
+        )
+      },
     })
 
     return [
@@ -255,6 +293,8 @@ export default function WarehouseSummary() {
               title: `${v} · ${t('whSum.col.inventory')}`,
               sheet: 'Inventory',
               filters: { 'Warehouse Name': r.warehouse },
+              expected: num(r.current_inventory),
+              expectedColumn: 'Stock Qty',
               row: null,
               x: e.clientX, y: e.clientY,
             })}
@@ -276,6 +316,8 @@ export default function WarehouseSummary() {
               title: `${r.warehouse} · ${t('whSum.col.inventory')}`,
               sheet: 'Inventory',
               filters: { 'Warehouse Name': r.warehouse },
+              expected: num(v),
+              expectedColumn: 'Stock Qty',
               row: null, x: e.clientX, y: e.clientY,
             })}
           >
@@ -284,10 +326,10 @@ export default function WarehouseSummary() {
         ),
       },
       qtyCol(t('whSum.col.totalConsumption'), 'total_consumption'),
-      qtyCol(t('whSum.col.monthConsumption'), 'month_consumption'),
-      qtyCol(t('whSum.col.weekConsumption'), 'week_consumption'),
+      qtyCol(t('whSum.col.monthConsumption'), 'month_consumption', 'month'),
+      qtyCol(t('whSum.col.weekConsumption'), 'week_consumption', 'week'),
     ]
-  }, [t, loc, openDrill])
+  }, [t, loc, openDrill, data?.period_starts])
 
   // ---------- 段②：高频消耗物料 ----------
   const frequentColumns = useMemo<ColumnsType<FrequentRow>>(() => [
@@ -304,6 +346,8 @@ export default function WarehouseSummary() {
             title: r.material_name,
             sheet: 'Summary-Current',
             filters: { 'Material Name': r.material_name },
+            // 不做「合计 vs 概览」对账：这里的单元格是**消耗量**（Outbound Site Qty），
+            // 而 Summary-Current 的数量列是 Inventory Qty，两者不同口径。
             row: null, x: e.clientX, y: e.clientY,
           })}
         >
@@ -582,6 +626,21 @@ export default function WarehouseSummary() {
             <span>{drill?.title}</span>
             {drill && <Tag color="cyan">{drill.sheet}</Tag>}
             <Tag>{`${drillRows.length} ${t('whSum.rows')}`}</Tag>
+            {/* 合计与概览对账：**仅当数量列同名时**才比较（口径不同比了就是假告警）；
+                相等亮绿、不等亮红，避免"看起来对、其实错" */}
+            {drillQty && (() => {
+              const sameCaliber = !!drill?.expectedColumn
+                && drill.expectedColumn === drillQty.column
+                && drill?.expected !== undefined
+              const matched = !sameCaliber || Math.abs(drillQty.total - drill!.expected!) < 0.01
+              const fmt = (n: number) => n.toLocaleString(loc, { maximumFractionDigits: 2 })
+              return (
+                <Tag color={matched ? (sameCaliber ? 'green' : 'default') : 'red'}>
+                  {`${drillQty.column} ${t('whSum.drill.total')} ${fmt(drillQty.total)}`}
+                  {sameCaliber && ` / ${t('whSum.drill.cell')} ${fmt(drill!.expected!)}`}
+                </Tag>
+              )
+            })()}
           </Space>
         )}
         anchor={drill ? { x: drill.x, y: drill.y } : null}
@@ -591,6 +650,11 @@ export default function WarehouseSummary() {
         {drillError && (
           <Alert type="warning" showIcon style={{ marginBottom: 12 }}
             message={t('whSum.drillWarn')} description={drillError} />
+        )}
+        {/* 时间窗说明：让"这个数字是哪一段时间的"一眼可见 */}
+        {drill?.windowLabel && (
+          <Alert type="info" showIcon style={{ marginBottom: 12 }}
+            message={`${t('whSum.drill.window')}: ${drill.windowLabel}`} />
         )}
         <Table<Row>
           size="small"

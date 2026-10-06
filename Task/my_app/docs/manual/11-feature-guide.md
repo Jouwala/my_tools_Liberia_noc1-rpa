@@ -1949,13 +1949,42 @@ Others / Inventory Lost / Repair 五种）或出现空白值，都会自动落�
 | 点击位置 | 落到 | 筛选 |
 | --- | --- | --- |
 | 段① 仓库名 / Current Inventory | `Inventory` 明细 | `Warehouse Name = <该仓>` |
-| 段① 三个消耗列 | `Outbound` 明细 | `Warehouse Name = <该仓>` |
+| 段① Total Consumption | `Outbound` 明细 | `Warehouse Name = <该仓>` |
+| 段① This month / This week | `Outbound` 明细 | `Warehouse Name = <该仓>` **+ 时间窗** |
 | 段② 物料名 | `Summary-Current` 明细 | `Material Name = <该物料>` |
 
-> ⚠️ **消耗列的下钻是"该仓全部出库"，不按本月/本周再筛**：后端 `filters` 只支持精确匹配、
-> 没有时间区间算子。这里宁可在标题里写明范围，也不能筛出与表格数字不一致的行
-> （下钻口径铁律，见 `AGENTS.md` 第三节 1b）。`Total Consumption` 列与下钻合计
-> **精确相等**（已用探针逐仓核对）；`month/week` 列因为无法二次筛时间，下钻行数会多于该列数字。
+**三列消耗的下钻合计与概览单元格严格相等**（2026-10-06 修复；实测两种 kind × 全部仓库行
+× 三列，0 处不符）。段① 四个数字的下钻合计、行数与概览**逐条同源**，符合
+`AGENTS.md` 第三节 1b 的下钻铁律。
+
+> ⚠️ **曾经的口径偏差（已修，勿回退）**：2026-09-29 初版把这段① 的 `month/week` 下钻
+> **只按仓库筛、不带时间窗**（当时的理由是"后端 `filters` 只支持精确匹配"），
+> 结果点「本周消耗 11」返回的是**该仓全部出库 999 行** —— 用户看到的数字与实际
+> 明细差 90 倍，被当成 bug 报回来。修法是在 `filters` 里引入**时间区间算子**
+> （见下），而不是继续放宽口径。
+
+### 下钻的时间区间算子（`<列>@gte` / `<列>@lte`）
+
+`GET /api/sp-report/rows` 的 `filters` 除精确匹配外，新增两个后缀算子：
+
+```jsonc
+{"Warehouse Name": "…", "Outbound Time@gte": "2026-10-05 00:00:00"}   // >=
+```
+
+- 解析在 `sp_report_service._parse_time_filters()`；不带后缀的键仍走**精确匹配**，
+  老调用方（`?page=sp_report` / `?page=com_report` 的筛选条）完全不受影响；
+- 时间取值走 `TIME_COLUMNS` 声明的**多列回落**（`Outbound Time` → `Create Time`），
+  **与概览 `_outbound_time()` 同一套优先级** —— 概览用哪列算的，下钻就得用同一列判区间；
+- 取不到时间的行**不计入任何时间窗**，与概览一致（概览这类行只进 `total_consumption`，
+  所以 `month/week <= total` 恒成立）；
+- **时间窗起点由后端下发**（`/summary` 的 `period_starts`），前端**不复算** ——
+  前端自己取「本周一 00:00」会在跨零点/跨周的两次请求间错位，下钻行数就与单元格对不上。
+  `period_starts` 同时回传 `outbound_time_column`，避免前端写死列名。
+
+下钻弹窗顶部显示 `Outbound Qty 合计 N / 概览 M`：**两列同名时才比较**，相等亮绿、
+不等亮红；段② 的单元格是**消耗量**（`Outbound Site Qty`）而 `Summary-Current` 的数量列是
+`Inventory Qty`，两者口径不同，故**不做该对账**（硬比会一直亮红，属假告警）。
+带时间窗的下钻另在弹窗内以 `时间范围` 条显示区间起点。
 
 ### 与第 26 节两个页面的关系
 
