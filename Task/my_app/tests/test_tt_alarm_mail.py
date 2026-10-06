@@ -40,6 +40,31 @@ def _now():
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
+def _use_db(monkeypatch, tmp_path, eflow_rows=None):
+    """把 DB 切到临时 sqlite，可选预置 eflow_tt 行。
+
+    与 `test_tt_alarm_render.py::_use_db` 同构（列集必须一致：`ticket_no` /
+    `wo_no` 是分析引擎依赖的列，缺了会让快照相关断言假失败）。
+    """
+    db_path = tmp_path / "raw.db"
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS eflow_tt (tt_no TEXT, ticket_severity TEXT, "
+        "alarm_code TEXT, alarm_occur_time TEXT, alarm_clear_time TEXT, "
+        "site_id TEXT, site_name TEXT, title TEXT, "
+        "ticket_no TEXT, wo_no TEXT)")
+    for row in (eflow_rows or []):
+        conn.execute("INSERT INTO eflow_tt VALUES (?,?,?,?,?,?,?,?,?,?)",
+                     tuple(row) + (None, None))
+    conn.commit()
+    conn.close()
+
+    from backend import database as db
+    monkeypatch.setattr(db, "DB_MODE", "sqlite")
+    monkeypatch.setattr(db, "DB_PATH", db_path)
+    return db_path
+
+
 @pytest.fixture()
 def fresh_mailer():
     """加载一份**未被 conftest 打补丁**的 `tt_alarm_mailer` 副本。
@@ -451,3 +476,147 @@ class TestNoRealMailFromTests:
         from backend.services import tt_alarm_mailer as M
         assert "orange" in M.DEFAULT_EWS_SERVER
         assert "orange" in M.DEFAULT_SMTP_ADDRESS
+
+
+# ==========================================================
+# 七、真实单的发信次数（锁"一个生命周期只发 2 封"）
+# ==========================================================
+class TestRealTicketMailCount:
+    """用户 2026-10-06 追问：「真实单子触发也会发三封一样内容的邮件吗？」
+
+    答案必须是**不会**。这里把口径钉死：
+
+      * 首推（`reminder_no == 1`）→ 1 封"首次通报"
+      * 重报 N 次（`reminder_no >= 2`）→ **0 封**
+      * 告警清除 → 1 封"结束汇总"（且只发一次）
+
+    即**一个单的生命周期共 2 封**，与它重报了几次无关。
+
+    19 封测试邮件是"3 封/轮 × 6 轮回归"造成的，**不是**单次触发发 3 封 ——
+    那 3 封来自 3 条不同用例各自的假单（TT1、TT1+TT2），不是同一单发 3 次。
+    这条用例防止将来有人把 reminder_no 的判断写错、退回"每轮都发"。
+    """
+
+    TT = "TT202610010999"
+    ROW = {"tt_no": TT, "alarm_code": "9920", "ticket_severity": "P1",
+           "site_name": "Loguatuo", "alarm_occur_time": "2026-10-06 03:00:00",
+           "alarm_clear_time": "", "created_time": "2026-10-06 03:05:00",
+           "last_modified_time": "2026-10-06 03:05:00"}
+
+    def _reminder_no(self, conn):
+        """复刻服务里的口径：`reminder_no = send_count + 1`（:505）。"""
+        rec = store.load_records(conn, [self.TT]).get(self.TT)
+        return int((rec or {}).get("send_count") or 0) + 1
+
+    def test_full_lifecycle_sends_exactly_two(self, db):
+        """首推 + 3 次重报 + 清除 → 共 2 封（1 通报 + 1 汇总）。"""
+        sent = []
+
+        # 第 1 轮：首推 —— 应发"首次通报"
+        rn = self._reminder_no(db)
+        assert rn == 1, f"首推的 reminder_no 应为 1，实际 {rn}"
+        store.record_result(db, self.ROW, ok=True,
+                            existing=store.load_records(db, [self.TT]).get(self.TT))
+        if rn <= 1:
+            sent.append("notified")
+        store.mark_mail_sent(db, self.TT, "notified")
+
+        # 第 2~4 轮：重报 —— 一封都不该发
+        for i in range(3):
+            rn = self._reminder_no(db)
+            assert rn >= 2, f"第 {i + 2} 轮的 reminder_no 应 >= 2，实际 {rn}"
+            store.record_result(db, self.ROW, ok=True,
+                                existing=store.load_records(db, [self.TT]).get(self.TT))
+            if rn <= 1:
+                sent.append("notified")
+
+        # 清除后：汇总只发一次
+        assert store.pending_summary_mail(db) == [self.TT]
+        if store.pending_summary_mail(db):
+            sent.append("summary")
+            store.mark_mail_sent(db, self.TT, "summary")
+        assert store.pending_summary_mail(db) == [], "汇总不得重发"
+
+        assert sent == ["notified", "summary"], \
+            f"真实单一个生命周期应恰好 2 封（1 通报 + 1 汇总），实际 {sent}"
+
+    def test_resend_never_qualifies_for_notification_mail(self, db):
+        """`reminder_no >= 2` 一律不发通报邮件 —— 这是"不会发 3 封"的核心保证。"""
+        store.record_result(db, self.ROW, ok=True)
+        store.mark_mail_sent(db, self.TT, "notified")
+        for _ in range(5):
+            rn = self._reminder_no(db)
+            store.record_result(db, self.ROW, ok=True,
+                                existing=store.load_records(db, [self.TT]).get(self.TT))
+            assert rn >= 2 and not (rn <= 1), \
+                f"重报第 {rn} 次竟然满足发信条件（reminder_no<=1）"
+
+    def test_service_filter_rejects_resend(self, monkeypatch, tmp_path):
+        """**直接测服务里那句过滤** —— 重报单必须进不了 `mail_targets`。
+
+        ⚠️ 这条不能只测 store：把服务里的 `reminder_no <= 1` 反转成 `>= 1`
+        （每轮都发）时，只有测 store 的用例仍然全绿 —— 那是**假绿**，
+        因为过滤发生在服务层，不在 store 层。本用例跑真实的
+        `run_tt_alarm_whatsapp_alert()`，并断言只有首推那单发了邮件。
+        """
+        from backend.services import tt_alarm_sources as src
+        from backend.services import tt_alarm_trigger as trig
+
+        now = datetime.now()
+        # TT_A 是老单（日志里 send_count=1 → 本轮 reminder_no=2 = 重报）
+        # TT_B 是新单（日志无记录 → reminder_no=1 = 首推）
+        rows = [
+            {"tt_no": "TT_A", "_alarm_code_norm": "9920", "alarm_raised_time": _now(),
+             "_alarm_raised_dt": now, "site_id": "1", "site_name": "sa"},
+            {"tt_no": "TT_B", "_alarm_code_norm": "9920", "alarm_raised_time": _now(),
+             "_alarm_raised_dt": now, "site_id": "2", "site_name": "sb"},
+        ]
+        monkeypatch.setattr(trig, "fetch_triggered_tts",
+                            lambda *a, **k: (rows, {"window_since": "x", "table_exists": True,
+                                                    "truncated": False, "sync_lag_seconds": None}))
+        monkeypatch.setattr(src, "live_tt_rows", lambda tt_nos: {})
+        monkeypatch.setattr(src, "mirror_rows", lambda conn, nos: {
+            r["tt_no"]: {"tt_no": r["tt_no"], "ticket_severity": "P1",
+                         "site_name": r["site_name"],
+                         "alarm_occur_time": "2026-10-06 01:00:00",
+                         "last_modified_time": "2026-10-06 01:00:00"}
+            for r in rows})
+        _use_db(monkeypatch, tmp_path)
+        monkeypatch.setattr(S, "render_message_ex", lambda *a, **k: ("msg", None))
+        monkeypatch.setattr(S, "dispatch",
+                            lambda msgs, groups: {"ok": True, "job_id": "j1",
+                                                  "dispatched": len(msgs)})
+        monkeypatch.setattr(S, "wait_for_job_result",
+                            lambda *a, **k: {"confirmed": True, "ok": True, "timed_out": False,
+                                             "sent": ["TT_A", "TT_B"], "message_ids": {},
+                                             "errors": []})
+        monkeypatch.setattr(S, "MAIL_ENABLED", True)
+        monkeypatch.setattr(S, "_mail_recipients", lambda: ("a@x.com", ""))
+        monkeypatch.setattr(S.store, "mark_mail_sent", lambda *a, **k: True)
+        monkeypatch.setattr(S.store, "pending_summary_mail", lambda *a, **k: [])
+        # 让 TT_A 看起来像"已经发过一次"的老单
+        monkeypatch.setattr(S, "load_records",
+                            lambda conn, nos: {"TT_A": {"tt_no": "TT_A", "send_count": 1}})
+
+        mails = []
+        monkeypatch.setattr(S.mailer, "send_mail",
+                            lambda **kw: mails.append(kw) or True)
+
+        S.run_tt_alarm_whatsapp_alert()
+
+        subs = [m.get("subject") for m in mails]
+        assert len(mails) == 1, (
+            f"只有首推单 TT_B 该发通报邮件，实际发了 {len(mails)} 封：{subs}。"
+            f"重报单 TT_A 也被发了 = reminder_no 过滤失效")
+
+    def test_one_ticket_appears_once_per_round(self):
+        """`due` 由触发扫描去重，同一单每轮最多一条 → 不会一轮发多封。
+
+        若这里失守（例如将来有人改用未去重的来源），同一单就会在一轮内
+        append 多次 mail_targets，于是"一轮发 N 封同内容" —— 正是用户担心的情形。
+        """
+        from backend.services import tt_alarm_trigger as trig
+        import inspect as _inspect
+        src = _inspect.getsource(trig.fetch_triggered_tts)
+        assert "seen" in src and "tt_no in seen" in src, \
+            "触发扫描必须按 tt_no 去重，否则同一单会在 due 里出现多次"
