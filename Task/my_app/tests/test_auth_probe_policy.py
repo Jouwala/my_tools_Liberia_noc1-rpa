@@ -206,3 +206,73 @@ def test_expired_cache_still_falls_back_to_login(cache_dir, monkeypatch):
     r = am.get_auth(HOST, PORT, USER, PWD)
     assert len(calls) == 1
     assert r["from_relogin"] is True
+
+
+# ---------- 门户探活登记表（2026-10-06 补 battery_ume） ----------
+
+def test_battery_portal_has_probe_registered():
+    """battery_ume 门户必须登记了探活端点，且**不能**是门户首页。
+
+    依据：门户首页 /uportal/framework/default.html 对「无 cookie」也返回 200
+    （SPA 外壳，与带垃圾 cookie 的响应逐字节相同），拿它探活会把死会话判成活
+    （假绿）——这正是「一键登录总落回登录页」的成因之一。Battery 不是 UME
+    PM-analysis 协议，必须用它自己的业务接口。
+    """
+    from backend.services import portal_login_service as p
+
+    path = p.PORTAL_PROBE_PATHS.get("battery_ume")
+    assert path, "battery_ume 应已登记探活端点"
+    assert "uportal" not in path, "不得用门户首页当探针（对未登录也返回 200）"
+    assert path == "/api/monitor-manager/v1/realtime-data/get-by-condition"
+    # 必须真的能被 _portal_probe 解析出来（键不在 spec 里，靠反查）
+    assert p._portal_probe(p.PORTALS["battery_ume"]) is not None
+
+
+def test_ume_portals_share_pm_history_but_battery_does_not():
+    """UME 系共用 PM history 端点；battery 必须与它们区分开。"""
+    from backend.services import portal_login_service as p
+
+    for k in ("zte_ume", "ccn_ume", "ipran_ume", "mw_ume", "ume_in"):
+        assert p.PORTAL_PROBE_PATHS.get(k) == "/api/pm-analysis/v2/history"
+    assert p.PORTAL_PROBE_PATHS["battery_ume"] != "/api/pm-analysis/v2/history"
+
+
+def test_unregistered_portals_still_return_no_probe():
+    """未登记的直连门户保持不探活（宁可只信 TTL，也不拿猜的端点误杀好会话）。"""
+    from backend.services import portal_login_service as p
+
+    for k in ("eflow", "rais", "vmax_cxo", "fw_kpi"):
+        assert p._portal_probe(p.PORTALS[k]) is None, f"{k} 不应被探活"
+
+
+# ---------- 电池回退链探活（2026-10-06 补） ----------
+
+def test_auth_info_freshness_is_time_based_only():
+    """钉住 `auth_info_is_fresh` 的现状语义：**只按时间**判新鲜度。
+
+    这是它必须被探活兜住的原因 —— 落在 1 小时窗口内、但已被上游作废的
+    会话，它一样返回 True。上游实测寿命 58~60 分钟，且可能被同账户别处
+    登录踢掉。若哪天改成会探活，本测试会失败，提醒同步更新
+    `_acquire_auth` 里的那次补探（否则变成探两次）。
+    """
+    import inspect
+
+    from backend.services.battary_kpi_fetch import battary_kpi_fetch_socket as sock
+
+    src = inspect.getsource(sock.auth_info_is_fresh)
+    assert "probe" not in src.lower(), "若改为探活，请同步 _acquire_auth 的补探"
+    assert "max_age_hours" in src
+
+
+def test_battery_acquire_auth_backstop_probes_before_return():
+    """`_acquire_auth` 在返回前必须对回退链（login_rsa / auth_info.json）
+    拿到的会话**补探一次** —— 否则死 cookie 会被直接交给 fetch_all_realtime。
+    """
+    import inspect
+
+    from backend.services.battary_kpi_fetch import battery_kpi_service as bat
+
+    src = inspect.getsource(bat._acquire_auth)
+    assert "probe_battery_session" in src, "_acquire_auth 必须补探回退链会话"
+    # 补探必须在 return 之前
+    assert src.index("probe_battery_session") < src.rindex("return auth")

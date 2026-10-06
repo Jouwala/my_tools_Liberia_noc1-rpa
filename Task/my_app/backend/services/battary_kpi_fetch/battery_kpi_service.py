@@ -1313,6 +1313,10 @@ def _acquire_auth(fetcher, credentials: dict, allow_shared: bool = True) -> dict
     第二、三层（fetcher.login_rsa 与 auth_info.json 回退链）保留不动：它们是
     auth_manager 不可用或上游登录失败时的兜底，走这两层的会话由
     `_write_shared_auth` 补写回缓存。
+
+    2026-10-06 补：第二、三层拿到会话后**在返回前统一探活一次**（见函数末），
+    因为它们都不经过 auth_manager、原本没有任何探活保护。第一层成功时提前
+    return，不会走到那里，所以"每轮至多探一次"的约束仍然成立。
     """
     host, port = credentials["host"], credentials["port"]
 
@@ -1366,6 +1370,29 @@ def _acquire_auth(fetcher, credentials: dict, allow_shared: bool = True) -> dict
         auth["port"] = port
         fetcher._HOST = host
         fetcher._PORT = port
+
+    # ⚠ 最后一处裸露点（2026-10-06 补）：上面第二、三层拿到的是
+    # `fetcher.login_rsa()` 或 `auth_info.json` 里的会话，它们**没经过探活**
+    # 就被交给 `fetch_all_realtime` 发业务请求。`auth_info.json` 尤其危险 ——
+    # 它的新鲜度只由 `auth_info_is_fresh()` 按 login_time/mtime 判 1 小时窗口，
+    # 与当初"只信 TTL 不探活"是同一个毛病：上游会话实际寿命是实测 58~60 分钟，
+    # 且可能被同账户别处登录踢掉，落在窗口内的死文件照样会被发出去撞 401。
+    # 这里在返回前统一探一次；探不通就当这层没有可用会话，让调用方去报错或
+    # 走 401 恢复，而不是把死 cookie 发出去。
+    #
+    # 只在**非 auth_manager 分支**走到这里，所以不会与 get_auth 的探活重复
+    # （第一层成功时上面已 return，根本到不了这里）—— 仍满足"每轮至多探一次"。
+    if not probe_battery_session(fetcher, auth.get("cookie", ""),
+                                 auth.get("forgery_token", ""),
+                                 auth.get("host") or host,
+                                 int(auth.get("port") or port)):
+        logger.warning("[Battery] 回退链（login_rsa / auth_info.json）拿到的会话探活失败，"
+                       "视为不可用")
+        raise RuntimeError(
+            "Battery UME 回退链（RSA 登录 / auth_info.json）得到的会话已失效。"
+            "auth_info.json 的新鲜度只按时间判断，不代表会话仍可用；"
+            "请在「设置 → 凭据管理 → Battery UME」核对账号密码后重试。"
+        )
     return auth
 
 

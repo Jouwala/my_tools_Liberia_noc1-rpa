@@ -1064,6 +1064,21 @@ PORTAL_PROBE_PATHS: dict[str, str] = {
     # 协议、同一个 history 端点（ume_in_kpi_service.py:67）。
     # 这台此前正是「一键登录总落回登录页」的嫌疑对象之一。
     "ume_in": "/api/pm-analysis/v2/history",
+    # Battery UME（192.168.170.2:443）：**不是 UME PM-analysis 协议**，
+    # 不能用上面那个端点，必须用电池自己的业务接口。
+    # 依据：battary_kpi_fetch_socket.py:258 的 PATH_GET_BY_CONDITION，
+    # 正是 battery_kpi_sync 每小时真正在用的分页实时数据接口。
+    #
+    # 实测（2026-10-06，用原样多段 cookie 串）：
+    #   · 垃圾 cookie  -> 401 {"source":"smagent",...}  -> 判死 ✅
+    #   · 无 cookie    -> 401                            -> 判死 ✅
+    #   · 真实会话 + 空 body {} -> 200 {"code":0,...}    -> 判活 ✅
+    #   与生产同路径 `_post_json` 的结果一致（200，total=1532），不误杀。
+    #
+    # ⚠ 反面证据：门户首页 /uportal/framework/default.html **不能**当探针 ——
+    # 它对「无 cookie」也返回 200（SPA 外壳，响应体与带垃圾 cookie 时逐字节相同）。
+    # 用它探活会把死会话判成活的（假绿），这正是「一键登录落回登录页」的成因之一。
+    "battery_ume": "/api/monitor-manager/v1/realtime-data/get-by-condition",
 }
 
 

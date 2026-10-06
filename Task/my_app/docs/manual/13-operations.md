@@ -704,9 +704,30 @@ iMonitor）、`10.100.20.9:8766`（RAIS），原先记为「一律回退 86400�
   实测依据：该端点对垃圾/空 cookie 返回 **401 + `{"hasLogged":true,"source":"smagent"}`**
   （正是 MW UME 2026-10-04 记录的死会话签名），且 TCP 可达 —— 端点有效、确会拒绝。
 
-`ume_in` 的探活端点登记在 `portal_login_service.PORTAL_PROBE_PATHS`
+- **`battery_ume`**（Battery UME `192.168.170.2:443`）：**确实**经 `auth_manager`
+  （门户侧走通用分支 `_oauth2_direct_auth`），且它**不是** UME PM-analysis 协议，
+  所以**不能**共用上面那个 history 端点 —— 它用电池自己的业务接口
+  `/api/monitor-manager/v1/realtime-data/get-by-condition`（2026-10-06 已登记）。
+  实测依据（用原样多段 cookie 串）：垃圾 cookie → `401 {"source":"smagent",...}`、
+  无 cookie → `401`、真实会话 + 空 body → `200 {"code":0,...}`，与生产同路径
+  `_post_json` 结果一致（`total=1532`），不误杀。
+  **该 UME 的会话寿命同样是实测的**（见 `auth_manager.AUTH_TTL_OVERRIDES` 与
+  `battary_kpi_fetch_socket.auth_info_is_fresh` 的 1 小时窗口）。
+
+`ume_in` / `battery_ume` 的探活端点登记在 `portal_login_service.PORTAL_PROBE_PATHS`
 （未登记的门户返回 `None`＝不探活，退回「只信 TTL」）。**登记前必须实测该端点
 确实要求鉴权**（探登录首页会得到假绿 200），否则会把好会话判死、无谓增加登录。
+
+> ⚠️ **Battery 全链路已闭合（2026-10-06 补最后一处裸露点）**，四层逐一核对：
+> 1. 门户一键登录 → `_oauth2_direct_auth` → `get_auth(probe=_portal_probe(spec))` ✅
+> 2. `battery_kpi_service._acquire_auth` 第一层 → `get_auth(probe=...)` ✅
+> 3. 第二、三层回退（`fetcher.login_rsa()` / `auth_info.json`）→
+>    `_acquire_auth` 返回前**补探一次** ✅（此前是裸露的）
+> 4. 拉取中途 401 → 作废共享缓存 + `_acquire_auth(allow_shared=False)` 重登一次 ✅
+>
+> 邮件任务（`run_battery_email`）**不取会话** —— 它只基于已同步的数据重建报表
+> 并发送，故无鉴权缺口。`battary_kpi_fetch_socket.main()` 是独立调试入口，
+> 无任何 `.bat` / 计划任务调用它，不在生产路径上。
 
 **同时修掉的两个"配置项与事实不符"**：
 

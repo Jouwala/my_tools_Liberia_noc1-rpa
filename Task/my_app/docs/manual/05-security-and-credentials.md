@@ -246,13 +246,48 @@ MW UME 2026-10-04 实测首页 200 而业务端点 401。各服务的业务端�
 | `ran_ume_service._login`（含 `packet_loss_service`） | `probe_pm_session` | `/api/pm-analysis/v2/history` |
 | `ms_sla_sync._ume_login` | `probe_sla_session` | 同上 |
 | `ran_ume_main_kpi.login` | 同上（共用 PM history） | 同上 |
+| `ran_ume_network_kpi` | 同上（共用 PM history） | 同上 |
 | `ran_ume_alarm_service._auth` | `probe_alarm_session` | `/api/fm-active/v1/activealarms/alarmkey` |
+| `mw_ume_kpi_service.login` | `probe_mw_session` | `/api/pm-analysis/v2/history` |
+| `ccn_ume_kpi_service` | `probe_cnn_session` | 同上 |
+| `ipran_ume_kpi_service` | `probe_ipran_session` | 同上 |
+| `battery_kpi_service._acquire_auth` | `probe_battery_session` | `/api/monitor-manager/v1/realtime-data/get-by-condition` |
 | `portal_login_service._oauth2_direct_auth` | `_portal_probe(spec)` | 见下 |
 
-门户一键登录按 `PORTAL_PROBE_PATHS`（`portal_login_service.py`）登记：`zte_ume` /
-`ccn_ume` / `ipran_ume` / `mw_ume` 用 PM history；**未登记的门户返回 `None`＝不探活**，
+B 组四家（MW / CNN / iPRAN / Battery）原有的「三件套」（`_try_shared_auth` 读缓存
+＋ 本地探活 ＋ 自有登录回写）已收编为 `get_auth(probe=...)`，各自只保留探活函数。
+MW / CNN 的重复 OAuth2 实现与 `_rsa_encrypt_pem` 一并删除（与
+`auth_manager._do_login` 同协议重复，两套成功判据、两处回写）；
+**iPRAN / Battery 保留自有登录分支**作为 auth_manager 不可用时的兜底，
+故其 `_write_shared_auth` 保留 —— 不要为了「统一形状」删掉它们。
+
+门户一键登录按 `PORTAL_PROBE_PATHS`（`portal_login_service.py`）登记：
+
+| 门户 | 探测端点 | 说明 |
+| --- | --- | --- |
+| `zte_ume` / `ccn_ume` / `ipran_ume` / `mw_ume` / `ume_in` | `/api/pm-analysis/v2/history` | 同为 ZTE UME PM-analysis 协议，共用一端点 |
+| `battery_ume` | `/api/monitor-manager/v1/realtime-data/get-by-condition` | **不是** UME PM 协议，必须用电池自己的业务接口 |
+
+**未登记的门户返回 `None`＝不探活**（当前为 `eflow` / `rais` / `vmax_cxo` / `fw_kpi`），
 退回「只信 TTL」的历史行为。这是刻意的 —— 与其拿一个猜出来的端点去探
 （探错会把好会话判死、无谓增加登录），不如显式留空，等有实测依据再补。
+
+> ⚠️ **不得拿门户首页当探针。** `/uportal/framework/default.html` 对「无 cookie」
+> 也返回 200（SPA 外壳，响应体与带垃圾 cookie 时逐字节相同），拿它探活会把死
+> 会话判成活的（假绿）——这正是「一键登录总落回登录页」的成因之一。
+> Battery 的实测对照（2026-10-06，用原样多段 cookie 串）：
+> 垃圾 cookie → `401 {"source":"smagent",...}`；无 cookie → `401`；
+> 真实会话 + 空 body → `200 {"code":0,...}`。与生产同路径 `_post_json`
+> 结果一致，不误杀。
+
+**Battery 的鉴权是全链路闭合的**（2026-10-06 补最后一处裸露点）：
+`battery_kpi_service._acquire_auth` 的三层回退都受探活保护 ——
+第一层 `auth_manager.get_auth(probe=...)`；第二、三层
+（`fetcher.login_rsa()` / `auth_info.json`）**不经过 auth_manager**，
+因此在 `_acquire_auth` 返回前**补探一次**才交给 `fetch_all_realtime`。
+`auth_info.json` 尤其需要这层兜底：它的新鲜度只由 `fetcher.auth_info_is_fresh()`
+按 `login_time`/mtime 判 1 小时窗口，**不探活**，而被上游作废的会话
+（实测寿命 58~60 分钟，且可能被同账户别处登录踢掉）照样落在窗口内。
 
 **不传 `probe` 时行为与改动前完全一致**（只按 TTL 判过期），这是给不具备探活
 能力的调用方（如 eFlow 的登录协议不同）留的兼容口。
