@@ -109,6 +109,20 @@ function cellNum(v: unknown, loc: string): React.ReactNode {
   return num(v).toLocaleString(loc, { maximumFractionDigits: 2 })
 }
 
+/** 顶部统计卡片：值 + 它对应的下钻目标（值来自 `Total` 行，故下钻不带仓库筛选） */
+interface KpiCard {
+  key: string
+  label: string
+  value: number | null
+  sheet: string
+  filters: Record<string, string>
+  /** 该值对应的数量列（与下钻返回的 qty_column 同名时才做对账） */
+  expectedColumn?: string
+  /** 时间窗名称与起点（仅 month/week 有） */
+  window?: string
+  windowStart?: string
+}
+
 /** 下钻弹窗要查的明细（sheet + 后端 filters 的 JSON + 用于对账的数量口径） */
 interface Drill {
   title: string
@@ -435,15 +449,40 @@ export default function WarehouseSummary() {
     [drillCols],
   )
 
-  const kpis = useMemo(() => ([
-    { key: 'inv', label: t('whSum.kpi.inventory'), value: totalRow?.current_inventory ?? null },
-    { key: 'total', label: t('whSum.kpi.totalConsumption'), value: totalRow?.total_consumption ?? null },
-    { key: 'month', label: t('whSum.kpi.monthConsumption'), value: totalRow?.month_consumption ?? null },
-    { key: 'week', label: t('whSum.kpi.weekConsumption'), value: totalRow?.week_consumption ?? null },
-    { key: 'materials', label: t('whSum.kpi.materials'), value: frequent?.material_count ?? null },
-    { key: 'urgent', label: t('whSum.kpi.urgent'),
-      value: (frequent?.rows ?? []).filter(r => r.alert_level === 'Urgent Replenish').length },
-  ]), [totalRow, frequent, t])
+  // ---------- 顶部统计卡片（每个都可下钻） ----------
+  //
+  // 卡片取的是 `Total` 行（全仓合计），所以下钻**不带仓库筛选**，
+  // 直接落到整张 sheet / 整段时间窗 —— 与概览逐条同源：
+  //   库存总量 / 总消耗 / 本月 / 本周 → 对应 sheet 的全表或时间窗合计
+  //   物料种类 → 全部物料行；需补货 → Alert Level = Urgent Replenish
+  // ⚠️ 时间窗起点同样取后端下发的 `period_starts`，与段① 两列同源，不复算。
+  const kpis = useMemo<KpiCard[]>(() => {
+    const starts = data?.period_starts
+    const timeCol = starts?.outbound_time_column || 'Outbound Time'
+    const winFilters = (w?: 'week' | 'month'): Record<string, string> => {
+      const f: Record<string, string> = {}
+      const start = w ? starts?.[w] : ''
+      if (start) f[`${timeCol}@gte`] = start
+      return f
+    }
+    return [
+      { key: 'inv', label: t('whSum.kpi.inventory'), value: totalRow?.current_inventory ?? null,
+        sheet: 'Inventory', filters: {} as Record<string, string>, expectedColumn: 'Stock Qty' },
+      { key: 'total', label: t('whSum.kpi.totalConsumption'), value: totalRow?.total_consumption ?? null,
+        sheet: 'Outbound', filters: {} as Record<string, string>, expectedColumn: 'Outbound Qty' },
+      { key: 'month', label: t('whSum.kpi.monthConsumption'), value: totalRow?.month_consumption ?? null,
+        sheet: 'Outbound', filters: winFilters('month'), expectedColumn: 'Outbound Qty',
+        window: t('whSum.window.month'), windowStart: starts?.month },
+      { key: 'week', label: t('whSum.kpi.weekConsumption'), value: totalRow?.week_consumption ?? null,
+        sheet: 'Outbound', filters: winFilters('week'), expectedColumn: 'Outbound Qty',
+        window: t('whSum.window.week'), windowStart: starts?.week },
+      { key: 'materials', label: t('whSum.kpi.materials'), value: frequent?.material_count ?? null,
+        sheet: 'Summary-Current', filters: {} as Record<string, string> },
+      { key: 'urgent', label: t('whSum.kpi.urgent'),
+        value: (frequent?.rows ?? []).filter(r => r.alert_level === 'Urgent Replenish').length,
+        sheet: 'Summary-Current', filters: { 'Alert Level': 'Urgent Replenish' } as Record<string, string> },
+    ]
+  }, [totalRow, frequent, t, data?.period_starts])
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--wh-space-md)' }}>
@@ -505,7 +544,22 @@ export default function WarehouseSummary() {
           <Row gutter={[12, 12]}>
             {kpis.map(k => (
               <Col key={k.key} xs={12} sm={8} xl={4}>
-                <StatCard title={k.label} value={k.value === null ? '—' : k.value} />
+                {/* 每张卡都可点下钻（AGENTS.md 三.1b「能下钻尽下钻」）：
+                    无值时不可点 —— 点开只会是空弹窗，比不给点更糟 */}
+                <StatCard
+                  title={k.label}
+                  value={k.value === null ? '—' : k.value}
+                  onClick={k.value === null ? undefined : (e) => openDrill({
+                    title: k.label,
+                    sheet: k.sheet,
+                    filters: k.filters,
+                    expected: typeof k.value === 'number' ? k.value : undefined,
+                    expectedColumn: k.expectedColumn,
+                    windowLabel: k.window ? `${k.window}: ${k.windowStart ?? '-'}` : undefined,
+                    row: null,
+                    x: e.clientX, y: e.clientY,
+                  })}
+                />
               </Col>
             ))}
           </Row>
