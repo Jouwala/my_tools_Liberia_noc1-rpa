@@ -74,6 +74,9 @@ from backend import auth_switch
 
 logger = logging.getLogger(__name__)
 
+# 门户 /me 回调地址。默认值假定 my_app 与门户**同机部署**（门户监听 9267）。
+# 分机部署时必须显式设置 UNIPLAM_ME_URL，否则会连到 my_app 自己那台机器的 9267
+# —— 那里没有门户，表现是"门户登录成功、进 my_app 却一直未登录"。
 UNIPLAM_ME_URL = os.environ.get("UNIPLAM_ME_URL", "http://127.0.0.1:9267/uniplam/api/auth/me")
 UNIPLAM_TIMEOUT = float(os.environ.get("UNIPLAM_TIMEOUT", "5"))
 SESSION_TTL = int(os.environ.get("MYAPP_SESSION_TTL", str(8 * 3600)))
@@ -312,8 +315,27 @@ def _cookie_kwargs(max_age: int) -> dict:
     return kw
 
 
+class PortalUnreachable(RuntimeError):
+    """门户 /me 回调**不可达**（区别于「token 被门户判为无效」）。
+
+    2026-10-06 引入。此前的 `verify_portal_token` 把两类失败混为一谈：
+      - 门户明确回了 401 → token really 无效（用户该重新登录）；
+      - 连接被拒 / DNS 失败 / 超时 → **配置或部署问题**（UNIPLAM_ME_URL 指错了机器）。
+    两者都返回 None，于是调用方一律回 401「请先在门户登录后重试」——
+    用户反复登录也没用，真正的病因（回调地址不对）只留在日志的一行 warning 里。
+
+    典型触发场景：my_app 与门户**分机部署**时，UNIPLAM_ME_URL 的默认值
+    `http://127.0.0.1:9267/...` 指向的是 my_app 自己那台机器的 9267，
+    而那台机器上并没有门户。
+    """
+
+
 async def verify_portal_token(portal_token: str) -> Optional[dict]:
-    """回调 uniplam 门户 /me 验证门户 token，返回其返回的 {user}；失败返回 None。"""
+    """回调 uniplam 门户 /me 验证门户 token，返回其返回的 {user}；失败返回 None。
+
+    - 门户明确拒绝（非 200）→ 返回 None（token 无效，属正常业务结果）；
+    - 门户**不可达**（连接/超时/解析异常）→ 抛 PortalUnreachable，由调用方区分处理。
+    """
     try:
         async with httpx.AsyncClient(timeout=UNIPLAM_TIMEOUT) as client:
             resp = await client.get(
@@ -321,14 +343,36 @@ async def verify_portal_token(portal_token: str) -> Optional[dict]:
                 headers={"Authorization": f"Bearer {portal_token}"},
             )
         if resp.status_code != 200:
-            logger.info("[portal-auth] uniplam /me 返回 %s", resp.status_code)
+            logger.info("[portal-auth] uniplam /me 返回 %s，视为 token 无效", resp.status_code)
             return None
         data = resp.json()
         user = data.get("user") if isinstance(data, dict) else None
         return user if isinstance(user, dict) else None
-    except Exception as exc:  # noqa: BLE001  网络/解析失败一律视为验证不通过
-        logger.warning("[portal-auth] uniplam /me 调用失败: %s", exc)
-        return None
+    except Exception as exc:  # noqa: BLE001  连接/超时/解析异常 → 配置或部署问题
+        logger.error(
+            "[portal-auth] 门户回调不可达：%s （UNIPLAM_ME_URL=%s）。"
+            "这通常是配置问题而非 token 问题 —— 请确认该地址指向**门户所在机器**，"
+            "分机部署时必须显式设置 UNIPLAM_ME_URL。",
+            exc,
+            UNIPLAM_ME_URL,
+        )
+        raise PortalUnreachable(f"portal /me unreachable: {exc}") from exc
+
+
+async def probe_portal_reachable() -> Optional[str]:
+    """启动自检：门户回调地址是否可达。可达返回 None，否则返回人类可读的原因。
+
+    只做一次轻量探测（不带 token 请求 /me），用于在启动日志里**主动**暴露
+    「UNIPLAM_ME_URL 配错了」这类问题，而不是等用户登录失败时才在日志里留一行。
+    期望的"正常"响应是 401/403（说明能连上，只是没带有效凭据）；能连上即算通过。
+    """
+    try:
+        async with httpx.AsyncClient(timeout=UNIPLAM_TIMEOUT) as client:
+            resp = await client.get(UNIPLAM_ME_URL)
+        # 任何 HTTP 响应都说明网络与地址是对的（/me 无 token 正常就是 401）
+        return None if resp.status_code < 500 else f"HTTP {resp.status_code}"
+    except Exception as exc:  # noqa: BLE001
+        return str(exc)
 
 
 def create_session(user: dict, response: Response, persistent: bool = False) -> str:
@@ -463,7 +507,18 @@ async def portal_login(payload: dict, request: Request, response: Response):
     token = payload.get("token")
     if not token or not isinstance(token, str):
         raise HTTPException(status_code=400, detail="缺少门户 token")
-    user = await verify_portal_token(token)
+    try:
+        user = await verify_portal_token(token)
+    except PortalUnreachable:
+        # 配置/部署问题，不是用户凭据问题：回 503 并明说病因，
+        # 免得用户对着「请重新登录」反复重试（原来两种情况都回 401）。
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "myapp 无法连接统一门户校验登录态（门户回调地址不可达）。"
+                "这是服务端配置问题，请联系管理员检查 UNIPLAM_ME_URL 是否指向门户所在机器。"
+            ),
+        )
     if user is None:
         raise HTTPException(status_code=401, detail="门户登录验证失败：请先在门户登录后重试")
     create_session(user, response)

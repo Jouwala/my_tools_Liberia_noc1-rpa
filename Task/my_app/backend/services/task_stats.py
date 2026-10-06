@@ -17,6 +17,20 @@ from backend.dialect_helpers import table_columns
 logger = logging.getLogger("task_runner")
 
 
+# 测试任务 ID 前缀。单元测试（tests/test_task_runner.py 等）会真实调用
+# run_task() 且故意构造失败任务，这些记录本应只写临时库；但一旦测试环境
+# 与线上库指向同一 DB（例如 DB_MODE/env 覆盖失效），就会污染 task_execution_log，
+# 让「失败聚合 / 失败告警」把测试用的 "agg failure sample" 当成真实故障推送。
+# 因此约定测试注册的任务以 `__t_` 开头；所有面向运维的统计/聚合查询都排除它们。
+#
+# 注意：get_task_stats / get_task_history_by_task 是「按 ID 精确查」，不做前缀过滤，
+# 以免测试自身断言失效（它们本就只在临时库运行，互不影响）。
+TEST_TASK_PREFIX = "__t_"
+
+# SQL 片段：过滤掉测试任务的 task_id（供 WHERE 拼接）。
+_NOT_TEST_TASK = f"task_id NOT LIKE '{TEST_TASK_PREFIX}%'"
+
+
 def _ensure_task_log_table(conn):
     """确保 task_execution_log 表存在且含 error_trace 列。
 
@@ -77,12 +91,13 @@ def _fetch_latest_runs() -> dict:
         with get_raw_connection(str(DB_PATH), timeout=30) as conn:
             _ensure_task_log_table(conn)
             rows = conn.execute(
-                """            SELECT l.task_id, l.task_name, l.category, l.trigger_type, l.success,
+                f"""            SELECT l.task_id, l.task_name, l.category, l.trigger_type, l.success,
                       l.started_at, l.completed_at, l.elapsed_seconds, l.error, l.error_trace
                FROM task_execution_log l
                INNER JOIN (
                    SELECT task_id, MAX(id) AS max_id
                    FROM task_execution_log
+                   WHERE {_NOT_TEST_TASK}
                    GROUP BY task_id
                ) m ON l.task_id = m.task_id AND l.id = m.max_id"""
             ).fetchall()
@@ -164,9 +179,10 @@ def get_recent_failures(days: int = 3, limit: int = 200) -> dict:
             from datetime import timedelta
             _cutoff = (datetime.now() - timedelta(days=days)).isoformat()
             rows = conn.execute(
-                """SELECT task_id, task_name, error, started_at
+                f"""SELECT task_id, task_name, error, started_at
                FROM task_execution_log
                WHERE success = 0
+                 AND {_NOT_TEST_TASK}
                  AND started_at >= ?
                ORDER BY started_at DESC LIMIT ?""",
                 (_cutoff, limit),
@@ -192,13 +208,15 @@ def get_recent_failures(days: int = 3, limit: int = 200) -> dict:
         with get_raw_connection(str(DB_PATH), timeout=30) as conn:
             _ensure_task_log_table(conn)
             latest = conn.execute(
-                """SELECT l.task_id, l.success FROM task_execution_log l
+                f"""SELECT l.task_id, l.success FROM task_execution_log l
                    INNER JOIN (SELECT task_id, MAX(id) AS max_id FROM task_execution_log
+                               WHERE {_NOT_TEST_TASK}
                                GROUP BY task_id) m ON l.task_id = m.task_id AND l.id = m.max_id"""
             ).fetchall()
             latest_success = {r[0]: bool(r[1]) for r in latest}
             ever = conn.execute(
-                "SELECT DISTINCT task_id FROM task_execution_log WHERE success = 1"
+                f"SELECT DISTINCT task_id FROM task_execution_log "
+                f"WHERE success = 1 AND {_NOT_TEST_TASK}"
             ).fetchall()
             ever_success = {r[0] for r in ever}
             conn.close()
@@ -253,9 +271,10 @@ def get_task_history(limit: int = 20, fallback_history: list | None = None) -> l
         with get_raw_connection(str(DB_PATH), timeout=30) as conn:
             _ensure_task_log_table(conn)
             rows = conn.execute(
-                """            SELECT task_id, task_name, category, trigger_type, success,
+                f"""            SELECT task_id, task_name, category, trigger_type, success,
                       started_at, completed_at, elapsed_seconds, error, error_trace
                FROM task_execution_log
+               WHERE {_NOT_TEST_TASK}
                ORDER BY started_at DESC LIMIT ?""",
                 (limit,)
             ).fetchall()
@@ -300,6 +319,10 @@ def get_global_history(
     """
     where_clauses: list[str] = []
     params: list = []
+    # 全局历史默认排除测试任务（__t_*），避免测试记录混进运维视图。
+    # 但若调用方显式按 task_id 精确查某个 __t_ 任务，则放行（便于测试自检）。
+    if not (task_id and task_id.startswith(TEST_TASK_PREFIX)):
+        where_clauses.append(_NOT_TEST_TASK)
     if task_id:
         where_clauses.append("task_id = ?")
         params.append(task_id)
@@ -349,6 +372,9 @@ def get_global_history(
         logging.getLogger(__name__).warning("[SILENT-EXCEPT] get_global_history: exception swallowed", exc_info=True)
         # 内存兜底：仅做 task_id / success / keyword 过滤（时间窗忽略），保证接口永不空失败
         fb = list(reversed((fallback_history or [])[-1000:]))
+        # 与 SQL 分支一致：默认剔除测试任务
+        if not (task_id and task_id.startswith(TEST_TASK_PREFIX)):
+            fb = [r for r in fb if not str(r.get("task_id") or "").startswith(TEST_TASK_PREFIX)]
         if task_id:
             fb = [r for r in fb if r.get("task_id") == task_id]
         if success is not None:

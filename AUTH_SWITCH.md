@@ -26,6 +26,40 @@
 权限，也**不会**清除现有登录会话——切回鉴权后原来的登录状态照常有效。弹窗里也写明了
 这三点。
 
+### ⚠ 关于 `auth-switch.json` 的缺失与 `.prev`（2026-10-06 补充）
+
+**文件不存在 = 开启鉴权，这不是故障。** 两个应用的解析顺序都是
+「环境变量 `AUTH_ENABLED` > 开关文件 > 缺省 `true`」，所以没有这个文件时两侧一律
+走"要求登录"这一安全默认。删掉它**不会**放开系统。
+
+**`auth-switch.json.prev` 是"上一次写入前的旧值"，不是"建议恢复的值"。**
+2026-10-06 排查时发现它曾停在 2026-09-13、内容为 `authEnabled: false`，而主文件早已
+不在——如果谁把它当成"配置备份"照抄回去，就会**静默关掉两边的登录**。产生原因是：
+
+| 写入方 | 写前是否滚动备份 |
+|---|---|
+| 门户页面按钮 / `server/authSwitch.ts` | ✅ 一直有 |
+| `auth_switch.py`（命令行） | ❌ 此前没有 —— 2026-10-06 已补齐 |
+
+两个写入方行为不一致，正是 `.prev` 会"过期"的原因。现已对齐：`auth_switch.py` 的
+`save()` 同样滚动备份 `.prev` 并改用「临时文件 + 改名」原子写。
+
+那份陈旧文件已改名为 `auth-switch.json.prev_stale_20260913_archived` 保留现场，
+**不要**用它的内容去恢复配置。
+
+排查时用 `status` 看 `exists` 与 `source` 两个字段，区分"文件写着 true"和"文件根本不在"：
+
+```
+file    : D:\01_RPA\auth-switch.json
+exists      : False
+authEnabled : True
+source      : default  (file missing -> safe default: auth required)
+mode        : enforced (login required)
+```
+
+`auth-switch.json` / `.prev` 已加入 `.gitignore`：它是**本机运行态**，不同机器可以合法地
+取不同值，不应入库。
+
 ---
 
 ## 1. 命令行用法（等价手段）

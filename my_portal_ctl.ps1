@@ -32,8 +32,10 @@
 #  DESIGN NOTES
 #    * Windows PowerShell 5.1 only - this box has no pwsh.exe. Keep the script
 #      5.1-compatible (no ternary operator, no -Parallel, no ::new() niceties).
-#    * Child .bat files are started with Start-Process (a real console each) and
-#      waited on, so the operator reads each report window before it closes.
+#    * Child .bat files are waited on with a deadline, and their output is
+#      printed in THIS window; the operator presses Enter once, at the end.
+#      (An earlier design gave each bat its own window, but their trailing
+#      `pause` deadlocked the controller - see Invoke-ChildBat.)
 #    * my_app and portal single-service shortcuts intentionally DELEGATE to the
 #      .bat files already in the repo rather than reimplementing their stop
 #      logic (layered kill + stopped.flag + optional UAC retry). Duplicating
@@ -179,26 +181,32 @@ function Clear-StopFlag {
     }
 }
 
-# Run a repo .bat in its OWN console window so the operator can read its report.
+# How long a single child .bat may take before the controller gives up.
+# Generous: my_app's start.bat legitimately waits up to ~30s for the backend to
+# bind port 7038, plus a 6s settle. This is a safety net, not a target.
+$BatTimeoutSeconds = 180
+
+# Run a repo .bat and show its report in THIS window.
 #
-# WHY EACH BAT GETS ITS OWN WINDOW: these bats already handle their own hard
-# parts (layered process kills, stopped.flag, UAC retry, nginx's own-directory
-# signal). Running them with Start-Process gives each one a genuine console, so
-# their output and any UAC prompt behave exactly as they do when double-clicked
-# directly. Each bat ends with `pause`, so the operator reads that stage's
-# report and presses Enter to dismiss it before the next stage starts.
+# WHY THE BAT NO LONGER GETS ITS OWN WINDOW: it used to, so the operator could
+# read each stage's report there. That design deadlocked - the bats end with
+# `pause`, so the controller's Start-Process -Wait never returned and the
+# shortcut looked like it had done nothing (see the long note in the function
+# body). The bats now print here, and this controller asks for the single
+# "press Enter" the operator was promised.
 #
-# WHY STDIN IS *NOT* REDIRECTED: an earlier revision piped an empty stream in so
-# the children's `pause` returned instantly (one keypress for the whole run).
-# That had to go: Windows' timeout.exe refuses to run without a console
-# ("ERROR: Input redirection is not supported"), and my_app's start.bat waits
-# with `timeout /t 6 /nobreak`. Letting the children inherit the real console
-# fixes `timeout` and lets each window behave like a normal double-clicked bat.
+# The bats still handle their own hard parts (layered process kills,
+# stopped.flag, UAC retry, nginx's own-directory signal) - that division of
+# labour is unchanged.
+#
+# STDIN comes from an empty file, so a `pause` we did not anticipate returns at
+# once instead of blocking. The bats also swap `timeout` for `ping -n` when the
+# controller drives them, because timeout.exe refuses to run without a console
+# ("ERROR: Input redirection is not supported") - see MY_PORTAL_NO_PAUSE.
 function Invoke-ChildBat {
     param(
         [Parameter(Mandatory = $true)][string]$BatPath,
-        [string]$WorkDir,
-        [switch]$Hidden
+        [string]$WorkDir
     )
     if (-not (Test-Path -LiteralPath $BatPath)) {
         Write-Err "Not found: $BatPath"
@@ -238,68 +246,144 @@ function Invoke-ChildBat {
     # ...then put them back at the FRONT, so System32 wins the lookup.
     $env:PATH = (($windowsDirs + $pathParts) -join ';')
 
-    $startArgs = @{
-        FilePath         = "$env:ComSpec"
-        # Quote the path so a bat living under a directory with spaces is safe.
-        ArgumentList     = @('/c', "`"$BatPath`"")
-        WorkingDirectory = $WorkDir
-        PassThru         = $true
-        Wait             = $true
-    }
-    if ($Hidden) { $startArgs.WindowStyle = 'Hidden' }
-
     # ---------------------------------------------------------------------
-    # Suppress the startup result dialogs (THE "nothing happens" BUG).
+    # Run the child bat to completion WITHOUT it stopping to ask for a key, and
+    # let its report land in this window.
     #
-    # start.bat (my_app and portal) delegates to start_hidden.ps1, which - when
-    # NOT given -Quiet and when there is at least one warning - calls
-    # [System.Windows.Forms.MessageBox]::Show(...). That call BLOCKS until a
-    # human clicks OK, and the dialog can open *behind* other windows, so the
-    # operator sees nothing at all:
+    # THE BUG THIS FIXES (reproduced 2026-10-06):
     #
-    #   6-start_portal / 8-start_all  ->  start.bat
-    #     -> start_hidden.ps1  ->  MessageBox (waits for a click)
-    #       -> start.bat's own `pause` never runs
-    #         -> this Start-Process -Wait never returns
-    #           => the shortcut looks like it "does not start".
-    # (Reproduced 2026-10-06: a "Portal Startup Result" window was found parked
-    #  on screen; the chain had been blocked the whole time.)
+    #   6-start_portal -> controller -> start.bat
+    #      -> services start (they really do come up)
+    #      -> start.bat reaches its own trailing `pause` and waits for a human
+    #         -> the controller's Start-Process -Wait never returns
+    #            => the controller window froze on "[*] Running start.bat" and
+    #               the operator concluded "it did not start". The prompt lived
+    #               in the CHILD window, which is usually behind the controller.
     #
-    # The portal always trips this, because its WhatsApp 9268 check reports a
-    # warning even on a healthy start.
+    # Two separate blockers were involved, both triggered by the child wanting
+    # a console it does not really have:
     #
-    # FIX: run the child bat in "no popup" mode. The bats already support this
-    # through -Quiet, but -Quiet ALSO makes them honour stopped.flag, which must
-    # not block a deliberate start - so Clear-StopFlag() removes that flag first
-    # (see its comment). MY_PORTAL_NO_POPUP is exported for the bats to pass
-    # -Quiet through; the fallback below keeps working even if they do not.
+    #   1. start_hidden.ps1 pops a modal MessageBox whenever there is a warning
+    #      (non-Quiet). The portal ALWAYS warns about WhatsApp 9268, so this hit
+    #      every single portal start, and the dialog could open off-screen.
+    #      -> MY_PORTAL_NO_POPUP makes start.bat pass -Quiet (see the bats).
+    #
+    #   2. The bats end with `pause`. -> MY_PORTAL_NO_PAUSE makes them skip it.
+    #      They also swap `timeout` for `ping -n`, because Windows' timeout.exe
+    #      refuses to run with redirected input ("ERROR: Input redirection is
+    #      not supported") and would abort the wait loop.
+    #
+    # With both set, each stage runs to completion, its output is printed here,
+    # and the operator presses Enter exactly once - in this window.
+    #
+    # stdin is also pointed at an empty file as a backstop: should some future
+    # bat pause anyway, it returns instantly instead of hanging the controller.
     # ---------------------------------------------------------------------
     $env:MY_PORTAL_NO_POPUP = '1'
+    $env:MY_PORTAL_NO_PAUSE = '1'
 
-    # NOTE: stdin is deliberately NOT redirected here.
-    # `RedirectStandardInput` gives the child a pipe instead of a console, and
-    # Windows' timeout.exe refuses to run without a console:
-    #   "ERROR: Input redirection is not supported, exiting the process
-    #    immediately."
-    # my_app's start.bat waits with `timeout /t 6 /nobreak`, so redirecting
-    # stdin makes that wait fail. Instead, the child inherits this controller's
-    # console: each bat still gets its own window (Start-Process without
-    # -NoNewWindow), its `pause` behaves normally, and `timeout` works.
+    $emptyIn = Join-Path $env:TEMP 'my_portal_ctl_empty_stdin.txt'
+    if (-not (Test-Path -LiteralPath $emptyIn)) {
+        Set-Content -LiteralPath $emptyIn -Value '' -Encoding ASCII -ErrorAction SilentlyContinue
+    }
 
+    # Run the bat with its output streamed into THIS window.
+    #
+    # stdout/stderr are redirected to FILES rather than piped, and the child is
+    # polled with a hard deadline.
+    #
+    # WHY NOT A PIPE: my_app's start.bat launches the backend, the watchdogs and
+    # the worker groups as long-lived DETACHED processes. If we pipe the bat's
+    # output into PowerShell, the pipeline does not complete until every process
+    # holding the write end of that pipe exits - i.e. it waits for the whole
+    # service tree, not for the bat. Observed 2026-10-06: start.bat was long
+    # gone (zero descendants) yet the controller sat at 2s CPU for 10 minutes.
+    # Redirecting to a file avoids the inherited-handle wait entirely.
+    #
+    # The deadline is a safety net: if a bat ever does block (a future `pause`
+    # we did not anticipate), the controller reports it and carries on instead
+    # of hanging the operator's window forever.
+    $outFile = Join-Path $env:TEMP ("my_portal_ctl_{0}.out" -f [Guid]::NewGuid().ToString('N'))
+    $errFile = Join-Path $env:TEMP ("my_portal_ctl_{0}.err" -f [Guid]::NewGuid().ToString('N'))
+
+    # rcFile carries the child's exit code back to us. We cannot trust
+    # $proc.ExitCode: in PowerShell 5.1, Start-Process -PassThru followed by the
+    # timed WaitForExit(ms) overload leaves ExitCode EMPTY even though the
+    # process has exited (verified with `exit /b 7` - empty either way, and
+    # .Refresh() does not help). cmd writes the code itself instead.
+    $rcFile = Join-Path $env:TEMP ("my_portal_ctl_{0}.rc" -f [Guid]::NewGuid().ToString('N'))
+
+    $prevEAP = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    $rc = 0
+    $timedOut = $false
     try {
-        $proc = Start-Process @startArgs -ErrorAction Stop
-        $rc = $proc.ExitCode
-        Write-Host ''
-        if ($rc -eq 0) {
-            Write-Ok "$display finished (exit 0)."
-        } else {
-            Write-Warn "$display finished with exit code $rc - see its window output above."
+        Push-Location -LiteralPath $WorkDir
+        try {
+            # Quoting note (this exact form is load-bearing): the whole command
+            # after /c is ONE pre-quoted string, and the bat path keeps its own
+            # doubled quotes. Passing an array, or wrapping it again as
+            # `"cmd" /c "..."`, makes cmd report
+            #   "The filename, directory name, or volume label syntax is incorrect."
+            # because the redirects end up outside the quoted command.
+            #
+            # Redirection must be done by cmd, not PowerShell: `<` is not an
+            # operator in PowerShell ("reserved for future use").
+            #
+            # `/v:on` + `!ERRORLEVEL!` is required for the exit code: plain
+            # `%ERRORLEVEL%` is expanded when the line is PARSED, i.e. before the
+            # bat runs, so it always wrote the stale value (measured 0 for a bat
+            # that exits 7).
+            $cmdArgs = '/v:on /c ""{0}" < "{1}" > "{2}" 2>&1 & echo !ERRORLEVEL! > "{3}""' -f `
+                $BatPath, $emptyIn, $outFile, $rcFile
+
+            $proc = Start-Process -FilePath $env:ComSpec -ArgumentList $cmdArgs `
+                -WorkingDirectory $WorkDir -PassThru -NoNewWindow
+            if (-not $proc.WaitForExit($BatTimeoutSeconds * 1000)) {
+                $timedOut = $true
+                try { $proc.Kill() } catch { }
+            }
+        } finally {
+            Pop-Location
         }
-        return ($rc -eq 0)
     } catch {
         Write-Err "Could not run ${display}: $($_.Exception.Message)"
+        $rc = 1
+    } finally {
+        $ErrorActionPreference = $prevEAP
+    }
+
+    if (-not $timedOut -and (Test-Path -LiteralPath $rcFile)) {
+        $rcText = (Get-Content -LiteralPath $rcFile -Raw -ErrorAction SilentlyContinue)
+        if ($rcText) { $rcText = $rcText.Trim() }
+        if ($rcText -match '^-?\d+$') { $rc = [int]$rcText }
+    }
+    Remove-Item -LiteralPath $rcFile -Force -ErrorAction SilentlyContinue
+
+    # Print whatever the bat produced, prefixing each line so the controller's
+    # own output stays distinguishable from the child's.
+    foreach ($f in @($outFile, $errFile)) {
+        if (Test-Path -LiteralPath $f) {
+            Get-Content -LiteralPath $f -ErrorAction SilentlyContinue | ForEach-Object {
+                Write-Host "  $_"
+            }
+            Remove-Item -LiteralPath $f -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    if ($timedOut) {
+        Write-Warn "$display did not finish within $BatTimeoutSeconds s - it was stopped."
+        Write-Warn 'The services it had already launched keep running.'
         return $false
     }
+
+    Write-Host ''
+    if ($rc -eq 0) {
+        Write-Ok "$display finished (exit 0)."
+    } else {
+        Write-Warn "$display finished with exit code $rc - see the output above."
+    }
+    return ($rc -eq 0)
 }
 
 # The three nginx helpers live inside the nginx distribution directory, which
@@ -445,8 +529,14 @@ function Invoke-StopPortal {
 function Invoke-StartAll {
     Write-Head 'Start everything'
     Write-Host 'Order: my_app -> portal -> nginx' -ForegroundColor DarkGray
-    Write-Host 'my_app and portal each pop their own report window; nginx runs quietly.' -ForegroundColor DarkGray
+    Write-Host 'Every stage reports here; nginx runs quietly.' -ForegroundColor DarkGray
     Write-Host ''
+
+    # This drives the bats directly rather than via Invoke-StartMyApp /
+    # Invoke-StartPortal, so the stop markers have to be cleared here too -
+    # otherwise start_hidden.ps1's -Quiet path sees stopped.flag and skips.
+    Clear-StopFlag -Path (Join-Path $MyAppDir 'backend\stopped.flag')
+    if ($PortalDir) { Clear-StopFlag -Path (Join-Path $PortalDir 'stopped.flag') }
 
     Write-Host '--- 1/3  my_app ---' -ForegroundColor White
     Invoke-ChildBat -BatPath (Join-Path $MyAppDir 'start.bat') -WorkDir $MyAppDir | Out-Null
@@ -464,7 +554,7 @@ function Invoke-StartAll {
     if (Test-PortListening -Port 80) {
         Write-Ok 'Port 80 already listening - nginx left as is.'
     } else {
-        Invoke-ChildBat -BatPath (Get-NginxBat 'start_nginx.bat') -WorkDir $NginxDir -Hidden | Out-Null
+        Invoke-ChildBat -BatPath (Get-NginxBat 'start_nginx.bat') -WorkDir $NginxDir | Out-Null
     }
     Write-Host ''
 

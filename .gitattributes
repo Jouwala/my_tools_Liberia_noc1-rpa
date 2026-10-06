@@ -1,0 +1,30 @@
+# ---------------------------------------------------------------------------
+# 行尾规范（2026-10-06 新增）
+#
+# 背景：本仓库 core.autocrlf=true，且此前没有 .gitattributes，于是检出到工作区
+# 的 .bat 全是 **纯 LF**。cmd.exe 解析纯 LF 的批处理会**静默吞掉部分行的首字符**，
+# 实测症状：
+#
+#   Task\my_app\stop.bat   REM -> EM、Defense -> efense、loader's -> oader's
+#                          每次运行打印 14 行 "xxx is not recognized as an
+#                          internal or external command"
+#   Task\my_app\start.bat  'and was unexpected at this time.'
+#
+# 这类损坏很隐蔽：服务往往仍然启停成功，只有夹带的报错暴露了它；而一旦某行
+# 恰好是控制语句（goto/if/set），行为就会真的跑偏。
+#
+# 因此这里显式声明：批处理与 cmd 脚本**入库也用 CRLF**（-text 关闭任何行尾
+# 转换，eol=crlf 保证检出形态），从此不再依赖 core.autocrlf 的机器级设置。
+#
+# 校验方法（应为 CR>0 且 CR==LF）：
+#   $b=[IO.File]::ReadAllBytes('Task\my_app\stop.bat')
+#   ($b|?{$_ -eq 13}).Count; ($b|?{$_ -eq 10}).Count
+# ---------------------------------------------------------------------------
+*.bat   -text eol=crlf
+*.cmd   -text eol=crlf
+
+# PowerShell 脚本在 Windows 上同样按 CRLF 处理，避免同类解析意外。
+# （PowerShell 本身两种行尾都能跑，这里只为与 .bat 保持一致、便于 diff。）
+*.ps1   text eol=crlf
+
+# 其余文本类型交给 git 默认规则即可；这里只固定上述几类。

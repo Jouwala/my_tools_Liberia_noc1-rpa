@@ -547,6 +547,25 @@ async def startup_event():
     print(f"数据库: {DB_PATH}")
     print(f"已注册 {len(task_runner.list_tasks())} 个定时任务")
 
+    # 门户回调可达性自检（2026-10-06 新增）：my_app 的登录是「拿门户 token 回调门户
+    # /me 换取会话」，因此 UNIPLAM_ME_URL 必须指向**门户所在机器**。默认值是回环
+    # 127.0.0.1:9267，单机部署没问题；一旦 my_app 与门户分机部署而忘了设这个变量，
+    # 表现为"门户登录成功、跳进 my_app 却反复被要求登录"——病因藏得很深。
+    # 这里在启动时主动探一次，把配置问题直接打到启动日志里（不影响启动）。
+    try:
+        from backend.services import portal_auth as _pa
+        _reason = await _pa.probe_portal_reachable()
+        if _reason is None:
+            print(f"[startup] 门户回调地址可达: {_pa.UNIPLAM_ME_URL}")
+        else:
+            print(
+                f"[startup] ⚠ 门户回调地址不可达: {_pa.UNIPLAM_ME_URL} ({_reason})\n"
+                f"          若门户不在本机，请设置 UNIPLAM_ME_URL 指向门户所在机器，"
+                f"否则用户从门户跳转进来会一直停在未登录状态。"
+            )
+    except Exception as _e:
+        print(f"[startup] 门户回调可达性自检异常（不影响启动）: {_e}")
+
     # 自动拉起实时代理（8787 FMS / 8790 VMAX），让 CXO / Alarm 看板打开即有实时数据。
     # 用线程异步执行，不阻塞 startup；代理以 DETACHED 方式运行，backend 重启不会误杀。
     import threading

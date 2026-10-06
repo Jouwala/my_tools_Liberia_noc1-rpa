@@ -33,8 +33,26 @@
 | `MY_APP_DISABLE_SCHEDULER` | 未设 | 置位则不启动任何定时投递（调试/维护窗口用） |
 | `MY_APP_BACKEND_PORT` | `7038` | uvicorn 端口 |
 | `MY_APP_CORS_ORIGINS` | 7038/5173 白名单 | CORS 允许来源 |
-| `MY_APP_API_TOKEN` | 未设 | 远程接口令牌；**未设时远程一律 403**（反代场景下校验会被绕过，见风险章） |
+| `MY_APP_API_TOKEN` | 未设 | 远程接口令牌；**未设时远程一律 403**。判定已改为按代理头还原真实客户端（`backend/security.py:79-102`），详见 `05-security-and-credentials.md` |
 | `MY_APP_REMOTE_HOST` | 覆盖 `settings.json` | 远程主机地址（DB 写入服务 `DB_WRITER_PORT`=8765、`FTP_PORT`=21） |
+
+**统一门户登录链路（分机部署必看）**
+
+my_app 没有自己的账号体系，登录靠回调门户校验。这组键决定"回调谁"：
+
+| 键 | 默认 | 作用 |
+| --- | --- | --- |
+| `UNIPLAM_ME_URL` | `http://127.0.0.1:9267/uniplam/api/auth/me` | 门户 `/me` 校验地址。**默认值假定 my_app 与门户同机**；分机部署必须显式指向门户所在机器，否则门户登录成功、进 my_app 却一直未登录（`portal_auth.py:77`）。排障见 `13-operations.md` 的「门户回调用错地址」 |
+| `UNIPLAM_TIMEOUT` | `5` | 回调门户的超时（秒） |
+| `MYAPP_SESSION_TTL` | `28800`（8h） | myapp 会话有效期 |
+| `MYAPP_SESSION_SLIDING` | `1` | 滑动续期开关 |
+| `MYAPP_SESSION_COOKIE` | `myapp_session` | 会话 Cookie 名 |
+| `MYAPP_SESSION_MAX_TTL` | `0`（不封顶） | 会话绝对上限 |
+| `MYAPP_KIOSK_KEY` | 未设 | 大屏常驻登录密钥；未设时 `/api/auth/kiosk` 返回 404 |
+| `MYAPP_KIOSK_COOKIE_MAX_AGE` | 10 年 | 常驻会话 Cookie 寿命 |
+
+> 后端每次启动会自检 `UNIPLAM_ME_URL` 可达性并把结论打进启动日志，
+> 配错时**不用等用户登录失败**就能在日志里看到。
 
 **可靠性**
 

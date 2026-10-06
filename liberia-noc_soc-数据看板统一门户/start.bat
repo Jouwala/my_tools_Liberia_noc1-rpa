@@ -50,4 +50,12 @@ echo.
 echo   Double-click stop.bat to stop both services.
 echo ============================================
 echo.
-pause >nul
+:: When driven by my_portal_ctl.ps1 the controller owns the "press Enter"
+:: prompt (that way the operator reads every stage in one window and presses
+:: Enter exactly once). Pausing here too would block the controller's
+:: Start-Process -Wait and make the shortcut look like it had hung.
+if not defined MY_PORTAL_NO_PAUSE (
+    echo   Press Enter to close this window.
+    echo.
+    pause >nul
+)

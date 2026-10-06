@@ -308,6 +308,7 @@ def register_task(
     description_en: str = "",
     call_chain: list | None = None,
     master_switch_exempt: bool = False,
+    is_test: bool | None = None,
 ):
     """
     注册一个可调度的任务。
@@ -326,7 +327,13 @@ def register_task(
             豁免任务不参与批量切换，也不计入前端「是否全部启用」的判定，
             以免「按业务长期关闭」的任务把主开关永久钉在关闭态 —— 见
             task_registry.MASTER_SWITCH_EXEMPT_IDS 的说明。
+        is_test: 是否为测试任务。为 True 时，该任务执行仍会正常落库（便于测试
+            断言 task_execution_log），但**跳过失败通知**（微信/邮件），避免单元
+            测试刻意构造的失败把告警推给运维。测试记录对运维视图的隔离由
+            task_stats 的 TEST_TASK_PREFIX（`__t_`）过滤负责，那里不依赖本开关。
     """
+    if is_test is None:
+        is_test = False
     # 尝试加载用户自定义的调度配置
     saved_cron, saved_enabled = _load_schedule_config(task_id)
     current_cron = saved_cron if saved_cron else default_cron
@@ -365,6 +372,7 @@ def register_task(
         "gateway": gateway,
         "enabled": final_enabled,
         "master_switch_exempt": bool(master_switch_exempt),
+        "is_test": bool(is_test),
         "registered_at": datetime.now().isoformat(),
         "call_chain": _annotate_call_chain(_chain_raw, task_id),
         "call_chain_en": _annotate_call_chain(_chain_raw, task_id, lang="en"),
@@ -540,8 +548,14 @@ def run_task(task_id: str, trigger: str = "manual") -> dict:
         while len(_task_history) > MAX_HISTORY:
             _task_history.pop(0)
 
-    # 持久化到数据库
+    # 持久化到数据库（测试任务同样落库，便于测试断言；不落库会破坏既有用例）
     _save_task_result(result)
+
+    # 测试任务到此为止：不发失败/降级通知，避免单测刻意构造的失败骚扰运维渠道。
+    # 测试记录在运维视图里的隔离由 task_stats 的 `__t_` 前缀过滤保证。
+    if task.get("is_test"):
+        logger.debug("测试任务跳过通知", extra={"task_id": task_id})
+        return result
 
     # 任务失败时推送微信通知（OpenClaw 通道）。通知失败不影响任务结果记录。
     if not result["success"]:

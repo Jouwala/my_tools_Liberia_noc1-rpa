@@ -55,6 +55,11 @@ def tmp_db(monkeypatch):
     monkeypatch.setattr(_db, "DB_PATH", p)
 
     monkeypatch.setattr(tr, "notify_task_failure", lambda *a, **k: None)
+    # ⚠️ 必须一并屏蔽邮件通知：此前只 patch 了微信（notify_task_failure），
+    # 而 run_task 失败分支还会调 notify_task_failure_email 给 126 邮箱发告警。
+    # 于是 `__t_stat_bad__`（故意抛错的用例）每次跑都会真发一封
+    # "统计失败 / agg failure sample" 告警邮件——运维收到后误以为是线上故障。
+    monkeypatch.setattr(tr, "notify_task_failure_email", lambda *a, **k: None)
     # 默认保留 3 天，避免清理逻辑把刚写入的记录删掉
     monkeypatch.setenv("TASK_LOG_RETENTION_DAYS", "3")
     # 建表：_ensure_task_log_table 平时由 worker/启动流程调用，单测需自行准备，
@@ -212,13 +217,22 @@ def test_module_file_returns_none_for_missing(tmp_db):
 
 
 def test_get_task_stats_and_failures(tmp_db):
-    """#8/#9：单任务统计 + 失败聚合。"""
+    """#8/#9：单任务统计 + 失败聚合。
+
+    2026-10-06：失败聚合（get_recent_failures / get_task_history / get_global_history）
+    现在会**排除 `__t_` 测试任务**，避免单测刻意构造的失败被当成线上故障告警。
+    因此：
+      - 单任务统计（按 ID 精确查）仍用 `__t_stat_bad__`，验证统计口径；
+      - 失败聚合改用**非测试 ID**（`stat_bad`）来断言聚合内容；
+      - 另断言 `__t_` 前缀任务不出现在聚合里（新契约）。
+    """
     def ok():
         return {"success": True}
 
     def bad():
         raise RuntimeError("agg failure sample")
 
+    # 单任务统计：用测试 ID（精确查，不受前缀过滤影响）
     tr.register_task("__t_stat_ok__", "统计成功", ok, category="general")
     tr.register_task("__t_stat_bad__", "统计失败", bad, category="general")
     tr.run_task("__t_stat_ok__", trigger="manual")
@@ -235,10 +249,17 @@ def test_get_task_stats_and_failures(tmp_db):
     assert s2["total_runs"] == 1 and s2["success_rate"] == 1.0
     assert s2["avg_elapsed"] is not None and s2["last_seen"]
 
+    # 失败聚合：换用非测试 ID，验证聚合本身仍然工作
+    tr.register_task("stat_bad", "统计失败(非测试)", bad, category="general")
+    tr.run_task("stat_bad", trigger="manual")
+
     agg = tr.get_recent_failures(days=3)
-    assert agg["total_failures"] >= 2
+    assert agg["total_failures"] >= 1
     lines = [c["error_first_line"] for c in agg["clusters"]]
     assert any("agg failure sample" in l for l in lines), lines
+    # 新契约：测试任务（__t_）不得进入运维聚合视图
+    all_task_ids = {tid for c in agg["clusters"] for tid in c["tasks"]}
+    assert not any(tid.startswith("__t_") for tid in all_task_ids), all_task_ids
 
 
 def test_get_task_history_by_task(tmp_db):
