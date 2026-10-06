@@ -41,6 +41,11 @@ def _txt(label):
     return {"label_zh": label, "type": "str"}
 
 
+def _bool(label):
+    """布尔开关（前端 `TaskConfigFileEditor` 渲染成 Switch，见其 renderScalar）。"""
+    return {"label_zh": label, "type": "bool"}
+
+
 def _obj(label, fields):
     return {"label_zh": label, "type": "object", "fields": fields}
 
@@ -1222,6 +1227,7 @@ def _tt_alert_defaults():
         "severities": ",".join(sorted(s.SEVERITIES)),
         "alarm_codes": ",".join(sorted(s.ALARM_CODES)),
         "groups": ",".join(s.GROUPS),
+        "mail_enabled": bool(s.MAIL_ENABLED),
     }
 
 
@@ -1230,6 +1236,7 @@ register_config(ConfigResource(
     defaults={
         "window_minutes": 180, "resend_minutes": 20,
         "severities": "P1", "alarm_codes": "", "groups": "test123",
+        "mail_enabled": True,
     },
     schema={
         "window_minutes": _num("触发窗口（分钟）—— realtime_alarm 中告警升起时间在近 N 分钟内才触发首推"
@@ -1240,15 +1247,27 @@ register_config(ConfigResource(
         "alarm_codes": _txt("推送告警码白名单（逗号分隔，如 9920,9995；**留空=推送所有告警码**）"
                             "—— 99933 是「免推单」码，需显式填入才会推送"),
         "groups": _txt("WhatsApp 群组名（逗号分隔；留空=回退测试群 test123 并告警）"),
+        "mail_enabled": _bool("同步发邮件（Orange EWS）—— 每单首次通报确认发出后发一封，"
+                              "该单告警清除后再发一封结束汇总；重报不发。"
+                              "收件人在「邮件收件人」页的 P1 TT 告警通报邮件组维护"),
     },
     defaults_factory=_tt_alert_defaults,
     description="eFlow P1 告警 WhatsApp 推送：触发源为 realtime_alarm（每 30 分钟同步），"
                 "触发后实时回 eFlow 查单拿最新更新时间；P1 首推、停滞 20 分钟重报（带横幅）、"
                 "有更新不打扰、清除即止损。发送走 Baileys 推送进程，发送成功（服务端回执）才把 "
-                "send_status 置 Y；send_count 记录该单已发送次数。",
+                "send_status 置 Y；send_count 记录该单已发送次数。"
+                "另同步发邮件（Orange EWS）：每单首次通报确认发出后发一封（正文与 WhatsApp 同内容），"
+                "该单告警清除后再发一封结束汇总（生命周期时间轴 + 总历时）；"
+                "重报不发邮件。收件人在「Settings → 邮件收件人」的 P1 TT 告警通报邮件组维护，"
+                "开关为配置项 mail_enabled / 环境变量 TT_ALERT_MAIL_ENABLED。",
     description_en="eFlow P1 alarm WhatsApp push: triggered from realtime_alarm (synced every 30 min), "
                    "then live-fetches eFlow for the latest update time; first-push P1, re-notify after "
                    "20 min of no update (with banner), stay quiet while progressing, stop when cleared. "
                    "Sent via the Baileys push process; send_status is set to Y only on server-side "
-                   "ack, and send_count tracks how many times the ticket was sent.",
+                   "ack, and send_count tracks how many times the ticket was sent. "
+                   "An email is also sent over Orange EWS: one on the first confirmed notification per "
+                   "ticket (same content as the WhatsApp message), and one closure summary once the alarm "
+                   "is cleared (lifecycle timeline + total duration); re-notifications send no email. "
+                   "Recipients are maintained under Settings -> Email Recipients; the toggle is the "
+                   "mail_enabled config key / TT_ALERT_MAIL_ENABLED env var.",
 ))

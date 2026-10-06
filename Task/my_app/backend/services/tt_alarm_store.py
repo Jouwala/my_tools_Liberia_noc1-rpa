@@ -56,6 +56,17 @@ TRACK_COLUMNS = (
     "last_alarm_seen_time", "last_known_update_time", "last_check_time",
 )
 
+# 2026-10-06 新增的**邮件**幂等列：老库没有这些列，同样由 _ensure_columns 补上。
+#
+# 这两列是邮件「至多一封」的**唯一幂等键**（见 tt_alarm_whatsapp_service 的发信段）：
+#   * mail_notified_time —— 首次通报邮件已发出的时间
+#   * mail_summary_time  —— 结束汇总邮件已发出的时间
+# 非空即视为已发，**永不重发**。没有它们，每 5 分钟一轮的扫描会把同一单的
+# 汇总反复发出去（清除状态是持久事实，不会自己消失）。
+MAIL_COLUMNS = (
+    "mail_notified_time", "mail_summary_time",
+)
+
 
 def _is_sqlite(conn) -> bool:
     import sqlite3
@@ -76,7 +87,7 @@ def _existing_columns(conn, table: str) -> set:
 def _ensure_columns(conn, table: str) -> None:
     """给已存在的老表幂等补列（sqlite / PG 的 ADD COLUMN 语法在此场景一致）。"""
     present = _existing_columns(conn, table)
-    for col in TRACK_COLUMNS:
+    for col in TRACK_COLUMNS + MAIL_COLUMNS:
         if col not in present:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} TEXT")
 
@@ -102,7 +113,9 @@ def ensure_log_table(conn, table: str = LOG_TABLE) -> None:
             updated_time     TEXT,
             last_alarm_seen_time   TEXT,
             last_known_update_time TEXT,
-            last_check_time        TEXT
+            last_check_time        TEXT,
+            mail_notified_time     TEXT,
+            mail_summary_time      TEXT
         )
         """
     )
@@ -128,7 +141,8 @@ def load_records(conn, tt_nos: Iterable[str],
         cur = conn.execute(
             f"SELECT tt_no, send_status, send_count, last_send_time, "
             f"last_tt_modified, first_seen_time, last_error, "
-            f"last_known_update_time, last_check_time, last_alarm_seen_time "
+            f"last_known_update_time, last_check_time, last_alarm_seen_time, "
+            f"mail_notified_time, mail_summary_time "
             f"FROM {table} "
             f"WHERE tt_no IN ({marks})",
             tuple(chunk),
@@ -165,7 +179,31 @@ def base_record(row: Dict[str, Any],
         "last_alarm_seen_time": (existing or {}).get("last_alarm_seen_time"),
         "last_known_update_time": (existing or {}).get("last_known_update_time"),
         "last_check_time": (existing or {}).get("last_check_time"),
+        # 邮件幂等列：必须原样带过来，否则 upsert 会把"已发过"抹成 NULL，
+        # 下一轮扫描就会**重复发汇总**（本表 upsert 是整行覆盖，不是增量更新）。
+        "mail_notified_time": (existing or {}).get("mail_notified_time"),
+        "mail_summary_time": (existing or {}).get("mail_summary_time"),
     }
+
+
+def _read_mail_state(conn, tt_no, table: str = LOG_TABLE) -> Dict[str, Any]:
+    """只回查邮件幂等两列（`record_result` 未收到 existing 时的兜底）。
+
+    查不到（新单）或查询异常一律返回空 dict —— 不能让一次读失败把发送结果写挂。
+    """
+    if not tt_no:
+        return {}
+    try:
+        cur = conn.execute(
+            f"SELECT mail_notified_time, mail_summary_time FROM {table} WHERE tt_no = ?",
+            (str(tt_no),),
+        )
+        r = cur.fetchone()
+        if not r:
+            return {}
+        return {"mail_notified_time": r[0], "mail_summary_time": r[1]}
+    except Exception:  # noqa: BLE001
+        return {}
 
 
 def record_result(conn, row: Dict[str, Any], ok: bool, error: str = "",
@@ -180,7 +218,14 @@ def record_result(conn, row: Dict[str, Any], ok: bool, error: str = "",
 
     `tracking` 是本轮已知的跟踪字段（last_known_update_time / last_check_time /
     last_alarm_seen_time），随发送结果一并落库；缺省键保留 existing 原值。
+
+    ⚠️ **邮件幂等列（mail_*）不依赖调用方传 `existing`**：本表 upsert 是整行覆盖，
+    若哪天调用方漏传 existing，`mail_summary_time` 会被写成 NULL，同一单的汇总就会
+    被**反复重发**（清除是持久事实，不会自己消失）。故此处对未提供的 existing
+    主动回查一次这两列 —— 2026-10-06 实测确认过该风险真实存在。
     """
+    if existing is None:
+        existing = _read_mail_state(conn, row.get("tt_no"), table)
     rec = base_record(row, existing)
     for k, v in (tracking or {}).items():
         if k in TRACK_COLUMNS:
@@ -221,3 +266,50 @@ def refresh_tracking(conn, tt_no: str, tracking: Dict[str, Any],
     cur = conn.execute(
         f"UPDATE {table} SET {', '.join(sets)} WHERE tt_no = ?", tuple(vals))
     return (cur.rowcount or 0) > 0
+
+
+def mark_mail_sent(conn, tt_no: str, kind: str,
+                   when: Optional[str] = None, table: str = LOG_TABLE) -> bool:
+    """标记某单的某类邮件已发（`kind` ∈ {`notified`, `summary`}）。返回是否更新到行。
+
+    **这是邮件幂等的核心**：置位后 `pending_summary_mail` 不再返回该单，
+    且 `base_record` 会把该值原样带到后续 upsert，不会被后续写发送结果抹掉。
+    """
+    col = {"notified": "mail_notified_time", "summary": "mail_summary_time"}.get(kind)
+    if not tt_no or not col:
+        return False
+    ts = when or datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    cur = conn.execute(
+        f"UPDATE {table} SET {col} = ?, updated_time = ? WHERE tt_no = ?",
+        (ts, ts, str(tt_no)),
+    )
+    return (cur.rowcount or 0) > 0
+
+
+def pending_summary_mail(conn, limit: int = 200,
+                         table: str = LOG_TABLE) -> list:
+    """返回「需要发结束汇总」的单号列表。
+
+    选取条件（三条同时满足）：
+      1. `send_count > 0` —— **真发过 WhatsApp** 的单才发汇总。从未确认送达的单
+         没有「进展」可言，给它发汇总只会制造噪音。
+      2. `mail_summary_time` 为空 —— 还没发过汇总（幂等键）。
+      3. `mail_notified_time` 非空 —— 发过首次通报。保证顺序：先有通报才有汇总，
+         否则用户会先收到一封"结束汇总"，却从没见过这单的开始。
+
+    ⚠️ **本查询刻意不碰 `realtime_alarm`**：告警清除后该单会从实时表消失
+    （2026-10-06 实测：4 个已清除单在 realtime_alarm 里 0 命中，而 eflow_tt 里
+    4/4 都在）。所以「是否已结束」由调用方回 `eflow_tt` 用 `alarm_clear_time`
+    判断，本函数只负责把「在跟单且没发过汇总」的候选捞出来 —— 这是汇总邮件
+    唯一能可靠触发的路径。
+    """
+    cur = conn.execute(
+        f"SELECT tt_no FROM {table} "
+        f"WHERE send_count > 0 "
+        f"  AND (mail_summary_time IS NULL OR mail_summary_time = '') "
+        f"  AND mail_notified_time IS NOT NULL AND mail_notified_time != '' "
+        f"ORDER BY COALESCE(last_send_time, updated_time) ASC "
+        f"LIMIT ?",
+        (int(limit),),
+    )
+    return [str(r[0]) for r in cur.fetchall()]

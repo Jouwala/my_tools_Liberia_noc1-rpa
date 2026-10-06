@@ -65,6 +65,8 @@ from typing import Any, Dict, List, Optional
 
 from backend.database import get_raw_connection
 from backend.services import tt_alarm_config as config_mod
+from backend.services import tt_alarm_mail_body as mail_body
+from backend.services import tt_alarm_mailer as mailer
 from backend.services import tt_alarm_sources as sources
 from backend.services import tt_alarm_store as store
 from backend.services import tt_alarm_trigger as trigger
@@ -107,6 +109,10 @@ GROUPS = _CFG["groups"]                    # 目标群组；留空时已回退�
 GROUPS_FALLBACK = _CFG["groups_fallback"]  # True = 正发往测试群，调用方须显式告警
 DEFAULT_GROUPS = config_mod.DEFAULT_GROUPS
 SAMPLE_LIMIT = 3                           # 结果里附带的消息样例上限
+# 邮件通道开关（2026-10-06 新增）。True 时：每单首次通报确认发出后发一封邮件，
+# 该单告警清除后再发一封结束汇总。收件人来自「Settings → 邮件收件人」
+# 的 `tt_alarm_p1_email` 组（默认 dong.xinmin@zte.com.cn），**不写死在本模块**。
+MAIL_ENABLED = _CFG["mail_enabled"]
 # 分析引擎的输出语言。告警消息发给利比里亚现场团队，历史上群里用的是英文，
 # 故默认 en（引擎支持 zh/en，见 whatsapp-kb-bot/scripts/tt-analyze.py:77）。
 ANALYZE_LANG = os.environ.get("TT_ALERT_LANG", "en")
@@ -141,6 +147,103 @@ def ensure_log_table(conn) -> None:
 def load_records(conn, tt_nos) -> Dict[str, Dict[str, Any]]:
     """批量读日志表（tt_no → 记录）。见 tt_alarm_store.load_records。"""
     return store.load_records(conn, tt_nos, LOG_TABLE)
+
+
+# ==========================================================
+# 邮件通道（2026-10-06 新增）
+#
+# 用户要求：发送 WhatsApp 的同时也发邮件，主题英文 "P1 TT Progress Notification"。
+# 用户进一步明确两点时序：
+#   * 邮件在 **WhatsApp 确认发出后** 才发（不是同时）——否则邮件说发了、群里没到；
+#   * **每单第一次通报**发一封；该单 **结束（告警清除）** 再发一封汇总。
+# 重报（20 分钟停滞再推）**不发**邮件。
+#
+# 幂等靠日志表两列（见 tt_alarm_store.MAIL_COLUMNS）：mail_notified_time /
+# mail_summary_time，非空即"已发过"，永不重发。
+# ==========================================================
+def _mail_recipients() -> tuple:
+    """从「Settings → 邮件收件人」取当前生效的 (to, cc)。读不到返回 (None, "")。"""
+    try:
+        from backend.services.email_recipient_store import get_email_recipients
+        return get_email_recipients("tt_alarm_p1_email")
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[TTAlert] 读邮件收件人失败: %s", e)
+        return None, ""
+
+
+def send_first_notification_mail(row: Dict[str, Any], wa_text: str) -> bool:
+    """发「首次通报」邮件并在日志表置位。失败返回 False（调用方记 warnings）。
+
+    **只在该单第一次推送确认发出后调用**（`reminder_no == 1`）。
+    """
+    tt_no = _s(row.get("tt_no"))
+    if not MAIL_ENABLED:
+        return False
+    to, cc = _mail_recipients()
+    if not _s(to):
+        logger.info("[TTAlert] %s 首次通报邮件跳过：未配置收件人", tt_no)
+        return False
+    ok = mailer.send_mail(
+        subject=mail_body.SUBJECT_NOTIFIED,
+        body=mail_body.build_notified_body(row, wa_text),
+        to=to, cc=cc, source="tt_alarm_notify")
+    if ok:
+        try:
+            with get_raw_connection() as conn:
+                store.mark_mail_sent(conn, tt_no, "notified", table=LOG_TABLE)
+        except Exception as e:  # noqa: BLE001
+            # 置位失败只影响幂等（下轮可能重发一次），不能因此判定发送失败
+            logger.warning("[TTAlert] %s 置首次通报标记失败: %s", tt_no, e)
+    return ok
+
+
+def run_summary_mail_scan(out: Dict[str, Any]) -> None:
+    """扫描「已发过通报且未发汇总」的单，对其中**已清除**的发结束汇总邮件。
+
+    ⚠️ 必须走日志表而不是 `realtime_alarm`：告警清除后该单会从实时表消失
+    （2026-10-06 实测 4 个已清除单在 realtime_alarm 里 0 命中），所以主循环
+    的 `if cleared:` 分支几乎永不命中 —— 汇总若挂在那个分支上，一封都发不出去。
+    本函数独立回 `eflow_tt` 查 `alarm_clear_time`，与告警是否还活跃无关。
+    """
+    if not MAIL_ENABLED:
+        return
+    to, cc = _mail_recipients()
+    if not _s(to):
+        return
+    try:
+        with get_raw_connection() as conn:
+            pending = store.pending_summary_mail(conn, table=LOG_TABLE)
+            if not pending:
+                return
+            # 批量查 eflow_tt：只要「已清除」的（alarm_clear_time 非空）
+            cleared = sources.cleared_rows(conn, pending)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[TTAlert] 汇总扫描失败: %s", e)
+        out["errors"].append(f"汇总邮件扫描失败: {type(e).__name__}: {e}")
+        return
+
+    sent_n, fail_n = 0, 0
+    for tt_no, row in cleared.items():
+        try:
+            ok = mailer.send_mail(
+                subject=mail_body.SUBJECT_SUMMARY,
+                body=mail_body.build_summary_body(row, wa_text=None),
+                to=to, cc=cc, source="tt_alarm_summary")
+            if ok:
+                sent_n += 1
+                with get_raw_connection() as conn:
+                    store.mark_mail_sent(conn, tt_no, "summary", table=LOG_TABLE)
+            else:
+                fail_n += 1
+        except Exception as e:  # noqa: BLE001
+            fail_n += 1
+            logger.warning("[TTAlert] %s 汇总邮件异常: %s", tt_no, e)
+    if sent_n or fail_n:
+        out["mail_summary_sent"] = sent_n
+        out["mail_summary_failed"] = fail_n
+        if fail_n:
+            out["warnings"].append(
+                f"{fail_n} 单的结束汇总邮件发送失败（WhatsApp 推送不受影响）")
 
 
 # ==========================================================
@@ -294,6 +397,10 @@ def run_tt_alarm_whatsapp_alert() -> Dict[str, Any]:
         if not rows:
             out["success"] = True
             out["message"] = f"触发窗口 {meta['window_since']} 起无带 TT 的白名单告警"
+            # ⚠️ 早退也必须跑汇总扫描：没有新告警的轮次恰恰是最常发生的情况，
+            # 而"某单已清除该发汇总了"与"本轮有没有新告警"完全无关。漏了这句，
+            # 汇总就只在有告警的轮次才可能发出（且那些轮次多半没有已清除的单）。
+            run_summary_mail_scan(out)
             return _finish()
 
         tt_nos = [r["tt_no"] for r in rows]
@@ -383,6 +490,7 @@ def run_tt_alarm_whatsapp_alert() -> Dict[str, Any]:
             out["success"] = True
             out["message"] = (f"候选 {len(rows)} 单：重报冷却/有更新 {out['skipped_cooldown'] + out['skipped_recent_update']}"
                               f"，已清除 {out['cleared']}，级别不符 {out['dropped_severity']}，本轮不发")
+            run_summary_mail_scan(out)
             return _finish()
 
         # ---------- 4. 渲染（重报带横幅） ----------
@@ -408,6 +516,10 @@ def run_tt_alarm_whatsapp_alert() -> Dict[str, Any]:
                              if upd_dt else RESEND_MINUTES)
                 banner = reminder_banner(reminder_no, open_min, stale_min)
                 text = f"{banner}\n{text}"
+            # 回挂到 d：发送结果确认后要据此判断"是否首次通报"以及复用**同一份**
+            # 文本发邮件（用户要求邮件与 WhatsApp 内容一致，不重新渲染）。
+            d["reminder_no"] = reminder_no
+            d["wa_text"] = text
             messages.append({"tt_no": _s(row.get("tt_no")), "text": text})
 
         out["samples"] = [{"tt_no": m["tt_no"], "text": m["text"]}
@@ -444,6 +556,9 @@ def run_tt_alarm_whatsapp_alert() -> Dict[str, Any]:
                 f"本轮 {len(due)} 单 P1 告警**投递失败**，值班群没有收到："
                 + "; ".join(str(e) for e in (disp.get("errors") or ["投递失败"]))
             )
+            # 投递失败不影响"别的单该发汇总了"这件事，故仍要跑（且此时本轮的
+            # 首次通报邮件一律不发 —— 因为一条都没确认发出）。
+            run_summary_mail_scan(out)
             return _finish()
 
         # ---------- 6. 等推送进程回报：只有确认真实发出的单才置 'Y' ----------
@@ -457,6 +572,9 @@ def run_tt_alarm_whatsapp_alert() -> Dict[str, Any]:
 
         sent_ids = {_s(x) for x in rep["sent"]}
         ok_count, fail_count = 0, 0
+        # 首次通报邮件：只对"本轮确认发出且是该单第一次通报"的单发（用户要求）。
+        # 必须在**确认发出之后**才发 —— 否则会出现邮件说发了、群里实际没到。
+        mail_targets: List[tuple] = []
         for d in due:
             tt_no = _s(d["row"].get("tt_no"))
             try:
@@ -464,6 +582,9 @@ def run_tt_alarm_whatsapp_alert() -> Dict[str, Any]:
                     record_result(d["row"], ok=True, existing=records.get(tt_no),
                                   tracking=d["tracking"])
                     ok_count += 1
+                    # reminder_no 见上方渲染段：== 1 即该单第一次通报
+                    if int(d.get("reminder_no") or 1) <= 1:
+                        mail_targets.append((d, tt_no))
                 else:
                     err = ("; ".join(rep["errors"])
                            or ("推送进程未确认该单发送成功" if rep["confirmed"] else "未获推送进程回报"))
@@ -496,6 +617,30 @@ def run_tt_alarm_whatsapp_alert() -> Dict[str, Any]:
                 f"必要时 npm run relogin 重新扫码"
             )
 
+        # ---------- 7. 邮件通道（WhatsApp 确认发出之后才发，见用户 2026-10-06 要求） ----------
+        # 邮件失败**绝不**影响 out["success"] / send_status —— 它只是附加通道，
+        # 只记 warnings 让人知道"群里发了但邮件没发出去"。
+        if MAIL_ENABLED and mail_targets:
+            mail_ok, mail_fail = 0, 0
+            for d, tt_no in mail_targets:
+                try:
+                    if send_first_notification_mail(d["row"], d.get("wa_text") or ""):
+                        mail_ok += 1
+                    else:
+                        mail_fail += 1
+                except Exception as e:  # noqa: BLE001
+                    mail_fail += 1
+                    logger.warning("[TTAlert] %s 通报邮件异常: %s", tt_no, e)
+            out["mail_notified_sent"] = mail_ok
+            out["mail_notified_failed"] = mail_fail
+            if mail_fail:
+                out["warnings"].append(
+                    f"{mail_fail} 单的首次通报邮件发送失败"
+                    f"（WhatsApp 已有 {mail_ok} 单正常发出，不受影响）")
+
+        # 结束汇总：独立扫描（不能挂在上面的活跃告警循环上，理由见 run_summary_mail_scan）
+        run_summary_mail_scan(out)
+
     except Exception as e:  # noqa: BLE001
         logger.exception("[TTAlert] 任务执行失败")
         out["errors"].append(f"{type(e).__name__}: {e}")
@@ -513,6 +658,7 @@ __all__ = [
     "WAIT_SECONDS", "dispatch", "wait_for_job_result",
     "render_message_ex", "render_tt_analysis", "render_with_reason", "engine_available",
     "build_tt_message", "reminder_banner",
+    "MAIL_ENABLED", "send_first_notification_mail", "run_summary_mail_scan",
 ]
 
 # 配置文件路径的对外别名（配置模块拥有它；这里转发便于调用方只 import 本模块）

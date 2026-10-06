@@ -121,3 +121,41 @@ def merged_render_row(trig: Dict[str, Any], mirror: Optional[Dict[str, Any]],
     if not _s(merged.get("alarm_occur_time")):
         merged["alarm_occur_time"] = trig.get("alarm_raised_time")
     return merged
+
+
+def cleared_rows(conn, tt_nos) -> Dict[str, Dict[str, Any]]:
+    """从 `eflow_tt` 取**已清除**的单（`alarm_clear_time` 非空）→ {tt_no: 行}。
+
+    为什么单独一个查询（2026-10-06）：结束汇总邮件要判断"这单结束了没"，而
+    **告警一清除就会从 `realtime_alarm` 消失**（实测 4 个已清除单在实时表里
+    0 命中），所以主循环那份活跃告警候选永远看不到它们。这里直接回 `eflow_tt`
+    查 —— 那是清除状态的权威来源，与告警是否还活跃无关。
+
+    取多列而非 COUNT：汇总正文要用 alarm_occur_time / alarm_clear_time /
+    created_time / last_modified_time 算时间轴与总历时。
+    查询失败返回空 dict（调用方本轮不发汇总，下轮再试，不影响推送）。
+    """
+    out: Dict[str, Dict[str, Any]] = {}
+    ids = [str(t) for t in (tt_nos or []) if t]
+    if not ids:
+        return out
+    cols = ("tt_no, ticket_severity, site_id, site_name, title, alarm_code, "
+            "alarm_occur_time, alarm_clear_time, created_time, last_modified_time")
+    try:
+        for i in range(0, len(ids), 200):
+            chunk = ids[i:i + 200]
+            marks = ",".join("?" * len(chunk))
+            cur = conn.execute(
+                f"SELECT {cols} FROM eflow_tt "
+                f"WHERE tt_no IN ({marks}) "
+                f"AND alarm_clear_time IS NOT NULL AND alarm_clear_time != ''",
+                tuple(chunk),
+            )
+            names = [d[0] for d in cur.description]
+            for r in cur.fetchall():
+                row = dict(zip(names, r))
+                out[str(row["tt_no"])] = row
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[TTAlert] 查已清除单失败（汇总邮件本轮跳过）: %s", e)
+        return {}
+    return out

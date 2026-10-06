@@ -38,6 +38,10 @@ DEFAULT_RESEND_MINUTES = 20
 DEFAULT_QUERY_LIMIT = 500
 DEFAULT_SEVERITIES = "P1"
 DEFAULT_GROUPS = ["test123"]
+# P1 通报**邮件**开关（2026-10-06 新增）。默认开：用户要求「发送 whatsapp 的同时
+# 同时发邮件」。收件人**不在本文件**——由「Settings → 邮件收件人」页维护
+# （`email_recipient_store` 的 `tt_alarm_p1_email` 组），避免出现第二个真相源。
+DEFAULT_MAIL_ENABLED = True
 
 CONFIG_FILE = Path(__file__).resolve().parent / "tt_alert_whatsapp_config.json"
 
@@ -48,6 +52,27 @@ ENV_LIMIT = "TT_ALERT_QUERY_LIMIT"
 ENV_SEVERITIES = "TT_ALERT_SEVERITIES"
 ENV_ALARM_CODES = "TT_ALERT_ALARM_CODES"
 ENV_GROUPS = "TT_ALERT_WHATSAPP_GROUPS"
+ENV_MAIL_ENABLED = "TT_ALERT_MAIL_ENABLED"
+
+
+def truthy(value: Any, default: bool = False) -> bool:
+    """宽松布尔解析：'1/true/yes/on'（不分大小写）= 真，'0/false/no/off' = 假。
+
+    无法识别（None/空/乱填）时返回 `default` —— 配置写错不该让邮件通道**静默**
+    变成关闭，故 `mail_enabled` 调用时传 `True` 作默认。
+
+    ⚠️ 不能写 `str(value or "")`：JSON 里的布尔 `false` 是 Python `False`，
+    `False or ""` 直接塌成 `""`，于是「配置里明确写了 false」会被当成"没配置"
+    而退回默认（开）—— 用户关不掉邮件开关。2026-10-06 单测逮到过。
+    """
+    if isinstance(value, bool):
+        return value
+    txt = str("" if value is None else value).strip().lower()
+    if txt in ("1", "true", "yes", "on"):
+        return True
+    if txt in ("0", "false", "no", "off"):
+        return False
+    return default
 
 
 def csv_list(value: Any) -> List[str]:
@@ -133,6 +158,17 @@ def parse_config(conf: Dict[str, Any], norm_code, env: Dict[str, str]) -> Dict[s
     else:
         out["groups"] = list(DEFAULT_GROUPS)
         out["groups_from"], out["groups_fallback"] = "default", True
+
+    # 邮件开关：env > 文件 > 默认(开)。解析不了时保持开启（见 truthy 的说明）。
+    env_mail = env.get(ENV_MAIL_ENABLED)
+    if env_mail not in (None, ""):
+        out["mail_enabled"], out["mail_enabled_from"] = (
+            truthy(env_mail, DEFAULT_MAIL_ENABLED), "env")
+    elif "mail_enabled" in conf:
+        out["mail_enabled"], out["mail_enabled_from"] = (
+            truthy(conf.get("mail_enabled"), DEFAULT_MAIL_ENABLED), "file")
+    else:
+        out["mail_enabled"], out["mail_enabled_from"] = DEFAULT_MAIL_ENABLED, "default"
     return out
 
 

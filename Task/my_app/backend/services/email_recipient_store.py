@@ -172,6 +172,15 @@ def _default_battery() -> Tuple[List[str], List[str]]:
     return _read_remote_dir(BATT_EMAIL_REMOTE)
 
 
+def _default_tt_alarm() -> Tuple[List[str], List[str]]:
+    """P1 TT 通报邮件默认收件人（用户 2026-10-06 指定）。
+
+    固定默认，不读名单文件 —— 该任务本是 WhatsApp 推送，邮件是附加通道，
+    没有既有的 ss/cc 名单来源。用户在「Settings → 邮件收件人」改过即以页面值优先。
+    """
+    return ["dong.xinmin@zte.com.cn"], []
+
+
 # ============================================================
 # 收件人组注册表（key、显示名、默认来源 loader）
 # key 与 task_registry.py 中各邮件任务的 task_id 对齐（liberia 1h/8h 共用一组）。
@@ -272,6 +281,13 @@ EMAIL_RECIPIENT_GROUPS = [
         "name": "电池 KPI 邮件",
         "name_en": "Battery KPI Email",
         "default_loader": _default_battery,
+    },
+    {
+        # P1 TT 通报邮件的收件人（2026-10-06 新增，原为 WhatsApp 推送的附加邮件通道）
+        "key": "tt_alarm_p1_email",
+        "name": "P1 TT 告警通报邮件",
+        "name_en": "P1 TT Alarm Progress Email",
+        "default_loader": _default_tt_alarm,
     },
 ]
 

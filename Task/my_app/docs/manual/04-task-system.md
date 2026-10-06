@@ -431,6 +431,7 @@ USSD 的日表当时只剩 2026-08-25~27 三行，而月表里有完整的 6 个
 | `severities` | 级别 | 默认 `P1`；**留空 = 不限级别**（P1/P2/…全推） |
 | `alarm_codes` | 告警码 | 默认不含 `99933`；**这是白名单**，留空 = 不限告警码 |
 | `groups` | WhatsApp 群组 | 默认 `test123`；**留空会回退到测试群并在结果里告警**（见下） |
+| `mail_enabled` | 邮件开关 | 默认 `true`；控制首次通报/结束汇总邮件是否发送（收件人在「邮件收件人」页，不在此表） |
 
 > **两个语义容易记反，改配置前先确认**（2026-09-28 按用户要求调整为现状）：
 > 1. **告警码是「白名单」而不是「排除表」**。`99933` 之所以默认不推，只是因为它**不在**
@@ -443,6 +444,54 @@ USSD 的日表当时只剩 2026-08-25~27 三行，而月表里有完整的 6 个
 > 集合为空、`in` 恒为假，于是**每一单都被丢掉**（界面标签却写着「留空=不限」）。已修为
 > `if SEVERITIES and ... not in SEVERITIES`，并有变异测试守着
 > （`tests/test_tt_alarm_config.py::test_empty_severities_means_no_filter_not_drop_all`）。
+
+### 同步发邮件（2026-10-06 新增，Orange EWS）
+
+用户要求：**发 WhatsApp 的同时也发邮件**，主题英文 `P1 TT Progress Notification`。
+时序与范围由用户当面明确为两条，实现严格照此：
+
+| 时机 | 发什么 | 幂等键（日志表列） |
+| --- | --- | --- |
+| 每单**第一次**通报**确认发出后** | 完整分析（与 WhatsApp **同一份内容**，原样内嵌不重渲染） | `mail_notified_time` |
+| 该单**结束**（`alarm_clear_time` 非空） | 生命周期时间轴 + 总历时 | `mail_summary_time` |
+
+重报（20 分钟停滞再推）**不发**邮件。两列非空即「已发过」，**永不重发**。
+
+**收件人不写死在代码里** —— 走已有的「Settings → 邮件收件人」页
+（`backend/services/email_recipient_store.py` 的 `tt_alarm_p1_email` 组，
+默认 `dong.xinmin@zte.com.cn`）。该页是收件人的**唯一真相源**：页面保存值优先、
+30 秒缓存生效、无需重启。开关是任务配置页的 `mail_enabled`
+（环境变量 `TT_ALERT_MAIL_ENABLED`，默认开）。
+
+**通道是项目的 Orange 邮箱**（发件人 `ztenoc.olr@orange.com`，凭据组 `owa_mail`），
+不是 126 —— 用户 2026-10-06 明确指定。实现见 `backend/services/tt_alarm_mailer.py`。
+
+> ⚠️ **汇总不能挂在活跃告警循环上（本特性最容易做错的一点）**：告警一清除，该单就
+> 从 `realtime_alarm` **彻底消失**（2026-10-06 实测：4 个已清除单在实时表里 **0 命中**，
+> 而 `eflow_tt` 里 4/4 都在）。所以主循环里那个 `if cleared:` 分支**几乎永不命中** ——
+> 汇总若挂在那里，**一封都发不出去**。故汇总走**独立的日志表扫描**
+> （`store.pending_summary_mail()` 选「发过通报 + 未发汇总」的候选，再回 `eflow_tt`
+> 查 `alarm_clear_time`），与告警是否还活跃无关。三条早退路径
+> （无候选 / 无 due / 投递失败）**都必须调用** `run_summary_mail_scan()`
+> —— 「本轮没有新告警」恰恰是最常发生的情况，而「某单该发汇总了」与之无关。
+
+> ⚠️ **幂等列不能被 upsert 抹掉**：日志表 upsert 是**整行覆盖**，一旦
+> `mail_summary_time` 被写成 NULL，同一单的汇总会被**反复重发**（清除是持久事实，
+> 不会自己消失）。`store.base_record` 原样保留这两列，且 `record_result` 在调用方
+> 未传 `existing` 时会主动回查一次兜底。`tests/test_tt_alarm_mail.py` 有两条
+> 突变验证守着（故意破坏即失败）。
+
+**邮件失败绝不影响推送**：`tt_alarm_mailer.send_mail()` 只返回 bool、不抛异常，
+失败只记进任务结果的 `warnings` 与 `mail_notified_failed` / `mail_summary_failed`
+计数 —— 邮件是 WhatsApp 之外的附加通道，它挂掉不能让告警推送"失败"。
+
+> **两个实测坑（写进 `tt_alarm_mailer.py` 模块 docstring，勿重犯）**：
+> ① `EXCHANGE_2016` 是 `Build` 不是 `Version`，必须包
+> `Version(build=EXCHANGE_2016, api_version="Exchange2016")`，否则 `InvalidTypeError`；
+> ② 内网 EWS 自签证书，必须设 `Protocol.HTTP_ADAPTER_CLS = NoVerifyHTTPAdapter`，
+> 否则 `SSLCertVerificationError: unable to get local issuer certificate`。
+> 另：`liberia_email_report.py` 里「后端未装 exchangelib、须用托管 venv 子进程」的
+> 注释**已过时** —— 实测后端 Python 3.12 自带 exchangelib 5.6.0，本通道**进程内直发**。
 
 **级别过滤口径**：以**实时查单行**的 `ticket_severity` 为准（镜像兜底）；留空语义见
 `tt_alarm_config.py`（级别/告警码留空 = 不过滤）。在跟单的级别若被 eFlow 改掉
@@ -501,7 +550,9 @@ worker 分组重启才生效（`backend/routers/task_configs.py`）。
 | `backend/services/tt_alarm_config.py` | 配置读取、归一化、「留空」语义 |
 | `backend/services/tt_alarm_message.py` | 消息渲染（纯函数，**降级模板**：头部 7 行 + 重报横幅） |
 | `backend/services/tt_alarm_render.py` | **主渲染路径**：子进程调 kb-bot 分析引擎出完整消息 |
-| `backend/services/tt_alarm_store.py` | 日志表建表、幂等补列与读写 |
+| `backend/services/tt_alarm_store.py` | 日志表建表、幂等补列（含邮件幂等列）与读写 |
+| `backend/services/tt_alarm_mailer.py` | **邮件发送通道**（Orange EWS，进程内直发，失败不抛异常） |
+| `backend/services/tt_alarm_mail_body.py` | 邮件正文构造（首次通报 / 结束汇总，纯函数） |
 | `backend/services/wa_notify_service.py` | **Baileys 发送通道**（投递/回报/心跳/通道预检） |
 | `backend/services/eflow_data_mapper.py` | 实时查单实现（`fetch_tt_live_batch`，base/list 分页遍历） |
 

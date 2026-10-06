@@ -3,5 +3,6 @@
   "resend_minutes": 20,
   "severities": "P1",
   "alarm_codes": "",
-  "groups": "*P1 OLR ZTE MS Manager*"
+  "groups": "*P1 OLR ZTE MS Manager*",
+  "mail_enabled": true
 }
