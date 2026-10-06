@@ -1147,11 +1147,29 @@ def _run_battery_email_impl(to: str | None = None, cc: str | None = None) -> dic
 # 「登录频率治理」一节；MW UME 的同款修复见 mw_ume/mw_ume_kpi_service.py）。
 #
 # 修复思路：先复用 auth_manager 的跨进程共享会话，复用不到才走本服务的
-# RSA 登录，登录成功后回写共享缓存。三件套缺一不可（每条都是 MW 接入时
-# 实测踩过的坑，教训原文保留）：
-#   1. _try_shared_auth()      复用前读缓存（必须 _read_cache，绝不能 get_auth）
-#   2. _probe_session_alive()  采纳前探业务端点（探登录首页会得到假绿 200）
-#   3. _write_shared_auth()    登录成功后回写（只读不写 = 每轮白探照样登录）
+# RSA 登录，登录成功后回写共享缓存。
+#
+# 【2026-10-06 统一到 auth_manager.get_auth(probe=...)】
+# 本服务原先自带一套"三件套"（`_try_shared_auth` 读缓存 + 本地探活 + 自有登录后
+# 回写）。现改为**只保留探活函数**，把"何时探活 / 缓存作废 / 单次重登"三段策略
+# 全部交给 auth_manager —— 与 ran_ume_service.py:416、ms_sla_sync.py:653、
+# ran_ume_alarm_service.py:154 同一套写法。
+#
+# 为什么可以（也应当）这样改：旧写法之所以必须只读 `_read_cache()`，是因为当时
+# 的自有登录还留在本服务里，若调 `get_auth()` 就会"共享没命中 → auth_manager
+# 登录一次 → 本服务又登录一次"的**双重登录**。现在 `_acquire_auth()` 本身
+# 就走 `get_auth()`，这个顾虑随之消失。
+#
+# ⚠ 但本服务的 `_acquire_auth()` **保留了 auth_info.json 回退链与自有 RSA 登录
+# 分支**（fetcher.login_rsa / ensure_auth_info），它们是 auth_manager 不可用或
+# 上游登录失败时的第二、三层兜底；走这条路的会话不经过 auth_manager，因此
+# `_write_shared_auth` 回写**必须保留**（见其函数注释）。
+#
+# ⚠ `_acquire_auth()` 里的 `get_auth` 调用有**两道**保护：先由
+# `_import_auth_manager()` 返回 None 时不进入共享分支（这是本服务与 MW/CNN
+# 写法不同之处 —— 那两处是 import 就地 try/except ImportError），再套一层
+# `except Exception` 兜住 get_auth 自身的失败。两层都落到下面的自有登录回退链，
+# 保证 auth_manager 不可用时本服务仍能独立工作。
 
 # 共享缓存 TTL：2026-10-06 起**不在本模块写死**，改由 auth_manager 按主机解析
 # （`AUTH_TTL_OVERRIDES` 里 192.168.170.2:443=1800；主机未列出才回退 AUTH_TOKEN_TTL）。
@@ -1170,11 +1188,10 @@ def _run_battery_email_impl(to: str | None = None, cc: str | None = None) -> dic
 def _import_auth_manager():
     """按「后端包 / 独立运行」两种环境导入 auth_manager，不可用时返回 None。
 
-    ⚠ 读缓存必须用模块的 _read_cache()，**绝不能调 get_auth()**：
-    get_auth() 不是只读的，缓存未命中时它会直接走到 _do_login() 真实登录，
-    盲目调用会变成"共享没命中 → auth_manager 登录一次 → 本服务又登录一次"
-    的双重登录，比不接共享更糟（MW 接入时实测踩过，见
-    docs/manual/13-operations.md 普查章节）。
+    调用方 `_acquire_auth()` 用它取 `get_auth`（带探活参数，策略由 auth_manager
+    承担），`_invalidate_shared_auth()` 用它取 `invalidate_cache`（401 恢复）。
+    返回 None 时调用方退回本服务自己的 RSA 登录 + auth_info.json 回退链，
+    保证 auth_manager 缺席时任务仍能跑。
     """
     try:
         import backend.services.auth_manager as am
@@ -1187,8 +1204,8 @@ def _import_auth_manager():
             return None
 
 
-def _probe_session_alive(fetcher, cookie: str, forgery_token: str,
-                         host: str, port: int) -> bool:
+def probe_battery_session(fetcher, cookie: str, forgery_token: str,
+                          host: str, port: int) -> bool:
     """采纳共享会话前，用**真实业务端点**探测它是否还活着。
 
     为什么必须探测（MW UME 2026-10-04 实测教训，Battery 同构）：缓存 TTL
@@ -1199,6 +1216,10 @@ def _probe_session_alive(fetcher, cookie: str, forgery_token: str,
     判定：401/403 = 会话死；其它状态（400/500 等）= 会话活着、只是探测
     body 不合法（上游先鉴权后解析参数）。探测异常按不可用处理，但必须打
     日志区分「探测本身坏了」和「会话死了」。
+
+    🔒 调用位置约束：只允许由 `auth_manager.get_auth(probe=...)` 在取会话
+    路径调用，每轮同步至多一發；绝不能挪进请求热路径 —— 本项目已因
+    「每任务登录一次」把 eFlow 打崩过一次。
     """
     try:
         path = fetcher._api_path_with_token(fetcher.PATH_GET_BY_CONDITION, forgery_token)
@@ -1226,39 +1247,15 @@ def _probe_session_alive(fetcher, cookie: str, forgery_token: str,
         return False
 
 
-def _try_shared_auth(fetcher, host: str, port: int) -> dict | None:
-    """尝试取 auth_manager 的跨进程共享会话（只读缓存，绝不触发登录）。
-
-    缓存未命中、读不出或探活失败一律返回 None，交回调用方走自有登录；
-    任何异常都不外抛 —— 本服务必须在 auth_manager 不可用时独立工作。
-    """
-    am = _import_auth_manager()
-    if am is None:
-        return None
-    try:
-        cached = am._read_cache(host, port)
-        if not cached:
-            return None                      # 未命中：交给调用方自行登录
-        cookie = cached.get("cookie") or ""
-        if not cookie:
-            return None
-        forgery_token = cached.get("forgery_token") or ""
-        # 采纳前必须探活：TTL 未过期不代表会话还能用（实测会 401）
-        if not _probe_session_alive(fetcher, cookie, forgery_token, host, port):
-            logger.info("[Battery] 共享会话不可用，改为自有登录")
-            return None
-        logger.info("[Battery] 复用共享会话（auth_manager 跨进程缓存），跳过登录")
-        return {"cookie": cookie, "forgery_token": forgery_token,
-                "host": host, "port": port}
-    except Exception as e:
-        # 打印而非静默：否则"共享鉴权坏了"会与"缓存未命中"无法区分
-        logger.warning("[Battery] 共享鉴权不可用（%s: %s），回退自有登录",
-                       type(e).__name__, e)
-        return None
-
-
 def _write_shared_auth(host: str, port: int, auth: dict, username: str = "") -> None:
     """把本服务真实登录得到的会话回写 auth_manager 共享缓存（共享的另一半）。
+
+    【为什么本服务仍保留回写】本函数的调用点都在 `_acquire_auth()` 的**回退
+    分支**上：`fetcher.login_rsa()` 与 `fetcher.ensure_auth_info()` 走的是
+    battary_kpi_fetch_socket 自己的 RSA 登录，**不经过 auth_manager**，所以
+    `get_auth` 不会替我们写缓存，回写只能由本服务做。这与 MW/CNN 两处不同 ——
+    那两处的自有登录实现已完整删除、不再存在绕过 auth_manager 的路径，其回写
+    随之成为死代码并被移除。
 
     ⚠ 只有 cookie 与 forgery_token **都非空**才回写：auth_manager._read_cache
     要求两者都非空才返回数据，缺 forgerydefense 的会话写进去只会制造永远
@@ -1304,18 +1301,42 @@ def _invalidate_shared_auth(host: str, port: int) -> None:
 
 
 def _acquire_auth(fetcher, credentials: dict, allow_shared: bool = True) -> dict:
-    """取得可用会话：共享缓存 → RSA 登录（回写共享）→ auth_info.json 回退链。
+    """取得可用会话：auth_manager（缓存+探活+重登）→ RSA 登录 → auth_info.json 回退链。
 
-    allow_shared=False 供 401 后的重登使用：刚被作废的缓存不该再读，
-    且刚失效的那个会话正是从缓存里来的。
-    原有的 auth_info.json 回退链逻辑保留不动（共享缓存不可用时的第二层）。
+    第一层完全委托给 `auth_manager.get_auth(host, port, user, pwd, probe=...)`：
+    缓存命中会先探活、探不通就地作废并真实重登一次，所以返回的会话是「已确认
+    可用」的，不会再把死 cookie 发给分页拉取（这正是 2026-10-05 那次
+    `get-by-condition` 401 的成因）。
+
+    allow_shared=False 供 401 后的重登使用：会话刚被上游证死，不需要再探一次、
+    也不该再信任缓存，直接强制真实登录（force_refresh=True）。
+    第二、三层（fetcher.login_rsa 与 auth_info.json 回退链）保留不动：它们是
+    auth_manager 不可用或上游登录失败时的兜底，走这两层的会话由
+    `_write_shared_auth` 补写回缓存。
     """
     host, port = credentials["host"], credentials["port"]
 
     if allow_shared:
-        shared = _try_shared_auth(fetcher, host, port)
-        if shared:
-            return shared
+        am = _import_auth_manager()
+        if am is not None:
+            try:
+                # 探活函数由本服务注入（它才知道自己的业务端点，见 probe_battery_session）
+                _probe = lambda cookie, token: probe_battery_session(
+                    fetcher, cookie, token, host, port)  # noqa: E731
+                r = am.get_auth(host, port, credentials.get("username", ""),
+                                credentials.get("password", ""), probe=_probe)
+                # 探活失败导致的重登必须能从日志一眼看出，否则「探活救了一次」
+                # 与「本来就要登」混在一起，无法评估探活是否在起作用
+                src = "缓存" if r["from_cache"] else (
+                    "重登（探活失败）" if r.get("from_relogin") else "重登")
+                logger.info("[Battery] 鉴权成功（来源: %s）", src)
+                return {"cookie": r["cookie"], "forgery_token": r["forgery_token"],
+                        "host": host, "port": port}
+            except Exception as e:
+                # 不吞：打印后继续走下面的自有登录兜底。共享层彻底坏掉时本服务
+                # 仍应能独立工作（与修复前的行为一致），但日志里必须留下痕迹。
+                logger.warning("[Battery] 共享鉴权不可用（%s: %s），回退自有登录",
+                               type(e).__name__, e)
 
     auth = fetcher.login_rsa(credentials)
     if auth:
@@ -1351,8 +1372,9 @@ def _acquire_auth(fetcher, credentials: dict, allow_shared: bool = True) -> dict
 def fetch_battery_records() -> list[dict]:
     """登录 UME 并分页拉取全部电池实时数据（内存返回，不落盘）。
 
-    鉴权顺序（2026-10-04 接入共享鉴权后）：共享缓存（探活通过才采纳）
-    → RSA 登录（成功后回写共享缓存）→ auth_info.json 回退链。
+    鉴权顺序（2026-10-06 统一到 auth_manager.get_auth(probe=...) 后）：
+    auth_manager（缓存命中先探活、探不通就地作废并真实重登一次，返回的会话
+    已确认可用）→ RSA 登录（成功后回写共享缓存）→ auth_info.json 回退链。
     业务请求返回 401/403 时作废共享缓存、强制重登并重试一次（有限次，不循环）。
     """
     try:

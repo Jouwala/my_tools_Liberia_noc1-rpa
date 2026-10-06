@@ -883,9 +883,52 @@ def _record_own_auth_code(host: str, port: int, username: str,
         return ""
 
 
+# ========== 会话探活（2026-10-06 从四处服务下沉） ==========
+# 为什么需要：缓存 TTL 未过期 **≠** 会话可用。上游会因「同账户再次登录」、
+# 服务端空闲回收、运维重启等原因随时作废一个还没到 TTL 的会话，而 get_auth 的
+# 快路径只按 created_at + ttl 判过期、没有任何探活 —— 于是把死 cookie 发给消费方。
+#
+# 实测证据（本表就是这四家各自的由来，逐条保留以便追溯）：
+#   · MW UME 2026-10-04：接入共享缓存后第一次运行，日志显示「复用共享会话」，
+#     紧接着 `Create query status: HTTP/1.1 401 Unauthorized`，
+#     `{"hasLogged":true,...}`，两个 MW 任务全部失败。
+#   · Battery 2026-10-05：同构，`get-by-condition` 返回 401。
+#   · RAN UME 2026-10-06：缓存 04:45 写入，06:38 被 401 证死（存活 113 分钟），
+#     而 TTL 当时是 86400 —— `packet_loss_sync` 连续四轮拿死 cookie 打，
+#     每轮耗时 90s 后失败（TTL 调到 1800 后才缓解）。
+#
+# ⚠️ 三条硬约束（违反会让探活本身变成新的故障源）：
+#   1. **必须探业务端点，不能探登录首页。** MW 实测探首页返回 200（假绿），
+#      而业务端点返回 401 —— 首页对未登录也放行。各服务的业务端点不同，
+#      所以探活函数由**调用方注入**（见 get_auth 的 probe 参数）。
+#   2. **每次取会话至多发一發。** 探活会向上游发真实请求；本项目已因
+#      「每任务登录一次」把 eFlow 打崩过一次，绝不能挪进请求热路径。
+#   3. **探测异常按「不可用」处理，但必须打日志区分**「探测本身坏了」与
+#      「会话真死了」—— 否则两者在日志里长得一样，现场无法定位。
+
+
+def _probe_or_assume_alive(probe, host: str, port: int, cookie: str,
+                           forgery_token: str) -> bool:
+    """调用注入的探活函数；未注入探活函数时视为可用（保持向后兼容）。
+
+    `probe` 为 None 表示调用方没有能力探活（如 eFlow 的登录协议不同），
+    此时退回「只信 TTL」的历史行为，不改变其语义。
+    """
+    if probe is None:
+        return True
+    try:
+        return bool(probe(cookie, forgery_token))
+    except Exception as e:  # noqa: BLE001
+        # 探测坏了 ≠ 会话死了：必须打日志区分，否则无法现场定位
+        logger.warning("[AUTH] 会话探活异常（%s: %s），按不可用处理，将重新登录",
+                       type(e).__name__, e)
+        return False
+
+
 # ========== 对外主接口 ==========
 def get_auth(host: str, port: int, username: str, password: str,
-             ttl: int | None = None, force_refresh: bool = False) -> dict:
+             ttl: int | None = None, force_refresh: bool = False,
+             probe=None) -> dict:
     """
     获取鉴权信息（优先从缓存读取，缓存无效则重新登录）。
 
@@ -906,45 +949,77 @@ def get_auth(host: str, port: int, username: str, password: str,
         force_refresh: 强制重新登录（忽略缓存）。用于 401 恢复 —— 会话已确认
             死亡。锁内**不做**缓存复查（语义就是"必须真登录"）；若担心与其他
             进程刚登录的新会话重复，靠调用方先探活再决定是否 force。
+        probe: 可选的会话探活函数 `probe(cookie, forgery_token) -> bool`，
+            **必须探该服务自己的业务端点**（探登录首页会拿到误导性的 200，
+            见本节顶部约束 1）。传入后，缓存路径命中时先探活，死了就地
+            作废并真实重登一次，调用方拿到的始终是「已确认可用」的会话。
+
+            传 None（默认）＝不做探活，退回「只信 TTL」的历史行为 ——
+            这是给无法探活的主机留的兼容口，不是推荐用法。
 
     Returns:
         {"cookie": str, "forgery_token": str, "from_cache": bool,
-         "auth_code": str}  —— auth_code 是**登出接口用的**在线列表行值
-        （len≈121），缓存路径与登录路径都带出；调用方登出时应显式传它，
-        而不是让 logout() 从共享缓存回读（缓存可能已被其他进程的
-        另一次登录覆盖，错读成别人的会话 → 误杀）。
+         "auth_code": str, "probed": bool, "from_relogin": bool}
+         —— `from_cache` 为 True 表示用的是缓存里已有的会话（含探活通过的）；
+         `from_relogin` 为 True 表示本轮因探活失败而真实重登。
+         两者都 False 只在缓存未命中时出现（等于常规重登）。
+         —— auth_code 是**登出接口用的**在线列表行值（len≈121），缓存路径与
+         登录路径都带出；调用方登出时应显式传它，而不是让 logout() 从共享
+         缓存回读（缓存可能已被其他进程的另一次登录覆盖，错读成别人的会话
+         → 误杀）。
     """
     start_time = time.time()
 
-    # 1. 快速路径：无锁读缓存（绝大多数调用命中这里）
-    if not force_refresh:
-        cached = _read_cache(host, port)
-        if cached:
-            elapsed = time.time() - start_time
-            logger.info(f"[AUTH] 使用缓存鉴权 ({host}:{port})，耗时 {elapsed:.2f}s")
-            return {
-                "cookie": cached["cookie"],
-                "forgery_token": cached["forgery_token"],
-                "from_cache": True,
-                "auth_code": cached.get("auth_code", ""),
-            }
+    def _cached_result(cached: dict, from_relogin: bool = False) -> dict:
+        return {
+            "cookie": cached["cookie"],
+            "forgery_token": cached["forgery_token"],
+            "from_cache": True,
+            "auth_code": cached.get("auth_code", ""),
+            "probed": probe is not None,
+            "from_relogin": from_relogin,
+        }
 
-    # 2. 缓存无效，跨进程锁内登录
+    def _try_cached(force: bool):
+        """读缓存并在有探活能力时验证；不可用返回 None。
+
+        `force=True`（force_refresh 路径）时**不读缓存**，语义是"必须真登录"。
+        """
+        if force:
+            return None
+        cached = _read_cache(host, port)
+        if not cached:
+            return None
+        # 有探活能力时，「缓存未过期」不再是充分条件 —— 必须实测会话可用。
+        if not _probe_or_assume_alive(
+                probe, host, port, cached["cookie"], cached.get("forgery_token", "")):
+            logger.info("[AUTH] 缓存会话探活失败，就地作废并重新登录 (%s:%s)", host, port)
+            try:
+                invalidate_cache(host, port)
+            except Exception as e:  # noqa: BLE001
+                logger.warning("[AUTH] 作废缓存失败（继续重登）%s:%s: %s", host, port, e)
+            return None
+        return cached
+
+    # 1. 快速路径：无锁读缓存（绝大多数调用命中这里）
+    cached = _try_cached(force_refresh)
+    if cached is not None:
+        elapsed = time.time() - start_time
+        logger.info(f"[AUTH] 使用缓存鉴权 ({host}:{port})，耗时 {elapsed:.2f}s")
+        return _cached_result(cached, from_relogin=False)
+
+    # 2. 缓存无效（或探活确认已死），跨进程锁内登录
     with _login_lock(host, port):
         # 拿到锁后复查缓存（double-checked）：等锁期间其他进程可能刚好
         # 登录完成并回写了缓存 —— 此时复用，本进程不再登录。
-        if not force_refresh:
-            cached = _read_cache(host, port)
-            if cached:
-                logger.info(
-                    f"[AUTH] 等锁期间已被其他进程登录，复用其会话 ({host}:{port})",
-                )
-                return {
-                    "cookie": cached["cookie"],
-                    "forgery_token": cached["forgery_token"],
-                    "from_cache": True,
-                    "auth_code": cached.get("auth_code", ""),
-                }
+        # 这里同样要走探活：等到的可能是另一个进程刚写进去的**死会话**
+        # （它自己还没来得及用就失效了），不探就等于把风险留给调用方。
+        cached = _try_cached(force_refresh)
+        if cached is not None:
+            logger.info(
+                f"[AUTH] 等锁期间已被其他进程登录，复用其会话 ({host}:{port})",
+            )
+            return _cached_result(cached, from_relogin=False)
 
         result = _do_login(host, port, username, password)
 
@@ -959,6 +1034,11 @@ def get_auth(host: str, port: int, username: str, password: str,
         "cookie": result["cookie"],
         "forgery_token": result["forgery_token"],
         "from_cache": False,
+        # 走到这里有两种情况：缓存本就没命中，或因探活失败被就地作废。
+        # 对调用方而言「必须真登录才拿到会话」是同一件事，都记 from_relogin，
+        # 便于从日志区分「探活救了一次」与「本来就要登」。
+        "from_relogin": True,
+        "probed": probe is not None,
         "auth_code": result.get("auth_code", ""),
     }
 

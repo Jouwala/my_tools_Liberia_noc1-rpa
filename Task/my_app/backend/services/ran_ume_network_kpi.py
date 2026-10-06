@@ -560,14 +560,23 @@ def _rsa_encrypt_pem(plaintext, public_key_b64):
 # 登录
 # ============================================================
 def login():
-    """执行 RAN UME 登录流程（优先使用共享缓存，避免同账户重复登录）。"""
+    """执行 RAN UME 登录流程（优先使用共享缓存，避免同账户重复登录）。
+
+    2026-10-06：接入探活（复用 `ran_ume_service.probe_pm_session`，与本服务
+    同探 PM history 业务端点）。此前快路径只按 TTL 判过期、不探活，
+    死 cookie 会被发给调用方（RAN UME 实测 113 分钟即失效，TTL 当时 86400）。
+    """
     try:
         try:
             from backend.services.auth_manager import get_auth
         except ImportError:
             logging.getLogger(__name__).warning("[SILENT-EXCEPT] login: exception swallowed", exc_info=True)
             from auth_manager import get_auth
-        result = get_auth(HOST, PORT, *_runtime_credentials())
+        try:
+            from backend.services.ran_ume_service import probe_pm_session
+        except ImportError:
+            from ran_ume_service import probe_pm_session
+        result = get_auth(HOST, PORT, *_runtime_credentials(), probe=probe_pm_session)
         source = "缓存" if result["from_cache"] else "重新登录"
         print(f"[LOGIN] 鉴权成功（来源: {source}）")
         return {"cookie": result["cookie"], "forgery_token": result["forgery_token"]}

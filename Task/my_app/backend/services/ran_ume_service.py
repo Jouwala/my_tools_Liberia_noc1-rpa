@@ -399,6 +399,11 @@ def _rsa_encrypt_pem(plaintext, public_key_b64):
 def _login(max_retries=2):
     """执行 RAN UME 登录流程（优先使用共享缓存，避免同账户重复登录）。
 
+    2026-10-06：接入 `probe_pm_session` 探活。此前快路径只按 TTL 判过期、
+    不做任何探活，于是死 cookie 会被发给消费方 —— 实测 04:45 写入的缓存在
+    06:38 已 401，而 TTL 当时 86400，`packet_loss_sync` 连续四轮拿死 cookie
+    打、每轮 90s 后失败。TTL 调到 1800 只是缩小窗口，探活才是根治。
+
     Args:
         max_retries: 登录失败时最大重试次数（含首次），默认2次
     """
@@ -408,7 +413,7 @@ def _login(max_retries=2):
         except ImportError:
             logging.getLogger(__name__).warning("[SILENT-EXCEPT] _login: exception swallowed", exc_info=True)
             from auth_manager import get_auth
-        result = get_auth(HOST, PORT, *_runtime_credentials())
+        result = get_auth(HOST, PORT, *_runtime_credentials(), probe=probe_pm_session)
         source = "缓存" if result["from_cache"] else "重新登录"
         logger.info(f"[RAN_UME] 鉴权成功（来源: {source}）")
         return {"cookie": result["cookie"], "forgery_token": result["forgery_token"]}
@@ -550,6 +555,44 @@ def _pm_auth_headers(cookie, forgery_token):
     if forgery_token:
         headers += f"forgerydefense: {forgery_token}\r\n"
     return headers
+
+
+def probe_pm_session(cookie, forgery_token) -> bool:
+    """探活 RAN UME 会话：POST 空 body 到 PM history 业务端点。
+
+    为什么必须探**业务端点**：MW UME 2026-10-04 实测探登录首页返回 200（假绿，
+    首页对未登录也放行），而 `HISTORY_PATH` 返回 401。所以这里就用本文件
+    真正在用的 `PM_HISTORY_PATH`（正是失败发生的地方）。
+
+    判定：401/403 = 会话死；其余状态码（400/500 等）= 会话活着，只是空 body
+    的参数不合法（上游先校验会话再解析参数）。异常按不可用处理 —— 拿不到
+    证据就不复用，退回真实登录。
+
+    🔒 调用位置约束：**只允许**由 `auth_manager.get_auth(probe=...)` 在取会话
+    路径调用（每轮至多一發）。绝不挪进请求热路径 —— 本项目已因「每任务登录
+    一次」把 eFlow 打崩过一次，探活若跑在热路径就是新的请求风暴源。
+    """
+    try:
+        body = b"{}"
+        status, _hdrs, _raw, _body = _http_request(
+            "POST", PM_HISTORY_PATH,
+            headers_extra=_pm_auth_headers(cookie, forgery_token), body=body,
+        )
+        code = 0
+        for token in status.split():
+            if token.isdigit():
+                code = int(token)
+                break
+        alive = code not in (401, 403)
+        if not alive:
+            logger.info("[RAN_UME] 共享会话已失效（探测 %s -> %s）",
+                        PM_HISTORY_PATH, status)
+        return alive
+    except Exception as e:
+        # 区分「探测本身坏了」与「会话真死了」：两者在日志里否则长得一样
+        logger.warning("[RAN_UME] 会话探测异常（%s: %s），按不可用处理",
+                       type(e).__name__, e)
+        return False
 
 
 def _build_pm_payload(network_type, groupbygroup=True):

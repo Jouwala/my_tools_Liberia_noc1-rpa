@@ -19,14 +19,12 @@ MW UME KPI 数据同步服务（集成 my_app 版本，零落盘直写主库）
 - 环境变量覆盖：MW_UME_HOST / MW_UME_PORT / MW_UME_USER / MW_UME_PASSWORD
 """
 
-import base64
 import gc
 import gzip
 import io
 import json
 import logging
 import os
-import re
 import socket
 import ssl
 import sys
@@ -332,20 +330,6 @@ def _http_request(method, path, headers_extra=None, body=None):
     return status_line, resp_headers, header_part, resp_body
 
 
-def _rsa_encrypt_pem(plaintext, public_key_b64):
-    """使用 RSA 公钥（Base64 编码）对明文进行 PKCS1v15 加密，返回 Base64 密文。"""
-    from cryptography.hazmat.primitives.asymmetric import padding as asym_padding
-    from cryptography.hazmat.primitives import serialization
-
-    pem = f"-----BEGIN PUBLIC KEY-----\n{public_key_b64}\n-----END PUBLIC KEY-----"
-    public_key = serialization.load_pem_public_key(pem.encode())
-    encrypted = public_key.encrypt(
-        plaintext.encode('utf-8'),
-        asym_padding.PKCS1v15()
-    )
-    return base64.b64encode(encrypted).decode('ascii')
-
-
 def _auth_headers(cookie: str, forgery_token: str, extra: dict = None) -> str:
     """构造 PM 接口需要的鉴权请求头。"""
     headers = (
@@ -412,21 +396,28 @@ def _http_request_with_retry(method, path, headers_extra=None, body=None,
 # 但没人把它换算成"上游会话数"——上游每次登录新建一个服务端会话且从不释放。
 #
 # 修复思路与 eFlow 一致：**先尝试复用 auth_manager 的跨进程缓存**，复用不到才
-# 走本模块自己的登录。MW 的门户路径（/uportal/framework/default.html）与
+# 走真实登录。MW 的门户路径（/uportal/framework/default.html）与
 # auth_manager 内置的完全一致，协议同为 ZTE `login_rsa`，因此可直接接入。
 #
-# 三件套缺一不可（"接入共享"≠"少登录"，每一步都是实测踩出来的）：
-#   1. `_try_shared_auth()` 复用前先读缓存；
-#   2. `_probe_session_alive()` 采纳前探测（TTL 未过期 ≠ 会话可用）；
-#   3. `_write_shared_auth()` 登录成功后回写（否则共享只有一半，白探每轮）。
+# 【2026-10-06 统一到 auth_manager.get_auth(probe=...)】
+# 本模块原先自带一套"三件套"（`_try_shared_auth` 读缓存 + 本地探活 + 自有登录
+# 成功后回写）。现改为**只保留探活函数**，把"何时探活 / 缓存作废 / 单次重登"
+# 三段策略全部交给 auth_manager —— 与 ran_ume_service.py:416、ms_sla_sync.py:653、
+# ran_ume_alarm_service.py:154 同一套写法。
 #
-# ⚠ 读缓存**必须用 `_read_cache()` 而不是 `get_auth()`**：`get_auth()` 不是只读的
-# ——缓存未命中时它会**直接走到 `_do_login()` 真实登录**（auth_manager.py:634-646）。
-# 若直接调 `get_auth()`，就会变成"共享没命中 → auth_manager 登录一次 → 本模块
-# 又登录一次"的**双重登录**，比不接共享更糟。
+# 为什么可以（也应当）这样改：旧写法之所以必须只读 `_read_cache()`，是因为当时
+# 的自有登录还留在本模块里，若调 `get_auth()` 就会"共享没命中 → auth_manager
+# 登录一次 → 本模块又登录一次"的**双重登录**。现在 `login()` 本身就走
+# `get_auth()`，登录实现收敛成唯一一份，这个顾虑随之消失。本模块自带的 4 步
+# OAuth2 实现（authorize → publickey → login_rsa → 解析 cookie）已随之**删除**：
+# 它与 auth_manager._do_login 是同一协议的重复实现，两处并存就是两套成功判据、
+# 两处回写、互不知道对方手里的活会话。
+#
+# ⚠ `login()` 里的 `get_auth` **整段被 try/except ImportError 包住**：auth_manager
+# 不可用时本模块仍需能独立工作，这条兼容口必须保留。
 
 
-def _probe_session_alive(cookie: str, forgery_token: str) -> bool:
+def probe_mw_session(cookie: str, forgery_token: str) -> bool:
     """用**真实业务端点**探测会话是否还能用。
 
     为什么必须探测（2026-10-04 实测教训）：接入共享缓存后第一次运行，
@@ -442,8 +433,8 @@ def _probe_session_alive(cookie: str, forgery_token: str) -> bool:
     用 `HISTORY_PATH` 而不是首页，是因为它正是失败发生的地方；
     探不到就等于没探。
 
-    🔒 **调用位置约束（勿违反）**：本函数**只允许**在登录路径
-    （`_try_shared_auth`，即每轮同步最多一次）调用。
+    🔒 **调用位置约束（勿违反）**：本函数**只允许**由
+    `auth_manager.get_auth(probe=...)` 在取会话路径调用（每轮同步至多一次）。
     它每次调用都会向上游发**一发真实 POST**。若把它挪进请求热路径
     （例如每次 KPI 查询前都探一次），就会变成新的网络风暴源——
     本项目已经因为"每任务登录一次"把 eFlow 打崩过一次，不要重蹈覆辙。
@@ -470,190 +461,33 @@ def _probe_session_alive(cookie: str, forgery_token: str) -> bool:
         return False
 
 
-def _try_shared_auth():
-    """尝试从 auth_manager 取**已存在且确认可用**的跨进程共享会话。
-
-    只读缓存，**绝不触发登录**：缓存未命中、读不出或探活失败时一律返回 None，
-    交由调用方走自己的 `login()`。失败不抛异常——本模块必须能在
-    auth_manager 不可用时独立工作。
-    """
-    try:
-        from backend.services.auth_manager import _read_cache
-    except ImportError:
-        try:
-            from auth_manager import _read_cache  # 兼容独立运行
-        except ImportError:
-            return None
-
-    try:
-        cached = _read_cache(HOST, PORT)
-        if not cached:
-            return None                      # 未命中：交给调用方自行登录
-        cookie = cached.get("cookie") or ""
-        if not cookie:
-            return None
-        csrf = cached.get("forgery_token", "")
-        # 采纳前必须探活：TTL 未过期不代表会话还能用（实测会 401）
-        if not _probe_session_alive(cookie, csrf):
-            logger.info("[LOGIN] 共享会话不可用，改为自行登录")
-            return None
-        logger.info("[LOGIN] 复用共享会话（auth_manager 跨进程缓存），跳过登录")
-        return {"cookie": cookie, "forgery_token": csrf}
-    except Exception as e:
-        # 打印而非静默：否则"共享鉴权坏了"会与"缓存未命中"无法区分
-        logger.warning("[LOGIN] 共享鉴权不可用（%s: %s），回退自行登录", type(e).__name__, e)
-        return None
-
-
-def _write_shared_auth(cookie: str, forgery_token: str, username: str = "") -> None:
-    """把本模块登录得到的会话回写 auth_manager 跨进程缓存。
-
-    这是共享的另一半：只读不写的话，每轮登录产生的新会话都进不了共享缓存，
-    下一轮探活拿到的还是旧会话、必然 401，共享等于没接。
-
-    失败只告警不抛出——回写失败不应影响本轮任务（会话在本次运行内仍然可用）。
-    """
-    try:
-        from backend.services.auth_manager import _write_cache
-    except ImportError:
-        try:
-            from auth_manager import _write_cache  # 兼容独立运行
-        except ImportError:
-            return
-    try:
-        _write_cache(HOST, PORT, cookie, forgery_token, username or "mw_ume")
-        logger.info("[LOGIN] 已回写共享缓存（%s:%s）", HOST, PORT)
-    except Exception as e:
-        logger.warning("[LOGIN] 回写共享缓存失败（%s: %s），不影响本轮任务",
-                       type(e).__name__, e)
-
-
 # ============================================================
-# 登录（与原脚本一致）
+# 登录
 # ============================================================
 def login():
     """执行 MW UME 登录流程，返回包含 cookie 和 forgery_token 的字典。
 
-    优先复用 auth_manager 的跨进程缓存（见 `_try_shared_auth`）；
-    复用不到时才真正走 4 步 OAuth2 登录。
+    策略全部由 auth_manager 承担（缓存命中先探活、探不通就地作废并真实重登
+    一次），本模块只提供"探哪个业务端点"这一条本地知识（`probe_mw_session`）。
+    因此返回值里不会出现死 cookie —— 这正是 2026-10-04 那次
+    「复用共享会话 → 紧接着 Create query 401」要解决的问题。
+
+    auth_manager 不可用时（导入失败）抛异常而非静默降级：本模块的登录实现已
+    收敛到 auth_manager，拿不到它就真的没有可用会话，让任务带着明确原因失败，
+    好过拿半截状态继续跑。
     """
-    shared = _try_shared_auth()
-    if shared:
-        return shared
-
-    logger.info("[LOGIN] Starting authentication...")
-    session_cookie = ""
-    forgery_token = ""
-
-    user, pwd = _runtime_credentials()
-
     try:
-        logger.info("[LOGIN] Step 1: Getting authorize page...")
-        status, hdrs, raw_hdrs, body = _http_request(
-            "GET",
-            f"/api/oauth2/v1/authorize?scope=user.login&response_type=code"
-            f"&redirect_uri={LOGIN_PORTAL}"
-        )
-        logger.info(f"[LOGIN] Status: {status}")
-
-        init_cookies = []
-        for line in raw_hdrs.split("\r\n"):
-            if line.lower().startswith("set-cookie:"):
-                cookie_val = line.split(": ", 1)[1].split(";")[0]
-                if cookie_val.split("=", 1)[-1]:
-                    init_cookies.append(cookie_val)
-                    if "forgerydefense" in cookie_val:
-                        forgery_token = cookie_val.split("=", 1)[1]
-
-        init_cookie_str = "; ".join(init_cookies)
-        logger.info(f"[LOGIN] Got {len(init_cookies)} cookies")
-
-        html = body.decode('utf-8', errors='replace')
-        lp_match = re.search(r'var\s+loginParameters\s*=\s*["\']([^"\']+)["\']', html)
-        login_parameters = lp_match.group(1) if lp_match else ""
-
-        logger.info("[LOGIN] Step 2: Getting RSA public key from API...")
-        rsa_headers = f"Cookie: {init_cookie_str}\r\nX-Requested-With: XMLHttpRequest\r\n"
-        status, hdrs, raw_hdrs, body = _http_request(
-            "GET", "/api/oauth2/v1/login/publickey",
-            headers_extra=rsa_headers,
-        )
-
-        public_key_b64 = ""
-        if "200" in status:
-            pk_data = json.loads(body.decode('utf-8'))
-            public_key_b64 = pk_data.get("rsaPublicKey", "")
-
-        if not public_key_b64:
-            raise Exception("无法获取 RSA 公钥，登录中止")
-
-        logger.info("[LOGIN] Step 3: Encrypting password with RSA...")
-        encrypted_pwd = _rsa_encrypt_pem(pwd, public_key_b64)
-
-        logger.info("[LOGIN] Step 4: Submitting login...")
-        login_payload = json.dumps({
-            "username": user,
-            "password": encrypted_pwd,
-            "parameters": login_parameters,
-        })
-
-        login_headers = (
-            f"Content-Type: application/json\r\n"
-            f"Cookie: {init_cookie_str}\r\n"
-            f"Referer: https://{HOST}:{PORT}/api/oauth2/v1/authorize?scope=user.login"
-            f"&response_type=code&redirect_uri={LOGIN_PORTAL}\r\n"
-            f"X-Requested-With: XMLHttpRequest\r\n"
-        )
-        if forgery_token:
-            login_headers += f"forgerydefense: {forgery_token}\r\n"
-
-        status, hdrs, raw_hdrs, body = _http_request(
-            "POST", "/api/oauth2/v1/login_rsa",
-            headers_extra=login_headers,
-            body=login_payload,
-        )
-        logger.info(f"[LOGIN] Login status: {status}")
-
-        cookies = list(init_cookies)
-        for line in raw_hdrs.split("\r\n"):
-            if line.lower().startswith("set-cookie:"):
-                cookie_val = line.split(": ", 1)[1].split(";")[0]
-                if cookie_val.split("=", 1)[-1]:
-                    cookie_name = cookie_val.split("=", 1)[0]
-                    cookies = [c for c in cookies if not c.startswith(cookie_name + "=")]
-                    cookies.append(cookie_val)
-                    if "forgerydefense" in cookie_val:
-                        forgery_token = cookie_val.split("=", 1)[1]
-
-        session_cookie = "; ".join(cookies)
-        resp_text = body.decode('utf-8', errors='replace')
-
-        # 登录成功判定：302 跳转 / 响应包含 portal / 拿到 Z-AUTH-CODE / cookie 数量充足
-        success = (
-            "302" in status
-            or "uportal" in resp_text
-            or "portal" in resp_text.lower()
-            or "default.html" in resp_text
-            or any("Z-AUTH-CODE" in c for c in cookies)
-            or len(cookies) > 3
-        )
-        if success:
-            logger.info(f"[LOGIN] SUCCESS - {len(cookies)} cookies")
-        else:
-            logger.info(f"[LOGIN] Response: {resp_text[:300]}")
-            raise Exception("登录失败 - 未获取到鉴权 Cookie")
-
-        # 回写 auth_manager 跨进程缓存 —— 这是共享的另一半。
-        # 只读不写的话，本模块每轮登录产生的新会话永远不会进入共享缓存，
-        # 于是下一轮探活拿到的仍是旧会话、必然 401，共享形同虚设。
-        # 实测（2026-10-04 05:20/05:30）：只读不写时每轮都探活失败并重新登录。
-        _write_shared_auth(session_cookie, forgery_token, user)
-
-    except Exception as e:
-        logger.error(f"[LOGIN] FAILED: {e}")
-        raise
-
-    return {"cookie": session_cookie, "forgery_token": forgery_token}
+        from backend.services.auth_manager import get_auth
+    except ImportError:  # 兼容独立运行
+        from auth_manager import get_auth  # type: ignore
+    result = get_auth(HOST, PORT, *_runtime_credentials(),
+                      probe=probe_mw_session)
+    # 探活失败导致的重登（from_relogin）必须能从日志一眼看出，否则
+    # 「探活救了一次」与「本来就要登」混在一起，无法评估探活是否在起作用
+    source = "缓存" if result["from_cache"] else (
+        "重登（探活失败）" if result.get("from_relogin") else "重登")
+    logger.info(f"[LOGIN] 鉴权成功（来源: {source}）")
+    return {"cookie": result["cookie"], "forgery_token": result["forgery_token"]}
 
 
 # ============================================================

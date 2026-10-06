@@ -976,16 +976,141 @@ def _eflow_direct_auth(spec: dict):
     适用所有 ``kind == "oauth2"`` 的直连门户（eflow / battery_ume 等）：
     调用 auth_manager 复刻 RSA+OAuth2 登录流程。
     返回 (cookie_str, forgery_token)；失败抛异常。
+
+    2026-10-06：接入 `_portal_probe(spec)` 探活。此前这里直接吃 `get_auth`
+    的缓存快路径（只按 TTL 判过期、不探活），于是「一键登录总落回登录页」——
+    后端把一个已经死掉的会话 cookie 种进了访问者浏览器，门户自然弹回登录页。
+    RAN UME 实测会话 113 分钟即失效，而 TTL 当时是 86400。
     """
     from backend.services.auth_manager import get_auth
     host, port = resolve_endpoint(spec)
     user, pwd = _creds(spec["cred_key"])
-    auth = get_auth(host, port, user, pwd)
+    auth = get_auth(host, port, user, pwd, probe=_portal_probe(spec))
     return auth["cookie"], auth["forgery_token"]
 
 
 # 语义化别名：新代码按「OAuth2 直连鉴权」而非「eFlow 专用」来读更清楚。
 _oauth2_direct_auth = _eflow_direct_auth
+
+
+# ============ 门户会话探活（2026-10-06） ============
+# 为什么需要：`get_auth` 的快路径只按 created_at + ttl 判过期、不探活，
+# 缓存「没过期」≠ 会话「还能用」。上游会因同账户再次登录、服务端空闲回收、
+# 运维重启等原因随时作废一个还没到 TTL 的会话。把这种死会话种进访问者浏览器，
+# 用户看到的就是「一键登录后又落回登录页」。
+#
+# ⚠️ 必须探**业务端点**，探登录首页会拿到误导性的 200（假绿）—— MW UME
+# 2026-10-04 实测：首页 200，业务端点 401。所以下面每台都用各自真正在用的
+# 业务接口。
+#
+# 未登记的门户返回 None ＝ 不探活，退回「只信 TTL」的历史行为。这是刻意的：
+# 与其拿一个猜出来的端点去探（探错会把好会话判死、无谓增加登录），
+# 不如显式留空，等有实测依据再补。**新增探活前先确认该端点确实要求鉴权。**
+
+
+def _probe_json_endpoint(base: str, path: str, cookie: str,
+                         forgery_token: str, timeout: int = 10) -> bool:
+    """通用探活：向业务端点发一发空 body 的 POST，401/403 判死。
+
+    上游先校验会话再解析参数，所以空 body 会得到 400/500 之类的参数错误
+    —— 那恰恰证明会话是活的。只有 401/403 才说明会话不可用。
+    """
+    import requests
+    try:
+        from backend.security_tls import tls_verify, silence_insecure_warning
+    except ImportError:  # pragma: no cover
+        tls_verify = lambda _s: False  # noqa: E731
+        silence_insecure_warning = lambda _v: None  # noqa: E731
+    verify = tls_verify("ume")
+    silence_insecure_warning(verify)
+    headers = {
+        "Content-Type": "application/json; charset=UTF-8",
+        "Accept": "application/json, text/plain, */*",
+        "Cookie": cookie,
+        "Referer": f"{base}/uportal/framework/default.html",
+        "X-Requested-With": "XMLHttpRequest",
+    }
+    if forgery_token:
+        # 裸 forgerydefense（不带端口后缀）—— 带后缀同样 403
+        headers["forgerydefense"] = forgery_token
+    try:
+        r = requests.post(f"{base}{path}", headers=headers, json={},
+                          verify=verify, timeout=timeout)
+        alive = r.status_code not in (401, 403)
+        if not alive:
+            logger.info("[PORTAL] 会话已失效（探测 %s -> %s）", path, r.status_code)
+        return alive
+    except Exception as e:  # noqa: BLE001
+        # 区分「探测本身坏了」与「会话真死了」：否则日志里两者长得一样
+        logger.warning("[PORTAL] 会话探测异常（%s: %s），按不可用处理",
+                       type(e).__name__, e)
+        return False
+
+
+# 门户 key → 探活用的业务端点（相对于 https://host:port）。
+# 只登记**有实测依据**的端点；其余保持 None（不探活）。
+PORTAL_PROBE_PATHS: dict[str, str] = {
+    # UME 系（zte_ume / ccn_ume / ipran_ume / mw_ume / ume_in）共用 PM history
+    # 业务端点，与 ran_ume_service.probe_pm_session 同一选择。
+    # 依据：各服务的 HISTORY_PATH 常量都指向 /api/pm-analysis/v2/history
+    # （ume_in 见 ume_in_kpi_service.py:67，MW 见 mw_ume_kpi_service.py 的 HISTORY_PATH）。
+    "zte_ume": "/api/pm-analysis/v2/history",
+    "ccn_ume": "/api/pm-analysis/v2/history",
+    "ipran_ume": "/api/pm-analysis/v2/history",
+    "mw_ume": "/api/pm-analysis/v2/history",
+    # iMonitor 大屏（172.17.208.1:28808）：**确实走 auth_manager**
+    # （build_client_login_plan 的通用分支调 _oauth2_direct_auth，见本文件
+    # 「通用分支」注释），所以探活能生效。它与 MW UME 是同一套 UME PM-analysis
+    # 协议、同一个 history 端点（ume_in_kpi_service.py:67）。
+    # 这台此前正是「一键登录总落回登录页」的嫌疑对象之一。
+    "ume_in": "/api/pm-analysis/v2/history",
+}
+
+
+def _portal_key(spec: dict) -> str:
+    """反查 spec 在 `PORTALS` 里的门户键。
+
+    注册表是 `{门户键: spec}`，**键不在 spec 内部**，而探活端点要按键查。
+    优先用调用方显式注入的 `_key`（`_iter_portals()` 会加），否则按 spec
+    对象身份反查 —— 这样即使调用方直接持有 spec（如各 `direct` 分支），
+    也能拿到正确的键，不必让每个调用点都记得去注入。
+    """
+    key = spec.get("_key")
+    if key:
+        return key
+    for k, v in PORTALS.items():
+        if v is spec:
+            return k
+    return ""
+
+
+def _portal_probe(spec: dict):
+    """按门户 spec 返回探活函数；未登记的门户返回 None（不探活）。
+
+    ⚠️ 门户标识是 `PORTALS` 的**字典键**，spec 里没有 `key` 字段 ——
+    按 `spec["key"]` 取会永远拿不到值、静默退化成「全部门户都不探活」
+    （2026-10-07 接线自检时抓到过这个 bug）。改用 `_portal_key()` 反查。
+    """
+    path = PORTAL_PROBE_PATHS.get(_portal_key(spec))
+    if not path:
+        return None
+    host, port = resolve_endpoint(spec)
+    base = f"https://{host}:{port}"
+
+    def _probe(cookie, forgery_token):
+        return _probe_json_endpoint(base, path, cookie, forgery_token)
+
+    return _probe
+
+
+def _iter_portals():
+    """遍历门户注册表，给每个 spec 注入它自己的键名（`_key`）。
+
+    注册表是 `{门户键: spec}`，而 `_portal_probe` 需要按键查探活端点；
+    键不在 spec 里，所以统一在这里注入，避免每个调用点各拼一次。
+    """
+    for key, spec in PORTALS.items():
+        yield key, {**spec, "_key": key}
 
 
 def _split_cookies(cookie_str: str) -> list[dict]:

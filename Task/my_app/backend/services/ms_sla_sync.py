@@ -601,6 +601,43 @@ def _rsa_encrypt_pem(plaintext, public_key_b64):
     public_key = serialization.load_pem_public_key(pem.encode())
     encrypted = public_key.encrypt(plaintext.encode('utf-8'), asym_padding.PKCS1v15())
     return base64.b64encode(encrypted).decode('ascii')
+
+
+def probe_sla_session(cookie, forgery_token) -> bool:
+    """探活 RAN UME 会话：POST 空 body 到本任务真正在用的 SLA 业务端点。
+
+    为什么必须探**业务端点**：MW UME 2026-10-04 实测探登录首页返回 200（假绿，
+    首页对未登录也放行），业务端点才返回 401。这里用 `SLA_HISTORY_PATH`
+    （失败正是发生在这里）。
+
+    判定：401/403 = 会话死；其余状态码 = 会话活着，只是空 body 参数不合法。
+    异常按不可用处理 —— 拿不到证据就不复用，退回真实登录。
+
+    🔒 只允许由 `auth_manager.get_auth(probe=...)` 在取会话路径调用，
+    每轮至多一發；不得挪进请求热路径（会变成新的请求风暴源）。
+    """
+    try:
+        headers = _sla_auth_headers(cookie, forgery_token)
+        status, _hdrs, _raw, _body = _http_request_with_retry(
+            "POST", SLA_HISTORY_PATH, headers_extra=headers,
+            body=b"{}", max_retries=1,
+        )
+        code = 0
+        for token in status.split():
+            if token.isdigit():
+                code = int(token)
+                break
+        alive = code not in (401, 403)
+        if not alive:
+            logger.info("[LOGIN] 共享会话已失效（探测 %s -> %s）", SLA_HISTORY_PATH, status)
+        return alive
+    except Exception as e:
+        # 区分「探测本身坏了」与「会话真死了」：两者在日志里否则长得一样
+        logger.warning("[LOGIN] 会话探测异常（%s: %s），按不可用处理",
+                       type(e).__name__, e)
+        return False
+
+
 def _ume_login(max_retries=2):
     """执行 RAN UME 登录流程（优先使用共享缓存，避免同账户重复登录）。
 
@@ -613,7 +650,8 @@ def _ume_login(max_retries=2):
         except ImportError:
             logging.getLogger(__name__).warning("[SILENT-EXCEPT] _ume_login: exception swallowed", exc_info=True)
             from auth_manager import get_auth
-        result = get_auth(UME_HOST, UME_PORT, *_runtime_credentials())
+        result = get_auth(UME_HOST, UME_PORT, *_runtime_credentials(),
+                          probe=probe_sla_session)
         source = "缓存" if result["from_cache"] else "重新登录"
         logger.info(f"[LOGIN] 鉴权成功（来源: {source}）")
         return {"cookie": result["cookie"], "forgery_token": result["forgery_token"]}

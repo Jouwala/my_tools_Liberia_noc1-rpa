@@ -376,15 +376,21 @@ class UmeRepeatedQueryError(UmeBusinessError):
 # portal_login_service 的 iPRAN「直接鉴权」已经在用 auth_manager 管理同一 (host, port)
 # 的会话 —— 接入后小时任务与门户登录共享同一上游会话，而不是互相踢。
 #
-# 【三件套缺一不可】与 MW UME 的接入（commit 3a77798e）同一套模式，每条都是实测踩坑：
-#   1. _try_shared_auth()     复用前先读缓存；
-#   2. _probe_session_alive() 采纳前探测（缓存 TTL 未过期 ≠ 会话可用，死会话必须拦在登录前）；
-#   3. _write_shared_auth()   自有登录成功后回写（只读不写 = 缓存永远空，每轮白探一遍照样登录，
-#                             MW 接入时 05:20~05:45 实测复现过这个"只做一半"的中间态）。
+# 【2026-10-06 统一到 auth_manager.get_auth(probe=...)】
+# 本模块原先自带一套"三件套"（`_try_shared_auth` 读缓存 + 本地探活 + 自有登录后
+# 回写）。现改为**只保留探活函数**，把"何时探活 / 缓存作废 / 单次重登"三段策略
+# 全部交给 auth_manager —— 与 ran_ume_service.py:416、ms_sla_sync.py:653、
+# ran_ume_alarm_service.py:154 同一套写法。
 #
-# ⚠ 读缓存必须用 _read_cache() 而不是 get_auth()：get_auth() 不是只读的，缓存未命中时
-# 它会直接走到 _do_login() 真实登录 —— "共享没命中 → auth_manager 登录一次 → 本模块
-# 又登录一次"的双重登录，比不接共享更糟。
+# 为什么可以（也应当）这样改：旧写法之所以必须只读 `_read_cache()`，是因为当时
+# 的自有登录还留在本模块里，若调 `get_auth()` 就会"共享没命中 → auth_manager
+# 登录一次 → 本模块又登录一次"的**双重登录**。现在 `_get_shared_auth()` 本身
+# 就走 `get_auth()`，这个顾虑随之消失。
+#
+# ⚠ `_get_shared_auth()` 里的 `get_auth` **整段被 try/except ImportError 包住**：
+# auth_manager 不可用时本模块必须退回自有登录独立工作（见其下方注释）。
+# 自有登录分支（`UmeSessionClient.login` 的下半段）**保留**：它是本模块在
+# auth_manager 缺席时唯一的兜底，其 `_write_shared_auth` 回写因此也保留。
 
 
 def _session_cookie_string(session) -> str:
@@ -396,7 +402,7 @@ def _session_cookie_string(session) -> str:
     return "; ".join(f"{c.name}={c.value}" for c in session.cookies)
 
 
-def _probe_session_alive(cookie: str, forgery_token: str) -> bool:
+def probe_ipran_session(cookie: str, forgery_token: str) -> bool:
     """用真实业务端点探测共享会话是否可用（401/403=死，其余状态码=活）。
 
     为什么必须探测：缓存文件里的 TTL（expires_in）只说明"写入方当时认为它可用"，
@@ -405,8 +411,8 @@ def _probe_session_alive(cookie: str, forgery_token: str) -> bool:
     这里选本服务实际在用的 HISTORY_PATH（POST 空参数）：上游先校验会话再解析参数，
     因此 401/403 = 会话死；400/499/500 = 会话活着只是参数不合法。
 
-    🔒 调用位置约束：只允许在登录路径（_try_shared_auth）调用，每轮登录至多一发；
-    绝不能挪进请求热路径，否则探测本身会变成新的请求风暴源。
+    🔒 调用位置约束：只允许由 `auth_manager.get_auth(probe=...)` 在取会话路径调用，
+    每轮至多一发；绝不能挪进请求热路径，否则探测本身会变成新的请求风暴源。
     """
     try:
         headers = {
@@ -425,52 +431,61 @@ def _probe_session_alive(cookie: str, forgery_token: str) -> bool:
         )
         alive = resp.status_code not in (401, 403)
         if not alive:
-            logger.info("[LOGIN] 共享会话已失效（探测 %s -> %s），改走自有登录",
+            logger.info("[LOGIN] 共享会话已失效（探测 %s -> %s），将重新登录",
                         HISTORY_PATH, resp.status_code)
         return alive
     except Exception as e:
-        # 探测坏了和会话死了必须能区分，打日志而不是静默；按不可用处理（回退自有登录）
+        # 探测坏了和会话死了必须能区分，打日志而不是静默；按不可用处理（回退真实登录）
         logger.warning("[LOGIN] 共享会话探测异常（%s: %s），按不可用处理", type(e).__name__, e)
         return False
 
 
-def _try_shared_auth():
-    """尝试取一份「已存在且探活通过」的跨进程共享会话；取不到返回 None，绝不抛异常。
+def _get_shared_auth():
+    """取一份「已存在且探活通过」的跨进程共享会话；取不到返回 None。
 
-    只读缓存（_read_cache），绝不触发登录；本模块必须能在 auth_manager 不可用
-    （导入失败/缓存损坏）时独立工作，此时静默回退自有登录路径。
+    策略（何时探活、探不通就作废并重登一次）全部由 auth_manager 承担，本模块
+    只提供"探哪个业务端点"这条本地知识（`probe_ipran_session`）。
+
+    ⚠ 返回值 None 有两种含义，调用方一视同仁地回退自有登录即可：
+      1. auth_manager 导入失败（独立运行环境）—— 本模块必须能独立工作；
+      2. `get_auth` 本身抛异常（配置/网络层彻底不可用）。
+    注意**不再是**"缓存未命中"就返回 None：`get_auth` 未命中时会自己真实登录
+    并写回缓存，这正是与旧 `_try_shared_auth()` 的关键区别。
     """
     try:
-        from backend.services.auth_manager import _read_cache
+        from backend.services.auth_manager import get_auth
     except ImportError:
         try:
-            from auth_manager import _read_cache  # 兼容独立运行
+            from auth_manager import get_auth  # 兼容独立运行
         except ImportError:
             return None
-
     try:
-        cached = _read_cache(HOST, PORT)
-        if not cached:
-            return None                      # 未命中：交给调用方走自有登录
-        cookie = cached.get("cookie") or ""
-        if not cookie:
-            return None
-        forgery = cached.get("forgery_token", "")
-        # 采纳前必须探活：TTL 未过期不代表会话还能用（上游随时可能因别处登录把它踢掉）
-        if not _probe_session_alive(cookie, forgery):
-            return None
-        logger.info("[LOGIN] 复用共享会话（auth_manager 跨进程缓存），跳过真实登录")
-        return {"cookie": cookie, "forgery_token": forgery}
+        result = get_auth(HOST, PORT, *_runtime_credentials(),
+                          probe=probe_ipran_session)
     except Exception as e:
         # 打印而非静默：否则"共享鉴权坏了"会与"缓存未命中"混在一起无法定位
         logger.warning("[LOGIN] 共享鉴权不可用（%s: %s），回退自有登录", type(e).__name__, e)
         return None
+    if result["from_cache"]:
+        logger.info("[LOGIN] 复用共享会话（auth_manager 跨进程缓存），跳过真实登录")
+    # 探活失败导致的重登必须能从日志一眼看出，否则「探活救了一次」与
+    # 「本来就要登」混在一起，无法评估探活是否在起作用
+    elif result.get("from_relogin"):
+        logger.info("[LOGIN] 共享会话探活失败，已由 auth_manager 真实重登")
+    return {"cookie": result["cookie"], "forgery_token": result["forgery_token"]}
 
 
 def _write_shared_auth(cookie: str, forgery_token: str, username: str = "") -> None:
     """自有登录成功后把会话回写 auth_manager 跨进程缓存（共享的另一半）。
 
-    只读不写的话，本模块每轮真实登录产生的新会话永远进不了缓存，下一轮探活
+    【为什么本模块仍保留回写，而 MW/CNN 已删除】本函数的唯一调用点是下方
+    `UmeSessionClient.login()` 的**自有登录分支**。该分支存在的理由是
+    auth_manager 不可用（导入失败）时本模块必须能独立工作 —— 走这条路的会话
+    不经过 auth_manager，`get_auth` 不会替我们写缓存，因此回写只能由本模块做。
+    MW/CNN 两处的登录实现已完整删除、不存在这条独立分支，它们的回写随之成为
+    死代码并被移除（详见那两处的注释）。
+
+    只读不写的话，本模块每轮自有登录产生的新会话永远进不了缓存，下一轮探活
     拿到的还是死会话，共享形同虚设。失败只告警不抛出——回写失败不影响本轮任务
     （会话在本轮内仍然可用），下轮自有登录后还有机会再回写。
     """
@@ -575,10 +590,10 @@ class UmeSessionClient:
         logger.info("[LOGIN] 已采纳共享会话（%s:%s），跳过真实登录", self.host, self.port)
 
     def login(self):
-        # 共享鉴权接入：先尝试复用 auth_manager 跨进程缓存（见模块内共享鉴权小节）。
-        # 命中且探活通过 → 装进本模块会话状态直接返回，绝不真实登录；
-        # 未命中/探活失败/异常 → 返回 None，静默回退下方自有登录路径。
-        shared = _try_shared_auth()
+        # 共享鉴权接入：先经 auth_manager 取一份会话（其内部会先探活缓存、探不通
+        # 就真实重登一次，见模块内共享鉴权小节）。拿到就装进本模块会话状态直接
+        # 返回；auth_manager 导入失败/整体不可用（返回 None）才落到下方自有登录。
+        shared = _get_shared_auth()
         if shared:
             self._adopt_shared_auth(shared["cookie"], shared["forgery_token"])
             return

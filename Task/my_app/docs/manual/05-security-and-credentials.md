@@ -8,17 +8,28 @@
 
 ## 唯一的接口防护：`require_protected`
 
-`backend/security.py:17-26`：
+`backend/security.py` 的 `client_is_local()`：
 
-- 请求来自**回环地址** → 直接放行；
+- 请求来自**真实的本机回环** → 直接放行；
 - 请求来自远程 → 要求请求头 `X-API-Token` 等于环境变量 `MY_APP_API_TOKEN`；
 - `MY_APP_API_TOKEN` **未设置时，远程请求一律 403**（这是"默认拒绝"，比配了弱 token 更安全）。
 
 挂载范围很窄，只有 4 个 router 共 18 处装饰器：`routers/tasks.py`、`routers/upload.py`、`routers/task_configs.py`、`routers/cm_flows.py`。
 
-> 🔴 **已验证风险 1：Token 校验在反向代理后失效。**
-> 生产链路是 nginx → vite preview → `/api` 反代到 7038，前端 `baseURL: '/api'`（`frontend/src/api.ts:4`）。经同源反代后，后端看到的 `request.client.host` **恒为 `127.0.0.1`**，于是所有请求都命中"回环放行"分支。也就是说：**只要访问走 nginx，Token 形同不存在。**
-> 现实缓解手段只剩网络层：`:7038`/`:7090` 不对外网开放、内网访问范围可控。若要把系统放到更大范围，必须先改造防护（校验 `X-Forwarded-For` 真实来源或全站接入认证），不要指望这个 Token。
+> ✅ **2026-10-06 修复：`request.client.host` 被代理头改写导致的鉴权旁路。**
+>
+> **修复前的问题**：uvicorn 以 `--proxy-headers` 启动，其 `ProxyHeadersMiddleware` 会在应用收到请求前，把 `request.client.host` **改写**成 `X-Forwarded-For` 里的值；而它的采信条件仅是「TCP 直连方是 127.0.0.1」（`forwarded_allow_ips` 默认 `"127.0.0.1"`，见 `uvicorn/middleware/proxy_headers.py:35`）。
+> 因此 `client_is_local()` 读到的**根本不是原始 socket 对端**。实测（修复前）：`curl -H 'X-Forwarded-For: 127.0.0.1' http://127.0.0.1:7038/api/tasks/config/export` 返回 **200**（应当 403）。受影响面不止 `require_protected`，还包括 `backend/main.py:323` 的会话中间件 —— 等于**整体鉴权旁路**。
+>
+> **修复内容**（`backend/security.py:79-102`）：不再只看被改写过的 `request.client.host`，而是复刻门户侧 `server/auth/routes.ts:38` 早已采用的写法 —— 先确认 socket 对端为回环，再**优先采信 `X-Real-IP` / `X-Forwarded-For` 还原出的真实客户端地址**（nginx 在 `location /api/` 用 `$remote_addr` / `$proxy_add_x_forwarded_for` 覆盖写入，客户端伪造的值会被替换掉），地址仍属回环才算「本机」。
+>
+> **修复后实测**：远程访客经 nginx 访问（头里是其真实 IP）被正确判为非本机 → 401/403；非回环对端即使自带 `X-Forwarded-For: 127.0.0.1` 也无法提升权限；同机直连（前端 / 调度脚本 / 看门狗，不带代理头）行为**不变**，受保护端点仍为 200。
+>
+> ⚠️ **仍然成立的边界**：本判据信任"对端是回环"这一前提。若某个监听回环的本机组件被用作**面向 LAN 的反向代理且不覆写这两个头**，它仍能把远程请求伪装成本机。因此 `:7038` 收在回环、不额外挂其他本机反代入口，仍是必要的纵深防御（与 `backend/backend_watchdog.py:167-172` 的 B4 整改同源）。
+
+> 🔴 **已验证风险 1（原始版本，2026-10-06 已修复，保留供溯源）：Token 校验在反向代理后失效。**
+> 生产链路是 nginx → vite preview → `/api` 反代到 7038，前端 `baseURL: '/api'`（`frontend/src/api.ts:4`）。经同源反代后，后端看到的 `request.client.host` 曾**恒为 `127.0.0.1`**，于是所有请求都命中"回环放行"分支 —— **只要访问走 nginx，Token 形同不存在**。
+> 现已按上文改为解析真实客户端 IP；但**请勿再退回到只看 `request.client.host` 的写法**。
 
 > 🔴 **已验证风险 2：其余绝大多数接口无防护。**
 > 凭据读写、表数据导出、GIS/看板查询、设置保存等都不在 `require_protected` 覆盖范围内。
@@ -217,12 +228,37 @@ eFlow 空闲超时 1440 分钟、MW UME 在 `*/15` 活动顶持下可被信任 1
 逐台结论写在 `docs/manual/13-operations.md`「1b) 按主机分别设 TTL」，
 统计脚本 `TMP/_audit_ttl_v3.py`、回归脚本 `TMP/_verify_ttl_overrides.py` 保留可复用。
 
-**读缓存的采信边界**（同一条教训的两侧）：`auth_manager.get_auth()` 的缓存快路径
-**不探活**，TTL 说有效它就照发；而 iPRAN / CNN / MW / Battery 各服务读缓存走
-`_read_cache()` 且**采纳前用真实业务端点探活**（探登录首页会得到假绿 200）。
-因此「缓存里存的 cookie 是否可用」在不同消费方眼里的可靠性不一样：
-调长 TTL 对被探活保护的主机只是多一次无效探测，对 `get_auth()` 消费方
-（含门户一键登录 `portal_login_service.py:983`）则是**直接把死会话用出去**。
+**读缓存的采信边界 —— 探活已下沉到 auth_manager（2026-10-06 晚）**：
+`get_auth()` 新增可选参数 `probe`（`auth_manager.py` 的 `get_auth(..., probe=fn)`），
+`probe(cookie, forgery_token) -> bool` 由**调用方注入**。传入后，缓存快路径命中时
+**先探活**：判定已死就就地 `invalidate_cache()` 并真实重登一次，调用方拿到的
+始终是「已确认可用」的会话；返回值新增 `probed` / `from_relogin` 两个字段。
+
+为什么探活函数必须由调用方注入、而不是写死在 auth_manager 里：**必须探各服务自己的
+业务端点**，探登录首页会拿到误导性的 200（假绿，首页对未登录也放行）——
+MW UME 2026-10-04 实测首页 200 而业务端点 401。各服务的业务端点不同，
+所以「探哪个端点」属于服务自己的知识，auth_manager 只负责「何时探、探完怎么办」。
+
+已接入探活的位置（2026-10-06）：
+
+| 消费方 | 探活函数 | 探测端点 |
+| --- | --- | --- |
+| `ran_ume_service._login`（含 `packet_loss_service`） | `probe_pm_session` | `/api/pm-analysis/v2/history` |
+| `ms_sla_sync._ume_login` | `probe_sla_session` | 同上 |
+| `ran_ume_main_kpi.login` | 同上（共用 PM history） | 同上 |
+| `ran_ume_alarm_service._auth` | `probe_alarm_session` | `/api/fm-active/v1/activealarms/alarmkey` |
+| `portal_login_service._oauth2_direct_auth` | `_portal_probe(spec)` | 见下 |
+
+门户一键登录按 `PORTAL_PROBE_PATHS`（`portal_login_service.py`）登记：`zte_ume` /
+`ccn_ume` / `ipran_ume` / `mw_ume` 用 PM history；**未登记的门户返回 `None`＝不探活**，
+退回「只信 TTL」的历史行为。这是刻意的 —— 与其拿一个猜出来的端点去探
+（探错会把好会话判死、无谓增加登录），不如显式留空，等有实测依据再补。
+
+**不传 `probe` 时行为与改动前完全一致**（只按 TTL 判过期），这是给不具备探活
+能力的调用方（如 eFlow 的登录协议不同）留的兼容口。
+
+调长 TTL 对被探活保护的主机只是多一次探测开销，对**未**传 probe 的消费方
+则是直接把死会话用出去 —— 后者才是需要靠短 TTL 兜底的场景。
 
 ### 登出能力（2026-10-04 新增，默认关闭）
 
@@ -284,7 +320,7 @@ eFlow 空闲超时 1440 分钟、MW UME 在 `*/15` 活动顶持下可被信任 1
 
 ## 如果要提升安全性（按投入产出排序）
 
-1. 把 `require_protected` 从"回环放行"改为解析真实客户端 IP（`X-Forwarded-For` + 可信代理白名单），并覆盖到**所有**写接口与导出接口。
+1. ~~把 `require_protected` 从"回环放行"改为解析真实客户端 IP（`X-Forwarded-For` + 可信代理白名单）~~ —— **2026-10-06 已完成**（`backend/security.py:79-102`，见上文）。剩余部分：把它覆盖到**所有**写接口与导出接口（当前仅 4 个 router 的 18 处装饰器）。
 2. `credential_store` 接进 `database.py` 走同一后端，并对 `secret` 列做可逆加密（密钥放环境变量）。
 3. 给 `:7038` 加防火墙白名单，只允许 nginx 所在主机访问。
 4. 加一层最简单的共享口令登录（够用且不改数据模型），换掉"裸奔"现状。

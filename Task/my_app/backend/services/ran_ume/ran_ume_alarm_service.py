@@ -79,8 +79,68 @@ def _runtime_credentials() -> Tuple[str, str]:
                           env_user="RAN_UME_USER", env_secret="RAN_UME_PASS")
 
 
+def probe_alarm_session(cookie: str, forgery_token: str) -> bool:
+    """探活 RAN UME 会话：POST 一个**故意没有查询条件**的告警查询。
+
+    为什么必须探**业务端点**：MW UME 2026-10-04 实测探登录首页返回 200
+    （假绿，首页对未登录也放行），业务端点才返回 401。这里用
+    `ACTIVE_ALARMKEY_PATH` —— 本服务真正在用的当前告警接口。
+
+    判定：401/403/419/499 = 会话死（419/499 是本上游的会话类状态码，
+    见 `_post` 的处理）；其余状态码（400/500 等）= 会话活着，只是空 body
+    的参数不合法（上游先校验会话再解析参数）。异常按不可用处理 ——
+    拿不到证据就不复用，退回真实登录。
+
+    ⚠️ 只发**一发**空 payload 的 POST，不做分页、不落库、不重试；本函数
+    由 `auth_manager.get_auth(probe=...)` 在取会话路径调用，每轮至多一發。
+    绝不挪进请求热路径（本项目已因「每任务登录一次」把 eFlow 打崩过一次）。
+    """
+    import requests
+    try:
+        from backend.security_tls import tls_verify, silence_insecure_warning
+    except ImportError:  # pragma: no cover
+        tls_verify = lambda _s: False  # noqa: E731
+        silence_insecure_warning = lambda _v: None  # noqa: E731
+    verify = tls_verify("ume")
+    silence_insecure_warning(verify)
+
+    base = f"https://{HOST}:{PORT}"
+    headers = {
+        "Content-Type": "application/json; charset=UTF-8",
+        "Accept": "application/json, text/plain, */*",
+        "Cookie": cookie,
+        "Referer": f"{base}/uportal/framework/default.html",
+        "X-Requested-With": "XMLHttpRequest",
+        "language-option": "en-US",
+        "timeZoneInfo": "Default,Atlantic/Reykjavik,",
+        "Origin": base,
+    }
+    if forgery_token:
+        # 头名必须是不带端口后缀的裸 forgerydefense（cookie 名可能带 -28001，
+        # 但请求头带后缀同样 403 —— 见 auth_manager 顶部实测记录）
+        headers["forgerydefense"] = forgery_token
+    try:
+        r = requests.post(f"{base}{ACTIVE_ALARMKEY_PATH}", headers=headers,
+                          json={}, verify=verify, timeout=15)
+        alive = r.status_code not in (401, 403, 419, 499)
+        if not alive:
+            logger.info("[ALARM] 共享会话已失效（探测 %s -> %s）",
+                        ACTIVE_ALARMKEY_PATH, r.status_code)
+        return alive
+    except Exception as e:  # noqa: BLE001
+        # 区分「探测本身坏了」与「会话真死了」：否则日志里两者长得一样
+        logger.warning("[ALARM] 会话探测异常（%s: %s），按不可用处理",
+                       type(e).__name__, e)
+        return False
+
+
 def _auth(force_refresh: bool = False) -> Tuple[str, str]:
-    """取 (cookie, forgery_token)，复用 auth_manager 的共享缓存避免同账户互踢。"""
+    """取 (cookie, forgery_token)，复用 auth_manager 的共享缓存避免同账户互踢。
+
+    2026-10-06：接入 `probe_alarm_session` 探活。此前快路径只按 TTL 判过期、
+    不做探活，死 cookie 会被发给调用方（RAN UME 实测 113 分钟即失效，
+    而 TTL 当时 86400）→ 本服务会拿死会话打出一片 401。
+    """
     try:
         from backend.services.auth_manager import get_auth, invalidate_cache
     except ImportError:  # pragma: no cover
@@ -91,7 +151,7 @@ def _auth(force_refresh: bool = False) -> Tuple[str, str]:
         except Exception:
             logger.debug("invalidate_cache 失败", exc_info=True)
     user, pwd = _runtime_credentials()
-    r = get_auth(HOST, PORT, user, pwd)
+    r = get_auth(HOST, PORT, user, pwd, probe=probe_alarm_session)
     return r.get("cookie", ""), r.get("forgery_token", "")
 
 

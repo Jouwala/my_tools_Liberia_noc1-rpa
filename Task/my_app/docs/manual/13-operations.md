@@ -73,7 +73,59 @@ Get-ChildItem D:\01_RPA\Task\my_app\log\heartbeat_*.json |
 | VMAX 90 天看板某指标断档 / 页面 Build 时间不动 | `data/olib_soc_report/olib_soc_report.sqlite3` 的 `daily_kpi` 表 | 见下方专节 |
 | 门户点开看板看到「需要登录：请先通过统一门户登录后再访问看板数据」 | 该浏览器的门户登录态是否有效（`localStorage` 的 `liberia_noc_auth_v1`） | **不一定是看板坏了**。my_app 认可三种身份来源：URL 深链 `?t=`、门户登录态、myapp 自身会话。目录里那串 `&t=` 是**门户会话 token**，而门户会话是**纯内存 + 12h 滑动过期、服务重启即清空**（门户 `server/auth/store.ts:32`），所以它**会过期**，目录里 21 条共用同一串、过期后一起失效 —— 这是常态而非本次改动引入。本机自测常看不出来，因为门户后端对 `localhost`/`127.0.0.1` 自动放行（`api.ts:474-485` 的换会话逻辑）。判据：让该用户重新登录门户再点。端到端回归：`python TMP\_verify_portal_card_click.py` |
 | 门户里少了 / 多了某张看板卡 | `backend\data\portal_catalog.json`（服务端全局目录，**53~54 条**） | 门户的看板清单**不在静态 assets 里**，而在服务端目录：`GET/PUT /api/portal-catalog`（`backend\routers\portal_catalog.py`，落盘 `backend\data\portal_catalog.json`，整体原子替换写）。改它请走接口而不是手改 JSON —— `_normalize_item`（`:205-257`）会校验 `titleZh/titleEn` 至少一个非空、`url` 必须以 `http(s)://` 开头，手改漏字段会让整份目录被丢掉。`no` 是分组成员覆盖与卡片锚点的键，**取当前最大号 +1，不复用已删编号**。回归：`python TMP\_verify_portal_ttwo_split.py` |
+| 门户登录**成功**、跳进 my_app 却**反复要求登录**，且 `portal-login` 返回 **503** | 启动日志里的「门户回调地址」自检行；`UNIPLAM_ME_URL` 是否指向**门户所在机器** | 见下方专节「门户回调用错地址：登录成功却进不去」 |
 | `/api/gis/sites` 间歇 500（`服务器内部错误，请稍后重试` + `request_id`） | 拿 `request_id` 去 `backend_runtime_<日期>.log` 搜 `[unhandled] rid=<id>`（**必须用当天那个日志文件**，后端每次重启会换文件，见 `backend_watchdog.py:47`） | 见下方专节「GIS 500：整表重建空窗」 |
+
+### 门户回调用错地址：登录成功却进不去（2026-10-06 修复）
+
+**现象**：用户在门户里正常登录成功，点开 my_app 看板却一直停在"需要登录"；
+反复重新登录门户也没用。my_app 日志里 `POST /api/auth/portal-login` 返回 **503**。
+
+**机制**：my_app 自身没有账号体系，登录链路是
+「门户签发 token → 深链 `?t=` 带进 my_app → my_app **回调门户 `/me`** 校验 → 换 myapp 会话 Cookie」
+（`backend/services/portal_auth.py` 的 `verify_portal_token()`，被 `portal-login` 调用）。
+
+这条链的最后一跳要访问门户，地址由 **`UNIPLAM_ME_URL`** 决定，默认值是
+`http://127.0.0.1:9267/uniplam/api/auth/me`（`portal_auth.py:77`）——
+**它假定 my_app 与门户同机部署**。一旦分机部署而没人设过这个变量，
+my_app 会去连**它自己那台机器**的 9267，而那里根本没有门户。
+
+**修复前为什么难查**：`verify_portal_token()` 把两类失败收敛成同一个返回值 `None`：
+
+| 实际原因 | 修复前 | 修复后 |
+|---|---|---|
+| 门户明确回 401 → token 真的过期 | 返回 `None` → 端点回 **401**「请先在门户登录后重试」 | 不变（401，正确） |
+| 连接被拒 / DNS 失败 / 超时 → **地址配错** | 也返回 `None` → 端点回 **401**，用户被引导去反复登录 | 抛 `PortalUnreachable` → 端点回 **503** 并说明是服务端配置问题 |
+
+于是真正的病因（地址不对）只留在日志里一行 `warning`，前端表现却是"再登录一次试试"。
+
+**现在怎么定位**（三步，都不用猜）：
+
+```bash
+# ① 启动日志自检：后端每次启动都会探一次门户回调地址
+#    可达   -> [startup] 门户回调地址可达: http://127.0.0.1:9267/uniplam/api/auth/me
+#    不可达 -> [startup] ⚠ 门户回调地址不可达: ... (All connection attempts failed)
+#              若门户不在本机，请设置 UNIPLAM_ME_URL 指向门户所在机器
+Get-ChildItem log\backend_runtime_*.log | Select-String -Pattern '门户回调地址'
+
+# ② 直接确认那台机器上有没有门户（把 <门户主机> 换成实际值）
+curl -s -o NUL -w "%{http_code}\n" http://<门户主机>:9267/uniplam/api/auth/mode
+#    200 = 门户在；连接失败 = 地址配错了
+
+# ③ 看 portal-login 到底回的是 401 还是 503（这是两类问题的分水岭）
+Select-String -Path log\backend_runtime_*.log -Pattern 'portal-login'
+```
+
+**修法**：在 my_app 的 `backend/.env` 里把 `UNIPLAM_ME_URL` 指向门户所在机器，然后重启后端。
+同机部署无需设置（默认值即正确）。
+
+> **为什么用 503 而不是 401**：401 的语义是"你的凭据不对"，会把用户和排障者都引向
+> "重新登录"这个无效方向；503 的语义是"服务端暂时不可用"，配合响应体里那句
+> 「这是服务端配置问题，请联系管理员检查 UNIPLAM_ME_URL」才指向正确方向。
+
+回归：`python -m pytest tests/test_portal_callback_reachable.py -q`（8 项，无网络；
+断言"不可达抛 PortalUnreachable"与"被拒绝返回 None"两条路径不混淆）。
+
 
 ### GIS 500：整表重建空窗（2026-09-29 修复）
 
@@ -619,10 +671,42 @@ RAN UME（`10.100.28.27:28001`，NOC 账号）的共享缓存会话**服务端�
 > ⚠ **MW 的 86400 有前提**：它靠 `mw_ume_kpi_sync_rt`（`*/15 * * * *`）不停活动把会话
 > 顶活。一旦该任务被停用，缓存就会发出死 cookie（该主机的消费方有探活，能自愈，
 > 但门户一键登录没有）。
->
-> ⚠ **未列入覆盖表的主机**（门户目录里还有 `10.123.255.12:26180`、
-> `172.17.208.1:28808`、`10.100.20.9:8766`）一律回退 86400，**没有实测依据**。
-> 如果某台的一键登录总落到登录页，就按同样方法统计它的证死年龄再加进覆盖表。
+
+**门户目录里那三台主机为什么不进覆盖表（2026-10-06 核查，结论与原先的假设相反）**：
+
+门户目录里出现过 `10.123.255.12:26180`（VMAX CXO）、`172.17.208.1:28808`（UME
+iMonitor）、`10.100.20.9:8766`（RAIS），原先记为「一律回退 86400，没有实测依据，
+落回登录页就按同样方法统计再加表」。**逐文件核查后发现这个处置方向是错的**：
+`AUTH_TTL_OVERRIDES` 只在 `auth_manager` 内部生效，而这三台里有两台**根本不经过
+`auth_manager`** —— 给它们加覆盖表条目是**空操作**。
+
+| 门户 | 地址 | `kind` | 登录路径 | 经 `auth_manager`？ |
+| --- | --- | --- | --- | --- |
+| `vmax_cxo` | `10.123.255.12:26180` | `vmax` | `launch_and_login`（浏览器填表） | **否** |
+| `rais` | `10.100.20.9:8766` | `rais` | `launch_and_login_rais_direct`（AES-256-CBC 换 SSO token） | **否** |
+| `ume_in` | `172.17.208.1:28808` | `oauth2` | 通用分支 `_oauth2_direct_auth` | **是** |
+
+判定依据：`routers/portals.py:_spawn` 只对 `eflow` / `rais` 分流到专用登录函数，
+其余走 `launch_and_login`；而客户端模式的 `build_client_login_plan` 里，只有
+`kind == "oauth2"` 的通用分支才调 `_oauth2_direct_auth`（`portal_login_service.py`）。
+`grep auth_manager` 在 VMAX（`vmax_report_client.py` 自有 `JSESSIONID` 单会话 +
+内部 re-login）与 RAIS（`_rais_direct_auth`）中**零命中**。
+
+所以：
+
+- **`vmax_cxo` / `rais`**：不受 TTL 与探活管辖。它们的「落回登录页」若有，
+  根因在各自实现（VMAX 是 `JSESSIONID` 单会话互相踢 + `captcha: true` 需人工输
+  验证码；RAIS 是 SSO token 有效期），**不是 TTL 覆盖表能解决的**，`_audit_ttl_v3.py`
+  也量不到它们（它只统计 `auth_manager` 写的 `auth_cache/*.json`）。
+- **`ume_in`**：**确实**经 `auth_manager`，此前既没进覆盖表也没接探活 ——
+  这台才是「一键登录落回登录页」在 TTL 侧的真正嫌疑对象。已按实测处理：
+  探活端点登记为 `/api/pm-analysis/v2/history`（见下），覆盖表取值见下。
+  实测依据：该端点对垃圾/空 cookie 返回 **401 + `{"hasLogged":true,"source":"smagent"}`**
+  （正是 MW UME 2026-10-04 记录的死会话签名），且 TCP 可达 —— 端点有效、确会拒绝。
+
+`ume_in` 的探活端点登记在 `portal_login_service.PORTAL_PROBE_PATHS`
+（未登记的门户返回 `None`＝不探活，退回「只信 TTL」）。**登记前必须实测该端点
+确实要求鉴权**（探登录首页会得到假绿 200），否则会把好会话判死、无谓增加登录。
 
 **同时修掉的两个"配置项与事实不符"**：
 
@@ -975,10 +1059,27 @@ MW 的时间戳分布是铁证：登录发生在每小时第 **00/15/30/45** 分
 
 #### 修复：接入 `auth_manager` 共享缓存（三件套缺一不可）
 
+> ⚠ **2026-10-06 晚更新 —— 本节的"三件套"已被收敛，不再是当前写法。**
+> 下面记述的是当天上午的**历史实现**（保留作为事故复盘，机制与教训仍然成立）。
+> 当天晚些时候已把「何时探活 / 缓存作废 / 单次重登」三段策略**下沉进
+> `auth_manager.get_auth(probe=...)`**，MW 与 CNN 的 `_try_shared_auth()` /
+> `_probe_session_alive()` / `_write_shared_auth()` **均已删除**，本模块自带的
+> 4 步 OAuth2 登录实现也一并删除（与 `auth_manager._do_login` 是同一协议的
+> 重复实现）。现在各服务**只保留探活函数**（`probe_mw_session` / `probe_cnn_session`
+> 等），由调用方注入，见 `05-security-and-credentials.md` 的
+> 「读缓存的采信边界」小节。
+>
+> 第 1 条里"必须用 `_read_cache()` 而不是 `get_auth()`"的顾虑**已不成立** ——
+> 它成立的前提是"自有登录还留在本模块里"，而那个重复实现已经删掉了。
+> iPRAN 与 Battery **保留**了自有登录分支作为 auth_manager 不可用时的兜底，
+> 因此这两家仍保留 `_write_shared_auth()`；CCN / MW 无此分支，回写已成死代码，
+> 故删除。**不要为了"统一形状"把 iPRAN / Battery 的兜底删掉。**
+
 MW 的门户路径 `/uportal/framework/default.html` 与 `auth_manager` 内置的
 **完全一致**，协议同为 ZTE `login_rsa`，因此可直接接入，无需新写鉴权。
 
-但只"接入"是不够的 —— **实测中发现只做前两步反而更糟**，必须三件套齐备：
+但只"接入"是不够的 —— **实测中发现只做前两步反而更糟**，必须三件套齐备
+（以下函数名与行号为**历史**位置，均已不存在）：
 
 1. **`_try_shared_auth()`**（`:461`）—— 复用前先读缓存。
    ⚠ **必须用 `_read_cache()` 而不是 `get_auth()`**：`get_auth()` 不是只读的，
