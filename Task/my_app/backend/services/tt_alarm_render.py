@@ -40,6 +40,13 @@
 引擎不可用（脚本缺失、xlsx 被占用、超时、非零退出）时返回 `None`，
 由调用方回退到 `tt_alarm_message.build_tt_message()` 的头部摘要模板。
 **降级是刻意的**：宁可发一条信息较少的告警，也不要因为分析引擎的问题漏发整条告警。
+
+⚠️ **但「降级」不能被自己的快照代码制造出来**（2026-10-05 事故）：
+`_snapshot_tt(row=...)` 曾用稀疏实时行的键当表结构，导致引擎抛
+`no such column: ticket_no` 退出码 3 —— 7 行模板取代了 31 行完整格式。
+它影响的是**主路径**（实时触发就是稀疏行），所以当时几乎每条推送都在降级，
+而群里只会看到「信息怎么这么少」。修法与回归测试见 `_snapshot_tt` docstring
+与 `tests/test_tt_alarm_render.py::test_sparse_live_row_snapshot_keeps_authoritative_columns`。
 """
 import logging
 import os
@@ -157,6 +164,36 @@ def _engine_env(db_override: Optional[Path] = None) -> dict:
 _SNAPSHOT_LOCK = threading.Lock()
 
 
+_AUTHORITATIVE_COLUMNS_CACHE: Optional["list[str]"] = None
+
+
+def _authoritative_columns() -> "list[str]":
+    """`eflow_tt` 的权威全列名（用于建快照表结构，缓存一次）。
+
+    为什么需要它：稀疏的实时行不能决定表结构 —— 引擎有若干**不按 `_TT_COLUMNS`
+    取交集**的 SQL（`_row_keys` 的 `SELECT tt_no, ticket_no, wo_no ...`、
+    `tt-analyze.py:999/1052`），表里没有那些列就直接抛 `no such column` 退出。
+    见 `_snapshot_tt` docstring 的 2026-10-05 修复记录。
+
+    取不到时返回空列表，调用方退回「用行自身的键建表」的旧行为（宁可降级不中断）。
+    """
+    global _AUTHORITATIVE_COLUMNS_CACHE
+    if _AUTHORITATIVE_COLUMNS_CACHE is not None:
+        return _AUTHORITATIVE_COLUMNS_CACHE
+    cols: "list[str]" = []
+    try:
+        from backend.database import get_raw_connection
+
+        with get_raw_connection() as conn:
+            cur = conn.execute("SELECT * FROM eflow_tt WHERE 1 = 0")
+            cols = [d[0] for d in (cur.description or [])]
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[TTAlert] 取 eflow_tt 列清单失败，快照退回稀疏结构: %s", e)
+        cols = []
+    _AUTHORITATIVE_COLUMNS_CACHE = cols
+    return cols
+
+
 def _snapshot_tt(tt_no: str, row: Optional[dict] = None) -> Optional[Path]:
     """把单号 `tt_no` 从生产库抄进临时 SQLite，返回该文件路径（失败返回 None）。
 
@@ -165,11 +202,24 @@ def _snapshot_tt(tt_no: str, row: Optional[dict] = None) -> Optional[Path]:
     且它依赖 `immutable=1` 打开数据库，SQLite 与 PG 的 SQL 方言差异会牵动全文。
     在这里造一份「最新鲜的单行快照」是最小侵入的修法。
 
-    `row` 不为空时直接用它造快照，**跳过查库** —— 这是给「刚触发、镜像里还没有」
-    的新单准备的：实时查单行（`fetch_tt_live_batch` 的归一化行）的字段集是
-    base/list 的紧凑子集，而引擎读快照时按 `PRAGMA table_info` 与自己的列清单
-    取交集（tt-analyze.py fetch_tt），缺的列只是不 SELECT，不会报错 ——
-    所以部分字段的实时行也能喂出带里程碑骨架的完整格式，而不是降级成 6 行模板。
+    `row` 不为空时用它做**值**，但**表结构仍取权威全列**（见下）—— 这是给
+    「刚触发、镜像里还没有」的新单准备的。
+
+    ⚠️ **2026-10-05 修复：稀疏行不能直接当表结构。**
+    此前实现是「用 `row` 的键当列名建表」，理由是引擎按 `PRAGMA table_info` 与
+    自己的列清单取交集、缺列只是不 SELECT 不会报错。**这个理由是错的**：
+    引擎还有一条不走 `_TT_COLUMNS` 交集的 SQL —— `_row_keys` 依赖的
+    `SELECT tt_no, ticket_no, wo_no FROM "eflow_tt" WHERE rowid = ?`
+    （tt-analyze.py:999），以及建索引时的同类查询（:1052）。而任务的实时触发行
+    （`merged_render_row` 的产物）字段集是 `{tt_no, alarm_code, alarm_occur_time,
+    last_modified_time, ticket_severity, alarm_raised_time}` —— **没有 ticket_no**。
+    于是快照里只有 1~6 列，引擎抛 `no such column: ticket_no` 退出码 3，
+    整批消息静默降级成 7 行模板（线上实测：`TT202610050073` 只发出 314 字符 8 行，
+    而完整格式是 1538 字符 31 行）。这**不是偶发**：实时触发是本任务的主路径。
+
+    修法：表结构固定用**权威全列**（查库路径的列集，或 `_snapshot_tt` 缓存的全列），
+    稀疏行里缺的列填 NULL。这样引擎的每条 SQL 都能解析，缺失字段退化成
+    「该字段无值」而不是让整个引擎崩掉 —— 详见 `_authoritative_columns()`。
     """
     if row is None:
         try:
@@ -190,10 +240,22 @@ def _snapshot_tt(tt_no: str, row: Optional[dict] = None) -> Optional[Path]:
         col_names = cols
         row_tuples = rows
     else:
-        # 实时行：丢弃内部键（`_tt_live_raw` 是嵌套 dict，str() 进快照只会添乱），
-        # 其余值统一 TEXT（与查库路径同规则）。
-        col_names = [c for c in row.keys() if not str(c).startswith("_")]
-        row_tuples = [tuple(None if row[c] is None else str(row[c]) for c in col_names)]
+        # 实时行：值统一 TEXT（与查库路径同规则），但**表结构取权威全列**。
+        # 缺列填 NULL —— 让引擎的每条 SQL 都能解析，而不是整批降级。
+        # 见本函数 docstring 的 2026-10-05 修复记录。
+        auth_cols = _authoritative_columns()
+        if auth_cols:
+            col_names = auth_cols
+
+            def _cell(c):
+                v = row.get(c)
+                return None if v is None else str(v)
+
+            row_tuples = [tuple(_cell(c) for c in col_names)]
+        else:
+            # 拿不到权威列集（库异常）：退回稀疏结构，宁可降级也不中断发送。
+            col_names = [c for c in row.keys() if not str(c).startswith("_")]
+            row_tuples = [tuple(None if row[c] is None else str(row[c]) for c in col_names)]
 
     import sqlite3
     import tempfile
@@ -203,8 +265,10 @@ def _snapshot_tt(tt_no: str, row: Optional[dict] = None) -> Optional[Path]:
         con = sqlite3.connect(str(tmp))
         try:
             # 引擎用的是 `SELECT ... FROM eflow_tt`，故只要这一张表。
-            # 列定义按来源行的列名与顺序生成；类型统一 TEXT —— 引擎只做字符串
-            # 比较与正则提取，不依赖数值亲和性，TEXT 足够且避免类型转换抛错。
+            # 类型统一 TEXT —— 引擎只做字符串比较与正则提取，不依赖数值亲和性，
+            # TEXT 足够且避免类型转换抛错。
+            # 列集必须是**权威全列**（稀疏行也要补 NULL），原因见 docstring：
+            # 引擎有 `SELECT tt_no, ticket_no, wo_no ...` 这类不按列清单过滤的 SQL。
             decl = ", ".join(f'"{c}" TEXT' for c in col_names)
             con.execute(f'CREATE TABLE eflow_tt ({decl})')
             ph = ", ".join("?" for _ in col_names)

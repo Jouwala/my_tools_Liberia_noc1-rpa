@@ -42,12 +42,16 @@ def _use_db(monkeypatch, tmp_path, eflow_rows=None):
     """
     db_path = tmp_path / "raw.db"
     conn = sqlite3.connect(db_path)
+    # 列集要与真实 eflow_tt 同构：`ticket_no` / `wo_no` 是引擎
+    # `_row_keys`（tt-analyze.py:999）依赖的列，fixture 里缺了会让
+    # 「快照是否带全列」的回归测试假失败（2026-10-05 踩到）。
     conn.execute(
         "CREATE TABLE IF NOT EXISTS eflow_tt (tt_no TEXT, ticket_severity TEXT, "
         "alarm_code TEXT, alarm_occur_time TEXT, alarm_clear_time TEXT, "
-        "site_id TEXT, site_name TEXT, title TEXT)")
+        "site_id TEXT, site_name TEXT, title TEXT, "
+        "ticket_no TEXT, wo_no TEXT)")
     for row in (eflow_rows or []):
-        conn.execute("INSERT INTO eflow_tt VALUES (?,?,?,?,?,?,?,?)", row)
+        conn.execute("INSERT INTO eflow_tt VALUES (?,?,?,?,?,?,?,?,?,?)", tuple(row) + (None, None))
     conn.commit()
     conn.close()
 
@@ -432,6 +436,63 @@ def test_snapshot_is_none_for_missing_tt(tmp_path, monkeypatch):
     path = R._snapshot_tt("TT-NOT-EXIST")
     assert path is None
     R._cleanup_snapshot(path)
+
+
+def test_sparse_live_row_snapshot_keeps_authoritative_columns(monkeypatch, tmp_path):
+    """稀疏实时行造出的快照**必须带全列**，否则引擎整批降级（2026-10-05 修复）。
+
+    线上事故：任务的触发行来自 `merged_render_row`，字段集只有
+    `{tt_no, alarm_code, alarm_occur_time, last_modified_time, ticket_severity,
+    alarm_raised_time}` —— **没有 ticket_no**。旧实现拿这 6 个键当表结构建表，
+    而引擎有一条不按 `_TT_COLUMNS` 过滤的 SQL：
+
+        SELECT tt_no, ticket_no, wo_no FROM "eflow_tt" WHERE rowid = ?   (tt-analyze.py:999)
+
+    于是引擎抛 `no such column: ticket_no` 退出码 3，消息从 31 行缩成 7 行。
+    这**不是边缘路径**：实时触发是本任务的主路径，等于每次都在降级。
+
+    这条测试直接盯表结构，不依赖引擎是否装了 —— 引擎缺失时它不会假通过，
+    因为断言的是列集而非渲染文本。
+    """
+    _use_db(monkeypatch, tmp_path, eflow_rows=[
+        ("TT9", "P1", "9920", _now(), None, "1", "s", "t")])
+    # 清缓存，让 _authoritative_columns() 从临时库重新取（模块级缓存跨测试保留）
+    monkeypatch.setattr(R, "_AUTHORITATIVE_COLUMNS_CACHE", None, raising=False)
+
+    sparse = {"tt_no": "TT9", "alarm_code": "9920", "ticket_severity": "P1"}
+    path = R._snapshot_tt("TT9", row=sparse)
+    assert path is not None, "稀疏行应能造出快照"
+
+    con = sqlite3.connect(str(path))
+    try:
+        cols = {c[1] for c in con.execute('PRAGMA table_info("eflow_tt")')}
+        # 引擎依赖的三列必须在（_row_keys / 建索引要用）
+        for must in ("tt_no", "ticket_no", "wo_no"):
+            assert must in cols, f"快照缺列 {must}，引擎会抛 no such column"
+        # 稀疏行里的值要落进去，缺失的列填 NULL 而非报错
+        got = con.execute('SELECT tt_no, alarm_code, ticket_no FROM "eflow_tt"').fetchone()
+        assert got[0] == "TT9" and got[1] == "9920"
+        assert got[2] is None, "缺失列应为 NULL"
+    finally:
+        con.close()
+        R._cleanup_snapshot(path)
+
+
+def test_sparse_row_falls_back_when_columns_unavailable(monkeypatch, tmp_path):
+    """拿不到权威列集时退回稀疏结构 —— 宁可降级也不能中断发送。"""
+    _use_db(monkeypatch, tmp_path, eflow_rows=[
+        ("TT9", "P1", "9920", _now(), None, "1", "s", "t")])
+    monkeypatch.setattr(R, "_authoritative_columns", lambda: [])
+
+    path = R._snapshot_tt("TT9", row={"tt_no": "TT9", "alarm_code": "9920"})
+    assert path is not None, "列集不可得时仍应产出快照（降级优于不发）"
+    con = sqlite3.connect(str(path))
+    try:
+        cols = {c[1] for c in con.execute('PRAGMA table_info("eflow_tt")')}
+        assert cols == {"tt_no", "alarm_code"}, f"应退回稀疏结构，实际 {cols}"
+    finally:
+        con.close()
+        R._cleanup_snapshot(path)
 
 
 def test_cleanup_removes_file_and_dir(tmp_path, monkeypatch):
