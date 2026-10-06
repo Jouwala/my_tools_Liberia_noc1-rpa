@@ -439,6 +439,11 @@ async function start() {
     syncFullHistory: false,
     markOnlineOnConnect: false,
     generateHighQualityLinkPreview: false,
+    // 与 src/whatsapp.js 保持一致，理由见那里的注释：Baileys 默认就是 30s 探活，
+    // 显式写出仅为让「多久探活一次」在代码里可见（排查时不必翻 node_modules）。
+    // 不调更短：更频繁的 ping 不会更稳，反而更可能被服务端限流。
+    keepAliveIntervalMs: 30_000,
+    connectTimeoutMs: 60_000,
   });
   sockRef = sock;
 

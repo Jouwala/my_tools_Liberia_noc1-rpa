@@ -104,6 +104,30 @@ let activeSock = null;
 let reconnectAttempts = 0;
 let shuttingDown = false;
 
+/* ------------------- 跨重连保持的业务状态（模块级，见下方说明） ------------------- */
+
+/** 机器人自身的多种标识形式。每次连接 open 时按新 socket 重算。 */
+let selfIds = new Set();
+
+/** 机器人自己发出的消息 id，用于识别「引用回复机器人」。有上限，防内存泄漏。 */
+const botMessageIds = createBoundedIdSet(500);
+
+/** chatJid → 上次回复时间，用于冷却。 */
+const lastReplyAt = new Map();
+
+/** 串行队列：避免并发把本地模型压垮。跨重连保持，保证同一时刻只有一个提问在处理。 */
+let chain = Promise.resolve();
+
+/** 当前排队中的提问数。 */
+let queued = 0;
+
+/** 累计因断连而错过的消息数（可观测性，见 handleMessage 里的说明）。 */
+let missedWhileDown = 0;
+
+/** 是否处于「刚断过、还没重连成功」的状态，以及断开起始时间。 */
+let wasDisconnected = false;
+let downSince = 0;
+
 /**
  * 有上限的 id 集合。用于记录机器人自己发出的消息 id。
  * 直接用 Set 会随运行时间无限增长（内存泄漏），这里做 FIFO 淘汰。
@@ -151,12 +175,17 @@ export async function startWhatsApp({ onQuestion, builtins = null }) {
   const { state, saveCreds } = await useMultiFileAuthState(CONFIG.authDirAbs);
   let { version } = await fetchLatestBaileysVersion().catch(() => ({ version: undefined }));
 
-  let selfIds = new Set();
-  // 记录机器人自己发出的消息 id，用于识别"引用回复机器人"
-  const botMessageIds = createBoundedIdSet(500);
-  const lastReplyAt = new Map(); // chatJid -> timestamp
-  let chain = Promise.resolve(); // 串行队列，避免并发打爆本地模型
-  let queued = 0; // 当前排队中的提问数
+  // 这些状态**刻意放在模块级**，必须活过重连。
+  //
+  // 原先它们是 startWhatsApp 的局部变量，而重连是递归调用 startWhatsApp —— 每断
+  // 一次就全部清零重建。后果（2026-10-06 实测）：
+  //   · botMessageIds 清空 → 用户「引用回复机器人」时认不出被引用的是自己，不响应；
+  //   · lastReplyAt 清空 → 冷却失效，重连瞬间的连发会被全部处理；
+  //   · chain/queued 归零 → 上一个 socket 里**还在跑**的提问与新一轮并发，
+  //     既可能重复回答，也让串行保护形同虚设。
+  // 模块级后，重连只换 socket，业务状态连续。
+  // （notify.js 的 groupIndex/sockRef 早就是模块级，同样理由。）
+  // selfIds 每次 open 时按新 socket 重算，这里保留最后一次结果即可。
 
   const sock = makeWASocket({
     version,
@@ -166,6 +195,13 @@ export async function startWhatsApp({ onQuestion, builtins = null }) {
     syncFullHistory: false,
     markOnlineOnConnect: false,
     generateHighQualityLinkPreview: false,
+    // 保活与超时。Baileys 默认 keepAliveIntervalMs=30000，本身就会定时发 ping；
+    // 这里**显式写出来**是为了让「它到底多久探活一次」在代码里可见 ——
+    // 2026-10-06 排查时只能去翻 node_modules 才确认到这点。
+    // 注意：调到比默认更短并不会更稳，反而增加被服务端限流的风险；
+    // 所以保持 30s，只调大「多久算断」的判定窗口，减少把慢网络误判成掉线。
+    keepAliveIntervalMs: 30_000,
+    connectTimeoutMs: 60_000,
   });
   activeSock = sock;
 
@@ -186,11 +222,28 @@ export async function startWhatsApp({ onQuestion, builtins = null }) {
       selfIds = selfIdentifiers(sock, state.creds?.me);
       log(`✓ 已连接。机器人标识：${[...selfIds].join(' / ')}`);
       log(`  回复模式：${CONFIG.replyMode}｜群白名单：${CONFIG.allowGroups.join(', ')}`);
+      // 断连期间错过的消息在这里报出来。WhatsApp 不会补投断连窗口内别人发的消息
+      // （离线补投只保证最近一小段，实测不可依赖），所以这段时间里的 @ 就是丢了。
+      // 之前这件事**完全不可见**：日志只有「已连接」，看起来一切正常，用户却说
+      // 机器人不理人 —— 2026-10-06 排查时正是卡在这个盲区上。
+      if (wasDisconnected) {
+        wasDisconnected = false;
+        const downSec = downSince ? Math.round((Date.now() - downSince) / 1000) : null;
+        downSince = 0;
+        log(
+          `  ⚠️ 本次断连约 ${downSec ?? '?'}s` +
+            (missedWhileDown ? `，期间有 ${missedWhileDown} 条回复因连接已断未能发出` : '') +
+            '；断连窗口内别人发的消息不会补投。'
+        );
+        missedWhileDown = 0;
+      }
       heartbeatConnected = true;
       heartbeat({ event: 'connected' });
     }
 
     if (connection === 'close') {
+      wasDisconnected = true;
+      if (!downSince) downSince = Date.now();
       heartbeatConnected = false;
       heartbeat({ event: 'closed' });
       if (shuttingDown) return;
@@ -403,7 +456,7 @@ export async function startWhatsApp({ onQuestion, builtins = null }) {
       }
 
       try {
-        await sock.sendPresenceUpdate('composing', chatJid).catch(() => {});
+        await liveSock().sendPresenceUpdate('composing', chatJid).catch(() => {});
         const result = await onQuestion(question, {
           chatJid,
           sender,
@@ -446,17 +499,39 @@ export async function startWhatsApp({ onQuestion, builtins = null }) {
           CONFIG.replyQuote ? msg : undefined
         ).catch(() => {});
       } finally {
-        await sock.sendPresenceUpdate('paused', chatJid).catch(() => {});
+        await liveSock().sendPresenceUpdate('paused', chatJid).catch(() => {});
         queued--;
       }
     });
   }
 
+  /**
+   * 取得**当前有效**的 socket。
+   *
+   * 为什么不能直接用闭包里的 `sock`：重连会递归调用 startWhatsApp()，创建新的
+   * sock 并覆盖 activeSock，而串行队列 chain、垫话定时器 pendingTimer 这些异步
+   * 回调是在**旧的** startWhatsApp 调用里创建的，闭包捕获的是旧 sock —— 它已经
+   * 被 close 分支里的 sock.ws.close() 杀掉了，拿它发包就抛 "Connection Closed"。
+   *
+   * 这与 notify.js 在 9ccfed0f 修的完全是同一个 bug（那里是轮询定时器拿着死
+   * sock）。当时只改了 notify.js，whatsapp.js 漏了，2026-10-06 补齐。
+   */
+  const liveSock = () => activeSock || sock;
+
   async function send(jid, text, quotedMsg) {
     if (!text) return;
-    const sent = await sock.sendMessage(jid, { text }, quotedMsg ? { quoted: quotedMsg } : undefined);
-    if (sent?.key?.id) botMessageIds.add(sent.key.id);
-    return sent;
+    const s = liveSock();
+    try {
+      const sent = await s.sendMessage(jid, { text }, quotedMsg ? { quoted: quotedMsg } : undefined);
+      if (sent?.key?.id) botMessageIds.add(sent.key.id);
+      return sent;
+    } catch (err) {
+      // 记录「本该发出但没发出去」的条数。这是用户能直接感知的症状（问了没回应），
+      // 但原先连一行日志都没有 —— 失败被 .catch(()=>{}) 吞掉了。
+      missedWhileDown++;
+      log(`[发送失败] ${jid}：${err.message}（本次断连期间累计 ${missedWhileDown} 条）`);
+      throw err;
+    }
   }
 
   return sock;

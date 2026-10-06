@@ -7,6 +7,11 @@
  * 所以必须靠单测覆盖，不能等线上验证。
  */
 import { reconnectDelay, createBoundedIdSet, stopWhatsApp } from '../src/whatsapp.js';
+import { readFileSync } from 'node:fs';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const ROOT_DIR = join(dirname(fileURLToPath(import.meta.url)), '..');
 import {
   codeMtime,
   fmtTime,
@@ -120,6 +125,73 @@ check(typeof uptimeText() === 'string' && uptimeText().includes('分钟'), 'upti
 const m1 = codeMtime();
 check(m1 === LOADED_MTIME, '刚启动时，实时指纹与加载时指纹一致');
 check(codeMtime() > 0, 'codeMtime() 每次调用都重新扫盘（非冻结值）');
+
+/* ------------------- 跨重连状态保持 / 不拿死 sock 发包 ------------------- */
+
+// 这两个都是「跑几小时才暴露、暴露时用户已经投诉了」的缺陷，且**真实发生过**：
+//   · 9ccfed0f：notify 的轮询定时器闭包捕获了重连前的旧 sock → "Connection Closed"
+//   · 2026-10-06：whatsapp.js 有同样问题（send 用闭包 sock），且业务状态
+//     （selfIds/botMessageIds/lastReplyAt/chain/queued）是函数局部变量，
+//     重连递归调用 startWhatsApp 时全部清零。
+// 真实 WhatsApp 连接无法在单测里复现，所以这里做**源码级断言** ——
+// 退化写法会立刻被抓住，而不是等线上出故障。
+
+console.log('\n[5] 跨重连状态保持（源码级断言）');
+const waSrc = readFileSync(join(ROOT_DIR, 'src', 'whatsapp.js'), 'utf8');
+
+// 取 startWhatsApp 函数体，只在这个范围内断言 ——
+// 避免模块级本来就正确的声明被判成违规。
+const startIdx = waSrc.indexOf('export async function startWhatsApp');
+const startBody = startIdx >= 0 ? waSrc.slice(startIdx) : '';
+
+check(startIdx >= 0, '能定位到 startWhatsApp 函数体（断言范围有效）');
+
+for (const name of ['selfIds', 'botMessageIds', 'lastReplyAt', 'chain', 'queued']) {
+  // 函数体内**不得**再出现 `let/const <name> =` 的局部声明
+  const localDecl = new RegExp(`^\\s*(?:let|const)\\s+${name}\\s*=`, 'm');
+  check(
+    !localDecl.test(startBody),
+    `${name} 不是 startWhatsApp 的局部变量（否则重连会清零）`
+  );
+}
+
+check(
+  /^let\s+selfIds\s*=/m.test(waSrc),
+  'selfIds 声明在模块级'
+);
+check(/^const\s+botMessageIds\s*=/m.test(waSrc), 'botMessageIds 声明在模块级');
+check(/^const\s+lastReplyAt\s*=/m.test(waSrc), 'lastReplyAt 声明在模块级');
+check(/^let\s+chain\s*=/m.test(waSrc), 'chain 声明在模块级');
+check(/^let\s+queued\s*=/m.test(waSrc), 'queued 声明在模块级');
+
+// 发送**必须**走 liveSock()/activeSock，不得直接用闭包里的 sock
+const badSend = /(?:await\s+)?sock\.(?:sendMessage|sendPresenceUpdate|sendReadReceipt)/g;
+const badHits = [...startBody.matchAll(badSend)];
+check(
+  badHits.length === 0,
+  '所有发送都不直接用闭包 sock（否则重连后拿死 sock 发包）',
+  badHits.length ? `发现 ${badHits.length} 处：${badHits.map((m) => m[0]).join(', ')}` : ''
+);
+check(
+  startBody.includes('const liveSock ='),
+  '存在 liveSock() 取当前有效 socket 的封装'
+);
+check(
+  /keepAliveIntervalMs/.test(startBody),
+  '显式声明 keepAliveIntervalMs（探活周期在代码里可见）'
+);
+
+console.log('\n[6] notify.js 的同类断言');
+const ntfSrc = readFileSync(join(ROOT_DIR, 'src', 'notify.js'), 'utf8');
+check(/keepAliveIntervalMs/.test(ntfSrc), 'notify.js 也显式声明了 keepAliveIntervalMs');
+check(
+  /if\s*\(\s*!pollTimer\s*\)/.test(ntfSrc),
+  'notify.js 轮询定时器仍只起一次（重连不会叠加定时器）'
+);
+check(
+  /sockRef/.test(ntfSrc),
+  'notify.js 仍通过全局 sockRef 发包（9ccfed0f 的修复未被改回）'
+);
 
 /* -------------------------------- 结果 -------------------------------- */
 

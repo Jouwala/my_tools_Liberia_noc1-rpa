@@ -1189,6 +1189,61 @@ bot `16:xx:51` 断。**杀掉 notify.js 后，bot 数秒内即稳定，不再出
 > （写 `conflict` 会得到 `undefined`，判断永远不成立）。改动这块前先
 > `node -e "import('baileys').then(m=>console.log(m.DisconnectReason))"` 核对一遍。
 
+### ⚠️ 连接反复断开（code=408/428）：状态被清零 + 拿死 sock 发包（2026-10-06 事故）
+
+**症状**：心跳显示 `connected: true`、进程也活着、端口正常，但机器人**就是不回消息**。
+日志里只有一串「已连接」，既没有 `[提问]` 也没有报错，看起来一切正常。
+
+**实测数据**（2026-10-06，bot 进程 2 小时内）：
+
+```
+15:48:58 → 15:50:50   112s      16:08:50 → 16:24:25   935s
+15:50:50 → 15:53:30   160s      16:24:25 → 16:37:18   773s
+15:56:06 → 15:56:42    36s      16:56:07 → 17:20:55  1488s
+```
+
+同期 `notify.js` 断了 26 次，码分布 **`408 timedOut` 23 次 + `428 connectionClosed` 3 次**。
+两个进程同机同网同号，说明是**链路层**在掐长连接，不是某一方的代码写错。
+
+**根因（两个独立缺陷叠加）**：
+
+1. **业务状态是 `startWhatsApp` 的局部变量，重连即清零。**
+   重连走的是 `setTimeout(() => startWhatsApp(...))` —— **递归调用整个函数**，
+   于是 `selfIds` / `botMessageIds` / `lastReplyAt` / `chain` / `queued` 每次都重建：
+   - `botMessageIds` 清空 → 用户「引用回复机器人」时认不出被引用的是自己，不响应；
+   - `lastReplyAt` 清空 → 冷却失效；
+   - `chain` / `queued` 归零 → 上一个 socket 里**还在跑**的提问与新一轮并发，串行保护形同虚设。
+
+2. **发送用了闭包里的 `sock`，重连后它已经死了。**
+   串行队列与垫话定时器是在**旧的** `startWhatsApp` 调用里创建的，闭包捕获旧 `sock`；
+   旧 `sock` 已在 close 分支被 `sock.ws.close()` 杀掉，拿它发包抛 `Connection Closed`。
+
+> 缺陷 2 与 `notify.js` 在 `9ccfed0f` 修的是**同一个 bug**（那里是轮询定时器拿着死 sock）。
+> 当时只改了 notify.js，whatsapp.js 漏了 —— 这类「修了一处忘了另一处」正是下面
+> 第 5、6 组单测存在的理由。
+
+**修复**：
+
+| 项 | 改动 |
+|---|---|
+| 状态跨重连保持 | `selfIds` / `botMessageIds` / `lastReplyAt` / `chain` / `queued` 提升为**模块级** |
+| 不再拿死 sock | 新增 `liveSock()`，所有发送/`sendPresenceUpdate` 都经它取当前 socket |
+| 保活可见 | 两个进程都**显式**写 `keepAliveIntervalMs: 30_000`、`connectTimeoutMs: 60_000` |
+| 失败可见 | `send()` 失败不再被 `.catch(()=>{})` 吞掉，记一条 `[发送失败]` 并计数 |
+| 断连窗口可见 | 重连成功时打印断开时长与期间发送失败条数 |
+
+> `keepAliveIntervalMs` **只是显式写出来**，值等于 Baileys 默认值（30s）——
+> 目的是让「多久探活一次」在代码里可见，不必再翻 `node_modules`。
+> **不要调更短**：更频繁的 ping 不会更稳，反而更容易被服务端限流。
+
+**排查这类问题的顺序**（心跳会骗人，别只看它）：
+
+1. `data/bot_heartbeat.json` 的 `at` 是否在 30s 内 → 只能证明**进程活着**；
+2. 数日志里 `已连接` 的次数 → 次数多说明在**反复重连**，这才是病根；
+3. `data/logs/bot-<日期>.log` 里搜 `[提问]` → 一条都没有 = 消息根本没进来；
+4. `data/auth/sender-key-*.json` 的 mtime → 晚于进程启动 = 确实解密过消息（链路通）；
+5. `git log` 看同类 bug 是否在另一个进程里修过而这里没修。
+
 ### 换一个手机号
 
 登录凭据和手机号绑定，换号必须先清掉旧凭据，否则会继续用旧身份连接。
