@@ -502,6 +502,8 @@ const translations: Record<Locale, Record<string, string>> = {
     'nav.spDetails': 'SP 备件明细报表',
     'nav.spReport': '备件入出库库存报表',
     'nav.comReport': '耗材入出库库存报表',
+    // 仓库汇总报表：备件/耗材两页签的合并汇总版（WarehouseSummaryReport.xlsx 复刻）
+    'nav.warehouseSummary': '仓库汇总报表',
     'nav.msWoSl': 'MS WOs SLA 日报',
     'nav.msContractKpi': 'MS Contract KPIs 自动化报表',
     'nav.ipTrace': 'IP 链路探测',
@@ -514,6 +516,8 @@ const translations: Record<Locale, Record<string, string>> = {
     'nav.siteAvail': '站点可用率看板',
     // 可用率多维矩阵（区域/制式/站点类型 × 日/周/月，读本机派生库 avail_recon）
     'nav.availMs': '可用率多维矩阵',
+    // FLM 可用率：只看三个 FLM 区域 + 影响可用率的 TT 列表（与 avail_ms 同源同形）
+    'nav.availFlm': 'FLM 可用率',
     'nav.fmeRanking': 'FME 工程师排名',
     'nav.repeatSiteDown': '站点重复断站看板',
     'nav.crAnalysis': 'CR 变更分析',
@@ -4287,6 +4291,8 @@ const translations: Record<Locale, Record<string, string>> = {
     'nav.spDetails': 'SP Details Report',
     'nav.spReport': 'Spare Parts In/Out/Inventory',
     'nav.comReport': 'Consumables In/Out/Inventory',
+    // Warehouse summary report: merged roll-up of the spare-parts / consumables tabs
+    'nav.warehouseSummary': 'Warehouse Summary',
     'nav.msWoSl': 'MS WOs SLA Daily',
     'nav.msContractKpi': 'MS Contract KPIs Auto-Reports',
     'nav.ipTrace': 'IP Trace',
@@ -4299,6 +4305,8 @@ const translations: Record<Locale, Record<string, string>> = {
     'nav.siteAvail': 'Site Availability',
     // Availability multi-dimension matrix (region / tech / site type x day-week-month)
     'nav.availMs': 'Availability Matrix',
+    // Availability for the three FLM regions + the TTs affecting availability
+    'nav.availFlm': 'Availability For FLM',
     'nav.fmeRanking': 'FME Engineer Ranking',
     'nav.repeatSiteDown': 'Repeat Site Down',
     'nav.crAnalysis': 'CR Change Analysis',
