@@ -164,7 +164,9 @@ window.OLBR_DATA = (function () {
       'edit.tipOff': '退出编辑',
       'edit.banner': '编辑模式 · 改动立即写入服务端全局目录，MsPortal 和本页的所有人都会看到',
       'edit.bannerK': '编辑模式',
-      'edit.hint': '拖动卡片＝组内排序 · 拖到子分组＝归类 · 点「分组」＝改归属',
+      /* ⚠️ 2026-10-07 补「拖列头＝调分组顺序」：这一条是编辑态唯一的操作说明，
+         新加的拖动方式不写进来等于没有入口（用户不会去猜列头能抓）。 */
+      'edit.hint': '拖动卡片＝组内排序 · 拖到子分组＝归类 · 拖列头＝调分组顺序 · 点「分组」＝改归属',
       'edit.reset': '重置顺序', 'edit.resetTip': '清掉本分组的自定义顺序，回到按访问量排序',
       'edit.subAdd': '添加子分组', 'edit.subZhPh': '中文名', 'edit.subEnPh': '英文名',
       'edit.subDel': '删除', 'edit.subDelTip': '删除该子分组（里面的看板落到「未归类」，不会丢看板）',
@@ -191,6 +193,10 @@ window.OLBR_DATA = (function () {
       'edit.grpDel': '删除该分组',
       'edit.grpRenamed': '分组已改名', 'edit.grpAdded': '分组已新增', 'edit.grpDeleted': '分组已删除',
       'edit.grpNeedName': '先填一个分组名', 'edit.grpDup': '这个分组名已经存在了',
+      /* 六列的拖动排序（2026-10-07 加）。只报结果，不报"第几列"——
+         顺序是用户自己拖出来的，说一句"已保存"就够；多写一句反而要在
+         提交那一侧再算一遍位置，两处算出来的东西迟早对不上。 */
+      'edit.grpOrderOk': '分组顺序已更新',
       'edit.grpBuiltin': '内置分组只能改名，不能删除',
       'edit.grpDelConfirm': '删除分组「{n}」？其中的看板只是从这个分组移出（仍留在别的分组里），此操作对所有人生效。',
       'edit.grpHomeless': '有 {n} 张看板只属于这个分组，先给它们勾上别的分组再删',
@@ -736,7 +742,7 @@ window.OLBR_DATA = (function () {
       /* bannerK 是横幅左侧的短标签，与 banner 成对出现；之前只登记了 zh，
          t() 未命中时回落 zh，导致英文模式这里漏出「编辑模式」。 */
       'edit.bannerK': 'Editing',
-      'edit.hint': 'Drag a card = reorder · drag onto a sub-group chip = assign · “Groups” = change membership',
+      'edit.hint': 'Drag a card = reorder · drag onto a sub-group chip = assign · drag a column head = reorder groups · “Groups” = change membership',
       'edit.reset': 'Reset order', 'edit.resetTip': 'Drop the custom order for this group and sort by usage again',
       'edit.subAdd': 'Add sub-group', 'edit.subZhPh': 'Name (zh)', 'edit.subEnPh': 'Name (en)',
       'edit.subDel': 'Delete', 'edit.subDelTip': 'Delete this sub-group (its dashboards fall into “Unassigned”, none is lost)',
@@ -762,6 +768,7 @@ window.OLBR_DATA = (function () {
       'edit.grpDel': 'Delete this group',
       'edit.grpRenamed': 'Group renamed', 'edit.grpAdded': 'Group added', 'edit.grpDeleted': 'Group deleted',
       'edit.grpNeedName': 'Type a group name first', 'edit.grpDup': 'That group name already exists',
+      'edit.grpOrderOk': 'Group order updated',
       'edit.grpBuiltin': 'Built-in groups can be renamed but not deleted',
       'edit.grpDelConfirm': 'Delete group “{n}”? Dashboards are only removed from this group (they stay in their other groups). Applies to everyone.',
       'edit.grpHomeless': '{n} dashboard(s) belong to this group only — give them another group before deleting',

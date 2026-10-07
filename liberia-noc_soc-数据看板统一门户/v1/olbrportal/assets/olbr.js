@@ -2157,8 +2157,88 @@
   /* 六个入口卡显示哪六列。这是**固定的一份名单**，不是「目录里所有分组」——
      用户明确要求本页只显示这六张卡，不要因为目录里多了一个分组就多长出一列
      （新增分组是给 /olbrportal/ 与 MsPortal 用的；本页新建的分组不会多出一列，
-     但会立刻出现在目录里，那两处能看到，本页也可通过卡片的「分组」按钮把看板挂进去）。 */
+     但会立刻出现在目录里，那两处能看到，本页也可通过卡片的「分组」按钮把看板挂进去）。
+
+     ⚠️ 2026-10-07：名单仍是这六个 id（**成员**没有变），但**顺序**改为可调整 ——
+     见 v6Gids()。常量退化成"成员名单 + 出厂顺序"两个角色里的前者，
+     顺序真相源交给 catalog.groups（与服务端目录、左栏 chips 同一份）。 */
   var V6_GROUPS = ['CXO View', 'SP View', 'MS View', 'FLM View', 'FO View', 'BO View'];
+  /* 六列的**实际渲染顺序**（2026-10-07 加，用户要求「group 的顺序也要能调整」）。
+
+     为什么不能再用 V6_GROUPS 直接 forEach：那份常量是出厂顺序，用户拖不动。
+     而服务端目录里的 catalog.groups **本来就是有序的**（后端注释：
+     `数组顺序即展示顺序、id 不可改`，见 routers/portal_catalog.py 的模块说明），
+     左栏筛选条 chips 也一直按它渲染 —— 只有这六张入口卡还在读死常量，
+     于是同一个页面里出现了**两套分组顺序**（实测：catalog.groups 是
+     CXO→MS→FLM→SP→FO→BO，而卡片渲染成 CXO→SP→MS→FLM→FO→BO）。
+     本函数把顺序统一到那一份上，顺手消掉这个自相矛盾。
+
+     过滤而不是直接映射：state.groups 里可能还有 System Admin / Knowledge Q&A /
+     Friends Link / Archived 等分组，它们不属于这六张卡，必须滤掉（成员名单不变）。
+     state.groups 尚未加载时（或老目录里缺某个 id）用 V6_GROUPS 兜底补全 ——
+     宁可顺序退回出厂值，也不能让某一列凭空消失。 */
+  function v6Gids() {
+    var known = {};
+    V6_GROUPS.forEach(function (g) { known[g] = 1; });
+    var out = [], seen = {};
+    (state.groups || []).forEach(function (g) {
+      var id = g && g.id;
+      if (!id || !known[id] || seen[id]) return;
+      seen[id] = 1; out.push(id);
+    });
+    V6_GROUPS.forEach(function (g) { if (!seen[g]) { seen[g] = 1; out.push(g); } });
+    return out;
+  }
+  /* 把六列的新顺序写回 catalog.groups（服务端持久化）。
+     只重排这六个 id 之间的相对位置，**其余分组的绝对位置全部保持不动** ——
+     目录里还住着 System Admin 等本页不渲染的分组，如果粗暴地"六列排前面、
+     其余的往后一丢"，一次拖动就会把 MsPortal 与左栏 chips 的分组顺序改掉，
+     而用户在六张卡上根本没看到那些分组（等于改了看不见的东西）。
+     做法：取出这六列当前占据的槽位，把新顺序依次填回去 —— 槽位集合不变，
+     于是"被拖动的只有这六个"，其余分组相对彼此的次序原样保留。
+
+     与 order/subGroups/groups 的其余改动同一条路：走 commit()，
+     它会做「乐观改 → 重绘 → PUT → 失败整批回滚」。 */
+  function reorderV6Groups(next) {
+    var cur = state.groups || [];
+    var slots = [];
+    cur.forEach(function (g, i) { if (V6_GROUPS.indexOf(g.id) !== -1) slots.push(i); });
+    if (slots.length !== next.length) return;            /* 长度对不上 = 名单不一致，宁可不改 */
+    var byId = {};
+    cur.forEach(function (g) { byId[g.id] = g; });
+    var out = cur.slice();
+    slots.forEach(function (idx, k) { out[idx] = byId[next[k]]; });
+    var same = out.every(function (g, i) { return g === cur[i]; });
+    if (same) return;                                    /* 拖回原位：不发多余的 PUT */
+    commit(function () { state.groups = out; }, t('edit.grpOrderOk'));
+  }
+  /* 拖动一列到另一列的前/后：算出六列的新顺序，交给 reorderV6Groups 落盘。
+     只在**六列这一层**做 splice —— 传入的是 v6Gids() 的结果（恰好六个），
+     拖完把新数组交回去，reorderV6Groups 再按槽位填回 catalog.groups。
+     这样"拖动"这件事的语义只在一处定义，提交那一侧不必知道用户拖了哪一格。 */
+  function moveGroupOrder(from, to, before) {
+    if (!from || !to || from === to) return;
+    var seq = v6Gids(), i = seq.indexOf(from), j = seq.indexOf(to);
+    if (i === -1 || j === -1) return;
+    seq.splice(i, 1);
+    /* ⚠️ 必须在**移除 from 之后**重新取 to 的下标：j 是移除前的下标，
+       当 from 原本在 to 左边时，移除会让 to 整体左移一格。
+       不重取的话"把第 1 列拖到第 3 列右边"会落成"拖到第 2 列右边"，
+       表现为拖了没到想去的位置、还差一格。 */
+    j = seq.indexOf(to);
+    if (j === -1) return;
+    seq.splice(before ? j : j + 1, 0, from);
+    reorderV6Groups(seq);
+  }
+  /* 六列在网格里的落点判定：按主轴（|dx| 与 |dy| 谁大）决定"插到左边那列之前还是之后"，
+     与卡片排序的 sideOf() 是同一套手感（网格一行多列，只看上下会把"插到左边那列之前"
+     判成插到后面）。返回 true = 插到目标列之前。 */
+  function v6BeforeOf(col, e) {
+    var r = col.getBoundingClientRect();
+    var dx = e.clientX - (r.left + r.width / 2), dy = e.clientY - (r.top + r.height / 2);
+    if (Math.abs(dx) > Math.abs(dy)) return dx < 0;
+    return dy < 0;
+  }
   /* 六个视图入口卡（CXO / SP / MS / FLM / FO / BO）。
      每一列 = 一个分组，列内是该分组的看板行。
 
@@ -2177,7 +2257,11 @@
     var items = allowed();
     var ed = canEdit();
     var html = '';
-    V6_GROUPS.forEach(function (gid) {
+    /* 列顺序取 v6Gids()（= catalog.groups 里这六个 id 的先后），不再是常量顺序。
+       tools 那一段要判"是不是最后一列"，用这个数组而不是 V6_GROUPS 常量 ——
+       拖动之后最后一列会变，读常量会把「新增分组」留在旧的那一列上。 */
+    var gids = v6Gids();
+    gids.forEach(function (gid) {
       var list = items.filter(function (it) { return inGroup(it, gid); });
       /* 先把条目按「本组的目录顺序」排好（与 L1 页签用同一个 sorter），
          否则这里列出来的前几条会与页签里看到的头几张卡对不上。
@@ -2237,11 +2321,19 @@
         '<button type="button" class="ct" data-act="grp-edit" data-gid="' + esc(gid) +
           '" title="' + esc(t('edit.grpEditTip')) + '"><i class="ph ph-tag" aria-hidden="true"></i>' +
           esc(t('edit.grpEdit')) + '</button>' +
-        (gid === V6_GROUPS[V6_GROUPS.length - 1]
+        (gid === gids[gids.length - 1]
           ? '<button type="button" class="ct" data-act="grp-add" title="' + esc(t('edit.grpAddTip')) +
             '"><i class="ph ph-folder-plus" aria-hidden="true"></i>' + esc(t('edit.grpAdd')) + '</button>'
           : '');
-      html += '<div class="v6" data-gid="' + esc(gid) + '">' +
+      /* 整列可拖（2026-10-07 加，用户要求「group 的顺序也要能调整」）。
+         draggable + data-col-gid 只加在**编辑态**：只读访客的列不该出现抓手光标，
+         更不该拖得动（拖也存不进去，落点高亮会变成一次假反馈）。
+         与行条目（a.card.is-ed）区分开的关键是属性名：卡片用 data-gid，
+         列用 data-col-gid —— 拖拽三件套靠 closest 分别认这两种。
+         ⚠️ 不加 is-ed 类：`a.card.is-ed` 是卡片拖拽的判据，列是 div.v6 不是 a.card，
+         加一个用不上的类只会让下次读代码的人以为两者共用一条路径。 */
+      html += '<div class="v6' + (ed ? ' is-col-ed' : '') + '" data-gid="' + esc(gid) + '"' +
+        (ed ? ' draggable="true" data-col-gid="' + esc(gid) + '"' : '') + '>' +
         '<div class="v6-h"><span class="v6-ico" aria-hidden="true">' + ic(V6_ICONS[gid]) + '</span>' +
           /* 名称取目录（gName），不另建一份 i18n 文案：
              目录里的分组名本来就是可以在本页编辑、且 MsPortal 共用的一份，
@@ -3172,12 +3264,20 @@
 
 
   /* ------------------------------------------------ 编辑态：拖拽 / 浮层 -- */
-  /* 拖拽只有两种落点，语义互不重叠：
+  /* 拖拽有三种落点，语义互不重叠：
        卡片 → 卡片   = 同一分组内改顺序（order[gid]）
        卡片 → 子分组 = 改二级归属（item.subOf[gid]）
+       列   → 列     = 改六张入口卡的**分组顺序**（catalog.groups，2026-10-07 加）
      刻意**不支持**「卡片 → 另一个页签」来改分组归属：那与浮层里的勾选是同一件事，
-     两处入口只会让人猜哪处才是真的（MsPortal 也是同一个判断：跨区块拖一律不落）。 */
+     两处入口只会让人猜哪处才是真的（MsPortal 也是同一个判断：跨区块拖一律不落）。
+
+     ⚠️ 列的拖动与卡片的拖动**必须在 dragstart 处就分流**，不能共用 dragNo：
+     卡片用 dragNo（数字看板号）+ dragGid，列用 dragCol（分组 id），
+     两者的判据、落点高亮类、提交函数全不一样。混用一个变量的话，
+     「从列里拖出一张卡」会同时被当成一次列拖动（列也是 draggable，
+     dragstart 会从卡片冒泡到列上，两次赋值互相覆盖）。 */
   var dragEl = null, dragNo = null, dragGid = '', hotEl = null, hotCls = '', noClickAt = 0;
+  var dragCol = '', dragColEl = null;   /* 正在拖的**列**；空 = 当前拖的是卡片 */
   function hotReset() { if (hotEl) hotEl.classList.remove(hotCls); hotEl = null; hotCls = ''; }
   function hotSet(el, cls) {
     if (hotEl === el && hotCls === cls) return;
@@ -3185,12 +3285,17 @@
   }
   function dragReset() {
     if (dragEl) dragEl.classList.remove('is-drag');
+    /* 列的压暗类与卡片的**分开**（见 dragstart 里的说明），所以这里也要分开清 */
+    if (dragColEl) dragColEl.classList.remove('is-drag-col');
     hotReset();
-    dragEl = null; dragNo = null; dragGid = '';
+    dragEl = null; dragNo = null; dragGid = ''; dragCol = ''; dragColEl = null;
     noClickAt = Date.now();
   }
   function cardOf(e) { return e.target && e.target.closest ? e.target.closest('a.card.is-ed') : null; }
   function subOf(e) { return e.target && e.target.closest ? e.target.closest('.subv[data-drop-sub]') : null; }
+  /* 可拖的列。只认编辑态渲染出来的那一层（.is-col-ed）——
+     只读态的 div.v6 上既没有 data-col-gid 也没有这个类，不会误命中。 */
+  function colOf(e) { return e.target && e.target.closest ? e.target.closest('.v6.is-col-ed[data-col-gid]') : null; }
   /* 指针落在卡片的哪半边决定插到它前面还是后面：网格一行有好几张卡，
      只看上下会把「插到左边那张之前」判成插到后面，所以按主轴（|dx| 与 |dy| 谁大）判。 */
   function sideOf(card, e) {
@@ -3202,17 +3307,47 @@
   function bindEdit() {
     document.addEventListener('dragstart', function (e) {
       if (!canEdit()) return;
-      var c = cardOf(e); if (!c) return;
-      dragNo = parseInt(c.getAttribute('data-no'), 10);
-      dragGid = c.getAttribute('data-gid') || '';
-      if (isNaN(dragNo)) return;
-      dragEl = c; c.classList.add('is-drag');
+      /* 先判卡片：卡片是列的**后代**，dragstart 会继续冒泡到列上。
+         若先判列，从列里拖一张卡会被当成拖整列（用户想排卡片顺序，
+         结果整列跟着走）—— 这是本次改动最容易踩的一处，顺序不能反。 */
+      var c = cardOf(e);
+      if (c) {
+        dragNo = parseInt(c.getAttribute('data-no'), 10);
+        dragGid = c.getAttribute('data-gid') || '';
+        if (isNaN(dragNo)) return;
+        dragEl = c; c.classList.add('is-drag');
+        try {
+          e.dataTransfer.setData('text/plain', String(dragNo));
+          e.dataTransfer.effectAllowed = 'move';
+        } catch (err) { /* 个别环境不允许设 dataTransfer，不影响排序本身 */ }
+        return;
+      }
+      /* 卡片没命中才看列：此时拖的是**整列**（改六张入口卡的排列顺序）。
+         ⚠️ 拖着卡片经过列头时不会走到这里（上面已经 return），
+         所以「拖卡片」与「拖列」不会互相抢。 */
+      var col = colOf(e);
+      if (!col) return;
+      dragCol = col.getAttribute('data-col-gid') || '';
+      if (!dragCol) return;
+      /* 列用**自己的**压暗类，不塞进 dragEl：dragEl 是 cardOf 那套的状态，
+         共用会让 dragReset 在 `dragEl.classList.remove('is-drag')` 上
+         把整列一起改掉。分开之后读代码的人也一眼分得清拖的是哪种。 */
+      dragColEl = col; col.classList.add('is-drag-col');
       try {
-        e.dataTransfer.setData('text/plain', String(dragNo));
+        e.dataTransfer.setData('text/plain', dragCol);
         e.dataTransfer.effectAllowed = 'move';
-      } catch (err) { /* 个别环境不允许设 dataTransfer，不影响排序本身 */ }
+      } catch (err) { /* 同上，不影响排序本身 */ }
     });
     document.addEventListener('dragover', function (e) {
+      /* ---- 分支一：正在拖列，落点只能是别的列 ---- */
+      if (dragCol) {
+        var t0 = colOf(e);
+        if (!t0 || t0.getAttribute('data-col-gid') === dragCol) return;
+        e.preventDefault();
+        if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+        hotSet(t0, v6BeforeOf(t0, e) ? 'is-col-A' : 'is-col-B');
+        return;
+      }
       if (dragNo === null) return;
       var s = subOf(e);
       /* 只接「当前面板自己的」子分组条：从 L0 的 SP View 卡片拖过来不算归类 */
@@ -3229,6 +3364,20 @@
       hotSet(c, sideOf(c, e) ? 'is-in-A' : 'is-in-B');
     });
     document.addEventListener('drop', function (e) {
+      /* ---- 分支一：落列（改六张入口卡的分组顺序）----
+         先算好目标位置再 dragReset()：dragReset 会清掉 hotEl/hotCls，
+         反过来先 reset 就读不到"插到前面还是后面"了（卡片那一支也是这个顺序）。 */
+      if (dragCol) {
+        var t1 = colOf(e);
+        if (!t1 || t1.getAttribute('data-col-gid') === dragCol) { dragReset(); return; }
+        e.preventDefault();
+        var from = dragCol;
+        var to = t1.getAttribute('data-col-gid');
+        var before = !!(hotEl === t1 && hotCls === 'is-col-A');
+        dragReset();
+        moveGroupOrder(from, to, before);
+        return;
+      }
       if (dragNo === null) return;
       var s = subOf(e);
       if (s && dragGid === state.viewTab) {

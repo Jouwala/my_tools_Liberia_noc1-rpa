@@ -686,6 +686,24 @@ main { flex: 1; padding-block: var(--s5) var(--s6); display: flex; flex-directio
   transition: border-color .14s, box-shadow .14s;
 }
 .v6:hover { border-color: var(--b-line); box-shadow: var(--sh-1); }
+/* ---- 编辑态：整列可拖（2026-10-07 加，用户要求「group 的顺序也要能调整」）----
+   抓手光标只加在编辑态渲染出来的 .is-col-ed 上：只读访客的列既拖不动、
+   也不该长出一个"看起来能抓"的光标（那是一次假承诺）。
+
+   ⚠️ 抓手刻意**只给列头**，不给整列：列体里住的是一行行可点的看板链接，
+   整列 cursor:grab 会让"这里是链接"的暗示消失，而且窄列里几乎点不到空白处。
+
+   ⚠️ is-drag-col / is-col-A / is-col-B 与卡片的 is-drag / is-in-A / is-in-B
+   **分开命名**：两套拖拽在同一块 DOM 里（列是卡片的祖先），
+   复用同一批类会让"拖列"时整列里所有卡片一起被压暗，
+   也会让 CSS 里两条规则互相打架、以后分不清是哪一种拖拽在生效。 */
+.v6.is-col-ed > .v6-h { cursor: grab; }
+.v6.is-col-ed > .v6-h:active { cursor: grabbing; }
+.v6.is-drag-col { opacity: .45; }
+/* 落点：网格是横向排列，所以高亮走**左右**两条粗线（与卡片排序的左右线同一个手感）。
+   用 outline 而不是 border/box-shadow：outline 不吃盒模型、不会把网格撑出一像素位移。 */
+.v6.is-col-A { outline: 3px solid var(--b); outline-offset: -3px; }
+.v6.is-col-B { outline: 3px solid var(--b); outline-offset: -3px; }
 /* 列头：[图标] [标题链接] [子页签] [计数] [工具] 的单行 flex。
    ⚠️ 2026-09-27 起允许 flex-wrap：子页签搬进这一行后，窄列下
    六个页签放不开，需要能折到第二行而不是把标题挤成竖排或被裁掉。
