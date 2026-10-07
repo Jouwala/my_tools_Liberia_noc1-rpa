@@ -1,0 +1,157 @@
+#!/usr/bin/env node
+/**
+ * 检索来源策略单测（**纯离线**，用假 index，不接触 Ollama）。
+ *   node scripts/test-retrieve-policy.mjs
+ *
+ * 覆盖这次改造要解决的核心故障：
+ *   `07_iMind-eFlow-Function-Operation-Guide.md` 占索引 52% 的块，
+ *   中文问「级别/压缩」时向量容易漂到通用操作段落、topK 被同一文件占满
+ *   （合规上：命中块还会随 search_knowledge 上传云端）。
+ *
+ * 要守住的三条：
+ *   ① 领域规则题 → 不含 07_；
+ *   ② 明确问操作手册（界面/菜单/用户组）→ 含 07_；
+ *   ③ kbExcludeSources 为空时行为与改造前一致（可关）。
+ */
+import { retrieve, manualIntent, ungroundedIds, groundExcerpt, buildMessages } from '../src/rag.js';
+import { CONFIG } from '../src/config.js';
+
+let pass = 0;
+let fail = 0;
+function check(ok, name, extra = '') {
+  if (ok) {
+    pass++;
+    console.log(`  ✓ ${name}`);
+  } else {
+    fail++;
+    console.log(`  ✗ ${name}${extra ? `\n      ${extra}` : ''}`);
+  }
+}
+
+console.log('='.repeat(50));
+console.log('检索来源策略测试（离线）');
+console.log('='.repeat(50));
+
+// 假 index：2 个块，一个 03_（领域规则），一个 07_（操作手册）。
+// 向量构造得让 07_ 语义更接近规则题（复现"漂到通用操作段落"）——
+// 排除生效时它根本不该进候选。
+const idx = {
+  chunks: [
+    { text: 'P1 级别规则：alarmCode=9995 且 downSiteCount>=5 时为 P1', source: 'knowledge/03_TT级别规则.md', title: '级别规则', seq: 0 },
+    { text: 'Creating A User Group: click the menu, then Roles…', source: 'knowledge/07_iMind-eFlow-Function-Operation-Guide.md', title: 'Manual', seq: 0 },
+  ],
+  vectors: [
+    [1, 0, 0],
+    [0.9, 0.1, 0], // 与规则题方向接近 —— 不排除时会被召回
+  ],
+};
+
+const CFG = {
+  semanticWeight: 1,
+  lexicalWeight: 0,
+  idBonus: 0,
+  topK: 6,
+  minAbs: 0.2,
+  minGap: 0,
+  kbExcludeSources: ['knowledge/07_iMind-eFlow-Function-Operation-Guide.md'],
+  kbManualIntent: '(用户组|角色|菜单|界面|如何创建|怎么创建|user group|how to (create|open|configure))',
+};
+
+const q = [1, 0, 0]; // 领域规则题的问句向量
+
+console.log('\n[1] 默认排除 07_（领域规则题）');
+{
+  const r = retrieve({ queryVec: q, queryText: 'P1 怎么判定', index: idx, cfg: CFG });
+  const srcs = r.hits.map((h) => h.source);
+  check(!srcs.some((s) => s.includes('07_')), 'topK 不含 07_', JSON.stringify(srcs));
+  check(r.excluded === 1, 'excluded 计数为 1', `excluded=${r.excluded}`);
+  check(r.hits.length >= 1 && r.hits[0].source.includes('03_'), '规则块被召回');
+  check(r.total === 1, '参与打分的块数 = 1（排除后的存活数）', `total=${r.total}`);
+}
+
+console.log('\n[2] 问法命中手册意图 → 放回 07_');
+{
+  const r = manualIntent('how to create a user group', CFG);
+  check(r === true, 'manualIntent 命中 how to create a user group');
+
+  const r2 = retrieve({ queryVec: q, queryText: 'how to create a user group', index: idx, cfg: CFG });
+  const srcs = r2.hits.map((h) => h.source);
+  check(srcs.some((s) => s.includes('07_')), '手册块出现在候选里', JSON.stringify(srcs));
+  check(r2.excluded === 0, 'excluded 为 0（没排除任何块）', `excluded=${r2.excluded}`);
+
+  const r3 = retrieve({ queryVec: q, queryText: '怎么创建一个用户组', index: idx, cfg: CFG });
+  check(r3.hits.some((h) => h.source.includes('07_')), '中文「怎么创建一个用户组」也放回');
+}
+
+console.log('\n[3] kbExcludeSources 为空 → 行为与改造前一致');
+{
+  const cfgOff = { ...CFG, kbExcludeSources: [] };
+  const r = retrieve({ queryVec: q, queryText: 'P1 怎么判定', index: idx, cfg: cfgOff });
+  const srcs = r.hits.map((h) => h.source);
+  check(srcs.some((s) => s.includes('07_')), '不排除时 07_ 照常进候选（可回退）', JSON.stringify(srcs));
+  check(r.excluded === 0, 'excluded 为 0', `excluded=${r.excluded}`);
+  check(r.total === 2, '两块都参与打分', `total=${r.total}`);
+}
+
+console.log('\n[4] manualIntent 健壮性');
+{
+  check(manualIntent('随便问问', { kbManualIntent: '' }) === false, '空正则 → false（不误开手册）');
+  check(manualIntent('x', { kbManualIntent: '([' }) === false, '坏正则 → false（不抛，安全方向）');
+  check(manualIntent(null, CFG) === false, 'null 提问 → false');
+}
+
+console.log('\n[5] 排除后块数不足时 useGap 退化（不误判）');
+{
+  // 排除到只剩 1 块 → useGap 应为 false（中位数不可靠）
+  const r = retrieve({ queryVec: q, queryText: 'P1 怎么判定', index: idx, cfg: CFG });
+  check(r.useGap === false, '存活块 < 4 → useGap=false', `total=${r.total} useGap=${r.useGap}`);
+}
+
+/* --------------------- A5：出处前缀 + 数字忠实度护栏 --------------------- */
+
+console.log('\n[6] buildMessages 带出处处名');
+{
+  const hits = [
+    { text: 'P1 规则…', source: 'knowledge/03_TT级别规则.md', title: 'TT 级别规则', confident: true },
+  ];
+  const msgs = buildMessages('P1 是什么', hits, 'zh');
+  const userMsg = msgs.find((m) => m.role === 'user')?.content || '';
+  check(userMsg.includes('knowledge/03_TT级别规则.md'), '上下文里带文件名', JSON.stringify(userMsg.slice(0, 80)));
+  check(userMsg.includes('TT 级别规则'), '  带标题');
+  check(/【1｜/.test(userMsg), '  用【i｜文件｜标题】格式', JSON.stringify(userMsg.slice(0, 40)));
+  // 非 confident 的块不应进上下文
+  const msgs2 = buildMessages('q', [{ text: 'x', source: 's', title: 't', confident: false }], 'zh');
+  const u2 = msgs2.find((m) => m.role === 'user')?.content || '';
+  check(!u2.includes('s'), '  非 confident 块不进上下文', JSON.stringify(u2.slice(0, 60)));
+  // systemPrompt 里有出处新规则
+  check(/来源：文件名/.test(CONFIG.systemPrompt), 'systemPrompt 含「来源：文件名」硬规则');
+  check(/12 行/.test(CONFIG.systemPrompt), 'systemPrompt 放宽到 12 行（规则题不被剪条件）');
+  check(!/5 行以内/.test(CONFIG.systemPrompt), '  去掉了「5 行以内」的硬限制');
+}
+
+console.log('\n[7] ungroundedIds：数字忠实度护栏');
+{
+  const hits = [{ text: '告警码 198094422 会被压缩成父告警 9970', confident: true }];
+  // 假输出含资料里没有的 12345678 → 判编造
+  check(ungroundedIds('压缩成 12345678 了', hits).includes('12345678'), '资料外数字 → ungrounded');
+  // 资料里有的 9970 → 通过
+  check(ungroundedIds('压缩成父告警 9970', hits).length === 0, '资料内数字 → 通过');
+  // 短数字不算（0/1/2 常见）
+  check(ungroundedIds('有 2 个', hits).length === 0, '短数字不误杀');
+  // 没数字 → 通过
+  check(ungroundedIds('资料里没有', hits).length === 0, '无长数字 → 通过');
+  // 部分有部分没有 → 报没有的那个
+  const mixed = ungroundedIds('9970 和 55555', hits);
+  check(mixed.includes('55555') && !mixed.includes('9970'), '只报未落地的那个', JSON.stringify(mixed));
+  // 非 confident 块不算依据
+  const nh = [{ text: '9970', confident: false }];
+  check(ungroundedIds('9970', nh).includes('9970'), '非 confident 块不能为数字背书');
+
+  const ex = groundExcerpt(hits, 'zh');
+  check(ex.includes('9970') && ex.includes('来源：'), '摘录式兜底含原文与来源', JSON.stringify(ex));
+  check(groundExcerpt([], 'zh') === '', '无可用块时摘录为空（交给 notFoundText）');
+}
+
+console.log(`\n${'='.repeat(50)}`);
+console.log(`通过 ${pass} 项，失败 ${fail} 项`);
+process.exit(fail ? 1 : 0);

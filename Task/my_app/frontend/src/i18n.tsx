@@ -2554,6 +2554,13 @@ const translations: Record<Locale, Record<string, string>> = {
     // 分级名称沿用该页的中文（正常/轻微/次要/中等/重要/紧急）。
     'gis.utilToggle': '链路利用率',
     'gis.utilToggleHint': '叠加 MW 微波实时（15 分钟粒度）链路利用率，与 MW 微波实时页同一数据槽位',
+    /* MW 链路利用率**图例组**的显隐按钮（2026-10-26 用户要求「图例不显示 MW Link
+       Utilization，弄个按钮放到 Zoom: 右边，默认不显示」）。
+       ⚠️ 与上面 gis.utilToggle 语义不同、不可合并复用：那一个是「是否叠加利用率
+       数据到地图」（2026-09-28 已恒真且无 UI），本键只控制**图例浮层里那一组条目**
+       显不显示，链路照画不误。共用键名会让将来想恢复 gis.utilToggle 开关时语义打架。 */
+    'gis.utilLegendToggle': '利用率图例',
+    'gis.utilLegendToggleHint': '在地图左下角的图例里显示 / 隐藏 MW 链路利用率分组（默认隐藏）。只影响图例显示，不改变地图上链路的绘制',
     'gis.utilLevel.critical': '紧急',
     'gis.utilLevel.major': '重要',
     'gis.utilLevel.moderate': '中等',
@@ -6316,6 +6323,10 @@ const translations: Record<Locale, Record<string, string>> = {
     // MW link utilization overlay (2026-09-28): same scale as ?page=mwRealTime
     'gis.utilToggle': 'Link Utilization',
     'gis.utilToggleHint': 'Overlay MW realtime (15-min granularity) link utilization, same data slot as the MW Realtime page',
+    /* Show/hide the MW link utilization **legend group** (2026-10-26). See the zh
+       dictionary for why this must NOT reuse gis.utilToggle. */
+    'gis.utilLegendToggle': 'Utilization Legend',
+    'gis.utilLegendToggleHint': 'Show / hide the MW link utilization group in the map legend (bottom-left, hidden by default). Affects the legend only — link drawing on the map is unchanged',
     'gis.utilLevel.critical': 'Critical',
     'gis.utilLevel.major': 'Major',
     'gis.utilLevel.moderate': 'Moderate',

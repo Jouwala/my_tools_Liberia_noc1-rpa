@@ -1,8 +1,25 @@
 /**
- * WhatsApp 接入层（Baileys）。
+ * WhatsApp 接入层 —— 连接、收发、触发判定、冷却、会话历史、问答记录。
+ *
+ * ## ⚠️ 本文件已超出仓库的 500 行上限（660 行，2026-10-07）
+ *
+ * `AGENTS.md` 第三节第 2 条要求新增文件不超过 500 行，存量超限文件
+ * 「改到它们时不得继续无度膨胀」。本文件属于**存量超限**：
+ * 573 行（原始）→ 622（加会话历史）→ 660（加问答记录）。
+ *
+ * 已把能拆的都拆出去了（问答记录 → `qalog.js`），剩下的这几块
+ * **互相耦合较紧**，值得拆但需要一次专门的整理，不该顺手塞进
+ * 一个业务改动里。**下次要动这个文件时，先做这次拆分**：
+ *
+ *   · 连接与重连（startWhatsApp / reconnectDelay / 心跳）→ `connection.js`
+ *   · 消息处理（handleMessage / 触发 / 冷却 / 队列）→ `handler.js`
+ *   · 本文件只保留两者之间的编排
+ *
+ * 拆分前先确认 `scripts/test-runtime.mjs` 与 `test-lang.mjs` 里那些
+ * 按源码文本断言的正则（如 `onQuestion\(question,\s*\{`）是否需要同步更新。
  *
  * 职责：登录 / 重连 / 群内 @提及识别 / 文本抽取 / 发送回复。
- * 不包含任何 RAG 逻辑 —— 通过 onQuestion 回调把问题交给上层。
+ * 不包含任何 RAG 逻辑 —— 通过 onQuestion 回调把问题交给上层（Baileys）。
  */
 import makeWASocket, {
   useMultiFileAuthState,
@@ -18,6 +35,7 @@ import { join, dirname } from 'node:path';
 import { CONFIG } from './config.js';
 import { detectLang, pickText } from './lang.js';
 import { selfIdentifiers, extractText, detectTrigger, stripMentions, isAllowedChat } from './mentions.js';
+import { openQaLog, recordQa, closeQaLog } from './qalog.js';
 
 const logger = P({ level: 'silent' });
 
@@ -232,10 +250,21 @@ export async function stopWhatsApp(reason = '收到停止信号') {
     /* 忽略 */
   }
   log('已关闭。');
+  // 关库让 WAL 落盘；不关的话最近几条记录还留在 -wal 里，
+  // 用别的工具打开这个库会看不到。
+  closeQaLog();
 }
 
 export async function startWhatsApp({ onQuestion, builtins = null }) {
   if (!existsSync(CONFIG.authDirAbs)) mkdirSync(CONFIG.authDirAbs, { recursive: true });
+
+  // 问答记录：开一次，失败也不影响启动（记录是旁路，见 qalog.js）。
+  if (CONFIG.qaLogEnabled) {
+    const ok = openQaLog(CONFIG.qaLogPath);
+    log(ok ? `问答记录：${CONFIG.qaLogPath}` : '问答记录不可用（不影响回复）');
+  } else {
+    log('问答记录：已按配置关闭（QA_LOG_ENABLED=0）');
+  }
 
   const { state, saveCreds } = await useMultiFileAuthState(CONFIG.authDirAbs);
   let { version } = await fetchLatestBaileysVersion().catch(() => ({ version: undefined }));
@@ -546,6 +575,32 @@ export async function startWhatsApp({ onQuestion, builtins = null }) {
         // 记进会话历史，供下一句追问用。答不上来的（answered=false）不记 ——
         // 「资料里没有」进历史，只会把下一轮也带偏。
         if (result.answered) rememberTurn(chatJid, question, text2);
+        // 问答记录落盘：**记的是实际发出去的那一条**（text2，已截断），
+        // 不是 result.text —— 分析"用户实际看到了什么"时，截断后的才是真相。
+        recordQa({
+          ts: new Date().toISOString(),
+          chatJid,
+          sender,
+          question,
+          answer: text2,
+          answered: result.answered,
+          channel: result.channel,
+          tool: result.tool,
+          via: result.via,
+          ms: Date.now() - t0,
+          lang,
+          degraded: result.stats?.degraded,
+          // —— 诊断列：事后能从库里回答「为什么这条走错了通道」——
+          // 检索分：知识库通道才有；其他通道留 null。
+          topBase: result.retrieval?.topBase,
+          gap: result.retrieval?.gap,
+          // top1 命中的文件名。检索里按分数排序，取前 3 个 confident 的来源，
+          // 多个用 | 拼 —— 「topK 是不是被同一个文件占满」看这一列最直接。
+          hitSource: formatHitSource(result.retrieval),
+          // 路由/工具参数 JSON（统计/查表用）。**只存参数，不塞完整工单正文** ——
+          // 那是另一条通道的事实，进了 qa 库既占空间又混口径。
+          routeArgs: formatRouteArgs(result),
+        });
         log(
           `[回复] ${Date.now() - t0}ms｜命中=${result.answered}` +
             // 记录回复语言：语言类问题（英文提问收到中文回答）必须能事后审计，
@@ -571,11 +626,21 @@ export async function startWhatsApp({ onQuestion, builtins = null }) {
           pendingTimer = null;
         }
         log(`[错误] ${err.stack || err.message}`);
-        await send(
+        const errText = pickText(lang, CONFIG.errorText, CONFIG.errorTextEn);
+        // 出错也要记：**答不上的那些才最该被复盘**，
+        // 只记成功的话，库里剩下的全是对的，优化就无从下手。
+        recordQa({
+          ts: new Date().toISOString(),
           chatJid,
-          pickText(lang, CONFIG.errorText, CONFIG.errorTextEn),
-          CONFIG.replyQuote ? msg : undefined
-        ).catch(() => {});
+          sender,
+          question,
+          answer: errText,
+          answered: false,
+          channel: 'error',
+          ms: Date.now() - t0,
+          lang,
+        });
+        await send(chatJid, errText, CONFIG.replyQuote ? msg : undefined).catch(() => {});
       } finally {
         await liveSock().sendPresenceUpdate('paused', chatJid).catch(() => {});
         queued--;
@@ -619,4 +684,37 @@ function truncate(text, max) {
   const t = String(text || '').trim();
   if (t.length <= max) return t;
   return t.slice(0, max - 1).trimEnd() + '…';
+}
+
+/**
+ * 把检索 top 命中来源压成一行，供 qa_log.hit_source 落盘。
+ * 取前 3 个 **confident** 来源（未命中的块不算「召回了什么」），用 | 拼。
+ * 没有检索（统计/查表通道）时返回 null。
+ */
+export function formatHitSource(retrieval) {
+  const hits = retrieval?.hits;
+  if (!Array.isArray(hits) || !hits.length) return null;
+  const srcs = hits
+    .filter((h) => h.confident)
+    .map((h) => h.source)
+    .filter(Boolean)
+    .slice(0, 3);
+  return srcs.length ? srcs.join('|') : null;
+}
+
+/**
+ * 把路由/工具参数压成一段 JSON，供 qa_log.route_args 落盘。
+ * 只看 `result.routeArgs`（由 tools.js 传入），**不塞完整工单正文** ——
+ * 那是另一条通道的事实，进了 qa 库既占空间又混口径。
+ */
+export function formatRouteArgs(result) {
+  const args = result?.routeArgs;
+  if (!args || typeof args !== 'object') return null;
+  try {
+    const s = JSON.stringify(args);
+    // 护栏：异常大的参数（不该有，但防手滑塞正文）截断，避免污染库
+    return s.length > 500 ? `${s.slice(0, 500)}…` : s;
+  } catch {
+    return null;
+  }
 }

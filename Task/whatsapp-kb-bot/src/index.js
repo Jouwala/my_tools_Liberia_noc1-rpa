@@ -5,13 +5,15 @@
  *   npm start
  *   npm start -- --debug      打印每次检索的诊断信息
  */
-import { CONFIG, describeConfig } from './config.js';
+import { CONFIG, describeConfig, ROOT } from './config.js';
 import { loadIndex } from './rag.js';
+import { loadLookupsOnce } from './tools.js';
 import { routeAnswer } from './answer.js';
 import { healthCheck, warmup, loadedModels } from './ollama.js';
 import { validateProvider, providerInfo, pingProvider } from './llm.js';
 import { startWhatsApp, stopWhatsApp } from './whatsapp.js';
 import { ttAvailable } from './tt.js';
+import { scanKnowledge, diffIndex, freshnessWarning } from './indexFreshness.js';
 import { LOADED_MTIME, PROCESS_STARTED_AT, fmtTime, isStale, uptimeText } from './buildinfo.js';
 
 const DEBUG = process.argv.includes('--debug') || process.env.DEBUG_RAG === '1';
@@ -131,12 +133,45 @@ async function main() {
       `（${index.meta.embedModel}, ${index.meta.dim}维, 构建于 ${index.meta.builtAt}）`
   );
 
+  // 索引新鲜度：磁盘 knowledge/ 与内存索引是否一致。
+  // 与 Ollama 自检同一取舍——**只警告、不 exit(1)**：索引过期只影响问答质量，
+  // 不该让收发消息和 ping/help 一起起不来。结果交给 ping 暴露给群里。
+  // 每次 ping 都重新扫盘（与代码指纹同一个理由：调用时算，不能冻在启动那刻）。
+  const freshness = () => {
+    try {
+      return diffIndex(index.meta, scanKnowledge(CONFIG.knowledgeDirAbs, ROOT));
+    } catch {
+      return null; // 扫盘失败（网络盘抖动等）不该影响 ping
+    }
+  };
+  {
+    const w = freshnessWarning(freshness());
+    if (w) {
+      console.error(`! ${w}`);
+      console.error(`  当前进程仍用内存里的旧索引（${index.meta.chunks} 块 / ${index.meta.files} 文件）。`);
+    } else {
+      console.log('✓ 索引新鲜：与磁盘 knowledge/ 一致');
+    }
+  }
+
   // TT 单分析：实时查 my_app 工单库，与知识库是两条独立通道
   if (ttAvailable()) {
-    console.log('✓ 工单分析就绪：消息里带 TT / WO 单号（如 TT202609150073、WO202609220055）会实时查工单库\n');
+    console.log('✓ 工单分析就绪：消息里带 TT / WO 单号（如 TT202609150073、WO202609220055）会实时查工单库');
   } else {
-    console.log('! 工单分析不可用（缺 scripts/tt-analyze.py 或 Python 解释器），TT 类问题将走知识库\n');
+    console.log('! 工单分析不可用（缺 scripts/tt-analyze.py 或 Python 解释器），TT 类问题将走知识库');
   }
+
+  // 查表数据（告警码 / 压缩 / 级别）：告警码含义、压缩结果、级别规则三类问法走它，
+  // 不经 LLM。缺失时查表工具会如实回「未构建」，不退回 RAG。
+  const lookups = loadLookupsOnce();
+  if (lookups) {
+    console.log(
+      `✓ 查表就绪：告警码 ${lookups.alarmCodes.size} 条 / 压缩规则 ${lookups.compress.length} 条 / 级别规则 ${lookups.levelRules.length} 条`
+    );
+  } else {
+    console.log('! 查表数据缺失（data/lookups.json）——告警码/压缩/级别问法会提示「未构建」，请 npm run ingest');
+  }
+  console.log();
 
   // 回复语言：按**提问语言**自动切换（见 src/lang.js）。
   // 打出来是为了排障 —— 「英文提问收到中文回复」要么是这里没生效，
@@ -177,6 +212,10 @@ async function main() {
       } else {
         lines.push('代码版本：最新（与磁盘一致）');
       }
+      // 索引新鲜度：磁盘 knowledge/ 是否比内存索引新（如新增了 08_ 但没 ingest/重启）。
+      // 「代码新鲜」不等于「索引新鲜」——两者是独立的两件事，都要报。
+      const fw = freshnessWarning(freshness());
+      if (fw) lines.push(fw);
       return lines.join('\n');
     },
     help: async () =>
@@ -184,9 +223,11 @@ async function main() {
         '直接 @我 + 问题就行，我会在你的知识库里找答案。',
         '找得到就直接答；找不到我会明说没有依据，不会编。',
         '',
-        '两类问题走的是不同通道：',
+        '三类问题走的是不同通道：',
         '  · 带 TT / WO 单号（如 TT202609150073、WO202609220055）→ 实时查工单库，给出级别判定与命中规则',
-        '  · 其他（告警压缩、级别规则、告警码含义）→ 查知识库',
+        '  · 今天/昨天有几个 P1、某站昨天几单 → 查工单统计（数字由脚本算，不编）',
+        '  · 告警码含义 / 压缩结果 / 级别规则（如「告警码 99933 是什么意思」）→ 查表，带出处',
+        '  · 其他（流程、为什么、SOP）→ 查知识库，答案带来源文件名',
         '一次可以贴多个单号（最多 3 个），我会逐个分析。',
         '内置命令：ping（测在线）、help（看这段）',
       ].join('\n'),
@@ -194,7 +235,7 @@ async function main() {
 
   await startWhatsApp({
     builtins,
-    onQuestion: async (question, { lang, onRetry, onLive } = {}) => {
+    onQuestion: async (question, { lang, onRetry, onLive, history } = {}) => {
       const t0 = Date.now();
 
       // 嵌入不可用时**不要**硬着头皮往下走：`routeAnswer` 会去调 Ollama 做嵌入，
@@ -216,6 +257,12 @@ async function main() {
         // 语言由接入层按提问原文判定后传下来（见 whatsapp.js / lang.js），
         // 这里只负责转发 —— 避免两处各判一次、口径还可能不一致。
         lang,
+        // 会话历史：追问（「那个单子未闭环」）靠它才能落地。
+        // 接入层算好了传下来，这里**必须原样转发** ——
+        // 2026-10-07 实测漏掉这一行：探针里追问能正确落到 TT202610020012，
+        // 群里却走成了知识库、32 秒后答「资料未包含…流程」。
+        // 传参链任何一环断了，前后两处单看都"没问题"，只有端到端才暴露。
+        history,
         // 工单通道失败自动重试前，先把垫话发出去（透传到接入层）
         onRetry,
         // 本地库查不到、要去 eFlow 实时查之前，同样先垫一句
@@ -234,6 +281,7 @@ async function main() {
               console.log(`  基线(中位): ${d.baseline}`);
               console.log(`  gap      : ${d.gap}  (阈值 ${CONFIG.minGap}, 使用gap=${d.useGap})`);
               console.log(`  判定     : ${d.hit ? '命中' : '未命中'}`);
+              if (d.excluded != null) console.log(`  来源排除 : ${d.excluded} 块（kbExcludeSources）`);
               for (const c of d.candidates) {
                 console.log(`    · base=${c.base} sem=${c.sem} lex=${c.lex}  ${c.source}`);
               }

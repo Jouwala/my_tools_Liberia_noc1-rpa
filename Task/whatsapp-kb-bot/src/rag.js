@@ -173,9 +173,28 @@ export function loadIndex(path = CONFIG.indexPathAbs) {
 /* ---------------------------------- 检索 ---------------------------------- */
 
 /**
+ * 提问是否在问「操作手册里的东西」（界面 / 菜单 / 如何创建用户组…）。
+ * 只有这类问法才把被排除的操作手册（如 07_）纳入默认检索。
+ *
+ * @param {string} q
+ * @param {object} cfg
+ * @returns {boolean}
+ */
+export function manualIntent(q, cfg = CONFIG) {
+  const re = String(cfg.kbManualIntent || '').trim();
+  if (!re) return false;
+  try {
+    return new RegExp(re, 'i').test(String(q || ''));
+  } catch {
+    // 配置写坏了不能把检索搞崩 —— 当无意图处理（继续排除手册，安全方向）
+    return false;
+  }
+}
+
+/**
  * @returns {{
  *   hit: boolean, gap: number, baseline: number, topBase: number, useGap: boolean,
- *   hits: Array<{text,source,title,sem,lex,base,confident}>, total: number
+ *   hits: Array<{text,source,title,sem,lex,base,confident}>, total: number, excluded: number
  * }}
  */
 export function retrieve({ queryVec, queryText, index, cfg = CONFIG }) {
@@ -183,7 +202,15 @@ export function retrieve({ queryVec, queryText, index, cfg = CONFIG }) {
   const sw = cfg.semanticWeight ?? 0.78;
   const lw = cfg.lexicalWeight ?? 0.22;
 
+  // 来源排除策略（见 config.json $kbSourcePolicy）。
+  // 07_ 操作手册占索引 52% 的块，中文问「级别/压缩」时向量容易漂到通用操作段落、
+  // topK 被同一文件占满；命中块还会随 search_knowledge 上传云端（合规风险）。
+  // 只有问法命中 kbManualIntent 时才把手册放回来。
+  const exclude = Array.isArray(cfg.kbExcludeSources) ? cfg.kbExcludeSources : [];
+  const allowManual = manualIntent(queryText, cfg);
+
   const rows = new Array(n);
+  let excluded = 0; // 被排除的块数（诊断用，见 onDebug）
   // 查询里出现的长数字（告警码、单号、编号）做精确命中加权。
   //
   // 为什么必须加：纯语义检索对「精确 ID」天然无力。实测查「siteAlarmCode 198094422
@@ -194,7 +221,14 @@ export function retrieve({ queryVec, queryText, index, cfg = CONFIG }) {
   const idBonus = Number(cfg.idBonus ?? 0.15);
 
   for (let i = 0; i < n; i++) {
-    const text = index.chunks[i].text;
+    const chunk = index.chunks[i];
+    // 排除列表命中的块**直接跳过**，不给 0 分占位 ——
+    // 否则它会进入中位数基线，把「这个查询对这批语料的泛化水位」拉歪。
+    if (exclude.length && !allowManual && exclude.includes(chunk.source)) {
+      excluded++;
+      continue;
+    }
+    const text = chunk.text;
     const sem = cosine(queryVec, index.vectors[i]);
     const lex = bigramSim(queryText, text);
     // base 用于命中判定；sem/lex 保留供排序诊断
@@ -202,17 +236,20 @@ export function retrieve({ queryVec, queryText, index, cfg = CONFIG }) {
     if (queryIds.length && queryIds.some((id) => text.includes(id))) {
       base += idBonus;
     }
-    rows[i] = { idx: i, sem, lex, base, ...index.chunks[i] };
+    rows[i] = { idx: i, sem, lex, base, ...chunk };
   }
-  rows.sort((a, b) => b.base - a.base);
+  // 排除后可能留下空洞下标 —— 压掉（否则 length 仍是 n，排序里混 undefined）
+  const live = rows.filter(Boolean);
+  live.sort((a, b) => b.base - a.base);
 
-  // 基线 = 全库 base 的中位数
-  const sorted = rows.map((r) => r.base).sort((a, b) => b - a);
-  const baseline = n ? sorted[Math.floor(n / 2)] : 0;
+  // 基线 = 参与打分的块 base 的中位数
+  const sorted = live.map((r) => r.base).sort((a, b) => b - a);
+  const m = live.length;
+  const baseline = m ? sorted[Math.floor(m / 2)] : 0;
   // 条目过少时中位数不可靠（gap→0，什么都判不中），退化为纯绝对阈值
-  const useGap = n >= 4;
+  const useGap = m >= 4;
 
-  const top = rows[0] ?? null;
+  const top = live[0] ?? null;
   const gap = top ? top.base - baseline : 0;
   const hit = top
     ? useGap
@@ -220,13 +257,13 @@ export function retrieve({ queryVec, queryText, index, cfg = CONFIG }) {
       : top.base >= cfg.minAbs
     : false;
 
-  const hits = rows.slice(0, cfg.topK).map((r) => ({
+  const hits = live.slice(0, cfg.topK).map((r) => ({
     ...r,
     // 逐条传递命中标记，调用方据此决定能否作为依据喂给模型
     confident: useGap ? r.base >= cfg.minAbs && r.base - baseline >= cfg.minGap : r.base >= cfg.minAbs,
   }));
 
-  return { hit, gap, baseline, topBase: top?.base ?? 0, useGap, hits, total: n };
+  return { hit, gap, baseline, topBase: top?.base ?? 0, useGap, hits, total: m, excluded };
 }
 
 /* --------------------------------- 生成回答 -------------------------------- */
@@ -262,8 +299,11 @@ const CONTEXT_NOTE =
  */
 export function buildMessages(question, hits, lang = 'zh', history = []) {
   const usable = hits.filter((h) => h.confident);
+  // 每个 confident 块前缀带**文件名与标题**（出处），模型据以在结论后给出
+  // 「来源：文件名」。以前只给【i】正文，模型无从知道依据来自哪个文件，
+  // 回答也就没法带出处 —— 规则题会被压掉关键条件又说不清依据。
   const context = usable
-    .map((h, i) => `【${i + 1}】${h.text}`)
+    .map((h, i) => `【${i + 1}｜${h.source || '未知文件'}｜${h.title || ''}】\n${h.text}`)
     .join('\n\n');
   const withHistory = (history || []).flatMap((t) => [
     { role: 'user', content: t.q },
@@ -456,6 +496,8 @@ export async function answer(
     gap: +retrieval.gap.toFixed(4),
     useGap: retrieval.useGap,
     hit: retrieval.hit,
+    // 被来源策略排除掉的块数（07_ 等）——debug 时一眼看出「手册有没有被放回来」
+    excluded: retrieval.excluded,
     candidates: retrieval.hits.map((h) => ({
       base: +h.base.toFixed(4),
       sem: +h.sem.toFixed(4),
@@ -492,12 +534,42 @@ export async function answer(
     if (retried) return retried;
   }
 
+  // ── 数字忠实度护栏 ──
+  // 生成文本里出现了召回的块**都没有**的长数字 → 丢弃这次生成。
+  // 不试图「修正」——那一半会变成另一种编造。改回固定兜底文案，
+  // 或只回 top1 原文摘录（前 400 字）+ 来源。
+  const ungrounded = ungroundedIds(content, retrieval.hits);
+  if (ungrounded.length) {
+    onDebug?.({ stage: 'ungrounded', ids: ungrounded.slice(0, 5) });
+    const excerpt = groundExcerpt(retrieval.hits, lang);
+    return {
+      answered: false,
+      text: excerpt || pickText(lang, cfg.notFoundText, cfg.notFoundTextEn),
+      retrieval,
+      stats: { ...stats, embedMs: tEmbed, totalMs: Date.now() - t0, ungrounded: ungrounded.length },
+    };
+  }
+
   return {
     answered: true,
     text: content,
     retrieval,
     stats: { ...stats, embedMs: tEmbed, totalMs: Date.now() - t0 },
   };
+}
+
+/**
+ * 摘录式兜底：生成不可信时，直接把 top1 原文前 400 字当答复，附来源。
+ * 这是「答错不如弃权」的落地 —— 宁可给原文，也不给模型加工过的数字。
+ */
+export function groundExcerpt(hits, lang = 'zh') {
+  const top = (hits || []).find((h) => h.confident);
+  if (!top) return '';
+  const body = String(top.text || '').trim().slice(0, 400);
+  const src = top.source || '';
+  return lang === 'en'
+    ? `I couldn't produce a reliable answer. Closest excerpt:\n${body}\nSource: ${src}`
+    : `我没法给出可靠回答。最接近的资料原文：\n${body}\n来源：${src}`;
 }
 
 /** 生成回答里的「资料没覆盖」特征（中英双语）。限长度防误杀长回答。 */
@@ -507,4 +579,30 @@ const MISS_RE =
 function looksLikeMiss(text) {
   const s = String(text || '');
   return s.length > 0 && s.length < 400 && MISS_RE.test(s);
+}
+
+/**
+ * 数字忠实度护栏：生成文本里的长数字（≥3 位）若**都不**出现在召回的块里，
+ * 判定为「编造」（ungrounded）。
+ *
+ * 为什么必须做：systemPrompt 要求「不得输出资料中未出现的规则 ID / 告警码 / 阈值」，
+ * 但模型仍可能在资料答不了时凑一个像样的数字（「9970」「#227」）——
+ * 群里的同事会拿它当依据去派单。数字类的幻觉代价最高，必须脚本拦。
+ *
+ * 取舍：只查**长数字**（≥3 位）。短数字（0/1/2/P1/P4）在自然语言里太常见，
+ * 全查会大量误杀正常回答。
+ *
+ * @param {string} answer 生成文本
+ * @param {Array<{text:string}>} hits 召回的块（**所有** confident 块，不只 top1）
+ * @returns {string[]} 编造的数字列表（空数组=通过）
+ */
+export function ungroundedIds(answer, hits) {
+  const text = String(answer || '');
+  const ids = [...new Set(text.match(/\d{3,}/g) || [])];
+  if (!ids.length) return [];
+  const corpus = (hits || [])
+    .filter((h) => h.confident !== false) // 只拿作为依据的块
+    .map((h) => String(h.text || ''))
+    .join('\n');
+  return ids.filter((id) => !corpus.includes(id));
 }

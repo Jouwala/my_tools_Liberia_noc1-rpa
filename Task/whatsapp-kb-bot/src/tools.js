@@ -32,7 +32,7 @@
  */
 import { CONFIG } from './config.js';
 import { chat } from './llm.js';
-import { answer as ragAnswer } from './rag.js';
+import { answer as ragAnswer, withWebHint } from './rag.js';
 import { extractTtNos, analyzeTickets } from './tt.js';
 import {
   queryTickets,
@@ -42,6 +42,39 @@ import {
   parseStatus,
   parseListIntent,
 } from './ttquery.js';
+import {
+  loadLookups,
+  findAlarmCode,
+  findCompress,
+  findLevelByCode,
+  findLevelBySeverity,
+  resolveCodeByName,
+  parseSiteAttrs,
+  filterLevelRulesByAttrs,
+  renderAlarmCode,
+  renderCompress,
+  renderLevelRules,
+  renderNotFound,
+} from './lookups.js';
+
+/* ------------------------------ 查找表（查表工具） ------------------------------ */
+
+// 启动时读一次（与 loadIndex 同一节拍）。缺失时查表工具如实回「未构建」，
+// **不 fallback 进 RAG 装懂** —— 那是这次改造要消灭的行为。
+let LOOKUPS = null;
+let LOOKUPS_LOADED = false;
+export function loadLookupsOnce(path = CONFIG.lookupsPathAbs) {
+  if (!LOOKUPS_LOADED) {
+    LOOKUPS = loadLookups(path);
+    LOOKUPS_LOADED = true;
+  }
+  return LOOKUPS;
+}
+/** 供测试注入假查找表。 */
+export function __setLookups(l) {
+  LOOKUPS = l;
+  LOOKUPS_LOADED = true;
+}
 
 /* ------------------------------- 工具清单 ------------------------------- */
 
@@ -64,10 +97,31 @@ const TOOL_SPEC = [
     args: '{"tt_no":"TT202609150073"}',
   },
   {
+    name: 'lookup_alarm_code',
+    desc:
+      '查**告警码的含义**。用于「告警码 99933 是什么意思」「what does alarm code 9920 mean」。' +
+      '参数是告警码数字。**不要**用 search_knowledge 答这类问题。',
+    args: '{"code":"99933"}',
+  },
+  {
+    name: 'lookup_compress',
+    desc:
+      '查**告警压缩结果**（子告警码会被压缩成哪个父告警码）。用于' +
+      '「198094422 会被压缩成什么」「压缩后的父告警是什么」。参数是子告警码。',
+    args: '{"code":"198094422"}',
+  },
+  {
+    name: 'lookup_level_rule',
+    desc:
+      '查**TT 级别规则**。用于「告警码 9990 NORMAL 非 VIP 是几级」「P1 规则有哪些」' +
+      '「P1 是什么级别」。参数：有告警码给 code；只问某级别给 severity（P1~P4）。',
+    args: '{"code":"9990","severity":"P1"}',
+  },
+  {
     name: 'search_knowledge',
     desc:
-      '检索知识库文档。用于「规则是什么」「某告警码是什么意思」「流程怎么走」' +
-      '这类**静态知识**问题，以及所有不含工单统计意图的问题。',
+      '检索知识库文档。用于「流程怎么走」「为什么没有级别」这类**叙述性静态知识**问题，' +
+      '以及所有不含工单统计、不含告警码/压缩/级别查表意图的问题。',
     args: '{}',
   },
 ];
@@ -86,9 +140,13 @@ const ROUTER_PROMPT =
   '\n\n规则：\n' +
   '· 提问里出现 TT/WO 单号 → 用 analyze_ticket。\n' +
   '· 问的是「多少单 / 有几个 / 有没有 / 今天昨天的单」这类**数量与事实** → 用 query_tickets。\n' +
-  '· 问的是「规则 / 含义 / 流程 / 怎么判定」这类**静态知识** → 用 search_knowledge。\n' +
-  '· 注意区分：「P1 是什么」= search_knowledge；「今天有几个 P1」= query_tickets。\n' +
-  '· 拿不准就用 search_knowledge。\n' +
+  '· 出现告警码，且问**含义**（是什么意思/what does … mean）→ 用 lookup_alarm_code。\n' +
+  '· 出现告警码，且问**压缩 / 父告警 / 会被压成什么** → 用 lookup_compress。\n' +
+  '· 出现告警码，且问**级别 / 定级 / 几级**；或只问「P1 是什么级别」「P1 规则」→ 用 lookup_level_rule。\n' +
+  '· 有告警码且问含义/压缩/级别时，**一律不要**用 search_knowledge —— 那是查表题，不是叙述题。\n' +
+  '· 其余「流程 / 为什么 / 怎么走 / 定义」这类**叙述性静态知识** → 用 search_knowledge。\n' +
+  '· 注意区分：「P1 是什么」= lookup_level_rule；「今天有几个 P1」= query_tickets。\n' +
+  '· 拿不准且**没有**告警码 → 用 search_knowledge。\n' +
   '· 提问里若点名了**具体站点**（如「Wood camp 这个站」「Qcell R.I.A 有几个单」），' +
   '把站点名原样填进 site；没点名就留空字符串。\n' +
   '· 若提问**本身没说清问什么**（如「那个单子未闭环」「还有几个」），' +
@@ -202,6 +260,10 @@ const STOP_WORDS = new Set([
  */
 export function leftoverTerms(q) {
   let s = String(q || '');
+  // 「这个站 / 哪个站 / 站点」这类**中文站点指代**本身就是「有额外条件」的信号：
+  // 提问锁定了某个站（哪怕是"这个/那个"），规则层不该带空站点答全网。
+  // 单字「站」抹词后会剩下来，长度 <2 会被过滤 —— 所以先在这里记一笔。
+  const siteSignal = SITE_WORD.test(s);
 
   // 单号（已由 analyze_ticket 处理）
   s = s.replace(/\b(?:TT|WO)\d{6,}\b/gi, ' ');
@@ -221,6 +283,9 @@ export function leftoverTerms(q) {
   // 导致规则层白白弃权、多花一次模型调用。
   // 实测：「本月有几个P1的单子，请输出TT单的ID给我」曾因此落到模型层。
   s = s.replace(/单号|编号|明细|清单|列出|列一下|有哪些|哪几单|哪些单|输出|给我|TT(?![0-9])|ID/gi, ' ');
+  // 闭环状态词（parseStatus 认得的那批）也必须剥掉 ——
+  // 否则「昨天有多少 P2 未闭环」会残余出「未闭环」，规则层白白弃权。
+  s = s.replace(/(未闭环|已闭环|未关闭|已关闭|未关闭中|闭环|打开|关闭)/g, ' ');
 
   const terms = s
     .split(/[^A-Za-z0-9\u4e00-\u9fa5]+/)
@@ -230,21 +295,89 @@ export function leftoverTerms(q) {
   const out = [];
   for (const t of terms) {
     const low = t.toLowerCase();
-    // 纯中文残余不再深究：中文问句抹掉已知词后本就剩零碎，
-    // 逐字判断只会带来噪声。站点信号主要靠英文专名与"站"字。
+    // 纯中文残余：抹掉已知的时间/数量/动词后仍剩下的中文片段（长度≥2），
+    // 视为**解释不了的专名**（站名/区域名/人名）→ 规则层弃权交模型层。
+    //
+    // 旧实现是「纯中文只保留匹配 SITE_WORD 的」，于是「蒙塞拉多昨天有几单」
+    // 里的「蒙塞拉多」被扔掉 → 带 site:'' 答成全网。中文站名恰恰不带「站」字。
     if (/^[\u4e00-\u9fa5]+$/.test(t)) {
-      if (SITE_WORD.test(t)) out.push(t);
+      if (t.length >= 2) out.push(t);
       continue;
     }
     if (STOP_WORDS.has(low)) continue;
     if (low.length < 2) continue;
     out.push(t);
   }
+  // 中文站点指代（"这个站"）单独补一条：它可能被抹词后只剩单字「站」，
+  // 长度不足 2 被过滤，但语义上就是「有额外条件」。
+  if (siteSignal && !out.length) out.push('站');
   return out;
 }
 
 /** 「站」类词：中文语境下站点存在与否的直接信号。 */
 const SITE_WORD = /(站点?|基站|站名|这个站|那个站|某站|哪个站)/;
+
+/* --------------------------- 查表意图（P0 最大杠杆） --------------------------- */
+
+/** 含义类问法 → lookup_alarm_code。 */
+const MEANING_INTENT = /(是什么|什么意思|啥意思|含义|什么意思|代表什么|what\s+is|what\s+does|mean|meaning|字典)/i;
+/** 压缩类问法 → lookup_compress。 */
+const COMPRESS_INTENT = /(压缩|压缩成|父告警|父码|compress|parent|会被压)/i;
+/** 级别类问法 → lookup_level_rule。 */
+const LEVEL_INTENT = /(级[别位]|定级|几级|什么级别|怎么判定|如何判定|severity|priority|P\s*[1-4]\s*(级别|是什么|怎么|规则)?|P\s*[1-4]\s*规则)/i;
+
+/** 从提问里抽告警码：≥3 位数字（够长才算码；短码只在「告警码」上下文里认）。 */
+function extractAlarmCode(q) {
+  // 「告警码 9990」/「alarm code 9920」这类显式上下文里，3 位也可以
+  const explicit = String(q).match(/(?:告警码|告警|alarm\s*code|alarm)\s*[:：]?\s*(\d{3,})/i);
+  if (explicit) return explicit[1];
+  // 否则要 ≥4 位，避免把「P1」「3G」「2G」这类短数字误当码
+  const long = String(q).match(/\b(\d{4,})\b/);
+  return long ? long[1] : '';
+}
+
+/**
+ * 查表意图识别：返回 lookup 工具调用，或 null。
+ * 只在**同时有告警码或明确级别**时触发，避免把叙述题误当查表。
+ */
+export function parseLookupIntent(q, lookups) {
+  // 未显式传入时按需加载（进程启动已 load 过；测试注入假表时走参数）。
+  if (lookups === undefined) lookups = LOOKUPS ?? loadLookupsOnce();
+  const code = extractAlarmCode(q);
+
+  // 有告警码：按问法细分
+  if (code) {
+    if (COMPRESS_INTENT.test(q)) return { tool: 'lookup_compress', args: { code } };
+    if (LEVEL_INTENT.test(q)) return { tool: 'lookup_level_rule', args: { code } };
+    if (MEANING_INTENT.test(q)) return { tool: 'lookup_alarm_code', args: { code } };
+    // 有码但没明确问法：默认当「含义」（最常见的「这个码是什么」意图）
+    return { tool: 'lookup_alarm_code', args: { code } };
+  }
+
+  // 无数字码，但问句里出现**已知告警名/缩写**（CSD、MW LINK DOWN…）→ 解析成码再查。
+  // 手册 §3.3 的场景：「CSD 定几级」没有长数字，向量会召回错行；这里改走查表。
+  // 仅在**有级别/含义/压缩意图**时才生效，避免把普通叙述题误当查表。
+  const wantsLookup = LEVEL_INTENT.test(q) || MEANING_INTENT.test(q) || COMPRESS_INTENT.test(q);
+  if (wantsLookup) {
+    const byName = resolveCodeByName(lookups, q);
+    if (byName) {
+      if (COMPRESS_INTENT.test(q)) return { tool: 'lookup_compress', args: { code: byName } };
+      if (LEVEL_INTENT.test(q)) return { tool: 'lookup_level_rule', args: { code: byName } };
+      return { tool: 'lookup_alarm_code', args: { code: byName } };
+    }
+  }
+
+  // 无码但**明确问规则/级别定义** → 级别规则列表。
+  // 判据必须锚在「级别」或「规则」这类词上，**不能只靠出现 P1** ——
+  // 「今天有p1的单子吗」里也有 P1，但那走统计（COUNT_INTENT 会拦）。
+  const asksLevelDef = /(级别|定级|几级|severity|priority)/i.test(q) || /P\s*[1-4].*(规则|是什么|怎么判)/i.test(q);
+  const sev = parseSeverity(q);
+  if (sev && asksLevelDef && !COUNT_INTENT.test(q)) {
+    return { tool: 'lookup_level_rule', args: { severity: sev } };
+  }
+
+  return null;
+}
 
 /**
  * 规则层路由：能确定就返回工具调用，确定不了返回 null（交给模型层）。
@@ -257,6 +390,18 @@ export function parseByRule(question, now = new Date()) {
   // ① 单号优先：TT/WO 单号是强信号，且这条通道最成熟。
   const ttNos = extractTtNos(q);
   if (ttNos.length) return { tool: 'analyze_ticket', args: { tt_no: ttNos[0] } };
+
+  // ①.5 查表意图（告警码含义 / 压缩 / 级别）。
+  //
+  // 必须**先于**统计判断：`test-tools.mjs [3] q8` 明确要求
+  // 「告警码 198094422 会被压缩成什么」不得被当成统计。
+  // 但若问题里同时有**数量词**（「198094422 压缩后有几单」），那是统计意图 ——
+  // 所以这里只在**没有数量词**时才认查表，交下面走统计。
+  const hasCountWordEarly = COUNT_INTENT.test(q);
+  if (!hasCountWordEarly) {
+    const lk = parseLookupIntent(q);
+    if (lk) return lk;
+  }
 
   // ② 统计意图：必须有数量/时间信号，且不是纯知识问法。
   const date = parseDateRange(q, now);
@@ -399,6 +544,13 @@ function normalizeArgs(args, now = new Date(), question = '') {
 export async function runTool(call, index, lang, opts = {}) {
   const t0 = Date.now();
 
+  // 查表工具：脚本渲染，不经 LLM（P0 准确率最大杠杆）。
+  if (call.tool === 'lookup_alarm_code' || call.tool === 'lookup_compress' || call.tool === 'lookup_level_rule') {
+    const out = runLookup(call, lang, opts);
+    out.stats = { ...(out.stats || {}), totalMs: Date.now() - t0 };
+    return out;
+  }
+
   if (call.tool === 'analyze_ticket') {
     const no = String(call.args?.tt_no || '').toUpperCase();
     const r = await analyzeTickets(no || '', { lang, onRetry: opts.onRetry, onLive: opts.onLive });
@@ -424,6 +576,7 @@ export async function runTool(call, index, lang, opts = {}) {
             ? `I couldn't run the ticket query: ${r.error}. Please try again later.`
             : `工单统计没查成：${r.error}。稍后再试试～`,
         stats: { totalMs: Date.now() - t0 },
+        routeArgs: spec,
       };
     }
     return {
@@ -431,6 +584,7 @@ export async function runTool(call, index, lang, opts = {}) {
       channel: 'stats',
       text: renderStatsSafe(r.data, lang, r.degraded, spec.list, spec.dateGuessed),
       stats: { totalMs: Date.now() - t0, degraded: !!r.degraded, source: r.data?.source },
+      routeArgs: spec,
     };
   }
 
@@ -441,6 +595,101 @@ export async function runTool(call, index, lang, opts = {}) {
     history: opts.history,
   });
   return { ...res, channel: 'kb' };
+}
+
+/** 渲染失败不让整条回复挂掉。 */
+function lookupFail(lang, kind, code) {
+  const text = renderNotFound(kind, code, lang);
+  return {
+    answered: false,
+    channel: 'lookup',
+    text: withWebHint(text, lang, CONFIG),
+    stats: { totalMs: 0 },
+  };
+}
+
+/**
+ * 执行查表工具（三个 lookup_*）。**结果原样渲染，绝不送进 LLM 润色。**
+ *
+ * 查找表缺失（没跑过 ingest）时如实回「未构建」，不 fallback 进 RAG ——
+ * 那是这次改造要消灭的「装懂」。
+ */
+export function runLookup(call, lang, opts = {}) {
+  const lookups = opts.lookups !== undefined ? opts.lookups : loadLookupsOnce();
+  const t0 = Date.now();
+  const code = String(call.args?.code || '').trim();
+
+  if (!lookups) {
+    const text =
+      lang === 'en'
+        ? 'The lookup table is not built yet. Ask an admin to run: npm run ingest'
+        : '查找表还没构建，请管理员运行：npm run ingest';
+    return { answered: false, channel: 'lookup', text, stats: { totalMs: Date.now() - t0 } };
+  }
+
+  if (call.tool === 'lookup_alarm_code') {
+    if (!code) return lookupFail(lang, 'alarm', code);
+    const data = findAlarmCode(lookups, code);
+    if (!data) return lookupFail(lang, 'alarm', code);
+    return {
+      answered: true,
+      channel: 'lookup',
+      text: renderAlarmCode(data, lang),
+      stats: { totalMs: Date.now() - t0 },
+      routeArgs: { code },
+    };
+  }
+
+  if (call.tool === 'lookup_compress') {
+    if (!code) return lookupFail(lang, 'compress', code);
+    const rows = findCompress(lookups, code);
+    if (!rows.length) return lookupFail(lang, 'compress', code);
+    return {
+      answered: true,
+      channel: 'lookup',
+      text: renderCompress(rows, code, lang),
+      stats: { totalMs: Date.now() - t0 },
+      routeArgs: { code },
+    };
+  }
+
+  if (call.tool === 'lookup_level_rule') {
+    const sev = String(call.args?.severity || '').toUpperCase();
+    let rules = [];
+    if (code) rules = findLevelByCode(lookups, code);
+    else if (/^P[1-4]$/.test(sev)) rules = findLevelBySeverity(lookups, sev);
+
+    // 用户给了站点属性（NORMAL/VIP/ERA…）→ 只**过滤**条件里写明冲突取值的行。
+    // 不做完整 matcher（P0 边界，见 lookups.js 顶部注释）；吃不准的行一律保留。
+    const attrs = parseSiteAttrs(opts.question || '');
+    const filtered = filterLevelRulesByAttrs(rules, attrs);
+    // 过滤后若把候选清空了，退回未过滤集（宁可多列，不可误删到空）
+    if (filtered.length) rules = filtered;
+    rules = rules.slice().sort((a, b) => a.priority - b.priority);
+
+    if (!rules.length) {
+      const text =
+        lang === 'en'
+          ? `No severity rule references ${code || sev} in the knowledge base. I won't guess.`
+          : `知识库的级别规则里没有引用 ${code || sev} 的规则。我不会按通用知识猜。`;
+      return {
+        answered: false,
+        channel: 'lookup',
+        text: withWebHint(text, lang, CONFIG),
+        stats: { totalMs: Date.now() - t0 },
+        routeArgs: { code, severity: sev },
+      };
+    }
+    return {
+      answered: true,
+      channel: 'lookup',
+      text: renderLevelRules(rules, lang, { severity: sev, code }),
+      stats: { totalMs: Date.now() - t0 },
+      routeArgs: { code, severity: sev },
+    };
+  }
+
+  return null;
 }
 
 /** 渲染失败时不让整条回复挂掉 —— 数字渲染出错也要给出一句人话。 */

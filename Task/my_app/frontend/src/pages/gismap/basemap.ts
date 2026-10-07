@@ -76,7 +76,10 @@ export type BasemapTheme = {
 
 /** 浅色主题（对齐项目既有浅色底图观感） */
 export const LIGHT_THEME: BasemapTheme = {
-  background: '#e8e4dc',
+  /* 底色用 .qc-card / .num 的 --surface-2（#f2fbfd），与页面卡片一致 —— 2026-10-07
+     改：原 #e8e4dc 与卡片差出一档且偏暖，海洋/无人区显得割裂。现在两边同色，
+     地图内容看起来是"嵌在同一张面板里"。 */
+  background: '#f2fbfd',
   earth: '#f4f1ea',
   water: '#a5c8e1',
   waterway: '#a5c8e1',

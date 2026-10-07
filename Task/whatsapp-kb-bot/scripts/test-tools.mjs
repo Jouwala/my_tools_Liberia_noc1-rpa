@@ -92,11 +92,14 @@ console.log('\n[3] 分流（本次的核心：别把统计问题送进向量检�
   check(q1 && q1.args.severity === 'P1', '  级别参数抽到 P1', JSON.stringify(q1?.args));
   check(q1 && q1.args.start === '2026-10-06', '  日期参数 = 今天', JSON.stringify(q1?.args));
 
+  // A4 之后：级别定义类问法走**查表**（lookup_level_rule），不再是纯知识库。
+  // 关键是「不得当统计处理」—— 至于走查表还是知识库，记在下面的断言里。
   const q2 = parseByRule('P1 是什么级别', NOW);
-  check(q2 === null || q2.tool === 'search_knowledge', '「P1 是什么级别」不当统计处理', JSON.stringify(q2));
+  check(q2 === null || q2.tool === 'lookup_level_rule' || q2.tool === 'search_knowledge', '「P1 是什么级别」不当统计处理', JSON.stringify(q2));
+  check(!(q2 && q2.tool === 'query_tickets'), '  「P1 是什么级别」**不是** query_tickets', JSON.stringify(q2));
 
   const q3 = parseByRule('P1 怎么判定的', NOW);
-  check(q3 === null || q3.tool === 'search_knowledge', '「P1 怎么判定的」→ 知识', JSON.stringify(q3));
+  check(q3 === null || q3.tool === 'lookup_level_rule' || q3.tool === 'search_knowledge', '「P1 怎么判定的」→ 级别/知识（非统计）', JSON.stringify(q3));
 
   const q4 = parseByRule('昨天有多少 P2 未闭环', NOW);
   check(q4 && q4.tool === 'query_tickets' && q4.args.status === 'open', '带闭环状态的统计', JSON.stringify(q4));
@@ -110,8 +113,10 @@ console.log('\n[3] 分流（本次的核心：别把统计问题送进向量检�
   const q7 = parseByRule('分析 TT202610060087 有几个 P1', NOW);
   check(q7 && q7.tool === 'analyze_ticket', '同时有单号和数量词时单号优先', JSON.stringify(q7));
 
+  // A4 之后：告警码压缩问法走**查表**（lookup_compress），不是统计、也不是知识库。
   const q8 = parseByRule('告警码 198094422 会被压缩成什么', NOW);
-  check(q8 === null || q8.tool === 'search_knowledge', '告警码压缩规则 → 知识（不是统计）', JSON.stringify(q8));
+  check(q8 === null || q8.tool === 'lookup_compress' || q8.tool === 'search_knowledge', '告警码压缩规则 → 查表（不是统计）', JSON.stringify(q8));
+  check(!(q8 && q8.tool === 'query_tickets'), '  压缩问法**不是** query_tickets', JSON.stringify(q8));
 }
 
 console.log('\n[3b] 站点问题必须转交模型层（2026-10-07 实测踩坑）');
@@ -140,6 +145,16 @@ console.log('\n[3b] 站点问题必须转交模型层（2026-10-07 实测踩坑�
   check(leftoverTerms('Qcell R.I.A 有几个 P1').length > 0, '残余能认出 Qcell R.I.A');
   check(leftoverTerms('昨天一共有多少单').length === 0, '纯通用问法残余为空', JSON.stringify(leftoverTerms('昨天一共有多少单')));
   check(leftoverTerms('how many P1 tickets today').length === 0, '英文通用问法残余为空', JSON.stringify(leftoverTerms('how many P1 tickets today')));
+}
+
+console.log('\n[3c] 中文专名不能被吃掉（A6：中文站名/区域名不带「站」字）');
+{
+  // 旧实现「纯中文只保留匹配 SITE_WORD 的」会把「蒙塞拉多」扔掉，
+  // 于是规则层带 site:'' 答成全网 —— 答错而不报错。
+  check(leftoverTerms('蒙塞拉多昨天有多少单').length > 0, '残余能认出中文站名「蒙塞拉多」', JSON.stringify(leftoverTerms('蒙塞拉多昨天有多少单')));
+  check(parseByRule('蒙塞拉多昨天有多少单', NOW) === null, '  带中文站名 → 规则层弃权交模型');
+  check(leftoverTerms('昨天一共有多少单').length === 0, '  反向：纯通用问法仍为空（不误伤）');
+  check(parseByRule('昨天一共有多少单', NOW)?.tool === 'query_tickets', '  反向：纯通用问法仍走规则短路');
 }
 
 /* --------------------------- 模型输出解析 --------------------------- */

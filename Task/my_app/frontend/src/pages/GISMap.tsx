@@ -26,6 +26,7 @@ import { SITE_COLORS, UTIL_LEVEL_COLORS, UTIL_LEVEL_ORDER, utilLevelOf } from '.
 import { BASEMAP_PMTILES_URL, BASEMAP_ATTRIBUTION, BASEMAP_MAX_ZOOM } from './gismap/basemap'
 import { PmtilesLayer } from './gismap/PmtilesLayer'
 import { LayerToggleControl } from './gismap/LayerToggleControl'
+import { MapOverlayToggle } from './gismap/MapOverlayToggle'
 import { exportAoaReport } from '../utils/excelReport'
 
 /* 默认取景：**完整居中显示利比里亚全境**（2026-09-25 改，按用户需求）。
@@ -273,6 +274,16 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
      「密密麻麻，什么都看不清」（2026-10-02）。开关由右上角的 LayerToggleControl
      驱动，透传给 PmtilesLayer 的 showLabels。 */
   const [showLabels, setShowLabels] = useState(false)
+  /* MW 利用率**图例组**的显隐（2026-10-26 用户要求「地图图例不显示 MW Link
+     Utilization 的，弄个按钮放到 Zoom: 右边，并且默认不显示」）。
+
+     ⚠️ 只控制**图例浮层里那一组条目**，不控制地图上的链路：链路仍由 showUtil/showTopology
+     决定（恒真），照画不误。这与上面 gis.utilToggle 的历史语义（是否叠加利用率数据）
+     是两件事，故不复用那个键（见 i18n 字典里 gis.utilLegendToggle 的注释）。
+     ⚠️ 依赖 showUtil 的那个取数 effect **不受本状态影响**：用户「默认不显示图例」
+     不等于「不要数据」，若把它并进依赖数组，默认态下就不会请求 with_util=1，
+     链路会退化成无 KPI 灰虚线 —— 那是功能缺失，不是视觉偏好。 */
+  const [showUtilLegend, setShowUtilLegend] = useState(false)
   /* 底图道路开关。**默认关闭**（2026-10-22 用户要求「Alarm 的 map 默认不要勾选道路图层」）。
      关闭后底图只剩水体/建筑/站点，画面更干净。透传给 PmtilesLayer。
 
@@ -864,7 +875,8 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
   }))
 
   /* MW 链路利用率图例：只列**实际出现**的分级（计数 0 的不占位）。
-     showUtil 恒真，故这一组恒显示；「无 KPI 数据」一档用灰虚线示意。
+     ⚠️ 这一组的**显示与否**归工具栏的 showUtilLegend 管（默认不显示，2026-10-26），
+     本数组始终照常计算 —— 收起来只是不传进浮层，不是不生成数据。
      2026-10-02：no_kpi 一档的色由 WH.textDim 改为 UTIL_LEVEL_COLORS.no_kpi，
      与地图上实际画的灰线**逐值一致** —— 图例与地图不同色会让人以为
      图上那条灰线是第三种含义（该档在地图上线已改为灰虚线，见 linkColor/linkDash）。 */
@@ -1027,6 +1039,16 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
                 }))}
                 size="small"
                 style={{ background: 'var(--wh-seg-bg)' }}
+              />
+              {/* 「利用率图例」按钮紧跟 Segmented 之后 = 用户要的「Zoom: 右边」
+                  （2026-10-26）。**必须留在同一个 Space 内**：换到隔壁 Col 或自占一行，
+                  窄屏换行时就会与 Zoom: 分开，不再「在它右边」。
+                  组件取舍见 gismap/MapOverlayToggle.tsx 文件头。 */}
+              <MapOverlayToggle
+                label={t('gis.utilLegendToggle')}
+                hint={t('gis.utilLegendToggleHint')}
+                show={showUtilLegend}
+                onToggle={setShowUtilLegend}
               />
             </Space>
           </Col>
@@ -1430,12 +1452,17 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
           {/* 图例浮层（2026-09-28 用户要求「直接在地图上显示，竖排」；位置为**左下**）。
               放在地图容器**之后**是关键：浮层 z-index 与 Leaflet 控件同为 1000，
               同层时 DOM 靠后者胜，故它压在站点圆点/县名标注之上。 */}
+          {/* MW 利用率图例组由工具栏的「利用率图例」按钮控制，**默认不显示**
+              （2026-10-26 用户要求）。这里把 utilTitle/utilRows/utilNote **三样一起**
+              置空：MapLegendOverlay 的 hasUtil 门槛是「有标题且有行」，只清后两样
+              会留下一个空的分组标题，看起来像渲染坏了。
+              ⚠️ 只影响图例，不影响地图上的链路绘制（见 showUtilLegend 的注释）。 */}
           <MapLegendOverlay
             title={t('gis.legendTitle')}
             rows={siteLegendRows}
-            utilTitle={t('gis.utilLegendTitle')}
-            utilRows={utilLegendRows}
-            utilNote={showTopology && showUtil && utilMeta
+            utilTitle={showUtilLegend ? t('gis.utilLegendTitle') : undefined}
+            utilRows={showUtilLegend ? utilLegendRows : undefined}
+            utilNote={showUtilLegend && showTopology && showUtil && utilMeta
               ? t('gis.utilNote', {
                 matched: utilMeta.matched,
                 total: utilMeta.total,

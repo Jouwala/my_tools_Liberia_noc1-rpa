@@ -1310,14 +1310,14 @@ window.OLBR_DATA = (function () {
   /* 与 MsPortal 同一份剥离样式：让同源 iframe 只留 Leaflet 画布，
      否则地图外面会套着该页面自己的筛选栏 / KPI 卡 / 侧栏。 */
   var MAP_STRIP_CSS = [
-    'html,body{margin:0!important;padding:0!important;height:100%!important;overflow:hidden!important;background:transparent!important}',
-    '#root,.ant-layout,.ant-layout-content{height:100%!important;min-height:0!important;margin:0!important;padding:0!important;background:transparent!important}',
+    'html,body{margin:0!important;padding:0!important;height:100%!important;overflow:hidden!important;background:#ffffff!important}',
+    '#root,.ant-layout,.ant-layout-content{height:100%!important;min-height:0!important;margin:0!important;padding:0!important;background:#ffffff!important}',
     'main#main-content{height:100%!important;padding:0!important;margin:0!important;overflow:hidden!important}',
     'main#main-content > div{height:100%!important;padding:0!important;margin:0!important;display:block!important}',
     'main#main-content > div > *:not(:has(.leaflet-container)):not(:has(iframe)):not(iframe){display:none!important}',
     'main#main-content > div > iframe,main#main-content > div > *:has(iframe){width:100%!important;height:100%!important;border:0!important;display:block!important;margin:0!important;padding:0!important}',
     'main#main-content *:has(.leaflet-container){height:100%!important;min-height:0!important;max-height:none!important}',
-    'main#main-content .ant-card:has(.leaflet-container){height:100%!important;margin:0!important;border:0!important;border-radius:0!important;box-shadow:none!important;background:transparent!important}',
+    'main#main-content .ant-card:has(.leaflet-container){height:100%!important;margin:0!important;border:0!important;border-radius:0!important;box-shadow:none!important;background:#ffffff!important}',
     'main#main-content .ant-card:has(.leaflet-container) > .ant-card-head{display:none!important}',
     'main#main-content .ant-card:has(.leaflet-container) > .ant-card-body{height:100%!important;padding:0!important}',
     'main#main-content .ant-card-body:has(.leaflet-container){position:relative!important}',
@@ -1350,7 +1350,7 @@ window.OLBR_DATA = (function () {
        → 新增浮层时请同时更新这里与 MsPortal/assets/portal.js 的同一份列表
          （那边的孪生规则在 MsPortal/assets/portal.js:3705，同样只排除了图例）。 */
     'main#main-content .ant-card-body:has(.leaflet-container) > *:not(.leaflet-container):not(:has(.leaflet-container)):not(.gis-legend-overlay):not(.gis-rank-overlay){position:absolute!important;left:0!important;right:0!important;bottom:0!important;z-index:900!important;background:rgba(255,255,255,.88)!important;margin:0!important;padding:2px 8px!important}',
-    '.leaflet-container{height:100%!important;min-height:0!important;max-height:none!important;width:100%!important;border-radius:0!important}',
+    '.leaflet-container{height:100%!important;min-height:0!important;max-height:none!important;width:100%!important;border-radius:0!important;background:#ffffff!important}',
     /* 地图内容左移，避免被右上角的 MAINTENANCE ALERTS 面板遮挡。
        ⚠️ 这个数值经历过三次决定，改动前请读完，别只看最后一行。
        ---- 为什么用 margin-left 而不是 transform ----

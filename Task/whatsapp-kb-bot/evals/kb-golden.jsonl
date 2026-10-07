@@ -1,0 +1,35 @@
+{"id":"cmp-198094422","q":"告警码 198094422 会被压缩成什么","lang":"zh","expectChannel":"lookup","expectTool":"lookup_compress","mustInclude":["9970"],"mustNotInclude":["专利"],"notes":"压缩查表"}
+{"id":"code-99933","q":"99933 是什么意思","lang":"zh","expectChannel":"lookup","expectTool":"lookup_alarm_code","mustInclude":["SITE DOWN","POWER"],"mustNotInclude":[],"notes":"告警码含义查表"}
+{"id":"code-9920","q":"9920 是什么告警","lang":"zh","expectChannel":"lookup","expectTool":"lookup_alarm_code","mustInclude":["Complete site down"],"mustNotInclude":[],"notes":"CSD"}
+{"id":"code-9991-en","q":"what does alarm code 9991 mean","lang":"en","expectChannel":"lookup","expectTool":"lookup_alarm_code","mustInclude":["3G CELL DOWN"],"mustNotInclude":[],"notes":"英文含义"}
+{"id":"level-9990","q":"告警码 9990 NORMAL 非 VIP 是几级","lang":"zh","expectChannel":"lookup","expectTool":"lookup_level_rule","mustInclude":["227"],"mustNotInclude":[],"notes":"按码列级别候选规则（P0 不做完整匹配，须含 #227）"}
+{"id":"level-p1","q":"P1 是什么级别","lang":"zh","expectChannel":"lookup","expectTool":"lookup_level_rule","mustInclude":["225"],"mustNotInclude":[],"notes":"给 P1 规则清单，不编定义；须含 225/226"}
+{"id":"level-p1-en","q":"what is P1 severity rule","lang":"en","expectChannel":"lookup","expectTool":"lookup_level_rule","mustInclude":["P1"],"mustNotInclude":[],"notes":"英文级别规则"}
+{"id":"nolevel-08","q":"为什么TT没有级别","lang":"zh","expectChannel":"kb","mustInclude":["ttLevelRule"],"mustNotInclude":[],"notes":"命中 08_ 或说明级别来自 ttLevelRule 非告警 Severity"}
+{"id":"nolevel-sev","q":"这些站点告警为什么没有 Severity","lang":"zh","expectChannel":"kb","mustInclude":[],"mustNotInclude":[],"notes":"级别缺失排查；至少不得答「资料没有」"}
+{"id":"alarm-detour","q":"告警驱动如何创建 TT","lang":"zh","expectChannel":"kb","mustInclude":[],"mustNotInclude":[],"notes":"autoCreateTT 叙述题"}
+{"id":"alarm-detour-en","q":"how is a TT created from an alarm","lang":"en","expectChannel":"kb","mustInclude":[],"mustNotInclude":[],"notes":"英文叙述题（可能触发二跳改写）"}
+{"id":"r-zh-p1-today","q":"今天有p1的单子吗","lang":"zh","expectChannel":"stats","expectTool":"query_tickets","offlineOnly":true,"notes":"统计分流"}
+{"id":"r-zh-yesterday-total","q":"昨天一共有多少单","lang":"zh","expectChannel":"stats","expectTool":"query_tickets","offlineOnly":true,"notes":"统计分流"}
+{"id":"r-p1-not-stats","q":"P1 是什么级别","lang":"zh","expectNotChannel":"stats","offlineOnly":true,"notes":"不得当统计处理（A4 后走查表）"}
+{"id":"r-tt","q":"TT202609150073","lang":"zh","expectChannel":"tt","expectTool":"analyze_ticket","offlineOnly":true,"notes":"单号最优先"}
+{"id":"r-wo","q":"WO202609220055","lang":"en","expectChannel":"tt","expectTool":"analyze_ticket","offlineOnly":true,"notes":"WO 单号也认"}
+{"id":"r-cn-site","q":"Wood camp 这个站昨天有几个单","lang":"zh","expectRuleNull":true,"offlineOnly":true,"notes":"带站名 → 规则层弃权，交模型层"}
+{"id":"r-cn-site-local","q":"蒙塞拉多昨天有多少单","lang":"zh","expectRuleNull":true,"offlineOnly":true,"notes":"中文站名不带「站」字也必须弃权（A6）"}
+{"id":"r-list","q":"本月有几个P1的单子，请输出TT单的ID给我","lang":"zh","expectChannel":"stats","expectTool":"query_tickets","offlineOnly":true,"notes":"要名单 list=true"}
+{"id":"r-cmp-not-stats","q":"告警码 198094422 会被压缩成什么","lang":"zh","expectNotChannel":"stats","offlineOnly":true,"notes":"压缩问法不是统计（test-tools [3] q8）"}
+{"id":"r-cmp-tool","q":"告警码 198094422 会被压缩成什么","lang":"zh","expectTool":"lookup_compress","offlineOnly":true,"notes":"压缩走查表"}
+{"id":"r-code-meaning-tool","q":"99933 是什么意思","lang":"zh","expectTool":"lookup_alarm_code","offlineOnly":true,"notes":"含义走查表"}
+{"id":"r-level-tool","q":"告警码 9990 是几级","lang":"zh","expectTool":"lookup_level_rule","offlineOnly":true,"notes":"级别走查表"}
+{"id":"r-p1-rule-tool","q":"P1 规则有哪些","lang":"zh","expectTool":"lookup_level_rule","offlineOnly":true,"notes":"P1 规则清单"}
+{"id":"r-unrelated-weather","q":"今天北京天气怎么样","lang":"zh","mustNotInclude":["9970","99933"],"notes":"无关题应拒答或走知识库未命中"}
+{"id":"r-unrelated-poem","q":"帮我写一首关于春天的诗","lang":"zh","mustNotInclude":["9970"],"notes":"无关题"}
+{"id":"r-en-stats","q":"how many P1 tickets today","lang":"en","expectChannel":"stats","expectTool":"query_tickets","offlineOnly":true,"notes":"英文统计"}
+{"id":"r-en-analyze","q":"please analyze TT202609110023","lang":"en","expectChannel":"tt","offlineOnly":true,"notes":"英文单号"}
+{"id":"r-tt-priority-multi","q":"分析 TT202610060087 有几个 P1","lang":"zh","expectChannel":"tt","expectTool":"analyze_ticket","offlineOnly":true,"notes":"同时有单号与数量词时单号优先"}
+{"id":"r-notfound-code","q":"告警码 12345 是什么意思","lang":"zh","expectChannel":"lookup","expectTool":"lookup_alarm_code","mustInclude":["12345"],"mustNotInclude":[],"notes":"未收录 → 固定拒答（含码，不猜）"}
+{"id":"r-toolcall-reject","q":"__parseToolCall__","lang":"zh","offlineOnly":true,"expectToolCallNull":"query_alarms","notes":"未实现的工具名必须被拒（钉子；脚本走 parseToolCall）"}
+{"id":"r-help-mentions-stats","q":"__help__","lang":"zh","offlineOnly":true,"expectHelpContains":["统计","查表"],"notes":"help 必须提到统计与查表通道"}
+{"id":"r-name-level-csd","q":"CSD 定几级","lang":"zh","expectChannel":"lookup","expectTool":"lookup_level_rule","offlineOnly":true,"notes":"无数字码，靠告警名 CSD→9920 走查表（手册 §3.3 场景）"}
+{"id":"r-name-code-fiber","q":"Fiber Break 是什么告警","lang":"zh","expectChannel":"lookup","expectTool":"lookup_alarm_code","offlineOnly":true,"notes":"X/Y 型名称分段：Fiber Break→4758"}
+{"id":"r-attr-normal","q":"告警码 9990 NORMAL 非 VIP 是几级","lang":"zh","expectChannel":"lookup","expectTool":"lookup_level_rule","mustInclude":["227"],"mustNotInclude":["228"],"offlineOnly":true,"notes":"站点属性过滤：NORMAL 排除 #228(COOL)"}

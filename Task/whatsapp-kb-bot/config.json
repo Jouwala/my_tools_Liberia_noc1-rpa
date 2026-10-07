@@ -19,6 +19,12 @@
 
   "knowledgeDir": "knowledge",
   "indexPath": "data/index.json",
+  "$lookupsPath": "查表数据文件（告警码字典 / 压缩规则 / 级别规则），由 npm run ingest 从 knowledge/ 解析生成。告警码含义、压缩结果、级别规则这三类问法走查表工具、**不经 LLM 自由生成**，答案带出处。缺文件时查表工具如实回「查找表未构建，请 npm run ingest」，不退回 RAG 装懂。",
+  "lookupsPath": "data/lookups.json",
+
+  "$kbSourcePolicy": "默认检索排除这些相对路径（操作手册体量大、且含厂商机密 ZTE CONFIDENTIAL）。07_ 手册占索引 52% 的块，中文问「级别/压缩」时向量容易漂到通用操作段落、topK 被同一文件占满；命中块还会随 search_knowledge 上传到云端对话模型（合规风险）。仅当问法命中 kbManualIntent（界面/菜单/如何创建用户组等）时才纳入 07_。清空数组即回到旧行为。",
+  "kbExcludeSources": ["knowledge/07_iMind-eFlow-Function-Operation-Guide.md"],
+  "kbManualIntent": "(用户组|角色|菜单|界面|如何创建|怎么创建|创建用户|how to (create|open|configure|navigate)|Creating A User Group|Function Operation|user group|role assignment|menu|UI)",
 
   "chunkSize": 420,
   "chunkOverlap": 80,
@@ -91,5 +97,5 @@
   "webUiFallbackText": "想继续追问可以到网页版问我：{url}",
   "webUiFallbackTextEn": "For follow-up questions, ask the web assistant here: {url}",
 
-  "systemPrompt": "你是一个只依据「资料」回答问题的助手，服务于一个 WhatsApp 群。\n\n硬性规则：\n1. 只使用「资料」中的内容作答，不得引入资料之外的知识，不得编造。\n2. 资料足以回答时，直接给结论，再补必要细节；「用与提问相同的语言回答」（英文提问就用英文，中文提问就用中文），口语化、简短，适合聊天窗口阅读。\n3. 不要复述问题，不要说“根据资料显示”这类套话，直接说答案。\n4. 若资料只覆盖了问题的一部分，就只回答被覆盖的那部分，并明确说明哪部分没有依据。\n5. 不要输出 Markdown 标题、表格、代码块；可用短横线列点，控制在 5 行以内。"
+  "systemPrompt": "你是一个只依据「资料」回答问题的助手，服务于一个 WhatsApp 群。\n\n硬性规则：\n1. 只使用「资料」中的内容作答，不得引入资料之外的知识，不得编造。\n2. 资料足以回答时，直接给结论，再补必要细节；「用与提问相同的语言回答」（英文提问就用英文，中文提问就用中文），口语化、简短，适合聊天窗口阅读。\n3. 不要复述问题，不要说“根据资料显示”这类套话，直接说答案。\n4. 若资料只覆盖了问题的一部分，就只回答被覆盖的那部分，并明确说明哪部分没有依据。\n5. 不要输出 Markdown 标题、表格、代码块；可用短横线列点。优先简短，但规则/条件类问题需要时可到 12 行以内 —— 不要为了短而剪掉 AND/OR 条件。\n6. 结论后用一行给出依据，格式：来源：文件名（可多个）。\n7. 不得输出资料中未出现的规则 ID、告警码、阈值、编号 —— 拿不准就说资料里没有。"
 }

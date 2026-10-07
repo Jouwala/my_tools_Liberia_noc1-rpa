@@ -200,7 +200,17 @@ check(/if \(result\.answered\) rememberTurn/.test(srcWhatsapp),
 check(/history/.test(srcAnswer),
   'answer.js：history 透传下去');
 check(/opts\.history/.test(srcTools),
-  'tools.js：路由时把历史喂给模型');check(/^\s*en: '/m.test(srcRag), 'rag.js：LANG_HINT 提供英文版');
+  'tools.js：路由时把历史喂给模型');
+
+// ── 传参链的**每一环**都要断言 ──
+// 2026-10-07 实测踩过：whatsapp.js 传了、answer.js 收了、tools.js 也用了，
+// 但中间的 index.js 没转发给 routeAnswer —— 于是探针里追问能正确定位到
+// TT202610020012，群里却走成知识库、32 秒后答无关内容。
+// 断链的那一环单看「没问题」，只有端到端才暴露，所以逐环钉死。
+check(/onQuestion:\s*async\s*\(question,\s*\{[^}]*\bhistory\b/.test(srcIndex),
+  'index.js：从接入层**接收** history');
+check(/routeAnswer\(question,\s*index,\s*\{[\s\S]{0,600}?\bhistory\b[\s\S]{0,200}?\}\)/.test(srcIndex),
+  'index.js：把 history **转发**给 routeAnswer（这一环断过）');check(/^\s*en: '/m.test(srcRag), 'rag.js：LANG_HINT 提供英文版');
 
 // TT 通道的失败文案：必须在 Node 侧按语言取
 // （脚本没能正常返回时，只能由调用方兜底）

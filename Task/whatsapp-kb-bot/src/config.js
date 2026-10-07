@@ -44,9 +44,19 @@ export const CONFIG = {
 
   knowledgeDirAbs: abs(process.env.KNOWLEDGE_DIR || raw.knowledgeDir),
   indexPathAbs: abs(process.env.INDEX_PATH || raw.indexPath),
+  // 查表数据（告警码 / 压缩规则 / 级别规则）——由 ingest 生成，查表工具用。
+  // 与 index.json 一样是**可重建产物**，data/*.json 已 gitignore。
+  lookupsPathAbs: abs(process.env.LOOKUPS_PATH || raw.lookupsPath || 'data/lookups.json'),
 
   authDirAbs: abs(process.env.AUTH_DIR || 'data/auth'),
   logDirAbs: abs('data/logs'),
+
+  // 问答记录（SQLite）。与运行日志**分开存**：
+  // 运行日志按天滚动会过期，问答记录是长期积累的分析资产。
+  // 含真实号码，靠 .gitignore 的 data/*.sqlite* 挡住，不入库。
+  qaLogPath: process.env.QA_LOG_PATH || abs('data/qa.sqlite'),
+  // 关掉后完全不记（排查"记录本身是否影响性能"时用）
+  qaLogEnabled: process.env.QA_LOG_ENABLED !== '0',
 
   // 数值型环境变量覆盖
   topK: Number(process.env.TOP_K ?? raw.topK),
@@ -57,6 +67,16 @@ export const CONFIG = {
   semanticWeight: Number(process.env.SEMANTIC_WEIGHT ?? raw.semanticWeight ?? 0.78),
   lexicalWeight: Number(process.env.LEXICAL_WEIGHT ?? raw.lexicalWeight ?? 0.22),
   idBonus: Number(process.env.ID_BONUS ?? raw.idBonus ?? 0.15),
+
+  // 默认检索排除的来源（相对路径数组）。见 config.json 的 $kbSourcePolicy。
+  // 环境变量 KB_EXCLUDE_SOURCES 用逗号分隔覆盖（便于临时试值）；空串 → 不排除。
+  kbExcludeSources: (() => {
+    const env = process.env.KB_EXCLUDE_SOURCES;
+    if (env != null) return env.split(',').map((s) => s.trim()).filter(Boolean);
+    return Array.isArray(raw.kbExcludeSources) ? raw.kbExcludeSources : [];
+  })(),
+  kbManualIntent: process.env.KB_MANUAL_INTENT || raw.kbManualIntent || '',
+
   cooldownMs: Number(process.env.COOLDOWN_MS ?? raw.cooldownMs),
   maxTokens: Number(process.env.MAX_TOKENS ?? raw.maxTokens ?? 512),
 

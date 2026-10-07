@@ -10,9 +10,11 @@
  */
 import { readdirSync, statSync, readFileSync, existsSync } from 'node:fs';
 import { join, extname, relative } from 'node:path';
+import { createHash } from 'node:crypto';
 import { CONFIG, describeConfig, ROOT } from './config.js';
 import { chunkText, saveIndex } from './rag.js';
 import { embed, healthCheck } from './ollama.js';
+import { buildLookups, saveLookups } from './lookups.js';
 
 const EXTS = new Set(['.md', '.markdown', '.txt', '.text']);
 const CHECK_ONLY = process.argv.includes('--check-only');
@@ -82,6 +84,15 @@ export function dedupeChunks(chunks) {
 }
 
 /* --------------------------------- 主流程 -------------------------------- */
+
+/** 统计 lookup 各节条数（打印用）。 */
+function describeLookups(lookups) {
+  return {
+    alarmCodes: lookups?.alarmCodes?.size ?? 0,
+    compress: lookups?.compress?.length ?? 0,
+    levelRules: lookups?.levelRules?.length ?? 0,
+  };
+}
 
 async function main() {
   console.log('=== WhatsApp 知识库助手 · 索引构建 ===\n');
@@ -169,6 +180,29 @@ async function main() {
 
   // 4. 落盘
   console.log('\n[4/4] 写入索引…');
+  // 索引新鲜度指纹：每个知识文件的相对路径 + size + mtime。
+  // src/indexFreshness.js 用它判断「磁盘知识是否比内存索引新」——
+  // 没有这份指纹时，只能对比文件集合，发现不了「同名文件被改过」。
+  const knowledgeFiles = files.map((f) => {
+    const st = statSync(f);
+    return {
+      rel: relative(ROOT, f).replace(/\\/g, '/'),
+      size: st.size,
+      mtimeMs: st.mtimeMs,
+    };
+  });
+  // size+mtime 拼串的 sha256：一个能直接比较的「知识库版本号」。
+  // 不用正文哈希 —— size+mtime 足够发现「加了 08_ / 改了规则导出」，且廉价。
+  const knowledgeHash = createHash('sha256')
+    .update(
+      knowledgeFiles
+        .slice()
+        .sort((a, b) => a.rel.localeCompare(b.rel))
+        .map((f) => `${f.rel}:${f.size}:${Math.round(f.mtimeMs)}`)
+        .join('|')
+    )
+    .digest('hex');
+
   const index = {
     meta: {
       builtAt: new Date().toISOString(),
@@ -179,6 +213,10 @@ async function main() {
       chunkSize: CONFIG.chunkSize,
       chunkOverlap: CONFIG.chunkOverlap,
       sources: files.map((f) => relative(ROOT, f).replace(/\\/g, '/')),
+      // —— 以下三项供 src/indexFreshness.js 判断索引是否过期 ——
+      knowledgeFiles,
+      fileMtimes: Object.fromEntries(knowledgeFiles.map((f) => [f.rel, new Date(f.mtimeMs).toISOString()])),
+      knowledgeHash,
     },
     chunks,
     vectors,
@@ -186,6 +224,25 @@ async function main() {
   saveIndex(index);
   const sizeKb = (statSync(CONFIG.indexPathAbs).size / 1024).toFixed(0);
   console.log(`  ✓ ${CONFIG.indexPathAbs}（${sizeKb} KB）`);
+
+  // 4.5 旁路查找表（告警码 / 压缩 / 级别规则）——查表工具用，不进向量检索。
+  // 解析失败只警告，不能因此让整个 ingest 失败：索引已经写好了，
+  // 查表工具会在数据缺失时如实回「查找表未构建」，而不是让机器人起不来。
+  console.log('\n[4.5] 生成查表数据（data/lookups.json）…');
+  try {
+    const lookups = buildLookups(CONFIG.knowledgeDirAbs, ROOT);
+    const counts = describeLookups(lookups);
+    if (!lookups.alarmCodes.size && !lookups.compress.length && !lookups.levelRules.length) {
+      console.warn('  ! lookup 各节均解析出 0 条 —— 检查 knowledge/ 下字典与规则文件是否在位');
+    } else {
+      console.log(`  ✓ 告警码 ${counts.alarmCodes} 条 / 压缩规则 ${counts.compress} 条 / 级别规则 ${counts.levelRules} 条`);
+    }
+    saveLookups(lookups, CONFIG.lookupsPathAbs);
+    console.log(`  ✓ ${CONFIG.lookupsPathAbs}`);
+  } catch (err) {
+    console.warn(`  ! 查表数据生成失败（不影响索引）：${err.message}`);
+  }
+
   console.log('\n索引构建完成。下一步：npm start');
 }
 

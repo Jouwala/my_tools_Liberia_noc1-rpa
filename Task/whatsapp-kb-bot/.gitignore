@@ -11,6 +11,17 @@ data/*.json
 data/logs/
 data/auth/
 
+# 问答记录（data/qa.sqlite + WAL/SHM 两个伴生文件）。
+# **必须挡住**：按约定存的是**真实提问人号码**，入库等于把群成员号码
+# 写进 git 历史，删不干净。
+# 实测目前真正命中的是工作区根 `.gitignore:139` 的 `data/`，这几行是
+# 子系统单独打包/根规则变更时的第二道防线（与上面 index.json 同一考量）。
+# 三个后缀都要写：WAL 模式下次查询才会生成 -wal/-shm，
+# 而**最近写入的数据正躺在 -wal 里**，只挡 `*.sqlite` 会漏。
+data/*.sqlite
+data/*.sqlite-wal
+data/*.sqlite-shm
+
 # 进程锁（autostart.ps1 每次启动重写，属本机运行时状态；
 # 与 Task/my_app/AGENTS.md 第四节「*.pid 不入库」同一条约定）
 *.pid

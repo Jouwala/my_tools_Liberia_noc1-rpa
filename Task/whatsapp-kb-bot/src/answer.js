@@ -79,5 +79,8 @@ export function describeRoute(r) {
     const src = r.stats?.source === 'http' ? 'my_app HTTP（PG 实时）' : '本地 SQLite 副本';
     return `通道=工单统计（${src}${ms}）${via}${tool}`;
   }
+  if (r.channel === 'lookup') {
+    return `通道=查表（data/lookups.json，不经 LLM${ms}）${via}${tool}`;
+  }
   return `通道=知识库（${CONFIG.embedModel} 嵌入 + 混合检索${ms}）${via}${tool}`;
 }

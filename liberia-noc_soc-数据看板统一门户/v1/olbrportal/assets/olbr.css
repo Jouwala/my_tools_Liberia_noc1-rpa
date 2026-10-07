@@ -2155,7 +2155,7 @@ html.dark .tab[aria-selected="true"] { background: var(--b-tint2); }
 .canvas {
   position: relative; flex: 1; min-height: 460px; margin-top: var(--s3);
   border: 1px solid var(--line); border-radius: var(--r2); overflow: hidden;
-  background: var(--surface-2);
+  background: var(--surface);
 }
 .canvas iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
 .canvas-note {
