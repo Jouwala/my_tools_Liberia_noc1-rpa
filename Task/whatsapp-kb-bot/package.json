@@ -13,6 +13,7 @@
     "doctor": "node --env-file-if-exists=.env src/ingest.js --check-only",
     "diag": "node --env-file-if-exists=.env scripts/diag-chat.mjs",
     "tt": "node scripts/run-py.mjs tt-analyze.py",
+    "tt-level": "node scripts/run-py.mjs tt-analyze.py --lookup-level",
     "tt-index": "node scripts/run-py.mjs tt-analyze.py --rebuild-index",
     "export-kb": "node scripts/run-py.mjs export-tt-knowledge.py",
     "docx2md": "node scripts/run-py.mjs docx-to-md.py",

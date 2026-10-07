@@ -36,6 +36,10 @@
   "minGap": 0.05,
   "semanticWeight": 0.78,
   "lexicalWeight": 0.22,
+  "$p1Retrieval": "P1 检索增强（B1/B2/B4）。parentMergeMaxChars：同标题路径的相邻块合并回上下文的字符上限（治「规则被切碎」）。mmrMaxPerSource：topK 内同一文件最多几块（治「topK 被同一文件占满」）。bm25Weight：词级 BM25 融合权重（0=关闭，回退旧 bigram 混合）。",
+  "parentMergeMaxChars": 1200,
+  "mmrMaxPerSource": 3,
+  "bm25Weight": 0.3,
   "$idBonus": "查询里出现长数字（告警码 / 单号）且候选块原文包含该数字时，给该块额外加分。纯语义检索对这类精确 ID 查询有盲区：语料里大量「告警码X → 父告警码Y」的块结构高度同质，向量几乎重合，22% 的字面权重压不过语义噪声，导致正确答案压根进不了 topK。设 0 可关闭。",
   "idBonus": 0.15,
 

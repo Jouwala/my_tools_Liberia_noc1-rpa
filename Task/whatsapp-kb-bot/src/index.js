@@ -283,7 +283,7 @@ async function main() {
               console.log(`  判定     : ${d.hit ? '命中' : '未命中'}`);
               if (d.excluded != null) console.log(`  来源排除 : ${d.excluded} 块（kbExcludeSources）`);
               for (const c of d.candidates) {
-                console.log(`    · base=${c.base} sem=${c.sem} lex=${c.lex}  ${c.source}`);
+                console.log(`    · base=${c.base} sem=${c.sem} lex=${c.lex} bm25=${c.bm25 ?? 0}  ${c.source}`);
               }
             }
           : undefined,

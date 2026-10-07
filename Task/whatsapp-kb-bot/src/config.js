@@ -77,6 +77,14 @@ export const CONFIG = {
   })(),
   kbManualIntent: process.env.KB_MANUAL_INTENT || raw.kbManualIntent || '',
 
+  // —— P1 检索增强 ——
+  // parent-child 合并上限：同标题路径的相邻块合并回上下文时的字符上限。
+  parentMergeMaxChars: Number(process.env.PARENT_MERGE_MAX_CHARS ?? raw.parentMergeMaxChars ?? 1200),
+  // MMR 同源限流：topK 内同一 source 最多保留几块。
+  mmrMaxPerSource: Number(process.env.MMR_MAX_PER_SOURCE ?? raw.mmrMaxPerSource ?? 3),
+  // BM25（词级字面）与向量的融合权重。置 0 即回退到旧 bigram 混合。
+  bm25Weight: Number(process.env.BM25_WEIGHT ?? raw.bm25Weight ?? 0.3),
+
   cooldownMs: Number(process.env.COOLDOWN_MS ?? raw.cooldownMs),
   maxTokens: Number(process.env.MAX_TOKENS ?? raw.maxTokens ?? 512),
 

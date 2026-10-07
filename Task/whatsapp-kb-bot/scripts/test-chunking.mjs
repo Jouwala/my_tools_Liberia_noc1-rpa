@@ -7,7 +7,7 @@
  * 这条曾经被打破——无句末标点的长文本（长列表、代码块、无标点中文）
  * 会原样成块，实测 5000 字符变成一块，严重稀释检索精度。
  */
-import { chunkText } from '../src/rag.js';
+import { chunkText, annotateChunks, mergeParentChunks } from '../src/rag.js';
 
 const SIZE = 420;
 let pass = 0;
@@ -106,6 +106,67 @@ check(
 );
 const joinedOverlap = norm(withOverlap.join(''));
 check(joinedOverlap.length >= 1000, '带重叠时内容只增不减（重叠生效）');
+
+/* ---------------------- B1：parent 元数据 + 合并 ---------------------- */
+
+console.log('\n--- B1 parent-child 分块 ---');
+{
+  const raw = `# 总览
+
+引言段落。
+
+## 压缩规则
+
+### 压缩规则速览：zte-4g-siteoutage
+
+规则 zte-4g-siteoutage（4G），状态 ENABLED。
+- 基础告警（子告警）站点断站码：198094422
+- 衍生告警（父告警）根告警码：9970
+
+### 压缩规则速览：zte-3g-sitedown
+
+规则 zte-3g-sitedown（3G），状态 ENABLED。
+- 衍生告警（父告警）根告警码：9990`;
+  const parts = chunkText(raw, { size: 120, overlap: 0 });
+  const metas = annotateChunks(raw, parts);
+
+  check(metas.length === parts.length, '父元数据数量与块数一致');
+  // 标题路径应该逐级加深
+  check(metas.some((m) => m.parent.includes('总览 › 压缩规则')), '标题路径逐级拼出', JSON.stringify(metas.map((m) => m.parent)));
+  // 规则 ID 与告警码抽到了
+  check(metas.some((m) => m.ruleId === 'zte-4g-siteoutage'), '抽到规则 ID zte-4g-siteoutage', JSON.stringify(metas.map((m) => m.ruleId)));
+  check(metas.some((m) => m.alarmCodes.includes('198094422')), '抽到告警码 198094422');
+  check(metas.some((m) => m.alarmCodes.includes('9970')), '抽到父告警码 9970');
+
+  // 合并：同 source + 同 parent 的相邻块合并
+  const hits = [
+    { text: 'A1', source: 'k/a.md', title: 't', seq: 0, parent: 'P', confident: true, base: 0.9 },
+    { text: 'A2', source: 'k/a.md', title: 't', seq: 1, parent: 'P', confident: true, base: 0.8 },
+    { text: 'B', source: 'k/a.md', title: 't', seq: 2, parent: 'Q', confident: true, base: 0.7 },
+  ];
+  const merged = mergeParentChunks(hits, 1200);
+  check(merged.length === 2, '同 parent 两块合并成 1，异 parent 独立', `count=${merged.length}`);
+  check(merged[0].text.includes('A1') && merged[0].text.includes('A2'), '合并保留了同 parent 的两块内容');
+  check(merged.some((m) => m.text === 'B'), '异 parent 块不受影响');
+
+  // 上限：不丢内容（放不下的作为独立条目保留）
+  const big = [
+    { text: 'x'.repeat(800), source: 'k/a.md', seq: 0, parent: 'P', confident: true, base: 1 },
+    { text: 'y'.repeat(800), source: 'k/a.md', seq: 1, parent: 'P', confident: true, base: 0.9 },
+  ];
+  const capped = mergeParentChunks(big, 1200);
+  check(capped.length === 2, '超上限时不合并、且**不丢块**', `count=${capped.length}`);
+
+  // 空 parent 不参与合并（避免把无关块拼在一起）
+  const noParent = [
+    { text: 'p1', source: 'k/a.md', seq: 0, parent: '', confident: true, base: 1 },
+    { text: 'p2', source: 'k/a.md', seq: 1, parent: '', confident: true, base: 0.9 },
+  ];
+  check(mergeParentChunks(noParent, 1200).length === 2, '空 parent 不合并');
+
+  // ⚠️ 不变量：annotateChunks 不改变 chunkText 的块长度
+  check(parts.every((p) => p.length <= 120), '注释元数据不破坏「单块 ≤ size」不变量');
+}
 
 /* -------------------------------- 结果 -------------------------------- */
 

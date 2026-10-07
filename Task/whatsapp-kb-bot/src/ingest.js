@@ -12,7 +12,7 @@ import { readdirSync, statSync, readFileSync, existsSync } from 'node:fs';
 import { join, extname, relative } from 'node:path';
 import { createHash } from 'node:crypto';
 import { CONFIG, describeConfig, ROOT } from './config.js';
-import { chunkText, saveIndex } from './rag.js';
+import { chunkText, annotateChunks, saveIndex } from './rag.js';
 import { embed, healthCheck } from './ollama.js';
 import { buildLookups, saveLookups } from './lookups.js';
 
@@ -138,8 +138,20 @@ async function main() {
     const rel = relative(ROOT, file).replace(/\\/g, '/');
     const title = docTitle(raw, rel.split('/').pop());
     const parts = chunkText(raw);
+    // B1 parent-child：为每块旁挂「标题路径 + 规则 ID + 告警码」，供检索后合并上下文。
+    const metas = annotateChunks(raw, parts);
     parts.forEach((text, i) => {
-      chunks.push({ text, source: rel, title, seq: i });
+      const m = metas[i] || {};
+      chunks.push({
+        text,
+        source: rel,
+        title,
+        seq: i,
+        parent: m.parent || '',
+        headingPath: m.headingPath || [],
+        ruleId: m.ruleId || '',
+        alarmCodes: m.alarmCodes || [],
+      });
     });
     console.log(`  · ${rel}  →  ${parts.length} 块（${raw.length} 字符）`);
   }

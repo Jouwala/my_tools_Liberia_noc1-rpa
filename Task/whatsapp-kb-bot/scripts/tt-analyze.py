@@ -1333,6 +1333,108 @@ _DETAIL_COLS = (
     ('closed_detail', 'closed'),
 )
 
+
+# ------------------------------------------------------------------ #
+# B5：级别规则真匹配（复用同一套 matcher，不做第二份实现）
+# ------------------------------------------------------------------ #
+#
+# 为什么走这条 CLI 而不是在 Node 里再写一个 matcher：
+#   手册 B5 明确「不要复制一份会漂移的 JS matcher」。级别规则的条件语义
+#   （左折叠 OR/AND、siteSubType vs assetType 区分、字符串比较）在
+#   `build_rule_match` / `eval_one` 里已经和 my_app 对齐并验收过。
+#   在 Node 里重写必然随时间与工单分析结果不一致 —— 群里问「9990 非 VIP 几级」
+#   与直接分析该单得到两个结论，是最难排查的一类故障。
+#
+# 口径与工单分析**完全一致**：同一个 `build_value_frame` + `match_rules`。
+# 缺字段时复用 `missing_rule_fields` 判据输出 incomplete（措辞对齐「未能核对规则」）。
+
+
+def lookup_level(code: str, asset: str = '', vip: str = '', sub: str = '',
+                 domain: str = '', down: str = '',
+                 rules: list[dict] | None = None,
+                 lang: str = DEFAULT_LANG) -> dict:
+    """按「告警码 + 站点属性」直接问级别（不经工单库）。
+
+    构造一个最小的 `row`，走与工单分析**完全相同**的 value frame 与匹配：
+      · 用户给了属性 → 参与匹配；
+      · 用户没给的属性 → 空串（与「DB 里该列为空」同义）。
+
+    返回：
+      · matched  : 命中的规则（id/name/severity/priority）或 None
+      · verdict  : 'ok'（命中）/ 'incomplete'（字段缺失、规则未被真正评估）/ 'unknown'（都不匹配）
+      · missing  : 缺的字段名（incomplete 时非空）
+      · details  : 命中规则的逐条条件求值（便于解释）
+    """
+    row = {
+        'alarm_code': code,
+        'site_type': asset,          # assetType: NORMAL / COOL
+        'vip_site': vip,             # vipSite: 0 / 1
+        'site_information': sub,     # siteSubType: REGULAR / ERA
+        'domain': domain,            # netWorkType
+        'down_site_count': down,     # downSiteCount
+    }
+    vf = build_value_frame(row)
+    rule = match_rules(vf, rules or [])
+    absent = missing_rule_fields(vf, rules or []) if not rule else []
+    if rule:
+        verdict = 'ok'
+    elif absent:
+        verdict = 'incomplete'
+    else:
+        verdict = 'unknown'
+    return {
+        'found': True,
+        'mode': 'lookup_level',
+        'verdict': verdict,
+        'missing_rule_fields': absent,
+        'matched_rule_id': rule['id'] if rule else None,
+        'matched_rule_name': rule['name'] if rule else '',
+        'suggested_severity': rule['severity'] if rule else '',
+        'match_details': fmt_detail(vf, rule['conds']) if rule else '',
+        'fields': vf,
+    }
+
+
+def render_level_lookup(res: dict, code: str, attrs: dict, lang: str = DEFAULT_LANG) -> str:
+    """渲染级别查表结果（中英）。数据字段（规则名）保持原文，与 TT 通道一致。"""
+    L = _L(lang)
+    attr_bits = []
+    if attrs.get('asset'):
+        attr_bits.append(f"assetType={attrs['asset']}")
+    if attrs.get('sub'):
+        attr_bits.append(f"siteSubType={attrs['sub']}")
+    if attrs.get('vip') != '':
+        attr_bits.append(f"vipSite={attrs['vip']}")
+    if attrs.get('down'):
+        attr_bits.append(f"downSiteCount={attrs['down']}")
+    attr_str = '，'.join(attr_bits) if attr_bits else ''
+
+    v = res['verdict']
+    if v == 'ok':
+        head = (f"告警码 {code}（{attr_str}）→ {res['suggested_severity']}"
+                if lang != 'en'
+                else f"Alarm code {code} ({attr_str}) → {res['suggested_severity']}")
+        line = (f"命中规则：# {res['matched_rule_id']} {res['matched_rule_name']}"
+                if lang != 'en'
+                else f"Matched rule: # {res['matched_rule_id']} {res['matched_rule_name']}")
+        det = (f"判定依据：{res['match_details']}" if lang != 'en'
+               else f"Basis: {res['match_details']}")
+        return f"{head}\n{line}\n{det}"
+    if v == 'incomplete':
+        miss = '、'.join(res['missing_rule_fields'])
+        if lang == 'en':
+            return (f"Alarm code {code} ({attr_str}) — cannot determine severity: "
+                    f"missing fields {miss}. Rules were not fully evaluated. "
+                    f"Provide more site attributes (assetType / vipSite / siteSubType) to match.")
+        return (f"告警码 {code}（{attr_str}）—— 级别无法判定：缺少字段 {miss}，"
+                f"规则未被真正评估。请补充站点属性（assetType / vipSite / siteSubType）再匹配。")
+    # unknown
+    if lang == 'en':
+        return (f"Alarm code {code} ({attr_str}) — no enabled severity rule matched. "
+                f"I won't guess.")
+    return f"告警码 {code}（{attr_str}）—— 没有命中的级别规则。我不会按通用知识猜。"
+
+
 # ------------------------------------------------------------------ #
 # 多语言文案
 # ------------------------------------------------------------------ #
@@ -2272,12 +2374,43 @@ def main() -> int:
                          '传 - 表示从 stdin 读入。')
     ap.add_argument('--rebuild-index', action='store_true',
                     help='重建本地单号索引后退出（首次部署、或数据大量更新后跑一次）')
+    # B5：按「码 + 站点属性」直接问级别（复用同一套 matcher，见 lookup_level）。
+    ap.add_argument('--lookup-level', metavar='CODE',
+                    help='级别查表：给告警码，配合 --asset/--vip/--sub 等属性直接判定级别')
+    ap.add_argument('--asset', default='', help='assetType（NORMAL / COOL）')
+    ap.add_argument('--vip', default='', help='vipSite（0 / 1）')
+    ap.add_argument('--sub', default='', help='siteSubType（REGULAR / ERA）')
+    ap.add_argument('--domain', default='', help='netWorkType（如 OCS）')
+    ap.add_argument('--down', default='', help='downSiteCount')
     args = ap.parse_args()
 
     if args.rebuild_index:
         return rebuild_index()
+
+    # —— B5：级别查表模式（不需要 TT 单号）——
+    if args.lookup_level:
+        try:
+            rules = load_rules(lang=args.lang)
+        except Exception as e:
+            print(str(e), file=sys.stderr)
+            return 2
+        res = lookup_level(
+            args.lookup_level, args.asset, args.vip, args.sub, args.domain, args.down,
+            rules=rules, lang=args.lang,
+        )
+        if args.json:
+            print(json.dumps(res, ensure_ascii=False, indent=2))
+        else:
+            print(render_level_lookup(
+                res, args.lookup_level,
+                {'asset': args.asset, 'vip': args.vip, 'sub': args.sub, 'down': args.down},
+                args.lang,
+            ))
+        # 退出码：命中 0；incomplete 4（能判但字段缺）；unknown 1（不匹配）
+        return 0 if res['verdict'] == 'ok' else (4 if res['verdict'] == 'incomplete' else 1)
+
     if not args.tt_no:
-        ap.error('需要提供 TT 单号（或使用 --rebuild-index）')
+        ap.error('需要提供 TT 单号（或使用 --rebuild-index / --lookup-level）')
 
     try:
         rules = load_rules(lang=args.lang)

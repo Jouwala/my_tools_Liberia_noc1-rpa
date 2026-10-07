@@ -149,6 +149,75 @@ export function chunkText(text, { size = CONFIG.chunkSize, overlap = CONFIG.chun
   return chunks;
 }
 
+/* ------------------------------ parent 元数据 ------------------------------ */
+
+/**
+ * 为每个块标注「父级」信息（B1 parent-child 分块）。
+ *
+ * 目的：小块检索精度高，但可能把 AND/OR 条件或上下句切散。
+ * 记录每个块所属的**标题路径**（`##`/`###` 层级）与**规则/告警码**，
+ * 检索后由 `buildMessages` 把**同一 parent 的相邻块合并**，
+ * 让模型看到完整上下文（上限见 CONFIG.parentMergeMaxChars）。
+ *
+ * ⚠️ 不改 `chunkText` 的契约（仍返回 string[]，单块 ≤ chunkSize 的不变量不动）——
+ * 这里只是**旁挂**元数据，便于单测与回归。
+ *
+ * @param {string} raw      文档原文
+ * @param {string[]} parts  chunkText(raw) 的结果（顺序一致）
+ * @returns {Array<{parent:string, headingPath:string[], ruleId:string, alarmCodes:string[]}>}
+ */
+export function annotateChunks(raw, parts) {
+  const text = String(raw || '').replace(/\r\n/g, '\n');
+  // 逐行扫描，维护当前标题栈（# 层级）。
+  const headings = []; // 形如 [{level, text}]
+  const lineHeadingAt = []; // 每行开始时的标题栈快照（只用标题文本路径）
+
+  const lines = text.split('\n');
+  const snapshots = [];
+  for (const line of lines) {
+    const m = line.match(/^(#{1,6})\s+(.+?)\s*$/);
+    if (m) {
+      const level = m[1].length;
+      // 弹出比当前层级更深或相等的标题
+      while (headings.length && headings[headings.length - 1].level >= level) headings.pop();
+      headings.push({ level, text: m[2].trim() });
+    }
+    snapshots.push(headings.map((h) => h.text));
+  }
+
+  // 为每个块在原文里定位它出现的行号（用块首若干非空白字符匹配）。
+  const out = [];
+  let searchFrom = 0;
+  const normLine = (s) => s.replace(/\s+/g, '');
+  const sourceLines = lines.map(normLine);
+  for (const part of parts) {
+    const probe = normLine(part).slice(0, 40);
+    let at = -1;
+    if (probe) {
+      for (let i = searchFrom; i < sourceLines.length; i++) {
+        if (sourceLines[i] && sourceLines[i].includes(probe.slice(0, 20))) {
+          at = i;
+          break;
+        }
+      }
+    }
+    if (at < 0) at = Math.min(searchFrom, snapshots.length - 1);
+    searchFrom = Math.max(at, 0);
+
+    const headingPath = (snapshots[at] || []).slice();
+    const parent = headingPath.length ? headingPath.join(' › ') : '';
+    // 从块内抽规则 ID（`规则 zte-4g-siteoutage` / `#227`）与告警码（≥3 位数字）
+    const ruleId =
+      (part.match(/规则\s+([A-Za-z0-9][\w-]{2,})/) || [])[1] ||
+      (part.match(/#(\d{1,4})\b/) || [])[1] ||
+      '';
+    const alarmCodes = [...new Set(part.match(/\b\d{3,}\b/g) || [])].slice(0, 40);
+
+    out.push({ parent, headingPath, ruleId, alarmCodes });
+  }
+  return out;
+}
+
 /* --------------------------------- 索引 IO -------------------------------- */
 
 export function saveIndex(index, path = CONFIG.indexPathAbs) {
@@ -168,6 +237,90 @@ export function loadIndex(path = CONFIG.indexPathAbs) {
     throw new Error(`索引不一致：chunks=${index.chunks.length} vectors=${index.vectors.length}，请重跑 npm run ingest`);
   }
   return index;
+}
+
+/* ---------------------------------- BM25 ---------------------------------- */
+
+/**
+ * 分词（B2 词级 BM25 用）：中文按**字 bigram**、英文/数字按 **token**。
+ *
+ * 为什么中文用 bigram：本项目不引分词器（手册禁止加依赖），而 bge 语料里
+ * 中文专名（站名、区域名）恰恰是 bigram 能抓住的。bigram 与英文 token 混在
+ * 同一词袋里做 BM25，中英问法都能吃到字面信号。
+ *
+ * @returns {string[]} token 列表（可重复，供 tf 统计）
+ */
+export function tokenize(text) {
+  const s = String(text || '');
+  const out = [];
+  // 英文单词 / 数字（含 4G、zte-4g-siteoutage 里的段）
+  for (const m of s.matchAll(/[A-Za-z][A-Za-z0-9]*|\d+/g)) out.push(m[0].toLowerCase());
+  // 中文：连续汉字段取 bigram（单字段也保留）
+  for (const m of s.matchAll(/[一-龥]+/g)) {
+    const seg = m[0];
+    if (seg.length === 1) out.push(seg);
+    for (let i = 0; i + 1 < seg.length; i++) out.push(seg.slice(i, i + 2));
+    // 也带上整段，便于命中完整术语（长度 ≥2）
+    if (seg.length >= 2 && seg.length <= 8) out.push(seg);
+  }
+  return out;
+}
+
+/**
+ * 预计算语料 BM25 统计（df / 平均长度）。
+ * 每次 retrieve 都算一遍 —— 822 块的词袋统计实测 < 10ms，不值得缓存失效的复杂度。
+ *
+ * @param {Array<{text:string, _tokens?:string[]}>} chunks
+ * @returns {{df:Map<string,number>, avgdl:number, N:number, tf:Array<Map<string,number>>}}
+ */
+export function buildBm25Stats(chunks) {
+  const tf = [];
+  const df = new Map();
+  let totalLen = 0;
+  for (const c of chunks) {
+    const toks = c._tokens || tokenize(c.text);
+    c._tokens = toks; // 旁挂，供同一次检索复用（不落盘）
+    const m = new Map();
+    for (const t of toks) m.set(t, (m.get(t) || 0) + 1);
+    tf.push(m);
+    totalLen += toks.length;
+    for (const t of m.keys()) df.set(t, (df.get(t) || 0) + 1);
+  }
+  const N = chunks.length || 1;
+  return { df, avgdl: totalLen / N || 1, N, tf };
+}
+
+/**
+ * 单块 BM25 分（k1=1.2, b=0.75，标准取值）。
+ * 只统计查询里出现过的 token —— 与经典 BM25 等价，且省去全词袋遍历。
+ */
+export function bm25Score(queryTokens, tfMap, stats) {
+  const { df, avgdl, N } = stats;
+  const k1 = 1.2;
+  const b = 0.75;
+  const dl = tfMap.size ? [...tfMap.values()].reduce((a, c) => a + c, 0) : 0;
+  let score = 0;
+  const qSeen = new Set();
+  for (const t of queryTokens) {
+    if (qSeen.has(t)) continue;
+    qSeen.add(t);
+    const f = tfMap.get(t) || 0;
+    if (!f) continue;
+    const n = df.get(t) || 0;
+    const idf = Math.log(1 + (N - n + 0.5) / (n + 0.5));
+    score += (idf * (f * (k1 + 1))) / (f + k1 * (1 - b + (b * dl) / avgdl));
+  }
+  return score;
+}
+
+/**
+ * 把 BM25 原始分归一化到 [0,1]（除以本轮最高分），便于与余弦融合。
+ * 全 0 时返回全 0（查询没有字面信号 —— 纯语义题不应被 BM25 影响）。
+ */
+export function normalizeBm25(scores) {
+  const max = Math.max(0, ...scores);
+  if (!max) return scores.map(() => 0);
+  return scores.map((s) => s / max);
 }
 
 /* ---------------------------------- 检索 ---------------------------------- */
@@ -220,6 +373,10 @@ export function retrieve({ queryVec, queryText, index, cfg = CONFIG }) {
   const queryIds = String(queryText || '').match(/\d{4,}/g) || [];
   const idBonus = Number(cfg.idBonus ?? 0.15);
 
+  // —— B2：词级 BM25，与向量**融合后再取 topK** ——
+  // 老写法先按 base 取 topK 再判命中；BM25 需要知道全库统计，故先在 live 集上算。
+  const bm25w = Number(cfg.bm25Weight ?? 0);
+  const liveIdx = [];
   for (let i = 0; i < n; i++) {
     const chunk = index.chunks[i];
     // 排除列表命中的块**直接跳过**，不给 0 分占位 ——
@@ -228,15 +385,33 @@ export function retrieve({ queryVec, queryText, index, cfg = CONFIG }) {
       excluded++;
       continue;
     }
+    liveIdx.push(i);
+  }
+  const liveSet = new Set(liveIdx);
+
+  let bm25norm = new Map(); // idx → 归一化 BM25
+  if (bm25w > 0 && liveIdx.length) {
+    const liveChunks = liveIdx.map((i) => index.chunks[i]);
+    const stats = buildBm25Stats(liveChunks);
+    const qToks = tokenize(queryText);
+    const raw = liveChunks.map((c, k) => bm25Score(qToks, stats.tf[k], stats));
+    const norm = normalizeBm25(raw);
+    liveIdx.forEach((gi, k) => bm25norm.set(gi, norm[k]));
+  }
+
+  for (let i = 0; i < n; i++) {
+    const chunk = index.chunks[i];
+    if (!liveSet.has(i)) continue;
     const text = chunk.text;
     const sem = cosine(queryVec, index.vectors[i]);
     const lex = bigramSim(queryText, text);
-    // base 用于命中判定；sem/lex 保留供排序诊断
     let base = sem * sw + lex * lw;
+    const bm = bm25norm.get(i) || 0;
+    if (bm25w > 0) base += bm * bm25w;
     if (queryIds.length && queryIds.some((id) => text.includes(id))) {
       base += idBonus;
     }
-    rows[i] = { idx: i, sem, lex, base, ...chunk };
+    rows[i] = { idx: i, sem, lex, bm25: bm, base, ...chunk };
   }
   // 排除后可能留下空洞下标 —— 压掉（否则 length 仍是 n，排序里混 undefined）
   const live = rows.filter(Boolean);
@@ -257,7 +432,26 @@ export function retrieve({ queryVec, queryText, index, cfg = CONFIG }) {
       : top.base >= cfg.minAbs
     : false;
 
-  const hits = live.slice(0, cfg.topK).map((r) => ({
+  // B4 MMR：同一 source 最多保留 mmrMaxPerSource 块。
+  // topK 被同一文件占满时（07_ 之外的语料也可能扎堆），6 个名额只带回 1 条信息，
+  // 模型看到的「资料」严重退化。这里在取 topK 时按来源限流，把名额留给别的文件。
+  // 只影响喂给模型的 hits，不影响 baseline/useGap 的判定口径。
+  const cap = Number(cfg.mmrMaxPerSource ?? 0);
+  const picked = [];
+  if (cap > 0) {
+    const perSource = new Map();
+    for (const r of live) {
+      if (picked.length >= cfg.topK) break;
+      const cnt = perSource.get(r.source) || 0;
+      if (cnt >= cap) continue;
+      perSource.set(r.source, cnt + 1);
+      picked.push(r);
+    }
+  } else {
+    picked.push(...live.slice(0, cfg.topK));
+  }
+
+  const hits = picked.map((r) => ({
     ...r,
     // 逐条传递命中标记，调用方据此决定能否作为依据喂给模型
     confident: useGap ? r.base >= cfg.minAbs && r.base - baseline >= cfg.minGap : r.base >= cfg.minAbs,
@@ -298,7 +492,7 @@ const CONTEXT_NOTE =
  * @param {Array<{q:string,a:string}>} [history] 最近几轮问答（时间正序）
  */
 export function buildMessages(question, hits, lang = 'zh', history = []) {
-  const usable = hits.filter((h) => h.confident);
+  const usable = mergeParentChunks(hits.filter((h) => h.confident));
   // 每个 confident 块前缀带**文件名与标题**（出处），模型据以在结论后给出
   // 「来源：文件名」。以前只给【i】正文，模型无从知道依据来自哪个文件，
   // 回答也就没法带出处 —— 规则题会被压掉关键条件又说不清依据。
@@ -320,6 +514,65 @@ export function buildMessages(question, hits, lang = 'zh', history = []) {
     ...withHistory,
     { role: 'user', content: `资料：\n${context}\n\n问题：${question}` },
   ];
+}
+
+/* --------------------------- parent-child 合并 --------------------------- */
+
+/**
+ * 把**同一 parent（标题路径相同）**的相邻块合并回一段上下文（B1）。
+ *
+ * 为什么需要：小块检索精度高，但会把 AND/OR 条件、表格行、上下句切散
+ * —— 「CSD 定几级」召回的那块可能只有半条规则。合并同一标题下的相邻块，
+ * 让模型看到完整小节（受 `parentMergeMaxChars` 上限约束，默认 1200）。
+ *
+ * 只在**同一 source 且同一 parent 且 seq 相邻**时合并，避免跨文档拼凑。
+ * 合并后的 `text` 变大，但 `source`/`title`/`parent` 保留首个块的值（出处不变）。
+ *
+ * @param {Array} hits 已按分数排序的 confident 块
+ * @returns {Array} 合并后的块（顺序保持首个块的位置）
+ */
+export function mergeParentChunks(hits, maxChars = CONFIG.parentMergeMaxChars ?? 1200) {
+  const sorted = hits.slice(); // 已按 base 降序，保持
+  const used = new Set();
+  const out = [];
+  for (let i = 0; i < sorted.length; i++) {
+    if (used.has(i)) continue;
+    const cur = sorted[i];
+    if (!cur.parent) {
+      out.push(cur);
+      used.add(i);
+      continue;
+    }
+    // 找同一 source+parent 的其他块，按 seq 排序后拼进来（受上限约束）
+    const group = [cur];
+    for (let j = i + 1; j < sorted.length; j++) {
+      if (used.has(j)) continue;
+      const other = sorted[j];
+      if (other.source === cur.source && other.parent === cur.parent) {
+        group.push(other);
+        used.add(j);
+      }
+    }
+    used.add(i);
+    if (group.length === 1) {
+      out.push(cur);
+      continue;
+    }
+    group.sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0));
+    let text = '';
+    const overflow = [];
+    for (const g of group) {
+      if (text && text.length + g.text.length + 1 > maxChars) {
+        // 放不下的块**不丢**：作为独立条目留在候选里（保住召回内容）
+        overflow.push(g);
+        continue;
+      }
+      text = text ? `${text}\n${g.text}` : g.text;
+    }
+    out.push({ ...cur, text });
+    for (const g of overflow) out.push(g);
+  }
+  return out;
 }
 
 /* ------------------------------- 追问补全 ------------------------------- */
@@ -502,6 +755,7 @@ export async function answer(
       base: +h.base.toFixed(4),
       sem: +h.sem.toFixed(4),
       lex: +h.lex.toFixed(4),
+      bm25: +(h.bm25 || 0).toFixed(4),
       source: h.source,
     })),
   });

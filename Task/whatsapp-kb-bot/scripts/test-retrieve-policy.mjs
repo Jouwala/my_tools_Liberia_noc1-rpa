@@ -14,6 +14,7 @@
  *   ③ kbExcludeSources 为空时行为与改造前一致（可关）。
  */
 import { retrieve, manualIntent, ungroundedIds, groundExcerpt, buildMessages } from '../src/rag.js';
+import { tokenize, buildBm25Stats, bm25Score, normalizeBm25 } from '../src/rag.js';
 import { CONFIG } from '../src/config.js';
 
 let pass = 0;
@@ -150,6 +151,72 @@ console.log('\n[7] ungroundedIds：数字忠实度护栏');
   const ex = groundExcerpt(hits, 'zh');
   check(ex.includes('9970') && ex.includes('来源：'), '摘录式兜底含原文与来源', JSON.stringify(ex));
   check(groundExcerpt([], 'zh') === '', '无可用块时摘录为空（交给 notFoundText）');
+}
+
+/* --------------------------- B2：词级 BM25 --------------------------- */
+
+console.log('\n[8] B2 分词 / BM25');
+{
+  const t1 = tokenize('告警码 198094422 会被压缩成什么');
+  check(t1.includes('198094422'), '分词含数字 198094422', JSON.stringify(t1));
+  check(t1.includes('压缩'), '中文 bigram 含「压缩」');
+  const t2 = tokenize('Complete site down CSD');
+  check(t2.includes('complete') && t2.includes('csd'), '英文按 token 小写化', JSON.stringify(t2));
+
+  const chunks = [
+    { text: '告警码 198094422 会被压缩成父告警 9970' },
+    { text: '完全无关的天气说明文字' },
+    { text: '198094422 是一个 4G 站点断站码' },
+  ];
+  const st = buildBm25Stats(chunks);
+  const q = tokenize('198094422 压缩成什么');
+  const raw = chunks.map((c, i) => bm25Score(q, st.tf[i], st));
+  check(raw[0] > raw[1], '含目标码+压缩词的块分更高', JSON.stringify(raw.map((x) => +x.toFixed(3))));
+  check(raw[1] === 0, '完全无关块 BM25=0');
+  const norm = normalizeBm25(raw);
+  check(norm[0] === 1 && norm[1] === 0, '归一化到 [0,1]，最高为 1', JSON.stringify(norm.map((x) => +x.toFixed(3))));
+  check(normalizeBm25([0, 0, 0]).every((x) => x === 0), '全 0 时归一化仍全 0（纯语义题不受影响）');
+}
+
+console.log('\n[9] B2 融合：BM25 把字面精确的块顶上来');
+{
+  // 构造假 index：语义上 B 更高，但 A 字面精确（含目标码）。
+  // 融合后 A 应能反超（这正是 idBonus 之外的额外保险）。
+  const idx2 = {
+    chunks: [
+      { text: '规则速览：198094422 → 9970（4G site down）', source: 'k/cmp.md', title: 'cmp', seq: 0 },
+      { text: '这是一段与告警压缩无关的操作说明', source: 'k/other.md', title: 'o', seq: 0 },
+    ],
+    vectors: [
+      [0.8, 0.2], // A 语义略低
+      [1.0, 0.0], // B 语义略高
+    ],
+  };
+  const cfgNoBm = { semanticWeight: 1, lexicalWeight: 0, idBonus: 0, bm25Weight: 0, topK: 2, minAbs: 0, minGap: 0, kbExcludeSources: [], kbManualIntent: '' };
+  const cfgBm = { ...cfgNoBm, bm25Weight: 0.6 };
+  const qv = [1, 0];
+  const noBm = retrieve({ queryVec: qv, queryText: '198094422 压缩成什么', index: idx2, cfg: cfgNoBm });
+  const withBm = retrieve({ queryVec: qv, queryText: '198094422 压缩成什么', index: idx2, cfg: cfgBm });
+  check(noBm.hits[0].source === 'k/other.md', '不开 BM25：语义高的块排第一（基线）', noBm.hits[0].source);
+  check(withBm.hits[0].source === 'k/cmp.md', '开 BM25：字面精确的块反超排第一', withBm.hits[0].source);
+}
+
+console.log('\n[10] B4 MMR：同一来源限流');
+{
+  const chunks = [];
+  const vecs = [];
+  for (let i = 0; i < 6; i++) {
+    chunks.push({ text: '块' + i, source: i < 5 ? 'k/same.md' : 'k/other.md', title: 't', seq: i });
+    vecs.push([1 - i * 0.05, i * 0.01]);
+  }
+  const cfg = { semanticWeight: 1, lexicalWeight: 0, idBonus: 0, bm25Weight: 0, topK: 6, minAbs: 0, minGap: 0, kbExcludeSources: [], kbManualIntent: '', mmrMaxPerSource: 3 };
+  const res = retrieve({ queryVec: [1, 0], queryText: 'x', index: { chunks, vectors: vecs }, cfg });
+  const same = res.hits.filter((h) => h.source === 'k/same.md').length;
+  check(same <= 3, '6 候选 5 个同 source → 截断后该 source ≤ 3', `same=${same}`);
+  check(res.hits.some((h) => h.source === 'k/other.md'), '名额回填给其他来源');
+  // 关闭时不限流
+  const off = retrieve({ queryVec: [1, 0], queryText: 'x', index: { chunks, vectors: vecs }, cfg: { ...cfg, mmrMaxPerSource: 0 } });
+  check(off.hits.filter((h) => h.source === 'k/same.md').length === 5, 'mmrMaxPerSource=0 → 不限流（可回退）');
 }
 
 console.log(`\n${'='.repeat(50)}`);
