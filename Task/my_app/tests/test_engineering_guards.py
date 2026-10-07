@@ -525,3 +525,65 @@ def test_runtime_state_files_are_not_tracked():
     )
 
 
+# ---------------------------------------------------------------- 守卫 13
+def test_no_bare_percent_in_parameterized_sql_fragment():
+    """带参数的 SQL 里不得出现「裸 `%`」（PG 占位符转义陷阱）。
+
+    2026-10-07 实测事故：`task_stats._NOT_TEST_TASK` 原写作
+    `f"task_id NOT LIKE '{TEST_TASK_PREFIX}%'"`（即 SQL 文本内含 `'__t_%'`），
+    被拼进**带 `?` 参数**的语句后，PG 模式下
+    `database._qmark_to_pyformat(escape_pct=True)` 的字符串字面量分支
+    （database.py:227-237）**跳过引号内内容、不应用 escape_pct**，
+    于是那个 `%` 原样进入 SQL；psycopg2 视其为格式化符，参数数不匹配 →
+    `IndexError: tuple index out of range`。
+
+    危害是**静默**的：`get_recent_failures` 把异常兜在 `except` 里只记 warning，
+    结果返回 0 个失败簇 —— 任务管理页的失败横幅看起来"一切正常"，
+    而当时库里实际有 41 条真实失败。故障可见性被整体抹掉。
+
+    正确写法：把通配符放进**绑定参数值**（`task_id NOT LIKE ?` + 参数 `'__t_%'`），
+    本仓库既定约定见 `sp_material_summary_service.py:761-766`。
+
+    这里直接钉**转义函数本身**的行为契约，避免以后有人"顺手优化"掉 escape_pct。
+    """
+    from backend.database import _qmark_to_pyformat
+
+    # ① 字面量内的 % 不会被转义 —— 这是必须记住的既成事实
+    conv = _qmark_to_pyformat("SELECT 1 WHERE a NOT LIKE 'x_%' AND b >= ?",
+                              escape_pct=True)
+    assert "x_%" in conv, (
+        "引号内的 % 未被保留？转义逻辑变了，请重新评估所有 LIKE 写法"
+    )
+    assert conv.count("%s") == 1, "占位符转换数量不对"
+
+    # ② 引号外的 % 会被转义（列名含 % 的场景依赖这条）
+    conv2 = _qmark_to_pyformat('SELECT "Loss(%)" FROM t WHERE b >= ?',
+                               escape_pct=True)
+    assert "%%" in conv2 or "%s" in conv2, "引号外 % 未转义"
+
+    # ③ 源码级检查：带 `?` 参数的语句不得再用字面量片段。
+    #
+    # ⚠️ 不能只看**单行**是否含 `?` —— 拼接写法通常把 `?` 放在后续行，
+    # 只看当前行会漏判（本守卫第一版就因此假绿，被反向验证抓出来）。
+    # 改为：定位每个 `{_NOT_TEST_TASK}` 出现处，向后扫描到该语句结束
+    # （遇到 conn.execute(...) 的参数元组或语句结束标记），判断整条语句是否带参数。
+    ts_src = (BACKEND / "services" / "task_stats.py").read_text(
+        encoding="utf-8", errors="replace")
+    assert "_NOT_TEST_TASK_PARAM" in ts_src, (
+        "task_stats 缺少「通配符走绑定参数」的写法 —— 失败横幅会再次静默失效"
+    )
+    lines = ts_src.splitlines()
+    for i, line in enumerate(lines):
+        if "{_NOT_TEST_TASK}" not in line:
+            continue
+        # 向后最多看 15 行，找该 execute() 调用的参数部分
+        window = "\n".join(lines[i:i + 15])
+        # 参数元组形态：(something,) 或 ("a", b) —— 出现在 execute( 之后且含 "?" 占位符
+        has_qmark = "?" in window.split(").fetch", 1)[0]
+        if has_qmark:
+            raise AssertionError(
+                f"task_stats.py:{i + 1} 在带 `?` 参数的语句里用了字面量 % 片段"
+                f"（PG 下会 IndexError，横幅静默失效）：{line.strip()}"
+            )
+
+
