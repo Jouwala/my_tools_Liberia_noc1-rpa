@@ -16,9 +16,17 @@
  *
  * 检查项：
  *   [1] 页面里 t('xxx') 用到的键，是否在 zh 与 en **两份**字典都存在（漏一份 → 英文界面露 key）
+ *   [1b] `labelKey: 'xxx'` 形式的**间接引用**同样纳入 [1] 的检查范围（2026-10-06 补，见下）
  *   [2] 是否用了 `t(key, { defaultValue: ... })` 这种**错误签名**（t 的第二参数是插值参数）
  *   [3] 硬编码中文界面字面量（应走 t()）
  *   [4] zh/en 键集合差异（任一侧多出或缺失）
+ *
+ * 为什么有 [1b]：
+ *   全部 ~80 个侧栏标签**不写** t('nav.xxx')，而是把键名放进 PAGE_META / DEFAULT_GROUPS /
+ *   FINEBI_BOARDS 的 labelKey 字段，再由 t(PAGE_META[k].labelKey) 这种**变量调用**取用。
+ *   只匹配 t('字面量') 时这批键全部落在守卫视野之外 —— 2026-10-06 的 `nav.warehouseSummary`
+ *   漏键就是这样逃过构建、直到界面上露出 key 原文才被发现。
+ *   实测这些 labelKey 全是静态字面量（无 `labelKey: someVar`），因此可以静态提取，不需要真做变量分析。
  *
  * 用法：
  *   cd frontend && node scripts\check-i18n.mjs
@@ -131,6 +139,20 @@ for (const file of files) {
     const key = m[1]
     if (!usedKeys.has(key)) usedKeys.set(key, new Set())
     usedKeys.get(key).add(rel(file))
+  }
+
+  // ------------------------------- [1b] 收集 labelKey: '...'（间接引用的文案键）
+  // 背景（2026-10-06 补）：侧栏/页面标题不写 t('nav.xxx')，而是把键名放进
+  // PAGE_META / DEFAULT_GROUPS / FINEBI_BOARDS 的 labelKey 字段，由
+  // t(PAGE_META[k].labelKey) 这种**变量调用**取用 —— 上面的 t('字面量') 正则捕不到。
+  // 于是 `nav.warehouseSummary` 漏键时本脚本全绿、build 也照样通过，界面上才露出 key 原文。
+  // 实测 App.tsx 的 labelKey 全部是静态字面量（无 labelKey: someVar），故可静态提取。
+  // ⚠ 只收 labelKey：相邻的 key: 'grp_xxx' 是**内部标识**，按设计不入字典，
+  //   一并收集会凭空造出假缺失。
+  for (const m of src.matchAll(/\blabelKey\s*:\s*'([^'\n]+)'/g)) {
+    const key = m[1]
+    if (!usedKeys.has(key)) usedKeys.set(key, new Set())
+    usedKeys.get(key).add(`${rel(file)} (labelKey)`)
   }
   // 记录 tpl.* 是否出现在非模板文件（= 复制模板后忘了改前缀）
   if (file !== TEMPLATE_FILE) {

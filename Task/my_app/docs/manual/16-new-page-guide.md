@@ -56,8 +56,10 @@ npx tsc --noEmit       # ② 类型必须先过
 npm run build          # ③ 产物必须落在 D:/01_RPA/Task/_fe_dist
 ```
 
-> `npm run build` 已内置 `check:i18n`：**键漏了会直接中断构建**，不会带着 `tpl.xxx` 上线。
-> 想单独跑检查用 `npm run check:i18n`。
+> `npm run build` 已内置 `check:i18n`（`build` = `check-i18n.mjs && tsc && vite build`）：
+> 检查不过就**中断构建**，不会带着 `tpl.xxx` 上线。
+> 覆盖范围包括 `t('字面量')` 与 `labelKey: 'xxx'` 两种写法（侧栏标签走的是后者），
+> 任一语言缺键都会拦下。想单独跑检查用 `npm run check:i18n`。
 
 然后**刷新页面**看效果 —— 前端产物不是 HMR，不刷新看不到变化。
 
