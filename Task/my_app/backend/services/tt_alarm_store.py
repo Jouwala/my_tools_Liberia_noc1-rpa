@@ -34,10 +34,13 @@ duplicate_table 重试兜住（`backend/database.py:344-369`）。
 sqlite 查 PRAGMA table_info、PG 查 information_schema，缺哪列 ALTER 哪列），
 不需要 Alembic —— 与本表「服务内建表」的定位一致。
 """
+import logging
 from datetime import datetime
 from typing import Any, Dict, Iterable, Optional
 
 from backend.dialect_helpers import upsert
+
+logger = logging.getLogger("tt_alarm_store")
 
 LOG_TABLE = "eflow_tt_whatsapp_alert_log"
 LOG_TABLE_INDEX = f"idx_{LOG_TABLE}_status"
@@ -91,6 +94,35 @@ ENSURE_COLUMNS = tuple(c for c in LOG_COLUMNS if c not in LOG_PK)
 # 列类型映射（建表与补列共用；缺省 TEXT）。本表除 send_count(INTEGER) 外全 TEXT。
 COLUMN_TYPES = {"send_count": "INTEGER"}
 
+# ==========================================================
+# 幂等补约束的**单一事实来源**（2026-10-07 事故修复）
+#
+# 事故：生产 PG 库里的本表是**早期由别处建的**（残留 `_source_file` /
+# `_source_sheet` / `_import_time` 三列，是 Excel 导入建表的痕迹），
+# 因此 `tt_no` 上**没有任何主键或唯一约束**。而 `record_result` 走的是
+# `dialect_helpers.upsert(..., conflict_cols=["tt_no"])`，PG 分支生成
+# `INSERT ... ON CONFLICT ("tt_no") DO UPDATE` —— 没有唯一约束可匹配时
+# PG 直接报 `InvalidColumnReference: 没有匹配 ON CONFLICT 说明的唯一或者排除约束`。
+#
+# 隐蔽性：`_build_create_sql` 里的 `PRIMARY KEY` **只对新建表生效**，
+# `CREATE TABLE IF NOT EXISTS` 对已存在的表是 no-op；而 `_ensure_columns`
+# 只 `ALTER ADD COLUMN`，**从不补约束**。于是「新建库一切正常、老库写必失败」，
+# 且只要扫描窗口内没有需要落库的候选单（`due=0`），就永远不触发 —— 事故
+# 发生时该表已静默 5 天没有写入（最后一行 2026-10-02）。
+#
+# 修复：`ensure_log_table` 在建表/补列之后，对**已存在的表**幂等补上主键约束。
+# 与补列同理，「约束」也收敛到 LOG_PK 单一事实来源，不再依赖建表时恰好生效。
+# ==========================================================
+
+# 幂等补约束时使用的约束名（PG 需要显式命名才能判重）。
+#
+# ⚠️ 必须**按表名派生**，不能是模块级固定常量：`ensure_log_table(conn, table)`
+# 支持对任意表调用（测试与迁移脚本都会传别的表名），固定常量会让第二张表的
+# `ADD CONSTRAINT` 撞名报 `DuplicateTable: 关系 ... 已经存在`。
+# PG 的约束名在 schema 内唯一，故这里带上表名。
+def _pk_constraint_name(table: str) -> str:
+    return f"{table}_pk"
+
 
 def _is_sqlite(conn) -> bool:
     import sqlite3
@@ -106,6 +138,110 @@ def _existing_columns(conn, table: str) -> set:
         (table,),
     ).fetchall()
     return {r[0] for r in rows}
+
+
+def _pk_covered_columns(conn, table: str) -> set:
+    """返回该表上「主键或唯一约束」覆盖的列集合（sqlite / PG 双模）。
+
+    只关心「哪一组列已有唯一性保证」——这正是 `ON CONFLICT (cols)` 能否成立
+    的判据。任一唯一约束的列集合完全等于 LOG_PK 即视为已满足，不重复加约束。
+
+    sqlite：`PRAGMA index_list` 取 unique 索引，`PRAGMA index_info` 取列。
+            （sqlite 的 `INTEGER PRIMARY KEY` 也表现为 unique 索引，
+              TEXT PRIMARY KEY 同理，故这一个入口即可覆盖两种建表方式。）
+    PG：    pg_index + pg_constraint，`indisunique` 为真且非部分索引。
+    """
+    covered = set()
+    try:
+        if _is_sqlite(conn):
+            for row in conn.execute(f"PRAGMA index_list({table})").fetchall():
+                # row: (seq, name, unique, origin, partial)
+                if not row[2]:
+                    continue
+                idx_name = row[1]
+                cols = [
+                    r[2] for r in
+                    conn.execute(f"PRAGMA index_info({idx_name})").fetchall()
+                ]
+                if len(cols) == 1:
+                    covered.update(cols)
+            return covered
+        rows = conn.execute(
+            "SELECT a.attname FROM pg_index i "
+            "JOIN pg_class t ON t.oid = i.indrelid "
+            "JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = ANY(i.indkey) "
+            "WHERE t.relname = ? AND i.indisunique AND i.indisvalid "
+            "AND i.indpred IS NULL AND i.indexprs IS NULL",
+            (table,),
+        ).fetchall()
+        covered.update(r[0] for r in rows)
+    except Exception as e:  # noqa: BLE001
+        # 查不到唯一约束信息时**保守返回空**：宁可尝试 ADD CONSTRAINT（已存在会被
+        # 下面的 duplicate 分支吞掉），也不要因为探测失败而静默跳过补约束，
+        # 那会退回「写路径永久失败」的事故形态。
+        logger.debug(f"读取 {table} 唯一约束失败（将尝试补约束）: {e}")
+    return covered
+
+
+def _ensure_pk_constraint(conn, table: str) -> bool:
+    """给已存在的老表幂等补**主键约束**（仅 PG 需要；sqlite 建表即带约束）。
+
+    返回是否真的执行了补约束。
+
+    为什么必须有这一步：`_build_create_sql` 里的 `PRIMARY KEY` 只对**新建**表
+    生效，`CREATE TABLE IF NOT EXISTS` 遇到已存在的表是 no-op。老库（如本项目的
+    Excel 导入遗留表）没有约束时，`record_result` 的 `ON CONFLICT ("tt_no")`
+    必然报 InvalidColumnReference —— 见文件顶部 2026-10-07 事故说明。
+
+    安全性：
+      * **前置校验**：加 PK 前先确认目标列无重复、无 NULL，否则 PG 会报错；
+        这种情况**不静默跳过**，而是抛出并把样本带出去，交由迁移脚本人工裁决
+        （自动删重复行是不可接受的破坏性动作）。
+      * **幂等**：已有等价唯一约束则直接返回；并发下 duplicate_object（42710）
+        被吞掉，视为「另一进程刚补上」。
+      * sqlite：建表路径已带 `PRIMARY KEY`，且 upsert 走 `INSERT OR REPLACE`
+        不需要冲突目标，故直接跳过（避免在 sqlite 上做无意义的表重建）。
+    """
+    if _is_sqlite(conn):
+        return False
+
+    want = tuple(LOG_PK)
+    covered = _pk_covered_columns(conn, table)
+    if all(c in covered for c in want) and len(want) == 1:
+        return False  # 已有单列唯一约束，ON CONFLICT 可用
+
+    # 前置校验：重复或 NULL 会让 ADD PRIMARY KEY 失败，先给出可操作的诊断
+    pk_col = want[0]
+    dup = conn.execute(
+        f"SELECT {pk_col}, COUNT(*) AS c FROM {table} "
+        f"WHERE {pk_col} IS NOT NULL GROUP BY {pk_col} HAVING COUNT(*) > 1 LIMIT 5"
+    ).fetchall()
+    nulls = conn.execute(
+        f"SELECT COUNT(*) FROM {table} WHERE {pk_col} IS NULL"
+    ).fetchone()[0]
+    if dup or nulls:
+        raise RuntimeError(
+            f"{table} 无法补主键：{pk_col} 存在 "
+            f"{len(dup)} 组重复值、{nulls} 个 NULL。"
+            f"重复样本={[r[0] for r in dup]}。"
+            f"请先用迁移脚本人工裁决（切勿自动删行）。"
+        )
+
+    try:
+        cname = _pk_constraint_name(table)
+        conn.execute(
+            f"ALTER TABLE {table} ADD CONSTRAINT {cname} "
+            f"PRIMARY KEY ({pk_col})"
+        )
+        conn.commit()
+        logger.info(f"{table}：已补主键约束 {cname}({pk_col})")
+        return True
+    except Exception as e:  # noqa: BLE001
+        _code = getattr(getattr(e, "diag", None), "sqlstate", "") or ""
+        _msg = str(e).lower()
+        if _code == "42710" or "already exists" in _msg or "duplicate" in _msg:
+            return False  # 并发补约束：另一进程刚加上
+        raise
 
 
 def _ensure_columns(conn, table: str) -> None:
@@ -154,9 +290,18 @@ def _build_create_sql(table: str) -> str:
 
 
 def ensure_log_table(conn, table: str = LOG_TABLE) -> None:
-    """幂等建表 + 建索引 + 老表补列（双模：sqlite / PG）。"""
+    """幂等建表 + 建索引 + 老表补列 + 老表补主键约束（双模：sqlite / PG）。
+
+    「修复老库」的三件事缺一不可，它们各自堵一类事故：
+      1. 建表（新建库从零就带全列 + 主键）；
+      2. `_ensure_columns` 补列 —— 堵 2026-10-06 的 `UndefinedColumn: last_error`；
+      3. `_ensure_pk_constraint` 补主键 —— 堵 2026-10-07 的
+         `InvalidColumnReference: 没有匹配 ON CONFLICT 说明的唯一或者排除约束`。
+    第 2、3 步都只对**老表**有意义（新建表已一次到位），且都必须幂等。
+    """
     conn.execute(_build_create_sql(table))
     _ensure_columns(conn, table)
+    _ensure_pk_constraint(conn, table)
     conn.execute(
         f"CREATE INDEX IF NOT EXISTS idx_{table}_status "
         f"ON {table} (send_status, last_send_time)"

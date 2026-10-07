@@ -32,10 +32,22 @@ Watchdog 进程 (python -m backend.worker_watchdog)  ── 父进程托管 work
 |---|---|
 | Worker 停止，队列有 pending | 任务不丢失，Worker 重启后继续执行 |
 | Worker 异常退出留下 running | 下次启动自动标记 failed，并补一条 task_execution_log |
+| **人为停机打断留下 running**（`stop.bat` 写过 `worker_stopping.flag`） | **重新入队**（running→pending）而非判失败，新 worker 会重新执行它；标记有 30 分钟 TTL，回收后即删（2026-10-06 修复） |
 | Web 投递队列失败（DB 锁等） | 自动降级为进程内线程执行，任务不卡死 |
 | 未启用队列（无 MY_APP_TASK_QUEUE=1） | 行为与改造前完全一致（进程内线程执行） |
 | Worker 进程静默死亡（无 watchdog） | Last 冻结、任务不再执行且无任何报错（本次事故根因） |
 | 看门狗托管（worker_watchdog） | worker 退出后自动重拉（异常崩溃退避最大 30s，连续 10 次放弃） |
+
+> **为什么要有「人为停机」这条分支**（2026-10-06 用户实测）：`stop.bat` 用
+> `taskkill /T /F` 树杀看门狗，worker 随之中断，`finally` 里的 PID 文件自清来不及执行，
+> 于是库里留下一条 `running` 残留。而 `stop.bat` 又会**删除** `backend\worker_*.pid`，
+> 导致下次启动时 `task_runner._is_known_worker_pid()`（只读 PID **文件**、不核验进程）
+> 认不出那个仍然存活的 PID，`worker.py` 便把它判成「PID 被无关进程复用 → 原 worker 已死」，
+> 补写一条**失败**记录。任务本身没错，只是被重启打断 —— 但任务管理页会出现失败横幅。
+> 修复：停机前先写 `worker_stopping.flag`，回收时读到新鲜标记就**重新入队**。
+> 注意标记**必须有 TTL**：否则一台机器上遗留的旧标记会把真实的进程崩溃也误判成
+> 「人为停机」而重新入队，反而**掩盖故障**。回归守卫见
+> `tests/test_engineering_guards.py` 的守卫 11，标记文件的入库禁令见守卫 12。
 
 ## 启停
 

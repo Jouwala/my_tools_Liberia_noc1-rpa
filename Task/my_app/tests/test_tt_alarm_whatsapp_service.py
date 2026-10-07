@@ -386,26 +386,42 @@ def test_job_file_is_valid_utf8_json(tmp_path, monkeypatch):
 # ---------------- 7. 日志表：建表幂等补列 + 跟踪字段 ----------------
 
 def test_store_ensure_log_table_adds_track_columns_to_legacy_table(tmp_path):
-    """老表（没有跟踪列）必须被幂等补列，且原有数据不丢。"""
+    """老表（没有跟踪列**且没有 last_error**）必须被幂等补列，且原有数据不丢。
+
+    2026-10-07 修正：本用例原先伪造的"老表"里**带着 `last_error`**，于是它
+    根本覆盖不到 2026-10-06 的真实事故（老库缺的恰恰是 `last_error`），
+    只断言了 TRACK 三列 —— 一条"看起来在测、其实测不到"的用例。
+    现按**真·老结构**建表（13 列，无跟踪列、无邮件列、无 last_error）。
+    """
     import sqlite3
 
     from backend.services import tt_alarm_store as store
 
     db_path = tmp_path / "log.db"
     conn = sqlite3.connect(db_path)
-    # 造一张 2026-10-05 之前的**老结构**表（无跟踪列）
+    # 造一张 2026-10-05 之前的**真·老结构**表：无跟踪列、无邮件列、无 last_error
     conn.execute(
         "CREATE TABLE eflow_tt_whatsapp_alert_log ("
-        "tt_no TEXT PRIMARY KEY, send_status TEXT, send_count INTEGER, "
-        "last_send_time TEXT, first_seen_time TEXT, last_error TEXT, updated_time TEXT)")
-    conn.execute("INSERT INTO eflow_tt_whatsapp_alert_log VALUES "
-                 "('T1','Y',2,'2026-09-28 10:00:00','2026-09-28 09:00:00','',"
-                 "'2026-09-28 10:00:00')")
+        "tt_no TEXT PRIMARY KEY, alarm_occur_time TEXT, ticket_severity TEXT, "
+        "alarm_code TEXT, site_id TEXT, site_name TEXT, title TEXT, "
+        "send_status TEXT, send_count INTEGER, last_send_time TEXT, "
+        "last_tt_modified TEXT, first_seen_time TEXT, updated_time TEXT)")
+    conn.execute("INSERT INTO eflow_tt_whatsapp_alert_log "
+                 "(tt_no, send_status, send_count, first_seen_time, updated_time) "
+                 "VALUES ('T1','Y',2,'2026-09-28 09:00:00','2026-09-28 10:00:00')")
     conn.commit()
+
+    # 前置断言：老表**确实**缺 last_error（否则这条用例又退回盲点状态）
+    before = {r[1] for r in conn.execute("PRAGMA table_info(eflow_tt_whatsapp_alert_log)")}
+    assert "last_error" not in before, "前置条件：老表本应缺 last_error"
 
     store.ensure_log_table(conn)
     cols = {r[1] for r in conn.execute("PRAGMA table_info(eflow_tt_whatsapp_alert_log)")}
     assert {"last_alarm_seen_time", "last_known_update_time", "last_check_time"} <= cols
+    # 2026-10-06 事故列：必须补上
+    assert "last_error" in cols, "补列后仍缺 last_error（事故未修复）"
+    # 邮件幂等列同样必须补齐
+    assert {"mail_notified_time", "mail_summary_time"} <= cols
     # 原有数据不丢
     row = conn.execute("SELECT send_status, send_count FROM eflow_tt_whatsapp_alert_log "
                        "WHERE tt_no='T1'").fetchone()

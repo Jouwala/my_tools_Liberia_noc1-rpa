@@ -485,3 +485,43 @@ def test_intentional_stop_requeues_instead_of_failing():
     )
 
 
+# ---------------------------------------------------------------- 守卫 12
+def test_runtime_state_files_are_not_tracked():
+    """运行时状态文件不得进版本库（AGENTS.md 四.4「不入库清单」）。
+
+    2026-10-07 实测：`backend/worker_stopping.flag` 被 commit 3979e9ee 连带提交，
+    且当时 `.gitignore` 未覆盖 `*.flag`（只覆盖 `*.pid`）。危害不是"占了点空间"：
+    该文件是**跨机器共享的判断依据**，陈旧标记会让新机器的 worker 把真实的进程
+    崩溃误判成「人为停机」而重新入队，从而**掩盖故障**（worker.py 的 TTL 只能
+    限制到 30 分钟，挡不住"刚 clone 就带着一个旧标记"）。
+
+    这里钉死两条：规则存在（check-ignore 命中）+ 文件确实未被跟踪。
+    """
+    import subprocess as _sp
+    # ⚠️ git 的 pathspec 必须**相对仓库根**：本仓库顶层是 WORKSPACE_ROOT
+    # （AGENTS.md 二：单体仓库，顶层是 D:/01_RPA 而不是 my_app）。
+    # 传绝对路径在这里不可靠（实测 `git check-ignore -q <abs>` 会误判为
+    # 「未忽略」而让守卫假绿）。
+    repo_root = _sp.run(["git", "rev-parse", "--show-toplevel"],
+                        cwd=str(PROJECT_ROOT), capture_output=True, text=True)
+    if repo_root.returncode != 0:
+        pytest.skip("不在 git 工作树中，跳过运行时不入库检查")
+    top = Path(repo_root.stdout.strip())
+
+    offenders = []
+    for name in ("worker_stopping.flag", "stopped.flag"):
+        p = BACKEND / name
+        rel = p.relative_to(top).as_posix()
+        r = _sp.run(["git", "check-ignore", "-q", "--", rel],
+                    cwd=str(top), capture_output=True)
+        if r.returncode != 0:
+            offenders.append(f"{rel} 未被 .gitignore 覆盖")
+        r2 = _sp.run(["git", "ls-files", "--error-unmatch", "--", rel],
+                     cwd=str(top), capture_output=True)
+        if r2.returncode == 0:
+            offenders.append(f"{rel} 仍被 git 跟踪（必须 git rm --cached）")
+    assert not offenders, (
+        "运行时状态文件混入版本库：\n  " + "\n  ".join(offenders)
+    )
+
+

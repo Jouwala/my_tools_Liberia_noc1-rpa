@@ -384,6 +384,121 @@ class TestEnsureColumnsBackfill:
 
 
 # ==========================================================
+# 三b、老表的**主键约束**补齐（2026-10-07 事故）
+#
+# 事故：生产 PG 库里本表是早期**由别处建的**（残留 `_source_file` /
+# `_source_sheet` / `_import_time` 三个 Excel 导入痕迹列），`tt_no` 上
+# **没有任何主键或唯一约束**。`record_result` 走
+# `upsert(..., conflict_cols=["tt_no"])`，PG 分支生成
+# `INSERT ... ON CONFLICT ("tt_no") DO UPDATE` —— 没有唯一约束可匹配时
+# PG 报 `InvalidColumnReference: 没有匹配 ON CONFLICT 说明的唯一或者排除约束`。
+#
+# 隐蔽性：`_build_create_sql` 的 `PRIMARY KEY` **只对新建表生效**，
+# `CREATE TABLE IF NOT EXISTS` 遇已存在的表是 no-op；`_ensure_columns`
+# 又只 ADD COLUMN、从不补约束。于是「新建库正常、老库写必失败」，且只要
+# 扫描窗口内没有需落库的候选（due=0）就永不触发 —— 实测该表已静默 5 天
+# （最后一行 2026-10-02）。
+#
+# 为什么必须用 **PG** 测：sqlite 走 `INSERT OR REPLACE`，**不需要**冲突目标，
+# 无约束也照样成功 —— 纯 sqlite 用例永远发现不了这个缺陷。故本组用例在
+# 无 PG 连接时 skip，绝不静默通过。
+# ==========================================================
+def _pg_probe_conn():
+    """取一个 PG 连接；不可用（无 .env / 连不上）时返回 None 让用例 skip。"""
+    try:
+        from backend.database import get_raw_connection
+        conn = get_raw_connection()
+        conn.execute("SELECT 1")
+        return conn
+    except Exception:  # noqa: BLE001
+        return None
+
+
+class TestEnsurePkConstraint:
+    """老表缺主键时必须被幂等补上（否则 PG 写路径必失败）。"""
+
+    TMP_TABLE = "_tt_pkfix_test_table"
+
+    def _setup_unconstrained(self, conn):
+        """建一张**无任何约束**的表，复刻生产老表的实际形态。"""
+        conn.execute(f"DROP TABLE IF EXISTS {self.TMP_TABLE}")
+        conn.execute(f"CREATE TABLE {self.TMP_TABLE} (tt_no TEXT, send_status TEXT)")
+        conn.commit()
+
+    def test_pk_constraint_added_and_write_path_works(self):
+        """核心回归：无约束表补上主键后，record_result 才能成功。"""
+        conn = _pg_probe_conn()
+        if conn is None:
+            pytest.skip("无可用 PG 连接（该缺陷只在 PG 方言下出现）")
+        try:
+            self._setup_unconstrained(conn)
+            # 前置条件：确实没有约束
+            n = conn.execute(
+                "SELECT COUNT(*) FROM pg_constraint c JOIN pg_class t "
+                "ON t.oid=c.conrelid WHERE t.relname = ?", (self.TMP_TABLE,)
+            ).fetchone()[0]
+            assert n == 0, "前置条件：测试表本应无约束"
+
+            store.ensure_log_table(conn, self.TMP_TABLE)
+
+            covered = store._pk_covered_columns(conn, self.TMP_TABLE)
+            assert "tt_no" in covered, "补约束后 tt_no 仍无唯一性保证"
+
+            # 事故的真实触发点是写路径 —— 必须能跑通
+            store.record_result(conn, {"tt_no": "A"}, ok=False, error="x",
+                                table=self.TMP_TABLE)
+            store.record_result(conn, {"tt_no": "A"}, ok=True, table=self.TMP_TABLE)
+            row = conn.execute(
+                f"SELECT tt_no, send_status, send_count FROM {self.TMP_TABLE}"
+            ).fetchall()
+            assert row == [("A", "Y", 1)], f"upsert 未按 tt_no 归并: {row}"
+        finally:
+            conn.execute(f"DROP TABLE IF EXISTS {self.TMP_TABLE}")
+            conn.commit()
+            conn.close()
+
+    def test_duplicate_rows_raise_instead_of_silent_skip(self):
+        """有重复值时必须**抛错**（交人工裁决），不得静默跳过或自动删行。"""
+        conn = _pg_probe_conn()
+        if conn is None:
+            pytest.skip("无可用 PG 连接")
+        try:
+            self._setup_unconstrained(conn)
+            conn.execute(
+                f"INSERT INTO {self.TMP_TABLE} VALUES ('DUP','Y'),('DUP','N')")
+            conn.commit()
+            with pytest.raises(RuntimeError, match="无法补主键"):
+                store.ensure_log_table(conn, self.TMP_TABLE)
+            # 数据不得被删
+            kept = conn.execute(
+                f"SELECT COUNT(*) FROM {self.TMP_TABLE}").fetchone()[0]
+            assert kept == 2, "异常路径不得删除任何行"
+        finally:
+            conn.execute(f"DROP TABLE IF EXISTS {self.TMP_TABLE}")
+            conn.commit()
+            conn.close()
+
+    def test_sqlite_skips_constraint_step(self):
+        """sqlite 不需要补约束（建表即带，且走 INSERT OR REPLACE）。"""
+        conn = sqlite3.connect(":memory:")
+        store.ensure_log_table(conn)
+        assert store._ensure_pk_constraint(conn, store.LOG_TABLE) is False
+        conn.close()
+
+    def test_pk_is_single_source_of_truth(self):
+        """结构不变量：补约束的目标列来自 LOG_PK，约束名按表名派生。
+
+        约束名**必须按表派生** —— 模块级固定常量会让第二张表的
+        `ADD CONSTRAINT` 撞名报 DuplicateTable（本用例即因此发现并修正）。
+        """
+        assert store.LOG_PK, "LOG_PK 不得为空，否则补约束逻辑失去依据"
+        assert store._pk_constraint_name(store.LOG_TABLE) == f"{store.LOG_TABLE}_pk"
+        assert store._pk_constraint_name("other_table") == "other_table_pk", (
+            "约束名必须随表名变化，否则跨表调用会撞名"
+        )
+
+
+# ==========================================================
 # 四、服务层：触发点（首次通报 / 结束汇总）
 # ==========================================================
 class TestServiceMailTriggers:
