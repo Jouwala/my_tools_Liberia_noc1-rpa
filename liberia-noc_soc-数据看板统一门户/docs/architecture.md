@@ -1151,6 +1151,165 @@ MW 仍 `zoom 8` 且点一次 `-` 回到 7；Alarm 打开态跨度 **752**，与�
    判据已改为按**像素**直接量平移量。
 
 
+## 九之十一、2026-10-07 `#kpi` 两排卡改为「连体卡组 + 组头链接」
+
+**背景（用户原话）。** 「`Network Benchmark View` 组件前 3 个卡片下钻都是打开相同的页面，
+容易让人误解是 3 个不同的页面，有没有办法弄一个组之类的，从感观告诉人们点击会打开同一个页面」。
+
+问题是真的：「同一组卡去同一个 `page`」这件事，改之前**只写在每张卡的 tooltip 里**，
+不悬停就看不见；而同排卡的间距均匀、外观一致，读者无法从视觉上区分
+"这 3 张是一组、那 2 张是另一组"。
+
+用户从 4 个方案里选了 **A：连体卡组 + 组头链接**。
+
+**决策一：一组 = 一个可见的整体（共享外框 + 组内不留栅格间距）。**
+`.qc-grid` 仍是 6 列，但**组是它的直接子项**：组跨越 `N` 列（`N` = 成员卡数），
+组内卡 `gap:0`、去掉各自的圆角与描边，只在相邻处留一条 `1px` 细缝；
+圆角与描边记在组这一层。于是「组内是一个整体、组与组之间是两个东西」
+靠**缝的宽窄差**表达（实测：组内缝 0px、组间距 8px），而不是靠间距大小去暗示。
+
+**决策二：组头写组名 + 一个显式链接，且链接与卡片**同源**。**
+组头 = 组名（= 目标看板的业务名）+ 右侧「打开完整看板 ↗」。
+两者都取 `g.page` / `spec.page`，**渲染层不写死任何页面** ——
+写死就会出现「组头去 A、点卡去 B」。
+
+**决策三：`page` 与组成员都属于数据，`olbr-data.js` 是唯一真相源。**
+新增 `KPI_GROUPS`（`rich`→`KPI_RICH`、`avail`→`KPI_AVAIL_ROWS`）与
+`BF_GROUPS`（`speed`→`KPI_SPEED`、`meta`→`KPI_META`、`bp`→`KPI_META_BP`），
+每组带 `id / name / page / items`。组表的成员直接**引用**原数组本身
+（不是拷贝），所以表里增删卡时组自动跟着变。
+⚠️ JS 的 `var` 前向引用得 `undefined`，所以组表必须声明在**成员数组之后**。
+
+**决策四：BP 单独成组，目标页从 `bm_meta` 改为 `bp_report`。**
+用户要求「单独成组 + 目标改 `bp_report`」。于是 `KPI_META` 缩到 2 项
+（`speed` / `scores`），BP 移入新的 `KPI_META_BP`（`page: 'bp_report'`）。
+
+⚠️ **这里有一个必须写下来的口径不一致（用户明确接受）：**
+BP 卡的**数字**取自 `/api/bm-meta/overview`（`meta_data` 快照），
+而它**点开的页** `bp_report` 是 RAN_UME 重算的「BP Cells Report」——
+**两者不是同一份数据**。所以三处文案都刻意只说
+「这些卡点下去都打开 X」/「打开 X 的完整看板」，**绝不说**「这些卡的数据来自 X」：
+许下同源的承诺就是撒谎。`kpi.grp.tip` 的注释里记了这条。
+
+**决策五：骨架屏与真实结构 1:1（本次连带修掉一个既有缺陷）。**
+骨架分支原来输出了两个**平铺**的 `.qc-grid`，分组后必须也按
+`KPI_GROUPS` / `BF_GROUPS` 渲染，否则数据到位那一刻会连"组头"一起凭空长出来。
+遍历组表而不是写死 3 组：将来一组卡增减不会漏改骨架。
+
+**连带修掉：骨架屏比真卡矮 129px。** 量骨架态时发现（`Fetch.enable` 把 kpi 四路请求
+挂住即可停在骨架态；用 `setBlockedURLs` 是错的 —— 请求立刻失败、`loading` 翻 false，
+走的其实是"真卡 + —"分支）：
+- 旧骨架只往卡里丢几条 `.sk` 灰条，而 `.sk` 是**固定 12px 高的方块**，
+  五条才 90px 上下；真卡的内部是一条有固定高度的链
+  （富卡：标题 19 + 数值 25 + 日期 14 + 徽章 21 + 走势 26 + 页脚 51，
+  加外边距 27 与内边距 19 = 203px）。
+- 实测骨架 417px vs 真卡 546px，**数据到位整块往下弹 129px**（上排 82px、Benchmark 行 46px）。
+  这是**改动前就存在**的缺陷（用 `_bak_20261007_094400_连体卡组前` 对照量到同样的 46px）。
+- 修法：骨架**复用真卡的分段类名**（`.qc-ttl / .qc-val / .qc-asof / .qc-chips /
+  .qc-spark / .bf-hd / .bf-rows / .qc-ext`），每段给等于真卡的显式高度。
+  两处踩坑记在代码注释里：① 用裸 `.sk` 拿不到 `.qc-asof`(`margin-top:2px`) 与
+  `.qc-spark`(`margin-top:8px`) 的边距，必须包一层真类名（差 10px）；
+  ② 富卡**不能**挂 `has-foot`（那只给内容少的 Benchmark 卡用），
+  多挂一个会让 `.qc-ext` 吃到 `margin-top:auto`、多出 6px。
+  结果：**129px → 3px**（每组各 1px 的亚像素舍入）。
+
+**断点（实测三个视口）。**
+- `>1200px`：组按卡数横跨列（3/2/1），三组正好排满一行
+  （749 + 8 + 497 + 8 + 244 = 1506 = 栅格宽），各卡宽 242~249px；
+- `≤1200px`：整行收成 3 列，组改为**一组一整行**，1 张的 BP 组用
+  `minmax(0, 50%)` 限宽，避免它突然拉成整行宽；
+- `≤760px`：组内一律单列纵向堆叠，此时"左细缝"要翻成"上细缝"
+  （`border-left:0; border-top:1px`），否则分隔线跑到左边、上下两卡粘在一起。
+
+**悬停：反馈做在组上，不在卡上。** 逐卡 `translateY(-2px)`（原 `.qc-card:hover`）
+在连体组里会让"连体"在鼠标下散架，恰好把"这是一个整体"说反了，
+所以组内卡的抬升被关掉，改由 `.qc-group:hover` 给整组描边 + 阴影。
+
+**改动文件（只改 v1 一份，`/v1/olbrportal/` 是 nginx alias 手写壳，无构建步骤）。**
+- `v1/olbrportal/assets/olbr-data.js`：新增 `KPI_GROUPS` / `BF_GROUPS` / `KPI_META_BP`，
+  `KPI_META` 缩到 2 项，新增 `kpi.grp.go / kpi.grp.tip / kpi.grp.one / kpi.grp.many /
+  kpi.bp.board` 双语键，改写 `kpi.bf.subBoth`（原文说"6 张卡来自两个数据源"，
+  分组后是**三个组、三个目标页**）；
+- `v1/olbrportal/assets/olbr.js`：新增 `qcGroupHtml()` / `qcGroupCards()`，
+  `renderKpi` 的两排与骨架分支都改成遍历组表，`metaCardHtml` 的
+  「打开哪一页」按 `spec.kind` 取 `kpi.bp.board` 或 `kpi.mm.board`
+  （原来对所有 Meta 卡写死 `kpi.mm.board`，BP 改目标页后就成了假话）；
+- `v1/olbrportal/assets/olbr.css`：新增 `.qc-group / .qc-group-h / .qc-group-n /
+  .qc-group-go / .qc-group-b` 与三个断点。
+
+**验证。** 无头 chromium 实测 `1600 / 1100 / 700px` 三个视口 ×（数据态 / 骨架态）：
+5 个组、卡数 3/3/3/2/1、组头链接可见且 `page` 与成员逐张一致；
+组内缝 0px vs 组间距 8px；卡圆角 0px、组圆角 10px；
+中英双语下每张卡 tooltip 的「打开 X」与它 `href` 的 `page` **逐条对齐**。
+另修掉英文单复数（BP 组只有 1 张卡，原写 "(1 cards)"）。
+
+
+## 九之十二、2026-10-22 地图「滚轮缩放锁」：默认锁定，工具条上一颗开关
+
+**问题（用户原话）。** 「当用户鼠标下滑的时候容易出现在地图里面下滑」——
+页面往下滚时，滚轮一旦划过内嵌地图就被 Leaflet 吃掉变成缩放地图，页面卡住不动。
+`/v1/olbrportal/` 的地图在页面下方（实测 `#mapFrame.top≈1316`，视口高 1050），
+用户滚到那一带就"陷进去"。
+
+**方案选择：工具栏开关，而不是"点击激活"。** 两个候选：
+- 方案三「点击激活」（嵌入时默认关滚轮，点一下地图才开，鼠标移出又收回）
+  **本项目已经做过又删了**：my_app 的 `MapWheelZoomOnClick` 组件，2026-09-29 按用户
+  要求整体撤销（`frontend/src/pages/GISMap.tsx:1157`、`PacketLossDashboard.tsx:604`、
+  `olbr.js` 的 `mapSrc()` 注释都留了记录）。再上等于把同一个决定来回翻第二次。
+  更要紧的是**语义撞车**：这两页的主交互就是「点站点弹窗 / 点链路下钻」，
+  左键已被占用，再让它兼职"开启滚轮缩放"，用户点完弹窗回来发现滚轮又失灵，只会觉得坏了。
+- **采用：方案二** —— 工具条上新增一颗「缩放锁」（`data-act="map-zoomlock"`），
+  **默认锁定**（`scrollWheelZoom:false` 的等效效果），点一下解锁、再点锁回，
+  选择持久化到 `olbr.mapwheellock`（`'1'` 锁 / `'0'` 放）。
+  锁定态下滚轮永远滚页面；要精细看地图时自己解锁一次，之后一直有效。
+  锁定的**只是滚轮**这个最容易误触的通道 —— 双击缩放、`+/-` 按钮、拖拽平移都不动。
+
+**实现（`v1/olbrportal/assets/olbr.js` 的 `applyMapWheelLock`）两条路都要走：**
+1. **实例路**：`map.scrollWheelZoom.disable()`。已知 gis（界面上叫 "Alarm"）**可能拿不到
+   实例**（`findLeafletMap` 那条路在 PMTiles 页上没有挂载点），这条会静默失败；
+2. **拦截路**：在内层 document 上挂 **capture 阶段**的 `wheel` 监听，
+   `preventDefault` + `stopImmediatePropagation`，挡在 Leaflet 自己的处理器之前。
+   不依赖实例，两页通用。
+
+**三个不做就会静默失效的点**（都写进了代码注释）：
+- **必须 `{ passive: false }`**。Chrome 把 document/window 上的 wheel/touch 监听默认当
+  passive，passive 里调 `preventDefault` 会被忽略（控制台只留一行 warning），
+  表现是"锁了但地图照样缩放"。
+- **光拦不够，还要把滚动还给最外层门户窗口**。内层页被 `keepOnlyMap` 刷成
+  `overflow:hidden`，拦掉滚轮只是"地图不缩放"，页面**不会**自己往下走；
+  必须把 deltaY 转交给外层窗口的 `scrollBy`（见 `outerScrollWindow`）。
+  MW 页是**三层**嵌套（门户 → React 壳 → `mw_real_time.html`），中间那层同样不可滚，
+  所以要一路走到顶。
+- **判"有没有缩放"不能看 tile 的 z 层级**：这两页用 PMTiles，瓦片 `src` 不是
+  `/{z}/{x}/{y}.png`（实测 z 直方图恒为空）；且缩放动画结束后 `transform` 会**停在
+  最后一帧**，"前后相等"既可能是没缩放也可能只是残留 —— 探针改用
+  MutationObserver 数 `.leaflet-zoom-anim` 的出现**次数**（增量，不受残留影响）。
+
+**为什么 `stripFrame` 的 0/1.4/3.4s 三拍还不够。** 这三个是**固定时刻**，
+而 MW 三层嵌套各自还要跑 React 挂载与地图初始化：点「重新加载」之后，最内层 document
+往往三拍都还没被创建出来。实测后果是**界面在说谎** —— 按钮显示"已锁定"，
+内层 `data-olbr-wheel-lock` 仍是 `null`，地图照常缩放。
+故另有 `sweepMapWheelLock()` 每 2 秒幂等重放一次开关状态（`boot()` 里启动，
+解锁态自动空转）。两处都保留：`stripFrame` 那条负责"第一时间生效"，
+定时那条负责"最终一定生效"。
+
+**验证（`TMP/_probe_v1_wheellock.cjs`，7 项断言全绿，两页签各跑一遍）。**
+真浏览器（CDP）发**真实滚轮**（页面里 `new WheelEvent` 不触发 Leaflet）：
+① 锁定态：页面 `scrollY 1570→2077`、缩放动画 0 次；
+② 解锁后：页面不动、缩放动画 2~3 次（`maxScale 1→8`，MW 到 64）；
+③ 再锁回：回到①的行为；④ 刷新后开关仍锁定并生效；⑤ 点 Reload 后仍锁定并生效。
+另外量了两态视觉与布局：按钮在工具条**最左**（顺序 `map-zoomlock → map-reload →
+mapOpen`，2026-09-29「reload/openlink 放最右」那条继续成立），
+锁定态中性色 / 解锁态 accent 底色（`rgba(14,116,144,.08)` + 描边加重），
+窄屏（≤520px）自动收成纯图标（33px），沿用既有的 `.gb--t > span{display:none}`。
+中英两态文案均实测（"缩放锁" / "Zoom lock"，切语言后 tooltip 跟着换）。
+
+**不在本次范围。** `/olbrportal/`（MsPortal 的只读展示版，`nginx.conf:417` 另一条 location）
+有同一套地图工具条，但**没有**加这把锁 —— 用户只提了 `/v1/olbrportal/`。
+`MsPortal/assets/portal.js` 更是另一套实现（无 `data-act="map-*"`），无从镜像。
+若要推广，三处都要各自改。
+
+
 ## 十、相关文档
 
 | 内容 | 去哪里 |

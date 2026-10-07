@@ -60,6 +60,21 @@ export const CONFIG = {
   cooldownMs: Number(process.env.COOLDOWN_MS ?? raw.cooldownMs),
   maxTokens: Number(process.env.MAX_TOKENS ?? raw.maxTokens ?? 512),
 
+  // —— 工具路由 / 工单聚合统计 ——
+  // 环境变量可临时关掉（排查「是不是工具路由把问题带偏了」时很有用）。
+  toolsEnabled:
+    process.env.TOOLS_ENABLED != null
+      ? !(process.env.TOOLS_ENABLED === '0' || process.env.TOOLS_ENABLED === 'false')
+      : raw.toolsEnabled !== false,
+  myAppApiBase: process.env.MY_APP_API_BASE || raw.myAppApiBase || '',
+  ttStatsHttp:
+    process.env.TT_STATS_HTTP != null
+      ? !(process.env.TT_STATS_HTTP === '0' || process.env.TT_STATS_HTTP === 'false')
+      : raw.ttStatsHttp !== false,
+  ttStatsTimeoutMs: Number(process.env.TT_STATS_TIMEOUT_MS ?? raw.ttStatsTimeoutMs ?? 15000),
+  ttStatsSampleLimit: Number(process.env.TT_STATS_SAMPLE_LIMIT ?? raw.ttStatsSampleLimit ?? 3),
+  ttStatsListLimit: Number(process.env.TT_STATS_LIST_LIMIT ?? raw.ttStatsListLimit ?? 10),
+
   // —— 会话记忆 ——
   memoryEnabled:
     process.env.MEMORY_ENABLED != null
@@ -91,5 +106,8 @@ export function describeConfig() {
       ? `开（每人最近 ${CONFIG.memoryMaxTurns} 轮，闲置 ${Math.round(CONFIG.memoryTtlMs / 60000)} 分钟过期` +
         `${CONFIG.memoryResolve ? '，追问自动补全成独立问题' : ''}）`
       : '关（每条提问都是全新对话）',
+    工具路由: CONFIG.toolsEnabled
+      ? `开（规则优先，不定则模型选工具；工单统计 ${CONFIG.ttStatsHttp !== false && CONFIG.myAppApiBase ? 'HTTP 优先 + SQLite 降级' : '仅本地 SQLite'}）`
+      : '关（所有问题都走知识库检索）',
   };
 }

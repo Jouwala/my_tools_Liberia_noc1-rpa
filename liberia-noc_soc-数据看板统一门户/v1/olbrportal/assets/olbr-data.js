@@ -76,8 +76,9 @@ window.OLBR_DATA = (function () {
          olbr-data.js.bak_20260928_柱状图与顶栏调整前）。用户给的是**中英同值**的
          英文写法，中文这份也照写 —— 与 qc.title 那次改名同一个处理
          （用户明确要这个名字，不要"顺手补中文"）。
-         ⚠️ 只有 alarm 那一条带数字前缀（`75 Cells/ Sites Outage`），
-         所以上面 qc.sites 保持为纯文案，数字仍由 qcCardHtml 拼在前面。 */
+         ⚠️ 原先只有 alarm 那一条带数字前缀（`75 Cells/ Sites Outage`），数字由
+         qcCardHtml 拼在文案前面。2026-10-08 用户要求 alarm 也只留纯文案，前缀已去掉 ——
+         六张卡现在一律是纯文案，断站数由卡片中央的大数字呈现。 */
       'qc.sub.alarm': 'Cells/ Sites Outage', 'qc.sub.tt': 'Ongoing TTs',
       'qc.sub.wo': 'Ongoing WOs', 'qc.sub.cr': 'Unclosed CRs',
       'qc.sub.pmt': 'Unclosed PMTs',
@@ -139,6 +140,14 @@ window.OLBR_DATA = (function () {
          这个键同时被 GIS Map 与 Auto Report Files 两处按钮使用（items 12/13），
          所以改这一处两处一起生效 —— 不要在调用点各写一遍字符串。 */
       'map.open': 'Open Link', 'map.reload': '重新加载', 'map.load': '加载中…',
+      /* 地图工具栏「缩放锁」（2026-10-22 加）。
+         按钮上的**文字恒定**是 'map.zoomlock'，两态靠**图标**（锁 / 锁开）区分 ——
+         文案跟着状态变会让按钮在锁定/解锁之间跳字，用户以为换了一颗按钮。
+         状态说明放在 title 里（map.zoomlockOn / Off）：那才是"点了会发生什么"。
+         ⚠️ 中英两份字典的这两句**必须同时加**，否则英文界面下 title 会回落中文。 */
+      'map.zoomlock': '缩放锁',
+      'map.zoomlockOn': '滚轮缩放已锁定（滚动页面不会缩放地图，点此解锁）',
+      'map.zoomlockOff': '滚轮缩放已解锁（滚轮会缩放地图，点此锁定）',
       /* 报告文件页签（2026-09-22 加）：内嵌 my_app 的任务报告文件中心，
          标题说法与 MsPortal 那张 Task Report Files 卡一致，同一内容在两个门户不该有两名。 */
       'email.tab': '报告文件',
@@ -305,6 +314,24 @@ window.OLBR_DATA = (function () {
       'kpi.openTip': '打开「{n}」的完整看板（{b}）',
       'kpi.boardRich': 'CXO 90 天经营看板',
       'kpi.boardAvail': 'Daily Availability KPI',
+      /* ---- 连体卡组的组头（2026-10-07 加）----------------------------------
+         同组的卡都去同一个 my_app 页面。此前这件事只写在每张卡 tooltip 的最后
+         一行，不悬停就看不见；组头把它变成**看得见的结构**：左边是组名
+         （= 目标看板的业务名，直接复用 kpi.boardRich / kpi.mm.board 等键，
+         不另造字符串），右边是这个显式链接。
+         {b} = 目标看板的业务名；{n} = 本组卡数。
+         ⚠️ 文案说的是「打开这个看板」，**不**说「这 N 张卡的详细数据」——
+            BP 那组就不是同一份数据（卡上数来自 bm_meta 快照、
+            链接去的是 RAN_UME 重算的 bp_report），说成"详细版"就是假话。
+         标点跟着语言走。 */
+      'kpi.grp.go': '打开完整看板',
+      /* ⚠️ 说的是"这一组只去这一页"，**不**说"这些卡的数据来自这份看板"：
+         BP 组的卡上数取自 bm_meta 快照，链接却去 bp_report（RAN_UME 重算），
+         两者不是同一份数据。说"来自"就是替它们许下同源的承诺。 */
+      'kpi.grp.tip': '这些卡点下去都打开「{b}」（本组共 {n} 张）',
+      /* 单复数只对英文有意义（中文那条不带 {s}），但键必须两份字典都有 ——
+         t() 在英文缺键时会回落中文，界面就会冒出中文。 */
+      'kpi.grp.one': 'card', 'kpi.grp.many': 'cards',
       'kpi.tipAvail': '来源：Daily Availability KPI（Availability-NW 页）按 Cell Group 汇总，口径与 {board} 一致',
       'kpi.tipAvailFoot': '大数字是当月均值；页脚三格依次为昨日实际值、达标阈值、昨日与阈值的差（pp = 百分点，负值表示昨日未达标）。',
       /* 可用率迷你走势（2026-09-25 加）。窗口按返回的点数算，不写死 30 ——
@@ -376,10 +403,12 @@ window.OLBR_DATA = (function () {
          所以标题另用这一条，把「两组各是什么、为什么不能互相比」讲全。
          ⚠️ 卡片自己的 tooltip 仍走 kpi.bf.sub* / kpi.mm.*：那里各说各的来源，
          混在一起会让 Ookla 卡的口径说明里冒出 Meta 的话。 */
-      'kpi.bf.subBoth': 'Orange 与 MTN 的对比 · 本行 6 张卡来自两个数据源：'
-                      + '3 张 Speedtest by Ookla（最近 {n} 天，my_app bm_speedtest 竞对分析），'
-                      + '3 张 my_app Meta 基准报告（bm_meta，同一窗口）。'
-                      + '两组都是「区间均值」，但样本与测量方式不同，**数字不可直接对比**。',
+      'kpi.bf.subBoth': 'Orange 与 MTN 的对比 · 本行 6 张卡分成三个组，'
+                      + '每组打开**一个不同的**看板：'
+                      + '3 张 Speedtest by Ookla（最近 {n} 天，my_app bm_speedtest 竞对分析）、'
+                      + '2 张 my_app Meta 基准报告（bm_meta，同一窗口）、'
+                      + '1 张网络侧 BP（打开 BP Cells Report，另一份数据）。'
+                      + '组内各卡同源，组与组之间样本与测量方式不同，**数字不可直接对比**。',
       /* ---- Benchmark 行第二组：Meta 基准报告（2026-09-30 加）-----------------
          数据源 /api/bm-meta/overview，即 my_app `?page=bm_meta`
          （`meta_data` 表，Excel 导入的静态快照）。它与左边 3 张 Ookla 卡
@@ -450,6 +479,10 @@ window.OLBR_DATA = (function () {
       'kpi.mm.rowScore': '综合评分 {v} {u}',
       'kpi.mm.na': '区间内无数据',
       'kpi.mm.board': 'Meta 基准报告',
+      /* BP 组的目标看板名（2026-10-07 加）。用户指定的产品名，中英两份字典
+         **照写同一串** —— 与 map.gis / nav.bpReport 同一条约定：用户点名的
+         写法不翻译。BP 在 my_app 里是 `?page=bp_report`（BP Cells Report）。 */
+      'kpi.bp.board': 'BP Cells Report',
       /* ---- Meta 组三张卡的走势图 tooltip（2026-10-01 加）------------------------
          与 kpi.bf.sparkTip 同一套画法（两条线、每格 1 天、缺测断开），
          但**来源不同**：这三张走 bm_meta 的快照，不是 Ookla 的测试库。
@@ -676,7 +709,8 @@ window.OLBR_DATA = (function () {
       'qc.sites': 'Cells/ Sites Outage', 'qc.overdue': 'overdue', 'qc.inbound': 'Inbound', 'qc.outbound': 'Outbound',
       /* 2026-09-28 按用户逐条指定的文案改名。中英两份**同值** ——
          用户给的就是这一串英文，中文那份也照写，不要"顺手翻译回去"。
-         （与 qc.title 的中英同值是同一条约定。） */
+         （与 qc.title 的中英同值是同一条约定。）
+         2026-10-08：alarm 前面的断站数字前缀已按要求去掉，与其余五条同为纯文案。 */
       'qc.sub.alarm': 'Cells/ Sites Outage', 'qc.sub.tt': 'Ongoing TTs',
       'qc.sub.wo': 'Ongoing WOs', 'qc.sub.cr': 'Unclosed CRs',
       'qc.sub.pmt': 'Unclosed PMTs',
@@ -717,6 +751,12 @@ window.OLBR_DATA = (function () {
       /* 2026-09-28：改为用户点名的 "Open Link"（原为 "Open in new tab"）。
          中文那份同值 —— 用户要的就是这一串英文。 */
       'map.open': 'Open Link', 'map.reload': 'Reload', 'map.load': 'Loading…',
+      /* Wheel-zoom lock (added 2026-10-22). The button label 'map.zoomlock' stays
+         the same in both states — only the icon changes — so the button never
+         appears to turn into a different one. State is spelled out in title. */
+      'map.zoomlock': 'Zoom lock',
+      'map.zoomlockOn': 'Wheel zoom locked (scrolling pans the page, click to unlock)',
+      'map.zoomlockOff': 'Wheel zoom unlocked (the wheel zooms the map, click to lock)',
       'email.tab': 'Report files',
       'email.title': 'Auto Report Files', 'email.sub': 'Task report file center (Email Reports)',
       'email.needLogin': 'Sign in to view the report files',
@@ -855,6 +895,18 @@ window.OLBR_DATA = (function () {
       'kpi.openTip': 'Open the full dashboard for "{n}" ({b})',
       'kpi.boardRich': 'CXO 90-day business board',
       'kpi.boardAvail': 'Daily Availability KPI',
+      /* Group-header strings (added 2026-10-07). See the zh block for the full
+         rationale; {b} = target board name, {n} = number of cards in the group.
+         Deliberately says "opens this board", never "detailed version of these
+         cards" — the BP group's link is a different dataset entirely. */
+      'kpi.grp.go': 'Open full dashboard',
+      /* Says "these cards all open this page", never "these cards come from this
+         board": the BP group's card values come from the bm_meta snapshot while
+         its link goes to bp_report (recomputed from RAN_UME) — different data. */
+      'kpi.grp.tip': 'Every card in this group opens "{b}" ({n} {s})',
+      /* 英文要分单复数（BP 组只有 1 张卡）：{s} 由渲染层按卡数给
+         cards / card。中文没有这个问题，所以中文那条不带 {s}。 */
+      'kpi.grp.one': 'card', 'kpi.grp.many': 'cards',
       'kpi.tipAvail': 'Source: Daily Availability KPI (Availability-NW sheet) aggregated by Cell Group, same definition as {board}',
       'kpi.tipAvailFoot': 'The big number is the month-to-date average; the footer shows yesterday, the target threshold, and yesterday minus the target (pp = percentage points; negative means yesterday was below target).',
       'kpi.availTrendCap': 'Last {n} days',
@@ -916,11 +968,13 @@ window.OLBR_DATA = (function () {
          cards) can no longer sit on the whole-row title without being wrong.
          Card tooltips still use kpi.bf.sub* / kpi.mm.*: each card states its
          own source, and mixing them would put Meta text on an Ookla card. */
-      'kpi.bf.subBoth': 'Orange vs MTN · the six cards in this row come from two sources: '
-                      + 'three Speedtest by Ookla cards (last {n} days, my_app bm_speedtest competitor analysis) and '
-                      + 'three my_app Meta benchmark report cards (bm_meta, same window). '
-                      + 'Both are range averages, but the samples and the test methods differ, '
-                      + 'so the numbers are **not directly comparable**.',
+      'kpi.bf.subBoth': 'Orange vs MTN · the six cards in this row form three groups, '
+                      + 'each opening a DIFFERENT dashboard: '
+                      + 'three Speedtest by Ookla cards (last {n} days, my_app bm_speedtest competitor analysis), '
+                      + 'two my_app Meta benchmark report cards (bm_meta, same window), and '
+                      + 'one network-side BP card (opens BP Cells Report, a separate dataset). '
+                      + 'Cards within a group share a source, but across groups the samples and the test methods '
+                      + 'differ, so the numbers are **not directly comparable**.',
       /* ---- Benchmark row, second group: Meta benchmark report (added 2026-09-30) --
          Source /api/bm-meta/overview, i.e. my_app `?page=bm_meta` (the
          `meta_data` table, a static Excel-imported snapshot). Same row and same
@@ -992,6 +1046,9 @@ window.OLBR_DATA = (function () {
       'kpi.mm.rowScore': 'Composite score {v} {u}',
       'kpi.mm.na': 'No data in range',
       'kpi.mm.board': 'Meta benchmark report',
+      /* BP group's target board name (added 2026-10-07). User-specified product
+         name — kept identical in both dicts, same convention as nav.bpReport. */
+      'kpi.bp.board': 'BP Cells Report',
       /* Sparkline tooltips for the three Meta cards (added 2026-10-01).
          Same drawing method as kpi.bf.sparkTip, but a different data source
          (the bm_meta snapshot, not Ookla's test database), so the wording is
@@ -1173,6 +1230,9 @@ window.OLBR_DATA = (function () {
     package: 'ph-package', wrench: 'ph-wrench', upload: 'ph-cloud-arrow-up', table: 'ph-table',
     archive: 'ph-archive', chat: 'ph-chat-circle-dots', book: 'ph-book-open-text', gear: 'ph-gear',
     dashboard: 'ph-squares-four', key: 'ph-lock-key', warning: 'ph-warning', briefcase: 'ph-briefcase',
+    /* 缩放锁的两态图标（2026-10-22 加）。两个类名都在
+       MsPortal/assets/icons/phosphor.css 里核实过（.ph-lock / .ph-lock-open）。 */
+    lock: 'ph-lock', 'lock-open': 'ph-lock-open',
     git: 'ph-git-pull-request', user: 'ph-user', flame: 'ph-fire', folder: 'ph-folder-open',
     'arrow-up-right': 'ph-arrow-up-right', 'shield': 'ph-shield-check', 'globe': 'ph-globe-hemisphere-west',
     refresh: 'ph-arrows-clockwise',
@@ -1456,6 +1516,28 @@ window.OLBR_DATA = (function () {
     { key: '3G', group: '3G ALL', page: 'avail_ms' },
     { key: '4G', group: 'FDD ALL', page: 'avail_ms' }
   ];
+  /* ---- Network Status Overview 行的两个「连体卡组」（2026-10-07 加）--------
+      这行的三张富卡（KPI_RICH）与三张可用率卡（KPI_AVAIL_ROWS）各自的成员
+      都指向**同一个 my_app 页面**。此前这件事只写在每张卡 tooltip 的最后一行
+      （kpi.openTip，鼠标不悬停就看不见），而六张卡在 .qc-grid 里平铺、
+      外观完全相同 —— 看得见的样子在暗示「一行是 6 个各自独立的入口」。
+      修法是把同组的卡做成**一个可见的连体组**（见 olbr.css .qc-group）：
+      共享外框与组头，组头给出组名 + 一个显式的「打开完整看板 ↗」链接。
+      于是「同组去同一页」从一句隐藏文案变成**结构事实**，不用读字就看得出。
+
+      ⚠️ 组定义为什么放在数据文件、且排在成员数组**之后**：
+        · 组名 / 目标页是**数据**（归属哪份看板），不是渲染决策；
+        · 组的 page 必须**与成员 spec.page 逐条核对一致**，两份相邻才对得上；
+          放到渲染函数里就会变成第三个真相源。
+        · 引用成员数组（而不是复制一份成员清单）保证成员一改、组自动跟着改，
+          不会出现「表里三张、组里两张」。
+        · JS 里 `var` 前向引用会拿到 undefined，所以必须声明在成员之后。
+      ⚠️ 组名**不另造字符串**，直接引用既有的看板名键（kpi.boardRich =
+      「CXO 90 天经营看板」）—— 两处各写一份立刻分叉。 */
+  var KPI_GROUPS = [
+    { id: 'rich',  name: 'kpi.boardRich',  page: 'vmaxCxoDashboard_90Days', items: KPI_RICH },
+    { id: 'avail', name: 'kpi.boardAvail', page: 'avail_ms',                items: KPI_AVAIL_ROWS }
+  ];
   /* ---- Benchmark（竞对速率）三张卡：ORANGE vs MTN 关键指标对比 ----------
      数据源 /api/bm-speedtest/overview?start=&end=，即 my_app
      `?page=bm_speedtest` 那个页面「Key metrics comparison」那组卡的只读接口。
@@ -1521,8 +1603,37 @@ window.OLBR_DATA = (function () {
      写错会被静默回落到概览页，表现为「点了却打开别的页」。 */
   var KPI_META = [
     { key: 'speed',  kind: 'brand',   name: 'kpi.mm.speed',  unit: 'kpi.mm.unitMbps',  digits: 1, page: 'bm_meta' },
-    { key: 'scores', kind: 'brand',   name: 'kpi.mm.scores', unit: 'kpi.mm.unitScore', digits: 1, page: 'bm_meta' },
-    { key: 'bp',     kind: 'network', name: 'kpi.mm.bp',     unit: 'kpi.mm.unitPct',   digits: 2, page: 'bm_meta' }
+    { key: 'scores', kind: 'brand',   name: 'kpi.mm.scores', unit: 'kpi.mm.unitScore', digits: 1, page: 'bm_meta' }
+  ];
+  /* ---- BP 单独成组（2026-10-07 从 KPI_META 拆出）--------------------------
+      用户 2026-10-07 明确「右边的 BP 是单独的页面」，所以 BP 不再与
+      speed / scores 同组，它的目标页也随之改成 **bp_report**。
+
+      ⚠️ 为什么不能"留着 page:'bm_meta' 也行"：
+        · 组头（BF_GROUPS 的 bp 组）会写一个显式的跳转链接指向 bp_report，
+          卡若仍指向 bm_meta，就变成**组头说去 A、点卡去 B** ——
+          比原来"三张卡都说不清去哪儿"更糟，因为它看起来已经说清了。
+          所以 spec.page 与组的 page 必须同步改：这里改了，组定义里也改了。
+
+      ⚠️ 卡上的数**仍然来自 bm_meta 快照**（/api/bm-meta/overview）：
+        my_app 的 bp_report 是 RAN_UME 忙时三值重算的 BP 劣化小区，
+        与本卡的网络侧 BP 不是同一份数据、口径也不同。
+        所以这张卡的 tooltip **不能**说"就是下面这个看板的数" ——
+        bp 组那个链接是"网络侧 BP 的完整看板"，不是"这张卡的详细版"。
+        这条由 metaCardHtml 的 boardTip 区分处理（bp 走 kpi.bp.board）。
+      ⚠️ 值必须是 my_app App.tsx 的 PageKey（见 VALID_PAGES 白名单）。 */
+  var KPI_META_BP = [
+    { key: 'bp', kind: 'network', name: 'kpi.mm.bp', unit: 'kpi.mm.unitPct', digits: 2, page: 'bp_report' }
+  ];
+  /* ---- Benchmark 行的三个连体卡组（2026-10-07 加，理由见 KPI_GROUPS）------
+      ⚠️ 成员是**引用**而非复制：KPI_SPEED 三项 / KPI_META 两项 / KPI_META_BP 一项。
+      ⚠️ 三组的 page 各不相同（bm_speedtest / bm_meta / bp_report）——
+         所以这一行是**三个入口**而不是一个；连体组 + 组头链接正是为了让
+         这件此前完全看不出来的事变得一眼可见。 */
+  var BF_GROUPS = [
+    { id: 'speed', name: 'kpi.bf.board', page: 'bm_speedtest', items: KPI_SPEED },
+    { id: 'meta',  name: 'kpi.mm.board', page: 'bm_meta',      items: KPI_META },
+    { id: 'bp',    name: 'kpi.bp.board', page: 'bp_report',    items: KPI_META_BP }
   ];
 
   /* ---- Speedtest by Ookla 品牌标识（2026-10-01 加）-------------------------
@@ -1651,9 +1762,9 @@ window.OLBR_DATA = (function () {
     QC_TREND_METRICS: QC_TREND_METRICS, QC_SUB_KEY: QC_SUB_KEY, QC_LV_KEY: QC_LV_KEY,
     QC_FULL_MIN: QC_FULL_MIN, QC_FULL_OFFSET: QC_FULL_OFFSET,
     QC_ALARM_MIN: QC_ALARM_MIN, QC_ALARM_OFFSET: QC_ALARM_OFFSET,
-    KPI_RICH: KPI_RICH, KPI_AVAIL_ROWS: KPI_AVAIL_ROWS,
+    KPI_RICH: KPI_RICH, KPI_AVAIL_ROWS: KPI_AVAIL_ROWS, KPI_GROUPS: KPI_GROUPS,
     KPI_SPEED: KPI_SPEED, SPEED_ROW_LABEL: SPEED_ROW_LABEL, BENCH_BRANDS: BENCH_BRANDS,
-    KPI_META: KPI_META,
+    KPI_META: KPI_META, KPI_META_BP: KPI_META_BP, BF_GROUPS: BF_GROUPS,
     OOKLA_LOGO: OOKLA_LOGO, META_LOGO: META_LOGO
   };
 })();

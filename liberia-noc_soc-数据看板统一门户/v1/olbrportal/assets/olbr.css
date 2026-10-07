@@ -1133,6 +1133,125 @@ main { flex: 1; padding-block: var(--s5) var(--s6); display: flex; flex-directio
 @media (max-width: 1200px) { .qc-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 760px)  { .qc-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 
+/* ===================== 连体卡组 .qc-group（2026-10-07 加）=====================
+   要解决的问题（用户原话）：「前 3 个卡片下钻都是打开相同的页面，容易让人误解
+   是 3 个不同的页面」。此前同组的卡在 .qc-grid 里平铺、彼此间距与组间一致，
+   「都去同一页」只写在每张卡的 tooltip 里 —— 不悬停看不见。
+   解法是把同组的卡做成**一个可见的整体**，并给组一个写着目标看板名的组头。
+
+   层次：
+     .qc-grid        —— 一行（6 列），组是它的直接子项
+       .qc-group     —— 组：组头 + 卡身（跨越 N 列）
+         .qc-group-h —— 组头：组名 + 「打开完整看板 ↗」链接
+         .qc-group-b —— 卡身：连体卡排（N 列，N = 卡数）
+
+   「连体」怎么做到（三条缺一不可）：
+     ① 组内**不留栅格间距**（gap:0），卡与卡之间只有一条 1px 细缝；
+     ② 组内卡去掉自己的圆角与左右描边，只保留相邻处的一条分隔线；
+     ③ 整组共享一个外框与圆角（把圆角做在组上、卡做直角，接口处才不会
+        出现"两个圆角对扣"的缺口）。
+
+   ⚠️ 为什么列数必须按卡数走（--n 由 JS 的 data-n 给）：
+     BF 行的三个组分别是 3 / 2 / 1 张。写死 3 列的话，2 张那组会空出一列、
+     1 张那组（BP）会被压成 1/3 宽 —— 而它承载的信息量与另外两组同级。
+     用 repeat(var(--n)) 让每组各自排满，组与组之间仍对齐在同一行。
+   ⚠️ 断点：≤1200px 时整行收成 3 列，组跟着变宽，所以组内列数也要跟着降档
+     （3 列那组在 3 列栅格里就是整行宽，此时组内改成 2 列才不至于把卡压扁）；
+     最窄档（≤760px）所有组内一律 1 列 —— 手机上"并排两张"已无意义。 */
+.qc-group {
+  /* 组跨越的列数 = 成员卡数。JS 通过 data-n 给（见 qcGroupHtml）。 */
+  grid-column: span var(--n, 3);
+  /* ⚠️ 组自己是一个 flex 列：组头一行 + 卡身一行，卡身撑满余下宽度。 */
+  display: flex; flex-direction: column; min-width: 0;
+  /* 外框做在组上（卡做直角），所以圆角、描边、内发光都归这一层。
+     底色用 --surface-2：与卡片同色 —— 组内卡是"同一块面板被分了格"，
+     不该出现两种底色。 */
+  border: 1px solid var(--line-2); border-radius: var(--r2);
+  background: var(--surface-2);
+  overflow: hidden;
+  transition: border-color .16s ease-out, box-shadow .16s ease-out;
+}
+/* 悬停整组：一组是一个入口，所以反馈也做在组上。
+   ⚠️ 不是逐卡反馈：逐卡抬升会让"连体"在鼠标下散架（视觉上手一碰就分成 N 块，
+   恰好又把"这是一个整体"这件事说反了）。 */
+.qc-group:hover {
+  border-color: var(--b-line);
+  box-shadow: 0 8px 18px color-mix(in srgb, var(--b) 14%, transparent);
+}
+/* 组头。底色略深于卡面，让它看起来像"这一格的表头"而不是另一张卡。 */
+.qc-group-h {
+  display: flex; align-items: center; gap: 6px; min-width: 0;
+  padding: 5px 8px 5px 10px;
+  border-bottom: 1px solid var(--line-2);
+  background: color-mix(in srgb, var(--b) 5%, transparent);
+}
+.qc-group-n {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: var(--fs-2xs); font-weight: 700; letter-spacing: var(--ls-wide);
+  color: var(--t2); cursor: help;
+}
+/* 显式的组级链接（撑到右端）。它是这一组唯一可见的跳转说明。 */
+.qc-group-go {
+  flex: none; margin-left: auto;
+  display: inline-flex; align-items: center; gap: 3px;
+  padding: 1px 7px; border-radius: 999px;
+  border: 1px solid var(--b-line);
+  color: var(--b-ink); background: var(--b-tint);
+  font-size: var(--fs-2xs); font-weight: 600; text-decoration: none;
+  transition: color .16s ease-out, background-color .16s ease-out;
+}
+.qc-group-go:hover { color: var(--b-ink-h, var(--b-ink)); background: color-mix(in srgb, var(--b) 18%, transparent); }
+.qc-group-go:focus-visible { outline: 2px solid var(--b); outline-offset: 1px; }
+.qc-group-go i { font-size: var(--fs-sm); }
+
+/* 卡身：连体卡排。gap:0 + 组内卡去圆角/描边 = 一条细缝的连体效果。 */
+.qc-group-b { display: grid; gap: 0; align-items: stretch; flex: 1 1 auto; min-width: 0; }
+.qc-group-b > .qc-card {
+  /* 边界由"相邻处的一条线"表达，不再每张卡各画一圈 —— 双线在 1px 上会糊成 2px。 */
+  border: 0; border-radius: 0; box-shadow: none;
+  /* 卡自己的悬停抬升在组内必须关掉（理由见 .qc-group:hover）。 */
+  transform: none;
+  background: transparent;
+}
+.qc-group-b > .qc-card + .qc-card { border-left: 1px solid var(--line-2); }
+/* 组内卡被悬停：只加内部淡色底作为"这一格是热区"的提示，不动几何。 */
+.qc-group-b > .qc-card:hover { box-shadow: inset 0 0 0 999px color-mix(in srgb, var(--b) 4%, transparent); }
+/* 组内卡是链接，键盘可达 —— 焦点环改成内描边（外描边会被组的外框裁掉）。 */
+.qc-group-b > .qc-card:focus-visible {
+  outline: 2px solid var(--b); outline-offset: -2px; border-radius: 0;
+}
+
+/* 组内列数 = 卡数。data-n 由 qcGroupHtml 输出（3 / 2 / 1）。 */
+.qc-group-b[data-n="1"] { grid-template-columns: minmax(0, 1fr); }
+.qc-group-b[data-n="2"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.qc-group-b[data-n="3"] { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+/* 组跨越的列数也按卡数走（同上，BP 组 1 张就只占 1 列）。 */
+.qc-group[data-grp="speed"] { --n: 3; }
+.qc-group[data-grp="meta"]  { --n: 2; }
+.qc-group[data-grp="bp"]    { --n: 1; }
+.qc-group[data-grp="rich"]  { --n: 3; }
+.qc-group[data-grp="avail"] { --n: 3; }
+
+/* 断点。1200px：整行由 6 列收成 3 列 —— 组不再横跨多列，
+   改为"一组一整行"，否则 3 张卡挤在 1/3 行宽里会扁得读不了。 */
+@media (max-width: 1200px) {
+  .qc-group { grid-column: 1 / -1; }
+  .qc-group-b[data-n="3"] { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  /* 2 张的组保持 2 列：一行宽够放两张，且与 3 张组同宽更整齐。 */
+  .qc-group-b[data-n="2"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  /* ⚠️ 1 张的组（BP）**保持 1 列但不拉伸**：它在宽屏上本来只占 1 列，
+     到这一档突然变成整行宽会很突兀。限制最大宽度，与 2 列组的一张卡等宽。 */
+  .qc-group-b[data-n="1"] { grid-template-columns: minmax(0, 50%); }
+}
+@media (max-width: 760px) {
+  /* 手机：组内一律单列，卡片纵向堆叠 —— 并排两张在这个宽度上已是挤压。 */
+  .qc-group-b[data-n="1"], .qc-group-b[data-n="2"], .qc-group-b[data-n="3"] {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  /* 单列时"左细缝"要改成"上细缝"，否则分隔线跑到左边、上下两卡粘在一起。 */
+  .qc-group-b > .qc-card + .qc-card { border-left: 0; border-top: 1px solid var(--line-2); }
+}
+
 .qc-card {
   --qc-accent: var(--b);
   --qc-accent-soft: var(--b-tint);
@@ -2006,6 +2125,15 @@ main { flex: 1; padding-block: var(--s5) var(--s6); display: flex; flex-directio
    margin-left:auto 在这里是**必要的** —— 页签只有两个时 .p-hd 的 1fr 弹簧
    已经把它推到中间，若本段不带 auto，两颗按钮会紧贴在页签右侧而不是卡片右缘。 */
 .map-tools { display: flex; align-items: center; justify-content: flex-end; gap: var(--s2); flex: 1 1 0; min-width: 0; margin-left: auto; }
+/* 缩放锁的两态（2026-10-22 加）。
+   · 锁定（默认）= 普通 .gb：中性色，和刷新 / Open Link 同一档，不抢眼 ——
+     它是常态，不该看起来像"有什么需要注意的"；
+   · 解锁（.unlocked）= 描边与文字转成 accent：滚轮已经交给地图了，
+     这是一个**偏离默认**的状态，值得让用户一眼看见。
+   ⚠️ 刻意复用 .gb 的 .on 那条 warn 配色吗？不 —— .on 是**编辑态**的语义色
+      （olbr.css:2177，标"正在改全站共享目录"），此处复用会把"危险"稀释。
+      aria-pressed 同时写上，给读屏与将来可能的样式钩子。 */
+.gb--t.unlocked { border-color: var(--b-line); color: var(--b-ink); background: var(--b-tint); }
 .tabs { display: inline-flex; gap: 2px; padding: 2px; border: 1px solid var(--line); border-radius: var(--r1); background: var(--surface-3); }
 .tab { height: 26px; padding: 0 10px; border-radius: 4px; font-size: var(--fs-sm); font-weight: 600; color: var(--t2); display: inline-flex; align-items: center; gap: 6px; }
 .tab i { font-size: 14px; }   /* 图标字号：单独一档，与 --icon-* 都不等，仅此处使用 */

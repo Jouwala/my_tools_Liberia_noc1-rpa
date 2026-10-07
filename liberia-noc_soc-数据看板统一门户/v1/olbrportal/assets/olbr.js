@@ -18,7 +18,7 @@
    ⚠️ 三条不能碰的红线：
      1  绝不写 `msportal.*` 那几个 localStorage 键（那是 MsPortal 的**个人层**：
         order / assign / groups / renames，跟着写会把别人的界面悄悄改掉）；
-        本页自己的持久化只有 `olbr.*`，且只有主题 / 语言 / 页签，不含目录。
+        本页自己的持久化只有 `olbr.*`，且只有主题 / 语言 / 页签 / 地图缩放锁，不含目录。
         唯一的例外是 `myapp-theme`：my_app 只认这一个键（theme.ts 的 detectMode 在启动时
         读一次），要把内嵌的报告文件中心染成同一个主题就必须先写它再重设 src —— 与
         MsPortal 的同名内嵌卡是同一件事，副作用也一样（之后直接打开 /myapp/ 也是这个主题）。
@@ -94,7 +94,6 @@
     return typeof window.msPortalEnOf === 'function' ? window.msPortalEnOf(en, kind, zh) : (en || term(kind, zh));
   }
   function ic(name) { return '<i class="ph ' + (DATA.PH[name] || DATA.PH.dashboard) + '" aria-hidden="true"></i>'; }
-
 
   /* -------------------------------------------------------------- state -- */
   /* 默认语言跟随浏览器（与 index.html 首帧脚本的 guessLang 同一口径，
@@ -196,6 +195,15 @@
        2026-09-29：本栏恢复成两个页签后它重新有了消费方（curMap / mapHeadHtml /
        mapClick）。默认 'gis' 与 DATA.MAP_TABS 的第一项一致。 */
     mapTab: ls('olbr.maptab', 'gis'),
+    /* 地图滚轮缩放锁（2026-10-22 加）：true = 锁定，鼠标在地图上滚动**滚页面**，
+       滚轮不会缩放地图；false = 解锁，滚轮直接缩放地图。
+       ⚠️ 默认 true 是这次改动的**全部意义**所在 —— 见 applyMapWheelLock 上方那段
+       需求记录（用户报「鼠标下滑时容易滚进地图里」）。
+       与 mapTab 同一口径持久化到 localStorage（键在文件头 L20 那张清单里）：
+       用户在整页里滚上滚下的习惯是稳定的，每次打开都要重新点一次锁等于没解决。
+       ⚠️ 存的是布尔不是字符串：ls() 只在**键不存在**时给默认值，一旦有人写入
+       'false' 这个字符串，'false' 是 truthy —— 故读的时候显式比 '1'。 */
+    mapWheelLock: ls('olbr.mapwheellock', '1') === '1',
     /* 默认落在 BO View：16 张卡、五个子分组，是这块最能说明「门户里到底有什么」的一组 */
     viewTab: ls('olbr.viewtab', 'BO View'),
     viewSub: '',                          /* 当前分组下的二级子页签，不跨分组记 */
@@ -902,13 +910,14 @@
        这里原来对 pmt / spms 两项做了**动态改写**（pmt 写「超期 472」、
        spms 写「入库 32 · 出库 62」），本次一并去掉 —— 用户点名只要那六行文案，
        动态备注属于"其他备注"。六张卡现在都直接取 DATA.QC_SUB_KEY 的字典值。
-       ⚠️ alarm 是唯一的例外：它前面还要拼上断站站点数（qc.sites 本身已改成
-       'Cells/ Sites Outage' 纯文案，数字由这里给），否则「75 Cells/ Sites Outage」
-       这个用户点名的形态就少了数字。msg.overdue / msg.tables 仍在接口里返回，
-       只是本页不再渲染（要恢复见 olbr.js.bak_20260928_柱状图与顶栏调整前）。 */
+       ⚠️ 2026-10-08 取消的例外：alarm 原先还要在前面拼上断站站点数
+       （qc.sites 已改成 'Cells/ Sites Outage' 纯文案，数字由这里给），否则
+       「75 Cells/ Sites Outage」这个用户点名的形态就少了数字。现按用户要求
+       只留纯文案 —— 数字没有丢，卡片正中那个大数字（.qc-num）本来就是同一个断站数。
+       msg.overdue / msg.tables 仍在接口里返回，只是本页不再渲染
+       （要恢复见 olbr.js.bak_20260928_柱状图与顶栏调整前）。 */
     var sub;
     if (failed) sub = t('qc.err') + (errMsg ? ': ' + errMsg : '');
-    else if (d.id === 'alarm' && m && m.sites != null) sub = fmt(m.sites) + ' ' + def;
     else sub = def;
     /* tooltip 只留口径与点击提示。
        v1 改：阈值那两行**去掉了** —— 等级分档整个不显示了，再把
@@ -1908,7 +1917,14 @@
     tip.push(tf('kpi.mm.tipWin', { win: win == null ? '—' : win }));
     tip.push(tf('kpi.mm.tipCover', { n: kpiNum(covered, 0), d: at || '—' }));
     if (na) tip.push(t('kpi.mm.na'));
-    tip.push(tf('kpi.openTip', { n: name, b: t('kpi.mm.board') }));
+    /* ⚠️ 最后一行说「点开哪一页」，目标看板名必须跟随**这张卡自己的 kind**
+       （2026-10-07 修）。此前这里对所有 Meta 卡写死 kpi.mm.board
+       （「Meta 基准报告」），而 BP 卡的目标页已改成 bp_report
+       （BP Cells Report）—— 写死就会出现「悬停说 Meta 基准报告、
+       点下去到 BP Cells Report」。与组头链接同一条约束：
+       说要去哪儿，就必须真是去哪儿。 */
+    tip.push(tf('kpi.openTip', { n: name,
+      b: t(spec.kind === 'network' ? 'kpi.bp.board' : 'kpi.mm.board') }));
     var href = '/myapp/?page=' + encodeURIComponent(spec.page) + langQs();
     /* 整卡可点（<a> 而非 div + onclick）：与 speedCardHtml 同一条理由
        （中键新标签 / 右键复制链接 / 键盘 Enter / 读屏念成链接都是白拿的）。
@@ -1984,6 +2000,60 @@
       return r[b === 'ORANGE' ? 'orange_speed' : 'mtn_speed'];
     }, tipKey);
   }
+  /* ---- 连体卡组的渲染（2026-10-07 加）--------------------------------------
+     一组 = 一个 .qc-group，里面是「组头 + 连体卡排」。组头左边是组名
+     （= 目标看板的业务名），右边是一个显式的「打开完整看板 ↗」链接，
+     指向与本组每张卡**同一个** page。
+
+      ⚠️ 为什么需要在卡片之外再来一个链接：
+        每张卡自己已经能点（href 就是同一个 page），但那件事要逐张 hover
+        才知道。组头的链接把「这一组只有↓一个去处」写在脸上，
+        正是"容易让人误解成 N 个不同页面"这个问题的直接解法。
+        它**不是**多余的重复入口：卡片链接是"点这个指标"，组头链接是
+        "这个组属于哪份看板"，两者的读法不同。
+
+      ⚠️ 组头链接与卡片链接必须同源：两者都取 g.page / spec.page，
+        而这两处都由 olbr-data.js 声明，本函数**不写死任何页面** ——
+        写死就会出现"组头去 A、点卡去 B"（BP 组正是靠这条才改对的）。
+
+      ⚠️ 链接文案说的是"打开这个看板"，不说"这些卡的详细数据"：
+        BP 组链接去的是 bp_report（RAN_UME 重算），而卡上的数来自
+        bm_meta 快照，**不是同一份数据**。措辞不能替它们许下同源的承诺。
+
+      g = olbr-data.js 里 KPI_GROUPS / BF_GROUPS 的成员，
+      cards 是已经渲染好的卡片 HTML（顺序即声明顺序）。
+      卡数取 g.items.length —— 组头说明里的 {n} 与 CSS 的列数都用它，
+      不再另传一个数进来（传两个数就会有不一致的那天）。 */
+  function qcGroupHtml(g, cards) {
+    var n = (g.items && g.items.length) || 0;
+    var board = t(g.name);
+    /* {s} 只被英文那条用到（"1 card" / "3 cards"）；中文那条不带这个占位符，
+       tf() 里多余的键不会渲染出来，所以两边共用一个调用。
+       ⚠️ 别把单复数判断塞进中文文案：中文没有复数形态，
+       分了反而多一条永远走不到的分支。 */
+    var tip = tf('kpi.grp.tip', {
+      n: String(n), b: board, s: t(n === 1 ? 'kpi.grp.one' : 'kpi.grp.many')
+    });
+    /* 组头链接与卡片一样走 langQs()：不带语言参数的话，
+       点进去会掉回 my_app 的默认语言，与门户当前语言不一致。 */
+    var href = '/myapp/?page=' + encodeURIComponent(g.page) + langQs();
+    return '<section class="qc-group" data-grp="' + esc(g.id) + '" aria-label="' + esc(board) + '">' +
+        '<div class="qc-group-h">' +
+          '<span class="qc-group-n" title="' + esc(tip) + '">' + esc(board) + '</span>' +
+          '<a class="qc-group-go" href="' + esc(href) + '" target="_blank" rel="noopener nofollow" ' +
+            'title="' + esc(tip) + '">' + esc(t('kpi.grp.go')) +
+            ic('arrow-up-right') + '</a>' +
+        '</div>' +
+        /* ⚠️ data-n 给 CSS 用：列数由卡数决定，不写死 3 列 ——
+           BF 行的三组分别是 3 / 2 / 1 张，写死列数会让 1 张卡的那组
+           拉出一个空列（第四组里 BP 那张会缩成半宽）。 */
+        '<div class="qc-group-b" data-n="' + n + '">' + cards + '</div>' +
+      '</section>';
+  }
+  /* 把一组卡按 group 定义渲染出来。render 是"一张卡怎么画"的函数。 */
+  function qcGroupCards(g, render) {
+    return g.items.map(render).join('');
+  }
   function renderKpi() {
     var box = $('#kpi');
     if (!box) return;
@@ -1996,63 +2066,121 @@
        会先画出 3 张卡再整行重排成 6 张（同一行的卡数变一次，视线要跳一下）。 */
     var hasM = !!(k.meta && k.meta.summary);
     if (k.loading && !hasR && !hasA && !hasS && !hasM) {
-      /* 骨架屏也照两排摆：上排 4 个高的（富卡片），下排 3 个矮的。
-         摆成 6 个等高的话，数据一到位整块高度会跳一下。 */
-      /* 口径说明（kpi.sub）不直接占一行，改挂到标题的 title 上，hover 才出。
+      /* 骨架屏也照两排摆，且**与真实结构 1:1**（2026-10-07 起含连体卡组）。
+         骨架若还是 6 张平铺，数据到位那一刻会连"组头"一起凭空长出来，
+         整块高度往下弹 —— 这正是骨架屏要避免的事。
+         所以骨架也走同一个 qcGroupHtml：组头（组名 + 链接）是真的，
+         只有卡身换成 .sk 灰条。组头文案此时已可取（组名来自数据文件，
+         不依赖接口），所以骨架阶段就能显示正确的看板名。
+         ⚠️ 口径说明（kpi.sub）不直接占一行，改挂到标题的 title 上，hover 才出。
          理由两条：① 用户要求（2026-09-25）——这一行是「解读说明」，不是数据，
-         常驻会把整块标题区撑高、也让六个卡片的视线起点下移；
+         常驻会把整块标题区撑高、也让卡片的视线起点下移；
          ② DESIGN.md:76「长文本用 truncate，并把完整内容放 title 属性，
          不要靠换行撑高卡片」，本来就是这么规定的。
          骨架屏阶段也要挂同样的 title，否则数据到位那一刻标题的悬浮提示会"突然出现"。
          cursor:help 由 .band-k[title] 给（见 olbr.css），不在这里写死。 */
+      /* ---- 骨架卡：**按真卡的分段同构地搭**（2026-10-07 重做）-------------
+         ⚠️ 这里踩过一个坑，写下来免得下次又踩：
+         旧写法只丢几条 .sk 灰条进卡片，看着"像个骨架"，但 .sk 是
+         **固定 12px 高 + 外边距**的小方块，五条加起来才 90px 上下；
+         而真卡的内部是一条有固定高度的链
+         （富卡：标题 19 + 数值 25 + 日期 14 + 徽章 21 + 走势 26 + 页脚 51，
+          加外边距 27 与内边距 19 = 203px）。
+         实测差异：上排骨架 155px vs 真卡 237px（差 82），
+         Benchmark 行 208 vs 254（差 46）—— 数据到位时整块往下弹 129px。
+         所以骨架必须**复用真卡的分段类名**（.qc-ttl / .qc-val / .qc-asof /
+         .qc-chips / .qc-spark / .qc-ext），让每一段自己撑出该有的高度。
+         新造一套类名等于把"卡内长什么样"抄成两份，两边迟早漂移。
+         ⚠️ 灰条给显式高度，是为了让占位块等于它替的那段（数值 25 / 走势 26），
+         不是随便定一个好看的数字。 */
+      /* 页脚是最高的一段（真卡实测 51px：三格，每格是"小标签 + 数值 + 单位"
+         两行文字，格内 45px）。骨架里每格只放一条 12px 灰条的话，
+         整段只有 18px —— 这一段就是骨架矮 30px 的主因。
+         所以每格给一条 45px 的占位，等于它替的那一格。 */
+      var skFoot = function () {
+        return '<div class="qc-ext"><span class="sk" style="height:45px;width:70%"></span>' +
+          '<span class="sk" style="height:45px;width:70%"></span>' +
+          '<span class="sk" style="height:45px;width:70%"></span></div>';
+      };
+      var skRich = function () {
+        /* ⚠️ 不加 has-foot：真卡里富卡与可用率卡都**没有**这个类
+           （它只给 Benchmark 那几张内容少的卡用）。多挂一个 has-foot 会让
+           .qc-ext 吃到 margin-top:auto，骨架的页脚被顶到卡底、多出 6px。 */
+        return '<div class="qc-card qc-card--rich">' +
+          '<div class="qc-ttl"><span class="sk" style="height:19px;width:56%"></span></div>' +
+          '<div class="qc-val"><span class="sk" style="height:25px;width:62%"></span></div>' +
+          /* ⚠️ 用真卡的 .qc-asof / .qc-spark 包一层，不要直接放裸 .sk：
+             这两段的高度里有**外边距**的贡献（.qc-asof margin-top:2px、
+             .qc-spark margin-top:8px），裸 span 拿不到那 10px ——
+             实测正是这 10px 让骨架比真卡矮一截。 */
+          '<div class="qc-asof"><span class="sk" style="height:14px;width:40%"></span></div>' +
+          '<div class="qc-chips"><span class="sk" style="height:21px;width:80%"></span></div>' +
+          '<div class="qc-spark"><span class="sk" style="height:26px"></span></div>' +
+          skFoot() +
+        '</div>';
+      };
+      /* 可用率卡与富卡同构（2026-10-01 起两者逐行对齐），所以骨架也同一套，
+         只在数据段少一条 —— 真卡里两者就是同样的分段。 */
+      var skAvail = skRich;
+      /* Benchmark 行的骨架卡。
+         ⚠️ 光"有 5 条灰条"是不够的：真卡的内部是一条**有固定高度的链**
+         （标题 21 + 数据行 41~74 + 走势 43 + 页脚 51 + 内边距 19 = 220px），
+         而灰条是固定 12px 高 + 外边距，5 条加起来只有 90px 上下。
+         实测：改之前骨架行 176px、真行 222px，**数据到位时整块往下弹 46px**
+         （2026-10-07 量到，与本次分组无关，是既有缺陷）。
+         这里按真卡的分段同构地补上对应节点（标题 / 两行数据 / 走势 / 三格页脚），
+         让骨架自己就有 220px 高。不去写死一个 min-height：
+         写死高度会在改真卡排版时立刻失配，而同构的节点会自己跟着长。
+         ⚠️ 类名复用真卡的 .bf-hd / .bf-rows / .qc-ext，**故意不新造一套** ——
+         新造一套就等于把"卡片内部长什么样"抄成两份，两边必然漂移。 */
+      var skBf = function () {
+        return '<div class="qc-card qc-card--bf has-foot">' +
+          '<div class="bf-hd"><span class="sk" style="height:21px;width:44%"></span></div>' +
+          /* 数据行按**最高的那一组**留位（Ookla 卡实测 74px）：
+             骨架阶段还不知道哪张卡会拿到几行数，取最高值即"最坏情况"，
+             保证数据到位只会变矮、不会把下面的内容顶下去。
+             Meta 41px / BP 19px 都比它矮，所以它们的数据到位时会有
+             一点向上的收缩 —— 这比"先矮后弹"好，因为下方的元素不会位移。 */
+          '<div class="bf-rows"><span class="sk" style="height:74px"></span></div>' +
+          '<span class="sk" style="height:43px;margin-top:auto"></span>' +
+          skFoot() +
+        '</div>';
+      };
+      /* 上排两组：富卡片（KPI_RICH）+ 可用率（KPI_AVAIL_ROWS）。 */
+      var skTop = DATA.KPI_GROUPS.map(function (g) {
+        return qcGroupHtml(g, g.items.map(g.id === 'rich' ? skRich : skAvail).join(''));
+      }).join('');
+      /* Benchmark 行的骨架屏（2026-10-01 加；2026-10-07 起是三个连体组）。
+         它**必须**在这里就画出来：这一行是四路请求里最慢的一路
+         （speedtest 与 bm-meta 各要跑几段 SQL），
+         若等数据回来才渲染，整块的高度会在数据到位那一刻往下弹一下。
+         ⚠️ 骨架的**组数与每组卡数**必须与真实行一致（3 / 2 / 1，共 6 张），
+         这样"骨架 → 数据"是替换而不是位移。
+         遍历 BF_GROUPS 而不是写死 3 组：将来一组卡增减时不会漏改骨架。 */
+      var skBfRow = DATA.BF_GROUPS.map(function (g) {
+        return qcGroupHtml(g, g.items.map(skBf).join(''));
+      }).join('');
       box.innerHTML = '<div class="band-h"><div class="band-txt"><div class="band-k" title="' +
         esc(t('kpi.sub')) + '">' + esc(t('kpi.title')) + '</div></div></div>' +
-        '<div class="qc-grid">' +
-          DATA.KPI_RICH.map(function () {
-            return '<div class="qc-card qc-card--rich"><span class="sk" style="width:56%"></span>' +
-              '<span class="sk v"></span><span class="sk s"></span><span class="sk"></span>' +
-              '<span class="sk s"></span></div>';
-          }).join('') +
-          DATA.KPI_AVAIL_ROWS.map(function () {
-            return '<div class="qc-card"><span class="sk" style="width:56%"></span>' +
-              '<span class="sk v"></span><span class="sk s"></span></div>';
-          }).join('') +
-        '</div>' +
-        /* Benchmark 行的骨架屏（2026-10-01 加，2026-09-30 起是 6 张）。
-           它**必须**在这里就画出来：这一行是四路请求里最慢的一路
-           （speedtest 与 bm-meta 各要跑几段 SQL），
-           若等数据回来才渲染，整块的高度会在数据到位那一刻往下弹一下。
-           骨架的卡数与列数必须与真实行一致（6 张，正好排满一行），
-           这样"骨架 → 数据"是替换而不是位移。
-           ⚠️ 两个数据源各出一个 map：真实行里两组卡也是分开渲染的
-           （见下方 renderKpi 的 KPI_SPEED / KPI_META），
-           骨架跟着同一结构走，将来一组卡增减时不会漏改骨架。 */
+        '<div class="qc-grid">' + skTop + '</div>' +
         '<div class="band-h"><div class="band-txt"><div class="band-k" title="' +
           esc(tf('kpi.bf.subBoth', { n: (k.speed && k.speed.days) || '—' })) + '">' +
           esc(t('kpi.bf.title')) + '</div></div></div>' +
-        '<div class="qc-grid">' +
-          DATA.KPI_SPEED.map(function () {
-            return '<div class="qc-card qc-card--bf"><span class="sk" style="width:44%"></span>' +
-              '<span class="sk s"></span><span class="sk s"></span>' +
-              '<span class="sk s"></span><span class="sk s"></span></div>';
-          }).join('') +
-          DATA.KPI_META.map(function () {
-            return '<div class="qc-card qc-card--bf"><span class="sk" style="width:44%"></span>' +
-              '<span class="sk s"></span><span class="sk s"></span>' +
-              '<span class="sk s"></span><span class="sk s"></span></div>';
-          }).join('') +
-        '</div>';
+        '<div class="qc-grid">' + skBfRow + '</div>';
       return;
     }
-    /* ---- ① 四张富卡片（olib 90 天经营看板，昨日完整值）---- */
-    var rich = DATA.KPI_RICH.map(function (spec) { return kpiRichHtml(spec, olibCard(spec.id)); }).join('');
-    /* ---- ② 三张 2G/3G/4G 当月可用率（2026-10-01 改为与左边富卡片同构）----
-       由 kpiCardHtml（简卡 + has-foot）换成 availRichHtml：结构与内容跟左边
-       三张经营卡逐行对齐（标题 / 大数字 / 日期 / 双徽章 / 趋势图 / Max·Avg·Min）。
-       可用率没有 WoW/MoM，徽章位置放真实的「目标阈值 + 距阈值差距」，
-       合规信息不丢失；底部 Max/Avg/Min 由 30 天逐日序列现算。 */
-    var avail = DATA.KPI_AVAIL_ROWS.map(function (spec) {
-      return availRichHtml(spec, availRow(spec.group));
+    /* ---- ① 四张富卡片 / ② 三张可用率卡：**各自成组**（2026-10-07 改）------
+        这两组去的 my_app 页面不同（vmaxCxoDashboard_90Days / avail_ms），
+        此前六张卡在同一个 .qc-grid 里平铺、外观一致，看不出"左三张一个入口、
+        右三张另一个入口"。现在各包一层 .qc-group，组头写明各自的目标看板。
+        渲染函数按组成员逐个调用对应的卡片函数：组成员来自 DATA.KPI_GROUPS.items
+        （引用 KPI_RICH / KPI_AVAIL_ROWS 本身），所以表里增删卡这里自动跟。 */
+    var richKinds = {
+      rich: function (spec) { return kpiRichHtml(spec, olibCard(spec.id)); },
+      avail: function (spec) { return availRichHtml(spec, availRow(spec.group)); }
+    };
+    var top = DATA.KPI_GROUPS.map(function (g) {
+      return qcGroupHtml(g, qcGroupCards(g, richKinds[g.id]));
     }).join('');
     /* 顶栏时间戳取 olib 的写入时间（富卡片的主数据源）。
        取 vmax 的话会显示另一个接口的时间，与卡上数字对不上。 */
@@ -2069,17 +2197,32 @@
        数据本身的时间口径（data_max_date）写在卡片的 tooltip 里。
 
        2026-09-30：这一行由 3 张变 6 张，后 3 张来自**另一个数据源**
-       （my_app bm_meta）。两组卡共用一个 .qc-grid（6 列正好排满一行），
-       所以标题的 tooltip 换成 kpi.bf.subBoth —— kpi.bf.sub 只说得清左 3 张，
-       挂在整行标题上会让人以为 6 张都是 Ookla 的数。 */
+       （my_app bm_meta）。标题的 tooltip 换成 kpi.bf.subBoth ——
+       kpi.bf.sub 只说得清左 3 张，挂在整行标题上会让人以为 6 张都是 Ookla 的数。
+
+       2026-10-07：本行改成**三个连体卡组**（3 + 2 + 1）。三个组的目标页
+       **互不相同**（bm_speedtest / bm_meta / bp_report），所以"这一行去几个
+       页面"这件事此前完全看不出来；连体组 + 组头链接就是为它而加的。
+       ⚠️ 组内"连体"（共享外框、只在相邻处留一条细缝）而组间留正常栅格间距 ——
+       这件事必须一眼看得出，光靠间距大小是看不出的。 */
     var bf = '';
     if (hasS || hasM || !k.loading) {
+      /* 组成员逐个交给对应的卡片函数。KPI_META 现在只有 speed / scores 两项
+         （BP 已拆到 KPI_META_BP），所以 meta 组是 2 张、bp 组是 1 张。
+         ⚠️ speed / meta / bp 三组用的是**两种**卡片函数，但 meta 与 bp
+         都走 metaCardHtml —— 差别在处理数据，不在画法。 */
+      var bfKinds = {
+        speed: function (spec) { return speedCardHtml(spec); },
+        meta: function (spec) { return metaCardHtml(spec); },
+        bp: function (spec) { return metaCardHtml(spec); }
+      };
       bf = '<div class="band-h"><div class="band-txt"><div class="band-k" title="' +
           esc(tf('kpi.bf.subBoth', { n: (k.speed && k.speed.days) || '—' })) + '">' +
           esc(t('kpi.bf.title')) + '</div></div></div>' +
         '<div class="qc-grid">' +
-          DATA.KPI_SPEED.map(function (spec) { return speedCardHtml(spec); }).join('') +
-          DATA.KPI_META.map(function (spec) { return metaCardHtml(spec); }).join('') +
+          DATA.BF_GROUPS.map(function (g) {
+            return qcGroupHtml(g, qcGroupCards(g, bfKinds[g.id]));
+          }).join('') +
         '</div>';
     }
     box.innerHTML =
@@ -2101,7 +2244,7 @@
           '<span class="qc-when">' + esc(t('kpi.updated').replace('{t}', stamp)) + '</span></span>' : '') +
         '<button type="button" class="gb" data-act="kpi-reload" title="' + esc(t('kpi.retry')) + '">' +
           ic('refresh') + esc(t('kpi.retry')) + '</button>' +
-      '</div><div class="qc-grid">' + rich + avail + '</div>' + bf;
+      '</div><div class="qc-grid">' + top + '</div>' + bf;
   }
 
   /* ==================================================================== v1 ==
@@ -2487,9 +2630,11 @@
      my_app 侧认这个参数判定「处于门户内嵌上下文」（2026-09-29 起主要用于
      隐藏 my_app 自己那套工具栏/KPI，见 mw_real_time.html 的 html.mw-embed 规则）。
      ⚠️ 它**不再**影响滚轮缩放：原先 MapWheelZoomOnClick.tsx 靠它决定
-     「点击后才允许滚轮缩放」，该组件已于 2026-09-29 按用户要求删除，
-     现在三种场景一律直接滚轮缩放。参数本身仍必须带 —— 去掉会让内嵌页
-     把自己的 header/KPI 一起显示出来。
+     「点击后才允许滚轮缩放」，该组件已于 2026-09-29 按用户要求删除；
+     内层页本身现在一律允许滚轮缩放。门户这一侧**自己**在 2026-10-22 加了
+     「缩放锁」（默认锁定）来挡误触，见下方 applyMapWheelLock 整段说明 ——
+     两者互不相关：内层页放行，锁是门户在外面施加的。
+     参数本身仍必须带 —— 去掉会让内嵌页把自己的 header/KPI 一起显示出来。
      **这两页都不接受 msportal-embed / msportal-theme 消息**，
      所以主题只能靠 URL 的 theme= 带一次。
 
@@ -2592,10 +2737,9 @@
       '</div>' +
       /* 工具按钮独立成 .map-tools：与页签分开，才能让页签真正居中而按钮仍贴右。
          2026-09-29 用户要求「reload 和 openlink 放到最右边」——这条继续成立。 */
-      '<div class="map-tools">' +
-      '<button type="button" class="gb gb--t" data-act="map-reload" title="' + esc(t('map.reload')) + '"><i class="ph ph-arrow-clockwise"></i><span>' + esc(t('map.reload')) + '</span></button>' +
-      '<a class="gb gb--t" id="mapOpen" href="' + esc(mapSrc()) + '" target="_blank" rel="noopener noreferrer" title="' + esc(t('map.open')) + '"><i class="ph ph-arrow-square-out"></i><span>' + esc(t('map.open')) + '</span></a>' +
-      '</div></div>';
+      /* 整段由 mapToolsHtml() 产出（2026-10-22）：缩放锁切换时要就地替换这一段，
+         留在 inline 会变成两份、改一处走样。 */
+      mapToolsHtml() + '</div>';
   }
 
   /* 地图容器渲染：把内嵌面板写进 #l0Map。
@@ -3033,7 +3177,6 @@
     }, t('edit.grpOk'));
   }
 
-
   /* ---- 一级分组定义：2026-09-22 起随目录一起落盘，改名/新增/删除都是全局的 ---- */
   /* id 一旦定下就不再改：item.groups、order 的键、subGroups 的键全都按 id 引用。
      改名只动 zh/en/subZh/subEn，所以一处改名不会把三处引用打断（与子分组同一规则）。 */
@@ -3261,7 +3404,6 @@
     delete c.subOf; delete c.boSub; delete c.qc; delete c.custom;
     commit(function () { applyItems(itemsAll().concat([c])); }, t('edit.itemAdded'));
   }
-
 
   /* ------------------------------------------------ 编辑态：拖拽 / 浮层 -- */
   /* 拖拽有三种落点，语义互不重叠：
@@ -3950,7 +4092,6 @@
     return { html: '<div class="subs-v is-mgr">' + html + '</div>', list: list };
   }
 
-
   /* ------------------------------------------------- L1 页签面板（v1 已去掉） --
      ⚠️ 这里原本是 renderViews()：MS / FLM / FO / BO 四个分组各一个页签、
      一次只展开一组，面板里按子分组再叠一行轻量子页签，最右边固定一颗
@@ -3971,7 +4112,6 @@
        · 编辑模式下的卡片级操作（改名 / 删除 / 新增看板 / 分子分组）——
          onEditClick 的委托原本只挂在 #views 与 #l0 上，现在没有可编辑对象了。
          目录编辑仍可在 /olbrportal/ 与 MsPortal 里做。 */
-
 
   /* ---------------------------------------------------- 报告文件内嵌页签 --
      四条规矩从 MsPortal 的同名卡照搬（那边实测踩出来的，换门户不换个道理）：
@@ -6083,6 +6223,174 @@
     })();
     return true;
   }
+  /* ------------------------------------------------- 地图滚轮缩放锁（2026-10-22）--
+     需求：用户在门户里往下滚页面时，滚轮一旦划过内嵌地图就被 Leaflet 吃掉
+     （变成缩放地图），页面卡住不动 —— 用户原话「鼠标下滑的时候容易出现在地图里面下滑」。
+
+     为什么选「工具栏开关」而不是「点击激活」：
+       · 点击激活（内嵌时默认关、点一下地图才开、鼠标移出又收回）**本项目做过又删了** ——
+         my_app 的 MapWheelZoomOnClick 组件，2026-09-29 按用户要求整体撤销
+         （GISMap.tsx:1157 与 olbr.js 上方 mapSrc() 那段注释都留了记录）。
+         再上等于把同一个决定来回翻第二次。
+       · 更要紧的是**语义撞车**：这两个地图页的主交互就是「点站点弹窗 / 点链路下钻」，
+         左键点击已经被占用了，再让它兼职"开启滚轮缩放"，用户点开一个弹窗回来
+         发现滚轮又失灵，只会觉得坏了。
+       · 开关是**显式且可记忆**的：锁定态下滚动永远滚页面，要精细浏览时自己解锁一次，
+         之后一直有效 —— 不需要每看一次地图就点一次。
+
+     实施的两条路**都要走**（缺一不可）：
+       ① 实例路：`map.scrollWheelZoom.disable()` —— Leaflet 官方开关，最干净。
+          但已知 gis（= 界面上的 "Alarm" 页签）**可能拿不到实例**（见 findLeafletMap
+          上方那段实测），此时这条静默失败。
+       ② 拦截路：在内层 document 上挂 **capture 阶段**的 wheel 监听，
+          `preventDefault` + `stopImmediatePropagation`，把事件挡在 Leaflet 自己的
+          处理器之前。不依赖任何实例，两页通用 —— 这是 ① 拿不到实例时的退路。
+          两路同时存在不会重复：① 关掉后 Leaflet 自己的处理器不动，② 只是兜底。
+
+     ⚠️ 两个不做就会静默失效的点（改之前先读）：
+       a. **必须 `{ passive: false }`**。Chrome 把 document/window 上的 wheel/touch
+          监听默认当 passive，passive 监听里调 preventDefault 会被忽略
+          （控制台只留一行 "Unable to preventDefault inside passive event listener"），
+          表现是"锁了但地图照样缩放"。
+       b. **光拦不够，还要把滚动还给最外层门户窗口**。内层页被 stripFrame 刷成
+          `overflow:hidden`（见 keepOnlyMap），本身的滚动容器已经没有了；
+          拦掉滚轮只是"地图不缩放"，页面**不会**因此自己往下走 ——
+          必须由本函数把 deltaY 转交给外层窗口的 scrollBy（见 outerScrollWindow）。
+
+     ⚠️ 为什么必须**反复重新施加**：iframe 一重载（切页签 / Reload / 主题切换重设 src），
+        内层 document 和地图实例全换成新的，之前挂的监听器与 disable 一起蒸发。
+        所以 applyMapWheelLock 挂在 stripFrame 的**每一个**时机后面（0 / 1.4 / 3.4s），
+        而不是只在 wireMap 里调一次 —— 只调一次的表现是"锁了又自己开了"。
+
+     ⚠️ 但**光靠 stripFrame 还不够**（2026-10-22 实测踩到）：stripFrame 只在
+        0 / 1.4 / 3.4 秒这几个**固定时刻**跑，而 MW 页是三层嵌套
+        （门户 → React 壳 → mw_real_time.html），三层各自还要跑 React 挂载与地图初始化；
+        点「重新加载」之后，最内层那个 document 往往在这三个时刻**都还没被创建出来**
+        （实测：三个时刻过后内层 document 上 data-olbr-wheel-lock 仍是 null，
+        地图照常缩放，而按钮还显示"已锁定" —— 界面在说谎）。
+        所以另有 keepMapWheelLock() 的定时补施加兜底（见下），它只认状态、不管时机。
+        两处都保留：stripFrame 那条负责"第一时间生效"，定时那条负责"最终一定生效"。
+
+     ⚠️ 刻意**不拦**的：双击缩放、+/- 按钮、拖拽平移全都不动。锁定的只是"滚轮"这个
+        最容易误触的通道，地图本身的功能一个没少。 */
+  var MAP_WHEEL_LOCK_MARK = '__olbrWheelLock';
+  /** 取「真正该滚动的那个窗口」= 最外层门户窗口。
+      ⚠️ 不能直接用监听器所在的 window：监听器挂在内层 iframe 的 document 上，
+        那里的 window 是内层页自己的 —— 它被 keepOnlyMap 刷成 overflow:hidden，
+        scrollBy 上去一动不动（实测过：拦住了缩放，页面却不走）。
+        MW 页是**双层** iframe（门户 → React 壳 → mw_real_time.html），
+        中间那层同样不可滚，所以必须一路走到顶。 */
+  function outerScrollWindow(f) {
+    var w = null;
+    try { w = f && f.ownerDocument && f.ownerDocument.defaultView; } catch (e) { return null; }
+    if (!w) return null;
+    while (w.parent && w.parent !== w) {
+      /* 同源才能继续往上；跨域访问 parent.document 会抛，抛了就停在当前层。 */
+      try { if (!w.parent.document) break; w = w.parent; } catch (e) { break; }
+    }
+    return w;
+  }
+  /** 锁定（true）/ 解锁（false）地图滚轮缩放。lock 省略时以 state.mapWheelLock 为准。 */
+  function applyMapWheelLock(f, lock) {
+    var on = lock == null ? state.mapWheelLock : !!lock;
+    var d = null;
+    try { d = f && f.contentDocument; } catch (e) { /* 跨域静默 */ }
+    if (!d || !d.documentElement) return;
+    var map = findLeafletMap(d);
+    if (map && map.scrollWheelZoom) {
+      try {
+        if (on) map.scrollWheelZoom.disable(); else map.scrollWheelZoom.enable();
+      } catch (e) { /* 落到拦截路 */ }
+    }
+    /* 拦截路：挂在内层 document 上，capture 先于 Leaflet 容器上的处理器执行。
+       用标记位保证同一个 document 只挂一次 —— stripFrame 会在 0/1.4/3.4s 反复跑，
+       重复 addEventListener 是**不同函数对象**，浏览器不去重，会挂三层。 */
+    if (!d[MAP_WHEEL_LOCK_MARK]) {
+      var h = function (ev) {
+        /* 每次都读最新状态：解锁后不移除监听器，只是放行 —— 省掉"移除/重挂"这对
+           容易漏掉一半的操作（漏掉移除 = 解锁了仍被拦）。 */
+        if (!state.mapWheelLock) return;
+        /* 只拦**纯滚轮**。按住 Ctrl/⌘ 的滚轮是浏览器/触控板的"缩放页面"手势，
+           拦下来会让手势失效且没有任何替代，故放行（交给内层页自己的行为）。 */
+        if (ev.ctrlKey || ev.metaKey) return;
+        /* 把滚动还给**最外层门户窗口**（内层滚不动，见 outerScrollWindow 的说明）。
+           deltaMode：0=像素（Chrome 鼠标/触控板），1=行，2=页。 */
+        var dy = ev.deltaMode === 1 ? ev.deltaY * 16 : ev.deltaMode === 2 ? ev.deltaY * 100 : ev.deltaY;
+        var out = outerScrollWindow(f);
+        if (out && dy) {
+          try { out.scrollBy(0, dy); } catch (e) { /* ignore */ }
+        }
+        ev.preventDefault();
+        ev.stopImmediatePropagation();
+      };
+      d[MAP_WHEEL_LOCK_MARK] = h;
+      /* ⚠️ passive:false 是必需的（见上方要点 a）：不加就拦不住 Leaflet。 */
+      try { d.addEventListener('wheel', h, { capture: true, passive: false }); } catch (e) { /* ignore */ }
+    }
+    /* 排查标记：控制台看 document.documentElement 的 data-olbr-wheel-lock 就知道
+       当前施加的是哪一态（值为 '1' 锁定 / '0' 解锁）。 */
+    try { d.documentElement.setAttribute('data-olbr-wheel-lock', on ? '1' : '0'); } catch (e) { /* ignore */ }
+  }
+  /* 定时补施加（自愈）。为什么需要它，见上方「光靠 stripFrame 还不够」那段实测。
+     做法：每 2 秒把**当前**的地图 iframe 树扫一遍，对每个还没被标记过的 document
+     补挂监听器并 disable 实例。开销极小（applyMapWheelLock 内部有标记位，
+     已挂过的 document 直接跳过；典型只有 1~3 个 document）。
+     ⚠️ 只有**锁定**态才需要它：解锁态下"没被施加"= 本来就要的效果，不必空转。
+     ⚠️ 它不重建、不重载任何东西，纯粹是幂等地重放一次开关状态。 */
+  var mapLockTimer = null;
+  function sweepMapWheelLock() {
+    if (!state.mapWheelLock) return;
+    var f = $('#mapFrame');
+    if (!f) return;
+    applyMapWheelLock(f);
+    /* MW 页的深层 iframe：逐层往下补（与 stripFrame 同样的两层上限，
+       超过两层就不是地图页了）。 */
+    var walk = function (frame, depth) {
+      if (depth > 2) return;
+      var d = null;
+      try { d = frame.contentDocument; } catch (e) { return; }
+      if (!d) return;
+      applyMapWheelLock(frame, true);
+      Array.prototype.forEach.call(d.querySelectorAll('iframe'), function (inner) {
+        walk(inner, depth + 1);
+      });
+    };
+    walk(f, 0);
+  }
+  function startMapWheelLockTimer() {
+    if (mapLockTimer) return;
+    mapLockTimer = window.setInterval(sweepMapWheelLock, 2000);
+  }
+  /* 切换开关：写盘 → 立刻施加到当前 iframe → 重画工具条（图标与 title 要跟着变）。
+     不重建 iframe（renderL0 不给 keepMap）—— 重建会让地图重载几十秒，
+     见 renderL0 上方「快速路径」那段实测。 */
+  function toggleMapWheelLock() {
+    state.mapWheelLock = !state.mapWheelLock;
+    ss('olbr.mapwheellock', state.mapWheelLock ? '1' : '0');
+    var f = $('#mapFrame');
+    if (f) applyMapWheelLock(f);
+    /* 解锁时立刻把内层实例**真的**恢复滚轮缩放：applyMapWheelLock 里那条
+       `enable()` 已覆盖，这里只是再扫一遍深层 iframe（MW 三层嵌套），
+       让"点了解锁马上就能滚"没有延迟。 */
+    if (!state.mapWheelLock) sweepMapWheelLock();
+    /* 只换工具条那一段：p-head 是 renderL0 / 快速路径共用的同一份 HTML，
+       整块 innerHTML 重写会影响页签的选中态与改名铅笔，故就地替换 .map-tools。 */
+    var box = $('#l0Map .map-tools');
+    if (box) box.outerHTML = mapToolsHtml();
+  }
+  /* 工具条单独抽出来：toggleMapWheelLock 要就地替换它，而 mapHeadHtml 还被
+     renderL0 与快速路径共用 —— 抽出来才能两处都只写一份。 */
+  function mapToolsHtml() {
+    var on = state.mapWheelLock;
+    return '<div class="map-tools">' +
+      '<button type="button" class="gb gb--t' + (on ? '' : ' unlocked') + '" data-act="map-zoomlock" aria-pressed="' +
+      (on ? 'true' : 'false') + '" title="' + esc(t(on ? 'map.zoomlockOn' : 'map.zoomlockOff')) + '">' +
+      '<i class="ph ' + (on ? DATA.PH.lock : DATA.PH['lock-open']) + '" aria-hidden="true"></i>' +
+      '<span>' + esc(t('map.zoomlock')) + '</span></button>' +
+      '<button type="button" class="gb gb--t" data-act="map-reload" title="' + esc(t('map.reload')) + '"><i class="ph ph-arrow-clockwise"></i><span>' + esc(t('map.reload')) + '</span></button>' +
+      '<a class="gb gb--t" id="mapOpen" href="' + esc(mapSrc()) + '" target="_blank" rel="noopener noreferrer" title="' + esc(t('map.open')) + '"><i class="ph ph-arrow-square-out"></i><span>' + esc(t('map.open')) + '</span></a>' +
+      '</div>';
+  }
   function stripFrame(f, depth) {
     depth = depth || 0;
     try {
@@ -6091,6 +6399,9 @@
       var s = d.getElementById('olbrStrip');
       if (!s) { s = d.createElement('style'); s.id = 'olbrStrip'; d.head.appendChild(s); }
       if (s.textContent !== DATA.MAP_STRIP_CSS) s.textContent = DATA.MAP_STRIP_CSS;
+      /* 缩放锁：只要拿到 document 就先挂一次拦截路（不依赖地图有没有挂载），
+         下面拿到实例再补①那条路。见 applyMapWheelLock 上方的说明。 */
+      applyMapWheelLock(f);
 
       if (d.querySelector('.leaflet-container')) {
         if (depth > 0) keepOnlyMap(d);
@@ -6099,6 +6410,8 @@
         setTimeout(function () { invalidateLeaflet(d); }, 400);
         setTimeout(function () { invalidateLeaflet(d); }, 1200);
         zoomOnce(d);
+        /* 地图实例到位之后再补一次：这次能把 scrollWheelZoom 真正 disable 掉。 */
+        applyMapWheelLock(f);
         return;
       }
       if (depth >= 2) return;
@@ -6396,7 +6709,15 @@
         openForm('maptab', DATA.RENAME_HEAD, e.target.closest('[data-act="map-head"]'));
         return;
       }
-      if (e.target.closest('[data-act="map-reload"]')) { var f = $('#mapFrame'); if (f) f.src = mapSrc(); }
+      if (e.target.closest('[data-act="map-reload"]')) {
+        var f = $('#mapFrame'); if (f) f.src = mapSrc();
+        /* 重载后的内层 document 是新的，锁要重新施加 —— 由 wireMap 的 load 钩子
+           里的 stripFrame → applyMapWheelLock 负责，这里不用再调一次。 */
+        return;
+      }
+      /* 缩放锁：编辑态下也照常可用 —— 它只改**本机的**滚轮行为，不写共享目录，
+         与"编辑态点页签=改名"那套让路规则无关，故放在 canEdit() 判断之外。 */
+      if (e.target.closest('[data-act="map-zoomlock"]')) { toggleMapWheelLock(); return; }
     };
     $('#l0Map').addEventListener('click', mapClick);
     /* v1：报告文件的「刷新」委托从 #views 搬到 #emailSlot。
@@ -6634,6 +6955,11 @@
     mainLocked(true);
     bind();
     tick(); window.setInterval(tick, 1000);
+    /* 缩放锁的自愈定时器：与地图是否已经渲染无关，只管每 2 秒把"锁定"这个状态
+       补施加到当前存在的 iframe 树上（解锁时它自己空转，见 sweepMapWheelLock）。
+       放这里而不是 wireMap 里：地图会被重建（切页签 / 换主题），wireMap 也会重跑，
+       定时器必须只有**一个**。 */
+    startMapWheelLockTimer();
     envBadge();
     probe().then(function () {
       if (!state.authOk) { renderGate(); return; }

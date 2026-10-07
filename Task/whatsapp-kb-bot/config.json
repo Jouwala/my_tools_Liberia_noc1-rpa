@@ -56,6 +56,20 @@
   "pendingText": "正在查知识库和工单库，请稍等，马上回复你～",
   "pendingTextEn": "Searching the knowledge base and ticket DB — will get back to you in a moment.",
 
+  "$toolsEnabled": "工具路由：提问先判断该「查数据」还是「查资料」，再执行。解决「今天有P1吗」被当成知识问题塞进向量检索、答非所问的问题（2026-10-06 实测）。参数抽取分两层：规则能定的（单号/日期/级别）就不花模型调用，定不了才让模型选工具。置 false 回到改造前的纯知识库行为。",
+  "toolsEnabled": true,
+
+  "$myAppApiBase": "my_app 后端地址。工单**聚合统计**优先走它的 HTTP 接口（生产库 PostgreSQL，实时）；my_app 没起或超时时自动降级到本机 SQLite 副本（scripts/tt-query.py）。留空则直接走 SQLite。改端口看 Task/my_app/AGENTS.md 第七节。",
+  "myAppApiBase": "http://127.0.0.1:7038",
+  "$ttStatsTimeoutMs": "聚合查询的 HTTP 超时。overview 要出全量统计，比单票查询慢；超时即降级到 SQLite，不重试（用户在群里等着，重试一次等于双倍等待）。",
+  "ttStatsTimeoutMs": 15000,
+  "$ttStatsHttp": "是否启用 HTTP 聚合通道。置 false 只用本地 SQLite 副本（口径一致、零外部依赖，但数据有同步延迟）。",
+  "ttStatsHttp": true,
+  "$ttStatsSampleLimit": "统计回复里附的样例单号条数。给单号是为了让用户能直接点开/复查，不是列清单，多了会挤爆聊天窗口。",
+  "ttStatsSampleLimit": 3,
+  "$ttStatsListLimit": "用户**点名要单号**时（「请输出TT单的ID」）最多列几条。比 ttStatsSampleLimit 宽松，但仍有上限——本月 P2 有几百条，全列会刷屏；超出部分回复里会写明「还有 N 单未列出」。",
+  "ttStatsListLimit": 10,
+
   "$ttLiveFallback": "工单实时兜底：本地 app.db 查不到单号时（数据还没同步过来），改去 eFlow 实时按单号拉这一单。实现见 scripts/eflow-live-tt.py —— 它复用 my_app 的 fetch_tt_live，凭据也只读 my_app 那一份（backend/services/eflow_config.json 与 EFLOW_* 环境变量），机器人侧不另存密码。桥接脚本会自己探测一个装齐 pandas + sqlalchemy 的解释器；探测不到就优雅降级回「本地库没有找到」，绝不影响本地查询。置 false 关闭实时兜底。",
   "ttLiveFallback": true,
   "$ttLiveTimeoutMs": "实时查询超时（毫秒）。比本地宽松：要探测解释器 + 登录 eFlow（OAuth2+RSA）+ 分页扫描。可用环境变量 TT_LIVE_TIMEOUT_MS 覆盖。",

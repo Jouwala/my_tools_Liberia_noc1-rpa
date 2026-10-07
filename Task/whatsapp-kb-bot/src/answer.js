@@ -5,16 +5,18 @@
  * 命令行测试工具就绕过了它，导致「测出来的行为」不等于「群里的行为」。
  * 抽到一处后，`npm run ask` 复现的就是线上路径。
  *
- * 两条通道：
+ * 三条通道（由 src/tools.js 的工具路由决定走哪条）：
  *   ① 消息里带 TT 单号 → 实时查 my_app 工单库。
  *      这类问题问的是「这一单现在什么情况」，答案在库里而不在语料里，
  *      塞进知识库只会变成过期快照。
- *   ② 其余 → 知识库向量检索。
+ *   ② 区间统计（今天几个 P1 等）→ 工单聚合查询（src/ttquery.js）。
+ *      答案同样是数据，不是语料。这条通道 2026-10-06 新增 ——
+ *      此前这类问题被当成知识问题塞进向量检索，模型只能答「资料里没有实际工单数据」。
+ *   ③ 其余 → 知识库向量检索。
  */
 import { CONFIG } from './config.js';
 import { detectLang } from './lang.js';
-import { answer as ragAnswer } from './rag.js';
-import { extractTtNos, analyzeTickets } from './tt.js';
+import { routeWithTools } from './tools.js';
 
 /**
  * @param {string} question  用户原始问题
@@ -36,40 +38,40 @@ export async function routeAnswer(question, index, { onDebug, onRoute, onRetry, 
   // 另外还有几句**不经过模型**的固定回复（未命中 / 排队 / 故障 / TT 失败），
   // 它们只能靠调用方按语言取文案（pickText）—— 改 prompt 管不到。
   const replyLang = lang || detectLang(question);
-  const ttNos = extractTtNos(question);
+  const t0 = Date.now();
 
-  if (ttNos.length) {
-    const t0 = Date.now();
-    const r = await analyzeTickets(question, { lang: replyLang, onRetry, onLive });
-    const ms = Date.now() - t0;
-    onRoute?.({
-      channel: 'tt',
-      ttNo: ttNos[0],
-      ttNos: r.ttNos,
-      count: r.total,
-      okCount: r.okCount,
-      ms,
-      ok: r.ok,
-      lang: replyLang,
-    });
-    return {
-      text: r.text,
-      answered: r.ok,
-      channel: 'tt',
-      stats: { totalMs: ms, outputTokens: null },
-    };
-  }
+  const result = await routeWithTools(question, index, {
+    lang: replyLang,
+    onDebug,
+    onRetry,
+    onLive,
+  });
 
-  const result = await ragAnswer(question, index, { onDebug, lang: replyLang });
-  onRoute?.({ channel: 'kb', lang: replyLang });
-  return { ...result, channel: 'kb' };
+  const ms = Date.now() - t0;
+  onRoute?.({
+    channel: result.channel,
+    tool: result.tool,
+    via: result.via,
+    ms,
+    ok: result.answered,
+    lang: replyLang,
+  });
+  return { ...result, stats: { ...(result.stats || {}), totalMs: ms } };
 }
 
 /** 给日志/输出用的一行描述。 */
 export function describeRoute(r) {
+  const ms = r.stats?.totalMs != null ? `，${r.stats.totalMs}ms` : '';
+  const via = r.via ? `｜路由=${r.via === 'rule' ? '规则' : '模型'}` : '';
+  const tool = r.tool ? `｜工具=${r.tool}` : '';
+
   if (r.channel === 'tt') {
     const multi = r.stats?.count > 1 ? `，${r.stats.count} 个单` : '';
-    return `通道=TT单（实时查工单库${multi}${r.stats?.totalMs != null ? `，${r.stats.totalMs}ms` : ''}）`;
+    return `通道=TT单（实时查工单库${multi}${ms}）${via}${tool}`;
   }
-  return `通道=知识库（${CONFIG.embedModel} 嵌入 + 混合检索）`;
+  if (r.channel === 'stats') {
+    const src = r.stats?.source === 'http' ? 'my_app HTTP（PG 实时）' : '本地 SQLite 副本';
+    return `通道=工单统计（${src}${ms}）${via}${tool}`;
+  }
+  return `通道=知识库（${CONFIG.embedModel} 嵌入 + 混合检索${ms}）${via}${tool}`;
 }

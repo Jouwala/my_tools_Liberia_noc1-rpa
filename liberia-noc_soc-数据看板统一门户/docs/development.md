@@ -216,7 +216,7 @@ var seq = ++qcDrillSeq;
 | `_probe_v6_headref.cjs` | 纯只读（除一次改名并复原）：采样「改分组名后列标题何时刷新」，用于排查渲染时机 | **会写**（自带复原） |
 | `_shot_v1_editgrp2.cjs` | 只读 + 切一次编辑模式，出两张截图 `_shot_v1_ro.png` / `_shot_v1_ed.png` 供人眼复核 | 不写 |
 | `_probe_bf_shot.cjs` | **起一个本地预览服务**（18099 端口，静态发 `/v1/olbrportal/` + 反代 `/api/` 到 7038）。上面 5 个 `_probe_bf_*` 里的 4 个都要先跑它。后台起、用完 kill | 不写 |
-| `_probe_bf_vert.cjs` | **Network Benchmark 行六张卡的走势图对齐**（2026-10-01 那次修复的主探针）。量每张卡「图相对卡顶的偏移」并按**栅格行分组**判定（窄断点 `.qc-grid` 折成 3/2 列，跨行比较无意义）。支持 `PROBE_WIN` / `PROBE_LANG` 环境变量遍历视口与语言 | 不写 |
+| `_probe_bf_vert.cjs` | **Network Benchmark 行六张卡的走势图对齐**（2026-10-01 那次修复的主探针）。量每张卡「图相对卡顶的偏移」并按**栅格行分组**判定（窄断点 `.qc-grid` 折成 3/2 列，跨行比较无意义）。支持 `PROBE_WIN` / `PROBE_LANG` 环境变量遍历视口与语言。✅ 2026-10-07 `#kpi` 两排改成连体卡组（`.qc-group` > `.qc-group-b` > `.qc-card`）后**本探针仍然可用**：它按 `.qc-card--bf` 选卡、按卡片自身 `top` 分行（不是按 DOM 父子关系取行），分组不改变这两件事。同批 `_probe_bf_css / _shot / color / render / spark / line / api` 也都是按 `.qc-card--bf` 或类名选元素的，同样不受影响 | 不写 |
 | `_probe_bf_css.cjs` | 上一条的**结构版**：打印每张卡的「卡头 / 数据区 / 图 / 页脚」四段实测高度与卡片 padding。三个 `min-height`（42 / 74 / 82.5px）就是照它填的 —— **改了字号或内边距后必须重跑它重取这三个值** | 不写 |
 | `_probe_bf_render.cjs` | 从 `olbr.js` 里 eval 出 `benchSpark` / `metaSpark`，喂真实接口数据，断言双线层数 / 图例 / tooltip 文案 / 降级行为（数据不足返回空串） | 不写（只读接口） |
 | `_probe_bf_color.cjs` | Orange 橙线 / MTN 黑线的令牌与 WCAG 对比度（浅色 `#f97316`/`#1a1a1a`、深色 `#fb923c`/`#e8eaf0`），断言无 `--b`、无旧紫 `#7c3aed` 残留 | 不写 |
