@@ -66,6 +66,65 @@
 
 **约定：动态 eFlow 表不进 migration**（`0001_baseline.py:13-15`）。这类表由采集任务在运行时按上游字段自行建表，因此 `alembic upgrade head` 之后表数量少于页面上看到的表数量是**正常现象**，不是迁移失败。
 
+### ⚠️ 动态表的唯一约束从哪来（upsert 的隐含前提）
+
+`dialect_helpers.upsert` 的 PG 分支生成 `INSERT ... ON CONFLICT (cols) DO UPDATE`，
+**要求 `cols` 上真的存在主键或唯一索引**，否则 PG 直接报
+`没有匹配 ON CONFLICT 说明的唯一或者排除约束`（2026-10-07 实测确认过该文案）。
+
+SQLite 分支是 `INSERT OR REPLACE`，**不要冲突目标也照样工作**——所以
+**只跑 SQLite 的测试永远发现不了这类缺陷**。这正是 2026-10-07 `tt_alarm` 线上故障
+（`eflow_tt_whatsapp_alert_log` 老表无约束）能潜伏的原因。动态表加约束有两条路：
+
+| 方式 | 代表 | 说明 |
+| --- | --- | --- |
+| **DDL 带约束**（推荐） | `ran_ume_network_kpi.py:964` 的 `PRIMARY KEY ("Begin Time","Group")` 写在 `CREATE TABLE` 里；`ms_sla_dashboard.py:80-98` 同理 | 新表天然正确。**但 `CREATE TABLE IF NOT EXISTS` 对已存在的表是 no-op**，不会给老表补约束 |
+| **upsert 前显式建唯一索引** | `ipran_ume_kpi_service.py:998`、`mw_ume_kpi_service.py:848`、`ms_sla_sync.py:323`、`ran_ume_network_kpi.py`（PK 路径）、`sp_online_sync.py:433`、`sp_material_sync.py:273`、`sync_from_eflow_api.py:340` | 一律「**先删历史重复行 → DROP 旧同名索引 → CREATE UNIQUE INDEX**」，三件套缺一不可（`sp_material_sync.py:249` 写明：不先清重复行，`CREATE UNIQUE INDEX` 会直接报错） |
+| **运行时补约束**（唯一一处） | `tt_alarm_store.py:186` 的 `_ensure_pk_constraint`，调用点 :304 | 全仓仅此一处「表已存在时补约束」的补丁式写法，因为线上表已经存在且无约束。属历史补救，**新代码不要模仿**，优先用 DDL 带约束 |
+
+> **2026-10-07 全量核对结果**：对全部 15 个 upsert 目标表在 PG 实库上逐个执行
+> `INSERT ... ON CONFLICT (冲突列) DO NOTHING`（`EXPLAIN`，事务内回滚，零数据改动），
+> **15/15 全部通过**，无缺约束的表。涉及 `battery_trend`、`site_pl_summary`、
+> `task_schedule_config`、`pl_meta`(在 `lte_pl` schema)、`eflow_tt_whatsapp_alert_log`、
+> `portal_qc_snapshot`、`ms_sla_kpi`/`_wo`/`_meta`(在 `ms_sla_dashboard` schema)、
+> `ran_ume` 的 4 张 `*_OLIB_Network_KPIs`、`sp_material`、`ume_in_customer_kpi`。
+> 复现方式见下方"新增 upsert 目标前的自检"。
+
+> **`ms_sla_*` 与 `pl_meta` 不在 `app` schema**：前者在 `ms_sla_dashboard`
+> （由 `ms_sla_dashboard.py:113` 显式建 schema），后者在 `lte_pl`。
+> **这两个 schema 都不在 search_path 上**，因此用
+> `table_schema = ANY(current_schemas(false))` 这类查法会**误报"表不存在"**——
+> 核对时请按表名全库扫描，别只查 search_path。
+
+### 已知遗留：`ms_sla_sync` 索引创建失败的降级路径
+
+`ms_sla_sync.py:308-327` 把「清重复行 + 建唯一索引」整段包在 `try` 里，
+异常只记 `[SILENT-EXCEPT]` warning 并 `conn.rollback()`，**但没有清空 `pk_cols_db`**；
+随后 `:342` 判断 `if pk_cols_db:` 仍为真，`:345` 照常调用
+`upsert(..., conflict_cols=pk_cols_db)`。若索引因故没建成，这里会抛出
+「没有匹配 ON CONFLICT 说明的唯一或者排除约束」，而**真正的原因（建索引失败）
+已被上面的 except 吞掉**，排查时容易被误导。
+
+触发条件苛刻（需要 `CREATE UNIQUE INDEX` 失败，而前置的清重复行已成功），
+**当前线上未发生**，故未改动；改这个模块时应在 except 里同时置 `pk_cols_db = []`
+把写入降级为纯 INSERT，与 `:301` 已有的降级写法保持一致。
+
+### 新增 upsert 目标前的自检
+
+写新的 `upsert(..., conflict_cols=[...])` 前，用这条 SQL 确认约束存在
+（把 schema/表/冲突列替换掉）：
+
+```sql
+SELECT pg_get_constraintdef(c.oid)
+FROM pg_constraint c
+JOIN pg_class cl ON cl.oid = c.conrelid
+JOIN pg_namespace n ON n.oid = cl.relnamespace
+WHERE n.nspname = '<schema>' AND cl.relname = '<表>' AND c.contype IN ('p','u');
+```
+
+返回空就说明**缺约束**，要么在 `CREATE TABLE` 里补上，要么在 upsert 前按上表的
+「三件套」显式建唯一索引。别只跑 SQLite 测试就认为没事。
+
 ## 运行时目录
 
 | 目录 | 内容 | 备注 |
@@ -80,6 +139,8 @@
 
 1. 占位符统一写 `?`；
 2. upsert 用 `dialect_helpers.upsert`，不要手写 `INSERT OR REPLACE`；
+2b. **新增 upsert 目标表时先确认冲突列上有唯一约束**（见"动态表的唯一约束从哪来"）——
+    SQLite 下缺约束不报错，只有 PG 会拦，别让 SQLite 测试给你假绿；
 3. 中文/长表名注意 63 字节截断；
 4. 结构表变更走 Alembic，动态采集表不要塞进 migration；
 5. 新库文件优先落到 `data/<任务名>/`，并在本页的"独立 SQLite"表格里补一行。
