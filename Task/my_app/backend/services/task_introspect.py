@@ -77,16 +77,22 @@ def _module_file(modname: str) -> str | None:
 
 
 def _parse_file(path: str):
-    """解析并缓存文件 AST，失败返回 None。"""
+    """解析并缓存文件 AST；**解析失败不缓存**，下次仍会重试。
+
+    ⚠️ 2026-10-07：原实现失败后把 `None` 写进 `_AST_CACHE`，于是同一个文件在进程
+    存活期内**永远**解析不出调用链（一次瞬时读取失败 → 该任务提示永久为空，仅靠
+    重启才能恢复）。失败不是「该文件没有 AST」这个确定的结论，不该固化成缓存；
+    只有**成功**的结果才缓存。
+    """
     if path in _AST_CACHE:
         return _AST_CACHE[path]
-    tree = None
     try:
         with open(path, "r", encoding="utf-8", errors="ignore") as f:
             tree = ast.parse(f.read())
     except Exception:  # noqa: BLE001
-        logging.getLogger(__name__).warning("[SILENT-EXCEPT] _parse_file: exception swallowed", exc_info=True)
-        tree = None
+        logging.getLogger(__name__).warning(
+            "[SILENT-EXCEPT] _parse_file 失败（不缓存，下次重试）: %s", path, exc_info=True)
+        return None
     _AST_CACHE[path] = tree
     return tree
 

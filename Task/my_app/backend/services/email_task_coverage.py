@@ -242,13 +242,22 @@ def discover_email_tasks(specs=None) -> dict:
     """返回 {task_id: 命中原因}，仅含推导出「走 EWS 发信」的任务。
 
     ``specs`` 缺省取 ``backend.task_registry.TASK_SPECS``；传入可便于测试。
+
+    ⚠️ 2026-10-07：注册表加载失败**必须上抛**，不得 `return {}`。
+    原先失败时返回空 dict，调用方 `email_recovery._effective_email_task_ids()`
+    据此把 `EMAIL_TASK_IDS` 退化为只剩手写名单；而 `email_recovery.py:612` 的自检
+    `set(EMAIL_TASK_IDS) - set(_TASK_DISPATCH)` 会**因集合变小而恒为空**，
+    使「新任务没登记补发分支」这条唯一守卫静默通过 —— 吞掉的异常恰好抹掉了
+    本该触发的告警。实测：正常推导 17 个任务，注册表加载失败后静默缩为 15 个，
+    自检两态均为空。这里是那 3 次漏登记事故（09-05/09-15/09-18）的同一入口。
+
+    注意与**循环内** per-item 容错（:270）的区别：那里失败记为「该项未命中」，
+    不会让整体结果被误读为「一切正常」，是正确用法，故保留。
     """
     if specs is None:
-        try:
-            from backend.task_registry import TASK_SPECS as specs  # noqa: PLC0415
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("加载任务注册表失败，推导结果为空: %s", exc)
-            return {}
+        # 故意不 try/except：加载注册表失败属于「推导能力不可用」，
+        # 必须让调用方显式感知，而不是伪装成「推导成功且结果为空」。
+        from backend.task_registry import TASK_SPECS as specs  # noqa: PLC0415
 
     found: dict[str, str] = {}
     for spec in specs:

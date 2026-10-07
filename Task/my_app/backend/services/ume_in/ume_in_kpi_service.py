@@ -764,17 +764,43 @@ def _num(v):
         return None
 
 
+def _table_exists(conn) -> bool:
+    """判断主表是否存在（区分「表还没建」与「读表失败」）。
+
+    沿用 `backend/services/tt_alarm_trigger.py:242-258` 的双模写法：sqlite 查
+    sqlite_master，PG 查 information_schema 并限定当前 search_path（本项目
+    search_path 覆盖 app/eflow/lte_pl 等多个 schema，不加限定会命中同名异构表）。
+    """
+    import sqlite3
+    if isinstance(conn, sqlite3.Connection):
+        row = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name = ?",
+            (TABLE_NAME,)).fetchone()
+        return row is not None
+    rows = conn.execute(
+        "SELECT table_name FROM information_schema.tables WHERE table_name = ? "
+        "AND table_schema = ANY(current_schemas(false))",
+        (TABLE_NAME,)).fetchall()
+    return bool(rows)
+
+
 def _load_rows(days=None):
-    """读主库表，返回 (rows:list[dict], columns)。表不存在时返回 ([], [])。"""
-    try:
-        with get_raw_connection(timeout=30.0) as conn:
-            cur = conn.cursor()
-            cur.execute(f'SELECT * FROM "{TABLE_NAME}"')
-            cols = [d[0] for d in cur.description]
-            rows = [dict(zip(cols, r)) for r in cur.fetchall()]
-    except Exception as e:  # noqa: BLE001
-        logger.warning(f"[LOAD] 读取 {TABLE_NAME} 失败（可能尚未建表）: {e}")
-        return [], []
+    """读主库表，返回 (rows:list[dict], columns)。
+
+    ⚠️ 2026-10-07：只有「表确实不存在」才返回空；**读取失败必须上抛**。
+    原实现对任何异常都 `logger.warning` + `return [], []`，调用方 load_overview
+    据此走 `if not all_days` 分支，返回 `has_data: False` + 全零 summary —— 看板
+    显示「暂无数据」，与真·空表**完全无法区分**，运维看不出是故障还是没数据。
+    这与 task_stats 失败横幅被静默抹掉是同一形状（见该文件 :218 的说明）。
+    """
+    with get_raw_connection(timeout=30.0) as conn:
+        if not _table_exists(conn):
+            logger.info(f"[LOAD] {TABLE_NAME} 尚未建表，按无数据处理")
+            return [], []
+        cur = conn.cursor()
+        cur.execute(f'SELECT * FROM "{TABLE_NAME}"')
+        cols = [d[0] for d in cur.description]
+        rows = [dict(zip(cols, r)) for r in cur.fetchall()]
 
     for r in rows:
         bt = str(r.get("Begin Time") or "")

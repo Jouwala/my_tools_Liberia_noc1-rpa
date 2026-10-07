@@ -375,20 +375,22 @@ def get_db_value(conn, table_name, column_name, date_str):
             logging.getLogger(__name__).warning("[SILENT-EXCEPT] to_number: exception swallowed", exc_info=True)
             return val
 
-    try:
-        query = f'SELECT {safe_col_escaped} FROM "{table_name}" WHERE {date_col_escaped} = ? LIMIT 1'
-        cursor.execute(query, (date_str,))
-        result = cursor.fetchone()
-        if result:
-            return to_number(result[0])
-        query = f'SELECT {safe_col_escaped} FROM "{table_name}" WHERE {date_col_escaped} LIKE ? LIMIT 1'
-        cursor.execute(query, (f"{date_str}%",))
-        result = cursor.fetchone()
-        if result:
-            return to_number(result[0])
-    except Exception:
-        logging.getLogger(__name__).warning("[SILENT-EXCEPT] get_db_value: exception swallowed", exc_info=True)
-        pass
+    # ⚠️ 2026-10-07：SQL 异常**必须上抛**，不得吞成 None。
+    # 原先 here 吞异常后 `return None`，调用方 ms_sla_dashboard._collect_network_kpis
+    # 的 `if v is not None` 会**直接跳过该指标** → 7 项 Network KPI / 11 项 Per-Site
+    # 占比在看板上整块消失，与「该期间确实没有这项指标」无法区分；而写库是全量
+    # upsert（自称"数据自愈"），异常期间旧值原样留存，缺口更看不出来。
+    # 本模块 docstring(:34) 已声明「数据完整性问题不得静默」，此处原与契约矛盾。
+    query = f'SELECT {safe_col_escaped} FROM "{table_name}" WHERE {date_col_escaped} = ? LIMIT 1'
+    cursor.execute(query, (date_str,))
+    result = cursor.fetchone()
+    if result:
+        return to_number(result[0])
+    query = f'SELECT {safe_col_escaped} FROM "{table_name}" WHERE {date_col_escaped} LIKE ? LIMIT 1'
+    cursor.execute(query, (f"{date_str}%",))
+    result = cursor.fetchone()
+    if result:
+        return to_number(result[0])
     return None
 
 
@@ -418,23 +420,24 @@ def get_persite_ratio(conn, table_name, column_name, date_str, op, threshold):
         return None
     col_escaped = f'"{safe_col}"'
     date_escaped = f'"{date_col}"'
-    try:
-        query = f'SELECT CAST({col_escaped} AS REAL) FROM "{table_name}" WHERE {date_escaped} LIKE ? AND {col_escaped} IS NOT NULL'
-        cursor.execute(query, (f"{date_str}%",))
-        rows = cursor.fetchall()
-        if not rows:
-            return None
-        total = len(rows)
-        if op == ">=":
-            compliant = sum(1 for r in rows if r[0] is not None and r[0] >= threshold)
-        elif op == "<=":
-            compliant = sum(1 for r in rows if r[0] is not None and r[0] <= threshold)
-        else:
-            return None
-        return compliant / total if total > 0 else None
-    except Exception:
-        logging.getLogger(__name__).warning("[SILENT-EXCEPT] get_persite_ratio: exception swallowed", exc_info=True)
+    # ⚠️ 2026-10-07：同 get_db_value —— SQL 异常必须上抛，不得吞成 None。
+    # 吞掉后调用方 ms_sla_dashboard._collect_persite_kpis 会静默跳过该指标，
+    # 11 项 Per-Site 占比在看板上整块消失（详见 get_db_value 处的说明）。
+    query = f'SELECT CAST({col_escaped} AS REAL) FROM "{table_name}" WHERE {date_escaped} LIKE ? AND {col_escaped} IS NOT NULL'
+    cursor.execute(query, (f"{date_str}%",))
+    rows = cursor.fetchall()
+    if not rows:
         return None
+    total = len(rows)
+    if op == ">=":
+        compliant = sum(1 for r in rows if r[0] is not None and r[0] >= threshold)
+    elif op == "<=":
+        compliant = sum(1 for r in rows if r[0] is not None and r[0] <= threshold)
+    else:
+        return None
+    return compliant / total if total > 0 else None
+
+
 def read_sla_detail_daily(ws):
     """读取 KPI List SLA Daily sheet 全部3列值"""
     data = {}

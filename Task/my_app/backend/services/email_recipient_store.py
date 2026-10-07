@@ -328,7 +328,15 @@ def _get_conn() -> sqlite3.Connection:
 
 
 def _read_db(key: str):
-    """从数据库读取保存的收件人，返回 (to_text, cc_text) 或 None。"""
+    """从数据库读取保存的收件人，返回 (to_text, cc_text) 或 None。
+
+    ⚠️ 与 `_read_db_map`（:348）**刻意不同**：这里读失败仍返回 None，因为
+    调用方 `get_recipients`(:396) / `get_effective_recipients`(:418) 在 None 时
+    会回退到默认名单文件 —— 这是**发送主流程**，读配置库失败时「用默认名单把邮件
+    发出去」明显优于「抛异常导致邮件发不出」。None 在此是**有明确含义的降级信号**，
+    调用方能正确理解，不属静默吞错，故保留（2026-10-07 复核）。
+    展示路径（`_read_db_map`）则相反：那里伪装成「未保存」会误导用户并诱发覆盖写。
+    """
     try:
         conn = _get_conn()
         try:
@@ -346,20 +354,26 @@ def _read_db(key: str):
 
 
 def _read_db_map() -> dict:
-    """读取全部已保存记录，key -> (to_text, cc_text, updated_at)。"""
+    """读取全部已保存记录，key -> (to_text, cc_text, updated_at)。
+
+    ⚠️ 2026-10-07：读库失败**必须上抛**，不得吞成空 dict。
+    原先失败返回 `{}`，`list_email_recipients` 会把所有组判为「未保存」，
+    设置页显示 `source: "default"` + 默认值 + `updated_at: None` —— 这是一个
+    **完全合法的界面状态**，用户看不出读库已经坏了；更危险的是此时点保存，
+    `set_email_recipients` 会无条件 upsert，把默认名单**覆盖掉真实配置**。
+    实测本机有 10 个组确实保存过配置，一旦读失败这 10 个组全部伪装成未保存。
+    属「数据完整性问题」，按项目约定不得静默（参照 ms_sla_dashboard 的容错声明）。
+    """
     out = {}
+    conn = _get_conn()
     try:
-        conn = _get_conn()
-        try:
-            rows = conn.execute(
-                "SELECT key, to_text, cc_text, updated_at FROM email_recipients"
-            ).fetchall()
-            for r in rows:
-                out[r["key"]] = (r["to_text"], r["cc_text"], r["updated_at"])
-        finally:
-            conn.close()
-    except Exception:
-        logger.warning("[EMAIL-RCPT] 读取收件人表失败", exc_info=True)
+        rows = conn.execute(
+            "SELECT key, to_text, cc_text, updated_at FROM email_recipients"
+        ).fetchall()
+        for r in rows:
+            out[r["key"]] = (r["to_text"], r["cc_text"], r["updated_at"])
+    finally:
+        conn.close()
     return out
 
 

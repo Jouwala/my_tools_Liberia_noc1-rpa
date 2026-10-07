@@ -89,6 +89,27 @@ except Exception:  # pragma: no cover - 缓存服务不可用时退化为无缓�
 
 _CACHE_TTL = 300
 
+# ⚠️ 2026-10-07：取数失败的原因登记表。
+# 原实现里各 loader 失败只 `logger.warning` + 返回 {}，而 build_overview 生成的
+# warnings 文案是「X 制式本月无…数据」——**查询失败与真的没数据是同一句话**，
+# 运维无法据此判断是故障还是空月。更糟的是失败结果会被写进缓存 300 秒。
+# 这里把「哪个数据源失败了、什么原因」记下来，供 build_overview 生成可区分的文案，
+# 并据此**不缓存失败结果**。key -> 错误描述；成功时移除该 key。
+_load_errors: Dict[str, str] = {}
+
+
+def _mark_load_error(key: str, detail: Any) -> None:
+    _load_errors[key] = str(detail)[:200]
+
+
+def _clear_load_error(key: str) -> None:
+    _load_errors.pop(key, None)
+
+
+def _load_errors_snapshot() -> Dict[str, str]:
+    """供测试与诊断读取当前登记（不暴露内部可变对象）。"""
+    return dict(_load_errors)
+
 
 def _cache_get(key: str):
     if _cache is None:
@@ -193,9 +214,11 @@ def _load_remote_tech(tech: str, month: str) -> Dict[Tuple[str, str], float]:
         )
     except Exception as e:
         logger.warning("[site-avail] 远端读取失败 tech=%s month=%s: %s", tech, month, e)
+        _mark_load_error(f"tech:{tech}", f"远端读取失败: {e}")
         return {}
     if not res.get("success", True):
         logger.warning("[site-avail] 远端返回失败 tech=%s: %s", tech, str(res)[:200])
+        _mark_load_error(f"tech:{tech}", f"远端返回失败: {str(res)[:120]}")
         return {}
     cols = res.get("columns") or []
     rows = res.get("rows") or []
@@ -205,7 +228,9 @@ def _load_remote_tech(tech: str, month: str) -> Dict[Tuple[str, str], float]:
         i_v = cols.index(val_col)
     except ValueError as e:
         logger.warning("[site-avail] 远端列缺失 tech=%s: %s", tech, e)
+        _mark_load_error(f"tech:{tech}", f"远端列缺失: {e}")
         return {}
+    _clear_load_error(f"tech:{tech}")
     out: Dict[Tuple[str, str], float] = {}
     for r in rows:
         if not r or len(r) <= max(i_bt, i_nm, i_v):
@@ -229,6 +254,7 @@ def _load_local_tdd(month: str) -> Dict[Tuple[str, str], float]:
     start, end = month_bounds(month)
     if not LOCAL_AVAIL_DB.is_file():
         logger.warning("[site-avail] 本地可用性库不存在: %s", LOCAL_AVAIL_DB)
+        _mark_load_error("tdd", f"本地可用性库不存在: {LOCAL_AVAIL_DB.name}")
         return {}
     sql = f'''
         SELECT "{LOCAL_TDD_SITE_COL}" AS nm,
@@ -256,6 +282,9 @@ def _load_local_tdd(month: str) -> Dict[Tuple[str, str], float]:
             conn.close()
     except Exception as e:
         logger.warning("[site-avail] 本地 TDD 聚合失败 month=%s: %s", month, e)
+        _mark_load_error("tdd", f"本地 TDD 聚合失败: {e}")
+        return out
+    _clear_load_error("tdd")
     return out
 
 
@@ -307,6 +336,10 @@ def load_master_sites() -> List[Dict[str, Any]]:
                 })
     except Exception as e:
         logger.warning("[site-avail] 读取 master_site_db 失败: %s", e)
+        _mark_load_error("master", f"读取 master_site_db 失败: {e}")
+        # 失败结果**不缓存**：否则一次瞬时故障会让站点表空白持续整个 TTL。
+        return out
+    _clear_load_error("master")
     return _cache_set(ck, out)
 
 
@@ -338,6 +371,10 @@ def _load_month_tt(month: str) -> List[Dict[str, Any]]:
                 out.append(row)
     except Exception as e:
         logger.warning("[site-avail] 读取 eflow_tt 失败 month=%s: %s", month, e)
+        _mark_load_error("tt", f"读取 eflow_tt 失败: {e}")
+        # 失败结果**不缓存**（原实现会把空结果缓存 300 秒，工单数长时间显示 0）。
+        return out
+    _clear_load_error("tt")
     logger.info("[site-avail] month=%s tt=%d", month, len(out))
     return _cache_set(ck, out)
 
@@ -384,12 +421,25 @@ def build_overview(month: str, supervisor: str = "", fme: str = "",
             continue
         tt_owner.setdefault(owner_idx, []).append(r)
 
+    # ⚠️ 文案必须区分「读取失败」与「确实没有数据」：两者原先都写成
+    # 「X 制式本月无…数据」，运维据此无法判断是故障还是空月（2026-10-07 修）。
     warnings: List[str] = []
     for tk in ("G", "U", "L"):
-        if not avail.get(tk):
-            warnings.append(f"{tk} 制式本月无远端站点级可用性数据")
+        if avail.get(tk):
+            continue
+        err = _load_errors.get(f"tech:{tk}")
+        warnings.append(f"{tk} 制式数据读取失败（{err}）" if err
+                        else f"{tk} 制式本月无远端站点级可用性数据")
     if not avail.get("Tdd"):
-        warnings.append("Tdd 制式本月无本地小区级数据")
+        err = _load_errors.get("tdd")
+        warnings.append(f"Tdd 制式数据读取失败（{err}）" if err
+                        else "Tdd 制式本月无本地小区级数据")
+    if _load_errors.get("master"):
+        warnings.append(f"站点主数据读取失败（{_load_errors['master']}），"
+                        f"站点列表与工单归属不可信")
+    if _load_errors.get("tt"):
+        warnings.append(f"工单数据读取失败（{_load_errors['tt']}），"
+                        f"工单类指标不可信")
 
     # ---- 逐站点构建 ----
     sites: List[Dict[str, Any]] = []

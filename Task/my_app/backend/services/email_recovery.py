@@ -102,13 +102,27 @@ _EXPLICIT_EMAIL_TASK_IDS = frozenset({
 })
 
 
+# 推导是否成功。False 表示 `EMAIL_TASK_IDS` 已退化为手写名单（推导不可用），
+# 此时下面的 `_UNDISPATCHED_EMAIL_TASKS` 自检**不再可信** —— 集合变小会让差集恒为空。
+# 2026-10-07：此前该失败被静默吞掉，导致自检假绿（见 _DEDUCTION_OK 的用法）。
+_DEDUCTION_OK = True
+
+
 def _effective_email_task_ids() -> frozenset:
-    """手写名单 ∪ 静态推导。推导失败时安全退化为手写名单（绝不因此漏补发）。"""
+    """手写名单 ∪ 静态推导。推导失败时退化为手写名单并**置位 _DEDUCTION_OK=False**。
+
+    为什么失败不能只是「静默退化」：`EMAIL_TASK_IDS` 变小后，本模块末尾的自检
+    `set(EMAIL_TASK_IDS) - set(_TASK_DISPATCH)`（:612）会因集合缩水而恒为空，
+    于是「新任务没登记补发分支」这条唯一守卫**静默通过** —— 退化本身不致命，
+    致命的是它顺手关掉了告警器。故这里显式记录失败，交由自检分支喊出来。
+    """
+    global _DEDUCTION_OK
     try:
         from backend.services.email_task_coverage import discover_email_tasks
         discovered = frozenset(discover_email_tasks())
     except Exception as exc:  # noqa: BLE001
-        logger.warning("EWS 发信任务自动推导失败，回退手写名单: %s", exc)
+        _DEDUCTION_OK = False
+        logger.warning("EWS 发信任务自动推导失败，回退手写名单（本次补发名单不完整）: %s", exc)
         return _EXPLICIT_EMAIL_TASK_IDS
     extra = discovered - _EXPLICIT_EMAIL_TASK_IDS
     if extra:
@@ -609,8 +623,19 @@ _TASK_DISPATCH = {
 # 会在补发时记 "未知任务（_TASK_DISPATCH 未登记）" 而**静默无法补发**。
 # 在 import 时就吼一声，别等真出故障才发现（P2-12 的自动推导会持续带出新任务，
 # 这正是它第一次运行就抓出 ume_in_osg_report 的场景）。
+#
+# ⚠️ 2026-10-07：本自检在「推导失败」时**不可信** —— 那时 EMAIL_TASK_IDS 已缩为
+# 手写名单，差集恒为空，看起来"全部已登记"，实际是守卫失效。因此两个分支都要喊：
+# 推导不可用时必须显式报告，否则这正是「吞异常抹掉告警」的翻版。
 _UNDISPATCHED_EMAIL_TASKS = sorted(set(EMAIL_TASK_IDS) - set(_TASK_DISPATCH))
-if _UNDISPATCHED_EMAIL_TASKS:
+if not _DEDUCTION_OK:
+    logger.warning(
+        "EWS 发信任务自动推导不可用，EMAIL_TASK_IDS 已退化为手写名单（%d 个）；"
+        "本次「未登记补发分支」自检结果不可信，请修复 task_registry 导入后再看。"
+        "当前手写名单中未登记补发分支的: %s",
+        len(EMAIL_TASK_IDS), _UNDISPATCHED_EMAIL_TASKS or "无",
+    )
+elif _UNDISPATCHED_EMAIL_TASKS:
     logger.warning(
         "以下 EWS 发信任务已在 EMAIL_TASK_IDS 中但没有补发分发分支，"
         "邮箱降级后无法补发，请在 _TASK_DISPATCH 补登记: %s",

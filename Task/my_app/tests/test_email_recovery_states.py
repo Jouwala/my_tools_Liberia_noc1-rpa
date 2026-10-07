@@ -246,6 +246,45 @@ def test_explicit_list_is_subset_of_effective_list():
     assert er._EXPLICIT_EMAIL_TASK_IDS <= set(er.EMAIL_TASK_IDS)
 
 
+def test_registry_load_failure_raises_instead_of_silent_empty(monkeypatch):
+    """注册表加载失败必须上抛，不得伪装成「推导成功且结果为空」（2026-10-07）。
+
+    原实现失败时 `logger.warning` + `return {}`，调用方据此把 EMAIL_TASK_IDS
+    退化为手写名单；而本模块的自检 `set(EMAIL_TASK_IDS) - set(_TASK_DISPATCH)`
+    会**因集合变小而恒为空** → 「新任务没登记补发分支」这条唯一守卫静默通过。
+    即：吞掉的异常顺手关掉了告警器（对应 09-05/09-15/09-18 三次漏登记事故）。
+    """
+    import sys as _sys
+    monkeypatch.setitem(_sys.modules, "backend.task_registry", None)
+    with pytest.raises(Exception):
+        etc.discover_email_tasks()
+
+
+def test_deduction_failure_is_reported_not_swallowed(monkeypatch):
+    """推导不可用时 `_DEDUCTION_OK` 必须置 False，供自检分支显式报警。
+
+    这是上面那条的配套：仅「上抛」还不够 —— 调用方若继续静默退化，
+    自检仍然假绿。必须有一个**可被断言的状态位**证明退化已被感知。
+    """
+    import importlib
+    import sys as _sys
+    monkeypatch.setitem(_sys.modules, "backend.task_registry", None)
+    reloaded = importlib.reload(er)
+    try:
+        assert reloaded._DEDUCTION_OK is False, (
+            "推导失败未被记录 —— 自检会假绿，等同于吞掉异常"
+        )
+        # 退化后集合确实变小（这正是自检恒空的原因）
+        assert set(reloaded.EMAIL_TASK_IDS) <= set(er._EXPLICIT_EMAIL_TASK_IDS) | set()
+        assert len(reloaded.EMAIL_TASK_IDS) < 17
+    finally:
+        # 还原模块状态，避免污染同进程内后续用例
+        monkeypatch.undo()
+        importlib.reload(er)
+    assert er._DEDUCTION_OK is True
+    assert er._UNDISPATCHED_EMAIL_TASKS == []
+
+
 # ------------------------------------------- PG→SQLite 同步不得抹掉本地权威表
 
 def test_local_authoritative_tables_are_skipped_by_sync():
