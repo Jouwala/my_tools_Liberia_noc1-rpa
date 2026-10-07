@@ -50,7 +50,13 @@ export default defineConfig({
     // 例：FE_DIST_OUT=Y:/Task/_fe_dist vite build —— 否则绝对路径会落到本机 D 盘、服务器不更新。
     outDir: process.env.FE_DIST_OUT || 'D:/01_RPA/Task/_fe_dist',
     // 本机环境存在 safe-delete 钩子，会拦截 Vite 的 prepare-out-dir 清空动作导致构建中断。
-    // 关闭自动清空，改由构建脚本/人工清理 dist2/assets（旧 chunk 带 hash，覆盖写不影响正确性）。
+    // 关闭自动清空，改由 `npm run prune:fe` 显式清理（旧 chunk 带 hash，覆盖写不影响正确性）。
+    //
+    // ⚠️ 2026-10-07 补记：上面这句话此前只写了「改由构建脚本/人工清理」，而 package.json
+    // 的 build 里**从来没有这一步**、也没有对应脚本，于是产物只增不减 —— 实测 assets 积到
+    // 14108 个文件 / 322.8 MB（单个 chunk 的陈旧副本多达 226 份）。已补 scripts/prune-fe-dist.mjs
+    // 兑现该承诺：从 index.html 入口做**传递闭包**算出本次构建真正需要的文件，其余删除；
+    // 默认干跑，加 --apply 才删。它不替代 emptyOutDir（本行仍需保持 false），只是收尾。
     emptyOutDir: false,
     // 提升单包体积告警阈值，避免 2.9MB 单包在构建日志刷红
     chunkSizeWarningLimit: 1200,

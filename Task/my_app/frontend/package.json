@@ -9,6 +9,8 @@
   "scripts": {
     "dev": "vite",
     "build": "node scripts/check-i18n.mjs && tsc && vite build",
+    "//prune:fe": "构建后清理 _fe_dist/assets 里不再被引用的陈旧 chunk（vite.config.ts 的 emptyOutDir:false 让产物只增不减，实测曾积到 14108 文件/322.8MB）。**刻意不并入 build**：build 会在部署路径上跑，删文件不该是隐式副作用；需要收尾时显式执行，且默认干跑、加 --apply 才删。",
+    "prune:fe": "node scripts/prune-fe-dist.mjs",
     "check:i18n": "node scripts/check-i18n.mjs",
     "preview": "vite preview",
     "docs:help": "node scripts/generate-help-doc.mjs",
