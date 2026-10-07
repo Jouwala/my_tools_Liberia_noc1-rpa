@@ -20,9 +20,10 @@
  *     （hamlet 12607 + isolated_dwelling 2590），全开会「密密麻麻什么都看不清」。
  *     关闭的做法是**传空 labelRules 数组**而不是删规则 —— protomaps 没有开关参数，
  *     空数组即「不标注任何文字」。与第 2 点同理，它必须进依赖数组才能实时生效。
- *  4. **showRoads 默认 true**（2026-10-03 新增开关）。关闭时不生成 transportation
- *     的 paintRules，也不生成路名 labelRules（道路没了路名浮空会很怪）。
+ *  4. **showRoads 2026-10-03 新增，2026-10-22 起默认 false**。关闭时不生成
+ *     transportation 的 paintRules，也不生成路名 labelRules（道路没了路名浮空会很怪）。
  *     与 showLabels 同一机制：构造时固化，须进依赖数组、靠重建图层生效。
+ *     ⚠️ 两个调用页默认值不同（GISMap 关 / PacketLossDashboard 开），见下方形参注释。
  */
 import { useEffect } from 'react'
 import { leafletLayer } from 'protomaps-leaflet'
@@ -35,16 +36,19 @@ export function PmtilesLayer({
   isDark,
   maxZoom = BASEMAP_MAX_ZOOM,
   showLabels = false,
-  showRoads = true,
+  showRoads = false,
 }: {
   url: string
   isDark?: boolean
   maxZoom?: number
   /** 是否绘制地名称注。默认关闭（理由见文件头第 3 点）。 */
   showLabels?: boolean
-  /** 是否绘制道路/铁路。默认开启（保持既有观感）。
+  /** 是否绘制道路/铁路。**默认关闭**（2026-10-22 起；此前默认开启）。
    *  关闭时 paintRules 不生成 transportation 规则、labelRules 也不生成路名 ——
-   *  与 showLabels 同理，因规则在构造时固化，需重建图层才生效。 */
+   *  与 showLabels 同理，因规则在构造时固化，需重建图层才生效。
+   *  ⚠️ 两个调用页的默认值**故意不同**：GISMap（门户里的 Alarm 页）默认关，
+   *  PacketLossDashboard 仍默认开（用户 2026-10-22 那次要求只提了 Alarm 页）。
+   *  两页都显式传参，所以这个形参默认值只是兜底；不要为了"一致"去改它。 */
   showRoads?: boolean
 }) {
   const map = useMap()

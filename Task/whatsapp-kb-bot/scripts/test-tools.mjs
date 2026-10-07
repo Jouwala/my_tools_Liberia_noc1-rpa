@@ -263,6 +263,53 @@ console.log('\n[5] 统计结果渲染（数字必须原样，不能由模型加�
     true
   );
   check(noDetail.includes('没能取到单号明细'), '取不到明细要如实说明', JSON.stringify(noDetail));
+
+  // 状态混合时必须逐条标出哪个未闭环
+  // 2026-10-07 实测：只说了「其中未闭环 1 个」，用户只能追问「那个单子未闭环」
+  const mixed = renderStats(
+    {
+      start: '2026-10-01', end: '2026-10-07', severity: 'P1', status: 'all', total: 3,
+      open: 1, closed: 2,
+      samples: [
+        { tt_no: 'TT001', site_name: 'A', status: 'Closed' },
+        { tt_no: 'TT002', site_name: 'B', status: 'Waiting for FO Process' },
+        { tt_no: 'TT003', site_name: 'C', status: 'Closed' },
+      ],
+    },
+    'zh',
+    false,
+    true
+  );
+  check(mixed.includes('TT002（B）［未闭环］'), '混合状态时标出哪个未闭环', JSON.stringify(mixed));
+  check(!mixed.includes('TT001（A）［未闭环］'), '  已闭环的不加标记', JSON.stringify(mixed));
+  check(!mixed.includes('TT003（C）［未闭环］'), '  已闭环的不加标记（第 3 条）', JSON.stringify(mixed));
+
+  // 全部未闭环时不该逐条标 —— 上面那句「其中未闭环 N 个」已经说尽了
+  const allOpen = renderStats(
+    {
+      start: '2026-10-06', end: '2026-10-06', severity: 'P2', status: 'all', total: 2,
+      open: 2, closed: 0,
+      samples: [
+        { tt_no: 'TT001', site_name: 'A', status: 'Waiting for FO Process' },
+        { tt_no: 'TT002', site_name: 'B', status: 'Waiting for FO Accept' },
+      ],
+    },
+    'zh',
+    false,
+    true
+  );
+  check(!allOpen.includes('未闭环］'), '全部未闭环时不逐条标记', JSON.stringify(allOpen));
+
+  // 日期是兜底猜的（追问没给日期）→ 必须说明口径
+  const guessed = renderStats(
+    { start: '2026-10-07', end: '2026-10-07', severity: 'P1', total: 1, open: 0,
+      samples: [{ tt_no: 'TT001', site_name: 'A', status: 'Closed' }] },
+    'zh',
+    false,
+    true,
+    true
+  );
+  check(guessed.includes('按今天算的'), '日期靠猜时要标注口径', JSON.stringify(guessed));
 }
 
 /* -------------------------------- 结果 -------------------------------- */

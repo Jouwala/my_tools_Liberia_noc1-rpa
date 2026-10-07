@@ -165,6 +165,8 @@ const srcWhatsapp = read('src/whatsapp.js');
 const srcRag = read('src/rag.js');
 const srcTt = read('src/tt.js');
 const srcIndex = read('src/index.js');
+const srcAnswer = read('src/answer.js');
+const srcTools = read('src/tools.js');
 
 check(/pickText\(lang, CONFIG\.busyText, CONFIG\.busyTextEn\)/.test(srcWhatsapp),
   'whatsapp.js：busyText 按语言取');
@@ -174,16 +176,31 @@ check(/put your question after the @mention/.test(srcWhatsapp),
   'whatsapp.js：「只 @ 没提问」的回复也有英文版');
 check(/detectLang\(question\)/.test(srcWhatsapp),
   'whatsapp.js：在接入层判定提问语言（源头唯一）');
-// 传入的对象跨多行，且后续加入了 onRetry —— 用 [\s\S] 跨行匹配，
+// 传入的对象跨多行，且后续加入了 onRetry / history —— 用 [\s\S] 跨行匹配，
 // 只断言「chatJid / sender / lang 都在这个对象里」这个实质，
 // 不绑定换行与缩进（否则每次调整格式都要改测试）。
-check(/onQuestion\(question,\s*\{[\s\S]{0,200}?\blang\b[\s\S]{0,200}?\}\)/.test(srcWhatsapp) &&
+// 2026-10-07：加了 history 字段（带一段注释）后 200 字窗口不够用了，
+// 放宽到 600 —— 窗口是防"匹配到别的对象"的，不是用来卡格式的。
+check(/onQuestion\(question,\s*\{[\s\S]{0,600}?\blang\b[\s\S]{0,600}?\}\)/.test(srcWhatsapp) &&
   /onQuestion\(question,\s*\{[\s\S]{0,100}?\bchatJid\b/.test(srcWhatsapp),
   'whatsapp.js：把 lang 传给上层（避免重复判定 / 口径不一致）');
 
 check(/pickText\(lang, cfg\.notFoundText, cfg\.notFoundTextEn\)/.test(srcRag),
   'rag.js：notFoundText 按语言取');
-check(/^\s*en: '/m.test(srcRag), 'rag.js：LANG_HINT 提供英文版');
+
+// 会话历史接线（2026-10-07）：
+// 「那个单子未闭环」这类**追问单看没有主语**，没有历史就会被当成新问题猜，
+// 实测答成了「今天全网 36 单」——答的是另一个问题且不报错。
+check(/history:\s*getHistory\(chatJid\)/.test(srcWhatsapp),
+  'whatsapp.js：把会话历史传给上层（追问才落得下来）');
+check(/rememberTurn\(chatJid, question, text2\)/.test(srcWhatsapp),
+  'whatsapp.js：回复后记入会话历史');
+check(/if \(result\.answered\) rememberTurn/.test(srcWhatsapp),
+  'whatsapp.js：答不上来的不进历史（否则把下一轮也带偏）');
+check(/history/.test(srcAnswer),
+  'answer.js：history 透传下去');
+check(/opts\.history/.test(srcTools),
+  'tools.js：路由时把历史喂给模型');check(/^\s*en: '/m.test(srcRag), 'rag.js：LANG_HINT 提供英文版');
 
 // TT 通道的失败文案：必须在 Node 侧按语言取
 // （脚本没能正常返回时，只能由调用方兜底）

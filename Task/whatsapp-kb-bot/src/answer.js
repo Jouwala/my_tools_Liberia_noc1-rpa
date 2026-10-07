@@ -27,9 +27,14 @@ import { routeWithTools } from './tools.js';
  * @param {Function} [opts.onRetry]  工单通道失败即将自动重试时的回调（可发垫话）
  * @param {Function} [opts.onLive]   本地库查不到、即将回 eFlow 实时查时的回调（可发垫话）
  * @param {'zh'|'en'} [opts.lang]    回复语言；不传则按提问语言自动判定
+ * @param {Array<{q:string,a:string}>} [opts.history] 最近几轮问答，用于解析追问
  * @returns {Promise<{text:string, answered:boolean, channel:'tt'|'kb', stats?:object}>}
  */
-export async function routeAnswer(question, index, { onDebug, onRoute, onRetry, onLive, lang } = {}) {
+export async function routeAnswer(
+  question,
+  index,
+  { onDebug, onRoute, onRetry, onLive, lang, history } = {}
+) {
   // 回复语言跟着提问语言走（英文提问 → 英文回复）。
   // 两条通道的机制不同，所以处理方式也不同：
   //   · TT 通道是脚本渲染的**模板**，没有模型参与 → 必须显式把语言传下去（--lang）；
@@ -45,6 +50,7 @@ export async function routeAnswer(question, index, { onDebug, onRoute, onRetry, 
     onDebug,
     onRetry,
     onLive,
+    history,
   });
 
   const ms = Date.now() - t0;

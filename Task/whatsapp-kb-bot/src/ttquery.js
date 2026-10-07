@@ -28,7 +28,13 @@
 import { CONFIG } from './config.js';
 
 // 取数层原样转出，调用方仍从本模块 import（ttsource 是内部拆分细节）
-export { queryTickets, fallbackAvailable, isOpenStatus, siteFromTitle } from './ttsource.js';
+export {
+  queryTickets,
+  fallbackAvailable,
+  isOpenStatus,
+  siteFromTitle,
+} from './ttsource.js';
+import { isOpenStatus } from './ttsource.js';
 
 /* ------------------------------- 日期解析 ------------------------------- */
 
@@ -206,8 +212,15 @@ function statusLine(statusMap, lang) {
  * @param {'zh'|'en'} lang
  * @param {boolean} degraded  是否走了 SQLite 降级（是则标注口径）
  * @param {boolean} wantList  用户是否点名要单号列表（决定列表标签与条数上限）
+ * @param {boolean} dateGuessed 日期是兜底成"今天"的（谁都没给）—— 加一句说明
  */
-export function renderStats(data, lang = 'zh', degraded = false, wantList = false) {
+export function renderStats(
+  data,
+  lang = 'zh',
+  degraded = false,
+  wantList = false,
+  dateGuessed = false
+) {
   const T = {
     zh: {
       range: (s, e) => (s === e ? `${s}` : `${s} ~ ${e}`),
@@ -222,6 +235,7 @@ export function renderStats(data, lang = 'zh', degraded = false, wantList = fals
       more: (n) => `（还有 ${n} 单未列出）`,
       stale: '（本地副本口径，可能有同步延迟）',
       noDetail: '（这次没能取到单号明细，可以到看板上按级别下钻查看。）',
+      guessed: '（提问里没给日期，按今天算的；要别的区间请说清楚日期）',
     },
     en: {
       range: (s, e) => (s === e ? `${s}` : `${s} ~ ${e}`),
@@ -234,6 +248,7 @@ export function renderStats(data, lang = 'zh', degraded = false, wantList = fals
       more: (n) => ` (+${n} more not listed)`,
       stale: '(from the local replica — may lag behind live data)',
       noDetail: '(Ticket IDs unavailable for this query — the detail view returned none.)',
+      guessed: '(no date in the question — assumed today; give a date for another range)',
     },
   }[lang];
 
@@ -273,9 +288,14 @@ export function renderStats(data, lang = 'zh', degraded = false, wantList = fals
     : Number(CONFIG.ttStatsSampleLimit ?? 3);
   const samples = (data.samples || []).slice(0, limit);
   if (samples.length) {
+    // 状态混合时才逐条标「未闭环」，否则是噪声（见 openMark 注释）
+    const mark = hasMixedStatus(samples);
     lines.push(
       `${wantList ? T.list : T.sample}：${samples
-        .map((s) => `${s.tt_no}${s.site_name ? `（${s.site_name}）` : ''}`)
+        .map(
+          (s) =>
+            `${s.tt_no}${s.site_name ? `（${s.site_name}）` : ''}${mark ? openMark(s, lang) : ''}`
+        )
         .join('、')}`
     );
     // 明确告诉用户"列表被截断了"，否则他会以为一共就这几单
@@ -287,5 +307,31 @@ export function renderStats(data, lang = 'zh', degraded = false, wantList = fals
     lines.push(T.noDetail);
   }
   if (degraded) lines.push(T.stale);
+  if (dateGuessed) lines.push(T.guessed);
   return lines.join('\n');
+}
+
+/**
+ * 单号后面的闭环标记 —— 只在**这批单里两种状态都有**时才标。
+ *
+ * ## 为什么必须标
+ *
+ * 2026-10-07 实测：回复了「P1 单 6 个 / 其中未闭环 1 个 / 单号：…（六个）」
+ * 之后，用户立刻追问「那个单子未闭环」——因为回复只说了**有 1 个**，
+ * 没说**是哪个**。名单都打出来了，状态却藏着，用户只能再问一次。
+ *
+ * ## 为什么不是无条件标
+ *
+ * 全部未闭环（或全部已闭环）时，每行都缀一个同样的词是噪声：
+ * 上面那句「其中未闭环 1 个」已经把话说尽了。只在**混合**时才逐条区分。
+ */
+function openMark(sample, lang) {
+  const open = isOpenStatus(sample.status);
+  return open ? (lang === 'en' ? '［open］' : '［未闭环］') : '';
+}
+
+/** 这批样例里是否同时存在未闭环与已闭环（决定要不要逐条标状态）。 */
+function hasMixedStatus(samples) {
+  const opens = samples.filter((s) => isOpenStatus(s.status)).length;
+  return opens > 0 && opens < samples.length;
 }

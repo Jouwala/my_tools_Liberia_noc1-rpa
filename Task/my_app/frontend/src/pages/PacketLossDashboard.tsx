@@ -224,7 +224,10 @@ export default function PacketLossDashboard() {
   /* 地名注记开关。**默认关闭**：瓦片带 1.7 万个地名，全开时用户反馈
      「密密麻麻，什么都看不清」（2026-10-02），与 GISMap.tsx 同处理。 */
   const [showLabels, setShowLabels] = useState(false)
-  /* 底图道路开关。**默认开启**，与 GISMap.tsx 同处理（2026-10-03）。 */
+  /* 底图道路开关。**默认开启**（2026-10-03 加，保持既有观感）。
+     ⚠️ 2026-10-22 起**不再与 GISMap.tsx 同处理**：用户要求「Alarm 的 map 默认不要
+     勾选道路图层」，那一页已改为默认关闭；那一次要求只提了 Alarm 页，本页维持开启。
+     两页默认值不同是**有意的**，别顺手对齐。 */
   const [showRoads, setShowRoads] = useState(true)
   const [gisTopology, setGisTopology] = useState<any[]>([])
   useEffect(() => {

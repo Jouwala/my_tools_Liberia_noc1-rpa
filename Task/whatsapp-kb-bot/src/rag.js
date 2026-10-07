@@ -425,8 +425,25 @@ async function retryWithRewrite(question, index, cfg, lang, onDebug) {
  * 完整问答链路：嵌入 → 检索 → 命中判定 → 生成。
  * @returns {Promise<{answered:boolean,text:string,retrieval:object,stats?:object}>}
  */
-export async function answer(question, index, { cfg = CONFIG, onDebug, lang = 'zh' } = {}) {
+export async function answer(
+  question,
+  index,
+  { cfg = CONFIG, onDebug, lang = 'zh', history = [] } = {}
+) {
   const t0 = Date.now();
+
+  // ── 追问补全 ──
+  // 「那个单子未闭环」这类提问**单看没有主语**：没有日期、没有级别、
+  // 没有站点，向量检索只能检索出字面相近的段落，答非所问。
+  // 有会话历史时，先用模型把它改写成一句自洽的独立问题再检索。
+  //
+  // 只在**有历史**时做：没有上一轮就无所谓"追问"，多花一次调用纯属浪费。
+  if (history.length) {
+    const resolved = await resolveFollowUp(question, history, lang);
+    // CONTINUE:no 表示模型判断这是全新话题，不该套用历史 —— 尊重它的判断
+    if (resolved && resolved.continue && resolved.query) question = resolved.query;
+  }
+
   const queryVec = await embedOne(question);
   const tEmbed = Date.now() - t0;
 

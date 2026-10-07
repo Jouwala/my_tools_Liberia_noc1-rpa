@@ -273,9 +273,16 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
      「密密麻麻，什么都看不清」（2026-10-02）。开关由右上角的 LayerToggleControl
      驱动，透传给 PmtilesLayer 的 showLabels。 */
   const [showLabels, setShowLabels] = useState(false)
-  /* 底图道路开关。**默认开启**（保持既有观感）。关闭后底图只剩水体/建筑/站点，
-     画面更干净 —— 2026-10-03 用户要求「隐藏底图路线」。透传给 PmtilesLayer。 */
-  const [showRoads, setShowRoads] = useState(true)
+  /* 底图道路开关。**默认关闭**（2026-10-22 用户要求「Alarm 的 map 默认不要勾选道路图层」）。
+     关闭后底图只剩水体/建筑/站点，画面更干净。透传给 PmtilesLayer。
+
+     ⚠️ 改这里要连着改两处，否则会出现"界面显示未勾选、底图却还画着道路"：
+       · PmtilesLayer.tsx 的 `showRoads = true` 形参默认值（组件级兜底）；
+       · PacketLossDashboard.tsx 的同名 state（那一页是另一个入口，**同一次要求
+         并未覆盖它**，故仍保持 true —— 两页默认值从此不同，是有意的，别"顺手对齐"）。
+     ⚠️ 与 showLabels 同一机制：规则在构造时固化，改动靠重建图层生效，
+     所以它必须进 PmtilesLayer 的依赖数组。 */
+  const [showRoads, setShowRoads] = useState(false)
 
   const { t } = useI18n()
   const { isDark } = useTheme()

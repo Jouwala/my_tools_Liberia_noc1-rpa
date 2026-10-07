@@ -91,11 +91,14 @@ const ROUTER_PROMPT =
   '· 拿不准就用 search_knowledge。\n' +
   '· 提问里若点名了**具体站点**（如「Wood camp 这个站」「Qcell R.I.A 有几个单」），' +
   '把站点名原样填进 site；没点名就留空字符串。\n' +
+  '· 若提问**本身没说清问什么**（如「那个单子未闭环」「还有几个」），' +
+  '参考【最近对话】把上一轮的日期/级别/站点**照抄**进来 —— ' +
+  '这种追问单看是缺主语的，猜错就会答成另一个问题。\n' +
   '\n只输出一行 JSON，不要解释：\n' +
   '{"tool":"<工具名>","args":{...}}';
 
 /**
- * 构造路由 prompt，并**注入今天与已解析出的日期**。
+ * 构造路由 prompt，并**注入今天、已解析出的日期、最近对话**。
  *
  * 为什么非注入不可：模型没有时钟，问它「今天是几号」只能得到瞎猜。
  * 2026-10-07 实测「Wood camp 这个站**昨天**有几个单」——
@@ -104,8 +107,12 @@ const ROUTER_PROMPT =
  *
  * 注入后模型能照抄日期；即便它还是抽错，
  * `normalizeArgs` 里「规则解析 > 模型给的 > 今天」的优先级也会兜住。
+ *
+ * 【最近对话】解决的是另一类问题：**追问缺主语**。
+ * 实测「那个单子未闭环」被答成了「今天全网 36 单」——
+ * 单看这句话确实没有日期也没有级别，但上一轮刚问过「本月 P1」。
  */
-function buildRouterPrompt(question, now) {
+function buildRouterPrompt(question, now, history = []) {
   const today = parseDateRange('今天', now);
   const fromQ = parseDateRange(question, now);
   const lines = [
@@ -121,7 +128,16 @@ function buildRouterPrompt(question, now) {
         : `提问中的日期范围已确定 = ${fromQ.start} ~ ${fromQ.end}（直接照抄进 start 与 end）`
     );
   } else {
-    lines.push('提问中没有明确日期 → start 与 end 都留空字符串，不要自己编。');
+    lines.push('提问中没有明确日期 → 优先从【最近对话】里找；找不到再留空字符串。');
+  }
+  const recent = (history || []).slice(-3);
+  if (recent.length) {
+    lines.push('', '【最近对话】（时间正序，最新一条在最后）');
+    for (const h of recent) {
+      lines.push(`问：${String(h.q || '').slice(0, 150)}`);
+      // 回答只取前几行：单号名单很长，全塞进 prompt 反而稀释重点
+      lines.push(`答：${String(h.a || '').slice(0, 200)}`);
+    }
   }
   return lines.join('\n');
 }
@@ -297,11 +313,11 @@ export function parseToolCall(content) {
   return { tool: name, args: obj?.args && typeof obj.args === 'object' ? obj.args : {} };
 }
 
-async function routeByModel(question, now, lang) {
+async function routeByModel(question, now, lang, history) {
   try {
     const { content } = await chat(
       [
-        { role: 'system', content: buildRouterPrompt(question, now) },
+        { role: 'system', content: buildRouterPrompt(question, now, history) },
         { role: 'user', content: String(question || '').slice(0, 500) },
       ],
       { maxTokens: 128, temperature: 0 }
@@ -325,7 +341,8 @@ async function routeByModel(question, now, lang) {
  *     这是 2026-10-07 实测踩到的，**答错而不报错**，必须堵死；
  *   · 级别写成 "p1" 或 "P 1"。
  *
- * 所以这里的优先级是：**规则从原始提问解析出的日期 > 模型给的日期 > 今天**。
+ * 所以这里的优先级是：
+ *   **规则从原始提问解析 > 模型给的（含从历史抄来的）> 今天**。
  * 日期本该由规则层算（它才有本机时钟），模型只负责抽它抽得准的东西（站名）。
  *
  * @param {object} args     模型返回的参数
@@ -354,6 +371,9 @@ function normalizeArgs(args, now = new Date(), question = '') {
   const range = fromQuestion || fromModel || parseDateRange('今天', now);
   out.start = range.start;
   out.end = range.end;
+  // 日期是不是猜的（谁都没给，只好默认今天）。渲染层据此加一句口径说明 ——
+  // 追问被兜底成"今天"时，用户看到的那句「2026-10-07」需要解释从哪来。
+  out.dateGuessed = !fromQuestion && !fromModel;
 
   const sev = String(raw.severity || '').toUpperCase().replace(/\s/g, '');
   out.severity = /^P[1-4]$/.test(sev) ? sev : '';
@@ -409,20 +429,24 @@ export async function runTool(call, index, lang, opts = {}) {
     return {
       answered: true,
       channel: 'stats',
-      text: renderStatsSafe(r.data, lang, r.degraded, spec.list),
+      text: renderStatsSafe(r.data, lang, r.degraded, spec.list, spec.dateGuessed),
       stats: { totalMs: Date.now() - t0, degraded: !!r.degraded, source: r.data?.source },
     };
   }
 
   // search_knowledge（也是兜底）
-  const res = await ragAnswer(opts.question || '', index, { lang, onDebug: opts.onDebug });
+  const res = await ragAnswer(opts.question || '', index, {
+    lang,
+    onDebug: opts.onDebug,
+    history: opts.history,
+  });
   return { ...res, channel: 'kb' };
 }
 
 /** 渲染失败时不让整条回复挂掉 —— 数字渲染出错也要给出一句人话。 */
-function renderStatsSafe(data, lang, degraded, wantList) {
+function renderStatsSafe(data, lang, degraded, wantList, dateGuessed) {
   try {
-    return renderStats(data, lang, degraded, wantList);
+    return renderStats(data, lang, degraded, wantList, dateGuessed);
   } catch (err) {
     return lang === 'en'
       ? 'I got the ticket numbers but failed to format the reply. Please try again.'
@@ -451,7 +475,7 @@ export async function routeWithTools(question, index, opts = {}) {
     call = parseByRule(question, now);
     if (call) via = 'rule';
     if (!call) {
-      const m = await routeByModel(question, now, lang);
+      const m = await routeByModel(question, now, lang, opts.history);
       if (m) {
         call = m;
         via = 'model';

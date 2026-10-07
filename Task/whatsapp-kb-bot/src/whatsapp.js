@@ -137,6 +137,49 @@ const botMessageIds = createBoundedIdSet(500);
 /** chatJid → 上次回复时间，用于冷却。 */
 const lastReplyAt = new Map();
 
+/**
+ * chatJid → 最近几轮问答（时间正序），用于**追问**。
+ *
+ * ## 为什么需要它
+ *
+ * 2026-10-07 实测：机器人回了「P1 单 6 个 / 其中未闭环 1 个 / 单号：…」，
+ * 用户紧接着问「那个单子未闭环」——这句话**单看没有主语**，
+ * 不含日期、不含级别，规则层和模型层都只能猜，
+ * 结果答成了「今天全网 36 单」。**答的是一个完全不同的问题，且不报错。**
+ *
+ * 有上下文后，「那个单子」＝上一轮那批 P1，问题才落得下来。
+ *
+ * ## 为什么放在接入层
+ *
+ * 历史是**会话的属性**，不是某个通道的属性 —— 统计通道、知识库通道、
+ * 单票通道都要用同一份。放在这里天然按 chatJid 隔离，
+ * 且不需要给每个通道各写一套。
+ *
+ * 只留最近 HISTORY_TURNS 轮：再久的话，用户早就换了话题，
+ * 旧问答留在 prompt 里只会干扰判断。
+ */
+const HISTORY_TURNS = 5;
+const chatHistory = new Map();
+
+/** 记一轮问答（answer 为空表示这轮没答上来，不记）。 */
+export function rememberTurn(chatJid, q, a) {
+  if (!chatJid || !q || !a) return;
+  const list = chatHistory.get(chatJid) || [];
+  list.push({ q: String(q).slice(0, 300), a: String(a).slice(0, 500) });
+  while (list.length > HISTORY_TURNS) list.shift();
+  chatHistory.set(chatJid, list);
+  // 与 lastReplyAt 同样防内存泄漏：群很多时不能让这张表无限长
+  if (chatHistory.size > 1000) {
+    const oldest = chatHistory.keys().next().value;
+    chatHistory.delete(oldest);
+  }
+}
+
+/** 取某个会话的最近几轮问答（时间正序）。 */
+export function getHistory(chatJid) {
+  return chatHistory.get(chatJid) || [];
+}
+
 /** 串行队列：避免并发把本地模型压垮。跨重连保持，保证同一时刻只有一个提问在处理。 */
 let chain = Promise.resolve();
 
@@ -483,6 +526,9 @@ export async function startWhatsApp({ onQuestion, builtins = null }) {
           chatJid,
           sender,
           lang,
+          // 最近几轮问答，供「那个单子未闭环」这类**追问**落地。
+          // 没有它，追问只能被当成一个全新的、缺主语的问题去猜。
+          history: getHistory(chatJid),
           // 工单通道失败即将自动重试 → 先把垫话发出去，别让用户干等
           onRetry: (text) =>
             send(chatJid, text, CONFIG.replyQuote ? msg : undefined).catch(() => {}),
@@ -497,6 +543,9 @@ export async function startWhatsApp({ onQuestion, builtins = null }) {
           pendingTimer = null;
         }
         await send(chatJid, text2, CONFIG.replyQuote ? msg : undefined);
+        // 记进会话历史，供下一句追问用。答不上来的（answered=false）不记 ——
+        // 「资料里没有」进历史，只会把下一轮也带偏。
+        if (result.answered) rememberTurn(chatJid, question, text2);
         log(
           `[回复] ${Date.now() - t0}ms｜命中=${result.answered}` +
             // 记录回复语言：语言类问题（英文提问收到中文回答）必须能事后审计，
