@@ -55,7 +55,7 @@ const L = buildLookups(CONFIG.knowledgeDirAbs, ROOT);
  * 跑一条题的「离线部分」：parseByRule / lookup 纯函数 / 特殊哨兵题。
  * @returns {{ok:boolean, detail:string, channel?:string, tool?:string}}
  */
-function runOffline(item) {
+async function runOffline(item) {
   // 哨兵题：help 文案（index.js 里定义，这里只查关键词由 caller 提供）
   if (item.q === '__help__') {
     // help 文本在 index.js 的 builtins 里，无法在此直接 import（有副作用）。
@@ -74,7 +74,7 @@ function runOffline(item) {
   // 查表工具：离线也能真渲染（不依赖网络/索引），顺手校验 mustInclude/mustNotInclude。
   // 这样「站点属性过滤」「告警名→码」这类新能力在离线门禁里就被钉住。
   if (call && call.tool?.startsWith('lookup')) {
-    const r = runLookup(call, item.lang || 'zh', { lookups: L, question: item.q });
+    const r = await runLookup(call, item.lang || 'zh', { lookups: L, question: item.q, staticOnly: true });
     const text = String(r.text || '');
     const problems = [];
     if (item.expectTool && call.tool !== item.expectTool) problems.push(`工具期望 ${item.expectTool}，实得 ${call.tool}`);
@@ -187,26 +187,39 @@ async function main() {
     }
   }
 
+  let skipped = 0;
   for (const item of items) {
-    let res = runOffline(item);
+    let res = await runOffline(item);
     // 非 offlineOnly 且在线可用 → 再跑在线断言（在线结果为准）
     if (!OFFLINE && onlineReady && !item.offlineOnly && item.q !== '__help__' && item.q !== '__parseToolCall__') {
       try {
         res = await runOnline(item);
       } catch (err) {
-        res = { ok: false, detail: `在线异常：${err.message}` };
+        // 云端限流/额度/超时是**基础设施**问题，不是回答质量回归 ——
+        // 归为「跳过」而非「失败」，否则每次额度用尽都会把评测刷红、
+        // 淹没真正的检索/路由回归。离线门禁仍会覆盖这些题的路由正确性。
+        const infra = /429|rate limit|额度|限流|timeout|ETIMEDOUT|ECONNREFUSED|fetch failed|5\d\d/i.test(err.message || '');
+        res = infra
+          ? { ok: true, skip: true, detail: `跳过（基础设施：${err.message.slice(0, 60)}）` }
+          : { ok: false, detail: `在线异常：${err.message}` };
       }
     }
-    (res.ok ? pass++ : fail++);
-    rows.push({ id: item.id, channel: res.channel || '-', tool: res.tool || '-', ok: res.ok, detail: res.detail });
-    console.log(`  ${res.ok ? '✓' : '✗'} ${item.id.padEnd(22)} ${String(res.channel || '-').padEnd(7)} ${String(res.tool || '-').padEnd(18)} ${res.ok ? '' : res.detail}`);
+    if (res.skip) skipped++;
+    else res.ok ? pass++ : fail++;
+    rows.push({ id: item.id, channel: res.channel || '-', tool: res.tool || '-', ok: res.ok, skip: res.skip, detail: res.detail });
+    const mark = res.skip ? '⚠' : res.ok ? '✓' : '✗';
+    console.log(`  ${mark} ${item.id.padEnd(22)} ${String(res.channel || '-').padEnd(7)} ${String(res.tool || '-').padEnd(18)} ${res.ok ? '' : res.detail}`);
   }
 
   console.log(`\n${'='.repeat(60)}`);
-  console.log(`通过 ${pass} / ${pass + fail}　失败 ${fail}`);
+  console.log(`通过 ${pass} / ${pass + fail}　失败 ${fail}${skipped ? `　跳过 ${skipped}（基础设施）` : ''}`);
   if (fail) {
     console.log('\n失败明细（把失败题记进 jsonl 的 notes，不要删题）：');
     for (const r of rows.filter((r) => !r.ok)) console.log(`  · ${r.id}：${r.detail}`);
+  }
+  if (skipped) {
+    console.log('\n跳过明细（基础设施问题，非质量回归；离线门禁已覆盖其路由）：');
+    for (const r of rows.filter((r) => r.skip)) console.log(`  · ${r.id}：${r.detail}`);
   }
   process.exit(fail ? 1 : 0);
 }

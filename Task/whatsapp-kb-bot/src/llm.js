@@ -206,7 +206,11 @@ export async function pingProvider() {
     // 预算不能太小：若模型带 thinking，小预算会被思考过程吃光，
     // content 返回空串，看起来像"密钥或模型有问题"，其实是预算不够。
     // 官方文档的基础示例用 max_tokens=1024，这里取 256 —— 探测够用又不拖慢启动。
-    const r = await openaiChat([{ role: 'user', content: '只回复两个字：正常' }], {
+    // WorkBuddy 代理（8788）要求首条消息为 system，否则返回 11128；加一条短 system 兼容两类 provider。
+    const r = await openaiChat([
+      { role: 'system', content: 'Reply briefly.' },
+      { role: 'user', content: '只回复两个字：正常' },
+    ], {
       maxTokens: 256,
       timeoutMs: 30000,
       lenient: true,

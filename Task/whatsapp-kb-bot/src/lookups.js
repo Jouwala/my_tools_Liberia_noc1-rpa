@@ -193,6 +193,10 @@ export function buildAliases(lookups) {
     // 括号里的缩写：Complete site down (CSD) → CSD
     const br = String(d.name).match(/\(([^)]+)\)/);
     if (br) put(br[1], code);
+    // 去掉括号部分的名字：`Complete site down (CSD)` → `Complete site down`。
+    // 现场常只说主体名（不说缩写），只登记整串会漏「Complete site down 是什么码」。
+    const noParen = String(d.name).replace(/[（(][^）)]*[）)]/g, ' ').trim();
+    if (noParen && noParen !== d.name) put(noParen, code);
     // 「X/Y」型名称（Fiber/Link Break）的每一段都当别名：
     // 现场常只说其中一半（Fiber Break），整串匹配会漏。
     for (const part of String(d.name).split('/')) put(part, code);

@@ -83,10 +83,11 @@ Baileys 客户端（Node.js，扫码登录，作为「已关联的设备」）
 > ③ 支持两种「没有数字码」的问法：
 > - **告警名/缩写**（`CSD 定几级`、`Fiber Break 是什么告警`）→ 先按 `data/lookups.json`
 >   的别名表解析成码（`CSD`→9920、`Fiber Break`→4758），再查表；
-> - **站点属性过滤**（`告警码 9990 NORMAL 非 VIP 是几级`）→ 只保留条件里写明
->   `NORMAL`/`vipSite=0` 的行，排除条件冲突的行（如 `COOL` 的 #228）。
->   **不做完整规则引擎匹配** —— 那会与 `scripts/tt-analyze.py` 的口径漂移（P1/B5 才做），
->   回复里会如实标注「未做完整规则引擎匹配」。
+> - **站点属性过滤 + 真规则匹配**（`告警码 9990 NORMAL 非 VIP 是几级`）→ 现在会
+>   **调用 `scripts/tt-analyze.py --lookup-level`**（与「分析 TT 单」**同一套规则引擎**），
+>   直接给出命中级别与逐条判定依据。口径与工单分析完全一致，避免「查表说 P2、分析工单说 P3」。
+>   脚本不可用（没装 Python / 规则表不在）时自动回退到静态候选列表（只过滤写明冲突条件的行）。
+>   判不了时输出 `incomplete`（缺字段，措辞「未能核对规则」），与「未命中」分开。
 
 只有「你的问题 + 命中的片段」会离开本机（且仅在你选择云端对话模型时）。
 
@@ -338,6 +339,9 @@ echo 'AGNES_API_KEY=你的key' > .env
 | `lookupsPath` | `data/lookups.json` | 查表数据（告警码/压缩/级别），由 `npm run ingest` 生成；供 ③ 通道使用 |
 | `kbExcludeSources` | `["knowledge/07_...md"]` | 默认检索排除的来源（操作手册占 52% 且含机密）。环境变量 `KB_EXCLUDE_SOURCES` 逗号分隔覆盖；清空即回退旧行为 |
 | `kbManualIntent` | （正则） | 问法命中时才把被排除的手册纳入检索（界面/菜单/如何创建用户组…）。环境变量 `KB_MANUAL_INTENT` |
+| `parentMergeMaxChars` | 1200 | P1/B1 同标题路径相邻块合并回上下文的字符上限；超限的块作为独立条目保留（不丢） |
+| `mmrMaxPerSource` | 3 | P1/B4 topK 内同一文件最多几块（0=不限流）；治「topK 被同一文件占满」 |
+| `bm25Weight` | 0.3 | P1/B2 词级 BM25（中文 bigram / 英文 token）融合权重（0=关闭，回退旧 bigram 混合） |
 
 > 上面三组 `*Text` 是**不经过模型**的固定回复，必须成对配置。
 > 只配中文的话，英文提问会收到一句中文兜底 —— 详见「回复语言」一节。
@@ -1722,6 +1726,7 @@ npm run eval:kb             # 黄金集在线评测（需索引 + 嵌入 + 可�
 npm run doctor              # 环境自检，不写索引
 npm run diag                # 云端对话模型诊断（对照实验，定位"返回空内容"）
 npm run tt -- TT202609150073   # 单条 TT 单分析（实时查工单库）
+npm run tt-level -- 9990 --asset NORMAL --vip 0   # 按码+属性直接判级别（复用同一套规则引擎）
 npm run tt-index            # 重建本地单号索引（首次部署 / 急着查新单时跑）
 npm run export-kb           # 从 my_app 重新导出 TT 知识库文档（规则更新后跑）
 npm run docx2md -- 手册.docx 手册.md   # docx → markdown（入库前转换）

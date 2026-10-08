@@ -33,7 +33,7 @@
 import { CONFIG } from './config.js';
 import { chat } from './llm.js';
 import { answer as ragAnswer, withWebHint } from './rag.js';
-import { extractTtNos, analyzeTickets } from './tt.js';
+import { extractTtNos, analyzeTickets, lookupLevelByRule } from './tt.js';
 import {
   queryTickets,
   renderStats,
@@ -275,7 +275,7 @@ export function leftoverTerms(q) {
   s = s.replace(/\d+/g, ' ');
   // 中文时间与数量词
   s = s.replace(
-    /(今天|今日|昨天|昨日|前天|本周|这周|上周|本月|这个月|上个月|最近|过去|近|多少|几个|几单|几条|有没有|有吗|有没|数量|总计|合计|一共|个|单|条|的|了|吗|呢|啊|吧|请|帮|我|看|查|下|一下|这个|那个|哪些|什么)/g,
+    /(今天|今日|昨天|昨日|前天|本周|这周|上周|本月|这个月|上个月|最近|过去|近|多少|几个|几单|几条|有没有|有吗|有没|有|数量|总计|合计|一共|个|单|条|天|周|月|年|日|的|了|吗|呢|啊|吧|请|帮|我|看|查|下|一下|这个|那个|哪些|什么)/g,
     ' '
   );
   // 「要单号名单」的说法（parseListIntent 认得的那批）也必须剥掉，
@@ -546,7 +546,7 @@ export async function runTool(call, index, lang, opts = {}) {
 
   // 查表工具：脚本渲染，不经 LLM（P0 准确率最大杠杆）。
   if (call.tool === 'lookup_alarm_code' || call.tool === 'lookup_compress' || call.tool === 'lookup_level_rule') {
-    const out = runLookup(call, lang, opts);
+    const out = await runLookup(call, lang, opts);
     out.stats = { ...(out.stats || {}), totalMs: Date.now() - t0 };
     return out;
   }
@@ -609,12 +609,48 @@ function lookupFail(lang, kind, code) {
 }
 
 /**
+ * B5：渲染「真规则匹配」的结果（来自 tt-analyze.py --lookup-level）。
+ * 数据字段（规则名）保持原文，与 TT 通道「数据行不翻译」一致。
+ */
+function renderLevelMatch(r, code, attrs, lang) {
+  const bits = [];
+  if (attrs.assetType) bits.push(`assetType=${attrs.assetType}`);
+  if (attrs.siteSubType) bits.push(`siteSubType=${attrs.siteSubType}`);
+  if (attrs.vipSite) bits.push(`vipSite=${attrs.vipSite}`);
+  const attrStr = bits.join('，');
+
+  if (r.verdict === 'ok') {
+    return lang === 'en'
+      ? `Alarm code ${code} (${attrStr}) → ${r.severity}\n` +
+          `Matched rule: #${r.ruleId} ${r.ruleName}\n` +
+          `Basis: ${r.details}\n` +
+          `Source: eflow_TT_rules.xlsx（与工单分析同一套规则引擎）`
+      : `告警码 ${code}（${attrStr}）→ ${r.severity}\n` +
+          `命中规则：#${r.ruleId} ${r.ruleName}\n` +
+          `判定依据：${r.details}\n` +
+          `来源：eflow_TT_rules.xlsx（与工单分析同一套规则引擎）`;
+  }
+  if (r.verdict === 'incomplete') {
+    const miss = (r.missingFields || []).join('、');
+    return lang === 'en'
+      ? `Alarm code ${code} (${attrStr}) — cannot determine severity: missing ${miss}. ` +
+          `Rules were not fully evaluated (need more site attributes). Not a "no match".`
+      : `告警码 ${code}（${attrStr}）—— 级别无法判定：缺少字段 ${miss}，` +
+          `规则未被真正评估（需补充站点属性）。这**不是**「未命中规则」。`;
+  }
+  // unknown：字段齐全但确实没有规则命中
+  return lang === 'en'
+    ? `Alarm code ${code} (${attrStr}) — no enabled severity rule matched. I won't guess.`
+    : `告警码 ${code}（${attrStr}）—— 没有命中的级别规则。我不会按通用知识猜。`;
+}
+
+/**
  * 执行查表工具（三个 lookup_*）。**结果原样渲染，绝不送进 LLM 润色。**
  *
  * 查找表缺失（没跑过 ingest）时如实回「未构建」，不 fallback 进 RAG ——
  * 那是这次改造要消灭的「装懂」。
  */
-export function runLookup(call, lang, opts = {}) {
+export async function runLookup(call, lang, opts = {}) {
   const lookups = opts.lookups !== undefined ? opts.lookups : loadLookupsOnce();
   const t0 = Date.now();
   const code = String(call.args?.code || '').trim();
@@ -655,13 +691,34 @@ export function runLookup(call, lang, opts = {}) {
 
   if (call.tool === 'lookup_level_rule') {
     const sev = String(call.args?.severity || '').toUpperCase();
+    const attrs = parseSiteAttrs(opts.question || '');
+
+    // —— B5：有码 + 至少一个站点属性 → 走**真正的规则匹配**（复用 tt-analyze.py）——
+    // 口径与工单分析完全一致，避免「查表说 P2、分析工单说 P3」。
+    // 脚本不可用（没装 Python/规则表不在）时静默回退到静态候选列表（下面那段）。
+    // `opts.staticOnly`（给离线测试/评测用）跳过子进程，避免无谓起 Python。
+    if (!opts.staticOnly && code && Object.keys(attrs).length) {
+      const r = await lookupLevelByRule(
+        code,
+        { asset: attrs.assetType, vip: attrs.vipSite, sub: attrs.siteSubType },
+        { lang }
+      );
+      if (!r.unavailable) {
+        return {
+          answered: r.ok,
+          channel: 'lookup',
+          text: renderLevelMatch(r, code, attrs, lang),
+          stats: { totalMs: Date.now() - t0 },
+          routeArgs: { code, ...attrs },
+        };
+      }
+    }
+
     let rules = [];
     if (code) rules = findLevelByCode(lookups, code);
     else if (/^P[1-4]$/.test(sev)) rules = findLevelBySeverity(lookups, sev);
 
-    // 用户给了站点属性（NORMAL/VIP/ERA…）→ 只**过滤**条件里写明冲突取值的行。
-    // 不做完整 matcher（P0 边界，见 lookups.js 顶部注释）；吃不准的行一律保留。
-    const attrs = parseSiteAttrs(opts.question || '');
+    // 用户给了站点属性 → 只**过滤**条件里写明冲突取值的行（静态候选场景）。
     const filtered = filterLevelRulesByAttrs(rules, attrs);
     // 过滤后若把候选清空了，退回未过滤集（宁可多列，不可误删到空）
     if (filtered.length) rules = filtered;

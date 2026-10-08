@@ -143,6 +143,67 @@ export function ttAvailable() {
 }
 
 /**
+ * B5：按「告警码 + 站点属性」做**真正的级别匹配**（复用 tt-analyze.py 的 matcher）。
+ *
+ * 为什么不自己算：级别规则的条件语义（左折叠 OR/AND、siteSubType vs assetType
+ * 区分、字符串比较）在 Python 侧已与 my_app 对齐并验收。这里再写一份必然漂移，
+ * 结果就是「查表说 P2、分析工单说 P3」—— 最难排查的一类不一致。
+ *
+ * 返回 { ok, verdict, severity, ruleId, ruleName, missingFields, text }；
+ * 脚本不可用 / 超时 → { ok:false, unavailable:true }，调用方回退到静态候选列表。
+ *
+ * @param {string} code    告警码
+ * @param {object} attrs   { asset, vip, sub, domain, down }
+ * @param {object} [opts]  { lang }
+ */
+export function lookupLevelByRule(code, attrs = {}, { lang = 'zh' } = {}) {
+  const args = [SCRIPT, '--lookup-level', String(code), '--lang', lang, '--json'];
+  if (attrs.asset) args.push('--asset', String(attrs.asset));
+  if (attrs.vip !== undefined && attrs.vip !== '') args.push('--vip', String(attrs.vip));
+  if (attrs.sub) args.push('--sub', String(attrs.sub));
+  if (attrs.domain) args.push('--domain', String(attrs.domain));
+  if (attrs.down) args.push('--down', String(attrs.down));
+
+  return new Promise((resolvePromise) => {
+    execFile(
+      PYTHON,
+      args,
+      {
+        timeout: TIMEOUT_MS,
+        encoding: 'utf8',
+        windowsHide: true,
+        maxBuffer: 4 * 1024 * 1024,
+        env: { ...process.env, PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8' },
+      },
+      (err, stdout, stderr) => {
+        const out = (stdout || '').trim();
+        // 退出码：0 命中 / 1 不匹配 / 4 incomplete —— 这三种都有 stdout JSON。
+        if (out) {
+          try {
+            const res = JSON.parse(out);
+            resolvePromise({
+              ok: res.verdict === 'ok',
+              unavailable: false,
+              verdict: res.verdict,
+              severity: res.suggested_severity || '',
+              ruleId: res.matched_rule_id ?? null,
+              ruleName: res.matched_rule_name || '',
+              missingFields: res.missing_rule_fields || [],
+              details: res.match_details || '',
+            });
+            return;
+          } catch {
+            /* 落到下面按失败处理 */
+          }
+        }
+        // 无 stdout（脚本不可用 / 规则表读不到 / 超时）→ unavailable，调用方回退
+        resolvePromise({ ok: false, unavailable: true, error: (stderr || err?.message || '').trim() });
+      }
+    );
+  });
+}
+
+/**
  * 失败文案（超时 / 出错 / 空结果）。
  *
  * TT 通道不过模型，这几句是脚本之外、由 Node 侧直接发出的兜底 ——

@@ -319,6 +319,72 @@ check(_json.dumps(_res, ensure_ascii=False) is not None,
       'resolve_assign 的返回值可 JSON 序列化（无 set）')
 
 # ------------------------------------------------------------------ #
+# B5：lookup_level —— 按「码 + 属性」直接判级别，复用同一套 matcher。
+# 用合成规则表（不依赖 XLSX，离线可跑），验证：
+#   ① 属性齐全时命中正确级别；② 缺字段 → incomplete（不是 unknown）；
+#   ③ 都不匹配 → unknown；④ 与 match_rules 口径一致（同一代码路径）。
+print('\n[9] B5 lookup_level（级别真匹配）')
+
+
+def _c(field, sym, vals, orand='AND'):
+    return {'field': field, 'symbol': sym, 'values': list(vals), 'or_and': orand}
+
+
+def _rule(rid, name, prio, sev, conds):
+    return {'id': rid, 'name': name, 'priority': prio, 'severity': sev,
+            'status': 'ACTIVE', 'conds': conds, 'cond_count': len(conds)}
+
+
+_MK = [
+    _rule(227, '无线断站级别重定义-P2-new', 3, 'P2',
+          [_c('assetType', '=', ['NORMAL']), _c('alarmCode', 'in', ['9970', '9990', '9920']),
+           _c('vipSite', '=', ['0'])]),
+    _rule(228, '无线断站级别重定义-P3-rule1', 3, 'P3',
+          [_c('assetType', '=', ['COOL']), _c('alarmCode', 'in', ['9970', '9990', '9920']),
+           _c('vipSite', '=', ['0'])]),
+    _rule(226, '无线断站级别重定义-P1-rule2', 2, 'P1',
+          [_c('vipSite', '=', ['1']), _c('alarmCode', 'in', ['9920'])]),
+    _rule(230, 'TT-lowest severity', 4, 'P4', [_c('vipSite', 'in', ['0', '1'])]),
+]
+
+_r = tt.lookup_level('9990', asset='NORMAL', vip='0', rules=_MK)
+check(_r['verdict'] == 'ok' and _r['suggested_severity'] == 'P2' and _r['matched_rule_id'] == 227,
+      'NORMAL 非VIP 9990 → P2（#227）', str(_r))
+
+_r = tt.lookup_level('9990', asset='COOL', vip='0', rules=_MK)
+check(_r['verdict'] == 'ok' and _r['suggested_severity'] == 'P3' and _r['matched_rule_id'] == 228,
+      'COOL 非VIP 9990 → P3（#228）', str(_r))
+
+_r = tt.lookup_level('9920', vip='1', rules=_MK)
+check(_r['verdict'] == 'ok' and _r['suggested_severity'] == 'P1' and _r['matched_rule_id'] == 226,
+      'VIP=1 9920 → P1（#226）', str(_r))
+
+# 缺字段（vipSite 未给）→ incomplete，不是 unknown
+_r = tt.lookup_level('9990', asset='NORMAL', rules=_MK)
+check(_r['verdict'] == 'incomplete' and 'vipSite' in _r['missing_rule_fields'],
+      '缺 vipSite → incomplete（不是「未命中」）', str(_r))
+
+# 兜底规则命中（P4）—— 与「连兜底都不中」区分
+_r = tt.lookup_level('11111', vip='0', rules=_MK)
+check(_r['verdict'] == 'ok' and _r['suggested_severity'] == 'P4',
+      '未覆盖的码 + vipSite 有值 → 兜底 P4（#230）', str(_r))
+
+# 与 match_rules 同口径：手工构造 vf 直接 match，结果应与 lookup_level 一致
+_vf = tt.build_value_frame({'alarm_code': '9990', 'site_type': 'NORMAL', 'vip_site': '0',
+                            'site_information': '', 'domain': '', 'down_site_count': ''})
+_direct = tt.match_rules(_vf, _MK)
+check(_direct is not None and _direct['id'] == 227, 'lookup_level 与 match_rules 口径一致', str(_direct))
+
+# 渲染：命中时含级别与规则 ID；incomplete 时措辞点明「不是未命中」
+_txt = tt.render_level_lookup(tt.lookup_level('9990', asset='NORMAL', vip='0', rules=_MK),
+                              '9990', {'asset': 'NORMAL', 'vip': '0'}, 'zh')
+check('P2' in _txt and '227' in _txt, '渲染含级别与规则 ID', _txt)
+_txt2 = tt.render_level_lookup(tt.lookup_level('9990', asset='NORMAL', rules=_MK),
+                               '9990', {'asset': 'NORMAL'}, 'zh')
+check('无法判定' in _txt2 and '未被真正评估' in _txt2,
+      'incomplete 渲染点明「规则未被真正评估」（≠未命中）', _txt2)
+
+# ------------------------------------------------------------------ #
 print('\n' + '=' * 50)
 print(f'通过 {pass_n} 项，失败 {fail_n} 项')
 sys.exit(1 if fail_n else 0)

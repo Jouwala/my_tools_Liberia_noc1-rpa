@@ -1403,7 +1403,7 @@ def render_level_lookup(res: dict, code: str, attrs: dict, lang: str = DEFAULT_L
         attr_bits.append(f"assetType={attrs['asset']}")
     if attrs.get('sub'):
         attr_bits.append(f"siteSubType={attrs['sub']}")
-    if attrs.get('vip') != '':
+    if attrs.get('vip') not in (None, ''):
         attr_bits.append(f"vipSite={attrs['vip']}")
     if attrs.get('down'):
         attr_bits.append(f"downSiteCount={attrs['down']}")

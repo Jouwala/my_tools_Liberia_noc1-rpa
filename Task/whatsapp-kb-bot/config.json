@@ -3,11 +3,12 @@
 
   "$providers": "嵌入走 Ollama（本机没有，见下方 $ollamaUrl 指向 .27）；对话可走本地或任意 OpenAI 兼容的云端接口。chatProvider: ollama | openai",
   "chatProvider": "openai",
-  "chatModel": "agnes-3.0-flash",
-  "chatBaseUrl": "https://apihub.agnes-ai.com/v1",
+  "chatModel": "deepseek-v4.1-flash",
+  "chatBaseUrl": "http://127.0.0.1:8788/v1",
   "chatApiKeyEnv": "AGNES_API_KEY",
-  "chatApiKey": "",
+  "chatApiKey": "wbproxy",
   "chatTimeoutMs": 60000,
+  "$chatProxy": "2026-10-07 切换：原 agnes-3.0-flash @ apihub.agnes-ai.com 换为本机 WorkBuddy 代理（端口 8788，start-workbuddy-chain.ps1 启动）。chatApiKey=wbproxy 仅为占位，代理用 WorkBuddy session 鉴权、不校验该值。代理要求首条消息为 system，bot 的 buildMessages 已满足。切回 Agnes: chatModel=agnes-3.0-flash, chatBaseUrl=https://apihub.agnes-ai.com/v1, chatApiKey=\"\"",
 
   "$enableThinking": "false=显式关闭思维链；true=显式开启；删除本行=不传该参数，用服务端默认。知识库问答不需要思维链，开启只会白烧 token 预算，极端情况下思考把预算吃光会导致 content 返回空串。",
   "enableThinking": false,

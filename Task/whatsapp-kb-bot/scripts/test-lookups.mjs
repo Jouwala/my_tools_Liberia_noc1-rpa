@@ -189,8 +189,8 @@ console.log('\n[7] 站点属性过滤（只过滤条件写明的冲突行）');
   check(cool.some((r) => r.id === '228') && !cool.some((r) => r.id === '227'), 'COOL 保留 #228、过滤 #227', JSON.stringify(cool.map((r) => r.id)));
   check(filterLevelRulesByAttrs(all9990, {}).length === all9990.length, '无属性 → 不过滤', `${filterLevelRulesByAttrs(all9990, {}).length}/${all9990.length}`);
 
-  // 端到端：runLookup 用 opts.question 做过滤
-  const r = runLookup({ tool: 'lookup_level_rule', args: { code: '9990' } }, 'zh', { lookups: L, question: '告警码 9990 COOL 非VIP 是几级' });
+  // 端到端：runLookup 用 opts.question 做过滤（staticOnly 跳过 B5 子进程）
+  const r = await runLookup({ tool: 'lookup_level_rule', args: { code: '9990' } }, 'zh', { lookups: L, question: '告警码 9990 COOL 非VIP 是几级', staticOnly: true });
   check(r.text.includes('#228') && !r.text.includes('#227'), 'runLookup 按属性过滤', JSON.stringify(r.text.match(/#\d+/g)));
 }
 

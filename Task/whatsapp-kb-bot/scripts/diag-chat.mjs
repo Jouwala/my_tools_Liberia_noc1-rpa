@@ -16,7 +16,7 @@ import { resolveApiKey } from '../src/llm.js';
 const { key, source } = resolveApiKey();
 const BASE = (CONFIG.chatBaseUrl || '').replace(/\/+$/, '');
 const MODEL = CONFIG.chatModel;
-const ALT_MODEL = 'agnes-2.5-flash'; // 官方 quickstart 里出现的模型，用作对照
+const ALT_MODEL = 'glm-5.3-flash'; // 对照模型，从 WorkBuddy model-catalog 中取 x0.06 credits 的快模型
 
 if (!key) {
   console.error('✗ 未读到 API Key。');
@@ -119,7 +119,10 @@ async function probe(label, { model = MODEL, maxTokens, thinking, messages, note
   console.log();
 }
 
-const MSG_MIN = [{ role: 'user', content: '只回复两个字：正常' }];
+const MSG_MIN = [
+  { role: 'system', content: 'Reply briefly.' },
+  { role: 'user', content: '只回复两个字：正常' },
+];
 const MSG_SYS = [
   { role: 'system', content: '你是一个只依据资料回答的助手，用中文，简短。' },
   { role: 'user', content: '资料：年假15天。\n\n问题：年假有几天？' },
@@ -178,8 +181,8 @@ if (mainOk.length === 0) {
   const altOk = results.find((r) => r.ok && r.model === ALT_MODEL);
   if (altOk) {
     console.log(`  ✗ 主模型 ${MODEL} 全部失败，但对照模型 ${ALT_MODEL} 正常。`);
-    console.log(`    → 问题在模型本身：你的 key 可能没有 ${MODEL} 的访问权限，或该模型未对你开放。`);
-    console.log(`      去 Agnes 控制台确认模型权限，或暂时改用 ${ALT_MODEL}。`);
+    console.log(`    → 问题在模型本身：WorkBuddy 账号可能没有 ${MODEL} 的访问权限，或该模型未对你开放。`);
+    console.log(`      在 WorkBuddy 代理启动脚本确认模型列表，或暂时改用 ${ALT_MODEL}。`);
   } else if (results.some((r) => r.why === '只有 reasoning_content')) {
     console.log('  ✗ 所有请求都只返回 reasoning_content、content 为空。');
     console.log('    → 模型把输出全放进了思维链。优先尝试调大 maxTokens（1024 以上），');
