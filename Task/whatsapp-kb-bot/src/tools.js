@@ -34,6 +34,7 @@ import { CONFIG } from './config.js';
 import { chat } from './llm.js';
 import { answer as ragAnswer, withWebHint } from './rag.js';
 import { extractTtNos, analyzeTickets, lookupLevelByRule } from './tt.js';
+import { querySiteAlarms } from './sitealarms.js';
 import {
   queryTickets,
   renderStats,
@@ -97,6 +98,15 @@ const TOOL_SPEC = [
     args: '{"tt_no":"TT202609150073"}',
   },
   {
+    name: 'query_site_alarms',
+    desc:
+      '按**站点名**查 eFlow 的**实时活动告警**，回答「这个站现在有没有告警 / up 没 up / 是什么告警」。' +
+      '用于「*Palm Bay* check if this site is up or not」「check alarm for site name X form eflow」' +
+      '「XX站有告警吗」「XX站是不是 down 了」。参数是站点名。' +
+      '**不要**用 query_tickets 答这类问题 —— 那是工单数量，不是告警状态。',
+    args: '{"site":"Palm Bay"}',
+  },
+  {
     name: 'lookup_alarm_code',
     desc:
       '查**告警码的含义**。用于「告警码 99933 是什么意思」「what does alarm code 9920 mean」。' +
@@ -144,6 +154,9 @@ const ROUTER_PROMPT =
   '· 出现告警码，且问**压缩 / 父告警 / 会被压成什么** → 用 lookup_compress。\n' +
   '· 出现告警码，且问**级别 / 定级 / 几级**；或只问「P1 是什么级别」「P1 规则」→ 用 lookup_level_rule。\n' +
   '· 有告警码且问含义/压缩/级别时，**一律不要**用 search_knowledge —— 那是查表题，不是叙述题。\n' +
+  '· 问某个**站点当前有没有告警 / 是不是 up / 什么告警 / down 没 down** → 用 query_site_alarms；' +
+  '把站点名填进 site。**这类问题绝不要用 query_tickets** —— query_tickets 是工单数量，' +
+  '按站名匹配工单会得到 0，而 0 张工单**不等于**没有告警，那会答错。\n' +
   '· 其余「流程 / 为什么 / 怎么走 / 定义」这类**叙述性静态知识** → 用 search_knowledge。\n' +
   '· 注意区分：「P1 是什么」= lookup_level_rule；「今天有几个 P1」= query_tickets。\n' +
   '· 拿不准且**没有**告警码 → 用 search_knowledge。\n' +
@@ -399,12 +412,83 @@ export function parseLookupIntent(q, lookups) {
  *
  * @returns {{tool:string, args:object}|null}
  */
+/* --------------------- 站点告警意图（query_site_alarms） --------------------- */
+
+/**
+ * 「某站点当前有没有告警」的问法特征。
+ *
+ * 收得**窄且锚在告警语义上**是刻意的：
+ *   · 必须出现告警状态词（告警 / alarm / up / down / 掉站 / 断站 / site down…），
+ *     光有站名不算 —— 否则「Wood camp 昨天有几单」会被误拐到告警通道。
+ *   · 出现 TT/WO 单号时**不**走这里（那是 analyze_ticket 的地盘），
+ *     但「站点有没有告警 and 有没有 TT」这种**混合问法**要能进 —— 见下。
+ */
+const SITE_ALARM_INTENT =
+  /(告警|报警|alarm|是否\s*(up|down|在线|正常)|在不在线)\s*|\bis\s+it\s+up\b|\b(site\s*)?(is\s*)?(down|up)\s*(or|and)?\s*(not)?\b|\bup\s*(or|\/)\s*not\b|掉站|断站/i;
+
+/**
+ * 从提问里抽站点名（规则层）。
+ *
+ * 只处理**规则能可靠抓到**的形态，抓不准就返回 '' 交给模型层：
+ *   · 被 `*...*` 包裹的（用户惯用 *Palm Bay* 强调）—— 最可靠；
+ *   · 「site name X」「site X」「站点 X」「X 站」这类显式引导词后的专名；
+ *   · 纯英文多词专名（Palm Bay / Gbonebu Town）。
+ * 中文裸站名（「蒙塞拉多」）规则不可靠 → 留给模型层，保持与统计通道一致的取舍。
+ */
+const SITE_STOPWORDS = new Set([
+  'check', 'if', 'alarm', 'alarms', 'site', 'sitename', 'name', 'please', 'tt', 'wo',
+  'up', 'down', 'have', 'has', 'is', 'the', 'for', 'form', 'from', 'and', 'or', 'not',
+  'no', 'yes', 'created', 'create', 'why', 'what', 'which', 'any', 'there', 'this',
+  'that', 'status', 'now', 'current', 'eflow', 'and', 'of', 'in', 'on', 'to',
+]);
+
+function extractSiteName(q) {
+  const s = String(q || '');
+
+  // ① *...* 强调包裹 —— 用户惯用 *Palm Bay* 点名，最可靠，优先。
+  const star = s.match(/\*+\s*([^*]{2,40}?)\s*\*+/);
+  if (star) {
+    const name = star[1].trim();
+    if (name && !SITE_STOPWORDS.has(name.toLowerCase())) return name;
+  }
+
+  // ② 纯英文专名：1~3 个连续「首字母大写」词，且首词不是停用词。
+  //    只认**大写开头**的词，天然避开 "site down" 里的 down / "check alarm" 里的 alarm。
+  //    例：Palm Bay / Gbonebu / Qcell R.I.A / Wood Camp。
+  const capped = s.match(/\b[A-Z][A-Za-z0-9'\-]*(?:\s+[A-Z][A-Za-z0-9'\-]*){0,2}\b/g) || [];
+  const cands = capped
+    .map((w) => w.trim())
+    .filter((w) => {
+      const head = w.split(/\s+/)[0].toLowerCase();
+      return !SITE_STOPWORDS.has(head) && w.replace(/[^A-Za-z0-9]/g, '').length >= 3;
+    });
+  // 仅当**恰好一个**候选时采用（多个说明歧义 → 弃权交模型层，宁可不猜）
+  if (cands.length === 1) return cands[0];
+
+  // ③ 中文站点：`XX站` / 「站点 XX」——仅当 XX 是 ≥2 个汉字时。
+  const zh = s.match(/([一-龥]{2,10})\s*站(?:点)?/) || s.match(/站点?\s*([一-龥]{2,10})/);
+  if (zh) return zh[1];
+
+  return '';
+}
+
 export function parseByRule(question, now = new Date()) {
   const q = String(question || '').trim();
 
   // ① 单号优先：TT/WO 单号是强信号，且这条通道最成熟。
   const ttNos = extractTtNos(q);
   if (ttNos.length) return { tool: 'analyze_ticket', args: { tt_no: ttNos[0] } };
+
+  // ①.2 站点告警意图：出现**告警状态词**（且不是纯按单号/告警码查）时，
+  // 优先走 query_site_alarms。必须在统计判断之前 —— 否则
+  // 「Palm Bay 有没有告警」会被 COUNT_INTENT 的「有没有」拐去统计，
+  // 回一句 tickets: 0，把「工单数」误当「告警状态」。
+  // 覆盖面：站名能被规则可靠抓到时**直接命中**（省一次模型调用）；
+  // 抓不到站名时**弃权**交模型层（模型能从上下文/追问里补全站名）。
+  if (SITE_ALARM_INTENT.test(q) && !extractAlarmCode(q)) {
+    const site = extractSiteName(q);
+    if (site) return { tool: 'query_site_alarms', args: { site } };
+  }
 
   // ①.5 查表意图（告警码含义 / 压缩 / 级别）。
   //
@@ -599,6 +683,18 @@ export async function runTool(call, index, lang, opts = {}) {
       answered: r.ok,
       channel: 'tt',
       stats: { totalMs: Date.now() - t0, okCount: r.okCount, total: r.total },
+    };
+  }
+
+  if (call.tool === 'query_site_alarms') {
+    const site = String(call.args?.site || '').trim();
+    const r = await querySiteAlarms(site, lang);
+    return {
+      text: r.text,
+      answered: r.answered,
+      channel: 'sitealarm',
+      stats: { ...(r.stats || {}), totalMs: Date.now() - t0 },
+      routeArgs: { site },
     };
   }
 

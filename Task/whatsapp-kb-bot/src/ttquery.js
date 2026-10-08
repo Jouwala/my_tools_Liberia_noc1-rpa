@@ -302,6 +302,8 @@ export function renderStats(
       colon: '：',
       sep: '、',
       paren: (s) => `（${s}）`,
+      // 站点+0 单：必须点明是**工单**为 0，别被读成「该站没告警/没问题」。
+      siteZero: (site) => `工单${'：'}0（站点 ${site}；这是工单数量，不代表该站没有告警，查告警请直接问「${site} 有没有告警」）`,
     },
     en: {
       range: (s, e) => (s === e ? `${s}` : `${s} ~ ${e}`),
@@ -318,6 +320,7 @@ export function renderStats(
       colon: ': ',
       sep: ', ',
       paren: (s) => ` (${s})`,
+      siteZero: (site) => `tickets: 0 (site ${site}; this is a ticket count, not an alarm status — ask "${site} alarms" for live alarms)`,
     },
   }[lang];
 
@@ -328,6 +331,12 @@ export function renderStats(
     // 「今天有 P1 吗」的正确答案是「P1：0 个」，不是一句「查不到工单」——
     // 后者会被理解成"查询失败"或"这条件有问题"。
     // 这里必须把级别说全，否则用户不知道 0 指的是什么为 0。
+    // 站点+0 单是**最高危的误读**：用户问站，看到「0」会以为"该站没事"。
+    // 其实这里 0 说的是**匹配到的工单数**，与告警状态是两回事。
+    // 所以站点非空时用专门的措辞把边界讲清楚（见 T.siteZero）。
+    if (data.site && !data.severity) {
+      return [range, T.siteZero(data.site)].filter(Boolean).join('\n');
+    }
     const cond = [data.status === 'open' ? T.openLabel : '', data.site || ''].filter(Boolean);
     let body;
     if (lang === 'en') {

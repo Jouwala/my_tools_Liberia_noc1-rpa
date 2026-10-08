@@ -238,20 +238,20 @@ async function main() {
     onQuestion: async (question, { lang, onRetry, onLive, history } = {}) => {
       const t0 = Date.now();
 
-      // 嵌入不可用时**不要**硬着头皮往下走：`routeAnswer` 会去调 Ollama 做嵌入，
-      // 每次都要等连接超时，用户干等几十秒最后收到一句含糊的错误。
-      // 直接回一句说清原因的话，比超时后再报错有用得多。
-      // （TT 单分析通道不依赖嵌入，但它复用同一个 routeAnswer，故一并短路；
-      //   若将来要让 TT 通道在无嵌入时仍可用，需在这里按 ttNo 分流。）
-      if (!qaAvailable) {
-        return {
-          answered: false,
-          text:
-            lang === 'en'
-              ? "My knowledge base is unavailable right now (the embedding service is down), so I can't look this up. Please try again later."
-              : '我这边的知识库暂时不可用（嵌入服务连不上），查不了这个问题，稍后再试试～',
-        };
-      }
+      // 嵌入不可用时**不再整条短路**：2026-10-08 修正。
+      //
+      // 旧行为：qaAvailable=false 时直接返回一句「知识库不可用」——
+      // 但这把**不依赖嵌入**的通道（TT 单号分析、工单统计、按站点查告警、
+      // 告警码查表）也一起挡死了。嵌入挂掉时，用户连「查 TT单号」都用不了，
+      // 属于把「坏一半」升级成「全坏」。
+      //
+      // 新行为：交给 routeAnswer 正常路由。
+      //   · 工具通道（tt / stats / sitealarm / lookup）不需要嵌入 → 照常工作；
+      //   · 知识库通道在 src/rag.js 里**就地捕获**嵌入异常，回一句说清
+      //     「知识库此刻不可用」的明确话术（不再是含糊的 errorText）。
+      // 这样嵌入故障只影响它本该影响的那一部分。
+      // （qaAvailable 仍保留：只在启动自检里打印状态，供 ping/排障用。）
+      void qaAvailable;
 
       const result = await routeAnswer(question, index, {
         // 语言由接入层按提问原文判定后传下来（见 whatsapp.js / lang.js），

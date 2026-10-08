@@ -737,7 +737,29 @@ export async function answer(
     if (resolved && resolved.continue && resolved.query) question = resolved.query;
   }
 
-  const queryVec = await embedOne(question);
+  // 嵌入不可用时**不当故障抛出**：以前这里一句 `await embedOne` 直接冒泡到
+  // 接入层，最终回一句含糊的 errorText（「抱歉，我这边出了点故障」），
+  // 且 answered=0 —— 用户既不知道原因，也不知道该找谁。
+  // 典型触发：Ollama 那台缺 `bge-m3`（404 model not found），或嵌入服务临时不可达。
+  // 改为**就地降级**：回一句说清「知识库此刻不可用」的话（仍 answered=false，
+  // 因为它确实没答上），但语义明确、可行动。工具通道不走这里，故不受影响。
+  let queryVec;
+  try {
+    queryVec = await embedOne(question);
+  } catch (err) {
+    const reason = String(err?.message || err || '').trim();
+    return {
+      answered: false,
+      text: pickText(
+        lang,
+        `我这边的知识库暂时不可用（嵌入服务异常：${reason.slice(0, 120)}），查不了这个问题。` +
+          `请稍后再试，或直接问「XX站有没有告警 / 查 TT单号」这类不依赖知识库的问题。`,
+        `My knowledge base is unavailable right now (embedding service error: ${reason.slice(0, 120)}). ` +
+          `Please try again later, or ask something that doesn't need the knowledge base (e.g. "check TT...", "site X alarms").`
+      ),
+      stats: { totalMs: Date.now() - t0, embedError: reason.slice(0, 160) },
+    };
+  }
   const tEmbed = Date.now() - t0;
 
   const retrieval = retrieve({ queryVec, queryText: question, index, cfg });

@@ -172,6 +172,37 @@ console.log('\n[3c] 中文专名不能被吃掉（A6：中文站名/区域名不
   check(parseByRule('昨天一共有多少单', NOW)?.tool === 'query_tickets', '  反向：纯通用问法仍走规则短路');
 }
 
+console.log('\n[3d] 站点告警意图 → query_site_alarms（2026-10-08：治「Palm Bay 有没有告警」被答成 tickets:0）');
+{
+  // 核心：站点是否 up / 有没有告警，是**告警事实**，不是工单数量。
+  // 改造前这类问题被「有没有」拐进 query_tickets，回 tickets:0 —— 把「0 张工单」
+  // 误读成「站点没告警」，答非所问且自信。
+  const a1 = parseByRule('*Palm Bay* check if this site is up or not? and if have TT?', NOW);
+  check(a1?.tool === 'query_site_alarms', '  *Palm Bay* up or not → query_site_alarms', JSON.stringify(a1));
+  check(a1?.args?.site === 'Palm Bay', '  站名抽对 = Palm Bay', JSON.stringify(a1?.args));
+
+  const a2 = parseByRule('check alarm for site name Palm Bay form eflow', NOW);
+  check(a2?.tool === 'query_site_alarms', '  site name Palm Bay form eflow → query_site_alarms', JSON.stringify(a2));
+  check(a2?.args?.site === 'Palm Bay', '  站名抽对 = Palm Bay', JSON.stringify(a2?.args));
+
+  const a3 = parseByRule('Gbonebu site down?', NOW);
+  check(a3?.tool === 'query_site_alarms' && a3?.args?.site === 'Gbonebu',
+    '  Gbonebu site down? → query_site_alarms(Gbonebu)（不能把 down 当站名）', JSON.stringify(a3));
+
+  const a4 = parseByRule('Palm Bay 有没有告警', NOW);
+  check(a4?.tool === 'query_site_alarms', '  「Palm Bay 有没有告警」→ query_site_alarms（没被「有没有」拐去统计）', JSON.stringify(a4));
+
+  // 反向：不能误伤
+  check(parseByRule('Wood camp 这个站昨天有几个单', NOW)?.tool !== 'query_site_alarms',
+    '  反向：「XX站昨天有几个单」不得走告警通道');
+  check(parseByRule('how many P1 tickets this month', NOW)?.tool !== 'query_site_alarms',
+    '  反向：纯统计问法不得走告警通道');
+  check(parseByRule('check TT202610080063', NOW)?.tool === 'analyze_ticket',
+    '  反向：带单号 → analyze_ticket（告警通道让位）');
+  check(parseByRule('what is alarm code 9920', NOW)?.tool === 'lookup_alarm_code',
+    '  反向：告警码含义 → lookup_alarm_code（不是站点告警）');
+}
+
 /* --------------------------- 模型输出解析 --------------------------- */
 
 console.log('\n[4] 模型工具调用的解析（宽容但不能乱认）');

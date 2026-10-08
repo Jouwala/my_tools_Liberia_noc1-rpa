@@ -86,6 +86,11 @@
   "$ttLiveTimeoutMs": "实时查询超时（毫秒）。比本地宽松：要探测解释器 + 登录 eFlow（OAuth2+RSA）+ 分页扫描。可用环境变量 TT_LIVE_TIMEOUT_MS 覆盖。",
   "ttLiveTimeoutMs": 240000,
 
+  "$ttSiteAlarmFallback": "按站点查 eFlow 实时活动告警（query_site_alarms 工具）。用户问「某站有没有告警 / up 没 up」是一类**事实查询**，答案是活动告警列表，不是工单数量 —— 改造前被误路由到 query_tickets，按站名匹配工单得 0，把「0 张工单」误当「没有告警」。实现见 scripts/eflow-live-alarms.py：复用 my_app 的告警 pipeline 拉全量活动告警后本地按站名过滤，凭据只读 my_app 那一份（与 ttLiveFallback 同构），机器人侧不另存密码。脚本探测不到解释器就优雅降级为「查不了」，**绝不**把「查不了」误报成「没告警」。置 false 关闭该工具（提问退回知识库通道）。",
+  "ttSiteAlarmFallback": true,
+  "$ttSiteAlarmTimeoutMs": "按站点拉活动告警的超时（毫秒）。比单票查询宽：要探测解释器 + 登录 eFlow + 拉全量活动告警。可用环境变量 TT_SITE_ALARM_TIMEOUT_MS 覆盖。",
+  "ttSiteAlarmTimeoutMs": 180000,
+
   "$rewriteRetry": "二跳检索：第一跳未命中时，让对话模型把用户的口语提问改写成「知识库文档里可能会出现的表述」（中英各一条）再检索一次，任一跳命中就用它回答。治两类病：① 用户问法与文档标题差异大（如「端到端链路」vs 文档用词）；② 英文问法召回偏到无关块。只重试一次；改写失败或仍不命中 → 维持 notFoundText 兜底。置 false 关闭。",
   "rewriteRetry": true,
 

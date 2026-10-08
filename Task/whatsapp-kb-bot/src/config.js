@@ -103,6 +103,14 @@ export const CONFIG = {
   ttStatsSampleLimit: Number(process.env.TT_STATS_SAMPLE_LIMIT ?? raw.ttStatsSampleLimit ?? 3),
   ttStatsListLimit: Number(process.env.TT_STATS_LIST_LIMIT ?? raw.ttStatsListLimit ?? 10),
 
+  // 按站点查实时告警（query_site_alarms）。默认开；环境变量可临时关（排查
+  // 「是不是这条通道把问题带偏了」时有用）。超时同理由 env 覆盖。
+  ttSiteAlarmFallback:
+    process.env.TT_SITE_ALARM_FALLBACK != null
+      ? !(process.env.TT_SITE_ALARM_FALLBACK === '0' || process.env.TT_SITE_ALARM_FALLBACK === 'false')
+      : raw.ttSiteAlarmFallback !== false,
+  ttSiteAlarmTimeoutMs: Number(process.env.TT_SITE_ALARM_TIMEOUT_MS ?? raw.ttSiteAlarmTimeoutMs ?? 180000),
+
   // —— 会话记忆 ——
   memoryEnabled:
     process.env.MEMORY_ENABLED != null

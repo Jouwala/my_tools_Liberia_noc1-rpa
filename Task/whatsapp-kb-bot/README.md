@@ -1,6 +1,7 @@
 # WhatsApp 群知识库助手
 
-> 准确率与商用改造步骤见 `docs/准确率商用优化-AGENT执行手册.md`。
+> 准确率与商用改造步骤见 `docs/准确率商用优化-AGENT执行手册.md`。  
+> 排障复盘（答非所问／answered=0／degraded=1）见 `docs/排障复盘-站点告警与answered0-degraded1-20261008.md`。
 
 在已有的 WhatsApp 群里放一个机器人，群成员 **@它 + 提问**，它就基于你的本地知识库回答。
 
