@@ -34,7 +34,12 @@ from typing import Any, Dict, List, Optional, Set
 
 # 默认值（配置文件缺失 / 字段缺失时使用）
 DEFAULT_WINDOW_MINUTES = 180
-DEFAULT_RESEND_MINUTES = 20
+# 重报节流（2026-10-08 机制变更，双档）：
+#   * `stall_minutes` —— **无更新**档：距上次发送满 N 分钟且期间工单没动过 → 重报；
+#   * `resend_minutes` —— **有更新**档：距上次发送满 N 分钟且期间工单有更新 → 重报。
+# 合起来的语义是「没有更新就勤报（催办），有更新就缓报（别打扰）」。
+DEFAULT_STALL_MINUTES = 10
+DEFAULT_RESEND_MINUTES = 30
 DEFAULT_QUERY_LIMIT = 500
 DEFAULT_SEVERITIES = "P1"
 DEFAULT_GROUPS = ["test123"]
@@ -48,6 +53,7 @@ CONFIG_FILE = Path(__file__).resolve().parent / "tt_alert_whatsapp_config.json"
 # 环境变量名（与 backend/.env.example 的键名一致）
 ENV_WINDOW = "TT_ALERT_WINDOW_MINUTES"
 ENV_RESEND = "TT_ALERT_RESEND_MINUTES"
+ENV_STALL = "TT_ALERT_STALL_MINUTES"
 ENV_LIMIT = "TT_ALERT_QUERY_LIMIT"
 ENV_SEVERITIES = "TT_ALERT_SEVERITIES"
 ENV_ALARM_CODES = "TT_ALERT_ALARM_CODES"
@@ -103,8 +109,9 @@ def norm_alarm_codes(value: Any, norm_code) -> Set[str]:
 def parse_config(conf: Dict[str, Any], norm_code, env: Dict[str, str]) -> Dict[str, Any]:
     """把配置文件 dict + 环境变量解析成最终生效值（**纯函数**，不改任何全局）。
 
-    返回 {window_minutes, resend_minutes, queries_limit, severities, alarm_codes,
-          groups, groups_fallback, window_from, resend_from, ...}。
+    返回 {window_minutes, resend_minutes, stall_minutes, queries_limit, severities,
+          alarm_codes, groups, groups_fallback, window_from, resend_from, stall_from,
+          ...}。
     `*_from` 标记该项最终来源（env / file / default），便于页面与排障时解释
     「为什么页面写 60 却按 180 跑」（通常是 env 覆盖了页面）。
     """
@@ -126,6 +133,8 @@ def parse_config(conf: Dict[str, Any], norm_code, env: Dict[str, str]) -> Dict[s
         "window_minutes", ENV_WINDOW, DEFAULT_WINDOW_MINUTES, lo=1)
     out["resend_minutes"], out["resend_from"] = _int_field(
         "resend_minutes", ENV_RESEND, DEFAULT_RESEND_MINUTES, lo=1)
+    out["stall_minutes"], out["stall_from"] = _int_field(
+        "stall_minutes", ENV_STALL, DEFAULT_STALL_MINUTES, lo=1)
     limit, _ = _int_field("query_limit", ENV_LIMIT, DEFAULT_QUERY_LIMIT, lo=1)
     out["query_limit"] = limit
 

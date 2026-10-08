@@ -28,24 +28,33 @@ TEST_TASK_PREFIX = "__t_"
 
 # SQL 片段：过滤掉测试任务的 task_id（供 WHERE 拼接）。
 #
-# ⚠️ 2026-10-07 修复：这里**只能拼到不带参数**的查询里；凡带 `?` 参数的语句
-# 必须改用 `_NOT_TEST_TASK_PARAM`（见下）。
+# 一律用**定长前缀比较** `substr(task_id, 1, 4) <> '__t_'`，禁止改用 LIKE。
+# LIKE 里的 `_` 是**单字符通配符**，`'__t_%'` 的真实语义是"第 3 个字符为 t 的任意 id"，
+# 于是 6 个正常任务被当成测试任务整体排除：auto_retry_failed、battery_kpi_sync、
+# battery_email、mttr_tt_sync、network_kpi_sync、site_outage_screenshot。
+# 2026-10-08 实测：Status Overview 共 70 个任务，只有 60 成功 + 1 失败 + 3 禁用可见
+# （缺的 6 个正是上面这些，库里 auto_retry_failed 有 1971 条记录）；受影响的不只是卡片，
+# 失败聚合与全局执行历史同样查不到它们。注意绑定参数版同样中招 ——
+# **参数值本身仍是 LIKE 模式**，把它移出 SQL 文本只解决转义问题，不解决通配符语义。
 #
-# 原因：PG 模式下 `database._qmark_to_pyformat(escape_pct=True)` 只转义
-# **字符串字面量之外**的 `%`，而字符串字面量分支（database.py:227-237）只处理
-# `?` 与引号、**不处理 escape_pct**，于是本片段里 `'__t_%'` 的 `%` 原样进入 SQL；
-# psycopg2 见到裸 `%` 就当格式化符，参数数不匹配 → `IndexError: tuple index out of range`。
-# 实测（2026-10-07）：生产近 3 天有 42 条真实失败，但 `get_recent_failures` 因该异常
-# 被 `except` 吞掉而返回 0 簇 —— 任务管理页的失败横幅**静默失效**。
-_NOT_TEST_TASK = f"task_id NOT LIKE '{TEST_TASK_PREFIX}%'"
+# 附带收益：`substr(...)` 让 SQL 文本里彻底不出现 `%`，下面记录的 2026-10-07 陷阱
+# 因此不可能复发（守卫 13 `test_no_bare_percent_in_parameterized_sql_fragment` 仍绿）。
+#
+# 历史记录（2026-10-07 修复）：本片段当时写作 `task_id NOT LIKE '__t_%'`，只能拼到
+# **不带参数**的查询里；凡带 `?` 参数的语句必须改用 `_NOT_TEST_TASK_PARAM`。原因是
+# PG 模式下 `database._qmark_to_pyformat(escape_pct=True)` 只转义**字符串字面量之外**
+# 的 `%`，而字符串字面量分支（database.py:227-237）只处理 `?` 与引号、不处理 escape_pct，
+# 于是 `'__t_%'` 的 `%` 原样进入 SQL；psycopg2 见裸 `%` 就当格式化符，参数数不匹配 →
+# `IndexError: tuple index out of range`。实测生产近 3 天有 42 条真实失败，
+# `get_recent_failures` 因该异常被 `except` 吞掉而返回 0 簇 —— 失败横幅**静默失效**。
+_NOT_TEST_TASK = f"substr(task_id, 1, {len(TEST_TASK_PREFIX)}) <> '{TEST_TASK_PREFIX}'"
 
-# 带参数查询专用：把通配符放进**绑定参数值**，SQL 文本里不出现 `%`。
+# 带参数查询用的同一条件（占位符版）。
 # 用法：`sql = f"... WHERE {_NOT_TEST_TASK_PARAM} AND started_at >= ?"`
-#       `params = [_TEST_TASK_LIKE, ...]`（该占位符的参数必须排在最前，
+#       `params = [TEST_TASK_PREFIX, ...]`（该参数必须排在最前，
 #        与它在 WHERE 中的拼接位置一致）。
-# 这一写法是本仓库既定约定，见 `sp_material_summary_service.py:761-766`。
-_NOT_TEST_TASK_PARAM = "task_id NOT LIKE ?"
-_TEST_TASK_LIKE = f"{TEST_TASK_PREFIX}%"
+# 保留这个名字是因为守卫 13 按它检查「带参数语句不得内嵌字面量 % 片段」。
+_NOT_TEST_TASK_PARAM = f"substr(task_id, 1, {len(TEST_TASK_PREFIX)}) <> ?"
 
 
 def _ensure_task_log_table(conn):
@@ -202,7 +211,7 @@ def get_recent_failures(days: int = 3, limit: int = 200) -> dict:
                  AND {_NOT_TEST_TASK_PARAM}
                  AND started_at >= ?
                ORDER BY started_at DESC LIMIT ?""",
-                (_TEST_TASK_LIKE, _cutoff, limit),
+                (TEST_TASK_PREFIX, _cutoff, limit),
             ).fetchall()
             conn.close()
             for task_id, task_name, error, started_at in rows:
@@ -293,7 +302,7 @@ def get_task_history(limit: int = 20, fallback_history: list | None = None) -> l
                FROM task_execution_log
                WHERE {_NOT_TEST_TASK_PARAM}
                ORDER BY started_at DESC LIMIT ?""",
-                (_TEST_TASK_LIKE, limit)
+                (TEST_TASK_PREFIX, limit)
             ).fetchall()
             conn.close()
             return [
@@ -336,16 +345,17 @@ def get_global_history(
     """
     where_clauses: list[str] = []
     params: list = []
-    # 全局历史默认排除测试任务（__t_*），避免测试记录混进运维视图。
+    # 全局历史默认排除测试任务（`__t_` 前缀），避免测试记录混进运维视图。
     # 但若调用方显式按 task_id 精确查某个 __t_ 任务，则放行（便于测试自检）。
     #
-    # ⚠️ 必须用 `_NOT_TEST_TASK_PARAM` + 绑定参数：本函数最终**总是**带参数执行
-    # （至少 limit/offset 走 `?`），若把 `'__t_%'` 写进 SQL 文本，PG 下 psycopg2 会
-    # 把它当格式化符报 IndexError（2026-10-07 实测，见 _NOT_TEST_TASK 注释）。
-    # 该条件必须**排在最前**，与 _TEST_TASK_LIKE 在 params 中的位置对应。
+    # ⚠️ 本函数最终**总是**带参数执行（至少 limit/offset 走 `?`），所以这里用占位符版
+    # `_NOT_TEST_TASK_PARAM`，绑定值就是前缀本身 —— 不能再写成 LIKE + `'__t_%'`：
+    # LIKE 的 `_` 是单字符通配符，会把第 3 个字符为 t 的正常任务一起排除掉
+    # （2026-10-08 实测，见 _NOT_TEST_TASK 注释）。
+    # 该条件必须**排在最前**，与 TEST_TASK_PREFIX 在 params 中的位置对应。
     if not (task_id and task_id.startswith(TEST_TASK_PREFIX)):
         where_clauses.append(_NOT_TEST_TASK_PARAM)
-        params.append(_TEST_TASK_LIKE)
+        params.append(TEST_TASK_PREFIX)
     if task_id:
         where_clauses.append("task_id = ?")
         params.append(task_id)

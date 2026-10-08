@@ -1,6 +1,7 @@
 {
   "window_minutes": 180,
-  "resend_minutes": 20,
+  "resend_minutes": 30,
+  "stall_minutes": 10,
   "severities": "P1",
   "alarm_codes": "",
   "groups": "*P1 OLR ZTE MS Manager*",

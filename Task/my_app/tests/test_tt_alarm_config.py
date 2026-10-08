@@ -29,6 +29,7 @@ def test_parse_config_defaults_when_nothing_configured():
     got = _p({}, {})
     assert got["window_minutes"] == C.DEFAULT_WINDOW_MINUTES
     assert got["resend_minutes"] == C.DEFAULT_RESEND_MINUTES
+    assert got["stall_minutes"] == C.DEFAULT_STALL_MINUTES
     assert got["severities"] == {"P1"}
     assert got["alarm_codes"] == set()
     assert got["groups"] == C.DEFAULT_GROUPS
@@ -177,5 +178,6 @@ def test_config_registered_in_task_config_page():
 
     resource = task_config_files.get_resource("tt_alarm_whatsapp_alert")
     assert resource is not None, "tt_alarm_whatsapp_alert 未注册进任务配置页"
-    for key in ("window_minutes", "resend_minutes", "severities", "alarm_codes", "groups"):
+    for key in ("window_minutes", "resend_minutes", "stall_minutes",
+                "severities", "alarm_codes", "groups"):
         assert key in resource.schema, f"schema 缺少可配置项 {key}"

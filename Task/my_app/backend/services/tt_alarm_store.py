@@ -27,7 +27,7 @@ duplicate_table 重试兜住（`backend/database.py:344-369`）。
   * `last_alarm_seen_time`   —— 该单关联告警最近一次仍出现在 realtime_alarm 的时间
                                 （消失 ≈ 告警清除，是将来「恢复通知」的数据基础）
   * `last_known_update_time` —— 最近一次（实时查单/镜像）见到的 TT last_modified_time
-                                （「20 分钟未更新重报」的停滞时钟基准）
+                                （双档重报「自上次发送后是否有更新」的判定基准）
   * `last_check_time`        —— 最近一次实时/镜像查单时间
 
 老库升级：`ensure_log_table` 对已存在的表做**幂等加列**（`_ensure_columns`，

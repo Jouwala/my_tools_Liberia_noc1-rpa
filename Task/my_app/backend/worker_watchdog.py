@@ -239,7 +239,16 @@ GROUP_TASK_MAP = {
         # 归 m 组理由：只读 data/eflow/tt_reports 下最新一份 hourly Report、只写同目录自己的
         # 产物，不占任何上游会话，与同组 liberia_email_1h 共用同一份数据目录，属内务轻任务。
         # 新任务必须显式分组，否则无 worker 认领 → 队列 pending 卡死直到 300s 超时
-        "tt_mttr_report_generate"),
+        "tt_mttr_report_generate,"
+        # whatsapp_send_baileys 2026-10-08 注册：第三种 WhatsApp 发图通道（走 Baileys 协议
+        # 直发，不依赖浏览器 / Playwright）。归 m 组理由：与 whatsapp_send / whatsapp_send_ext
+        # 同属 WhatsApp 通道（共用 SITE_OUTAGE_DIR 与 GROUPS 配置），且**只读** SITE_OUTAGE_DIR
+        # + 写自己的作业文件 data/whatsapp_send_baileys_job.json + 阻塞等 notify.js 进程回报，
+        # 不占任何上游业务会话。新任务必须显式分组，否则无 worker 认领 → 队列 pending
+        # 卡死直到 300s 超时（whatsapp_send_ext / sp_email_details 等已四次踩坑，见上）。
+        # 注：与 whatsapp_send（Playwright 0 3 * * *）默认并存而非互斥；Baileys 任务 cron
+        # 错开为 0 4 * * *，但因 enabled=False 实际不会自动跑，由 sync 页面手动启用触发。
+        "whatsapp_send_baileys"),
     "c": (  # CN EMS (10.100.2.240) 独立会话：缓存同步与日聚合共享 _pmcache/daily_raw.json，
         # 同组串行保证互斥（ems_kpi_cache_sync 每15分钟 + ems_kpi_daily 每天00:20）
         "ems_kpi_cache_sync,ems_kpi_daily"),

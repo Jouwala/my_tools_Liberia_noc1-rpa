@@ -206,6 +206,22 @@ TASK_SPECS = [
          description_en="Dispatch a send job; a browser extension sends Site Outage screenshots in the logged-in WhatsApp Web",
          default_cron="0 3 * * *", category="whatsapp"),
 
+    # 5d. WhatsApp 发送（Baileys 通道）—— 第三种实现，与 Playwright / 扩展版**并行**。
+    #     走 whatsapp-kb-bot/src/notify.js 进程（Baileys 协议直发，与聊天机器人/P1告警
+    #     推送共用 auth-notify/ 凭据），回执是服务端 message id，**不是猜的**。
+    #     与 whatsapp_send（Playwright 0 3 * * *）错开 1 小时避免同时投递双份。
+    #     ⚠️ 默认不自动启用（enabled=False）—— 业务侧首次启用前必须：
+    #       1) 确认 whatsapp-kb-bot notify 进程在跑、auth-notify/ 凭据有效
+    #       2) 在「任务管理」页手动启用（同步把 enabled=True 落库）
+    #     原因：Baileys 违反 WhatsApp ToS，启用后号码可能被封，必须走人工审批路径。
+    #     已被主开关豁免（见 MASTER_SWITCH_EXEMPT_IDS），批量切换不参与。
+    dict(task_id="whatsapp_send_baileys", name="WhatsApp 消息发送（Baileys）", name_en="WhatsApp Message Send (Baileys)",
+         loader=("backend.services.whatsapp_send_baileys_service", "run_whatsapp_send_baileys"),
+         description="通过 Baileys 协议直发 Site Outage 截图与文档到 WhatsApp 群组（与 Playwright/扩展版并行；默认禁用，需在「任务管理」页手动启用）",
+         description_en="Dispatch Site Outage images and documents to WhatsApp groups via the Baileys protocol (parallel to Playwright/extension; disabled by default — enable manually from the Task Manager page)",
+         default_cron="0 4 * * *", category="whatsapp",
+         enabled=False),
+
     # 5c. eFlow P1 告警 → WhatsApp（每 5 分钟，触发制，2026-10-05 机制切换）。
     #     触发：扫 realtime_alarm（eflow_active_alarm 每 5 分钟同步）里「带 TT +
     #     告警升起时间在触发窗口内 + 告警码白名单」的告警；随后**实时回 eFlow 查单**
@@ -228,8 +244,8 @@ TASK_SPECS = [
     dict(task_id="tt_alarm_whatsapp_alert", name="eFlow P1 告警 WhatsApp 推送",
          name_en="eFlow P1 Alarm WhatsApp Push",
          loader=("backend.services.tt_alarm_whatsapp_service", "run_tt_alarm_whatsapp_alert"),
-         description="每 5 分钟扫 realtime_alarm 触发（带 TT + 窗口内 + 告警码白名单），实时查 eFlow 拿最新更新时间；P1 单首推，之后每停滞 20 分钟重报一次（带 REMINDER 横幅），工单有更新不打扰、告警清除即止损；状态（是否已发/发了几次）落 eflow_tt_whatsapp_alert_log",
-         description_en="Every 5 min: trigger from realtime_alarm (TT-linked, within window, code whitelist), live-fetch eFlow for the latest update time; first-push P1 tickets, re-notify with a REMINDER banner after 20 min of no update, stay quiet while the ticket is progressing, stop when cleared; send status (sent? how many times) recorded in eflow_tt_whatsapp_alert_log",
+         description="每 5 分钟扫 realtime_alarm 触发（带 TT + 窗口内 + 告警码白名单），实时查 eFlow 拿最新更新时间；P1 单首推即发，之后双档重报（自上次发送后工单无更新满 10 分钟催报、有更新满 30 分钟才报，均带 REMINDER 横幅），告警清除即止损；状态（是否已发/发了几次）落 eflow_tt_whatsapp_alert_log",
+         description_en="Every 5 min: trigger from realtime_alarm (TT-linked, within window, code whitelist), live-fetch eFlow for the latest update time; first push immediately, then two-tier re-notify with a REMINDER banner (no update since last send -> nudge at 10 min; updated since last send -> wait 30 min), stop when cleared; send status (sent? how many times) recorded in eflow_tt_whatsapp_alert_log",
          default_cron="2-59/5 * * * *", category="whatsapp"),
 
     # 6. MS SLA 完整同步（每天 05:00）
@@ -901,6 +917,10 @@ MASTER_SWITCH_EXEMPT_IDS = frozenset({
     # 与 whatsapp_send 功能重叠（同为 Site Outage 截图投递，一个走 Playwright、
     # 一个走浏览器扩展），业务上只需保留一条通道，故长期关闭扩展版。
     "whatsapp_send_ext",
+    # 2026-10-08 新增 whatsapp_send_baileys：第三种发图通道，走 Baileys 协议。
+    # 与 whatsapp_send（Playwright）默认并存而非互斥，但因 Baileys 违反 WhatsApp ToS，
+    # 默认禁用、走人工启用路径；批量主开关跳过它，避免「一键启用」把它打开。
+    "whatsapp_send_baileys",
 })
 
 
@@ -930,6 +950,10 @@ def register_all_tasks(task_runner) -> int:
             default_cron=spec["default_cron"],
             category=spec["category"],
             gateway=spec.get("gateway", CATEGORY_GATEWAY.get(spec.get("category"), "system")),
+            # enabled 默认 True；whatsapp_send_baileys 用 enabled=False 让新部署**默认禁用**，
+            # 业务侧在「任务管理」页手动启用（走人工审批路径，避免 Baileys ToS 风险）。
+            # 与 task_schedule_config 的优先级见 task_runner.register_task 内部三目运算。
+            enabled=spec.get("enabled", True),
             call_chain=call_chain,
             # 主开关豁免随注册一并注入，供 task_runner 的批量切换与 /api/tasks 回传使用
             master_switch_exempt=is_master_switch_exempt(spec["task_id"]),

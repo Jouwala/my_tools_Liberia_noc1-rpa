@@ -95,8 +95,19 @@ def build_tt_message(row: Dict[str, Any]) -> str:
         code = norm_alarm_code(row.get("alarm_code"))
     alarm_sev = s(row.get("alarm_severity"))
     alarm_type = s(row.get("alarm_type")) or s(row.get("alarm_category"))
+    # ⚠️ 2026-10-08：把 `alarm_description`（eFlow 的告警码中文名/codename，如
+    # "MW LINK DOWN" / "3G SITE DOWN"）拼在 `Alarm:` 行 `domain | alarm_type` 段。
+    # 之前 `build_tt_message` 只在 `sub_alarm_name` 兜底位用它（line 117）——
+    # 这位置**只是子告警名兜底**，子告警名一旦非空，codename 就被挤掉。
+    # 期望格式：`Alarm: 9995(Critical) | codename: MW LINK DOWN | Communication Alarm`。
+    # 缺值时不输出 codename 段（与 domain/alarm_type 同语义）。
+    codename = s(row.get("alarm_description"))
     alarm_head = f"Alarm: {code or '—'}({alarm_sev or '—'})"
-    alarm_rest = " | ".join(x for x in (s(row.get("domain")), alarm_type) if x)
+    rest_parts = []
+    if codename:
+        rest_parts.append(f"codename: {codename}")
+    rest_parts.extend(x for x in (s(row.get("domain")), alarm_type) if x)
+    alarm_rest = " | ".join(rest_parts)
     line4 = f"{alarm_head} | {alarm_rest}" if alarm_rest else alarm_head
 
     # ---- 第 5 行：告警对象 ----

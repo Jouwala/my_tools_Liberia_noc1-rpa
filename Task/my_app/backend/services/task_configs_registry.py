@@ -1224,6 +1224,7 @@ def _tt_alert_defaults():
     return {
         "window_minutes": int(s.WINDOW_MINUTES),
         "resend_minutes": int(s.RESEND_MINUTES),
+        "stall_minutes": int(s.STALL_MINUTES),
         "severities": ",".join(sorted(s.SEVERITIES)),
         "alarm_codes": ",".join(sorted(s.ALARM_CODES)),
         "groups": ",".join(s.GROUPS),
@@ -1234,15 +1235,17 @@ def _tt_alert_defaults():
 register_config(ConfigResource(
     task_id="tt_alarm_whatsapp_alert", path=_cfg("tt_alert_whatsapp_config.json"),
     defaults={
-        "window_minutes": 180, "resend_minutes": 20,
+        "window_minutes": 180, "resend_minutes": 30, "stall_minutes": 10,
         "severities": "P1", "alarm_codes": "", "groups": "test123",
         "mail_enabled": True,
     },
     schema={
         "window_minutes": _num("触发窗口（分钟）—— realtime_alarm 中告警升起时间在近 N 分钟内才触发首推"
                                "（兼防首次部署把历史积压告警一次性全推出去）", 5, 43200),
-        "resend_minutes": _num("重报间隔（分钟）—— TT 距最近一次更新停滞满 N 分钟且距上次发送满 N 分钟，"
-                               "则再次通报（带 REMINDER 横幅）；工单有更新则不打扰", 1, 1440),
+        "resend_minutes": _num("重报间隔·有更新档（分钟）—— 自上次发送以来工单**有更新**（有人在处理），"
+                               "距上次发送满 N 分钟才再通报（较缓，默认 30，带 REMINDER 横幅）", 1, 1440),
+        "stall_minutes": _num("重报间隔·无更新档（分钟）—— 自上次发送以来工单**没有更新**（一直没人动），"
+                              "距上次发送满 N 分钟即再通报（较勤，催办，默认 10）", 1, 1440),
         "severities": _txt("推送级别（逗号分隔，如 P1 或 P1,P2；留空=所有级别）"),
         "alarm_codes": _txt("推送告警码白名单（逗号分隔，如 9920,9995；**留空=推送所有告警码**）"
                             "—— 99933 是「免推单」码，需显式填入才会推送"),
@@ -1253,16 +1256,18 @@ register_config(ConfigResource(
     },
     defaults_factory=_tt_alert_defaults,
     description="eFlow P1 告警 WhatsApp 推送：触发源为 realtime_alarm（每 30 分钟同步），"
-                "触发后实时回 eFlow 查单拿最新更新时间；P1 首推、停滞 20 分钟重报（带横幅）、"
-                "有更新不打扰、清除即止损。发送走 Baileys 推送进程，发送成功（服务端回执）才把 "
+                "触发后实时回 eFlow 查单拿最新更新时间；P1 首推立即发、重报双档"
+                "（自上次发送后工单无更新满 10 分钟催报、有更新满 30 分钟才报，均带横幅）、"
+                "清除即止损。检测仍每 5 分钟一轮。发送走 Baileys 推送进程，发送成功（服务端回执）才把 "
                 "send_status 置 Y；send_count 记录该单已发送次数。"
                 "另同步发邮件（Orange EWS）：每单首次通报确认发出后发一封（正文与 WhatsApp 同内容），"
                 "该单告警清除后再发一封结束汇总（生命周期时间轴 + 总历时）；"
                 "重报不发邮件。收件人在「Settings → 邮件收件人」的 P1 TT 告警通报邮件组维护，"
                 "开关为配置项 mail_enabled / 环境变量 TT_ALERT_MAIL_ENABLED。",
     description_en="eFlow P1 alarm WhatsApp push: triggered from realtime_alarm (synced every 30 min), "
-                   "then live-fetches eFlow for the latest update time; first-push P1, re-notify after "
-                   "20 min of no update (with banner), stay quiet while progressing, stop when cleared. "
+                   "then live-fetches eFlow for the latest update time; first push immediately, "
+                   "two-tier re-notify (no update since last send -> nudge at 10 min; updated since last "
+                   "send -> wait 30 min), both with banner; stop when cleared. Polling stays every 5 min. "
                    "Sent via the Baileys push process; send_status is set to Y only on server-side "
                    "ack, and send_count tracks how many times the ticket was sent. "
                    "An email is also sent over Orange EWS: one on the first confirmed notification per "

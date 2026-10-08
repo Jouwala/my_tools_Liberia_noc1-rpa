@@ -77,7 +77,7 @@ _ENGINE = _MY_APP_DIR.parent / "whatsapp-kb-bot" / "scripts" / "tt-analyze.py"
 TIMEOUT_SECONDS = int(os.environ.get("TT_ALERT_ANALYZE_TIMEOUT", "120"))
 
 
-def render_message(row, lang: str = "en") -> str:
+def render_message(row, lang: str = "en", brief: bool = False) -> str:
     """渲染一条告警消息（**服务层入口**）：优先分析引擎，失败降级到头部模板。
 
     完整分析（里程碑时间轴 / 派单依据 / SLA 时效）由本模块子进程调用
@@ -87,11 +87,13 @@ def render_message(row, lang: str = "en") -> str:
 
     **降级是刻意的**：引擎不可用（脚本缺失、xlsx 被占用、超时、单号查不到）时退回
     `build_tt_message()` 的头部摘要，宁可发一条信息较少的告警，也不要漏发整条告警。
+
+    `brief=True` 走精简模式（首推告警用）。
     """
-    return render_message_ex(row, lang)[0]
+    return render_message_ex(row, lang, brief=brief)[0]
 
 
-def render_message_ex(row, lang: str = "en"):
+def render_message_ex(row, lang: str = "en", brief: bool = False):
     """同 `render_message`，并返回降级原因（成功时为空串）。
 
     降级是**静默**的：消息从 ~30 行缩成 7 行，群里的人只会觉得「这次信息怎么这么少」。
@@ -100,13 +102,17 @@ def render_message_ex(row, lang: str = "en"):
 
     `row` 会透传给 `_snapshot_tt`：调用方手里已有该单的行（实时查单行或镜像行）
     时直接喂给引擎造快照，省一次查库；镜像里查无此单的新单也靠它出完整格式。
+
+    `brief=True` 走引擎的精简模式（`--brief`）——**首推告警**用，只出核心信息与
+    已有时间戳的里程碑；重报（reminder_no > 1）传 False，展开完整复盘格式。
+    ⚠️ brief 只影响引擎渲染分支，**不改动**完整格式（群里机器人问答走的是完整格式）。
     """
     # 延迟导入：tt_alarm_message 是纯函数模块，放在这里避免与本模块的循环依赖
     from backend.services.tt_alarm_message import build_tt_message
 
     tt_no = str(row.get("tt_no") or "").strip()
     try:
-        text, reason = render_with_reason(tt_no, lang=lang, row=row)
+        text, reason = render_with_reason(tt_no, lang=lang, row=row, brief=brief)
     except Exception as e:  # noqa: BLE001
         # render_with_reason 自身不抛异常；这里防的是未来改动引入的意外
         logger.warning("[TTAlert] 渲染器异常，降级到内置模板: %s", tt_no, exc_info=True)
@@ -305,7 +311,8 @@ def render_tt_analysis(tt_no: str, lang: str = "en") -> Optional[str]:
 
 
 def render_with_reason(tt_no: str, lang: str = "en",
-                       row: Optional[dict] = None) -> "tuple[Optional[str], str]":
+                       row: Optional[dict] = None,
+                       brief: bool = False) -> "tuple[Optional[str], str]":
     """同 `render_tt_analysis`，但把失败原因一并返回：`(文本或None, 原因)`。
 
     **为什么要返回原因**：降级是静默的 —— 消息从 30 行缩成 7 行，群里的人只会
@@ -314,6 +321,8 @@ def render_with_reason(tt_no: str, lang: str = "en",
     而不是等用户来问为什么消息变短了。
 
     `row` 不为空时快照直接用它（见 `_snapshot_tt`），不再查本地库。
+
+    `brief=True` → 引擎加 `--brief`（精简模式，首推告警用）。
     """
     tt_no = (tt_no or "").strip()
     if not tt_no:
@@ -329,17 +338,24 @@ def render_with_reason(tt_no: str, lang: str = "en",
     # 调用方已备好行（实时/镜像）时直接用，省一次查库。
     snapshot = _snapshot_tt(tt_no, row=row)
     try:
-        return _run_engine(script, tt_no, lang, snapshot)
+        return _run_engine(script, tt_no, lang, snapshot, brief=brief)
     finally:
         _cleanup_snapshot(snapshot)
 
 
 def _run_engine(script: Path, tt_no: str, lang: str,
-                db_override: Optional[Path]) -> "tuple[Optional[str], str]":
-    """跑引擎并解析结果。`db_override` 为空时用引擎自带的镜像库。"""
+                db_override: Optional[Path],
+                brief: bool = False) -> "tuple[Optional[str], str]":
+    """跑引擎并解析结果。`db_override` 为空时用引擎自带的镜像库。
+
+    `brief=True` 时追加 `--brief`（首推精简模式，见 tt-analyze.py 的同名参数）。
+    """
+    cmd = [sys.executable, str(script), tt_no, "--lang", lang]
+    if brief:
+        cmd.append("--brief")
     try:
         proc = subprocess.run(
-            [sys.executable, str(script), tt_no, "--lang", lang],
+            cmd,
             capture_output=True,
             text=True,
             encoding="utf-8",
