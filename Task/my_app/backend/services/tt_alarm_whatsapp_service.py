@@ -20,14 +20,21 @@
 实时查不到（单子太久没动、超出扫描窗口）时回退本地 `eflow_tt` 镜像 ——
 对「一直没更新的停滞单」，镜像里的 last_modified 恰好是准确的。
 
-**推送与重报**（20 分钟 = `RESEND_MINUTES`，页面可调）：
+**推送与重报**（2026-10-08 机制变更：双档重报，页面可调）：
 
-1. 首推 —— 单子首次触发（日志表无记录）即推；
-2. 重报 —— 距**最近一次已知工单更新**达 20 分钟（停滞）**且**距上次成功
-   发送达 20 分钟（冷却）→ 再次通报，消息头带
-   `⚠️ REMINDER #N · open Xh Ym · no update for Zm` 横幅；
-3. 不报 —— 工单 20 分钟内有更新（有人在处理）只刷新跟踪字段，不打扰群里；
-   告警已清除（`alarm_clear_time` 非空，或告警从 realtime_alarm 消失）自然止损。
+1. 首推 —— 单子首次触发（日志表无记录）**立即推**；
+2. 重报 —— 距上次成功发送满所在档间隔即再通报（消息头带
+   `⚠️ REMINDER #N · open Xh Ym · no update for Zm` 横幅），两档按
+   「自上次发送以来工单有没有更新」区分：
+     * **无更新**（工单没动）→ 满 `STALL_MINUTES`（默认 **10** 分钟）就催，
+       「一直没人处理，勤提醒」；
+     * **有更新**（工单动过，有人在处理）→ 拉到 `RESEND_MINUTES`（默认 **30**
+       分钟）才报，「别打扰正在干活的人」；
+3. 不报 —— 未满所在档间隔（冷却中）只刷新跟踪字段；告警已清除
+   （`alarm_clear_time` 非空，或告警从 realtime_alarm 消失）自然止损。
+
+⚠️ 注意两档差的是**间隔长短**，不是「有更新就不报」：有更新仍旧重报，只是缓到
+30 分钟。检测（从 eFlow 实时查单）恒为每 5 分钟一轮，与重报窗口无关。
 
 首推时延 ≈ realtime_alarm 同步周期（生产 */5）+ 本任务轮询（≤5 分钟），
 平均 ~5 分钟、最坏 ~10 分钟，对比旧机制（eflow_tt 每小时 :22 才落库）的
@@ -75,11 +82,17 @@ from backend.services.tt_alarm_config import DEFAULT_GROUPS, load_config
 # 发送通道：Baileys 推送进程（whatsapp-kb-bot/src/notify.js）。
 # 接口（dispatch / wait_for_job_result / WAIT_SECONDS）与旧扩展通道同名同形，
 # 业务层只认这三个名字，通道细节全部封在 wa_notify_service 里。
+from backend.services import tt_alarm_job as tt_job  # ext 通道 fallback（2026-10-08 引入）
 from backend.services.wa_notify_service import (
     WAIT_SECONDS,
     dispatch,
+    is_online as wa_is_online,
     wait_for_job_result,
 )
+# 扩展通道的等待秒数（与 wa_notify_service 不可同款：ext 通道走浏览器要等更久，
+# 见 whatsapp-kb-bot/whatsapp_sender_extension/background.js 的 SW 唤醒节奏 + 600s 兜底）
+# 这里直接复用 tt_alarm_job 模块的 WAIT_SECONDS，不再另起一份常量。
+EXT_FALLBACK_WAIT_SECONDS = int(os.environ.get("TT_ALERT_EXT_FALLBACK_WAIT_SECONDS", "300"))
 from backend.services.tt_alarm_message import (
     build_tt_message,
     dash as _dash,
@@ -101,7 +114,8 @@ logger = logging.getLogger("tt_alarm_whatsapp")
 _CFG = load_config(norm_alarm_code)
 
 WINDOW_MINUTES = _CFG["window_minutes"]    # 触发窗口（分钟）：alarmraisedtime 距今 N 分钟内才触发首推
-RESEND_MINUTES = _CFG["resend_minutes"]    # 重报间隔（分钟）：停滞 ≥N 且冷却 ≥N 才重报
+RESEND_MINUTES = _CFG["resend_minutes"]    # 有更新档（分钟）：自上次发送后工单有更新 → 满 N 才重报
+STALL_MINUTES = _CFG["stall_minutes"]      # 无更新档（分钟）：自上次发送后工单没动 → 满 N 即可重报
 QUERY_LIMIT = _CFG["query_limit"]          # realtime_alarm 单轮扫描上限（防静默截断）
 SEVERITIES = _CFG["severities"]            # 级别白名单；空集 = 不过滤（所有级别）
 ALARM_CODES = _CFG["alarm_codes"]          # 告警码白名单；空集 = 不过滤（所有码）
@@ -116,6 +130,9 @@ MAIL_ENABLED = _CFG["mail_enabled"]
 # 分析引擎的输出语言。告警消息发给利比里亚现场团队，历史上群里用的是英文，
 # 故默认 en（引擎支持 zh/en，见 whatsapp-kb-bot/scripts/tt-analyze.py:77）。
 ANALYZE_LANG = os.environ.get("TT_ALERT_LANG", "en")
+# 值班群消息的固定抬头（首推与重报都加）。与邮件的 SUBJECT_NOTIFIED 同名 ——
+# 值班人无论从群里还是邮件看到的都是同一个标题，便于辨认。
+PUSH_TITLE = mail_body.SUBJECT_NOTIFIED  # "P1 TT Progress Notification"
 # 各项最终来源（env / file / default），供排障解释"为何页面值与实际不符"
 CONFIG_SOURCES = {k: v for k, v in _CFG.items() if k.endswith("_from")}
 
@@ -264,40 +281,62 @@ def severity_passes(severity: str, severities: Optional[set] = None) -> bool:
 
 def decide_push(record: Optional[Dict[str, Any]], now: datetime,
                 last_modified_dt: Optional[datetime] = None,
-                resend_minutes: Optional[int] = None) -> "tuple[bool, str]":
+                resend_minutes: Optional[int] = None,
+                stall_minutes: Optional[int] = None) -> "tuple[bool, str]":
     """判定该单本轮是否发送。返回 (是否发送, 原因)。
 
-    语义（N = RESEND_MINUTES，默认 20 分钟）：
-      * 无记录（首次触发）→ 发（first）；
-      * 距「最近一次已知工单更新」≥ N（停滞）且距上次成功发送 ≥ N（冷却）→ 发
-        （stalled）—— 「20 分钟没有更新就再次通报」；
-      * 工单 N 分钟内有更新 → 不发（recent-update）：有人在处理，别刷屏；
-      * 冷却期内 → 不发（cooldown）；
-      * 更新时间完全不可知 → 退化为纯冷却节流（stale-unknown-update），
-        绝不因数据缺失静默停推。
+    ## 语义（2026-10-08 机制变更：双档重报）
 
-    「最近一次已知工单更新」的优先级：实时查单结果（`last_modified_dt`）>
-    记录里的 `last_known_update_time`。更新时间不可知时以
-    `last_send_time`（从未成功则 `first_seen_time`）做纯时间节流，
-    失败重试也走同一条路。
+    以「自**上次发送**以来工单有没有更新」分两档节流：
+
+      * 无记录（首次触发）→ **立即发**（first）；
+      * 距上次发送未满所在档的间隔 → 不发（cooldown）；
+      * **无更新**（`update_dt < send_dt`，即上次发送后工单没动过）→
+        距上次发送满 `stall_minutes`（默认 10 分钟）即可再发（`stalled`）——
+        「一直没人动，勤催办」；
+      * **有更新**（`update_dt >= send_dt`，即上次发送后工单动过）→
+        距上次发送满 `resend_minutes`（默认 30 分钟）才再发（`updating`）——
+        「有人在处理，别打扰」。
+
+    ⚠️ 两档的差别只在**间隔长短**，不是「有更新就不发」：有更新仍旧会重报，
+    只是拉长到 30 分钟，避免在有人干活时刷屏。这样「告警没进展」不会被静默丢掉。
+
+    ## 边角
+
+      * `last_modified_dt`（实时查单结果）优先于记录里的 `last_known_update_time`；
+      * `send_dt` 取 `last_send_time`，从未成功送达则退到 `first_seen_time`，
+        于是「从未确认送达」的重试也走同一套节流；
+      * 更新时间完全不可知 → 按**无更新档**（较短的 `stall_minutes`）节流，
+        绝不因数据缺失静默停推（stale-unknown-update）。
+
+    检测（从 eFlow 实时查单）仍是每 5 分钟一轮，与本函数的节流窗口无关。
     """
-    minutes = RESEND_MINUTES if resend_minutes is None else int(resend_minutes)
+    stall_min = STALL_MINUTES if stall_minutes is None else int(stall_minutes)
+    resend_min = RESEND_MINUTES if resend_minutes is None else int(resend_minutes)
     if not record:
         return True, "first"
     update_dt = last_modified_dt or _parse_ts(record.get("last_known_update_time"))
     send_dt = (_parse_ts(record.get("last_send_time"))
                or _parse_ts(record.get("first_seen_time")))
+    # 从未发送过（首见时间也没有）→ 立即发
+    if send_dt is None:
+        return True, "first"
+    since_send = now - send_dt
+    # 更新时间不可知 → 按无更新档节流，不静默停推
     if update_dt is None:
-        if send_dt is None or (now - send_dt) >= timedelta(minutes=minutes):
+        if since_send >= timedelta(minutes=stall_min):
             return True, "stale-unknown-update"
         return False, "cooldown"
-    stalled = (now - update_dt) >= timedelta(minutes=minutes)
-    cooled = send_dt is None or (now - send_dt) >= timedelta(minutes=minutes)
-    if stalled and cooled:
-        return True, "stalled"
-    if not cooled:
+    updated_since_send = update_dt >= send_dt
+    if updated_since_send:
+        # 有更新：满 resend_minutes（较长）才再报
+        if since_send >= timedelta(minutes=resend_min):
+            return True, "updating"
         return False, "cooldown"
-    return False, "recent-update"
+    # 无更新：满 stall_minutes（较短）即可再报
+    if since_send >= timedelta(minutes=stall_min):
+        return True, "stalled"
+    return False, "cooldown"
 
 
 # ==========================================================
@@ -316,6 +355,102 @@ def record_result(row: Dict[str, Any], ok: bool, error: str = "",
         ensure_log_table(conn)
         store.record_result(conn, row, ok, error, existing, LOG_TABLE,
                             tracking=tracking)
+
+
+# ==========================================================
+# ext 通道 fallback（2026-10-08 新增）
+#
+# 触发条件：Baileys 通道投递失败 / 推送进程回报无成功单。
+# 实质：把同一批 messages 投到 `data/tt_alert_job.json`，由浏览器扩展
+# （whatsapp_sender_extension/background.js 的 `simpleSendTextViaDebugger`）消费；
+# 回报走 `whatsapp_job_claim.report_result(kind='text', ...)` → `tt_alarm_job.complete_job`。
+# 该管道在 P1 告警 Baileys 化（2026-10-01）之前就是 P1 推送的默认通道；本次只是把它
+# 重新接回来做 fallback，**不新增 task、不改 cron**。
+#
+# 关键约束（与 fallback 失效相关，写在这里避免后人重写时漏掉）：
+#   1. 扩展认领作业后**不需要**后端发心跳，被动等它回报（`tt_alarm_job.wait_for_job_result`）；
+#      故等回报的秒数应**长于** Baileys（120s）—— 默认 300s（EXT_FALLBACK_WAIT_SECONDS）。
+#   2. fallback 自身失败时**不再二次 fallback**（避免无限重试）；只在 out 里记 warning。
+#   3. 不查扩展在线性：扩展通道的"在线"通过 ext_liveness 维护，但**未要求在线才走 fallback**——
+#      走了再等回报，扩展没在跑也只是 5 分钟静默。
+# ==========================================================
+def try_ext_fallback(out: Dict[str, Any], messages: List[Dict[str, str]],
+                     groups: List[str], due: List[Dict[str, Any]],
+                     records: Dict[str, Dict[str, Any]],
+                     fallback_reason: str) -> bool:
+    """通过扩展通道（已登录的 WhatsApp Web 标签页）重投同一批 messages。
+
+    返回 True = 至少部分单据被扩展回报确认（sent_ids 非空），
+         False = 投递失败 / 等待超时 / 扩展零确认（沿用主通道的 false 语义）。
+    副作用：把每个 tt_no 的 record_result 落库；把结果汇入 `out`（warnings / sent / failed）。
+    """
+    if not messages or not groups:
+        out["ext_fallback"] = {"attempted": False, "reason": "无可发送消息或群组为空"}
+        return False
+
+    out["ext_fallback"] = {
+        "attempted": True,
+        "trigger": fallback_reason,
+        "groups": list(groups),
+        "message_count": len(messages),
+    }
+    logger.warning("[TTAlert] Baileys 通道失败，触发 ext 通道 fallback（%s，%d 单）",
+                   fallback_reason, len(messages))
+
+    # 1) 投递
+    disp = tt_job.dispatch(messages, groups)
+    out["ext_fallback"]["job_id"] = disp.get("job_id")
+    out["ext_fallback"]["dispatched"] = disp.get("dispatched", 0)
+    if not disp.get("ok"):
+        out["ext_fallback"]["ok"] = False
+        out["ext_fallback"]["errors"] = list(disp.get("errors") or [])
+        out["warnings"].append(
+            f"ext 通道 fallback **投递失败**（fallback_reason={fallback_reason}）："
+            + "; ".join(str(e) for e in (disp.get("errors") or ["投递失败"]))
+        )
+        return False
+
+    # 2) 等扩展回报（5 分钟上限）；失败/超时/0 确认都视作 fallback 失败
+    rep = tt_job.wait_for_job_result(disp["job_id"], wait_seconds=EXT_FALLBACK_WAIT_SECONDS)
+    out["ext_fallback"]["confirmed"] = rep.get("confirmed")
+    out["ext_fallback"]["timed_out"] = rep.get("timed_out")
+    out["ext_fallback"]["ok"] = rep.get("ok")
+    out["ext_fallback"]["sent"] = list(rep.get("sent") or [])
+    out["ext_fallback"]["errors"] = list(rep.get("errors") or [])
+
+    sent_ids = {_s(x) for x in (rep.get("sent") or []) if _s(x)}
+    ok_count, fail_count = 0, 0
+    for d in due:
+        tt_no = _s(d["row"].get("tt_no"))
+        try:
+            if rep.get("confirmed") and rep.get("ok") and tt_no in sent_ids:
+                record_result(d["row"], ok=True, existing=records.get(tt_no),
+                              tracking=d["tracking"])
+                ok_count += 1
+            else:
+                err = ("; ".join(rep.get("errors") or [])
+                       or ("扩展未确认该单" if rep.get("confirmed") else "扩展未回报"))
+                record_result(d["row"], ok=False, error=err,
+                              existing=records.get(tt_no), tracking=d["tracking"])
+                fail_count += 1
+        except Exception:  # noqa: BLE001
+            logger.warning("[TTAlert] ext fallback 写状态异常 tt_no=%s", tt_no, exc_info=True)
+            fail_count += 1
+
+    out["ext_fallback"]["sent_count"] = ok_count
+    out["ext_fallback"]["failed_count"] = fail_count
+    if ok_count == 0:
+        out["warnings"].append(
+            f"ext 通道 fallback **仍未确认发送**：{fail_count} 单保持未送达"
+            f"（fallback_reason={fallback_reason}；请确认 Chrome 开着 + 扩展已启用 + "
+            f"WhatsApp Web 已登录）。原始告警仍按 20 分钟节流重推"
+        )
+        return False
+    out["warnings"].append(
+        f"Baileys 通道失败后，**ext 通道 fallback 已兜住 {ok_count}/{ok_count + fail_count} 单**"
+        f"（fallback_reason={fallback_reason}）。值班群告警未丢失"
+    )
+    return True
 
 
 def refresh_tracking(tt_no: str, tracking: Dict[str, Any]) -> bool:
@@ -499,10 +634,21 @@ def run_tt_alarm_whatsapp_alert() -> Dict[str, Any]:
         for d in due:
             row = d["row"]
             rec = d["record"]
-            text, deg_reason = render_message_ex(row, lang=ANALYZE_LANG)
+            # reminder_no 必须先算 —— 它决定渲染走「精简（首推）」还是
+            # 「完整（重报）」：首推只要核心信息，重报才展开完整复盘格式。
+            # 见 tt_alarm_render.render_with_reason 的 brief 参数说明。
+            reminder_no = int((rec or {}).get("send_count") or 0) + 1
+            text, deg_reason = render_message_ex(
+                row, lang=ANALYZE_LANG, brief=(reminder_no <= 1))
             if deg_reason:
                 degraded.append(f"{_s(row.get('tt_no'))}（{deg_reason}）")
-            reminder_no = int((rec or {}).get("send_count") or 0) + 1
+            # `text` 是**纯分析正文**（不含抬头/横幅）—— 邮件正文直接复用它，
+            # 故它必须保持干净：邮件自己的模板已带 "P1 TT Progress Notification"
+            # 抬头，若这里再塞一个，邮件里会出现两次标题。
+            wa_text = text
+            # 值班群消息在最顶端加统一抬头（与邮件主题同名），让人一眼认出这是
+            # P1 进展通报，而不是夹杂在群里的其它消息。
+            push_text = f"{PUSH_TITLE}\n{wa_text}"
             if reminder_no > 1:
                 # 横幅口径：open = 告警发生至今；no update = 距最近已知更新。
                 # 更新时间拿不到时后者用 first_seen 兜底（停滞时长只会算多不会漏）。
@@ -515,12 +661,13 @@ def run_tt_alarm_whatsapp_alert() -> Dict[str, Any]:
                 stale_min = (int((now - upd_dt).total_seconds() // 60)
                              if upd_dt else RESEND_MINUTES)
                 banner = reminder_banner(reminder_no, open_min, stale_min)
-                text = f"{banner}\n{text}"
+                push_text = f"{PUSH_TITLE}\n{banner}\n{wa_text}"
             # 回挂到 d：发送结果确认后要据此判断"是否首次通报"以及复用**同一份**
-            # 文本发邮件（用户要求邮件与 WhatsApp 内容一致，不重新渲染）。
+            # 分析文本发邮件（用户要求邮件与 WhatsApp 分析内容一致，不重新渲染）。
+            # wa_text 不含群抬头，避免邮件正文重复标题；push_text 才带抬头。
             d["reminder_no"] = reminder_no
-            d["wa_text"] = text
-            messages.append({"tt_no": _s(row.get("tt_no")), "text": text})
+            d["wa_text"] = wa_text
+            messages.append({"tt_no": _s(row.get("tt_no")), "text": push_text})
 
         out["samples"] = [{"tt_no": m["tt_no"], "text": m["text"]}
                           for m in messages[:SAMPLE_LIMIT]]
@@ -556,9 +703,22 @@ def run_tt_alarm_whatsapp_alert() -> Dict[str, Any]:
                 f"本轮 {len(due)} 单 P1 告警**投递失败**，值班群没有收到："
                 + "; ".join(str(e) for e in (disp.get("errors") or ["投递失败"]))
             )
-            # 投递失败不影响"别的单该发汇总了"这件事，故仍要跑（且此时本轮的
-            # 首次通报邮件一律不发 —— 因为一条都没确认发出）。
+            # 2026-10-08 引入：ext 通道 fallback —— 同一批 messages 改投到浏览器扩展
+            # 通道（已登录的 WhatsApp Web 标签页）。fallback 成功时把已发出的单置 'Y'
+            # 并在结尾走"正常 finish"路径；失败时保持原失败语义、只是把 ext 的
+            # 情况写进 warnings。汇总扫描与首次通报邮件仍要跑（"该不该发"与
+            # "这次发成功没"无关），且首次通报邮件依然不发（一开始就没确认发出去）。
+            fallback_ok = try_ext_fallback(out, messages, GROUPS, due, records,
+                                           fallback_reason="baileys_dispatch_failed")
             run_summary_mail_scan(out)
+            if fallback_ok:
+                # fallback 至少兜住部分：out.success 要刷新（可能部分单仍 'N'），
+                # 后续邮件 / 汇总逻辑已就绪，直接落 finish
+                out["success"] = True
+                ok = out.get("ext_fallback", {}).get("sent_count", 0)
+                total = ok + out.get("ext_fallback", {}).get("failed_count", 0)
+                out["message"] = (f"Baileys 通道投递失败，已由 ext 通道 fallback 兜住"
+                                  f" {ok}/{total} 单（job={out.get('ext_fallback', {}).get('job_id')}）")
             return _finish()
 
         # ---------- 6. 等推送进程回报：只有确认真实发出的单才置 'Y' ----------
@@ -616,6 +776,31 @@ def run_tt_alarm_whatsapp_alert() -> Dict[str, Any]:
                 f"请检查 whatsapp-kb-bot 推送进程（node src/notify.js --check 自检），"
                 f"必要时 npm run relogin 重新扫码"
             )
+            # 2026-10-08 引入：ext 通道 fallback（与上方「投递失败」分支共用）。
+            # 区别：这里 Baileys 进程**投了但 0 确认**（典型场景：群名解析不到 JID、
+            # 凭据过期、WhatsApp 流控 428），比"投递失败"更隐蔽——
+            # 前者 `tt_alarm_job.wait_for_job_result` 60~120s 静默等不到返回，
+            # 任务页面显示 success=False 但告警实际没到群里。
+            # fallback 后：兜住的单 → 置 'Y' + 邮件按"已发出"对待；
+            #              未兜住 → 警告升级、保持 fail_count。
+            fb_ok = try_ext_fallback(out, messages, GROUPS, due, records,
+                                     fallback_reason="baileys_zero_confirmed")
+            if fb_ok:
+                out["success"] = True
+                ok = out.get("ext_fallback", {}).get("sent_count", 0)
+                total = ok + out.get("ext_fallback", {}).get("failed_count", 0)
+                out["message"] = (f"Baileys 通道 0 确认，已由 ext 通道 fallback 兜住"
+                                  f" {ok}/{total} 单（job={out.get('ext_fallback', {}).get('job_id')}）")
+                # 邮件通道：fallback 兜住的单可以走"首次通报邮件"路径。
+                # 重新组装 mail_targets —— 只有该单确实在 ext fallback 的 sent_ids 里
+                # 且 reminder_no==1 才发。
+                fb_sent_ids = {_s(x) for x in out.get("ext_fallback", {}).get("sent", [])}
+                mail_targets = [
+                    (d, _s(d["row"].get("tt_no")))
+                    for d in due
+                    if int(d.get("reminder_no") or 1) <= 1
+                    and _s(d["row"].get("tt_no")) in fb_sent_ids
+                ]
 
         # ---------- 7. 邮件通道（WhatsApp 确认发出之后才发，见用户 2026-10-06 要求） ----------
         # 邮件失败**绝不**影响 out["success"] / send_status —— 它只是附加通道，
@@ -649,7 +834,7 @@ def run_tt_alarm_whatsapp_alert() -> Dict[str, Any]:
 
 
 __all__ = [
-    "GROUPS", "WINDOW_MINUTES", "RESEND_MINUTES", "QUERY_LIMIT", "SEVERITIES",
+    "GROUPS", "WINDOW_MINUTES", "RESEND_MINUTES", "STALL_MINUTES", "QUERY_LIMIT", "SEVERITIES",
     "ALARM_CODES", "DEFAULT_GROUPS", "GROUPS_FALLBACK", "CONFIG_FILE", "CONFIG_SOURCES",
     "LOG_TABLE", "LOG_TABLE_INDEX", "SAMPLE_LIMIT", "ANALYZE_LANG",
     "ensure_log_table", "load_records", "decide_push", "severity_passes",

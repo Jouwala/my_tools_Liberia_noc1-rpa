@@ -4,7 +4,7 @@
 覆盖几类真正会出错的地方：
   1. 告警码归一化 —— 库里 '99933' 与 '99933.0' 并存，只判前者会漏掉该排除的那批；
   2. 消息渲染 —— 字段兜底、「0 不渲染成 0」、Occurred 行、重报横幅；
-  3. 发送决策 `decide_push` —— 首推 / 停滞重报 / 冷却 / 有更新不打扰 / 未知退化；
+  3. 发送决策 `decide_push` —— 首推 / 双档重报（无更新 10m / 有更新 30m）/ 冷却 / 未知退化；
   4. 级别白名单 `severity_passes` —— 「留空 = 不过滤」不是「一单都不发」；
   5. 三层来源合并 `merged_render_row` —— 实时 > 镜像 > 触发行。
 
@@ -143,6 +143,35 @@ def test_alarm_code_from_row_when_norm_missing():
     assert "Alarm: 9920(Critical)" in S.build_tt_message(row)
 
 
+def test_alarm_description_appears_as_codename_in_alarm_line():
+    """2026-10-08：eFlow 告警码中文名（`alarm_description`，如 "MW LINK DOWN"）
+    拼在 `Alarm:` 行，紧跟 `Alarm code (severity)`、位于 `domain | alarm_type` 之前。
+
+    期望格式：`Alarm: 9995(Critical) | codename: MW LINK DOWN | Communication Alarm`。
+    缺 `alarm_description` 时不输出 codename 段（与 domain/alarm_type 同语义）。
+    """
+    row = _sample_row(alarm_code="9995", _alarm_code_norm="9995", alarm_description="MW LINK DOWN")
+    body = S.build_tt_message(row)
+    assert "Alarm: 9995(Critical)" in body
+    assert "codename: MW LINK DOWN" in body
+    # codename 应在 `Alarm:` 行（不是 `Alarm object:`），且在 alarm_type 之前
+    alarm_line = next((ln for ln in body.split("\n") if ln.startswith("Alarm:")), "")
+    cn_pos = alarm_line.find("codename:")
+    at_pos = alarm_line.find("Communication Alarm")
+    assert cn_pos > 0, f"codename 段缺失: {alarm_line!r}"
+    assert cn_pos < at_pos, f"codename 应在 alarm_type 之前: {alarm_line!r}"
+
+
+def test_alarm_description_absent_omits_codename_segment():
+    """`alarm_description` 缺值时，`Alarm:` 行不带 codename 段（不输出空段、不报错）。"""
+    row = _sample_row(alarm_code="9920")
+    row.pop("alarm_description", None)
+    body = S.build_tt_message(row)
+    assert "codename" not in body
+    # 仍要保证 Alarm: 9920(Critical) | RAN | Communication Alarm 三段都在
+    assert "Alarm: 9920(Critical) | RAN | Communication Alarm" in body
+
+
 def test_live_row_renders_without_missing_key_errors():
     """实时查单行（base/list 紧凑字段集）缺大量列时也能渲染，不抛 KeyError。"""
     live = {"tt_no": "TT202610050001", "site_name": "LEC", "site_id": "5002",
@@ -166,17 +195,18 @@ def test_reminder_banner_clamps_negatives():
     assert "open 0m" in S.reminder_banner(2, -5, -1)
 
 
-# ---------------- 3. 发送决策 decide_push（20 分钟停滞 + 冷却） ----------------
+# ---------------- 3. 发送决策 decide_push（双档重报：无更新 10m / 有更新 30m） ----------------
 
 _NOW = datetime(2026, 10, 5, 10, 25, 0)
 
 
 def _rec(**kw):
+    """默认记录：距上次发送 25m、上次发送后工单**无更新**（更新点早于发送）。"""
     base = {
         "send_status": "Y",
-        "last_send_time": "2026-10-05 10:00:00",     # 25 分钟前（冷却已过）
+        "last_send_time": "2026-10-05 10:00:00",          # 25 分钟前
         "first_seen_time": "2026-10-05 09:00:00",
-        "last_known_update_time": "2026-10-05 09:30:00",  # 55 分钟前（停滞已足）
+        "last_known_update_time": "2026-10-05 09:30:00",  # 早于发送 → 无更新档
     }
     base.update(kw)
     return base
@@ -186,34 +216,48 @@ def test_first_push_when_no_record():
     assert S.decide_push(None, _NOW) == (True, "first")
 
 
-def test_repush_when_stalled_and_cooled():
-    """距更新 55m、距上次发送 25m —— 「20 分钟没有更新」满足，重报。"""
+def test_no_update_tier_repushes_at_stall_interval():
+    """无更新档：距上次发送 25m ≥ 10m → 催报（stalled）。"""
     assert S.decide_push(_rec(), _NOW) == (True, "stalled")
 
 
-def test_no_repush_while_ticket_progressing():
-    """工单 15 分钟前刚有更新（有人在处理）→ 不打扰。"""
-    rec = _rec(last_known_update_time="2026-10-05 10:10:00")
-    assert S.decide_push(rec, _NOW) == (False, "recent-update")
-
-
-def test_no_repush_within_cooldown():
-    """停滞够久但距上次发送只有 5 分钟 → 冷却中。"""
+def test_no_update_tier_within_stall_interval_is_cooldown():
+    """无更新档但距上次发送只有 5m（<10m）→ 冷却中。"""
     rec = _rec(last_send_time="2026-10-05 10:20:00")
     assert S.decide_push(rec, _NOW) == (False, "cooldown")
 
 
+def test_update_tier_waits_longer_than_stall():
+    """有更新档：上次发送后工单动过，距发送 25m（≥10 但 <30）→ 仍冷却，别打扰。"""
+    rec = _rec(last_send_time="2026-10-05 10:00:00",     # 25m 前
+               last_known_update_time="2026-10-05 10:10:00")  # 发送后更新过
+    assert S.decide_push(rec, _NOW) == (False, "cooldown")
+
+
+def test_update_tier_repushes_at_resend_interval():
+    """有更新档：距上次发送 40m ≥ 30m → 重报（updating）。"""
+    rec = _rec(last_send_time="2026-10-05 09:45:00",     # 40m 前
+               last_known_update_time="2026-10-05 10:10:00")
+    assert S.decide_push(rec, _NOW) == (True, "updating")
+
+
 def test_live_update_time_beats_recorded_one():
-    """实时查到的更新时间比记录里的新：以实时为准（单子其实有进展）。"""
-    rec = _rec(last_known_update_time="2026-10-05 09:00:00")
+    """实时查到的更新时间比记录里的新：以实时为准 → 落入较缓的有更新档。"""
+    rec = _rec(last_known_update_time="2026-10-05 09:00:00",
+               last_send_time="2026-10-05 10:00:00")     # 25m 前
     from datetime import datetime as dt
-    live_upd = dt(2026, 10, 5, 10, 15)
-    assert S.decide_push(rec, _NOW, last_modified_dt=live_upd) == (False, "recent-update")
+    live_upd = dt(2026, 10, 5, 10, 15)                   # 发送后有更新
+    # 有更新档需 30m，25m 不够 → 冷却
+    assert S.decide_push(rec, _NOW, last_modified_dt=live_upd) == (False, "cooldown")
+    # 若已过 30m（拉到 09:50 发送、40m 前）→ 放行
+    rec2 = _rec(last_known_update_time="2026-10-05 09:00:00",
+                last_send_time="2026-10-05 09:45:00")
+    assert S.decide_push(rec2, _NOW, last_modified_dt=live_upd) == (True, "updating")
 
 
-def test_stale_unknown_update_falls_back_to_cooldown_only():
-    """更新时间完全不可知 → 退化为纯冷却节流，绝不静默停推。"""
-    rec = _rec(last_known_update_time="")
+def test_stale_unknown_update_falls_back_to_stall_interval():
+    """更新时间完全不可知 → 按较短的**无更新档**节流，绝不静默停推。"""
+    rec = _rec(last_known_update_time="")                # 25m 前发送
     assert S.decide_push(rec, _NOW) == (True, "stale-unknown-update")
     rec2 = _rec(last_known_update_time="", last_send_time="2026-10-05 10:20:00")
     assert S.decide_push(rec2, _NOW) == (False, "cooldown")
@@ -222,11 +266,12 @@ def test_stale_unknown_update_falls_back_to_cooldown_only():
 def test_never_confirmed_send_retries():
     """从未确认送达（send_status=N 且无 last_send_time）的重试路径。
 
-    * 更新时间已知且已停滞 → 按停滞重报（内容照常，横幅 #1）；
-    * 更新时间未知 → 退回首见时间起算的纯节流，首见 25 分钟后放行。
+    * 更新时间已知且早于首见（无更新档），首见满 10m → 按无更新档重报；
+    * 更新时间未知 → 退回首见时间起算的无更新档节流，首见 25m 后放行。
     """
     rec = _rec(send_status="N", last_send_time=None,
-               first_seen_time="2026-10-05 10:00:00")
+               first_seen_time="2026-10-05 10:00:00",
+               last_known_update_time="2026-10-05 09:00:00")
     assert S.decide_push(rec, _NOW) == (True, "stalled")
     rec_unknown = _rec(send_status="N", last_send_time=None,
                        first_seen_time="2026-10-05 10:00:00",
@@ -239,11 +284,17 @@ def test_never_confirmed_send_retries():
     assert S.decide_push(rec_soon, _NOW) == (False, "cooldown")
 
 
-def test_custom_resend_minutes():
-    rec = _rec(last_send_time="2026-10-05 10:10:00")
-    # 默认 20 分钟：冷却中；放宽到 10 分钟：冷却已过且停滞 55m → 重报
+def test_custom_intervals():
+    """两档间隔都可显式覆盖。"""
+    # 无更新档：距发送 5m，默认 10m 冷却；放宽 stall_minutes=1 → 放行
+    rec = _rec(last_send_time="2026-10-05 10:20:00")
     assert S.decide_push(rec, _NOW)[0] is False
-    assert S.decide_push(rec, _NOW, resend_minutes=10)[0] is True
+    assert S.decide_push(rec, _NOW, stall_minutes=1) == (True, "stalled")
+    # 有更新档：距发送 25m，默认 30m 冷却；放宽 resend_minutes=20 → 放行
+    rec2 = _rec(last_send_time="2026-10-05 10:00:00",
+                last_known_update_time="2026-10-05 10:10:00")
+    assert S.decide_push(rec2, _NOW)[0] is False
+    assert S.decide_push(rec2, _NOW, resend_minutes=20) == (True, "updating")
 
 
 # ---------------- 3b. 级别白名单 ----------------
@@ -477,4 +528,140 @@ def test_store_send_count_counts_confirmed_sends_only(tmp_path):
     row = conn.execute("SELECT send_status, send_count, last_error "
                        "FROM eflow_tt_whatsapp_alert_log WHERE tt_no='T1'").fetchone()
     assert row == ("Y", 1, "")
-    conn.close()
+
+
+# ---------------- 6. ext 通道 fallback（2026-10-08 引入） ----------------
+# 三个用例覆盖 try_ext_fallback 的三种结局：
+#   ① 投递失败 → 返回 False、out["ext_fallback"]["ok"]=False
+#   ② 投递成功但 0 确认（超时 / 扩展没在跑） → 返回 False、warnings 升级
+#   ③ 投递成功且部分单确认 → 返回 True、对应 send_status 置 'Y'、未确认仍 'N'
+#
+# 实现要点（这是 stub 测试的契约，不是端到端）：
+#   - 桩 `tt_alarm_job.dispatch` / `tt_alarm_job.wait_for_job_result` —— 不写盘
+#   - 桩 `record_result` —— 只入参校验，不连真实库
+#   - 真用 `_parse_ts` / `s` 辅助（业务侧已测）
+
+
+def _fb_due():
+    return [
+        {"row": {"tt_no": "TT_FB_1"}, "record": None, "tracking": {"last_check_time": "x"},
+         "reminder_no": 1, "wa_text": "t1"},
+        {"row": {"tt_no": "TT_FB_2"}, "record": None, "tracking": {"last_check_time": "x"},
+         "reminder_no": 1, "wa_text": "t2"},
+    ]
+
+
+def test_ext_fallback_dispatch_fail_returns_false(monkeypatch):
+    """Baileys 失败后 ext 通道连投递都失败 —— 整批仍 fail，不悄悄 'Y'。"""
+    out = {"warnings": [], "errors": []}
+    monkeypatch.setattr("backend.services.tt_alarm_job.dispatch",
+                        lambda messages, groups: {
+                            "ok": False, "job_id": None, "dispatched": 0,
+                            "errors": ["扩展未启动（连接失败）"],
+                        })
+    monkeypatch.setattr("backend.services.tt_alarm_job.wait_for_job_result",
+                        lambda *a, **k: {"confirmed": False, "ok": False,
+                                          "sent": [], "errors": []})
+    sent_log = []
+
+    def _rec_stub(*a, **k):
+        sent_log.append((a, k))
+    monkeypatch.setattr("backend.services.tt_alarm_whatsapp_service.record_result", _rec_stub)
+
+    ok = S.try_ext_fallback(
+        out, [{"tt_no": "TT_FB_1", "text": "t1"}, {"tt_no": "TT_FB_2", "text": "t2"}],
+        ["P1 Group"], _fb_due(), {}, fallback_reason="baileys_zero_confirmed")
+
+    assert ok is False
+    assert out["ext_fallback"]["attempted"] is True
+    assert out["ext_fallback"]["ok"] is False
+    # 投递失败时不应该再调 wait_for_job_result（避免无意义等待）
+    # record_result 也不该被 try_ext_fallback 调（落 'N' 是调用方的活）
+    assert sent_log == [], f"投递失败时不应 record_result，但记录到 {sent_log}"
+    # 至少一条 warning 说明 fallback 失败
+    assert any("ext 通道 fallback **投递失败**" in w for w in out["warnings"])
+
+
+def test_ext_fallback_zero_confirmed_marks_n(monkeypatch):
+    """扩展**收到了**作业但 0 确认（典型：扩展没在跑 / 超时）→ 全部 'N'，fallback 失败。"""
+    out = {"warnings": [], "errors": []}
+    monkeypatch.setattr("backend.services.tt_alarm_job.dispatch",
+                        lambda messages, groups: {
+                            "ok": True, "job_id": "J-EXT-1", "dispatched": len(messages),
+                            "errors": []})
+    monkeypatch.setattr("backend.services.tt_alarm_job.wait_for_job_result",
+                        lambda *a, **k: {
+                            "confirmed": True, "ok": False, "timed_out": True,
+                            "sent": [], "errors": ["扩展未在 300s 内回报"],
+                        })
+    sent_log = []
+
+    def _rec_stub(row, ok, error="", existing=None, tracking=None):
+        sent_log.append({"tt_no": row.get("tt_no"), "ok": ok, "error": error})
+    monkeypatch.setattr("backend.services.tt_alarm_whatsapp_service.record_result", _rec_stub)
+
+    ok = S.try_ext_fallback(
+        out, [{"tt_no": "TT_FB_1", "text": "t1"}, {"tt_no": "TT_FB_2", "text": "t2"}],
+        ["P1 Group"], _fb_due(), {}, fallback_reason="baileys_zero_confirmed")
+
+    assert ok is False
+    assert out["ext_fallback"]["ok"] is False
+    assert out["ext_fallback"]["confirmed"] is True
+    assert out["ext_fallback"]["timed_out"] is True
+    # 两条单据都被落 'N'（带错误信息）
+    assert len(sent_log) == 2
+    assert all(r["ok"] is False for r in sent_log)
+    assert all("扩展未在" in r["error"] for r in sent_log)
+    # 警告文案要点名 fallback 失败 + 让人去查 Chrome
+    assert any("**仍未确认发送**" in w for w in out["warnings"])
+    assert any("Chrome 开着" in w for w in out["warnings"])
+
+
+def test_ext_fallback_partial_confirmed_returns_true(monkeypatch):
+    """扩展确认发出其中 1 单 → 该单 'Y'，未确认那单 'N'，fallback 整体 True。"""
+    out = {"warnings": [], "errors": []}
+    monkeypatch.setattr("backend.services.tt_alarm_job.dispatch",
+                        lambda messages, groups: {
+                            "ok": True, "job_id": "J-EXT-2", "dispatched": len(messages),
+                            "errors": []})
+    # 扩展只回报了 TT_FB_1 发出；TT_FB_2 没出
+    monkeypatch.setattr("backend.services.tt_alarm_job.wait_for_job_result",
+                        lambda *a, **k: {
+                            "confirmed": True, "ok": True, "timed_out": False,
+                            "sent": ["TT_FB_1"], "errors": [],
+                        })
+    sent_log = []
+
+    def _rec_stub(row, ok, error="", existing=None, tracking=None):
+        sent_log.append({"tt_no": row.get("tt_no"), "ok": ok, "error": error})
+    monkeypatch.setattr("backend.services.tt_alarm_whatsapp_service.record_result", _rec_stub)
+
+    ok = S.try_ext_fallback(
+        out, [{"tt_no": "TT_FB_1", "text": "t1"}, {"tt_no": "TT_FB_2", "text": "t2"}],
+        ["P1 Group"], _fb_due(), {}, fallback_reason="baileys_dispatch_failed")
+
+    assert ok is True, "至少兜住 1 单就应算成功（与 P1 告警「0 确认即失败」严格语义不同）"
+    assert out["ext_fallback"]["ok"] is True
+    # 兜住的单 → 'Y'，未兜住的单 → 'N'
+    by_no = {r["tt_no"]: r for r in sent_log}
+    assert by_no["TT_FB_1"]["ok"] is True
+    assert by_no["TT_FB_2"]["ok"] is False
+    # 警告文案要把"兜住 N/M 单"打出来，避免值班群收到消息却看不到告警日志
+    assert any("兜住 1/2 单" in w for w in out["warnings"])
+
+
+def test_ext_fallback_empty_messages_short_circuits(monkeypatch):
+    """messages 为空直接 short-circuit（不该去写盘）—— 防御性边界。"""
+    out = {"warnings": [], "errors": []}
+    dispatched = {"called": False}
+
+    def _spy(*a, **k):
+        dispatched["called"] = True
+        return {"ok": True, "job_id": "J", "dispatched": 0, "errors": []}
+    monkeypatch.setattr("backend.services.tt_alarm_job.dispatch", _spy)
+
+    ok = S.try_ext_fallback(out, [], ["P1 Group"], _fb_due(), {},
+                            fallback_reason="baileys_dispatch_failed")
+    assert ok is False
+    assert dispatched["called"] is False, "空 messages 不应触发 dispatch"
+    assert out["ext_fallback"]["attempted"] is False
