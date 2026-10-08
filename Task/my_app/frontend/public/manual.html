@@ -1585,8 +1585,13 @@ vs PG 17:41；17 点这一小时 PG 有 5 单、SQLite <strong>0 单</strong>）
 </tr>
 <tr>
 <td><code>resend_minutes</code></td>
-<td>重报间隔（分钟）</td>
-<td>默认 20；工单停滞满 N 分钟且距上次发送满 N 分钟 → 重报</td>
+<td>重报间隔·有更新档（分钟）</td>
+<td>默认 30；自上次发送以来工单<strong>有更新</strong>（有人在处理）→ 距上次发送满 N 分钟才重报（较缓）</td>
+</tr>
+<tr>
+<td><code>stall_minutes</code></td>
+<td>重报间隔·无更新档（分钟）</td>
+<td>默认 10；自上次发送以来工单<strong>没更新</strong>（一直没人动）→ 距上次发送满 N 分钟即催报（较勤）</td>
 </tr>
 <tr>
 <td><code>severities</code></td>
@@ -1736,17 +1741,21 @@ vs PG 17:41；17 点这一小时 PG 有 5 单、SQLite <strong>0 单</strong>）
 （P1→P2），同样停止推送。配置优先级为<strong>环境变量 &gt; 配置文件 &gt; 内置默认</strong>，且在
 <strong>模块导入期</strong>解析一次 —— 故页面保存后由 <code>PUT /api/task-configs/{task_id}</code> 触发
 worker 分组重启才生效（<code>backend/routers/task_configs.py</code>）。</p>
-<p><strong>重报语义（2026-10-05 起，判定函数 <code>decide_push()</code>）</strong>：</p>
+<p><strong>重报语义（2026-10-08 起双档，判定函数 <code>decide_push()</code>）</strong>：</p>
 <ol>
-<li><strong>首推</strong> —— 单子首次触发（日志表无记录）即推；</li>
-<li><strong>重报</strong> —— 距「最近一次已知工单更新」（实时查单 &gt; 记录里的
-<code>last_known_update_time</code>）满 <code>resend_minutes</code>（默认 20）<strong>且</strong>距上次成功发送
-满 20 分钟（冷却）→ 再次通报，消息头带
-<code>⚠️ REMINDER #N · open Xh Ym · no update for Zm</code> 横幅（N = 该单第几次发送）；</li>
-<li><strong>不报</strong> —— 工单 20 分钟内有更新（有人在处理）只刷新跟踪字段，不打扰群里；
-告警清除（<code>alarm_clear_time</code> 非空，或告警从 realtime_alarm 消失）自然止损；
-更新时间完全不可知时退化为纯冷却节流，<strong>绝不静默停推</strong>。</li>
+<li><strong>首推</strong> —— 单子首次触发（日志表无记录）<strong>立即推</strong>；</li>
+<li><strong>重报</strong>（按「自上次发送以来工单有没有更新」分两档，消息头带
+<code>⚠️ REMINDER #N · open Xh Ym · no update for Zm</code> 横幅，N = 该单第几次发送）：
+<ul>
+<li><strong>无更新</strong>档 —— 距上次成功发送满 <code>stall_minutes</code>（默认 <strong>10</strong>）→ 催报（一直没人动，勤提醒）；</li>
+<li><strong>有更新</strong>档 —— 距上次成功发送满 <code>resend_minutes</code>（默认 <strong>30</strong>）→ 重报（有人在处理，缓报别打扰）；</li>
+</ul></li>
+<li><strong>不报</strong> —— 未满所在档间隔（冷却中）只刷新跟踪字段；告警清除
+（<code>alarm_clear_time</code> 非空，或告警从 realtime_alarm 消失）自然止损；
+更新时间完全不可知时按<strong>无更新档</strong>（较短）节流，<strong>绝不静默停推</strong>。</li>
 </ol>
+<p>两档差的是<strong>间隔长短</strong>，不是「有更新就不报」：有更新仍旧重报，只是缓到 30 分钟。
+检测（从 eFlow 实时查单）恒为每 5 分钟一轮，与重报窗口无关。</p>
 <p>三个<strong>实测</strong>坑，改这个任务前务必知道（都有单测守着，见
 <code>tests/test_tt_alarm_whatsapp_service.py</code>）：</p>
 <table>

@@ -13,6 +13,7 @@ import {
   PlayCircleOutlined,
   StopOutlined,
   PauseCircleOutlined,
+  QuestionCircleOutlined,
   ScheduleOutlined,
   HistoryOutlined,
   EditOutlined,
@@ -147,7 +148,7 @@ export default function DataSync() {
   const [loading, setLoading] = useState(false)
   // 列表检索/筛选/排序/视图状态
   const [searchText, setSearchText] = useState('')
-  const [statusFilter, setStatusFilter] = useState<'all' | 'failed' | 'success' | 'running' | 'disabled'>('all')
+  const [statusFilter, setStatusFilter] = useState<TaskStatusKey>('all')
   const [categoryFilter, setCategoryFilter] = useState<string>('all')
   const [sortKey, setSortKey] = useState<'name' | 'next_run' | 'status'>('name')
   // 每 30s 走一次的时钟，仅用于"下次运行"倒计时的相对时间刷新
@@ -641,9 +642,11 @@ export default function DataSync() {
     return counts
   }, [allTasks, runningMap, localRunning])
 
-  // 状态统计卡配置：颜色 / 图标 / 文案 / 对应筛选值
+  // 状态统计卡配置：颜色 / 图标 / 文案 / 对应筛选值。
+  // 「未记录」必须留一张卡：classifyTaskStatus 会产出该桶（任务已启用但库里没有执行记录），
+  // 卡片缺了它，五张卡之和就小于「全部」，用户会当成统计错误（2026-10-08 实测 60+1+3≠70）。
   const statusMeta: {
-    key: Exclude<TaskStatusKey, 'unknown'>
+    key: TaskStatusKey
     color: string
     icon: ReactNode
   }[] = [
@@ -652,17 +655,19 @@ export default function DataSync() {
     { key: 'success', color: WH.ok, icon: <CheckCircleFilled /> },
     { key: 'failed', color: WH.danger, icon: <CloseCircleFilled /> },
     { key: 'disabled', color: WH.textDim, icon: <PauseCircleOutlined /> },
+    { key: 'unknown', color: WH.warn, icon: <QuestionCircleOutlined /> },
   ]
 
-  const statusLabel = (key: Exclude<TaskStatusKey, 'unknown'>) => {
+  const statusLabel = (key: TaskStatusKey) => {
     if (key === 'all') return t('sync.statAll')
     if (key === 'running') return t('sync.statRunning')
     if (key === 'success') return t('sync.statSuccess')
     if (key === 'failed') return t('sync.statFailed')
-    return t('sync.statDisabled')
+    if (key === 'disabled') return t('sync.statDisabled')
+    return t('sync.statUnknown')
   }
 
-  const toggleStatusFilter = (key: Exclude<TaskStatusKey, 'unknown'>) => {
+  const toggleStatusFilter = (key: TaskStatusKey) => {
     if (key === 'all') { setStatusFilter('all'); return }
     setStatusFilter(prev => (prev === key ? 'all' : key))
   }
@@ -1344,6 +1349,7 @@ export default function DataSync() {
             { value: 'success', label: locale === 'zh' ? '成功' : 'Success' },
             { value: 'running', label: locale === 'zh' ? '运行中' : 'Running' },
             { value: 'disabled', label: locale === 'zh' ? '已禁用' : 'Disabled' },
+            { value: 'unknown', label: t('sync.statUnknown') },
           ]}
         />
         <Select

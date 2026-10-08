@@ -148,15 +148,53 @@ export const TASK_DOCS: TaskDoc[] = [
     },
   },
   {
+    id: 'whatsapp_send_baileys', group: 'm', cron: '0 4 * * *',
+    script: 'services/whatsapp_send_baileys_service.py → run_whatsapp_send_baileys',
+    zh: {
+      name: 'WhatsApp 消息发送（Baileys）',
+      desc: '第三种 WhatsApp 发图通道：走 Baileys 协议直发（不依赖浏览器/Playwright），与 Playwright/扩展版并存；默认禁用，必须在「任务管理」页手动启用（Baileys 违反 WhatsApp ToS，启用前须走人工审批）',
+      flow: [
+        '本任务扫 SITE_OUTAGE_DIR（与 whatsapp_send / whatsapp_send_ext 共享同一份图片目录与 GROUPS 配置）并把 items（含磁盘绝对路径）写进作业文件 data/whatsapp_send_baileys_job.json',
+        'whatsapp-kb-bot/src/notify.js 进程的轮询器认领（claim 即置 running + 原子写回），按 (群 × 文件) 调 sock.sendMessage({ image|document, ... })',
+        '服务端回执（res.key.id）确认送达才计入 sent；单条失败不重试到群（避免重复），由 my_app 的 auto_retry_failed 决定',
+        'notify.js 回写 result 到作业文件；本任务轮询到 done/failed 后返回（task_runner 据此记任务历史）',
+      ],
+      maintain: [
+        '默认 enabled=False——新部署不会自动跑，必须先确认 whatsapp-kb-bot notify 进程在跑、auth-notify/ 凭据有效，再在「任务管理」页手动启用',
+        '已被主开关豁免（MASTER_SWITCH_EXEMPT_IDS），批量切换不参与',
+        '与 whatsapp_send（Playwright 0 3 * * *）默认并存而非互斥；时间错开 1 小时避免同时投递双份图',
+        '回执是服务端 message id（不是猜的），与扩展通道的「数 DOM 气泡」判据不同；这是治本 2026-09-15 SP Details Report 1.5MB 静默漏发事故的根因',
+        '群发限频由 whatsapp-kb-bot/config.json 的 notify.fileSend 控制（默认 6 图 + 1 文档 / 作业）',
+      ],
+    },
+    en: {
+      name: 'WhatsApp Message Send (Baileys)',
+      desc: 'Third WhatsApp image-sending channel: dispatches via the Baileys protocol directly (no browser/Playwright), parallel to the Playwright/extension versions; disabled by default — enable manually from the Task Manager page (Baileys violates WhatsApp ToS, so manual approval is required before enabling)',
+      flow: [
+        'This task scans SITE_OUTAGE_DIR (shared with whatsapp_send / whatsapp_send_ext) and writes items (with absolute disk paths) into the job file data/whatsapp_send_baileys_job.json',
+        'The whatsapp-kb-bot/src/notify.js process polls and claims the job (sets running on claim + atomic write-back), then calls sock.sendMessage({ image|document, ... }) for each (group × file) pair',
+        'The server-acknowledged message id (res.key.id) is the only success criterion; a single failed send is not retried into the group (prevents duplicates); auto_retry_failed decides on retries',
+        'notify.js writes the result back to the job file; this task returns once it sees done/failed (task_runner records the run history)',
+      ],
+      maintain: [
+        'enabled=False by default — the task will NOT auto-run on a fresh deployment. First confirm the whatsapp-kb-bot notify process is up and the auth-notify/ credentials are valid, then enable manually from the Task Manager page',
+        'Exempted from the master switch (MASTER_SWITCH_EXEMPT_IDS); bulk toggles skip this task',
+        'Coexists with whatsapp_send (Playwright 0 3 * * *) rather than excluding it; the 1-hour cron offset avoids two copies of the same images being delivered in the same window',
+        'The server-side message id is the success criterion (not a guess), unlike the extension channel which counts DOM bubbles; this is the root-cause fix for the 2026-09-15 SP Details Report 1.5MB silent-drop incident',
+        'Group-send rate limiting is controlled by whatsapp-kb-bot/config.json → notify.fileSend (default 6 images + 1 document per job)',
+      ],
+    },
+  },
+  {
     id: 'tt_alarm_whatsapp_alert', group: 'm', cron: '2-59/5 * * * *',
     script: 'services/tt_alarm_whatsapp_service.py → run_tt_alarm_whatsapp_alert',
     zh: {
       name: 'eFlow P1 告警 WhatsApp 推送',
-      desc: '触发制推送：每 5 分钟（相位 2-59/5，与上游同步错开 2 分钟）扫 realtime_alarm 实时告警表，发现「带 TT + 触发窗口内 + 告警码白名单」的 P1 告警后实时回 eFlow 查单，首推后按「20 分钟未更新」重报（带 REMINDER 横幅），告警清除即止损。发送状态（是否已发/发了几次）落 eflow_tt_whatsapp_alert_log',
+      desc: '触发制推送：每 5 分钟（相位 2-59/5，与上游同步错开 2 分钟）扫 realtime_alarm 实时告警表，发现「带 TT + 触发窗口内 + 告警码白名单」的 P1 告警后实时回 eFlow 查单，首推后按双档重报（无更新满 10 分钟催报、有更新满 30 分钟才报，均带 REMINDER 横幅），告警清除即止损。发送状态（是否已发/发了几次）落 eflow_tt_whatsapp_alert_log',
       flow: [
         '扫 realtime_alarm（由 eflow_active_alarm 同步，注册表默认 */30、实际周期以任务配置页为准，生产已配 */5）：tt_id 非空、alarmraisedtime 在触发窗口内、告警码过白名单，按 tt_id 去重',
         '对触发单实时回 eFlow 查单（fetch_tt_live_batch，一次分页遍历），拿最新 ticket_severity / last_modified_time / alarm_clear_time；实时查不到回退本地 eflow_tt 镜像',
-        '级别命中才推：首推发完整分析（分析引擎），停滞 ≥20 分钟且冷却 ≥20 分钟重报（带 ⚠️ REMINDER #N 横幅），工单有更新只记跟踪字段不打扰群里',
+        '级别命中才推：首推发精简分析（分析引擎 --brief），重报双档——自上次发送后工单无更新满 10 分钟催报、有更新满 30 分钟才报（均带 ⚠️ REMINDER #N 横幅），未满间隔只记跟踪字段不打扰群里',
         '消息经 Baileys 推送进程（whatsapp-kb-bot/src/notify.js）发出，服务端回执确认后才把该单 send_status 置 Y（send_count 记发送次数）',
       ],
       maintain: [

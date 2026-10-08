@@ -1,6 +1,6 @@
 # my_app 使用帮助
 
-> 面向使用者的平台功能与操作指南。本文件由「使用帮助」页面同源生成（frontend/src/helpMarkdown.ts），内容依据 docs/manual/ 各章与 backend/task_registry.py 整理。生成日期：2026-10-06。
+> 面向使用者的平台功能与操作指南。本文件由「使用帮助」页面同源生成（frontend/src/helpMarkdown.ts），内容依据 docs/manual/ 各章与 backend/task_registry.py 整理。生成日期：2026-10-08。
 
 > 站内入口：侧边栏「使用帮助」，或直链 `http://<host>/myapp/?page=help`。
 
@@ -10,7 +10,7 @@
 
 - [1. 平台简介](#1-平台简介)
 - [2. 通用操作](#2-通用操作)
-- [3. 任务管理详解（69 个任务）](#3-任务管理详解)
+- [3. 任务管理详解（70 个任务）](#3-任务管理详解)
 - [4. 页面指南](#4-页面指南)
 - [5. 运维与排障](#5-运维与排障)
 - [6. 常见问题](#6-常见问题)
@@ -78,7 +78,7 @@
 
 > ⚠️ **新增任务必须同时登记进 `worker_watchdog.py` 的 `GROUP_TASK_MAP`** —— 只写 `TASK_SPECS` 不分组 = 任务入队后永远 pending。这是本项目已发生过四次的事故模式（finebi_report_sync / whatsapp_send_ext / sp_email_details / 2026-09-18 的 olib_soc 与 vmax_multi_data_sync）。
 
-### 3.3 全量任务清单（69 个）
+### 3.3 全量任务清单（70 个）
 
 | 任务 | task_id | 默认 cron | 组 | 工作流脚本 |
 | --- | --- | --- | --- | --- |
@@ -88,6 +88,7 @@
 | Site Outage 截图 | `site_outage_screenshot` | `0 1 * * *` | m | `services/site_outage_service.py → run_site_outage_screenshot` |
 | WhatsApp 消息发送 | `whatsapp_send` | `0 3 * * *` | m | `services/whatsapp_service.py → run_whatsapp_send` |
 | WhatsApp 消息发送（扩展） | `whatsapp_send_ext` | `0 3 * * *` | m | `services/whatsapp_ext_service.py → run_whatsapp_send_ext` |
+| WhatsApp 消息发送（Baileys） | `whatsapp_send_baileys` | `0 4 * * *` | m | `services/whatsapp_send_baileys_service.py → run_whatsapp_send_baileys` |
 | eFlow P1 告警 WhatsApp 推送 | `tt_alarm_whatsapp_alert` | `2-59/5 * * * *` | m | `services/tt_alarm_whatsapp_service.py → run_tt_alarm_whatsapp_alert` |
 | MS SLA 完整同步 | `ms_sla_full` | `0 */6 * * *` | n | `services/ms_sla_service.py → run_full_sync` |
 | eFlow 实时告警同步 | `eflow_active_alarm` | `*/5 * * * *` | n | `services/eflow_api_client.py → fetch_and_save_active_alarm` |
@@ -258,6 +259,28 @@
 
 - 2026-08-31 上线时曾漏登记 worker 分组导致 pending 卡死，后补入 m 组——新增任务务必同步登记 GROUP_TASK_MAP
 
+#### WhatsApp 消息发送（Baileys）（`whatsapp_send_baileys`）
+
+- 默认 cron: `0 4 * * *`　|　worker 组: **m**
+- 工作流脚本: `services/whatsapp_send_baileys_service.py → run_whatsapp_send_baileys`
+
+**功能**: 第三种 WhatsApp 发图通道：走 Baileys 协议直发（不依赖浏览器/Playwright），与 Playwright/扩展版并存；默认禁用，必须在「任务管理」页手动启用（Baileys 违反 WhatsApp ToS，启用前须走人工审批）
+
+**工作流与数据流**:
+
+1. 本任务扫 SITE_OUTAGE_DIR（与 whatsapp_send / whatsapp_send_ext 共享同一份图片目录与 GROUPS 配置）并把 items（含磁盘绝对路径）写进作业文件 data/whatsapp_send_baileys_job.json
+1. whatsapp-kb-bot/src/notify.js 进程的轮询器认领（claim 即置 running + 原子写回），按 (群 × 文件) 调 sock.sendMessage({ image|document, ... })
+1. 服务端回执（res.key.id）确认送达才计入 sent；单条失败不重试到群（避免重复），由 my_app 的 auto_retry_failed 决定
+1. notify.js 回写 result 到作业文件；本任务轮询到 done/failed 后返回（task_runner 据此记任务历史）
+
+**维护要点**:
+
+- 默认 enabled=False——新部署不会自动跑，必须先确认 whatsapp-kb-bot notify 进程在跑、auth-notify/ 凭据有效，再在「任务管理」页手动启用
+- 已被主开关豁免（MASTER_SWITCH_EXEMPT_IDS），批量切换不参与
+- 与 whatsapp_send（Playwright 0 3 * * *）默认并存而非互斥；时间错开 1 小时避免同时投递双份图
+- 回执是服务端 message id（不是猜的），与扩展通道的「数 DOM 气泡」判据不同；这是治本 2026-09-15 SP Details Report 1.5MB 静默漏发事故的根因
+- 群发限频由 whatsapp-kb-bot/config.json 的 notify.fileSend 控制（默认 6 图 + 1 文档 / 作业）
+
 #### eFlow P1 告警 WhatsApp 推送（`tt_alarm_whatsapp_alert`）
 
 - 默认 cron: `2-59/5 * * * *`　|　worker 组: **m**
@@ -269,7 +292,7 @@
 
 1. 扫 realtime_alarm（由 eflow_active_alarm 同步，注册表默认 */30、实际周期以任务配置页为准，生产已配 */5）：tt_id 非空、alarmraisedtime 在触发窗口内、告警码过白名单，按 tt_id 去重
 1. 对触发单实时回 eFlow 查单（fetch_tt_live_batch，一次分页遍历），拿最新 ticket_severity / last_modified_time / alarm_clear_time；实时查不到回退本地 eflow_tt 镜像
-1. 级别命中才推：首推发完整分析（分析引擎），停滞 ≥20 分钟且冷却 ≥20 分钟重报（带 ⚠️ REMINDER #N 横幅），工单有更新只记跟踪字段不打扰群里
+1. 级别命中才推：首推发精简分析（分析引擎 --brief），重报双档——自上次发送后工单无更新满 10 分钟催报、有更新满 30 分钟才报（均带 ⚠️ REMINDER #N 横幅），未满间隔只记跟踪字段不打扰群里
 1. 消息经 Baileys 推送进程（whatsapp-kb-bot/src/notify.js）发出，服务端回执确认后才把该单 send_status 置 Y（send_count 记发送次数）
 
 **维护要点**:

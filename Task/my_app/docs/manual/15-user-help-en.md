@@ -1,6 +1,6 @@
 # my_app User Help & Guide
 
-> User-facing platform features & operations guide. Generated from the same source as the in-app Help page (frontend/src/helpMarkdown.ts), compiled from docs/manual/ and backend/task_registry.py. Generated on 2026-10-06.
+> User-facing platform features & operations guide. Generated from the same source as the in-app Help page (frontend/src/helpMarkdown.ts), compiled from docs/manual/ and backend/task_registry.py. Generated on 2026-10-08.
 
 > In-app entry: the "Help" sidebar item, or `http://<host>/myapp/?page=help` directly.
 
@@ -10,7 +10,7 @@
 
 - [1. Platform Overview](#1-platform-overview)
 - [2. General Usage](#2-general-usage)
-- [3. Task Manager Deep Dive (69 tasks)](#3-task-manager-deep-dive)
+- [3. Task Manager Deep Dive (70 tasks)](#3-task-manager-deep-dive)
 - [4. Pages Guide](#4-pages-guide)
 - [5. Ops & Troubleshooting](#5-ops-troubleshooting)
 - [6. FAQ](#6-faq)
@@ -78,7 +78,7 @@ Built for the NOC scenario "boards every day, reports must go out": 41+ schedule
 
 > ⚠️ **New tasks MUST also be registered in `GROUP_TASK_MAP` in worker_watchdog.py** — declaring them only in TASK_SPECS leaves them pending forever. This accident happened four times (finebi_report_sync / whatsapp_send_ext / sp_email_details / the olib_soc and vmax_multi_data_sync tasks found on 2026-09-18).
 
-### 3.3 Full task catalog (69 tasks)
+### 3.3 Full task catalog (70 tasks)
 
 | Task | task_id | Default cron | Group | Workflow script |
 | --- | --- | --- | --- | --- |
@@ -88,6 +88,7 @@ Built for the NOC scenario "boards every day, reports must go out": 41+ schedule
 | Site Outage Screenshot | `site_outage_screenshot` | `0 1 * * *` | m | `services/site_outage_service.py → run_site_outage_screenshot` |
 | WhatsApp Message Send | `whatsapp_send` | `0 3 * * *` | m | `services/whatsapp_service.py → run_whatsapp_send` |
 | WhatsApp Message Send (Extension) | `whatsapp_send_ext` | `0 3 * * *` | m | `services/whatsapp_ext_service.py → run_whatsapp_send_ext` |
+| WhatsApp Message Send (Baileys) | `whatsapp_send_baileys` | `0 4 * * *` | m | `services/whatsapp_send_baileys_service.py → run_whatsapp_send_baileys` |
 | eFlow P1 Alarm WhatsApp Push | `tt_alarm_whatsapp_alert` | `2-59/5 * * * *` | m | `services/tt_alarm_whatsapp_service.py → run_tt_alarm_whatsapp_alert` |
 | MS SLA Full Sync | `ms_sla_full` | `0 */6 * * *` | n | `services/ms_sla_service.py → run_full_sync` |
 | eFlow Realtime Alarm Sync | `eflow_active_alarm` | `*/5 * * * *` | n | `services/eflow_api_client.py → fetch_and_save_active_alarm` |
@@ -257,6 +258,28 @@ Workflow & maintenance notes per task:
 **Maintenance**:
 
 - Missed its worker-group registration on 2026-08-31 and stuck pending; now in group m — always register new tasks in GROUP_TASK_MAP
+
+#### WhatsApp Message Send (Baileys)（`whatsapp_send_baileys`）
+
+- Default cron: `0 4 * * *`　|　worker group: **m**
+- Workflow script: `services/whatsapp_send_baileys_service.py → run_whatsapp_send_baileys`
+
+**What it does**: Third WhatsApp image-sending channel: dispatches via the Baileys protocol directly (no browser/Playwright), parallel to the Playwright/extension versions; disabled by default — enable manually from the Task Manager page (Baileys violates WhatsApp ToS, so manual approval is required before enabling)
+
+**Workflow & data flow**:
+
+1. This task scans SITE_OUTAGE_DIR (shared with whatsapp_send / whatsapp_send_ext) and writes items (with absolute disk paths) into the job file data/whatsapp_send_baileys_job.json
+1. The whatsapp-kb-bot/src/notify.js process polls and claims the job (sets running on claim + atomic write-back), then calls sock.sendMessage({ image|document, ... }) for each (group × file) pair
+1. The server-acknowledged message id (res.key.id) is the only success criterion; a single failed send is not retried into the group (prevents duplicates); auto_retry_failed decides on retries
+1. notify.js writes the result back to the job file; this task returns once it sees done/failed (task_runner records the run history)
+
+**Maintenance**:
+
+- enabled=False by default — the task will NOT auto-run on a fresh deployment. First confirm the whatsapp-kb-bot notify process is up and the auth-notify/ credentials are valid, then enable manually from the Task Manager page
+- Exempted from the master switch (MASTER_SWITCH_EXEMPT_IDS); bulk toggles skip this task
+- Coexists with whatsapp_send (Playwright 0 3 * * *) rather than excluding it; the 1-hour cron offset avoids two copies of the same images being delivered in the same window
+- The server-side message id is the success criterion (not a guess), unlike the extension channel which counts DOM bubbles; this is the root-cause fix for the 2026-09-15 SP Details Report 1.5MB silent-drop incident
+- Group-send rate limiting is controlled by whatsapp-kb-bot/config.json → notify.fileSend (default 6 images + 1 document per job)
 
 #### eFlow P1 Alarm WhatsApp Push（`tt_alarm_whatsapp_alert`）
 

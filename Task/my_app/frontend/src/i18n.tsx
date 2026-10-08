@@ -278,6 +278,7 @@ const translations: Record<Locale, Record<string, string>> = {
     'qa.tt.netError': '网络中断或服务暂时不可用',
     'qa.tt.aiConclusion': 'AI 分析结论（TT单分析技能）',
     'qa.tt.aiAnalyzing': '正在调用 TT单分析 技能分析，约需 10 秒…',
+    'qa.tt.aiTag': '云端 AI 结论',
     'qa.tt.aiFailed': 'AI 分析失败：',
     // 模型全档失败时，后端用本地规则引擎程序化出的结论（无模型参与）
     'qa.tt.fallbackTag': '程序化判定（本地规则引擎，无模型参与）',
@@ -2705,6 +2706,7 @@ const translations: Record<Locale, Record<string, string>> = {
     'sync.statSuccess': '已完成',
     'sync.statFailed': '失败',
     'sync.statDisabled': '已禁用',
+    'sync.statUnknown': '未记录',
     'sync.statActive': '已筛选',
     'sync.loadError': '加载任务列表失败',
     'sync.runSuccess': '任务 {name} 执行成功',
@@ -4074,6 +4076,7 @@ const translations: Record<Locale, Record<string, string>> = {
     'qa.tt.netError': 'Network interrupted or service temporarily unavailable',
     'qa.tt.aiConclusion': 'AI Analysis Conclusion (TT Analysis skill)',
     'qa.tt.aiAnalyzing': 'Running the TT Analysis skill, ~10s…',
+    'qa.tt.aiTag': 'Cloud AI conclusion',
     'qa.tt.aiFailed': 'AI analysis failed: ',
     // When every model candidate fails, the backend renders a rule-engine-only conclusion
     'qa.tt.fallbackTag': 'Programmatic verdict (local rule engine, no model involved)',
@@ -6465,6 +6468,7 @@ const translations: Record<Locale, Record<string, string>> = {
     'sync.statSuccess': 'Completed',
     'sync.statFailed': 'Failed',
     'sync.statDisabled': 'Disabled',
+    'sync.statUnknown': 'No Record',
     'sync.statActive': 'Filtered',
     'sync.loadError': 'Failed to load tasks',
     'sync.runSuccess': 'Task {name} succeeded',
