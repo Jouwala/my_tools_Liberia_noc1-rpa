@@ -663,9 +663,78 @@ def _assign_signals(r: dict) -> dict:
     }
 
 
-def _rule_brief(rule: dict) -> str:
-    """`#204 小区故障派ZTE WO`"""
-    return f"#{rule['id']} {rule['name']}".strip()
+def _rule_brief(rule: dict, lang: str = DEFAULT_LANG) -> str:
+    """`#204 小区故障派ZTE WO`；英文时补英文副标题。"""
+    return _rule_display(rule, lang)
+
+
+# 规则名的英文副标题：**按词素翻译**，不是逐条维护的对照表。
+#
+# 为什么这么做：规则名来自规则表「规则名称」列，是**中文标识符**（还混着
+# 英文/编号，如 `TT-lowest severity`、`MRNC和其他专业-P2`）。用户要求英文
+# 提问时给英文副标题，但又不能为一两百条规则手工维护映射（改一条漏一条）。
+# 所以按**可复用的词素**翻译（断站/断小区/重定义/级别/电力…），
+# 未命中的词素原样保留 —— 宁可半英半中，也不臆造。
+_RULE_EN_TOKENS = [
+    # 注：原表里 '无线断站级别重定义 → Wireless site-down severity re-define' 与
+    # '无线断小区级别重定义 → Wireless cell-down severity re-define' 两条已被去掉
+    # （2026-10-08）。**用户原始要求（2026-09-29）**：英文告警里规则名仍保持
+    # **中文原句**，不附加英文括注。`'级别重定义' → 'severity re-define'` 这条
+    # 仍保留，因为它命中更短词素、不与全名冲突；本测试（`test_real_engine_matches_user_specified_format`）
+    # 锁住的样本单是「#227 无线断站级别重定义-P2-new」无括注。
+    ('断站级别', 'site-down severity'),
+    ('断小区级别', 'cell-down severity'),
+    ('级别重定义', 'severity re-define'),
+    ('和其他专业', ' & other domains'),
+    ('电力故障', 'power failure'),
+    ('电源故障', 'power failure'),
+    ('小区故障', 'cell fault'),
+    ('断站', 'site down'),
+    ('断小区', 'cell down'),
+    ('高温', 'high temperature'),
+    ('告警', 'alarm'),
+    ('派单', 'dispatch'),
+    ('推单', 'push order'),
+    ('推送', 'push to'),
+    ('直接派', 'direct dispatch '),
+    ('人工', 'manual'),
+    ('默认', 'default'),
+    ('兜底', 'fallback'),
+    ('规则', 'rule'),
+]
+
+
+def _rule_name_en(name: str) -> str:
+    """给中文规则名补一个英文副标题；无法翻译时返回空串（调用方不追加）。
+
+    2026-10-08 收紧：**翻译后仍含中文** → 视作翻译失败，返回空串。
+    之前的"半英半中也认"会把 `无线断站级别重定义` 撕成 `无线 site-down severity 重定义`
+    这样的怪串，违反用户原始要求（规则名在英文告警里保持中文原句）。判定按最终
+    输出是否含 CJK 字符：含 = 没翻译干净，不追加。
+    """
+    raw = str(name or '').strip()
+    if not raw:
+        return ''
+    # 已经是纯英文/ASCII 的名字（如 `TT-lowest severity`）不再加副标题
+    if not re.search(r'[一-龥]', raw):
+        return ''
+    out = raw
+    for zh, en in _RULE_EN_TOKENS:
+        out = out.replace(zh, en)
+    # 收紧：翻译完仍含中文 → 翻译不彻底（如词素只命中一半），不追加。
+    if re.search(r'[一-龥]', out):
+        return ''
+    return out.strip()
+
+
+def _rule_display(rule: dict, lang: str = DEFAULT_LANG) -> str:
+    """规则展示串：中文原样；英文提问时补英文副标题（`中文名 (English subtitle)`）。"""
+    name = str(rule.get('name') or '').strip()
+    if lang == 'en':
+        en = _rule_name_en(name)
+        if en and en != name:
+            return f"#{rule['id']} {name} ({en})"
+    return f"#{rule['id']} {name}".strip()
 
 
 def _rule_meta(rule: dict) -> str:
@@ -934,6 +1003,65 @@ def _connect():
     对本用途可接受）。
     """
     return sqlite3.connect(f'file:{DB_PATH}?immutable=1', uri=True)
+
+
+# 操作人 objectid → 真实姓名。**进程内缓存**，一张单分析只查一次 person 表。
+# 数据来源与 my_app 的 sp_report_gen 完全一致（`SELECT objectid, name FROM person`）：
+#   库里的 `Operator:NOC_FO_111(NOC_FO_111)` 括号内外是同一个工号，
+#   真实姓名要按 objectid 去 person 表换。查不到就保留原 ID（不臆造、不报错）。
+_PERSON_NAMES: dict | None = None
+
+
+def _load_person_names() -> dict:
+    """objectid → name（缺表/缺库时返回空 dict，调用方回退成原 ID）。"""
+    global _PERSON_NAMES
+    if _PERSON_NAMES is not None:
+        return _PERSON_NAMES
+    _PERSON_NAMES = {}
+    try:
+        con = _connect()
+        try:
+            rows = con.execute('SELECT objectid, name FROM person').fetchall()
+            _PERSON_NAMES = {str(k): str(v) for k, v in rows if k and v}
+        finally:
+            con.close()
+    except Exception:
+        # person 表不存在 / 库读不到 —— 绝不能因此让整张单分析失败。
+        # 空表即「一律保留原 ID」，与 sp_report_gen 的「查不到保留原 ID」同口径。
+        _PERSON_NAMES = {}
+    return _PERSON_NAMES
+
+
+def _pretty_person(s: str, names: dict | None = None) -> str:
+    """把 `NOC_FO_111(NOC_FO_111)` 这类操作人字符串换成可读形式。
+
+    库里 `Operator` 字段形如 `工号(工号)`（括号里也常是同一个工号）。规则：
+      · 取主标识（去 `G:`/`P:` 前缀、取 `(` 前的部分）作为 objectid；
+      · 若 person 表能按该 objectid 查到**不同的**姓名 → `工号(姓名)`；
+      · 查不到、或姓名与工号相同 → **只显示工号**（不再重复 `X(X)`）。
+
+    非人名形态（`assign_rule`、`FE Robot`、空串）原样返回，不做任何猜测。
+    """
+    raw = str(s or '').strip()
+    if not raw:
+        return ''
+    names = names if names is not None else _load_person_names()
+
+    # 主标识：去 P:/G: 前缀
+    main = re.sub(r'^[A-Za-z]:', '', raw).strip()
+    # 括号里的内容（可能是工号或分组名）
+    m = re.match(r'^([^(]+)\(([^)]*)\)\s*$', main)
+    ident = (m.group(1) if m else main).strip()
+    inside = (m.group(2).strip() if m else '')
+
+    name = names.get(ident) or ''
+    if name and name != ident:
+        return f"{ident}({name})"
+    # 没有真实姓名：能认出的「ID(ID)」只留一个；其余（如 `assign_rule(assign_rule)`、
+    # `G:ZTE_NOC_FO(ZTE_NOC_FO)`）保持原有括号信息（分组名可能≠工号，不可乱删）。
+    if inside and inside == ident:
+        return ident
+    return raw
 
 
 def _load_index() -> tuple[dict, float, int, list]:
@@ -1414,9 +1542,13 @@ def render_level_lookup(res: dict, code: str, attrs: dict, lang: str = DEFAULT_L
         head = (f"告警码 {code}（{attr_str}）→ {res['suggested_severity']}"
                 if lang != 'en'
                 else f"Alarm code {code} ({attr_str}) → {res['suggested_severity']}")
-        line = (f"命中规则：# {res['matched_rule_id']} {res['matched_rule_name']}"
+        rname = res['matched_rule_name']
+        if lang == 'en':
+            en_sub = _rule_name_en(rname)
+            rname = f"{rname} ({en_sub})" if (en_sub and en_sub != rname) else rname
+        line = (f"命中规则：# {res['matched_rule_id']} {rname}"
                 if lang != 'en'
-                else f"Matched rule: # {res['matched_rule_id']} {res['matched_rule_name']}")
+                else f"Matched rule: # {res['matched_rule_id']} {rname}")
         det = (f"判定依据：{res['match_details']}" if lang != 'en'
                else f"Basis: {res['match_details']}")
         return f"{head}\n{line}\n{det}"
@@ -1551,6 +1683,10 @@ _LABELS: dict[str, dict[str, str]] = {
         'resolved': '已恢复', 'unresolved': '未恢复',
         # 实时兜底来源标记（本地库 miss、改从 eFlow 实时拉的）
         'live_src': '⚡ 本地库暂无此单，已实时查 eFlow',
+        # ── 精简模式（--brief，首推告警用）专属文案 ──
+        'brief_step': '当前环节：',
+        'brief_open': '已持续：',
+        'brief_level_warn': '请人工确认 —— 级别未经规则核对（站点属性不全）',
     },
     'en': {
         'need_openpyxl': 'openpyxl is missing, so the rules workbook cannot be read '
@@ -1637,6 +1773,13 @@ _LABELS: dict[str, dict[str, str]] = {
         # Live-fallback source marker (local DB missed, fetched from eFlow live).
         # 纯 ASCII —— 英文输出要过「零中文残留」断言（见 test-tt-lang.py）。
         'live_src': '[live] not in local DB yet - fetched from eFlow in real time',
+        # ── 精简模式（--brief，首推告警用）专属文案 ──
+        # 面向分钟级值班告警：一句人话，不吐内部字段名、不解释方法论。
+        # 纯 ASCII，理由同上。
+        'brief_step': 'Stage: ',
+        'brief_open': 'Open: ',
+        'brief_level_warn': 'PLEASE CONFIRM — level not rule-checked '
+                            '(site attributes missing)',
     },
 }
 
@@ -1719,12 +1862,14 @@ def _chain_steps(r: dict, lang: str = DEFAULT_LANG, assign: dict | None = None) 
             continue
         for d in _parse_detail(str(raw)):
             operator = d.get('Operator', '')
+            # 操作人换真实姓名（person 表按 objectid）；查不到保留工号。
+            operator = _pretty_person(operator)
             # 只改「创建」这一步：把无信息量的 `assign_rule(assign_rule)` 展开成
             # `assign_rule(assign_rule) → #164 TT单直接派FO accept`。
             # 注意创建人未必是 assign_rule（实测有 `admin(admin)` 这种人工建单），
             # 但**路由规则照样生效**，所以两种情况都补上规则名。
             if key == 'create' and dispatch:
-                operator = f"{operator or 'assign_rule'} → {_rule_brief(dispatch)}"
+                operator = f"{operator or 'assign_rule'} → {_rule_brief(dispatch, lang)}"
             steps.append({
                 'label': chain_labels.get(key, key),
                 'time': d.get('Operation Time', ''),
@@ -1783,16 +1928,57 @@ def _sla_line(r: dict, lang: str = DEFAULT_LANG) -> str:
     return head + (L['sep'] + L['sep'].join(bits) if bits else '')
 
 
+def _norm_fault_duration(v) -> str:
+    """故障时长字段 → 可读时长。
+
+    `fault_duration_time` 既可能是已格式化的 `0d9h11m`，也可能是**纯秒数**
+    `1064319`（= 12d7h）—— 原样输出既无单位也不可读（2026-10-08 线上实证）。
+    规则：已格式化原样保留；纯秒数人性化；无法识别给 `—`（取不到不显示成 0）。
+    """
+    s = _one_line(v)
+    if not s:
+        return ''
+    if re.fullmatch(r'-?\d+d\d+h\d+m', s) or re.fullmatch(r'-?\d+[dhm](\d+[hm])?', s):
+        return s
+    if re.fullmatch(r'\d+', s):
+        try:
+            n = int(s)
+        except ValueError:
+            return '—'
+        return _humanize_gap(n) or '—'
+    return '—'
+
+
+def _norm_fault_time(v) -> str:
+    """故障**时间点**字段（occurred / cleared）→ 可读时间或 `—`。
+
+    ⚠️ 这两个字段在实时行里**并不总是时间串**：实测 `alarm_occur_time` 出现
+    `179145958`（eFlow 内部时间 ID / 截断值）。它是**时间点**，绝不能按秒数
+    人性化成 `2073d10h`（那会读成"发生了 5 年 8 个月"，比原值更误导）。
+    故：能解析成 datetime 才原样保留，否则给 `—`。
+    """
+    s = _one_line(v)
+    if not s:
+        return ''
+    return s if _parse_dt(s) else '—'
+
+
 def _fault_line(r: dict, lang: str = DEFAULT_LANG) -> str:
     """故障时长 / 发生与清除时间 / 是否已恢复。"""
     L = _L(lang)
     bits = []
     if r.get('fault_duration_time'):
-        bits.append(L['fault_duration'].format(v=_one_line(r['fault_duration_time'])))
+        dur = _norm_fault_duration(r['fault_duration_time'])
+        if dur:
+            bits.append(L['fault_duration'].format(v=dur))
     if r.get('alarm_occur_time'):
-        bits.append(L['fault_occurred'].format(v=_one_line(r['alarm_occur_time'])))
+        occ = _norm_fault_time(r['alarm_occur_time'])
+        if occ:
+            bits.append(L['fault_occurred'].format(v=occ))
     if r.get('alarm_clear_time'):
-        bits.append(L['fault_cleared'].format(v=_one_line(r['alarm_clear_time'])))
+        clr = _norm_fault_time(r['alarm_clear_time'])
+        if clr:
+            bits.append(L['fault_cleared'].format(v=clr))
     resolved = _one_line(r.get('fault_resolved'))
     if resolved:
         bits.append(L['resolved'] if resolved.lower() in ('yes', '1', 'true') else L['unresolved'])
@@ -1933,9 +2119,13 @@ def _is_robot_operator(operator) -> bool:
 
 
 def _detail_first(raw) -> tuple[str, 'datetime | None']:
-    """从一段 `Operation Step:` 流水里取第一条有内容的步骤 → (operator, dt)。"""
+    """从一段 `Operation Step:` 流水里取第一条有内容的步骤 → (operator, dt)。
+
+    operator 已过 `_pretty_person`（person 表换真实姓名，查不到保留工号）——
+    放在这里统一切换，里程碑与链路两处引用都受益，不会漏。
+    """
     for st in _parse_detail(raw or ''):
-        op = str(st.get('Operator') or '').strip()
+        op = _pretty_person(str(st.get('Operator') or '').strip())
         dt = _parse_dt(st.get('Operation Time'))
         if op or dt:
             return op, dt
@@ -1968,7 +2158,12 @@ def _wo_json_step(raw) -> tuple[str, str]:
             name = str(cand[0].get('name') or '').strip()
     except Exception:
         name = ''
-    display = f'{name}({op})' if (name and op) else (op or name)
+    # candidateoperator 里已给的 name 优先；没有就走 person 表按工号换。
+    # 两者都拿不到就只显示工号（不重复 op(op)）。
+    if name and op and name != op:
+        display = f'{op}({name})'
+    else:
+        display = _pretty_person(op) if op else ''
     ts = ''
     for k in _WO_TIME_KEYS:
         if item.get(k):
@@ -2026,7 +2221,7 @@ def build_milestones(res: dict, lang: str = DEFAULT_LANG) -> dict:
     # 3. 派单路由 —— 决策型节点，时间点即建单时刻，不重复显示时间
     disp = (assign.get('dispatch') or {})
     if disp.get('rule'):
-        brief = _rule_brief(disp['rule'])
+        brief = _rule_brief(disp['rule'], lang)
         _add('dispatch_route', None,
              L['route_auto'].format(rule=brief) if disp.get('ok')
              else L['route_auto_uncertain'].format(rule=brief))
@@ -2130,7 +2325,7 @@ def _assign_lines(res: dict, lang: str = DEFAULT_LANG) -> list[str]:
     out = [L['assign']]
 
     def _head(prefix: str, rule: dict) -> str:
-        line = prefix + _rule_brief(rule)
+        line = prefix + _rule_brief(rule, lang)
         meta = _rule_meta(rule)
         return line + (f"{L['lparen']}{meta}{L['rparen']}" if meta else '')
 
@@ -2176,7 +2371,7 @@ def _assign_lines(res: dict, lang: str = DEFAULT_LANG) -> list[str]:
         peers = push.get('peers') or []
         if peers:
             out.append(L['assign_peers'].format(
-                rules='、'.join(_rule_brief(x) for x in peers[:2])
+                rules='、'.join(_rule_brief(x, lang) for x in peers[:2])
             ))
     else:
         # 还没受理 → 派单规则本来就轮不到生效，别写成「人工派单」误导人
@@ -2287,7 +2482,11 @@ def render_text(res: dict, lang: str = DEFAULT_LANG) -> str:
     else:
         out.append(f"{L['level']}{res['current_severity'] or '-'}{L['level_unknown']}")
     if res['matched_rule_id']:
-        out.append(f"{L['rule']}#{res['matched_rule_id']} {res['matched_rule_name']}")
+        rname = res['matched_rule_name']
+        if lang == 'en':
+            en_sub = _rule_name_en(rname)
+            rname = f"{rname} ({en_sub})" if (en_sub and en_sub != rname) else rname
+        out.append(f"{L['rule']}#{res['matched_rule_id']} {rname}")
         out.append(f"{L['basis']}{res['match_details']}")
 
     # ── 里程碑时间轴（替代旧【处理链路】，与 my_app 复盘报告同口径）──
@@ -2339,6 +2538,151 @@ def render_text(res: dict, lang: str = DEFAULT_LANG) -> str:
     return '\n'.join(out)
 
 
+def _humanize_gap(sec) -> str:
+    """秒 → `2h39m` / `45m` / `3d2h` 这类紧凑时长（无正负号）。
+
+    与 `_fmt_gap` 的区别在**面向告警值班**：去掉 `+` 前缀与秒级粒度，
+    让「已持续多久」一眼可读。
+    """
+    if sec is None:
+        return ''
+    try:
+        sec = int(sec)
+    except (TypeError, ValueError):
+        return ''
+    if sec < 0:
+        return ''
+    if sec < 60:
+        return f'{sec}s'
+    if sec < 3600:
+        return f'{sec // 60}m'
+    if sec < 86400:
+        h, m = divmod(sec // 60, 60)
+        return f'{h}h{m:02d}m' if m else f'{h}h'
+    d, rem = divmod(sec, 86400)
+    return f'{d}d{rem // 3600}h'
+
+
+def render_text_brief(res: dict, lang: str = DEFAULT_LANG) -> str:
+    """**首推告警专用的精简输出**（`--brief`）。
+
+    与 `render_text`（完整复盘格式）的区别，按「分钟级值班」这个受众取舍：
+
+      * 抬头只留「单号 · 站名(站号) | 区域」，**不列 Site type / subtype**
+        —— NORMAL 是占位默认值，对值班人不是信息；
+      * 级别行若规则因缺字段没跑（verdict=incomplete），只给一句人话提示，
+        **不吐 `Missing fields: downSiteCount, vipSite, ...` 这种内部列名**；
+      * **不输出「派单依据」段** —— 首推时本就尚未派单，整段是「暂无」的负信息；
+      * 里程碑**只列已有时间戳的节点**（首推常见 1/9，列全 9 行等于 8 行空话）；
+      * 末尾给一行态势：`Stage: xxx | Open: 2h39m`。
+
+    ⚠️ 本函数**不得**改动 `render_text` 的默认行为 —— 引擎是双用途共享组件，
+    群里机器人的问答格式与 `test-tt-lang.py` 的完整格式断言都建立在
+    `render_text` 不变的前提上。brief 只由 my_app 首推显式 `--brief` 触发。
+    """
+    L = _L(lang)
+    sep = L['sep']
+
+    if not res.get('found'):
+        # 查无此单的文案与完整模式一致（brief 不改变这条语义）
+        out = [L['not_found'].format(tt=res['tt_no'])]
+        latest = res.get('latest_tt_no')
+        out.append(
+            L['not_found_hint'].format(latest=latest) if latest else L['not_found_only']
+        )
+        return '\n'.join(out)
+
+    r = res['record']
+    out: list[str] = []
+
+    if res.get('live'):
+        out.append(L['live_src'])
+
+    # ── 抬头：单号 · 站名(站号) | 区域 ──（不列 site type/subtype）
+    head = f"{res['tt_no']} · {r.get('site_name') or L['no_site']}"
+    sid = r.get('site_id') or r.get('ne_id')
+    if sid:
+        head += f"{L['lparen']}{sid}{L['rparen']}"
+    region = r.get('region_level1')
+    if region:
+        head += sep + region
+    out.append(head)
+
+    # ── 告警 + 影响面（压成两行）──
+    alarm = (
+        f"{L['alarm']}{norm_alarm_code_text(r.get('alarm_code')) or '-'}"
+    )
+    tail = [v for v in (r.get('domain'), r.get('alarm_type')) if v]
+    if tail:
+        alarm += sep + sep.join(tail)
+    obj = _first_obj_name(r)
+    if obj:
+        alarm += sep + obj
+    out.append(alarm)
+
+    impact = _impact_parts(r, lang)
+    if impact:
+        out.append(L['impact'] + sep.join(impact))
+
+    # ── 级别（一行；缺字段不吐内部列名）──
+    sev = res.get('current_severity') or '-'
+    if res.get('verdict') == 'incomplete':
+        out.append(f"{L['level']}{sev}{sep}{L['brief_level_warn']}")
+    elif res.get('verdict') == 'adjust':
+        out.append(f"{L['level']}{sev}{L['level_adjust'].format(sev=res['suggested_severity'])}")
+    else:
+        out.append(f"{L['level']}{sev}")
+
+    # ── 里程碑：只列已有时间戳的节点 ──
+    ms = build_milestones(res, lang)
+    timed = [n for n in ms['nodes'] if n['time']]
+    if timed:
+        for i, n in enumerate(timed, 1):
+            line = f"{i}. {n['label']}  {n['time']}"
+            if n['gap']:
+                line += f"{L['lparen']}{n['gap']}{L['rparen']}"
+            out.append(line)
+
+    # ── 态势行：当前环节 + 已持续多久 ──
+    stage = _one_line(r.get('operation_type') or r.get('status') or '')
+    open_sec = None
+    occur = _parse_dt(r.get('alarm_occur_time'))
+    if occur:
+        open_sec = (datetime.now() - occur).total_seconds()
+    status_bits = []
+    if stage:
+        status_bits.append(L['brief_step'] + stage)
+    if open_sec is not None and open_sec >= 0:
+        status_bits.append(L['brief_open'] + _humanize_gap(open_sec))
+    if status_bits:
+        out.append(sep.join(status_bits))
+
+    return '\n'.join(out)
+
+
+def _first_obj_name(r: dict) -> str:
+    """告警对象：子告警名（取第一个），无则空。brief 用。"""
+    name = _one_line(re.split(r'[;\n]', str(r.get('sub_alarm_name') or ''))[0], 50)
+    return name
+
+
+def _impact_parts(r: dict, lang: str = DEFAULT_LANG) -> list[str]:
+    """影响面短语列表（不含 VIP，brief 用；VIP 单独判断）。
+
+    与 `render_text` 内联的 impact 逻辑同口径：`whether_impacted_service` /
+    `site_outage` 要判 'yes'/'1'，`down_site_count` 只在非空非 '0' 时出现。
+    """
+    L = _L(lang)
+    impact: list[str] = []
+    if str(r.get('whether_impacted_service') or '').lower() in ('yes', '1'):
+        impact.append(L['svc_down'].format(svc=r.get('impacted_service') or 'service'))
+    if str(r.get('site_outage') or '').lower() in ('yes', '1'):
+        impact.append(L['site_outage'])
+    if r.get('down_site_count') not in (None, '', '0'):
+        impact.append(L['sites_down'].format(n=r['down_site_count']))
+    return impact
+
+
 def rebuild_index() -> int:
     """重建本地单号索引。耗时约 15 秒（要扫一遍 1.58GB 的全表）。"""
     if not os.path.isfile(DB_PATH):
@@ -2374,6 +2718,9 @@ def main() -> int:
                          '传 - 表示从 stdin 读入。')
     ap.add_argument('--rebuild-index', action='store_true',
                     help='重建本地单号索引后退出（首次部署、或数据大量更新后跑一次）')
+    ap.add_argument('--brief', action='store_true',
+                    help='精简模式（首推告警用）：只出核心信息与已有时间戳的里程碑，'
+                         '不出派单依据/空节点/内部字段名。默认完整复盘格式不变。')
     # B5：按「码 + 站点属性」直接问级别（复用同一套 matcher，见 lookup_level）。
     ap.add_argument('--lookup-level', metavar='CODE',
                     help='级别查表：给告警码，配合 --asset/--vip/--sub 等属性直接判定级别')
@@ -2450,7 +2797,9 @@ def main() -> int:
     if args.json:
         print(json.dumps(res, ensure_ascii=False, indent=2))
     else:
-        print(render_text(res, args.lang))
+        text = render_text_brief(res, args.lang) if args.brief \
+            else render_text(res, args.lang)
+        print(text)
     return 0 if res.get('found') else 1
 
 

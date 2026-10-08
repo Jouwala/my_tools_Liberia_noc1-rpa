@@ -319,6 +319,7 @@ export async function queryTickets(spec) {
     status: spec.status || 'all',
     site: spec.site || null,
   };
+  const wantList = !!spec.list;
 
   // 只传了 start 没传 end（或反之）时补齐成单日 ——
   // 接口侧缺省是「不过滤」，那会返回全库 3 万多条，不是用户想要的。
@@ -330,13 +331,18 @@ export async function queryTickets(spec) {
     // 站点过滤 overview 接口不支持（要 JOIN 站点表的高级过滤参数），
     // 这种情况直接走本地库 —— 那里有 site_name / site_id 能做模糊匹配。
     try {
-      // 走 drilldown（而非轻量的 overview）的条件：
-      //   ① 问的是「某级别 + 某闭环状态」—— overview 两个分桶不交叉，
-      //      拿 status 桶直接算会把全量未闭环当成该级别的未闭环；
-      //   ② 用户点名要单号（「请输出TT单的ID」）—— overview 一条单号都不给；
-      //   ③ 按级别查 —— 顺带把最新的几单带出来，回复才有抓手。
-      // overview 只留给「不限级别、只看总量」这种真·概览问题。
-      if (q.severity) return { ok: true, data: await fetchDrilldown(q) };
+      // 走 drilldown（而非轻量的 overview）的条件**收窄**为：
+      //   ① 用户点名要单号（「请输出TT单的ID」/「give me the ticket IDs」）
+      //      —— overview 一条单号都不给；
+      //   ② 问的是「某级别 + 某闭环状态」—— overview 两个分桶不交叉，
+      //      拿 status 桶直接算会把全量未闭环当成该级别的未闭环。
+      // ❌ 不再用「只要带级别就 drilldown」：drilldown **把符合条件的行全部
+      //    返回（无分页）**，问「本月几个 P1」只想要个数却拉全月行，
+      //    实测 21s（HTTP 15s 超时 → 降级 SQLite 建索引）。纯「几个 P1」
+      //    改走 overview 的 ticket_severity 分桶，数百毫秒。
+      //    代价：走 overview 时不给样例单号（渲染层已处理「要名单却没明细」的提示）。
+      const needsDrilldown = wantList || (q.severity && q.status !== 'all');
+      if (needsDrilldown && q.severity) return { ok: true, data: await fetchDrilldown(q) };
       return { ok: true, data: await fetchOverview(q) };
     } catch (err) {
       // 落到下面降级

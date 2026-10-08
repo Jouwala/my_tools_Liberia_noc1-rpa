@@ -96,6 +96,13 @@ export function parseDateRange(text, now = new Date()) {
     const d = shiftDate(now, -2);
     return { start: d, end: d };
   }
+  // 英文相对日（群里英文提问常见；2026-10-08 实测「how many P1 Tickets for this
+  // month」因不认英文日期而落到模型层，2.9s 才答 —— 本应由规则层 60ms 出结果）。
+  if (/\b(today|now)\b/i.test(s)) return { start: today, end: today };
+  if (/\byesterday\b/i.test(s)) {
+    const d = shiftDate(now, -1);
+    return { start: d, end: d };
+  }
 
   // 周 / 月
   if (/本周|这周|这一周/.test(s)) {
@@ -114,6 +121,30 @@ export function parseDateRange(text, now = new Date()) {
     const first = new Date(now.getFullYear(), now.getMonth() - 1, 1);
     const last = new Date(now.getFullYear(), now.getMonth(), 0);
     return { start: fmtDate(first), end: fmtDate(last) };
+  }
+  // 英文周 / 月（this month / this week / last month / last week）
+  const monthStart = () =>
+    `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+  if (/\bthis\s+month\b|\bcurrent\s+month\b/i.test(s)) {
+    return { start: monthStart(), end: today };
+  }
+  if (/\blast\s+month\b|\bprevious\s+month\b/i.test(s)) {
+    const first = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const last = new Date(now.getFullYear(), now.getMonth(), 0);
+    return { start: fmtDate(first), end: fmtDate(last) };
+  }
+  if (/\bthis\s+week\b|\bcurrent\s+week\b/i.test(s)) {
+    return { start: fmtDate(weekStart(now)), end: today };
+  }
+  if (/\blast\s+week\b|\bprevious\s+week\b/i.test(s)) {
+    const ws = weekStart(now);
+    return { start: shiftDate(ws, -7), end: shiftDate(ws, -1) };
+  }
+  // 英文近 N 天：last N days / past N days
+  const enRecent = s.match(/\b(?:last|past|recent)\s+(\d{1,3})\s+days?\b/i);
+  if (enRecent) {
+    const n = Math.max(1, Number(enRecent[1]));
+    return { start: shiftDate(now, -(n - 1)), end: today };
   }
 
   // 近 N 天 / 过去 N 天：含今天，所以往前推 N-1 天
@@ -155,10 +186,19 @@ export function parseDateRange(text, now = new Date()) {
   return null;
 }
 
-/** 级别：P1~P4（大小写与空格不敏感）。 */
+/**
+ * 级别：P1~P4（大小写与空格不敏感）。
+ *
+ * 多个 P 数字（如「P1 和 P2」「P1/P2」）时**返回 null**：单个 P 会让规则层
+ * 误判为「只查 P1」，而「各有几个」的本意是分别统计两组。
+ * 弃权 → 上层交模型层抽参，模型能看到完整上下文。
+ * 2026-10-08 深度测试发现「P1 和 P2 各有几个」答成 P1 单数，**沉默错误**。
+ */
 export function parseSeverity(text) {
-  const m = String(text || '').match(/\bP\s*([1-4])\b/i);
-  return m ? `P${m[1]}` : null;
+  const all = [...String(text || '').matchAll(/\bP\s*([1-4])\b/gi)];
+  if (!all.length) return null;
+  if (all.length > 1) return null;  // 多个 P：弃权，不让规则层挑一个瞎答
+  return `P${all[0][1]}`;
 }
 
 /**
@@ -172,12 +212,30 @@ export function parseSeverity(text) {
  *
  * 2026-10-07 实测漏判：「本月有几个P1的单子，请输出TT单的ID给我」
  * 只回了「P1 单 6 个」——用户明确要 ID，却一个都没给。
+ *
+ * 2026-10-08 实测：英文侧只认干巴巴的 `list`，自然说法
+ * （give me the ticket IDs / show me the tickets / which tickets）不触发，
+ * 用户问「how many P1 Tickets for this month」只拿到 3 个样例单号，
+ * 反问「为什么只给我3个TT」。故补齐英文说法。
+ *
+ * 2026-10-08 二修：「sent me the p1 tickets list for this month」仍没触发 ——
+ * ① 动词是 `sent`（不是 send/send me）；② `list` 在 `tickets` **后面**
+ *    （旧式样 `list ... ticket` 只认 list 在前）。故改为**双向**：`list` 与
+ *    ticket 词在同一句里出现即可（不再要求前后顺序），并补 sent/wanna。
  */
 const LIST_INTENT =
-  /(单号|单的\s*id|的\s*id|编号|列出|列一下|list|清单|明细|具体是哪|哪几单|哪些单|哪些是|有哪些|ticket\s*id|tt\s*no|id\s*给|给我单)/i;
+  /(单号|单的\s*id|的\s*id|编号|列出|列一下|清单|明细|具体是哪|哪几单|哪些单|哪些是|有哪些|给我单|(?:give|send|show|sends?|sent|provide|list|want|wanna)\s+(?:me\s+)?(?:the\s+)?(?:ticket|tt|list|id)|\bwhich\s+(?:ticket|tt|one)s?\b|\bticket\s*(?:id|no)s?\b|\btt\s*no\b|\ball\s+(?:the\s+)?(?:ticket|tt)s?\b|\bid\s+list\b|\bthe\s+ids?\b|\bwhat\s+are\s+(?:the\s+)?[^?]*\b(?:ticket|tt)s?)/i;
+
+// 只要句子里**同时**出现「list/enumerate」类词与「ticket/tt/p1-4」，
+// 就认定用户要名单（不要求先后顺序）—— 覆盖「... tickets list ...」
+// 「... list the tickets」两种语序。
+const LIST_INTENT_PAIR =
+  /(?=[^?]*\b(?:list|enumerate|ids?)\b)(?=[^?]*\b(?:ticket|tt|p[1-4])\b)/i;
 
 export function parseListIntent(text) {
-  return LIST_INTENT.test(String(text || ''));
+  const s = String(text || '');
+  // 主正则命中 或 「list/ids + ticket」成对出现（不看语序）
+  return LIST_INTENT.test(s) || LIST_INTENT_PAIR.test(s);
 }
 
 /** 闭环状态：默认 all（不加条件），只有明确说未闭环/已闭环才过滤。 */
@@ -200,7 +258,9 @@ function statusLine(statusMap, lang) {
     .slice(0, 3);
   if (!entries.length) return '';
   const label = lang === 'en' ? 'Status' : '状态';
-  return `${label}：${entries.map(([k, v]) => `${k} ${v}`).join('、')}`;
+  const colon = lang === 'en' ? ': ' : '：';
+  const sep = lang === 'en' ? ', ' : '、';
+  return `${label}${colon}${entries.map(([k, v]) => `${k} ${v}`).join(sep)}`;
 }
 
 /**
@@ -236,6 +296,12 @@ export function renderStats(
       stale: '（本地副本口径，可能有同步延迟）',
       noDetail: '（这次没能取到单号明细，可以到看板上按级别下钻查看。）',
       guessed: '（提问里没给日期，按今天算的；要别的区间请说清楚日期）',
+      // 标点必须按语言取：英文回复里出现「：」「（」「、」是实打实的漏翻
+      //（2026-10-08 实测：英文问「P1 tickets this month」回的是
+      // 「Latest：TT...（Cooper Hill）、...」—— 标签是英文、标点是中文）。
+      colon: '：',
+      sep: '、',
+      paren: (s) => `（${s}）`,
     },
     en: {
       range: (s, e) => (s === e ? `${s}` : `${s} ~ ${e}`),
@@ -249,6 +315,9 @@ export function renderStats(
       stale: '(from the local replica — may lag behind live data)',
       noDetail: '(Ticket IDs unavailable for this query — the detail view returned none.)',
       guessed: '(no date in the question — assumed today; give a date for another range)',
+      colon: ': ',
+      sep: ', ',
+      paren: (s) => ` (${s})`,
     },
   }[lang];
 
@@ -259,9 +328,14 @@ export function renderStats(
     // 「今天有 P1 吗」的正确答案是「P1：0 个」，不是一句「查不到工单」——
     // 后者会被理解成"查询失败"或"这条件有问题"。
     // 这里必须把级别说全，否则用户不知道 0 指的是什么为 0。
-    const what = data.severity ? `${data.severity}：0 个` : `工单：0 个`;
     const cond = [data.status === 'open' ? T.openLabel : '', data.site || ''].filter(Boolean);
-    return [range, cond.length ? `${what}（${cond.join('、')}）` : what].filter(Boolean).join('\n');
+    let body;
+    if (lang === 'en') {
+      body = data.severity ? `${data.severity}${T.colon}0` : `tickets${T.colon}0`;
+    } else {
+      body = data.severity ? `${data.severity}${T.colon}0 个` : `工单${T.colon}0 个`;
+    }
+    return [range, cond.length ? `${body}${T.paren(cond.join(T.sep))}` : body].filter(Boolean).join('\n');
   }
 
   lines.push(`${range} ${T.found(data.total, data.severity)}`.trim());
@@ -275,7 +349,7 @@ export function renderStats(
   const sevEntries = Object.entries(data.by_severity || {}).filter(([, v]) => Number(v) > 0);
   // 已经按单个级别过滤时，再列一次「级别分布」是废话 —— 只在全量查询时给。
   if (sevEntries.length && !data.severity) {
-    lines.push(`${T.sevPart}：${sevEntries.map(([k, v]) => `${k} ${v}`).join('、')}`);
+    lines.push(`${T.sevPart}${T.colon}${sevEntries.map(([k, v]) => `${k} ${v}`).join(T.sep)}`);
   }
   if (data.by_status) {
     const st = statusLine(data.by_status, lang);
@@ -291,12 +365,12 @@ export function renderStats(
     // 状态混合时才逐条标「未闭环」，否则是噪声（见 openMark 注释）
     const mark = hasMixedStatus(samples);
     lines.push(
-      `${wantList ? T.list : T.sample}：${samples
+      `${wantList ? T.list : T.sample}${T.colon}${samples
         .map(
           (s) =>
-            `${s.tt_no}${s.site_name ? `（${s.site_name}）` : ''}${mark ? openMark(s, lang) : ''}`
+            `${s.tt_no}${s.site_name ? T.paren(s.site_name) : ''}${mark ? openMark(s, lang) : ''}`
         )
-        .join('、')}`
+        .join(T.sep)}`
     );
     // 明确告诉用户"列表被截断了"，否则他会以为一共就这几单
     const rest = Number(data.detail_total || data.total || 0) - samples.length;
@@ -327,7 +401,7 @@ export function renderStats(
  */
 function openMark(sample, lang) {
   const open = isOpenStatus(sample.status);
-  return open ? (lang === 'en' ? '［open］' : '［未闭环］') : '';
+  return open ? (lang === 'en' ? ' [open]' : '［未闭环］') : '';
 }
 
 /** 这批样例里是否同时存在未闭环与已闭环（决定要不要逐条标状态）。 */

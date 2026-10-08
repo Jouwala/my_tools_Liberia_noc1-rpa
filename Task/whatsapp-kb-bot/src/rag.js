@@ -846,6 +846,11 @@ function looksLikeMiss(text) {
  * 取舍：只查**长数字**（≥3 位）。短数字（0/1/2/P1/P4）在自然语言里太常见，
  * 全查会大量误杀正常回答。
  *
+ * 关键：corpus 的匹配**必须用整词边界**，不能用 `String.includes`。
+ * 子串匹配会把 `9991` 当作 `999` 的存在证据，导致 3 位幻觉数字被错误放行
+ * （如「#999」会被「#1991」或「9991」的字面包含覆盖）。这里用单词边界 `\b`
+ * 切 corpus 里的所有数字 token，再做集合包含判断。
+ *
  * @param {string} answer 生成文本
  * @param {Array<{text:string}>} hits 召回的块（**所有** confident 块，不只 top1）
  * @returns {string[]} 编造的数字列表（空数组=通过）
@@ -854,9 +859,12 @@ export function ungroundedIds(answer, hits) {
   const text = String(answer || '');
   const ids = [...new Set(text.match(/\d{3,}/g) || [])];
   if (!ids.length) return [];
-  const corpus = (hits || [])
-    .filter((h) => h.confident !== false) // 只拿作为依据的块
-    .map((h) => String(h.text || ''))
-    .join('\n');
-  return ids.filter((id) => !corpus.includes(id));
+  const corpusTokens = new Set();
+  for (const h of hits || []) {
+    if (h.confident === false) continue;
+    const chunkText = String(h.text || '');
+    // 从 corpus 块里抽出所有 ≥3 位数字，整词匹配（避免 9991 吸收 999）
+    for (const m of chunkText.matchAll(/\d{3,}/g)) corpusTokens.add(m[0]);
+  }
+  return ids.filter((id) => !corpusTokens.has(id));
 }

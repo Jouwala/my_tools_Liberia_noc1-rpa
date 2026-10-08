@@ -79,3 +79,10 @@
 {"id":"r-reject-tool-2","q":"__parseToolCall__","lang":"zh","offlineOnly":true,"expectToolCallNull":"query_alarms","notes":"未实现工具名被拒（钉子二）"}
 {"id":"r-help-lookup","q":"__help__","lang":"zh","offlineOnly":true,"expectHelpContains":["查表"],"notes":"help 含查表通道"}
 {"id":"r-still-stats-list","q":"列出昨天的P2单号","lang":"zh","expectChannel":"stats","expectTool":"query_tickets","offlineOnly":true,"notes":"列出单号也走统计"}
+{"id":"r-en-this-month","q":"how many P1 Tickets for this month","lang":"en","expectChannel":"stats","expectTool":"query_tickets","offlineOnly":true,"notes":"英文月份问法必须走规则层（2026-10-08 实测缺口）"}
+{"id":"r-en-last-month","q":"how many tickets last month","lang":"en","expectChannel":"stats","expectTool":"query_tickets","offlineOnly":true,"notes":"英文上月"}
+{"id":"r-en-this-week","q":"how many P1 tickets this week","lang":"en","expectChannel":"stats","expectTool":"query_tickets","offlineOnly":true,"notes":"英文本周"}
+{"id":"r-en-yesterday","q":"how many tickets yesterday","lang":"en","expectChannel":"stats","expectTool":"query_tickets","offlineOnly":true,"notes":"英文昨天"}
+{"id":"r-en-last7","q":"how many tickets in the last 7 days","lang":"en","expectChannel":"stats","expectTool":"query_tickets","offlineOnly":true,"notes":"英文近7天"}
+{"id":"r-en-list-ids","q":"give me the ticket IDs for P1 this month","lang":"en","expectChannel":"stats","expectTool":"query_tickets","offlineOnly":true,"notes":"英文要名单（2026-10-08 实测缺口）"}
+{"id":"r-en-show-list","q":"show me the P1 tickets this month","lang":"en","expectChannel":"stats","expectTool":"query_tickets","offlineOnly":true,"notes":"英文要名单"}

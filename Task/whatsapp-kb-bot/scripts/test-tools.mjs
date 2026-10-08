@@ -69,6 +69,21 @@ console.log('\n[1] 日期解析（模型不知道今天几号，必须规则算�
   check(parseDateRange('P1 是什么级别', NOW) === null, '纯知识问法不产出日期');
   check(fmtDate(NOW) === '2026-10-06', 'fmtDate 按本地时区（不受 UTC 影响）', fmtDate(NOW));
   check(shiftDate(NOW, -1) === '2026-10-05', 'shiftDate 减一天', shiftDate(NOW, -1));
+
+  // 英文日期词（2026-10-08 实测缺口：「how many P1 Tickets for this month」
+  // 因不认英文日期而落到模型层 2.9s；本应由规则层 60ms 出结果）
+  const enM = parseDateRange('how many P1 Tickets for this month', NOW);
+  check(enM && enM.start === '2026-10-01' && enM.end === '2026-10-06', 'this month → 本月至今', JSON.stringify(enM));
+  const enY = parseDateRange('how many tickets yesterday', NOW);
+  check(enY && enY.start === '2026-10-05', 'yesterday → 昨天', JSON.stringify(enY));
+  const enT = parseDateRange('how many tickets today', NOW);
+  check(enT && enT.start === '2026-10-06', 'today → 今天', JSON.stringify(enT));
+  const enW = parseDateRange('this week tickets', NOW);
+  check(enW && enW.start === '2026-10-05', 'this week → 本周（周一为 10-05）', JSON.stringify(enW));
+  const enLm = parseDateRange('last month tickets', NOW);
+  check(enLm && enLm.start === '2026-09-01' && enLm.end === '2026-09-30', 'last month → 上月整月', JSON.stringify(enLm));
+  const enLd = parseDateRange('last 7 days tickets', NOW);
+  check(enLd && enLd.start === '2026-09-30' && enLd.end === '2026-10-06', 'last 7 days → 近7天', JSON.stringify(enLd));
 }
 
 /* ------------------------------ 级别与状态 ------------------------------ */
@@ -183,6 +198,16 @@ console.log('\n[4b] 单号列表意图（2026-10-07 实测漏判：要 ID 只给
   check(parseListIntent('有哪些 P2 单') === true, '「有哪些」→ 要名单');
   check(parseListIntent('list P1 tickets') === true, '英文 list → 要名单');
   check(parseListIntent('本月 P1 一共几个') === false, '纯计数 → 不要名单');
+
+  // 2026-10-08 实测：英文自然说法不触发 list，用户要名单却只拿到 3 个样例单号
+  check(parseListIntent('give me the ticket IDs for P1 this month') === true, 'give me the ticket IDs → 要名单');
+  check(parseListIntent('show me the tickets') === true, 'show me the tickets → 要名单');
+  check(parseListIntent('which tickets are P1 this month') === true, 'which tickets → 要名单');
+  check(parseListIntent('what are the P1 tickets this month') === true, 'what are the P1 tickets → 要名单');
+  check(parseListIntent('list P1 tickets for this month') === true, 'list P1 tickets → 要名单');
+  // 反向：纯数量问法不能误判成要名单
+  check(parseListIntent('how many P1 Tickets for this month') === false, '纯 how many → 不要名单（给样例即可）');
+  check(parseListIntent('how many P1 tickets today') === false, '  how many today 同理');
 
   // 规则层要把 list 带下去
   const r = parseByRule(q, NOW);

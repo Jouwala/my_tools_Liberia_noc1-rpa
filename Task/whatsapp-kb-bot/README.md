@@ -598,11 +598,19 @@ P1：0 个
 | 问法 | 走哪个接口 | 代价 |
 | --- | --- | --- |
 | 不限级别，只要总数（「昨天一共多少单」） | `/overview` | 轻量聚合 |
-| 指定级别，或点名要单号 | `/drilldown` | 把符合条件**全部**行捞回来，本地截断 |
+| **指定级别、只问个数**（「本月几个 P1」） | `/overview`（取 `ticket_severity` 分桶） | 轻量聚合 |
+| 指定级别 + 闭环状态，或点名要单号 | `/drilldown` | 把符合条件**全部**行捞回来，本地截断 |
 
-判据是 `parseListIntent`（见 `ttquery.js`）。踩过的坑：
+判据是 `parseListIntent`（见 `ttquery.js`）+ `status`（见 `ttsource.js`）。踩过的坑：
 
 - **漏判**：用户说「请输出TT单的ID给我」，只回了「P1 单 6 个」——要 ID 却一个没给。
+- **英文自然说法不触发 list**（2026-10-08）：`give me the ticket IDs` / `show me the tickets`
+  / `which tickets` 都不在旧正则里，用户要名单却只拿到 3 个样例单号。
+- **「带级别就 drilldown」代价过高**（2026-10-08）：原逻辑只要 `severity` 非空就走
+  drilldown，而 drilldown **无分页、把全月符合条件的行全捞回来**。实测
+  「how many P1 tickets this month」耗时 **21 秒**（HTTP 15s 超时 → 降级 SQLite 建索引）。
+  现在收窄为「**要名单 或 级别+闭环状态**」才 drilldown；纯「几个 P1」走 overview 分桶，数百毫秒。
+  代价：overview 路径不给样例单号（渲染层已能如实提示「要名单却无明细」）。
 - **两条通道给出不同长度的名单**：HTTP 侧内部按 `ttStatsSampleLimit`(3) 截断，
   渲染层却想展示 `ttStatsListLimit`(10) 条，切不出来；而降级侧按 10 取了 6 条。
   同一个问题两条通道结果不一致，是最难排查的一类。现在两侧都按**两者中的较大值**取。

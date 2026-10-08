@@ -94,8 +94,12 @@ CONFIG.chatProvider = 'openai';
 console.log('\n[3] provider 信息');
 const info = providerInfo();
 check(info.provider === 'openai', 'provider 正确');
-check(info.model === 'agnes-3.0-flash', `模型名正确（${info.model}）`);
-check(info.baseUrl === 'https://apihub.agnes-ai.com/v1', `baseUrl 正确（${info.baseUrl}）`);
+// ⚠️ 断言**取自 config 的值**，而不是硬编码某个部署的模型名 ——
+// config.json 的 chatModel/chatBaseUrl 是部署时可切换的（本项目实测在
+// agnes 云端 与 本地代理 deepseek 之间切过）。硬编码会让「换个 provider 就测试红」，
+// 而那是配置变更、不是代码回归。这里要验的是「provider 层如实回读 config」。
+check(info.model === CONFIG.chatModel, `模型名取自 config（${info.model}）`);
+check(info.baseUrl === CONFIG.chatBaseUrl, `baseUrl 取自 config（${info.baseUrl}）`);
 check(info.keySource === `环境变量 ${ENV_NAME}`, '密钥来源可追溯');
 
 /* ---------------------------- OpenAI 兼容调用 ---------------------------- */
@@ -104,7 +108,7 @@ console.log('\n[4] OpenAI 兼容请求构造');
 let calls = mockFetch(() =>
   jsonResponse({
     id: 'chatcmpl_x',
-    model: 'agnes-3.0-flash',
+    model: CONFIG.chatModel,
     choices: [{ index: 0, message: { role: 'assistant', content: '年假15天。' }, finish_reason: 'stop' }],
     usage: { prompt_tokens: 120, completion_tokens: 8, total_tokens: 128 },
   })
@@ -115,8 +119,10 @@ const r = await chat([
   { role: 'user', content: '年假有几天？' },
 ]);
 
+// URL 由 config 的 chatBaseUrl 拼出（同样不硬编码具体部署的地址）
+const expectUrl = `${CONFIG.chatBaseUrl.replace(/\/$/, '')}/chat/completions`;
 check(calls.length === 1, '发起了 1 次请求');
-check(calls[0].url === 'https://apihub.agnes-ai.com/v1/chat/completions', `URL 正确（${calls[0].url}）`);
+check(calls[0].url === expectUrl, `URL 由 baseUrl 拼出（${calls[0].url}）`);
 check(calls[0].init.method === 'POST', 'method 为 POST');
 check(
   calls[0].init.headers.Authorization === 'Bearer test-key-123',
@@ -125,7 +131,7 @@ check(
 check(calls[0].init.headers['Content-Type'] === 'application/json', 'Content-Type 正确');
 
 const sent = JSON.parse(calls[0].init.body);
-check(sent.model === 'agnes-3.0-flash', `请求体 model 正确（${sent.model}）`);
+check(sent.model === CONFIG.chatModel, `请求体 model 取自 config（${sent.model}）`);
 check(sent.messages.length === 2, 'messages 完整传递');
 check(sent.messages[0].role === 'system', 'system 消息保留');
 check(sent.max_tokens === CONFIG.maxTokens, `max_tokens 取自配置（${sent.max_tokens}）`);

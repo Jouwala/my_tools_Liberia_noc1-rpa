@@ -47,8 +47,10 @@ import makeWASocket, {
 } from 'baileys';
 import P from 'pino';
 import qrcode from 'qrcode-terminal';
-import { existsSync, mkdirSync, appendFileSync, readFileSync, writeFileSync, renameSync } from 'node:fs';
-import { join, dirname } from 'node:path';
+import { existsSync, mkdirSync, appendFileSync, readFileSync, writeFileSync, renameSync, statSync } from 'node:fs';
+import { join, dirname, extname, basename } from 'node:path';
+import path from 'node:path';
+import { createHash } from 'node:crypto';
 import { CONFIG, ROOT } from './config.js';
 
 const logger = P({ level: 'silent' });
@@ -166,6 +168,92 @@ const HEARTBEAT_FILE = join(ROOT, 'data', 'notify_heartbeat.json');
 
 /** 轮询间隔（毫秒）。告警是分钟级业务，5 秒足够，又不至于空转太凶。 */
 const POLL_MS = Number(process.env.NOTIFY_POLL_MS || 5000);
+
+/* ------------------- 文件作业（图片 + 文档）配置 ------------------- */
+/**
+ * 扩展通道文件作业信箱 —— `whatsapp_ext_service.create_pending_job` 写入。
+ * 历史背景：早先本服务**唯一**文件作业来源是浏览器扩展（用户打开 WhatsApp Web
+ * 标签页，扩展侧栏轮询同一信箱），故默认路径指 `whatsapp_ext_job.json`。
+ * 兼容保留：扩展仍可能向 `whatsapp_ext_job.json` 投递作业（不直接发，
+ * 由本进程统一代发——扩展本身无 sock）。
+ *
+ * 默认值指 my_app 在本仓库的相对位置（`whatsapp-kb-bot` 与 `my_app` 同级，
+ * 与 `MY_APP_DIR` 推导一致）。可被环境变量覆盖，便于异机部署。
+ */
+const FILE_JOB_FILE = process.env.NOTIFY_FILE_JOB_FILE
+  || join(ROOT, '..', 'my_app', 'backend', 'services', 'data', 'whatsapp_ext_job.json');
+
+/**
+ * Baileys 通道文件作业信箱 —— `whatsapp_send_baileys_service.create_pending_job` 写入。
+ *
+ * 2026-10-08 拆分背景：原设计让 Baileys 与扩展「抢同一份作业」
+ * （见旧 commit 注释中「`claim_pending_job` 原子置 running」一节）。
+ * 但 my_app 后端**已经为 Baileys 通道独立投递**到 `whatsapp_send_baileys_job.json`：
+ *   - 物理隔离：扩展与 Baileys **不会**同时投递到同一份文件，
+ *     也就不需要「谁先认领谁发」的争抢语义。
+ *   - 排查独立：Baileys 作业失败时只看自己的 job 文件，不会和扩展的历史记录混在一起。
+ *   - 配额独立：未来想给 Baileys 单独调 `maxImages` 不影响扩展。
+ *
+ * 故本进程每 tick **扫两份**信箱（先扩展，后 Baileys），一次 tick 仍只发一单
+ * （避免长发送挡住下一轮）。两份信箱的 `claimFileJob` 各自原子写自己的文件，
+ * 互不影响。
+ *
+ * 可被环境变量覆盖。扩展 / Baileys 任意一方**不投递**对应信箱时，
+ * 扫到不存在的文件按"无作业"处理（见 `claimFileJob`）。
+ */
+const FILE_JOB_FILE_BAILEYS = process.env.NOTIFY_FILE_JOB_FILE_BAILEYS
+  || join(ROOT, '..', 'my_app', 'backend', 'services', 'data', 'whatsapp_send_baileys_job.json');
+
+/** 本进程当前已知的所有文件作业信箱（按优先级排列，先扫先发）。 */
+const FILE_JOB_FILES = [FILE_JOB_FILE, FILE_JOB_FILE_BAILEYS];
+
+/** 文件作业心跳（仅作"本进程活着"证据；与文本的 notify_heartbeat.json 是同一文件，复用即可）。 */
+
+/**
+ * 单作业防重：相同 `kind|path|file_name|mtime` 的 payload 在一次作业内**只发一次**。
+ * 这道防线是**双保险**——主防线是「抢同一份作业后另一边看到 running 就放弃」，
+ * 本防线治「my_app 侧被重投或内部重试导致同一 item 多次出现在作业里」。
+ */
+function payloadSignature(item) {
+  const kind = String(item?.kind || 'image');
+  const path = String(item?.path || item?.url || item?.name || '');
+  const name = String(item?.file_name || item?.name || '');
+  let mtime = '';
+  try {
+    if (path && existsSync(path)) mtime = String(statSync(path).mtimeMs | 0);
+  } catch { /* 读不到 mtime 也照常处理 */ }
+  const key = `${kind}|${path}|${name}|${mtime}`;
+  return createHash('sha256').update(key).digest('hex').slice(0, 16);
+}
+
+/**
+ * my_app 投递到作业文件里的 `items[].path` 形如 `C:\...\ALL.png`，
+ * Baileys 进程要 `fs.readFileSync` 这条路径，所以必须**保持绝对路径**。
+ * `whatsapp_ext_service.create_pending_job` 写入时已用绝对路径（来自 `SITE_OUTAGE_DIR`），
+ * 这里不再做解析，避免与 my_app 侧的语义分叉。
+ */
+
+/**
+ * MIME 探测：白名单兜底，缺省 `application/octet-stream`。
+ * 不要引第三方 mime 库 —— 仅 5 类扩展，复制一份 5 行表比 `npm i mime-types` 划算。
+ */
+const _MIME_BY_EXT = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+  '.pdf': 'application/pdf',
+  '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  '.xls': 'application/vnd.ms-excel',
+  '.csv': 'text/csv',
+  '.txt': 'text/plain',
+  '.doc': 'application/msword',
+  '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+};
+function mimeFor(filePath) {
+  return _MIME_BY_EXT[extname(String(filePath)).toLowerCase()] || 'application/octet-stream';
+}
 
 /**
  * 僵尸作业判定阈值（毫秒）：作业处于 `running` 超过此时长仍未回报，
@@ -325,6 +413,257 @@ function finishJob(job, ok, sent, errors) {
     completed_at: new Date().toISOString(),
     result: { ok, sent, errors },
   });
+}
+
+/* -------------------- 文件作业：认领 / 处理 / 完成 -------------------- */
+
+/**
+ * 文件作业状态机（与文本通道同构：`pending` → `running` → `done`/`failed`）：
+ *  - 同一文件被两个**不同认领方**（浏览器扩展 / 本进程）读时，靠文件级 `running` 字段互斥；
+ *  - 认领方抢到 `running` 后**马上把 items 写回**（my_app 投递时 items 为空，
+ *    真正的清单要等认领方在写 `running` 那一瞬 `build_outbox_payload()` 重新扫盘），
+ *    这点与文本通道（投递时就带 messages）不同。
+ *
+ * 因此本函数不复用 `claimJob` 的「读 → 改状态 → 写回」三段，而是直接读
+ * `whatsapp_ext_service.claim_pending_job` 一样的语义（认领即置 running + items 写回），
+ * 再加 zombie 回收（`STALE_RUNNING_MS` 同值）。
+ */
+/**
+ * 从指定信箱认领文件作业。文件不存在 / 损坏 / 已处于 done|failed 状态
+ * 均返回 `null`（不抛异常，调用方当"无作业"处理）。
+ *
+ * 设计要点（与 `claimJob` 文本通道同源，但拆出参数让多信箱可共用）：
+ *  - 认领即原子置 `running` + 写回，防 `setInterval` 重入（见 `runFileJob` 注释）。
+ *  - items 必须**已在文件里** —— 那是 my_app 侧投递时一次性写好的
+ *    （`create_pending_job` 已经把磁盘绝对路径写进 `items[].path`），
+ *    本进程不重新扫盘，避免与 my_app 侧分叉。
+ *  - zombie 回收：超过 `STALE_RUNNING_MS` 未回报的 running 作业可重新认领。
+ *
+ * @param {string} filePath - 信箱文件绝对路径
+ * @returns {object|null} 认领成功返回作业对象（含 status='running'）；否则 null
+ */
+function claimFileJob(filePath) {
+  let job;
+  try {
+    job = JSON.parse(readFileSync(filePath, 'utf8'));
+  } catch {
+    return null;   // 文件不存在 / 损坏 → 当作"无作业"
+  }
+  if (!job || typeof job !== 'object') return null;
+
+  const status = String(job.status || '');
+  if (status === 'running') {
+    const claimedAt = Date.parse(job.claimed_at || '');
+    const age = Number.isFinite(claimedAt) ? Date.now() - claimedAt : Infinity;
+    if (age < STALE_RUNNING_MS) return null;
+    log(`! 文件作业 ${job.job_id || '(无 id)'} 自认领后 ${Math.round(age / 1000)}s 未回报，`
+      + `判定为僵尸并重新认领（阈值 ${STALE_RUNNING_MS / 1000}s，file=${path.basename(filePath)}）`);
+  } else if (status !== 'pending') {
+    return null;
+  }
+
+  if (!Array.isArray(job.items) || job.items.length === 0) {
+    // 状态是 running 但没 items：多半是另一方（my_app 进程内、扩展）刚置 running
+    // 还没来得及写回 items —— 不抢，否则会拿到一个空作业。
+    return null;
+  }
+
+  const claimed = {
+    ...job,
+    status: 'running',
+    claimed_at: new Date().toISOString(),
+    claimed_by: 'baileys',
+  };
+  try {
+    writeJsonAtomic(filePath, claimed);
+  } catch (err) {
+    log(`! 文件作业认领写回失败（本轮不发送，避免重复）：${err.message}`);
+    return null;
+  }
+  return claimed;
+}
+
+/**
+ * 回写文件作业结果到指定信箱。
+ * @param {string} filePath - 信箱文件绝对路径
+ */
+function finishFileJob(filePath, job, ok, groupsSent, errors) {
+  writeJsonAtomic(filePath, {
+    ...job,
+    status: ok ? 'done' : 'failed',
+    completed_at: new Date().toISOString(),
+    result: { ok, groups_sent: groupsSent, errors },
+  });
+}
+
+/**
+ * 处理一个文件作业：每条 item × 每个 group 走一次 `sendMessage`。
+ *
+ * 三条铁律（与文本通道同源，参见 runJob 的注释）：
+ *  1. 服务端回执 (`res.key.id`) 才是送达判据；缺 id 一律视为失败；
+ *  2. 单条失败不重试到群里 —— 避免重复；统一由 my_app 的 `auto_retry_failed` 决定；
+ *  3. 同 `payloadSignature` 在一次作业内只发一次（双保险，主防线是抢 running）。
+ */
+async function runFileJob(sock, job) {
+  const items = Array.isArray(job.items) ? job.items : [];
+  const groups = Array.isArray(job.groups) ? job.groups : [];
+  const seen = new Set();
+  const groupsSent = [];
+  const errors = [];
+  const intervals = (CONFIG.notify && CONFIG.notify.fileSend) || {};
+
+  const perItemMs = Math.max(0, Number(intervals.sendIntervalMs ?? 2000));
+  const perGroupMs = Math.max(0, Number(intervals.perGroupDelayMs ?? 8000));
+  const maxItems = Math.max(1, Number(intervals.maxImages ?? 6));
+  const maxDocs = Math.max(1, Number(intervals.maxDocuments ?? 1));
+
+  if (!items.length) {
+    finishFileJob(job._filePath, job, false, [], ['作业里没有 items']);
+    return;
+  }
+  if (!groups.length) {
+    finishFileJob(job._filePath, job, false, [], ['作业里没有 groups']);
+    return;
+  }
+
+  // 群解析：任一解析不了**整个作业失败**（与文本通道同语义；告警/截图任务都是
+  // 「这条必须到群里」，少发一个群就是漏发）。
+  const jids = [];
+  for (const g of groups) {
+    const jid = resolveGroup(g);
+    if (!jid) {
+      finishFileJob(job._filePath, job, false, [], [
+        `找不到群「${g}」对应的 JID（当前已知 ${groupIndex.size} 个群）。`
+        + `请确认机器人账号已加入该群，或用 --groups 查看可用群名。`,
+      ]);
+      return;
+    }
+    jids.push(jid);
+  }
+
+  // 作业级配额：图片与文档分开计（业务上图片多、文档少）。超出部分**跳过**不报错
+  // —— 配额是软上限，目的是「单次突增防风控」而不是「必须发齐」。
+  let imageBudget = maxItems;
+  let docBudget = maxDocs;
+  const skippedByBudget = [];
+
+  for (let idx = 0; idx < items.length; idx++) {
+    const item = items[idx] || {};
+    const sig = payloadSignature(item);
+    if (seen.has(sig)) {
+      log(`! 跳过重复 payload（去重）：${sig}`);
+      continue;
+    }
+    seen.add(sig);
+
+    // 判断类型：扩展通道与 my_app 侧已经按 `kind` 区分（`whatsapp_job_claim`），
+    // 但 my_app 的 `whatsapp_ext_service` **没有**显式设 kind —— items 默认为 image。
+    // 这里按 mime 与扩展名再判断一次（双重保险，宁可把 xlsx 错当 image 也不漏发）。
+    const itemPath = String(item.path || item.url || item.name || '');
+    const itemName = String(item.file_name || item.name || (itemPath ? itemPath.split(/[\\/]/).pop() : 'file'));
+    const ext = extname(itemName).toLowerCase();
+    const isDoc = !!item.kind
+      ? item.kind === 'document'
+      : !!ext && ext !== '.png' && ext !== '.jpg' && ext !== '.jpeg'
+        && ext !== '.gif' && ext !== '.webp';
+
+    if (isDoc) {
+      if (docBudget <= 0) { skippedByBudget.push(`doc:${itemName}`); continue; }
+      docBudget--;
+    } else {
+      if (imageBudget <= 0) { skippedByBudget.push(`image:${itemName}`); continue; }
+      imageBudget--;
+    }
+
+    // 读盘：必须在 send 前读完，避免「读盘失败」算「发送失败」的语义混淆。
+    // `image` 类型在 Baileys 里也接受 `Buffer`（即 `Uint8Array` 的 Buffer 实例），
+    // `document` 同理；不要用 `data:` URL。
+    let payload;
+    try {
+      const buf = readFileSync(itemPath);
+      payload = { buf, size: buf.length };
+    } catch (err) {
+      errors.push(`${itemName}：读盘失败：${err.message}`);
+      log(`✗ 读盘失败 ${itemPath}：${err.message}`);
+      continue;
+    }
+    if (!payload.buf || payload.buf.length === 0) {
+      errors.push(`${itemName}：文件为空（0 字节）`);
+      log(`! 跳过空文件：${itemPath}`);
+      continue;
+    }
+    const mimetype = mimeFor(itemName);
+    const caption = String(item.caption || '').trim();
+
+    for (let gi = 0; gi < jids.length; gi++) {
+      const jid = jids[gi];
+      // 群间延时：仅**非首群**且**上一图/文档真发出**时等；失败不延时（避免问题被掩盖）
+      if (gi > 0 && perGroupMs > 0) {
+        await sleep(perGroupMs);
+      }
+      // 护栏：每发一条前先确认连接还活着。`sockRef` 是模块级（见 start() 末尾的
+      // sockRef = sock），重连后旧 sock 已被 sock.ws.close() 杀掉 —— 但如果在
+      // 重连前最后那几百毫秒的轮询里跑进来，旧 sock 拿到的会是 "Connection Closed"。
+      // 显式 connected 校验可让单条失败快速回错，而不是让一次 8s 群间 sleep 之后
+      // 才发现整个连接已死，浪费单作业的 600s 窗口。
+      if (!connected || !sockRef) {
+        errors.push(`${itemName} → ${jid}：连接已断开（abort 后续）`);
+        log(`✗ ${itemName} → ${jid}：连接断开，本作业终止`);
+        finishFileJob(job._filePath, job, false, groupsSent, errors);
+        return;
+      }
+      try {
+        let res;
+        if (isDoc) {
+          // document：只发文件，不带 caption（WhatsApp 文档消息不支持 caption，
+          // 与 `whatsapp_ext_service` 走发送的语义一致）。
+          res = await sock.sendMessage(jid, {
+            document: payload.buf,
+            fileName: itemName,
+            mimetype,
+          });
+        } else {
+          // image：caption 走 `caption` 字段，长度 1024 以内（WhatsApp 限制）。
+          const safeCaption = caption.length > 1024 ? caption.slice(0, 1020) + '…' : caption;
+          res = await sock.sendMessage(jid, {
+            image: payload.buf,
+            caption: safeCaption || undefined,
+            mimetype,
+          });
+        }
+        if (res?.key?.id) {
+          log(`✓ 已发送 ${itemName} → ${jid}（msg id ${res.key.id}，${(payload.size / 1024).toFixed(1)}KB）`);
+          if (!groupsSent.includes(jid)) groupsSent.push(jid);
+          heartbeat({ lastSendKind: isDoc ? 'document' : 'image' });
+        } else {
+          errors.push(`${itemName} → ${jid}：sendMessage 未返回 message id，无法确认`);
+          log(`! ${itemName} → ${jid}：未返回 message id`);
+          heartbeat({ lastSendError: `no_message_id:${itemName}` });
+        }
+      } catch (err) {
+        errors.push(`${itemName} → ${jid}：${err.message}`);
+        log(`✗ 发送失败 ${itemName} → ${jid}：${err.message}`);
+        heartbeat({ lastSendError: `${itemName}:${err.message}` });
+      }
+      // 单条之间的速率控制：仅在**还有下一条**时等。
+      if (idx < items.length - 1 && perItemMs > 0) {
+        await sleep(perItemMs);
+      }
+    }
+  }
+
+  if (skippedByBudget.length) {
+    log(`! 因单作业配额跳过：${skippedByBudget.join(', ')}`);
+  }
+
+  const ok = groupsSent.length > 0;
+  finishFileJob(job._filePath, job, ok, groupsSent, errors);
+  log(`[文件作业完成] ${job.job_id || '(无 id)'} 成功群 ${groupsSent.length} / 错误 ${errors.length}`
+    + (skippedByBudget.length ? ` / 配额跳过 ${skippedByBudget.length}` : ''));
+}
+
+function sleep(ms) {
+  return new Promise((r) => setTimeout(r, ms));
 }
 
 /**
@@ -549,23 +888,61 @@ async function start() {
       // 若不改用全局 sockRef，轮询会一直拿着已被 sock.ws.close() 杀掉的旧 sock 发包，
       // 连接恰好在边缘时就会拿到 "Connection Closed" 而失败（2026-10-01 实测命中）。
       if (!connected || !sockRef) return;
-      const job = claimJob();
-      if (!job) {
+
+      // 先扫文本告警信箱（保持原行为，避免影响 P1 告警文本通道）
+      const textJob = claimJob();
+      if (textJob) {
+        try {
+          await runJob(sockRef, textJob);
+        } catch (err) {
+          log(`✗ 处理文本作业异常：${err.stack || err.message}`);
+          try {
+            finishJob(textJob, false, [], [`推送进程内部异常：${err.message}`]);
+          } catch {
+            /* 回写都失败时只能靠心跳暴露 */
+          }
+        }
+        heartbeat();
+        return;   // 一次 tick 只发一单，避免长发送挡住下一轮
+      }
+
+      // 再扫文件作业信箱 —— 2026-10-08 起扫两份（扩展 + Baileys），按 FILE_JOB_FILES 顺序。
+      // 一次 tick 仍只发一单（避免长发送挡住下一轮）；第一份信箱没作业时立刻扫第二份。
+      // 详见模块顶部 `FILE_JOB_FILE` / `FILE_JOB_FILE_BAILEYS` 的注释。
+      let fileJob = null;
+      let fileJobPath = null;
+      for (const fp of FILE_JOB_FILES) {
+        const claimed = claimFileJob(fp);
+        if (claimed) {
+          // 把信箱路径挂到作业对象上，runFileJob 内部的 finishFileJob 调用据此回写。
+          // _filePath 是约定的私有字段，不写入作业文件（writeJsonAtomic 时一并持久化
+          // 也无副作用：my_app 侧 job_staleness 读 .status / .claimed_at 等公共字段，
+          // 不会因为多一个 _filePath 字段而误判）。
+          claimed._filePath = fp;
+          fileJob = claimed;
+          fileJobPath = fp;
+          break;
+        }
+      }
+      if (fileJob) {
+        try {
+          await runFileJob(sockRef, fileJob);
+        } catch (err) {
+          log(`✗ 处理文件作业异常（${path.basename(fileJobPath)}）：${err.stack || err.message}`);
+          try {
+            finishFileJob(fileJobPath, fileJob, false, [], [`推送进程内部异常：${err.message}`]);
+          } catch {
+            /* 同上 */
+          }
+        }
         heartbeat();
         return;
       }
-      try {
-        await runJob(sockRef, job);
-      } catch (err) {
-        log(`✗ 处理作业异常：${err.stack || err.message}`);
-        try {
-          finishJob(job, false, [], [`推送进程内部异常：${err.message}`]);
-        } catch {
-          /* 回写都失败时只能靠心跳暴露 */
-        }
-      }
+
+      heartbeat();
     }, POLL_MS);
     log(`✓ 信箱轮询已启动（每 ${POLL_MS / 1000}s）：${JOB_FILE}`);
+    log(`✓ 文件作业轮询已启动（同 tick，按优先级）：${FILE_JOB_FILES.map(f => path.basename(f)).join(' → ')}`);
   }
 }
 

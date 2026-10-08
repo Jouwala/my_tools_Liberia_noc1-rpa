@@ -250,6 +250,16 @@ const STOP_WORDS = new Set([
   'ticket', 'tickets', 'tt', 'wo', 'order', 'orders', 'count', 'number', 'total',
   'today', 'yesterday', 'open', 'closed', 'pending', 'p1', 'p2', 'p3', 'p4',
   'severity', 'priority', 'please', 'show', 'me', 'list', 'get', 'check', 'status',
+  // 英文时间/限定词：这些是**规则层已认得**的日期信号，不能当残余专名，
+  // 否则「how many P1 Tickets for this month」会被判成带额外条件 → 规则层弃权。
+  // 2026-10-08 实测：该问法走了模型层 2.9s（正确结果是规则层 60ms）。
+  'this', 'that', 'these', 'those', 'for', 'from', 'since', 'last', 'next',
+  'current', 'previous', 'month', 'months', 'week', 'weeks', 'day', 'days',
+  'year', 'years', 'past', 'recent', 'all', 'total', 'sum', 'during', 'between',
+  'of', 'the', 'new', 'were', 'was', 'been', 'created', 'raised',
+  // 「要名单」的英文动词：已被 parseListIntent 处理，不能当残余专名。
+  'give', 'gimme', 'send', 'sends', 'sent', 'showing', 'provide', 'want',
+  'wanna', 'need', 'like', 'help', 'enumerate', 'ids', 'id',
 ]);
 
 /**
@@ -370,7 +380,12 @@ export function parseLookupIntent(q, lookups) {
   // 无码但**明确问规则/级别定义** → 级别规则列表。
   // 判据必须锚在「级别」或「规则」这类词上，**不能只靠出现 P1** ——
   // 「今天有p1的单子吗」里也有 P1，但那走统计（COUNT_INTENT 会拦）。
-  const asksLevelDef = /(级别|定级|几级|severity|priority)/i.test(q) || /P\s*[1-4].*(规则|是什么|怎么判)/i.test(q);
+  // 同义问法：「P1 怎么算」「P1 怎么定」「P1 怎么定级」「这条 P1 怎么定的」——
+  // 问的是 P 级别的判定依据，与「P1 是什么」等价。正则只列「规则|是什么|怎么判」会漏，
+  // 2026-10-08 深度测试发现「P1 怎么算的」被规则层弃权、交给模型层后由 LLM 自由发挥，
+  // 出现幻觉数字的概率比走查表高一个量级。
+  const asksLevelDef = /(级别|定级|几级|severity|priority)/i.test(q) ||
+    /P\s*[1-4][^A-Za-z]{0,8}(规则|是什么|怎么判|怎么算|怎么定|如何判|如何算|如何定)/i.test(q);
   const sev = parseSeverity(q);
   if (sev && asksLevelDef && !COUNT_INTENT.test(q)) {
     return { tool: 'lookup_level_rule', args: { severity: sev } };
@@ -441,21 +456,46 @@ export function parseByRule(question, now = new Date()) {
  * 宽容处理三种常见噪声：前后有多余文字、用中文引号、末尾带逗号。
  * 解析不出来返回 null —— 由上层退回知识库通道，**不重试**（多花一次调用
  * 换来的只是把同一个不确定的问题再问一遍）。
+ *
+ * 取对象策略：从右往左找「最后一个完整的 {...}」块。模型有时会先写
+ * 一段思考文字（含示例 JSON）再正式答，例如
+ *   `也许 {a:1}。最终 {\"tool\":\"query_tickets\",...}`
+ * 老实现取第一个 `{` 到最后 `}` 会把中间杂物一起切下来，JSON.parse 失败
+ * → null。改成"最后一个能 parse 通的 JSON"更稳。
  */
 export function parseToolCall(content) {
   const s = String(content || '');
-  const start = s.indexOf('{');
-  const end = s.lastIndexOf('}');
-  if (start < 0 || end <= start) return null;
-  let obj;
-  try {
-    obj = JSON.parse(s.slice(start, end + 1));
-  } catch {
-    return null;
+  if (!s) return null;
+  // 找出所有可能的 JSON 块起点（右起扫描）
+  let end = s.lastIndexOf('}');
+  while (end > 0) {
+    // 从 end 向左找匹配的 '{'：用括号配对最简版——不严格（不计字符串内 {），
+    // 但工具调用行 JSON 极简，足够覆盖真实场景。
+    let depth = 0;
+    let start = -1;
+    for (let i = end; i >= 0; i--) {
+      const ch = s[i];
+      if (ch === '}') depth++;
+      else if (ch === '{') {
+        depth--;
+        if (depth === 0) { start = i; break; }
+      }
+    }
+    if (start < 0) return null;
+    const candidate = s.slice(start, end + 1);
+    let obj;
+    try {
+      obj = JSON.parse(candidate);
+    } catch {
+      // 这段不合法，往左找更早的 '}'
+      end = s.lastIndexOf('}', end - 1);
+      continue;
+    }
+    const name = String(obj?.tool || '').trim();
+    if (!TOOL_SPEC.some((t) => t.name === name)) return null;
+    return { tool: name, args: obj?.args && typeof obj.args === 'object' ? obj.args : {} };
   }
-  const name = String(obj?.tool || '').trim();
-  if (!TOOL_SPEC.some((t) => t.name === name)) return null;
-  return { tool: name, args: obj?.args && typeof obj.args === 'object' ? obj.args : {} };
+  return null;
 }
 
 async function routeByModel(question, now, lang, history) {

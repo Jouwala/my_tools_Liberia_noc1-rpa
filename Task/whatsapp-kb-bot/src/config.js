@@ -116,6 +116,32 @@ export const CONFIG = {
     process.env.MEMORY_RESOLVE != null
       ? !(process.env.MEMORY_RESOLVE === '0' || process.env.MEMORY_RESOLVE === 'false')
       : raw.memoryResolve !== false,
+
+  // —— notify 进程（src/notify.js）专用配置块 ——
+  // 与聊天机器人的语义完全无关（不查模型、不读索引），只为文件作业速率控制：
+  //  - sendIntervalMs：每发一张图/文档后等多少毫秒再发下一条（防风控）
+  //  - perGroupDelayMs：群间延时（每条图跨群时也要等，避免单进程被限频）
+  //  - maxImages / maxDocuments：单作业内最多发多少张图/多少份文档
+  // 不暴露聊天端配置（避免被误读为影响 @机器人问答）。
+  notify: (() => {
+    const n = (raw.notify && typeof raw.notify === 'object') ? raw.notify : {};
+    const fs = (n.fileSend && typeof n.fileSend === 'object') ? n.fileSend : {};
+    const env = process.env.NOTIFY_FILE_SEND;
+    // 允许整段 JSON 覆盖（便于临时调参）；解析失败忽略走下面逐项
+    let override = {};
+    if (env) {
+      try { override = JSON.parse(env); } catch { /* 忽略，走默认 */ }
+    }
+    const merged = { ...fs, ...override };
+    return {
+      fileSend: {
+        sendIntervalMs: Number(merged.sendIntervalMs ?? 2000),
+        perGroupDelayMs: Number(merged.perGroupDelayMs ?? 8000),
+        maxImages: Number(merged.maxImages ?? 6),
+        maxDocuments: Number(merged.maxDocuments ?? 1),
+      },
+    };
+  })(),
 };
 
 /** 供 --check-only / 日志展示用 */

@@ -97,6 +97,16 @@
   "$memoryResolve": "追问消解：有记忆时先花一次小模型调用，把口语追问补全成「能拿去检索的独立问题」（否则「那第二种呢」这几个字压根召不回正确的块），同时判断这句是不是在延续上一话题——是新话题就不带历史，避免旧上下文污染。这一步失败会自动退回原句，不影响回答。置 false 关闭。",
   "memoryResolve": true,
 
+  "$notify": "notify 进程（src/notify.js）专用配置块。**不**影响聊天机器人的问答行为，只控制「P1 告警文本 + 文件作业（图片/文档）」的发送节奏。fileSend：sendIntervalMs 每发一图/文档后等多少毫秒（防 WhatsApp 风控），perGroupDelayMs 群间延时，maxImages / maxDocuments 单作业配额（防止单次突增触发限频）。可被环境变量 NOTIFY_FILE_SEND 整段 JSON 覆盖（便于临时调参）。",
+  "notify": {
+    "fileSend": {
+      "sendIntervalMs": 2000,
+      "perGroupDelayMs": 8000,
+      "maxImages": 6,
+      "maxDocuments": 1
+    }
+  },
+
   "$webUiFallback": "网页版兜底：知识库确实没找到依据时，除了那句固定文案，再附一个网页版助手的地址，让提问人去那里追问（那边能用模型通用知识、也能多轮聊）。URL 置空则不追加这一段。注意这是**给同事看的地址**，需要本机能被那个地址访问到。",
   "webUiFallbackUrl": "http://192.168.100.27:3000/",
   "webUiFallbackText": "想继续追问可以到网页版问我：{url}",
