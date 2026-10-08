@@ -65,7 +65,7 @@ Get-ChildItem D:\01_RPA\Task\my_app\log\heartbeat_*.json |
 | 邮件没发出去 | `email_recovery`（每 20 分钟）日志 | EWS 恢复后会自动补发；确认收件人配置未被重置 |
 | PG 连不上 / 启动 WARN | `start_hidden.ps1:137` 的 PG 探活结果 | 管理员运行 `stop.bat all` 再 `start.bat`；仍不行手工 `pg_ctl start` |
 | 只有某个看板数字不对 | 该看板的数据源任务与新鲜度开关 | 例：电池看板默认只统计 ≤24h 新鲜数据（`11-feature-guide.md` 第 13 节），不是 bug |
-| 反复被重启 | `backend_watchdog.log` 连崩计数 | 连崩 10 次会放弃并告警（`backend_watchdog.py:38-44`），必须看崩溃原因，重启不解决问题 |
+| 反复被重启 | `backend_watchdog.log` 连崩计数 | 2026-10-06 起连崩 10 次**降级为每 5 分钟慢速重试、不再放弃**（`backend_watchdog.py:55-57`、`_enter_slow_retry()` `:212-240`）；改之前是"连崩 10 次永久退出"，即下方专节「后端静默停摆」。无论如何都要看崩溃原因，重启不解决问题 |
 | 界面英文环境出现中文 | 该文案是否 zh/en 两处都加（`i18n.tsx`） | 补 en 侧同名 key。历史上出现过两次同类缺陷 |
 | 启动报"已有实例" | `db/instance.lock` 是否残留（上次异常退出） | 确认无 backend 进程后删除该锁文件再启 |
 | 中文注释变成乱码（`?`/`\ufffd`） | 是否用过 PowerShell `Get-Content -Raw \| Set-Content` 往返改写源文件 | **这是已知会毁 UTF-8 中文的操作，禁止用它改本仓源码**（`write`/`edit` 工具或 Python 均可）。自检：`python TMP\_check_encoding_clean.py`，会列出含替换字符与可疑 `??` 的行；恢复手段是 `git checkout -- <文件>` 取回干净版本后重施改动 |
@@ -1275,6 +1275,109 @@ python -m backend.services.olib_soc_report.olib_soc_report_service --sync-kpi --
 > 判定逻辑在 `olib_soc_kpi_store.incomplete_days()`（列白名单 `REQUIRED_COLUMNS`），
 > 与 `gap_days()` 一起决定每天要补哪些天。改库前先备份该 sqlite 文件。
 
+### 后端静默停摆：连崩 10 次永久退出（2026-10-05 事故，2026-10-06 修复）
+
+**现象**：`https://localhost/myapp/` 打得开（SPA 外壳 200、2866B），但页面全是空数据；
+`nginx\logs\error.log` 每 10 秒刷一轮
+`connect() failed (10061: ...refused) ... upstream: "http://127.0.0.1:7038"`。
+查进程：**一个 python 进程都没有** —— 后端、两组 watchdog、全部 worker 一起消失。
+
+**根因是三层叠加，缺一层都不会停 12 小时**：
+
+1. **触发** —— Smart App Control 处于强制模式
+   （`HKLM\SYSTEM\CurrentControlSet\Control\CI\Policy`：`VerifiedAndReputablePolicyState=1`，
+   `SAC_PreviousState=2` 表明它由"评估"转为"强制"），**间歇性**拦截未签名的 Python 扩展模块：
+
+   ```
+   ImportError: DLL load failed while importing _collections_cy:
+   An Application Control policy has blocked this file.
+   ```
+
+   **这不是某个依赖的问题，而是"任意未签名 `.pyd`"**：10-05 拦的是
+   `sqlalchemy\util\_collections_cy.cp312-win_amd64.pyd`；
+   **10-06 09:48 拦的是 `scipy\linalg\_linalg_pythran`**（当天连崩 4 次、
+   退避 2/4/8/16s 后才侥幸起来，pid=23180 那次成功）。`Get-AuthenticodeSignature`
+   显示这些 PyPI 二进制全是 `NotSigned`。被拦模块的导入点往往**没有 try/except 回退**
+   （如 `sqlalchemy\util\_collections.py:41-46` 直接 `from ._collections_cy import ...`），
+   SQLAlchemy 该版本也**不存在** `DISABLE_SQLALCHEMY_CEXT` 一类开关 ——
+   即**没有干净的绕过办法**。这类拦截会自行消失（同日复测 `import sqlalchemy` 已恢复正常），
+   属瞬时故障。实测规模：`log\backend_runtime_20261005.log` 20 次、
+   `backend_runtime_20261006.log` 5 次。
+
+   > 顺带校正：`start.bat:20` 记着"vbs 被本机安全策略拦截"，但 2026-10-06 实测
+   > `wscript` 可正常执行 `.vbs`，该注释已过时；保活任务因此仍按原设计走
+   > `start_ensure_hidden.vbs`（无黑窗）。
+2. **放大** —— `backend_watchdog.py` 原实现在连续 10 次快速崩溃后 `return False`
+   **永久退出**：`log\backend_watchdog_20261005.log` 里 21:24 起每 30s 试一次，
+   21:27 留下"连续崩溃 10 次，停止自动拉起"后退出。
+3. **无人兜底** —— 本机**没有** `MyApp_EnsureRunning` 计划任务
+   （`schtasks /query /tn MyApp_EnsureRunning` → "系统找不到指定的文件"；
+   `start_ensure.bat:6-7` 提到的安装器 `install_ensure_task.bat` 在本机也不存在），
+   `Nginx_EnsureRunning` 同样不存在。于是"每 5 分钟保活"这条链整体空缺，无人自动恢复。
+
+**处置**：
+
+- 立即恢复：`cd /d D:\01_RPA\Task\my_app` 后 `start.bat`（内部重启 watchdog，`_crashes` 计数归零）。
+- 2026-10-06 起**不再永久放弃**：连崩 10 次降级为 `SLOW_RETRY_INTERVAL = 300s` 慢速重试
+  （`backend_watchdog.py:55-57`、`_enter_slow_retry()` `:212-240`），降级只播报一次、
+  恢复健康后标记自动重置（`:277`、`:304`）。瞬时故障因此可自愈，不必人工重跑 `start.bat`。
+- **刻意的副作用**：watchdog 不再退出 → `backend_watchdog.pid` 与心跳持续存在 →
+  `start_hidden.ps1:241` 永远判为 ok 而不再介入。自愈责任转移到 watchdog 自身，
+  保活任务降为第二道保险。
+
+> ⚠ **同一缺陷类在 `worker_watchdog.py` 仍未修**：`STARTUP_FAIL_LIMIT=10`（`:86`）、
+> 连崩 10 次主动摘除该组 worker（`:560-562`）。SAC 拦 `.pyd` 时 worker 进程同样起不来，
+> 症状是任务全部 `pending` 堆积（页面不报错、数据不更新），比后端停摆更隐蔽。
+
+### 本机验证改动：证书信任、构建产物与两个易踩开关（2026-10-06 新增）
+
+**① 证书信任（一次即可）** 本机 80 端口被 `nginx.conf:113` 强制 301 到 443，
+443 用自签证书 `certs\portal.crt`（SAN 含 `localhost`/`127.0.0.1`/`.19`/`.20`，有效期至 2036-09-28）。
+它**默认不在信任库**，所以除浏览器警告外，`curl` 与 `Invoke-WebRequest`
+（本机是 PowerShell 5.1，**没有** `-SkipCertificateCheck`）会直接报信任错误，脚本与探针全不可用：
+
+```powershell
+certutil -user -addstore root 'D:\01_RPA\nginx-1.28.0\certs\portal.crt'   # 当前用户存储，不需管理员
+curl.exe -s -o NUL -w "status=%{http_code} verify=%{ssl_verify_result}`n" https://localhost/myapp/
+# 期望 status=200 verify=0；回滚：
+certutil -user -delstore root 1943AA243FBFA70FAFBA2A23457265078C0369CC
+```
+
+> `http://localhost/myapp` 打不开是**设计如此**（B2 强制跳 HTTPS），不是故障。
+
+**② 7090 是 `vite preview`，没有热更新** —— 进程实参就是 `vite ... preview`。
+改前端源码后必须重新构建，否则页面永远停在旧产物（`vite.config.ts:23-26`）。
+三步确认"是否真的上线"：
+
+```powershell
+cd D:\01_RPA\Task\my_app\frontend; npm run build
+# ① 产物 index.html 引用的入口 hash
+Get-Content D:\01_RPA\Task\_fe_dist\index.html | Select-String 'index-.*\.js'
+# ② 7090 返回的是不是同一份（绕开浏览器缓存）
+(Invoke-WebRequest https://localhost/myapp/ -UseBasicParsing).Content | Select-String 'index-.*\.js'
+# ③ 改动的特征串是否真在那个 chunk 里
+Select-String -Path D:\01_RPA\Task\_fe_dist\assets\*.js -Pattern '<新增的文案 key 或端点>'
+```
+
+① ② 一致 + ③ 命中 = 已上线；此时界面没变就一定是**浏览器缓存**，Ctrl+F5。
+注意 `emptyOutDir: false`（`vite.config.ts:54`）使旧 chunk 不被删除，
+**不要**拿"存在旧文件名"当构建失败 —— 只认 `index.html` 引用的那个 hash。
+
+**③ 两个会让人误判的开关/告警**（2026-10-06 实测本机 `backend\.env`）：
+
+| 项 | 当前值 | 影响 |
+| --- | --- | --- |
+| `MY_APP_DB_MODE` | `sqlite` | 走 `db\app.db`。本机**根本没装 PostgreSQL**（无 `C:\Program Files\PostgreSQL`、无 `pg_ctl.exe`、无服务，且 `.env` 无 `DATABASE_URL`）→ `start_hidden_result.txt` 里的 `[WARN] PostgreSQL (5432) NOT LISTENING` 在本机是**预期噪声**，不是故障 |
+| `MY_APP_DISABLE_SCHEDULER` | `1` | 按 `main.py:107-109,538` **整个 APScheduler 不启动**（`12-configuration.md:33` 定位为"调试/维护窗口"用）→ 定时任务不会自动投递、数据不会自己刷新；验证任务类改动只能在任务管理页**手工点执行**（走队列 → worker 认领） |
+
+**④ 一条命令体检**：
+
+```powershell
+curl.exe -s -o NUL -w "fe=%{http_code} " https://localhost/myapp/; curl.exe -s -o NUL -w "api=%{http_code}`n" https://localhost/api/health
+```
+
+期望 `fe=200 api=200`；`api=502` 即后端没起，先看 `log\backend_runtime_<日期>.log` 尾部。
+
 ## 备份与恢复
 
 **三处都要备，缺一不完整**（原因见 `03-data-layer.md`、`05-security-and-credentials.md`）：
@@ -1403,8 +1506,8 @@ current_cron = saved_cron if saved_cron else default_cron   # ← 数据库赢
 
 | 模块 | 核对到的参数 |
 | --- | --- |
-| `worker_watchdog.py` | `POLL_INTERVAL=2.0`、`MAX_BACKOFF=30.0`、`STARTUP_FAIL_LIMIT=10`（`:83-86`）；退避 `2**crashes`（`:550`）；连续 10 次崩溃**主动摘除不再拉起**（`:555-560`）→ 无"崩溃↔重启"快速循环 |
-| `backend_watchdog.py` | 同上 30s/10 次上限（`:54-55`） |
+| `worker_watchdog.py` | `POLL_INTERVAL=2.0`、`MAX_BACKOFF=30.0`、`STARTUP_FAIL_LIMIT=10`（`:83-86`）；退避 `2**crashes`（`:550`）；连续 10 次崩溃**主动摘除不再拉起**（`:555-560`）→ 无"崩溃↔重启"快速循环。⚠ 与 backend_watchdog **不同**：至今仍是"放弃"语义，本次未改（同一缺陷类，见下方专节） |
+| `backend_watchdog.py` | `POLL_INTERVAL=2.0`、`MAX_BACKOFF=30.0`、`STARTUP_FAIL_LIMIT=10`、`SLOW_RETRY_INTERVAL=300.0`（`:52-57`）；退避 `2**crashes`（`:265`）；2026-10-06 起连崩 10 次**降级为 300s 慢速重试且永不退出**（`_enter_slow_retry()` `:212-240`）→ 最坏 300s 重拉一次，**仍无"崩溃↔重启"快速循环**，本节结论不受影响 |
 | `auto_retry.py` | `MAX_ATTEMPTS=2`、`COOLDOWN_MIN=15`、`SCAN_WINDOW_HOURS=24`（`:93-95`）；永久错误不重试（`:558`） |
 | `auth_manager.py` | `MAX_RETRIES=2`（`:114`）、退避 `2**(attempt-1)`（`:506`）。⚠ **`_do_login()` 未加锁**（`:646`）—— 见下方"已知竞态" |
 | `eflow_api_client.py` | `HTTP_READ_TIMEOUT=90`、socket 显式 `settimeout`（`:171,174`）→ 无超时挂死 |

@@ -1,6 +1,6 @@
 # my_app 使用帮助
 
-> 面向使用者的平台功能与操作指南。本文件由「使用帮助」页面同源生成（frontend/src/helpMarkdown.ts），内容依据 docs/manual/ 各章与 backend/task_registry.py 整理。生成日期：2026-10-05。
+> 面向使用者的平台功能与操作指南。本文件由「使用帮助」页面同源生成（frontend/src/helpMarkdown.ts），内容依据 docs/manual/ 各章与 backend/task_registry.py 整理。生成日期：2026-10-06。
 
 > 站内入口：侧边栏「使用帮助」，或直链 `http://<host>/myapp/?page=help`。
 
@@ -88,9 +88,9 @@
 | Site Outage 截图 | `site_outage_screenshot` | `0 1 * * *` | m | `services/site_outage_service.py → run_site_outage_screenshot` |
 | WhatsApp 消息发送 | `whatsapp_send` | `0 3 * * *` | m | `services/whatsapp_service.py → run_whatsapp_send` |
 | WhatsApp 消息发送（扩展） | `whatsapp_send_ext` | `0 3 * * *` | m | `services/whatsapp_ext_service.py → run_whatsapp_send_ext` |
-| eFlow P1 告警 WhatsApp 推送 | `tt_alarm_whatsapp_alert` | `*/15 * * * *` | m | `services/tt_alarm_whatsapp_service.py → run_tt_alarm_whatsapp_alert` |
+| eFlow P1 告警 WhatsApp 推送 | `tt_alarm_whatsapp_alert` | `2-59/5 * * * *` | m | `services/tt_alarm_whatsapp_service.py → run_tt_alarm_whatsapp_alert` |
 | MS SLA 完整同步 | `ms_sla_full` | `0 */6 * * *` | n | `services/ms_sla_service.py → run_full_sync` |
-| eFlow 实时告警同步 | `eflow_active_alarm` | `*/30 * * * *` | n | `services/eflow_api_client.py → fetch_and_save_active_alarm` |
+| eFlow 实时告警同步 | `eflow_active_alarm` | `*/5 * * * *` | n | `services/eflow_api_client.py → fetch_and_save_active_alarm` |
 | eFlow 历史告警同步 | `eflow_history_alarm` | `0 */3 * * *` | n | `services/eflow_api_client.py → fetch_and_save_history_alarm` |
 | eFlow TT 规则收集与匹配检查 | `eflow_tt_rules_check` | `20 4 * * *` | n | `services/eflow_rules/eflow_tt_rules_check_task.py → run_eflow_tt_rules_check` |
 | RAN Main KPI 同步 | `main_kpi_sync` | `0 4 * * *` | u | `services/ran_ume_main_kpi.py → run_main_kpi_sync` |
@@ -260,24 +260,25 @@
 
 #### eFlow P1 告警 WhatsApp 推送（`tt_alarm_whatsapp_alert`）
 
-- 默认 cron: `*/15 * * * *`　|　worker 组: **m**
+- 默认 cron: `2-59/5 * * * *`　|　worker 组: **m**
 - 工作流脚本: `services/tt_alarm_whatsapp_service.py → run_tt_alarm_whatsapp_alert`
 
-**功能**: 每 15 分钟取近 3 小时内「告警未清除 + alarm_code≠99933 + P1」的 TT 单，渲染成文本推送到 WhatsApp，发送状态落库
+**功能**: 触发制推送：每 5 分钟（相位 2-59/5，与上游同步错开 2 分钟）扫 realtime_alarm 实时告警表，发现「带 TT + 触发窗口内 + 告警码白名单」的 P1 告警后实时回 eFlow 查单，首推后按「20 分钟未更新」重报（带 REMINDER 横幅），告警清除即止损。发送状态（是否已发/发了几次）落 eflow_tt_whatsapp_alert_log
 
 **工作流与数据流**:
 
-1. 从 eflow_tt 取近 3 小时、alarm_clear_time 为空、ticket_severity=P1 的单（99933 免推）
-1. 按 tt_no 与 eflow_tt_whatsapp_alert_log 比对，筛出满 20 分钟未重推的单
-1. 渲染成 6 行文本，投递作业到 data/tt_alert_job.json 供浏览器扩展认领发送
-1. 扩展回报确认后把该单 send_status 置 Y（未确认则保持 N 并记 last_error）
+1. 扫 realtime_alarm（由 eflow_active_alarm 同步，注册表默认 */30、实际周期以任务配置页为准，生产已配 */5）：tt_id 非空、alarmraisedtime 在触发窗口内、告警码过白名单，按 tt_id 去重
+1. 对触发单实时回 eFlow 查单（fetch_tt_live_batch，一次分页遍历），拿最新 ticket_severity / last_modified_time / alarm_clear_time；实时查不到回退本地 eflow_tt 镜像
+1. 级别命中才推：首推发完整分析（分析引擎），停滞 ≥20 分钟且冷却 ≥20 分钟重报（带 ⚠️ REMINDER #N 横幅），工单有更新只记跟踪字段不打扰群里
+1. 消息经 Baileys 推送进程（whatsapp-kb-bot/src/notify.js）发出，服务端回执确认后才把该单 send_status 置 Y（send_count 记发送次数）
 
 **维护要点**:
 
-- 群组由环境变量 TT_ALERT_WHATSAPP_GROUPS 配置；未配置则拒发（绝不发默认测试群）
-- 99933 的排除必须在 Python 侧做——库里 '99933' 与 '99933.0' 并存，写进 SQL 会漏
-- 依赖扩展的纯文本发送能力，扩展未就绪时状态保持 N（不伪造 Y）
-- ⚠️ 实测「未清除+P1」多为历史遗留老单，正常情况下每轮常发出 0 条，属数据分布正常结果
+- 2026-10-05 机制切换：触发源由 eflow_tt 定时扫描改为 realtime_alarm 触发 + 实时查单，首推时延从 45~75 分钟压到分钟级；window_minutes 语义变为「触发窗口」
+- 依赖 eflow_active_alarm 的同步周期：realtime_alarm 的 _sync_time 滞后超过「实际调度周期 × 1.5」（自适应，生产 */5 下约 7.5 分钟）会在任务结果里告警（触发面静默变空的预防项）
+- 99933 的排除在 Python 侧做——告警码 '99933' 与 '99933.0' 并存，写进 SQL 会漏；白名单留空 = 不过滤
+- 从未确认送达的单按同一节流重试；一轮全部未确认会通过 warnings 走微信/邮件主动喊人（2026-10-01「群内静默」事故的治本项）
+- 群组留空会回退测试群 test123 并在任务结果里显式告警（group_fallback=true），不会静默消失
 
 #### MS SLA 完整同步（`ms_sla_full`）
 
@@ -299,20 +300,21 @@
 
 #### eFlow 实时告警同步（`eflow_active_alarm`）
 
-- 默认 cron: `*/30 * * * *`　|　worker 组: **n**
+- 默认 cron: `*/5 * * * *`　|　worker 组: **n**
 - 工作流脚本: `services/eflow_api_client.py → fetch_and_save_active_alarm`
 
 **功能**: 从 eFlow FM Active 接口获取实时告警，保存 CSV + SQLite
 
 **工作流与数据流**:
 
-1. 每 30 分钟拉 FM Active 活跃告警
+1. 按配置周期拉 FM Active 活跃告警（注册表默认 */30，生产已在任务配置页改为 */5）
 1. 双写 app.db 的 realtime_alarm 与 eflow.sqlite3 副本（副本仅供报表）
-1. 供实时告警看板 / 实时告警地图 / 告警管理看板使用
+1. 供实时告警看板 / 实时告警地图 / 告警管理看板使用，同时是 P1 告警 WhatsApp 推送的触发源
 
 **维护要点**:
 
-- 页面只读 app.db；「实时」即 30 分钟粒度，并非秒级推送
+- 页面只读 app.db；「实时」粒度 = 实际调度周期（生产 5 分钟），并非秒级推送
+- 改调度请在「任务配置」页操作（写 task_schedule_config 表），注册表里的 */30 只是默认值
 - 告警字段映射在 services/eflow_alarm_config.json
 
 #### eFlow 历史告警同步（`eflow_history_alarm`）
@@ -1397,7 +1399,7 @@
 | **陈旧 pending 过期** | pending 超 6 小时无人认领（典型原因：漏登记 worker 分组）会被置 failed 并补写执行日志，释放被它占住的单飞名额，让下一次调度能正常入队（否则一条陈旧记录会挡住该任务之后的每一次调度）。 |
 | **失败通知** | 任务失败经微信 + 邮件双通道告警（services/weixin_notifier.py 支持 openclaw/wecom/serverchan/pushplus）。 |
 | **漏跑/停摆主动告警** | db_freshness_check 每小时算四类健康异常（未归组 / 超出周期无执行记录 / 队列滞留 / 上次成功后逾期无新成功），由 services/task_health_alert.py 按「新异常通知一次、恢复通知一次、持续超 24h 再提一次」推微信+邮件，不必等看板没数据了才人工发现（2026-09-18 上线）。 |
-| **进程自愈** | backend_watchdog / worker_watchdog 托管进程：端口探活、崩溃退避重拉（连崩 10 次放弃并告警）；心跳 log/heartbeat_*.json 超 3 分钟未更新判定 hung 强杀重拉。 |
+| **进程自愈** | backend_watchdog / worker_watchdog 托管进程：端口探活、崩溃退避重拉（backend 连崩 10 次降级为每 5 分钟慢速重试、不再放弃；worker 仍是连崩 10 次摘除不再拉起）；心跳 log/heartbeat_*.json 超 3 分钟未更新判定 hung 强杀重拉。 |
 | **保留期** | task_queue 与 task_execution_log 保留 3 天（task_runner.py / worker.py 自动清理），无需手工。 |
 
 ### 3.5 任务维护指南
@@ -1937,7 +1939,7 @@ IP 链路探测：从服务器侧探测到目标站点的链路连通性与路�
 | --- | --- |
 | `log/worker_runtime*.log` | 任务执行主日志——排障首选，按 task_id 搜堆栈（每组 worker 一个文件：_u/_n/_v/_m/_c） |
 | `log/backend_runtime.log` | 后端业务日志（API、调度、代理） |
-| `log/backend_watchdog.log / worker_watchdog.log` | 进程拉起与崩溃退避记录（连崩 10 次放弃并告警） |
+| `log/backend_watchdog.log / worker_watchdog.log` | 进程拉起与崩溃退避记录（backend 连崩 10 次降级为慢速重试；worker 连崩 10 次摘除不再拉起） |
 | `log/start_hidden_result.txt` | 上一次启动的逐条结果——启动失败先看这个 |
 | `log/heartbeat_*.json` | 后端与 worker 心跳（15s 一次，超 3 分钟判 hung） |
 | `log/*_console.log(.err)` | 各子进程 stdout/stderr |

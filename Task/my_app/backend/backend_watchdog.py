@@ -52,7 +52,9 @@ PORT = int(os.environ.get("MY_APP_BACKEND_PORT", "7038"))
 POLL_INTERVAL = 2.0        # 子进程状态轮询间隔（秒）
 CRASH_THRESHOLD = 10.0     # 子进程存活短于此值（秒）视为异常崩溃
 MAX_BACKOFF = 30.0         # 最大退避间隔（秒）
-STARTUP_FAIL_LIMIT = 10    # 连续快速崩溃达到此次数则放弃并告警
+STARTUP_FAIL_LIMIT = 10    # 连续快速崩溃达到此次数则降级为慢速重试（不再永久放弃）
+SLOW_RETRY_INTERVAL = 300.0  # 降级后的重试间隔（秒）。取 5 分钟：既让瞬时故障自愈，
+                             # 又不至于形成"崩溃↔重启"风暴（每 5 分钟一次可接受）。
 STARTUP_GRACE = 60.0       # 进程存活但端口未监听超过此时长，判定启动挂死
 
 logger = logging.getLogger("backend_watchdog")
@@ -62,6 +64,7 @@ _child = None              # uvicorn 子进程 Popen
 _spawn_time = 0.0          # 最近一次拉起时间戳
 _crashes = 0               # 连续崩溃计数
 _backoff = 0.0             # 当前退避秒数
+_degraded = False          # 是否已降级为慢速重试（仅用于"降级只播报一次"）
 
 # 心跳文件：供外部守护（start_hidden.ps1 / MyApp_EnsureRunning）判断看门狗是否卡死。
 # 进程在但心跳超过 3 分钟未更新 → 判定 hung，由守护脚本强杀后重新拉起。
@@ -206,13 +209,45 @@ def _terminate_child():
     _child = None
 
 
+def _enter_slow_retry() -> None:
+    """连续快速崩溃达上限后的降级处理：改为固定间隔慢速重试，不再永久退出。
+
+    2026-10-06 变更（原实现：_crashes >= STARTUP_FAIL_LIMIT 即 return False 永久退出）。
+    动机：本机 Smart App Control 处于强制模式，会**间歇性**拦截未签名的 Python 扩展模块 ——
+    实测触发 "An Application Control policy has blocked this file" 的至少有两个：
+    sqlalchemy/util/_collections_cy.cp312-win_amd64.pyd（10-05 事故）与
+    scipy/linalg/_linalg_pythran（10-06 09:48，连崩 4 次后才侥幸起来），
+    即"任意未签名 .pyd"都可能被拦（PyPI 这些二进制均为 NotSigned）；
+    backend 因此每次启动 1s 内即以 exit_code=1 退出。
+    此类拦截随后会自行消失（同日复测该导入已恢复正常），但原实现用满 10 次机会就永久退出，
+    导致 2026-10-05 21:27 起后端停摆 12 小时无人自动恢复
+    （证据：log/backend_watchdog_20261005.log 末尾"连续崩溃 10 次，停止自动拉起"）。
+
+    降级后每 SLOW_RETRY_INTERVAL 秒重试一次且永不放弃：持续崩溃仍会周期性告警，
+    瞬时故障（策略拦截、7038 端口争用）则可自愈，不必人工重跑 start.bat。
+
+    对 keepalive 链的影响（刻意）：本函数不返回 False 意味着 watchdog 进程不再退出，
+    backend_watchdog.pid 与 heartbeat 持续存在，start_hidden.ps1:241 会一直判为 ok 而不再介入。
+    自愈责任因此由 watchdog 自身承担，MyApp_EnsureRunning 降为第二道保险。
+    """
+    global _backoff, _degraded
+    _backoff = SLOW_RETRY_INTERVAL
+    if not _degraded:
+        _degraded = True
+        logger.error(
+            f"backend 连续崩溃 {STARTUP_FAIL_LIMIT} 次，降级为每 {SLOW_RETRY_INTERVAL:.0f}s "
+            f"慢速重试（不再放弃）。请检查 {BACKEND_LOG.name} 定位根因。"
+        )
+
+
 def _loop_once() -> bool:
     """单轮主循环：确保 backend 存活 + 端口探活 + 等待退出。
 
-    返回 False 表示应退出看门狗（收到停止信号 / 连续崩溃达上限）；
+    返回 False 表示应退出看门狗（现仅剩"收到停止信号"一种情况：
+    连续崩溃达上限已改为降级慢速重试，见 _enter_slow_retry）；
     抛出的未预期异常由 main() 统一捕获记录，防止看门狗静默死亡。
     """
-    global _child, _crashes, _backoff, _spawn_time
+    global _child, _crashes, _backoff, _spawn_time, _degraded
     proc = _child
     # 1) 确保 backend 在跑
     if proc is None or proc.poll() is not None:
@@ -233,14 +268,13 @@ def _loop_once() -> bool:
                     f"下次退避 {_backoff:.1f}s"
                 )
                 if _crashes >= STARTUP_FAIL_LIMIT:
-                    logger.error(
-                        f"backend 连续崩溃 {STARTUP_FAIL_LIMIT} 次，停止自动拉起"
-                        f"（请检查 backend_runtime.log）。"
-                    )
-                    return False
+                    # 不再 return False：降级后继续走下方退避 → 重拉
+                    # （_backoff 已被抬到 SLOW_RETRY_INTERVAL），使瞬时故障可自愈。
+                    _enter_slow_retry()
             else:
                 _crashes = 0
                 _backoff = 0.0
+                _degraded = False   # 已恢复健康：下次再崩溃时重新播报降级
         # 退避：连续快速崩溃时延迟重拉，避免死循环
         if _backoff > 0:
             logger.info(f"backend 退避等待 {_backoff:.1f}s 后重拉")
@@ -267,6 +301,7 @@ def _loop_once() -> bool:
         if lived >= CRASH_THRESHOLD:
             _crashes = 0
             _backoff = 0.0
+            _degraded = False   # 托管实例确已稳定存活：重置降级标记
         else:
             logger.warning(
                 f"端口 {PORT} 已在监听，但本 watchdog 拉起的子进程仅存活 {lived:.1f}s"
@@ -289,11 +324,7 @@ def _loop_once() -> bool:
             _crashes += 1
             _backoff = min(MAX_BACKOFF, 2 ** _crashes)
             if _crashes >= STARTUP_FAIL_LIMIT:
-                logger.error(
-                    f"backend 连续崩溃 {STARTUP_FAIL_LIMIT} 次，停止自动拉起"
-                    f"（请检查 backend_runtime.log）。"
-                )
-                return False
+                _enter_slow_retry()
             return True
     # 3) 等待子进程（超时即仍在运行）
     try:

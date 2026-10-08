@@ -1035,7 +1035,7 @@ const OPS_ZH: OpsText = {
     { name: '陈旧 pending 过期', body: 'pending 超 6 小时无人认领（典型原因：漏登记 worker 分组）会被置 failed 并补写执行日志，释放被它占住的单飞名额，让下一次调度能正常入队（否则一条陈旧记录会挡住该任务之后的每一次调度）。' },
     { name: '失败通知', body: '任务失败经微信 + 邮件双通道告警（services/weixin_notifier.py 支持 openclaw/wecom/serverchan/pushplus）。' },
     { name: '漏跑/停摆主动告警', body: 'db_freshness_check 每小时算四类健康异常（未归组 / 超出周期无执行记录 / 队列滞留 / 上次成功后逾期无新成功），由 services/task_health_alert.py 按「新异常通知一次、恢复通知一次、持续超 24h 再提一次」推微信+邮件，不必等看板没数据了才人工发现（2026-09-18 上线）。' },
-    { name: '进程自愈', body: 'backend_watchdog / worker_watchdog 托管进程：端口探活、崩溃退避重拉（连崩 10 次放弃并告警）；心跳 log/heartbeat_*.json 超 3 分钟未更新判定 hung 强杀重拉。' },
+    { name: '进程自愈', body: 'backend_watchdog / worker_watchdog 托管进程：端口探活、崩溃退避重拉（backend 连崩 10 次降级为每 5 分钟慢速重试、不再放弃；worker 仍是连崩 10 次摘除不再拉起）；心跳 log/heartbeat_*.json 超 3 分钟未更新判定 hung 强杀重拉。' },
     { name: '保留期', body: 'task_queue 与 task_execution_log 保留 3 天（task_runner.py / worker.py 自动清理），无需手工。' },
   ],
   maintain: [
@@ -1074,7 +1074,7 @@ const OPS_ZH: OpsText = {
   logs: [
     { file: 'log/worker_runtime*.log', body: '任务执行主日志——排障首选，按 task_id 搜堆栈（每组 worker 一个文件：_u/_n/_v/_m/_c）' },
     { file: 'log/backend_runtime.log', body: '后端业务日志（API、调度、代理）' },
-    { file: 'log/backend_watchdog.log / worker_watchdog.log', body: '进程拉起与崩溃退避记录（连崩 10 次放弃并告警）' },
+    { file: 'log/backend_watchdog.log / worker_watchdog.log', body: '进程拉起与崩溃退避记录（backend 连崩 10 次降级为慢速重试；worker 连崩 10 次摘除不再拉起）' },
     { file: 'log/start_hidden_result.txt', body: '上一次启动的逐条结果——启动失败先看这个' },
     { file: 'log/heartbeat_*.json', body: '后端与 worker 心跳（15s 一次，超 3 分钟判 hung）' },
     { file: 'log/*_console.log(.err)', body: '各子进程 stdout/stderr' },
@@ -1131,7 +1131,7 @@ const OPS_EN: OpsText = {
     { name: 'Stale pending expiry', body: 'A pending row unclaimed for over 6 hours (typical cause: the task was never registered in a worker group) is marked failed with an execution-log entry, freeing the single-flight slot it held — otherwise one stale row would block every later trigger of that task.' },
     { name: 'Failure notification', body: 'Failures notify via WeChat + email (services/weixin_notifier.py supports openclaw/wecom/serverchan/pushplus).' },
     { name: 'Missed-run / stall alert', body: 'db_freshness_check computes four health findings hourly (ungrouped / no execution record within the cron-scaled window / stuck queue / overdue since last success); services/task_health_alert.py pushes them to WeChat + email, notifying once per new anomaly and once on recovery, re-raising after 24h (added 2026-09-18).' },
-    { name: 'Process self-healing', body: 'backend_watchdog / worker_watchdog supervise processes: port probing, crash backoff (give up & alert after 10 consecutive crashes); heartbeats in log/heartbeat_*.json stale >3 min → force kill & restart.' },
+    { name: 'Process self-healing', body: 'backend_watchdog / worker_watchdog supervise processes: port probing, crash backoff (backend degrades to a 5-minute slow retry after 10 consecutive crashes instead of giving up; worker is still removed after 10); heartbeats in log/heartbeat_*.json stale >3 min → force kill & restart.' },
     { name: 'Retention', body: 'task_queue & task_execution_log are kept 3 days (auto-cleaned), no manual work.' },
   ],
   maintain: [
@@ -1170,7 +1170,7 @@ const OPS_EN: OpsText = {
   logs: [
     { file: 'log/worker_runtime*.log', body: 'Main task-execution log — first stop for troubleshooting; search by task_id for stacks (one file per worker group)' },
     { file: 'log/backend_runtime.log', body: 'Backend business log (API, scheduler, proxies)' },
-    { file: 'log/backend_watchdog.log / worker_watchdog.log', body: 'Process spawn & crash-backoff records (gives up after 10 consecutive crashes)' },
+    { file: 'log/backend_watchdog.log / worker_watchdog.log', body: 'Process spawn & crash-backoff records (backend degrades to slow retry after 10 consecutive crashes; worker is removed after 10)' },
     { file: 'log/start_hidden_result.txt', body: 'Per-step result of the last startup — check this first when startup fails' },
     { file: 'log/heartbeat_*.json', body: 'Backend & worker heartbeats (15s; >3 min stale = hung)' },
     { file: 'log/*_console.log(.err)', body: 'Child-process stdout/stderr' },

@@ -1,6 +1,6 @@
 # my_app User Help & Guide
 
-> User-facing platform features & operations guide. Generated from the same source as the in-app Help page (frontend/src/helpMarkdown.ts), compiled from docs/manual/ and backend/task_registry.py. Generated on 2026-10-05.
+> User-facing platform features & operations guide. Generated from the same source as the in-app Help page (frontend/src/helpMarkdown.ts), compiled from docs/manual/ and backend/task_registry.py. Generated on 2026-10-06.
 
 > In-app entry: the "Help" sidebar item, or `http://<host>/myapp/?page=help` directly.
 
@@ -88,9 +88,9 @@ Built for the NOC scenario "boards every day, reports must go out": 41+ schedule
 | Site Outage Screenshot | `site_outage_screenshot` | `0 1 * * *` | m | `services/site_outage_service.py → run_site_outage_screenshot` |
 | WhatsApp Message Send | `whatsapp_send` | `0 3 * * *` | m | `services/whatsapp_service.py → run_whatsapp_send` |
 | WhatsApp Message Send (Extension) | `whatsapp_send_ext` | `0 3 * * *` | m | `services/whatsapp_ext_service.py → run_whatsapp_send_ext` |
-| eFlow P1 Alarm WhatsApp Push | `tt_alarm_whatsapp_alert` | `*/15 * * * *` | m | `services/tt_alarm_whatsapp_service.py → run_tt_alarm_whatsapp_alert` |
+| eFlow P1 Alarm WhatsApp Push | `tt_alarm_whatsapp_alert` | `2-59/5 * * * *` | m | `services/tt_alarm_whatsapp_service.py → run_tt_alarm_whatsapp_alert` |
 | MS SLA Full Sync | `ms_sla_full` | `0 */6 * * *` | n | `services/ms_sla_service.py → run_full_sync` |
-| eFlow Realtime Alarm Sync | `eflow_active_alarm` | `*/30 * * * *` | n | `services/eflow_api_client.py → fetch_and_save_active_alarm` |
+| eFlow Realtime Alarm Sync | `eflow_active_alarm` | `*/5 * * * *` | n | `services/eflow_api_client.py → fetch_and_save_active_alarm` |
 | eFlow History Alarm Sync | `eflow_history_alarm` | `0 */3 * * *` | n | `services/eflow_api_client.py → fetch_and_save_history_alarm` |
 | eFlow TT Rules Collect & Match Check | `eflow_tt_rules_check` | `20 4 * * *` | n | `services/eflow_rules/eflow_tt_rules_check_task.py → run_eflow_tt_rules_check` |
 | RAN Main KPI Sync | `main_kpi_sync` | `0 4 * * *` | u | `services/ran_ume_main_kpi.py → run_main_kpi_sync` |
@@ -260,24 +260,25 @@ Workflow & maintenance notes per task:
 
 #### eFlow P1 Alarm WhatsApp Push（`tt_alarm_whatsapp_alert`）
 
-- Default cron: `*/15 * * * *`　|　worker group: **m**
+- Default cron: `2-59/5 * * * *`　|　worker group: **m**
 - Workflow script: `services/tt_alarm_whatsapp_service.py → run_tt_alarm_whatsapp_alert`
 
-**What it does**: Every 15 min, pick P1 TTs from the last 3h that are still uncleared and not alarm_code 99933, render them as WhatsApp text, and record send status
+**What it does**: Trigger-based push: every 5 min (phase 2-59/5, offset 2 min from the upstream sync) scan realtime_alarm for TT-linked P1 alarms inside the trigger window, live-fetch eFlow for each ticket, first-push, then re-notify every 20 min while the ticket has no update (with a REMINDER banner), and stop when the alarm clears. Send status (sent? how many times) is recorded in eflow_tt_whatsapp_alert_log
 
 **Workflow & data flow**:
 
-1. Query eflow_tt for the last 3h with empty alarm_clear_time and ticket_severity=P1 (99933 excluded)
-1. Compare against eflow_tt_whatsapp_alert_log and keep rows past the 20-minute re-push throttle
-1. Render 6 lines of text and dispatch a job to data/tt_alert_job.json for the browser extension
-1. On the extension's confirmation, set the row send_status to Y (otherwise stays N with last_error)
+1. Scan realtime_alarm (synced by eflow_active_alarm — registry default */30, actual schedule from the task config page, currently */5): tt_id present, alarmraisedtime inside the trigger window, alarm code whitelisted, deduped by tt_id
+1. Live-fetch each triggered ticket from eFlow (fetch_tt_live_batch, one paged walk) for the latest ticket_severity / last_modified_time / alarm_clear_time; fall back to the local eflow_tt mirror
+1. Push only matching severities: first push carries the full analysis; re-notify when stalled ≥20 min and cooled ≥20 min (with a ⚠️ REMINDER #N banner); while the ticket progresses, only tracking fields are refreshed
+1. Messages go through the Baileys push process (whatsapp-kb-bot/src/notify.js); send_status becomes Y only on the server-side ack (send_count counts confirmed sends)
 
 **Maintenance**:
 
-- Groups come from the TT_ALERT_WHATSAPP_GROUPS env var; refuses to send when unset (never falls back to a test group)
-- The 99933 exclusion must stay in Python — the DB holds both '99933' and '99933.0', so a SQL predicate misses rows
-- Depends on the extension's text-sending capability; status stays N until confirmed (never fakes Y)
-- ⚠️ Measured: uncleared P1 rows are mostly legacy, so 0 messages per run is the normal case
+- 2026-10-05 redesign: trigger source moved from eflow_tt polling to realtime_alarm + live fetch, cutting first-notify latency from 45–75 min to minutes; window_minutes now means the trigger window
+- Depends on eflow_active_alarm's sync cadence: if realtime_alarm._sync_time lags past 1.5× the actual schedule interval (adaptive — about 7.5 min under the production */5), the task result raises a warning (guards against a silently empty trigger set)
+- The 99933 exclusion stays in Python — both '99933' and '99933.0' exist in the DB, so SQL predicates miss rows; empty whitelist = no filter
+- Never-confirmed sends retry on the same throttle; a round with zero confirmed sends raises a warning via WeChat/email (root fix of the 2026-10-01 silent-outage incident)
+- An empty group list falls back to the test group test123 with an explicit warning in the task result (group_fallback=true) — alerts never vanish silently
 
 #### MS SLA Full Sync（`ms_sla_full`）
 
@@ -299,20 +300,21 @@ Workflow & maintenance notes per task:
 
 #### eFlow Realtime Alarm Sync（`eflow_active_alarm`）
 
-- Default cron: `*/30 * * * *`　|　worker group: **n**
+- Default cron: `*/5 * * * *`　|　worker group: **n**
 - Workflow script: `services/eflow_api_client.py → fetch_and_save_active_alarm`
 
 **What it does**: Fetch realtime alarms from eFlow FM Active API, save to CSV + SQLite
 
 **Workflow & data flow**:
 
-1. Pull FM Active alarms every 30 min
+1. Pull FM Active alarms on the configured schedule (registry default */30, changed to */5 in the task config page)
 1. Dual-write app.db realtime_alarm and an eflow.sqlite3 copy (report-only)
-1. Feeds the realtime alarm board / realtime map / alarm management board
+1. Feeds the realtime alarm board / realtime map / alarm management board, and is the trigger source of the P1 alarm WhatsApp push
 
 **Maintenance**:
 
-- Pages read app.db only; "realtime" means 30-minute granularity, not second-level push
+- Pages read app.db only; "realtime" granularity = the actual schedule (5 min in production), not second-level push
+- Change the schedule in the Task Config page (persisted in task_schedule_config); */30 in the registry is only the default
 - Field mapping lives in services/eflow_alarm_config.json
 
 #### eFlow History Alarm Sync（`eflow_history_alarm`）
@@ -1397,7 +1399,7 @@ Workflow & maintenance notes per task:
 | **Stale pending expiry** | A pending row unclaimed for over 6 hours (typical cause: the task was never registered in a worker group) is marked failed with an execution-log entry, freeing the single-flight slot it held — otherwise one stale row would block every later trigger of that task. |
 | **Failure notification** | Failures notify via WeChat + email (services/weixin_notifier.py supports openclaw/wecom/serverchan/pushplus). |
 | **Missed-run / stall alert** | db_freshness_check computes four health findings hourly (ungrouped / no execution record within the cron-scaled window / stuck queue / overdue since last success); services/task_health_alert.py pushes them to WeChat + email, notifying once per new anomaly and once on recovery, re-raising after 24h (added 2026-09-18). |
-| **Process self-healing** | backend_watchdog / worker_watchdog supervise processes: port probing, crash backoff (give up & alert after 10 consecutive crashes); heartbeats in log/heartbeat_*.json stale >3 min → force kill & restart. |
+| **Process self-healing** | backend_watchdog / worker_watchdog supervise processes: port probing, crash backoff (backend degrades to a 5-minute slow retry after 10 consecutive crashes instead of giving up; worker is still removed after 10); heartbeats in log/heartbeat_*.json stale >3 min → force kill & restart. |
 | **Retention** | task_queue & task_execution_log are kept 3 days (auto-cleaned), no manual work. |
 
 ### 3.5 How to maintain tasks
@@ -1937,7 +1939,7 @@ One-click portal login: auto-logs into upstream portals with saved credentials (
 | --- | --- |
 | `log/worker_runtime*.log` | Main task-execution log — first stop for troubleshooting; search by task_id for stacks (one file per worker group) |
 | `log/backend_runtime.log` | Backend business log (API, scheduler, proxies) |
-| `log/backend_watchdog.log / worker_watchdog.log` | Process spawn & crash-backoff records (gives up after 10 consecutive crashes) |
+| `log/backend_watchdog.log / worker_watchdog.log` | Process spawn & crash-backoff records (backend degrades to slow retry after 10 consecutive crashes; worker is removed after 10) |
 | `log/start_hidden_result.txt` | Per-step result of the last startup — check this first when startup fails |
 | `log/heartbeat_*.json` | Backend & worker heartbeats (15s; >3 min stale = hung) |
 | `log/*_console.log(.err)` | Child-process stdout/stderr |

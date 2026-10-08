@@ -658,8 +658,8 @@ worker 分组重启才生效（`backend/routers/task_configs.py`）。
 
 ## 看门狗与自愈
 
-- `backend_watchdog.py`：托管 uvicorn，端口探活，启动宽限 `STARTUP_GRACE=60s`，崩溃退避 `min(30, 2^n)`，**连崩 10 次放弃并告警**（:38-44）。
-- `worker_watchdog.py`：同参数托管 5 组 worker（u/n/v/m/c，:36-39）。子进程存活 <`CRASH_THRESHOLD=10s` 视为异常崩溃。
+- `backend_watchdog.py`：托管 uvicorn，端口探活，启动宽限 `STARTUP_GRACE=60s`，崩溃退避 `min(30, 2^n)`，**连崩 10 次降级为 `SLOW_RETRY_INTERVAL=300s` 慢速重试、不再退出**（`:52-57`、`_enter_slow_retry()` `:212-240`；2026-10-06 改，原为"连崩 10 次永久退出"，事故经过见 `13-operations.md` 的「后端静默停摆」）。
+- `worker_watchdog.py`：同参数托管 5 组 worker（u/n/v/m/c，:36-39）。子进程存活 <`CRASH_THRESHOLD=10s` 视为异常崩溃。⚠ **连崩 10 次仍是"摘除不再拉起"**（`:560-562`），与 backend 的降级语义不同。
 - 心跳：`log/heartbeat_*.json`，15s 一次。启动脚本判定"心跳超过 3 分钟未更新即 hung"并强杀重拉（`start_hidden.ps1:63,154-158`）。
 
 ## 加一个任务的最小步骤
