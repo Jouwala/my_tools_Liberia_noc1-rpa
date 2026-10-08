@@ -141,6 +141,7 @@ APScheduler 到点 (backend 进程内)
 | `olib_soc_vmax_report` | OLIB SOC VMAX 例行报表 | `30 7 1 * *` | m |
 | `olib_soc_kpi_daily_sync` | OLIB SOC 看板 KPI 增量 | `20 6 * * *` | m |
 | `whatsapp_send_ext` | WhatsApp 消息发送（扩展） | `0 3 * * *` | m |
+| `whatsapp_send_baileys` | WhatsApp 消息发送（Baileys；**默认禁用**，需在「任务管理」页手动启用） | `0 4 * * *` | m |
 | `tt_alarm_whatsapp_alert` | eFlow P1 告警 WhatsApp 推送（**可在「任务配置」页调级别/告警码/触发窗口/重报间隔/群组**） | `*/5 * * * *` | m |
 | `cells_kpi_sync` | RAN Cells KPI 同步 | `50 4 * * *` | u |
 | `sp_email_details` | SP 备件明细报表邮件 | `0 7 * * *` | m |
@@ -164,6 +165,36 @@ APScheduler 到点 (backend 进程内)
 | `mttr_tt_sync` | MTTR/TT 宽表重建 | `40 7 * * *` | m |
 | `progress_sync` | Progress 宽表重建 | `50 7 * * *` | m |
 | `tt_mttr_report_generate` | TTs and MTTR 报表生成（供 EmailReports 页「TTs and MTTR」页签下载） | `20 7 * * *` | m |
+
+### WhatsApp 发送通道矩阵（2026-10-08）
+
+目前 `site_outage` 截图与文档的发送有**三种并行实现**，共享同一份图片目录
+（`backend/services/data/site_outage/`）与群组配置（`WHATSAPP_GROUPS`），
+但走完全不同的发送链路：
+
+| 任务 | 通道 | 确认送达 | 依赖 | 默认 | 用途 |
+|---|---|---|---|---|---|
+| `whatsapp_send` | Playwright 自启 Chrome + WhatsApp Web DOM | 数 DOM 气泡（**假成功风险**——2026-09-15 SP Details Report 1.5MB 静默漏发） | 浏览器、Playwright、Node session 持久化 | `0 3 * * *` | 原版主通道 |
+| `whatsapp_send_ext` | 浏览器扩展 + 已登录的 WhatsApp Web 标签页 | 数 DOM 气泡 + 双信号 | 浏览器开着 + WhatsApp Web 已登录 | `0 3 * * *`，但**已豁免主开关**（长期关闭） | 兜底 + 侧栏手动 |
+| `whatsapp_send_baileys` | Baileys 协议直发（不走 Web） | **服务端 message id**（真实回执） | `whatsapp-kb-bot/src/notify.js` 常驻 + `auth-notify/` 凭据 | `0 4 * * *`，但**默认禁用**（`enabled=False`） | 治本通道（取代扩展、补充 Playwright） |
+
+**为什么保留三条**：每条都有不同故障域——Playwright 任务会随 WhatsApp Web 改版失效；
+扩展依赖浏览器开着 + 人工扫码登录；Baileys 走非官方库违反 ToS 有封号风险。
+三条并存 = 任一通道挂了另两条兜底。半年内**不删**任何一条（避免单点）。
+
+**Baileys 通道的额外要求**（与聊天机器人 / P1 告警推送共用 `whatsapp-kb-bot`）：
+
+- **必须**用副号，不与员工工作号同号（参见 `whatsapp-kb-bot/README.md`「风险与前提」）；
+- 启用前确认 `whatsapp-kb-bot/src/notify.js` 在跑、且 `data/notify_heartbeat.json` 新鲜（< 5 分钟）；
+- 启用时**先在「任务管理」页手动执行一次**验证群内是否真的收到图+文档；
+- 单作业配额（图片 6 + 文档 1）由 `whatsapp-kb-bot/config.json → notify.fileSend` 控制；
+- **已被主开关豁免**（`MASTER_SWITCH_EXEMPT_IDS`），批量切换不参与，避免「一键启用」把它打开。
+
+**「默认禁用」的实操**：`task_registry.py` 里 `whatsapp_send_baileys` 的 spec 带
+`enabled=False`，`register_all_tasks` 会把它传给 `register_task`；首次启动后该任务
+`enabled` 为 False、未排进 APScheduler。在「任务管理」页点开关（启用）即把
+`enabled=1, current_cron='0 4 * * *'` 落库到 `task_schedule_config`，并触发
+`schedule_task` 把它加进调度器。
 
 ### FineBI `schedule/` 的重算空档：读它的任务一律排在 :06 之后（2026-09-30）
 
@@ -441,7 +472,8 @@ USSD 的日表当时只剩 2026-08-25~27 三行，而月表里有完整的 6 个
 | 配置项 | 页面标签 | 留空 / 默认的含义 |
 | --- | --- | --- |
 | `window_minutes` | 触发窗口（分钟） | 默认 180；**2026-10-05 语义已变** —— 指 realtime_alarm 中 `alarmraisedtime` 距今 N 分钟内才触发首推（兼防首次部署把历史积压一次性全推出），不再是 eflow_tt 的 occur 窗口 |
-| `resend_minutes` | 重报间隔（分钟） | 默认 20；工单停滞满 N 分钟且距上次发送满 N 分钟 → 重报 |
+| `resend_minutes` | 重报间隔·有更新档（分钟） | 默认 30；自上次发送以来工单**有更新**（有人在处理）→ 距上次发送满 N 分钟才重报（较缓） |
+| `stall_minutes` | 重报间隔·无更新档（分钟） | 默认 10；自上次发送以来工单**没更新**（一直没人动）→ 距上次发送满 N 分钟即催报（较勤） |
 | `severities` | 级别 | 默认 `P1`；**留空 = 不限级别**（P1/P2/…全推） |
 | `alarm_codes` | 告警码 | 默认不含 `99933`；**这是白名单**，留空 = 不限告警码 |
 | `groups` | WhatsApp 群组 | 默认 `test123`；**留空会回退到测试群并在结果里告警**（见下） |
@@ -544,16 +576,21 @@ USSD 的日表当时只剩 2026-08-25~27 三行，而月表里有完整的 6 个
 **模块导入期**解析一次 —— 故页面保存后由 `PUT /api/task-configs/{task_id}` 触发
 worker 分组重启才生效（`backend/routers/task_configs.py`）。
 
-**重报语义（2026-10-05 起，判定函数 `decide_push()`）**：
+**重报语义（2026-10-08 起双档，判定函数 `decide_push()`）**：
 
-1. **首推** —— 单子首次触发（日志表无记录）即推；
-2. **重报** —— 距「最近一次已知工单更新」（实时查单 > 记录里的
-   `last_known_update_time`）满 `resend_minutes`（默认 20）**且**距上次成功发送
-   满 20 分钟（冷却）→ 再次通报，消息头带
-   `⚠️ REMINDER #N · open Xh Ym · no update for Zm` 横幅（N = 该单第几次发送）；
-3. **不报** —— 工单 20 分钟内有更新（有人在处理）只刷新跟踪字段，不打扰群里；
-   告警清除（`alarm_clear_time` 非空，或告警从 realtime_alarm 消失）自然止损；
-   更新时间完全不可知时退化为纯冷却节流，**绝不静默停推**。
+1. **首推** —— 单子首次触发（日志表无记录）**立即推**；
+2. **重报**（按「自上次发送以来工单有没有更新」分两档，消息头带
+   `⚠️ REMINDER #N · open Xh Ym · no update for Zm` 横幅，N = 该单第几次发送）：
+   * **无更新**档 —— 距上次成功发送满 `stall_minutes`（默认 **10**）→ 催报
+     （一直没人动，勤提醒）；
+   * **有更新**档 —— 距上次成功发送满 `resend_minutes`（默认 **30**）→ 重报
+     （有人在处理，缓报别打扰）；
+3. **不报** —— 未满所在档间隔（冷却中）只刷新跟踪字段；告警清除
+   （`alarm_clear_time` 非空，或告警从 realtime_alarm 消失）自然止损；
+   更新时间完全不可知时按**无更新档**（较短）节流，**绝不静默停推**。
+
+> 两档差的是**间隔长短**，不是「有更新就不报」：有更新仍旧重报，只是缓到 30 分钟。
+> 检测（从 eFlow 实时查单）恒为每 5 分钟一轮，与重报窗口无关。
 
 三个**实测**坑，改这个任务前务必知道（都有单测守着，见
 `tests/test_tt_alarm_whatsapp_service.py`）：

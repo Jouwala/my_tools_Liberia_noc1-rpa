@@ -1112,14 +1112,37 @@ export default function EflowQa() {
       if (!alive()) return
       setTtError(`${t('qa.tt.failed')}（${ttFailReason(e, t)}）`)
     }).finally(() => { if (alive()) setTtLoading(false) })
-    // AI 结论并行请求（Open WebUI「TT单分析」技能，约 10s）
-    ttGet('/eflow-qa/tt-ai', { tt: clean, lang: locale }).then(res => {
+    // AI 结论：「先快后准」交互（2026-10-08）
+    //   ① 立即调 /tt-ai-fast（毫秒级，本地规则引擎程序化）→ 立刻显示结论
+    //   ② 同时并行调 /tt-ai（云端，约 4.5s）→ AI 回来后用 ai.conclusion 替换展示
+    //   ③ 云端全失败时，fast 给的 fallback_conclusion 仍可继续显示（与 /tt-ai 内部兜底同源）
+    setTtAi(null)            // 重置（避免显示上一单的结论）
+    setTtAiLoading(true)
+    // ① 程序化先行
+    ttGet('/eflow-qa/tt-ai-fast', { tt: clean, lang: locale }).then(res => {
       if (!alive()) return
       setTtAi(res.data.ai)
       const rep = res.data.report
-      // tt-ai 内部同样会回填 eFlow 兜底结果，告警块未到则顺带补上
       if (rep?.alarm?.found) setTtAlarm((prev: any) => prev || rep.alarm)
-    }).catch(() => { /* AI 失败不阻塞工单信息展示 */ }).finally(() => { if (alive()) setTtAiLoading(false) })
+    }).catch(() => { /* fast 也失败就保持空，由云端兜底 */ })
+    // ② 云端 AI 并行（拿到后覆盖结论，保持 rules 仍是 fast 的本地证据——它更稳定）
+    ttGet('/eflow-qa/tt-ai', { tt: clean, lang: locale }).then(res => {
+      if (!alive()) return
+      setTtAi((prev: any) => {
+        if (!prev) return res.data.ai
+        // 合并：保留 fast 的规则证据（本地规则引擎，与 eFlow TT Rules Check 同源），
+        // 用云端的 conclusion 替换程序化结论；fallback_conclusion 永远保留 fast 的版本
+        return {
+          ...res.data.ai,
+          rules: prev.rules || res.data.ai.rules,
+          evidence: prev.evidence || res.data.ai.evidence,
+          fallback_conclusion: prev.fallback_conclusion || res.data.ai.fallback_conclusion,
+        }
+      })
+      const rep = res.data.report
+      if (rep?.alarm?.found) setTtAlarm((prev: any) => prev || rep.alarm)
+    }).catch(() => { /* AI 失败不阻塞 — fast 已给出程序化结论 */ })
+      .finally(() => { if (alive()) setTtAiLoading(false) })
     // RAN UME 处理建议并行请求（TT → 告警 AID → UME，不阻塞其它块）
     ttGet('/eflow-qa/tt-ume-suggestion', { tt: clean }).then(res => {
       if (!alive()) return
@@ -1552,6 +1575,12 @@ export default function EflowQa() {
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
                         <RobotOutlined style={{ color: '#1677ff' }} />
                         <Text strong>{t('qa.tt.aiConclusion')}</Text>
+                        {/* 区分程序化先行 vs AI 替换：先快后准模式下结论可能从程序化升级为云端 */}
+                        {ttAi.provider === 'local_rule_engine' ? (
+                          <Tag color="orange">{t('qa.tt.fallbackTag')}</Tag>
+                        ) : (
+                          <Tag color="blue">{t('qa.tt.aiTag') || 'AI 结论'}</Tag>
+                        )}
                       </div>
                       <div className="eflowqa-md" style={{ fontSize: 13, lineHeight: 1.7 }}>
                         <ReactMarkdown remarkPlugins={[remarkGfm]}>{ttAi.conclusion}</ReactMarkdown>

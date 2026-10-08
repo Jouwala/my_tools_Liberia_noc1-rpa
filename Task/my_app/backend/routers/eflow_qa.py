@@ -599,27 +599,123 @@ def tt_ai(
         tt_clean, handler=_tt_handler_from_report(report))
     evidence_text = tt_rule_evidence.render_evidence_text(evidence, lang=lang)
 
-    ai = openwebui_client.analyze_tt(
-        report.get("skill_prompt") or "", lang=lang, evidence_text=evidence_text)
+    # 完全本地化开关（2026-10-08 新增）：TT_AI_LOCAL_ONLY=1 时跳过云端模型调用，
+    # 直接由本地规则引擎程序化出结论。适用：① deepseek-v4.1-flash 长期失效；
+    # ② 内网断开且不想付多次超时；③ 批量/重要操作前追求结果可复现。
+    # 默认 0（仍走云端，云端全失败才回退到程序化兜底），不改既有行为。
+    local_only = os.environ.get("TT_AI_LOCAL_ONLY", "0").strip().lower() in ("1", "true", "yes")
+    if local_only:
+        ai = {
+            "ok": True,                                    # 程序化结论与模型结论同源对外都返回成功
+            "conclusion": "",                              # 不放 AI 结论，避免误以为是模型给的
+            "provider": "local_rule_engine",
+            "model": "programmatic",
+            "model_policy": "TT_AI_LOCAL_ONLY=1",
+            "failover_tried": [],
+            "skill_title": "TT单分析（程序化）",
+            "skill_source": "local_rule_engine",
+            "language": lang,
+            "language_rewritten": False,
+            "elapsed_sec": 0.0,
+            "error": "",
+        }
+    else:
+        ai = openwebui_client.analyze_tt(
+            report.get("skill_prompt") or "", lang=lang, evidence_text=evidence_text)
     ai["prompt"] = report.get("skill_prompt", "")
     ai["alarm_source"] = (report.get("alarm") or {}).get("source", "")
     ai["alarm_mode"] = (info or {}).get("mode", "")
     ai["rules"] = evidence          # 结构化证据：页面「命中规则」明细块
     ai["evidence"] = evidence_text  # 下发给模型的证据原文（排查用）
 
-    # 模型全档失败 → 用本地规则引擎程序化出结论（不含任何模型推断）
+    # 程序化兜底结论：① local_only 模式直接出；② 云端全失败时仍走程序化兜底
     ai["fallback"] = False
     ai["fallback_conclusion"] = ""
-    if not ai.get("ok"):
+    need_local = local_only or (not ai.get("ok"))
+    if need_local:
         try:
             ai["fallback_conclusion"] = tt_rule_evidence.render_local_conclusion(
-                evidence, report=report, lang=lang, reason=str(ai.get("error") or ""))
+                evidence, report=report, lang=lang,
+                reason=(ai.get("error") or "TT_AI_LOCAL_ONLY=1，跳过云端"))
             ai["fallback"] = bool(ai["fallback_conclusion"])
         except Exception:  # noqa: BLE001
             # 兜底失败不能盖住原始错误：ok=false / error 原样返回
             logger.exception("TT 程序化兜底结论生成失败")
 
     ai["elapsed_total_sec"] = round(time.time() - t0, 2)
+    return {"report": report, "ai": ai}
+
+
+@router.get("/tt-ai-fast")
+def tt_ai_fast(
+    tt: str = Query(..., min_length=2, max_length=64, description="TT 单号"),
+    lang: str = Query("zh", pattern="^(zh|en)$", description="结论语言：zh 或 en"),
+):
+    """**程序化先行**端点：仅跑本地规则引擎（毫秒级），用于「先快后准」交互。
+
+    行为
+    ----
+    * 完全**不调**任何 AI 模型（WorkBuddy / Open WebUI / Ollama 都不走），
+      因此可以**毫秒级**返回结论；判定的权威来源是
+      `backend/services/eflow_rules/tt_rule_evidence.render_local_conclusion`。
+    * 与 `GET /tt-ai` 的 `ai.fallback_conclusion` **逐字同源** —— 只是把它从
+      「云端全失败才出现」抬到「始终先出」的位置。
+    * 返回结构 `{report, ai}`，其中 `ai` 的字段形态与 `/tt-ai` 一致：
+      `ok=true`（程序化结论与模型结论对外同源）、`provider="local_rule_engine"`、
+      `model="programmatic"`、`fallback_conclusion` 是直接渲染好的 Markdown 结论、
+      `rules` 是同一份规则命中证据（页面「命中规则」明细块直接复用）。
+    * 即使后续 `/tt-ai` 调用成功、AI 结论已渲染，本接口的结论作为「兜底兜底」
+      继续保留在 `ai.fallback_conclusion` 里，模型失败时也仍然可用。
+
+    适用
+    ----
+    * 「先快后准」交互：前端默认调本端点 → 立即显示程序化结论（毫秒级），
+      同时后台并行调 `/tt-ai` 拿 AI 结论，AI 回来后**替换** `ai.conclusion` 展示。
+    * 云端失效/不在线/不付费时段：单独调本端点即可拿到与 eFlow TT Rules Check
+      页签逐字一致的判定结论。
+    """
+    from backend.services.eflow_rules import tt_rule_evidence
+
+    tt_clean = tt.strip().upper()
+    if not re.fullmatch(r"[A-Z0-9_\-]+", tt_clean):
+        raise HTTPException(status_code=400, detail="单号格式非法")
+    report, info = _tt_context(tt_clean)
+    if not report.get("found"):
+        return {"report": report, "ai": None}
+
+    t0 = time.time()
+    evidence = tt_rule_evidence.build_rule_evidence(
+        tt_clean, handler=_tt_handler_from_report(report))
+    evidence_text = tt_rule_evidence.render_evidence_text(evidence, lang=lang)
+    fallback_md = ""
+    try:
+        fallback_md = tt_rule_evidence.render_local_conclusion(
+            evidence, report=report, lang=lang,
+            reason="程序化先行（/tt-ai-fast），与 /tt-ai 同源")
+    except Exception:  # noqa: BLE001
+        logger.exception("tt-ai-fast 程序化结论生成失败")
+
+    ai = {
+        "ok": True,
+        "conclusion": fallback_md,            # 主结论也填程序化，让前端拿到一份就够用
+        "provider": "local_rule_engine",
+        "model": "programmatic",
+        "model_policy": "tt-ai-fast",
+        "failover_tried": [],
+        "skill_title": "TT单分析（程序化）",
+        "skill_source": "local_rule_engine",
+        "language": lang,
+        "language_rewritten": False,
+        "elapsed_sec": round(time.time() - t0, 2),
+        "error": "",
+        "fallback": True,
+        "fallback_conclusion": fallback_md,
+        "rules": evidence,
+        "evidence": evidence_text,
+        "prompt": report.get("skill_prompt", ""),
+        "alarm_source": (report.get("alarm") or {}).get("source", ""),
+        "alarm_mode": (info or {}).get("mode", ""),
+    }
     return {"report": report, "ai": ai}
 
 
