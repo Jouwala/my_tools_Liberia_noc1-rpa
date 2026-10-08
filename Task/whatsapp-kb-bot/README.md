@@ -330,6 +330,8 @@ echo 'AGNES_API_KEY=你的key' > .env
 | `busyText` / `busyTextEn` | （见文件） | 排队已满时的提示（中 / 英） |
 | `ttLiveFallback` | `true` | 工单本地查不到时是否回 eFlow 实时查，见「查不到单号时：先回 eFlow 实时查」 |
 | `ttLiveTimeoutMs` | 240000 | 实时查询超时（比本地宽松得多，见该节） |
+| `ttSiteAlarmFallback` | `true` | 「某站有没有告警 / up 没 up」这类**事实查询**是否走 eFlow 实时活动告警（工具 `query_site_alarms`）。置 `false` 则提问退回知识库通道。实现见 `scripts/eflow-live-alarms.py`：复用 my_app 的告警 pipeline，凭据只读 my_app 那一份；探测不到解释器/依赖时优雅降级为「查不了」，**绝不**误报成「没告警」。踩坑口径见 `docs/排障复盘-站点告警与answered0-degraded1-20261008.md`。环境变量 `TT_SITE_ALARM_FALLBACK=0` 可临时关 |
+| `ttSiteAlarmTimeoutMs` | 180000 | 按站点拉活动告警的超时（要探测解释器 + 登录 eFlow + 拉全量，比单票查询宽）。环境变量 `TT_SITE_ALARM_TIMEOUT_MS` |
 | `toolsEnabled` | `true` | 工具路由总开关。置 `false` 回到改造前的纯知识库行为（所有问题都走向量检索），排查「是不是路由把问题带偏了」时很有用。环境变量 `TOOLS_ENABLED=0` 可临时关 |
 | `myAppApiBase` | `http://127.0.0.1:7038` | my_app 后端地址。工单**聚合统计**优先走它的 HTTP 接口（PG 实时）；留空或连不上则降级到本地 SQLite 副本。环境变量 `MY_APP_API_BASE` 可覆盖 |
 | `ttStatsTimeoutMs` | 15000 | 聚合查询的 HTTP 超时。`overview` 要出全量统计，比单票查询慢；超时即降级，不重试（用户在群里等着，重试等于双倍等待） |
