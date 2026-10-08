@@ -251,6 +251,94 @@ uvicorn 后端 (:7038)
 `nginx_monitor.ps1` 的两个路径参数与 `rotate_nginx_logs.ps1` 的 `-Prefix` 改回 Y:。
 （服务本身无状态，回滚不涉及数据。）
 
+### 2026-10-08：P1 告警推送加 ext 通道 fallback（Baileys 失败时自动切换到浏览器扩展通道）
+
+**背景。** `tt_alarm_whatsapp_alert` 的主通道是 Baileys 推送进程
+（`whatsapp-kb-bot/src/notify.js`），该进程仅在**机器人账号已加入目标群**的前提下
+才能发出去 —— 2026-10-08 14:02 的失败 `job 20261008140205-2b8641e2` 即是典型：
+1 单 `TT202610080063`（Tartuken(4476) River Gee 3G site down）触发后 Baileys
+`sendMessage` 找不到群 `*P1 OLR ZTE MS Manager*` 的 JID，回执
+`sent=[] / errors=["找不到群「...」对应的 JID..."]`，任务页面显示
+`成功 0 / 失败 1`，值班群**没收到**告警。
+
+类似的失败域还有：凭据过期（`npm run relogin` 前静默）、WhatsApp 流控
+（实测 12:11:52 出现过 `code=428`）、群名拼错。Baileys 通道的代码层失败
+语义是「**回报了但 sent 为空**」或「**超时未确认**」——**不会触发重发**（节流逻辑
+见 `tt_alarm_whatsapp_service.py:268-304` 的 `decide_push`，依赖 `last_send_time`，
+而失败的 `record_result` **不更新** `send_count` 与 `last_send_time`，
+下一个 5 分钟轮询里 `last_send_time` 仍是 20 分钟前甚至空，**仍被 cooldown 拦下**）。
+**结果：告警丢失，且值班端只看得到任务红色失败而非"该单没送达"**。
+
+**已存在的复用基础设施（这是把成本从"中等"压到"小"的关键）。**
+
+| 部件 | 文件 | 状态 |
+| --- | --- | --- |
+| 后端文本作业文件 | `backend/services/tt_alarm_job.py` | **已写好**（2026-09 之前是 P1 推送主通道，Baileys 化后无人调用） |
+| 后端等回报（最长 600s） | `tt_alarm_job.wait_for_job_result` | 同上 |
+| 统一认领口（按 kind 分流） | `backend/services/whatsapp_job_claim.py:39-65` | 2026-10-01 写好 |
+| 扩展发纯文本主路径 | `whatsapp_sender_extension/background.js:1277-1373`（`simpleSendTextViaDebugger`） | 2026-09 已写好 |
+| 扩展按 kind 分发 | `background.js:1417-1445`（`claimAndRunJob`） | 同上 |
+
+也就是说：扩展端"能发纯文本"早已支持，**唯一缺的是 P1 任务侧没人调它**。
+
+**决策。** 在 P1 告警任务内部的两个失败分支（投递失败 / 等回报后 0 确认）加
+`try_ext_fallback(...)` 钩子，**不新增 task、不改 cron**：
+
+1. 钩子用同批 `messages` 调 `tt_alarm_job.dispatch` 写入 `data/tt_alert_job.json`；
+2. 扩展轮询认领（与既有发图作业互不抢，由 `whatsapp_job_claim` 的 image > text
+   优先级 + `running` 互斥保证）；
+3. 钩子等 `tt_alarm_job.wait_for_job_result` 上限 `EXT_FALLBACK_WAIT_SECONDS`（默认 300s，
+   `TT_ALERT_EXT_FALLBACK_WAIT_SECONDS` 可调）拿 `sent` 列表；
+4. 兜住的单 → `record_result(ok=True)`（最终状态 `'Y'`，因为最后一次写生效）；
+   未兜住 → 仍 `'N'`，`last_error` 写明扩展未确认；
+5. 任务结果里追加 `out["ext_fallback"]`（attempted / job_id / sent / failed_count），
+   `out["warnings"]` 显式记录"Baileys 失败 + ext 兜住 N/M 单"或
+   "**仍未确认发送**：请确认 Chrome 开着"；
+6. `out["success"]` 与邮件段只在 fallback 至少兜住 1 单时刷新（`reminder_no==1` 且
+   `tt_no in sent_ids` 才进 `mail_targets`）——**避免"邮件说发了、群里没到"**的老问题。
+
+**为什么等 300s 而不是 600s（ext 通道的默认）。** 失败分支已经在主通道等了
+`WAIT_SECONDS`（默认 120s），累计最多 420s 仍在 5 分钟 cron 窗口内；
+**且** fallback 与主通道是**串行**的（任务侧单线程 await），延长会阻塞 worker。
+5 分钟 cron + 2 段等 = 7 分钟最坏，仍在 5~10 分钟 cron 节奏里能接受。
+
+**为什么 fallback 失败不二次 fallback。** 主→扩展已是两个完全不同的故障域
+（协议 vs 浏览器），再叠一层"扩展失败 → Playwright"既复杂又**抬高了误判成本**。
+值班群此时收到的 `warnings` 已经点明"Chrome 开着 + 扩展已启用 + 登录了"三件事
+要人肉确认，**正确的下一步是介入而不是再自动化一层**。
+
+**代价与注意。**
+
+1. **依赖隐式契约**：扩展通道的"5 分钟 cron 命中率"决定 fallback 的响应速度。
+   若 Chrome 关闭超过 1 小时（`STALE_RUNNING_SECONDS=3600` 僵尸回收），`tt_alert_job.json`
+   的作业会一直在 `pending` 状态直到下一次人启动扩展。
+   写进 warnings 的 "Chrome 开着 + 扩展已启用" 是给值班看的；不修代码。
+2. **不与 `auto_retry_failed` 联动**：失败任务自动重试（`*/10`）会跑同样的 P1 任务，
+   但 P1 任务里 5 分钟节流逻辑（`RESEND_MINUTES`）已限速，**重试不会绕过节流**，
+   不会造成"同一单被 fallback + auto_retry 双重发"；但**单据落库** `record_result`
+   会被跑两遍，**幂等键** `mail_notified_time` / `mail_summary_time` 守住邮件不重发。
+3. **扩展通道不再独立做"是否有作业"判定**：`ext_liveness` 仍记录轮询活动，
+   但 fallback 不主动判活（"扩展没在跑 + 走了 fallback + 5 分钟静默"是合理代价，
+   比"扩展在跑 + 偶尔丢单"是更小的灾难）。
+4. **`out["ext_fallback"]` 字段是新增契约**：任务历史页 / 失败聚类若按已知字段
+   过滤，需补一条「`out.ext_fallback` 出现即说明走了 fallback」。
+
+**回滚路径。** revert `tt_alarm_whatsapp_service.py:79-89`（import）、
+`tt_alarm_whatsapp_service.py:336-440`（`try_ext_fallback` 实现）、
+`tt_alarm_whatsapp_service.py:645-678` 与 `tt_alarm_whatsapp_service.py:730-760`
+（两处失败分支调用）即可恢复 Baileys 单一通道；测试 `test_tt_alarm_whatsapp_service.py`
+第 6 段 4 条 stub 用例随实现一起 revert。
+
+**同日姊妹改动：`_rule_name_en` 翻译收紧（whatsapp-kb-bot 引擎）。**
+`Task\whatsapp-kb-bot\scripts\tt-analyze.py:707-727` 把"翻译后仍含中文"的半成品
+视作翻译失败、不再追加英文括注。起因：`test_real_engine_matches_user_specified_format`
+（钉住用户 2026-09-29 原始 8 行要求）开始失败——`Matched rule: #227 无线断站级别重定义-P2-new`
+后面多出了 `(无线 site-down severity 重定义-P2-new)` 这种"半英半中"怪串，
+是 `_RULE_EN_TOKENS` 词素只命中 `断站级别 / 级别重定义` 而漏掉 `无线` 的拼接产物。
+收紧判据后，规则名在英文告警里**保持中文原句**，与用户原始要求一致；不改动
+`task_registry` 与 `TASK_SPECS`，故对 worker 分组与排程无影响。**回滚路径**：
+revert `tt-analyze.py:707-727`、把 `re.search(r'[一-龥]', out)` 那条检查删掉即可。
+
 ### 2026-10-06：WhatsApp 知识库机器人补上开机自启与看门狗
 
 **背景。** `Task\whatsapp-kb-bot\` 下有**两个互相独立**的长驻进程，此前只运维了其中一个：

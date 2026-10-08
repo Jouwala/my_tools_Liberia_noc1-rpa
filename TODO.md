@@ -25,6 +25,7 @@
 
 ### P1 —— 数据正确性与稳定性
 
+- [ ] **P1 告警推送加 ext 通道 fallback（2026-10-08）。** Baileys 主通道失败（群名解析不到 JID / 凭据过期 / WhatsApp 流控 428）时，自动把同一批 `messages` 投到 `data/tt_alert_job.json`，由已登录的 WhatsApp Web 扩展兜底。改动已落到 `Task\my_app\backend\services\tt_alarm_whatsapp_service.py`（新增 `try_ext_fallback`、在两个失败分支调用） + 4 条 stub 用例 + `architecture.md` 8.x ADR；**待验证**：① 重启 `m` 组 worker 后第一次跑 0 候选 → 任务历史页面要能看到新字段 `ext_fallback` 为空（`attempted: false`）；② 手动制造一次 Baileys 失败（把 `GROUPS` 临时改成一个不存在的群名跑一次）→ ext 通道应兜住（前提：Chrome 开着 + 扩展已登录）→ `out.success=True` + `warnings` 含"兜住 N/M 单"。**回滚手段**：revert 三个文件即可。
 - [ ] **数据层裸连接治理（前置调研，非立即改造）。** 运行期已知存在绕过 `get_raw_connection` 的裸 `sqlite3.connect`（如 `ipran_chart_service.py:233`、`fw_kpi_services.py:488`），是**图表数据源**，改造会静默坏图。当前动作：**不再新增**裸连接，并把已有点位登记成清单。
 - [ ] **`eflow_tt` 双库归属固化。** 明确"同步只写 `app.db`、`eflow.sqlite3` 副本仅作只读快照"，避免后续有人读错库。结论已在 `PROJECT_DOCS.md` §2 Phase 0.5 闭环，待落到代码注释与手册。
 - [ ] **五个关键进程的巡检常态化。** 确认 worker 分组 + 双看门狗在异常退出后确实自愈（步骤见 `docs\manual\13-operations.md`）。
@@ -79,6 +80,15 @@
   且 `total_cells`（BP 占比分母）从"umlaut 报告过的小区"变成"全网小区"。
   用户已明确接受该副作用。**待办**：确认历史曲线与对外报表的口径说明是否需要同步调整。
   回滚手段：`TMP/_bak_bp_report_*.sqlite3` 快照。
+
+- [ ] **TT 分析「先快后准」备灾（2026-10-08）。** 本地规则引擎 + 毫秒级 `GET /api/eflow-qa/tt-ai-fast`
+  + `TT_AI_LOCAL_ONLY=1` env 开关，三层兜底详见
+  `Task\my_app\backend\routers\eflow_qa.py:594-712`、`backend\services\eflow_rules\tt_rule_evidence.py:858`。
+  前端 `EflowQa.tsx` 改为「fast 立即显示 → 原端点 AI 替换」模式，并加橙色/蓝色徽标
+  区分「程序化判定」与「云端 AI 结论」。**待办**：(1) `git status --porcelain` 复查
+  `Task\my_app\frontend\src\pages\EflowQa.tsx`、`i18n.tsx`、`backend\routers\eflow_qa.py`
+  改动在版本控制下；(2) 提交并更新手册 `Task\my_app\docs\manual\04-task-system.md`
+  的「TT AI 兜底」一节。回滚手段：env `TT_AI_LOCAL_ONLY=0` 不生效 + 直接回滚 git 即可。
 
 ## 三、已完成（近期，供对照）
 
