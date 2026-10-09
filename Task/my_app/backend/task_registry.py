@@ -173,8 +173,8 @@ TASK_SPECS = [
     # 2. eFlow 每日全量兜底（每天凌晨1点）
     dict(task_id="eflow_sync_full", name="eFlow 每日全量同步", name_en="eFlow Daily Full Sync",
          func=scheduled_eflow_sync_full,
-         description="eFlow 全量兜底同步：拉取全量窗口（默认自 2026-01-01），补齐增量遗漏并刷新报告",
-         description_en="eFlow daily full backfill sync (full window), refresh reports",
+         description="eFlow 全量兜底同步：拉取全量窗口（默认自 2026-01-01），补齐增量遗漏并刷新报告。大窗口下 TT/WO 自动**分段拉取**（默认 30 天/段），避免单次大导出超过 120s 轮询窗口而 500 失败；TT/WO 缺失即判任务失败（不再静默成功）",
+         description_en="eFlow daily full backfill sync (full window), refresh reports. For wide windows TT/WO are fetched in **segments** (default 30 days each) to avoid a single huge export exceeding the 120s poll window and failing with 500; missing TT/WO now fails the task instead of silently reporting success",
          default_cron="0 1 * * *", category="eflow"),
 
     # 3. RAN UME PM 数据 + Availability 报表（每天凌晨2点）
@@ -718,8 +718,8 @@ TASK_SPECS = [
     # 34c. SP 物料主数据同步（每天 04:55）：从 eFlow SP 物料接口拉全量写入 sp_material
     dict(task_id="sp_material_sync", name="SP 物料主数据同步", name_en="SP Material Master Sync",
          loader=("backend.services.sp_material_sync", "run_sp_material_sync"),
-         description="从 eFlow SP 物料接口（eflow-sp-material）拉全量物料主数据，写入 app.db 表 sp_material（按 materialNo 唯一键 upsert，Table Browser 可查）",
-         description_en="Fetch the full material master from eFlow SP (eflow-sp-material) into app.db table sp_material (upsert by materialNo, visible in Table Browser)",
+         description="从 eFlow SP 物料接口（eflow-sp-material）拉全量物料主数据，写入 app.db 表 sp_material（按 materialNo 唯一键 upsert，Table Browser 可查）。表语义=上游当前快照：全量重建，删除上游已消失的物料；拉取不完整时只 upsert 不删除",
+         description_en="Fetch the full material master from eFlow SP (eflow-sp-material) into app.db table sp_material (upsert by materialNo, visible in Table Browser). The table mirrors the upstream snapshot: full rebuild deletes materials that vanished upstream; on an incomplete fetch it only upserts and never deletes",
          default_cron="55 4 * * *", category="sp_material"),
 
     # 34. CN EMS KPI 原始文件缓存同步（每15分钟）：EMS SFTP 只保留约1天原始PM文件，

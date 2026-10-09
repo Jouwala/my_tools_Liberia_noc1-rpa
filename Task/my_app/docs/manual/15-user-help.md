@@ -178,18 +178,20 @@
 - 默认 cron: `0 1 * * *`　|　worker 组: **n**
 - 工作流脚本: `services/sync_from_eflow_api.py → sync_from_eflow_api(mode="full")`
 
-**功能**: eFlow 全量兜底：拉全量窗口（默认自 2026-01-01），补齐增量遗漏并刷新报告
+**功能**: eFlow 全量兜底：拉全量窗口（默认自 2026-01-01），补齐增量遗漏并刷新报告。大窗口下 TT/WO 分段拉取，避免单次大导出失败；TT/WO 缺失即判任务失败
 
 **工作流与数据流**:
 
 1. 每天 01:00 按全量窗口拉取全部记录
+1. 窗口跨度大时 TT/WO **分段拉取**（默认 30 天/段）后合并去重，避免单次大导出超过 120s 轮询窗口而 500 失败
 1. 与增量写同一批主库表，去重覆盖
 1. 完成后刷新相关报告产物
 
 **维护要点**:
 
 - 白天发现 eFlow 缺数的首要修复手段，可在任务管理页手动执行一次
-- 全量窗口起点可配置，调整时注意拉取时长
+- 全量窗口起点可配置，调整时注意拉取时长；段长由 EFLOW_FULL_SEGMENT_DAYS 控制（默认 30 天）
+- 2026-10-09 修复：此前 TT/WO 全量导出连续多日 500 失败，而任务仍报 success=True（缺失键被静默 continue）。现 TT/WO 缺失即写 errors → success=False
 
 #### RAN UME 日报（`ran_ume_daily`）
 
@@ -1273,17 +1275,19 @@
 - 默认 cron: `55 4 * * *`　|　worker 组: **n**
 - 工作流脚本: `services/sp_material_sync.py → run_sp_material_sync`
 
-**功能**: 从 eFlow SP 物料接口（eflow-sp-material）拉全量物料主数据，按 materialNo 唯一键 upsert 写 app.db 表 sp_material
+**功能**: 从 eFlow SP 物料接口（eflow-sp-material）拉全量物料主数据，按 materialNo 唯一键 upsert 写 app.db 表 sp_material。表语义=上游当前快照：全量重建，删除上游已消失的物料
 
 **工作流与数据流**:
 
 1. 每天 04:55 拉 eflow-sp-material 全量物料主数据
 1. 按 materialNo upsert 写 app.db 表 sp_material
+1. 全量重建：删除表中不在本轮 materialNo 集合里的行（表=上游快照）；拉取不完整时只 upsert、不删除
 1. 「表浏览器」可查，下游 sp_material_report 出库存与消耗报表
 
 **维护要点**:
 
-- 下游 sp_material_report（07:33）只读表不拉接口：本任务停更时邮件仍会正常发，但内容是旧数据
+- 下游 sp_material_report（07:33）只读表不拉接口：本任务停更时邮件仍会正常发，但内容是旧数据（db_freshness_check 已覆盖 sp_material 新鲜度）
+- 2026-10-09 增加全量重建：旧实现只 upsert 从不删除，上游停用/删除的物料会永久残留（与 sp_online 同型）。安全阀：仅当 fetch_all 完整拉取（未达 MAX_PAGES 上限、非 0 行）才删除，否则退化为只 upsert
 
 #### SP 在线未关闭单报表生成（`sp_online_report_generate`）
 

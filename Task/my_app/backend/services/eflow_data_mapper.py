@@ -3,6 +3,9 @@
 负责工单/资产类数据（TT/WO/CR/PM/Site/Person）的抓取管线、SQLite 入库、
 Excel 导出、FTP 上传与小时/日报报表生成：
 - fetch_all_data：并行管线抓取全部工单数据
+  · **大窗口（全量兜底）时 TT/WO 分段拉取**（`_fetch_pipeline_segmented`，
+    2026-10-09 新增）：TT/WO 走异步导出管道，轮询窗口只有 120s，而 10 个月的大窗口
+    导出要 8~22 分钟，必然超时 → 下载 500。分段（默认 30 天）后每段都能在窗口内完成。
 - save_to_sqlite / write_excel_from_sqlite：入库与导出
 - generate_excel_report / generate_hourly_report_with_images：报表生成
 - upload_to_ftp / upload_tt_reports_to_ftp / generate_and_upload_fb_excel：分发
@@ -1675,10 +1678,121 @@ def _run_pipeline_with_connection_cleanup(pipeline):
         _close_thread_socket()
 
 
+# ==============================================================================
+# 全窗口分段拉取（2026-10-09 新增，修 eflow_sync_full 的全量失败）
+# ==============================================================================
+# 为什么需要分段：TT/WO 走的是**异步导出管道**（_prepare_export → 建导出任务 →
+# 轮询 → 下载 zip，见 _fetch_tt_pipeline:246），而轮询窗口只有
+# EXPORT_POLL_MAX_WAIT=120s（eflow_api_client.py:67-68）。代码自己的注释说全量导出
+# 要「8~22 分钟」（eflow_api_client.py:431）—— 于是「lastModifiedTime >= 2026-01-01」
+# 这种 10 个月的大窗口必然轮询超时 → 下载返回 HTTP 500 → 该管线失败。
+# 实测证据：eflow_sync_full 在 2026-10-05 ~ 10-08 **每天**都 TT/WO 失败
+# （log/worker_runtime_n_*.log），eflow_tt 里早期工单的 _sync_time 一直停在回填日。
+#
+# 改法：把大窗口切成若干小段（默认 30 天），逐段导出再合并 —— 每段都能在轮询窗口内
+# 完成。仅当窗口**跨度大**时才分段；小时级 delta（3 天）保持单段，行为不变。
+#
+# ⚠ 环境变量 EFLOW_FULL_SEGMENT_DAYS 可调段长；调小 = 段数变多、更稳但更慢。
+#   段长不要低于 ~7 天（否则请求数暴涨），也不要大到超过轮询能完成的量。
+_FULL_SEGMENT_DAYS_DEFAULT = 30
+#: 窗口跨度超过这个天数才启用分段（低于它的大概率单段能跑完，不必多此一举）
+_SEGMENT_THRESHOLD_DAYS_DEFAULT = 60
+
+
+def _segment_days():
+    try:
+        return max(1, int(os.environ.get("EFLOW_FULL_SEGMENT_DAYS")
+                          or _FULL_SEGMENT_DAYS_DEFAULT))
+    except (TypeError, ValueError):
+        return _FULL_SEGMENT_DAYS_DEFAULT
+
+
+def _segment_threshold_days():
+    try:
+        return max(1, int(os.environ.get("EFLOW_SEGMENT_THRESHOLD_DAYS")
+                          or _SEGMENT_THRESHOLD_DAYS_DEFAULT))
+    except (TypeError, ValueError):
+        return _SEGMENT_THRESHOLD_DAYS_DEFAULT
+
+
+def _segment_ranges(start_ms: int, end_ms: int, segment_days: int) -> list:
+    """把毫秒区间 [start_ms, end_ms] 切成**连续、不重叠、完整覆盖**的小段。
+
+    返回 [(seg_start_ms, seg_end_ms), ...]，末段封顶到 end_ms。
+    起点 >= 终点时返回单段 [(start_ms, end_ms)]（空窗口不切）。
+    """
+    if segment_days <= 0 or end_ms <= start_ms:
+        return [(start_ms, end_ms)]
+    step = int(timedelta(days=segment_days).total_seconds() * 1000)
+    ranges = []
+    cur = start_ms
+    while cur < end_ms:
+        nxt = min(cur + step, end_ms)
+        ranges.append((cur, nxt))
+        cur = nxt
+    return ranges or [(start_ms, end_ms)]
+
+
+def _dedup_rows(rows: list, key_candidates: tuple) -> list:
+    """按主键去重（保留首现），供分段合并用；找不到主键列则原样返回。
+
+    与 _upsert_df 的「同主键保留一行」口径一致，避免分段边界重叠导致行数虚增。
+    """
+    if not rows:
+        return rows
+    first = rows[0]
+    if not isinstance(first, dict):
+        return rows
+    key = next((k for k in key_candidates if k in first), None)
+    if key is None:
+        return rows
+    seen, out = set(), []
+    for r in rows:
+        v = r.get(key) if isinstance(r, dict) else None
+        if v is None:
+            out.append(r)
+            continue
+        v = str(v)
+        if v in seen:
+            continue
+        seen.add(v)
+        out.append(r)
+    return out
+
+
+def _fetch_pipeline_segmented(pipeline_fn, start_ms, end_ms, tmp_dir,
+                              key_candidates=("TT No.", "WO No.", "TT NO.")):
+    """逐段调用 pipeline_fn(seg_start, seg_end, tmp_dir)，合并各段 rows。
+
+    返回 (sheet_name, merged_rows)。**任何一段失败都会向上抛**（不吞）——
+    交给 fetch_all_data 的既有 except 记录，再由 sync_from_eflow_api 判定必需表缺失。
+    段间 sleep 3s，降低对上游导出端点的瞬时压力。
+
+    key_candidates 用**导出的原始列名**（本函数拿到的还是未做列映射的导出行，
+    映射发生在下游 _sync_tt/_sync_wo）：TT/WO 的唯一键都是 "TT No." / "WO No."。
+    """
+    ranges = _segment_ranges(start_ms, end_ms, _segment_days())
+    logger.info(f"Segmented fetch: {len(ranges)} segments x <= {_segment_days()}d")
+
+    sheet_name = None
+    merged = []
+    for i, (s, e) in enumerate(ranges, 1):
+        logger.info(f"  segment {i}/{len(ranges)}: {s} ~ {e}")
+        name, rows = pipeline_fn(s, e, tmp_dir)
+        sheet_name = name
+        merged.extend(rows or [])
+        if i < len(ranges):
+            time.sleep(3)   # 段间节流，避免连续导出打爆上游
+
+    merged = _dedup_rows(merged, key_candidates)
+    logger.info(f"Segmented fetch done: {len(merged)} rows (deduped)")
+    return sheet_name, merged
+
+
 def fetch_all_data(tmp_dir: str = None, days_back: int | None = None) -> dict:
     """
     从 eFlow API 获取所有数据，返回 {sheet_name: records_list} 字典
-    
+
     Args:
         tmp_dir: 临时文件目录，不传则自动创建
     """
@@ -1698,10 +1812,30 @@ def fetch_all_data(tmp_dir: str = None, days_back: int | None = None) -> dict:
         start_ms, end_ms = _get_time_range_ms(days_back)
         logger.info(f"Time range: {start_ms} to {end_ms}")
 
+        # 大窗口（全量兜底）→ TT/WO 分段拉取；小窗口（小时级 delta）→ 单段原样。
+        # 见 _segment_ranges 上方的说明：大窗口单次导出超过 120s 轮询窗口必然 500。
+        span_days = max(0.0, (end_ms - start_ms) / 86400000.0)
+        segmented = span_days > _segment_threshold_days()
+        if segmented:
+            logger.info(
+                f"Window spans {span_days:.1f}d > {_segment_threshold_days()}d "
+                f"→ TT/WO 分段拉取（段长 {_segment_days()}d）"
+            )
+
+        def _tt():
+            if segmented:
+                return _fetch_pipeline_segmented(_fetch_tt_pipeline, start_ms, end_ms, tmp_dir)
+            return _fetch_tt_pipeline(start_ms, end_ms, tmp_dir)
+
+        def _wo():
+            if segmented:
+                return _fetch_pipeline_segmented(_fetch_wo_pipeline, start_ms, end_ms, tmp_dir)
+            return _fetch_wo_pipeline(start_ms, end_ms, tmp_dir)
+
         # 仅包含工单/资产类数据；告警由独立任务 eflow_active_alarm / eflow_history_alarm 负责
         pipelines = [
-            ("tt", lambda: _fetch_tt_pipeline(start_ms, end_ms, tmp_dir)),
-            ("wo", lambda: _fetch_wo_pipeline(start_ms, end_ms, tmp_dir)),
+            ("tt", _tt),
+            ("wo", _wo),
             ("cr", lambda: _fetch_cr_pipeline(start_ms, end_ms, tmp_dir)),
             ("pm", lambda: _fetch_pm_pipeline(start_ms, end_ms, tmp_dir)),
             ("site", lambda: _fetch_site_pipeline(tmp_dir)),

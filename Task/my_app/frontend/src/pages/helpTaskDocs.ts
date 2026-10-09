@@ -72,15 +72,15 @@ export const TASK_DOCS: TaskDoc[] = [
     script: 'services/sync_from_eflow_api.py → sync_from_eflow_api(mode="full")',
     zh: {
       name: 'eFlow 每日全量同步',
-      desc: 'eFlow 全量兜底：拉全量窗口（默认自 2026-01-01），补齐增量遗漏并刷新报告',
-      flow: ['每天 01:00 按全量窗口拉取全部记录', '与增量写同一批主库表，去重覆盖', '完成后刷新相关报告产物'],
-      maintain: ['白天发现 eFlow 缺数的首要修复手段，可在任务管理页手动执行一次', '全量窗口起点可配置，调整时注意拉取时长'],
+      desc: 'eFlow 全量兜底：拉全量窗口（默认自 2026-01-01），补齐增量遗漏并刷新报告。大窗口下 TT/WO 分段拉取，避免单次大导出失败；TT/WO 缺失即判任务失败',
+      flow: ['每天 01:00 按全量窗口拉取全部记录', '窗口跨度大时 TT/WO **分段拉取**（默认 30 天/段）后合并去重，避免单次大导出超过 120s 轮询窗口而 500 失败', '与增量写同一批主库表，去重覆盖', '完成后刷新相关报告产物'],
+      maintain: ['白天发现 eFlow 缺数的首要修复手段，可在任务管理页手动执行一次', '全量窗口起点可配置，调整时注意拉取时长；段长由 EFLOW_FULL_SEGMENT_DAYS 控制（默认 30 天）', '2026-10-09 修复：此前 TT/WO 全量导出连续多日 500 失败，而任务仍报 success=True（缺失键被静默 continue）。现 TT/WO 缺失即写 errors → success=False'],
     },
     en: {
       name: 'eFlow Daily Full Sync',
-      desc: 'Full-window backfill (default since 2026-01-01) to cover delta gaps and refresh reports',
-      flow: ['Daily 01:00 pull the full window', 'Write into the same dynamic tables with dedup', 'Refresh related report artifacts afterwards'],
-      maintain: ['First remedy when eFlow data is missing mid-day — run it manually from Task Manager', 'The window start is configurable; mind the fetch duration when adjusting'],
+      desc: 'Full-window backfill (default since 2026-01-01) to cover delta gaps and refresh reports. Wide windows fetch TT/WO in segments; a missing TT/WO now fails the task',
+      flow: ['Daily 01:00 pull the full window', 'For wide windows TT/WO are fetched in **segments** (default 30 days each) then merged/deduped, avoiding a single huge export exceeding the 120s poll window and failing with 500', 'Write into the same dynamic tables with dedup', 'Refresh related report artifacts afterwards'],
+      maintain: ['First remedy when eFlow data is missing mid-day — run it manually from Task Manager', 'The window start is configurable; mind the fetch duration. Segment length via EFLOW_FULL_SEGMENT_DAYS (default 30d)', 'Fixed 2026-10-09: the TT/WO full export had been failing with 500 for days while the task still reported success=True (the missing key was silently skipped). Now a missing TT/WO writes an error → success=False'],
     },
   },
   {
@@ -1203,18 +1203,20 @@ export const TASK_DOCS: TaskDoc[] = [
     script: 'services/sp_material_sync.py → run_sp_material_sync',
     zh: {
       name: 'SP 物料主数据同步',
-      desc: '从 eFlow SP 物料接口（eflow-sp-material）拉全量物料主数据，按 materialNo 唯一键 upsert 写 app.db 表 sp_material',
-      flow: ['每天 04:55 拉 eflow-sp-material 全量物料主数据', '按 materialNo upsert 写 app.db 表 sp_material', '「表浏览器」可查，下游 sp_material_report 出库存与消耗报表'],
+      desc: '从 eFlow SP 物料接口（eflow-sp-material）拉全量物料主数据，按 materialNo 唯一键 upsert 写 app.db 表 sp_material。表语义=上游当前快照：全量重建，删除上游已消失的物料',
+      flow: ['每天 04:55 拉 eflow-sp-material 全量物料主数据', '按 materialNo upsert 写 app.db 表 sp_material', '全量重建：删除表中不在本轮 materialNo 集合里的行（表=上游快照）；拉取不完整时只 upsert、不删除', '「表浏览器」可查，下游 sp_material_report 出库存与消耗报表'],
       maintain: [
-        '下游 sp_material_report（07:33）只读表不拉接口：本任务停更时邮件仍会正常发，但内容是旧数据',
+        '下游 sp_material_report（07:33）只读表不拉接口：本任务停更时邮件仍会正常发，但内容是旧数据（db_freshness_check 已覆盖 sp_material 新鲜度）',
+        '2026-10-09 增加全量重建：旧实现只 upsert 从不删除，上游停用/删除的物料会永久残留（与 sp_online 同型）。安全阀：仅当 fetch_all 完整拉取（未达 MAX_PAGES 上限、非 0 行）才删除，否则退化为只 upsert',
       ],
     },
     en: {
       name: 'SP Material Master Sync',
-      desc: 'Fetch the full material master from the eFlow SP API (eflow-sp-material) into app.db table sp_material (upsert by materialNo)',
-      flow: ['Daily 04:55 pull the full eflow-sp-material master', 'Upsert into app.db table sp_material by materialNo', 'Queryable in Table Browser; sp_material_report builds the stock/consumption report from it'],
+      desc: 'Fetch the full material master from the eFlow SP API (eflow-sp-material) into app.db table sp_material (upsert by materialNo). The table mirrors the upstream snapshot: a full rebuild removes materials that vanished upstream',
+      flow: ['Daily 04:55 pull the full eflow-sp-material master', 'Upsert into app.db table sp_material by materialNo', 'Full rebuild: delete rows whose materialNo is not in this run; on an incomplete fetch it only upserts and never deletes', 'Queryable in Table Browser; sp_material_report builds the stock/consumption report from it'],
       maintain: [
-        'sp_material_report (07:33) only reads the table: if this task stalls, the email still sends but with stale content',
+        'sp_material_report (07:33) only reads the table: if this task stalls, the email still sends but with stale content (db_freshness_check now covers sp_material freshness)',
+        'Added 2026-10-09: full rebuild. The old implementation only upserted and never deleted, so materials disabled/deleted upstream stayed forever (same shape as sp_online). Safety valve: delete only when fetch_all is complete (no MAX_PAGES cap hit, non-empty), otherwise degrade to upsert-only',
       ],
     },
   },

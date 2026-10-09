@@ -178,18 +178,20 @@ Workflow & maintenance notes per task:
 - Default cron: `0 1 * * *`　|　worker group: **n**
 - Workflow script: `services/sync_from_eflow_api.py → sync_from_eflow_api(mode="full")`
 
-**What it does**: Full-window backfill (default since 2026-01-01) to cover delta gaps and refresh reports
+**What it does**: Full-window backfill (default since 2026-01-01) to cover delta gaps and refresh reports. Wide windows fetch TT/WO in segments; a missing TT/WO now fails the task
 
 **Workflow & data flow**:
 
 1. Daily 01:00 pull the full window
+1. For wide windows TT/WO are fetched in **segments** (default 30 days each) then merged/deduped, avoiding a single huge export exceeding the 120s poll window and failing with 500
 1. Write into the same dynamic tables with dedup
 1. Refresh related report artifacts afterwards
 
 **Maintenance**:
 
 - First remedy when eFlow data is missing mid-day — run it manually from Task Manager
-- The window start is configurable; mind the fetch duration when adjusting
+- The window start is configurable; mind the fetch duration. Segment length via EFLOW_FULL_SEGMENT_DAYS (default 30d)
+- Fixed 2026-10-09: the TT/WO full export had been failing with 500 for days while the task still reported success=True (the missing key was silently skipped). Now a missing TT/WO writes an error → success=False
 
 #### RAN UME Daily Report（`ran_ume_daily`）
 
@@ -1273,17 +1275,19 @@ Workflow & maintenance notes per task:
 - Default cron: `55 4 * * *`　|　worker group: **n**
 - Workflow script: `services/sp_material_sync.py → run_sp_material_sync`
 
-**What it does**: Fetch the full material master from the eFlow SP API (eflow-sp-material) into app.db table sp_material (upsert by materialNo)
+**What it does**: Fetch the full material master from the eFlow SP API (eflow-sp-material) into app.db table sp_material (upsert by materialNo). The table mirrors the upstream snapshot: a full rebuild removes materials that vanished upstream
 
 **Workflow & data flow**:
 
 1. Daily 04:55 pull the full eflow-sp-material master
 1. Upsert into app.db table sp_material by materialNo
+1. Full rebuild: delete rows whose materialNo is not in this run; on an incomplete fetch it only upserts and never deletes
 1. Queryable in Table Browser; sp_material_report builds the stock/consumption report from it
 
 **Maintenance**:
 
-- sp_material_report (07:33) only reads the table: if this task stalls, the email still sends but with stale content
+- sp_material_report (07:33) only reads the table: if this task stalls, the email still sends but with stale content (db_freshness_check now covers sp_material freshness)
+- Added 2026-10-09: full rebuild. The old implementation only upserted and never deleted, so materials disabled/deleted upstream stayed forever (same shape as sp_online). Safety valve: delete only when fetch_all is complete (no MAX_PAGES cap hit, non-empty), otherwise degrade to upsert-only
 
 #### SP Online Open Tickets Report Generate（`sp_online_report_generate`）
 

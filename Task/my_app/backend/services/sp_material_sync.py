@@ -21,6 +21,13 @@
    total=922；本模块按抓包原样保留，保证与浏览器可见数据一致。
 5. 当前全量 Active=922、Inactive=0；`length` 可放大到 1000/2000 一次拉完，
    本模块仍按页拉取（PAGE_SIZE=500）以避免依赖服务端上限。
+
+6. **表 = 上游快照，全量重建（2026-10-09 起）**：本模块拉的是**全量**物料主数据，
+   但旧实现只 upsert、从不删除 —— 上游停用/删除的物料会**永久残留**（与 sp_online
+   同型：那边曾因此积 37 条僵尸行）。现改为：本轮**完整**拉取时，upsert 后删除表中
+   不在本轮 `materialNo` 集合里的行（`save_to_db(reconcile_keys=...)`）。
+   **安全阀**：仅当 `fetch_all()` 的 `complete` 为真（正常翻完、未达 MAX_PAGES 上限、
+   非 0 行）才删除；不完整时只 upsert，宁可留下陈旧行也不误删真实物料。
 """
 import os
 import sys
@@ -37,6 +44,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from backend.database import get_raw_connection
 from backend.dialect_helpers import table_columns, upsert
 from backend.services import eflow_api_client as EF
+from backend.services.reconcile_helper import delete_not_in_keys
 
 logger = logging.getLogger("sp_material")
 
@@ -105,8 +113,15 @@ def _post(payload):
 
 
 def fetch_all():
-    """按 woId asc 分页拉全量，返回 (rows, total)。"""
+    """按 woId asc 分页拉全量，返回 (rows, total, complete)。
+
+    ``complete``（2026-10-09 新增）：本轮是否**完整**拉取到全量 —— 正常翻完为 True；
+    因到达 ``MAX_PAGES`` 上限而中断（``else`` 分支）或一行都没拿到为 False。
+    这只是 ``run_sp_material_sync`` 全量删除（reconcile）的开关：不完整时若据此
+    删表，会把上游仍有、只是本轮没翻到的物料误删。
+    """
     all_rows, start, total = [], 0, None
+    complete = True
     for _ in range(MAX_PAGES):
         payload = {"field": FIELD, "start": start, "length": PAGE_SIZE,
                    "order": ORDER, "filter": FILTER,
@@ -126,8 +141,12 @@ def fetch_all():
         if total and start >= total:
             break
     else:
+        # 翻页用尽仍未见结尾：本轮结果可能只是上游的一部分，禁止据此删表
+        complete = False
         logger.warning(f"[SP-MAT] 达到 MAX_PAGES={MAX_PAGES} 上限，停止翻页")
-    return all_rows, total
+    if not all_rows:
+        complete = False
+    return all_rows, total, complete
 
 
 # ---------------- 行规范化 ----------------
@@ -199,10 +218,21 @@ def _woid_sort_key(v):
         return (0, str(v or ""))
 
 
-def save_to_db(headers, records):
-    """以 materialNo 为唯一键 upsert 写入，返回 (写入行数, 丢弃行数)。"""
+def save_to_db(headers, records, reconcile_keys=None):
+    """以 materialNo 为唯一键 upsert 写入，返回 (写入行数, 丢弃行数, 删除行数)。
+
+    全量重建（2026-10-09 新增）
+    --------------------------
+    本任务 ``fetch_all()`` 拉的是**全量物料主数据**，故表语义应为「上游当前快照」。
+    旧实现只 upsert、从不删除，上游停用/删除的物料会永久残留（与 sp_online 同型）。
+
+    传入 ``reconcile_keys``（本轮成功拉取到的全部 ``materialNo``）即启用重建：upsert
+    后在同一事务内删除表中不在该集合里的行。传 ``None``（默认）保持纯 upsert。
+    ⚠️ 调用方**必须**只在「本轮拉取完整」（``fetch_all`` 的 ``complete``）时才传，
+    否则上游返回半截数据会误删真实物料。
+    """
     if not headers or not records:
-        return 0, 0
+        return 0, 0, 0
     if KEY_COL not in headers:
         raise RuntimeError(f"{TABLE}: 缺少主键列 {KEY_COL}")
 
@@ -221,8 +251,9 @@ def save_to_db(headers, records):
     if dropped:
         logger.warning(f"[SP-MAT] 丢弃 {dropped} 行主键 {KEY_COL} 为空的记录")
     if not records:
-        return 0, dropped
+        return 0, dropped, 0
 
+    deleted = 0
     with get_raw_connection(timeout=60.0) as conn:
         cursor = conn.cursor()
         is_pg = not isinstance(conn, sqlite3.Connection)
@@ -273,6 +304,15 @@ def save_to_db(headers, records):
             cursor.execute(f'CREATE UNIQUE INDEX "u_{TABLE}" ON "{TABLE}" ({pk_q})')
 
             upsert(conn, TABLE, records, conflict_cols=[KEY_COL])
+
+            # 全量重建：删除不在本轮结果里的物料（表 = 上游快照）。
+            if reconcile_keys is not None:
+                deleted = delete_not_in_keys(cursor, TABLE, KEY_COL,
+                                             reconcile_keys, is_pg=is_pg)
+                logger.info(
+                    f"[SP-MAT] {TABLE}: 全量重建删除 {deleted} 行"
+                    f"（保留 {len(set(map(str, reconcile_keys)))} 个本轮 {KEY_COL}）"
+                )
             conn.commit()
         finally:
             if is_pg and lock_key is not None:
@@ -282,18 +322,23 @@ def save_to_db(headers, records):
                     pass
 
     logger.info(f"[SP-MAT] upsert {len(records)} 行（pk={KEY_COL}）")
-    return len(records), dropped
+    return len(records), dropped, deleted
 
 
 # ---------------- 任务入口 ----------------
 def run_sp_material_sync():
     """定时任务入口：拉取 eFlow SP 物料主数据全量并写入 app.db。
 
-    返回 {"success", "rows", "total", "unique_keys", "dropped", "elapsed_seconds", "errors"}
+    表语义 = 上游当前快照：本轮**完整**拉取时全量重建（删除上游已消失的物料），
+    拉取不完整（达 MAX_PAGES / 0 行）时只 upsert、不删除。
+
+    返回 {"success", "rows", "total", "unique_keys", "dropped", "deleted",
+          "table", "elapsed_seconds", "errors"}
     """
     t0 = time.time()
     result = {"success": False, "rows": 0, "total": 0, "unique_keys": 0,
-              "dropped": 0, "table": TABLE, "elapsed_seconds": 0, "errors": []}
+              "dropped": 0, "deleted": 0, "table": TABLE,
+              "elapsed_seconds": 0, "errors": []}
     try:
         # ensure_login()：复用本进程会话或跨进程磁盘缓存，避免与其它 eFlow
         # 任务重复申请 token（2026-10-04 修正登录风暴）。
@@ -301,7 +346,7 @@ def run_sp_material_sync():
         if not EF._session_cookie:
             raise RuntimeError("eFlow 登录失败")
 
-        rows, total = fetch_all()
+        rows, total, complete = fetch_all()
         result["total"] = total or 0
         if not rows:
             raise RuntimeError(f"接口返回 0 行（total={total}）")
@@ -317,9 +362,22 @@ def run_sp_material_sync():
                 f"接口返回存在重复 {KEY_COL}: {len(keys)} 行 / {result['unique_keys']} 个唯一值"
             )
 
-        n, dropped = save_to_db(headers, records)
+        # 只有完整拉取才做全量删除（表 = 上游快照）；否则只 upsert，避免
+        # 上游返回半截数据时把真实物料误删。
+        reconcile_keys = None
+        if complete:
+            reconcile_keys = {k for k in keys if k}
+        else:
+            logger.warning(
+                f"[SP-MAT] 本轮拉取不完整（{len(rows)} 行，total={total}），"
+                f"跳过全量删除以策安全"
+            )
+
+        n, dropped, deleted = save_to_db(headers, records,
+                                         reconcile_keys=reconcile_keys)
         result["rows"] = n
         result["dropped"] = dropped
+        result["deleted"] = deleted
         # 拉到的行数与唯一主键数不一致时视为异常，但数据已落库，仍标记成功并保留 errors
         result["success"] = n > 0 and not result["errors"]
     except Exception as e:
@@ -329,8 +387,8 @@ def run_sp_material_sync():
     result["elapsed_seconds"] = round(time.time() - t0, 2)
     logger.info(
         f"[SP-MAT] 完成: rows={result['rows']} total={result['total']} "
-        f"unique={result['unique_keys']} errors={result['errors']} "
-        f"{result['elapsed_seconds']}s"
+        f"unique={result['unique_keys']} deleted={result['deleted']} "
+        f"errors={result['errors']} {result['elapsed_seconds']}s"
     )
     return result
 

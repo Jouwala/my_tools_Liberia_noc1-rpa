@@ -8,6 +8,9 @@ db_freshness_check.py — 数据库数据新鲜度巡检（每小时）
        与期望新鲜度（daily=昨天 / intraday=最近N小时 / monthly=最近33天）比对
     2. 本地回退库（API 失败时的兜底库）：sqlite3 直查最新 Begin Time
     2b. 本机文件型数据源（FTP 落盘的 Excel）：按最新文件的落盘年龄判定（FILE_CHECKS）
+    2c. 本机派生宽表（avail_recon/mttr_tt/progress）：按最新业务时间判定（DERIVED_CHECKS）
+    2d. 主库全量快照表（sp_outbound/sp_inbound/sp_transfer/sp_material，2026-10-09 新增）：
+        按 `_fetched_at` 同步时刻判定「是否在同步周期内被刷新」（APP_DB_CHECKS）
     3. 发现滞后时输出：调用链路（任务 → 服务函数 → 写入方式 → 库文件）与检查方向
     4. 任务执行健康检查（2026-08-12 新增，2026-08-13 收紧，补齐“任务从未执行”盲区）：
        - 注册任务最近 24h 无执行记录（task_execution_log，排除已禁用任务）
@@ -190,6 +193,60 @@ FILE_CHECKS = [
          service="backend/services/incident_overview_sync.py::run_incident_overview_sync",
          read_path="FineBI FTP schedule/TT_WO/<日期>/<HHMM>/通用结果/incident_overview.xlsx → 版本化文件 + current.json 指针",
          consumer="事件总览页 backend/services/incident_overview_service.py::resolve_excel_path（取 mtime 最新的版本化文件）"),
+]
+
+# ============================================================
+# my_app 主库（app.db，现为 PG）自持表的新鲜度判定
+# ============================================================
+# 为什么单独一类：REMOTE/LOCAL/DERIVED/FILE 四类都不覆盖「写在主库里的同步表」——
+#   它们是 eFlow SP 接口的全量快照（`_fetched_at` 列记录同步时刻），既不进远端库清单，
+#   也不是派生宽表/磁盘文件。此前不在任何新鲜度判定里，「同步停更」只能等人发现。
+#
+# 盲区背景（2026-10-09）：sp_outbound 的同步只 upsert、从不删除，上游已消失的单据
+#   永久残留（积了 37 条僵尸 WaitingForUpdate 两周多）。当时既没有 reconcile 删除，
+#   也没有新鲜度监控——两个缺口叠加才让脏数据活了这么久。本类补上「表是否在同步周期内
+#   被刷新」这一层（reconcile 删除已在各自的同步任务里修好）。
+#
+# 判据用 `_fetched_at`（同步任务写入的同步时刻），而不是业务时间列：这些表是**快照**，
+# 「是否新鲜」= 「最近一次同步是否成功落库」，与业务时间无关。
+# （`_fetched_at` 是 sp_online_sync / sp_material_sync 约定的同步时刻列名。）
+FETCHED_AT_COL = "_fetched_at"
+APP_DB_CHECKS = [
+    dict(label="SP Online 出库单快照", table="sp_outbound", column=FETCHED_AT_COL,
+         granularity="intraday", max_age_hours=8.0,
+         task_id="sp_online_sync", task_cron="35 */6 * * *",
+         service="backend/services/sp_online_sync.py::run_sp_online_sync",
+         write_path="eFlow SP 接口全量拉取（原始 filter ∪ 状态全集 filter）→ 本机主库 sp_outbound（upsert + 全量重建删除）"),
+    dict(label="SP Online 入库单快照", table="sp_inbound", column=FETCHED_AT_COL,
+         granularity="intraday", max_age_hours=8.0,
+         task_id="sp_online_sync", task_cron="35 */6 * * *",
+         service="backend/services/sp_online_sync.py::run_sp_online_sync",
+         write_path="eFlow SP 接口全量拉取 → 本机主库 sp_inbound（upsert + 全量重建删除）"),
+    dict(label="SP Online 转仓单快照", table="sp_transfer", column=FETCHED_AT_COL,
+         granularity="intraday", max_age_hours=8.0,
+         task_id="sp_online_sync", task_cron="35 */6 * * *",
+         service="backend/services/sp_online_sync.py::run_sp_online_sync",
+         write_path="eFlow SP 接口全量拉取 → 本机主库 sp_transfer（upsert + 全量重建删除）"),
+    dict(label="SP 物料主数据快照", table="sp_material", column=FETCHED_AT_COL,
+         granularity="daily", run_by="04:55",
+         task_id="sp_material_sync", task_cron="55 4 * * *",
+         service="backend/services/sp_material_sync.py::run_sp_material_sync",
+         write_path="eFlow SP 接口全量拉取 → 本机主库 sp_material（upsert + 全量重建删除）"),
+    # eflow_tt / eflow_wo：delta 表，小时级刷新（eflow_sync 每小时 :22），
+    # 故用 `_sync_time`（每次 upsert 写入的时刻）+ intraday 窗口判定。
+    # 2026-10-09 新增：此前没有这张表的停更监控 —— eflow_sync_full 的 TT/WO
+    # 连续多日 500 失败（且报 success=True）都没人发现，正是缺这一层。
+    # 窗口取 4h（> 2 个小时周期 + 容忍单次失败），能抓住「TT/WO 双双停更」。
+    dict(label="eFlow TT 镜像", table="eflow_tt", column="_sync_time",
+         granularity="intraday", max_age_hours=4.0,
+         task_id="eflow_sync", task_cron="22 * * * *",
+         service="backend/services/sync_from_eflow_api.py::sync_from_eflow_api（delta，全量兜底见 eflow_sync_full）",
+         write_path="eFlow 导出管道 → 本机主库 eflow_tt（增量 upsert 累积；全量兜底任务每日兜底）"),
+    dict(label="eFlow WO 镜像", table="eflow_wo", column="_sync_time",
+         granularity="intraday", max_age_hours=4.0,
+         task_id="eflow_sync", task_cron="22 * * * *",
+         service="backend/services/sync_from_eflow_api.py::sync_from_eflow_api（delta）",
+         write_path="eFlow 导出管道 → 本机主库 eflow_wo（增量 upsert 累积）"),
 ]
 
 # 任务执行健康检查参数（2026-08-12 新增，2026-08-13 收紧）：
@@ -761,6 +818,96 @@ def _check_local_table(check: dict, table: str, now: datetime, results: list, st
     results.append(dict(scope="local", db=label, table=table, status="info", latest=mx))
 
 
+def _app_db_advice(check: dict) -> list:
+    """主库快照表滞后时的调用链路与检查方向。"""
+    chain = [
+        f"定时任务 {check['task_id']} (cron: {check['task_cron']})",
+        f"→ {check['service']}",
+        f"→ {check['write_path']}",
+        f"→ 本机主库表 {check['table']}",
+    ]
+    advice = [
+        f"1. Task Manager 查看任务 {check['task_id']} 最近运行历史（success/error）",
+        "2. 任务管理页直接触发该任务一次，看真实报错（或按 service 路径找到模块的 __main__ 手动跑）",
+        "3. 该表是**全量快照**（表 = 上游当前快照）：上游本次没返回的行会被删除，"
+        "「表比预期小很多」先查上游接口是否异常返回半截数据，而不是本地丢了数据",
+        "4. 数据源侧: 确认 eFlow SP 接口（10.100.20.8:28001）可达、登录会话有效"
+        "（会话被踢时该组任务连续 failed，由 auto_retry_failed 兜底）",
+        "5. 历史教训（2026-10-09）：同步只 upsert 不删除 → 上游已消失的单据永久残留；"
+        "现已加全量重建，勿退回纯 upsert",
+    ]
+    return ["调用链路:"] + [f"  {c}" for c in chain] + ["检查方向:"] + [f"  {a}" for a in advice]
+
+
+#: 主库连接失败时缓存错误，避免每张表重复尝试/重复刷屏（同一次巡检内）。
+_APP_DB_CONN_ERR = None
+
+
+def _app_db_max_col(table: str, column: str):
+    """读主库某表的 MAX(column)（走 get_raw_connection，PG/SQLite 双模通用）。
+
+    返回 (max_value_str_or_None, error_or_None)。表不存在 / 列不存在 → (None, 原因)，
+    由调用方按「无可检查」处理，不当成检查手段故障。
+    """
+    global _APP_DB_CONN_ERR
+    if _APP_DB_CONN_ERR:
+        return None, _APP_DB_CONN_ERR
+    try:
+        _ensure_my_app_importable()
+        from backend.database import get_raw_connection, DB_PATH as _APP_DB
+    except Exception as e:
+        _APP_DB_CONN_ERR = f"导入 backend.database 失败: {e}"
+        return None, _APP_DB_CONN_ERR
+    q = lambda c: '"' + c.replace('"', '""') + '"'
+    try:
+        with get_raw_connection(str(_APP_DB), timeout=30) as conn:
+            cur = conn.cursor()
+            try:
+                row = cur.execute(
+                    f'SELECT MAX({q(column)}) FROM {q(table)}').fetchone()
+            except Exception as e:
+                return None, f"读 {table} 失败: {str(e)[:150]}"
+        mx = row[0] if row else None
+        return (str(mx)[:19] if mx else None), None
+    except Exception as e:
+        _APP_DB_CONN_ERR = f"连接主库失败: {str(e)[:150]}"
+        return None, _APP_DB_CONN_ERR
+
+
+def _check_app_db_table(check: dict, now: datetime, results: list, stale_items: list):
+    """主库快照表的新鲜度判定（`_fetched_at` 距 now 超过窗口即滞后）。"""
+    table, column, label = check["table"], check["column"], check["label"]
+    since, expected = _window_since(check["granularity"], now, check)
+
+    mx, err = _app_db_max_col(table, column)
+    if err:
+        results.append(dict(scope="app_db", db=label, table=table,
+                            status="read_error", detail=err))
+        stale_items.append(dict(db=label, table=table,
+                                reason=f"主库表读取失败: {err}",
+                                guidance=_app_db_advice(check)))
+        return
+    if mx is None:
+        # 表为空 / 列无值：同步从未成功落库（或列名变了）
+        results.append(dict(scope="app_db", db=label, table=table,
+                            status="STALE", detail=f"{column} 无值", expected=expected))
+        stale_items.append(dict(
+            db=label, table=table,
+            reason=f"表 {table} 的 {column} 无值（同步从未成功落库？），期望 {expected}",
+            guidance=_app_db_advice(check)))
+        return
+    if mx >= since:
+        results.append(dict(scope="app_db", db=label, table=table,
+                            status="ok", latest=mx, expected=expected))
+        return
+    results.append(dict(scope="app_db", db=label, table=table,
+                        status="STALE", latest=mx, expected=expected))
+    stale_items.append(dict(
+        db=label, table=table,
+        reason=f"最新 {column}={mx}，早于期望（{expected}）—— 同步表停更",
+        guidance=_app_db_advice(check)))
+
+
 def _derived_advice(check: dict) -> list:
     """派生表滞后时的调用链路与检查方向（与 _stale_advice 同构，链路是本机写入）。"""
     chain = [
@@ -890,6 +1037,8 @@ def _check_source_file(check: dict, now: datetime, results: list, stale_items: l
 
 def run_db_freshness_check() -> dict:
     """小时级数据新鲜度巡检入口。"""
+    global _APP_DB_CONN_ERR
+    _APP_DB_CONN_ERR = None   # 每次巡检重置，避免上次的连接错误被缓存跨轮复用
     t_start = time.time()
     print(f"[FreshnessCheck] 数据新鲜度巡检开始 @ {datetime.now():%Y-%m-%d %H:%M:%S}")
     print(f"[FreshnessCheck] 远程 API: {_api_base()}")
@@ -978,6 +1127,12 @@ def run_db_freshness_check() -> dict:
     # 「任务红/绿」与「你看到的数是几小时前的」是两件事，必须分开可见（见 FILE_CHECKS 注释）。
     for check in FILE_CHECKS:
         _check_source_file(check, now, results, stale_items)
+
+    # ---------- 主库快照表检查 ----------
+    # 2026-10-09 新增：eFlow SP 全量快照表（sp_outbound 等）此前不在任何新鲜度判定里，
+    # 「同步停更」只能等人发现。见 APP_DB_CHECKS 注释。
+    for check in APP_DB_CHECKS:
+        _check_app_db_table(check, now, results, stale_items)
 
     # 汇总本地库各任务 max 日期（供远程滞后对照）
     for r in results:

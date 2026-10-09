@@ -2,6 +2,14 @@
 eFlow API 数据同步服务
 直接从 eFlow API 获取数据，字段映射后写入 app.db
 不再依赖外部 eflow.sqlite3 中间文件
+
+两种上游语义，**不要混用**（2026-10-09 明确）：
+  - `eflow_tt` / `eflow_wo` / `eflow_cr` / `eflow_pm` / `person` 走**增量窗口**
+    （`EFLOW_DELTA_DAYS`，只抓最近 N 天修改过的单），设计上要累积历史 → 只 upsert、
+    **不删除**（见 `eflow_api_client.py` 的 delta 注释）。
+  - `eflow_site` 走**单次全量导出**（`eflow_data_mapper._fetch_site_pipeline` 无时间窗），
+    表语义 = 上游当前快照 → `_sync_site` 会做全量重建删除（上游已无的站点）。
+    删除只放在 `_sync_site` 内，**不要**挪进共用的 `_upsert_df`（那会毁掉 delta 表历史）。
 """
 import os
 import re
@@ -15,8 +23,14 @@ from backend.database import get_raw_connection
 from backend.dialect_helpers import (
     list_table_names, table_columns, upsert, safe_pragma, write_df,
 )
+from backend.services.reconcile_helper import delete_not_in_keys
 
 logger = logging.getLogger("eflow_sync")
+
+#: 同步**必需**的 API 数据键：缺失即视为任务失败（2026-10-09）。
+#: 只列 TT/WO —— 它们是工单看板/报表的核心，且历史上正是它们静默失败被掩盖。
+#: CR/PM/Site/Person 允许缺失（上游时段性无数据不算故障），故不列入。
+REQUIRED_API_KEYS = {"eFlow TT", "eFlow WO"}
 
 # 路径配置
 BACKEND_DIR = Path(__file__).resolve().parent.parent.parent
@@ -425,7 +439,18 @@ def _sync_generic(df: pd.DataFrame, dst_conn: sqlite3.Connection, table_name: st
 
 
 def _sync_site(df: pd.DataFrame, dst_conn: sqlite3.Connection) -> int:
-    """同步 eFlow Site 数据 → eflow_site（独立表，不替换 master_site_db）"""
+    """同步 eFlow Site 数据 → eflow_site（独立表，不替换 master_site_db）。
+
+    Site 管线是**单次全量导出**（`eflow_data_mapper._fetch_site_pipeline` 无时间窗，
+    与 tt/wo/cr/pm 的 delta 窗口不同），故本表语义 = 上游当前快照：upsert 后把
+    不在本轮 site_id 集合里的行删掉（2026-10-09 新增），否则已退役/改名的站点会
+    永久残留。
+
+    ⚠️ 删除只在本函数内做，**不要**挪进共用的 `_upsert_df` —— 那个函数同时服务
+    delta 表（tt/wo/cr/pm），在那里删会毁掉它们按设计累积的历史。
+    安全阀：`df` 为空时上面已 return（且上游导出失败时整条 "Site" 会缺失，上层
+    直接跳过，到不了这里），故能走到删除就说明本轮拿到了完整站点集。
+    """
     t0 = time.time()
     if df.empty:
         logger.warning("Site 数据为空")
@@ -437,13 +462,24 @@ def _sync_site(df: pd.DataFrame, dst_conn: sqlite3.Connection) -> int:
 
     _upsert_df(dst_conn, 'eflow_site', df, ['site_id'])
 
+    # 全量重建：删除不在本轮导出里的站点（表 = 上游快照）
+    if 'site_id' in df.columns:
+        cursor = dst_conn.cursor()
+        deleted = delete_not_in_keys(
+            cursor, 'eflow_site', 'site_id',
+            [v for v in df['site_id'].tolist() if v is not None],
+            is_pg=not isinstance(dst_conn, sqlite3.Connection),
+        )
+        if deleted:
+            logger.info(f"eflow_site: 全量重建删除 {deleted} 行（上游已无的站点）")
+
     for idx_col in ['site_id', 'region', 'site_type']:
         if idx_col in df.columns:
             dst_conn.execute(f'CREATE INDEX IF NOT EXISTS idx_eflow_site_{idx_col} ON eflow_site({idx_col})')
     dst_conn.commit()
 
     elapsed = time.time() - t0
-    logger.info(f"eflow_site 同步完成(upsert): {len(df)} 行, {elapsed:.2f}s")
+    logger.info(f"eflow_site 同步完成(upsert+重建): {len(df)} 行, {elapsed:.2f}s")
     return len(df)
 
 
@@ -508,6 +544,7 @@ def sync_from_eflow_api(mode: str = "delta") -> dict:
         "target_db": str(DB_PATH),
         "tables_synced": {},
         "errors": [],
+        "missing_required": [],
         "timestamp": datetime.now().isoformat(),
         "elapsed_seconds": 0,
         "excel_path": None,
@@ -557,7 +594,18 @@ def sync_from_eflow_api(mode: str = "delta") -> dict:
 
             for api_key, table_name, sync_func in sync_tasks:
                 if api_key not in all_data:
-                    logger.info(f"跳过 {table_name}: API 未返回数据")
+                    # 必需表缺失 = 真失败，不能只 log 一行 continue（2026-10-09 修）。
+                    # 旧行为：fetch_all_data 把管线异常吞进日志、返回的 dict 里就没有该键，
+                    # 这里静默跳过 → result["errors"] 一直为空 → success=True。
+                    # 实测 eflow_sync_full 的 TT/WO 连续多日 500 失败却天天报成功。
+                    if api_key in REQUIRED_API_KEYS:
+                        msg = (f"API 未返回必需数据: {table_name}（{api_key}）"
+                               f"—— 该管线失败或上游异常")
+                        logger.error(msg)
+                        result["errors"].append(msg)
+                        result["missing_required"].append(table_name)
+                    else:
+                        logger.info(f"跳过 {table_name}: API 未返回数据")
                     continue
                 try:
                     df = pd.DataFrame(all_data[api_key])

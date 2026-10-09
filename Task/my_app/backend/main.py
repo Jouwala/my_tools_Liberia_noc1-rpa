@@ -70,7 +70,6 @@ from backend.routers import (
     task_configs,
     ai_model_settings,
     email_reports,
-    ai_model_settings,
     finebi_reports,
     mw_ume,
     mw_links,
