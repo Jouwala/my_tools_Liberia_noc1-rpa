@@ -6,7 +6,7 @@ my_app 本身不产生数据，它的价值取决于上游是否连得通。本�
 
 | 系统 | 方向与方式 | 相关任务 | 凭据分组 | 喂给哪些页面 |
 | --- | --- | --- | --- | --- |
-| **eFlow**（工单/告警平台） | API（TT/WO/CR/PM/Site/Person）+ FM Active/FM History 告警 + FTP 导出 | `eflow_sync`、`eflow_sync_full`、`eflow_active_alarm`、`eflow_history_alarm`、`eflow_tt_rules_check` | `eflow` | 任务报告文件、实时告警看板、TT&WO、GIS 两页、告警管理 |
+| **eFlow**（工单/告警平台） | API（TT/WO/CR/PM/Site/Person）+ FM Active/FM History 告警 + FTP 导出 | `eflow_sync`、`eflow_sync_full`、`eflow_active_alarm`、`eflow_history_alarm`、`eflow_tt_rules_check` | `eflow` | 任务报告文件、实时告警看板、TT&WO、GIS 两页、告警管理。**告警级别判定走程序化规则匹配，AI 仅承担自然语言解释**，选型依据见 [17-rule-engine-vs-llm.md](17-rule-engine-vs-llm.md) |
 | **RAN UME** | 网管查询 API，RSA 加密登录 | `ran_ume_daily`、`main_kpi_sync`、`cell_availability_sync`、`network_kpi_sync`、`cm_data_sync`、`packet_loss_sync`、`battery_kpi_sync` | `zte_ume` | TT&WO、NUR、MS SLA、丢包、电池、GIS |
 | **iPRAN UME** | 同上 | `ipran_kpi_sync`、`ipran_m6k_chart_email` | `ipran_ume` | iPRAN 相关 KPI 与图表邮件 |
 | **CNN UME** | 同上 | `cnn_kpi_sync`、`ccn_free_rating_chart_email` | `ccn_ume` | Free Rating 图表邮件 |

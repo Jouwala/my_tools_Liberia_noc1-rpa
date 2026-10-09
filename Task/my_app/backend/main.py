@@ -68,7 +68,9 @@ from backend.routers import (
     settings,
     cm_flows,
     task_configs,
+    ai_model_settings,
     email_reports,
+    ai_model_settings,
     finebi_reports,
     mw_ume,
     mw_links,
@@ -212,6 +214,8 @@ app.include_router(settings.router)
 app.include_router(cm_flows.router)
 # 任务配置文件管理（Settings「任务配置」页签 -> 配置文件管理，通用）
 app.include_router(task_configs.router)
+# AI 模型设置（Settings → AI Model 页签）
+app.include_router(ai_model_settings.router)
 # 邮件报告文件（EmailReports 页面：email 类任务生成的最新报告文件列表/下载）
 app.include_router(email_reports.router)
 # FineBI 报表文件（Task Report Files → FINEBI report 页签：FTP 同步的最新 Excel 列表/下载）

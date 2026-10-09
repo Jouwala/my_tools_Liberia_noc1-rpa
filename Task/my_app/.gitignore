@@ -73,6 +73,7 @@
 /backend/services/cn_ems/kpi_result_raw.json
 /backend/services/cn_ems/pm_query_template.bin
 /backend/services/eflow_rules/eflow_tt_rules_check_latest.json
+/backend/services/ai_model_config.json
 _probe_file.txt
 
 # 临时产物目录（截图 / 抓包 / 一次性探针脚本 / Chrome 临时 profile）

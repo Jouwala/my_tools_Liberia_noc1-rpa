@@ -41,6 +41,7 @@
 | [14-integrations.md](14-integrations.md) | 上游系统清单与数据流方向 |
 | [15-user-help.md](15-user-help.md) | **面向使用者的一站式帮助**（与站内「使用帮助」页同源生成）：平台简介、44 个任务的工作流与维护、25 个页面指南、运维排障与 FAQ；英文版 [15-user-help-en.md](15-user-help-en.md) |
 | [16-new-page-guide.md](16-new-page-guide.md) | **新增功能页规范**：五步流程、统一组件约定、页面标准骨架。配套可编译模板 `frontend\src\pages\_TemplatePage.tsx` |
+| [17-rule-engine-vs-llm.md](17-rule-engine-vs-llm.md) | **eFlow 告警：规则匹配 vs AI 选型**。程序化为底、模型为表；适用范围、边界与回退条件 |
 | [90-appendix.md](90-appendix.md) | API 前缀速查、任务 ID 速查、待清理残留清单 |
 
 ## 手册维护约定

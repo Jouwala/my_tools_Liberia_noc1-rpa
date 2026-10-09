@@ -166,16 +166,25 @@ def _http(method: str, path: str, body: Optional[Dict] = None,
 
 
 def signin(force: bool = False) -> str:
-    """登录拿 JWT；60 分钟内复用缓存，force=True 或 401 后强制重登。"""
+    """登录拿 JWT；60 分钟内复用缓存，force=True 或 401 后强制重登。
+
+    读取运行时配置（ai_model_config > .env）：
+    - openwebui_email / openwebui_password → Open WebUI 账号密码
+    - openwebui_base_url → 目标地址
+    """
+    cfg = _get_runtime_config()
+    email = cfg.get("openwebui_email") or EMAIL
+    password = cfg.get("openwebui_password") or PASSWORD
+    base_url = cfg.get("openwebui_base_url") or BASE_URL
     with _AUTH_LOCK:
         if not force and _AUTH_CACHE["jwt"] and \
                 time.time() - _AUTH_CACHE["ts"] < 3600:
             return _AUTH_CACHE["jwt"]
-        if not EMAIL or not PASSWORD:
-            raise RuntimeError("缺少 OPENWEBUI_EMAIL / OPENWEBUI_PASSWORD 配置")
+        if not email or not password:
+            raise RuntimeError("缺少 Open WebUI 邮箱或密码（请在 Settings → AI Model 页签配置）")
         status, data = _http("POST", "/api/v1/auths/signin",
-                             {"email": EMAIL, "password": PASSWORD},
-                             timeout=_META_TIMEOUT)
+                             {"email": email, "password": password},
+                             base=base_url, timeout=_META_TIMEOUT)
         if status != 200 or not isinstance(data, dict) or not data.get("token"):
             raise RuntimeError(f"Open WebUI 登录失败 (HTTP {status}): {str(data)[:200]}")
         _AUTH_CACHE["jwt"] = data["token"]
@@ -384,27 +393,32 @@ def chat(system_text: str, user_text: str, token: str,
     provider=openwebui → 走 OPENWEBUI_BASE_URL，401 时重登一次并重试。
     WorkBuddy 网关要求首条消息是 system，payload 已满足。
     """
+    cfg = _get_runtime_config()
     payload = {
-        "model": model or (WORKBUDDY_MODEL if provider == "workbuddy" else MODEL),
+        "model": model or (cfg.get("local_model", WORKBUDDY_MODEL)
+                           if provider == "workbuddy"
+                           else cfg.get("openwebui_model", MODEL)),
         "messages": [
             {"role": "system", "content": system_text},
             {"role": "user", "content": user_text},
         ],
         "stream": False,
     }
+    local_base = cfg.get("local_base_url", WORKBUDDY_BASE_URL)
+    openwebui_base = cfg.get("openwebui_base_url", BASE_URL)
     label = "WorkBuddy 本地代理" if provider == "workbuddy" else "Open WebUI"
     if provider == "workbuddy":
         status, data = _http("POST", "/chat/completions", payload,
-                             base=WORKBUDDY_BASE_URL)
+                             base=local_base)
     else:
         if _owu_down():
             raise _ShortCircuit("Open WebUI 处于不可达短路窗口内，跳过备用档")
         status, data = _http("POST", "/api/chat/completions",
-                             payload, token=token)
+                             payload, token=token, base=openwebui_base)
         if status == 401:
             token = signin(force=True)
             status, data = _http("POST", "/api/chat/completions",
-                                 payload, token=token)
+                                 payload, token=token, base=openwebui_base)
     if status != 200:
         msg = f"{label} 对话失败 (HTTP {status}): {str(data)[:200]}"
         raise ModelError(msg) if _is_model_error(status, data) else RuntimeError(msg)
@@ -414,13 +428,42 @@ def chat(system_text: str, user_text: str, token: str,
         raise ModelError(f"{label} 响应结构异常: {str(data)[:200]}") from e
 
 
+def _get_runtime_config() -> dict:
+    """运行时配置：优先读 ai_model_config（用户 UI 配置），无则用模块级环境变量常量。"""
+    try:
+        from backend.services import ai_model_config
+        return ai_model_config.get_config()
+    except Exception:  # noqa: BLE001
+        pass
+    # 兜底：环境变量常量（保持向后兼容，CLI 测试 / 无配置时仍可跑）
+    return {
+        "provider": "both",
+        "local_enabled": WORKBUDDY_ENABLED,
+        "local_model": WORKBUDDY_MODEL,
+        "local_base_url": WORKBUDDY_BASE_URL,
+        "openwebui_model": MODEL,
+        "openwebui_base_url": BASE_URL,
+        "openwebui_email": EMAIL,
+        "openwebui_password": PASSWORD,
+    }
+
+
 def model_chain(token: str) -> Tuple[List[Tuple[str, str]], str]:
     """按优先级给出 (provider, model) 调用链：本地 WorkBuddy 主用，Open WebUI 备用。"""
+    cfg = _get_runtime_config()
     chain: List[Tuple[str, str]] = []
-    if WORKBUDDY_ENABLED:
-        chain.append(("workbuddy", WORKBUDDY_MODEL))
-    candidates, policy = resolve_candidates(token)
-    chain += [("openwebui", m) for m in candidates]
+    provider = cfg.get("provider", "both")
+    local_enabled = cfg.get("local_enabled", True)
+    local_model = cfg.get("local_model", WORKBUDDY_MODEL)
+    openwebui_model = cfg.get("openwebui_model", MODEL)
+
+    if provider == "local" or (provider == "both" and local_enabled):
+        chain.append(("workbuddy", local_model))
+    if provider != "local":
+        candidates, policy = resolve_candidates(token)
+        chain += [("openwebui", m) for m in candidates]
+    else:
+        policy = f"local:{local_model}"
     return chain, policy
 
 

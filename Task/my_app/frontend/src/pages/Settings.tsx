@@ -3,6 +3,7 @@ import { useI18n } from '../i18n'
 import CredentialSettings from './CredentialSettings'
 import EmailRecipientsSettings from './EmailRecipientsSettings'
 import RemoteHostSettings from './RemoteHostSettings'
+import AIModelSettings from './AIModelSettings'
 import TaskConfigTab from './datasync/TaskConfigTab'
 
 export default function Settings() {
@@ -25,6 +26,11 @@ export default function Settings() {
           key: 'remoteHost',
           label: t('settings.remoteHostTab'),
           children: <RemoteHostSettings />,
+        },
+        {
+          key: 'aiModel',
+          label: t('settings.aiModelTab'),
+          children: <AIModelSettings />,
         },
         {
           key: 'taskConfig',
