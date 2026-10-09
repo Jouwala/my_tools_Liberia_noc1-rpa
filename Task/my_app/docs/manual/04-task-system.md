@@ -150,7 +150,7 @@ APScheduler 到点 (backend 进程内)
 | `sp_online_report_generate` | SP 在线未关闭单报表生成（Inbound 读明细 xlsx；**Outbound 读库表 `sp_outbound`**，跟踪等待更新/等待归还/等待确认） | `0 6 * * *` | m |
 | `sp_online_report_send` | SP 在线未关闭单报表发送 | `20 6 * * *` | m |
 | `sp_whatsapp_report` | Comsumables&SpareParts Report Whatsapp | `15 7 * * *` | m |
-| `sp_online_sync` | SP Online 工单同步（原始 filter 与状态全集 filter **取并集**，避免过滤条件与返回结果自相矛盾时静默取错数据） | `35 * * * *` | n |
+| `sp_online_sync` | SP Online 工单同步（原始 filter 与状态全集 filter **取并集**，避免过滤条件与返回结果自相矛盾时静默取错数据；表语义=上游快照，**全量重建**删除上游已消失的单据，拉取不完整时只 upsert 不删除） | `35 */6 * * *` | n |
 | `sp_material_sync` | SP 物料主数据同步 | `55 4 * * *` | n |
 | `ume_in_kpi_sync` | 客户业务 KPI 同步 | `45 5 * * *` | n |
 | `ume_in_osg_report` | 客户业务 KPI + OSG 周报邮件 | `30 6 * * *` | n |

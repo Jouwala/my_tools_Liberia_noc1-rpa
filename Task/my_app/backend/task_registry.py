@@ -495,8 +495,8 @@ TASK_SPECS = [
     dict(task_id="sp_details_files_email", name="SP 备件明细分文件邮件",
          name_en="SP Spare Parts Details Files Email",
          loader=("backend.services.kpi_email_report", "run_sp_details_files_email"),
-         description="每天 10:05 把 data/sp_email/data 下 6 份备件明细（inventory/inband/outband/transfer/transfer_return/ocrule）**一文件一邮件**逐个发送，主题为「Liberia OLR W.H <附件文件名> <日期时间>」；对外附件名把 inband/outband 写作 inbound/outbound（磁盘源名不变）；优先用未过滤的 *_source.xlsx 原始快照，缺失时逐份回退过滤版；任一份文件缺失即整体失败、一封都不发，单封发送失败则不中断后续并汇总点名。默认主送 MS.NOC@zte.com.cn，抄送 li.jing132@zte.com.cn / luo.wutao@zte.com.cn（收件人可在 Settings → Email Recipients 的 sp_details_files 分组覆盖）",
-         description_en="Daily 10:05: send the 6 spare-part detail files (inventory/inband/outband/transfer/transfer_return/ocrule) under data/sp_email/data as ONE EMAIL PER FILE, each with a single attachment and the subject 'Liberia OLR W.H <attachment file name> <date time>'; outbound attachment names use inbound/outbound for inband/outband (on-disk source names unchanged); prefers the unfiltered *_source.xlsx raw snapshot and falls back per-file to the filtered version; if any file is missing the whole run fails and nothing is sent, while a single send failure does not stop the rest and is reported by name. Default To MS.NOC@zte.com.cn, Cc li.jing132@zte.com.cn / luo.wutao@zte.com.cn (recipients editable in Settings → Email Recipients, group sp_details_files)",
+         description="每天 10:05 把 data/sp_email/data 下 6 份备件明细（inventory/inband/outband/transfer/transfer_return/ocrule）**一文件一邮件**逐个发送，主题为「Liberia OLR W.H <附件文件名> <日期时间>」；对外附件名把 inband/outband 写作 inbound/outbound，且 6 份一律带 _source 后缀（磁盘源名不变；ocrule 无原始快照，对外名带 _source 但内容为过滤版）；优先用未过滤的 *_source.xlsx 原始快照，缺失时逐份回退过滤版；任一份文件缺失即整体失败、一封都不发，单封发送失败则不中断后续并汇总点名。默认主送 MS.NOC@zte.com.cn，抄送 li.jing132@zte.com.cn / luo.wutao@zte.com.cn（收件人可在 Settings → Email Recipients 的 sp_details_files 分组覆盖）",
+         description_en="Daily 10:05: send the 6 spare-part detail files (inventory/inband/outband/transfer/transfer_return/ocrule) under data/sp_email/data as ONE EMAIL PER FILE, each with a single attachment and the subject 'Liberia OLR W.H <attachment file name> <date time>'; outbound attachment names use inbound/outbound for inband/outband and all 6 carry the _source suffix (on-disk source names unchanged; ocrule has no raw snapshot, so its outbound name carries _source while the content is the filtered version); prefers the unfiltered *_source.xlsx raw snapshot and falls back per-file to the filtered version; if any file is missing the whole run fails and nothing is sent, while a single send failure does not stop the rest and is reported by name. Default To MS.NOC@zte.com.cn, Cc li.jing132@zte.com.cn / luo.wutao@zte.com.cn (recipients editable in Settings → Email Recipients, group sp_details_files)",
          default_cron="5 10 * * *", category="kpi_email"),
 
     # 19g. SP 物料库存与消耗报表邮件（每天 07:45）：2026-09-11 新增。
@@ -711,8 +711,8 @@ TASK_SPECS = [
     #   或确认缓存命中，不要只把 cron 调密。
     dict(task_id="sp_online_sync", name="SP Online 工单同步", name_en="SP Online Ticket Sync",
          loader=("backend.services.sp_online_sync", "run_sp_online_sync"),
-         description="从 eFlow SP 接口（sp-outbound/sp-inbound/sp-transfer）拉全量在线工单，写入 app.db 表 sp_outbound / sp_inbound / sp_transfer（Table Browser 可查）。每 6 小时一轮，避免每轮都触发一次 eFlow 登录",
-         description_en="Fetch all online tickets from eFlow SP APIs (sp-outbound/sp-inbound/sp-transfer) into app.db tables sp_outbound / sp_inbound / sp_transfer (visible in Table Browser). Runs every 6 hours to avoid a fresh eFlow login each round",
+         description="从 eFlow SP 接口（sp-outbound/sp-inbound/sp-transfer）拉全量在线工单，写入 app.db 表 sp_outbound / sp_inbound / sp_transfer（Table Browser 可查）。每 6 小时一轮，避免每轮都触发一次 eFlow 登录。表语义=上游当前快照：全量重建，删除上游已消失的单据；拉取不完整时只 upsert 不删除",
+         description_en="Fetch all online tickets from eFlow SP APIs (sp-outbound/sp-inbound/sp-transfer) into app.db tables sp_outbound / sp_inbound / sp_transfer (visible in Table Browser). Runs every 6 hours to avoid a fresh eFlow login each round. Tables mirror the upstream snapshot: full rebuild deletes tickets that vanished upstream; on an incomplete fetch it only upserts and never deletes",
          default_cron="35 */6 * * *", category="sp_online"),
 
     # 34c. SP 物料主数据同步（每天 04:55）：从 eFlow SP 物料接口拉全量写入 sp_material

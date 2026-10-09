@@ -27,6 +27,14 @@
 > **上游 filter 未被遵循（2026-09-30 实测）**：对 inbound 分别用「4 个在途态」与「15 态全集」
 > 请求，服务端都返回同一份 282 行全 Closed 的数据，即它**忽略 filter 的收窄语义**。
 > 因此本模块不再依赖 filter 精确性，并集 + 自检告警是当下的稳妥做法。
+
+4. **表 = 上游快照，每个端点全量重建（2026-10-09 起）**：本任务拉的是全量（非增量），
+   但旧实现只 upsert、从不删除，上游已消失的单据会**永久残留**。实测 sp_outbound 因此
+   积了 37 条僵尸 `WaitingForUpdate`（`_fetched_at` 停在 2026-09-07~24），被 sp_online
+   报表原样呈现，而 eFlow 与 SFTP 均早已无这些单。现改为：本轮成功拉取的 woId 全集即真相，
+   upsert 后删除表中不在集合里的行（`save_to_db(reconcile_keys=...)`）。
+   **安全阀**：仅当端点「两份 filter 全部成功且结果非空」（`fetch_endpoint` 的 `complete`）
+   才删除；任一份失败则退化为只 upsert，宁可留下陈旧行也不误删真实单据。
 """
 import os
 import re
@@ -233,7 +241,7 @@ def _check_filter_integrity(table, rows, used_filter):
 
 
 def fetch_endpoint(item):
-    """拉取单个端点的全量数据，返回 (rows, used_filter_desc)。失败抛异常。
+    """拉取单个端点的全量数据，返回 (rows, used_filter_desc, complete)。失败抛异常。
 
     取 原始 filter 与 状态全集 filter 两份结果的**并集**（按主键去重），而不是
     「原始 filter 取到 0 行才回退」—— 后者会把「这个 filter 本来就没有匹配」
@@ -241,6 +249,10 @@ def fetch_endpoint(item):
 
     并集是安全的：两个 filter 都只是**收窄查询范围**，合并后覆盖两者的全部命中，
     既拿得到在途单，也拿得到 Closed 历史单，不必猜哪种情况该兜底。
+
+    ``complete``（2026-10-09 新增）：本端点是否**完整**拉取 —— 两份 filter 全部成功
+    且合并结果非空。这是 ``save_to_db`` 全量删除（reconcile）的开关：只有完整拉取
+    才允许「表 = 上游快照」，否则上游一次抖动就可能把真实单据批量删掉。
     """
     path, payload = item["path"], dict(item["payload"])
     payload.pop("start", None)
@@ -260,6 +272,7 @@ def fetch_endpoint(item):
     filters = [orig_filter] if orig_filter == FILTER_ALL else [orig_filter, FILTER_ALL]
 
     merged, seen, parts = [], set(), []
+    failed = 0
     for flt in filters:
         label = "原始" if flt == orig_filter else "全集"
         try:
@@ -268,6 +281,7 @@ def fetch_endpoint(item):
             # 单份失败不致命：另一份仍可能成功（旧行为是整体抛错）
             logger.warning(f"[SP-ONLINE] {item['table']} {label} filter 拉取失败: {e}")
             parts.append(f"{label}=FAIL")
+            failed += 1
             continue
         _check_filter_integrity(item["table"], rows, flt)
         added = 0
@@ -282,9 +296,13 @@ def fetch_endpoint(item):
     if not merged:
         raise RuntimeError(f"{path} 两份 filter 均未取到数据（{', '.join(parts)}）")
 
+    # 完整 = 没有任何一份 filter 失败（否则本轮结果可能只是上游的一部分，
+    # 据此删表会误删真实单据）。merged 非空已由上面的 raise 保证。
+    complete = (failed == 0)
     desc = "并集(" + ", ".join(parts) + ")"
-    logger.info(f"[SP-ONLINE] {item['table']}: 拉取 {len(merged)} 行 [{desc}]")
-    return merged, desc
+    logger.info(f"[SP-ONLINE] {item['table']}: 拉取 {len(merged)} 行 [{desc}]"
+                + ("" if complete else "（不完整，本轮将跳过删除）"))
+    return merged, desc, complete
 
 
 def _fetch_all_pages(path, fields, flt):
@@ -378,10 +396,29 @@ def _q(col):
     return '"' + col.replace('"', '""') + '"'
 
 
-def save_to_db(table, headers, records, key_col="woId"):
-    """写入 app.db（sqlite/PG 双模）。以 key_col 为唯一键 upsert，返回写入行数。"""
+#: 全量重建写入临时表的批量大小：只为减少往返，不涉及 SQL 参数上限
+#: （临时表方案没有 IN 列表长度限制，分批只是小优化）。
+_RECONCILE_INSERT_BATCH = 500
+
+
+def save_to_db(table, headers, records, key_col="woId", reconcile_keys=None):
+    """写入 app.db（sqlite/PG 双模）。以 key_col 为唯一键 upsert，返回 (写入行数, 删除行数)。
+
+    全量重建（2026-10-09 新增）
+    --------------------------
+    本任务的每个端点都是**全量拉取**（不是增量流水），故表语义应为「上游当前快照」。
+    旧实现只 upsert、从不删除，上游已消失的单据（如流转走 / 被清理的 WaitingForUpdate）
+    会永久残留 —— 实测 sp_outbound 因此积了 37 条僵尸行，被 sp_online 报表原样呈现。
+
+    传入 ``reconcile_keys``（本轮成功拉取到的 ``key_col`` 全集）即启用重建：upsert 之后
+    在同一事务内删除表中**不在该集合**里的行。传 ``None``（默认）保持纯 upsert 行为，
+    向后兼容其它调用方。
+
+    ⚠️ 调用方**必须**只在「本次拉取完整」时才传 ``reconcile_keys``：上游若返回半截数据，
+    据此删表会把真实单据误删。判断逻辑见 ``fetch_endpoint`` 的 ``complete`` 返回值。
+    """
     if not headers or not records:
-        return 0
+        return 0, 0
     if key_col not in headers:
         raise RuntimeError(f"{table}: 缺少主键列 {key_col}")
 
@@ -397,8 +434,9 @@ def save_to_db(table, headers, records, key_col="woId"):
     if dropped:
         logger.warning(f"[SP-ONLINE] {table}: 丢弃 {dropped} 行主键为空的记录")
     if not records:
-        return 0
+        return 0, 0
 
+    deleted = 0
     with get_raw_connection(timeout=60.0) as conn:
         cursor = conn.cursor()
         is_pg = not isinstance(conn, sqlite3.Connection)
@@ -433,6 +471,32 @@ def save_to_db(table, headers, records, key_col="woId"):
             cursor.execute(f'CREATE UNIQUE INDEX "u_{table}" ON "{table}" ({pk_q})')
 
             upsert(conn, table, records, conflict_cols=[key_col])
+
+            # 全量重建：删除不在本轮结果里的行（表 = 上游快照）。
+            # 用**临时表 + NOT IN (SELECT ...)** 而不是 `NOT IN (?,?,...)`：
+            #   1) 一次 DELETE 完成，不能分批 —— 分批时每批的 NOT IN 只保护本批的 key，
+            #      会把后续批次的 key 也删掉（实测会把整表删空）；
+            #   2) 也避免 key 数量超过 SQLite/PG 的绑定参数上限（684 个 key 一次 IN 列表
+            #      在旧 SQLite 默认 999 上限下已经危险）。
+            # 临时表随连接结束自动清理（PG 为 ON COMMIT DROP 语义失败时的兜底是
+            # 会话结束自动回收；SQLite 同名 TEMP 表同理）。
+            if reconcile_keys is not None:
+                keys = [k for k in (str(k) for k in reconcile_keys) if k]
+                if keys:
+                    before = _count_rows(cursor, table)
+                    tmp = f"tmp_reconcile_{table}"
+                    cursor.execute(
+                        f'CREATE TEMP TABLE "{tmp}" ("k" TEXT PRIMARY KEY)')
+                    _insert_temp_keys(cursor, tmp, keys, is_pg)
+                    cursor.execute(
+                        f'DELETE FROM "{table}" WHERE {pk_q} NOT IN '
+                        f'(SELECT "k" FROM "{tmp}")')
+                    deleted = before - _count_rows(cursor, table)
+                    cursor.execute(f'DROP TABLE "{tmp}"')
+                    logger.info(
+                        f"[SP-ONLINE] {table}: 全量重建删除 {deleted} 行"
+                        f"（保留 {len(keys)} 个本轮 woId，删前共 {before} 行）"
+                    )
             conn.commit()
         finally:
             if is_pg and lock_key is not None:
@@ -442,17 +506,41 @@ def save_to_db(table, headers, records, key_col="woId"):
                     pass
 
     logger.info(f"[SP-ONLINE] {table}: upsert {len(records)} 行（pk={key_col}）")
-    return len(records)
+    return len(records), deleted
+
+
+def _count_rows(cursor, table):
+    """当前表行数（用于统计删除量）。表一定已存在（调用点刚 CREATE/upsert 过）。"""
+    return int(cursor.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0])
+
+
+def _insert_temp_keys(cursor, table, keys, is_pg):
+    """把本轮 woId 写进临时表（分批 executemany，避免超长单条语句）。
+
+    两方言的"忽略重复键"写法不同：sqlite `INSERT OR IGNORE` / PG `ON CONFLICT DO NOTHING`。
+    上游理论上不会重号，这里忽略重复只为让重号不致中断同步。
+    """
+    if is_pg:
+        sql = f'INSERT INTO "{table}" ("k") VALUES (?) ON CONFLICT DO NOTHING'
+    else:
+        sql = f'INSERT OR IGNORE INTO "{table}" ("k") VALUES (?)'
+    for i in range(0, len(keys), _RECONCILE_INSERT_BATCH):
+        batch = keys[i:i + _RECONCILE_INSERT_BATCH]
+        cursor.executemany(sql, [(k,) for k in batch])
 
 
 # ---------------- 任务入口 ----------------
 def run_sp_online_sync():
     """定时任务入口：拉取 3 个 SP 端点全量并写入 app.db。
 
-    返回 {"success", "tables": {表: 行数}, "rows", "errors", "elapsed_seconds"}
+    每个端点为**全量重建**：拉取完整时，表中不在本轮结果的 woId 会被删除，
+    使表语义 = 上游当前快照；拉取不完整时只 upsert、不删除（见 save_to_db）。
+
+    返回 {"success", "tables": {表: upsert 行数}, "deleted": {表: 删除行数},
+          "rows", "errors", "elapsed_seconds", "filters"}
     """
     t0 = time.time()
-    result = {"success": False, "tables": {}, "rows": 0, "errors": [],
+    result = {"success": False, "tables": {}, "deleted": {}, "rows": 0, "errors": [],
               "elapsed_seconds": 0, "filters": {}}
     try:
         if not os.path.exists(URL_TXT):
@@ -474,10 +562,23 @@ def run_sp_online_sync():
         for item in items:
             table = item["table"]
             try:
-                rows, filter_desc = fetch_endpoint(item)
+                rows, filter_desc, complete = fetch_endpoint(item)
                 headers, records = normalize_rows(rows, fetched_at)
-                n = save_to_db(table, headers, records)
+                # 只有在完整拉取时才做全量删除（表 = 上游快照）；否则只 upsert，
+                # 避免上游返回半截数据时把真实单据误删。
+                reconcile_keys = None
+                if complete:
+                    reconcile_keys = {str(r.get("woId")) for r in rows
+                                      if r.get("woId") is not None}
+                else:
+                    logger.warning(
+                        f"[SP-ONLINE] {table}: 本轮拉取不完整（{filter_desc}），"
+                        f"跳过全量删除以策安全"
+                    )
+                n, deleted = save_to_db(table, headers, records,
+                                        reconcile_keys=reconcile_keys)
                 result["tables"][table] = n
+                result["deleted"][table] = deleted
                 result["rows"] += n
                 # fetch_endpoint 返回的已是可读描述（如「并集(原始=0(+0), 全集=282(+282))」）
                 result["filters"][table] = filter_desc
@@ -494,7 +595,8 @@ def run_sp_online_sync():
     result["elapsed_seconds"] = round(time.time() - t0, 2)
     logger.info(
         f"[SP-ONLINE] 完成: rows={result['rows']} tables={result['tables']} "
-        f"errors={len(result['errors'])} {result['elapsed_seconds']}s"
+        f"deleted={result['deleted']} errors={len(result['errors'])} "
+        f"{result['elapsed_seconds']}s"
     )
     return result
 

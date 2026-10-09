@@ -132,6 +132,8 @@ _SP_DETAILS_FILES_DEFAULT_CC = "li.jing132@zte.com.cn;luo.wutao@zte.com.cn"
 #:   inband/outband 对外要写成 **inbound/outbound**（这才是业务侧习惯叫法），
 #:   而磁盘上的源文件名（SFTP 导出名）不改——所以两者必须分开维护。
 #: * 快照后缀 ``_source`` 会原样保留在对外名里（用户 2026-09-30 明确要「实际名字」）。
+#:   2026-10-09 用户要求 6 份**全部**带 ``_source``，含磁盘上并无快照的 ocrule_details
+#:   （它的对外名与磁盘源名因此不同名，见 ``_detail_attachment_path`` 的回退逻辑）。
 #: 2026-09-30 用户追加 inventory_details（原先漏了），现为 6 份。
 _SP_DETAILS_FILES = (
     ("inventory_details.xlsx", "inventory_details_source.xlsx"),
@@ -139,7 +141,13 @@ _SP_DETAILS_FILES = (
     ("outband_details.xlsx", "outbound_details_source.xlsx"),
     ("transfer_details.xlsx", "transfer_details_source.xlsx"),
     ("transfer_return_details.xlsx", "transfer_return_details_source.xlsx"),
-    ("ocrule_details.xlsx", "ocrule_details.xlsx"),
+    # 2026-10-09 用户指定：OC Rule 对外名也带 ``_source``，与其余 5 份保持一致。
+    # 注意这只是**对外名**——磁盘上确实**没有** ``ocrule_details_source.xlsx``
+    # （sp_report_generate 只对 5 份明细做原样快照，见 sp_details_service.RAW_SUFFIX
+    # 的使用点），``_detail_attachment_path`` 会照旧回退到过滤版
+    # ``ocrule_details.xlsx``，因此信封里的名字是 ``_source`` 而内容是过滤版。
+    # 这是**预期行为**（用户 2026-10-09 明确要求统一命名），不是缺文件。
+    ("ocrule_details.xlsx", "ocrule_details_source.xlsx"),
 )
 
 #: 邮件主题前缀（用户 2026-09-30 指定）：``Liberia OLR W.H <附件文件名> <日期时间>``
@@ -654,7 +662,7 @@ def run_sp_details_files_email(to: str = None, cc: str = None) -> dict:
 
         inventory_details_source.xlsx / inbound_details_source.xlsx /
         outbound_details_source.xlsx / transfer_details_source.xlsx /
-        transfer_return_details_source.xlsx / ocrule_details.xlsx
+        transfer_return_details_source.xlsx / ocrule_details_source.xlsx
 
     主题：``Liberia OLR W.H <附件文件名> <日期时间>``
         e.g. Liberia OLR W.H inbound_details_source.xlsx 2026-09-30 10-05-00
@@ -664,6 +672,10 @@ def run_sp_details_files_email(to: str = None, cc: str = None) -> dict:
     但对收件人一律写成业务侧习惯的 **inbound / outbound**。因此附件不能用源路径
     直接发（``owa_mail_report`` 取 ``Path(fp).name`` 作附件名），需要先在本机 TMP
     下按对外名落一份副本再发，见 ``_stage_attachment``。
+
+    2026-10-09 用户追加：``ocrule_details`` 的对外名也带 ``_source``，6 份命名统一。
+    它的磁盘源**只有**过滤版 ``ocrule_details.xlsx``（无原始快照），所以对外名带
+    ``_source`` 但内容是过滤版——这是用户明确的命名口径，不是取错了文件。
 
     与 ``run_sp_details_email``（05 点）的区别：那个把明细合并成**一个**多 sheet
     工作簿并发 WhatsApp 群；本任务按用户要求**一文件一邮件**发 NOC，

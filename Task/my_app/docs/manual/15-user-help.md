@@ -1,6 +1,6 @@
 # my_app 使用帮助
 
-> 面向使用者的平台功能与操作指南。本文件由「使用帮助」页面同源生成（frontend/src/helpMarkdown.ts），内容依据 docs/manual/ 各章与 backend/task_registry.py 整理。生成日期：2026-10-08。
+> 面向使用者的平台功能与操作指南。本文件由「使用帮助」页面同源生成（frontend/src/helpMarkdown.ts），内容依据 docs/manual/ 各章与 backend/task_registry.py 整理。生成日期：2026-10-09。
 
 > 站内入口：侧边栏「使用帮助」，或直链 `http://<host>/myapp/?page=help`。
 
@@ -143,7 +143,7 @@
 | OLIB SOC VMAX 例行报表 | `olib_soc_vmax_report` | `30 7 1 * *` | m | `services/olib_soc_report/olib_soc_report_service.py → run_olib_soc_report` |
 | 客户业务 KPI 同步 | `ume_in_kpi_sync` | `45 5 * * *` | n | `services/ume_in/ume_in_kpi_service.py → run_ume_in_kpi_sync` |
 | 客户业务 KPI + OSG 周报邮件 | `ume_in_osg_report` | `30 6 * * *` | n | `services/ume_in/osg_report_task.py → run_ume_in_osg_report（内部依次调 ume_in_kpi_service + t_osg_build.py）` |
-| SP Online 工单同步 | `sp_online_sync` | `35 * * * *` | n | `services/sp_online_sync.py → run_sp_online_sync` |
+| SP Online 工单同步 | `sp_online_sync` | `35 */6 * * *` | n | `services/sp_online_sync.py → run_sp_online_sync` |
 | SP 物料主数据同步 | `sp_material_sync` | `55 4 * * *` | n | `services/sp_material_sync.py → run_sp_material_sync` |
 | SP 在线未关闭单报表生成 | `sp_online_report_generate` | `0 6 * * *` | m | `services/kpi_email_report.py → run_sp_online_report_generate` |
 | SP 在线未关闭单报表发送 | `sp_online_report_send` | `20 6 * * *` | m | `services/kpi_email_report.py → run_sp_online_report` |
@@ -286,7 +286,7 @@
 - 默认 cron: `2-59/5 * * * *`　|　worker 组: **m**
 - 工作流脚本: `services/tt_alarm_whatsapp_service.py → run_tt_alarm_whatsapp_alert`
 
-**功能**: 触发制推送：每 5 分钟（相位 2-59/5，与上游同步错开 2 分钟）扫 realtime_alarm 实时告警表，发现「带 TT + 触发窗口内 + 告警码白名单」的 P1 告警后实时回 eFlow 查单，首推后按「20 分钟未更新」重报（带 REMINDER 横幅），告警清除即止损。发送状态（是否已发/发了几次）落 eflow_tt_whatsapp_alert_log
+**功能**: 触发制推送：每 5 分钟（相位 2-59/5，与上游同步错开 2 分钟）扫 realtime_alarm 实时告警表，发现「带 TT + 触发窗口内 + 告警码白名单」的 P1 告警后实时回 eFlow 查单，首推后按双档重报（无更新满 10 分钟催报、有更新满 30 分钟才报，均带 REMINDER 横幅），告警清除即止损。发送状态（是否已发/发了几次）落 eflow_tt_whatsapp_alert_log
 
 **工作流与数据流**:
 
@@ -695,11 +695,11 @@
 **维护要点**:
 
 - 默认主送 MS.NOC@zte.com.cn，抄送 li.jing132@zte.com.cn / luo.wutao@zte.com.cn，可在系统设置 → 邮件收件人 的 sp_details_files 分组覆盖
-- 对外文件名与磁盘源名不同（用户指定）：inband/outband → inbound/outbound，故附件需先按对外名落副本再发（owa_mail_report 取 Path(fp).name 作附件名）
+- 对外文件名与磁盘源名不同（用户指定）：inband/outband → inbound/outbound，且 6 份一律带 _source 后缀，故附件需先按对外名落副本再发（owa_mail_report 取 Path(fp).name 作附件名）
 - 与 sp_email_details（05:00）同数据源但打包方式不同：那个合并成一个多 sheet 工作簿并发 WhatsApp 群，本任务一文件一邮件发 NOC，互不影响
 - 一文件一邮件 => 一次任务最多 6 次 EWS 会话，耗时约为单封的 6 倍；任务在 m 组串行，长时间占用会推迟同组其它轻任务
 - 单封失败时 error 只写 SEND_FAIL 固定标记 + 文件名，**不拼底层异常原文**——否则命中 EWS 关键字会让 email_recovery 把 6 封全部补发，已成功的重复投递；底层细节在 result.failed 里
-- ocrule_details 没有 *_source 快照，固定走过滤版（故对外名不带 _source）；这是预期行为，不是缺文件
+- ocrule_details 没有 *_source 快照，磁盘上只读过滤版；但对外名按用户要求统一带 _source（2026-10-09），故「名字带 _source、内容是过滤版」是预期行为，不是取错文件
 - 上游是 sp_report_generate（m 组 05:15）：明细文件缺失先查它，而不是本任务
 
 #### Comsumables&SpareParts Report Whatsapp（`sp_whatsapp_report`）
@@ -1248,15 +1248,16 @@
 
 #### SP Online 工单同步（`sp_online_sync`）
 
-- 默认 cron: `35 * * * *`　|　worker 组: **n**
+- 默认 cron: `35 */6 * * *`　|　worker 组: **n**
 - 工作流脚本: `services/sp_online_sync.py → run_sp_online_sync`
 
-**功能**: 每小时从 eFlow SP 接口拉在线工单（sp-outbound / sp-inbound / sp-transfer），写库表对应三张表。取「原始 filter」与「状态全集 filter」两份结果的并集，避免 filter 与其返回结果自相矛盾时静默取错数据
+**功能**: 每 6 小时从 eFlow SP 接口拉在线工单（sp-outbound / sp-inbound / sp-transfer），写库表对应三张表。取「原始 filter」与「状态全集 filter」两份结果的并集，避免 filter 与其返回结果自相矛盾时静默取错数据。表语义=上游当前快照：全量重建，删除上游已消失的单据
 
 **工作流与数据流**:
 
-1. 每小时 :35 请求 eFlow SP 三个接口，同一接口用原始 filter 与状态全集 filter 各拉一次
+1. 每 6 小时 :35 请求 eFlow SP 三个接口，同一接口用原始 filter 与状态全集 filter 各拉一次
 1. 两份结果按 woId 合并去重后写库表 sp_outbound / sp_inbound / sp_transfer
+1. 全量重建：upsert 后删除表中不在本轮 woId 集合里的行（表=上游快照）；拉取不完整时只 upsert、不删除
 1. 返回行的状态若全不在 filter 枚举内则告警（过滤条件与结果自相矛盾）
 1. 「表浏览器」可直查；sp_online_report_generate 的 Outbound 支路直接消费 sp_outbound 表
 
@@ -1265,6 +1266,7 @@
 - 上游账号走 eflow 凭据分组；eFlow 会话被踢时表现为该组任务连续 failed，由 auto_retry_failed 兜底
 - 2026-09-30 由「原始 filter 取到 0 行才回退全集」改为取并集：旧判据会把「该 filter 本就没有匹配」误判成「filter 坏了」，inbound 因此把「查在途」变成了「查历史关闭单」（282 行全 Closed）且无告警
 - 实测上游并不真正遵循 filter 的收窄语义（inbound 用 4 个在途态与 15 态全集请求返回同一份数据），故不要依赖 filter 精确性
+- 2026-10-09 增加全量重建：旧实现只 upsert 从不删除，上游已消失的单据会永久残留（sp_outbound 积了 37 条僵尸 WaitingForUpdate，被 sp_online 报表原样呈现）。安全阀：仅当端点两份 filter 全部成功且结果非空才删除，否则退化为只 upsert
 
 #### SP 物料主数据同步（`sp_material_sync`）
 

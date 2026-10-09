@@ -1,6 +1,6 @@
 # my_app User Help & Guide
 
-> User-facing platform features & operations guide. Generated from the same source as the in-app Help page (frontend/src/helpMarkdown.ts), compiled from docs/manual/ and backend/task_registry.py. Generated on 2026-10-08.
+> User-facing platform features & operations guide. Generated from the same source as the in-app Help page (frontend/src/helpMarkdown.ts), compiled from docs/manual/ and backend/task_registry.py. Generated on 2026-10-09.
 
 > In-app entry: the "Help" sidebar item, or `http://<host>/myapp/?page=help` directly.
 
@@ -143,7 +143,7 @@ Built for the NOC scenario "boards every day, reports must go out": 41+ schedule
 | OLIB SOC VMAX Routine Report | `olib_soc_vmax_report` | `30 7 1 * *` | m | `services/olib_soc_report/olib_soc_report_service.py → run_olib_soc_report` |
 | Customer Service KPI Sync | `ume_in_kpi_sync` | `45 5 * * *` | n | `services/ume_in/ume_in_kpi_service.py → run_ume_in_kpi_sync` |
 | Customer Service KPI + OSG Weekly Report Email | `ume_in_osg_report` | `30 6 * * *` | n | `services/ume_in/osg_report_task.py → run_ume_in_osg_report（内部依次调 ume_in_kpi_service + t_osg_build.py）` |
-| SP Online Ticket Sync | `sp_online_sync` | `35 * * * *` | n | `services/sp_online_sync.py → run_sp_online_sync` |
+| SP Online Ticket Sync | `sp_online_sync` | `35 */6 * * *` | n | `services/sp_online_sync.py → run_sp_online_sync` |
 | SP Material Master Sync | `sp_material_sync` | `55 4 * * *` | n | `services/sp_material_sync.py → run_sp_material_sync` |
 | SP Online Open Tickets Report Generate | `sp_online_report_generate` | `0 6 * * *` | m | `services/kpi_email_report.py → run_sp_online_report_generate` |
 | SP Online Open Tickets Report Send | `sp_online_report_send` | `20 6 * * *` | m | `services/kpi_email_report.py → run_sp_online_report` |
@@ -688,18 +688,18 @@ Workflow & maintenance notes per task:
 
 1. Resolve each detail file: prefer the unfiltered *_source.xlsx raw snapshot (the SFTP snapshot sp_report_generate keeps at 05:15 before any filtering), falling back to the filtered *_details.xlsx
 1. Check all 6 files up front: if any one is missing the whole run fails and NOTHING is sent (better no email at all than an incomplete set of reports)
-1. Stage a copy of each under TMP using the OUTBOUND name (on disk they are inband/outband, recipients see inbound/outbound); the copies are removed after sending
+1. Stage a copy of each under TMP using the OUTBOUND name (on disk they are inband/outband, recipients see inbound/outbound, and all 6 carry the _source suffix); the copies are removed after sending
 1. Send one by one — each email carries exactly one attachment, subject "Liberia OLR W.H <attachment file name> <date time>" (e.g. Liberia OLR W.H inbound_details_source.xlsx 2026-09-30 10-05-00)
 1. A single send failure does not stop the rest: the remaining files still go out, and the failures are reported by name so only those need a manual resend
 
 **Maintenance**:
 
 - Default To MS.NOC@zte.com.cn, Cc li.jing132@zte.com.cn / luo.wutao@zte.com.cn; overridable in Settings → Email Recipients, group sp_details_files
-- Outbound file names differ from the on-disk source names (per user request): inband/outband become inbound/outbound, so attachments must be staged under the outbound name first (owa_mail_report uses Path(fp).name as the attachment name)
+- Outbound file names differ from the on-disk source names (per user request): inband/outband become inbound/outbound, and all 6 carry the _source suffix, so attachments must be staged under the outbound name first (owa_mail_report uses Path(fp).name as the attachment name)
 - Same data source as sp_email_details (05:00) but a different package: that one merges into a single multi-sheet workbook and posts to the WhatsApp group, this one sends one file per email to NOC — they do not affect each other
 - One email per file means up to 6 EWS sessions per run, roughly 6x the duration of a single send; the task runs serially in group m, so a long run delays the other light tasks there
 - On a single-send failure the error carries only the SEND_FAIL marker plus file names, never the raw exception text — otherwise an EWS keyword would make email_recovery resend all 6 and duplicate the ones that already went out; the details live in result.failed
-- ocrule_details has no *_source snapshot and always uses the filtered version (hence no _source in its outbound name); that is expected, not a missing file
+- ocrule_details has no *_source snapshot and only the filtered version exists on disk, but per the user request (2026-10-09) its outbound name carries _source like the others; so "name has _source, content is filtered" is expected, not a wrong file
 - Upstream is sp_report_generate (group m, 05:15): if detail files are missing, investigate that task rather than this one
 
 #### Comsumables&SpareParts Report Whatsapp（`sp_whatsapp_report`）
@@ -1248,15 +1248,16 @@ Workflow & maintenance notes per task:
 
 #### SP Online Ticket Sync（`sp_online_sync`）
 
-- Default cron: `35 * * * *`　|　worker group: **n**
+- Default cron: `35 */6 * * *`　|　worker group: **n**
 - Workflow script: `services/sp_online_sync.py → run_sp_online_sync`
 
-**What it does**: Hourly: fetch online tickets from the eFlow SP APIs (sp-outbound/sp-inbound/sp-transfer) into the matching tables. Takes the union of the original filter and the all-status filter so a filter contradicting its own results can never silently pick the wrong data
+**What it does**: Every 6 hours: fetch online tickets from the eFlow SP APIs (sp-outbound/sp-inbound/sp-transfer) into the matching tables. Takes the union of the original filter and the all-status filter so a filter contradicting its own results can never silently pick the wrong data. Tables mirror the upstream snapshot: a full rebuild removes tickets that have vanished upstream
 
 **Workflow & data flow**:
 
-1. At :35 every hour call the three eFlow SP APIs, each once with the original filter and once with the all-status filter
+1. At :35 every 6 hours call the three eFlow SP APIs, each once with the original filter and once with the all-status filter
 1. Merge both result sets by woId and write tables sp_outbound / sp_inbound / sp_transfer
+1. Full rebuild: after upserting, delete rows whose woId is not in this run; on an incomplete fetch it only upserts and never deletes
 1. Warn when every returned row has a status outside the filter enumeration (filter contradicts results)
 1. Queryable in Table Browser; the Outbound leg of sp_online_report_generate consumes sp_outbound directly
 
@@ -1265,6 +1266,7 @@ Workflow & maintenance notes per task:
 - Upstream account comes from the eflow credential group; a kicked eFlow session shows up as consecutive failures in the group, covered by auto_retry_failed
 - Changed 2026-09-30 from "fall back to the all-status filter only when the original returns 0 rows" to a union: the old test mistook "this filter simply has no matches" for "the filter is broken", which turned inbound into a closed-ticket query (282 rows, all Closed) with no warning
 - Upstream does not truly honour filter narrowing (inbound returns the same data for a 4-status and a 15-status filter), so never rely on filter precision
+- Added 2026-10-09: full rebuild. The old implementation only upserted and never deleted, so tickets that vanished upstream stayed forever (37 zombie WaitingForUpdate rows in sp_outbound, surfaced as-is by the sp_online report). Safety valve: delete only when both filters succeed and the result is non-empty, otherwise degrade to upsert-only
 
 #### SP Material Master Sync（`sp_material_sync`）
 
