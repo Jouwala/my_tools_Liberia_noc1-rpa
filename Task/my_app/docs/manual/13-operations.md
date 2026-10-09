@@ -75,6 +75,7 @@ Get-ChildItem D:\01_RPA\Task\my_app\log\heartbeat_*.json |
 | 门户里少了 / 多了某张看板卡 | `backend\data\portal_catalog.json`（服务端全局目录，**53~54 条**） | 门户的看板清单**不在静态 assets 里**，而在服务端目录：`GET/PUT /api/portal-catalog`（`backend\routers\portal_catalog.py`，落盘 `backend\data\portal_catalog.json`，整体原子替换写）。改它请走接口而不是手改 JSON —— `_normalize_item`（`:205-257`）会校验 `titleZh/titleEn` 至少一个非空、`url` 必须以 `http(s)://` 开头，手改漏字段会让整份目录被丢掉。`no` 是分组成员覆盖与卡片锚点的键，**取当前最大号 +1，不复用已删编号**。回归：`python TMP\_verify_portal_ttwo_split.py` |
 | 门户登录**成功**、跳进 my_app 却**反复要求登录**，且 `portal-login` 返回 **503** | 启动日志里的「门户回调地址」自检行；`UNIPLAM_ME_URL` 是否指向**门户所在机器** | 见下方专节「门户回调用错地址：登录成功却进不去」 |
 | `/api/gis/sites` 间歇 500（`服务器内部错误，请稍后重试` + `request_id`） | 拿 `request_id` 去 `backend_runtime_<日期>.log` 搜 `[unhandled] rid=<id>`（**必须用当天那个日志文件**，后端每次重启会换文件，见 `backend_watchdog.py:47`） | 见下方专节「GIS 500：整表重建空窗」 |
+| `ImportError: DLL load failed ... An Application Control policy has blocked this file` | 报错里是否有这句 policy 文案（有即为本问题） | **不是缺依赖、不是版本问题、不是 PATH**：本机 Smart App Control **间歇**拦截未签名 `.pyd`，**会自行恢复**。稍等重试即可，**不要**换版本/删文件。见下方专节「App Control 拦截编译扩展」 |
 
 ### 门户回调用错地址：登录成功却进不去（2026-10-06 修复）
 
@@ -1377,6 +1378,40 @@ curl.exe -s -o NUL -w "fe=%{http_code} " https://localhost/myapp/; curl.exe -s -
 ```
 
 期望 `fe=200 api=200`；`api=502` 即后端没起，先看 `log\backend_runtime_<日期>.log` 尾部。
+
+### App Control 拦截编译扩展：`DLL load failed` / `An Application Control policy has blocked this file`（2026-10-09 复现）
+
+**现象**：`import` 带 C 扩展的包失败，报
+`ImportError: DLL load failed while importing <模块>: An Application Control policy has blocked this file.`
+2026-10-09 建新 venv 装依赖时一次踩到三个包：`psycopg2._psycopg`、`sqlalchemy.engine._result_cy`（`sqlalchemy>=2.1`）、
+`pandas` 相关扩展。**与代码无关、与 `.env` 无关**。
+
+**根因就是上面「后端静默停摆」那条的同一策略**（Smart App Control 强制模式，
+`HKLM\SYSTEM\CurrentControlSet\Control\CI\Policy` 的 `VerifiedAndReputablePolicyState=1`），
+**不是版本问题**：
+
+> ⚠️ **不要把它当成"新装依赖版本不对"**。2026-10-09 实测反证：
+> 被拦的 `SQLAlchemy==2.1.4` 隔约 40 分钟**原样重装即可正常 import**；被拦与被放行的 `.pyd`
+> **签名状态都是 `NotSigned`**（`Get-AuthenticodeSignature` 实测），即**版本与签名都不是判据**。
+> 拦截是**间歇且会自行消失**的（与该节结论一致：「同日复测已恢复正常，属瞬时故障」）。
+> 因此**处置办法不是降版本，而是稍后重试**：
+
+```powershell
+# 被拦时先做这个（通常几十秒~几分钟后自然恢复）：
+.\.venv\Scripts\python.exe -c "import psycopg2, sqlalchemy, pandas, dotenv; print('OK')"
+# 仍失败就重试；不要 --force-reinstall、不要删 .pyd、不要来回换版本
+```
+
+**判据**：文案含 `An Application Control policy has blocked this file` 即本问题，
+不是缺依赖、不是 PATH、不是版本 —— 该 `.pyd` **在**（`ls .venv\Lib\site-packages\<包>\*.pyd` 能看到），是加载时被系统拦下。
+**对脚本/一次性任务的意义**：这类拦截会让一次性的数据导入任务**偶发失败**，重跑即可；
+判断"是真故障还是被拦"只需看报错里有没有这句 policy 文案。
+
+**⚠️ 另一个会伪装成"连不上 PG"的真缺包 —— `python-dotenv`**（这条与 App Control 无关，但同时在 2026-10-09 踩到）：
+`backend\database.py:10` 靠 `load_dotenv` 读 `backend\.env`；没装它时会打印 `load_dotenv 不可用，已跳过` 并继续，
+随后 `MY_APP_DB_MODE=pg` 因 `DATABASE_URL` 未注入而在 `:51` 抛 `DB_MODE=pg 但环境变量 DATABASE_URL 未设置`
+—— **看起来像数据库故障，实为缺包**。补装 `python-dotenv==1.2.2` 即好（`requirements.lock.txt:11` 亦已说明）。
+**新 venv 请一律用 `pip install -r requirements.lock.txt` 建，不要按包名单独装**（会漏 `python-dotenv`/`alembic`/`playwright` 这类）。
 
 ## 备份与恢复
 
