@@ -155,3 +155,103 @@ def get_effective() -> dict:
             },
         },
     }
+
+
+# ------------------------------------------------------------------ #
+# 模型对比测试（供 /api/ai-model-settings/compare 使用）
+# ------------------------------------------------------------------ #
+def compare_models(
+    prompt: str,
+    system_prompt: str = "",
+    models: list[dict] | None = None,
+) -> list[dict]:
+    """同一 prompt 并发测试多个模型，返回每个的结果。
+
+    Args:
+        prompt:         用户消息
+        system_prompt:   可选的系统提示（默认只给语言指令）
+        models:          要测试的模型列表，默认用当前配置里的本地 + Open WebUI
+                        格式: [{"provider": "workbuddy"|"openwebui", "model": "模型ID"}]
+
+    Returns:
+        [{
+            "provider": str,        # "workbuddy" | "openwebui"
+            "model":    str,        # 模型 ID
+            "ok":       bool,
+            "response": str | None, # 成功时的回复文本
+            "error":    str | None, # 失败时的错误信息
+            "elapsed_ms": float,    # 耗时（毫秒）
+        }, ...]
+    """
+    import concurrent.futures
+    import time
+
+    try:
+        from backend.services import openwebui_client as owc
+    except Exception:  # noqa: BLE001
+        return [{
+            "provider": "", "model": "", "ok": False,
+            "response": None,
+            "error": "openwebui_client 不可导入，请检查后端依赖",
+            "elapsed_ms": 0.0,
+        }]
+
+    # 默认模型列表：从当前配置取本地 + Open WebUI
+    if not models:
+        cfg = get_config()
+        local_model = cfg.get("local_model", "deepseek-v4.1-flash")
+        openwebui_model = cfg.get("openwebui_model", "agnes-2.5-flash")
+        models = [
+            {"provider": "workbuddy", "model": local_model},
+            {"provider": "openwebui", "model": openwebui_model},
+        ]
+
+    # 默认语言指令 system_prompt（空时）
+    if not system_prompt:
+        system_prompt = (
+            "你是一个简洁的电信运维助手。请用简体中文回答，"
+            "标识符、站点名、字段名等保持原样。"
+        )
+
+    def _call_one(target: dict) -> dict:
+        p = target["provider"]
+        m = target["model"]
+        t0 = time.time()
+        try:
+            # chat() 内部处理 token 获取 / 重试 / 降级
+            # provider="openwebui" 时 chat() 内部会取 JWT
+            resp = owc.chat(
+                system_text=system_prompt,
+                user_text=prompt,
+                token="",          # chat() 内部自行取 token
+                model=m,
+                provider=p,
+            )
+            return {
+                "provider": p,
+                "model": m,
+                "ok": True,
+                "response": resp,
+                "error": None,
+                "elapsed_ms": round((time.time() - t0) * 1000, 1),
+            }
+        except Exception as e:  # noqa: BLE001
+            return {
+                "provider": p,
+                "model": m,
+                "ok": False,
+                "response": None,
+                "error": f"{type(e).__name__}: {e}",
+                "elapsed_ms": round((time.time() - t0) * 1000, 1),
+            }
+
+    results: list[dict] = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(models), 4)) as ex:
+        futures = {ex.submit(_call_one, mdl): mdl for mdl in models}
+        for f in concurrent.futures.as_completed(futures):
+            results.append(f.result())
+
+    # 保持用户指定的顺序
+    order = {f"{m['provider']}:{m['model']}": i for i, m in enumerate(models)}
+    results.sort(key=lambda r: order.get(f"{r['provider']}:{r['model']}", 99))
+    return results

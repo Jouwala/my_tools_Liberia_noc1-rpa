@@ -4,13 +4,27 @@
 GET  /api/ai-model-settings       → 当前配置 + schema + defaults
 PUT  /api/ai-model-settings       → 更新配置（需要鉴权）
 GET  /api/ai-model-settings/chain → 返回当前调用链描述（供前端展示）
+POST /api/ai-model-settings/compare → 同一 prompt 对比测试多个模型
 """
 from fastapi import APIRouter, Depends
+
+from pydantic import BaseModel
 
 from backend.security import require_protected
 from backend.services import ai_model_config
 
 router = APIRouter(tags=["ai-model-settings"])
+
+
+class CompareRequest(BaseModel):
+    prompt: str
+    system_prompt: str = ""
+    models: list[dict] | None = None
+
+
+class ModelEntry(BaseModel):
+    provider: str
+    model: str
 
 
 @router.get("/api/ai-model-settings")
@@ -51,3 +65,22 @@ def get_model_chain():
         "local_base_url": local_base,
         "openwebui_base_url": owu_base,
     }
+
+
+@router.post("/api/ai-model-settings/compare")
+def compare_models(body: CompareRequest):
+    """同一 prompt 对比测试多个模型（无需鉴权，直接调用 OpenAI 兼容接口）。
+
+    body.prompt          用户消息
+    body.system_prompt   可选系统提示（默认只给语言指令）
+    body.models           可选模型列表（默认取当前配置里的本地 + Open WebUI）
+                          格式: [{"provider": "workbuddy"|"openwebui", "model": "模型ID"}]
+
+    返回: {"results": [{"provider", "model", "ok", "response", "error", "elapsed_ms"}, ...]}
+    """
+    results = ai_model_config.compare_models(
+        prompt=body.prompt,
+        system_prompt=body.system_prompt or "",
+        models=body.models,
+    )
+    return {"results": results}
