@@ -188,10 +188,14 @@ const VALID_PAGES: PageKey[] = ['overview', 'tables', 'upload', 'dashboard', 'al
  * 会优先在 iframe 内原地重拉数据：不重载文档、保留布局/筛选/浏览器全屏状态，
  * 大屏不闪屏。硬重挂载仅作为其余页面的兜底手段。
  *
+ * 两层拦截的边界（2026-10-10 修正）：软刷新广播**无副作用**（原文档内重取数，
+ * 不重挂载、不丢焦点、不退全屏），故除了「本页不支持软刷新」之外一律照发，包括
+ * 标签页后台与元素级全屏 —— 大屏挂机全屏恰恰最需要持续刷新。真正需要「用户正忙」
+ * （输入中 / 弹层打开 / 标签页后台）与全屏拦截的只有**硬重挂载**这条有副作用的兜底
+ * 路径，它才会丢焦点、退全屏。
+ *
  * 用户可在顶栏选择间隔（持久化 localStorage）；未显式选择时所有页面默认
- * 开启、每 5 分钟（AR_PAGE_DEFAULT_SEC）。为不破坏正在进行的操作，到点时若
- * 检测到「用户正忙」（正在输入、弹窗/抽屉/下拉打开、标签页在后台）则本轮
- * 跳过、下个间隔再试——空闲挂机的大屏必然按时刷新。 */
+ * 开启、每 5 分钟（AR_PAGE_DEFAULT_SEC）。 */
 const AR_STORAGE_KEY = 'myapp_auto_refresh_sec'
 /** 当前「生效」间隔（用户选择 > 本页默认 > 全局默认），供 legacy 页面显示用 */
 const AR_EFFECTIVE_KEY = 'myapp_auto_refresh_effective'
@@ -817,20 +821,25 @@ function AppContent() {
   const arEffective = arOverride ?? AR_PAGE_DEFAULTS[currentPage] ?? AR_PAGE_DEFAULT_SEC
 
   const performAutoRefresh = useCallback(() => {
-    // 后台标签 / 弹窗打开：本轮跳过，避免打断交互与无谓请求
-    if (arInteractionInProgress()) return
-    // 软刷新：向所有 iframe 广播协议，支持者（mw_ume_topology.html 等）在
-    // 文档内原地重拉数据 —— 不闪屏、不退出浏览器全屏、保留内部筛选状态
+    // 软刷新广播：向所有 iframe 发协议，支持者（mw_ume_topology.html / mw_real_time.html
+    // 等）在文档内「原地」重拉数据 —— 不闪屏、不重挂载、不退出浏览器全屏、保留内部
+    // 筛选与全屏状态，因此即便标签页后台 / 弹窗打开 / 元素级全屏也一律照发：
+    // 大屏挂机（含全屏）恰恰是最需要持续刷新的场景，此前被 arInteractionInProgress()
+    // 的 document.hidden 一并挡掉，导致全屏后长时间不刷新（2026-10-10 修复）。
+    // 该广播无副作用，故置于交互拦截之前。
     document.querySelectorAll('iframe').forEach((f) => {
       try { f.contentWindow?.postMessage({ __type: 'myapp-refresh' }, '*') } catch { /* ignore */ }
     })
-    setArSpin(true)
-    if (arSpinTimer.current) window.clearTimeout(arSpinTimer.current)
-    arSpinTimer.current = window.setTimeout(() => setArSpin(false), 800)
     // 硬刷新兜底：重挂载当前页面（useEffect 重取数 / iframe 因 cacheBust 重载）。
+    // 重挂载会移除 iframe、丢焦点、退出全屏，属于有副作用的操作 —— 只有这里才需要
+    // 「用户正忙（输入中/弹层打开/标签页后台）」与元素级全屏的拦截。
+    if (arInteractionInProgress()) return
     // 软刷新页与元素级全屏中不做重挂载（重挂载会移除 iframe 导致全屏退出）
     if (AR_SOFT_REFRESH_PAGES.includes(currentPage)) return
     if (document.fullscreenElement) return
+    setArSpin(true)
+    if (arSpinTimer.current) window.clearTimeout(arSpinTimer.current)
+    arSpinTimer.current = window.setTimeout(() => setArSpin(false), 800)
     invalidateCache() // 绕过 cachedGet 的 30s 前端缓存，确保拿到新数据
     setRefreshTick(x => x + 1)
   }, [currentPage])
