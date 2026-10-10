@@ -126,6 +126,10 @@ class _ShortCircuit(RuntimeError):
     """短路窗口内的快速失败：不去延长窗口本身，否则永远没机会再探测一次。"""
 
 
+class CustomApiKeyError(RuntimeError):
+    """自定义 Provider 缺少 API Key。"""
+
+
 def _mark_owu_down(exc: Exception) -> None:
     global _OWU_DOWN_UNTIL
     if isinstance(exc, UnreachableError):
@@ -391,6 +395,7 @@ def chat(system_text: str, user_text: str, token: str,
     provider=workbuddy → 本地 WorkBuddy 代理（codebuddy_proxy）的 /chat/completions，
     凭据在代理侧，这里不传 token；Open WebUI / 内网是否可达都不影响它。
     provider=openwebui → 走 OPENWEBUI_BASE_URL，401 时重登一次并重试。
+    provider=custom    → 走用户自填的 Base URL + API Key，OpenAI 兼容接口。
     WorkBuddy 网关要求首条消息是 system，payload 已满足。
     """
     cfg = _get_runtime_config()
@@ -406,10 +411,16 @@ def chat(system_text: str, user_text: str, token: str,
     }
     local_base = cfg.get("local_base_url", WORKBUDDY_BASE_URL)
     openwebui_base = cfg.get("openwebui_base_url", BASE_URL)
-    label = "WorkBuddy 本地代理" if provider == "workbuddy" else "Open WebUI"
     if provider == "workbuddy":
         status, data = _http("POST", "/chat/completions", payload,
                              base=local_base)
+    elif provider == "custom":
+        custom_base = cfg.get("custom_base_url", "").rstrip("/")
+        custom_key = cfg.get("custom_api_key", "").strip()
+        if not custom_key:
+            raise CustomApiKeyError("自定义 Provider 未配置 API Key（请在 Settings → AI Model 填写）")
+        status, data = _http("POST", "/chat/completions", payload,
+                             base=custom_base, token=custom_key)
     else:
         if _owu_down():
             raise _ShortCircuit("Open WebUI 处于不可达短路窗口内，跳过备用档")
@@ -419,6 +430,8 @@ def chat(system_text: str, user_text: str, token: str,
             token = signin(force=True)
             status, data = _http("POST", "/api/chat/completions",
                                  payload, token=token, base=openwebui_base)
+    label = {"workbuddy": "WorkBuddy 本地代理", "custom": "自定义 API",
+             "openwebui": "Open WebUI"}.get(provider, provider)
     if status != 200:
         msg = f"{label} 对话失败 (HTTP {status}): {str(data)[:200]}"
         raise ModelError(msg) if _is_model_error(status, data) else RuntimeError(msg)
@@ -449,13 +462,27 @@ def _get_runtime_config() -> dict:
 
 
 def model_chain(token: str) -> Tuple[List[Tuple[str, str]], str]:
-    """按优先级给出 (provider, model) 调用链：本地 WorkBuddy 主用，Open WebUI 备用。"""
+    """按优先级给出 (provider, model) 调用链：本地 WorkBuddy 主用，Open WebUI 备用。
+
+    provider=local   → 仅本地 WorkBuddy
+    provider=openwebui → 仅 Open WebUI
+    provider=custom  → 仅自定义 API
+    provider=both    → 本地 WorkBuddy 主用，Open WebUI 备用
+    """
     cfg = _get_runtime_config()
     chain: List[Tuple[str, str]] = []
     provider = cfg.get("provider", "both")
     local_enabled = cfg.get("local_enabled", True)
     local_model = cfg.get("local_model", WORKBUDDY_MODEL)
     openwebui_model = cfg.get("openwebui_model", MODEL)
+
+    if provider == "custom":
+        custom_model = cfg.get("custom_model", "")
+        if custom_model:
+            chain.append(("custom", custom_model))
+        elif local_enabled:
+            chain.append(("workbuddy", local_model))
+        return chain, f"custom:{custom_model}" if custom_model else f"local:{local_model}"
 
     if provider == "local" or (provider == "both" and local_enabled):
         chain.append(("workbuddy", local_model))

@@ -47,13 +47,17 @@ def get_model_chain():
     provider = cfg.get("provider", "both")
     local_model = cfg.get("local_model", "deepseek-v4.1-flash")
     openwebui_model = cfg.get("openwebui_model", "agnes-2.5-flash")
+    custom_model = cfg.get("custom_model", "")
     local_base = cfg.get("local_base_url", "")
     owu_base = cfg.get("openwebui_base_url", "")
+    custom_base = cfg.get("custom_base_url", "")
 
     if provider == "local":
         chain = f"本地模型（{local_model}）@ {local_base}"
     elif provider == "openwebui":
         chain = f"Open WebUI（{openwebui_model}）@ {owu_base}"
+    elif provider == "custom":
+        chain = f"自定义（{custom_model}）@ {custom_base}"
     else:
         chain = f"本地模型（{local_model}）@ {local_base} → Open WebUI（{openwebui_model}）@ {owu_base}"
 
@@ -62,8 +66,10 @@ def get_model_chain():
         "chain": chain,
         "local_model": local_model,
         "openwebui_model": openwebui_model,
+        "custom_model": custom_model,
         "local_base_url": local_base,
         "openwebui_base_url": owu_base,
+        "custom_base_url": custom_base,
     }
 
 

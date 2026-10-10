@@ -5,7 +5,7 @@
  *   npm start
  *   npm start -- --debug      打印每次检索的诊断信息
  */
-import { CONFIG, describeConfig, ROOT } from './config.js';
+import { CONFIG, describeConfig, ROOT, loadRuntimeConfig } from './config.js';
 import { loadIndex } from './rag.js';
 import { loadLookupsOnce } from './tools.js';
 import { routeAnswer } from './answer.js';
@@ -38,6 +38,17 @@ process.on('uncaughtException', (err) => {
 
 async function main() {
   console.log('=== WhatsApp 知识库助手 ===\n');
+
+  // 0. 从 my_app 后端拉取 AI 模型配置（统一管理，不在 config.json 里另写一份）
+  //    放在最前面，确保后续 validateProvider / pingProvider / describeConfig
+  //    拿到的是 my_app 配置的值（而非 config.json 里的硬编码默认值）。
+  const myAppApiBase = CONFIG.myAppApiBase || 'http://127.0.0.1:7038';
+  const loaded = await loadRuntimeConfig(myAppApiBase);
+  if (!loaded) {
+    console.log(`  （使用 config.json 默认值）`);
+  }
+  console.log();
+
   for (const [k, v] of Object.entries(describeConfig())) {
     console.log(`  ${k.padEnd(10, '　')}: ${v}`);
   }

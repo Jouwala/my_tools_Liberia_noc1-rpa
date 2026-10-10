@@ -14,7 +14,7 @@ const { Text, Paragraph } = Typography
 const { TextArea } = Input
 
 interface AiModelConfig {
-  provider: 'local' | 'openwebui' | 'both'
+  provider: 'local' | 'openwebui' | 'both' | 'custom'
   local_enabled: boolean
   local_model: string
   local_base_url: string
@@ -22,6 +22,9 @@ interface AiModelConfig {
   openwebui_base_url: string
   openwebui_email: string
   openwebui_password: string
+  custom_model: string
+  custom_base_url: string
+  custom_api_key: string
 }
 
 interface ChainInfo {
@@ -51,6 +54,7 @@ const PROVIDER_OPTIONS = [
   { value: 'both', label_zh: '本地优先 + Open WebUI 备用', label_en: 'Local first + Open WebUI fallback' },
   { value: 'local', label_zh: '仅本地 WorkBuddy', label_en: 'Local WorkBuddy only' },
   { value: 'openwebui', label_zh: '仅 Open WebUI', label_en: 'Open WebUI only' },
+  { value: 'custom', label_zh: '自定义（URL + API Key + Model）', label_en: 'Custom (URL + API Key + Model)' },
 ]
 
 export default function AIModelSettings() {
@@ -98,6 +102,13 @@ export default function AIModelSettings() {
     addModel: zh ? '添加模型' : 'Add Model',
     providerWorkbuddy: zh ? '本地 WorkBuddy' : 'Local WorkBuddy',
     providerOpenwebui: zh ? 'Open WebUI' : 'Open WebUI',
+    providerCustom: zh ? '自定义' : 'Custom',
+    customSection: zh ? '自定义模型（OpenAI 兼容）' : 'Custom Model (OpenAI compatible)',
+    customModel: zh ? '模型 ID' : 'Model ID',
+    customModelHint: zh ? '如 gpt-4o、claude-3.5-sonnet' : 'e.g. gpt-4o, claude-3.5-sonnet',
+    customBaseUrl: zh ? 'API Base URL' : 'API Base URL',
+    customBaseUrlHint: zh ? '如 https://api.openai.com/v1' : 'e.g. https://api.openai.com/v1',
+    customApiKey: zh ? 'API Key' : 'API Key',
     runCompare: zh ? '开始对比' : 'Run Compare',
     comparing: zh ? '对比中...' : 'Comparing...',
     compareFailed: zh ? '对比请求失败' : 'Comparison request failed',
@@ -117,7 +128,7 @@ export default function AIModelSettings() {
   const [error, setError] = useState('')
 
   // 表单字段
-  const [provider, setProvider] = useState<'local' | 'openwebui' | 'both'>('both')
+  const [provider, setProvider] = useState<'local' | 'openwebui' | 'both' | 'custom'>('both')
   const [localEnabled, setLocalEnabled] = useState(true)
   const [localModel, setLocalModel] = useState('')
   const [localBaseUrl, setLocalBaseUrl] = useState('')
@@ -125,6 +136,9 @@ export default function AIModelSettings() {
   const [owuBaseUrl, setOwuBaseUrl] = useState('')
   const [owuEmail, setOwuEmail] = useState('')
   const [owuPassword, setOwuPassword] = useState('')
+  const [customModel, setCustomModel] = useState('')
+  const [customBaseUrl, setCustomBaseUrl] = useState('')
+  const [customApiKey, setCustomApiKey] = useState('')
 
   // 对比测试状态
   const [comparePrompt, setComparePrompt] = useState('')
@@ -158,6 +172,9 @@ export default function AIModelSettings() {
         setOwuBaseUrl(c.openwebui_base_url || '')
         setOwuEmail(c.openwebui_email || '')
         setOwuPassword(c.openwebui_password || '')
+        setCustomModel(c.custom_model || '')
+        setCustomBaseUrl(c.custom_base_url || '')
+        setCustomApiKey(c.custom_api_key || '')
         // 对比测试默认带上当前配置的两个模型
         setCompareModels([
           { provider: 'workbuddy', model: c.local_model || 'deepseek-v4.1-flash' },
@@ -181,11 +198,15 @@ export default function AIModelSettings() {
       openwebui_base_url: owuBaseUrl.trim(),
       openwebui_email: owuEmail.trim(),
       openwebui_password: owuPassword,
+      custom_model: customModel.trim(),
+      custom_base_url: customBaseUrl.trim(),
+      custom_api_key: customApiKey,
     }
     api.put('/ai-model-settings', patch)
       .then(() => {
         message.success(L.saved)
         loadConfig()
+        setSaving(false)
       })
       .catch((e) => {
         message.error(L.saveFailed + ': ' + (e?.response?.data?.detail || ''))
@@ -366,6 +387,56 @@ export default function AIModelSettings() {
                     <Input.Password
                       value={owuPassword}
                       onChange={(e) => setOwuPassword(e.target.value)}
+                      placeholder="••••••••"
+                      style={{ marginTop: '0.25rem', ...inputStyle }}
+                    />
+                  </div>
+                </Col>
+              </Row>
+            </Card>
+          )}
+
+          {/* 自定义模型 */}
+          {provider === 'custom' && (
+            <Card
+              size="small"
+              title={<Text style={{ color: WH.text, fontSize: '0.875rem' }}>{L.customSection}</Text>}
+              style={{ marginTop: '0.5rem' }}
+              styles={{ header: { background: 'var(--wh-page-bg)' }, body: { background: WH.bg } }}
+            >
+              <Row gutter={[16, 12]}>
+                <Col xs={24} md={12}>
+                  <div>
+                    <Text style={{ color: WH.textMuted, fontSize: '0.75rem' }}>{L.customModel}</Text>
+                    <Input
+                      value={customModel}
+                      onChange={(e) => setCustomModel(e.target.value)}
+                      placeholder="gpt-4o / claude-3.5-sonnet / qwen-plus"
+                      style={{ marginTop: '0.25rem', ...inputStyle }}
+                    />
+                    <Text style={{ color: WH.textDim, fontSize: '0.6875rem' }}>{L.customModelHint}</Text>
+                  </div>
+                </Col>
+                <Col xs={24} md={12}>
+                  <div>
+                    <Text style={{ color: WH.textMuted, fontSize: '0.75rem' }}>{L.customBaseUrl}</Text>
+                    <Input
+                      value={customBaseUrl}
+                      onChange={(e) => setCustomBaseUrl(e.target.value)}
+                      placeholder="https://api.openai.com/v1"
+                      style={{ marginTop: '0.25rem', ...inputStyle }}
+                    />
+                    <Text style={{ color: WH.textDim, fontSize: '0.6875rem' }}>{L.customBaseUrlHint}</Text>
+                  </div>
+                </Col>
+              </Row>
+              <Row gutter={[16, 12]} style={{ marginTop: '0.5rem' }}>
+                <Col xs={24} md={12}>
+                  <div>
+                    <Text style={{ color: WH.textMuted, fontSize: '0.75rem' }}>{L.customApiKey}</Text>
+                    <Input.Password
+                      value={customApiKey}
+                      onChange={(e) => setCustomApiKey(e.target.value)}
                       placeholder="••••••••"
                       style={{ marginTop: '0.25rem', ...inputStyle }}
                     />

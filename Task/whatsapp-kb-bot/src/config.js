@@ -94,14 +94,13 @@ export async function loadRuntimeConfig(apiBase) {
     const provider = (cfg.provider || 'both').toLowerCase();
     const hasLocalModel = cfg.local_model && cfg.local_model.trim();
     const hasOwuModel = cfg.openwebui_model && cfg.openwebui_model.trim();
+    const hasCustomModel = cfg.custom_model && cfg.custom_model.trim();
 
     if (provider === 'openwebui') {
-      // 用户明确选了"仅 Open WebUI" → 必须用 OWU 模型
       if (hasOwuModel) {
         RUNTIME_CONFIG.chatModel = cfg.openwebui_model.trim();
         RUNTIME_CONFIG.chatBaseUrl = (cfg.openwebui_base_url || '').replace(/\/+$/, '');
       } else if (hasLocalModel) {
-        // OWU 没配，提示但不强行用 local
         console.warn(`[config] provider=openwebui 但 openwebui_model 为空，回退到 config.json 默认值`);
         return false;
       }
@@ -112,6 +111,15 @@ export async function loadRuntimeConfig(apiBase) {
       } else if (hasOwuModel) {
         RUNTIME_CONFIG.chatModel = cfg.openwebui_model.trim();
         RUNTIME_CONFIG.chatBaseUrl = (cfg.openwebui_base_url || '').replace(/\/+$/, '');
+      }
+    } else if (provider === 'custom') {
+      if (hasCustomModel) {
+        RUNTIME_CONFIG.chatModel = cfg.custom_model.trim();
+        RUNTIME_CONFIG.chatBaseUrl = (cfg.custom_base_url || '').replace(/\/+$/, '');
+        RUNTIME_CONFIG.chatApiKey = cfg.custom_api_key || '';
+      } else if (hasLocalModel) {
+        console.warn(`[config] provider=custom 但 custom_model 为空，回退到 config.json 默认值`);
+        return false;
       }
     } else {
       // "both"：本地优先，本地为空时回退到 OWU

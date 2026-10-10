@@ -47,6 +47,10 @@ _DEFAULTS: dict[str, Any] = {
     "openwebui_base_url": "http://192.168.100.27:3000",
     "openwebui_email": "",
     "openwebui_password": "",
+    # 自定义 Provider（用户自填 URL + API Key + Model）
+    "custom_model": "",
+    "custom_base_url": "",
+    "custom_api_key": "",
 }
 
 
@@ -114,7 +118,7 @@ def get_effective() -> dict:
         "schema": {
             "provider": {
                 "type": "enum",
-                "options": ["local", "openwebui", "both"],
+                "options": ["local", "openwebui", "both", "custom"],
                 "desc_zh": "主用模型方",
                 "desc_en": "Primary model provider",
             },
@@ -152,6 +156,21 @@ def get_effective() -> dict:
                 "type": "str",
                 "desc_zh": "Open WebUI 登录密码",
                 "desc_en": "Open WebUI password",
+            },
+            "custom_model": {
+                "type": "str",
+                "desc_zh": "自定义模型 ID（需配合 Base URL 和 API Key 使用）",
+                "desc_en": "Custom model ID",
+            },
+            "custom_base_url": {
+                "type": "str",
+                "desc_zh": "自定义 API Base URL（如 https://api.openai.com/v1）",
+                "desc_en": "Custom API Base URL",
+            },
+            "custom_api_key": {
+                "type": "str",
+                "desc_zh": "自定义 API Key（支持 OpenAI 兼容接口）",
+                "desc_en": "Custom API Key",
             },
         },
     }
