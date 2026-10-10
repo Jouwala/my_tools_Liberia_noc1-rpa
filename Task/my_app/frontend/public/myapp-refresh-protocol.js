@@ -102,7 +102,20 @@
       arm();
     }
 
+    // 全屏状态变化会改变「生效间隔」（看板页：关闭(0) ↔ 本页默认）。必须重新排程，
+    // 否则「用户关闭 → 之后进入全屏」时定时器从未排过、全屏也不会刷新；
+    // 反之退出全屏后仍会按旧的长间隔多刷一轮。
+    function onFullscreenChange() {
+      // 进入全屏且当前未排程（此前 sec=0）→ 立即补一刷并重新排程；
+      // 其余情况仅重排，让新间隔生效（不重复立即刷新，避免与 onMessage 叠加）。
+      if (global.document && global.document.fullscreenElement && !timer) {
+        runNow();
+      }
+      arm();
+    }
+
     try { global.addEventListener('message', onMessage); } catch (e) {}
+    try { global.document && global.document.addEventListener('fullscreenchange', onFullscreenChange); } catch (e) {}
     try { arm(); } catch (e) {}
 
     return {
