@@ -50,6 +50,7 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.8/dist/chart.umd.min.js"></script>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
   <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+  <script src="/myapp/myapp-refresh-protocol.js"></script>
 
   <script>
     // 颜色全部走 CSS 变量（--whd-*），深色为默认值，浅色由下方 [data-theme="light"] 块覆盖。
@@ -2177,7 +2178,13 @@ img, svg, canvas, iframe { max-width: 100%; }
         });
       });
 
-      setInterval(updateAllData, 3000 * 1000);
+      // 自动刷新（2026-10-10 重构）：统一走 MyAppRefresh 共享协议。
+      // 此前是固定 50 分钟 setInterval、且不响应父外壳广播；现改为：广播 → 立即
+      // 原地重拉；广播被挡（全屏/后台）→ 按「生效间隔」自调度兜底。interval 沿用
+      // 原来的 3000s 作为本页默认。非看板页不启用；看板页全屏忽略「关闭」兜底。
+      try {
+        MyAppRefresh.install({ defaultSec: 3000, onRefresh: function(){ updateAllData(); } });
+      } catch (e) { console.warn('auto refresh install', e); }
 
       document.querySelectorAll('.bg-bg-card').forEach(card => {
         card.addEventListener('click', function () {

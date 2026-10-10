@@ -199,18 +199,56 @@ const VALID_PAGES: PageKey[] = ['overview', 'tables', 'upload', 'dashboard', 'al
 const AR_STORAGE_KEY = 'myapp_auto_refresh_sec'
 /** 当前「生效」间隔（用户选择 > 本页默认 > 全局默认），供 legacy 页面显示用 */
 const AR_EFFECTIVE_KEY = 'myapp_auto_refresh_effective'
+/** 本页是否属于「看板/展示页」白名单（'1'/'0'），供 legacy 页判断是否启用自刷新安全网 */
+const AR_IS_BOARD_KEY = 'myapp_auto_refresh_is_board'
 const AR_OPTIONS = [0, 30, 60, 300, 600, 900, 1800]
-const AR_PAGE_DEFAULT_SEC = 300 // 所有页面默认间隔（秒）
+const AR_PAGE_DEFAULT_SEC = 300 // 看板页默认间隔（秒）
+/**
+ * 自动刷新白名单：**只有**看板 / 展示类页面参与自动刷新，其余页面（配置、操作、
+ * 工具类，如 settings / upload / tables / ip_trace / eflow_* 等）一律不刷新。
+ *
+ * 背景（2026-10-10）：此前 `arEffective = arOverride ?? AR_PAGE_DEFAULTS[page] ?? 300`
+ * —— 未登记的页面一律按 300s 刷新，于是「设置」这类纯配置页也会定时重挂载，既无意义
+ * 又可能打断正在编辑的表单。改为白名单制：不在名单内的页面 arEffective 恒为 0。
+ *
+ * 名单按菜单组划定（见 DEFAULT_GROUPS）：
+ *   · grp_monitor 全部（监控看板）
+ *   · grp_network 的看板（mwUmeTopology/mwRealTime/gis/realtime_alarm/packet_loss/
+ *     battery/bm_speedtest/bm_meta；ip_trace 是一次性抓包会话，排除）
+ *   · grp_finebi 全部（原生报表看板）
+ *   · grp_analysis 的报表看板（overview/dashboard/warehouse/warehouse_summary/
+ *     sp_material/sp_report/com_report/bp_report；tables/upload/archive/sp_details 排除）
+ */
+const AR_BOARD_PAGES: PageKey[] = [
+  // grp_monitor
+  'alarm', 'ttwo', 'v1_ttwo', 'tt', 'wo', 'nur', 'ms_nur_only', 'ms_sla', 'ms_sla_only',
+  'ms_wo_sla', 'ms_contract_kpi', 'site_avail', 'avail_ms', 'avail_flm', 'fme_ranking',
+  'noc_analyst', 'repeat_site_down', 'cr_analysis', 'pm_analysis', 'ran_cells_kpi',
+  'cn_kpi', 'ume_in_kpi', 'cxoDashboard', 'vmaxCxoDashboard', 'vmaxCxoDashboard_Daily',
+  'vmaxCxoDashboard_90Days', 'imonitor', 'alarmManagement', 'incident_overview',
+  // grp_network（看板子集；ip_trace 排除）
+  'mwUmeTopology', 'mwRealTime', 'gis', 'realtime_alarm', 'packet_loss', 'battery',
+  'bm_speedtest', 'bm_meta',
+  // grp_analysis（报表看板子集）
+  'overview', 'dashboard', 'warehouse', 'warehouse_summary', 'sp_material', 'sp_report',
+  'com_report', 'bp_report',
+]
 // 按页面覆盖的默认间隔：实时看板数据每 15 分钟同步一次，刷新过快无意义；
 // 90 天经营看板的数据由 olib_soc_kpi_daily_sync 每天 02:20 增量入库（一天只变一次），
-// 15 分钟足够及时反映最新完成日，也避免无谓查询；帮助页为静态文案，固定关闭自动刷新
+// 15 分钟足够及时反映最新完成日，也避免无谓查询。
 const AR_PAGE_DEFAULTS: Partial<Record<PageKey, number>> = {
-  mwRealTime: 900, help: 0, vmaxCxoDashboard_90Days: 900,
+  mwRealTime: 900, mwUmeTopology: 900, vmaxCxoDashboard_90Days: 900,
 }
-// 支持软刷新协议（postMessage myapp-refresh 原地重拉数据）的 legacy 页面
+// 支持软刷新协议（postMessage myapp-refresh 原地重拉数据）的 legacy 页面 / React 内嵌页。
 // imonitor：跨端口 iframe 无法由外壳重挂载来刷新（会整页闪白），改由页面自己
 // 监听 myapp-refresh 后在 iframe 内原地重载（见 ImonitorScreen.tsx）。
-const AR_SOFT_REFRESH_PAGES: PageKey[] = ['mwUmeTopology', 'mwRealTime', 'vmaxCxoDashboard_90Days', 'imonitor']
+// 2026-10-10 起把其余 iframe 看板页也纳入：避免全屏时被硬挂载路径（有副作用、且在全屏
+// 下被跳过）卡住，改走「原地重拉」。
+const AR_SOFT_REFRESH_PAGES: PageKey[] = [
+  'mwUmeTopology', 'mwRealTime', 'vmaxCxoDashboard_90Days', 'imonitor',
+  'incident_overview', 'cxoDashboard', 'vmaxCxoDashboard', 'vmaxCxoDashboard_Daily',
+  'warehouse', 'alarmManagement',
+]
 
 /**
  * antd 深色档 map token —— 全量对齐 vmax 90 天看板口径。
@@ -818,7 +856,11 @@ function AppContent() {
   const [refreshTick, setRefreshTick] = useState(0)
   const [arSpin, setArSpin] = useState(false)
   const arSpinTimer = useRef<number | null>(null)
-  const arEffective = arOverride ?? AR_PAGE_DEFAULTS[currentPage] ?? AR_PAGE_DEFAULT_SEC
+  // 白名单制：只有看板/展示页参与自动刷新；其余页（配置、操作、工具类）恒为 0（不刷新）。
+  const arIsBoard = AR_BOARD_PAGES.includes(currentPage)
+  const arEffective = arIsBoard
+    ? (arOverride ?? AR_PAGE_DEFAULTS[currentPage] ?? AR_PAGE_DEFAULT_SEC)
+    : 0
 
   const performAutoRefresh = useCallback(() => {
     // 软刷新广播：向所有 iframe 发协议，支持者（mw_ume_topology.html / mw_real_time.html
@@ -852,9 +894,14 @@ function AppContent() {
 
   // 把「当前生效的刷新间隔」公开给 legacy 页面（自刷新页要在界面上如实显示倒计时口径，
   // 不能各自硬编码一份默认值 —— 有效值来自 用户选择 > 本页默认 > 全局默认）。
+  // 同时公开「本页是否看板」：非看板页 arEffective 恒为 0，legacy 页据此不启用自刷新
+  // 安全网（且「全屏忽略关闭」的例外只对看板页生效 —— 见 AR_IS_BOARD_KEY 注释）。
   useEffect(() => {
-    try { localStorage.setItem(AR_EFFECTIVE_KEY, String(arEffective)) } catch { /* noop */ }
-  }, [arEffective])
+    try {
+      localStorage.setItem(AR_EFFECTIVE_KEY, String(arEffective))
+      localStorage.setItem(AR_IS_BOARD_KEY, arIsBoard ? '1' : '0')
+    } catch { /* noop */ }
+  }, [arEffective, arIsBoard])
 
   useEffect(() => () => { if (arSpinTimer.current) window.clearTimeout(arSpinTimer.current) }, [])
 
@@ -1851,13 +1898,15 @@ function AppContent() {
 
             {/* 右上角操作区：自动刷新 + 主题切换 + 语言切换 */}
             <div style={{ position: 'relative', zIndex: 2, display: 'flex', alignItems: 'center', gap: 'var(--wh-space-sm)' }}>
-              <Tooltip title={arEffective > 0 ? t('ar.every', { v: arLabel(arEffective) }) : t('ar.tip')}>
+              <Tooltip title={!arIsBoard ? t('ar.na') : arEffective > 0 ? t('ar.every', { v: arLabel(arEffective) }) : t('ar.tip')}>
                 {/* 大屏/NOC 场景的自动刷新开关；移动端隐藏（大屏均为桌面端） */}
                 <Select
                   // 开启自动刷新时用强化描边做状态提示（玻璃底由 CSS 统一给）
-                  className={arEffective > 0 ? 'wh-hide-mobile wh-select-active' : 'wh-hide-mobile'}
+                  // 非看板页（配置/操作/工具类）不参与自动刷新：禁用并显示「关闭」
+                  className={arIsBoard && arEffective > 0 ? 'wh-hide-mobile wh-select-active' : 'wh-hide-mobile'}
                   size="small"
                   aria-label={t('ar.label')}
+                  disabled={!arIsBoard}
                   value={arEffective}
                   onChange={changeAutoRefresh}
                   popupMatchSelectWidth={false}

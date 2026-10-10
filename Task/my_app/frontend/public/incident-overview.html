@@ -51,6 +51,7 @@ window.__IOC_THEME = (function () {
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.8.0/proj4.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4leaflet/1.0.2/proj4leaflet.min.js"></script>
+<script src="/myapp/myapp-refresh-protocol.js"></script>
 <style type="text/tailwindcss">
         :root {
             /* 深色档色值全部改为引用 legacy-vmax-theme.css 的 vmax 深空蓝令牌
@@ -6196,9 +6197,7 @@ Respond in English.`;
     }
 
     // 自动更新相关变量
-    let dataRefreshInterval = null;
-    let isPageVisible = true;
-    const DATA_REFRESH_INTERVAL = 5 * 60 * 1000; // 5分钟（毫秒）
+    // （定时器/可见性状态已交由 MyAppRefresh 共享协议管理，见下方 startAutoRefresh）
     let consecutiveErrors = 0;
     const MAX_CONSECUTIVE_ERRORS = 3;
 
@@ -6276,52 +6275,29 @@ Respond in English.`;
         }
     }
 
-    // 启动自动刷新
+    /* 自动刷新（2026-10-10 重构）：统一走 MyAppRefresh 共享协议。
+     *
+     * 背景：此前本页自建 startAutoRefresh/stopAutoRefresh，并在 visibilitychange
+     * 时于 document.hidden 直接停表。但全屏（大屏 Kiosk / 全屏窗口未聚焦 / 副屏）
+     * 常使 document.hidden=true → 全屏挂机时定时器被停、且父外壳广播也因同样原因
+     * 可能被挡 → 页面长时间不刷新。
+     * 现交由协议统一处理：父外壳广播 → 立即原地重拉；广播被挡 → 按「生效间隔」自调度
+     * 兜底；本页不可见且非全屏时才跳过本轮（不再永久停表）。非看板页不启用；看板页
+     * 全屏时忽略「关闭」按本页默认兜底。 */
+    let _arHandle = null;
     function startAutoRefresh() {
-        // 清除现有定时器（如果存在）
-        if (dataRefreshInterval) {
-            clearInterval(dataRefreshInterval);
-        }
-
-        // 只在页面可见时启动定时器
-        if (isPageVisible) {
-            dataRefreshInterval = setInterval(() => {
-                if (isPageVisible) {
-                    loadData();
-                }
-            }, DATA_REFRESH_INTERVAL);
-
-            console.log('Auto-refresh started: every 5 minutes');
-        }
+        try {
+            _arHandle = MyAppRefresh.install({
+                defaultSec: 300,   // 与 App.tsx AR_PAGE_DEFAULT_SEC 对齐
+                onRefresh: function(){ loadData(); },
+            });
+        } catch (e) { console.warn('auto refresh install failed', e); }
     }
 
-    // 停止自动刷新
     function stopAutoRefresh() {
-        if (dataRefreshInterval) {
-            clearInterval(dataRefreshInterval);
-            dataRefreshInterval = null;
-            console.log('Auto-refresh stopped');
-        }
+        // 协议内部按需自调度；此处仅做卸载清理（无显式 uninstall，交由页面销毁回收）
+        _arHandle = null;
     }
-
-    // 页面可见性检测
-    function handleVisibilityChange() {
-        if (document.hidden) {
-            // 页面不可见，暂停自动刷新
-            isPageVisible = false;
-            stopAutoRefresh();
-            console.log('Page hidden, auto-refresh paused');
-        } else {
-            // 页面可见，恢复自动刷新并立即刷新数据
-            isPageVisible = true;
-            loadData(); // 立即刷新数据
-            startAutoRefresh(); // 重新启动定时器
-            console.log('Page visible, auto-refresh resumed');
-        }
-    }
-
-    // 监听页面可见性变化
-    document.addEventListener('visibilitychange', handleVisibilityChange);
 
     // 监听页面卸载，清理定时器
     window.addEventListener('beforeunload', () => {

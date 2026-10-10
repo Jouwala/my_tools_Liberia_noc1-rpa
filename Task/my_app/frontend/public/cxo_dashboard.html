@@ -11,6 +11,7 @@
 <title>CXO Dashboard · Service / Network / Summary</title>
 <script src="./lib/echarts.min.js"></script>
 <script>if(!window.echarts){document.write('<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"><\/script>');}</script>
+<script src="./myapp-refresh-protocol.js"></script>
 <style>
   /* 深色档色值已上移到 legacy-vmax-theme.css（vmax 深空蓝，与 React 外壳同源）。
      此处只保留浅色档：页内的 [data-theme="light"] 与共享文件的 :root 特异性
@@ -1009,17 +1010,24 @@ window.addEventListener('load', function(){
           .finally(function(){ try { refresh(); } catch(e){ console.warn('auto refresh', e); } });
       });
   } catch(e){ console.warn('auto refresh', e); }
-  // 5-minute auto-refresh (silent, no popup): 缓存后台每 10 分钟更新，
-  // 刷新时也先取一次缓存（离线时页面能拿到更新的缓存数据），再实时覆盖。
-  // 轮播开启时跳过（切页本身就会拉数据），轮播停止后自动恢复。
-  setInterval(function(){
-    if(CAROUSEL_TIMER) return; // carousel active: tab switch already refreshes
-    try {
-      applyCacheFromBackend()
-        .catch(function(){})
-        .finally(function(){ try { refresh(); } catch(e){ console.warn('auto-refresh tick', e); } });
-    } catch(e){ console.warn('auto-refresh tick', e); }
-  }, 300000);
+  // 自动刷新（2026-10-10 重构）：统一走 MyAppRefresh 共享协议。
+  // 此前是固定的 5 分钟 setInterval，且不响应父外壳广播；现改为：父外壳广播 →
+  // 立即原地重拉；广播被挡（全屏/后台）→ 按「生效间隔」自调度兜底。轮播开启时
+  // 跳过本轮（切页本身就会拉数据）。非看板页不启用；看板页全屏忽略「关闭」兜底。
+  // 刷新时先取一次缓存（离线时页面能拿到更新的缓存数据），再实时覆盖。
+  try {
+    MyAppRefresh.install({
+      defaultSec: 300,   // 与 App.tsx AR_PAGE_DEFAULT_SEC 对齐
+      onRefresh: function(){
+        if(CAROUSEL_TIMER) return; // carousel active: tab switch already refreshes
+        try {
+          applyCacheFromBackend()
+            .catch(function(){})
+            .finally(function(){ try { refresh(); } catch(e){ console.warn('auto-refresh tick', e); } });
+        } catch(e){ console.warn('auto-refresh tick', e); }
+      },
+    });
+  } catch(e){ console.warn('auto refresh install', e); }
 });
 
 </script>

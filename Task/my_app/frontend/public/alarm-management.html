@@ -1006,6 +1006,12 @@ function rethemeCharts(){
 document.documentElement.dataset.theme=APP_THEME;
 window.addEventListener('message', function(e){ if(e.data && e.data.__type==='myapp-theme') applyTheme(e.data.mode); if(e.data && e.data.__type==='myapp-locale') applyLocale(e.data.locale==='en'?'en':'zh', true); });
 
+/* 父外壳软刷新协议（2026-10-10 新增）：收到 myapp-refresh 时，若本页处于「实时」
+ * 模式则立即原地重拉一轮（提醒/兜底）。快照模式（live 关闭）不打扰，避免无谓请求。
+ * 本页已有自己的实时刷新定时器（startLive，间隔由页内配置 liveCfg.interval 决定），
+ * 故不引入 MyAppRefresh 的安全网定时器，仅补这条「提前触发」入口。 */
+window.addEventListener('message', function(e){ if(e.data && e.data.__type==='myapp-refresh' && typeof liveCfg!=='undefined' && liveCfg.enabled){ try{ refreshAll(); }catch(err){} } });
+
 /* ===== 国际化层（与 myapp 同源 localStorage['app-locale'] 同步） ===== */
 const I18N = {
   secOverviewTitle:{zh:'告警总览',en:'Alarm Overview'},

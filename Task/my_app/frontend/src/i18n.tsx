@@ -1655,6 +1655,7 @@ const translations: Record<Locale, Record<string, string>> = {
     'ar.sec': '秒',
     'ar.min': '分钟',
     'ar.every': '每 {v} 自动刷新当前页面',
+    'ar.na': '此页不参与自动刷新（仅看板/展示页自动刷新）',
 
     // Task Report Files 页面（Latest Email / FINEBI report 两个页签）
     'emailReports.title': '任务报告文件',
@@ -5437,6 +5438,7 @@ const translations: Record<Locale, Record<string, string>> = {
     'ar.sec': 's',
     'ar.min': 'min',
     'ar.every': 'Auto-refresh this page every {v}',
+    'ar.na': 'This page does not auto-refresh (only dashboards/display pages do)',
 
     // Task Report Files page (Latest Email / FINEBI report tabs)
     'emailReports.title': 'Task Report Files',

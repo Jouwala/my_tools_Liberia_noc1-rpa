@@ -496,6 +496,7 @@ img, svg, canvas, iframe { max-width: 100%; }
 <script src="./lib/leaflet/leaflet.js"></script>
 <script src="./lib/jspdf.umd.min.js"></script>
 <script src="./lib/svg2pdf.umd.min.js"></script>
+<script src="./myapp-refresh-protocol.js"></script>
 <script>
 /* ============ theme (TDZ-safe: declare BEFORE anything reads it) ============ */
 /* 深色档色值不再写死在这里 —— 唯一真相源是 legacy-vmax-theme.css 的 CSS 变量
@@ -960,15 +961,9 @@ function applyMapTheme(){
 window.addEventListener('message', function(e){
   if(e.data && e.data.__type === 'myapp-theme') applyTheme(e.data.mode);
 });
-/* 大屏自动刷新协议：父页面（App.tsx 的自动刷新定时器）按所选间隔发来
-   myapp-refresh，本页在文档内「原地」重拉最新数据 —— 不整页重载，
-   保留布局模式 / 日期选择 / 层级筛选 / 浏览器全屏等状态，大屏不闪屏。
-   loadDate(false) 走后端 5 分钟 TTL 缓存，轮询开销可忽略。 */
-window.addEventListener('message', function(e){
-  if(e.data && e.data.__type === 'myapp-refresh'){
-    try { autoRefreshData(); } catch(err){ /* 数据未就绪时忽略 */ }
-  }
-});
+/* 大屏自动刷新协议：由 MyAppRefresh.install（见文件底部）统一监听父外壳的
+   myapp-refresh 广播并在文档内「原地」重拉 —— 不整页重载，保留布局模式 /
+   日期选择 / 层级筛选 / 浏览器全屏等状态，大屏不闪屏。此处不再单独监听。 */
 try {
   if(window.matchMedia){
     matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function(e){
@@ -1081,6 +1076,12 @@ function renderAll(){
   renderTopo();
   renderTrend();
   renderDist();
+  // 状态标签跟随「实际渲染」：始终以刚渲染完成的最新数据为准置为 ok。
+  // 背景（2026-10-10）：loadDate 的顺序守卫会把过期响应丢弃、失败时置 partial，
+  // 而标签与 renderAll 是两条独立路径 —— 出现「图表已是新数据、标签却停在
+  // 刷新中…/部分更新」。这里在渲染完成处统一盖章，保证两者一致。
+  const st = el('status');
+  if(st){ st.className = 'status-pill ok'; st.dataset.state = 'ok'; st.title = ''; updateStatus(); }
 }
 
 /* ============ topology chart ============ */
@@ -3264,15 +3265,15 @@ window.addEventListener('load', function(){
 applyTheme(APP_THEME);
 syncRightToggle();
 window.addEventListener('load', function(){ loadData(false); });
-/* 独立直开兜底（如大屏直接打开 /myapp/mw_ume_topology.html，不经 App 外壳）：
-   每 5 分钟原地重拉一次。嵌入在 ?page=mwUmeTopology 内时由父页面的
-   自动刷新定时器驱动（见上方 myapp-refresh 监听），此处不重复生效。 */
+/* 自刷新安全网（2026-10-10 新增）：统一走 MyAppRefresh 共享协议。
+ * 父外壳广播 myapp-refresh → 立即原地重拉；广播被挡（全屏 Kiosk / 后台）时本页
+ * 按「生效间隔」自行兜底，大屏挂机永不静默。非看板页（如设置）不启用。
+ * 详见 myapp-refresh-protocol.js 顶部说明。 */
 try {
-  if (window.top === window.self) {
-    setInterval(function(){
-      if (!document.hidden) { try { autoRefreshData(); } catch(err){} }
-    }, 5 * 60 * 1000);
-  }
+  MyAppRefresh.install({
+    defaultSec: 900,   // 与 App.tsx AR_PAGE_DEFAULTS.mwUmeTopology 对齐
+    onRefresh: function(){ autoRefreshData(); },
+  });
 } catch(e){}
 </script>
 </body>

@@ -7,6 +7,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>VMAX CXO Management View</title>
 <script src="/myapp/lib/echarts.min.js"></script>
+<script src="/myapp/myapp-refresh-protocol.js"></script>
 <script>window.__VMAX_GEO_READY__=fetch('/myapp/lr-all.geo.json',{cache:'force-cache'}).then(function(r){if(!r.ok)throw new Error('geo HTTP '+r.status);return r.json()}).then(function(g){echarts.registerMap('liberia-real',g);return true}).catch(function(e){console.warn('Liberia GeoJSON unavailable',e);return false});</script>
 <style>
 :root{--bg:#02050c;--panel:#071027;--panel2:#0a1530;--blue:#258cff;--cyan:#00d9ff;--green:#0bc78c;--yellow:#f6cf00;--text:#f5f7ff;--muted:#aebbd4;--edge:#174bba;--glow:rgba(58,118,255,.48)}
@@ -150,7 +151,7 @@ function render(payload){currentPayload=payload;hasRendered=true;var s=(payload&
  window.toggleCarousel=toggleCarousel;
  document.addEventListener('fullscreenchange',function(){if(document.fullscreenElement)carouselEnteredFullscreen=true;setTimeout(resize,60)});
  document.querySelectorAll('.tab').forEach(function(t){t.addEventListener('click',function(e){if(e.target&&e.target.closest&&e.target.closest('#carouselBtn'))return;if(state.carousel)stopCarousel(false);activate(t.dataset.view)});t.addEventListener('keydown',function(e){if(e.key==='Enter'||e.key===' '){e.preventDefault();if(state.carousel)stopCarousel(false);activate(t.dataset.view)}})});
- window.addEventListener('resize',resize);window.addEventListener('message',function(e){if(e.data&&e.data.__type==='myapp-refresh')load()});
+ window.addEventListener('resize',resize);/* myapp-refresh 由 MyAppRefresh.install（见下方）统一处理 */
  window.render_state_to_text=function(){return JSON.stringify(state)};window.step=function(ms){if(ms>=15000&&state.carousel){var i=carouselOrder.indexOf(state.activeView);activate(carouselOrder[(i+1)%carouselOrder.length])}resize();return window.render_state_to_text()};window.__READY__=false;
  function fetchJson(url,signal){return fetch(url,{cache:'no-store',signal:signal}).then(function(r){if(!r.ok)throw new Error('HTTP '+r.status+' '+url);return r.json()})}
  function load(){
@@ -161,7 +162,17 @@ function render(payload){currentPayload=payload;hasRendered=true;var s=(payload&
    .then(function(data){if(!settled){settled=true;clearTimeout(timer);render(data)}})
    .catch(function(){if(!settled){settled=true;clearTimeout(timer);render(null)}})
  }
- var initialView=new URLSearchParams(location.search).get('view');bindTopApps();if(window.echarts){load();if(initialView==='network'||initialView==='service')activate(initialView);setInterval(function(){if(state.activeView==='summary'){fetchJson('/api/vmax-cxo-dashboard/summary').then(function(d){if(d&&d.source==='cache')render(d)}).catch(function(){})}else if(currentOperational){loadOperational(currentOperational.view,currentOperational.key)}},60000)}else{setStatus('ECharts unavailable',false);window.__READY__=false}
+ var initialView=new URLSearchParams(location.search).get('view');bindTopApps();if(window.echarts){load();if(initialView==='network'||initialView==='service')activate(initialView);
+  /* 自动刷新（2026-10-10 重构）：统一走 MyAppRefresh 共享协议。
+   * 此前是固定 60s setInterval，不响应父外壳广播、且全屏/后台仍按自身节奏跑；
+   * 现改为：父外壳广播 → 立即原地重拉；广播被挡 → 按「生效间隔」自调度兜底。
+   * 原有 60s 语义保留为「本页默认间隔」defaultSec=60。非看板页不启用；看板全屏忽略关闭。 */
+  try{ MyAppRefresh.install({ defaultSec: 60, onRefresh: function(){
+    if(state.activeView==='summary'){
+      fetchJson('/api/vmax-cxo-dashboard/summary').then(function(d){if(d&&d.source==='cache')render(d)}).catch(function(){})
+    }else if(currentOperational){ loadOperational(currentOperational.view,currentOperational.key) }
+  }}); }catch(e){ console.warn('auto refresh install', e); }
+ }else{setStatus('ECharts unavailable',false);window.__READY__=false}
 })();
 </script>
 </body>

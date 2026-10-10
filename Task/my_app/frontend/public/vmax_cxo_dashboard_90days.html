@@ -7,6 +7,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>CXO Daily Dashboard</title>
 <script src="/myapp/lib/echarts.min.js"></script>
+<script src="/myapp/myapp-refresh-protocol.js"></script>
 <style>
 :root{--bg:#02050c;--panel:#071027;--blue:#258cff;--cyan:#00d9ff;--text:#f5f7ff;--muted:#aebbd4;--edge:#174bba;--glow:rgba(58,118,255,.48)}
 *{box-sizing:border-box}html,body{margin:0;min-height:100%;background:var(--bg);color:var(--text);font-family:Arial,"Microsoft YaHei",sans-serif}
@@ -608,17 +609,23 @@ window.addEventListener('message',function(e){
   if(!e.data)return;
   if(e.data.__type==='myapp-theme')applyTheme(e.data.mode);
   else if(e.data.__type==='myapp-locale')applyLocale(e.data.locale);
-  else if(e.data.__type==='myapp-refresh'){        // 外壳自动刷新：原地重拉，不重载文档
-    try{ paintStatic(); load(); }catch(err){ /* 数据未就绪时忽略 */ }
-  }
+  // myapp-refresh 由 MyAppRefresh.install（见下方）统一处理，此处不再重复监听
 });
 try{ var g=localStorage.getItem('vmax-90d-gran'); if(g==='day'||g==='week'){GRAN=g;
   [].forEach.call(document.querySelectorAll('#granSeg button'),function(b){b.classList.toggle('active',b.getAttribute('data-gran')===g)}) } }catch(e){}
 paintStatic();
 if(window.echarts){
   load();
-  // 外壳内由 App 的自动刷新定时器统一驱动（软刷新协议）；单独打开时本页兜底自刷
-  if(!embedded()) window.__rt=setInterval(load,REFRESH_MS);
+  /* 自刷新安全网（2026-10-10 新增）：统一走 MyAppRefresh 共享协议。
+   * 此前仅在「非嵌入」时自刷，嵌入外壳时完全依赖父页广播 —— 全屏/后台广播被挡则
+   * 长时间不刷新。现改为常开兜底 + 广播提前触发；非看板页不启用。
+   * 间隔取「生效间隔」（0=关闭；看板全屏时忽略关闭按本页默认兜底）。 */
+  try{
+    MyAppRefresh.install({
+      defaultSec: 900,   // 与 App.tsx AR_PAGE_DEFAULTS.vmaxCxoDashboard_90Days 对齐
+      onRefresh: function(){ paintStatic(); load(); },
+    });
+  }catch(e){}
 }else{setStatus('echarts missing',false)}
 })();
 </script>
