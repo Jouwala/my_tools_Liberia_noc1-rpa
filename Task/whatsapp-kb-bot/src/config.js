@@ -1,6 +1,20 @@
 /**
  * 配置加载：config.json 为基准，环境变量可覆盖（便于临时调试 / 容器部署）。
  * 路径统一解析为「项目根目录」下的绝对路径，避免受 cwd 影响。
+ *
+ * ## 配置来源优先级（从低到高）
+ *
+ *   config.json  ← 默认值
+ *   环境变量     ← 临时调试 / 容器覆盖
+ *   my_app API  ← 运行时拉取（启动时从 my_app 后端读取，统一管理）
+ *
+ * ## 为什么需要 my_app API 这一层
+ *
+ * WhatsApp 机器人的模型配置原本写死在 config.json 里，和 my_app 前端
+ *「AI Model Settings」页面是两套独立的配置 —— 改了一处另一处不生效。
+ * 加上 API 层后，用户在 my_app 页面改配置 → 机器人下次重启自动用新模型。
+ *
+ * @module config
  */
 import { readFileSync } from 'node:fs';
 import { dirname, resolve, isAbsolute } from 'node:path';
@@ -21,10 +35,16 @@ const raw = readJson('config.json');
 /** 把相对路径解析为绝对路径 */
 const abs = (p) => (isAbsolute(p) ? p : resolve(ROOT, p));
 
-export const CONFIG = {
-  ...raw,
+// ─────────────────────────────────────────────────────────────────────────────
+// 运行时对话配置（可被 my_app API 覆盖）
+// ─────────────────────────────────────────────────────────────────────────────
 
-  // —— 对话 provider ——
+/**
+ * 运行时对话配置。在 loadRuntimeConfig() 调用前，所有字段保持 config.json / 环境变量的默认值。
+ * llm.js 的 chat() / openaiChat() / providerInfo() / validateProvider() 全部
+ * 引用 RUNTIME_CONFIG 而非 CONFIG，确保 API 拉到的值实时生效。
+ */
+export const RUNTIME_CONFIG = {
   chatProvider: (process.env.CHAT_PROVIDER || raw.chatProvider || 'ollama').toLowerCase(),
   chatModel: process.env.CHAT_MODEL || raw.chatModel,
   chatBaseUrl: process.env.CHAT_BASE_URL || raw.chatBaseUrl || '',
@@ -37,6 +57,116 @@ export const CONFIG = {
     process.env.ENABLE_THINKING != null
       ? process.env.ENABLE_THINKING === '1' || process.env.ENABLE_THINKING === 'true'
       : raw.enableThinking ?? null,
+};
+
+/**
+ * 从 my_app 后端拉取 AI 模型配置，用返回值覆盖 RUNTIME_CONFIG。
+ * 拉取失败时**不抛** —— config.json / 环境变量已是有效兜底，直接用。
+ *
+ * @param {string} apiBase  my_app 后端地址，如 "http://127.0.0.1:7038"
+ * @returns {Promise<boolean>} 是否成功拉到了 my_app 的配置
+ */
+export async function loadRuntimeConfig(apiBase) {
+  const url = `${apiBase.replace(/\/+$/, '')}/api/ai-model-settings`;
+  let controller;
+  try {
+    controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 5000);
+    const res = await fetch(url, { signal: controller.signal, headers: { Accept: 'application/json' } });
+    clearTimeout(timer);
+
+    if (!res.ok) {
+      console.warn(`[config] my_app AI配置返回 ${res.status}，使用 config.json 默认值`);
+      return false;
+    }
+
+    const data = await res.json();
+    const cfg = data.config || data;
+
+    // provider 是用户实际选定的模式（local / openwebui / both），
+    // 是**唯一真相**。local_enabled 是 UI 上"启用本地代理"的子开关，
+    // 在 provider=openwebui 时与当前选择无关，不该影响 bot 的选择。
+    //
+    // my_app 返回的 provider 与"用什么模型"的关系：
+    //   - "local"      → 用 local_model
+    //   - "openwebui"  → 用 openwebui_model
+    //   - "both"       → 优先 local_model，没有就回退到 openwebui_model
+    const provider = (cfg.provider || 'both').toLowerCase();
+    const hasLocalModel = cfg.local_model && cfg.local_model.trim();
+    const hasOwuModel = cfg.openwebui_model && cfg.openwebui_model.trim();
+
+    if (provider === 'openwebui') {
+      // 用户明确选了"仅 Open WebUI" → 必须用 OWU 模型
+      if (hasOwuModel) {
+        RUNTIME_CONFIG.chatModel = cfg.openwebui_model.trim();
+        RUNTIME_CONFIG.chatBaseUrl = (cfg.openwebui_base_url || '').replace(/\/+$/, '');
+      } else if (hasLocalModel) {
+        // OWU 没配，提示但不强行用 local
+        console.warn(`[config] provider=openwebui 但 openwebui_model 为空，回退到 config.json 默认值`);
+        return false;
+      }
+    } else if (provider === 'local') {
+      if (hasLocalModel) {
+        RUNTIME_CONFIG.chatModel = cfg.local_model.trim();
+        RUNTIME_CONFIG.chatBaseUrl = (cfg.local_base_url || '').replace(/\/+$/, '');
+      } else if (hasOwuModel) {
+        RUNTIME_CONFIG.chatModel = cfg.openwebui_model.trim();
+        RUNTIME_CONFIG.chatBaseUrl = (cfg.openwebui_base_url || '').replace(/\/+$/, '');
+      }
+    } else {
+      // "both"：本地优先，本地为空时回退到 OWU
+      if (hasLocalModel) {
+        RUNTIME_CONFIG.chatModel = cfg.local_model.trim();
+        RUNTIME_CONFIG.chatBaseUrl = (cfg.local_base_url || '').replace(/\/+$/, '');
+      } else if (hasOwuModel) {
+        RUNTIME_CONFIG.chatModel = cfg.openwebui_model.trim();
+        RUNTIME_CONFIG.chatBaseUrl = (cfg.openwebui_base_url || '').replace(/\/+$/, '');
+      }
+    }
+
+    // API Key 仍走环境变量 / config.json（不在 API 响应里传）
+    // my_app 的 openwebui_email/password 用于别处，不影响 bot
+
+    console.log(`[config] 已从 my_app 加载 AI 配置 → ${RUNTIME_CONFIG.chatModel} @ ${RUNTIME_CONFIG.chatBaseUrl}`);
+    return true;
+  } catch (err) {
+    const msg = err.name === 'AbortError' ? '超时（5s）' : err.message;
+    console.warn(`[config] 无法从 my_app 拉取 AI 配置（${msg}），使用 config.json 默认值`);
+    return false;
+  } finally {
+    clearTimeout(controller?.timer);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 主 CONFIG（包含 RUNTIME_CONFIG 的对话字段作为动态别名）
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const CONFIG = {
+  ...raw,
+
+  // —— 对话 provider：指向运行时配置（API 拉到的值实时生效）——
+  get chatProvider() {
+    return RUNTIME_CONFIG.chatProvider;
+  },
+  get chatModel() {
+    return RUNTIME_CONFIG.chatModel;
+  },
+  get chatBaseUrl() {
+    return RUNTIME_CONFIG.chatBaseUrl;
+  },
+  get chatApiKeyEnv() {
+    return RUNTIME_CONFIG.chatApiKeyEnv;
+  },
+  get chatApiKey() {
+    return RUNTIME_CONFIG.chatApiKey;
+  },
+  get chatTimeoutMs() {
+    return RUNTIME_CONFIG.chatTimeoutMs;
+  },
+  get enableThinking() {
+    return RUNTIME_CONFIG.enableThinking;
+  },
 
   // —— 本地嵌入（始终走 Ollama）——
   ollamaUrl: process.env.OLLAMA_URL || raw.ollamaUrl,
@@ -78,11 +208,11 @@ export const CONFIG = {
   kbManualIntent: process.env.KB_MANUAL_INTENT || raw.kbManualIntent || '',
 
   // —— P1 检索增强 ——
-  // parent-child 合并上限：同标题路径的相邻块合并回上下文时的字符上限。
+  // parent-child 合并上限：同标题路径的相邻块合并回上下文的字符上限。
   parentMergeMaxChars: Number(process.env.PARENT_MERGE_MAX_CHARS ?? raw.parentMergeMaxChars ?? 1200),
   // MMR 同源限流：topK 内同一 source 最多保留几块。
   mmrMaxPerSource: Number(process.env.MMR_MAX_PER_SOURCE ?? raw.mmrMaxPerSource ?? 3),
-  // BM25（词级字面）与向量的融合权重。置 0 即回退到旧 bigram 混合。
+  // BM25（词级字面）与向量的融合权重。置 0 即回退旧 bigram 混合。
   bm25Weight: Number(process.env.BM25_WEIGHT ?? raw.bm25Weight ?? 0.3),
 
   cooldownMs: Number(process.env.COOLDOWN_MS ?? raw.cooldownMs),
@@ -132,8 +262,8 @@ export const CONFIG = {
   //  - maxImages / maxDocuments：单作业内最多发多少张图/多少份文档
   // 不暴露聊天端配置（避免被误读为影响 @机器人问答）。
   notify: (() => {
-    const n = (raw.notify && typeof raw.notify === 'object') ? raw.notify : {};
-    const fs = (n.fileSend && typeof n.fileSend === 'object') ? n.fileSend : {};
+    const n = raw.notify && typeof raw.notify === 'object' ? raw.notify : {};
+    const fs = n.fileSend && typeof n.fileSend === 'object' ? n.fileSend : {};
     const env = process.env.NOTIFY_FILE_SEND;
     // 允许整段 JSON 覆盖（便于临时调参）；解析失败忽略走下面逐项
     let override = {};
@@ -155,9 +285,11 @@ export const CONFIG = {
 /** 供 --check-only / 日志展示用 */
 export function describeConfig() {
   const chatTarget =
-    CONFIG.chatProvider === 'ollama' ? `${CONFIG.chatModel} @ ${CONFIG.ollamaUrl}` : `${CONFIG.chatModel} @ ${CONFIG.chatBaseUrl}`;
+    RUNTIME_CONFIG.chatProvider === 'ollama'
+      ? `${RUNTIME_CONFIG.chatModel} @ ${CONFIG.ollamaUrl}`
+      : `${RUNTIME_CONFIG.chatModel} @ ${RUNTIME_CONFIG.chatBaseUrl}`;
   return {
-    对话模型: `[${CONFIG.chatProvider}] ${chatTarget}`,
+    对话模型: `[${RUNTIME_CONFIG.chatProvider}] ${chatTarget}`,
     嵌入模型: `${CONFIG.embedModel} @ ${CONFIG.ollamaUrl}`,
     知识库目录: CONFIG.knowledgeDirAbs,
     索引文件: CONFIG.indexPathAbs,
