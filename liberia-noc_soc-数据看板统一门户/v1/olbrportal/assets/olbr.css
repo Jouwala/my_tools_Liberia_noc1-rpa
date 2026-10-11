@@ -79,7 +79,15 @@
      ⚠️ 放在 monospace **之前**：等宽拉丁仍优先（Consolas 等），
         中文才轮到雅黑；雅黑本身非等宽，但中文在等宽区里本就是"整字"，
         对齐诉求（tabular-nums）只针对数字/拉丁，不受影响。 */
-  --mono: ui-monospace, SFMono-Regular, "Cascadia Mono", Menlo, Consolas,
+  /* 2026-10-11 改：栈首加 "JetBrains Mono"（设计打磨 A2）。
+     为什么只动 --mono 不动 --sans：本页 37 处用 --mono（数字 / 时间戳 /
+     计数 / 表格数字列 / 升级机制电话邮箱），运维场景里**等宽字体一致性
+     比正文西文字体重要得多**。运维每天用 PuTTY / Windows Terminal，
+     对 JetBrains Mono 眼熟、字形识别成本最低。
+     为什么**不**用 webfont：会增加 ~200KB 字体包 + 阻塞首屏渲染；
+     栈里列在首位置 = "本机装了用本机的，没装回退到 Cascadia Mono"，
+     跨平台观感差异从"4 款"收敛到"2-3 款"。 */
+  --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, "Cascadia Mono", Menlo, Consolas,
           "Microsoft YaHei", monospace;
 
   /* Speedtest by Ookla 标识的颜色（2026-10-01 加）。
@@ -381,6 +389,14 @@ body {
   background-attachment: fixed;
   background-repeat: no-repeat;
   -webkit-font-smoothing: antialiased;
+  /* 2026-10-11 加：全局默认开启 tabular-nums（设计打磨 A3）。
+     之前 22 处用 `font-variant-numeric: tabular-nums` 是因为属性简写
+     (font:) 不会自动开。挂到 body 之后**不**删那 22 处：
+       · 显式声明 + 简写混用是 .qc-card / .qc-live / .cnt 等的现状
+       · 删了之后 font: 简写会重置为 normal → 真正回退
+     本行负责"html/body 默认所有数字等宽"，22 处负责"类里再显式确保一次"，
+     两者并存不冲突。 */
+  font-variant-numeric: tabular-nums;
 }
 a { color: inherit; text-decoration: none; }
 button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
@@ -557,6 +573,29 @@ html.dark .rail { box-shadow: none; }
 
 /* --------------------------------------------------------------- main -- */
 main { flex: 1; padding-block: var(--s5) var(--s6); display: flex; flex-direction: column; gap: var(--s4); }
+
+/* 2026-10-11 加（设计打磨 B5）：main 直接子 section 之间的视觉分界。
+   之前 main 的 gap=var(--s4)=16px 让所有区看起来"等距"，**重要区反而不突出**。
+   解决：在每个 section 之前画一条 1px 浅分隔线（仅 1024px 以上），
+   让 QC / KPI / 视图入口 / 地图 / 升级 / 辅助 6 块之间的"区"能被一眼看出。
+   ⚠️ 只画 section、不画 div（#emailSlot 等是 div，不是 section）—— 选择器精确。
+   ⚠️ 1024px 以下不画：窄屏没有"右半边空"的问题，且分隔线在小屏是噪声。
+   ⚠️ 不画 #gate（登录闸门，hidden 默认）、#editBar（在 main 之外）：
+   这两个选择器只匹配 #band / #kpi / #views6 / #l0Map / #esc / #aux / #arch 7 个。 */
+@media (min-width: 1024px) {
+  main > section:not(#gate) + section:not(#gate)::before {
+    content: "";
+    display: block;
+    height: 1px;
+    margin: 0 0 var(--s4);
+    background: linear-gradient(90deg,
+      transparent 0%,
+      var(--line) 20%,
+      var(--line) 80%,
+      transparent 100%);
+  }
+  main > section:not(#gate):first-of-type::before { display: none; }
+}
 
 /* ============================================================================
    v1 · 精简指标卡（质量核心指标 + CXO 每日经营指标）
