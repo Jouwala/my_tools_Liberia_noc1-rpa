@@ -6,7 +6,7 @@
 // Usage:  node start-app.mjs            # preview (serves dist/)
 //         node start-app.mjs --dev      # dev (serves public/ source)
 
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -15,9 +15,37 @@ import http from "node:http";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");              // my_app root
 const TOOLS = path.join(ROOT, "tools");                  // 代理脚本源码（随 git 走）
-const RUNTIME = path.join(ROOT, "scripts");              // venv 解释器 + 运行目录
+const RUNTIME = path.join(ROOT, "scripts");              // venv 解释器 + spawn 的 cwd（运行目录）
 const FRONTEND = path.join(ROOT, "frontend");
-const PY = path.join(RUNTIME, "python.exe");             // bundled/venv python
+
+// ---- 代理解释器：必须与 backend/services/realtime_proxy_ctl.py::_find_python 保持一致 ----
+// 2026-10-10 把系统 Python312 排到仓库 venv 之前。原因不是"venv 坏了"，而是 venv 的
+// python.exe 是**重定向器**：它派生基础解释器作为真正执行代码的子进程，实测在听的两个代理
+// （PID 50996 / 46704）镜像路径都是 C:\Users\ZTEEMS\.workbuddy\binaries\python\versions\
+// 3.13.12\python.exe —— 于是这两个代理在进程谱系上算 WorkBuddy 的，任何按镜像路径清理
+// WorkBuddy python 的动作会把 8787/8790 **成对**带走（完整经过见 realtime_proxy_ctl.py
+// 里 2026-10-10 的注释，以及 stop.bat:55-58 那条 2026-09-04 的同类事故记录）。
+// 代理只需要 stdlib + cryptography，Python312 完全够用（那个 venv 反倒缺 requests/urllib3）。
+// 判定用 import 探测，不用"文件存在"：后者会拉起一个"能启动、一跑就 ImportError"的进程，
+// 端口永远不起来，只在 console.log 里留一行，排障时最容易被误判成上游问题。
+const PY_PROBE = "import cryptography, ssl, http.server, urllib.request";
+function resolveProxyPython() {
+  const cands = [
+    (process.env.MY_APP_PROXY_PY || "").trim(),
+    "C:\\Users\\ZTEEMS\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
+    path.join(RUNTIME, "python.exe"),
+    "python.exe",
+  ].filter(Boolean);
+  for (const exe of cands) {
+    if (exe !== "python.exe" && !existsSync(exe)) continue;
+    const r = spawnSync(exe, ["-c", PY_PROBE], { timeout: 15000, windowsHide: true });
+    if (r.status === 0) return exe;
+    console.warn(`[proxy] interpreter unusable (import probe failed): ${exe}`);
+  }
+  console.warn("[proxy] no verified interpreter, falling back to PATH python.exe");
+  return "python.exe";
+}
+const PY = resolveProxyPython();
 const VITE_PORT = 7090;
 const isDev = process.argv.includes("--dev");
 
@@ -72,8 +100,9 @@ async function ensureProxy(cfg) {
     console.warn(`[proxy:${cfg.label}] script ${cfg.script} missing -- SKIP (dashboard on ${cfg.port} will be offline)`);
     return;
   }
-  // 脚本在 tools/，解释器与 cwd 在 scripts/（venv）。会话文件由脚本按
-  // dirname(__file__) 决定，随脚本落在 tools/。
+  // 脚本在 tools/（随 git 走）；cwd 仍是 scripts/（运行目录，会话文件由脚本按
+  // dirname(__file__) 决定，落在 tools/，与 cwd 无关）。解释器由 resolveProxyPython()
+  // 探测选出，不再固定是 scripts/ 的 venv —— 见该函数上方 2026-10-10 的注释。
   const p = spawn(PY, [path.join(TOOLS, cfg.script)], { cwd: RUNTIME, shell: true, stdio: ["ignore", "ignore", "ignore"] });
   procs.push(p);
   for (let i = 0; i < 15; i++) {
@@ -92,7 +121,12 @@ function startVite() {
 }
 
 async function main() {
-  if (!existsSync(PY)) { console.error("python not found at", PY); process.exit(1); }
+  // PY 可能是裸 "python.exe"（PATH 兜底，此时 existsSync 必然为 false），
+  // 所以只在"给了具体路径却不存在"时硬失败。
+  console.log(`[proxy] interpreter: ${PY}`);
+  if (PY.includes("\\") || PY.includes("/")) {
+    if (!existsSync(PY)) { console.error("python not found at", PY); process.exit(1); }
+  }
   for (const cfg of PROXIES) await ensureProxy(cfg);
   const viteProc = startVite();
   const shutdown = () => {

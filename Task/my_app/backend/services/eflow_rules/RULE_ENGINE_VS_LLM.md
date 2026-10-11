@@ -98,6 +98,7 @@ LLM 在 eFlow 场景真正擅长的是**自然语言解释**而不是"判级别"
 | `audit_rule_coverage.py` | 规则缺口体检（事前设计阶段用） |
 | `eflow_tt_rules_check_task.py` | 定时任务入口 |
 | `MATCHING_REPORT.md` | 匹配分析报告（每天 04:20 重写） |
+| `LLM_TEST_REPORT.md` | 本地 3 个对话模型对告警 2114322696 的实测（时延 + 准确性，证明模型不可用于判级） |
 | `backend/routers/eflow_qa.py::tt_ai` | AI 路径入口（兜底逻辑在这里） |
 | `docs/manual/05-security-and-credentials.md` | 凭据与敏感值规范（任何 AI 调用都不能写值） |
 

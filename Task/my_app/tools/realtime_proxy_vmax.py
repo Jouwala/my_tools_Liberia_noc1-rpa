@@ -104,6 +104,19 @@ _LOGIN_MIN_INTERVAL = _env_float("PROXY_LOGIN_MIN_INTERVAL", 30.0)   # 成功冷
 _LOGIN_BACKOFF = _env_float("PROXY_LOGIN_BACKOFF", 30.0)             # 退避基数
 _LOGIN_BACKOFF_MAX = _env_float("PROXY_LOGIN_BACKOFF_MAX", 600.0)    # 退避上限
 
+# ---------------------------------------------------------------------------
+# 上游超时（2026-10-10 分档）。旧版只有 fetch() 里一个硬编码 30s，而两个调用方
+# 的客户端超时都比它长（cxo_dashboard_cache 的 _REQ_TIMEOUT=(10,60)、
+# vmax_cxo_daily_cache 的 (10,90)）—— 代理先超时就会把"上游还在算"变成
+# "代理报错"，调用方再重试，等于给已经很慢的上游加倍流量。
+# 分档取值刻意保持**小于**对应调用方的读超时，让超时在离上游近的那一侧发生：
+#   普通看板接口 45s < 60s；history 批量明细 75s < 90s。
+# 注意：这里的超时**不再触发重新登录**，见 _proxy() 与 _probe_session()。
+# ---------------------------------------------------------------------------
+_UPSTREAM_TIMEOUT = _env_float("VMAX_PROXY_TIMEOUT", 45.0)
+_UPSTREAM_TIMEOUT_HEAVY = _env_float("VMAX_PROXY_TIMEOUT_HEAVY", 75.0)
+_HEAVY_PATH_HINTS = ("/query/v2/history",)
+
 _LOGIN_LAST_OK = 0.0
 _LOGIN_LAST_FAIL = 0.0
 _LOGIN_FAIL_COUNT = 0
@@ -299,12 +312,22 @@ def vmax_logout():
 
 
 def _probe_session():
-    """Return True only if the dashboard ECMA modules accept the session.
+    """探活上游会话，返回**三态**：True=会话可用 / False=会话确实失效 / None=无从判断。
 
     The portal's getUserName returns 200 even for a DEAD JSESSIONID, so probing
     it gives a false "session valid" and the proxy then keeps serving 404s for
     every dashboard API call. Instead probe a real dashboard endpoint: a 200
-    means the session is live, anything else means re-login.
+    means the session is live, an explicit HTTP rejection means re-login.
+
+    ⚠ 2026-10-10 由二态改三态。旧版结尾是 `except Exception: return False`，
+    于是「上游慢/网络抖动」和「会话已失效」被压成同一件事：判成失效就会调
+    `vmax_login()` **新建一个会话**，而本门户是按用户限并发（见 main() 里
+    max connections 那句 WARN）的单会话口径 —— 越慢越重登、越重登越挤掉正在
+    跑的会话，是正反馈。实测 2026-10-04~09 每天 358~626 次 re-login，触发原因
+    全是 `The read operation timed out`，即绝大多数重登是被"慢"误判出来的。
+
+    现在只有明确的 HTTP 拒答（401/403/404/407）才判 False；超时、TLS、拒连、
+    上游 5xx 一律返回 None，由调用方保留现有会话不重登。
     """
     url = (
         TARGET_HOST
@@ -327,12 +350,18 @@ def _probe_session():
             headers={"Content-Type": "application/json", "User-Agent": "Mozilla/5.0"},
             method="POST",
         )
-        r = _OPENER.open(req, timeout=20)
-        return r.getcode() == 200
+        r = _OPENER.open(req, timeout=_UPSTREAM_TIMEOUT)
+        code = r.getcode()
     except HTTPError as e:
-        return e.code == 200
+        code = e.code
     except Exception:
+        # 网络层拿不到状态码 —— 不能据此否定手上的会话
+        return None
+    if code == 200:
+        return True
+    if code in (401, 403, 404, 407):
         return False
+    return None
 
 
 def ensure_login(force=False):
@@ -380,11 +409,26 @@ def ensure_login(force=False):
             )
             return bool(len(CJ))  # 有 Cookie 即认为可复用
 
-        if load_session() and _probe_session():
-            _activate_dashboard()
-            _LOGIN_LAST_OK = time.time()
-            _LOGIN_FAIL_COUNT = 0
-            return True
+        if load_session():
+            probe = _probe_session()
+            if probe is True:
+                _activate_dashboard()
+                _LOGIN_LAST_OK = time.time()
+                _LOGIN_FAIL_COUNT = 0
+                return True
+            if probe is None:
+                # 上游慢/不可达，但手上的会话**没有被否定** —— 保留会话、不重登，
+                # 让这一次请求按正常路径去撞上游（成功就用，超时就让调用方超时）。
+                # 在这里重登的代价是：单会话门户会把可能正在跑的另一个会话挤掉，
+                # 把一次"慢"放大成一片 502。见 _probe_session() 的三态说明。
+                print(
+                    "[auth] probe unknown (upstream slow/unreachable?) "
+                    "-- keep current session, no re-login",
+                    flush=True,
+                )
+                return bool(len(CJ))
+            # probe is False：明确的 401/403/404/407，会话确实失效，继续重新登录
+
         if vmax_login():
             save_session()
             _LOGIN_LAST_OK = time.time()
@@ -399,7 +443,15 @@ def ensure_login(force=False):
 
 
 def fetch(target_url, method="GET", body=None):
-    """向 TARGET_HOST 发请求，带上 CSRF 头；返回 (status, resp, payload)。"""
+    """向 TARGET_HOST 发请求，带上 CSRF 头；返回 (status, resp)。
+
+    超时按端点分档（见 _UPSTREAM_TIMEOUT / _UPSTREAM_TIMEOUT_HEAVY 处的注释）：
+    history 批量明细给宽，其余看板接口保持比调用方更短，避免代理先超时引发
+    调用方重试、把流量翻倍压到已经很慢的上游。
+    """
+    timeout = _UPSTREAM_TIMEOUT
+    if any(h in target_url for h in _HEAVY_PATH_HINTS):
+        timeout = _UPSTREAM_TIMEOUT_HEAVY
     req = Request(
         target_url,
         data=body.encode("utf-8") if isinstance(body, str) else body,
@@ -411,7 +463,7 @@ def fetch(target_url, method="GET", body=None):
         req.add_header("forgerydefense", CSRF)
     if body is not None:
         req.add_header("Content-Type", "application/json")
-    resp = _OPENER.open(req, timeout=30)
+    resp = _OPENER.open(req, timeout=timeout)
     return resp.getcode(), resp
 
 
@@ -497,7 +549,14 @@ class Handler(BaseHTTPRequestHandler):
                     self.send_header("Content-Type", ct)
                     self.send_header("Content-Length", str(len(payload)))
                     self.end_headers()
-                    self.wfile.write(payload)
+                    # 调用方（浏览器/后端）常在上游变慢时先断开，写完才发现连接
+                    # 已没 —— 那是**客户端**的超时，不是代理故障。旧版让它冒到
+                    # socketserver.handle_error，每次打一整页 ConnectionAbortedError
+                    # 堆栈（今天 12:11 那份日志 5 次），把真故障埋在噪音里。
+                    try:
+                        self.wfile.write(payload)
+                    except (BrokenPipeError, ConnectionAbortedError, ConnectionResetError):
+                        print("[proxy] client aborted before write, upstream was 200", flush=True)
                     return
                 session_rejected = status in (401, 407, 403)
             except HTTPError as e:
@@ -505,11 +564,20 @@ class Handler(BaseHTTPRequestHandler):
                 payload = e.read()
                 session_rejected = status in (401, 407, 403)
             except Exception as e:
-                # 网络层异常（超时/拒连/TLS）：没有 HTTP 状态码，用 0 表示
-                print("[proxy] network error, re-login:", e)
-                status = 0
-                session_rejected = True
-                payload = b""
+                # 网络层异常（读超时/TLS/拒连）**不是**会话失效，绝不触发重登。
+                # 旧版在这里置 session_rejected=True → 每一次上游读超时都会变成
+                # 一次真实登录，而本门户按用户限并发，重登会把正在跑的会话挤掉
+                # （2026-10-10 复盘：10-04~09 每天 358~626 次 re-login 全部由
+                # read timeout 引发，是"越慢越重登、越重登越坏"的正反馈）。
+                # 现在直接回 504 让调用方按自己的超时处置；调用方要么已有
+                # last-known-good 兜底，要么下一轮重取（本代理的会话状态没被动过）。
+                print("[proxy] upstream network error, NO re-login:", e, flush=True)
+                self.send_response(504)
+                self._cors()
+                self.send_header("Content-Type", "text/plain; charset=utf-8")
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
 
             if session_rejected:
                 print("[proxy] session rejected (", status, "), re-login", flush=True)
@@ -530,7 +598,11 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(payload)))
         self.end_headers()
-        self.wfile.write(payload)
+        try:
+            self.wfile.write(payload)
+        except (BrokenPipeError, ConnectionAbortedError, ConnectionResetError):
+            # 同上：调用方先撤，不代表上游返回有问题，status 已经打印过了
+            pass
 
     def log_message(self, *a):
         pass

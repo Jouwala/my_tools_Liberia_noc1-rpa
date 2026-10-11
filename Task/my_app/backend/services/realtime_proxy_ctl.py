@@ -49,12 +49,81 @@ except ImportError:  # pragma: no cover - 兼容非包方式导入
     from backend.log_writer import resolve_free_path
 
 
+_CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0) if sys.platform == "win32" else 0
+
+# 代理只用到 stdlib + cryptography（requests/urllib3 都不需要 —— 实测那个 venv 反倒缺
+# requests/urllib3）。所以判定解释器可用要靠 **import 探测**，不能只看文件在不在：
+# 探不过会拉起一个"能启动、一跑就 ImportError"的进程，那种崩溃只在 console.log 里留一行，
+# 端口永远不起来，排障时最容易误判成"上游问题"。
+_PROXY_IMPORT_PROBE = "import cryptography, ssl, http.server, urllib.request"
+_PY_CHOSEN = None
+
+
+def _proxy_python_candidates():
+    """按优先级给出代理解释器候选：显式环境变量 > 系统 Python312 > 仓库 venv > PATH。"""
+    cands = []
+    env = (os.environ.get("MY_APP_PROXY_PY") or "").strip()
+    if env:
+        cands.append(env)
+    cands.append(r"C:\Users\ZTEEMS\AppData\Local\Programs\Python\Python312\python.exe")
+    cands.append(str(_RUNTIME / "python.exe"))
+    cands.append("python.exe")
+    return cands
+
+
+def _python_can_run_proxy(exe: str) -> bool:
+    try:
+        p = subprocess.run(
+            [exe, "-c", _PROXY_IMPORT_PROBE],
+            capture_output=True, timeout=15, creationflags=_CREATE_NO_WINDOW,
+        )
+        return p.returncode == 0
+    except Exception as e:  # noqa: BLE001 - 探测不过就等于"这个解释器不能用"，接着试下一个
+        logger.debug("[realtime_proxy_ctl] import probe failed for %s: %s", exe, e)
+        return False
+
+
 def _find_python() -> str:
-    # venv 解释器仍在 scripts/（它是 venv 的 launcher 目录，随本机存在，不入库）
-    venv = _RUNTIME / "python.exe"
-    if venv.exists():
-        return str(venv)
-    return "python.exe"
+    """选出跑代理脚本的解释器，结果缓存（探测要起子进程，不能每次 ensure 都跑一遍）。
+
+    ⚠ 2026-10-10：把系统 Python312 排到仓库 venv 前面。起因是实测当时在听的两个代理进程
+    （PID 50996 / 46704）的真实镜像路径是
+    `C:\\Users\\ZTEEMS\\.workbuddy\\binaries\\python\\versions\\3.13.12\\python.exe`，
+    父进程才是 `D:\\01_RPA\\Task\\my_app\\scripts\\python.exe` —— venv 的重定向器会派生
+    **基础解释器**作为真正执行代码的子进程，于是这两个代理在进程谱系上算 WorkBuddy 的。
+    任何按镜像路径清理 WorkBuddy python 的动作都会把它们**成对**带走（当天 11:11:31 的
+    8790 与 11:13:54 的 8787 成对消失、代理自身日志没有崩溃痕迹，正是外部 `taskkill /F`
+    的形状；之后 3 分 36 秒的空档靠人工点前端「启用实时刷新」才补上，那条告警就是撞在
+    这个窗口里的）。`stop.bat:55-58` 早在 2026-09-04 就为同一件事把 8787/8790 从它的
+    端口清理列表里摘了出去，注释里写的"属于 WorkBuddy 的 MCP 服务"就是这个谱系。
+
+    选 `python.exe` 而不是 `pythonw.exe`：与 backend/worker 的镜像名区分开，免得将来
+    任何按 `/IM pythonw.exe` 的清理把后端和代理一锅端；拉起侧本来就用 CREATE_NO_WINDOW
+    （见 ensure_proxy 里 2026-08-16 那段实测注释），不会有黑窗弹出来打断在看板的人。
+
+    这里只新增一个模块级 _CREATE_NO_WINDOW 给探测用；_kill_port / ensure_proxy 里原有的
+    同名局部写法**没有一并替换** —— 那两处各自带着"为什么不能用 DETACHED_PROCESS"这类
+    实测注释，是既有事实的载体，动了它们反而丢上下文。
+    """
+    global _PY_CHOSEN
+    if _PY_CHOSEN:
+        return _PY_CHOSEN
+    for cand in _proxy_python_candidates():
+        if cand != "python.exe" and not Path(cand).exists():
+            # 路径写错也要留一行 —— 现场用 MY_APP_PROXY_PY 应急指解释器时，
+            # 静默跳过会让人以为环境变量没生效，其实是被当成不存在忽略了。
+            logger.warning("[realtime_proxy_ctl] interpreter path not found, skipped: %s", cand)
+            continue
+        if _python_can_run_proxy(cand):
+            _PY_CHOSEN = cand
+            logger.info("[realtime_proxy_ctl] proxy interpreter chosen: %s", cand)
+            return _PY_CHOSEN
+        logger.warning(
+            "[realtime_proxy_ctl] interpreter unusable for proxy (import probe failed): %s", cand
+        )
+    _PY_CHOSEN = "python.exe"
+    logger.warning("[realtime_proxy_ctl] no verified interpreter, falling back to PATH python.exe")
+    return _PY_CHOSEN
 
 
 def _port_alive(port: int) -> bool:
