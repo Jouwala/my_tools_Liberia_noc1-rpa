@@ -499,6 +499,7 @@ img, svg, canvas, iframe { max-width: 100%; }
 
 <script src="./lib/echarts.min.js"></script>
 <script src="./lib/leaflet/leaflet.js"></script>
+<script src="./myapp-refresh-protocol.js"></script>
 <script>
 /* ============ theme (TDZ-safe: declare BEFORE anything reads it) ============ */
 /* 深色档色值不再写死在这里 —— 唯一真相源是 legacy-vmax-theme.css 的 CSS 变量
@@ -967,15 +968,9 @@ function applyMapTheme(){
 window.addEventListener('message', function(e){
   if(e.data && e.data.__type === 'myapp-theme') applyTheme(e.data.mode);
 });
-/* 大屏自动刷新协议：父页面（App.tsx 的自动刷新定时器）按所选间隔发来
-   myapp-refresh，本页在文档内「原地」重拉最新数据 —— 不整页重载，
-   保留布局模式 / 日期选择 / 层级筛选 / 浏览器全屏等状态，大屏不闪屏。
-   loadDate(false) 走后端 60 秒 TTL 缓存，轮询开销可忽略。 */
-window.addEventListener('message', function(e){
-  if(e.data && e.data.__type === 'myapp-refresh'){
-    try { autoRefreshData(); } catch(err){ /* 数据未就绪时忽略 */ }
-  }
-});
+/* 大屏自动刷新协议：由 MyAppRefresh.install（见文件底部）统一监听父外壳的
+   myapp-refresh 广播并在文档内「原地」重拉 —— 不整页重载，保留布局模式 /
+   日期选择 / 层级筛选 / 浏览器全屏等状态，大屏不闪屏。此处不再单独监听。 */
 try {
   if(window.matchMedia){
     matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function(e){
@@ -2668,20 +2663,15 @@ window.addEventListener('message', function(e){
 });
 
 window.addEventListener('load', function(){ loadData(false); });
-/* 自刷新兜底：无论是否嵌入 App 外壳都常开，每 5 分钟在原地重拉一次。
- *
- * 背景（2026-10-10）：此前该定时器带 `window.top === window.self` 守卫，只在
- * 「直开」时生效，嵌入 ?page=mwRealTime 时完全交给父页面 App.tsx 的自动刷新
- * 定时器广播 myapp-refresh。但全屏时父窗口的 document.hidden 常被判为 true
- * （大屏 Kiosk / 全屏窗口未聚焦 / 副屏），App.tsx 的 arInteractionInProgress()
- * 会直接 return、根本不广播 → 页面长时间不刷新，而状态标签仍写「未更新」，
- * 造成「显示未更新、实际数据是新的」错位。改为常开后：父页面广播命中时页面
- * 立即刷新（提前触发），父页面被 document.hidden 挡住时本定时器仍按 5 分钟兜底。
- * 守卫改为本 iframe 自己的 document.hidden —— 只在本页真正不可见时跳过。 */
+/* 自刷新安全网（2026-10-11 起统一走 MyAppRefresh 共享协议）。
+ * 父外壳广播 myapp-refresh → 立即原地重拉；广播被挡（全屏 Kiosk / 后台）时本页
+ * 按「生效间隔」自行兜底，大屏挂机永不静默。非看板页（如设置）不启用；
+ * 看板页全屏时忽略「关闭」按本页默认兜底。详见 myapp-refresh-protocol.js。 */
 try {
-  setInterval(function(){
-    if (!document.hidden) { try { autoRefreshData(); } catch(err){} }
-  }, 5 * 60 * 1000);
+  MyAppRefresh.install({
+    defaultSec: 900,   // 与 App.tsx AR_PAGE_DEFAULTS.mwRealTime 对齐
+    onRefresh: function(){ autoRefreshData(); },
+  });
 } catch(e){}
 </script>
 </body>
