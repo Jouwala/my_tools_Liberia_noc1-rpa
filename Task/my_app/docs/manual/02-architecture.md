@@ -57,7 +57,14 @@ schemas/   预留，实际为空
 - `gis` 与 `realtime_alarm` 复用同一组件：`<GISMap/>` 与 `<GISMap mode="realtime"/>`（`App.tsx:286-289`）。
 - 共享组件只有 4 个：`DraggableClickModal`（下钻弹窗）、`LegacyToolFrame`（iframe 壳）、`MetricExplain`（指标口径说明）、`SearchableExportTable`（可搜索导出表）。
 
-**自动刷新**：顶栏统一控制，间隔存 `localStorage['myapp_auto_refresh_sec']`，可选 `[0,30,60,300,600,900,1800]` 秒、默认 300 秒，到点重挂载页面或软刷新 iframe，页面忙时跳过（`App.tsx:86-90,101-170`）。这与下面两个 Context 无关。
+**自动刷新**（`App.tsx` 顶部「自动刷新（大屏 / NOC 值班场景）」注释块与 `performAutoRefresh`）：顶栏统一控制，间隔存 `localStorage['myapp_auto_refresh_sec']`，可选 `[0,30,60,300,600,900,1800]` 秒、看板页默认 300 秒。
+
+- **白名单制**：只有「看板 / 展示页」参与自动刷新（`AR_BOARD_PAGES`）；配置、操作、工具类页面（如 `settings` / `upload` / `tables` / `ip_trace` / `eflow_*` 等）的生效间隔恒为 0，**完全不刷新**，顶栏选择器对它们禁用。
+- **两条刷新路径**：软刷新页（`AR_SOFT_REFRESH_PAGES`）由外壳广播 `postMessage({__type:'myapp-refresh'})` 在 iframe 内原地重拉；其余看板页走硬重挂载（`key={refreshTick}` 变化 → 组件重挂载）。广播无副作用，**在 `arInteractionInProgress()` 拦截之前发出**，故全屏 / 后台也照发；硬重挂载有副作用，才受「用户正忙」与 `document.fullscreenElement` 拦截。
+- **生效间隔**通过 `localStorage['myapp_auto_refresh_effective']` 公开给 legacy 页，并写 `localStorage['myapp_auto_refresh_is_board']`（`'1'/'0'`）标记本页是否看板。
+- **legacy 页自刷新安全网**：7 个 iframe 看板页 + 2 个 React 内嵌页统一引入 `public/myapp-refresh-protocol.js`（`MyAppRefresh.install`）—— 父外壳广播即「提前触发」原地重拉，广播被挡时按生效间隔自调度兜底；非看板页不启用；看板页全屏时忽略「关闭」按本页默认兜底。`alarm-management.html` 有自身 live 模式，仅补广播入口。
+
+这与下面两个 Context 无关。
 
 **两个全局 hook 的职责容易混，注意区别**：
 
