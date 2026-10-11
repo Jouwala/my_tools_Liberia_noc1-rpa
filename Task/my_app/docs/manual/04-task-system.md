@@ -18,6 +18,8 @@ APScheduler 到点 (backend 进程内)
 
 - **注册是代码注册表，不是配置文件**。41 条声明集中在 `backend/task_registry.py:72-403` 的 `TASK_SPECS`，启动时 `register_all_tasks()`（:405-429）逐条登记，采用懒加载包装（:58-64）——每条二选一给 `func`（需要特殊包装）或 `loader`（`("module.path","func_name")` 元组）。
 - **cron 可以被库里覆盖**：默认值写在 `default_cron`，实际排程读 `task_schedule_config` 表（`task_runner.py:241-296`），所以在"任务管理"页改排程会立即生效且重启不丢。
+  - ⚠️ **库里有值时它永远优先**（`task_runner.py:339` `current_cron = saved_cron if saved_cron else default_cron`）。因此**只改 `task_registry.py` 的 `default_cron` 对已存在的任务完全无效，且不留痕迹** —— 2026-10-04 改 `sp_online_sync`、2026-10-11 改三个 WhatsApp 发送任务时都踩过（以为改了、实际仍按库里的旧值跑）。要改生效值：用任务管理页、或 `POST /api/tasks/{id}/schedule`、或删掉该任务的 `task_schedule_config` 行让它回落到代码默认。
+  - 下表列的是 **`default_cron`（代码默认值）**，**不是**当前生效值。二者可能不同（2026-10-11 巡检：22 个任务存在 code≠库 的覆盖）。核对三方一致性用 `TMP/_check_task_cron_drift.py`。
 - 另有一套**任务配置文件框架** `services/task_configs_registry.py:1-30`，优先级 `环境变量 > 配置文件 > 默认值`，用于任务的业务参数（不是排程）。
 - **状态回传是纯 HTTP 轮询，没有 WebSocket**：`/api/tasks`、`/api/tasks/{id}/status|history|stats`。
 - **降级模式**：未设 `MY_APP_TASK_QUEUE=1` 时，任务退回调度器进程内线程执行（`task_runner.py:527-553`），不经过队列、也不由 worker 认领。生产启停脚本会注入该开关（`backend_watchdog.py:137`）。
@@ -100,7 +102,7 @@ APScheduler 到点 (backend 进程内)
 | `ran_ume_daily` | RAN UME 日报 | `0 2 * * *` | u |
 | `site_outage_screenshot` | Site Outage 截图 | `0 1 * * *` | m |
 | `whatsapp_send` | WhatsApp 消息发送 | `0 3 * * *` | m |
-| `ms_sla_full` | MS SLA 完整同步 | `0 */6 * * *` | n |
+| `ms_sla_full` | MS SLA 完整同步 | `0 5 * * *` | n |
 | `eflow_active_alarm` | eFlow 实时告警同步 | `*/30 * * * *` | n |
 | `eflow_history_alarm` | eFlow 历史告警同步 | `0 */3 * * *` | n |
 | `eflow_tt_rules_check` | eFlow TT 规则收集与匹配检查 | `20 4 * * *` | n |
@@ -110,22 +112,22 @@ APScheduler 到点 (backend 进程内)
 | `cnn_kpi_sync` | CNN UME KPI 同步 | `0 6 * * *` | n |
 | `sp_data_sync` | SP 备件数据同步 | `10 * * * *` | s |
 | `ipran_kpi_sync` | iPRAN UME KPI 同步 | `0 8 * * *` | u |
-| `liberia_email_1h` | Liberia 宕站 1小时报告邮件 | `5 * * * *` | m |
-| `liberia_email_8h` | Liberia 宕站 8小时报告邮件 | `10 */8 * * *` | m |
-| `kpi_ms_contract` | MS Contract KPIs 日报邮件 | `30 17 * * *` | m |
-| `kpi_ms_wo_sla` | MS WOs SLA 日报邮件 | `35 17 * * *` | m |
+| `liberia_email_1h` | Liberia 宕站 1小时报告邮件 | `15 * * * *` | m |
+| `liberia_email_8h` | Liberia 宕站 8小时报告邮件 | `20 */8 * * *` | m |
+| `kpi_ms_contract` | MS Contract KPIs 日报邮件 | `30 5 * * *` | m |
+| `kpi_ms_wo_sla` | MS WOs SLA 日报邮件 | `35 5 * * *` | m |
 | `kpi_sp_spareparts` | SpareParts 备件报表邮件 | `45 9 * * *` | m |
 | `kpi_sp_consumables` | Comsumables 耗材报表邮件 | `50 9 * * *` | m |
 | `sp_report_generate` | SP 备件报表生成 | `15 5 * * *` | m |
 | `kpi_ran_availability` | MS Network Availability 日报邮件 | `30 9 * * *` | m |
-| `email_recovery` | EWS 恢复后邮件补发 | `*/20 * * * *` | m |
+| `email_recovery` | EWS 恢复后邮件补发 | `*/10 * * * *` | m |
 | `packet_loss_sync` | Packet Loss 丢包同步 | `30 6 * * *` | u |
 | `packet_loss_email` | Packet Loss 丢包日报邮件 | `45 6 * * *` | u |
 | `ipran_m6k_chart_email` | IP RAN M6K-FW 图表邮件 | `45 6 * * *` | m |
 | `ccn_free_rating_chart_email` | CNN Free Rating 图表邮件 | `45 7 * * *` | m |
 | `fw_kpi_sync` | FW 吞吐 KPI 同步+图表邮件 | `15 7 * * *` | n |
 | `battery_kpi_sync` | 电池 KPI 同步 | `5 * * * *` | u |
-| `battery_email` | 电池 KPI 邮件 | `0 7,19 * * *` | m |
+| `battery_email` | 电池 KPI 邮件 | `10 7,19 * * *` | m |
 | `mailbox_cleanup` | 邮箱空间清理 | `0 * * * *` | m |
 | `incident_overview_sync` | Incident Overview 数据同步 | `20 * * * *` | m |
 | `finebi_report_sync` | FineBI 报表文件同步 | `10 * * * *` | m |
@@ -142,11 +144,11 @@ APScheduler 到点 (backend 进程内)
 | `olib_soc_kpi_daily_sync` | OLIB SOC 看板 KPI 增量 | `20 6 * * *` | m |
 | `whatsapp_send_ext` | WhatsApp 消息发送（扩展） | `0 3 * * *` | m |
 | `whatsapp_send_baileys` | WhatsApp 消息发送（Baileys；**默认禁用**，需在「任务管理」页手动启用） | `0 4 * * *` | m |
-| `tt_alarm_whatsapp_alert` | eFlow P1 告警 WhatsApp 推送（**可在「任务配置」页调级别/告警码/触发窗口/重报间隔/群组**） | `*/5 * * * *` | m |
+| `tt_alarm_whatsapp_alert` | eFlow P1 告警 WhatsApp 推送（**可在「任务配置」页调级别/告警码/触发窗口/重报间隔/群组**） | `2-59/5 * * * *` | m |
 | `cells_kpi_sync` | RAN Cells KPI 同步 | `50 4 * * *` | u |
 | `sp_email_details` | SP 备件明细报表邮件 | `5 7 * * *` | m |
 | `sp_details_files_email` | SP 备件明细分文件邮件（6 份 xlsx 一文件一邮件发 NOC） | `5 10 * * *` | m |
-| `sp_material_report` | SP 物料库存与消耗报表邮件 | `33 7 * * *` | m |
+| `sp_material_report` | SP 物料库存与消耗报表邮件 | `45 7 * * *` | m |
 | `sp_online_report_generate` | SP 在线未关闭单报表生成（Inbound 读明细 xlsx；**Outbound 读库表 `sp_outbound`**，跟踪等待更新/等待归还/等待确认） | `0 6 * * *` | m |
 | `sp_online_report_send` | SP 在线未关闭单报表发送 | `35 6 * * *` | m |
 | `sp_whatsapp_report` | Comsumables&SpareParts Report Whatsapp | `55 7 * * *` | m |

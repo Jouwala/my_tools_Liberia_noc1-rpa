@@ -90,7 +90,7 @@
 | WhatsApp 消息发送（扩展） | `whatsapp_send_ext` | `0 3 * * *` | m | `services/whatsapp_ext_service.py → run_whatsapp_send_ext` |
 | WhatsApp 消息发送（Baileys） | `whatsapp_send_baileys` | `0 4 * * *` | m | `services/whatsapp_send_baileys_service.py → run_whatsapp_send_baileys` |
 | eFlow P1 告警 WhatsApp 推送 | `tt_alarm_whatsapp_alert` | `2-59/5 * * * *` | m | `services/tt_alarm_whatsapp_service.py → run_tt_alarm_whatsapp_alert` |
-| MS SLA 完整同步 | `ms_sla_full` | `0 */6 * * *` | n | `services/ms_sla_service.py → run_full_sync` |
+| MS SLA 完整同步 | `ms_sla_full` | `0 5 * * *` | n | `services/ms_sla_service.py → run_full_sync` |
 | eFlow 实时告警同步 | `eflow_active_alarm` | `*/5 * * * *` | n | `services/eflow_api_client.py → fetch_and_save_active_alarm` |
 | eFlow 历史告警同步 | `eflow_history_alarm` | `0 */3 * * *` | n | `services/eflow_api_client.py → fetch_and_save_history_alarm` |
 | eFlow TT 规则收集与匹配检查 | `eflow_tt_rules_check` | `20 4 * * *` | n | `services/eflow_rules/eflow_tt_rules_check_task.py → run_eflow_tt_rules_check` |
@@ -103,26 +103,26 @@
 | CNN UME KPI 同步 | `cnn_kpi_sync` | `0 6 * * *` | n | `services/ccn_ume_kpi_service.py → run_cnn_kpi_sync` |
 | SP 备件数据同步 | `sp_data_sync` | `10 * * * *` | s | `services/get_sp_table.py → run_sp_data_sync` |
 | iPRAN UME KPI 同步 | `ipran_kpi_sync` | `0 8 * * *` | u | `services/ipran_ume_kpi_service.py → run_ipran_kpi_sync` |
-| Liberia 宕站 1小时报告邮件 | `liberia_email_1h` | `5 * * * *` | m | `services/liberia_email_report.py → run_1h_report` |
-| Liberia 宕站 8小时报告邮件 | `liberia_email_8h` | `10 */8 * * *` | m | `services/liberia_email_report.py → run_8h_report` |
-| MS Contract KPIs 日报邮件 | `kpi_ms_contract` | `30 17 * * *` | m | `services/kpi_email_report.py → run_ms_contract_kpi` |
-| MS WOs SLA 日报邮件 | `kpi_ms_wo_sla` | `35 17 * * *` | m | `services/kpi_email_report.py → run_ms_wo_sla` |
+| Liberia 宕站 1小时报告邮件 | `liberia_email_1h` | `15 * * * *` | m | `services/liberia_email_report.py → run_1h_report` |
+| Liberia 宕站 8小时报告邮件 | `liberia_email_8h` | `20 */8 * * *` | m | `services/liberia_email_report.py → run_8h_report` |
+| MS Contract KPIs 日报邮件 | `kpi_ms_contract` | `30 5 * * *` | m | `services/kpi_email_report.py → run_ms_contract_kpi` |
+| MS WOs SLA 日报邮件 | `kpi_ms_wo_sla` | `35 5 * * *` | m | `services/kpi_email_report.py → run_ms_wo_sla` |
 | SpareParts 备件报表邮件 | `kpi_sp_spareparts` | `45 9 * * *` | m | `services/kpi_email_report.py → run_sp_spareparts` |
 | Comsumables 耗材报表邮件 | `kpi_sp_consumables` | `50 9 * * *` | m | `services/kpi_email_report.py → run_sp_consumables` |
 | SP 备件报表生成 | `sp_report_generate` | `15 5 * * *` | m | `services/kpi_email_report.py → run_sp_report_generate` |
-| SP 备件明细报表邮件 | `sp_email_details` | `0 7 * * *` | m | `services/kpi_email_report.py → run_sp_details_email` |
+| SP 备件明细报表邮件 | `sp_email_details` | `5 7 * * *` | m | `services/kpi_email_report.py → run_sp_details_email` |
 | SP 备件明细分文件邮件 | `sp_details_files_email` | `5 10 * * *` | m | `services/kpi_email_report.py → run_sp_details_files_email` |
-| Comsumables&SpareParts Report Whatsapp | `sp_whatsapp_report` | `15 7 * * *` | m | `services/kpi_email_report.py → run_sp_whatsapp_report` |
-| SP 物料库存与消耗报表邮件 | `sp_material_report` | `33 7 * * *` | m | `services/kpi_email_report.py → run_sp_material_stock_consumption` |
+| Comsumables&SpareParts Report Whatsapp | `sp_whatsapp_report` | `55 7 * * *` | m | `services/kpi_email_report.py → run_sp_whatsapp_report` |
+| SP 物料库存与消耗报表邮件 | `sp_material_report` | `45 7 * * *` | m | `services/kpi_email_report.py → run_sp_material_stock_consumption` |
 | MS Network Availability 日报邮件 | `kpi_ran_availability` | `30 9 * * *` | m | `services/kpi_email_report.py → run_ran_availability` |
-| EWS 恢复后邮件补发 | `email_recovery` | `*/20 * * * *` | m | `services/email_recovery.py → run_email_recovery_task` |
+| EWS 恢复后邮件补发 | `email_recovery` | `*/10 * * * *` | m | `services/email_recovery.py → run_email_recovery_task` |
 | Packet Loss 丢包同步 | `packet_loss_sync` | `30 6 * * *` | u | `services/packet_loss_service.py → run_packet_loss_sync` |
 | Packet Loss 丢包日报邮件 | `packet_loss_email` | `45 6 * * *` | u | `services/kpi_email_report.py → run_packet_loss_email` |
 | IP RAN M6K-FW 图表邮件 | `ipran_m6k_chart_email` | `45 6 * * *` | m | `services/ipran_chart_service.py → run_ipran_m6k_chart_email` |
 | CNN Free Rating 图表邮件 | `ccn_free_rating_chart_email` | `45 7 * * *` | m | `services/ccn_free_rating_chart_service.py → run_ccn_free_rating_chart_email` |
 | FW 吞吐 KPI 同步+图表邮件 | `fw_kpi_sync` | `15 7 * * *` | n | `services/fw_kpi/fw_kpi_services.py → run_fw_kpi_sync` |
 | 电池 KPI 同步 | `battery_kpi_sync` | `5 * * * *` | u | `services/battary_kpi_fetch/battery_kpi_service.py → run_battery_kpi_sync` |
-| 电池 KPI 邮件 | `battery_email` | `0 7,19 * * *` | m | `services/battary_kpi_fetch/battery_kpi_service.py → run_battery_email` |
+| 电池 KPI 邮件 | `battery_email` | `10 7,19 * * *` | m | `services/battary_kpi_fetch/battery_kpi_service.py → run_battery_email` |
 | 邮箱空间清理 | `mailbox_cleanup` | `0 * * * *` | m | `services/mailbox_cleanup.py → run_mailbox_cleanup` |
 | Incident Overview 数据同步 | `incident_overview_sync` | `20 * * * *` | m | `services/incident_overview_sync.py → run_incident_overview_sync` |
 | FineBI 报表文件同步 | `finebi_report_sync` | `10 * * * *` | m | `services/finebi_report_sync.py → run_finebi_report_sync` |
@@ -146,7 +146,7 @@
 | SP Online 工单同步 | `sp_online_sync` | `35 */6 * * *` | n | `services/sp_online_sync.py → run_sp_online_sync` |
 | SP 物料主数据同步 | `sp_material_sync` | `55 4 * * *` | n | `services/sp_material_sync.py → run_sp_material_sync` |
 | SP 在线未关闭单报表生成 | `sp_online_report_generate` | `0 6 * * *` | m | `services/kpi_email_report.py → run_sp_online_report_generate` |
-| SP 在线未关闭单报表发送 | `sp_online_report_send` | `20 6 * * *` | m | `services/kpi_email_report.py → run_sp_online_report` |
+| SP 在线未关闭单报表发送 | `sp_online_report_send` | `35 6 * * *` | m | `services/kpi_email_report.py → run_sp_online_report` |
 | eFlow 告警规则收集 | `eflow_alarm_rules_collect` | `59 23 */3 * *` | n | `services/eflow_rules/eflow_Alarm_Rule_Collector.py → run_eflow_alarm_rules` |
 | eFlow 推单规则收集 | `eflow_push_rules_collect` | `59 23 */3 * *` | n | `services/eflow_rules/eflow_Push_Rule_Collector.py → run_eflow_push_rules` |
 | 日志文件清理 | `log_cleanup` | `17 3 * * *` | m | `services/log_cleanup.py → run_log_cleanup` |
@@ -307,7 +307,7 @@
 
 #### MS SLA 完整同步（`ms_sla_full`）
 
-- 默认 cron: `0 */6 * * *`　|　worker 组: **n**
+- 默认 cron: `0 5 * * *`　|　worker 组: **n**
 - 工作流脚本: `services/ms_sla_service.py → run_full_sync`
 
 **功能**: SLA 指标同步 + Contract KPIs 报表更新（项目自包含，无需外部文件）
@@ -547,7 +547,7 @@
 
 #### Liberia 宕站 1小时报告邮件（`liberia_email_1h`）
 
-- 默认 cron: `5 * * * *`　|　worker 组: **m**
+- 默认 cron: `15 * * * *`　|　worker 组: **m**
 - 工作流脚本: `services/liberia_email_report.py → run_1h_report`
 
 **功能**: 发送 Liberia Orange Site Down hourly Report（内嵌图 + Excel）到主送/抄送名单
@@ -560,11 +560,11 @@
 
 **维护要点**:
 
-- EWS 不可用时漏发由 email_recovery（每 20 分钟）自动补发
+- EWS 不可用时漏发由 email_recovery（每 10 分钟）自动补发
 
 #### Liberia 宕站 8小时报告邮件（`liberia_email_8h`）
 
-- 默认 cron: `10 */8 * * *`　|　worker 组: **m**
+- 默认 cron: `20 */8 * * *`　|　worker 组: **m**
 - 工作流脚本: `services/liberia_email_report.py → run_8h_report`
 
 **功能**: 发送 Liberia Orange Site Down 8 hours Report（内嵌图 + Excel）到主送/抄送名单
@@ -580,24 +580,24 @@
 
 #### MS Contract KPIs 日报邮件（`kpi_ms_contract`）
 
-- 默认 cron: `30 17 * * *`　|　worker 组: **m**
+- 默认 cron: `30 5 * * *`　|　worker 组: **m**
 - 工作流脚本: `services/kpi_email_report.py → run_ms_contract_kpi`
 
 **功能**: 发送 MS Contract KPIs Achievements Daily Report（本地数据 + 远程名单）
 
 **工作流与数据流**:
 
-1. 读取 ms_sla_full（每 6 小时）产出的本地 ms_sla 数据
+1. 读取 ms_sla_full（05:00）产出的本地 ms_sla 数据
 1. 生成 Contract KPIs 日报
 1. 发送到远程名单中的收件人
 
 **维护要点**:
 
-- 数据来自 ms_sla_full；17:30 发送时用的是 16:00 那一轮同步的数
+- 数据来自 ms_sla_full（05:00 同步，约 05:11 完成）；本任务 05:30 发送，用的是当天这一轮的数
 
 #### MS WOs SLA 日报邮件（`kpi_ms_wo_sla`）
 
-- 默认 cron: `35 17 * * *`　|　worker 组: **m**
+- 默认 cron: `35 5 * * *`　|　worker 组: **m**
 - 工作流脚本: `services/kpi_email_report.py → run_ms_wo_sla`
 
 **功能**: 发送 MS WOs SLA Achievements Daily Report（本地数据 + 远程名单）
@@ -654,7 +654,7 @@
 
 1. 登录 SFTP 下载备件原始数据
 1. 生成 Comsumables & SpareParts Inbound&Outbound&Inventory 报表
-1. 落盘 data/sp_email 供 09:45/09:50 两个邮件任务与 07:00 明细邮件使用
+1. 落盘 data/sp_email 供 09:45/09:50 两个邮件任务与 07:05 明细邮件使用
 
 **维护要点**:
 
@@ -662,7 +662,7 @@
 
 #### SP 备件明细报表邮件（`sp_email_details`）
 
-- 默认 cron: `0 7 * * *`　|　worker 组: **m**
+- 默认 cron: `5 7 * * *`　|　worker 组: **m**
 - 工作流脚本: `services/kpi_email_report.py → run_sp_details_email`
 
 **功能**: 把 data/sp_email/data 下 4 份备件明细（inventory/inband/outband/transfer）合并为一个 Excel（sheet: Inventory/Inbound/Outbound/Transfer）发送邮件，邮件发出后把同一份 Excel 作为文档发到 WhatsApp 群 WH&SP Management
@@ -678,6 +678,7 @@
 - 2026-09-01 上线时曾漏分组导致 pending 卡死，后补入 m 组——新增任务务必登记 GROUP_TASK_MAP
 - 本任务在 EMAIL_TASK_IDS 内：WhatsApp 侧失败时 error 只写 WHATSAPP_FAIL 固定标记，不拼底层异常原文，避免命中 EWS 关键字触发 email_recovery 整链补发（11 位收件人重复收报表）
 - 上游是 sp_report_generate（05:15）：它不产出明细文件，本任务合并即失败，邮件与群都不发
+- 2026-10-11 起 WhatsApp 侧改走「Baileys 主通道 → Playwright 回退」（whatsapp_dispatch）；发送者变为 Baileys 副号
 
 #### SP 备件明细分文件邮件（`sp_details_files_email`）
 
@@ -706,28 +707,29 @@
 
 #### Comsumables&SpareParts Report Whatsapp（`sp_whatsapp_report`）
 
-- 默认 cron: `15 7 * * *`　|　worker 组: **m**
+- 默认 cron: `55 7 * * *`　|　worker 组: **m**
 - 工作流脚本: `services/kpi_email_report.py → run_sp_whatsapp_report`
 
-**功能**: 每天 07:15 把 Comsumables / SpareParts 两个邮件任务的同一批产物（合并总表 XLSX + 报表 PNG）发送到 WhatsApp 群 WH&SP Management
+**功能**: 每天 07:55 把 Comsumables / SpareParts 两个邮件任务的同一批产物（合并总表 XLSX + 报表 PNG）发送到 WhatsApp 群 WH&SP Management
 
 **工作流与数据流**:
 
 1. 在 data/sp_email 下选取 Comsumables / SpareParts 的合并总表 XLSX（不含 " - Liberia" 分站点）
 1. 收集两类报表的 PNG（主图在前、Summary-Changed 在后）
-1. 复用 whatsapp_service 的 Playwright 发送机制发到群 WH&SP Management
+1. 经 whatsapp_dispatch 发送：Baileys 主通道 → Playwright 回退，发到群 WH&SP Management
 
 **维护要点**:
 
 - 上游是 sp_report_generate（m 组 05:15），它失败会导致本任务找不到报表文件
 - 不发送邮件——邮件由 kpi_sp_consumables / kpi_sp_spareparts 负责
+- 2026-10-11 起走「Baileys → Playwright」双通道；本任务发 4 图 + 2 xlsx，需 Baileys 单作业文档配额 ≥2（已放宽为 8 图 / 3 文档）
 
 #### SP 物料库存与消耗报表邮件（`sp_material_report`）
 
-- 默认 cron: `33 7 * * *`　|　worker 组: **m**
+- 默认 cron: `45 7 * * *`　|　worker 组: **m**
 - 工作流脚本: `services/kpi_email_report.py → run_sp_material_stock_consumption`
 
-**功能**: 每天 07:33 把 SP 物料库存与消耗汇总（同「SP 物料库存与消耗统计」页面 page=sp_material 的口径）导出为 UNIFIED_EXCEL_V1 版式 Excel 附件 + 同内容 PNG 内嵌正文并邮件发送
+**功能**: 每天 07:45 把 SP 物料库存与消耗汇总（同「SP 物料库存与消耗统计」页面 page=sp_material 的口径）导出为 UNIFIED_EXCEL_V1 版式 Excel 附件 + 同内容 PNG 内嵌正文并邮件发送
 
 **工作流与数据流**:
 
@@ -760,10 +762,10 @@
 
 #### EWS 恢复后邮件补发（`email_recovery`）
 
-- 默认 cron: `*/20 * * * *`　|　worker 组: **m**
+- 默认 cron: `*/10 * * * *`　|　worker 组: **m**
 - 工作流脚本: `services/email_recovery.py → run_email_recovery_task`
 
-**功能**: 每 20 分钟探测 EWS 是否恢复；恢复后自动补发近 3 小时内因 EWS 超时失败的邮件任务
+**功能**: 每 10 分钟探测 EWS 是否恢复；恢复后自动补发近 3 小时内因 EWS 超时失败的邮件任务
 
 **工作流与数据流**:
 
@@ -879,7 +881,7 @@
 
 #### 电池 KPI 邮件（`battery_email`）
 
-- 默认 cron: `0 7,19 * * *`　|　worker 组: **m**
+- 默认 cron: `10 7,19 * * *`　|　worker 组: **m**
 - 工作流脚本: `services/battary_kpi_fetch/battery_kpi_service.py → run_battery_email`
 
 **功能**: 将电池 KPI 报表（Excel）发送至远程名单中的邮箱，每日 07:00 与 19:00 各一次
@@ -1286,7 +1288,7 @@
 
 **维护要点**:
 
-- 下游 sp_material_report（07:33）只读表不拉接口：本任务停更时邮件仍会正常发，但内容是旧数据（db_freshness_check 已覆盖 sp_material 新鲜度）
+- 下游 sp_material_report（07:45）只读表不拉接口：本任务停更时邮件仍会正常发，但内容是旧数据（db_freshness_check 已覆盖 sp_material 新鲜度）
 - 2026-10-09 增加全量重建：旧实现只 upsert 从不删除，上游停用/删除的物料会永久残留（与 sp_online 同型）。安全阀：仅当 fetch_all 完整拉取（未达 MAX_PAGES 上限、非 0 行）才删除，否则退化为只 upsert
 
 #### SP 在线未关闭单报表生成（`sp_online_report_generate`）
@@ -1309,21 +1311,23 @@
 
 #### SP 在线未关闭单报表发送（`sp_online_report_send`）
 
-- 默认 cron: `20 6 * * *`　|　worker 组: **m**
+- 默认 cron: `35 6 * * *`　|　worker 组: **m**
 - 工作流脚本: `services/kpi_email_report.py → run_sp_online_report`
 
 **功能**: 发送 sp_online 未关闭单报表：邮件（PNG 内嵌 + XLSX 附件，默认复用 SP 报表远程名单）+ WhatsApp 群
 
 **工作流与数据流**:
 
-1. 每天 06:20 取 sp_online 最新报表文件
+1. 每天 06:35 取 sp_online 最新报表文件
 1. 邮件：Inbound/Outbound PNG 内嵌 + XLSX 附件
-1. 同时发到 WhatsApp 群，收件人可在「系统设置 → 邮件收件人」覆盖
+1. 同时经 whatsapp_dispatch（Baileys → Playwright）发到 WhatsApp 群，收件人可在「系统设置 → 邮件收件人」覆盖
 
 **维护要点**:
 
 - 依赖 06:00 的 sp_online_report_generate 产物，上游缺文件时本任务直接失败
 - 属邮件类任务：默认不参与漏跑补投，EWS 恢复后由 email_recovery 补发
+- 本任务在 EMAIL_TASK_IDS 内：WhatsApp 失败时 error 只写固定标记，不拼底层异常原文（避免命中 EWS 关键字触发邮件重复补发）
+- 2026-10-11 起 WhatsApp 侧走「Baileys → Playwright」双通道；发送者变为 Baileys 副号
 
 #### eFlow 告警规则收集（`eflow_alarm_rules_collect`）
 

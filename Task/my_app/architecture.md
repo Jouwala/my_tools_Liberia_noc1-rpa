@@ -177,7 +177,59 @@ my_app 页面 ?page=<key>  ──►  门户看板直链（只存相对路径 re
 
 门户架构见 `..\..\liberia-noc_soc-数据看板统一门户\docs\architecture.md`。
 
-## 八、相关文档
+## 八、决策记录（事实上的 ADR）
+
+> 本仓库无独立 ADR 目录，重大架构决策按日期追加于此，标注 `文件路径:行号` 出处。
+
+### 2026-10-11 · WhatsApp 发送改「Baileys 主通道 → Playwright 回退」
+
+**背景**：SP 系列报表任务（`sp_email_details` / `sp_online_report_send` /
+`sp_whatsapp_report`）此前**直接**调 `whatsapp_service.run_whatsapp_send`
+（Playwright 自启浏览器，挂用户桌面 WA 主号）。2026-10-11 早间 05:55~08:25，
+三个任务因**共用同一 WhatsApp profile** 互相抢锁，连续失败 7 次
+（`intercepts pointer events` / `等待登录超时`）。
+
+**决策**：改为 **Baileys 为主通道（`whatsapp_send_baileys_service` → notify.js），
+Playwright 为回退**。编排层为 `backend/services/whatsapp_dispatch.py`。
+
+**理由**：
+- Baileys 走「已关联设备」直连协议，回执是服务端 message id，不碰页面，
+  没有 DOM 改版 / 弹窗遮挡 / 每 2~3 周掉登录的问题；
+- Baileys 会话（副号，`whatsapp-kb-bot/data/auth-notify`）与 Playwright 浏览器会话
+  （`whatsapp_session`）**物理隔离**，一方被踢不影响另一方 —— 这是「主通道失败仍有
+  回退兜底」成立的前提；
+- 代价：群里发送者变为**副号**（用户 2026-10-11 已知悉并接受）。
+
+**回退判据**（与 `tt_alarm_whatsapp_service` 的既有模式一致，2026-10-01/08 落地）：
+投递失败 / 等待超时 / 回报零确认 / **任一单项有错** → 回退 Playwright。回退自身
+失败**不再二次回退**（避免无限循环）。
+
+**关键约束**（改动前必读）：
+1. 双通道**不并发**：先 Baileys 拿终态再决定是否回退，否则群里收到两份。
+2. `notify.js` 文件作业有单作业配额（`CONFIG.notify.fileSend`）。SP 报表需一次发
+   2 份 xlsx，默认 `maxDocuments=1` 会把第 2 份**静默跳过** —— 已在
+   `whatsapp-kb-bot/.env` 用 `NOTIFY_FILE_SEND` 放宽为 8 图 / 3 文档；my_app 侧
+   `whatsapp_dispatch._try_baileys` 的默认配额与之对齐，**两边改一个必须改另一个**。
+3. `build_items` 必须把路径 `resolve()` 成**绝对路径**：notify.js 是独立进程、
+   cwd 是 `whatsapp-kb-bot/`，相对路径会被它按自己的 cwd 解析 → ENOENT。
+4. **`kind` 必须按扩展名显式区分 image / document**：notify.js 的 `isDoc` 判据是
+   **`kind` 存在时只看 `kind`**，缺失才按扩展名兜底（notify.js:565）。把 xlsx 的
+   `kind` 写成 `image` 会让它走 `sendMessage({image: <xlsx 字节>})`：服务端照回
+   message id（**误判成功**），但群里只有一张损坏的图片、excel 文件根本没发出。
+   2026-10-11 手动执行 SP Online 报表踩到此坑（日志 4 条全「已发送」，群里只见 2 张图）。
+5. **配额跳过后 notify.js 会把它写进 `result.errors`**（2026-10-11 补）：原先只记日志，
+   一份附件被静默截断时仍报 `ok=true`，my_app 侧无从察觉。现由 `dispatch_items` 的
+   `errors` 非空 → `ok=false` → 回退 Playwright 兜住。
+6. **notify.js 读取 `.env` 只在启动时**：改 `NOTIFY_FILE_SEND` 后必须重启 notify 进程
+   （`autostart-notify.ps1 -Stop` 再启动），否则跑着的进程仍用旧配额。
+7. 运维退场开关：`WHATSAPP_DISPATCH_CHANNEL=playwright` 可把三个任务整体打回
+   Playwright（副号被封时的应急手段，无需改代码）。
+
+出处：`backend/services/whatsapp_dispatch.py`（编排）、
+`backend/services/whatsapp_send_baileys_service.py:195`（`build_items` / `dispatch_items`）、
+`backend/services/kpi_email_report.py:532/1424/1496`（三处接入点）。
+
+## 九、相关文档
 
 | 内容 | 去哪里 |
 | --- | --- |

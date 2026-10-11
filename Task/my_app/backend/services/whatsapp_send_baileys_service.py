@@ -143,6 +143,192 @@ def create_pending_job() -> dict:
     return job
 
 
+def build_items(files: list, captions: list | None = None) -> list:
+    """把显式的文件路径清单转成作业 items（含磁盘绝对路径 + mime + 备注）。
+
+    与 create_pending_job 的 items 结构一致（notify.js 直接读 ``path`` 落盘文件），
+    区别是本函数**不扫盘**：调用方给出确切的文件清单与备注，供 SP 报表这类
+    「发指定产物」的任务复用（它的产物不在 SITE_OUTAGE_DIR，也无法靠扫盘得到）。
+
+    - **kind 必须按扩展名显式区分 image / document**。notify.js 的判据是
+      ``kind`` 存在时**只看 kind**，缺失时才按扩展名兜底（见 notify.js:565）——
+      所以把 xlsx 的 kind 写成 image 会让它走 ``sendMessage({image: <xlsx字节>})``：
+      服务端收下并返回 message id（**误判成功**），但群里只显示成一张损坏的图片，
+      **excel 文件并没有发出去**。2026-10-11 手动执行 SP Online 报表就踩了这个坑
+      （日志 4 条全 "已发送"，群里只见 2 张图）。
+    - captions 不足时按文件名回退 ``*<stem>*``，与既有扫盘逻辑一致。
+    """
+    files = [str(f) for f in (files or [])]
+    captions = list(captions or [])
+    items = []
+    for i, path in enumerate(files):
+        # ⚠️ 必须 resolve 成**绝对路径**：notify.js 是另一个进程、cwd 是
+        # whatsapp-kb-bot/，相对路径会被它按自己的 cwd 解析 → ENOENT 读盘失败。
+        # 2026-10-11 实测踩到：传 "data/sp_email/x.png" 被解析成
+        # whatsapp-kb-bot/data/sp_email/x.png（不存在）。
+        p = Path(path).resolve()
+        cap = captions[i] if i < len(captions) and captions[i] else f"*{p.stem}*"
+        items.append({
+            "kind": "image" if _is_image_name(p.name) else "document",
+            "name": p.name,
+            "file_name": p.name,
+            "caption": cap,
+            "mime": _mime_for_name(p.name),
+            "url": "",                     # 无 HTTP 通道，留空（notify.js 只认 path）
+            "path": str(p),                # 磁盘绝对路径，notify.js 凭此读盘
+        })
+    return items
+
+
+# 图片扩展名集合 —— 必须与 notify.js 的 isDoc 判据**完全一致**（png/jpg/jpeg/gif/webp），
+# 否则两处对「什么是图片」的定义分叉，又会出现「xlsx 被当图片发」的错。
+_IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".gif", ".webp")
+
+
+def _is_image_name(name: str) -> bool:
+    return Path(name).suffix.lower() in _IMAGE_EXTS
+
+
+_MIME_BY_EXT = {
+    ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+    ".gif": "image/gif", ".webp": "image/webp",
+    ".pdf": "application/pdf",
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ".xls": "application/vnd.ms-excel",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".zip": "application/zip",
+}
+
+
+def _mime_for_name(name: str) -> str:
+    return _MIME_BY_EXT.get(Path(name).suffix.lower(), "application/octet-stream")
+
+
+def dispatch_items(items: list, groups: list, max_images: int | None = None,
+                   max_documents: int | None = None) -> dict:
+    """把给定的 items 投递给 Baileys（notify.js）并发到 groups，等待回报。
+
+    返回 ``{"ok": bool, "job_id": str, "groups_sent": [...], "errors": [...],
+    "timed_out": bool, "confirmed": bool}``。
+
+    ``ok`` 语义（供上层回退判据使用）：
+      - true  = notify.js 回报成功、groups_sent 非空、**且没有任何单项失败**；
+      - false = 投递被拒 / 等待超时 / 回报失败 / 零确认 / 单项有错 —— 任一即视为本通道
+        失败，交由调用方的 fallback 处理。
+
+    ⚠️ 为什么「单项有错」也算失败：notify.js 的 `ok = groupsSent.length > 0` ——
+    只要**任一** item 送达就报 ok，而读盘失败 / 空文件 / 配额跳过的 item 只进
+    `errors`。若此处只认 ok，就会把「漏发一个附件」当成整体成功（正是本项目
+    历史上 `_fast_send_file` 静默丢文件那类事故）。故这里把 errors 非空也判失败，
+    由 Playwright 回退（无配额上限）兜住。
+
+    ``max_images`` / ``max_documents``：notify.js 单作业配额（默认 6 / 1）。
+    作业超出配额时 notify.js 会**静默跳过**超出的 item 且仍可能报 ok，因此这里在
+    投递前**主动拒绝**超额作业（返回 ok=False，交给回退通道），绝不把「截断发送」
+    当成成功。传 None 表示不做上限检查。
+    """
+    job = {
+        "job_id": datetime.now().strftime("%Y%m%d%H%M%S") + "-" + uuid.uuid4().hex[:8],
+        "status": "pending",
+        "groups": list(groups),
+        "created_at": datetime.now().isoformat(timespec="seconds"),
+        "claimed_at": None,
+        "completed_at": None,
+        "result": None,
+        "items": list(items),
+    }
+    # 文件存在性前置检查：缺失文件若投出去，notify.js 会「跳过该 item + 记 errors」，
+    # 虽被下面 ok 判据拦成失败，但白等一轮网络往返。投递前直接拒绝更快、更明确。
+    missing = [str(it.get("path")) for it in job["items"]
+               if not Path(str(it.get("path") or "")).is_file()]
+    if missing:
+        return {"ok": False, "job_id": job["job_id"], "groups_sent": [],
+                "errors": [f"文件不存在，拒绝投递: {', '.join(missing[:3])}"
+                           + (" 等" if len(missing) > 3 else "")],
+                "timed_out": False, "confirmed": False}
+
+    # 配额前置检查：超出 notify.js 单作业上限的 item 会被**静默跳过**（只记日志、
+    # 不进 errors、仍可能报 ok）→ 绝不投递这种作业，直接让路给回退通道。
+    # 分类口径必须与 notify.js 完全一致（见其 runFileJob）：按扩展名判 image/document，
+    # 图片扩展名固定为 png/jpg/jpeg/gif/webp，其余算文档。分别对 **两个独立配额** 计数
+    # —— 只比总数会漏掉「图没超但文档超」的情形（SP WhatsApp 报表就是 4 图 + 2 文档，
+    # 文档配额默认 1，第二份 xlsx 会被静默丢掉）。
+    n_img = n_doc = 0
+    for it in job["items"]:
+        name = str(it.get("file_name") or it.get("name") or "")
+        if _is_image_name(name):
+            n_img += 1
+        else:
+            n_doc += 1
+    over = []
+    if max_images is not None and n_img > max_images:
+        over.append(f"图片 {n_img} 张 > 上限 {max_images}")
+    if max_documents is not None and n_doc > max_documents:
+        over.append(f"文档 {n_doc} 份 > 上限 {max_documents}")
+    if over:
+        return {"ok": False, "job_id": job["job_id"], "groups_sent": [],
+                "errors": [f"作业超出 Baileys 单作业配额（{'；'.join(over)}），"
+                           "改由回退通道发送（避免静默截断）"],
+                "timed_out": False, "confirmed": False}
+    # 单作业文件互斥：notify.js 只认一个 whatsapp_send_baileys_job.json，若已有一个
+    # 未被认领（pending）或仍在跑（running，且未超僵尸阈值）的作业，直接投递会把它
+    # 覆盖掉 → 前一个作业静默丢失。正常情况下 SP 三个任务已按 cron 错峰（见
+    # task_registry），且独立的 whatsapp_send_baileys 任务默认 enabled=False，
+    # 这里再兜一道，避免「任务被手动启用 / 重试重叠」时互相踩踏。
+    existing = _read_job()
+    if existing:
+        st = job_staleness.s(existing.get("status"))
+        if st == "pending":
+            return {"ok": False, "job_id": job["job_id"], "groups_sent": [],
+                    "errors": [f"Baileys 已有一个待认领作业 {existing.get('job_id')}，本次投递让路"],
+                    "timed_out": False, "confirmed": False}
+        if st == "running" and not job_staleness.is_stale_running(existing, STALE_RUNNING_SECONDS):
+            return {"ok": False, "job_id": job["job_id"], "groups_sent": [],
+                    "errors": [f"Baileys 作业 {existing.get('job_id')} 仍在运行，本次投递让路"],
+                    "timed_out": False, "confirmed": False}
+    _write_job(job)
+    job_id = job["job_id"]
+    logger.info(
+        "[WABaileys] 已投递待发作业 %s（groups=%s，items=%d）",
+        job_id, job["groups"], len(job["items"]),
+    )
+
+    out = {
+        "ok": False, "job_id": job_id, "groups_sent": [],
+        "errors": [], "timed_out": False, "confirmed": False,
+    }
+    deadline = time.time() + WAIT_SECONDS
+    while time.time() < deadline:
+        time.sleep(TASK_POLL_INTERVAL)
+        j = _read_job()
+        if j and j.get("job_id") == job_id and j.get("status") in TERMINAL_STATUSES:
+            ext = j.get("result") or {}
+            out["groups_sent"] = list(ext.get("groups_sent", []))
+            out["errors"] = list(ext.get("errors", []))
+            out["confirmed"] = True
+            # ok 必须同时满足：notify 报 ok + 至少一个群确认 + **无任何单项错误**。
+            # errors 里含「读盘失败 / 空文件 / sendMessage 未回 id」等，任一都说明
+            # 有 item 没发出去，不能算成功（否则静默丢附件）。
+            out["ok"] = (bool(ext.get("ok"))
+                         and bool(out["groups_sent"])
+                         and not out["errors"])
+            return out
+
+    # 超时兜底：仅在作业仍非终态时标记 failed（生产者已回终态则绝不覆写，
+    # 见 run_whatsapp_send_baileys 的 2026-10-08 事故注释）。
+    out["timed_out"] = True
+    out["errors"].append(
+        f"notify.js 未在 {WAIT_SECONDS}s 内回报（检查 notify 进程 / 心跳 / auth-notify）"
+    )
+    j = _read_job()
+    if j and j.get("job_id") == job_id and j.get("status") not in TERMINAL_STATUSES:
+        j["status"] = "failed"
+        j["completed_at"] = datetime.now().isoformat(timespec="seconds")
+        j["result"] = {"ok": False, "groups_sent": [], "errors": list(out["errors"])}
+        _write_job(j)
+    return out
+
+
 def claim_pending_job() -> dict | None:
     """notify.js 认领作业：把状态置为 running（沿用扩展通道的语义）。
 

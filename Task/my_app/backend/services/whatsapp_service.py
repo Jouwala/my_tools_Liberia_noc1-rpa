@@ -14,6 +14,27 @@ logger = logging.getLogger("whatsapp_service")
 
 _SUBPROCESS_FLAGS = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 
+
+class WhatsAppSessionBlocked(Exception):
+    """WhatsApp 会话层异常（弹窗拦截 / 登录态丢失），与普通业务异常区分开。
+
+    2026-10-11：早间 05:55~08:25 连续 7 次发送失败，错误均为
+    ``Locator.click: Timeout 30000ms exceeded``，Playwright 日志里可见
+    ``<div role="dialog" aria-modal="true" ...> intercepts pointer events``
+    —— 搜索框被一个模态层盖住，点击永远打不进去。这类失败**不是**业务数据问题，
+    而是会话/UI 状态问题，重试前必须先自愈（见 auto_retry 的 SESSION_HEAL_KEYS）。
+    单独建类是为了让上层（worker / auto_retry）能按类型分流，而不用去猜错误字符串。
+    """
+
+
+# 会话类失败的日志特征：命中即说明「页面在、但点不动 / 等不到登录态」。
+# auto_retry 用同一组关键字识别并触发自愈重试（两处共用一套判断，避免分叉）。
+SESSION_BLOCKED_KEYS = (
+    "intercepts pointer events",
+    "等待登录超时",
+    "WhatsAppSessionBlocked",
+)
+
 # ========== 配置（环境变量优先，便于 Windows 部署） ==========
 # 图片/数据文件所在目录
 DEFAULT_DIR = r"D:\01_RPA\Task\my_app\backend\services\data\site_outage"
@@ -173,6 +194,104 @@ def _retry(func):
     return wrapper
 
 
+def _snapshot_session(page, tag: str) -> str | None:
+    """会话异常时落一张截图 + 一段 DOM 摘要，供事后定位「到底卡在哪个弹窗」。
+
+    2026-10-11 的事故复盘只能靠 Playwright 的 retry 日志反推弹窗，看不到真实界面。
+    这里把当时的界面固化成磁盘证据（PNG + 一段含 aria-modal 文案的 txt），
+    下一次同类故障可直接肉眼确认，不必再猜。落盘失败不影响主流程。
+    """
+    ts = time.strftime("%Y%m%d_%H%M%S")
+    base = Path(DEBUG_DIR)
+    shot = None
+    try:
+        base.mkdir(parents=True, exist_ok=True)
+        img_path = base / f"wa_session_{tag}_{ts}.png"
+        page.screenshot(path=str(img_path), timeout=8000)
+        shot = str(img_path)
+        _warn(f"会话异常快照已保存: {img_path}")
+    except Exception:
+        logging.getLogger(__name__).warning("[SILENT-EXCEPT] _snapshot_session.screenshot: swallowed", exc_info=True)
+
+    # DOM 摘要：把当前可见的 dialog / 遮罩层文案抓出来，PNG 之外再留文字证据
+    try:
+        dialogs = page.locator("div[role='dialog'], [aria-modal='true']")
+        n = dialogs.count()
+        if n > 0:
+            lines = [f"# 会话异常 DOM 摘要 tag={tag} at={ts}", f"# 命中 {n} 个 dialog/aria-modal 节点"]
+            for i in range(min(n, 5)):
+                try:
+                    txt = (dialogs.nth(i).inner_text(timeout=1500) or "").strip().replace("\n", " ")
+                    lines.append(f"[{i}] {txt[:300]}")
+                except Exception:
+                    lines.append(f"[{i}] <读取超时>")
+            txt_path = base / f"wa_session_{tag}_{ts}.txt"
+            txt_path.write_text("\n".join(lines), encoding="utf-8")
+            _warn(f"会话异常 DOM 摘要已保存: {txt_path}")
+    except Exception:
+        logging.getLogger(__name__).warning("[SILENT-EXCEPT] _snapshot_session.dom: swallowed", exc_info=True)
+
+    return shot
+
+
+def _dismiss_blocking_dialog(page, max_rounds: int = 3) -> bool:
+    """关闭盖在聊天列表/搜索框上的模态层。返回是否已无遮挡。
+
+    检测 ``role=dialog[aria-modal=true]`` 或 Playwright 报的遮罩层，逐个尝试：
+    点关闭按钮（X / 关闭 / Close）→ 按 Escape → 点遮罩外空白。
+    每轮结束后复检，全部清掉才算成功。
+    """
+    for rnd in range(max_rounds):
+        try:
+            blockers = page.locator("div[role='dialog'][aria-modal='true'], [aria-modal='true']")
+            n = blockers.count()
+        except Exception:
+            logging.getLogger(__name__).warning("[SILENT-EXCEPT] _dismiss_blocking_dialog.count: swallowed", exc_info=True)
+            return True
+        if n == 0:
+            return True
+
+        _warn(f"检测到 {n} 个模态弹窗拦截（第 {rnd+1}/{max_rounds} 轮），尝试关闭")
+        closed = False
+        try:
+            close_btn = page.locator(
+                "div[role='dialog'] button[aria-label*='关闭'], "
+                "div[role='dialog'] button[aria-label*='Close'], "
+                "div[role='dialog'] [data-icon='x'], "
+                "div[role='dialog'] [data-icon='exit']"
+            )
+            if close_btn.count() > 0 and close_btn.first.is_visible(timeout=1200):
+                close_btn.first.click(timeout=2500)
+                closed = True
+                _info("已点击弹窗关闭按钮")
+        except Exception:
+            logging.getLogger(__name__).warning("[SILENT-EXCEPT] _dismiss_blocking_dialog.close: swallowed", exc_info=True)
+
+        if not closed:
+            try:
+                page.keyboard.press("Escape")
+                closed = True
+                _info("已按 Escape 尝试关闭弹窗")
+            except Exception:
+                logging.getLogger(__name__).warning("[SILENT-EXCEPT] _dismiss_blocking_dialog.esc: swallowed", exc_info=True)
+
+        if not closed:
+            try:
+                page.mouse.click(5, 5)  # 点左上角空白，避开弹窗主体
+                _info("已点击遮罩外空白尝试关闭弹窗")
+            except Exception:
+                logging.getLogger(__name__).warning("[SILENT-EXCEPT] _dismiss_blocking_dialog.blank: swallowed", exc_info=True)
+
+        page.wait_for_timeout(600)
+
+    # 复检：仍有模态层则判定未消除
+    try:
+        return page.locator("div[role='dialog'][aria-modal='true'], [aria-modal='true']").count() == 0
+    except Exception:
+        logging.getLogger(__name__).warning("[SILENT-EXCEPT] _dismiss_blocking_dialog.recheck: swallowed", exc_info=True)
+        return True
+
+
 def _find_first(page, key):
     for selector in SELECTORS[key]:
         try:
@@ -259,11 +378,26 @@ def _click_reconnect_if_needed(page):
 def _search_and_open(page, contact_name):
     """搜索并打开联系人/群组聊天窗口"""
     _info(f"正在搜索: {contact_name}")
+
+    # 2026-10-11：先清掉可能盖在搜索框上的模态层。此前直接 click，被遮罩挡住时
+    # 会干等 30s×重试次数（Playwright 报 intercepts pointer events）。
+    if not _dismiss_blocking_dialog(page):
+        _snapshot_session(page, "search_blocked")
+        raise WhatsAppSessionBlocked(
+            "搜索框被模态弹窗遮挡，无法点击（intercepts pointer events）"
+        )
+
     search_box = _find_first(page, "SEARCH_BOX")
     if not search_box:
         raise Exception("找不到搜索框")
 
-    search_box.click()
+    try:
+        search_box.click(timeout=8000)
+    except Exception as e:
+        # 点击异常也可能是「点击瞬间又被弹窗盖上」，留证据再抛出会话类异常
+        _snapshot_session(page, "search_click_fail")
+        raise WhatsAppSessionBlocked(f"搜索框点击失败: {e}") from e
+
     page.keyboard.press("Control+a")
     page.keyboard.press("Backspace")
     search_box.fill(contact_name)
@@ -734,8 +868,13 @@ def run_whatsapp_send(photos=None, captions=None, files=None, groups=None) -> di
                 pass
 
         if not logged_in:
+            # 2026-10-11：登录态超时同样是会话层问题，落快照后再退出，
+            # 让 08:25 那种「等 3 分钟还是 #side 没出现」的场景有界面证据。
+            _snapshot_session(page, "login_timeout")
+            # 关键：把会话类失败标记出来，auto_retry 据此在重试前自愈（而非原样重跑）
             result["errors"].append(
-                "等待登录超时：#side/聊天列表 未出现（疑似页面加载失败或连接被重置）"
+                "WhatsAppSessionBlocked: 等待登录超时：#side/聊天列表 未出现"
+                "（疑似页面加载失败或连接被重置）"
             )
             return result
         _success("登录成功（已检测到聊天列表）")
@@ -777,7 +916,12 @@ def run_whatsapp_send(photos=None, captions=None, files=None, groups=None) -> di
                 time.sleep(3.0)
 
             except Exception as e:
-                err = f"群组 {group} 发送失败: {e}"
+                # 会话类异常在错误串里显式带上标记，供 auto_retry 识别并自愈重试；
+                # 其余业务异常维持原文，避免误判为会话问题。
+                if isinstance(e, WhatsAppSessionBlocked):
+                    err = f"WhatsAppSessionBlocked: 群组 {group} 发送失败: {e}"
+                else:
+                    err = f"群组 {group} 发送失败: {e}"
                 _error(err)
                 result["errors"].append(err)
 

@@ -90,7 +90,7 @@ Built for the NOC scenario "boards every day, reports must go out": 41+ schedule
 | WhatsApp Message Send (Extension) | `whatsapp_send_ext` | `0 3 * * *` | m | `services/whatsapp_ext_service.py → run_whatsapp_send_ext` |
 | WhatsApp Message Send (Baileys) | `whatsapp_send_baileys` | `0 4 * * *` | m | `services/whatsapp_send_baileys_service.py → run_whatsapp_send_baileys` |
 | eFlow P1 Alarm WhatsApp Push | `tt_alarm_whatsapp_alert` | `2-59/5 * * * *` | m | `services/tt_alarm_whatsapp_service.py → run_tt_alarm_whatsapp_alert` |
-| MS SLA Full Sync | `ms_sla_full` | `0 */6 * * *` | n | `services/ms_sla_service.py → run_full_sync` |
+| MS SLA Full Sync | `ms_sla_full` | `0 5 * * *` | n | `services/ms_sla_service.py → run_full_sync` |
 | eFlow Realtime Alarm Sync | `eflow_active_alarm` | `*/5 * * * *` | n | `services/eflow_api_client.py → fetch_and_save_active_alarm` |
 | eFlow History Alarm Sync | `eflow_history_alarm` | `0 */3 * * *` | n | `services/eflow_api_client.py → fetch_and_save_history_alarm` |
 | eFlow TT Rules Collect & Match Check | `eflow_tt_rules_check` | `20 4 * * *` | n | `services/eflow_rules/eflow_tt_rules_check_task.py → run_eflow_tt_rules_check` |
@@ -103,26 +103,26 @@ Built for the NOC scenario "boards every day, reports must go out": 41+ schedule
 | CNN UME KPI Sync | `cnn_kpi_sync` | `0 6 * * *` | n | `services/ccn_ume_kpi_service.py → run_cnn_kpi_sync` |
 | SP Spare Data Sync | `sp_data_sync` | `10 * * * *` | s | `services/get_sp_table.py → run_sp_data_sync` |
 | iPRAN UME KPI Sync | `ipran_kpi_sync` | `0 8 * * *` | u | `services/ipran_ume_kpi_service.py → run_ipran_kpi_sync` |
-| Liberia Site-Down 1H Report Email | `liberia_email_1h` | `5 * * * *` | m | `services/liberia_email_report.py → run_1h_report` |
-| Liberia Site-Down 8H Report Email | `liberia_email_8h` | `10 */8 * * *` | m | `services/liberia_email_report.py → run_8h_report` |
-| MS Contract KPIs Daily Report Email | `kpi_ms_contract` | `30 17 * * *` | m | `services/kpi_email_report.py → run_ms_contract_kpi` |
-| MS WOs SLA Daily Report Email | `kpi_ms_wo_sla` | `35 17 * * *` | m | `services/kpi_email_report.py → run_ms_wo_sla` |
+| Liberia Site-Down 1H Report Email | `liberia_email_1h` | `15 * * * *` | m | `services/liberia_email_report.py → run_1h_report` |
+| Liberia Site-Down 8H Report Email | `liberia_email_8h` | `20 */8 * * *` | m | `services/liberia_email_report.py → run_8h_report` |
+| MS Contract KPIs Daily Report Email | `kpi_ms_contract` | `30 5 * * *` | m | `services/kpi_email_report.py → run_ms_contract_kpi` |
+| MS WOs SLA Daily Report Email | `kpi_ms_wo_sla` | `35 5 * * *` | m | `services/kpi_email_report.py → run_ms_wo_sla` |
 | SpareParts Report Email | `kpi_sp_spareparts` | `45 9 * * *` | m | `services/kpi_email_report.py → run_sp_spareparts` |
 | Comsumables Report Email | `kpi_sp_consumables` | `50 9 * * *` | m | `services/kpi_email_report.py → run_sp_consumables` |
 | SP Report Generate | `sp_report_generate` | `15 5 * * *` | m | `services/kpi_email_report.py → run_sp_report_generate` |
-| SP Spare Parts Details Report Email | `sp_email_details` | `0 7 * * *` | m | `services/kpi_email_report.py → run_sp_details_email` |
+| SP Spare Parts Details Report Email | `sp_email_details` | `5 7 * * *` | m | `services/kpi_email_report.py → run_sp_details_email` |
 | SP Spare Parts Details Files Email | `sp_details_files_email` | `5 10 * * *` | m | `services/kpi_email_report.py → run_sp_details_files_email` |
-| Comsumables&SpareParts Report Whatsapp | `sp_whatsapp_report` | `15 7 * * *` | m | `services/kpi_email_report.py → run_sp_whatsapp_report` |
-| SP Material Stock & Consumption Report Email | `sp_material_report` | `33 7 * * *` | m | `services/kpi_email_report.py → run_sp_material_stock_consumption` |
+| Comsumables&SpareParts Report Whatsapp | `sp_whatsapp_report` | `55 7 * * *` | m | `services/kpi_email_report.py → run_sp_whatsapp_report` |
+| SP Material Stock & Consumption Report Email | `sp_material_report` | `45 7 * * *` | m | `services/kpi_email_report.py → run_sp_material_stock_consumption` |
 | MS Network Availability Daily Report Email | `kpi_ran_availability` | `30 9 * * *` | m | `services/kpi_email_report.py → run_ran_availability` |
-| Email Recovery after EWS Restored | `email_recovery` | `*/20 * * * *` | m | `services/email_recovery.py → run_email_recovery_task` |
+| Email Recovery after EWS Restored | `email_recovery` | `*/10 * * * *` | m | `services/email_recovery.py → run_email_recovery_task` |
 | Packet Loss Sync | `packet_loss_sync` | `30 6 * * *` | u | `services/packet_loss_service.py → run_packet_loss_sync` |
 | Packet Loss Daily Report Email | `packet_loss_email` | `45 6 * * *` | u | `services/kpi_email_report.py → run_packet_loss_email` |
 | IP RAN M6K-FW Chart Email | `ipran_m6k_chart_email` | `45 6 * * *` | m | `services/ipran_chart_service.py → run_ipran_m6k_chart_email` |
 | CNN Free Rating Chart Email | `ccn_free_rating_chart_email` | `45 7 * * *` | m | `services/ccn_free_rating_chart_service.py → run_ccn_free_rating_chart_email` |
 | FW Throughput KPI Sync + Chart Email | `fw_kpi_sync` | `15 7 * * *` | n | `services/fw_kpi/fw_kpi_services.py → run_fw_kpi_sync` |
 | Battery KPI Sync | `battery_kpi_sync` | `5 * * * *` | u | `services/battary_kpi_fetch/battery_kpi_service.py → run_battery_kpi_sync` |
-| Battery KPI Email | `battery_email` | `0 7,19 * * *` | m | `services/battary_kpi_fetch/battery_kpi_service.py → run_battery_email` |
+| Battery KPI Email | `battery_email` | `10 7,19 * * *` | m | `services/battary_kpi_fetch/battery_kpi_service.py → run_battery_email` |
 | Mailbox Storage Guard | `mailbox_cleanup` | `0 * * * *` | m | `services/mailbox_cleanup.py → run_mailbox_cleanup` |
 | Incident Overview Data Sync | `incident_overview_sync` | `20 * * * *` | m | `services/incident_overview_sync.py → run_incident_overview_sync` |
 | FineBI Report Files Sync | `finebi_report_sync` | `10 * * * *` | m | `services/finebi_report_sync.py → run_finebi_report_sync` |
@@ -146,7 +146,7 @@ Built for the NOC scenario "boards every day, reports must go out": 41+ schedule
 | SP Online Ticket Sync | `sp_online_sync` | `35 */6 * * *` | n | `services/sp_online_sync.py → run_sp_online_sync` |
 | SP Material Master Sync | `sp_material_sync` | `55 4 * * *` | n | `services/sp_material_sync.py → run_sp_material_sync` |
 | SP Online Open Tickets Report Generate | `sp_online_report_generate` | `0 6 * * *` | m | `services/kpi_email_report.py → run_sp_online_report_generate` |
-| SP Online Open Tickets Report Send | `sp_online_report_send` | `20 6 * * *` | m | `services/kpi_email_report.py → run_sp_online_report` |
+| SP Online Open Tickets Report Send | `sp_online_report_send` | `35 6 * * *` | m | `services/kpi_email_report.py → run_sp_online_report` |
 | eFlow Alarm Rules Collect | `eflow_alarm_rules_collect` | `59 23 */3 * *` | n | `services/eflow_rules/eflow_Alarm_Rule_Collector.py → run_eflow_alarm_rules` |
 | eFlow Push Rules Collect | `eflow_push_rules_collect` | `59 23 */3 * *` | n | `services/eflow_rules/eflow_Push_Rule_Collector.py → run_eflow_push_rules` |
 | Log Files Cleanup | `log_cleanup` | `17 3 * * *` | m | `services/log_cleanup.py → run_log_cleanup` |
@@ -307,7 +307,7 @@ Workflow & maintenance notes per task:
 
 #### MS SLA Full Sync（`ms_sla_full`）
 
-- Default cron: `0 */6 * * *`　|　worker group: **n**
+- Default cron: `0 5 * * *`　|　worker group: **n**
 - Workflow script: `services/ms_sla_service.py → run_full_sync`
 
 **What it does**: SLA metrics sync + Contract KPIs report update (self-contained, no external files)
@@ -547,7 +547,7 @@ Workflow & maintenance notes per task:
 
 #### Liberia Site-Down 1H Report Email（`liberia_email_1h`）
 
-- Default cron: `5 * * * *`　|　worker group: **m**
+- Default cron: `15 * * * *`　|　worker group: **m**
 - Workflow script: `services/liberia_email_report.py → run_1h_report`
 
 **What it does**: Email the Liberia Orange Site Down hourly Report (inline charts + Excel) to recipient lists
@@ -564,7 +564,7 @@ Workflow & maintenance notes per task:
 
 #### Liberia Site-Down 8H Report Email（`liberia_email_8h`）
 
-- Default cron: `10 */8 * * *`　|　worker group: **m**
+- Default cron: `20 */8 * * *`　|　worker group: **m**
 - Workflow script: `services/liberia_email_report.py → run_8h_report`
 
 **What it does**: Email the Liberia Orange Site Down 8-hour Report (inline charts + Excel) to recipient lists
@@ -580,24 +580,24 @@ Workflow & maintenance notes per task:
 
 #### MS Contract KPIs Daily Report Email（`kpi_ms_contract`）
 
-- Default cron: `30 17 * * *`　|　worker group: **m**
+- Default cron: `30 5 * * *`　|　worker group: **m**
 - Workflow script: `services/kpi_email_report.py → run_ms_contract_kpi`
 
 **What it does**: Email the MS Contract KPIs Achievements Daily Report (local data + remote recipient list)
 
 **Workflow & data flow**:
 
-1. Read local ms_sla data produced by ms_sla_full (every 6h)
+1. Read local ms_sla data produced by ms_sla_full (05:00)
 1. Build the Contract KPIs daily report
 1. Send to recipients from the remote list
 
 **Maintenance**:
 
-- Data comes from ms_sla_full; the 17:30 send uses the 16:00 sync round
+- Data comes from ms_sla_full (05:00 sync, ~05:11 done); this task sends at 05:30 using that same-day round
 
 #### MS WOs SLA Daily Report Email（`kpi_ms_wo_sla`）
 
-- Default cron: `35 17 * * *`　|　worker group: **m**
+- Default cron: `35 5 * * *`　|　worker group: **m**
 - Workflow script: `services/kpi_email_report.py → run_ms_wo_sla`
 
 **What it does**: Email the MS WOs SLA Achievements Daily Report (local data + remote recipient list)
@@ -654,7 +654,7 @@ Workflow & maintenance notes per task:
 
 1. Log into SFTP and download raw spare data
 1. Generate the Comsumables & SpareParts Inbound&Outbound&Inventory reports
-1. Save to data/sp_email for the 09:45/09:50 email tasks and the 07:00 details email
+1. Save to data/sp_email for the 09:45/09:50 email tasks and the 07:05 details email
 
 **Maintenance**:
 
@@ -662,7 +662,7 @@ Workflow & maintenance notes per task:
 
 #### SP Spare Parts Details Report Email（`sp_email_details`）
 
-- Default cron: `0 7 * * *`　|　worker group: **m**
+- Default cron: `5 7 * * *`　|　worker group: **m**
 - Workflow script: `services/kpi_email_report.py → run_sp_details_email`
 
 **What it does**: Merge the 4 spare-part detail files (inventory/inband/outband/transfer) under data/sp_email/data into one Excel (sheets: Inventory/Inbound/Outbound/Transfer) and email it; after the email, send the same Excel as a document to the WhatsApp group WH&SP Management
@@ -678,6 +678,7 @@ Workflow & maintenance notes per task:
 - Missed its worker-group registration on 2026-09-01 and stuck pending; now in group m — always register new tasks in GROUP_TASK_MAP
 - This task is in EMAIL_TASK_IDS: on a WhatsApp-side failure the error carries only the WHATSAPP_FAIL marker, never the raw exception text — otherwise an EWS keyword would make email_recovery replay the whole chain and email the report twice to 11 recipients
 - Upstream is sp_report_generate (05:15): without the detail files the merge fails and neither channel sends
+- Since 2026-10-11 the WhatsApp side goes through "Baileys primary → Playwright fallback" (whatsapp_dispatch); the sender becomes the Baileys secondary account
 
 #### SP Spare Parts Details Files Email（`sp_details_files_email`）
 
@@ -706,28 +707,29 @@ Workflow & maintenance notes per task:
 
 #### Comsumables&SpareParts Report Whatsapp（`sp_whatsapp_report`）
 
-- Default cron: `15 7 * * *`　|　worker group: **m**
+- Default cron: `55 7 * * *`　|　worker group: **m**
 - Workflow script: `services/kpi_email_report.py → run_sp_whatsapp_report`
 
-**What it does**: Daily 07:15: send the same assets used by the Comsumables / SpareParts report emails (consolidated XLSX + report PNGs) to the WhatsApp group WH&SP Management
+**What it does**: Daily 07:55: send the same assets used by the Comsumables / SpareParts report emails (consolidated XLSX + report PNGs) to the WhatsApp group WH&SP Management
 
 **Workflow & data flow**:
 
 1. Pick the consolidated Comsumables / SpareParts XLSX under data/sp_email (excludes the " - Liberia" per-site files)
 1. Collect the PNGs of both reports (main chart first, Summary-Changed last)
-1. Send via the Playwright mechanism in whatsapp_service to the group WH&SP Management
+1. Send via whatsapp_dispatch: Baileys primary → Playwright fallback, to the group WH&SP Management
 
 **Maintenance**:
 
 - Upstream is sp_report_generate (group m, 05:15) — if it fails this task finds no report files
 - No email is sent here; emails are handled by kpi_sp_consumables / kpi_sp_spareparts
+- Since 2026-10-11 uses the "Baileys → Playwright" dual channel; this task sends 4 images + 2 xlsx, so the Baileys per-job document quota must be ≥2 (raised to 8 images / 3 documents)
 
 #### SP Material Stock & Consumption Report Email（`sp_material_report`）
 
-- Default cron: `33 7 * * *`　|　worker group: **m**
+- Default cron: `45 7 * * *`　|　worker group: **m**
 - Workflow script: `services/kpi_email_report.py → run_sp_material_stock_consumption`
 
-**What it does**: Daily 07:33: export the SP material stock & consumption summary (same scope as the page=sp_material page) to a UNIFIED_EXCEL_V1 Excel attachment plus an inline PNG of the same table, and email it
+**What it does**: Daily 07:45: export the SP material stock & consumption summary (same scope as the page=sp_material page) to a UNIFIED_EXCEL_V1 Excel attachment plus an inline PNG of the same table, and email it
 
 **Workflow & data flow**:
 
@@ -760,10 +762,10 @@ Workflow & maintenance notes per task:
 
 #### Email Recovery after EWS Restored（`email_recovery`）
 
-- Default cron: `*/20 * * * *`　|　worker group: **m**
+- Default cron: `*/10 * * * *`　|　worker group: **m**
 - Workflow script: `services/email_recovery.py → run_email_recovery_task`
 
-**What it does**: Probes EWS every 20 minutes; once restored, re-sends email tasks that failed due to EWS timeouts in the last 3 hours
+**What it does**: Probes EWS every 10 minutes; once restored, re-sends email tasks that failed due to EWS timeouts in the last 3 hours
 
 **Workflow & data flow**:
 
@@ -879,7 +881,7 @@ Workflow & maintenance notes per task:
 
 #### Battery KPI Email（`battery_email`）
 
-- Default cron: `0 7,19 * * *`　|　worker group: **m**
+- Default cron: `10 7,19 * * *`　|　worker group: **m**
 - Workflow script: `services/battary_kpi_fetch/battery_kpi_service.py → run_battery_email`
 
 **What it does**: Email the battery KPI report (Excel) to recipients from the remote list, daily at 07:00 & 19:00
@@ -1286,7 +1288,7 @@ Workflow & maintenance notes per task:
 
 **Maintenance**:
 
-- sp_material_report (07:33) only reads the table: if this task stalls, the email still sends but with stale content (db_freshness_check now covers sp_material freshness)
+- sp_material_report (07:45) only reads the table: if this task stalls, the email still sends but with stale content (db_freshness_check now covers sp_material freshness)
 - Added 2026-10-09: full rebuild. The old implementation only upserted and never deleted, so materials disabled/deleted upstream stayed forever (same shape as sp_online). Safety valve: delete only when fetch_all is complete (no MAX_PAGES cap hit, non-empty), otherwise degrade to upsert-only
 
 #### SP Online Open Tickets Report Generate（`sp_online_report_generate`）
@@ -1309,21 +1311,23 @@ Workflow & maintenance notes per task:
 
 #### SP Online Open Tickets Report Send（`sp_online_report_send`）
 
-- Default cron: `20 6 * * *`　|　worker group: **m**
+- Default cron: `35 6 * * *`　|　worker group: **m**
 - Workflow script: `services/kpi_email_report.py → run_sp_online_report`
 
 **What it does**: Send the open-ticket report: email (inline Inbound/Outbound PNG + XLSX attachments, default SP shared recipient list) + WhatsApp groups
 
 **Workflow & data flow**:
 
-1. Daily 06:20 pick up the newest sp_online report files
+1. Daily 06:35 pick up the newest sp_online report files
 1. Email with inline PNG plus XLSX attachments
-1. Also push to WhatsApp groups; recipients overridable under Settings → Email Recipients
+1. Also push to WhatsApp groups via whatsapp_dispatch (Baileys → Playwright); recipients overridable under Settings → Email Recipients
 
 **Maintenance**:
 
 - Depends on the 06:00 generation task output — missing files make this one fail outright
 - An email task: excluded from missed-run backfill by default, email_recovery replays it once EWS is back
+- In EMAIL_TASK_IDS: on WhatsApp failure the error carries only a fixed marker, never the raw exception text (so it cannot trip an EWS keyword and duplicate the email)
+- Since 2026-10-11 the WhatsApp side uses the "Baileys → Playwright" dual channel; the sender becomes the Baileys secondary account
 
 #### eFlow Alarm Rules Collect（`eflow_alarm_rules_collect`）
 

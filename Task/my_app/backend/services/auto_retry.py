@@ -60,6 +60,16 @@
        AUTO_RETRY_RECOVER_COOLDOWN_MIN  恢复后重试仍失败时的最小间隔（默认 10）
        AUTO_RETRY_PROBE_MAX_SKIP_MIN  连续不可达超过该分钟数则强制重试一次（默认 60，
                                       防止 host/port 提取错误导致任务被永久跳过）
+
+   6. 会话/UI 类失败的自愈重试（2026-10-11 新增）：
+      WhatsApp 类任务失败常表现为「网络通、页面在，但点不动 / 等不到登录态」
+      （Playwright 报 ``intercepts pointer events`` 或 ``等待登录超时``）。这类失败
+      TCP 探测判不出来（端口一直通），原样重投也无效（坏会话状态未变）。处理方式：
+        - 归类为 ``session``（排在 network 之前，避免被日志里的 ``Timeout`` 带偏）；
+        - 跳过 TCP 探测门控，走冷却；
+        - **投递前**先调 whatsapp_service._kill_stale_chrome 清理 stale chrome，
+          让自动重试带上「人工重跑」时的那一步清理动作。
+      仅对 ``WHATSAPP_TASK_IDS`` 且判定为会话类失败的候选生效；自愈失败不阻断重试。
 """
 from __future__ import annotations
 
@@ -132,6 +142,26 @@ NON_RETRYABLE_KEYS = (
     "未找到",
     "无效的 cron",
     "STOPPED_BY_USER",   # 用户手动停止执行，重试无意义
+)
+
+# ---- 会话/UI 类失败（2026-10-11 新增） ----
+# 特征：网络通、页面在，但「点不动 / 等不到登录态」。TCP 探测对这种失败无意义
+# （端口一直是通的），必须换成「重试前先自愈会话」。
+# 2026-10-11 05:55~08:25 连续 7 次 WhatsApp 发送失败全部命中这组特征，且当天
+# 10:12 手工重跑即成功 —— 说明是会话状态问题而非业务/网络问题。
+# 判定与 whatsapp_service.SESSION_BLOCKED_KEYS 共用同一组关键字，避免分叉。
+SESSION_ERROR_KEYS = (
+    "intercepts pointer events",   # Playwright：元素被遮罩层挡住
+    "WhatsAppSessionBlocked",      # whatsapp_service 显式打的会话类标记
+    "等待登录超时",                 # #side 未出现
+)
+
+# 需要「重试前自愈会话」的 WhatsApp 任务（USER_DATA_DIR 被这些任务共用，
+# 一个进程把会话搅乱会连累后面所有任务，故统一在重试前清理 stale chrome）。
+WHATSAPP_TASK_IDS = (
+    "sp_whatsapp_report",
+    "sp_online_report_send",
+    "sp_email_details",
 )
 
 
@@ -453,14 +483,55 @@ _HOST_PORT_PATTERNS = (
 _PROBE_CACHE: dict = {}
 
 
-def _classify_error(error) -> str:
-    """把失败原因分层：network（走探测）/ app（走冷却）/ unknown。"""
+def _is_session_error(error) -> bool:
+    """是否为 WhatsApp 会话/UI 类失败（需自愈后重试，TCP 探测无意义）。"""
     text = error or ""
+    return any(k in text for k in SESSION_ERROR_KEYS)
+
+
+def _classify_error(error) -> str:
+    """把失败原因分层：session（自愈重试）/ network（走探测）/ app（走冷却）/ unknown。
+
+    session 必须排在 network 之前：会话失败的 Playwright 日志里常夹带
+    ``Timeout``（元素等待超时），若先命中 NETWORK_ERROR_KEYS 会被误判成网络问题，
+    进而去 TCP 探测一个本就可达的端口 —— 2026-10-11 的 7 次失败正是被这样
+    「探测通过 → 原样重试 → 再失败」空转掉的。
+    """
+    text = error or ""
+    if _is_session_error(text):
+        return "session"
     if any(k in text for k in APP_ERROR_KEYS):
         return "app"
     if any(k in text for k in NETWORK_ERROR_KEYS):
         return "network"
     return "unknown"
+
+
+def _heal_session_before_retry(task_id: str, error) -> bool:
+    """会话类失败重试前先自愈：清掉可能锁住 WhatsApp profile 的 stale chrome。
+
+    为什么放在投递前：worker 是串行执行，多个 WhatsApp 任务共用同一个
+    ``USER_DATA_DIR``；一个进程把会话写坏后，后面每个任务 launch 到的都是同一份
+    坏状态。仅「原样重投」等于把坏状态再跑一遍（2026-10-11 的 auto_retry 就是
+    这么空转的）。这里复用 whatsapp_service 的 ``_kill_stale_chrome``，与「手动重跑
+    即成功」的人工动作一致 —— 让自动重试也带上这一步。
+
+    只对注册在案、且失败类型为会话类的 WhatsApp 任务生效；其余任务直接放行（返回
+    False 表示无需自愈），避免对无关任务做多余的进程清理。
+    """
+    if not _is_session_error(error):
+        return False
+    if task_id not in WHATSAPP_TASK_IDS:
+        return False
+    try:
+        from backend.services.whatsapp_service import _kill_stale_chrome, USER_DATA_DIR
+        _kill_stale_chrome(USER_DATA_DIR)
+        logger.info(f"[{task_id}] 会话类失败，重试前已清理 WhatsApp stale chrome 会话")
+        return True
+    except Exception as e:  # noqa: BLE001
+        # 自愈失败不阻断重试 —— 清理是「尽力而为」，清理不了仍按原逻辑重投
+        logger.warning(f"[{task_id}] 重试前会话自愈失败（不阻断重试）: {e}")
+        return False
 
 
 def _extract_targets(error) -> list:
@@ -679,6 +750,7 @@ def scan_and_retry_failed_tasks() -> dict:
         "scanned": len(rows),
         "retried": 0,
         "expired": 0,
+        "healed": 0,
         "retried_tasks": [],
         "missed_filled": [],
         "skipped": {},
@@ -731,13 +803,18 @@ def scan_and_retry_failed_tasks() -> dict:
         if tgt_key:
             released_targets.add(tgt_key)
 
+        # 会话类失败：投递前先自愈（清理 stale chrome），否则等于把坏会话再跑一遍
+        healed = _heal_session_before_retry(task_id, error)
+        if healed:
+            summary["healed"] = summary.get("healed", 0) + 1
+
         resp = task_runner.run_task_async(task_id, trigger="auto_retry")
         if resp.get("accepted"):
             summary["retried"] += 1
             summary["retried_tasks"].append(task_id)
             logger.info(
                 f"[{task_id}] 时效窗口内自动重试已投递（第 {retry_attempts + 1}/{MAX_ATTEMPTS} 次，"
-                f"失败于 {failed_at}）: {(error or '')[:200]}"
+                f"失败于 {failed_at}{'，已自愈会话' if healed else ''}）: {(error or '')[:200]}"
             )
         else:
             summary["skipped"][task_id] = f"投递被拒绝: {resp.get('error')}"
@@ -773,7 +850,10 @@ def scan_and_retry_failed_tasks() -> dict:
     if summary["retried_tasks"] or summary["missed_filled"]:
         parts = []
         if summary["retried_tasks"]:
-            parts.append(f"失败重试 {len(summary['retried_tasks'])} 个: {', '.join(summary['retried_tasks'])}")
+            retry_desc = f"失败重试 {len(summary['retried_tasks'])} 个: {', '.join(summary['retried_tasks'])}"
+            if summary["healed"]:
+                retry_desc += f"（其中 {summary['healed']} 个会话类失败已自愈）"
+            parts.append(retry_desc)
         if summary["missed_filled"]:
             parts.append(f"漏跑补投 {len(summary['missed_filled'])} 个: {', '.join(summary['missed_filled'])}")
         summary["message"] = "自动重试：" + "；".join(parts)

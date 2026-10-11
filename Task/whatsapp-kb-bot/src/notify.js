@@ -654,6 +654,13 @@ async function runFileJob(sock, job) {
 
   if (skippedByBudget.length) {
     log(`! 因单作业配额跳过：${skippedByBudget.join(', ')}`);
+    // 2026-10-11：配额跳过必须进 errors，否则 my_app 侧看不到截断 ——
+    // `ok = groupsSent.length > 0` 只要求「有一个群收到东西」，一份附件被
+    // 静默丢掉时仍会报 ok=true（SP Online 报表的 Outbound.xlsx 就这么丢过）。
+    // 进 errors 后 my_app 的 dispatch_items 会判失败并回退 Playwright，不再静默丢文件。
+    for (const s of skippedByBudget) {
+      errors.push(`因单作业配额被跳过：${s}`);
+    }
   }
 
   const ok = groupsSent.length > 0;

@@ -224,7 +224,7 @@ export const TASK_DOCS: TaskDoc[] = [
     },
   },
   {
-    id: 'ms_sla_full', group: 'n', cron: '0 */6 * * *',
+    id: 'ms_sla_full', group: 'n', cron: '0 5 * * *',
     script: 'services/ms_sla_service.py → run_full_sync',
     zh: {
       name: 'MS SLA 完整同步',
@@ -432,13 +432,13 @@ export const TASK_DOCS: TaskDoc[] = [
     },
   },
   {
-    id: 'liberia_email_1h', group: 'm', cron: '5 * * * *',
+    id: 'liberia_email_1h', group: 'm', cron: '15 * * * *',
     script: 'services/liberia_email_report.py → run_1h_report',
     zh: {
       name: 'Liberia 宕站 1小时报告邮件',
       desc: '发送 Liberia Orange Site Down hourly Report（内嵌图 + Excel）到主送/抄送名单',
       flow: ['每小时 :05 汇总最近 1 小时宕站数据', '生成内嵌图 + Excel 报表', '发送到主送/抄送名单（收件人在系统设置维护）'],
-      maintain: ['EWS 不可用时漏发由 email_recovery（每 20 分钟）自动补发'],
+      maintain: ['EWS 不可用时漏发由 email_recovery（每 10 分钟）自动补发'],
     },
     en: {
       name: 'Liberia Site-Down 1H Report Email',
@@ -448,7 +448,7 @@ export const TASK_DOCS: TaskDoc[] = [
     },
   },
   {
-    id: 'liberia_email_8h', group: 'm', cron: '10 */8 * * *',
+    id: 'liberia_email_8h', group: 'm', cron: '20 */8 * * *',
     script: 'services/liberia_email_report.py → run_8h_report',
     zh: {
       name: 'Liberia 宕站 8小时报告邮件',
@@ -464,23 +464,23 @@ export const TASK_DOCS: TaskDoc[] = [
     },
   },
   {
-    id: 'kpi_ms_contract', group: 'm', cron: '30 17 * * *',
+    id: 'kpi_ms_contract', group: 'm', cron: '30 5 * * *',
     script: 'services/kpi_email_report.py → run_ms_contract_kpi',
     zh: {
       name: 'MS Contract KPIs 日报邮件',
       desc: '发送 MS Contract KPIs Achievements Daily Report（本地数据 + 远程名单）',
-      flow: ['读取 ms_sla_full（每 6 小时）产出的本地 ms_sla 数据', '生成 Contract KPIs 日报', '发送到远程名单中的收件人'],
-      maintain: ['数据来自 ms_sla_full；17:30 发送时用的是 16:00 那一轮同步的数'],
+      flow: ['读取 ms_sla_full（05:00）产出的本地 ms_sla 数据', '生成 Contract KPIs 日报', '发送到远程名单中的收件人'],
+      maintain: ['数据来自 ms_sla_full（05:00 同步，约 05:11 完成）；本任务 05:30 发送，用的是当天这一轮的数'],
     },
     en: {
       name: 'MS Contract KPIs Daily Report Email',
       desc: 'Email the MS Contract KPIs Achievements Daily Report (local data + remote recipient list)',
-      flow: ['Read local ms_sla data produced by ms_sla_full (every 6h)', 'Build the Contract KPIs daily report', 'Send to recipients from the remote list'],
-      maintain: ['Data comes from ms_sla_full; the 17:30 send uses the 16:00 sync round'],
+      flow: ['Read local ms_sla data produced by ms_sla_full (05:00)', 'Build the Contract KPIs daily report', 'Send to recipients from the remote list'],
+      maintain: ['Data comes from ms_sla_full (05:00 sync, ~05:11 done); this task sends at 05:30 using that same-day round'],
     },
   },
   {
-    id: 'kpi_ms_wo_sla', group: 'm', cron: '35 17 * * *',
+    id: 'kpi_ms_wo_sla', group: 'm', cron: '35 5 * * *',
     script: 'services/kpi_email_report.py → run_ms_wo_sla',
     zh: {
       name: 'MS WOs SLA 日报邮件',
@@ -533,18 +533,18 @@ export const TASK_DOCS: TaskDoc[] = [
     zh: {
       name: 'SP 备件报表生成',
       desc: '从 SFTP 下载备件数据，生成 Comsumables & SpareParts Inbound&Outbound&Inventory 报表到本地 data/sp_email',
-      flow: ['登录 SFTP 下载备件原始数据', '生成 Comsumables & SpareParts Inbound&Outbound&Inventory 报表', '落盘 data/sp_email 供 09:45/09:50 两个邮件任务与 07:00 明细邮件使用'],
+      flow: ['登录 SFTP 下载备件原始数据', '生成 Comsumables & SpareParts Inbound&Outbound&Inventory 报表', '落盘 data/sp_email 供 09:45/09:50 两个邮件任务与 07:05 明细邮件使用'],
       maintain: ['是 3 个 SP 邮件任务的上游，失败会导致当天备件邮件整体缺报'],
     },
     en: {
       name: 'SP Report Generate',
       desc: 'Download spare-part data from SFTP and generate Comsumables & SpareParts Inbound&Outbound&Inventory reports into data/sp_email',
-      flow: ['Log into SFTP and download raw spare data', 'Generate the Comsumables & SpareParts Inbound&Outbound&Inventory reports', 'Save to data/sp_email for the 09:45/09:50 email tasks and the 07:00 details email'],
+      flow: ['Log into SFTP and download raw spare data', 'Generate the Comsumables & SpareParts Inbound&Outbound&Inventory reports', 'Save to data/sp_email for the 09:45/09:50 email tasks and the 07:05 details email'],
       maintain: ['Upstream of 3 SP email tasks — its failure blanks all spare-part emails for the day'],
     },
   },
   {
-    id: 'sp_email_details', group: 'm', cron: '0 7 * * *',
+    id: 'sp_email_details', group: 'm', cron: '5 7 * * *',
     script: 'services/kpi_email_report.py → run_sp_details_email',
     zh: {
       name: 'SP 备件明细报表邮件',
@@ -558,6 +558,7 @@ export const TASK_DOCS: TaskDoc[] = [
         '2026-09-01 上线时曾漏分组导致 pending 卡死，后补入 m 组——新增任务务必登记 GROUP_TASK_MAP',
         '本任务在 EMAIL_TASK_IDS 内：WhatsApp 侧失败时 error 只写 WHATSAPP_FAIL 固定标记，不拼底层异常原文，避免命中 EWS 关键字触发 email_recovery 整链补发（11 位收件人重复收报表）',
         '上游是 sp_report_generate（05:15）：它不产出明细文件，本任务合并即失败，邮件与群都不发',
+        '2026-10-11 起 WhatsApp 侧改走「Baileys 主通道 → Playwright 回退」（whatsapp_dispatch）；发送者变为 Baileys 副号',
       ],
     },
     en: {
@@ -572,6 +573,7 @@ export const TASK_DOCS: TaskDoc[] = [
         'Missed its worker-group registration on 2026-09-01 and stuck pending; now in group m — always register new tasks in GROUP_TASK_MAP',
         'This task is in EMAIL_TASK_IDS: on a WhatsApp-side failure the error carries only the WHATSAPP_FAIL marker, never the raw exception text — otherwise an EWS keyword would make email_recovery replay the whole chain and email the report twice to 11 recipients',
         'Upstream is sp_report_generate (05:15): without the detail files the merge fails and neither channel sends',
+        'Since 2026-10-11 the WhatsApp side goes through "Baileys primary → Playwright fallback" (whatsapp_dispatch); the sender becomes the Baileys secondary account',
       ],
     },
   },
@@ -620,33 +622,33 @@ export const TASK_DOCS: TaskDoc[] = [
     },
   },
   {
-    id: 'sp_whatsapp_report', group: 'm', cron: '15 7 * * *',
+    id: 'sp_whatsapp_report', group: 'm', cron: '55 7 * * *',
     script: 'services/kpi_email_report.py → run_sp_whatsapp_report',
     zh: {
       name: 'Comsumables&SpareParts Report Whatsapp',
-      desc: '每天 07:15 把 Comsumables / SpareParts 两个邮件任务的同一批产物（合并总表 XLSX + 报表 PNG）发送到 WhatsApp 群 WH&SP Management',
-      flow: ['在 data/sp_email 下选取 Comsumables / SpareParts 的合并总表 XLSX（不含 " - Liberia" 分站点）', '收集两类报表的 PNG（主图在前、Summary-Changed 在后）', '复用 whatsapp_service 的 Playwright 发送机制发到群 WH&SP Management'],
-      maintain: ['上游是 sp_report_generate（m 组 05:15），它失败会导致本任务找不到报表文件', '不发送邮件——邮件由 kpi_sp_consumables / kpi_sp_spareparts 负责'],
+      desc: '每天 07:55 把 Comsumables / SpareParts 两个邮件任务的同一批产物（合并总表 XLSX + 报表 PNG）发送到 WhatsApp 群 WH&SP Management',
+      flow: ['在 data/sp_email 下选取 Comsumables / SpareParts 的合并总表 XLSX（不含 " - Liberia" 分站点）', '收集两类报表的 PNG（主图在前、Summary-Changed 在后）', '经 whatsapp_dispatch 发送：Baileys 主通道 → Playwright 回退，发到群 WH&SP Management'],
+      maintain: ['上游是 sp_report_generate（m 组 05:15），它失败会导致本任务找不到报表文件', '不发送邮件——邮件由 kpi_sp_consumables / kpi_sp_spareparts 负责', '2026-10-11 起走「Baileys → Playwright」双通道；本任务发 4 图 + 2 xlsx，需 Baileys 单作业文档配额 ≥2（已放宽为 8 图 / 3 文档）'],
     },
     en: {
       name: 'Comsumables&SpareParts Report Whatsapp',
-      desc: 'Daily 07:15: send the same assets used by the Comsumables / SpareParts report emails (consolidated XLSX + report PNGs) to the WhatsApp group WH&SP Management',
-      flow: ['Pick the consolidated Comsumables / SpareParts XLSX under data/sp_email (excludes the " - Liberia" per-site files)', 'Collect the PNGs of both reports (main chart first, Summary-Changed last)', 'Send via the Playwright mechanism in whatsapp_service to the group WH&SP Management'],
-      maintain: ['Upstream is sp_report_generate (group m, 05:15) — if it fails this task finds no report files', 'No email is sent here; emails are handled by kpi_sp_consumables / kpi_sp_spareparts'],
+      desc: 'Daily 07:55: send the same assets used by the Comsumables / SpareParts report emails (consolidated XLSX + report PNGs) to the WhatsApp group WH&SP Management',
+      flow: ['Pick the consolidated Comsumables / SpareParts XLSX under data/sp_email (excludes the " - Liberia" per-site files)', 'Collect the PNGs of both reports (main chart first, Summary-Changed last)', 'Send via whatsapp_dispatch: Baileys primary → Playwright fallback, to the group WH&SP Management'],
+      maintain: ['Upstream is sp_report_generate (group m, 05:15) — if it fails this task finds no report files', 'No email is sent here; emails are handled by kpi_sp_consumables / kpi_sp_spareparts', 'Since 2026-10-11 uses the "Baileys → Playwright" dual channel; this task sends 4 images + 2 xlsx, so the Baileys per-job document quota must be ≥2 (raised to 8 images / 3 documents)'],
     },
   },
   {
-    id: 'sp_material_report', group: 'm', cron: '33 7 * * *',
+    id: 'sp_material_report', group: 'm', cron: '45 7 * * *',
     script: 'services/kpi_email_report.py → run_sp_material_stock_consumption',
     zh: {
       name: 'SP 物料库存与消耗报表邮件',
-      desc: '每天 07:33 把 SP 物料库存与消耗汇总（同「SP 物料库存与消耗统计」页面 page=sp_material 的口径）导出为 UNIFIED_EXCEL_V1 版式 Excel 附件 + 同内容 PNG 内嵌正文并邮件发送',
+      desc: '每天 07:45 把 SP 物料库存与消耗汇总（同「SP 物料库存与消耗统计」页面 page=sp_material 的口径）导出为 UNIFIED_EXCEL_V1 版式 Excel 附件 + 同内容 PNG 内嵌正文并邮件发送',
       flow: ['调用 sp_material_summary_service.get_material_summary()（inventory_details 每日快照 + outband_details 报修出库）', '生成 UNIFIED_EXCEL_V1 版式 Excel（标题 / 副标题 / 两行合并表头 / 合计行在前 / 13 列 + Info 页），与页面「导出 Excel」逐格一致', '用 Pillow 把同一张汇总表画成 PNG（手法同 SP 报表图片：蓝表头 + 橙色区块条 + 斑马纹）', '落盘 data/sp_material_report（只保留最新一份）：Excel 作附件、PNG 内嵌正文发送'],
       maintain: ['默认 15 主送 + 2 抄送，可在系统设置 → 邮件收件人 覆盖', '汇总表无数据行时跳过发送并记为失败（多为上游 SP 数据同步未跑）', 'PNG 生成失败只告警不阻断，邮件仍带 Excel 发出'],
     },
     en: {
       name: 'SP Material Stock & Consumption Report Email',
-      desc: 'Daily 07:33: export the SP material stock & consumption summary (same scope as the page=sp_material page) to a UNIFIED_EXCEL_V1 Excel attachment plus an inline PNG of the same table, and email it',
+      desc: 'Daily 07:45: export the SP material stock & consumption summary (same scope as the page=sp_material page) to a UNIFIED_EXCEL_V1 Excel attachment plus an inline PNG of the same table, and email it',
       flow: ['Call sp_material_summary_service.get_material_summary() (inventory_details daily snapshots + outband_details repair outbound)', 'Build a UNIFIED_EXCEL_V1 workbook (title / subtitle / two-row merged header / total row above the data / 13 columns + Info sheet), cell-for-cell identical to the page "Export Excel"', 'Draw the same summary table as a PNG with Pillow (same method as the SP report images: blue header + orange section bands + zebra rows)', 'Save to data/sp_material_report (keeps only the latest): the Excel as attachment, the PNG inlined in the body'],
       maintain: ['Default 15 To + 2 Cc, overridable in Settings → Email Recipients', 'Skips sending and reports failure when the summary has no data rows (usually the upstream SP data sync did not run)', 'If PNG rendering fails it only warns and does not block the email — the Excel is still sent'],
     },
@@ -668,17 +670,17 @@ export const TASK_DOCS: TaskDoc[] = [
     },
   },
   {
-    id: 'email_recovery', group: 'm', cron: '*/20 * * * *',
+    id: 'email_recovery', group: 'm', cron: '*/10 * * * *',
     script: 'services/email_recovery.py → run_email_recovery_task',
     zh: {
       name: 'EWS 恢复后邮件补发',
-      desc: '每 20 分钟探测 EWS 是否恢复；恢复后自动补发近 3 小时内因 EWS 超时失败的邮件任务',
+      desc: '每 10 分钟探测 EWS 是否恢复；恢复后自动补发近 3 小时内因 EWS 超时失败的邮件任务',
       flow: ['探测 Exchange（EWS）连通性', '扫描近 3 小时内因 EWS 超时失败的邮件任务', '恢复后逐个补发'],
       maintain: ['邮件没收到先查它的执行历史，而不是手动重跑原邮件任务'],
     },
     en: {
       name: 'Email Recovery after EWS Restored',
-      desc: 'Probes EWS every 20 minutes; once restored, re-sends email tasks that failed due to EWS timeouts in the last 3 hours',
+      desc: 'Probes EWS every 10 minutes; once restored, re-sends email tasks that failed due to EWS timeouts in the last 3 hours',
       flow: ['Probe Exchange (EWS) reachability', 'Scan email tasks failed by EWS timeout within the last 3h', 'Re-send them one by once EWS is back'],
       maintain: ['For missing emails check this task\'s history first instead of manually re-running the original email task'],
     },
@@ -780,7 +782,7 @@ export const TASK_DOCS: TaskDoc[] = [
     },
   },
   {
-    id: 'battery_email', group: 'm', cron: '0 7,19 * * *',
+    id: 'battery_email', group: 'm', cron: '10 7,19 * * *',
     script: 'services/battary_kpi_fetch/battery_kpi_service.py → run_battery_email',
     zh: {
       name: '电池 KPI 邮件',
@@ -1206,7 +1208,7 @@ export const TASK_DOCS: TaskDoc[] = [
       desc: '从 eFlow SP 物料接口（eflow-sp-material）拉全量物料主数据，按 materialNo 唯一键 upsert 写 app.db 表 sp_material。表语义=上游当前快照：全量重建，删除上游已消失的物料',
       flow: ['每天 04:55 拉 eflow-sp-material 全量物料主数据', '按 materialNo upsert 写 app.db 表 sp_material', '全量重建：删除表中不在本轮 materialNo 集合里的行（表=上游快照）；拉取不完整时只 upsert、不删除', '「表浏览器」可查，下游 sp_material_report 出库存与消耗报表'],
       maintain: [
-        '下游 sp_material_report（07:33）只读表不拉接口：本任务停更时邮件仍会正常发，但内容是旧数据（db_freshness_check 已覆盖 sp_material 新鲜度）',
+        '下游 sp_material_report（07:45）只读表不拉接口：本任务停更时邮件仍会正常发，但内容是旧数据（db_freshness_check 已覆盖 sp_material 新鲜度）',
         '2026-10-09 增加全量重建：旧实现只 upsert 从不删除，上游停用/删除的物料会永久残留（与 sp_online 同型）。安全阀：仅当 fetch_all 完整拉取（未达 MAX_PAGES 上限、非 0 行）才删除，否则退化为只 upsert',
       ],
     },
@@ -1215,7 +1217,7 @@ export const TASK_DOCS: TaskDoc[] = [
       desc: 'Fetch the full material master from the eFlow SP API (eflow-sp-material) into app.db table sp_material (upsert by materialNo). The table mirrors the upstream snapshot: a full rebuild removes materials that vanished upstream',
       flow: ['Daily 04:55 pull the full eflow-sp-material master', 'Upsert into app.db table sp_material by materialNo', 'Full rebuild: delete rows whose materialNo is not in this run; on an incomplete fetch it only upserts and never deletes', 'Queryable in Table Browser; sp_material_report builds the stock/consumption report from it'],
       maintain: [
-        'sp_material_report (07:33) only reads the table: if this task stalls, the email still sends but with stale content (db_freshness_check now covers sp_material freshness)',
+        'sp_material_report (07:45) only reads the table: if this task stalls, the email still sends but with stale content (db_freshness_check now covers sp_material freshness)',
         'Added 2026-10-09: full rebuild. The old implementation only upserted and never deleted, so materials disabled/deleted upstream stayed forever (same shape as sp_online). Safety valve: delete only when fetch_all is complete (no MAX_PAGES cap hit, non-empty), otherwise degrade to upsert-only',
       ],
     },
@@ -1243,24 +1245,28 @@ export const TASK_DOCS: TaskDoc[] = [
     },
   },
   {
-    id: 'sp_online_report_send', group: 'm', cron: '20 6 * * *',
+    id: 'sp_online_report_send', group: 'm', cron: '35 6 * * *',
     script: 'services/kpi_email_report.py → run_sp_online_report',
     zh: {
       name: 'SP 在线未关闭单报表发送',
       desc: '发送 sp_online 未关闭单报表：邮件（PNG 内嵌 + XLSX 附件，默认复用 SP 报表远程名单）+ WhatsApp 群',
-      flow: ['每天 06:20 取 sp_online 最新报表文件', '邮件：Inbound/Outbound PNG 内嵌 + XLSX 附件', '同时发到 WhatsApp 群，收件人可在「系统设置 → 邮件收件人」覆盖'],
+      flow: ['每天 06:35 取 sp_online 最新报表文件', '邮件：Inbound/Outbound PNG 内嵌 + XLSX 附件', '同时经 whatsapp_dispatch（Baileys → Playwright）发到 WhatsApp 群，收件人可在「系统设置 → 邮件收件人」覆盖'],
       maintain: [
         '依赖 06:00 的 sp_online_report_generate 产物，上游缺文件时本任务直接失败',
         '属邮件类任务：默认不参与漏跑补投，EWS 恢复后由 email_recovery 补发',
+        '本任务在 EMAIL_TASK_IDS 内：WhatsApp 失败时 error 只写固定标记，不拼底层异常原文（避免命中 EWS 关键字触发邮件重复补发）',
+        '2026-10-11 起 WhatsApp 侧走「Baileys → Playwright」双通道；发送者变为 Baileys 副号',
       ],
     },
     en: {
       name: 'SP Online Open Tickets Report Send',
       desc: 'Send the open-ticket report: email (inline Inbound/Outbound PNG + XLSX attachments, default SP shared recipient list) + WhatsApp groups',
-      flow: ['Daily 06:20 pick up the newest sp_online report files', 'Email with inline PNG plus XLSX attachments', 'Also push to WhatsApp groups; recipients overridable under Settings → Email Recipients'],
+      flow: ['Daily 06:35 pick up the newest sp_online report files', 'Email with inline PNG plus XLSX attachments', 'Also push to WhatsApp groups via whatsapp_dispatch (Baileys → Playwright); recipients overridable under Settings → Email Recipients'],
       maintain: [
         'Depends on the 06:00 generation task output — missing files make this one fail outright',
         'An email task: excluded from missed-run backfill by default, email_recovery replays it once EWS is back',
+        'In EMAIL_TASK_IDS: on WhatsApp failure the error carries only a fixed marker, never the raw exception text (so it cannot trip an EWS keyword and duplicate the email)',
+        'Since 2026-10-11 the WhatsApp side uses the "Baileys → Playwright" dual channel; the sender becomes the Baileys secondary account',
       ],
     },
   },

@@ -480,7 +480,9 @@ TASK_SPECS = [
          loader=("backend.services.kpi_email_report", "run_sp_details_email"),
          description="把 data/sp_email/data 下 4 份备件明细（inventory/inband/outband/transfer）合并为一个 Excel（sheet: Inventory/Inbound/Outbound/Transfer），附件名与主题携带时间戳发送；邮件主送 ansah.boadu@zte.com.cn，抄送 dong.xinmin@zte.com.cn（收件人可在 Settings → Email Recipient Settings 覆盖）；邮件发出后把同一份合并 Excel 作为文档发到 WhatsApp 群 WH&SP Management",
          description_en="Merge the 4 spare-part detail files (inventory/inband/outband/transfer) under data/sp_email/data into one Excel (sheets: Inventory/Inbound/Outbound/Transfer) with a timestamped filename and subject; email to ansah.boadu@zte.com.cn, cc dong.xinmin@zte.com.cn (recipients editable under Settings → Email Recipient Settings); after the email, also send the same merged Excel as a document to the WhatsApp group WH&SP Management",
-         default_cron="0 7 * * *", category="kpi_email"),
+         # 2026-10-11：07:00 → 07:05。与 sp_whatsapp_report（07:15）拉开到 10 分钟以上，
+         # 二者共用同一 WhatsApp profile，先前 07:00/07:15 的间隔不足以让会话完全释放。
+         default_cron="5 7 * * *", category="kpi_email"),
 
     # 19c-2. SP 备件明细分文件邮件（每天 10:05，2026-09-30 新增）
     #        与 19c（sp_email_details，05:00）同数据源不同打包方式：19c 合并成一个多
@@ -524,17 +526,25 @@ TASK_SPECS = [
          loader=("backend.services.kpi_email_report", "run_sp_online_report"),
          description="发送 sp_online 未关闭单报表：邮件（Inbound/Outbound PNG 内嵌 + XLSX 附件，默认复用 SP 报表远程名单）+ WhatsApp 群（收件人可在 Settings → Email Recipient Settings 覆盖）",
          description_en="Send the open-ticket report: email (inline Inbound/Outbound PNG + XLSX attachments, default SP shared recipient list) + WhatsApp groups (recipients editable under Settings → Email Recipient Settings)",
-         default_cron="20 6 * * *", category="kpi_email"),
+         # 2026-10-11：06:20 → 06:35。三个 WhatsApp 发送任务（本任务、sp_email_details、
+         # sp_whatsapp_report）共用同一个 WHATSAPP_SESSION profile，原先挤在 06:20~07:15
+         # 这个 55 分钟窗口里互相抢锁；06:20 还同时压着 bp_report_sync / olib_soc_kpi_daily_sync。
+         # 拉开到 06:35（仍晚于 sp_online_report_generate 的 06:00，留 35 分钟产出余量），
+         # 让前一个任务的浏览器会话（CLOSE_DELAY≈28s）有足够时间关闭。
+         default_cron="35 6 * * *", category="kpi_email"),
 
-    # 19f. Comsumables & SpareParts 报表 WhatsApp 发送（每天 07:15）：
+    # 19f. Comsumables & SpareParts 报表 WhatsApp 发送（每天 07:55）：
     #      把 kpi_sp_consumables / kpi_sp_spareparts 两个邮件任务的同一批产物（合并总表 XLSX + 报表 PNG）
     #      发到 WhatsApp 群 WH&SP Management；只发 WhatsApp，不重复发邮件
     dict(task_id="sp_whatsapp_report", name="Comsumables&SpareParts Report Whatsapp",
          name_en="Comsumables&SpareParts Report Whatsapp",
          loader=("backend.services.kpi_email_report", "run_sp_whatsapp_report"),
-         description="每天 07:15 把 Comsumables Report Email / SpareParts Report Email 所发送的 Excel（合并总表）与报表图片发送到 WhatsApp 群 WH&SP Management",
-         description_en="Daily 07:15: send the same Excel (consolidated) and report images used by the Comsumables / SpareParts report emails to the WhatsApp group WH&SP Management",
-         default_cron="15 7 * * *", category="whatsapp"),
+         description="每天 07:55 把 Comsumables Report Email / SpareParts Report Email 所发送的 Excel（合并总表）与报表图片发送到 WhatsApp 群 WH&SP Management",
+         description_en="Daily 07:55: send the same Excel (consolidated) and report images used by the Comsumables / SpareParts report emails to the WhatsApp group WH&SP Management",
+         # 2026-10-11：07:15 → 07:55。错开三个共用 WhatsApp profile 的发送任务
+         # （sp_online_report_send 06:35 / sp_email_details 07:05 / 本任务 07:55），
+         # 且晚于两个产物来源任务，避免同 profile 抢锁导致的会话抖动。
+         default_cron="55 7 * * *", category="whatsapp"),
 
     # 20. MS Network Availability Daily Report 邮件（远程 FTP 图片，无 Excel）
     dict(task_id="kpi_ran_availability", name="MS Network Availability 日报邮件", name_en="MS Network Availability Daily Report Email",

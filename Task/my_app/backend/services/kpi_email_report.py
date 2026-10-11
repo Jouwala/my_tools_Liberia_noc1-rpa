@@ -532,15 +532,16 @@ def _prune_sp_details_reports(keep: "Path") -> int:
 def _send_sp_details_to_whatsapp(merged_path: Path) -> dict:
     """把合并后的 SP Details Report 作为**文档**发到 WhatsApp 群 WH&SP Management。
 
-    复用 ``whatsapp_service.run_whatsapp_send`` 的 Playwright 机制（与
-    sp_online_report_send / sp_whatsapp_report 同一套）。
+    2026-10-11 起改走 ``whatsapp_dispatch.send_with_fallback``：**Baileys 主通道 →
+    Playwright 回退**（原先是 Playwright 直发）。切换理由与回退判据见
+    ``whatsapp_dispatch`` 模块 docstring。
 
     ⚠️ ``photos=[]`` 必须显式传入：``photos=None`` 会触发
     ``_collect_photos_and_captions()``，把站点中断截图一并灌进这个管理群。
     """
     try:
-        from backend.services.whatsapp_service import run_whatsapp_send
-        return run_whatsapp_send(
+        from backend.services.whatsapp_dispatch import send_with_fallback
+        return send_with_fallback(
             photos=[],
             captions=[],
             files=[str(merged_path)],
@@ -1421,8 +1422,9 @@ def run_sp_online_report(to: str = None, cc: str = None) -> dict:
     )
 
     try:
-        from backend.services.whatsapp_service import run_whatsapp_send
-        wa_res = run_whatsapp_send(
+        # 2026-10-11 起：Baileys 主通道 → Playwright 回退（见 whatsapp_dispatch）
+        from backend.services.whatsapp_dispatch import send_with_fallback
+        wa_res = send_with_fallback(
             photos=images,
             captions=[f"*SP Online {Path(p).stem}* (Open Tickets)" for p in images],
             files=attach,
@@ -1437,13 +1439,22 @@ def run_sp_online_report(to: str = None, cc: str = None) -> dict:
     if not email_ok:
         errors.append(f"Email: {email_res.get('error')}")
     if not wa_ok:
-        errors.append(f"WhatsApp: {'; '.join(wa_res.get('errors') or [])}")
+        # ⚠️ 本任务在 email_recovery.EMAIL_TASK_IDS 内：error 文本若命中 EWS 关键字
+        # （EWS_FAIL_KEYS 含 "timed out"/"ConnectionError"/"10054" ...），补发通道会把
+        # 整条失败链当成「邮件没发出去」而**重发邮件**（多人重复收报表）。WhatsApp 的
+        # 底层异常（Playwright 的 Timeout、Baileys 的超时回报）正好可能含这些词，故这里
+        # 只写固定标记；原文留在 res["whatsapp"]["errors"]，供人工排查而不被补发通道读走。
+        errors.append(
+            f"WhatsApp: WHATSAPP_FAIL（群 {';'.join(_SP_ONLINE_WA_GROUPS)}，"
+            f"详见 whatsapp.errors）"
+        )
     res = {
         "success": email_ok and wa_ok,
         "message": f"Email={'OK' if email_ok else 'FAIL'}, "
-                   f"WhatsApp={'OK' if wa_ok else 'FAIL'} (groups_sent={wa_res.get('groups_sent')})",
+                   f"WhatsApp={'OK' if wa_ok else 'FAIL'} "
+                   f"(channel={wa_res.get('channel') or '-'}, groups_sent={wa_res.get('groups_sent')})",
         "email": email_res,
-        "whatsapp": {k: wa_res.get(k) for k in ("success", "groups_sent", "errors", "elapsed_seconds")},
+        "whatsapp": {k: wa_res.get(k) for k in ("success", "channel", "fell_back", "groups_sent", "errors")},
     }
     if errors:
         res["error"] = " | ".join(errors)
@@ -1492,8 +1503,9 @@ def run_sp_whatsapp_report() -> dict:
             captions.append(f"*{label} {p.stem}*")
 
     try:
-        from backend.services.whatsapp_service import run_whatsapp_send
-        wa_res = run_whatsapp_send(
+        # 2026-10-11 起：Baileys 主通道 → Playwright 回退（见 whatsapp_dispatch）
+        from backend.services.whatsapp_dispatch import send_with_fallback
+        wa_res = send_with_fallback(
             photos=photos,
             captions=captions,
             files=files,
@@ -1505,10 +1517,11 @@ def run_sp_whatsapp_report() -> dict:
     wa_ok = bool(wa_res.get("success"))
     res = {
         "success": wa_ok,
-        "message": f"WhatsApp={'OK' if wa_ok else 'FAIL'} (groups_sent={wa_res.get('groups_sent')})",
+        "message": f"WhatsApp={'OK' if wa_ok else 'FAIL'} "
+                   f"(channel={wa_res.get('channel') or '-'}, groups_sent={wa_res.get('groups_sent')})",
         "photos": photos,
         "files": files,
-        "whatsapp": {k: wa_res.get(k) for k in ("success", "groups_sent", "errors", "elapsed_seconds")},
+        "whatsapp": {k: wa_res.get(k) for k in ("success", "channel", "fell_back", "groups_sent", "errors")},
     }
     if not wa_ok:
         res["error"] = "; ".join(wa_res.get("errors") or ["WhatsApp 发送失败"])
