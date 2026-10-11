@@ -25,7 +25,8 @@
  *
  * 位置（2026-10-14 第二轮，用户：**「MAINTENANCE ALERTS 要放到 LAYERS 的下面，靠最右边缘」**）：
  *   原先放在 LAYERS **左侧**（right: 196px，即 56 + 132 + 8）。现改为**正下方**并对齐右边缘：
- *     · right 与 LAYERS 相同（56px），两块浮层右边缘成一条直线；
+ *     · right 与 LAYERS 相同（10px，2026-10-11 改：原 56px 是"避让 zoom 控件"的
+ *       误判，实测 zoom 在 topleft，右上无遮挡；现在两个面板都贴边、互相对齐）；
  *     · top 由**运行时测量** LAYERS 面板的实际高度算出（见 useAnchorTop），
  *       而不是写死一个猜的数值。
  *   为什么测量而不是写死：LAYERS 的高度取决于标题行与复选框行的实际排版
@@ -116,6 +117,12 @@ const panelStyle: CSSProperties = {
      被看成一组的顾虑，在「再大一点」这个明确要求面前让位。
      58vw 是门户内嵌窄屏下的兜底。 */
   width: 'min(58vw, 15rem)',
+  right: 10,  // 2026-10-11 与 LAYERS 一同贴边：实测 zoom 控件在 topleft，右上无遮挡
+  /* 靠最右边缘：与 LAYERS 面板的 right 保持一致，使两块浮层右边缘在同一条竖线上。
+     2026-10-11：原 56px 是"避让 zoom 控件"的误判（zoom 实测在 topleft），
+     改 10px 让面板真的贴边。文件头第 26-30 行的设计意图在此落地。
+     此前 panelStyle 漏写 right，导致元素从 left:0 起、宽度 15rem，视觉上落在
+     地图中段偏左 —— 正是用户反馈「没靠到边」的现象。 */
   /* top **不在这里写**：它由 useAnchorTop 实测 LAYERS 面板底边得出，
      运行时经 style 覆盖注入（见组件内 anchorTop）。
      这里只给一个兜底值，供极短的「面板尚未挂载」窗口使用。 */

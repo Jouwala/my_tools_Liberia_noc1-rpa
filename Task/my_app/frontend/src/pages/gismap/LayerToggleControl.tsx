@@ -12,8 +12,10 @@
  *     而 React 需要自己拥有 DOM 子树，两者争同一个节点时卸载顺序很难保证正确
  *     （与 LeafletMap.tsx:362-373 记录的「容器身份必须和 React 挂载周期对齐」
  *     是同一类坑）。本项目的 MapLegendOverlay 也是纯 React 浮层，保持一致。
- *  3. **位置避开右上角的 zoom 控件**：Leaflet 的 zoom 在 topright，宽约 30px、
- *     高约 80px，故这里 right 留 56px、top 留 10px，不与之重叠。
+ *  3. **位置在右上角、贴右边缘**：Leaflet 的 zoom 控件在 topleft（地图左侧，
+ *     见 LeafletMap.tsx:444），右上无遮挡。原先 right 留 56px 是误把 zoom
+ *     位置记成 topright 留下的"避让余量"，2026-10-11 实测确认 zoom 在左侧后
+ *     改为 right: 10（与 MAINTENANCE ALERTS 对齐成同一条右边）。
  *  4. **层级取 1000**：与 MapLegendOverlay 同层（理由见该文件头部第 3 条），
  *     np 页面里本控件与图例分处右上/左下，不会互相遮挡。
  *  5. **文案不进 i18n**：与 MapLegendOverlay 同一约定（该文件头部第 41-43 行），
@@ -87,9 +89,11 @@ function Box({ title, items, hint }: LayerToggleControlProps) {
 
   const box: CSSProperties = {
     position: 'absolute',
-    // 避开右上角 zoom 控件（约 30px 宽 + 10px 外边距），见文件头第 3 点
+    // 贴右边缘：zoom 控件在地图左侧（Leaflet 默认 topleft，见 LeafletMap.tsx:444），
+    // 右上原本没有遮挡，"right: 56 避让 zoom"是历史误判。2026-10-11 改为贴边，
+    // 0 像素留白让面板真的"靠到边"（同 MAINTENANCE ALERTS 一起改，保持两侧对齐）。
     top: 10,
-    right: 56,
+    right: 10,
     zIndex: 1000,
     minWidth: 132,
     padding: '7px 9px',
