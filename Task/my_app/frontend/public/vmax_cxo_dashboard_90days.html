@@ -21,6 +21,9 @@
 .viewbtn{position:absolute;right:14px;top:17px;z-index:3;padding:8px 14px;border:1px solid #16bfe3;border-radius:4px;background:#092348;color:#8cecff;font-weight:700;font-size:12px;cursor:pointer;font-family:inherit;box-shadow:0 0 12px rgba(0,203,255,.25)}
 .viewbtn:hover{background:#0d3868}
 .asof{position:absolute;right:14px;top:49px;z-index:3;font-size:10px;color:#8cecff;background:rgba(9,35,72,.75);border:1px solid #17499c;border-radius:12px;padding:2px 10px}
+/* 数据完整性提示：仅在存在缺口日时显示，位置在「数据截至」下方 */
+.cover-chip{position:absolute;right:14px;top:72px;z-index:3;font-size:10px;border-radius:12px;padding:2px 10px;max-width:60%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cover-chip.warn{border:1px solid #8a6d10;color:#f6cf00;background:rgba(74,60,8,.7)}
 /* ---- 工具栏：粒度 / 对比窗口 ---- */
 .bar{display:flex;gap:10px;justify-content:center;align-items:center;flex-wrap:wrap;padding:9px 8px 2px}
 .bar .seg{display:flex;border:1px solid #17499c;border-radius:16px;overflow:hidden;background:rgba(9,34,74,.6)}
@@ -110,6 +113,7 @@ html[data-theme="light"] .mast h1{color:#0e7490;text-shadow:none}html[data-theme
 html[data-theme="light"] .logo{color:#12324a;text-shadow:1px 1px 0 rgba(255,255,255,.8)}html[data-theme="light"] .logo b{color:#d69b00}
 html[data-theme="light"] .viewbtn{border-color:rgba(14,116,144,.30);background:rgba(255,255,255,.72);color:#0e7490}
 html[data-theme="light"] .asof{background:rgba(255,255,255,.8);border-color:rgba(14,116,144,.3);color:#0e7490}
+html[data-theme="light"] .cover-chip.warn{border-color:#c9a227;color:#8a6d10;background:rgba(255,250,220,.9)}
 html[data-theme="light"] .bar .seg{border-color:rgba(14,116,144,.3);background:rgba(255,255,255,.75)}
 html[data-theme="light"] .bar .seg button{color:#0e7490}
 html[data-theme="light"] .bar .seg button.active{background:#d9f0f7;color:#075063;box-shadow:inset 0 0 0 1px #0e7490}
@@ -154,6 +158,7 @@ html[data-theme="light"] .status{border-color:rgba(14,116,144,.3);background:rgb
     <div class="sub" id="appSub">Day / Week granularity · last 90 days</div>
     <button class="viewbtn" id="refreshBtn" type="button">↻</button>
     <div class="asof" id="asof">—</div>
+    <div class="cover-chip warn" id="covChip" hidden></div>
   </header>
 
   <div class="bar">
@@ -223,7 +228,8 @@ var I18N = {
     thDate:'日期', thTraffic:'总流量 (GB)', thUser:'活跃用户', thVideo:'视频流量 (GB)',
     thRate:'视频速率 (kbps)', thCache:'缓存占比', thTcp:'TCP 成功率', thTop:'TOP 业务', thQ:'数据质量',
     max:'最大', avg:'平均', min:'最低', latest:'最新', wow:'周同比', mom:'月同比',
-    noWoW:'周同比 —', noMoM:'月同比 —', ok:'正常', suspect:'上游缺数',
+    noWoW:'周同比 —', noMoM:'月同比 —', ok:'正常', suspect:'上游缺数', incomplete:'数据残缺',
+    covGap:'数据完整', covDays:'天', covMiss:'缺', covOk:'数据完整',
     asof:'数据截至', loading:'加载中…', loaded:'已更新', failed:'加载失败',
   arOn:'自动刷新', arOff:'自动刷新 已关闭', ver:'页面版本',
   verTip:'页面文件本身的上次修改时间（不是数据时间）。数据截至日期见左侧「数据截至」与状态栏。',
@@ -249,7 +255,8 @@ var I18N = {
     thDate:'Date', thTraffic:'Total Traffic (GB)', thUser:'Active Users', thVideo:'Video (GB)',
     thRate:'Video Rate (kbps)', thCache:'Cache Share', thTcp:'TCP Success', thTop:'Top Service', thQ:'Quality',
     max:'Max', avg:'Avg', min:'Min', latest:'Latest', wow:'WoW', mom:'MoM',
-    noWoW:'WoW —', noMoM:'MoM —', ok:'OK', suspect:'upstream gap',
+    noWoW:'WoW —', noMoM:'MoM —', ok:'OK', suspect:'upstream gap', incomplete:'incomplete',
+    covGap:'Coverage', covDays:'days', covMiss:'missing', covOk:'Complete',
     asof:'As of', loading:'loading…', loaded:'updated', failed:'load failed',
   arOn:'Auto-refresh', arOff:'Auto-refresh off', ver:'Page ver.',
   verTip:'Last modified time of this page file (not the data date). See "As of" on the left and the status bar for the data date.',
@@ -540,7 +547,9 @@ function renderTable(){
     return '<tr><td>'+esc(r.date)+'</td><td>'+fmt(r.traffic_gb,0)+'</td><td>'+fmt(r.active_user,0)+'</td>'+
       '<td>'+fmt(r.video_gb,0)+'</td><td>'+fmt(r.video_thr_kbps,0)+'</td><td>'+fmt(r.cache_ratio_pct,1)+'</td>'+
       '<td>'+fmt(r.tcp_success_pct,2)+'</td><td>'+esc(r.top_service||'—')+'</td>'+
-      '<td>'+(r.suspect? '<span class="tag warn">'+esc(t('suspect'))+'</span>' : '<span class="tag">'+esc(t('ok'))+'</span>')+'</td></tr>';
+      '<td>'+(r.suspect? '<span class="tag warn">'+esc(t('suspect'))+'</span>'
+             :(r.incomplete? '<span class="tag warn">'+esc(t('incomplete'))+'</span>'
+               : '<span class="tag">'+esc(t('ok'))+'</span>'))+'</td></tr>';
   }).join('');
   document.getElementById('tbl').innerHTML=head+'<tbody>'+body+'</tbody>';
 }
@@ -564,6 +573,20 @@ function renderAll(){
   document.getElementById('asof').textContent=t('asof')+' '+(payload.as_of||'—')+
     '  ·  '+(cov.stored_days||0)+'/'+(cov.expected_days||90)+(LOCALE==='en'?' days':' 天')+
     (payload.updated_at?('  ·  sync '+payload.updated_at):'');
+  // 数据完整性提示：整行缺失(missing_days) + 行在但关键列为空(incomplete_days) 都算缺口。
+  // 没有缺口就不显示，保持原有观感。
+  var gapDays=(cov.missing_days||[]).concat(cov.incomplete_days||[]);
+  var gapUniq=[]; gapDays.forEach(function(d){ if(gapUniq.indexOf(d)<0)gapUniq.push(d); });
+  var covChip=document.getElementById('covChip');
+  if(covChip){
+    if(gapUniq.length){
+      covChip.className='cover-chip warn';
+      covChip.textContent='⚠ '+t('covGap')+' '+(cov.stored_days||0)+'/'+(cov.expected_days||90)+
+        ' '+t('covDays')+' · '+t('covMiss')+' '+gapUniq.length+' '+t('covDays')+
+        ' ('+gapUniq.slice(0,3).join(', ')+(gapUniq.length>3?'…':'')+')';
+      covChip.hidden=false;
+    }else{ covChip.hidden=true; covChip.textContent=''; }
+  }
   document.getElementById('hTrendSub').textContent=(GRAN==='day'?t('day'):t('week'))+' · '+
     (LOCALE==='en'?'last 90 days':'最近 90 天');
   drawAll();
@@ -577,6 +600,8 @@ function renderEmpty(msg){
   document.getElementById('chartsQuality').innerHTML='';
   document.getElementById('tbl').innerHTML='';
   document.getElementById('asof').textContent='—';
+  var chip=document.getElementById('covChip');
+  if(chip){ chip.hidden=true; chip.textContent=''; }
 }
 function load(){
   setStatus(t('loading'),true);

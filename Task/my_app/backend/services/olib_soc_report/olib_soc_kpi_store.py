@@ -365,7 +365,7 @@ def build_overview(days: int = 90, path: Optional[Path] = None,
         "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "window": {"begin": begin.isoformat(), "end": end.isoformat()},
         "coverage": {"oldest": None, "newest": None, "stored_days": 0, "expected_days": days,
-                     "missing_days": []},
+                     "missing_days": [], "incomplete_days": []},
         "cards": [], "series": {"day": {}, "week": {}}, "table": [], "quality": [],
         "metrics": [{"id": m["id"], "title": m["title"], "title_en": m["title_en"],
                      "unit": m["unit"], "digits": m["digits"], "better": m["better"],
@@ -391,9 +391,14 @@ def build_overview(days: int = 90, path: Optional[Path] = None,
 
     stored = [r["day"] for r in rows]
     expected = [(begin + timedelta(days=i)).isoformat() for i in range(days)]
+    # 残缺日：行在、但某个关键指标列为 NULL（该指标卡片会「少一天」）。
+    # 直接复用已取到的 rows 判定，不再多查一次库（口径与 all_incomplete_days 一致）。
+    incomplete = [r["day"] for r in rows
+                  if any(r.get(c) is None for c in REQUIRED_COLUMNS)]
     body["coverage"] = {
         "oldest": stored[0], "newest": stored[-1], "stored_days": len(stored),
         "expected_days": days, "missing_days": [d for d in expected if d not in set(stored)],
+        "incomplete_days": incomplete,
     }
     body["updated_at"] = max((r.get("updated_at") or "") for r in rows)
     body["as_of"] = stored[-1]
@@ -471,6 +476,8 @@ def build_overview(days: int = 90, path: Optional[Path] = None,
         "tcp_success_pct": r.get("tcp_success_pct"),
         "top_service": r.get("top_service"),
         "suspect": bool(r.get("suspect_json")),
+        # 残缺：某个关键指标列为 NULL（与 coverage.incomplete_days 同口径）
+        "incomplete": any(r.get(c) is None for c in REQUIRED_COLUMNS),
     } for r in tail]
 
     # ---- 数据质量：哪些天被标记过（8/11~8/14 那种上游缺数）----
@@ -501,9 +508,17 @@ def gap_days(days_back: int = 7, path: Optional[Path] = None,
             if (begin + timedelta(days=i)).isoformat() not in have]
 
 
-# 判断「这天是否残缺」的核心指标：活跃用户/流量是看板主卡，缺一不可。
-# 只用 RAW 数值列里必有的两列，避免把 top_service（TEXT）之类可选列也算进来。
-REQUIRED_COLUMNS: Tuple[str, ...] = ("traffic_tb", "active_user", "video_tb")
+# 判断「这天是否残缺」的核心指标：**看板上每个主数值卡都对应一列**，任一列为 NULL
+# 就意味着那张卡片「比别的指标少一天」（卡片取的是该指标自己序列里最后一个有值日）。
+# 早期只放了 traffic_tb / active_user / video_tb 三列，结果 2026-09-07 的 traffic_tb 之外
+# 其它列缺失时无人发现、永久残留 —— 所以这里覆盖全部主数值列。
+# 只列 RAW 数值列，避免把 top_service（TEXT）/ suspect_json 之类可选列算进来。
+REQUIRED_COLUMNS: Tuple[str, ...] = (
+    "traffic_tb", "active_user", "video_tb", "video_mbps",
+    "cache_tb", "noncache_tb", "tcp_tb",
+    "tcp_success_pct", "tcp_ul_retrans_pct", "tcp_dl_retrans_pct",
+    "tcp_ul_rtt_ms", "tcp_dl_rtt_ms", "game_tb",
+)
 
 
 def incomplete_days(days_back: int = 7, path: Optional[Path] = None,
@@ -520,13 +535,39 @@ def incomplete_days(days_back: int = 7, path: Optional[Path] = None,
     today = today or date.today()
     end = today - timedelta(days=1)
     begin = end - timedelta(days=max(1, int(days_back)) - 1)
+    return _incomplete_between(begin.isoformat(), end.isoformat(), path)
+
+
+def all_incomplete_days(path: Optional[Path] = None) -> List[str]:
+    """**全表**扫描：所有「行已存在但关键指标为 NULL」的天（不限窗口）。
+
+    `incomplete_days()` 只看最近 N 天；一旦某个残缺日滑出回看窗口就再也补不到
+    （2026-09-07 的 `traffic_tb` 正是这样遗留至今）。这个函数给"全量自愈"用：
+    每日同步把它捞出的天一并重取，历史上任何残留都能被自动修正（取数幂等，可重复）。
+    """
+    return _incomplete_between(None, None, path)
+
+
+def _incomplete_between(begin: Optional[str], end: Optional[str],
+                        path: Optional[Path] = None) -> List[str]:
+    """[begin, end] 内关键列为 NULL 的天；begin/end 为 None 时扫全表（共用一份列清单）。"""
     where = " OR ".join("%s IS NULL" % c for c in REQUIRED_COLUMNS)
+    sql = "SELECT day FROM %s WHERE (%s)" % (DAILY_TABLE, where)
+    params: Tuple[Any, ...] = ()
+    if begin is not None and end is not None:
+        sql += " AND day >= ? AND day <= ?"
+        params = (begin, end)
+    sql += " ORDER BY day"
     try:
         with closing(connect(path, readonly=True)) as conn:
-            rows = conn.execute(
-                "SELECT day FROM %s WHERE day >= ? AND day <= ? AND (%s) ORDER BY day"
-                % (DAILY_TABLE, where), (begin.isoformat(), end.isoformat())).fetchall()
+            rows = conn.execute(sql, params).fetchall()
     except Exception as exc:                                             # noqa: BLE001
         logger.warning("[olib-kpi] 残缺日检查失败: %s", exc)
         return []
     return [iso_day(r[0]) for r in rows]
+
+
+def incomplete_days_in_window(begin: str, end: str,
+                              path: Optional[Path] = None) -> List[str]:
+    """任意 [begin, end] 区间内关键列为 NULL 的天（看板 coverage 用，ISO 字符串入参）。"""
+    return _incomplete_between(iso_day(begin), iso_day(end), path)

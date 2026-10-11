@@ -328,7 +328,10 @@ def test_run_block():
           res["days_present"] == 3 and res["days_missing"] == ["20260804", "20260805"],
           str(res["days_missing"]))
     check("行数 = 有数据天数 * 每天行数", res["rows"] == 3, str(res["rows"]))
-    check("状态 ok", res["status"] == "ok")
+    # 2026-10-11 起：缺天（分区缺失且非今天）不再算「正常」，进 days_empty 并把块降级
+    check("缺天 -> days_empty 记录 + partial（不再静默 ok）",
+          res["days_empty"] == ["2026-08-04", "2026-08-05"] and res["status"] == "partial",
+          "%s / %s" % (res["days_empty"], res["status"]))
     check("按 clttime 升序", list(res["frame"]["clttime"].astype(str)) ==
           sorted(res["frame"]["clttime"].astype(str)))
     check("SQL 里带上表名", all("_day_2026" in s for s in pool_fake.client.sql_seen))
@@ -345,8 +348,10 @@ def test_run_block():
 
     pool_missing = _PoolWith(_FakeGbase(families={}))
     res4 = svc.run_block(pool_missing, "traffic", vgc.day_range("2026-08-01", "2026-08-03"), cfg)
-    check("整族没有分区 -> 全跳过、不报错",
-          res4["rows"] == 0 and res4["days_present"] == 0 and res4["status"] == "ok")
+    # 2026-10-11 起：整族没有分区、一天都没取到 -> failed（旧逻辑误判 ok，正是事故根源）
+    check("整族没有分区 -> 一天没取到，判 failed（不再误判 ok）",
+          res4["rows"] == 0 and res4["days_present"] == 0 and res4["status"] == "failed",
+          str(res4["status"]))
 
 
 class _PoolWith:
@@ -473,7 +478,13 @@ def test_orchestration(tmp):
     svc.DATA_DIR = Path(tmp) / "orch"
     svc.DATA_DIR.mkdir(parents=True, exist_ok=True)
     svc.SQLITE_PATH = svc.DATA_DIR / "olib_soc_report.sqlite3"
-    fake = _FakeGbase()
+    # 给窗口内每一天都配齐分区，避免「缺天」把状态降级（本用例只想验证编排本身）
+    _full = ["20260801", "20260802", "20260803"]
+    fake = _FakeGbase(families={vgc.FAMILY_FLOW_CISERVICE: _full,
+                                vgc.FAMILY_FLOW_SPSERVICE: _full,
+                                vgc.FAMILY_DS_250024: _full,
+                                vgc.FAMILY_VIDEO_SPSERVICE: _full,
+                                vgc.FAMILY_GAME_SPSERVICE: _full})
     out = svc.run_olib_soc_report(mode="explicit", start="2026-08-01", end="2026-08-03",
                                   client=fake, today=date(2026, 9, 16))
     check("状态 ok", out["status"] == "ok", str(out.get("errors")))
@@ -557,7 +568,14 @@ def test_orchestration(tmp):
           str(out9.get("partial_days")))
 
     # 无参调用（task_runner 就是无参调用）→ 走配置默认 last_month（这条能挡住窗口格式类回归）
-    out10 = svc.run_olib_soc_report(client=fake, persist=False, today=date(2026, 9, 16))
+    # 给整月配齐分区，否则「缺天」会把状态降级为 partial（那是另一条自愈用例的范畴）
+    _month = [d for d in vgc.day_range("20260801", "20260831")]
+    fake_month = _FakeGbase(families={vgc.FAMILY_FLOW_CISERVICE: _month,
+                                      vgc.FAMILY_FLOW_SPSERVICE: _month,
+                                      vgc.FAMILY_DS_250024: _month,
+                                      vgc.FAMILY_VIDEO_SPSERVICE: _month,
+                                      vgc.FAMILY_GAME_SPSERVICE: _month})
+    out10 = svc.run_olib_soc_report(client=fake_month, persist=False, today=date(2026, 9, 16))
     check("无参调用=配置默认 last_month，窗口 YYYYMMDD",
           out10["mode"] == "last_month" and out10["window"] == ["20260801", "20260831"]
           and out10["days"] == 31, str(out10.get("window")))

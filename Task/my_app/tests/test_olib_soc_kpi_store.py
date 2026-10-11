@@ -793,6 +793,92 @@ check("WAL 模式（任务写 + 看板读并发）",
 check("_spark 压缩到 30 点", len(kpi._spark(list(range(90)))) == 30)
 
 # ==========================================================================
+section("13b. 残缺日：跨窗口残留 + run_block days_empty（2026-10-11 加固）")
+# ==========================================================================
+# ① REQUIRED_COLUMNS 覆盖全部主数值列（不再只是 traffic/active_user/video）
+for _col in ("video_mbps", "cache_tb", "noncache_tb", "tcp_tb", "tcp_success_pct",
+             "tcp_ul_retrans_pct", "tcp_dl_retrans_pct", "tcp_ul_rtt_ms",
+             "tcp_dl_rtt_ms", "game_tb"):
+    check("REQUIRED_COLUMNS 覆盖 %s" % _col, _col in kpi.REQUIRED_COLUMNS)
+
+# ② all_incomplete_days 能捞出**窗口外**的残缺日（历史残留，如 2026-09-07 的 traffic_tb）
+_db_gap = _tmp_db()
+kpi.upsert_days([
+    _row("2026-09-07", traffic_tb=None),            # 一个月前的历史残留
+    _row("2026-10-05"), _row("2026-10-06"), _row("2026-10-07", game_tb=None),
+], path=_db_gap)
+check("incomplete_days（7 天窗口）抓不到窗口外的 09-07",
+      "2026-09-07" not in kpi.incomplete_days(7, path=_db_gap, today=date(2026, 10, 8)))
+check("all_incomplete_days 能捞到窗口外的 09-07",
+      "2026-09-07" in kpi.all_incomplete_days(path=_db_gap))
+check("all_incomplete_days 也捞到窗口内的残缺列（game_tb 为 NULL）",
+      "2026-10-07" in kpi.all_incomplete_days(path=_db_gap))
+check("incomplete_days_in_window 只返回区间内的残缺日",
+      kpi.incomplete_days_in_window("2026-10-01", "2026-10-31", path=_db_gap) == ["2026-10-07"])
+
+# ③ build_overview.coverage.incomplete_days（行在但关键列为 NULL）
+_ov = kpi.build_overview(days=40, path=_db_gap, today=date(2026, 10, 8))
+check("coverage.incomplete_days 出现在载荷里", "incomplete_days" in _ov["coverage"])
+check("coverage.incomplete_days 命中残缺日",
+      "2026-10-07" in _ov["coverage"]["incomplete_days"], str(_ov["coverage"]["incomplete_days"]))
+_tbl_inc = {t["date"]: t for t in _ov["table"]}
+check("明细表行带 incomplete 标记",
+      _tbl_inc.get("2026-10-07", {}).get("incomplete") is True
+      and _tbl_inc.get("2026-10-06", {}).get("incomplete") is False)
+
+
+# ④ run_block 把「分区在但查出空行」记入 days_empty 并降级 partial
+class _EmptyDayGbase(_FakeGbase):
+    """2026-09-02 分区在、但查出 0 行；其余天正常 —— 模拟「上游分区空」的过渡态。"""
+
+    def query_df(self, sql, params=None):
+        import re
+        day = ""
+        for token in sql.replace("\n", " ").split():
+            if token.startswith("aggr_") and token[-8:].isdigit():
+                day = token[-8:]
+        if day == "20260902":
+            self.queries += 1
+            return pd.DataFrame()
+        return super().query_df(sql, params)
+
+
+class _PoolStub:
+    """run_block 只用到 pool.get()；给个直接返回假客户端的壳。"""
+
+    def __init__(self, client):
+        self._c = client
+
+    def get(self):
+        return self._c
+
+
+_cfg_rb = {"granularity": "day"}
+_rb = svc.run_block(_PoolStub(_EmptyDayGbase()), "traffic",
+                    ["20260901", "20260902", "20260903"], _cfg_rb)
+check("run_block 返回 days_empty 字段", "days_empty" in _rb)
+check("空行的那天进 days_empty", _rb["days_empty"] == ["2026-09-02"], str(_rb["days_empty"]))
+check("有缺天的块降级为 partial", _rb["status"] == "partial", _rb["status"])
+
+# 分区缺失的天（非今天/未来）也进 days_empty
+class _MissingPartGbase(_FakeGbase):
+    def partition_days(self, family, granularity="day"):
+        return [d for d in vgc.day_range("2026-09-01", "2026-09-15") if d != "20260903"]
+
+
+_rb2 = svc.run_block(_PoolStub(_MissingPartGbase()), "traffic",
+                     ["20260901", "20260902", "20260903"], _cfg_rb)
+check("分区缺失的天（非今天）进 days_empty",
+      _rb2["days_empty"] == ["2026-09-03"], str(_rb2["days_empty"]))
+
+# 首页块（top_service）空天不降级（BLOCKS_ALLOW_EMPTY_DAY 白名单）
+_rb3 = svc.run_block(_PoolStub(_EmptyDayGbase()), "game",
+                     ["20260901", "20260902", "20260903"], _cfg_rb)
+check("白名单块（game）空天仍记录 days_empty",
+      _rb3["days_empty"] == ["2026-09-02"], str(_rb3["days_empty"]))
+check("白名单块（game）空天不降级，仍为 ok", _rb3["status"] == "ok", _rb3["status"])
+
+# ==========================================================================
 if LIVE:
     section("14. 真实 KPI 库核对（--live）")
     real = kpi.KPI_DB_PATH

@@ -285,6 +285,14 @@ QUALITY_SHEET = "_数据质量"
 # 看板（?page=vmaxCxoDashboard_90Days）需要的块：比全量报表少 top_video，其余全部要用
 KPI_BLOCKS = ["traffic", "active_user", "cache", "video", "game", "tcp", "top_service"]
 
+# 「某天查出来是空」不算异常的块：这些块天然可能整天没有产出，缺一天不代表取数失败。
+#   * top_service / top_video 是「TOP 业务」排行，理论上每天都有；但它们查的是 dim_service
+#     关联后的聚合，若当天数仓该分区刚生成、关联表还没就绪，空结果是正常的过渡态。
+#   * game 是游戏业务流量，运营侧可能整天没有游戏流量。
+# 这些块的空天只记录、不降级（不触发 partial/告警）；其余「基础量块」（traffic/active_user/
+# cache/video/tcp）每天都必须有数，空一天即为异常，计入 days_empty 并把块降级为 partial。
+BLOCKS_ALLOW_EMPTY_DAY = {"top_service", "top_video", "game"}
+
 
 # ==========================================================================
 # 配置
@@ -464,7 +472,18 @@ class _ClientPool:
 # ==========================================================================
 def run_block(pool: _ClientPool, block: str, days: Sequence[str], cfg: Dict[str, Any],
               progress: bool = False) -> Dict[str, Any]:
-    """跑一个报表块：逐日查该块的表分区，拼接成一张 DataFrame（按 clttime 升序）。"""
+    """跑一个报表块：逐日查该块的表分区，拼接成一张 DataFrame（按 clttime 升序）。
+
+    除了 `days_missing`（分区不存在的天）与 `errors`（查询报错的天），本函数还输出
+    `days_empty`：**该块本应有数却没拿到**的天，含两种情形 ——
+      1. 分区不存在（`days_missing` 里、且不是窗口内的今天/未来）；
+      2. 分区在、但查出来 0 行（上游分区刚生成/未完成时的过渡态）。
+    背景（反复复发的事故）：旧逻辑只把「查询抛异常」记为 errors，导致「分区在但查出空」
+    或「分区缺失」时块 status 仍是 ok —— 数据缺了一天却无人知晓，`daily_kpi` 里那列留
+    NULL，看板对应卡片就「比其他指标少一天」。见 kpi_store.incomplete_days 的注释。
+
+    `BLOCKS_ALLOW_EMPTY_DAY` 里的块（TOP 业务 / 游戏）天然可能整天无产出，只记录不降级。
+    """
     import pandas as pd
 
     spec = BLOCKS[block]
@@ -477,8 +496,11 @@ def run_block(pool: _ClientPool, block: str, days: Sequence[str], cfg: Dict[str,
     wanted = set(days)
     present = [d for d in present_all if d in wanted]
     missing = [d for d in days if d not in have]
+    # 窗口内的今天/未来日分区本就还没生成（当天仍在累积），不算「缺数」
+    today_str = date.today().strftime("%Y%m%d")
     frames: List[Any] = []
     errors: List[str] = []
+    empty_day: List[str] = []
     t0 = time.time()
     for day in present:
         table = vgc.day_table(family, day, cfg.get("granularity") or "day")
@@ -495,9 +517,18 @@ def run_block(pool: _ClientPool, block: str, days: Sequence[str], cfg: Dict[str,
             if "clttime" in df.columns:
                 df["clttime"] = pd.to_datetime(df["clttime"], errors="coerce")
             frames.append(df)
+        elif day < today_str:                                            # 分区在却查出空：这天该有数
+            empty_day.append(vgc.iso_day(day))
+            logger.warning("[olib_soc] %s %s: 分区存在但查出 0 行", block, day)
         if progress:
             print("[olib_soc] %-12s %s -> %d 行" % (block, day, 0 if df is None else len(df)),
                   flush=True)
+    # 分区缺失的天（排除今天/未来）同样算「本应有数却没拿到」
+    for day in missing:
+        if day < today_str:
+            empty_day.append(vgc.iso_day(day))
+    empty_day = sorted(set(empty_day))
+    empty_is_error = block not in BLOCKS_ALLOW_EMPTY_DAY
     if frames:
         out = pd.concat(frames, ignore_index=True)
         if "clttime" in out.columns:
@@ -505,12 +536,20 @@ def run_block(pool: _ClientPool, block: str, days: Sequence[str], cfg: Dict[str,
     else:
         out = pd.DataFrame(columns=["clttime"])
     suspect = _suspect_days(block, out)
+    if errors:
+        status = "partial" if len(out) else "failed"
+    elif empty_is_error and empty_day:
+        # 有数但缺天 -> partial；**一天都没取到** -> failed（更强信号，别再当"正常"）
+        status = "partial" if len(out) else "failed"
+    else:
+        status = "ok"
     return {"block": block, "sheet": spec["sheet"], "title": spec["title"],
             "family": family, "frame": out, "rows": int(len(out)),
             "days_present": len(present), "days_missing": missing,
+            "days_empty": empty_day,
             "seconds": round(time.time() - t0, 2), "errors": errors,
             "suspect_days": suspect,
-            "status": "ok" if not errors else ("partial" if len(out) else "failed")}
+            "status": status}
 
 
 def _suspect_days(block: str, frame: Any) -> List[Dict[str, Any]]:
@@ -549,6 +588,18 @@ def _ensure_dirs() -> None:
 def kpi_db_path() -> Path:
     """看板 KPI 库位置：跟随本模块 `DATA_DIR`（单一真相源，便于测试隔离）。"""
     return Path(DATA_DIR) / kpi_store.KPI_DB_PATH.name
+
+
+def _open_probe_client(cfg: Dict[str, Any]) -> Any:
+    """开一条临时 GBase 连接做轻量元数据探测（如历史残留的分区预检）。
+
+    调用方负责 `close()`；仅用于 `partition_days` 这类 SHOW TABLES 级探测，
+    不进 `_ClientPool`（那条池是给正式取数用的）。
+    """
+    client = vgc.VmaxGbaseClient(cfg.get("gbase") or {},
+                                 credential_key=cfg.get("credential_key"))
+    client.connect()
+    return client
 
 
 def _by_day(frame: Any, column: str, how: str = "sum") -> Dict[str, float]:
@@ -955,19 +1006,26 @@ def run_olib_soc_report(mode: Optional[str] = None, days: Optional[int] = None,
             else:
                 fetched = [_one(b) for b in chosen]
 
+            empty_union: List[str] = []
             for res in fetched:
                 key = res["block"]
                 for day in res["days_missing"]:
                     if day not in missing_union:
                         missing_union.append(day)
+                for day in res.get("days_empty") or []:
+                    if day not in empty_union:
+                        empty_union.append(day)
                 summary["blocks"][key] = {k: v for k, v in res.items() if k != "frame"}
                 summary["blocks"][key]["title"] = res["title"]
                 summary["rows"] += res["rows"]
-                if res["status"] == "ok":
-                    summary["blocks_ok"] += 1
-                else:
+                # blocks_ok/failed 维持「块级」口径：只有查询报错（errors）才算 failed。
+                # 「缺了某天」（days_empty）单独用 days_empty 汇总，不混进块级计数，
+                # 否则会让既有的 blocks_ok == 块总数 口径失真（文档/测试都依赖它）。
+                if res["errors"]:
                     summary["blocks_failed"] += 1
                     summary["errors"].extend(res["errors"][:3])
+                else:
+                    summary["blocks_ok"] += 1
                 for item in res.get("suspect_days") or []:
                     summary.setdefault("suspect_days", []).append({"block": key, **item})
                 if preview_rows > 0:
@@ -975,10 +1033,15 @@ def run_olib_soc_report(mode: Optional[str] = None, days: Optional[int] = None,
                     summary.setdefault("preview", {})[key] = head.where(
                         head.notna(), None).to_dict(orient="records")
             summary["missing_days"] = sorted(missing_union)
+            summary["days_empty"] = sorted(empty_union)
             if summary["missing_days"]:
                 summary["warnings"].append("窗口内 %d 天没有分区表（数仓缺表/未生成），已跳过: %s"
                                            % (len(summary["missing_days"]),
                                               ",".join(summary["missing_days"][:10])))
+            if summary["days_empty"]:
+                summary["warnings"].append(
+                    "有 %d 天本应有数却未取到（分区缺失或查出 0 行），这些天在看板会显示为缺数: %s"
+                    % (len(summary["days_empty"]), ",".join(summary["days_empty"][:10])))
             if summary.get("suspect_days"):
                 detail = "; ".join("%s %s=%s(中位数 %s)" % (i["block"], i["day"], i["value"],
                                                             i["median"])
@@ -993,6 +1056,10 @@ def run_olib_soc_report(mode: Optional[str] = None, days: Optional[int] = None,
                 summary["status"] = "partial"
             elif summary["blocks_failed"] and not summary["blocks_ok"]:
                 summary["status"] = "failed"
+            elif summary.get("days_empty"):
+                # 块都跑成，但有天没取到数：降级为 partial，让任务可见、可告警
+                # （不改 success，避免 auto_retry 因「数仓晚到」这种正常情况反复重跑）
+                summary["status"] = "partial"
             stats = pool.stats()
             if isinstance(stats, dict) and stats:
                 summary["sql"] = stats
@@ -1066,6 +1133,8 @@ def run_olib_soc_kpi_sync(days_back: Optional[int] = None, only_missing: bool = 
         "started_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "finished_at": "",
         "elapsed_seconds": 0.0, "warnings": [], "errors": [],
     }
+    historical: List[str] = []                                           # 窗口外、保留期内的历史残缺日
+    abandoned: List[str] = []                                            # 超出上游保留期、放弃重取的残缺日
     if only_missing:
         gaps = kpi_store.gap_days(window, path=kpi_db_path(), today=base)
         # 除了「整天没有行」的天，还要补「有行但关键指标为 NULL」的天：某次运行若单个块
@@ -1075,6 +1144,25 @@ def run_olib_soc_kpi_sync(days_back: Optional[int] = None, only_missing: bool = 
         for day in kpi_store.incomplete_days(window, path=kpi_db_path(), today=base):
             if day not in gaps:
                 gaps.append(day)
+        # **窗口之外**的历史残缺日单独收集：incomplete_days 只看最近 N 天，一旦某个残缺日
+        # 滑出窗口就再也补不到（2026-09-07 的 traffic_tb 就是这么遗留了整整一个月）。
+        # 这些天**不能并进上面的 gaps**：主调用按 gaps[0]~gaps[-1] 张成连续区间，混入一个
+        # 一个月前的日子会让区间暴涨、把中间几十天全部重查一遍。所以走单独一次调用。
+        #
+        # 但**必须设上限**：上游数仓只保留约 90 天，超出保留期的残缺日再怎么重取也拿不回来
+        # （实测 2026-09-07 的 aggr_5gsa_flow_ciservice 分区已消失）。若不加限制，任务会每天
+        # 徒劳重取这些天、永远补不上、还每天刷一条 warning。所以只重取**保留期之内**的天，
+        # 更早的交给 incomplete_days 语义在看板上如实标注（而不是无限重试）。
+        window_iso = {vgc.iso_day(d) for d in vgc.day_range(begin, end)}
+        retention_days = int(sync_cfg.get("residual_lookback_days") or 95)
+        floor = (base - timedelta(days=retention_days)).isoformat()
+        for d in kpi_store.all_incomplete_days(path=kpi_db_path()):
+            if d in window_iso:
+                continue
+            if d >= floor:
+                historical.append(d)
+            else:
+                abandoned.append(d)                                      # 超出保留期，放弃重取
         # 再把窗口里**最新的 N 天重取一遍**（默认 1）：数仓当天的分区常常晚到
         # （实测次日仍在累积），若某次同步恰好取到未完成的一天，或某天任务因重启/
         # 停机被跳过，下一次运行会自动把它纠正过来 —— 否则 only_missing 会让
@@ -1093,37 +1181,119 @@ def run_olib_soc_kpi_sync(days_back: Optional[int] = None, only_missing: bool = 
         # 否则 force 重取后 `still_missing` 会把所有天都误报成「仍然缺」
         gaps = [vgc.iso_day(d) for d in vgc.day_range(begin, end)]
     summary["requested_days"] = gaps
-    if not gaps:
+    if not gaps and not historical:
         summary["status"] = "up_to_date"
         summary["finished_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         summary["elapsed_seconds"] = round(time.time() - started, 2)
+        # 无缺口要补，但若有超保留期的残留，仍要如实报一声（否则巡检看不到"看板有残缺"）
+        if abandoned:
+            summary["abandoned_days"] = abandoned
+            summary["warnings"].append(
+                "以下残缺日上游分区已不可用（超出保留期或已删除），无法回补（看板会如实标注为残缺，不再重试）: %s"
+                % ",".join(abandoned[:10]))
         logger.info("[olib_soc] KPI 增量：最近 %d 天已齐，无需取数", window)
         return summary
-    inner = run_olib_soc_report(mode="explicit", start=gaps[0], end=gaps[-1],
-                                blocks=KPI_BLOCKS, persist=persist, kpi_only=True,
-                                excel=False, client=client,
-                                config_path=config_path, today=today)
+    # 主调用：窗口内的缺口。若窗口内无缺口（gaps 为空）则跳过，只跑下面的历史残留。
+    inner: Dict[str, Any] = {}
+    if gaps:
+        inner = run_olib_soc_report(mode="explicit", start=gaps[0], end=gaps[-1],
+                                    blocks=KPI_BLOCKS, persist=persist, kpi_only=True,
+                                    excel=False, client=client,
+                                    config_path=config_path, today=today)
+    # 历史残留在真正重取前，先用**一次**上游分区清单检查把它们再筛一遍：
+    # 数仓只留约 90 天，某些残留（如 2026-09-07 的流量/TCP 分区）其实早已消失 ——
+    # 这种"永远补不上"的天若每天都重取，只会每天徒劳查询 + 每天刷一条 warning。
+    # 用便宜的 SHOW TABLES（partition_days）确认分区确实还在，才值得重取；
+    # 分区已消失的直接归入 abandoned（如实告警，不再重试）。
+    if historical:
+        probe = client
+        owned_probe = None
+        try:
+            if probe is None:
+                owned_probe = _open_probe_client(cfg)
+                probe = owned_probe
+            # 一天要能补上，**每个**看板块的 family 都必须还有那天的分区 —— 只要有一个
+            # family 的分区没了，那天就永远补不全（如 09-07：active_user 在、traffic/tcp 已没）。
+            families = {BLOCKS[b]["family"] for b in KPI_BLOCKS if b in BLOCKS}
+            have_by_fam = {fam: {vgc.iso_day(d)
+                                 for d in probe.partition_days(fam, "day")}
+                           for fam in families}
+            retryable, gone = [], []
+            for d in historical:
+                if all(d in have_by_fam[fam] for fam in families):
+                    retryable.append(d)
+                else:
+                    gone.append(d)
+            if gone:
+                abandoned.extend(gone)
+            historical = retryable
+        except Exception as exc:                                         # noqa: BLE001
+            logger.warning("[olib_soc] 历史残留分区预检失败（仍按原列表重取）: %s", exc)
+        finally:
+            if owned_probe is not None:
+                try:
+                    owned_probe.close()
+                except Exception:                                        # noqa: BLE001
+                    pass
+    # 历史残留（窗口之外）：按 min~max 区间单独跑一次 —— 这些天通常极少（多为 0），
+    # 且彼此可能相隔很远，用区间而非逐天是为了复用现成的 run_olib_soc_report 入口。
+    hist_summary: Dict[str, Any] = {}
+    if historical:
+        hist_summary = run_olib_soc_report(mode="explicit", start=historical[0],
+                                           end=historical[-1], blocks=KPI_BLOCKS,
+                                           persist=persist, kpi_only=True, excel=False,
+                                           client=client, config_path=config_path,
+                                           today=today)
+    # 主调用与历史残留调用的结果合并：状态取「更差」的一个，天数/行数/缺口取并集。
+    parts = [p for p in (inner, hist_summary) if p]
+    worst = "ok"
+    for p in parts:
+        st = p.get("status") or "ok"
+        if st in ("failed", "unavailable"):
+            worst = st
+        elif st == "partial" and worst == "ok":
+            worst = "partial"
+    filled: set = set()
+    empty_days: List[str] = []
+    for p in parts:
+        filled |= set((p.get("kpi") or {}).get("days_list") or [])
+        for d in p.get("days_empty") or []:
+            if d not in empty_days:
+                empty_days.append(d)
     summary.update({
-        "status": inner.get("status"), "rows": inner.get("rows", 0),
-        "days": inner.get("days"), "blocks_ok": inner.get("blocks_ok"),
-        "blocks_failed": inner.get("blocks_failed"), "kpi": inner.get("kpi"),
-        "missing_days": inner.get("missing_days"), "warnings": inner.get("warnings") or [],
-        "errors": inner.get("errors") or [], "elapsed_seconds": inner.get("elapsed_seconds"),
-        "detail": {k: v for k, v in inner.items()
+        "status": worst,
+        "rows": sum(int(p.get("rows") or 0) for p in parts),
+        "days": sum(int(p.get("days") or 0) for p in parts),
+        "blocks_ok": inner.get("blocks_ok") if inner else None,
+        "blocks_failed": inner.get("blocks_failed") if inner else None,
+        "kpi": inner.get("kpi") or hist_summary.get("kpi"),
+        "missing_days": inner.get("missing_days"),
+        "warnings": (inner.get("warnings") or []) + (hist_summary.get("warnings") or []),
+        "errors": (inner.get("errors") or []) + (hist_summary.get("errors") or []),
+        "days_empty": sorted(empty_days),
+        "elapsed_seconds": sum(float(p.get("elapsed_seconds") or 0) for p in parts),
+        "historical_days": historical,
+        "abandoned_days": abandoned,
+        "detail": {k: v for k, v in (inner or hist_summary or {}).items()
                    if k not in ("blocks", "preview", "warnings", "errors")},
     })
     # 缺口里仍没拿到的天（数仓还没生成分区）单独提示，方便排查
-    filled = set((inner.get("kpi") or {}).get("days_list") or [])
-    still = [d for d in gaps if d not in filled]
+    still = [d for d in (gaps + historical) if d not in filled]
     if still:
         summary["still_missing"] = still
         summary["warnings"].append("以下日期仍无数据（数仓未生成分区或上游缺数）: %s"
                                    % ",".join(still[:10]))
+    # 超出上游保留期、已放弃重取的残留（不是本次任务的锅，但要让看板用户知道）
+    if abandoned:
+        summary["warnings"].append(
+            "以下残缺日上游分区已不可用（超出保留期或已删除），无法回补（看板会如实标注为残缺，不再重试）: %s"
+            % ",".join(abandoned[:10]))
     summary["finished_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     if not summary.get("elapsed_seconds"):
         summary["elapsed_seconds"] = round(time.time() - started, 2)
-    logger.info("[olib_soc] KPI 增量完成: 请求 %d 天 / 入库 %s 天 / %s",
-                len(gaps), (inner.get("kpi") or {}).get("days"), summary["status"])
+    logger.info("[olib_soc] KPI 增量完成: 请求 %d 天（含历史残留 %d 天）/ 入库 %s 天 / %s",
+                len(gaps) + len(historical), len(historical),
+                (inner.get("kpi") or {}).get("days"), summary["status"])
     return summary
 
 

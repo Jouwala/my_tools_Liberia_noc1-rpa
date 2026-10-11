@@ -237,20 +237,38 @@ Excel（openpyxl 回读 sheet 名与表头、`_数据质量` 表）与 sqlite �
 每日任务是**幂等自愈**的：某天数仓分区晚到/同步失败，第二天会自动补上；库里不缺就零查询直接返回
 （实测 `refresh_last_days=0` 时第二次调用 `up_to_date`、0 次 SQL）。手动命令：
 
-「缺口」有**两类**，只看第一类会漏事故（2026-09-24 加固）：
+「缺口」有**三类**，只看前两类会漏事故（2026-09-24 加固，2026-10-11 再次加固）：
 
 | 类型 | 判定 | 说明 |
 |---|---|---|
 | 整天没有行 | `gap_days()` | 任务被跳过 / 数仓分区晚到 |
-| 有行但关键指标为 NULL | `incomplete_days()` | 单个块临时取数失败仍写入一行，那列为 NULL |
+| 有行但关键指标为 NULL（**窗口内**） | `incomplete_days()` | 单个块临时取数失败仍写入一行，那列为 NULL |
+| 有行但关键指标为 NULL（**全表**） | `all_incomplete_days()` | 同上，但不限回看窗口 —— 补滑出窗口的历史残留 |
 
-第二类的真实事故：2026-09-18~23 的 `active_user` 连丢 6 天，看板「Active Users」停在 17 号；
+第三类为什么必须单独有：`incomplete_days()` 只看最近 N 天（默认 7），一旦某个残缺日
+滑出窗口**就再也补不到**。真实遗留：2026-09-07 的 `traffic_tb` 因超出窗口而残留了整整一个月，
+每天同步都"看不见"它。每日同步现在会把 `all_incomplete_days()` 捞出、且不在窗口内的天
+**单独跑一次**（不并进主 `gaps`，否则 `gaps[0]~gaps[-1]` 张成的区间会暴涨、把中间几十天重查）。
+
+前两类的真实事故：2026-09-18~23 的 `active_user` 连丢 6 天，看板「Active Users」停在 17 号；
 当时 `blocks_ok` 已从 7 掉到 6 但**不报错**，`gap_days` 也认为这天不缺口，故 NULL 永久残留。
-判定列见 `REQUIRED_COLUMNS`（`traffic_tb` / `active_user` / `video_tb`）。
-**排查手法：`SELECT day, blocks_ok FROM daily_kpi ORDER BY day DESC`，`blocks_ok` 小于 7 的那天就是残缺日。**
+判定列见 `REQUIRED_COLUMNS`（**全部主数值列**：traffic/active_user/video/video_mbps/
+cache/noncache/tcp 及三类 TCP 质量列/game —— 任一列为 NULL 都会让对应卡片「少一天」）。
+
+**取数侧同步加固（2026-10-11）**：`run_block()` 新增 `days_empty` —— 把「该块本应有数却没拿到」
+的天（**分区缺失**、或**分区在但查出 0 行**）如实上报，块降级为 `partial`（`BLOCKS_ALLOW_EMPTY_DAY`
+里的 TOP 业务/游戏块除外，它们天然可能整天无产出）。旧逻辑只把「查询抛异常」记为 error，
+"分区在但查出空"会让块仍是 `ok`，数据缺了一天却无人知晓。
+
+**看板侧暴露（2026-10-11）**：`coverage` 新增 `incomplete_days`（行在但关键列为 NULL 的天），
+`/api/olib-soc-dashboard/status` 暴露其计数；页面顶部在存在缺口日时显示「数据完整 x/y 天 · 缺 n 天」
+提示条，明细表对应行标「数据残缺」。
+
+**排查手法**：`SELECT day, blocks_ok FROM daily_kpi ORDER BY day DESC`，`blocks_ok` 小于 7 的那天就是残缺日；
+接口 `curl /api/olib-soc-dashboard/status` 看 `incomplete_days` 计数。
 
 ```bash
-python -m backend.services.olib_soc_report.olib_soc_report_service --sync-kpi              # 补最近 7 天缺口
+python -m backend.services.olib_soc_report.olib_soc_report_service --sync-kpi              # 补最近 7 天缺口 + 全表历史残留
 python -m backend.services.olib_soc_report.olib_soc_report_service --sync-kpi --days-back 30 --force
 python -m backend.services.olib_soc_report.olib_soc_report_service --start 2026-08-11 --end 2026-08-14 --kpi-only
 ```

@@ -55,6 +55,9 @@ def get_status():
         "stored_days": coverage.get("stored_days", 0),
         "expected_days": coverage.get("expected_days", 90),
         "missing_days": len(coverage.get("missing_days") or []),
+        # 行在但关键指标为 NULL 的天（该指标卡片会「少一天」）——与整行缺失分开计数，
+        # 便于巡检一眼看出「库里天数够、但有列是空的」。
+        "incomplete_days": len(coverage.get("incomplete_days") or []),
         "updated_at": body.get("updated_at"),
         "as_of": body.get("as_of"),
         "today": date.today().isoformat(),

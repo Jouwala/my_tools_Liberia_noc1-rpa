@@ -1267,14 +1267,19 @@ SELECT day, blocks_ok, traffic_tb, active_user, video_tb
 FROM daily_kpi ORDER BY day DESC LIMIT 15;
 ```
 
-修复（幂等，重取即自愈；2026-09-24 起每日任务已自动覆盖这类天）：
+修复（幂等，重取即自愈；2026-09-24 起每日任务已自动覆盖这类天；2026-10-11 起还能覆盖窗口外的历史残留）：
 
 ```bash
 python -m backend.services.olib_soc_report.olib_soc_report_service --sync-kpi --days-back 30
 ```
 
-> 判定逻辑在 `olib_soc_kpi_store.incomplete_days()`（列白名单 `REQUIRED_COLUMNS`），
+> 判定逻辑在 `olib_soc_kpi_store.incomplete_days()`（窗口内）与 `all_incomplete_days()`（全表，
+> 补滑出窗口的历史残留），列白名单 `REQUIRED_COLUMNS`（全部主数值列），
 > 与 `gap_days()` 一起决定每天要补哪些天。改库前先备份该 sqlite 文件。
+>
+> **2026-10-11 起还多了两层可见性**：① `run_block()` 的 `days_empty` 让「分区缺失/查出空」的块
+> 降级 `partial`（任务不再静默成功）；② 看板页面顶部与明细表会直接标出残缺日，
+> 巡检也可 `curl /api/olib-soc-dashboard/status` 看 `incomplete_days` 计数。
 
 ### 后端静默停摆：连崩 10 次永久退出（2026-10-05 事故，2026-10-06 修复）
 

@@ -144,12 +144,12 @@ APScheduler 到点 (backend 进程内)
 | `whatsapp_send_baileys` | WhatsApp 消息发送（Baileys；**默认禁用**，需在「任务管理」页手动启用） | `0 4 * * *` | m |
 | `tt_alarm_whatsapp_alert` | eFlow P1 告警 WhatsApp 推送（**可在「任务配置」页调级别/告警码/触发窗口/重报间隔/群组**） | `*/5 * * * *` | m |
 | `cells_kpi_sync` | RAN Cells KPI 同步 | `50 4 * * *` | u |
-| `sp_email_details` | SP 备件明细报表邮件 | `0 7 * * *` | m |
+| `sp_email_details` | SP 备件明细报表邮件 | `5 7 * * *` | m |
 | `sp_details_files_email` | SP 备件明细分文件邮件（6 份 xlsx 一文件一邮件发 NOC） | `5 10 * * *` | m |
 | `sp_material_report` | SP 物料库存与消耗报表邮件 | `33 7 * * *` | m |
 | `sp_online_report_generate` | SP 在线未关闭单报表生成（Inbound 读明细 xlsx；**Outbound 读库表 `sp_outbound`**，跟踪等待更新/等待归还/等待确认） | `0 6 * * *` | m |
-| `sp_online_report_send` | SP 在线未关闭单报表发送 | `20 6 * * *` | m |
-| `sp_whatsapp_report` | Comsumables&SpareParts Report Whatsapp | `15 7 * * *` | m |
+| `sp_online_report_send` | SP 在线未关闭单报表发送 | `35 6 * * *` | m |
+| `sp_whatsapp_report` | Comsumables&SpareParts Report Whatsapp | `55 7 * * *` | m |
 | `sp_online_sync` | SP Online 工单同步（原始 filter 与状态全集 filter **取并集**，避免过滤条件与返回结果自相矛盾时静默取错数据；表语义=上游快照，**全量重建**删除上游已消失的单据，拉取不完整时只 upsert 不删除） | `35 */6 * * *` | n |
 | `sp_material_sync` | SP 物料主数据同步（表语义=上游快照，**全量重建**删除上游已消失的物料，拉取不完整时只 upsert 不删除） | `55 4 * * *` | n |
 | `ume_in_kpi_sync` | 客户业务 KPI 同步 | `45 5 * * *` | n |
@@ -187,8 +187,22 @@ APScheduler 到点 (backend 进程内)
 - **必须**用副号，不与员工工作号同号（参见 `whatsapp-kb-bot/README.md`「风险与前提」）；
 - 启用前确认 `whatsapp-kb-bot/src/notify.js` 在跑、且 `data/notify_heartbeat.json` 新鲜（< 5 分钟）；
 - 启用时**先在「任务管理」页手动执行一次**验证群内是否真的收到图+文档；
-- 单作业配额（图片 6 + 文档 1）由 `whatsapp-kb-bot/config.json → notify.fileSend` 控制；
+- 单作业配额由 `whatsapp-kb-bot` 的 `NOTIFY_FILE_SEND`（`.env`）/ `config.js → notify.fileSend` 控制。
+  2026-10-11 起放宽为**图片 8 + 文档 3**（原默认 6 + 1）——SP 报表需一次发 2 份 xlsx，
+  默认 1 份会把第 2 份**静默跳过**。my_app 侧 `whatsapp_dispatch` 的默认配额与之对齐，
+  **两边改一个必须改另一个**；
 - **已被主开关豁免**（`MASTER_SWITCH_EXEMPT_IDS`），批量切换不参与，避免「一键启用」把它打开。
+
+#### SP 报表任务的双通道回退（2026-10-11）
+
+`sp_email_details` / `sp_online_report_send` / `sp_whatsapp_report` 三个任务**不再直接**
+调 Playwright，改为经 `backend/services/whatsapp_dispatch.send_with_fallback` 编排：
+**Baileys 主通道 → Playwright 回退**（回退判据：投递失败 / 超时 / 零确认 / 任一单项有错）。
+编排层细节与设计理由见 `architecture.md` 第八节决策记录。
+
+- 发送者由「用户桌面 WA 主号」变为「Baileys 副号」（用户 2026-10-11 决策并接受）；
+- 应急退场：设 `WHATSAPP_DISPATCH_CHANNEL=playwright` 可把三个任务整体打回 Playwright；
+- 任务结果里带 `channel` / `fell_back` 字段，便于执行历史里区分实际走的哪条通道。
 
 **「默认禁用」的实操**：`task_registry.py` 里 `whatsapp_send_baileys` 的 spec 带
 `enabled=False`，`register_all_tasks` 会把它传给 `register_task`；首次启动后该任务
@@ -383,23 +397,33 @@ APScheduler 到点 (backend 进程内)
 USSD 的日表当时只剩 2026-08-25~27 三行，而月表里有完整的 6 个月）。
 
 
-### `olib_soc_kpi_daily_sync` 的两类自愈（2026-09-24 加固）
+### `olib_soc_kpi_daily_sync` 的三类自愈（2026-09-24 首次加固，2026-10-11 再次加固）
 
 该任务给 VMAX 90 天经营看板（`?page=vmaxCxoDashboard_90Days`）供数，每天 06:20 只补
-`daily_kpi` 里缺的天。它的「缺口」判定有**两类**，缺一不可：
+`daily_kpi` 里缺的天。它的「缺口」判定有**三类**，缺一不可：
 
 | 类型 | 判定函数 | 背景 |
 | --- | --- | --- |
 | 整天没有行 | `olib_soc_kpi_store.gap_days()` | 任务被跳过 / 数仓分区晚到 |
-| **有行但关键指标为 NULL** | `olib_soc_kpi_store.incomplete_days()` | 单个块临时取数失败，仍写入一行，只是该块那列为 NULL |
+| **有行但关键指标为 NULL（窗口内）** | `olib_soc_kpi_store.incomplete_days()` | 单个块临时取数失败，仍写入一行，只是该块那列为 NULL |
+| **有行但关键指标为 NULL（窗口外）** | `olib_soc_kpi_store.all_incomplete_days()` | 同上但不限回看窗口，补滑出窗口的历史残留 |
 
 第二类是 2026-09-24 的线上事故：`blocks_ok` 从 7 掉到 6 却**不报错**，
 `gap_days` 也不认为缺天，于是 `active_user` 在 2026-09-18~23 **连丢 6 天**且永久残留
 （看板「Active Users」停在 17 号）。判定列见 `olib_soc_kpi_store.REQUIRED_COLUMNS`
-（`traffic_tb` / `active_user` / `video_tb`）；取数幂等，重取一次即自愈。
+（**全部主数值列**，不再只是 `traffic_tb` / `active_user` / `video_tb`）；取数幂等，重取一次即自愈。
+
+第三类是 2026-10-11 加固：`incomplete_days()` 只看最近 N 天，历史残留一旦滑出窗口就永远补不到
+（实测 2026-09-07 的 `traffic_tb` 残留了整整一个月）。同步任务现在额外扫全表，
+把窗口外的残缺日**单独跑一次**（不并进主 `gaps`，否则区间会暴涨）。
+
+**取数侧**（2026-10-11）：`run_block()` 新增 `days_empty` —— 「分区缺失」或「分区在但查出 0 行」
+都算该块某天没取到数，块降级 `partial`；`BLOCKS_ALLOW_EMPTY_DAY`（TOP 业务/游戏）例外。
 
 > 排查同类问题的第一步：`SELECT day, blocks_ok FROM daily_kpi ORDER BY day DESC`，
 > **`blocks_ok` 小于块总数（看板为 7）的那天就是残缺日**。
+> 也可以直接 `curl /api/olib-soc-dashboard/status` 看 `incomplete_days` 计数；
+> 看板页面顶部在存在缺口日时会显示「数据完整 x/y 天 · 缺 n 天」提示条，明细表对应行标「数据残缺」。
 
 ### `tt_alarm_whatsapp_alert` 的口径与实测坑（2026-09-28 首版，2026-10-05 机制切换）
 
