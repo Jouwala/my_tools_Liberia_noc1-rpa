@@ -4,6 +4,7 @@ import CredentialSettings from './CredentialSettings'
 import EmailRecipientsSettings from './EmailRecipientsSettings'
 import RemoteHostSettings from './RemoteHostSettings'
 import AIModelSettings from './AIModelSettings'
+import WhatsAppSettings from './WhatsAppSettings'
 import TaskConfigTab from './datasync/TaskConfigTab'
 
 export default function Settings() {
@@ -31,6 +32,11 @@ export default function Settings() {
           key: 'aiModel',
           label: t('settings.aiModelTab'),
           children: <AIModelSettings />,
+        },
+        {
+          key: 'whatsapp',
+          label: t('settings.whatsappTab'),
+          children: <WhatsAppSettings />,
         },
         {
           key: 'taskConfig',

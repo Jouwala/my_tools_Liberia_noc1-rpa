@@ -10,6 +10,10 @@ node_modules/
 data/*.json
 data/logs/
 data/auth/
+# 换号/网页扫码登录时对凭据目录的整体改名备份（scripts/relogin.mjs 与
+# src/qrLogin.js 都写 `data/auth.bak-<时间戳>`）。**必须挡住** —— 里面是
+# creds.json + 预共享密钥，入库等于把有效会话凭据写进 git 历史，删不干净。
+data/auth.bak-*
 
 # 问答记录（data/qa.sqlite + WAL/SHM 两个伴生文件）。
 # **必须挡住**：按约定存的是**真实提问人号码**，入库等于把群成员号码

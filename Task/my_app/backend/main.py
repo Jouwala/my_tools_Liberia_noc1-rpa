@@ -75,6 +75,7 @@ from backend.routers import (
     mw_links,
     portals,
     whatsapp_outbox,
+    whatsapp_login,
     tt_alert_whatsapp,
     eflow_qa,
     eflow_flow,
@@ -225,6 +226,8 @@ app.include_router(mw_links.router)
 app.include_router(portals.router)
 # WhatsApp 出图接口（供「WhatsApp 定时发图」Chrome 扩展拉取图片与配置）
 app.include_router(whatsapp_outbox.router)
+# WhatsApp 网页扫码登录接口（设置页 → 让 notify/bot 设备重新出码并取二维码）
+app.include_router(whatsapp_login.router)
 # TT 告警文本作业接口（eFlow P1 未清除单 → WhatsApp，供扩展认领/回报）
 app.include_router(tt_alert_whatsapp.router)
 # eFlow 知识库（Task/eflow_Q&A 只读：文档树 / 读取 / 检索）

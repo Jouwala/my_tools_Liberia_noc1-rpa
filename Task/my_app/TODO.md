@@ -127,6 +127,19 @@ my_app 处于**稳定运行**阶段（后端 7038 + 多组 worker + 双看门狗
       > 拆分前先建 `_bak_<日期>_bp_split` 快照；该模块的下钻契约（见
       > `docs\manual\11-feature-guide.md` §30「下钻：能下钻尽下钻」）是拆分的回归基线。
 
+- [ ] **`worker_watchdog.py` 连崩 10 次摘除 worker 组后无第三方兜底（2026-10-12 排期）。**
+      `backend_watchdog.py` 已修（连崩 10 次降级为 300s 慢速重试、不再退出），
+      但 `worker_watchdog.py` 仍是旧逻辑：`STARTUP_FAIL_LIMIT=10`（`:86`），
+      连续 10 次快速崩溃会**主动摘除该组 worker 并退出**（`:560-562`）。症状比后端停摆
+      更隐蔽：任务全部 pending 堆积、页面不报错、数据不更新。
+      **为什么排期（2026-10-12 RAN UME 事故复盘）**：当上游故障（如账号锁定）与
+      SAC 拦截 `.pyd` 这类瞬时崩溃叠加时，该机制会让恢复更慢 —— 崩溃由上游故障
+      触发、上游恢复后却要等人工拉起。建议照搬 backend_watchdog 的
+      `SLOW_RETRY_INTERVAL` 慢速重试方案。
+      **验收**：模拟连续 10 次启动失败后 watchdog 仍存活并以 300s 间隔重试；
+      恢复健康后计数自动重置；`tests\` 下补一条回归。
+      背景见 `docs\manual\13-operations.md`「后端静默停摆」一节的 ⚠ 标注。
+
 - [ ] **`frontend\src\pages\BmMeta.tsx` 998 行，新建即超 500 行上限（AGENTS.md 第三节原则 2）。**
       2026-09-30 新增 BM Meta 基准页时实测：页面本身 + 3 张竞对卡 + 趋势图 + 下钻弹窗 +
       Excel 导出全写在同一个文件里。**不是注释膨胀**（口径说明集中在

@@ -8,8 +8,14 @@
  *   错误是否被翻译成人能看懂的话
  *   两个 provider 是否正确分发
  */
-import { CONFIG } from '../src/config.js';
+import { CONFIG, RUNTIME_CONFIG } from '../src/config.js';
 import { chat, resolveApiKey, providerInfo, validateProvider, pingProvider } from '../src/llm.js';
+
+// CONFIG 的对话字段（chatProvider/chatModel/chatBaseUrl/chatApiKey/chatApiKeyEnv/
+// chatTimeoutMs/enableThinking）在 2026-10 的 RUNTIME_CONFIG 改造后是**只读 getter**，
+// 直接赋值会抛 "Cannot set property … which has only a getter"。测试要改这些值时
+// 必须写底层 RUNTIME_CONFIG（CONFIG 的 getter 会实时回读它）。读取则仍可用 CONFIG。
+const setCfg = (key, value) => { RUNTIME_CONFIG[key] = value; };
 
 let pass = 0;
 let fail = 0;
@@ -46,11 +52,11 @@ function jsonResponse(body, status = 200) {
 console.log('\n[1] API Key 解析优先级');
 
 delete process.env[ENV_NAME];
-CONFIG.chatApiKey = '';
+setCfg('chatApiKey', '');
 const noKey = resolveApiKey();
 check(noKey.key === '' && noKey.source === null, '都未配置时 → 空值且 source 为 null');
 
-CONFIG.chatApiKey = 'from-config';
+setCfg('chatApiKey', 'from-config');
 const cfgKey = resolveApiKey();
 check(cfgKey.key === 'from-config' && cfgKey.source === 'config.json', '仅配置文件 → 取配置文件的值');
 
@@ -62,16 +68,16 @@ check(
 );
 
 process.env[ENV_NAME] = '   ';
-CONFIG.chatApiKey = 'from-config';
+setCfg('chatApiKey', 'from-config');
 check(resolveApiKey().key === 'from-config', '环境变量为空白字符时回退到配置文件');
 
-CONFIG.chatApiKey = '';
+setCfg('chatApiKey', '');
 delete process.env[ENV_NAME];
 
 /* ------------------------------ 配置校验 ------------------------------ */
 
 console.log('\n[2] 启动自检');
-CONFIG.chatProvider = 'openai';
+setCfg('chatProvider', 'openai');
 const bad = validateProvider();
 check(!bad.ok, 'openai 但无密钥 → 校验失败');
 check(/AGNES_API_KEY/.test(bad.message || ''), '错误信息里点明了该设置哪个环境变量', bad.message);
@@ -80,14 +86,14 @@ check(/export|env:/.test(bad.message || ''), '错误信息给出了具体设置�
 process.env[ENV_NAME] = 'test-key-123';
 check(validateProvider().ok, '设置密钥后 → 校验通过');
 
-CONFIG.chatProvider = 'ollama';
+setCfg('chatProvider', 'ollama');
 check(validateProvider().ok, 'ollama provider 不需要密钥');
-CONFIG.chatProvider = 'openai';
+setCfg('chatProvider', 'openai');
 
-CONFIG.chatProvider = 'bogus';
+setCfg('chatProvider', 'bogus');
 const unknown = validateProvider();
 check(!unknown.ok && /未知/.test(unknown.message || ''), '未知 provider 名 → 明确报错');
-CONFIG.chatProvider = 'openai';
+setCfg('chatProvider', 'openai');
 
 /* ---------------------------- provider 信息 ---------------------------- */
 
@@ -155,19 +161,19 @@ async function sentBody() {
 
 const savedThinking = CONFIG.enableThinking;
 
-CONFIG.enableThinking = false;
+setCfg('enableThinking', false);
 let b = await sentBody();
 check(b.chat_template_kwargs?.enable_thinking === false, 'enableThinking=false → 显式关闭 thinking');
 
-CONFIG.enableThinking = true;
+setCfg('enableThinking', true);
 b = await sentBody();
 check(b.chat_template_kwargs?.enable_thinking === true, 'enableThinking=true → 显式开启 thinking');
 
-CONFIG.enableThinking = null;
+setCfg('enableThinking', null);
 b = await sentBody();
 check(b.chat_template_kwargs === undefined, 'enableThinking=null → 不传该字段，用服务端默认');
 
-CONFIG.enableThinking = savedThinking;
+setCfg('enableThinking', savedThinking);
 
 // lenient 模式（ping 专用）：只要模型吐出任何文本就算连通，不因 content 为空而判定失败。
 // 这条很关键 —— 否则一个「只返回思维链」的模型会让启动自检直接失败，把用户挡在门外。
@@ -196,7 +202,7 @@ try {
 
 // 启动自检路径：这一条直接对应「ping 失败即终止启动」那个被修掉的坑。
 // 模型可达但 content 为空时，必须判为「可继续启动」，只是附加警告。
-CONFIG.chatProvider = 'openai';
+setCfg('chatProvider', 'openai');
 mockFetch(reasoningOnly);
 const pingR = await pingProvider();
 check(pingR.ok === true, 'ping：模型只返回 reasoning_content 时仍判为可达（不阻断启动）');
@@ -244,7 +250,7 @@ try {
 /* ---------------------------- Ollama 分发 ---------------------------- */
 
 console.log('\n[7] provider 分发（切回 ollama 应打本地接口）');
-CONFIG.chatProvider = 'ollama';
+setCfg('chatProvider', 'ollama');
 calls = mockFetch(() =>
   jsonResponse({
     message: { role: 'assistant', content: '本地回答' },
@@ -258,14 +264,14 @@ check(calls[0].url.endsWith('/api/chat'), `打到 Ollama 的 /api/chat（${calls
 check(local.content === '本地回答', '正确解析 Ollama 响应格式');
 check(!calls[0].init.headers.Authorization, 'Ollama 请求不带 Authorization 头');
 
-CONFIG.chatProvider = 'openai';
+setCfg('chatProvider', 'openai');
 
 /* -------------------------------- 收尾 -------------------------------- */
 
 globalThis.fetch = realFetch;
 process.env[ENV_NAME] = '';
 delete process.env[ENV_NAME];
-CONFIG.chatApiKey = '';
+setCfg('chatApiKey', '');
 
 console.log(`\n${'='.repeat(50)}`);
 console.log(`通过 ${pass} 项，失败 ${fail} 项`);

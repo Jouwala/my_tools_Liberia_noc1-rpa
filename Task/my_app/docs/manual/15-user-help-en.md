@@ -1,6 +1,6 @@
 # my_app User Help & Guide
 
-> User-facing platform features & operations guide. Generated from the same source as the in-app Help page (frontend/src/helpMarkdown.ts), compiled from docs/manual/ and backend/task_registry.py. Generated on 2026-10-11.
+> User-facing platform features & operations guide. Generated from the same source as the in-app Help page (frontend/src/helpMarkdown.ts), compiled from docs/manual/ and backend/task_registry.py. Generated on 2026-10-12.
 
 > In-app entry: the "Help" sidebar item, or `http://<host>/myapp/?page=help` directly.
 
@@ -1930,11 +1930,12 @@ IP trace: probe link connectivity and path nodes from the server side to a targe
 
 #### Settings（`settings`）
 
-System settings: credentials, email recipients, remote host, and task configuration — four tabs.
+System settings: credentials, email recipients, remote host, AI model, WhatsApp login, and task configuration — six tabs.
 
 - Credentials: 12 upstream account groups with connection test and plaintext reveal (masked by default; stored plaintext in the credentials table of db/app.db)
 - Email recipients: edit groups, reset to defaults
 - Remote host: takes effect immediately, no restart needed (written to backend/data/settings.json)
+- WhatsApp login: web QR login for the two "linked devices" (notify / bot); clicking generates a QR code that takes effect after scanning (old credentials are backed up by rename, not deleted)
 - Task config: business parameters (not schedules); priority: env var > config file > default
 
 #### Portal Login（`portalLogin`）

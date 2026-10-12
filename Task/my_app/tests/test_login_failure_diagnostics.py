@@ -147,5 +147,90 @@ def test_transient_errors_are_still_retryable():
         assert not any(k in probe for k in ar.NON_RETRYABLE_KEYS), probe
 
 
+# ------------------------------------- 3) 鉴权类失败额度用尽后的一次性宽限
+# 背景（2026-10-12）：账号锁定故障横跨 04:01~09:40，8 个任务的 scheduled 1 次
+# + auto_retry 2 次额度全部在锁定期内烧光，账号 09:51 解锁后没有任何机制会
+# 自动补跑 —— 只能人工重投。而鉴权恢复后第一次重试大概率成功，故在「额度恰好
+# 用尽 + 鉴权类失败 + 非锁定类永久错误」时给一次性宽限重投。
+
+
+def _eval_with_attempts(error, attempts, last_retry_at=None):
+    """在标准上下文里调用 _evaluate_candidate（network 层已 mock 掉，走回退路径）。"""
+    from backend.services import task_runner
+    registry = task_runner._task_registry
+    return ar._evaluate_candidate(
+        task_id="ran_ume_daily",
+        failed_at="2026-10-12T09:40:04",
+        error=error,
+        retry_attempts=attempts,
+        last_retry_at=last_retry_at,
+        now=__import__("datetime").datetime(2026, 10, 12, 10, 30, 0),
+        registry=registry,
+        interval_min=10,
+    )
+
+
+def test_auth_exhausted_budget_gets_one_grace_retry():
+    """额度恰好用尽 + 鉴权类失败 → 宽限重投（今天的 8 个任务就是这个场景）。"""
+    info = _eval_with_attempts("Login failed - no auth cookie obtained", 2)
+    assert info["will_retry"] is True
+    assert "宽限" in info["reason"]
+
+
+def test_grace_is_one_shot_not_infinite():
+    """宽限投递计入额度：宽限后再失败 → 明确报「宽限重试仍失败」，不会二次宽限。"""
+    info = _eval_with_attempts("Login failed - no auth cookie obtained",
+                               ar.MAX_ATTEMPTS + 1)
+    assert info["will_retry"] is False
+    assert "宽限重试仍失败" in info["reason"]
+
+
+def test_grace_respects_slow_cooldown():
+    """宽限走慢冷却（AUTH_GRACE_COOLDOWN_MIN），不是立即重投。"""
+    import datetime as _dt
+    info = _eval_with_attempts(
+        "Login failed - no auth cookie obtained", ar.MAX_ATTEMPTS,
+        last_retry_at="2026-10-12T10:20:00")  # 距 now 仅 10 分钟 < 30
+    assert info["will_retry"] is False
+    assert "宽限冷却" in info["reason"]
+    assert info["next_retry_at"] is not None
+
+
+def test_locked_account_never_gets_grace():
+    """锁定类永久错误不配宽限：解锁前重投只会空跑 + 刷告警。"""
+    info = _eval_with_attempts(
+        "[AUTH] 登录最终失败 (10.100.28.27:28001): User has been locked；"
+        "账号已被上游锁定，重试无意义", ar.MAX_ATTEMPTS)
+    assert info["will_retry"] is False
+    assert "永久性错误" in info["reason"]
+
+
+def test_grace_only_for_auth_class_failures():
+    """非鉴权类失败额度用尽仍走原「等人工处理」，宽限不扩散。"""
+    info = _eval_with_attempts("KeyError: 'column_x'", ar.MAX_ATTEMPTS)
+    assert info["will_retry"] is False
+    assert "已达上限" in info["reason"]
+
+
+def test_grace_disabled_by_env():
+    """AUTO_RETRY_AUTH_GRACE_ENABLED=0 时回到原行为。"""
+    old = ar.AUTH_GRACE_ENABLED
+    try:
+        ar.AUTH_GRACE_ENABLED = False
+        info = _eval_with_attempts("Login failed - no auth cookie obtained",
+                                   ar.MAX_ATTEMPTS)
+        assert info["will_retry"] is False
+        assert "已达上限" in info["reason"]
+    finally:
+        ar.AUTH_GRACE_ENABLED = old
+
+
+def test_non_auth_exhausted_untouched():
+    """回归：非鉴权类失败额度用尽仍走原「已达上限」路径，宽限不扩散。"""
+    info = _eval_with_attempts("KeyError: 'column_x' not found", ar.MAX_ATTEMPTS)
+    assert info["will_retry"] is False
+    assert "已达上限" in info["reason"]
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v"]))

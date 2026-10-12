@@ -60,6 +60,34 @@ export const RUNTIME_CONFIG = {
 };
 
 /**
+ * 把 my_app Settings 页存的 Open WebUI **UI 地址**规范化为其 **OpenAI 兼容 API base**。
+ *
+ * 为什么必须补：Settings 页的 `openwebui_base_url` 存的是网页地址
+ * （如 `http://192.168.100.27:3000`）。bot 的 llm.js 只会拼 `/chat/completions`，
+ * 若不补前缀就会打到 SPA 路由，返回 **405**：
+ *   2026-10-12 实测 POST http://192.168.100.27:3000/chat/completions
+ *   → HTTP 405 {"detail":"Method Not Allowed"}，与当日故障日志逐字一致。
+ *
+ * 补 **`/api/v1`** 而不是 `/api`，是 2026-10-12 实测定的：
+ *   - `POST /api/v1/chat/completions` + Bearer <静态key>  → 200（OpenAI 兼容，返回 choices[]）
+ *   - `POST /api/chat/completions`    + 同一把静态 key     → 403（那条路径只认 JWT/网页会话）
+ * 所以机器人用静态 API Key 时必须走 /api/v1。
+ *
+ * 只对 Open WebUI 来源套用 —— WorkBuddy 本地代理（…/v1）与 custom（用户自填）
+ * 本来就是完整 API base，补前缀会把它们拼坏。
+ *
+ * @param {string} url  UI 地址或已带 /api(/v1) 的地址
+ * @returns {string}    OpenAI 兼容 API base（以 /api/v1 结尾）
+ */
+function toOpenWebUiApiBase(url) {
+  const base = String(url || '').replace(/\/+$/, '');
+  if (!base) return base;
+  // 已显式带 API 路径就尊重用户写法，不再补（避免 /api/v1/api/v1）
+  if (/\/api(\/v1)?$/.test(base)) return base;
+  return `${base}/api/v1`;
+}
+
+/**
  * 从 my_app 后端拉取 AI 模型配置，用返回值覆盖 RUNTIME_CONFIG。
  * 拉取失败时**不抛** —— config.json / 环境变量已是有效兜底，直接用。
  *
@@ -99,7 +127,10 @@ export async function loadRuntimeConfig(apiBase) {
     if (provider === 'openwebui') {
       if (hasOwuModel) {
         RUNTIME_CONFIG.chatModel = cfg.openwebui_model.trim();
-        RUNTIME_CONFIG.chatBaseUrl = (cfg.openwebui_base_url || '').replace(/\/+$/, '');
+        RUNTIME_CONFIG.chatBaseUrl = toOpenWebUiApiBase(cfg.openwebui_base_url);
+        // Open WebUI 需要鉴权（Bearer）。key 从环境变量读 —— 不与 WorkBuddy/
+        // Agnes 的占位值混淆，改配置只改 .env 里的 OPENWEBUI_API_KEY。
+        RUNTIME_CONFIG.chatApiKeyEnv = 'OPENWEBUI_API_KEY';
       } else if (hasLocalModel) {
         console.warn(`[config] provider=openwebui 但 openwebui_model 为空，回退到 config.json 默认值`);
         return false;
@@ -110,7 +141,8 @@ export async function loadRuntimeConfig(apiBase) {
         RUNTIME_CONFIG.chatBaseUrl = (cfg.local_base_url || '').replace(/\/+$/, '');
       } else if (hasOwuModel) {
         RUNTIME_CONFIG.chatModel = cfg.openwebui_model.trim();
-        RUNTIME_CONFIG.chatBaseUrl = (cfg.openwebui_base_url || '').replace(/\/+$/, '');
+        RUNTIME_CONFIG.chatBaseUrl = toOpenWebUiApiBase(cfg.openwebui_base_url);
+        RUNTIME_CONFIG.chatApiKeyEnv = 'OPENWEBUI_API_KEY';
       }
     } else if (provider === 'custom') {
       if (hasCustomModel) {
@@ -128,7 +160,8 @@ export async function loadRuntimeConfig(apiBase) {
         RUNTIME_CONFIG.chatBaseUrl = (cfg.local_base_url || '').replace(/\/+$/, '');
       } else if (hasOwuModel) {
         RUNTIME_CONFIG.chatModel = cfg.openwebui_model.trim();
-        RUNTIME_CONFIG.chatBaseUrl = (cfg.openwebui_base_url || '').replace(/\/+$/, '');
+        RUNTIME_CONFIG.chatBaseUrl = toOpenWebUiApiBase(cfg.openwebui_base_url);
+        RUNTIME_CONFIG.chatApiKeyEnv = 'OPENWEBUI_API_KEY';
       }
     }
 

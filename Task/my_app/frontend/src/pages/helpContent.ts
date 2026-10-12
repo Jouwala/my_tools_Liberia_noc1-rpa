@@ -492,8 +492,8 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
       usage: ['选表 → 修改分析名称 → 生成分析 → 归档', '开启「联动筛选」后点饼图/柱图即设置筛选，再点取消'],
     },
     settings: {
-      desc: '系统设置：凭据、邮件收件人、远程主机、任务配置四个页签。',
-      usage: ['凭据：12 组上游账号，支持测试连接与显示明文（默认掩码；明文存于 db/app.db 的 credentials 表）', '邮件收件人：分组编辑，可重置为默认', '远程主机：改完即时生效无需重启（写 backend/data/settings.json）', '任务配置：任务的业务参数（非排程），优先级 环境变量 > 配置文件 > 默认值'],
+      desc: '系统设置：凭据、邮件收件人、远程主机、AI 模型、WhatsApp 登录、任务配置六个页签。',
+      usage: ['凭据：12 组上游账号，支持测试连接与显示明文（默认掩码；明文存于 db/app.db 的 credentials 表）', '邮件收件人：分组编辑，可重置为默认', '远程主机：改完即时生效无需重启（写 backend/data/settings.json）', 'WhatsApp 登录：为 notify / bot 两个「已关联设备」网页扫码登录，点击后生成二维码，手机扫码即生效（旧凭据只改名备份，不删除）', '任务配置：任务的业务参数（非排程），优先级 环境变量 > 配置文件 > 默认值'],
     },
     portalLogin: {
       desc: '门户一键登录：用已保存的凭据自动登录上游门户（Playwright 自动化），省去逐个手输账号口令。',
@@ -863,8 +863,8 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
       usage: ['Pick a table → rename → generate → archive', 'With "linked filters" on, clicking a pie/bar applies it as a filter; click again to cancel'],
     },
     settings: {
-      desc: 'System settings: credentials, email recipients, remote host, and task configuration — four tabs.',
-      usage: ['Credentials: 12 upstream account groups with connection test and plaintext reveal (masked by default; stored plaintext in the credentials table of db/app.db)', 'Email recipients: edit groups, reset to defaults', 'Remote host: takes effect immediately, no restart needed (written to backend/data/settings.json)', 'Task config: business parameters (not schedules); priority: env var > config file > default'],
+      desc: 'System settings: credentials, email recipients, remote host, AI model, WhatsApp login, and task configuration — six tabs.',
+      usage: ['Credentials: 12 upstream account groups with connection test and plaintext reveal (masked by default; stored plaintext in the credentials table of db/app.db)', 'Email recipients: edit groups, reset to defaults', 'Remote host: takes effect immediately, no restart needed (written to backend/data/settings.json)', 'WhatsApp login: web QR login for the two "linked devices" (notify / bot); clicking generates a QR code that takes effect after scanning (old credentials are backed up by rename, not deleted)', 'Task config: business parameters (not schedules); priority: env var > config file > default'],
     },
     portalLogin: {
       desc: 'One-click portal login: auto-logs into upstream portals with saved credentials (Playwright automation).',

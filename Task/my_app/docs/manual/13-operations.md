@@ -319,6 +319,28 @@ node --env-file-if-exists=.env src/notify.js --groups
 心跳会显示 `connected: false`，此时执行 `cd whatsapp-kb-bot` → `npm run relogin` 重新扫码，
 再 `autostart-notify.ps1 -Stop` 后重新拉起（或等 5 分钟看门狗）。
 
+**网页扫码登录（2026-10-12 新增，替代上面的手工 relogin）**：
+
+设置页 `?page=settings` 的 **「WhatsApp 登录」** 页签提供可视化扫码，无需去 bot 目录敲命令。
+两个通道各一张卡片（**同一个号码的两个「已关联设备」**，必须各扫各的）：
+
+| 卡片 | 设备标识 | 进程 / 凭据 |
+| --- | --- | --- |
+| P1 告警推送 | `notify` | `src/notify.js` / `data/auth-notify`（设备槽 :2） |
+| 知识库问答机器人 | `bot` | `src/index.js` / `data/auth`（设备槽 :1） |
+
+点「扫码登录」会：后端写 `whatsapp-kb-bot/data/qr_request.json` 的对应键 →
+Node 侧 watcher（`src/qrLogin.js`）读到后**把旧凭据整体改名备份**（`data/auth.bak-<时间戳>`，
+只改名不删除）→ 触发该进程重连出码 → 把二维码原始字符串写进 `data/qr_status.json` →
+前端每 2s 轮询 `/api/whatsapp/login/status` 并用 `qrcode` 渲染成图片（二维码约 20s 自动轮换）。
+
+- 接口：`GET /api/whatsapp/login/status?device=notify|bot`、`POST /api/whatsapp/login/qr`（服务见
+  `backend/services/whatsapp_login_service.py`、路由 `backend/routers/whatsapp_login.py`）。
+- 出码通道文件与 `notify_job.json` 同目录、同条约定；`qr_status.json` 里两个设备各占一个键，互不覆盖。
+- `notify.js` 原先把「隐藏运行时出码」直接 `exit(1)`，现**当本次出码由网页请求触发时不退出**，
+  否则计划任务隐藏窗口场景下网页扫码永远走不通。
+- 换号失败想改回原号码：把 `data/auth.bak-*` 改名回原目录即可（先停对应进程）。
+
 ### 扩展在线检查（2026-10-01 新增，仅发图通道仍适用）
 
 > ⚠️ **P1 文本告警已不走扩展**（见上一节）。本节只对**发图任务**有效：
@@ -1421,6 +1443,41 @@ cd D:\01_RPA\Task\my_app
 `CREDENTIALS_LOCAL_REFERENCE.txt` 记录同一套 UME 散落着三个不同密码
 （`Zte@2025!` / `Zte@lbr202607` / `Mwebazeaaron@25`），若密码有变需同步
 `credential_store` 的 `zte_ume`。
+
+### 后续机制补强：鉴权类失败额度用尽后的一次性宽限重投（2026-10-12 同日新增）
+
+当天 8 个任务（04:01–09:40 锁定期内失败，每任务 scheduled 1 次 + auto_retry
+2 次额度全部烧光）在 09:51 账号解锁后**没有任何机制会自动补跑**，只能人工通过
+`POST /api/tasks/{id}/run` 逐个重投。复盘发现根因是 auto_retry 的额度按**次数**
+计、不按**时间**计：跨调度周期的持续故障会烧光额度，故障解除后任务停在失败状态
+等人工介入 —— 而鉴权恢复后第一次重试大概率成功，恰是最该自动兜底的场景。
+
+修复（`backend/services/auto_retry.py`）：
+
+1. **判定链重排**：永久性错误检查（原 `:634`）上移到额度判定**之前** ——
+   锁定类错误即便额度恰好用尽，也应报「永久性错误」而非「已达上限」，否则
+   会落进宽限分支（锁定必须等管理员解锁，宽限重投只会重新引入当天那种
+   每 30 分钟一次的空跑告警）。
+2. **宽限分支**（`_evaluate_candidate` 额度判定内）：`retry_attempts == MAX_ATTEMPTS`
+   （恰好用尽，刻意不用 `>=`）且失败属鉴权类（`APP_ERROR_KEYS`：登录失败 /
+   Unauthorized / 未获取到 / `no auth cookie` 等）且不含 `NON_RETRYABLE_KEYS`
+   永久标记时，按 `AUTH_GRACE_COOLDOWN_MIN`（默认 30 分钟，环境变量
+   `AUTO_RETRY_AUTH_GRACE_COOLDOWN_MIN`）的慢冷却宽限重投**一次**。
+   宽限投递计入 `retry_attempts`，之后 `attempts = MAX+1 > MAX`，天然不会
+   二次宽限；宽限仍受 24h `SCAN_WINDOW_HOURS` 硬上限约束。
+3. **状态可读**：宽限后再失败报「宽限重试仍失败（共投 N 次）」而非笼统的
+   「已达上限」；扫描日志里宽限投递标记为「鉴权宽限投递」，与常规
+   「第 x/2 次」区分。
+4. `APP_ERROR_KEYS` 补 `no auth cookie`：`cm_data_export.py` 等旧式任务自抛的
+   登录错误不带「登录失败」字样（错误透传修复需重启后端才生效），不加这条
+   宽限判定会漏掉它们。
+5. 总开关 `AUTO_RETRY_AUTH_GRACE_ENABLED=1`（默认开），出问题可一行关闭。
+6. 回归测试 12→19 项（`tests/test_login_failure_diagnostics.py` 第 3 组）：
+   宽限命中 / 一次性不无限 / 慢冷却生效 / 锁定不配宽限 / 非鉴权不扩散 /
+   环境开关回退 / 宽限后失败文案，全绿；相关 46 项全部通过。
+
+生效条件：auto_retry 判定运行在 **worker 进程**，需重启后端/worker
+（`start.bat`）后生效 —— 与同日上线的错误透传修复同一批。
 
 ### 本机验证改动：证书信任、构建产物与两个易踩开关（2026-10-06 新增）
 

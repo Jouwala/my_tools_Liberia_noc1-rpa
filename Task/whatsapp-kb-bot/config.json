@@ -1,7 +1,7 @@
 {
   "$comment": "本文件是机器人的唯一配置源。改完保存后重启进程生效（索引相关改动需重跑 npm run ingest）。",
 
-  "$providers": "嵌入走 Ollama（本机没有，见下方 $ollamaUrl 指向 .27）；对话可走本地或任意 OpenAI 兼容的云端接口。chatProvider: ollama | openai",
+  "$providers": "嵌入走 Ollama（本机没有，见下方 $ollamaUrl 指向 .27）；对话可走本地或任意 OpenAI 兼容的云端接口。chatProvider: ollama | openai。**注意**：下面 chatModel/chatBaseUrl 只是兜底默认 —— 若 my_app 后端在跑，bot 启动时会调 GET {myAppApiBase}/api/ai-model-settings，用「Settings → AI 模型设置」页的值覆盖它们（见 src/config.js 的 loadRuntimeConfig）。当该页 provider=openwebui 时，bot 会把页面存的 UI 地址（如 http://192.168.100.27:3000）自动规范化为 /api/v1（OpenAI 兼容端点），并从环境变量 OPENWEBUI_API_KEY 读鉴权 key —— 静态 key 只在 /api/v1 放行，打 /api 会得到 403、打无前缀路径会得到 405。",
   "chatProvider": "openai",
   "chatModel": "deepseek-v4.1-flash",
   "chatBaseUrl": "http://127.0.0.1:8788/v1",

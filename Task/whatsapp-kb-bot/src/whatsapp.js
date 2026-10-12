@@ -32,7 +32,8 @@ import P from 'pino';
 import qrcode from 'qrcode-terminal';
 import { existsSync, mkdirSync, appendFileSync, writeFileSync, renameSync } from 'node:fs';
 import { join, dirname } from 'node:path';
-import { CONFIG } from './config.js';
+import { CONFIG, ROOT } from './config.js';
+import { createQrWatcher, QR_STATE } from './qrLogin.js';
 import { detectLang, pickText } from './lang.js';
 import { selfIdentifiers, extractText, detectTrigger, stripMentions, isAllowedChat } from './mentions.js';
 import { openQaLog, recordQa, closeQaLog } from './qalog.js';
@@ -143,6 +144,11 @@ export function reconnectDelay(attempt) {
 let activeSock = null;
 let reconnectAttempts = 0;
 let shuttingDown = false;
+
+/** 网页扫码登录 watcher（模块级：重连会再次进入 startWhatsApp，只能建一次）。见 src/qrLogin.js。 */
+let qrWatcher = null;
+/** 是否处于「网页扫码」发起的主动重启中（抑制旧 socket 的 close 分支再排一次重连）。 */
+let restarting = false;
 
 /* ------------------- 跨重连保持的业务状态（模块级，见下方说明） ------------------- */
 
@@ -258,6 +264,33 @@ export async function stopWhatsApp(reason = '收到停止信号') {
 export async function startWhatsApp({ onQuestion, builtins = null }) {
   if (!existsSync(CONFIG.authDirAbs)) mkdirSync(CONFIG.authDirAbs, { recursive: true });
 
+  // 网页扫码登录 watcher：模块级 + 判重，保证重连不重复创建。
+  // 收到请求时清空 data/auth 并触发重连（此时无凭据 → Baileys 走 qr 分支出码）。
+  if (!qrWatcher) {
+    qrWatcher = createQrWatcher({
+      device: 'bot',
+      authDir: CONFIG.authDirAbs,
+      root: ROOT,
+      log,
+      onRestart: async () => {
+        restarting = true;
+        try {
+          activeSock?.ev?.removeAllListeners('messages.upsert');
+          activeSock?.ev?.removeAllListeners('connection.update');
+          activeSock?.ev?.removeAllListeners('creds.update');
+          activeSock?.ws?.close();
+        } catch {
+          /* 忽略 */
+        }
+        try {
+          await startWhatsApp({ onQuestion, builtins });
+        } finally {
+          restarting = false;
+        }
+      },
+    });
+  }
+
   // 问答记录：开一次，失败也不影响启动（记录是旁路，见 qalog.js）。
   if (CONFIG.qaLogEnabled) {
     const ok = openQaLog(CONFIG.qaLogPath);
@@ -309,6 +342,8 @@ export async function startWhatsApp({ onQuestion, builtins = null }) {
       console.log('手机 WhatsApp → 设置 → 已关联的设备 → 关联设备\n');
       qrcode.generate(qr, { small: true });
       console.log('\n（首次登录后凭据会保存在 data/auth/，之后免扫码）\n');
+      // 同时把原始字符串写进状态文件，供 my_app 设置页渲染（见 src/qrLogin.js）。
+      qrWatcher?.publishQr(qr);
     }
 
     if (connection === 'open') {
@@ -333,6 +368,8 @@ export async function startWhatsApp({ onQuestion, builtins = null }) {
       }
       heartbeatConnected = true;
       heartbeat({ event: 'connected' });
+      // 扫码成功（或本就有有效凭据）：若本次是网页扫码请求触发的，回写 connected。
+      qrWatcher?.setState(QR_STATE.CONNECTED, { message: '已连接' });
     }
 
     if (connection === 'close') {
@@ -341,11 +378,15 @@ export async function startWhatsApp({ onQuestion, builtins = null }) {
       heartbeatConnected = false;
       heartbeat({ event: 'closed' });
       if (shuttingDown) return;
+      // 主动重启（网页扫码登录）触发的关闭：新连接已由 onRestart 的 startWhatsApp 接手，
+      // 这里不再排重连，否则两个 socket 并存、出两份码。
+      if (restarting) return;
 
       const code = lastDisconnect?.error?.output?.statusCode;
       const loggedOut = code === DisconnectReason.loggedOut;
       if (loggedOut) {
         log('✗ 已被登出（可能手机端移除了设备）。删除 data/auth/ 后重新运行以再次扫码。');
+        qrWatcher?.setState(QR_STATE.ERROR, { message: '已被登出（手机端可能移除了该设备）' });
         process.exit(1);
       }
 
@@ -378,6 +419,7 @@ export async function startWhatsApp({ onQuestion, builtins = null }) {
         log("          Where-Object { $_.CommandLine -match 'whatsapp-kb-bot' } |");
         log('          Select-Object ProcessId,CommandLine');
         log('  本进程不再重连（继续重连只会与对方互相顶号）。');
+        qrWatcher?.setState(QR_STATE.ERROR, { message: '连接被同账号的另一个会话顶掉（code=440）' });
         process.exit(2);
       }
 

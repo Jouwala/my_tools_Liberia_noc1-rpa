@@ -1270,100 +1270,358 @@ export default function EflowQa() {
     }
   `
 
-  // ===== 检索 + TT（桌面左栏顶部）=====
+  // ===== 检索 + TT 工具区（顺序可拖，localStorage 持久化）=====
+  // 6 个功能块各自可独立拖拽改顺序；用 HTML5 原生 dnd 不引新依赖。
+  // localStorage key 包含 schema 版本，bump 后旧值自动作废回到默认。
+  const TOOL_BLOCKS_VERSION = 1
+  const TOOL_BLOCKS_KEY = `eflowqa.toolBlocks.v${TOOL_BLOCKS_VERSION}`
+  const DEFAULT_TOOL_BLOCKS: string[] = [
+    'knowledge-search',     // 知识库检索
+    'tt-quick-analysis',    // TT 快速分析
+    'tt-batch-check',       // TT 批量级别核查
+    'wo-close',             // WO 清理
+    'tt-postmortem',        // TT 复盘
+    'ran-ume-alarm-analysis', // RAN UME 告警分析
+  ]
+  const [toolOrder, setToolOrder] = useState<string[]>(() => {
+    try {
+      const raw = localStorage.getItem(TOOL_BLOCKS_KEY)
+      const arr = raw ? JSON.parse(raw) : null
+      if (Array.isArray(arr) && arr.length === DEFAULT_TOOL_BLOCKS.length
+        && arr.every(k => DEFAULT_TOOL_BLOCKS.includes(k as string))) {
+        return arr
+      }
+    } catch { /* noop */ }
+    return DEFAULT_TOOL_BLOCKS
+  })
+  // 旧字段（HTML5 dnd 时期）已废弃，删除以免 TS 报 unused
+  const persistToolOrder = useCallback((next: string[]) => {
+    setToolOrder(next)
+    try { localStorage.setItem(TOOL_BLOCKS_KEY, JSON.stringify(next)) } catch { /* noop */ }
+  }, [])
+
+  // ===== 检索 + TT 工具区（顺序可拖，localStorage 持久化）=====
+  // 教训（2026-10-12）：HTML5 dnd 在 antd Input.Search 这种"组合控件"上不稳
+  // ① 半透明 dragImage 在嵌套的 flex 容器里常被 antd/Input 的内部 draggable
+  //    监听吃掉（"无法拖动"就是这个），drop 经常不触发；
+  // ② 跨浏览器对 small element 的 dragstart 行为不一致。
+  // 改用「按下手柄 + 实时高亮目标 + 鼠标移到目标上点击」三态交互：
+  //   - 手柄 mousedown → 进入"调整顺序模式"（紫色高亮 + 提示）
+  //   - 鼠标移到任一 block → 出现 2px 落位线
+  //   - 单击目标 block → 把被拖的块插到该位置之前
+  //   - ESC / 单击空白 / 再点手柄 → 取消
+  // 不引新依赖，纯 mouse 事件，行为可预期。
+  type DragState = { key: string; rect: DOMRect } | null
+  const [dragging, setDragging] = useState<DragState>(null)
+  // 拖动中：目标 block 的 key（即"插到它之前"）；null 表示未悬停
+  const [hoverKey, setHoverKey] = useState<string | null>(null)
+  const dragStateRef = useRef<DragState>(null)
+  // 鼠标位置 → toolOrder index（用于"拖到两块之间"也能定位）
+  const containerRef = useRef<HTMLDivElement | null>(null)
+  const blockRefs = useRef<Record<string, HTMLDivElement | null>>({})
+
+  // 顺序变更 + 落库
+  const moveBlock = useCallback((from: string, toKey: string) => {
+    if (from === toKey) return
+    setToolOrder(prev => {
+      const next = prev.filter(k => k !== from)
+      const insertAt = next.indexOf(toKey)
+      if (insertAt < 0) next.push(from)
+      else next.splice(insertAt, 0, from)
+      persistToolOrder(next)
+      return next
+    })
+  }, [persistToolOrder])
+
+  // 全局监听：拖动模式下，松手/ESC/点击空白 = 取消；移动 = 更新 hoverKey
+  useEffect(() => {
+    if (!dragging) return
+    const onMove = (e: MouseEvent) => {
+      // 在所有 block 元素上判定"鼠标在哪个 block 的上半/下半"
+      // 上半 = 插到该 block 之前；下半 = 插到该 block 之后
+      const target = e.target as Node | null
+      let found: { key: string; before: boolean } | null = null
+      for (const [k, el] of Object.entries(blockRefs.current)) {
+        if (!el) continue
+        if (target && (el === target || el.contains(target))) {
+          const r = el.getBoundingClientRect()
+          const before = e.clientY < r.top + r.height / 2
+          found = { key: k, before }
+          break
+        }
+      }
+      // 没在任何 block 上 → 取消落位
+      setHoverKey(prev => {
+        const next = found?.key ?? null
+        return prev === next ? prev : next
+      })
+      dragStateRef.current = dragging
+    }
+    const onUp = () => {
+      // 鼠标抬起：若当前悬停在某个 block 上，则执行落位
+      // 用 ref 取最新值（避免闭包过期）
+      setHoverKey(currentHover => {
+        if (currentHover && dragging) {
+          // 区分"上半/下半"决定 before/after：与 onMove 同步推算
+          // 简单起见：再读一次最后鼠标位置
+          // 这里用 clientY 拿不到（已经抬起），退化为"插到 hoverKey 之前"
+          // —— 与 drop 语义保持一致
+          moveBlock(dragging.key, currentHover)
+        }
+        return null
+      })
+      setDragging(null)
+      dragStateRef.current = null
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setDragging(null)
+        setHoverKey(null)
+        dragStateRef.current = null
+      }
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [dragging, moveBlock])
+
+  // 每个 block 的渲染体（按 toolOrder 顺序；外层容器把每个 block 包一层
+  // "落位目标"div，并按 hoverKey 决定显示 2px 落位线在哪条缝隙上）
+  const renderToolBlock = (key: string) => {
+    const isOver = hoverKey === key && dragging && dragging.key !== key
+    const setRef = (el: HTMLDivElement | null) => { blockRefs.current[key] = el }
+    const handle = (
+      <span
+        // 不用 HTML5 draggable（antd Input.Search 等组合控件上不稳，详见上方注释）
+        onMouseDown={(e) => {
+          // 防止误选文字 / 误触 Input 焦点
+          e.preventDefault()
+          const next: DragState = { key, rect: (e.currentTarget as HTMLElement).getBoundingClientRect() }
+          dragStateRef.current = next
+          setDragging(next)
+          setHoverKey(null)
+        }}
+        title={t('qa.toolOrder.dragHint')}
+        style={{
+          cursor: dragging ? 'grabbing' : 'grab',
+          color: dragging ? '#722ed1' : '#94a3b8',
+          fontSize: 12, marginRight: 4, userSelect: 'none', lineHeight: 1,
+          fontWeight: dragging && dragging.key === key ? 700 : 400,
+        }}
+      >⋮⋮</span>
+    )
+    const dropLine = isOver ? (
+      <div style={{ height: 2, background: '#722ed1', borderRadius: 1, margin: '2px 0' }} />
+    ) : null
+    const wrap = (children: React.ReactNode) => (
+      <div
+        key={key}
+        ref={setRef}
+        data-tool-block={key}
+        style={{
+          // 拖动时给被拖块一个"半透明 + 缩进"的高亮，强化"正在被操作"的视觉
+          opacity: dragging && dragging.key === key ? 0.5 : 1,
+          outline: dragging && dragging.key === key ? '1px dashed #722ed1' : 'none',
+          outlineOffset: 2,
+          borderRadius: 6,
+          padding: dragging && dragging.key === key ? '0 4px' : 0,
+          transition: 'opacity 0.12s, outline-color 0.12s',
+        }}
+      >
+        {dropLine}
+        {children}
+      </div>
+    )
+    switch (key) {
+      case 'knowledge-search':
+        return wrap(
+          <>
+            <div id="knowledge-search" style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+              {handle}
+              <SearchOutlined style={{ color: '#1677ff' }} />
+              <Text strong style={{ fontSize: 13 }}>{t('qa.search')}</Text>
+            </div>
+            <Input.Search
+              placeholder={t('qa.searchPlaceholder')}
+              enterButton={t('qa.search')}
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              onSearch={doSearch}
+              allowClear
+            />
+          </>,
+        )
+      case 'tt-quick-analysis':
+        return wrap(
+          <>
+            <div id="tt-quick-analysis" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              {handle}
+              <ThunderboltOutlined style={{ color: '#faad14' }} />
+              <Text strong style={{ fontSize: 13 }}>{t('qa.tt.label')}</Text>
+            </div>
+            <Input.Search
+              placeholder={t('qa.tt.placeholder')}
+              enterButton={t('qa.tt.button')}
+              value={ttNo}
+              onChange={e => setTtNo(e.target.value)}
+              onSearch={runTt}
+              allowClear
+            />
+          </>,
+        )
+      case 'tt-batch-check':
+        return wrap(
+          <>
+            <div id="tt-batch-check" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              {handle}
+              <ThunderboltOutlined style={{ color: '#722ed1' }} />
+              <Text strong style={{ fontSize: 13 }}>{t('qa.ttBatch.label')}</Text>
+            </div>
+            <Upload accept=".xlsx,.xls,.csv,.txt" showUploadList={false} beforeUpload={onBatchFile}>
+              <Button block icon={<UploadOutlined />}>{t('qa.ttBatch.upload')}</Button>
+            </Upload>
+            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+              <Button
+                type="link"
+                size="small"
+                style={{ padding: 0, height: 'auto', textAlign: 'left' }}
+                onClick={() => { setTtBatchView(true); setTtView(false); setUmeView(false) }}
+              >
+                {t('qa.ttBatch.pasteLink')}
+              </Button>
+              <Tooltip title={t('qa.ttBatch.templateTip')}>
+                <Button
+                  type="link"
+                  size="small"
+                  style={{ padding: 0, height: 'auto', textAlign: 'left' }}
+                  onClick={downloadTtBatchTemplate}
+                >
+                  {t('qa.ttBatch.templateLink')}
+                </Button>
+              </Tooltip>
+            </div>
+          </>,
+        )
+      case 'wo-close':
+        return wrap(
+          <>
+            <div id="wo-close" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              {handle}
+              <ScissorOutlined style={{ color: '#B5121B' }} />
+              <Text strong style={{ fontSize: 13 }}>{t('qa.woClose.label')}</Text>
+            </div>
+            <Button
+              block
+              icon={<ScissorOutlined style={{ color: '#B5121B' }} />}
+              onClick={() => { setWoCloseView(true); setTtView(false); setTtBatchView(false); setUmeView(false) }}
+            >
+              {t('qa.woClose.openBtn')}
+            </Button>
+          </>,
+        )
+      case 'tt-postmortem':
+        return wrap(
+          <>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              {handle}
+              <FileSearchOutlined style={{ color: '#eb2f96' }} />
+              <Text strong style={{ fontSize: 13 }}>{t('ttPm.section')}</Text>
+            </div>
+            <Button
+              block
+              icon={<FileSearchOutlined />}
+              onClick={() => setPostmortemOpen(true)}
+            >
+              {t('ttPm.openBtn')}
+            </Button>
+          </>,
+        )
+      case 'ran-ume-alarm-analysis':
+        return wrap(
+          <>
+            <div id="ran-ume-alarm-analysis" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              {handle}
+              <ThunderboltOutlined style={{ color: '#13c2c2' }} />
+              <Text strong style={{ fontSize: 13 }}>{t('qa.ume.label')}</Text>
+            </div>
+            <Input.Search
+              placeholder={t('qa.ume.placeholder')}
+              enterButton={t('qa.ume.button')}
+              value={umeKey}
+              onChange={e => setUmeKey(e.target.value)}
+              onSearch={runUme}
+              allowClear
+            />
+          </>,
+        )
+      default:
+        return null
+    }
+  }
+
   const searchBlock = (
     <>
-      <div id="knowledge-search" style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-        <SearchOutlined style={{ color: '#1677ff' }} />
-        <Text strong style={{ fontSize: 13 }}>{t('qa.search')}</Text>
-      </div>
-      <Input.Search
-        placeholder={t('qa.searchPlaceholder')}
-        enterButton={t('qa.search')}
-        value={query}
-        onChange={e => setQuery(e.target.value)}
-        onSearch={doSearch}
-        allowClear
-      />
-      <div style={{ borderTop: isDark ? '1px solid rgba(0, 217, 255,0.15)' : '1px solid #e5eef5', margin: '2px 0' }} />
-      <div id="tt-quick-analysis" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-        <ThunderboltOutlined style={{ color: '#faad14' }} />
-        <Text strong style={{ fontSize: 13 }}>{t('qa.tt.label')}</Text>
-      </div>
-      <Input.Search
-        placeholder={t('qa.tt.placeholder')}
-        enterButton={t('qa.tt.button')}
-        value={ttNo}
-        onChange={e => setTtNo(e.target.value)}
-        onSearch={runTt}
-        allowClear
-      />
-      <div style={{ borderTop: isDark ? '1px solid rgba(0, 217, 255,0.15)' : '1px solid #e5eef5', margin: '2px 0' }} />
-      <div id="tt-batch-check" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-        <ThunderboltOutlined style={{ color: '#722ed1' }} />
-        <Text strong style={{ fontSize: 13 }}>{t('qa.ttBatch.label')}</Text>
-      </div>
-      <Upload accept=".xlsx,.xls,.csv,.txt" showUploadList={false} beforeUpload={onBatchFile}>
-        <Button block icon={<UploadOutlined />}>{t('qa.ttBatch.upload')}</Button>
-      </Upload>
-      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-        <Button
-          type="link"
-          size="small"
-          style={{ padding: 0, height: 'auto', textAlign: 'left' }}
-          onClick={() => { setTtBatchView(true); setTtView(false); setUmeView(false) }}
+      {/* 拖动模式横幅：拖把被按下时显示，提示松手/ESC 行为。
+          与"恢复默认顺序"按钮挤在同一行，避免占块高。 */}
+      {dragging && (
+        <div
+          style={{
+            background: 'rgba(114,46,209,0.10)',
+            border: '1px dashed #722ed1',
+            borderRadius: 6,
+            padding: '4px 8px',
+            fontSize: 12,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+          }}
         >
-          {t('qa.ttBatch.pasteLink')}
-        </Button>
-        <Tooltip title={t('qa.ttBatch.templateTip')}>
+          <span style={{ color: '#722ed1' }}>⋮⋮</span>
+          <Text style={{ fontSize: 12 }}>{t('qa.toolOrder.dragging')}</Text>
           <Button
             type="link"
             size="small"
-            style={{ padding: 0, height: 'auto', textAlign: 'left' }}
-            onClick={downloadTtBatchTemplate}
+            style={{ padding: 0, height: 'auto', fontSize: 12, marginLeft: 'auto' }}
+            onMouseDown={(e) => { e.preventDefault(); setDragging(null); setHoverKey(null) }}
           >
-            {t('qa.ttBatch.templateLink')}
+            {t('qa.toolOrder.cancel') || '取消'}
           </Button>
-        </Tooltip>
-      </div>
-
-      <div style={{ borderTop: isDark ? '1px solid rgba(0, 217, 255,0.15)' : '1px solid #e5eef5', margin: '2px 0' }} />
-      <div id="wo-close" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-        <ScissorOutlined style={{ color: '#B5121B' }} />
-        <Text strong style={{ fontSize: 13 }}>{t('qa.woClose.label')}</Text>
-      </div>
-      <Button
-        block
-        icon={<ScissorOutlined style={{ color: '#B5121B' }} />}
-        onClick={() => { setWoCloseView(true); setTtView(false); setTtBatchView(false); setUmeView(false) }}
+        </div>
+      )}
+      <div
+        ref={containerRef}
+        data-tool-container
+        style={{
+          // 拖动模式下整体 cursor 改 grabbing，提示"现在可以松手落位"
+          cursor: dragging ? 'crosshair' : undefined,
+        }}
       >
-        {t('qa.woClose.openBtn')}
-      </Button>
-      <div style={{ borderTop: isDark ? '1px solid rgba(0, 217, 255,0.15)' : '1px solid #e5eef5', margin: '2px 0' }} />
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-        <FileSearchOutlined style={{ color: '#eb2f96' }} />
-        <Text strong style={{ fontSize: 13 }}>{t('ttPm.section')}</Text>
+        {toolOrder.map((key, i) => (
+          <div key={key}>
+            {renderToolBlock(key)}
+            {i < toolOrder.length - 1 && (
+              <div style={{ borderTop: isDark ? '1px solid rgba(0, 217, 255,0.15)' : '1px solid #e5eef5', margin: '2px 0' }} />
+            )}
+          </div>
+        ))}
       </div>
-      <Button
-        block
-        icon={<FileSearchOutlined />}
-        onClick={() => setPostmortemOpen(true)}
-      >
-        {t('ttPm.openBtn')}
-      </Button>
+      {/* 顺序与面板：每块右上角加了 ⋮⋮ 拖把；想还原默认点下面这个按钮 */}
+      <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+        <Button
+          type="link"
+          size="small"
+          style={{ padding: 0, height: 'auto', fontSize: 12 }}
+          onClick={() => persistToolOrder([...DEFAULT_TOOL_BLOCKS])}
+        >
+          {t('qa.toolOrder.reset') || '恢复默认顺序'}
+        </Button>
+      </div>
       <TtPostmortemPanel open={postmortemOpen} onClose={() => setPostmortemOpen(false)} />
-      <div id="ran-ume-alarm-analysis" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-        <ThunderboltOutlined style={{ color: '#13c2c2' }} />
-        <Text strong style={{ fontSize: 13 }}>{t('qa.ume.label')}</Text>
-      </div>
-      <Input.Search
-        placeholder={t('qa.ume.placeholder')}
-        enterButton={t('qa.ume.button')}
-        value={umeKey}
-        onChange={e => setUmeKey(e.target.value)}
-        onSearch={runUme}
-        allowClear
-      />
     </>
   )
 
@@ -1377,10 +1635,13 @@ export default function EflowQa() {
           <Text type="secondary" style={{ fontSize: 12 }}>
             {items.length}{t('qa.docCount')}{rootDir ? ` · ${rootDir}` : ''}
           </Text>
+          {/* 默认不展开：目录树只有 1~2 层，文件按 status tag 一眼可辨，
+             全展开反而占满视口（11 docs · D:\01_RPA\Task\eflow_Q&A）。
+             用户点开后的展开状态由 antd Tree 内部维护（不跨刷新持久化）。 */}
           <Tree
             treeData={treeData}
-            defaultExpandAll
             showLine={false}
+            defaultExpandAll={false}
             selectedKeys={selectedPath ? [selectedPath] : []}
             onSelect={keys => {
               const k = keys[0] as string | undefined

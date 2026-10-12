@@ -18,6 +18,7 @@
     "docs": "node scripts/generate-help-doc.mjs && node scripts/generate-manual-html.mjs"
   },
   "devDependencies": {
+    "@types/qrcode": "^1.5.5",
     "typescript": "~6.0.2",
     "vite": "^8.1.1"
   },
@@ -35,6 +36,7 @@
     "exceljs": "^4.4.0",
     "leaflet": "^1.9.4",
     "protomaps-leaflet": "^5.1.0",
+    "qrcode": "^1.5.4",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "react-markdown": "^10.1.0",

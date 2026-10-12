@@ -52,6 +52,7 @@ import { join, dirname, extname, basename } from 'node:path';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { CONFIG, ROOT } from './config.js';
+import { createQrWatcher, QR_STATE } from './qrLogin.js';
 
 const logger = P({ level: 'silent' });
 
@@ -289,6 +290,19 @@ let sockRef = null;
 let connected = false;
 /** 群名 → JID 缓存。首次收到群列表后填充。 */
 const groupIndex = new Map();
+
+/**
+ * 网页扫码登录 watcher（模块级：重连会再次进入 start()，只能建一次）。
+ * 见 `src/qrLogin.js`。仅常驻模式创建；`--check` / `--groups` 是一次性自检，不需要。
+ */
+let qrWatcher = null;
+
+/**
+ * 是否正处于「网页扫码」发起的主动重启中。
+ * 主动重启会关掉旧 socket，旧 socket 的 close 回调若照常重连会与新连接撞车，
+ * 故用它抑制旧回调自己排的那次重连（见 connection.update 的 close 分支）。
+ */
+let restarting = false;
 
 /**
  * 从 socket 拉取「已参与的群」并建 name → jid 索引。
@@ -758,6 +772,36 @@ async function start() {
     lockFile = acquireLock();
   }
 
+  // 网页扫码登录 watcher：只在常驻模式创建（自检命令 --check / --groups 是一次性退出，
+  // 不需要，也不该在它们退出前留下出码状态）。模块级 + 判重保证重连不会重复创建。
+  if (!CHECK_ONLY && !LIST_GROUPS && !qrWatcher) {
+    qrWatcher = createQrWatcher({
+      device: 'notify',
+      authDir: AUTH_DIR,
+      root: ROOT,
+      log,
+      // 触发重连：断开当前 socket（若在），再跑一次 start()。
+      // 此时凭据已由 watcher 清空，Baileys 无凭据连接 → 必然走 qr 分支重新出码。
+      onRestart: async () => {
+        // 置位让旧 socket 的 close 回调知道这是主动重启 —— 否则它会再排一次 start()，
+        // 与这里的那次重连撞车（多出一个 socket / 多一轮出码）。旧回调见下述 close 分支。
+        restarting = true;
+        try {
+          sockRef?.ev?.removeAllListeners('connection.update');
+          sockRef?.ev?.removeAllListeners('creds.update');
+          sockRef?.ws?.close();
+        } catch {
+          /* 忽略："断开旧连接" 失败不应阻断重启 */
+        }
+        try {
+          await start();
+        } finally {
+          restarting = false;
+        }
+      },
+    });
+  }
+
   // 凭据目录**不存在不算错误** —— 首次部署就是这样，此时应当逐个出二维码让用户扫码。
   //
   // 早先这里直接 exit(1) 并提示「请执行 npm run relogin:notify」，而 relogin.mjs
@@ -804,8 +848,17 @@ async function start() {
       // `npm run notify` 时窗口是可见的，二维码完全应该正常显示 ——
       // 否则首次登录永远没有出路（见上面 AUTH_DIR 那段注释里的死循环）。
       //
+      // 优先把二维码原始字符串写进状态文件，供 my_app 设置页渲染（见 src/qrLogin.js）。
+      // 这一步是「网页扫码」链路的关键：把只在终端可见的码变成文件里可被后端读到的码。
+      qrWatcher?.publishQr(qr);
+
       // 判据用 stderr 是否为 TTY：前台跑 → TTY，可以扫码；
       // 计划任务/重定向 → 非 TTY，打出来只会污染日志，此时才拒绝并说明怎么办。
+      //
+      // ⚠️ 例外（2026-10-12）：若本次出码是**网页扫码登录**请求触发的
+      // （qrWatcher.isLoginRequested()），即使隐藏运行也**不 exit(1)** ——
+      // 因为二维码已经通过状态文件给了前端，用户正在浏览器里扫，不需要终端。
+      // 否则隐藏窗口场景下从网页发起的扫码永远走不通。
       if (process.stderr.isTTY) {
         console.log('\n=== 请用 WhatsApp 扫码登录（P1 告警推送通道）===');
         console.log('手机 WhatsApp → 设置 → 已关联的设备 → 关联设备\n');
@@ -813,6 +866,10 @@ async function start() {
         console.log(`\n（扫码后凭据会保存在 ${AUTH_DIR}，之后免扫码）`);
         console.log('（这是与知识库机器人**相互独立**的一个设备，两边各扫各的）\n');
         return; // 继续等下一次 connection.update，扫完就会 open
+      }
+      if (qrWatcher?.isLoginRequested()) {
+        log('二维码已写入状态文件，请在 my_app 设置页扫码（隐藏运行，不在此终止进程）。');
+        return; // 继续等扫码后的 connection.update
       }
       log('✗ 需要扫码登录，但当前是隐藏运行（无人可见二维码）。');
       log('  请在可见的终端里手动执行：npm run notify');
@@ -824,6 +881,8 @@ async function start() {
       reconnectAttempts = 0;
       connected = true;
       log(`✓ 已连接。凭据目录：${AUTH_DIR}`);
+      // 扫码成功（或本来就有有效凭据）：若本次是网页扫码请求触发的，回写 connected。
+      qrWatcher?.setState(QR_STATE.CONNECTED, { message: '已连接' });
       await refreshGroups(sock);
       heartbeat({ event: 'connected' });
       if (CHECK_ONLY) {
@@ -848,11 +907,15 @@ async function start() {
       connected = false;
       heartbeat({ event: 'closed' });
       if (shuttingDown) return;
+      // 主动重启（网页扫码登录）触发的关闭：新连接已由 onRestart 里的 start() 接手，
+      // 这里不再排重连，否则两个 socket 并存、出两份码。
+      if (restarting) return;
 
       const code = lastDisconnect?.error?.output?.statusCode;
       if (code === DisconnectReason.loggedOut) {
         log('✗ 已被登出（手机端可能移除了该设备）。');
         log('  请执行 npm run relogin:notify 重新扫码后重启本进程。');
+        qrWatcher?.setState(QR_STATE.ERROR, { message: '已被登出（手机端可能移除了该设备）' });
         process.exit(1);
       }
 
@@ -865,6 +928,7 @@ async function start() {
         log('✗ 连接被同账号的另一个会话顶掉（code=440 conflict）。');
         log(`  检查是否有第二个进程在用凭据目录 ${AUTH_DIR}。`);
         log('  本进程不再重连（继续重连只会与对方互相顶号）。');
+        qrWatcher?.setState(QR_STATE.ERROR, { message: '连接被同账号的另一个会话顶掉（code=440）' });
         process.exit(2);
       }
 

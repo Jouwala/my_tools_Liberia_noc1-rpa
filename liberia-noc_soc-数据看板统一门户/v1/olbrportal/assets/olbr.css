@@ -581,9 +581,20 @@ main { flex: 1; padding-block: var(--s5) var(--s6); display: flex; flex-directio
    ⚠️ 只画 section、不画 div（#emailSlot 等是 div，不是 section）—— 选择器精确。
    ⚠️ 1024px 以下不画：窄屏没有"右半边空"的问题，且分隔线在小屏是噪声。
    ⚠️ 不画 #gate（登录闸门，hidden 默认）、#editBar（在 main 之外）：
-   这两个选择器只匹配 #band / #kpi / #views6 / #l0Map / #esc / #aux / #arch 7 个。 */
+   这两个选择器只匹配 #band / #kpi / #views6 / #l0Map / #esc / #aux / #arch 7 个。
+   ⚠️ 2026-10-12：#aux / #arch 要**排除**在这条分隔线之外（:not(#aux):not(#arch)）。
+      原因：#aux / #arch 是本页仅有的**水平 grid 容器**，::before 会成为它们的
+      第 1 个栅格项 —— repeat(auto-fit, minmax(240px,1fr)) 的重复次数 =
+      min(宽度能容纳的轨数, 栅格项数)，伪元素 + 3 个分组 = 4 项 → 生成 4 条
+      均分轨，辅助区 3 个分组被挤到第 2~4 列，左侧空出整整一条 1/4 页宽的轨
+      （实测 auxCols 为 4×443px、Knowledge Q&A 落在第 2 列；用户报的
+      「最后一行没有 3 等分」就是它）。其余 5 块是 flex column / 单列 grid，
+      1px 高的 ::before 不参与分列，所以当年没暴露。
+      不用事后 .aux::before { display:none } 压制：B5 规则里两个 :not(#gate)
+      合计 2 个 ID 级特异性，(0,1,1) 的单类选择器赢不了它（2026-10-12 实测无效）。
+      #aux 自带 border-top 作分界，这条线对它是纯叠加；#arch 同理。 */
 @media (min-width: 1024px) {
-  main > section:not(#gate) + section:not(#gate)::before {
+  main > section:not(#gate):not(#aux):not(#arch) + section:not(#gate):not(#aux):not(#arch)::before {
     content: "";
     display: block;
     height: 1px;

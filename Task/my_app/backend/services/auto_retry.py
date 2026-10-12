@@ -122,6 +122,18 @@ RECOVER_COOLDOWN_MIN = _env_int("AUTO_RETRY_RECOVER_COOLDOWN_MIN", 10)
 # 避免 host/port 提取错误或目标被防火墙静默丢弃时任务被永久跳过
 PROBE_MAX_SKIP_MIN = _env_int("AUTO_RETRY_PROBE_MAX_SKIP_MIN", 60)
 
+# ---- 鉴权类失败的一次性宽限（2026-10-12 新增）----
+# 额度按次数计、不按时间计：持续数小时的上游鉴权故障（服务重启 / 账号被临时
+# 锁定后解锁）跨过调度周期时，MAX_ATTEMPTS 次额度在故障中烧光，故障解除后
+# 任务停在失败状态等人工介入 —— 2026-10-12 的 8 个任务全部如此（最后失败
+# 09:40，账号 09:51 解锁，却要等到人工重投才恢复）。而鉴权恢复后第一次重试
+# 大概率成功，故在额度「恰好用尽」（== 而非 >，宽限后再失败必然超过）且失败
+# 属鉴权类、又不带锁定类永久标记（锁定须管理员解锁，重试无意义）时，
+# 按 AUTH_GRACE_COOLDOWN_MIN 的慢冷却宽限重投一次。宽限投递计入
+# retry_attempts，之后 attempts > MAX_ATTEMPTS，天然不会再触发第二次宽限。
+AUTH_GRACE_ENABLED = os.environ.get("AUTO_RETRY_AUTH_GRACE_ENABLED", "1") == "1"
+AUTH_GRACE_COOLDOWN_MIN = _env_int("AUTO_RETRY_AUTH_GRACE_COOLDOWN_MIN", 30)
+
 # 网络层失败特征（连接/超时类）→ 走 TCP 探测；探不通则跳过并保留重试额度
 NETWORK_ERROR_KEYS = (
     "Max retries exceeded", "Connection timed out", "ERR_CONNECTION_TIMED_OUT",
@@ -133,6 +145,9 @@ NETWORK_ERROR_KEYS = (
 APP_ERROR_KEYS = (
     "鉴权", "登录失败", "登录未成功", "Unauthorized", "Forbidden", "RSA",
     "未获取到", "无可用", "未通过",
+    # cm_data 等旧式任务自抛的登录错误（2026-10-12）：错误透传修复生效前，
+    # 这类失败不带「鉴权/登录失败」字样，宽限判定会漏掉它们
+    "no auth cookie",
 )
 
 # 永久性失败关键字：重试无意义（甚至有害），直接放弃
@@ -514,6 +529,28 @@ def _classify_error(error) -> str:
     return "unknown"
 
 
+def _is_auth_grace_candidate(task_id, error) -> bool:
+    """额度用尽后是否有资格获得一次性宽限重投（鉴权类失败专用）。
+
+    三重条件缺一不可：
+    - 失败属鉴权/应用层（登录失败、Unauthorized 等），恢复后首试成功率高；
+    - 不含锁定类永久标记（NON_RETRYABLE_KEYS）：账号被上游锁定必须等管理员
+      解锁，宽限重投只会每 30 分钟空跑一次 —— 2026-10-12 锁定期的告警噪音
+      正是这么来的，宽限机制绝不能把它重新引入；
+    - 不在人工排除集里。
+    """
+    if not AUTH_GRACE_ENABLED:
+        return False
+    err_text = error or ""
+    if not any(k in err_text for k in APP_ERROR_KEYS):
+        return False
+    if any(k in err_text for k in NON_RETRYABLE_KEYS):
+        return False
+    if _is_excluded_from_retry(task_id, err_text):
+        return False
+    return True
+
+
 def _heal_session_before_retry(task_id: str, error) -> bool:
     """会话类失败重试前先自愈：清掉可能锁住 WhatsApp profile 的 stale chrome。
 
@@ -629,11 +666,48 @@ def _evaluate_candidate(task_id, failed_at, error, retry_attempts, last_retry_at
     task = registry.get(task_id)
     if task and not task.get("enabled", True):
         return _mk_retry_info(False, "任务已禁用", None, retry_attempts, last_retry_at, failed_at)
-    if retry_attempts >= MAX_ATTEMPTS:
-        return _mk_retry_info(False, f"自动重试已达上限 {MAX_ATTEMPTS} 次，等待人工处理", None, retry_attempts, last_retry_at, failed_at)
+    # 永久性错误优先于额度判定：即便额度恰好用尽，也应报「永久性错误」而非
+    # 「已达上限」——两者处置不同（前者等修复，后者等人工重投），且锁定类
+    # 错误必须在这里拦下，不能落进下面的鉴权宽限分支。
     err_text = error or ""
     if any(k in err_text for k in NON_RETRYABLE_KEYS):
         return _mk_retry_info(False, "永久性错误，重试无意义", None, retry_attempts, last_retry_at, failed_at)
+    if retry_attempts >= MAX_ATTEMPTS:
+        # ---- 鉴权类失败的一次性宽限（2026-10-12）----
+        # 条件刻意用 == 而非 >=：宽限投递本身计入 retry_attempts，宽限后
+        # attempts = MAX+1 > MAX，这里不会再命中 —— 每条失败链只宽限一次。
+        # 锁定类永久错误已在上面被 NON_RETRYABLE_KEYS 拦下（须管理员解锁）。
+        if (retry_attempts == MAX_ATTEMPTS
+                and _is_auth_grace_candidate(task_id, error)):
+            grace_last_dt = _parse_iso(last_retry_at)
+            grace_cooldown = AUTH_GRACE_COOLDOWN_MIN
+            grace_earliest = (max(now, grace_last_dt + timedelta(minutes=grace_cooldown))
+                              if grace_last_dt else now)
+            if grace_earliest > now:
+                grace_nxt = _next_scan_after(grace_earliest, interval_min)
+                if grace_nxt > fail_dt + timedelta(hours=SCAN_WINDOW_HOURS):
+                    return _mk_retry_info(
+                        False, f"宽限窗口已过（超过 {SCAN_WINDOW_HOURS}h），放弃重试",
+                        None, retry_attempts, last_retry_at, failed_at,
+                    )
+                return _mk_retry_info(
+                    False,
+                    f"鉴权类失败额度已用尽，进入一次性宽限冷却（{grace_cooldown} 分钟），"
+                    f"预计 {grace_nxt:%m-%d %H:%M} 重试",
+                    grace_nxt.isoformat(), retry_attempts, last_retry_at, failed_at,
+                )
+            return _mk_retry_info(
+                True,
+                "鉴权类失败额度已用尽，触发一次性宽限重投（宽限 1/1）",
+                now.isoformat(), retry_attempts, last_retry_at, failed_at,
+            )
+        if retry_attempts > MAX_ATTEMPTS:
+            # 宽限那次也失败了：明确告知已用过宽限，避免值班人员再等下一轮
+            return _mk_retry_info(
+                False, f"宽限重试仍失败（共投 {retry_attempts} 次），等待人工处理",
+                None, retry_attempts, last_retry_at, failed_at,
+            )
+        return _mk_retry_info(False, f"自动重试已达上限 {MAX_ATTEMPTS} 次，等待人工处理", None, retry_attempts, last_retry_at, failed_at)
 
     last_dt = _parse_iso(last_retry_at)
 
@@ -819,8 +893,12 @@ def scan_and_retry_failed_tasks() -> dict:
         if resp.get("accepted"):
             summary["retried"] += 1
             summary["retried_tasks"].append(task_id)
+            # 额度用尽后的这次投递必然是鉴权宽限（常规重试 attempts < MAX），
+            # 日志区分开，方便从扫描日志直接看出「这次是宽限补救」
+            attempt_tag = ("鉴权宽限投递" if retry_attempts >= MAX_ATTEMPTS
+                           else f"第 {retry_attempts + 1}/{MAX_ATTEMPTS} 次")
             logger.info(
-                f"[{task_id}] 时效窗口内自动重试已投递（第 {retry_attempts + 1}/{MAX_ATTEMPTS} 次，"
+                f"[{task_id}] 时效窗口内自动重试已投递（{attempt_tag}，"
                 f"失败于 {failed_at}{'，已自愈会话' if healed else ''}）: {(error or '')[:200]}"
             )
         else:

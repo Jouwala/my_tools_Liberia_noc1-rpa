@@ -1,6 +1,6 @@
 # my_app 使用帮助
 
-> 面向使用者的平台功能与操作指南。本文件由「使用帮助」页面同源生成（frontend/src/helpMarkdown.ts），内容依据 docs/manual/ 各章与 backend/task_registry.py 整理。生成日期：2026-10-11。
+> 面向使用者的平台功能与操作指南。本文件由「使用帮助」页面同源生成（frontend/src/helpMarkdown.ts），内容依据 docs/manual/ 各章与 backend/task_registry.py 整理。生成日期：2026-10-12。
 
 > 站内入口：侧边栏「使用帮助」，或直链 `http://<host>/myapp/?page=help`。
 
@@ -1930,11 +1930,12 @@ IP 链路探测：从服务器侧探测到目标站点的链路连通性与路�
 
 #### 系统设置（`settings`）
 
-系统设置：凭据、邮件收件人、远程主机、任务配置四个页签。
+系统设置：凭据、邮件收件人、远程主机、AI 模型、WhatsApp 登录、任务配置六个页签。
 
 - 凭据：12 组上游账号，支持测试连接与显示明文（默认掩码；明文存于 db/app.db 的 credentials 表）
 - 邮件收件人：分组编辑，可重置为默认
 - 远程主机：改完即时生效无需重启（写 backend/data/settings.json）
+- WhatsApp 登录：为 notify / bot 两个「已关联设备」网页扫码登录，点击后生成二维码，手机扫码即生效（旧凭据只改名备份，不删除）
 - 任务配置：任务的业务参数（非排程），优先级 环境变量 > 配置文件 > 默认值
 
 #### 门户一键登录（`portalLogin`）

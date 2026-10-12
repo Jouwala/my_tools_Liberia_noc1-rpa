@@ -89,9 +89,20 @@ export const buildAvailabilityOption = (
       axisLabel: { ...axisLabel(isDark), rotate: days.length > 20 ? 45 : 0, fontSize: 10 },
       axisLine: axisLine(isDark),
     },
+    // Y 轴 ±5% 边距、夹在 [0, 105]：让曲线波动看得出来，又不让百分比突破语义上限。
+    //   · max：硬上限 105% —— 用户原话「不要超过 105%」是给放大留余地、但天花板画死，
+    //           上界过高会画出「100% 以上」的标签，混淆百分比语义（AGENTS.md 三.6）。
+    //   · min：硬下限 0% —— 数据已最小为 0，再往下会出现负数刻度，是污染不是放大；
+    //           用户在「下界 -5%」与「不出现负数」之间选了后者（2026-10-12 确认）。
+    //   · 中间窗：min 取「数据最小值 -5，最大 0」；max 取「数据最大值 +5，最大 105」。
+    //     用 `scale: true` 风格拿到 v.min/v.max 但不显式 `scale:true`，免得 ECharts
+    //     在窗口被裁后仍向两端「外扩」过一次（轴选项优先级：min/max > scale）。
+    //   · 与 AvailMs/AvailFlm 弹窗趋势图（AvailMs.tsx:572 / AvailFlm.tsx:732）保持同一种写法：
+    //     函数回调拿 v.min/v.max，加边距，回调里直接算边界 —— 让"调边距的算法"只在一处。
     yAxis: {
       type: 'value',
-      scale: true,
+      min: (v: any) => Math.max(0, Math.floor(v.min - 5)),
+      max: (v: any) => Math.min(105, Math.ceil(v.max + 5)),
       axisLabel: { ...axisLabel(isDark), formatter: '{value}%' },
       splitLine: splitLine(isDark),
     },
