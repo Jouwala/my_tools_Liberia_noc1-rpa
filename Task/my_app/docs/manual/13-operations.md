@@ -1335,6 +1335,93 @@ python -m backend.services.olib_soc_report.olib_soc_report_service --sync-kpi --
 > 连崩 10 次主动摘除该组 worker（`:560-562`）。SAC 拦 `.pyd` 时 worker 进程同样起不来，
 > 症状是任务全部 `pending` 堆积（页面不报错、数据不更新），比后端停摆更隐蔽。
 
+### RAN UME 日报失败：账号被锁却被报成「未获取到 cookie」（2026-10-12 事故，同日修复）
+
+**现象**：`ran_ume_daily`（RAN UME 日报，生效 cron `35 4 * * *`，由 Task Manager
+覆盖代码默认的 `0 2 * * *`）在 2026-10-12 05:45 触发告警，邮件正文只有一句：
+
+```
+[AUTH] 登录最终失败 (10.100.28.27:28001): 登录失败 - 未获取到 Z-AUTH-CODE cookie
+```
+
+**极易误判为「密码到期」**，但两者处置方式完全不同（到期要改密码，锁要管理员解锁）。
+
+**根因**：上游 `/api/oauth2/v1/login_rsa` 实际返回的是 **HTTP 401 + 账号被锁**：
+
+```json
+{"result":"1","detail":{"code":"4","message":"User has been locked"}}
+```
+
+而 `auth_manager._do_login()` 只判断「有没有 `Z-AUTH-CODE` cookie」，拿不到就抛出
+笼统的 `登录失败 - 未获取到 Z-AUTH-CODE cookie`（原 `:770-771`），
+**把服务端明确给出的原因整个丢掉了**，排查方向因此被误导。
+
+> ⚠ **鉴别的关键**：账号锁定时，**无论密码是否正确，上游都返回同一个
+> `User has been locked`**。因此"用当前密码试一次登录" **不能**证明密码是否到期 ——
+> 这一点 2026-10-12 实测确认（正确密码与故意写错的密码返回完全一致）。
+> 判断密码是否到期，必须在账号解锁之后再试，或直接问管理员。
+
+**判定（三条命令）**：
+
+```powershell
+# ① 上游到底为什么拒绝（拿到 detail.message，别停在"未获取到 cookie"）
+cd D:\01_RPA\Task\my_app
+.\.venv\Scripts\python.exe tools\backfill_ran_ume.py --check   # 退出码 2 = 账号不可用
+
+# ② 是不是只有这一个账号挂（旁证：同期的其他账号应能正常登录）
+Get-ChildItem backend\services\auth_cache\*.json |
+  ForEach-Object { $j = Get-Content $_ -Raw | ConvertFrom-Json
+                   "{0,-30} {1,-16} {2}" -f $_.Name, $j.username, $j.created_at }
+
+# ③ 数据实际停在哪一天（文件时间戳新 ≠ 数据新鲜！）
+.\.venv\Scripts\python.exe -c "import sqlite3;c=sqlite3.connect(r'data\ran_ume\ran_kpi_daily.sqlite3');print(list(c.execute('select max(\"Begin Time\") from \"2G_OLIB_Network_KPIs\"')))"
+```
+
+**本次实测证据**（说明"不是密码到期、也不是网络或全局问题"）：
+
+| 账号 | 主机 | 最近成功登录 | 结果 |
+| --- | --- | --- | --- |
+| `noc1` | 10.100.2.99 | 2026-10-12 06:00 | ✅ 正常 |
+| `zeeshan mazhar` | 192.168.170.2 | 2026-10-12 06:05 | ✅ 正常 |
+| **`NOC`** | **10.100.28.27** | **2026-10-11 06:20** | ❌ **被锁** |
+
+端口连通性正常（`Test-NetConnection 10.100.28.27 -Port 28001` → `True`），
+排除网络因素；只有 `NOC` 一个账号失败，排除全局策略/密码轮换。
+
+**数据影响**：`data\ran_ume\ran_kpi_daily.sqlite3` 各制式表最新日期停在
+**2026-10-10**，即 10-11、10-12 两天日报缺失。注意 05:45 生成的
+xlsx/png **文件时间戳是新的，但内容是停在 10-10 的旧数据** ——
+"文件生成成功"不等于数据新鲜。
+
+**修复**（2026-10-12）：
+
+1. `auth_manager.py` 新增 `_describe_login_failure()`：解析上游响应体的
+   `detail.message`，把真实原因（`User has been locked` / 密码到期 / 密码错 /
+   账号禁用）连同 HTTP 状态与错误码一起透传，并附中文处置建议。
+   `_do_login()` 改用该函数生成异常信息。
+2. `auto_retry.py` 的 `NON_RETRYABLE_KEYS` 增加账号锁定关键字：
+   锁定属永久性错误，重试不会成功。修复前每 10 分钟被 `auto_retry` 无谓重投一次、
+   每次都失败并**重复触发告警**，持续消耗 worker 与上游登录额度。
+3. 新增 `tools/backfill_ran_ume.py`：**补跑前先探测账号是否可用**，
+   锁没解就拒绝运行（退出码 2），避免"再失败一次 + 再发一封告警"。
+4. 回归测试 `tests/test_login_failure_diagnostics.py`（12 项）。
+
+**补跑方式**：`ran_ume_service` 的 PM 查询用的是**滚动窗口**
+（`_build_pm_payload`：`start = now - days_back`，config 中 `days_back=7`），
+所以**不需要按日期补**——账号解锁后跑一次即可自动覆盖 10-11、10-12：
+
+```powershell
+cd D:\01_RPA\Task\my_app
+.\.venv\Scripts\python.exe tools\backfill_ran_ume.py          # 探测通过才跑
+.\.venv\Scripts\python.exe tools\backfill_ran_ume.py --check  # 只看账号状态
+```
+
+**遗留待办**：`NOC` 账号需由 UME 管理员解锁（本机无法自助解锁）。
+解锁后若要确认密码是否同期被改，需**在解锁之后**再试登录 ——
+`CREDENTIALS_LOCAL_REFERENCE.txt` 记录同一套 UME 散落着三个不同密码
+（`Zte@2025!` / `Zte@lbr202607` / `Mwebazeaaron@25`），若密码有变需同步
+`credential_store` 的 `zte_ume`。
+
 ### 本机验证改动：证书信任、构建产物与两个易踩开关（2026-10-06 新增）
 
 **① 证书信任（一次即可）** 本机 80 端口被 `nginx.conf:113` 强制 301 到 443，

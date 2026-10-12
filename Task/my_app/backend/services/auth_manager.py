@@ -636,6 +636,57 @@ def logout(host: str, port: int, cookie: str = None, forgery_token: str = None,
 
 
 # ========== ZTE OAuth2 登录流程 ==========
+def _describe_login_failure(status: str, body: bytes) -> str:
+    """把登录失败的**服务端真实原因**翻译成可读错误信息。
+
+    为什么需要（2026-10-12）：原实现只判断「有没有 Z-AUTH-CODE cookie」，
+    拿不到就抛出笼统的 `登录失败 - 未获取到 Z-AUTH-CODE cookie`，把服务器
+    明确给出的原因（如 `User has been locked` / 密码错误 / 密码过期）整个丢掉。
+    后果是告警邮件只报表层症状，运维无法区分「密码到期」「账号被锁」「密码错」，
+    只能靠人工登服务器复现 —— 2026-10-12 的 ran_ume_daily 告警即为此白白排查了一轮。
+
+    上游 `/api/oauth2/v1/login_rsa` 失败时返回形如：
+        {"result":"1","detail":{"code":"4","message":"User has been locked"}}
+    本函数解析该 message，并附带常见的处置建议，**原样保留服务端原文**以便排查。
+    """
+    # status 形如 "HTTP/1.1 401 Unauthorized"，本身已含 "HTTP"，避免拼出 "HTTP HTTP/1.1"
+    st = (status or "").strip()
+    if st.upper().startswith("HTTP"):
+        st = st.split(None, 1)[-1].strip() or st
+    suffix = ""
+    raw_detail = ""
+    try:
+        data = json.loads(body.decode("utf-8", errors="replace"))
+        detail = data.get("detail") or {}
+        if isinstance(detail, dict):
+            msg = str(detail.get("message") or "").strip()
+            code = str(detail.get("code") or "").strip()
+            if msg:
+                raw_detail = msg
+                if code:
+                    raw_detail = f"{msg} (code={code})"
+    except Exception:
+        raw_detail = (body or b"").decode("utf-8", errors="replace").strip()[:200]
+
+    lowered = raw_detail.lower()
+    if "locked" in lowered or "lock" in lowered:
+        suffix = ("；账号已被上游锁定，重试无意义，需联系 UME 管理员解锁"
+                  "（注意：锁定时无论密码是否正确上游都返回同一错误，"
+                  "因此不能用这次登录判断密码是否到期）")
+    elif "password" in lowered or "密码" in raw_detail:
+        if "expire" in lowered or "到期" in raw_detail or "过期" in raw_detail:
+            suffix = "；密码已到期，需在 UME 侧修改密码并同步 credential_store 的 zte_ume"
+        else:
+            suffix = "；用户名或密码错误，请核对 credential_store 的 zte_ume"
+    elif "disabled" in lowered or "禁用" in raw_detail:
+        suffix = "；账号已被禁用，需联系 UME 管理员处理"
+
+    if raw_detail:
+        return (f"登录失败 - 未获取到 Z-AUTH-CODE cookie "
+                f"(HTTP {st}, 服务端原因: {raw_detail}){suffix}")
+    return f"登录失败 - 未获取到 Z-AUTH-CODE cookie (HTTP {st}){suffix}"
+
+
 def _do_login(host: str, port: int, username: str, password: str) -> dict:
     """
     执行 ZTE 网管 OAuth2 RSA 登录流程。
@@ -768,7 +819,7 @@ def _do_login(host: str, port: int, username: str, password: str) -> dict:
 
             # 验证登录成功
             if not any("Z-AUTH-CODE" in c for c in cookies):
-                raise Exception("登录失败 - 未获取到 Z-AUTH-CODE cookie")
+                raise Exception(_describe_login_failure(status, body))
 
             logger.info(f"[AUTH] 登录成功 ({len(cookies)} cookies)")
 
