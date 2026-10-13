@@ -473,33 +473,12 @@ html body > header.mp-mast .mp-title { color: var(--mp-ink); }
    顶栏在浅色下也是深底，那条会把时钟压成看不清的深青 —— 这里要回来 */
 html body > header.mp-mast #clock { color: var(--mp-clock); }
 
-/* 2026-10-12：时钟左侧加 6px 脉冲点（::before + 1s opacity 动画）。
-   用途：让"实时"这个语义在视觉上成立 —— 现在 #clock 是个静态 11px 灰字
-   看起来跟缓存值没区别，加一个每秒闪一下的 6px 绿点（用 --ok 而不是
-   --b 是因为这里想表达"健康跳动"，--b 容易被误读成"品牌装饰"）。
-   ⚠️ 用 ::before 不用新增 DOM：HTML 只有 <span id="clock">，
-   改造最低。⚠️ animation 用 alternate 而不是单次播放 + reset
-   —— 每秒 1 步太长看不见，alternate 让 0% 和 100% 落在两个不同的
-   视觉上，看起来是"真的在跳"。 */
-html body > header.mp-mast #clock {
-  display: inline-flex; align-items: center; gap: 6px;
-  position: relative;
-}
-html body > header.mp-mast #clock::before {
-  content: "";
-  width: 6px; height: 6px; border-radius: 50%;
-  background: var(--ok);
-  box-shadow: 0 0 6px color-mix(in srgb, var(--ok) 60%, transparent);
-  animation: mp-clock-pulse 1s ease-in-out infinite alternate;
-  flex: none;
-}
-@keyframes mp-clock-pulse {
-  from { opacity: .35; transform: scale(.85); }
-  to   { opacity: 1;   transform: scale(1.05); }
-}
-@media (prefers-reduced-motion: reduce) {
-  html body > header.mp-mast #clock::before { animation: none; opacity: .85; }
-}
+/* 2026-10-13（用户要求「Header 右边有两个绿点，只保留一个」）：已删除
+   2026-10-12 加的时钟左侧 6px 脉冲点（原为 `#clock::before` + mp-clock-pulse）。
+   删它的原因：顶栏右侧同时存在两颗绿点 —— 环境探活点（.mp-env-dot，
+   后端挂了会变红，是唯一告警出口）与本装饰点，视觉上重复且容易误读为两处状态。
+   保留探活点（它承载真实语义），本装饰点只是"时钟在跳"的暗示，去掉不影响功能。
+   时钟排版（等宽、tabular-nums）不受影响。
 
 /* 语言切换（复用门户既有的 .seg / .seg-btn 与 data-lang，选中态由 olbr.js 负责） */
 html body > header.mp-mast .seg {
