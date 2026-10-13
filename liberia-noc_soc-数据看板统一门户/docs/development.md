@@ -8,15 +8,47 @@
 | 项 | 要求 |
 | --- | --- |
 | Node.js | 18+ |
-| 端口 | **9267**（本项目 dev）；7038 / 7090 已被 my_app 占用，**不可复用** |
+| 端口 | **9267**（本项目）；9268（WhatsApp 分析服务）；7038 / 7090 已被 my_app 占用，**不可复用** |
 | 网络 | 本地 dev 需能访问 `192.168.100.19`（生产后端） |
+
+### 新机器部署（干净 clone 后）
+
+生产入口 `start.bat` → `npm run start` 跑的是 Express（`server/index.ts`），它从磁盘 `dist/` 直读构建产物。`package.json` 的 `prestart` 钩子已改为自动 `npm run build`，因此**三步缺一不可**：
+
+```powershell
+# ① 门户主项目依赖
+npm install
+
+# ② WhatsApp 分析服务是**独立子项目**，有自己的 package.json / node_modules，
+#    必须单独装一次。漏装不会报错：start-wa-service.mjs 打印
+#    "tsx not installed ... Skipping." 后静默跳过，门户页只显示"无法连接本地分析服务"。
+cd scripts\whatsapp_analysis
+npm install
+cd ..\..
+
+# ③ 启动（拉起 9267 门户 + 9268 WhatsApp；prestart 会先构建 dist）
+start.bat
+#    → http://localhost:9267/uniplam/
+```
+
+**首次登录**：`auth-data\` 不入库（含加盐密码哈希）。首次启动自动播种 `admin`，随机初始密码写入 `auth-data\initial-admin-password.txt`，首次登录强制改密（改完删该文件）。
+
+**仓库外依赖（决定了门户"能开"还是"能用"）**：门户只是聚合壳，下列服务由 nginx 直接 `alias`/反代到磁盘或外部系统，**刻意不入库**（`AGENTS.md` 第四节第 6b 条：忽略跟踪 ≠ 可删除）。仅 pull 门户、不部署它们时，页面能开、UI 能渲染、TaskSyncWidget 走静态快照兜底，但**所有 my_app 看板直链与 FineBI 报表链接都会 404**：
+
+| 依赖 | 位置 | 未入库原因 |
+| --- | --- | --- |
+| my_app 后端（`/api/*` → 7038） | `Task\my_app\` | `db\`（SQLite）未入库，源码在库 |
+| my_app 前端产物（`/myapp/` → 7090） | `Task\_fe_dist\` | vite 构建产物，nginx `alias` 直读磁盘 |
+| FineBI 决策平台（`/webroot/decision`） | 外部系统 | 不在本仓库 |
+| nginx（`:80`） | `D:\01_RPA\nginx-1.28.0\` | 第三方发行包 |
 
 ## 二、命令
 
 ```powershell
 npm install
 npm run dev        # http://localhost:9267（predev 会先拉起 wa-service）
-npm run build      # 产物输出 dist/
+npm run build      # 产物输出 dist/；npm run start / start.bat 经 prestart 自动触发
+npm run start      # 生产入口（Express server/index.ts），prestart 会先 build
 npm run lint       # = tsc --noEmit  —— 改完必跑
 npm run preview    # 预览构建产物
 npm run clean      # 删除 dist / server.js
