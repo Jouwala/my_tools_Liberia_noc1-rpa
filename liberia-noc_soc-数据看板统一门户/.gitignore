@@ -83,3 +83,25 @@ out.txt
 # 运行日志与构建缓存
 log/
 tsconfig.tsbuildinfo
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 真源码资产豁免（2026-10-13 补；`git ls-files -i -c --exclude-standard`
+# 权威审计发现 5 个已跟踪文件命中过宽规则）
+#
+# 这些文件早已入库，跟踪状态本身不受忽略规则影响；缺豁免的真实危害是
+# 「新增/重建同类文件时被 git 静默吃掉」—— 本机跑得好好的，别人 clone 缺文件：
+#   · MsPortal/assets/favicon-{16,32,180}.png   MsPortal 手写壳的站点图标。
+#     根 .gitignore 的 `*.png` 按**文件名**直接匹配，目录级取反救不了；
+#     根的 `!**/assets/logo-*.png` 只认 logo-* 前缀，favicon 不在其中。
+#   · assets/logo/zte-z-116.png                  门户顶栏品牌图标，同上。
+#   · src/data/initialDashboards.ts              内置初始看板目录（服务端
+#     portal-default.json 缺失时的前端兜底）。根 .gitignore 的 `data/` 按
+#     **目录名**匹配吃掉了 src/data/ —— 与 my_app `backend/data/gis` 同一
+#     事故模式（先例见 Task\my_app\.gitignore 的 `!backend/data/` 例外块）。
+# 注：`!src/data/` 一条只豁免目录——目录不被忽略后，里面的 .ts 自身不命中
+# 任何文件级规则即可入库；日后若在其中放图片等资产，需照前两条加文件级豁免。
+# 注2：本次只加取反豁免、不动忽略清单，vite.config.ts 的 server.watch.ignored
+# 无需同步（两边配对约束只针对上面的 `_*` 探针块，且 vite ignored 不支持 `!`）。
+!**/assets/favicon-*.png
+!assets/logo/*.png
+!src/data/
