@@ -190,14 +190,30 @@ MAX_RETRIES = 2
 AUTH_LOCK_COOLDOWN_SEC = int(os.environ.get("AUTH_LOCK_COOLDOWN_SEC", "1800") or 1800)
 
 
-def _lock_state_path(host: str, port: int) -> Path:
-    """账号锁定状态文件路径（与鉴权缓存同目录，不入库）。"""
-    return AUTH_CACHE_DIR / f".locked_{host}_{port}.json"
+def _safe_account(username: str) -> str:
+    """把 username 转成可安全用于文件名的片段（空则返回空串）。
+
+    2026-10-13：缓存/熔断需要按「账号」而非仅「主机」隔离（见 _cache_file_path
+    上方说明）。用户名可能含空格（如 'zeeshan mazhar'），必须净化后入文件名。
+    """
+    return re.sub(r"[^A-Za-z0-9_.-]", "_", (username or "").strip())
 
 
-def _read_lock_state(host: str, port: int) -> dict | None:
+def _lock_state_path(host: str, port: int, username: str = "") -> Path:
+    """账号锁定状态文件路径（与鉴权缓存同目录，不入库）。
+
+    2026-10-13：文件名加入账号片段，避免同主机多账号互相连坐 —— 原实现只按
+    host:port 命名，导致 `10.100.28.27` 上 NOC 被锁时，同主机的 ZTE_Morris
+    任务也被熔断挡住（实测）。username 为空时保持旧名，兼容历史文件。
+    """
+    acct = _safe_account(username)
+    suffix = f"_{acct}" if acct else ""
+    return AUTH_CACHE_DIR / f".locked_{host}_{port}{suffix}.json"
+
+
+def _read_lock_state(host: str, port: int, username: str = "") -> dict | None:
     """读取锁定状态；不存在或已过冷却期返回 None（并顺手清理过期文件）。"""
-    p = _lock_state_path(host, port)
+    p = _lock_state_path(host, port, username)
     if not p.exists():
         return None
     try:
@@ -214,12 +230,13 @@ def _read_lock_state(host: str, port: int) -> dict | None:
         return None
 
 
-def _write_lock_state(host: str, port: int, reason: str) -> None:
+def _write_lock_state(host: str, port: int, reason: str, username: str = "") -> None:
     """记录账号已被上游锁定，冷却期内不再尝试登录。"""
-    p = _lock_state_path(host, port)
+    p = _lock_state_path(host, port, username)
     payload = {
         "host": host,
         "port": port,
+        "username": username or "",
         "reason": reason[:300],
         "locked_at": datetime.now(timezone.utc).isoformat(),
         "until": time.time() + AUTH_LOCK_COOLDOWN_SEC,
@@ -234,17 +251,26 @@ def _write_lock_state(host: str, port: int, reason: str) -> None:
         logger.warning("[AUTH] 写入锁定状态失败（不影响本次判断）%s:%s", host, port, exc_info=True)
 
 
-def clear_lock_state(host: str, port: int) -> None:
-    """清除锁定标记。登录成功、或人工解锁后调用。"""
-    try:
-        _lock_state_path(host, port).unlink(missing_ok=True)
-    except Exception:  # noqa: BLE001
-        logger.debug("[AUTH] 清除锁定状态失败 %s:%s", host, port, exc_info=True)
+def clear_lock_state(host: str, port: int, username: str = "") -> None:
+    """清除锁定标记。登录成功、或人工解锁后调用。
+
+    username 为空时仅清旧命名的标记；带 username 时清该账号的标记。两者都尝试，
+    避免升级过程中"旧文件残留、新文件已建"导致冷却期无法解除。
+    """
+    for u in ({username, ""} if username else {""}):
+        try:
+            _lock_state_path(host, port, u).unlink(missing_ok=True)
+        except Exception:  # noqa: BLE001
+            logger.debug("[AUTH] 清除锁定状态失败 %s:%s", host, port, exc_info=True)
 
 
-def get_lock_state(host: str, port: int) -> dict | None:
-    """对外只读入口：当前是否处于「已锁定冷却期」。供路由/诊断使用。"""
-    return _read_lock_state(host, port)
+def get_lock_state(host: str, port: int, username: str = "") -> dict | None:
+    """对外只读入口：当前是否处于「已锁定冷却期」。供路由/诊断使用。
+
+    username 非空时只看该账号的标记；为空时看旧命名（host:port）的标记，
+    保证既有调用方（如 /api/credentials/test 传 test_host/test_port）不破。
+    """
+    return _read_lock_state(host, port, username)
 
 
 def _is_terminal_login_error(err_text: str) -> bool:
@@ -307,9 +333,16 @@ import contextlib
 
 
 @contextlib.contextmanager
-def _login_lock(host: str, port: int):
-    """跨进程互斥登录锁。失败时退化为无锁（记 warning），绝不阻塞登录。"""
-    lock_path = AUTH_CACHE_DIR / f".login_{host}_{port}.lock"
+def _login_lock(host: str, port: int, username: str = ""):
+    """跨进程互斥登录锁。失败时退化为无锁（记 warning），绝不阻塞登录。
+
+    2026-10-13：锁文件加入账号片段。原实现只按 host:port 加锁，导致同主机
+    **不同账号**的登录也被串行化（无谓等待）；隔离后不同账号可并发登录
+    （它们本就不共享服务端会话），同账号仍串行（防同账号多进程并发登录互踢）。
+    """
+    acct = _safe_account(username)
+    suffix = f"_{acct}" if acct else ""
+    lock_path = AUTH_CACHE_DIR / f".login_{host}_{port}{suffix}.lock"
     f = None
     try:
         f = open(lock_path, "a+")
@@ -450,15 +483,33 @@ def _rsa_encrypt_pem(plaintext: str, public_key_b64: str) -> str:
 
 
 # ========== 缓存读写（带文件锁） ==========
-def _cache_file_path(host: str, port: int) -> Path:
-    """根据 host:port 生成缓存文件路径。"""
-    safe_name = f"{host}_{port}.json"
-    return AUTH_CACHE_DIR / safe_name
+def _cache_file_path(host: str, port: int, username: str = "") -> Path:
+    """生成缓存文件路径：按 **host:port:username** 隔离。
+
+    【2026-10-13 为什么必须带 username】原实现只按 `host:port` 命名。当**同一
+    主机上存在两个不同账号**时（实测 `10.100.28.27:28001` 上 zte_ume=ZTE_Morris、
+    cm_data=NOC；`10.100.20.8:28001` 上 eflow=BO_RAN_102、fms_portal=admin），
+    两个消费方会**共用一个缓存文件**、互相覆盖：
+      · A 登录写的会话被 B 读走（B 拿别人的会话去请求，401/越权）；
+      · B 的登录把 A 的活会话顶掉，A 下一轮又得重登 —— 徒增上游登录次数。
+    带上 username 后各账号各占一份，彻底隔离。
+
+    username 为空时回退旧命名（保持既有调用方与历史文件兼容）。
+    """
+    acct = _safe_account(username)
+    if acct:
+        return AUTH_CACHE_DIR / f"{host}_{port}_{acct}.json"
+    return AUTH_CACHE_DIR / f"{host}_{port}.json"
 
 
-def _read_cache(host: str, port: int) -> dict | None:
-    """读取缓存的鉴权信息，如果不存在或已过期返回 None。"""
-    cache_file = _cache_file_path(host, port)
+def _read_cache(host: str, port: int, username: str = "") -> dict | None:
+    """读取缓存的鉴权信息，如果不存在或已过期返回 None。
+
+    username 非空时读该账号专属文件；为空时读旧命名文件。为兼容升级，
+    指定的账号文件不存在时**不再回退**读旧文件 —— 否则多账号主机上又会串号
+    （旧文件是"最后登录那个账号"的，可能就是另一个账号）。宁可 miss 一次重登。
+    """
+    cache_file = _cache_file_path(host, port, username)
     if not cache_file.exists():
         return None
 
@@ -498,6 +549,17 @@ def _read_cache(host: str, port: int) -> dict | None:
     if not data.get("cookie") or not data.get("forgery_token"):
         return None
 
+    # 账号一致性校验（2026-10-13 纵深防御）：即便文件名已按账号隔离，也再核一次
+    # 文件里记录的 username。历史上 `10.100.28.27_28001.json` 这种旧文件里的
+    # username 可能就是**另一个账号**（最后登录那个），拿它当本账号的会话会串号。
+    # 请求带 username 且与文件不符时，视为 miss（宁可重登，绝不发错账号的 cookie）。
+    if username:
+        cached_user = str(data.get("username") or "")
+        if cached_user and cached_user != username:
+            logger.info("[AUTH] 缓存账号不符（文件=%s 请求=%s），视为未命中 (%s:%s)",
+                        cached_user, username, host, port)
+            return None
+
     return data
 
 
@@ -515,7 +577,7 @@ def _write_cache(host: str, port: int, cookie: str, forgery_token: str,
     后续任务就会拿到过期 cookie → 401。
     """
     ttl = _resolve_ttl(host, port) if ttl is None else int(ttl)
-    cache_file = _cache_file_path(host, port)
+    cache_file = _cache_file_path(host, port, username)
     data = {
         "host": host,
         "port": port,
@@ -552,20 +614,30 @@ def _write_cache(host: str, port: int, cookie: str, forgery_token: str,
             pass
 
 
-def invalidate_cache(host: str, port: int):
+def invalidate_cache(host: str, port: int, username: str = ""):
     """手动使缓存失效（当API返回401等鉴权失败时调用）。
 
     ⚠ 本函数**只删本地缓存文件，不发任何网络请求**——服务端会话依然存活。
     要真正释放服务端会话，用 logout()。
+
+    username 非空时只删该账号的缓存文件（多账号主机上不能连坐删别人的）；
+    username 为空（既有 401 恢复调用方 `invalidate_cache(HOST, PORT)`）时删除该
+    host:port 下的**全部**账号缓存文件 —— 调用方只知道主机、不知道账号，且语义是
+    "这个主机的鉴权坏了、全作废重登"，删干净更安全。
     """
-    cache_file = _cache_file_path(host, port)
-    if cache_file.exists():
-        try:
-            cache_file.unlink()
-            logger.info(f"[AUTH] 缓存已清除 ({host}:{port})")
-        except OSError:
-            logging.getLogger(__name__).warning("[SILENT-EXCEPT] invalidate_cache: exception swallowed", exc_info=True)
-            pass
+    if username:
+        targets = [_cache_file_path(host, port, username)]
+    else:
+        targets = [_cache_file_path(host, port, "")]  # 旧命名
+        targets += sorted(AUTH_CACHE_DIR.glob(f"{host}_{port}_*.json"))  # 各账号
+    for cache_file in targets:
+        if cache_file.exists():
+            try:
+                cache_file.unlink()
+                logger.info(f"[AUTH] 缓存已清除 ({host}:{port})")
+            except OSError:
+                logging.getLogger(__name__).warning("[SILENT-EXCEPT] invalidate_cache: exception swallowed", exc_info=True)
+                pass
 
 
 # ========== 登出（释放服务端会话） ==========
@@ -629,7 +701,7 @@ LOGIN_USERS_PATH = os.environ.get(
 LOGOUT_ENABLED = os.environ.get("AUTH_LOGOUT_ENABLED", "0").strip().lower() in ("1", "true", "yes", "on")
 
 
-def _read_cached_auth_code(host: str, port: int) -> str:
+def _read_cached_auth_code(host: str, port: int, username: str = "") -> str:
     """从缓存文件读取登录时落盘的 authCode（登出 payload 用）。
 
     该值由 `_record_own_auth_code` 在登录后从「在线用户列表」取回并落盘，
@@ -640,7 +712,7 @@ def _read_cached_auth_code(host: str, port: int) -> str:
     也**不要**回退去用 loginParameters（len=225）—— 见文件顶部第 3 条。
     """
     import json as _json
-    p = _cache_file_path(host, port)
+    p = _cache_file_path(host, port, username)
     if not p.exists():
         return ""
     try:
@@ -651,7 +723,7 @@ def _read_cached_auth_code(host: str, port: int) -> str:
 
 
 def logout(host: str, port: int, cookie: str = None, forgery_token: str = None,
-           auth_code: str = None, clear_cache: bool = True) -> bool:
+           auth_code: str = None, clear_cache: bool = True, username: str = "") -> bool:
     """登出上游网管，释放服务端会话（可选同时清本地缓存）。
 
     默认**不启用**（`AUTH_LOGOUT_ENABLED` 未置位时直接返回 False 并记一条日志）。
@@ -682,7 +754,7 @@ def logout(host: str, port: int, cookie: str = None, forgery_token: str = None,
 
     # 取会话：优先用调用方传入的，否则回读缓存
     if not cookie or not auth_code:
-        cached = _read_cache(host, port)
+        cached = _read_cache(host, port, username)
         if cached:
             cookie = cookie or cached.get("cookie", "")
             forgery_token = forgery_token or cached.get("forgery_token", "")
@@ -690,7 +762,7 @@ def logout(host: str, port: int, cookie: str = None, forgery_token: str = None,
         # 登出通常发生在缓存刚失效时，_read_cache 会因过期返回 None；
         # 此时**绕过 TTL** 直接读文件，只为拿到 authCode/cookie 去释放服务端会话。
         if not auth_code:
-            auth_code = _read_cached_auth_code(host, port)
+            auth_code = _read_cached_auth_code(host, port, username)
 
     if not cookie:
         logger.info(f"[AUTH] 无会话可登出 ({host}:{port})")
@@ -855,7 +927,7 @@ def _do_login(host: str, port: int, username: str, password: str) -> dict:
     _pre_codes = set()
     if LOGOUT_ENABLED:
         try:
-            _c = _read_cache(host, port)
+            _c = _read_cache(host, port, username)
             if _c:
                 _pre_codes = _snapshot_auth_codes(
                     host, port, username, _c.get("cookie", ""), _c.get("forgery_token", ""))
@@ -1003,7 +1075,7 @@ def _do_login(host: str, port: int, username: str, password: str) -> dict:
                     f"[AUTH] 终态错误（锁定/密码到期），放弃剩余登录尝试 ({host}:{port})")
                 # 跨调用熔断：写锁定状态，冷却期内所有任务不再尝试登录，
                 # 避免每 15 分钟一次的调度反复打扰上游、拖延自动解锁。
-                _write_lock_state(host, port, str(e))
+                _write_lock_state(host, port, str(e), username)
                 break
 
     raise Exception(f"[AUTH] 登录最终失败 ({host}:{port}): {last_error}")
@@ -1204,7 +1276,7 @@ def get_auth(host: str, port: int, username: str, password: str,
         """
         if force:
             return None
-        cached = _read_cache(host, port)
+        cached = _read_cache(host, port, username)
         if not cached:
             return None
         # 有探活能力时，「缓存未过期」不再是充分条件 —— 必须实测会话可用。
@@ -1212,7 +1284,7 @@ def get_auth(host: str, port: int, username: str, password: str,
                 probe, host, port, cached["cookie"], cached.get("forgery_token", "")):
             logger.info("[AUTH] 缓存会话探活失败，就地作废并重新登录 (%s:%s)", host, port)
             try:
-                invalidate_cache(host, port)
+                invalidate_cache(host, port, username)
             except Exception as e:  # noqa: BLE001
                 logger.warning("[AUTH] 作废缓存失败（继续重登）%s:%s: %s", host, port, e)
             return None
@@ -1230,7 +1302,9 @@ def get_auth(host: str, port: int, username: str, password: str,
     #     否则每 15 分钟一次的调度仍会向上游发 2 次失败登录，持续刷新锁定计数
     #     （2026-10-12 MW/RAN 事故中每天约 192 次无效登录）。
     #     快速失败并如实上报，让任务日志与告警显示"账号被锁"而非"网络错误"。
-    _locked = _read_lock_state(host, port)
+    #     ⚠ 熔断按 (host, port, username) 隔离：同主机多账号时，A 账号被锁不得
+    #     连坐挡住 B（2026-10-13 实测 10.100.28.27 上 NOC 的锁会挡 ZTE_Morris）。
+    _locked = _read_lock_state(host, port, username)
     if _locked:
         remain = max(0, int(float(_locked.get("until", 0)) - time.time()))
         msg = (f"[AUTH] 账号锁定冷却中（剩余 {remain}s，共 {_locked.get('cooldown_sec')}s），"
@@ -1239,7 +1313,9 @@ def get_auth(host: str, port: int, username: str, password: str,
         raise Exception(msg)
 
     # 2. 缓存无效（或探活确认已死），跨进程锁内登录
-    with _login_lock(host, port):
+    #    锁按 (host, port, username) 加：不同账号可并发登录（互不共享会话），
+    #    同账号仍串行（避免同账号多进程并发登录互踢）。
+    with _login_lock(host, port, username):
         # 拿到锁后复查缓存（double-checked）：等锁期间其他进程可能刚好
         # 登录完成并回写了缓存 —— 此时复用，本进程不再登录。
         # 这里同样要走探活：等到的可能是另一个进程刚写进去的**死会话**
@@ -1254,7 +1330,7 @@ def get_auth(host: str, port: int, username: str, password: str,
         result = _do_login(host, port, username, password)
 
         # 登录成功 → 清除可能存在的锁定标记（账号已恢复可用）
-        clear_lock_state(host, port)
+        clear_lock_state(host, port, username)
 
         # 3. 写入缓存。ttl=None 时由 _write_cache 按该主机口径取（覆盖表优先），
         #    这里不再兜一层，避免同一个默认值在两处各解一遍。

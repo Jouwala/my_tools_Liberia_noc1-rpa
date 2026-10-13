@@ -35,12 +35,17 @@ def cache_dir(tmp_path, monkeypatch):
 
 
 def _seed_cache(cache_dir: Path, ttl_written: int = 1800, age_sec: int = 0,
-                cookie: str = "Z-AUTH-CODE=live") -> Path:
-    """写入一份「按 TTL 还没过期」的缓存，用于验证探活是否真的介入。"""
-    f = cache_dir / f"{HOST}_{PORT}.json"
+                cookie: str = "Z-AUTH-CODE=live", username: str = USER) -> Path:
+    """写入一份「按 TTL 还没过期」的缓存，用于验证探活是否真的介入。
+
+    2026-10-13：缓存文件名按 host:port:username 隔离（多账号主机防串号），
+    故路径需带 username 片段。
+    """
+    acct = am._safe_account(username)
+    f = cache_dir / (f"{HOST}_{PORT}_{acct}.json" if acct else f"{HOST}_{PORT}.json")
     created = datetime.now(timezone.utc) - timedelta(seconds=age_sec)
     f.write_text(json.dumps({
-        "host": HOST, "port": PORT, "username": USER,
+        "host": HOST, "port": PORT, "username": username,
         "cookie": cookie, "forgery_token": "ft",
         "auth_code": "CODE$10",
         "created_at": created.isoformat(),

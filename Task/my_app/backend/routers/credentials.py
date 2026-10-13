@@ -129,7 +129,9 @@ def test_credential(body: CredentialTestRequest, request: Request):
             from auth_manager import get_lock_state
         _th, _tp = group.get("test_host"), group.get("test_port")
         if _th and _tp:
-            _st = get_lock_state(_th, _tp)
+            # 传 user：熔断按 (host, port, username) 隔离，多账号主机上不能把
+            # 别的账号的锁拿来报给本账号（2026-10-13）。
+            _st = get_lock_state(_th, _tp, user or "")
             if _st:
                 remain = max(0, int(float(_st.get("until", 0)) - time.time()))
                 reason = str(_st.get("reason", ""))[:300]
