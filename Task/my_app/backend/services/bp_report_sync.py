@@ -697,10 +697,29 @@ def run_bp_report_sync(window_days: int = DEFAULT_WINDOW_DAYS,
                            {"rows_unknown_cluster": dirty_cluster,
                             "rows_unknown_layer": dirty_layer}, now)
 
-        result["success"] = not result["errors"] and written > 0
+        # 成功判据（2026-10-13 修）：
+        #   原实现是 `not errors and written > 0`。但「远端当天尚无数据」是完全正常
+        #   的状态（当日 BP 数据要等 UME 出数，凌晨跑批时必然取回 0 行）—— 此时
+        #   written==0 且 errors 为空，任务被记为失败但**没有任何错误信息**，
+        #   Task Manager 只显示 "Unknown error"（2026-10-13 06:20/06:25/07:30 即如此，
+        #   日志实为 `远端 2026-10-13 取回 0 行 → cells=0 success=False errors=[]`）。
+        #   现在区分两种情况：
+        #     - 有 errors            → 真失败，success=False（错误信息原样上报）；
+        #     - 无 errors 但 written==0 → **上游暂无数据**，记一条说明性 warning、
+        #       success=True（不是我们的错，不该报失败惊动运维，也不该触发重试）。
+        if result["errors"]:
+            result["success"] = False
+        elif written <= 0:
+            result["success"] = True
+            result["warnings"].append(
+                "远端窗口内取回 0 行（上游该日 BP 数据可能尚未产出），本次未写入任何"
+                "小区；非错误，稍后调度会重试取数。")
+        else:
+            result["success"] = True
     except Exception as e:
         logger.exception("[BP] 同步失败")
         result["errors"].append(f"同步异常: {e}")
+        result["success"] = False
 
     result["elapsed_seconds"] = round(time.time() - t0, 2)
     logger.info("[BP] 同步完成 days=%s cells=%s %.2fs success=%s errors=%s",

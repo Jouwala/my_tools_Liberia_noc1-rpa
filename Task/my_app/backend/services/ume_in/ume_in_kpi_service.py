@@ -524,7 +524,48 @@ class UMEPortalClient:
               or "default.html" in text or any("Z-AUTH-CODE" in c for c in merged)
               or len(merged) > 3)
         if not ok:
-            raise Exception(f"登录失败 - 未获取到鉴权 Cookie: {status} {text[:200]}")
+            # 解析服务端真实原因（2026-10-13）：login_rsa 失败时返回
+            # {"result":"1","detail":{"code":"2","message":"The user password is about to expire"}}。
+            # 原实现只抛原始文本，auto_retry 认不出「永久性失败」，会每 10 分钟
+            # 重投一次（2026-10-13 ume_in_kpi_sync 05:45/05:50/06:55 即如此）。
+            #
+            # ⚠ 2026-10-13 再次改进：任务横幅此前只显示「登录失败 - 未获取到鉴权 Cookie」
+            # —— 运维看到的是症状、看不到**该做什么**。现在按服务端 message 归类，
+            # 直接给出可执行结论（改密码 / 联系管理员解锁 / 验证码人工登录），
+            # 与 auth_manager._describe_login_failure 同口径；原始响应仍附在末尾备查。
+            detail = ""
+            _msg_l = ""
+            try:
+                _d = json.loads(text).get("detail") or {}
+                if isinstance(_d, dict):
+                    _msg = str(_d.get("message") or "").strip()
+                    _code = str(_d.get("code") or "").strip()
+                    if _msg:
+                        _msg_l = _msg.lower()
+                        detail = (f" (服务端原因: {_msg} (code={_code}))"
+                                  if _code else f" (服务端原因: {_msg})")
+            except Exception:
+                pass
+            advice = ""
+            if ("password" in _msg_l and ("expire" in _msg_l or "about to" in _msg_l)) \
+                    or "到期" in detail or "过期" in detail:
+                advice = (" → UME 账号密码已到期/即将到期，"
+                          "请在 UME 侧修改密码后，到「设置 → 凭据管理」更新本组密码")
+            elif "password" in _msg_l or "密码" in detail:
+                advice = (" → 用户名或密码错误，请核对「设置 → 凭据管理」的账号密码"
+                          "（上游连续 3 次密码错误会锁定账号 1440 分钟）")
+            elif "locked" in _msg_l or "lock" in _msg_l:
+                advice = " → 账号已被上游锁定，需联系 UME 管理员解锁"
+            elif "verification code" in _msg_l or "captcha" in _msg_l or "验证码" in detail:
+                advice = " → 上游已启用图形验证码，脚本登录无法通过，需人工登录一次"
+            # status 形如 "HTTP/1.1 401 Unauthorized"，本身已含 "HTTP"，避免拼出 "HTTP HTTP/1.1"
+            _st = status.strip()
+            if _st.upper().startswith("HTTP"):
+                _st = _st.split(None, 1)[-1].strip() or _st
+            raise Exception(
+                f"UME 账号登录失败（{self.host}:{self.port}）{detail}。{advice}"
+                f"（HTTP {_st}, 响应 {text[:160]}）"
+            )
 
         self.cookie = "; ".join(merged)
         self.forgery_token = forgery
