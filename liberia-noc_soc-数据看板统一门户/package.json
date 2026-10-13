@@ -7,6 +7,7 @@
     "predev": "node scripts/start-wa-service.mjs",
     "dev": "vite --port=9267 --host=0.0.0.0",
     "build": "vite build",
+    "prestart": "npm run build",
     "start": "tsx server/index.ts",
     "prepreview": "node scripts/start-wa-service.mjs",
     "preview": "vite preview",

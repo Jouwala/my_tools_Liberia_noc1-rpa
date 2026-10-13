@@ -28,21 +28,45 @@
 - FineBI 入口：`http://192.168.100.19/webroot/decision#/directory?activeTab=dec-tabs-homepage`。
 - **FineBI 具体报表链接为目录占位（标签含"链接待更新"，状态 beta），请在门户内"编辑看板配置"逐条替换为实际报表 URL。**
 
-## 本地运行
+## 新机器启动（干净 clone 后）
 
 **前置：** Node.js 18+
 
+生产入口（`start.bat` → `npm run start`）跑的是 Express（`server/index.ts`），它从磁盘 `dist/` 直接读构建产物，**不会自动构建**。因此干净 clone 后必须走完整三步：
+
 ```powershell
+# ① 门户主项目依赖
 npm install
-npm run dev        # 默认 http://localhost:9267（7038/7090 已被 my_app 后端/前端占用，不可复用）
+
+# ② WhatsApp 本地分析服务是**独立子项目**，有自己的 package.json / node_modules，
+#    必须单独安装一次。漏掉它不会报错 —— start-wa-service.mjs 会打印一行
+#    "tsx not installed ... Skipping." 后静默跳过，门户页则显示"无法连接本地分析服务"。
+cd scripts\whatsapp_analysis
+npm install
+cd ..\..
+
+# ③ 启动（start.bat 会自动拉起 9267 门户 + 9268 WhatsApp 服务；
+#     门户主项目已在 package.json 配 prestart，会替你先跑 npm run build）
+start.bat
+#    → http://localhost:9267/uniplam/
 ```
 
-本地 dev 时 `vite.config.ts` 已配置 `/api` 代理到 `http://192.168.100.19`，任务调度部件可直连生产后端。
+**首次登录：** 鉴权数据目录 `auth-data/` 不入库（含加盐密码哈希）。首次启动会自动播种 `admin`，随机初始密码写入 `auth-data\initial-admin-password.txt`，首次登录强制改密（改完请删除该文件）。
+
+> 只 pull 门户、不部署 my_app / FineBI 的新机器上：页面能打开、UI 能渲染、TaskSyncWidget 走静态快照兜底，但**所有 my_app 看板直链与 FineBI 报表链接都会 404** —— 门户只是聚合壳，这两端是 nginx 直接 alias 的仓库外服务（`Task/_fe_dist/`、`/webroot/decision`），刻意不入库。
+
+## 开发调试
+
+```powershell
+npm run dev        # Vite dev server，默认 http://localhost:9267（7038/7090 已被 my_app 后端/前端占用，不可复用）
+```
+
+`predev` 会自动尝试拉起 WhatsApp 服务（仍要求上面第 ② 步先装好依赖）。本地 dev 时 `vite.config.ts` 已配置 `/api` 代理到 `http://192.168.100.19`，任务调度部件可直连生产后端。
 
 ## 构建与部署
 
 ```powershell
-npm run build      # 产物输出 dist/
+npm run build      # 产物输出 dist/；npm run start / start.bat 会经 prestart 自动触发
 ```
 
 部署到 192.168.100.19 同一台 nginx 时（推荐，API 走同源 `/api/tasks` 无需跨域）：
