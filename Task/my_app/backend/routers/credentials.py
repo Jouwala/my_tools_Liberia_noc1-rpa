@@ -109,6 +109,54 @@ def test_credential(body: CredentialTestRequest, request: Request):
         user, pwd = get_credential(
             group["key"], group["default_user"], group["default_secret"],
         )
+
+        # ★ 熔断冷却提示（2026-10-13）：若该主机正处于熔断冷却期，直接告知运维，
+        #   而不是真的再去撞一次上游（那会刷新失败计数、拖延自动解锁）。
+        #
+        # ⚠ 措辞必须区分「本地熔断」与「上游锁定」（2026-10-13 修正）：
+        #   本分支读的是 `get_lock_state()` —— 即本地熔断文件 `.locked_<host>_<port>.json`，
+        #   **根本没有联系上游**。原实现把这种情况说成 "Account is locked upstream"
+        #   （账号已被上游锁定），把「本地拦截中」误报成「上游状态」，导致运维以为
+        #   上游仍在锁而无法判断到底是哪种（2026-10-13 排查时即被此文案误导）。
+        #   现在明确拆开两件事：
+        #     1) 当前动作：本地熔断冷却中，未向上游发起任何请求；
+        #     2) 触发原因：熔断当时记录的上游报错原文（`reason`）—— 它才可能含
+        #        `User has been locked (code=4)`；也可能只是 HTTP 400 等其它原因。
+        #   同时把上游锁定的事实从 reason 里解析出来单列，避免再被"上游/本地"混淆。
+        try:
+            from backend.services.auth_manager import get_lock_state
+        except ImportError:
+            from auth_manager import get_lock_state
+        _th, _tp = group.get("test_host"), group.get("test_port")
+        if _th and _tp:
+            _st = get_lock_state(_th, _tp)
+            if _st:
+                remain = max(0, int(float(_st.get("until", 0)) - time.time()))
+                reason = str(_st.get("reason", ""))[:300]
+                upstream_locked = ("User has been locked" in reason
+                                   or "code=4" in reason or "code\":\"4" in reason)
+                lock_note = (
+                    " 上游确实报过「账号被锁」（code=4）。" if upstream_locked
+                    else " 注意：熔断原因不一定是账号被锁（也可能是 HTTP 4xx/5xx 等瞬时错误）。"
+                ) if not en else (
+                    " Upstream did report an account lock (code=4)." if upstream_locked
+                    else " Note: the trip reason may not be an account lock (could be a transient HTTP 4xx/5xx)."
+                )
+                return {
+                    "status": "locked",
+                    "key": body.key,
+                    "message": ((
+                        f"本地熔断冷却中：未向上游发起请求，{remain}s 后可再次尝试。"
+                        f"熔断触发原因（记录于 {_st.get('locked_at', '未知时间')}）：{reason}。"
+                        f"{lock_note}"
+                    ) if not en else (
+                        f"Local circuit breaker in cooldown: no upstream request was made; "
+                        f"retry allowed in {remain}s. Trip reason (recorded at "
+                        f"{_st.get('locked_at', 'unknown')}): {reason}.{lock_note}"
+                    )),
+                    "elapsed": round(time.time() - t0, 2),
+                }
+
         # RAIS 不是 ZTE OAuth2 RSA 登录，不能走 auth_manager._do_login：
         # 它走门户登录模块里的「直接鉴权」（AES-256-CBC 加密密码 POST
         # verify4web.serv 换 SSO token），复用它即可当作真实的登录测试。
@@ -146,9 +194,17 @@ def test_credential(body: CredentialTestRequest, request: Request):
         }
     except Exception as e:
         logger.warning(f"[CRED] 连接测试失败: {body.key}: {e}")
+        # 终态错误（账号锁定 / 密码到期 / 上游要求验证码）明确标注，
+        # 让界面能区分"再试一次可能就好"与"必须人工介入"（2026-10-13）。
+        try:
+            from backend.services.auth_manager import _is_terminal_login_error
+        except ImportError:
+            from auth_manager import _is_terminal_login_error
+        _terminal = _is_terminal_login_error(str(e))
         return {
             "status": "fail",
             "key": body.key,
+            "terminal": _terminal,
             "message": f"Login failed: {type(e).__name__}: {e}" if en else f"登录失败: {type(e).__name__}: {e}",
             "elapsed": round(time.time() - t0, 2),
         }

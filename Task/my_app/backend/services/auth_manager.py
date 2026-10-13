@@ -171,6 +171,106 @@ def _resolve_ttl(host: str, port: int) -> int:
 MAX_RETRIES = 2
 
 
+# ========== 账号锁定熔断（2026-10-13） ==========
+# 背景（2026-10-12 MW/RAN 账号锁定事故）：
+#   上游 UME 对账号有锁定策略。一旦被锁，上游对**任何**密码都返回同一个
+#   `User has been locked (code=4)`，此时继续登录不仅无效，还会不断刷新
+#   上游的失败计数，把「等待一段时间自动解锁」变成「永远解锁不了」。
+#
+#   实测危害：`mw_ume_kpi_sync_rt` 每 15 分钟跑一次，每次 2 次尝试
+#   → 锁定期间每天约 192 次无效登录（worker_runtime_w_20261012.log:945-1015）。
+#
+# 已有机制只解决了「一次调用内不重试」（见 _do_login 的终态错误分支），
+# 但**跨调用**仍在按调度周期硬撞。这里补上跨进程熔断：
+#   检测到 locked → 写一份带截止时间的状态文件 → 冷却期内直接拒绝登录，
+#   各任务快速失败并如实上报，不再打扰上游。
+#
+# 冷却时长：默认 1800s（30 分钟）。上游自动解锁周期未知，取 30 分钟是在
+# 「不干扰自动解锁」与「解锁后尽快恢复」之间的折中；可用环境变量调整。
+AUTH_LOCK_COOLDOWN_SEC = int(os.environ.get("AUTH_LOCK_COOLDOWN_SEC", "1800") or 1800)
+
+
+def _lock_state_path(host: str, port: int) -> Path:
+    """账号锁定状态文件路径（与鉴权缓存同目录，不入库）。"""
+    return AUTH_CACHE_DIR / f".locked_{host}_{port}.json"
+
+
+def _read_lock_state(host: str, port: int) -> dict | None:
+    """读取锁定状态；不存在或已过冷却期返回 None（并顺手清理过期文件）。"""
+    p = _lock_state_path(host, port)
+    if not p.exists():
+        return None
+    try:
+        with open(p, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        until = float(data.get("until") or 0)
+        if until > time.time():
+            return data
+        # 冷却期已过：删除标记，允许下一次尝试（上游可能已自动解锁）
+        p.unlink(missing_ok=True)
+        return None
+    except Exception:  # noqa: BLE001
+        logger.debug("[AUTH] 锁定状态文件损坏，忽略 (%s:%s)", host, port, exc_info=True)
+        return None
+
+
+def _write_lock_state(host: str, port: int, reason: str) -> None:
+    """记录账号已被上游锁定，冷却期内不再尝试登录。"""
+    p = _lock_state_path(host, port)
+    payload = {
+        "host": host,
+        "port": port,
+        "reason": reason[:300],
+        "locked_at": datetime.now(timezone.utc).isoformat(),
+        "until": time.time() + AUTH_LOCK_COOLDOWN_SEC,
+        "cooldown_sec": AUTH_LOCK_COOLDOWN_SEC,
+    }
+    try:
+        tmp = p.with_suffix(".tmp")
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False, indent=2)
+        os.replace(tmp, p)
+    except Exception:  # noqa: BLE001
+        logger.warning("[AUTH] 写入锁定状态失败（不影响本次判断）%s:%s", host, port, exc_info=True)
+
+
+def clear_lock_state(host: str, port: int) -> None:
+    """清除锁定标记。登录成功、或人工解锁后调用。"""
+    try:
+        _lock_state_path(host, port).unlink(missing_ok=True)
+    except Exception:  # noqa: BLE001
+        logger.debug("[AUTH] 清除锁定状态失败 %s:%s", host, port, exc_info=True)
+
+
+def get_lock_state(host: str, port: int) -> dict | None:
+    """对外只读入口：当前是否处于「已锁定冷却期」。供路由/诊断使用。"""
+    return _read_lock_state(host, port)
+
+
+def _is_terminal_login_error(err_text: str) -> bool:
+    """判断错误是否为「换凭据或人工干预才能解决」的终态错误。
+
+    终态 = 继续用同一凭据重试没有意义：
+      - 账号被上游锁定（locked）
+      - 密码到期/过期（expire / expired / 到期 / 过期）
+      - 上游要求图形验证码（verification code / captcha）—— 2026-10-13 新增，
+        实测 Battery 192.168.170.2 启用验证码后，脚本登录（含 RSA 接口）
+        全部返回 code=1300112，任何重试都不可能成功。
+    注意：密码**错误**不在此列 —— 那可能是凭据配置写错，值得让运维看到失败，
+    但同样不该无限重试；这里保守地只处理明确可判定的几类。
+    """
+    t = (err_text or "").lower()
+    if "locked" in t or "lock" in t:
+        return True
+    if "expire" in t or "expired" in t:
+        return True
+    if "verification code" in t or "captcha" in t:
+        return True
+    if "到期" in err_text or "过期" in err_text or "验证码" in err_text:
+        return True
+    return False
+
+
 # ========== 跨进程登录锁 ==========
 # 为什么需要（2026-10-04 eFlow 风暴的次生放大器）：worker 是 u/n/v/m/c 多进程，
 # TTL 到期或上游互踢时，多个进程会在同一分钟内各自收到 401 并**各自真实登录**
@@ -648,6 +748,13 @@ def _describe_login_failure(status: str, body: bytes) -> str:
     上游 `/api/oauth2/v1/login_rsa` 失败时返回形如：
         {"result":"1","detail":{"code":"4","message":"User has been locked"}}
     本函数解析该 message，并附带常见的处置建议，**原样保留服务端原文**以便排查。
+
+    ⚠ 2026-10-13 补：原实现只在「body 能解析出非空 detail.message」时才保留原文；
+    若 body 是合法 JSON 但没有 detail.message（或 detail 不是 dict、body 为空），
+    raw_detail 会保持空串，最终只剩一句 `HTTP 400 Bad Request` —— **上游真正的
+    拒登原因被整个丢掉**。2026-10-12 22:05 Battery 那次 HTTP 400 就是这样：四次
+    尝试全部只报 `HTTP 400 Bad Request`，没有任何服务端原文，导致根因至今无法
+    从日志判定。现在改为**无条件保留 body 的可读片段**作为兜底证据。
     """
     # status 形如 "HTTP/1.1 401 Unauthorized"，本身已含 "HTTP"，避免拼出 "HTTP HTTP/1.1"
     st = (status or "").strip()
@@ -655,24 +762,35 @@ def _describe_login_failure(status: str, body: bytes) -> str:
         st = st.split(None, 1)[-1].strip() or st
     suffix = ""
     raw_detail = ""
+    # 无条件先留一份 body 文本兜底：无论能否解析出结构化 message，都不丢原始证据。
+    body_text = (body or b"").decode("utf-8", errors="replace").strip()
+    if body_text:
+        raw_detail = body_text[:500]
     try:
-        data = json.loads(body.decode("utf-8", errors="replace"))
+        data = json.loads(body_text)
         detail = data.get("detail") or {}
         if isinstance(detail, dict):
             msg = str(detail.get("message") or "").strip()
             code = str(detail.get("code") or "").strip()
             if msg:
-                raw_detail = msg
-                if code:
-                    raw_detail = f"{msg} (code={code})"
+                # 解析出结构化 message 时以它为准（比整段 JSON 更可读）
+                raw_detail = f"{msg} (code={code})" if code else msg
     except Exception:
-        raw_detail = (body or b"").decode("utf-8", errors="replace").strip()[:200]
+        pass  # 非 JSON：沿用上面的 body_text 兜底
 
     lowered = raw_detail.lower()
     if "locked" in lowered or "lock" in lowered:
         suffix = ("；账号已被上游锁定，重试无意义，需联系 UME 管理员解锁"
                   "（注意：锁定时无论密码是否正确上游都返回同一错误，"
                   "因此不能用这次登录判断密码是否到期）")
+    elif "verification code" in lowered or "captcha" in lowered or "验证码" in raw_detail:
+        # 2026-10-13 新增：上游启用了图形验证码（实测 Battery 192.168.170.2）。
+        # 报错形如 {"code":1300112,"message":"Image verification code is invalid or expired"}。
+        # 与锁定不同：这不是"凭据错"，而是**登录方式变了** —— 纯脚本登录
+        # （含 RSA 接口）都无法通过，任何重试都不会成功，必须人工介入或改造流程。
+        suffix = ("；上游已启用图形验证码，脚本登录（含 RSA 接口）无法通过，"
+                  "重试无意义 —— 需人工登录一次以刷新 auth_info.json，"
+                  "或联系管理员为该账号关闭验证码/加入白名单")
     elif "password" in lowered or "密码" in raw_detail:
         if "expire" in lowered or "到期" in raw_detail or "过期" in raw_detail:
             suffix = "；密码已到期，需在 UME 侧修改密码并同步 credential_store 的 zte_ume"
@@ -819,6 +937,20 @@ def _do_login(host: str, port: int, username: str, password: str) -> dict:
 
             # 验证登录成功
             if not any("Z-AUTH-CODE" in c for c in cookies):
+                # 诊断留痕（2026-10-13）：登录失败时把完整 HTTP 上下文写进日志 ——
+                # 状态行、响应头、body 长度与前 500 字节。2026-10-12 22:05 Battery
+                # 那次 400 之所以无法定因，正是因为日志里只有 `login_rsa status: 400`
+                # 一行，上游到底回了什么（空 body？HTML？某 code？）全都没留。这里
+                # 即使在异常信息之外，也保证下一次失败有据可查。
+                try:
+                    _body_txt = (body or b"").decode("utf-8", errors="replace")
+                    logger.warning(
+                        "[AUTH] login_rsa 未拿到 Z-AUTH-CODE —— status=%s, "
+                        "body_len=%d, body=%r, resp_headers=%r",
+                        status, len(body or b""), _body_txt[:500], raw_hdrs[:800],
+                    )
+                except Exception:  # noqa: BLE001  留痕失败绝不能掩盖真正的登录异常
+                    logger.debug("[AUTH] 登录失败诊断留痕异常", exc_info=True)
                 raise Exception(_describe_login_failure(status, body))
 
             logger.info(f"[AUTH] 登录成功 ({len(cookies)} cookies)")
@@ -843,6 +975,17 @@ def _do_login(host: str, port: int, username: str, password: str) -> dict:
         except Exception as e:
             last_error = e
             logger.warning(f"[AUTH] 登录尝试 {attempt} 失败: {e}")
+            # 终态错误立即放弃（2026-10-13）：账号锁定 / 密码到期（含即将到期）
+            # 属于「换凭据或人工干预才能解决」的错误，用同一凭据把剩余尝试
+            # 打完毫无意义，反而给上游贡献失败登录计数 —— RAN UME 2026-10-12
+            # 事故中，锁定后的第 2 次尝试全是白撞。识别到即跳出，原因原样上抛。
+            if _is_terminal_login_error(str(e)):
+                logger.warning(
+                    f"[AUTH] 终态错误（锁定/密码到期），放弃剩余登录尝试 ({host}:{port})")
+                # 跨调用熔断：写锁定状态，冷却期内所有任务不再尝试登录，
+                # 避免每 15 分钟一次的调度反复打扰上游、拖延自动解锁。
+                _write_lock_state(host, port, str(e))
+                break
 
     raise Exception(f"[AUTH] 登录最终失败 ({host}:{port}): {last_error}")
 
@@ -1063,6 +1206,19 @@ def get_auth(host: str, port: int, username: str, password: str,
         logger.info(f"[AUTH] 使用缓存鉴权 ({host}:{port})，耗时 {elapsed:.2f}s")
         return _cached_result(cached, from_relogin=False)
 
+    # 1b. 锁定熔断（2026-10-13）：账号处于「已锁定」冷却期时**直接拒绝登录**。
+    #     为什么放在这里而不是 _do_login 里：要在**发起任何 HTTP 请求之前**就退出，
+    #     否则每 15 分钟一次的调度仍会向上游发 2 次失败登录，持续刷新锁定计数
+    #     （2026-10-12 MW/RAN 事故中每天约 192 次无效登录）。
+    #     快速失败并如实上报，让任务日志与告警显示"账号被锁"而非"网络错误"。
+    _locked = _read_lock_state(host, port)
+    if _locked:
+        remain = max(0, int(float(_locked.get("until", 0)) - time.time()))
+        msg = (f"[AUTH] 账号锁定冷却中（剩余 {remain}s，共 {_locked.get('cooldown_sec')}s），"
+               f"本轮跳过登录 ({host}:{port})。锁定原因：{_locked.get('reason', '未知')}")
+        logger.warning(msg)
+        raise Exception(msg)
+
     # 2. 缓存无效（或探活确认已死），跨进程锁内登录
     with _login_lock(host, port):
         # 拿到锁后复查缓存（double-checked）：等锁期间其他进程可能刚好
@@ -1077,6 +1233,9 @@ def get_auth(host: str, port: int, username: str, password: str,
             return _cached_result(cached, from_relogin=False)
 
         result = _do_login(host, port, username, password)
+
+        # 登录成功 → 清除可能存在的锁定标记（账号已恢复可用）
+        clear_lock_state(host, port)
 
         # 3. 写入缓存。ttl=None 时由 _write_cache 按该主机口径取（覆盖表优先），
         #    这里不再兜一层，避免同一个默认值在两处各解一遍。
