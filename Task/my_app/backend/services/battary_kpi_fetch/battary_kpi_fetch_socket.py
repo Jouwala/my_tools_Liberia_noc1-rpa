@@ -448,7 +448,8 @@ def login_rsa(credentials: dict) -> dict | None:
 
     Returns:
         成功返回 {"cookie": ..., "forgery_token": ..., "host": ..., "port": ...}；
-        失败返回 None（可能需要验证码）。
+        失败返回 None。失败原因不限于验证码 —— 任何上游拒登（HTTP 400/5xx、
+        账号锁定、密码到期等）都会走到这里，实际原因看上方 [LOGIN] 日志的状态码。
     """
     host = credentials["host"]
     port = credentials["port"]
@@ -661,6 +662,78 @@ def auth_info_is_fresh(max_age_hours: float | None = None) -> bool:
         return False
 
 
+def save_auth_info(cookie: str, forgery_token: str, host: str, port: int,
+                   username: str = "", source: str = "") -> bool:
+    """把一份会话原子写入 auth_info.json（回退链的落盘动作，单一实现）。
+
+    抽出本函数的理由（2026-10-13）：此前只有 ``ensure_auth_info`` 会写这个文件，
+    而它只在**登录失败后**才被调用 —— 也就是说正常成功的每小时同步从不落盘，
+    回退文件永远是空的，直到某次失败时才「临时生成」，可那时上游已经拒登
+    （2026-10-12 22:05 的 HTTP 400 就是这样：login_rsa 失败 → 无 auth_info.json
+    → ensure_auth_info 再调同一个 login_rsa，同样 400 → 三层全灭）。
+
+    现在拆成"写文件"这一个纯动作，让**每次真实登录成功后**都能刷新它（见
+    ``refresh_auth_info_from_session``），回退链才有真正热备的内容。
+
+    ⚠ 合法性约束：cookie 与 forgery_token **都非空**才写。Battery UME 的业务
+    请求把 forgery_token 同时放进请求头与 URL 参数，缺它写进去只会制造一个
+    永远不可用的回退文件（与 auth_manager._read_cache 的判据一致）。
+    """
+    cookie = (cookie or "").strip()
+    forgery_token = (forgery_token or "").strip()
+    if not cookie or not forgery_token:
+        log("[AUTH] 会话缺少 cookie/forgery_token，跳过 auth_info.json 落盘")
+        return False
+    payload = {
+        "cookie": cookie,
+        "forgery_token": forgery_token,
+        "host": host,
+        "port": port,
+        "username": username,
+        "login_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "source": source or "save_auth_info",
+    }
+    tmp = AUTH_INFO_FILE.with_name(AUTH_INFO_FILE.name + f".{os.getpid()}.tmp")
+    try:
+        tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding='utf-8')
+        os.replace(str(tmp), str(AUTH_INFO_FILE))
+        log(f"[AUTH] auth_info.json 已写入 → {AUTH_INFO_FILE}（来源: {payload['source']}）")
+        return True
+    except OSError as e:
+        log(f"[AUTH] 写入 auth_info.json 失败: {e}")
+        try:
+            if tmp.exists():
+                tmp.unlink()
+        except OSError:
+            pass
+        return False
+
+
+def refresh_auth_info_from_session(auth: dict, username: str = "",
+                                   source: str = "sync login") -> bool:
+    """登录成功后把当前会话落盘到 auth_info.json（回退链的热备刷新）。
+
+    调用点：``battery_kpi_service._acquire_auth`` 在**任意一层**拿到会话并确认
+    可用后调用一次 —— 包括 auth_manager 缓存命中那条路。缓存命中也刷新的原因：
+    缓存本身 30 分钟就过期，而回退文件按同一 TTL 判新鲜；若只在"真实登录"时写，
+    缓存命中占多数的每小时轮次就不会更新回退文件，它会在下一个窗口被判过期。
+    每轮覆盖写一份相同会话的成本极低（一个 800 字节的 JSON），换来的是回退链
+    始终有一份"和当前会话同龄"的备份。
+
+    这是**尽力而为**动作：失败只记日志、返回 False，绝不影响本轮任务
+    （会话在本轮内仍可用）。
+    """
+    try:
+        return save_auth_info(
+            auth.get("cookie", ""), auth.get("forgery_token", ""),
+            auth.get("host", ""), int(auth.get("port", 443) or 443),
+            username, source,
+        )
+    except Exception as e:  # noqa: BLE001
+        log(f"[AUTH] 刷新 auth_info.json 异常（不影响本轮任务）: {type(e).__name__}: {e}")
+        return False
+
+
 def ensure_auth_info(force: bool = False, max_age_hours: float | None = None) -> bool:
     """确保 auth_info.json 可用（浏览器登录脚本已不在仓库，此处用 RSA 接口兜底生成）。
 
@@ -671,6 +744,11 @@ def ensure_auth_info(force: bool = False, max_age_hours: float | None = None) ->
 
     这里用 credential_store 的账号密码（battery_ume 分组）调同一套 RSA 接口，
     成功后写出与浏览器脚本兼容的 auth_info.json，让回退链真正可用。
+
+    ⚠ 本函数是**最后一道**兜底，且它依赖同一个 RSA 登录端点：上游若对这个
+    端点整体拒登（如 2026-10-12 的 HTTP 400），它同样会失败。真正的热备来自
+    ``refresh_auth_info_from_session`` —— 正常每轮同步成功时就会刷新文件，
+    不会等到失败才想起它。
 
     ``max_age_hours=None``（默认）表示取 `auth_manager._resolve_ttl()` 的口径，
     与共享缓存永远一致；显式传值仅用于测试或特殊情况。
@@ -686,32 +764,15 @@ def ensure_auth_info(force: bool = False, max_age_hours: float | None = None) ->
     auth = login_rsa(credentials)
     if not auth or not auth.get("cookie"):
         log("[AUTH] RSA 接口登录失败，无法生成 auth_info.json"
-            "（该 UME 可能已启用图形验证码，需人工介入）")
+            "（具体原因见上方 [LOGIN] 日志的上游状态码；验证码只是可能原因之一）")
         return False
 
-    payload = {
-        "cookie": auth["cookie"],
-        "forgery_token": auth.get("forgery_token", ""),
-        "host": auth.get("host") or credentials["host"],
-        "port": auth.get("port") or credentials["port"],
-        "username": credentials["username"],
-        "login_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "source": "ensure_auth_info (RSA interface)",
-    }
-    tmp = AUTH_INFO_FILE.with_name(AUTH_INFO_FILE.name + f".{os.getpid()}.tmp")
-    try:
-        tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding='utf-8')
-        os.replace(str(tmp), str(AUTH_INFO_FILE))
-        log(f"[AUTH] auth_info.json 已生成 → {AUTH_INFO_FILE}")
-        return True
-    except OSError as e:
-        log(f"[AUTH] 写入 auth_info.json 失败: {e}")
-        try:
-            if tmp.exists():
-                tmp.unlink()
-        except OSError:
-            pass
-        return False
+    return save_auth_info(
+        auth["cookie"], auth.get("forgery_token", ""),
+        auth.get("host") or credentials["host"],
+        int(auth.get("port") or credentials["port"] or 443),
+        credentials["username"], "ensure_auth_info (RSA interface)",
+    )
 
 
 # ---------------------------------------------------------------------------

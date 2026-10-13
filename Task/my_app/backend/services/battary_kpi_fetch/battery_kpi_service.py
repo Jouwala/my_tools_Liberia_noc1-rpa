@@ -1319,6 +1319,11 @@ def _acquire_auth(fetcher, credentials: dict, allow_shared: bool = True) -> dict
     return，不会走到那里，所以"每轮至多探一次"的约束仍然成立。
     """
     host, port = credentials["host"], credentials["port"]
+    # 逐层失败原因（2026-10-13 新增）：三层都失败时原实现只报一句笼统的
+    # 「RSA 登录未成功且无可用 auth_info.json」，并把「图形验证码」列为默认嫌疑，
+    # 误导排查方向（2026-10-12 22:05 实际是 HTTP 400，报文里根本没有验证码关键字）。
+    # 这里把每层的**真实**异常收进 reasons，最终错误信息原样带出。
+    reasons: list[str] = []
 
     if allow_shared:
         am = _import_auth_manager()
@@ -1334,18 +1339,29 @@ def _acquire_auth(fetcher, credentials: dict, allow_shared: bool = True) -> dict
                 src = "缓存" if r["from_cache"] else (
                     "重登（探活失败）" if r.get("from_relogin") else "重登")
                 logger.info("[Battery] 鉴权成功（来源: %s）", src)
-                return {"cookie": r["cookie"], "forgery_token": r["forgery_token"],
+                auth = {"cookie": r["cookie"], "forgery_token": r["forgery_token"],
                         "host": host, "port": port}
+                # 回退链热备（2026-10-13）：拿到已确认可用的会话后刷新 auth_info.json。
+                # 缓存命中也要刷 —— 该文件按 login_time 判新鲜，而缓存本身 30 分钟
+                # 过期；只在真实登录时写的话，缓存命中的轮次不会更新它，文件会在下个
+                # 窗口被判过期，回退链重新变空（2026-10-12 22:05 的教训）。
+                fetcher.refresh_auth_info_from_session(
+                    auth, credentials.get("username", ""), source=f"auth_manager({src})")
+                return auth
             except Exception as e:
                 # 不吞：打印后继续走下面的自有登录兜底。共享层彻底坏掉时本服务
                 # 仍应能独立工作（与修复前的行为一致），但日志里必须留下痕迹。
                 logger.warning("[Battery] 共享鉴权不可用（%s: %s），回退自有登录",
                                type(e).__name__, e)
+                reasons.append(f"auth_manager: {e}")
 
     auth = fetcher.login_rsa(credentials)
     if auth:
         # 真实登录成功：回写共享缓存，让下一小时（以及未来其它消费方）复用
         _write_shared_auth(host, port, auth, credentials.get("username", ""))
+        # 回退链热备（2026-10-13）：真实登录成功同样刷新 auth_info.json。
+        fetcher.refresh_auth_info_from_session(
+            auth, credentials.get("username", ""), source="login_rsa")
     else:
         logger.warning("[Battery] RSA 登录失败，尝试回退 auth_info.json")
         auth = fetcher.load_auth_info_fallback()
@@ -1358,11 +1374,17 @@ def _acquire_auth(fetcher, credentials: dict, allow_shared: bool = True) -> dict
                 if auth:
                     # ensure_auth_info(force=True) 内部刚完成一次真实登录，同样回写
                     _write_shared_auth(host, port, auth, credentials.get("username", ""))
+            else:
+                reasons.append(
+                    "RSA 登录与 auth_info.json 回退均失败"
+                    "（详见上方 [LOGIN]/[AUTH] 日志的上游状态码）")
     if auth is None:
+        detail = "；".join(reasons) if reasons else "无可用错误详情"
         raise RuntimeError(
-            "Battery UME 鉴权失败：RSA 登录未成功且无可用 auth_info.json。"
-            "请检查「设置 → 凭据管理 → Battery UME」的账号密码，"
-            "或确认该 UME 是否已启用图形验证码（需人工登录一次）"
+            f"Battery UME 鉴权失败（{host}:{port}）。各层失败原因: {detail}。"
+            "请按上述原因处置：若是 HTTP 400/5xx 等上游状态码，属瞬时或上游异常，"
+            "稍后自动重试即可；若报账号锁定/密码到期，需在 UME 侧处理后同步"
+            "「设置 → 凭据管理 → Battery UME」；若确为图形验证码，才需人工登录一次。"
         )
     # 回退场景下 host/port 可能缺失，用凭据补全并同步 fetcher 的建连目标
     if not auth.get("host"):
