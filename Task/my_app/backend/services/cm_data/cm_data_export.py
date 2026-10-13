@@ -418,9 +418,61 @@ def _runtime_credentials():
 # ============================================================
 # 登录
 # ============================================================
+def _probe_cm_session(cookie: str, forgery_token: str) -> bool:
+    """用**真实业务端点**（MOQUERY_PATH）探测共享会话是否还活着。
+
+    与 MW/UME_IN 同构的教训：探登录首页会拿到误导性的 200（假绿），业务端点
+    才返回 401。探不到=没探。
+
+    🔒 只允许由 auth_manager.get_auth(probe=...) 在取会话路径调用（每轮至多一次）。
+    """
+    try:
+        # 空 body 的 POST：上游先鉴权再解析参数，401/403=会话死，其余=活着
+        status, _hdrs, _raw, _resp = _http_request(
+            "POST", MOQUERY_PATH,
+            headers_extra=_auth_headers(cookie, forgery_token), body=b"{}")
+        code = 0
+        for tok in status.split():
+            if tok.isdigit():
+                code = int(tok)
+                break
+        return code not in (401, 403)
+    except Exception as e:  # noqa: BLE001
+        print(f"[LOGIN] 会话探测异常（{type(e).__name__}: {e}），按不可用处理")
+        return False
+
+
 def login():
-    print("[LOGIN] 开始鉴权...")
+    """鉴权：优先复用 auth_manager 跨进程缓存，缓存无效则真实登录。
+
+    【2026-10-13 改造：统一走 auth_manager.get_auth(probe=...)】
+    此前本函数**自带整段 4 步 OAuth2 登录**，绕过 auth_manager：每次调用都真登、
+    无探活、无锁定熔断、无重试上限保护（CM 与 RAN/Battery 同属 ZTE UME 系，
+    会话寿命实测仅 55~113 分钟，却每次硬登）。现改为与 MW/iPRAN/Battery/RAN
+    同一套写法，只保留 `_probe_cm_session` 与独立运行兜底。
+
+    Returns:
+        {"cookie": str, "forgery_token": str}（保持原返回值契约不变）。
+    """
     _login_user, _login_pwd = _runtime_credentials()
+    try:
+        from backend.services.auth_manager import get_auth
+    except ImportError:
+        try:
+            from auth_manager import get_auth  # type: ignore  # 独立运行
+        except ImportError:
+            return _login_standalone(_login_user, _login_pwd)
+
+    r = get_auth(HOST, PORT, _login_user, _login_pwd, probe=_probe_cm_session)
+    src = "缓存" if r["from_cache"] else (
+        "重登（探活失败）" if r.get("from_relogin") else "重登")
+    print(f"[LOGIN] 鉴权成功（来源: {src}）")
+    return {"cookie": r["cookie"], "forgery_token": r["forgery_token"]}
+
+
+def _login_standalone(_login_user, _login_pwd):
+    """auth_manager 不可导入时的自带登录（仅脚本独立运行用）。"""
+    print("[LOGIN] auth_manager 不可用，使用自带登录（独立运行模式）")
     session_cookie = ""
     forgery_token = ""
     try:

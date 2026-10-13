@@ -456,10 +456,82 @@ class UMEPortalClient:
         return base64.b64encode(enc).decode("ascii")
 
     def login(self):
-        """OAuth2 + RSA 登录，成功后填充 cookie / forgery_token。"""
+        """OAuth2 + RSA 登录，成功后填充 cookie / forgery_token。
+
+        【2026-10-13 改造：统一走 auth_manager.get_auth(probe=...)】
+        此前本方法**自己实现整段 4 步 OAuth2 登录**，完全绕过 auth_manager：
+          - 每次调用都真实登录（无跨进程缓存复用）；
+          - 无探活（缓存未过期≠会话可用）；
+          - 无锁定熔断、无重试上限保护。
+        实测后果：UME_IN 账号密码到期后，本任务每次调度都真登上游、反复撞 401
+        （2026-10-13 ume_in_kpi_sync 05:45/05:50/06:55… 连续失败）。
+
+        现改为与 MW / iPRAN / Battery / RAN 同一套写法：把「何时探活 / 缓存作废 /
+        单次重登 / 锁定熔断」全部交给 auth_manager，本模块只保留
+        `probe_ume_in_session`（探哪个业务端点这条本地知识）与独立运行兜底。
+        自有 4 步实现的**主路径已删除**，仅在 auth_manager 不可导入（独立运行）
+        时回退到 `_login_standalone`，保证脚本模式仍可用。
+        """
         user, pwd = (self.username, self.password)
         if user is None or pwd is None:
             user, pwd = _runtime_credentials()
+
+        try:
+            from backend.services.auth_manager import get_auth
+        except ImportError:
+            try:
+                from auth_manager import get_auth  # type: ignore  # 独立运行
+            except ImportError:
+                # auth_manager 缺席：退回自带登录（脚本独立运行场景）
+                return self._login_standalone(user, pwd)
+
+        result = get_auth(self.host, self.port, user, pwd,
+                          probe=self._probe_ume_in_session)
+        self.cookie = result["cookie"]
+        self.forgery_token = result["forgery_token"]
+        src = "缓存" if result["from_cache"] else (
+            "重登（探活失败）" if result.get("from_relogin") else "重登")
+        logger.info(f"[LOGIN] OK（来源: {src}）")
+        return self
+
+    def _probe_ume_in_session(self, cookie: str, forgery_token: str) -> bool:
+        """用**真实业务端点**（HISTORY_PATH）探测共享会话是否还活着。
+
+        为什么必须探业务端点（MW 2026-10-04 实测教训，UME_IN 同构）：探登录
+        首页会拿到误导性的 200（假绿），而业务端点返回 401。探不到=没探。
+
+        🔒 只允许由 auth_manager.get_auth(probe=...) 在取会话路径调用（每轮至多一次）。
+        """
+        try:
+            orig_cookie, orig_token = self.cookie, self.forgery_token
+            self.cookie, self.forgery_token = cookie, forgery_token
+            try:
+                body = json.dumps({"pageNo": 1, "pageSize": 1, "moc": "", "smpId": [],
+                                   "moName": "", "position": []}, ensure_ascii=False)
+                status, _hdrs, _raw, _resp = self._request(
+                    "POST", HISTORY_PATH, headers_extra=self._auth_headers(), body=body)
+            finally:
+                self.cookie, self.forgery_token = orig_cookie, orig_token
+            code = 0
+            for tok in status.split():
+                if tok.isdigit():
+                    code = int(tok)
+                    break
+            # 上游先鉴权后解析参数：401/403=会话死；其余（400/500）=活着只是参数不合法
+            return code not in (401, 403)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("[LOGIN] 会话探测异常（%s: %s），按不可用处理",
+                           type(e).__name__, e)
+            return False
+
+    def _login_standalone(self, user, pwd):
+        """auth_manager 不可导入时的自带登录（仅脚本独立运行用）。
+
+        与主路径分离，是为了让生产路径**只保留一套登录实现**（auth_manager），
+        避免两套成功判据、两处回写互相不知道对方手里的活会话。这里保留最小
+        可用的 4 步流程，供无后端包的独立运行兜底。
+        """
+        logger.warning("[LOGIN] auth_manager 不可用，使用自带登录（独立运行模式）")
 
         logger.info(f"[LOGIN] {user}@{self.host}:{self.port}{self.portal}")
         auth_path = ("/api/oauth2/v1/authorize?scope=user.login&response_type=code"
