@@ -310,6 +310,18 @@ body {
   min-height: 0;
   display: flex;
   flex-direction: column;
+  /* 2026-10-12：嵌入模式下禁掉根容器自身的滚动条（用户反馈「门户嵌入的
+     my_app 页面右侧会出现一条 6-8px 宽的浅色竖条」）。
+     根因：app-spatial-root 没设 overflow，子组件（地图浮层 / 排名条）一旦
+     内部内容超 100vh，body 高度被撑大，浏览器在 viewport 右侧画竖向滚动条。
+     嵌入场景下 GISMap 工具栏 + 排名条 + 图例 + Leaflet 浮层累计已接近
+     100vh，再多一点（比如浮层宽度随视口变化）就溢出。
+     修复：嵌入模式下整个根 overflow: hidden，溢出部分直接被裁断（嵌入场景
+     本就是"装得下就看，装不下就裁"的取舍，比出现一条 6px 白条更合理）。
+     为什么用 hidden 而不是 clip：hidden 会把 overflow-y 也禁掉，避免
+     内容超长时也出滚动条（嵌入场景不允许出现滚动条，会与外层 iframe
+     滚动行为冲突）。直接打开（非 embed）模式不受这条影响。 */
+  overflow: hidden;
 }
 .wh-embed-mode > .ant-layout,
 .wh-embed-mode > .ant-layout > .ant-layout {
@@ -321,6 +333,11 @@ body {
   height: 100%;
   min-height: 0;
   flex: 1 1 auto;
+  /* 2026-10-12：嵌入模式下禁掉主内容区的滚动条。
+     原因：App.tsx 给 #main-content 设了 style.overflow='auto'（行内 style），
+     嵌入模式（height: 100%）下内容若超过 height 就会出滚动条。嵌入场景
+     不期望出现内层滚动条（与外层 iframe 滚动行为冲突），所以覆盖为 hidden。 */
+  overflow: hidden;
 }
 .spatial-panel,
 .spatial-navbar {
@@ -922,7 +939,13 @@ html {
 }
 :root[data-theme='dark'] .gis-legend-overlay {
   /* 用户 2026-10-14 指定「100% 透明」= alpha 0（见上方第五轮的已知代价）。
-     写成 transparent 而不是 rgba(...,0)，是为了让「零背景」这个意图一眼可见。 */
+     写成 transparent 而不是 rgba(...,0)，是为了让「零背景」这个意图一眼可见。
+     ⚠️ 2026-10-13：曾为修「图例被遮挡」把这里改成 rgba(10,20,40,0.62)，
+     **实测与遮挡无关已回退**（加底前后对比度 2.20 → 2.22，+1%）。那一轮
+     的真实根因是**门户画布外层的 .canvas-note 说明条压在 iframe 底缘**，
+     修法是浮层 bottom 上移 26px —— 见 MapLegendOverlay.tsx panelStyle 注释。
+     留此记录防两个坑：① 别再用加背景色治"看不清"（先确认是不是被盖）；
+     ② iframe 内探针查不出外层页面压上来的遮挡物，跨文档比较先对齐坐标。 */
   background: transparent;
 }
 :root[data-theme='light'] .gis-legend-overlay {

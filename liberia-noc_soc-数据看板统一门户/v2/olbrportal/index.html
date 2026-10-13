@@ -277,6 +277,12 @@
             data-i18n-attr="title:rail.tip">
       <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
       <span data-i18n="rail.btn">搜索与筛选</span>
+      <!-- 2026-10-12：在按钮尾加 <kbd> 徽章显示 Ctrl K 快捷键。
+           title 里已经写了 "(Ctrl K)" 文字，但用户得 hover 才能看见 —
+           现在直接把快捷键显示成可识别的键帽样式，让"按这个键能打开"
+           不用 hover 就能看到。⚠️ 14px 屏下隐藏、28px 屏下正常显示，
+           避免窄屏塞不下。 -->
+      <kbd class="rail-kbd" aria-hidden="true">Ctrl K</kbd>
       <i class="ph ph-caret-down rail-cv" aria-hidden="true"></i>
     </button>
     <span class="rail-sum" id="railSum"></span>
@@ -525,6 +531,15 @@
 </div>
 
 <div class="toast" id="toast" hidden></div>
+
+<!-- 2026-10-12：右下角"返回顶部"按钮。
+     整页 3293px 高，滚到 ESC 矩阵再回顶要 scroll 9 次 —— 通用解法。
+     触发条件：scrollY > 600 才显示（避免刚加载时就在右下角挡视线）。
+     显隐走 .is-on class 切换，CSS 用 opacity + transform 控制
+     —— display:none 会让"淡入"动画失效。 -->
+<button type="button" class="btt" id="bttBtn" aria-label="Back to top" title="Back to top" hidden>
+  <i class="ph ph-arrow-up" aria-hidden="true"></i>
+</button>
 
 <script src="/MsPortal/assets/data.js"></script>
 <script src="/MsPortal/assets/terms.js"></script>

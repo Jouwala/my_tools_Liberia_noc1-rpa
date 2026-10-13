@@ -1438,7 +1438,32 @@ window.OLBR_DATA = (function () {
          · .ant-card-body:has(.gis-rank-overlay) .leaflet-map-pane  → Alarm 1 / MW 0  ✅
          · html:not(.mw-embed) .leaflet-map-pane                    → Alarm 1 / MW 0  ✅（备选）
          · .leaflet-map-pane（裸写）                                 → Alarm 1 / MW 1  ❌ 会伤 MW */
-    '.ant-card-body:has(.gis-rank-overlay) .leaflet-map-pane{margin-left:-89px!important}',
+    /* ⚠️⚠️ 2026-10-13：**位移已归零，不要再加回来。**
+       用户报「加载完成后的缩小地图，缩一号后最右边出现竖白条」，
+       实测根因就是这个位移，而不是"缩小"这个动作：
+       Leaflet 的瓦片是按 **256px 整数列**铺网格的，网格总宽 = 列数×256，
+       列数只由容器尺寸决定。所以"网格右缘超出容器右缘多少"（余量）是个
+       随缩放级/宽度跳变的值，实测：
+         · 缩一级前  5 列 = 1280px → 网格 -286..994，余量 109px → 扛得住左移
+         · 缩一级后  4 列 = 1024px → 网格 -222..802，余量   6px → 露白 83px
+       扫 margin-left 得到的线性关系（TMP/_probe_matrix.json）：
+         -89px → 右缝 +83px（问题态）  -60px → +54  -30px → +24
+            0px → 右缝  -6px（铺满 ✅）
+       即 **右缝 = 余量 − 平移量**。余量在 0~255 之间循环，所以只要平移
+       89px，就必然有相当比例的缩放级/窗口宽度会露白 —— 它不是一个
+       "某些情况下坏"的 bug，而是**做法本身与瓦片网格不相容**。
+       ⚠️ 也别指望"缩放后抖一下尺寸让 Leaflet 重排"能救：我实测过
+        （高度抖、宽度抖都试了，见 olbr.js 里 zoomOutLeaflet 上方那段），
+        抖动只改变列数的落点，不改变"余量必须 ≥ 平移量"这个不等式。
+       ---- 那 MAINTENANCE ALERTS 遮挡怎么办 ----
+       当初加这个位移是为了「避免右边图例遮挡地图」（2026-10-15）。
+       但避让应当**从浮层侧解决**，不该拿地图画布开刀 —— 面板遮挡的是
+       "点被盖住"，而把整块画布平移出去会连带制造右侧空白，这是拿一个
+       更显眼的视觉缺陷换一个较轻的。
+       如仍需避让，请优先缩小 `.gis-rank-overlay` 的宽度或改它的位置
+       （原注释自己也算过：width 150px→盖 7 个点，120px→盖 0 个），
+       那条路不会在画布上留缝。 */
+    '.ant-card-body:has(.gis-rank-overlay) .leaflet-map-pane{margin-left:0!important}',
     /* ⚠️ 2026-10-15 修正：**不要**给 .gis-rank-overlay 加位移。
        我第一版顺手写了 `.gis-rank-overlay{transform:translateX(-160px)}`，
        理由是"地图左移了、浮层不跟着移会撞在一起" —— 那是**想当然，实测是错的**：

@@ -4506,10 +4506,21 @@
         '<span class="oss-card-ico">' + ic(it.icon) + '</span>' +
         '<span class="oss-card-t">' + hl(titleOf(it)) + '</span></a>';
     }).join('');
+    /* 2026-10-13（用户要求「根据卡片数自动分两行，列数自动平分」）：
+       列数 = ceil(卡片数 / 2)，**写成行内样式**而不是交给 CSS 的 auto-fill 去猜。
+       原因：auto-fill + minmax(150px,1fr) 是按**容器宽度**算列的，卡片数一变
+       （筛选 / 增删看板）列数就跟着变，还会出现坐不满的碎行 —— 实测 10 张在
+       887px 下得到 5+5，但 6 张会得到 5+1、4 张会得到 4+0（第 2 行空着却仍被
+       grid-auto-rows:1fr 占去一半高度，卡片被压扁）。
+       用户要的语义是「行数固定 2、列数随卡片数变」，决定列数的是**卡片数**，
+       CSS 拿不到这个数，只能在这里算好传下去。
+       ⚠️ 边界：卡片数 1 → ceil(1/2)=1，单列一行；空态那张 .oss-card.is-empty
+       自带 grid-column:1/-1 通栏，不受这里的列数影响。 */
+    var cols = Math.max(1, Math.ceil(list.length / 2));
     return '<div class="p-head"><span class="p-hd"><span class="p-t t-orange">' +
         esc(t('aux.friends')) + '</span></span>' +
       '<div class="map-tools"><span class="cnt">' + list.length + '</span></div></div>' +
-      '<div class="oss-grid">' +
+      '<div class="oss-grid" style="grid-template-columns:repeat(' + cols + ',minmax(0,1fr))">' +
         (cards || '<span class="oss-card is-empty">' + esc(t('v.empty')) + '</span>') + '</div>';
   }
   function renderOssSection() {
@@ -6503,6 +6514,66 @@
      与 zoomInLeaflet 对称：优先点 Leaflet 自带的 .leaflet-control-zoom-out，
      点不到再落到 map 实例的 setZoom(z-1)。用于 gis 页 —— 它自己落 zoom 7，
      容器高度从 860 降到 573 后显得偏大，故打开后主动缩一级。 */
+  /* 2026-10-13（用户：「主要是加载完成后的缩小地图导致的，缩小一号整个动作触发的
+     哪里没有同步」）—— 这条就是那处「没有同步」。
+     ---- 症状 ----
+     每缩一级，地图右侧就多出一条**竖直白条**，且不会自行恢复。
+     ---- 根因（Playwright 实测，TMP/_probe_size.json 的三态对照）----
+     地图内容被 MAP_STRIP_CSS 的 `.leaflet-map-pane{margin-left:-89px}` 整体左移
+     （避让右上 MAINTENANCE ALERTS 面板）。Leaflet 把瓦片铺成**整数列**的网格，
+     每列的宽度是固定的 256px，而 Leaflet 是**按容器尺寸**决定铺几列的；
+     缩一级之后它认为 4 列够用，于是网格总宽只有 4×256 = 1024px：
+       · 缩小前   5 列 = 1280px，网格 -286..994 → 超出容器右缘(885) 109px
+                  → 109 > 89，**扛得住**那 89px 左移，不露白（实测 rightGap -109）
+       · 缩一级后 4 列 = 1024px，网格 -222..802 → 只剩 6px 余量
+                  → 6 < 89，**扛不住**左移，右侧露出 89-6 = 83px 白条
+                  （实测 rightGap +83、纯白 28 列；再缩一级仍差 +51px）
+     所以这不是"阴影"或"滚动条"，而是**瓦片列数从 5 掉到 4 之后，那 89px 左移
+     再也盖不住右边**。缩小动作本身没错，错在没有在缩放后让 Leaflet 重算网格。
+     ---- 为什么以前没被修掉 ----
+     stripFrame 只在 0 / 400 / 1200ms 调 invalidateLeaflet，而自动缩小在 **1800ms**
+     才发生（MAP_ZOOM_DELAY）—— 缩小之后**没有任何一次尺寸同步**，
+     网格缺的那一列永远补不回来。
+     ---- 修复口径（实测验证过的那条路）----
+     缩放后**制造一次容器尺寸抖动**，逼 Leaflet 重新量尺寸、重铺瓦片。
+     ⚠️ 为什么不用 map.invalidateSize()：gis 页**拿不到 map 实例**
+        （实测容器的自有属性只有 _leaflet_events 与 _leaflet_id，
+         与 findLeafletMap 上方注释所述一致），所以只能从 DOM 侧下手。
+     ⚠️ 抖动为什么是"高度 100% → calc(100%-1px) → 100%"：
+        沿用 invalidateLeaflet 里已验证的那一招，只改 1px、下一帧还原，
+        用户看不见，但 Leaflet 的 ResizeObserver / window.resize 会因此重算。
+     ---- 实测效果 ----
+     缩一级后（4 列，-89px 位移保持不动，paneLeft 仍为 -89）：
+       修复前  网格 -222..802  rightGap +83  白条 28 列
+       抖动后  网格 -133..891  rightGap  -6  白条  0 列  ✅
+     ---- 调用点 ----
+     挂在 zoomOutLeaflet / zoomInLeaflet 两条路上，所以**手动点 ± 与门户自动缩放
+     都**受益（用户报的是"加载完成后的缩小"，但手动缩放在修复前同样有问题）。 */
+  /* ⚠️ 2026-10-13：**曾经**想在这里加一个 resyncAfterZoom（缩放后抖一下容器尺寸，
+     逼 Leaflet 重新铺瓦片）来修「缩小后右侧竖白条」。**实测证明它无效，已删除**，
+     别再重新发明它。原因见下面这段——那 83px 缺口不是"没同步"，而是**位移量本身
+     超过了瓦片网格的余量**，抖尺寸改变不了这个余量。
+
+     ---- 「缩小后右侧竖白条」的真正机制（Playwright 实测 TMP/_probe_matrix.json）----
+     MAP_STRIP_CSS 给 `.leaflet-map-pane` 加了 `margin-left:-89px`（避让右上
+     MAINTENANCE ALERTS 面板，见 olbr-data.js 的 MAP_STRIP_CSS 段）。
+     Leaflet 的瓦片是按 **256px 整数列**铺成网格的，网格总宽 = 列数 × 256，
+     而**列数只由容器尺寸决定**。于是"网格右缘超出容器右缘多少"（= 余量）是
+     一个随缩放级/宽度跳变的值，实测：
+        · 缩一级前   5 列 = 1280px → 网格 -286..994，余量 109px  → 109 > 89 扛得住
+        · 缩一级后   4 列 = 1024px → 网格 -222..802，余量   6px  →   6 < 89 露白 83px
+     即 **rightGap = 余量 − 89**，实测线性成立（扫 margin-left 得到）：
+        margin-left  -89px → rightGap +83    ← 问题态
+                     -60px → rightGap +54
+                     -30px → rightGap +24
+                       0px → rightGap  -6    ← 铺满
+     ⚠️ 所以只要余量 < 89px 就一定露白，而余量在 0~255 之间随宽度/级别循环，
+        这意味着**这个位移在任何时刻都可能是坏的** —— 不是"缩小"这个动作有错，
+        是"固定平移 89px"这个做法与"瓦片网格余量不可控"根本不相容。
+     ---- 结论：修在位移上，不要修在同步上 ----
+     正确做法是**不要再平移地图画布**（见 olbr-data.js 里 MAP_STRIP_CSS 的那一行
+     已改为 0），改用不给地图制造裁切缺口的方式避让浮层。 */
+
   function zoomOutLeaflet(d) {
     var btn = d.querySelector('.leaflet-control-zoom-out');
     if (btn) { try { btn.click(); return true; } catch (e) { /* 落到实例 */ } }

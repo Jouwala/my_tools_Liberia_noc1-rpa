@@ -6,6 +6,35 @@
 
 **my_app 没有用户账号体系。** 没有注册、没有登录态、没有角色权限、没有操作审计。任何能访问到 `:7038` 或前端入口的人，都等于拥有系统的完整操作能力（包括触发任务、改凭据、导出全表数据）。
 
+## 统一门户鉴权适配（看板数据的登录态）
+
+看板数据接口（`/api/*` 的业务端点）由 `backend/main.py` 的会话中间件保护，登录态来自**统一门户**：门户登录后签发一个内存 Bearer token，my_app 后端回调门户 `/me` 验证后才签发自己的 HttpOnly 会话 Cookie（`portal_sessions` 表，进程重启可恢复）。细节见 `backend/services/portal_auth.py` 模块头。
+
+两种取得 myapp 会话的方式（都在 `backend/services/portal_auth.py` 的 `/api/auth/*` 下）：
+
+| 端点 | 输入 | 用途 |
+| --- | --- | --- |
+| `POST /api/auth/portal-login` | `{token}`（门户深链 `?t=` 或 localStorage 里已有的门户 token） | 从门户点开深链时"换会话"，免重复登录 |
+| `POST /api/auth/login` | `{username, password}` | **内嵌登录**：直接在 myapp 页面填门户账号密码登录，不必先跳门户（2026-10-13 新增） |
+
+**`/api/auth/login` 的设计约束（务必遵守，改这里前先读）：**
+
+- **必须复用门户唯一真相源。** 后端只把凭据 `httpx` 转发给门户 `POST /uniplam/api/auth/login`（`login_via_portal()`），成功拿回门户 token 与用户后再 `create_session()`。**绝不在 myapp 侧复刻用户库、密码哈希（scrypt）或角色逻辑** —— 那会造出第二份真相源（`D:\01_RPA\AGENTS.md` 第三节第 5 条）。门户 token 一并回传前端写入 localStorage（键 `liberia_noc_auth_v1`，与门户 `src/config.ts` 一致），使刷新 / `?t=` 深链免重复登录。
+- **必须转发真实客户端 IP。** 门户按来源 IP 做登录失败限流（`LOGIN_MAX_FAILURES=10` 锁 60 秒，见门户 `server/auth/types.ts`）。若转发时不带 `X-Real-IP`，所有经 myapp 登录的用户在门户看来都是 `127.0.0.1` —— 同一个 IP 桶，**单人连续试错即可锁死全站登录**。故 `login()` 用 `backend/security.py:client_ip()` 还原真实来源并作为 `X-Real-IP` / `X-Forwarded-For` 传给门户（门户侧 `server/auth/routes.ts:38` 早已按此语义处理 nginx 场景）。
+- **尊重鉴权总开关。** 与 `portal-login` 一致：`auth_switch.is_auth_bypass()`（`auth-switch.json` 的 `authEnabled=false` 或 `AUTH_ENABLED=0`）时直接放行开发管理员，`client_is_local()` 时种本地会话。切换开关后无需重启（3 秒 TTL）。
+- **错误分层**（`login_via_portal` 的两个异常）：门户明确 401/400 → `PortalLoginRejected` → myapp 回 **401**「用户名或密码错误」；门户 429 → 回 **429**；门户**不可达**（连接/超时）→ `PortalUnreachable` → 回 **503** 并提示检查 `UNIPLAM_LOGIN_URL` / `UNIPLAM_ME_URL`（配置问题，别让用户对着"密码错误"反复重试）。
+- **配置**：`UNIPLAM_LOGIN_URL` 默认可从 `UNIPLAM_ME_URL` 推导（把结尾 `/me` 换成 `/login`），分机部署时随 `UNIPLAM_ME_URL` 一起设。
+
+### 账号操作（改密 / 用户管理 / 鉴权开关）：同源直连门户
+
+右上角用户菜单（`frontend/src/components/PortalUserMenu.tsx`）提供与门户 Navbar 同样的四项能力。这些**由前端直连门户** `/uniplam/api/auth/*`，不经 myapp 后端：
+
+- **可行性前提**：myapp 与门户同源（同为 `https://<host>/`，只是 `/myapp/` 与 `/uniplam/` 两个路径），浏览器可直接带 `Authorization: Bearer <门户token>` 访问，无跨域问题。门户自己的前端（`src/auth/AuthContext.tsx`）就是这么做的。
+- **为什么不走后端转发**：用户库仍在门户唯一真相源，myapp 不落地任何账号或密码哈希；少一跳也就少一套要同步维护的错误语义与权限判断。
+- **凭据来源**：localStorage 的 `liberia_noc_auth_v1`（`POST /api/auth/login` 成功后由后端回传写入）。
+
+> ⚠️ **本机身份（username=`local`）下这四项不可用。** 后端对回环访问直接放行且给占位身份（`portal_auth.py:_local_session`），**不签发门户 token**，所以前端拿不到调用门户账号接口的凭据。界面照实显示 `local` 并加「本机」徽章，菜单项会提示原因 —— 这不是功能坏了，从局域网地址真实登录后即可使用。
+
 ## 唯一的接口防护：`require_protected`
 
 `backend/security.py` 的 `client_is_local()`：

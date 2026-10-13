@@ -1794,8 +1794,8 @@ window.MS_PORTAL_DATA = {
       "groups": [
         "CXO View"
       ],
-      "titleZh": "CXO Daily Dashboard (CXO 90 天经营看板)",
-      "titleEn": "CXO Daily Dashboard (Last 90 Days)",
+      "titleZh": "CXO 90 天经营看板",
+      "titleEn": "CXO 90-Day Business Board",
       "descZh": "面向 CEO 的经营视角大屏：直连 VMAX 数仓（GBase zxvmax）取最近 90 个已完成日，支持日 / 周粒度切换。顶部卡片给出总流量、活跃用户、视频体验等主指标及周同比 / 月同比，下方为业务结构（视频 / 缓存 / 游戏）、网络质量（建链成功率 / 重传 / 时延）趋势与最近 14 天明细，上游缺数日单独标注。",
       "descEn": "CEO-facing business dashboard: queries the VMAX warehouse (GBase zxvmax) directly for the last 90 completed days, with day / week granularity switching. Hero cards show total traffic, active users and video experience with WoW / MoM deltas; below are service-mix (video / cache / gaming) and network-quality (success rate / retransmission / latency) trends plus the last 14 days of detail, with upstream data gaps flagged.",
       "platform": "myapp",

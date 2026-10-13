@@ -574,12 +574,12 @@
     'main#main-content .ant-card:has(.leaflet-container) > .ant-card-head{display:none!important}',
     'main#main-content .ant-card:has(.leaflet-container) > .ant-card-body{height:100%!important;padding:0!important}',
     'main#main-content .ant-card-body:has(.leaflet-container){position:relative!important}',
-    /* 2026-10-14：加 `:not(.gis-legend-overlay)` —— 该选择器会命中 GIS 地图上的
-       图例浮层（.ant-card-body 里唯一「不是 .leaflet-container」的直接子元素），
-       给它刷 !important 白底、盖掉 index.css 的 transparent，使门户内嵌与
-       直开 /myapp/?page=gis 的图例观感不一致。完整推导见
-       v1/olbrportal/assets/olbr-data.js 同一行。 */
-    'main#main-content .ant-card-body:has(.leaflet-container) > *:not(.leaflet-container):not(:has(.leaflet-container)):not(.gis-legend-overlay){position:absolute!important;left:0!important;right:0!important;bottom:0!important;z-index:900!important;background:rgba(255,255,255,.88)!important;margin:0!important;padding:2px 8px!important}',
+    /* 地图卡片里与地图同级的两块浮层（图例 .gis-legend-overlay / 区域排名条
+       .gis-rank-overlay）都是绝对定位、自带 bottom/left/z-index，不该被这条规则
+       接管成「贴底整条白底栏」。两者都必须登记在排除名单里 —— 只排除图例、漏掉
+       排名条时，排名条会被拉成整条底栏并以更高 DOM 顺序盖住左下角图例。
+       完整推导见 v2/olbrportal/assets/olbr-data.js 同一行（那边已双排除 + 地图位移归零）。 */
+    'main#main-content .ant-card-body:has(.leaflet-container) > *:not(.leaflet-container):not(:has(.leaflet-container)):not(.gis-legend-overlay):not(.gis-rank-overlay){position:absolute!important;left:0!important;right:0!important;bottom:0!important;z-index:900!important;background:rgba(255,255,255,.88)!important;margin:0!important;padding:2px 8px!important}',
     '.leaflet-container{height:100%!important;min-height:0!important;max-height:none!important;width:100%!important;border-radius:0!important}'
   ].join('');
 

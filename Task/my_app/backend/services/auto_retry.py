@@ -164,6 +164,17 @@ NON_RETRYABLE_KEYS = (
     "User has been locked",
     "has been locked",
     "账号已被上游锁定",
+    # 密码到期族（2026-10-13 新增）：ume_in 2026-10-13 05:45 起返回
+    # {"detail":{"code":"2","message":"The user password is about to expire"}}，
+    # 改密只能人工在 UME 侧完成，重试不会成功；且每次失败登录都在给上游
+    # 的失败计数充值 —— RAN UME 2026-10-12 事故中 ~38 次失败登录直接把
+    # NOC 账号撞进 code=4 锁定。识别到到期族立即放弃重试。
+    "password is about to expire",
+    "password has expired",
+    "password is expired",
+    "password expired",
+    "密码已到期",
+    "密码即将到期",
 )
 
 # ---- 会话/UI 类失败（2026-10-11 新增） ----

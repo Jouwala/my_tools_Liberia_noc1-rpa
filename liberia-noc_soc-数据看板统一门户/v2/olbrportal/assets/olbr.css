@@ -572,7 +572,13 @@ html.dark .rail { box-shadow: none; }
 .count b { color: var(--t1); font-weight: 700; }
 
 /* --------------------------------------------------------------- main -- */
-main { flex: 1; padding-block: var(--s5) var(--s6); display: flex; flex-direction: column; gap: var(--s4); }
+/* ⚠️ 2026-10-13：padding-bottom 由 var(--s6)=28px 收到 var(--s4)=16px。
+   与 .foot 的 margin-top 归零是**同一处修复的两半**（用户选定「两段都收窄」）——
+   原来 28+28=56px 是同一档间距被算了两遍，#esc 卡片下面因此显得空。
+   完整推导与实测数据见下方 .foot 那条注释。
+   上面 padding-top 仍是 var(--s5)=20px：它对着的是 sticky 的 .rail，
+   与页尾这个"主体→页脚"的间距不是同一件事，不要为了对称一起改。 */
+main { flex: 1; padding-block: var(--s5) var(--s4); display: flex; flex-direction: column; gap: var(--s4); }
 
 /* 2026-10-11 加（设计打磨 B5）：main 直接子 section 之间的视觉分界。
    之前 main 的 gap=var(--s4)=16px 让所有区看起来"等距"，**重要区反而不突出**。
@@ -2019,7 +2025,10 @@ main { flex: 1; padding-block: var(--s5) var(--s6); display: flex; flex-directio
   --maprow-h: 573px;
 }
 /* 两块内部的 .canvas 共用同一个下限，等高由此保证（不是靠两边都写一遍数字） */
-.maprow > section { display: flex; flex-direction: column; min-width: 0; }
+.maprow > section { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+/* ↑ 2026-10-13 加 min-height:0：同上，grid item 默认 min-height:auto
+   会按内容最大者撑到 iframe 实际高度（674px），把 .maprow 撑高并
+   与 .qarow 重叠。 */
 .maprow .canvas { flex: 1 1 auto; min-height: var(--maprow-h); }
 /* 窄屏：并排两块内嵌页都太窄，改成上下排。
    高度只在手机上收一档 —— 手机那块屏幕本来也放不下一个全国地图，
@@ -2060,8 +2069,13 @@ main { flex: 1; padding-block: var(--s5) var(--s6); display: flex; flex-directio
   grid-template-columns: repeat(2, minmax(0, 1fr));
   --qarow-h: 573px;
 }
-.qarow > section { display: flex; flex-direction: column; min-width: 0; }
-.qarow .canvas { flex: 1 1 auto; min-height: var(--qarow-h); }
+.qarow > section { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+/* ↑ 2026-10-13 加 min-height:0：
+   grid item 默认 min-height: auto = 内容最大者，会被 .canvas 内的 iframe
+   / .oss-grid 内容撑到 700+px，导致 .qarow 比 --qarow-h 高、与 #esc 重叠。 */
+.qarow .canvas { flex: 1 1 auto; min-height: 0; }
+/* ↑ min-height 改 0：原来 var(--qarow-h) 把 .canvas 锁死 573，撑破父容器；
+   改为 0 后由父 .qarow > section 的 --qarow-h 提供高度底线。 */
 @media (max-width: 1200px) { .qarow { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 640px) { .qarow { --qarow-h: 280px; } }
 /* OSS 槽位：右栏不是内嵌 iframe，而是一列展开的链接。
@@ -2094,14 +2108,31 @@ main { flex: 1; padding-block: var(--s5) var(--s6); display: flex; flex-directio
   margin-top: var(--s3); border: 1px solid var(--line); border-radius: var(--r2);
   background: var(--surface);
   display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-  gap: var(--s2); padding: var(--s3); align-content: stretch;
+  /* ↑ 2026-10-13：这行 auto-fill 现已是**兜底档**。
+     真正生效的列数由 olbr.js 的 ossSectionHtml() 按「ceil(卡片数/2)」写成
+     行内 grid-template-columns（行内样式特异性更高，会盖掉这行）。
+     保留 auto-fill 的理由：万一 JS 侧没算出列数（例如将来有人另写一处渲染），
+     网格仍能自适应铺开，而不是退化成单列窄条。 */
+  /* 2026-10-13：行高由 grid-auto-rows: 1fr 平分容器（去掉 align-content: stretch），
+     改用 grid-auto-rows 才能让 grid item 自身撑满行高；align-content 只决定
+     多行总高 < 容器高时怎么分配多余空间，对单行 / 行内高度无作用。
+     .oss-card 同步去掉了 min-height:92px（见该规则）—— 1fr 才会真正生效。 */
+  grid-auto-rows: 1fr;
+  gap: var(--s2); padding: var(--s3);
 }
 .oss-card {
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
-  min-height: 92px; padding: 12px 10px; text-align: center; text-decoration: none;
+  height: 100%;
+  padding: 12px 10px; text-align: center; text-decoration: none;
   border: 1px solid var(--line-2); border-radius: var(--r2); background: var(--surface-2);
   color: var(--t1); transition: background .14s, border-color .14s, color .14s, transform .14s;
 }
+/* ↑ 2026-10-13 去掉 min-height:92px + 加 height:100%：
+   卡片要按容器高度平分（grid-auto-rows:1fr），写死 min-height 会让 1fr 失效
+   （grid 1fr ≤ max(min-content, 实际高度)，min-height:92 把下限钉在那里），
+   条目少时下方一片空白，条目多时也拉不开。
+   改为 height:100% 后 grid item 严格撑满所在 1fr 行，10 张卡片 2 行时
+   每张 270px（容器 573 减去 padding/gap 摊到 2 行）。 */
 .oss-card:hover, .oss-card:focus-visible {
   background: var(--b-tint); border-color: var(--b-line); color: var(--b-ink); transform: translateY(-1px);
 }
@@ -2747,7 +2778,23 @@ table.grid a:hover { text-decoration: underline; }
 @keyframes toast-in { from { opacity: 0; transform: translate(-50%, 8px); } to { opacity: 1; transform: translate(-50%, 0); } }
 
 /* ---------------------------------------------------------------- foot -- */
-.foot { border-top: 1px solid var(--line); background: var(--surface); margin-top: var(--s6); }
+.foot {
+  border-top: 1px solid var(--line); background: var(--surface);
+  /* ⚠️ 2026-10-13：**margin-top 已删除**，不要再加回来。
+     用户报「Escalation Matrix 组件跟底部有些空白」。实测（TMP/_probe_esc.json）
+     #esc 卡片底边(y=3397)到文档底(3496)共 99px，由三段叠成：
+       · main 的 padding-bottom  var(--s6)=28px
+       · .foot 的 margin-top     var(--s6)=28px   ← **这里**
+       · footer 自身高          42px（版权行 + 状态行，真实内容）
+     前两段是**同一档间距被算了两遍**：设计意图只是"主体与页脚之间留一档"，
+     却因为 main 已经给了 padding-bottom、footer 又给了一次 margin-top，
+     实际空出 56px。而 #esc 是带边框的卡片，下面紧接一段什么都不画的空白，
+     最容易被读成"组件没贴到底 / 多出一块空白"。
+     修复口径（用户 2026-10-13 选定「两段都收窄」）：
+       main 的 padding-bottom  28px → var(--s4)=16px（见 main 那条）
+       .foot 的 margin-top     28px → **0**（本条，去重）
+     净效果：#esc 到页脚从 56px 收到 16px，仍保留一档呼吸，且不再是两倍。 */
+}
 .foot-in { display: flex; align-items: center; justify-content: space-between; gap: var(--s4); flex-wrap: wrap; padding-block: 12px; font-size: var(--fs-xs); color: var(--t3); }
 .foot-r { display: flex; align-items: center; gap: var(--s4); flex-wrap: wrap; font-variant-numeric: tabular-nums; }
 .foot-r .ok { color: var(--ok); display: inline-flex; align-items: center; gap: 5px; }

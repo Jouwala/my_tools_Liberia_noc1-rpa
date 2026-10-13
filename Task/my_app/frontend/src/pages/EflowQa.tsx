@@ -1301,23 +1301,18 @@ export default function EflowQa() {
   }, [])
 
   // ===== 检索 + TT 工具区（顺序可拖，localStorage 持久化）=====
-  // 教训（2026-10-12）：HTML5 dnd 在 antd Input.Search 这种"组合控件"上不稳
-  // ① 半透明 dragImage 在嵌套的 flex 容器里常被 antd/Input 的内部 draggable
-  //    监听吃掉（"无法拖动"就是这个），drop 经常不触发；
-  // ② 跨浏览器对 small element 的 dragstart 行为不一致。
-  // 改用「按下手柄 + 实时高亮目标 + 鼠标移到目标上点击」三态交互：
-  //   - 手柄 mousedown → 进入"调整顺序模式"（紫色高亮 + 提示）
-  //   - 鼠标移到任一 block → 出现 2px 落位线
-  //   - 单击目标 block → 把被拖的块插到该位置之前
-  //   - ESC / 单击空白 / 再点手柄 → 取消
-  // 不引新依赖，纯 mouse 事件，行为可预期。
-  type DragState = { key: string; rect: DOMRect } | null
+  // 用户反馈（2026-10-12 第 2 轮）：第一版拖拽加了"紫色提示横幅 / 被拖块
+  // 半透明 + 虚线 / 整体 cursor 变 crosshair"三件套——太重，遮挡视线。
+  // 第二版要做的事：把所有装饰全部去掉，按住到松手之间**视觉上跟
+  // 按住前完全一样**，只在用户真正悬停到目标 block 时显示一条 1.5px
+  // 落位线（细、贴近分隔线、不抢眼），落位即消失。
+  // 实现：mousedown 锁定被拖 key，window mousemove 反查鼠标所在的
+  // block 元素（用 blockRefs 做"包含判定"），mouseup 时执行落位。
+  // ESC 取消。toolOrder 仍存 localStorage eflowqa.toolBlocks.v1。
+  type DragState = { key: string } | null
   const [dragging, setDragging] = useState<DragState>(null)
-  // 拖动中：目标 block 的 key（即"插到它之前"）；null 表示未悬停
+  // 鼠标当前悬停的目标 block key；null = 未在 block 上
   const [hoverKey, setHoverKey] = useState<string | null>(null)
-  const dragStateRef = useRef<DragState>(null)
-  // 鼠标位置 → toolOrder index（用于"拖到两块之间"也能定位）
-  const containerRef = useRef<HTMLDivElement | null>(null)
   const blockRefs = useRef<Record<string, HTMLDivElement | null>>({})
 
   // 顺序变更 + 落库
@@ -1333,52 +1328,29 @@ export default function EflowQa() {
     })
   }, [persistToolOrder])
 
-  // 全局监听：拖动模式下，松手/ESC/点击空白 = 取消；移动 = 更新 hoverKey
+  // 拖动期：仅在 mousemove / mouseup / Escape 上做最小工作。
   useEffect(() => {
     if (!dragging) return
     const onMove = (e: MouseEvent) => {
-      // 在所有 block 元素上判定"鼠标在哪个 block 的上半/下半"
-      // 上半 = 插到该 block 之前；下半 = 插到该 block 之后
-      const target = e.target as Node | null
-      let found: { key: string; before: boolean } | null = null
+      // 反查鼠标所在的 block（包含判定，能命中 block 内的 Input.Search 等子元素）
+      const t = e.target as Node | null
+      let found: string | null = null
       for (const [k, el] of Object.entries(blockRefs.current)) {
         if (!el) continue
-        if (target && (el === target || el.contains(target))) {
-          const r = el.getBoundingClientRect()
-          const before = e.clientY < r.top + r.height / 2
-          found = { key: k, before }
-          break
-        }
+        if (t && (el === t || el.contains(t))) { found = k; break }
       }
-      // 没在任何 block 上 → 取消落位
-      setHoverKey(prev => {
-        const next = found?.key ?? null
-        return prev === next ? prev : next
-      })
-      dragStateRef.current = dragging
+      setHoverKey(prev => prev === found ? prev : found)
     }
     const onUp = () => {
-      // 鼠标抬起：若当前悬停在某个 block 上，则执行落位
-      // 用 ref 取最新值（避免闭包过期）
-      setHoverKey(currentHover => {
-        if (currentHover && dragging) {
-          // 区分"上半/下半"决定 before/after：与 onMove 同步推算
-          // 简单起见：再读一次最后鼠标位置
-          // 这里用 clientY 拿不到（已经抬起），退化为"插到 hoverKey 之前"
-          // —— 与 drop 语义保持一致
-          moveBlock(dragging.key, currentHover)
-        }
+      // 取当前 hoverKey 落位
+      setHoverKey(h => {
+        if (h && dragging) moveBlock(dragging.key, h)
         return null
       })
       setDragging(null)
-      dragStateRef.current = null
     }
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        setDragging(null)
-        setHoverKey(null)
-        dragStateRef.current = null
-      }
+      if (e.key === 'Escape') { setDragging(null); setHoverKey(null) }
     }
     window.addEventListener('mousemove', onMove)
     window.addEventListener('mouseup', onUp)
@@ -1397,26 +1369,28 @@ export default function EflowQa() {
     const setRef = (el: HTMLDivElement | null) => { blockRefs.current[key] = el }
     const handle = (
       <span
-        // 不用 HTML5 draggable（antd Input.Search 等组合控件上不稳，详见上方注释）
+        // 不用 HTML5 draggable（antd Input.Search 等组合控件上不稳）
         onMouseDown={(e) => {
-          // 防止误选文字 / 误触 Input 焦点
+          // 仅阻止默认（避免误选文字 / 抢 Input 焦点），不做任何视觉变化
           e.preventDefault()
-          const next: DragState = { key, rect: (e.currentTarget as HTMLElement).getBoundingClientRect() }
-          dragStateRef.current = next
-          setDragging(next)
           setHoverKey(null)
+          setDragging({ key })
         }}
         title={t('qa.toolOrder.dragHint')}
         style={{
-          cursor: dragging ? 'grabbing' : 'grab',
-          color: dragging ? '#722ed1' : '#94a3b8',
+          // 唯一的"按下态"反馈：cursor 变 grabbing（系统光标自带变化，
+          // 不画任何颜色 / 描边 / 透明度），松手立刻恢复
+          cursor: dragging?.key === key ? 'grabbing' : 'grab',
+          color: '#94a3b8',
           fontSize: 12, marginRight: 4, userSelect: 'none', lineHeight: 1,
-          fontWeight: dragging && dragging.key === key ? 700 : 400,
+          padding: '2px 0',
         }}
       >⋮⋮</span>
     )
+    // 落位线：贴近 block 顶部的 1.5px 极细线，颜色用主题里的青色系——
+    // 让人感觉"像多了一条分隔线"而不是"出现了一个新东西"
     const dropLine = isOver ? (
-      <div style={{ height: 2, background: '#722ed1', borderRadius: 1, margin: '2px 0' }} />
+      <div style={{ height: 1.5, background: '#13c2c2', borderRadius: 1, margin: '2px 0' }} />
     ) : null
     const wrap = (children: React.ReactNode) => (
       <div
@@ -1424,13 +1398,9 @@ export default function EflowQa() {
         ref={setRef}
         data-tool-block={key}
         style={{
-          // 拖动时给被拖块一个"半透明 + 缩进"的高亮，强化"正在被操作"的视觉
-          opacity: dragging && dragging.key === key ? 0.5 : 1,
-          outline: dragging && dragging.key === key ? '1px dashed #722ed1' : 'none',
-          outlineOffset: 2,
-          borderRadius: 6,
-          padding: dragging && dragging.key === key ? '0 4px' : 0,
-          transition: 'opacity 0.12s, outline-color 0.12s',
+          // 拖动期间**完全不动**该 block 的视觉 —— 不透明度 1、无 outline、
+          // 无 padding 变化。落位后由 React diff 自然重排，用户感觉"它只是
+          // 换了个位置"，不会有"被拽着走"的违和感
         }}
       >
         {dropLine}
@@ -1566,41 +1536,10 @@ export default function EflowQa() {
 
   const searchBlock = (
     <>
-      {/* 拖动模式横幅：拖把被按下时显示，提示松手/ESC 行为。
-          与"恢复默认顺序"按钮挤在同一行，避免占块高。 */}
-      {dragging && (
-        <div
-          style={{
-            background: 'rgba(114,46,209,0.10)',
-            border: '1px dashed #722ed1',
-            borderRadius: 6,
-            padding: '4px 8px',
-            fontSize: 12,
-            display: 'flex',
-            alignItems: 'center',
-            gap: 6,
-          }}
-        >
-          <span style={{ color: '#722ed1' }}>⋮⋮</span>
-          <Text style={{ fontSize: 12 }}>{t('qa.toolOrder.dragging')}</Text>
-          <Button
-            type="link"
-            size="small"
-            style={{ padding: 0, height: 'auto', fontSize: 12, marginLeft: 'auto' }}
-            onMouseDown={(e) => { e.preventDefault(); setDragging(null); setHoverKey(null) }}
-          >
-            {t('qa.toolOrder.cancel') || '取消'}
-          </Button>
-        </div>
-      )}
-      <div
-        ref={containerRef}
-        data-tool-container
-        style={{
-          // 拖动模式下整体 cursor 改 grabbing，提示"现在可以松手落位"
-          cursor: dragging ? 'crosshair' : undefined,
-        }}
-      >
+      {/* 第二版去装饰：不在工具区顶部画横幅、不改整体 cursor、不在被拖
+          block 上画 outline。唯一反馈是手柄 cursor 变 grabbing + 目标
+          block 顶上一条 1.5px 落位线。 */}
+      <div data-tool-container>
         {toolOrder.map((key, i) => (
           <div key={key}>
             {renderToolBlock(key)}

@@ -70,8 +70,12 @@ import {
   getAuthMe,
   runAuthBootstrap,
   setOnUnauthorized,
+  portalPasswordLogin,
+  readPortalToken,
+  apiLogout,
   type MenuLayoutPayload,
 } from './api'
+import PortalUserMenu from './components/PortalUserMenu'
 
 // 路由级代码分割：每个页面独立成 chunk，按需加载，首屏不再一次性下载全部页面
 const TableBrowser = lazy(() => import('./pages/TableBrowser'))
@@ -641,6 +645,13 @@ function AppContent() {
   const [bareModule, setBareModule] = useState<boolean>(readBareModule)
   // 会话失效 / 未登录访问数据接口 → 展示“请通过统一门户登录”引导（uniplam 鉴权适配）
   const [authGate, setAuthGate] = useState(false)
+  // 内嵌登录表单（直接填账号密码，不必先跳门户）：账号/密码/提交态/错误提示
+  const [loginUser, setLoginUser] = useState('')
+  const [loginPass, setLoginPass] = useState('')
+  const [loginBusy, setLoginBusy] = useState(false)
+  const [loginError, setLoginError] = useState('')
+  // 右上角用户菜单的当前身份（后端 /api/auth/me 返回；本机回环放行时为 local）
+  const [identity, setIdentity] = useState<{ username: string; role: string } | null>(null)
   // 启动鉴权引导（?t= 换会话 / 免登录探测 / 会话确认）是否已结束：
   // 结束前不挂载业务页面，避免页面在会话 Cookie 落地前抢跑数据接口拿到 401
   const [bootDone, setBootDone] = useState(false)
@@ -1253,6 +1264,14 @@ function AppContent() {
         setAuthGate(true)
         setBootDone(true)
       })
+    // 右上角用户菜单的身份：与登录引导共用同一次引导结果，有身份就取一次 /me。
+    // 本机回环放行时后端返回占位身份 local（无门户 token），照实显示并加「本机」标记。
+    getAuthMe()
+      .then((r) => {
+        const u = r?.data?.user
+        if (u?.username) setIdentity({ username: u.username, role: u.role || 'viewer' })
+      })
+      .catch(() => setIdentity(null))
     return () => setOnUnauthorized(null)
   }, [])
 
@@ -1264,6 +1283,55 @@ function AppContent() {
         // 仍无会话 → 交给门户登录；短暂停留让 authGate 关闭态可被再次触发
         setAuthGate(true)
       })
+  }, [])
+
+  /* 内嵌登录提交：账号密码 → 后端转发门户校验 → 签发 myapp 会话。
+   * 成功即关引导并重挂载页面；失败按后端返回的 401/429/503 给出可执行提示。 */
+  const submitLogin = useCallback(async () => {
+    if (loginBusy) return
+    if (!loginUser.trim() || !loginPass) {
+      setLoginError(t('auth.loginRequired'))
+      return
+    }
+    setLoginBusy(true)
+    setLoginError('')
+    try {
+      await portalPasswordLogin(loginUser.trim(), loginPass)
+      setLoginPass('')
+      setAuthGate(false)
+      window.location.reload()  // 重挂载全部页面，确保各页用新会话重新拉数
+    } catch (e: any) {
+      const status = e?.response?.status
+      const detail = e?.response?.data?.detail
+      setLoginError(
+        typeof detail === 'string' && detail
+          ? detail
+          : status === 429 ? t('auth.loginTooMany')
+            : status === 503 ? t('auth.loginUnreachable')
+              : t('auth.loginFailed'),
+      )
+    } finally {
+      setLoginBusy(false)
+    }
+  }, [loginBusy, loginUser, loginPass, t])
+
+  /* 退出登录：清 myapp 会话 Cookie 与本地门户 token，再回到登录引导。
+   * 门户侧的会话也一并登出（带 token 调门户 /auth/logout），避免「myapp 退了、
+   * 门户还登着」造成的身份错配 —— 下次点开看板会立刻用旧 token 重新登进来。 */
+  const handleLogout = useCallback(() => {
+    const portalToken = readPortalToken()
+    const done = () => {
+      try { localStorage.removeItem('liberia_noc_auth_v1') } catch { /* 忽略 */ }
+      setIdentity(null)
+      setAuthGate(true)
+    }
+    const clear = portalToken
+      ? fetch('/uniplam/api/auth/logout', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${portalToken}` },
+        }).catch(() => null)
+      : Promise.resolve(null)
+    Promise.all([apiLogout().catch(() => null), clear]).then(done)
   }, [])
 
   /* URL 是当前页面状态的唯一真相源：地址栏 ←→ 页面双向同步。
@@ -1933,6 +2001,11 @@ function AppContent() {
               >
                 <span className="wh-hide-mobile">{t('lang.switch')}</span>
               </Button>
+              {/* 当前登录身份 + 改密 / 用户管理 / 鉴权开关 / 退出（与门户 Navbar 对齐）。
+                  无身份（未登录）时不渲染；登录成功后引导关闭、identity 落地即出现。 */}
+              {identity && (
+                <PortalUserMenu identity={identity} onLogout={handleLogout} />
+              )}
             </div>
           </Header>
           )}
@@ -1996,9 +2069,34 @@ function AppContent() {
             <p style={{ color: 'var(--wh-text-secondary, #aab7c4)', marginBottom: '1.5rem' }}>
               {t('auth.requiredTip')}
             </p>
+            {/* 内嵌登录：直接用门户账号密码登录，不必先跳门户。
+                凭据由后端转发门户校验，用户库/密码策略/限流与门户完全一致。 */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', marginBottom: '1rem' }}>
+              <Input
+                placeholder={t('auth.username')}
+                value={loginUser}
+                autoComplete="username"
+                onChange={(e) => setLoginUser(e.target.value)}
+                onPressEnter={() => { void submitLogin() }}
+              />
+              <Input.Password
+                placeholder={t('auth.password')}
+                value={loginPass}
+                autoComplete="current-password"
+                onChange={(e) => setLoginPass(e.target.value)}
+                onPressEnter={() => { void submitLogin() }}
+              />
+              {loginError && (
+                <div style={{ color: 'var(--wh-danger, #ff7875)', fontSize: '0.85rem', textAlign: 'left' }}>
+                  {loginError}
+                </div>
+              )}
+              <Button type="primary" loading={loginBusy} onClick={() => { void submitLogin() }}>
+                {t('auth.login')}
+              </Button>
+            </div>
             <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'center', flexWrap: 'wrap' }}>
               <Button
-                type="primary"
                 onClick={() => {
                   const portalUrl = (import.meta.env?.VITE_UNIPLAM_URL as string)
                     || `${window.location.origin}/uniplam/`

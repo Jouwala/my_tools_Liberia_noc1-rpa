@@ -102,6 +102,23 @@ def client_is_local(request: Request) -> bool:
     return True
 
 
+def client_ip(request: Request) -> str:
+    """取**真实客户端 IP**（经 nginx 反代时按代理头还原），供转发给上游做限流桶。
+
+    与 client_is_local 同源：nginx 在 `location /api/` 用
+    `X-Real-IP $remote_addr` 覆盖写入，客户端伪造的同名头会被替换，故可采信。
+    注意：`request.client.host` 已被 uvicorn ProxyHeadersMiddleware 改写，不能
+    直接当作原始对端地址使用。
+    """
+    real_ip = request.headers.get("X-Real-IP", "")
+    if real_ip.strip():
+        return _forwarded_client(real_ip)
+    xff = request.headers.get("X-Forwarded-For", "")
+    if xff.strip():
+        return _forwarded_client(xff)
+    return request.client.host if request.client else ""
+
+
 def has_valid_token(request: Request) -> bool:
     """是否携带了正确的 X-API-Token（未配置该环境变量时恒为 False）。"""
     return bool(API_TOKEN) and request.headers.get("X-API-Token") == API_TOKEN

@@ -85,7 +85,26 @@ const panelStyle: CSSProperties = {
      用 bottom 而不是 top：浮层高度随图例条数变化，贴底能让它向上生长，
      无论 3 条还是 12 条都稳定贴着同一条边；贴顶则要先算高度才知道底部会不会出界。
      注意 maxHeight 用的是 100%（相对地图 Card 的 body），改左下后仍然成立。 */
-  bottom: 'var(--wh-space-sm)',
+  /* ⚠️ 2026-10-13：bottom 由 var(--wh-space-sm)(≈8.5px) 上移到 +26px（约图例
+     全高 132px 的 1/5），修「图例最下面一行被挡住了」（用户反馈并指定移动量）。
+     ---- 遮挡物是谁（Playwright 实测 TMP/_probe_note.json）----
+     **不在 iframe 内部** —— 是门户画布自己的 .canvas-note 说明条
+     （「GIS Map · /myapp/?page=gis」那条，olbr.css:2352，
+      absolute bottom:0 / height 28px / background rgba(255,255,255,.86) + 上边框），
+     它贴在 iframe 上沿 iframe 的底缘。图例原来只离画布底 8.5px，
+     于是最后一行被这条 28px 的半透明带**盖掉 11~19px（约半行）**。
+     这也解释了为什么此前所有 iframe 内的探针都查不出遮挡：
+     elementFromPoint / rivals / 裁切检查都在内层文档里问，
+     而遮挡物根本在外层页面上 —— 内层永远"看不到"它。
+     ---- 取 26px 的依据 ----
+     note 高 28px，图例底与画布底原有间隙 8.5px → 至少要上移 28-8.5≈19.5px；
+     用户要求按图例高的 1/5（132/5≈26px），比下限多出 ~6px，
+     实测上移 26px 后最后一行与 note 顶留有 15px 净距（TMP/_probe_note.json after_fix）。
+     ---- 影响面 ----
+     本组件只被 GISMap.tsx（Alarm 页签）使用，MW 页与直开 /myapp/?page=gis 的
+     其他页不受影响；直开场景没有 note 条，图例只是稍离底边一点，无副作用。
+     ⚠️ 若将来门户把 .canvas-note 改位置/删除，这里的 +26px 也应随之复查。 */
+  bottom: 'calc(var(--wh-space-sm) + 26px)',
   left: 'var(--wh-space-sm)',
   zIndex: 1000,
   // 上限 13rem：再宽就会压掉地图上的站点；58vw 是窄屏（门户内嵌）时的兜底

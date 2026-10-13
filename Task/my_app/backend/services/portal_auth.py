@@ -68,7 +68,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
 
-from backend.security import client_is_local
+from backend.security import client_is_local, client_ip
 from backend.database import get_raw_connection
 from backend import auth_switch
 
@@ -79,6 +79,11 @@ logger = logging.getLogger(__name__)
 # —— 那里没有门户，表现是"门户登录成功、进 my_app 却一直未登录"。
 UNIPLAM_ME_URL = os.environ.get("UNIPLAM_ME_URL", "http://127.0.0.1:9267/uniplam/api/auth/me")
 UNIPLAM_TIMEOUT = float(os.environ.get("UNIPLAM_TIMEOUT", "5"))
+# 门户登录地址（供 my_app 内嵌登录表单转发账号密码用，见 login_via_portal）。
+# 默认可从 UNIPLAM_ME_URL 推导（把结尾的 /me 换成 /login），分机部署时随 ME_URL 一起定。
+UNIPLAM_LOGIN_URL = os.environ.get("UNIPLAM_LOGIN_URL") or (
+    UNIPLAM_ME_URL[: -len("/me")] + "/login" if UNIPLAM_ME_URL.endswith("/me") else UNIPLAM_ME_URL
+)
 SESSION_TTL = int(os.environ.get("MYAPP_SESSION_TTL", str(8 * 3600)))
 SESSION_MAX_TTL = int(os.environ.get("MYAPP_SESSION_MAX_TTL", "0"))
 SESSION_SLIDING = os.environ.get("MYAPP_SESSION_SLIDING", "1").strip().lower() not in ("0", "false", "no", "off")
@@ -359,6 +364,69 @@ async def verify_portal_token(portal_token: str) -> Optional[dict]:
         raise PortalUnreachable(f"portal /me unreachable: {exc}") from exc
 
 
+class PortalLoginRejected(RuntimeError):
+    """门户明确拒绝了登录（用户名/密码错误）。
+
+    2026-10-13 引入，与 PortalUnreachable 对称：把「凭据错」与「配置/网络问题」
+    分开，前者回 401 让用户重试，后者回 503 让管理员查地址。
+    """
+
+
+async def login_via_portal(
+    username: str,
+    password: str,
+    client_ip: Optional[str] = None,
+) -> tuple[str, dict]:
+    """把账号密码转发给门户 `POST /uniplam/api/auth/login`，返回 (门户token, 用户)。
+
+    设计要点（2026-10-13）：
+    - **复用门户唯一真相源**：用户库（scrypt 哈希）、密码策略、角色、登录限流
+      全在门户侧。my_app 只做转发，不碰密码哈希，不新增第二份用户库。
+    - **转发真实客户端 IP**：门户按 IP 做登录失败限流（10 次锁 60 秒）。若不带
+      `X-Real-IP`，所有经 my_app 登录的用户在门户看来都来自 127.0.0.1 —— 同一个
+      IP 桶，单人连续试错即把全站登录锁死（门户 server/auth/routes.ts:38 早已
+      为 nginx 场景处理该问题，这里必须同样带上）。
+    - 门户明确 401/400 → 抛 PortalLoginRejected（凭据无效或载荷问题）；
+    - 连接/超时/解析异常 → 抛 PortalUnreachable（配置或部署问题）；
+    - 门户 429（限流）→ 抛 PortalLoginRejected（文案在调用方按状态区分）。
+
+    返回的门户 token 会由调用方写回前端 localStorage，使 myapp 与门户登录态一致
+    （下次用 ?t= 深链或刷新都能免重复登录）。
+    """
+    headers = {"Content-Type": "application/json"}
+    if client_ip:
+        headers["X-Real-IP"] = client_ip
+        headers["X-Forwarded-For"] = client_ip
+    try:
+        async with httpx.AsyncClient(timeout=UNIPLAM_TIMEOUT) as client:
+            resp = await client.post(
+                UNIPLAM_LOGIN_URL,
+                json={"username": username, "password": password},
+                headers=headers,
+            )
+    except Exception as exc:  # noqa: BLE001  连接/超时/解析异常 → 配置或部署问题
+        logger.error(
+            "[portal-auth] 门户登录接口不可达：%s （UNIPLAM_LOGIN_URL=%s）。"
+            "这通常是配置问题而非凭据问题 —— 请确认该地址指向**门户所在机器**。",
+            exc,
+            UNIPLAM_LOGIN_URL,
+        )
+        raise PortalUnreachable(f"portal /login unreachable: {exc}") from exc
+
+    if resp.status_code == 429:
+        raise PortalLoginRejected("too_many_attempts")
+    if resp.status_code != 200:
+        logger.info("[portal-auth] uniplam /login 返回 %s，视为凭据无效", resp.status_code)
+        raise PortalLoginRejected("invalid_credentials")
+
+    data = resp.json() if resp.content else {}
+    token = data.get("token") if isinstance(data, dict) else None
+    user = data.get("user") if isinstance(data, dict) else None
+    if not token or not isinstance(user, dict):
+        raise PortalLoginRejected("invalid_credentials")
+    return str(token), user
+
+
 async def probe_portal_reachable() -> Optional[str]:
     """启动自检：门户回调地址是否可达。可达返回 None，否则返回人类可读的原因。
 
@@ -523,6 +591,47 @@ async def portal_login(payload: dict, request: Request, response: Response):
         raise HTTPException(status_code=401, detail="门户登录验证失败：请先在门户登录后重试")
     create_session(user, response)
     return {"user": user}
+
+
+@router.post("/login")
+async def login(payload: dict, request: Request, response: Response):
+    """内嵌登录：用「账号密码」直接登录，无需先跳门户。
+
+    my_app 后端把凭据转发给门户 `/uniplam/api/auth/login`（复用门户唯一的用户库、
+    密码策略与限流），成功后签发 myapp 会话 Cookie，并把门户 token 一并返回给前端
+    写回 localStorage（与门户登录态保持一致，刷新/深链免重复登录）。
+
+    与 `/portal-login` 的分工：portal-login 收「已有门户 token」；login 收「账号密码」。
+    """
+    if auth_switch.is_auth_bypass():
+        return {"user": dict(DEV_USER), "bypass": True}
+    if client_is_local(request):
+        return {"user": _local_session(response)}
+
+    username = payload.get("username")
+    password = payload.get("password")
+    if not isinstance(username, str) or not isinstance(password, str) or not username.strip():
+        raise HTTPException(status_code=400, detail="请填写用户名和密码")
+
+    try:
+        portal_token, user = await login_via_portal(username.strip(), password, client_ip(request))
+    except PortalUnreachable:
+        # 配置/部署问题，不是凭据问题：回 503 明说病因（与 portal-login 一致）。
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "myapp 无法连接统一门户校验登录（门户登录接口不可达）。"
+                "这是服务端配置问题，请联系管理员检查 UNIPLAM_LOGIN_URL / UNIPLAM_ME_URL 是否指向门户所在机器。"
+            ),
+        )
+    except PortalLoginRejected as exc:
+        if str(exc) == "too_many_attempts":
+            raise HTTPException(status_code=429, detail="登录尝试过于频繁，请稍后再试")
+        raise HTTPException(status_code=401, detail="用户名或密码错误")
+
+    create_session(user, response)
+    # 把门户 token 回传前端写入 localStorage，使后续 ?t= 深链 / 刷新免重复登录。
+    return {"user": user, "portalToken": portal_token}
 
 
 @router.post("/logout")

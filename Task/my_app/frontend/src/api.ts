@@ -573,6 +573,22 @@ export function portalLogin(token: string) {
   return api.post('/auth/portal-login', { token })
 }
 
+/**
+ * 内嵌登录：直接用账号密码登录，无需先跳门户。
+ *
+ * 后端把凭据转发给门户校验（复用门户唯一的用户库/密码策略/限流），成功后签发
+ * myapp 会话 Cookie，并回传门户 token。这里顺手把门户 token 写回 localStorage，
+ * 保持与门户登录态一致 —— 刷新、?t= 深链都免重复登录（键与门户 config.ts 一致）。
+ */
+export async function portalPasswordLogin(username: string, password: string) {
+  const resp = await api.post('/auth/login', { username, password })
+  const portalToken = resp.data?.portalToken
+  if (typeof portalToken === 'string' && portalToken) {
+    try { localStorage.setItem(PORTAL_TOKEN_KEY, portalToken) } catch { /* 隐私模式等忽略 */ }
+  }
+  return resp
+}
+
 export function apiLogout() {
   return api.post('/auth/logout')
 }
@@ -585,6 +601,178 @@ export function getAuthMe() {
  *  前端据此跳过「请通过统一门户登录」引导（见 backend/auth_switch.py）。 */
 export function getAuthMode() {
   return api.get('/auth/mode')
+}
+
+/* ---------- 门户账号能力（改密 / 用户管理 / 鉴权开关）----------
+ * 背景（2026-10-13）：右上角用户菜单要提供与 uniplam 门户同样的四项能力。
+ * 走法与门户自己的前端一致 —— **同源直连门户 /uniplam/api/auth/***：
+ * myapp 与门户同为 https://localhost/ 下的两个路径，浏览器可直接带
+ * Authorization: Bearer <门户token> 访问，无需 myapp 后端再转发一次。
+ *
+ * 为什么直连而不是在 myapp 后端加转发端点（关键决策）：
+ *   1. 用户库仍在门户唯一真相源，myapp 不落地任何账号/哈希，符合
+ *      D:\01_RPA\AGENTS.md 第三节第 5 条「不要新增第二个真相源」；
+ *   2. 少一跳，少一套要同步维护的错误语义与权限判断。
+ *
+ * 前提：localStorage 里有门户 token（键 PORTAL_TOKEN_KEY）。
+ *   - 局域网真实登录 → 有 token → 四项可用；
+ *   - 本机回环放行（username=local）→ **没有门户 token** → 四项不可用，
+ *     界面据此禁用并提示「本机身份，请从局域网登录后使用」。 */
+
+/** 门户鉴权接口基址（与门户 src/config.ts 的 PORTAL_API 同构） */
+const PORTAL_API = '/uniplam/api'
+
+/** 取当前持有的门户 token（未登录/本机身份时为 null） */
+export function readPortalTokenSync(): string | null {
+  try { return localStorage.getItem(PORTAL_TOKEN_KEY) || null } catch { return null }
+}
+
+/** 带 Bearer token 请求门户鉴权接口；无 token 直接抛错（调用方据此提示先登录）。 */
+async function portalFetch<T = any>(path: string, init: RequestInit = {}): Promise<T> {
+  const token = readPortalTokenSync()
+  if (!token) {
+    throw new Error('NO_PORTAL_TOKEN')
+  }
+  const headers = new Headers(init.headers)
+  headers.set('Authorization', `Bearer ${token}`)
+  if (init.body) headers.set('Content-Type', 'application/json')
+  const res = await fetch(`${PORTAL_API}${path}`, { ...init, headers })
+  let data: any = null
+  try { data = await res.json() } catch { /* 非 JSON 响应按状态处理 */ }
+  if (!res.ok) {
+    const err: any = new Error(data?.detail || `HTTP ${res.status}`)
+    err.status = res.status
+    err.detail = data?.detail
+    throw err
+  }
+  return data as T
+}
+
+export interface PortalUser {
+  id: string
+  username: string
+  role: 'admin' | 'viewer'
+  mustChangePassword?: boolean
+  createdAt?: string
+  landing?: string | null
+  allowedGroups?: string[] | null
+  allowedCards?: string[] | null
+}
+
+export interface PortalRegRequest {
+  id: string
+  username: string
+  note?: string
+  status: string
+  createdAt?: string
+  ip?: string
+  decidedAt?: string
+  decidedBy?: string
+}
+
+/** 改自己的密码（门户侧会销毁该用户全部会话并重签 token） */
+export function portalChangePassword(currentPassword: string, newPassword: string) {
+  return portalFetch<{ token: string; user: PortalUser }>('/auth/change-password', {
+    method: 'POST',
+    body: JSON.stringify({ currentPassword, newPassword }),
+  }).then((d) => {
+    // 门户改密后会发新 token：写回本地，否则门户侧能力立刻失效
+    if (d?.token) { try { localStorage.setItem(PORTAL_TOKEN_KEY, d.token) } catch { /* 忽略 */ } }
+    return d
+  })
+}
+
+/** 用户管理：列出全部用户（需 admin） */
+export function portalListUsers() {
+  return portalFetch<{ users: PortalUser[] }>('/auth/users')
+}
+
+/** 用户管理：新建用户（需 admin） */
+export function portalCreateUser(username: string, password: string, role: 'admin' | 'viewer') {
+  return portalFetch<{ user: PortalUser }>('/auth/users', {
+    method: 'POST',
+    body: JSON.stringify({ username, password, role }),
+  })
+}
+
+/** 用户管理：删除用户（需 admin，不能删自己 / 最后一个 admin） */
+export function portalDeleteUser(id: string) {
+  return portalFetch<{ ok: boolean }>('/auth/users/delete', {
+    method: 'POST',
+    body: JSON.stringify({ id }),
+  })
+}
+
+/** 用户管理：改他人密码（需 admin） */
+export function portalResetPassword(id: string, newPassword: string) {
+  return portalFetch<{ ok: boolean }>('/auth/users/reset-password', {
+    method: 'POST',
+    body: JSON.stringify({ id, newPassword }),
+  })
+}
+
+/** 用户管理：改落地页 / 看板分组 / 看板权限（需 admin；传 null 表示清除） */
+export function portalSetUserProfile(
+  id: string,
+  patch: { landing?: string | null; allowedGroups?: string[] | null; allowedCards?: string[] | null },
+) {
+  return portalFetch<{ user: PortalUser }>('/auth/users/profile', {
+    method: 'POST',
+    body: JSON.stringify({ id, ...patch }),
+  })
+}
+
+/** 用户管理：待审账号申请列表（需 admin） */
+export function portalListRegRequests() {
+  return portalFetch<{ requests: PortalRegRequest[] }>('/auth/register-requests')
+}
+
+/** 用户管理：通过申请（需 admin） */
+export function portalApproveRequest(id: string, role: 'admin' | 'viewer') {
+  return portalFetch<{ user: PortalUser; request: PortalRegRequest }>('/auth/register-requests/approve', {
+    method: 'POST',
+    body: JSON.stringify({ id, role }),
+  })
+}
+
+/** 用户管理：驳回申请（需 admin） */
+export function portalRejectRequest(id: string) {
+  return portalFetch<{ request: PortalRegRequest }>('/auth/register-requests/reject', {
+    method: 'POST',
+    body: JSON.stringify({ id }),
+  })
+}
+
+/** 用户管理：账号存储位置与备份情况（需 admin） */
+export function portalStorageInfo() {
+  return portalFetch<{ storage: any }>('/auth/storage')
+}
+
+export interface PortalSwitchState {
+  authEnabled: boolean
+  mode: 'enforced' | 'bypass'
+  source: string
+  env: string
+  envOverride?: boolean
+  reason?: string | null
+  canDisable: boolean
+  canEnable: boolean
+  realLogin: boolean
+  updatedAt?: string | null
+  updatedBy?: string | null
+}
+
+/** 鉴权总开关：读当前状态（canDisable 反映当前身份是否为真实管理员） */
+export function portalGetAuthSwitch() {
+  return portalFetch<PortalSwitchState>('/auth/switch')
+}
+
+/** 鉴权总开关：切换（关闭鉴权需真实管理员，开启放行） */
+export function portalSetAuthSwitch(enabled: boolean) {
+  return portalFetch<{ ok: boolean; authEnabled: boolean; detail: string }>('/auth/switch', {
+    method: 'POST',
+    body: JSON.stringify({ enabled }),
+  })
 }
 
 /* ---------- 启动前鉴权引导（preflight） ----------

@@ -127,14 +127,43 @@ const panelStyle: CSSProperties = {
      运行时经 style 覆盖注入（见组件内 anchorTop）。
      这里只给一个兜底值，供极短的「面板尚未挂载」窗口使用。 */
   top: 124,
-  maxHeight: 'calc(100% - 1rem)',
-  overflowY: 'auto',
+  /* 2026-10-12（用户要求）：去掉本面板的滚动条。
+     原 maxHeight: 'calc(100% - 1rem)' + overflowY: 'auto' 会在门户内嵌窄画布下
+     （地图 570×856px，本面板 top 由 LAYERS 实测高度推出）撞到地图底边，
+     触发浏览器竖向滚动条，浅色底图上就是一条刺眼的亮灰长条。
+     修复口径：去掉 overflow，maxHeight 改成 60vh（既能装下 maxRows 默认 8 行
+     又不会越界），并显式 overflowY: hidden 作为双保险。
+     内容超长时由前面的 .slice(0, maxRows) +「+N more」兜底，根本不会到这里。
+     仅影响 page=gis 这一页的本浮层，不动其它 GIS 浮层（LayerToggleControl /
+     MapLegendOverlay 本来就没滚动条）。 */
+  maxHeight: '60vh',
+  overflowY: 'hidden',
   padding: 'var(--wh-space-sm) var(--wh-space-md)',
   borderRadius: 'var(--wh-radius-lg)',
   border: `1px solid ${WH.cardBorder}`,
   /* 背景**不在这里写**：与 backdrop-filter 成组放在 index.css 的 .gis-rank-overlay，
      那里能按主题各给一档，也便于与图例浮层共用同一套「玻璃底」取舍。 */
-  boxShadow: 'var(--wh-shadow-3)',
+  /* ⚠️ 2026-10-13：阴影由 --wh-shadow-3 改为 --wh-shadow-1，修「地图最右边一条竖白条」。
+     用户报的是：门户内嵌（/v2/olbrportal/ 的 Alarm 页签）100% 缩放下，地图缩小后
+     最右边有一条竖条。
+     根因（Playwright 实测，TMP/_probe_shadow.json 的 A/B/C 三态对比）：
+       · 本浮层由上面 panelStyle 的 `right: 10` 定位 —— 距地图右缘**只有 10px**（这是
+         2026-10-11 为「真的贴边」刻意定的，别改）；
+       · 而 .ant-card 对地图卡片是 `overflow: hidden`，地图画布到右缘即被裁断；
+       · --wh-shadow-3 在浅色档是 `0 24px 64px rgba(15,56,75,.18)`，**64px 模糊半径**
+         塞进 10px 的缝里根本铺不开，阴影在裁切线处被硬切出一条**边缘分明的竖直带**，
+         而不是自然的渐隐阴影。压平的浅色底图（尤其缩小一级后地图右侧是大片海/底色）上，
+         它就被看成「白条/竖条」。
+     实测数据（x=876..885 这一段，浮层 y 范围内 130..400）：
+       · 现状       均色 (225.7, 236.8, 240.4)  ← 被阴影压暗
+       · 阴影设 none 均色 (242.0, 251.0, 253.0)  ← 与底图 #f2fbfd 完全一致，竖带消失
+       · 整块隐藏    同上（说明只与阴影有关，与浮层背景/border 无关）
+     为什么改成 --wh-shadow-1 而不是 `none`：浮层压在瓦片上仍需要一点浮起感，
+     --wh-shadow-1 的模糊半径小（浅色档 `0 2px 8px rgba(38,70,86,.07)`），
+     在 10px 缝内能自然收住、不会被裁成硬边。
+     注：本文件是 my_app 侧、两个门户共用，所以 /MsPortal/ 与直开 /myapp/?page=gis
+     一并生效 —— 那两处同样存在这个裁切，属于同一个 bug 的三个入口。 */
+  boxShadow: 'var(--wh-shadow-1)',
   fontSize: '0.75rem',
   lineHeight: 1.5,
   color: WH.text,
