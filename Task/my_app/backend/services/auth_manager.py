@@ -250,16 +250,28 @@ def get_lock_state(host: str, port: int) -> dict | None:
 def _is_terminal_login_error(err_text: str) -> bool:
     """判断错误是否为「换凭据或人工干预才能解决」的终态错误。
 
-    终态 = 继续用同一凭据重试没有意义：
+    终态 = 继续用同一凭据重试没有意义，且**重试有害**：
       - 账号被上游锁定（locked）
       - 密码到期/过期（expire / expired / 到期 / 过期）
-      - 上游要求图形验证码（verification code / captcha）—— 2026-10-13 新增，
-        实测 Battery 192.168.170.2 启用验证码后，脚本登录（含 RSA 接口）
-        全部返回 code=1300112，任何重试都不可能成功。
-    注意：密码**错误**不在此列 —— 那可能是凭据配置写错，值得让运维看到失败，
-    但同样不该无限重试；这里保守地只处理明确可判定的几类。
+      - 上游要求图形验证码（verification code / captcha）—— 2026-10-13 新增
+      - **用户名或密码错误（2026-10-13 新增）** —— 见下方"为什么必须纳入"。
+
+    【为什么必须把"密码错误"纳入终态】上游锁定规则（2026-10-13 管理员确认）：
+      **连续 3 次密码错误 → 锁定 1440 分钟**。而本模块 `MAX_RETRIES=2`，单次
+      调用就会把同一个错密码打 2 遍；跨调度周期再打，很快凑满 3 次 → 锁号。
+      也就是说：一旦凭据与上游不同步（如上游改了密码、credential_store 没跟上），
+      "重试"本身就会**把账号撞锁**。所以密码错误必须**立即停止重试**。
+      注意与"密码到期"的区别：到期是 `password ... expire`，同样归入终态。
+      与"锁定"的区别：锁定是上游已锁（重试完全无效）；密码错误是**尚未锁、
+      但再试就要锁**（这是本项新增的真正价值）。
+
+    ⚠ 匹配的是**上游错误文本**，不是笼统的 "password" 字样 —— 避免把无关
+    消息（如验证码文案里恰好含 password）误判。判定依据为 `_describe_login_failure`
+    拼出的可读文案，其受控措辞见该函数：命中"用户名或密码错误"/"密码已到期"/
+    "password"+"incorrect|wrong|invalid"/"expire" 等。
     """
     t = (err_text or "").lower()
+    # 已锁定 / 密码到期 / 验证码：原有的三类终态
     if "locked" in t or "lock" in t:
         return True
     if "expire" in t or "expired" in t:
@@ -267,6 +279,13 @@ def _is_terminal_login_error(err_text: str) -> bool:
     if "verification code" in t or "captcha" in t:
         return True
     if "到期" in err_text or "过期" in err_text or "验证码" in err_text:
+        return True
+    # 密码错误（2026-10-13 新增）：命中 _describe_login_failure 的"用户名或密码错误"，
+    # 以及上游原文里常见的 password 变体。**不重试**，避免撞满上游的 3 次锁定阈值。
+    if "用户名或密码错误" in err_text:
+        return True
+    if "password" in t and ("incorrect" in t or "wrong" in t or "invalid" in t
+                            or "not match" in t or "mismatch" in t):
         return True
     return False
 
