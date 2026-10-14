@@ -37,11 +37,4 @@ declare interface Window {
    * 主文件只读不写：改这些常量请改 olbr-data.js，不要在这里补写。
    */
   OLBR_DATA: any;
-  /**
-   * assets/_local-credentials.js 注入：RAG（Open WebUI）的登录凭据提示。
-   * 该文件被 .gitignore 的 `_*` 规则忽略、**不进版本库**（明文凭据按
-   * AGENTS.md 第四节第 2 条不得入库）。运行时由 olbr.js 动态加载；
-   * 文件不存在（其他机器）时该全局为 undefined，页面静默跳过提示。
-   */
-  __RAG_CRED?: { user?: string; pass?: string };
 }

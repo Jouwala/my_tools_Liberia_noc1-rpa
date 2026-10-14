@@ -485,7 +485,7 @@ const RAW_DASHBOARDS: DashboardItem[] = [
       title: 'RAG Knowledge Q&A (本地知识问答 / Open WebUI)',
       description: '本地部署的 RAG 知识问答系统（基于 Open WebUI），支持对内部文档与运维知识库进行自然语言检索问答与对话式查询，全员可用。',
       platform: 'external',
-      url: 'http://192.168.100.27:3000/',
+      url: 'https://192.168.100.27:8443/',
       category: '其他',
       tags: ['RAG', 'Open WebUI', 'LLM', 'AI Q&A', 'Knowledge Base'],
       iconName: 'Bot',

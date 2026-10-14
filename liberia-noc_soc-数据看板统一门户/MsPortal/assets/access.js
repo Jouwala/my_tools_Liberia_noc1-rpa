@@ -59,7 +59,7 @@
     '/webroot/decision/link/2XPO': 'finebi-fo-spare-management-audit'
   };
   var EXTERNAL_ACCESS_IDS = {
-    'http://192.168.100.27:3000/': 'external-rag-knowledge-qa'
+    'https://192.168.100.27:8443/': 'external-rag-knowledge-qa'
   };
 
   /* 2026-09-21 加：原来的 FineBI 卡片已改用 my_app 的 FINEBI Board 原生页

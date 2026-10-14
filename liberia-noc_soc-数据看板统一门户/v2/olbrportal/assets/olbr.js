@@ -2046,9 +2046,28 @@
     /* 组头链接与卡片一样走 langQs()：不带语言参数的话，
        点进去会掉回 my_app 的默认语言，与门户当前语言不一致。 */
     var href = '/myapp/?page=' + encodeURIComponent(g.page) + langQs();
+    /* 组头显示什么（2026-10-13 加）：有 g.logo 时显示**品牌标识图形**，
+       否则回落到原来的文字名。用户要求「标题改成卡片左下角的 logo」——
+       logo 与卡片页脚用的是**同一份**常量（DATA.OOKLA_LOGO / DATA.META_LOGO），
+       不是另画一份，两处永远一致。
+       ⚠️ 图形用 role="img" + aria-label 提供无障碍名称、且 SVG 自身
+       focusable="false"（不带 aria-label，见 olbr-data.js 的说明）——
+       否则读屏会把 "SPEEDTEST by OOKLA" 这串图形文字当正文念一遍。
+       ⚠️ 文字名 board **仍然保留**在 title / aria-label / 组级 tooltip 里：
+       图形只替换"看得见的那个词"，不替换任何"要读出来的地方"，
+       否则 hover 提示与读屏名称会退化成 "ookla" / "meta" 这类无上下文的串。
+       ⚠️ 类名 .qc-group-logo：**不复用** .bf-ookla / .bf-metalogo ——
+       那两个类带页脚专用的 flex-basis（106px / 72px），套到组头会把组头撑高。 */
+    var logoHtml = g.logo === 'ookla' ? DATA.OOKLA_LOGO
+                 : g.logo === 'meta'  ? DATA.META_LOGO
+                 : '';
+    var headInner = logoHtml
+      ? '<span class="qc-group-n qc-group-logo" role="img" aria-label="' + esc(board) +
+          '" title="' + esc(tip) + '">' + logoHtml + '</span>'
+      : '<span class="qc-group-n" title="' + esc(tip) + '">' + esc(board) + '</span>';
     return '<section class="qc-group" data-grp="' + esc(g.id) + '" aria-label="' + esc(board) + '">' +
         '<div class="qc-group-h">' +
-          '<span class="qc-group-n" title="' + esc(tip) + '">' + esc(board) + '</span>' +
+          headInner +
           '<a class="qc-group-go" href="' + esc(href) + '" target="_blank" rel="noopener nofollow" ' +
             'title="' + esc(tip) + '">' + esc(t('kpi.grp.go')) +
             ic('arrow-up-right') + '</a>' +
@@ -4364,10 +4383,14 @@
        · RAG   → 目录里 url 含 `192.168.100.27`（Open WebUI，**外域 https**）
        · eFlow → 目录里 url 含 `page=eflow_qa`
      取不到条目（被人删了 / 权限看不到）时整个页签不渲染，不摆一个空壳。
-     ⚠️ 2026-10-12：RAG 已由 `http://192.168.100.27:3000/` 改成 **`https://192.168.100.27/`**
-        （去端口号、上 https）。匹配串只写主机名 `192.168.100.27`，
-        这样新旧两种形态都能命中 —— 目录若还没同步改到新地址，也不会在这里漏掉。
-        上 https 后，门户（https）内嵌它**不再触发混合内容拦截**，页签能正常显示。 */
+     ⚠️ 2026-10-12：RAG 已由 `http://192.168.100.27:3000/` 改成 https。
+        匹配串只写主机名 `192.168.100.27`，这样新旧两种形态都能命中 ——
+        目录若还没同步改到新地址，也不会在这里漏掉。
+        上 https 后，门户（https）内嵌它**不再触发混合内容拦截**，页签能正常显示。
+     ⚠️ 2026-10-14：**最终地址定为 `https://192.168.100.27:8443/`**（见下方 qaSrc）。
+        Open WebUI 侧按地址区分身份：443 是 admin 管理入口（本人用），
+        8443 是 NOC 使用入口（**自动登录为 NOC，无需密码**）。门户是使用方，
+        必须走 8443 —— 走 443 会以 admin 身份打开，属越权，严禁。 */
   function qaItems() {
     var all = allowed();
     var pick = function (needle) {
@@ -4410,29 +4433,22 @@
       var q = u.slice(m.index + '/myapp/'.length);   // '?page=eflow_qa'
       return '/myapp/' + q + (state.theme === 'dark' ? '&theme=dark' : '') + langQs();
     }
-    /* RAG（外域）：目录若还停在旧地址 `http://192.168.100.27:3000/`，
-       这里**归一到新地址** `https://192.168.100.27/` —— 否则 https 门户内嵌
-       明文 http 会被混合内容拦截成空白。等目录同步改好之后，这一步是幂等的无害兜底
-       （与 qaItems 的"两种形态都能命中"配套：目录过渡期两边都稳）。 */
-    if (u.indexOf('192.168.100.27') !== -1) return 'https://192.168.100.27/';
+    /* RAG（外域）：目录若还停在旧地址（`http://192.168.100.27:3000/` 或
+       `https://192.168.100.27/`），这里**无条件归一到使用入口** `https://192.168.100.27:8443/`：
+         · 否则 https 门户内嵌明文 http 会被混合内容拦截成空白；
+         · 更要紧的是身份 —— 443 进去是 admin，8443 进去才是 NOC（自动登录）。
+           门户是使用方，**只认 8443**，故这里必须强制归一，不能依赖目录值。
+       这一步是幂等的：目录已改成 8443 时，归一回自身、无害。 */
+    if (u.indexOf('192.168.100.27') !== -1) return 'https://192.168.100.27:8443/';
     return u || 'about:blank';
   }
-  /* RAG 页签上那条「登录凭据」提示（2026-10-12 按用户要求加）。
-     数据来自 assets/_local-credentials.js 的 window.__RAG_CRED（**该文件被 .gitignore
-     的 `_*` 规则覆盖、不进版本库** —— 明文凭据按 AGENTS.md 第四节第 2 条不得入库）。
-     页签切到 RAG（key==='rag'）且凭据存在时才显示；切到 eFlow 或凭据文件不存在时
-     整条不渲染。运行时**动态加载**该文件（而不是在 index.html 写死 <script>）：
-     否则其他机器 clone 后没有这个文件，<script> 会 404、控制台报错。 */
-  function qaCredHtml(cur) {
-    if (!cur || cur.key !== 'rag') return '';
-    var c = window.__RAG_CRED;
-    if (!c || !c.user) return '';
-    return '<div class="qa-cred"><i class="ph ph-key" aria-hidden="true"></i>' +
-      '<span class="qa-cred-t">' + esc(t('qa.credTip')) + '</span>' +
-      '<b class="qa-cred-u">' + esc(c.user) + '</b>' +
-      (c.pass ? '<b class="qa-cred-p">' + esc(c.pass) + '</b>' : '') +
-      '</div>';
-  }
+  /* 2026-10-14 删除：RAG 页签上原有的「登录凭据」提示条（.qa-cred）整条链路。
+     Open WebUI 现按地址区分身份（8443 = NOC 自动登录、免密码），门户走 8443
+     后**根本没有凭据可展示**，留着只会误导。
+     随之删除：qaCredHtml()、loadQaCred()、qaCredLoaded/qaCredTried、
+     olbr.css 的 .qa-cred 系列、globals.d.ts 的 __RAG_CRED 声明、
+     olbr-data.js 的 qa.credTip 词条（zh/en），以及磁盘上的
+     assets/_local-credentials.js（该文件本就被 `_*` 规则忽略、从未入库）。 */
   function qaSectionHtml() {
     var list = qaItems();
     if (!list.length) return '';
@@ -4459,33 +4475,19 @@
           '" target="_blank" rel="noopener noreferrer" title="' + esc(t('map.open')) + '">' +
           '<i class="ph ph-arrow-square-out" aria-hidden="true"></i><span>' + esc(t('map.open')) + '</span></a>' : '') +
       '</div></div>' +
-      qaCredHtml(cur) +
       '<div class="canvas">' +
         (cur ? '<iframe id="qaFrame" title="' + esc(qaTabTitle(cur)) + '" src="' + esc(qaSrc(cur)) + '"></iframe>'
              : '<div class="canvas-note"><span>' + esc(t('v.empty')) + '</span></div>') +
       '</div>';
   }
-  /* 动态加载凭据文件（只加载一次）。加载成功/失败都回调 —— 成功时要重画 Q&A 栏
-     让凭据提示显示出来；失败（文件不存在）静默，不报错、不重画。 */
-  var qaCredLoaded = false, qaCredTried = false;
-  function loadQaCred() {
-    if (qaCredTried) return; qaCredTried = true;
-    var s = document.createElement('script');
-    s.src = 'assets/_local-credentials.js';
-    s.onload = function () { qaCredLoaded = true; try { renderQaSection(true); } catch (e) { /* ignore */ } };
-    s.onerror = function () { /* 文件不存在（其他机器）—— 静默 */ };
-    document.head.appendChild(s);
-  }
-  function renderQaSection(force) {
+  function renderQaSection() {
     var el = $('#qaSlot'); if (!el) return;
     /* 只重建一次骨架；切页签只换 iframe 的 src（不重画整块，避免闪一下）。
-       ⚠️ 换语言要整块重画：页签名与标题都随语言变，与 renderEmailSection 同理。
-       force=true（凭据文件刚加载完）时无条件重画，把凭据提示带出来。 */
-    if (force || qaLang !== state.lang || !el.querySelector('#qaFrame')) {
+       ⚠️ 换语言要整块重画：页签名与标题都随语言变，与 renderEmailSection 同理。 */
+    if (qaLang !== state.lang || !el.querySelector('#qaFrame')) {
       el.innerHTML = qaSectionHtml();
       qaLang = state.lang;
     }
-    loadQaCred();
   }
 
   /* OSS 门户登录：Friends Link（AUX_TITLES 里显示的标题就是 aux.friends =
@@ -6461,13 +6463,24 @@
           换高度就要重新拍板，不要单凭"裁边了/太小了"来回翻。 */
     mwRealTime: false
   };
-  /* 打开后自动**缩小一级**的页（2026-10-12 加，用户要求「Alarm 页地图小一号」）。
+  /* 打开后自动**缩小一级**的页（2026-10-12 加，2026-10-13 清空）。
      与 MAP_ZOOM_IN_BY_PAGE 是两个方向、互斥使用：同一页不会既放大又缩小。
      为什么不让 MAP_ZOOM_IN_BY_PAGE 用负数表达：那个键的语义是"是否放大一级"，
      塞进"缩小"会让读代码的人以为它能双向；单独一个集合，一眼看清"哪些页要缩"。
-     ⚠️ 当前只有 gis（Alarm 页）：它自己落 zoom 7，容器高度 860→573 后偏大，
-        故打开后缩一级 → zoom 6。要取消就把 gis 从这张表移除。 */
-  var MAP_ZOOM_OUT_PAGES = { gis: true };
+
+     ---- 为什么现在整张表为空（2026-10-13）----
+     用户要求「GIS Map 加载 ALARM 地图后不用再缩小了，保持默认的大小」——
+     即取消打开后的那次自动缩小。
+     ---- 这次缩小的来历（别误读成"从来没需要过"）----
+     2026-10-12 容器高度从 860px 砍到 573px（--maprow-h 的 2/3 改动），
+     gis 页自己落 zoom 7，在矮容器里显得偏大，故打开后缩一级到 zoom 6 迁就。
+     2026-10-13 高度改回 860px（olbr.css 的 --maprow-h），前提消失：
+     在 860px 下 zoom 7 已经装得下全国且留白合适，无需再缩 —— 老需求的两半
+     （高度 + 缩放）本就是配套的，本次一起回退，不要只回退其中一半。
+     ⚠️ 保留这个集合与 shouldZoomOut 的机制而不是删掉：MAP_ZOOM_OUT_PAGES
+        同时被 zoomOnce 与 shouldZoomOut 引用，留空表即等价于"没有任何页要缩"，
+        语义清晰且将来某个页要缩时改一行即可（同 MAP_ZOOM_IN_BY_PAGE 的做法）。 */
+  var MAP_ZOOM_OUT_PAGES = {};
   function shouldZoomOut(page) { return MAP_ZOOM_OUT_PAGES[page] === true; }
   /* 取某页是否要自动放大。未知页（例如将来新增的地图页）默认**不放大** ——
      宁可不放大（用户看得见全境、最多觉得小），也不要擅自改变他的视野。 */
@@ -6601,8 +6614,11 @@
        2026-10-16 起 gis 那项已关，实际只有 mwRealTime 会放大。 */
     if (!w || typeof w.fitAllSites === 'function') return;
     /* 本函数只服务 gis（会自己重新取景的页由 refitLeaflet 管）。
-       2026-10-12：gis 由"是否放大"改为"是否缩小" —— 容器高度 860→573 后偏大，
-       故打开后缩一级（zoom 7→6）。两条分支互斥：同一页只会执行其中一条。 */
+       2026-10-12：gis 曾由"是否放大"改为"是否缩小" —— 容器高度 860→573 后偏大，
+       故打开后缩一级（zoom 7→6）。两条分支互斥：同一页只会执行其中一条。
+       2026-10-13：高度改回 860px，缩放这一半一并回退 ——
+       MAP_ZOOM_OUT_PAGES 清空、MAP_ZOOM_IN_BY_PAGE.gis 仍为 false，
+       于是本函数对 gis 早退，地图保持内层页自己的默认取景（即"打开即所见"）。 */
     var out = shouldZoomOut('gis');
     if (!out && !shouldZoomIn('gis')) return;
     if (d.__olbrZoomed) return;

@@ -542,10 +542,9 @@ window.OLBR_DATA = (function () {
       'v6.subAria': '按专业域筛选本视图',
       'v6.subEmptyTip': '该专业域下暂无看板',
       'aux.qa': 'Knowledge Q&A', 'aux.friends': 'OSS Portal Login', 'aux.admin': 'System Management',
-      /* RAG 页签的登录凭据提示（2026-10-12 加）。**只放标签词**，
-         账号密码本身来自 assets/_local-credentials.js（gitignore 忽略、不入库）——
-         这里绝不能出现具体凭据。 */
-      'qa.credTip': '登录凭据',
+      /* 2026-10-14 删除 'qa.credTip'：门户 RAG 改走 8443 使用入口后
+         （Open WebUI 自动以 NOC 身份进入、免密码），页签上的「登录凭据」提示
+         已整条移除，词条随之删除。 */
       /* Q&A 两页签的**短标签**（2026-10-12 加）：
          目录里的标题很长（"RAG Knowledge Q&A (本地知识问答 / Open WebUI)"），
          直接当页签名会把页签条撑爆。故页签只显示短名，全称挂 title 悬停可见
@@ -1116,7 +1115,7 @@ window.OLBR_DATA = (function () {
       'v6.subAria': 'Filter this view by technology domain',
       'v6.subEmptyTip': 'No dashboard under this domain yet',
       'aux.qa': 'Knowledge Q&A', 'aux.friends': 'OSS Portal Login', 'aux.admin': 'System Management',
-      'qa.credTip': 'Login credentials',
+      /* 2026-10-14 删除 'qa.credTip'（'Login credentials'），与 zh 同因。 */
       'qa.tabEflow': 'eFlow KB', 'qa.tabRag': 'RAG Q&A',
       'aux.reports': 'Task report files', 'aux.tools': 'About this page',
       'aux.ms': 'Manage groups / dashboards / accounts in MsPortal', 'aux.uni': 'Unified dashboard portal',
@@ -1688,9 +1687,19 @@ window.OLBR_DATA = (function () {
      tipBp / sparkTipNet 等）**保留未删**：olbr.js 里对 kind === 'network' 的
      处理是通用分支，KPI_META_BP 也不在参照范围之内，留着不会渲染出任何东西。
      若将来要恢复 BP 卡，把下面被注释掉的那行放回来即可。 */
+  /* ⚠️ 2026-10-13（v2 专有改动）：组头由**文字名**改为**品牌标识图形**。
+     用户要求「Network Benchmark View 里面的两个组件的标题，能改成里面卡片
+     左下角的 logo」—— 即组头显示该组卡片页脚那个标识（Ookla / Meta），
+     与卡片同源，一眼看出「这一组是谁家的数」。
+     logo 字段直接引用**同一份** DATA.OOKLA_LOGO / DATA.META_LOGO 常量，
+     与卡片页脚用的是同一串 SVG —— 不是另画一份，故两处永远一致。
+     name 字段**保留**：它仍是组的中英文**文字**名，用于
+       · aria-label（组头的无障碍名称，见 olbr.js 的 qcGroupHtml）、
+       · 卡片 tooltip 里的"打开 XX 完整看板"（kpi.openTip / kpi.grp.tip）。
+     即：logo 只替换**可见的组头文字**，不替换任何需要读出来的地方。 */
   var BF_GROUPS = [
-    { id: 'speed', name: 'kpi.bf.board', page: 'bm_speedtest', items: KPI_SPEED },
-    { id: 'meta',  name: 'kpi.mm.board', page: 'bm_meta',      items: KPI_META }
+    { id: 'speed', name: 'kpi.bf.board', logo: 'ookla', page: 'bm_speedtest', items: KPI_SPEED },
+    { id: 'meta',  name: 'kpi.mm.board', logo: 'meta',  page: 'bm_meta',      items: KPI_META }
     /* { id: 'bp', name: 'kpi.bp.board', page: 'bp_report', items: KPI_META_BP } */
   ];
 
