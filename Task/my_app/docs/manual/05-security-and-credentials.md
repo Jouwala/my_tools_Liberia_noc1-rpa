@@ -279,7 +279,39 @@ eFlow 空闲超时 1440 分钟、MW UME 在 `*/15` 活动顶持下可被信任 1
 逐台结论写在 `docs/manual/13-operations.md`「1b) 按主机分别设 TTL」，
 统计脚本 `TMP/_audit_ttl_v3.py`、回归脚本 `TMP/_verify_ttl_overrides.py` 保留可复用。
 
-**读缓存的采信边界 —— 探活已下沉到 auth_manager（2026-10-06 晚）**：
+**连接超时可配置 —— 区分「网络不可达」与「凭据错误」（2026-10-14）**：
+`auth_manager._create_ssl_socket` 的 TCP 连接超时由硬编码 30s 改为读
+`AUTH_CONNECT_TIMEOUT`（默认 30，秒；`auth_manager.py` 模块导入时求值，改后需重启
+后端与 worker）。起因是 2026-10-14 04:00~04:12 `cnn_kpi_sync` 对 `10.121.1.2:28808`
+大批 `Connect failed: timed out`，登录最终报 `[AUTH] 登录最终失败 ... [WinError 10060]`——
+**凭据与会话其实正常**（同账号手动在设置页登录成功），只是网络/对端瞬时无响应。
+Windows 下 TCP connect 不可达抛的是 `WinError 10060`（`OSError`），**不是** `socket.timeout`，
+原先被原样上抛成"登录失败"，极易被误读为凭据问题。现在 `_create_ssl_socket` 会把连接类异常
+统一翻成带 `host:port` 与超时秒数、并注明"与凭据无关"的 `ConnectionError`；
+此类网络错误**不进** `_is_terminal_login_error` 熔断（重试有意义）。
+链路更慢的机房可调大该值（如 60），只影响单次等待上限，不改重试次数。
+
+**空密码护栏 + 「密码错」不再误报为「账号锁定」（2026-10-14）**：
+上游对**密码错误**和**账号已锁**返回的是**同一句**原文 ——
+`{"code":"4","message":"Incorrect user name or password, the account may be locked
+if you enter wrong for multiple times"}`。`_describe_login_failure` 原先先判
+`"locked" in lowered`，于是把「密码错（含密码为空）」**误报成「账号已被上游锁定」**
+（"may be locked" 是**将来时警告**，不是"已锁定"）。而空密码照样是一次"密码错误"
+登录，会喂给上游「连续 3 次密码错误 → 锁 1440 分钟」的计数 ——**空密码条件会亲手
+把账号撞锁**，日志却只留「账号被锁」的表象（2026-10-14 排查 CNN 时即被此误导）。
+
+两处修正：
+1. `_do_login` 在触网前校验密码非空（`not password.strip()` → 抛明确错误、**不发请求**）；
+   同款护栏也补进了各服务的**独立脚本登录分支**：`ipran_ume_kpi_service.login()` 自有
+   分支、`ume_in_kpi_service._login_standalone()`、`cm_data_export._login_standalone()`、
+   `battary_kpi_fetch_socket.login_rsa()`。生产 worker 路径统一经 `auth_manager._do_login`，
+   一处即覆盖 MW/CNN/RAN/eFlow/CM/UME-IN 等。
+2. `_describe_login_failure` 调整分支顺序：先识别 `Incorrect user name or password` →
+   报「**用户名或密码错误**」；只有明确 `User has been / is locked` 才报「账号已锁定」。
+
+> 排查提示：出现「账号已被上游锁定」时，**先回看锁定前是否有一段连续登录失败**；
+> 若失败原因是"用户名或密码错误"（尤其密码为空），真因多半是凭据不同步，
+> 而非上游真的锁了号。
 `get_auth()` 新增可选参数 `probe`（`auth_manager.py` 的 `get_auth(..., probe=fn)`），
 `probe(cookie, forgery_token) -> bool` 由**调用方注入**。传入后，缓存快路径命中时
 **先探活**：判定已死就就地 `invalidate_cache()` 并真实重登一次，调用方拿到的

@@ -533,6 +533,13 @@ class UMEPortalClient:
         """
         logger.warning("[LOGIN] auth_manager 不可用，使用自带登录（独立运行模式）")
 
+        # 空密码护栏（2026-10-14）：与 auth_manager._do_login 同款保护，覆盖
+        # 这条独立脚本分支。空密码会被上游按「密码错误」计数，连续 3 次锁号。
+        if not (pwd or "").strip():
+            raise Exception(
+                "[LOGIN] 拒绝以空密码登录（凭据组 ume_in 密码为空），未向上游发起登录"
+            )
+
         logger.info(f"[LOGIN] {user}@{self.host}:{self.port}{self.portal}")
         auth_path = ("/api/oauth2/v1/authorize?scope=user.login&response_type=code"
                      f"&redirect_uri={self.portal}")

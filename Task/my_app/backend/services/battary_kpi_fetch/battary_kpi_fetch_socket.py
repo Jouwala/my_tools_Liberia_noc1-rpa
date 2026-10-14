@@ -456,6 +456,13 @@ def login_rsa(credentials: dict) -> dict | None:
     username = credentials["username"]
     password = credentials["password"]
 
+    # 空密码护栏（2026-10-14）：本模块自带 login_rsa（不经 auth_manager），
+    # 必须在触网前拦截空密码 —— 空密码会被上游按「密码错误」计数，
+    # 连续 3 次锁定账号 1440 分钟（与 2026-10-12 Battery 拒登同类风险）。
+    if not (password or "").strip():
+        log("[LOGIN] 拒绝以空密码登录（凭据组 battery_ume 密码为空），未向上游发起请求")
+        return None
+
     log("[LOGIN] Step 1: GET authorize page...")
     try:
         status, hdrs, raw_hdrs, body = _http_request(

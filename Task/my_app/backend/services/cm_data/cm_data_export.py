@@ -473,6 +473,12 @@ def login():
 def _login_standalone(_login_user, _login_pwd):
     """auth_manager 不可导入时的自带登录（仅脚本独立运行用）。"""
     print("[LOGIN] auth_manager 不可用，使用自带登录（独立运行模式）")
+    # 空密码护栏（2026-10-14）：与 auth_manager._do_login 同款保护。空密码会被
+    # 上游按「密码错误」计数，连续 3 次锁定账号，因此触网前直接拒绝。
+    if not (_login_pwd or "").strip():
+        raise Exception(
+            "[LOGIN] 拒绝以空密码登录（凭据组 cm_data 密码为空），未向上游发起登录"
+        )
     session_cookie = ""
     forgery_token = ""
     try:

@@ -619,6 +619,13 @@ class UmeSessionClient:
             raise Exception("无法获取 RSA 公钥，登录中止")
 
         _cred_user, _cred_pwd = _runtime_credentials()
+        # 空密码护栏（2026-10-14）：与 auth_manager._do_login 同款保护，覆盖
+        # 「auth_manager 不可用 → 本模块自有登录」这条独立脚本分支。
+        # 空密码发出去会被上游按「密码错误」计数，连续 3 次锁号 1440 分钟。
+        if not (_cred_pwd or "").strip():
+            raise Exception(
+                "[LOGIN] 拒绝以空密码登录（凭据组 ipran_ume 密码为空），未向上游发起登录"
+            )
         encrypted_pwd = self.rsa_encrypt(_cred_pwd, public_key_b64)
         login_payload = {
             "username": _cred_user,

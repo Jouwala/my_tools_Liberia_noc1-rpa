@@ -171,6 +171,23 @@ def _resolve_ttl(host: str, port: int) -> int:
 MAX_RETRIES = 2
 
 
+# ========== TCP 连接超时（2026-10-14） ==========
+# 背景：2026-10-14 04:00~04:12 `cnn_kpi_sync` 对 10.121.1.2:28808 出现大批
+#   `Connect failed: timed out`，登录最终报 `[AUTH] 登录最终失败 ... [WinError 10060]`。
+#   **凭据与会话完全正常**（同账号手动登录成功），是网络/对端瞬时无响应。
+# 但原实现把这段网络超时和"登录失败"混在一起上报，运维极易误读为凭据问题；
+# 且超时值在 `_create_ssl_socket` 里硬编码 30s，不可调。
+#
+# 这里把超时提为可配置项，并（见 `_create_ssl_socket`）在连接失败时抛出带
+# host:port 与秒数的明确文案，让"网络不可达"与"凭据错误"在告警里一眼可分。
+#
+# ⚠ 该值在**模块导入时求值**：改 .env / 环境变量后需重启后端与 worker 才生效
+#   （与 AUTH_TOKEN_TTL / AUTH_TTL_OVERRIDES 同款约束）。
+# 取值口径：默认 30s，沿用历史硬编码值，跨机房/链路更慢时可调大
+#   （如 AUTH_CONNECT_TIMEOUT=60）；调大只影响单次连接等待上限，不改变重试次数。
+AUTH_CONNECT_TIMEOUT = float(os.environ.get("AUTH_CONNECT_TIMEOUT", "30"))
+
+
 # ========== 账号锁定熔断（2026-10-13） ==========
 # 背景（2026-10-12 MW/RAN 账号锁定事故）：
 #   上游 UME 对账号有锁定策略。一旦被锁，上游对**任何**密码都返回同一个
@@ -375,15 +392,33 @@ def _login_lock(host: str, port: int, username: str = ""):
 
 # ========== SSL / HTTP 底层 ==========
 def _create_ssl_socket(host: str, port: int):
-    """创建绕过证书校验的 TLS socket。"""
+    """创建绕过证书校验的 TLS socket。
+
+    连接失败时抛出的文案必须点明这是**网络/对端不可达**（而非凭据错误）：
+    Windows 下 TCP connect 不可达时抛的是 `ConnectionResetError`/`OSError`
+    并带 `WinError 10060`（WSAETIMEDOUT，对端未响应），**不是** `socket.timeout`；
+    若不在此处翻译，`_do_login` 会把它原样上抛成 `[AUTH] 登录最终失败: [WinError 10060] ...`，
+    运维会误以为是登录/凭据问题（2026-10-14 cnn_kpi_sync 即被如此误读）。
+    """
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE
     ctx.set_ciphers('ALL:@SECLEVEL=0')
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.settimeout(30)
+    sock.settimeout(AUTH_CONNECT_TIMEOUT)
     ssock = ctx.wrap_socket(sock)
-    ssock.connect((host, port))
+    try:
+        ssock.connect((host, port))
+    except (socket.timeout, ConnectionError, OSError) as e:
+        # 关掉半开的 socket，避免泄漏（连接失败时 wrap_socket 出来的对象仍需显式关闭）
+        try:
+            ssock.close()
+        except OSError:
+            pass
+        raise ConnectionError(
+            f"连接 {host}:{port} 失败（超时上限 {AUTH_CONNECT_TIMEOUT:g}s）：{e}"
+            f"——疑似网络/上游不可达，与凭据无关，可稍后重试"
+        ) from e
     return ssock
 
 
@@ -870,7 +905,26 @@ def _describe_login_failure(status: str, body: bytes) -> str:
         pass  # 非 JSON：沿用上面的 body_text 兜底
 
     lowered = raw_detail.lower()
-    if "locked" in lowered or "lock" in lowered:
+    # ⚠ 分支顺序至关重要（2026-10-14 修正）：
+    #   上游对**密码错误**返回的原文含 "locked" 字样 ——
+    #     {"code":"4","message":"Incorrect user name or password,
+    #       the account may be locked if you enter wrong for multiple times"}
+    #   若先判 "locked"，就会把「密码错」误报成「账号已被上游锁定」
+    #   （"may be locked" 是**将来时警告**，不是"已锁定"）。2026-10-14 排查
+    #   CNN 时空密码即被此误报成"账号被锁"，误导了一轮。
+    #   故：先识别明确的"用户名/密码错误"文案，只有**不含**它、且明确说
+    #   `User has been locked` 时才判锁定。
+    _is_cred_error = ("incorrect user name or password" in lowered
+                      or "用户名或密码错误" in raw_detail)
+    _is_locked = ("user has been locked" in lowered
+                  or "has been locked" in lowered
+                  or "user is locked" in lowered
+                  or ("locked" in lowered and not _is_cred_error))
+    if _is_cred_error:
+        # 密码错误（含"可能是空密码/密码已改"）。**不**归入锁定。
+        suffix = ("；用户名或密码错误（请核对 credential_store 的对应凭据组；"
+                  "若密码为空亦会落此错）——注意：连续多次密码错误会被上游锁定")
+    elif _is_locked:
         suffix = ("；账号已被上游锁定，重试无意义，需联系 UME 管理员解锁"
                   "（注意：锁定时无论密码是否正确上游都返回同一错误，"
                   "因此不能用这次登录判断密码是否到期）")
@@ -909,6 +963,26 @@ def _do_login(host: str, port: int, username: str, password: str) -> dict:
     ⚠ 也**不是** Z-AUTH-CODE cookie（cookie 值 len=43 且无 `$` 后缀）。
     """
     logger.info(f"[AUTH] 开始登录 {host}:{port} (用户: {username})")
+
+    # ===== 空密码护栏（2026-10-14）=====
+    # 为什么必须在这里拦：上游把「密码错误」与「账号已锁」都返回同一个
+    #   `{"detail":{"code":"4","message":"Incorrect user name or password,
+    #     the account may be locked if you enter wrong for multiple times"}}`，
+    # 而 `_describe_login_failure` 先命中 "locked" 字样 → 把**密码错/密码空
+    # 误报成「账号已被上游锁定」**。更糟的是：空密码照样是一次"密码错误"登录，
+    # 会喂给上游「连续 3 次密码错误 → 锁 1440 分钟」的计数
+    # （见本文件 :285-287 的上游锁定规则）——**空密码条件会亲手把账号撞锁**，
+    # 日志却只留「账号被锁」这一表象，掩盖真因（2026-10-14 排查即被此误导）。
+    # 所以：密码为空时**绝不触网**，就地抛明确错误，并指名是哪个凭据组取值失败。
+    if not (password or "").strip():
+        raise Exception(
+            f"[AUTH] 拒绝以空密码登录 {host}:{port}（用户: {username}）："
+            f"凭据密码为空，未向上游发起任何请求。"
+            f"请检查 credential_store 对应凭据组是否已配置密码"
+            f"（或环境变量/数据库行缺失）。注意：空密码若发出去，上游会按"
+            f"「密码错误」计数，连续 3 次将锁定账号，因此此处直接拦截。"
+        )
+
     session_cookie = ""
     forgery_token = ""
     auth_code = ""
