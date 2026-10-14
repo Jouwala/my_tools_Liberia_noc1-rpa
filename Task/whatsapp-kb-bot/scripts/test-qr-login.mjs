@@ -9,6 +9,9 @@
  *   4) publishQr 把原始二维码字符串写进 qr_status.json 的**本设备键**
  *   5) 两个设备各写各的键，互不覆盖（notify 写状态不冲掉刚写的 bot 状态）
  *   6) connected / error 状态正确落盘，并解除 isLoginRequested（放宽 notify 的 TTY 门槛）
+ *   7) 请求**接受即消费**（本设备键从请求文件删除、其他设备键保留），进程重启后
+ *      不重放已消费的请求 —— 2026-10-14 14:23 事故的根因：内存 handledNonce
+ *      挡不住重启重放，重放把刚扫码恢复的凭据再次清空。
  *
  * 纯离线：用临时目录做 root，不连 WhatsApp、不碰真实 data/。
  */
@@ -144,6 +147,38 @@ async function main() {
     const status = readJson(join(root, 'data', 'qr_status.json'));
     check(status?.bot?.state === QR_STATE.CONNECTED, 'connected 状态落盘');
     w.dispose();
+    rmSync(root, { recursive: true, force: true });
+  }
+
+  /* ---------- 场景 7：接受即消费，重启后不重放（2026-10-14 14:23 事故） ---------- */
+  {
+    const root = mkdtempSync(join(tmpdir(), 'qr-login-'));
+    mkdirSync(join(root, 'data'), { recursive: true });
+    const authDir = join(root, 'data', 'auth');
+    mkdirSync(authDir, { recursive: true });
+    writeFileSync(join(authDir, 'creds.json'), '{}'); // 有凭据 → 触发真实备份
+    let restarted1 = 0;
+    const w1 = createQrWatcher({
+      device: 'bot', authDir, root,
+      onRestart: async () => { restarted1++; }, log: () => {},
+    });
+    writeFileSync(join(root, 'data', 'qr_request.json'),
+      JSON.stringify({ bot: { nonce: 'stale', requested_at: 'morning' }, notify: { nonce: 'keep', requested_at: 'x' } }));
+    await waitFor(() => restarted1 > 0, 5000);
+    check(restarted1 === 1, '第一个进程处理了请求');
+    const reqAfter = readJson(join(root, 'data', 'qr_request.json'));
+    check(reqAfter && reqAfter.bot === undefined, '接受即消费：本设备键已从请求文件删除', `实际: ${JSON.stringify(reqAfter)}`);
+    check(reqAfter && reqAfter.notify?.nonce === 'keep', '消费只删本设备键，不动其他设备');
+    w1.dispose(); // 模拟进程死亡（看门狗重启）
+    // 第二个进程：若重放旧请求，会再次 onRestart（事故里表现为清掉刚扫码恢复的凭据）
+    let restarted2 = 0;
+    const w2 = createQrWatcher({
+      device: 'bot', authDir, root,
+      onRestart: async () => { restarted2++; }, log: () => {},
+    });
+    await sleep(600); // 等几个轮询周期
+    check(restarted2 === 0, '重启后的新进程不重放已消费的请求', `实际 restarted=${restarted2}`);
+    w2.dispose();
     rmSync(root, { recursive: true, force: true });
   }
 

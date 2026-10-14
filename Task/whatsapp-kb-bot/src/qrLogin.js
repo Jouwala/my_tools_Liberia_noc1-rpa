@@ -15,6 +15,11 @@
  * - `data/qr_request.json`：**my_app 后端写**。按设备存下标：
  *     `{ "notify": { "nonce": "<uuid>", "requested_at": "<iso>" }, "bot": { ... } }`
  *   表示「请让该设备重新出码」。nonce 用于区分先后请求。
+ *   **本模块收到请求后即消费**（读-改-写删除自己设备的键）：handledNonce 只在
+ *   内存里，挡不住进程重启后的重放 —— 2026-10-14 14:23 事故里，看门狗重启后的
+ *   进程把上午的旧请求又执行了一遍，把刚扫码恢复的凭据再次清空，bot 从此卡死在
+ *   出码循环。my_app 对本文件只写不读（每次请求带新 nonce，显示一律走
+ *   qr_status.json），消费掉旧键不影响任何读方。
  * - `data/qr_status.json`：**本模块写**。同样按设备存下标：
  *     `{ "notify": { "nonce", "state", "qr", "at", "message" }, "bot": { ... } }`
  *   `state` ∈ `waiting`（已收到请求、正在出码）| `qr`（码已就绪，`qr` 为原始字符串）
@@ -146,10 +151,28 @@ export function createQrWatcher({ device, authDir, root, onRestart, log = consol
 
   const isLoginRequested = () => pendingRequest;
 
+  /**
+   * 消费请求：读-改-写删除**本设备**的键（不动其他设备）。
+   *
+   * ⚠️ 必须在 handleRequest 接受请求时就地消费：handledNonce 只在内存里，
+   * 进程一重启就丢。2026-10-14 14:23 事故：看门狗重启后的进程重放了上午的
+   * 旧请求（nonce 未变），把刚扫码恢复的凭据再次清空，bot 从此卡死在出码循环。
+   * my_app 对本文件只写不读、每次请求带新 nonce，消费掉旧键不影响任何读方。
+   */
+  function consumeRequest() {
+    const reqAll = readJsonSafe(REQUEST_FILE);
+    if (!reqAll || typeof reqAll !== 'object') return;
+    if (!reqAll[device]) return;
+    delete reqAll[device];
+    writeJsonAtomic(REQUEST_FILE, reqAll);
+  }
+
   async function handleRequest(req, nonce) {
     handledNonce = nonce;
     activeNonce = nonce;
     pendingRequest = true;
+    // 接受即消费，防进程重启后重放（详见 consumeRequest 注释）。
+    consumeRequest();
     log(`[扫码登录] 收到 ${device} 设备出码请求（nonce=${nonce}），准备清凭据并重连…`);
 
     const bak = backupAuthDir(authDir);
