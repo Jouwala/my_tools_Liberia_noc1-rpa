@@ -9,16 +9,19 @@
               fme_name, supervisor, vip_site, site_type
 
 可用率（站点级天粒度，四种制式各一份）
-    G   (2G) : 远端 db.sqlite3 -> 2G_Main_Kpi_Site_Daily
-               站点名 "SITE Name"
-               指标列 "306004:TCH in service rate(%)"      （UME 原值，0~1 比率）
-    U   (3G) : 远端 db.sqlite3 -> 3G_Main_Kpi_Site_Daily
-               站点名 "NodeB Name"
-               指标列 "300857:Cell Validity Rate(%)"        （UME 原值，0~1 比率）
-    L   (4G) : 远端 db.sqlite3 -> 4G_Main_Kpi_Site_Daily
-               站点名 "eNodeB Name"
-               指标列 "1638004469345:[FDD]Cell Availability[SDR_ITBBU]"
-                                                            （UME 原值，0~1 比率）
+    ⚠️ 2026-10-15 起 G/U/L 优先读**本地 PG**（Hourly_KPI_RPA_SITE_MS_SLA_*1day_SITE），
+       远端 HTTP (192.168.100.19:8765) 仅作回退。原因与实测见 _load_pg_tech 上方注释。
+    G   (2G) : 本地 PG Hourly_KPI_RPA_SITE_MS_SLA_GSM1day_SITE
+               站点名 "SITE Name"   指标列 "TCH in service rate(%)"
+               （原远端 2G_Main_Kpi_Site_Daily / "306004:TCH in service rate(%)"）
+    U   (3G) : 本地 PG Hourly_KPI_RPA_SITE_MS_SLA_UMTS1day_SITE
+               站点名 "NodeB Name"  指标列 "Cell Validity Rate(%)"
+               （原远端 3G_Main_Kpi_Site_Daily / "300857:Cell Validity Rate(%)"）
+    L   (4G) : 本地 PG Hourly_KPI_RPA_SITE_MS_SLA_FDD1day_SITE
+               站点名 "eNodeB Name" 指标列 "[FDD]Cell Availability[SDR_ITBBU]"
+               （原远端 4G_Main_Kpi_Site_Daily，"1638004469345:[FDD]Cell Availability[SDR_ITBBU]"）
+               ⚠️ 4G 两源实测约 1.3% 键值不一致（PG 系统性偏低），已单独列入核查；
+                  当前按要求先切 PG，核查结论出来前不要据此认为 4G 口径已定稿。
     Tdd (TDD): 本地 data/ran_kpi_avalability_1day.sqlite3
                -> Daily_KPI_RPA_CELL_AVAIL_TDD
                站点名 "eNodeB Name"
@@ -54,7 +57,7 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from backend.database import get_raw_connection
+from backend.database import get_raw_connection, DB_MODE
 from backend.services.remote_db_reader import get_remote_reader
 
 logger = logging.getLogger("site_availability")
@@ -64,12 +67,24 @@ LOCAL_AVAIL_DB = Path(r"d:\01_RPA\Task\my_app\data\ran_kpi_avalability_1day.sqli
 
 TECHS = ["G", "U", "L", "Tdd"]
 
-# tech -> (远端表名, 站点名列, 可用率列)
+# tech -> (远端表名, 站点名列, 可用率列)  —— 仅作回退用
 REMOTE_SPEC: Dict[str, Tuple[str, str, str]] = {
     "G": ("2G_Main_Kpi_Site_Daily", "SITE Name", "306004:TCH in service rate(%)"),
     "U": ("3G_Main_Kpi_Site_Daily", "NodeB Name", "300857:Cell Validity Rate(%)"),
     "L": ("4G_Main_Kpi_Site_Daily", "eNodeB Name",
           "1638004469345:[FDD]Cell Availability[SDR_ITBBU]"),
+}
+
+# tech -> (本地 PG 表名, 站点名列, 可用率列)
+# 这三张表是 MS SLA 站点级日表，可用率列与远端 UME 指标**同源同义**，
+# 只是 PG 侧列名去掉了 UME 的数字前缀（如 306004: / 300857: / 1638004469345:）。
+PG_SPEC: Dict[str, Tuple[str, str, str]] = {
+    "G": ("Hourly_KPI_RPA_SITE_MS_SLA_GSM1day_SITE", "SITE Name",
+          "TCH in service rate(%)"),
+    "U": ("Hourly_KPI_RPA_SITE_MS_SLA_UMTS1day_SITE", "NodeB Name",
+          "Cell Validity Rate(%)"),
+    "L": ("Hourly_KPI_RPA_SITE_MS_SLA_FDD1day_SITE", "eNodeB Name",
+          "[FDD]Cell Availability[SDR_ITBBU]"),
 }
 
 # 本地 TDD（小区级）
@@ -200,8 +215,44 @@ def month_weeks(month: str) -> List[Dict[str, Any]]:
 
 
 # ============ 数据加载 ============
+def _load_pg_tech(tech: str, month: str) -> Dict[Tuple[str, str], float]:
+    """从本地 PG 读某制式整月站点级可用率（首选源）。
+    返回 {(norm_site, 'YYYY-MM-DD'): ratio}。
+
+    为什么改读 PG（2026-10-15 全量实测对照，3 个月 × 3 制式）：
+      - 2G / 3G：与远端 UME **重叠键 100% 一致、零值差异**，且 PG 是严格超集
+        （远端缺、PG 有的站点里有 47 个仍在 master_site_db，即现在看板空白、
+        换 PG 后可补上），同时去掉对 .19:8765 HTTP API 的运行时依赖。
+      - 4G  ：两源约 1.3% 键值不一致且 PG 系统性偏低（PG更低249 : PG更高18），
+              差异均匀散布全月、不随时间收敛，属两条同步管线口径不同。
+              按要求先一并切 PG，该差异单独核查（见模块 docstring 的 L 说明）。
+    """
+    table, site_col, val_col = PG_SPEC[tech]
+    start, end = month_bounds(month)
+    out: Dict[Tuple[str, str], float] = {}
+    with get_raw_connection() as conn:
+        cur = conn.execute(
+            f'SELECT "{site_col}", substr("Begin Time"::text, 1, 10), "{val_col}" '
+            f'FROM "{table}" WHERE "Begin Time" >= ? AND "Begin Time" <= ?',
+            (start, end),
+        )
+        for nm_raw, day, val in cur.fetchall():
+            nm = norm_name(nm_raw)
+            v = _to_float(val)
+            if not nm or not day or v is None:
+                continue
+            k = (nm, str(day)[:10])
+            # 同站点同天多行时取均值（与远端实现同款防御；实测两侧均 1 行/天）
+            if k in out:
+                out[k] = (out[k] + v) / 2.0
+            else:
+                out[k] = v
+    return out
+
+
 def _load_remote_tech(tech: str, month: str) -> Dict[Tuple[str, str], float]:
-    """从远端读某制式整月站点级可用率。返回 {(norm_site, 'YYYY-MM-DD'): ratio}。"""
+    """从远端 HTTP 读某制式整月站点级可用率（回退源）。
+    返回 {(norm_site, 'YYYY-MM-DD'): ratio}。"""
     table, site_col, val_col = REMOTE_SPEC[tech]
     start, end = month_bounds(month)
     where = f"\"Begin Time\" >= '{start}' AND \"Begin Time\" <= '{end}'"
@@ -288,15 +339,38 @@ def _load_local_tdd(month: str) -> Dict[Tuple[str, str], float]:
     return out
 
 
+def _load_tech(tech: str, month: str) -> Dict[Tuple[str, str], float]:
+    """单个制式取数：优先本地 PG，失败或空结果时回退远端 HTTP。
+
+    回退条件刻意包含「PG 返回空」：若某月 PG 侧同步滞后（表里整月无行），
+    空结果会让看板整月空白 —— 此时回退远端能救回数据。两者都为空才算真空月。
+    """
+    if DB_MODE == "pg":
+        try:
+            pg = _load_pg_tech(tech, month)
+            if pg:
+                _clear_load_error(f"tech:{tech}")
+                return pg
+            logger.warning("[site-avail] PG 侧 tech=%s month=%s 无数据，回退远端",
+                           tech, month)
+        except Exception as e:
+            logger.warning("[site-avail] PG 读取失败 tech=%s month=%s: %s，回退远端",
+                           tech, month, e)
+    return _load_remote_tech(tech, month)
+
+
 def load_month_availability(month: str) -> Dict[str, Dict[Tuple[str, str], float]]:
-    """加载整月四制式可用率（带缓存）。返回 {tech: {(norm_site, day): ratio}}。"""
+    """加载整月四制式可用率（带缓存）。返回 {tech: {(norm_site, day): ratio}}。
+
+    G/U/L 走 _load_tech（PG 优先、远端回退）；Tdd 仍走本地 sqlite 小区级折算。
+    """
     ck = f"site_avail:data:{month}"
     cached = _cache_get(ck)
     if cached is not None:
         return cached
     data: Dict[str, Dict[Tuple[str, str], float]] = {}
     for tech in ["G", "U", "L"]:
-        data[tech] = _load_remote_tech(tech, month)
+        data[tech] = _load_tech(tech, month)
     data["Tdd"] = _load_local_tdd(month)
     logger.info(
         "[site-avail] month=%s loaded G=%d U=%d L=%d Tdd=%d",

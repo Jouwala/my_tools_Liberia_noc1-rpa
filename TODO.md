@@ -25,6 +25,10 @@
 
 ### P1 —— 数据正确性与稳定性
 
+- [ ] **站点可用率 4G 双源口径不一致，待定性（2026-10-15）。** 站点可用率取数已从远端 UME HTTP（`192.168.100.19:8765`）改为**本地 PG 优先、远端回退**，代码在 `Task\my_app\backend\services\site_availability_service.py`（`PG_SPEC` / `_load_pg_tech` / `_load_tech`，快照 `..._bak_20261015_PG双模前`）。切换依据是一次全量对照（3 个月 × 3 制式）：
+  - **2G / 3G 两源等价**：重叠键 100% 一致、零值差异；且 PG 严格超集（另有 47 个站点在 `master_site_db` 里但远端查不到 —— 切换后这些站从"空白"变为有数据）。同时去掉对 .19 HTTP API 的运行时依赖。
+  - **4G 两源不等价**：约 **1.3% 键值不同**，且**强烈单向**（PG 更低 249 次 vs 更高 18 次），差异均匀散布全月、**不随时间收敛**；逐日两侧均 1 行/天，故非聚合差异。最大差达 **−0.95**（`fahnja 2026-09-15`：远端 0.9689 vs PG 0.0161）。**当前按用户要求 4G 也先切了 PG，属临时状态。**
+  **待办**：查清两条同步管线为何对同一 UME 指标给出不同值（疑 4G 侧同步脚本取数口径 / 去重逻辑不同），定性后决定 4G 最终取哪个源，并同步 `docs\manual\` 口径说明。**核验手段**：`_load_pg_tech` 与 `_load_remote_tech` 各跑一遍，对同一月做 `{(norm_site, day)}` 差值分布对比（探针务必落 `TMP\`）。**风险**：定性前 4G 可用率数字取决于读哪个源，对外报表口径存在不确定性。
 - [ ] **P1 告警推送加 ext 通道 fallback（2026-10-08）。** Baileys 主通道失败（群名解析不到 JID / 凭据过期 / WhatsApp 流控 428）时，自动把同一批 `messages` 投到 `data/tt_alert_job.json`，由已登录的 WhatsApp Web 扩展兜底。改动已落到 `Task\my_app\backend\services\tt_alarm_whatsapp_service.py`（新增 `try_ext_fallback`、在两个失败分支调用） + 4 条 stub 用例 + `architecture.md` 8.x ADR；**待验证**：① 重启 `m` 组 worker 后第一次跑 0 候选 → 任务历史页面要能看到新字段 `ext_fallback` 为空（`attempted: false`）；② 手动制造一次 Baileys 失败（把 `GROUPS` 临时改成一个不存在的群名跑一次）→ ext 通道应兜住（前提：Chrome 开着 + 扩展已登录）→ `out.success=True` + `warnings` 含"兜住 N/M 单"。**回滚手段**：revert 三个文件即可。
 - [ ] **数据层裸连接治理（前置调研，非立即改造）。** 运行期已知存在绕过 `get_raw_connection` 的裸 `sqlite3.connect`（如 `ipran_chart_service.py:233`、`fw_kpi_services.py:488`），是**图表数据源**，改造会静默坏图。当前动作：**不再新增**裸连接，并把已有点位登记成清单。
 - [ ] **`eflow_tt` 双库归属固化。** 明确"同步只写 `app.db`、`eflow.sqlite3` 副本仅作只读快照"，避免后续有人读错库。结论已在 `PROJECT_DOCS.md` §2 Phase 0.5 闭环，待落到代码注释与手册。
