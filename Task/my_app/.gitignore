@@ -120,7 +120,13 @@ _probe_file.txt
 # 于是「TT 复盘报告」导出件（eflow_qa.py:806 的下载文件名）会冒出来被当成新文件，
 # 而后端每次都能实时生成同一份内容，仓库里不需要副本。2026-09-25 起显式拦住。
 /outputs/*.md
-/outputs/*.md
+
+# eflow_rules 规则匹配报告：**任务每次运行都会重写**（eflow_rules_matcher.py:31
+# OUTPUT_REPORT，由 eflow_tt_rules_check 每天 04:20 调用），内容只有新的时间戳与
+# 重算后的匹配数 —— 属于产物而非源码，仓库里留副本只会让每次跑完 git status 变脏。
+# 同目录两个 .xlsx 产物早已被根 .gitignore 的扩展名规则挡住，唯独这份 Markdown
+# 漏网（与上面 /outputs/*.md 是同一类漏网，2026-10-15 一并拦住并把已跟踪的删除）。
+/backend/services/eflow_rules/MATCHING_REPORT.md
 
 # Chrome 临时 profile（portal_login_service 正常退出时会自清，异常退出会残留）
 /data/portal_profiles/_tmp_*/
