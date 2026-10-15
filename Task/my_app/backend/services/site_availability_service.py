@@ -20,8 +20,9 @@
     L   (4G) : 本地 PG Hourly_KPI_RPA_SITE_MS_SLA_FDD1day_SITE
                站点名 "eNodeB Name" 指标列 "[FDD]Cell Availability[SDR_ITBBU]"
                （原远端 4G_Main_Kpi_Site_Daily，"1638004469345:[FDD]Cell Availability[SDR_ITBBU]"）
-               ⚠️ 4G 两源实测约 1.3% 键值不一致（PG 系统性偏低），已单独列入核查；
-                  当前按要求先切 PG，核查结论出来前不要据此认为 4G 口径已定稿。
+               已定性：直查 UME 自身（MS SLA 模板）当裁判，UME==PG 99.4%（排除当天同步滞后
+               后 99.9%），UME==远端仅 85.8% —— 即 PG 就是 UME 的值，远端那条管线
+               4G 可用率系统性偏高约 14%（上游问题，另案反馈）。故 4G 走 PG 正确。
     Tdd (TDD): 本地 data/ran_kpi_avalability_1day.sqlite3
                -> Daily_KPI_RPA_CELL_AVAIL_TDD
                站点名 "eNodeB Name"
@@ -223,9 +224,11 @@ def _load_pg_tech(tech: str, month: str) -> Dict[Tuple[str, str], float]:
       - 2G / 3G：与远端 UME **重叠键 100% 一致、零值差异**，且 PG 是严格超集
         （远端缺、PG 有的站点里有 47 个仍在 master_site_db，即现在看板空白、
         换 PG 后可补上），同时去掉对 .19:8765 HTTP API 的运行时依赖。
-      - 4G  ：两源约 1.3% 键值不一致且 PG 系统性偏低（PG更低249 : PG更高18），
-              差异均匀散布全月、不随时间收敛，属两条同步管线口径不同。
-              按要求先一并切 PG，该差异单独核查（见模块 docstring 的 L 说明）。
+      - 4G  ：已定性。直查 UME 自身（MS SLA 模板）当裁判，UME==PG 99.4%
+              （排除最新一天的增量同步滞后后 99.9%），UME==远端仅 85.8%，
+              且只切换 indexfillingtype 时 UME 两种口径逐行完全相同（该设置非根因）。
+              结论：PG 就是 UME 的值，远端 4G 可用率系统性偏高约 14%，属上游问题。
+    4G 当天值存在增量同步滞后：最新一天可能尚未吸收终值，若要求当天实时终值需另评估。
     """
     table, site_col, val_col = PG_SPEC[tech]
     start, end = month_bounds(month)
