@@ -6,7 +6,7 @@ import { WH, cardStyle, useTheme } from '../../theme'
 import { SearchableExportTable } from '../../components/SearchableExportTable'
 import type { DrilldownData, DrilldownAnalytics } from './types'
 import { SITE_COLORS } from './types'
-import { filterBySearch, exportToExcel, buildAlarmColumns, buildTTColumns, buildWOColumns } from './helpers'
+import { filterBySearch, exportToExcel, buildAlarmColumns, buildAlarmExportColumns, buildTTColumns, buildWOColumns } from './helpers'
 import { ChartBlock } from './ChartBlock'
 import { RatKpiTab } from './RatKpiTab'
 import './SiteDrilldownDrawer.css'
@@ -77,10 +77,14 @@ export function SiteDrilldownDrawer({
     return filterBySearch(drilldown.his_alarm_list, hisAlarmSearch)
   }, [drilldown?.his_alarm_list, hisAlarmSearch])
 
+  /* 告警表的**展示**列走白名单 + 隐藏空列（见 helpers.ALARM_DISPLAY_KEYS），
+     而**导出**列仍保留后端返回的全部字段 —— 屏幕精简、导出完整。 */
   const rtAlarmColumns = useMemo(() => buildAlarmColumns(t, drilldown?.rt_alarm_list || []), [drilldown?.rt_alarm_list, t])
   const ttColumns = useMemo(() => buildTTColumns(t, drilldown?.tt_list || []), [drilldown?.tt_list, t])
   const woColumns = useMemo(() => buildWOColumns(t, drilldown?.wo_list || []), [drilldown?.wo_list, t])
   const hisAlarmColumns = useMemo(() => buildAlarmColumns(t, drilldown?.his_alarm_list || []), [drilldown?.his_alarm_list, t])
+  const rtAlarmExportColumns = useMemo(() => buildAlarmExportColumns(drilldown?.rt_alarm_list || []), [drilldown?.rt_alarm_list])
+  const hisAlarmExportColumns = useMemo(() => buildAlarmExportColumns(drilldown?.his_alarm_list || []), [drilldown?.his_alarm_list])
 
   const kpis = drilldown?.kpis
   const avail = kpis?.availability || []
@@ -170,7 +174,7 @@ export function SiteDrilldownDrawer({
       columns={hisAlarmColumns}
       search={hisAlarmSearch}
       onSearchChange={setHisAlarmSearch}
-      onExport={() => exportToExcel(filteredHisAlarm, `His_Alarm_${drilldown?.site_info?.site_name || selectedSite}`, hisAlarmColumns)}
+      onExport={() => exportToExcel(filteredHisAlarm, `His_Alarm_${drilldown?.site_info?.site_name || selectedSite}`, hisAlarmExportColumns)}
       exportText={t('gis.exportHIS')}
       rowKey={(r: any, i?: number) => `his-${r.alarmraisedtime}-${i}`}
       ariaLabel={t('gis.drilldown.hisAlarmTab')}
@@ -512,7 +516,7 @@ export function SiteDrilldownDrawer({
                       columns={rtAlarmColumns}
                       search={rtAlarmSearch}
                       onSearchChange={setRtAlarmSearch}
-                      onExport={() => exportToExcel(filteredRtAlarm, `RT_Alarm_${drilldown.site_info?.site_name || selectedSite}`, rtAlarmColumns)}
+                      onExport={() => exportToExcel(filteredRtAlarm, `RT_Alarm_${drilldown.site_info?.site_name || selectedSite}`, rtAlarmExportColumns)}
                       exportText={t('gis.exportRT')}
                       rowKey={(r: any, i?: number) => `rt-${r.alarmraisedtime}-${i}`}
                       ariaLabel={t('gis.drilldown.rtAlarmTab')}

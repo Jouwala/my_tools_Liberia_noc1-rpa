@@ -84,44 +84,101 @@ export const fmtTs = (v: any): string => {
 
 export const isTsCol = (col: string): boolean => col.endsWith('time') || col === 'duration'
 
-// 动态构建告警列：展示下钻接口返回的全部列（后端现已 SELECT *）
+/* 告警表**展示**用的列白名单（顺序即显示顺序）。
+ *
+ * 为什么需要白名单：后端 `_fetch_alarm_list` 是 `SELECT *`，而 eFlow 的
+ * realtime_alarm 实测有 **146 列**（2026-10-15 实测）。其中约 66 列是
+ * `{"displayname":{"en":"","zh":""}}` 这类给机器读的 JSON 结构、2 列（position /
+ * positionname）是超长定位串、其余多为内部元数据（neuid/vimrespool/smcim…）——
+ * 全部铺出来完全没法读。这里只保留排障与派单真正要看的字段。
+ *
+ * ⚠️ 与 `isTsCol` / `fmtTs` 的约定保持一致：时间列名以 `time` 结尾。
+ * ⚠️ 白名单里某个键在某张表**可能不存在**（实测 `clearstatename` 只在
+ *    realtime_alarm 有、history_alarm 没有），故构建时必须跳过缺失键，
+ *    不能直接按白名单下标取值。
+ * ⚠️ 白名单之外若出现空值列，由 `buildAlarmColumns` 的「隐藏空列」兜住；
+ *    但要**导出完整字段**时用 `buildAlarmExportColumns`（不受本白名单限制）。 */
+export const ALARM_DISPLAY_KEYS = [
+  'perceivedseverity',   // 告警级别（渲染成彩色 Tag）
+  'alarm_title',         // 告警标题
+  'site_name',           // 站点
+  'alarmraisedtime',     // 发生时间
+  'durationname',        // 已持续
+  'clearstatename',      // 清除状态（history_alarm 无此列，会被跳过）
+  'ackstatename',        // 确认状态
+  'alarmcode',           // 告警码
+  'codename',            // 告警代码名
+  'reasonname',          // 原因
+  'tt_id',               // 关联 TT 号
+  'region',              // 区域
+  'restypename',         // 设备类型
+  'transmission_type',   // 传输承载
+  'object_name',         // 对象名
+]
+
+/** 单列是否「本批数据里完全没有可显示内容」（用于隐藏空列）。
+ *  判定口径：null / 空白 / 'None' / '[]' / '{}' / '-' 都算空 ——
+ *  这与各列 render 里回落的占位符一致，避免出现「整列都是 -」的白占位。 */
+const _colIsEmpty = (rows: any[], key: string): boolean => {
+  const blank = new Set(['', 'none', 'null', '[]', '{}', '-', 'nan'])
+  return rows.every(r => {
+    const v = r?.[key]
+    if (v == null) return true
+    return blank.has(String(v).trim().toLowerCase())
+  })
+}
+
+/** 构造单个告警列（展示用）。severity 走彩色 Tag，时间走 fmtTs。 */
+const _alarmCol = (t: TFn, k: string) => {
+  const isTs = isTsCol(k)
+  const isSev = k === 'perceivedseverity'
+  return {
+    title: humanizeCol(k),
+    dataIndex: k,
+    key: k,
+    width: isSev ? 100 : isTs ? 170 : (k === 'alarm_title' ? 200 : 130),
+    ellipsis: k === 'alarm_title' || k === 'codename',
+    sorter: (a: any, b: any) => {
+      const av = a[k], bv = b[k]
+      if (av == null) return bv == null ? 0 : -1
+      if (bv == null) return 1
+      if (typeof av === 'number' && typeof bv === 'number') return av - bv
+      return String(av).localeCompare(String(bv))
+    },
+    render: (v: any) => {
+      if (isSev) {
+        const map: Record<number, { label: string; color: string }> = {
+          1: { label: t('gis.sev.critical'), color: 'red' }, 2: { label: t('gis.sev.major'), color: 'orange' },
+          3: { label: t('gis.sev.warning'), color: 'gold' }, 4: { label: t('gis.sev.info'), color: 'blue' },
+        }
+        const item = map[v] || { label: `P${v}`, color: 'default' }
+        return <Tag color={item.color}>{item.label}</Tag>
+      }
+      if (isTs) return fmtTs(v)
+      if (v == null) return '-'
+      if (typeof v === 'string' && v.length > 60) return <span title={v}>{v.slice(0, 60)}…</span>
+      return v
+    },
+  }
+}
+
+/* 构建告警**展示**列：白名单 ∩ 本批数据里真实存在的键，再剔除整列为空者。
+ * 顺序严格按 ALARM_DISPLAY_KEYS，不随后端返回的列顺序漂移。 */
 export const buildAlarmColumns = (t: TFn, rows: any[]) => {
   if (!rows || rows.length === 0) return []
-  const keys = Object.keys(rows[0])
-  return keys.map(k => {
-    const isTs = isTsCol(k)
-    const isSev = k === 'perceivedseverity'
-    const isLong = ['additionaltext', 'tt_info', 'respath', 'root_cause_description',
-      'alarm_title', 'commenttext', 'operations', 'link_path', 'impact_site_list', 'alarmsource'].includes(k)
-    return {
-      title: humanizeCol(k),
-      dataIndex: k,
-      key: k,
-      width: isLong ? 200 : isTs ? 170 : 130,
-      ellipsis: isLong,
-      sorter: (a: any, b: any) => {
-        const av = a[k], bv = b[k]
-        if (av == null) return bv == null ? 0 : -1
-        if (bv == null) return 1
-        if (typeof av === 'number' && typeof bv === 'number') return av - bv
-        return String(av).localeCompare(String(bv))
-      },
-      render: (v: any) => {
-        if (isSev) {
-          const map: Record<number, { label: string; color: string }> = {
-            1: { label: t('gis.sev.critical'), color: 'red' }, 2: { label: t('gis.sev.major'), color: 'orange' },
-            3: { label: t('gis.sev.warning'), color: 'gold' }, 4: { label: t('gis.sev.info'), color: 'blue' },
-          }
-          const item = map[v] || { label: `P${v}`, color: 'default' }
-          return <Tag color={item.color}>{item.label}</Tag>
-        }
-        if (isTs) return fmtTs(v)
-        if (v == null) return '-'
-        if (typeof v === 'string' && v.length > 60) return <span title={v}>{v.slice(0, 60)}…</span>
-        return v
-      },
-    }
-  })
+  const present = new Set(Object.keys(rows[0]))
+  return ALARM_DISPLAY_KEYS
+    .filter(k => present.has(k))
+    .filter(k => !_colIsEmpty(rows, k))
+    .map(k => _alarmCol(t, k))
+}
+
+/* 构建告警**导出**列：不受白名单限制，导出全部字段（含白名单之外的元数据），
+ * 便于离线做完整分析 —— 屏幕上精简、导出仍完整，是刻意的取舍。
+ * 仍按后端返回的列顺序，标题沿用 humanizeCol。 */
+export const buildAlarmExportColumns = (rows: any[]) => {
+  if (!rows || rows.length === 0) return []
+  return Object.keys(rows[0]).map(k => ({ title: humanizeCol(k), dataIndex: k }))
 }
 
 // TT 下钻表格列
