@@ -62,9 +62,9 @@ MY_APP_DIR = Path(__file__).resolve().parent.parent.parent
 DB_PATH = MY_APP_DIR / "db" / "app.db"
 RECOVERY_STATE_FILE = MY_APP_DIR / "TMP" / "email_recovery_state.json"
 
-_MANAGED_VENV_PY = (
-    r"C:\Users\ZTEEMS\.workbuddy\binaries\python\envs\default\Scripts\python.exe"
-)
+# 邮件脚本解释器：项目 venv（已装 exchangelib），不受外部工具重建影响。
+# 由 workbuddy 托管 venv 迁来（2026-10-13，该环境被外部 uv 重建清空依赖）。
+_MANAGED_VENV_PY = r"D:\01_RPA\Task\my_app\Scripts\python.exe"
 _SCRIPT_DIR = MY_APP_DIR / "email_reports"
 
 # 所有邮件类任务

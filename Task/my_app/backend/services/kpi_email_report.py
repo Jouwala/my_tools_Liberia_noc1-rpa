@@ -55,10 +55,9 @@ _SUBPROCESS_FLAGS = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 
 MY_APP_DIR = Path(__file__).resolve().parent.parent.parent
 EMAIL_REPORTS_DIR = MY_APP_DIR / "email_reports"
 
-# 托管 venv（已装 exchangelib）。后端系统 Python 无此依赖，必须用它来跑脚本。
-_MANAGED_VENV_PY = (
-    r"C:\Users\ZTEEMS\.workbuddy\binaries\python\envs\default\Scripts\python.exe"
-)
+# 邮件脚本解释器：项目 venv（已装 exchangelib），不受外部工具重建影响。
+# 由 workbuddy 托管 venv 迁来（2026-10-13，该环境被外部 uv 重建清空依赖）。
+_MANAGED_VENV_PY = r"D:\01_RPA\Task\my_app\Scripts\python.exe"
 
 # ---- 数据 / 名单目录（远程用 FTP 路径字符串；本地用 Path）----
 _MS_SLA_DATA = MY_APP_DIR / "data" / "ms_sla"                       # 本地

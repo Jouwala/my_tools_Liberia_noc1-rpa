@@ -57,9 +57,9 @@ EMAIL_LIST_DIR = Path(r"Y:\01_RPA\LBR_Tools\KPI\CCN\ccn_email")
 SS_EMAIL_FILE = EMAIL_LIST_DIR / "ss_email.txt"
 CC_EMAIL_FILE = EMAIL_LIST_DIR / "cc_email.txt"
 
-_MANAGED_VENV_PY = (
-    r"C:\Users\ZTEEMS\.workbuddy\binaries\python\envs\default\Scripts\python.exe"
-)
+# 邮件脚本解释器：项目 venv（已装 exchangelib），不受外部工具重建影响。
+# 由 workbuddy 托管 venv 迁来（2026-10-13，该环境被外部 uv 重建清空依赖）。
+_MANAGED_VENV_PY = r"D:\01_RPA\Task\my_app\Scripts\python.exe"
 
 # ===== 筛选配置（Measurement Object） =====
 MEASUREMENT_OBJECTS = ["30", "12", "11", "6"]

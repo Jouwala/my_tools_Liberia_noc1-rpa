@@ -130,10 +130,10 @@ EMAIL_LIST_DIR = r"Y:\01_RPA\LBR_Tools\KPI\FW\fw_email"
 SS_EMAIL_FILE = os.path.join(EMAIL_LIST_DIR, "ss_email.txt")
 CC_EMAIL_FILE = os.path.join(EMAIL_LIST_DIR, "cc_email.txt")
 
-# 托管 venv Python（带 exchangelib/matplotlib，用于调用 owa_mail_report.py）
-_MANAGED_VENV_PY = (
-    r"C:\Users\ZTEEMS\.workbuddy\binaries\python\envs\default\Scripts\python.exe"
-)
+# 邮件脚本解释器：项目 venv（已装 exchangelib），不受外部工具重建影响。
+# 由 workbuddy 托管 venv 迁来（2026-10-13，该环境被外部 uv 重建清空依赖）；
+# 画图（matplotlib）在后端 Python 内完成，venv 只负责 owa 发送脚本。
+_MANAGED_VENV_PY = r"D:\01_RPA\Task\my_app\Scripts\python.exe"
 
 # 图表回看天数（默认 14 天，可用环境变量 FW_CHART_DAYS_BACK 或配置文件 chart_days_back 覆盖）
 CHART_DAYS_BACK = int(os.environ.get("FW_CHART_DAYS_BACK") or ((_FW_CONF or {}).get("chart_days_back", 14)))
