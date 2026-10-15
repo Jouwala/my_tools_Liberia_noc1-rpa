@@ -220,9 +220,19 @@ function buildRouterPrompt(question, now, history = []) {
  *
  * 收得**窄**是刻意的：宁可漏判走模型层，也不要把「P1 是什么级别」误判成查数。
  * 所以「P1」单独出现不算，必须搭配数量词或时间词才成立。
+ *
+ * 2026-10-14 实测踩到：`how many TT creat today?` 因 `creat` 拼写不在这里、
+ * 模型把它从 `/today/i` 上带过去（"今天"在英文语料里也常"今天"成 today）才生效
+ * — 但模型要花 13s 才给出结果，规则层本应 60ms 内 命中。`\bcreat[a-z]*\b` 把
+ * 「creat / created / creating / creation」一并兜住，**只用作统计触发词**，
+ * 文本上仍是一个「create 的近似动词」。下限 4 字符防止 `cre` / `crea` 等
+ * 裸字过宽。
+ *
+ * 注意后缀类用 `[a-z]*` **而不是** `\w*`：`\w` 含 `_`，`created_by` 仍会
+ * 被命中→误伤；限定字母是「单词内部的继续延伸」更安全。
  */
 const COUNT_INTENT =
-  /(多少|几个|几单|几条|有多少|有没有|有吗|有没|数量|总计|合计|count|how\s+many|how\s+much|any\s|P\d.*\?|today|yesterday)/i;
+  /(多少|几个|几单|几条|有多少|有没有|有吗|有没|数量|总计|合计|count|how\s+many|how\s+much|any\s|P\d.*\?|\btoday\b|\byesterday\b|\bcreat[a-z]*\b)/i;
 
 /**
  * 纯知识问法的特征词 —— 命中则**不**走统计通道。
@@ -269,7 +279,13 @@ const STOP_WORDS = new Set([
   'this', 'that', 'these', 'those', 'for', 'from', 'since', 'last', 'next',
   'current', 'previous', 'month', 'months', 'week', 'weeks', 'day', 'days',
   'year', 'years', 'past', 'recent', 'all', 'total', 'sum', 'during', 'between',
-  'of', 'the', 'new', 'were', 'was', 'been', 'created', 'raised',
+  'of', 'the', 'new', 'were', 'was', 'been', 'raised',
+  // create 的近似词：2026-10-14 实测「how many TT creat today?」触发模型层 13s
+  // —— `creat` 不在 COUNT_INTENT、也不在 STOP_WORDS，残余里被算成"陌生专名"，
+  // 规则层弃权。这里把整族（creat / created / creating / creation）加进来，
+  // 让残余识别不再误吃。注意：`creator` / `creators` 不在 STOP_WORDS，
+  // 留着不影响（"this site creator"基本不出现于统计问句中）。
+  'creat', 'created', 'creating', 'creation',
   // 「要名单」的英文动词：已被 parseListIntent 处理，不能当残余专名。
   'give', 'gimme', 'send', 'sends', 'sent', 'showing', 'provide', 'want',
   'wanna', 'need', 'like', 'help', 'enumerate', 'ids', 'id',

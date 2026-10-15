@@ -355,10 +355,19 @@ export function renderStats(
     lines.push(T.amongOpen(data.open));
   }
 
-  const sevEntries = Object.entries(data.by_severity || {}).filter(([, v]) => Number(v) > 0);
+  const sevMap = data.by_severity || {};
   // 已经按单个级别过滤时，再列一次「级别分布」是废话 —— 只在全量查询时给。
-  if (sevEntries.length && !data.severity) {
-    lines.push(`${T.sevPart}${T.colon}${sevEntries.map(([k, v]) => `${k} ${v}`).join(T.sep)}`);
+  //
+  // 2026-10-14 实测：今天只有 P3/P2/P4 三个级别有量、P1=0，旧实现会跳过
+  // 该级别不显示，于是群里的同事看不到「P1 0」这一行，被反推为「P1 缺一张
+  // 没统计」，有歧义。改为全量查询时永远把 P1~P4 列出来，缺的补 0，**顺序
+  // 固定**（P1→P4），让消息像 KPI 看板一样稳定可对账。
+  if (!data.severity) {
+    const sevOrder = ['P1', 'P2', 'P3', 'P4'];
+    const line = sevOrder
+      .map((k) => `${k} ${Number(sevMap[k] || 0)}`)
+      .join(T.sep);
+    lines.push(`${T.sevPart}${T.colon}${line}`);
   }
   if (data.by_status) {
     const st = statusLine(data.by_status, lang);

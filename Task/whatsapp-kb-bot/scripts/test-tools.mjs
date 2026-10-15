@@ -172,6 +172,26 @@ console.log('\n[3c] 中文专名不能被吃掉（A6：中文站名/区域名不
   check(parseByRule('昨天一共有多少单', NOW)?.tool === 'query_tickets', '  反向：纯通用问法仍走规则短路');
 }
 
+// 把正则常量提到块前 —— 模块顶层 ESM 的 const 在初始化前引用会抛 ReferenceError。
+// 注意：跟 src/tools.js 的 COUNT_INTENT 必须严格同款（字符类用 `[a-z]*` 而不是
+// `\w*`），避免测试"绿了"、线上却仍误伤 `created_by` 这种含下划线的字串。
+const COUNT_INTENT_CREAT = /\bcreat[a-z]*\b/i;
+
+console.log('\n[3b2] 拼写容错：create 的近似动词（2026-10-14 实测「creat today」落到模型层 13s）');
+{
+  // 14:20 那条「how many TT creat today?」实测走了模型层（13077ms）才出来——
+  // 因为 COUNT_INTENT 没有 creat，而 today 单字命中要走完整规则链；
+  // 加 `\bcreat\w*\b` 之后这种拼写直接归到 query_tickets，省一次模型调用。
+  const c1 = parseByRule('how many TT creat today?', NOW);
+  check(c1?.tool === 'query_tickets', '  「creat today」走 query_tickets（不再规则弃权）', JSON.stringify(c1));
+  check(c1?.args?.severity === '', '  不携带具体级别', JSON.stringify(c1?.args));
+  check(c1?.args?.start === '2026-10-06', '  日期 = today（按 NOW）', JSON.stringify(c1?.args));
+
+  check(COUNT_INTENT_CREAT.test('creat today'), '  creat 单字命中');
+  check(COUNT_INTENT_CREAT.test('how many tickets created today'), '  created 命中');
+  check(!COUNT_INTENT_CREAT.test('created_by'), '  created_by 词边界不命中（防误伤）');
+}
+
 console.log('\n[3d] 站点告警意图 → query_site_alarms（2026-10-08：治「Palm Bay 有没有告警」被答成 tickets:0）');
 {
   // 核心：站点是否 up / 有没有告警，是**告警事实**，不是工单数量。
@@ -268,11 +288,26 @@ console.log('\n[5] 统计结果渲染（数字必须原样，不能由模型加�
   check(some.includes('P2 47'), '级别分布原样出现', JSON.stringify(some));
   check(some.includes('TT202610060087'), '样例单号出现', JSON.stringify(some));
 
+  // 2026-10-14 实测：当天只有 P2/P3/P4 三档有量、P1=0，
+  // 旧渲染只列「实际非零」档，于是群里看不到「P1 0」—— 被人误读为「P1 缺一张没统计」。
+  // 新规则：全量查询时永远列 P1~P4、缺的补 0，顺序固定。
+  check(some.includes('P1 0,P2 47,P3 37,P4 10') || some.includes('P1 0、P'),
+    '  缺档补 0、固定顺序 P1→P4', JSON.stringify(some));
+
   const en = renderStats(
     { start: '2026-10-06', end: '2026-10-06', severity: 'P1', total: 3, open: 1, by_severity: { P1: 3 } },
     'en'
   );
   check(en.includes('P1') && !/没有/.test(en), '英文渲染不含中文', JSON.stringify(en));
+
+  // 英文侧同样要把 P1~P4 全列出来
+  const enAll = renderStats(
+    { start: '2026-10-06', end: '2026-10-06', severity: '', total: 41, open: 40,
+      by_severity: { P2: 11, P3: 24, P4: 6 } },
+    'en'
+  );
+  check(enAll.includes('P1 0') && enAll.includes('P2 11') && enAll.includes('P3 24') && enAll.includes('P4 6'),
+    '  英文全量也补零 + 顺序固定', JSON.stringify(enAll));
 
   const degraded = renderStats(
     { start: '2026-10-06', end: '2026-10-06', severity: null, total: 82, open: 56, by_severity: { P2: 47 } },
