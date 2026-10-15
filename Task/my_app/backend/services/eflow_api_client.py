@@ -168,6 +168,13 @@ _forgery_token = ""
 # 绑定（login() 一起拿到），logout() 显式传给 auth_manager —— 避免登出时从
 # 共享缓存回读到其他进程后登录覆盖的 authCode 而误杀别人的会话。
 _session_auth_code = ""
+# 本进程内会话是**用哪个账号**建立的（取自 login() 时的 eflow 凭据）。
+# 【2026-10-14 为什么必须记它】本进程会话在 ensure_login() 里一旦非空就直接
+# 返回，连磁盘缓存都不读。于是「设置页改了 eflow 账号 → 任务仍用旧账号的会话」
+# 会一直 403（且 403 不触发重登，只有 401 会），只能靠重启 worker 解决。
+# 记账后，ensure_login() 每次比对本字段与当前凭据的 username，不一致即丢弃
+# 内存会话重新登——改凭据即时生效，不必重启。
+_session_username = ""
 # 本进程内会话的取得时刻（time.time()），供 ensure_login_fresh() 判断"本进程会话年龄"。
 # 注意它与 auth_manager 缓存里的 created_at 不是一回事：后者是**跨进程**的
 # token 签发时刻，前者只是本进程拿到它的时刻。
@@ -456,7 +463,7 @@ def login(force_refresh: bool = False):
     后者在**本进程已有会话**时直接返回，连磁盘缓存都不读。
     """
     global _session_cookie, _forgery_token, _auth_generation, _session_obtained_at
-    global _session_auth_code
+    global _session_auth_code, _session_username
 
     try:
         try:
@@ -466,7 +473,8 @@ def login(force_refresh: bool = False):
             from auth_manager import get_auth
         # force_refresh=True：跳过 auth_manager 磁盘缓存（其仅按 TTL 判过期，
         # 服务器会话可能已死但未到 TTL），401 恢复时务必强制真实登录。
-        result = get_auth(HOST, PORT, *_runtime_credentials(), force_refresh=force_refresh)
+        _user, _pass = _runtime_credentials()
+        result = get_auth(HOST, PORT, _user, _pass, force_refresh=force_refresh)
         source = "强制刷新" if force_refresh else ("跨进程缓存复用" if result["from_cache"] else "真实登录")
         logger.info(f"eFlow 鉴权成功（来源: {source}）")
         _session_cookie = result["cookie"]
@@ -477,6 +485,8 @@ def login(force_refresh: bool = False):
         # 全部 worker 共用，若 A 登录后 B 又重登覆盖了缓存，A 登出时回读到的
         # 就是 B 的 authCode，会误杀 B 的会话。
         _session_auth_code = result.get("auth_code", "")
+        # 记账本会话是用哪个账号建的，供 ensure_login() 检出「凭据已被改」。
+        _session_username = _user or ""
         _session_obtained_at = time.time()
         _auth_generation += 1
     except Exception as e:
@@ -504,7 +514,34 @@ def ensure_login():
     u/n/v/m/c 多进程分组，于是**每个进程第一次碰 eFlow 都会真实登录一次**，
     磁盘上明明有可用 token 也发现不了 —— 这正是「每个任务申请一次 token」
     把 eFlow 登录接口打崩的直接原因。
+
+    ⚠ 2026-10-14 增补：内存会话还要核对「是哪个账号建的」。设置页改 eflow
+    账号后，worker 进程里 `_session_cookie` 仍挂着**旧账号**的会话，而旧账号
+    对新权限接口会 403（403 不触发重登，只有 401 会）→ 表现为「改了账号仍
+    403，重启才好」。这里每次比对本进程会话账号与当前凭据 username，
+    不一致即丢弃内存会话，让下面的 login() 用新账号重来。
+    代价：每次调用多一次 get_credential（有 30s TTL 缓存、**不打网**）。
     """
+    global _session_cookie, _forgery_token, _session_auth_code, _session_obtained_at
+    if _session_cookie:
+        # 检出「凭据已被改」：本会话账号 != 当前配置账号时作废旧会话。
+        # 只在两者都非空时比，避免凭据读取异常（返回空）误伤正常会话。
+        try:
+            cur_user = _runtime_credentials()[0] or ""
+        except Exception:
+            cur_user = ""
+        if cur_user and _session_username and cur_user != _session_username:
+            logger.warning(
+                "[AUTH] eflow 凭据已变更（%s → %s），作废本进程旧会话并重新登录",
+                _session_username, cur_user,
+            )
+            # 只清本进程内存态，不走 logout()：旧会话的 authCode 已随账号作废，
+            # 向 auth_manager 发登出请求既可能误杀同主机其它账号的会话，
+            # 也没有意义（该账号的会话本就该由它自己那侧释放）。
+            _session_cookie = ""
+            _forgery_token = ""
+            _session_auth_code = ""
+            _session_obtained_at = 0.0
     if not _session_cookie:
         login()
     return _session_cookie
@@ -552,6 +589,7 @@ def logout():
     注意：本函数不会抛异常，适合放在任务收尾的 finally 里。
     """
     global _session_cookie, _forgery_token, _session_obtained_at, _session_auth_code
+    global _session_username
 
     cookie, forgery, auth_code = _session_cookie, _forgery_token, _session_auth_code
     try:
@@ -567,6 +605,7 @@ def logout():
     _session_cookie = ""
     _forgery_token = ""
     _session_auth_code = ""
+    _session_username = ""
     _session_obtained_at = 0.0
 
 

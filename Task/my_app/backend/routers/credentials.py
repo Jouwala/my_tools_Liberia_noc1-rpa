@@ -34,6 +34,47 @@ def _is_en(request: Request) -> bool:
     return (request.headers.get("accept-language") or "").lower().startswith("en")
 
 
+def _invalidate_sessions_for(key: str, *usernames: str) -> None:
+    """改凭据后作废该组在**磁盘上**的会话缓存，使新账号即时生效。
+
+    【2026-10-14 为什么需要】设置页（FastAPI 7038 进程）与任务是**不同进程**
+    （worker_watchdog.py 以 subprocess 拉起 worker），改凭据无法直接清掉 worker
+    进程内存里的会话。能触及的共享状态只有磁盘缓存，故在此按该组登记的
+    test_host/test_port 删掉对应账号的缓存文件（invalidate_cache 只删本地文件、
+    不发网络请求，安全）。
+
+    usernames: 要作废的账号，**旧账号与新账号都要传**。改凭据的语义是「这个 key
+    的旧会话一律作废」，旧账号那份缓存若不删，将来把凭据改回旧账号时会立即复用
+    一份可能已在别处失效的会话。传 username 时 auth_manager 只删该账号那一份，
+    不连坐同主机其它账号（多账号主机的既有约定，见 auth_manager._cache_file_path）。
+
+    注意：这仍**不能**清除已在运行的 worker 内存里的旧会话 —— 那一层由
+    eflow_api_client.ensure_login() 的账号比对负责（改凭据后 worker 下次调用
+    即自动重登）。两处配合，改凭据后无需重启。
+
+    仅供 eFlow / ZTE UME 系（走 auth_manager 的主机）生效；其余组无 test_host
+    或不经 auth_manager，静默跳过。
+    """
+    group = _GROUP_INDEX.get(key) or {}
+    host, port = group.get("test_host"), group.get("test_port")
+    if not (host and port):
+        return
+    try:
+        from backend.services.auth_manager import invalidate_cache
+    except ImportError:
+        from auth_manager import invalidate_cache
+    # 去重后逐个账号清；空串跳过（invalidate_cache 传空会删该主机全部账号，非本意）。
+    for u in dict.fromkeys(usernames):
+        if not u:
+            continue
+        try:
+            invalidate_cache(host, int(port), u)
+            logger.info(f"[CRED] 已作废 {key} 在 {host}:{port} 账号 {u} 的会话缓存")
+        except Exception as e:
+            # 清缓存失败不该让「保存凭据」失败（凭据已落库，最迟 30s 生效）。
+            logger.warning(f"[CRED] 作废 {key} 会话缓存失败（忽略）: {e}")
+
+
 class CredentialUpdate(BaseModel):
     key: str
     username: str | None = None
@@ -70,6 +111,8 @@ def update_credential(body: CredentialUpdate, request: Request):
     new_secret = body.secret or cur_secret
     set_credential(body.key, new_user, new_secret)
     logger.info(f"[CRED] 凭据已更新: {body.key}")
+    # 旧账号与新账号的缓存都作废：改凭据 = 该 key 的旧会话一律失效。
+    _invalidate_sessions_for(body.key, cur_user, new_user)
     return {"status": "ok", "key": body.key, "message": ("Credentials saved, effective within 30s" if en else "凭据已保存，最迟 30 秒后生效")}
 
 
