@@ -118,6 +118,64 @@ const COUNTY_BAND_COLORS: Record<AlarmBand, string> = {
   none: '#9aa5b5',       // 0    灰（只用于描边，填充同样极淡）
 }
 
+/* 取景水平位移量（像素，**正值 = 内容右移**）。用于让开贴左缘的浮层。
+
+   ---- 2026-10-15（本次，符号反转：左移 → 右移 73px ≈ 画布 10%）----
+   用户要求：「地图被图例遮挡，把地图向右移动一点」。
+   起因是**同一天浮层整体换边**：用户要求「图例全部放到左边」，
+   LayerToggleControl 与 RegionRankingOverlay 都由 right:10 改为 left:10 贴左缘
+   （见各组件文件头的记录）。遮挡源因此从「右边缘」变成「左边缘」——
+   实测（Playwright，视口 1600×1000 / 中列画布 **730×858**，坐标相对画布左缘）：
+     · #gis-layers-panel（图层面板）   x  10..142  y  10..78
+     · .gis-rank-overlay（区域排名条） x  10..253  y  86..347  ← 主要遮挡源
+     · .gis-legend-overlay（图例）     x   8..219  y 698..824
+   站点圆点（**只取 .leaflet-site-pane**，别用 [style*=650] 那类宽选择器 ——
+   它会把 .leaflet-overlay-pane 的县界多边形一起算进来，实测虚增 162 个"点"）
+   在不位移时横跨 x 81..763，其中 **8 个**落在区域排名条（x≤253）之下。
+
+   取 73（≈画布 10%）的依据 —— **用户在页面上直接观察后拍板此值**：
+     ·   0（不位移）→ 被压 8（含多个红色实时告警点），东侧已被切 6
+     ·  -73（10%）  → 被压 3 ← **本次取值**（用户「10% 就正好」）
+     · -110（15%）  → 被压 2
+     · -130（18%）  → 被压 1
+     · -172（≈24%） → 被压 0，但东侧切到 14 —— 用户认为 25% 那档「移动得太多」
+   ⚠️ 这是**用户的视觉判断优先于「遮挡归零」**的结果，不是测量失误：
+     10% 下面板右下角仍压着 3 个点（x 180..203 / y 300..345，含红色告警点）。
+     要彻底归零需右移约 24%，而那会明显切掉东缘。以下硬约束解释了为什么
+     二者不可兼得，**别再试图找一个"都满足"的值**：
+       zoom 8 下国土像素宽约 **682px**，画布仅 730px，左侧面板又占 253px，
+       682+253 > 730 —— 算术上无法共存。
+     若将来要两者兼得，出路是**降一档缩放**（实测 zoom 7.5 时国土跨度降到
+     341px，可完全装下）或**缩窄 .gis-rank-overlay**，而不是继续调这个位移值。
+     想复测请用 TMP/_probe_v2_measure.py（输出 covered / clipped / xRange）。
+
+   ⚠️⚠️ 方向别凭直觉猜：本常量对应 MapController 的 `map.panBy([v, 0])`，
+   而 **panBy 的 x 是「视图中心移动的向量」**，与「内容移动方向」相反 ——
+   传**负** x = 视图中心西移 = **内容右移**（正是本次要的效果）。
+   2026-10-13 那轮要「内容左移」时传的是正 x（当时的用法），
+   方向标定见 MapController 文件内的屏幕坐标实测表。
+
+   ---- 2026-10-13（历史：左移 205，现已推翻）----
+   当时用户要求「把地图向左移动，避免被**右边**的统计遮挡」，浮层在右侧
+   （排名条 x 477..720），故取 205 左移。该前提已随浮层换边失效，勿据此回改。
+
+   ⚠️ 该值只影响**平移**，不改 zoom，也不改 center 的算法。
+   门户中列宽度改了（见 PORTAL_MAP_WIDTH 的耦合提示）就要重新实测这个值 ——
+   偏大时国土被推出右边界，偏小时西侧仍被浮层压住。
+   ⚠️ 改本值时**必须同步**看 gismap/countyLabelLayout.ts 的 shiftWestPx ——
+   县名标签的锚点是按「平移后」的坐标算的，两处用的是同一个常量
+   （该参数语义为「正值 = 内容左移」= 本常量的**相反数**）。 */
+const SHIFT_WEST_PX = -73
+
+/* 取景垂直位移量（像素，**正值 = 内容上移**）。2026-10-15 用户要求「地图向上平移 3%」。
+   3% 按画布高度 858px 折算 ≈ **26px**（见 PORTAL_MAP_HEIGHT / 实测画布 730×858）。
+   语义与 SHIFT_WEST_PX 对称，直接喂给 MapController 的 panBy y 分量：
+     正值 = 内容上移（对应 panBy 传正 y，方向标定见 MapController 注释）。
+   ⚠️ 县名标签的纵向锚点**未**接入本值（countyLabelLayout 的 to() 只管 x 的平移）；
+   26px 的纵向偏差远小于标签自身高度（18px）以外的容差，暂不处理 ——
+   若将来纵向位移量级变大（>40px），需像 x 那样把 y 也喂进 makeProjector。 */
+const SHIFT_SOUTH_PX = 26
+
 /** 告警站点数 → 分档。空值按 0 处理：取不到数据显示为「无」而不是硬塞进某一档。 */
 function alarmBand(n: number | null | undefined): AlarmBand {
   const v = Number(n ?? 0)
@@ -243,9 +301,18 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
          标签会重新变稀，反而更不容易重叠。
        · 画布宽 570 是门户中列的实测宽度（见本文件顶部 LB_FIT_ZOOM 的实测表）。
          取宽了会让判定的重叠比实际更少，取窄了则避让过度 —— 用实测值最稳。
-       · 依赖里只有 counties：分档色与告警数都从 counties 派生，没有第二个真相源。 */
+       · 依赖里只有 counties：分档色与告警数都从 counties 派生，没有第二个真相源。
+       · 2026-10-13 新增 shiftWestPx：投影器必须知道 MapController 把内容平移了
+         多少，否则标签会按「未平移」的坐标落地，与站点圆点脱节
+         （站点由 Leaflet 自己按平移摆放，标签是本模块先算好的 lat/lng）。
+         方向约定见 countyLabelLayout.ts 的 makeProjector 注释
+         （该参数**正值 = 内容左移**；本页 SHIFT_WEST_PX 取负值即内容右移，
+          直接透传即可 —— makeProjector 内部是 `x - shiftWestPx`，
+         负值等价于 x 加上一个正数，正是右移）。 */
   const countyLabels = useMemo(() => {
-    const proj = makeProjector(zoomLevel, PORTAL_MAP_WIDTH, LB_CENTER[0], PORTAL_MAP_HEIGHT)
+    const proj = makeProjector(
+      zoomLevel, PORTAL_MAP_WIDTH, LB_CENTER[0], PORTAL_MAP_HEIGHT, SHIFT_WEST_PX,
+    )
     return placeCountyLabels(
       counties,
       c => c.alarm_site_count ?? 0,
@@ -1241,7 +1308,8 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
                 },
               ]}
             />
-            <MapController center={center} zoom={zoomLevel} />
+            <MapController center={center} zoom={zoomLevel}
+              shiftWestPx={SHIFT_WEST_PX} shiftSouthPx={SHIFT_SOUTH_PX} />
             <Pane name="sitePane" style={{ zIndex: 650 }} />
             {/* 县名标签专用 pane（2026-10-03）：**必须高于 sitePane(650)**，
                 否则站点红点会盖住标签。

@@ -189,12 +189,28 @@ const LB_REF_LNG = -9.5
  * @param zoom     Leaflet 缩放级别（本页默认 LB_FIT_ZOOM=7）
  * @param width    画布宽度（像素）
  * @param latitude 取景中心纬度，用于经度方向的 cos 收缩
+ * @param height   画布高度（像素）
+ * @param shiftWestPx 地图**西移量**（2026-10-13 新增）：正值 = 内容整体左移了这么多像素
+ *                （对应 GISMap 的 SHIFT_WEST_PX + MapController 的 panBy）。
+ *
+ *   ⚠️ 为什么投影器必须知道这个平移量：
+ *   投影器的「画布中线」假设地图中心 = `latitude` 所在的点。但本页为了避开
+ *   右侧浮层，会在 setView 之后 panBy 把内容往左推 —— 此时画面中心已经不是
+ *   这个点了，而**标签锚点若仍按「未平移」算 lat/lng**，落地后会整体偏离，
+ *   与站点圆点脱节（站点与标签是两条独立链路：站点由 Leaflet 自己按平移摆放，
+ *   标签由本模块先算好 lat/lng 再交给 Leaflet）。
+ *   把平移量喂进来，`to()` 才会算出「平移之后」的真实像素位置，
+ *   「夹在可视范围内」的判定也才成立。
+ *
+ *   约定：**正值 = 内容左移**，所以像素 x 要**减去**平移量 ——
+ *   即「未平移时在 px 的东西，平移后出现在 px - shiftWestPx」。
  */
 export function makeProjector(
   zoom: number,
   width: number,
   latitude: number,
   height = 856,
+  shiftWestPx = 0,
 ): Projector {
   /* Web Mercator 在给定 zoom 下，世界像素宽 = 256 * 2^zoom，覆盖 360° 经度。
      纬度方向另乘 1/cos(lat) 才是对应度数（高纬度处同样的像素代表更多经度）。 */
@@ -205,10 +221,18 @@ export function makeProjector(
   return {
     // 原点取画布中线，避免大数值相减带来的浮点精度损失（这里只比相对距离）
     to: (lat, lng) => [
-      width / 2 + (lng - LB_REF_LNG) / degPerPxX,
+      // 西移 = 内容左移 = x 变小，故减；y 不受影响
+      width / 2 + (lng - LB_REF_LNG) / degPerPxX - shiftWestPx,
       height / 2 - (lat - latitude) / degPerPxY,
     ],
     degPerPx: { x: degPerPxX, y: degPerPxY },
+    /* size 是**平移之后**的真实可视范围：内容左移后，原来贴右缘的东西
+       还在画布内（只是位置变了），而画布**左缘**相对内容向右收进了 shiftWestPx。
+       即：内容坐标 x 的有效区间是 [shiftWestPx, shiftWestPx + width]。
+       这里把 size 的 width 保持原值即可 —— placeCountyLabels 只用它夹
+       [半宽, width-半宽]，而 to() 已经减掉了 shiftWestPx，两者配合起来
+       等价于「内容坐标下夹在 [半宽+shift, width-半宽+shift]」，
+       正是平移后的正确可视区间。 */
     size: { width, height },
   }
 }
