@@ -1208,3 +1208,69 @@ def tt_root_cause_audit_summary(
         "mismatch_rate_pct": round(100.0 * mismatch_cnt / checked, 1) if checked else 0.0,
         "items": items,
     }
+
+
+# ========== 单行查询（供 WhatsApp 机器人的单号分析走 PG 实时） ==========
+#
+# 为什么需要（2026-10-15）：机器人的单号分析原先只读 SQLite 副本
+# （<my_app>/db/app.db），而副本由 `pg_to_sqlite_sync` 刷新、cron 每 12 小时一次。
+# 于是 PG 里数据已恢复/更新后，机器人最坏要再等 12 小时才看见 —— 群里出现
+# 「数据每时都在更新，为什么机器人查不到」的投诉。这两个接口把「单条工单」
+# 这一跳改成读 PG 实时库，机器人据此优先走 HTTP、SQLite 仅作降级。
+#
+# 鉴权：本 router 无 require_protected 依赖，且 main.py 的会话中间件对
+# `client_is_local(request)`（回环 127.0.0.1）放行 —— 机器人从本机调用免 token。
+# 只读、不写库、不触发任何任务。
+
+
+def _row_to_dict(cur) -> dict:
+    """把一条游标结果转成 {列名: 值}（值统一为 str 或 None，避免日期对象不可 JSON 化）。"""
+    cols = [d[0] for d in cur.description]
+    r = cur.fetchone()
+    if not r:
+        return {}
+    return {c: (None if v is None else str(v)) for c, v in zip(cols, r)}
+
+
+@router.get("/tt/{tt_no}")
+def tt_single_row(tt_no: str):
+    """按单号取一条 TT **全行**（eflow_tt 的原始列）。
+
+    tt_no 优先、ticket_no 兜底（部分历史数据真实单号落在 ticket_no，
+    与 services/eflow_rules/tt_batch_severity.py 的取数语义一致）。
+
+    返回 ``{"found": bool, "row": {<全列>}}``。
+    未命中返回 ``found: false`` + HTTP 200 —— **刻意不用 404**：
+    机器人要区分「确实没这一单」（应提示用户）与「接口/服务坏了」（应降级重试），
+    404 会把两者混在一起。
+    """
+    target = (tt_no or "").strip().upper()
+    if not target:
+        return {"found": False, "row": {}}
+    with get_raw_connection() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM eflow_tt WHERE UPPER(TRIM(tt_no)) = ?", (target,))
+        row = _row_to_dict(cur)
+        if not row:
+            cur.execute("SELECT * FROM eflow_tt WHERE UPPER(TRIM(ticket_no)) = ?", (target,))
+            row = _row_to_dict(cur)
+        conn.close()
+    return {"found": bool(row), "row": row}
+
+
+@router.get("/wo/{wo_no}")
+def wo_single_row(wo_no: str):
+    """按单号取一条 WO **全行**（eflow_wo 的原始列）。
+
+    用途：机器人时间轴的「WO派单 / 现场处置」两跳需要 WO 行，随 TT 一起走 PG 实时。
+    返回形状与 ``/tt/{tt_no}`` 一致：``{"found": bool, "row": {<全列>}}``。
+    """
+    target = (wo_no or "").strip().upper()
+    if not target:
+        return {"found": False, "row": {}}
+    with get_raw_connection() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM eflow_wo WHERE UPPER(TRIM(wo_no)) = ?", (target,))
+        row = _row_to_dict(cur)
+        conn.close()
+    return {"found": bool(row), "row": row}
