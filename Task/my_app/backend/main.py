@@ -86,6 +86,7 @@ from backend.routers import (
     olib_soc_dashboard,
     feedback,
     ui_config,
+    ui_tool_order,
     portal_qc,
     portal_catalog,
     cn_kpi,
@@ -251,6 +252,8 @@ app.include_router(olib_soc_dashboard.router)
 app.include_router(feedback.router)
 # 界面配置（侧栏菜单结构）：全局共享一份，仅本机可改（见 routers/ui_config.py）
 app.include_router(ui_config.router)
+# eFlow Q&A 工具块顺序：全局共享一份，仅本机可改（见 routers/ui_tool_order.py）
+app.include_router(ui_tool_order.router)
 # uniplam 门户鉴权适配：/api/auth/portal-login、/api/auth/logout、/api/auth/me（见 services/portal_auth.py）
 app.include_router(portal_auth.router)
 # MsPortal 静态门户「Quality Control」面板的数据库统计与明细下钻（只读，见 routers/portal_qc.py）

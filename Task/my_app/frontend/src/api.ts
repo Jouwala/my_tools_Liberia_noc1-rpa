@@ -556,6 +556,20 @@ export function resetMenuLayout() {
   return api.delete('/ui/menu-layout')
 }
 
+/* ---------- eFlow Q&A 工具块顺序（全局默认，与菜单布局同套路） ----------
+ * 人人可读；仅本机（或持 X-API-Token）可写。见 backend/routers/ui_tool_order.py。 */
+export function getToolOrder() {
+  return api.get('/ui/tool-order')
+}
+
+export function saveToolOrder(keys: string[]) {
+  return api.put('/ui/tool-order', { keys })
+}
+
+export function resetToolOrderServer() {
+  return api.delete('/ui/tool-order')
+}
+
 /* ---------- uniplam 门户鉴权适配 ----------
  * portal-login：把门户深链带进来的门户 token 交给后端换 myapp 会话 Cookie。
  * 401 拦截：数据接口返回 401 时通知 App 展示“请通过统一门户登录”引导。

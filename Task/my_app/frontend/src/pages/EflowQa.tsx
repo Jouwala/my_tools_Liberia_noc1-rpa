@@ -844,6 +844,22 @@ function UmeAlarmView({ t, isDark, isMobile, border, umeKey, loading, error, dat
   )
 }
 
+/* ---------- 工具块顺序：个人 localStorage + 服务端全局默认 ----------
+ * - TOOL_BLOCKS_KEY：本人拖拽后的个人顺序（仅本浏览器）。
+ * - DEFAULT_TOOL_BLOCKS：代码内置默认，服务端无配置时的兜底。
+ *   必须与 backend/routers/ui_tool_order.py 的 VALID_TOOL_KEYS 一致（两处互指）。
+ * 放模块级以获得稳定引用（组件内定义会导致每次渲染生成新数组）。 */
+const TOOL_BLOCKS_VERSION = 1
+const TOOL_BLOCKS_KEY = `eflowqa.toolBlocks.v${TOOL_BLOCKS_VERSION}`
+const DEFAULT_TOOL_BLOCKS: string[] = [
+  'knowledge-search',       // 知识库检索
+  'tt-quick-analysis',      // TT 快速分析
+  'tt-batch-check',         // TT 批量级别核查
+  'wo-close',               // WO 清理
+  'tt-postmortem',          // TT 复盘
+  'ran-ume-alarm-analysis', // RAN UME 告警分析
+]
+
 export default function EflowQa() {
   const { t, locale } = useI18n()
   const { isDark } = useTheme()
@@ -1273,16 +1289,8 @@ export default function EflowQa() {
   // ===== 检索 + TT 工具区（顺序可拖，localStorage 持久化）=====
   // 6 个功能块各自可独立拖拽改顺序；用 HTML5 原生 dnd 不引新依赖。
   // localStorage key 包含 schema 版本，bump 后旧值自动作废回到默认。
-  const TOOL_BLOCKS_VERSION = 1
-  const TOOL_BLOCKS_KEY = `eflowqa.toolBlocks.v${TOOL_BLOCKS_VERSION}`
-  const DEFAULT_TOOL_BLOCKS: string[] = [
-    'knowledge-search',     // 知识库检索
-    'tt-quick-analysis',    // TT 快速分析
-    'tt-batch-check',       // TT 批量级别核查
-    'wo-close',             // WO 清理
-    'tt-postmortem',        // TT 复盘
-    'ran-ume-alarm-analysis', // RAN UME 告警分析
-  ]
+  // 三个常量放模块级（见文件上方 TOOL_BLOCKS_VERSION 等）以获得稳定引用，
+  // 避免每次渲染生成新数组导致 useCallback/useEffect 依赖抖动。
   const [toolOrder, setToolOrder] = useState<string[]>(() => {
     try {
       const raw = localStorage.getItem(TOOL_BLOCKS_KEY)
@@ -1294,11 +1302,81 @@ export default function EflowQa() {
     } catch { /* noop */ }
     return DEFAULT_TOOL_BLOCKS
   })
+  // 服务端全局默认（见 backend/routers/ui_tool_order.py）：
+  // 拖拽只写本地个人顺序；「保存为默认顺序」才改这份全局默认；「恢复默认顺序」放弃个人、跟随它。
+  const [serverToolOrder, setServerToolOrder] = useState<string[] | null>(null)
+  // 是否允许改全局默认（非本机只读，按钮不渲染）——由 GET 的 editable 决定
+  const [toolOrderEditable, setToolOrderEditable] = useState(false)
+  const [savingToolOrder, setSavingToolOrder] = useState(false)
   // 旧字段（HTML5 dnd 时期）已废弃，删除以免 TS 报 unused
   const persistToolOrder = useCallback((next: string[]) => {
     setToolOrder(next)
     try { localStorage.setItem(TOOL_BLOCKS_KEY, JSON.stringify(next)) } catch { /* noop */ }
   }, [])
+
+  /**
+   * 规范化服务端返回的 keys：过滤未知块、去重、把代码新增的块按内置顺序补尾。
+   * 返回 null 表示服务端无配置或内容不可用（调用方回落内置默认）。
+   * 这样即使服务端存的是 6 键、代码后来新增第 7 块，也不会丢块。
+   */
+  const mergeToolOrder = useCallback((raw: unknown): string[] | null => {
+    if (!Array.isArray(raw) || raw.length === 0) return null
+    const valid: string[] = []
+    const seen = new Set<string>()
+    for (const k of raw) {
+      if (typeof k === 'string' && DEFAULT_TOOL_BLOCKS.includes(k) && !seen.has(k)) {
+        seen.add(k)
+        valid.push(k)
+      }
+    }
+    if (!valid.length) return null
+    // 补上服务端没有的块（代码新增的），保持内置顺序追加到末尾
+    for (const k of DEFAULT_TOOL_BLOCKS) if (!seen.has(k)) valid.push(k)
+    return valid
+  }, [DEFAULT_TOOL_BLOCKS])
+
+  // 首屏读取服务端全局默认（人人可读）。只在「本机没有合法个人顺序」时采纳，
+  // 个人拖拽过的顺序本地优先——拖拽是个人偏好，不该被全局默认覆盖。
+  useEffect(() => {
+    api.get('/ui/tool-order').then(res => {
+      setToolOrderEditable(!!res.data?.editable)
+      const merged = mergeToolOrder(res.data?.keys)
+      if (!merged) return
+      setServerToolOrder(merged)
+      try {
+        const raw = localStorage.getItem(TOOL_BLOCKS_KEY)
+        const hasPersonal = !!raw
+          && (() => { const a = JSON.parse(raw); return Array.isArray(a) && a.length > 0 })()
+        if (!hasPersonal) setToolOrder(merged)
+      } catch { /* 本地无个人顺序（或解析失败）→ 采纳全局默认 */ setToolOrder(merged) }
+    }).catch(() => { /* 读不到就静默回落内置默认，不打扰用户 */ })
+  }, [TOOL_BLOCKS_KEY, mergeToolOrder])
+
+  /** 恢复默认顺序：清掉个人顺序，视图切到服务端全局默认（无则内置默认）。 */
+  const resetToolOrder = useCallback(() => {
+    try { localStorage.removeItem(TOOL_BLOCKS_KEY) } catch { /* noop */ }
+    setToolOrder(serverToolOrder ? [...serverToolOrder] : [...DEFAULT_TOOL_BLOCKS])
+  }, [TOOL_BLOCKS_KEY, serverToolOrder, DEFAULT_TOOL_BLOCKS])
+
+  /**
+   * 保存为默认顺序：把当前 toolOrder 写到服务端为全局默认。
+   * 成功后清掉本机个人顺序（所见即默认）。失败不清本地视图、保持用户当前顺序。
+   */
+  const saveAsDefaultToolOrder = useCallback(async () => {
+    setSavingToolOrder(true)
+    try {
+      const res = await api.put('/ui/tool-order', { keys: toolOrder })
+      const merged = mergeToolOrder(res.data?.keys) || toolOrder
+      setServerToolOrder(merged)
+      try { localStorage.removeItem(TOOL_BLOCKS_KEY) } catch { /* noop */ }
+      message.success(t('qa.toolOrder.saveOk'))
+    } catch (e: any) {
+      const status = e?.response?.status
+      message.error(status === 403 ? t('qa.toolOrder.saveForbidden') : t('qa.toolOrder.saveFail'))
+    } finally {
+      setSavingToolOrder(false)
+    }
+  }, [toolOrder, mergeToolOrder, t])
 
   // ===== 检索 + TT 工具区（顺序可拖，localStorage 持久化）=====
   // 用户反馈（2026-10-12 第 2 轮）：第一版拖拽加了"紫色提示横幅 / 被拖块
@@ -1549,13 +1627,29 @@ export default function EflowQa() {
           </div>
         ))}
       </div>
-      {/* 顺序与面板：每块右上角加了 ⋮⋮ 拖把；想还原默认点下面这个按钮 */}
-      <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+      {/* 顺序与面板：每块右上角加了 ⋮⋮ 拖把。
+          - 恢复默认顺序：放弃个人顺序，跟随服务端全局默认（无服务端配置则内置默认）
+          - 保存为默认顺序：把当前顺序写为全局默认（仅本机可见/可改），成功后清掉个人顺序
+          「所见即默认」——保存后你看到的顺序 = 所有人的默认顺序。 */}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
+        {toolOrderEditable && (
+          <Tooltip title={t('qa.toolOrder.saveTip')}>
+            <Button
+              type="link"
+              size="small"
+              loading={savingToolOrder}
+              style={{ padding: 0, height: 'auto', fontSize: 12 }}
+              onClick={saveAsDefaultToolOrder}
+            >
+              {t('qa.toolOrder.saveDefault') || '保存为默认顺序'}
+            </Button>
+          </Tooltip>
+        )}
         <Button
           type="link"
           size="small"
           style={{ padding: 0, height: 'auto', fontSize: 12 }}
-          onClick={() => persistToolOrder([...DEFAULT_TOOL_BLOCKS])}
+          onClick={resetToolOrder}
         >
           {t('qa.toolOrder.reset') || '恢复默认顺序'}
         </Button>
