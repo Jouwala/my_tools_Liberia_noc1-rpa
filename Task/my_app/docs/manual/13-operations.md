@@ -150,8 +150,9 @@ Select-String -Path log\backend_runtime_20260929.log -Pattern 'rid=<你的 reque
   pandas 的 `replace` 同样是 `drop_table()` 后再建表并逐行插入（见 `pandas.io.sql.SQLTable.create`），
   **这才是 `app.realtime_alarm` 消失的真正来源**（`gis.py` 读的正是这张表）。
 
-触发者是定时任务：`eflow_active_alarm` **每 30 分钟**（`task_registry.py:240`）、
-`eflow_history_alarm` **每 3 小时**（`:247`）各重建一次，所以故障是周期性的、且极易被当成"偶发抖动"。
+触发者是定时任务：`eflow_active_alarm` **每 1 分钟**（2026-10-15 起；`task_registry.py` 注册表默认值，
+生产实际值另见 `task_schedule_config`）、`eflow_history_alarm` **每 3 小时**各重建一次，
+所以故障是周期性的、且极易被当成"偶发抖动"。
 
 **修复**（两条一起才够）：
 

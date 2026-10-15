@@ -1,6 +1,6 @@
 # my_app User Help & Guide
 
-> User-facing platform features & operations guide. Generated from the same source as the in-app Help page (frontend/src/helpMarkdown.ts), compiled from docs/manual/ and backend/task_registry.py. Generated on 2026-10-12.
+> User-facing platform features & operations guide. Generated from the same source as the in-app Help page (frontend/src/helpMarkdown.ts), compiled from docs/manual/ and backend/task_registry.py. Generated on 2026-10-15.
 
 > In-app entry: the "Help" sidebar item, or `http://<host>/myapp/?page=help` directly.
 
@@ -75,6 +75,7 @@ Built for the NOC scenario "boards every day, reports must go out": 41+ schedule
 | **v** | VMAX portal (local 8790 single-session proxy): the three tasks share one session and must serialize; split out of group n on 2026-09-18 so long tasks no longer block them |
 | **m** | Housekeeping tasks: EWS mail session + screenshot/WhatsApp file dependencies |
 | **c** | CN EMS dedicated session: cache sync & daily aggregation share _pmcache, serialized for mutual exclusion |
+| **x** | Realtime alarm dedicated group: split out of group n on 2026-10-15 to run on its own lane, no longer queued behind long tasks like eflow_sync (worst observed queue wait 854s) |
 
 > ⚠️ **New tasks MUST also be registered in `GROUP_TASK_MAP` in worker_watchdog.py** — declaring them only in TASK_SPECS leaves them pending forever. This accident happened four times (finebi_report_sync / whatsapp_send_ext / sp_email_details / the olib_soc and vmax_multi_data_sync tasks found on 2026-09-18).
 
@@ -91,7 +92,7 @@ Built for the NOC scenario "boards every day, reports must go out": 41+ schedule
 | WhatsApp Message Send (Baileys) | `whatsapp_send_baileys` | `0 4 * * *` | m | `services/whatsapp_send_baileys_service.py → run_whatsapp_send_baileys` |
 | eFlow P1 Alarm WhatsApp Push | `tt_alarm_whatsapp_alert` | `2-59/5 * * * *` | m | `services/tt_alarm_whatsapp_service.py → run_tt_alarm_whatsapp_alert` |
 | MS SLA Full Sync | `ms_sla_full` | `0 5 * * *` | n | `services/ms_sla_service.py → run_full_sync` |
-| eFlow Realtime Alarm Sync | `eflow_active_alarm` | `*/5 * * * *` | n | `services/eflow_api_client.py → fetch_and_save_active_alarm` |
+| eFlow Realtime Alarm Sync | `eflow_active_alarm` | `*/1 * * * *` | x | `services/eflow_api_client.py → fetch_and_save_active_alarm` |
 | eFlow History Alarm Sync | `eflow_history_alarm` | `0 */3 * * *` | n | `services/eflow_api_client.py → fetch_and_save_history_alarm` |
 | eFlow TT Rules Collect & Match Check | `eflow_tt_rules_check` | `20 4 * * *` | n | `services/eflow_rules/eflow_tt_rules_check_task.py → run_eflow_tt_rules_check` |
 | RAN Main KPI Sync | `main_kpi_sync` | `0 4 * * *` | u | `services/ran_ume_main_kpi.py → run_main_kpi_sync` |
@@ -300,7 +301,7 @@ Workflow & maintenance notes per task:
 **Maintenance**:
 
 - 2026-10-05 redesign: trigger source moved from eflow_tt polling to realtime_alarm + live fetch, cutting first-notify latency from 45–75 min to minutes; window_minutes now means the trigger window
-- Depends on eflow_active_alarm's sync cadence: if realtime_alarm._sync_time lags past 1.5× the actual schedule interval (adaptive — about 7.5 min under the production */5), the task result raises a warning (guards against a silently empty trigger set)
+- Depends on eflow_active_alarm's sync cadence: if realtime_alarm._sync_time lags past 1.5× the actual schedule interval (adaptive — about 1.5 min under the current */1), the task result raises a warning (guards against a silently empty trigger set)
 - The 99933 exclusion stays in Python — both '99933' and '99933.0' exist in the DB, so SQL predicates miss rows; empty whitelist = no filter
 - Never-confirmed sends retry on the same throttle; a round with zero confirmed sends raises a warning via WeChat/email (root fix of the 2026-10-01 silent-outage incident)
 - An empty group list falls back to the test group test123 with an explicit warning in the task result (group_fallback=true) — alerts never vanish silently
@@ -325,21 +326,23 @@ Workflow & maintenance notes per task:
 
 #### eFlow Realtime Alarm Sync（`eflow_active_alarm`）
 
-- Default cron: `*/5 * * * *`　|　worker group: **n**
+- Default cron: `*/1 * * * *`　|　worker group: **x**
 - Workflow script: `services/eflow_api_client.py → fetch_and_save_active_alarm`
 
-**What it does**: Fetch realtime alarms from eFlow FM Active API, save to CSV + SQLite
+**What it does**: Fetch realtime alarms from eFlow FM Active API, save to CSV + SQLite (every minute)
 
 **Workflow & data flow**:
 
-1. Pull FM Active alarms on the configured schedule (registry default */30, changed to */5 in the task config page)
+1. Pull FM Active alarms every minute (both the registry default and production config are */1)
 1. Dual-write app.db realtime_alarm and an eflow.sqlite3 copy (report-only)
 1. Feeds the realtime alarm board / realtime map / alarm management board, and is the trigger source of the P1 alarm WhatsApp push
 
 **Maintenance**:
 
-- Pages read app.db only; "realtime" granularity = the actual schedule (5 min in production), not second-level push
-- Change the schedule in the Task Config page (persisted in task_schedule_config); */30 in the registry is only the default
+- Pages read app.db only; "realtime" granularity = the actual schedule (now 1 minute), not second-level push
+- Change the schedule in the Task Config page (persisted in task_schedule_config, which overrides the registry default)
+- Split from group n into its own group x on 2026-10-15: it used to share a serial lane with eflow_sync, so even a tighter cron got blocked by long tasks (worst queue wait 854s)
+- ⚠️ The 1-minute cadence relies on session reuse (ensure_login hits the in-process/disk cache instead of logging in); re-evaluate the frequency if that logic changes
 - Field mapping lives in services/eflow_alarm_config.json
 
 #### eFlow History Alarm Sync（`eflow_history_alarm`）

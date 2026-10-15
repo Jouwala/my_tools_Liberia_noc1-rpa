@@ -40,7 +40,7 @@ npm run build
 ```ini
 MY_APP_DB_MODE=pg
 DATABASE_URL=postgresql+psycopg://<user>:<pass>@<host>:5432/<db>
-MY_APP_WORKER_GROUPS=u,n,s,w,m,c,v
+MY_APP_WORKER_GROUPS=u,n,s,w,m,c,v,x
 # 可选：对外暴露接口时启用
 # MY_APP_API_TOKEN=<随机长串>
 # 可选：覆盖 CORS 白名单

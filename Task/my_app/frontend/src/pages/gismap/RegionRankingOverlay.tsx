@@ -23,12 +23,14 @@
  *   站点圆点，反倒干扰读图。地图上的县界本身已经可点下钻（handleCountyClick），
  *   下钻路径没有缺失，故此处不重复提供入口。
  *
- * 位置（2026-10-14 第二轮，用户：**「MAINTENANCE ALERTS 要放到 LAYERS 的下面，靠最右边缘」**）：
- *   原先放在 LAYERS **左侧**（right: 196px，即 56 + 132 + 8）。现改为**正下方**并对齐右边缘：
- *     · right 与 LAYERS 相同（10px，2026-10-11 改：原 56px 是"避让 zoom 控件"的
- *       误判，实测 zoom 在 topleft，右上无遮挡；现在两个面板都贴边、互相对齐）；
+ * 位置（2026-10-14 第二轮，用户：**「MAINTENANCE ALERTS 要放到 LAYERS 的下面，靠最右边缘」**；
+ *       2026-10-15 第三轮，用户：**「图例全部放到左边」→ 整体换到左缘**）：
+ *   原先放在 LAYERS **左侧**（right: 196px，即 56 + 132 + 8），后改为**正下方**并对齐边缘：
+ *     · left 与 LAYERS 相同（10px，2026-10-15 由 right:10 换到 left:10；
+ *       换边不改变"两块左/右边缘对齐成同一条竖线"这个语义）；
  *     · top 由**运行时测量** LAYERS 面板的实际高度算出（见 useAnchorTop），
- *       而不是写死一个猜的数值。
+ *       而不是写死一个猜的数值。该测量基于 offsetParent 与元素矩形、
+ *       与面板在左还是在右无关，故换边后无需改动。
  *   为什么测量而不是写死：LAYERS 的高度取决于标题行与复选框行的实际排版
  *   （字号、行高、内边距任一变化都会移位），写死一个「51px」在字体或主题
  *   变动后会悄悄错位。测量能保证「永远紧贴在它下面」这个**语义**成立，
@@ -42,23 +44,58 @@ import { WH } from '../../theme'
  *  LayerToggleControl 是 portal 进 Leaflet 容器的，DOM 层级不稳定。 */
 const LAYERS_PANEL_ID = 'gis-layers-panel'
 
+/** 站点图例浮层的选择器。本面板搬左后与它同在左缘，需要给它让出位置。 */
+const LEGEND_SELECTOR = '.gis-legend-overlay'
+
+/** 本浮层与图例之间至少要留的竖直间距（px） */
+const LEGEND_GAP = 8
+
+/** 本浮层相对地图容器的 top 与可用高度上限（两者都由运行时测量得出）。 */
+interface AnchorMetrics {
+  top: number
+  /** 不撞到左下角图例的前提下，本面板允许的最大高度 */
+  maxHeight: number | null
+}
+
 /**
- * 测出 LAYERS 面板底边相对地图顶部的距离，作为本浮层的 top。
+ * 测出 LAYERS 面板底边相对地图顶部的距离，作为本浮层的 top；
+ * 同时测出「到左下角图例上沿为止」还剩多少高度，作为本面板的 maxHeight 上限。
  *
  * 返回 null 表示还没测到（面板尚未挂载）—— 此时退回到 CSS 里的兜底 top，
  * 不会渲染到 0 位置闪一下。
  *
  * 用 ResizeObserver 而不是只测一次：面板内容若因 i18n 切语言而换行变高，
  * 本浮层要跟着下移。只在 window resize 时测是不够的。
+ *
+ * ⚠️ 高度上限为什么也必须在运行时算（2026-10-15 新增）：
+ *   本面板 2026-10-15 由右缘搬到左缘，与左下角的图例**同处左缘**。
+ *   panelStyle 里原本写死的 `maxHeight: '60vh'` 是"贴右边"时代的产物 ——
+ *   右边只有它自己，60vh 撞不到任何东西；搬到左边后，地图高度不足时
+ *   （Playwright 实测 viewport 高 700px：地图 566px、图例上沿在 521px、
+ *   本面板 top 253px，而 253+60vh=673 > 521）它会直接盖住图例。
+ *   写死任何像素数都只能对某一种地图高度成立，故改为实测剩余空间。
  */
-function useAnchorTop(fallback: number): number {
-  const [top, setTop] = useState<number | null>(null)
+function useAnchorTop(fallback: number): AnchorMetrics {
+  const [metrics, setMetrics] = useState<AnchorMetrics | null>(null)
 
   useEffect(() => {
-    const panel = document.getElementById(LAYERS_PANEL_ID)
-    if (!panel) return
+    /* ⚠️ 必须能**重试**，不能只测一次就放弃。
+     *
+     * LayerToggleControl 是 portal 进 Leaflet 容器的，而它挂载前
+     * `map.getContainer()` 还没就绪，组件先返回 null —— 也就是说
+     * 本组件首次 effect 执行时，`#gis-layers-panel` **通常还不存在**。
+     * 老实现写成 `if (!panel) return` + 空依赖数组，等于"第一次没测到就永远不测"，
+     * 于是 top 永远停在兜底值 124px（2026-10-15 Playwright 实测：面板挂载后
+     * 连等 12 秒 top 仍是 124px，从未变成测量值）。
+     *
+     * 修法：用 rAF 轮询等它出现，拿到之后再转成 ResizeObserver 长驻监听。
+     * 只轮询「等待出现」这一小段，出现后不再空转。 */
+    let raf = 0
+    let ro: ResizeObserver | null = null
+    let measure: (() => void) | null = null
+    let disposed = false
 
-    const measure = () => {
+    const measureInto = (panel: HTMLElement) => {
       const rect = panel.getBoundingClientRect()
       /* 用 offsetParent（Leaflet 地图容器，position:relative）作为参照系，
          而不是视口 —— 本浮层是 absolute 定位在地图容器内的，
@@ -66,20 +103,47 @@ function useAnchorTop(fallback: number): number {
       const holder = (panel.offsetParent as HTMLElement | null) ?? document.body
       const holderTop = holder.getBoundingClientRect().top
       // 面板底边相对于地图容器顶部的距离，再留 8px 间距
-      setTop(rect.bottom - holderTop + 8)
+      const top = rect.bottom - holderTop + 8
+
+      /* 图例上沿相对本面板 top 还剩多少空间。取不到图例时给 null，
+         由调用方退回 CSS 兜底值 —— 宁可偶发撞一次，也不要因测量失败把面板压没。 */
+      const legend = document.querySelector(LEGEND_SELECTOR)
+      let maxHeight: number | null = null
+      if (legend) {
+        const legendTop = legend.getBoundingClientRect().top - holderTop
+        const avail = legendTop - top - LEGEND_GAP
+        if (avail > 0) maxHeight = Math.round(avail)
+      }
+
+      setMetrics({ top, maxHeight })
     }
 
-    measure()
-    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null
-    ro?.observe(panel)
-    window.addEventListener('resize', measure)
+    const attach = () => {
+      if (disposed) return
+      const panel = document.getElementById(LAYERS_PANEL_ID)
+      if (!panel) {
+        // 面板还没挂载：下一帧再看
+        raf = requestAnimationFrame(attach)
+        return
+      }
+      measure = () => measureInto(panel)
+      measure()
+      // 面板内容若因 i18n 切语言而换行变高，本浮层要跟着下移/改高
+      ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null
+      ro?.observe(panel)
+      window.addEventListener('resize', measure)
+    }
+
+    attach()
     return () => {
+      disposed = true
+      if (raf) cancelAnimationFrame(raf)
       ro?.disconnect()
-      window.removeEventListener('resize', measure)
+      if (measure) window.removeEventListener('resize', measure)
     }
   }, [])
 
-  return top ?? fallback
+  return metrics ?? { top: fallback, maxHeight: null }
 }
 
 /** 排名条的一行。color 由调用方按告警分档给出（与地图填充同色） */
@@ -117,12 +181,11 @@ const panelStyle: CSSProperties = {
      被看成一组的顾虑，在「再大一点」这个明确要求面前让位。
      58vw 是门户内嵌窄屏下的兜底。 */
   width: 'min(58vw, 15rem)',
-  right: 10,  // 2026-10-11 与 LAYERS 一同贴边：实测 zoom 控件在 topleft，右上无遮挡
-  /* 靠最右边缘：与 LAYERS 面板的 right 保持一致，使两块浮层右边缘在同一条竖线上。
-     2026-10-11：原 56px 是"避让 zoom 控件"的误判（zoom 实测在 topleft），
-     改 10px 让面板真的贴边。文件头第 26-30 行的设计意图在此落地。
-     此前 panelStyle 漏写 right，导致元素从 left:0 起、宽度 15rem，视觉上落在
-     地图中段偏左 —— 正是用户反馈「没靠到边」的现象。 */
+  /* 2026-10-15 用户要求「图例全部放到左边」：与 LAYERS 一同由右改左（right:10 → left:10），
+     两块面板左边缘继续对齐成同一条竖线。
+     此前 2026-10-11 的 right:10 是"贴右边缘"（原 56px 是"避让 zoom 控件"的误判，
+     zoom 实测在 topleft），该判断本身没错，只是位置随本次需求整体换边。 */
+  left: 10,
   /* top **不在这里写**：它由 useAnchorTop 实测 LAYERS 面板底边得出，
      运行时经 style 覆盖注入（见组件内 anchorTop）。
      这里只给一个兜底值，供极短的「面板尚未挂载」窗口使用。 */
@@ -147,9 +210,10 @@ const panelStyle: CSSProperties = {
      用户报的是：门户内嵌（/v2/olbrportal/ 的 Alarm 页签）100% 缩放下，地图缩小后
      最右边有一条竖条。
      根因（Playwright 实测，TMP/_probe_shadow.json 的 A/B/C 三态对比）：
-       · 本浮层由上面 panelStyle 的 `right: 10` 定位 —— 距地图右缘**只有 10px**（这是
-         2026-10-11 为「真的贴边」刻意定的，别改）；
-       · 而 .ant-card 对地图卡片是 `overflow: hidden`，地图画布到右缘即被裁断；
+       · 本浮层由上面 panelStyle 的 `left: 10` 定位 —— 距地图边缘**只有 10px**
+         （2026-10-11 为「真的贴边」刻意定的；2026-10-15 由右缘换到左缘，缝隙宽度不变，
+         而 .ant-card 的裁切对四条边一视同仁，故本结论继续成立，别把间距改大）；
+       · 而 .ant-card 对地图卡片是 `overflow: hidden`，地图画布到边缘即被裁断；
        · --wh-shadow-3 在浅色档是 `0 24px 64px rgba(15,56,75,.18)`，**64px 模糊半径**
          塞进 10px 的缝里根本铺不开，阴影在裁切线处被硬切出一条**边缘分明的竖直带**，
          而不是自然的渐隐阴影。压平的浅色底图（尤其缩小一级后地图右侧是大片海/底色）上，
@@ -195,7 +259,7 @@ export default function RegionRankingOverlay({
   title, rows, hint, emptyText, maxRows = 8, footnote,
 }: Props) {
   /* 截断：只展示前 maxRows 行，其余折成一行计数。
-     用户示例里是 6 行，但真实数据有 12 个县非 0，全铺出来会占掉地图右缘一大条。
+     用户示例里是 6 行，但真实数据有 12 个县非 0，全铺出来会占掉地图左缘一大条。
      截断必须**显式暴露**（AGENTS.md 三.1b 对「静默截断」的禁止）——
      这里用「+N more」明说还有多少行没显示，而不是悄悄砍掉。 */
   const shown = rows.slice(0, maxRows)
@@ -203,11 +267,21 @@ export default function RegionRankingOverlay({
 
   /* top 由 LAYERS 面板实测高度决定；CSS 里的 124 只是面板尚未挂载时的兜底值
      （约为「top 10 + 面板高 ~51 + 间距 8」的两倍余量取整，宁可先低不高，
-     因为重测在同一个 effect 里紧跟着发生，不会真的显示在这个位置）。 */
-  const anchorTop = useAnchorTop(124)
+     因为重测在同一个 effect 里紧跟着发生，不会真的显示在这个位置）。
+     maxHeight 同为实测：搬左后要保证本面板不顶到左下角的图例（见 useAnchorTop 注释）。 */
+  const { top: anchorTop, maxHeight: anchorMaxHeight } = useAnchorTop(124)
 
   return (
-    <div className="gis-rank-overlay" style={{ ...panelStyle, top: anchorTop }} role="region" aria-label={title}>
+    <div
+      className="gis-rank-overlay"
+      style={{
+        ...panelStyle,
+        top: anchorTop,
+        ...(anchorMaxHeight != null ? { maxHeight: anchorMaxHeight } : null),
+      }}
+      role="region"
+      aria-label={title}
+    >
       <div style={titleStyle}>
         {title}
         {hint && <span className="gis-rank-hint" title={hint}>ⓘ</span>}

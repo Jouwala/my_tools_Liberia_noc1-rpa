@@ -44,7 +44,7 @@ npm run build
 ```ini
 MY_APP_DB_MODE=pg
 DATABASE_URL=postgresql+psycopg://<user>:<pass>@<host>:5432/<db>
-MY_APP_WORKER_GROUPS=u,n,s,w,m,c,v
+MY_APP_WORKER_GROUPS=u,n,s,w,m,c,v,x
 # 可选：对外暴露接口时启用
 # MY_APP_API_TOKEN=<随机长串>
 # 可选：覆盖 CORS 白名单
@@ -97,7 +97,8 @@ python restart_workers.py
 ### A. 测试
 
 - [ ] `tests\` 下的测试通过（`python tests\run_all_tests.py` / `run_backend_tests.py`）
-- [ ] **`tests\test_worker_group_coverage.py` 通过** —— 这条专门校验 worker 分组覆盖，**新增任务后必跑**（未归组的任务会 pending 卡死）
+- [ ] **`tests\test_worker_group_coverage.py` 通过** —— 这条专门校验 worker 分组覆盖，**新增任务后必跑**（未归组的任务会 pending 卡死）。2026-10-15 起它同时校验**五处**组清单一致（`GROUP_TASK_MAP`、`start_hidden.ps1` 两处、`restart_workers.py` 兜底、`start.bat` 自检计数、`helpTaskDocs.ts`）
+- [ ] 改 `eflow_active_alarm` 的 cron（现 `*/1`）时，**必须同步复核 `AUTH_TOKEN_TTL`** —— 二者是一对联动的参数（TTL 应远大于调度周期），单独改任一个都可能退化成「每个周期真实登录一次」打崩 eFlow，详见 `docs\manual\05-security-and-credentials.md`
 - [ ] 涉及任务时：`tests\test_task_runner.py` 通过
 - [ ] 涉及告警健康时：`tests\test_task_health_alert.py` / `test_task_health_detect.py` 通过
 - [ ] 前端改动：类型检查 / `npm run build` 通过（**`build` 已内置 `check:i18n`**）

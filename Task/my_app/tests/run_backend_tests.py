@@ -328,8 +328,18 @@ def run_backend_tests(out_dir: str | None = None) -> dict:
     record = make_record(PROJECT, "backend_api", _env())
     # Use TestClient as a context manager so the app's startup event runs
     # (registers scheduled tasks, creates tables) — required by /api/tasks/*.
+    #
+    # ⚠️ client=('127.0.0.1', 12345) 是必需的，不是可选参数（2026-10-15 修复）。
+    # TestClient 默认把对端伪装成主机名 **"testclient"**（不是 IP），而
+    # main.py:332 的「本机回环放行」判定走 security.client_is_local() → _is_loopback()，
+    # 它要求 request.client.host 是回环 **IP**；"testclient" 解析失败 → 不放行
+    # → 落到 :337 返回 401「未登录：请通过统一门户登录」。
+    # 现象：鉴权中间件上线后，本套件 13 个 API 用例**全部**报 401，看起来像"权限问题"，
+    # 实际与本机权限、与业务代码都无关，纯粹是测试客户端的身份没被认出是回环。
+    # 显式指定回环 client 后与真实本机脚本（调度器/看门狗）身份一致，既修好 401，
+    # 也比"关鉴权跑测试"更贴近生产语义 —— 请勿改回 TestClient(app)。
     try:
-        with TestClient(app) as client:
+        with TestClient(app, client=("127.0.0.1", 12345)) as client:
             _run_all(client, record)
     finally:
         # stop the background scheduler so the process can exit

@@ -1,0 +1,64 @@
+/* Site 下钻抽屉的页签栏 —— 让 10 个页签**平铺折行**，不要收纳进「更多」下拉。
+ *
+ * 为什么需要覆盖 antd 的默认行为：rc-tabs 的 TabNavList 用 useVisibleRange
+ * 按像素测量（而非 CSS 折行）决定哪些页签可见，放不下的会 slice 进 hiddenTabs
+ * 并塞进 nav-more 下拉。它没有「多行/折行」开关 —— 参考实现见
+ * @rc-component/tabs/lib/hooks/useVisibleRange.js 与 TabNavList/index.js 的
+ * `const hiddenTabs = [...startHiddenTabs, ...endHiddenTabs]`。
+ *
+ * 因此这里改回浏览器原生折行，必须同时解除三处约束，缺一不可：
+ *   1. .ant-tabs-nav-wrap { overflow: hidden; white-space: nowrap } → 放开为可见 + 允许换行
+ *   2. .ant-tabs-nav-list { transform: translate(...) } → antd 用位移做横向滚动，
+ *      折行后必须清零，否则整行会被推偏（JS 仍会算 transform，故用 !important 压制）
+ *   3. 指示条 .ant-tabs-ink-bar 用绝对定位 + 位移跟随「单行」活动页签，
+ *      折行后位置会落在错误的一行 —— 直接隐藏，改用页签自身的高亮表达活动态。
+ *
+ * 原「更多」下拉按钮已无需屏幕空间，一并隐藏（它此时只是空壳）。
+ * 用 .gis-drilldown-tabs 作用域包裹，避免影响其它页面的 Tabs。 */
+.gis-drilldown-tabs .ant-tabs-nav-wrap {
+  overflow: visible;
+  white-space: normal;
+}
+
+.gis-drilldown-tabs .ant-tabs-nav-list {
+  flex-wrap: wrap;
+  transform: none !important;
+  row-gap: 6px;
+}
+
+.gis-drilldown-tabs .ant-tabs-ink-bar {
+  display: none;
+}
+
+.gis-drilldown-tabs .ant-tabs-nav-operations {
+  display: none;
+}
+
+/* 折行后页签会排成两行，给活动页签一点自己的底色，
+   让「当前在哪一页」不依赖那条已隐藏的指示条。 */
+.gis-drilldown-tabs .ant-tabs-tab.ant-tabs-tab-active {
+  border-radius: var(--wh-radius-lg);
+  background: var(--wh-teal-20);
+}
+
+.gis-drilldown-tabs .ant-tabs-tab.ant-tabs-tab-active .ant-tabs-tab-btn span {
+  color: var(--wh-teal) !important;
+  font-weight: 700;
+}
+
+/* 折叠式明细表：默认收起，点标题栏展开。
+   表头加一条淡淡的分隔线并做成手型，让「可点击」这件事看得出来；
+   同时也是收起状态下唯一可见的元素，需要它自己撑起可发现性。 */
+.gis-drilldown-table-collapse.ant-collapse {
+  margin-top: var(--wh-space-md);
+  border-top: 1px solid var(--wh-card-border);
+}
+
+.gis-drilldown-table-collapse .ant-collapse-header {
+  cursor: pointer;
+  padding: 8px 0 !important;
+}
+
+.gis-drilldown-table-collapse .ant-collapse-content-box {
+  padding: 0 !important;
+}

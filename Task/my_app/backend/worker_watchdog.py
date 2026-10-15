@@ -122,7 +122,7 @@ GROUP_TASK_MAP = {
         #   sp_data_sync → 远端 SFTP 10.100.20.11（独占 channel）+ UNC 镜像库；与 eFlow 无共享 → 拆到 s
         #   mw_ume_*     → MW UME 网管（credential_store key=mw_ume）独立会话 → 拆到 w
         # 保留在本组的都是 eFlow API / config-center 同源或保守依赖，必须继续串行。
-        "eflow_sync,eflow_sync_full,eflow_active_alarm,eflow_history_alarm,eflow_tt_rules_check,"
+        "eflow_sync,eflow_sync_full,eflow_history_alarm,eflow_tt_rules_check,"
         "ms_sla_full,cnn_kpi_sync,fw_kpi_sync,"
         # sp_online_sync 2026-09-02 补录：SP 在线工单走 eFlow API 同源会话，归入 eFlow 组
         "sp_online_sync,"
@@ -252,6 +252,27 @@ GROUP_TASK_MAP = {
     "c": (  # CN EMS (10.100.2.240) 独立会话：缓存同步与日聚合共享 _pmcache/daily_raw.json，
         # 同组串行保证互斥（ems_kpi_cache_sync 每15分钟 + ems_kpi_daily 每天00:20）
         "ems_kpi_cache_sync,ems_kpi_daily"),
+    "x": (  # 实时告警专属组（2026-10-15 从 n 组拆出）
+        # 【为什么必须拆】用户要求实时告警滞后 ≤1 分钟。原先它挂在 n 组，而 n 组是
+        # **一条串行道**，同一时刻只有一个任务在跑 —— 于是 cron 改成 */1 也没用，
+        # 每次调度都要先排在 eflow_sync / ms_sla_full 等长任务后面。实测（近 3 天
+        # task_queue 计时，856 次采样）：本任务平均等 2.5s，但 **5.3% 的运行等待
+        # >60s**，最差一次等了 **853.9s（14 分钟）**；那次的阻碍正是整点起跑的
+        # eflow_sync（实测平均 192.5s、最久 214.3s）与 ms_sla_full（最久 600.1s）。
+        # 也就是说「30 分钟滞后」之外还有一层更隐蔽的「排队滞后」，光调 cron 治不了。
+        # 【为什么可以独立】本任务只写自己的三处产物：data/eflow/eflow.sqlite3、
+        # db/app.db 的 realtime_alarm（影子表+原子改名整表重建），以及
+        # data/eflow_active_alarm_raw.csv；**不写** eflow_sync 系的 eflow_tt/eflow_wo，
+        # 也不读它们的中间态。会话方面复用 ensure_login 的进程内 + 跨进程磁盘缓存，
+        # 与 n 组其它任务同源但不互斥（各自只读 token，不写对方状态）。
+        # 故「写库」与「会话」两个维度都无串行约束，可独占一条道。
+        # 【代价】多一个常驻 worker 进程；本机 28 逻辑核、worker 实测基本闲置，
+        # 且本任务单次仅 ~0.3s，成本可忽略。
+        # ⚠️ 新增/改动分组必须同步三处，否则该组任务无人认领：
+        #   start_hidden.ps1 的 MY_APP_WORKER_GROUPS、restart_workers.py 的 ALL_GROUPS、
+        #   以及本表；守卫 tests/test_worker_group_coverage.py 会交叉校验
+        #   （含 frontend/src/pages/helpTaskDocs.ts 的任务帮助清单）。
+        "eflow_active_alarm"),
 }
 _WORKER_GROUPS = [g.strip() for g in
                   os.environ.get("MY_APP_WORKER_GROUPS", "").split(",") if g.strip()]

@@ -26,7 +26,7 @@
 | `DATABASE_URL` | — | PG 连接串 |
 | `PG_POOL_SIZE` / `PG_MAX_OVERFLOW` | — | PG 连接池 |
 | `MY_APP_TASK_QUEUE` | 未设 | `=1` 才走队列表 + worker；否则退回调度器进程内线程 |
-| `MY_APP_WORKER_GROUPS` | 空 | 空=单 worker 全量；`u,n,s,w,m,c,v`=七组并行（**新增任务未归组会 pending 卡死**；新增组必须与 `GROUP_TASK_MAP`、`start_hidden.ps1` 同步，`restart_workers.py::ALL_GROUPS` 自动跟随 `GROUP_TASK_MAP`） |
+| `MY_APP_WORKER_GROUPS` | 空 | 空=单 worker 全量；`u,n,s,w,m,c,v,x`=八组并行（**新增任务未归组会 pending 卡死**；新增组必须**五处同步**：`GROUP_TASK_MAP`、`start_hidden.ps1`（两处）、`restart_workers.py` 的 `ALL_GROUPS` 兜底、`start.bat` 的自检计数、`helpTaskDocs.ts`；`restart_workers.py::ALL_GROUPS` 自动跟随 `GROUP_TASK_MAP`，守卫 `tests\test_worker_group_coverage.py` 交叉校验） |
 | `MY_APP_WORKER_TASKS` / `MY_APP_WORKER_POLL` | — | 单 worker 模式的任务白名单与轮询间隔 |
 | `WORKER_STALE_RUNNING_SECONDS` | `2160`（30min） | 僵尸 running 回收阈值（配合 PID 存活核对） |
 | `WORKER_STALE_PENDING_SECONDS` | `21600`（6h） | pending 无人认领判陈旧并置 failed（释放单飞名额；下限 1800s） |

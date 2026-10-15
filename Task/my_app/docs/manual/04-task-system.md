@@ -31,21 +31,28 @@ APScheduler 到点 (backend 进程内)
 | 组 | 任务数 | 约束原因 | 成员 task_id |
 | --- | --- | --- | --- |
 | `u` | 12 | RAN UME 单账号会话，必须串行（并发会被踢会话）。`bp_report_sync` 也读 RAN UME，且必须排在 `main_kpi_sync` 之后（否则读到昨天的 KPI） | `ran_ume_daily`, `main_kpi_sync`, `cell_availability_sync`, `network_kpi_sync`, `packet_loss_sync`, `packet_loss_email`, `battery_kpi_sync`, `ipran_kpi_sync`, `cm_data_sync`, `cells_kpi_sync`, `avail_recon_sync`, `bp_report_sync` |
-| `n` | 14 | eFlow API / config-center 同源会话（2026-09-27 由 17 项收窄，VMAX→`v`、SFTP→`s`、MW UME→`w` 已分头拆出） | `eflow_sync`, `eflow_sync_full`, `eflow_active_alarm`, `eflow_history_alarm`, `eflow_tt_rules_check`, `ms_sla_full`, `cnn_kpi_sync`, `fw_kpi_sync`, `sp_online_sync`, `sp_material_sync`, `eflow_alarm_rules_collect`, `eflow_push_rules_collect`, `ume_in_kpi_sync`, `ume_in_osg_report` |
+| `n` | 13 | eFlow API / config-center 同源会话（2026-09-27 由 17 项收窄，VMAX→`v`、SFTP→`s`、MW UME→`w`；2026-10-15 实时告警→`x`） | `eflow_sync`, `eflow_sync_full`, `eflow_history_alarm`, `eflow_tt_rules_check`, `ms_sla_full`, `cnn_kpi_sync`, `fw_kpi_sync`, `sp_online_sync`, `sp_material_sync`, `eflow_alarm_rules_collect`, `eflow_push_rules_collect`, `ume_in_kpi_sync`, `ume_in_osg_report` |
 | `s` | 1 | SP 备件 SFTP（独立 SFTP 服务器 + UNC 镜像库）。2026-09-27 从 `n` 拆出：它是 `n` 组最大单体负载（实测 347min/天）且是已知挂死源（SFTP channel 读挂死 5.5h 曾拖停整组） | `sp_data_sync` |
 | `w` | 2 | MW UME 微波网管（凭证分组 `mw_ume`），独立会话。2026-09-27 从 `n` 拆出：`mw_ume_kpi_sync_rt` 为 `*/15` 高频任务，此前每次排在 `sp_data_sync` 后，实测队列等待 964s（全场最久） | `mw_ume_kpi_sync`, `mw_ume_kpi_sync_rt` |
 | `v` | 3 | VMAX 门户（本机 8790 单会话代理）：三个任务共用同一个 VMAX 会话，必须彼此串行；2026-09-18 从 `n` 组拆出（原先排在 `sp_data_sync` 这类 1.5~2h 长任务后面，小时级采集滞后一个多小时） | `cxo_dashboard_cache_sync`, `vmax_cxo_daily_sync`, `vmax_multi_data_sync` |
 | `m` | 35 | 内务轻任务：EWS 邮件会话 + 截图/WhatsApp 文件依赖 + VMAX 数仓 GBase 直连取数 | `site_outage_screenshot`, `whatsapp_send`, `whatsapp_send_ext`, `tt_alarm_whatsapp_alert`, `liberia_email_1h`, `liberia_email_8h`, `kpi_ms_contract`, `kpi_ms_wo_sla`, `kpi_sp_spareparts`, `kpi_sp_consumables`, `kpi_ran_availability`, `email_recovery`, `ipran_m6k_chart_email`, `ccn_free_rating_chart_email`, `battery_email`, `mailbox_cleanup`, `incident_overview_sync`, `auto_retry_failed`, `db_freshness_check`, `sp_report_generate`, `sp_email_details`, `sp_details_files_email`, `sp_online_report_generate`, `sp_online_report_send`, `sp_whatsapp_report`, `sp_material_report`, `finebi_report_sync`, `pg_to_sqlite_sync`, `log_cleanup`, `tmp_cleanup`, `mttr_tt_sync`, `progress_sync`, `olib_soc_kpi_daily_sync`, `olib_soc_vmax_report`, `tt_mttr_report_generate` |
 | `c` | 2 | CN EMS 独立会话，两个任务共享 `_pmcache`/`daily_raw.json`，同组保证互斥 | `ems_kpi_cache_sync`, `ems_kpi_daily` |
+| `x` | 1 | 实时告警专属组（2026-10-15 从 `n` 拆出）。要求告警滞后 ≤1 分钟，而 `n` 组是一条串行道，cron 改 `*/1` 也会被 `eflow_sync`（实测平均 192.5s）/`ms_sla_full`（最久 600.1s）挡住 —— 实测 856 次采样中 5.3% 等待 >60s、最差 853.9s | `eflow_active_alarm` |
 
 > **2026-09-27 拆组（`n` → `n`/`s`/`w`）的实测依据**：`n` 组近 24h 单 worker 串行占用
 > `sp_data_sync` 347min + `eflow_sync` 236min + `eflow_active_alarm` 103min ≈ 686min，
 > 即约 48% 时间在忙且全挤在一条串行道上；队列实测最长等待 `mw_ume_kpi_sync_rt` 964s。
 > 拆组后三组并行消费，且 `sp_data_sync` 再次挂死时**只影响 `s` 组**（不再拖停实时告警与 MW 实时看板）。
+>
+> **2026-10-15 拆组（`n` → `n`/`x`）的实测依据**：用户要求实时告警滞后 ≤1 分钟。
+> 仅把 `eflow_active_alarm` 的 cron 从 `*/5` 改成 `*/1` **不够** —— 它排在 `n` 组的串行道上，
+> 整点前后要等 `eflow_sync`（`22 * * * *`，实测平均 192.5s/最久 214.3s）与 `ms_sla_full`（最久 600.1s）。
+> `task_queue` 计时（近 3 天 856 次）显示等待 >60s 的占 5.3%，最差 853.9s。独立成 `x` 组后
+> 不再与任何长任务争道。代价是多一个常驻 worker（本机 28 逻辑核、worker 基本闲置；本任务单次仅 ~0.3s）。
 
 `m` 组末尾几条有注释记录：`finebi_report_sync`/`pg_to_sqlite_sync`（2026-08-25）、`whatsapp_send_ext`（08-31）、`sp_email_details`（09-01）、`cells_kpi_sync`/`sp_material_sync`（09-09~11）在启用分组模式后都因**未归入任何组而无人认领，队列 pending 卡死断档**才补进来（`worker_watchdog.py` 内的补录注释）。
 
-> **新增任务必须同时登记进 `GROUP_TASK_MAP`；新增/调整「组」必须同步两处**：`worker_watchdog.py::GROUP_TASK_MAP` 的键、`start_hidden.ps1` 的 `$env:MY_APP_WORKER_GROUPS`（`restart_workers.py::ALL_GROUPS` 已改为从 `GROUP_TASK_MAP` 取键，无需单独维护；`start_hidden.ps1` 另有约 :250 的 `$groups` 等待清单也要同步）。只加分组表不改启动脚本 = 该组 worker 从不被拉起，症状与漏登记完全一样。
+> **新增任务必须同时登记进 `GROUP_TASK_MAP`；新增/调整「组」必须同步五处**（2026-10-15 补全：原文档只写了 2 处，拆 `x` 组时守卫当场抓出 `start.bat` 与帮助文档两处遗漏）：`worker_watchdog.py::GROUP_TASK_MAP` 的键、`start_hidden.ps1` 的 `$env:MY_APP_WORKER_GROUPS` **与** `$groups` 等待清单（两处）、`restart_workers.py::ALL_GROUPS` 兜底值、`start.bat` 的 worker pid 计数与 `%WCOUNT% / N` 分母、`frontend/src/pages/helpTaskDocs.ts` 的 `group` 字段与 `WORKER_GROUP_INFO`。只加分组表不改启动脚本 = 该组 worker 从不被拉起，症状与漏登记完全一样；漏改 `start.bat` 则「该组 worker 死了仍报全绿」。`restart_workers.py::ALL_GROUPS` 已改为从 `GROUP_TASK_MAP` 取键，其字面值只是 import 失败时的兜底。
 >
 > 只写进 `TASK_SPECS` 而不分组 = 任务入队后永远 pending，且不报任何错。这是本项目已发生**四次**的事故模式，2026-09-18 第四次（`olib_soc_kpi_daily_sync`、`olib_soc_vmax_report`、`vmax_multi_data_sync` 上线后一次也没跑过，90 天经营看板停在 09-16）之后上了三道防线：
 > ① `tests/test_worker_group_coverage.py`（不依赖 pytest，`python tests\test_worker_group_coverage.py` 即可跑，2026-09-18 实跑 PASS=5）—— 5 个用例：任务覆盖（缺项 + 幽灵 id）、同组不重复、三处组集合一致、共用 8790 会话的任务必须同组、前端任务帮助（`frontend/src/pages/helpTaskDocs.ts` 的 `TASK_DOCS`）与分组表一一对应且组名相同；任一项失配在跑测试时就失败。**跑它必须用 PATH 上的 `python`（系统 3.12）**，工作区的 `Scripts\python.exe` 与 `.venv\Scripts\python.exe` 都没装 apscheduler，用错解释器会报 `ModuleNotFoundError: apscheduler` 而“假失败”（看着像分组配错了）；
@@ -103,7 +110,7 @@ APScheduler 到点 (backend 进程内)
 | `site_outage_screenshot` | Site Outage 截图 | `0 1 * * *` | m |
 | `whatsapp_send` | WhatsApp 消息发送 | `0 3 * * *` | m |
 | `ms_sla_full` | MS SLA 完整同步 | `0 5 * * *` | n |
-| `eflow_active_alarm` | eFlow 实时告警同步 | `*/30 * * * *` | n |
+| `eflow_active_alarm` | eFlow 实时告警同步 | `*/1 * * * *` | x |
 | `eflow_history_alarm` | eFlow 历史告警同步 | `0 */3 * * *` | n |
 | `eflow_tt_rules_check` | eFlow TT 规则收集与匹配检查 | `20 4 * * *` | n |
 | `main_kpi_sync` | RAN Main KPI 同步 | `0 4 * * *` | u |
@@ -372,6 +379,13 @@ APScheduler 到点 (backend 进程内)
 `2026-09-27` 拆组（`sp_data_sync` → `s` 组）后两者不再互相阻塞，此现象应随之消失；
 **若拆组后 `eflow_active_alarm` 仍显著超过 288 次/天，则另有一个独立成因待查。**
 
+> **2026-10-15 后续（`eflow_active_alarm` 再拆到 `x` 组）**：上一段的"应与随之消失"只对
+> `sp_data_sync` 成立，`n` 组**内部**的阻塞仍在 —— `eflow_sync`（`22 * * * *`，平均 192.5s）
+> 与 `ms_sla_full`（最久 600.1s）同样占着 `n` 组的串行道。实测（近 3 天 `task_queue` 856 次）
+> 等待 >60s 占 5.3%、最差 853.9s。因用户要求实时告警滞后 ≤1 分钟，本任务已独立为 `x` 组。
+> ⚠️ 本段提到的「≥288 次/天」判据对应的是 `*/5` 时代；现为 `*/1`（理论 1440 次/天），
+> 判据要按新周期重算，不要直接套用旧数字。
+
 ### `cn_kpi` 页面的两条供数链路：一条自动、一条人工（2026-10-01）
 
 `?page=cn_kpi` 读的 `db_ps_cs_cn` 里，同一个 KPI 可能有**两张同名不同源**的表，
@@ -430,8 +444,7 @@ USSD 的日表当时只剩 2026-08-25~27 三行，而月表里有完整的 6 个
 ### `tt_alarm_whatsapp_alert` 的口径与实测坑（2026-09-28 首版，2026-10-05 机制切换）
 
 **触发制**（2026-10-05 起）：每 **5 分钟**扫 `realtime_alarm`（由 `eflow_active_alarm`
-同步的实时告警表，注册表默认 `*/30`、**实际周期以任务配置页的调度为准**，生产已配
-`*/5`），挑出「带 TT（`tt_id` 非空）+ 告警升起时间
+同步的实时告警表，注册表默认与生产配置均为 `*/1`），挑出「带 TT（`tt_id` 非空）+ 告警升起时间
 （`alarmraisedtime`，epoch 毫秒）在触发窗口内 + 告警码在白名单内」的告警，
 随后**实时回 eFlow 查单**（`eflow_data_mapper.fetch_tt_live_batch`，一次分页遍历
 匹配全部目标单）拿当前 `ticket_severity` / `last_modified_time` / `alarm_clear_time`，

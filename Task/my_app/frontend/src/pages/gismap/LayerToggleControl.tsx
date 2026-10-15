@@ -12,12 +12,12 @@
  *     而 React 需要自己拥有 DOM 子树，两者争同一个节点时卸载顺序很难保证正确
  *     （与 LeafletMap.tsx:362-373 记录的「容器身份必须和 React 挂载周期对齐」
  *     是同一类坑）。本项目的 MapLegendOverlay 也是纯 React 浮层，保持一致。
- *  3. **位置在右上角、贴右边缘**：Leaflet 的 zoom 控件在 topleft（地图左侧，
- *     见 LeafletMap.tsx:444），右上无遮挡。原先 right 留 56px 是误把 zoom
- *     位置记成 topright 留下的"避让余量"，2026-10-11 实测确认 zoom 在左侧后
- *     改为 right: 10（与 MAINTENANCE ALERTS 对齐成同一条右边）。
- *  4. **层级取 1000**：与 MapLegendOverlay 同层（理由见该文件头部第 3 条），
- *     np 页面里本控件与图例分处右上/左下，不会互相遮挡。
+ *  3. **位置在左上角、贴左边缘**（2026-10-15 用户要求「图例全部放到左边」；
+ *     此前在右上）。Leaflet 的 zoom 控件也在 topleft，但位于地图上缘之外，
+ *     与本面板不在同一水平带，实测不遮挡。MAINTENANCE ALERTS 紧贴在它下方。
+ *  4. **层级取 1000**：与 MapLegendOverlay 同层（理由见该文件头部第 3 条）。
+ *     2026-10-15 起本控件在左上、图例仍在左下，同处左缘但分居上下两端，
+ *     站点图例行数被 13rem 宽度与 maxHeight 约束住，实测不会互相遮挡。
  *  5. **文案不进 i18n**：与 MapLegendOverlay 同一约定（该文件头部第 41-43 行），
  *     文案由调用方 t() 好再传入，check:i18n 的漏键守卫仍能在 GISMap 里看见
  *     字面量键；此处若写 t('gis.layer.' + x) 拼接，守卫看不见、拼错只显示键名。
@@ -89,11 +89,13 @@ function Box({ title, items, hint }: LayerToggleControlProps) {
 
   const box: CSSProperties = {
     position: 'absolute',
-    // 贴右边缘：zoom 控件在地图左侧（Leaflet 默认 topleft，见 LeafletMap.tsx:444），
-    // 右上原本没有遮挡，"right: 56 避让 zoom"是历史误判。2026-10-11 改为贴边，
-    // 0 像素留白让面板真的"靠到边"（同 MAINTENANCE ALERTS 一起改，保持两侧对齐）。
+    /* 2026-10-15 用户要求「图例全部放到左边」：由右上(right:10)改到**左上**贴左缘。
+       左上是地图上唯一既有留白、又不会互相打架的位置 ——
+       Leaflet 的 zoom 控件虽在 topleft，但它在地图上缘外侧、与本面板不在同一水平带。
+       RegionRankingOverlay 仍按 id 实测本面板底边来对齐自己（那套测量与左右无关），
+       所以两块面板搬到左边后依旧上下紧邻，不需要改坐标换算。 */
     top: 10,
-    right: 10,
+    left: 10,
     zIndex: 1000,
     minWidth: 132,
     padding: '7px 9px',

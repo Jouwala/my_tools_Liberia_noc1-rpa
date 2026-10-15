@@ -32,6 +32,37 @@ VENV_PY = os.path.join(HERE, ".venv", "Scripts", "python.exe")
 PORT = 7038
 BASE_URL = f"http://localhost:{PORT}"
 
+# E2E 用的后端端口。默认沿用 7038，但**该端口常被线上正式后端占着**
+# （本机就是这种情况：uvicorn :7038 常驻），此时 _start_backend() 会因端口被占而
+# 绑定失败，前端 8 个用例随即全红 —— 而失败原因与业务代码毫无关系
+# （2026-10-15 实测：报的是 [WinError 2] + 8/8 前端失败）。
+# 故这里不再死磕 7038：先探测一个空闲端口，探测不到再退回 7038。
+def _port_is_free(port: int) -> bool:
+    """本机该端口是否可绑定（未被占用）。"""
+    import socket
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            s.bind(("127.0.0.1", port))
+            return True
+        except OSError:
+            return False
+
+
+def _pick_e2e_port(preferred: int = PORT) -> int:
+    """挑一个能给测试后端用的端口：优先 preferred，被占则向上找。
+
+    找不到空闲端口时仍返回 preferred —— 让后续流程照旧失败并如实报出来，
+    而不是悄悄换一个不存在的端口把真实错误藏掉。
+    """
+    if _port_is_free(preferred):
+        return preferred
+    for p in range(preferred + 1, preferred + 20):
+        if _port_is_free(p):
+            print(f"[i] 端口 {preferred} 已被占用（可能是线上后端），E2E 测试后端改用 {p}")
+            return p
+    return preferred
+
 from report_utils import make_record, finalize_record, write_reports  # noqa: E402
 from run_backend_tests import run_backend_tests as _run_backend  # noqa: E402
 from test_frontend_e2e import run_frontend_tests as _run_frontend  # noqa: E402
@@ -51,20 +82,30 @@ def _wait_health(url: str, timeout: float = 40.0) -> bool:
     return False
 
 
-def _start_backend() -> subprocess.Popen | None:
+def _start_backend(port: int = PORT) -> subprocess.Popen | None:
     log = os.path.join(HERE, "reports", "backend_server.log")
     os.makedirs(os.path.dirname(log), exist_ok=True)
+    # 独立 venv 不存在时给出可执行的提示，而不是抛一个 WinError 2 让人猜
+    # （2026-10-15：本机 tests/.venv 缺失，报错只有 "[WinError 2] 系统找不到指定的文件"）
+    if not os.path.exists(VENV_PY):
+        print(f"[!] 测试专用虚拟环境不存在: {VENV_PY}")
+        print("    前端 E2E 需要它来起测试后端。按 tests/README_tests.md 创建：")
+        print("      python -m venv tests\\.venv")
+        print("      tests\\.venv\\Scripts\\pip install -r requirements.txt")
+        print("      tests\\.venv\\Scripts\\pip install fastapi \"uvicorn[standard]\" httpx pandas openpyxl numpy pydantic scipy shapely sqlalchemy requests pytest playwright")
+        print("      tests\\.venv\\Scripts\\python -m playwright install chromium")
+        return None
     try:
         proc = subprocess.Popen(
             [VENV_PY, "-m", "uvicorn", "backend.main:app",
-             "--host", "0.0.0.0", "--port", str(PORT)],
+             "--host", "0.0.0.0", "--port", str(port)],
             cwd=PROJECT_ROOT, stdout=open(log, "w", encoding="utf-8"),
             stderr=subprocess.STDOUT,
         )
     except Exception as e:
         print(f"[!] 无法启动后端服务: {e}")
         return None
-    if not _wait_health(BASE_URL, timeout=40):
+    if not _wait_health(f"http://localhost:{port}", timeout=40):
         print("[!] 后端服务在限定时间内未就绪，前端用例可能失败。")
         return proc  # still return; tests will report the failure
     print("[✓] 后端服务已就绪:", BASE_URL)
@@ -102,14 +143,29 @@ def main():
     # 2) start backend + frontend E2E
     proc = None
     if not args.skip_start:
-        print("==> 启动后端服务 (uvicorn :%d) ..." % PORT)
-        proc = _start_backend()
+        # 若用户没显式指定 --base-url，则自己挑一个空闲端口起测试后端，
+        # 避免撞上常驻的线上后端（见 _pick_e2e_port 注释）。
+        explicit_base = args.base_url != BASE_URL
+        if not explicit_base:
+            port = _pick_e2e_port()
+            base = f"http://localhost:{port}"
+        else:
+            port = PORT
+        print("==> 启动后端服务 (uvicorn :%d) ..." % port)
+        proc = _start_backend(port)
     else:
         print("==> 跳过启动，使用已运行后端:", base)
 
     shot_dir = os.path.join(reports_dir, f"shots_{ts}")
-    print("==> 运行前端 E2E (Playwright) ...")
-    frontend_rec = _run_frontend(base, shot_dir)
+    if proc is None and not args.skip_start:
+        # 起不来就不必再打一轮必然全红的 E2E，直接如实说明
+        print("==> 后端未启动成功，跳过前端 E2E（原因见上方提示）")
+        frontend_rec = make_record("数据洞察 SaaS MVP", "frontend_e2e",
+                                   {"base_url": base, "skipped_reason": "backend_not_started"})
+        finalize_record(frontend_rec)
+    else:
+        print("==> 运行前端 E2E (Playwright) ...")
+        frontend_rec = _run_frontend(base, shot_dir)
     fs = frontend_rec["summary"]
     print(f"    前端: 通过 {fs['passed']} / 失败 {fs['failed']} / 跳过 {fs['skipped']}")
 

@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
-import { Card, Row, Col, Drawer, Descriptions, Tag, Statistic, Tabs, Spin, Table, Segmented, Tooltip, Alert } from 'antd'
-import { AlertOutlined, ThunderboltOutlined, BarChartOutlined, TableOutlined } from '@ant-design/icons'
+import { Card, Row, Col, Drawer, Descriptions, Tag, Statistic, Tabs, Spin, Table, Collapse, Tooltip, Alert } from 'antd'
+import { AlertOutlined, ThunderboltOutlined, BarChartOutlined } from '@ant-design/icons'
 import { useI18n } from '../../i18n'
 import { WH, cardStyle, useTheme } from '../../theme'
 import { SearchableExportTable } from '../../components/SearchableExportTable'
@@ -9,6 +9,7 @@ import { SITE_COLORS } from './types'
 import { filterBySearch, exportToExcel, buildAlarmColumns, buildTTColumns, buildWOColumns } from './helpers'
 import { ChartBlock } from './ChartBlock'
 import { RatKpiTab } from './RatKpiTab'
+import './SiteDrilldownDrawer.css'
 import {
   buildAvailabilityOption, buildPacketLossOption,
   buildMicrowaveOption, buildMicrowaveCurrentOption,
@@ -33,7 +34,7 @@ interface SiteDrilldownDrawerProps {
 }
 
 /* 可选档位。**7 天是有意加上的**：地图初始时间窗口就是「近7天」，
-   抽屉默认值要与之一致，若这里没有 7 档，Segmented 会一个都不高亮，
+   抽屉默认值要与之一致，若这里没有 7 档，选择器会一个都不高亮，
    用户看不出「当前就是 7 天」这个事实（改造前只有 30/60/90/180 就踩过这个坑）。
    后端 days 参数接受任意正整数（gis.py::_resolve_window 只做 max(1,int(days)) 保护），
    加 7 档不需要动后端 —— 已实测 days=7 返回的区间恰好 7 天。 */
@@ -41,17 +42,25 @@ const RANGE_OPTIONS = [7, 30, 60, 90, 180]
 const DEFAULT_RANGE_DAYS = 7
 const DEFAULT_THRESHOLD = 0.9965 // 与 SiteAvailability 页面 / 后端一致
 
-// 站点下钻抽屉：基本信息 + 统计卡片 + 各 Tab「上图表 / 下表格」
+// 站点下钻抽屉：基本信息 + 统计卡片 + 各 Tab 图表
+// （明细表格已移除，仅 Realtime Alarm 页签因无法出图而保留表格）
 export function SiteDrilldownDrawer({
   open, onClose, loading, drilldown, selectedSite, mode,
   analytics, analyticsLoading, rangeDays = DEFAULT_RANGE_DAYS, onRangeDaysChange,
 }: SiteDrilldownDrawerProps) {
   const { t } = useI18n()
   const { isDark } = useTheme()
+  /* 明细表默认折叠：抽屉一打开只呈现图表，表格要用户点一下才展开。
+     Realtime Alarm 页签没有图表（单站点通常 0~2 行），它的表格不做折叠、直接显示。 */
+  const [rtAlarmSearch, setRtAlarmSearch] = useState('')
   const [ttSearch, setTtSearch] = useState('')
   const [woSearch, setWoSearch] = useState('')
-  const [rtAlarmSearch, setRtAlarmSearch] = useState('')
   const [hisAlarmSearch, setHisAlarmSearch] = useState('')
+
+  const filteredRtAlarm = useMemo(() => {
+    if (!drilldown?.rt_alarm_list) return []
+    return filterBySearch(drilldown.rt_alarm_list, rtAlarmSearch)
+  }, [drilldown?.rt_alarm_list, rtAlarmSearch])
 
   const filteredTT = useMemo(() => {
     if (!drilldown?.tt_list) return []
@@ -63,19 +72,14 @@ export function SiteDrilldownDrawer({
     return filterBySearch(drilldown.wo_list, woSearch)
   }, [drilldown?.wo_list, woSearch])
 
-  const filteredRtAlarm = useMemo(() => {
-    if (!drilldown?.rt_alarm_list) return []
-    return filterBySearch(drilldown.rt_alarm_list, rtAlarmSearch)
-  }, [drilldown?.rt_alarm_list, rtAlarmSearch])
-
   const filteredHisAlarm = useMemo(() => {
     if (!drilldown?.his_alarm_list) return []
     return filterBySearch(drilldown.his_alarm_list, hisAlarmSearch)
   }, [drilldown?.his_alarm_list, hisAlarmSearch])
 
+  const rtAlarmColumns = useMemo(() => buildAlarmColumns(t, drilldown?.rt_alarm_list || []), [drilldown?.rt_alarm_list, t])
   const ttColumns = useMemo(() => buildTTColumns(t, drilldown?.tt_list || []), [drilldown?.tt_list, t])
   const woColumns = useMemo(() => buildWOColumns(t, drilldown?.wo_list || []), [drilldown?.wo_list, t])
-  const rtAlarmColumns = useMemo(() => buildAlarmColumns(t, drilldown?.rt_alarm_list || []), [drilldown?.rt_alarm_list, t])
   const hisAlarmColumns = useMemo(() => buildAlarmColumns(t, drilldown?.his_alarm_list || []), [drilldown?.his_alarm_list, t])
 
   const kpis = drilldown?.kpis
@@ -135,7 +139,7 @@ export function SiteDrilldownDrawer({
   const hisTitleOption = useMemo(() => (hasData(his?.by_title)
     ? buildBarOption(his!.by_title!, { isDark, t, horizontal: true }) : null), [his?.by_title, isDark, t])
 
-  // 明细表下方的原始表格（保留原有实现）
+  // 明细表节点（与表格自身实现解耦，便于统一包进折叠面板）
   const ttTable = (
     <SearchableExportTable
       data={filteredTT}
@@ -173,13 +177,55 @@ export function SiteDrilldownDrawer({
     />
   )
 
-  const rangeNode = (
-    <Segmented
+  /* 折叠式明细表容器。4 个页签（可用率/丢包/微波/TT/WO/历史告警）共用同一形态：
+     面板头显示行数，默认全部收起（items[].key 不在 defaultActiveKey 里），
+     点击才展开表格。各表搜索状态互相独立，收起后仍保留用户输入。 */
+  const collapsibleTable = (key: string, count: number, node: React.ReactNode) => (
+    <Collapse
+      ghost
       size="small"
-      value={rangeDays}
-      onChange={(v) => onRangeDaysChange?.(Number(v))}
-      options={RANGE_OPTIONS.map(d => ({ label: t(`gis.range.d${d}`), value: d }))}
+      className="gis-drilldown-table-collapse"
+      items={[{
+        key,
+        label: <span style={{ color: WH.textMuted, fontSize: 12 }}>{t('gis.drilldown.tableToggle')} ({count})</span>,
+        children: node,
+      }]}
     />
+  )
+
+  /* 统计范围选择器。用自绘按钮组替代 Segmented：
+     Segmented 的选中态由 antd 内部样式决定，无法按主题色强调；
+     这里按「统一主题青」上色 —— 选中 = 实心青底 + 深色字，未选 = 青描边 + 20% 淡青底。
+     RANGE_OPTIONS 保持 [7,30,60,90,180] 不变（顺序即渲染顺序）。 */
+  const rangeNode = (
+    <span role="group" aria-label={t('gis.range.label')} style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 6 }}>
+      {RANGE_OPTIONS.map((d) => {
+        const selected = Number(rangeDays) === d
+        return (
+          <button
+            key={d}
+            type="button"
+            aria-pressed={selected}
+            onClick={() => onRangeDaysChange?.(d)}
+            style={{
+              cursor: 'pointer',
+              padding: '3px 14px',
+              fontSize: 12,
+              fontWeight: selected ? 700 : 500,
+              lineHeight: '20px',
+              borderRadius: 'var(--wh-radius-lg)',
+              transition: 'background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease',
+              background: selected ? WH.teal : WH.teal20,
+              color: selected ? WH.bg : WH.teal,
+              border: `1px solid ${selected ? WH.teal : WH.teal40}`,
+              boxShadow: selected ? `0 0 12px ${WH.teal40}` : 'none',
+            }}
+          >
+            {t(`gis.range.d${d}`)}
+          </button>
+        )
+      })}
+    </span>
   )
 
   return (
@@ -219,28 +265,36 @@ export function SiteDrilldownDrawer({
               <Descriptions.Item label={<span style={{ color: WH.textMuted }}>{t('gis.drilldown.networkType')}</span>}>
                 <span style={{ color: WH.text }}>{drilldown.site_info.network_type}</span>
               </Descriptions.Item>
-              {/* Site Type 取 site_caregory 列（ERA / COOL / NORMAL 站点等级），
-                  不是 site_type 列 —— 后者是 Outdoor/Indoor 这类机房形态。
-                  site_caregory 已由后端 _attach_filter_cols 归一化，这里不再处理。 */}
+              {/* TX Category 取 master_site_db.trm_type 列（传输承载类型，如 Starlink）。
+                  注意与 site_caregory（站点等级 ERA/COOL/NORMAL）是两个不同维度，
+                  也与 site_type（Outdoor/Indoor 机房形态）无关，不要互换。 */}
               <Descriptions.Item label={<span style={{ color: WH.textMuted }}>{t('gis.drilldown.siteType')}</span>}>
-                <span style={{ color: WH.text }}>{drilldown.site_info.site_caregory}</span>
+                <span style={{ color: WH.text }}>{drilldown.site_info.trm_type}</span>
               </Descriptions.Item>
               <Descriptions.Item label={<span style={{ color: WH.textMuted }}>{t('gis.drilldown.vipSite')}</span>}>
                 {drilldown.site_info.vip_site === 'Yes'
                   ? <Tag color="purple">{t('common.yes')}</Tag>
                   : <Tag>{t('common.no')}</Tag>}
               </Descriptions.Item>
-              {/* Site Category 取 victims_list 列（受影响站点/居民点清单）。
-                  注意它不是站点等级 —— 等级在 Site Type 那一格的 site_caregory。 */}
+              {/* Site Category 取 master_site_db.site_caregory 列（站点等级 ERA / COOL / NORMAL）。
+                  注意既不是 site_type（机房形态），也不是 victims_list（受影响清单）。
+                  site_caregory 已由后端 _attach_filter_cols 归一化，这里不再处理。 */}
               <Descriptions.Item label={<span style={{ color: WH.textMuted }}>{t('gis.drilldown.siteCategory')}</span>}>
-                <span style={{ color: WH.text }}>{drilldown.site_info.victims_list || '-'}</span>
+                <span style={{ color: WH.text }}>{drilldown.site_info.site_caregory}</span>
               </Descriptions.Item>
               <Descriptions.Item label={<span style={{ color: WH.textMuted }}>{t('gis.drilldown.coords')}</span>}>
                 <span style={{ color: WH.text }}>{drilldown.site_info.latitude?.toFixed(4)}, {drilldown.site_info.longitude?.toFixed(4)}</span>
               </Descriptions.Item>
-              {/* Power Source 取 fme_name 列（现场维护工程师姓名，本次按业务口径调整）。 */}
+              {/* FME 名称与联系电话合并成一格：fme_name / fme_contact_1，
+                  如「Patrick Monday / 775496534」。两列本来就是同一个工程师的
+                  姓名与电话，拆成两格只会白占一个位置。
+                  标签历史上叫 Power Source，与实际内容不符，已按实际列名改正。 */}
               <Descriptions.Item label={<span style={{ color: WH.textMuted }}>{t('gis.drilldown.powerSource')}</span>}>
-                <span style={{ color: WH.text }}>{drilldown.site_info.fme_name}</span>
+                <span style={{ color: WH.text }}>
+                  {[drilldown.site_info.fme_name, drilldown.site_info.fme_contact_1]
+                    .filter(v => v != null && String(v).trim() !== '')
+                    .join(' / ') || '—'}
+                </span>
               </Descriptions.Item>
             </Descriptions>
           </Card>
@@ -297,6 +351,7 @@ export function SiteDrilldownDrawer({
           {analyticsLoading && <Spin style={{ display: 'block', margin: '0 auto var(--wh-space-md)' }} size="small" />}
 
           <Tabs
+            className="gis-drilldown-tabs"
             items={[
               {
                 key: 'availability',
@@ -304,17 +359,19 @@ export function SiteDrilldownDrawer({
                 children: (
                   <>
                     <ChartBlock title={t('gis.chart.trend')} option={availOption} height={260} />
-                    <Table
-                      size="small"
-                      pagination={{ pageSize: 10 }}
-                      rowKey={(r: any) => `${r.tech}-${r.day}`}
-                      dataSource={avail}
-                      columns={[
-                        { title: t('gis.drilldown.colTech'), dataIndex: 'tech', key: 'tech' },
-                        { title: t('gis.drilldown.colDay'), dataIndex: 'day', key: 'day' },
-                        { title: t('gis.drilldown.colAvailability'), dataIndex: 'availability', key: 'availability', render: (v: number) => `${(Number(v) <= 1 ? Number(v) * 100 : Number(v)).toFixed(2)}%` },
-                      ]}
-                    />
+                    {collapsibleTable('avail', avail.length, (
+                      <Table
+                        size="small"
+                        pagination={{ pageSize: 10 }}
+                        rowKey={(r: any) => `${r.tech}-${r.day}`}
+                        dataSource={avail}
+                        columns={[
+                          { title: t('gis.drilldown.colTech'), dataIndex: 'tech', key: 'tech' },
+                          { title: t('gis.drilldown.colDay'), dataIndex: 'day', key: 'day' },
+                          { title: t('gis.drilldown.colAvailability'), dataIndex: 'availability', key: 'availability', render: (v: number) => `${(Number(v) <= 1 ? Number(v) * 100 : Number(v)).toFixed(2)}%` },
+                        ]}
+                      />
+                    ))}
                   </>
                 ),
               },
@@ -324,18 +381,20 @@ export function SiteDrilldownDrawer({
                 children: (
                   <>
                     <ChartBlock title={t('gis.chart.trend')} option={plOption} height={260} />
-                    <Table
-                      size="small"
-                      pagination={{ pageSize: 10 }}
-                      rowKey={(r: any) => r.day}
-                      dataSource={pl}
-                      columns={[
-                        { title: t('gis.drilldown.colDay'), dataIndex: 'day', key: 'day' },
-                        { title: t('gis.drilldown.colMaxLoss'), dataIndex: 'max_packet_loss', key: 'max_packet_loss', render: (v: number) => `${Number(v || 0).toFixed(2)}%` },
-                        { title: t('gis.drilldown.colAvgLoss'), dataIndex: 'avg_packet_loss', key: 'avg_packet_loss', render: (v: number) => `${Number(v || 0).toFixed(2)}%` },
-                        { title: t('gis.drilldown.colSamples'), dataIndex: 'samples', key: 'samples' },
-                      ]}
-                    />
+                    {collapsibleTable('pl', pl.length, (
+                      <Table
+                        size="small"
+                        pagination={{ pageSize: 10 }}
+                        rowKey={(r: any) => r.day}
+                        dataSource={pl}
+                        columns={[
+                          { title: t('gis.drilldown.colDay'), dataIndex: 'day', key: 'day' },
+                          { title: t('gis.drilldown.colMaxLoss'), dataIndex: 'max_packet_loss', key: 'max_packet_loss', render: (v: number) => `${Number(v || 0).toFixed(2)}%` },
+                          { title: t('gis.drilldown.colAvgLoss'), dataIndex: 'avg_packet_loss', key: 'avg_packet_loss', render: (v: number) => `${Number(v || 0).toFixed(2)}%` },
+                          { title: t('gis.drilldown.colSamples'), dataIndex: 'samples', key: 'samples' },
+                        ]}
+                      />
+                    ))}
                   </>
                 ),
               },
@@ -345,20 +404,22 @@ export function SiteDrilldownDrawer({
                 children: (
                   <>
                     <ChartBlock title={mwHasHistory ? t('gis.chart.mwTrend') : t('gis.chart.mwCurrent')} option={mwOption} height={260} />
-                    <Table
-                      size="small"
-                      pagination={{ pageSize: 10 }}
-                      rowKey={(r: any, i?: number) => `${r.source}-${r.target}-${i}`}
-                      dataSource={mw}
-                      columns={[
-                        { title: t('gis.drilldown.colMwSource'), dataIndex: 'source', key: 'source' },
-                        { title: t('gis.drilldown.colMwTarget'), dataIndex: 'target', key: 'target' },
-                        { title: t('gis.drilldown.colTxUtil'), dataIndex: 'tx_utilization', key: 'tx_utilization', render: (v: number) => v == null ? '-' : `${Number(v).toFixed(2)}%` },
-                        { title: t('gis.drilldown.colRxUtil'), dataIndex: 'rx_utilization', key: 'rx_utilization', render: (v: number) => v == null ? '-' : `${Number(v).toFixed(2)}%` },
-                        { title: t('gis.drilldown.colCapacity'), dataIndex: 'capacity_mbps', key: 'capacity_mbps' },
-                        { title: t('gis.drilldown.colLevel'), dataIndex: 'level', key: 'level' },
-                      ]}
-                    />
+                    {collapsibleTable('mw', mw.length, (
+                      <Table
+                        size="small"
+                        pagination={{ pageSize: 10 }}
+                        rowKey={(r: any, i?: number) => `${r.source}-${r.target}-${i}`}
+                        dataSource={mw}
+                        columns={[
+                          { title: t('gis.drilldown.colMwSource'), dataIndex: 'source', key: 'source' },
+                          { title: t('gis.drilldown.colMwTarget'), dataIndex: 'target', key: 'target' },
+                          { title: t('gis.drilldown.colTxUtil'), dataIndex: 'tx_utilization', key: 'tx_utilization', render: (v: number) => v == null ? '-' : `${Number(v).toFixed(2)}%` },
+                          { title: t('gis.drilldown.colRxUtil'), dataIndex: 'rx_utilization', key: 'rx_utilization', render: (v: number) => v == null ? '-' : `${Number(v).toFixed(2)}%` },
+                          { title: t('gis.drilldown.colCapacity'), dataIndex: 'capacity_mbps', key: 'capacity_mbps' },
+                          { title: t('gis.drilldown.colLevel'), dataIndex: 'level', key: 'level' },
+                        ]}
+                      />
+                    ))}
                   </>
                 ),
               },
@@ -391,7 +452,7 @@ export function SiteDrilldownDrawer({
                         <ChartBlock title={t('gis.chart.byRootCause')} option={ttRootCauseOption} height={240} fullScope />
                       </Col>
                     </Row>
-                    {ttTable}
+                    {collapsibleTable('tt', filteredTT.length, ttTable)}
                   </>
                 ),
               },
@@ -412,7 +473,7 @@ export function SiteDrilldownDrawer({
                         <ChartBlock title={t('gis.chart.byRootCause')} option={woRootCauseOption} height={240} fullScope />
                       </Col>
                     </Row>
-                    {woTable}
+                    {collapsibleTable('wo', filteredWO.length, woTable)}
                   </>
                 ),
               },
@@ -430,7 +491,7 @@ export function SiteDrilldownDrawer({
                         <ChartBlock title={t('gis.chart.byTitle')} option={hisTitleOption} height={220} fullScope />
                       </Col>
                     </Row>
-                    {hisTable}
+                    {collapsibleTable('his', filteredHisAlarm.length, hisTable)}
                   </>
                 ),
               }] : []),

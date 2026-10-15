@@ -17,9 +17,10 @@ export interface TaskDocText {
 
 export interface TaskDoc {
   id: string
-  // 分组键；2026-09-27 由 n 组拆出 s（SP 备件 SFTP）/ w（MW UME），与后端
+  // 分组键；2026-09-27 由 n 组拆出 s（SP 备件 SFTP）/ w（MW UME），
+  // 2026-10-15 由 n 组拆出 x（实时告警）。与后端
   // worker_watchdog.GROUP_TASK_MAP 的键一一对应（守卫 tests/test_worker_group_coverage.py 校验）
-  group: 'u' | 'n' | 's' | 'w' | 'v' | 'm' | 'c'
+  group: 'u' | 'n' | 's' | 'w' | 'v' | 'm' | 'c' | 'x'
   cron: string
   /** 工作流脚本（backend/services/ 下的模块） */
   script: string
@@ -47,6 +48,10 @@ export const WORKER_GROUP_INFO: Record<string, { zh: string; en: string }> = {
   c: {
     zh: 'CN EMS 独立会话：缓存同步与日聚合共享 _pmcache，同组保证互斥',
     en: 'CN EMS dedicated session: cache sync & daily aggregation share _pmcache, serialized for mutual exclusion',
+  },
+  x: {
+    zh: '实时告警专属组：2026-10-15 从 n 组拆出，独占一条道不再排在 eflow_sync 等长任务后面（此前最差排队 854s）',
+    en: 'Realtime alarm dedicated group: split out of group n on 2026-10-15 to run on its own lane, no longer queued behind long tasks like eflow_sync (worst observed queue wait 854s)',
   },
 }
 
@@ -192,14 +197,14 @@ export const TASK_DOCS: TaskDoc[] = [
       name: 'eFlow P1 告警 WhatsApp 推送',
       desc: '触发制推送：每 5 分钟（相位 2-59/5，与上游同步错开 2 分钟）扫 realtime_alarm 实时告警表，发现「带 TT + 触发窗口内 + 告警码白名单」的 P1 告警后实时回 eFlow 查单，首推后按双档重报（无更新满 10 分钟催报、有更新满 30 分钟才报，均带 REMINDER 横幅），告警清除即止损。发送状态（是否已发/发了几次）落 eflow_tt_whatsapp_alert_log',
       flow: [
-        '扫 realtime_alarm（由 eflow_active_alarm 同步，注册表默认 */30、实际周期以任务配置页为准，生产已配 */5）：tt_id 非空、alarmraisedtime 在触发窗口内、告警码过白名单，按 tt_id 去重',
+        '扫 realtime_alarm（由 eflow_active_alarm 同步，注册表默认与生产配置均为 */1）：tt_id 非空、alarmraisedtime 在触发窗口内、告警码过白名单，按 tt_id 去重',
         '对触发单实时回 eFlow 查单（fetch_tt_live_batch，一次分页遍历），拿最新 ticket_severity / last_modified_time / alarm_clear_time；实时查不到回退本地 eflow_tt 镜像',
         '级别命中才推：首推发精简分析（分析引擎 --brief），重报双档——自上次发送后工单无更新满 10 分钟催报、有更新满 30 分钟才报（均带 ⚠️ REMINDER #N 横幅），未满间隔只记跟踪字段不打扰群里',
         '消息经 Baileys 推送进程（whatsapp-kb-bot/src/notify.js）发出，服务端回执确认后才把该单 send_status 置 Y（send_count 记发送次数）',
       ],
       maintain: [
         '2026-10-05 机制切换：触发源由 eflow_tt 定时扫描改为 realtime_alarm 触发 + 实时查单，首推时延从 45~75 分钟压到分钟级；window_minutes 语义变为「触发窗口」',
-        '依赖 eflow_active_alarm 的同步周期：realtime_alarm 的 _sync_time 滞后超过「实际调度周期 × 1.5」（自适应，生产 */5 下约 7.5 分钟）会在任务结果里告警（触发面静默变空的预防项）',
+        '依赖 eflow_active_alarm 的同步周期：realtime_alarm 的 _sync_time 滞后超过「实际调度周期 × 1.5」（自适应，现 */1 下约 1.5 分钟）会在任务结果里告警（触发面静默变空的预防项）',
         '99933 的排除在 Python 侧做——告警码 \'99933\' 与 \'99933.0\' 并存，写进 SQL 会漏；白名单留空 = 不过滤',
         '从未确认送达的单按同一节流重试；一轮全部未确认会通过 warnings 走微信/邮件主动喊人（2026-10-01「群内静默」事故的治本项）',
         '群组留空会回退测试群 test123 并在任务结果里显式告警（group_fallback=true），不会静默消失',
@@ -216,7 +221,7 @@ export const TASK_DOCS: TaskDoc[] = [
       ],
       maintain: [
         '2026-10-05 redesign: trigger source moved from eflow_tt polling to realtime_alarm + live fetch, cutting first-notify latency from 45–75 min to minutes; window_minutes now means the trigger window',
-        'Depends on eflow_active_alarm\'s sync cadence: if realtime_alarm._sync_time lags past 1.5× the actual schedule interval (adaptive — about 7.5 min under the production */5), the task result raises a warning (guards against a silently empty trigger set)',
+        'Depends on eflow_active_alarm\'s sync cadence: if realtime_alarm._sync_time lags past 1.5× the actual schedule interval (adaptive — about 1.5 min under the current */1), the task result raises a warning (guards against a silently empty trigger set)',
         'The 99933 exclusion stays in Python — both \'99933\' and \'99933.0\' exist in the DB, so SQL predicates miss rows; empty whitelist = no filter',
         'Never-confirmed sends retry on the same throttle; a round with zero confirmed sends raises a warning via WeChat/email (root fix of the 2026-10-01 silent-outage incident)',
         'An empty group list falls back to the test group test123 with an explicit warning in the task result (group_fallback=true) — alerts never vanish silently',
@@ -240,19 +245,19 @@ export const TASK_DOCS: TaskDoc[] = [
     },
   },
   {
-    id: 'eflow_active_alarm', group: 'n', cron: '*/5 * * * *',
+    id: 'eflow_active_alarm', group: 'x', cron: '*/1 * * * *',
     script: 'services/eflow_api_client.py → fetch_and_save_active_alarm',
     zh: {
       name: 'eFlow 实时告警同步',
-      desc: '从 eFlow FM Active 接口获取实时告警，保存 CSV + SQLite',
-      flow: ['按配置周期拉 FM Active 活跃告警（注册表默认 */30，生产已在任务配置页改为 */5）', '双写 app.db 的 realtime_alarm 与 eflow.sqlite3 副本（副本仅供报表）', '供实时告警看板 / 实时告警地图 / 告警管理看板使用，同时是 P1 告警 WhatsApp 推送的触发源'],
-      maintain: ['页面只读 app.db；「实时」粒度 = 实际调度周期（生产 5 分钟），并非秒级推送', '改调度请在「任务配置」页操作（写 task_schedule_config 表），注册表里的 */30 只是默认值', '告警字段映射在 services/eflow_alarm_config.json'],
+      desc: '从 eFlow FM Active 接口获取实时告警，保存 CSV + SQLite（每分钟）',
+      flow: ['每分钟拉 FM Active 活跃告警（注册表默认与生产配置均为 */1）', '双写 app.db 的 realtime_alarm 与 eflow.sqlite3 副本（副本仅供报表）', '供实时告警看板 / 实时告警地图 / 告警管理看板使用，同时是 P1 告警 WhatsApp 推送的触发源'],
+      maintain: ['页面只读 app.db；「实时」粒度 = 实际调度周期（现为 1 分钟），并非秒级推送', '改调度请在「任务配置」页操作（写 task_schedule_config 表，该行优先于注册表默认值）', '本任务 2026-10-15 从 n 组拆到 x 组单独一组：原先与 eflow_sync 共用一条串行道，改 cron 也会被长任务挡住（实测最差排队 854s）', '⚠️ 每分钟跑的可行性依赖会话复用（ensure_login 命中进程内/磁盘缓存而不再登录），若改动会话逻辑需重新评估频率', '告警字段映射在 services/eflow_alarm_config.json'],
     },
     en: {
       name: 'eFlow Realtime Alarm Sync',
-      desc: 'Fetch realtime alarms from eFlow FM Active API, save to CSV + SQLite',
-      flow: ['Pull FM Active alarms on the configured schedule (registry default */30, changed to */5 in the task config page)', 'Dual-write app.db realtime_alarm and an eflow.sqlite3 copy (report-only)', 'Feeds the realtime alarm board / realtime map / alarm management board, and is the trigger source of the P1 alarm WhatsApp push'],
-      maintain: ['Pages read app.db only; "realtime" granularity = the actual schedule (5 min in production), not second-level push', 'Change the schedule in the Task Config page (persisted in task_schedule_config); */30 in the registry is only the default', 'Field mapping lives in services/eflow_alarm_config.json'],
+      desc: 'Fetch realtime alarms from eFlow FM Active API, save to CSV + SQLite (every minute)',
+      flow: ['Pull FM Active alarms every minute (both the registry default and production config are */1)', 'Dual-write app.db realtime_alarm and an eflow.sqlite3 copy (report-only)', 'Feeds the realtime alarm board / realtime map / alarm management board, and is the trigger source of the P1 alarm WhatsApp push'],
+      maintain: ['Pages read app.db only; "realtime" granularity = the actual schedule (now 1 minute), not second-level push', 'Change the schedule in the Task Config page (persisted in task_schedule_config, which overrides the registry default)', 'Split from group n into its own group x on 2026-10-15: it used to share a serial lane with eflow_sync, so even a tighter cron got blocked by long tasks (worst queue wait 854s)', '⚠️ The 1-minute cadence relies on session reuse (ensure_login hits the in-process/disk cache instead of logging in); re-evaluate the frequency if that logic changes', 'Field mapping lives in services/eflow_alarm_config.json'],
     },
   },
   {

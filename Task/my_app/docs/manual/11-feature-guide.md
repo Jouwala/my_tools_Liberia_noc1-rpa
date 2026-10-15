@@ -97,7 +97,7 @@
 - 概览指标 `GET /api/alarm-dashboard/overview`（经 `cache.ts` 缓存，:133）。
 - **点任意数字弹出下钻表**（`DraggableClickModal`），历史口径走 `/history-drilldown?metric=&limit=500`，实时口径走 `/realtime-drilldown?dimension=&value=&limit=500`（:158-163）。下钻表可搜索。
 - **页面级导出 Excel**（2026-09-27 新增）：导出当前页显示的全部汇总维度。此前本页唯一的导出按钮在下钻弹窗内（导下钻明细行），页面上没有导出入口。
-- 与其他看板不同：这里的"实时"来自 `eflow_active_alarm`（每 30 分钟）写入的数据，**不是秒级推送**。
+- 与其他看板不同：这里的"实时"来自 `eflow_active_alarm`（2026-10-15 起每 1 分钟）写入的数据，**不是秒级推送**。
 
 ## 4. TT&WO 看板（`?page=ttwo`）
 
@@ -360,8 +360,8 @@ ZXMW 微波网络拓扑与带宽利用率 NOC 看板（`MwUmeDashboard.tsx:4-8`�
   列含站点/区域/县/制式/经纬度/TT·WO·告警数/VIP·Hub/TRM/FME，副标题写明「可见数/总数」与筛选条件数。
 - 接口：`/api/gis/sites` 与 `/api/gis/realtime/sites`（按模式二选一；**两者都返回 `site_type_stats`**，见上）、`/api/gis/topology`（**读 `kml_mw_links`**，见 10c；**加 `?with_util=1` 叠加实时利用率**，见 10d）、`/api/gis/region-boundaries`、**`/api/gis/county-boundaries`**、`/api/gis/drilldown/{site_id}` 与 `/api/gis/realtime/drilldown/{site_id}`。均走 `cache.ts` 缓存（**唯 `topology` 例外**：叠加数据每 15 分钟换槽位，缓存住会显示过期槽位）。
 - 地图控件在 `pages/gismap/MapController.tsx`。
-- **区分两页的口径**：实时告警地图带红色"实时"Tag，数据来自 `eflow_active_alarm`（每 30 分钟）；普通 GIS 页走历史/工单口径。
-- **四张统计表的读取端降级（2026-09-29）**：`get_sites` 一次性串起 `eflow_tt` / `eflow_wo` / `realtime_alarm` / `history_alarm` 四张表的统计，而这四张都会被定时任务整表重建（实时告警每 30 分钟、历史告警每 3 小时）。现在任一表瞬时不可用时**只让对应计数为 0，不再整页 500**（统一走 `_run_stats_query()`，带 WARNING 日志）。因此**看到某项计数突然为 0，先去 `backend_runtime_<日期>.log` 搜 `[gis/sites]` 确认是否命中降级**，再判断是不是数据真没了。写端空窗的根因与修法见 `13-operations.md` 的「GIS 500：整表重建空窗」。
+- **区分两页的口径**：实时告警地图带红色"实时"Tag，数据来自 `eflow_active_alarm`（2026-10-15 起每 1 分钟）；普通 GIS 页走历史/工单口径。
+- **四张统计表的读取端降级（2026-09-29）**：`get_sites` 一次性串起 `eflow_tt` / `eflow_wo` / `realtime_alarm` / `history_alarm` 四张表的统计，而这四张都会被定时任务整表重建（实时告警每 1 分钟、历史告警每 3 小时）。现在任一表瞬时不可用时**只让对应计数为 0，不再整页 500**（统一走 `_run_stats_query()`，带 WARNING 日志）。因此**看到某项计数突然为 0，先去 `backend_runtime_<日期>.log` 搜 `[gis/sites]` 确认是否命中降级**，再判断是不是数据真没了。写端空窗的根因与修法见 `13-operations.md` 的「GIS 500：整表重建空窗」。
 - 页头**不再**消费 `useDataTimestamps`（2026-09-28 移除同步时间 Tag）。
 
 ### 10a. 图例浮层（2026-09-28 新增，`?page=gis` / `?page=realtime_alarm`）

@@ -85,13 +85,17 @@
 | 值 | 行为 |
 | --- | --- |
 | 空 | 单 worker 全量执行 |
-| `u,n,s,w,m,c,v` | 七组**并行** |
+| `u,n,s,w,m,c,v,x` | 八组**并行** |
 
-> **新增任务未归组会 pending 卡死。** 新增分组必须**三处同步**：
-> 1. `GROUP_TASK_MAP`（后端）
-> 2. `start_hidden.ps1`（启动脚本）
-> 3. `restart_workers.py`（重启脚本）
+> **新增任务未归组会 pending 卡死。** 新增分组必须**五处同步**（2026-10-15 补全：
+> 此前只写了 3 处，拆 x 组时守卫当场抓出 `start.bat` 与帮助文档两处遗漏）：
+> 1. `GROUP_TASK_MAP`（后端，`worker_watchdog.py`）
+> 2. `start_hidden.ps1`（启动脚本，两处：`MY_APP_WORKER_GROUPS` 与 `$groups`）
+> 3. `restart_workers.py`（重启脚本的 `ALL_GROUPS` 兜底值）
+> 4. `start.bat`（启动自检的 worker pid 计数与分母 `%WCOUNT% / N`）
+> 5. `frontend/src/pages/helpTaskDocs.ts`（任务帮助清单的 `group` 字段与 `WORKER_GROUP_INFO`）
 >
+> 守卫 `tests\test_worker_group_coverage.py` 会交叉校验上述全部，改完必须跑它。
 > 见 `docs\manual\12-configuration.md`。
 
 ### 僵尸任务回收

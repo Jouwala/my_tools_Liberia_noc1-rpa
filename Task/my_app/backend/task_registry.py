@@ -260,12 +260,28 @@ TASK_SPECS = [
          description_en="SLA metrics sync + Contract KPIs report update (self-contained, no external files)",
          default_cron="0 5 * * *", category="ms_sla"),
 
-    # 7. eFlow 实时告警同步（每30分钟）
+    # 7. eFlow 实时告警同步（每分钟）
+    #
+    # 2026-10-15 由 */30 收紧到 */1：GIS 下钻抽屉的「Realtime Alarm」读的就是这张表，
+    # 而它是**整表重建**（eflow_alarm_service._replace_table_atomically），
+    # 所以任务间隔 = 用户看到的告警滞后，30 分钟明显不够用（用户要求 ≤1 分钟）。
+    # 频率安全性依据（2026-10-15 实测，非估算）：
+    #   · 单次同步耗时 ~0.3~0.4s、约 89 条告警（task_execution_log.elapsed_seconds
+    #     连续 12 次抽样 0.30~0.75s）——占 60s 周期的 <1%，不存在任务堆积；
+    #   · 登录不构成压力：ensure_login 优先命中**进程内存会话**，其次命中
+    #     auth_manager 的**跨进程磁盘缓存**，两者都命中时完全不触网
+    #     （见 eflow_api_client.ensure_login 的 2026-10-04 修正说明）。
+    #     ⚠️ 该修正是"每分钟跑"能成立的前提；若将来有人改动会话复用逻辑，
+    #     必须重新评估本频率，否则会退化成"每分钟登录一次"打崩 eFlow。
+    #   · 写入量：89 行/次 × 1440 次/天 ≈ 13 万行/天，仍是影子表整表替换，代价极低。
+    # ⚠️ 生效值另有真相源：db 里 task_schedule_config 若有本任务的行，**它优先**。
+    #    改这里对已存在的部署不生效，必须同时删/改那一行（见 task_runner.register_task
+    #    的 [SCHEDULE] 警告），否则会出现「代码改了、实际没生效」。
     dict(task_id="eflow_active_alarm", name="eFlow 实时告警同步", name_en="eFlow Realtime Alarm Sync",
          func=_run_eflow_active_alarm,
-         description="从 eFlow FM Active 接口获取实时告警，保存 CSV + SQLite",
-         description_en="Fetch realtime alarms from eFlow FM Active API, save to CSV + SQLite",
-         default_cron="*/30 * * * *", category="eflow"),
+         description="从 eFlow FM Active 接口获取实时告警，保存 CSV + SQLite（每分钟）",
+         description_en="Fetch realtime alarms from eFlow FM Active API, save to CSV + SQLite (every minute)",
+         default_cron="*/1 * * * *", category="eflow"),
 
     # 8. eFlow 历史告警同步（每3小时）
     dict(task_id="eflow_history_alarm", name="eFlow 历史告警同步", name_en="eFlow History Alarm Sync",

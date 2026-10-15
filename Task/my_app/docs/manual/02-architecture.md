@@ -12,7 +12,7 @@
 | worker × 5 组 | 无端口 | `worker_watchdog.py:36-66` | 消费 `task_queue`，执行采集/报表任务 |
 | realtime proxy | `127.0.0.1:8787`、`:8790` | backend 启动线程（`main.py:216-250`） | 代理 FMS/VMAX 实时抓取，**只绑回环** |
 
-worker 组的实际启用集合由环境变量 `MY_APP_WORKER_GROUPS='u,n,s,w,m,c,v'` 决定（`start_hidden.ps1:135`）：`u`=RAN UME 会话、`n`=eFlow API/config-center 同源会话、`s`=SP 备件 SFTP、`w`=MW UME 微波网管、`v`=VMAX 门户（8790 单会话）、`m`=内务轻任务、`c`=CN EMS。**分组表、启动脚本两处必须同步**（`restart_workers.py::ALL_GROUPS` 已改为从 `GROUP_TASK_MAP` 取键，不再单独维护），否则该组任务永远 pending（详见 `04-task-system.md`）。
+worker 组的实际启用集合由环境变量 `MY_APP_WORKER_GROUPS='u,n,s,w,m,c,v,x'` 决定（`start_hidden.ps1`）：`u`=RAN UME 会话、`n`=eFlow API/config-center 同源会话、`s`=SP 备件 SFTP、`w`=MW UME 微波网管、`v`=VMAX 门户（8790 单会话）、`m`=内务轻任务、`c`=CN EMS、`x`=实时告警专属组（2026-10-15 从 `n` 拆出，避免排在 `eflow_sync` 等长任务后面）。**新增组必须五处同步**（`GROUP_TASK_MAP`、`start_hidden.ps1` 两处、`restart_workers.py::ALL_GROUPS` 兜底、`start.bat` 自检计数、`helpTaskDocs.ts`；`ALL_GROUPS` 会自动跟随 `GROUP_TASK_MAP`），否则该组任务永远 pending（详见 `04-task-system.md`），守卫 `tests\test_worker_group_coverage.py` 会交叉校验。
 
 ## 后端启动序列
 

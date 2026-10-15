@@ -201,11 +201,14 @@ $env:CLAUDE_SESSION_ID = ''
 $env:CODEBUDDY_SAFE_DELETE_SANDBOX = ''
 # Worker groups: u=UME session group, n=eFlow API/config-center group, s=SP spare-parts SFTP group,
 # w=MW UME microwave group, m=light admin tasks group, c=CN EMS group,
-# v=VMAX portal (8790 single-session proxy) group. MUST stay in sync with backend/worker_watchdog.py
+# v=VMAX portal (8790 single-session proxy) group, x=realtime alarm group.
+# MUST stay in sync with backend/worker_watchdog.py
 # GROUP_TASK_MAP keys (restart_workers.py ALL_GROUPS derives from that map automatically)
 # (guarded by tests/test_worker_group_coverage.py -- run: python tests\test_worker_group_coverage.py).
 # 2026-09-27: n 组拆为 n/s/w 三组，理由见 worker_watchdog.py 的 GROUP_TASK_MAP 注释。
-$env:MY_APP_WORKER_GROUPS = 'u,n,s,w,m,c,v'
+# 2026-10-15: eflow_active_alarm 从 n 组拆出为 x 组（要求实时告警 ≤1 分钟，
+#             而 n 组串行会让它排在 eflow_sync 等长任务后面，实测最差排队 854s）。
+$env:MY_APP_WORKER_GROUPS = 'u,n,s,w,m,c,v,x'
 
 # ======================================================================
 # Startup report header
@@ -318,7 +321,7 @@ function Ensure-WorkerWatchdog {
     }
     Start-Hidden $py @('-m', 'backend.worker_watchdog') 'worker_watchdog_console.log'
     # Wait for each group's worker pid files to be ready (up to 20s)
-    $groups = @('u', 'n', 's', 'w', 'm', 'c', 'v')
+    $groups = @('u', 'n', 's', 'w', 'm', 'c', 'v', 'x')
     $deadline = (Get-Date).AddSeconds(20)
     while ((Get-Date) -lt $deadline) {
         $ready = 0

@@ -587,3 +587,46 @@ def test_no_bare_percent_in_parameterized_sql_fragment():
             )
 
 
+# ---------------------------------------------------------------- 守卫 14
+def test_testclient_declares_loopback_client():
+    """API 功能测试的 TestClient 必须显式声明回环 client（否则整套全红）。
+
+    2026-10-15 实测：`run_backend_tests.py` 用 FastAPI `TestClient` 进程内发请求，
+    而 TestClient **默认把对端伪装成主机名 `testclient`，不是 IP**；鉴权中间件
+    （`main.py` 的 require_session_middleware）判「本机回环放行」时走
+    `security.client_is_local()` → `_is_loopback()`，要求 `request.client.host`
+    是回环 **IP**，`"testclient"` 解析失败 → 不放行 → 返回 401。
+
+    症状极具误导性：26 个用例里 13 个 API 用例**全部** 401，看起来像"鉴权配置问题"
+    或"权限不足"，于是很容易误判成"跑测试得先关掉鉴权"（错误结论）。实际上与本机
+    权限、与业务代码、与鉴权开关都无关，纯粹是测试客户端的身份没被认出是回环。
+    加 `client=("127.0.0.1", <port>)` 即修复（实测 13 失败 → 0 失败）。
+
+    这里钉死"测试客户端必须是回环身份"这一语义，防止以后有人把它改回
+    `TestClient(app)`、或改成"跑测试前先关鉴权"的绕法 —— 后者会让鉴权中间件
+    在测试中形同虚设，测不出真实鉴权行为。
+    """
+    src = (Path(__file__).resolve().parent / "run_backend_tests.py").read_text(
+        encoding="utf-8", errors="replace")
+
+    # ⚠️ 必须**只扫代码、跳过注释**：解释这条约束的注释里本身就会写下
+    # `TestClient(app)` 这个反面写法（否则读的人不知道要避免什么），
+    # 若对全文做子串匹配，守卫会在正确代码上误报 —— 本守卫第一版就是这样假红的。
+    code_lines = [
+        ln.split("#", 1)[0]
+        for ln in src.splitlines()
+    ]
+    code = "\n".join(code_lines)
+
+    assert "TestClient(app)" not in code, (
+        "run_backend_tests.py 里出现了不带 client= 的 `TestClient(app)` —— "
+        "TestClient 默认主机名是 'testclient'，不是回环 IP，鉴权中间件会全部返回 401。"
+        "请写成 TestClient(app, client=(\"127.0.0.1\", <port>))。"
+    )
+    # 正面要求：必须真的声明了回环 IP（防止删掉 client= 或换成非回环地址）
+    assert re.search(r'client=\s*\(\s*["\']127\.0\.0\.1["\']', code), (
+        "run_backend_tests.py 的 TestClient 未声明回环 client，"
+        "API 用例会被鉴权中间件整片挡成 401。"
+    )
+
+

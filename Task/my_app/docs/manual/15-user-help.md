@@ -1,6 +1,6 @@
 # my_app 使用帮助
 
-> 面向使用者的平台功能与操作指南。本文件由「使用帮助」页面同源生成（frontend/src/helpMarkdown.ts），内容依据 docs/manual/ 各章与 backend/task_registry.py 整理。生成日期：2026-10-12。
+> 面向使用者的平台功能与操作指南。本文件由「使用帮助」页面同源生成（frontend/src/helpMarkdown.ts），内容依据 docs/manual/ 各章与 backend/task_registry.py 整理。生成日期：2026-10-15。
 
 > 站内入口：侧边栏「使用帮助」，或直链 `http://<host>/myapp/?page=help`。
 
@@ -75,6 +75,7 @@
 | **v** | VMAX 门户（本机 8790 单会话代理）：三个任务共用同一会话必须串行；2026-09-18 从 n 组拆出，不再被 1.5~2h 长任务堵住 |
 | **m** | 内务轻任务：EWS 邮件会话 + 截图/WhatsApp 文件依赖 |
 | **c** | CN EMS 独立会话：缓存同步与日聚合共享 _pmcache，同组保证互斥 |
+| **x** | 实时告警专属组：2026-10-15 从 n 组拆出，独占一条道不再排在 eflow_sync 等长任务后面（此前最差排队 854s） |
 
 > ⚠️ **新增任务必须同时登记进 `worker_watchdog.py` 的 `GROUP_TASK_MAP`** —— 只写 `TASK_SPECS` 不分组 = 任务入队后永远 pending。这是本项目已发生过四次的事故模式（finebi_report_sync / whatsapp_send_ext / sp_email_details / 2026-09-18 的 olib_soc 与 vmax_multi_data_sync）。
 
@@ -91,7 +92,7 @@
 | WhatsApp 消息发送（Baileys） | `whatsapp_send_baileys` | `0 4 * * *` | m | `services/whatsapp_send_baileys_service.py → run_whatsapp_send_baileys` |
 | eFlow P1 告警 WhatsApp 推送 | `tt_alarm_whatsapp_alert` | `2-59/5 * * * *` | m | `services/tt_alarm_whatsapp_service.py → run_tt_alarm_whatsapp_alert` |
 | MS SLA 完整同步 | `ms_sla_full` | `0 5 * * *` | n | `services/ms_sla_service.py → run_full_sync` |
-| eFlow 实时告警同步 | `eflow_active_alarm` | `*/5 * * * *` | n | `services/eflow_api_client.py → fetch_and_save_active_alarm` |
+| eFlow 实时告警同步 | `eflow_active_alarm` | `*/1 * * * *` | x | `services/eflow_api_client.py → fetch_and_save_active_alarm` |
 | eFlow 历史告警同步 | `eflow_history_alarm` | `0 */3 * * *` | n | `services/eflow_api_client.py → fetch_and_save_history_alarm` |
 | eFlow TT 规则收集与匹配检查 | `eflow_tt_rules_check` | `20 4 * * *` | n | `services/eflow_rules/eflow_tt_rules_check_task.py → run_eflow_tt_rules_check` |
 | RAN Main KPI 同步 | `main_kpi_sync` | `0 4 * * *` | u | `services/ran_ume_main_kpi.py → run_main_kpi_sync` |
@@ -292,7 +293,7 @@
 
 **工作流与数据流**:
 
-1. 扫 realtime_alarm（由 eflow_active_alarm 同步，注册表默认 */30、实际周期以任务配置页为准，生产已配 */5）：tt_id 非空、alarmraisedtime 在触发窗口内、告警码过白名单，按 tt_id 去重
+1. 扫 realtime_alarm（由 eflow_active_alarm 同步，注册表默认与生产配置均为 */1）：tt_id 非空、alarmraisedtime 在触发窗口内、告警码过白名单，按 tt_id 去重
 1. 对触发单实时回 eFlow 查单（fetch_tt_live_batch，一次分页遍历），拿最新 ticket_severity / last_modified_time / alarm_clear_time；实时查不到回退本地 eflow_tt 镜像
 1. 级别命中才推：首推发精简分析（分析引擎 --brief），重报双档——自上次发送后工单无更新满 10 分钟催报、有更新满 30 分钟才报（均带 ⚠️ REMINDER #N 横幅），未满间隔只记跟踪字段不打扰群里
 1. 消息经 Baileys 推送进程（whatsapp-kb-bot/src/notify.js）发出，服务端回执确认后才把该单 send_status 置 Y（send_count 记发送次数）
@@ -300,7 +301,7 @@
 **维护要点**:
 
 - 2026-10-05 机制切换：触发源由 eflow_tt 定时扫描改为 realtime_alarm 触发 + 实时查单，首推时延从 45~75 分钟压到分钟级；window_minutes 语义变为「触发窗口」
-- 依赖 eflow_active_alarm 的同步周期：realtime_alarm 的 _sync_time 滞后超过「实际调度周期 × 1.5」（自适应，生产 */5 下约 7.5 分钟）会在任务结果里告警（触发面静默变空的预防项）
+- 依赖 eflow_active_alarm 的同步周期：realtime_alarm 的 _sync_time 滞后超过「实际调度周期 × 1.5」（自适应，现 */1 下约 1.5 分钟）会在任务结果里告警（触发面静默变空的预防项）
 - 99933 的排除在 Python 侧做——告警码 '99933' 与 '99933.0' 并存，写进 SQL 会漏；白名单留空 = 不过滤
 - 从未确认送达的单按同一节流重试；一轮全部未确认会通过 warnings 走微信/邮件主动喊人（2026-10-01「群内静默」事故的治本项）
 - 群组留空会回退测试群 test123 并在任务结果里显式告警（group_fallback=true），不会静默消失
@@ -325,21 +326,23 @@
 
 #### eFlow 实时告警同步（`eflow_active_alarm`）
 
-- 默认 cron: `*/5 * * * *`　|　worker 组: **n**
+- 默认 cron: `*/1 * * * *`　|　worker 组: **x**
 - 工作流脚本: `services/eflow_api_client.py → fetch_and_save_active_alarm`
 
-**功能**: 从 eFlow FM Active 接口获取实时告警，保存 CSV + SQLite
+**功能**: 从 eFlow FM Active 接口获取实时告警，保存 CSV + SQLite（每分钟）
 
 **工作流与数据流**:
 
-1. 按配置周期拉 FM Active 活跃告警（注册表默认 */30，生产已在任务配置页改为 */5）
+1. 每分钟拉 FM Active 活跃告警（注册表默认与生产配置均为 */1）
 1. 双写 app.db 的 realtime_alarm 与 eflow.sqlite3 副本（副本仅供报表）
 1. 供实时告警看板 / 实时告警地图 / 告警管理看板使用，同时是 P1 告警 WhatsApp 推送的触发源
 
 **维护要点**:
 
-- 页面只读 app.db；「实时」粒度 = 实际调度周期（生产 5 分钟），并非秒级推送
-- 改调度请在「任务配置」页操作（写 task_schedule_config 表），注册表里的 */30 只是默认值
+- 页面只读 app.db；「实时」粒度 = 实际调度周期（现为 1 分钟），并非秒级推送
+- 改调度请在「任务配置」页操作（写 task_schedule_config 表，该行优先于注册表默认值）
+- 本任务 2026-10-15 从 n 组拆到 x 组单独一组：原先与 eflow_sync 共用一条串行道，改 cron 也会被长任务挡住（实测最差排队 854s）
+- ⚠️ 每分钟跑的可行性依赖会话复用（ensure_login 命中进程内/磁盘缓存而不再登录），若改动会话逻辑需重新评估频率
 - 告警字段映射在 services/eflow_alarm_config.json
 
 #### eFlow 历史告警同步（`eflow_history_alarm`）
