@@ -70,8 +70,10 @@
   "$toolsEnabled": "工具路由：提问先判断该「查数据」还是「查资料」，再执行。解决「今天有P1吗」被当成知识问题塞进向量检索、答非所问的问题（2026-10-06 实测）。参数抽取分两层：规则能定的（单号/日期/级别）就不花模型调用，定不了才让模型选工具。置 false 回到改造前的纯知识库行为。",
   "toolsEnabled": true,
 
-  "$myAppApiBase": "my_app 后端地址。工单**聚合统计**优先走它的 HTTP 接口（生产库 PostgreSQL，实时）；my_app 没起或超时时自动降级到本机 SQLite 副本（scripts/tt-query.py）。留空则直接走 SQLite。改端口看 Task/my_app/AGENTS.md 第七节。",
+  "$myAppApiBase": "my_app 后端地址。工单**聚合统计**与**单号分析**都优先走它的 HTTP 接口（生产库 PostgreSQL，实时）；my_app 没起或超时时自动降级到本机 SQLite 副本（聚合走 scripts/tt-query.py，单号分析走 scripts/tt-analyze.py）。留空则直接走 SQLite。改端口看 Task/my_app/AGENTS.md 第七节。",
   "myAppApiBase": "http://127.0.0.1:7038",
+  "$ttAnalysisHttp": "单号分析是否优先走 my_app 的 PG 实时接口（/api/tt-wo-dashboard/tt/{tt_no} 与 /wo/{wo_no}）。置 false 只用本地 SQLite 副本 + eFlow 实时兜底。为什么要它：SQLite 副本由 pg_to_sqlite_sync 刷新、cron 每 12 小时一次，PG 里已更新/恢复的数据机器人最坏要等 12 小时才看见。环境变量 TT_ANALYSIS_HTTP=0 可临时关。",
+  "ttAnalysisHttp": true,
   "$ttStatsTimeoutMs": "聚合查询的 HTTP 超时。overview 要出全量统计，比单票查询慢；超时即降级到 SQLite，不重试（用户在群里等着，重试一次等于双倍等待）。",
   "ttStatsTimeoutMs": 15000,
   "$ttStatsHttp": "是否启用 HTTP 聚合通道。置 false 只用本地 SQLite 副本（口径一致、零外部依赖，但数据有同步延迟）。",

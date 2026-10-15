@@ -1332,12 +1332,21 @@ def latest_tt_no() -> str:
 
 def analyze(tt_no: str, rules: list[dict], lang: str = DEFAULT_LANG,
             push_rules: list[dict] | None = None,
-            live_row: dict | None = None) -> dict:
+            live_row: dict | None = None,
+            wo_row: dict | None = None,
+            live_source: str = 'eflow') -> dict:
     """分析一个单。
 
-    `live_row` 非空时**跳过本地库**，直接用这份「实时行」分析 —— 它是
-    `eflow-live-tt.py` 从 eFlow API 实时拉回来的、已经映射成 eflow_tt 列名的
-    dict（见 my_app 的 `_normalize_tt_live_row`）。
+    `live_row` 非空时**跳过本地库**，直接用这份「实时行」分析。两种来源都用它：
+      · `eflow-live-tt.py` 从 eFlow API 实时拉回来的（映射成 eflow_tt 列名）；
+      · Node 侧从 my_app 的 PG 实时接口取回来的（单号分析 HTTP 优先）。
+    两者形状一致（都是 eflow_tt 列名的 dict），故共用同一套渲染与规则匹配。
+    `live_source` 区分这两者（'eflow' / 'pg'），只影响标注文案，默认 'eflow'
+    以保持旧调用方与既有测试的行为不变。
+
+    `wo_row` 非空时**跳过 WO 的本地库读取**，直接用这份 WO 行（同样来自 my_app
+    的 PG 实时接口）。默认 None → 维持原行为（`fetch_wo` 读本地库），
+    保证不带它的旧调用方（含既有测试）完全向后兼容。
 
     走 live 时返回结构里会多两个键：
       · `live`   = True，供上游/测试区分「实时」与「本地快照」；
@@ -1362,7 +1371,11 @@ def analyze(tt_no: str, rules: list[dict], lang: str = DEFAULT_LANG,
     # 里程碑时间轴要用的 WO 行（WO派单 / 现场处置 两跳，见 build_milestones）。
     # 刻意**不进 record**：测试 [12] 的字段闭环断言要求 record 键 ⊆ _TT_COLUMNS
     # （eflow_tt 的 SELECT 列），WO 字段来自另一张表，混进去会破坏那条防回归。
-    wo = fetch_wo(row.get('wo_no'), lang)
+    # wo_row 非空 → 用注入行（PG 实时）；否则读本地库（原行为）。
+    if wo_row is not None:
+        wo = dict(wo_row) or None
+    else:
+        wo = fetch_wo(row.get('wo_no'), lang)
 
     vf = build_value_frame(row)
     rule = match_rules(vf, rules)
@@ -1390,6 +1403,10 @@ def analyze(tt_no: str, rules: list[dict], lang: str = DEFAULT_LANG,
     return {
         'found': True,
         'live': live_row is not None,
+        # 实时行的来源：'pg'（my_app 的 PG 实时库）/ 'eflow'（eFlow 实时拉取）。
+        # 仅当 live 时有意义；渲染层据此选准确的来源标注文案（两者数据源不同，
+        # 不能都说成「去 eFlow 实时查」）。默认 'eflow' 保持旧行为不变。
+        'live_source': live_source if live_row is not None else '',
         'tt_no': row.get('tt_no') or row.get('ticket_no') or tt_no,
         'verdict': verdict,
         'missing_rule_fields': absent,
@@ -1683,6 +1700,9 @@ _LABELS: dict[str, dict[str, str]] = {
         'resolved': '已恢复', 'unresolved': '未恢复',
         # 实时兜底来源标记（本地库 miss、改从 eFlow 实时拉的）
         'live_src': '⚡ 本地库暂无此单，已实时查 eFlow',
+        # 实时行来自 my_app 的 PG 实时库（单号分析 HTTP 优先）。来源不同，
+        # 不能借上面那句「已实时查 eFlow」—— 那会让用户以为是去 eFlow 拉的。
+        'live_src_pg': '⚡ 已从实时数据库（my_app / PostgreSQL）取此单',
         # ── 精简模式（--brief，首推告警用）专属文案 ──
         'brief_step': '当前环节：',
         'brief_open': '已持续：',
@@ -1773,6 +1793,8 @@ _LABELS: dict[str, dict[str, str]] = {
         # Live-fallback source marker (local DB missed, fetched from eFlow live).
         # 纯 ASCII —— 英文输出要过「零中文残留」断言（见 test-tt-lang.py）。
         'live_src': '[live] not in local DB yet - fetched from eFlow in real time',
+        # 实时行来自 my_app 的 PG 实时库（单号分析 HTTP 优先）。纯 ASCII，理由同上。
+        'live_src_pg': '[live] served from the live database (my_app / PostgreSQL)',
         # ── 精简模式（--brief，首推告警用）专属文案 ──
         # 面向分钟级值班告警：一句人话，不吐内部字段名、不解释方法论。
         # 纯 ASCII，理由同上。
@@ -1787,6 +1809,17 @@ _LABELS: dict[str, dict[str, str]] = {
 def _L(lang: str) -> dict:
     """取某语言的文案表（未知语言回退中文）。"""
     return _LABELS.get(lang) or _LABELS[DEFAULT_LANG]
+
+
+def _live_src_label(res: dict, lang: str) -> str:
+    """实时行的来源标注。按 `res['live_source']` 选准确文案。
+
+    两种来源数据源不同，不能都说成「已实时查 eFlow」：
+      · 'pg'    → my_app 的 PG 实时库（单号分析 HTTP 优先）；
+      · 其它    → eFlow 实时拉取（eflow-live-tt.py），保持旧文案。
+    """
+    L = _L(lang)
+    return L.get('live_src_pg') if res.get('live_source') == 'pg' else L['live_src']
 
 
 def _one_line(v, limit: int = 0) -> str:
@@ -2407,7 +2440,7 @@ def render_text(res: dict, lang: str = DEFAULT_LANG) -> str:
     # 而不是本地快照 —— 两者可能不一致（实时行没有「同步时间」，且本地同步有延迟）。
     # 不标的话，用户无从知道刚才那句「本地库里没有」和现在这份报告的关系。
     if res.get('live'):
-        out.append(L['live_src'])
+        out.append(_live_src_label(res, lang))
 
     # ── 抬头：单号 · 站点(站号) | 区域 | 站点等级 ──
     # ── 抬头：单号 · 站点(站号) | 区域 | 站点类型 | 站点子类型 ──
@@ -2596,7 +2629,7 @@ def render_text_brief(res: dict, lang: str = DEFAULT_LANG) -> str:
     out: list[str] = []
 
     if res.get('live'):
-        out.append(L['live_src'])
+        out.append(_live_src_label(res, lang))
 
     # ── 抬头：单号 · 站名(站号) | 区域 ──（不列 site type/subtype）
     head = f"{res['tt_no']} · {r.get('site_name') or L['no_site']}"
@@ -2714,8 +2747,10 @@ def main() -> int:
     ap.add_argument('--lang', default=DEFAULT_LANG, choices=list(SUPPORTED_LANGS),
                     help='回复语言：zh（默认）/ en —— 由上游按提问语言判定后传入')
     ap.add_argument('--live-row',
-                    help='改用这份 JSON（eflow-live-tt.py 的实时结果）分析，跳过本地库。'
-                         '传 - 表示从 stdin 读入。')
+                    help='改用这份 JSON 分析，跳过本地库（实时行：eFlow 实时结果，'
+                         '或 my_app PG 实时接口取回的 eflow_tt 行）。传 - 表示从 stdin 读入。'
+                         '也接受复合信封 {"row": <TT行>, "wo": <WO行>}，'
+                         '此时 wo 一并注入、时间轴 WO 两跳不再读本地库。')
     ap.add_argument('--rebuild-index', action='store_true',
                     help='重建本地单号索引后退出（首次部署、或数据大量更新后跑一次）')
     ap.add_argument('--brief', action='store_true',
@@ -2774,22 +2809,43 @@ def main() -> int:
     except Exception:
         push_rules = []
 
-    # 实时行：本地库查不到时由 eflow-live-tt.py 从 eFlow 实时拉回来的。
+    # 实时行：本地库查不到时由 eflow-live-tt.py 从 eFlow 实时拉回来的；
+    # 或者由 Node 侧从 my_app 的 PG 实时接口取回来的（单号分析 HTTP 优先）。
     # 解析失败**不静默降级成「查本地库」** —— 否则用户发一个本地没有的新单，
     # 会收到「工单库里没有找到」这句话，而事实是我们没去实时查。
+    #
+    # 两种输入形状都收（2026-10-15）：
+    #   · 裸行 dict                → 就是 TT 行（旧形状，eflow-live-tt.py 在用）；
+    #   · 复合 envelope dict        → {"row": <TT行>, "wo": <WO行>}
+    #     WO 行随 TT 一起注入，供时间轴「WO派单 / 现场处置」两跳走 PG 实时
+    #     （见 analyze 的 wo_row）。**只读一次 stdin**，所以 WO 必须搭这个信封进来，
+    #     不另开 --wo-row 参数（否则两个 `-` 会争抢 stdin）。
     live_row = None
+    wo_row = None
+    # 来源：裸行 = eflow-live-tt.py 的 eFlow 实时结果（旧形状，默认）；
+    # envelope = Node HTTP 路径从 my_app 的 PG 实时库取的（单号分析 HTTP 优先）。
+    # 仅影响来源标注文案，不影响任何取数/匹配逻辑。
+    live_source = 'eflow'
     if args.live_row is not None:
         try:
             raw = sys.stdin.read() if args.live_row == '-' else args.live_row
-            live_row = json.loads(raw)
-            if not isinstance(live_row, dict):
+            parsed = json.loads(raw)
+            if not isinstance(parsed, dict):
                 raise ValueError('实时行必须是 JSON 对象')
+            # envelope：只认同时带 "row" 键且其值为 dict 的形状；否则当裸行。
+            if isinstance(parsed.get('row'), dict):
+                live_row = parsed['row']
+                wo_row = parsed.get('wo') if isinstance(parsed.get('wo'), dict) else None
+                live_source = 'pg'
+            else:
+                live_row = parsed
         except Exception as e:
             print(f'实时行解析失败：{e}', file=sys.stderr)
             return 2
 
     try:
-        res = analyze(args.tt_no, rules, args.lang, push_rules, live_row=live_row)
+        res = analyze(args.tt_no, rules, args.lang, push_rules,
+                      live_row=live_row, wo_row=wo_row, live_source=live_source)
     except Exception as e:
         print(str(e), file=sys.stderr)
         return 3

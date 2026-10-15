@@ -333,9 +333,10 @@ echo 'AGNES_API_KEY=你的key' > .env
 | `ttSiteAlarmFallback` | `true` | 「某站有没有告警 / up 没 up」这类**事实查询**是否走 eFlow 实时活动告警（工具 `query_site_alarms`）。置 `false` 则提问退回知识库通道。实现见 `scripts/eflow-live-alarms.py`：复用 my_app 的告警 pipeline，凭据只读 my_app 那一份；探测不到解释器/依赖时优雅降级为「查不了」，**绝不**误报成「没告警」。踩坑口径见 `docs/排障复盘-站点告警与answered0-degraded1-20261008.md`。环境变量 `TT_SITE_ALARM_FALLBACK=0` 可临时关 |
 | `ttSiteAlarmTimeoutMs` | 180000 | 按站点拉活动告警的超时（要探测解释器 + 登录 eFlow + 拉全量，比单票查询宽）。环境变量 `TT_SITE_ALARM_TIMEOUT_MS` |
 | `toolsEnabled` | `true` | 工具路由总开关。置 `false` 回到改造前的纯知识库行为（所有问题都走向量检索），排查「是不是路由把问题带偏了」时很有用。环境变量 `TOOLS_ENABLED=0` 可临时关 |
-| `myAppApiBase` | `http://127.0.0.1:7038` | my_app 后端地址。工单**聚合统计**优先走它的 HTTP 接口（PG 实时）；留空或连不上则降级到本地 SQLite 副本。环境变量 `MY_APP_API_BASE` 可覆盖 |
+| `myAppApiBase` | `http://127.0.0.1:7038` | my_app 后端地址。工单**聚合统计**与**单号分析**都优先走它的 HTTP 接口（PG 实时）；留空或连不上则降级到本地 SQLite 副本。环境变量 `MY_APP_API_BASE` 可覆盖 |
 | `ttStatsTimeoutMs` | 15000 | 聚合查询的 HTTP 超时。`overview` 要出全量统计，比单票查询慢；超时即降级，不重试（用户在群里等着，重试等于双倍等待） |
 | `ttStatsHttp` | `true` | 是否启用 HTTP 聚合通道。置 `false` 只用本地 SQLite 副本（口径一致、零外部依赖，但有同步延迟） |
+| `ttAnalysisHttp` | `true` | 单号分析是否优先走 my_app 的 PG 实时接口（`/api/tt-wo-dashboard/tt/{tt_no}`、`/wo/{wo_no}`）。置 `false` 只用本地 SQLite 副本 + eFlow 实时兜底。为什么要它：SQLite 副本每 12 小时才刷一次，PG 里已更新/恢复的数据机器人最坏要等 12 小时才看见。环境变量 `TT_ANALYSIS_HTTP=0` 可临时关 |
 | `ttStatsSampleLimit` | 3 | 统计回复里附的样例单号条数。给单号是为了让用户能复查，多了会挤爆聊天窗口 |
 | `ttStatsListLimit` | 10 | 用户**点名要单号**（「请输出TT单的ID」）时最多列几条。超出部分回复里会写明「还有 N 单未列出」 |
 | `systemPrompt` | （见文件） | 约束模型只依据资料作答 |
@@ -543,6 +544,32 @@ TT202609150073 · Gee City
 > 参数走的是 `adv` JSON（白名单见 `tt_wo_dashboard.py:69`），
 > 对"群里随口说个站名"这种用法太重。所以带站名的提问直接走本地库
 > （那里 `site_name` / `site_id` 能做模糊匹配）。
+
+### 单号分析的数据源：HTTP 优先，SQLite 降级（2026-10-15 起）
+
+**上面那条「HTTP 优先」原先只覆盖聚合统计**；单号分析（`tt.js` → `scripts/tt-analyze.py`）
+此前**只读 SQLite 副本**。这导致一个 12 小时的空窗：
+
+| 通道 | 来源 | 口径 | 何时用 |
+| --- | --- | --- | --- |
+| 主 | my_app `/api/tt-wo-dashboard/tt/{tt_no}`（TT）与 `/wo/{wo_no}`（WO） | 生产库 **PostgreSQL**，实时 | 默认 |
+| 降级 | `scripts/tt-analyze.py` 读 `my_app/db/app.db` | SQLite **同步副本**，有延迟 | my_app 没起 / HTTP 失败 / `ttAnalysisHttp=false` |
+| 兜底 | `scripts/eflow-live-tt.py` | eFlow **实时拉取** | 本地副本确凿「查无此单」时 |
+
+**为什么必须加这条**：SQLite 副本由 `pg_to_sqlite_sync` 刷新，**cron 每 12 小时一次**
+（`45 */12 * * *`）；而 `eflow_sync` 是每小时。于是 PG 里数据已更新/恢复后，单号分析
+最坏要再等 12 小时才看见。实测投诉原文：「这些数据不是每周个小时都在更新吗，为什么找不到」。
+改成 HTTP 优先后，单号分析读的是 PG 实时库，空窗消失。
+
+**实现**：HTTP 取到 TT/WO 行后，经 `tt-analyze.py` 的 `--live-row -` 通道（信封
+`{"row": <TT行>, "wo": <WO行>}`）注入，**跳过本地库**。渲染与规则匹配**完全复用**
+同一套代码，所以「实时查到的单」与「本地查到的单」格式一致，不存在两套口径。
+来源不同时标注也不同：PG 来源显示「已从实时数据库（my_app / PostgreSQL）取此单」，
+eFlow 兜底显示「本地库暂无此单，已实时查 eFlow」——**不混用**，否则用户会误判数据来源。
+
+**降级仍保留**（`src/tt.js:9` 的独立性原则不变）：my_app 挂了、HTTP 超时、
+或 `ttAnalysisHttp=false` 时，退回本地 SQLite + eFlow 实时兜底，机器人照样能答，只是可能旧一点。
+`TT_ANALYSIS_HTTP=0` 可临时关闭本通道。开关与超时见 `config.json` 的 `ttAnalysisHttp`。
 
 ### 时间字段统一用 `alarm_occur_time`
 

@@ -274,6 +274,14 @@ export const CONFIG = {
   ttStatsSampleLimit: Number(process.env.TT_STATS_SAMPLE_LIMIT ?? raw.ttStatsSampleLimit ?? 3),
   ttStatsListLimit: Number(process.env.TT_STATS_LIST_LIMIT ?? raw.ttStatsListLimit ?? 10),
 
+  // 单号分析是否优先走 my_app 的 PG 实时接口（默认开；my_app 没起/失败时降级到
+  // 本地 SQLite 副本 + eFlow 实时兜底）。与 ttStatsHttp 同构：
+  // 环境变量 TT_ANALYSIS_HTTP=0 可临时关掉（排查「是不是 HTTP 通道把结论带偏了」）。
+  ttAnalysisHttp:
+    process.env.TT_ANALYSIS_HTTP != null
+      ? !(process.env.TT_ANALYSIS_HTTP === '0' || process.env.TT_ANALYSIS_HTTP === 'false')
+      : raw.ttAnalysisHttp !== false,
+
   // 按站点查实时告警（query_site_alarms）。默认开；环境变量可临时关（排查
   // 「是不是这条通道把问题带偏了」时有用）。超时同理由 env 覆盖。
   ttSiteAlarmFallback:

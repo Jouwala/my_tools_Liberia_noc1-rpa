@@ -128,6 +128,12 @@ async function loadTt(cmd, stubJs) {
   process.env.TT_RETRY_DELAY_MS = '1';
   process.env.TT_TIMEOUT_MS = '5000';
   process.env.TT_LIVE_TIMEOUT_MS = '5000';
+  // 关掉「单号分析 HTTP 优先」通道（2026-10-15 新增）：
+  // 本套件测的是**本地库 + eFlow 实时兜底**的编排，桩只拦 Python 子进程，
+  // 不拦 HTTP。若不关，analyzeTt 会先真去连 myAppApiBase（真实后端），
+  // 编排分支就不会按桩的预期走 —— 那测的就不是本套件要测的东西了。
+  // HTTP 通道由 scripts/test-tt-analysis-http.mjs 单独覆盖。
+  process.env.TT_ANALYSIS_HTTP = '0';
   process.env.NODE_OPTIONS = `--import=${pathToFileURL(stubJs).href}`;
   const url = new URL('../src/tt.js', import.meta.url);
   url.searchParams.set('t', String(Date.now() + Math.random()));

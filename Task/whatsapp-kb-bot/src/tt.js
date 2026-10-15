@@ -14,6 +14,9 @@ import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { CONFIG, ROOT } from './config.js';
 import { pickText } from './lang.js';
+// 复用聚合通道已验证的 HTTP 取数原语（超时 / 基址 / 错误语义），
+// 避免在本文件再抄第三份超时与降级逻辑。
+import { fetchJson, apiBase } from './ttsource.js';
 
 const SCRIPT = resolve(ROOT, 'scripts', 'tt-analyze.py');
 
@@ -36,6 +39,58 @@ function liveFallbackEnabled() {
   if (v === false || v === 'false' || v === 0 || v === '0') return false;
   if (process.env.TT_LIVE_FALLBACK === '0' || process.env.TT_LIVE_FALLBACK === 'false') return false;
   return existsSync(LIVE_SCRIPT);
+}
+
+/**
+ * 单号分析是否优先走 my_app 的 PG 实时接口（config.json 的 `ttAnalysisHttp`，默认开）。
+ *
+ * 为什么要有这条通道（2026-10-15）：``tt-analyze.py`` 只读本地 SQLite 副本，
+ * 而副本由 ``pg_to_sqlite_sync`` 刷新、cron 每 12 小时一次 —— PG 里数据已更新/恢复后，
+ * 机器人最坏要再等 12 小时才看见，群里因此投诉「数据每时都在更新，为什么查不到」。
+ * 于是让单号分析**优先**读 PG 实时库，SQLite 仅作降级（my_app 没起 / HTTP 失败时），
+ * 与聚合统计通道（src/ttsource.js）同构。
+ *
+ * 关掉（false）即回到改造前：只走本地 SQLite + eFlow 实时兜底。
+ */
+function analysisHttpEnabled() {
+  const v = CONFIG.ttAnalysisHttp;
+  if (v === false || v === 'false' || v === 0 || v === '0') return false;
+  if (process.env.TT_ANALYSIS_HTTP === '0' || process.env.TT_ANALYSIS_HTTP === 'false') return false;
+  return !!CONFIG.myAppApiBase;
+}
+
+/**
+ * 从 my_app 的 PG 实时接口取一条工单行。
+ *
+ * 返回 `{tt: <行|null>, wo: <行|null>}`；**任何失败都抛**，由调用方决定降级
+ *（与 ttsource.fetchJson 同契约：拿不到就抛，不在取数层做降级决策）。
+ *
+ * ``found:false``（接口正常工作、但确实没这一单）与「请求失败」是两回事：
+ *   · found:false → 返回 {tt:null}，调用方据此走**本地库**（本地可能有、也可能没有）；
+ *   · 请求失败   → 抛，调用方据此也走本地库。
+ * 两者最终都降级到本地库，但分开表达便于日志与后续细分。
+ *
+ * WO 行仅在 TT 命中且带 wo_no 时才查 —— 时间轴「WO派单 / 现场处置」两跳要用。
+ */
+async function fetchRowsHttp(ttNo) {
+  const base = apiBase();
+  const ttRes = await fetchJson(new URL(`/api/tt-wo-dashboard/tt/${encodeURIComponent(ttNo)}`, base));
+  const tt = ttRes && ttRes.found ? ttRes.row : null;
+  if (!tt) return { tt: null, wo: null };
+
+  let wo = null;
+  const woNo = String(tt.wo_no || '').trim();
+  if (woNo) {
+    try {
+      const woRes = await fetchJson(new URL(`/api/tt-wo-dashboard/wo/${encodeURIComponent(woNo)}`, base));
+      if (woRes && woRes.found) wo = woRes.row;
+    } catch {
+      // WO 拿不到不算致命：时间轴那两跳会退回「未证实」，TT 主体分析照常。
+      // 与 tt-analyze.py 的 fetch_wo（查不到返回 None）同语义，故静默。
+      wo = null;
+    }
+  }
+  return { tt, wo };
 }
 
 // my_app 的后端运行环境（含 sqlite3 + openpyxl）
@@ -414,7 +469,14 @@ function tryLive(ttNo, replyLang) {
 }
 
 /**
- * 分析一个工单（TT / WO），失败时**自动重试一次**，本地查不到时**回 eFlow 实时查**。
+ * 分析一个工单（TT / WO）。
+ *
+ * 取数顺序（2026-10-15 起）：
+ *   ① **HTTP（my_app 的 PG 实时库）** —— 首选。命中即用，消除 SQLite 副本
+ *      最长 12 小时的镜像延迟（见 `analysisHttpEnabled` 的说明）。
+ *   ② 本地 SQLite（`tt-analyze.py` 直读副本）—— HTTP 未命中/失败/未配置时。
+ *   ③ eFlow 实时兜底（`eflow-live-tt.py`）—— 本地 miss 且确凿「查无此单」时。
+ * 失败时**自动重试一次**（针对 ②/③ 的本地库抖动）。
  *
  * 为什么要自动重试：实测同一单 `TT202609110023` 被用户连问了 5 次，
  * 前 3 次都失败、第 4 次才成功 —— 失败原因几乎都是 Y 盘网络盘
@@ -439,6 +501,27 @@ export async function analyzeTt(ttNo, { lang = 'zh', onRetry, onLive } = {}) {
   // 只放行脚本认得的取值，避免上游传错让 argparse 直接退出（exit 2）
   const replyLang = lang === 'en' ? 'en' : 'zh';
   const F = FAIL_TEXT[replyLang];
+
+  // ① HTTP 优先（PG 实时）。命中即回，不碰本地库。
+  //    未命中分两种：接口正常但确实没这单（tt:null），或请求失败（抛）——
+  //    两种都落到下面的本地通道，本地可能有、也可能没有，与改造前一致。
+  if (analysisHttpEnabled()) {
+    try {
+      const { tt, wo } = await fetchRowsHttp(ttNo);
+      if (tt) {
+        // 走已有的 --live-row 通道（信封形状 {"row":<TT>,"wo":<WO>}），
+        // 渲染/规则匹配/口径全部复用 tt-analyze.py，不引入第二套格式。
+        const env = JSON.stringify({ row: tt, wo: wo || undefined });
+        const res = await runAnalyze(ttNo, replyLang, env);
+        if (res.ok) return res;
+        // HTTP 拿到了行、但脚本渲染失败（如规则表缺失）→ 不吞，落到本地通道再试。
+        if (process.env.DEBUG_TOOLS === '1') console.error(`[tt] HTTP 行渲染失败：${res.text}`);
+      }
+    } catch (err) {
+      // 网络/服务异常 → 静默降级到本地库（机器人保持独立可用）
+      if (process.env.DEBUG_TOOLS === '1') console.error(`[tt] HTTP 取行失败：${err.message}`);
+    }
+  }
 
   const first = await attemptTt(ttNo, replyLang);
 

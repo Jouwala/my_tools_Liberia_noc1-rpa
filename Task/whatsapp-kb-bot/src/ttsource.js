@@ -45,7 +45,7 @@ const HTTP_TIMEOUT_MS = Number(process.env.TT_STATS_TIMEOUT_MS || CONFIG.ttStats
 const FALLBACK_TIMEOUT_MS = Number(process.env.TT_STATS_FALLBACK_TIMEOUT_MS || 60000);
 
 /** 带超时地 fetch 一个 JSON 接口；失败一律抛，由调用方决定是否降级。 */
-async function fetchJson(url) {
+export async function fetchJson(url) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), HTTP_TIMEOUT_MS);
   let res;
@@ -62,7 +62,7 @@ async function fetchJson(url) {
 }
 
 /** my_app 后端基址（去掉尾部斜杠）。 */
-function apiBase() {
+export function apiBase() {
   const base = String(CONFIG.myAppApiBase || '').replace(/\/+$/, '');
   if (!base) throw new Error('未配置 myAppApiBase');
   return base;

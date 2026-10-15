@@ -783,13 +783,17 @@ check(not bad_prefix, '脚本级失败文案不含「XX失败：」前缀（前�
 
 # 失败原因本身也要按语言取：英文提问不能收到中文诊断
 check('load_rules(lang=args.lang)' in src, 'main() 把语言传给 load_rules')
-# 语言 / 推单规则 / 实时行三者都必须传进 analyze：
+# 语言 / 推单规则 / 实时行 / 实时 WO 行都必须传进 analyze：
 #   · 语言 → 失败诊断与渲染文案的语种；
 #   · 推单规则 → 「派单依据」那一段；
 #   · 实时行 → 本地库 miss 时改用它渲染（live_row= 是关键字传参，
-#     所以要连关键字一起匹配，光匹配位置参数会漏掉它）。
-check('analyze(args.tt_no, rules, args.lang, push_rules, live_row=live_row)' in src,
-      'main() 把语言、推单规则与实时行都传给 analyze')
+#     所以要连关键字一起匹配，光匹配位置参数会漏掉它）；
+#   · 实时 WO 行 → 单号分析走 HTTP 时，时间轴 WO 两跳也来自 PG 实时（wo_row=）。
+# 调用跨行书写是允许的，关键参数名必须都在。
+check('analyze(args.tt_no, rules, args.lang, push_rules,' in src
+      and 'live_row=live_row' in src
+      and 'wo_row=wo_row' in src,
+      'main() 把语言、推单规则、实时行与实时 WO 行都传给 analyze')
 check('load_push_rules(lang=args.lang)' in src, 'main() 把语言传给 load_push_rules')
 check("_L(lang)['need_openpyxl']" in src, '缺 openpyxl 的诊断按语言取')
 check("_L(lang)['db_missing']" in src, '缺工单库的诊断按语言取')
