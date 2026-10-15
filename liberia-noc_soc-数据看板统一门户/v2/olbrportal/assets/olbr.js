@@ -4509,20 +4509,16 @@
         '<span class="oss-card-t">' + hl(titleOf(it)) + '</span></a>';
     }).join('');
     /* 2026-10-13（用户要求「根据卡片数自动分两行，列数自动平分」）：
-       列数 = ceil(卡片数 / 2)，**写成行内样式**而不是交给 CSS 的 auto-fill 去猜。
-       原因：auto-fill + minmax(150px,1fr) 是按**容器宽度**算列的，卡片数一变
-       （筛选 / 增删看板）列数就跟着变，还会出现坐不满的碎行 —— 实测 10 张在
-       887px 下得到 5+5，但 6 张会得到 5+1、4 张会得到 4+0（第 2 行空着却仍被
-       grid-auto-rows:1fr 占去一半高度，卡片被压扁）。
-       用户要的语义是「行数固定 2、列数随卡片数变」，决定列数的是**卡片数**，
-       CSS 拿不到这个数，只能在这里算好传下去。
-       ⚠️ 边界：卡片数 1 → ceil(1/2)=1，单列一行；空态那张 .oss-card.is-empty
-       自带 grid-column:1/-1 通栏，不受这里的列数影响。 */
-    var cols = Math.max(1, Math.ceil(list.length / 2));
+       列数 = ceil(卡片数 / 2)，当时写成行内样式。
+       ⚠️ 2026-10-15（用户要求「每行改为 3 个卡片平分宽度」）：**列数改为固定 3**，
+       由 CSS 的 .oss-slot .oss-grid（repeat(3, minmax(0,1fr))）负责，
+       这里删掉行内 grid-template-columns —— 行内样式的特异性高于类选择器，
+       留着会盖掉 CSS 里定好的 3 列，变成"看起来改了其实没生效"。
+       行数因此完全由卡片数决定（3 张一行，行高 auto，见 CSS 注释）。 */
     return '<div class="p-head"><span class="p-hd"><span class="p-t t-orange">' +
         esc(t('aux.friends')) + '</span></span>' +
       '<div class="map-tools"><span class="cnt">' + list.length + '</span></div></div>' +
-      '<div class="oss-grid" style="grid-template-columns:repeat(' + cols + ',minmax(0,1fr))">' +
+      '<div class="oss-grid">' +
         (cards || '<span class="oss-card is-empty">' + esc(t('v.empty')) + '</span>') + '</div>';
   }
   function renderOssSection() {

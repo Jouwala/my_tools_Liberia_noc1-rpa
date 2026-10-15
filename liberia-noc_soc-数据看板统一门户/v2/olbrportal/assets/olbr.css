@@ -2092,21 +2092,30 @@ main { flex: 1; padding-block: var(--s5) var(--s4); display: flex; flex-directio
    而本行无需跟着变，且 .qarow 用独立变量 --qarow-h，正好使「只改其中一行」成为
    可能 —— 这也正是当初不复用 --maprow-h 的理由（见上一段）。
    故本行**保持 573px 不动，两行从此不等高**，这是用户 2026-10-13 的明确选择，
-   不是漏改；要恢复等高，把 --qarow-h 改成与当前 --maprow-h（860px）相同的值即可。 */
+   不是漏改；要恢复等高，把 --qarow-h 改成与当前 --maprow-h（860px）相同的值即可。
+
+   ⚠️ 2026-10-15（用户要求）：**恢复与 GIS Map 等高**，--qarow-h 由 573px 改回
+   860px（即与 --maprow-h 同值）。用户原话「Knowledge Q&A 和 OSS Portal Login
+   高度，改成跟 GIS Map 一样」。上一条 2026-10-13 的「不等高」是过渡状态，
+   本次按用户明确要求收回到等高；两个变量仍各自独立（保留「只调整其中一行」的能力）。 */
 .qarow {
   display: grid; gap: var(--s4); margin-top: var(--s4);
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  --qarow-h: 573px;
+  --qarow-h: 860px;
 }
 .qarow > section { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 /* ↑ 2026-10-13 加 min-height:0：
    grid item 默认 min-height: auto = 内容最大者，会被 .canvas 内的 iframe
    / .oss-grid 内容撑到 700+px，导致 .qarow 比 --qarow-h 高、与 #esc 重叠。 */
 .qarow .canvas { flex: 1 1 auto; min-height: 0; }
-/* ↑ min-height 改 0：原来 var(--qarow-h) 把 .canvas 锁死 573，撑破父容器；
+/* ↑ min-height 改 0：原来把 .canvas 锁死在 --qarow-h，撑破父容器；
    改为 0 后由父 .qarow > section 的 --qarow-h 提供高度底线。 */
 @media (max-width: 1200px) { .qarow { grid-template-columns: minmax(0, 1fr); } }
-@media (max-width: 640px) { .qarow { --qarow-h: 280px; } }
+/* 窄屏档：420px（2026-10-15 随主档 860px 一起从 280px 复原为 420px）。
+   与 .maprow 的窄屏档同值 —— 主档既然恢复等高（都是 860px），窄屏档也应对齐。
+   280px 是 2026-10-12 从 573px 主档按比例（≈0.49）推来的，主档回到 860 后该比例
+   不再成立；420px 与 .maprow 的取舍一致（手机屏放不下，只求"能滚"）。 */
+@media (max-width: 640px) { .qarow { --qarow-h: 420px; } }
 /* OSS 槽位：右栏不是内嵌 iframe，而是一列展开的链接。
    让它也走纵向 flex，内容从顶部排；.canvas 之外的单列清单直接撑满。 */
 .oss-slot { display: flex; flex-direction: column; min-width: 0; }
@@ -2117,38 +2126,45 @@ main { flex: 1; padding-block: var(--s5) var(--s4); display: flex; flex-directio
    assets/_local-credentials.js 已一并移除。 */
 /* OSS 门户登录的卡片网格（2026-10-12 改：原 .oss-list 行列表 → 卡片）。
    高度锁到 --qarow-h 与左侧 Q&A 画布等高；条目少时卡片自身撑满、不留大片空白
-   （卡片 min-height 给足，行高由 align-content:stretch 分摊）。 */
+   （卡片 min-height 给足，行高由 align-content:stretch 分摊）。
+
+   ⚠️ 2026-10-15（用户要求）：「每行改为 3 个卡片平分宽度，列自动高度」。
+   两条改动：
+     ① 列数固定 3（原来由 olbr.js 按 ceil(卡片数/2) 算出行数 2、列数随卡片数变）——
+        见 olbr.js ossSectionHtml() 里同步删掉的行内 grid-template-columns；
+     ② 行高由 grid-auto-rows: 1fr（钉在容器高度上，3 张以上会被压扁）改回 auto ——
+        卡片高度改由**自身内容 + padding** 决定，不再被容器摊平。
+   这样 3 列铺开、行数随卡片数自然增长，容器高度不够时靠 overflow:auto 滚动。 */
 .oss-slot .oss-grid {
   flex: 1 1 auto; height: var(--qarow-h); min-height: var(--qarow-h);
   max-height: var(--qarow-h); overflow: auto;
   margin-top: var(--s3); border: 1px solid var(--line); border-radius: var(--r2);
   background: var(--surface);
-  display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-  /* ↑ 2026-10-13：这行 auto-fill 现已是**兜底档**。
-     真正生效的列数由 olbr.js 的 ossSectionHtml() 按「ceil(卡片数/2)」写成
-     行内 grid-template-columns（行内样式特异性更高，会盖掉这行）。
-     保留 auto-fill 的理由：万一 JS 侧没算出列数（例如将来有人另写一处渲染），
-     网格仍能自适应铺开，而不是退化成单列窄条。 */
-  /* 2026-10-13：行高由 grid-auto-rows: 1fr 平分容器（去掉 align-content: stretch），
-     改用 grid-auto-rows 才能让 grid item 自身撑满行高；align-content 只决定
-     多行总高 < 容器高时怎么分配多余空间，对单行 / 行内高度无作用。
-     .oss-card 同步去掉了 min-height:92px（见该规则）—— 1fr 才会真正生效。 */
-  grid-auto-rows: 1fr;
+  /* 每行 3 个，等宽平分。minmax(0,1fr) 而非 1fr：1fr 的最小尺寸是 auto，
+     长卡片名会把列撑破（与全页其它栅格同一条注意事项）。 */
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+  /* 行高 auto（2026-10-15 改）：由卡片自身内容决定，不被容器高度摊平。
+     原先的 grid-auto-rows:1fr 会把行数相对容器高度强行等分，3 列下卡片超过
+     2 行时每行被压得很扁；改 auto 后每行拿自己的自然高度。
+     ⚠️ 容器仍是固定高 --qarow-h（与左侧 Q&A 等高），行数多时溢出走上面的
+     overflow:auto 滚动，与 .oss-card 的 height:100% 一起改（见该规则）。 */
+  grid-auto-rows: auto;
+  /* 窄栏 / 窄屏下 3 列会太挤，这里不再用 auto-fill 兜底（列数是明确的 3），
+     改由下面的 @media 断点降档。 */
   gap: var(--s2); padding: var(--s3);
 }
+@media (max-width: 1200px) { .oss-slot .oss-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 640px)  { .oss-slot .oss-grid { grid-template-columns: minmax(0, 1fr); } }
 .oss-card {
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
-  height: 100%;
   padding: 12px 10px; text-align: center; text-decoration: none;
   border: 1px solid var(--line-2); border-radius: var(--r2); background: var(--surface-2);
   color: var(--t1); transition: background .14s, border-color .14s, color .14s, transform .14s;
 }
-/* ↑ 2026-10-13 去掉 min-height:92px + 加 height:100%：
-   卡片要按容器高度平分（grid-auto-rows:1fr），写死 min-height 会让 1fr 失效
-   （grid 1fr ≤ max(min-content, 实际高度)，min-height:92 把下限钉在那里），
-   条目少时下方一片空白，条目多时也拉不开。
-   改为 height:100% 后 grid item 严格撑满所在 1fr 行，10 张卡片 2 行时
-   每张 270px（容器 573 减去 padding/gap 摊到 2 行）。 */
+/* ↑ 2026-10-15：去掉 height:100%（2026-10-13 加），配合 grid-auto-rows 由 1fr 改
+   auto —— 卡片高度改回「内容 + padding」的自然高度（用户要求「列自动高度」）。
+   保留 2026-10-13 去掉 min-height:92px 的决定：自然高度下 92px 的下限同样无必要，
+   且会让单张卡片显得空。 */
 .oss-card:hover, .oss-card:focus-visible {
   background: var(--b-tint); border-color: var(--b-line); color: var(--b-ink); transform: translateY(-1px);
 }
