@@ -383,6 +383,16 @@
     .geo-ip { color:#9fb3c2; font:400 9px/1 system-ui,sans-serif; text-shadow:0 1px 2px #000; }
     .geo-cluster { display:inline-block; padding:0.125rem 0.438rem; border-radius:12px; background:rgba(8,18,44,.88);
       border:1px solid var(--vmax-cyan); color:var(--vmax-cyan); font:700 11px/1 system-ui,sans-serif; box-shadow:0 0 8px rgba(0,217,255,.5); white-space:nowrap; }
+    /* 县名常驻标签（2026-10-15 新增）：县界轮廓的配套文字。
+       只做背景参照，故字号小、无底色块、不吃鼠标事件（pointer-events:none，让点击穿到站点/链路）。
+       halo 用 text-shadow 描边，保证在深浅两种底图上都读得清（底图是矢量的，颜色各异）。 */
+    .geo-county-lb { pointer-events:none !important; }
+    .geo-county-lb span { display:inline-block; transform:translate(-50%,-50%);
+      color:#c2cfe2; font:600 10px/1 system-ui,'Segoe UI',sans-serif; letter-spacing:.03em;
+      text-shadow:0 1px 2px rgba(0,0,0,.85), 0 0 3px rgba(0,0,0,.7); white-space:nowrap; }
+    /* 浅色底图下换成深字浅 halo（深色 halo 在浅底上会糊成一团） */
+    html[data-theme="light"] .geo-county-lb span {
+      color:#3f5468; text-shadow:0 1px 2px rgba(255,255,255,.9), 0 0 3px rgba(255,255,255,.85); }
   </style>
 
 <style id="responsive-base">
@@ -1022,6 +1032,15 @@ function applyMapTheme(){
     // （这些是叠加层，理应压在底图之上；不主动收拾的话新层 DOM 顺序可能反超）。
     if(basemapLayer.bringToBack) basemapLayer.bringToBack();
   }catch(e){ console.warn('applyMapTheme basemap', e); }
+  // 县界描边随主题改色。与底图不同：县界是普通矢量层，配色不固化在构造时，
+  // 直接 setStyle 重涂即可，**不需要**重建图层。县名文字色由 CSS 的
+  // html[data-theme=light] 规则处理（见文件头 .geo-county-lb）。
+  if(countyLayer){
+    var stroke = countyStrokeColor();
+    countyLayer.eachLayer(function(ly){
+      if(ly && typeof ly.setStyle === 'function') ly.setStyle({ color: stroke });
+    });
+  }
 }
 window.addEventListener('message', function(e){
   if(e.data && e.data.__type === 'myapp-theme') applyTheme(e.data.mode);
@@ -1525,6 +1544,79 @@ function buildBasemapLayer(){
   });
 }
 
+/* ========== 县（County）行政边界轮廓 + 县名标签（2026-10-15 新增） ==========
+ *
+ * 用户要求「地图上显示周边界」。本页此前**从来没有**县界 —— 它是 GIS 页
+ * （?page=gis，pages/GISMap.tsx）独有的能力，故这是一次新增，不是修复。
+ *
+ * 与 GIS 页的差异（用户明确要求，勿照 GIS 页「补全」）：
+ *   · 只画**轮廓虚线 + 县名**，不做告警分档填色（GIS 页按 alarm_site_count 分五档填色）；
+ *   · **不响应点击**（GIS 页点县界会下钻筛选）。本页主交互是「点链路看详情」，
+ *     县界必须让路，故 interactive:false 让鼠标事件穿透到站点与链路。
+ *
+ * 数据来自 GET /api/gis/county-boundaries（**无需鉴权**，后端 1 小时缓存）。
+ * polygons 已是 [lat,lng] 形状的「环的数组」，可直接喂 L.polygon。
+ * 县界是静态资源，前端只拉一次（countiesData 非空即跳过）。
+ */
+var countyLayer = null;      // 县界 + 县名的图层组（须挂在底图之上、站点/链路之下）
+var countiesData = null;     // 拉取结果缓存；失败时保持 null，重试留给下次建图
+// 描边与县名字色随主题变（县界是矢量覆盖层，用 setStyle 运行时改，无需重建）
+var COUNTY_STROKE = { dark:'#5a7096', light:'#8a97a8' };
+
+function countyStrokeColor(){ return (APP_THEME === 'light') ? COUNTY_STROKE.light : COUNTY_STROKE.dark; }
+
+/* 多边形顶点平均值取标签锚点。**不是面积质心** —— 这里只是给县名找个落脚点，
+   精度无关紧要；用顶点平均避免为静态标签引入面积计算。多环（含飞地）时对全部
+   环的顶点一起平均，结果仍落在该县境内或紧邻处，足够。 */
+function polygonsCenter(polygons){
+  var lat = 0, lng = 0, n = 0;
+  (polygons || []).forEach(function(ring){
+    (ring || []).forEach(function(pt){
+      if(pt && pt.length >= 2){ lat += pt[0]; lng += pt[1]; n++; }
+    });
+  });
+  return n ? [lat / n, lng / n] : null;
+}
+
+function drawCountyBoundaries(){
+  if(!leafMap || !countyLayer || !countiesData) return;
+  countyLayer.clearLayers();
+  var color = countyStrokeColor();
+  countiesData.forEach(function(c){
+    // 轮廓：虚线、不填充、不吃鼠标事件（interactive:false → 点击穿透到站点/链路）
+    try{
+      L.polygon(c.polygons, {
+        color: color, weight: 1.2, opacity: 0.55, fill: false,
+        dashArray: '4 3', interactive: false,
+      }).addTo(countyLayer);
+    }catch(e){ console.warn('county polygon', c && c.name, e); }
+    // 县名标签：零尺寸 divIcon（与 GIS 页同样的「可任意指定锚点」思路），文字偏移靠 CSS transform
+    var ctr = polygonsCenter(c.polygons);
+    if(ctr){
+      L.marker(ctr, {
+        interactive: false,
+        icon: L.divIcon({ className:'geo-county-lb', html:'<span>' + (c.name || '') + '</span>',
+                          iconSize:[0,0], iconAnchor:[0,0] }),
+      }).addTo(countyLayer);
+    }
+  });
+}
+
+function loadCountyBoundaries(){
+  if(countiesData) { drawCountyBoundaries(); return; }   // 已拉过：直接用
+  fetch('/api/gis/county-boundaries', { cache:'no-store' })
+    .then(function(r){ if(!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+    .then(function(j){
+      countiesData = (j && j.counties) || [];
+      drawCountyBoundaries();
+    })
+    .catch(function(e){
+      // 县界属**增强显示**，取不到不能影响站点/链路的正常渲染（与后端 get_county_boundaries
+      // 的「边界文件缺失时不抛 500」同一原则）。故只 warn 不抛。
+      console.warn('county boundaries load failed:', e && e.message);
+    });
+}
+
 /* ============ Leaflet 地理模式（自托管 PMTiles 矢量底图 + 弧线链路 + 流量动画） ============ */
 let leafMap = null, nodeLayer = null, linkLayer = null, flowLayer = null, labelLayer = null;
 let geoNodeMarkers = [];
@@ -1549,10 +1641,14 @@ function ensureLeafletMap(){
   /* 底图：自托管 PMTiles 矢量瓦片（2026-10-15 起，替换原 OSM 在线瓦片）。
      图层实例存到 basemapLayer，供 applyMapTheme() 主题切换时 remove 重建。 */
   basemapLayer = buildBasemapLayer().addTo(leafMap);
+  /* 县界挂在底图之后、站点/链路之前：add 顺序即 DOM 顺序即在 overlayPane 内的绘制顺序，
+     保证县界轮廓与县名压在底图之上、又不遮挡站点圆点与链路弧线。 */
+  countyLayer = L.layerGroup().addTo(leafMap);
   linkLayer = L.layerGroup().addTo(leafMap);
   flowLayer = L.layerGroup().addTo(leafMap);
   nodeLayer = L.layerGroup().addTo(leafMap);
   labelLayer = L.layerGroup().addTo(leafMap);
+  loadCountyBoundaries();   // 首次建图拉一次县界（内部对已拉取做幂等判断）
   applyMapTheme();
   leafMap.on('zoomend', onGeoViewChange);
   leafMap.on('moveend', onGeoViewChange);
