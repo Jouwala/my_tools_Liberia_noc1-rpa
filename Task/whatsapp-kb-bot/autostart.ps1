@@ -205,13 +205,94 @@ if ($Stop) {
   exit 0
 }
 
+# --- offline alert via the notify mailbox -----------------------------------
+# The bot cannot report its own death, but notify.js runs on separate
+# credentials (data/auth-notify) and polls data/notify_job.json every 5s.
+# After N consecutive unhealthy checks we drop ONE text job into that mailbox
+# and notify delivers it to the ops group. 2026-10-12~14 lesson: a 440 war kept
+# the bot effectively dead for 34h and nothing alerted anyone. State persists
+# in data\watchdog_alert.json because every watchdog run is a fresh process.
+# NOTE: all JSON writes below are UTF-8 WITHOUT BOM on purpose - notify.js
+# reads these files with JSON.parse(readFileSync(..., 'utf8')) and a BOM
+# makes the parse fail, silently dropping the alert.
+$alertStateFile = Join-Path $dir 'data\watchdog_alert.json'
+$notifyJobFile  = Join-Path $dir 'data\notify_job.json'
+$alertGroups    = @('*P1 OLR ZTE MS Manager*')  # resolveGroup() matches display names
+$alertStreakMax = 3                             # 3 failed checks = ~15 min down
+
+function Get-AlertState {
+  if (-not (Test-Path $alertStateFile)) { return $null }
+  try { return (Get-Content $alertStateFile -Raw -Encoding UTF8 | ConvertFrom-Json) } catch { return $null }
+}
+
+function Set-AlertState {
+  param([int]$Streak, [bool]$Alerted)
+  $o = [ordered]@{ streak = $Streak; alerted = $Alerted; at = (Get-Date).ToUniversalTime().ToString('o') }
+  [System.IO.File]::WriteAllText($alertStateFile, ($o | ConvertTo-Json), (New-Object System.Text.UTF8Encoding($false)))
+}
+
+function Send-OfflineAlert {
+  param([int]$Streak)
+  # Never clobber a job notify has not finished with (pending/running).
+  if (Test-Path $notifyJobFile) {
+    try {
+      $cur = Get-Content $notifyJobFile -Raw -Encoding UTF8 | ConvertFrom-Json
+      if ($cur -and ($cur.status -eq 'pending' -or $cur.status -eq 'running')) { return $false }
+    } catch { }
+  }
+  $hb = Get-Heartbeat
+  $hbInfo = if ($hb) { "last heartbeat at=$($hb.at) connected=$($hb.connected)" } else { 'no heartbeat file' }
+  $text = "WATCHDOG ALERT: whatsapp Q&A bot has failed $Streak health checks (~$($Streak * 5) minutes down or not connected). $hbInfo. " +
+          'The watchdog keeps restarting it. If the log shows code=440, a duplicate process is using the same credentials (see AGENTS notes in autostart.ps1).'
+  $job = [ordered]@{
+    job_id     = 'watchdog-' + (Get-Date -Format 'yyyyMMddHHmmss') + '-' + ([guid]::NewGuid().ToString('N').Substring(0, 8))
+    kind       = 'text'
+    status     = 'pending'
+    groups     = $alertGroups
+    messages   = @([ordered]@{ text = $text })
+    created_at = (Get-Date).ToString('yyyy-MM-ddTHH:mm:ss')
+  }
+  [System.IO.File]::WriteAllText($notifyJobFile, ($job | ConvertTo-Json -Depth 5), (New-Object System.Text.UTF8Encoding($false)))
+  return $true
+}
+
+function Update-OfflineAlertState {
+  # Called whenever the bot is NOT healthy at this check. One alert per episode.
+  $st = Get-AlertState
+  $streak = 0
+  $alerted = $false
+  if ($st) {
+    if ($st.streak)  { $streak = [int]$st.streak }
+    if ($st.alerted) { $alerted = [bool]$st.alerted }
+  }
+  $streak++
+  if ($streak -ge $alertStreakMax -and -not $alerted) {
+    if (Send-OfflineAlert -Streak $streak) {
+      $alerted = $true
+      Write-Host "offline alert queued into notify mailbox (streak $streak)"
+    }
+  }
+  Set-AlertState -Streak $streak -Alerted $alerted
+}
+
+function Reset-OfflineAlertState {
+  $st = Get-AlertState
+  if ($st -and (($st.streak -and [int]$st.streak -gt 0) -or $st.alerted)) {
+    Set-AlertState -Streak 0 -Alerted $false
+    Write-Host 'bot healthy again - offline alert state reset'
+  }
+}
+
 # --- start / watchdog path -------------------------------------------------
 
 # Trust the heartbeat, not just the process list: a process can be alive but
 # disconnected (e.g. sitting in a reconnect loop after a logout), in which case
 # Q&A silently goes nowhere and a restart is the right move.
 $existing = Find-BotProcess
-if ($existing -and (Test-Healthy)) {
+$healthy  = Test-Healthy
+# Offline alert bookkeeping happens exactly once per check, on both branches.
+if ($healthy) { Reset-OfflineAlertState } else { Update-OfflineAlertState }
+if ($existing -and $healthy) {
   $existing.ProcessId | Set-Content -Path $pidFile
   # Healthy by transport, but still check the business-level signal. This branch
   # is exactly where the 2026-10-06 fault hid: connection fine, watchdog happy,
@@ -224,7 +305,7 @@ if ($existing -and (Test-Healthy)) {
   exit 0
 }
 
-if ($existing -and -not (Test-Healthy)) {
+if ($existing -and -not $healthy) {
   # Alive but unhealthy: stale heartbeat or disconnected. Give a just-started
   # process a grace period first, otherwise the watchdog kills a bot that is
   # simply still completing its Baileys handshake.

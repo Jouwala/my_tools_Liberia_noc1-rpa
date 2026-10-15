@@ -5,6 +5,8 @@
  *   npm start
  *   npm start -- --debug      打印每次检索的诊断信息
  */
+import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { join, dirname } from 'node:path';
 import { CONFIG, describeConfig, ROOT, loadRuntimeConfig } from './config.js';
 import { loadIndex } from './rag.js';
 import { loadLookupsOnce } from './tools.js';
@@ -36,7 +38,49 @@ process.on('uncaughtException', (err) => {
   console.error(`[未捕获异常] ${err?.stack || err}`);
 });
 
+/* -------------------------------- 单实例锁 --------------------------------
+ * 2026-10-12~14 事故复盘：一个手动多开的第二实例与本进程共用 data/auth，双方
+ * 无限互踢（code=440 connectionReplaced）34 小时无人察觉（日志只能怀疑是
+ * npm start / relogin 双开）。notify.js 早有同款锁（见其 acquireLock 注释），
+ * index.js 当时没有 —— 这里补齐，语义与其一致：pid 锁文件 + 存活探测 +
+ * 持有者已死则回收，锁建立失败不阻断启动（best-effort）。
+ */
+function acquireLock() {
+  const lf = join(ROOT, 'data', 'bot.lock');
+  try {
+    mkdirSync(dirname(lf), { recursive: true });
+    let holder = null;
+    try {
+      holder = JSON.parse(readFileSync(lf, 'utf8'));
+    } catch {
+      /* 锁文件不存在或损坏 → 视作无持有者 */
+    }
+    if (holder && Number.isInteger(holder.pid) && holder.pid !== process.pid) {
+      let alive = false;
+      try {
+        process.kill(holder.pid, 0);
+        alive = true;
+      } catch {
+        alive = false;
+      }
+      if (alive) {
+        console.error(`✗ 已有问答 bot 进程在运行（pid ${holder.pid}），本进程退出以避免 440 顶号大战。`);
+        console.error('  要重启请先： powershell -NoProfile -File autostart.ps1 -Stop');
+        process.exit(1);
+      }
+      console.log(`! 锁文件里的 pid ${holder.pid} 已不存在（上次被强杀），回收后继续。`);
+    }
+    // 刻意不用 wx 独占创建：进程写锁前崩溃会留永久死锁。读-判活-覆盖 + 存活探测可自愈。
+    writeFileSync(lf, JSON.stringify({ pid: process.pid, at: new Date().toISOString() }), 'utf8');
+    return lf;
+  } catch (err) {
+    console.error(`! 单实例锁建立失败（忽略，继续启动）：${err.message}`);
+    return null;
+  }
+}
+
 async function main() {
+  acquireLock();
   console.log('=== WhatsApp 知识库助手 ===\n');
 
   // 0. 从 my_app 后端拉取 AI 模型配置（统一管理，不在 config.json 里另写一份）

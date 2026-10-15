@@ -73,7 +73,40 @@ console.log(`  显示名: ${id.name || '(无)'}`);
 const fileCount = readdirSync(AUTH).filter((f) => f.endsWith('.json')).length;
 console.log(`  凭据文件: ${fileCount} 个\n`);
 
-// 1. 提醒停掉正在运行的机器人
+// 1. 硬性检查目标进程是否还在跑。
+//    2026-10-12~14 事故：手动多开的第二实例与线上 bot 顶号（440）34 小时，
+//    日志怀疑源头之一就是本脚本带活进程运行。这里原先只有一句文字提醒，
+//    拦不住手滑 —— 改成强制：心跳新鲜 + pid 存活就拒绝执行。
+//    用心跳而不是 bot.lock/notify.lock：锁要目标进程用新版代码启动过才存在，
+//    心跳从进程启动那一刻就在写，覆盖面更早。
+const HEARTBEAT = join(ROOT, 'data', FOR_NOTIFY ? 'notify_heartbeat.json' : 'bot_heartbeat.json');
+const STOP_CMD = FOR_NOTIFY
+  ? 'powershell -NoProfile -File autostart-notify.ps1 -Stop'
+  : 'powershell -NoProfile -File autostart.ps1 -Stop';
+function targetRunning() {
+  try {
+    const hb = JSON.parse(readFileSync(HEARTBEAT, 'utf8'));
+    if (!hb?.at || !hb?.pid) return false;
+    const ageMs = Date.now() - Date.parse(hb.at);
+    if (!Number.isFinite(ageMs) || ageMs > 90_000) return false; // 心跳过期 → 进程多半已死
+    try {
+      process.kill(hb.pid, 0);
+      return true; // 心跳新鲜且 pid 活着 → 还在跑
+    } catch {
+      return false;
+    }
+  } catch {
+    return false; // 无心跳文件 → 进程没在跑（或从未启动过）
+  }
+}
+if (targetRunning()) {
+  console.error(`✗ ${WHO} 还在运行（心跳新鲜，pid 见 ${HEARTBEAT}）。`);
+  console.error('  两个实例用同一份凭据会互相顶号（440 无限互踢）。先停掉它：');
+  console.error(`    ${STOP_CMD}`);
+  console.error('  （本脚本只检查心跳这一种信号；拿不准就打开任务管理器再确认一遍）');
+  process.exit(1);
+}
+console.log('✓ 心跳检查通过：目标进程未在运行。');
 console.log('⚠️  执行前请确认机器人已停止（终端里按过 Ctrl+C）。');
 console.log('    如果它还在跑，会一边被清凭据一边重连，状态会乱。\n');
 

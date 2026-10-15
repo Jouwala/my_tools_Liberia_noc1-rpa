@@ -155,10 +155,13 @@ function log(line) {
 /* ------------------------------- 作业信箱 ------------------------------- */
 
 /**
- * 信箱文件：my_app 投递 → 本进程消费 → 回写结果。
+ * 信箱文件：my_app 后端投递 → 本进程消费 → 回写结果。
  *
- * 刻意与 `index.js` 的问答通道**共用同一个凭据目录**（`data/auth`），
- * 但用**独立的进程**。原因见文件头。
+ * 写方有两个：my_app 的 whatsapp_send_baileys_service（P1 工单告警）和
+ * autostart.ps1 看门狗（bot 掉线告警）。本通道凭据自 2026-10-03 起与
+ * `index.js` 分家（见上面 AUTH_DIR 注释）—— 正因为凭据独立，bot 死了
+ * 也不影响本进程把"bot 掉了"这条消息发出去，这是看门狗告警选此通道的原因。
+ * （旧注释曾写"与 index.js 共用 data/auth"，分家后已过时，2026-10-15 更正。）
  */
 const JOB_FILE = process.env.NOTIFY_JOB_FILE
   ? process.env.NOTIFY_JOB_FILE
