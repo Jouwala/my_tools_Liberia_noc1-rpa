@@ -308,9 +308,15 @@
     font-size:0.688rem; line-height:1.5; max-width:280px; width:max-content; box-shadow:0 4px 14px rgba(0,0,0,.4);
     border:1px solid var(--line); pointer-events:none; opacity:0; transition:opacity .12s; z-index:50}
   .kpi:hover .kpi-tooltip{opacity:1}
-  /* 主题适配：深色主题对 OSM 瓦片做暗色滤镜，浅色主题用浅底 */
-  #topo-leaflet .leaflet-tile-pane{ filter:none; transition:filter .3s ease; }
-  #topo-leaflet.dark-map .leaflet-tile-pane{ filter:brightness(.62) invert(1) contrast(3) hue-rotate(200deg) saturate(.4) brightness(.72); }
+  /* 主题适配：底图已改为自托管 PMTiles 矢量瓦片（2026-10-15），深色由 protomaps
+     的 DARK 真配色负责，**不再需要 CSS invert 滤镜** —— 那套滤镜是栅格瓦片时代的
+     权宜之计，副作用是把深色公路/注记反成亮白块（见 pages/gismap/basemap.ts 文件头）。
+     ⚠️ 因此下面的 .dark-map .leaflet-tile-pane invert 规则**已删除**；若重新加回，
+     会在真配色之上再反相一次，反而把底图弄花。
+     仍保留 .dark-map / .light-map 的**背景色**：它铺在海域/瓦片未覆盖处，是 backgroundColor
+     之外的兜底（避免加载首帧闪白）。 */
+  #topo-leaflet.dark-map{ background:#0a1428; }
+  #topo-leaflet.dark-map .leaflet-container{ background:#0a1428; }
   #topo-leaflet.light-map{ background:#dbe6f0; }
   #topo-leaflet.light-map .leaflet-container{ background:#dbe6f0; }
   /* ---------- 嵌入模式（被门户 MsPortal 以 iframe 套嵌时） ----------
@@ -534,6 +540,10 @@ img, svg, canvas, iframe { max-width: 100%; }
 
 <script src="./lib/echarts.min.js"></script>
 <script src="./lib/leaflet/leaflet.js"></script>
+<!-- 自托管 PMTiles 矢量底图运行时（protomaps-leaflet 5.1.0，全局名 protomapsL）。
+     与 React 页 pages/gismap/PmtilesLayer.tsx 同源、同版本，但静态页无法 import，
+     故从 node_modules 复制到 public/lib/ 用 script 标签引入（同 lib/leaflet 的做法）。 -->
+<script src="./lib/protomaps-leaflet/protomaps-leaflet.js"></script>
 <script src="./myapp-refresh-protocol.js"></script>
 <script>
 /* ============ theme (TDZ-safe: declare BEFORE anything reads it) ============ */
@@ -635,7 +645,7 @@ const I18N = {
     'kpiModal.helpUnknown':'表内每行 = <b>无 KPI 数据的物理链路</b>。点击行可定位拓扑。',
     'tt.capacity':'容量', 'tt.tx':'发送', 'tt.rx':'接收', 'tt.status':'状态',
     'tt.site':'站点', 'tt.ip':'IP', 'tt.degree':'度数', 'tt.rows':'行数据', 'tt.days':'天', 'tt.units':'条',
-    'geo.hint':'地理模式 · 利比里亚 · OSM 在线地图',
+    'geo.hint':'地理模式 · 利比里亚 · 离线底图',
     'fs.title':'全屏', 'fs.exit':'退出全屏', 'fs.max':'最大化', 'fs.restore':'还原', 'fs.close':'关闭',
   },
   en: {
@@ -691,7 +701,7 @@ const I18N = {
     'kpiModal.helpUnknown':'Each row = <b>one physical link without KPI data</b>. Click a row to locate.',
     'tt.capacity':'Capacity', 'tt.tx':'TX', 'tt.rx':'RX', 'tt.status':'Status',
     'tt.site':'Site', 'tt.ip':'IP', 'tt.degree':'Degree', 'tt.rows':'rows', 'tt.days':'days', 'tt.units':'links',
-    'geo.hint':'Geo mode · Liberia · OSM',
+    'geo.hint':'Geo mode · Liberia · Offline basemap',
     'fs.title':'Fullscreen', 'fs.exit':'Exit fullscreen', 'fs.max':'Maximize', 'fs.restore':'Restore', 'fs.close':'Close',
   },
 };
@@ -992,13 +1002,26 @@ function applyTheme(mode){
   // 不重建就会保留上一档的颜色 —— 实测切到浅色档后地图点仍是深色档色值。
   if (typeof renderGeoNodes === 'function') { try { renderGeoNodes(); } catch(e){} }
 }
-// 地图底图跟随主题：深色 → OSM 瓦片暗色滤镜；浅色 → 浅底
+// 地图底图跟随主题：切换 .dark-map/.light-map 类名，并**重建 PMTiles 图层**。
+// 2026-10-15 起底图是矢量瓦片，配色在 leafletLayer 构造时固化（无运行时换色 API），
+// 所以切主题必须 remove 旧层再 add 新层 —— 这正是原 OSM 时代「切个 CSS 滤镜」的差别。
+// ⚠️ 本函数可能在 ensureLeafletMap() 之前被 applyEmbed() 调用（地图尚未建），
+//    故必须判空 return；否则会往 null 上 addTo。
 function applyMapTheme(){
   const m = el('topo-leaflet');
   if(!m) return;
   const dark = APP_THEME === 'dark';
   m.classList.toggle('dark-map', dark);
   m.classList.toggle('light-map', !dark);
+  // 地图未建 / 底图未就绪时只切类名（背景色兜底），等建图时 buildBasemapLayer 会取当前主题
+  if(!leafMap || !basemapLayer) return;
+  try{
+    leafMap.removeLayer(basemapLayer);
+    basemapLayer = buildBasemapLayer().addTo(leafMap);
+    // 重建底图后把它压到最底层，避免盖住 linkLayer/flowLayer/nodeLayer/labelLayer
+    // （这些是叠加层，理应压在底图之上；不主动收拾的话新层 DOM 顺序可能反超）。
+    if(basemapLayer.bringToBack) basemapLayer.bringToBack();
+  }catch(e){ console.warn('applyMapTheme basemap', e); }
 }
 window.addEventListener('message', function(e){
   if(e.data && e.data.__type === 'myapp-theme') applyTheme(e.data.mode);
@@ -1424,7 +1447,85 @@ function renderTopo(){
   }
 }
 
-/* ============ Leaflet 地理模式（OSM 在线瓦片 + 弧线链路 + 流量动画） ============ */
+/* ============ Leaflet 地理模式（自托管 PMTiles 矢量底图 + 弧线链路 + 流量动画） ============ */
+
+/* ---------- 底图配置（对齐 React 页 pages/gismap/，唯一真相源在那里） ----------
+ *
+ * 2026-10-15 从「OSM 公网栅格瓦片 + CSS invert 滤镜」换成**内网自托管 PMTiles
+ * 矢量瓦片**，与 GIS 页（?page=gis，pages/gismap/basemap.ts + PmtilesLayer.tsx）
+ * 完全同源，动机见那份 basemap.ts 文件头：① OSM 公共服务不欢迎 NOC 这类长期高频
+ * 使用；② invert 滤镜会把深色公路/注记反成亮白块；③ 矢量瓦片可按主题给真配色。
+ *
+ * ⚠️ 改瓦片 schema 时**三处要同步**：pages/gismap/basemap.ts、pages/gismap/
+ *    pmtilesPaint.ts、以及本段。本段是前两者的「静态页精简复刻」：因本页只显示
+ *    地理拓扑（无道路/地名注记开关），只保留了 place/water/waterway/building 四组
+ *    规则（对应 pmtilesPaint.ts 去掉道路段），labelRules 一律传空数组。
+ *
+ * ⚠️ 三条 protomaps 实测要点（与 PmtilesLayer.tsx 文件头一致，勿删）：
+ *   1. **必须传 backgroundColor**：自有瓦片没有 earth 图层，海陆未覆盖处的底色全靠
+ *      它；不传会得到透明背景，深色下看着像「地图渲染失败」。
+ *   2. **主题切换要重建图层**：paintRules 在构造时固化，没有运行时换 API；故
+ *      applyMapTheme() 里必须 remove 旧层再 add 新层。
+ *   3. **不能改用 protomaps 内置 flavor**：那套按 OpenMapTiles schema 命名，与本项目
+ *      图层名只有 water 同名（实测 1/6 命中），会渲染成近乎空白。
+ */
+var PMTILES_URL = 'https://192.168.100.20/tiles/liberia.pmtiles';   // 必须 https（理由见 basemap.ts）
+var PMTILES_MAX_ZOOM = 14;                                          // 数据到 z14（不是 13）
+var PMTILES_ATTRIBUTION = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
+/* 深浅两套真配色，抄自 pages/gismap/basemap.ts 的 LIGHT_THEME / DARK_THEME。 */
+var PM_LIGHT = {
+  background:'#f2fbfd', water:'#a5c8e1', waterway:'#a5c8e1',
+  building:'#ddd6cc', buildingOutline:'#cfc6ba',
+  text:'#333333', textHalo:'#ffffff', poi:'#6b7a8f',
+};
+var PM_DARK = {
+  background:'#0a1428', water:'#0b2036', waterway:'#123048',
+  building:'#1a2740', buildingOutline:'#22314e',
+  text:'#c8d6ea', textHalo:'#0a1428', poi:'#8fa4c2',
+};
+var PM_BIG_PLACES = ['country','state','region','city','town'];   // 低缩放只画大地方，否则 1.7 万要素糊成一团
+
+/* 读矢量要素属性。⚠️ protomaps 的 f.props 是**普通对象不是 Map**，
+   写 f.props.get(...) 会抛 "f.props.get is not a function"（只在运行时炸）。 */
+function pmReadProp(f, k){ try{ return f && f.props ? f.props[k] : undefined; }catch(e){ return undefined; } }
+
+/* 生成某主题的绘制规则。数组顺序即绘制顺序。
+   本页无道路/注记开关，故规则集固定（对应 pmtilesPaint.ts 去掉 buildRoadRules 后）。 */
+function buildMwPaintRules(t){
+  var P = protomapsL, rules = [];
+  // 低缩放城市点：z0~z7 撑住画面（z8 起交给地名标注，本页不标注）
+  rules.push({ dataLayer:'place',
+    symbolizer: new P.CircleSymbolizer({ radius:3.5, fill:t.poi, stroke:t.textHalo, width:1 }),
+    maxzoom:7, filter:function(_z,f){ return PM_BIG_PLACES.indexOf(pmReadProp(f,'class')) >= 0; } });
+  // 水体面：z6 起（config-basic.json 的 water 层 minzoom=6）
+  rules.push({ dataLayer:'water',
+    symbolizer: new P.PolygonSymbolizer({ fill:t.water, opacity:1 }), minzoom:6 });
+  // 水系线：z8 起
+  rules.push({ dataLayer:'waterway',
+    symbolizer: new P.LineSymbolizer({ color:t.waterway, width:1.2 }), minzoom:8 });
+  // 建筑：z14 起（先填充后描边）
+  rules.push({ dataLayer:'building',
+    symbolizer: new P.PolygonSymbolizer({ fill:t.building, opacity:1 }), minzoom:14 });
+  rules.push({ dataLayer:'building',
+    symbolizer: new P.LineSymbolizer({ color:t.buildingOutline, width:0.5 }), minzoom:14 });
+  return rules;
+}
+
+/* 当前底图图层实例（主题切换时需 remove 重建，见上文要点 2） */
+var basemapLayer = null;
+function buildBasemapLayer(){
+  var theme = (APP_THEME === 'light') ? PM_LIGHT : PM_DARK;
+  return protomapsL.leafletLayer({
+    url: PMTILES_URL,
+    paintRules: buildMwPaintRules(theme),
+    labelRules: [],                       // 本页不标地名（空数组 = 不标任何文字）
+    backgroundColor: theme.background,    // **不可省**，见上文要点 1
+    maxDataZoom: PMTILES_MAX_ZOOM,
+    attribution: PMTILES_ATTRIBUTION,
+  });
+}
+
+/* ============ Leaflet 地理模式（自托管 PMTiles 矢量底图 + 弧线链路 + 流量动画） ============ */
 let leafMap = null, nodeLayer = null, linkLayer = null, flowLayer = null, labelLayer = null;
 let geoNodeMarkers = [];
 let geoAutoFitted = false;
@@ -1442,10 +1543,12 @@ function hideLeaflet(){
 }
 function ensureLeafletMap(){
   if(leafMap) return;
-  leafMap = L.map('topo-leaflet', { zoomControl:true, attributionControl:true }).setView([-9.7, 6.6], 7);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-  }).addTo(leafMap);
+  /* maxZoom 取 PMTILES_MAX_ZOOM（14），与瓦片数据上限一致 —— 原来是 19，那是 OSM
+     栅格瓦片的层级；自有瓦片只到 z14，写 19 会让用户放大到空白区。 */
+  leafMap = L.map('topo-leaflet', { zoomControl:true, attributionControl:true, maxZoom: PMTILES_MAX_ZOOM }).setView([-9.7, 6.6], 7);
+  /* 底图：自托管 PMTiles 矢量瓦片（2026-10-15 起，替换原 OSM 在线瓦片）。
+     图层实例存到 basemapLayer，供 applyMapTheme() 主题切换时 remove 重建。 */
+  basemapLayer = buildBasemapLayer().addTo(leafMap);
   linkLayer = L.layerGroup().addTo(leafMap);
   flowLayer = L.layerGroup().addTo(leafMap);
   nodeLayer = L.layerGroup().addTo(leafMap);
@@ -2606,7 +2709,8 @@ el('btn-topo-max').onclick = function(){
 
 function debounce(fn, ms){ let t; return function(){ clearTimeout(t); t = setTimeout(fn, ms); }; }
 
-// 地理模式改用 Leaflet + OSM 在线瓦片，不再依赖离线 Liberia GeoJSON
+// 地理模式：Leaflet + 自托管 PMTiles 矢量瓦片（2026-10-15 起，原为 OSM 在线瓦片），
+// 不再依赖离线 Liberia GeoJSON，也不再依赖公网
 
 /* ============ mobile right-panel toggle ============ */
 function isMobile(){ return window.innerWidth <= 768; }
