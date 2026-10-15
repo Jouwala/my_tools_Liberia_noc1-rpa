@@ -30,7 +30,7 @@ import makeWASocket, {
 } from 'baileys';
 import P from 'pino';
 import qrcode from 'qrcode-terminal';
-import { existsSync, mkdirSync, appendFileSync, writeFileSync, renameSync } from 'node:fs';
+import { existsSync, mkdirSync, appendFileSync, writeFileSync, renameSync, readdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { CONFIG, ROOT } from './config.js';
 import { createQrWatcher, QR_STATE } from './qrLogin.js';
@@ -127,6 +127,36 @@ function log(line) {
 }
 
 /**
+ * 把失效的凭据目录整体改名隔离（**只改名，不删除**，可人工改回）。
+ *
+ * 与 `qrLogin.js` 的 `backupAuthDir()` 同款约定：同名备份会攒，所以带时间戳；
+ * 不同之处是本函数用于「检测到登出、自动恢复」这条路径，而那边是「用户主动
+ * 点扫码」。两者都只 rename，绝不 rm —— 凭据含真实账号信息，误删不可逆。
+ *
+ * @param {string} authDir 凭据目录绝对路径
+ * @returns {{ok: boolean, backup?: string|null, error?: string}}
+ */
+function quarantineAuthDir(authDir) {
+  if (!existsSync(authDir)) return { ok: true, backup: null };
+  // 空目录无需隔离（首次登录尚未扫码）——否则会攒一堆空备份。
+  let hasCreds = false;
+  try {
+    hasCreds = readdirSync(authDir).includes('creds.json');
+  } catch {
+    /* 读不到目录内容按「无凭据」处理 */
+  }
+  if (!hasCreds) return { ok: true, backup: null };
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  const backup = join(dirname(authDir), `auth.bak-${stamp}-loggedout`);
+  try {
+    renameSync(authDir, backup);
+    return { ok: true, backup };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+}
+
+/**
  * 重连退避：2s → 4s → 8s → 16s → 32s → 60s（封顶）。
  * 抽成纯函数以便单测 —— 之前的实现在函数内声明计数变量，
  * 每次重连都从 0 开始，退避永远停在 2 秒，等于没有退避。
@@ -144,6 +174,16 @@ export function reconnectDelay(attempt) {
 let activeSock = null;
 let reconnectAttempts = 0;
 let shuttingDown = false;
+
+/** 本进程内连续「已被登出」的次数。见 connection=close 里的 loggedOut 分支。 */
+let loggedOutCount = 0;
+
+/**
+ * 连续「已被登出」的自动恢复上限。超过就停机报警，不再无限循环。
+ * 取 2：第一次隔离通常就能出码；若隔离后立刻又被登出，说明是设备位被
+ * 持续清掉（手机端残留设备 / 设备数上限），自动重试解决不了。
+ */
+const MAX_LOGOUT_QUARANTINE = 2;
 
 /** 网页扫码登录 watcher（模块级：重连会再次进入 startWhatsApp，只能建一次）。见 src/qrLogin.js。 */
 let qrWatcher = null;
@@ -348,6 +388,9 @@ export async function startWhatsApp({ onQuestion, builtins = null }) {
 
     if (connection === 'open') {
       reconnectAttempts = 0;
+      // 连上就清掉「连续登出」计数：下一次再被登出应从 0 重新数，
+      // 否则长时间运行后偶发的登出会累积、过早触发停机保护。
+      loggedOutCount = 0;
       selfIds = selfIdentifiers(sock, state.creds?.me);
       log(`✓ 已连接。机器人标识：${[...selfIds].join(' / ')}`);
       log(`  回复模式：${CONFIG.replyMode}｜群白名单：${CONFIG.allowGroups.join(', ')}`);
@@ -384,10 +427,70 @@ export async function startWhatsApp({ onQuestion, builtins = null }) {
 
       const code = lastDisconnect?.error?.output?.statusCode;
       const loggedOut = code === DisconnectReason.loggedOut;
+      if (loggedOut && !qrWatcher?.isLoginRequested()) {
+        // 401 = loggedOut：手机端移除了该设备，或服务端把这台设备登出。
+        //
+        // 关键事实（2026-10-14 实测）：登出后 `data/auth/creds.json` 里的
+        // `registered` 会变成 false —— **凭据文件还在，但已是废凭据**。此时
+        // Baileys 拿着它去连，服务端回 401 而**不是** qr 挑战，所以无论重启
+        // 多少次都不会出码。过去的写法是直接 `process.exit(1)` 并把状态写成
+        // ERROR，于是：看门狗每 5 分钟拉起 → 秒退 → 循环，而网页「扫码登录」
+        // 按钮只是个写请求文件的空动作（没有活进程去读它）——**死锁**。
+        //
+        // 现在改成自愈：确认是废凭据就把凭据目录改名隔离，然后重连；目录
+        // 一空，Baileys 自然走 qr 分支出码。全程不需要人工删目录、不需要改
+        // 命令行，网页按钮点一下即可。
+        //
+        // 注意 `isLoginRequested()` 那个前置判断：若本次关闭本来就是「网页
+        // 扫码」发起的（onRestart 已备份并重建了空目录），这里再隔离一次就是
+        // 多余动作，且会把刚建好的空目录改名走 —— 交给扫码流程自己走完。
+        loggedOutCount++;
+        log(`✗ 已被登出（第 ${loggedOutCount} 次）：凭据已失效，手机端可能移除了该设备。`);
+        if (loggedOutCount > MAX_LOGOUT_QUARANTINE) {
+          // 隔离过 MAX 次仍被登出：不是凭据陈旧，而是这个号码的设备位被
+          // 服务端/手机端持续清掉（例如被别人反复踢、或设备数已满）。
+          // 再自动重试只会无限循环刷日志，停机并留一条明确的状态给值班人。
+          log(`  已连续隔离 ${MAX_LOGOUT_QUARANTINE} 次仍被登出，停止自动重试。`);
+          log('  请到手机 WhatsApp → 设置 → 已关联的设备 检查是否有残留设备，再点网页「扫码登录」。');
+          qrWatcher?.setState(QR_STATE.ERROR, {
+            message: `已被登出且自动恢复 ${MAX_LOGOUT_QUARANTINE} 次未成功；请在手机上清理残留的已关联设备后重新扫码`,
+          });
+          process.exit(1);
+        }
+        const bak = quarantineAuthDir(CONFIG.authDirAbs);
+        if (!bak.ok) {
+          log(`  ✗ 隔离废凭据失败：${bak.error}`);
+          qrWatcher?.setState(QR_STATE.ERROR, { message: `已被登出，且隔离凭据失败：${bak.error}` });
+          process.exit(1);
+        }
+        if (bak.backup) log(`  废凭据已隔离到 ${bak.backup}`);
+        log('  正在重连以生成二维码…（无需手动删目录）');
+        qrWatcher?.setState(QR_STATE.WAITING, { message: '凭据已失效，正在重新生成二维码…' });
+        try {
+          mkdirSync(CONFIG.authDirAbs, { recursive: true });
+        } catch (err) {
+          qrWatcher?.setState(QR_STATE.ERROR, { message: `重建凭据目录失败：${err.message}` });
+          process.exit(1);
+        }
+        // 走与「网页扫码」同一个重启入口：它负责关掉旧 socket 并重新 startWhatsApp。
+        // restarting 标志会让本次 close 的后续重连逻辑短路，避免两个 socket 并存。
+        try {
+          restarting = true;
+          await startWhatsApp({ onQuestion, builtins });
+        } catch (err) {
+          log(`  ✗ 重连失败：${err.message}`);
+          qrWatcher?.setState(QR_STATE.ERROR, { message: `重连失败：${err.message}` });
+          process.exit(1);
+        } finally {
+          restarting = false;
+        }
+        return;
+      }
       if (loggedOut) {
-        log('✗ 已被登出（可能手机端移除了设备）。删除 data/auth/ 后重新运行以再次扫码。');
-        qrWatcher?.setState(QR_STATE.ERROR, { message: '已被登出（手机端可能移除了该设备）' });
-        process.exit(1);
+        // 走到这里说明本次关闭是「网页扫码」主动发起的（onRestart 已清空凭据），
+        // 由扫码流程自己接管出码，这里不干预、不退出。
+        log('✗ 连接已关闭（登出态），本次由扫码登录流程接管，等待二维码…');
+        return;
       }
 
       // 440 = connectionReplaced：同一个 WhatsApp 账号的**另一个会话**把本连接顶掉了。
