@@ -615,9 +615,12 @@ def _build_sites(rows: list[dict], alarms: list[dict], meta: dict) -> list[dict]
 
 def build_battery_report() -> dict:
     """从 battery_latest 聚合出邮件/导出所需的全部数据（口径与看板一致）。"""
-    if not BATT_DB_PATH.exists():
-        return {"available": False, "message": "无电池数据（请先执行 battery_kpi_sync）",
-                "meta": {}, "kpi": {}, "alarms": [], "batteries": [], "sites": []}
+    # 2026-10-13：移除 BATT_DB_PATH.exists() 前置短路 —— pg 模式下数据在 PG 的
+    # battery schema（get_raw_connection 按路径映射 schema，不读本地文件），
+    # 本地 sqlite 文件不存在不代表无数据（2026-10-13 11:43 本地文件被删后
+    # battery_email 误报"无电池数据"，实际 PG 有 1532 行）。
+    # sqlite 模式下 _connect 会自动创建空库，_table_exists 返回 False，
+    # 仍走"请先执行 battery_kpi_sync"分支，原语义不变。
     with _connect() as conn:
         if not _table_exists(conn, "battery_latest"):
             return {"available": False, "message": "无电池数据（请先执行 battery_kpi_sync）",
