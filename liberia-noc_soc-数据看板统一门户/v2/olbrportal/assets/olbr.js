@@ -2785,7 +2785,24 @@
         /* 标题优先级：目录里的看板名 → i18n 文案键（map.gis / map.mw）。
            只认当前语言，缺值回落另一个语言是 MsPortal 的老口径，这里沿用。 */
         title: it ? (state.lang === 'en' ? (it.titleEn || it.titleZh) : (it.titleZh || it.titleEn)) : t(m.key),
-        src: '/myapp/?page=' + m.page + '&mwembed=1' + (state.theme === 'dark' ? '&theme=dark' : '') + langQs()
+        /* ⚠️ gisShift=1 是 **v2 专属**开关，别再把它并进 mwembed。
+           ---- 它解决什么 ----
+           用户要求「地图右移 10% + 上移 3%，避开本栏左侧的告警排名面板」**只在
+           本门户内嵌时生效**，直开 /myapp/?page=gis 要保持默认居中取景。
+           但四个壳内嵌 gis 时 src **都带 mwembed=1**（本文件 / MsPortal/portal.js:4016
+           / olbrportal/olbr.js:1235 / v1 那三个），my_app 侧据此**分不出**是不是 v2，
+           故必须另起一个只有本壳才带的参数。
+           ---- 为什么只给 gis 加、MW 页不加 ----
+           左侧那两条面板（.gis-rank-overlay / #gis-layers-panel）**只在 Alarm 页**
+           （page=gis）存在；MW 页没有，给它平移是纯损失（会把地图推得偏掉）。
+           这与 my_app 侧 SHIFT_WEST_PX 常量注释里「只服务 Alarm 页」的结论一致。
+           ---- 与 portalFiles=1 是同一套做法 ----
+           参见 my_app 的 EmailReports.tsx（isPortalFilesMode）—— 那边也是「本壳专属
+           参数、只有本壳的 iframe src 带」，并明确记了「不能用 mwembed /
+           isShellLessEmbed 判定，那些对所有壳都命中」这条教训。 */
+        src: '/myapp/?page=' + m.page + '&mwembed=1'
+          + (m.page === 'gis' ? '&gisShift=1' : '')
+          + (state.theme === 'dark' ? '&theme=dark' : '') + langQs()
       };
     });
   }

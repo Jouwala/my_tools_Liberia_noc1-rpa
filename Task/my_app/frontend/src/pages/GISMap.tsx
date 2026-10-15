@@ -164,7 +164,13 @@ const COUNTY_BAND_COLORS: Record<AlarmBand, string> = {
    偏大时国土被推出右边界，偏小时西侧仍被浮层压住。
    ⚠️ 改本值时**必须同步**看 gismap/countyLabelLayout.ts 的 shiftWestPx ——
    县名标签的锚点是按「平移后」的坐标算的，两处用的是同一个常量
-   （该参数语义为「正值 = 内容左移」= 本常量的**相反数**）。 */
+   （该参数语义为「正值 = 内容左移」= 本常量的**相反数**）。
+
+   ⚠️⚠️ 2026-10-15 追加：本值**只在 v2 门户内嵌时生效**（见 isPortalGisShift）。
+      直开 /myapp/?page=gis 与 MsPortal / olbrportal / v1 三个壳的内嵌一律传 0，
+      地图落在内层页自己的**居中**取景。原因：这里是「避让 v2 门户左侧那两条
+      面板」的补偿量，只有 v2 的版式需要它；对没有该面板的入口平移是纯损失。
+      用法见下方组件内的 shiftWestPx = embedded ? SHIFT_WEST_PX : 0。 */
 const SHIFT_WEST_PX = -73
 
 /* 取景垂直位移量（像素，**正值 = 内容上移**）。2026-10-15 用户要求「地图向上平移 3%」。
@@ -173,8 +179,24 @@ const SHIFT_WEST_PX = -73
      正值 = 内容上移（对应 panBy 传正 y，方向标定见 MapController 注释）。
    ⚠️ 县名标签的纵向锚点**未**接入本值（countyLabelLayout 的 to() 只管 x 的平移）；
    26px 的纵向偏差远小于标签自身高度（18px）以外的容差，暂不处理 ——
-   若将来纵向位移量级变大（>40px），需像 x 那样把 y 也喂进 makeProjector。 */
+   若将来纵向位移量级变大（>40px），需像 x 那样把 y 也喂进 makeProjector。
+   ⚠️ 与 SHIFT_WEST_PX 同一口径：**只在 v2 门户内嵌时生效**，其余入口传 0。 */
 const SHIFT_SOUTH_PX = 26
+
+/**
+ * 是否处于 v2 门户（/v2/olbrportal/）的 gis 内嵌上下文 —— 决定要不要施加上述位移。
+ *
+ * 判据是 **v2 专属**的 `?gisShift=1`（由该壳的 mapItems() 拼进 iframe src）。
+ * ⚠️ 刻意**不用** `mwembed=1`、也不用 `isShellLessEmbed()` 那类「是否被无外壳嵌入」的
+ *    判据：实测 **v2 / MsPortal / olbrportal(根) / v1 四个壳内嵌 gis 时全都带
+ *    mwembed=1**，据它判定会让另外三个壳一起被平移，那些壳未必有 v2 的左侧面板。
+ *    这条教训 EmailReports.tsx 的 isPortalFilesMode 已经记过一次，同因同果。
+ * 一次性求值：URL 在页面生命周期内不变，且平移只在挂载/center 变化时重算。
+ */
+function isPortalGisShift(): boolean {
+  try { return new URLSearchParams(window.location.search).get('gisShift') === '1' }
+  catch { return false }
+}
 
 /** 告警站点数 → 分档。空值按 0 处理：取不到数据显示为「无」而不是硬塞进某一档。 */
 function alarmBand(n: number | null | undefined): AlarmBand {
@@ -203,6 +225,11 @@ const FILL_OPACITY = { dark: 0.13, light: 0.09 } as const
 
 
 export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) {
+  /* 是否施加「避让 v2 门户左侧面板」的平移。一次性求值（URL 不变），
+     非 v2 内嵌时两个位移量都是 0，地图保持内层页自己的居中取景。 */
+  const [shiftEnabled] = useState(isPortalGisShift)
+  const shiftWestPx = shiftEnabled ? SHIFT_WEST_PX : 0
+  const shiftSouthPx = shiftEnabled ? SHIFT_SOUTH_PX : 0
   const [sites, setSites] = useState<Site[]>([])
   const [regions, setRegions] = useState<string[]>([])
   const [selectedRegion, setSelectedRegion] = useState<string | undefined>(undefined)
@@ -311,14 +338,14 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
          负值等价于 x 加上一个正数，正是右移）。 */
   const countyLabels = useMemo(() => {
     const proj = makeProjector(
-      zoomLevel, PORTAL_MAP_WIDTH, LB_CENTER[0], PORTAL_MAP_HEIGHT, SHIFT_WEST_PX,
+      zoomLevel, PORTAL_MAP_WIDTH, LB_CENTER[0], PORTAL_MAP_HEIGHT, shiftWestPx,
     )
     return placeCountyLabels(
       counties,
       c => c.alarm_site_count ?? 0,
       proj,
     )
-  }, [counties, zoomLevel])
+  }, [counties, zoomLevel, shiftWestPx])
 
   /* 默认图层（2026-09-25 用户要求调整为「默认只显示实时告警 + MW 链路」）：
        all      —— 只开 rt_alarm（＋上方 showTopology 的 MW 链路）。
@@ -1309,7 +1336,7 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
               ]}
             />
             <MapController center={center} zoom={zoomLevel}
-              shiftWestPx={SHIFT_WEST_PX} shiftSouthPx={SHIFT_SOUTH_PX} />
+              shiftWestPx={shiftWestPx} shiftSouthPx={shiftSouthPx} />
             <Pane name="sitePane" style={{ zIndex: 650 }} />
             {/* 县名标签专用 pane（2026-10-03）：**必须高于 sitePane(650)**，
                 否则站点红点会盖住标签。
