@@ -128,36 +128,70 @@
      ~1030px 时这条才会生效（此时右栏已小于 260px，三张卡的表头与数值会开始互相挤压）。
      大于该宽度时严格是 75 : 25。 */
   #right{flex:1 1 25%; min-width:260px; display:flex; flex-direction:column; gap:0.625rem; min-height:0}
-  #risks{flex:1 1 auto; background:var(--surface-bg); border:1px solid var(--line); border-radius:10px;
+  #risks{flex:0 0 auto; background:var(--surface-bg); border:1px solid var(--line); border-radius:10px;
     box-shadow:var(--surface-shadow);
     display:flex; flex-direction:column; min-height:0}
   #risks h3{font-size:0.812rem; font-weight:600; padding:0.5rem 0.75rem; border-bottom:1px solid var(--line-soft)}
-  #risk-list{flex:1; overflow-y:auto; padding:0.375rem}
+  /* ---------- Top Risk Links：列表固定 5 行高，多出的走滚动 ----------
+     用户要求「Top Risk Links 高度保留 5 行数据的高度，其他的分页/滚动显示，
+     多出来的高度由 Network Utilization Trend 与 Link Health Distribution 平分」。
+     实现要点：--risk-row-h 是**一行的完整高度**，同时喂给 .risk-item 的 height 与
+     #risk-list 的 max-height，两边共用同一个值 —— 只改一处即可保证「第 5 行刚好完整
+     露出、第 6 行不露半截」。写死 px 不行：本页 rem 随视口缩放
+     （html{font-size:clamp(12px,0.55vw+10px,18px)}，见下方），所以用 rem 随根字号走。
+     算式（box-sizing:border-box，height 已含 padding/border）：
+       padding 0.375rem×2 = 0.75rem
+     + border 1px×2       ≈ 0.125rem（按根字号 16px 折算）
+     + r-name line-height 1.1rem
+     + r-sub  line-height 1rem
+      合计 ≈ 2.975rem，取 3rem 收口（含 2px 余量，防字体基线差异把第二行贴边）。
+     两个行高见下方 .r-name / .r-sub 的显式 line-height 声明——改那里必须同步改这里。
+
+     ⚠️ max-height 必须把 #risk-list 自己的上下 padding 也算进去：box-sizing:border-box
+     下 max-height 含 padding，若直接写 calc(5 * --risk-row-h)，可用高度会被 padding 吃掉
+     0.75rem，只剩 4.75 行——表现为「只看到 4 行 + 第 5 行半截」。故补上 2×padding。 */
+  #risk-list{--risk-row-h:3rem; flex:0 0 auto;
+    max-height:calc(5 * var(--risk-row-h) + 0.375rem * 2); overflow-y:auto; padding:0.375rem}
   .risk-item{
     display:flex; align-items:center; gap:0.5rem; padding:0.375rem 0.5rem; border-radius:8px; cursor:pointer;
-    border:1px solid transparent;
+    border:1px solid transparent; height:var(--risk-row-h);
   }
   .risk-item:hover{background:var(--panel2); border-color:var(--line)}
   .risk-item.sel{background:var(--panel2); border-color:var(--accent)}
   .risk-item .dot{width:9px; height:9px; border-radius:50%; flex:0 0 auto}
   .risk-item .r-main{flex:1; min-width:0}
-  .risk-item .r-name{font-size:0.75rem; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
-  .risk-item .r-sub{font-size:0.688rem; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+  /* r-name / r-sub 显式给 line-height，不依赖 font 的 normal 值：
+     --risk-row-h 是按「两行文字 + padding + border」算出来的固定高，
+     若这里回到 normal，不同机器/字体下两行合计高度会漂移，行高就会与实际内容对不上。 */
+  .risk-item .r-name{font-size:0.75rem; line-height:1.1rem; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+  .risk-item .r-sub{font-size:0.688rem; line-height:1rem; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
   .risk-item .r-pct{font-size:0.938rem; font-weight:700; font-variant-numeric:tabular-nums; flex:0 0 auto}
   .risk-item .r-txrx{font-size:0.625rem; color:var(--muted); flex:0 0 auto; text-align:right; line-height:1.3}
   /* ---------- bottom（已并入 #right 右栏；保留容器以兼容既有脚本/样式钩子） ---------- */
   #bottom{display:none}
-  /* 右栏下半部分两张图表卡：固定高度、随右栏宽度自适应，地图拿到剩余全部高度 */
-  #right .card{flex:0 0 auto; display:flex; flex-direction:column; padding:0.5rem 0.75rem}
-  #trend-card .chart{height:132px}
-  #dist-card .chart{height:132px}
+  /* 右栏下半部分两张图表卡：**平分** Top Risk 之下的剩余高度（2026-10-15 用户要求）。
+     原先两张卡是 flex:0 0 auto + 图表写死 132px，多余高度全被 #risks 吃掉；
+     现在 #risks 固定为 5 行高（见上方），这里改 flex:1 1 0 让两卡等分剩余空间。
+     flex-basis:0 保证等分是按「剩余量」而不是按内容量；两张卡都写 1 1 0 才是严格平分。
+     .chart 改为 flex:1 撑满卡片，去掉写死的 132px —— 否则卡变高了图表却不跟着长。
+     min-height:0 必须保留：flex 子项默认 min-height:auto 会被内部 echarts 画布顶住，
+     去掉后卡片无法收缩、右栏整体溢出。 */
+  #right .card{flex:1 1 0; min-height:0; display:flex; flex-direction:column; padding:0.5rem 0.75rem}
+  #trend-card .chart,
+  #dist-card .chart{flex:1; min-height:0}
   .card{background:var(--surface-bg); border:1px solid var(--line); border-radius:10px; padding:0.5rem 0.75rem; flex:1;
     box-shadow:var(--surface-shadow)}
   .card h3{font-size:0.812rem; font-weight:600; margin-bottom:0.375rem}
   .chart{width:100%}
   /* ---------- drawer (link details) ---------- */
+  /* 宽度与 GIS Map 下钻抽屉（GISMap.tsx 的 SiteDrilldownDrawer，antd Drawer
+     width:min(95vw,45rem)）保持一致：45rem = 720px，窄视口按视口 95% 收缩。
+     用变量 --drawer-w 承载宽度，右侧收起位移直接取 -var(--drawer-w)，
+     避免「改了宽度忘了改 right 偏移」导致收起时露出一条边。
+     移动端另有 #drawer{width:100%; right:-100%}（见下方 max-width:768px 段）覆盖。 */
   #drawer{
-    position:fixed; top:0; right:-460px; width:420px; height:100%; background:var(--panel);
+    --drawer-w:min(95vw, 45rem);
+    position:fixed; top:0; right:calc(-1 * var(--drawer-w)); width:var(--drawer-w); height:100%; background:var(--panel);
     border-left:1px solid var(--line); box-shadow:-8px 0 24px rgba(0,0,0,.35); z-index:100;
     transition:right .28s ease; display:flex; flex-direction:column;
   }
@@ -302,7 +336,8 @@
      抽屉是 position:fixed + z-index:100（见上方 #drawer 规则），
      在门户 iframe 内相对内层视口贴右显示，与 Alarm 抽屉观感一致。
      ⚠️ 窄视口另有 #drawer{width:100%; right:-100%} 的移动端规则
-     （见下方 @media max-width:768px 段），门户栏较窄时会走那条，属预期。 */
+     （见下方 @media max-width:768px 段），门户栏较窄时会走那条，属预期。
+     桌面宽度已与 GIS 下钻抽屉对齐为 min(95vw, 45rem)（见上方 #drawer 的 --drawer-w）。 */
   html.mw-embed header,
   html.mw-embed #kpis,
   html.mw-embed #topo-head,
