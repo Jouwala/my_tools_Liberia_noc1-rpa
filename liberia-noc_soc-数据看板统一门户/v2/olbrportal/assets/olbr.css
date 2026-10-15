@@ -1280,12 +1280,14 @@ main { flex: 1; padding-block: var(--s5) var(--s4); display: flex; flex-directio
    ⚠️ 高度锁定：SVG 用 "宽度驱动、高度按比例"（见下方 .qc-group-logo svg），
    宽度给固定值，这样标识既不会因组宽变化而缩放，也不会撑高组头。
    两个标识的 viewBox 比例不同（Ookla 174:45、Meta 89:34），若要视觉等高，
-   按比例取宽 —— Ookla 96px → 高约 24.8px，Meta 取 65px → 高约 24.8px，
-   与卡片页脚里两块标识的等高做法一致（那边是 106 / 72）。 */
+   按比例取宽 —— Ookla 96px → 高约 24.8px，Meta 取 65px → 高约 24.8px。
+   ⚠️ 2026-10-15 起这里是这两个标识的**唯一**渲染处：卡片页脚右下角那份
+   已按用户要求删除（「不要了，跟标题重复了」），所以下面那一串"与页脚
+   106/72 等高"的写法也随之作废，本段的宽高是独立定的。 */
 .qc-group-logo { flex: 0 0 auto; display: flex; align-items: center; color: var(--logo-ink); }
 .qc-group-logo .ookla-svg { display: block; width: 96px; height: auto; }
 .qc-group-logo .meta-svg  { display: block; width: 65px; height: auto; }
-/* 字标用页面正文字体渲染（品牌自有字体拿不到，与页脚两处同一取舍）。 */
+/* 字标用页面正文字体渲染（品牌自有字体拿不到）。 */
 .qc-group-logo .ookla-svg text,
 .qc-group-logo .meta-svg text { font-family: var(--sans); }
 /* 显式的组级链接（撑到右端）。它是这一组唯一可见的跳转说明。 */
@@ -1323,9 +1325,12 @@ main { flex: 1; padding-block: var(--s5) var(--s4); display: flex; flex-directio
 .qc-group-b[data-n="1"] { grid-template-columns: minmax(0, 1fr); }
 .qc-group-b[data-n="2"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .qc-group-b[data-n="3"] { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-/* 组跨越的列数也按卡数走（同上，BP 组 1 张就只占 1 列）。 */
+/* 组跨越的列数也按卡数走（同上，BP 组 1 张就只占 1 列）。
+   ⚠️ meta 组 2026-10-15 由 2 张变 3 张（加了一张时延卡，见 olbr-data.js 的
+   KPI_META），所以 --n 由 2 改 3：整行仍恰好 6 列（speed 3 + meta 3）。
+   data-n 由 JS 按 g.items.length 自动产出（qcGroupHtml），无需在此重复声明。 */
 .qc-group[data-grp="speed"] { --n: 3; }
-.qc-group[data-grp="meta"]  { --n: 2; }
+.qc-group[data-grp="meta"]  { --n: 3; }
 .qc-group[data-grp="bp"]    { --n: 1; }
 .qc-group[data-grp="rich"]  { --n: 3; }
 .qc-group[data-grp="avail"] { --n: 3; }
@@ -1678,110 +1683,40 @@ main { flex: 1; padding-block: var(--s5) var(--s4); display: flex; flex-directio
    那样 Orange 看起来可点、MTN 不可点）。色相已经由左边的色块表达了。 */
 
 /* Speedtest by Ookla 品牌标识（页脚第三格，2026-10-01 加）。
-   用户要求「体现 Ookla 的图标，表明是 Speedtest」，位置与参考图一致：页脚最右。
+   ⚠️ 2026-10-15 **已移除**（用户要求「右下角的 LOGO 不要了，跟标题重复了」）：
+   组头标题 2026-10-13 起已直接显示同一份 Ookla 图形（.qc-group-logo），
+   卡内页脚再放一次等于同一标识在一屏里出现两遍。
+   被删掉的三块：.bf-ookla 格、.bf-metalogo 格、以及 560px 断点下
+   「标识换行 + 页脚锁 82.5px min-height」的那一整套（那是为"标识换行导致
+   页脚高度不齐"写的补丁，标识没了，问题本身也就不存在了）。
+   现在页脚退回「两格文字」：共用 .qc-ext 的 flex:1 三等分 + space-between，
+   两格自然摊到左右两端，与上面几排卡片的页脚基线仍是一致的。 */
 
-   ⚠️ 这里要覆盖 .qc-ext 的**共用**排版，所以三条都限定在 .qc-card--bf 下 ——
-   同一个 .qc-ext 还被上面 3 张可用率卡用着（那边是三等分的纯文字页脚），
-   直接改共用规则会把那一排也改掉。 */
-.qc-card--bf .qc-ext > div {
-  /* 共用规则给的是 flex:1（三等分）。这一排的页脚是"两格文字 + 一个标识"，
-     文字格按内容宽就够，把余量留给标识并让 space-between 把它们摊开，
-     正好得到参考图那种「左 / 中 / 右」的分布。
-     ⚠️ flex:0 **0** auto（不压缩）是关键：让标识独自吸收压缩量。
-     实测 1400px 视口（6 列、卡宽 212px）时页脚只比内容宽少 2px，
-     若三格一起压缩，「两家合计」这种 4 字标签会被压掉 1px 而溢出
-     （扫描探针按 scrollWidth>clientWidth 抓到）。文字格不参与压缩后，
-     同一断点下是标识从 106 收到 104，肉眼无感。 */
-  flex: 0 0 auto;
-}
-/* 标识格。flex-basis 取设计宽 106px（= 174:45 的 lockup 在页脚高度下的自然宽），
-   可压缩可伸展；min-width:0 保证极端窄卡下它是"按比例缩小"而不是把整行撑破。
-   color 走 --logo-ink：SVG 内部用的是 currentColor。
-   2026-09-30：令牌由 --ookla-ink 改名为 --logo-ink（这一格现在有两个标识，
-   Ookla 与 Meta，它们必须同色，见文件头令牌处的说明）。 */
-.qc-ext > .bf-ookla {
-  flex: 0 1 106px; min-width: 0; align-self: center;
-  display: flex; align-items: center; justify-content: flex-end;
-  color: var(--logo-ink);
-}
-/* width:100% + height:auto：SVG 有 viewBox，浏览器会按 174:45 的固有比例
-   算出高度。父格被压缩时整块按比例缩小，永远不溢出。
-   ⚠️ 不要写死 height（例如 height:22px）+ 让宽度自适应：
-   SVG 没有固有尺寸时那样会退回默认 300×150，把页脚撑变形。
-   写成"宽度驱动、高度按比例"是唯一稳的方向。 */
-.bf-ookla .ookla-svg { display: block; width: 100%; height: auto; }
-/* 字标用页面正文字体渲染（参考图的 Ookla 自有字体拿不到）。
-   宽度已由 SVG 内的 textLength 锁死，这里只负责字体族/字距的观感。 */
-.bf-ookla .ookla-svg text { font-family: var(--sans); }
-
-/* 页脚第三格的**纯文字**来源徽章（2026-09-30 起只有 BP 那张卡用它，写「网络侧 KPI」）。
-   与上面 .bf-ookla 同一格、同一用意：说明这张卡的数从哪来。
+/* 页脚第三格的**纯文字**来源徽章（2026-09-30 加，2026-10-15 起只有 BP 那张卡用它，
+   写「网络侧 KPI」）。说明这张卡的数从哪来。
    为什么 BP 用文字而不是标识：它是**网络侧 KPI**（Radio 侧 FDD 指标），
    与 Meta 基准报告不是同一组指标，没有对应的品牌资产 ——
    而**绝不能**拿 Ookla 或 Meta 的标识去标一份不属于它们的数据，
    那既是对商标的错误使用，也会让用户把不同的数当成同一个来源。
-   为什么不用 .bf-ookla 那个类：那个类的 flex-basis 是 106px 的**图形**宽度，
-   文字徽章只要自身的自然宽（约 46~66px，中英文不同），套过去会让页脚
-   在一行里凭空多出 40px 的压缩量，把左边两格文字压出省略号。 */
+   ⚠️ 它**不参与** 2026-10-15 那次清理：BP 的文字徽章与组头 logo 不重复
+   （组头那组是 Meta 的标识，BP 卡属于网络侧 KPI 那一类），所以保留。 */
 .qc-ext > .bf-src {
   flex: 0 0 auto; min-width: 0; align-self: center; margin-left: auto;
   white-space: nowrap; font-size: var(--fs-2xs); line-height: var(--lh-base);
   border: 1px solid var(--line-2); border-radius: 11px; padding: 1px 8px; color: var(--t3);
 }
-/* 页脚第三格的 **Meta 标识**格（速率 / 综合评分那两张卡，2026-09-30 加）。
-   与 .bf-ookla 同一格、同一用意，也共用同一套 --logo-ink 与"宽度驱动、高度按比例"
-   的缩放方式（见上面 .bf-ookla 那两条注释的完整理由，此处不重复）。
-   ⚠️ 类名刻意**不叫** .bf-meta：那个类已经被卡内每行右侧的小字占用了
-   （见上面 .bf-meta 那条规则），复用会把页脚徽章的样式串到每张卡的正文里 ——
-   而正文小字和页脚徽章是两套完全不同的东西。
-   flex-basis 取 72px：viewBox 是 89:34，按 33px 的圆标对齐 Ookla 标识的
-   实际渲染高（实测 106×27.4px）反推，两块标识在页脚里同高，观感才齐。 */
-.qc-ext > .bf-metalogo {
-  flex: 0 1 72px; min-width: 0; align-self: center;
-  display: flex; align-items: center; justify-content: flex-end;
-  color: var(--logo-ink);
-}
-/* 同 .bf-ookla .ookla-svg：必须"宽度驱动、高度按比例"，
-   写死 height 会让没有固有尺寸的 SVG 退回 300×150、把页脚撑变形。 */
-.bf-metalogo .meta-svg { display: block; width: 100%; height: auto; }
-/* 字标 "Meta" 用页面正文字体渲染（Meta 自有字体拿不到，与 Ookla 那段同一取舍）。 */
-.bf-metalogo .meta-svg text { font-family: var(--sans); }
-
 /* 极窄卡（实测 420px 视口下卡宽只剩 169px、页脚可用宽 149px）：
-   「两格文字 88px + 标识 106px」装不下。此时让标识**换行独占一行**并右对齐 ——
-   两个文字格保住原宽、标识也保住设计尺寸，代价只是页脚多一行。
-   备选方案是继续压缩标识到 61px，但那样 "SPEEDTEST" 只剩 6px 高、认不出来，
-   而"让标识可辨认"正是这一格存在的理由。
-   阈值 560px 的来历：页脚需要 194px（88 + 106 + 2×4 gap），
-   卡宽 = 页脚宽 + 20 内边距 → 需要卡宽 ≥ 214px；
-   2 列布局下卡宽 ≈ (视口 − 48 − 16) / 2，视口 560px 时约 248px，
-   再往下就开始不够，所以在 560px 处换行。 */
+   BP 的文字徽章虽然在两格文字之外，但它只有约 46~66px 自然宽，
+   两格文字 + 徽章在 149px 里仍放得下，所以这一档只需让它换行独占一行、
+   靠 margin-left:auto 贴右（它是 span 不是 flex 容器，用不了 justify-content）。
+   ⚠️ flex-wrap: wrap 是让下面 flex:0 0 100% 生效的**前提**，不能省 ——
+   .qc-ext 默认是 nowrap（见共用规则），不加 wrap 时 100% 宽的那一格不会换行，
+   而是直接溢出卡外。这条覆盖的正是 Benchmark 那几张卡（它们才有 .bf-src）。
+   2026-10-15 之前这里还有 .bf-ookla / .bf-metalogo 的换行规则与页脚 82.5px
+   min-height 补丁（那是为"标识换行导致页脚高度不齐"写的），标识移除后一并删除。 */
 @media (max-width: 560px) {
   .qc-card--bf .qc-ext { flex-wrap: wrap; }
-  .qc-ext > .bf-ookla { flex: 0 0 100%; max-width: 106px; justify-content: flex-end; }
-  /* 文字徽章同理换行独占一行（它比 106px 的图形窄，但两格中文标签
-     加它就超过 149px 的可用宽）。换行后靠 margin-left:auto 贴右，
-     与上面就地的 justify-content:flex-end 效果一致 —— 它是 span 不是 flex 容器，
-     用不了 justify-content。 */
   .qc-ext > .bf-src { flex: 0 0 100%; }
-  /* Meta 标识同样换行独占一行（72px 比 Ookla 的 106px 窄，但两格中文标签
-     加它就超过 149px 的可用宽）。和 .bf-ookla 一样给 max-width，
-     否则 flex 0 0 100% 会把它拉到整行宽、圆标被放大到失真。 */
-  .qc-ext > .bf-metalogo { flex: 0 0 100%; max-width: 72px; justify-content: flex-end; }
-
-  /* ⚠️ 页脚换行后**高度不再统一**，会把上面的走势图顶得不齐（2026-10-01 实测）：
-     这一档下页脚要么 1 行（51.1px）要么 2 行（82.5px，多出的那个标识独占一行）。
-     三格文字本身各 45.1px，差别只在"标识格有没有换行"：
-       · 有 Ookla/Meta 标识的卡（Download/Upload/…）→ 标识换行 → 页脚 82.5px；
-       · 没有标识的卡（BP 是文字徽章 21.3px）→ 页脚反而 76.4px。
-     图是**以页脚为锚**向上排的（.bf-spark-wrap 的 margin-top:auto），
-     页脚一高，图就被整体顶上去 —— 于是同排卡片的图错位 31.4px。
-
-     修法：给页脚锁一个统一的 min-height，覆盖"标识换行"这个最高的情况。
-     取值 82.5px = 本档实测的最高页脚高度（两格文字 45.1 + 换行标识行）。
-     ⚠️ 换算依据会被字号/内边距变化打破 —— 改 --fs-2xs 或 .qc-ext 的
-     padding 后要用 TMP/_probe_bf_css.cjs 重测（它会打出每张卡的页脚实高）。 */
-  .qc-card--bf .qc-ext { min-height: 82.5px; }
 }
 
 /* 整卡可点的卡片（2026-09-29 加）。

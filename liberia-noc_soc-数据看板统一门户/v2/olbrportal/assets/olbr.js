@@ -1745,16 +1745,17 @@
          不写"区间均值"这类已经在标题与 tooltip 里说过的重复话。
          tests 取两家之和：卡上是"这次对比基于多少测试"，单看一家会让
          测试量悬殊时（实测 Orange 562 / MTN 485）读者低估样本。
-         第三格是 Speedtest by Ookla 的品牌标识（2026-10-01 加，用户要求
-         「体现 Ookla 的图标，表明是 Speedtest」）—— 放在最右，
-         与参考图一致。它**不是** <div>：.qc-ext > div 是"上中下三行文字"的
-         排版（标签/数值/单位），logo 用 <span> 才能自带一套尺寸规则。 */
+         ⚠️ 第三格的 Speedtest by Ookla 标识已**移除**（2026-10-15，用户要求
+         「右下角的 LOGO 不要了，跟标题重复了」）—— 组头标题（qcGroupHtml
+         的 .qc-group-logo）2026-10-13 起已直接显示同一份 Ookla 图形，
+         卡内再放一次是同一标识在一屏里出现两遍。来源说明改由 tooltip 承担
+         （kpi.bf.tipSrc，见下面 tip 数组），信息没丢，只是不再占版面。
+         同理 .qc-ext 从"两格文字 + 一个标识"变回纯两格文字页脚。 */
       '<div class="qc-ext"><div><span>' + esc(t('kpi.bf.range')) + '</span><b>' +
         esc(win == null ? '—' : String(win)) + '</b><span>' + esc(t('kpi.bf.days')) + '</span></div>' +
       '<div><span>' + esc(t('kpi.bf.tests')) + '</span><b>' +
         esc(kpiNum(speedTests(), 0)) + '</b><span>' + esc(t('kpi.bf.testsUnit')) + '</span></div>' +
-      '<span class="bf-ookla" role="img" aria-label="' +
-        esc(t('kpi.bf.ooklaTip')) + '">' + DATA.OOKLA_LOGO + '</span></div>' +
+      '</div>' +
     '</a>';
   }
   /* 两家在该窗口内的测试数之和。任一家缺失时按 0 计会把总数说小，
@@ -1900,15 +1901,17 @@
       '<div><span>' + esc(t('kpi.mm.cover')) + '</span><b>' +
         esc(kpiNum(covered, 0)) + '</b><span>' + esc(t('kpi.mm.days')) + '</span></div>' +
       /* 第三格按**数据源**分两种（2026-09-30 按用户要求）：
-         · 速率 / 综合评分 来自 Meta 基准报告 → 放 META_LOGO 标识，
-           与左边 3 张 Ookla 卡的 Ookla 标识同一格、同一用意（说明这卡从哪来）；
-           图形不带 aria-label，名字由外层 role="img" 给（与 speedCardHtml 同做法）；
+         · 速率 / 综合评分 来自 Meta 基准报告 → 原先放 META_LOGO 标识；
+           该标识已**移除**（2026-10-15，用户要求「右下角的 LOGO 不要了，
+           跟标题重复了」）—— 组头标题（qcGroupHtml 的 .qc-group-logo）
+           2026-10-13 起已直接显示同一份 Meta 图形，卡内再放是同一标识
+           在一屏出现两遍。来源说明改由 tooltip 承担（kpi.mm.tipSrc），
+           信息没丢，只是不再占版面。
          · BP 是**网络侧 KPI**（Radio 侧 FDD 指标），不属于 Meta 报告那组指标 →
-           纯文字徽章。它没有可用的品牌资产，也**绝不能**拿 Meta 的标识去标一份
-           非 Meta 报告的指标。 */
+           仍用纯文字徽章。它没有可用的品牌资产，也**绝不能**拿 Meta 的标识
+           去标一份非 Meta 报告的指标；且它与组头 logo 不重复，故保留。 */
       (spec.kind === 'brand'
-        ? '<span class="bf-metalogo" role="img" aria-label="' +
-            esc(t('kpi.mm.srcAlt')) + '">' + DATA.META_LOGO + '</span>'
+        ? ''
         : '<span class="bf-src">' + esc(t('kpi.mm.srcNet')) + '</span>') +
     '</div>';
     /* tooltip 的顺序：来源 → 这个数是什么 → 窗口与覆盖面 → 空数据 → 打开哪一页。
@@ -2048,16 +2051,16 @@
     var href = '/myapp/?page=' + encodeURIComponent(g.page) + langQs();
     /* 组头显示什么（2026-10-13 加）：有 g.logo 时显示**品牌标识图形**，
        否则回落到原来的文字名。用户要求「标题改成卡片左下角的 logo」——
-       logo 与卡片页脚用的是**同一份**常量（DATA.OOKLA_LOGO / DATA.META_LOGO），
-       不是另画一份，两处永远一致。
+       logo 用的是 DATA.OOKLA_LOGO / DATA.META_LOGO 常量，不是另画一份。
+       ⚠️ 2026-10-15 起这里是这两个常量的**唯一**渲染处：同一品牌在卡片页脚
+       右下角的那份标识已按用户要求删除（「不要了，跟标题重复了」）——
+       组头已经用图形表达了品牌，卡内再放一次是同一标识在一屏出现两遍。
        ⚠️ 图形用 role="img" + aria-label 提供无障碍名称、且 SVG 自身
        focusable="false"（不带 aria-label，见 olbr-data.js 的说明）——
        否则读屏会把 "SPEEDTEST by OOKLA" 这串图形文字当正文念一遍。
        ⚠️ 文字名 board **仍然保留**在 title / aria-label / 组级 tooltip 里：
        图形只替换"看得见的那个词"，不替换任何"要读出来的地方"，
-       否则 hover 提示与读屏名称会退化成 "ookla" / "meta" 这类无上下文的串。
-       ⚠️ 类名 .qc-group-logo：**不复用** .bf-ookla / .bf-metalogo ——
-       那两个类带页脚专用的 flex-basis（106px / 72px），套到组头会把组头撑高。 */
+       否则 hover 提示与读屏名称会退化成 "ookla" / "meta" 这类无上下文的串。 */
     var logoHtml = g.logo === 'ookla' ? DATA.OOKLA_LOGO
                  : g.logo === 'meta'  ? DATA.META_LOGO
                  : '';
@@ -2094,6 +2097,16 @@
        会先画出 3 张卡再整行重排成 5 张（同一行的卡数变一次，视线要跳一下）。
        （2026-10-12 移除 bp 组前，这里是从 3 张重排成 6 张。） */
     var hasM = !!(k.meta && k.meta.summary);
+    /* ⚠️ 2026-10-15：meta 组里现在有一张**来自 bm-speedtest 的时延卡**（见
+       bfKinds 上方那段），所以"这一行能不能画"从此有**跨源依赖**。
+       刻意**不**把 hasS 也并进这里的判断，也不给 meta 组单开一条渲染条件 ——
+       KPI_META / KPI_SPEED 都是静态数组，卡数恒定，两条接口一先一后到齐时
+       不会发生"卡数变化→整行重排"（这正是下面这段注释要防的事）；
+       先到的那张只是内容显示「—」，后到原地补齐，符合全页
+       「取不到显示 —、不显示 0」的约定。若在这里加 hasS，反而会让
+       speedtest 慢一拍时**整行晚出现**，那才是新引入的跳动。
+       后人看到"meta 组为什么依赖 speed 数据"时，请先读 bfKinds 那段再动手。 */
+
     if (k.loading && !hasR && !hasA && !hasS && !hasM) {
       /* 骨架屏也照两排摆，且**与真实结构 1:1**（2026-10-07 起含连体卡组）。
          骨架若还是 5 张平铺，数据到位那一刻会连"组头"一起凭空长出来，
@@ -2164,6 +2177,11 @@
          ⚠️ 类名复用真卡的 .bf-hd / .bf-rows / .qc-ext，**故意不新造一套** ——
          新造一套就等于把"卡片内部长什么样"抄成两份，两边必然漂移。 */
       var skBf = function () {
+        /* ⚠️ 页脚**只有两格**（2026-10-15 起）：Benchmark 卡真卡的页脚是
+           「窗口 n 天 / 两家合计 N 次」，第三格那个来源标识已按用户要求删除。
+           这里刻意**不用** skFoot()（它是三格，给富卡/可用率卡用的）——
+           骨架要与真卡同构，多摆一格会让数据到位时页脚少一格、整排卡片的
+           文字基线横向错位一下。每格仍给 45px 高，与真卡那一格等高。 */
         return '<div class="qc-card qc-card--bf has-foot">' +
           '<div class="bf-hd"><span class="sk" style="height:21px;width:44%"></span></div>' +
           /* 数据行按**最高的那一组**留位（Ookla 卡实测 74px）：
@@ -2173,7 +2191,8 @@
              一点向上的收缩 —— 这比"先矮后弹"好，因为下方的元素不会位移。 */
           '<div class="bf-rows"><span class="sk" style="height:74px"></span></div>' +
           '<span class="sk" style="height:43px;margin-top:auto"></span>' +
-          skFoot() +
+          '<div class="qc-ext"><span class="sk" style="height:45px;width:70%"></span>' +
+            '<span class="sk" style="height:45px;width:70%"></span></div>' +
         '</div>';
       };
       /* 上排两组：富卡片（KPI_RICH）+ 可用率（KPI_AVAIL_ROWS）。 */
@@ -2242,22 +2261,30 @@
        两个组的目标页仍互不相同（bm_speedtest / bm_meta）。 */
     var bf = '';
     if (hasS || hasM || !k.loading) {
-      /* 组成员逐个交给对应的卡片函数。KPI_META 现在只有 speed / scores 两项，
-         所以 meta 组是 2 张、speed 组是 3 张。
-         ⚠️ speed / meta 两组用的是**两种**卡片函数（speedCardHtml / metaCardHtml）。
-         bfKinds 仍保留 bp 一项不动：它只是"bp 组存在时的画法"，BF_GROUPS 里已无 bp 组，
-         故不会被调用 —— 将来恢复 BP 卡时不必再补这一行。 */
-      var bfKinds = {
+      /* 组成员逐个交给对应的卡片函数。speed 组 3 张（下载/上传/时延）、
+          meta 组 3 张（速率/综合评分/时延，2026-10-15）。
+         ⚠️ 派发按**每一项自己的 src**（'speed' | 'meta'），**不是**按组 id（2026-10-15 改）。
+         起因：meta 组要加一张时延卡，而 Meta 报告上游根本没有时延列，
+         那张卡取的是 Ookla 的真实时延 —— 于是**同一个组里出现了两个数据源**，
+         按组派发（bfKinds[g.id]）再也表达不了。
+         每条 KPI 项在 olbr-data.js 里显式声明 src，就是"这张卡的数据从哪来"的
+         唯一真相源；渲染层据此选函数，不按 key 特判、也不猜。
+         ⚠️ 刻意**不写** `key === 'latency' ? speedCardHtml : metaCardHtml` 这类特判：
+         那会把"跨源"这件事藏进一个 if 里，下一个混源组还得再付一次代价。
+         ⚠️ 旧的 `bp` 派发项已删除：BF_GROUPS 里早已没有 bp 组（2026-10-12 移除），
+         留着是永不执行的死代码。将来若恢复 BP 卡，给它标 src:'meta' 即可。 */
+      var srcKind = {
         speed: function (spec) { return speedCardHtml(spec); },
-        meta: function (spec) { return metaCardHtml(spec); },
-        bp: function (spec) { return metaCardHtml(spec); }
+        meta:  function (spec) { return metaCardHtml(spec); }
       };
       bf = '<div class="band-h"><div class="band-txt"><div class="band-k" title="' +
           esc(tf('kpi.bf.subBoth', { n: (k.speed && k.speed.days) || '—' })) + '">' +
           esc(t('kpi.bf.title')) + '</div></div></div>' +
         '<div class="qc-grid">' +
           DATA.BF_GROUPS.map(function (g) {
-            return qcGroupHtml(g, qcGroupCards(g, bfKinds[g.id]));
+            return qcGroupHtml(g, qcGroupCards(g, function (sp) {
+              return srcKind[sp.src](sp);
+            }));
           }).join('') +
         '</div>';
     }
@@ -4282,8 +4309,14 @@
   }
   function emailAllowed() { var it = emailItem(); return !!it && canSee(it); }
   /* 相对路径：门户从 localhost 还是局域网 IP 打开都自适应（与地图同一考虑）。
-     深链自身就是 bare 模式（自己的侧栏 / Header 都隐藏），不用地图那套 DATA.MAP_STRIP_CSS。 */
-  function emailSrc() { return '/myapp/?page=' + DATA.EMAIL_PAGE + langQs(); }
+     深链自身就是 bare 模式（自己的侧栏 / Header 都隐藏），不用地图那套 DATA.MAP_STRIP_CSS。
+     ⚠️ `portalFiles=1` 是**本页（v2）这块面板专属**的精简显示开关：my_app 的
+        EmailReports 页读到它后只渲染 Latest Email 一个页签、并把表头换成
+        Auto Email / Report Name / Email Attachment File（见 EmailReports.tsx 的
+        isPortalFilesMode 与 i18n 的 emailReports.portalCol* 三条文案）。
+        只有这里带上它 —— MsPortal / 根 olbrportal / v1 的内嵌 src 都不带，故它们
+        与「直接打开 /myapp/?page=email_reports&lang=en」仍显示全部 4 个页签与旧表头。 */
+  function emailSrc() { return '/myapp/?page=' + DATA.EMAIL_PAGE + langQs() + '&portalFiles=1'; }
 
   function emailSectionHtml() {
     return '<div class="p-head"><span class="p-hd"><span class="p-t t-orange">' + esc(t('email.title')) + '</span></span>' +

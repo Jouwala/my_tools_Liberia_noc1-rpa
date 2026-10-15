@@ -370,10 +370,15 @@ window.OLBR_DATA = (function () {
       'kpi.bf.winTip': '「{m}」上 {n} 在最近 {d} 天里胜出 {w} 天（胜率 {r}%）。\n'
                      + '只统计**两家当天都有数据**的日子，只测了一家那天不计入胜负。',
       'kpi.bf.tipName': '{n}（{u}）',
-      /* 数据来源。**必须点出 Speedtest by Ookla** —— 卡片右下角那个 logo
-         是 Ookla 的注册商标，标识已经画出来了，文字这边就要说明"数据来自它"，
-         这是商标的正当使用（指明来源），也免得读者以为那只是一个装饰图标。 */
+      /* 数据来源。**必须点出 Speedtest by Ookla** —— 这是商标的正当使用
+         （指明来源），也免得读者把那串数当成门户自己测的。
+         ⚠️ 2026-10-15 起这句话比过去**更重要**：卡片右下角那个 logo 已删除
+         （用户要求「右下角的 LOGO 不要了，跟标题重复了」），
+         来源现在只由本句 + 组头那个 Ookla 图形共同表达，文字这边不能再省。 */
       'kpi.bf.tipSrc': '数据来源：Speedtest by Ookla · my_app bm_speedtest 竞对分析，口径与「Key metrics comparison」一致',
+      /* ⚠️ 2026-10-15：卡内那个 role="img" + 本键作 aria-label 的 Ookla 标识
+         已删除，本键**暂时无人引用**（仅组头 logo 用组名 board 当无障碍名）。
+         与 kpi.mm.srcAlt 同一批保留、同一理由，见那处的说明。 */
       'kpi.bf.ooklaTip': 'Speedtest by Ookla',
       /* 'kpi.bf.tipAvg' 的 {win} 是**天数**（"最近 30 天"里的 30），
          不是整句 'kpi.bf.sub' —— 实测把整句插进来会得到
@@ -442,10 +447,13 @@ window.OLBR_DATA = (function () {
          而这份数据是导入快照（实测数据截至 2026-09-23），最近几天根本没有数 ——
          不写清楚，读者会以为大数字覆盖了整整 30 天。 */
       'kpi.mm.win': '统计窗口', 'kpi.mm.days': '天', 'kpi.mm.cover': '覆盖',
-      /* 页脚第三格：Meta 那两张卡放**标识**（META_LOGO，见 olbr-data.js 末尾），
-         这个键是它的无障碍名（role="img" 的 aria-label）——
-         与 Ookla 标识同一个做法（图形本身不带 aria-label，名字由外层给）。
-         徽章上不再有文字，所以这个键只出现在读屏与悬停里。 */
+      /* ⚠️ 2026-10-15：Meta 那两张卡的页脚**标识已删除**（用户要求
+         「右下角的 LOGO 不要了，跟标题重复了」——组头标题已直接显示
+         同一份 Meta 图形）。本键 kpi.mm.srcAlt 因此**暂时无人引用**：
+         保留而非删除，是因为它记录的是「这组数据来自 Meta 报告」这个
+         仍然成立的事实，且与 kpi.bf.ooklaTip（同样因本次清理而失去引用）
+         是同一类键 —— 两者一起留着，免得下次需要"卡内来源标识"时又从
+         i18n 里现造一个同义文案。若确认长期不用，可连同英文那份一起删。 */
       'kpi.mm.srcAlt': 'Meta 报告',
       /* BP 那张卡的来源标识（**纯文字**，2026-09-30 按用户要求改）。
          为什么不是 Meta 报告：BP 与 FDD 吞吐 / PRB 利用率 / 流量 / RRC 用户数
@@ -955,11 +963,17 @@ window.OLBR_DATA = (function () {
       'kpi.bf.winTip': 'On "{m}", {n} won {w} of the last {d} days (win rate {r}%).\n'
                      + 'Only days where BOTH brands have data are counted; a day with one brand only is not a win or a loss.',
       'kpi.bf.tipName': '{n} ({u})',
-      /* Data source. Naming "Speedtest by Ookla" is required: the logo in the
-         card's bottom-right corner is Ookla's registered trademark, so the text
-         states where the data comes from (nominative use) and stops readers
-         from mistaking the mark for a decorative icon. */
+      /* Data source. Naming "Speedtest by Ookla" is required (nominative use)
+         so readers do not take the numbers for something the portal measured.
+         ⚠️ 2026-10-15: this line matters MORE than before — the logo in the
+         card's bottom-right corner was removed (user: "drop it, it duplicates
+         the title"), so the source is now expressed only by this string plus
+         the Ookla mark in the group header. Do not trim this text. */
       'kpi.bf.tipSrc': 'Source: Speedtest by Ookla · my_app bm_speedtest competitor analysis, same definition as "Key metrics comparison"',
+      /* ⚠️ 2026-10-15: the in-card Ookla badge that used this key as its
+         role="img" aria-label was deleted, so it has no caller for now (only
+         the group header logo remains, and it uses the board name). Kept
+         alongside kpi.mm.srcAlt for the same reason — see that note. */
       'kpi.bf.ooklaTip': 'Speedtest by Ookla',
       /* {win} in 'kpi.bf.tipAvg' is a DAY COUNT (the 30 of "last 30 days"),
          NOT the whole sentence from 'kpi.bf.sub'. Nesting the full sentence
@@ -1026,11 +1040,13 @@ window.OLBR_DATA = (function () {
          days" while this dataset is an imported snapshot (data ends 2026-09-23),
          so without it a reader assumes the average covers all 30 days. */
       'kpi.mm.win': 'Window', 'kpi.mm.days': 'days', 'kpi.mm.cover': 'Coverage',
-      /* Footer cell 3 on the two Meta cards holds the LOGO (META_LOGO at the end
-         of this file); this key is its accessible name (the role="img" aria-label),
-         exactly like the Ookla badge — the artwork itself carries no aria-label.
-         The badge has no text any more, so this string only surfaces in screen
-         readers and on hover. */
+      /* ⚠️ 2026-10-15: the footer LOGO on the two Meta cards was REMOVED (user:
+         "drop the bottom-right logo, it duplicates the title" — the group header
+         already renders that same Meta mark). 'kpi.mm.srcAlt' therefore has no
+         caller for now. Kept rather than deleted: it still names a true fact
+         (this data comes from the Meta report) and sits in the same bucket as
+         'kpi.bf.ooklaTip', which lost its caller in the same cleanup. Delete
+         both (zh + en) once they are confirmed unused long-term. */
       'kpi.mm.srcAlt': 'Meta report',
       /* Source badge of the BP card (plain text, changed 2026-09-30 on request).
          Why not "Meta report": BP, FDD throughput, PRB utilization, traffic volume
@@ -1613,9 +1629,9 @@ window.OLBR_DATA = (function () {
      ⚠️ 值必须是 my_app App.tsx 的 PageKey（见 VALID_PAGES 白名单），
      写错会被静默回落到概览页，表现为「点了却打开别的页」。 */
   var KPI_SPEED = [
-    { key: 'download', kind: 'speed',   unit: 'Mbps', digits: 1, page: 'bm_speedtest' },
-    { key: 'upload',   kind: 'speed',   unit: 'Mbps', digits: 1, page: 'bm_speedtest' },
-    { key: 'latency',  kind: 'latency', unit: 'ms',   digits: 0, page: 'bm_speedtest' }
+    { key: 'download', kind: 'speed',   unit: 'Mbps', digits: 1, page: 'bm_speedtest', src: 'speed' },
+    { key: 'upload',   kind: 'speed',   unit: 'Mbps', digits: 1, page: 'bm_speedtest', src: 'speed' },
+    { key: 'latency',  kind: 'latency', unit: 'ms',   digits: 0, page: 'bm_speedtest', src: 'speed' }
   ];
   /* 卡名照抄 bms.metric.* 的中文/英文写法（my_app i18n），两个门户对同一个
      指标不能有两个名字。{n} = 品牌展示名（Orange / MTN），由后端 BRAND_LABELS 给。 */
@@ -1653,8 +1669,20 @@ window.OLBR_DATA = (function () {
      page 是 my_app App.tsx 的 PageKey（见 VALID_PAGES 白名单），
      写错会被静默回落到概览页，表现为「点了却打开别的页」。 */
   var KPI_META = [
-    { key: 'speed',  kind: 'brand',   name: 'kpi.mm.speed',  unit: 'kpi.mm.unitMbps',  digits: 1, page: 'bm_meta' },
-    { key: 'scores', kind: 'brand',   name: 'kpi.mm.scores', unit: 'kpi.mm.unitScore', digits: 1, page: 'bm_meta' }
+    { key: 'speed',  kind: 'brand',   name: 'kpi.mm.speed',  unit: 'kpi.mm.unitMbps',  digits: 1, page: 'bm_meta',      src: 'meta'  },
+    { key: 'scores', kind: 'brand',   name: 'kpi.mm.scores', unit: 'kpi.mm.unitScore', digits: 1, page: 'bm_meta',      src: 'meta'  },
+    /* ⚠️ 第三张是**时延**卡（2026-10-15 加，用户要求「Meta 目前右 2 个卡片，
+       先增加一个卡片数据可以构造一个时延的数据」）。
+       最重要的两件事：
+       ① 它的数据**不来自 Meta 报告** —— 上游 `meta_data` 表根本没有时延列
+          （见 my_app `bm_meta_caliber.py:62-65` 的 BRAND_METRICS 只有 speed），
+          所以这里取的是 **Ookla（bm_speedtest）的真实时延**，`src: 'speed'`。
+          用户在本轮明确选了「复用 Ookla 真实时延」而不是编造数字。
+       ② 因此它的 page 指 **bm_speedtest**（给出这个数的那个页面），
+          不是同组另两张的 bm_meta。写错会变成"点开 Meta 报告却找不到这张卡的数"。
+       字段与 KPI_SPEED 里那一项（latency / kind:'latency' / ms / 0 位）**逐字相同**，
+       所以渲染出来就是现有那张 Ookla 时延卡，不另造版式（见 olbr.js 的 srcKind 派发）。 */
+    { key: 'latency', kind: 'latency', name: 'kpi.bf.latency', unit: 'ms',             digits: 0, page: 'bm_speedtest', src: 'speed' }
   ];
   /* ---- BP 单独成组（2026-10-07 从 KPI_META 拆出）--------------------------
       用户 2026-10-07 明确「右边的 BP 是单独的页面」，所以 BP 不再与
@@ -1738,10 +1766,13 @@ window.OLBR_DATA = (function () {
      （kpi.bf.tipSrc）—— 那里是能读到的。
 
      ⚠️ SVG 本身**不带 aria-label**（只带 focusable="false"，避免被 Tab 键选中）。
-     无障碍名称由外层 <span class="bf-ookla" role="img" aria-label="..."> 提供，
-     见 olbr.js 的 speedCardHtml —— 放在那边是因为要用 t('kpi.bf.ooklaTip')，
-     而这个文件是个纯数据模块，拿不到 i18n 的 t()。
-     两处都写会把"这个标识叫什么"变成两个真相源，所以这里刻意留空。 */
+     无障碍名称由外层容器 role="img" + aria-label 提供：
+     现在唯一的引用处是**组头**（olbr.js 的 qcGroupHtml，外层是
+     <span class="qc-group-logo" role="img" aria-label="...">），
+     用组名 board 当无障碍名。
+     ⚠️ 2026-10-15 起**卡片页脚的 .bf-ookla 那处已删除**（用户要求
+     「右下角的 LOGO 不要了，跟标题重复了」），所以上面这段不要再写成
+     "见 olbr.js 的 speedCardHtml" —— 那里已经不再引用本常量。 */
   var OOKLA_LOGO =
     '<svg class="ookla-svg" viewBox="-0.5 -0.5 174 45" focusable="false">' +
       /* 圆弧：M 起点(左下 135°)，A 弧半径 16.75 = 外半径 19 − 半个描边 2.25，
@@ -1803,8 +1834,12 @@ window.OLBR_DATA = (function () {
 
      刻意**不**画 ® 上标、**不**给 SVG 加 aria-label：
      前者在页脚实际尺寸下会退化成看不见的灰点；
-     后者由外层 <span class="bf-metalogo" role="img" aria-label="..."> 提供
-     （见 olbr.js 的 metaCardHtml）—— 这个文件是纯数据模块，拿不到 i18n 的 t()。 */
+     后者由外层 role="img" + aria-label 提供 —— 现在唯一的引用处是**组头**
+     （olbr.js 的 qcGroupHtml，外层是 <span class="qc-group-logo" role="img"
+     aria-label="...">），用组名 board 当无障碍名。
+     ⚠️ 2026-10-15 起**卡片页脚的 .bf-metalogo 那处已删除**（用户要求
+     「右下角的 LOGO 不要了，跟标题重复了」），上面那句不要再写成
+     "见 olbr.js 的 metaCardHtml" —— 那里已经不再引用本常量。 */
   var META_LOGO =
     '<svg class="meta-svg" viewBox="-0.5 -0.5 89 34" focusable="false">' +
       '<g transform="scale(1.375)">' +
