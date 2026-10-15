@@ -32,6 +32,18 @@ logger = logging.getLogger("eflow_sync")
 #: CR/PM/Site/Person 允许缺失（上游时段性无数据不算故障），故不列入。
 REQUIRED_API_KEYS = {"eFlow TT", "eFlow WO"}
 
+#: 「必需表返回 0 行」同样视为**故障**，而非「上游这一时段没数据」。
+#: 为什么需要（2026-10-15 实测事故）：eFlow 的 `base/list` 接口在**账号工单
+#: 可见范围异常**时会返回 `200 {"result":[],"total":0}` —— 一个**合法 JSON 的
+#: 空结果**，而不是报错。于是 `_sync_tt` 只打一行 `WARNING TT 数据为空`、
+#: 返回 0 行，`result["errors"]` 保持为空，任务照样 `success=True`。
+#: 后果：TT/WO 从 2026-10-14 08:17 起静默停更 26 小时，看板/机器人一直说
+#: 「本地库最新是 TT202610140048」，直到人工发现。
+#: TT/WO 是**在途工单**，任何时刻都必然有大量未关闭单（实测常态数千条），
+#: 因此「0 行」在正常运行时不可能出现 —— 它只可能意味着上游异常或账号失权。
+#: 只对在途类表启用这个判据；CR/PM/Site/Person 不在此列（它们可能真的暂时为空）。
+REQUIRED_NONEMPTY_KEYS = {"eFlow TT", "eFlow WO"}
+
 # 路径配置
 BACKEND_DIR = Path(__file__).resolve().parent.parent.parent
 DB_PATH = BACKEND_DIR / "db" / "app.db"
@@ -545,6 +557,7 @@ def sync_from_eflow_api(mode: str = "delta") -> dict:
         "tables_synced": {},
         "errors": [],
         "missing_required": [],
+        "empty_required": [],
         "timestamp": datetime.now().isoformat(),
         "elapsed_seconds": 0,
         "excel_path": None,
@@ -618,6 +631,16 @@ def sync_from_eflow_api(mode: str = "delta") -> dict:
 
                     row_count = sync_func(df, dst_conn)
                     result["tables_synced"][table_name] = row_count
+
+                    # 必需表返回 0 行 = 故障（见 REQUIRED_NONEMPTY_KEYS 注释）。
+                    # 必须在这里补记 error，否则 success 会被误判为 True —— 这正是
+                    # 2026-10-14 静默停更事故的根因。**不要**改成只 warning。
+                    if api_key in REQUIRED_NONEMPTY_KEYS and row_count == 0:
+                        msg = (f"{table_name}（{api_key}）返回 0 行 —— 上游异常或账号"
+                               f"工单可见范围失权，本次未抓到任何在途单（正常运行时不可能）")
+                        logger.error(msg)
+                        result["errors"].append(msg)
+                        result["empty_required"].append(table_name)
                 except Exception as e:
                     err_msg = f"{table_name} 同步失败: {e}"
                     logger.error(err_msg)
