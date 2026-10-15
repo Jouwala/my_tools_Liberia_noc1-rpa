@@ -256,13 +256,11 @@ def get_all():
     if cached is not None:
         return cached
 
-    if not BATT_DB_PATH.exists():
-        return _cache_set("all", {
-            "available": False,
-            "message": "无电池数据（请执行任务: battery_kpi_sync）",
-            "meta": {}, "kpi": {}, "dist": {}, "sites": [], "alarms": [], "batteries": [],
-        })
-
+    # 2026-10-15：移除 BATT_DB_PATH.exists() 前置短路 —— pg 模式下数据在 PG 的
+    # battery schema（get_raw_connection 按路径映射 schema，不读本地文件），
+    # 本地 sqlite 文件不存在不代表无数据。下方 _table_exists 已覆盖空库语义。
+    # 与 battery_kpi_service.py:618 的同类修复保持口径一致（2026-10-13 只修了
+    # service，邮件任务正常但看板一直空白）。
     conn = _conn()
     try:
         meta = _load_meta(conn)
@@ -396,9 +394,7 @@ def get_trend(days: int = Query(7, ge=1, le=180),
     cached = _cache_get(key)
     if cached is not None:
         return cached
-    if not BATT_DB_PATH.exists():
-        return _cache_set(key, {"source": source, "points": []})
-
+    # 2026-10-15：同上，移除本地 sqlite 文件存在性短路；下方 _table_exists 已覆盖。
     cutoff = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
     conn = _conn()
     try:
@@ -443,8 +439,7 @@ def get_trend(days: int = Query(7, ge=1, le=180),
 @router.get("/site/{site}")
 def get_site_detail(site: str):
     """单站点全部电池明细（下钻用）。"""
-    if not BATT_DB_PATH.exists():
-        return {"site": site, "batteries": [], "readings": []}
+    # 2026-10-15：同上，移除本地 sqlite 文件存在性短路；下方 _table_exists 已覆盖。
     conn = _conn()
     try:
         if not _table_exists(conn, "battery_latest"):
