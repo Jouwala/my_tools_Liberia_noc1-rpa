@@ -54,6 +54,15 @@ logger = logging.getLogger("tt_alarm_whatsapp")
 
 TRIGGER_TABLE = "realtime_alarm"
 SYNC_TASK_ID = "eflow_active_alarm"
+# pg 模式下触发表的**归属 schema**（= 同步任务的写入目标，app 库）。
+# ⚠️ 读端不能用 ``table_schema = ANY(current_schemas(false))`` 取跨 schema 并集
+# （2026-10-15 事故）：库里还有一份同名的 eflow.realtime_alarm，只有 36 列、
+# 列名是 ``TT ID`` 而非 ``tt_id``、且**没有 alarmraisedtime**。并集读取会让这份
+# 副本污染存在性/列判断；再叠加同步侧的跨 schema 误删（见
+# eflow_alarm_service._swap_table_sql），本任务每分钟有约 0.14s 读到
+# 「表在但关键列不在」，于是抛「realtime_alarm 表不存在或缺少 tt_id/alarmraisedtime 列」。
+# 锁定单一 schema 后，判断只看真正驱动推送的那张表。sqlite 模式走 PRAGMA，不受影响。
+TRIGGER_SCHEMA = os.environ.get("TT_TRIGGER_SCHEMA", "app")
 
 # 兜底阈值（秒）：仅当 env 未设、且读不到/解析不了实际 cron 时使用。
 SYNC_STALE_SECONDS = int(os.environ.get("TT_TRIGGER_SYNC_STALE_SECONDS", "2700"))
@@ -77,8 +86,8 @@ def _available_columns(conn, table: str) -> List[str]:
     else:
         rows = conn.execute(
             "SELECT column_name FROM information_schema.columns WHERE table_name = ? "
-            "AND table_schema = ANY(current_schemas(false))",
-            (table,),
+            "AND table_schema = ?",
+            (table, TRIGGER_SCHEMA),
         ).fetchall()
         present = {r[0] for r in rows}
     return [c for c in _TRIGGER_COLUMNS if c in present]
@@ -187,8 +196,12 @@ def fetch_triggered_tts(now: datetime,
             meta["table_exists"] = False
             return [], meta
 
+        # 表引用也按 schema 限定（sqlite 无 schema，保持裸名）：裸名在
+        # search_path 下会退化到别的 schema 的同名表，读到错的行数。
+        trig_ref = (TRIGGER_TABLE if _is_sqlite(conn)
+                    else f'"{TRIGGER_SCHEMA}"."{TRIGGER_TABLE}"')
         # 只下推「有 TT + 时间窗口」两个可安全表达的谓词；告警码在 Python 侧归一化后判等。
-        sql = (f"SELECT {', '.join(cols)} FROM {TRIGGER_TABLE} "
+        sql = (f"SELECT {', '.join(cols)} FROM {trig_ref} "
                f"WHERE TRIM(CAST(tt_id AS TEXT)) <> '' AND alarmraisedtime >= ? "
                f"ORDER BY alarmraisedtime DESC LIMIT ?")
         cur = conn.execute(sql, (since_ms, query_limit))
@@ -199,7 +212,7 @@ def fetch_triggered_tts(now: datetime,
         # 阈值随实际调度自适应（见 _resolve_sync_stale_threshold），与滞后值一并返回。
         meta["sync_stale_threshold_seconds"] = _resolve_sync_stale_threshold(conn)
         if "_sync_time" in cols:
-            cur = conn.execute(f"SELECT MAX(_sync_time) FROM {TRIGGER_TABLE}")
+            cur = conn.execute(f"SELECT MAX(_sync_time) FROM {trig_ref}")
             max_sync = cur.fetchone()[0] if cur.description else None
             try:
                 last = datetime.fromisoformat(str(max_sync))
@@ -245,7 +258,8 @@ def _is_sqlite(conn) -> bool:
 
 
 def _table_exists(conn, table: str) -> bool:
-    """表是否存在（双模：sqlite / PG，限定当前 search_path）。"""
+    """表是否存在（双模：sqlite 查 sqlite_master；PG 只认 ``TRIGGER_SCHEMA``，
+    不取 search_path 全 schema 并集 —— 理由见 ``TRIGGER_SCHEMA`` 上方注释）。"""
     if _is_sqlite(conn):
         row = conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name = ?",
@@ -253,6 +267,6 @@ def _table_exists(conn, table: str) -> bool:
         return row is not None
     rows = conn.execute(
         "SELECT table_name FROM information_schema.tables WHERE table_name = ? "
-        "AND table_schema = ANY(current_schemas(false))",
-        (table,)).fetchall()
+        "AND table_schema = ?",
+        (table, TRIGGER_SCHEMA)).fetchall()
     return bool(rows)

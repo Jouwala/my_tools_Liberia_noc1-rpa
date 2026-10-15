@@ -96,6 +96,32 @@ SQLite 分支是 `INSERT OR REPLACE`，**不要冲突目标也照样工作**—�
 > `table_schema = ANY(current_schemas(false))` 这类查法会**误报"表不存在"**——
 > 核对时请按表名全库扫描，别只查 search_path。
 
+> **反过来的同一个坑：search_path 上有两份同名表时，裸名会串 schema（2026-10-15 事故）。**
+> `realtime_alarm` 与 `history_alarm` 在 **`app` 和 `eflow` 两个 schema 各有一份**，
+> 且**列口径完全不同** —— `app` 那份是全量（`realtime_alarm` 实测 149/150 列，
+> 列名 snake_case，含 `tt_id` / `alarmraisedtime`，页面与任务读的就是它），
+> `eflow` 那份是 `ALARM_COLUMNS` 过滤版（36 列，列名是 `TT ID` 这种原始风格，
+> **没有** `alarmraisedtime`）。两条推论，都是这次定下来的硬规矩：
+>
+> 1. **写端的换表/建索引 DDL 必须带 schema 限定**。PG 的 `DROP TABLE` 会顺着
+>    `search_path`（`app,eflow,lte_pl,…`，`backend/database.py:320`）逐级解析，
+>    裸名 `DROP TABLE IF EXISTS "realtime_alarm"` 在 `eflow.realtime_alarm`
+>    缺失时会**删掉 `app` 的那份**。`eflow_active_alarm` 每轮先写 eflow 副本再写
+>    app 主库，两条裸名换名语句因此互相删对方的正式表，实测 `app.realtime_alarm`
+>    每分钟消失约 0.14s。落地写法见 `eflow_alarm_service._conn_schema` /
+>    `_swap_table_sql`，回归守卫 `tests/test_eflow_alarm_swap_schema.py`。
+> 2. **读端判存在性/列集不要取 `ANY(current_schemas(false))` 并集**，会另一份
+>    副本污染结论（本例表现为「表在、但 `tt_id`/`alarmraisedtime` 不在」）。
+>    要哪份就限定哪份：`tt_alarm_trigger.TRIGGER_SCHEMA`（默认 `app`）就是这条规矩。
+>
+> **为什么 `eflow` 那份副本不能一删了之**：PG 模式下 `get_raw_connection(…eflow.sqlite3)`
+> 返回的是 **eflow schema 的 PG 连接**，物理文件 `data/eflow/eflow.sqlite3`
+> 自 2026-08-07 起就不再被写（446MB 冻结快照，直接开该文件的离线工具如
+> `Task/eflow_Q&A/tools/gen_datadict.py` 读到的是它）；而一旦按熔断开关
+> `MY_APP_DB_MODE=sqlite` 回退（回退方案 R7），`write_alarm_sqlite()` 又是
+> 那份**真文件**的唯一生产者，且 `.19` 那台机器可能在 sqlite 模式下跑。
+> 所以本次只修「串 schema」，不删双写 —— 删它是跨模式、跨主机的契约变更，需另行评估。
+
 ### 已知遗留：`ms_sla_sync` 索引创建失败的降级路径
 
 `ms_sla_sync.py:308-327` 把「清重复行 + 建唯一索引」整段包在 `try` 里，

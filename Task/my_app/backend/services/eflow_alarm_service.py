@@ -430,7 +430,7 @@ def write_alarm_csv(data):
 
     logger.info(f"Alarm CSV saved: {output_file}, {len(data)} records")
     return output_file
-def _swap_table_sql(table_name, staging, pg):
+def _swap_table_sql(table_name, staging, pg, schema=None):
     """生成「用影子表顶替正式表」的单条原子语句。
 
     ⚠️ 必须是一条语句，不能拆成两条 ``conn.execute``（2026-09-29 实测）：
@@ -444,12 +444,29 @@ def _swap_table_sql(table_name, staging, pg):
     SQLite 没有 DO 块，但 sqlite3 驱动默认在 DML/DDL 上开启隐式事务，
     且本项目连接由 ``_ClosingConnection`` 管理，两次 DDL 之间不会提交，
     故 SQLite 分支直接用两条语句即可（实测同样无空窗）。
+
+    ⚠️ **第二次修复（2026-10-15）：单条语句还不够，名字必须带 schema 限定。**
+    裸表名的 ``DROP`` 会**顺着 search_path 逐级往下找**，本项目的连接串是
+    ``app,eflow,lte_pl,…`` 全 schema（见 ``_PsycopgRaw._SEARCH_PATH``），
+    于是「写 eflow 库副本」的连接（search_path 以 eflow 置顶）在
+    ``eflow.realtime_alarm`` 不存在时，``DROP TABLE IF EXISTS "realtime_alarm"``
+    会命中并删掉 **app.realtime_alarm**。``fetch_and_save_active_alarm`` 每轮先
+    ``write_alarm_sqlite``（eflow）再 ``_write_alarm_to_appdb``（app），两条语句
+    因此**互相删对方的表**，实测每分钟出现约 0.14s 的
+    「app.realtime_alarm 不存在、只有 36 列过滤版 eflow.realtime_alarm」窗口 ——
+    这正是任务 ``tt_alarm_whatsapp_alert`` 报
+    「realtime_alarm 表不存在或缺少 tt_id/alarmraisedtime 列」的根因，
+    也说明 09-29 的原子换表修复被跨 schema DROP 绕过了（读端 500 风险仍在）。
+    ``RENAME TO`` 的目标名 PG 语法上不允许带 schema，所以前提是影子表与目标表
+    同 schema —— 由调用方用 ``_conn_schema(conn)`` 保证。
     """
     if pg:
+        def _q(name):
+            return f'"{schema}"."{name}"' if schema else f'"{name}"'
         return (
             f'DO $$ BEGIN '
-            f'DROP TABLE IF EXISTS "{table_name}"; '
-            f'ALTER TABLE "{staging}" RENAME TO "{table_name}"; '
+            f'DROP TABLE IF EXISTS {_q(table_name)}; '
+            f'ALTER TABLE {_q(staging)} RENAME TO "{table_name}"; '
             f'END $$'
         )
     return None  # SQLite：调用方按顺序执行两条语句（同事务，无空窗）
@@ -458,6 +475,20 @@ def _swap_table_sql(table_name, staging, pg):
 def _is_pg_conn(conn):
     """判断当前连接是否为 PG 包装连接（非 sqlite3 原生连接）。"""
     return not isinstance(conn, sqlite3.Connection)
+
+
+def _conn_schema(conn):
+    """裸名 DDL 在本连接上的**落点 schema**（PG：``current_schema()``，即 search_path
+    首个存在的 schema）；SQLite 返回 None（无 schema 概念，语句保持裸名）。
+
+    换表类 DDL 必须用它把表名限定成本 schema（见 ``_swap_table_sql`` 的 2026-10-15
+    说明），否则 PG 的跨 schema 名字解析会让一条「写 A 库副本」的 DROP 删掉
+    「B 库的正式表」。
+    """
+    if not _is_pg_conn(conn):
+        return None
+    row = conn.execute("SELECT current_schema()").fetchall()
+    return row[0][0] if row else None
 
 
 def _replace_table_atomically(conn, table_name, rows, columns):
@@ -475,18 +506,24 @@ def _replace_table_atomically(conn, table_name, rows, columns):
     读方要么看到旧表、要么看到新表，不存在「表不存在」的中间态。
 
     幂等性：影子表名固定，重复执行先清理上一轮的残留，异常路径也会清理。
+
+    ⚠️ 2026-10-15：影子表的 DDL 一律带 schema 限定（见 ``_swap_table_sql`` 的说明）。
+    本函数服务于「非 app 库」的连接（``write_alarm_sqlite`` / ``write_history_alarm_sqlite``
+    在 pg 模式下走 eflow schema），裸名会让 DROP 顺着 search_path 打到 app 的同名表。
     """
     staging = f"{table_name}__staging"
+    _sch = _conn_schema(conn)
+    _stg = f'"{_sch}"."{staging}"' if _sch else f'"{staging}"'
     col_defs = ", ".join([f'"{c}" TEXT' for c in columns])
     cols = ", ".join([f'"{c}"' for c in columns])
     placeholders = ", ".join(["?" for _ in columns])
-    insert_sql = f'INSERT INTO "{staging}" ({cols}) VALUES ({placeholders})'
+    insert_sql = f'INSERT INTO {_stg} ({cols}) VALUES ({placeholders})'
 
     try:
         # 清理上一轮可能残留的影子表（幂等，避免上次异常中断留下脏表）
-        conn.execute(f'DROP TABLE IF EXISTS "{staging}"')
+        conn.execute(f'DROP TABLE IF EXISTS {_stg}')
         conn.commit()
-        conn.execute(f'CREATE TABLE "{staging}" ({col_defs})')
+        conn.execute(f'CREATE TABLE {_stg} ({col_defs})')
         for row in rows:
             conn.execute(insert_sql, tuple(row.get(c, "") for c in columns))
         conn.commit()
@@ -494,7 +531,7 @@ def _replace_table_atomically(conn, table_name, rows, columns):
     except Exception:
         # 失败时清理影子表并把异常抛给调用方，避免留下半成品
         try:
-            conn.execute(f'DROP TABLE IF EXISTS "{staging}"')
+            conn.execute(f'DROP TABLE IF EXISTS {_stg}')
             conn.commit()
         except Exception:  # noqa: BLE001 - 清理失败不应掩盖原始异常
             logger.warning("[SILENT-EXCEPT] 清理影子表失败 %s", staging, exc_info=True)
@@ -503,7 +540,8 @@ def _replace_table_atomically(conn, table_name, rows, columns):
 
 def _swap_in_staging_table(conn, table_name, staging):
     """把影子表顶替为正式表（原子）。详见 ``_swap_table_sql``。"""
-    atomic_sql = _swap_table_sql(table_name, staging, pg=_is_pg_conn(conn))
+    atomic_sql = _swap_table_sql(table_name, staging, pg=_is_pg_conn(conn),
+                                 schema=_conn_schema(conn))
     if atomic_sql:
         conn.execute(atomic_sql)
     else:
@@ -598,16 +636,26 @@ def _replace_table_via_engine(conn, df, table_name):
       1. 清理上一轮残留影子表；
       2. ``write_df(..., if_exists="append")`` 建影子表并灌数；
       3. ``_swap_in_staging_table`` 原子顶替（PG 走单条 DO 块，见该函数说明）。
+
+    ⚠️ 2026-10-15：影子表清理与顶替都带 schema 限定。``write_df`` 不传
+    ``engine_override`` 时走全局 engine（实测其会话 ``current_schema()=app``、
+    ``search_path=app,eflow,…``），与本函数唯一调用方 ``_write_alarm_to_appdb``
+    的 app 置顶连接同 schema —— 所以限定名一定命中，不会像裸名那样
+    在 eflow/app 两份同名表之间来回误删。若将来有人给这里传非 app 的 conn
+    而 engine 仍是全局 app，限定名会直接报 "relation does not exist"（响），
+    而不是悄悄把别的 schema 的正式表换掉。
     """
     staging = f"{table_name}__staging"
+    _sch = _conn_schema(conn)
+    _stg = f'"{_sch}"."{staging}"' if _sch else f'"{staging}"'
     try:
-        conn.execute(f'DROP TABLE IF EXISTS "{staging}"')
+        conn.execute(f'DROP TABLE IF EXISTS {_stg}')
         conn.commit()
         write_df(df, staging, if_exists="append")
         _swap_in_staging_table(conn, table_name, staging)
     except Exception:
         try:
-            conn.execute(f'DROP TABLE IF EXISTS "{staging}"')
+            conn.execute(f'DROP TABLE IF EXISTS {_stg}')
             conn.commit()
         except Exception:  # noqa: BLE001 - 清理失败不应掩盖原始异常
             logger.warning("[SILENT-EXCEPT] 清理影子表失败 %s", staging, exc_info=True)
@@ -655,6 +703,11 @@ def _write_alarm_to_appdb(table_name: str, rows, index_cols: list, upsert_key: s
                 # 调优类 PRAGMA 仅 sqlite 有效（PG 无等价物）
                 conn.execute("PRAGMA journal_mode=WAL")
                 conn.execute("PRAGMA synchronous=NORMAL")
+            # 本函数只服务 app 库（APP_DB_PATH），限定名 = 裸名在 PG 下的实际落点；
+            # 显式写出来是为了让 DDL 不受 search_path 影响（详见 _swap_table_sql 的
+            # 2026-10-15 说明：裸名 DROP 会跨 schema 误删 eflow 的同名表）。
+            _sch = _conn_schema(conn)
+            _tbl = f'"{_sch}"."{table_name}"' if _sch else f'"{table_name}"'
             if upsert_key and upsert_key in df.columns:
                 # 幂等累积写入（B）：按 upsert_key 删除旧行再 append，避免整表重建与重抓浪费
                 if table_name in set(list_table_names(conn)):
@@ -664,7 +717,7 @@ def _write_alarm_to_appdb(table_name: str, rows, index_cols: list, upsert_key: s
                     missing_cols = [c for c in df.columns if c not in existing_cols]
                     for c in missing_cols:
                         try:
-                            conn.execute(f'ALTER TABLE "{table_name}" ADD COLUMN "{c}" TEXT')
+                            conn.execute(f'ALTER TABLE {_tbl} ADD COLUMN "{c}" TEXT')
                             logger.info(f"{table_name}: 新增缺失列 {c!r} (schema drift 修复)")
                         except Exception as e:
                             logger.warning(f"{table_name}: 新增列 {c!r} 失败: {e}")
@@ -679,7 +732,7 @@ def _write_alarm_to_appdb(table_name: str, rows, index_cols: list, upsert_key: s
                         # upsert_key 列可能已被转成 TEXT（与动态表语义一致），
                         # 故参数统一转字符串，避免 PG "text = bigint" 操作符不存在的错误。
                         conn.execute(
-                            f'DELETE FROM "{table_name}" WHERE "{upsert_key}" IN ({qmarks})',
+                            f'DELETE FROM {_tbl} WHERE "{upsert_key}" IN ({qmarks})',
                             [str(x) for x in chunk],
                         )
                         deleted += len(chunk)
@@ -698,7 +751,8 @@ def _write_alarm_to_appdb(table_name: str, rows, index_cols: list, upsert_key: s
                 _replace_table_via_engine(conn, df, table_name)
             for idx_col in index_cols:
                 if idx_col in df.columns:
-                    conn.execute(f'CREATE INDEX IF NOT EXISTS idx_{table_name}_{idx_col} ON {table_name}({idx_col})')
+                    conn.execute(f'CREATE INDEX IF NOT EXISTS idx_{table_name}_{idx_col} '
+                                 f'ON {_tbl}("{idx_col}")')
             conn.commit()
             conn.close()
             logger.info(f"{table_name} 已写入 app.db: {len(df)} 行, {len(df.columns)} 列")

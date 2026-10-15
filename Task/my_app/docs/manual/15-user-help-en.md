@@ -48,7 +48,7 @@ Built for the NOC scenario "boards every day, reports must go out": 41+ schedule
 | Direct links | Every page can be opened with ?page=<key>, e.g. /myapp/?page=battery — bookmarkable and shareable. |
 | Auto refresh | Pick an interval in the header (default 5 minutes; 0/30s~30min available). While you are typing, a dialog is open, or the tab is in the background, the round is skipped to avoid interrupting you. Only dashboard/display pages auto-refresh; configuration and operation pages (settings, upload, table browser, IP trace, …) never refresh and their selector is disabled. A dashboard left in fullscreen keeps refreshing at its default interval even when the selector is set to Off. |
 | Theme & language | Switch dark/light theme and Chinese/English in the top-right; preferences are remembered locally (localStorage). |
-| Data freshness | Some pages show a "last synced" time in the header. Boards are fed by scheduled tasks with different frequencies (alarms every 30 min, microwave topology daily 05:15, packet loss daily 06:30...). See "Task Manager Deep Dive" for the full catalog. |
+| Data freshness | Some pages show a "last synced" time in the header. Boards are fed by scheduled tasks with different frequencies (alarms every minute, microwave topology daily 05:15, packet loss daily 06:30...). See "Task Manager Deep Dive" for the full catalog. |
 
 ---
 
@@ -1519,7 +1519,7 @@ Database health-check page: how many tables exist, rows per table, Top10 by size
 Combined view of all current active network alarms: totals, severity, site-level multi-dimension statistics and trends.
 
 - Click any number to open a searchable drill-down table
-- "Realtime" data comes from eFlow active alarms (eflow_active_alarm every 30 min) — not second-level push
+- "Realtime" data comes from eFlow active alarms (eflow_active_alarm synced every minute) — not second-level push
 
 #### TT&WO Dashboard（`ttwo`）
 
@@ -1827,7 +1827,7 @@ Site map: alarm/ticket distribution, topology lines, region polygons and multi-d
 Realtime mode of the GIS map: current active-alarm sites on the map (red "realtime" badge).
 
 - Interactions are identical to the GIS Map page
-- Data comes from eFlow active alarms (eflow_active_alarm) synced every 30 minutes
+- Data comes from eFlow active alarms (eflow_active_alarm) synced every minute
 
 #### Incident Overview（`incident_overview`, iframe page）
 
@@ -2021,7 +2021,7 @@ Three config layers, highest first: environment variables (backend/.env, 203 key
 
 **The board data is not updating?**
 
-① Check the task's latest result and the failure summary in "Task Manager"; ② check whether the header "Auto refresh" was set to Off; ③ remember some data is inherently low-frequency: alarms every 30 min, microwave topology daily 05:15, packet loss daily 06:30, incident overview at minute 20 each hour. The "DB Data Freshness Check" task history also logs the call chain and direction when stale (including the on-disk age of file-based sources).
+① Check the task's latest result and the failure summary in "Task Manager"; ② check whether the header "Auto refresh" was set to Off; ③ remember some data is inherently low-frequency: alarms every minute, microwave topology daily 05:15, packet loss daily 06:30, incident overview at minute 20 each hour. The "DB Data Freshness Check" task history also logs the call chain and direction when stale (including the on-disk age of file-based sources).
 
 **Numbers do not match the expected criteria?**
 

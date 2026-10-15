@@ -182,6 +182,37 @@ python -m pytest tests\ --ignore=tests\test_frontend_deep.py --ignore=tests\test
 > **改完必须重启后端才生效**（`pythonw.exe` 常驻，不会热加载）。
 > 排障时留意：**日志文件按天命名且随重启更换**，翻错文件会误判成"没报错"。
 
+### 触发扫描报「realtime_alarm 表不存在」（2026-10-15 事故）
+
+**现象**：`tt_alarm_whatsapp_alert` 偶发失败，错误恒为
+`RuntimeError: realtime_alarm 表不存在或缺少 tt_id/alarmraisedtime 列（eflow_active_alarm 未同步？）`，
+并且下一轮（5 分钟后）自己就 `success=True` —— 看着像抖动。
+
+**别信括号里那句提示**。先去 `task_execution_log` 看同一分钟的 `eflow_active_alarm`：
+事故当时它是 `success=True`、耗时 0.3s，同步根本没挂。真正要判的是
+**那一瞬间表还在不在**，用只读探针（20ms 采样，`app` / `eflow` 两份分别看）：
+
+```powershell
+cd D:\01_RPA\Task\my_app
+python TMP/_observe_schema.py 130
+```
+
+- 修复前的形态：每分钟出现一对 `app.realtime_alarm: 不存在` +
+  `eflow.realtime_alarm: 存在 36 列 缺 ['alarmraisedtime','tt_id']`。
+- 修复后的形态：`app` 那份**全程存在**，只可能看到一次影子表建立
+  （`eflow` 副本被创建出来）与列数随 eFlow 字段漂移的变化。
+
+**根因与修复口径**见 `04-task-system.md` 的「2026-10-15 事故」框：换表 DDL 写裸表名，
+而 PG 的 `DROP` 会顺 `search_path` 跨 schema 解析，导致 `app` / `eflow` 两份同名
+`realtime_alarm` 每分钟互删对方的正式表（`eflow_active_alarm` 每轮先写 eflow 副本、
+再写 app 主库，两条换名语句正好互为对方）。
+
+**同类风险（排障时优先怀疑这一类）**：库里任何「多 schema 同名表 + 裸名 DDL」
+都有同样问题；读端用 `ANY(current_schemas(false))` 判存在性或列集，
+同样会被另一份 schema 的副本污染。2026-09-29 `/api/gis/sites` 间歇 500 的
+「影子表 + 单条 `DO` 块原子换表」修复当时并没有真正消除空窗，直到本次
+schema 限定后才闭合 —— 再遇到「表偶发不存在」不要去查同步任务，先跑上面的探针。
+
 ### 僵尸作业堵死推送通道（2026-10-01 事故）
 
 **现象**：`tt_alarm_whatsapp_alert` 在任务管理页**显示成功**，但值班群**收不到 P1 告警**。

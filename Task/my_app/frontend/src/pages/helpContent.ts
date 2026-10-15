@@ -145,7 +145,7 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
     },
     alarm: {
       desc: '全网当前活跃告警的综合视图：总量、级别、站点等多维统计与趋势。',
-      usage: ['点任意数字弹出可搜索的下钻明细表', '「实时」数据来自 eFlow 活动告警（eflow_active_alarm 每 30 分钟同步），并非秒级推送'],
+      usage: ['点任意数字弹出可搜索的下钻明细表', '「实时」数据来自 eFlow 活动告警（eflow_active_alarm 每分钟同步），并非秒级推送'],
     },
     ttwo: {
       desc: '故障工单（TT）与工作单（WO）的处理量、时效、积压趋势分析。TT 统计的三个维度（工单严重度 / SLA 状态 / 工单状态）都用数字卡片，点卡片下钻；MTTR 趋势按 Ticket Severity（P1/P2/P3/P4）拆成 4 张图，每张图是「柱 = TT 数量 + 线 = MTTR」双轴，并用页签切 日 / 周 / 月 三档粒度。默认时间窗近 30 天。',
@@ -256,7 +256,7 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
     },
     realtime_alarm: {
       desc: 'GIS 地图的实时模式：当前活跃告警站点的地图分布（带红色「实时」标识）。',
-      usage: ['操作与 GIS 地图页一致', '数据来自 eFlow 活动告警（eflow_active_alarm），每 30 分钟同步一次'],
+      usage: ['操作与 GIS 地图页一致', '数据来自 eFlow 活动告警（eflow_active_alarm），每分钟同步一次'],
     },
     alarmManagement: {
       desc: '宕站（Site Outage）监控看板：以「站点是否宕」为视角，ERA / Regular / ALL 三个视图。',
@@ -516,7 +516,7 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
     },
     alarm: {
       desc: 'Combined view of all current active network alarms: totals, severity, site-level multi-dimension statistics and trends.',
-      usage: ['Click any number to open a searchable drill-down table', '"Realtime" data comes from eFlow active alarms (eflow_active_alarm every 30 min) — not second-level push'],
+      usage: ['Click any number to open a searchable drill-down table', '"Realtime" data comes from eFlow active alarms (eflow_active_alarm synced every minute) — not second-level push'],
     },
     ttwo: {
       desc: 'Processing volume, timeliness and backlog trends of trouble tickets (TT) and work orders (WO). All three TT statistics dimensions (ticket severity / SLA status / ticket status) are number cards you can click to drill down; the MTTR trend is split into 4 charts by ticket severity (P1/P2/P3/P4), each a dual-axis chart with bars = TT count and line = MTTR, with tabs switching day / week / month granularity. The default window is the last 30 days.',
@@ -627,7 +627,7 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
     },
     realtime_alarm: {
       desc: 'Realtime mode of the GIS map: current active-alarm sites on the map (red "realtime" badge).',
-      usage: ['Interactions are identical to the GIS Map page', 'Data comes from eFlow active alarms (eflow_active_alarm) synced every 30 minutes'],
+      usage: ['Interactions are identical to the GIS Map page', 'Data comes from eFlow active alarms (eflow_active_alarm) synced every minute'],
     },
     alarmManagement: {
       desc: 'Site Outage Monitor board: watches whether sites are down, with ERA / Regular / ALL views.',
@@ -912,10 +912,10 @@ const COMMON_ZH: CommonText = {
     { title: '直链访问', body: '任何页面都可用 ?page=<key> 直接打开，例如 /myapp/?page=battery，可收藏、可分享。' },
     { title: '自动刷新', body: '顶栏下拉选择间隔（默认 5 分钟，可选 0/30s~30min）；正在输入、弹窗打开或标签页在后台时本轮自动跳过，不打断操作。仅「看板 / 展示页」参与自动刷新，配置与操作页（如系统设置、上传、表浏览、IP 探测）不刷新、选择器为禁用态；看板页全屏挂机时即使选「关闭」也会按本页默认间隔兜底刷新。' },
     { title: '主题与语言', body: '右上角切换深/浅色主题与中/英文界面，偏好自动保存在本机（localStorage）。' },
-    { title: '数据新鲜度', body: '部分页面页头显示「最近同步」时间。看板数据由定时任务写入，各任务频率不同（告警 30 分钟、微波拓扑每天 05:15、丢包每天 06:30 等），完整清单见「任务管理详解」。' },
+    { title: '数据新鲜度', body: '部分页面页头显示「最近同步」时间。看板数据由定时任务写入，各任务频率不同（实时告警每分钟、微波拓扑每天 05:15、丢包每天 06:30 等），完整清单见「任务管理详解」。' },
   ],
   faq: [
-    { q: '看板数据没有更新？', a: '① 先到「任务管理」查看对应任务的最近执行结果与失败聚合；② 检查顶栏「自动刷新」间隔是否被调成关闭；③ 注意部分数据本身低频同步：实时告警每 30 分钟、微波拓扑每天 05:15、丢包每天 06:30、事件总览每小时第 20 分钟。仍不对可看「数据库数据新鲜度巡检」的执行日志，它会输出调用链与排查方向（含文件型数据源的落盘年龄）。' },
+    { q: '看板数据没有更新？', a: '① 先到「任务管理」查看对应任务的最近执行结果与失败聚合；② 检查顶栏「自动刷新」间隔是否被调成关闭；③ 注意部分数据本身低频同步：实时告警每分钟、微波拓扑每天 05:15、丢包每天 06:30、事件总览每小时第 20 分钟。仍不对可看「数据库数据新鲜度巡检」的执行日志，它会输出调用链与排查方向（含文件型数据源的落盘年龄）。' },
     { q: '页面数字与预期口径不一致？', a: '注意各页口径：电池看板默认只统计 24 小时内新鲜读数；MS SLA 看板以实时计算为准（可能与快照文件不一致）；丢包看板只展示最近 7 个完整自然日；CXO 看板内嵌快照，重跑同步任务才更新。' },
     { q: '任务长期停在 pending 不执行？', a: '多半是该任务未被归入任何 worker 组（GROUP_TASK_MAP），队列里永远无人认领——这是本项目已发生过四次的事故模式（finebi_report_sync、whatsapp_send_ext、sp_email_details，以及 2026-09-18 查出的 olib_soc 看板增量与 vmax_multi_data_sync）。新增任务必须在 worker_watchdog.py 的 GROUP_TASK_MAP 登记分组；陈旧 pending 占住的单飞名额 6 小时后会被 worker 自动过期释放。2026-09-18 起这类停摆不再靠人肉发现：db_freshness_check（每小时）会把未归组 / 无执行记录 / 队列滞留 / 成功逾期四类健康异常按翻转去重主动微信+邮件通知。' },
     { q: '任务反复 failed？', a: '到 log/worker_runtime*.log 找该 task_id 的堆栈（排障首选日志；每组 worker 一个文件，任务所属组见执行认领日志）。上游不可达 → 先到「系统设置 → 凭据」点「测试连接」；口令变了 → 更新凭据。auto_retry_failed 每 10 分钟自动重试（MAX_ATTEMPTS=2，超 24 小时放弃），无需手动反复点执行。' },
@@ -959,10 +959,10 @@ const COMMON_EN: CommonText = {
     { title: 'Direct links', body: 'Every page can be opened with ?page=<key>, e.g. /myapp/?page=battery — bookmarkable and shareable.' },
     { title: 'Auto refresh', body: 'Pick an interval in the header (default 5 minutes; 0/30s~30min available). While you are typing, a dialog is open, or the tab is in the background, the round is skipped to avoid interrupting you. Only dashboard/display pages auto-refresh; configuration and operation pages (settings, upload, table browser, IP trace, …) never refresh and their selector is disabled. A dashboard left in fullscreen keeps refreshing at its default interval even when the selector is set to Off.' },
     { title: 'Theme & language', body: 'Switch dark/light theme and Chinese/English in the top-right; preferences are remembered locally (localStorage).' },
-    { title: 'Data freshness', body: 'Some pages show a "last synced" time in the header. Boards are fed by scheduled tasks with different frequencies (alarms every 30 min, microwave topology daily 05:15, packet loss daily 06:30...). See "Task Manager Deep Dive" for the full catalog.' },
+    { title: 'Data freshness', body: 'Some pages show a "last synced" time in the header. Boards are fed by scheduled tasks with different frequencies (alarms every minute, microwave topology daily 05:15, packet loss daily 06:30...). See "Task Manager Deep Dive" for the full catalog.' },
   ],
   faq: [
-    { q: 'The board data is not updating?', a: '① Check the task\'s latest result and the failure summary in "Task Manager"; ② check whether the header "Auto refresh" was set to Off; ③ remember some data is inherently low-frequency: alarms every 30 min, microwave topology daily 05:15, packet loss daily 06:30, incident overview at minute 20 each hour. The "DB Data Freshness Check" task history also logs the call chain and direction when stale (including the on-disk age of file-based sources).' },
+    { q: 'The board data is not updating?', a: '① Check the task\'s latest result and the failure summary in "Task Manager"; ② check whether the header "Auto refresh" was set to Off; ③ remember some data is inherently low-frequency: alarms every minute, microwave topology daily 05:15, packet loss daily 06:30, incident overview at minute 20 each hour. The "DB Data Freshness Check" task history also logs the call chain and direction when stale (including the on-disk age of file-based sources).' },
     { q: 'Numbers do not match the expected criteria?', a: 'Watch each page\'s definition: the battery board counts only readings ≤24h fresh by default; the MS SLA board follows the live calculation (snapshot files may differ); packet loss shows only the last 7 complete days; the CXO board embeds a snapshot refreshed only by re-running its sync task.' },
     { q: 'A task stays pending forever?', a: 'Most likely the task was never assigned to a worker group (GROUP_TASK_MAP) — nobody claims it from the queue. This accident happened four times in this project (finebi_report_sync, whatsapp_send_ext, sp_email_details, and on 2026-09-18 the olib_soc dashboard sync plus vmax_multi_data_sync). New tasks MUST be registered in GROUP_TASK_MAP in worker_watchdog.py; a stale pending row holding the single-flight slot is now auto-expired by the worker after 6 hours. Since 2026-09-18 such stalls no longer need a human to spot them: db_freshness_check (hourly) pushes the four health findings (ungrouped / no execution record / stuck queue / overdue since last success) through WeChat + email, deduplicated by state flips.' },
     { q: 'A task keeps failing?', a: 'Find the stack trace for the task_id in log/worker_runtime*.log (the first log to check; one file per worker group). Upstream unreachable → run "Test Connection" in Settings → Credentials; changed password → update credentials. auto_retry_failed retries every 10 min (MAX_ATTEMPTS=2, gives up after 24h) — no need to click Run repeatedly.' },

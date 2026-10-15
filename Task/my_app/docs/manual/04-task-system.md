@@ -452,10 +452,45 @@ USSD 的日表当时只剩 2026-08-25~27 三行，而月表里有完整的 6 个
 
 > **为什么触发源不是 `eflow_tt`**：那张表由 `eflow_sync` 每小时 :22 才落库，
 > 旧机制（每 15 分钟扫它的 3 小时窗口）端到端时延 45~75 分钟，对 P1 太慢。
-> `realtime_alarm` 新鲜度（生产 `*/5` 同步）+ 本任务 5 分钟轮询 + 实时查单，
+> `realtime_alarm` 新鲜度（生产 `*/1` 同步，2026-10-15 起独立 `x` 组）+ 本任务 5 分钟轮询 + 实时查单，
 > 首推时延压到分钟级。触发扫描的完整口径见
 > `backend/services/tt_alarm_trigger.py` 的模块 docstring；三层单据来源
 > （实时/镜像/触发行）的取舍见 `tt_alarm_sources.py`。
+
+> **⚠️ 2026-10-15 事故：这张触发源表每分钟曾真的消失约 0.14 秒。**
+> 现象是本任务报 `RuntimeError: realtime_alarm 表不存在或缺少 tt_id/alarmraisedtime 列`
+> （实测 16:02、16:57、22:42 三次，起跑相位都在「整分 +1.0s」，与 `*/1` 的
+> `eflow_active_alarm` 撞上；该任务今天刚从 n 组拆到 x 组并把 cron 提到每分钟，
+> 之前 30 分钟一次时撞上的概率极低，所以问题一直存在但直到今天才暴露）。
+> 根因**不是没同步**，而是**换表 DDL 写了裸表名**：PG 的 `DROP TABLE` 会顺着
+> `search_path`（`app,eflow,lte_pl,…`，见 `backend/database.py` 的
+> `_PsycopgRaw._SEARCH_PATH`）逐级向下解析，而库里有两份同名 `realtime_alarm`
+> —— `app` 全量 149/150 列、`eflow` 过滤 36 列（列名是 `TT ID`，且**没有**
+> `alarmraisedtime`）。`fetch_and_save_active_alarm()` 每轮先 `write_alarm_sqlite()`
+> （eflow 置顶连接）再 `_write_alarm_to_appdb()`（app 置顶连接），两处影子表换名
+> 都用裸名，于是**互相删掉对方的正式表**：2026-09-29 那次「影子表 + 单条 `DO` 块
+> 原子换表」的修复（`eflow_alarm_service._swap_table_sql`）被跨 schema 解析**绕过**，
+> `app.realtime_alarm` 每分钟仍有一个真实空窗，空窗里只有 36 列副本可见；
+> 而本任务的触发扫描原先用 `table_schema = ANY(current_schemas(false))` 取
+> **跨 schema 并集**判存在性与列，于是判成「表在、关键列不在」→ 抛错。
+>
+> **修复（2026-10-15）**：写端 `_swap_table_sql` 增加 `schema` 参数，
+> `_replace_table_atomically` / `_replace_table_via_engine` /
+> `_write_alarm_to_appdb` 的影子表清理、换名、列漂移 `ALTER`、`DELETE`、
+> 建索引全部按 `_conn_schema(conn)`（PG = `current_schema()`）限定；
+> 读端 `tt_alarm_trigger` 新增 `TRIGGER_SCHEMA`（默认 `app`，可用环境变量
+> `TT_TRIGGER_SCHEMA` 覆盖），存在性判断、列清单、扫描 SQL 都只认这一个 schema。
+> 前提是影子表与目标表同 schema —— 实测全局 engine 的会话
+> `current_schema()=app`、`search_path=app,eflow,…`，与 app 置顶连接一致，
+> 不一致时限定名会直接报 `relation does not exist`（响），不会再悄悄换掉别的
+> schema 的正式表。回归守卫：`tests/test_eflow_alarm_swap_schema.py`；
+> 复现与验证探针：`TMP/_observe_schema.py`（每 20ms 分别采样两个 schema 的
+> 存在性/关键列，跑 130s 即可覆盖两个同步周期）。
+> **附带结论**：`eflow.realtime_alarm` 这份镜像在此前一直被对方反复删除
+> （等于长期不存在），修复后它才真正稳定存在；若有消费者依赖它，
+> 需按 `ALARM_COLUMNS`（36 列、`TT ID` 风格列名）单独核对口径。
+> **两份同名告警表的口径与「写端必须限定 schema / 读端不得取并集」这条数据层规矩，
+> 权威版本记在 `03-data-layer.md`**（含为什么不能把 eflow 副本一删了之）。
 
 **消息内容 = `whatsapp-kb-bot` 的完整 TT 分析**（2026-09-29 按用户要求改）：
 

@@ -1255,7 +1255,8 @@ register_config(ConfigResource(
                               "收件人在「邮件收件人」页的 P1 TT 告警通报邮件组维护"),
     },
     defaults_factory=_tt_alert_defaults,
-    description="eFlow P1 告警 WhatsApp 推送：触发源为 realtime_alarm（每 30 分钟同步），"
+    description="eFlow P1 告警 WhatsApp 推送：触发源为 realtime_alarm（app schema，生产由 "
+                "eflow_active_alarm 每分钟同步，周期以任务配置页的调度为准），"
                 "触发后实时回 eFlow 查单拿最新更新时间；P1 首推立即发、重报双档"
                 "（自上次发送后工单无更新满 10 分钟催报、有更新满 30 分钟才报，均带横幅）、"
                 "清除即止损。检测仍每 5 分钟一轮。发送走 Baileys 推送进程，发送成功（服务端回执）才把 "
@@ -1264,7 +1265,9 @@ register_config(ConfigResource(
                 "该单告警清除后再发一封结束汇总（生命周期时间轴 + 总历时）；"
                 "重报不发邮件。收件人在「Settings → 邮件收件人」的 P1 TT 告警通报邮件组维护，"
                 "开关为配置项 mail_enabled / 环境变量 TT_ALERT_MAIL_ENABLED。",
-    description_en="eFlow P1 alarm WhatsApp push: triggered from realtime_alarm (synced every 30 min), "
+    description_en="eFlow P1 alarm WhatsApp push: triggered from realtime_alarm (app schema, synced "
+                   "every minute by eflow_active_alarm in production; the schedule on the Task Config "
+                   "page is authoritative), "
                    "then live-fetches eFlow for the latest update time; first push immediately, "
                    "two-tier re-notify (no update since last send -> nudge at 10 min; updated since last "
                    "send -> wait 30 min), both with banner; stop when cleared. Polling stays every 5 min. "

@@ -233,6 +233,53 @@ Playwright 为回退**。编排层为 `backend/services/whatsapp_dispatch.py`。
 `backend/services/whatsapp_send_baileys_service.py:195`（`build_items` / `dispatch_items`）、
 `backend/services/kpi_email_report.py:532/1424/1496`（三处接入点）。
 
+### 2026-10-15 · PG 下「整表替换」DDL 必须带 schema 限定
+
+**背景**：任务 `tt_alarm_whatsapp_alert` 偶发失败（2026-10-15 实测 16:02 / 16:57 /
+22:42 三次），错误恒为 `realtime_alarm 表不存在或缺少 tt_id/alarmraisedtime 列`，
+下一轮自愈。排查结论：`eflow_active_alarm`（`*/1`）那轮 `success=True`，
+同步没挂 —— 是**表在那一瞬间真的不存在**。PG 里 `realtime_alarm` 有**两份同名表**：
+`app`（全量 149/150 列，仪表盘与推送读的那份）与 `eflow`（`ALARM_COLUMNS`
+过滤 36 列，列名 `TT ID`，无 `alarmraisedtime`）。
+`fetch_and_save_active_alarm()` 每轮先 `write_alarm_sqlite()`（eflow 置顶连接）、
+再 `_write_alarm_to_appdb()`（app 置顶连接），两处影子表换名都写**裸表名**；
+PG 的 `DROP TABLE` 沿 `search_path`（`app,eflow,lte_pl,…`，
+`backend/database.py:320` `_PsycopgRaw._SEARCH_PATH`）逐级解析，
+于是两条语句**互相删掉对方的正式表**，实测 `app.realtime_alarm` 每分钟消失约 0.14s
+（`TMP/_observe_schema.py` 20ms 采样复现；跨 schema DROP 行为另用一张
+`_probe_drop_test` 临时表单独验证）。
+
+**决策**：写端所有换表/建索引/列漂移 DDL 一律用 `_conn_schema(conn)`
+（PG = `current_schema()`，即该连接裸名 DDL 的真实落点）做 schema 限定 ——
+`eflow_alarm_service.py` 的 `_swap_table_sql`（新增 `schema` 参数）、
+`_replace_table_atomically`、`_replace_table_via_engine`、`_write_alarm_to_appdb`；
+读端 `tt_alarm_trigger.py` 新增 `TRIGGER_SCHEMA`（默认 `app`，环境变量
+`TT_TRIGGER_SCHEMA` 可覆盖），存在性、列清单、扫描 SQL 只认这一个 schema，
+**不再取 `ANY(current_schemas(false))` 并集**。
+
+**理由**：
+- 2026-09-29 的「影子表 + 单条 `DO` 块原子换表」只解决了**同 schema 内**的
+  DROP→RENAME 空窗，跨 schema 的名字解析它管不着；本次限定后该修复才真正闭合，
+  `/api/gis/sites` 一类读 `realtime_alarm` 的间歇 500 风险同时消掉；
+- `ALTER TABLE … RENAME TO` 的目标名 PG 语法上不允许带 schema，所以约定
+  「影子表与目标表同 schema」，并用 `_conn_schema(conn)` 保证；若将来有人给
+  `_replace_table_via_engine` 传与全局 engine 不同 schema 的连接，限定名会直接报
+  `relation does not exist`（响），而不是悄悄换掉别的 schema 的正式表 ——
+  宁可失败也不静默（`AGENTS.md` 三节 5「不得吞错」）；
+- 双写本身（app 全量 + eflow 过滤副本）是历史契约，本次**不动它**：
+  删除该副本会改变 `eflow.sqlite3` 侧消费者的口径，需另行评估
+  （此前那份副本每分钟被对方删一次，实际长期不存在，属于待确认的独立问题）。
+
+**验证**：`tests/test_eflow_alarm_swap_schema.py`（换表 SQL 必须限定、读端参数
+必须锁 schema 的回归守卫）+ 重启 x/m 组后 23:24~23:28 连续 5 轮同步全绿、
+`app.realtime_alarm` 全程存在、与失败轮**同相位**的 23:27:00.996 推送轮 `success=True`。
+
+**出处**：`backend/services/eflow_alarm_service.py:433`（`_swap_table_sql`）、
+`:463`（`_conn_schema`）、`:482`（`_replace_table_atomically`）、
+`:608`（`_replace_table_via_engine`）、`backend/services/tt_alarm_trigger.py:57`
+（`TRIGGER_SCHEMA`）、`docs/manual/04-task-system.md`（同一事故的详版框）、
+`docs/manual/13-operations.md`（排障入口与探针用法）。
+
 ## 九、相关文档
 
 | 内容 | 去哪里 |
