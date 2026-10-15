@@ -4471,8 +4471,22 @@
          · 否则 https 门户内嵌明文 http 会被混合内容拦截成空白；
          · 更要紧的是身份 —— 443 进去是 admin，8443 进去才是 NOC（自动登录）。
            门户是使用方，**只认 8443**，故这里必须强制归一，不能依赖目录值。
-       这一步是幂等的：目录已改成 8443 时，归一回自身、无害。 */
-    if (u.indexOf('192.168.100.27') !== -1) return 'https://192.168.100.27:8443/';
+       这一步是幂等的：目录已改成 8443 时，归一回自身、无害。
+
+       ⚠️ 2026-10-15：补 `?lang=` —— 用户报「英文下 RAG 页签里还是中文」。
+       Open WebUI v0.12.0 的 i18next 初始化里 `lookupQuerystring` 就是 `lang`，
+       `fallbackLng.default` 是 en-US，且 detection.order **不含 cookie**
+       （["querystring","localStorage","defaultLocale","navigator"]）——
+       所以跨域 iframe 里靠 URL 参数切语言完全可靠，不受分区影响。
+       语言值写死 'en'（此分支只在英文下进入，无需 encodeURIComponent）；
+       这里用 `?` 不是 `&`：RAG 的 URL 结尾是 `/`、**没有已有 query**
+       （与 my_app 分支的 `&lang=` 不同）。只在语言为英文时补参数：
+       中文时 Open WebUI 走它自己的 navigator/默认判定，且避免给中文用户
+       多带一个无谓参数。 */
+    if (u.indexOf('192.168.100.27') !== -1) {
+      return 'https://192.168.100.27:8443/' +
+        (state.lang === 'en' ? '?lang=en' : '');
+    }
     return u || 'about:blank';
   }
   /* 2026-10-14 删除：RAG 页签上原有的「登录凭据」提示条（.qa-cred）整条链路。
