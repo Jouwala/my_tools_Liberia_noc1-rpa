@@ -31,6 +31,25 @@ function isShellLessEmbed(): boolean {
   } catch { return false }
 }
 
+/**
+ * 门户 v2（/v2/olbrportal/）内嵌本页时专属的「精简显示」开关。
+ *
+ * 为什么单独一个参数：门户 v2 的 Auto Report Files 面板只想要「最新邮件附件」这一件事，
+ * 于是它把 iframe 的 src 写成 `/myapp/?page=email_reports&lang=…&portalFiles=1`
+ * （见 v2/olbrportal/assets/olbr.js 的 emailSrc()）。本页据此：
+ *   · 只渲染 Latest Email 一个页签（隐藏 FINEBI report / eFlow TT Rules Check / TTs and MTTR）；
+ *   · 前三列表头改用 emailReports.portalCol* 那三条文案。
+ * ⚠️ 只有 v2 那块面板带此参数 —— MsPortal / 根 olbrportal / v1 的内嵌 src 都不带，
+ *    用户直接打开 /myapp/?page=email_reports&lang=en 也不带，故它们一律保持原样
+ *    （全部 4 个页签 + 旧表头）。这与 isShellLessEmbed() 的「是否被无外壳嵌入」是两回事：
+ *    后者所有门户都命中，不能用来做 v2 专属开关。
+ */
+function isPortalFilesMode(): boolean {
+  try {
+    return new URLSearchParams(window.location.search).get('portalFiles') === '1'
+  } catch { return false }
+}
+
 // 后端 /api/email-reports/latest 的返回结构（只含文档类报告，无图片）
 interface ReportFile {
   name: string
@@ -123,6 +142,8 @@ export default function EmailReports() {
   // 每次挂载求值一次即可：嵌入方式由 URL 决定，本页挂载后不会再变。
   // 用 state 而不是每次渲染现算，是为了让「是否渲染标题」在这次挂载内稳定。
   const [embed] = useState(isShellLessEmbed)
+  // 门户 v2 内嵌的精简模式（?portalFiles=1）：同样由 URL 一次性决定，见 isPortalFilesMode()。
+  const [portalFiles] = useState(isPortalFilesMode)
   const [rows, setRows] = useState<Row[]>([])
   const [loading, setLoading] = useState(false)
   // 每个报告类型保留最近几份（默认 1 = 只要最新一份）
@@ -293,9 +314,11 @@ export default function EmailReports() {
     mttrTimer.current = setTimeout(poll, MTTR_POLL_MS)
   }, [mttrRows, fetchMttrFiles, load, t])
 
+  // 前三列表头在门户 v2 精简模式下换文案（其余列不变）；独立打开时 portalFiles 为 false，
+  // 仍走 colTask/colType/colFile。详见 isPortalFilesMode() 的注释。
   const columns = [
     {
-      title: t('emailReports.colTask'),
+      title: t(portalFiles ? 'emailReports.portalColTask' : 'emailReports.colTask'),
       dataIndex: 'task_name',
       key: 'task_name',
       minWidth: 220,
@@ -307,14 +330,14 @@ export default function EmailReports() {
       ),
     },
     {
-      title: t('emailReports.colType'),
+      title: t(portalFiles ? 'emailReports.portalColType' : 'emailReports.colType'),
       dataIndex: 'label',
       key: 'label',
       minWidth: 200,
       render: (v: string) => <Tag color="cyan">{v}</Tag>,
     },
     {
-      title: t('emailReports.colFile'),
+      title: t(portalFiles ? 'emailReports.portalColFile' : 'emailReports.colFile'),
       dataIndex: 'name',
       key: 'name',
       render: (v: string, row: Row) => (
@@ -655,6 +678,12 @@ export default function EmailReports() {
       <Card style={cardStyle} title={embed ? undefined : t('emailReports.title')}>
         <Tabs
           defaultActiveKey="email"
+          /* 门户 v2 精简模式（?portalFiles=1）只有一个页签：页签条本身用 renderTabBar
+             整体隐藏 —— 单个页签「Latest Email」单独占一行，与面板外层标题
+             「Auto Report Files」语义重复、视觉上也是白占一行。其余场景（独立打开、
+             MsPortal / olbrportal / v1 内嵌）portalFiles 为 false，页签条照常渲染。 */
+          renderTabBar={portalFiles ? () => <></> : undefined}
+          /* finebi / eflow_tt_rules_check / tt_mttr 三项在精简模式下滤掉，只留 email。 */
           items={[
             {
               key: 'email',
@@ -662,7 +691,9 @@ export default function EmailReports() {
               children: (
                 <>
                   <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', gap: 'var(--wh-space-sm)', marginBottom: '0.75rem' }}>
-                    <Text type="secondary">{t('emailReports.hint')}</Text>
+                    {/* 提示语在门户 v2 精简模式下不渲染：外层面板已有标题，这句「列出各邮件发送
+                        任务生成的最新报告文件…」对只看附件的人没有信息量。独立打开 / 其它门户照常。 */}
+                    {!portalFiles && <Text type="secondary">{t('emailReports.hint')}</Text>}
                     <Space>
                       <Select
                         size="small"
@@ -886,7 +917,7 @@ export default function EmailReports() {
                 </>
               ),
             },
-          ]}
+          ].filter(tab => !portalFiles || tab.key === 'email')}
         />
       </Card>
     </div>
