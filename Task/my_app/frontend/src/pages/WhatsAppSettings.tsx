@@ -9,9 +9,14 @@ import { CardBase } from '../components/cards'
 
 /**
  * 两个「已关联设备」——**同一个 WhatsApp 号码**，两个设备槽：
- * notify = P1 告警推送（notify.js, data/auth-notify, 设备槽 :2）
- * bot    = 知识库问答（index.js,  data/auth,        设备槽 :1）
+ * notify = P1 告警推送（notify.js, data/auth-notify）
+ * bot    = 知识库问答（index.js,  data/auth）
  * 同号必须各扫各的凭据，不能共用（否则 code=440 互踢）。
+ *
+ * ⚠️ 不要在此写死设备槽号。槽位由 WhatsApp 服务端分配，每次重新扫码都会
+ * 递增且不回收旧号（实测同一号码上依次出现过 :1 / :2 / :4 / :5），
+ * 写死必然过期。进程靠**凭据目录**区分，槽号仅用于展示，
+ * 以 `identity.device_slot`（读 creds.json 现取）渲染的卡面 Slot 为准。
  */
 const DEVICES = ['notify', 'bot'] as const
 
