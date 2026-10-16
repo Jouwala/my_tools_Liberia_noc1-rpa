@@ -868,6 +868,63 @@ html {
   }
 }
 
+/* ---------- GIS 人员图层（2026-10-16）：小人标记 + 状态提示条 ----------
+ * 小人图标本体是 Leaflet divIcon 内的内联 SVG（由 PersonnelLayer.tsx 生成），
+ * 这里只补两件事：
+ *   1. .gis-person-marker 去掉 divIcon 默认的白底边框（否则小人外面套一个白方块），
+ *      并保证可点（pointer-events）。
+ *   2. .gis-personnel-status 是浮在地图左下的状态条（覆盖人数 / 非实时提示 /
+ *      路线距离）。配色一律走 --wh-* 令牌，不写死十六进制（AGENTS.md 三.3）。 */
+.gis-person-marker {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  /* divIcon 默认 overflow 可见，标签才能超出针身边界显示 */
+  overflow: visible !important;
+}
+/* 图标容器：针身在左，标签在右，垂直居中于针身圆心附近 */
+.gis-person-anchor {
+  position: relative;
+  overflow: visible;
+  line-height: 0;
+}
+/* 常驻 WO 计数标签（WO:未关闭/总数）。放在针身右侧，不遮住地图点击点 */
+.gis-person-badge {
+  position: absolute;
+  left: 100%;
+  top: 6px;
+  margin-left: 2px;
+  white-space: nowrap;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  line-height: 1.5;
+  padding: 0 var(--wh-space-xs, 4px);
+  border-radius: var(--wh-radius-sm, 4px);
+  background: var(--wh-card-bg, rgba(255, 255, 255, 0.9));
+  border: 1px solid currentColor;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  pointer-events: none; /* 标签不拦点击，点击落到针身 */
+}
+.gis-personnel-status {
+  position: absolute;
+  left: var(--wh-space-md, 12px);
+  bottom: var(--wh-space-md, 12px);
+  z-index: 1000; /* 与 Leaflet 控件同层，DOM 在后故压在其上 */
+  display: flex;
+  align-items: center;
+  gap: var(--wh-space-xs, 4px);
+  padding: var(--wh-space-xs, 4px) var(--wh-space-sm, 8px);
+  border-radius: var(--wh-radius-md, 6px);
+  background: var(--wh-card-bg, rgba(255, 255, 255, 0.94));
+  border: 1px solid var(--wh-border, rgba(0, 0, 0, 0.1));
+  font-size: 0.75rem;
+  color: var(--wh-text, #333);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+.gis-personnel-note {
+  color: var(--wh-text-secondary, #888);
+}
+
 /* ---------- GIS 地图图例浮层：地图瓦片底不透明，所以改用深模糊玻璃透出瓦片 ----------
  * 用户 2026-10-14 要求「图例背景改为透明，且深浅两个主题都要适配」。
  *

@@ -50,7 +50,7 @@ logger = logging.getLogger(__name__)
 from backend.database import Base, engine, DB_PATH, DB_MODE
 from backend.models.analysis import AnalysisArchive, UploadedFile
 from backend.routers import (
-    tables, upload, analysis, gis, tt_wo_dashboard, alarm_dashboard,
+    tables, upload, analysis, gis, personnel, tt_wo_dashboard, alarm_dashboard,
     tt_exclude as tt_exclude_router,
     wo_dashboard,
     packet_loss_dashboard, battery_dashboard, credentials,
@@ -161,6 +161,8 @@ app.include_router(tt_exclude_router.router)
 app.include_router(upload.router)
 app.include_router(analysis.router)
 app.include_router(gis.router)
+# 人员图层（GIS 页「显示人员」）——独立 router，见 routers/personnel.py 头部说明
+app.include_router(personnel.router)
 app.include_router(tt_wo_dashboard.router)
 app.include_router(wo_dashboard.router)
 app.include_router(alarm_dashboard.router)

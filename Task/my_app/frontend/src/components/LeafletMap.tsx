@@ -212,11 +212,39 @@ type MarkerProps = {
   /** 是否响应鼠标事件。默认 true（Leaflet 默认）；
       县名标注传 false —— 它只负责承载 tooltip，不该拦截地图拖拽与站点点击。 */
   interactive?: boolean
+  /** 自定义图标 HTML（2026-10-16 新增，供 GIS 人员图层画「小人」）。
+      **不传时行为与旧版完全一致**：仍是零尺寸空 divIcon（县名标注依赖它）。
+      传字符串即用该 HTML 作为 divIcon 内容 —— 项目原则是不引入图片资源，
+      故调用方应传**内联 SVG**而非 <img>。 */
+  html?: string
+  /** 图标尺寸 [宽,高]（px）。仅在传了 html 时有意义。 */
+  iconSize?: [number, number]
+  /** 图标锚点 [x,y]：图标上哪一点对准坐标。人员图标通常锚在底部中点，
+      这样「脚尖」落在地理点上，而不是图标中心悬在点上。 */
+  iconAnchor?: [number, number]
+  /** 图标变化依赖键：值变化时重建 divIcon（如人员选中态换色/放大）。
+      不传则图标只在挂载时创建一次。 */
+  iconKey?: string
+  /** 附加到 divIcon 上的 class（供 CSS 选中，如选中态的呼吸动画）。 */
+  className?: string
+  /** Leaflet zIndexOffset：同一 pane 内多个 Marker 的层级微调。 */
+  zIndexOffset?: number
+  /** 挂到指定 pane（人员图层用自己的 pane，见 GISMap 的 z-index 链说明）。 */
+  pane?: string
+  /** 点击回调（2026-10-16 新增，供人员图标点击）。与 CircleMarker 同一模式：
+      用 ref 存最新闭包，避免每次 render 都 off/on。 */
+  onClick?: (e: MouseEvent) => void
+  /** 鼠标移入/移出回调（2026-10-16 新增，供人员图标悬停显示其站点连线）。
+      同样用 ref 存最新闭包。 */
+  onMouseOver?: (e: MouseEvent) => void
+  onMouseOut?: (e: MouseEvent) => void
   children?: ReactNode
 }
 
 /**
- * 一个**零视觉**的 Marker，仅作为 Popup/Tooltip 的挂载锚点。
+ * Marker。
+ *
+ * 默认是一个**零视觉**的 Marker，仅作为 Popup/Tooltip 的挂载锚点。
  *
  * 为什么需要它（2026-10-14 县名避让）：
  *   Leaflet 的 Tooltip 必须 bind 到一个 L.Layer，且**只能显示在该图层自己的
@@ -229,20 +257,48 @@ type MarkerProps = {
  *   LeafletMap 的原因之一就是不引入额外的图片资源与版权问题（见文件头）。
  *   传一个空 divIcon 既能避免加载图片，又能保证「零尺寸、零视觉」，
  *   不会像默认图标那样在避让后的位置上留下一个可见的图钉。
+ *
+ * 2026-10-16 扩展：新增可选 `html`/`iconSize`/`iconAnchor`/`iconKey`/
+ *   `className` 以支持**可见的自定义图标**（GIS 人员图层的小人）。这些 prop
+ *   **全部可选**，不传时严格保持旧行为 —— 县名标注（传 interactive=false、
+ *   不传 html）不受影响。图标仍走 divIcon，故依旧不引入图片资源。
  */
-export function Marker({ position, interactive = true, children }: MarkerProps) {
+export function Marker({
+  position, interactive = true, html, iconSize, iconAnchor,
+  iconKey, className, zIndexOffset, pane, onClick, onMouseOver, onMouseOut, children,
+}: MarkerProps) {
   const { map, parent } = useLeafletParent()
+
+  // 图标构造抽成函数：初建与 iconKey 变化时共用，避免两处写不一致
+  const makeIcon = (): L.DivIcon => {
+    if (!html) {
+      // 旧行为：零尺寸空图标（理由见上方注释）
+      return L.divIcon({ className: 'leaflet-empty-anchor', html: '', iconSize: [0, 0] })
+    }
+    return L.divIcon({
+      // 注意 divIcon 默认带白底边框样式，调用方用 className 覆盖；
+      // 这里给一个中性 class，具体样式由调用方 CSS 决定。
+      className: className || 'leaflet-custom-anchor',
+      html,
+      iconSize: iconSize || [24, 24],
+      iconAnchor: iconAnchor || [(iconSize?.[0] || 24) / 2, (iconSize?.[1] || 24)],
+    })
+  }
 
   const layer = useMemo(() => {
     if (!parent) return null
+    // pane 兜底补建：JSX 里 Pane 写在图层之后时避免图标不渲染（同 CircleMarker）
+    if (pane && map && !map.getPane(pane)) map.createPane(pane)
     return L.marker(position, {
       interactive,
-      // 空 divIcon：零尺寸、无图片请求（理由见上方注释）
-      icon: L.divIcon({ className: 'leaflet-empty-anchor', html: '', iconSize: [0, 0] }),
+      icon: makeIcon(),
+      ...(zIndexOffset != null ? { zIndexOffset } : {}),
+      ...(pane ? { pane } : {}),
     })
-    // 刻意只依赖 parent：初值即可，position 变更走下方 setter
+    // 刻意只依赖 [parent, iconKey]：初值即可，position 变更走下方 setter；
+    // iconKey 变化需要重建图标（选中态切换）。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [parent])
+  }, [parent, iconKey])
 
   useEffect(() => {
     if (!layer || !parent) return
@@ -258,6 +314,44 @@ export function Marker({ position, interactive = true, children }: MarkerProps) 
     if (!layer) return
     layer.setLatLng(position)
   }, [layer, position])
+
+  // 图标相关输入变化时重建图标（与上面 useMemo 的 [parent, iconKey] 搭配：
+  // 图层只在 parent/iconKey 变化时重建，图标本身则跟随 html/尺寸等一起更新）。
+  // 这样即便调用方只改了 html 而没改 iconKey，图标也会跟着变。
+  useEffect(() => {
+    if (!layer) return
+    layer.setIcon(makeIcon())
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [layer, iconKey, html, className, iconSize?.[0], iconSize?.[1], iconAnchor?.[0], iconAnchor?.[1]])
+
+  // 点击回调：用 ref 存最新闭包（与 CircleMarker 同一模式）
+  const clickRef = useRef(onClick)
+  clickRef.current = onClick
+  useEffect(() => {
+    if (!layer) return
+    const handler = (e: any) => clickRef.current?.(e)
+    layer.on('click', handler)
+    return () => {
+      layer.off('click', handler)
+    }
+  }, [layer])
+
+  // 悬停回调（同款 ref 模式）：mouseover / mouseout 分别绑定
+  const overRef = useRef(onMouseOver)
+  overRef.current = onMouseOver
+  const outRef = useRef(onMouseOut)
+  outRef.current = onMouseOut
+  useEffect(() => {
+    if (!layer) return
+    const over = (e: any) => overRef.current?.(e)
+    const out = (e: any) => outRef.current?.(e)
+    layer.on('mouseover', over)
+    layer.on('mouseout', out)
+    return () => {
+      layer.off('mouseover', over)
+      layer.off('mouseout', out)
+    }
+  }, [layer])
 
   if (!layer) return null
   return <LayerCtx.Provider value={layer}>{children}</LayerCtx.Provider>

@@ -36,6 +36,30 @@
 | `MY_APP_API_TOKEN` | 未设 | 远程接口令牌；**未设时远程一律 403**。判定已改为按代理头还原真实客户端（`backend/security.py:79-102`），详见 `05-security-and-credentials.md` |
 | `MY_APP_REMOTE_HOST` | 覆盖 `settings.json` | 远程主机地址（DB 写入服务 `DB_WRITER_PORT`=8765、`FTP_PORT`=21） |
 
+**路线规划（OSRM，2026-10-16 新增，GIS 人员图层用）**
+
+GIS 页「显示人员」→ 点 WO → 路线规划用到。**未配置时自动降级为直线距离**
+（功能可用，只是不是真实道路路线），不报错。
+
+| 键 | 默认 | 作用 |
+| --- | --- | --- |
+| `OSRM_BASE_URL` | 空 | 自建 OSRM 实例基址（如 `http://127.0.0.1:5000`）。优先级：环境变量 > `backend/data/settings.json` 的 `osrm_base_url` > 空。**空即降级为直线** |
+| `OSRM_PROFILE` | `driving` | OSRM profile（实例构建时定的名字，常见 `driving` / `foot`） |
+
+> 读取处：`services/routing_service.py::get_osrm_base_url()`（**每次调用实时读**，改配置无需重启，沿用 `config/remote_host.py` 惯例）。
+>
+> **自建 OSRM 简要步骤**（OSRM 二进制与利比里亚 OSM 抽提是**运行依赖、体积大，不入库**，
+> 参照 nginx 的处理方式；放本机磁盘）。
+> 1. 取利比里亚 OSM 抽提（`.osm.pbf`）；
+> 2. `osrm-extract -p /path/profiles/car.lua xxx.osm.pbf`；
+> 3. `osrm-partition xxx.osrm` → `osrm-customize xxx.osrm`；
+> 4. `osrm-routed --algorithm mld xxx.osrm`（默认监听 5000）；
+> 5. 把 `OSRM_BASE_URL` 指向它。
+>
+> **验证**：`curl "$OSRM_BASE_URL/route/v1/driving/-10.766,6.281;-10.656,6.231?overview=false"`
+> 返回 `{"code":"Ok",...}` 即通（⚠ OSRM 参数是**先经度后纬度**）。
+> 未起时 GIS 页路线会以黄色虚线 + 直线距离呈现（`mode:"straight"`, `degraded:true`）。
+
 **统一门户登录链路（分机部署必看）**
 
 my_app 没有自己的账号体系，登录靠回调门户校验。这组键决定"回调谁"：

@@ -27,6 +27,7 @@ import { BASEMAP_PMTILES_URL, BASEMAP_ATTRIBUTION, BASEMAP_MAX_ZOOM } from './gi
 import { PmtilesLayer } from './gismap/PmtilesLayer'
 import { LayerToggleControl } from './gismap/LayerToggleControl'
 import { MapOverlayToggle } from './gismap/MapOverlayToggle'
+import { PersonnelLayer, PersonnelToggleButton } from './gismap/PersonnelLayer'
 import { exportAoaReport } from '../utils/excelReport'
 
 /* 默认取景：**完整居中显示利比里亚全境**（2026-09-25 改，按用户需求）。
@@ -266,6 +267,12 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
      且语义不变（当前没有任何 UI 能把它改成 false）。 */
   const [showTopology] = useState(true)
   const [showUtil] = useState(true)
+  /* 人员图层开关（2026-10-16）。只在 mode==='all'（gis 页）可用 ——
+     realtime_alarm 页不挂该图层（用户明确要求「只在 gis 页」）。
+     **默认开启**（2026-10-16 用户要求「默认显示」）。
+     状态放在这里（而非 PersonnelLayer 内部）是因为开关按钮在工具栏、
+     小人在地图里，两处 DOM 位置不同，需要共同的父级持有状态。 */
+  const [showPersonnel, setShowPersonnel] = useState(true)
   const [topologyLinks, setTopologyLinks] = useState<TopologyLink[]>([])
   const [utilMeta, setUtilMeta] = useState<UtilMeta | null>(null)
   const [regionBoundaries, setRegionBoundaries] = useState<{ region: string; polygon: [number, number][]; color: string; site_count: number }[]>([])
@@ -1092,8 +1099,8 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
             <Space wrap style={{ gap: 'var(--wh-space-sm)' }}>
               <span style={{ fontSize: '0.8125rem', fontWeight: 500, color: WH.text }}>{t('gis.layerFilter')}</span>
               {layerOptions.map(lo => (
+                <Fragment key={lo.key}>
                 <Tag
-                  key={lo.key}
                   color={activeLayers.has(lo.key) ? lo.color : undefined}
                   role="switch"
                   aria-checked={activeLayers.has(lo.key)}
@@ -1111,6 +1118,16 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
                 >
                   {lo.label}
                 </Tag>
+                {/* 人员图层开关：紧跟「Realtime」右侧（2026-10-16 用户要求）。
+                    仅 gis 页（mode==='all'）提供；realtime_alarm 页不显示。 */}
+                {lo.key === 'rt_alarm' && mode === 'all' && (
+                  <PersonnelToggleButton
+                    enabled={showPersonnel}
+                    loading={false}
+                    onToggle={() => setShowPersonnel(v => !v)}
+                  />
+                )}
+                </Fragment>
               ))}
             </Space>
           </Col>
@@ -1346,6 +1363,12 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
                 （层级链：tile 200 < overlay 400 < shadow 500 < marker 600
                   < sitePane/tooltip 650 < countyLabel 670 < popup 700 < control 1000） */}
             <Pane name="countyLabelPane" style={{ zIndex: 670 }} />
+            {/* 人员图层专用 pane（2026-10-16）：**必须高于 sitePane(650)** ——
+                否则小人图标会被站点圆点盖住（人员看得见比站点更重要，因为
+                点击小人才能展开其 WO）。取 680：高于 countyLabel(670)、
+                低于 popup(700)，保证人员弹窗仍在最上。
+                层级链见上方 countyLabelPane 注释，此处只是插入一层。 */}
+            <Pane name="personPane" style={{ zIndex: 680 }} />
             {filteredSites.map(site => (
               /* 超时告警站点（仅 realtime 模式的 rt_alarm_overdue 档）：在站点圆点
                  外再叠一圈只描边、不填充的"光环"，由 CSS 做呼吸动画（.gis-halo）。
@@ -1417,6 +1440,11 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
               </CircleMarker>
               </Fragment>
             ))}
+            {/* 人员图层（仅 gis 页）：小人图标 + WO 弹窗 + 人员→站点路线。
+                自包含组件，见 gismap/PersonnelLayer.tsx 头注释与已知限制说明。 */}
+            {mode === 'all' && (
+              <PersonnelLayer isDark={isDark} enabled={showPersonnel} timeRange={timeRange} />
+            )}
             {boundaryMode === 'region' && regionBoundaries.map((rb, idx) => (
               <Polygon
                 key={`region-${idx}`}

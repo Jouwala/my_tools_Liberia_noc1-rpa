@@ -495,6 +495,78 @@ ZXMW 微波网络拓扑与带宽利用率 NOC 看板（`MwUmeDashboard.tsx:4-8`�
 - **颜色同源约束**：前端 `KML_LINK_COLORS` 与后端 `mw_links_store.py` 的 `STYLE_COLORS` 是同一组 4 色，**改一处必须改另一处**。
 - 链路本身由 `?page=mwUmeTopology` 的页面上传 KML 维护（写 `kml_mw_links`，见 `mw_links_store.py` 与第 8 节）。
 
+### 10d. 人员图层：人员位置 + 其 WO + 人员→站点路线（2026-10-16 新增，**仅 `?page=gis`**）
+
+工具栏 **Layers 组里「Realtime」右侧的「显示人员」按钮**（2026-10-16 从工具栏尾部
+移入 Layers 组、且**默认开启**）开启后：地图上按 `person` 表的登记坐标画**水滴形地图针**
+（针内白色圆底 + 人形剪影，造型 2026-10-16 按用户参考图重做）；每个针旁**常驻标签
+显示 `WO:未关闭/总数`**（如 `WO:11/20`，未关闭为 0 时灰色、否则红色）；
+点击针弹出该人员的**未关闭 WO 列表**（列含 WO号/TT单号/站点名/站点ID/站点类型/
+传输类型/TT级别/告警级别/告警发生时间/清除时间/告警时长/状态/标题）；
+点击某条 WO 或行内「规划路线」，画出**人员到该 WO 所属站点**的路线并显示距离/时长。
+
+**悬停连线（2026-10-16 用户需求）**：鼠标**悬停**某人员 → 从该人员画到他
+**「有未关闭 WO 且站点当前有实时告警」**的每个站点的虚线（红色，`5 4`）；移出或
+**点击该人员**即消失（用户要求「点击后消失」）。状态条显示「XXX：未关闭告警站点连线 N 条」。
+- 端点：`GET /api/gis/personnel/{name_key}/alert-sites`（`personnel.py`）。
+- **是交集**：站点须同时满足「该人员有未关闭 WO」**且**「`realtime_alarm` 里有活跃告警」——
+  不是只看告警、也不是只看 WO。
+- **口径与 WO 列表一致**：WO 侧复用同一 `_wo_person_keys` + `_is_closed`，
+  故悬停连出的站点必然是「该人员 WO 列表里状态未关闭的那些」的子集。
+- 前端每人的告警站点集**按人缓存**（`siteCacheRef`），来回悬停不重复打接口；
+  并用 `hoverKey` 守卫**陈旧响应**（快速划过多人时，先发后到的请求不会把
+  「上一个人的线」画到当前人身上）。
+- 站点缺坐标画不出线时后端计入 `skipped_no_coord`（不静默丢）。
+
+**数字跟随页面时间窗口（2026-10-16 修）**：用户指出标签数字未跟随工具栏
+「Time window」（7 days / 30 days…）。现三个端点（`/personnel`、
+`/work-orders`、`/alert-sites`）都接收与 `/api/gis/sites` **同名**的
+`time_start`/`time_end`（前端把 `timeRange` 原样带入；窗口为「全部时间」时不带参数、不过滤）。
+- **过滤字段 = `eflow_wo.alarm_occur_time`**，窗口解析复用 `gis.py::_resolve_window`
+  （唯一实现）。**与地图站点统计同一口径**，两边数字不会漂移。
+- **语义**（经确认）：**打开时间落在窗口内**是前提，「未关闭」状态在其上叠加。
+  即窗口选 7 天时，只统计「近 7 天打开且未关闭」的 WO —— 10 天前打开、至今未关闭的
+  老单会被排除。
+- ⚠ 三处**必须同时**跟窗口，否则会出现「标签数字跟了、连线没跟」的错位；
+  悬停连线的缓存键也已含窗口（`name_key|start|end`），切换窗口不会复用旧线。
+
+> **「传输类型」取 `eflow_wo.domain`**（`TRM_MW`/`TRM_IPRAN`/`TRM_DWDM` 等传输域；
+> 该列还有 `RAN`/`POWER` 等非传输值，原样展示，不臆造映射）。
+> 「告警时长」取 `fault_duration_time`（库内形如 `0d4h27m`）。
+
+- **只在 `mode==='all'`（gis 页）渲染** —— `realtime_alarm` 页不挂该图层（按钮也不出现）。
+- **前端**：自包含组件 `pages/gismap/PersonnelLayer.tsx`（导出 `PersonnelLayer` 与
+  `PersonnelToggleButton` 两个组件 —— 按钮在工具栏、图层在地图容器内，DOM 位置不同，
+  `enabled` 状态由 `GISMap.tsx` 持有）。挂载点：`GISMap.tsx` 站点标记之后，
+  pane `personPane`（z-index **680**，插在 countyLabel 670 与 popup 700 之间，
+  高于 sitePane 650 以免小人被站点圆点盖住）。
+- **`LeafletMap.Marker` 扩展（2026-10-16）**：原 `Marker` 硬编码零尺寸空 divIcon，
+  无法画图标。现新增可选 `html`/`iconSize`/`iconAnchor`/`iconKey`/`className`/
+  `zIndexOffset`/`pane`/`onClick`，**全部可选、不传时行为与旧版完全一致**
+  （县名标注不受影响）。小人用**内联 SVG**（不引图片资源，遵循 `LeafletMap.tsx` 文件头原则）。
+- **后端**：路由 `routers/personnel.py`（前缀同为 `/api/gis`，单开文件避免 `gis.py` 继续膨胀）。
+  - `GET /api/gis/personnel` —— 有登记坐标的人员 + 各自未关闭 WO 数。
+  - `GET /api/gis/personnel/{name_key}/work-orders?include_closed=` —— 该人员的 WO（含站点坐标）。
+  - `GET /api/gis/route?from_lat=&from_lng=&to_lat=&to_lng=` —— 路线规划。
+  - 姓名匹配规则集中在 `services/person_name.py`（唯一实现，勿另写一套）；
+    路线在 `services/routing_service.py`（OSRM + 直线降级）。
+- **⚠️ 口径一致性（AGENTS.md 三.1b）**：`/personnel` 的 `wo_count` 与
+  `/personnel/{key}/work-orders` 的行数**必须相等**，两者共用
+  `personnel.py` 的 `_is_closed()` 与 `_wo_person_keys()`。曾出现「列表说 166 单、
+  点进去 352 行」的漂移（因为下钻未排除已关闭），已修。**下钻默认只列未关闭**；
+  传 `include_closed=true` 看历史单时行数会大于计数，这是**显式**差异，界面需说明。
+
+**三条已知限制（界面文案必须保留，否则会被当成 bug）**：
+1. **只有 26/136 人有坐标**（`person` 表 136 行中 28 行有坐标，其中 2 行为 `0.0/0.0` 已剔除）——
+   状态条显示「人员 N/136（仅已有坐标者）」，别让人以为系统漏了人。
+2. **坐标是静态登记值、不是实时定位** —— `person.latitude/longitude` 无 GPS 时间戳、
+   无轨迹，状态条标注「登记位置，非实时」。**这是最容易被误当实时定位的点。**
+3. **人员↔WO 靠姓名匹配、无外键**（规范化后命中 96%）—— 同名或改名会漏配。
+
+**OSRM 部署与配置**：见 `12-configuration.md`。OSRM 未配置/不可达时，
+路线**自动降级为直线**（黄色虚线）+ haversine 距离，状态条标「直线距离」，
+不报错、不空白 —— 地图上**永远有一条线**。
+
 ### 10e. ⚠️ `?page=gis` 整页白屏事故与修复（2026-09-28）
 
 **现象**：打开 GIS 页一闪就没有，`#root` 被清空（innerHTML 长度 **0**），浏览器抛 16 个
