@@ -85,6 +85,17 @@ interface AlertSite {
   open_wo: number
 }
 
+/** HTML 转义 —— 姓名/电话来自数据库，直接拼进 divIcon 的 html 字符串里，
+ *  若含 `<` `&` `"` 会破坏结构甚至注入。**所有拼进 html 的动态值都必须过这里**
+ *  （AGENTS.md 三.4：外部输入一律视为不可信）。 */
+function escapeHtml(v: unknown): string {
+  return String(v ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+}
+
 /** 人员「地图针」图标：内联 SVG（项目原则是不引图片资源，见 LeafletMap.tsx 文件头）。
  *
  * 造型参照用户给的参考图（2026-10-16）：水滴形地图针（上圆下尖）+
@@ -397,6 +408,14 @@ export function PersonnelLayer({
         const openCnt = p.wo_count || 0
         const totalCnt = p.wo_count_total || 0
         const badgeColor = openCnt > 0 ? '#ff4d4f' : '#8c8c8c'
+        // 悬停时在针上方显示姓名与电话（电话号码后端已脱敏）
+        const phone = (p.phone || '').trim()
+        const tip = hovered
+          ? `<span class="gis-person-tip">` +
+              `<b>${escapeHtml(p.name)}</b>` +
+              (phone ? `<i>${escapeHtml(phone)}</i>` : '') +
+            `</span>`
+          : ''
         return (
           <Marker
             key={p.name_key}
@@ -404,6 +423,7 @@ export function PersonnelLayer({
             pane="personPane"
             html={
               `<div class="gis-person-anchor">` +
+                tip +
                 personIconSvg(color, size, selected) +
                 `<span class="gis-person-badge" style="border-color:${badgeColor};color:${badgeColor}">WO:${openCnt}/${totalCnt}</span>` +
               `</div>`

@@ -888,6 +888,37 @@ html {
   overflow: visible;
   line-height: 0;
 }
+/* 悬停姓名/电话气泡（2026-10-16 用户要求「悬浮时显示人员的名字和电话」）。
+   显示在针尖上方（针高 = size*1.5，故 bottom 用 100% 抬到图标顶），水平居中。 */
+.gis-person-tip {
+  position: absolute;
+  left: 50%;
+  bottom: 100%;
+  transform: translateX(-50%);
+  margin-bottom: 2px;
+  white-space: nowrap;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1.35;
+  padding: var(--wh-space-xs, 4px) var(--wh-space-sm, 8px);
+  border-radius: var(--wh-radius-sm, 4px);
+  background: var(--wh-card-bg, rgba(255, 255, 255, 0.95));
+  border: 1px solid var(--wh-border, rgba(0, 0, 0, 0.12));
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  pointer-events: none; /* 气泡不拦点击/悬停事件 */
+}
+.gis-person-tip b {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--wh-text, #333);
+}
+.gis-person-tip i {
+  font-style: normal;
+  font-size: 0.6875rem;
+  color: var(--wh-text-secondary, #888);
+}
+
 /* 常驻 WO 计数标签（WO:未关闭/总数）。放在针身右侧，不遮住地图点击点 */
 .gis-person-badge {
   position: absolute;
