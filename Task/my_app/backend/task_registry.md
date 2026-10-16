@@ -17,6 +17,15 @@
 
 其余字段：`task_id` / `name` / `name_en` / `description` / `description_en` / `default_cron` / `category`，与 `backend/services/task_runner.py::register_task` 参数一一对应。
 
+可选字段：
+
+- `enabled`：默认 `True`；置 `False` 让新部署默认禁用（人工审批后手动启用）。
+- `recent_runs_provider`：`(module_path, func_name)` 元组。低频任务（月/周级）的执行记录会被
+  `task_execution_log` 的 7 天保留期清掉，任务列表显示 **No Record**；登记该字段后，
+  `register_all_tasks()` 会把提供者注入 `task_stats`，任务列表在**日志表无该任务记录时**
+  从其产物库补回最近几次运行（唯一主源仍是日志表）。提供者无参、返回按时间倒序的
+  `RunRecord` 列表。参考 `olib_soc_vmax_report` → `olib_soc_report_service.recent_runs_for_task`。
+
 ## 对外接口
 
 | 对象 | 说明 |

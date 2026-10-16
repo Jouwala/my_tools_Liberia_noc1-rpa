@@ -1,0 +1,878 @@
+[
+ {
+  "account": "sama",
+  "when": "",
+  "url": "https://x.com/sama/status/2106388373221118198",
+  "metrics": {
+   "replies": 6200,
+   "reposts": 1900,
+   "likes": 29000,
+   "views": 7100000
+  },
+  "text": "I am very uncomfortable about people trying to ascribe religious force or a surrender of human judgment to AI models, and think it is a real safety issue."
+ },
+ {
+  "account": "mistralai",
+  "when": "",
+  "url": "https://x.com/mistralai/status/2107457414387622310",
+  "metrics": {
+   "replies": 2000,
+   "reposts": 4600,
+   "likes": 40000,
+   "views": 5600000
+  },
+  "text": "Meet Mistral Large 4, aka Le Chonk. • 1T parameters, natively multimodal. 49B active. It is the best open weights model from US or Europe on aggregated benchmarks. • State-of-the-art on critical workloads, including cyber defense, manufacturing and finance and it surpasses Video 3 00:00 Made with AI"
+ },
+ {
+  "account": "sama",
+  "when": "",
+  "url": "https://x.com/sama/status/2106189841813934140",
+  "metrics": {
+   "replies": 1000,
+   "reposts": 610,
+   "likes": 22000,
+   "views": 1500000
+  },
+  "text": "The contrast between hanging up the last phone call of the day of high-stakes decisions and then a minute later walking in the door to the pure love of small children who want to laugh and play and show you every discovery they made that day is the strangest and best thing I have"
+ },
+ {
+  "account": "sama",
+  "when": "",
+  "url": "https://x.com/sama/status/2107691261776052633",
+  "metrics": {
+   "replies": 1200,
+   "reposts": 676,
+   "likes": 12000,
+   "views": 1700000
+  },
+  "text": "looking up at the stars with extra awe tonight. \"thy sea is so great and my boat is so small.\""
+ },
+ {
+  "account": "sama",
+  "when": "",
+  "url": "https://x.com/sama/status/2107623610483720463",
+  "metrics": {
+   "replies": 773,
+   "reposts": 957,
+   "likes": 10000,
+   "views": 1900000
+  },
+  "text": "We are entering a new era of discovery now: Sharing AI progress in mathematicsFrom openai.com"
+ },
+ {
+  "account": "sama",
+  "when": "",
+  "url": "https://x.com/sama/status/2107924408597950702",
+  "metrics": {
+   "replies": 905,
+   "reposts": 545,
+   "likes": 11000,
+   "views": 1700000
+  },
+  "text": "ChatGPT can now generate a custom UI for you! OpenAI @OpenAI Oct 7 GPT-6 and Intelligent UI, now rolling out in ChatGPT for everyone. Intelligent UI in ChatGPT delivers fast, interactive answers that make everyday questions more visual, complex topics easier to grasp, and interactive tools for your task available on the spot. Video 2 01:08"
+ },
+ {
+  "account": "AnthropicAI",
+  "when": "19h",
+  "url": "https://x.com/AnthropicAI/status/2109795898909950247",
+  "metrics": {
+   "replies": 751,
+   "reposts": 505,
+   "likes": 5500,
+   "views": 1800000
+  },
+  "text": "Over the last few months, we’ve made significant progress in reducing the effectiveness of distillation attacks against Claude. In this post, we explain how: Strengthening our defenses against distillation attacksFrom anthropic.com"
+ },
+ {
+  "account": "AnthropicAI",
+  "when": "3h",
+  "url": "https://x.com/AnthropicAI/status/2110047081414987957",
+  "metrics": {
+   "replies": 451,
+   "reposts": 663,
+   "likes": 8700,
+   "views": 1000000
+  },
+  "text": "New on our Engineering blog: Creating in-house source control. In May, we merged around 2,500 code changes per day. In September, we merged more than 30,000 per day. As a result, we became bottlenecked by developer infrastructure built for human (rather than agent) scale. Redesigning source control at AnthropicFrom anthropic.com"
+ },
+ {
+  "account": "AnthropicAI",
+  "when": "",
+  "url": "https://x.com/AnthropicAI/status/2108680150556737819",
+  "metrics": {
+   "replies": 653,
+   "reposts": 436,
+   "likes": 4500,
+   "views": 1300000
+  },
+  "text": "We’re beginning a process of publishing more frequent reports on model behavior, beyond what appears in our system cards and regular risk reports. Today’s report describes four types of behaviors we’ve identified during evaluations and internal use. In each, Claude acted on real Investigating unintended model actions in our evaluations and internal useFrom anthropic.com"
+ },
+ {
+  "account": "AnthropicAI",
+  "when": "",
+  "url": "https://x.com/AnthropicAI/status/2108290395599667700",
+  "metrics": {
+   "replies": 258,
+   "reposts": 508,
+   "likes": 4600,
+   "views": 639000
+  },
+  "text": "An astrophysicist worked with Claude Science to create the first complete ultraviolet map of the sky. Astronomers have already created complete sky maps from radio to gamma rays. But large regions of the sky have never been observed in UV. In today’s science blog, Brice Ménard Using Claude Science to produce the first complete map of the sky in UV lightFrom anthropic.com"
+ },
+ {
+  "account": "gdb",
+  "when": "",
+  "url": "https://x.com/gdb/status/2107899150247616531",
+  "metrics": {
+   "replies": 235,
+   "reposts": 169,
+   "likes": 3800,
+   "views": 403000
+  },
+  "text": "Introducing Intelligent UI, a new capability in ChatGPT for answering quickly with fully interactive user interfaces: OpenAI @OpenAI Oct 7 GPT-6 and Intelligent UI, now rolling out in ChatGPT for everyone. Intelligent UI in ChatGPT delivers fast, interactive answers that make everyday questions more visual, complex topics easier to grasp, and interactive tools for your task available on the spot. Video 3 01:10"
+ },
+ {
+  "account": "AnthropicAI",
+  "when": "",
+  "url": "https://x.com/AnthropicAI/status/2108302539498414208",
+  "metrics": {
+   "replies": 271,
+   "reposts": 286,
+   "likes": 2600,
+   "views": 319000
+  },
+  "text": "We’re launching the Anthropic Cyber Mission, a new effort to secure critical infrastructure and open-source software. Introducing the Anthropic Cyber MissionFrom anthropic.com"
+ },
+ {
+  "account": "gdb",
+  "when": "",
+  "url": "https://x.com/gdb/status/2107640886482104524",
+  "metrics": {
+   "replies": 192,
+   "reposts": 206,
+   "likes": 3900,
+   "views": 166000
+  },
+  "text": "towards acceleration of scientific discovery and improving quality of life for everyone OpenAI @OpenAI Oct 6 We’re releasing a broad range of new mathematical results produced by an internal frontier model. We’ve been consulting with the independent Advisory Group on Mathematics and Artificial Intelligence at the Institute for Advanced Study, and we have drawn on their advice and"
+ },
+ {
+  "account": "AIatMeta",
+  "when": "",
+  "url": "https://x.com/AIatMeta/status/2106099776035152231",
+  "metrics": {
+   "replies": 111,
+   "reposts": 139,
+   "likes": 1100,
+   "views": 387000
+  },
+  "text": "Following gold-medal-level performance from our AI models across five competitions in mathematics, physics, and chemistry, we asked a harder question: can AI contribute when a problem is genuinely open and without an existing solution path? Over the past several months, Meta AI - Your AI Assistant for Images, Shopping and MoreFrom meta.ai"
+ },
+ {
+  "account": "AIatMeta",
+  "when": "",
+  "url": "https://x.com/AIatMeta/status/2104579386024603826",
+  "metrics": {
+   "replies": 208,
+   "reposts": 147,
+   "likes": 2800,
+   "views": 191000
+  },
+  "text": "In the past 6 months... - Muse Spark - Muse Image - Muse Video - Muse Spark 1.1 - Meta Model API - Muse Glimmer - Muse Spark 1.2 - Muse Code - Muse Spark 1.3 - Muse ...and we’re just getting started. 🚀 Video 5 00:59"
+ },
+ {
+  "account": "mistralai",
+  "when": "",
+  "url": "https://x.com/mistralai/status/2109687906751086628",
+  "metrics": {
+   "replies": 91,
+   "reposts": 186,
+   "likes": 3200,
+   "views": 128000
+  },
+  "text": "Le Chonk cooked on visual grounding. Pinpoints exactly where things are in an image. 42% on Dense 200, ahead of even frontier closed models.. Video 4 00:00"
+ },
+ {
+  "account": "AIatMeta",
+  "when": "",
+  "url": "https://x.com/AIatMeta/status/2109691148943999167",
+  "metrics": {
+   "replies": 193,
+   "reposts": 218,
+   "likes": 2100,
+   "views": 219000
+  },
+  "text": "We’re excited to introduce the Muse Wonder series with Muse Wonder and Muse Wonder Full, our most capable models yet. Both are frontier models, built to deliver state-of-the-art performance for personal and professional agentic tasks. Muse Wonder is available today via the Meta Video 4 02:32"
+ },
+ {
+  "account": "mistralai",
+  "when": "",
+  "url": "https://x.com/mistralai/status/2107532329937723861",
+  "metrics": {
+   "replies": 105,
+   "reposts": 207,
+   "likes": 2800,
+   "views": 134000
+  },
+  "text": "Mistral Large 4 is one of the world's strongest AI models for cybersecurity."
+ },
+ {
+  "account": "gdb",
+  "when": "2h",
+  "url": "https://x.com/gdb/status/2110063893016096831",
+  "metrics": {
+   "replies": 127,
+   "reposts": 124,
+   "likes": 2300,
+   "views": 156000
+  },
+  "text": "6 days and $40,000 of compute with GPT-5.6 Sol to find a critical vulnerability in Chrome, claiming Google’s first full-chain reward in 2026 for a vulnerability that would affect an estimated 1 billion users. Highlights the opportunity for defenders to utilize these tools to Oege de Moor @oegerikus 4h For the second time in Google Chrome’s history, Google awarded a $250,000 bounty for a full-chain exploit… to @Xbow. Here’s the full story: At an all-hands at the start of 2026 in Malta, I set the team a crazy challenge. A full-chain exploit of Chrome by the annual Black Hat"
+ },
+ {
+  "account": "gdb",
+  "when": "",
+  "url": "https://x.com/gdb/status/2102821706041819401",
+  "metrics": {
+   "replies": 216,
+   "reposts": 64,
+   "likes": 1700,
+   "views": 194000
+  },
+  "text": "mega upgrade for GPT Voice, which can now use tools and is available in Work: OpenAI @OpenAI Sep 23 We heard you loud and clear. ChatGPT Voice can now: - Use plugins like your email, calendar, and Slack. - Be powered by GPT-6 Astra, Sol, and Luna. - Be used in ChatGPT Work on web and mobile, so you can create docs, decks, sites, and spreadsheets or tackle complex tasks in Video 4 02:05"
+ },
+ {
+  "account": "AIatMeta",
+  "when": "",
+  "url": "https://x.com/AIatMeta/status/2109698705490149596",
+  "metrics": {
+   "replies": 86,
+   "reposts": 100,
+   "likes": 2000,
+   "views": 115000
+  },
+  "text": "From rebuilding our foundation to pushing the frontier in 14 months 🚀"
+ },
+ {
+  "account": "gdb",
+  "when": "",
+  "url": "https://x.com/gdb/status/2104821232441160070",
+  "metrics": {
+   "replies": 199,
+   "reposts": 56,
+   "likes": 989,
+   "views": 193000
+  },
+  "text": "Practical guidelines on securing frontier RL training, reflecting our current learnings: OpenAI @OpenAI Sep 29 How we think about securing frontier RL training runs: openai.com/index/towards-…"
+ },
+ {
+  "account": "huggingface",
+  "when": "",
+  "url": "https://x.com/huggingface/status/2106034221005312448",
+  "metrics": {
+   "replies": 186,
+   "reposts": 162,
+   "likes": 1200,
+   "views": 130000
+  },
+  "text": "The same model, with the same weights, scores 62% in one agent harness and 33% in another. @adithya_s_k and the @huggingface team just released the ultimate guide to multi-harness RL, and it's one of the most practical RL write-ups this year, and everything open! The trick is"
+ },
+ {
+  "account": "AIatMeta",
+  "when": "",
+  "url": "https://x.com/AIatMeta/status/2102997291732766943",
+  "metrics": {
+   "replies": 74,
+   "reposts": 56,
+   "likes": 494,
+   "views": 115000
+  },
+  "text": "@finkd just unveiled Muse Realtime Avatar, our real-time embodiment technology that turns Muse Realtime Voice into expressive, interactive avatars. Muse Realtime Avatar enables an entirely new range of interactions in @Muse, starting with real-time conversations. 🧵👇 Video 6 02:01"
+ },
+ {
+  "account": "huggingface",
+  "when": "",
+  "url": "https://x.com/huggingface/status/2098064044167225730",
+  "metrics": {
+   "replies": 202,
+   "reposts": 36,
+   "likes": 252,
+   "views": 126000
+  },
+  "text": "Training Agents 4: From reward functions to environments. Video 8 Hugging Face · 27K views 00:00 / 00:00 00:00 27K views Hugging Face @huggingface Training Agents 4: From reward functions to environments."
+ },
+ {
+  "account": "mistralai",
+  "when": "",
+  "url": "https://x.com/mistralai/status/2107834891844899292",
+  "metrics": {
+   "replies": 71,
+   "reposts": 51,
+   "likes": 863,
+   "views": 42000
+  },
+  "text": "Mistral Large 4 runs general-purpose agents that gather information and produce finished deliverables across complex workflows."
+ },
+ {
+  "account": "swyx",
+  "when": "",
+  "url": "https://x.com/swyx/status/1281424520100737025",
+  "metrics": {
+   "replies": 0,
+   "reposts": 384,
+   "likes": 907,
+   "views": 5700
+  },
+  "text": "💁‍♂️ How to Play Long Term Games: Systems > Goals Discipline > Motivation Trust > Distrust Principles > Tactics Writing > Reading Vulnerability > Confidence North Stars > Low Hanging Fruit Trends > News Habits > Sprints Questions > Answers Problems > Solutions People > Projects"
+ },
+ {
+  "account": "mistralai",
+  "when": "7h",
+  "url": "https://x.com/mistralai/status/2109998925037859091",
+  "metrics": {
+   "replies": 36,
+   "reposts": 53,
+   "likes": 567,
+   "views": 18000
+  },
+  "text": "Look up! Mistral models are in orbit 🌍. Proud to join @orbitworksspace and @LoftOrbital's first-of-its-kind AI satellite constellation with @NVIDIAAIInfra. Loft @LoftOrbital 7h Just a few weeks ago, @orbitworksspace launched Altair, the first of a 50-satellite AI constellation that will enable users to receive AI-generated alerts within minutes. @NVIDIAAIInfra solutions is making this possible, supporting models like Mistral’s Ministral 3 to deliver"
+ },
+ {
+  "account": "huggingface",
+  "when": "",
+  "url": "https://x.com/huggingface/status/2105683434035384360",
+  "metrics": {
+   "replies": 65,
+   "reposts": 29,
+   "likes": 213,
+   "views": 46000
+  },
+  "text": "MCPs are making quite the comeback! You can now use them to bring your data to hf.co/chat?mode=ml-i… Video 6 GIF"
+ },
+ {
+  "account": "Replicate",
+  "when": "",
+  "url": "https://x.com/Replicate/status/2105739570520223949",
+  "metrics": {
+   "replies": 26,
+   "reposts": 16,
+   "likes": 281,
+   "views": 26000
+  },
+  "text": "FLUX 3 Image is here. The latest from @bfl_ai, generate stunning native 4K imagery, and get maximum control over every pixel. Construct images with hyper-specific layouts using bounding boxes, make multiple targeted edits at once, and stay consistent across edits. For its Black Forest Labs @bfl_ai Oct 1 00:48 Introducing FLUX 3 Image. Control every pixel. Make precise multi-turn edits without changing any other pixel. Lay out the image exactly how you want using bounding boxes. Generate in up to 4K to preserve details. Use up to 10 references to compose an image. Commercial"
+ },
+ {
+  "account": "huggingface",
+  "when": "",
+  "url": "https://x.com/huggingface/status/2104649170560901464",
+  "metrics": {
+   "replies": 64,
+   "reposts": 11,
+   "likes": 77,
+   "views": 45000
+  },
+  "text": "What would you like to see in Gradio? Drop your feature requests below 👇 🍉 Abubakar Abid @abidlabs Sep 28 5 years ago, we released @Gradio to make it easier to build frontends for AI apps. At that time, that was the main blocker for making AI more accessible to the community. But this is no longer a challenge. So we asked ourselves and other developers: \"what are the main challenges Video 7 GIF"
+ },
+ {
+  "account": "huggingface",
+  "when": "",
+  "url": "https://x.com/huggingface/status/2108252563015422389",
+  "metrics": {
+   "replies": 29,
+   "reposts": 15,
+   "likes": 99,
+   "views": 37000
+  },
+  "text": "Help keep science open, try this out on Paper Pages: hf.co/papers 🍉 Abubakar Abid @abidlabs Oct 8 🚨 The incentives to share scientific knowledge openly are crumbling. Historically, researchers shared scientific knowledge for two primary reasons: (1) the prestige conferred by discovery, and (2) a sense of expanding the pool of human knowledge. Even within industry, Video 5 00:21"
+ },
+ {
+  "account": "swyx",
+  "when": "",
+  "url": "https://x.com/swyx/status/2109640508079263769",
+  "metrics": {
+   "replies": 96,
+   "reposts": 7,
+   "likes": 166,
+   "views": 22000
+  },
+  "text": "world’s first full length workshop on claude flows @cjav_dev and Harrison Stall are kicking off @aiDotEngineer bright and early on a monday morning to a PACKED room, standing room only #AIEngineerNY@ricmac is on the case reporting for @latentspacepod and we’ll also publish Video 4 00:54 ClaudeDevs @ClaudeDevs Oct 9 00:58 Claude Managed Agents dynamic workflows are now available in public beta. It's a new type of multiagent orchestration, built for your most ambitious workloads. A lead agent writes a plan that runs across many agents in phases, combining the results at the end."
+ },
+ {
+  "account": "swyx",
+  "when": "20h",
+  "url": "https://x.com/swyx/status/2109797444204572880",
+  "metrics": {
+   "replies": 28,
+   "reposts": 5,
+   "likes": 139,
+   "views": 15000
+  },
+  "text": "one of the best parts of my job is bringing out the best in ai in each city i love new york ♥️ Video 3 00:00 / 00:41 AI Engineer 🔜 NYC 🗽 @aiDotEngineer Sep 20 We're excited to announce our AI Engineer New York speaker lineup! Presented by @arizeai CEO @ExaAILabs CTO @tryramp CEO @ValsAI CEO @RogoAI CTO @modal CEO @trybasis CEO @SonarSource CEO @runwayml CTO @mintlify CEO @sfcompute CTO Bridgewater CTO @turbopuffer CEO @NousResearch"
+ },
+ {
+  "account": "Replicate",
+  "when": "",
+  "url": "https://x.com/Replicate/status/2105375654732509574",
+  "metrics": {
+   "replies": 21,
+   "reposts": 3,
+   "likes": 85,
+   "views": 15000
+  },
+  "text": "Ideogram 4.5 is live on Replicate. Built for hyper-precise, multi-turn image editing. Perfect for editorial mockups, brand assets, and imagery without artifacts. Ideogram @ideogram_ai Sep 30 00:47 Introducing Ideogram 4.5, the most precise edit model. With each edit, leading models add artifacts, pixel shifts, and color changes. Ideogram 4.5 eliminates artifact buildup, making multi-turn editing possible. Live in Ideogram, the API, and launch partners. Open weights soon."
+ },
+ {
+  "account": "Replicate",
+  "when": "",
+  "url": "https://x.com/Replicate/status/2105729879551488410",
+  "metrics": {
+   "replies": 0,
+   "reposts": 2,
+   "likes": 49,
+   "views": 11000
+  },
+  "text": "Thrilled to be powering Griffin from @tavus on Replicate! Tavus @tavus Oct 1 Introducing Griffin, the first model to pass the video Turing test. 48% of people who talked to it live thought it was a real human. Previous systems have had a pass rate <3%. It is #1 on NVIDIA's benchmark for full-duplex AI video. It’s the first Human Interaction Model (HIM). Video 2 01:48 Readers added context The 48% figure and \"video Turing test\" claim are from Tavus's own study of 54 one-minute calls, not independently verified or using a standard protocol. Griffin-Lite leads NVIDIA's VideoFDB benchmark on their public leaderboard. cellcog.ai/blog/tavus-gri…research.nvidia.com/labs/amri/proj…tech-ish.com/2026/10/02/tav…"
+ },
+ {
+  "account": "Replicate",
+  "when": "",
+  "url": "https://x.com/Replicate/status/2104632869364588672",
+  "metrics": {
+   "replies": 4,
+   "reposts": 4,
+   "likes": 40,
+   "views": 9800
+  },
+  "text": "Thrilled to have P-Video-2-Pro run on Replicate! The latest video model from @PrunaAI at the edge of the preference × speed and preference × price Pareto frontiers. replicate.com/prunaai/p-vide… Design Arena @DesignArena Sep 28 P-Video-2 Pro (Quality) and P-Video-2 Pro (Speed) by @PrunaAI tie each other for #2 on Design Arena's Image to Video leaderboard with an Elo of 1325. Based on MiniMax H3 by @minimax, P-Video-2 Pro (Quality) generates in 8.0 seconds, while P-Video-2 Pro (Speed) has an 4.5-second"
+ },
+ {
+  "account": "Replicate",
+  "when": "",
+  "url": "https://x.com/Replicate/status/2107523186556653674",
+  "metrics": {
+   "replies": 8,
+   "reposts": 4,
+   "likes": 49,
+   "views": 7500
+  },
+  "text": "Nano Banana 2.1 is live on Replicate. The latest image model from @GoogleDeepMind optimized for a balance of price and performance. Built with leaps in visual design, mask-based editing, and subject consistency to achieve more natural images. Made with AI"
+ },
+ {
+  "account": "swyx",
+  "when": "2h",
+  "url": "https://x.com/swyx/status/2110065576764686421",
+  "metrics": {
+   "replies": 70,
+   "reposts": 4,
+   "likes": 54,
+   "views": 7000
+  },
+  "text": "🆕 How to Kill Your SaaS youtu.be/zlD-CkLVKtU A lot of people talk about the death of SaaS but mostly in theoretical terms. We took a real $43,000/year SaaS we use and launched a global hackathon to clone it in a weekend, with both AI and REAL HUMAN evals, using any models How to kill your SaaS: what we learned replacing a $43K/yr tool with AI agentsFrom youtube.com"
+ },
+ {
+  "account": "swyx",
+  "when": "7h",
+  "url": "https://x.com/swyx/status/2109990238533677520",
+  "metrics": {
+   "replies": 0,
+   "reposts": 71,
+   "likes": 55,
+   "views": 5600
+  },
+  "text": "I used to be a FICC trader so this announcement is absolutely freaking surreal — its not every year that we get to launch a NEW ASSET CLASS at @aiDotEngineer but this is finally public! ANNOUNCING THE COMPUTE TRADING MICROTRACK of AIE NYC - @evanjconrad: CEO SFCompute - Oliver cogsec @affaan Oct 12 ANNOUNCEMENT: I'm on the main stage @aiDotEngineer on Oct 14 w The Dark Pools of Compute - a look at how compute is actually bought and sold, what sets its price, from power and financing to policy, and what a more mature market could mean for anyone building on it."
+ },
+ {
+  "account": "TogetherAI",
+  "when": "",
+  "url": "https://x.com/TogetherAI/status/263891113843249152",
+  "metrics": {
+   "replies": 0,
+   "reposts": 0,
+   "likes": 30,
+   "views": 4
+  },
+  "text": "Barangkali setiap cewe semuanya susah ngedapatin gue.."
+ },
+ {
+  "account": "TogetherAI",
+  "when": "",
+  "url": "https://x.com/TogetherAI/status/263618299529662464",
+  "metrics": {
+   "replies": 0,
+   "reposts": 0,
+   "likes": 27,
+   "views": 4
+  },
+  "text": "setiap cobaan pasti ada hikmanya !!!!!!"
+ },
+ {
+  "account": "DeepSeekAI",
+  "when": "",
+  "url": "https://x.com/DeepSeekAI/status/1968265704664404057",
+  "metrics": {
+   "replies": 0,
+   "reposts": 3,
+   "likes": 4,
+   "views": 2000
+  },
+  "text": "SpikingBrain 1.0 is a Chinese brain-inspired AI model that uses event-driven spiking-neuron computation on domestic MetaX chips, reportedly delivering 25–100× faster processing for ultra-long inputs, though these claims remain preliminary and unverified. Spiking Brain@spikingbrainai Sep 17, 2025 SpikingBrain-1.0 #SpikingBrain"
+ },
+ {
+  "account": "TogetherAI",
+  "when": "",
+  "url": "https://x.com/TogetherAI/status/264331431604531201",
+  "metrics": {
+   "replies": 0,
+   "reposts": 0,
+   "likes": 3,
+   "views": 1
+  },
+  "text": "I liked most sexy woman...."
+ },
+ {
+  "account": "karpathy",
+  "when": "",
+  "url": "",
+  "metrics": {
+   "replies": 0,
+   "reposts": 0,
+   "likes": 0,
+   "views": 10
+  },
+  "text": "One pattern I find useful for working with LLMs is a nice long ramble session. Sometimes the LLM needs more bits to understand what you're trying to achieve, but you're too lazy to type them. In these cases I like to lean back, switch to /voice and just ramble for like"
+ },
+ {
+  "account": "GoogleAI",
+  "when": "",
+  "url": "",
+  "metrics": {
+   "replies": 0,
+   "reposts": 0,
+   "likes": 0,
+   "views": 0
+  },
+  "text": "We’ve been exploring the potential of using Gemini 4 Argon to accelerate research @Google. One of our tests was using videos of humans performing fun tasks (game of bags, anyone?) to autonomously spin up training simulations, rather than relying entirely on manual programming. Video 701:43"
+ },
+ {
+  "account": "GoogleAI",
+  "when": "",
+  "url": "",
+  "metrics": {
+   "replies": 0,
+   "reposts": 0,
+   "likes": 0,
+   "views": 0
+  },
+  "text": "Gemini 4️⃣ Argon ✨ is now rolling out globally. Our frontier model is built for complex, real-world tasks across coding, finance, legal, cybersecurity, and science. Check out how you can use Argon in your favorite Google product 🧵 Video 800:00 / 00:50"
+ },
+ {
+  "account": "GoogleAI",
+  "when": "",
+  "url": "",
+  "metrics": {
+   "replies": 0,
+   "reposts": 0,
+   "likes": 0,
+   "views": 0
+  },
+  "text": "It’s Friday 🎉 Here’s a look at this week’s announcements: — SynthID.com is now available globally in English, allowing anyone to use our detector portal to easily verify if images, video, or audio files were AI-generated by Google or industry partners — Nano Banana"
+ },
+ {
+  "account": "GoogleAI",
+  "when": "",
+  "url": "",
+  "metrics": {
+   "replies": 0,
+   "reposts": 0,
+   "likes": 0,
+   "views": 0
+  },
+  "text": "Our SynthID technology lets you easily verify if an image, video, or audio file is AI-generated, and today we’re expanding access. Now anyone can go to synthid.com to check files for a SynthID watermark — whether they were generated by us or industry partners like"
+ },
+ {
+  "account": "GoogleDeepMind",
+  "when": "",
+  "url": "",
+  "metrics": {
+   "replies": 0,
+   "reposts": 0,
+   "likes": 0,
+   "views": 0
+  },
+  "text": "Gemini 4 Argon taught a robot to play cornhole just by watching a video. It mapped the physics, coded its own simulation, and taught @Apptronik's Apollo humanoid to sink 7 throws in a row. Video 1200:00 / 01:43"
+ },
+ {
+  "account": "GoogleDeepMind",
+  "when": "",
+  "url": "",
+  "metrics": {
+   "replies": 0,
+   "reposts": 0,
+   "likes": 0,
+   "views": 0
+  },
+  "text": "SynthID Detector is now available to everyone. 🌐 Check whether online content was generated using @GoogleAI, or with tools from our industry partners – including @OpenAI, @nvidia, Kakao and coming soon, @Apple. Try it out → synthid.com Video 14 GIF"
+ },
+ {
+  "account": "GoogleDeepMind",
+  "when": "",
+  "url": "",
+  "metrics": {
+   "replies": 0,
+   "reposts": 0,
+   "likes": 0,
+   "views": 0
+  },
+  "text": "Meet EmbeddingGemma 2, our first natively multimodal open model for on-device embeddings. It expands beyond text to unify code, images, audio, and video in a shared space. 🧵 Video 15 GIF"
+ },
+ {
+  "account": "JeffDean",
+  "when": "",
+  "url": "",
+  "metrics": {
+   "replies": 0,
+   "reposts": 0,
+   "likes": 0,
+   "views": 0
+  },
+  "text": "I've been a personal supporter (through our family foundation) of @Khipu_AI&@DeepIndaba, which are fantastic events for AI researchers in Africa and South America. I've encouraged Google to support these in the past. Discovery Loop (@DiscoLoopAI) is thrilled to support! For the last 10 years we've been raising funds to bring AI to Africa (@DeepIndaba) and South America (@Khipu_AI). The efforts have been very successful, but this year we are finding it hard to raise money. If you work for an AI company, please share the following with the right"
+ },
+ {
+  "account": "JeffDean",
+  "when": "",
+  "url": "",
+  "metrics": {
+   "replies": 0,
+   "reposts": 0,
+   "likes": 0,
+   "views": 0
+  },
+  "text": "Very sorry to hear this news. 😥 I never had the chance to meet Margaret Hamilton, but her contributions to the flight software that got us to the moon are legendary. I love this image of her standing next to the printouts of the Apollo code. We’ve lost an icon. Margaret Hamilton, a computer science pioneer best known for her work at MIT leading development of the flight software for the Apollo missions to the moon, has died at 90. Read about her legacy via MIT News: news.mit.edu/2026/margaret-…"
+ },
+ {
+  "account": "JeffDean",
+  "when": "",
+  "url": "",
+  "metrics": {
+   "replies": 0,
+   "reposts": 0,
+   "likes": 0,
+   "views": 0
+  },
+  "text": "Proud to have collaborated with many others on quite a few of these things! claude just generated this 2 minute video about the history of Google and it goes so goddamn hard Video 3 00:00"
+ },
+ {
+  "account": "JeffDean",
+  "when": "",
+  "url": "",
+  "metrics": {
+   "replies": 0,
+   "reposts": 0,
+   "likes": 0,
+   "views": 0
+  },
+  "text": "The safety data for Waymo gets better and better. Comparison w/ human drivers on rate of crashes with serious injury: Latest data: 270M miles, 20X better Mar 2026: 170M miles, 13X better Before that (forget exactly when): 10X better 270M+ miles. 841 fewer injury-causing crashes. Our latest safety data shows the Waymo Driver continues to make roads safer for everyone. Compared to human drivers across 5 territories, it reduced: 📉 Injury crashes by 82% 📉 Serious injury crashes by 95% Full data:"
+ },
+ {
+  "account": "OpenAI",
+  "when": "",
+  "url": "",
+  "metrics": {
+   "replies": 0,
+   "reposts": 0,
+   "likes": 0,
+   "views": 0
+  },
+  "text": "We're sharing progress on ChatGPT for Teens, our ChatGPT experience for people under 18, alongside a preview of College Planner, new study tools, and support for college advisers and teen voices. ChatGPT for Teens applies automatically to accounts identified as belonging to"
+ },
+ {
+  "account": "OpenAI",
+  "when": "",
+  "url": "",
+  "metrics": {
+   "replies": 0,
+   "reposts": 0,
+   "likes": 0,
+   "views": 0
+  },
+  "text": "We’re releasing a broad range of new mathematical results produced by an internal frontier model. We’ve been consulting with the independent Advisory Group on Mathematics and Artificial Intelligence at the Institute for Advanced Study, and we have drawn on their advice and"
+ },
+ {
+  "account": "OpenAI",
+  "when": "",
+  "url": "",
+  "metrics": {
+   "replies": 0,
+   "reposts": 0,
+   "likes": 0,
+   "views": 0
+  },
+  "text": "We're expanding our approach to content provenance to include text in response to EU regulatory requirements, while recognizing the significant limitations of current text watermarking technology. Our tools already help verify whether an image or audio file was created with our"
+ },
+ {
+  "account": "OpenAI",
+  "when": "",
+  "url": "",
+  "metrics": {
+   "replies": 0,
+   "reposts": 0,
+   "likes": 0,
+   "views": 0
+  },
+  "text": "Small teams are taking on more with AI—from finding customers to building products and managing finances. Our new report explores how small businesses are putting AI agents to work. And through a new partnership with @ASBDC, we're bringing hands-on AI training and local guidance"
+ },
+ {
+  "account": "karpathy",
+  "when": "",
+  "url": "",
+  "metrics": {
+   "replies": 0,
+   "reposts": 0,
+   "likes": 0,
+   "views": 0
+  },
+  "text": "Dusting off this tweet from April because this gap in shared understanding of LLM capability is *widening*. It's now less \"two groups of people speaking past each other\" and more a sharp funnel. - Napkin math somewhere around 6B people (~75% of the population) have barely come Judging by my tl there is a growing gap in understanding of AI capability. The first issue I think is around recency and tier of use. I think a lot of people tried the free tier of ChatGPT somewhere last year and allowed it to inform their views on AI a little too much. This is"
+ },
+ {
+  "account": "karpathy",
+  "when": "",
+  "url": "",
+  "metrics": {
+   "replies": 0,
+   "reposts": 0,
+   "likes": 0,
+   "views": 0
+  },
+  "text": "Cool eval. Simply ask an LLM “Land or Water?” and give it a latitude and longitude coordinate as text. Ask 16,200 times, plot as image. The models know. From compressing the internet. results for all claudes"
+ },
+ {
+  "account": "karpathy",
+  "when": "",
+  "url": "",
+  "metrics": {
+   "replies": 0,
+   "reposts": 0,
+   "likes": 0,
+   "views": 0
+  },
+  "text": "We'll be spending a lot more time trying to understand the outputs of language models. A few thoughts, tips & tricks: Writing. Something I've had success with: Ask your LLM to explain something in ASD-STE100, it's a controlled language specification originally developed for"
+ },
+ {
+  "account": "karpathy",
+  "when": "",
+  "url": "",
+  "metrics": {
+   "replies": 0,
+   "reposts": 0,
+   "likes": 0,
+   "views": 0
+  },
+  "text": "We're starting to leave the territory where you'd test an LLM by e.g. \"create an svg of pelican on a bicycle\". As one idea to generalize it, I was interested what Opus 5 would do if I gave it the first paragraph of the Lord of the Rings, a 1M token budget (~$10) and asked for Video 3 01:32"
+ },
+ {
+  "account": "nvidia",
+  "when": "",
+  "url": "",
+  "metrics": {
+   "replies": 0,
+   "reposts": 0,
+   "likes": 0,
+   "views": 0
+  },
+  "text": ".@JensenHuang wrapped up his Paris visit at the Élysée with President @EmmanuelMacron, discussing NVIDIA’s investments in France’s AI ecosystem, open source, and AI safety. Our road to #NVIDIAGTC Berlin continues."
+ },
+ {
+  "account": "nvidia",
+  "when": "",
+  "url": "",
+  "metrics": {
+   "replies": 0,
+   "reposts": 0,
+   "likes": 0,
+   "views": 0
+  },
+  "text": "An evening in Paris with Jensen and the founders, researchers, and partners shaping AI across France. 🇫🇷 Video 9 00:00"
+ },
+ {
+  "account": "nvidia",
+  "when": "",
+  "url": "",
+  "metrics": {
+   "replies": 0,
+   "reposts": 0,
+   "likes": 0,
+   "views": 0
+  },
+  "text": "Let’s get building, Paris. 🦞 @JensenHuang stopped by Build-A-Claw, where developers and startups are getting hands-on with open models to build AI agents of their own."
+ },
+ {
+  "account": "nvidia",
+  "when": "",
+  "url": "",
+  "metrics": {
+   "replies": 0,
+   "reposts": 0,
+   "likes": 0,
+   "views": 0
+  },
+  "text": "From satellites to skincare, France is building with NVIDIA. 🇫🇷 Developers, researchers, and businesses across France are using NVIDIA technology and open models to bring AI into the real world. Explore France’s AI ecosystem: nvda.ws/4jSdAFc Meet two of the people Video 10 00:00 Video 11 00:00"
+ },
+ {
+  "account": "nvidia",
+  "when": "",
+  "url": "",
+  "metrics": {
+   "replies": 0,
+   "reposts": 0,
+   "likes": 0,
+   "views": 0
+  },
+  "text": "A new beginning for @Windows PCs deserves a global celebration. Join us at one of our @NVIDIARTXSpark launch events. Try out demos on the new laptops, pick up some swag, and enter for a chance to win an @ASUS ProArt P14 RTX Spark laptop signed by Jensen. Plus, more exclusive Video 12 00:00"
+ },
+ {
+  "account": "ylecun",
+  "when": "",
+  "url": "",
+  "metrics": {
+   "replies": 0,
+   "reposts": 0,
+   "likes": 0,
+   "views": 0
+  },
+  "text": "Only in America. Tired of winning? Giving birth in Europe vs in America 😂 Video 302:38"
+ },
+ {
+  "account": "ylecun",
+  "when": "",
+  "url": "",
+  "metrics": {
+   "replies": 0,
+   "reposts": 0,
+   "likes": 0,
+   "views": 0
+  },
+  "text": "Tired of not winning Donald Trump “erupted” during a meeting with his top national security team last week, reportedly yelling expletives at those present, according to NBC News. The report says Trump is “exasperated” by the lack of progress in ending the Iran war and the lack of a clear strategy."
+ },
+ {
+  "account": "ylecun",
+  "when": "",
+  "url": "",
+  "metrics": {
+   "replies": 0,
+   "reposts": 0,
+   "likes": 0,
+   "views": 0
+  },
+  "text": "Tired of winning Oil is back above $100, and gas is above $4. These numbers are brutal for inflation and Americans' pocketbooks. And there is no end in sight for their fundamental cause: Trump's war of choice in Iran."
+ },
+ {
+  "account": "ylecun",
+  "when": "",
+  "url": "",
+  "metrics": {
+   "replies": 0,
+   "reposts": 0,
+   "likes": 0,
+   "views": 0
+  },
+  "text": "Tired of winning Trump's Beef Catastrophe: Incompetence, Blithering Idiocy, and Blatant Lies Have Obliterated America's Beef Industry In yet another humiliating display of incompetence, the authoritarian Trump regime has turned America's once-mighty beef industry into a national punchline. After"
+ }
+]

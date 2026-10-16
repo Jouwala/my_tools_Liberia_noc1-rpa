@@ -180,6 +180,13 @@ python -m pytest tests\ --ignore=tests\test_frontend_deep.py --ignore=tests\test
 ```
 
 > **改完必须重启后端才生效**（`pythonw.exe` 常驻，不会热加载）。
+> 可执行入口：`powershell -NoProfile -ExecutionPolicy Bypass -File TMP/_restart_backend.ps1`
+> —— 它只杀 **7038 的端口持有进程**且先校验命令行含 `uvicorn`（防止把
+> `backend_watchdog` 本身杀掉，看门狗被杀后不会再复活 uvicorn），随后轮询等新 pid、
+> 回报 watchdog 与 7090 状态。实测 2026-10-15 23:56:58 触发、23:57:16 新 pid 38916 接手（16s）。
+> ⚠️ **重启窗口内 APScheduler 不在，正好到点的那一轮任务不会被投递**（实测丢了
+> 23:57 一轮 `eflow_active_alarm` 与 `tt_alarm_whatsapp_alert`，23:58 起自行恢复，
+> 队列不积压、无需补投）。所以挑分钟边界之外的时候重启，并预期漏跑巡检可能报一次。
 > 排障时留意：**日志文件按天命名且随重启更换**，翻错文件会误判成"没报错"。
 
 ### 触发扫描报「realtime_alarm 表不存在」（2026-10-15 事故）

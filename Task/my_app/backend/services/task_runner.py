@@ -40,6 +40,8 @@ from backend.services.task_introspect import (  # noqa: F401,E402
 from backend.services.task_stats import (  # noqa: F401,E402
     _ensure_task_log_table,
     _fetch_latest_runs,
+    _fetch_latest_run_for,
+    register_recent_runs_provider,
     get_task_stats,
     get_recent_failures,
     get_task_history_by_task,
@@ -1144,6 +1146,11 @@ def get_task_detail(task_id: str, lang: str = "zh") -> Optional[dict]:
     except Exception:
         logging.getLogger(__name__).warning("[SILENT-EXCEPT] get_task_detail: exception swallowed", exc_info=True)
         detail["recent_runs"] = []
+
+    # 兜底：低频任务（如月度报表）的执行记录会被 7 天保留策略清掉，
+    # 日志表里为空时回落到其产物库提供者（见 task_stats.register_recent_runs_provider）。
+    if not detail.get("recent_runs"):
+        detail["recent_runs"] = _fetch_latest_run_for(task_id)
 
     # 预测「失败任务何时自动重试」，供前端语音播报（失败任务才返回有意义的时间）
     try:

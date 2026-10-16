@@ -602,6 +602,87 @@ def test_orchestration(tmp):
 
 
 # ---------------------------------------------------------------- 8. 注册集成
+def test_recent_runs_provider(tmp):
+    """任务列表「最近运行」兜底：月报超出 7 天日志保留期后，仍能从 report_runs 补回。
+
+    背景（2026-10-15）：任务列表读 task_execution_log（保留 7 天），月报每月才跑一次，
+    月中查看即显示 No Record。本测试验证提供者只挑「本任务自己发起」的运行，
+    且把每日 KPI 同步借道写入的 explicit_* 行排除掉。
+    """
+    section("9. 任务列表「最近运行」兜底提供者")
+    import sqlite3 as _sq
+    svc.DATA_DIR = Path(tmp) / "provider"
+    svc.DATA_DIR.mkdir(parents=True, exist_ok=True)
+    svc.SQLITE_PATH = svc.DATA_DIR / "olib_soc_report.sqlite3"
+    conn = svc._sqlite()                                                 # 建表（含 invoked_by 补列）
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(report_runs)")}
+    check("report_runs 已含 invoked_by 列（存量库 ALTER 补上）", "invoked_by" in cols, str(cols))
+    rows = [
+        # 月报任务自己的运行（本任务）
+        ("last_month_20260901_20260930", "last_month", "ok", 0, 1286, 225.0,
+         "2026-10-08 07:35:01", "2026-10-08 07:38:46", "", "olib_soc_vmax_report"),
+        # 每日 KPI 同步借道 run_olib_soc_report(kpi_only=True) 写的行 —— 必须被排除
+        ("explicit_20261013_20261014", "explicit", "partial", 0, 61, 13.5,
+         "2026-10-15 06:20:03", "2026-10-15 06:20:17", "", "olib_soc_kpi_daily_sync"),
+        # 存量旧行：invoked_by 为 NULL，但 mode=last_month → 视为月报
+        ("last_month_20260801_20260831", "last_month", "ok", 0, 1333, 138.0,
+         "2026-09-16 20:00:45", "2026-09-16 20:03:03", "", ""),
+        # 失败运行也要带出来（前端标红）
+        ("last_month_20260701_20260731", "last_month", "failed", 9, 0, 12.0,
+         "2026-08-01 07:30:00", "2026-08-01 07:30:12", "GBase 不可用", "olib_soc_vmax_report"),
+    ]
+    for r in rows:
+        conn.execute(
+            "INSERT INTO report_runs (run_id, mode, window_begin, window_end, days,"
+            " missing_days, status, blocks_ok, blocks_failed, rows, excel_path, elapsed_seconds,"
+            " started_at, finished_at, error, invoked_by)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (r[0], r[1], "20260901", "20260930", 30, "", r[2], 9 - r[3], r[3], r[4], "",
+             r[5], r[6], r[7], r[8], r[9]))
+    conn.commit()
+    conn.close()
+
+    runs = svc.recent_runs_for_task("olib_soc_vmax_report")
+    ids = [x["run_id"] for x in runs]
+    check("只返回本任务自己的运行（排除了每日 KPI 同步的 explicit_*）",
+          "explicit_20261013_20261014" not in ids, str(ids))
+    check("月报自己的运行被带出（含 invoked_by 标记的与存量 NULL 的）",
+          "last_month_20260901_20260930" in ids and "last_month_20260801_20260831" in ids,
+          str(ids))
+    check("按 started_at 倒序（最新在前）",
+          ids and ids[0] == "last_month_20260901_20260930", str(ids))
+    check("ok / partial 记为成功，failed 记为失败",
+          all(x["success"] for x in runs if x["run_id"] != "last_month_20260701_20260731")
+          and next(x for x in runs if x["run_id"] == "last_month_20260701_20260731")["success"] is False)
+    failed = next(x for x in runs if x["run_id"] == "last_month_20260701_20260731")
+    check("失败运行带出 error 文本", "GBase" in (failed["error"] or ""), str(failed["error"]))
+    check("返回字段与前端 RunRecord 对齐（task_id/success/started_at/completed_at）",
+          all(k in runs[0] for k in ("task_id", "success", "started_at", "completed_at",
+                                     "elapsed_seconds", "error")), str(list(runs[0].keys())))
+    check("时间戳转成 ISO（T 分隔），前端才能解析",
+          "T" in runs[0]["started_at"] and " " not in runs[0]["started_at"], runs[0]["started_at"])
+
+    # 库不存在时安全返回空列表（列表接口绝不 500）
+    svc.SQLITE_PATH = Path(tmp) / "provider" / "missing.sqlite3"
+    check("产物库不存在时返回空列表（不抛异常）", svc.recent_runs_for_task() == [])
+
+    # task_stats 注册表已接入（task_registry 注册时注入）→ 兜底只在库内无记录时生效
+    from backend.services import task_stats as ts
+    check("task_stats.register_recent_runs_provider 可用",
+          callable(ts.register_recent_runs_provider))
+    ts.register_recent_runs_provider("__t_provider_probe", lambda: [{"task_id": "x",
+                                   "success": True, "started_at": "2026-01-01T00:00:00"}])
+    got = ts._fetch_latest_run_for("__t_provider_probe")
+    check("单个任务兜底入口可用", bool(got) and got[0]["task_id"] == "x", str(got))
+    ts._RECENT_RUNS_PROVIDERS.pop("__t_provider_probe", None)
+    # 提供者抛异常时降级为空（不污染任务列表）
+    ts.register_recent_runs_provider("__t_provider_boom",
+                                     lambda: (_ for _ in ()).throw(RuntimeError("boom")))
+    check("提供者异常被吞掉并降级为空列表",
+          ts._fetch_latest_run_for("__t_provider_boom") == [])
+    ts._RECENT_RUNS_PROVIDERS.pop("__t_provider_boom", None)
+
+
 def test_registry():
     section("8. 任务/配置注册集成")
     from backend.task_registry import TASK_SPECS
@@ -619,6 +700,12 @@ def test_registry():
         check("gateway 归到 vmax_gbase", spec.get("gateway") == "vmax_gbase",
               str(spec.get("gateway")))
         check("中英文描述都有", spec.get("description") and spec.get("description_en"))
+        # 月报低频任务：登记产物库兜底提供者，避免月中显示 No Record
+        check("已登记 recent_runs_provider（任务列表兜底）",
+              spec.get("recent_runs_provider") == (
+                  "backend.services.olib_soc_report.olib_soc_report_service",
+                  "recent_runs_for_task"),
+              str(spec.get("recent_runs_provider")))
     from backend.services import task_configs_registry as tcr
     check("配置资源已注册（设置页可改）", _has_config("olib_soc_vmax_report"))
     cfg = svc.load_config()
@@ -718,6 +805,7 @@ def main(argv):
         test_suspect_days()
         test_persist(tmpdir)
         test_orchestration(tmpdir)
+        test_recent_runs_provider(tmpdir)
         test_registry()
         if live:
             test_live(tmpdir)

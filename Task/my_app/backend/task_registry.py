@@ -157,6 +157,20 @@ def _lazy_loader(module_path: str, func_name: str):
     return _run
 
 
+def _lazy_runs_provider(module_path: str, func_name: str):
+    """生成「最近运行」兜底提供者的懒加载包装（见 task_stats.register_recent_runs_provider）。
+
+    低频任务（月/周级）的执行记录会被 task_execution_log 的 7 天保留策略清掉，
+    兜底提供者从任务自己的产物库读最近一次运行。这里同样懒加载：**只在任务列表
+    首次查询到该任务且日志表无记录时**才 import 目标模块，不在启动期引入业务依赖。
+    """
+    def _provide():
+        module = safe_import(module_path)
+        return getattr(module, func_name)()
+    _provide.__name__ = f"_runs_{func_name}"
+    return _provide
+
+
 # ========== 声明式任务清单 ==========
 # 每条记录二选一：
 #   func:   直接可调用的函数（用于需要特殊包装的任务）
@@ -834,6 +848,11 @@ TASK_SPECS = [
          loader=("backend.services.olib_soc_report.olib_soc_report_service", "run_olib_soc_report"),
          description="直连 VMAX 数仓 GBase（10.123.255.12:5258, 库 zxvmax）按日分区跑 notebook 移植的 9 段 SQL（traffic/Active_user/cache/GUW/Video/game/TCP/TOP业务/TOP视频），生成多 sheet Excel 与运行记录；默认出上一个自然月，可配 last_n_days/weekly/explicit，窗口自动截断到数仓 90 天保留期内",
          description_en="Direct GBase DWH queries (daily partitions) for the 9 notebook report blocks, producing a multi-sheet Excel plus run records; default window = previous calendar month, clamped to the ~90-day partition retention",
+         # 月报 cron 每月才跑一次，执行记录会超出 task_execution_log 的 7 天保留期被清掉，
+         # 任务列表遂显示 No Record（2026-10-15 排查）。登记产物库兜底提供者，
+         # 从 report_runs 补回最近几次运行 —— 详见 task_stats.register_recent_runs_provider。
+         recent_runs_provider=("backend.services.olib_soc_report.olib_soc_report_service",
+                               "recent_runs_for_task"),
          default_cron="30 7 1 * *", category="olib_soc"),
 
     # 43. OLIB SOC 看板 KPI 每日增量（06:20，2026-09-16 新增）：给 VMAX 90 天经营看板
@@ -957,6 +976,9 @@ def is_master_switch_exempt(task_id: str) -> bool:
 
 def register_all_tasks(task_runner) -> int:
     """将 TASK_SPECS 中的全部任务注册到 task_runner，返回注册数量"""
+    # 局部导入：task_stats 只依赖 database/dialect_helpers，无环；放函数内与本章
+    # 「启动期不引入业务依赖」的懒加载约定一致。
+    from backend.services.task_stats import register_recent_runs_provider
     for spec in TASK_SPECS:
         func = spec.get("func")
         call_chain = None
@@ -984,5 +1006,11 @@ def register_all_tasks(task_runner) -> int:
             # 主开关豁免随注册一并注入，供 task_runner 的批量切换与 /api/tasks 回传使用
             master_switch_exempt=is_master_switch_exempt(spec["task_id"]),
         )
+        # 低频任务（如月报）在 7 天保留期外没有任何执行记录，登记产物库兜底提供者，
+        # 让任务列表仍能显示「最近一次运行」而不是 No Record（详见 task_stats 注释）。
+        provider_spec = spec.get("recent_runs_provider")
+        if provider_spec:
+            register_recent_runs_provider(
+                spec["task_id"], _lazy_runs_provider(*provider_spec))
     logger.info(f"任务注册完成：{len(TASK_SPECS)} 个任务")
     return len(TASK_SPECS)

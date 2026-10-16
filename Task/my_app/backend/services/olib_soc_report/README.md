@@ -150,6 +150,7 @@ run_olib_soc_report(start="2026-08-01", end="2026-08-31", blocks=["traffic"])
   * `task_id=olib_soc_vmax_report`，loader =
     `backend.services.olib_soc_report.olib_soc_report_service.run_olib_soc_report`（无参），
     默认 cron `30 7 1 * *`（月报）；
+    **`recent_runs_provider` 指向本模块的 `recent_runs_for_task`**（见 §12）；
   * `task_id=olib_soc_kpi_daily_sync`，loader =
     `...run_olib_soc_kpi_sync`（无参），默认 cron `20 6 * * *`（每天补看板 KPI 缺口 + 重取最新 1 天）；
   * 两者 category 都是 `olib_soc` → `CATEGORY_GATEWAY["olib_soc"]="vmax_gbase"`。
@@ -288,3 +289,36 @@ python -m backend.services.olib_soc_report.olib_soc_report_service --start 2026-
 指标字典在 `olib_soc_kpi_store.METRICS`（10 个：4 个 CEO 主卡片 +
 3 个业务结构 + 3 个网络质量），字段含中英标题/单位/小数位/越大越好/周汇总方式，
 后端接口、前端卡片、周趋势、明细表全部引用这一份定义。
+
+## 12. 任务列表「最近运行」兜底（2026-10-15）
+
+**现象**：任务管理页里 `OLIB SOC VMAX Routine Report` 显示 **No Record / 未记录**。
+
+**原因**：任务列表的最新执行记录来自主库 `task_execution_log`，该表按
+`TASK_LOG_RETENTION_DAYS`（默认 **7 天**）定期清理（`backend/services/task_runner.py`）。
+月报任务 cron 是 `30 7 1 * *`，**每月只跑一次** —— 月中查看时它的记录早已被清掉，
+前端 `classifyTaskStatus()` 见不到任何记录，遂判为 `unknown` → No Record。
+**报表本身一直是正常的**：`OLIB SOC VMAX Monthly-Report*.xlsx` 与 `report_runs` 都在。
+
+**修法**（不是给保留期开口子，而是让任务自报产物库里的运行）：
+
+* 通用机制在 **`backend/services/task_stats.py`**：
+  `register_recent_runs_provider(task_id, provider)` 登记「最近运行」提供者；
+  `_fetch_latest_runs()` **只在日志表里该任务一条记录都没有时**才调用它 ——
+  日志表仍是唯一主源，已有记录的任务完全不受影响。
+* 本模块提供 `recent_runs_for_task(task_id)`：从 `report_runs` 读该任务的最近若干次运行，
+  字段与前端 `RunRecord` 对齐（`started_at/completed_at` 转 ISO `T` 分隔）。
+* 归属判定靠 `report_runs.invoked_by`（本次运行由哪个任务发起）：每日 KPI 同步会借道
+  `run_olib_soc_report(kpi_only=True)` 往 `report_runs` 写 `explicit_*` 行，**必须排除**，
+  否则月报任务的列表会显示一堆同步记录。存量旧行 `invoked_by` 为 NULL，
+  按 `mode='last_month'` 兜底认定为月报。
+* 注册走 `backend/task_registry.py` 的 `TASK_SPECS` 字段
+  `recent_runs_provider=(模块路径, 函数名)`，由 `register_all_tasks()` 懒加载注入
+  （只在首次查询到该任务且日志无记录时才 import 本模块）。
+
+**自测**：`python tests/test_olib_soc_report.py` 第 9 节（13 项）覆盖：
+`invoked_by` 补列、排除同步行、倒序、成败判定、字段对齐、库缺失/提供者异常降级。
+
+**⚠ 扩展新低频任务时**：同样在 `TASK_SPECS` 加 `recent_runs_provider`，
+并让提供者只返回**本任务自己发起**的运行；不要改日志表保留期 —— 那会让所有任务的
+历史一起变长，也会让主库膨胀。

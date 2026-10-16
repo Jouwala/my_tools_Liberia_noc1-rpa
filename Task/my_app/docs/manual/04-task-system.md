@@ -763,7 +763,8 @@ worker 分组重启才生效（`backend/routers/task_configs.py`）。
 | 邮件类不参与补投 | 由 EWS 恢复补发机制 `email_recovery` 负责，默认排除 | `task_registry.py:320` |
 | 失败通知 | 微信 + 邮件双通道 | `task_runner.py:52-62` |
 | 漏跑/停摆通知 | 每小时巡检后按 `kind:task_id` 翻转去重推送（24h 重提） | `services/task_health_alert.py` |
-| 保留期 | 队列与执行日志保留 **3 天** | `task_runner.py:764`、`worker.py:240` |
+| 保留期 | 队列与执行日志保留 **7 天**（`TASK_LOG_RETENTION_DAYS` 可调，默认 7；2026-09-11 由 3 天放宽） | `task_runner.py:880-893`、`worker.py:479-484` |
+| 低频任务「最近运行」兜底 | 月/周级任务的执行记录会被上面 7 天保留期清掉，任务列表因而显示 **No Record / 未记录**（`sync.statUnknown`）。修法：在 `TASK_SPECS` 给该任务加 `recent_runs_provider=(模块路径, 函数名)`，`task_stats._fetch_latest_runs()` 在**日志表无该任务记录时**才调用提供者，从任务自己的产物库补回最近几次运行（唯一主源仍是 `task_execution_log`）。参考 `olib_soc_vmax_report` → `olib_soc_report_service.recent_runs_for_task` | `services/task_stats.py`（`register_recent_runs_provider`）、`task_registry.py`（`register_all_tasks`）、`backend/services/olib_soc_report/README.md` §12 |
 
 重试的判定不是"失败就重跑"，而是**先看数据缺口是否已被后续成功执行补上**；超过 24h 硬上限直接放弃（`task_registry.py:320`）。
 

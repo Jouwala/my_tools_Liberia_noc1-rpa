@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI 动态观测 · 2026-10-13</title>
+<style>
+:root{
+  --bg:#f6f7f9; --panel:#ffffff; --line:#e4e7ec; --line2:#eef0f3;
+  --tx:#16181d; --tx2:#5b6472; --tx3:#8b95a5;
+  --ac:#2563eb; --hot:#dc2626; --ok:#059669; --warn:#d97706; --pur:#7c3aed;
+  --chip:#f1f3f6;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{
+  background:var(--bg); color:var(--tx);
+  font:15px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+  -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:1180px;margin:0 auto;padding:0 24px 80px}
+
+/* header */
+header{padding:44px 0 26px;border-bottom:1px solid var(--line);margin-bottom:26px}
+h1{font-size:29px;letter-spacing:-.5px;font-weight:680}
+.sub{color:var(--tx2);margin-top:7px;font-size:14px}
+.meta{display:flex;gap:18px;flex-wrap:wrap;margin-top:14px;font-size:12.5px;color:var(--tx3)}
+.meta b{color:var(--tx2);font-weight:600}
+
+/* stats */
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:26px 0 30px}
+.stat{background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:15px 17px}
+.stat .n{font-size:26px;font-weight:680;letter-spacing:-.6px}
+.stat .l{font-size:12px;color:var(--tx3);margin-top:3px}
+
+/* section */
+section{margin-bottom:40px}
+h2{font-size:19px;font-weight:660;letter-spacing:-.2px;display:flex;align-items:center;gap:9px;margin-bottom:5px}
+h2::before{content:"";width:3px;height:17px;background:var(--ac);border-radius:2px}
+.lead{color:var(--tx2);font-size:13.5px;margin-bottom:16px}
+
+/* verdict box */
+.verdict{background:linear-gradient(180deg,#fff,#fbfcfe);border:1px solid var(--line);border-left:3px solid var(--ac);
+  border-radius:11px;padding:17px 19px;margin-bottom:20px}
+.verdict h3{font-size:14.5px;margin-bottom:9px;color:var(--ac)}
+.verdict ul{margin-left:18px}
+.verdict li{margin:5px 0;font-size:14px;color:var(--tx2)}
+.verdict li b{color:var(--tx)}
+
+/* cards */
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:14px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:17px 18px;
+  transition:.16s;display:flex;flex-direction:column}
+.card:hover{border-color:#c9d2e0;box-shadow:0 2px 10px rgba(16,24,40,.05)}
+.card .tag{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:640;
+  padding:2.5px 8px;border-radius:5px;background:var(--chip);color:var(--tx2);margin-bottom:10px;align-self:flex-start}
+.t-model{background:#eaf1ff;color:#1d4ed8}
+.t-open{background:#e7f7ef;color:#047857}
+.t-free{background:#fdf2e3;color:#b45309}
+.t-skill{background:#f1ebfd;color:#6d28d9}
+.t-risk{background:#fdeaea;color:#b91c1c}
+.t-trend{background:#e8f4f8;color:#0e7490}
+.card h4{font-size:15px;font-weight:640;letter-spacing:-.2px;margin-bottom:7px;line-height:1.4}
+.card .desc{font-size:13.5px;color:var(--tx2);flex:1}
+.card .foot{display:flex;justify-content:space-between;align-items:center;margin-top:12px;
+  padding-top:10px;border-top:1px solid var(--line2);font-size:11.5px;color:var(--tx3);gap:10px}
+.card a{color:var(--ac);text-decoration:none}
+.card a:hover{text-decoration:underline}
+
+/* table */
+.tbl{width:100%;border-collapse:collapse;background:var(--panel);
+  border:1px solid var(--line);border-radius:11px;overflow:hidden;font-size:13.5px}
+.tbl th{background:#fafbfc;text-align:left;padding:11px 14px;font-weight:640;
+  font-size:12px;color:var(--tx2);border-bottom:1px solid var(--line);white-space:nowrap}
+.tbl td{padding:11px 14px;border-bottom:1px solid var(--line2);vertical-align:top}
+.tbl tr:last-child td{border-bottom:none}
+.tbl tr:hover td{background:#fafbfd}
+.tbl code{background:var(--chip);padding:1.5px 6px;border-radius:4px;font-size:12.5px;
+  font-family:ui-monospace,Menlo,Consolas,monospace;color:#1e40af}
+.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+
+/* heat bars */
+.heat{display:inline-flex;align-items:center;gap:7px}
+.bar{width:52px;height:5px;background:var(--line2);border-radius:3px;overflow:hidden;flex:none}
+.bar i{display:block;height:100%;background:var(--hot);border-radius:3px}
+
+/* filters */
+.filters{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:16px;align-items:center}
+.fbtn{font:inherit;font-size:12.5px;padding:5.5px 13px;border-radius:7px;border:1px solid var(--line);
+  background:var(--panel);color:var(--tx2);cursor:pointer;transition:.14s}
+.fbtn:hover{border-color:#c2ccdb;color:var(--tx)}
+.fbtn.on{background:var(--tx);border-color:var(--tx);color:#fff;font-weight:600}
+.fbtn.hot{border-color:#f3c6c6;color:var(--hot)}
+.fbtn.hot.on{background:var(--hot);border-color:var(--hot);color:#fff}
+.spacer{flex:1}
+input[type=search]{font:inherit;font-size:13px;padding:6px 12px;border:1px solid var(--line);
+  border-radius:7px;background:var(--panel);width:210px;outline:none;color:var(--tx)}
+input[type=search]:focus{border-color:var(--ac)}
+
+/* tweet */
+.tweet{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+.tw-h{display:flex;align-items:center;gap:8px;margin-bottom:7px;flex-wrap:wrap}
+.who{font-weight:640;font-size:14px}
+.handle{color:var(--tx3);font-size:12.5px}
+.when{font-size:11.5px;color:var(--tx3);background:var(--chip);padding:1.5px 7px;border-radius:4px}
+.tw-x{font-size:13.5px;color:var(--tx2)}
+.st{display:flex;gap:13px;margin-top:9px;font-size:11.5px;color:var(--tx3);font-variant-numeric:tabular-nums}
+.st b{color:var(--tx2);font-weight:600}
+.hide{display:none!important}
+.empty{padding:34px;text-align:center;color:var(--tx3);font-size:13.5px}
+.note{font-size:12px;color:var(--tx3);margin-top:9px;padding:10px 13px;background:#fbfcfd;
+  border:1px dashed var(--line);border-radius:8px}
+footer{margin-top:50px;padding-top:22px;border-top:1px solid var(--line);
+  font-size:12px;color:var(--tx3);line-height:1.8}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>AI 动态观测 · X 一手信源扫描</h1>
+  <p class="sub">聚焦新模型、免费/开源资源、可复用技能与工程实践 —— 全部来自厂商与核心研究者本人账号</p>
+  <div class="meta">
+    <span><b>报告日期</b>2026-10-13</span>
+    <span><b>信源</b>24 个 X 账号直抓</span>
+    <span><b>有效推文</b>66 条</span>
+    <span><b>抓取方式</b>免登录公开时间线（r.jina.ai 通道）</span>
+  </div>
+</header>
+
+<div class="stats">
+  <div class="stat"><div class="n">8</div><div class="l">新发布模型</div></div>
+  <div class="stat"><div class="n">6</div><div class="l">免费 / 开源可用</div></div>
+  <div class="stat"><div class="n">5</div><div class="l">技能与框架更新</div></div>
+  <div class="stat"><div class="n">3</div><div class="l">本周开源新模型密集</div></div>
+</div>
+
+<section>
+  <h2>先看结论</h2>
+  <p class="lead">四条最值得记住的判断</p>
+  <div class="verdict">
+    <h3>核心结论</h3>
+    <ul>
+      <li><b>开源阵营这周突然很热闹。</b> 10/3→10/6 三天内 Aleph Alpha Kolibri、Reflection AI Beam、Mistral Large 4 连发三家开放权重模型，且都不约而同把中国开源模型当对标物。Mistral 直接自我定位为「最强的非中国开源权重系统」。</li>
+      <li><b>竞争焦点已从参数转向推理成本。</b> Beam 每 token 只激活 230亿参数却声称用 1/3~1/4 算力追平 GLM-5.2 —— 便宜才是开源模型真正的护城河。</li>
+      <li><b>闭源与开源的差距缩到 3.3%。</b>（斯坦福 2026 AI 指数）叠加闭源强制数据留存带来的合规顾虑，自托管 / 可微调正在成为企业默认选项。</li>
+      <li><b>agent 已经吃垮了传统工程基建。</b>Anthropic 5 月每天合并 2500 次代码改动，9 月突破 3万 —— 他们不得不自研源码控制系统。跟着这条线索看基础设施重构，比看模型榜单更有价值。</li>
+    </ul>
+  </div>
+</section>
+
+<section>
+  <h2>新模型</h2>
+  <p class="lead">近两周发布，按开放程度与本地可跑性标注</p>
+  <div class="cards">
+
+    <div class="card" data-cat="model">
+      <span class="tag t-model">🤖 模型 · 开放权重</span>
+      <h4>Mistral Large 4「Le Chonk」</h4>
+      <p class="desc">1.05 万亿总参、490 亿激活，原生多模态。官方称美欧开放权重模型中综合最强，在网络防御、制造、金融等关键负载上达SOTA。视觉定位 Dense200 拿到 42%，超过部分闭源前沿模型。10/6 发布。</p>
+      <div class="foot"><span>Mistral · 4.0 万赞 / 560 万浏览</span><a href="https://x.com/mistralai/status/2107457414387622310" target="_blank">原文 ↗</a></div>
+    </div>
+
+    <div class="card" data-cat="model">
+      <span class="tag t-open">📦 模型 · 开放权重</span>
+      <h4>Reflection AI「Beam」</h4>
+      <p class="desc">英伟达投资的初创首个大模型，5010 亿总参 / 230 亿激活，23.8 万亿 token 预训练，<b>100 万上下文</b>。主打代码与 agent 任务，性能对标 GLM-5.2、逼近 Qwen3.8-Max，但推理算力低 3~4 倍。宣布 10 月以 Apache 2.0 全权重开源。</p>
+      <div class="foot"><span>10/5 · Apache 2.0</span><a href="https://www.nvidia.com" target="_blank">待开放</a></div>
+    </div>
+
+    <div class="card" data-cat="model">
+      <span class="tag t-open">📦 模型 · 开放权重</span>
+      <h4>Aleph Alpha「Kolibri」</h4>
+      <p class="desc">德国 AI 公司，走「小而专」路线，总参仅 780 亿。官方承认训练中使用了多款中国模型生成的合成数据。称在德语/英语深度推理与代码上超越对手，但长上下文与多轮工具调用落后 Qwen。</p>
+      <div class="foot"><span>10/3 · 78B</span><a href="https://aleph-alpha.com" target="_blank">官网 ↗</a></div>
+    </div>
+
+    <div class="card" data-cat="model">
+      <span class="tag t-model">🤖 模型 · 闭源前沿</span>
+      <h4>GPT-6 + Intelligent UI</h4>
+      <p class="desc">已在 ChatGPT 全量推送。Intelligent UI 能即时生成定制交互界面，复杂问题更可视化、可交互工具随取随用。同期 ChatGPT Voice 升级：可调用邮件/日历/Slack 插件，由 GPT-6 Astra/Sol/Luna 驱动。</p>
+      <div class="foot"><span>OpenAI · 全量可用</span><a href="https://x.com/OpenAI" target="_blank">原文 ↗</a></div>
+    </div>
+
+    <div class="card" data-cat="model">
+      <span class="tag t-model">🤖 模型 · 闭源前沿</span>
+      <h4>Gemini 4「Argon」</h4>
+      <p class="desc">面向编码、金融、法律、网络安全、科研的复杂真实任务，已全球上线。演示亮点：仅看一段人类玩「投壶袋」的视频就自主生成训练仿真，让 Apptronik 的 Apollo 人形机器人连中 7 投。</p>
+      <div class="foot"><span>Google · 全球推送</span><a href="https://x.com/GoogleAI" target="_blank">原文 ↗</a></div>
+    </div>
+
+    <div class="card" data-cat="model">
+      <span class="tag t-model">🤖 模型 · 闭源前沿</span>
+      <h4>Meta「Muse Wonder」系列</h4>
+      <p class="desc">Meta 最强模型，Muse Wonder 与 Muse Wonder Full，面向个人与专业 agent 任务。同时推出 Muse Realtime Avatar 实时具身技术（语音转表达性互动化身）。Meta 宣称 14 个月完成从重建基座到登顶前沿。</p>
+      <div class="foot"><span>AI at Meta · 10/12</span><a href="https://x.com/AIatMeta" target="_blank">原文 ↗</a></div>
+    </div>
+
+    <div class="card" data-cat="model">
+      <span class="tag t-free">🆓 模型 · 端侧可跑</span>
+      <h4>MiniCPM-V 4.7（35B-A3B）</h4>
+      <p class="desc">面壁智能发布，MoE 架构总参350亿、每次推理仅激活 30 亿。<b>约 3GB 内存即可运行</b>，解码 15+ token/s（iPad Pro 实测），首个端侧无损流畅的开源 MoE 模型。自研 LES 前瞻专家调度技术提前预加载专家、消除了搬移停顿。另有 1B 极致效率版。当日支持瑞芯微/NVIDIA/Intel/Apple。</p>
+      <div class="foot"><span>10/13 · 系列累计下载 6000 万</span><a href="https://github.com/OpenBMB" target="_blank">GitHub ↗</a></div>
+    </div>
+
+    <div class="card" data-cat="model">
+      <span class="tag t-open">📦 模型 · 端侧嵌入</span>
+      <h4>EmbeddingGemma 2（740M）</h4>
+      <p class="desc">Google 首个原生多模态端侧嵌入模型，把文本、代码、图像、音频、视频映射到同一空间。体积小到能在手机上跑 —— 本地媒体检索，数据完全不出设备（例如用语音备忘录里的声音检索到对应视频片段）。</p>
+      <div class="foot"><span>Google DeepMind · 10/6</span><a href="https://huggingface.co/google" target="_blank">HuggingFace ↗</a></div>
+    </div>
+
+  </div>
+</section>
+
+<section>
+  <h2>免费与开源资源</h2>
+  <p class="lead">能立刻用起来、不花钱或基本不花钱的东西</p>
+  <div class="cards">
+
+    <div class="card" data-cat="free">
+      <span class="tag t-free">🆓 免费 · 端侧嵌入</span>
+      <h4>EmbeddingGemma 2</h4>
+      <p class="desc">740M 参数，手机可跑。零调用成本，可作为本地 RAG / 语义检索的嵌入层，替换付费嵌入 API。</p>
+      <div class="foot"><span>完全免费 · 权重公开</span><span class="heat">HF 公开</span></div>
+    </div>
+
+    <div class="card" data-cat="free">
+      <span class="tag t-free">🆓 免费 · 决策模型</span>
+      <h4>Cloudflare Clef (27B) / Clef-flash (9B)</h4>
+      <p class="desc">Cloudflare 自研首批开放权重模型，对标闭源的 TypeSafe Jev。输出为每个候选答案的概率而非随机文本，支持 64k 上下文与图文视频输入。延迟 209ms / 38.8ms，远优于 Jev 的 524ms。llama.cpp 0.6.0 已新增 <code>/v1/systemone</code> 端点服务这类模型。</p>
+      <div class="foot"><span>10/1 · 开源权重</span><span class="heat">llama.cpp 0.6.0</span></div>
+    </div>
+
+    <div class="card" data-cat="free">
+      <span class="tag t-free">🆓 免费 · 表格模型</span>
+      <h4>NVIDIA Kumo Tabular</h4>
+      <p class="desc">表格数据基础模型家族，给部分行的表格它直接预测其余行，<b>无需训练</b>。全部在结构因果模型采样的人工合成表格上预训练，从未见过客户或基准数据。TabArena 排名第一，预测速度是清华 LimiX-2 的 17 倍。</p>
+      <div class="foot"><span>9/29 · 开源</span><span class="heat">17× 提速</span></div>
+    </div>
+
+    <div class="card" data-cat="free">
+      <span class="tag t-free">🆓 免费 · 小模型</span>
+      <h4>Strands Decider 2B（AWS）</h4>
+      <p class="desc">基于 Qwen3.5-2B 的开源决策模型：不输出文本，而是从你给的选项中挑选并给出置信度。JevBench 准确率与校准排名第 3，RTX 3090 上中位决策延迟 115ms。</p>
+      <div class="foot"><span>10/1 · 开源</span><span class="heat">115ms</span></div>
+    </div>
+
+    <div class="card" data-cat="free">
+      <span class="tag t-free">🆓 免费 · 本地运行时</span>
+      <h4>Ollama 0.9.x + 本地模型库</h4>
+      <p class="desc">已进入 0.9.x：原生本地应用、内置网页搜索、可调用远端模型 —— 不再只是模型运行器。常用免费模型实测排序：<code>Qwen3 8B</code>（约5.2GB，默认首选）、<code>qwen3-coder:30b</code>（约19GB，重构/agent）、<code>gpt-oss:20b</code>（约14GB，16GB 机器）、<code>qwen3-vl:8b</code>（约6GB，本地多模态）。多数为 Apache 2.0 / MIT。</p>
+      <div class="foot"><span>本地 100% 免费</span><span class="heat">兼容 OpenAI API</span></div>
+    </div>
+
+    <div class="card" data-cat="free">
+      <span class="tag t-free">🆓 免费 · 托管 API</span>
+      <h4>Mistral La Plateforme 免费档</h4>
+      <p class="desc">无需信用卡。实测可用：<code>open-mistral-nemo</code>（12B/128k）、<code>open-mistral-7b</code>、<code>codestral-latest</code>（22B 代码）、ministral 3b/8b/14b。⚠️ 注意：mistral-small / medium / mixtral 系列免费密钥会返回 429（配额为 0），large 返回 403。API 完全兼容 OpenAI SDK，改两行即可切换。</p>
+      <div class="foot"><span>免信用卡 · 限流未公开</span><span class="heat">12 模型可调</span></div>
+    </div>
+
+  </div>
+  <div class="note"><b>免费额度提示：</b>Mistral 官方未公布免费档具体限额，实测定位是「够做原型，不适合上生产」。做本地部署时优先走 Ollama，注意 Llama 与 Gemma 是社区协议带商用限制，商用前先确认授权。</div>
+</section>
+
+<section>
+  <h2>技能与工具链</h2>
+  <p class="lead">可以直接搬进现有工作流的框架、实践与技巧</p>
+
+  <table class="tbl">
+    <thead><tr><th style="width:23%">项目</th><th style="width:11%">来源</th><th>能解决什么</th><th style="width:15%">获取</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><b>Strata 推理引擎</b></td>
+        <td>开源开发者</td>
+        <td>让超大代码模型 Qwen3.8-Flash-Next 跑在普通消费级显卡上。该模型每 token 只激活约 10/24576 个专家，Strata 把最重的部分留在 GPU，其余拆分到 RAM / CPU / SSD。</td>
+        <td><a href="https://github.com" target="_blank">GitHub</a><br><span class="heat"><span class="bar"><i style="width:100%"></i></span> 15k stars/数日</span></td>
+      </tr>
+      <tr>
+        <td><b>多harness RL 实战指南</b></td>
+        <td>HuggingFace</td>
+        <td>揭示一个要命的问题：<b>同一份权重在 A 框架得分62%，在 B 框架只有 33%</b>。这份今年最实用的 RL 写作之一，全开源，教你如何让评测结果可比。</td>
+        <td><a href="https://huggingface.co" target="_blank">HuggingFace</a><br><span class="heat"><span class="bar"><i style="width:82%"></i></span> 1.2k 赞</span></td>
+      </tr>
+      <tr>
+        <td><b>Claude Managed Agents</b></td>
+        <td>Anthropic</td>
+        <td>公开 beta的新型多 agent 编排：主 agent 写出计划，分阶段跨多个 agent 执行，最终合并结果。面向最重载的工作流。</td>
+        <td><a href="https://x.com/ClaudeDevs/status" target="_blank">产品公告</a><br><span class="heat"><span class="bar"><i style="width:60%"></i></span> 166 赞</span></td>
+      </tr>
+      <tr>
+        <td><b>DeepSeek Harness v0.2</b></td>
+        <td>DeepSeek</td>
+        <td>预览版带macOS / Windows 桌面应用，内置插件管理器按包名安装、无需终端。实验性创作者模式：直接用一段描述让 agent 生成并配置插件。已是官方 API 用户中日活第一的编码 agent，约 60% 用户在跑第三方插件。</td>
+        <td><a href="https://github.com/deepseek" target="_blank">GitHub</a><br><span class="heat"><span class="bar"><i style="width:70%"></i></span> 9/30 发布</span></td>
+      </tr>
+      <tr>
+        <td><b>llama.cpp 0.6.0</b></td>
+        <td>开源社区</td>
+        <td>Ollama / LM Studio 等本地 AI 工具背后的 C++ 引擎。本版新增 <code>/v1/systemone</code> 端点，服务六个决策模型，完整支持文本与视觉（含 Cloudflare Clef）。</td>
+        <td><a href="https://github.com/ggml-org/llama.cpp" target="_blank">GitHub</a><br><span class="heat"><span class="bar"><i style="width:75%"></i></span> 生态底座</span></td>
+      </tr>
+      <tr>
+        <td><b>Muse Gadgets 固件</b></td>
+        <td>Meta</td>
+        <td>开源 ESP32 固件 + Linux SDK，任何人都能造 Muse 个人 AI agent 的实体硬件。负责人 Nat Friedman 称之为副业，让开发者拿个 API token 把编码 agent 指向仓库即可。</td>
+        <td><a href="https://x.com/AIatMeta" target="_blank">GitHub 仓库</a><br><span class="heat"><span class="bar"><i style="width:55%"></i></span> 10/2</span></td>
+      </tr>
+      <tr>
+        <td><b>MCP × HuggingFace Chat</b></td>
+        <td>HuggingFace</td>
+        <td>MCP 正在回潮 —— 现在可以用 MCP 把自己的数据直接带进 hf.co/chat。HF 官方的 Paper Pages 也开放了。</td>
+        <td><a href="https://hf.co/chat" target="_blank">hf.co/chat</a><br><span class="heat"><span class="bar"><i style="width:45%"></i></span> 46k 浏览</span></td>
+      </tr>
+      <tr>
+        <td><b>Skills 文件用 ASD-STE100 写</b></td>
+        <td>karpathy</td>
+        <td>实用技巧：让 LLM 用 <b>ASD-STE100</b>（一套受控语言规范）解释东西，能显著提升输出可读性与稳定性。Karpathy 另提到语音「漫谈」模式 —— 懒得打字时切<code>/voice</code> 把想法说出来，某些场景比打字更有效。</td>
+        <td><a href="https://x.com/karpathy" target="_blank">@karpathy</a><br><span class="heat"><span class="bar"><i style="width:40%"></i></span> 方法论</span></td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2>图像与视频模型速览</h2>
+  <p class="lead">Replicate 上本周上线，与创作和素材生成相关</p>
+  <table class="tbl">
+    <thead><tr><th style="width:22%">模型</th><th style="width:12%">厂商</th><th>特点</th><th style="width:16%">状态</th></tr></thead>
+    <tbody>
+      <tr><td><b>FLUX 3 Image</b></td><td>Black Forest Labs</td><td>原生 4K 生成；用 bounding box 精确构图；多轮定向编辑且不改动其他像素；最多 10 张参考图合成；商业可用</td><td>10/1 已上线</td></tr>
+      <tr><td><b>Nano Banana 2.1</b></td><td>Google DeepMind</td><td>价格与性能平衡导向；mask 式编辑、主体一致性更强，图像更自然</td><td>10/6 已上线</td></tr>
+      <tr><td><b>Ideogram 4.5</b></td><td>Ideogram</td><td>主打超精确多轮编辑，消除编辑累积产生的伪影与色彩漂移，适合编辑类排版与品牌素材</td><td>开放权重「即将」</td></tr>
+      <tr><td><b>Griffin</b></td><td>Tavus</td><td>号称首个通过视频图灵测试的模型 —— 48% 受试者认为视频里是真人（以往系统 &lt;3%）。⚠️ 该数据来自 Tavus 自有 54 通一分钟通话研究，未经独立验证</td><td>Replicate 上线</td></tr>
+      <tr><td><b>P-Video-2 Pro</b></td><td>PrunaAI</td><td>基于 MiniMax H3，图生视频排行榜并列第2（Elo 1325）。质量版 8.0 秒、速度版 4.5 秒生成</td><td>Replicate 上线</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2>值得注意的信号</h2>
+  <p class="lead">不属于上面任何分类，但可能影响判断的几条</p>
+  <div class="cards">
+    <div class="card" data-cat="risk">
+      <span class="tag t-risk">⚠️ 工程拐点</span>
+      <h4>Anthropic 被 agent 逼着重构研发基建</h4>
+      <p class="desc">5 月每天合并约 2500 次代码改动 → 9 月每天<b>超过 3 万次</b>。瓶颈转移到为「人」而非「agent」规模设计的研发基础设施，于是自研了源码控制系统。这是 agent 规模化真正落地的一个硬指标，比任何榜单都有说服力。</p>
+      <div class="foot"><span>Anthropic · 8700 赞 / 100 万浏览</span><span class="heat">最高热度工程帖</span></div>
+    </div>
+    <div class="card" data-cat="risk">
+      <span class="tag t-risk">⚠️ 合规收紧</span>
+      <h4>OpenAI 文本水印落地，Anthropic 加固反蒸馏</h4>
+      <p class="desc">OpenAI 因欧盟监管要求把内容溯源扩展到文本，同时承认当前文本水印技术有显著局限。Anthropic 则公布近几个月在降低蒸馏攻击有效性上的进展 —— 两件事指向同一个结论：模型权重与输出正在变成需要被严密保护的资产。</p>
+      <div class="foot"><span>OpenAI 10/7 · Anthropic 昨日</span><span class="heat">合规敏感</span></div>
+    </div>
+    <div class="card" data-cat="trend">
+      <span class="tag t-trend">📈 内容溯源</span>
+      <h4>SynthID Detector 全面开放</h4>
+      <p class="desc">任何人可访问 synthid.com 检验文件是否由 Google 或 OpenAI、NVIDIA、Kakao（Apple 即将加入）等合作伙伴的 AI 生成。AI 生成内容检测正在从「厂商内部能力」变成公共基础设施。</p>
+      <div class="foot"><span>Google · 10/7</span><span class="heat">免费工具</span></div>
+    </div>
+    <div class="card" data-cat="trend">
+      <span class="tag t-trend">📈 行业讨论</span>
+      <h4>Karpathy：AI 认知鸿沟正在变成漏斗</h4>
+      <p class="desc">约 60 亿人（全球 75%）对AI 能力的认知几乎没有更新 —— 很多人去年试过 ChatGPT 免费版就让它塑造了自己对 AI 的看法。原文强调的核心问题是「使用层级与新鲜度」，而不是单纯的技术分歧。</p>
+      <div class="foot"><span>@karpathy · 旧帖重发</span><span class="heat">视角文章</span></div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>原始推文（按热度）</h2>
+  <p class="lead">全部一手来源，可按账号与关键词过滤；数字为抓取时的点赞/浏览量</p>
+  <div class="filters">
+    <button class="fbtn on" data-f="all">全部</button>
+    <button class="fbtn" data-f="OpenAI">OpenAI</button>
+    <button class="fbtn" data-f="AnthropicAI">Anthropic</button>
+    <button class="fbtn" data-f="GoogleDeepMind">Google</button>
+    <button class="fbtn" data-f="mistralai">Mistral</button>
+    <button class="fbtn" data-f="AIatMeta">Meta</button>
+    <button class="fbtn" data-f="huggingface">HuggingFace</button>
+    <button class="fbtn" data-f="gdb">gdb</button>
+    <button class="fbtn" data-f="sama">sama</button>
+    <button class="fbtn" data-f="Replicate">Replicate</button>
+    <button class="fbtn" data-f="karpathy">karpathy</button>
+    <div class="spacer"></div>
+    <input type="search" id="q" placeholder="搜索关键词…">
+  </div>
+  <div id="tweets"></div>
+  <div class="empty hide" id="none">没有匹配的推文</div>
+</section>
+
+<footer>
+  <b>方法与局限</b><br>
+  · 数据来源：24 个 X 账号的公开时间线，经 r.jina.ai 免登录通道抓取（2026-10-13）。抓取到的仅是每个账号可见的首屏推文，非完整历史，因此覆盖范围受账号活跃度影响。<br>
+  · 排序依据：互动量（点赞 + 浏览量加权）排序，非编辑推荐。<br>
+  · 部分账号（DeepSeek、Together AI、ylecun）本次抓取内容噪声较大或与AI 弱相关，已在正文中剔除或明确标注为低可信。<br>
+  · 涉及厂商自报的基准与数据（如 Griffin 的 48%、Beam 的性能对标）均已标注来源性质，未做独立验证。<br>
+  · 模型发布信息经联网搜索交叉核对，补充了 X 首屏未覆盖的条目（如 MiniCPM-V 4.7、Reflection Beam 细节）。
+</footer>
+
+</div>
+
+<script>
+const DATA = __DATA__;
+const box = document.getElementById('tweets');
+let f = 'all', q = '';
+
+function fmt(n){
+  if(!n) return '0';
+  if(n>=1e6) return (n/1e6).toFixed(1)+'M';
+  if(n>=1e3) return (n/1e3).toFixed(1)+'K';
+  return String(n);
+}
+function esc(s){return s.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
+
+function render(){
+  const list = DATA.filter(t=>{
+    if(f!=='all' && t.account!==f) return false;
+    if(q && !t.text.toLowerCase().includes(q.toLowerCase())) return false;
+    return true;
+  });
+  document.getElementById('none').classList.toggle('hide', list.length>0);
+  box.innerHTML = list.map(t=>{
+    const m=t.metrics, hi=m.likes>2000?'color:#dc2626;font-weight:640':'';
+    const who = t.account==='gdb'?'Greg Brockman':t.account;
+    return `<div class="tweet">
+      <div class="tw-h">
+        <span class="who">${esc(who)}</span>
+        <span class="handle">@${esc(t.account)}</span>
+        ${t.when?`<span class="when">${esc(t.when)}</span>`:''}
+      </div>
+      <div class="tw-x">${esc(t.text)}</div>
+      ${t.url?`<div class="st"><a href="${t.url}" target="_blank" style="color:#2563eb;text-decoration:none">查看原文 ↗</a></div>`:''}
+      <div class="st">
+        <span>♥ <b style="${hi}">${fmt(m.likes)}</b></span>
+        <span>↻ ${fmt(m.reposts)}</span>
+        <span>💬 ${fmt(m.replies)}</span>
+        <span>👁 ${fmt(m.views)}</span>
+      </div>
+    </div>`;
+  }).join('') || '';
+}
+
+document.querySelectorAll('.fbtn').forEach(b=>{
+  b.onclick=()=>{
+    document.querySelectorAll('.fbtn').forEach(x=>x.classList.remove('on'));
+    b.classList.add('on'); f=b.dataset.f; render();
+  };
+});
+let tmr;
+document.getElementById('q').oninput=e=>{
+  clearTimeout(tmr); q=e.target.value.trim();
+  tmr=setTimeout(render,180);
+};
+render();
+</script>
+</body>
+</html>

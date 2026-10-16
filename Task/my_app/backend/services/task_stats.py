@@ -106,11 +106,63 @@ def _ensure_task_log_table(conn):
             conn.commit()
     except Exception as e:  # noqa: BLE001
         logger.warning(f"确保 error_trace 列失败: {e}")
+
+
+# ========== 「最近运行」兜底提供者（低频任务的执行记录补偿）==========
+#
+# 背景（2026-10-15 排查）`OLIB SOC VMAX Routine Report`（任务 42）在任务列表显示
+# 「No Record / 未记录」：该任务 cron 是 `30 7 1 * *`（每月 1 日跑一次），而
+# task_execution_log 只保留 7 天（task_runner._save_task_result 里的
+# TASK_LOG_RETENTION_DAYS 清理）。于是月报的最近一条记录在月中必然被删光，
+# `_fetch_latest_runs()` 查不到行 → 前端 classifyTaskStatus 判为 'unknown'。
+# 报表本身正常：月报的 `report_runs` 表（模块自己的 sqlite）留着完整历史。
+#
+# 设计取舍：
+# 1. **日志表仍是唯一主源**，提供者只在「库内该任务一条记录都没有」时兜底，
+#    绝不过滤/改写已有行 —— 避免出现第二个真相源。
+# 2. 提供者是**按任务注册**的模块回调（谁拥有产物库谁提供），task_stats 不反向
+#    依赖任何具体业务模块（与 get_task_history 的 fallback_history 同思路）。
+# 3. 目前只有月报这一个真实用例；不为它引入泛型框架，就是一个 task_id → 函数 的 dict。
+# 4. 兜底记录带 `source="provider"` 标记，前端/排查时可区分「来自日志表」与
+#    「来自模块产物库」，也便于日后需要时单独处理。
+
+_RECENT_RUNS_PROVIDERS: dict = {}
+
+
+def register_recent_runs_provider(task_id: str, provider) -> None:
+    """登记某任务的「最近运行」兜底提供者。
+
+    provider 是**无参**可调用对象，返回 list[dict]（每项字段需与 RunRecord 兼容：
+    started_at / completed_at / success / elapsed_seconds / error / trigger 等），
+    按时间倒序、最新在前；无记录时返回空列表。提供者内部异常一律被吞掉并记 warning，
+    不影响任务列表接口。
+    """
+    _RECENT_RUNS_PROVIDERS[task_id] = provider
+
+
+def _provider_runs(task_id: str) -> list:
+    """调用兜底提供者；任何异常都降级为空列表（列表接口绝不因此 500）。"""
+    provider = _RECENT_RUNS_PROVIDERS.get(task_id)
+    if provider is None:
+        return []
+    try:
+        runs = provider() or []
+        return list(runs)
+    except Exception:
+        logger.warning(f"[SILENT-EXCEPT] recent_runs provider for {task_id} swallowed",
+                       exc_info=True)
+        return []
+
+
 def _fetch_latest_runs() -> dict:
     """
     一次性查出每个任务的最新一条执行记录（单条 SQL + 子查询分组），
     避免前端 list + 逐任务 detail 产生的 N+1 请求。
     返回 {task_id: [run_dict]}（每个任务仅含最新 1 条，足够卡片展示）。
+
+    对 7 天保留期内**没有任何记录**的已注册任务，回落到其产物库提供者
+    （见上方 `register_recent_runs_provider`），用于低频任务（如月度报表）——
+    它们的执行记录会被保留策略清掉，但产物库里仍有完整历史。
     """
     result: dict = {}
     try:
@@ -137,7 +189,27 @@ def _fetch_latest_runs() -> dict:
             conn.close()
     except Exception as e:
         logger.warning(f"批量查询最新执行记录失败: {e}")
+
+    # 兜底：只补「日志表里一条都没有」的已注册任务，已有记录的任务不受影响。
+    # （DB 查询整体失败时 result 为空，这里同样按缺省补齐，保证列表不因日志库异常而全变 unknown）
+    for task_id in _RECENT_RUNS_PROVIDERS:
+        if result.get(task_id):
+            continue
+        runs = _provider_runs(task_id)
+        if runs:
+            result[task_id] = runs
     return result
+
+
+def _fetch_latest_run_for(task_id: str) -> list:
+    """**仅**取该任务产物库提供者的运行记录（不查 task_execution_log）。
+
+    设计为「调用方已确认日志表无记录」时才用，供 `get_task_detail` 与
+    `_fetch_latest_runs` 的兜底路径复用；未注册提供者时返回空列表。
+    """
+    return _provider_runs(task_id)
+
+
 def get_task_stats(task_id: str, days: int | None = None) -> dict:
     """统计某任务在保留期内的执行健康度（成功率 / 平均·最大耗时）。"""
     result = {

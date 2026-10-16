@@ -796,6 +796,15 @@ def _sqlite() -> sqlite3.Connection:
         id INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT, block TEXT, sheet TEXT, rows INTEGER,
         days_present INTEGER, days_missing INTEGER, seconds REAL, status TEXT, error TEXT,
         executed_at TEXT)""")
+    # 2026-10-15 补列 `invoked_by`：记录这次运算是**哪个 my_app 任务**发起的
+    # （`run_olib_soc_report` / `run_olib_soc_kpi_sync`）。旧库缺列时按 ALTER 补上，
+    # 存量行留 NULL。用途：任务列表的「最近运行」兜底（task_stats 提供者）需要把
+    # 月度报表任务自己的运行与每日 KPI 同步借道 `run_olib_soc_report(kpi_only=True)`
+    # 写入的 explicit_* 行区分开 —— 单看 mode 无法区分（两者都是 explicit），
+    # 靠调用方标记才是显式、可自解释的判据。
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(report_runs)")}
+    if "invoked_by" not in cols:
+        conn.execute("ALTER TABLE report_runs ADD COLUMN invoked_by TEXT")
     conn.commit()
     return conn
 
@@ -807,12 +816,14 @@ def persist_run(summary: Dict[str, Any]) -> None:
         conn.execute(
             "INSERT OR REPLACE INTO report_runs (run_id, mode, window_begin, window_end, days,"
             " missing_days, status, blocks_ok, blocks_failed, rows, excel_path, elapsed_seconds,"
-            " started_at, finished_at, error) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            " started_at, finished_at, error, invoked_by)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (summary["run_id"], summary["mode"], summary["window"][0], summary["window"][1],
              summary["days"], ",".join(summary.get("missing_days") or []), summary["status"],
              summary["blocks_ok"], summary["blocks_failed"], summary["rows"],
              summary.get("excel") or "", summary["elapsed_seconds"], summary["started_at"],
-             summary["finished_at"], "; ".join(summary.get("errors") or [])[:2000]))
+             summary["finished_at"], "; ".join(summary.get("errors") or [])[:2000],
+             summary.get("invoked_by") or ""))
         for key, res in (summary.get("blocks") or {}).items():
             conn.execute(
                 "INSERT INTO block_runs (run_id, block, sheet, rows, days_present, days_missing,"
@@ -830,6 +841,71 @@ def persist_run(summary: Dict[str, Any]) -> None:
 
 def summary_json_path(run_id: str) -> Path:
     return DATA_DIR / ("%s.summary.json" % run_id)
+
+
+def recent_runs_for_task(task_id: str = "olib_soc_vmax_report") -> List[Dict[str, Any]]:
+    """任务列表「最近运行」兜底：从 `report_runs` 读该任务的最近若干次运行。
+
+    背景（2026-10-15）：月报任务 cron 是每月 1 日，而任务列表读的
+    `task_execution_log` 只保留 7 天 —— 月中查看时月报记录已被清掉，界面显示
+    「No Record」。报表本身一直正常（产物与 `report_runs` 都在），这里把产物库
+    的历史补回给任务列表。
+
+    * 只返回**由该任务发起**的运行：每日 KPI 同步会借道
+      `run_olib_soc_report(kpi_only=True)` 往 report_runs 写 explicit_* 行，靠
+      `invoked_by` 区分（月度报表任务为 `olib_soc_vmax_report`）。存量旧行
+      `invoked_by` 为 NULL，按「非 kpi 同步」处理 —— 用 `mode='last_month'` 兜底，
+      因为同步写入的都是 explicit 模式。
+    * 返回字段与前端 RunRecord 对齐（trigger 固定 `scheduled` 之外的值标为 `manual`，
+      这里不区分触发源，统一 `scheduled`；success 由 status 推导为 ok/partial）。
+    * 只读、异常吞掉返回空列表：列表接口绝不因此 500。
+    """
+    try:
+        if not SQLITE_PATH.exists():
+            return []
+        conn = sqlite3.connect(str(SQLITE_PATH), timeout=5)
+        try:
+            cols = {row[1] for row in conn.execute("PRAGMA table_info(report_runs)")}
+            has_invoked = "invoked_by" in cols
+            if has_invoked:
+                # 归属本任务：显式标记为本任务，或（旧数据）模式为 last_month 的月报。
+                where = ("WHERE invoked_by = ? OR (COALESCE(invoked_by,'') = '' AND mode = 'last_month')",
+                         (task_id,))
+            else:
+                where = ("WHERE mode = 'last_month'", ())
+            rows = conn.execute(
+                "SELECT run_id, status, elapsed_seconds, started_at, finished_at, error"
+                " FROM report_runs %s ORDER BY started_at DESC LIMIT 10" % where[0],
+                where[1]
+            ).fetchall()
+        finally:
+            conn.close()
+    except Exception as exc:                                             # noqa: BLE001
+        logger.warning("[olib_soc] 读取 report_runs 作为最近运行失败: %s", exc)
+        return []
+    runs: List[Dict[str, Any]] = []
+    for (run_id, status, elapsed, started_at, finished_at, error) in rows:
+        # partial 仍算成功（块都跑完，只是某天缺数），与任务状态机口径一致；
+        # 只有 failed / unavailable 记为失败，前端才会标红并显示 error。
+        ok = status not in ("failed", "unavailable")
+        runs.append({
+            "task_id": task_id,
+            # 不放翻译后的名字（提供者不知道调用方语言）；前端展示用的是 task.name，
+            # 这里给 task_id 作为缺省即可。
+            "task_name": task_id,
+            "category": "olib_soc",
+            "trigger": "scheduled",
+            "success": bool(ok),
+            "started_at": (started_at or "").replace(" ", "T"),
+            "completed_at": (finished_at or "").replace(" ", "T"),
+            "elapsed_seconds": float(elapsed or 0),
+            "error": None if ok else (error or ("status=%s" % status)),
+            "error_trace": None,
+            # 便于排查/前端可选展示；RunRecord 允许额外字段
+            "source": "provider",
+            "run_id": run_id,
+        })
+    return runs
 
 
 # ==========================================================================
@@ -913,7 +989,8 @@ def run_olib_soc_report(mode: Optional[str] = None, days: Optional[int] = None,
                         kpi_only: bool = False, excel: Optional[bool] = None,
                         client: Any = None,
                         config_path: Optional[Path] = None,
-                        today: Optional[date] = None) -> Dict[str, Any]:
+                        today: Optional[date] = None,
+                        invoked_by: Optional[str] = None) -> Dict[str, Any]:
     """任务入口（注册给 task_runner，无参调用）：出 OLIB SOC VMAX 报表并落盘。
 
     * client 仅供测试注入（假客户端）；正常走 `_ClientPool` 自建连接。
@@ -922,6 +999,8 @@ def run_olib_soc_report(mode: Optional[str] = None, days: Optional[int] = None,
     * kpi_only=True 时只跑看板需要的 7 个块、默认不写 Excel（每日增量同步用）。
     * excel 显式覆盖配置里的 persist.write_excel（None=按配置；名字不用 write_excel，
       否则会在函数内遮蔽同名的 `write_excel()` 函数）。
+    * invoked_by 记录发起本次运行的任务 id（落进 report_runs.invoked_by），供任务列表
+      「最近运行」兜底区分月报任务与每日 KPI 同步借道写入的行（详见 _sqlite 补列注释）。
     """
     started = time.time()
     cfg = load_config(config_path)
@@ -951,6 +1030,7 @@ def run_olib_soc_report(mode: Optional[str] = None, days: Optional[int] = None,
         "partial_days": partial_days,
         "started_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "finished_at": "", "warnings": [clamp_warning] if clamp_warning else [],
+        "invoked_by": invoked_by or "",
     }
     if clamp_warning:
         logger.warning("[olib_soc] %s", clamp_warning)
@@ -1199,7 +1279,8 @@ def run_olib_soc_kpi_sync(days_back: Optional[int] = None, only_missing: bool = 
         inner = run_olib_soc_report(mode="explicit", start=gaps[0], end=gaps[-1],
                                     blocks=KPI_BLOCKS, persist=persist, kpi_only=True,
                                     excel=False, client=client,
-                                    config_path=config_path, today=today)
+                                    config_path=config_path, today=today,
+                                    invoked_by="olib_soc_kpi_daily_sync")
     # 历史残留在真正重取前，先用**一次**上游分区清单检查把它们再筛一遍：
     # 数仓只留约 90 天，某些残留（如 2026-09-07 的流量/TCP 分区）其实早已消失 ——
     # 这种"永远补不上"的天若每天都重取，只会每天徒劳查询 + 每天刷一条 warning。
@@ -1243,7 +1324,8 @@ def run_olib_soc_kpi_sync(days_back: Optional[int] = None, only_missing: bool = 
                                            end=historical[-1], blocks=KPI_BLOCKS,
                                            persist=persist, kpi_only=True, excel=False,
                                            client=client, config_path=config_path,
-                                           today=today)
+                                           today=today,
+                                           invoked_by="olib_soc_kpi_daily_sync")
     # 主调用与历史残留调用的结果合并：状态取「更差」的一个，天数/行数/缺口取并集。
     parts = [p for p in (inner, hist_summary) if p]
     worst = "ok"
