@@ -8,7 +8,7 @@
  *   错误是否被翻译成人能看懂的话
  *   两个 provider 是否正确分发
  */
-import { CONFIG, RUNTIME_CONFIG } from '../src/config.js';
+import { CONFIG, RUNTIME_CONFIG, FALLBACK_CONFIG } from '../src/config.js';
 import { chat, resolveApiKey, providerInfo, validateProvider, pingProvider } from '../src/llm.js';
 
 // CONFIG 的对话字段（chatProvider/chatModel/chatBaseUrl/chatApiKey/chatApiKeyEnv/
@@ -265,6 +265,85 @@ check(local.content === '本地回答', '正确解析 Ollama 响应格式');
 check(!calls[0].init.headers.Authorization, 'Ollama 请求不带 Authorization 头');
 
 setCfg('chatProvider', 'openai');
+
+/* ---------------------------- 主模型回退兜底 ---------------------------- */
+
+console.log('\n[8] 主模型失败 → 自动回退兜底 provider');
+
+// 保存并改出一个「主/备不同源」的场景：主 = 假 OWU，备 = 假 WorkBuddy。
+// FALLBACK_CONFIG 是 config.js 在 loadRuntimeConfig 覆盖前抓的快照，
+// 测试里直接改它来模拟「API 已把主模型切到另一个源」。
+const fbSaved = { ...FALLBACK_CONFIG };
+const mainSaved = {
+  chatBaseUrl: CONFIG.chatBaseUrl,
+  chatModel: CONFIG.chatModel,
+  chatApiKeyEnv: CONFIG.chatApiKeyEnv,
+};
+
+setCfg('chatBaseUrl', 'http://main.example/api/v1');
+setCfg('chatModel', 'main-model');
+setCfg('chatApiKeyEnv', ENV_NAME);
+process.env[ENV_NAME] = 'main-key';
+
+FALLBACK_CONFIG.chatProvider = 'openai';
+FALLBACK_CONFIG.chatBaseUrl = 'http://fallback.example/v1';
+FALLBACK_CONFIG.chatModel = 'fallback-model';
+FALLBACK_CONFIG.chatApiKeyEnv = ENV_NAME; // 复用同一个 env（测试省事；真实场景是 AGNES_API_KEY）
+FALLBACK_CONFIG.chatApiKey = '';
+
+// 主不可用（400 Model not found）→ 应改打兜底，并在结果上标记 fallback
+calls = mockFetch((url) => {
+  if (url.includes('main.example')) return jsonResponse({ detail: 'Model not found' }, 400);
+  return jsonResponse({ choices: [{ message: { role: 'assistant', content: '兜底回答' }, finish_reason: 'stop' }] });
+});
+const fbR = await chat([{ role: 'user', content: 'hi' }]);
+check(calls.length === 2, '主失败后发起第 2 次请求（共 2 次）', `实际 ${calls.length} 次`);
+check(calls[0].url.includes('main.example'), '第 1 次打主 provider');
+check(calls[1].url.includes('fallback.example'), '第 2 次打兜底 provider', calls[1]?.url);
+check(JSON.parse(calls[1].init.body).model === 'fallback-model', '兜底请求用的是兜底模型名');
+check(fbR.content === '兜底回答', '返回兜底 provider 的内容');
+check(fbR.fallback && fbR.fallback.to === 'fallback-model', '结果上带 fallback 标记，便于日志追溯');
+
+// 鉴权失败不应回退（换 provider 掩盖不了密钥问题）
+calls = mockFetch((url) =>
+  url.includes('main.example')
+    ? jsonResponse({ error: { message: 'Invalid token' } }, 401)
+    : jsonResponse({ choices: [{ message: { content: '不该走到这里' } }] })
+);
+try {
+  await chat([{ role: 'user', content: 'hi' }]);
+  check(false, '401 鉴权失败不回退 → 抛错', '未抛异常');
+} catch (err) {
+  check(calls.length === 1 && /401|API Key 无效/.test(err.message), '401 鉴权失败不回退（只打主 provider 一次）');
+}
+
+// 主备同源时不应回退（白打两遍无意义）
+FALLBACK_CONFIG.chatBaseUrl = CONFIG.chatBaseUrl;
+FALLBACK_CONFIG.chatModel = CONFIG.chatModel;
+calls = mockFetch(() => jsonResponse({ detail: 'Model not found' }, 400));
+try {
+  await chat([{ role: 'user', content: 'hi' }]);
+  check(false, '主备同源不回退 → 抛错', '未抛异常');
+} catch {
+  check(calls.length === 1, '主备同源时不回退（只打一次）');
+}
+
+// noFallback 显式关闭回退（ping / 测试用）
+FALLBACK_CONFIG.chatBaseUrl = 'http://fallback.example/v1';
+FALLBACK_CONFIG.chatModel = 'fallback-model';
+calls = mockFetch(() => jsonResponse({ detail: 'Model not found' }, 400));
+try {
+  await chat([{ role: 'user', content: 'hi' }], { noFallback: true });
+  check(false, 'noFallback → 不回退', '未抛异常');
+} catch {
+  check(calls.length === 1, 'noFallback=true 时不回退');
+}
+
+// 还原
+Object.assign(FALLBACK_CONFIG, fbSaved);
+setCfg('chatBaseUrl', mainSaved.chatBaseUrl);
+setCfg('chatModel', mainSaved.chatModel);
+setCfg('chatApiKeyEnv', mainSaved.chatApiKeyEnv);
 
 /* -------------------------------- 收尾 -------------------------------- */
 

@@ -60,6 +60,27 @@ export const RUNTIME_CONFIG = {
 };
 
 /**
+ * 兜底 provider 快照 —— 在 loadRuntimeConfig() **覆盖前**留一份 config.json / 环境变量的原始值。
+ *
+ * 为什么需要：my_app 的「AI 模型设置」页把主模型指向 Open WebUI 时，OWU 一旦抽风
+ * （模型报 400 Model not found、超时、连不上），**整个群的问答都会失败** ——
+ * 2026-10-16 就发生过：OWU 不再暴露本地 Ollama 模型，机器人只会回
+ * 「something went wrong」，而本机 WorkBuddy 代理其实一直好着。
+ *
+ * 这份快照让 llm.js 在主 provider 失败时能自动改打兜底目标。只在
+ * 「API 覆盖确实改变了 provider」时才有意义（若主备同源则不启用，见 llm.js）。
+ *
+ * 注意：这是**浅拷贝**，仅含对话相关字段；不含密钥明文以外的敏感信息。
+ */
+export const FALLBACK_CONFIG = {
+  chatProvider: RUNTIME_CONFIG.chatProvider,
+  chatModel: RUNTIME_CONFIG.chatModel,
+  chatBaseUrl: RUNTIME_CONFIG.chatBaseUrl,
+  chatApiKeyEnv: RUNTIME_CONFIG.chatApiKeyEnv,
+  chatApiKey: RUNTIME_CONFIG.chatApiKey,
+};
+
+/**
  * 把 my_app Settings 页存的 Open WebUI **UI 地址**规范化为其 **OpenAI 兼容 API base**。
  *
  * 为什么必须补：Settings 页的 `openwebui_base_url` 存的是网页地址

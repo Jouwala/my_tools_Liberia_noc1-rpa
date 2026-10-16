@@ -8,7 +8,7 @@
  * 嵌入始终走本地 Ollama —— 这是刻意的：把资料向量化留在本机，
  * 只有「问题 + 命中的片段」会离开这台机器。
  */
-import { CONFIG } from './config.js';
+import { CONFIG, FALLBACK_CONFIG } from './config.js';
 import { ollamaChat } from './ollama.js';
 
 /**
@@ -63,27 +63,94 @@ export function validateProvider() {
 
 /**
  * 统一对话入口。
+ *
+ * 主 provider 失败时（模型不可用 / 超时 / 连不上），**自动改打兜底 provider**。
+ * 这是 2026-10-16 故障的直接产物：OWU 侧一时不再暴露本地模型，主链路整体失败，
+ * 而本机 WorkBuddy 代理一直可用 —— 若能自动回退，群里就不会只收到「something went wrong」。
+ *
+ * 只对「基础设施级」错误回退：网络不可达、超时、5xx、模型名/路径不认（404/400）。
+ * **鉴权失败（401/403）与限流（429）不回退** —— 那是配置/额度问题，换个 provider 掩盖不了，
+ * 反而会让用户以为主 provider 没问题。用 opts.noFallback 可显式关闭回退（测试/ping 用）。
+ *
  * @param {Array<{role:string,content:string}>} messages
- * @param {object} opts { model, temperature, maxTokens, timeoutMs }
- * @returns {Promise<{content:string, stats:object}>}
+ * @param {object} opts { model, temperature, maxTokens, timeoutMs, noFallback, lenient }
+ * @returns {Promise<{content:string, stats:object, fallback?:object}>}
  */
 export async function chat(messages, opts = {}) {
-  return CONFIG.chatProvider === 'openai' ? openaiChat(messages, opts) : ollamaChat(messages, opts);
+  const primary = CONFIG.chatProvider === 'openai' ? openaiChat(messages, opts) : ollamaChat(messages, opts);
+
+  const fb = fallbackTarget();
+  if (opts.noFallback || !fb) return primary;
+
+  try {
+    return await primary;
+  } catch (err) {
+    if (!isFallbackEligible(err)) throw err;
+    // 回退目标独立构造，不复用主链路的 CONFIG（此时已被覆盖）。
+    console.warn(`[llm] 主模型失败（${String(err.message).split('\n')[0]}），自动回退到兜底 provider：${fb.chatModel} @ ${fb.chatBaseUrl}`);
+    const r = fb.chatProvider === 'openai'
+      ? await openaiChat(messages, { ...opts, __override: fb })
+      : await ollamaChat(messages, opts);
+    return { ...r, fallback: { from: CONFIG.chatModel, to: fb.chatModel, reason: String(err.message).split('\n')[0] } };
+  }
+}
+
+/**
+ * 判定错误是否值得回退。
+ * 用错误信息文本匹配 —— openaiChat 抛出的都是人可读的中文短语（见下方各 throw），
+ * 这里只认那些「换个 provider 可能就好」的类别。
+ */
+function isFallbackEligible(err) {
+  const msg = String(err?.message || '');
+  // 明确不该回退：密钥无效 / 限流额度 —— 换 provider 掩盖问题
+  if (/API Key 无效|无权限|限流|额度/.test(msg)) return false;
+  // 值得回退：网络不可达、超时、模型名/路径不认、5xx
+  return (
+    /连不上云端模型/.test(msg) ||
+    /超时/.test(msg) ||
+    /模型名或路径不对/.test(msg) ||
+    /Model not found/i.test(msg) ||
+    /返回 5\d\d/.test(msg)
+  );
+}
+
+/**
+ * 计算兜底目标。仅当「主 provider 与兜底 provider 确实不同源」时才返回，
+ * 否则返回 null（同源回退无意义，还会把同一请求白打两遍）。
+ * @returns {{chatProvider:string, chatModel:string, chatBaseUrl:string, chatApiKeyEnv:string, chatApiKey:string}|null}
+ */
+function fallbackTarget() {
+  const f = FALLBACK_CONFIG;
+  if (!f || f.chatProvider !== 'openai' || !f.chatBaseUrl) return null;
+  const sameBase = String(f.chatBaseUrl).replace(/\/+$/, '') === String(CONFIG.chatBaseUrl || '').replace(/\/+$/, '');
+  const sameModel = f.chatModel === CONFIG.chatModel;
+  if (sameBase && sameModel) return null;
+  // 兜底目标也得有 key 才可用
+  const envName = f.chatApiKeyEnv;
+  const fromEnv = envName && process.env[envName] ? String(process.env[envName]).trim() : '';
+  const fromCfg = (f.chatApiKey || '').trim();
+  if (!fromEnv && !fromCfg) return null;
+  return f;
 }
 
 /* ------------------------- OpenAI 兼容 provider ------------------------- */
 
 async function openaiChat(messages, opts = {}) {
-  const { key } = resolveApiKey();
+  // __override：回退链路专用，用兜底 provider 的 base/model/key 替换被覆盖的 CONFIG。
+  const ov = opts.__override;
+  const key = ov
+    ? ((ov.chatApiKeyEnv && process.env[ov.chatApiKeyEnv] ? String(process.env[ov.chatApiKeyEnv]).trim() : '') ||
+       (ov.chatApiKey || '').trim())
+    : resolveApiKey().key;
   if (!key) throw new Error('缺少 API Key，无法调用云端对话模型');
 
-  const base = CONFIG.chatBaseUrl.replace(/\/+$/, '');
+  const base = (ov ? ov.chatBaseUrl : CONFIG.chatBaseUrl).replace(/\/+$/, '');
   const url = `${base}/chat/completions`;
   const timeoutMs = opts.timeoutMs ?? CONFIG.chatTimeoutMs;
   const t0 = Date.now();
 
   const body = {
-    model: opts.model ?? CONFIG.chatModel,
+    model: opts.model ?? (ov ? ov.chatModel : CONFIG.chatModel),
     messages,
     temperature: opts.temperature ?? CONFIG.temperature,
     max_tokens: opts.maxTokens ?? CONFIG.maxTokens,
