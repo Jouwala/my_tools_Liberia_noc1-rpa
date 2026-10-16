@@ -2627,6 +2627,16 @@ const translations: Record<Locale, Record<string, string>> = {
     'gis.person.filteredByAdv': '已按高级筛选过滤',
     'gis.person.notRealtime': '登记位置，非实时',
     'gis.person.woTitle': '{name} 的工单',
+    // 标签口径：未清除告警 / 未关闭（2026-10-16 用户要求，原为 未关闭/总数）
+    'gis.person.badgeLabel': '未清除',
+    'gis.person.badgeHint': '未清除告警 {uncleared} 单 / 未关闭 {open} 单（点击查看明细）',
+    // 弹窗两档
+    'gis.person.tierUncleared': '未清除告警工单（{n} 单）',
+    'gis.person.tierAll': '时间窗内未关闭工单（{n} 单）',
+    'gis.person.showMore': '显示更多（未关闭工单）',
+    'gis.person.backToUncleared': '只看未清除告警',
+    'gis.person.moreHint': '另有 {n} 单告警已清除、流程未关闭',
+    'gis.person.noUncleared': '该人员无未清除告警的工单；点「显示更多」看时间窗内全部未关闭工单',
     'gis.person.noWo': '该人员暂无未关闭工单',
     'gis.person.truncated': '结果过多，仅显示部分工单，请缩小范围后重试。',
     'gis.person.colAction': '操作',
@@ -2790,6 +2800,21 @@ const translations: Record<Locale, Record<string, string>> = {
     'gis.kpi.selectMetrics': '选择指标',
     'gis.kpi.source': '数据源：站点级日表（约 96 天）',
     'gis.kpi.dailyDetail': '日明细',
+
+    // ===== 站点告警处理建议（2026-10-16 新增）=====
+    // 复用 /api/eflow-qa/ume-alarm 链路（TT Quick Analysis 同源）
+    'gis.alarmSug.title': '告警处理建议',
+    'gis.alarmSug.note': '数据源与 eFlow QA → TT Quick Analysis 同源（UME 处理建议），按站点聚合最近告警建议；首次加载会调 UME，命中后缓存 5 分钟。',
+    'gis.alarmSug.summary': '已取 {ok}/{total} 条建议（耗时 {sec}s）',
+    'gis.alarmSug.loading': '正在从 UME 取建议…',
+    'gis.alarmSug.fetchFailed': '获取建议失败',
+    'gis.alarmSug.empty': '该站点当前范围内没有可关联的告警',
+    'gis.alarmSug.sourceRealtime': '实时告警',
+    'gis.alarmSug.sourceHistory': '历史告警',
+    'gis.alarmSug.hasSug': '有建议',
+    'gis.alarmSug.noSug': '无建议',
+    'gis.alarmSug.noSugDetail': 'UME 未返回该告警的处理建议',
+    'gis.alarmSug.unknownAlarm': '未识别告警',
 
     // 数据源时间信息
     'datasource.lastSync': '数据同步时间（UTC）',
@@ -6529,6 +6554,14 @@ const translations: Record<Locale, Record<string, string>> = {
     'gis.person.filteredByAdv': 'filtered by advanced filter',
     'gis.person.notRealtime': 'Registered position, not real-time',
     'gis.person.woTitle': 'Work orders of {name}',
+    'gis.person.badgeLabel': 'Unclrd',
+    'gis.person.badgeHint': '{uncleared} with uncleared alarms / {open} not closed (click for details)',
+    'gis.person.tierUncleared': 'Work orders with uncleared alarms ({n})',
+    'gis.person.tierAll': 'Work orders not closed within the time window ({n})',
+    'gis.person.showMore': 'Show more (not-closed work orders)',
+    'gis.person.backToUncleared': 'Uncleared alarms only',
+    'gis.person.moreHint': '{n} more with alarm cleared but workflow not closed',
+    'gis.person.noUncleared': 'No work orders with uncleared alarms; click "Show more" for all not-closed work orders in the time window',
     'gis.person.noWo': 'No open work orders for this person',
     'gis.person.truncated': 'Too many results; only part of the work orders are shown. Please narrow the range and retry.',
     'gis.person.colAction': 'Action',
@@ -6680,6 +6713,21 @@ const translations: Record<Locale, Record<string, string>> = {
     'gis.kpi.selectMetrics': 'Select metrics',
     'gis.kpi.source': 'Source: site-level daily tables (~96 days)',
     'gis.kpi.dailyDetail': 'Daily details',
+
+    // ===== Site alarm handling suggestions (2026-10-16) =====
+    // Same source as /api/eflow-qa/ume-alarm (used by TT Quick Analysis)
+    'gis.alarmSug.title': 'Alarm Handling Suggestions',
+    'gis.alarmSug.note': 'Same data source as eFlow QA → TT Quick Analysis (UME suggestions), aggregated per site for recent alarms. Hits UME on first load, cached for 5 minutes.',
+    'gis.alarmSug.summary': 'Fetched {ok}/{total} suggestions ({sec}s)',
+    'gis.alarmSug.loading': 'Fetching suggestions from UME…',
+    'gis.alarmSug.fetchFailed': 'Failed to fetch suggestions',
+    'gis.alarmSug.empty': 'No mappable alarms in this site within the selected range',
+    'gis.alarmSug.sourceRealtime': 'Realtime',
+    'gis.alarmSug.sourceHistory': 'History',
+    'gis.alarmSug.hasSug': 'Has suggestion',
+    'gis.alarmSug.noSug': 'No suggestion',
+    'gis.alarmSug.noSugDetail': 'UME did not return a suggestion for this alarm',
+    'gis.alarmSug.unknownAlarm': 'Unknown alarm',
 
     // 数据源时间信息
     'datasource.lastSync': 'Data Sync Time (UTC)',

@@ -32,9 +32,11 @@ export interface PersonMarker {
   phone: string
   managed_regions: string
   status: string
-  /** 未关闭 WO 数 */
+  /** 未关闭 WO 数（标签分母；弹窗「更多」档的行数） */
   wo_count: number
-  /** 全部 WO 数（含已关闭）—— 标签显示 WO:开/总 */
+  /** 未清除告警的 WO 数（标签分子；弹窗默认档的行数） */
+  wo_count_uncleared: number
+  /** 全部 WO 数（含已关闭）—— 已不再用于标签，保留供排查 */
   wo_count_total: number
 }
 
@@ -188,6 +190,19 @@ export function PersonnelLayer({
   // 选中的人员 + 其 WO 弹窗
   const [activePerson, setActivePerson] = useState<PersonMarker | null>(null)
   const [woModalOpen, setWoModalOpen] = useState(false)
+  /* 弹窗档位：false = 只看未清除告警（默认），true = 时间窗内全部未关闭（「更多」）。
+     用户 2026-10-16：「弹窗默认显示告警未清除的，点更多的时候显示时间窗内未关闭的 WO」。
+     切换会重新拉取（后端 only_uncleared 参数），不是本地筛选 —— 因为「更多」档
+     需要的是后端另一套口径的完整分页数据，不是当前列表的子集/超集关系。 */
+  const [woShowAll, setWoShowAllState] = useState(false)
+  /* woShowAll 的镜像 ref。给「时间窗口变化时重拉」的 effect 用 ——
+     那个 effect 只依赖 timeParams，读 state 会拿到闭包里的旧值（stale closure）。
+     所有写入都必须走下面这个 setWoShowAll，保证 ref 与 state 永不脱钩。 */
+  const woShowAllRef = useRef(false)
+  const setWoShowAll = useCallback((v: boolean) => {
+    woShowAllRef.current = v
+    setWoShowAllState(v)
+  }, [])
   const [woModalAnchor, setWoModalAnchor] = useState<{ x: number; y: number } | null>(null)
   const [woLoading, setWoLoading] = useState(false)
   const [woList, setWoList] = useState<PersonWorkOrder[]>([])
@@ -283,6 +298,17 @@ export function PersonnelLayer({
       .finally(() => setLoading(false))
   }, [t, timeRange])
 
+  /* 时间窗口变化时，若弹窗开着要按**当前档位**重拉 ——
+     否则「标签数字跟了窗口、弹窗内容还是旧窗口的」会让人看到 3/171 却点进去 5 行
+     （AGENTS.md 三.1b 的同口径要求）。woShowAll 故意不入依赖：档位切换由
+     按钮自己触发 fetchWorkOrders，不需要这个 effect 代劳。 */
+  useEffect(() => {
+    if (enabled && woModalOpen && activePerson) {
+      fetchWorkOrders(activePerson.name_key, woShowAllRef.current)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [timeParams])
+
   useEffect(() => {
     if (enabled) loadPeople()
     else {
@@ -361,9 +387,20 @@ export function PersonnelLayer({
     setWoLoading(true)
     setWoList([])
     setWoTruncated(false)
-    // 默认只看未关闭单 + 跟随时间窗口 —— 与人员列表的 wo_count 同口径（见后端注释）
-    api.get(`/gis/personnel/${encodeURIComponent(p.name_key)}/work-orders`,
-      { params: timeParams })
+    // 默认档：只看未清除告警 + 跟随时间窗口
+    // —— 与人员标签分子 wo_count_uncleared 同口径（见后端注释）
+    setWoShowAll(false)
+    fetchWorkOrders(p.name_key, false)
+  }
+
+  /* 拉取某人员的 WO 列表。
+     `showAll=false`（默认档）= 未清除告警，行数 == 标签分子；
+     `showAll=true`（「更多」档）= 时间窗内全部未关闭，行数 == 标签分母。
+     两档都跟随页面的 Time window —— 切窗口后台会自动重拉（见下方 effect）。 */
+  const fetchWorkOrders = (nameKey: string, showAll: boolean) => {
+    setWoLoading(true)
+    api.get(`/gis/personnel/${encodeURIComponent(nameKey)}/work-orders`,
+      { params: { ...timeParams, only_uncleared: !showAll } })
       .then(res => {
         setWoList(res.data.wo_list || [])
         setWoTruncated(!!res.data.meta?.truncated)
@@ -479,10 +516,15 @@ export function PersonnelLayer({
           : (isDark ? '#4fc3f7' : '#1890ff')
         const size = (selected || hovered) ? 32 : 26
         const iconH = size * 1.5
-        // 标签：WO:未关闭/总数。未关闭为 0 时用灰色，正常为红色，让「有活干」的人更醒目。
+        /* 标签：**未清除告警 / 未关闭**（2026-10-16 用户要求，原为 未关闭/总数）。
+           ⚠ 分子常用会是 0 —— 实测全库「未关闭且未清除」只有 127 条，
+           集中在少数人身上（Varfee Sarnor 27、Festus Emmanuel 3、Mark D. Paye 2），
+           Patrick Monday / Emmanuel Egbe 都是 0。**这是数据事实不是 bug**，
+           故标签必须带「未清除」字样说明含义，否则用户看到 0/171 会以为统计坏了。
+           着色按**分子**：有未清除告警才红，否则灰 —— 一眼看出谁手上有真问题。 */
         const openCnt = p.wo_count || 0
-        const totalCnt = p.wo_count_total || 0
-        const badgeColor = openCnt > 0 ? '#ff4d4f' : '#8c8c8c'
+        const unclearedCnt = p.wo_count_uncleared || 0
+        const badgeColor = unclearedCnt > 0 ? '#ff4d4f' : '#8c8c8c'
         // 悬停时在针上方显示姓名与电话（电话号码后端已脱敏）
         const phone = (p.phone || '').trim()
         const tip = hovered
@@ -500,14 +542,17 @@ export function PersonnelLayer({
               `<div class="gis-person-anchor">` +
                 tip +
                 personIconSvg(color, size, selected) +
-                `<span class="gis-person-badge" style="border-color:${badgeColor};color:${badgeColor}">WO:${openCnt}/${totalCnt}</span>` +
+                `<span class="gis-person-badge" style="border-color:${badgeColor};color:${badgeColor}" ` +
+                  `title="${escapeHtml(t('gis.person.badgeHint', { uncleared: unclearedCnt, open: openCnt }))}">` +
+                  `${escapeHtml(t('gis.person.badgeLabel'))}:${unclearedCnt}/${openCnt}` +
+                `</span>` +
               `</div>`
             }
             // 宽取 size（针身）与标签的最大值，避免标签被 divIcon 边界裁掉
             iconSize={[size, iconH]}
             // 锚在**针尖**：图标底部中点对准坐标，针尖才真正落在地理点上
             iconAnchor={[size / 2, iconH]}
-            iconKey={`${selected}-${hovered}-${size}-${openCnt}-${totalCnt}`}
+            iconKey={`${selected}-${hovered}-${size}-${unclearedCnt}-${openCnt}`}
             zIndexOffset={selected ? 1000 : hovered ? 900 : 0}
             className="gis-person-marker"
             onClick={(e) => handlePersonClick(p, e as unknown as { originalEvent?: MouseEvent })}
@@ -564,10 +609,36 @@ export function PersonnelLayer({
         width="80%"
         onClose={() => setWoModalOpen(false)}
       >
+        {/* 档位说明 + 切换。放在表格之外，加载中也显示，用户随时能切回默认档。 */}
+        {activePerson && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12,
+                        flexWrap: 'wrap', marginBottom: 12 }}>
+            <span style={{ fontSize: 13 }}>
+              {woShowAll
+                ? t('gis.person.tierAll', { n: activePerson.wo_count || 0 })
+                : t('gis.person.tierUncleared', { n: activePerson.wo_count_uncleared || 0 })}
+            </span>
+            <Button size="small" onClick={() => {
+              const next = !woShowAll
+              setWoShowAll(next)
+              if (activePerson) fetchWorkOrders(activePerson.name_key, next)
+            }}>
+              {/* 「更多」= 放宽到时间窗内全部未关闭；已在宽档时按钮收回默认档 */}
+              {woShowAll ? t('gis.person.backToUncleared') : t('gis.person.showMore')}
+            </Button>
+            {!woShowAll && (activePerson.wo_count || 0) > (activePerson.wo_count_uncleared || 0) && (
+              <span style={{ fontSize: 12, color: 'var(--wh-text-secondary, #8c8c8c)' }}>
+                {t('gis.person.moreHint', {
+                  n: (activePerson.wo_count || 0) - (activePerson.wo_count_uncleared || 0),
+                })}
+              </span>
+            )}
+          </div>
+        )}
         {woLoading ? (
           <div style={{ textAlign: 'center', padding: 24 }}><Spin /></div>
         ) : woList.length === 0 ? (
-          <Empty description={t('gis.person.noWo')} />
+          <Empty description={woShowAll ? t('gis.person.noWo') : t('gis.person.noUncleared')} />
         ) : (
           <>
             {woTruncated && (

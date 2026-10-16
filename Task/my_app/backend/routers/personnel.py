@@ -72,6 +72,34 @@ def _is_closed(status) -> bool:
     return str(status or "").strip().lower().startswith("closed")
 
 
+def _is_uncleared(alarm_clear_time, status) -> bool:
+    """告警是否**尚未清除** —— 标签分子、弹窗默认口径的唯一判定处。
+
+    口径（2026-10-16 经用户确认）：`eflow_wo.alarm_clear_time` 为空
+    **且** status 未关闭。
+
+    ⚠ 两个条件的顺序在数据上等价于「只看 alarm_clear_time 是否为空」——
+    实测全表没有「status=Closed 且 alarm_clear_time 为空」的行，但保留
+    status 判定是**防御性**的：将来若出现该组合，它是已闭环的单，
+    不该再算作「未清除告警」。
+
+    ⚠ **与 `_is_closed` 是两个不同的概念，不要互相替代**：
+      - 未关闭（`not _is_closed`）：工单流程没走完；
+      - 未清除（本函数）：告警本体还没被清除。
+    常见的 `Wait For Confirm` 单往往是「告警已清除但流程待确认」——
+    它**未关闭但不属于未清除**。故标签分子 ≤ 分母，符合直觉。
+
+    实测量级（全部时间、全表）：未关闭且未清除的 WO 全球仅 **127 条**，
+    且集中在少数人身上（Varfee Sarnor 27 / Festus Emmanuel 3 / Mark D. Paye 2，
+    Patrick Monday 0、Emmanuel Egbe 0）。**大量人员分子会是 0，这是数据事实，
+    不是 bug** —— 界面必须用「未清除」标签把这个含义写清楚，
+    否则用户看到 `0/171` 会以为统计坏了。
+    """
+    if str(alarm_clear_time or "").strip():
+        return False
+    return not _is_closed(status)
+
+
 def _mask_phone(raw) -> str:
     """电话脱敏。库里多数行已是 ``231****7417`` 形式，少数为明文（如 231770476985）。
 
@@ -130,15 +158,18 @@ def _window_clause(time_start, time_end, days) -> tuple[str, list]:
 
 
 def _load_wo_owner_index(conn, time_start=None, time_end=None, days=None) -> dict[str, dict[str, int]]:
-    """一次扫描 eflow_wo，产出 ``{规范化姓名: {"open": 未关闭数, "total": 全部数}}``。
+    """一次扫描 eflow_wo，产出 ``{规范化姓名: {"uncleared": 未清除数, "open": 未关闭数, "total": 全部数}}``。
 
     比在人员列表里逐人查一次 SQL 少 N 次往返（人员 26 人 → 1 次扫描）。
     「未关闭」按 status 排除 Closed/Closed_... 口径；与其他 WO 统计口径一致处
     以 `eflow_wo.status` 实际取值为准（实测有 Closed / Closed_Confirmed 等）。
+    「未清除」口径见 `_is_uncleared`。
 
-    **为什么两个计数一起出**：界面标签要显示 ``WO:11/20``（未关闭/总数）——
-    两个数必须来自**同一次扫描、同一套归属规则**，否则分子分母口径不一致，
-    会出现「11/20 但点进去 15 行」这类对不上的问题（AGENTS.md 三.1b）。
+    **为什么三个计数一起出**：界面标签要显示 ``未清除/未关闭``
+    （2026-10-16 用户要求，原为 `WO:未关闭/总数`）—— 三个数必须来自
+    **同一次扫描、同一套归属规则**，否则分子分母口径不一致，会出现
+    「3/171 但点进去 5 行」这类对不上的问题（AGENTS.md 三.1b）。
+    把 uncleared 与 open 放同一次扫描也保证了两者不会因窗口边界漂移。
 
     `time_start`/`time_end`/`days` 传 `None`（且 days 为 None）= 全部时间、不过滤；
     否则按 `_window_clause` 的口径过滤 alarm_occur_time。
@@ -146,19 +177,23 @@ def _load_wo_owner_index(conn, time_start=None, time_end=None, days=None) -> dic
     where, params = _window_clause(time_start, time_end, days)
     index: dict[str, dict[str, int]] = {}
     rows = conn.execute(
-        f"SELECT last_processer, current_handler, status FROM eflow_wo WHERE 1=1{where}",
+        f"SELECT last_processer, current_handler, status, alarm_clear_time "
+        f"FROM eflow_wo WHERE 1=1{where}",
         params,
     ).fetchall()
-    for last_p, handler, status in rows:
+    for last_p, handler, status, clear_time in rows:
         # 一个人可能同时出现在 last_processer 和 current_handler，用集合去重，
         # 避免同一条 WO 被同一个人计两次。
         keys = _wo_person_keys(last_p, handler)
         closed = _is_closed(status)
+        uncleared = _is_uncleared(clear_time, status)
         for k in keys:
-            slot = index.setdefault(k, {"open": 0, "total": 0})
+            slot = index.setdefault(k, {"uncleared": 0, "open": 0, "total": 0})
             slot["total"] += 1
             if not closed:
                 slot["open"] += 1
+            if uncleared:
+                slot["uncleared"] += 1
     return index
 
 
@@ -195,9 +230,15 @@ def get_personnel(
     ⚠ 返回的是**静态登记坐标**，不是实时定位；只有 28/136 人有坐标。
     响应含 `total_with_coords` 与 `total_all`，前端据此说明覆盖率。
 
-    **`wo_count`/`wo_count_total` 跟随时间窗口**（2026-10-16 修）：
+    **三个 WO 计数全部跟随时间窗口**（2026-10-16）：
     与 GIS 站点统计同口径，按 `eflow_wo.alarm_occur_time` 过滤。
     窗口为「全部时间」时前端不传任何时间参数 → 不过滤。
+
+    **标签口径（2026-10-16 用户要求）**：`未清除告警/未关闭`
+    —— 分子 `wo_count_uncleared`（见 `_is_uncleared`）、分母 `wo_count`
+    （未关闭）。原来的 `未关闭/总数` 已废弃：总数为 0 时显示 `0/0`
+    毫无信息量，而「未清除」才是现场真正要盯的数。
+    `wo_count_total` 仍保留在响应里（历史调用方与排查用），但**界面不再使用**。
     """
     with get_raw_connection() as conn:
         tables = set(list_table_names(conn))
@@ -242,9 +283,12 @@ def get_personnel(
             "phone": _mask_phone(phone),
             "managed_regions": str(regions or ""),
             "status": str(status or ""),
-            # 未关闭 WO 数（下钻默认口径，二者必须相等）
+            # 未关闭 WO 数（下钻**分母**；不看 only_uncleared 时的列表行数）
             "wo_count": slot.get("open", 0),
-            # 全部 WO 数（含已关闭）—— 供标签显示「WO:开/总」
+            # 未清除告警 WO 数（下钻**默认口径**的分子/行数）——
+            # 与 /personnel/{key}/work-orders?only_uncleared=true 的行数必须相等
+            "wo_count_uncleared": slot.get("uncleared", 0),
+            # 全部 WO 数（含已关闭）—— 仅作参考，已不再用于标签显示
             "wo_count_total": slot.get("total", 0),
         })
 
@@ -261,6 +305,7 @@ def get_personnel(
 def get_personnel_work_orders(
     name_key: str,
     include_closed: bool = Query(False, description="是否包含已关闭 WO；默认只列未关闭"),
+    only_uncleared: bool = Query(True, description="只看未清除告警的 WO（弹窗默认）；false = 时间窗内全部未关闭"),
     limit: int = Query(_WO_LIMIT, ge=1, le=10000, description="最大取样行数"),
     time_start: str = Query(None, description="时间窗口开始 YYYY-MM-DD（与地图筛选同口径）"),
     time_end: str = Query(None, description="时间窗口结束 YYYY-MM-DD"),
@@ -268,11 +313,20 @@ def get_personnel_work_orders(
 ):
     """某人员名下的 WO 列表（含站点坐标，供路线规划）。
 
-    **口径必须与 `/personnel` 的 `wo_count` 对齐**（AGENTS.md 第三节 1b：
-    下钻行数不得少于表格数字）。`/personnel` 的 `wo_count` 统计的是
-    **时间窗口内**、**未关闭** WO，故本端点同样按这两条过滤；
-    需要看历史单时传 `include_closed=true`，此时响应 `wo_count` 会大于列表数字，
-    前端需据此说明「含已关闭」—— 这是**显式**差异，不是口径不一致。
+    **两个层级，对应界面的两档**（2026-10-16 用户要求「弹窗默认显示告警未清除，
+    点『更多』显示时间窗内未关闭」）：
+
+    | `only_uncleared` | 含义 | 行数应等于 |
+    | --- | --- | --- |
+    | `true`（默认） | 时间窗口内、**未清除告警**的 WO | `/personnel` 的 `wo_count_uncleared` |
+    | `false` | 时间窗口内、**未关闭**的全部 WO | `/personnel` 的 `wo_count` |
+
+    下钻行数与对应计数必须相等（AGENTS.md 第三节 1b：下钻口径不得与概览漂移）
+    —— 两档都走同一 `_wo_person_keys` 归属判定、同一 `_is_closed`/`_is_uncleared`
+    判定、同一时间窗口，故不会漂移。
+
+    需要看已关闭的历史单时传 `include_closed=true`；此时列表会多于计数，
+    这是**显式**差异（响应含 `meta.include_closed` 供前端说明），不是口径不一致。
 
     匹配规则：
       - `eflow_wo.last_processer` 规范化后命中；
@@ -296,6 +350,11 @@ def get_personnel_work_orders(
     limit = max(1, min(limit, 10000))
     if not isinstance(include_closed, bool):
         include_closed = False
+    # 同上的陷阱：Query 对象恒为真值。这个默认值就是 True，
+    # 若直接调用时被 Query 对象顶替，行为恰好一致，但显式归一化以免日后
+    # 把默认值改成 False 时静默失效。
+    if not isinstance(only_uncleared, bool):
+        only_uncleared = True
 
     # 时间窗口片段（与 /personnel 计数同口径）。直接调用时 days 可能是 Query 对象。
     win_where, win_params = _window_clause(
@@ -344,8 +403,13 @@ def get_personnel_work_orders(
         # 精确归属判定（与 /personnel 的计数同一函数）
         if key not in _wo_person_keys(d["last_processer"], d["current_handler"]):
             continue
-        # 默认排除已关闭 —— 与 /personnel 的 wo_count 同口径
+        # 默认排除已关闭 —— 与 /personnel 的 wo_count / wo_count_uncleared 同口径
+        # （_is_uncleared 自身也判 status，但这里先短路掉已关闭单，
+        # 否则 include_closed=false 时仍会走到下面的未清除判定）
         if not include_closed and _is_closed(d["status"]):
+            continue
+        # 弹窗默认档：只看未清除告警的 WO —— 与 wo_count_uncleared 同口径
+        if only_uncleared and not _is_uncleared(d["alarm_clear_time"], d["status"]):
             continue
         if len(wo_rows) >= limit:
             truncated = True
@@ -390,8 +454,13 @@ def get_personnel_work_orders(
         "name_key": key,
         "wo_list": wo_rows,
         "wo_count": len(wo_rows),
-        # 显式暴露截断（AGENTS.md 第三节 1b 铁律：不得静默截断）
-        "meta": {"truncated": truncated, "limit": limit},
+        # 显式暴露截断与本次档位（AGENTS.md 第三节 1b 铁律：不得静默截断）
+        "meta": {
+            "truncated": truncated,
+            "limit": limit,
+            "only_uncleared": only_uncleared,
+            "include_closed": include_closed,
+        },
     }
 
 

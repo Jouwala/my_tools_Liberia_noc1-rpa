@@ -500,10 +500,42 @@ ZXMW 微波网络拓扑与带宽利用率 NOC 看板（`MwUmeDashboard.tsx:4-8`�
 工具栏 **Layers 组里「Realtime」右侧的「显示人员」按钮**（2026-10-16 从工具栏尾部
 移入 Layers 组、且**默认开启**）开启后：地图上按 `person` 表的登记坐标画**水滴形地图针**
 （针内白色圆底 + 人形剪影，造型 2026-10-16 按用户参考图重做）；每个针旁**常驻标签
-显示 `WO:未关闭/总数`**（如 `WO:11/20`，未关闭为 0 时灰色、否则红色）；
-点击针弹出该人员的**未关闭 WO 列表**（列含 WO号/TT单号/站点名/站点ID/站点类型/
+显示 `未清除:未清除告警数/未关闭数`**（如 `未清除:27/62`，2026-10-16 改口径，
+原为 `WO:未关闭/总数`；分子 > 0 时红色、否则灰色，并带 `title` 提示完整含义）；
+点击针弹出该人员的 **WO 列表**（列含 WO号/TT单号/站点名/站点ID/站点类型/
 传输类型/TT级别/告警级别/告警发生时间/清除时间/告警时长/状态/标题）；
 点击某条 WO 或行内「规划路线」，画出**人员到该 WO 所属站点**的路线并显示距离/时长。
+
+**弹窗两档（2026-10-16 用户需求）**：用户原话「弹窗默认是显示告警未清除的，
+当用户点击更多的时候显示时间窗内未关闭的 WO」。故弹窗默认拉
+`only_uncleared=true`（未清除告警），点「显示更多（未关闭工单）」切到
+`only_uncleared=false`（时间窗内全部未关闭），按钮再点一次切回。
+
+| 档位 | `only_uncleared` | 行数应等于 |
+| --- | --- | --- |
+| 未清除告警（默认） | `true` | `/personnel` 的 `wo_count_uncleared` = 标签分子 |
+| 时间窗内未关闭（更多） | `false` | `/personnel` 的 `wo_count` = 标签分母 |
+
+- **两档都是后端重新拉取**，不是本地筛选 —— 「更多」档要的是另一套口径的完整分页
+  数据，与当前列表不是子集关系（虽然实际是超集，但依赖这个偶然性质会脆）。
+- **切换按钮在表格之外**，加载中也显示，用户随时能切回默认档。
+- 默认档为空时提示文案是 `gis.person.noUncleared`（并**主动提示去点「更多」**），
+  与「更多」档的 `gis.person.noWo` 分开 —— 否则用户看到空表格会以为这个人真的没单。
+- 默认档下若 `未关闭 > 未清除`，额外显示 `gis.person.moreHint`（「另有 N 单告警
+  已清除、流程未关闭」），把差异摊开讲，避免用户把「更多」当成重复数据。
+- **切 Time window 时若弹窗开着会按当前档位重拉**（`timeParams` 变化触发），
+  否则会出现「标签跟了窗口、弹窗还是旧窗口的」错位（AGENTS.md 三.1b 同口径要求）。
+
+> **两个概念必须分清，不要互相替代**（`personnel.py:_is_closed` / `_is_uncleared`）：
+> **未关闭** = 工单流程没走完（status 非 `Closed*`）；**未清除** = 告警本体还没被清除
+> （`alarm_clear_time` 为空）。常见的 `Wait For Confirm` 单往往是
+> **「告警已清除但流程待确认」**——它未关闭、但不属于未清除，所以分子 ≤ 分母。
+>
+> ⚠ **分子为 0 是常态而非 bug**：实测全库「未关闭且未清除」只有 **127 条**，
+> 集中在少数人身上（全部时间口径：Varfee Sarnor 27、Festus Emmanuel 3、
+> Mark D. Paye 2；Patrick Monday 与 Emmanuel Egbe 都是 **0**）。
+> 标签必须带「未清除」字样把这个含义写清楚，否则用户看到 `0/171` 会以为统计坏了。
+
 
 **悬停连线（2026-10-16 用户需求）**：鼠标**悬停**某人员 → 从该人员画到他
 **「有未关闭 WO 且站点当前有实时告警」**的每个站点的虚线（红色，`5 4`）；移出或
@@ -583,16 +615,24 @@ ZXMW 微波网络拓扑与带宽利用率 NOC 看板（`MwUmeDashboard.tsx:4-8`�
   `zIndexOffset`/`pane`/`onClick`，**全部可选、不传时行为与旧版完全一致**
   （县名标注不受影响）。小人用**内联 SVG**（不引图片资源，遵循 `LeafletMap.tsx` 文件头原则）。
 - **后端**：路由 `routers/personnel.py`（前缀同为 `/api/gis`，单开文件避免 `gis.py` 继续膨胀）。
-  - `GET /api/gis/personnel` —— 有登记坐标的人员 + 各自未关闭 WO 数。
-  - `GET /api/gis/personnel/{name_key}/work-orders?include_closed=` —— 该人员的 WO（含站点坐标）。
+  - `GET /api/gis/personnel` —— 有登记坐标的人员 + 各自
+    `wo_count_uncleared`（未清除，标签分子）/ `wo_count`（未关闭，标签分母）/
+    `wo_count_total`（含已关闭，**界面已不再使用**）。
+  - `GET /api/gis/personnel/{name_key}/work-orders?only_uncleared=&include_closed=` ——
+    该人员的 WO（含站点坐标）。`only_uncleared` 默认 `true`（弹窗默认档）。
   - `GET /api/gis/route?from_lat=&from_lng=&to_lat=&to_lng=` —— 路线规划。
   - 姓名匹配规则集中在 `services/person_name.py`（唯一实现，勿另写一套）；
     路线在 `services/routing_service.py`（OSRM + 直线降级）。
-- **⚠️ 口径一致性（AGENTS.md 三.1b）**：`/personnel` 的 `wo_count` 与
-  `/personnel/{key}/work-orders` 的行数**必须相等**，两者共用
-  `personnel.py` 的 `_is_closed()` 与 `_wo_person_keys()`。曾出现「列表说 166 单、
-  点进去 352 行」的漂移（因为下钻未排除已关闭），已修。**下钻默认只列未关闭**；
-  传 `include_closed=true` 看历史单时行数会大于计数，这是**显式**差异，界面需说明。
+- **⚠️ 口径一致性（AGENTS.md 三.1b）**：计数与下钻行数**必须成对相等** ——
+  `wo_count_uncleared` ↔ `only_uncleared=true` 的行数，
+  `wo_count` ↔ `only_uncleared=false` 的行数。两者共用
+  `personnel.py` 的 `_wo_person_keys()`（归属）、`_is_closed()`（流程）、
+  `_is_uncleared()`（告警清除态）与同一个 `_window_clause()`（时间窗口）。
+  曾出现「列表说 166 单、点进去 352 行」的漂移（因为下钻未排除已关闭），已修。
+  传 `include_closed=true` 看历史单时行数会大于计数，这是**显式**差异，
+  响应 `meta.include_closed` 会带出来供界面说明。
+  - 两个计数由 `_load_wo_owner_index()` **同一次扫描**产出 —— 若分成两次查询，
+    窗口边界或数据变更会让分子分母来自不同的数据快照，又是一种漂移。
 
 **三条已知限制（界面文案必须保留，否则会被当成 bug）**：
 1. **只有 26/136 人有坐标**（`person` 表 136 行中 28 行有坐标，其中 2 行为 `0.0/0.0` 已剔除）——
