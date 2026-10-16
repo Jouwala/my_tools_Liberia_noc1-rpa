@@ -225,25 +225,71 @@ def _merge_cookie(a: str, b: str) -> str:
     return "; ".join(merged.values())
 
 
-def login(project_name: Optional[str] = None) -> Dict[str, str]:
-    """完整登录：Keystone 密码换 token → 项目 token。
+# ========== 会话缓存（2026-10-16 修复「每分钟重登触发上游 gvcode 验证码」） ==========
+#
+# 背景：本任务每分钟跑一轮。若每轮都做一次「RSA + 密码」完整登录，等于对上游
+# 每天 1440 次密码登录 —— 上游的防滥用策略会返回
+# `401 {"error":{"code":401,"gvcode...}}`（要求图形验证码），任务随即整轮失败。
+#
+# 因此缓存会话（cookie + 项目 token），复用前先用业务端点**探活**：
+#   * 探活通过 → 直接用缓存 token（不碰密码登录，上游无感）；
+#   * 探活失败（token 过期 / 被踢） → 作废缓存、真实重登一次。
+# 这与 `auth_manager.get_auth` 的「缓存命中先探活、探不通就地重登」同源
+# （见其 docstring 约束 1：探活必须探**业务端点**，不能探登录首页）。
+#
+# 缓存是**进程内**的：worker 进程常驻，所以每分钟一轮里只有 token 真过期时才登录。
+_SESSION_CACHE: Dict[str, Dict[str, Any]] = {}
+
+
+def login(project_name: Optional[str] = None,
+          force_refresh: bool = False) -> Dict[str, str]:
+    """完整登录：Keystone 密码换 token → 项目 token（带进程内缓存 + 探活复用）。
 
     Returns:
         {"project_token": ..., "project_id": ..., "cookie": ...}
         `project_token` 可直接用于 `alarmsWithDetail`。
 
-    项目 token 绑定项目、有独立 TTL，故每轮现取（一次额外 HTTPS 往返，
-    秒级；相比每分钟一轮的调度可接受，换来「永远拿到当前有效 token」）。
+    `force_refresh=True` 时跳过缓存直接重登（用于业务调用 401 后的恢复）。
     """
     user, pwd = _runtime_credentials()
     project_name = project_name or DEFAULT_PROJECT_NAME
+
+    if not force_refresh:
+        cached = _SESSION_CACHE.get(project_name)
+        if cached and _session_usable(cached):
+            return cached
+        if cached:
+            logger.info("[UMEAlarm] 缓存会话探活失败，重新登录（project=%s）", project_name)
+            _SESSION_CACHE.pop(project_name, None)
+
     auth = _keystone_login(user, pwd)
     cookie = auth["cookie"]
     unscoped = auth["unscoped_token"]
     project_id = _resolve_project_id(cookie, unscoped, project_name)
     project_token = _fetch_project_token(cookie, unscoped, project_id)
-    return {"project_token": project_token, "project_id": project_id,
-            "cookie": cookie}
+    session = {"project_token": project_token, "project_id": project_id,
+               "cookie": cookie}
+    _SESSION_CACHE[project_name] = session
+    return session
+
+
+def _session_usable(session: Dict[str, str]) -> bool:
+    """探活：用缓存 token 打一次业务端点，200 即视为可用。"""
+    try:
+        headers = _alarm_headers(session["project_token"], session["project_id"],
+                                 session["cookie"])
+        status, _, _, _ = auth_manager._http_request(
+            HOST, PORT, "POST", ALARM_PATH, headers_extra=headers,
+            body=json.dumps({"lang": "en", "pageSize": 1, "currentPage": 1}))
+        return "200" in status
+    except Exception:  # noqa: BLE001
+        logger.warning("[UMEAlarm] 缓存会话探活异常（按不可用处理）", exc_info=True)
+        return False
+
+
+def _clear_session_cache() -> None:
+    """清空进程内会话缓存（测试与排障用）。"""
+    _SESSION_CACHE.clear()
 
 
 def _fetch_project_token(cookie: str, unscoped_token: str,
@@ -288,21 +334,40 @@ def fetch_alarms(page_size: int = DEFAULT_PAGE_SIZE,
     """
     project_name = project_name or DEFAULT_PROJECT_NAME
     session = login(project_name)
-    cookie = session["cookie"]
-    project_id = session["project_id"]
-    project_token = session["project_token"]
 
+    # 401 恢复：缓存 token 可能恰在探活之后、本次调用之前过期。重登一次再试
+    # （force_refresh 跳过缓存），仍失败才抛错 —— 避免把一个已死的缓存 token
+    # 反复用到整轮失败。
+    for attempt in range(2):
+        try:
+            return _fetch_pages(session, page_size, max_pages)
+        except _AuthExpired:
+            if attempt == 1:
+                raise
+            logger.info("[UMEAlarm] 业务调用 401，重登后重试（project=%s）", project_name)
+            session = login(project_name, force_refresh=True)
+    raise RuntimeError("不可达")  # pragma: no cover
+
+
+class _AuthExpired(Exception):
+    """业务端点返回 401（token 过期 / 被踢），由 fetch_alarms 捕获后重登重试。"""
+
+
+def _fetch_pages(session: Dict[str, str], page_size: int,
+                 max_pages: int) -> Dict[str, Any]:
+    """按会话分页拉全量告警；401 时抛 `_AuthExpired` 交由上层重登。"""
+    headers = _alarm_headers(session["project_token"], session["project_id"],
+                             session["cookie"])
     alarms: List[Dict[str, Any]] = []
     total = 0
     pages = 0
-    truncated = False
-    headers = _alarm_headers(project_token, project_id, cookie)
-
     for page in range(1, max_pages + 1):
         body = json.dumps({"lang": "en", "pageSize": page_size,
                            "currentPage": page})
         status, _, _, resp = auth_manager._http_request(
             HOST, PORT, "POST", ALARM_PATH, headers_extra=headers, body=body)
+        if "401" in status:
+            raise _AuthExpired(f"401 {resp[:120]!r}")
         if "200" not in status:
             raise RuntimeError(
                 f"拉告警失败（第 {page} 页）：{status} {resp[:200]!r}")
@@ -314,11 +379,10 @@ def fetch_alarms(page_size: int = DEFAULT_PAGE_SIZE,
             alarms.append(normalize_alarm(raw))
         if not batch or len(alarms) >= total:
             break
-    else:
-        truncated = len(alarms) < total
-
+    # 翻到上限仍未取满 total = 被截断（显式暴露，不静默）
     return {"alarms": alarms, "total": total, "fetched": len(alarms),
-            "truncated": truncated, "pages": pages}
+            "truncated": pages >= max_pages and len(alarms) < total,
+            "pages": pages}
 
 
 def normalize_alarm(raw: Dict[str, Any]) -> Dict[str, Any]:

@@ -1,6 +1,7 @@
 {
-  "alarm_codes": "89029,89006",
-  "alarm_levels": "major,critical",
+  "alarm_pairs": "89029:major,89006:major",
+  "alarm_codes": "",
+  "alarm_levels": "",
   "groups": "*P1 OLR ZTE MS Manager*",
   "resend_minutes": 10,
   "bootstrap": true

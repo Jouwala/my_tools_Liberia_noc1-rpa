@@ -266,15 +266,16 @@ TASK_SPECS = [
     #     与 5c 的 eFlow 推送是**两个不同的上游、两套鉴权**：本任务直连 ZTE UME
     #     网管 10.121.8.2 的 /api/v2.0/fm/alarmsWithDetail（Keystone 登录 + 项目
     #     token，见 ume_alarm_client.py 的 docstring），不读本地 realtime_alarm。
-    #     口径：命中「告警码 且 级别」白名单才推（两者都留空=不过滤）；告警未清除
+    #     口径：命中**精确「告警码:级别」对**才推（默认 89029:major,89006:major；
+    #     pairs 留空时回退「码集合∩级别集合」，两者都留空=不过滤）；告警未清除
     #     则按 resend_minutes 催报；从上游消失则补发一条「已恢复」。
     #     首轮只登记不发送（bootstrap，防上线瞬间把存量刷进群）。
     #     状态落 ume_alarm_whatsapp_log；发送走 Baileys 推送进程，确认后才置 Y。
     dict(task_id="ume_alarm_whatsapp_alert", name="ZTE UME 告警 WhatsApp 推送",
          name_en="ZTE UME Alarm WhatsApp Push",
          loader=("backend.services.ume_alarm_whatsapp_service", "run_ume_alarm_whatsapp"),
-         description="每分钟直连 ZTE UME 网管 10.121.8.2 拉当前告警，命中「告警码 且 级别」白名单才推送到指定群；未清除告警按配置间隔催报（带 REMINDER 横幅），告警从上游消失则补发「已恢复」；首轮只登记不发送（防存量刷群）；状态落 ume_alarm_whatsapp_log，发送经 Baileys 推送进程确认后才置 Y。告警码/级别/群组/催报间隔均在「任务配置」页维护",
-         description_en="Every minute, connect to the ZTE UME NMS at 10.121.8.2 and pull current alarms; push to the target group only when both the alarm code and level match the whitelist; re-notify uncleared alarms on the configured interval (with a REMINDER banner) and send a recovery notice once an alarm disappears upstream; register-only on the first run (avoid flooding the group with backlog); state recorded in ume_alarm_whatsapp_log and send_status set to Y only on Baileys push confirmation. Codes/levels/groups/resend interval are maintained on the Task Config page",
+         description="每分钟直连 ZTE UME 网管 10.121.8.2 拉当前告警，命中精确「告警码:级别」对（默认 89029:major,89006:major）才推送到指定群；未清除告警按配置间隔催报（带 REMINDER 横幅），曾推送过的告警从上游消失则补发「已恢复」；首轮只登记不发送（防存量刷群）；状态落 ume_alarm_whatsapp_log，发送经 Baileys 推送进程确认后才置 Y。告警对/群组/催报间隔均在「任务配置」页维护",
+         description_en="Every minute, connect to the ZTE UME NMS at 10.121.8.2 and pull current alarms; push to the target group only when the exact code:level pair matches the whitelist (default 89029:major,89006:major); re-notify uncleared alarms on the configured interval (with a REMINDER banner) and, for an alarm that was actually pushed, send a recovery notice once it disappears upstream; register-only on the first run (avoid flooding the group with backlog); state recorded in ume_alarm_whatsapp_log and send_status set to Y only on Baileys push confirmation. Alarm pairs/groups/resend interval are maintained on the Task Config page",
          default_cron="* * * * *", category="whatsapp"),
 
     # 6. MS SLA 完整同步（每天 05:00）

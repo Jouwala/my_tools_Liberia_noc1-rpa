@@ -20,14 +20,21 @@ env / 文件都在 `import ume_alarm_whatsapp_service` 时读进模块常量，
 表现为「留空 = 一条都不发」，与上表相反。这个坑在 eFlow 侧真实发生过
 （`tt_alarm_config.py:26-31`），故这里同样单独说明并由单测锁定。
 """
+import logging
 from pathlib import Path
 from typing import Any, Dict, List, Set
 
+logger = logging.getLogger("ume_alarm_config")
+
 # 默认值（配置文件缺失 / 字段缺失时使用）
-# 默认只推 major 及以上的 89029 / 89006 两个码 —— 与需求方给的口径一致；
-# 页面可改为任意组合，留空即不过滤。
-DEFAULT_ALARM_CODES = "89029,89006"
-DEFAULT_ALARM_LEVELS = "major,critical"
+# 精确「码:级别」对（**首选口径**）：只有这些组合才推。需求原话是
+# 「Alarm code: 89029 / Alarm level: major；Alarm code: 89006 / Alarm level: major」，
+# 即**两个确定的组合**，不是码集合与级别集合的笛卡尔积。
+# 留空 = 不过滤（回退到下面的 codes/levels 口径）。
+DEFAULT_ALARM_PAIRS = "89029:major,89006:major"
+# 旧口径（仅在未配 pairs 时生效）：码集合 ∩ 级别集合。留空 = 不过滤。
+DEFAULT_ALARM_CODES = ""
+DEFAULT_ALARM_LEVELS = ""
 DEFAULT_GROUPS = ["test123"]           # 兜底测试群（生产由页面填真实群名）
 DEFAULT_RESEND_MINUTES = 10            # 未清除告警的催报间隔（分钟）
 DEFAULT_BOOTSTRAP = True               # 首轮只登记不发送（防存量刷群）
@@ -35,6 +42,7 @@ DEFAULT_BOOTSTRAP = True               # 首轮只登记不发送（防存量刷
 CONFIG_FILE = Path(__file__).resolve().parent / "ume_alarm_config.json"
 
 # 环境变量名（与 backend/.env.example 的键名一致）
+ENV_ALARM_PAIRS = "UME_ALARM_PAIRS"
 ENV_ALARM_CODES = "UME_ALARM_CODES"
 ENV_ALARM_LEVELS = "UME_ALARM_LEVELS"
 ENV_GROUPS = "UME_ALARM_WHATSAPP_GROUPS"
@@ -84,6 +92,25 @@ def norm_codes(value: Any, norm_code) -> Set[str]:
     return {c for c in (norm_code(x) for x in csv_list(value)) if c}
 
 
+def norm_pairs(value: Any, norm_code) -> Set[tuple]:
+    """精确「码:级别」对，如 `"89029:major,89006:major"` → {('89029','major'), ...}。
+
+    码走 `norm_code` 归一化、级别转小写；格式不合（缺冒号）的条目**跳过并记警告**，
+    不整条丢弃 —— 否则一个笔误会把整份白名单清空（留空=不过滤），静默放开全部告警。
+    """
+    out: Set[tuple] = set()
+    for item in csv_list(value):
+        if ":" not in item:
+            logger.warning("[UMEAlarm] 告警对格式应为 code:level，已跳过：%r", item)
+            continue
+        code, level = item.split(":", 1)
+        code = norm_code(code)
+        level = level.strip().lower()
+        if code and level:
+            out.add((code, level))
+    return out
+
+
 def parse_config(conf: Dict[str, Any], norm_code,
                  env: Dict[str, str]) -> Dict[str, Any]:
     """把配置文件 dict + 环境变量解析成最终生效值（**纯函数**）。
@@ -117,6 +144,9 @@ def parse_config(conf: Dict[str, Any], norm_code,
             return parser(conf.get(cfg_key)), "file"
         return parser(default_raw), "default"
 
+    out["alarm_pairs"], out["alarm_pairs_from"] = _set_field(
+        "alarm_pairs", ENV_ALARM_PAIRS, DEFAULT_ALARM_PAIRS,
+        lambda raw: norm_pairs(raw, norm_code))
     out["alarm_codes"], out["alarm_codes_from"] = _set_field(
         "alarm_codes", ENV_ALARM_CODES, DEFAULT_ALARM_CODES,
         lambda raw: norm_codes(raw, norm_code))

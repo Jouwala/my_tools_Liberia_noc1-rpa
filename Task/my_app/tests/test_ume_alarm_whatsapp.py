@@ -13,6 +13,7 @@ import json
 
 import pytest
 
+from backend.services import ume_alarm_client as CL
 from backend.services import ume_alarm_config as C
 from backend.services import ume_alarm_store as store
 from backend.services import ume_alarm_whatsapp_service as S
@@ -27,12 +28,22 @@ def _p(conf, env=None):
 
 def test_defaults_when_nothing_configured():
     got = _p({}, {})
-    assert got["alarm_codes"] == {"89029", "89006"}
-    assert got["alarm_levels"] == {"major", "critical"}
+    assert got["alarm_pairs"] == {("89029", "major"), ("89006", "major")}
     assert got["groups"] == C.DEFAULT_GROUPS
     assert got["groups_fallback"] is True
     assert got["resend_minutes"] == C.DEFAULT_RESEND_MINUTES
     assert got["bootstrap"] is True
+
+
+def test_norm_pairs_parses_code_level():
+    got = _p({"alarm_pairs": "89029:major, 89006:MAJOR "}, {})
+    assert got["alarm_pairs"] == {("89029", "major"), ("89006", "major")}
+
+
+def test_norm_pairs_skips_bad_entries():
+    # 缺冒号的条目跳过，但不整条丢（否则一处分号错误会放开全部告警）
+    got = _p({"alarm_pairs": "89029:major, garbage"}, {})
+    assert got["alarm_pairs"] == {("89029", "major")}
 
 
 def test_alarm_code_normalizes_float_tail():
@@ -68,24 +79,40 @@ def _alarm(code, level):
     return {"alarm_id": "id-" + code + level, "alarm_code": code, "level": level}
 
 
-def test_matches_requires_both_code_and_level(monkeypatch):
-    monkeypatch.setattr(S, "ALARM_CODES", {"89029"})
-    monkeypatch.setattr(S, "ALARM_LEVELS", {"major"})
+def test_matches_exact_pairs_only(monkeypatch):
+    """精确「码:级别」对 —— 不做笛卡尔积，89029+critical 不应命中。"""
+    monkeypatch.setattr(S, "ALARM_PAIRS",
+                        {("89029", "major"), ("89006", "major")})
+    monkeypatch.setattr(S, "ALARM_CODES", set())
+    monkeypatch.setattr(S, "ALARM_LEVELS", set())
     assert S.matches(_alarm("89029", "major")) is True
+    assert S.matches(_alarm("89006", "major")) is True
     assert S.matches(_alarm("89029", "critical")) is False   # 码对、级别不对
-    assert S.matches(_alarm("89006", "major")) is False       # 级别对、码不对
+    assert S.matches(_alarm("89006", "warning")) is False
+    assert S.matches(_alarm("89069", "major")) is False       # 级别对、码不对
+
+
+def test_matches_falls_back_to_sets_when_no_pairs(monkeypatch):
+    """未配 pairs 时回退旧口径：码集合 ∩ 级别集合。"""
+    monkeypatch.setattr(S, "ALARM_PAIRS", set())
+    monkeypatch.setattr(S, "ALARM_CODES", {"89069"})
+    monkeypatch.setattr(S, "ALARM_LEVELS", {"major"})
+    assert S.matches(_alarm("89069", "major")) is True
+    assert S.matches(_alarm("89069", "critical")) is False
 
 
 def test_matches_empty_whitelist_means_no_filter(monkeypatch):
-    """空集 = 不过滤（**不是**全丢）。"""
+    """pairs 与 codes/levels 都留空 = 不过滤（**不是**全丢）。"""
+    monkeypatch.setattr(S, "ALARM_PAIRS", set())
     monkeypatch.setattr(S, "ALARM_CODES", set())
     monkeypatch.setattr(S, "ALARM_LEVELS", set())
     assert S.matches(_alarm("99999", "warning")) is True
 
 
 def test_matches_normalizes_code_shape(monkeypatch):
-    monkeypatch.setattr(S, "ALARM_CODES", {"89069"})
-    monkeypatch.setattr(S, "ALARM_LEVELS", {"major"})
+    monkeypatch.setattr(S, "ALARM_PAIRS", {("89069", "major")})
+    monkeypatch.setattr(S, "ALARM_CODES", set())
+    monkeypatch.setattr(S, "ALARM_LEVELS", set())
     assert S.matches(_alarm("89069.0", "major")) is True
 
 
@@ -240,3 +267,54 @@ def test_bootstrap_registers_without_sending(monkeypatch):
     rec = store.load_records(conn, ["id-89029major"])["id-89029major"]
     assert rec["bootstrapped"] == "Y"
     conn.close()
+
+
+# ---------------- 会话缓存（防止每分钟重登触发上游 gvcode 验证码） ----------------
+
+def test_login_reuses_cached_session(monkeypatch):
+    """第二次 login 命中缓存时**不得**再走密码登录（否则每分钟一轮会撞上游验证码）。"""
+    CL._clear_session_cache()
+    login_calls = []
+
+    monkeypatch.setattr(CL, "_keystone_login",
+                        lambda u, p: login_calls.append(1) or {
+                            "cookie": "c", "unscoped_token": "u"})
+    monkeypatch.setattr(CL, "_resolve_project_id", lambda *a, **k: "pid")
+    monkeypatch.setattr(CL, "_fetch_project_token", lambda *a, **k: "ptok")
+    monkeypatch.setattr(CL, "_session_usable", lambda s: True)
+
+    s1 = CL.login("admin")
+    s2 = CL.login("admin")
+    assert s1 == s2
+    assert len(login_calls) == 1  # 只真登录了一次
+
+
+def test_login_force_refresh_bypasses_cache(monkeypatch):
+    CL._clear_session_cache()
+    login_calls = []
+    monkeypatch.setattr(CL, "_keystone_login",
+                        lambda u, p: login_calls.append(1) or {
+                            "cookie": "c", "unscoped_token": "u"})
+    monkeypatch.setattr(CL, "_resolve_project_id", lambda *a, **k: "pid")
+    monkeypatch.setattr(CL, "_fetch_project_token", lambda *a, **k: "ptok")
+    monkeypatch.setattr(CL, "_session_usable", lambda s: True)
+
+    CL.login("admin")
+    CL.login("admin", force_refresh=True)
+    assert len(login_calls) == 2  # force 跳过缓存
+
+
+def test_login_relogins_when_cached_session_dead(monkeypatch):
+    CL._clear_session_cache()
+    login_calls = []
+    monkeypatch.setattr(CL, "_keystone_login",
+                        lambda u, p: login_calls.append(1) or {
+                            "cookie": "c", "unscoped_token": "u"})
+    monkeypatch.setattr(CL, "_resolve_project_id", lambda *a, **k: "pid")
+    monkeypatch.setattr(CL, "_fetch_project_token", lambda *a, **k: "ptok")
+    # 缓存探活失败 → 第二次 login 应作废缓存并重登
+    monkeypatch.setattr(CL, "_session_usable", lambda s: False)
+
+    CL.login("admin")                 # 首次：无缓存，真登录
+    CL.login("admin")                 # 探活 False → 重登
+    assert len(login_calls) == 2

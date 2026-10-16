@@ -53,8 +53,9 @@ logger = logging.getLogger("ume_alarm_whatsapp")
 # ========== 配置（导入期一次算好；改页面后需 worker 重启） ==========
 _CFG = config_mod.load_config(norm_alarm_code)
 
-ALARM_CODES = _CFG["alarm_codes"]        # 告警码白名单；空集 = 不过滤
-ALARM_LEVELS = _CFG["alarm_levels"]      # 级别白名单；空集 = 不过滤
+ALARM_PAIRS = _CFG["alarm_pairs"]        # 精确「码:级别」对（首选口径）；空 = 回退旧口径
+ALARM_CODES = _CFG["alarm_codes"]        # 告警码白名单；空集 = 不过滤（仅 pairs 为空时生效）
+ALARM_LEVELS = _CFG["alarm_levels"]      # 级别白名单；空集 = 不过滤（仅 pairs 为空时生效）
 GROUPS = _CFG["groups"]                  # 目标群组；留空时已回退 DEFAULT_GROUPS
 GROUPS_FALLBACK = _CFG["groups_fallback"]  # True = 正发往测试群，须显式告警
 RESEND_MINUTES = _CFG["resend_minutes"]  # 催报间隔（分钟）
@@ -67,8 +68,8 @@ DEFAULT_GROUPS = config_mod.DEFAULT_GROUPS
 SAMPLE_LIMIT = 3                         # 结果里附带的消息样例上限
 
 # 消息抬头：值班群每条消息都带，便于辨认来源。
-PUSH_TITLE = "ZTE UME Alarm Notification"
-RECOVER_TITLE = "ZTE UME Alarm Cleared"
+PUSH_TITLE = "DC Server  Alarm Notification"
+RECOVER_TITLE = "DC Server  Alarm Cleared"
 
 # 各项最终来源（env / file / default），供排障解释"为何页面值与实际不符"
 CONFIG_SOURCES = {k: v for k, v in _CFG.items() if k.endswith("_from")}
@@ -92,9 +93,20 @@ def _parse_ts(val: Any) -> Optional[datetime]:
 
 
 def matches(alarm: Dict[str, Any]) -> bool:
-    """是否命中「告警码 且 级别」白名单（空集 = 不过滤，**不是**全丢）。"""
+    """是否命中推送白名单。
+
+    **优先规则：精确「码:级别」对**（`ALARM_PAIRS`，如 `89029:major`）——
+    这正是需求口径：「仅 89029+major、89006+major 才推」，而**不是**码集合与
+    级别集合的**笛卡尔积**（后者会把 89029+critical 也推出去，与需求不符）。
+
+    兼容回退：未配 `pairs` 时，退化为「码集合 ∩ 级别集合」的旧口径；
+    两者都留空 = 不过滤（**不是**全丢 —— `in set()` 恒 False 的坑见
+    `ume_alarm_config.py` 的留空语义表）。
+    """
     code = norm_alarm_code(alarm.get("alarm_code"))
     level = _s(alarm.get("level")).lower()
+    if ALARM_PAIRS:
+        return (code, level) in ALARM_PAIRS
     if ALARM_CODES and code not in ALARM_CODES:
         return False
     if ALARM_LEVELS and level not in ALARM_LEVELS:
@@ -257,6 +269,11 @@ def run_ume_alarm_whatsapp() -> Dict[str, Any]:
                 if k in current_keys:
                     continue
                 if _s(rec.get("send_status")) != "Y":
+                    continue
+                # 记录里的「码:级别」仍须命中**当前**白名单 —— 否则是筛选口径改过
+                # （该告警已不在推送范围内），不是「恢复」，不该发 Clear 通知。
+                if not matches({"alarm_code": rec.get("alarm_code"),
+                                "level": rec.get("level")}):
                     continue
                 seen_min = _minutes_since(rec.get("last_seen_time"), now)
                 if seen_min is None or seen_min > RECOVER_STALE_MINUTES:

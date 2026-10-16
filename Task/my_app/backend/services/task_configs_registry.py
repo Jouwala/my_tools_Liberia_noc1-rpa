@@ -1284,10 +1284,11 @@ register_config(ConfigResource(
 def _ume_alarm_defaults():
     """默认值取服务当前生效值（含 env），页面所见 = 任务所用。
 
-    ⚠️ 告警码/级别是**集合**，页面按逗号分隔字符串展示；群组同理。
+    ⚠️ pairs 是「码:级别」文本对集合，页面按逗号分隔字符串展示；群组同理。
     """
     from backend.services import ume_alarm_whatsapp_service as s
     return {
+        "alarm_pairs": ",".join(f"{c}:{lv}" for c, lv in sorted(s.ALARM_PAIRS)),
         "alarm_codes": ",".join(sorted(s.ALARM_CODES)),
         "alarm_levels": ",".join(sorted(s.ALARM_LEVELS)),
         "groups": ",".join(s.GROUPS),
@@ -1299,15 +1300,18 @@ def _ume_alarm_defaults():
 register_config(ConfigResource(
     task_id="ume_alarm_whatsapp_alert", path=_cfg("ume_alarm_config.json"),
     defaults={
-        "alarm_codes": "89029,89006", "alarm_levels": "major,critical",
+        "alarm_pairs": "89029:major,89006:major",
+        "alarm_codes": "", "alarm_levels": "",
         "groups": "*P1 OLR ZTE MS Manager*", "resend_minutes": 10,
         "bootstrap": True,
     },
     schema={
-        "alarm_codes": _txt("推送告警码白名单（逗号分隔，如 89029,89006；"
-                            "**留空=推送所有告警码**）—— 多形态码统一归一后判等"),
-        "alarm_levels": _txt("推送级别白名单（逗号分隔，如 major,critical；"
-                             "**留空=推送所有级别**）—— 与告警码**同时**命中才推"),
+        "alarm_pairs": _txt("推送白名单（**精确「告警码:级别」对**，逗号分隔，如 "
+                            "89029:major,89006:major；**留空=不过滤**）。"
+                            "只有完全匹配的组合才推 —— 不做「码集合×级别集合」笛卡尔积"),
+        "alarm_codes": _txt("（备用）仅当 alarm_pairs 留空时生效：告警码白名单，逗号分隔。"
+                            "与 alarm_levels 同时命中才推；两者留空=不过滤"),
+        "alarm_levels": _txt("（备用）仅当 alarm_pairs 留空时生效：级别白名单，逗号分隔"),
         "groups": _txt("WhatsApp 群组名（逗号分隔；留空=回退测试群 test123 并告警）。"
                        "群名须与机器人实际加入的群名完全一致（含星号，如 *P1 OLR ZTE MS Manager*）"),
         "resend_minutes": _num("催报间隔（分钟）—— 告警未清除时，距上次成功发送满 N 分钟再通报一次"
@@ -1318,16 +1322,17 @@ register_config(ConfigResource(
     defaults_factory=_ume_alarm_defaults,
     description="ZTE UME 告警 WhatsApp 推送：每分钟直连 ZTE UME 网管 10.121.8.2 "
                 "（/api/v2.0/fm/alarmsWithDetail，Keystone 登录）拉当前告警，"
-                "命中「告警码 且 级别」白名单才推送到指定群；未清除告警按 resend_minutes 催报"
-                "（带 REMINDER 横幅），告警从上游消失则补发一条「已恢复」；"
+                "命中「告警码:级别」精确对才推送到指定群；未清除告警按 resend_minutes 催报"
+                "（带 REMINDER 横幅），**曾推送过**的告警从上游消失则补发一条「已恢复」；"
                 "首轮只登记不发送（防存量刷群）。发送走 Baileys 推送进程，"
                 "确认后才把 send_status 置 Y；状态落 ume_alarm_whatsapp_log。"
                 "登录凭据在「设置 → 凭据」的「ZTE UME 服务器网管」组维护。",
     description_en="ZTE UME alarm WhatsApp push: every minute, connects to the ZTE UME NMS at "
                    "10.121.8.2 (/api/v2.0/fm/alarmsWithDetail, Keystone login) and pulls current "
-                   "alarms; pushes to the target group only when both the alarm code and level match "
-                   "the whitelist; re-notifies uncleared alarms on the resend_minutes interval (with a "
-                   "REMINDER banner) and sends a recovery notice once an alarm disappears upstream; "
+                   "alarms; pushes to the target group only when the exact code:level pair matches the "
+                   "whitelist; re-notifies uncleared alarms on the resend_minutes interval (with a "
+                   "REMINDER banner) and, for an alarm that was actually pushed, sends a recovery "
+                   "notice once it disappears upstream; "
                    "the first run registers only (no push, to avoid flooding the group with backlog). "
                    "Sent via the Baileys push process; send_status is set to Y only on server-side ack; "
                    "state recorded in ume_alarm_whatsapp_log. Credentials are maintained under "
