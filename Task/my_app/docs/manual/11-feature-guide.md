@@ -542,6 +542,32 @@ ZXMW 微波网络拓扑与带宽利用率 NOC 看板（`MwUmeDashboard.tsx:4-8`�
 - ⚠ 三处**必须同时**跟窗口，否则会出现「标签数字跟了、连线没跟」的错位；
   悬停连线的缓存键也已含窗口（`name_key|start|end`），切换窗口不会复用旧线。
 
+**人员跟随「高级筛选」（2026-10-16 修）**：用户报「高级筛选选中 FME 人员，地图上没生效」。
+根因是 `PersonnelLayer` 原先只收 `isDark/enabled/timeRange`，**压根不知道 `selectedFilters`**
+—— 站点筛到了 37 个（一直是对的），小人却始终 26 个不动。现由 `GISMap.tsx` 算出
+`visiblePersonNames`（`Set<string> | null`）传给 `PersonnelLayer` 的 `visibleNames`。
+
+口径**三分支**（经用户确认「人名筛选时只显示该人」）：
+
+| # | 条件 | 结果 |
+| --- | --- | --- |
+| ① | `selectedFilters.fme_name` 或 `supervisor` 有值 | **只留被选中的那个人**（X 本人），不再带出其站点的其它相关人 |
+| ② | 选了**非人员维度**（region / site_caregory / network_type …） | 保留「在 `filteredSites` 里被记为 `fme_name` 或 `supervisor`」的人 |
+| ③ | 完全没筛选 | 返回 `null` = 不过滤，全员显示 |
+
+- 实测（824 站点 / 26 人）：无筛选 → **26/26**；`fme_name=Patrick Monday` → **仅 1 人**；
+  `region=Montserrado` → 4 人；`site_caregory=ERA` → 16 人。
+- ⚠ **③ 不能走 ② 的「由可见站点反推」**：有 7 个人（`Alex Nagbe`、`Darlington Rue`、
+  `Ernest Feikai  Sherman,`、`Fedesco Pelleh`、`GORSON PRINCE T`、`JULIUS KEKULA JOHNSON`、
+  `Luogon Justin`）的姓名在**任何站点**的 `fme_name`/`supervisor` 里都没登记，
+  走 ② 会让默认视图只剩 19 人 —— 那是本次改动自己引入的回归，必须靠 ③ 的 `null` 短路掉。
+- ⚠ **姓名比对必须归一化**，且 `GISMap.normName` 与 `PersonnelLayer.normName` 是
+  **同一套规则的两份副本**（去括号后缀 / 去 `P:` `G:` 前缀 / 折叠空白 / 去首尾逗号 / 小写）。
+  `person.name` 实测有 `Ernest Feikai  Sherman,`（双空格 + 尾逗号）这类脏值，直接 `===` 比对必漏。
+  改一处必须改另一处（同源同口径，与 AGENTS.md 三.1b 的下钻口径一致要求同理）。
+- 状态条在「有筛选且人数变少」时追加提示 `gis.person.filteredByAdv`，
+  说明是筛选导致的减少，而不是数据缺失。
+
 > **「传输类型」取 `eflow_wo.domain`**（`TRM_MW`/`TRM_IPRAN`/`TRM_DWDM` 等传输域；
 > 该列还有 `RAN`/`POWER` 等非传输值，原样展示，不臆造映射）。
 > 「告警时长」取 `fault_duration_time`（库内形如 `0d4h27m`）。

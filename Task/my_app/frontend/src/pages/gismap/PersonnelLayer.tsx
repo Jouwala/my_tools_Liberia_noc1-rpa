@@ -85,6 +85,19 @@ interface AlertSite {
   open_wo: number
 }
 
+/** 姓名归一化 —— 必须与 GISMap 的 visiblePersonNames 用**同一套规则**，
+ *  否则两边比对口径不一致会造成「筛选了却看不到人 / 没筛却少人」。
+ *  规则：去括号后缀、去 P:/G: 前缀、折叠空白、去首尾逗号、小写。
+ *  （person.name 实测有 `Ernest Feikai  Sherman,` 这种双空格 + 尾逗号的脏值。） */
+function normName(v: unknown): string {
+  return String(v ?? '')
+    .replace(/\([^)]*\)/g, '')
+    .replace(/^\s*[PGpg]\s*[:]\s*/, '')
+    .replace(/\s+/g, ' ')
+    .replace(/^[\s,]+|[\s,]+$/g, '')
+    .toLowerCase()
+}
+
 /** HTML 转义 —— 姓名/电话来自数据库，直接拼进 divIcon 的 html 字符串里，
  *  若含 `<` `&` `"` 会破坏结构甚至注入。**所有拼进 html 的动态值都必须过这里**
  *  （AGENTS.md 三.4：外部输入一律视为不可信）。 */
@@ -152,7 +165,7 @@ export function PersonnelToggleButton({
 }
 
 export function PersonnelLayer({
-  isDark, enabled, timeRange,
+  isDark, enabled, timeRange, visibleNames,
 }: {
   isDark: boolean
   /** 是否显示人员图层。状态由 GISMap 持有（工具栏按钮在那边）。 */
@@ -160,13 +173,17 @@ export function PersonnelLayer({
   /** 页面「时间窗口」筛选（与地图站点统计同口径）。null = 全部时间，不过滤。
       2026-10-16 修：原先人员标签数字未跟随该筛选，用户指出后补上。 */
   timeRange: { start: string; end: string } | null
+  /** 高级筛选后**仍可见**的站点所记录的人员姓名（已归一化的集合，见 GISMap
+      的 visiblePersonNames）。只保留在此集合里的人；集合为空 = 没有任何可见站点
+      关联到人 → 不画任何图钉。null = 不按此过滤（理论上不会传 null，
+      但保留以兼容直接使用本组件的场景）。 */
+  visibleNames: Set<string> | null
 }) {
   const { t } = useI18n()
   const map = useMap()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [people, setPeople] = useState<PersonMarker[]>([])
-  const [totalAll, setTotalAll] = useState<number>(0)
 
   // 选中的人员 + 其 WO 弹窗
   const [activePerson, setActivePerson] = useState<PersonMarker | null>(null)
@@ -257,7 +274,6 @@ export function PersonnelLayer({
     api.get('/gis/personnel', { params: timeParams })
       .then(res => {
         setPeople(res.data.personnel || [])
-        setTotalAll(res.data.total_all || 0)
       })
       .catch(err => {
         console.error('[PersonnelLayer] load failed:', err?.response?.status, err?.response?.data || err)
@@ -394,10 +410,18 @@ export function PersonnelLayer({
   }, [route])
 
   const selectedKey = activePerson?.name_key
+
+  /* 跟随高级筛选：只保留「在 GISMap 传来的可见人数名集合里」的人。
+     visibleNames 为 null 时不过滤（兼容直接使用本组件的场景）。 */
+  const visiblePeople = useMemo(() => {
+    if (!visibleNames) return people
+    return people.filter(p => visibleNames.has(normName(p.name)))
+  }, [people, visibleNames])
+
   // 当前悬停的人员对象（画连线要用它的坐标）
   const hoveredPerson = useMemo(
-    () => (hoverKey ? people.find(p => p.name_key === hoverKey) || null : null),
-    [hoverKey, people],
+    () => (hoverKey ? visiblePeople.find(p => p.name_key === hoverKey) || null : null),
+    [hoverKey, visiblePeople],
   )
 
   // 弹窗列（2026-10-16 按用户要求补常用信息）：
@@ -446,7 +470,7 @@ export function PersonnelLayer({
   return (
     <>
       {/* 人员小人标记（地图针造型 + 常驻 WO 计数标签） */}
-      {enabled && !loading && people.length > 0 && people.map(p => {
+      {enabled && !loading && visiblePeople.length > 0 && visiblePeople.map(p => {
         const selected = p.name_key === selectedKey
         const hovered = p.name_key === hoverKey
         // 悬停/选中都放大，悬停用告警橙，让人一眼看出「这是当前在看的这个人」
@@ -577,8 +601,14 @@ export function PersonnelLayer({
             <>
               <Badge status="processing" />
               <span>
-                {t('gis.person.countSummary', { shown: people.length, total: totalAll })}
+                {/* 显示**当前可见**人数（高级筛选会减少），而非总人数 —— 否则
+                    「筛选生效了却看数字没变」会让人以为筛选坏了。 */}
+                {t('gis.person.countSummary', { shown: visiblePeople.length, total: people.length })}
               </span>
+              {/* 筛选生效时额外提示「已按高级筛选过滤」，与「只有 N 人」的静态限制区分开 */}
+              {visibleNames && visiblePeople.length < people.length && (
+                <span className="gis-personnel-note">· {t('gis.person.filteredByAdv')}</span>
+              )}
               <span className="gis-personnel-note">· {t('gis.person.notRealtime')}</span>
               {/* 悬停某人时，提示画了多少条告警站点连线 */}
               {hoveredPerson && (

@@ -742,6 +742,53 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
     })
   }, [sites, hiddenLegends, selectedFilters, activeLayers, mode])
 
+  /* 人员图层跟随高级筛选（2026-10-16 用户报「选中 FME 人员地图没生效」）：
+     原先 PersonnelLayer 只收 isDark/enabled/timeRange，完全不知道 selectedFilters，
+     筛掉站点后小人不减。
+
+     口径（经用户确认「人名筛选时只显示该人」）：
+       ① 若高级筛选里选了**人员维度**的列（`fme_name` 或 `supervisor` = X）：
+          只保留姓名 == X 的那个人（X 本人）。**不再带出其站点的其它相关人** ——
+          「选一个人却列出好几个」会被当成筛错了。
+       ② 否则若选了**非人员维度**（区域/站点类型/网络制式…）：
+          保留「在可见站点里被记为 fme_name 或 supervisor」的人。
+       ③ 完全没筛选：不过滤（返回 null），全员显示 —— **不制造回归**。
+          （注意不能走 ②：有 7 个人的姓名在任何站点都没登记，走 ② 会把他们在
+           默认视图里也抹掉，那是改动引入的回归。）
+
+     姓名比对用**归一化**（与 PersonnelLayer.normName 同一套规则，勿各写一份）——
+     person.name 有 `Ernest Feikai  Sherman,`（双空格 + 尾逗号）这类脏值。 */
+  const normName = (v: unknown) => String(v ?? '')
+    .replace(/\([^)]*\)/g, '')
+    .replace(/^\s*[PGpg]\s*[:]\s*/, '')
+    .replace(/\s+/g, ' ')
+    .replace(/^[\s,]+|[\s,]+$/g, '')
+    .toLowerCase()
+
+  const visiblePersonNames = useMemo<Set<string> | null>(() => {
+    const fmeSel = selectedFilters['fme_name']
+    const supSel = selectedFilters['supervisor']
+    // ① 人员维度筛选优先：只留被选中的那个人
+    if ((fmeSel && fmeSel.trim()) || (supSel && supSel.trim())) {
+      const out = new Set<string>()
+      if (fmeSel && fmeSel.trim()) out.add(normName(fmeSel))
+      if (supSel && supSel.trim()) out.add(normName(supSel))
+      return out
+    }
+    // ③ 无任何筛选：不过滤
+    const hasAnyFilter = Object.values(selectedFilters).some(Boolean) || !!selectedRegion
+    if (!hasAnyFilter) return null
+    // ② 非人员维度：由可见站点反推相关人员
+    const names = new Set<string>()
+    for (const s of filteredSites) {
+      const f = normName((s as any).fme_name)
+      const p = normName((s as any).supervisor)
+      if (f) names.add(f)
+      if (p) names.add(p)
+    }
+    return names
+  }, [filteredSites, selectedFilters, selectedRegion])
+
   // ========== 导出 ==========
   /* 导出**当前地图上可见的站点**（filteredSites）：与用户在图例/图层/高级筛选里
      看到的那批点在口径上完全一致，而不是后端返回的全量 sites。
@@ -1440,7 +1487,12 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
             {/* 人员图层（仅 gis 页）：小人图标 + WO 弹窗 + 人员→站点路线。
                 自包含组件，见 gismap/PersonnelLayer.tsx 头注释与已知限制说明。 */}
             {mode === 'all' && (
-              <PersonnelLayer isDark={isDark} enabled={showPersonnel} timeRange={timeRange} />
+              <PersonnelLayer
+                isDark={isDark}
+                enabled={showPersonnel}
+                timeRange={timeRange}
+                visibleNames={visiblePersonNames}
+              />
             )}
             {boundaryMode === 'region' && regionBoundaries.map((rb, idx) => (
               <Polygon
