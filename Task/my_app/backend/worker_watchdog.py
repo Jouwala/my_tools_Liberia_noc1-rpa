@@ -228,7 +228,7 @@ GROUP_TASK_MAP = {
         # 该组已有 */15 的 mw_ume_kpi_sync_rt 先例，可承载高频任务。
         # 新任务必须显式分组，否则无 worker 认领 → 队列 pending 卡死直到 300s 超时
         "tt_alarm_whatsapp_alert,"
-        # ume_alarm_whatsapp_alert 2026-10-16 注册：ZTE UME 告警 WhatsApp 推送（每分钟）。
+        # ume_alarm_whatsapp_alert 2026-10-16 注册：DC server alarm WhatsApp push（每分钟）。
         # 归 m 组理由：与 tt_alarm_whatsapp_alert 同属 WhatsApp 通道（共用 data/ 作业文件
         # 与 Baileys 推送进程）；直连上游 10.121.8.2 取告警（独立会话，与 m 组其它任务的
         # 上游会话无冲突，单轮约 1~2s、占 60s 周期的 <5%）；自身只写

@@ -1280,7 +1280,7 @@ register_config(ConfigResource(
                    "mail_enabled config key / TT_ALERT_MAIL_ENABLED env var.",
 ))
 
-# ========== ZTE UME 告警 WhatsApp 推送（ume_alarm_whatsapp_alert） ==========
+# ========== DC server  alarm WhatsApp push（ume_alarm_whatsapp_alert） ==========
 def _ume_alarm_defaults():
     """默认值取服务当前生效值（含 env），页面所见 = 任务所用。
 
@@ -1320,7 +1320,7 @@ register_config(ConfigResource(
                            "从下一轮起只推真正的新增（防止上线瞬间把存量刷进群）"),
     },
     defaults_factory=_ume_alarm_defaults,
-    description="ZTE UME 告警 WhatsApp 推送：每分钟直连 ZTE UME 网管 10.121.8.2 "
+    description="DC server  alarm WhatsApp push：每分钟直连 ZTE UME 网管 10.121.8.2 "
                 "（/api/v2.0/fm/alarmsWithDetail，Keystone 登录）拉当前告警，"
                 "命中「告警码:级别」精确对才推送到指定群；未清除告警按 resend_minutes 催报"
                 "（带 REMINDER 横幅），**曾推送过**的告警从上游消失则补发一条「已恢复」；"

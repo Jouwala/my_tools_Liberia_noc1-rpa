@@ -183,7 +183,7 @@ def run_ume_alarm_whatsapp() -> Dict[str, Any]:
         if GROUPS_FALLBACK:
             warn = (f"未配置 WhatsApp 群组，已回退到测试群 {DEFAULT_GROUPS} —— "
                     f"真实告警不会到达值班群！请在「设置 → 任务配置 → "
-                    f"ZTE UME Alarm WhatsApp Push」填写群组名")
+                    f"DC server  alarm WhatsApp push」填写群组名")
             out["errors"].append(warn)
             logger.warning("[UMEAlarm] %s", warn)
 

@@ -152,7 +152,7 @@ APScheduler 到点 (backend 进程内)
 | `whatsapp_send_ext` | WhatsApp 消息发送（扩展） | `0 3 * * *` | m |
 | `whatsapp_send_baileys` | WhatsApp 消息发送（Baileys；**默认禁用**，需在「任务管理」页手动启用） | `0 4 * * *` | m |
 | `tt_alarm_whatsapp_alert` | eFlow P1 告警 WhatsApp 推送（**可在「任务配置」页调级别/告警码/触发窗口/重报间隔/群组**） | `2-59/5 * * * *` | m |
-| `ume_alarm_whatsapp_alert` | ZTE UME 告警 WhatsApp 推送（**可在「任务配置」页调告警码:级别对/群组/催报间隔**） | `* * * * *` | m |
+| `ume_alarm_whatsapp_alert` | DC server  alarm WhatsApp push（**可在「任务配置」页调告警码:级别对/群组/催报间隔**） | `* * * * *` | m |
 | `cells_kpi_sync` | RAN Cells KPI 同步 | `50 4 * * *` | u |
 | `sp_email_details` | SP 备件明细报表邮件 | `5 7 * * *` | m |
 | `sp_details_files_email` | SP 备件明细分文件邮件（6 份 xlsx 一文件一邮件发 NOC） | `5 10 * * *` | m |
