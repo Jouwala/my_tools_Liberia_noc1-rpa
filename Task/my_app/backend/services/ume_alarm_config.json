@@ -1,0 +1,7 @@
+{
+  "alarm_codes": "89029,89006",
+  "alarm_levels": "major,critical",
+  "groups": "*P1 OLR ZTE MS Manager*",
+  "resend_minutes": 10,
+  "bootstrap": true
+}

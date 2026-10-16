@@ -262,6 +262,21 @@ TASK_SPECS = [
          description_en="Every 5 min: trigger from realtime_alarm (TT-linked, within window, code whitelist), live-fetch eFlow for the latest update time; first push immediately, then two-tier re-notify with a REMINDER banner (no update since last send -> nudge at 10 min; updated since last send -> wait 30 min), stop when cleared; send status (sent? how many times) recorded in eflow_tt_whatsapp_alert_log",
          default_cron="2-59/5 * * * *", category="whatsapp"),
 
+    # 5e. ZTE UME 告警 → WhatsApp（每分钟，2026-10-16 立项）。
+    #     与 5c 的 eFlow 推送是**两个不同的上游、两套鉴权**：本任务直连 ZTE UME
+    #     网管 10.121.8.2 的 /api/v2.0/fm/alarmsWithDetail（Keystone 登录 + 项目
+    #     token，见 ume_alarm_client.py 的 docstring），不读本地 realtime_alarm。
+    #     口径：命中「告警码 且 级别」白名单才推（两者都留空=不过滤）；告警未清除
+    #     则按 resend_minutes 催报；从上游消失则补发一条「已恢复」。
+    #     首轮只登记不发送（bootstrap，防上线瞬间把存量刷进群）。
+    #     状态落 ume_alarm_whatsapp_log；发送走 Baileys 推送进程，确认后才置 Y。
+    dict(task_id="ume_alarm_whatsapp_alert", name="ZTE UME 告警 WhatsApp 推送",
+         name_en="ZTE UME Alarm WhatsApp Push",
+         loader=("backend.services.ume_alarm_whatsapp_service", "run_ume_alarm_whatsapp"),
+         description="每分钟直连 ZTE UME 网管 10.121.8.2 拉当前告警，命中「告警码 且 级别」白名单才推送到指定群；未清除告警按配置间隔催报（带 REMINDER 横幅），告警从上游消失则补发「已恢复」；首轮只登记不发送（防存量刷群）；状态落 ume_alarm_whatsapp_log，发送经 Baileys 推送进程确认后才置 Y。告警码/级别/群组/催报间隔均在「任务配置」页维护",
+         description_en="Every minute, connect to the ZTE UME NMS at 10.121.8.2 and pull current alarms; push to the target group only when both the alarm code and level match the whitelist; re-notify uncleared alarms on the configured interval (with a REMINDER banner) and send a recovery notice once an alarm disappears upstream; register-only on the first run (avoid flooding the group with backlog); state recorded in ume_alarm_whatsapp_log and send_status set to Y only on Baileys push confirmation. Codes/levels/groups/resend interval are maintained on the Task Config page",
+         default_cron="* * * * *", category="whatsapp"),
+
     # 6. MS SLA 完整同步（每天 05:00）
     #    时序约束（2026-09-18 修复）：必须在 kpi_ms_contract(05:30) / kpi_ms_wo_sla(05:35)
     #    之前完成——两封邮件只读本任务产出的 data/ms_sla/*.xlsx，早于本任务就只能发前一版。

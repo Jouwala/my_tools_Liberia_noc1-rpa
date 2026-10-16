@@ -174,6 +174,29 @@ CREDENTIAL_GROUPS = [
         "env_secret": "EFLOW_PASS",
     },
     {
+        "key": "ume_alarm",
+        "name": "ZTE UME 告警网管 (10.121.8.2:443)",
+        "name_en": "ZTE UME Alarm NMS (10.121.8.2:443)",
+        "usage": "ZTE UME 告警网管（ngportal 门户）取实时告警数据使用此账号登录；"
+                 "登录链路为 Keystone v3（RSA 加密密码换 token），再换项目 token。"
+                 "支撑「ZTE UME 告警 WhatsApp 推送」任务（ume_alarm_whatsapp_alert）。",
+        "usage_en": "Used by the ZTE UME Alarm NMS (ngportal) to log in and fetch realtime alarms; "
+                    "the login path is Keystone v3 (RSA-encrypted password for a token) then a project token. "
+                    "Backs the ZTE UME Alarm WhatsApp Push task (ume_alarm_whatsapp_alert).",
+        "default_user": "admin",
+        "default_secret": "",
+        "username_label": "用户名",
+        "username_label_en": "Username",
+        "secret_label": "密码",
+        "secret_label_en": "Password",
+        "has_username": True,
+        "testable": False,
+        "test_host": "10.121.8.2",
+        "test_port": 443,
+        "env_user": "UME_ALARM_USER",
+        "env_secret": "UME_ALARM_PASS",
+    },
+    {
         "key": "rais",
         "name": "RAIS 统一权限平台 (10.100.20.9:8766)",
         "name_en": "RAIS Unified Permission Platform (10.100.20.9:8766)",
