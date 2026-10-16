@@ -21,7 +21,7 @@ import { EnvironmentOutlined, UserOutlined } from '@ant-design/icons'
 import api from '../../api'
 import { useI18n } from '../../i18n'
 import DraggableClickModal from '../../components/DraggableClickModal'
-import { Marker, Polyline } from '../../components/LeafletMap'
+import { Marker, Polyline, useMap, isMapAlive } from '../../components/LeafletMap'
 import { SITE_COLORS } from './types'
 
 export interface PersonMarker {
@@ -162,6 +162,7 @@ export function PersonnelLayer({
   timeRange: { start: string; end: string } | null
 }) {
   const { t } = useI18n()
+  const map = useMap()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [people, setPeople] = useState<PersonMarker[]>([])
@@ -188,6 +189,54 @@ export function PersonnelLayer({
   const [hoverSites, setHoverSites] = useState<AlertSite[]>([])
   // 每人只取一次，避免来回悬停反复打接口
   const siteCacheRef = useRef<Map<string, AlertSite[]>>(new Map())
+
+  /* 点击地图空白处 → 清除「选中的人员」与「已画的路线」（2026-10-16 用户要求：
+     「点击人员选中，点击其他地方要恢复未选中状态，道路也是一样」）。
+
+     为什么要区分「点人」与「点空白」：
+       Leaflet 的 marker 点击会**冒泡到 map**，即点人也会触发 map 的 click。
+       若不区分，点人的瞬间就会被 map 处理器立刻清空选中态 —— 表现为「点不中」。
+
+     判别方式（两条互为保险，不依赖二者的事件触发顺序）：
+       ① 事件源：Leaflet 把原始点击层放在 `e.sourceTarget`，点人时它是 marker → 跳过；
+       ② 标志位：handlePersonClick 置位 personClickRef，兜底那些 sourceTarget
+          不可靠的场景。两者命中任一即视为「点的是人」，不清理。 */
+  const personClickRef = useRef(false)
+
+  const clearSelection = useCallback(() => {
+    setActivePerson(null)
+    setWoModalOpen(false)
+    setRoute(null)
+    setRouteTarget(null)
+    setRouteError(null)
+  }, [])
+
+  useEffect(() => {
+    // map 实例可能随 GIS 页重建；isMapAlive 守卫避免对已销毁的 map 挂事件
+    if (!enabled || !isMapAlive(map)) return
+    const onMapClick = (e: any) => {
+      // ① 事件源判定：点在**人员针**上不清理。
+      //    识别方式：L.Marker 独有 `setIcon`（divIcon 换图用），而站点圆点
+      //    （L.CircleMarker）只有 setStyle/setRadius、没有 setIcon
+      //    —— 两者都能 getLatLng，故**不能**用 getLatLng 区分（实测踩过：
+      //    会误把「点站点圆点」当成「点人员」而漏清选中态）。
+      const src = e?.sourceTarget
+      if (src && typeof src.setIcon === 'function') {
+        personClickRef.current = false
+        return
+      }
+      // ② 标志位兜底
+      if (personClickRef.current) {
+        personClickRef.current = false
+        return
+      }
+      clearSelection()
+    }
+    map.on('click', onMapClick)
+    return () => {
+      map.off('click', onMapClick)
+    }
+  }, [enabled, map, clearSelection])
 
   /* 开启图层时才取数（不在页面加载时就打接口）—— 绝大多数用户不看这一层，
      常驻请求白费流量。关闭图层时清空路线与选中态。 */
@@ -283,6 +332,8 @@ export function PersonnelLayer({
   }
 
   const handlePersonClick = (p: PersonMarker, e?: { originalEvent?: MouseEvent }) => {
+    // 标记「这次点击来自人员」，供 map 的 click 处理器跳过（Leaflet 冒泡，见 personClickRef 注释）
+    personClickRef.current = true
     // 点击即清除悬停连线（用户要求「点击后消失」）
     setHoverKey(null)
     setHoverSites([])

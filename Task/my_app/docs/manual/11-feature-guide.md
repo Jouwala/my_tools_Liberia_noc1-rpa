@@ -464,7 +464,7 @@ ZXMW 微波网络拓扑与带宽利用率 NOC 看板（`MwUmeDashboard.tsx:4-8`�
 - **数据源**：`backend/data/gis/liberia_counties.geojson`（15 个 feature，含 `properties.name` / `db_name`）与 `liberia_country.geojson`（国界，16 个 MultiPolygon）。由用户提供的「利比里亚地图文件_国家边界含州名.txt」离线转换而来，**几何是静态数据**，故后端缓存 1 小时（`_COUNTY_TTL`）。
 - **加载器**：`gis_geometry.py` 的 `load_county_boundaries()` / `load_country_boundary()` / `_merge_multipolygon_payload()`。文件缺失或解析失败返回 `[]` 并记日志，**不抛 500**——边界属增强显示，不该让整张地图挂掉。
 - **坐标约定**：GeoJSON 标准是 `[lng, lat]`，本项目的 `polygons` 已按 **Leaflet 约定写成 `[lat, lng]`**（转换脚本完成交换）。`load_county_boundaries` **不再二次交换**，否则地图会画到南极洲。
-- **⚠️ 县名映射（唯一一处命名差异）**：GeoJSON 里叫 `Rivercess`，而站点表 `province_county` 的值是 `River Cess`（库里还存在脏值 `River cess`，共 9 站）。因此 feature 上同时存 `name`（展示用）与 `db_name`（与 DB 对齐，下钻筛选用）。**点击县界用的是 `db_name`**（`GISMap.tsx` 的 `handleCountyClick`）；`site_count` 计算时也对 DB 值做 `\s+`→单空格归一化后累加，保证两种写法都计入。
+- **⚠️ 县名映射（唯一一处命名差异）**：GeoJSON 里叫 `Rivercess`，而站点表 `province_county` 的值是 `River Cess`（库里还存在脏值 `River cess`，共 9 站）。因此 feature 上同时存 `name`（展示用）与 `db_name`（与 DB 对齐）。⚠️ **2026-10-16 起县块不再可点击**（用户要求「区域不要点击就选中，只能通过高级过滤来过滤」），原先「点击县界 → 写入 `province_county`」的 `handleCountyClick` 已删除；`db_name` 目前只作数据备用。`site_count` 计算时仍对 DB 值做 `\s+`→单空格归一化后累加，保证两种写法都计入。
 - **口径一致性（AGENTS.md 三-1b）**：`/county-boundaries` 的站点计数与 `/gis/sites` 使用**完全相同的 WHERE**（同样要求经纬度非空且非 0）。实测 15 县合计 **827 站**，与 `/gis/sites` 的 `total` 一致，逐县核对全部相等。
 - **标签数字口径（2026-09-25 用户要求改为告警数）**：端点同时返回两个计数，**地图标签显示 `alarm_site_count` 而非 `site_count`**：
 
@@ -474,8 +474,8 @@ ZXMW 微波网络拓扑与带宽利用率 NOC 看板（`MwUmeDashboard.tsx:4-8`�
   | `alarm_site_count` | 该县**有实时告警的站点数**（`COUNT(DISTINCT site_id)`，非告警条数） | 同 `/gis/realtime/sites`（`realtime_alarm` JOIN 站点表 + 经纬度有效） | **38** |
 
   - 合计 **38 = `/gis/realtime/sites` 的站点数**，两处口径严格对齐。主表 JOIN 不上的告警（实测 4 站）**不计入任何县**，与实时页一致。
-  - 标签写成 `Bong (7 告警)` 形式 —— 单个裸数字无法区分「站数」还是「告警数」，故带单位小字。用户要看站点总数时，点县界会打开高级筛选，抽屉与图例都给得出。
-- **交互**：县界用「描边 + 淡色底块」（浅色主题 `fillOpacity 0.14` / 深色 `0.10`，深底同透明度会显脏），虚线描边以区分于大区实线；县名 + 告警站点数用 Leaflet `Tooltip(permanent)` 常驻在县域质心（样式见 `index.css` 的 `.gis-county-label`）。**点击县界 → 复用既有的 `province_county` 高级筛选**形成下钻闭环。
+  - 标签写成 `Bong (7 告警)` 形式 —— 单个裸数字无法区分「站数」还是「告警数」，故带单位小字。用户要看站点总数时改用上方「高级筛选」的区县下拉（2026-10-16 起县块不可点击）。
+- **交互**：县界用「描边 + 淡色底块」（浅色主题 `fillOpacity 0.14` / 深色 `0.10`，深底同透明度会显脏），虚线描边以区分于大区实线；县名 + 告警站点数用 Leaflet `Tooltip(permanent)` 常驻在县域质心（样式见 `index.css` 的 `.gis-county-label`）。**县块不响应点击**（2026-10-16 用户要求：区域不可点击选中，过滤只走高级筛选）。
 - **性能**：县界 GeoJSON 约 384KB，前端**只在首次切到「县界」模式时拉取**（`GISMap.tsx` 的 effect 带 `boundaryMode !== 'county'` 守卫），不影响默认打开速度。
 
 ### 10c. MW 链路数据源与配色（2026-09-25 换源 + 修撞色）
@@ -520,6 +520,15 @@ ZXMW 微波网络拓扑与带宽利用率 NOC 看板（`MwUmeDashboard.tsx:4-8`�
   并用 `hoverKey` 守卫**陈旧响应**（快速划过多人时，先发后到的请求不会把
   「上一个人的线」画到当前人身上）。
 - 站点缺坐标画不出线时后端计入 `skipped_no_coord`（不静默丢）。
+- **点空白处取消选中（2026-10-16 用户要求）**：点击人员后进入选中态（针变红加大），
+  点击地图**空白处**即取消选中，**已画的路线一并清除**（用户原话「道路也是一样」）。
+  实现见 `PersonnelLayer.tsx` 的 `clearSelection` + map `click` 订阅。
+  - ⚠ **必须区分「点人」与「点空白」**：Leaflet 的 marker 点击会冒泡到 map，
+    若不区分，点人瞬间就被 map 处理器清空 = 「点不中」。判别用**事件源**
+    `e.sourceTarget` 是否含 `setIcon`（L.Marker 独有；站点圆点 L.CircleMarker 没有），
+    外加 `personClickRef` 标志位兜底。**不能用 `getLatLng` 判别** —— 两者都有该方法（实测踩过）。
+  - 点站点圆点/告警等**其它图层**算「点空白」，会清空人员选中态（符合「点其他地方即取消」）。
+  - 点击 WO 弹窗内的行**不会**清除（弹窗是 portal，事件不经过地图）。
 
 **数字跟随页面时间窗口（2026-10-16 修）**：用户指出标签数字未跟随工具栏
 「Time window」（7 days / 30 days…）。现三个端点（`/personnel`、

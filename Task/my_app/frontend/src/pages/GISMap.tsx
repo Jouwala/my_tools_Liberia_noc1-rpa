@@ -488,13 +488,10 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
       })
   }, [boundaryMode, counties.length])
 
-  /* 点击县界 → 复用既有的 province_county 高级筛选形成下钻闭环。
-     用 db_name（与站点表 province_county 对齐的值）：附件里叫 "Rivercess"，
-     而库里是 "River Cess"，直接拿 name 去筛会得到 0 个站点。 */
-  const handleCountyClick = (c: CountyBoundary) => {
-    setSelectedFilters(prev => ({ ...prev, province_county: c.db_name }))
-    setShowFilters(true)
-  }
+  /* 2026-10-16：原「点击县界 → 写入 province_county 高级筛选」的 handleCountyClick
+     已按用户要求删除 —— 区域不再可点击选中，过滤只走上方「高级筛选」。
+     （原实现用 db_name 而非 name：库里有 "River Cess"/"Rivercess" 两种写法，
+     直接拿 name 筛会得 0 个站点。该注意点保留在此备忘，供将来若需恢复时参考。） */
 
   /* 站点下钻的时间范围（2026-09-28）。
      抽屉里是**独立**的 7/30/60/90/180 天选择器，默认 7 天 —— 与地图初始时间窗口
@@ -1469,7 +1466,9 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
               <Polygon
                 key={`county-${c.name}`}
                 positions={c.polygons as any}
-                onClick={() => handleCountyClick(c)}
+                /* 2026-10-16 用户要求：**区域不可点击选中**，过滤只能走上方「高级筛选」。
+                   故移除 onClick（原为 handleCountyClick → 写入 province_county 筛选）。
+                   县块仍保留颜色分档，只是不再接受点击。 */
                 pathOptions={{
                   color: fill,
                   fillColor: fill,
@@ -1495,8 +1494,8 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
                   结构前提，不是风格偏好。
                   Marker 是一个**零尺寸空 divIcon**（不是 opacity:0 —— 那仍会留下
                   一个可见的方块，且默认图标还要加载 marker-icon.png），
-                  自身不可见、不接收点击（interactive:false），
-                  点击仍由下面的 Polygon 响应（handleCountyClick）。
+                  自身不可见、不接收点击（interactive:false）。
+                  （2026-10-16 起县块也不再响应点击 —— 区域不可选中，过滤只走高级筛选。）
 
                 标签内容（2026-10-14 第三版，用户：「去掉标签背景，只显示 BOMI.01」）：
                   只剩「县名 + 两位数字」两段纯文字，**没有底色、没有色点**。
