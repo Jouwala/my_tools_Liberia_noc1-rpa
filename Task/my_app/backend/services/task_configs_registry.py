@@ -1322,7 +1322,7 @@ register_config(ConfigResource(
                 "（带 REMINDER 横幅），告警从上游消失则补发一条「已恢复」；"
                 "首轮只登记不发送（防存量刷群）。发送走 Baileys 推送进程，"
                 "确认后才把 send_status 置 Y；状态落 ume_alarm_whatsapp_log。"
-                "登录凭据在「设置 → 凭据」的「ZTE UME 告警网管」组维护。",
+                "登录凭据在「设置 → 凭据」的「ZTE UME 服务器网管」组维护。",
     description_en="ZTE UME alarm WhatsApp push: every minute, connects to the ZTE UME NMS at "
                    "10.121.8.2 (/api/v2.0/fm/alarmsWithDetail, Keystone login) and pulls current "
                    "alarms; pushes to the target group only when both the alarm code and level match "
@@ -1331,5 +1331,5 @@ register_config(ConfigResource(
                    "the first run registers only (no push, to avoid flooding the group with backlog). "
                    "Sent via the Baileys push process; send_status is set to Y only on server-side ack; "
                    "state recorded in ume_alarm_whatsapp_log. Credentials are maintained under "
-                   "Settings -> Credentials, group 'ZTE UME Alarm NMS'.",
+                   "Settings -> Credentials, group 'ZTE UME Server NMS'.",
 ))

@@ -175,12 +175,12 @@ CREDENTIAL_GROUPS = [
     },
     {
         "key": "ume_alarm",
-        "name": "ZTE UME 告警网管 (10.121.8.2:443)",
-        "name_en": "ZTE UME Alarm NMS (10.121.8.2:443)",
-        "usage": "ZTE UME 告警网管（ngportal 门户）取实时告警数据使用此账号登录；"
+        "name": "ZTE UME 服务器网管 (10.121.8.2:443)",
+        "name_en": "ZTE UME Server NMS (10.121.8.2:443)",
+        "usage": "ZTE UME 服务器网管（ngportal 门户）取实时告警数据使用此账号登录；"
                  "登录链路为 Keystone v3（RSA 加密密码换 token），再换项目 token。"
                  "支撑「ZTE UME 告警 WhatsApp 推送」任务（ume_alarm_whatsapp_alert）。",
-        "usage_en": "Used by the ZTE UME Alarm NMS (ngportal) to log in and fetch realtime alarms; "
+        "usage_en": "Used by the ZTE UME Server NMS (ngportal) to log in and fetch realtime alarms; "
                     "the login path is Keystone v3 (RSA-encrypted password for a token) then a project token. "
                     "Backs the ZTE UME Alarm WhatsApp Push task (ume_alarm_whatsapp_alert).",
         "default_user": "admin",
