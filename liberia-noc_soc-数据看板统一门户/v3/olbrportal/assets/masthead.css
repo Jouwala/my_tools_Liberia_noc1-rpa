@@ -1,0 +1,714 @@
+/* ==========================================================================
+   /v1/olbrportal/ — 顶栏（masthead）样式
+   --------------------------------------------------------------------------
+   本文件是 MsPortal 的 assets/masthead.css **顶栏部分的副本**：
+   抄自其 L1–419（顶栏全段）+ L572–641 响应式块里的**顶栏那一半**规则。
+   建立日期：2026-09-24。目的是让 /v1/olbrportal/ 的顶栏与 /MsPortal/ 长得一模一样。
+
+   ⚠️ 这是**副本，不是引用（不是链接）**：
+      · 改 MsPortal/assets/masthead.css **不会**影响 v1，改本文件也**不会**影响 MsPortal；
+      · 两边从此各自独立演进，不存在任何构建期/运行期的自动同步；
+      · 将来 MsPortal 重做顶栏（改色、改尺寸、改断点）时，本文件必须**手工重新同步**，
+        否则两个门户的顶栏会慢慢长歪。
+
+   刻意**没有**抄进来的部分，以及原因：
+      · 第二行工具条（源码 L420–571：html body .control-bar / .mp-bar-btn /
+        .control-toggle / .control-inner / .edit-hint 等）—— v1 根本没有控制条这个 DOM，
+        抄过来全是死规则。
+      · 响应式块里属于工具条的那些声明（.control-toggle、.control-toggle-row、
+        .control-inner / .edit-hint、.mp-bar-tools、.mp-bar-btn 等）—— 同上，一并丢弃；
+        原文里描述它们的注释也一并删掉了，避免留下指向不存在规则的说明。
+
+   ⚠️ masthead.js **故意不在 v1 加载**：
+      v1 的 olbr.js 已经自己接管了时钟、环境徽标（env badge）、主题切换、语言切换这四件事。
+      再引 masthead.js 会出现两套实现抢同一个 DOM，谁后跑谁赢，属于不可调试的竞态。
+      所以本文件只提供**样式**，所有行为一律由 olbr.js 提供。
+
+   配色来源 = 参考截图逐像素采样（脚本与切片见 MsPortal/TMP/header_ref/）：
+      masthead 顶 #051c42 → 中 #021d4a → 底 #032152；底部约 20px 起蓝光（左 #063c7e
+      弱、右 #0832b7 强）；副标题钢蓝 #93b3cf；时钟 #9abedb；环境绿点 #22e57a；
+      图钉 #ffd24a；语言选中 pill #0d6fe0；控件描边 rgba(255,255,255,.16)。
+      品牌色（2026-09-25 更新）：标题「MS Management Platform」纯白 #ffffff、
+      「OLR」门户橙 #ff7900（原橙金 #ff9d1c）、ZTE 字标 = ZTE Blue (新) #0078d4、
+      品牌分隔竖线 #47adef。
+   ========================================================================== */
+
+/* ==========================================================================
+   补齐 8 个「本文件用到、但自己没定义」的自定义属性
+   --------------------------------------------------------------------------
+   MsPortal 的 masthead.css 里这些 --mp-* 令牌**不是它自己定义的**，而是来自
+   MsPortal/assets/portal.css（那个文件在 MsPortal 是全局样式，v1 不加载它）。
+   若这里不补，凡是 var(--mp-border) 之类会解析成「无效值」——
+   带 fallback 的地方尚可回退，不带 fallback 的属性整条声明会被浏览器丢弃。
+
+   下面两组值**逐字抄自** MsPortal/assets/portal.css：
+     浅色档 = 其 `:root` 块（位于该文件 L48，本段取自 L54 / L60 / L69 / L79 /
+              L99 / L104 / L106 / L111）；
+     深色档 = 其 `html.dark` 块（位于该文件 L211，本段取自 L217 / L222 / L230 /
+              L236 / L251 / L254 / L256 / L261）。
+   日期：2026-09-24。若 MsPortal 那边改了这些令牌，本文件需手工同步（见文件头说明）。
+   ========================================================================== */
+:root {
+  /* —— 表面 / 描边 / 行悬停（浅色档，抄自 portal.css :root） —— */
+  --mp-surface-flat: #ffffff;
+  --mp-border: rgba(14, 116, 144, .18);
+  --mp-hover-row: rgba(14, 165, 233, .08);
+  /* —— 次级文字 ——
+     ⚠️ 2026-09-30 交叉引用：--mp-text-2 的浅色值 #526b7d 与 olbr.css 的
+     --t2(#526b7d) **完全同值**；深色档 #aebbd4 也等于 olbr.css 的 --t2。
+     两者不是巧合，是当初互相抄的 —— 但它们是两份独立定义，改一处**不会**
+     同步另一处。顶栏是深底门面，本就该用自己的色，所以保留独立定义；
+     只是在此记一笔，免得日后改正文次级文字色时漏掉顶栏（或反之）。
+     要查另一半：v1/olbrportal/assets/olbr.css 的 :root / html.dark 里的 --t2。 */
+  --mp-text-2: #526b7d;
+  /* —— 品牌强调 —— */
+  --mp-brand-text: #075063;
+  --mp-brand-soft: rgba(14, 116, 144, .08);
+  --mp-brand-border: rgba(14, 116, 144, .55);
+  --mp-focus-ring: 0 0 0 3px rgba(14, 116, 144, .18);
+}
+
+html.dark {
+  /* —— 表面 / 描边 / 行悬停（深色档，抄自 portal.css html.dark） —— */
+  --mp-surface-flat: #071027;
+  --mp-border: #153db0;
+  --mp-hover-row: rgba(37, 140, 255, .10);
+  /* —— 次级文字（同值说明见浅色档处） —— */
+  --mp-text-2: #aebbd4;
+  /* —— 品牌强调 —— */
+  --mp-brand-text: #7fd2ee;
+  --mp-brand-soft: rgba(0, 217, 255, .10);
+  --mp-brand-border: rgba(0, 217, 255, .50);
+  --mp-focus-ring: 0 0 0 3px rgba(0, 217, 255, .20);
+}
+
+/* ==========================================================================
+   ↓↓↓ 以下为 MsPortal/assets/masthead.css L1–419 的原文照抄（顶栏全部） ↓↓↓
+   ========================================================================== */
+
+/* ==========================================================================
+   MsPortal — 顶栏（TopHeader）改版
+   --------------------------------------------------------------------------
+   按用户提供的 OLR MS 截图重做顶栏：
+     第一行 masthead：ZTE 标 + ZTE 字标 + 分隔线 + 「OLR MS Management Platform」
+                       + 副标题 + 地球背景；右侧 = 环境徽标 · 时钟 · 语言 · 主题 ·
+                       站点入口 · 退出登录
+
+   为什么单独一个文件而不是改 portal.css：
+     2026-09-18 另一个会话正在同时改 portal.css / portal.js（当天已因两会话同写
+     portal.js 白屏过一次）。本文件只**新增**，靠「后加载 + 选择器更具体」压过
+     portal.css 里旧的顶栏规则；portal.css / portal.js 一行都不动。
+     顶栏盒子上的 background / border / box-shadow 用 !important 是**故意**的：
+     portal.css 有 `html:not(.dark) body > header` 与 `html.dark body > header` 两条
+     同特异性的规则，谁赢只看加载顺序；将来那边再改一次就可能翻盘，所以这三条锁死。
+     其余属性一律不用 !important，视觉主体（渐变 / 地球 / 蓝光）都画在子层
+     .mp-mast-bg 上 —— 子层天然盖住父元素的 background，根本不需要抢。
+
+   配色来源 = 参考截图逐像素采样（脚本与切片见 TMP/header_ref/）：
+     masthead 顶 #051c42 → 中 #021d4a → 底 #032152；底部约 20px 起蓝光（左 #063c7e
+     弱、右 #0832b7 强）；副标题钢蓝 #93b3cf；时钟 #9abedb；环境绿点 #22e57a；
+     图钉 #ffd24a；语言选中 pill #0d6fe0；控件描边 rgba(255,255,255,.16)。
+     品牌色（2026-09-25 更新）：标题「MS Management Platform」纯白 #ffffff、
+     「OLR」门户橙 #ff7900（原橙金 #ff9d1c）、ZTE 字标 = ZTE Blue (新) #0078d4、
+     品牌分隔竖线 #47adef。
+     「Z」标已由内联 SVG 换成官方品牌资产 PNG（assets/logo-zte-z-{116,174}.png，
+     1254×1254 透明源图裁内容框 + 补正方形 + 无损重编码后的 2x/3x）。
+     回退用 index.html_bak_20260921_新Logo部署前 + 本文件同名备份。
+
+   尺寸：参考截图是 1.25 倍缩放的 1736×99 视口，除以 1.25 后所有控件高 ≈36px、
+   正文 ≈13px、标题 ≈24px —— 与门户现有控件（32px / 13px）同一量级，故按此实现。
+   一律用 rem：门户右上角的字号放大/缩小（portal.js 改 html 的 font-size）会
+   连带顶栏一起缩放，不会出现「正文放大了、顶栏还是原样」的割裂。
+
+   ⚠️ 2026-09-30 更正（重要，别被上面那句误导）：
+     上面「portal.js 改 html 的 font-size」这件事**在本页不成立** ——
+     那个缩放逻辑在 MsPortal/assets/portal.js:1167（`documentElement.style.fontSize`），
+     而本页（/v1/olbrportal/）**刻意不加载 portal.js**（只用 olbr.js），
+     且 olbr.js 里**没有任何**根字号缩放逻辑（已核实，grep 无命中）。
+     结论：本文件里的 rem 在当前 v1 页面上**等效于 px**（根字号恒为 16px，
+     所以 .8125rem=13px、1.5rem=24px、2.25rem=36px …）。
+     这不是 bug，只是一个「未来可能用到」的约定 —— 但读代码的人必须知道：
+       · 想让 v1 顶栏也跟着缩放 → 得**先**在 olbr.js 里补上根字号逻辑
+         （照抄 portal.js:1153-1167 的系数），否则改 rem 值只在 16px 基准下生效；
+       · 反过来，若嫌「顶栏写 rem、正文写 px」两套单位看着乱，
+         在 v1 侧把本文件 rem 全量换算成 px 也是安全的（视觉不变），
+         代价是将来真要接缩放时得一处处改回来。
+     采用哪种口径，改之前先想清楚；当前保持 rem 不动（成本为零，且保留可能性）。
+
+/* 顶栏高度：跟着品牌区的实际高度算，不再写死。
+   以前四档硬编码（桌面 6rem=96px / 5.25 / 4.5 / 3.5rem），而内容（标题 + 副标题）
+   只有 ≈50px，多出来的 45px 全变成上下的空白。现在 = 品牌区 + 上下各 9px 呼吸位，
+   断点只需要改 --mp-brand-h 这一个值（见下面的媒体查询）。
+   max() 兜一道：窄屏副标题收起后品牌区只剩 ≈20px，不能让顶栏比右侧那排 36px 控件还矮。
+   两个变量都必须挂在 html 上而不是 .mp-mast —— 原来第二行的工具条是顶栏的**兄弟**节点，
+   挂在 .mp-mast 上的自定义属性它继承不到（第一版就踩了：sticky top 解析成 auto）。
+   同一个 --mp-mast-h 还喂给地球尺寸和顶栏 min-height，缩高度时球会等比跟着缩。 */
+html {
+  /* 品牌区高度 = 标题行盒 + 副标题上边距 6px + 副标题行盒。
+     「Z」底牌（正方形）、分隔线、文本块共用它 → 顶栏左上起排、底边天然齐平。
+     2026-09-21 标题 1.625rem(26px) → 1.5rem(24px)（对齐顶栏独立稿），
+     这里的第一个乘数必须同步改，否则品牌区会高出 1.7px、底边不再齐平。 */
+  --mp-brand-h: calc(1.5rem * 1.15 + .375rem + .75rem * 1.2);
+  --mp-mast-h: max(3rem, calc(var(--mp-brand-h) + 1.125rem));
+}
+
+/* ------------------------------------------------------------ 顶栏盒子 -- */
+.mp-mast {
+  /* 深色门面在两种主题下都成立：文字/控件一律按深底设计 */
+  --mp-ink: #ffffff;
+  --mp-ink-2: #e6f2fb;
+  /* 品牌色（2026-09-21 按品牌规范更新）：
+       ZTE 字标基准色 = ZTE Blue (新) #0078D4 —— 取代旧版 #0067B9 / 上一轮的 #0b84e6。
+       OLR = 橙金 #FF9D1C（与顶栏独立稿统一，原 #ff8c1a）。
+       其余标题走 --mp-ink 纯白。
+
+       ⚠️ 深底提亮变体：本顶栏的字标不用 #0078D4 原值，用 --mp-zte-blue-dark。
+       #0078D4 是为白底设计的，放到 #071A46→#0D2860 的深底上对比度只有 3.69:1，
+       字标看着「沉」。实测过：给它加 text-shadow 辉光**没用** —— 辉光只影响字后
+       面的背景像素，字形本体逐像素不变（量过：字形核心开/关辉光都是 #0078D4，
+       差值为 0）。要提亮必须改字形自身的颜色。
+       #1E90E8 = #0078D4 同色相（206°）提亮档，实测对比度 ≈4.9:1。
+       品牌原色 #0078D4 保留在本变量里，浅色底/文档/印刷仍用它。
+
+       ⚠️ 2026-09-28 起：顶栏这三个字已换成**图片字标**（assets/logo-zte-word-*.png，
+       见 .mp-zte-word），颜色取自用户给的照片（逐行取色 ≈#43A4F9），不再由
+       --mp-zte-blue-dark 着色。上面这两个变量于是暂时没有消费方 —— 刻意**不删**：
+       它们是品牌色令牌，文档/浅色底/印刷稿仍按这套值取色，
+       删掉会逼着下一个人重查一遍品牌色。 */
+  /* 2026-09-25 用户要求：标题里的「OLR」改用门户标准橙 #FF7900（原 #ff9d1c 橙金）。
+     只换这一个变量 —— .mp-title-olr 是 OLR 的唯一着色点（masthead.css:350），
+     改了它顶栏「OLR」三字母即变，后面的「MS」「O&M Tools Platform」仍走 --mp-ink 纯白。
+     深底实测对比度（脚本 TMP/_contrast_title.cjs）：masthead 三段
+     #051C42=6.38:1 / #021D4A=6.25:1 / #032152=5.95:1，均过 AA 正文（4.5:1），
+     且这是 24px/700 的大字，按 WCAG 大字档 3:1 更宽裕。 */
+  --mp-olr: #ff7900;
+  --mp-zte-blue: #0078d4;
+  --mp-zte-blue-dark: #1e90e8;
+  --mp-dim: #93b3cf;
+  /* 时钟颜色。⚠️ 2026-09-28（用户要求「Header 里面的时间使用白色」）：由 #9abedb
+     （偏青的灰蓝）改为纯白。顶栏在浅色与深色**两种主题下都是深底**
+     （见本文件顶部的说明），所以这里的白不需要分主题：白在深底上恒为高对比，
+     不必像其它变量那样备两套值。
+     顺带说明为什么它原来偏暗：那套颜色是按"时间属于次要信息、要退到背景里"
+     选的（--mp-dim 也是同一思路），但顶部这一行只有时钟 + 语言 + 图标，
+     没有别的东西跟它抢视线，压暗只让它在深底上发灰、读起来费劲。 */
+  --mp-clock: #ffffff;
+  --mp-line: rgba(255, 255, 255, .16);
+  --mp-line-hi: rgba(255, 255, 255, .32);
+  --mp-fill: rgba(255, 255, 255, .07);
+  --mp-fill-hi: rgba(255, 255, 255, .16);
+  --mp-pin: #ffd24a;
+  --mp-ok-dot: #22e57a;
+  --mp-bad-dot: #ff6b6b;
+
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  min-height: var(--mp-mast-h);
+  overflow: visible;
+  isolation: isolate;
+  color: var(--mp-ink);
+}
+
+/* 顶栏盒子本体：压掉 portal.css / Tailwind 里旧顶栏的底、边、阴影（见文件头说明） */
+html body > header.mp-mast {
+  background: none !important;
+  border: 0 !important;
+  box-shadow: none !important;
+}
+
+/* ------------------------------------------------------- 背景层（地球）-- */
+.mp-mast-bg {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+  background-image:
+    /* 底部蓝光（左弱右强，参考截图 y=200 一行：左 #063c7e / 中 #072657 / 右 #0832b7） */
+    linear-gradient(90deg,
+      rgba(6, 60, 126, .55) 0%,
+      rgba(7, 38, 87, .18) 32%,
+      rgba(8, 50, 150, .50) 68%,
+      rgba(8, 50, 183, .80) 100%),
+    /* 主渐变 */
+    linear-gradient(180deg, #051c42 0%, #021d4a 52%, #032152 100%);
+  background-repeat: no-repeat;
+  background-size: 100% 1.1rem, 100% 100%;
+  background-position: left bottom, left top;
+}
+
+/* 底部那道光晕：把上面那条 1.1rem 的亮带晕开，避免看着像一条硬边 */
+.mp-mast-bg::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3rem;
+  background: radial-gradient(140% 100% at 78% 118%, rgba(30, 110, 235, .55) 0%, rgba(16, 62, 150, .18) 45%, rgba(3, 33, 82, 0) 72%);
+}
+
+/* 最底 1px 亮线（参考截图 y=200 的 #063c7e 就是这一档） */
+.mp-mast-bg::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 1px;
+  background: linear-gradient(90deg,
+    rgba(70, 150, 255, .55) 0%,
+    rgba(120, 200, 255, .28) 38%,
+    rgba(90, 170, 255, .85) 100%);
+}
+
+/* 地球：参考截图里球心在水平 ≈57%、半径 ≈ 2.2×顶栏高、球顶在顶栏上沿往下约 18% 处，
+   所以只露出球的最上一小片。尺寸随 --mp-mast-h 联动，超出顶栏的部分由 .mp-mast-bg 裁掉。
+   第一版把球做得太亮太大（像个亮球顶），对着 TMP/header_ref/globe_zoom.png 重做过：
+   球面本身是深海军蓝、只靠球缘那圈青光 + 点阵大陆出效果。 */
+/* ⚠️ 2026-09-28（用户要求「去掉中间的地球」）：装饰地球的 CSS 已随 HTML 一起删除，
+   这里只留一段说明，免得后人看到 TMP/ 里的采样记录与截图以为漏了样式。
+   被删掉的规则（原 L244-257）是：
+     .mp-globe { position:absolute; left:52.5%; top:calc(var(--mp-mast-h)*0.03);
+                 width/height:calc(var(--mp-mast-h)*4.2); transform:translateX(-50%); }
+     .mp-globe svg { display:block; width:100%; height:100%; }
+     html.dark .mp-globe { opacity:.78; }        ← 见下方深色主题块，一并删除
+   比例是把参考图的球缘像素逐行取最亮点后做最小二乘圆拟合量出来的
+   （R ≈ 2.1×顶栏高、球心在水平 ≈52.5%、球顶在顶栏上沿往下约 3%）。
+   注意 --mp-mast-h 仍被本文件别处使用，**不是**只为地球存在的，别顺手删。
+   需要回滚时从 git 历史取：这两处都是独立提交，可单独 revert。 */
+
+/* 深色主题：门面再压深一档（与 portal.css 里 vmax 深色 .mast 同源），
+   蓝光相应减弱，免得在 #02050c 页底上亮得发飘
+   （原文案提"地球"，地球删了，背景渐变本身没动） */
+html.dark .mp-mast-bg {
+  background-image:
+    linear-gradient(90deg,
+      rgba(26, 53, 174, .40) 0%,
+      rgba(23, 49, 88, .16) 32%,
+      rgba(29, 167, 255, .34) 68%,
+      rgba(53, 69, 180, .55) 100%),
+    linear-gradient(180deg, #080f43 0%, #070d31 58%, #02050c 100%);
+}
+
+/* ---------------------------------------------------------- 内容骨架 -- */
+/* 2026-09-18 按需求「标题靠最左、右边文字靠最右」：
+   这里**不加** max-width / margin:auto —— 加了之后超过 1920+padding 的屏幕会把整行居中，
+   品牌区和右侧控件区两边各留一大片空白（用户看到的就是这个）。
+   页面正文区本身也是全宽的（portal.css 里只有 .control-* 三处有 1920 限制），
+   顶栏跟着全宽才和下面的内容对齐。 */
+.mp-mast-inner {
+  position: relative;
+  z-index: 1;
+  min-height: var(--mp-mast-h);
+  padding: 0 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+/* ------------------------------------------------------------ 品牌区 --
+   2026-09-19 按需求改成「左上开始 + 底边与副标题对齐」：
+   整块品牌区的高度由 --mp-brand-h（挂在 .mp-mast 上）单独定死，
+   标（正方形底牌）、分隔线、标题+副标题文本块都用它，所以底边天然齐平 ——
+   不靠 align-self: stretch + aspect-ratio（试过两条路：给 SVG 写 width:auto
+   Chrome 量出 0 宽整块标消失；给盒子写 aspect-ratio 又被内容撑成 300px 高，
+   把顶栏顶到 300px）。改字号/行高时记得同步那个 calc。 */
+.mp-brand {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  min-width: 0;
+}
+.mp-zte-mark {
+  width: var(--mp-brand-h);
+  height: var(--mp-brand-h);
+  flex: 0 0 auto;
+  /* 官方 PNG 资产自带一层很淡的落影，这里只补一点点就够，压深会糊成一团 */
+  filter: drop-shadow(0 2px 5px rgba(0, 8, 26, .40));
+}
+.mp-zte-mark svg,
+.mp-zte-mark img { display: block; width: 100%; height: 100%; }
+.mp-zte-word {
+  /* ⚠️ 2026-09-28：由文字改成图片字标（见 index.html 顶栏品牌区的说明）。
+     本块原来管的是「字体排版」——font-size / font-weight / letter-spacing / color /
+     text-shadow，全部删掉：字形与颜色现在由 assets/logo-zte-word-*.png 自带
+     （浅蓝渐变 ≈#43A4F9、上下微差，逐行取色自照片；抠成透明底，深底顶栏上直接可用）。
+     留下的只有两条与图片无关的排版约束：
+       · align-self: center —— 品牌区是 align-items: flex-start，而本项要与 Logo 瓦片
+         垂直居中（量参考图：瓦片 y 14..80 中心 47、字标 y 36..62 中心 49）。 */
+  align-self: center;
+  /* 字面高按原字号折算：原 1.75rem/800 的「ZTE」实测字面高 ≈ 字号 × 0.72，
+     所以这里写 calc(1.75rem * .72) ≈ 20px。改字号口径时就改这一个算式，
+     三个断点各自沿用原来那档字号（见文件末尾的响应式块）。 */
+  height: calc(1.75rem * .72);
+  flex: 0 0 auto;
+}
+/* 高度定死、宽度 auto —— 保持 PNG 自身宽高比，不拉伸 */
+.mp-zte-word img {
+  display: block;
+  height: 100%;
+  width: auto;
+}
+/* 品牌区与标题区之间的细青蓝竖线。
+   2026-09-21 按新稿对齐：色值 #47ADEF（参考图实测），高度收到品牌区的 85%
+   （≈ Header 高的 63%，与参考图一致），并改为垂直居中 —— 原来是满高、
+   靠 align-items:flex-start 顶到上沿，缩短后会明显偏上。 */
+.mp-brand-sep {
+  width: 1px;
+  height: calc(var(--mp-brand-h) * .85);
+  margin: 0 6px;
+  flex: 0 0 auto;
+  align-self: center;
+  background: linear-gradient(180deg,
+    rgba(71, 173, 239, .35) 0%,
+    #47ADEF 12%,
+    #47ADEF 88%,
+    rgba(71, 173, 239, .35) 100%);
+}
+.mp-brand-text { min-width: 0; height: var(--mp-brand-h); }
+.mp-title {
+  margin: 0;
+  font-size: 1.5rem;
+  font-weight: 700;
+  line-height: 1.15;
+  /* ⚠️ 2026-09-30 字距口径对照：olbr.css 已把字距收成三档 --ls-tight(-.01em) /
+     --ls-base(0) / --ls-wide(.02em)。本文件的 -.005em 介于 tight 与 base 之间，
+     是顶栏自己的排版档（大标题微收），刻意**不并入** olbr.css 的字距令牌 ——
+     顶栏在这份文件里自成体系（见文件头「副本不是引用」的说明）。
+     记在这里只为对照：改 olbr.css 的字距档时，顶栏这几个值不受影响。 */
+  letter-spacing: -.005em;
+  white-space: nowrap;
+  /* portal.css 有 `html:not(.dark) body > header h1{color:#12324a}`，
+     这里用同样带 .mp-mast 的选择器把颜色要回来（顺序在后，同特异性即胜） */
+  color: var(--mp-ink);
+}
+html body > header.mp-mast .mp-title { color: var(--mp-ink); }
+.mp-title-olr { color: var(--mp-olr); }
+.mp-tagline {
+  margin: 6px 0 0;
+  font-size: .75rem;
+  font-style: italic;
+  font-weight: 500;
+  /* .085em 是「斜体副标题」专用档，数值远超 --ls-wide(.02em)，不属同一用途，
+     故不并入。见上方 .mp-title 处的字距对照说明。 */
+  letter-spacing: .085em;
+  line-height: 1.2;
+  white-space: nowrap;
+  color: var(--mp-dim);
+}
+
+/* ------------------------------------------------------- 右侧工具区 -- */
+.mp-mast-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+/* 环境徽标：绿点 + 环境名（真实取值见 masthead.js：本机 = Local，其余 = Production）
+   —— v1 里环境名由 olbr.js 写入，本文件只管样式 */
+.mp-env {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: .8125rem;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  color: var(--mp-ink-2);
+}
+.mp-env-dot {
+  width: 9px;
+  height: 9px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--mp-ok-dot);
+  box-shadow: 0 0 0 3px rgba(34, 229, 122, .16);
+  animation: mp-pulse 2.4s ease-out infinite;
+}
+/* 后端探活失败：变红且停跳 —— 这个点必须反映真实状态，不能是写死的装饰 */
+.mp-env.is-down .mp-env-dot {
+  background: var(--mp-bad-dot);
+  box-shadow: 0 0 0 3px rgba(255, 107, 107, .18);
+  animation: none;
+}
+@keyframes mp-pulse {
+  0%   { box-shadow: 0 0 0 0 rgba(34, 229, 122, .38); }
+  70%  { box-shadow: 0 0 0 7px rgba(34, 229, 122, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(34, 229, 122, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mp-env-dot { animation: none; }
+}
+
+.mp-tools-sep {
+  width: 1px;
+  height: 1.25rem;
+  flex: 0 0 auto;
+  background: var(--mp-line);
+}
+
+/* 时钟：由 olbr.js 写入 YYYY-MM-DD HH:mm:ss，这里只管样子
+   （MsPortal 那边是 portal.js 的 #clock，语义相同） */
+.mp-clock {
+  /* 2026-09-30：补齐 "Cascadia Mono" 并与 olbr.css 的 --mono 保持同一个栈 ——
+     原先这里少了 Cascadia Mono（Windows 新版默认终端字体），于是时钟的等宽
+     字体在 Win11 上会落到 Menlo(不存在)→Consolas，与页面正文数字（走 --mono、
+     含 Cascadia）**不是同一款字形**，同一屏上的数字观感不一致。
+     这里不写 var(--mono) 是为了保留本文件"可被 MsPortal 复用"的自包含性
+     （MsPortal 不加载 olbr.css，没有 --mono）；但栈的内容与 --mono 逐项对齐。 */
+  font-family: ui-monospace, SFMono-Regular, "Cascadia Mono", Menlo, Consolas,
+    "Microsoft YaHei", monospace;
+  font-size: .8125rem;
+  letter-spacing: .01em;
+  line-height: 1;
+  white-space: nowrap;
+  color: var(--mp-clock);
+  font-variant-numeric: tabular-nums;
+}
+/* portal.css 有 `html:not(.dark) body > header #clock{color:#3c7d94}`（浅色档），
+   顶栏在浅色下也是深底，那条会把时钟压成看不清的深青 —— 这里要回来 */
+html body > header.mp-mast #clock { color: var(--mp-clock); }
+
+/* 2026-10-13（用户要求「Header 右边有两个绿点，只保留一个」）：已删除
+   2026-10-12 加的时钟左侧 6px 脉冲点（原为 `#clock::before` + mp-clock-pulse）。
+   删它的原因：顶栏右侧同时存在两颗绿点 —— 环境探活点（.mp-env-dot，
+   后端挂了会变红，是唯一告警出口）与本装饰点，视觉上重复且容易误读为两处状态。
+   保留探活点（它承载真实语义），本装饰点只是"时钟在跳"的暗示，去掉不影响功能。
+   时钟排版（等宽、tabular-nums）不受影响。
+
+/* 语言切换（复用门户既有的 .seg / .seg-btn 与 data-lang，选中态由 olbr.js 负责） */
+html body > header.mp-mast .seg {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px;
+  border-radius: 10px;
+  background: var(--mp-fill);
+  border: 1px solid var(--mp-line);
+}
+html body > header.mp-mast .seg-btn {
+  border: 0;
+  background: transparent;
+  color: #a9c6e0;
+  font-size: .8125rem;
+  font-weight: 500;
+  line-height: 1;
+  padding: 7px 12px;
+  border-radius: 7px;
+  cursor: pointer;
+  transition: background .15s ease, color .15s ease;
+}
+html body > header.mp-mast .seg-btn:hover { background: var(--mp-fill-hi); color: #fff; }
+html body > header.mp-mast .seg-btn.is-active {
+  background: #0d6fe0;
+  color: #fff;
+  font-weight: 700;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .28);
+}
+
+/* 图标按钮 / 幽灵按钮：编辑、用户管理、退出现在位于用户菜单内。 */
+html body > header.mp-mast .icon-btn,
+html body > header.mp-mast .mp-user-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 2.25rem;
+  padding: 0 12px;
+  border-radius: 10px;
+  border: 1px solid var(--mp-line);
+  background: var(--mp-fill);
+  color: #d7e0ea;
+  font-size: .8125rem;
+  font-weight: 500;
+  line-height: 1;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background .15s ease, border-color .15s ease, color .15s ease;
+}
+html body > header.mp-mast .icon-btn {
+  width: 2.25rem;
+  padding: 0;
+}
+html body > header.mp-mast .icon-btn:hover,
+html body > header.mp-mast .mp-user-action:hover {
+  background: var(--mp-fill-hi);
+  border-color: var(--mp-line-hi);
+  color: #fff;
+}
+html body > header.mp-mast .icon-btn svg { width: 18px; height: 18px; }
+html body > header.mp-mast .mp-user-action svg { width: 15px; height: 15px; }
+html body > header.mp-mast .icon-btn .ic-sun { display: none; }
+html.dark body > header.mp-mast .icon-btn .ic-sun { display: block; }
+html.dark body > header.mp-mast .icon-btn .ic-moon { display: none; }
+
+/* 站点入口（图钉）：图钉单独给金色，其余按幽灵按钮 */
+.mp-pin .mp-pin-ico { color: var(--mp-pin); }
+
+/* 用户菜单：默认只在顶栏占一个紧凑触发器，管理操作展开后再显示。 */
+.mp-user-menu { position: relative; flex: 0 0 auto; }
+.mp-user-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  height: 2.25rem;
+  max-width: 15rem;
+  padding: 0 10px;
+  border: 1px solid var(--mp-line);
+  border-radius: 10px;
+  background: var(--mp-fill);
+  color: #d7e0ea;
+  font-size: .8125rem;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  transition: background .15s ease, border-color .15s ease, color .15s ease;
+}
+.mp-user-trigger:hover,
+.mp-user-trigger:focus-visible {
+  background: var(--mp-fill-hi);
+  border-color: var(--mp-line-hi);
+  color: #fff;
+  outline: none;
+}
+.mp-user-trigger > .ph-user-circle { flex: 0 0 auto; font-size: 17px; }
+.mp-user-name {
+  max-width: 8rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  /* 同 .mp-clock：补齐 Cascadia Mono + 中文字体回退，与 --mono 对齐（见该处说明）。
+     用户名可能是中文，缺中文回退会落到 Courier New，观感与时钟不一致。 */
+  font-family: ui-monospace, SFMono-Regular, "Cascadia Mono", Menlo, Consolas,
+    "Microsoft YaHei", monospace;
+  font-size: .75rem;
+}
+.mp-user-role {
+  padding: 3px 6px;
+  border: 1px solid rgba(125, 211, 252, .30);
+  border-radius: 999px;
+  color: #cfe6ff;
+  font-size: .65rem;
+  white-space: nowrap;
+}
+.mp-user-editing {
+  padding: 3px 6px;
+  border-radius: 999px;
+  background: rgba(255, 210, 74, .18);
+  color: var(--mp-pin);
+  font-size: .65rem;
+  white-space: nowrap;
+}
+.mp-user-caret { flex: 0 0 auto; font-size: 13px; transition: transform .15s ease; }
+.mp-user-menu.is-open .mp-user-caret { transform: rotate(180deg); }
+.mp-user-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 80;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  width: 14rem;
+  padding: 8px;
+  border: 1px solid rgba(125, 211, 252, .22);
+  border-radius: 12px;
+  background: rgba(4, 20, 48, .98);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, .35);
+}
+.mp-user-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 6px 8px 8px;
+  color: #d7e0ea;
+  font-size: .75rem;
+  font-weight: 700;
+}
+.mp-user-panel-head .ph { color: #8fd4ff; font-size: 16px; }
+html body > header.mp-mast .mp-user-panel .mp-user-action {
+  width: 100%;
+  justify-content: flex-start;
+  height: 2.1rem;
+  padding: 0 9px;
+  border-color: transparent;
+  background: transparent;
+  font-size: .75rem;
+}
+html body > header.mp-mast .mp-user-panel .mp-user-action:hover,
+html body > header.mp-mast .mp-user-panel .mp-user-action:focus-visible {
+  background: var(--mp-fill-hi);
+}
+.mp-user-divider { height: 1px; margin: 3px 2px; background: var(--mp-line); }
+html body > header.mp-mast .mp-user-panel .mp-user-logout { color: #ffaaa5; }
+html body > header.mp-mast .mp-user-panel .mp-user-logout:hover { color: #fff; background: rgba(255, 107, 107, .18); }
+@media (max-width: 1023px) {
+  .mp-user-name { max-width: 6rem; }
+}
+@media (max-width: 767px) {
+  .mp-user-trigger { height: 2rem; width: 2rem; padding: 0; justify-content: center; }
+  .mp-user-name, .mp-user-role, .mp-user-editing { display: none; }
+  .mp-user-panel { right: -2px; width: 13.5rem; }
+}
+
+/* ==========================================================================
+   ↓↓↓ 以下为 MsPortal/assets/masthead.css L572–641 响应式块中顶栏部分的照抄 ↓↓↓
+   工具条（第二行）相关的规则与注释已全部剔除。
+   ========================================================================== */
+
+/* ==========================================================================
+   响应式：顶栏高度与地球尺寸联动（同一个 --mp-mast-h）
+   --------------------------------------------------------------------------
+   断点不是拍脑袋定的：完整版顶栏（英文副标题 + 时钟 + 站点 + 登录用户 + 退出）
+   实测要约 1345px 才排得下，所以 1340 以下就开始收。
+   每个宽度都要过 TMP/masthead_shot.cjs 的「品牌区右缘 <= 控件区左缘」几何判定，
+   不能只看截图 —— 标题压在语言按钮上这种事故肉眼很容易漏。
+   ========================================================================== */
+
+/* 1340 以下：副标题（英文那串最长）与时钟先让位，标题收成「OLR MS」。
+   环境徽标、站点入口、退出登录全部保留 —— 站点入口是 /uniplam/ 的主入口，不能丢。 */
+@media (max-width: 1339px) {
+  .mp-title-tail { display: none; }
+  .mp-tagline { display: none; }
+  .mp-clock,
+  .mp-tools-sep { display: none; }
+  .mp-title { font-size: 1.375rem; }
+  /* 字标是图片，缩放改的是高度（原 font-size，比例与上面默认档一致：字号 × .72） */
+  .mp-zte-word { height: calc(1.5rem * .72); }
+  /* 副标题收起来后品牌区只剩标题一行，顶栏高度自动跟着降 */
+  html { --mp-brand-h: calc(1.375rem * 1.15); }
+  .mp-brand { gap: 13px; }
+}
+
+/* 1024 以下：登录用户名收起（退出登录按钮还在），控件整体小一档 */
+@media (max-width: 1023px) {
+  .mp-mast-inner { padding: 0 18px; gap: 16px; }
+  .mp-brand { gap: 11px; }
+  html body > header.mp-mast .auth-user-badge { display: none; }
+  .mp-title { font-size: 1.25rem; }
+  .mp-zte-word { height: calc(1.375rem * .72); }
+  html { --mp-brand-h: calc(1.25rem * 1.15); }
+}
+
+/* 768 以下：ZTE 字标与分隔线收起，只留标 + 「OLR MS」；站点入口收成纯图标
+   （图标仍是链接，/uniplam/ 在手机上也到得了） */
+@media (max-width: 767px) {
+  .mp-mast-inner { padding: 0 12px; gap: 10px; }
+  .mp-brand { gap: 9px; }
+  .mp-zte-word { display: none; }
+  .mp-brand-sep { display: none; }
+  .mp-title { font-size: 1.0625rem; }
+  html { --mp-brand-h: calc(1.0625rem * 1.15); }
+  .mp-env { display: none; }
+  .mp-mast-tools { gap: 6px; flex: 0 0 auto; }
+  html body > header.mp-mast .icon-btn,
+  html body > header.mp-mast .mp-user-trigger { height: 2rem; padding: 0 9px; }
+  html body > header.mp-mast .icon-btn { width: 2rem; padding: 0; }
+  html body > header.mp-mast .mp-pin { width: 2rem; padding: 0; }
+  html body > header.mp-mast .mp-pin span { display: none; }
+}

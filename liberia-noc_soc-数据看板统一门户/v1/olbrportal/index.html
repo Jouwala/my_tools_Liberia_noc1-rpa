@@ -9,17 +9,24 @@
      所以必须与 olbr-data.js 的两份 'doc.title' 保持一致，否则会闪一下旧标题。 -->
 <title>ZTE OLR MS Intelligent O&amp;M Platform</title>
 <meta name="description" content="ZTE OLR MS Intelligent O&amp;M Platform —— 利比里亚 NOC/SOC 自动化工具平台入口（只读展示版）。">
-<link rel="icon" type="image/png" sizes="32x32" href="/MsPortal/assets/favicon-32.png">
-<link rel="apple-touch-icon" sizes="180x180" href="/MsPortal/assets/favicon-180.png">
-<!-- 零 CDN：图标与看板目录都从 /MsPortal/ 只读引用，本页面不写它的任何文件 -->
-<link rel="stylesheet" href="/MsPortal/assets/icons/phosphor.css">
+<!-- 2026-10-18 修复：跨目录引用一律改成相对路径 ../../MsPortal/。
+     原因：本页由 nginx `location /v1/olbrportal/` alias 到 v1 目录，
+     页面里的绝对路径 `/MsPortal/assets/...` 会被该 alias 前缀吞掉，
+     实际查找变成 v1/olbrportal/MsPortal/assets/... → 404（图标字体、qcDrill、
+     data.js / terms.js / access.js 全部加载失败）。
+     改成 `../../MsPortal/...` 后浏览器发的是 v1/olbrportal/../../MsPortal/...，
+     归一化后正好指到门户根下的 MsPortal/，四个版本（v1/v2/v3/olbrportal）互不影响。 -->
+<link rel="icon" type="image/png" sizes="32x32" href="../../MsPortal/assets/favicon-32.png">
+<link rel="apple-touch-icon" sizes="180x180" href="../../MsPortal/assets/favicon-180.png">
+<!-- 零 CDN：图标与看板目录都从 MsPortal/ 只读引用，本页面不写它的任何文件 -->
+<link rel="stylesheet" href="../../MsPortal/assets/icons/phosphor.css">
 <link rel="stylesheet" href="assets/olbr.css">
 <!-- QC 下钻弹窗的统一外壳（2026-09-23 加）。与 /MsPortal/ 引的是**同一个文件** ——
      这是「两个门户的下钻弹窗长相与交互一致」的实现方式：一份 qcDrill.css，
      两边同名同类。文件内部只用 --qc-* 变量，本页由下面 assets/olbr.css 末尾的
      映射块灌入本页主题色，所以弹窗结构与 MsPortal 逐条一致，而深浅色仍随本页。
      排在 olbr.css 之后：万一有同特异性的旧规则，以本文件为准。 -->
-<link rel="stylesheet" href="/MsPortal/assets/qcDrill.css">
+<link rel="stylesheet" href="../../MsPortal/assets/qcDrill.css">
 <!-- 顶栏样式（2026-09-24 加）：让本页顶栏与 /MsPortal/ 长得一模一样。
      这是 MsPortal/assets/masthead.css **顶栏部分的副本**（见该文件头部说明），
      不是引用 —— 两边各自独立演进，将来 MsPortal 重做顶栏需手工同步。
@@ -495,22 +502,22 @@
 
 <div class="toast" id="toast" hidden></div>
 
-<script src="/MsPortal/assets/data.js"></script>
-<script src="/MsPortal/assets/terms.js"></script>
-<script src="/MsPortal/assets/access.js"></script>
+<script src="../../MsPortal/assets/data.js"></script>
+<script src="../../MsPortal/assets/terms.js"></script>
+<script src="../../MsPortal/assets/access.js"></script>
 <!-- 下钻弹窗的「导出 Excel」（2026-09-23 加）。与 MsPortal 用的是同一个文件、
      同一套格式 UNIFIED_EXCEL_V1 → 两个门户导出的表头 / 底纹 / 冻结行完全同款。
 
      刻意**不**在这里引 vendor/exceljs.min.js（约 0.9MB）：excelReport.js 内部会按
      自身脚本地址推出 assets/ 基址，点「导出」时才 loadExcelJS() 注入同目录的
-     vendor/exceljs.min.js —— 本页以 /MsPortal/assets/excelReport.js 的绝对路径加载，
-     所以那个相对推导结果是 /MsPortal/assets/vendor/… 命中同一个文件。
+     vendor/exceljs.min.js —— 本页以 ../../MsPortal/assets/excelReport.js 的相对路径加载，
+     所以那个相对推导结果是 <门户>/MsPortal/assets/vendor/… 命中同一个文件。
      多引一行只会让只读版首屏白白多下 0.9MB。 -->
-<script src="/MsPortal/assets/excelReport.js"></script>
+<script src="../../MsPortal/assets/excelReport.js"></script>
 <!-- QC 下钻弹窗的拖动 / 点击位置定位（2026-09-23 加）。与 /MsPortal/ 共用同一个
      文件，行为逐条对齐 /myapp/ 的 DraggableClickModal：以点击位置为中心弹出、
      按住标题栏可拖、点遮罩不关闭。 -->
-<script src="/MsPortal/assets/qcDrill.drag.js"></script>
+<script src="../../MsPortal/assets/qcDrill.drag.js"></script>
 <!-- 纯数据母本（i18n 字典 / 图标 / layout 常量 / QC 阈值 / KPI 规格），
      2026-09-25 从 olbr.js 拆出。必须排在 olbr.js **之前**：主文件 boot 时
      直接读 window.OLBR_DATA，顺序反了会拿到空对象、整页文案变裸 key。 -->
