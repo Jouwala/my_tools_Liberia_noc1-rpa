@@ -241,6 +241,23 @@ if (Test-PortListening 5432) {
 Add-Report "----- 1) backend + backend_watchdog -----"
 function Ensure-BackendWatchdog {
     $bwPidFile = Join-Path $base 'backend\backend_watchdog.pid'
+    # Ask the kernel singleton BEFORE looking at the PID file. 2026-10-16/18: the
+    # backend watchdog had no singleton guard, so a second one could start; both
+    # spawned a uvicorn, the loser's child died on bind (exit_code=3) and the
+    # winner's child became an orphan squatting on 7038 -- 17,349 retry warnings
+    # on 10-16, reproduced 2026-10-18 09:03. The mutex ignores PID files, so it
+    # still sees the live holder even if the file was deleted or overwritten.
+    # Exit codes: 0 = held, 3 = none, 4 = cannot tell.
+    $probe = Start-Process -FilePath $py -ArgumentList '-m', 'backend.backend_watchdog', '--probe' `
+        -WorkingDirectory $base -WindowStyle Hidden -PassThru -Wait -ErrorAction SilentlyContinue
+    $probeCode = if ($probe) { $probe.ExitCode } else { $null }
+    if ($probeCode -eq 0) {
+        Add-Report '[OK] backend_watchdog already running (singleton lock held; PID file missing or stale) - skipping start, no second stack'
+        return $true
+    }
+    if ($probeCode -eq 4) {
+        Add-Report '[WARN] backend_watchdog singleton probe unavailable - relying on PID file only; a duplicate stack will still be refused by the watchdog itself'
+    }
     $hb = Get-WatchdogHealth 'backend_watchdog' $bwPidFile
     if ($hb.status -eq 'ok') {
         Add-Report ("[OK] backend_watchdog running (pid={0}), port 7038 managed (queue mode)" -f $hb.pid)
@@ -318,6 +335,22 @@ function Ensure-WorkerWatchdog {
         Add-Report ("[WARN] worker_watchdog pid={0} heartbeat timed out (possibly hung), force killing and restarting" -f $hb.pid)
         Stop-PidForce $hb.pid
         $script:warnCount++
+    }
+    # Ask the kernel singleton BEFORE starting anything. 2026-10-16 incident: a
+    # backend-fix script deleted worker_watchdog.pid without killing the process,
+    # so every PID-file-based check concluded "no watchdog" and five stacks came up
+    # (40 workers on one task_queue, 128 bogus failures in 4h). The mutex does not
+    # care about PID files, so it still sees the live holder. Exit codes:
+    # 0 = held by a live watchdog, 3 = none, 4 = cannot tell.
+    $probe = Start-Process -FilePath $py -ArgumentList '-m', 'backend.worker_watchdog', '--probe' `
+        -WorkingDirectory $base -WindowStyle Hidden -PassThru -Wait -ErrorAction SilentlyContinue
+    $probeCode = if ($probe) { $probe.ExitCode } else { $null }
+    if ($probeCode -eq 0) {
+        Add-Report '[OK] worker_watchdog already running (singleton lock held; PID file missing or stale) - skipping start, no second stack'
+        return $true
+    }
+    if ($probeCode -eq 4) {
+        Add-Report '[WARN] worker_watchdog singleton probe unavailable - relying on PID file only; a duplicate stack will still be refused by the watchdog itself'
     }
     Start-Hidden $py @('-m', 'backend.worker_watchdog') 'worker_watchdog_console.log'
     # Wait for each group's worker pid files to be ready (up to 20s)

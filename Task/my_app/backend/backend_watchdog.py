@@ -17,6 +17,8 @@ import sys
 import time
 import json
 import signal
+import ctypes
+import ctypes.wintypes  # noqa: F401  _SECURITY_ATTRIBUTES 需要 DWORD/BOOL
 import logging
 import subprocess
 import socket
@@ -56,6 +58,189 @@ STARTUP_FAIL_LIMIT = 10    # 连续快速崩溃达到此次数则降级为慢速
 SLOW_RETRY_INTERVAL = 300.0  # 降级后的重试间隔（秒）。取 5 分钟：既让瞬时故障自愈，
                              # 又不至于形成"崩溃↔重启"风暴（每 5 分钟一次可接受）。
 STARTUP_GRACE = 60.0       # 进程存活但端口未监听超过此时长，判定启动挂死
+# 端口被孤儿占用时，两次「主动清理」之间的最小间隔（秒）。
+# 取 30s 的理由：清理要起 netstat + taskkill 两个子进程，每轮（2s）都做反而成为
+# 新的开销；而孤儿不会在两秒内变化。30s 也远小于 SLOW_RETRY_INTERVAL，
+# 保证即便进入降级模式，孤儿窗口也不会拖到 5 分钟。
+ORPHAN_CLEAN_INTERVAL = float(os.environ.get("MY_APP_ORPHAN_CLEAN_INTERVAL", "30"))
+
+# ===== 看门狗单例锁（2026-10-18 新增）=====
+# 背景：本模块此前**没有任何单实例保护** —— 既没有 Mutex，也不查 PID 是否已被另一
+# 个活着的 watchdog 持有。任何入口（计划任务、手动 npm/python 启动、修后端的脚本）
+# 都能再起一套，两套各自拉起一个 uvicorn。
+#
+# 2026-10-16 实测后果：当天累计 3,487 次 backend 进程启动、17,349 条
+# 「端口疑似被不受管理的孤儿进程占用」告警（backend_watchdog_20261016.log 5.3MB）。
+# 2026-10-18 09:03 又一次复现，机制如下：
+#   08:39 watchdog A 拉起 backend 18148
+#   09:03:14 18148 退出 → A 拉起 25852
+#   09:03:22 watchdog B 启动 → 拉起 31000（B 抢到调度器锁 instance.lock）
+#   09:03:41 25852 绑不上 7038（被 31000 占了），exit_code=3 退出
+#   之后 31000 成为**孤儿**独占 7038，A 每轮拉起的新子进程都在约 8 秒后绑失败退出
+#
+# 之所以会形成死循环（见 _loop_once 里「端口在监听但子进程存活过短」分支）：
+# 孤儿不被杀掉 → 端口永远在监听 → A 的心跳一直新鲜 → start_hidden.ps1 判定
+# watchdog 健康、跳过 -Force 清理端口分支 → 孤儿永不被清理。自愈完全失效。
+#
+# 修法沿用 backend/worker_watchdog.py 的成熟实现（同一套 SDDL / 命名空间回退策略），
+# 不另写一份：两个看门狗面对的是同一个 Windows 完整性级别问题，
+# 各写一份必然漂移。详见该模块 SINGLETON_MUTEX_* 的注释。
+SINGLETON_MUTEX_GLOBAL = "Global\\MyApp_BackendWatchdog_Singleton"
+SINGLETON_MUTEX_LOCAL = "Local\\MyApp_BackendWatchdog_Singleton"
+SINGLETON_MUTEX_SDDL = "D:(A;;GA;;;AU)(A;;GA;;;SY)(A;;GA;;;BA)S:(ML;;NW;;;LW)"
+
+_MUTEX_QUERY_STATE = 0x0001
+_MUTEX_SYNCHRONIZE = 0x00100000
+_MUTEX_OPEN_ACCESS = _MUTEX_SYNCHRONIZE | _MUTEX_QUERY_STATE
+_ERROR_ALREADY_EXISTS = 183
+_ERROR_FILE_NOT_FOUND = 2
+_ERROR_ACCESS_DENIED = 5
+
+_singleton_handle = None  # 锁本体就是这个句柄：持有到进程退出，不写任何文件
+
+
+class _SECURITY_ATTRIBUTES(ctypes.Structure):
+    _fields_ = [
+        ("nLength", ctypes.wintypes.DWORD),
+        ("lpSecurityDescriptor", ctypes.c_void_p),
+        ("bInheritHandle", ctypes.wintypes.BOOL),
+    ]
+
+
+def _win_apis():
+    """返回 (kernel32, advapi32)，非 Windows 或加载失败返回 None。"""
+    if sys.platform != "win32":
+        return None
+    try:
+        k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        a32 = ctypes.WinDLL("advapi32", use_last_error=True)
+        return k32, a32
+    except Exception:
+        return None
+
+
+def _mutex_sd(apis):
+    """按 SDDL 造安全描述符；失败返回 None（用系统默认 DACL，仍能挡住同级别实例）。"""
+    _k32, a32 = apis
+    a32.ConvertStringSecurityDescriptorToSecurityDescriptorW.restype = ctypes.wintypes.BOOL
+    a32.ConvertStringSecurityDescriptorToSecurityDescriptorW.argtypes = [
+        ctypes.wintypes.LPCWSTR, ctypes.wintypes.DWORD,
+        ctypes.POINTER(ctypes.c_void_p), ctypes.POINTER(ctypes.wintypes.DWORD)]
+    sd = ctypes.c_void_p()
+    if a32.ConvertStringSecurityDescriptorToSecurityDescriptorW(
+            SINGLETON_MUTEX_SDDL, 1, ctypes.byref(sd), None):
+        return sd
+    return None
+
+
+def _create_mutex(apis, name):
+    """CreateMutexW：返回 (handle, last_error)。"""
+    k32, _a32 = apis
+    k32.CreateMutexW.restype = ctypes.wintypes.HANDLE
+    k32.CreateMutexW.argtypes = [ctypes.POINTER(_SECURITY_ATTRIBUTES),
+                                 ctypes.wintypes.BOOL, ctypes.wintypes.LPCWSTR]
+    k32.LocalFree.restype = ctypes.c_void_p
+    k32.LocalFree.argtypes = [ctypes.c_void_p]
+    sd = _mutex_sd(apis)
+    sa = _SECURITY_ATTRIBUTES()
+    sa.nLength = ctypes.sizeof(_SECURITY_ATTRIBUTES)
+    sa.lpSecurityDescriptor = sd.value if sd else None
+    sa.bInheritHandle = False
+    try:
+        h = k32.CreateMutexW(ctypes.byref(sa), False, name)
+    finally:
+        if sd:
+            k32.LocalFree(sd)
+    return h, ctypes.get_last_error()
+
+
+def _open_mutex(apis, name):
+    """OpenMutexW：只查不建。返回 (handle, last_error)。"""
+    k32, _a32 = apis
+    k32.OpenMutexW.restype = ctypes.wintypes.HANDLE
+    k32.OpenMutexW.argtypes = [ctypes.wintypes.DWORD, ctypes.wintypes.BOOL,
+                               ctypes.wintypes.LPCWSTR]
+    h = k32.OpenMutexW(_MUTEX_OPEN_ACCESS, False, name)
+    return h, ctypes.get_last_error()
+
+
+def _acquire_singleton_lock() -> str:
+    """尝试持有单例锁。返回 acquired / held / unavailable。
+
+    unavailable 只代表"本机建不了锁"（非 Windows / API 异常），此时**不阻塞启动**，
+    交由 PID 文件与端口检查兜底 —— 宁可少一道保险，也不能让 backend 无人托管。
+    """
+    global _singleton_handle
+    apis = _win_apis()
+    if not apis:
+        return "unavailable"
+    k32, _a32 = apis
+    h, err = _create_mutex(apis, SINGLETON_MUTEX_GLOBAL)
+    if h is None and err == _ERROR_ACCESS_DENIED:
+        # 缺 SeCreateGlobalPrivilege → 先确认 Global 上没人，再退到会话内 Local
+        gh, gerr = _open_mutex(apis, SINGLETON_MUTEX_GLOBAL)
+        if gh:
+            k32.CloseHandle(gh)
+            return "held"
+        if gerr == _ERROR_ACCESS_DENIED:
+            return "held"
+        if gerr != _ERROR_FILE_NOT_FOUND:
+            return "unavailable"
+        h, err = _create_mutex(apis, SINGLETON_MUTEX_LOCAL)
+    if not h:
+        return "held" if err == _ERROR_ACCESS_DENIED else "unavailable"
+    if err == _ERROR_ALREADY_EXISTS:
+        k32.CloseHandle(h)
+        return "held"
+    _singleton_handle = h
+    return "acquired"
+
+
+def _release_singleton_lock() -> None:
+    global _singleton_handle
+    h, _singleton_handle = _singleton_handle, None
+    if not h:
+        return
+    try:
+        ctypes.WinDLL("kernel32", use_last_error=True).CloseHandle(h)
+    except Exception:
+        pass
+
+
+def _probe_singleton_lock() -> str:
+    """只回答"是否已有看门狗持有锁"，不创建对象、不干扰持有权。
+
+    供 start_hidden.ps1 在拉起新实例前先问一次（与 worker_watchdog 的 --probe 同契约）。
+    """
+    apis = _win_apis()
+    if not apis:
+        return "unavailable"
+    k32, _a32 = apis
+    for name in (SINGLETON_MUTEX_GLOBAL, SINGLETON_MUTEX_LOCAL):
+        h, err = _open_mutex(apis, name)
+        if h:
+            k32.CloseHandle(h)
+            return "held"
+        if err == _ERROR_FILE_NOT_FOUND:
+            continue
+        if err == _ERROR_ACCESS_DENIED:
+            return "held"     # 对象在但权限不够：保守判"已有"
+        return "unavailable"
+    return "free"
+
+
+PROBE_EXIT_CODES = {"held": 0, "free": 3, "unavailable": 4}
+
+
+def _cli_probe() -> int:
+    """`python -m backend.backend_watchdog --probe`：0=已有 / 3=没有 / 4=判不了。"""
+    state = _probe_singleton_lock()
+    try:
+        print(f"backend_watchdog singleton={state}")
+    except Exception:
+        pass
+    return PROBE_EXIT_CODES[state]
+
 
 logger = logging.getLogger("backend_watchdog")
 
@@ -65,6 +250,9 @@ _spawn_time = 0.0          # 最近一次拉起时间戳
 _crashes = 0               # 连续崩溃计数
 _backoff = 0.0             # 当前退避秒数
 _degraded = False          # 是否已降级为慢速重试（仅用于"降级只播报一次"）
+# 上次尝试清理端口孤儿的时间戳（节流用，见 _loop_once 里的孤儿清理分支）。
+# 初始为 0 —— 首轮就允许尝试一次，不必空等一个间隔。
+_last_orphan_clean = 0.0
 
 # 心跳文件：供外部守护（start_hidden.ps1 / MyApp_EnsureRunning）判断看门狗是否卡死。
 # 进程在但心跳超过 3 分钟未更新 → 判定 hung，由守护脚本强杀后重新拉起。
@@ -128,6 +316,92 @@ def _port_listening(port: int) -> bool:
             return True
     except OSError:
         return False
+
+
+def _port_owner_pid(port: int):
+    """返回当前 LISTEN 该端口的进程 pid；查不到返回 None。
+
+    实现用 `netstat -ano` 而不是 psutil/Get-NetTCPConnection：
+      · psutil 不在本项目的依赖里（requirements.txt 未声明，不能擅自新增）；
+      · netstat 是 Windows 自带，可在 Restricted 计划任务环境下运行。
+    失败一律返回 None —— 清理孤儿必须"确认不了就不动"，宁可留着下轮再看，
+    也不能因为解析出错把无辜的进程杀掉。
+    """
+    if sys.platform != "win32":
+        return None
+    try:
+        out = subprocess.run(
+            ["netstat", "-ano", "-p", "TCP"],
+            capture_output=True, text=True, timeout=10,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        ).stdout
+    except Exception:
+        return None
+    # 形如：  TCP    127.0.0.1:7038    0.0.0.0:0    LISTENING    31000
+    for line in (out or "").splitlines():
+        parts = line.split()
+        if len(parts) < 5:
+            continue
+        local, state, pid_text = parts[1], parts[3], parts[4]
+        if state.upper() != "LISTENING":
+            continue
+        if local.rsplit(":", 1)[-1] != str(port):
+            continue
+        try:
+            return int(pid_text)
+        except ValueError:
+            return None
+    return None
+
+
+def _terminate_orphan_on_port(port: int) -> bool:
+    """杀掉占用 `port` 且**不属于本看门狗子进程**的孤儿，返回是否已清理干净。
+
+    为什么必须由看门狗自己做（而不是靠 start_hidden.ps1 的 -Force 分支）：
+    那个分支只有在看门狗**被判为不健康**时才会执行。而本看门狗只要活着、
+    心跳新鲜，就永远被判为健康 —— 于是「端口被孤儿占着、子进程每 8 秒死一次」
+    这个循环会一直持续、无人干预。2026-10-16 因此刷出 17,349 条告警、
+    3,487 次无效拉起；2026-10-18 09:03 再次复现。
+
+    安全约束（少一条都可能误杀生产进程）：
+      · 只杀 **端口占用者** 这一个 pid，不做树杀、不按名字杀；
+      · 若占用者恰是本看门狗正在托管的子进程 → 不杀（那是正常状态）；
+      · 若查不到 / 解析失败 → 不杀；
+      · kill 之后**复核**端口是否释放，没释放就如实返回 False 并升级日志级别。
+    """
+    owner = _port_owner_pid(port)
+    if owner is None:
+        return False
+    child = _child
+    if child is not None and child.pid == owner:
+        return False        # 端口由自己托管的子进程持有：正常，不动
+    logger.error(
+        f"端口 {port} 被不受管理的孤儿进程 pid={owner} 占用，"
+        f"本看门狗的子进程无法绑定 —— 主动清理该孤儿（这是自愈死锁的根因）"
+    )
+    try:
+        subprocess.run(
+            ["taskkill", "/PID", str(owner), "/T", "/F"],
+            capture_output=True, text=True, timeout=15,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    except Exception as e:
+        logger.error(f"清理孤儿 pid={owner} 时出错：{e}")
+        return False
+    # 复核：杀不掉（通常是权限不足）必须说清楚，不能假装成功。
+    time.sleep(1.0)
+    still = _port_owner_pid(port)
+    if still == owner:
+        logger.error(
+            f"孤儿 pid={owner} 仍占用端口 {port}（taskkill 可能被权限拒绝）。"
+            f"需要人工执行 stop.bat（会带提权重试）后重新启动。"
+        )
+        return False
+    if still is None:
+        logger.info(f"孤儿 pid={owner} 已清理，端口 {port} 已释放")
+    else:
+        logger.warning(f"端口 {port} 已改由 pid={still} 占用（疑似竞态），下一轮再判定")
+    return True
 
 
 def _write_heartbeat():
@@ -303,11 +577,39 @@ def _loop_once() -> bool:
             _backoff = 0.0
             _degraded = False   # 托管实例确已稳定存活：重置降级标记
         else:
-            logger.warning(
-                f"端口 {PORT} 已在监听，但本 watchdog 拉起的子进程仅存活 {lived:.1f}s"
-                f"（< {CRASH_THRESHOLD:.0f}s）：端口疑似被不受管理的孤儿进程占用，"
-                f"本次不计为健康（不清除崩溃计数，当前 {_crashes} 次）"
-            )
+            # 孤儿清理：这是 2026-10-16/18 两次「无限重拉」事故的治本点。
+            #
+            # 旧行为只是打警告然后继续等 —— 但孤儿永远不会自己消失，
+            # 子进程永远绑不上端口，于是每 8 秒一轮、一天上万条。日志淹没了真正的
+            # 错误，也让「看门狗活着」这个信号失去意义（它活着却什么也托管不了）。
+            #
+            # 节流 ORPHAN_CLEAN_INTERVAL：清理本身要起 netstat + taskkill 两个子进程，
+            # 每轮（2s）都做会成为新的开销来源；而孤儿不会在两秒内变化，
+            # 所以按固定间隔尝试即可。
+            global _last_orphan_clean
+            now_ts = time.time()
+            if now_ts - _last_orphan_clean >= ORPHAN_CLEAN_INTERVAL:
+                _last_orphan_clean = now_ts
+                if _terminate_orphan_on_port(PORT):
+                    logger.warning(
+                        f"孤儿已清理，端口 {PORT} 应已释放；下一轮将重新拉起 backend"
+                    )
+                    _child = None
+                    _crashes = 0
+                    _backoff = 0.0
+                    # 杀掉孤儿后立刻收掉自己那个已经绑不上的子进程，
+                    # 否则它会再撑几秒才退出，白占一个进程位。
+                    try:
+                        proc.kill()
+                        proc.wait(timeout=10)
+                    except Exception:
+                        pass
+                    return True
+                logger.warning(
+                    f"端口 {PORT} 已在监听，但本 watchdog 拉起的子进程仅存活 {lived:.1f}s"
+                    f"（< {CRASH_THRESHOLD:.0f}s）：端口疑似被不受管理的孤儿进程占用，"
+                    f"本次不计为健康（不清除崩溃计数，当前 {_crashes} 次）"
+                )
     else:
         no_port_for = time.time() - _spawn_time
         if no_port_for > STARTUP_GRACE:
@@ -349,9 +651,26 @@ def main():
     signal.signal(signal.SIGINT, _request_shutdown)
     signal.signal(signal.SIGTERM, _request_shutdown)
 
-    if _another_watchdog_running():
-        logger.error("已有 backend watchdog 在运行，拒绝重复启动。退出。")
+    # 单例判定分两道，缺一不可：
+    #   ① Mutex（主判据）—— 不依赖任何文件，持有者一退出即自动消失；
+    #   ② PID 文件（兜底）—— Mutex 不可用（非 Windows / API 异常）时才生效。
+    #
+    # 为什么必须以 Mutex 为主：2026-10-16/18 两次事故里 PID 文件检查**都**放行了
+    # 第二个 watchdog（文件被删 / 被覆写），于是两套各自拉起一个 uvicorn，
+    # 抢同一把 instance.lock，落败的那个绑不上端口、8 秒后 code=3 退出，
+    # 而胜出的那个成为孤儿独占 7038，看门狗再无限重拉 —— 详见 SINGLETON_MUTEX_* 注释。
+    lock_state = _acquire_singleton_lock()
+    if lock_state == "held":
+        logger.error("已有 backend watchdog 在运行（单例锁被占用），拒绝重复启动。退出。")
         sys.exit(1)
+    if lock_state == "acquired":
+        logger.info("已获得 backend watchdog 单例锁")
+    else:
+        # 建不了锁不是致命错误：宁可少一道保险，也不能让 backend 无人托管。
+        logger.warning("backend watchdog 单例锁不可用，退回 PID 文件检查")
+        if _another_watchdog_running():
+            logger.error("已有 backend watchdog 在运行（PID 文件检出），拒绝重复启动。退出。")
+            sys.exit(1)
 
     try:
         PID_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -385,8 +704,13 @@ def main():
                 PID_FILE.unlink()
         except Exception:
             pass
+        _release_singleton_lock()
         logger.info("Backend Watchdog 已退出")
 
 
 if __name__ == "__main__":
+    # --probe：供 start_hidden.ps1 在拉起前询问"是否已有看门狗"。
+    # 用退出码而不是 stdout —— pythonw 下没有控制台，调用方只能拿到返回码。
+    if "--probe" in sys.argv[1:]:
+        sys.exit(_cli_probe())
     main()
