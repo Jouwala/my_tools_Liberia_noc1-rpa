@@ -19,6 +19,38 @@
 
 **`backend/database.py`**
 - `_qmark_to_pyformat`（:215）：把代码里统一使用的 `?` 占位符转成 psycopg 的 `%s`。**因此新增查询请一律写 `?`，不要写 `%s` 或命名参数。**
+
+  ⚠️ **同一层转换还有一个易踩的坑：SQL 字面量里的 `%` 必须转义或绕开。**
+
+  psycopg2 把 `%` 当作参数占位符的起始符。`_qmark_to_pyformat` 只转 `?`，
+  **不会**动字面量里的 `%`；于是任何 `LIKE '前缀%'` 写法在 PG 模式下都会抛：
+
+  ```
+  IndexError: list index out of range
+  ```
+
+  因为它把 `Closed%` 里的 `%` 当成了第 N 个参数位置，而 params 里没有那一项。
+  SQLite 模式下不会报错（`?` 与 `%` 互不相干），所以**只有切到 PG 才暴露**，
+  单测若只跑 SQLite 就发现不了。
+
+  2026-10-18 实例：`tt_wo_dashboard.py` 的下钻状态分桶用了
+  `t.status NOT LIKE 'Closed%'`，分桶结果**永远算不出来**；又因为外层是
+  `except Exception: buckets = None`，异常被静默吞掉，「未闭环 N 个」这行
+  悄悄消失、日志里一个字都没有（见 `d390f495` → 修复 `d074ed74`）。
+
+  两种正确写法：
+
+  ```python
+  # ① 用函数避开 % —— 前缀比较推荐这个，语义最直白
+  LEFT(t.status, 6) <> 'Closed'
+
+  # ② 确实需要 LIKE 时，把 % 写成 %%（交给 psycopg 还原）
+  t.status NOT LIKE 'Closed%%'
+  ```
+
+  **同时**：凡是把异常吞成"降级值"的地方，`except` 里必须留一行
+  `logging.warning(..., exc_info=True)`。上面那个 bug 之所以潜伏，
+  完全是被静默 `except` 藏住了——「不影响主结果」不等于「不需要留痕」。
 - `_resolve_pg_schema`（:184）：把"SQLite 文件路径 + 表名"的历史调用映射到 PG 的 schema，兼容旧代码。
 - `_PsycopgRaw`（:308）：给需要裸 DB-API 行为的代码提供 psycopg 连接包装。
 - `_ClosingConnection`（:104-140）：修复连接泄漏，保证取到的连接最终被关闭。
