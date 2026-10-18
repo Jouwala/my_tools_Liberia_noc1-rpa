@@ -623,7 +623,10 @@ def _trace_state(proc) -> None:
         child_alive = proc.poll() is None if proc is not None else None
         owner = _port_owner_pid(PORT)
         lived = (time.time() - _spawn_time) if _spawn_time else 0.0
-        snap = (child_pid, child_alive, owner, round(lived, 1))
+        # ⚠️ 快照里**不能**放 lived —— 它每轮都在变，会让"只在变化时打印"
+        # 永远成立，退化成每 2 秒一条的刷屏（2026-10-18 实测，1 分钟刷了 78 条）。
+        # 只比那些真正表示"状态"的量：子进程 pid、是否存活、端口归谁。
+        snap = (child_pid, child_alive, owner)
         if snap == _last_trace:
             return
         _last_trace = snap
