@@ -162,11 +162,8 @@ export default function RemoteHostSettings() {
         }}
       >
         <div>
-          <Typography.Title level={4} style={{ color: WH.text, margin: 0 }}>
-            <ApiOutlined style={{ color: WH.teal, marginRight: 'var(--wh-space-sm)' }} />
-            {t('settings.remoteHostTitle')}
-          </Typography.Title>
-          <div style={{ color: WH.textMuted, fontSize: '0.75rem', marginTop: 'var(--wh-space-xs)' }}>
+          {/* 页面标题由 App 全局 Header（菜单「系统设置」）+ Tab 标签给出，页内不再重复 */}
+          <div style={{ color: WH.textMuted, fontSize: '0.75rem' }}>
             {t('settings.remoteHostSubtitle')}
           </div>
         </div>

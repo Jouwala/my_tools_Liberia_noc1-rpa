@@ -5,7 +5,6 @@ import {
 } from 'antd'
 import {
   ClockCircleOutlined,
-  ThunderboltOutlined,
   CheckCircleFilled,
   CloseCircleFilled,
   SettingOutlined,
@@ -21,13 +20,11 @@ import {
   CloudServerOutlined,
   WifiOutlined,
   CameraOutlined,
-  MessageOutlined,
   InfoCircleOutlined,
   BarChartOutlined,
   FundOutlined,
   AppstoreOutlined,
   GlobalOutlined,
-  MailOutlined,
   SearchOutlined,
   DownloadOutlined,
   SortAscendingOutlined,
@@ -48,7 +45,7 @@ import { TaskHistoryModal } from './datasync/TaskHistoryModal'
 import { GlobalHistoryModal } from './datasync/GlobalHistoryModal'
 import type { TaskInfo, TaskDetail, RunRecord, FailureCluster, FailureAgg } from './datasync/types'
 
-const { Text, Title } = Typography
+const { Text } = Typography
 
 // 时间线点位使用稳定的高对比配色：同一个任务刷新后仍保持相同颜色。
 const TASK_TIMELINE_COLORS = [
@@ -1063,13 +1060,9 @@ export default function DataSync() {
 
   return (
     <div style={pageWrap}>
-      {/* Header */}
+      {/* 工具条：页面标题由 App 全局 Header 渲染（菜单名「任务管理」），页内不再重复 */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 'var(--wh-space-md)', marginBottom: 'var(--wh-space-lg)' }}>
         <div>
-          <Title className="sync-page-title" level={4} style={{ margin: 0, color: WH.text }}>
-            <ThunderboltOutlined style={{ marginRight: 'var(--wh-space-sm)', color: WH.blue }} />
-            {t('sync.taskManager')}
-          </Title>
           <Text style={{ color: WH.textMuted }}>{t('sync.taskManagerDesc')}</Text>
         </div>
         <Space size="small" align="center" wrap>

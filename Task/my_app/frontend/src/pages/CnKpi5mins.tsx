@@ -28,7 +28,7 @@ import { useI18n } from '../i18n'
 import { formatDateTime } from '../datetime'
 import { WH, axisLabel, axisLine, darkTooltip, splitLine, useTheme } from '../theme'
 
-const { Text, Title } = Typography
+const { Text } = Typography
 
 // ---------------- 类型（与后端 cn_kpi_5mins_service 对齐） ----------------
 interface CnWidget5 {
@@ -192,7 +192,6 @@ function WidgetCard({ w, height }: { w: CnWidget5; height: number }) {
 
 export default function CnKpi5mins() {
   const { t } = useI18n()
-  const { isDark } = useTheme()
   const [data, setData] = useState<OverviewResp5 | null>(null)
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState('')
@@ -272,13 +271,9 @@ export default function CnKpi5mins() {
 
   return (
     <div style={{ padding: 4 }}>
-      {/* 页头：标题 + 统计 + 操作 */}
+      {/* 工具条：全局 Header 已显示页面标题（菜单名），页内不再重复画大标题，
+          只保留统计/图例/操作一行，避免同一页出现两个 header */}
       <CardBase size="small" style={{ marginBottom: 12 }} bodyStyle={{ padding: '8px 12px' }}>
-        <div style={{ textAlign: 'center', marginBottom: 8 }}>
-          <Title level={4} style={{ margin: 0, color: isDark ? '#64ffda' : '#0d9488' }}>
-            ❯❯❯ {data?.title || 'CCN_KPI_5mins'} ❮❮❮
-          </Title>
-        </div>
         <Row align="middle" justify="space-between" gutter={[12, 8]}>
           <Col>
             <Space size={10} wrap>
@@ -287,6 +282,7 @@ export default function CnKpi5mins() {
                   {t('cnkpi5.summary', { ok: withData, total: widgets.length })}
                 </Tag>
               </Tooltip>
+              <Text type="secondary" style={{ fontSize: 12 }}>{t('cnkpi5.barHint')}</Text>
               {data?.meta && (
                 <Tag>{data.meta.elapsed_ms}ms{data.meta.cached ? ` · ${t('cnkpi.cached')}` : ''}</Tag>
               )}

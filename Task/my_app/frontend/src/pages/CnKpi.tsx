@@ -10,7 +10,7 @@ import { formatDateTime } from '../datetime'
 import { WH, axisLabel, axisLine, cardStyle, darkTooltip, splitLine, useTheme } from '../theme'
 
 const { RangePicker } = DatePicker
-const { Text, Title } = Typography
+const { Text } = Typography
 
 /* ====================================================================
  * CN KPI 看板（原 my-finebi「CN KPI」看板原生重建）
@@ -424,13 +424,10 @@ export default function CnKpi() {
 
   return (
     <div style={{ padding: 4 }}>
-      {/* 标题栏（原版 CCN_Daily_KPI 文本组件；已去掉指向 FineBI 的外链） */}
+      {/* 工具条（原版 CCN_Daily_KPI 文本组件；已去掉指向 FineBI 的外链）。
+          页面标题由 App 全局 Header 渲染（菜单名），页内不再重复画大标题 —— 否则
+          同一屏会出现两个标题。数据源名仍可从统计 Tag 的 Tooltip 查看。 */}
       <Card size="small" style={{ ...cardStyle, marginBottom: 12 }} styles={{ body: { padding: '8px 12px' } }}>
-        <div style={{ textAlign: 'center', marginBottom: 8 }}>
-          <Title level={4} style={{ margin: 0, color: isDark ? '#64ffda' : '#0d9488' }}>
-            ❯❯❯ {data?.title || 'CCN_Daily_KPI'} ❮❮❮
-          </Title>
-        </div>
         <Row align="middle" justify="space-between" gutter={[12, 8]}>
           <Col>
             <Space size={10} wrap>

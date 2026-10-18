@@ -1740,7 +1740,7 @@ export default function UmeInKpi() {
       <Card style={{ ...cardStyle, marginBottom: 'var(--wh-space-md)' }} styles={{ body: { padding: 'var(--wh-space-sm) var(--wh-space-md)' } }}>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--wh-space-sm)', alignItems: 'center', justifyContent: 'space-between' }}>
           <Space direction="vertical" size={2}>
-            <Title level={5} style={{ margin: 0, color: WH.text }}>{t('nav.umeInKpi')}</Title>
+            {/* 页面标题由 App 全局 Header 渲染（菜单名），页内不再重复 */}
             <Text style={{ color: WH.textMuted, fontSize: 12 }}>
               {t('uk.subtitle')}
             </Text>

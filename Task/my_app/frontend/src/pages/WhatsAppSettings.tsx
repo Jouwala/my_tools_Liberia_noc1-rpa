@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Button, Tag, message, Spin, Typography, Alert, Space } from 'antd'
+import { Button, Tag, message, Spin, Alert, Space } from 'antd'
 import { QrcodeOutlined, ReloadOutlined, MobileOutlined, CheckCircleOutlined, CloseCircleOutlined, QuestionCircleOutlined } from '@ant-design/icons'
 import QRCode from 'qrcode'
 import api from '../api'
@@ -227,12 +227,9 @@ export default function WhatsAppSettings() {
 
   return (
     <div style={{ padding: 'var(--wh-space-sm) var(--wh-space-xs)' }}>
+      {/* 页面标题由 App 全局 Header（菜单「系统设置」）+ Tab 标签给出，页内不再重复 */}
       <div style={{ marginBottom: '0.75rem' }}>
-        <Typography.Title level={4} style={{ color: WH.text, margin: 0 }}>
-          <QrcodeOutlined style={{ color: WH.teal, marginRight: 'var(--wh-space-sm)' }} />
-          {t('settings.waLoginTitle')}
-        </Typography.Title>
-        <div style={{ color: WH.textMuted, fontSize: '0.75rem', marginTop: 'var(--wh-space-xs)' }}>
+        <div style={{ color: WH.textMuted, fontSize: '0.75rem' }}>
           {t('settings.waLoginSubtitle')}
         </div>
       </div>

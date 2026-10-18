@@ -14,7 +14,7 @@ import { cachedGet, invalidateCache } from '../cache'
 import { useI18n } from '../i18n'
 import { WH_COLORS, LIGHT_COLORS, axisLabel, axisLine, cardStyle, darkTooltip, splitLine, useTheme } from '../theme'
 
-const { Text, Title } = Typography
+const { Text } = Typography
 const { RangePicker } = DatePicker
 
 /**
@@ -535,7 +535,6 @@ export default function NativeBoard({ slug }: { slug: string }) {
     }
     return [...head, ...allWidgets.filter((w) => !head.includes(w))]
   })()
-  const titleWidget = widgets.find((w) => w.chart === 'text')
   const kpiWidgets = widgets.filter((w) => w.chart === 'kpi')
   // 提到页头行内显示的 KPI：Time/TIme 默认走页头，另可用 headerKpi 显式追加
   const isHeaderKpi = (w: NBWidget) =>
@@ -570,12 +569,8 @@ export default function NativeBoard({ slug }: { slug: string }) {
   return (
     <div style={{ padding: 4 }}>
       <Card size="small" style={{ ...cardStyle, marginBottom: 12 }} styles={{ body: { padding: '8px 12px' } }}>
-        {/* 看板标题独占一行并居中（页头第二行才是 KPI / 徽标与右侧操作区） */}
-        <div style={{ textAlign: 'center', marginBottom: 8 }}>
-          <Title level={4} style={{ margin: 0, color: isDark ? '#64ffda' : '#0d9488' }}>
-            ❯❯❯ {titleWidget?.title_text || data?.title || slug} ❮❮❮
-          </Title>
-        </div>
+        {/* 页面标题由 App 全局 Header 渲染（菜单名），页内不再重复画大标题 —— 否则
+            同一屏会出现两个标题。这一行只放单值 KPI / 徽标与右侧操作区。 */}
         <Row align="middle" justify="space-between" gutter={[12, 8]}>
           <Col flex="auto">
             <Space size={10} wrap>

@@ -39,6 +39,31 @@
 
 ---
 
+## 通用约定：页面标题只在全局 Header 出现一次
+
+**页面内不要再画与菜单同名的标题。** 全站标题由 `App.tsx` 的 Header 统一渲染
+（`flatMenuItems.find(m => m.key === currentPage)?.label`，即菜单名），页内再写一个
+`❯❯❯ xxx ❮❮❮` 或 `<Typography.Title>{t('nav.xxx')}</Typography.Title>` 就会出现
+同一屏两个 header。
+
+2026-10-18 已清理的页面（只保留副标题、图标、统计与操作区）：
+
+| 页面 | 原页内标题 | 处理 |
+| --- | --- | --- |
+| `cn_kpi` | `❯❯❯ CCN_Daily_KPI ❮❮❮` | 删除，保留 KPI/徽标/日期范围 |
+| `cn_kpi_5mins` | `❯❯❯ CCN_KPI_5mins ❮❮❮` | 删除，保留统计条 |
+| 各 `native_board` | `❯❯❯ <看板名> ❮❮❮` | 删除，保留 KPI/徽标/时间窗 |
+| `sync` | 「任务管理」（与菜单同名） | 删除，保留描述与操作区 |
+| `feedback` | 「使用反馈」（与菜单同名） | 删除，保留副标题 |
+| `help` | 「使用帮助」（与菜单同名） | 删除，保留图标与说明 |
+| `settings` 5 个子页 | 「凭据管理」等（标签页已给出） | 删除，保留副标题 |
+| `ume_in_kpi` | `t('nav.umeInKpi')`（与菜单同名） | 删除，保留副标题与元信息 |
+
+> **例外**：页内可保留「文档标题 / 弹窗标题 / 表格标题 / 分组小标题」（如
+> `EflowQa` 的文档名、`NocAnalyst` 的下钻面板标题），它们与菜单无关，不构成重复。
+
+---
+
 ## 1. 任务管理（`?page=sync`）— 全站控制中心
 
 看所有定时任务的状态、手动执行、改排程、查历史。**遇到"数据没更新"，第一个该打开的页面就是这里。**
@@ -161,7 +186,8 @@
   | `Domain-RootCause` | 按领域 / 根因主 / 根因子 | ❌ |
   | `Site Stats` | Power Sources / Power Vendor / Maintenance Team 等 | ❌ |
   空块自动跳过；MTTR 某桶无单时导出空单元格而非 `0`，与页面「断点 ≠ MTTR=0」口径一致。副标题写明时间窗、区域、归属与高级过滤条件数。
-- **筛选条常驻**：直链（`?page=` 进入的 bare 模式，无侧栏/Header）下，筛选条卡片一度只剩 2px —— 页面根 `pageWrap` 是纵向 flex 容器，筛选条作为第一个子项被 flex 压缩到边框最小值，`Card` 的 `overflow:hidden` 把内容全裁掉，表现为"最上面那行整个不见了，怎么滚都没有"。修法是在 `theme.ts` 的 `controlCardStyle` 加 `flex-shrink:0`（`ttwo` / `v1_ttwo` / `tt` / `wo` 及 `GISMap` / `Dashboard` / `DataSync` / `TableBrowser` 共用），`AlarmDashboard.tsx` 的同类横幅单独加。成因、自查条件与已验证结论见 `component-api.md` 第二节「三个已踩过的坑」③。
+- **筛选条常驻**：bare 模式（`?bare=1` 或 `?layout=bare`，无侧栏/Header）下，筛选条卡片一度只剩 2px —— 页面根 `pageWrap` 是纵向 flex 容器，筛选条作为第一个子项被 flex 压缩到边框最小值，`Card` 的 `overflow:hidden` 把内容全裁掉，表现为"最上面那行整个不见了，怎么滚都没有"。修法是在 `theme.ts` 的 `controlCardStyle` 加 `flex-shrink:0`（`ttwo` / `v1_ttwo` / `tt` / `wo` 及 `GISMap` / `Dashboard` / `DataSync` / `TableBrowser` 共用），`AlarmDashboard.tsx` 的同类横幅单独加。成因、自查条件与已验证结论见 `component-api.md` 第二节「三个已踩过的坑」③。
+  > **bare 开关的判定已修正（2026-10-18）**：此前是「URL 带 `?page=` 即进 bare」，导致收藏 `?page=xxx` 深链时整个外壳（含 Header）被吞掉。现在必须显式带 `?bare=1` / `?layout=bare`，`?page=` 只负责定位页面（`App.tsx` 的 `readBareModule`）。
 
 ### 4c. TT 看板（`?page=tt`）—— 只看 TT 侧内容
 

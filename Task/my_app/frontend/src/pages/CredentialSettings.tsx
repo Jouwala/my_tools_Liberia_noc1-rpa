@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { Card, Input, Button, Tag, message, Spin, Row, Col, Space, Typography, Modal, Tooltip } from 'antd'
-import { SaveOutlined, ApiOutlined, KeyOutlined, ReloadOutlined, EyeOutlined, InfoCircleOutlined, SearchOutlined } from '@ant-design/icons'
+import { Card, Input, Button, Tag, message, Spin, Row, Col, Space, Modal, Tooltip } from 'antd'
+import { SaveOutlined, ApiOutlined, ReloadOutlined, EyeOutlined, InfoCircleOutlined, SearchOutlined } from '@ant-design/icons'
 import api from '../api'
 import { useI18n } from '../i18n'
 import { WH, cardStyle } from '../theme'
@@ -136,11 +136,8 @@ export default function CredentialSettings() {
     <div style={{ padding: 'var(--wh-space-sm) var(--wh-space-xs)' }}>
       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--wh-space-sm)', marginBottom: '0.75rem' }}>
         <div>
-          <Typography.Title level={4} style={{ color: WH.text, margin: 0 }}>
-            <KeyOutlined style={{ color: WH.teal, marginRight: 'var(--wh-space-sm)' }} />
-            {t('settings.title')}
-          </Typography.Title>
-          <div style={{ color: WH.textMuted, fontSize: '0.75rem', marginTop: 'var(--wh-space-xs)' }}>{t('settings.subtitle')}</div>
+          {/* 页面标题由 App 全局 Header（菜单「系统设置」）+ Tab 标签给出，页内不再重复 */}
+          <div style={{ color: WH.textMuted, fontSize: '0.75rem' }}>{t('settings.subtitle')}</div>
         </div>
         <Button icon={<ReloadOutlined />} onClick={load}>{t('settings.refresh')}</Button>
       </div>

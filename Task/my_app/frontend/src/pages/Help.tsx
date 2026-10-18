@@ -46,7 +46,7 @@ import { PAGE_LIST, NAV_KEY_MAP, CATEGORIES, PAGE_DOCS, COMMON, OPS } from './he
 import { TASK_DOCS, WORKER_GROUP_INFO } from './helpTaskDocs'
 import { buildHelpMarkdown } from '../helpMarkdown'
 
-const { Text, Title, Paragraph } = Typography
+const { Text, Paragraph } = Typography
 
 /* ==================== 帮助页 ====================
  * 全站使用帮助（4 页签）：平台简介 / 任务管理详解（44 个任务的工作流脚本、
@@ -572,13 +572,10 @@ export default function Help() {
 
   return (
     <div style={{ maxWidth: 1180, margin: '0 auto' }}>
-      {/* 页头 */}
+      {/* 页头：标题由 App 全局 Header 渲染（菜单名「使用帮助」），这里只留说明与操作 */}
       <div style={{ textAlign: 'center', padding: 'var(--wh-space-md) 0' }}>
         <QuestionCircleOutlined style={{ fontSize: '2rem', color: WH.teal }} />
-        <Title level={3} style={{ margin: '8px 0 4px', color: WH.teal }}>
-          {isZh ? '使用帮助' : 'Help & Guide'}
-        </Title>
-        <Text type="secondary" style={{ fontSize: '0.8125rem' }}>
+        <Text type="secondary" style={{ fontSize: '0.8125rem', display: 'block', marginTop: 8 }}>
           {isZh
             ? '平台功能描述与使用指南 — 内容依据项目文档 docs/manual/（总览、任务系统、数据层、集成、运维）整理'
             : 'Platform features & usage — compiled from the project docs under docs/manual/ (overview, task system, data layer, integrations, operations)'}

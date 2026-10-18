@@ -3494,6 +3494,8 @@ const translations: Record<Locale, Record<string, string>> = {
 
     // ===== CN KPI 5 分钟看板（Day0/Day1 叠画）=====
     // 数据由任务 cnn_kpi_sync_5mins 每 15 分钟写入 5mins_* 表
+    // 页面大标题由 App 全局 Header 渲染（菜单名），页内不再重复画标题，只保留上行统计条
+    'cnkpi5.barHint': '每张图两条线为今天与昨天同一时刻的值，可对比日内走势',
     'cnkpi5.noGranularity': '无5分钟数据',
     'cnkpi5.noData': '暂无数据',
     'cnkpi5.queryFail': '取数失败',
@@ -7558,6 +7560,8 @@ const translations: Record<Locale, Record<string, string>> = {
 
     // ===== CN KPI 5-minute dashboard (Day0/Day1 overlay) =====
     // Data is written every 15 min by the cnn_kpi_sync_5mins task into the 5mins_* tables
+    // The page title is rendered by the app-wide Header (menu label); the page keeps only the stats bar
+    'cnkpi5.barHint': 'Two lines per chart: the same time of day today and yesterday, for intraday comparison',
     'cnkpi5.noGranularity': 'No 5-min data',
     'cnkpi5.noData': 'No data',
     'cnkpi5.queryFail': 'Query failed',

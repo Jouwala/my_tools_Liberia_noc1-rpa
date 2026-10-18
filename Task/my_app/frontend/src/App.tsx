@@ -621,15 +621,23 @@ function readEmbedMode(): boolean {
 }
 
 /**
- * 直链 bare（仅模块）模式：URL 「首次加载时」显式带 ?page= 即只渲染该模块，
- * 隐藏侧栏 / Header 等外壳元素，供门户/大屏深链单模块嵌入使用。
+ * 直链 bare（仅模块）模式：只渲染该模块，隐藏侧栏 / Header 等外壳元素，
+ * 供门户/大屏深链单模块嵌入使用。
+ *
+ * ⚠️ 开关是**显式参数** `?bare=1`（或 `?layout=bare`），**不是**「URL 带 ?page=」。
+ * 2026-10-18 修正：此前只要首次加载的 URL 带 ?page= 就进 bare，导致用户收藏
+ * `?page=cn_kpi_5mins` 这类正常深链时整个外壳（含 Header）被吞掉，页面看起来
+ * 「没有 header」。?page= 是应用内导航的常态参数（`navigateTo` 每次都写入），
+ * 又因 defaultView 改写地址后刷新即带 page，任其充当开关必然误伤正常浏览。
+ *
  * 与 embedMode 的区别：bare 会被应用内导航（navigateTo）主动关闭，
  * 避免在左侧菜单里点一下就把外壳「点没」，故不能并入 readEmbedMode（后者
  * 在 popstate 里按 URL 重新读取，而 bare 需要保持应用内导航后的外壳状态）。
  */
 function readBareModule(): boolean {
   try {
-    return new URLSearchParams(window.location.search).get('page') != null
+    const sp = new URLSearchParams(window.location.search)
+    return sp.get('bare') === '1' || sp.get('bare') === 'true' || sp.get('layout') === 'bare'
   } catch { return false }
 }
 
@@ -643,7 +651,8 @@ function AppContent() {
   })
   // 嵌入模式初值随 URL 一次性求值；浏览器前进/后退（popstate）时重新求值（见下方 onPopState）
   const [embedMode, setEmbedMode] = useState<boolean>(readEmbedMode)
-  // 直链 bare（仅模块）模式：URL 首次加载带 ?page= 即隐藏外壳。与应用内导航联动，
+  // 直链 bare（仅模块）模式：URL 首次加载带 ?bare=1 / ?layout=bare 即隐藏外壳
+  // （不再以 ?page= 判定，详见 readBareModule 的注释）。与应用内导航联动，
   // navigateTo 会置 false；popstate 不重读，保证外壳内前进/后退不丢外壳。
   const [bareModule, setBareModule] = useState<boolean>(readBareModule)
   // 会话失效 / 未登录访问数据接口 → 展示“请通过统一门户登录”引导（uniplam 鉴权适配）

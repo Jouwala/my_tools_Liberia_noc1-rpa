@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Button, Card, Col, Descriptions, Form, Input, Modal, Popconfirm,
-  Row, Select, Space, Statistic, Table, Tag, Tooltip, Typography, message,
+  Row, Select, Space, Statistic, Table, Tag, Tooltip, message,
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import {
   BugOutlined, CheckCircleOutlined, DeleteOutlined, DownloadOutlined, EditOutlined,
-  MessageOutlined, PlusOutlined, ReloadOutlined, SearchOutlined,
+  PlusOutlined, ReloadOutlined, SearchOutlined,
 } from '@ant-design/icons'
 import api from '../api'
 import { useI18n } from '../i18n'
@@ -250,17 +250,13 @@ export default function IssueFeedback() {
 
   return (
     <div style={{ padding: 'var(--wh-space-sm) var(--wh-space-xs)' }}>
-      {/* 标题栏 */}
+      {/* 工具条：页面标题由 App 全局 Header 渲染（菜单名「使用反馈」），页内不再重复 */}
       <div style={{
         display: 'flex', flexWrap: 'wrap', alignItems: 'center',
         justifyContent: 'space-between', gap: 'var(--wh-space-sm)', marginBottom: '0.75rem',
       }}>
         <div>
-          <Typography.Title level={4} style={{ color: WH.text, margin: 0 }}>
-            <MessageOutlined style={{ color: WH.teal, marginRight: 'var(--wh-space-sm)' }} />
-            {t('fb.title')}
-          </Typography.Title>
-          <div style={{ color: WH.textMuted, fontSize: '0.75rem', marginTop: 'var(--wh-space-xs)' }}>
+          <div style={{ color: WH.textMuted, fontSize: '0.75rem' }}>
             {t('fb.subtitle')}
           </div>
         </div>
