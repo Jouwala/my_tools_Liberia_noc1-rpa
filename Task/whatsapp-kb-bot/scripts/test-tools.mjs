@@ -162,6 +162,93 @@ console.log('\n[3b] 站点问题必须转交模型层（2026-10-07 实测踩坑�
   check(leftoverTerms('how many P1 tickets today').length === 0, '英文通用问法残余为空', JSON.stringify(leftoverTerms('how many P1 tickets today')));
 }
 
+console.log('\n[3f] 具体星期几（2026-10-18：旧实现把「本周五」当整周）');
+{
+  // 事故形态：旧实现里 `/本周/` 先命中，返回**整周**区间。
+  // 问「本周五有几个单」拿到周一到今天的合计 —— 数字偏大但不报错。
+  // 这里以 NOW=周二 10-06 为基准，本周一 = 10-05。
+  const cases = {
+    '本周五有多少单': '2026-10-09',
+    '本周三有多少单': '2026-10-07',
+    '本周二有多少单': '2026-10-06',
+    '本周日有多少单': '2026-10-11',
+    '周五有多少单': '2026-10-09',      // 裸「周X」= 本周那一天（不再回溯到上周）
+    '星期三有几个单': '2026-10-07',
+    '礼拜三有几个单': '2026-10-07',    // 「礼拜」归一成「星期」
+    '星期天有几个单': '2026-10-11',
+    '上周六有几个P2': '2026-10-03',
+    '上周一有多少单': '2026-09-28',
+    '上礼拜五有多少单': '2026-10-02',
+    '下周一有多少单': '2026-10-12',
+    '上上周日有多少单': '2026-09-27',
+    '上上个礼拜一有多少单': '2026-09-21',
+  };
+  for (const [q, expect] of Object.entries(cases)) {
+    const r = parseDateRange(q, NOW);
+    check(r?.start === expect && r?.end === expect, `  ${q} → ${expect}`, JSON.stringify(r));
+  }
+  // 反向：整周问法不能被星期几分支吃掉
+  const wk = parseDateRange('本周有多少单', NOW);
+  check(wk?.start === '2026-10-05' && wk?.end === '2026-10-06', '  反向：「本周」仍是整周区间', JSON.stringify(wk));
+  // 反向：含星期字的普通词不能误判（如「周期的单」）
+  check(parseDateRange('告警码 99933 是什么', NOW) === null, '  反向：无日期问法仍返回 null');
+}
+
+console.log('\n[3g] 中文数字的「近N天 / N天前」（2026-10-18 实测 start 为空）');
+{
+  // 旧实现 `(\\d{1,3})` 不认「三」，`/最近/` 分支空转后没有兜底，
+  // 最终带空日期查库 —— 而 queryTickets 缺省会"不过滤"，等于拉全库。
+  const cases = {
+    '最近三天有多少单': ['2026-10-04', '2026-10-06'],
+    '近七天有多少单': ['2026-09-30', '2026-10-06'],
+    '过去十天有多少单': ['2026-09-27', '2026-10-06'],
+    '最近三十天有多少单': ['2026-09-07', '2026-10-06'],
+    '最近2天有多少单': ['2026-10-05', '2026-10-06'], // 阿拉伯数字仍可用
+    '三天前有多少单': ['2026-10-03', '2026-10-03'],
+  };
+  for (const [q, [s, e]] of Object.entries(cases)) {
+    const r = parseDateRange(q, NOW);
+    check(r?.start === s && r?.end === e, `  ${q} → ${s}~${e}`, JSON.stringify(r));
+  }
+  check(parseDateRange('最近发生的告警规则是什么', NOW) === null, '  反向：不含数量的「最近…」不误判');
+}
+
+console.log('\n[3d] 「故障单」等同义说法不能被当成专名（2026-10-16 qa_log 实测）');
+{
+  // 事故形态：群里问「本周多少故障单」，`leftoverTerms` 只剥掉「单」,剩下「故障」，
+  // 被判成"解释不了的专名" → 规则层弃权 → 走模型层。实测 7 条提问全部如此，
+  // 每条 4.4~4.9s（最长 35.7s），而且模型还擅自把 status 猜成 open。
+  const zh = ['本周多少故障单', '本月多少故障单', '本周的故障单有多少', '上个月有多少工单'];
+  for (const q of zh) {
+    check(leftoverTerms(q).length === 0, `  残余为空：${q}`, JSON.stringify(leftoverTerms(q)));
+    check(parseByRule(q, NOW)?.tool === 'query_tickets', `  规则层命中：${q}`, JSON.stringify(parseByRule(q, NOW)));
+  }
+  const en = ['today how many fault tickets', 'how many P1 incidents today'];
+  for (const q of en) {
+    check(leftoverTerms(q).length === 0, `  英文残余为空：${q}`, JSON.stringify(leftoverTerms(q)));
+    check(parseByRule(q, NOW)?.tool === 'query_tickets', `  英文规则层命中：${q}`, JSON.stringify(parseByRule(q, NOW)));
+  }
+
+  // 「incidents」曾被裸 `ID` 正则切成 inc|ents（/i 大小写不敏感）。
+  check(!leftoverTerms('how many P1 incidents today').join('').includes('inc'), '  ID 不再切碎 incidents');
+  // 反向：中文站名仍必须弃权（这条是 [3c] 的核心，不能被本次改动破坏）。
+  check(leftoverTerms('蒙塞拉多昨天有多少单').join('|').includes('蒙塞拉多'), '  反向：中文站名仍被认出');
+}
+
+console.log('\n[3e] 「要单号」的中文说法（发下 / 号码）');
+{
+  // 2026-10-16 实测：「给我发下本周的P1故障单」list=false，只回了「P1 单 1 个」；
+  // 「…的号码」更糟 —— 模型把"号码"当工单号去调 analyze_ticket，答了个空。
+  for (const q of ['给我发下本周的P1故障单', '给我发下本周的P1故障单的号码', '给我发下本周的P1故障单的ID']) {
+    check(parseListIntent(q) === true, `  要名单：${q}`);
+    const r = parseByRule(q, NOW);
+    check(r?.tool === 'query_tickets' && r.args.list === true, `  规则层带 list=true：${q}`, JSON.stringify(r));
+  }
+  // 反向：只要个数时不能误判成要名单（否则白白走昂贵的 drilldown）。
+  check(parseListIntent('本周多少故障单') === false, '  反向：「本周多少故障单」不要名单');
+  check(parseByRule('本周多少故障单', NOW)?.args.list === false, '  反向：规则层 list=false');
+}
+
 console.log('\n[3c] 中文专名不能被吃掉（A6：中文站名/区域名不带「站」字）');
 {
   // 旧实现「纯中文只保留匹配 SITE_WORD 的」会把「蒙塞拉多」扔掉，

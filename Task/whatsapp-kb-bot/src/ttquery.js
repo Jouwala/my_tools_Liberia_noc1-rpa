@@ -72,6 +72,115 @@ function weekStart(d) {
 }
 
 /**
+ * 中文星期 → 1..7（周一=1 … 周日/周天=7）。认不出返回 0。
+ *
+ * 为什么要单独一张表而不是用 Date 解析：`new Date('周五')` 返回 Invalid Date，
+ * 而 `new Date('2026-10-09')` 之外的任何中文日期串都不可移植。这里只需要
+ * 「第几个星期几」，用一张表最直白。
+ */
+const WEEKDAY_ZH = { 日: 7, 天: 7, 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6 };
+function weekdayNum(ch) {
+  return WEEKDAY_ZH[ch] || 0;
+}
+
+/**
+ * 解析「本周五 / 上周六 / 下周一 / 周五」这类**具体星期几**。
+ *
+ * ## 为什么必须单独一步
+ *
+ * 旧实现里「本周五有几个单」会被 `/本周/` 命中，直接返回**整周**区间
+ * （2026-10-18 实测：返回 10-05~10-06，即周一至今，而不是周五那一天）。
+ * 用户问的是某一天，拿到的是 5~7 天的合计 —— 数字偏大但**不报错**，
+ * 属于最难发现的那类错误。同理「上周六」返回的是上周全周。
+ *
+ * ## 语义约定（与英文侧对齐）
+ *
+ *   · 本周X → 本周的那一天（若在未来，也照算 —— 用户说的是哪一天就是哪一天）
+ *   · 上周X → 上周的该天
+ *   · 下周X → 下周的该天
+ *   · 裸「周X / 星期X / 礼拜X」→ **最近一个**该天（含今天，向前找）
+ *
+ * 只认单字星期（周三/星期五/礼拜天）。「周三到周五」这种区间
+ * 交给下面的 A~B 逻辑会出错，故明确**不在此处**支持 —— 返回该句的起始日更稳妥。
+ */
+function parseWeekday(s, now) {
+  // 前缀与星期必须**在同一个匹配里**拿到。
+  //
+  // 走过的弯路（2026-10-18 实测，都失败）：
+  //   ① `(…|本周)?\s*(?:周|…)` —— 引擎优先让可选组不参与，「本周五」只匹配到「周五」；
+  //   ② 空串作交替分支 `(…|本周|)\s*(?:周|…)` —— 引擎同样先试空分支；
+  //   ③ 先匹配「周X」再向左读前缀 —— 「周」匹配到了「**本**周五」的第二个字，
+  //      `m.index` 落在「本」之后，向左只剩一个字，前缀永远读不到。
+  // 结论：让前缀随 token 一起被正则吃掉，用 `(?<![本上下])` 保证不从词中间起匹配。
+  //
+  // 关键点是**前缀字符本身不被排他**：`本` 只作为「周」的左邻时才排除，
+  // 匹配从 `本` 开始仍然合法（`本周五` 能被完整吃下）。
+  //
+  // 「礼拜」一律先归一成「星期」再匹配 —— 两者语义完全相同，但多一种词形
+  // 就多一条交替分支、多一处优先级陷阱（实测「下礼拜天」会命中后面那个
+  // 「礼拜天」，「上上个礼拜一」会漏掉「上上个」）。归一后只剩三种词形，
+  // 「上/下/本/这」前缀的表也只需写一份。
+  const norm = s.replace(/礼拜/g, '星期');
+  const m = norm.match(
+    /(上上个星期|上上星期|上上周|上个星期|上星期|上周|上个星期|下个星期|下星期|下周|下一周|上一周|下周|本周|本星期|这周|这个星期|(?<![本上下])周|(?<![本上下])星期)\s*([一二三四五六日天])/
+  );
+  if (!m) return null;
+  const target = weekdayNum(m[2]);
+  if (!target) return null;
+  const prefix = m[1] || '';
+
+  const ws = weekStart(now);
+  let offset = 0;
+  // ⚠️ 这里判断的是**归一后**的前缀（「礼拜」已变成「星期」），
+  // 所以只写「星期」形态即可。漏掉 `上上个星期` 这个形态时，
+  // 「上上个礼拜一」会静默落进"本周"分支，差两周而不报错。
+  if (/^上上个星期|^上上星期|^上上周/.test(prefix)) offset = -14;
+  else if (/^(上个星期|上星期|上周|上一周)/.test(prefix)) offset = -7;
+  else if (/^(下个星期|下星期|下周|下一周)/.test(prefix)) offset = 7;
+
+  if (offset) {
+    const d = new Date(ws.getTime());
+    d.setDate(d.getDate() + offset + (target - 1));
+    const day = fmtDate(d);
+    return { start: day, end: day };
+  }
+  // 其余所有情况（「本周X」「这周X」「星期X」「周X」「礼拜X」）都按**本周的那一天**算。
+  //
+  // 为什么裸「星期X」不是「最近一个星期X」：
+  // 中文里「星期三有几个单」几乎总指**本周三**。旧实现按"向前回溯到最近的周三"
+  // 算，于是在周二问「星期三」会得到**上周三**（2026-10-18 实测：问 10-06（周二）
+  // 的星期三，返回 09-30）。这种"差一周"的错误不会报错，最难发现。
+  // 未来日期照算 —— 用户说的是哪一天就是哪一天，不在日期层面替他做决定。
+  const d = new Date(ws.getTime());
+  d.setDate(d.getDate() + (target - 1));
+  const day = fmtDate(d);
+  return { start: day, end: day };
+}
+
+/**
+ * 中文数字 → 阿拉伯数字（**只用于「近N天」这类数量**，不做全局替换）。
+ *
+ * 支持 一~九十九（群里实际只会出现 1~30 这类量级）。
+ * 为什么不用全局替换：那样会毁掉「12号」「10月12日」里的写法，
+ * 也可能把站名里的数字改掉。所以只让调用方在**已定位到的片段**上换。
+ */
+function zhNumToInt(str) {
+  const s = String(str || '').trim();
+  if (!s) return NaN;
+  if (/^\d+$/.test(s)) return Number(s);
+  const DIGIT = { 一: 1, 二: 2, 两: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9 };
+  // 十 / 十五 / 二十 / 二十五 / 三十
+  if (s === '十') return 10;
+  if (/^十[一二三四五六七八九]$/.test(s)) return 10 + DIGIT[s[1]];
+  if (/^[一二两三四五六七八九]十$/.test(s)) return DIGIT[s[0]] * 10;
+  if (/^[一二两三四五六七八九]十[一二三四五六七八九]$/.test(s)) {
+    return DIGIT[s[0]] * 10 + DIGIT[s[2]];
+  }
+  if (/^[一二两三四五六七八九]$/.test(s)) return DIGIT[s];
+  return NaN;
+}
+
+/**
  * 从自然语言里解析日期区间。
  *
  * 支持：今天/昨天/前天/本周/上周/本月/近N天/N天前、
@@ -103,6 +212,13 @@ export function parseDateRange(text, now = new Date()) {
     const d = shiftDate(now, -1);
     return { start: d, end: d };
   }
+
+  // 具体星期几（本周五 / 上周六 / 下周一 / 周五）。
+  //
+  // ⚠️ 必须排在 `/本周/` `/上周/` 之前：那两个分支只认「整周」，
+  // 会让「本周五」返回周一至今的整段（2026-10-18 实测），数字偏大而不报错。
+  const wd = parseWeekday(s, now);
+  if (wd) return wd;
 
   // 周 / 月
   if (/本周|这周|这一周/.test(s)) {
@@ -147,17 +263,28 @@ export function parseDateRange(text, now = new Date()) {
     return { start: shiftDate(now, -(n - 1)), end: today };
   }
 
-  // 近 N 天 / 过去 N 天：含今天，所以往前推 N-1 天
-  const recent = s.match(/(?:最近|近|过去)\s*(\d{1,3})\s*(?:天|日)/);
+  // 近 N 天 / 过去 N 天：含今天，所以往前推 N-1 天。
+  //
+  // 数字部分同时认阿拉伯与中文（`\d` 之外再收「一二两三…十」构成的 1~99）。
+  // 2026-10-18 实测：「最近三天有多少单」返回 start:'' —— 因为 `(\d{1,3})`
+  // 压根不匹配「三」，而 `/最近/` 已被这一步消费掉，后面没有分支再兜，
+  // 最终带着空日期去查（queryTickets 缺省"不过滤"，会拉全库 3 万多条）。
+  // 中文量词的合法范围有限，用 `[\d一二两三四五六七八九十]{1,3}` 收窄，
+  // 避免误吃「最近发生的单」这类不含数字的说法。
+  const NUM_ZH = '[\\d一二两三四五六七八九十]{1,3}';
+  const recent = s.match(new RegExp(`(?:最近|近|过去)\\s*(${NUM_ZH})\\s*(?:天|日)`));
   if (recent) {
-    const n = Math.max(1, Number(recent[1]));
-    return { start: shiftDate(now, -(n - 1)), end: today };
+    const n = Math.max(1, zhNumToInt(recent[1]));
+    if (Number.isFinite(n)) return { start: shiftDate(now, -(n - 1)), end: today };
   }
-  // N 天前
-  const ago = s.match(/(\d{1,3})\s*天前/);
+  // N 天前（同样认中文数字：「三天前」）
+  const ago = s.match(new RegExp(`(${NUM_ZH})\\s*天前`));
   if (ago) {
-    const d = shiftDate(now, -Number(ago[1]));
-    return { start: d, end: d };
+    const n = zhNumToInt(ago[1]);
+    if (Number.isFinite(n)) {
+      const d = shiftDate(now, -n);
+      return { start: d, end: d };
+    }
   }
 
   // 完整日期 YYYY-MM-DD / YYYY/M/D / YYYY年M月D日
@@ -222,9 +349,18 @@ export function parseSeverity(text) {
  * ① 动词是 `sent`（不是 send/send me）；② `list` 在 `tickets` **后面**
  *    （旧式样 `list ... ticket` 只认 list 在前）。故改为**双向**：`list` 与
  *    ticket 词在同一句里出现即可（不再要求前后顺序），并补 sent/wanna。
+ *
+ * 2026-10-18 三修（qa_log 2026-10-16T23:04 实测）：中文侧的「发下 / 发一下」
+ * 完全没被认出来 —— 「给我发下本周的P1故障单」list=false，于是一句明确要单号的
+ * 话只回了「P1 单 1 个」，一个单号都没给。
+ * 「号码」更糟：「给我发下本周的P1故障单的号码」list=false 且未被剥词，
+ * 规则层弃权后模型把 **号码** 当成工单号去调 analyze_ticket，答了个空。
+ * 故补：发下/发一下/发来/输出/列出来 + 号码（「号码」单独出现不算，
+ * 必须与 ticket 词同句，见 LIST_INTENT_PAIR —— 否则「告警码 99933 的号码」
+ * 这类查表问法会被误判成要名单）。
  */
 const LIST_INTENT =
-  /(单号|单的\s*id|的\s*id|编号|列出|列一下|清单|明细|具体是哪|哪几单|哪些单|哪些是|有哪些|给我单|(?:give|send|show|sends?|sent|provide|list|want|wanna)\s+(?:me\s+)?(?:the\s+)?(?:ticket|tt|list|id)|\bwhich\s+(?:ticket|tt|one)s?\b|\bticket\s*(?:id|no)s?\b|\btt\s*no\b|\ball\s+(?:the\s+)?(?:ticket|tt)s?\b|\bid\s+list\b|\bthe\s+ids?\b|\bwhat\s+are\s+(?:the\s+)?[^?]*\b(?:ticket|tt)s?)/i;
+  /(单号|单的\s*id|的\s*id|编号|号码|列出|列一下|列出来|清单|明细|发下|发一下|发来|具体是哪|哪几单|哪些单|哪些是|有哪些|给我单|(?:give|send|show|sends?|sent|provide|list|want|wanna)\s+(?:me\s+)?(?:the\s+)?(?:ticket|tt|list|id)|\bwhich\s+(?:ticket|tt|one)s?\b|\bticket\s*(?:id|no)s?\b|\btt\s*no\b|\ball\s+(?:the\s+)?(?:ticket|tt)s?\b|\bid\s+list\b|\bthe\s+ids?\b|\bwhat\s+are\s+(?:the\s+)?[^?]*\b(?:ticket|tt)s?)/i;
 
 // 只要句子里**同时**出现「list/enumerate」类词与「ticket/tt/p1-4」，
 // 就认定用户要名单（不要求先后顺序）—— 覆盖「... tickets list ...」
