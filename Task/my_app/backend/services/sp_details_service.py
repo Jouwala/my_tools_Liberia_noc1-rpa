@@ -32,13 +32,15 @@ SP Details Report *.xlsx」就是报表任务最近一次发出去的那一份 �
 - 数量合计   = 各 sheet 数量列求和
                （Inventory=Stock Qty / Inbound=Inbound Qty /
                  Outbound=Outbound Qty / Transfer=Transfer Qty）
-- 未关闭单   = ``Status`` 不含 "closed"（大小写不敏感）的行数
+- 未关闭单   = ``Status`` 不含 "closed"（大小写不敏感）的**行数**
                原始快照下会出现 Closed / WaitingForReturn / WaitingForConfirm /
-               WaitingForUpdate，未关闭单数因此比旧口径高
+               WaitingForUpdate，未关闭单数因此比旧口径高。
+               2026-10-18：本页刻意保持按行 —— portal_qc / sp_report 已改为按单据号
+               去重（一单多物料算 1），三页差异见下方「与 MsPortal QC 面板」一节。
 - 仓库数     = 各 sheet 仓库列去重（Transfer 取 Original + Target 两侧并集）
 - 物料种类   = 各 sheet ``Material No.`` 去重并集
 
-与 MsPortal QC 面板（portal_qc）SPMS 口径的关系（2026-09-20 校正，2026-09-22 更新）
+与 MsPortal QC 面板（portal_qc）SPMS 口径的关系（2026-09-20 校正，2026-10-18 再校正）
 ------------------------------------------------------------------------------
 - 判据：本页 =「含 'closed' 关键字即已关闭」；portal_qc = 显式词表
   ``NOT IN ('closed','close','done','已关闭','完成','yes','y','1','true')``。
@@ -47,11 +49,21 @@ SP Details Report *.xlsx」就是报表任务最近一次发出去的那一份 �
 - 范围：portal_qc 显式剔除 ``Status = WaitingForUpdate``（尚未生效的出库单，
   见 portal_qc.SP_IGNORED_WORDS）；本页自 2026-09-22 起读原始快照，**不再剔除它**，
   同一批 WaitingForUpdate 出库单会计入本页的未关闭单。
-- 数据落点不同（数字差异的真正来源）：本页 = ``data/sp_email/data`` 下的报表快照
+- **计数粒度（2026-10-18 更正）**：portal_qc 与 `sp_report` 现在都按**单据号去重**
+  （``sp_common.count_open_docs`` / ``count_open_docs_rows``），一单多物料只算 1；
+  本页仍是**按行计数**，因为它是原始快照的逐行视图（同一张单的每件物料各占一行，
+  页面要能逐行看到）。这是**本页刻意不同**的一处 —— 若有人把本页改成按单去重，
+  表格行数就会与卡片数字脱节。
+- 数据落点不同（数字差异的另一来源）：本页 = ``data/sp_email/data`` 下的报表快照
   （sp_email_details 每天 05:55 产出的合并工作簿，源是 05:15 的 SFTP 下载）；
   portal_qc = 数据库表 inband_details / outband_details，由 sp_data_sync 每天 07:00
   从 ``backend/data/sp`` 落库（同样是未过滤的原始导出）。同一份上游数据、两处落点、
-  两个刷新时点，所以两边的未关闭单数本来就可以不同。
+  两个刷新时点，所以两边的数字本来就可以不同。
+
+口径唯一来源见 ``backend/services/sp_common.py``。三处页面各自的取舍：
+  portal_qc     → 按单去重、剔除在途态、读 DB
+  sp_report     → 按单去重、剔除在途态、读 Excel 汇总工作簿
+  sp_details    → 按行、不剔除在途态、读 Excel 原始快照（本页）
 
 性能
 ----
@@ -143,9 +155,11 @@ TIME_COLUMNS: Dict[str, Tuple[str, ...]] = {
 TOP_N = 12
 
 #: 判定「未关闭」的关键字（大小写不敏感，含即视为已关闭）。
-#: ⚠️ 与 portal_qc（MsPortal QC 面板 SPMS）的判据**不同** —— 那边是显式词表，
-#: 且额外剔除 WaitingForUpdate；两页数字对不上时先读模块 docstring 的
-#: 「与 MsPortal QC 面板（portal_qc）SPMS 口径的关系」一节，不要顺手改这里。
+#: 2026-10-18：本页是**原始快照原样呈现**（含 Canceled / WaitingForUpdate），
+#: 故其「未关闭行数」口径与 portal_qc / sp_report 不同 —— 那两处剔除在途态
+#: 且按单号去重，本页按行、不剔除。保留本常量只为页面内部现状展示，
+#: **不要**把它当作与 portal_qc 对齐的判据；两页数字不同是预期的，
+#: 见 backend/services/sp_common.py 的模块 docstring「原始快照语义」一节。
 CLOSED_KEYWORD = "closed"
 
 #: 每页默认/最大行数（上限放开到 5000，页面「导出当前筛选结果」一次拉全量）

@@ -43,7 +43,11 @@ interface SheetStat {
   records: number
   qty_column: string
   qty_total: number
+  /** 未关闭**单据数**（按单号去重）。2026-10-18 起 Inbound/Outbound 取自 DB，
+   *  与 MsPortal SPMS 大数字同口径；其余 sheet 仍由 Excel 快照算出。 */
   open_count: number
+  /** open_count 的来源：'db' = 与 portal_qc 同口径的实时值；缺省 = Excel 快照。 */
+  open_count_source?: 'db' | 'excel'
   warehouse_count: number
   domains: CounterItem[]
   columns: string[]

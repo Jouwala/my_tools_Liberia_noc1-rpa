@@ -1992,6 +1992,22 @@ postMessage 的唯一用途。自愈循环上限 4 次（`MAX_AUTO_RELOGIN`）�
 `Inbound` / `Outbound` / `Inventory`。前两张走 `/summary`，其余三张走
 `/rows`（分页 + 筛选 + 排序）。
 
+> ⚠️ **唯一的例外：未关闭单数（2026-10-18 起）**。分表卡片上的 `open_count` 中，
+> `Inbound` / `Outbound` 两项改由**数据库**实时计算，与 MsPortal QC 面板的 SPMS
+> 大数字**同源**（`sp_common.count_open_docs`，按 `Inbound No.` / `Outbound No.`
+> 去重，剔除 `WaitingForUpdate`）。其余 sheet 的 `open_count` 仍来自 Excel 快照。
+> 原因：Excel 是 05:15 的快照、DB 是 07:00 落库，两边会差一两张单；用户在同一
+> 门户里看到两个数字，只会认为其中一个错了。口径唯一来源见
+> `backend/services/sp_common.py`，守卫见 `tests/test_sp_open_count_caliber.py`。
+>
+> 三处页面的取舍（**刻意不同，不要"顺手统一"**）：
+>
+> | 页面 | 计数粒度 | 在途态 | 数据源 |
+> | --- | --- | --- | --- |
+> | MsPortal SPMS 大数字与下钻（`portal_qc`） | 按单号去重 | 剔除 | DB |
+> | `?page=sp_report` 的 Inbound/Outbound 卡片 | 按单号去重 | 剔除 | DB |
+> | `?page=sp_details` 卡片 | 按行 | 保留 | Excel 原始快照 |
+
 ### Summary 表的 Outbound 拆分（2026-09-24 新增）
 
 `Summary-Current` 在 `Outbound Qty` 右侧新增两列（由**生成端**产出，不是页面算的，

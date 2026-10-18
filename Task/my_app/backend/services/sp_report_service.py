@@ -38,7 +38,14 @@ PNG 截图，都不属于本页数据源 —— 汇总工作簿的文件名是�
 - 告警分布：``Alert Level`` ∈ {Urgent Replenish, Replenish, Excess}；
   ``Remark`` ∈ {Failure Rate, Actual Consumption}。
 - 明细 sheet 的数量合计：Inbound=Inbound Qty、Outbound=Outbound Qty、
-  Inventory=Stock Qty；未关闭单 = ``Status`` 不含 "closed"（大小写不敏感）。
+  Inventory=Stock Qty。
+- **未关闭单（2026-10-18 改口径）** = 按单据号（``Inbound No.`` / ``Outbound No.``）
+  **去重**后的未关闭单数，谓词与词表来自 :mod:`backend.services.sp_common`
+  （剔除 ``WaitingForUpdate`` 等未生效状态）。此前是「Status 不含 'closed' 的
+  **行数**」，而明细表一单多物料多行，于是卡片上的数字被系统性高估。
+  并且 Inbound / Outbound 两项的 open_count **直接取 DB**（由
+  :func:`_overlay_db_open_counts` 覆盖），与 MsPortal QC 面板的 SPMS 大数字
+  同源同时点；其余 sheet 仍由本文件解析的 Excel 快照算出。
 
 仓库消耗汇总（``get_summary`` 的 ``warehouse_summary`` / ``frequent_materials``）
 --------------------------------------------------------------------------
@@ -76,6 +83,12 @@ from collections import Counter
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+
+from backend.services.sp_common import (
+    SP_SHEET_DOC_COLUMN,
+    count_open_docs,
+    count_open_docs_rows,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -516,12 +529,30 @@ def _sum_column(sd: SheetData, column: str, rows: Optional[List[List[Any]]] = No
     return total
 
 
+def _count_open_docs(sd: SheetData) -> int:
+    """该 sheet 的**未关闭单据数**（按单据号去重）。
+
+    2026-10-18：口径收敛到 ``sp_common``。此前是「Status 不含 'closed' 的**行数**」，
+    而 Inbound/Outbound 是物料明细行 —— 同一张 Outbound No. 会因多件物料拆成
+    多行（实测 23 行 / 12 单），卡片上的「未关闭 20」并不是「20 张单」。
+    现在与 MsPortal QC 面板（portal_qc）共用同一份词表与同一套按单去重规则。
+
+    - 没有 Status 列的 sheet（Summary 类）→ 0
+    - 没有单据号列的 sheet 退化为按行计数（由 sp_common 处理）
+    """
+    if STATUS_COLUMN not in sd.columns:
+        return 0
+    status_idx = sd.index_of(STATUS_COLUMN)
+    if status_idx is None:
+        return 0
+    doc_col = SP_SHEET_DOC_COLUMN.get(sd.key)
+    doc_idx = sd.index_of(doc_col) if doc_col else None
+    return count_open_docs_rows(sd.rows, status_idx, doc_idx)
+
+
 def _sheet_stats(sd: SheetData) -> Dict[str, Any]:
     qty_col = QTY_COLUMN.get(sd.key, "")
-    open_count = 0
-    if STATUS_COLUMN in sd.columns:
-        open_count = sum(1 for s in _column_values(sd, STATUS_COLUMN)
-                         if s and CLOSED_KEYWORD not in s.lower())
+    open_count = _count_open_docs(sd)
 
     latest_time = ""
     for column in TIME_COLUMNS.get(sd.key, ()):
@@ -747,6 +778,66 @@ def _frequent_materials(current: Optional[SheetData], top_n: int = FREQUENT_TOP_
     }
 
 
+def _overlay_db_open_counts(kind: str, sheets: List[Dict[str, Any]]) -> None:
+    """用 DB 的「未关闭单据数」覆盖 Excel 快照算出来的 open_count（原地修改）。
+
+    ## 为什么覆盖
+
+    Excel 汇总工作簿由 ``sp_email_details`` 在 05:55 生成（源是 05:15 的 SFTP 下载），
+    DB 表由 ``sp_data_sync`` 在 07:00 落库。同一天里，**DB 一定是更新的那份**。
+    用户在同一个门户里既会点 MsPortal 的 SPMS 数字（读 DB），也会打开
+    ``?page=sp_report`` 看卡片 —— 两边数字若不同，用户只会认为其中一个错了。
+
+    2026-10-18 实测：DB = 12 张未关闭出库单，Excel 快照 = 11 张，差的正是
+    05:15~07:00 之间新开的那一张。
+
+    ## 口径
+
+    走 :mod:`backend.services.sp_common` 同一份词表 + ``COUNT(DISTINCT 单号)``，
+    与 ``portal_qc._sp_open_counts`` 完全一致。
+
+    ## 只覆盖「未关闭单数」，不动别的统计
+
+    记录数、数量合计、仓库数、Domain 分布全部仍来自 Excel —— 它们是**报表口径**
+    （与邮件附件逐行一致），换成 DB 反而会让「页面看到的」与「邮件收到的」不一致。
+    只有 open_count 这一项是「实时状态」，才用 DB。
+
+    ## 失败时保持 Excel 原值
+
+    DB 不可达 / 表不存在 / 口径查询报错时**不抛**，保留 Excel 算出的数字并
+    log warning —— 卡片宁可显示「稍旧的数字」，也好过整页 500。
+
+    ## 只对备件生效
+
+    ``com_report``（耗材）与备件用的是两套表，当前 DB 里只有备件那两张
+    （inband_details / outband_details），耗材的表由别的同步任务落库，
+    此处不臆测表名 —— 非备件直接跳过。
+    """
+    sheet_kind = (sheets[0]["key"] if sheets else "")
+    if not sheet_kind:
+        return
+    # 只处理存在编号列的明细 sheet（Inbound / Outbound）
+    targets = {k: v for k, v in SP_SHEET_DOC_COLUMN.items()}
+    if not targets:
+        return
+
+    try:
+        from backend.database import get_raw_connection
+        with get_raw_connection() as conn:
+            for s in sheets:
+                doc_col = targets.get(s["key"])
+                if not doc_col:
+                    continue
+                table = "inband_details" if s["key"] == "Inbound" else "outband_details"
+                s["open_count"] = count_open_docs(conn, table, doc_col=doc_col)
+                s["open_count_source"] = "db"
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "[sp_report] DB 未关闭单数覆盖失败（保留 Excel 快照口径 kind=%s）: %s",
+            kind, exc,
+        )
+
+
 def get_summary(kind: str = DEFAULT_KIND) -> Dict[str, Any]:
     """页面统计卡片 + 各 sheet 元信息 + 每日矩阵 + 报表自带口径说明。"""
     data = _load(kind)
@@ -754,6 +845,7 @@ def get_summary(kind: str = DEFAULT_KIND) -> Dict[str, Any]:
     starts = _period_starts(now)
 
     sheets = [_sheet_stats(sd) for sd in data.sheets.values()]
+    _overlay_db_open_counts(kind, sheets)
     current = data.sheets.get("Summary-Current")
     overview = _summary_current_stats(current) if current is not None else {}
     if overview:

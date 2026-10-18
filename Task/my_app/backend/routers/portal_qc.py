@@ -75,8 +75,21 @@ _summary_cache: dict = {"at": 0.0, "payload": None}
 # 每 5 分钟一次的告警请求会把全量那份 60s 缓存顶掉 → 「其余每小时」白白多跑 6 条全表 COUNT。
 _alarm_cache: dict = {"at": 0.0, "payload": None}
 
-# 与 get_sp_table._status_breakdown 完全一致的「已关闭」词表
-SP_CLOSED_WORDS = ("closed", "close", "done", "已关闭", "完成", "yes", "y", "1", "true")
+# ===================== SP 未关闭单（2026-10-18 收敛到 sp_common） =====================
+# 词表与粒度此前在本文件、sp_report_service、sp_details_service 各有一份，
+# 且三处都按**明细行**计数 —— 而 inband/outband_details 是「出库明细行」，
+# 同一张单按物料/序列号拆成多行。实测 23 行未关闭只对应 12 张不同的单，
+# 于是「未关闭出库单」与界面上的数字对不上。
+#
+# 现在唯一口径在 backend/services/sp_common.py：词表、粒度（COUNT DISTINCT 单号）、
+# 判据全部从那里取。本文件**不再**自己定义词表 —— 这里保留名字只是为了让
+# 既有 import（若有）与阅读路径不断裂。
+from backend.services import sp_common as _sp
+from backend.services.sp_common import (  # noqa: E402  （放在常量区，import 集中）
+    SP_CLOSED_WORDS,
+    SP_IGNORED_WORDS,
+    SP_NOT_OPEN_WORDS,
+)
 
 # 额外「不算未关闭」的在途状态（2026-09-20 按需求加）：WaitingForUpdate 是**尚未生效**
 # 的单（申请人还没提交更新，属在途态，见 sp_online_sync.STATUS_ALL），不是真正待处理的
@@ -85,10 +98,10 @@ SP_CLOSED_WORDS = ("closed", "close", "done", "已关闭", "完成", "yes", "y",
 # sp_report_gen.generate_sp_online_report.EXCLUDED_STATUS 生成报表前也都剔除它。
 # 只影响本面板：get_sp_table._status_breakdown 的 closed 口径不动（那边是仓库看板的
 # 「已关闭/未关闭」拆分，语义不同，不能顺手改）。
-SP_IGNORED_WORDS = ("waitingforupdate",)
+# 2026-10-18：值已移至 sp_common.SP_IGNORED_WORDS（本行上方 import）。
 
 # 「未关闭」= status 既不属已关闭词表、也不属被忽略词表。合并成一份，统计与下钻共用。
-SP_NOT_OPEN_WORDS = SP_CLOSED_WORDS + SP_IGNORED_WORDS
+# 2026-10-18：同移至 sp_common.SP_NOT_OPEN_WORDS。
 
 # TT / WO 的口径 = 「告警未清除」：alarm_clear_time 为空（NULL 或空串）。
 # 2026-09-20 由「未关闭 status <> 'Closed'」改来，见模块 docstring 的口径说明。
@@ -297,39 +310,36 @@ def _sp_status_column(conn, table: str):
     return None
 
 
-def _sp_words_sql(words) -> str:
-    """词表 → SQL 的 IN 列表字面量（值里的单引号做转义）。"""
-    return ",".join("'" + w.replace("'", "''") + "'" for w in words)
-
-
 def _sp_open_predicate(col_quoted: str) -> str:
-    """SP 明细的「未关闭」谓词 —— 统计与下钻共用这一份，避免两处漂移。
+    """SP 明细的「未关闭**行**」谓词 —— 仅用于下钻 UNION 的行级过滤。
 
-    COALESCE 到 '' 与 _status_breakdown 把空值/NaN 计入 unclosed 的行为一致；
-    WaitingForUpdate 随 SP_IGNORED_WORDS 一并排除（见常量注释）。
+    ⚠️ 2026-10-18：这**不是**大数字的口径。大数字按**单据号去重**计数
+    （``sp_common.count_open_docs``），下钻再按单号把明细行取出来。
+    若拿本谓词直接 COUNT(*) 当大数字，就会回到「23 行 / 12 张单」那个 bug。
+    统计入口请用 :func:`_sp_open_counts`。
     """
-    return (
-        f"LOWER(TRIM(COALESCE(CAST({col_quoted} AS TEXT), ''))) "
-        f"NOT IN ({_sp_words_sql(SP_NOT_OPEN_WORDS)})"
-    )
+    return _sp.open_predicate_sql(col_quoted)
 
 
 def _sp_open_counts(conn):
-    """inband_details / outband_details 的未关闭单数（已剔除 WaitingForUpdate）。"""
+    """inband_details / outband_details 的未关闭**单据数**（按单据号去重）。
+
+    2026-10-18 起改为 ``COUNT(DISTINCT "Inbound No."/"Outbound No.")``：
+    表是明细行，同一张单按物料/序列号拆成多行，按行数会系统性高估「未关闭单数」。
+    见 ``backend/services/sp_common.py`` 的模块 docstring。
+    """
     total_unclosed = 0
     detail = {}
     for table in ("inband_details", "outband_details"):
         col = _sp_status_column(conn, table)
         if not col:
             raise RuntimeError(f"{table} 未找到 status 列")
-        col_quoted = '"' + str(col).replace('"', '""') + '"'
-        unclosed = _scalar(
-            conn,
-            f"SELECT COUNT(*) FROM {table} WHERE {_sp_open_predicate(col_quoted)}",
-        )
-        unclosed = int(unclosed or 0)
-        detail[table] = unclosed
-        total_unclosed += unclosed
+        # STATUS 列名虽由探测得到，但 sp_common 的词表是固定的；把探测到的列名
+        # 作为 status_col 传进去，避免两张表列名大小写不一致时判空。
+        doc_col = _sp.SP_DOC_COLUMNS.get(table)
+        unclosed = _sp.count_open_docs(conn, table, doc_col=doc_col, status_col=col)
+        detail[table] = int(unclosed or 0)
+        total_unclosed += int(unclosed or 0)
     return total_unclosed, detail
 
 
@@ -876,13 +886,16 @@ _COLUMNS = {
         ("completed_items", "completed", "Completed Items"),
         ("total_items", "total", "Total Items"),
     ],
+    # 2026-10-18：SPMS 下钻改为**一张单一行**（见 _detail_source 的 spms 分支）。
+    # 原先是物料行展开（Material No./Material Name 每件一行），与按单去重的
+    # 大数字对不上。现在给「物料件数」而不是单件名称，明细里仍能看出这张单
+    # 涉及多少种物料；要看具体物料去 sp_report 页面按 Doc No. 筛选。
     "spms": [
         ("src", "src", "Type"),
         ("doc_no", "doc_no", "Doc No."),
         ("status", "status", "Status"),
-        ("material_no", "material_no", "Material No."),
-        ("material_name", "material_name", "Material Name"),
-        ("qty", "qty", "Qty"),
+        ("material_cnt", "material_cnt", "Material Count"),
+        ("qty", "qty", "Total Qty"),
         ("warehouse", "warehouse", "Warehouse"),
         ("create_time", "create_time", "Create Time"),
         ("closed_time", "closed_time", "Closed Time"),
@@ -922,7 +935,12 @@ _SP_UNION = (
 
 
 def _sp_open_expr(conn, table: str) -> str:
-    """下钻 UNION 里每张表的「未关闭」条件 —— 与 _sp_open_counts 同一份谓词。"""
+    """下钻 UNION 里每张表的「未关闭**行**」条件。
+
+    ⚠️ 大数字按单号去重计数，下钻这一层仍要按行取（弹窗要看得到每件物料）。
+    为了让「明细行数」与「单据数」对上，:func:`_detail_source` 在这一层外面
+    再包一层聚合，把同一单号的多行折叠成一个「单 + 物料清单」条目。
+    """
     col = _sp_status_column(conn, table)
     if not col:
         raise RuntimeError(f"{table} 未找到 status 列")
@@ -953,11 +971,34 @@ def _detail_source(conn, metric: str):
         # 那就不是达标率的下钻了。要看 Pass 率自己在弹窗里按 Sla Status 排序/搜索。
         return "eflow_tt", f"{_SLA_WINDOW} AND {_SLA_JUDGED}", [_sla_since()]
     if metric == "spms":
+        # 2026-10-18：**按单号聚合**。明细表是「物料行」，同一张 Outbound No.
+        # 会因多件物料拆成多行（实测 23 行 / 12 单）。下钻若直接摊开行，
+        # 就会与按单去重的大数字对不上 —— 用户会当成 bug。
+        #
+        # 聚合规则：
+        #   group by (src, doc_no)          → 一行 = 一张单
+        #   status      = MIN(status)       → 该单各组行里唯一的未关闭状态
+        #   material_*  = COUNT(DISTINCT ..) → 明细里给「件数」而不是单件名称
+        #   qty         = SUM(qty)          → 该单总数量
+        #   warehouse   = MIN(warehouse)    → 同一单通常在同一仓库
+        #   create/closed = MIN/MAX 时间     → 该单的最早创建、最晚关闭
+        #
+        # 这样 COUNT(*) FROM 这个子查询 == _sp_open_counts 的去重单数，
+        # 大数字与下钻行数**逐条相等**。
+        sub = _SP_UNION.format(
+            in_open=_sp_open_expr(conn, "inband_details"),
+            out_open=_sp_open_expr(conn, "outband_details"),
+        )
         return (
-            "(" + _SP_UNION.format(
-                in_open=_sp_open_expr(conn, "inband_details"),
-                out_open=_sp_open_expr(conn, "outband_details"),
-            ) + ") t",
+            "(SELECT src, doc_no, MIN(status) AS status, "
+            "COUNT(DISTINCT material_no) AS material_cnt, "
+            "COUNT(DISTINCT material_name) AS name_cnt, "
+            "CAST(SUM(COALESCE(CAST(qty AS REAL), 0)) AS TEXT) AS qty, "
+            "MIN(warehouse) AS warehouse, "
+            "MIN(create_time) AS create_time, MAX(closed_time) AS closed_time "
+            f"FROM ({sub}) u "
+            "WHERE doc_no IS NOT NULL AND TRIM(CAST(doc_no AS TEXT)) <> '' "
+            "GROUP BY src, doc_no) t",
             "1 = 1",
             [],
         )
