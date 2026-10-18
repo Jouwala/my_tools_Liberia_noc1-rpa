@@ -63,7 +63,7 @@
 | 任务管理 | `GET /api/tasks`、`POST /api/tasks/{id}/run|stop|toggle|schedule`、`GET /api/tasks/failures` |
 | 任务报告文件 | `GET /api/email-reports/latest`、`/finebi-reports/latest`、`/email-reports/eflow_tt_rules_check`、`POST /api/tasks/eflow_tt_rules_check/run` |
 | 实时告警看板 | `/api/alarm-dashboard/overview`、`/history-drilldown`、`/realtime-drilldown` |
-| TT&WO | `/api/tt-wo-dashboard/overview`、`/drilldown` |
+| TT&WO | `/api/tt-wo-dashboard/overview`、`/drilldown`；`/workflow`（eFlow 流程定义，`Workflow` 里程碑的阶段顺序来源） |
 | WO（`page=wo`） | `/api/wo-dashboard/overview`、`/drilldown`（数据源 `eflow_wo`，口径函数与 TT&WO 共用；不接 `owner` 参数） |
 | NUR | `/api/nur/overview`、`/options`、`/detail` |
 | MS SLA | `/api/ms-sla-dashboard/overview`（返回 daily/weekly/monthly 三档；weekly 下 network/persite 为空表）、下钻复用 `/api/nur/detail`（`gran=weekly` + `period=2026-W12`） |

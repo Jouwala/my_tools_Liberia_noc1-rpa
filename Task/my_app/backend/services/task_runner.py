@@ -715,6 +715,75 @@ def _is_known_worker_pid(pid: int) -> bool:
         return False
 
 
+# 只用于"这个 PID 看起来是不是又一个 worker 进程"的判断，不用于授权强杀
+# （强杀仍要求 pid 在 worker*.pid 注册表里，见 _kill_worker_process）。
+_WORKER_IMAGE_NAMES = frozenset({"python.exe", "pythonw.exe"})
+_PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+_image_name_cache: dict = {}
+
+
+def _process_image_name(pid: int):
+    """返回进程镜像文件名（小写），取不到返回 None。仅 Windows 有意义。
+
+    刻意只用 PROCESS_QUERY_LIMITED_INFORMATION(0x1000) + QueryFullProcessImageNameW：
+    这一对**不受完整性级别限制**，所以普通会话(Medium) 也能核实由计划任务
+    (RunLevel=Highest → High) 启动的 worker 是否还活着。用 0x0400 会直接返回
+    NULL，把"活着"读成"死了" —— 2026-09-20 与本仓库 worker_watchdog 都踩过这个坑。
+    命令行拿不到（跨级别时 WMI 回 <N/A>），所以只能靠镜像名粗筛，
+    用途也仅限于"别把活着的执行者判成已失效"。
+    """
+    if os.name != "nt" or not pid:
+        return None
+    cached = _image_name_cache.get(pid)
+    if cached is not None:
+        return cached or None
+    if len(_image_name_cache) > 512:
+        # 每 300s 一轮回收、按 pid 缓存镜像名；不封顶会随 PID 自然增长慢慢攒下去。
+        # 直接清空即可：缓存只用于省一次 OpenProcess，没有一致性要求。
+        _image_name_cache.clear()
+    try:
+        import ctypes
+        import ctypes.wintypes  # noqa: F401
+        kernel32 = ctypes.windll.kernel32
+        kernel32.OpenProcess.restype = ctypes.c_void_p
+        kernel32.OpenProcess.argtypes = [ctypes.c_uint32, ctypes.c_int, ctypes.c_uint32]
+        h = kernel32.OpenProcess(_PROCESS_QUERY_LIMITED_INFORMATION, False, int(pid))
+        if not h:
+            _image_name_cache[pid] = ""
+            return None
+        try:
+            buf = ctypes.create_unicode_buffer(1024)
+            size = ctypes.wintypes.DWORD(1024)
+            kernel32.QueryFullProcessImageNameW.restype = ctypes.wintypes.BOOL
+            kernel32.QueryFullProcessImageNameW.argtypes = [
+                ctypes.c_void_p, ctypes.wintypes.DWORD,
+                ctypes.wintypes.LPWSTR, ctypes.POINTER(ctypes.wintypes.DWORD)]
+            name = None
+            if kernel32.QueryFullProcessImageNameW(h, 0, buf, ctypes.byref(size)):
+                name = (buf.value or "").lower()
+            else:
+                name = None
+        finally:
+            kernel32.CloseHandle(h)
+        base = name.rsplit("\\", 1)[-1] if name else ""
+        _image_name_cache[pid] = base
+        return base or None
+    except Exception:
+        return None
+
+
+def _looks_like_live_worker(pid: int) -> bool:
+    """PID 当前存活、且镜像是 python/pythonw —— 用于**否决**"原 worker 已死"的误判。
+
+    为什么需要它（2026-10-16 事故）：`_is_known_worker_pid` 只读 backend/worker*.pid，
+    而当天一个修后端的脚本删掉 worker_watchdog.pid 却没杀进程，叠出 5 套看门狗；
+    最后一套覆写了全部 8 个组 pid 文件，于是另外 4 套（32 个）正在正常干活的
+    worker 全部"不在已知列表"，被周期回收判成「Worker 进程已失效」，
+    12:00 之后刷出 128 条假失败。向操作系统核实进程，比相信一个会被人删掉的文件可靠。
+    """
+    return (_process_image_name(pid) or "") in _WORKER_IMAGE_NAMES
+
+
 def _kill_worker_process(worker_pid) -> bool:
     """终止执行任务的 Worker 进程（含其子树：Playwright / Chromium 等子进程）。
 

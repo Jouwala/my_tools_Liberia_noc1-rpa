@@ -6,7 +6,11 @@
   worker.py 自身仍会把 PID 写入 backend/worker.pid，stop.bat 原机制继续可用；
 - 停止：stop.bat 树杀本进程 (taskkill /PID <watchdog> /T /F)，连带 worker 一起停，
   且本进程被树杀后不会再复活 worker（_shutdown 置位）；
-- 自身 PID 写入 backend/worker_watchdog.pid，供 stop.bat 定位。
+- 自身 PID 写入 backend/worker_watchdog.pid，供 stop.bat 定位；
+- **单例由命名互斥量保证，不看 PID 文件**：已有实例存活时本进程直接拒绝启动。
+  查"是否已有看门狗"用 `python -m backend.worker_watchdog --probe`（退出码 0=已有 /
+  3=没有 / 4=判不了），start_hidden.ps1 与 restart_workers.py 都在拉起前先问一次。
+  背景见下方 SINGLETON_MUTEX_* 注释与 docs/manual/13-operations.md。
 
 启动（替代原 start.bat 中的 `python -m backend.worker`）：
     python -m backend.worker_watchdog
@@ -16,6 +20,8 @@ import sys
 import time
 import json
 import signal
+import ctypes
+import ctypes.wintypes  # noqa: F401  _SECURITY_ATTRIBUTES 需要 DWORD/BOOL
 import logging
 import subprocess
 from datetime import datetime
@@ -85,6 +91,191 @@ CRASH_THRESHOLD = 10.0     # 子进程存活短于此值（秒）视为异常崩
 MAX_BACKOFF = 30.0         # 最大退避间隔（秒）
 STARTUP_FAIL_LIMIT = 10    # 连续快速崩溃达到此次数则放弃并告警
 
+# ===== 看门狗单例锁（2026-10-16 新增）=====
+# 为什么不能只靠 worker_watchdog.pid：本模块的 _another_watchdog_running() 只认
+# PID **文件**，文件一没就被当成"没有看门狗"。2026-10-16 实测事故：一个修后端的
+# 脚本在"清理陈旧状态"步骤里删掉了 worker_watchdog.pid 却没有杀进程，当天于是
+# 累计起了 5 套 watchdog + 40 个 worker 抢同一张 task_queue；旧栈 worker 的 PID
+# 不在（被最后一套覆写的）worker_<组>.pid 里，被 worker.py 的
+# _recover_stale_running 判成"Worker 进程已失效"，12:00 之后刷出 128 条假失败。
+# 命名互斥量由内核按句柄数计数：持有者一退出（含被 taskkill /F 树杀）对象即消失，
+# 因此不会出现"僵尸锁把启动挡死"（2026-09-20 全链停摆那一类死锁环）。
+SINGLETON_MUTEX_GLOBAL = "Global\\MyApp_WorkerWatchdog_Singleton"
+SINGLETON_MUTEX_LOCAL = "Local\\MyApp_WorkerWatchdog_Singleton"
+# SDDL：DACL 给「已登录用户 / 系统 / 管理员」GA(GENERIC_ALL)，SACL 完整性标签压到 Low。
+# 标签必须是 Low —— 由计划任务(RunLevel=Highest → High)创建的命名对象默认带 High 标签，
+# 普通会话(Medium) 打开它会被 MIC 挡成 ERROR_ACCESS_DENIED，那就等于"检测不到已有实例"，
+# 正是本锁要堵的口子（2026-09-20 已为 OpenProcess 踩过同款完整性级别坑）。
+# Global 命名空间建对象需要 SeCreateGlobalPrivilege（普通 Medium 进程没有，报
+# ERROR_ACCESS_DENIED），此时退到 Local；但 Medium 进程**打开**已存在的 Global 对象
+# 不需要该特权，所以先探测 Global 再决定建 Local，避免两套各占一个命名空间。
+SINGLETON_MUTEX_SDDL = "D:(A;;GA;;;AU)(A;;GA;;;SY)(A;;GA;;;BA)S:(ML;;NW;;;LW)"
+
+# mutant 对象的专有权限只有 MUTANT_QUERY_STATE(0x1)（不是 semaphor 的 0x2）；
+# 请求 0x2 会被判成无效访问掩码，打开自己刚建的锁都会回 ERROR_ACCESS_DENIED。
+_MUTEX_QUERY_STATE = 0x0001
+_MUTEX_SYNCHRONIZE = 0x00100000
+_MUTEX_OPEN_ACCESS = _MUTEX_SYNCHRONIZE | _MUTEX_QUERY_STATE
+_ERROR_ALREADY_EXISTS = 183
+_ERROR_FILE_NOT_FOUND = 2
+_ERROR_ACCESS_DENIED = 5
+
+_singleton_handle = None  # 锁本体就是这个句柄：持有到进程退出，不写任何文件
+
+
+class _SECURITY_ATTRIBUTES(ctypes.Structure):
+    _fields_ = [
+        ("nLength", ctypes.wintypes.DWORD),
+        ("lpSecurityDescriptor", ctypes.c_void_p),
+        ("bInheritHandle", ctypes.wintypes.BOOL),
+    ]
+
+
+def _win_apis():
+    """返回 (kernel32, advapi32)，非 Windows 或加载失败返回 None。
+
+    use_last_error=True：CreateMutex/OpenMutex 失败原因只能从 GetLastError 取。
+    """
+    if sys.platform != "win32":
+        return None
+    try:
+        k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        a32 = ctypes.WinDLL("advapi32", use_last_error=True)
+        return k32, a32
+    except Exception:
+        return None
+
+
+def _mutex_sd(apis):
+    """按 SDDL 造一份安全描述符；失败返回 None（则用系统默认 DACL，仍能挡住同级别实例）。"""
+    _k32, a32 = apis
+    a32.ConvertStringSecurityDescriptorToSecurityDescriptorW.restype = ctypes.wintypes.BOOL
+    a32.ConvertStringSecurityDescriptorToSecurityDescriptorW.argtypes = [
+        ctypes.wintypes.LPCWSTR, ctypes.wintypes.DWORD,
+        ctypes.POINTER(ctypes.c_void_p), ctypes.POINTER(ctypes.wintypes.DWORD)]
+    sd = ctypes.c_void_p()
+    if a32.ConvertStringSecurityDescriptorToSecurityDescriptorW(
+            SINGLETON_MUTEX_SDDL, 1, ctypes.byref(sd), None):
+        return sd
+    return None
+
+
+def _create_mutex(apis, name):
+    """CreateMutexW：返回 (handle, last_error)；handle 为 None 表示调用本身失败。"""
+    k32, _a32 = apis
+    k32.CreateMutexW.restype = ctypes.wintypes.HANDLE
+    k32.CreateMutexW.argtypes = [ctypes.POINTER(_SECURITY_ATTRIBUTES),
+                                 ctypes.wintypes.BOOL, ctypes.wintypes.LPCWSTR]
+    k32.LocalFree.restype = ctypes.c_void_p
+    k32.LocalFree.argtypes = [ctypes.c_void_p]
+    sd = _mutex_sd(apis)
+    sa = _SECURITY_ATTRIBUTES()
+    sa.nLength = ctypes.sizeof(_SECURITY_ATTRIBUTES)
+    sa.lpSecurityDescriptor = sd.value if sd else None
+    sa.bInheritHandle = False
+    try:
+        h = k32.CreateMutexW(ctypes.byref(sa), False, name)
+    finally:
+        if sd:
+            k32.LocalFree(sd)
+    return h, ctypes.get_last_error()
+
+
+def _open_mutex(apis, name):
+    """OpenMutexW：只查不建。返回 (handle, last_error)。"""
+    k32, _a32 = apis
+    k32.OpenMutexW.restype = ctypes.wintypes.HANDLE
+    k32.OpenMutexW.argtypes = [ctypes.wintypes.DWORD, ctypes.wintypes.BOOL,
+                               ctypes.wintypes.LPCWSTR]
+    h = k32.OpenMutexW(_MUTEX_OPEN_ACCESS, False, name)
+    return h, ctypes.get_last_error()
+
+
+def _acquire_singleton_lock() -> str:
+    """尝试持有单例锁。返回 acquired / held / unavailable。
+
+    unavailable 只代表"本机建不了锁"（非 Windows、API 异常），此时**不阻塞启动**，
+    交由 PID 文件检查兜底 —— 宁可少一道保险，也不能让 worker 无人托管。
+    """
+    global _singleton_handle
+    apis = _win_apis()
+    if not apis:
+        return "unavailable"
+    k32, _a32 = apis
+    h, err = _create_mutex(apis, SINGLETON_MUTEX_GLOBAL)
+    if h is None and err == _ERROR_ACCESS_DENIED:
+        # 缺 SeCreateGlobalPrivilege（Medium 会话手动启动就是这种）：先问 Global 上
+        # 有没有人，确认没有才退到会话内的 Local —— 否则两套各占一个命名空间、互看不见。
+        gh, gerr = _open_mutex(apis, SINGLETON_MUTEX_GLOBAL)
+        if gh:
+            k32.CloseHandle(gh)
+            return "held"
+        if gerr == _ERROR_ACCESS_DENIED:
+            return "held"      # 对象在但拿不到权限：基本只能是更高完整性级别的实例
+        if gerr != _ERROR_FILE_NOT_FOUND:
+            return "unavailable"
+        h, err = _create_mutex(apis, SINGLETON_MUTEX_LOCAL)
+    if not h:
+        return "held" if err == _ERROR_ACCESS_DENIED else "unavailable"
+    if err == _ERROR_ALREADY_EXISTS:
+        k32.CloseHandle(h)
+        return "held"
+    _singleton_handle = h
+    return "acquired"
+
+
+def _release_singleton_lock() -> None:
+    global _singleton_handle
+    h, _singleton_handle = _singleton_handle, None
+    if not h:
+        return
+    try:
+        ctypes.WinDLL("kernel32", use_last_error=True).CloseHandle(h)
+    except Exception:
+        pass
+
+
+def _probe_singleton_lock() -> str:
+    """只回答"是否已有看门狗持有锁"，不创建对象、不干扰持有权。
+
+    供 start_hidden.ps1 / restart_workers.py 在拉起新实例前先问一次 ——
+    这两个入口此前只看 PID 文件，文件被删就会重复起栈（本次事故的直接触发点）。
+    """
+    apis = _win_apis()
+    if not apis:
+        return "unavailable"
+    k32, _a32 = apis
+    for name in (SINGLETON_MUTEX_GLOBAL, SINGLETON_MUTEX_LOCAL):
+        h, err = _open_mutex(apis, name)
+        if h:
+            k32.CloseHandle(h)
+            return "held"
+        if err == _ERROR_FILE_NOT_FOUND:
+            continue          # 这个命名空间确实没有对象，再查下一个
+        # ACCESS_DENIED：对象在、但权限拿不到（持有者是更高完整性级别的进程）。
+        # 必须保守判"已有"——「旧栈活着但 pid 文件被删」正是最难检出的场景，
+        # 当成 free 就等于把本次事故重新放行一遍。
+        if err == _ERROR_ACCESS_DENIED:
+            return "held"
+        return "unavailable"
+    return "free"
+
+
+PROBE_EXIT_CODES = {"held": 0, "free": 3, "unavailable": 4}
+
+
+def _cli_probe() -> int:
+    """`python -m backend.worker_watchdog --probe` 的退出码：0=已有 / 3=没有 / 4=判不了。
+
+    用退出码而不是 stdout：pythonw 下没有控制台，调用方只能拿到返回码。
+    """
+    state = _probe_singleton_lock()
+    try:
+        print(f"worker_watchdog singleton={state}")
+    except Exception:
+        pass
+    return PROBE_EXIT_CODES[state]
+
 # ===== 多 worker 分组配置 =====
 # MY_APP_WORKER_GROUPS=u,n,m：按数据源会话/写库把任务分成互不干扰的组，
 # 每组一个独立 worker 进程并行消费；组内串行（与旧行为完全一致），组间并行
@@ -124,6 +315,10 @@ GROUP_TASK_MAP = {
         # 保留在本组的都是 eFlow API / config-center 同源或保守依赖，必须继续串行。
         "eflow_sync,eflow_sync_full,eflow_history_alarm,eflow_tt_rules_check,"
         "ms_sla_full,cnn_kpi_sync,fw_kpi_sync,"
+        # cnn_kpi_sync_5mins 2026-10-17 注册：与 cnn_kpi_sync 登同一台 CNN UME
+        # （10.121.1.2:28808，凭据组 ccn_ume），共用一个共享会话；同组串行可避免
+        # 两个任务各自登录同一账号而互踢。实测单轮约 105s，15 分钟节拍余量充足。
+        "cnn_kpi_sync_5mins,"
         # sp_online_sync 2026-09-02 补录：SP 在线工单走 eFlow API 同源会话，归入 eFlow 组
         "sp_online_sync,"
         # sp_material_sync 2026-09-09 补录：SP 物料主数据同样走 eFlow API 同源会话，
@@ -620,8 +815,17 @@ def main():
     signal.signal(signal.SIGINT, _request_shutdown)
     signal.signal(signal.SIGTERM, _request_shutdown)
 
+    # 单例锁优先：它不看 PID 文件，删文件/跨完整性级别都挡得住（见模块上方说明）
+    lock_state = _acquire_singleton_lock()
+    if lock_state == "held":
+        logger.error("已有 watchdog 持有单例锁，拒绝重复启动（多套 worker 会抢同一张 "
+                     "task_queue 并互相把对方的 running 记录判成失败）。退出。")
+        sys.exit(1)
+    if lock_state == "unavailable":
+        logger.warning("单例锁不可用（非 Windows 或 CreateMutex 失败），退化为 PID 文件互斥检查")
     if _another_watchdog_running():
         logger.error("已有 watchdog 在运行，拒绝重复启动。退出。")
+        _release_singleton_lock()
         sys.exit(1)
 
     try:
@@ -683,8 +887,11 @@ def main():
                 PID_FILE.unlink()
         except Exception:
             pass
+        _release_singleton_lock()
         logger.info("Worker Watchdog 已退出")
 
 
 if __name__ == "__main__":
+    if "--probe" in sys.argv[1:]:
+        raise SystemExit(_cli_probe())
     main()

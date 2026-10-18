@@ -442,6 +442,18 @@ TASK_SPECS = [
          description_en="CNN UME Core Network KPI sync (xGW License/CPU/Voice/VLR/Data/3G/4G/Free Rating), API write to DB CNN",
          default_cron="0 6 * * *", category="cnn_kpi"),
 
+    # 11b. CNN UME KPI 5 分钟粒度同步（每 15 分钟）
+    #      与 11 同源同口令，但 gr="300"、窗口「昨天 00:00 → 现在」、写入 5mins_ 前缀新表，
+    #      供 ?page=cn_kpi_5mins 做 Day0/Day1 叠画。日/月粒度表一行不动。
+    #      ⚠ 上游只有 5 个模板支持 5 分钟（xGW_LICENSE / xGW_CPU_USAGE / 3G_FDD_DATA_TRAFFIC
+    #      实测恒为 0 行，服务内会跳过且不计失败）；实测见 cnn_ume_kpi_5mins_service.py 文件头。
+    #      ⚠ 实测单轮约 105s（FREE_RATING_GROUP 一天就有 1.4 万行），远小于 15 分钟节拍。
+    dict(task_id="cnn_kpi_sync_5mins", name="CNN UME KPI 5分钟同步", name_en="CNN UME KPI 5-Min Sync",
+         loader=("backend.services.cnn_ume_kpi_5mins_service", "run_cnn_kpi_sync_5mins"),
+         description="CNN UME 核心网 KPI 5 分钟粒度同步（同 8 个模板，取昨天 00:00 至现在），API 写入 DB CNN 的 5mins_* 新表，供 5 分钟看板 Day0/Day1 对比",
+         description_en="CNN UME core-network KPI sync at 5-minute granularity (same 8 templates, window yesterday 00:00 to now), API write to DB CNN 5mins_* tables for the 5-minute Day0/Day1 board",
+         default_cron="*/15 * * * *", category="cnn_kpi"),
+
     # 12. SP 备件数据同步（2026-09-20 起改为每小时 :10，原为每天 07:00）
     #     为什么改小时级：上游 SFTP（sp/inbound、sp/outbound）本来就是**每小时 :00:03
     #     导出一份**（每天 24 个时间戳目录），而 MsPortal 的 QC 面板 SPMS 卡读的正是本任务
@@ -590,7 +602,11 @@ TASK_SPECS = [
          # 2026-10-11：07:15 → 07:55。错开三个共用 WhatsApp profile 的发送任务
          # （sp_online_report_send 06:35 / sp_email_details 07:05 / 本任务 07:55），
          # 且晚于两个产物来源任务，避免同 profile 抢锁导致的会话抖动。
-         default_cron="55 7 * * *", category="whatsapp"),
+         # 2026-10-16：本任务只发 WhatsApp、不发邮件，按业务要求暂停 → enabled=False。
+         # ⚠ enabled 仅在「首次建行」时生效；已落库的旧行仍是 True，需在「任务管理/sync」页
+         #   手动关掉。另：即便旧行没关，run_sp_whatsapp_report 也已被 SP_WHATSAPP_ENABLED=0
+         #   拦住（返回 SKIPPED、不外发），所以 WhatsApp 一定停；关任务只是省掉一次空跑。
+         default_cron="55 7 * * *", category="whatsapp", enabled=False),
 
     # 20. MS Network Availability Daily Report 邮件（远程 FTP 图片，无 Excel）
     dict(task_id="kpi_ran_availability", name="MS Network Availability 日报邮件", name_en="MS Network Availability Daily Report Email",

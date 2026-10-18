@@ -858,6 +858,7 @@ export default function SpReportBase({ kind }: { kind: SpReportKind }) {
       <Card title={t('spRep.tableTitle')} style={{ background: WH.cardBg, border: WH.cardBorder }}>
         <Space wrap style={{ marginBottom: 12 }}>
           <Segmented
+            className="wh-seg"
             value={activeSheet}
             onChange={(v) => setActiveSheet(String(v))}
             options={sheets.map(s => ({

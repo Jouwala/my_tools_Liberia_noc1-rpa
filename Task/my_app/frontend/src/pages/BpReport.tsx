@@ -756,6 +756,7 @@ export default function BpReport() {
       <CardBase bodyStyle={{ padding: 'var(--wh-space-sm) var(--wh-space-md)' }}>
         <Space wrap>
           <Segmented
+            className="wh-seg"
             value={grain}
             onChange={v => setGrain(v as 'day' | 'week' | 'month')}
             options={[

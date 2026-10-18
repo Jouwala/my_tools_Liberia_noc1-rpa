@@ -3,13 +3,19 @@
 
 对应页面：前端「运维监控 / PM 执行分析」（`frontend/src/pages/PmExecutionAnalysis.tsx`）。
 
-三个端点，全部只读：
-  GET /api/pm-analysis/filters     筛选项（PM 计划 / 状态 / 站点 / 处理人 / 时间范围）
-  GET /api/pm-analysis/overview    按 PM 计划 (pmp_no) 的聚合（KPI + 图表 + 表格）
-  GET /api/pm-analysis/drilldown   明细下钻，卡片上的每个数字都能点进来
+五个端点，全部只读：
+  GET /api/pm-analysis/filters            筛选项（PM 计划 / 状态 / 站点 / 处理人 / 时间范围）
+  GET /api/pm-analysis/overview           按 PM 计划 (pmp_no) 的聚合（KPI + 图表 + 表格）
+  GET /api/pm-analysis/drilldown          明细下钻，卡片上的每个数字都能点进来
+  GET /api/pm-analysis/workflow           里程碑到达量 / 滞留量 / 各环节停留耗时
+  GET /api/pm-analysis/workflow-drilldown 里程碑下钻（走过 / 当前停在该节点）
 
-口径说明（字段语义陷阱、真实流程顺序、超期定义、下钻与概览如何保持一致）
+口径说明（字段语义陷阱、超期定义、下钻与概览如何保持一致）
 统一写在 `backend/services/pm_caliber.py` 的模块 docstring —— 改口径只改那里。
+里程碑顺序严格按 eFlow 的 Workflow History（`queryAllSteps`，payload
+`eflow-pm-task`）：Create → Schedule → Accept → Process → PMManagerApprove
+→ FLMLeaderApprove → Closed（**与 pm_caliber 里的「真实时序」相反**，见
+`backend/services/pm_workflow_service.py` 的模块 docstring）。
 """
 from __future__ import annotations
 
@@ -18,6 +24,7 @@ import logging
 from fastapi import APIRouter, Query
 
 from backend.services import pm_analysis_service as svc
+from backend.services import pm_workflow_service as wfs
 
 logger = logging.getLogger("pm_analysis")
 
@@ -89,4 +96,57 @@ def drilldown(
             "site_name": site_name, "handler": handler, "month": month,
             "total": 0, "truncated": False,
             "rows": [], "columns": list(svc._DETAIL_COLUMNS),  # noqa: SLF001
+        }
+
+
+@router.get("/workflow")
+def workflow(
+    start: str = Query("", description="起始日期 YYYY-MM-DD"),
+    end: str = Query("", description="结束日期 YYYY-MM-DD"),
+    pmp_no: str = Query("", max_length=60, description="PM 计划号，空表示全部"),
+):
+    """里程碑到达量 / 滞留量 / 各环节停留耗时。
+
+    ⚠️ 顺序按 eFlow Workflow History：Create → Schedule → Accept → Process
+    → PM Manager Approve → FLM Leader Approve → Closed。
+    `pmp_no` 与概览的计划筛选同口径（都走 `pm_caliber.base_where`），
+    前端的计划号前端筛选会把它透传过来，保证里程碑与 KPI 用同一批工单。
+    """
+    try:
+        return wfs.build_workflow(start, end, pmp_no=pmp_no)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("[pm-analysis/workflow] 失败: %s", exc)
+        return {
+            "meta": {"warnings": [f"数据加载失败: {exc}"], "pmp_no": pmp_no},
+            "milestones": [], "total": 0, "closed": 0, "in_flight": 0,
+        }
+
+
+@router.get("/workflow-drilldown")
+def workflow_drilldown(
+    start: str = Query("", description="起始日期 YYYY-MM-DD"),
+    end: str = Query("", description="结束日期 YYYY-MM-DD"),
+    key: str = Query(
+        "", max_length=32,
+        description="里程碑 key：created/scheduled/accepted/processed/"
+                    "pm_approved/flm_approved/closed",
+    ),
+    kind: str = Query(
+        "arrived",
+        description="arrived=走过该里程碑 / current=当前停在该里程碑 / done=已关闭（仅 closed）",
+    ),
+    pmp_no: str = Query("", max_length=60, description="PM 计划号，空表示全部"),
+    limit: int = Query(svc.MAX_DETAIL_ROWS, ge=1, le=svc.MAX_DETAIL_ROWS,
+                       description="取样上限，截断时 meta.warnings 会显式说明"),
+):
+    """里程碑下钻：走过 / 停在该节点的 PMT，按停留天数倒序。"""
+    try:
+        return wfs.drill_workflow(start, end, key=key, kind=kind,
+                                  pmp_no=pmp_no, limit=limit)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("[pm-analysis/workflow-drilldown] 失败: %s", exc)
+        return {
+            "meta": {"warnings": [f"数据加载失败: {exc}"], "key": key},
+            "key": key, "kind": kind, "pmp_no": pmp_no,
+            "total": 0, "truncated": False, "rows": [],
         }

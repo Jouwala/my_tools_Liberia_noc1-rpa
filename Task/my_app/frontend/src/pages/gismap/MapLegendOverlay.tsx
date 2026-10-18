@@ -65,9 +65,32 @@ export interface MapLegendRow {
   onClick?: () => void
 }
 
+/* ===== 分组（2026-10-17 用户要求「重新设计 legend，现在总是不好区分」）=====
+
+   原实现是一根**平铺**列表：告警状态、关联工单、站点等级混在一起，颜色还是
+   红/黄/蓝/绿/紫/灰六种互不相干的色相 —— 只能靠逐行读文字来分辨「这行是什么
+   维度的东西」。用户反馈"不好区分"，成因是两条：
+     ① **结构**：不同语义（站点当前告警状态 / 关联工单 / 资产等级）混排；
+     ② **配色**：色相杂乱，看不出同一族之间的深浅关系。
+   改为**分组 + 同组同色系**：
+     · 每个 group 一个小标题，语义相近的条目归拢；
+     · 组内用**同色相不同深浅**，组间才换色相 —— "同组=同族色"本身成为一条
+       视觉线索，不必逐行读文字。
+   ⚠️ 颜色值仍由 GISMap 传入（SITE_COLORS 是站点圆点的**唯一真相源**），
+      本组件不定义任何颜色 —— 图例色必须与地图实际画的色一致，
+      否则比没有图例更糟。 */
+export interface MapLegendGroup {
+  /** 组标题；为空时不渲染标题行 */
+  title?: string
+  rows: MapLegendRow[]
+}
+
 interface Props {
   title: string
-  rows: MapLegendRow[]
+  /** 分组后的图例主体（2026-10-17 新增）。未传时回落到 rows。 */
+  groups?: MapLegendGroup[]
+  /** 旧接口：平铺行。groups 存在时忽略。 */
+  rows?: MapLegendRow[]
   /** MW 链路利用率分组；无数据时整块不渲染 */
   utilTitle?: string
   utilRows?: MapLegendRow[]
@@ -138,6 +161,22 @@ const groupTitleStyle: CSSProperties = {
   gap: 'var(--wh-space-xs)',
 }
 
+/* 组内小标题（2026-10-17 分组设计）。比主标题更轻：
+   主标题是「图例」这个整体，组标题只是把同一族条目归拢，不该抢层级。
+   用左侧一道细竖线做「归属」的视觉连接，比再加一个色块更安静，
+   也不会与下面各行的圆点混淆。 */
+const subGroupTitleStyle: CSSProperties = {
+  fontSize: '0.625rem',
+  fontWeight: 600,
+  color: WH.textDim,
+  letterSpacing: '0.04em',
+  textTransform: 'uppercase',
+  paddingLeft: 'var(--wh-space-xs)',
+  borderLeft: `2px solid ${WH.cardBorder}`,
+  marginBottom: '2px',
+  lineHeight: 1.4,
+}
+
 /** 色块。三种形状统一放在 18px 宽的定宽容器里居中，保证竖排后文字左边缘对齐 */
 function Swatch({ row }: { row: MapLegendRow }) {
   if (row.shape === 'line') {
@@ -197,8 +236,13 @@ function Row({ row }: { row: MapLegendRow }) {
   )
 }
 
-export default function MapLegendOverlay({ title, rows, utilTitle, utilRows, utilNote, note }: Props) {
+export default function MapLegendOverlay({ title, groups, rows, utilTitle, utilRows, utilNote, note }: Props) {
   const hasUtil = !!utilTitle && !!utilRows && utilRows.length > 0
+  /* 统一成 groups：调用方还没升级时（只传 rows）当作「一个无标题的组」，
+     这样旧调用方式仍然工作，且渲染路径只有一条（避免两套 JSX 分叉）。 */
+  const effectiveGroups: MapLegendGroup[] = groups && groups.length > 0
+    ? groups
+    : [{ title: undefined, rows: rows || [] }]
   /* 口径说明默认**收进 ⓘ 悬浮气泡**，不再常驻占版面（2026-09-28 用户要求「这些备注能隐藏吗」）。
      这两段话（利用率来源与槽位、图例数字口径）只在「第一次看不懂时」有用，
      常驻却要占掉图例浮层 4~5 行高度 —— 浮层压在瓦片上，每多一行就多挡一块地图。
@@ -210,7 +254,15 @@ export default function MapLegendOverlay({ title, rows, utilTitle, utilRows, uti
         {title}
         {note && <ExplainIcon text={note} size={12} placement="right" />}
       </div>
-      {rows.map(r => <Row key={r.id} row={r} />)}
+      {effectiveGroups.map((g, gi) => (
+        <div key={g.title || `g${gi}`} style={{ marginTop: gi === 0 ? 0 : 'var(--wh-space-sm)' }}>
+          {/* 组标题只在该组非空且有名字时渲染 —— 空组不该留下一条孤零零的标题 */}
+          {g.title && g.rows.length > 0 && (
+            <div style={subGroupTitleStyle}>{g.title}</div>
+          )}
+          {g.rows.map(r => <Row key={r.id} row={r} />)}
+        </div>
+      ))}
       {hasUtil && (
         <>
           <div style={{ ...groupTitleStyle, marginTop: 'var(--wh-space-sm)' }}>

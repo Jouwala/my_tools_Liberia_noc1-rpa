@@ -708,7 +708,7 @@ export default function BatteryDashboard() {
               <Card size="small" style={cardStyle}
                 title={<span style={{ color: WH.text, fontSize: '0.8125rem' }}>{t('batt.healthDist')}</span>}
                 extra={
-                  <Segmented size="small" value={healthMode} onChange={v => setHealthMode(v as any)}
+                  <Segmented className="wh-seg" size="small" value={healthMode} onChange={v => setHealthMode(v as any)}
                     options={[{ label: t('batt.byGrade'), value: 'bucket' }, { label: t('batt.histogram'), value: 'hist' }]} />
                 }>
                 <ReactECharts option={healthBarOption} style={{ height: CHART_H }} notMerge />
@@ -743,7 +743,7 @@ export default function BatteryDashboard() {
           <SectionTitle icon={<WarningOutlined />} title={t('batt.alarms')} sub={`${alarms.length} ${t('batt.records')}`} />
           <Card size="small" style={cardStyle}>
             <div style={{ display: 'flex', gap: 'var(--wh-space-sm)', marginBottom: '0.625rem', flexWrap: 'wrap' }}>
-              <Segmented size="small" value={alarmSev} onChange={v => setAlarmSev(v as string)}
+              <Segmented className="wh-seg" size="small" value={alarmSev} onChange={v => setAlarmSev(v as string)}
                 options={[
                   { label: t('batt.all'), value: 'all' },
                   { label: `Critical (${alarmCounts.Critical || 0})`, value: 'Critical' },

@@ -38,10 +38,16 @@ def wo_dashboard_drilldown(
     region: str = Query(None),
     adv: str = Query(None, description="高级过滤，JSON 对象 {站点列名: 精确值}；与 overview 同一口径"),
     severity: str = Query(None, description="Ticket Severity（P1~P4）；MTTR 趋势图下钻专用"),
+    values: str = Query(None, description="多取值下钻（JSON 字符串数组）；里程碑阶段合计用"),
 ):
-    """WO 明细下钻。过滤口径与 `/overview` 完全一致，否则行数对不上看板数字。"""
+    """WO 明细下钻。过滤口径与 `/overview` 完全一致，否则行数对不上看板数字。
+
+    ``values``：里程碑阶段合计下钻 —— 阶段是若干原始状态的合集，
+    后端按 `IN (...)` 精确匹配，行数 = 各状态单数之和。
+    """
     return wo_drilldown(
         dimension=dimension, value=value,
         time_start=time_start, time_end=time_end,
         region=region, adv=adv, severity=severity,
+        values=values,
     )

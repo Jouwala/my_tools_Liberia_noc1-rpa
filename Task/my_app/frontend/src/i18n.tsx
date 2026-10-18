@@ -670,6 +670,61 @@ const translations: Record<Locale, Record<string, string>> = {
     'cr.metric.closed': '已关闭',
     'cr.metric.open': '进行中',
     'cr.metric.canceled': '已取消',
+    'cr.metric.status': '状态明细',
+
+    /* ---- 状态卡片（eFlow CR 的当前状态，见 cr_analysis_service 的 status_rows）----
+       状态名本身是上游原值（Closed / CM Head Approval …），不翻译。 */
+    'cr.status.title': '当前状态分布',
+    'cr.status.hint': '窗口内共 {{n}} 张 CR，点击卡片查看该状态明细',
+    'cr.status.share': '占 {{pct}}%',
+
+    /* ---- Workflow 里程碑条（顺序对齐 eFlow queryAllSteps 的 Workflow History）---- */
+    'cr.ms.title': 'Workflow',
+    'cr.ms.summary': '共 {{total}} 张 CR，其中 {{open}} 张在途',
+    'cr.ms.created': '创建',
+    'cr.ms.bo_fo': 'BO/FO 负责人审批',
+    'cr.ms.td': '域技术总监审批',
+    'cr.ms.cm': '变更经理审批',
+    'cr.ms.implement': '开始实施',
+    'cr.ms.feedback': '结果反馈',
+    'cr.ms.closed': '已关闭',
+    'cr.ms.done': '已完成',
+    'cr.ms.waiting': '等待中',
+    'cr.ms.bottleneck': '瓶颈',
+    'cr.ms.longest': '最久 {{d}}',
+
+    /* ---- 审批流程（cr_workflow_service.py）----
+       步骤名按实测时序，**不是**源表列名字母序。 */
+    'cr.flow.title': '审批流程与停留耗时',
+    'cr.flow.hint': '步骤顺序按实际流程；「当前滞留」为尚未走完该步的 CR 数',
+    'cr.flow.empty': '窗口内没有可解析的流程记录',
+    'cr.flow.step.created': '创建 / 已提交',
+    'cr.flow.step.update': '驳回后修改',
+    'cr.flow.step.bo_fo': 'BO/FO 负责人审批',
+    'cr.flow.step.td': '域技术总监审批',
+    'cr.flow.step.cm': '变更经理审批',
+    'cr.flow.step.implement': '实施',
+    'cr.flow.step.feedback': '结果反馈 / 关闭',
+    'cr.flow.kind.arrived': '走过本步',
+    'cr.flow.kind.current': '当前滞留',
+    'cr.flow.legend.arrived': '走过该步的 CR 数',
+    'cr.flow.legend.current': '当前滞留数',
+    'cr.flow.col.step': '流程步骤',
+    'cr.flow.col.arrived': '到达数',
+    'cr.flow.col.avgDays': '平均停留',
+    'cr.flow.col.maxDays': '最长停留',
+    'cr.flow.col.current': '当前滞留',
+    'cr.flow.col.currentMax': '最久已等待',
+    'cr.flow.col.crId': 'CR 编号',
+    'cr.flow.col.status': '当前状态',
+    'cr.flow.col.days': '停留天数',
+    'cr.flow.col.entered': '进入本步时间',
+    'cr.flow.col.left': '离开本步时间',
+    'cr.flow.col.operator': '操作人',
+    'cr.flow.col.result': '操作结果',
+    'cr.flow.col.next': '下一步状态',
+    'cr.flow.stillWaiting': '仍在等待',
+    'cr.flow.drill.title': '流程步骤明细',
 
     /* ---- PM 执行分析（PmExecutionAnalysis.tsx）----
        数据源 eflow_pm；口径见 backend/services/pm_caliber.py。
@@ -748,12 +803,39 @@ const translations: Record<Locale, Record<string, string>> = {
     'pm.chart.month.title': '月度趋势',
     'pm.chart.month.hint': '按工单生成月统计，点柱子下钻该月明细',
     'pm.chart.funnel.title': '流程推进情况',
-    'pm.chart.funnel.hint': '按真实时序，看流程卡在哪一步',
+    'pm.chart.funnel.hint': '按 Workflow History 顺序，看流程卡在哪一步',
     'pm.chart.funnel.shareOfCreated': '占创建量',
     'pm.chart.site.title': '超期最多的站点',
     'pm.chart.site.hint': '红=已超期，橙=未完成且未超期；点条下钻',
 
-    // 流程步骤（真实时序）
+    // 里程碑（顺序严格对齐 eFlow Workflow History / queryAllSteps）
+    'pm.ms.title': '审批流程里程碑',
+    'pm.ms.hint': '顺序按 eFlow Workflow History；点数字看明细',
+    'pm.ms.summary': '共 {n} 张工单，在途 {inFlight} 张',
+    'pm.ms.done': '已完成',
+    'pm.ms.waiting': '当前滞留',
+    'pm.ms.longest': '最久已等 {d}',
+    'pm.ms.avg': '平均停留 {d}',
+    'pm.ms.bottleneck': '瓶颈',
+    'pm.ms.empty': '所选时间窗口内没有可解析的流程记录',
+    'pm.ms.plansHint': '已选 {n} 个计划号：里程碑按全部计划统计（后端仅支持单个计划号过滤），与下方表格小计可能不同。',
+    'pm.ms.created': '创建',
+    'pm.ms.scheduled': '排期',
+    'pm.ms.accepted': '受理',
+    'pm.ms.processed': '处理',
+    'pm.ms.pmApproved': 'PM 经理审批',
+    'pm.ms.flmApproved': 'FLM 领导审批',
+    'pm.ms.closed': '已关闭',
+    'pm.ms.kind.arrived': '走过本节点',
+    'pm.ms.kind.current': '当前滞留',
+    'pm.ms.kind.done': '已关闭',
+    'pm.ms.stillWaiting': '仍在等待',
+    'pm.ms.drill.title': '里程碑明细',
+    'pm.ms.col.days': '停留天数',
+    'pm.ms.col.entered': '进入本节点时间',
+    'pm.ms.col.left': '离开本节点时间',
+
+    // 流程步骤（Workflow History 顺序）
     'pm.step.created': '创建',
     'pm.step.scheduled': '排期',
     'pm.step.accepted': '受理',
@@ -1388,6 +1470,7 @@ const translations: Record<Locale, Record<string, string>> = {
     'msKpi.filteredRows': '筛选后行数',
     'msKpi.target': '目标',
     'msKpi.monthValue': '月值',
+    'msKpi.colFilter': '列分类',
     'msKpi.met': '达标',
     'msKpi.below': '未达标',
     'msKpi.noData': '无数据',
@@ -2008,6 +2091,31 @@ const translations: Record<Locale, Record<string, string>> = {
     'ttwo.ticketSeverity': '工单严重度',
     'ttwo.slaStatus': 'SLA 状态',
     'ttwo.status': '状态',
+    // Status 里程碑（2026-10-17）：Status 维度不再按「取值多少」排序，改为按工单业务
+    // 生命周期从左到右排列，参照 page=incident_overview 的里程碑样式。数字仍在节点里，
+    // 与取值的对应关系不变（下钻维度仍是 status，值仍是 eflow_wo.status 原值）。
+    'ttwo.statusMilestone': 'Workflow',
+    'ttwo.statusMilestoneExplain': '按工单生命周期从左到右排列：派单 → 受理 → 处理 → 现场处置 → 确认 → 关闭。节点里的数字由该阶段下的原始状态名逐条匹配得出（精确匹配，不做模糊归类），点节点下钻该阶段的全部明细；未识别的状态单列为「其他」，不会被吞掉。',
+    // 里程碑阶段名。键名与 TTWODashboard 的 STATUS_MILESTONES[].labelKey 一一对应，
+    // 每个阶段汇总的原始状态名见那里的 match 列表。
+    'ttwo.milestone.reassign': '派单',
+    'ttwo.milestone.waitAccept': '受理',
+    'ttwo.milestone.arriveSite': '到场',
+    'ttwo.milestone.waitProcess': '处理中',
+    'ttwo.milestone.leaveSite': '离场',
+    'ttwo.milestone.waitConfirm': '待确认',
+    'ttwo.milestone.waitConfirmFO': '现场确认',
+    'ttwo.milestone.closed': '关闭',
+    'ttwo.milestone.other': '其他',
+    'ttwo.status.other': '其他',
+    // 里程碑悬浮说明（2026-10-18）：值本身不解释「它是哪个数」时，值班只能靠猜，
+    // 所以把构成、占比分母与下钻口径一起挂在 tooltip 里。
+    'ttwo.milestone.ttComposition': '构成（该阶段收进的原始状态 → 单数）：',
+    'ttwo.milestone.ttSingle': '该阶段只对应一个原始状态：',
+    'ttwo.milestone.ttShare': '占比',
+    'ttwo.milestone.ttDenom': '分母 = 本维度各状态单数合计 {n}（不含状态为空的行）',
+    'ttwo.milestone.ttDrill': '点击下钻：返回上述状态的明细，行数 = 圆点数字',
+    'ttwo.milestone.ttRowDrill': '点击下钻该状态的明细',
     'ttwo.mttrTrend': 'MTTR 趋势',
     // MTTR 趋势：日/周/月三个页签 + 分级 + ZTE/3rd 归属 + 高级过滤（2026-09-26）
     'ttwo.mttrBySeverity': 'MTTR 趋势 · {sev}',
@@ -2610,7 +2718,11 @@ const translations: Record<Locale, Record<string, string>> = {
     /* 地图图例浮层（2026-09-28）：图例已从控制卡片迁到地图右侧竖排，故需要分组标题 */
     'gis.legendTitle': '图例',
     'gis.utilLegendTitle': 'MW 链路利用率',
-    'gis.legendNote': '图例数字为站点数（有该数据的站点）；告警记录总数见 Alarm Dashboard',
+    'gis.legendNote': '「实时告警」组 = 地图上被画成该颜色的站点数，与地图圆点严格对应；「关联工单」「站点等级」组 = 具备该属性的站点数，按独立条件统计。站点只有一个颜色（优先级：超时告警 > WO > TT > 未超时告警 > VIP），所以工单网点也可能被画成超时红色，两组会重叠、不能简单相加。',
+    'gis.legendGroup.alarm': '实时告警',
+    'gis.legendGroup.status': '站点状态',
+    'gis.legendGroup.ticket': '关联工单',
+    'gis.legendGroup.site': '站点等级',
     // 图层控制（右上角）。地名注记默认关闭：瓦片含 1.7 万个地名，全开会糊成一片
     'gis.layerTitle': '图层',
     'gis.layerLabels': '地名注记',
@@ -2697,13 +2809,38 @@ const translations: Record<Locale, Record<string, string>> = {
     'gis.legend.rtAlarm': '实时告警',
     'gis.legend.rtAlarmOverdue': '实时告警-超时',
     'gis.legend.rtAlarmOnTime': '实时告警-未超时',
+    /* 判定口径（用户 2026-10-17 要求补说明「TT Overdue」）。
+       务必与 gis.py:758 的实现保持一致：
+         overdue = (当前时间 − servertime) > assign_delay
+       ⚠️ assign_delay 为空的告警**按未超时处理**（用户 2026-10-17 明确选择维持现状），
+          这条容易让人误解，所以在说明里写清楚。 */
+    'gis.legend.rtAlarmOverdueHint': 'TT Overdue：判定为「当前时间 − 告警产生时间(servertime) > 派单时限(assign_delay)」。assign_delay 为空的告警按未超时处理。',
+    'gis.legend.rtAlarmOnTimeHint': '未超时：告警在 assign_delay 时限内，或该告警没有 assign_delay（无时限数据）。',
     /* 图例改用英文 History（与 RealTime 配对，用户 2026-09-28 指定）：
        原先三个条目「历史告警 / TT工单 / WO工单」已合并为这一条。
        三者合一的含义改由 hover 提示承载（gis.legend.hisAlarmHint），
        避免在竖排窄栏里塞括号说明把行挤长。 */
     'gis.legend.hisAlarm': 'History',
     'gis.legend.hisAlarmHint': '历史告警 / TT工单 / WO工单 任一有数据的站点',
-    'gis.ossStatsTitle': 'OSS问题统计',
+    'gis.ossStatsTitle': 'Alarm Stats',
+    'gis.siteStatsTitle': 'Site Stats',
+    'gis.ossDrillHint': '查看「{name}」的告警明细',
+    'gis.ossDrillEmpty': '该类别的实时告警已全部结束',
+    'gis.ossDrillTruncated': '仅显示前 {shown} 条（结果被截断）',
+    'gis.drillTruncated': '仅显示前 {shown} 条（结果被截断）',
+    'gis.priorityStatsTitle': 'TT 优先级统计',
+    'gis.priorityUnknown': '未知',
+    'gis.priorityDrillHint': '查看优先级「{name}」的告警明细',
+    'gis.ossColAlarmTitle': '告警标题',
+    'gis.ossColAlarmcode': '告警码',
+    'gis.ossColTtId': 'TT 工单号',
+    'gis.ossColPriority': '优先级',
+    'gis.ossColAlarmTime': '告警时间',
+    'gis.ossColDuration': '持续时长',
+    'gis.ossColOverdue': '是否超时',
+    'gis.ossOverdueYes': '超时',
+    'gis.ossOverdueNo': '未超时',
+    'gis.ossNoTt': '无 TT',
     'gis.realtimeLive': '实时数据（当前快照）',
     'gis.regionLabel': '区域',
     'gis.countyLabel': '省/县',
@@ -3353,6 +3490,26 @@ const translations: Record<Locale, Record<string, string>> = {
 
     // ===== CN KPI 看板（原 my-finebi「CN KPI」原生重建）=====
     'nav.cnKpi': 'CN KPI',
+    'nav.cnKpi5mins': 'CN KPI 5分钟',
+
+    // ===== CN KPI 5 分钟看板（Day0/Day1 叠画）=====
+    // 数据由任务 cnn_kpi_sync_5mins 每 15 分钟写入 5mins_* 表
+    'cnkpi5.noGranularity': '无5分钟数据',
+    'cnkpi5.noData': '暂无数据',
+    'cnkpi5.queryFail': '取数失败',
+    'cnkpi5.loadFail': '看板数据加载失败',
+    'cnkpi5.time': '时间',
+    'cnkpi5.value': '值',
+    'cnkpi5.rows': '行',
+    'cnkpi5.day0': 'Day0（今天）',
+    'cnkpi5.day1': 'Day1（昨天）',
+    'cnkpi5.summary': '{{ok}}/{{total}} 个组件有数据',
+    'cnkpi5.legendHint': '每张图的两条线分别是今天与昨天同一时刻的值，可直接对比日内走势',
+    'cnkpi5.emptyBanner': '{{n}} 个组件无 5 分钟数据（非故障）',
+    'cnkpi5.emptyWhy': 'xGW License、xGW CPU、3G FDD 三个模板在上游网管只开放小时档，没有 5 分钟粒度；其余 5 个 KPI 均正常。',
+    'cnkpi5.exportSource': '数据源',
+    'cnkpi5.exportGenerated': '导出时间',
+
     // ===== 原生看板（原 my-finebi 其余看板迁移）=====
     // 与 App.tsx 的 FINEBI_BOARDS 一一对应
     'nav.fbMetroRing': 'IP RAN Metro Ring KPI',
@@ -4621,6 +4778,61 @@ const translations: Record<Locale, Record<string, string>> = {
     'cr.metric.closed': 'Closed',
     'cr.metric.open': 'In Progress',
     'cr.metric.canceled': 'Canceled',
+    'cr.metric.status': 'Status Detail',
+
+    /* ---- Status cards (eFlow CR current status) ----
+       Status names are upstream values (Closed / CM Head Approval …) and are not translated. */
+    'cr.status.title': 'Current Status Distribution',
+    'cr.status.hint': '{{n}} CRs in the window; click a card for that status',
+    'cr.status.share': '{{pct}}% of total',
+
+    /* ---- Workflow milestones (order follows eFlow queryAllSteps Workflow History) ---- */
+    'cr.ms.title': 'Workflow',
+    'cr.ms.summary': '{{total}} CRs, {{open}} still open',
+    'cr.ms.created': 'Create',
+    'cr.ms.bo_fo': 'BO/FO Head Approval',
+    'cr.ms.td': 'Domain TD Approval',
+    'cr.ms.cm': 'CM Head Approval',
+    'cr.ms.implement': 'Start to Implement',
+    'cr.ms.feedback': 'Result Feedback',
+    'cr.ms.closed': 'Closed',
+    'cr.ms.done': 'Done',
+    'cr.ms.waiting': 'Waiting',
+    'cr.ms.bottleneck': 'Bottleneck',
+    'cr.ms.longest': 'till {{d}}',
+
+    /* ---- Approval workflow (cr_workflow_service.py) ----
+       Step names follow the real chronology, NOT the source column alphabetical order. */
+    'cr.flow.title': 'Approval Workflow & Dwell Time',
+    'cr.flow.hint': 'Steps follow the real flow; "In Step" = CRs still sitting at that step',
+    'cr.flow.empty': 'No parseable workflow records in this window',
+    'cr.flow.step.created': 'Created / Submitted',
+    'cr.flow.step.update': 'Revised after Rejection',
+    'cr.flow.step.bo_fo': 'BO/FO Head Approval',
+    'cr.flow.step.td': 'Domain TD Approval',
+    'cr.flow.step.cm': 'CM Head Approval',
+    'cr.flow.step.implement': 'Implementation',
+    'cr.flow.step.feedback': 'Result Feedback / Closed',
+    'cr.flow.kind.arrived': 'Passed this step',
+    'cr.flow.kind.current': 'Currently in step',
+    'cr.flow.legend.arrived': 'CRs passed this step',
+    'cr.flow.legend.current': 'Currently waiting',
+    'cr.flow.col.step': 'Workflow Step',
+    'cr.flow.col.arrived': 'Arrived',
+    'cr.flow.col.avgDays': 'Avg Dwell',
+    'cr.flow.col.maxDays': 'Max Dwell',
+    'cr.flow.col.current': 'In Step',
+    'cr.flow.col.currentMax': 'Longest Wait',
+    'cr.flow.col.crId': 'CR ID',
+    'cr.flow.col.status': 'Current Status',
+    'cr.flow.col.days': 'Days',
+    'cr.flow.col.entered': 'Entered Step',
+    'cr.flow.col.left': 'Left Step',
+    'cr.flow.col.operator': 'Operator',
+    'cr.flow.col.result': 'Result',
+    'cr.flow.col.next': 'Next Status',
+    'cr.flow.stillWaiting': 'Still waiting',
+    'cr.flow.drill.title': 'Workflow Step Detail',
 
     /* ---- PM 执行分析（PmExecutionAnalysis.tsx）----
        Data source: eflow_pm; caliber rules in backend/services/pm_caliber.py.
@@ -4700,17 +4912,44 @@ const translations: Record<Locale, Record<string, string>> = {
     'pm.chart.month.title': 'Monthly Trend',
     'pm.chart.month.hint': 'Grouped by creation month; click a bar to drill into that month',
     'pm.chart.funnel.title': 'Workflow Progress',
-    'pm.chart.funnel.hint': 'Real chronological order — see where work orders stall',
+    'pm.chart.funnel.hint': 'Workflow History order — see where work orders stall',
     'pm.chart.funnel.shareOfCreated': 'Share of created',
     'pm.chart.site.title': 'Sites with Most Overdue',
     'pm.chart.site.hint': 'Red = overdue, orange = open and not overdue; click to drill down',
 
-    // Workflow steps (real chronological order)
+    // Milestones (order strictly follows the eFlow Workflow History / queryAllSteps)
+    'pm.ms.title': 'Workflow Milestones',
+    'pm.ms.hint': 'Order per eFlow Workflow History; click a number for details',
+    'pm.ms.summary': '{n} work orders, {inFlight} in flight',
+    'pm.ms.done': 'Done',
+    'pm.ms.waiting': 'Waiting',
+    'pm.ms.longest': 'Longest wait {d}',
+    'pm.ms.avg': 'Avg dwell {d}',
+    'pm.ms.bottleneck': 'Bottleneck',
+    'pm.ms.empty': 'No parseable workflow records in the selected window',
+    'pm.ms.plansHint': '{n} plan numbers selected: milestones cover ALL plans (the backend filters by a single plan number only), so they may differ from the table subtotal below.',
+    'pm.ms.created': 'Create',
+    'pm.ms.scheduled': 'Schedule',
+    'pm.ms.accepted': 'Accept',
+    'pm.ms.processed': 'Process',
+    'pm.ms.pmApproved': 'PM Manager Approve',
+    'pm.ms.flmApproved': 'FLM Leader Approve',
+    'pm.ms.closed': 'Closed',
+    'pm.ms.kind.arrived': 'Passed this node',
+    'pm.ms.kind.current': 'Currently waiting',
+    'pm.ms.kind.done': 'Closed',
+    'pm.ms.stillWaiting': 'Still waiting',
+    'pm.ms.drill.title': 'Milestone Detail',
+    'pm.ms.col.days': 'Days',
+    'pm.ms.col.entered': 'Entered Node',
+    'pm.ms.col.left': 'Left Node',
+
+    // Workflow steps (Workflow History order)
     'pm.step.created': 'Created',
     'pm.step.scheduled': 'Scheduled',
     'pm.step.accepted': 'Accepted',
-    'pm.step.pmApproved': 'PM Manager Approved',
     'pm.step.processed': 'Processed',
+    'pm.step.pmApproved': 'PM Manager Approved',
     'pm.step.flmApproved': 'FLM Leader Approved',
 
     // Tables
@@ -5328,6 +5567,7 @@ const translations: Record<Locale, Record<string, string>> = {
     'msKpi.cardSummary': '{met} / {total} on target',
     'msKpi.target': 'Target',
     'msKpi.monthValue': 'Month',
+    'msKpi.colFilter': 'Column groups',
     'msKpi.met': 'Met',
     'msKpi.below': 'Below target',
     'msKpi.noData': 'No data',
@@ -5941,6 +6181,31 @@ const translations: Record<Locale, Record<string, string>> = {
     'ttwo.ticketSeverity': 'Ticket Severity',
     'ttwo.slaStatus': 'SLA Status',
     'ttwo.status': 'Status',
+    // Status milestone (2026-10-17): the Status dimension is laid out along the work-order
+    // lifecycle instead of by count, mirroring page=incident_overview. Numbers stay inside
+    // the nodes; the drilldown dimension/value are unchanged (status / raw eflow_wo.status).
+    'ttwo.statusMilestone': 'Workflow',
+    'ttwo.statusMilestoneExplain': 'Laid out along the work-order lifecycle, left to right: Dispatch → Accept → Process → Field Confirm → Confirm → Closed. Each node sums the raw status values listed in its match list (exact match, no fuzzy grouping); click a node to drill into that stage. Statuses that match nothing are listed separately as “Other” and are never dropped.',
+    // Milestone stage names; key names line up 1:1 with STATUS_MILESTONES[].labelKey
+    // in TTWODashboard. The raw statuses rolled into each stage are listed there.
+    'ttwo.milestone.reassign': 'Dispatch',
+    'ttwo.milestone.waitAccept': 'Accept',
+    'ttwo.milestone.arriveSite': 'Arrive Site',
+    'ttwo.milestone.waitProcess': 'Processing',
+    'ttwo.milestone.leaveSite': 'Leave Site',
+    'ttwo.milestone.waitConfirm': 'Wait Confirm',
+    'ttwo.milestone.waitConfirmFO': 'Field Confirm',
+    'ttwo.milestone.closed': 'Closed',
+    'ttwo.milestone.other': 'Other',
+    'ttwo.status.other': 'Other',
+    // Milestone tooltips (2026-10-18): spell out the composition, the percentage
+    // denominator and the drilldown caliber so the number can be verified.
+    'ttwo.milestone.ttComposition': 'Composition (raw statuses in this stage → count):',
+    'ttwo.milestone.ttSingle': 'This stage maps to a single raw status:',
+    'ttwo.milestone.ttShare': 'Share',
+    'ttwo.milestone.ttDenom': 'Denominator = sum of all status counts in this dimension ({n}), excluding rows with an empty status',
+    'ttwo.milestone.ttDrill': 'Click to drill down: returns the rows of the statuses above; the row count equals the node number',
+    'ttwo.milestone.ttRowDrill': 'Click to drill down the rows of this status',
     'ttwo.mttrTrend': 'MTTR Trend',
     // MTTR trend: day/week/month tabs + per-severity + ZTE/3rd owner + advanced filters (2026-09-26)
     'ttwo.mttrBySeverity': 'MTTR Trend · {sev}',
@@ -6538,7 +6803,11 @@ const translations: Record<Locale, Record<string, string>> = {
     /* Map legend overlay (2026-09-28): legend moved out of the control card onto the map */
     'gis.legendTitle': 'Legend',
     'gis.utilLegendTitle': 'MW Link Utilization',
-    'gis.legendNote': 'Legend counts sites (with that data); total alarm records in Alarm Dashboard',
+    'gis.legendNote': '"Realtime Alarm" = sites painted with that colour and match the map dots exactly. "Related Tickets" / "Site Class" = sites having that attribute, counted independently. A site has only one colour (priority: Overdue > WO > TT > On Time > VIP), so a site with tickets may be painted overdue red; the groups overlap and do not simply add up.',
+    'gis.legendGroup.alarm': 'Realtime Alarm',
+    'gis.legendGroup.status': 'Site Status',
+    'gis.legendGroup.ticket': 'Related Tickets',
+    'gis.legendGroup.site': 'Site Class',
     // Layer control (top-right). Place labels default OFF: tiles hold 17k place names
     'gis.layerTitle': 'Layers',
     'gis.layerLabels': 'Place labels',
@@ -6616,12 +6885,32 @@ const translations: Record<Locale, Record<string, string>> = {
     'gis.legend.rtAlarm': 'Realtime Alarm',
     'gis.legend.rtAlarmOverdue': 'Realtime Alarm (Overdue)',
     'gis.legend.rtAlarmOnTime': 'Realtime Alarm (On Time)',
+    'gis.legend.rtAlarmOverdueHint': 'TT Overdue: flagged when (now − servertime) > assign_delay. Alarms without assign_delay are treated as on time.',
+    'gis.legend.rtAlarmOnTimeHint': 'On time: within assign_delay, or the alarm has no assign_delay (no SLA data).',
     /* Merged entry: history alarm + TT + WO. English label is plain "History"
        pairing with "RealTime" (user-specified 2026-09-28); the three-in-one
        meaning is carried by the hover hint (gis.legend.hisAlarmHint). */
     'gis.legend.hisAlarm': 'History',
     'gis.legend.hisAlarmHint': 'Sites with any history alarm, TT or WO record',
-    'gis.ossStatsTitle': 'OSS Problem Stats',
+    'gis.ossStatsTitle': 'Alarm Stats',
+    'gis.siteStatsTitle': 'Site Stats',
+    'gis.ossDrillHint': 'View alarm details for "{name}"',
+    'gis.ossDrillEmpty': 'No active realtime alarm in this category',
+    'gis.ossDrillTruncated': 'Showing only first {shown} records (truncated)',
+    'gis.drillTruncated': 'Showing only first {shown} records (truncated)',
+    'gis.priorityStatsTitle': 'TT Priority Stats',
+    'gis.priorityUnknown': 'Unknown',
+    'gis.priorityDrillHint': 'View alarm details for priority "{name}"',
+    'gis.ossColPriority': 'Priority',
+    'gis.ossColAlarmTitle': 'Alarm Title',
+    'gis.ossColAlarmcode': 'Alarm Code',
+    'gis.ossColTtId': 'TT No.',
+    'gis.ossColAlarmTime': 'Alarm Time',
+    'gis.ossColDuration': 'Duration',
+    'gis.ossColOverdue': 'Overdue',
+    'gis.ossOverdueYes': 'Overdue',
+    'gis.ossOverdueNo': 'On time',
+    'gis.ossNoTt': 'No TT',
     'gis.realtimeLive': 'Live data (current snapshot)',
     'gis.regionLabel': 'Region',
     'gis.countyLabel': 'County',
@@ -7265,6 +7554,26 @@ const translations: Record<Locale, Record<string, string>> = {
 
     // ===== CN KPI dashboard (native rebuild of my-finebi "CN KPI") =====
     'nav.cnKpi': 'CN KPI',
+    'nav.cnKpi5mins': 'CN KPI 5-Min',
+
+    // ===== CN KPI 5-minute dashboard (Day0/Day1 overlay) =====
+    // Data is written every 15 min by the cnn_kpi_sync_5mins task into the 5mins_* tables
+    'cnkpi5.noGranularity': 'No 5-min data',
+    'cnkpi5.noData': 'No data',
+    'cnkpi5.queryFail': 'Query failed',
+    'cnkpi5.loadFail': 'Failed to load dashboard data',
+    'cnkpi5.time': 'Time',
+    'cnkpi5.value': 'value',
+    'cnkpi5.rows': 'rows',
+    'cnkpi5.day0': 'Day0 (today)',
+    'cnkpi5.day1': 'Day1 (yesterday)',
+    'cnkpi5.summary': '{{ok}}/{{total}} widgets with data',
+    'cnkpi5.legendHint': 'The two lines show the same time of day today and yesterday, so the intraday trend can be compared directly',
+    'cnkpi5.emptyBanner': '{{n}} widget(s) have no 5-minute data (not a fault)',
+    'cnkpi5.emptyWhy': 'The xGW License, xGW CPU and 3G FDD templates only expose an hourly tier upstream — no 5-minute data exists. The other 5 KPIs are working normally.',
+    'cnkpi5.exportSource': 'Data source',
+    'cnkpi5.exportGenerated': 'Generated at',
+
     // ===== Native boards (migrated from the rest of my-finebi) =====
     'nav.fbMetroRing': 'IP RAN Metro Ring KPI',
     'nav.fbIpranHq': 'IP RAN HQ-ODC/Banjor-ELWA/OLT',

@@ -2368,6 +2368,7 @@ export default function NocAnalyst() {
               {/* 承接方切换：IPT（第三方）单本就不建 WO，与自派单混看会把
                   「应派未派 WO」抬高 3 倍多。默认 ZTE，聚焦自派单。 */}
               <Segmented
+                className="wh-seg"
                 value={ownerFilter}
                 onChange={v => setOwnerFilter(v as 'ZTE' | 'IPT' | 'ALL')}
                 options={[

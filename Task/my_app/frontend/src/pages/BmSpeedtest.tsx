@@ -580,6 +580,7 @@ export default function BmSpeedtest() {
       <CardBase bodyStyle={{ padding: 'var(--wh-space-sm) var(--wh-space-md)' }}>
         <Space wrap>
           <Segmented
+            className="wh-seg"
             size="small"
             value={quick}
             onChange={v => applyQuick(String(v))}
@@ -796,6 +797,7 @@ export default function BmSpeedtest() {
         extra={
           <Space wrap>
             <Segmented
+              className="wh-seg"
               size="small" value={metric}
               onChange={v => setMetric(v as MetricKey)}
               options={(['download', 'upload', 'latency', 'jitter'] as MetricKey[]).map(m => ({

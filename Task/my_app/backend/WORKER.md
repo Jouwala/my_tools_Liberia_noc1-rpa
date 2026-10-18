@@ -37,6 +37,7 @@ Watchdog 进程 (python -m backend.worker_watchdog)  ── 父进程托管 work
 | 未启用队列（无 MY_APP_TASK_QUEUE=1） | 行为与改造前完全一致（进程内线程执行） |
 | Worker 进程静默死亡（无 watchdog） | Last 冻结、任务不再执行且无任何报错（本次事故根因） |
 | 看门狗托管（worker_watchdog） | worker 退出后自动重拉（异常崩溃退避最大 30s，连续 10 次放弃） |
+| **重复启动看门狗**（PID 文件被删却没杀进程） | **第二个看门狗拒绝启动**：单例由命名互斥量保证，不看 PID 文件。2026-10-16 实测：只看 PID 文件的互斥检查当天叠出 5 套栈 / 40 个 worker → 128 条假失败 + 同一任务被执行两遍（WhatsApp 告警与邮件重发）。详见 `docs/manual/13-operations.md`「重复 worker 栈」 |
 
 > **为什么要有「人为停机」这条分支**（2026-10-06 用户实测）：`stop.bat` 用
 > `taskkill /T /F` 树杀看门狗，worker 随之中断，`finally` 里的 PID 文件自清来不及执行，
@@ -57,6 +58,12 @@ Watchdog 进程 (python -m backend.worker_watchdog)  ── 父进程托管 work
   `log_cleanup` 做 7 天保留；未分组时用 `worker_runtime_<日期>.log`）
 - 停止：`stop.bat` **先树杀看门狗**（`backend/worker_watchdog.pid` + `taskkill /T /F`），连带 worker 一起停且不会复活；
   随后按 `backend/worker.pid` 兜底清理（看门狗未启用时仍可用）
+- 查"是否已有看门狗"：`python -m backend.worker_watchdog --probe`（退出码 `0=已有 / 3=没有 / 4=判不了`）。
+  互斥量在 `Global\` 建；缺 `SeCreateGlobalPrivilege` 的普通会话退到 `Local\`，
+  但**打开**已存在的 Global 对象不需要该特权，所以跨完整性级别仍能检出（打不开一律保守判"已有"）。
+- ⚠ **禁止只删 `backend/*.pid` 当作"已经停了"**：PID 文件是 `stop.bat` 定位进程用的索引，
+  不是存活判据。撕了索引而进程照跑，`start_hidden.ps1` / `restart_workers.py` 就会再叠一套栈。
+  重启只准 `stop.bat` → `start.bat`（管理员），或 `restart_workers.py --mode watchdog`。
 - 手动启动看门狗：在 my_app 根目录执行 `python -m backend.worker_watchdog`
 - 手动启动 worker（无看门狗）：在 my_app 根目录执行 `python -m backend.worker`
 

@@ -646,7 +646,8 @@ export default function NurDashboard({ only }: { only?: 'nur' | 'sla' } = {}) {
     // 站点四维沿用筛选条同一批标签键（nur.trmType 等），不再另建 exportXxx 重复键
     const filterText = [
       `${t('nur.exportVendor')}: ${vendor || t('nur.all')}`,
-      `${t('nur.exportProject')}: ${project || t('nur.all')}`,
+      // 与筛选条一致：ms_nur_only 不出 Project 下拉，导出表头也不列该项
+      ...(only ? [] : [`${t('nur.exportProject')}: ${project || t('nur.all')}`]),
       ...SITE_FILTER_COLS.map((c: string) =>
         `${t(siteFilterLabelKey(c))}: ${activeSiteFilters[c] || t('nur.all')}`),
       // 导出件脱离界面语境，裸 "Y"/"N" 会被误读，故写自解释文案
@@ -741,12 +742,16 @@ export default function NurDashboard({ only }: { only?: 'nur' | 'sla' } = {}) {
               onChange={v => setVendor(v || '')} style={{ width: 'min(100%, 6.25rem)' as any }}
               options={(options?.vendors || ['ZTE', '3RD']).map(v => ({ value: v, label: v }))} />
           </Space>
-          <Space wrap style={{ gap: 'var(--wh-space-xs)' }}>
-            <Text style={{ color: WH.textMuted }}>{t('nur.project')}</Text>
-            <Select allowClear placeholder={t('nur.all')} value={project || undefined}
-              onChange={v => setProject(v || '')} style={{ width: 'min(100%, 10.625rem)' as any }}
-              options={(options?.projects || []).map(v => ({ value: v, label: v }))} />
-          </Space>
+          {/* Project 筛选仅在完整看板（page=nur）出现：ms_nur_only（only='nur'）
+              按业务要求不展示该下拉，同时 project 恒为空、不参与请求与导出。 */}
+          {!only && (
+            <Space wrap style={{ gap: 'var(--wh-space-xs)' }}>
+              <Text style={{ color: WH.textMuted }}>{t('nur.project')}</Text>
+              <Select allowClear placeholder={t('nur.all')} value={project || undefined}
+                onChange={v => setProject(v || '')} style={{ width: 'min(100%, 10.625rem)' as any }}
+                options={(options?.projects || []).map(v => ({ value: v, label: v }))} />
+            </Space>
+          )}
           {/* 站点维度筛选（trm_type / site_caregory / province_county / region /
               starlink_recently_migrated）：
               候选值由 /nur/options 的 site_filters 下发（站点主数据 master_site_db），

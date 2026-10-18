@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo, Fragment } from 'react'
 import { cachedGet } from '../cache'
-import { Card, Row, Col, Select, Spin, Tag, Space, Badge, DatePicker, Segmented, Button } from 'antd'
-import { DownloadOutlined, FilterOutlined } from '@ant-design/icons'
+import { Card, Row, Col, Select, Spin, Tag, Space, Badge, DatePicker, Segmented, Button, Input, Table } from 'antd'
+import { DownloadOutlined, FilterOutlined, SearchOutlined } from '@ant-design/icons'
 // 本模块用自研的 LeafletMap（原生 leaflet）取代 react-leaflet —— 后者是 Hippocratic-2.1
 // 许可（非 OSI，含人权条款/仲裁/赔偿），见 components/LeafletMap.tsx 头部说明。
 // ⚠️ 下面 LeafletMap 的 `Tooltip as MapTooltip` 别名必须保留：它与 antd 的 Tooltip 同名，
@@ -17,7 +17,7 @@ import { SiteDrilldownDrawer } from './gismap/SiteDrilldownDrawer'
 import MapLegendOverlay from './gismap/MapLegendOverlay'
 import RegionRankingOverlay from './gismap/RegionRankingOverlay'
 import { placeCountyLabels, makeProjector } from './gismap/countyLabelLayout'
-import type { MapLegendRow } from './gismap/MapLegendOverlay'
+import type { MapLegendRow, MapLegendGroup } from './gismap/MapLegendOverlay'
 import type { Site, DrilldownData, DrilldownAnalytics, TopologyLink, LegendKey, LayerKey, TimePreset, BoundaryMode, CountyBoundary, UtilMeta, SiteTypeStat } from './gismap/types'
 // KML_LINK_COLORS 已不在本模块使用：利用率叠加恒开（showUtil 恒真），
 // 于是「按 kml_mw_links 原色分组」的那份图例成了不可达分支，2026-09-28 随图例迁移一并删除。
@@ -29,6 +29,8 @@ import { LayerToggleControl } from './gismap/LayerToggleControl'
 import { MapOverlayToggle } from './gismap/MapOverlayToggle'
 import { PersonnelLayer, PersonnelToggleButton } from './gismap/PersonnelLayer'
 import { exportAoaReport } from '../utils/excelReport'
+import DraggableClickModal from '../components/DraggableClickModal'
+import { fmtTs } from './gismap/helpers'
 
 /* 默认取景：**完整居中显示利比里亚全境**（2026-09-25 改，按用户需求）。
    需求原话：「打开默认为当前点一下减号的效果，注意要保持利比里亚居中」——
@@ -95,6 +97,53 @@ const SITE_TYPE_TAG_COLORS: Record<string, string> = {
   COOL: 'cyan',
   NORMAL: 'blue',
 }
+
+/* TT 优先级（ticket_severity）的进度条色阶（2026-10-16 新增卡）。
+   P1 红 → P2 橙 → P3 黄 → P4 蓝，Unknown 灰 —— 由高到低的暖→冷梯度，
+   让「最严重的那条」在竖排卡片里一眼可辨。
+
+   ⚠️ 必须用**十六进制实值**，不能写 WH.xxx：与上面 SITE_TYPE_TAG_COLORS、
+   COUNTY_BAND_COLORS 同一约束 —— 这些值最终进的是内联 style 的 background，
+   虽然这里并非 canvas，但保持与全页一致的做法，避免有人误以为可以混用令牌。
+   （ECharts/canvas 那条约束见 AGENTS.md 三.3；这里是为了一致性。） */
+const PRIORITY_COLORS: Record<string, string> = {
+  P1: '#ff4d4f',
+  P2: '#ff922b',
+  P3: '#f6cf00',
+  P4: '#4dabf7',
+  Unknown: '#9aa5b5',
+}
+
+/* ===== 图例配色（2026-10-17 重新设计）=====
+
+   用户反馈「图例总是不好区分」。原来的 SITE_COLORS 是**六个互不相干的色相**
+   （大红/黄/灰/蓝/绿/紫），色相之间没有亲疏关系 —— 读者只能逐行看文字。
+
+   现在按**语义族**重新分配色相，同族用同色相不同深浅：
+     · 告警族（红橙）  overdue 深红 / ontime 橙 / rt_alarm 中红
+     · 工单族（蓝青）  tt 蓝 / wo 青
+     · 其它            vip 紫（重要但非告警）、normal 灰（无状态）
+   这样「同组=同族色」本身就是线索，不必读字。
+
+   ⚠️ 关键约束：**这份配色必须与地图上实际画的圆点同源**，否则图例骗人。
+      因此 GISMap 里站点圆点的 getMarkerColor 也改为走 colorFor()，
+      而不是直接读 SITE_COLORS —— 见该函数。
+   ⚠️ 值必须是十六进制实值：它们要喂给 Leaflet 的 SVG（fillColor），
+      解析不了 CSS 变量（与 SITE_COLORS 段头注释同一约束）。 */
+const LEGEND_COLORS: Record<string, string> = {
+  rt_alarm_overdue: '#e03131',   // 深红：SLA 已超时（最紧急）
+  rt_alarm_ontime: '#ff922b',    // 橙：在 SLA 内
+  rt_alarm: '#ff6b6b',           // 中红：全量模式的实时告警档
+  his_alarm: '#868e96',          // 灰：历史
+  tt: '#4dabf7',                 // 蓝
+  wo: '#20c997',                 // 青
+  vip: '#9775fa',                // 紫：重要站点（与告警状态无关）
+  normal: '#adb5bd',             // 浅灰：无任何状态
+}
+
+/* 取图例/站点圆点色。集中一处，保证「图例色 == 地图点色」。
+   未知 key 回落到 SITE_COLORS.normal（与改动前一致，不臆造颜色）。 */
+const colorFor = (key: string): string => LEGEND_COLORS[key] || SITE_COLORS.normal
 
 /* ========== 区域（County）告警分档与淡填充（2026-10-14） ==========
 
@@ -298,7 +347,56 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
      口径 = **全量站点表**（827），刻意与旁边的「站点总数」对齐，而不是跟随地图上的
      可见站点数 —— 详见后端 `_site_type_stats()` 的注释。 */
   const [siteTypeStats, setSiteTypeStats] = useState<SiteTypeStat[]>([])
-  const [ossStats, setOssStats] = useState<{ oss_specific_problem: string; count: number; sites: number }[]>([])
+  const [ossStats, setOssStats] = useState<{ oss_specific_problem: string; count: number; with_tt: number; sites: number }[]>([])
+  /* 按 TT 优先级统计（2026-10-16 用户要求）。
+     后端在 priority_stats 里给出**有序**的档位（P1→P4→Unknown），
+     前端只负责渲染，不再自行排序 —— 顺序即业务优先级，不该由前端猜。 */
+  const [priorityStats, setPriorityStats] = useState<{ priority: string; count: number }[]>([])
+  const [priorityTotal, setPriorityTotal] = useState(0)
+
+  /* ===== 告警明细下钻弹窗（2026-10-16）=====
+     两个卡共用**同一个**弹窗：OSS 类别卡点开是「该类别下的告警」，
+     优先级卡点开是「该优先级下的告警」。两者的行结构、列、导出、搜索完全一致，
+     仅取数端点与标题不同，故用一组 state + 一个 kind 复用，而不是复制两套
+     （AGENTS.md 三.7：不为外形相似而过早抽象，但这里是**同一个真实用例的两次实例**，
+      且如果再复制一份就是 6 个 state + 2 个 handler 的重复）。
+
+     kind: 'oss' | 'priority' —— 决定请求哪个端点、标题怎么显示。 */
+  const [drillOpen, setDrillOpen] = useState(false)
+  const [drillAnchor, setDrillAnchor] = useState<{ x: number; y: number } | null>(null)
+  const [drillKind, setDrillKind] = useState<'oss' | 'priority'>('oss')
+  // 标题里的主体（OSS 类别名 / 优先级档位），如 'SITE OUTAGE DUE TO POWER OFF' 或 'P3'
+  const [drillKey, setDrillKey] = useState('')
+  const [drillRows, setDrillRows] = useState<any[]>([])
+  const [drillLoading, setDrillLoading] = useState(false)
+  const [drillTruncated, setDrillTruncated] = useState(false)
+  const [drillSearch, setDrillSearch] = useState('')
+
+  /* 打开下钻：kind 决定端点与参数。e.clientX/Y 让弹窗落在点击处
+     （DraggableClickModal 的既定行为，与 AlarmDashboard 一致）。 */
+  const openDrill = (kind: 'oss' | 'priority', key: string, e: React.MouseEvent) => {
+    setDrillKind(kind)
+    setDrillKey(key)
+    setDrillAnchor({ x: e.clientX, y: e.clientY })
+    setDrillSearch('')
+    setDrillOpen(true)
+    setDrillLoading(true)
+    setDrillRows([])
+    setDrillTruncated(false)
+    const url = kind === 'oss' ? '/gis/realtime/oss-alarms' : '/gis/realtime/priority-alarms'
+    const params = kind === 'oss' ? { problem: key } : { priority: key }
+    api.get(url, { params })
+      .then(res => {
+        setDrillRows(res.data.data || [])
+        setDrillTruncated(!!res.data.truncated)
+      })
+      .catch(err => {
+        // 不吞异常：下钻失败要能在控制台看见，界面回落为空表
+        console.error(`[GISMap] ${kind} drilldown failed:`, err?.response?.status, err?.response?.data || err)
+        setDrillRows([])
+      })
+      .finally(() => setDrillLoading(false))
+  }
 
   /* 区域排名条数据（2026-10-14 用户要求「增加一个区域排名条，放在地图右上角或左上角」）。
 
@@ -435,6 +533,9 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
         setSites(res.data.sites || [])
         if (mode === 'realtime' && res.data.realtime_alarm_summary) {
           setOssStats(res.data.realtime_alarm_summary.oss_problem_stats || [])
+          const pst = res.data.realtime_alarm_summary.priority_stats
+          setPriorityStats(pst?.rows || [])
+          setPriorityTotal(pst?.total || 0)
         }
         if (regions.length === 0) setRegions(res.data.regions || [])
         if (Object.keys(filterOptions).length === 0 && res.data.filter_options) {
@@ -561,16 +662,27 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
     })
   }
 
+  /* 站点着色 —— **每站点恰好一个颜色**，且顺序即优先级。
+
+     ---- 2026-10-17 调整优先级：告警状态提到 TT/WO 之前 ----
+     原顺序是 tt > wo > 告警状态，后果被用户实测发现：**29 个有超时告警的站点
+     全部同时带 TT**，于是全被涂成蓝色的「TT」，地图上一个红点也没有 ——
+     最需要被看到的 SLA 超时反而被工单色盖住了。
+     现在改为：overdue > wo > tt > ontime > vip > normal。
+     即「超时」永远最醒目（红），其次工单，再其次准时告警。
+     ⚠️ 这与图层开关仍相容：关掉 rt_alarm 图层后，站点会自然落到 tt/wo 判定，
+        不会被涂成超时色（见下方 activeLayers.has('rt_alarm') 守卫）。
+     ⚠️ 图例数字由本函数分桶得出（见 categoryCounts），所以改这里的顺序
+        图例会自动跟着变，不会再出现「图例与地图各说各话」。 */
   const getSiteCategory = (site: Site): LegendKey => {
     if (mode === 'realtime') {
-      // 实时告警地图：TT/WO 由实时告警 tt_id 派生，优先着色以直观体现关联（TT/WO 颜色保持不变）
-      if (activeLayers.has('tt') && (site.rt_tt_count || 0) > 0) return 'tt'
+      // ① 超时告警（SLA 已破）—— 最高优先级，必须一眼可见
+      if (activeLayers.has('rt_alarm') && (site.rt_alarm_overdue || 0) > 0) return 'rt_alarm_overdue'
+      // ② 关联工单：WO 比 TT 更「下游」，先画 WO
       if (activeLayers.has('wo') && (site.rt_wo_count || 0) > 0) return 'wo'
-      if (activeLayers.has('rt_alarm')) {
-        // 超时(当前时间 - servertime > assign_delay) => 大红；否则 => 黄
-        if ((site.rt_alarm_overdue || 0) > 0) return 'rt_alarm_overdue'
-        if (site.rt_alarm_count > 0) return 'rt_alarm_ontime'
-      }
+      if (activeLayers.has('tt') && (site.rt_tt_count || 0) > 0) return 'tt'
+      // ③ 未超时告警
+      if (activeLayers.has('rt_alarm') && site.rt_alarm_count > 0) return 'rt_alarm_ontime'
       if (site.vip_site === 'Y' || site.vip_site === 'Yes') return 'vip'
       return 'normal'
     }
@@ -834,19 +946,10 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
     ]
   }, [sites])
 
-  const getMarkerColor = (site: Site) => {
-    const cat = getSiteCategory(site)
-    switch (cat) {
-      case 'rt_alarm': return SITE_COLORS.rt_alarm
-      case 'rt_alarm_overdue': return SITE_COLORS.rt_alarm_overdue
-      case 'rt_alarm_ontime': return SITE_COLORS.rt_alarm_ontime
-      case 'his_alarm': return SITE_COLORS.his_alarm
-      case 'tt': return SITE_COLORS.tt
-      case 'wo': return SITE_COLORS.wo
-      case 'vip': return SITE_COLORS.vip
-      default: return SITE_COLORS.normal
-    }
-  }
+  /* 站点圆点色 —— **必须走 colorFor()**，与图例同一份色表（2026-10-17）。
+     改配色时若只改了图例、没改这里，就会出现「图例红、地图黄」这种最难排查的
+     不一致；集中到 colorFor 后只有一个真相源。 */
+  const getMarkerColor = (site: Site) => colorFor(getSiteCategory(site))
 
   /* 站点圆点描边色（2026-10-02 用户反馈「地图上的圆点不好看」）。
      ── 为什么不写死 #fff（原实现）：
@@ -939,39 +1042,75 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
     setSelectedRegion(undefined)
   }
 
+  /* 图例数字 = **地图上被画成该颜色的站点数**（每个站点恰好一个颜色）。
+
+     ---- 为什么这么定义（2026-10-17 用户实测反馈后彻底重构）----
+     用户报：「图例 Realtime Alarm 加起来 35，跟哪个都对不上；图例说 29 个 overdue，
+     地图上一个红色都找不到」。
+     根因是图例与地图用了**两套互相矛盾的模型**：
+       ① 图例旧实现：每档**独立**计数（有超时就算 overdue、有 TT 又算 tt，
+          同一站点被数进多档）→ 各档相加可以超过站点总数；
+       ② 地图着色 getSiteCategory：每站**只有一个颜色**，且旧优先级是 tt 最高。
+     实测：29 个站有超时告警，而**这 29 个站全部同时有 TT** → 全被涂成蓝色，
+     红色站点数 = 0。图例说 29 个红点、地图一个红点都没有，就是这么来的。
+
+     现在两处**共用 getSiteCategory 一个函数**：图例直接对该函数的结果分桶，
+     所以「图例数字」与「地图颜色」物理上不可能再不一致（与后端
+     「卡片/下钻同源」是同一条纪律）。
+     同时把超时提升为最高着色优先级，让 SLA 超时不再被工单色盖住。
+
+     代价与取舍：图例不再表达「总共有多少站点有超时告警」（那是可重叠的统计），
+     而表达「有多少站点被画成红色」。后者才是看图例时真正要找的对应关系。
+     全量模式（?page=gis）本来就是这个模型，两个分支现在逻辑一致。 */
+  /* ---- 图例计数：两组用**不同模型**（2026-10-17 用户澄清后定稿）----
+
+     用户两句反馈合起来才说清楚问题：
+       ①「图例说 29 个 overdue，地图上一个红色都找不到」→ 告警状态必须与地图一致；
+       ②「Related Tickets 的数字也不对」              → TT/WO 不能跟着地图颜色走。
+     这两条**无法用同一个模型同时满足**，因为一个站点只有一个颜色：
+       30 个站有 TT，但其中 29 个同时有超时告警、被涂成红色，
+       若 TT 也按颜色数，就只剩 1 —— 数字没错，却完全没反映"有多少站在跟单"。
+
+     故分开处理：
+       · **告警状态组**（overdue / ontime / rt_alarm / his_alarm）：
+         按 getSiteCategory 的颜色分桶 —— 必须与地图圆点一一对应；
+       · **关联工单组**（tt / wo）与**站点等级组**（vip / normal）：
+         按**独立条件**计数（该站是否有 TT / WO / VIP）——
+         它们描述"这个站点具备什么属性"，与颜色无关，同一站点可计入多组。
+     因此：告警两档之和 = 有告警的站点数；但 Tickets/等级组与它们会重叠，
+     **全部相加不等于站点总数**，这是刻意且正确的 —— ⓘ 说明里已写明。 */
   const categoryCounts = useMemo(() => {
     const counts = { tt: 0, wo: 0, vip: 0, normal: 0, rt_alarm: 0, rt_alarm_overdue: 0, rt_alarm_ontime: 0, his_alarm: 0 }
-    if (mode === 'realtime') {
-      sites.forEach(s => {
-        if ((s.rt_alarm_overdue || 0) > 0) counts.rt_alarm_overdue++
-        else if (s.rt_alarm_count > 0) counts.rt_alarm_ontime++
-        if ((s.rt_tt_count || 0) > 0) counts.tt++
-        if ((s.rt_wo_count || 0) > 0) counts.wo++
-        if (s.vip_site === 'Y' || s.vip_site === 'Yes') counts.vip++
-        else if (s.rt_alarm_count === 0 && (s.rt_tt_count || 0) === 0 && (s.rt_wo_count || 0) === 0) counts.normal++
-      })
-    } else {
-      /* 全量模式：按合并后的四档统计（RT / His / VIP / normal）。
-         his_alarm 一档现在**涵盖历史告警 + TT + WO**（见 hisAnyHit），
-         故 tt / wo 不再单独计数 —— 若继续单独计数，图例会出现
-         「His 100、TT 200、WO 300」这种既重复又无法相加的读数。 */
-      sites.forEach(s => {
-        counts[getSiteCategory(s)]++
-      })
-    }
+    sites.forEach(s => {
+      // 告警状态：按地图实际着色分桶（保证与圆点颜色一致）
+      counts[getSiteCategory(s)]++
+      // 关联工单 / 站点等级：独立计数，不受颜色优先级影响
+      if ((s.rt_tt_count || 0) > 0) counts.tt++
+      if ((s.rt_wo_count || 0) > 0) counts.wo++
+      if (s.vip_site === 'Y' || s.vip_site === 'Yes') counts.vip++
+      if (s.rt_alarm_count === 0 && (s.rt_tt_count || 0) === 0 && (s.rt_wo_count || 0) === 0) counts.normal++
+    })
     return counts
   }, [sites, activeLayers, mode])
 
-  // 图例 TT/WO 计数：显示工单总数（时间窗口内 eflow_tt/eflow_wo 的全部工单数），
-  // 而不是“有工单的站点数”——TT 图例应等于工单总量（如 6 个月的全部 TT）
-  const ticketTotals = useMemo(() => {
+  /* 实时模式的**告警/工单总数**（per-alarm，按条数累加）。
+     2026-10-17：图例数字统一改成「站点数」之后，这些 per-alarm 的总数仍然有用 ——
+     它们是「每档到底有多少条」的对照，写进图例的 ⓘ 口径说明，
+     这样用户既能按站点读图例、又能看到告警总量，不会再把两者相加。
+     （原先它们直接当图例数字用，与 Overdue/OnTime 的站点数混在一张表里，
+       正是「加起来对不上」的另一个来源。） */
+  const realtimeAlarmTotals = useMemo(() => {
     if (mode === 'realtime') {
       return {
+        alarms: sites.reduce((s, x) => s + (x.rt_alarm_count || 0), 0),
+        overdue: sites.reduce((s, x) => s + (x.rt_alarm_overdue || 0), 0),
+        ontime: sites.reduce((s, x) => s + (x.rt_alarm_ontime || 0), 0),
         tt: sites.reduce((s, x) => s + (x.rt_tt_count || 0), 0),
         wo: sites.reduce((s, x) => s + (x.rt_wo_count || 0), 0),
       }
     }
     return {
+      alarms: 0, overdue: 0, ontime: 0,
       tt: sites.reduce((s, x) => s + (x.tt_count || 0), 0),
       wo: sites.reduce((s, x) => s + (x.wo_count || 0), 0),
     }
@@ -986,12 +1125,16 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
      - tt / wo 两项**只在实时模式保留**：全量模式下它们已被合并进 his_alarm 一档
        （见 hisAnyHit），再列出来会让同一批站点被数两遍。 */
   const legendItems: { key: LegendKey; color: string; label: string; count: number }[] = [
-    { key: 'rt_alarm_overdue', color: SITE_COLORS.rt_alarm_overdue, label: t('gis.legend.rtAlarmOverdue'), count: categoryCounts.rt_alarm_overdue },
-    { key: 'rt_alarm_ontime', color: SITE_COLORS.rt_alarm_ontime, label: t('gis.legend.rtAlarmOnTime'), count: categoryCounts.rt_alarm_ontime },
-    { key: 'rt_alarm', color: SITE_COLORS.rt_alarm, label: t('gis.legend.rtAlarm'), count: categoryCounts.rt_alarm },
-    { key: 'his_alarm', color: SITE_COLORS.his_alarm, label: t('gis.legend.hisAlarm'), count: categoryCounts.his_alarm },
-    { key: 'tt', color: SITE_COLORS.tt, label: t('gis.legend.tt'), count: ticketTotals.tt },
-    { key: 'wo', color: SITE_COLORS.wo, label: t('gis.legend.wo'), count: ticketTotals.wo },
+    { key: 'rt_alarm_overdue', color: colorFor('rt_alarm_overdue'), label: t('gis.legend.rtAlarmOverdue'), count: categoryCounts.rt_alarm_overdue },
+    { key: 'rt_alarm_ontime', color: colorFor('rt_alarm_ontime'), label: t('gis.legend.rtAlarmOnTime'), count: categoryCounts.rt_alarm_ontime },
+    { key: 'rt_alarm', color: colorFor('rt_alarm'), label: t('gis.legend.rtAlarm'), count: categoryCounts.rt_alarm },
+    { key: 'his_alarm', color: colorFor('his_alarm'), label: t('gis.legend.hisAlarm'), count: categoryCounts.his_alarm },
+    /* tt / wo 改用**站点数**（2026-10-17 统一口径）。原先用 ticketTotals（工单条数），
+       与左边的 Overdue/OnTime（站点数）不是同一个单位 —— 同一张图例里混着
+       「站点数」与「工单数」，用户没法横向对照，也无法判断某档占比。
+       工单**条数**仍保留在 ⓘ 口径说明里（realtimeAlarmTotals）。 */
+    { key: 'tt', color: colorFor('tt'), label: t('gis.legend.tt'), count: categoryCounts.tt },
+    { key: 'wo', color: colorFor('wo'), label: t('gis.legend.wo'), count: categoryCounts.wo },
     { key: 'vip', color: SITE_COLORS.vip, label: t('gis.legend.vip'), count: categoryCounts.vip },
     { key: 'normal', color: SITE_COLORS.normal, label: t('gis.legend.normal'), count: categoryCounts.normal },
   ].filter(item =>
@@ -1014,10 +1157,44 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
     shape: 'dot' as const,
     hidden: hiddenLegends.has(item.key),
     hiddenNote: t('gis.legend.hidden'),
-    // History 一档涵盖告警/TT/WO 三类，光看名字看不出来，补个 hover 说明
-    hint: item.key === 'his_alarm' ? t('gis.legend.hisAlarmHint') : undefined,
+    // History 一档涵盖告警/TT/WO 三类，光看名字看不出来，补个 hover 说明；
+    // Overdue 的判定口径用户看不出来（2026-10-17 要求补说明「TT Overdue」）
+    hint: item.key === 'his_alarm' ? t('gis.legend.hisAlarmHint')
+      : item.key === 'rt_alarm_overdue' ? t('gis.legend.rtAlarmOverdueHint')
+      : item.key === 'rt_alarm_ontime' ? t('gis.legend.rtAlarmOnTimeHint')
+      : undefined,
     onClick: () => toggleLegend(item.key),
   }))
+
+  /* ---- 图例分组（2026-10-17 用户要求「重新设计 legend，总是不好区分」）----
+
+     把平铺列表按**语义**拆成三组，配合 LEGEND_COLORS 的同族配色：
+       · 实时告警  —— Overdue / On Time（实时模式）；或 RealTime / History（全量）
+       · 关联工单  —— TT / WO（仅实时模式）
+       · 站点等级  —— VIP / 无状态
+     组标题按模式给不同文案，空组（无条目）会被浮层自动跳过标题。
+     ⚠️ 分组的顺序即阅读顺序：**先看告警（最需要关注）**，再看工单，最后看兜底态。 */
+  const legendGroups: MapLegendGroup[] = useMemo(() => {
+    const pick = (keys: LegendKey[]) =>
+      siteLegendRows.filter(r => keys.includes(r.id as LegendKey))
+    return [
+      {
+        title: mode === 'realtime' ? t('gis.legendGroup.alarm') : t('gis.legendGroup.status'),
+        rows: pick(mode === 'realtime'
+          ? ['rt_alarm_overdue', 'rt_alarm_ontime']
+          : ['rt_alarm', 'his_alarm']),
+      },
+      {
+        // 全量模式没有独立的 tt/wo 档（已并入 History），该组自然为空、不显示标题
+        title: t('gis.legendGroup.ticket'),
+        rows: pick(['tt', 'wo']),
+      },
+      {
+        title: t('gis.legendGroup.site'),
+        rows: pick(['vip', 'normal']),
+      },
+    ]
+  }, [siteLegendRows, mode, t])
 
   /* MW 链路利用率图例：只列**实际出现**的分级（计数 0 的不占位）。
      ⚠️ 这一组的**显示与否**归工具栏的 showUtilLegend 管（默认不显示，2026-10-26），
@@ -1110,6 +1287,156 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
     minHeight: 0,
   }
 
+  /* ===== 实时模式：左侧统计列 + 右侧地图（2026-10-16 用户要求）=====
+
+     布局意图：统计卡（OSS 实时告警分类）竖排在**左**，地图占满**右侧**。
+     两个 div 是这条横向行的两层包裹，配合下方「统计卡 → 地图卡片」的 DOM 顺序生效。
+
+     rowStyle —— 外层横向 flex 行。flex:1 让它吃掉工具栏之下剩余的全部高度
+       （与 rootStyle 里那个 flex:1 是同一套理由，见上方注释）。
+
+     statsColStyle —— 内层统计列（OSS Problem Stats 卡所在的列）。
+       它是一个 **flex column**：以后若在统计卡下方再加卡片，会自动往下排。
+       宽度取 **20rem(320px) 定宽**而不是百分比：
+       · 列内是 OSS 类别名 + `07 / 210` 这类计数，属**定长文本**，
+         门户中列只有 570~730px，纯百分比会把计数挤到换行；
+       · 宽度让给地图比按比例切分更符合使用意图（站点密集，越宽越好）。
+     minWidth 12rem(192px)：门户中列最窄时给左列兜底，同时保证地图仍有 200px 以上；
+     maxWidth 24rem(384px)：超宽屏上不让左列被拉得过宽、统计项之间空得发虚。
+     overflowY:auto + minHeight:0：统计项多于可视高度时**左列自己滚**，
+       不撑高整行（撑高会把地图一起拉长并顶出视口底）；minHeight:0 是 overflow 生效的前提。
+
+     inertStyle —— 非实时模式的中性样式。display:contents 让该 div 不生成盒子，
+       子元素直接参与父级（rootStyle 的 flex 列）布局，等价于「没有这层 div」，
+       因此 'all' 模式的纵向布局与改动前一致。详见调用处的长注释。 */
+  const inertStyle: React.CSSProperties = { display: 'contents' }
+
+  /* 「是否实时模式」的单一判断点。本页所有与本次横向布局相关的分支都读它，
+     避免同一个 mode==='realtime' 散落多处后改一处漏一处。
+     注：它与文件里既有的 mode 判断（如 legendItems / layerOptions 的过滤）**不冲突** ——
+     那些是既有的、语义各异的判断，不在这里统一，这里只管布局这一件事。 */
+  const isRealtime = mode === 'realtime'
+
+  const rowStyle: React.CSSProperties = {
+    display: 'flex',
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    gap: '0.75rem',
+    flex: 1,
+    minHeight: 0,
+    /* 与上方工具栏卡片之间的间距。放在**行**上而不是某一列上 —— 放列上只会让
+       那一列下沉，两列顶部就不齐了（这是本轮修完层级后量到的 13px 错位）。 */
+    marginTop: '0.75rem',
+  }
+
+  const statsColStyle: React.CSSProperties = {
+    /* flexGrow/Shrink 都为 0 = 不参与伸缩，宽度只由 flexBasis(20rem) + 上下限决定。
+       若写成 flex:'1 1 …'，地图会被按比例分走一大块宽度。 */
+    flex: '0 0 20rem',
+    minWidth: '12rem',
+    maxWidth: '24rem',
+    minHeight: 0,
+    overflowY: 'auto',
+    display: 'flex',
+    flexDirection: 'column',
+    /* 顶部间距由上方的 rowStyle 统一给（见那里的注释）—— 本列**不能**自己带
+       marginTop，否则只有统计卡下沉、地图卡片仍贴顶，两列顶部错位。 */
+  }
+
+  /* ===== OSS 下钻弹窗的派生数据 ===== */
+
+  /* 客户端全字段搜索：把一行的所有值拼成小写串做子串匹配。
+     与 SiteDrilldownDrawer 的 helpers.filterBySearch 同一思路，但那一个接收的是
+     字段名数组；这里行结构不同（告警行而非站点行），故就地实现，不硬套。 */
+  const filteredDrillRows = useMemo(() => {
+    const kw = drillSearch.trim().toLowerCase()
+    if (!kw) return drillRows
+    return drillRows.filter(r =>
+      Object.values(r).some(v => String(v ?? '').toLowerCase().includes(kw))
+    )
+  }, [drillRows, drillSearch])
+
+  /* 列定义。**列标题全部复用既有的 gis.drilldown.* 文案键**（站点/区域/TT/时间），
+     只为新增的两列（告警标题、时长、是否超时）加键 —— 减少新增文案、也让本弹窗与
+     站点下钻抽屉的列名保持一致口径。
+     时间列用后端给的毫秒时间戳（servertime），经 fmtTs 格式化。 */
+  const drillColumns = useMemo(() => [
+    { title: t('gis.drilldown.siteId'), dataIndex: 'site_id', key: 'site_id', width: 110, ellipsis: true },
+    { title: t('gis.drilldown.siteName'), dataIndex: 'site_name', key: 'site_name', width: 160, ellipsis: true },
+    { title: t('gis.ossColAlarmTitle'), dataIndex: 'alarm_title', key: 'alarm_title', width: 220, ellipsis: true },
+    { title: t('gis.ossColAlarmcode'), dataIndex: 'alarmcode', key: 'alarmcode', width: 100 },
+    { title: t('gis.drilldown.region'), dataIndex: 'region', key: 'region', width: 120, ellipsis: true },
+    { title: t('gis.drilldown.province'), dataIndex: 'province_county', key: 'province_county', width: 140, ellipsis: true },
+    { title: t('gis.ossColTtId'), dataIndex: 'tt_id', key: 'tt_id', width: 150, ellipsis: true,
+      render: (v: string) => v || <span style={{ color: WH.textDim }}>{t('gis.ossNoTt')}</span> },
+    /* 优先级列（2026-10-16）。两侧下钻（OSS 卡 / 优先级卡）共用本列定义 ——
+       它让「从 OSS 进来」时也能看到每条告警的优先级，不必再切到优先级卡。
+       ⚠️ 无 TT 的行 priority 是 Unknown 但 source 是 no_tt，显示为「无 TT」
+          而不是「未知」—— 两种「没有优先级」的原因不同，别混为一谈。
+       Tag 的 color 直接用 antd 的预设色名（不引 PRIORITY_COLORS 的十六进制），
+       因为 antd Tag 需要的是它的色板名而非任意颜色值。 */
+    { title: t('gis.ossColPriority'), dataIndex: 'priority', key: 'priority', width: 100,
+      render: (v: string, r: any) => {
+        if (r?.priority_source === 'no_tt') {
+          return <span style={{ color: WH.textDim }}>{t('gis.ossNoTt')}</span>
+        }
+        const label = v === 'Unknown' ? t('gis.priorityUnknown') : v
+        const tagColor = v === 'P1' ? 'red' : v === 'P2' ? 'orange' : v === 'P3' ? 'gold' : v === 'P4' ? 'blue' : 'default'
+        return <Tag color={tagColor} style={{ borderRadius: 10 }}>{label}</Tag>
+      } },
+    { title: t('gis.ossColAlarmTime'), dataIndex: 'servertime', key: 'servertime', width: 160,
+      render: (v: number | null) => (v ? fmtTs(new Date(v)) : '—') },
+    { title: t('gis.ossColDuration'), dataIndex: 'duration', key: 'duration', width: 110 },
+    { title: t('gis.ossColOverdue'), dataIndex: 'overdue', key: 'overdue', width: 90,
+      render: (v: boolean) => (v
+        ? <Tag color="red" style={{ borderRadius: 10 }}>{t('gis.ossOverdueYes')}</Tag>
+        : <Tag style={{ borderRadius: 10 }}>{t('gis.ossOverdueNo')}</Tag>) },
+  ], [t])
+
+  /* 导出当前**筛选后**的行（与表格所见一致），走项目统一的 exportAoaReport。
+
+     ⚠️ 这里**不用** helpers 的 exportToExcel：它按 dataIndex 直接取原始值导出，
+        会把 servertime 导成裸毫秒数、把 overdue 导成 true/false，与界面上看到的
+        「2026-10-16 12:00」「是/否」不一致。本弹窗的展示层做了格式化，导出必须
+        跟着格式化后的口径走，所以就地拼 header/rows（与 GISMap 既有的 exportSites
+        写法一致，那一处也是直接 exportAoaReport）。
+     ⚠️ 文件名不再自己拼时间戳：exportAoaReport 内部会加（同 exportToExcel 的做法），
+        自己再拼一遍会出现两个时间戳。 */
+  const exportDrill = () => {
+    if (!filteredDrillRows.length) return
+    // 标题/文件名按 kind 区分，两种下钻导出的文件名不会重名
+    const title = drillKind === 'oss'
+      ? (drillKey || t('gis.ossStatsTitle'))
+      : `${t('gis.priorityStatsTitle')} · ${drillKey}`
+    const header = [
+      t('gis.drilldown.siteId'), t('gis.drilldown.siteName'),
+      t('gis.ossColAlarmTitle'), t('gis.ossColAlarmcode'),
+      t('gis.drilldown.region'), t('gis.drilldown.province'),
+      t('gis.ossColTtId'), t('gis.ossColPriority'), t('gis.ossColAlarmTime'),
+      t('gis.ossColDuration'), t('gis.ossColOverdue'),
+    ]
+    const rows = filteredDrillRows.map(r => [
+      r.site_id, r.site_name, r.alarm_title, r.alarmcode,
+      r.region, r.province_county,
+      r.tt_id || t('gis.ossNoTt'),
+      r.priority_source === 'no_tt'
+        ? t('gis.ossNoTt')
+        : (r.priority === 'Unknown' ? t('gis.priorityUnknown') : (r.priority || '')),
+      r.servertime ? fmtTs(new Date(r.servertime)) : '—',
+      r.duration,
+      r.overdue ? t('gis.ossOverdueYes') : t('gis.ossOverdueNo'),
+    ])
+    void exportAoaReport({
+      filename: `${drillKind}_alarms_${drillKey || 'all'}`,
+      sheetName: 'Alarms',
+      title,
+      subtitle: `${t('common.records', { n: rows.length })}`,
+      header,
+      rows,
+      tabColor: '#2F5496',
+    })
+  }
+
   return (
     <div style={rootStyle}>
       <Card style={controlCardStyle} styles={{ body: { padding: 'var(--wh-space-md)' } }}>
@@ -1141,7 +1468,13 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
           </Col>
           <Col>
             <Space wrap style={{ gap: 'var(--wh-space-sm)' }}>
-              <span style={{ fontSize: '0.8125rem', fontWeight: 500, color: WH.text }}>{t('gis.layerFilter')}</span>
+              {/* 图层组标题在实时模式下**隐藏**（2026-10-16 用户要求「统计卡片竖着排列」）。
+                  原因：实时模式的统计 Tag 已改到地图右侧竖排，而这一组（Realtime/TT/WO）
+                  留在工具栏里，两者居中对齐后标题在这里反而成了多余的锚点。
+                  'all' 模式不受影响，仍是原来的「图层：」+ 三个 Tag。 */}
+              {mode !== 'realtime' && (
+                <span style={{ fontSize: '0.8125rem', fontWeight: 500, color: WH.text }}>{t('gis.layerFilter')}</span>
+              )}
               {layerOptions.map(lo => (
                 <Fragment key={lo.key}>
                 <Tag
@@ -1186,6 +1519,7 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
             <Space wrap style={{ gap: 'var(--wh-space-sm)' }}>
               <span style={labelStyle} title={t('gis.zoomLevelHint')}>{t('gis.zoomLevel')}</span>
               <Segmented
+                className="wh-seg"
                 value={zoomLevel}
                 onChange={(v) => setZoomLevel(v as number)}
                 options={ZOOM_LEVELS.map(z => ({
@@ -1212,6 +1546,7 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
               <Space wrap style={{ gap: 'var(--wh-space-sm)' }}>
                 <span style={labelStyle}>{t('gis.timeFilter')}</span>
                 <Segmented
+                  className="wh-seg"
                   value={timePreset}
                   onChange={(v) => setTimePreset(v as TimePreset)}
                   options={presetOptions}
@@ -1310,23 +1645,77 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
         </div>
       </Card>
 
-      {/* OSS 统计卡（仅实时模式）。卡片上的 flexShrink:0 —— 根节点已是 flex 列
-          （见 rootStyle），不加会被 flex 压扁；与 controlCardStyle 同理，
-          理由见 theme.ts:132-138 的注释。 */}
+      {/* ===== 实时模式：统计卡左竖排 + 地图右（2026-10-16 用户要求）=====
+
+          用户原话：「把统计卡片竖着排列，地图放到右边」。
+          做法是给「统计列」与「地图卡片」套两层横向 flex 包裹（rowStyle + statsColStyle），
+          宽度由 flex 分配而不是写死像素 —— 门户中列宽度可变（见 PORTAL_MAP_WIDTH
+          的耦合提示），写死宽度在换版式时会立刻错位。
+
+          为什么用 flex 而不是 antd 的 <Row>/<Col>：
+            · 这里要的是「统计列固定宽度、地图吃掉剩余全部宽度」这种**不等分**分配，
+              Row 的 24 栅格表达不出「定宽 320px + 剩余」的语义；
+            · 左列内部还要自己撑满高度并独立滚动，Col 要多包一层才等价。
+
+          ⚠️ 两层 div 都**无条件渲染**，非实时模式靠 inertStyle（display:contents）
+             退化成「不存在」，因此 'all' 模式的纵向布局与改动前一致。
+             首版曾把两层都写成 `{cond && (<div>…</div>)}` 条件包裹，在收口处
+             连踩两个语法坑（闭合标签不能出现在表达式位置，TS1109；以及
+             「只有闭合标签的条件块」让 tsc 解析错位，TS1381），故改为本写法。
+             这也解释了下方「这里不关闭 statsColStyle」的注释为何存在。 */}
+      <div style={isRealtime ? rowStyle : inertStyle}>
+      <div style={isRealtime ? statsColStyle : inertStyle}>
+      {/* OSS 统计卡（仅实时模式）。
+          · flexShrink:0 —— 统计卡不参与纵向压缩，保持内容高度。
+          · rowGap：本卡在行内层（statsColStyle，flex column）里，它与下方「无内容」
+            之间的间距由卡片自己的 marginBottom 决定；横向布局下地图卡片在**旁边**
+            而不是下方，所以这里不需要下边距，改成 0 让统计列顶部与地图卡片顶部齐平。
+            （'all' 模式走不到本卡，故无需对两种布局分别取值。） */}
       {mode === 'realtime' && ossStats.length > 0 && (
-        <Card size="small" style={{ ...cardStyle, marginBottom: '0.75rem', flexShrink: 0 }}>
+        <Card size="small" style={{ ...cardStyle, marginBottom: 0, flexShrink: 0 }}>
           <div style={{ fontSize: '0.8125rem', fontWeight: 600, color: WH.text, marginBottom: 'var(--wh-space-sm)' }}>
             {t('gis.ossStatsTitle')} ({ossStats.reduce((s, i) => s + i.count, 0)})
           </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.625rem' }}>
+          {/* 竖排（2026-10-16）：原先横排自动换行，搬到右侧统计列后列宽只剩 320px，
+              横排会把每条压得极窄；改为纵向 flex + 每条占满列宽。
+              'all' 模式走不到这里（本卡片只在实时模式渲染），故无需按模式分支。
+
+              每条**可点击**下钻（同日用户要求）：整行是一个按钮语义的 div，
+              点击打开该类别的告警明细弹窗。进度条宽度仍按告警总数归一（视觉排序用）。 */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.625rem' }}>
             {ossStats.map(item => {
               const max = ossStats[0]?.count || 1
               const pct = Math.max(4, Math.round((item.count / max) * 100))
               return (
-                <div key={item.oss_specific_problem} style={{ minWidth: 'min(100%, 10.625rem)', flex: '1 1 10.625rem' }}>
+                <div
+                  key={item.oss_specific_problem}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={t('gis.ossDrillHint', { name: item.oss_specific_problem })}
+                  style={{
+                    minWidth: 0, cursor: 'pointer', borderRadius: 'var(--wh-radius-sm)',
+                    padding: '2px var(--wh-space-xs)', margin: '0 -var(--wh-space-xs)',
+                    transition: 'background 0.15s',
+                  }}
+                  onClick={e => openDrill('oss', item.oss_specific_problem, e)}
+                  onKeyDown={e => {
+                    // 键盘可达（a11y）：Enter / Space 等效于点击
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault()
+                      openDrill('oss', item.oss_specific_problem, e as any)
+                    }
+                  }}
+                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'var(--wh-subtle-bg)' }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent' }}
+                >
                   <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.375rem', fontSize: '0.75rem', color: WH.text }}>
-                    <span title={item.oss_specific_problem} style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 'min(100%, 8.125rem)' }}>{item.oss_specific_problem}</span>
-                    <span style={{ color: WH.textMuted, whiteSpace: 'nowrap' }}>{item.count} / {item.sites}</span>
+                    <span title={item.oss_specific_problem} style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{item.oss_specific_problem}</span>
+                    {/* 读数（2026-10-16 用户要求改口径）：由「告警数 / 站点数」改为
+                        「带 TT 的告警数 / 告警总数」。两个数同为**告警**单位，
+                        相除即「TT 覆盖率」，比原来两个不同单位的量更有意义。 */}
+                    <span style={{ color: WH.textMuted, whiteSpace: 'nowrap' }}>
+                      {item.with_tt ?? 0} / {item.count}
+                    </span>
                   </div>
                   <div style={{ height: 6, background: 'var(--wh-subtle-bg)', borderRadius: 3, marginTop: 3 }}>
                     <div style={{ width: `${pct}%`, height: '100%', background: WH.teal, borderRadius: 3 }} />
@@ -1337,6 +1726,140 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
           </div>
         </Card>
       )}
+
+      {/* ===== Site Stats（2026-10-17 用户要求）=====
+          用户原话：「OSS Problem Stats 名字改成 Alarm Stats，并在组件下面添加 Site Stats，
+          内容是一样的，只是按照站点来统计每类告警的站点数」。
+
+          与上方 Alarm Stats 的**唯一区别**是读数：
+            · Alarm Stats：`带 TT 的告警数 / 告警总数`   —— 告警口径
+            · Site Stats ：该类别涉及的**去重站点数**     —— 站点口径
+          两者的类别集合、排序、可点击下钻都完全相同（同一份 ossStats），
+          所以这里复用同一个数组，只换读数字段，不另发请求。
+
+          ⚠️ 为什么站点数之和可能大于站点总数：一个站点可同时有多种告警类别
+             （例如既 SITE OUTAGE 又 Fiber Break），各档会重复计它。
+             这与图例里「同站点可计入多档」是同一条口径说明。 */}
+      {mode === 'realtime' && ossStats.length > 0 && (
+        <Card size="small" style={{ ...cardStyle, marginTop: '0.75rem', marginBottom: 0, flexShrink: 0 }}>
+          <div style={{ fontSize: '0.8125rem', fontWeight: 600, color: WH.text, marginBottom: 'var(--wh-space-sm)' }}>
+            {t('gis.siteStatsTitle')} ({ossStats.reduce((s, i) => s + (i.sites || 0), 0)})
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.625rem' }}>
+            {ossStats.map(item => {
+              // 进度条按「本卡片内最大的站点数」归一，让各条长度可比
+              const maxSites = Math.max(...ossStats.map(x => x.sites || 0), 1)
+              const pct = Math.max(4, Math.round(((item.sites || 0) / maxSites) * 100))
+              return (
+                <div
+                  key={item.oss_specific_problem}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={t('gis.ossDrillHint', { name: item.oss_specific_problem })}
+                  style={{
+                    minWidth: 0, cursor: 'pointer', borderRadius: 'var(--wh-radius-sm)',
+                    padding: '2px var(--wh-space-xs)', margin: '0 -var(--wh-space-xs)',
+                    transition: 'background 0.15s',
+                  }}
+                  onClick={e => openDrill('oss', item.oss_specific_problem, e)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault()
+                      openDrill('oss', item.oss_specific_problem, e as any)
+                    }
+                  }}
+                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'var(--wh-subtle-bg)' }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent' }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.375rem', fontSize: '0.75rem', color: WH.text }}>
+                    <span title={item.oss_specific_problem} style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{item.oss_specific_problem}</span>
+                    <span style={{ color: WH.textMuted, whiteSpace: 'nowrap' }}>{item.sites ?? 0}</span>
+                  </div>
+                  <div style={{ height: 6, background: 'var(--wh-subtle-bg)', borderRadius: 3, marginTop: 3 }}>
+                    <div style={{ width: `${pct}%`, height: '100%', background: WH.blue, borderRadius: 3 }} />
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </Card>
+      )}
+
+      {/* ===== 按 TT 优先级统计（2026-10-16 用户要求）=====
+          用户原话：「组件 OSS Problem Stats 下面添加有 TT 号码的，按照优先级进行统计的组件」。
+          统计单位 = **带 TT 的告警**（没 TT 就没有优先级可言，故不参与）。
+          优先级取自 eflow_tt.ticket_severity（P1~P4），后端做「镜像优先 + 实时补漏」。
+
+          ⚠️ 关于「本地库一小时才更新、取不到」：后端实测后**没有**全量改走实时接口 ——
+             实时接口只覆盖「最近修改的前若干行」，反而看不到 6 个 7~8 月的老单。
+             故以镜像为主干、实时只补缺口，细节见 gis.py 的 _resolve_tt_priorities。
+             这里只负责展示，拿到的数字与后端同源。
+
+          每条可点击（同 OSS 卡）：点 P1 → 打开该优先级下的告警明细弹窗。 */}
+      {mode === 'realtime' && priorityStats.length > 0 && (
+        <Card size="small" style={{ ...cardStyle, marginTop: '0.75rem', marginBottom: 0, flexShrink: 0 }}>
+          <div style={{ fontSize: '0.8125rem', fontWeight: 600, color: WH.text, marginBottom: 'var(--wh-space-sm)' }}>
+            {t('gis.priorityStatsTitle')} ({priorityTotal})
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.625rem' }}>
+            {priorityStats.map(item => {
+              /* 进度条按总数归一（不用最大值）—— 这里各档之和就是总数，
+                 用总数能让各条长度直接读出「占比」，比相对最大值更有信息量。 */
+              const pct = priorityTotal > 0
+                ? Math.max(2, Math.round((item.count / priorityTotal) * 100))
+                : 2
+              // 不渲染计数为 0 的档，避免 P1(0) 这种占位（与图例「假 0」是同一类问题）
+              if (!item.count) return null
+              return (
+                <div
+                  key={item.priority}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={t('gis.priorityDrillHint', { name: item.priority })}
+                  style={{
+                    minWidth: 0, cursor: 'pointer', borderRadius: 'var(--wh-radius-sm)',
+                    padding: '2px var(--wh-space-xs)', margin: '0 -var(--wh-space-xs)',
+                    transition: 'background 0.15s',
+                  }}
+                  onClick={e => openDrill('priority', item.priority, e)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault()
+                      openDrill('priority', item.priority, e as any)
+                    }
+                  }}
+                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'var(--wh-subtle-bg)' }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent' }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.375rem', fontSize: '0.75rem', color: WH.text }}>
+                    <span style={{ minWidth: 0 }}>
+                      {item.priority === 'Unknown' ? t('gis.priorityUnknown') : item.priority}
+                    </span>
+                    <span style={{ color: WH.textMuted, whiteSpace: 'nowrap' }}>
+                      {item.count}
+                    </span>
+                  </div>
+                  <div style={{ height: 6, background: 'var(--wh-subtle-bg)', borderRadius: 3, marginTop: 3 }}>
+                    {/* 优先级色阶：P1 红 → P2 橙 → P3 黄 → P4 蓝（Unknown 灰）。
+                        与地图上的告警状态色**刻意分开**——那组描述站点当前状态，
+                        这组描述工单等级；混用会让人以为 P1 站点在地图上也是红的。 */}
+                    <div style={{ width: `${pct}%`, height: '100%', background: PRIORITY_COLORS[item.priority] || WH.textDim, borderRadius: 3 }} />
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </Card>
+      )}
+      {/* ⚠️ statsColStyle 必须在这里、也就是**地图卡片之前**收口。
+          它只包住左侧的统计内容（当前只有 OSS 卡）；下方的地图卡片要是它的
+          **兄弟节点**（同属 rowStyle 这一行），才能排在统计列右边。
+          2026-10-16 曾把两个 </div> 都写到地图卡片之后，于是地图被套进了
+          统计列内部、在列里换行显示成上下排列 —— 这是「还是上下排列」的根因。
+          收口位置与下方标注「收口」的那对 </div> 共同决定这一行的成员，
+          改动本段时务必对照行内注释确认盒子层级。 */}
+      </div>
+
 
       {/* 2026-09-29 起：滚轮即缩放，门户内嵌时也一样（用户要求「鼠标在地图上滑轮
           滑动，地图能放大和缩小」）。
@@ -1351,10 +1874,26 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
       {/* body 加 position: relative —— 它是下方图例浮层的定位锚点。
           这样就不必再套一层 div 包裹地图（套了得把地图那一大段整体缩进两格，是纯噪声 diff）。 */}
       {/* flex:1 + minHeight:0 —— 见上方 rootStyle 的说明：本卡片负责吃掉
-          工具栏之下剩余的全部高度，使地图贴到视口底。 */}
+          工具栏之下剩余的全部高度，使地图贴到视口底。
+
+          ⚠️ 实时模式下这张卡片位于行内层的 rowStyle（flex **row**）里，此时
+             **必须再补一个 minWidth:0**：flex 子项默认 min-width:auto，会拒绝
+             收缩到内容固有宽度以下，而 Leaflet 的地图容器固有宽度很大 ——
+             缺了这个 0，地图卡片不肯变窄，会把左边的统计列挤出可视区，
+             表现为「地图没有老实待在统计卡右边」。只有 row 方向才需要它，
+             纵向的 'all' 模式不受影响（那里卡片还是 rootStyle 的 flex 列子项）。
+
+          为什么用 isRealtime 变量而不是就地写 mode==='realtime'：
+             同一判断在本卡片与下方包裹处各出现一次，抽出来保证两处口径一致
+             （改模式名时只改一处）。 */}
       <Card
         styles={{ body: { padding: 0, position: 'relative', height: '100%' } }}
-        style={{ ...cardStyle, overflow: 'hidden', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}
+        style={{
+          ...cardStyle, overflow: 'hidden', flex: 1,
+          minHeight: 0,
+          minWidth: isRealtime ? 0 : undefined,
+          display: 'flex', flexDirection: 'column',
+        }}
       >
         {loading ? (
           <Spin size="large" style={{ display: 'block', margin: '100px auto' }} />
@@ -1633,7 +2172,7 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
               ⚠️ 只影响图例，不影响地图上的链路绘制（见 showUtilLegend 的注释）。 */}
           <MapLegendOverlay
             title={t('gis.legendTitle')}
-            rows={siteLegendRows}
+            groups={legendGroups}
             utilTitle={showUtilLegend ? t('gis.utilLegendTitle') : undefined}
             utilRows={showUtilLegend ? utilLegendRows : undefined}
             utilNote={showUtilLegend && showTopology && showUtil && utilMeta
@@ -1663,6 +2202,13 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
           </>
         )}
       </Card>
+      {/* 收口：这里只剩 rowStyle 这一层要关 —— statsColStyle 已在上方统计卡
+          之后收口（见那处注释）。两个 div 都无条件渲染，故这里也无条件关闭。 */}
+      </div>
+      {/* 实时模式的横向行到此结束（见上方 rowStyle 的说明）。
+          ⚠️ 抽屉**刻意留在行外**：它是 antd 的 portal 抽屉（挂到 body），
+          放在 flex 行内不影响布局，但留在外面读起来更清楚 —— 它不是「右列的一部分」，
+          而是整页的浮层。 */}
 
       <SiteDrilldownDrawer
         open={drawerVisible}
@@ -1679,6 +2225,70 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
         rangeDays={drillRangeDays}
         onRangeDaysChange={handleRangeDaysChange}
       />
+
+      {/* ===== 告警明细下钻弹窗 =====
+          两个卡共用（OSS 类别卡 / TT 优先级卡），由 drillKind 决定端点与标题。
+          一行一条**实时告警**，不是一行一个站点 —— 与卡片的读数同为「告警」单位，
+          用户对照时不会有「数字对不上」的困惑。行数恒等于卡片上的 count
+          （后端同源，见 /realtime/oss-alarms 与 /realtime/priority-alarms 的注释）。
+          搜索走客户端全字段过滤；导出走项目统一的 exportAoaReport。 */}
+      <DraggableClickModal
+        open={drillOpen}
+        anchor={drillAnchor}
+        onClose={() => setDrillOpen(false)}
+        title={
+          <span style={{ color: WH.text }}>
+            {/* 标题带上来源，避免「P3」这种孤零零的档位不知从哪张卡点到 */}
+            {drillKind === 'priority'
+              ? `${t('gis.priorityStatsTitle')} · ${drillKey === 'Unknown' ? t('gis.priorityUnknown') : drillKey}`
+              : drillKey}
+            <Tag color="cyan" style={{ marginLeft: 'var(--wh-space-sm)', borderRadius: 10 }}>
+              {t('common.records', { n: filteredDrillRows.length })}
+            </Tag>
+            {/* 截断时显式告警，不静默（AGENTS.md 三.1b） */}
+            {drillTruncated && (
+              <Tag color="red" style={{ marginLeft: 'var(--wh-space-xs)', borderRadius: 10 }}>
+                {t('gis.drillTruncated', { shown: drillRows.length })}
+              </Tag>
+            )}
+          </span>
+        }
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 'var(--wh-space-sm)', marginBottom: '0.75rem' }}>
+          <Input
+            prefix={<SearchOutlined />}
+            placeholder={t('common.searchAllFields')}
+            allowClear
+            size="middle"
+            style={{ width: 'min(100%, 21.875rem)' }}
+            value={drillSearch}
+            onChange={e => setDrillSearch(e.target.value)}
+          />
+          <Button
+            type="primary"
+            icon={<DownloadOutlined />}
+            onClick={exportDrill}
+            disabled={!filteredDrillRows.length}
+          >
+            {t('common.exportExcel')}
+          </Button>
+        </div>
+        {drillLoading ? (
+          <Spin style={{ display: 'block', margin: '3.75rem auto' }} />
+        ) : (
+          <div className="wh-table-responsive">
+            <Table
+              dataSource={filteredDrillRows}
+              columns={drillColumns}
+              size="small"
+              rowKey={(r: any) => `${r.site_id}|${r.servertime}|${r.alarmcode}`}
+              pagination={{ pageSize: 15, size: 'small', showTotal: (n: number) => t('common.itemsTotal', { n }) }}
+              scroll={{ x: 'max-content' }}
+              locale={{ emptyText: t('gis.ossDrillEmpty') }}
+            />
+          </div>
+        )}
+      </DraggableClickModal>
     </div>
   )
 }

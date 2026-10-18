@@ -80,13 +80,29 @@ export function getCrAnalysisOverview(params?: { start?: string; end?: string })
   return api.get('/cr-analysis/overview', { params })
 }
 
-// 下钻：metric 决定批次，category / sub_category / month 是叠加的维度过滤，
-// 必须与点击来源的卡片维度完全一致，否则明细行数与卡片数字对不上。
+// 下钻：metric 决定批次，category / sub_category / month / status 是叠加的
+// 维度过滤，必须与点击来源的卡片维度完全一致，否则明细行数与卡片数字对不上。
+// metric='status' 时用 status（后端会做 UPPER(TRIM()) 归一后精确匹配）。
 export function getCrAnalysisDrilldown(params: {
   start?: string; end?: string; metric: string
-  category?: string; sub_category?: string; month?: string; limit?: number
+  category?: string; sub_category?: string; month?: string
+  status?: string; limit?: number
 }) {
   return api.get('/cr-analysis/drilldown', { params })
+}
+
+// 审批流程：各步骤的到达量与停留耗时（源表 8 个 *_detail 文本列解析而来）。
+// 步骤顺序是 backend/services/cr_caliber.py 的 WORKFLOW_STEPS **真实时序**。
+export function getCrAnalysisWorkflow(params?: { start?: string; end?: string }) {
+  return api.get('/cr-analysis/workflow', { params })
+}
+
+// 步骤下钻：kind='arrived' 走过该步 / 'current' 当前停在该步（按等待天数倒序）
+export function getCrAnalysisWorkflowDrilldown(params: {
+  start?: string; end?: string; step: string; kind: 'arrived' | 'current'
+  status?: string; limit?: number
+}) {
+  return api.get('/cr-analysis/workflow-drilldown', { params })
 }
 
 // ========== PM 执行分析（按 PM 计划看预防性维护工单的完成 / 超期）==========
@@ -109,6 +125,25 @@ export function getPmAnalysisDrilldown(params: {
   handler?: string; month?: string; limit?: number
 }) {
   return api.get('/pm-analysis/drilldown', { params })
+}
+
+// 里程碑：Create → Schedule → Accept → Process → PMManagerApprove →
+// FLMLeaderApprove → Closed（顺序对齐 eFlow 的 Workflow History / queryAllSteps，
+// 见 backend/services/pm_workflow_service.py）。
+// pmp_no 与概览计划筛选同口径，前端选中计划号时要一并传，否则里程碑与 KPI 不同批。
+export function getPmAnalysisWorkflow(params?: {
+  start?: string; end?: string; pmp_no?: string
+}) {
+  return api.get('/pm-analysis/workflow', { params })
+}
+
+// 里程碑下钻：kind='arrived' 走过 / 'current' 当前滞留 / 'done' 已关闭（仅 closed）
+export function getPmAnalysisWorkflowDrilldown(params: {
+  start?: string; end?: string; key: string
+  kind: 'arrived' | 'current' | 'done'
+  pmp_no?: string; limit?: number
+}) {
+  return api.get('/pm-analysis/workflow-drilldown', { params })
 }
 
 // ========== Speedtest 竞对分析（ORANGE vs MTN）==========
@@ -322,6 +357,16 @@ export function getCnKpiOverview(params?: { start?: string; end?: string; force?
 // 远端只读 SQL API 连通性探测（供 CN KPI 页诊断提示）
 export function getCnKpiHealth() {
   return api.get('/cn-kpi/health')
+}
+
+// CN KPI 5 分钟看板（?page=cn_kpi_5mins）
+// 数据源：任务 cnn_kpi_sync_5mins 每 15 分钟写入的 5mins_* 表（db_ps_cs_cn.sqlite3）。
+// 窗口固定为「今天 + 昨天」（Day0/Day1 叠画），故不接收日期参数。
+// params: force=true 跳过后端 30s 缓存
+export function getCnKpi5minsOverview(params?: { force?: boolean }) {
+  const q: Record<string, string | number> = {}
+  if (params?.force) q.force = 1
+  return api.get('/cn-kpi-5mins/overview', { params: Object.keys(q).length ? q : undefined })
 }
 
 // ===== 原生看板（my-finebi 其余看板泛化迁移） =====

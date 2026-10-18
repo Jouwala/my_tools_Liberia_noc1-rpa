@@ -115,6 +115,47 @@ _SP_WA_REPORT_LABELS = ("Comsumables", "SpareParts")
 # 作为文档发到该群（用户 2026-09-14 指定，独立于 WHATSAPP_GROUPS）
 _SP_DETAILS_WA_GROUPS = ["WH&SP Management"]
 
+# --- SP 报表 WhatsApp 外发暂停开关（2026-10-16）---
+# 设环境变量 SP_WHATSAPP_ENABLED=0（或 false/no/off）即可暂停上述三个任务发往
+# WH&SP Management 群的 WhatsApp，但**保留发送代码**与邮件链路：任务照常执行，
+# 仅跳过 WhatsApp 这一步。跳过的结果按 success 处理，否则会把"故意没发"误判成
+# 失败、连带把邮件一起标红（sp_online_report_send / sp_email_details 邮件+群发同函数）。
+# 恢复外发：删掉该行（或改回 1），重启 worker 进程树即可，无需改代码。
+_SP_WA_FALSY = ("0", "false", "no", "off", "")
+
+
+def _sp_whatsapp_enabled() -> bool:
+    """SP 群 WhatsApp 外发是否开启；缺省开启，仅显式置假值时关闭。"""
+    return os.environ.get("SP_WHATSAPP_ENABLED", "1").strip().lower() not in _SP_WA_FALSY
+
+
+def _sp_wa_send(**kwargs) -> dict:
+    """三个 SP 任务发往 WH&SP Management 群的统一出口，受 ``SP_WHATSAPP_ENABLED`` 控制。
+
+    参数透传给 ``whatsapp_dispatch.send_with_fallback``（photos/captions/files/groups）。
+    关闭时返回与其字段对齐的"跳过"结构（``success=True, skipped=True``），
+    调用方按成功组装结果、邮件不受影响。
+    """
+    if not _sp_whatsapp_enabled():
+        return {
+            "success": True,
+            "skipped": True,
+            "channel": None,
+            "fell_back": False,
+            "groups_sent": [],
+            "errors": [],
+            "elapsed_seconds": 0,
+        }
+    from backend.services.whatsapp_dispatch import send_with_fallback
+    return send_with_fallback(**kwargs)
+
+
+def _sp_wa_label(wa_res: dict) -> str:
+    """供任务 message 用的 WhatsApp 状态标签：SKIPPED / OK / FAIL，避免跳过被谎报成 OK。"""
+    if wa_res.get("skipped"):
+        return "SKIPPED"
+    return "OK" if wa_res.get("success") else "FAIL"
+
 # SP 明细**分文件**邮件（任务 sp_details_files_email，每天 10:05，2026-09-30 新增）：
 # 与 sp_email_details 的分工是「同一批数据、两种打包方式」——
 #   - sp_email_details   : 05 点合并成**一个**多 sheet 工作簿 + 发 WhatsApp 群；
@@ -539,8 +580,7 @@ def _send_sp_details_to_whatsapp(merged_path: Path) -> dict:
     ``_collect_photos_and_captions()``，把站点中断截图一并灌进这个管理群。
     """
     try:
-        from backend.services.whatsapp_dispatch import send_with_fallback
-        return send_with_fallback(
+        return _sp_wa_send(
             photos=[],
             captions=[],
             files=[str(merged_path)],
@@ -608,7 +648,7 @@ def run_sp_details_email(to: str = None, cc: str = None) -> dict:
     res = {
         "success": email_ok and wa_ok,
         "message": (
-            f"Email={'OK' if email_ok else 'FAIL'}, WhatsApp={'OK' if wa_ok else 'FAIL'}"
+            f"Email={'OK' if email_ok else 'FAIL'}, WhatsApp={_sp_wa_label(wa_res)}"
             f" (groups_sent={wa_res.get('groups_sent')}) | "
             f"合并 {merged_path.name} rows={row_counts} 清理历史={pruned}"
             + (f" 回退过滤后明细: {'; '.join(raw_notes)}" if raw_notes else "")
@@ -1422,8 +1462,7 @@ def run_sp_online_report(to: str = None, cc: str = None) -> dict:
 
     try:
         # 2026-10-11 起：Baileys 主通道 → Playwright 回退（见 whatsapp_dispatch）
-        from backend.services.whatsapp_dispatch import send_with_fallback
-        wa_res = send_with_fallback(
+        wa_res = _sp_wa_send(
             photos=images,
             captions=[f"*SP Online {Path(p).stem}* (Open Tickets)" for p in images],
             files=attach,
@@ -1450,10 +1489,10 @@ def run_sp_online_report(to: str = None, cc: str = None) -> dict:
     res = {
         "success": email_ok and wa_ok,
         "message": f"Email={'OK' if email_ok else 'FAIL'}, "
-                   f"WhatsApp={'OK' if wa_ok else 'FAIL'} "
+                   f"WhatsApp={_sp_wa_label(wa_res)} "
                    f"(channel={wa_res.get('channel') or '-'}, groups_sent={wa_res.get('groups_sent')})",
         "email": email_res,
-        "whatsapp": {k: wa_res.get(k) for k in ("success", "channel", "fell_back", "groups_sent", "errors")},
+        "whatsapp": {k: wa_res.get(k) for k in ("success", "channel", "fell_back", "skipped", "groups_sent", "errors")},
     }
     if errors:
         res["error"] = " | ".join(errors)
@@ -1503,8 +1542,7 @@ def run_sp_whatsapp_report() -> dict:
 
     try:
         # 2026-10-11 起：Baileys 主通道 → Playwright 回退（见 whatsapp_dispatch）
-        from backend.services.whatsapp_dispatch import send_with_fallback
-        wa_res = send_with_fallback(
+        wa_res = _sp_wa_send(
             photos=photos,
             captions=captions,
             files=files,
@@ -1516,11 +1554,11 @@ def run_sp_whatsapp_report() -> dict:
     wa_ok = bool(wa_res.get("success"))
     res = {
         "success": wa_ok,
-        "message": f"WhatsApp={'OK' if wa_ok else 'FAIL'} "
+        "message": f"WhatsApp={_sp_wa_label(wa_res)} "
                    f"(channel={wa_res.get('channel') or '-'}, groups_sent={wa_res.get('groups_sent')})",
         "photos": photos,
         "files": files,
-        "whatsapp": {k: wa_res.get(k) for k in ("success", "channel", "fell_back", "groups_sent", "errors")},
+        "whatsapp": {k: wa_res.get(k) for k in ("success", "channel", "fell_back", "skipped", "groups_sent", "errors")},
     }
     if not wa_ok:
         res["error"] = "; ".join(wa_res.get("errors") or ["WhatsApp 发送失败"])

@@ -583,6 +583,7 @@ export default function SpDetailsReport() {
       >
         <Space wrap style={{ marginBottom: 12 }}>
           <Segmented
+            className="wh-seg"
             value={activeSheet}
             onChange={(v) => setActiveSheet(String(v))}
             options={sheets.map(s => ({

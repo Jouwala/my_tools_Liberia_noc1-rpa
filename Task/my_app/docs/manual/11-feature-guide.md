@@ -110,7 +110,18 @@
 - 页头显示"最近同步/是否已同步"（`useDataTimestamps`，:16,77）。
 - 数据来自 `eflow_sync`（每小时 :22）与每日全量兜底 `eflow_sync_full`（01:00）。
 - **TT 统计不含 Alarm Severity**（2026-09-26 按业务要求移除）：该维度与 Ticket Severity 高度重复。`tt_stats.alarm_severity` / `category` 后端仍返回（其他页面与下钻维度在用），只是本页不再渲染。
-- **TT 统计三个维度（严重度 / SLA 状态 / 工单状态）全部用数字卡片**（2026-09-27 改）：每取值一张卡（左色条 + 名称 + 大数字 + 占比），点卡下钻。三者共用同一个渲染器 `renderStatCards()`，只是换色表与下钻维度；卡片走项目统一组件 `CardBase`（AGENTS.md 第三节第 3 条），宽度按取值个数自适应（`span = max(4, 24/取值数)`，4~5 个取值一行铺满）。分组用「维度小标题 + 卡片网格」(`StatDimTitle`)，**不是**大卡套小卡 —— 嵌套卡片层级会糊、两层边框压掉内边距。改卡片前的 Tag 胶囊块在高密度取值下会换行成一团、数字不突出。
+- **汇总数字挂在「TT Statistics」标题旁**（2026-10-17 改）：原先 TT 总数 / WO 总数 / WO 编号(唯一) 各占一排大卡，首屏只放一个大数字、上下都是留白。现改为 `SectionTitle` 的 `summaries` 行内徽标（`TTWODashboard.tsx` 的 `SectionTitle` 组件），**有条件下发的规则不变**（`showTtTotalCard` / `showWoSummaryCards` / `showWoNoCard`），徽标本身仍可点击下钻，Excel 导出的 `Summary` sheet 与页面保持同一套显示条件。
+- **Ticket Severity 按 P1 → P2 → P3 → P4 固定序**（2026-10-17）：`renderStatCards()` 的第五个参数 `fixedOrder` 显式传入 `['P1','P2','P3','P4']`；不在列表内的脏取值排末尾、仍按数量降序。导出侧由 `sortBySeverityOrder()`（`SEVERITY_ORDER`）保证同序，界面与导出上下对得上。
+- **Status 维度改为生命周期里程碑**（2026-10-17，参照 `?page=incident_overview` 的 `status-line` 版式）：`renderStatusMilestones()` 把 `eflow_wo.status` / `eflow_tt.status` 的**原始状态名**按 `STATUS_MILESTONES` 的精确 `match` 列表归并成「派单 → 受理 → 到场 → 处理中 → 离场 → 待确认 → 关闭」七个圆点节点，圆点内为该阶段合计、节点下方为该阶段各原始状态及其单数。
+  - **阶段顺序依据 2026-10-17 用户提供的 `POST /api/eflow-wo/v1/flow/runtime/queryAllSteps` 真实步骤链**：`Create → Accept → Accepted → Arrive Site → Start Processing → Process → Confirm → Closed`。里程碑按这条链从左到右排，不按单数多少排。
+  - **`eflow_wo` 实测 11 种状态已全部命中阶段**（2026-10-17 核对：`Closed` / `Wait For Confirm` / `Waiting for Accept` / `Waiting for Process(Suspended)` / `Waiting for Leave Site` / `Waiting for Departure` / `Waiting for Arrive Site` / `Waiting for Departure(Suspended)` / `Waiting for BONPO Process` / `Phased Reply`），因此「其他」节点在 WO 页正常情况下不出现。新增状态后再核对一遍；仍未命中的会被单列到「其他」，**不允许**改成模糊匹配来「消灭」它。
+  - **归并必须精确匹配，不能模糊匹配**：`Waiting for FO Process(WO RCA to FO Confirm)` 这类串若按关键词归组会串到别的阶段；新增状态未命中任何 `match` 时落到「其他」节点单列，**宁可多一个点也不静默吞数**。
+  - **整节点可下钻**（2026-10-18 改）：圆点、阶段名下的占比都可点。多状态阶段不再禁用，改由下钻端点新支持的 **`values` 参数**（JSON 字符串数组）走 `status IN (...)` 精确匹配，**弹窗行数 = 圆点数字**；同时下方仍逐条列出各原始状态、各自可点（单状态下钻）。实测核对：WO 页「处理中」阶段 18 = 18、TT 页「处理」阶段 3025 = 3025。
+    - 实现位置：后端 `_parse_values()`（`tt_wo_dashboard.py`，解析失败的坏 URL 降级为「未传该参数」并记警告，不抛 500）；TT / WO 两侧通用维度分支都加了 `multi_values` 优先于 `value` 的判定。前端 `openDrilldown()` 新增第 5 个参数 `values`，组件内用 `drillMilestone()` 统一派生。
+    - **`values` 仍走参数化占位符**，不拼 SQL 字符串；`values` 与 `value` 同时传时以 `values` 为准。
+  - **每个可下钻节点都有计算说明**：悬浮圆点 / 占比 / 明细行都会给出 tooltip（`milestoneTooltip()`），内容包括该阶段收进的原始状态及各自单数、合计怎么来、占比分母（`ttwo.milestone.ttDenom`，分母 = 本维度各状态单数合计，不含 status 为空的行，由 `statusMilestoneTotal` 统一提供）以及点击后下钻返回什么。分母与页面百分比共用同一个变量，避免「tooltip 说的分母」与「显示的百分比」对不上。
+  - 节点与阶段名字色、字重、字号统一（`t('ttwo.milestone.*')`），颜色只标识阶段身份，不用于强调差异；未知状态用 `t('ttwo.status.other')`。
+- **TT 统计其余两个维度（严重度 / SLA 状态）仍用数字卡片**（2026-09-27 改）：每取值一张卡（左色条 + 名称 + 大数字 + 占比），点卡下钻。两者共用同一个渲染器 `renderStatCards()`，只是换色表与下钻维度；卡片走项目统一组件 `CardBase`（AGENTS.md 第三节第 3 条），宽度按取值个数自适应（`span = max(4, 24/取值数)`，4~5 个取值一行铺满）。分组用「维度小标题 + 卡片网格」(`StatDimTitle`)，**不是**大卡套小卡 —— 嵌套卡片层级会糊、两层边框压掉内边距。改卡片前的 Tag 胶囊块在高密度取值下会换行成一团、数字不突出。
   > **文案短名（2026-09-27 按业务要求）**：分区标题「TT 统计」→「统计」，维度标题「工单严重度」→「严重度」。界面上用新键 `ttwo.statistics` / `ttwo.severity`；旧键 `ttwo.ttStatistics` / `ttwo.ticketSeverity` 保留给 **Excel 导出**（导出的维度名与 sheet 标题仍写全名，脱离界面也能读懂）。渲染路径全站共用，所以 `ttwo` / `v1_ttwo` / `tt` / `wo` 四个页面同步改名。
   - 占比分母是该维度**自身**的合计（看单维度内部构成），不是 TT 总数。
   - 取不到值显示 `—` 而非 `0`（`fmt()` 本身对 null 返回 `'0'`，卡片里显式挡掉）。
@@ -156,8 +167,16 @@
 
 `TTWODashboard.tsx` 的**切片直链页**，壳是 `pages/TTDashboard.tsx`（`<TTWODashboard only="tt" />`）。2026-09-27 新增。
 
-- **出什么**：汇总卡（**只留「TT 总数」一张**）→ 统计（严重度 / SLA 状态 / 状态，数字卡片网格，点卡下钻）→ MTTR 趋势（P1/P2/P3/P4 × 日/周/月 双轴图）。默认时间窗近 30 天。数据源 `eflow_tt`。
-- **不出什么**：MTTR 趋势之下的**下半部分整体不渲染** —— 领域与根因分析、工单分析（按来源统计 WO / 按状态统计 WO）、站点信息，以及 WO 总数 / WO 编号(唯一) 两张汇总卡。切片开关见 `TTWODashboard.tsx` 的 `isSlicePage` 与 `showTtTotalCard` / `showWoSummaryCards`。
+- **出什么**：统计（严重度 / SLA 状态 / 工单状态流转）→ MTTR 趋势（P1/P2/P3/P4 × 日/周/月 双轴图）。默认时间窗近 30 天。数据源 `eflow_tt`。
+- **汇总数字不再独占一排（2026-10-17）**：「TT 总数」从独立汇总卡改为「TT Statistics」分区标题旁的徽标（`SectionTitle` 的 `summaries`），点击仍下钻 `all_tt`，省掉首屏一整排只有一个大数字的高度。`page=wo` 同理只保留「WO 总数」徽标。
+- **Ticket Severity 固定 P1→P4 序（2026-10-17）**：该维度按级别排，不按数量降序 —— 否则 P3 单多的月份会显示成 P3 在 P2 前面，看起来像级别顺序变了。固定序由 `renderStatCards` 的 `fixedOrder` 参数给出，未识别的取值排在末尾。
+- **Workflow 里程碑（2026-10-17）**：区块名中英统一为 **`Workflow`**（key `ttwo.statusMilestone`）。状态原值有 12 种（`Waiting for FO Process(WO RCA to FO Confirm)` 等），平铺成卡片无法扫读。现在按业务生命周期归并为里程碑 —— 派单 → 受理 → 到场 → 处理 → 离场 → 现场确认 → 客户确认 → 关闭 —— 版式参照 `page=incident_overview` 的「圆点 + 连接线」（`renderStatusMilestones`）。归类表 `STATUS_MILESTONES` **按原始状态名精确匹配**（含 `Wait For Confirm` 大小写变体与 `(Suspended)` 变体）；只影响展示，下钻仍是 `dimension=status` + 原值。一个阶段含多个原值时，圆点显示合计但不可点，下方逐条列出并各自可点，保证「数字 = 下钻行数」。未识别的状态落到「其他」，不静默吞数。各阶段圆点与文字同色、同字重（需求：字体颜色一样）。
+- **阶段顺序以 eFlow 流程图为权威（2026-10-17）**：新增 `GET /api/tt-wo-dashboard/workflow`（服务层 `backend/services/eflow_workflow_service.py`），向前端下发 `stage_order` / `main_path` / `node_to_stage`。前端用它给里程碑排序，取不到时**静默回落**到 `STATUS_MILESTONES` 的本地声明顺序（里程碑数字来自本地库，只有顺序依赖该端点，故不会空态）。
+  - ⚠ **上游调用契约（实测确认，勿凭直觉改）**：`POST /api/eflow-ticket/v1/flow/runtime/queryAllSteps`，`Content-Type: text/plain`，body 是**裸字符串 `eflow-tt`** —— 不是 JSON，也不是单号。按 JSON 传 `{"ttNo": ...}` 等键名一律 `500 {"code":48990002,"message":"Failed to send request!"}`，那个 500 是 **body 解析失败**，不是「单号不存在」。
+  - **该端点返回的是流程定义**（8 个节点 + 节点间连边 + 出口条件），**不是某张单的步骤历史**。实测主干：`Create → FOAccept → FOProcess → BOAccept → BOProcess → ThirdAccept → ThirdProcess → Confirm → Closed`。图是有环的（`Confirm` 可驳回回 `FOProcess` / `ThirdProcess`），服务层用 DFS 取最长路径作主干，不画环。
+  - 两端阶段 key 必须**逐字一致**（`reassign` / `waitAccept` / `arriveSite` / `waitProcess` / `leaveSite` / `waitConfirmFO` / `waitConfirm` / `closed`）。`arriveSite` / `leaveSite` 只存在于 `eflow_wo`（TT 图上无对应节点），但 WO 页共用同一渲染器，故 `CANONICAL_STAGE_ORDER` 保留其顺序位。
+- **页面级导出与页面同序**：`TT Stats` sheet 的 Ticket Severity 行按 P1→P4 输出，状态维度按里程碑顺序（阶段合计行 + 其下原始状态行）输出。
+- **不出什么**：MTTR 趋势之下的**下半部分整体不渲染** —— 领域与根因分析、工单分析（按来源统计 WO / 按状态统计 WO）、站点信息，以及 WO 总数 / WO 编号(唯一) 两个汇总徽标（2026-10-17 起改为标题旁徽标，条件仍由 `showTtTotalCard` / `showWoSummaryCards` 控制）。切片开关见 `TTWODashboard.tsx` 的 `isSlicePage`。
 - **文案短名**（2026-09-27 按业务要求）：本页分区标题为「统计」（key `ttwo.statistics`）、严重度维度标题为「严重度」（key `ttwo.severity`）。旧键 `ttwo.ttStatistics` / `ttwo.ticketSeverity` 保留给 **Excel 导出**使用（导出的维度名与 sheet 标题仍写全名「TT 统计」「工单严重度」，便于脱离界面阅读）。**改名的实际作用域是全站 TT&WO 系列页面**（`ttwo` / `v1_ttwo` / `tt` / `wo` 同一个渲染路径），不是只有 `page=tt`。
 - **与 `page=ttwo` 的关系**：**不是复制实现，是同一份实现的切片**（先例：`V1TTWODashboard.tsx` / `MsNurOnly.tsx` / `MsSlaOnly.tsx`）。筛选条、下钻弹窗、Excel 导出、主题取色、卡片渲染器、MTTR 三档粒度与双轴图全部共用，且调同一个 `GET /api/tt-wo-dashboard/overview`，所以**数字必然一致**。
 - 下钻端点与 `page=ttwo` 完全相同（`GET /api/tt-wo-dashboard/drilldown`，含 `owner` / `adv` 同口径过滤）；卡片与 MTTR 图上的点均可下钻。
@@ -170,16 +189,17 @@
 
 **定位（业务原话）**：「`?page=wo` 页面要跟 `?page=tt` 一样，只不过是用的 `eflow_wo` 的数据源」。所以它**不是**「WO 侧内容拼盘」，而是把 TT 页的每个区块用 WO 数据渲染一遍：
 
-- **出什么**（与 `page=tt` 逐块对应）：汇总卡（**只留「WO 总数」一张**，此时它就是本页的工单总数）→ 统计（严重度 / SLA 状态 / 状态）→ MTTR 趋势（P1~P4 × 日/周/月双轴图）。默认时间窗近 30 天。**数据源 `eflow_wo`**。
+- **出什么**（与 `page=tt` 逐块对应）：汇总**徽标**（2026-10-17 起挂在「TT Statistics」标题旁，**只留「WO 总数」一个**，此时它就是本页的工单总数）→ 统计（严重度 P1→P4 固定序 / SLA 状态 / 状态里程碑）→ MTTR 趋势（P1~P4 × 日/周/月双轴图）。默认时间窗近 30 天。**数据源 `eflow_wo`**。
+  - **Status 里程碑的归并基于 `eflow_wo.status` 原值**（不是 `eflow_tt.status`）：`STATUS_MILESTONES` 的 `match` 列表同时收了两张表的写法（如 `Waiting for Accept` 与 `Waiting for Third Accept`）。`eflow_wo` 的 11 种实测状态已全部归入阶段，与 TT 页共用同一份 `STATUS_MILESTONES`，因此两页的里程碑结构相同、数字各自来自自己那张表。新增状态时在对应阶段的 `match` 里追加**原值字符串**即可，**不要改成模糊匹配**。
 - **不出什么**：与 `page=tt` 相同 —— MTTR 趋势之下的下半部分（领域与根因分析、工单分析、站点信息）只属完整页 `page=ttwo`。见 `TTWODashboard.tsx` 的 `isSlicePage`。
 - **与 `page=tt` 的三处必要差异**（都是 WO 表语义决定的，不是偷懒）：
   1. **SLA 状态取关联 `eflow_tt` 的 `sla_status`** —— `eflow_wo` 没有该列，SLA 是 TT 侧概念。关联键 `wo.tt_no = tt.tt_no`（实测覆盖率 99.99%，全表 14,111 行中 13,571 行可关联）；关联不上的行进 `Unknown` 而不是丢弃，**保证各卡片之和 = WO 总数**。
-  2. **不出「TT 总数」卡**：它算的是 `eflow_tt` 的行数，放在 WO 页没有意义。也**不出「WO 编号(唯一)」卡**：本页每行本身就是一个 WO，与「WO 总数」语义重叠，同屏出现两个一模一样的数字会被当成 bug。
+  2. **不出「TT 总数」徽标**：它算的是 `eflow_tt` 的行数，放在 WO 页没有意义。也**不出「WO 编号(唯一)」徽标**：本页每行本身就是一个 WO，与「WO 总数」语义重叠，同屏出现两个一模一样的数字会被当成 bug。
   3. **MTTR 用 WO 自己的 `alarm_occur_time` / `alarm_clear_time`**（同一公式、同一 `0 < dur < 43200` 秒剔除规则）。所以本页 MTTR 是**WO 的周转时效**，与 `page=tt` 的 TT 时效是两个数（实测 2026-W37 周 P3：WO 943.2 分钟 / TT 910.3 分钟）。**不**用 `created_time → last_modified_time`。
 - **后端**：独立端点 `GET /api/wo-dashboard/overview` 与 `GET /api/wo-dashboard/drilldown`（`backend/services/wo_dashboard_service.py` + `backend/routers/wo_dashboard.py`），**不复用** `/api/tt-wo-dashboard/*` —— 后者在同一次请求里同时算 TT 与 WO 两侧（且计算全程以 `eflow_tt` 为主表），为 `page=wo` 加数据源分支会让那个 1100+ 行的文件继续膨胀。新服务**复用口径函数**（`_time_filter` / `_safe_str` / `_period_label` / `_advanced_site_filters`）而不是抄公式，保证「同一口径、两个数据源」。
 - **无 ZTE/3rd 归属过滤**：该归属的定义是「TT 的 `wo_no` 是否非空」，WO 表每行本身就是一个 WO，没有对应概念 —— 本页**不显示该下拉**、也不发 `owner` 参数（`isWoSource` 分支）。
 - **缓存键带数据源**：`ttwo:${source}:overview:...`。不带会让先开 TT 页再开 WO 页命中同一份缓存，页面显示另一张表的数据。
-- **页面级导出 Excel**：sheet 范围为 `Summary`（仅 WO 总数一行）+ `WO Stats`（本页的严重度 / SLA / 状态，sheet 名与标题随数据源走）+ `MTTR`。文件名前缀 `TTWO_wo_`。
+- **页面级导出 Excel**：sheet 范围为 `Summary`（仅 WO 总数一行）+ `WO Stats`（本页的严重度 / SLA / 状态；Status 按里程碑顺序摊平，每个里程碑一行合计 + 其原始状态行，与界面节点顺序一致）+ `MTTR`。文件名前缀 `TTWO_wo_`。
   > **切片边界与导出范围必须成对维护**：`exportOverview` 里凡页面不渲染的区块，导出也必须不出（`isSlicePage` 统一判定）。**不用子判断表达式**（`xxxOnly` 拼 `&&`）—— 2026-09-27 实现时就是这样各自为政，导致站点信息那处漏了数据源判断，`page=wo` 多出两个区块（探针脚本查出后改为单一开关 `isSlicePage`）。
 - **门户入口（2026-09-28 改）**：统一门户 `/v1/olbrportal/` 的 **FO View** 分组里本页占一张卡（目录 `no=75`，标题 `WO Dashboard`），与 `page=tt` 的 `no=74`（`TT Dashboard`）并列，**替换掉原 `no=13`「TT&WO Dashboard」（`?page=v1_ttwo`）**。做法与维护要点见 4c 节末尾一条（同一处改动）。
 
@@ -2309,14 +2329,18 @@ tooltip 的「受影响站点」是**该区域内 site_id 去重数**（`:481-48
 数据源 `eflow_cr`（eFlow 同步的动态建表），回答一个问题：**各类变更计划排了多少、
 实际执行了多少、其中多少按时**。
 
-- 后端路由：`backend/routers/cr_analysis.py`（3 个只读端点）
+- 后端路由：`backend/routers/cr_analysis.py`（5 个只读端点）
 - **口径层（唯一真相源）**：`backend/services/cr_caliber.py` —— 表名、时间字段、
-  终态词表、按时/延期判定、窗口规整、`bucket_expr()`、`base_where()` 全在这里
-- 服务层：`backend/services/cr_analysis_service.py`（拼聚合与下钻 SQL）
-- 前端页面：`frontend/src/pages/CrChangeAnalysis.tsx`
+  终态词表、按时/延期判定、窗口规整、`bucket_expr()`、`base_where()`、
+  `status_bucket_expr()`、`WORKFLOW_STEPS` 全在这里
+- 服务层：`backend/services/cr_analysis_service.py`（拼聚合与下钻 SQL）、
+  `backend/services/cr_workflow_service.py`（解析 `*_detail` 文本列算步骤耗时）
+- 前端页面：`frontend/src/pages/CrChangeAnalysis.tsx`（500 行）
 - 前端配套：`frontend/src/pages/crAnalysis/` 下 `crTypes.ts`（类型/常量/纯函数）、
   `crCharts.ts`（ECharts option）、`crColumns.tsx`（表格列定义）、
-  `CrDrillModal.tsx`（明细弹窗）
+  `CrWorkflowMilestones.tsx`（Workflow 里程碑条）、`CrWorkflowPanel.tsx`（审批流程面板）、
+  `useCrDrills.ts`（两套下钻 hook）、`CrDrillModal.tsx` / `CrWorkflowDrillModal.tsx`
+  （明细弹窗）
 
 > 📁 **模块划分说明**：本页初版把后端口径与取数、前端页面与图表都写在单文件里，
 > 分别达到 535 / 897 行，超过 `AGENTS.md` 第三节 2 的「单文件不超过 500 行」。
@@ -2383,43 +2407,189 @@ tooltip 的「受影响站点」是**该区域内 site_id 去重数**（`:481-48
 - 按时执行率整体很低（3.2%），因为多数 CR 的实际开始时间晚于计划开始时刻（常见于
   计划填 `00:00:00`、实际当天上午执行）。**这是真实业务现象**，页面照实呈现。
 
+### Workflow 里程碑与审批流程（2026-10-17 新增）
+
+页面顶部是 **Workflow 里程碑条**，KPI 下方是**审批流程与停留耗时**面板。
+两者都对齐 eFlow 的 `Workflow History`
+（`/api/eflow-asset/v1/flow/runtime/queryAllSteps`，payload `eflow-cr`）：
+
+```
+Create → BO/FO Head Approval → Domain TD Approval → CM Head Approval
+       → Start to Implement → Result Feedback → Closed
+```
+
+#### ⓪ Workflow 里程碑条（`milestones`，2026-10-17 二版）
+
+> 首版是「当前状态分布」卡片行（7 张状态卡）。二版按需求改为**里程碑**：
+> 状态是技术状态（含 `update` 这种非流程节点），读的人要先去脑内翻译成
+> 「走到哪了」；里程碑直接按流程节点排，积压在哪一环一眼可见。
+
+口径见 `cr_caliber.MILESTONES`（节点列表与各自的 waiting 状态）与
+`cr_workflow_service._milestones()`（计算）：
+
+| 字段 | 含义 |
+| --- | --- |
+| `done` | 走过该节点的 CR 数（终态单一律算已成，避免记录缺失误判） |
+| `waiting` | 当前停在该节点、等下一环节的 CR 数 |
+| `waiting_max_days` | 这些滞留单里等得最久的天数；无人滞留为 `null`（界面留空，不显示 0） |
+
+**节点归并规则**：`update`（驳回后修改）不是独立里程碑 —— 它只是回到
+BO/FO 审批，故并入 `bo_fo`；`Closed` 单列为最后一环（`done` = 已关闭数，
+无 `waiting`）。**停在里程碑 B 的判定** = `status` 落在 B 的 `waiting_statuses`
+里（即已完成 A、正在等 B 批准），与 `step_of_status()` 的错一格语义一致。
+
+> **验证**（2026-10-17 实测）：`sum(waiting) == in_flight`（86 == 86）；
+> 各节点 `waiting` 与其归并的状态卡数字吻合（BO/FO 5 + Waiting for Update 1 = 6、
+> CM 26、Implement 36、Feedback 9）。
+
+界面：等待数最大的节点自动标 **瓶颈**（红边 + 标签）。点击「等待中」→ 该节点
+滞留明细（按等待天数倒序）；点击「已完成」→ 走过该节点的明细；Closed 节点
+走状态下钻（终态不在步骤表里）。
+
+#### ① 状态分布环形图（`status_rows`）
+
+状态卡行已移除，但**状态环形图保留** —— 它显示 7 个原始状态的精确分布，
+与里程碑的归并视图互补（里程碑把 `update` 并了、把 Closed 单列了）。
+分组与下钻口径见下：
+
+`build_overview` 的 `status_sql` 按 `cr_caliber.status_key_sql()`
+（= `UPPER(TRIM(COALESCE(status,'')))`）分组，并取 `MAX(原值)` 作为**展示名**：
+
+| 字段 | 含义 |
+| --- | --- |
+| `status_key` | 归一后的大写值，**下钻必须用它** |
+| `status` | 源表原值，界面显示用（不翻译，是上游词表） |
+| `cnt` | 该状态 CR 数 |
+
+⚠️ **归一后分组、归一后匹配**：概览用 `UPPER(TRIM(...))` 分组，
+下钻用 `cr_caliber.status_bucket_expr(status)` 的 `= ?` 匹配同一个表达式。
+若概览归一而下钻用原值，首尾空格或大小写不同就会出现「图上有 26、点进去 0 行」。
+
+环形图配色按**语义固定**（`crCharts.ts` 的 `STATUS_COLOR`），不按数组下标轮转 ——
+否则某状态下线会让其余状态整体换色，用户会以为看错了图。
+
+#### ② 审批流程耗时（`cr_workflow_service.py`）
+
+源表把每一步的操作记录压在 8 个 `*_detail` 文本列里，一格一步，格式固定：
+
+```
+Operation Step:CM Head Approval. Operation Result:Approve. Operation Time:2026-1-14 17:24:44.
+Operator:Alhaji Dukulay(NOC_FO_102). ... Next Status:Waiting for Implement. ... Remark:Approved
+```
+
+`load_rows()` 解析出每张 CR 的**步骤时间线**（实测 247 行 / 1410 条步骤记录
+时间戳 100% 可解析），再算：
+
+| 列 | 口径 |
+| --- | --- |
+| 到达数 `arrived` | 走过该步的 CR 数（含已离开 + 当前停留） |
+| 平均/最长停留 `avg_days` / `max_days` | 相邻两步 `Operation Time` 之差，仅统计**已离开**该步的单；无样本为 `null` → `—` |
+| 当前滞留 `current` | 当前停在该步的 CR 数 |
+| 最久已等待 `current_max_days` | 滞留单里 `now - 该步进入时间` 的最大值 |
+
+步骤顺序取 `cr_caliber.WORKFLOW_STEPS`（**真实时序**）：
+
+```
+created → update → bo_fo → td → cm → implement → feedback
+```
+
+⚠️ **不能按列名字母序**：`domain_td_approval_detail` 在 `cm_head_approval_detail`
+之前，字母序会把 TD 与 CM 颠倒。
+
+#### ⚠️ 当前步骤由 `status` 决定，不能用「时间线最后一步」（2026-10-17 踩坑）
+
+实测交叉表显示：161 张 Closed 的 CR 中 **141 张停在 feedback、15 张根本没走
+Result Feedback 就关单了**。用「最后一步」当当前步骤会把 156 张已关闭的单
+全算成「卡在 feedback」，滞留统计完全失真。
+
+正确做法是 `step_of_status()`：`status` 说的是**等待中**的那个审批节点，
+detail 记录的是**已完成**的操作，语义上错开一格：
+
+| `status` | 当前所在步骤 |
+| --- | --- |
+| `BO/FO Head Approval` | created |
+| `Domain TD Approval` | bo_fo |
+| `CM Head Approval` | td |
+| `Waiting for Implement` | cm |
+| `Implementing` | implement |
+| `Waiting for Update` | created（被驳回等修改） |
+| `Closed` / `Canceled` | 无（终态，不计滞留） |
+
+⚠️ 键必须按 `UPPER()` 后写：源表「Head Approval」是大写开头，归一后是
+`CM HEAD APPROVAL`，写成 `Waiting for CM Head Approval` 会查不到（同一坑）。
+
+#### 下钻一致性验证（2026-10-17 实测）
+
+- 状态：7 个状态 × 下钻行数全部一致（Closed 161、Waiting for Implement 36、
+  CM Head 26、Domain TD 9、Implementing 9、BO/FO 5、Waiting for Update 1），
+  合计 247 = `summary.total`；
+- 流程：`current` 下钻行数与对应步骤的 `current` 列逐项相等（created 6、
+  bo_fo 9、td 26、cm 36、implement 9）；`arrived` 同理。
+
+#### 前端拆分（2026-10-17）
+
+本次改动使页面从 468 行涨到 731 行，超过 500 行上限，遂拆出
+`CrWorkflowMilestones.tsx` / `CrWorkflowPanel.tsx` / `useCrDrills.ts`，
+并把两套下钻的状态管理收敛到 hook（原先 `openDrill` 与 `openWfDrill` 各抄了
+一遍 loading/rows/total/truncated/warn 六件套）。拆后页面恰好 500 行。
+
+「平均停留 / 最长停留」两列**刻意不做下钻**：它们的分子只含「已离开该步」的单，
+而「到达数」的明细也含未离开的，行数天然不等；加下钻会让用户拿明细行数去对
+一个平均天数，反而更困惑。要看清哪些单慢，从「到达数」或「当前滞留」进去
+按天数排序即可。
+
 
 ## 28. PM 执行分析（`?page=pm_analysis`）—— 按 PM 计划看完成与超期（2026-09-25 新增）
 
 数据源 `eflow_pm`（eFlow 同步的动态建表），回答一个问题：**各 PM 计划（预防性维护
 工单 PMT）执行到哪一步、多少超期、卡在谁那里**。
 
-- 后端路由：`backend/routers/pm_analysis.py`（3 个只读端点）
+- 后端路由：`backend/routers/pm_analysis.py`（**5 个**只读端点：filters / overview /
+  drilldown / **workflow** / **workflow-drilldown**，后两个 2026-10-17 新增）
 - **口径层（唯一真相源）**：`backend/services/pm_caliber.py` —— 表名、时间字段、
-  终态、超期判定、真实流程顺序、窗口规整、`bucket_expr()`、`base_where()` 全在这里
-- 服务层：`backend/services/pm_analysis_service.py`（拼聚合与下钻 SQL）
+  终态、超期判定、流程顺序、窗口规整、`bucket_expr()`、`base_where()` 全在这里
+- 服务层：`backend/services/pm_analysis_service.py`（拼聚合与下钻 SQL）、
+  `backend/services/pm_workflow_service.py`（里程碑与环节停留耗时）
 - 前端页面：`frontend/src/pages/PmExecutionAnalysis.tsx`
 - 前端配套：`frontend/src/pages/pmAnalysis/` 下 `pmTypes.ts`、`pmCharts.ts`、
-  `pmColumns.tsx`、`PmDrillModal.tsx`
+  `pmColumns.tsx`、`PmDrillModal.tsx`、`PmKpiCards.tsx`、
+  **`PmMilestones.tsx`**、**`PmMilestoneDrillModal.tsx`**
 
 > 📁 **模块划分**：与第 27 节的 CR 页**同构**（口径层 / 取数层 / 页面 / 四件套），
 > 照搬已经过验证的结构，不另起一套。各文件 87~470 行，均在 500 行以内。
 
 ### ⚠️ 字段名有误导性（本节最重要的一条）
 
-`eflow_pm` 的流程时间字段**按名字猜顺序会全错**。实测 694 条含完整链条的记录，
-真实时序 100% 是：
+`eflow_pm` 的流程时间字段**按名字猜顺序会全错**。
+**2026-10-17 以用户给定的 Workflow History 校准**（同一天用
+`POST /api/eflow-pm/v1/flow/runtime/queryAllSteps`、payload `eflow-pm-task`
+实测到相同节点序列），权威顺序是：
+
+```
+Create → Schedule → Accept → Process → PMManagerApprove → FLMLeaderApprove → Closed
+```
+
+映射到源表字段：
 
 ```
 created_time → last_create_time → last_schedule_time → last_accept_time
-  → last_pm_manager_approve_time → last_process_time → last_flm_leader_approve_time → Closed
+  → last_process_time → last_pm_manager_approve_time → last_flm_leader_approve_time → Closed
 ```
 
 关键反直觉点（`pm_caliber.py` 的模块 docstring 已记录）：
 
-- `last_accept_time` **早于** `last_process_time`（1233/1233 成立）——
-  "Accept" 是受理/签收，不是"验收"；
-- `last_flm_leader_approve_time` **最晚**（707/707 晚于 `last_process_time`）——
-  FLM 领导审批是**收尾**环节，不是流程起点；
-- `last_process_time` 与 `last_pm_manager_approve_time` 实测同时刻。
+- `last_accept_time` 早于 `last_process_time` —— "Accept" 是受理/签收，不是"验收"；
+- **`last_process_time` 是「进入 Process」的时刻，早于 PM 经理审批**
+  （`last_process_time` 记录的是进入而不是离开）。2458 行里 95% 的单
+  `last_pm_manager_approve_time` 与 `last_process_time` 只差 1 秒，其余相差数周
+  —— 二者是**相邻两步**。**旧文档曾写反过**（说 PM 经理审批早于执行）；
+- `last_flm_leader_approve_time` 最晚 —— FLM 领导审批是**收尾**环节；
+- `Process` 在流程图上有 Transfer / WaitReProcess 两条**回到自己**的出边
+  （驳回后重做），所以线性化按首次出现定序。
 
-所以页面的「流程推进情况」漏斗按**上述真实时序**渲染
-（`pmTypes.ts` 的 `STEP_KEYS` 数组顺序即真实时序），**不要**改成字段名字母序。
+页面的「流程推进情况」漏斗与「审批流程里程碑」都按**上述顺序**渲染
+（`pmTypes.ts` 的 `STEP_KEYS` 与 `MilestoneKey`，以及后端的
+`pm_workflow_service._MILESTONE_DEFS`），**不要**改成字段名字母序。
 
 ### 口径（改口径只改 `pm_caliber.py` 一处）
 
@@ -2515,6 +2685,59 @@ created_time → last_create_time → last_schedule_time → last_accept_time
 - 超期率按状态差异极大：Wait Process 96.7%、Wait Accept 90.2%、Closed 31.2%、
   Wait FLM Leader Approve 26.4% —— **等待中的工单比已完成的超期率更高**，
   说明卡点在审批环节，这正是「流程推进情况」漏斗存在的意义。
+
+### 审批流程里程碑（2026-10-17 新增）
+
+页面 **KPI 之上**新增一条里程碑条，取代「要先看状态分布再去脑内翻译」的阅读成本。
+顺序严格对齐 eFlow 的 Workflow History（见上节顺序表），7 个节点：
+
+`Create → Schedule → Accept → Process → PM Manager Approve → FLM Leader Approve → Closed`
+
+- 后端：`backend/services/pm_workflow_service.py`
+  （`build_workflow()` / `drill_workflow()`），路由 `GET /api/pm-analysis/workflow`
+  与 `GET /api/pm-analysis/workflow-drilldown`；
+- 前端：`pmAnalysis/PmMilestones.tsx`（里程碑条，每格两个大字号数字）+
+  `pmAnalysis/PmMilestoneDrillModal.tsx`（明细弹窗，可导出）；
+- 每格显示 **已完成 `done`**（走过该节点）与 **当前滞留 `waiting`**（等下一环节），
+  以及滞留最长天数 `waiting_max_days`；无滞留时改显示该环节平均停留 `avg_days`；
+- 当前滞留最多的节点加红框 + 「瓶颈」标签（`pm.ms.bottleneck`）。
+
+口径要点（改之前先读后端模块 docstring）：
+
+1. **「走过」的判定只有一处**：`pm_workflow_service._passed_milestone()`。
+   规则：有进入时间 → 走过；没有进入时间但**后续环节已有时间戳** → 走过
+   （实测 48 张单 `last_schedule_time` 为空却已受理/关闭，即「未排期直接受理」），
+   这类**只计入 done、不计停留时长**（没有进入时间，任何天数都是编的）；
+   终态单额外把「最后一段连续已知环节」之前视为走过（否则 13 张缺
+   `last_accept_time` 的 Closed 单会让 accepted 之后的 done 虚高到 total）。
+   ⚠️ 概览与下钻必须调**同一个函数**，写成两处内联生成器就会分叉
+   （2026-10-17 踩过：生成器版本只在单元素输入时正确）。
+2. **滞留归属按状态判定**，不按时间线倒推：
+   `Wait Accept → 已排期`、`Wait Process → 已受理`、`Wait PM Manager Approve →
+   已处理`、`Wait FLM Leader Approve → PM 经理已批`；`Transfer`（转派）不是流程节点，
+   不计滞留；`Closed` 是终态。
+3. **PM 经理审批的停留时长不单独算**：源表里它与 Process 边界重叠
+   （95% 的单只差 1 秒），分开算会产出「40 天」的假象。它的到达量与滞留量仍然准确，
+   且二者相等（流程上必经、无并行分支）。
+4. **计划号**：概览端点的 `pmp_no` 是**单值精确过滤**，所以前端只有**恰好选中 1 个**
+   计划号时才把它下推给里程碑；选多个时里程碑按全部计划出数，并在页面上
+   用 `pm.ms.plansHint` 显式提示「与表格小计可能不同」——不静默不一致。
+
+**已验证**（2026-10-17，全表 2458 行，窗口 2026-01-01 ~ 2026-12-31）：
+
+| 里程碑 | done | waiting | 最长等待 | 平均停留 |
+| --- | --- | --- | --- | --- |
+| Create | 2458 | 0 | — | 0.07d |
+| Schedule | 2458 | 891 | 217.9d | 28.1d |
+| Accept | 1567 | 156 | 211.0d | 5.6d |
+| Process | 1408 | 1 | 261.8d | 0.0d（与 PM 审批同刻） |
+| PM Manager Approve | 1407 | 664 | 217.8d | 19.4d |
+| FLM Leader Approve | 743 | 0 | — | — |
+| Closed | 743 | — | — | — |
+
+`arrived` / `current` / `done` 三种下钻的行数与上表**逐项相等**；
+`total = 2458 = closed 743 + in_flight 1715`。卡点一眼可见：
+**891 张停在「已排期等受理」、664 张停在「等 FLM 领导批」，后者已等 217 天**。
 
 
 ## 30. BP Cells Report（`?page=bp_report`）—— umlaut 口径的 Bad Performance（2026-09-29 新增，2026-09-30 口径补齐 + 下钻补全）
@@ -3457,6 +3680,77 @@ UME 只是自动同步的补充。**这个优先级是口径决定，不是性�
 | `TMP\_probe_vlr_window.py` | 并排对比某区间内 EMS 与 UME **各自有没有那天**，并给出「当前结果取自谁」，用于定位台阶位置 |
 | `TMP\_probe_vlr_oldvsnew.py` | **对比线上运行中的后端与修复后代码的逐日值**，直接打印倍数与极差。改完代码未重启时用它确认"是不是还没生效"（重启后两者应一致，倍数恒为 1.00x） |
 | `TMP\_probe_restart_ready.py` | 按 `main.py` 的导入顺序重新 import 相关模块，**确认重启不会起不来**；改动模块级常量后、重启前跑一次 |
+
+---
+
+## 33b. CN KPI 5 分钟看板（`?page=cn_kpi_5mins`）—— Day0/Day1 叠画
+
+2026-10-17 新增。与 §33 的 CN KPI 看板**共用上游与凭据**，但粒度、窗口与数据表都不同。
+
+### 33b.1 它是什么
+
+每张图两条线：**Day0 = 今天**、**Day1 = 昨天**，横轴为时刻 `HH:MM`。
+同一横坐标即同一时刻，用来对比日内走势与日间差异。
+
+| 项 | 值 |
+| --- | --- |
+| 采集任务 | `cnn_kpi_sync_5mins`（`backend\services\cnn_ume_kpi_5mins_service.py`），cron `*/15 * * * *`，n 组 |
+| 粒度 | `gr="300"`（5 分钟） |
+| 窗口 | 昨天 00:00 UTC → 现在 |
+| 落库表 | `db_ps_cs_cn.sqlite3` 的 `5mins_<原表名>`（**只写新表，日/月表一行不动**） |
+| 数据服务 | `backend\services\cn_kpi_5mins_service.py` |
+| 路由 | `GET /api/cn-kpi-5mins/overview`、`/health` |
+
+### 33b.2 ⚠ 上游只有 5 个模板有 5 分钟粒度（2026-10-17 实测）
+
+| 模板 | gr=300 | 说明 |
+| --- | --- | --- |
+| VOICE_TRAFFIC / VLR_SUBSCRIBERS / DATA_SUBSCRIBERS / 4G_FDD_DATA_TRAFFIC / FREE_RATING_GROUP | ✅ | 正常返回 `5 minutes` |
+| xGW_LICENSE / xGW_CPU_USAGE / 3G_FDD_DATA_TRAFFIC | ❌ 0 行 | 已排除窗口因素（`gr=3600` 正常、`gr=300` 换 7 天仍 0 行），也试过 `relative`/`groupchoice`/`grouplayer` 均无效 |
+
+业务决定：**8 个卡片全列出**，3 个无数据的显示「无5分钟数据」+ 原因（**不报错**）；
+任务对 0 行改为**跳过而非失败**（与 `cnn_kpi_sync` 的「0 行即 raise」刻意不同，
+否则本任务会每 15 分钟失败一次）。
+
+### 33b.3 Day0/Day1 怎么实现的
+
+**在 SQL 里拆，前端零新增逻辑**。每个组件返回三列 `[HH:MM, 'Day0'|'Day1', 值]`：
+
+```sql
+SELECT substr("End Time",12,5) AS t,
+       CASE WHEN substr("End Time",1,10)=date('now') THEN 'Day0'
+            WHEN substr("End Time",1,10)=date('now','-1 day') THEN 'Day1' END AS day,
+       SUM(...) AS "指标"
+FROM "5mins_<表>" WHERE "End Time" >= date('now','-1 day') AND "End Time" < date('now','+1 day')
+GROUP BY t, day ORDER BY t
+```
+
+前端 `CnKpi5mins.tsx` 的 `buildDayOption()` 按第 2 列透视成两条线（与 `CnKpi.tsx`
+的 pivot 同构）。日切用 **`End Time`**，与 §33 看板口径一致。
+
+### 33b.4 排查
+
+1. `GET /api/cn-kpi-5mins/health` —— 远端 8765 是否可达。
+2. `GET /api/cn-kpi-5mins/overview?force=1` —— 看 `meta.failed` / `meta.empty` 与各组件 `empty_reason`。
+3. 单表核对：
+   ```sql
+   SELECT MIN("Begin Time"), MAX("Begin Time"), COUNT(*), COUNT(DISTINCT "Granularity")
+   FROM "5mins_VLR_SUBSCRIBERS_TEMPLATE_OSS_UME"
+   ```
+   间隔应为 300 秒、`Granularity` 应为 `5 minutes`。
+4. 任务实测单轮约 **105 秒**（Free Rating 一天就 1.4 万行）；若逼近 15 分钟需调低并发。
+5. 改完服务层**必须重启后端与 n 组 worker**（见 `13-operations.md`）。
+
+### 33b.5 相关文件
+
+| 文件 | 作用 |
+| --- | --- |
+| `backend\services\cnn_ume_kpi_5mins_service.py` | 采集（复用 `ccn_ume_kpi_service` 的鉴权/查询/导出/写库助手） |
+| `backend\services\cn_kpi_5mins_service.py` | 看板数据：11 个组件（8 有数据 + 3 空态）+ SQL + 缓存 |
+| `backend\routers\cn_kpi_5mins.py` | `/api/cn-kpi-5mins/*` |
+| `frontend\src\pages\CnKpi5mins.tsx` | 页面（Day0/Day1 透视 + 空态） |
+| `backend\task_registry.py` | `TASK_SPECS` 登记 `cnn_kpi_sync_5mins` |
+| `backend\worker_watchdog.py` | `GROUP_TASK_MAP["n"]` 加入该任务 |
 
 #### GIS 地图浮层遮挡 / 地图位移（2026-10-03 新增）
 

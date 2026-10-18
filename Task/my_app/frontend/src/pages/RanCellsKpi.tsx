@@ -426,6 +426,7 @@ export default function RanCellsKpi() {
               />
             </Space>
             <Segmented
+              className="wh-seg"
               value={tech}
               onChange={v => setTech(String(v))}
               options={[

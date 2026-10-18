@@ -2,24 +2,22 @@
  * CR 变更分析 —— 按 change_category 看变更计划的排期与执行情况
  * ============================================================================
  *
- * 数据源：`eflow_cr`（eFlow 同步的动态建表）。
- * 后端：`backend/routers/cr_analysis.py`，
- *       口径与「概览/下钻如何共用一份 WHERE」见
- *       `backend/services/cr_analysis_service.py` 的模块 docstring。
+ * 数据源：`eflow_cr`（eFlow 同步的动态建表）。后端 `backend/routers/cr_analysis.py`，
+ * 口径与「概览/下钻如何共用一份 WHERE」见 `cr_analysis_service.py` 的模块 docstring。
  *
- * 本文件（`pages/CrChangeAnalysis.tsx`）只负责**页面编排与取数**；配套模块在
- * `pages/crAnalysis/` 下，各管一摊：
- *   - `crTypes.ts`   —— 类型、常量、纯格式化与小计
- *   - `crCharts.ts`  —— ECharts option 构造（纯函数）
- *   - `CrDrillModal.tsx` —— 明细弹窗（表格 + 导出）
+ * 本文件只负责**页面编排与取数**；配套模块在 `pages/crAnalysis/` 下各管一摊：
+ * `crTypes` 类型与格式、`crCharts` ECharts 纯函数、`crColumns` 表格列、
+ * `CrWorkflowMilestones` 里程碑条、`CrWorkflowPanel` 流程面板、
+ * `CrDrillModal` / `CrWorkflowDrillModal` 两套明细弹窗、`useCrDrills` 两套下钻 hook。
  * （拆分原因：单文件曾达 897 行，超出 AGENTS.md 第三节 2 的 500 行上限。）
  *
- * 页面结构：① 筛选条 → ② KPI 行 → ③ 三个比率卡 → ④ 图表
- *          → ⑤ 月度趋势 → ⑥ 类别明细表 → ⑦ 子类别表 → ⑧ 下钻弹窗
+ * 页面结构：① 筛选条 → ② Workflow 里程碑（对齐 eFlow queryAllSteps 顺序）
+ *          → ③ KPI → ④ 比率卡 → ⑤ 图表（计划/按时/状态环形）
+ *          → ⑥ 流程耗时表+滞留图 → ⑦ 月度趋势 → ⑧ 类别表 → ⑨ 子类别表 → ⑩ 弹窗
  *
- * ⚠️ 硬要求（AGENTS.md 第三节 1b）：「能下钻尽下钻」—— 页面上**每个数字都可点**，
- *    且下钻时 metric + category/sub_category/month 的组合必须与点击来源的卡片
- *    维度严格一致，否则明细行数与卡片数字对不上。
+ * 里程碑放 KPI 之上：第一诉求是「现在卡在哪个审批口」（当下），
+ * 计划达成率是历史统计。⚠️ AGENTS.md 第三节 1b：每个数字可点，
+ * 且下钻维度必须与点击来源的卡片严格一致，否则行数对不上。
  * ========================================================================== */
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
@@ -32,15 +30,22 @@ import { useI18n } from '../i18n'
 import { WH, useTheme } from '../theme'
 import { CardBase, StatCard } from '../components/cards'
 import { exportAoaReport } from '../utils/excelReport'
-import { getCrAnalysisFilters, getCrAnalysisOverview, getCrAnalysisDrilldown } from '../api'
+import { getCrAnalysisFilters, getCrAnalysisOverview, getCrAnalysisWorkflow } from '../api'
 import CrDrillModal from './crAnalysis/CrDrillModal'
+import CrWorkflowDrillModal from './crAnalysis/CrWorkflowDrillModal'
+import CrWorkflowMilestones from './crAnalysis/CrWorkflowMilestones'
+import CrWorkflowPanel, { orderSteps, stepLabelKey } from './crAnalysis/CrWorkflowPanel'
+import {
+  useCrStatusDrill, useCrFlowDrill, windowOf,
+} from './crAnalysis/useCrDrills'
 import {
   fmtRate, rateColor, rateLevel, summarize, COUNT_FIELDS,
-  type DetailRow, type Filters, type Metric, type Overview,
+  type Filters, type Metric, type Overview, type Workflow,
 } from './crAnalysis/crTypes'
 import { categoryColumns, subCategoryColumns } from './crAnalysis/crColumns'
 import {
   chartColors, planChartOption, onTimeChartOption, statusChartOption, monthChartOption,
+  workflowChartOption,
 } from './crAnalysis/crCharts'
 
 const { Text } = Typography
@@ -59,34 +64,34 @@ export default function CrChangeAnalysis() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
+  /* ---- 审批流程（步骤耗时 / 滞留量），与概览分开取：它要解析文本列，略慢 ---- */
+  const [workflow, setWorkflow] = useState<Workflow | null>(null)
+
   /* ---- 筛选条上的类别前端过滤（只影响展示，不影响下钻口径） ---- */
   const [activeCats, setActiveCats] = useState<string[]>([])
-
-  /* ---- 下钻弹窗状态 ---- */
-  const [open, setOpen] = useState(false)
-  const [anchor, setAnchor] = useState<{ x: number; y: number } | null>(null)
-  const [drillTitle, setDrillTitle] = useState('')
-  const [drillRows, setDrillRows] = useState<DetailRow[]>([])
-  const [drillTotal, setDrillTotal] = useState(0)
-  const [drillTruncated, setDrillTruncated] = useState(false)
-  const [drillWarn, setDrillWarn] = useState('')
-  const [drillLoading, setDrillLoading] = useState(false)
-  const [lastMetric, setLastMetric] = useState('')
 
   /* ---- 取数 ---- */
   const load = useCallback(async () => {
     setLoading(true)
     setError('')
+    const params: Record<string, string> = {}
+    if (start) params.start = start.format('YYYY-MM-DD')
+    if (end) params.end = end.format('YYYY-MM-DD')
+    // 概览与流程**并行**取：流程要全表扫一遍解析文本，串行会让页面白屏更久。
+    // 流程失败不该拖垮整页 —— 它是增强信息，用 catch 单独降级：
+    //   Promise.all 里任一失败会连带概览一起进 catch，故这里用 allSettled 的意图
+    //   写成「主查询 try / 副查询 catch」，语义更直白。
+    const wfPromise = getCrAnalysisWorkflow(params)
+      .then(r => setWorkflow(r.data as Workflow))
+      .catch(() => setWorkflow(null))
     try {
-      const params: Record<string, string> = {}
-      if (start) params.start = start.format('YYYY-MM-DD')
-      if (end) params.end = end.format('YYYY-MM-DD')
       const r = await getCrAnalysisOverview(params)
       setOv(r.data as Overview)
     } catch (e: any) {
       setError(e?.message || String(e))
       setOv(null)
     } finally {
+      await wfPromise
       setLoading(false)
     }
   }, [start, end])
@@ -145,47 +150,25 @@ export default function CrChangeAnalysis() {
     total: t('cr.col.total'), executed: t('cr.col.executed'), closed: t('cr.col.closed'),
   }), [ov, isDark, C, t])
 
-  /* ---- 下钻 ---- */
-  const openDrill = useCallback(async (
-    metric: Metric, category = '', sub = '', month = '',
-    at?: { x: number; y: number },
-  ) => {
-    setOpen(true)
-    setAnchor(at || null)
-    setDrillLoading(true)
-    setDrillRows([])
-    setDrillTotal(0)
-    setDrillTruncated(false)
-    setDrillWarn('')
-    setLastMetric(metric)
+  /* ---- 审批流程：步骤顺序取 STEP_KEYS（后端 WORKFLOW_STEPS 的真实时序）---- */
+  const flowSteps = useMemo(() => orderSteps(workflow?.steps || []), [workflow])
 
-    // 标题把下钻维度写清楚，用户才知道这一屏到底是什么
-    const parts = [t(`cr.metric.${metric}`)]
-    if (category) parts.push(category)
-    if (sub) parts.push(sub)
-    if (month) parts.push(month)
-    setDrillTitle(parts.join(' · '))
+  const flowOption = useMemo(() => workflowChartOption(
+    flowSteps.map(s => ({
+      label: t(stepLabelKey(s.step)),
+      arrived: s.arrived,
+      current: s.current,
+    })),
+    isDark, C,
+    { arrived: t('cr.flow.legend.arrived'), current: t('cr.flow.legend.current') },
+  ), [flowSteps, isDark, C, t])
 
-    try {
-      const params: any = { metric }
-      if (start) params.start = start.format('YYYY-MM-DD')
-      if (end) params.end = end.format('YYYY-MM-DD')
-      if (category) params.category = category
-      if (sub) params.sub_category = sub
-      if (month) params.month = month
-      const r = await getCrAnalysisDrilldown(params)
-      const d = r.data || {}
-      setDrillRows(d.rows || [])
-      setDrillTotal(d.total ?? (d.rows || []).length)
-      setDrillTruncated(!!d.truncated)
-      setDrillWarn((d.meta?.warnings || []).join('; '))
-    } catch (e: any) {
-      setDrillWarn(e?.message || String(e))
-    } finally {
-      setDrillLoading(false)
-    }
-  }, [start, end, t])
-
+  /* ---- 下钻：两套弹窗的状态与取数在 crAnalysis/useCrDrills.ts ---- */
+  const win = useMemo(() => windowOf(start, end), [start, end])
+  const statusDrill = useCrStatusDrill(win)
+  const flowDrill = useCrFlowDrill(win)
+  const openDrill = statusDrill.openDrill
+  const openWfDrill = flowDrill.openDrill
   /** 图表点击的公共处理：把坐标从 ECharts 事件里取出并下钻 */
   const chartDrill = useCallback((
     metric: Metric, category: string, month: string, p: any,
@@ -283,7 +266,23 @@ export default function CrChangeAnalysis() {
         <Alert type="info" showIcon message={t('cr.empty')} />
       )}
 
-      {/* ② KPI 行：每个数字可点下钻 */}
+      {/* ② Workflow 里程碑条：顺序对齐 eFlow 的 queryAllSteps Workflow History。
+          等待数 → 该节点滞留明细；已完成数 → 走过该节点的明细。 */}
+      <CrWorkflowMilestones
+        milestones={workflow?.milestones || []}
+        total={workflow?.total ?? summary.total}
+        inFlight={workflow?.in_flight ?? 0}
+        C={C}
+        onWaiting={(step, at) => void openWfDrill(step, 'current', at)}
+        onDone={(step, at) => void openWfDrill(step, 'arrived', at)}
+        onClosed={at => {
+          // Closed 是终态，不在步骤表里 —— 走状态下钻（status_key 后端已归一）
+          const row = (ov?.status_rows || []).find(r => r.status_key === 'CLOSED')
+          if (row) void openDrill('status', '', '', '', at, row.status_key, row.status)
+        }}
+      />
+
+      {/* ③ KPI 行：每个数字可点下钻 */}
       <Row gutter={[12, 12]}>
         {kpis.map((k, i) => (
           <Col key={k.metric} xs={12} sm={8} lg={6} xl={3}>
@@ -296,7 +295,7 @@ export default function CrChangeAnalysis() {
         ))}
       </Row>
 
-      {/* ③ 三个核心比率：分母写在数字下方，避免「100%」在小样本下被误读 */}
+      {/* ④ 三个核心比率：分母写在数字下方，避免「100%」在小样本下被误读 */}
       <Row gutter={[12, 12]}>
         {rateCards.map(c => (
           <Col key={c.key} xs={24} md={8}>
@@ -315,7 +314,7 @@ export default function CrChangeAnalysis() {
         ))}
       </Row>
 
-      {/* ④ 图表并排 */}
+      {/* ⑤ 图表并排 */}
       <Row gutter={[12, 12]}>
         <Col xs={24} xl={14}>
           <CardBase
@@ -357,13 +356,33 @@ export default function CrChangeAnalysis() {
             extra={<Text type="secondary" style={{ fontSize: 11 }}>{t('cr.chart.status.hint')}</Text>}
           >
             {ov?.status_rows?.length
-              ? <ReactECharts option={statusOption} style={{ height: 340 }} notMerge />
+              ? <ReactECharts
+                option={statusOption}
+                style={{ height: 340 }}
+                notMerge
+                onEvents={{
+                  // 扇区顺序与 status_rows 严格同序（option 里 data 就是它 map 出来的），
+                  // 故用 dataIndex 回查，和计划柱图同一个做法，不靠名字猜
+                  click: (p: any) => {
+                    const s = ov?.status_rows?.[p?.dataIndex ?? -1]
+                    if (!s) return
+                    void openDrill('status', '', '', '',
+                      { x: p?.event?.event?.clientX, y: p?.event?.event?.clientY },
+                      s.status_key, s.status)
+                  },
+                }}
+              />
               : <Empty description={t('cr.empty')} />}
           </CardBase>
         </Col>
       </Row>
 
-      {/* ⑤ 月度趋势 */}
+      {/* ⑥ 审批流程：耗时表（左）+ 滞留量图（右）。
+          数据来自 8 个 *_detail 文本列解析，概览接口不返回 —— 单独取、单独降级。
+          展示与点击在 crAnalysis/CrWorkflowPanel.tsx，这里只传数据与回调。 */}
+      <CrWorkflowPanel steps={flowSteps} C={C} option={flowOption} onPick={openWfDrill} />
+
+      {/* ⑦ 月度趋势（编号见文件头） */}
       <CardBase
         title={t('cr.chart.month.title')}
         extra={<Text type="secondary" style={{ fontSize: 12 }}>{t('cr.chart.month.hint')}</Text>}
@@ -383,7 +402,7 @@ export default function CrChangeAnalysis() {
           : <Empty description={t('cr.empty')} />}
       </CardBase>
 
-      {/* ⑥ 类别明细表：全部数字可点 */}
+      {/* ⑧ 类别明细表：全部数字可点 */}
       <CardBase
         title={t('cr.table.title')}
         extra={
@@ -434,7 +453,7 @@ export default function CrChangeAnalysis() {
         />
       </CardBase>
 
-      {/* ⑦ 子类别（设备类型）第二层维度 */}
+      {/* ⑨ 子类别（设备类型）第二层维度 */}
       <CardBase
         title={t('cr.sub.title')}
         extra={<Text type="secondary" style={{ fontSize: 12 }}>{t('cr.sub.hint')}</Text>}
@@ -450,18 +469,31 @@ export default function CrChangeAnalysis() {
         />
       </CardBase>
 
-      {/* ⑧ 下钻弹窗 */}
+      {/* ⑩ 下钻弹窗：类别/状态明细 + 审批步骤明细 */}
       <CrDrillModal
-        open={open}
-        subtitle={drillTitle}
-        anchor={anchor}
-        onClose={() => setOpen(false)}
-        rows={drillRows}
-        total={drillTotal}
-        truncated={drillTruncated}
-        warn={drillWarn}
-        loading={drillLoading}
-        metric={lastMetric}
+        open={statusDrill.open}
+        subtitle={statusDrill.title}
+        anchor={statusDrill.anchor}
+        onClose={statusDrill.close}
+        rows={statusDrill.rows}
+        total={statusDrill.total}
+        truncated={statusDrill.truncated}
+        warn={statusDrill.warn}
+        loading={statusDrill.loading}
+        metric={statusDrill.metric}
+      />
+
+      <CrWorkflowDrillModal
+        open={flowDrill.open}
+        subtitle={flowDrill.title}
+        anchor={flowDrill.anchor}
+        onClose={flowDrill.close}
+        rows={flowDrill.rows}
+        total={flowDrill.total}
+        truncated={flowDrill.truncated}
+        warn={flowDrill.warn}
+        loading={flowDrill.loading}
+        fileKey={flowDrill.fileKey}
       />
     </div>
   )

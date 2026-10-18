@@ -31,7 +31,7 @@ APScheduler 到点 (backend 进程内)
 | 组 | 任务数 | 约束原因 | 成员 task_id |
 | --- | --- | --- | --- |
 | `u` | 12 | RAN UME 单账号会话，必须串行（并发会被踢会话）。`bp_report_sync` 也读 RAN UME，且必须排在 `main_kpi_sync` 之后（否则读到昨天的 KPI） | `ran_ume_daily`, `main_kpi_sync`, `cell_availability_sync`, `network_kpi_sync`, `packet_loss_sync`, `packet_loss_email`, `battery_kpi_sync`, `ipran_kpi_sync`, `cm_data_sync`, `cells_kpi_sync`, `avail_recon_sync`, `bp_report_sync` |
-| `n` | 13 | eFlow API / config-center 同源会话（2026-09-27 由 17 项收窄，VMAX→`v`、SFTP→`s`、MW UME→`w`；2026-10-15 实时告警→`x`） | `eflow_sync`, `eflow_sync_full`, `eflow_history_alarm`, `eflow_tt_rules_check`, `ms_sla_full`, `cnn_kpi_sync`, `fw_kpi_sync`, `sp_online_sync`, `sp_material_sync`, `eflow_alarm_rules_collect`, `eflow_push_rules_collect`, `ume_in_kpi_sync`, `ume_in_osg_report` |
+| `n` | 14 | eFlow API / config-center 同源会话（2026-09-27 由 17 项收窄，VMAX→`v`、SFTP→`s`、MW UME→`w`；2026-10-15 实时告警→`x`；2026-10-17 新增 `cnn_kpi_sync_5mins`，与 `cnn_kpi_sync` 共用 CNN UME 会话） | `eflow_sync`, `eflow_sync_full`, `eflow_history_alarm`, `eflow_tt_rules_check`, `ms_sla_full`, `cnn_kpi_sync`, `cnn_kpi_sync_5mins`, `fw_kpi_sync`, `sp_online_sync`, `sp_material_sync`, `eflow_alarm_rules_collect`, `eflow_push_rules_collect`, `ume_in_kpi_sync`, `ume_in_osg_report` |
 | `s` | 1 | SP 备件 SFTP（独立 SFTP 服务器 + UNC 镜像库）。2026-09-27 从 `n` 拆出：它是 `n` 组最大单体负载（实测 347min/天）且是已知挂死源（SFTP channel 读挂死 5.5h 曾拖停整组） | `sp_data_sync` |
 | `w` | 2 | MW UME 微波网管（凭证分组 `mw_ume`），独立会话。2026-09-27 从 `n` 拆出：`mw_ume_kpi_sync_rt` 为 `*/15` 高频任务，此前每次排在 `sp_data_sync` 后，实测队列等待 964s（全场最久） | `mw_ume_kpi_sync`, `mw_ume_kpi_sync_rt` |
 | `v` | 3 | VMAX 门户（本机 8790 单会话代理）：三个任务共用同一个 VMAX 会话，必须彼此串行；2026-09-18 从 `n` 组拆出（原先排在 `sp_data_sync` 这类 1.5~2h 长任务后面，小时级采集滞后一个多小时） | `cxo_dashboard_cache_sync`, `vmax_cxo_daily_sync`, `vmax_multi_data_sync` |
@@ -117,6 +117,7 @@ APScheduler 到点 (backend 进程内)
 | `cell_availability_sync` | RAN 小区可用性 1-Day 同步 | `30 4 * * *` | u |
 | `network_kpi_sync` | RAN Network KPI 同步 | `0 5 * * *` | u |
 | `cnn_kpi_sync` | CNN UME KPI 同步 | `0 6 * * *` | n |
+| `cnn_kpi_sync_5mins` | CNN UME KPI 5分钟同步（gr=300，窗口昨天 00:00→现在，写 `5mins_*` 新表；上游仅 5 个模板有 5 分钟数据，其余跳过不计失败） | `*/15 * * * *` | n |
 | `sp_data_sync` | SP 备件数据同步 | `10 * * * *` | s |
 | `ipran_kpi_sync` | iPRAN UME KPI 同步 | `0 8 * * *` | u |
 | `liberia_email_1h` | Liberia 宕站 1小时报告邮件 | `15 * * * *` | m |

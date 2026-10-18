@@ -256,6 +256,57 @@ export function groupMetricsByCategory(metrics: Metric[]): MetricGroup[] {
   })
 }
 
+/**
+ * 给矩阵「列分类筛选」用的两张表：列 key -> 分类、分类 -> 出现顺序。
+ * 分类顺序沿用工作簿列序（与 groupMetricsByCategory 的口径一致）。
+ * 只统计**有分类名**的列；WOs SLA 那张表没有分类行，返回空 map，
+ * 调用方据此不渲染任何筛选控件（保持该页原样）。
+ */
+export function matrixCategoryMaps(matrix: Matrix): {
+  byCol: Record<string, string>
+  order: string[]
+} {
+  const byCol: Record<string, string> = {}
+  const order: string[] = []
+  matrix.columns.forEach(c => {
+    const cat = (c.category || '').trim()
+    if (!cat) return
+    byCol[c.key] = cat
+    if (!order.includes(cat)) order.push(cat)
+  })
+  return { byCol, order }
+}
+
+/**
+ * 列分类的**顺序记忆**：跨矩阵/跨刷新保持「分类首次出现的顺序」。
+ *
+ * 为什么需要它：日数据按天滚动，某一天某个分类的值全为空时，Excel 里那一整组
+ * 列会不存在 —— 若顺序直接取自矩阵，"PerSite 是否在第一列"会随日期漂移，
+ * 用户点开的「第一列」第二天可能换成别的分类。这里按 日期 维护一份累积集合，
+ * 分类一旦出现过就固定在原来的位置，后面的新分类追加到末尾。
+ */
+const CATEGORY_LATCH_KEY = 'msKpi.catOrder.v1'
+
+export function latchCategoryOrder(periodKeys: string[], now: string[]): string[] {
+  if (!now.length) return []
+  let store: Record<string, string[]> = {}
+  try {
+    const raw = localStorage.getItem(CATEGORY_LATCH_KEY)
+    store = raw ? (JSON.parse(raw) as Record<string, string[]>) : {}
+  } catch { store = {} }
+  const merged: string[] = []
+  const push = (c: string) => { if (c && !merged.includes(c)) merged.push(c) }
+  periodKeys.forEach(k => (store[k] || []).forEach(push))
+  now.forEach(push)
+  // 回写：只保留 periodKeys 覆盖的日期 + 新补的，避免 localStorage 无限增长
+  const next: Record<string, string[]> = {}
+  periodKeys.forEach(k => { next[k] = merged })
+  try {
+    localStorage.setItem(CATEGORY_LATCH_KEY, JSON.stringify(next))
+  } catch { /* 隐私模式下写入失败：仅退化为按当前矩阵顺序，不影响功能 */ }
+  return merged
+}
+
 /** 指标卡单卡（分组页签里的卡） */
 function MetricCard(props: {
   m: Metric
@@ -400,6 +451,7 @@ export function MetricCards(props: {
     <>
       <Space wrap style={{ marginBottom: 14 }}>
         <Segmented
+          className="wh-seg"
           value={current.category}
           onChange={(v) => setActiveCat(String(v))}
           options={groups.map(g => {
@@ -418,6 +470,18 @@ export function MetricCards(props: {
   )
 }
 
+/** `KpiMatrixTable` 的列分类显隐控制（受控，状态由调用方持有） */
+export interface MatrixColumnFilter {
+  /** 默认展示的分类；空数组 = 全部展示 */
+  defaultCats: string[]
+  /** 用户主动打开的分类（优先级最高） */
+  shownCats: string[]
+  /** 用户主动关闭的分类 */
+  hiddenCats: string[]
+  setShownCats: (v: string[]) => void
+  setHiddenCats: (v: string[]) => void
+}
+
 // ==================== KPI 矩阵表（Excel 版式） ====================
 /**
  * 多层合并表头 + 目标行 + Month 汇总行 + 日行，与工作簿里的版式一致。
@@ -431,6 +495,11 @@ export function KpiMatrixTable(props: {
   t: (k: string) => string
   onPickMetric?: (m: Metric, anchor?: { x: number; y: number }) => void
   maxHeight?: number
+  /**
+   * 列分类显隐（可选）。不传 = 全部列常显（WOs SLA 页沿用原行为）。
+   * `defaultCats` 未给出时默认全部显示；`shownCats` / `hiddenCats` 记录用户手动切换。
+   */
+  columnFilter?: MatrixColumnFilter
 }) {
   const { matrix, loc, t, onPickMetric, maxHeight = 620 } = props
 
@@ -440,6 +509,62 @@ export function KpiMatrixTable(props: {
     matrix.metrics.forEach(m => { map[m.value_key] = m })
     return map
   }, [matrix])
+
+  /* ---------- 列分类显隐（2026-10-18：PerSite 默认隐藏，点开才看）----------
+     用户诉求：Report detail 里 PerSite KPIs 那一大组列太宽，默认收起。
+     用**运行时筛选**而不是默认值：默认值只在首次打开生效，用户点一次「显示」
+     后就会被 effect 改回去，等于点了没用。副作用是筛选状态不落盘，
+     刷新页面回到默认收起 —— 对"默认隐藏"来说正是期望行为。 */
+  const colFilter = props.columnFilter
+  const { byCol: colCat, order: colCatOrder } = useMemo(() => matrixCategoryMaps(matrix), [matrix])
+  /** 没有任何列分类的矩阵（如 WOs SLA）不渲染筛选控件，行为与改动前一致。 */
+  const filterable = !!colFilter && colCatOrder.length > 0
+  // 分类顺序按日期记忆，避免日数据缺组时「第一列」漂移
+  const periodKeys = useMemo(() => matrix.rows.map(r => r.label), [matrix])
+  const orderedCats = useMemo(
+    () => (filterable ? latchCategoryOrder(periodKeys, colCatOrder) : []),
+    // periodKeys 是 matrix.rows 的派生值，跟随 matrix 即可
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [filterable, colCatOrder, matrix],
+  )
+  /** 默认展示的分类：未配置默认值 → 全部（沿用原行为）；配置了但全部不可见 → 全部。 */
+  const defaultCats = useMemo(() => {
+    const want = colFilter?.defaultCats ?? []
+    return want.length ? want : orderedCats
+  }, [colFilter, orderedCats])
+  const isColVisible = (key: string): boolean => {
+    if (!filterable) return true
+    const cat = colCat[key] ?? ''
+    if (!cat) return true // 无分类的列（首列日期已单独渲染）始终保留
+    const hidden = colFilter?.hiddenCats ?? []
+    const shown = colFilter?.shownCats ?? []
+    if (shown.includes(cat)) return true
+    if (hidden.includes(cat)) return false
+    return defaultCats.includes(cat)
+  }
+  // 依赖用原始值（array 序列化成串），因为调用方每次渲染都会新建 columnFilter 对象
+  const shownKey = (colFilter?.shownCats ?? []).join('|')
+  const hiddenKey = (colFilter?.hiddenCats ?? []).join('|')
+  const visCols = useMemo(
+    () => matrix.columns.filter(c => isColVisible(c.key)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [matrix, filterable, shownKey, hiddenKey, defaultCats],
+  )
+  const isCatVisible = (cat: string): boolean => {
+    if (!filterable) return true
+    if (colFilter!.shownCats.includes(cat)) return true
+    if (colFilter!.hiddenCats.includes(cat)) return false
+    return defaultCats.includes(cat)
+  }
+  const toggleCat = (cat: string) => {
+    if (!colFilter) return
+    const on = isCatVisible(cat)
+    const nextShown = new Set(colFilter.shownCats)
+    const nextHidden = new Set(colFilter.hiddenCats)
+    if (on) { nextShown.delete(cat); nextHidden.add(cat) } else { nextHidden.delete(cat); nextShown.add(cat) }
+    colFilter.setShownCats(Array.from(nextShown))
+    colFilter.setHiddenCats(Array.from(nextHidden))
+  }
 
   const cellStyle: React.CSSProperties = {
     padding: '4px 8px',
@@ -494,78 +619,120 @@ export function KpiMatrixTable(props: {
     )
   }
 
+  /* ---------- 表头按可见列重排 ----------
+     叶子层可以直接按可见列序重建（每个叶子占 1 列）；分组/分类层要按
+     「同一可见分类下、同名连续列」重新合并 span，否则收起 PerSite 后
+     Operation / Network 的 colSpan 仍按原始列数算，表头会整体错位。 */
+  const leafIdx = matrix.header_rows.length - 1
+  const visibleIdx = new Set(visCols.map(c => c.index))
+  const headerForRender: HeaderCell[][] = matrix.header_rows.map((cells, li) => {
+    if (li === leafIdx) {
+      return visCols.map(col => ({ text: col.label, colSpan: 1, level: cells[0]?.level ?? 'column' }))
+    }
+    const level = cells[0]?.level ?? ''
+    // 分类层（第 0 层，仅有分类行的矩阵）取 column.category；
+    // 其余非叶子层（WOs SLA 的分组层）该表本身没有分类，不会走到这里
+    const isCatLevel = li === 0 && matrix.columns.some(c => !!c.category)
+    const out: HeaderCell[] = []
+    visCols.forEach(col => {
+      const text = isCatLevel ? col.category : col.group
+      if (!text) return
+      const last = out[out.length - 1]
+      if (last && last.text === text) last.colSpan += 1
+      else out.push({ text, colSpan: 1, level })
+    })
+    return out
+  })
+
   return (
-    <div style={{ overflow: 'auto', maxHeight }}>
-      <table style={{ borderCollapse: 'separate', borderSpacing: 0, fontSize: 12, width: '100%' }}>
-        <thead>
-          {matrix.header_rows.map((cells, li) => (
-            <tr key={li}>
-              {li === 0 && (
-                <th
-                  rowSpan={matrix.header_rows.length}
-                  style={{
-                    ...headStyle,
-                    ...stickyCol,
-                    left: 0,
-                    top: 0,
-                    zIndex: 3,
-                    textAlign: 'left',
-                    verticalAlign: 'bottom',
-                  }}
-                >
-                  {matrix.label_header}
-                </th>
-              )}
-              {cells.map((c, ci) => {
-                // 叶子层：若该列有指标（值列）则可点击查看趋势
-                const leaf = li === matrix.header_rows.length - 1
-                const col = leaf ? matrix.columns[ci] : undefined
-                const metric = col ? metricByCol[col.key] : undefined
-                const clickable = !!metric && !!onPickMetric
-                return (
+    <div>
+      {/* 列分类开关：默认只展示非 PerSite 的分类，PerSite 需手动点开 */}
+      {filterable && (
+        <Space size={6} wrap style={{ marginBottom: 8 }}>
+          <Text style={{ color: WH.textDim, fontSize: 12 }}>{t('msKpi.colFilter')}</Text>
+          {orderedCats.map(cat => (
+            <Tag.CheckableTag
+              key={cat}
+              checked={isCatVisible(cat)}
+              onChange={() => toggleCat(cat)}
+            >
+              {cat}
+            </Tag.CheckableTag>
+          ))}
+        </Space>
+      )}
+      <div style={{ overflow: 'auto', maxHeight }}>
+        <table style={{ borderCollapse: 'separate', borderSpacing: 0, fontSize: 12, width: '100%' }}>
+          <thead>
+            {headerForRender.map((cells, li) => (
+              <tr key={li}>
+                {li === 0 && (
                   <th
-                    key={`${li}-${ci}-${c.text}`}
-                    colSpan={c.colSpan}
-                    onClick={clickable
-                      ? (e) => onPickMetric!(metric!, { x: e.clientX, y: e.clientY })
-                      : undefined}
-                    title={clickable ? `${metric!.label_full} — ${t('msKpi.trendHint')}` : undefined}
+                    rowSpan={headerForRender.length}
                     style={{
                       ...headStyle,
-                      textAlign: 'center',
-                      cursor: clickable ? 'pointer' : undefined,
-                      // 值列（有目标的指标）列头直接用状态色标出达标/未达标，
-                      // 比在表头上加一条横线更不容易被误读成分组名的下划线
-                      color: metric ? metColor(metric.met) : WH.textMuted,
-                      fontWeight: metric ? 600 : 500,
-                      textDecoration: clickable ? 'underline dotted' : undefined,
+                      ...stickyCol,
+                      left: 0,
+                      top: 0,
+                      zIndex: 3,
+                      textAlign: 'left',
+                      verticalAlign: 'bottom',
                     }}
                   >
-                    {c.text}
+                    {matrix.label_header}
                   </th>
-                )
-              })}
-            </tr>
-          ))}
-        </thead>
-        <tbody>
-          {/* Month 汇总行 —— Excel 里就在日行上方，这里保持同样的顺序 */}
-          {Object.keys(matrix.month).length > 0 && (
-            <tr style={{ background: 'var(--wh-teal-20)' }}>
-              <td style={{ ...cellStyle, ...stickyCol, fontWeight: 700, color: WH.teal }}>
-                {matrix.month_label}
-              </td>
-              {matrix.columns.map(col => renderCell(col, matrix.month[col.key] ?? null, true))}
-            </tr>
-          )}
-          {matrix.rows.map(r => (
-            <tr key={r.label}>
-              <td style={{ ...cellStyle, ...stickyCol, color: WH.text }}>{r.label}</td>
-              {matrix.columns.map(col => renderCell(col, r.values[col.key] ?? null, false))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
+                )}
+                {cells.map((c, ci) => {
+                  // 叶子层：若该列有指标（值列）则可点击查看趋势
+                  const leaf = li === headerForRender.length - 1
+                  const col = leaf ? visCols[ci] : undefined
+                  const metric = col ? metricByCol[col.key] : undefined
+                  const clickable = !!metric && !!onPickMetric
+                  return (
+                    <th
+                      key={`${li}-${ci}-${c.text}`}
+                      colSpan={c.colSpan}
+                      onClick={clickable
+                        ? (e) => onPickMetric!(metric!, { x: e.clientX, y: e.clientY })
+                        : undefined}
+                      title={clickable ? `${metric!.label_full} — ${t('msKpi.trendHint')}` : undefined}
+                      style={{
+                        ...headStyle,
+                        textAlign: 'center',
+                        cursor: clickable ? 'pointer' : undefined,
+                        // 值列（有目标的指标）列头直接用状态色标出达标/未达标，
+                        // 比在表头上加一条横线更不容易被误读成分组名的下划线
+                        color: metric ? metColor(metric.met) : WH.textMuted,
+                        fontWeight: metric ? 600 : 500,
+                        textDecoration: clickable ? 'underline dotted' : undefined,
+                      }}
+                    >
+                      {c.text}
+                    </th>
+                  )
+                })}
+              </tr>
+            ))}
+          </thead>
+          <tbody>
+            {/* Month 汇总行 —— Excel 里就在日行上方，这里保持同样的顺序 */}
+            {Object.keys(matrix.month).length > 0 && (
+              <tr style={{ background: 'var(--wh-teal-20)' }}>
+                <td style={{ ...cellStyle, ...stickyCol, fontWeight: 700, color: WH.teal }}>
+                  {matrix.month_label}
+                </td>
+                {visCols.map(col => renderCell(col, matrix.month[col.key] ?? null, true))}
+              </tr>
+            )}
+            {matrix.rows.map(r => (
+              <tr key={r.label}>
+                <td style={{ ...cellStyle, ...stickyCol, color: WH.text }}>{r.label}</td>
+                {visCols.map(col => renderCell(col, r.values[col.key] ?? null, false))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   )
 }

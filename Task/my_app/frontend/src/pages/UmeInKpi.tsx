@@ -1760,6 +1760,7 @@ export default function UmeInKpi() {
           </Space>
           <Space wrap>
             <Segmented
+              className="wh-seg"
               value={days}
               onChange={v => setDays(Number(v))}
               options={[

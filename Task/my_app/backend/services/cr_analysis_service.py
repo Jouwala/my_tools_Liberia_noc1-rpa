@@ -117,9 +117,14 @@ def build_overview(start: str, end: str) -> dict:
         GROUP BY 1
         ORDER BY total DESC
     """
-    # 状态分布（全量，不分类别）—— 环形图用
+    # 状态分布（全量，不分类别）—— 状态卡片与环形图用。
+    # ⚠️ **分组键**必须与下钻的预测词同源（cal.status_key_sql），否则会出现
+    #    「卡片显示 26、点进去 0 行」——见 cr_caliber.status_bucket_expr 的注释。
+    # 另取一个 MAX(原值) 作为**展示名**：归一后是全大写，直接上界面很难看。
     status_sql = f"""
-        SELECT TRIM(COALESCE(status, '')) AS status, COUNT(*) AS cnt
+        SELECT {cal.status_key_sql()} AS status_key,
+               MAX(TRIM(COALESCE(status, ''))) AS status,
+               COUNT(*) AS cnt
         FROM {cal.TABLE} WHERE {where}
         GROUP BY 1 ORDER BY cnt DESC
     """
@@ -153,6 +158,8 @@ def build_overview(start: str, end: str) -> dict:
         rows = _merge_categories(_fetch_dicts(conn, agg_sql, params))
         status_rows = _fetch_dicts(conn, status_sql, params)
         for r in status_rows:
+            r["status_key"] = r.get("status_key") or ""
+            # 空状态：卡片显示「(空)」，下钻用空串走 status_bucket_expr 的同一谓词
             r["status"] = r.get("status") or "(空)"
             r["cnt"] = _num(r.get("cnt"))
 
@@ -230,36 +237,48 @@ def _merge_categories(raw_rows: list[dict]) -> list[dict]:
 
 
 def build_drilldown(start: str, end: str, metric: str, category: str = "",
-                    sub_category: str = "", month: str = "",
+                    sub_category: str = "", month: str = "", status: str = "",
                     limit: int = MAX_DETAIL_ROWS) -> dict:
     """下钻明细。
 
     metric 决定筛选哪一批（见 `cr_caliber.bucket_expr`），category /
-    sub_category / month 是**叠加**在上面的维度过滤，与被点的那张卡片的
-    维度完全对应。
+    sub_category / month / status 是**叠加**在上面的维度过滤，与被点的那张
+    卡片的维度完全对应。
+
+    `metric="status"` 时由 `status` 参数指定状态批次；其它 metric 忽略它。
 
     ⚠️ metric 的谓词与 `build_overview` 的 SUM(CASE ...) 是同一份表达式 ——
-    这是「卡片数字 == 明细行数」的唯一保证。
+    这是「卡片数字 == 明细行数」的唯一保证。状态卡走的是
+    `cr_caliber.status_bucket_expr`，概览的 `GROUP BY status_key_sql()`
+    与它是同一个归一函数，同理。
     """
     start_ts, end_ts = cal.normalize_window(start, end)
+
+    # status 只在 metric='status' 时有意义，存档到 meta 便于排查口径
+    status_key = status if metric == "status" else ""
 
     def _shell(warnings: list[str], total: int = 0) -> dict:
         return {
             "meta": {"start": start_ts, "end": end_ts, "metric": metric,
                      "category": category, "sub_category": sub_category,
-                     "month": month, "warnings": warnings},
+                     "month": month, "status": status_key, "warnings": warnings},
             "metric": metric, "category": category, "sub_category": sub_category,
-            "month": month, "total": total, "truncated": False,
+            "month": month, "status": status_key, "total": total, "truncated": False,
             "rows": [], "columns": list(cal.DETAIL_COLUMNS),
         }
 
     where, params = cal.base_where(start_ts, end_ts, category)
 
-    predicate = cal.bucket_expr(metric)
-    if predicate is None:
-        return _shell([f"未知的下钻指标: {metric}"])
-    if predicate != "1=1":
+    if metric == "status":
+        predicate, extra = cal.status_bucket_expr(status_key)
         where = f"{where} AND {predicate}"
+        params.extend(extra)
+    else:
+        predicate = cal.bucket_expr(metric)
+        if predicate is None:
+            return _shell([f"未知的下钻指标: {metric}"])
+        if predicate != "1=1":
+            where = f"{where} AND {predicate}"
 
     if sub_category:
         where = f"{where} AND TRIM(COALESCE(sub_category,'')) = ?"

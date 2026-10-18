@@ -1,9 +1,9 @@
 // TT&WO Dashboard 前端页面 - Warehouse 暗色科技风
 import { useEffect, useState, useMemo, useCallback } from 'react'
 import { cachedGet } from '../cache'
-import { Card, Row, Col, Select, Segmented, DatePicker, Space, Tag, Tooltip, Statistic, Empty, Spin, Alert, Table, Input, Button, Badge, Tabs } from 'antd'
+import { Card, Row, Col, Select, Segmented, DatePicker, Space, Tag, Tooltip, Empty, Spin, Alert, Table, Input, Button, Badge, Tabs } from 'antd'
 import {
-  ThunderboltOutlined, FileTextOutlined, NumberOutlined, ClockCircleOutlined,
+  ClockCircleOutlined,
   AlertOutlined, TagsOutlined, BarChartOutlined,
   PieChartOutlined, EnvironmentOutlined, TeamOutlined,
   DownloadOutlined, SearchOutlined, FilterOutlined
@@ -64,12 +64,34 @@ const mttrGranLabelKey = (g: MttrGran): string => {
  *  拖任一张图缩放，另外三张一起动（日粒度 300 个点时尤其需要）。 */
 const MTTR_CHART_GROUP = 'ttwo-mttr-trend'
 
-// 分区标题样式
-const SectionTitle = ({ icon, title, explain }: { icon: React.ReactNode; title: string; explain?: string }) => (
+/**
+ * 分区标题。
+ *
+ * `summaries` —— 标题旁的数字摘要（2026-10-17 新增）。原先 WO 页把「WO 总数」单独
+ * 占一整排汇总卡，同屏只剩一个大数字、上下都是空白，浪费了首屏高度；现在把它作为
+ * 徽标挂在「TT Statistics」标题后面：既省空间，又让「总数」与「构成」在视觉上连成一句
+ * （标题 → 总数 → 下面各维度的卡片）。每个摘要都可点击下钻，与原来的汇总卡行为一致。
+ *
+ * `summaries` 里 `value` 为 null 时显示 `—`（取不到值不显示成 0，第三节原则 6）。
+ */
+const SectionTitle = ({ icon, title, explain, summaries }: {
+  icon: React.ReactNode
+  title: string
+  explain?: string
+  summaries?: Array<{
+    key: string
+    label: string
+    value: number | null | undefined
+    color: string
+    explain?: string
+    onClick?: (e: React.MouseEvent) => void
+  }>
+}) => (
   <div style={{
     display: 'flex', alignItems: 'center', gap: 'var(--wh-space-sm)',
     margin: '1rem 0 0.625rem', padding: '0 0 0.5rem',
     borderBottom: '1px solid rgba(0, 217, 255,0.18)',
+    flexWrap: 'wrap',
   }}>
     <span style={{
       width: 28, height: 28, borderRadius: 'var(--wh-radius-sm)',
@@ -79,6 +101,32 @@ const SectionTitle = ({ icon, title, explain }: { icon: React.ReactNode; title: 
     }}>{icon}</span>
     <span style={{ fontSize: '1rem', fontWeight: 700, color: WH.text, letterSpacing: '-0.3px' }}>{title}</span>
     {explain && <ExplainIcon text={explain} size={14} />}
+    {summaries && summaries.length > 0 && (
+      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--wh-space-sm)', marginLeft: 'var(--wh-space-xs)', flexWrap: 'wrap' }}>
+        {summaries.map(sm => (
+          // 徽标本体用 CardBase 的观感但做成行内胶囊：它是标题的一部分，不是一个区块，
+          // 所以不上 CardBase（那会带来边框与内边距，把标题撑成两层）。可点击时给手型 +
+          // 键盘焦点样式，保持与其他可下钻元素一致的可发现性。
+          <Tooltip key={sm.key} title={sm.explain || sm.label}>
+            <button
+              type="button"
+              onClick={sm.onClick}
+              style={{
+                display: 'inline-flex', alignItems: 'baseline', gap: 6,
+                padding: '0.125rem 0.625rem', borderRadius: 'var(--wh-radius-lg)',
+                background: `${sm.color}1f`, border: `1px solid ${sm.color}55`,
+                color: sm.color, fontWeight: 700, fontSize: '0.9375rem',
+                cursor: sm.onClick ? 'pointer' : 'default',
+                lineHeight: 1.6,
+              }}
+            >
+              <span style={{ fontSize: '0.75rem', fontWeight: 600, opacity: 0.85 }}>{sm.label}</span>
+              <span style={{ fontSize: '1.125rem', fontWeight: 800 }}>{sm.value == null ? '—' : sm.value.toLocaleString()}</span>
+            </button>
+          </Tooltip>
+        ))}
+      </div>
+    )}
   </div>
 )
 
@@ -105,6 +153,99 @@ const isExcludedStatValue = (value: unknown): boolean => {
 
 const visibleStats = (stats: Record<string, number> | undefined): Record<string, number> =>
   Object.fromEntries(Object.entries(stats || {}).filter(([key]) => !isExcludedStatValue(key)))
+
+/* ---------- 状态里程碑（参照 page=incident_overview 的 status-line 版式）----------
+ *
+ * 生命周期：重新派单 → 客户确认 → 受理 → 处理 → 现场确认 → 关闭（终态）。
+ * 后端 `status` 维度是**原始状态串**（如 `Waiting for FO Process(WO RCA to FO
+ * Confirm)`），实测 12 种取值、名字长，平铺成 12 张卡在页面上无法扫读；
+ * 这里按业务阶段归并成 6 个里程碑。
+ *
+ * ⚠️ 归并口径**必须与后端 status 原值逐一对应**，不能用关键词模糊匹配：
+ *   - `Wait For Confirm`（历史大小写变体）也要落到「客户确认」，
+ *     否则 1 单会静默丢失，里程碑合计与「TT 总数」对不上；
+ *   - `Waiting for Third Accept(Suspended)` 是「受理」阶段的挂起变体，归受理；
+ *   - 新增状态出现时回落到「其他」(index = -1)，界面仍单列显示，
+ *     不会被吞掉也不会被错算进某个阶段 —— 宁可多一个点，不可少一个数。
+ *
+ * 下钻仍按**各原始状态**分别请求（`status = ?` 精确匹配），
+ * 所以一个阶段挂了多个原始状态时，界面逐条列出、各自可点，行数与概览完全一致。
+ */
+const STATUS_MILESTONES: Array<{
+  key: string
+  labelKey: string
+  /** 下钻时使用的原始状态名（**精确匹配**，顺序即展示顺序） */
+  match: string[]
+}> = [
+  // 派单：TT 由 BO 指派，尚未被任何一方受理
+  { key: 'reassign', labelKey: 'ttwo.milestone.reassign', match: ['Reassign'] },
+  // 说明：本链顺序取自 2026-10-17 用户提供的 eFlow **Workflow History** 实测步骤链
+  // （queryAllSteps 返回：Create → FO Accept → FO Process → Third Accept →
+  // Third Process → Confirm → Closed）。注意「FO Process」之后才轮第三方受理，
+  // 所以下面的阶段顺序是 派单 → 受理 → 处理 → 确认，而不是「受理后立刻处理」。
+  // 受理：第三方 / FO / BO 接收工单，尚未到场。
+  // 「Waiting for Accept」是 eflow_wo 的实测取值（WO 表），与 TT 表的
+  // 「Waiting for Third/FO/BO Accept」是同一业务动作的两种写法，必须都收进来，
+  // 否则 WO 页会有 144 单落进「其他」。
+  { key: 'waitAccept', labelKey: 'ttwo.milestone.waitAccept', match: [
+    'Waiting for Accept',
+    'Waiting for Third Accept', 'Waiting for Third Accept(Suspended)',
+    'Waiting for FO Accept', 'Waiting for BO Accept',
+  ] },
+  // 到场：接单后前往站点（实测 WO 表有 Waiting for Departure / Arrive Site，
+  // 以及已完成该步但状态仍停在此处的单）。这两个动作是关键大阶段，单列而不是
+  // 折进「处理」—— 值班看里程碑时最关心的就是「卡在路上」还是「卡在现场」。
+  { key: 'arriveSite', labelKey: 'ttwo.milestone.arriveSite', match: [
+    'Waiting for Departure', 'Waiting for Departure(Suspended)',
+    'Waiting for Arrive Site',
+  ] },
+  // 处理：第三方 / BO / 现场正在处理。WO 表的「Waiting for Process(Suspended)」
+  // 是同一阶段的挂起变体（停表不计时），归处理；BONPO 是行内采购流程，同样归处理。
+  { key: 'waitProcess', labelKey: 'ttwo.milestone.waitProcess', match: [
+    'Waiting for Third Process', 'Waiting for BO Process', 'Waiting for FO Process',
+    'Waiting for Process', 'Waiting for Process(Suspended)',
+    'Waiting for BONPO Process',
+  ] },
+  // 离场：现场作业完成、准备离站（WO 表实测有 Waiting for Leave Site）
+  { key: 'leaveSite', labelKey: 'ttwo.milestone.leaveSite', match: ['Waiting for Leave Site'] },
+  // 处理确认：FO 已处理完工单，等待 RCA / 驳回确认，或处于现场处置
+  { key: 'waitConfirmFO', labelKey: 'ttwo.milestone.waitConfirmFO', match: [
+    'Waiting for FO Process(WO RCA to FO Confirm)',
+    'Waiting for FO Process(WO Reject to FO Confirm)',
+    'Waiting for FO Process(WO Dispatched FE Handling)',
+  ] },
+  // 确认：现场处理完毕，等待确认 / 分批回复（WO 表实测有 Wait For Confirm、
+  // Phased Reply）。按 2026-10-17 用户提供的 Workflow History 链路，
+  // 这一步在「离场」之后、关闭之前。
+  { key: 'waitConfirm', labelKey: 'ttwo.milestone.waitConfirm', match: [
+    'Waiting for Customer Confirm', 'Wait For Confirm', 'WaitingConfirm', 'Phased Reply',
+  ] },
+  // 终态：唯一的 Closed
+  { key: 'closed', labelKey: 'ttwo.milestone.closed', match: ['Closed'] },
+]
+
+/** 某原始状态所属里程碑下标；未识别返回 -1（→「其他」） */
+const milestoneIndexOf = (status: string): number => {
+  const norm = String(status ?? '').trim()
+  return STATUS_MILESTONES.findIndex(m => m.match.includes(norm))
+}
+
+/**
+ * Ticket Severity 的业务顺序。后端按数量降序返回，
+ * 但 P1/P2/P3/P4 是**级别**，业务上必须按级别排，不按数量排（否则 P3 比 P2 多的
+ * 月份会看起来像级别变了）。其他取值（历史脏数据）排在后面，保持降序。
+ */
+const SEVERITY_ORDER = ['P1', 'P2', 'P3', 'P4']
+
+const sortBySeverityOrder = (rows: Array<[string, number]>): Array<[string, number]> =>
+  [...rows].sort((a, b) => {
+    const ia = SEVERITY_ORDER.indexOf(a[0])
+    const ib = SEVERITY_ORDER.indexOf(b[0])
+    if (ia !== -1 && ib !== -1) return ia - ib
+    if (ia !== -1) return -1
+    if (ib !== -1) return 1
+    return (b[1] as number) - (a[1] as number)
+  })
 
 /**
  * 高级过滤列的 i18n 键映射。
@@ -250,6 +391,29 @@ export default function TTWODashboard({ only, source }: { only?: TTWOOnly; sourc
   const advParam = useMemo(() => (Object.keys(activeAdv).length ? JSON.stringify(activeAdv) : ''), [activeAdv])
   const activeFilterCount = Object.keys(activeAdv).length
 
+  /* ---------- 工作流定义（阶段顺序的权威来源）----------
+   * 阶段顺序不再手写：从 `GET /api/tt-wo-dashboard/workflow` 取 eFlow 的流程图
+   * （上游 `queryAllSteps`，body 是裸字符串 `eflow-tt`，不是单号），
+   * 用它的 `stage_order` 给里程碑排序。
+   *
+   * 失败**不阻塞页面**：里程碑数字来自本地库，只有「顺序」依赖这里，
+   * 取不到就回落到 `STATUS_MILESTONES` 的本地声明顺序（不报错、不空态）。
+   * TTL 取 10 分钟：流程定义是版本级静态数据，但比 overview 的 30s 长得多。
+   */
+  const [workflowStageOrder, setWorkflowStageOrder] = useState<string[] | null>(null)
+  useEffect(() => {
+    let alive = true
+    cachedGet<{ stage_order?: string[] }>('ttwo:workflow:definition',
+      () => api.get('/tt-wo-dashboard/workflow'), 600_000)
+      .then(res => {
+        const order = res.data?.stage_order
+        if (alive && Array.isArray(order) && order.length) setWorkflowStageOrder(order)
+      })
+      // 静默降级：这是一条可选的「顺序校正」，失败不应让值班看到错误横幅
+      .catch(() => { /* 回落本地阶段表 */ })
+    return () => { alive = false }
+  }, [])
+
   // 加载数据
   useEffect(() => {
     setLoading(true)
@@ -287,7 +451,7 @@ export default function TTWODashboard({ only, source }: { only?: TTWOOnly; sourc
   // severity：MTTR 趋势图按 Ticket Severity 拆成 4 张图，柱高/点值是「**该级别**该桶的单数」。
   // 概览按 sv 分桶（tt_wo_dashboard.py:415-418），下钻若不带上它就会返回「该桶全部级别」，
   // 于是 P2 与 P4 点同一个月会下钻出同一个数（2026-10-06 实测 5086/5086）。
-  const openDrilldown = useCallback((e?: React.MouseEvent | null, dimension?: string, value?: string, severity?: string) => {
+  const openDrilldown = useCallback((e?: React.MouseEvent | null, dimension?: string, value?: string, severity?: string, values?: string[]) => {
     if (e && typeof e.clientX === 'number') setDrillAnchor({ x: e.clientX, y: e.clientY })
     else setDrillAnchor(null)
     setDrillVisible(true)
@@ -295,9 +459,13 @@ export default function TTWODashboard({ only, source }: { only?: TTWOOnly; sourc
     setDrillData([])
     setDrillSearch('')
     setDrillDimension(dimension || '')
-    setDrillValue(value || '')
+    // 展示用的取值：多状态下钻时拼成「a / b / c」，与弹窗标题一致
+    setDrillValue(values?.length ? values.join(' / ') : (value || ''))
     const params: Record<string, string> = { dimension: dimension || '' }
     if (value) params.value = value
+    // 多取值下钻（里程碑阶段合计）：后端按 IN (...) 精确匹配，行数 = 各状态之和。
+    // 优先于 value —— 两个都传时后端以 values 为准。
+    if (values?.length) params.values = JSON.stringify(values)
     // 与概览同源的级别过滤 —— 只有 MTTR 趋势图会传
     if (severity) params.severity = severity
     if (timeRange) {
@@ -414,6 +582,56 @@ export default function TTWODashboard({ only, source }: { only?: TTWOOnly; sourc
     [isWoSource, data],
   )
 
+  /* ---------- 状态 → 里程碑归并 ----------
+   * 每个里程碑 = 其下全部原始状态的**单数合计**，并保留每个原始状态的单数，
+   * 供点顶点时逐状态下钻（保持「表格数字 == 下钻行数」的一致性）。
+   * `others` 收集未能识别的状态 —— 宁可多显示一个点，也不静默吞数。
+   */
+  const statusMilestones = useMemo(() => {
+    const raw = sStats?.status || {}
+    const buckets = STATUS_MILESTONES.map((m, idx) => ({
+      ...m,
+      total: 0,
+      rows: [] as Array<[string, number]>, // 只保留有单的原始状态，按数量降序
+    }))
+    const others: Array<[string, number]> = []
+    for (const [k, v] of Object.entries(raw)) {
+      // Unknown 之类的无效取值不参与（与 SLA / Ticket Severity 同口径）
+      if (isExcludedStatValue(k)) continue
+      const idx = milestoneIndexOf(k)
+      if (idx >= 0) {
+        buckets[idx].total += v as number
+        buckets[idx].rows.push([k, v as number])
+      } else {
+        others.push([k, v as number])
+      }
+    }
+    for (const b of buckets) b.rows.sort((a, c) => c[1] - a[1])
+    others.sort((a, c) => c[1] - a[1])
+    // 阶段顺序：优先用上游流程图的 stage_order（见上方 workflowStageOrder）；
+    // 取不到时保持 STATUS_MILESTONES 的声明顺序。未出现在顺序表里的阶段排末尾
+    // —— 上游新增节点时不会把已有的阶段挤乱。
+    if (workflowStageOrder?.length) {
+      const rank = new Map(workflowStageOrder.map((k, i) => [k, i]))
+      buckets.sort((a, b) => {
+        const ra = rank.has(a.key) ? rank.get(a.key)! : Number.MAX_SAFE_INTEGER
+        const rb = rank.has(b.key) ? rank.get(b.key)! : Number.MAX_SAFE_INTEGER
+        return ra - rb
+      })
+    }
+    return { buckets, others }
+  }, [sStats, workflowStageOrder])
+
+  // 里程碑占比的分母：所有阶段 + 「其他」的单数合计。
+  // 注意它是 status 维度自身的合计（不是 WO 总数 —— 后者还含 status 为空的行）。
+  // 两个数在一般情况下相等，但 status 为 NULL 的行只进「WO 总数」不进任何阶段，
+  // 所以分母必须取自里程碑数据本身，否则占比加起来不等于 100%。
+  const statusMilestoneTotal = useMemo(
+    () => statusMilestones.buckets.reduce((a, b) => a + b.total, 0)
+      + statusMilestones.others.reduce((a, [, n]) => a + n, 0),
+    [statusMilestones],
+  )
+
   /* ---------- 页面级导出（2026-09-27 新增）----------
    * 此前本组件唯一的导出按钮在**下钻弹窗**里（导的是下钻明细行），
    * 页面上没有任何导出入口 —— `?page=ttwo` 与 `?page=v1_ttwo` 都因此看不到按钮。
@@ -434,7 +652,8 @@ export default function TTWODashboard({ only, source }: { only?: TTWOOnly; sourc
     ].filter(Boolean).join('    |    ')
 
     // ① 汇总卡
-    // 各卡在页面上是**有条件下发**的（见上方汇总卡片 Row），所以导出也要跟着隐藏
+    // 各卡在页面上是**有条件下发**的（2026-10-17 起作为「TT Statistics」标题旁的徽标，
+    // 见 SectionTitle 的 summaries），所以导出也要跟着隐藏
     // —— 否则会出现「页面没这张卡、导出里却有」的错位。
     const sum = data.summary || {}
     const sumTitle = isWoSource ? t('nav.wo') : t('ttwo.ttStatistics')
@@ -460,15 +679,23 @@ export default function TTWODashboard({ only, source }: { only?: TTWOOnly; sourc
     // ② 各维度统计（严重度 / 工单严重度 / SLA / 状态）。
     // WO 数据源页写的是 eflow_wo 的同一批维度（SLA 取自关联 TT），
     // sheet 名跟着数据源走，避免下载下来分不清是哪张表的数。
-    const ttDims: Array<[string, Record<string, number>]> = showTtSections ? [
-      [t('ttwo.alarmSeverity'), sStats?.severity || {}],
-      [t('ttwo.ticketSeverity'), visibleStats(sStats?.ticket_severity)],
-      [t('ttwo.slaStatus'), visibleStats(sStats?.sla_status)],
-      [t('ttwo.status'), sStats?.status || {}],
+    // Ticket Severity 与页面同序（P1→P4→其他），否则导出与界面上下对不上
+    const ttDims: Array<[string, Array<[string, number]>]> = showTtSections ? [
+      [t('ttwo.alarmSeverity'), Object.entries(sStats?.severity || {}) as Array<[string, number]>],
+      [t('ttwo.ticketSeverity'), sortBySeverityOrder(Object.entries(visibleStats(sStats?.ticket_severity)))],
+      [t('ttwo.slaStatus'), Object.entries(visibleStats(sStats?.sla_status)) as Array<[string, number]>],
+      // 状态按页面上的里程碑顺序摊平，每个里程碑附带其原始状态行
+      [
+        t('ttwo.status'),
+        statusMilestones.buckets.flatMap((b) => [
+          [t(b.labelKey), b.total] as [string, number],
+          ...b.rows,
+        ]).concat(statusMilestones.others),
+      ],
     ] : []
     const ttRows: (string | number)[][] = []
-    for (const [dim, stats] of ttDims) {
-      for (const [k, v] of Object.entries(stats || {})) ttRows.push([dim, k, v])
+    for (const [dim, rows] of ttDims) {
+      for (const [k, v] of rows) ttRows.push([dim, k, v])
     }
     if (ttRows.length) {
       sheets.push({
@@ -576,7 +803,8 @@ export default function TTWODashboard({ only, source }: { only?: TTWOOnly; sourc
     void exportReport(sheets, `TTWO_${scope}_${dayjs().format('YYYYMMDD_HHmmss')}.xlsx`)
   }, [data, timePreset, timeRange, selectedRegion, selectedOwner, activeFilterCount,
       summaryOnly, ttOnly, woOnly, isSlicePage, isWoSource, showTtTotalCard,
-      showWoSummaryCards, showWoNoCard, showTtSections, sStats, mttrSeriesByGran, t])
+      showWoSummaryCards, showWoNoCard, showTtSections, sStats, statusMilestones,
+      mttrSeriesByGran, t])
 
 
   /**
@@ -913,8 +1141,36 @@ export default function TTWODashboard({ only, source }: { only?: TTWOOnly; sourc
     colorOf: (k: string, idx: number) => string,
     dimension: string,
     labelOf: (k: string) => string = (k) => k,
+    /**
+     * 大数字的覆盖色（可选）。缺省用项目统一数字色 `WH.teal`；左色条始终按 `colorOf` 取色。
+     * 目前只有 Ticket Severity 传 `WH.teal` 显式统一（2026-10-18），语义上等价于默认，
+     * 写出来是为了让「这个维度故意不按级别染色」成为可读的意图而不是遗漏。
+     */
+    numberColor?: string,
+    /**
+     * 固定取值顺序（可选）。给了就按这个顺序排，不在列表里的取值排在末尾（仍按数量降序）。
+     *
+     * 为什么需要：默认按数量降序排，P4 单多时 P4 会跑到 P1 前面 —— 严重度是有业务序的
+     * 维度，乱序会让人以为各级别的严重程度也随机（2026-10-17 按需求改为 P1→P4 固定序）。
+     * 顺序只影响**展示**，下钻维度与取值不变。
+     */
+    fixedOrder?: readonly string[],
   ) => {
-    const sorted = Object.entries(stats || {}).sort((a, b) => (b[1] as number) - (a[1] as number))
+    const orderIdx = (k: string) => {
+      if (!fixedOrder) return -1
+      const i = fixedOrder.indexOf(k)
+      return i
+    }
+    const sorted = Object.entries(stats || {}).sort((a, b) => {
+      const ia = orderIdx(a[0]), ib = orderIdx(b[0])
+      // 两边都在固定序里：按固定序；一边在一边不在：在的排前面
+      if (ia !== -1 || ib !== -1) {
+        if (ia === -1) return 1
+        if (ib === -1) return -1
+        return ia - ib
+      }
+      return (b[1] as number) - (a[1] as number)
+    })
     if (!sorted.length) {
       return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('common.noData')} />
     }
@@ -939,7 +1195,13 @@ export default function TTWODashboard({ only, source }: { only?: TTWOOnly; sourc
                     {labelOf(k)}
                   </div>
                 </Tooltip>
-                <div style={{ fontSize: '1.5rem', fontWeight: 800, color, lineHeight: 1.2 }}>
+                {/* 数字颜色（2026-10-18）：默认用项目统一的数字色 `WH.teal`
+                    （= StatCard 的 accentColor 默认值 `var(--wh-teal)`），让同一组卡片
+                    看起来是「同一层信息」。Ticket Severity 额外传 numberColor 覆盖
+                    —— 它按级别各取一色，四个大数字颜色不一致，视觉上比实际权重更喧闹。
+                    去掉颜色不等于丢掉区分度：左侧 4px 色条仍是每张卡的级别身份，
+                    标题与占比本来就是统一的弱化色。SLA 状态等其他维度不受影响。 */}
+                <div style={{ fontSize: '1.5rem', fontWeight: 800, color: numberColor ?? WH.teal, lineHeight: 1.2 }}>
                   {v == null ? '—' : fmt(v as number)}
                 </div>
                 <div style={{ fontSize: '0.6875rem', color: WH.textMuted, marginTop: 2 }}>{pct.toFixed(1)}%</div>
@@ -951,25 +1213,171 @@ export default function TTWODashboard({ only, source }: { only?: TTWOOnly; sourc
     )
   }
 
-  // Status 颜色编码（随主题适配：深色主题用亮色，浅色主题用饱和暗色保证对比度）
-  const getStatusColor = (key: string): string => {
-    const lower = key.toLowerCase()
-    if (lower.includes('closed') || lower.includes('complete')) return isDark ? '#0bc78c' : '#15803d'
-    if (lower.includes('open') || lower.includes('in progress')) return isDark ? '#258cff' : '#0284c7'
-    if (lower.includes('waiting') || lower.includes('pending')) return isDark ? '#ff922b' : '#ea580c'
-    if (lower.includes('cancel') || lower.includes('reject')) return isDark ? '#adb5bd' : '#64748b'
-    return isDark ? '#00d9ff' : '#0d9488'
+  // 里程碑每阶段一色。沿用 incident_overview 的语义：进行中偏冷色、终态用绿、
+  // 需要人工跟进（确认 / RCA）用暖色。**文字颜色与圆点同色、字重与字号统一**，
+  // 保证同一行里程碑在视觉上是「同一层信息」（需求 2026-10-17：字体颜色要一样）。
+  // 数据来自 statusMilestones（见上方 useMemo），这里只按阶段 key 取色。
+  const MILESTONE_COLORS: Record<string, string> = {
+    reassign: isDark ? '#a99cff' : '#7c3aed',
+    waitAccept: isDark ? '#258cff' : '#0284c7',
+    arriveSite: isDark ? '#22b8cf' : '#0e7490',
+    waitProcess: isDark ? '#ffd43b' : '#ca8a04',
+    leaveSite: isDark ? '#22d3ee' : '#0891b2',
+    waitConfirm: isDark ? '#00d9ff' : '#0d9488',
+    waitConfirmFO: isDark ? '#ff922b' : '#ea580c',
+    closed: isDark ? '#0bc78c' : '#15803d',
+  }
+  const MILESTONE_FALLBACK_COLOR = isDark ? '#adb5bd' : '#64748b'
+
+  /**
+   * Status 里程碑渲染器：沿工单生命周期从左到右铺成「圆点 + 连接线」，
+   * 参照 page=incident_overview 的 status-line 版式。
+   *
+   * 交互契约（AGENTS.md 第三节 1b：数字必须可下钻，且下钻行数 == 数字）：
+   *   - 一个里程碑只有一个原始状态 → 整个圆点可点，下钻 dimension='status' value=原值；
+   *   - 一个里程碑有多个原始状态 → 圆点显示合计但**不可点**，下方逐条列出
+   *     各原始状态（名称 + 数字），各自可点。这样「点哪个数字就下钻哪一份」，
+   *     不会出现「节点 347，下钻 0」的对不上。
+   *   - 未识别的状态落到「其他」，同样不可点的合计 + 逐条下钻，绝不静默吞数。
+   */
+  /**
+   * 里程碑节点的下钻：按该阶段下的**原始状态集合**下钻。
+   *
+   * 单状态阶段等价于原来的 `status = ?`；多状态阶段传 `values`（后端按
+   * `status IN (...)` 精确匹配），因此**弹窗行数恒等于节点上的数字**。
+   */
+  const drillMilestone = (e: React.MouseEvent, rows: Array<[string, number]>) => {
+    const values = rows.map(([raw]) => raw)
+    if (!values.length) return
+    if (values.length === 1) openDrilldown(e, 'status', values[0])
+    else openDrilldown(e, 'status', undefined, undefined, values)
   }
 
-  const shortenLabel = (key: string): string => {
-    const map: Record<string, string> = {
-      'Waiting for FO Process(WO RCA to FO Confirm)': 'Wait FO (RCA Confirm)',
-      'Waiting for FO Process(WO Reject to FO Confirm)': 'Wait FO (Reject Confirm)',
-      'Waiting for FO Process': 'Wait FO Process',
-      'Waiting for Third Accept': 'Wait Third Accept',
-      'Waiting for Customer Confirm': 'Wait Customer Confirm',
+  /**
+   * 里程碑节点的悬浮说明（计算口径）。
+   *
+   * 值本身不解释自己是「哪个数」时，值班只能靠猜 —— 这里把**构成**摊开：
+   * 该阶段收进来哪些原始状态、各自多少单、合计怎么来、占比分母是谁、点下去下钻什么。
+   * 与页面上其他指标的 `ExplainIcon` 同一取向：可验证、可追溯。
+   */
+  const milestoneTooltip = (g: { labelKey: string; total: number; rows: Array<[string, number]> }, grandTotal?: number) => {
+    const parts = g.rows.map(([raw, n]) => `<div style="display:flex;gap:8px;justify-content:space-between"><span>${raw}</span><b>${fmt(n)}</b></div>`).join('')
+    const denom = grandTotal ?? statusMilestoneTotal
+    const pct = denom > 0 ? ((g.total / denom) * 100).toFixed(1) : '—'
+    return (
+      <div style={{ minWidth: 240, lineHeight: 1.6 }}>
+        <div style={{ fontWeight: 700, marginBottom: 4 }}>{t(g.labelKey)} · {fmt(g.total)}</div>
+        <div style={{ opacity: 0.85, marginBottom: 4 }}>{g.rows.length > 1 ? t('ttwo.milestone.ttComposition') : t('ttwo.milestone.ttSingle')}</div>
+        <div dangerouslySetInnerHTML={{ __html: parts }} />
+        <div style={{ marginTop: 6, borderTop: '1px solid rgba(128,128,128,0.35)', paddingTop: 6 }}>
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'space-between' }}>
+            <span>{t('ttwo.milestone.ttShare')}</span><b>{pct}%</b>
+          </div>
+          <div style={{ opacity: 0.85 }}>{t('ttwo.milestone.ttDenom', { n: fmt(denom) })}</div>
+          <div style={{ opacity: 0.85, marginTop: 4 }}>{t('ttwo.milestone.ttDrill')}</div>
+        </div>
+      </div>
+    )
+  }
+
+  const renderStatusMilestones = () => {
+    const { buckets, others } = statusMilestones
+    const list: Array<{ key: string; labelKey: string; total: number; rows: Array<[string, number]> }> = [
+      ...buckets.filter(b => b.total > 0 || b.rows.length > 0),
+      ...(others.length ? [{ key: 'other', labelKey: 'ttwo.milestone.other', total: others.reduce((a, [, n]) => a + n, 0), rows: others }] : []),
+    ]
+    if (!list.length) {
+      return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('common.noData')} />
     }
-    return map[key] || key
+    // 占比分母统一取 statusMilestoneTotal，保证「悬浮说明里的分母」与「页面上的百分比」
+    // 是同一个数（这里 list 已过滤掉空阶段，用局部合计会与全局口径不一致）。
+    const total = statusMilestoneTotal
+    return (
+      <Row gutter={[0, 12]} wrap={false} style={{ overflowX: 'auto', padding: 'var(--wh-space-sm) 0' }}>
+        {list.map((g, idx) => {
+          const color = MILESTONE_COLORS[g.key] || MILESTONE_FALLBACK_COLOR
+          const pct = total > 0 ? (g.total / total) * 100 : 0
+          const single = g.rows.length === 1
+          const isLast = idx === list.length - 1
+          return (
+            <Col key={g.key} flex="1 0 7.5rem" style={{ minWidth: '7.5rem' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, position: 'relative' }}>
+                {/* 连接线与箭头：绝对定位挂在节点右缘，最后一段不画 */}
+                {!isLast && (
+                  <span aria-hidden style={{
+                    position: 'absolute', top: 28, left: '50%', width: '100%', height: 2,
+                    background: `linear-gradient(90deg, ${color}55, var(--wh-border,#334155) 50%, ${color}55)`,
+                    zIndex: 0,
+                  }} />
+                )}
+                {/* 圆点：**整个节点都可点**（2026-10-18 改）。多状态阶段不再禁用 ——
+                    下钻走 values 集合（后端 status IN (...)），弹窗行数 = 节点数字。
+                    悬浮给完整计算说明（含构成明细、占比分母、下钻口径）。 */}
+                <Tooltip title={milestoneTooltip(g)} placement="top">
+                  <button
+                    type="button"
+                    onClick={(e) => drillMilestone(e, g.rows)}
+                    aria-label={`${t(g.labelKey)} ${fmt(g.total)}`}
+                    style={{
+                      position: 'relative', zIndex: 1,
+                      width: 56, height: 56, borderRadius: '50%',
+                      background: `${color}22`, border: `2px solid ${color}`,
+                      boxShadow: `0 0 14px ${color}55`,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      cursor: 'pointer',
+                      color, fontSize: '1.125rem', fontWeight: 800,
+                      padding: 0,
+                      // 键盘可达：与卡片等其他可下钻元素一致
+                      transition: 'box-shadow 0.15s ease',
+                    }}
+                  >
+                    {fmt(g.total)}
+                  </button>
+                </Tooltip>
+                {/* 阶段名与圆点同色、同字重、同字号 —— 同一行里程碑字色统一，
+                    颜色只用于区分阶段身份，不用于区分强调。 */}
+                <span style={{ fontSize: '0.75rem', fontWeight: 700, color, textAlign: 'center', whiteSpace: 'nowrap' }}>
+                  {t(g.labelKey)}
+                </span>
+                {/* 占比同样可点：与圆点同一个下钻口径（多状态阶段走 values 集合） */}
+                <Tooltip title={milestoneTooltip(g)}>
+                  <button
+                    type="button"
+                    onClick={(e) => drillMilestone(e, g.rows)}
+                    style={{
+                      background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+                      fontSize: '0.6875rem', fontWeight: 600, color,
+                    }}
+                  >
+                    {pct.toFixed(1)}%
+                  </button>
+                </Tooltip>
+                {/* 多原值阶段：逐条列出，各自可点，保证「数字 = 下钻行数」 */}
+                {!single && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 2, alignItems: 'center' }}>
+                    {g.rows.map(([raw, n]) => (
+                      <Tooltip key={raw} title={`${raw} · ${fmt(n)} — ${t('ttwo.milestone.ttRowDrill')}`}>
+                        <button
+                          type="button"
+                          onClick={(e) => openDrilldown(e, 'status', raw)}
+                          style={{
+                            background: 'none', border: 'none', padding: 0,
+                            cursor: 'pointer', fontSize: '0.6875rem', fontWeight: 600, color,
+                            textDecoration: 'underline dotted', textUnderlineOffset: 2,
+                          }}
+                        >
+                          {raw} {fmt(n)}
+                        </button>
+                      </Tooltip>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </Col>
+          )
+        })}
+      </Row>
+    )
   }
 
   /**
@@ -1072,35 +1480,27 @@ export default function TTWODashboard({ only, source }: { only?: TTWOOnly; sourc
   const filterFields: string[] = data.filters?.filter_fields || []
   const filterOptions: Record<string, string[]> = data.filters?.filter_options || {}
 
-  // 暗色汇总卡片生成器
-  const SummaryCard = ({ color, icon, value, label, onClick, explain }: { color: string; icon: React.ReactNode; value: number; label: string; onClick?: (e: React.MouseEvent) => void; explain?: string }) => (
-    <Card size="small" hoverable className="wh-card-interactive" style={{ ...cardStyle, position: 'relative', cursor: onClick ? 'pointer' : 'default', borderLeft: `4px solid ${color}` }}
-      onClick={onClick}>
-      {explain && (
-        <span style={{ position: 'absolute', top: 6, right: 8, zIndex: 2, cursor: 'help' }} onClick={e => e.stopPropagation()}>
-          <ExplainIcon text={explain} />
-        </span>
-      )}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Statistic title={<span style={{ color: WH.textMuted }}>{label}</span>} value={value} valueStyle={{ fontSize: '2rem', fontWeight: 800, color, textShadow: `0 0 14px ${color}55` }} />
-        <span style={{ fontSize: '2.5rem', opacity: 0.15, color }}>{icon}</span>
-      </div>
-    </Card>
-  )
+  // 汇总卡（SummaryCard）已于 2026-10-17 移除：口径搬进「TT Statistics」标题旁的徽标
+  // （见 SectionTitle 的 summaries），不再有独立一排大卡。
 
   return (
     <div style={{ ...pageWrap, display: 'flex', flexDirection: 'column', gap: 'var(--wh-space-sm)' }}>
       {/* 筛选栏 */}
       <Card size="small" style={{ ...controlCardStyle, background: WH.cardBg }}>
         <Space wrap align="center" size="middle">
+          {/* 2026-10-18 统一 Segmented 观感：原先每个 label 自己套一层 span 按选中态
+              把文字染成青色，再叠加 .wh-seg 的实心青选中底后，会出现「青底青字」看不清。
+              选中态的表现统一交给 .wh-seg（实心青底 + --wh-on-accent 字色），
+              这里回退成纯文案，避免两套着色规则互相打架。 */}
           <Segmented
+            className="wh-seg"
             options={[
-              { label: <span style={{ color: timePreset === 'all' ? WH.teal : WH.text }}>{t('ttwo.allTime')}</span>, value: 'all' },
-              { label: <span style={{ color: timePreset === 'last7' ? WH.teal : WH.text }}>{t('ttwo.last7Days')}</span>, value: 'last7' },
-              { label: <span style={{ color: timePreset === 'last30' ? WH.teal : WH.text }}>{t('ttwo.last30Days')}</span>, value: 'last30' },
-              { label: <span style={{ color: timePreset === 'last90' ? WH.teal : WH.text }}>{t('ttwo.last3Months')}</span>, value: 'last90' },
-              { label: <span style={{ color: timePreset === 'last180' ? WH.teal : WH.text }}>{t('ttwo.last6Months')}</span>, value: 'last180' },
-              { label: <span style={{ color: timePreset === 'custom' ? WH.teal : WH.text }}>{t('ttwo.custom')}</span>, value: 'custom' },
+              { label: t('ttwo.allTime'), value: 'all' },
+              { label: t('ttwo.last7Days'), value: 'last7' },
+              { label: t('ttwo.last30Days'), value: 'last30' },
+              { label: t('ttwo.last3Months'), value: 'last90' },
+              { label: t('ttwo.last6Months'), value: 'last180' },
+              { label: t('ttwo.custom'), value: 'custom' },
             ]}
             value={timePreset}
             onChange={setTimePreset}
@@ -1191,49 +1591,49 @@ export default function TTWODashboard({ only, source }: { only?: TTWOOnly; sourc
         )}
       </Card>
 
-      {/* 汇总卡片
-          按切片/数据源下发：page=tt 不出两张 WO 卡；WO 数据源页只留「WO 总数」一张
-          （本页每行就是一个 WO，TT 总数算的是 eflow_tt 的行数，放这里没有意义；
-          「WO 编号(唯一)」与「WO 总数」在 WO 表上语义重叠，同屏出现两个一模一样的
-          数字只会让人以为是 bug）。
-          WO 卡仍保留原有的 wo_total > 0 条件 —— 没有 WO 表/没有 WO 数据时
-          显示「WO 编号(唯一) 0」比显示 0 更容易被误读成「真的一个都没有」。 */}
-      {((showTtTotalCard ? 1 : 0) + (showWoSummaryCards && data.summary.wo_total > 0 ? 1 : 0)) > 0 && (
-      <Row gutter={12}>
-        {showTtTotalCard && <Col xs={24} sm={12} md={(showWoSummaryCards && data.summary.wo_total > 0) ? (showWoNoCard ? 8 : 12) : 24}>
-          <SummaryCard color="#258cff" icon={<ThunderboltOutlined />} value={data.summary.tt_total} label={t('ttwo.ttTotal')} explain={t('ttwo.explain.ttTotal')} onClick={(e) => openDrilldown(e, 'all_tt')} />
-        </Col>}
-        {showWoSummaryCards && data.summary.wo_total > 0 && <Col xs={24} sm={12} md={showTtTotalCard ? (showWoNoCard ? 8 : 12) : (showWoNoCard ? 12 : 24)}>
-          <SummaryCard color="#51cf66" icon={<FileTextOutlined />} value={data.summary.wo_total} label={t('ttwo.woTotal')} explain={t('ttwo.explain.woTotal')} onClick={(e) => openDrilldown(e, 'all_wo')} />
-        </Col>}
-        {showWoNoCard && data.summary.wo_total > 0 && <Col xs={24} sm={12} md={8}>
-          <SummaryCard color="#a99cff" icon={<NumberOutlined />} value={data.summary.wo_no_count} label={t('ttwo.woNoUnique')} explain={t('ttwo.explain.woNo')} onClick={(e) => openDrilldown(e, 'all_wo')} />
-        </Col>}
-      </Row>
-      )}
-
+      {/* 汇总数字（2026-10-17 改版）
+          原先这里是一整排汇总卡（TT 总数 / WO 总数 / WO 编号唯一），首屏只放一个
+          大数字、上下都是留白。现在改为挂在「TT Statistics」标题右侧的徽标，
+          版式与取值范围都不变（page=tt 不出 WO 卡，WO 数据源页不出 TT 总数，
+          「WO 编号(唯一)」在 WO 表上与 WO 总数语义重叠故不出），只是不再独占一行。
+          徽标本身可点下钻，与原来的汇总卡行为一致；数据含时不显示 0 的规则保留。 */}
+      {showTtSections && <>
+      <SectionTitle
+        icon={<AlertOutlined />}
+        title={t('ttwo.ttStatistics')}
+        summaries={[
+          ...(showTtTotalCard
+            ? [{ key: 'tt', label: t('ttwo.ttTotal'), value: data.summary.tt_total, color: '#258cff', explain: t('ttwo.explain.ttTotal'), onClick: (e: React.MouseEvent) => openDrilldown(e, 'all_tt') }]
+            : []),
+          ...(showWoSummaryCards && data.summary.wo_total > 0
+            ? [{ key: 'wo', label: t('ttwo.woTotal'), value: data.summary.wo_total, color: '#51cf66', explain: t('ttwo.explain.woTotal'), onClick: (e: React.MouseEvent) => openDrilldown(e, 'all_wo') }]
+            : []),
+          ...(showWoNoCard && data.summary.wo_total > 0
+            ? [{ key: 'woNo', label: t('ttwo.woNoUnique'), value: data.summary.wo_no_count, color: '#a99cff', explain: t('ttwo.explain.woNo'), onClick: (e: React.MouseEvent) => openDrilldown(e, 'all_wo') }]
+            : []),
+        ]}
+      />
       {/* TT 统计（不含 Alarm Severity：该维度与 Ticket Severity 重复且噪声大，2026-09-26 按业务要求移除）
-          维度都改为数字卡片：原来的 Tag 胶囊块取值一多就换行成一团、数字不突出。
-          这里用「维度小标题 + 卡片网格」的分组方式，而不是「大卡里套小卡」——
-          嵌套卡片会让层级变糊，两个边框叠在一起也压布局。
           工单严重度与 SLA 状态取值都少（各 4~5 个），左右各占半行并排；
-          工单状态取值多且名字长（Waiting for FO Process(...)），仍单独占整行。
+          工单状态改为生命周期里程碑（见 renderStatusMilestones），单独占整行。
           本块属「上半部分」：三档切片都出，渲染的就是本页数据源（page=wo 时是
           eflow_wo 的严重度 / 关联 TT 的 SLA / WO 状态）。 */}
-      {showTtSections && <>
-      <SectionTitle icon={<AlertOutlined />} title={t('ttwo.ttStatistics')} />
       <Row gutter={[16, 4]}>
         <Col xs={24} lg={12}>
           <StatDimTitle label={t('ttwo.ticketSeverity')} explain={t('ttwo.explain.ticketSeverity')} />
-          {renderStatCards(visibleStats(s.ticket_severity), (k, i) => ticketColor[k] || getAutoColor(k, i), 'ticket_severity')}
+          {/* Ticket Severity 按 P1→P4 固定序（2026-10-17 需求）：严重度是有业务序的维度，
+              按数量降序排会让 P4 跑到 P1 前面，看起来像是级别也随机。
+              数字统一用项目默认色 WH.teal（2026-10-18）：四个级别各染一色时，
+              大数字的色差比级别本身的权重更抢眼；级别身份继续由左色条承担。 */}
+          {renderStatCards(visibleStats(s.ticket_severity), (k, i) => ticketColor[k] || getAutoColor(k, i), 'ticket_severity', (k) => k, WH.teal, ['P1', 'P2', 'P3', 'P4'])}
         </Col>
         <Col xs={24} lg={12}>
           <StatDimTitle label={t('ttwo.slaStatus')} explain={t('ttwo.explain.sla')} />
           {renderStatCards(visibleStats(s.sla_status), (k, i) => slaColor[k] || getAutoColor(k, i), 'sla_status')}
         </Col>
       </Row>
-      <StatDimTitle label={t('ttwo.status')} explain={t('ttwo.explain.status')} />
-      {renderStatCards(s.status || {}, (k) => getStatusColor(k), 'status', shortenLabel)}
+      <StatDimTitle label={t('ttwo.statusMilestone')} explain={t('ttwo.statusMilestoneExplain')} />
+      {renderStatusMilestones()}
 
       {/* MTTR 趋势 —— 页签切 日/周/月，每个粒度下按 Ticket Severity 分 P1/P2/P3/P4 四张图 */}
       <SectionTitle icon={<BarChartOutlined />} title={t('ttwo.mttrTrend')} explain={t('ttwo.explain.mttr')} />

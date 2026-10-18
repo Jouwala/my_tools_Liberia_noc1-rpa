@@ -24,6 +24,7 @@ import time
 import json
 import logging
 import signal
+import sqlite3
 import sys
 import os
 from datetime import datetime, timedelta
@@ -293,7 +294,31 @@ def _recover_stale_running():
                                     continue
                             else:
                                 continue
-                        pid_dead = True  # PID 被无关进程复用，视为原 worker 已死
+                        # 2026-10-16：不在 pid 文件里 ≠ 原 worker 已死。当天叠了 5 套
+                        # 看门狗，最后一套覆写了全部组 pid 文件，另外 4 套（32 个）正在
+                        # 正常执行的 worker 因此全被判成"进程已失效"，12:00 后刷出 128 条
+                        # 假失败。改为向操作系统核实：进程存活且镜像是 python/pythonw，
+                        # 就认定它仍在合法执行、**不判失败**。但归属无法证明，所以不
+                        # 强杀它（强杀只认 pid 文件，见 task_runner._kill_worker_process），
+                        # 仅在超过 4h 上限时回收队列行，防止真挂死永久占住单飞名额。
+                        if task_runner._looks_like_live_worker(_pid_int):
+                            if started_at:
+                                try:
+                                    _ran = (datetime.now() - datetime.fromisoformat(started_at)).total_seconds()
+                                except ValueError:
+                                    _ran = 0
+                                if _ran > TASK_MAX_RUNNING_SECONDS:
+                                    err = (f"任务超过 {TASK_MAX_RUNNING_SECONDS // 3600}h 未完成"
+                                           f"（执行者 pid={_pid_int} 不在 Worker 注册表，"
+                                           f"仅回收队列名额、不强杀进程）")
+                                    conn.execute(
+                                        "UPDATE task_queue SET status = 'failed', finished_at = ?, "
+                                        "error = ? WHERE id = ?",
+                                        (now_iso, err, qid),
+                                    )
+                                    recovered.append((task_id, trigger_type, started_at, False, err))
+                            continue
+                        pid_dead = True  # 进程已死，或 PID 被非 python 进程复用
                     else:
                         pid_dead = True
                 else:
@@ -432,23 +457,59 @@ def _expire_orphan_pending():
 
 
 def _claim_next():
-    """原子认领一条 pending 记录：UPDATE+RETURNING 保证同一记录只会被一个执行者认领。
-    设置了 MY_APP_WORKER_TASKS 时仅认领清单内任务（多 worker 分流）。"""
+    """原子认领一条 pending 记录，同一行只会被一个执行者认领。
+
+    设置了 MY_APP_WORKER_TASKS 时仅认领清单内任务（多 worker 分流）。
+
+    ⚠ 2026-10-16 修掉的"看着原子、实际不原子"：旧写法是
+        UPDATE ... WHERE id = (SELECT id ... WHERE status='pending' LIMIT 1) RETURNING ...
+    注释写着"UPDATE+RETURNING 保证只会被一个执行者认领"，但那只对 SQLite 成立。
+    PG 里子查询是 InitPlan，**在行锁之前就取好了 id**；执行器拿到行锁后按
+    READ COMMITTED 用最新行版本复查 WHERE，而复查的条件只有"id = 那个 id"，
+    照样成立 → 第二个 worker 同样更新成功、同一行执行两遍。实测（40 个 worker
+    抢队列）：`认领任务 queue_id=83151` 在 16:31:00 连续出现两次，12:00 之后
+    同任务同分钟"重复成功"18 次，含 WhatsApp 告警重发与邮件重发。
+    修法（PG 分支）：子查询 `FOR UPDATE SKIP LOCKED` 真锁行且互不阻塞，
+    外层再补 `status = 'pending'` —— 这是复查时唯一会失败的谓词。
+    SQLite 单写者 + 语句内快照，原形态本就原子，且不支持 FOR UPDATE，保持不动。
+    """
     with get_raw_connection(str(DB_PATH), timeout=30) as conn:
         _ensure_queue_table(conn)
-        extra_where = ""
-        params = [datetime.now().isoformat(), os.getpid()]
-        if _worker_task_ids:
-            marks = ",".join("?" for _ in _worker_task_ids)
-            extra_where = f" AND task_id IN ({marks})"
-            params.extend(sorted(_worker_task_ids))
-        row = conn.execute(
-            f"""UPDATE task_queue
-               SET status = 'running', started_at = ?, worker_pid = ?
-               WHERE id = (SELECT id FROM task_queue WHERE status = 'pending'{extra_where} ORDER BY id LIMIT 1)
-               RETURNING id, task_id, trigger_type""",
-            tuple(params),
-        ).fetchone()
+        now_iso = datetime.now().isoformat()
+        my_pid = os.getpid()
+        task_ids = sorted(_worker_task_ids) if _worker_task_ids else []
+        marks = ",".join("?" for _ in task_ids)
+        extra_where = f" AND task_id IN ({marks})" if task_ids else ""
+        # 方言判定沿用 dialect_helpers 的约定（database.py 返回 sqlite3.Connection
+        # 或 _PsycopgRaw 包装，二者不会混淆）
+        is_pg = not isinstance(conn, sqlite3.Connection)
+        # ⚠ 参数顺序必须与 SQL 里 '?' 出现的先后一致。PG 分支的白名单在 CTE 里，
+        # 位置在 SET 的两个参数**之前**；照抄 SQLite 的顺序会让 started_at 收到 pid、
+        # worker_pid 收到任务名（2026-10-16 首次上线即由生产日志暴露：
+        # `无效的类型 integer 输入语法: "eflow_active_alarm"`）。
+        if is_pg:
+            sql = f"""WITH picked AS (
+                         SELECT id FROM task_queue
+                          WHERE status = 'pending'{extra_where}
+                          ORDER BY id LIMIT 1
+                          FOR UPDATE SKIP LOCKED)
+                       UPDATE task_queue
+                          SET status = 'running', started_at = ?, worker_pid = ?
+                         FROM picked
+                        WHERE task_queue.id = picked.id
+                          AND task_queue.status = 'pending'
+                     RETURNING task_queue.id, task_queue.task_id, task_queue.trigger_type"""
+            params = tuple(task_ids + [now_iso, my_pid])
+        else:
+            sql = f"""UPDATE task_queue
+                         SET status = 'running', started_at = ?, worker_pid = ?
+                       WHERE id = (SELECT id FROM task_queue
+                                    WHERE status = 'pending'{extra_where}
+                                    ORDER BY id LIMIT 1)
+                          AND status = 'pending'
+                     RETURNING id, task_id, trigger_type"""
+            params = tuple([now_iso, my_pid] + task_ids)
+        row = conn.execute(sql, params).fetchone()
         conn.commit()
         conn.close()
     return row
@@ -461,19 +522,29 @@ def _finish(queue_id: int, success: bool, result, error: str | None):
             # 若该队列记录已被用户停止（cancelled），不再覆盖为 done/failed，
             # 保留停止状态——避免「已停止却被回写为成功」的歧义（STOPPED_BY_USER
             # 执行日志已由停止逻辑写入）。否则会出现「停止日志 + 成功日志」并存。
-            _cur = conn.execute(
+            row_state = conn.execute(
                 "SELECT status FROM task_queue WHERE id = ?", (queue_id,)
             ).fetchone()
-            if _cur and _cur[0] == "cancelled":
+            if row_state and row_state[0] == "cancelled":
                 logger.info(f"队列记录 queue_id={queue_id} 已被用户停止(cancelled)，跳过回写终态")
                 conn.close()
                 return
-            conn.execute(
-                "UPDATE task_queue SET status = ?, finished_at = ?, result_json = ?, error = ? WHERE id = ?",
+            # 归属校验（2026-10-16）：只回写"自己认领的那一行"。此前只按 id 回写，
+            # 于是重复栈里另一个执行者认领同一行后，谁先跑完谁就把终态盖在别人身上
+            # （已被回收→重新入队→被第三个 worker 认领的任务也会被写成 done，
+            # 那一轮真实执行在队列里凭空消失）。
+            wrote = conn.execute(
+                "UPDATE task_queue SET status = ?, finished_at = ?, result_json = ?, error = ? "
+                "WHERE id = ? AND status = 'running' AND worker_pid = ?",
                 ("done" if success else "failed", datetime.now().isoformat(),
                  json.dumps(result, ensure_ascii=False, default=str) if result is not None else None,
-                 error, queue_id),
-            )
+                 error, queue_id, os.getpid()),
+            ).rowcount
+            if not wrote:
+                logger.warning(
+                    f"队列记录 queue_id={queue_id} 归属已变更（非本次执行者持有），"
+                    f"跳过回写终态 —— 说明该行被回收或重复认领过"
+                )
             # 2026-09-11：保留期由 3 天放宽为 7 天（一周），与 task_runner 执行日志一致
             try:
                 _retention_days = max(1, int(os.environ.get("TASK_LOG_RETENTION_DAYS", "7")))

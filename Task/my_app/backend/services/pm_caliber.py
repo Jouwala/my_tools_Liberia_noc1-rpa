@@ -15,20 +15,27 @@
 两套列名，**只有小写列有数据**，大写列是历史遗留的空列（`eflow_cr` 同样如此，
 见 `docs/manual/11-feature-guide.md` 第 27 节的记录）。一律只用小写列。
 
-真实流程顺序（实测 694 条全链条记录，100% 成立）：
+真实流程顺序（2026-10-17 以 `queryAllSteps` 流程图重新校准，见下）：
 
-    created_time          工单生成
-      → last_create_time    创建动作
-      → last_schedule_time  排期
-      → last_accept_time    受理/签收（**早于 process**）
-      → last_pm_manager_approve_time  PM 经理审批
-      → last_process_time   执行
-      → last_flm_leader_approve_time FLM 领导审批（**在 process 之后**）
+    created_time                     工单生成（Create）
+      → last_create_time             创建动作
+      → last_schedule_time           排期（Schedule）
+      → last_accept_time             受理（Accept）
+      → last_process_time            执行（Process）
+      → last_pm_manager_approve_time PM 经理审批（PMManagerApprove）
+      → last_flm_leader_approve_time FLM 领导审批（FLMLeaderApprove）
       → Closed
 
-⚠️ **字段名有误导性，不要按名字猜顺序**：实测 `last_accept_time` 100% 早于
-`last_process_time`（1233/1233），而 `last_flm_leader_approve_time` 100% 晚于
-`last_process_time`（707/707）。页面上按上面的**真实顺序**展示，不按名字字母序。
+⚠️ 与旧记录的差异：「执行」在「PM 经理审批」**之前**。依据是 eFlow 的
+Workflow History（`queryAllSteps`，payload `eflow-pm-task`）：
+Create → Schedule → Accept → Process → PMManagerApprove → FLMLeaderApprove → Closed，
+且 `Process` 对 Transfer / WaitReProcess 有自环（驳回回处理）。
+字段侧也印证：`last_process_time` 是**进入** Process 的时刻，
+2458 行中 95% 的单 `last_pm_manager_approve_time` 与 `last_process_time` 只差 1 秒，
+其余相差数周 —— 二者是相邻两步，在导出上几乎同时落库。
+
+⚠️ **字段名有误导性，不要按名字猜顺序**：`last_accept_time` 早于
+`last_process_time`，`last_flm_leader_approve_time` 最晚。页面按上面的顺序展示。
 """
 from __future__ import annotations
 

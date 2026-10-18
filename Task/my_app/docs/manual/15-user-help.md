@@ -1,6 +1,6 @@
 # my_app 使用帮助
 
-> 面向使用者的平台功能与操作指南。本文件由「使用帮助」页面同源生成（frontend/src/helpMarkdown.ts），内容依据 docs/manual/ 各章与 backend/task_registry.py 整理。生成日期：2026-10-15。
+> 面向使用者的平台功能与操作指南。本文件由「使用帮助」页面同源生成（frontend/src/helpMarkdown.ts），内容依据 docs/manual/ 各章与 backend/task_registry.py 整理。生成日期：2026-10-17。
 
 > 站内入口：侧边栏「使用帮助」，或直链 `http://<host>/myapp/?page=help`。
 
@@ -10,7 +10,7 @@
 
 - [1. 平台简介](#1-平台简介)
 - [2. 通用操作](#2-通用操作)
-- [3. 任务管理详解（70 个任务）](#3-任务管理详解)
+- [3. 任务管理详解（72 个任务）](#3-任务管理详解)
 - [4. 页面指南](#4-页面指南)
 - [5. 运维与排障](#5-运维与排障)
 - [6. 常见问题](#6-常见问题)
@@ -79,7 +79,7 @@
 
 > ⚠️ **新增任务必须同时登记进 `worker_watchdog.py` 的 `GROUP_TASK_MAP`** —— 只写 `TASK_SPECS` 不分组 = 任务入队后永远 pending。这是本项目已发生过四次的事故模式（finebi_report_sync / whatsapp_send_ext / sp_email_details / 2026-09-18 的 olib_soc 与 vmax_multi_data_sync）。
 
-### 3.3 全量任务清单（70 个）
+### 3.3 全量任务清单（72 个）
 
 | 任务 | task_id | 默认 cron | 组 | 工作流脚本 |
 | --- | --- | --- | --- | --- |
@@ -92,6 +92,7 @@
 | WhatsApp 消息发送（Baileys） | `whatsapp_send_baileys` | `0 4 * * *` | m | `services/whatsapp_send_baileys_service.py → run_whatsapp_send_baileys` |
 | eFlow P1 告警 WhatsApp 推送 | `tt_alarm_whatsapp_alert` | `2-59/5 * * * *` | m | `services/tt_alarm_whatsapp_service.py → run_tt_alarm_whatsapp_alert` |
 | MS SLA 完整同步 | `ms_sla_full` | `0 5 * * *` | n | `services/ms_sla_service.py → run_full_sync` |
+| DC server 告警 WhatsApp 推送 | `ume_alarm_whatsapp_alert` | `* * * * *` | m | `services/ume_alarm_whatsapp_service.py → run_ume_alarm_whatsapp` |
 | eFlow 实时告警同步 | `eflow_active_alarm` | `*/1 * * * *` | x | `services/eflow_api_client.py → fetch_and_save_active_alarm` |
 | eFlow 历史告警同步 | `eflow_history_alarm` | `0 */3 * * *` | n | `services/eflow_api_client.py → fetch_and_save_history_alarm` |
 | eFlow TT 规则收集与匹配检查 | `eflow_tt_rules_check` | `20 4 * * *` | n | `services/eflow_rules/eflow_tt_rules_check_task.py → run_eflow_tt_rules_check` |
@@ -102,6 +103,7 @@
 | 可用率核对宽表重建 | `avail_recon_sync` | `10 6 * * *` | u | `services/avail_recon_sync.py → run_avail_recon_sync` |
 | BP Cells Report 更新 | `bp_report_sync` | `20 6 * * *` | u | `services/bp_report_sync.py → run_bp_report_sync` |
 | CNN UME KPI 同步 | `cnn_kpi_sync` | `0 6 * * *` | n | `services/ccn_ume_kpi_service.py → run_cnn_kpi_sync` |
+| CNN UME KPI 5分钟同步 | `cnn_kpi_sync_5mins` | `*/15 * * * *` | n | `services/cnn_ume_kpi_5mins_service.py → run_cnn_kpi_sync_5mins` |
 | SP 备件数据同步 | `sp_data_sync` | `10 * * * *` | s | `services/get_sp_table.py → run_sp_data_sync` |
 | iPRAN UME KPI 同步 | `ipran_kpi_sync` | `0 8 * * *` | u | `services/ipran_ume_kpi_service.py → run_ipran_kpi_sync` |
 | Liberia 宕站 1小时报告邮件 | `liberia_email_1h` | `15 * * * *` | m | `services/liberia_email_report.py → run_1h_report` |
@@ -324,6 +326,24 @@
 - 看板数字以本任务的实时计算为准（与历史快照文件可能不一致）
 - 口径调整改 backend/services/nur_calc.py
 
+#### DC server 告警 WhatsApp 推送（`ume_alarm_whatsapp_alert`）
+
+- 默认 cron: `* * * * *`　|　worker 组: **m**
+- 工作流脚本: `services/ume_alarm_whatsapp_service.py → run_ume_alarm_whatsapp`
+
+**功能**: 每分钟直连 ZTE UME 网管（10.121.8.2）拉当前告警，命中精确「告警码:级别」对（默认 89029:major、89006:major）才推送到指定群；未清除告警按配置间隔催报（带 REMINDER 横幅），曾推送过的告警从上游消失则补发「已恢复」；首轮只登记不发送（防存量刷群），状态落 ume_alarm 相关表
+
+**工作流与数据流**:
+
+1. 每分钟从 UME 拉取当前告警快照
+1. 按「告警码:级别」精确配对过滤
+1. 经 WhatsApp 推送；未清除的按间隔催报，消失的补发恢复通知
+
+**维护要点**:
+
+- 首轮只登记不发送，避免把存量告警一次性刷进群
+- 与 eflow 系列的 tt_alarm_whatsapp_alert 是两条独立通道（不同上游、不同告警码体系）
+
 #### eFlow 实时告警同步（`eflow_active_alarm`）
 
 - 默认 cron: `*/1 * * * *`　|　worker 组: **x**
@@ -507,6 +527,26 @@
 **维护要点**:
 
 - Free Rating 数据同时供 ccn_free_rating_chart_email 出图
+
+#### CNN UME KPI 5分钟同步（`cnn_kpi_sync_5mins`）
+
+- 默认 cron: `*/15 * * * *`　|　worker 组: **n**
+- 工作流脚本: `services/cnn_ume_kpi_5mins_service.py → run_cnn_kpi_sync_5mins`
+
+**功能**: 与「CNN UME KPI 同步」同源同账号，但取 5 分钟粒度（gr=300）、窗口为昨天 00:00 至现在，API 写入 DB CNN 的 5mins_* 新表，供「CN KPI 5分钟」看板做 Day0/Day1 叠画；日/月粒度表不受影响
+
+**工作流与数据流**:
+
+1. 登录 CNN UME（与 cnn_kpi_sync 共用会话缓存）
+1. 按 8 个模板并发查询 5 分钟粒度数据（昨天 00:00 至现在）
+1. 写入 db_ps_cs_cn 的 5mins_<原表名> 表（upsert）
+
+**维护要点**:
+
+- ⚠ 上游只有 5 个模板支持 5 分钟粒度（Voice/VLR/Data/4G FDD/Free Rating）；xGW License、xGW CPU、3G FDD 实测恒为 0 行，任务会跳过且**不计失败**（原 cnn_kpi_sync 的逻辑是 0 行即报错，本任务刻意不同）
+- ⚠ 实测单轮约 105 秒（Free Rating 一天就有 1.4 万行）；若耗时逼近 15 分钟，需降低并发或放宽节拍
+- 与 cnn_kpi_sync 同在 n 组串行，避免两个任务各自登录同一账号互踢
+- 页面为本任务的唯一消费方：?page=cn_kpi_5mins（services/cn_kpi_5mins_service.py 读 5mins_* 表）
 
 #### SP 备件数据同步（`sp_data_sync`）
 
@@ -1728,12 +1768,17 @@ NOC 操作人分析：基于 eflow_tt.last_processer 量化每位 NOC 的根因�
 
 #### cr_analysis（`cr_analysis`）
 
-CR 变更分析：按变更类别（change_category）看变更计划的排期与执行情况，回答「计划了多少、执行了多少、其中多少按时」。
+CR 变更分析：既看「现在卡在哪」（状态分布、审批流程滞留），也看「过去做得怎样」（计划达成、按时、关闭率），回答「还有多少没走完、卡在哪一步、谁那边最慢」。
 
 - 数据来自 eflow_cr（eFlow 同步），默认区间取全表实际时间范围
+- 最上面是 <b>Workflow 里程碑条</b>，顺序与 eFlow 的 Workflow History 完全一致：创建 → BO/FO 负责人审批 → 域技术总监审批 → 变更经理审批 → 开始实施 → 结果反馈 → 已关闭。每个节点显示「已完成」与「等待中」两个数，「等待中」最大的那个节点会标红为<b>瓶颈</b>，并显示最久已等待多少天
+- 里程碑按流程节点归并：驳回到 BO/FO 的「Waiting for Update」并入 BO/FO 审批节点，不单独成环。若要看 7 个原始状态的精确分布，看下方「状态分布」环形图
+- 状态名是上游原值，不做翻译；「Waiting for Implement」表示审批已全部通过、正在等实施，不是「等待审批」
 - 四个核心计数：「已排期」= 有计划开始时间；「已执行」= 有实际开始时间；「未执行」= 排了期但没动；「按时/延期」= 实际开始早于 / 晚于计划开始
-- 两个核心比率的分母写在数字下方：计划达成率 = 已执行 ÷ 已排期，按时执行率 = 按时 ÷ 已执行。分母为 0 时显示「—」而不是 0
-- 页面上每个数字都可点：类别表格、图表柱子、月度趋势、子类别表格都能下钻到明细，明细行数与卡片数字严格一致
+- 三个比率的分母写在数字下方：计划达成率 = 已执行 ÷ 已排期，按时执行率 = 按时 ÷ 已执行，关闭率 = 已关闭 ÷ 总量。分母为 0 时显示「—」而不是 0
+- 「审批流程与停留耗时」解析源表的步骤记录：到达数 = 走过该步的 CR 数；平均/最长停留 = 该步用了多久；当前滞留 = 还停在该步的 CR 数；最久已等待 = 其中等得最长的那张已等多少天。步骤按**实际流程顺序**（创建 → BO/FO 审批 → 域技术总监审批 → 变更经理审批 → 实施 → 结果反馈），不是源表列名字母序
+- 「当前滞留」的数字往往就是最该看的：某一步滞留多、等待久，说明该审批环节是瓶颈
+- 页面上每个数字都可点：状态卡、环形图扇区、KPI 卡、比率卡、类别表格、图表柱子、流程步骤、月度趋势、子类别表格都能下钻到明细，明细行数与卡片数字严格一致
 - 下钻明细被截断时会显示黄色告警条，提示缩小时间范围——不要忽略它
 
 #### pm_analysis（`pm_analysis`）
@@ -1744,7 +1789,9 @@ PM 执行分析：按 PM 计划号（pmp_no）看预防性维护工单（PMT）�
 - 四个核心计数：「已完成」= 状态为 Closed；「未完成」= 尚未 Closed；「已超期」= 源表 pmt_overdue 为 Yes（直接用上游判定，不自己按日期算）；「未开始」= 已完成条目数为 0
 - 两个细分口径：「完成但超期」= 事后补录/迟交；「未完成且超期」= 真正压着没做完的，优先看这个
 - 三个比率的分母写在数字下方：工单关闭率 = 已完成 ÷ 工单总量，超期率 = 已超期 ÷ 工单总量（越低越好），已启动率 = 条目完成数 > 0 的占比。分母为 0 时显示「—」而不是 0
-- 「流程推进情况」按真实时序排列：创建 → 排期 → 受理 → PM 经理审批 → 执行 → FLM 领导审批。注意源表字段名有误导性——last_accept_time 实际早于 last_process_time，不要按字段名猜顺序
+- 页面顶部的「审批流程里程碑」严格按 eFlow 的 Workflow History 排列：创建 → 排期 → 受理 → 处理 → PM 经理审批 → FLM 领导审批 → 已关闭。每格显示「已完成」（走过该节点）与「当前滞留」（正卡在该节点等下一环节），滞留最多的节点会加「瓶颈」标记；点数字可看该节点的工单明细与已等待天数
+- ⚠️ 源表字段名有误导性：last_process_time 记录的是「进入处理」的时刻，早于 PM 经理审批时间，不要按字段名猜顺序
+- 在计划号筛选里只选 1 个计划号时，里程碑同步按该计划过滤；选多个时里程碑按全部计划统计（页面会给出提示），与下方表格小计可能不同
 - 页面上每个数字都可点：KPI 卡、比率卡、图表柱子、月度趋势、站点条形图、计划表格都能下钻到明细，明细行数与卡片数字严格一致
 - 下钻明细被截断时会显示黄色告警条，提示缩小时间范围——不要忽略它
 
@@ -1800,6 +1847,15 @@ CN KPI 看板：原 FineBI「CN KPI」看板的原生重建，18 个组件（VLR
 - 卡片右上角橙色「月粒度」标签表示该点代表一个月，**不是某一天**；金色「已切源」表示原表停更、已改用自动同步的同名数据源
 - 页头橙色告警条会列出所有降级组件及成因，看到它请先确认是否有人需要重新跑一次网管导出
 - 「导出 Excel」输出各组件数据与执行口径（SQL），便于与网管侧对账
+
+#### cn_kpi_5mins（`cn_kpi_5mins`）
+
+CN KPI 5 分钟看板：以 5 分钟粒度对比「今天（Day0）」与「昨天（Day1）」同一时刻的核心网 KPI 走势。数据由任务 cnn_kpi_sync_5mins 每 15 分钟采集一次（窗口为昨天 00:00 至现在），写入 db_ps_cs_cn 的 5mins_* 新表，与按天/月的 CN KPI 看板互不影响。⚠ 上游网管只对部分模板开放 5 分钟粒度：xGW License、xGW CPU、3G FDD 三个卡片会显示「无5分钟数据」，这是上游能力的限制，不是故障。
+
+- 每张图有两条线：Day0 是今天，Day1 是昨天；横轴为时刻（HH:MM），同一个横坐标即同一时刻，便于看日内波动与日间差异
+- 页面无需选日期：窗口固定为「今天 + 昨天」，每 15 分钟随任务自动更新一次（可在顶栏设置自动刷新）
+- 标「无5分钟数据」的卡片对应上游未开放 5 分钟粒度的模板（xGW License / xGW CPU / 3G FDD），页头蓝条会汇总数量
+- 「导出 Excel」每个组件一张表，按时刻展开 Day0 / Day1 两列，便于对账
 
 #### UME iMonitor 大屏（`imonitor`，iframe 页）
 

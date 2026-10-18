@@ -750,7 +750,14 @@ export default function MsSlaDashboard({ only }: { only?: 'nur' | 'sla' } = {}) 
               <Tag color="geekblue">{meta.kpi_list_mtime}</Tag>
             </>
           )}
+          {/* 天/周/月粒度切换。2026-10-18 反馈「选项不明显」后重做观感：
+               - 未选中档位改用正文色 + 600 字重（原先继承 Segmented 默认的次要灰，
+                 在深色玻璃底上几乎与背景同亮度，看不出这是可点的选项）；
+               - 选中档位用品牌青实心底 + onAccent 字色，与未选中形成明显对比；
+               - 三档合成一个紧凑的整体开关，而不是三个散字。
+              通用观感在 index.css 的 .wh-seg 里，本页再叠加 .wh-gran-switch 的宽度。 */}
           <Segmented
+            className="wh-seg wh-gran-switch"
             value={gran}
             onChange={v => changeGran(v as Gran)}
             options={GRANS.map(g => ({ value: g, label: t(GRAN_TAB_KEY[g]) }))}

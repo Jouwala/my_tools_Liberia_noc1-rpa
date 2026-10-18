@@ -115,6 +115,16 @@ const CATEGORY_LABELS: Record<string, string> = {
   'PerSite KPIs': 'PerSite KPIs',
 }
 
+/**
+ * 矩阵明细里**默认展开**的列分类。
+ *
+ * 2026-10-18 用户要求：Report detail 的 Contract KPIs 矩阵里，PerSite KPIs
+ * 那一大组列（各制式按 90% 站点达标占比）太宽，默认收起，点开关才展示。
+ * 这里用「默认展示白名单」而不是黑名单 —— 将来工作簿新增分类时默认可见，
+ * 不会因为忘记更新黑名单而莫名其妙少一组列。
+ */
+const MATRIX_DEFAULT_CATS: string[] = ['Operation KPIs', 'Network KPIs']
+
 // ============================================================================
 // 扁平表页签（FineBI 规划 / 自动化报表清单）：搜索 + 多选筛选 + 服务端分页 + 导出
 // ============================================================================
@@ -360,6 +370,10 @@ export default function MsContractKpiReport() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [tab, setTab] = useState(CONTRACT_SHEET)
+  /* 矩阵列分类显隐（2026-10-18 用户要求）：PerSite KPIs 那一组列默认收起，
+     点「PerSite KPIs」开关才展开。shown / hidden 记录用户的手动切换。 */
+  const [colShown, setColShown] = useState<string[]>([])
+  const [colHidden, setColHidden] = useState<string[]>([])
   // 弹窗要带上「指标来自哪个矩阵」——两张矩阵的列 key 都是 c1..cN，单看 key 会串台
   const [pick, setPick] = useState<{ metric: Metric; matrix: Matrix; x: number; y: number } | null>(null)
   const [exporting, setExporting] = useState(false)
@@ -639,7 +653,7 @@ export default function MsContractKpiReport() {
         style={{ background: WH.cardBg, border: WH.cardBorder }}
       >
         <Space wrap style={{ marginBottom: 12 }}>
-          <Segmented value={tab} onChange={(v) => setTab(String(v))} options={tabOptions} />
+          <Segmented className="wh-seg" value={tab} onChange={(v) => setTab(String(v))} options={tabOptions} />
         </Space>
 
         <Spin spinning={loading}>
@@ -656,6 +670,14 @@ export default function MsContractKpiReport() {
                 loc={loc}
                 t={t}
                 maxHeight={560}
+                /* 默认只展示 Operation / Network 两组，PerSite KPIs 收起 */
+                columnFilter={{
+                  defaultCats: MATRIX_DEFAULT_CATS,
+                  shownCats: colShown,
+                  hiddenCats: colHidden,
+                  setShownCats: setColShown,
+                  setHiddenCats: setColHidden,
+                }}
                 onPickMetric={(m, anchor) => setPick({
                   metric: m, matrix: contract,
                   x: anchor?.x ?? window.innerWidth / 2,

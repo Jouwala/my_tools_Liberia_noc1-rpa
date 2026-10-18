@@ -686,6 +686,7 @@ export default function BmMeta() {
           <Text type="secondary">~</Text>
           <DatePicker value={end} onChange={onPickEnd} allowClear={false} />
           <Segmented
+            className="wh-seg"
             value={quick}
             onChange={(v) => applyQuick(String(v))}
             options={[
@@ -887,6 +888,7 @@ export default function BmMeta() {
         extra={
           <Space wrap size={8}>
             <Segmented
+              className="wh-seg"
               value={metric}
               onChange={(v) => setMetric(String(v) as MetricKey)}
               options={[

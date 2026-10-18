@@ -30,7 +30,12 @@ export type CatRow = {
   closure_rate: number | null
 }
 
-export type StatusRow = { status: string; cnt: number }
+/**
+ * 状态卡 / 环形图一行。
+ * `status_key` 是后端归一后的大写值，**下钻必须用它**（见
+ * `cr_caliber.status_bucket_expr`）；`status` 只是原值展示名。
+ */
+export type StatusRow = { status_key: string; status: string; cnt: number }
 export type MonthRow = { month: string; total: number; planned: number; executed: number; closed: number }
 export type SubRow = { category: string; sub_category: string; total: number; executed: number }
 
@@ -53,10 +58,84 @@ export type Filters = {
 /** 下钻明细行：后端 _DETAIL_COLUMNS 的字段，全部可能为 null（空值显示 '—'） */
 export type DetailRow = Record<string, string | null>
 
-/* ---- 下钻批次：与后端 DRILL_METRICS 一一对应 ---- */
+/* ---- 下钻批次：与后端 DRILL_METRICS 一一对应（status 另需 status 参数） ---- */
 export type Metric =
   | 'total' | 'planned' | 'executed' | 'unexecuted'
   | 'on_time' | 'delayed' | 'closed' | 'open' | 'canceled'
+  | 'status'
+
+/* ---- 审批流程（backend/services/cr_workflow_service.py 的返回结构） ---- */
+
+/** 步骤 key，与后端 `cr_caliber.WORKFLOW_STEPS` 同序同值 */
+export type StepKey =
+  | 'created' | 'update' | 'bo_fo' | 'td' | 'cm' | 'implement' | 'feedback'
+
+export const STEP_KEYS: StepKey[] = [
+  'created', 'update', 'bo_fo', 'td', 'cm', 'implement', 'feedback',
+]
+
+export type StepRow = {
+  step: StepKey
+  /** 走过这一步的 CR 总数（含已离开的与当前停留的） */
+  arrived: number
+  /** 离开该步的平均耗时（天）；无已完成样本时为 null → 显示 '—' */
+  avg_days: number | null
+  max_days: number | null
+  /** 当前停在该步、尚未离开的 CR 数 */
+  current: number
+  /** 这些滞留 CR 里等得最久的天数 */
+  current_max_days: number | null
+}
+
+/**
+ * 里程碑（页面顶部 Workflow 条）。顺序对齐 eFlow 的 Workflow History
+ * （`queryAllSteps`）：Create → BO/FO → Domain TD → CM → Implement → Feedback → Closed。
+ * 后端 `cr_caliber.MILESTONES` + `_milestones()`。
+ *
+ * `key='closed'` 是终态：`step` 为空串，只能走状态下钻。
+ */
+export type MilestoneKey =
+  | 'created' | 'bo_fo' | 'td' | 'cm' | 'implement' | 'feedback' | 'closed'
+
+export type Milestone = {
+  key: MilestoneKey
+  /** 对应的工作流步骤；closed 为 '' */
+  step: StepKey | ''
+  /** 已完成该节点的 CR 数 */
+  done: number
+  /** 当前停在该节点、等下一环节的 CR 数 */
+  waiting: number
+  /** 滞留单里等得最久的天数；无人滞留为 null → 不显示 */
+  waiting_max_days: number | null
+}
+
+export type Workflow = {
+  meta: { start: string; end: string; table: string; warnings: string[] }
+  steps: StepRow[]
+  milestones: Milestone[]
+  rejected: number
+  total: number
+  in_flight: number
+}
+
+/** 步骤下钻行（后端 `drill_workflow`） */
+export type StepDrillRow = {
+  change_request_id: string
+  status: string
+  change_category: string
+  step: StepKey
+  entered_at: string
+  left_at: string | null
+  days: number
+  operator: string | null
+  result: string | null
+  next_status: string | null
+  current: boolean
+}
+
+/** 天数展示：null → '—'（不是 0），并保留一位小数 */
+export const fmtDays = (v: number | null | undefined) =>
+  (v == null ? '—' : `${v.toFixed(1)}d`)
 
 /** 计数类的字段名（算小计、做列定义时复用，避免各处手抄一份） */
 export const COUNT_FIELDS = [

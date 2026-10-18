@@ -245,6 +245,23 @@ export const TASK_DOCS: TaskDoc[] = [
     },
   },
   {
+    // 2026-10-16 注册、2026-10-17 补登本帮助（此前漏登，分组守卫 test_worker_group_coverage 因此一直红）
+    id: 'ume_alarm_whatsapp_alert', group: 'm', cron: '* * * * *',
+    script: 'services/ume_alarm_whatsapp_service.py → run_ume_alarm_whatsapp',
+    zh: {
+      name: 'DC server 告警 WhatsApp 推送',
+      desc: '每分钟直连 ZTE UME 网管（10.121.8.2）拉当前告警，命中精确「告警码:级别」对（默认 89029:major、89006:major）才推送到指定群；未清除告警按配置间隔催报（带 REMINDER 横幅），曾推送过的告警从上游消失则补发「已恢复」；首轮只登记不发送（防存量刷群），状态落 ume_alarm 相关表',
+      flow: ['每分钟从 UME 拉取当前告警快照', '按「告警码:级别」精确配对过滤', '经 WhatsApp 推送；未清除的按间隔催报，消失的补发恢复通知'],
+      maintain: ['首轮只登记不发送，避免把存量告警一次性刷进群', '与 eflow 系列的 tt_alarm_whatsapp_alert 是两条独立通道（不同上游、不同告警码体系）'],
+    },
+    en: {
+      name: 'DC Server Alarm WhatsApp Push',
+      desc: 'Pulls the current alarm snapshot from the ZTE UME NMS (10.121.8.2) every minute and pushes to the configured group only when an exact "alarm-code:severity" pair matches (default 89029:major, 89006:major); uncleared alarms are re-notified at the configured interval (with a REMINDER banner) and alarms that disappear upstream get a "recovered" notice; the first round only registers and sends nothing (to avoid flooding the group with the backlog)',
+      flow: ['Fetch the current UME alarm snapshot every minute', 'Filter on exact alarm-code:severity pairs', 'Push via WhatsApp; re-notify uncleared alarms at an interval and send a recovery notice when they disappear'],
+      maintain: ['The first round only registers and never sends, so the existing backlog is not dumped into the group', 'Independent of the eFlow tt_alarm_whatsapp_alert channel (different upstream and alarm-code scheme)'],
+    },
+  },
+  {
     id: 'eflow_active_alarm', group: 'x', cron: '*/1 * * * *',
     script: 'services/eflow_api_client.py → fetch_and_save_active_alarm',
     zh: {
@@ -402,6 +419,32 @@ export const TASK_DOCS: TaskDoc[] = [
       desc: 'CNN UME core-network KPI sync (xGW License/CPU/Voice/VLR/Data/3G/4G/Free Rating), API write to DB CNN',
       flow: ['Log into CNN UME, query core KPIs (xGW License/CPU/Voice/VLR/Data/3G/4G/Free Rating)', 'Write to remote DB CNN via API'],
       maintain: ['Free Rating output also feeds the ccn_free_rating_chart_email charts'],
+    },
+  },
+  {
+    id: 'cnn_kpi_sync_5mins', group: 'n', cron: '*/15 * * * *',
+    script: 'services/cnn_ume_kpi_5mins_service.py → run_cnn_kpi_sync_5mins',
+    zh: {
+      name: 'CNN UME KPI 5分钟同步',
+      desc: '与「CNN UME KPI 同步」同源同账号，但取 5 分钟粒度（gr=300）、窗口为昨天 00:00 至现在，API 写入 DB CNN 的 5mins_* 新表，供「CN KPI 5分钟」看板做 Day0/Day1 叠画；日/月粒度表不受影响',
+      flow: ['登录 CNN UME（与 cnn_kpi_sync 共用会话缓存）', '按 8 个模板并发查询 5 分钟粒度数据（昨天 00:00 至现在）', '写入 db_ps_cs_cn 的 5mins_<原表名> 表（upsert）'],
+      maintain: [
+        '⚠ 上游只有 5 个模板支持 5 分钟粒度（Voice/VLR/Data/4G FDD/Free Rating）；xGW License、xGW CPU、3G FDD 实测恒为 0 行，任务会跳过且**不计失败**（原 cnn_kpi_sync 的逻辑是 0 行即报错，本任务刻意不同）',
+        '⚠ 实测单轮约 105 秒（Free Rating 一天就有 1.4 万行）；若耗时逼近 15 分钟，需降低并发或放宽节拍',
+        '与 cnn_kpi_sync 同在 n 组串行，避免两个任务各自登录同一账号互踢',
+        '页面为本任务的唯一消费方：?page=cn_kpi_5mins（services/cn_kpi_5mins_service.py 读 5mins_* 表）',
+      ],
+    },
+    en: {
+      name: 'CNN UME KPI 5-Min Sync',
+      desc: 'Same source and account as "CNN UME KPI Sync", but at 5-minute granularity (gr=300) with a yesterday-00:00-to-now window; writes into new 5mins_* tables in DB CNN for the Day0/Day1 overlay on the CN KPI 5-minute board. Daily/monthly tables are untouched',
+      flow: ['Log into CNN UME (shares the session cache with cnn_kpi_sync)', 'Query all 8 templates in parallel at 5-minute granularity (yesterday 00:00 to now)', 'Upsert into db_ps_cs_cn tables named 5mins_<original table>'],
+      maintain: [
+        'WARNING: only 5 of the 8 templates support 5-minute granularity (Voice / VLR / Data / 4G FDD / Free Rating); xGW License, xGW CPU and 3G FDD return 0 rows every run and are SKIPPED without failing the task (the original cnn_kpi_sync raises on 0 rows — this task deliberately differs)',
+        'WARNING: one run takes about 105 s (Free Rating alone has 14k rows/day); if it approaches 15 minutes, lower the concurrency or widen the schedule',
+        'Runs in group n alongside cnn_kpi_sync so the two never log into the same account and kick each other off',
+        'The only consumer is ?page=cn_kpi_5mins (services/cn_kpi_5mins_service.py reads the 5mins_* tables)',
+      ],
     },
   },
   {

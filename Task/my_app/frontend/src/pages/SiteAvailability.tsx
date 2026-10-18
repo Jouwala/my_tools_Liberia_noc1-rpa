@@ -540,12 +540,14 @@ export default function SiteAvailability() {
             showSearch optionFilterProp="label"
           />
           <Segmented
+            className="wh-seg"
             size="small"
             value={tech}
             onChange={(v) => setTech(v as Tech)}
             options={TECHS.map(tk => ({ value: tk, label: TECH_LABEL[tk] }))}
           />
           <Segmented
+            className="wh-seg"
             size="small"
             value={viewMode}
             onChange={(v) => setViewMode(v as 'week' | 'day')}

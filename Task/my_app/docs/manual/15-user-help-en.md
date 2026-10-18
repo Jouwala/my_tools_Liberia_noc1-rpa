@@ -1,6 +1,6 @@
 # my_app User Help & Guide
 
-> User-facing platform features & operations guide. Generated from the same source as the in-app Help page (frontend/src/helpMarkdown.ts), compiled from docs/manual/ and backend/task_registry.py. Generated on 2026-10-15.
+> User-facing platform features & operations guide. Generated from the same source as the in-app Help page (frontend/src/helpMarkdown.ts), compiled from docs/manual/ and backend/task_registry.py. Generated on 2026-10-17.
 
 > In-app entry: the "Help" sidebar item, or `http://<host>/myapp/?page=help` directly.
 
@@ -10,7 +10,7 @@
 
 - [1. Platform Overview](#1-platform-overview)
 - [2. General Usage](#2-general-usage)
-- [3. Task Manager Deep Dive (70 tasks)](#3-task-manager-deep-dive)
+- [3. Task Manager Deep Dive (72 tasks)](#3-task-manager-deep-dive)
 - [4. Pages Guide](#4-pages-guide)
 - [5. Ops & Troubleshooting](#5-ops-troubleshooting)
 - [6. FAQ](#6-faq)
@@ -79,7 +79,7 @@ Built for the NOC scenario "boards every day, reports must go out": 41+ schedule
 
 > ⚠️ **New tasks MUST also be registered in `GROUP_TASK_MAP` in worker_watchdog.py** — declaring them only in TASK_SPECS leaves them pending forever. This accident happened four times (finebi_report_sync / whatsapp_send_ext / sp_email_details / the olib_soc and vmax_multi_data_sync tasks found on 2026-09-18).
 
-### 3.3 Full task catalog (70 tasks)
+### 3.3 Full task catalog (72 tasks)
 
 | Task | task_id | Default cron | Group | Workflow script |
 | --- | --- | --- | --- | --- |
@@ -92,6 +92,7 @@ Built for the NOC scenario "boards every day, reports must go out": 41+ schedule
 | WhatsApp Message Send (Baileys) | `whatsapp_send_baileys` | `0 4 * * *` | m | `services/whatsapp_send_baileys_service.py → run_whatsapp_send_baileys` |
 | eFlow P1 Alarm WhatsApp Push | `tt_alarm_whatsapp_alert` | `2-59/5 * * * *` | m | `services/tt_alarm_whatsapp_service.py → run_tt_alarm_whatsapp_alert` |
 | MS SLA Full Sync | `ms_sla_full` | `0 5 * * *` | n | `services/ms_sla_service.py → run_full_sync` |
+| DC Server Alarm WhatsApp Push | `ume_alarm_whatsapp_alert` | `* * * * *` | m | `services/ume_alarm_whatsapp_service.py → run_ume_alarm_whatsapp` |
 | eFlow Realtime Alarm Sync | `eflow_active_alarm` | `*/1 * * * *` | x | `services/eflow_api_client.py → fetch_and_save_active_alarm` |
 | eFlow History Alarm Sync | `eflow_history_alarm` | `0 */3 * * *` | n | `services/eflow_api_client.py → fetch_and_save_history_alarm` |
 | eFlow TT Rules Collect & Match Check | `eflow_tt_rules_check` | `20 4 * * *` | n | `services/eflow_rules/eflow_tt_rules_check_task.py → run_eflow_tt_rules_check` |
@@ -102,6 +103,7 @@ Built for the NOC scenario "boards every day, reports must go out": 41+ schedule
 | Availability Recon Rebuild | `avail_recon_sync` | `10 6 * * *` | u | `services/avail_recon_sync.py → run_avail_recon_sync` |
 | BP Cells Report Sync | `bp_report_sync` | `20 6 * * *` | u | `services/bp_report_sync.py → run_bp_report_sync` |
 | CNN UME KPI Sync | `cnn_kpi_sync` | `0 6 * * *` | n | `services/ccn_ume_kpi_service.py → run_cnn_kpi_sync` |
+| CNN UME KPI 5-Min Sync | `cnn_kpi_sync_5mins` | `*/15 * * * *` | n | `services/cnn_ume_kpi_5mins_service.py → run_cnn_kpi_sync_5mins` |
 | SP Spare Data Sync | `sp_data_sync` | `10 * * * *` | s | `services/get_sp_table.py → run_sp_data_sync` |
 | iPRAN UME KPI Sync | `ipran_kpi_sync` | `0 8 * * *` | u | `services/ipran_ume_kpi_service.py → run_ipran_kpi_sync` |
 | Liberia Site-Down 1H Report Email | `liberia_email_1h` | `15 * * * *` | m | `services/liberia_email_report.py → run_1h_report` |
@@ -324,6 +326,24 @@ Workflow & maintenance notes per task:
 - Board numbers follow this live calculation (snapshot files may differ)
 - Adjust criteria in backend/services/nur_calc.py
 
+#### DC Server Alarm WhatsApp Push（`ume_alarm_whatsapp_alert`）
+
+- Default cron: `* * * * *`　|　worker group: **m**
+- Workflow script: `services/ume_alarm_whatsapp_service.py → run_ume_alarm_whatsapp`
+
+**What it does**: Pulls the current alarm snapshot from the ZTE UME NMS (10.121.8.2) every minute and pushes to the configured group only when an exact "alarm-code:severity" pair matches (default 89029:major, 89006:major); uncleared alarms are re-notified at the configured interval (with a REMINDER banner) and alarms that disappear upstream get a "recovered" notice; the first round only registers and sends nothing (to avoid flooding the group with the backlog)
+
+**Workflow & data flow**:
+
+1. Fetch the current UME alarm snapshot every minute
+1. Filter on exact alarm-code:severity pairs
+1. Push via WhatsApp; re-notify uncleared alarms at an interval and send a recovery notice when they disappear
+
+**Maintenance**:
+
+- The first round only registers and never sends, so the existing backlog is not dumped into the group
+- Independent of the eFlow tt_alarm_whatsapp_alert channel (different upstream and alarm-code scheme)
+
 #### eFlow Realtime Alarm Sync（`eflow_active_alarm`）
 
 - Default cron: `*/1 * * * *`　|　worker group: **x**
@@ -507,6 +527,26 @@ Workflow & maintenance notes per task:
 **Maintenance**:
 
 - Free Rating output also feeds the ccn_free_rating_chart_email charts
+
+#### CNN UME KPI 5-Min Sync（`cnn_kpi_sync_5mins`）
+
+- Default cron: `*/15 * * * *`　|　worker group: **n**
+- Workflow script: `services/cnn_ume_kpi_5mins_service.py → run_cnn_kpi_sync_5mins`
+
+**What it does**: Same source and account as "CNN UME KPI Sync", but at 5-minute granularity (gr=300) with a yesterday-00:00-to-now window; writes into new 5mins_* tables in DB CNN for the Day0/Day1 overlay on the CN KPI 5-minute board. Daily/monthly tables are untouched
+
+**Workflow & data flow**:
+
+1. Log into CNN UME (shares the session cache with cnn_kpi_sync)
+1. Query all 8 templates in parallel at 5-minute granularity (yesterday 00:00 to now)
+1. Upsert into db_ps_cs_cn tables named 5mins_<original table>
+
+**Maintenance**:
+
+- WARNING: only 5 of the 8 templates support 5-minute granularity (Voice / VLR / Data / 4G FDD / Free Rating); xGW License, xGW CPU and 3G FDD return 0 rows every run and are SKIPPED without failing the task (the original cnn_kpi_sync raises on 0 rows — this task deliberately differs)
+- WARNING: one run takes about 105 s (Free Rating alone has 14k rows/day); if it approaches 15 minutes, lower the concurrency or widen the schedule
+- Runs in group n alongside cnn_kpi_sync so the two never log into the same account and kick each other off
+- The only consumer is ?page=cn_kpi_5mins (services/cn_kpi_5mins_service.py reads the 5mins_* tables)
 
 #### SP Spare Data Sync（`sp_data_sync`）
 
@@ -1728,12 +1768,17 @@ Repeat site-down board: identifies sites that go down repeatedly within the wind
 
 #### cr_analysis（`cr_analysis`）
 
-CR Change Analysis: shows change-plan scheduling and execution by change category, answering "how many were planned, how many executed, and how many of those were on time".
+CR Change Analysis: shows both where changes are stuck right now (status mix, workflow dwell) and how they performed historically (plan completion, on-time, closure), answering "how many are still open, at which step, and who is slowest".
 
 - Data comes from eflow_cr (synced from eFlow); the default range covers the full data span
+- The top bar is the <b>Workflow milestones</b>, in exactly the order of eFlow's Workflow History: Create → BO/FO Head Approval → Domain TD Approval → CM Head Approval → Start to Implement → Result Feedback → Closed. Each node shows "Done" and "Waiting"; the node with the most CRs waiting is marked <b>Bottleneck</b> and shows how many days the slowest one has waited
+- Milestones group by workflow node: a CR sent back with "Waiting for Update" counts under BO/FO Head Approval rather than forming its own loop. For the exact spread over the 7 raw statuses, see the "Status Distribution" pie below
+- Status names are upstream values and are not translated; "Waiting for Implement" means all approvals are done and implementation is pending — not "waiting for approval"
 - Four core counts: "Planned" = has a planned start time; "Executed" = has an actual start time; "Not Executed" = planned but never started; "On Time / Delayed" = actual start before / after planned start
-- Each rate shows its denominator: Plan Completion Rate = executed ÷ planned, On-Time Rate = on time ÷ executed. Shows "—" instead of 0 when the denominator is zero
-- Every number is clickable: the category table, chart bars, monthly trend and sub-category table all drill into details, and the detail row count matches the card figure exactly
+- Each rate shows its denominator: Plan Completion Rate = executed ÷ planned, On-Time Rate = on time ÷ executed, Closure Rate = closed ÷ total. Shows "—" instead of 0 when the denominator is zero
+- "Approval Workflow & Dwell Time" parses the step records in the source table: Arrived = CRs that passed the step; Avg/Max Dwell = how long they took there; In Step = CRs still sitting there; Longest Wait = how long the slowest one has waited. Steps follow the <b>real flow order</b> (Created → BO/FO Head → Domain TD → CM Head → Implementation → Result Feedback), not the source column alphabetical order
+- The "In Step" column is often the most useful signal: a step with many CRs waiting a long time is the bottleneck
+- Every number is clickable: status cards, pie slices, KPI cards, rate cards, the category table, chart bars, workflow steps, the monthly trend and the sub-category table all drill into details, and the detail row count matches the card figure exactly
 - A yellow banner appears when drill-down results are truncated — narrow the date range and retry rather than ignoring it
 
 #### pm_analysis（`pm_analysis`）
@@ -1744,7 +1789,9 @@ PM Execution Analysis: shows preventive-maintenance work orders (PMT) by PM plan
 - Four core counts: "Closed" = status is Closed; "Open" = not yet Closed; "Overdue" = the source column pmt_overdue is Yes (the upstream verdict is used as-is, never recomputed from dates); "Not Started" = completed item count is 0
 - Two finer breakdowns: "Closed & Overdue" = back-filled / late delivery; "Open & Overdue" = genuinely still unfinished — look at this one first
 - Each rate shows its denominator: Closure Rate = closed ÷ total, Overdue Rate = overdue ÷ total (lower is better), Started Rate = share of work orders with at least one item completed. Shows "—" instead of 0 when the denominator is zero
-- The "Workflow Progress" funnel follows the REAL chronological order: Created → Scheduled → Accepted → PM Manager Approved → Processed → FLM Leader Approved. Beware: the source column names are misleading — last_accept_time actually precedes last_process_time, so never infer the order from the column names
+- The "Workflow Milestones" bar at the top of the page strictly follows the eFlow Workflow History: Create → Schedule → Accept → Process → PM Manager Approve → FLM Leader Approve → Closed. Each node shows "Done" (work orders that passed it) and "Waiting" (work orders stuck there awaiting the next step); the node with the most waiting work orders is tagged "Bottleneck". Click any number to see those work orders and how long they have waited
+- ⚠️ The source column names are misleading: last_process_time is the moment of ENTERING Process and precedes the PM Manager approve time — never infer the order from the column names
+- With exactly one plan number selected, milestones follow that plan; with several selected, milestones cover all plans (the page says so) and may differ from the plan table subtotal
 - Every number is clickable: KPI cards, rate cards, chart bars, the monthly trend, the site bar chart and the plan table all drill into details, and the detail row count matches the card figure exactly
 - A yellow banner appears when drill-down results are truncated — narrow the date range and retry rather than ignoring it
 
@@ -1800,6 +1847,15 @@ CN KPI dashboard: a native rebuild of the original FineBI "CN KPI" board, with 1
 - An orange "Monthly" tag on a card means each point is one month, not one day; a gold "Switched" tag means the original table stalled and an auto-synced source of the same name is being used
 - The orange banner in the page header lists every degraded widget and why — if you see it, check whether someone needs to re-run the NMS export
 - "Export Excel" writes each widget's data plus the exact SQL used, so figures can be reconciled against the NMS side
+
+#### cn_kpi_5mins（`cn_kpi_5mins`）
+
+CN KPI 5-minute dashboard: compares core-network KPIs at 5-minute granularity, overlaying today (Day0) against yesterday (Day1) at the same time of day. The cnn_kpi_sync_5mins task collects it every 15 minutes (window: yesterday 00:00 to now) into new 5mins_* tables in db_ps_cs_cn, independent of the daily/monthly CN KPI board. WARNING: the upstream NMS only exposes 5-minute granularity for some templates — the xGW License, xGW CPU and 3G FDD cards show "No 5-min data", which is an upstream capability limit, not a fault.
+
+- Each chart has two lines: Day0 is today and Day1 is yesterday; the x axis is the clock time (HH:MM), so the same x value is the same time of day — easy to compare intraday movement and day-to-day differences
+- No date picking is needed: the window is fixed to today + yesterday and refreshes every 15 minutes as the task runs (auto-refresh is available in the top bar)
+- Cards tagged "No 5-min data" correspond to templates the upstream does not expose at 5-minute granularity (xGW License / xGW CPU / 3G FDD); the blue banner in the header summarises how many
+- "Export Excel" writes one sheet per widget, expanded as Day0 / Day1 columns by time of day
 
 #### UME iMonitor Screen（`imonitor`, iframe page）
 

@@ -41,6 +41,7 @@ from backend.routers.tt_wo_dashboard import (
     _is_excluded_ticket_severity,
     _mttr_series,
     _parse_adv,
+    _parse_values,
     _period_label,
     _safe_str,
     _stat_key,
@@ -280,6 +281,7 @@ def wo_drilldown(
     region: str | None = None,
     adv: str | None = None,
     severity: str | None = None,
+    values: str | None = None,
 ) -> dict:
     """WO 明细下钻。
 
@@ -293,6 +295,10 @@ def wo_drilldown(
     """
     S = _detect_schema()
     adv_filters = _parse_adv(adv)
+    # 多取值（里程碑阶段合计）：空列表 = 未传该参数，走原来的单值路径
+    multi_values = _parse_values(values)
+    if multi_values:
+        value = None  # 两个都传时以 values 为准，避免口径打架
 
     with get_raw_connection() as conn:
         if not S["has_wo"]:
@@ -393,7 +399,12 @@ def wo_drilldown(
         col = DIM_SQL.get(dimension)
         cond = ""
         extra: list = []
-        if col and value:
+        if col and multi_values:
+            # 多取值（里程碑阶段合计）：精确匹配的 IN 集合，行数 = 各状态单数之和
+            placeholders = ",".join("?" * len(multi_values))
+            cond = f" AND {col} IN ({placeholders})"
+            extra = list(multi_values)
+        elif col and value:
             # 2026-09-29：ticket_severity / sla_status 的 Unknown 已从概览统计中剔除，
             # 下钻必须同步返回空集（口径一致性，见 AGENTS.md 第三节第 1b 条）。
             if dimension in _UNKNOWN_EXCLUDED_DIMENSIONS and _is_excluded_ticket_severity(value):
@@ -419,7 +430,8 @@ def wo_drilldown(
                 "creator", "created_time"]
         data = [dict(zip(cols, r)) for r in rows]
         conn.close()
-        return {"title": f"WO - {dimension}{': ' + value if value else ''}", "count": len(data), "data": data}
+        label = " / ".join(multi_values) if multi_values else value
+        return {"title": f"WO - {dimension}{': ' + label if label else ''}", "count": len(data), "data": data}
 
 
 def _empty_payload(time_start, time_end, region, adv_filters) -> dict:

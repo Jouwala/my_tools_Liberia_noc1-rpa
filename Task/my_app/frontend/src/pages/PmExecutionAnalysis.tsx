@@ -18,8 +18,9 @@
  *   - `pmColumns.tsx` —— 表格列定义
  *   - `PmDrillModal.tsx` —— 明细弹窗（表格 + 导出）
  *
- * 页面结构：① 筛选条 → ② KPI 行 → ③ 三个比率卡 → ④ 图表
- *          → ⑤ 月度趋势 → ⑥ 流程漏斗 + 超期站点 → ⑦ 计划表 → ⑧ 下钻弹窗
+ * 页面结构：① 筛选条 → ② Workflow 里程碑（对齐 eFlow queryAllSteps 顺序）
+ *          → ③ KPI 行 → ④ 三个比率卡 → ⑤ 图表 → ⑥ 月度趋势
+ *          → ⑦ 流程漏斗 + 超期站点 → ⑧ 计划表 → ⑨ 下钻弹窗（含里程碑明细）
  *
  * ⚠️ 硬要求（AGENTS.md 第三节 1b）：「能下钻尽下钻」—— 页面上**每个数字都可点**，
  *    且下钻时 metric + 维度的组合必须与点击来源的卡片维度严格一致。
@@ -35,12 +36,18 @@ import { useI18n } from '../i18n'
 import { useTheme } from '../theme'
 import { CardBase } from '../components/cards'
 import { exportAoaReport } from '../utils/excelReport'
-import { getPmAnalysisFilters, getPmAnalysisOverview, getPmAnalysisDrilldown } from '../api'
+import {
+  getPmAnalysisFilters, getPmAnalysisOverview, getPmAnalysisDrilldown,
+  getPmAnalysisWorkflow, getPmAnalysisWorkflowDrilldown,
+} from '../api'
 import PmDrillModal from './pmAnalysis/PmDrillModal'
 import PmKpiCards from './pmAnalysis/PmKpiCards'
+import PmMilestones, { milestoneLabelKey } from './pmAnalysis/PmMilestones'
+import PmMilestoneDrillModal from './pmAnalysis/PmMilestoneDrillModal'
 import {
   fmtRate, rateColorDesc, summarize, COUNT_FIELDS, STEP_KEYS,
-  type DetailRow, type Filters, type Metric, type Overview,
+  type DetailRow, type Filters, type Metric, type MilestoneDrillRow,
+  type MilestoneKey, type Overview, type PmWorkflow,
 } from './pmAnalysis/pmTypes'
 import { planColumns, siteColumns } from './pmAnalysis/pmColumns'
 import {
@@ -52,6 +59,19 @@ const { Text } = Typography
 
 /** 下钻维度集合 */
 type Dims = { pmp_no?: string; status?: string; site_name?: string; month?: string }
+
+/** 里程碑下钻类型（与后端 drill_workflow 的 kind 同值） */
+type MsKind = 'arrived' | 'current' | 'done'
+
+/**
+ * 概览的计划号筛选 → 后端 `pmp_no` 参数。
+ *
+ * 只有**恰好选中 1 个**计划号时才下推给后端：概览端点是按计划号精确过滤的，
+ * 选多个时后端只能收一个值，前端筛完再算里程碑会与表格数字对不上。
+ * 多选时里程碑按全部计划出数，并在界面上明确标注（见 `pm.ms.plansHint`），
+ * 不让用户拿「里程碑数字」去对「表格小计」而以为是 bug。
+ */
+const workflowPmpOf = (plans: string[]) => (plans.length === 1 ? plans[0] : '')
 
 /**
  * 计划号过滤上限。概览只回全量计划行，选中过多会让前端循环开销失控
@@ -94,6 +114,22 @@ export default function PmExecutionAnalysis() {
     setPlanWarn('')
   }, [t])
 
+  /* ---- 里程碑（Workflow History 顺序）；与概览分开取，失败单独降级 ---- */
+  const [workflow, setWorkflow] = useState<PmWorkflow | null>(null)
+  /** 计划号 → 后端参数。只有恰好 1 个计划时才下推（见 workflowPmpOf） */
+  const pmpForWorkflow = useMemo(() => workflowPmpOf(activePlans), [activePlans])
+
+  /* ---- 里程碑下钻弹窗状态 ---- */
+  const [msOpen, setMsOpen] = useState(false)
+  const [msAnchor, setMsAnchor] = useState<{ x: number; y: number } | null>(null)
+  const [msTitle, setMsTitle] = useState('')
+  const [msRows, setMsRows] = useState<MilestoneDrillRow[]>([])
+  const [msTotal, setMsTotal] = useState(0)
+  const [msTruncated, setMsTruncated] = useState(false)
+  const [msWarn, setMsWarn] = useState('')
+  const [msLoading, setMsLoading] = useState(false)
+  const [msFileKey, setMsFileKey] = useState('')
+
   /* ---- 下钻弹窗状态 ---- */
   const [open, setOpen] = useState(false)
   const [anchor, setAnchor] = useState<{ x: number; y: number } | null>(null)
@@ -109,19 +145,28 @@ export default function PmExecutionAnalysis() {
   const load = useCallback(async () => {
     setLoading(true)
     setError('')
+    const params: Record<string, string> = {}
+    if (start) params.start = start.format('YYYY-MM-DD')
+    if (end) params.end = end.format('YYYY-MM-DD')
+
+    // 概览与里程碑**并行**取。里程碑失败不拖垮整页 —— 它是增强信息，
+    // 单独 catch 降级成 null（里程碑条显示空态），不与概览共用 catch。
+    const wfParams = { ...params, ...(pmpForWorkflow ? { pmp_no: pmpForWorkflow } : {}) }
+    const wfPromise = getPmAnalysisWorkflow(wfParams)
+      .then(r => setWorkflow(r.data as PmWorkflow))
+      .catch(() => setWorkflow(null))
+
     try {
-      const params: Record<string, string> = {}
-      if (start) params.start = start.format('YYYY-MM-DD')
-      if (end) params.end = end.format('YYYY-MM-DD')
       const r = await getPmAnalysisOverview(params)
       setOv(r.data as Overview)
     } catch (e: any) {
       setError(e?.message || String(e))
       setOv(null)
     } finally {
+      await wfPromise
       setLoading(false)
     }
-  }, [start, end])
+  }, [start, end, pmpForWorkflow])
 
   /* 首次进页面：先拉筛选项拿到**全表实际时间范围**，再据此初始化窗口 ——
      顺序不能反，否则会先用「今天往前 N 天」查一次再被覆盖，白跑一次库。
@@ -235,6 +280,46 @@ export default function PmExecutionAnalysis() {
     })
   }, [openDrill])
 
+  /**
+   * 里程碑下钻：走过 / 当前停留在某节点 / 已关闭。
+   * 窗口与计划号与里程碑条**同一个来源**，保证明细行数 == 条上的数字
+   * （AGENTS.md 第三节 1b）。计划号只在恰好选中 1 个时下推，与 `load` 一致。
+   */
+  const openMsDrill = useCallback(async (
+    key: MilestoneKey, kind: MsKind, at?: { x: number; y: number },
+  ) => {
+    setMsOpen(true)
+    setMsAnchor(at || null)
+    setMsLoading(true)
+    setMsRows([])
+    setMsTotal(0)
+    setMsTruncated(false)
+    setMsWarn('')
+    setMsFileKey(`${key}_${kind}`)
+
+    const kindKey = kind === 'current' ? 'pm.ms.kind.current'
+      : (kind === 'done' ? 'pm.ms.kind.done' : 'pm.ms.kind.arrived')
+    setMsTitle(`${t(milestoneLabelKey(key))} · ${t(kindKey)}`)
+
+    const params: any = { key, kind }
+    if (start) params.start = start.format('YYYY-MM-DD')
+    if (end) params.end = end.format('YYYY-MM-DD')
+    if (pmpForWorkflow) params.pmp_no = pmpForWorkflow
+
+    try {
+      const r = await getPmAnalysisWorkflowDrilldown(params)
+      const d = r.data || {}
+      setMsRows(d.rows || [])
+      setMsTotal(d.total ?? (d.rows || []).length)
+      setMsTruncated(!!d.truncated)
+      setMsWarn((d.meta?.warnings || []).join('; '))
+    } catch (e: any) {
+      setMsWarn(e?.message || String(e))
+    } finally {
+      setMsLoading(false)
+    }
+  }, [start, end, pmpForWorkflow, t])
+
   /** 导出计划汇总（表格那一屏） */
   const exportSummary = useCallback(() => {
     if (!rows.length) return
@@ -301,7 +386,25 @@ export default function PmExecutionAnalysis() {
         <Alert type="info" showIcon message={t('pm.filter.activePlans', { n: activePlans.length })} />
       )}
 
-      {/* ②③ KPI 计数卡 + 核心比率卡（每个数字可点下钻） */}
+      {/* ② Workflow 里程碑条：顺序严格对齐 eFlow 的 queryAllSteps Workflow History
+          （Create → Schedule → Accept → Process → PM Manager Approve → FLM Leader
+          Approve → Closed）。等待数 → 该节点滞留明细；已完成数 → 走过该节点的明细。
+          多选计划号时里程碑不随之过滤（后端按单一 pmp_no 精确过滤），
+          故显式提示，避免用户拿里程碑数字去对表格小计。 */}
+      {activePlans.length > 1 && (
+        <Alert type="info" showIcon message={t('pm.ms.plansHint', { n: activePlans.length })} />
+      )}
+      <PmMilestones
+        milestones={workflow?.milestones || []}
+        total={workflow?.total ?? summary.total}
+        inFlight={workflow?.in_flight ?? summary.open}
+        C={C}
+        onWaiting={(key, at) => void openMsDrill(key, 'current', at)}
+        onDone={(key, at) => void openMsDrill(key, 'arrived', at)}
+        onClosed={at => void openMsDrill('closed', 'done', at)}
+      />
+
+      {/* ③④ KPI 计数卡 + 核心比率卡（每个数字可点下钻） */}
       <PmKpiCards
         t={t}
         C={C}
@@ -507,7 +610,20 @@ export default function PmExecutionAnalysis() {
         />
       </CardBase>
 
-      {/* ⑨ 下钻弹窗 */}
+      {/* ⑨ 下钻弹窗：KPI/计划/站点明细 + 里程碑明细 */}
+      <PmMilestoneDrillModal
+        open={msOpen}
+        subtitle={msTitle}
+        anchor={msAnchor}
+        onClose={() => setMsOpen(false)}
+        rows={msRows}
+        total={msTotal}
+        truncated={msTruncated}
+        warn={msWarn}
+        loading={msLoading}
+        fileKey={msFileKey}
+      />
+
       <PmDrillModal
         open={open}
         subtitle={drillTitle}

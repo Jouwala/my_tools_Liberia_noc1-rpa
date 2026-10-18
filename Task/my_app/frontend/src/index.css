@@ -18,6 +18,10 @@
   --wh-text: #f5f7ff;
   --wh-text-muted: #aebbd4;
   --wh-text-dim: #6f8cb4;
+  /* 品牌青实心底上的前景字色。深色档 --wh-teal 是亮青（#00d9ff），配深墨字；
+     浅色档换成深青（#0d9488），配白字。Segmented 选中档等实心品牌块用它，
+     不要复用 --wh-text（那是给普通底色上的正文用的）。 */
+  --wh-on-accent: #041227;
   --wh-accent-grad: linear-gradient(135deg, #00d9ff, #258cff);
   --wh-sev-critical: #ff5c6c;
   --wh-sev-major: #ff922b;
@@ -169,6 +173,8 @@
   --wh-text: #16233b;
   --wh-text-muted: #3f5468;
   --wh-text-dim: #5b7288;
+  /* 浅色档 --wh-teal 是深青（#0d9488），实心品牌块上配白字，见深色档同名变量注释 */
+  --wh-on-accent: #ffffff;
   --wh-accent-grad: linear-gradient(135deg, #0d9488, #0e7490);
   --wh-sev-critical: #d92d20;
   --wh-sev-major: #ea580c;
@@ -1858,6 +1864,89 @@ html {
  * 居中由组件外层的 textAlign:center 负责，这里只管字重。 */
 .wh-sum-tabs .ant-segmented-item-label {
   font-weight: 700;
+}
+
+/* ---------- 全局分段控件观感（.wh-seg） ---------- *
+ * 2026-10-18 用户反馈 ms_sla_only 页的 Day/Week/Month 选项「不明显」，确认后要求
+ * 全站同类分段开关统一处理。根因是 antd Segmented 默认未选中项继承次要色
+ * （深色档接近背景亮度），在玻璃底上几乎与背景同色；选中态也只是浅色淡块。
+ *
+ * 使用方式：需要「选项一眼可见」的分段开关都在 <Segmented> 上加 className="wh-seg"。
+ * 为什么按需加类而不是全局改 .ant-segmented：全局改会把表单里的二选一、
+ * 侧栏等场景一并改掉，那是本项目刻意未做的（见 .wh-sum-tabs 处的既有说明）。
+ * 本类只做视觉增强，不改交互：
+ *   - 未选中：正文色 + 600 字重，收紧内边距，多项看起来是一个整体开关；
+ *   - 悬浮：品牌青字色 + 低透明度青底，给出「可点」反馈；
+ *   - 选中：品牌青实心底 + --wh-on-accent 字色，深浅两档都有足够对比度。
+ * 颜色只引用 --wh-* 令牌，随 data-theme 自动切换，不写死十六进制。 */
+.wh-seg.ant-segmented {
+  border: 1px solid var(--wh-glass-border-strong) !important;
+  border-radius: var(--wh-radius-md) !important;
+  padding: 3px;
+}
+.wh-seg .ant-segmented-item {
+  color: var(--wh-text) !important;
+  font-weight: 600;
+  border-radius: 6px;
+}
+.wh-seg .ant-segmented-item-label {
+  padding: 0 12px;
+  line-height: 22px;
+  font-size: 0.8125rem;
+}
+/* 未选中项的悬浮反馈：::after 是 antd v6 的悬浮底色层，直接用品牌青淡化版 */
+.wh-seg .ant-segmented-item:not(.ant-segmented-item-selected):not(.ant-segmented-item-disabled) {
+  color: var(--wh-text) !important;
+}
+.wh-seg .ant-segmented-item:not(.ant-segmented-item-selected):not(.ant-segmented-item-disabled):hover,
+.wh-seg .ant-segmented-item:not(.ant-segmented-item-selected):not(.ant-segmented-item-disabled):active {
+  color: var(--wh-teal) !important;
+}
+.wh-seg .ant-segmented-item:not(.ant-segmented-item-selected):not(.ant-segmented-item-disabled):hover::after,
+.wh-seg .ant-segmented-item:not(.ant-segmented-item-selected):not(.ant-segmented-item-disabled):active::after {
+  opacity: 1;
+  background: var(--wh-teal-27) !important;
+}
+/* 选中项：实心品牌青 + onAccent 字色。必须同时覆盖项本身与滑动 thumb，
+   否则 thumb 动画期间会出现「青底 + 旧字色」一帧不清晰的情况。 */
+.wh-seg .ant-segmented-item-selected,
+.wh-seg .ant-segmented-thumb {
+  background: var(--wh-teal) !important;
+  color: var(--wh-on-accent) !important;
+  font-weight: 700;
+  box-shadow: 0 0 0 1px var(--wh-teal-40), 0 2px 8px var(--wh-teal-20);
+}
+.wh-seg .ant-segmented-item-selected .ant-segmented-item-label,
+.wh-seg .ant-segmented-thumb .ant-segmented-item-label {
+  font-weight: 700;
+}
+/* 选中项内若还有 <span>/图标（如 PortalLogin 的 icon + 文案），一并跟随 onAccent，
+   否则文字仍是 --wh-text，在青色实心底上会看不清。 */
+.wh-seg .ant-segmented-item-selected > *,
+.wh-seg .ant-segmented-thumb > * {
+  color: inherit !important;
+}
+/* 小号（size="small"）：筛选条里常与 small 按钮并排，内边距再收一档以对齐高度 */
+.wh-seg.ant-segmented-sm .ant-segmented-item-label {
+  padding: 0 10px;
+  line-height: 18px;
+}
+/* 窄屏：选项多于 4 个时（如快捷时间窗 30/90/180/365/全部）允许横向换行，
+   避免把整条筛选栏挤出屏幕。普通 2~4 项不受影响。 */
+@media (max-width: 575px) {
+  .wh-seg.ant-segmented .ant-segmented-group {
+    flex-wrap: wrap;
+    row-gap: 3px;
+  }
+  .wh-seg .ant-segmented-item-label {
+    padding: 0 8px;
+  }
+}
+
+/* ---------- MS SLA 看板：天/周/月粒度开关 ---------- *
+ * 在 .wh-seg 通用观感之上再放一点：三档语义固定且是页面主控，字距与宽度给足。 */
+.wh-gran-switch .ant-segmented-item-label {
+  padding: 0 14px;
 }
 
 /* ---------- 移动端侧栏抽屉遮罩：点击任意处收起 ---------- *

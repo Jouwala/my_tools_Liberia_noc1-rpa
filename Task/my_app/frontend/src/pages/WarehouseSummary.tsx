@@ -507,7 +507,7 @@ export default function WarehouseSummary() {
             同样的信息仍在「导出 Excel」的表头与页面口径说明里。 */}
         <div style={{ textAlign: 'center', marginBottom: 12 }}>
           <Segmented
-            className="wh-sum-tabs"
+            className="wh-sum-tabs wh-seg"
             value={kind}
             onChange={v => {
               setKind(v as SpReportKind)

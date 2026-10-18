@@ -231,7 +231,23 @@ def canonical_env() -> dict:
 
 
 def start_watchdog(by: str = None) -> int:
-    """直接派生 watchdog（仅作 schtasks 不可用时的兜底，沙箱内有被连带杀风险）。"""
+    """直接派生 watchdog（仅作 schtasks 不可用时的兜底，沙箱内有被连带杀风险）。
+
+    派生前必须先问内核单例锁：这里曾经只看 worker_watchdog.pid，而 2026-10-16
+    那个修后端的脚本把 pid 文件删了却没杀进程 —— 于是本函数又叠了一套栈上去，
+    当天累计 5 套 watchdog / 40 个 worker 抢同一张 task_queue。
+    返回 0 表示「已有存活实例，未派生」。
+    """
+    try:
+        from backend.worker_watchdog import _probe_singleton_lock
+        state = _probe_singleton_lock()
+    except Exception:
+        state = "unavailable"
+    if state == "held":
+        print("[SKIP] 已有 watchdog 持有单例锁，跳过派生（不再叠加第二套 worker 栈）")
+        return 0
+    if state == "unavailable":
+        print("[WARN] 单例锁探测不可用，仅按 PID 文件判断 → 仍会派生（看门狗自身会拒绝重复实例）")
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     py = python_exe()
     out = open(WD_CONSOLE, "ab", buffering=0)
@@ -282,7 +298,10 @@ def relaunch_watchdog(by: str) -> tuple:
         return None, f"schtasks OK: {out[:80]}"
     print(f"[WARN] schtasks /Run 失败 rc={r.returncode}: {out[:120]}")
     print("[WARN] 退回直接派生 —— 若本进程运行在沙箱内，新 watchdog 会在本调用结束时被连带杀死！")
-    return start_watchdog(by), "direct-popen(有沙箱风险)"
+    pid = start_watchdog(by)
+    if pid == 0:
+        return None, "已有 watchdog 持有单例锁，未派生"
+    return pid, "direct-popen(有沙箱风险)"
 
 
 # ---------------------------------------------------------------- 子命令
@@ -331,7 +350,8 @@ def cmd_restart(args) -> int:
         return 1
 
     if args.mode == "watchdog" and not wd_old:
-        print("[WARN] 未找到 worker_watchdog.pid，将直接启动一个新 watchdog。")
+        print("[WARN] 未找到 worker_watchdog.pid（可能被人删了却没杀进程）："
+              "派生前会先问单例锁，已有存活实例时不会叠加第二套栈。")
 
     targets = {"worker": {g: ws_old[g] for g in groups if ws_old.get(g)},
                "watchdog": {g: ws_old.get(g) for g in groups if ws_old.get(g)}}[args.mode]

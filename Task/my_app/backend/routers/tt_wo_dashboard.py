@@ -1,4 +1,5 @@
 """TT&WO Dashboard API - 综合统计看板 (自适应版: 兼容 my_app 和 MTN_Comsal)"""
+import json
 import logging
 from datetime import datetime, timedelta
 from fastapi import APIRouter, Query
@@ -196,6 +197,26 @@ def _parse_adv(adv: str | None) -> dict:
             "[tt-wo-dashboard] adv 参数解析失败，已按无过滤处理", exc_info=True
         )
     return {}
+
+
+def _parse_values(values: str | None) -> list[str]:
+    """解析多取值下钻参数（JSON 字符串数组）。
+
+    只接受非空字符串；解析失败按「无该参数」处理并记警告（与 `_parse_adv` 同策略：
+    一个坏 URL 不该把看板打成 500）。返回顺序保留原样。
+    """
+    if not values:
+        return []
+    try:
+        obj = json.loads(values)
+    except Exception:
+        logging.getLogger(__name__).warning(
+            "[tt-wo-dashboard] values 参数解析失败，已按单值下钻处理", exc_info=True
+        )
+        return []
+    if not isinstance(obj, list):
+        return []
+    return [v for v in obj if isinstance(v, str) and v != ""]
 
 
 def _advanced_site_filters(filters: dict | None, schema: dict) -> tuple[str, list]:
@@ -638,8 +659,13 @@ def tt_wo_drilldown(
     severity: str = Query(None, description="Ticket Severity（P1~P4）；MTTR 趋势图下钻专用，与 overview 同一归一化口径"),
     dimension: str = Query("all_tt"),
     value: str = Query(None),
+    values: str = Query(None, description="多取值下钻（JSON 字符串数组）；里程碑阶段合计用"),
 ):
     """TT/WO 明细下钻查询（自适应数据库结构）
+
+    ``values``：一个维度取多个精确值（`IN (...)`），供看板上**里程碑阶段合计**
+    下钻使用 —— 阶段是若干原始状态的合集，而 ``value`` 只支持单个精确匹配。
+    两个都传时以 ``values`` 为准。仍走参数化占位符，不拼 SQL 字符串。
 
     过滤口径必须与 /overview 逐条一致（同一时间字段、同一站点 JOIN、同一 owner
     判定、同一高级过滤），否则下钻行数会与看板上的数字对不上。
@@ -650,6 +676,11 @@ def tt_wo_drilldown(
     """
     S = _detect_schema()
     adv_filters = _parse_adv(adv)
+    # 多取值（里程碑阶段合计）：空列表表示「没有该参数」，走原来的单值路径
+    multi_values = _parse_values(values)
+    if multi_values:
+        # 多值时单值参数无意义，避免「两个都传」时口径打架
+        value = None
     DIMENSION_MAP = _get_dimension_map()
     with get_raw_connection() as conn:
 
@@ -754,7 +785,13 @@ def tt_wo_drilldown(
             tt_params = tt_tp + region_params_tt
             dim_cond = dim_info[1]
             extra_params: list = []
-            if dim_cond and value:
+            if dim_cond and multi_values:
+                # 多取值（里程碑阶段合计）：精确匹配的 IN 集合，行数 = 各状态之和
+                field_name = dim_info[2]
+                placeholders = ",".join("?" * len(multi_values))
+                tt_where += f" AND t.{field_name} IN ({placeholders})"
+                extra_params = list(multi_values)
+            elif dim_cond and value:
                 field_name = dim_info[2]
                 # 2026-09-29：ticket_severity / sla_status 的 Unknown 已从概览统计中剔除
                 # （见 _EXCLUDED_TICKET_SEVERITIES / _EXCLUDED_SLA_STATUSES），下钻必须
@@ -775,7 +812,8 @@ def tt_wo_drilldown(
             cols = [c.strip().split('.')[-1] for c in TT_FIELDS.split(",")]
             data = [dict(zip(cols, row)) for row in rows]
             conn.close()
-            return {"title": f"TT - {dimension}{': ' + value if value else ''}", "count": len(data), "data": data}
+            label = " / ".join(multi_values) if multi_values else value
+            return {"title": f"TT - {dimension}{': ' + label if label else ''}", "count": len(data), "data": data}
 
         # WO 维度
         if dim_type == "wo" and S["has_wo"]:
@@ -784,7 +822,13 @@ def tt_wo_drilldown(
             wo_params = wo_tp + region_params_wo
             dim_cond = dim_info[1]
             extra_params = []
-            if dim_cond and value:
+            if dim_cond and multi_values:
+                # 多取值（里程碑阶段合计）：与 TT 侧同规则，精确匹配的 IN 集合
+                field_name = dim_info[2]
+                placeholders = ",".join("?" * len(multi_values))
+                wo_where += f" AND w.{field_name} IN ({placeholders})"
+                extra_params = list(multi_values)
+            elif dim_cond and value:
                 field_name = dim_info[2]
                 # 与 TT 侧同规则：已剔除 Unknown 的维度不该再下钻出行
                 if field_name in _UNKNOWN_EXCLUDED_DIMENSIONS and _is_excluded_ticket_severity(value):
@@ -802,7 +846,8 @@ def tt_wo_drilldown(
             cols = [c.strip().split('.')[-1] for c in WO_FIELDS.split(",")]
             data = [dict(zip(cols, row)) for row in rows]
             conn.close()
-            return {"title": f"WO - {dimension}{': ' + value if value else ''}", "count": len(data), "data": data}
+            label = " / ".join(multi_values) if multi_values else value
+            return {"title": f"WO - {dimension}{': ' + label if label else ''}", "count": len(data), "data": data}
 
         conn.close()
         return {"title": "Unknown", "count": 0, "data": []}
@@ -1274,3 +1319,28 @@ def wo_single_row(wo_no: str):
         row = _row_to_dict(cur)
         conn.close()
     return {"found": bool(row), "row": row}
+
+
+@router.get("/workflow")
+def workflow_definition():
+    """TT 工作流定义（上游 `queryAllSteps` 的流程节点 + 主干顺序）。
+
+    用途：前端 `Workflow` 里程碑的阶段顺序**以这里为准**，不再手写；
+    页面拿 `stage_order` 排序、拿 `node_to_stage` 对照，缺节点时回落到前端本地表。
+
+    为什么单独一个端点而不是塞进 `/overview`：它是**流程定义**（版本级静态数据，
+    上游不走业务库），与按时间窗聚合的统计不同源、不同频次（进程内缓存一次即可）。
+    塞进 overview 会让每次筛选变更都多打一次 eFlow。
+
+    失败语义：上游不可达时返回 **503 + 前端可用兜底**，不让整页挂掉
+    —— 里程碑数字来自本地库，只有「阶段顺序」依赖这里。
+    """
+    try:
+        from backend.services.eflow_workflow_service import workflow_summary
+        return workflow_summary()
+    except Exception as e:
+        # 本模块没有模块级 logger（历史写法一律 logging.getLogger(__name__)），
+        # 此处若引用未定义名会在「上游不可达」路径上再抛 NameError，把 503 兜底变成 500。
+        logging.getLogger(__name__).warning("[ttwo] 取工作流定义失败（前端将回落到本地阶段表）: %s", e)
+        from fastapi import HTTPException
+        raise HTTPException(status_code=503, detail="workflow definition unavailable")

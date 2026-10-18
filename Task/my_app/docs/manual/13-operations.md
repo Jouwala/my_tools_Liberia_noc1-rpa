@@ -1601,6 +1601,83 @@ curl.exe -s -o NUL -w "fe=%{http_code} " https://localhost/myapp/; curl.exe -s -
 —— **看起来像数据库故障，实为缺包**。补装 `python-dotenv==1.2.2` 即好（`requirements.lock.txt:11` 亦已说明）。
 **新 venv 请一律用 `pip install -r requirements.lock.txt` 建，不要按包名单独装**（会漏 `python-dotenv`/`alembic`/`playwright` 这类）。
 
+### 重复 worker 栈：满屏「Worker 进程已失效」的假失败（2026-10-16 事故，同日修复）
+
+**现象**：任务管理页（`?page=sync`）某一时点起集中报失败，`error` **全是同一句**
+`Worker 进程已失效（PID 已退出或被重复占用），任务未完成（启动/周期自动回收）`，
+而被点名的任务在同一分钟里其实**执行成功了**。本次 12:00–16:30 共 128 条，无一例外是这一句
+（`/api/tasks/failures?days=1` 里这一类占 138/158）。
+
+**根因有两层，缺一个都不会刷出这个量**：
+
+1. **同一台机器上叠了 5 套 worker 栈。** 当天 `worker_watchdog` 起了 7 次
+   （09:17 / 10:57 / 11:04 / 11:13 / 11:16 / 11:25 / 11:33，见
+   `log/worker_restart_marker.log` 的 `watchdog_start` 行），其中 **5 个看门狗进程始终存活**，
+   各带 8 个组 worker = **40 个 worker 在轮询同一张 `task_queue`**。
+   直接触发点：11:33 那个修后端的路由脚本在"清理陈旧状态"一步**删了
+   `backend/worker_watchdog.pid` 等 PID 文件却没有杀进程**（`log/fix_backend_result.txt`
+   有 `removed worker_watchdog.pid` 而无 kill 记录），而 `start_hidden.ps1` 判定"是否已有
+   看门狗"只看 PID 文件 + heartbeat（`start_hidden.ps1` 的 `Ensure-WorkerWatchdog`），
+   文件没了就认为没人 → 再起一套。旧的从此 `stop.bat` 也找不到了。
+2. **回收逻辑把活着的 worker 判成死的。** `task_runner._is_known_worker_pid()` 只读
+   `backend/worker*.pid` —— **读文件，不核验进程**。最后一套栈覆写了全部 8 个组 PID 文件，
+   于是另外 4 套那 32 个正在正常干活的 worker 全部"不在已知列表"，
+   `worker.py::_recover_stale_running`（每 300s 一轮）把它们的 `running` 行写成 `failed`
+   并补一条失败执行日志。日志侧对应 `worker_runtime_*` 里的
+   `已回收 N 条上次 Worker 残留的 running 记录（其中 N 条确为失败）`。
+
+**顺带查出的第二个真故障：同一个任务被执行了两遍。** `_claim_next()` 旧写法
+`UPDATE ... WHERE id = (SELECT id ... WHERE status='pending' LIMIT 1) RETURNING` 的注释写着
+"原子"，但那只对 SQLite 成立：PG 里子查询是 InitPlan，**在拿到行锁之前就把 id 取好了**，
+拿到锁后按 READ COMMITTED 复查的条件只有 `id = 那个 id`，照样成立 → 两个 worker 都更新成功。
+实测证据 `worker_runtime_x_20261016.log`：`16:31:00,645` 与 `16:31:00,650` 连续两次
+`认领任务 queue_id=83151`。当天 12:00 后"同任务同分钟重复成功"18 次，含
+`tt_alarm_whatsapp_alert`（**WhatsApp 告警重发**）与 `email_recovery`（邮件重发）；
+11:26 的 `关系 "eflow.realtime_alarm__staging" 不存在` 和
+`重复键违反唯一约束 "pg_type_typname_nsp_index"` 也是两个 worker 同时建同一张 staging 表互踩。
+
+**已做的修复（2026-10-16）**：
+
+| 改动 | 位置 | 作用 |
+| --- | --- | --- |
+| 看门狗**命名互斥量单例锁**，不看 PID 文件；已有实例存活则直接拒启 | `backend/worker_watchdog.py`（`_acquire_singleton_lock`） | 根治重复栈。内核按句柄计数，持有者一退出（含 `taskkill /F`）对象即消失，不会出现"僵尸锁挡住启动"（区别于 2026-09-20 那次 PID 文件死锁） |
+| `--probe` 探测模式，退出码 `0=已有 / 3=没有 / 4=判不了` | `python -m backend.worker_watchdog --probe` | 让脚本能跨完整性级别问一次（Medium 会话打不开 High 建的对象时**保守判"已有"**，而不是当作没有） |
+| 拉起看门狗前先问锁 | `start_hidden.ps1` 的 `Ensure-WorkerWatchdog`、`restart_workers.py` 的 `start_watchdog()` | 删了 PID 文件也不会叠第二套 |
+| 认领 SQL 分方言：PG 走 CTE + `FOR UPDATE SKIP LOCKED` + 外层 `status='pending'` 复查；SQLite 保持原形态并补同一复查 | `backend/worker.py::_claim_next` | 杜绝双认领。两分支均已实测（旧 SQL 复现双认领、新 SQL 只一个） |
+| `_finish()` 回写终态时校验 `status='running' AND worker_pid=自己` | `backend/worker.py::_finish` | 迟到的执行者不能把终态盖在别人认领的行上 |
+| 回收前向操作系统核实：进程存活且镜像是 `python/pythonw` → **不判失败**；但归属无法证明时也不强杀，仅在超过 4h 上限时回收队列行 | `task_runner._looks_like_live_worker()` + `worker.py::_recover_stale_running` | 消除假失败横幅，同时保留"真挂死也要释放单飞名额"的兜底 |
+
+**排查速查（下次看到满屏同一句失败，直接照做）**：
+
+```powershell
+# 1) 现在有几套看门狗？只看进程，不看 PID 文件
+Get-CimInstance Win32_Process -Filter "Name='pythonw.exe' or Name='python.exe'" |
+  Where-Object { $_.CommandLine -match 'backend\.worker_watchdog' } |
+  Select-Object ProcessId, CreationDate, CommandLine
+#    ⚠ 提权启动的实例命令行可能读不到（WMI 回空）；这时改看"谁的子进程正好 8 个"：
+Get-CimInstance Win32_Process | Where-Object { $_.Name -match 'python' } |
+  Group-Object ParentProcessId | Where-Object Count -ge 8 |
+  Select-Object Name, Count
+# 2) 单例锁探测（不受命令行可见性影响）
+cd D:\01_RPA\Task\my_app; python -m backend.worker_watchdog --probe
+# 3) 失败是不是都同一句？（是 → 基本就是重复栈，不是任务本身的问题）
+curl.exe -s "http://127.0.0.1:7038/api/tasks/failures?days=1"
+# 4) 有没有双认领？（同一 queue_id 出现两行即为中过）
+Select-String -Path log\worker_runtime_*20261016.log -Pattern '认领任务 queue_id' |
+  ForEach-Object { ($_ -split 'queue_id=')[1] -split ' ' | Select-Object -First 1 } |
+  Group-Object | Where-Object Count -gt 1
+```
+
+清场只做一件事：`stop.bat`（**必须以管理员运行**，否则杀不掉提权启动的栈，
+`stop.bat:81-85` 的命令行清扫会漏）→ 确认进程为 0 → `start.bat`。
+`stop.bat` 会写 `worker_stopping.flag`，被打断的任务重新入队而不是判失败。
+
+**硬性规矩**：**禁止只删 `backend/*.pid` 就当"已经停了"**。PID 文件是 `stop.bat` 定位进程用的
+索引，不是存活判据 —— 删文件等于把索引撕掉而进程照跑，这正是本次叠出 5 套栈的原因。
+重启一律走 `stop.bat` → `start.bat`，或 `restart_workers.py --mode watchdog`。
+（`backend/WORKER.md` 的「人为停机」一节 2026-10-06 就记载过同族的坑，当时只补了
+`worker_stopping.flag`，没堵"文件被删但进程还活着"这条路。）
+
 ## 备份与恢复
 
 **三处都要备，缺一不完整**（原因见 `03-data-layer.md`、`05-security-and-credentials.md`）：

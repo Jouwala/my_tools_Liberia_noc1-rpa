@@ -630,3 +630,66 @@ def test_testclient_declares_loopback_client():
     )
 
 
+# ---------------------------------------------------------------- 守卫 15
+def test_no_duplicate_worker_stacks_and_claims_are_atomic():
+    """重复 worker 栈与"假原子"认领的硬约束（2026-10-16 事故）。
+
+    当天叠了 6 套 worker_watchdog、48 个 worker 抢同一张 `task_queue`：一个修后端
+    的脚本**只删了 PID 文件没杀进程**，而所有"是否已有看门狗"的判断都只看 PID
+    文件 → 于是再叠一套。后果有两层：
+
+      * 最后一套覆写了 8 个组 PID 文件，其余栈明明活着、任务也在跑成功，却被
+        `_recover_stale_running` 判成「Worker 进程已失效」→ 12:00 后 128 条**假失败**；
+      * `_claim_next` 旧写法 `UPDATE ... WHERE id = (SELECT ... LIMIT 1) RETURNING`
+        的注释称"原子"，但 PG 里子查询是 InitPlan、在拿到行锁之前就把 id 取好了，
+        拿到锁后复查的条件只有 `id = 那个 id` → 同一行被认领两遍（实测同一
+        queue_id 连认领两次；WhatsApp 告警与邮件因此重发）。
+
+    钉死六件事，缺一即回归：
+      1. 看门狗单例必须由**命名互斥量**保证（内核按句柄计数，不依赖任何落盘文件，
+         持有者一退出对象即消失，不会有 2026-09-20 那类僵尸锁死锁）；
+      2. 拉起看门狗前必须先问锁（`--probe`），不能只信 PID 文件；
+      3. 认领 SQL 两个方言分支都要在**外层**复查 `status = 'pending'`，PG 另需
+         `FOR UPDATE SKIP LOCKED`（否则并发认领互相阻塞）；
+      4. 两分支的参数顺序**不同**：PG 的白名单在 CTE 里、排在 SET 的两个参数之前。
+         顺序错配会把 pid 写进 started_at、把任务名写进 worker_pid —— 本次首次
+         上线即由生产日志暴露（`无效的类型 integer 输入语法: "eflow_active_alarm"`）；
+      5. 回收前必须向操作系统核实进程（`_looks_like_live_worker`），不能只信文件；
+      6. 终态只回写给"自己认领的那一行"（`_finish` 带 worker_pid 归属条件）。
+    """
+    wwd = (BACKEND / "worker_watchdog.py").read_text(encoding="utf-8", errors="replace")
+    assert "_acquire_singleton_lock" in wwd and "CreateMutexW" in wwd, (
+        "看门狗不再使用命名互斥量单例 —— 退化成只看 PID 文件，删文件就会叠出重复栈"
+    )
+    assert "_acquire_singleton_lock()" in wwd.split("def main():")[-1], (
+        "main() 未获取单例锁：锁的实现还在，但启动路径不再执行它"
+    )
+    assert "--probe" in wwd, "看门狗缺少 --probe 探测入口（跨完整性级别判断是否已有实例的依据）"
+
+    sh = (PROJECT_ROOT / "start_hidden.ps1").read_text(encoding="utf-8", errors="replace")
+    assert "--probe" in sh, (
+        "start_hidden.ps1 拉起看门狗前不再探测单例锁 —— PID 文件被删时会叠出第二套栈"
+    )
+
+    w = (BACKEND / "worker.py").read_text(encoding="utf-8", errors="replace")
+    assert "FOR UPDATE SKIP LOCKED" in w, "PG 认领分支丢失 SKIP LOCKED（并发认领会互相阻塞）"
+    assert "AND task_queue.status = 'pending'" in w, (
+        "PG 认领分支丢失外层 status 复查 —— 双认领回归，同一任务会被执行两遍"
+    )
+    assert "AND status = 'pending'" in w, "SQLite 认领分支丢失外层 status 复查"
+    assert "tuple(task_ids + [now_iso, my_pid])" in w, (
+        "PG 分支参数顺序被改回「时间/pid 在前」：白名单在 CTE 里必须先传"
+    )
+    assert "tuple([now_iso, my_pid] + task_ids)" in w, "SQLite 分支参数顺序与占位符不一致"
+    assert "_looks_like_live_worker" in w, (
+        "回收逻辑不再向操作系统核实进程 —— 活着的 worker 会被重新判成「进程已失效」"
+    )
+    assert "AND worker_pid = ?" in w, "_finish 丢失 worker_pid 归属校验（会盖掉别人认领的行）"
+
+    tr = (BACKEND / "services" / "task_runner.py").read_text(encoding="utf-8", errors="replace")
+    assert "def _looks_like_live_worker" in tr, "缺少进程级核实辅助函数"
+    assert "PROCESS_QUERY_LIMITED_INFORMATION" in tr, (
+        "进程核实必须用 0x1000（不受完整性级别限制）；0x0400 会把提权启动的 worker 读成已死"
+    )
+
+

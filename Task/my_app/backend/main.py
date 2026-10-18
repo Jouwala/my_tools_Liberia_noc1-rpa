@@ -90,6 +90,7 @@ from backend.routers import (
     portal_qc,
     portal_catalog,
     cn_kpi,
+    cn_kpi_5mins,
     native_boards,
     repeat_site_down,
     fme_ranking,
@@ -266,6 +267,9 @@ app.include_router(portal_catalog.router)
 # CN KPI 看板：原 my-finebi「CN KPI」看板原生重建（18 组件，经远端只读 SQL API 取数，
 # 不依赖 my-finebi 进程）。数据源/口径见 services/cn_kpi_service.py 顶部说明。
 app.include_router(cn_kpi.router)
+# CN KPI 5 分钟看板：读 cnn_kpi_sync_5mins 任务写入的 5mins_* 表，Day0/Day1 叠画。
+# 数据源/口径见 services/cn_kpi_5mins_service.py 顶部说明。
+app.include_router(cn_kpi_5mins.router)
 # 原生看板（泛化版）：my-finebi 其余全部看板（IP RAN Metro Ring / 可用率 / 2G-3G-4G KPI /
 # MTTR / CM / 备件 / Progress 等 17 个）统一由一套引擎驱动，经远端只读 SQL API 取数，
 # 不依赖 my-finebi 进程；支持时间窗口过滤与 Excel 导出。

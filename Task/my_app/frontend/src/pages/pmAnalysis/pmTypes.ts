@@ -59,6 +59,60 @@ export type Overview = {
   steps: StepRow[]
 }
 
+/* ---- 里程碑（backend/services/pm_workflow_service.py 的返回结构） ----
+ *
+ * 顺序**严格对齐 eFlow 的 Workflow History**（`queryAllSteps`，payload
+ * `eflow-pm-task`）：
+ *   Create → Schedule → Accept → Process → PMManagerApprove → FLMLeaderApprove → Closed
+ * 与 `STEP_KEYS` 的区别：那个是源表时间字段的集合（漏斗用），这个是用户看到的
+ * 流程节点（里程碑条用）。以 Workflow History 为准，两者顺序一致。
+ */
+
+/** 里程碑 key，与后端 `pm_workflow_service._MILESTONE_DEFS` 同序同值 */
+export type MilestoneKey =
+  | 'created' | 'scheduled' | 'accepted' | 'processed'
+  | 'pm_approved' | 'flm_approved' | 'closed'
+
+export type Milestone = {
+  key: MilestoneKey
+  /** 对应流程步骤；closed 为 '' */
+  step: string
+  /** 已完成该节点的工单数（含已离开的） */
+  done: number
+  /** 当前停在该节点、等下一环节的工单数 */
+  waiting: number
+  /** 滞留单里等得最久的天数；无人滞留为 null → 不显示 */
+  waiting_max_days: number | null
+  /** 已离开该节点的平均 / 最长停留天数；无样本为 null → 显示 '—' */
+  avg_days: number | null
+  max_days: number | null
+}
+
+export type PmWorkflow = {
+  meta: { start: string; end: string; table: string; pmp_no: string; warnings: string[] }
+  milestones: Milestone[]
+  total: number
+  closed: number
+  in_flight: number
+}
+
+/** 里程碑下钻行（后端 `drill_workflow` 的 rows） */
+export type MilestoneDrillRow = {
+  pmt_no: string
+  status: string
+  milestone: MilestoneKey
+  entered_at: string | null
+  left_at: string | null
+  /** 已等待 / 停留天数；缺进入时间为 null → 显示 '—' */
+  days: number | null
+  current: boolean
+  closed: boolean
+}
+
+/** 天数展示：null → '—'（不是 0），保留一位小数 */
+export const fmtDays = (v: number | null | undefined) =>
+  (v == null ? '—' : `${v.toFixed(1)}d`)
+
 export type Filters = {
   pmp_nos: string[]; statuses: string[]; sites: string[]; handlers: string[]
   default_start: string; default_end: string
@@ -145,16 +199,17 @@ export const DETAIL_FIELDS = [
  * 动态拼 key 会被 `check:i18n` 读成键名 `pm.step.` 而报「字典缺失」
  * （AGENTS.md 第三节 1b 最后一条，`NocAnalyst.tsx` 是正确写法的参考）。
  *
- * 数组顺序即**真实时序**，与后端 `pm_caliber.STEP_COLUMNS` 一致：
- * 创建 → 排期 → 受理 → PM 经理审批 → 执行 → FLM 领导审批。
- * 不要按字段名字母序排（`last_accept_time` 其实早于 `last_process_time`）。
+ * 数组顺序即**Workflow History 顺序**（2026-10-17 以 `queryAllSteps` 校准）：
+ * 创建 → 排期 → 受理 → 执行 → PM 经理审批 → FLM 领导审批。
+ * ⚠️ `pm_caliber.STEP_COLUMNS` 的键仍按字段声明顺序，漏斗用 `STEP_KEYS` 重排，
+ * 不要按字段名字母序排（`last_process_time` 早于 PM 经理审批时间）。
  */
 export const STEP_KEYS: { step: string; labelKey: string }[] = [
   { step: 'created', labelKey: 'pm.step.created' },
   { step: 'scheduled', labelKey: 'pm.step.scheduled' },
   { step: 'accepted', labelKey: 'pm.step.accepted' },
-  { step: 'pm_approved', labelKey: 'pm.step.pmApproved' },
   { step: 'processed', labelKey: 'pm.step.processed' },
+  { step: 'pm_approved', labelKey: 'pm.step.pmApproved' },
   { step: 'flm_approved', labelKey: 'pm.step.flmApproved' },
 ]
 

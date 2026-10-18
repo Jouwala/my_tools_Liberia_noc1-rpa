@@ -9,6 +9,7 @@ import { SITE_COLORS } from './types'
 import { filterBySearch, exportToExcel, buildAlarmColumns, buildAlarmExportColumns, buildTTColumns, buildWOColumns } from './helpers'
 import { ChartBlock } from './ChartBlock'
 import { RatKpiTab } from './RatKpiTab'
+import { AlarmSuggestionPanel } from './AlarmSuggestionPanel'
 import './SiteDrilldownDrawer.css'
 import {
   buildAvailabilityOption, buildPacketLossOption,
@@ -525,6 +526,17 @@ export function SiteDrilldownDrawer({
                 ),
               },
             ]}
+          />
+          {/* 站点告警处理建议面板（2026-10-16 新增）
+              抽屉底部独立组件，**与各页签解耦**：
+              · 实时模式不取建议（实时告警单站通常 0~2 行，去 UME 命中率低、噪声大）；
+              · 历史/全量模式按当前 rangeDays 取最近告警的处理建议。
+              数据来源与 eFlow QA → TT Quick Analysis 完全同源（后端复用 lookup_alarm）。 */}
+          <AlarmSuggestionPanel
+            siteId={selectedSite}
+            days={Number(rangeDays) || DEFAULT_RANGE_DAYS}
+            limit={20}
+            enabled={mode === 'all'}
           />
         </div>
       ) : (
