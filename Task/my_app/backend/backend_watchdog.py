@@ -253,6 +253,9 @@ _degraded = False          # 是否已降级为慢速重试（仅用于"降级�
 # 上次尝试清理端口孤儿的时间戳（节流用，见 _loop_once 里的孤儿清理分支）。
 # 初始为 0 —— 首轮就允许尝试一次，不必空等一个间隔。
 _last_orphan_clean = 0.0
+# 上次处理过的端口占用者 pid。用于区分"同一个孤儿还在（走节流）"
+# 与"换了个新孤儿（立即处理）" —— 见 _loop_once 里的锁相说明。
+_last_orphan_owner = None
 
 # 心跳文件：供外部守护（start_hidden.ps1 / MyApp_EnsureRunning）判断看门狗是否卡死。
 # 进程在但心跳超过 3 分钟未更新 → 判定 hung，由守护脚本强杀后重新拉起。
@@ -741,12 +744,21 @@ def _loop_once() -> bool:
             # 错误，也让「看门狗活着」这个信号失去意义（它活着却什么也托管不了）。
             #
             # 节流 ORPHAN_CLEAN_INTERVAL：清理本身要起 netstat + taskkill 两个子进程，
-            # 每轮（2s）都做会成为新的开销来源；而孤儿不会在两秒内变化，
-            # 所以按固定间隔尝试即可。
-            global _last_orphan_clean
+            # 每轮（2s）都做会成为新的开销来源；而孤儿不会在两秒内变化。
+            #
+            # ⚠️ 2026-10-18 修正：**首次发现失真时不节流，立即清理一次**。
+            # 原实现无条件按 30 秒节流，而看门狗的崩溃退避也正好是 30 秒 ——
+            # 两个周期相同会**锁相**：每轮重拉都落在节流窗口内，孤儿永远轮不到清理。
+            # 实测后果：10:28~10:30 端口被孤儿 pid=13840 连续占用，日志里
+            # 一条「主动清理」都没有，而重拉照常刷屏。
+            # 现在改成：**端口归属发生变化的当轮立即尝试**，之后才进入间隔节流。
+            # `_last_orphan_owner` 记录上次处理过的占用者 pid，用它判断"是不是新面孔"。
+            global _last_orphan_clean, _last_orphan_owner
             now_ts = time.time()
-            if now_ts - _last_orphan_clean >= ORPHAN_CLEAN_INTERVAL:
+            is_new_owner = (owner_pid != _last_orphan_owner)
+            if is_new_owner or (now_ts - _last_orphan_clean >= ORPHAN_CLEAN_INTERVAL):
                 _last_orphan_clean = now_ts
+                _last_orphan_owner = owner_pid
                 if _terminate_orphan_on_port(PORT):
                     logger.warning(
                         f"孤儿已清理，端口 {PORT} 应已释放；下一轮将重新拉起 backend"
