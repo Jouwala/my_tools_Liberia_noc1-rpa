@@ -709,11 +709,30 @@ def _loop_once() -> bool:
         # 单日无效拉起 1500+ 次、日志持续膨胀；又因 watchdog 心跳一直新鲜，
         # start_hidden.ps1 的 -Force 清理端口占用者分支永不执行，形成自愈死锁。
         # 修复：只有子进程已稳定存活 >= CRASH_THRESHOLD，才认定端口确由自己托管。
+        #
+        # ⚠️ 2026-10-18 二次修正：上面这条"按存活时长推断归属"只是**权宜之计**，
+        # 它在启动瞬间会误报 —— 子进程刚拉起、端口刚绑上（说明它**正是**端口的主人），
+        # 但 lived 还不到 10 秒，于是被判成"端口疑似被孤儿占用"。
+        # 实测每次重启都会稳定出现一条这样的 warning，措辞还很有指向性
+        # （"疑似被不受管理的孤儿进程占用"），很容易让人把正常启动当成故障去排查。
+        #
+        # 正确的判据是**直接问端口归谁**：netstat 拿占用者 pid（实测 25ms），
+        # 与 _child.pid 比对即可。相等 = 自己的子进程在正常监听，与活了多久无关。
+        # 只有"端口有主但不是自己"时才需要走孤儿那条路。
         lived = time.time() - _spawn_time
-        if lived >= CRASH_THRESHOLD:
+        owner_pid = _port_owner_pid(PORT)
+        owns_port = (owner_pid is not None and proc is not None and owner_pid == proc.pid)
+        if lived >= CRASH_THRESHOLD or owns_port:
             _crashes = 0
             _backoff = 0.0
             _degraded = False   # 托管实例确已稳定存活：重置降级标记
+            if owns_port and lived < CRASH_THRESHOLD:
+                # 启动期：端口已由自己的子进程绑定，只是还没满 10 秒。
+                # 这**不是**异常，不该打 warning；记一行 debug 备查即可。
+                logger.debug(
+                    f"端口 {PORT} 已由本 watchdog 的子进程 pid={proc.pid} 绑定"
+                    f"（存活 {lived:.1f}s，启动宽限内）"
+                )
         else:
             # 孤儿清理：这是 2026-10-16/18 两次「无限重拉」事故的治本点。
             #
