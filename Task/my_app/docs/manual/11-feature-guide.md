@@ -58,9 +58,19 @@
 | `help` | 「使用帮助」（与菜单同名） | 删除，保留图标与说明 |
 | `settings` 5 个子页 | 「凭据管理」等（标签页已给出） | 删除，保留副标题 |
 | `ume_in_kpi` | `t('nav.umeInKpi')`（与菜单同名） | 删除，保留副标题与元信息 |
+| `portalLogin` | `<h2>{t('portal.title')}</h2>`（与菜单同名） | 删除，保留副标题与模式切换 |
+| `battery` | 顶部信息条的 `batt.title`（「电池实时看板」） | 删除文字，保留图标与统计 Tag |
+| `sp_details` | 首张卡片 `title={t('spDet.title')}`（与菜单同名） | 删除，保留 `extra` 操作区 |
+| `sp_material` | 首张卡片 `title={t('spMat.title')}` | 删除，保留 `extra` 操作区 |
+| `ran_cells_kpi` | `<Title level={5}>{t('rck.title')}</Title>` | 删除，保留副标题 |
 
-> **例外**：页内可保留「文档标题 / 弹窗标题 / 表格标题 / 分组小标题」（如
-> `EflowQa` 的文档名、`NocAnalyst` 的下钻面板标题），它们与菜单无关，不构成重复。
+> **例外**：页内可保留「文档标题 / 弹窗标题 / 表格标题 / 分组小标题 / 图表卡片标题」（如
+> `EflowQa` 的文档名、`NocAnalyst` 的下钻面板标题、`MsContractKpiReport` 的
+> 「合同 KPI 自动化报表」等），它们描述的是**页面内某块内容**而非整个页面，不构成重复。
+>
+> **自查方法**：搜 `<Title level=`、`<Typography.Title`、`<h1>`/`<h2>`、`❯❯❯`、
+> 以及页首第一张卡片的 `title={t('xxx.title')}`；再对照 `App.tsx` 的 `labelKey`
+> 判断是不是同一页面的主标题。
 
 ---
 

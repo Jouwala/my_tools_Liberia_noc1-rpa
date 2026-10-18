@@ -282,7 +282,7 @@ export default function PortalLogin() {
   return (
     <div style={{ padding: '8px 4px' }}>
       <div style={{ marginBottom: 16 }}>
-        <h2 style={{ margin: '0 0 4px' }}>{t('portal.title')}</h2>
+        {/* 页面标题由 App 全局 Header 渲染（菜单名「门户一键登录」），页内不再重复 */}
         <div style={{ color: 'var(--wh-text-secondary, #64748b)', fontSize: 13, marginBottom: 10 }}>
           {t('portal.subtitle')}
         </div>

@@ -558,8 +558,9 @@ export default function BatteryDashboard() {
       {/* ===== 顶部信息条 ===== */}
       <Card size="small" style={{ ...cardStyle, marginBottom: '0.75rem' }} styles={{ body: { padding: 'var(--wh-space-sm) var(--wh-space-md)' } }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--wh-space-md)', flexWrap: 'wrap' }}>
-          <span style={{ fontSize: '0.9375rem', fontWeight: 700, color: WH.text }}>
-            <ThunderboltOutlined style={{ color: WH.teal, marginRight: 'var(--wh-space-sm)' }} />{t('batt.title')}
+          {/* 页面标题由 App 全局 Header 渲染（菜单名「电池看板」），这里只留图标作视觉锚点 */}
+          <span style={{ fontSize: '0.9375rem', color: WH.text, display: 'inline-flex', alignItems: 'center' }}>
+            <ThunderboltOutlined style={{ color: WH.teal }} />
           </span>
           <ExplainIcon text={t('batt.explain.title')} size={15} />
           <Tag color="cyan" style={{ border: 'none' }}>

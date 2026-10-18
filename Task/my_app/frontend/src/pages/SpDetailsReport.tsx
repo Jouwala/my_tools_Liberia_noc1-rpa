@@ -448,8 +448,8 @@ export default function SpDetailsReport() {
   return (
     <div style={{ padding: 16, background: WH.bg, minHeight: '100%' }}>
       {/* ==================== 总览统计卡片 ==================== */}
+      {/* 页面标题由 App 全局 Header 渲染（菜单名），卡片不再重复 */}
       <Card
-        title={t('spDet.title')}
         style={{ background: WH.cardBg, border: WH.cardBorder, marginBottom: 12 }}
         extra={
           <Space wrap>

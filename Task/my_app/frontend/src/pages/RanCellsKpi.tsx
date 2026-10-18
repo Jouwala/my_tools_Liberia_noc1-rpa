@@ -12,7 +12,7 @@ import { useTheme, WH } from '../theme'
 import StatCard from '../components/StatCard'
 import DraggableClickModal from '../components/DraggableClickModal'
 
-const { Text, Title } = Typography
+const { Text } = Typography
 
 // ==================== 类型（与后端 ran_cells_kpi_service 对齐） ====================
 interface DayStat {
@@ -399,9 +399,7 @@ export default function RanCellsKpi() {
         styles={{ body: { padding: 'var(--wh-space-sm) var(--wh-space-md)' } }}
       >
         <Space wrap size="middle" align="center">
-          <Title level={5} style={{ margin: 0, color: WH.text }}>
-            {t('rck.title')}
-          </Title>
+          {/* 页面标题由 App 全局 Header 渲染（菜单名「RAN 小区 KPI」），页内不再重复 */}
           <Text type="secondary" style={{ fontSize: '0.8125rem' }}>{t('rck.subtitle')}</Text>
         </Space>
         <div style={{ marginTop: 'var(--wh-space-sm)' }}>
