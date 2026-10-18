@@ -172,13 +172,27 @@ if (!hits.length || !misses.length) {
     console.log(`  → ${secondaryKey} 退化为兜底下限 ${secondaryThr}（不参与实际判别，仅拦截极端异常）`);
   }
 
-  // 用建议值回测
-  const cfg = { minAbs: 0.45, minGap: 0.12, [primaryKey]: primaryThr, [secondaryKey]: secondaryThr };
+  // 用建议值回测。
+  //
+  // ⚠️ 这里必须**完全由上面算出的阈值**组装，不能混入任何字面量。
+  // 2026-10-18 之前这里写死为 `{ minAbs: 0.45, minGap: 0.12, ...建议值 }`，
+  // 于是「回测」测的是一个从未被推荐过的配置 —— 脚本会打印
+  // 「推荐 minAbs=0.642」却回测 0.45，两者的准确率也不是同一件事。
+  // 主判据优先落位；次判据落位会覆盖同名字段（二者 key 不同，天然不冲突）。
+  const cfg = { minAbs: primaryKey === 'minAbs' ? primaryThr : secondaryThr,
+                minGap: primaryKey === 'minGap' ? primaryThr : secondaryThr };
   const pred = (r) => r.top1 >= cfg.minAbs && r.gap >= cfg.minGap;
   const ok = rows.filter((r) => pred(r) === (r.label === 'hit')).length;
 
   console.log(`\n  推荐配置：minAbs = ${cfg.minAbs}   minGap = ${cfg.minGap}`);
   console.log(`  回测：${ok}/${rows.length} 正确（${((ok / rows.length) * 100).toFixed(1)}%）`);
+
+  // 同时给出**当前 config.json 实测**的准确率，方便判断「要不要改」。
+  // 两者并列才有决策价值：推荐值更优不代表现行值不可用。
+  const curPred = (r) => r.top1 >= CONFIG.minAbs && r.gap >= CONFIG.minGap;
+  const curOk = rows.filter((r) => curPred(r) === (r.label === 'hit')).length;
+  console.log(`  对照（现行 minAbs=${CONFIG.minAbs} minGap=${CONFIG.minGap}）：${curOk}/${rows.length} 正确（${((curOk / rows.length) * 100).toFixed(1)}%）`);
+
   const wrong = rows.filter((r) => pred(r) !== (r.label === 'hit'));
   for (const w of wrong) {
     console.log(`    ! ${w.label === 'hit' ? '漏判' : '误判'}：${w.text}（top1=${num(w.top1)} gap=${num(w.gap)}）`);

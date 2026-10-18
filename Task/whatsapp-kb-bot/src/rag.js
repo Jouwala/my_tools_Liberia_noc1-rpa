@@ -268,7 +268,13 @@ export function tokenize(text) {
 
 /**
  * 预计算语料 BM25 统计（df / 平均长度）。
- * 每次 retrieve 都算一遍 —— 822 块的词袋统计实测 < 10ms，不值得缓存失效的复杂度。
+ *
+ * 复杂度是 O(块数 × 块长)：822 块约 8ms，5462 块约 32ms（2026-10-18 实测）。
+ * 单次调用不贵，但 `retrieve()` 每问一次就调一次，而**语料在一次进程生命周期内不变**
+ * （索引只在启动时读一次，见 src/index.js）。所以统计结果按语料缓存，见 bm25StatsFor。
+ *
+ * 副作用：把分词结果旁挂到 `c._tokens`，供后续调用复用（不落盘）。
+ * 这个副作用是有意的 —— 即使缓存未命中，也不会重复分词。
  *
  * @param {Array<{text:string, _tokens?:string[]}>} chunks
  * @returns {{df:Map<string,number>, avgdl:number, N:number, tf:Array<Map<string,number>>}}
@@ -288,6 +294,47 @@ export function buildBm25Stats(chunks) {
   }
   const N = chunks.length || 1;
   return { df, avgdl: totalLen / N || 1, N, tf };
+}
+
+/**
+ * 取（或构建）某组块的 BM25 统计，带缓存。
+ *
+ * `retrieve()` 每问一次都要这组统计，而语料在一次进程生命周期内不变
+ * （索引只在启动时读一次，见 src/index.js），所以结果挂在**索引对象**上复用。
+ *
+ * 为什么键是「排除状态」而不是块数组：
+ * 参与打分的块集只由两件事决定 —— 索引内容本身（= index 对象身份），
+ * 以及 kbExcludeSources 是否生效（= manualIntent 是否命中）。
+ * 同一索引下最多只有这两份统计，用一个布尔位区分即可。
+ * 反过来，若对块数组做指纹遍历，每问都要 O(块数) 扫一遍，等于把缓存收益还回去。
+ *
+ * 失效语义：重新 ingest 会换掉 index 对象（src/index.js 再次 loadIndex），
+ * 旧缓存随旧对象被 GC，无需显式失效接口。
+ *
+ * @param {object} index  索引对象（chunks/vectors），缓存挂在这里
+ * @param {boolean} manualAllowed  本查询是否放回了被排除的手册
+ * @param {number[]} liveIdx 参与打分的块下标（顺序决定 tf[] 的对位）
+ * @returns {{df:Map<string,number>, avgdl:number, N:number, tf:Array<Map<string,number>>}}
+ */
+function bm25StatsFor(index, manualAllowed, liveIdx) {
+  // 非枚举属性：不污染 JSON.stringify(index)，saveIndex 也不会把它落盘
+  let cache = index.__bm25;
+  if (!cache) {
+    Object.defineProperty(index, '__bm25', {
+      value: {},
+      enumerable: false,
+      writable: true,
+      configurable: true,
+    });
+    cache = index.__bm25;
+  }
+  // liveIdx 在同一种状态下是确定的（由 exclude 与 manualIntent 唯一决定），
+  // 所以 slot 命中即代表 tf[] 与 liveIdx 顺序一致。
+  const slot = manualAllowed ? '_withManual' : '_default';
+  if (!cache[slot]) {
+    cache[slot] = buildBm25Stats(liveIdx.map((i) => index.chunks[i]));
+  }
+  return cache[slot];
 }
 
 /**
@@ -391,10 +438,11 @@ export function retrieve({ queryVec, queryText, index, cfg = CONFIG }) {
 
   let bm25norm = new Map(); // idx → 归一化 BM25
   if (bm25w > 0 && liveIdx.length) {
-    const liveChunks = liveIdx.map((i) => index.chunks[i]);
-    const stats = buildBm25Stats(liveChunks);
+    // 统计按「索引 + 排除状态」缓存，见 bm25StatsFor 的注释。
+    // 不再每问重建 liveChunks 数组与全库词袋统计。
+    const stats = bm25StatsFor(index, allowManual, liveIdx);
     const qToks = tokenize(queryText);
-    const raw = liveChunks.map((c, k) => bm25Score(qToks, stats.tf[k], stats));
+    const raw = liveIdx.map((gi, k) => bm25Score(qToks, stats.tf[k], stats));
     const norm = normalizeBm25(raw);
     liveIdx.forEach((gi, k) => bm25norm.set(gi, norm[k]));
   }
