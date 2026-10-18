@@ -354,6 +354,48 @@ def _port_owner_pid(port: int):
     return None
 
 
+def _process_parent_pid(pid: int):
+    """返回 pid 的父进程 pid；查不到返回 None（进程不存在 / 查询失败）。
+
+    用 WMIC 已弃用，改用 PowerShell 的 CIM 查询。之所以不在纯 Python 里做：
+    取父进程 ID 需要 NtQueryInformationProcess 或 WMI，跨进程查询用命令行
+    最省事且不新增依赖。调用频率很低（仅在"端口被占"的异常路径上），
+    起一次子进程的开销可以接受。
+    """
+    if sys.platform != "win32":
+        return None
+    try:
+        r = subprocess.run(
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command",
+             f"(Get-CimInstance Win32_Process -Filter 'ProcessId={int(pid)}' "
+             f"-ErrorAction SilentlyContinue).ParentProcessId"],
+            capture_output=True, text=True, timeout=15,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    except Exception:
+        return None
+    txt = (r.stdout or "").strip()
+    if not txt:
+        return None
+    try:
+        ppid = int(txt)
+    except ValueError:
+        return None
+    return ppid if ppid > 0 else None
+
+
+def _is_own_child(pid: int) -> bool:
+    """pid 是否为本进程直接拉起的子进程（缺陷 B 的判据②）。
+
+    只看**直接父子关系**，不追父链：uvicorn 由本进程直接 Popen，
+    它的父进程必然是 os.getpid()。追父链反而会把"曾孙级"的辅助进程
+    也算进来，扩大误判面。
+    """
+    if pid is None:
+        return False
+    return _process_parent_pid(pid) == os.getpid()
+
+
 def _terminate_orphan_on_port(port: int) -> bool:
     """杀掉占用 `port` 且**不属于本看门狗子进程**的孤儿，返回是否已清理干净。
 
@@ -365,9 +407,22 @@ def _terminate_orphan_on_port(port: int) -> bool:
 
     安全约束（少一条都可能误杀生产进程）：
       · 只杀 **端口占用者** 这一个 pid，不做树杀、不按名字杀；
-      · 若占用者恰是本看门狗正在托管的子进程 → 不杀（那是正常状态）；
-      · 若查不到 / 解析失败 → 不杀；
+      · 若占用者是本看门狗的子进程 → 不杀（那是正常状态）；
+      · 若拿不准它是不是自己的 → **一律不杀**（宁可不清理，也不能误杀）；
       · kill 之后**复核**端口是否释放，没释放就如实返回 False 并升级日志级别。
+
+    ## 缺陷 B（2026-10-18）：不能用 `_child.pid == owner` 判断归属
+
+    原实现只比对 `_child` 这一个 pid。一旦 `_child` 失真（见缺陷 A：上一代
+    子进程被覆盖丢失），正在服务的后端就不再等于 `_child.pid`，于是被误判
+    为孤儿并杀掉。2026-10-18 09:48 实测：pid=11276 是**本看门狗自己拉起的**
+    后端，却因该判断被误杀，服务中断约 4 秒。
+
+    改为两层判据，任一层命中即认定"是自己的"：
+      ① `_child` 存在且 pid 相同（快路径，覆盖绝大多数情况）；
+      ② 端口占用者的**父进程**就是本进程 —— 这是 OS 维护的事实，
+         不依赖任何内部状态，即使 `_child` 失真也不会误判。
+    第 ② 层同样能覆盖缺陷 A 遗留的"脱离跟踪但仍是自己生的"进程。
     """
     owner = _port_owner_pid(port)
     if owner is None:
@@ -375,6 +430,16 @@ def _terminate_orphan_on_port(port: int) -> bool:
     child = _child
     if child is not None and child.pid == owner:
         return False        # 端口由自己托管的子进程持有：正常，不动
+    # 第 ② 层：查该 pid 的父进程是不是自己。
+    # 返回 None 表示查不到 —— 此时按"不是自己的"继续走清理，
+    # 因为 start_hidden 的 -Force 分支同样能兜住，两处都保守不动会让死锁永存。
+    if _is_own_child(owner):
+        logger.warning(
+            f"端口 {port} 由本看门狗的另一个子进程 pid={owner} 持有"
+            f"（_child 跟踪已失真，见缺陷 A）—— 这不是孤儿，不杀；"
+            f"请检查是否出现了两个 backend"
+        )
+        return False
     logger.error(
         f"端口 {port} 被不受管理的孤儿进程 pid={owner} 占用，"
         f"本看门狗的子进程无法绑定 —— 主动清理该孤儿（这是自愈死锁的根因）"
@@ -426,8 +491,34 @@ def _write_heartbeat():
 
 def _spawn_backend():
     """拉起 uvicorn 子进程，stdout/stderr 重定向到 backend_runtime.log（追加）。
-    与 start.bat 保持一致：MY_APP_TASK_QUEUE=1，并清除 WorkBuddy 安全删除守卫变量。"""
+    与 start.bat 保持一致：MY_APP_TASK_QUEUE=1，并清除 WorkBuddy 安全删除守卫变量。
+
+    ## 缺陷 A（2026-10-18）：旧子进程还活着时不得直接覆盖 `_child`
+
+    原实现无条件 `_child = proc`。若此时上一代 uvicorn 仍然存活（它正占着
+    7038、正常服务），它就从跟踪里**丢失**了 —— 变成事实上的孤儿，
+    但仍持有端口。后果是双向的：
+
+      · 看门狗再也收不到它的退出状态，`proc.poll()` 永远对着新的那个；
+      · `_terminate_orphan_on_port` 按 `_child.pid == owner` 判断归属，
+        `_child` 已指向别的进程，于是把**自己拉起的、正在服务的**
+        后端误判成孤儿并杀掉（2026-10-18 09:48 实测误杀 pid=11276，
+        服务中断约 4 秒，由看门狗自行拉起）。
+
+    现在的约定：`_spawn_backend` 只负责"确实没有存活子进程时"的拉起。
+    调用方若发现旧进程还活着，应当先结束它再调用，或直接复用。
+    """
     global _child, _spawn_time
+    # 前置守卫：绝不静默覆盖一个仍然存活的子进程。
+    # 这里选择"拒绝拉起"而不是"先杀掉旧的"——杀不杀是策略，由调用方决定；
+    # 本函数只保证不产生失真状态。
+    old = _child
+    if old is not None and old.poll() is None:
+        logger.error(
+            f"[缺陷A守卫] 拒绝拉起新的 backend：上一代子进程 pid={old.pid} 仍然存活。"
+            f"若确需重启，请先调用 _terminate_child()。"
+        )
+        return old.pid
     creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if sys.platform == "win32" else 0
     env = os.environ.copy()
     env["MY_APP_TASK_QUEUE"] = "1"
@@ -514,6 +605,43 @@ def _enter_slow_retry() -> None:
         )
 
 
+# 上一轮的状态快照，供 _trace_state 只在**变化时**打印（2 秒一轮，全打会刷屏）。
+_last_trace = None
+
+
+def _trace_state(proc) -> None:
+    """记录每轮的判定依据：_child、端口占用者、存活时长、退避。
+
+    只在状态变化时输出，用来定位「明明没有 '已退出' 日志、却出现 '已拉起'」
+    这类路径异常（2026-10-18 未解之谜）。一旦问题复现，日志里会直接看到
+    `_child.pid` 与端口占用者是否一致 —— 这两者不一致就是状态失真的铁证。
+    """
+    global _last_trace
+    try:
+        # _backoff / _crashes 只读，无需 global
+        child_pid = proc.pid if proc is not None else None
+        child_alive = proc.poll() is None if proc is not None else None
+        owner = _port_owner_pid(PORT)
+        lived = (time.time() - _spawn_time) if _spawn_time else 0.0
+        snap = (child_pid, child_alive, owner, round(lived, 1))
+        if snap == _last_trace:
+            return
+        _last_trace = snap
+        mismatch = ""
+        if owner is not None and child_pid is not None and owner != child_pid:
+            mismatch = "  ⚠ 端口占用者与 _child 不一致（状态失真）"
+        if owner is not None and child_pid is None:
+            mismatch = "  ⚠ 端口有主但 _child 为空（状态失真）"
+        logger.info(
+            f"[诊断] _child.pid={child_pid} 存活={child_alive} "
+            f"端口{PORT}占用者={owner} 存活{lived:.1f}s 退避{_backoff:.1f}s"
+            f" 崩溃{_crashes}{mismatch}"
+        )
+    except Exception as e:
+        # 诊断绝不能影响主流程
+        logger.debug(f"[诊断] 记录失败: {e}")
+
+
 def _loop_once() -> bool:
     """单轮主循环：确保 backend 存活 + 端口探活 + 等待退出。
 
@@ -523,6 +651,13 @@ def _loop_once() -> bool:
     """
     global _child, _crashes, _backoff, _spawn_time, _degraded
     proc = _child
+    # ---- 诊断（2026-10-18 追加）：定位「无前置日志却出现『已拉起 backend』」----
+    # 现象：09:43:18 直接出现 "已拉起 backend: pid=38756"，而此前既没有
+    # "Backend Watchdog 启动"（说明不是第二条 main），也没有 "backend 已退出"
+    # （说明不是本函数第 1 步）。已排除：PIPE+wait 冲突、日志轮转、双实例持锁、
+    # pyc 未更新。仍未能定位具体路径，故在此记录每轮的判定依据，供事后归因。
+    # 只在状态变化时打印（对比上一轮），避免 2 秒一轮刷屏。
+    _trace_state(proc)
     # 1) 确保 backend 在跑
     if proc is None or proc.poll() is not None:
         if proc is not None:
