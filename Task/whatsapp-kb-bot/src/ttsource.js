@@ -223,9 +223,24 @@ async function fetchDrilldown({ start, end, severity, status, limit }) {
   // 不加区分的话，用户问「本月 P2 多少单」会拿到 10（limit 值），
   // 而不是 879 —— 比慢更糟。
   const totalCount = truncated && Number.isFinite(serverCount) ? serverCount : picked.length;
-  // open / closed 在截断时无法从样本行推算（本地只有前 N 行）。
-  // 此时置 null，由渲染层跳过该行，而不是给一个错误的小数字。
   const canSplit = !truncated;
+  // 截断时，未闭环数由服务端在同一次查询里算好（`status_buckets`），
+  // 不能靠再发一次请求 —— 那会把 879 行再拉一遍，等于把优化抵消掉。
+  const serverBuckets = data?.status_buckets || null;
+
+  // 未闭环/已闭环计数：
+  //   · 未截断 → 本地按 isOpenStatus 分组（与改造前完全一致）；
+  //   · 已截断 → 用服务端同一查询里算好的 status_buckets（口径见后端
+  //     _OPEN_STATUS_SQL_NOTE）；若服务端没给，退回 null 让渲染层跳过该行，
+  //     绝不用样本行去推算 —— 那会给出一个偏小的假数字。
+  let openCount = canSplit ? openRows.length : null;
+  let closedCount = canSplit ? closedRows.length : null;
+  if (truncated && serverBuckets) {
+    openCount = Number(serverBuckets.open);
+    closedCount = Number(serverBuckets.closed);
+    if (!Number.isFinite(openCount)) openCount = null;
+    if (!Number.isFinite(closedCount)) closedCount = null;
+  }
 
   return {
     source: 'http',
@@ -234,9 +249,8 @@ async function fetchDrilldown({ start, end, severity, status, limit }) {
     severity,
     status,
     total: totalCount,
-    // 两个态的计数都留着，渲染层要哪个取哪个；截断时为 null（见上）
-    open: canSplit ? openRows.length : null,
-    closed: canSplit ? closedRows.length : null,
+    open: openCount,
+    closed: closedCount,
     by_severity: { [severity]: totalCount },
     can_split_status: true,
     samples,

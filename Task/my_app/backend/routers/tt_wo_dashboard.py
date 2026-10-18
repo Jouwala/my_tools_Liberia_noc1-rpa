@@ -604,6 +604,16 @@ def tt_wo_dashboard_overview(
 # 一次性吐出去」，给个无上限等于形同虚设。
 _DRILLDOWN_MAX_LIMIT = 5000
 
+# 「未闭环」的 SQL 口径 —— 必须与 whatsapp-kb-bot 的 isOpenStatus() 逐字一致：
+#   src/ttsource.js:72  `!v || !v.startsWith('Closed')`
+# 即：status 为空 / 纯空白 **也算未闭环**（库里确有 status 为空的行）。
+#
+# 两边各写一份表达式是刻意的取舍：那套判定原本只存在于 bot，若为了这里复用
+# 而在后端重写一个"更标准"的版本（例如只认 status != 'Closed'），
+# 空状态的行就会在两边归到不同桶 —— 「其中未闭环 N 个」与明细行数对不上，
+# 是最难排查的那类口径分裂。改动此处前请同步改 bot 侧并跑 test-tools。
+_OPEN_STATUS_SQL = "(t.status IS NULL OR TRIM(t.status) = '' OR t.status NOT LIKE 'Closed%')"
+
 
 def _apply_drilldown_limit(payload: dict, limit: int) -> dict:
     """按 `limit` 截断明细行，**保留总数**。
@@ -858,13 +868,33 @@ def tt_wo_drilldown(
             """, tt_params + extra_params).fetchall()
             cols = [c.strip().split('.')[-1] for c in TT_FIELDS.split(",")]
             data = [dict(zip(cols, row)) for row in rows]
+            # 只有调用方要截断时才统计状态分桶 —— 见 _apply_drilldown_limit：
+            # 截断后本地行数不再是全量，调用方无法自己分组。
+            buckets = None
+            if limit > 0 and len(data) > limit:
+                try:
+                    row2 = conn.execute(f"""
+                        SELECT
+                          SUM(CASE WHEN {_OPEN_STATUS_SQL} THEN 1 ELSE 0 END),
+                          SUM(CASE WHEN {_OPEN_STATUS_SQL} THEN 0 ELSE 1 END)
+                        FROM eflow_tt t {region_join_tt}
+                        {tt_where}
+                    """, tt_params + extra_params).fetchone()
+                    buckets = {
+                        "open": int(row2[0] or 0),
+                        "closed": int(row2[1] or 0),
+                    }
+                except Exception:
+                    # 分桶算不出来不影响主结果：调用方会退回"不显示未闭环"，
+                    # 而不是编一个数字。
+                    buckets = None
             conn.close()
             label = " / ".join(multi_values) if multi_values else value
-            return _apply_drilldown_limit(
-                {"title": f"TT - {dimension}{': ' + label if label else ''}",
-                 "count": len(data), "data": data},
-                limit,
-            )
+            payload = {"title": f"TT - {dimension}{': ' + label if label else ''}",
+                       "count": len(data), "data": data}
+            if buckets is not None:
+                payload["status_buckets"] = buckets
+            return _apply_drilldown_limit(payload, limit)
 
         # WO 维度
         if dim_type == "wo" and S["has_wo"]:
