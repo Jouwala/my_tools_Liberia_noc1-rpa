@@ -612,7 +612,14 @@ _DRILLDOWN_MAX_LIMIT = 5000
 # 而在后端重写一个"更标准"的版本（例如只认 status != 'Closed'），
 # 空状态的行就会在两边归到不同桶 —— 「其中未闭环 N 个」与明细行数对不上，
 # 是最难排查的那类口径分裂。改动此处前请同步改 bot 侧并跑 test-tools。
-_OPEN_STATUS_SQL = "(t.status IS NULL OR TRIM(t.status) = '' OR t.status NOT LIKE 'Closed%')"
+# ⚠️ 这里刻意**不用 `LIKE 'Closed%'`**：本项目 PG 模式下占位符由
+# backend/database.py 把 `?` 转成 `%s`，字面量里的 `%` 会被 psycopg2 当成
+# 参数占位符，报 `IndexError: list index out of range`（2026-10-18 实测，
+# 分桶一直算不出来却因 except 静默吞掉而无人察觉）。
+# 改用 LEFT() 做前缀比较，语义完全一致且无转义问题。
+_OPEN_STATUS_SQL = (
+    "(t.status IS NULL OR TRIM(t.status) = '' OR LEFT(t.status, 6) <> 'Closed')"
+)
 
 
 def _apply_drilldown_limit(payload: dict, limit: int) -> dict:
@@ -887,6 +894,10 @@ def tt_wo_drilldown(
                 except Exception:
                     # 分桶算不出来不影响主结果：调用方会退回"不显示未闭环"，
                     # 而不是编一个数字。
+                    # 但要留下痕迹 —— 静默吞掉会让「为什么没有未闭环数」无从排查。
+                    logging.getLogger(__name__).warning(
+                        "drilldown 状态分桶计算失败（不影响主结果）", exc_info=True
+                    )
                     buckets = None
             conn.close()
             label = " / ".join(multi_values) if multi_values else value
