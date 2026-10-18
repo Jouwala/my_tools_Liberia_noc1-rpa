@@ -170,7 +170,7 @@ async function fetchOverview({ start, end, severity, status }) {
  * 「本月 P2」这种量级能有几百行。所以只在真需要明细时才调
  * （见 queryTickets 的分支），且拿回来的行要**本地截断**再渲染。
  */
-async function fetchDrilldown({ start, end, severity, status }) {
+async function fetchDrilldown({ start, end, severity, status, limit }) {
   if (!severity) throw new Error('drilldown 需要按级别下钻');
 
   const url = new URL('/api/tt-wo-dashboard/drilldown', apiBase());
@@ -179,9 +179,17 @@ async function fetchDrilldown({ start, end, severity, status }) {
   url.searchParams.set('value', severity);
   if (start) url.searchParams.set('time_start', start);
   if (end) url.searchParams.set('time_end', end);
+  // 只取需要的行数（2026-10-18）。此前一次「本月 P2」要拉回 330KB 全量行，
+  // 而调用方最终只用前 ttStatsListLimit(10) 条 —— 纯浪费。
+  // limit=0/undefined 表示不限，保持与改造前一致。
+  if (limit > 0) url.searchParams.set('limit', String(limit));
 
   const data = await fetchJson(url);
   const rows = Array.isArray(data?.data) ? data.data : [];
+  // 服务端在截断时返回的**总数**（不受 limit 影响）。未截断时为 undefined，
+  // 此时下面的 len() 就是真值。
+  const serverCount = Number(data?.count);
+  const truncated = data?.truncated === true;
 
   const openRows = rows.filter((r) => isOpenStatus(r.status));
   const closedRows = rows.filter((r) => !isOpenStatus(r.status));
@@ -209,20 +217,31 @@ async function fetchDrilldown({ start, end, severity, status }) {
   // 这里回本地表按单号补一次真值 —— 只补这几条样例，代价是一次点查。
   await enrichSiteNames(samples);
 
+  // 计数口径（2026-10-18 加 limit 后必须区分）：
+  //   · 未截断 → 行数就是真值，与改造前完全一致；
+  //   · 已截断 → **只能用服务端给的 count**，本地行数是被砍过的。
+  // 不加区分的话，用户问「本月 P2 多少单」会拿到 10（limit 值），
+  // 而不是 879 —— 比慢更糟。
+  const totalCount = truncated && Number.isFinite(serverCount) ? serverCount : picked.length;
+  // open / closed 在截断时无法从样本行推算（本地只有前 N 行）。
+  // 此时置 null，由渲染层跳过该行，而不是给一个错误的小数字。
+  const canSplit = !truncated;
+
   return {
     source: 'http',
     start,
     end,
     severity,
     status,
-    total: picked.length,
-    // 两个态的计数都留着，渲染层要哪个取哪个
-    open: openRows.length,
-    closed: closedRows.length,
-    by_severity: { [severity]: rows.length },
+    total: totalCount,
+    // 两个态的计数都留着，渲染层要哪个取哪个；截断时为 null（见上）
+    open: canSplit ? openRows.length : null,
+    closed: canSplit ? closedRows.length : null,
+    by_severity: { [severity]: totalCount },
     can_split_status: true,
     samples,
-    detail_total: picked.length,
+    detail_total: totalCount,
+    truncated,
     latest: null,
   };
 }
@@ -342,7 +361,14 @@ export async function queryTickets(spec) {
       //    改走 overview 的 ticket_severity 分桶，数百毫秒。
       //    代价：走 overview 时不给样例单号（渲染层已处理「要名单却没明细」的提示）。
       const needsDrilldown = wantList || (q.severity && q.status !== 'all');
-      if (needsDrilldown && q.severity) return { ok: true, data: await fetchDrilldown(q) };
+      if (needsDrilldown && q.severity) {
+        // 只有「纯要名单」才传 limit（2026-10-18）：
+        //   · wantList 且 status=all → 只需要前 N 条单号，全量没有意义；
+        //   · 级别 + 闭环状态交叉 → **必须拿全量行**才能本地按 status 分组，
+        //     传 limit 会让 open/closed 两个数变成"前 N 行里的分布"，是错的。
+        const limit = wantList && q.status === 'all' ? sampleCap() : 0;
+        return { ok: true, data: await fetchDrilldown({ ...q, limit }) };
+      }
       return { ok: true, data: await fetchOverview(q) };
     } catch (err) {
       // 落到下面降级

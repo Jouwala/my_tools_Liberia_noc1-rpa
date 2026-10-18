@@ -600,6 +600,38 @@ def tt_wo_dashboard_overview(
 
 # ========== 下钻查询 ==========
 
+# `limit` 的上限。设 5000 而不是无限：本参数存在的意义就是「别把整月几万行
+# 一次性吐出去」，给个无上限等于形同虚设。
+_DRILLDOWN_MAX_LIMIT = 5000
+
+
+def _apply_drilldown_limit(payload: dict, limit: int) -> dict:
+    """按 `limit` 截断明细行，**保留总数**。
+
+    ## 为什么 count 不能跟着截断
+
+    看板上的数字来自 overview，下钻的行数来自本接口。两者必须能对账
+    （`AGENTS.md` 第三节 1b 条「下钻 WHERE 必须与概览一致」）。
+    若 count 也跟着截断，用户点「本月 P2 = 879」会看到 count=50，
+    第一反应是「数据丢了」—— 那是比慢更糟的故障。
+
+    ## 为什么新增 truncated 而不是复用 count
+
+    调用方需要知道**是否被截断**才能决定要不要提示用户。
+    仅凭 `count > len(data)` 也能推出来，但显式字段更不容易被误读，
+    且与 whatsapp-kb-bot 的 `meta.truncated` 口径一致。
+    """
+    if limit <= 0:
+        return payload
+    data = payload.get("data") or []
+    if len(data) <= limit:
+        return payload
+    out = dict(payload)
+    out["data"] = data[:limit]
+    out["truncated"] = True
+    out["returned"] = limit
+    return out
+
 # 维度 → (表类型, SQL条件片段, 字段名)
 def _get_dimension_map():
     """根据数据库结构动态构建维度映射"""
@@ -660,6 +692,16 @@ def tt_wo_drilldown(
     dimension: str = Query("all_tt"),
     value: str = Query(None),
     values: str = Query(None, description="多取值下钻（JSON 字符串数组）；里程碑阶段合计用"),
+    limit: int = Query(
+        0,
+        ge=0,
+        le=_DRILLDOWN_MAX_LIMIT,
+        description=(
+            "只返回前 N 行明细；0 = 不限（默认，保持既有行为）。"
+            "**count 始终是过滤后的总数**，不受本参数影响 —— 下钻行数必须能与"
+            "看板数字对账（AGENTS.md 第三节 1b 条）。"
+        ),
+    ),
 ):
     """TT/WO 明细下钻查询（自适应数据库结构）
 
@@ -753,7 +795,9 @@ def tt_wo_drilldown(
             title = f"TT - {dimension.title()}: {value}"
             if sev_want:
                 title = f"{title} · {sev_want}"
-            return {"title": title, "count": len(data), "data": data}
+            return _apply_drilldown_limit(
+                {"title": title, "count": len(data), "data": data}, limit
+            )
 
         # 站点维度
         if dim_type == "site" and value:
@@ -777,7 +821,10 @@ def tt_wo_drilldown(
                 cols = [c.strip().split('.')[-1] for c in TT_FIELDS.split(",")]
                 data = [dict(zip(cols, row)) for row in rows]
                 conn.close()
-                return {"title": f"TT - {dimension}: {value}", "count": len(data), "data": data}
+                return _apply_drilldown_limit(
+                    {"title": f"TT - {dimension}: {value}", "count": len(data), "data": data},
+                    limit,
+                )
 
         # 通用 TT 维度
         if dim_type == "tt":
@@ -813,7 +860,11 @@ def tt_wo_drilldown(
             data = [dict(zip(cols, row)) for row in rows]
             conn.close()
             label = " / ".join(multi_values) if multi_values else value
-            return {"title": f"TT - {dimension}{': ' + label if label else ''}", "count": len(data), "data": data}
+            return _apply_drilldown_limit(
+                {"title": f"TT - {dimension}{': ' + label if label else ''}",
+                 "count": len(data), "data": data},
+                limit,
+            )
 
         # WO 维度
         if dim_type == "wo" and S["has_wo"]:
@@ -847,7 +898,11 @@ def tt_wo_drilldown(
             data = [dict(zip(cols, row)) for row in rows]
             conn.close()
             label = " / ".join(multi_values) if multi_values else value
-            return {"title": f"WO - {dimension}{': ' + label if label else ''}", "count": len(data), "data": data}
+            return _apply_drilldown_limit(
+                {"title": f"WO - {dimension}{': ' + label if label else ''}",
+                 "count": len(data), "data": data},
+                limit,
+            )
 
         conn.close()
         return {"title": "Unknown", "count": 0, "data": []}
