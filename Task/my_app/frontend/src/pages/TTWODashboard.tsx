@@ -10,7 +10,7 @@ import {
   PieChartOutlined, EnvironmentOutlined, TeamOutlined,
   DownloadOutlined, SearchOutlined, FilterOutlined,
   // 2026-10-19 Workflow 卡片化新增图标
-  RetweetOutlined, InboxOutlined, ToolOutlined,
+  RetweetOutlined, InboxOutlined, ToolOutlined, ExportOutlined,
   CheckCircleOutlined, CheckOutlined, QuestionCircleOutlined,
 } from '@ant-design/icons'
 import ReactECharts from 'echarts-for-react'
@@ -176,77 +176,110 @@ const visibleStats = (stats: Record<string, number> | undefined): Record<string,
  * 下钻仍按**各原始状态**分别请求（`status = ?` 精确匹配），
  * 所以一个阶段挂了多个原始状态时，界面逐条列出、各自可点，行数与概览完全一致。
  */
-const STATUS_MILESTONES: Array<{
+/**
+ * TT / WO 两套**各自独立**的阶段定义。
+ *
+ * 为什么必须分开（2026-10-19 实测，别再合并回去）：
+ *   · eflow_tt 的 status 实测 12 种取值，**完全不含** Waiting for Departure /
+ *     Waiting for Arrive Site / Waiting for Leave Site —— 过去两页共用一套定义，
+ *     导致 TT 页的「到场」「离场」节点恒为 0，既不准确也误导值班；
+ *   · eflow_wo 实测 11 种取值，有 Departure / Arrive Site / Leave Site，
+ *     但没有 Waiting for FO Process(WO RCA/Reject/FE Handling) 这些 TT 侧状态。
+ *   两张表的业务流本来就不是同一条，共用一套必然有一边错。
+ *
+ * TT（6 阶段）：派单 → 受理 → 处理中 → 现场确认 → 待确认 → 关闭
+ *   —— TT 侧没有「到场/离场」概念，字段到不了那个粒度。
+ *
+ * WO（9 阶段）：派单 → 受理 → 等待出发 → 等待到达现场 → 处理中 → 离场
+ *   → 现场确认 → 待确认 → 关闭
+ *   —— 按用户要求把「到场」拆成「等待出发」「等待到达现场」两个独立节点，
+ *      分别对应 Waiting for Departure 与 Waiting for Arrive Site。
+ *      注意：WO 表实测 11 种状态里没有「现场确认」对应的取值，该节点当前恒为 0，
+ *      属于流程定义保留节点，不是漏配。
+ */
+type MilestoneDef = {
   key: string
   labelKey: string
   /** 下钻时使用的原始状态名（**精确匹配**，顺序即展示顺序） */
   match: string[]
-  /**
-   * true = 该阶段不渲染节点，其 match 里的原始状态也**不计入任何统计**
-   * （不进桶、不进「其他」、不进占比分母）。2026-10-19 起用于 arriveSite / leaveSite。
-   * 保留该条目的意义：让这些状态名有明确归属，避免被误判为「未识别」。
-   */
-  excluded?: boolean
-}> = [
+  /** 与 `ttwo.milestoneCn/En.*` 的 key 后缀不同时才需要填（如出发/到达两节点共用 arriveSite 配色） */
+  styleKey?: string
+}
+
+/** TT 侧 6 阶段 */
+const TT_MILESTONES: MilestoneDef[] = [
   // 派单：TT 由 BO 指派，尚未被任何一方受理
   { key: 'reassign', labelKey: 'ttwo.milestone.reassign', match: ['Reassign'] },
-  // 说明：本链顺序取自 2026-10-17 用户提供的 eFlow **Workflow History** 实测步骤链
-  // （queryAllSteps 返回：Create → FO Accept → FO Process → Third Accept →
-  // Third Process → Confirm → Closed）。注意「FO Process」之后才轮第三方受理，
-  // 所以下面的阶段顺序是 派单 → 受理 → 处理 → 确认，而不是「受理后立刻处理」。
-  // 受理：第三方 / FO / BO 接收工单，尚未到场。
-  // 「Waiting for Accept」是 eflow_wo 的实测取值（WO 表），与 TT 表的
-  // 「Waiting for Third/FO/BO Accept」是同一业务动作的两种写法，必须都收进来，
-  // 否则 WO 页会有 144 单落进「其他」。
+  // 受理：第三方 / FO / BO 接收工单
   { key: 'waitAccept', labelKey: 'ttwo.milestone.waitAccept', match: [
-    'Waiting for Accept',
     'Waiting for Third Accept', 'Waiting for Third Accept(Suspended)',
     'Waiting for FO Accept', 'Waiting for BO Accept',
   ] },
-  // 到场：接单后前往站点，含「等待出发」与「等待到达现场」两个动作。
-  // 2026-10-19：恢复为独立节点并按此分布统计（此前一度被 excluded）。
-  // 该节点的数字 = Waiting for Departure(+Suspended) + Waiting for Arrive Site，
-  // 两条明细在 tooltip 里逐条列出、各自可下钻。
-  { key: 'arriveSite', labelKey: 'ttwo.milestone.arriveSite', match: [
-    'Waiting for Departure', 'Waiting for Departure(Suspended)',
-    'Waiting for Arrive Site',
-  ] },
-  // 处理：第三方 / BO / 现场正在处理。WO 表的「Waiting for Process(Suspended)」
-  // 是同一阶段的挂起变体（停表不计时），归处理；BONPO 是行内采购流程，同样归处理。
+  // 处理：第三方 / BO / FO 正在处理（TT 表没有「到场」这一层）
   { key: 'waitProcess', labelKey: 'ttwo.milestone.waitProcess', match: [
     'Waiting for Third Process', 'Waiting for BO Process', 'Waiting for FO Process',
-    'Waiting for Process', 'Waiting for Process(Suspended)',
-    'Waiting for BONPO Process',
   ] },
-  // 离场：同上看场说明 —— 不再成节点、不计入统计，仅用于吸收该原始状态。
-  { key: 'leaveSite', labelKey: 'ttwo.milestone.leaveSite', match: ['Waiting for Leave Site'], excluded: true },
-  // 处理确认：FO 已处理完工单，等待 RCA / 驳回确认，或处于现场处置
+  // 现场确认：FO 处理完，等 RCA / 驳回 / 现场处置（TT 独有）
   { key: 'waitConfirmFO', labelKey: 'ttwo.milestone.waitConfirmFO', match: [
     'Waiting for FO Process(WO RCA to FO Confirm)',
     'Waiting for FO Process(WO Reject to FO Confirm)',
     'Waiting for FO Process(WO Dispatched FE Handling)',
   ] },
-  // 确认：现场处理完毕，等待确认 / 分批回复（WO 表实测有 Wait For Confirm、
-  // Phased Reply）。按 2026-10-17 用户提供的 Workflow History 链路，
-  // 这一步在「离场」之后、关闭之前。
+  // 待确认：等待客户确认（含历史大小写变体 Wait For Confirm）
   { key: 'waitConfirm', labelKey: 'ttwo.milestone.waitConfirm', match: [
     'Waiting for Customer Confirm', 'Wait For Confirm', 'WaitingConfirm', 'Phased Reply',
   ] },
-  // 终态：唯一的 Closed
+  { key: 'closed', labelKey: 'ttwo.milestone.closed', match: ['Closed'] },
+]
+
+/** WO 侧 9 阶段 */
+const WO_MILESTONES: MilestoneDef[] = [
+  { key: 'reassign', labelKey: 'ttwo.milestone.reassign', match: ['Reassign'] },
+  { key: 'waitAccept', labelKey: 'ttwo.milestone.waitAccept', match: ['Waiting for Accept'] },
+  // 「等待出发」：已接单、尚未启程。Suspended 是停表变体，合并展示。
+  // styleKey 复用 arriveSite 的配色 —— 两节点同属「到场」业务的两个动作。
+  { key: 'waitDeparture', labelKey: 'ttwo.milestone.waitDeparture', match: [
+    'Waiting for Departure', 'Waiting for Departure(Suspended)',
+  ], styleKey: 'arriveSite' },
+  // 「等待到达现场」：在路上 / 到达但未开始处理。
+  { key: 'waitArriveSite', labelKey: 'ttwo.milestone.waitArriveSite', match: [
+    'Waiting for Arrive Site',
+  ], styleKey: 'arriveSite' },
+  { key: 'waitProcess', labelKey: 'ttwo.milestone.waitProcess', match: [
+    'Waiting for Process', 'Waiting for Process(Suspended)',
+    'Waiting for BONPO Process',
+  ] },
+  // 离场：现场作业完成、准备离站
+  { key: 'leaveSite', labelKey: 'ttwo.milestone.leaveSite', match: ['Waiting for Leave Site'] },
+  // 现场确认：按用户给定的 9 阶段保留此节点。注意 WO 表当前**没有**对应原始状态，
+  // 该节点会恒显示 0 —— 这是「流程定义完整」与「当前无此类单」的正常区别，
+  // 与 TT 侧有真实数据（RCA/驳回/现场处置）的 waitConfirmFO 不是同一回事。
+  { key: 'waitConfirmFO', labelKey: 'ttwo.milestone.waitConfirmFO', match: [
+    'Waiting for FO Process(WO RCA to FO Confirm)',
+    'Waiting for FO Process(WO Reject to FO Confirm)',
+    'Waiting for FO Process(WO Dispatched FE Handling)',
+  ] },
+  // 待确认：等待客户确认 / 分批回复
+  { key: 'waitConfirm', labelKey: 'ttwo.milestone.waitConfirm', match: [
+    'Wait For Confirm', 'Waiting for Customer Confirm', 'WaitingConfirm', 'Phased Reply',
+  ] },
   { key: 'closed', labelKey: 'ttwo.milestone.closed', match: ['Closed'] },
 ]
 
 /**
- * 某原始状态所属里程碑下标；未识别返回 -1（→「其他」）。
- *
- * ⚠ 下标必须相对**参与渲染的阶段列表**（即排除 excluded），因为调用方用它去下
- * buckets 数组的标，而 buckets 是按 activeDefs 建的。若这里仍按全量
- * STATUS_MILESTONES 取下标，arriveSite / leaveSite 被排除后，其后的 waitProcess
- * 等阶段会整体前移，下标全部错位一格、把工单计到错误节点上（2026-10-19 修正）。
+ * 按数据源取阶段定义。
+ * `source === 'wo'` 走 WO 表；其余（tt / ttwo / 切片页）一律走 TT 表。
+ * 注意 TTWODashboard 同时服务 page=tt、page=wo、page=ttwo 三种入口。
  */
-const milestoneIndexOf = (status: string): number => {
+const milestonesFor = (isWo: boolean): MilestoneDef[] => (isWo ? WO_MILESTONES : TT_MILESTONES)
+
+/**
+ * 某原始状态在给定阶段表里的下标；未识别返回 -1（→「其他」）。
+ * 定义表由调用方传入，避免 TT / WO 两套定义混用（2026-10-19）。
+ */
+const milestoneIndexOf = (status: string, defs: MilestoneDef[]): number => {
   const norm = String(status ?? '').trim()
-  return STATUS_MILESTONES.filter(m => !m.excluded).findIndex(m => m.match.includes(norm))
+  return defs.findIndex(m => m.match.includes(norm))
 }
 
 /**
@@ -608,13 +641,10 @@ export default function TTWODashboard({ only, source }: { only?: TTWOOnly; sourc
    */
   const statusMilestones = useMemo(() => {
     const raw = sStats?.status || {}
-    // 2026-10-19：excluded 阶段（arriveSite / leaveSite）不渲染节点、不计数。
-    // 过滤放在建桶之前，使它们的单数既不进桶、也不进 others、更不进分母
-    // —— 与用户选定的「彻底不统计」一致。注意这不是「隐藏」，因为下游的
-    // statusMilestoneTotal 与 tooltip 分母都从 buckets/others 推导，
-    // 只隐藏节点会让数字与占比互相矛盾。
-    const activeDefs = STATUS_MILESTONES.filter(m => !m.excluded)
-    const buckets = activeDefs.map(m => ({
+    // 按数据源取阶段表：WO 页用 9 阶段（含出发/到达/离场），TT 及其切片页用 6 阶段。
+    // 两套定义各自独立，见文件上方 TT_MILESTONES / WO_MILESTONES 的说明。
+    const defs = milestonesFor(isWoSource)
+    const buckets = defs.map(m => ({
       ...m,
       total: 0,
       rows: [] as Array<[string, number]>, // 只保留有单的原始状态，按数量降序
@@ -623,9 +653,7 @@ export default function TTWODashboard({ only, source }: { only?: TTWOOnly; sourc
     for (const [k, v] of Object.entries(raw)) {
       // Unknown 之类的无效取值不参与（与 SLA / Ticket Severity 同口径）
       if (isExcludedStatValue(k)) continue
-      // 属于 excluded 阶段的状态名：吸收掉（不计数、也不落到 others）
-      if (STATUS_MILESTONES.some(m => m.excluded && m.match.includes(String(k ?? '').trim()))) continue
-      const idx = milestoneIndexOf(k)
+      const idx = milestoneIndexOf(k, defs)
       if (idx >= 0) {
         buckets[idx].total += v as number
         buckets[idx].rows.push([k, v as number])
@@ -636,9 +664,14 @@ export default function TTWODashboard({ only, source }: { only?: TTWOOnly; sourc
     for (const b of buckets) b.rows.sort((a, c) => c[1] - a[1])
     others.sort((a, c) => c[1] - a[1])
     // 阶段顺序：优先用上游流程图的 stage_order（见上方 workflowStageOrder）；
-    // 取不到时保持 STATUS_MILESTONES 的声明顺序。未出现在顺序表里的阶段排末尾
+    // 取不到时保持本地定义表的声明顺序。未出现在顺序表里的阶段排末尾
     // —— 上游新增节点时不会把已有的阶段挤乱。
-    if (workflowStageOrder?.length) {
+    //
+    // ⚠ 该 stage_order 来自 /tt-wo-dashboard/workflow，是 **TT 侧**流程定义，
+    // 其中的 arriveSite / leaveSite 与 WO 侧「等待出发 / 等待到达现场」不同名，
+    // 对 WO 页无意义；因此 WO 页**只用本地 WO_MILESTONES 的声明顺序**，
+    // 避免把 WO 节点排到 TT 顺序表之外而被误判为「未列入」。
+    if (!isWoSource && workflowStageOrder?.length) {
       const rank = new Map(workflowStageOrder.map((k, i) => [k, i]))
       buckets.sort((a, b) => {
         const ra = rank.has(a.key) ? rank.get(a.key)! : Number.MAX_SAFE_INTEGER
@@ -647,7 +680,7 @@ export default function TTWODashboard({ only, source }: { only?: TTWOOnly; sourc
       })
     }
     return { buckets, others }
-  }, [sStats, workflowStageOrder])
+  }, [sStats, workflowStageOrder, isWoSource])
 
   // 里程碑占比的分母：所有阶段 + 「其他」的单数合计。
   // 注意它是 status 维度自身的合计（不是 WO 总数 —— 后者还含 status 为空的行）。
@@ -1291,39 +1324,45 @@ export default function TTWODashboard({ only, source }: { only?: TTWOOnly; sourc
     // 阶段颜色映射（与 CSS 里 .wf-stage--<key> 一一对应，命名同步）——
     // 颜色复制到 inline style 是因为 CSS 变量在 grid 节点上要按运行时 key 注入，
     // 没法纯靠 className 同时满足「阶段 key 动态决定」+「CSS 命名空间隔离」。
+    // 阶段颜色 class。WO 的「等待出发 / 等待到达现场」两个节点通过
+    // `styleKey: 'arriveSite'` 复用到场配色（同属「到场」业务的前后两步），
+    // 这里统一按 styleKey ?? key 取 class。
     const STAGE_CSS_CLASS: Record<string, string> = {
       reassign: 'wf-stage--reassign',
       waitAccept: 'wf-stage--waitAccept',
       arriveSite: 'wf-stage--arriveSite',
+      waitDeparture: 'wf-stage--arriveSite',
+      waitArriveSite: 'wf-stage--arriveSite',
       waitProcess: 'wf-stage--waitProcess',
+      leaveSite: 'wf-stage--leaveSite',
       waitConfirmFO: 'wf-stage--waitConfirmFO',
       waitConfirm: 'wf-stage--waitConfirm',
       closed: 'wf-stage--closed',
-      // 第 9 格：未识别状态（仅在有单时渲染）
+      // 末尾格：未识别状态（仅在有单时渲染）
       other: 'wf-stage--other',
     }
     // 节点图标映射（按 ttwo.milestoneIcon.<key> 的 i18n 值取 antd icon 组件，
     // 而不是再开一套 icon 名字典）—— 这层映射只做"字符串 -> 组件"，纯前端。
+    // 「等待出发」用车/箭头意象、「等待到达现场」用定位意象，与业务动作对应。
     const STAGE_ICON: Record<string, ReactNode> = {
       reassign: <RetweetOutlined />,
       waitAccept: <InboxOutlined />,
       arriveSite: <EnvironmentOutlined />,
+      waitDeparture: <ExportOutlined />,
+      waitArriveSite: <EnvironmentOutlined />,
       waitProcess: <ToolOutlined />,
+      leaveSite: <ExportOutlined />,
       waitConfirmFO: <CheckCircleOutlined />,
       waitConfirm: <ClockCircleOutlined />,
       closed: <CheckOutlined />,
       other: <QuestionCircleOutlined />,
     }
-    // 阶段展示顺序：按 STATUS_MILESTONES 的声明顺序（与上游 eFlow Workflow History 一致）。
-    // 2026-10-19 起 leaveSite 标记为 excluded，故实际渲染 **7 个**阶段
-    // （reassign / waitAccept / waitProcess / waitConfirmFO / waitConfirm / closed）。
-    // buckets 已由 statusMilestones 按 activeDefs 建成，这里直接用即可。
+    // 阶段展示：直接用 statusMilestones 建好的桶（已按数据源取 TT 6 阶段 / WO 9 阶段）。
     // 与旧"圆点"不同之处：旧版会过滤掉 total=0 的阶段（buckets.filter），
-    // 现在固定展示全部 active 阶段，total=0 也占一格 —— 序号才能与状态机节点 1:1，
+    // 现在固定展示全部阶段，total=0 也占一格 —— 序号才能与状态机节点 1:1，
     // 进度条 / 占比用 0% 自然表达"该阶段暂无工单"，与"无数据"区分。
     const ordered = statusMilestones.buckets
-    // 标题固定为 TICKET WORKFLOW（2026-10-19 按用户要求）。
-    // 此前按数据源在 TICKET / WORK ORDER 间切换，现已取消。
+    // 标题：TT 侧 TICKET WORKFLOW，WO 侧 WORK ORDER WORKFLOW（2026-10-19 恢复按源切换）。
     const total = statusMilestoneTotal
     // 「其他」节点：未识别的原始状态（others）单列一格，绝不能吞掉 ——
     // statusMilestoneTotal 的分母里含这部分，界面上就必须看得见；
@@ -1342,7 +1381,13 @@ export default function TTWODashboard({ only, source }: { only?: TTWOOnly; sourc
     // 统一渲染列表：全部 active 阶段 + （有单时）「其他」。
     // 单独建这个数组是为了让序号 / 箭头末段判断 / 列数三者取自同一来源，
     // 避免「ordered.length」与「实际渲染格数」两处各写一遍而分叉。
-    const renderStages = showOthers
+    const renderStages: Array<{
+      key: string
+      labelKey: string
+      total: number
+      rows: Array<[string, number]>
+      styleKey?: string
+    }> = showOthers
       ? [
         ...ordered,
         {
@@ -1366,10 +1411,10 @@ export default function TTWODashboard({ only, source }: { only?: TTWOOnly; sourc
         <header className="wf-header">
           <div>
             <h2 className="wf-title">
-              TICKET <span className="wf-title-accent">WORKFLOW</span>
+              {isWoSource ? 'WORK ORDER' : 'TICKET'} <span className="wf-title-accent">WORKFLOW</span>
             </h2>
             <div className="wf-subtitle">
-              {t('ttwo.workflowSubtitle')}
+              {t(isWoSource ? 'ttwo.workflowSubtitleWo' : 'ttwo.workflowSubtitle')}
             </div>
           </div>
           <div className="wf-live" aria-live="polite">● {t('ttwo.workflowLive')}</div>
@@ -1393,7 +1438,7 @@ export default function TTWODashboard({ only, source }: { only?: TTWOOnly; sourc
               >
                 <article
                   role="listitem"
-                  className={`wf-stage ${STAGE_CSS_CLASS[g.key] || ''}`}
+                  className={`wf-stage ${STAGE_CSS_CLASS[g.styleKey || g.key] || ''}`}
                   // 节点整体可点下钻（沿用旧版的"圆点=整个节点都可点"语义）：
                   // 多状态阶段走 values 集合（后端 status IN (...)），单状态走 value，
                   // 弹窗行数恒等于节点数字。
@@ -1413,7 +1458,7 @@ export default function TTWODashboard({ only, source }: { only?: TTWOOnly; sourc
                 >
                   <div className="wf-number">{stageNo}</div>
                   <div className="wf-icon" aria-hidden="true">
-                    {STAGE_ICON[g.key] || <ClockCircleOutlined />}
+                    {STAGE_ICON[g.styleKey || g.key] || <ClockCircleOutlined />}
                   </div>
                   {/* 节点字段顺序固定：英文名 / 中文名 / 数量 / 占比 / 进度条。
                       中文名空时省略整行（en dictionary 下不显示重复的"等待确认"之类）。 */}
