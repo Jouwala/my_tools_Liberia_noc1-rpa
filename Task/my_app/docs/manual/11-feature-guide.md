@@ -23,6 +23,7 @@
 | 9 | MW 微波实时 | `mwRealTime` | **iframe** |
 | 10 | GIS 地图 | `gis` | React |
 | 11 | 实时告警地图 | `realtime_alarm` | React（同组件另一模式） |
+| 11a | 人员位置地图 | `person` | React |
 | 12 | 告警管理看板 | `alarmManagement` | **iframe** |
 | 13 | 丢包看板 | `packet_loss` | React |
 | 14 | 电池看板 | `battery` | React |
@@ -790,6 +791,36 @@ React 自身驱动（其 cleanup 顺序是「子先父后」，子图层先 remo
 | **图例点击**（`siteLegendRows` → `MapLegendOverlay`，`GISMap.tsx`） | `hiddenLegends` | 图例上的站点类别，含 `normal` / `vip` | 该行加删除线＋「已隐藏」 |
 
 两者的类别来源都是 `getSiteCategory`，最终在 `filteredSites`（`GISMap.tsx`）里合并生效。`normal` 的默认隐藏走的是 `hiddenLegends` 初值，因此它**仍在图例里可见**（带删除线），用户点一下就能恢复 —— 这是刻意选择：直接删掉图例项会让用户不知道还能显示普通站点。
+
+## 11a. 人员位置地图（`?page=person`，2026-10-19 新增）
+
+页面：`frontend/src/pages/PersonMap.tsx`（地图视图在 `pages/personmap/PersonMapView.tsx`）。
+
+**看什么**：现场人员的登记位置（小人地图针）+ 每个人员**实际处理过工单的站点**分布，
+以及按人员的 WO / TT 统计。参考实时告警地图的版式（筛选条 → 说明横幅 → KPI → 地图 → 统计图 → 表格）。
+
+**交互**：点人员选中 → 画其站点连线、地图下钻到该人、KPI 的「负责站点」显示其站点数与告警站数；
+点地图空白处取消选中。表格行点击与地图选中双向联动。
+
+**两个口径决定（勿擅自改回）**：
+
+| 项 | 口径 | 原因 |
+| --- | --- | --- |
+| 「负责站点」 | 该人员 **WO 涉及过**的站点（`eflow_wo.site_id` 去重），**不是** `person.managed_regions` | `managed_regions` 只是县名文本；实测 26 个有坐标的人里 5 人写着全部 15 县（824 站全包）、9 人只有 Montserrado，按区域画会变成「半个国家的人都是同一片」。县名只在表格里作为文本展示 |
+| 时间窗口 | 固定**最近 30 天** | 用户确认不跟随 GIS 页的时间控件，避免两页口径漂移 |
+
+**数据源**（都在 `backend/routers/personnel.py`，与 GIS 人员图层共用同一套归属判定）：
+
+- `GET /api/gis/personnel/stats?days=30` —— 全量人员聚合（`by_person` / `by_county` / `by_status` / `coverage`）
+- `GET /api/gis/personnel/{name_key}/managed-sites?days=30` —— 某人的站点（带 `has_alarm` / `uncleared` / `wo_count`）
+- `GET /api/gis/personnel/{name_key}/work-orders` —— 下钻明细（复用既有端点）
+
+**必须如实呈现的已知限制**（页面顶部横幅已写明）：
+
+1. 坐标是 `person` 表的**静态登记值，不是实时 GPS**（无时间戳、无轨迹）；
+2. 只有 26/136 人有坐标，其余人员**只出现在表格里、不画在地图上**；
+3. 人员 ↔ WO **无外键**，按规范化姓名匹配（`services/person_name.py`，实测命中约 96%）；
+4. TT 列是「带 `tt_no` 的 **WO 行数**」，不是独立 TT 去重计数（语义为单量/工作量）。
 
 ## 12. 告警管理看板（`?page=alarmManagement`）— iframe
 
@@ -1946,6 +1977,13 @@ TT 复盘抽屉（`TtPostmortemPanel.tsx:693-710`）的红字
 | `fw_kpi` | FW 整机吞吐 UMC | 10.100.2.101:443 | 登录页填表（客户端模式反代 8085） |
 | `vmax_cxo` | VMAX CXO 经营看板 | 10.123.255.12:26180 | 登录页填表（客户端模式反代 8086） |
 | `ume_in` | UME iMonitor 大屏 | 172.17.208.1:28808 | 登录页填表（客户端模式反代 **8088**；同时被 `?page=imonitor` 复用） |
+| `battery_ume` | Battery UME 电池网管 | 192.168.170.2:443 | 直连上游（`direct=true`，登录页填表） |
+| `oss_portal` | OSS Portal 服务器网管 | 10.121.8.2:443（`/ngportal/login`） | 直连上游（`direct=true`，Keystone v3 登录页填表，复用凭据组 `ume_alarm`） |
+
+> `oss_portal` 的登录页由 Angular 渲染，账号/密码输入框**没有 id/name**，
+> 填表脚本只能靠 placeholder（`用户名` / `账号` / `user` / `account` 等）定位（`portal_login_service.py` 的
+> `_FIND_USER_SEL_JS` 与 `_build_fill_js`）。若该页结构再变，一键登录会报「未找到登录表单输入框」，
+> 此时切到客户端模式手动输入，或按诊断日志 `页面诊断: {...inputs:...}` 补选择器。
 
 > 反代端口分配：**8081 ZTE UME / 8082 CCN UME / 8083 iPRAN UME / 8084 MW UME / 8085 FW UMC / 8086 VMAX CXO / 8088 UME iMonitor**。
 > ⚠️ **8087 不能用**——被 ShadowBot（RPA 工具）占用且绑在回环上，`localhost:8087` 会落到它而不是 nginx。

@@ -184,6 +184,25 @@ PORTALS = {
         # 让会话 Cookie 种不下 → 客户端模式直连上游（与 eflow / rais 同理）。
         "direct": True,
     },
+    # OSS Portal（ZTE UME 服务器网管 10.121.8.2，Keystone v3 登录）。
+    # 复用凭据组 ume_alarm（「DC server alarm WhatsApp push」任务同一套账号），
+    # 不新增凭据组、不写第二份口令。
+    # ⚠ 该门户的登录页由 Angular 渲染，账号/密码输入框没有稳定 id 与 name，
+    #   只能用 placeholder 定位（见 _FIND_USER_SEL_JS / _build_fill_js 的 type=text 兜底）。
+    #   实测若页面结构再变，一键登录会报「未找到登录表单」，此时用 client 模式手输登录。
+    "oss_portal": {
+        "name": "OSS Portal 服务器网管 (10.121.8.2)",
+        "name_en": "OSS Portal Server NMS (10.121.8.2)",
+        "cred_key": "ume_alarm",
+        "kind": "oauth2",   # 仅用于 build_login_url 的兜底；实际入口见 login_path
+        "host_env": None, "port_env": None,
+        "default_host": "10.121.8.2", "default_port": 443,
+        "login_path": "/ngportal/login",
+        # 登录成功后 Keystone 门户会跳到框架主页，用模块地址作为成功判据
+        "success_regex": r"/ngportal/(?!login)",
+        # 前端把根地址/接口写死为 https://10.121.8.2/ → 客户端模式直连上游
+        "direct": True,
+    },
 }
 
 
@@ -198,6 +217,9 @@ def resolve_endpoint(spec: dict):
 
 def build_login_url(spec: dict):
     host, port = resolve_endpoint(spec)
+    # 显式给了 login_path 的门户按该路径打开（如 oss_portal 的 /ngportal/login）
+    if spec.get("login_path"):
+        return f"https://{host}:{port}{spec['login_path']}"
     if spec["kind"] == "oauth2":
         return (f"https://{host}:{port}/api/oauth2/v1/authorize"
                 f"?scope=user.login&response_type=code&redirect_uri={spec['redirect']}")
@@ -579,8 +601,10 @@ def _build_fill_js(user: str, pwd: str) -> str:
         "    setter.call(el, val);\n"
         "    fire(el, 'input'); fire(el, 'change');\n"
         "  }\n"
-        "  const ucss = ['#inputUserName', \"input[name='username']\", '#username', \"input[id='username']\", \"input[name='user']\", \"input[name='j_username']\", \"input[type='text']\"];\n"
-        "  const pcss = ['#inputCiphercode', \"input[name='cipher_code']\", '#password', \"input[name='password']\", \"input[id='password']\", \"input[name='p']\", \"input[type='password']\"];\n"
+        "  // 部分门户（如 OSS Portal /ngportal/login）由 Angular 渲染，输入框无 id/name，"
+        "只能靠 placeholder 识别\n"
+        "  const ucss = ['#inputUserName', \"input[name='username']\", '#username', \"input[id='username']\", \"input[name='user']\", \"input[name='j_username']\", \"input[placeholder*='用户名']\", \"input[placeholder*='账号']\", \"input[placeholder*='ser' i]\", \"input[placeholder*='ccount' i]\", \"input[type='text']\"];\n"
+        "  const pcss = ['#inputCiphercode', \"input[name='cipher_code']\", '#password', \"input[name='password']\", \"input[id='password']\", \"input[name='p']\", \"input[placeholder*='密码']\", \"input[placeholder*='assword' i]\", \"input[type='password']\"];\n"
         "  function find(sels){ for (const s of sels){ try { const el = document.querySelector(s); if (el && el.offsetWidth > 0) return el; } catch(e){} } return null; }\n"
         "  function findSubmit(){\n"
         "    const sels = ['#loginBut', \"input[type='submit']\", \"button[type='submit']\", '.login-btn', '.btn-login', '.login-button'];\n"
@@ -636,7 +660,10 @@ _FIND_USER_SEL_JS = (
     "    const t=(el.type||'').toLowerCase(); if(t==='hidden') return false;"
     "    if(el.offsetWidth>0||el.offsetHeight>0) return true; return el.offsetParent!==null; }"
     "  const sels=['#inputUserName',\"input[name='username']\",'#username',"
-    "    \"input[id='username']\",\"input[name='user']\",\"input[name='j_username']\",'input[type=text]'];"
+    "    \"input[id='username']\",\"input[name='user']\",\"input[name='j_username']\","
+    "    \"input[placeholder*='用户名']\",\"input[placeholder*='账号']\","
+    "    \"input[placeholder*='ser' i]\",\"input[placeholder*='ccount' i]\","
+    "    'input[type=text]'];"
     "  for(const s of sels){ try{ const el=document.querySelector(s); if(el&&vis(el)) return s; }catch(e){} }"
     "  return '';"
     "})()"
