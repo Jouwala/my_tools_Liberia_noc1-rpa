@@ -1971,3 +1971,270 @@ html {
 @supports not ((-webkit-backdrop-filter:blur(1px)) or (backdrop-filter:blur(1px))){
   .wh-sider-backdrop{background:var(--wh-scrim-solid)}
 }
+
+/* ===== WO/TT Workflow: 工业科技风 步骤条（独立命名空间 .wo-workflow / .wf-*）=====
+ * 2026-10-19：替代旧版 renderStatusMilestones 圆点 + 单线段样式。
+ * 设计要点：
+ *  - 节点用 CSS Grid repeat(N, 1fr) 自动平分整行，N 取实际渲染的阶段数；
+ *  - 每个节点 6 字段：序号 / 图标 / 英文名 / 中文名 / 数量 / 占比 + 进度条；
+ *  - 节点间用 › 字符 + text-shadow 做柔光，末段不画；
+ *  - 配色：深海军蓝背景（#06182d/#09213b）、青蓝色边框（#0874b9/#20d5ef）、
+ *    每阶段一色（--stage-color 由组件按阶段注入）。
+ *  - 所有颜色 / 间距 / 圆角 / 发光都用独立 .wo-workflow 命名空间的 CSS 变量，
+ *    不污染项目 --wh-* / 不被 .wh-card / .ant-* 覆盖。
+ *  - 平板 ≤900px 三列、手机 ≤480px 两列，箭头隐藏（grid 自动换行后箭头方向会变怪）。
+ */
+.wo-workflow {
+  --wf-bg: #06182d;
+  --wf-panel: #09213b;
+  --wf-line: #0874b9;
+  --wf-cyan: #20d5ef;
+  --wf-blue: #249cff;
+  --wf-teal: #00c9c5;
+  --wf-orange: #ffad32;
+  --wf-green: #35df7d;
+  --wf-text: #eaf5ff;
+  --wf-muted: #91b3d4;
+  --wf-border-soft: #123e65;
+  --wf-border-strong: #0874b9;
+
+  position: relative;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 22px 20px 18px;
+  overflow: hidden;
+  color: var(--wf-text);
+  background:
+    radial-gradient(ellipse at 50% 0%, rgba(0, 112, 190, .18), transparent 65%),
+    var(--wf-bg);
+  border: 1px solid var(--wf-border-soft);
+  border-radius: 14px;
+  font-family: Inter, "Segoe UI", Arial, sans-serif;
+}
+
+.wo-workflow *,
+.wo-workflow *::before,
+.wo-workflow *::after { box-sizing: border-box; }
+
+/* 头部：标题 + 副标题 + LIVE 徽标 */
+.wf-header {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; margin-bottom: 22px; flex-wrap: wrap;
+}
+.wf-title {
+  margin: 0; font-size: 20px; font-weight: 800; letter-spacing: 1.4px;
+  color: var(--wf-text);
+}
+.wf-title .wf-title-accent { color: var(--wf-cyan); }
+.wf-subtitle {
+  margin-top: 5px; color: var(--wf-muted); font-size: 11px; letter-spacing: 1.2px;
+}
+.wf-live {
+  padding: 7px 12px; border: 1px solid #087d94; border-radius: 20px;
+  color: var(--wf-cyan); font-size: 11px; white-space: nowrap;
+  background: rgba(0, 217, 255, 0.08);
+}
+
+/* 节点网格：N 列由组件 inline style 注入 */
+.wf-stages {
+  display: grid;
+  grid-template-columns: repeat(var(--wf-cols, 8), minmax(0, 1fr));
+  gap: 26px;
+  align-items: stretch;
+}
+
+/* 单个节点：CSS 变量 --stage-color 决定该阶段边框 / 数字徽底 / 进度条 / 大数字色 */
+.wf-stage {
+  --stage-color: var(--wf-blue);
+  position: relative;
+  min-width: 0;
+  padding: 22px 10px 14px;
+  text-align: center;
+  border: 1px solid var(--stage-color);
+  border-radius: 11px;
+  background:
+    linear-gradient(180deg,
+      color-mix(in srgb, var(--stage-color) 13%, #09213b),
+      #071b30 75%);
+  box-shadow:
+    inset 0 -3px 0 color-mix(in srgb, var(--stage-color) 70%, transparent),
+    0 5px 18px rgba(0, 0, 0, .16);
+  transition: transform .2s ease, box-shadow .2s ease;
+}
+.wf-stage:hover {
+  transform: translateY(-3px);
+  box-shadow:
+    0 0 18px color-mix(in srgb, var(--stage-color) 20%, transparent),
+    inset 0 -3px 0 var(--stage-color);
+}
+/* 颜色变体：与 8 阶段调色板一一对应 */
+.wf-stage--reassign        { --stage-color: #a99cff; }
+.wf-stage--waitAccept      { --stage-color: #249cff; }
+.wf-stage--arriveSite      { --stage-color: #20d5ef; }
+.wf-stage--waitProcess     { --stage-color: #ffad32; }
+.wf-stage--leaveSite       { --stage-color: #35baff; }
+.wf-stage--waitConfirmFO   { --stage-color: #ff922b; }
+.wf-stage--waitConfirm     { --stage-color: #00c9c5; }
+.wf-stage--closed          { --stage-color: #35df7d; }
+
+/* 序号徽章：43×43 圆、压顶半出卡，营造"镶嵌"感 */
+.wf-number {
+  display: flex; align-items: center; justify-content: center;
+  width: 43px; height: 43px;
+  margin: -33px auto 10px;
+  position: relative;
+  border-radius: 50%;
+  border: 2px solid var(--stage-color);
+  background: #103354;
+  color: #fff;
+  font-size: 18px; font-weight: 800; line-height: 1;
+  font-variant-numeric: tabular-nums;
+  box-shadow: 0 0 15px color-mix(in srgb, var(--stage-color) 35%, transparent);
+}
+.wf-stage--reassign .wf-number        { background: #4f3f9a; }
+.wf-stage--waitAccept .wf-number      { background: #1a4a82; }
+.wf-stage--arriveSite .wf-number      { background: #0e6b8a; }
+.wf-stage--waitProcess .wf-number     { background: #a85c0a; }
+.wf-stage--leaveSite .wf-number       { background: #1f6c9b; }
+.wf-stage--waitConfirmFO .wf-number   { background: #a85c0a; }
+.wf-stage--waitConfirm .wf-number     { background: #0a7878; }
+.wf-stage--closed .wf-number          { background: #16834a; }
+
+/* 图标圆 */
+.wf-icon {
+  display: flex; align-items: center; justify-content: center;
+  width: 42px; height: 42px;
+  margin: 0 auto 10px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--stage-color) 23%, #09213b);
+  color: var(--stage-color);
+  font-size: 22px;
+  line-height: 1;
+}
+
+/* 字段统一基线：阶段名（中）/ 阶段名（英）/ 数量 / 占比 / 进度条 */
+.wf-name {
+  min-height: 18px; margin: 0;
+  color: var(--wf-text);
+  font-size: 13px; font-weight: 750;
+  overflow-wrap: anywhere;
+  line-height: 1.2;
+}
+.wf-name-en {
+  min-height: 16px; margin-top: 3px;
+  color: var(--wf-muted);
+  font-size: 10.5px; font-weight: 600; letter-spacing: .4px;
+  text-transform: uppercase;
+  line-height: 1.2;
+}
+.wf-count {
+  margin-top: 12px;
+  color: var(--stage-color);
+  font-size: clamp(20px, 1.9vw, 28px);
+  font-weight: 850; line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+.wf-percent {
+  margin-top: 4px;
+  color: var(--stage-color);
+  font-size: 13px; font-weight: 700; line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+}
+.wf-progress {
+  height: 6px; margin-top: 12px;
+  overflow: hidden; border-radius: 10px;
+  background: #153954;
+}
+.wf-progress > span {
+  display: block;
+  width: var(--progress, 0%);
+  height: 100%;
+  border-radius: inherit;
+  background: var(--stage-color);
+  box-shadow: 0 0 8px var(--stage-color);
+}
+
+/* 节点间箭头：固定挂在节点右上 1/3 处，绝对定位溢出后由 .wo-workflow overflow:hidden 裁掉 */
+.wf-arrow {
+  position: absolute;
+  top: 92px;
+  right: -19px;
+  z-index: 2;
+  color: var(--wf-cyan);
+  font-size: 26px; line-height: 1;
+  pointer-events: none;
+  text-shadow: 0 0 12px rgba(32, 213, 239, .55);
+}
+.wf-arrow::before { content: '\203A'; } /* › */
+
+/* Waiting Status 底部面板 */
+.wf-bottom {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr) minmax(0, 1fr) minmax(170px, 1.2fr);
+  gap: 12px;
+  align-items: center;
+  margin-top: 22px;
+  padding: 13px;
+  border: 1px solid #104777;
+  border-radius: 12px;
+  background: linear-gradient(110deg, #092744, #071c32);
+}
+.wf-wait-heading {
+  color: var(--wf-orange); font-size: 13px; font-weight: 750;
+}
+.wf-wait-heading small {
+  display: block; margin-top: 5px;
+  color: var(--wf-muted); font-size: 11px; font-weight: 400;
+}
+.wf-wait-item {
+  display: flex; justify-content: space-between; align-items: center;
+  gap: 8px; min-width: 0;
+  padding: 11px;
+  border: 1px solid #17466e; border-radius: 9px;
+  background: rgba(12, 52, 86, .65);
+}
+.wf-wait-label {
+  color: #dcecff; font-size: 11px; line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.wf-wait-label small {
+  display: block; color: var(--wf-muted); font-size: 10px;
+}
+.wf-wait-count {
+  color: var(--wf-orange); font-size: 22px; font-weight: 800; line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.wf-direction {
+  padding-left: 14px; border-left: 1px solid #17466e;
+  color: var(--wf-muted); font-size: 11px; line-height: 1.8;
+}
+.wf-direction strong {
+  display: block; color: var(--wf-cyan);
+  font-size: 13px; white-space: nowrap; font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 响应式 */
+@media (max-width: 1280px) {
+  .wo-workflow { padding: 20px 14px 16px; }
+  .wf-stages { gap: 18px; }
+  .wf-arrow { right: -16px; font-size: 22px; top: 88px; }
+}
+@media (max-width: 900px) {
+  .wo-workflow { padding: 18px 12px; }
+  .wf-stages { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 22px 14px; }
+  .wf-arrow { display: none; } /* grid 自动换行后箭头方向会变怪，直接隐藏 */
+  .wf-bottom {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .wf-wait-heading, .wf-direction { grid-column: 1 / -1; }
+  .wf-direction { padding: 8px 0 0; border-left: 0; border-top: 1px solid #17466e; }
+}
+@media (max-width: 480px) {
+  .wo-workflow { padding: 16px 8px; }
+  .wf-stages { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px 10px; }
+  .wf-title { font-size: 16px; }
+  .wf-bottom { grid-template-columns: minmax(0, 1fr); }
+  .wf-wait-heading, .wf-direction { grid-column: auto; }
+  .wf-direction strong { white-space: normal; }
+}

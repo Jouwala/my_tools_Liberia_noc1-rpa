@@ -1,12 +1,17 @@
 // TT&WO Dashboard 前端页面 - Warehouse 暗色科技风
 import { useEffect, useState, useMemo, useCallback } from 'react'
+// ReactNode：2026-10-19 Workflow 卡片化里 STAGE_ICON 的类型标注用
+import type { ReactNode } from 'react'
 import { cachedGet } from '../cache'
 import { Card, Row, Col, Select, Segmented, DatePicker, Space, Tag, Tooltip, Empty, Spin, Alert, Table, Input, Button, Badge, Tabs } from 'antd'
 import {
   ClockCircleOutlined,
   AlertOutlined, TagsOutlined, BarChartOutlined,
   PieChartOutlined, EnvironmentOutlined, TeamOutlined,
-  DownloadOutlined, SearchOutlined, FilterOutlined
+  DownloadOutlined, SearchOutlined, FilterOutlined,
+  // 2026-10-19 Workflow 卡片化新增图标
+  RetweetOutlined, InboxOutlined, ToolOutlined, ExportOutlined,
+  CheckCircleOutlined, CheckOutlined,
 } from '@ant-design/icons'
 import ReactECharts from 'echarts-for-react'
 import * as echarts from 'echarts'
@@ -1280,103 +1285,179 @@ export default function TTWODashboard({ only, source }: { only?: TTWOOnly; sourc
     )
   }
 
+  /* 2026-10-19 重写：Workflow 卡片化步骤条
+   * 替换说明：保留函数名 renderStatusMilestones 以最小化对调用点与 watch 监听的影响；
+   * 实现从「圆点 + 渐变线」改为「CSS Grid 步骤条 + 节点卡片 + 数字徽章 + 进度条 + 底部
+   * Waiting Status 面板」，并复用 statusMilestones / statusMilestoneTotal —— 0 新 API。
+   * 视觉规范由 .wo-workflow / .wf-* 命名空间承担（见 index.css），
+   * 节点尺寸 / 文字基线 / 数字基线 / 进度条高度 / 箭头位置全部走 CSS 锁死，
+   * 这里只输出"数据"与"结构"，让 CSS 控制"外观"。*/
   const renderStatusMilestones = () => {
-    const { buckets, others } = statusMilestones
-    const list: Array<{ key: string; labelKey: string; total: number; rows: Array<[string, number]> }> = [
-      ...buckets.filter(b => b.total > 0 || b.rows.length > 0),
-      ...(others.length ? [{ key: 'other', labelKey: 'ttwo.milestone.other', total: others.reduce((a, [, n]) => a + n, 0), rows: others }] : []),
-    ]
-    if (!list.length) {
-      return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('common.noData')} />
+    // 阶段颜色映射（与 CSS 里 .wf-stage--<key> 一一对应，命名同步）——
+    // 颜色复制到 inline style 是因为 CSS 变量在 grid 节点上要按运行时 key 注入，
+    // 没法纯靠 className 同时满足「8 阶段 key 动态决定」+「CSS 命名空间隔离」。
+    const STAGE_CSS_CLASS: Record<string, string> = {
+      reassign: 'wf-stage--reassign',
+      waitAccept: 'wf-stage--waitAccept',
+      arriveSite: 'wf-stage--arriveSite',
+      waitProcess: 'wf-stage--waitProcess',
+      leaveSite: 'wf-stage--leaveSite',
+      waitConfirmFO: 'wf-stage--waitConfirmFO',
+      waitConfirm: 'wf-stage--waitConfirm',
+      closed: 'wf-stage--closed',
     }
-    // 占比分母统一取 statusMilestoneTotal，保证「悬浮说明里的分母」与「页面上的百分比」
-    // 是同一个数（这里 list 已过滤掉空阶段，用局部合计会与全局口径不一致）。
+    // 节点图标映射（按 ttwo.milestoneIcon.<key> 的 i18n 值取 antd icon 组件，
+    // 而不是再开一套 icon 名字典）—— 这层映射只做"字符串 -> 组件"，纯前端。
+    const STAGE_ICON: Record<string, ReactNode> = {
+      reassign: <RetweetOutlined />,
+      waitAccept: <InboxOutlined />,
+      arriveSite: <EnvironmentOutlined />,
+      waitProcess: <ToolOutlined />,
+      leaveSite: <ExportOutlined />,
+      waitConfirmFO: <CheckCircleOutlined />,
+      waitConfirm: <ClockCircleOutlined />,
+      closed: <CheckOutlined />,
+    }
+    // 阶段展示顺序：按 STATUS_MILESTONES 的声明顺序（与上游 eFlow Workflow History 一致）
+    // —— 阶段数固定为 8（reassign..closed），缺数据时 total=0 也照样展示一格空节点。
+    // 这点与旧"圆点"不同：旧版会过滤掉 total=0 的阶段（buckets.filter），
+    // 新版固定 8 格才能让"序号 → 阶段"严格对应（8 个工单状态机节点 1:1），
+    // 进度条 / 占比用 0% 自然表达"该阶段暂无工单"，与"无数据"区分。
+    const ordered = statusMilestones.buckets
+    // 起一个"按键找桶"的索引，方便 Waiting Status 面板取 arriveSite 子集
+    const byKey = new Map(ordered.map(b => [b.key, b]))
+    const arriveBucket = byKey.get('arriveSite')
+    // arriveSite 桶的 rows 里精确挑出 Waiting for Departure / Arrive Site；
+    // 都不存在时显示 0（不报错、不空态）—— 与新版的"严格展示 8 阶段"对齐。
+    const findStatusCount = (rows: Array<[string, number]>, raw: string): number => {
+      const hit = rows.find(([k]) => k === raw)
+      return hit ? hit[1] : 0
+    }
+    // Waiting for Departure 含两变体（普通 + Suspended），Waiting for Arrive Site 单变体。
+    // 注意：只在这里做"展示用拆分"，节点本身的 total 仍是合并值（保证 8 阶段合计 = WO 总数），
+    // 下钻接口 / 数字一致性不受影响。
+    const waitDepartureCount = arriveBucket
+      ? (findStatusCount(arriveBucket.rows, 'Waiting for Departure')
+        + findStatusCount(arriveBucket.rows, 'Waiting for Departure(Suspended)'))
+      : 0
+    const waitArriveCount = arriveBucket
+      ? findStatusCount(arriveBucket.rows, 'Waiting for Arrive Site')
+      : 0
+    // 标题前缀：根据数据源在 TT / WO 间切换（与 /wo-dashboard overview 一致）
+    const isWo = isWoSource
+    const titlePrefix = isWo ? 'WORK ORDER' : 'TICKET'
     const total = statusMilestoneTotal
     return (
-      <Row gutter={[0, 12]} wrap={false} style={{ overflowX: 'auto', padding: 'var(--wh-space-sm) 0' }}>
-        {list.map((g, idx) => {
-          const color = MILESTONE_COLORS[g.key] || MILESTONE_FALLBACK_COLOR
-          const pct = total > 0 ? (g.total / total) * 100 : 0
-          const single = g.rows.length === 1
-          const isLast = idx === list.length - 1
-          return (
-            <Col key={g.key} flex="1 0 7.5rem" style={{ minWidth: '7.5rem' }}>
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, position: 'relative' }}>
-                {/* 连接线与箭头：绝对定位挂在节点右缘，最后一段不画 */}
-                {!isLast && (
-                  <span aria-hidden style={{
-                    position: 'absolute', top: 28, left: '50%', width: '100%', height: 2,
-                    background: `linear-gradient(90deg, ${color}55, var(--wh-border,#334155) 50%, ${color}55)`,
-                    zIndex: 0,
-                  }} />
-                )}
-                {/* 圆点：**整个节点都可点**（2026-10-18 改）。多状态阶段不再禁用 ——
-                    下钻走 values 集合（后端 status IN (...)），弹窗行数 = 节点数字。
-                    悬浮给完整计算说明（含构成明细、占比分母、下钻口径）。 */}
-                <Tooltip title={milestoneTooltip(g)} placement="top">
-                  <button
-                    type="button"
-                    onClick={(e) => drillMilestone(e, g.rows)}
-                    aria-label={`${t(g.labelKey)} ${fmt(g.total)}`}
-                    style={{
-                      position: 'relative', zIndex: 1,
-                      width: 56, height: 56, borderRadius: '50%',
-                      background: `${color}22`, border: `2px solid ${color}`,
-                      boxShadow: `0 0 14px ${color}55`,
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      cursor: 'pointer',
-                      color, fontSize: '1.125rem', fontWeight: 800,
-                      padding: 0,
-                      // 键盘可达：与卡片等其他可下钻元素一致
-                      transition: 'box-shadow 0.15s ease',
-                    }}
-                  >
-                    {fmt(g.total)}
-                  </button>
-                </Tooltip>
-                {/* 阶段名与圆点同色、同字重、同字号 —— 同一行里程碑字色统一，
-                    颜色只用于区分阶段身份，不用于区分强调。 */}
-                <span style={{ fontSize: '0.75rem', fontWeight: 700, color, textAlign: 'center', whiteSpace: 'nowrap' }}>
-                  {t(g.labelKey)}
-                </span>
-                {/* 占比同样可点：与圆点同一个下钻口径（多状态阶段走 values 集合） */}
-                <Tooltip title={milestoneTooltip(g)}>
-                  <button
-                    type="button"
-                    onClick={(e) => drillMilestone(e, g.rows)}
-                    style={{
-                      background: 'none', border: 'none', padding: 0, cursor: 'pointer',
-                      fontSize: '0.6875rem', fontWeight: 600, color,
-                    }}
-                  >
-                    {pct.toFixed(1)}%
-                  </button>
-                </Tooltip>
-                {/* 多原值阶段：逐条列出，各自可点，保证「数字 = 下钻行数」 */}
-                {!single && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 2, alignItems: 'center' }}>
-                    {g.rows.map(([raw, n]) => (
-                      <Tooltip key={raw} title={`${raw} · ${fmt(n)} — ${t('ttwo.milestone.ttRowDrill')}`}>
-                        <button
-                          type="button"
-                          onClick={(e) => openDrilldown(e, 'status', raw)}
-                          style={{
-                            background: 'none', border: 'none', padding: 0,
-                            cursor: 'pointer', fontSize: '0.6875rem', fontWeight: 600, color,
-                            textDecoration: 'underline dotted', textUnderlineOffset: 2,
-                          }}
-                        >
-                          {raw} {fmt(n)}
-                        </button>
-                      </Tooltip>
-                    ))}
+      <div
+        className="wo-workflow"
+        role="region"
+        aria-label={t('ttwo.statusMilestone')}
+        // 节点列数：固定 8 阶段，让 grid --wf-cols=8 → repeat(8, 1fr) 自动平分整行。
+        // 平板 / 手机断点下改 repeat(4) / repeat(2)，由 CSS 媒体查询接管。
+        style={{ ['--wf-cols' as any]: 8 }}
+      >
+        <header className="wf-header">
+          <div>
+            <h2 className="wf-title">
+              {titlePrefix} <span className="wf-title-accent">WORKFLOW</span>
+            </h2>
+            <div className="wf-subtitle">
+              {t('ttwo.workflowSubtitle')}
+            </div>
+          </div>
+          <div className="wf-live" aria-live="polite">● {t('ttwo.workflowLive')}</div>
+        </header>
+
+        <div className="wf-stages" role="list">
+          {ordered.map((g, idx) => {
+            const stageNo = String(idx + 1).padStart(2, '0')
+            // 进度条宽度：占 statusMilestoneTotal 的比例。
+            // 0 进度时仍展示 0%（数字本身已是 0），不画空进度条。
+            const pct = total > 0 ? (g.total / total) * 100 : 0
+            const enName = t(`ttwo.milestoneEn.${g.key}`)
+            const cnName = t(`ttwo.milestoneCn.${g.key}`)
+            return (
+              <Tooltip
+                key={g.key}
+                // 复用原 milestoneTooltip —— 计算口径、构成明细、占比分母、下钻提示全部沿用，
+                // 鼠标悬浮看「这个数怎么来、点下去会下钻哪些原始状态」。
+                title={milestoneTooltip(g)}
+                placement="top"
+              >
+                <article
+                  role="listitem"
+                  className={`wf-stage ${STAGE_CSS_CLASS[g.key] || ''}`}
+                  // 节点整体可点下钻（沿用旧版的"圆点=整个节点都可点"语义）：
+                  // 多状态阶段走 values 集合（后端 status IN (...)），单状态走 value，
+                  // 弹窗行数恒等于节点数字。
+                  onClick={(e) => drillMilestone(e, g.rows)}
+                  // 键盘可达：Enter / Space 触发下钻
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault()
+                      drillMilestone(e as unknown as React.MouseEvent, g.rows)
+                    }
+                  }}
+                  // 数据 / 进度条 inline 注入：颜色由 className 提供（不在 inline 重复定义），
+                  // 进度值 --progress 注入是为了让 CSS 端只读、JS 端只写，职责清晰。
+                  style={{ ['--progress' as any]: `${pct.toFixed(2)}%` }}
+                  aria-label={`${stageNo} ${enName} ${g.total} ${pct.toFixed(1)}%`}
+                >
+                  <div className="wf-number">{stageNo}</div>
+                  <div className="wf-icon" aria-hidden="true">
+                    {STAGE_ICON[g.key] || <ClockCircleOutlined />}
                   </div>
-                )}
-              </div>
-            </Col>
-          )
-        })}
-      </Row>
+                  {/* 节点字段顺序固定：英文名 / 中文名 / 数量 / 占比 / 进度条。
+                      中文名空时省略整行（en dictionary 下不显示重复的"等待确认"之类）。 */}
+                  <h3 className="wf-name">{enName}</h3>
+                  {cnName && <div className="wf-name-en">{cnName}</div>}
+                  <div className="wf-count">{fmt(g.total)}</div>
+                  <div className="wf-percent">{pct.toFixed(1)}%</div>
+                  <div className="wf-progress" aria-hidden="true">
+                    <span />
+                  </div>
+                  {/* 节点间箭头：定位在节点右缘中部（CSS 已固定 top/right），
+                      末段不画。CSS 里 .wf-arrow::before 输出 › 字符 + text-shadow 发光。 */}
+                  {idx < ordered.length - 1 && <span className="wf-arrow" aria-hidden="true" />}
+                </article>
+              </Tooltip>
+            )
+          })}
+        </div>
+
+        {/* 底部 Waiting Status 面板 —— 仅展示从 arriveSite 桶里拆出来的两个原始状态。
+            数据来源与上方节点同一份 statusMilestones，0 新 API；
+            数字精确到原始 status 维度，与节点上的 arriveSite total 满足
+            waitDeparture + waitArrive + 其它（如有）= arriveSite.total。 */}
+        <footer className="wf-bottom">
+          <div className="wf-wait-heading">
+            ◷ {t('ttwo.workflow.waitTitleEn')}
+            <small>{t('ttwo.workflow.waitTitle')}</small>
+          </div>
+          <div className="wf-wait-item">
+            <div className="wf-wait-label">
+              {t('ttwo.workflow.waitDepartureEn')}
+              <small>{t('ttwo.workflow.waitDeparture')}</small>
+            </div>
+            <div className="wf-wait-count">{fmt(waitDepartureCount)}</div>
+          </div>
+          <div className="wf-wait-item">
+            <div className="wf-wait-label">
+              {t('ttwo.workflow.waitArriveEn')}
+              <small>{t('ttwo.workflow.waitArrive')}</small>
+            </div>
+            <div className="wf-wait-count">{fmt(waitArriveCount)}</div>
+          </div>
+          <div className="wf-direction">
+            {t('ttwo.workflow.directionTitle')}
+            <strong>{t('ttwo.workflow.directionValue')}</strong>
+            <small style={{ display: 'block', marginTop: 4, opacity: 0.85 }}>
+              {t('ttwo.workflow.directionNote')}
+            </small>
+          </div>
+        </footer>
+      </div>
     )
   }
 

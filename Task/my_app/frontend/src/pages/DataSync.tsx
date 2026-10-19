@@ -774,7 +774,15 @@ export default function DataSync() {
 
     // 时间线作用域毫秒 → 绝对时刻，供展示与 Tooltip 使用。
     const renderTs = (ts: number) => ts - offsetMs
-    return { start, end, dated, startTs, endTs, laneOf, laneCount: laneFreeAt.length, renderTs }
+    // 「现在」在时间线窗口内的位置（百分比）。
+    // 在窗口内：返回实际百分比；窗口外（拖到昨天/明天）：返回 null，UI 不画「现在」标记。
+    // 用来支持「现在」垂直标记线 + 未来区域渐变蒙层，解释「右侧点少 = 还没发生」。
+    const nowPercent = (() => {
+      if (!Number.isFinite(nowLocal)) return null
+      if (nowLocal < startTs || nowLocal > endTs) return null
+      return ((nowLocal - startTs) / (endTs - startTs)) * 100
+    })()
+    return { start, end, dated, startTs, endTs, laneOf, laneCount: laneFreeAt.length, renderTs, nowPercent }
   }, [allTasks, timelineRuns, timelineNowMs, timelineHours, timelineStartTs, timelineWidth])
 
   // 时间轴基线与容器高度随实际泳道数自适应：向上展开的泳道不能被裁掉。
@@ -1182,6 +1190,34 @@ export default function DataSync() {
             border: '1px solid var(--wh-subtle-border)', borderRadius: 'var(--wh-radius-lg)',
             background: 'var(--wh-subtle-bg)', overflow: 'hidden', touchAction: 'none', cursor: 'grab',
           }}>
+          {/* 未来区域渐变蒙层：从「现在」向右渐变到完全透明。
+              解释右半边点稀疏的视觉感——不是数据缺失，是「还没发生」。
+              z-index 1 压在时间轴刻度线（无 z-index）上方，但被点（z-index 2）覆盖。 */}
+          {timeline.nowPercent !== null && (
+            <div
+              aria-hidden
+              style={{
+                position: 'absolute',
+                // 用内层 wrapper + 满宽定位，避免 CSS calc 中 %*% 不被支持。
+                // 外层对齐到时间线左右内边距（0.75rem），与时间轴基线保持同款。
+                left: '0.75rem',
+                right: '0.75rem',
+                top: 0,
+                bottom: '1.125rem',
+                pointerEvents: 'none',
+                zIndex: 1,
+              }}
+            >
+              <div style={{
+                position: 'absolute',
+                left: `${timeline.nowPercent}%`,
+                top: 0,
+                bottom: 0,
+                right: 0,
+                background: 'linear-gradient(to right, rgba(0,0,0,0) 0%, rgba(0,0,0,0.18) 100%)',
+              }} />
+            </div>
+          )}
           <div style={{ position: 'absolute', left: '0.75rem', right: '0.75rem', top: axisBox.axis, height: 2, background: 'var(--wh-subtle-border)' }} />
           {Array.from({ length: 5 }).map((_, i) => (
             <div key={i} style={{ position: 'absolute', left: `${i * 25}%`, top: `calc(${axisBox.axis} - 0.4rem)`, width: 1, height: '0.8rem', background: 'var(--wh-subtle-border)' }} />
