@@ -942,6 +942,39 @@ html {
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
   pointer-events: none; /* 标签不拦点击，点击落到针身 */
 }
+/* 人员位置地图（?page=person）的两行徽标样式（2026-10-19）。
+   ⚠️ 只作用于 .gis-person-badge 内部的**新增子元素**，不改 .gis-person-badge 本身 ——
+   那个类 GIS 页的人员图层也在用（单行「未清除:0/17」），改父级会连带改掉 GIS 页。 */
+.gis-person-badge-name {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+  font-weight: 600;
+  color: var(--wh-text, #333);
+}
+.gis-person-badge-name i {
+  font-style: normal;
+  font-weight: 400;
+  font-size: 0.625rem;
+  color: var(--wh-text-secondary, #888);
+}
+.gis-person-badge-stats {
+  display: block;
+  margin-top: 1px;
+  font-size: 0.625rem;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.gis-person-badge-stats b {
+  font-weight: 700;
+  margin-right: 1px;
+}
+.gis-person-badge-stats em {
+  font-style: normal;
+  margin: 0 3px;
+  opacity: 0.5;
+}
+
 .gis-personnel-status {
   position: absolute;
   left: var(--wh-space-md, 12px);
@@ -2015,6 +2048,7 @@ html {
   --wf-live-border: #087d94;                   /* LIVE 徽标描边 */
   --wf-live-bg: rgba(0, 217, 255, .08);
   --wf-arrow-glow: rgba(32, 213, 239, .55);    /* 节点间箭头的柔光 */
+  --wf-subrow-divider: rgba(145, 179, 212, .28); /* 子状态列表与上方内容的分隔虚线 */
   /* 序号徽章底色（深色档 = 阶段色的暗版，保证白字对比度） */
   --wf-num-reassign: #4f3f9a;
   --wf-num-waitAccept: #1a4a82;
@@ -2186,6 +2220,48 @@ html {
   box-shadow: 0 0 8px var(--stage-color);
 }
 
+/* 子状态明细（2026-10-19 补回卡片化时丢失的信息）：
+ * 多原始状态阶段在进度条下逐条列出「原始状态名 + 该状态单数」，
+ * 每条是一个下钻按钮（点击 stopPropagation，不触发节点整体下钻）。
+ * 状态名是上游英文串，不翻译；允许折行（最长如
+ * `Waiting for FO Process(WO Dispatched FE Handling)`）。 */
+.wf-subrows {
+  margin: 10px 0 0;
+  padding: 8px 0 0;
+  list-style: none;
+  border-top: 1px dashed var(--wf-subrow-divider);
+  display: flex; flex-direction: column; gap: 2px;
+  text-align: left;
+}
+.wf-subrow {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 6px; width: 100%;
+  padding: 2px 4px;
+  background: none; border: 0; border-radius: 4px;
+  color: var(--wf-muted);
+  font: inherit; font-size: 10px; font-weight: 600; line-height: 1.35;
+  text-align: left; cursor: pointer;
+  transition: background .15s ease, color .15s ease;
+}
+.wf-subrow:hover,
+.wf-subrow:focus-visible {
+  background: color-mix(in srgb, var(--stage-color) 14%, transparent);
+  color: var(--wf-text);
+}
+.wf-subrow:focus-visible { outline: 2px solid var(--stage-color); outline-offset: -2px; }
+.wf-subrow-name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+}
+.wf-subrow-count {
+  flex: none;
+  color: var(--stage-color);
+  font-variant-numeric: tabular-nums;
+  font-weight: 800;
+}
+
 /* 节点间箭头：固定挂在节点右上 1/3 处，绝对定位溢出后由 .wo-workflow overflow:hidden 裁掉 */
 .wf-arrow {
   position: absolute;
@@ -2239,6 +2315,7 @@ html {
   --wf-live-border: rgba(13, 148, 136, 0.35);
   --wf-live-bg: rgba(13, 148, 136, 0.08);
   --wf-arrow-glow: rgba(14, 116, 144, 0);  /* 浅底不需要柔光，归零 */
+  --wf-subrow-divider: rgba(94, 125, 143, .26);
 
   /* 序号徽章：深色档是「暗底白字」，浅色档翻成「浅色 tint + 阶段深色文字」，
      所以 .wf-number 的 color 也要跟着改（见下一条规则）。 */

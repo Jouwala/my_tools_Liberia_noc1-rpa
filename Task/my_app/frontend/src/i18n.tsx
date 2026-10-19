@@ -2126,6 +2126,9 @@ const translations: Record<Locale, Record<string, string>> = {
     'ttwo.milestoneEn.waitConfirmFO': '',
     'ttwo.milestoneEn.waitConfirm': '',
     'ttwo.milestoneEn.closed': '',
+    // WO 侧「离场」节点用（TT 阶段表不含此节点，但键必须存在，
+    // 否则 en 界面会直接渲染出 `ttwo.milestoneEn.leaveSite` 原文）
+    'ttwo.milestoneEn.leaveSite': '',
     //  - 阶段中文别名：zh 字典填中文、en 字典空串
     'ttwo.milestoneCn.reassign': '派单',
     'ttwo.milestoneCn.waitAccept': '受理',
@@ -2136,6 +2139,7 @@ const translations: Record<Locale, Record<string, string>> = {
     'ttwo.milestoneCn.waitConfirmFO': '现场确认',
     'ttwo.milestoneCn.waitConfirm': '待确认',
     'ttwo.milestoneCn.closed': '已关闭',
+    'ttwo.milestoneCn.leaveSite': '离场',
     //  - 节点图标（antd icon name，组件按 key 取）
     'ttwo.milestoneIcon.reassign': 'retweet',
     'ttwo.milestoneIcon.waitAccept': 'inbox',
@@ -2150,6 +2154,13 @@ const translations: Record<Locale, Record<string, string>> = {
     // WO 侧阶段链不同（到场拆成出发与到达两步），副标题单独一条
     'ttwo.workflowSubtitleWo': '工单生命周期 · 派单 → 受理 → 等待出发 → 等待到达现场 → 处理 → 离场 → 现场确认 → 待确认 → 关闭',
     'ttwo.workflowLive': '实时数据',
+    // 卡片主标题的前缀词（2026-10-19）：此前在组件里硬编码 'TICKET' / 'WORK ORDER'，
+    // 中文界面也会露出英文，现改为按语言取词。后缀 WORKFLOW 保持英文不译
+    // —— 它是产品内的固定术语，与本页其余模块（Auto Report / GIS Map）一致。
+    // 中文用业务上通行的叫法区分两页：TT = 故障单，WO = 工单。
+    // 若都译成「工单」，TT 页与 WO 页标题会完全一样，失去区分度。
+    'ttwo.workflowTitleTicket': '故障单',
+    'ttwo.workflowTitleWo': '工单',
     // 2026-10-19 移除底部 Waiting Status 与 Order Flow Direction 面板，
     // 其 9 个文案键（waitTitle/waitDeparture/waitArrive/direction*）随之删除。
     'ttwo.workflow.noData': '所选范围内无工单',
@@ -2842,7 +2853,10 @@ const translations: Record<Locale, Record<string, string>> = {
     'person.mapHint': '点击人员选中并查看其站点；点击地图空白处取消',
     'person.clearSelection': '取消选中',
     'person.badgeLabel': '未清除',
-    'person.badgeHint': '未清除告警 {uncleared} 单 / 未关闭 {open} 单',
+    'person.badgeHint': '{name}（{phone}）· 未关闭 WO {open} 单 · 负责站点 {sites} 个 · 未清除告警 {uncleared} 单',
+    // 徽标第二行的缩写后缀（紧跟数字，不空格）：如「3 单」「16 站」
+    'person.badgeOpenShort': ' 单',
+    'person.badgeSitesShort': ' 站',
     'person.siteId': '站点ID',
     'person.county': '县',
     'person.siteHasAlarm': '当前有实时告警',
@@ -6325,6 +6339,7 @@ const translations: Record<Locale, Record<string, string>> = {
     'ttwo.milestoneEn.waitConfirmFO': 'Field Confirm',
     'ttwo.milestoneEn.waitConfirm': 'Wait Confirm',
     'ttwo.milestoneEn.closed': 'Closed',
+    'ttwo.milestoneEn.leaveSite': 'Leave Site',
     'ttwo.milestoneCn.reassign': '',
     'ttwo.milestoneCn.waitAccept': '',
     'ttwo.milestoneCn.arriveSite': '',
@@ -6334,6 +6349,7 @@ const translations: Record<Locale, Record<string, string>> = {
     'ttwo.milestoneCn.waitConfirmFO': '',
     'ttwo.milestoneCn.waitConfirm': '',
     'ttwo.milestoneCn.closed': '',
+    'ttwo.milestoneCn.leaveSite': '',
     'ttwo.milestoneIcon.reassign': 'retweet',
     'ttwo.milestoneIcon.waitAccept': 'inbox',
     'ttwo.milestoneIcon.arriveSite': 'environment',
@@ -6345,6 +6361,8 @@ const translations: Record<Locale, Record<string, string>> = {
     'ttwo.workflowSubtitle': 'Ticket lifecycle · Dispatch → Accept → Process → Field Confirm → Wait Confirm → Closed',
     'ttwo.workflowSubtitleWo': 'Work-order lifecycle · Dispatch → Accept → Waiting for Departure → Waiting for Arrive Site → Process → Leave Site → Field Confirm → Wait Confirm → Closed',
     'ttwo.workflowLive': 'Live Data',
+    'ttwo.workflowTitleTicket': 'TICKET',
+    'ttwo.workflowTitleWo': 'WORK ORDER',
     // Removed 2026-10-19 with the Waiting Status / Order Flow Direction panels.
     'ttwo.workflow.noData': 'No tickets in the selected range',
     // Milestone tooltips (2026-10-18): spell out the composition, the percentage
@@ -7021,7 +7039,10 @@ const translations: Record<Locale, Record<string, string>> = {
     'person.mapHint': 'Click a person to select and see their sites; click empty map to clear',
     'person.clearSelection': 'Clear selection',
     'person.badgeLabel': 'Uncleared',
-    'person.badgeHint': '{uncleared} uncleared alarm / {open} unclosed',
+    'person.badgeHint': '{name} ({phone}) · {open} open WO · {sites} sites · {uncleared} uncleared alarms',
+    // 徽标第二行的缩写后缀（紧跟数字，不空格）：如「3 WOs」「16 sites」
+    'person.badgeOpenShort': ' WO',
+    'person.badgeSitesShort': ' st',
     'person.siteId': 'Site ID',
     'person.county': 'County',
     'person.siteHasAlarm': 'Active alarm now',

@@ -141,6 +141,29 @@ for (const file of files) {
     usedKeys.get(key).add(rel(file))
   }
 
+  // -------------------- [1a] 收集模板调用 t(`prefix.${expr}`) 的**全部候选键**
+  // 背景（2026-10-19 补）：上一条正则只认单引号字面量，于是
+  //   t(`ttwo.milestoneEn.${g.key}`) 这种模板调用**完全逃过检查** ——
+  // 实测漏掉了 milestoneEn.leaveSite / milestoneCn.leaveSite 两个键，
+  // build 全绿、界面上却直接露出 `ttwo.milestoneEn.leaveSite` 原文。
+  //
+  // 做法：抽出静态前缀（如 `ttwo.milestoneEn.`），把它与字典里同前缀的键
+  // 求交集 —— 凡是在字典里出现过的同族键，都必须**两本字典都有**。
+  // 局限：只能校验「字典里已存在的同族键」，无法凭空推断一个都没出现过的键；
+  // 覆盖不到时靠 tmplPrefixes 的提示行让人工确认。
+  for (const m of src.matchAll(/\bt\(\s*`([^`$\n]*)\$\{/g)) {
+    const prefix = m[1]
+    if (!prefix) continue
+    // 取两本字典的并集：任一侧出现过的同族键都要求「两边都有」
+    const family = new Set()
+    for (const k of zhKeys) if (k.startsWith(prefix)) family.add(k)
+    for (const k of enKeys) if (k.startsWith(prefix)) family.add(k)
+    for (const k of family) {
+      if (!usedKeys.has(k)) usedKeys.set(k, new Set())
+      usedKeys.get(k).add(`${rel(file)} (模板前缀 ${prefix})`)
+    }
+  }
+
   // ------------------------------- [1b] 收集 labelKey: '...'（间接引用的文案键）
   // 背景（2026-10-06 补）：侧栏/页面标题不写 t('nav.xxx')，而是把键名放进
   // PAGE_META / DEFAULT_GROUPS / FINEBI_BOARDS 的 labelKey 字段，由

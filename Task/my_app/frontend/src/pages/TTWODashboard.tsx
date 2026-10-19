@@ -1411,7 +1411,8 @@ export default function TTWODashboard({ only, source }: { only?: TTWOOnly; sourc
         <header className="wf-header">
           <div>
             <h2 className="wf-title">
-              {isWoSource ? 'WORK ORDER' : 'TICKET'} <span className="wf-title-accent">WORKFLOW</span>
+              {t(isWoSource ? 'ttwo.workflowTitleWo' : 'ttwo.workflowTitleTicket')}{' '}
+              <span className="wf-title-accent">WORKFLOW</span>
             </h2>
             <div className="wf-subtitle">
               {t(isWoSource ? 'ttwo.workflowSubtitleWo' : 'ttwo.workflowSubtitle')}
@@ -1469,6 +1470,38 @@ export default function TTWODashboard({ only, source }: { only?: TTWOOnly; sourc
                   <div className="wf-progress" aria-hidden="true">
                     <span />
                   </div>
+                  {/* 子状态明细（2026-10-19 补回）：卡片化改造时丢失了旧版
+                      「多原值阶段逐条列出原始状态 + 单数」的信息，只剩合计，
+                      值班无法看出该阶段里各状态各占多少。
+                      规则与旧版一致：
+                        · 只有一个原始状态时不用列（数字本身就是它）；
+                        · 多个原始状态时逐条列出，每条各自可点、按该状态单值下钻，
+                          保证「点的数字 == 弹窗行数」；
+                        · 点击要 stopPropagation，否则会同时触发节点整体的
+                          「多状态下钻」，叠出两个弹窗。
+                      原始状态名是上游英文状态串，按项目约定**不翻译**。 */}
+                  {g.rows.length > 1 && (
+                    <ul className="wf-subrows">
+                      {g.rows.map(([raw, n]) => (
+                        <li key={raw}>
+                          <Tooltip title={`${raw} · ${fmt(n)} — ${t('ttwo.milestone.ttRowDrill')}`}>
+                            <button
+                              type="button"
+                              className="wf-subrow"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                openDrilldown(e, 'status', raw)
+                              }}
+                              onKeyDown={(e) => e.stopPropagation()}
+                            >
+                              <span className="wf-subrow-name">{raw}</span>
+                              <span className="wf-subrow-count">{fmt(n)}</span>
+                            </button>
+                          </Tooltip>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                   {/* 节点间箭头：定位在节点右缘中部（CSS 已固定 top/right），
                       末段不画。CSS 里 .wf-arrow::before 输出 › 字符 + text-shadow 发光。 */}
                   {idx < renderStages.length - 1 && <span className="wf-arrow" aria-hidden="true" />}
