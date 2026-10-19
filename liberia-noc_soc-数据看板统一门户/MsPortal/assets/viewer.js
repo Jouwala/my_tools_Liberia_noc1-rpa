@@ -35,6 +35,29 @@
   }
 
   var DATA = window.MS_PORTAL_DATA || { items: [], groups: [] };
+  /* 全局层排序（2026-10-19 加）：服务端 catalog.order = {分组id: [看板编号,…]}。
+     为什么必须有：左侧列表原来只按 clicks 降序排，而 olbrportal/v3 用的是
+     「order 优先、clicks 兜底」——FLM View 里 clips 全为 0 时前者退化成按
+     data.js 文件顺序（5,68,77,82），后者按 order（77,5,68,82），两边对不上。
+     口径**逐字照抄** olbr.js 的 sorter()（:259-268）与 portal.js 的 normOrderMap()
+     （:1643-1658），两边不一致就是本次这类问题的复发源。 */
+  var orderGlobal = null;
+  function normOrderMap(raw) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+    var out = {};
+    Object.keys(raw).forEach(function (gid) {
+      var arr = raw[gid];
+      if (!Array.isArray(arr)) return;
+      var seq = [];
+      arr.forEach(function (x) {
+        var n = parseInt(x, 10);
+        // 去重必须做：indexOf 只认第一个，重复编号会让后面的位置永远排不上
+        if (!isNaN(n) && n >= 0 && seq.indexOf(n) === -1) seq.push(n);
+      });
+      out[gid] = seq;
+    });
+    return out;
+  }
   var LANG = (function () {
     /* 判定优先级（2026-09-30 定口径，与 viewer.html 首屏脚本、portal.js 完全一致）：
          URL 的 ?lang=  >  本站点键 msportal.lang.v1  >  门户键 olbr.lang  >  浏览器语言
@@ -222,6 +245,10 @@
         if (items && items.length) {
           /* 2026-09-28：一并把 catalog.subGroups 传下去（BO View 的页签分组）。
              它和 items 同在一次响应里，不需要额外请求。 */
+          /* 2026-10-19：catalog.order 同一响应里带回来，**必须在 reloadCatalog 之前**
+             赋值 —— reloadCatalog 会调 recomputeList() 重排 LIST，晚了这次渲染
+             还是旧顺序（要再刷一次才对）。 */
+          orderGlobal = normOrderMap(data.catalog.order);
           if (applyCatalog(items, data.catalog.subGroups)) reloadCatalog();
           try { localStorage.removeItem(LS_CATALOG); } catch (e) { /* ignore */ }
           return;
@@ -257,9 +284,22 @@
   function groupMeta(gid) {
     return (DATA.groups || []).filter(function (g) { return g.id === gid; })[0] || { id: gid, zh: gid, en: gid };
   }
+  /* 同组清单排序。与 olbr.js sorter() 同口径（2026-10-19）：
+     ① 分组在 catalog.order 里**有数组**时，数组内的按序号排、未列出的排到最后；
+        没有 order 数组时才整体回落到 clicks 降序 + no 升序。
+     ⚠️ 不能写成「order 命中的优先、其余仍按 clicks 混排」以外的规则 ——
+        这正是 olbrportal 首页的判据，改一边必须同步另一边。 */
   function siblingsOf(gid) {
+    var seq = orderGlobal ? orderGlobal[gid] : null;
+    if (!Array.isArray(seq)) seq = null;
     return (DATA.items || []).filter(function (it) { return groupsOf(it).indexOf(gid) !== -1; })
-      .sort(function (a, b) { return (b.clicks || 0) - (a.clicks || 0); });
+      .sort(function (a, b) {
+        if (seq) {
+          var ia = seq.indexOf(a.no), ib = seq.indexOf(b.no);
+          if (ia !== -1 || ib !== -1) return ia === -1 ? 1 : ib === -1 ? -1 : ia - ib;
+        }
+        return (b.clicks || 0) - (a.clicks || 0) || (a.no || 0) - (b.no || 0);
+      });
   }
 
   // ---- 可内嵌判定：仅 my_app 深链（同源、无 X-Frame-Options）可 iframe ----

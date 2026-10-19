@@ -2290,7 +2290,14 @@
      过滤而不是直接映射：state.groups 里可能还有 System Admin / Knowledge Q&A /
      Friends Link / Archived 等分组，它们不属于这六张卡，必须滤掉（成员名单不变）。
      state.groups 尚未加载时（或老目录里缺某个 id）用 V6_GROUPS 兜底补全 ——
-     宁可顺序退回出厂值，也不能让某一列凭空消失。 */
+     宁可顺序退回出厂值，也不能让某一列凭空消失。
+
+     ⚠️ 2026-10-19：本函数读 state.groups，而 loadCatalog 只在 `c.groups` **非空**
+     时才覆盖它（见该函数）。所以「服务端目录缺 groups」时本页会退回内置
+     olbr-data.js 的 T0+T1+T2 顺序（CXO→SP→MS→FLM→FO→BO），
+     而 MsPortal 的 allGroups() 读它自己那份 data.js，Base 顺序本就不同。
+     真正的统一点是服务端 catalog.groups：有它，读写它的页面就一致。
+     排查「列顺序对不上」先看 /api/portal-catalog 返回的 catalog.groups。 */
   function v6Gids() {
     var known = {};
     V6_GROUPS.forEach(function (g) { known[g] = 1; });

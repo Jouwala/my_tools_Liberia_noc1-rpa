@@ -8,6 +8,16 @@
 
 export const TZ_UTC = 'UTC'
 
+/**
+ * 服务器时区相对 UTC 的偏移（小时）。
+ *
+ * 后端调度器（APScheduler）与 task_execution_log 的时间戳都是 UTC，全站展示也按 UTC。
+ * 当运维要求按本地时间阅读时，只改这一处即可让「时间线 / 计划点」等需要做本地日历
+ * 运算的视图整体平移；展示层字符串仍保持 UTC 口径，两者不混用。
+ * 默认 0 = 完全按 UTC（与后端一致）。
+ */
+export const SERVER_TZ_OFFSET_HOURS = 0
+
 const pad2 = (n: number) => String(n).padStart(2, '0')
 
 /** 解析后端时间：number 视为 Unix 秒；naive 字符串视为 UTC。解析失败返回 null。 */

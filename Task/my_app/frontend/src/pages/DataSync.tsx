@@ -34,7 +34,12 @@ import {
 } from '@ant-design/icons'
 import api from '../api'
 import { useI18n } from '../i18n'
-import { formatDateTime, parseServerDate } from '../datetime'
+import { formatDateTime, parseServerDate, SERVER_TZ_OFFSET_HOURS } from '../datetime'
+
+// 服务器时刻（UTC / naive 字符串）→ 时间线作用域毫秒数（= 绝对时刻 + 时区偏移）。
+// 与 timelineNowMs 同一口径；不使用 parseServerDate(...).getTime()，避免各处重复加偏移时漏写。
+const parseTimelineMs = (value: string | number | Date | null | undefined): number =>
+  (parseServerDate(value)?.getTime() ?? Number.NaN) + SERVER_TZ_OFFSET_HOURS * 3_600_000
 import { useTaskStatus } from '../TaskStatusContext'
 import { cachedGet, invalidateCache } from '../cache'
 import { speak, warmSpeech } from '../utils/speak'
@@ -252,6 +257,11 @@ export default function DataSync() {
     const timer = window.setInterval(() => setNowTs(Date.now()), 30_000)
     return () => window.clearInterval(timer)
   }, [])
+
+  // 时间线当前时刻（服务器时区作用域内的毫秒数，见 datetime.ts 的 SERVER_TZ_OFFSET_HOURS）。
+  // 时间线内部所有时刻都用这个作用域，避免浏览器本地时区（如 UTC+8）与
+  // 服务器 UTC 时钟混算，导致「此刻」被错画在 19 点而刻度仍是 6 点。
+  const timelineNowMs = nowTs + SERVER_TZ_OFFSET_HOURS * 3_600_000
 
   // 实时刷新：每 60s 强制重新拉取任务列表，使失败横幅与状态卡片反映最新执行结果
   // （页面原仅在挂载/手动刷新/任务完成时拉数，长时间打开会停留在旧快照，表现为"不是实时的"）
@@ -670,18 +680,30 @@ export default function DataSync() {
   }
 
   // 时间线默认以当天 00:00–24:00 展示；缩小后以当前时刻为中心，便于看清密集任务。
+  //
+  // 时区口径（2026-10-19 修正）：后端调度器与 task_execution_log.started_at 都是 UTC，
+  // 而此前的窗口用 `new Date(nowTs).setHours(0,0,0,0)` 按**浏览器本地时区**取当天零点、
+  // 再与 UTC 换算出来的 nowTs 直接比较，于是「现在」的点与 00–24h 刻度错开一个时区偏移
+  // （UTC+8 下表现为：刻度显示 6 点，代表当前的蓝点却落在 19 点）。
+  // 现在统一在「服务器时区作用域」里计算：绝对毫秒 + SERVER_TZ_OFFSET_HOURS，
+  // 视窗边界、点位、cron 展开、当前时刻全部使用同一作用域，渲染时再减去偏移还原绝对时刻。
   const timeline = useMemo(() => {
-    const dayStart = new Date(nowTs)
-    dayStart.setHours(0, 0, 0, 0)
+    const offsetMs = SERVER_TZ_OFFSET_HOURS * 3_600_000
+    const nowLocal = timelineNowMs
+    // 服务器时区下"今天"的零点，换算回绝对毫秒
+    const dayStartTs = Math.floor((nowLocal + offsetMs) / 86_400_000) * 86_400_000 - offsetMs
     const defaultStartTs = timelineHours === 24
-      ? dayStart.getTime()
-      : nowTs - (timelineHours * 60 * 60 * 1000) / 2
+      ? dayStartTs
+      : nowLocal - (timelineHours * 60 * 60 * 1000) / 2
     const start = new Date(timelineStartTs ?? defaultStartTs)
-    if (timelineStartTs === null && timelineHours !== 24) start.setMinutes(0, 0, 0)
+    if (timelineStartTs === null && timelineHours !== 24) start.setUTCMinutes(0, 0, 0)
     const end = new Date(start.getTime() + timelineHours * 60 * 60 * 1000)
     const startTs = start.getTime()
     const endTs = end.getTime()
-    // 一个时间点 → 时间轴坐标。窗外仍保留 outside 标记，避免把边界误读为执行时间。
+    // 一个时间点 → 时间轴坐标。ts 为服务器时区作用域的毫秒数；
+    // 只保留绝对时刻用于 Tooltip 与 API 参数，换算交给 renderTs()。
+    // 时间线只画窗口内的点。此前把窗外点 clamp 到 0%/100%，导致几天前的执行记录
+    // 被堆到时间轴两端、看起来像"今天刚执行过"；outside 的点在渲染时直接丢弃。
     const toPoint = (ts: number | null) =>
       ts === null || !Number.isFinite(ts)
         ? null
@@ -694,29 +716,31 @@ export default function DataSync() {
     // next_run 仍作为调度器真实的下一次时间用于 Tooltip；Cron 解析失败时回退只画该点。
     const dated = allTasks
       .map((task, index) => {
-        const nextTs = parseServerDate(task.next_run)?.getTime() ?? Number.NaN
+        const nextTs = parseTimelineMs(task.next_run)
         const taskRuns = timelineRuns.filter(run => run.task_id === task.task_id)
+        // 只在日志接口没有返回任何该任务记录（请求失败 / 兜底路径）时，才退回 recent_runs；
+        // 并同样限定在窗口内，避免昨天的记录被画到今天。
         const fallbackRuns = taskRuns.length === 0 ? (task.recent_runs || []).filter(run => {
-          const ts = parseServerDate(run.started_at)?.getTime() ?? Number.NaN
-          return Number.isFinite(ts) && ts >= startTs && ts <= Math.min(endTs, nowTs)
+          const ts = parseTimelineMs(run.started_at)
+          return Number.isFinite(ts) && ts >= startTs && ts <= Math.min(endTs, nowLocal)
         }) : []
         const mappedRuns = [...taskRuns, ...fallbackRuns].map((run, runIndex) => ({
           run,
           key: `${task.task_id}:run:${runIndex}`,
-          point: toPoint(parseServerDate(run.started_at)?.getTime() ?? Number.NaN),
+          point: toPoint(parseTimelineMs(run.started_at)),
         })).filter(item => item.point !== null) as { run: RunRecord; key: string; point: NonNullable<ReturnType<typeof toPoint>> }[]
         // 时间轴按真实执行时间展示完整历史：成功与失败记录均保留，避免灰色成功点异常偏少。
         // point.ts 直接来自 run.started_at，因此每个点都对应实际执行时刻。
         const runs = mappedRuns
         // 绿色只表示尚未发生的计划执行；历史时间不能继续标成 Scheduled。
-        const scheduledTs = task.enabled ? cronTimesInWindow(task.current_cron, Math.max(startTs, nowTs), endTs) : []
-        if (scheduledTs.length === 0 && Number.isFinite(nextTs) && nextTs >= nowTs) scheduledTs.push(nextTs)
+        const scheduledTs = task.enabled ? cronTimesInWindow(task.current_cron, Math.max(startTs, nowLocal), endTs) : []
+        if (scheduledTs.length === 0 && Number.isFinite(nextTs) && nextTs >= nowLocal) scheduledTs.push(nextTs)
         return {
           task,
           index,
           parsed: Number.isFinite(nextTs) ? nextTs : null,
           runs,
-          running: (runningMap[task.task_id] || localRunning.has(task.task_id)) && nowTs >= startTs && nowTs <= endTs ? toPoint(nowTs) : null,
+          running: (runningMap[task.task_id] || localRunning.has(task.task_id)) && nowLocal >= startTs && nowLocal <= endTs ? toPoint(nowLocal) : null,
           scheduled: scheduledTs.map(ts => toPoint(ts)).filter((point): point is NonNullable<ReturnType<typeof toPoint>> => point !== null),
         }
       })
@@ -730,9 +754,10 @@ export default function DataSync() {
     const laneOf = new Map<string, number>()
     dated
       .flatMap(item => [
-        ...item.runs.map(({ key, point }) => ({ key, percent: point.percent })),
+        // 窗外点不渲染，也不参与泳道分配，否则会把泳道撑高却看不到点。
+        ...item.runs.filter(({ point }) => !point.outside).map(({ key, point }) => ({ key, percent: point.percent })),
         ...(item.running ? [{ key: `${item.task.task_id}:running`, percent: item.running.percent }] : []),
-        ...item.scheduled.map((point, pointIndex) => ({ key: `${item.task.task_id}:scheduled:${pointIndex}`, percent: point.percent })),
+        ...item.scheduled.filter(point => !point.outside).map((point, pointIndex) => ({ key: `${item.task.task_id}:scheduled:${pointIndex}`, percent: point.percent })),
       ])
       .filter(d => typeof d.percent === 'number')
       .sort((a, b) => (a.percent as number) - (b.percent as number))
@@ -747,8 +772,10 @@ export default function DataSync() {
         laneOf.set(d.key, lane)
       })
 
-    return { start, end, dated, startTs, endTs, laneOf, laneCount: laneFreeAt.length }
-  }, [allTasks, timelineRuns, nowTs, timelineHours, timelineStartTs, timelineWidth])
+    // 时间线作用域毫秒 → 绝对时刻，供展示与 Tooltip 使用。
+    const renderTs = (ts: number) => ts - offsetMs
+    return { start, end, dated, startTs, endTs, laneOf, laneCount: laneFreeAt.length, renderTs }
+  }, [allTasks, timelineRuns, timelineNowMs, timelineHours, timelineStartTs, timelineWidth])
 
   // 时间轴基线与容器高度随实际泳道数自适应：向上展开的泳道不能被裁掉。
   // 时间线组件压缩：泳道间距、上下留白和轴下方刻度区约为原来的 1/2。
@@ -782,10 +809,15 @@ export default function DataSync() {
     return () => ro.disconnect()
   }, [])
 
+  // 缩放/拖动都用内区宽度换算：容器左右 padding 各 0.5rem，
+  // 若直接拿 getBoundingClientRect().width 当分母，锚点会随缩放逐渐漂移。
+  const TIMELINE_PAD_PX = 8
+
   const handleTimelineWheel = (e: ReactWheelEvent<HTMLDivElement>) => {
     e.preventDefault()
     const rect = e.currentTarget.getBoundingClientRect()
-    const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
+    const inner = Math.max(1, rect.width - TIMELINE_PAD_PX * 2)
+    const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left - TIMELINE_PAD_PX) / inner))
     const currentDuration = timeline.endTs - timeline.startTs
     const cursorTs = timeline.startTs + ratio * currentDuration
     const factor = e.deltaY < 0 ? 0.8 : 1.25
@@ -805,7 +837,8 @@ export default function DataSync() {
     const drag = timelineDragRef.current
     if (!drag || drag.pointerId !== e.pointerId) return
     const rect = e.currentTarget.getBoundingClientRect()
-    const deltaTs = ((e.clientX - drag.startX) / rect.width) * (timeline.endTs - timeline.startTs)
+    const inner = Math.max(1, rect.width - TIMELINE_PAD_PX * 2)
+    const deltaTs = ((e.clientX - drag.startX) / inner) * (timeline.endTs - timeline.startTs)
     setTimelineStartTs(drag.startTs - deltaTs)
   }
 
@@ -827,8 +860,9 @@ export default function DataSync() {
         const params = new URLSearchParams({
           limit: '5000',
           offset: '0',
-          start: new Date(timeline.startTs).toISOString(),
-          end: new Date(Math.min(timeline.endTs, nowTs)).toISOString(),
+          // timeline.startTs/endTs 是服务器时区作用域的毫秒数，请求前换算回绝对时刻。
+          start: new Date(timeline.renderTs(timeline.startTs)).toISOString(),
+          end: new Date(Math.min(timeline.renderTs(timeline.endTs), nowTs)).toISOString(),
         })
         const res = await api.get(`/tasks/history?${params.toString()}`)
         setTimelineRuns(res.data.history || [])
@@ -1161,18 +1195,21 @@ export default function DataSync() {
             const executedText = latestRun?.started_at
               ? formatDateTime(latestRun.started_at, { zone: true })
               : (locale === 'zh' ? '暂无执行记录' : 'No execution record')
-            const fmt = (ts: number) => formatDateTime(ts, { zone: true })
+            // 点位 ts 处于时间线作用域，展示前换算回绝对时刻（与时间轴刻度同一换算）。
+            // 注意：必须传入 Date 对象而非毫秒数给 formatDateTime，否则 parseServerDate 会把
+            // 毫秒时间戳错误地当作「秒」处理（乘以 1000），导致显示公元 58767 年。
+            const fmt = (ts: number) => formatDateTime(new Date(timeline.renderTs(ts)), { zone: true })
 
             // 灰色仅表示每个任务最近一次成功，直径略小以降低视觉噪声
             const sizeOf = (color: string, hollow: boolean) =>
               !hollow && color === WH.tlDone ? '0.2rem' : '0.35rem'
             const dots = [
-              ...runs.map(({ run, key, point }) => {
+              ...runs.filter(({ point }) => !point.outside).map(({ run, key, point }) => {
                 const color = run.success ? WH.tlDone : WH.tlFail
                 return { kind: key.slice(task.task_id.length + 1), point, color, label: run.success ? (locale === 'zh' ? '执行成功' : 'Succeeded') : (locale === 'zh' ? '执行失败' : 'Failed'), hollow: false, size: sizeOf(color, false), run }
               }),
               ...(running ? [{ kind: 'running', point: running, color: WH.blue, label: locale === 'zh' ? '运行中' : 'Running', hollow: false, size: '0.39rem', run: undefined }] : []),
-              ...scheduled.map((point, pointIndex) => ({ kind: `scheduled:${pointIndex}`, point, color: nextColor, label: nextLabel, hollow: false, size: '0.29rem', run: undefined })),
+              ...scheduled.filter(point => !point.outside).map((point, pointIndex) => ({ kind: `scheduled:${pointIndex}`, point, color: nextColor, label: nextLabel, hollow: false, size: '0.29rem', run: undefined })),
             ] as {
               kind: string; point: { ts: number; percent: number; outside: boolean }; color: string; label: string; hollow: boolean; size: string; run?: RunRecord
             }[]
@@ -1184,9 +1221,11 @@ export default function DataSync() {
                 <div style={{ minWidth: '11rem' }}>
                   <div style={{ fontWeight: 600, marginBottom: 4 }}>{task.name}</div>
                   <div style={{ color: d.color, marginBottom: 4 }}>{d.label}</div>
-                  <div>{d.run ? (locale === 'zh' ? '执行时刻：' : 'Executed at: ') + fmt(d.point.ts) : (locale === 'zh' ? '最近执行：' : 'Last run: ') + executedText}</div>
-                  <div>{d.kind.startsWith('scheduled:') ? (locale === 'zh' ? '计划时刻：' : 'Scheduled at: ') + fmt(d.point.ts) : d.kind === 'running' ? (locale === 'zh' ? '当前时刻：' : 'Current time: ') + fmt(d.point.ts) : (locale === 'zh' ? '触发方式：' : 'Trigger: ') + (d.run?.trigger || '-')}</div>
-                  <div>{locale === 'zh' ? '设置：' : 'Schedule: '}{task.current_cron}</div>
+                  <div>{d.run ? (locale === 'zh' ? '执行时刻：' : 'Executed at: ') + fmt(d.point.ts) : d.kind === 'running' ? (locale === 'zh' ? '当前时刻：' : 'Current time: ') + fmt(d.point.ts) : (locale === 'zh' ? '计划时刻：' : 'Scheduled at: ') + fmt(d.point.ts)}</div>
+                  {!d.run && <div style={{ color: 'var(--wh-text-dim, #8c8c8c)' }}>{(locale === 'zh' ? '最近执行：' : 'Last run: ') + executedText}</div>}
+                  {d.run && <div>{(locale === 'zh' ? '触发方式：' : 'Trigger: ') + (d.run.trigger || '-')}</div>}
+                  <div>{locale === 'zh' ? '设置：' : 'Schedule: '}{task.current_cron}{' '}
+                    <span style={{ color: 'var(--wh-text-dim, #8c8c8c)' }}>({t('sync.tzUtc')})</span></div>
                   {d.point.outside && <div style={{ color: '#ffd666' }}>{locale === 'zh' ? `该点位实际在时间窗外（${fmt(d.point.ts)}）` : `Actually outside window (${fmt(d.point.ts)})`}</div>}
                 </div>
               }>
@@ -1214,7 +1253,11 @@ export default function DataSync() {
             ))
           })}
           {[0, 0.25, 0.5, 0.75, 1].map(ratio => {
-            const tick = new Date(timeline.start.getTime() + ratio * (timeline.end.getTime() - timeline.start.getTime()))
+            // 刻度取时间线作用域内的绝对毫秒，再经同一条换算展示，保证刻度与点位同源。
+            // 注意：必须传入 Date 对象而非毫秒数给 formatDateTime，否则 parseServerDate 会把
+            // 毫秒时间戳错误地当作「秒」处理（乘以 1000），导致刻度显示为公元 58767 年。
+            const tickTs = timeline.startTs + ratio * (timeline.endTs - timeline.startTs)
+            const tick = new Date(timeline.renderTs(tickTs))
             const tickLabel = formatDateTime(tick, { seconds: false }).slice(11)
             return (
               <span key={ratio} style={{ position: 'absolute', left: `calc(${ratio * 100}% - ${ratio === 1 ? 1.6 : ratio === 0 ? 0 : 0.8}rem)`, bottom: '0.25rem', color: WH.textDim, fontSize: '0.6875rem' }}>

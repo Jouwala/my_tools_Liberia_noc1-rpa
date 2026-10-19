@@ -1024,6 +1024,11 @@
     orderLocal: readJSON(LS.order, {}),
     /* 全局层顺序，来自服务端 catalog.order；未加载/未配置时为 null。 */
     orderGlobal: null,
+    /* 分组顺序，来自服务端 catalog.groups 的 id 数组（2026-10-19 加）。
+       未加载/未配置时为 null → allGroups() 用内置 DATA.groups 顺序。
+       与 orderGlobal 同一个来路（同一次 GET /api/portal-catalog 的响应），
+       区别是它管"分组之间"的次序，orderGlobal 管"分组之内"看板的次序。 */
+    groupOrder: null,
     /* 拓扑地图 4 个页签的显示名覆盖（2026-09-23 加），来自服务端 catalog.tabLabels：
        { 'gis': {zh:'…', en:'…'}, … }。未加载/未配置时为 null → 用 i18n 字典的内置文案。
        搬上服务端的理由与 groups/subGroups 当初一样：写死在代码里就只能改代码 + 强刷，
@@ -1361,6 +1366,18 @@
           /* 全局层拖拽顺序（2026-09-20 加）。未配置时为 null → byOrder 回落到
              「初始排序权重」，与这个功能上线前的顺序完全一致。 */
           state.orderGlobal = normOrderMap(data.catalog.order);
+          /* 分组顺序（2026-10-19 加）：catalog.groups 是**有序**数组
+             （后端注释：数组顺序即展示顺序、id 不可改），olbrportal 的 v2/v3
+             一直按它排六列，本页此前却没读它 —— 这就是「Team Dashboard Overview
+             与 MsPortal 分组顺序不一致」的根因。只取 id，名字仍由 data.js +
+             state.renames 决定（改名走另一条链路，见 allGroups()）。
+             ⚠️ 不能写成 .map(g => g.id) 后直接用：服务端可能混进 null / 非对象条目，
+             一个坏值会让 allGroups() 的 rank 表里多一个 "undefined" 键。 */
+          state.groupOrder = Array.isArray(data.catalog.groups)
+            ? data.catalog.groups.map(function (g) {
+                return g && typeof g === 'object' && g.id ? String(g.id) : null;
+              }).filter(Boolean)
+            : null;
           /* 地图页签名覆盖（2026-09-23 加）：与 order 同层，未配置时为 {} → 用内置文案 */
           state.tabLabels = normTabLabels(data.catalog.tabLabels);
           /* 旧数据迁移必须在任何编辑之前跑：把老的 boSub 搬进 subOf。
@@ -1407,6 +1424,15 @@
        否则「改一张看板的标题」会顺手把全局顺序抹掉（后端是整体替换，不带就是删掉）。 */
     var sentOrder = !!(state.orderGlobal && Object.keys(state.orderGlobal).length);
     if (sentOrder) payload.order = state.orderGlobal;
+    /* 分组顺序（2026-10-19 加）：与 order 同理必须**每次都带** —— 后端 _normalize_catalog
+       是白名单重拼，本次没带 groups 就等于把服务端那份分组顺序删掉，
+       「改一张看板的标题」会顺手把 olbrportal 六列的顺序打回内置值。
+       只在真拿到过服务端顺序时才带：从未读到过（catalog=null）就不要凭空造一份，
+       否则会把目录里本来"没配 groups"的状态改写成"配成内置顺序"。 */
+    var sentGroups = !!(state.groupOrder && state.groupOrder.length);
+    if (sentGroups) {
+      payload.groups = state.groupOrder.map(function (id) { return groupById(id); });
+    }
     /* 地图页签名覆盖（2026-09-23 加）：与 order 同理必须**每次都带**——后端是整体替换，
        不带就等于删掉，「改一张看板的标题」会顺手把页签名还原成内置文案。 */
     var lblMap = state.tabLabels || {};
@@ -1435,6 +1461,12 @@
       state.subGroups = normalizeSubMap(data.catalog && data.catalog.subGroups);
       state.orderGlobal = normOrderMap(data.catalog && data.catalog.order);
       state.tabLabels = normTabLabels(data.catalog && data.catalog.tabLabels);
+      /* 分组顺序以服务端归一化结果为准（与上面 GET 分支同一段解析）。 */
+      state.groupOrder = Array.isArray(data.catalog && data.catalog.groups)
+        ? data.catalog.groups.map(function (g) {
+            return g && typeof g === 'object' && g.id ? String(g.id) : null;
+          }).filter(Boolean)
+        : null;
       try {
         localStorage.removeItem(LS.catalog);
         localStorage.removeItem(LS.subGroups);
@@ -1505,10 +1537,40 @@
     });
   }
 
+  /* 分组的**显示顺序**（2026-10-19 修）。
+     用户反馈：/v3/olbrportal/ 的 Team Dashboard Overview 六列顺序
+     （CXO→MS→FLM→FO→BO→SP，来自服务端 catalog.groups）与本页的分组顺序对不上。
+     根因：本函数原来**只读内置 DATA.groups**，而 olbrportal 的 v2/v3 读的是
+     服务端 catalog.groups —— 目录里那份（可拖拽调整）对本页从未生效，
+     于是同一个目录在两个门户里排出两套顺序。
+     修法：服务端 catalog.groups 里出现的 id 按它的顺序排在前面，
+     内置表里**没在服务端列表里**的分组（老目录缺项 / 新增未同步）保持内置相对顺序跟在后面 ——
+     宁可顺序不完美，也不能因为目录少了一项就把那个区块整块弄丢。
+     ⚠️ 顺序只在"所有 id 都在"时完全等于服务端；缺项时剩余部分回落内置顺序。
+     与 olbr.js 的 v6Gids()（v3/olbrportal/assets/olbr.js:2304）是同一套判据，
+     **改一边要同步另一边**，否则两个门户又会分叉。
+
+     ⚠️⚠️ 本函数只决定"分组在**列表/菜单/筛选 chips**里的次序"，**不决定首页区块的位置**：
+     首页那几块是 index.html 里写死的三栏网格（secMs/secFlm 左栏、secSp 中栏、
+     secBo/secFo 右栏，见 renderSections 的 SLOT 表），按目录顺序任意重排会把版式拆散。
+     所以「首页区块位置」与「目录顺序」目前是**两件事**，不要去改 SLOT 来对齐它们 ——
+     要改版式请单独设计网格布局。 */
   function allGroups() {
     var out = DATA.groups.map(function (g) {
       return { id: g.id, zh: g.zh, en: g.en, subZh: g.subZh, subEn: g.subEn, style: g.style };
     });
+    var srv = state.groupOrder;
+    if (srv && srv.length) {
+      var rank = {};
+      srv.forEach(function (id, i) { if (!(id in rank)) rank[id] = i; });
+      /* 稳定排序：服务端有编号的按编号；没有的按"排到最后、保持原相对次序"。
+         idx 参与比较是为了让同 rank 的条目维持内置顺序（JS 的 sort 不保证稳定）。 */
+      out = out.map(function (g, i) { return { g: g, i: i }; }).sort(function (a, b) {
+        var ra = (a.g.id in rank) ? rank[a.g.id] : Infinity;
+        var rb = (b.g.id in rank) ? rank[b.g.id] : Infinity;
+        return ra === rb ? a.i - b.i : (ra < rb ? -1 : 1);
+      }).map(function (x) { return x.g; });
+    }
     var known = {};
     out.forEach(function (g) { known[g.id] = true; });
     (state.groups || []).forEach(function (g) {
