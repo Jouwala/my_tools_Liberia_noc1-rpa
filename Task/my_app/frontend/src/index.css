@@ -1978,13 +1978,16 @@ html {
  *  - 节点用 CSS Grid repeat(N, 1fr) 自动平分整行，N 取实际渲染的阶段数；
  *  - 每个节点 6 字段：序号 / 图标 / 英文名 / 中文名 / 数量 / 占比 + 进度条；
  *  - 节点间用 › 字符 + text-shadow 做柔光，末段不画；
- *  - 配色：深海军蓝背景（#06182d/#09213b）、青蓝色边框（#0874b9/#20d5ef）、
+ *  - 配色：深色档为深海军蓝背景、青蓝色强调；浅色档为白玻璃 + 深色阶阶段色。
+ *    两档都只通过下方 .wo-workflow / :root[data-theme='light'] .wo-workflow
+ *    的令牌切换，类规则本身无 data-theme 分支（2026-10-19 补浅色适配）。
  *    每阶段一色（--stage-color 由组件按阶段注入）。
  *  - 所有颜色 / 间距 / 圆角 / 发光都用独立 .wo-workflow 命名空间的 CSS 变量，
  *    不污染项目 --wh-* / 不被 .wh-card / .ant-* 覆盖。
  *  - 平板 ≤900px 三列、手机 ≤480px 两列，箭头隐藏（grid 自动换行后箭头方向会变怪）。
  */
 .wo-workflow {
+  /* ---------- 深色（默认）令牌 ---------- */
   --wf-bg: #06182d;
   --wf-panel: #09213b;
   --wf-line: #0874b9;
@@ -1997,6 +2000,36 @@ html {
   --wf-muted: #91b3d4;
   --wf-border-soft: #123e65;
   --wf-border-strong: #0874b9;
+  /* 2026-10-19 浅色适配：原先这些值直接写在各条规则里（#09213b / #071b30 /
+     #103354 / #153954 / #092744 / #071c32 / #104777 / #17466e / #dcecff），
+     浅色主题下整块呈现为「黑卡片」。收敛到令牌层后，浅色只需重定义变量，
+     类规则保持单一版本（与 index.css:369 「按主题切换只发生在令牌层」同一做法）。 */
+  --wf-head-glow: rgba(0, 112, 190, .18);      /* 头部径向辉光 */
+  --wf-stage-from: #09213b;                    /* 节点渐变起点混色基底 */
+  --wf-stage-to: #071b30;                      /* 节点渐变终点 */
+  --wf-stage-mix: 13%;                         /* 阶段色混入节点底的比例 */
+  --wf-stage-shadow: rgba(0, 0, 0, .16);       /* 节点投影 */
+  --wf-number-bg: #103354;                     /* 序号徽章默认底 */
+  --wf-icon-mix: 23%;                          /* 阶段色混入图标圆的比例 */
+  --wf-track-bg: #153954;                      /* 进度条轨道 */
+  --wf-bottom-border: #104777;                 /* 底部面板描边 */
+  --wf-bottom-bg: linear-gradient(110deg, #092744, #071c32);
+  --wf-item-border: #17466e;                   /* 底部条目 / 分隔线描边 */
+  --wf-item-bg: rgba(12, 52, 86, .65);         /* 底部条目底 */
+  --wf-item-text: #dcecff;                     /* 底部条目正文 */
+  --wf-live-border: #087d94;                   /* LIVE 徽标描边 */
+  --wf-live-bg: rgba(0, 217, 255, .08);
+  --wf-arrow-glow: rgba(32, 213, 239, .55);    /* 节点间箭头的柔光 */
+  /* 序号徽章底色（深色档 = 阶段色的暗版，保证白字对比度） */
+  --wf-num-reassign: #4f3f9a;
+  --wf-num-waitAccept: #1a4a82;
+  --wf-num-arriveSite: #0e6b8a;
+  --wf-num-waitProcess: #a85c0a;
+  --wf-num-leaveSite: #1f6c9b;
+  --wf-num-waitConfirmFO: #a85c0a;
+  --wf-num-waitConfirm: #0a7878;
+  --wf-num-closed: #16834a;
+  --wf-num-other: #3d5064;
 
   position: relative;
   width: 100%;
@@ -2005,7 +2038,7 @@ html {
   overflow: hidden;
   color: var(--wf-text);
   background:
-    radial-gradient(ellipse at 50% 0%, rgba(0, 112, 190, .18), transparent 65%),
+    radial-gradient(ellipse at 50% 0%, var(--wf-head-glow), transparent 65%),
     var(--wf-bg);
   border: 1px solid var(--wf-border-soft);
   border-radius: 14px;
@@ -2030,9 +2063,9 @@ html {
   margin-top: 5px; color: var(--wf-muted); font-size: 11px; letter-spacing: 1.2px;
 }
 .wf-live {
-  padding: 7px 12px; border: 1px solid #087d94; border-radius: 20px;
+  padding: 7px 12px; border: 1px solid var(--wf-live-border); border-radius: 20px;
   color: var(--wf-cyan); font-size: 11px; white-space: nowrap;
-  background: rgba(0, 217, 255, 0.08);
+  background: var(--wf-live-bg);
 }
 
 /* 节点网格：N 列由组件 inline style 注入 */
@@ -2054,11 +2087,11 @@ html {
   border-radius: 11px;
   background:
     linear-gradient(180deg,
-      color-mix(in srgb, var(--stage-color) 13%, #09213b),
-      #071b30 75%);
+      color-mix(in srgb, var(--stage-color) var(--wf-stage-mix), var(--wf-stage-from)),
+      var(--wf-stage-to) 75%);
   box-shadow:
     inset 0 -3px 0 color-mix(in srgb, var(--stage-color) 70%, transparent),
-    0 5px 18px rgba(0, 0, 0, .16);
+    0 5px 18px var(--wf-stage-shadow);
   transition: transform .2s ease, box-shadow .2s ease;
 }
 .wf-stage:hover {
@@ -2076,6 +2109,9 @@ html {
 .wf-stage--waitConfirmFO   { --stage-color: #ff922b; }
 .wf-stage--waitConfirm     { --stage-color: #00c9c5; }
 .wf-stage--closed          { --stage-color: #35df7d; }
+/* 「其他」= 未识别的原始状态（2026-10-19）。用中性灰表达「不在状态机里」，
+   既不被 8 个阶段误读，也不像红色那样暗示故障。 */
+.wf-stage--other           { --stage-color: #7c93ad; }
 
 /* 序号徽章：43×43 圆、压顶半出卡，营造"镶嵌"感 */
 .wf-number {
@@ -2085,20 +2121,23 @@ html {
   position: relative;
   border-radius: 50%;
   border: 2px solid var(--stage-color);
-  background: #103354;
+  background: var(--wf-number-bg);
   color: #fff;
   font-size: 18px; font-weight: 800; line-height: 1;
   font-variant-numeric: tabular-nums;
   box-shadow: 0 0 15px color-mix(in srgb, var(--stage-color) 35%, transparent);
 }
-.wf-stage--reassign .wf-number        { background: #4f3f9a; }
-.wf-stage--waitAccept .wf-number      { background: #1a4a82; }
-.wf-stage--arriveSite .wf-number      { background: #0e6b8a; }
-.wf-stage--waitProcess .wf-number     { background: #a85c0a; }
-.wf-stage--leaveSite .wf-number       { background: #1f6c9b; }
-.wf-stage--waitConfirmFO .wf-number   { background: #a85c0a; }
-.wf-stage--waitConfirm .wf-number     { background: #0a7878; }
-.wf-stage--closed .wf-number          { background: #16834a; }
+/* 序号徽章底色：深色档取「阶段色的深色版本」，浅色档改由
+   :root[data-theme='light'] 统一覆写为浅色 tint（见文件末尾浅色块）。 */
+.wf-stage--reassign .wf-number        { background: var(--wf-num-reassign); }
+.wf-stage--waitAccept .wf-number      { background: var(--wf-num-waitAccept); }
+.wf-stage--arriveSite .wf-number      { background: var(--wf-num-arriveSite); }
+.wf-stage--waitProcess .wf-number     { background: var(--wf-num-waitProcess); }
+.wf-stage--leaveSite .wf-number       { background: var(--wf-num-leaveSite); }
+.wf-stage--waitConfirmFO .wf-number   { background: var(--wf-num-waitConfirmFO); }
+.wf-stage--waitConfirm .wf-number     { background: var(--wf-num-waitConfirm); }
+.wf-stage--closed .wf-number          { background: var(--wf-num-closed); }
+.wf-stage--other .wf-number           { background: var(--wf-num-other); }
 
 /* 图标圆 */
 .wf-icon {
@@ -2106,7 +2145,7 @@ html {
   width: 42px; height: 42px;
   margin: 0 auto 10px;
   border-radius: 50%;
-  background: color-mix(in srgb, var(--stage-color) 23%, #09213b);
+  background: color-mix(in srgb, var(--stage-color) var(--wf-icon-mix), var(--wf-stage-from));
   color: var(--stage-color);
   font-size: 22px;
   line-height: 1;
@@ -2143,7 +2182,7 @@ html {
 .wf-progress {
   height: 6px; margin-top: 12px;
   overflow: hidden; border-radius: 10px;
-  background: #153954;
+  background: var(--wf-track-bg);
 }
 .wf-progress > span {
   display: block;
@@ -2163,7 +2202,7 @@ html {
   color: var(--wf-cyan);
   font-size: 26px; line-height: 1;
   pointer-events: none;
-  text-shadow: 0 0 12px rgba(32, 213, 239, .55);
+  text-shadow: 0 0 12px var(--wf-arrow-glow);
 }
 .wf-arrow::before { content: '\203A'; } /* › */
 
@@ -2175,9 +2214,9 @@ html {
   align-items: center;
   margin-top: 22px;
   padding: 13px;
-  border: 1px solid #104777;
+  border: 1px solid var(--wf-bottom-border);
   border-radius: 12px;
-  background: linear-gradient(110deg, #092744, #071c32);
+  background: var(--wf-bottom-bg);
 }
 .wf-wait-heading {
   color: var(--wf-orange); font-size: 13px; font-weight: 750;
@@ -2190,11 +2229,11 @@ html {
   display: flex; justify-content: space-between; align-items: center;
   gap: 8px; min-width: 0;
   padding: 11px;
-  border: 1px solid #17466e; border-radius: 9px;
-  background: rgba(12, 52, 86, .65);
+  border: 1px solid var(--wf-item-border); border-radius: 9px;
+  background: var(--wf-item-bg);
 }
 .wf-wait-label {
-  color: #dcecff; font-size: 11px; line-height: 1.5;
+  color: var(--wf-item-text); font-size: 11px; line-height: 1.5;
   overflow-wrap: anywhere;
 }
 .wf-wait-label small {
@@ -2204,8 +2243,94 @@ html {
   color: var(--wf-orange); font-size: 22px; font-weight: 800; line-height: 1;
   font-variant-numeric: tabular-nums;
 }
+
+/* ---------- 浅色主题（2026-10-19） ----------
+ * 沿用项目既有做法（index.css:369 注释）：主题切换只发生在令牌层，
+ * 下面的类规则一条都不需要 data-theme 分支。
+ *
+ * 与深色档的三点差异不只是「反色」：
+ *  1) 背景从「发光的深海蓝」变为「白玻璃」—— 与 .wh-card 同族，不自造第二套卡片语言；
+ *  2) 阶段色必须换深色阶：深色档的 #20d5ef / #35df7d / #249cff 在白底上对比度只有
+ *     1.5~2.2:1，读数与图标会糊成一片。浅色档统一取 500~600 级深色阶（约 4.5:1 以上）；
+ *  3) 辉光（box-shadow / text-shadow）改为柔和投影 —— 浅色底上辉光会变成脏雾。
+ * 背景用途见各变量注释，与深色块一一对应。
+ */
+:root[data-theme='light'] .wo-workflow {
+  --wf-bg: linear-gradient(155deg, #ffffff 0%, #f4f8fb 60%, #eef4f8 100%);
+  --wf-panel: #ffffff;
+  --wf-line: #b6cfe0;
+  --wf-cyan: #0e7490;          /* 深青：浅底上的「强调色」*/
+  --wf-blue: #1d6fb8;
+  --wf-teal: #0d9488;
+  --wf-orange: #c2410c;        /* 等待态读数：浅底需要暖色深阶才看得清 */
+  --wf-green: #15803d;
+  --wf-text: var(--wh-text);   /* 复用项目正文色，深浅一致 */
+  --wf-muted: var(--wh-text-dim);
+  --wf-border-soft: rgba(94, 125, 143, 0.28);
+  --wf-border-strong: rgba(13, 148, 136, 0.55);
+
+  --wf-head-glow: rgba(13, 148, 136, 0.07);
+  --wf-stage-from: #ffffff;    /* 节点渐变：白 → 极浅雾蓝 */
+  --wf-stage-to: #f6fafc;
+  --wf-stage-mix: 9%;          /* 白底上混太深会脏，比例比深色档低 */
+  --wf-stage-shadow: rgba(38, 70, 86, 0.10);
+  --wf-number-bg: #ffffff;
+  --wf-icon-mix: 12%;
+  --wf-track-bg: rgba(94, 125, 143, 0.18);
+  --wf-bottom-border: rgba(94, 125, 143, 0.24);
+  --wf-bottom-bg: linear-gradient(110deg, #f8fbfd, #eef4f8);
+  --wf-item-border: rgba(94, 125, 143, 0.20);
+  --wf-item-bg: rgba(255, 255, 255, 0.72);
+  --wf-item-text: var(--wh-text);
+  --wf-live-border: rgba(13, 148, 136, 0.35);
+  --wf-live-bg: rgba(13, 148, 136, 0.08);
+  --wf-arrow-glow: rgba(14, 116, 144, 0);  /* 浅底不需要柔光，归零 */
+
+  /* 序号徽章：深色档是「暗底白字」，浅色档翻成「浅色 tint + 阶段深色文字」，
+     所以 .wf-number 的 color 也要跟着改（见下一条规则）。 */
+  --wf-num-reassign: #ede9fe;
+  --wf-num-waitAccept: #dbeafe;
+  --wf-num-arriveSite: #cffafe;
+  --wf-num-waitProcess: #ffedd5;
+  --wf-num-leaveSite: #dbeafe;
+  --wf-num-waitConfirmFO: #ffedd5;
+  --wf-num-waitConfirm: #ccfbf1;
+  --wf-num-closed: #dcfce7;
+  --wf-num-other: #e8eef4;
+}
+
+/* 浅色档阶段名 / 读数的颜色来源不变（都取 --stage-color），
+   但徽章底色已翻成浅 tint，白字会看不见 → 徽章文字改用阶段深色。 */
+:root[data-theme='light'] .wf-number {
+  color: var(--stage-color);
+  box-shadow: none;
+}
+/* 浅色档阴影去掉辉光，改为与 .wh-card 一致的柔和投影 */
+:root[data-theme='light'] .wf-stage {
+  box-shadow:
+    inset 0 -3px 0 color-mix(in srgb, var(--stage-color) 70%, transparent),
+    0 2px 8px var(--wf-stage-shadow);
+}
+:root[data-theme='light'] .wf-stage:hover {
+  box-shadow:
+    inset 0 -3px 0 var(--stage-color),
+    0 10px 26px var(--wf-stage-shadow);
+}
+:root[data-theme='light'] .wf-progress > span {
+  box-shadow: none;
+}
+/* 浅色档的阶段色换深色阶（深色档的亮色在白底对比度不足） */
+:root[data-theme='light'] .wf-stage--reassign      { --stage-color: #7c3aed; }
+:root[data-theme='light'] .wf-stage--waitAccept    { --stage-color: #1d6fb8; }
+:root[data-theme='light'] .wf-stage--arriveSite    { --stage-color: #0e7490; }
+:root[data-theme='light'] .wf-stage--waitProcess   { --stage-color: #b45309; }
+:root[data-theme='light'] .wf-stage--leaveSite     { --stage-color: #0369a1; }
+:root[data-theme='light'] .wf-stage--waitConfirmFO { --stage-color: #c2410c; }
+:root[data-theme='light'] .wf-stage--waitConfirm   { --stage-color: #0f766e; }
+:root[data-theme='light'] .wf-stage--closed        { --stage-color: #15803d; }
+:root[data-theme='light'] .wf-stage--other         { --stage-color: #5b7288; }
 .wf-direction {
-  padding-left: 14px; border-left: 1px solid #17466e;
+  padding-left: 14px; border-left: 1px solid var(--wf-item-border);
   color: var(--wf-muted); font-size: 11px; line-height: 1.8;
 }
 .wf-direction strong {
@@ -2228,7 +2353,7 @@ html {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .wf-wait-heading, .wf-direction { grid-column: 1 / -1; }
-  .wf-direction { padding: 8px 0 0; border-left: 0; border-top: 1px solid #17466e; }
+  .wf-direction { padding: 8px 0 0; border-left: 0; border-top: 1px solid var(--wf-item-border); }
 }
 @media (max-width: 480px) {
   .wo-workflow { padding: 16px 8px; }

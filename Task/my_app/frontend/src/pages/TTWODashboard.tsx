@@ -11,7 +11,7 @@ import {
   DownloadOutlined, SearchOutlined, FilterOutlined,
   // 2026-10-19 Workflow 卡片化新增图标
   RetweetOutlined, InboxOutlined, ToolOutlined, ExportOutlined,
-  CheckCircleOutlined, CheckOutlined,
+  CheckCircleOutlined, CheckOutlined, QuestionCircleOutlined,
 } from '@ant-design/icons'
 import ReactECharts from 'echarts-for-react'
 import * as echarts from 'echarts'
@@ -1218,33 +1218,6 @@ export default function TTWODashboard({ only, source }: { only?: TTWOOnly; sourc
     )
   }
 
-  // 里程碑每阶段一色。沿用 incident_overview 的语义：进行中偏冷色、终态用绿、
-  // 需要人工跟进（确认 / RCA）用暖色。**文字颜色与圆点同色、字重与字号统一**，
-  // 保证同一行里程碑在视觉上是「同一层信息」（需求 2026-10-17：字体颜色要一样）。
-  // 数据来自 statusMilestones（见上方 useMemo），这里只按阶段 key 取色。
-  const MILESTONE_COLORS: Record<string, string> = {
-    reassign: isDark ? '#a99cff' : '#7c3aed',
-    waitAccept: isDark ? '#258cff' : '#0284c7',
-    arriveSite: isDark ? '#22b8cf' : '#0e7490',
-    waitProcess: isDark ? '#ffd43b' : '#ca8a04',
-    leaveSite: isDark ? '#22d3ee' : '#0891b2',
-    waitConfirm: isDark ? '#00d9ff' : '#0d9488',
-    waitConfirmFO: isDark ? '#ff922b' : '#ea580c',
-    closed: isDark ? '#0bc78c' : '#15803d',
-  }
-  const MILESTONE_FALLBACK_COLOR = isDark ? '#adb5bd' : '#64748b'
-
-  /**
-   * Status 里程碑渲染器：沿工单生命周期从左到右铺成「圆点 + 连接线」，
-   * 参照 page=incident_overview 的 status-line 版式。
-   *
-   * 交互契约（AGENTS.md 第三节 1b：数字必须可下钻，且下钻行数 == 数字）：
-   *   - 一个里程碑只有一个原始状态 → 整个圆点可点，下钻 dimension='status' value=原值；
-   *   - 一个里程碑有多个原始状态 → 圆点显示合计但**不可点**，下方逐条列出
-   *     各原始状态（名称 + 数字），各自可点。这样「点哪个数字就下钻哪一份」，
-   *     不会出现「节点 347，下钻 0」的对不上。
-   *   - 未识别的状态落到「其他」，同样不可点的合计 + 逐条下钻，绝不静默吞数。
-   */
   /**
    * 里程碑节点的下钻：按该阶段下的**原始状态集合**下钻。
    *
@@ -1305,6 +1278,8 @@ export default function TTWODashboard({ only, source }: { only?: TTWOOnly; sourc
       waitConfirmFO: 'wf-stage--waitConfirmFO',
       waitConfirm: 'wf-stage--waitConfirm',
       closed: 'wf-stage--closed',
+      // 第 9 格：未识别状态（仅在有单时渲染）
+      other: 'wf-stage--other',
     }
     // 节点图标映射（按 ttwo.milestoneIcon.<key> 的 i18n 值取 antd icon 组件，
     // 而不是再开一套 icon 名字典）—— 这层映射只做"字符串 -> 组件"，纯前端。
@@ -1317,6 +1292,7 @@ export default function TTWODashboard({ only, source }: { only?: TTWOOnly; sourc
       waitConfirmFO: <CheckCircleOutlined />,
       waitConfirm: <ClockCircleOutlined />,
       closed: <CheckOutlined />,
+      other: <QuestionCircleOutlined />,
     }
     // 阶段展示顺序：按 STATUS_MILESTONES 的声明顺序（与上游 eFlow Workflow History 一致）
     // —— 阶段数固定为 8（reassign..closed），缺数据时 total=0 也照样展示一格空节点。
@@ -1347,14 +1323,43 @@ export default function TTWODashboard({ only, source }: { only?: TTWOOnly; sourc
     const isWo = isWoSource
     const titlePrefix = isWo ? 'WORK ORDER' : 'TICKET'
     const total = statusMilestoneTotal
+    // 「其他」节点：未识别的原始状态（others）单列一格，绝不能吞掉 ——
+    // statusMilestoneTotal 的分母里含这部分，界面上就必须看得见；
+    // statusMilestoneExplain 也向值班承诺了「未识别的状态单列为其他」。
+    // 与 8 个固定阶段不同，它**只在有单时出现**（0 单没有展示价值），
+    // 作为第 9 格排在末尾，序号 / 列数随之调整。
+    const othersTotal = statusMilestones.others.reduce((a, [, n]) => a + n, 0)
+    const showOthers = othersTotal > 0
+    const cols = ordered.length + (showOthers ? 1 : 0)
+    // 空态：所选范围内一个可归类的工单都没有时，8 个 0 格 + 空面板没有信息量，
+    // 直接给空态（口径与旧版一致）。注意用 total 而非「所有格子都是 0」二者等价，
+    // 但 total 已包含 others，语义更直接。
+    if (total <= 0) {
+      return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('ttwo.workflow.noData')} />
+    }
+    // 统一渲染列表：8 个固定阶段 + （有单时）「其他」。
+    // 单独建这个数组是为了让序号 / 箭头末段判断 / 列数三者取自同一来源，
+    // 避免「ordered.length」与「实际渲染格数」两处各写一遍而分叉。
+    const renderStages = showOthers
+      ? [
+        ...ordered,
+        {
+          key: 'other',
+          labelKey: 'ttwo.milestone.other',
+          total: othersTotal,
+          rows: statusMilestones.others,
+        },
+      ]
+      : ordered
     return (
       <div
         className="wo-workflow"
         role="region"
         aria-label={t('ttwo.statusMilestone')}
-        // 节点列数：固定 8 阶段，让 grid --wf-cols=8 → repeat(8, 1fr) 自动平分整行。
-        // 平板 / 手机断点下改 repeat(4) / repeat(2)，由 CSS 媒体查询接管。
-        style={{ ['--wf-cols' as any]: 8 }}
+        // 节点列数：常态 8 阶段，出现「其他」时 9 列 —— 让 grid --wf-cols=N →
+        // repeat(N, 1fr) 自动平分整行。平板 / 手机断点下改 repeat(4) / repeat(2)，
+        // 由 CSS 媒体查询接管（此时列数固定，注入值被断点覆盖）。
+        style={{ ['--wf-cols' as any]: cols }}
       >
         <header className="wf-header">
           <div>
@@ -1369,7 +1374,7 @@ export default function TTWODashboard({ only, source }: { only?: TTWOOnly; sourc
         </header>
 
         <div className="wf-stages" role="list">
-          {ordered.map((g, idx) => {
+          {renderStages.map((g, idx) => {
             const stageNo = String(idx + 1).padStart(2, '0')
             // 进度条宽度：占 statusMilestoneTotal 的比例。
             // 0 进度时仍展示 0%（数字本身已是 0），不画空进度条。
@@ -1419,7 +1424,7 @@ export default function TTWODashboard({ only, source }: { only?: TTWOOnly; sourc
                   </div>
                   {/* 节点间箭头：定位在节点右缘中部（CSS 已固定 top/right），
                       末段不画。CSS 里 .wf-arrow::before 输出 › 字符 + text-shadow 发光。 */}
-                  {idx < ordered.length - 1 && <span className="wf-arrow" aria-hidden="true" />}
+                  {idx < renderStages.length - 1 && <span className="wf-arrow" aria-hidden="true" />}
                 </article>
               </Tooltip>
             )
