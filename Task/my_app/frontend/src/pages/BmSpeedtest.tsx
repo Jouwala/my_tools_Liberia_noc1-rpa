@@ -392,7 +392,7 @@ export default function BmSpeedtest() {
     if (kind === 'daily') {
       const list = rows as DayRow[]
       void exportAoaReport({
-        filename: `BM_Speedtest_每日对决_${stamp}.xlsx`,
+        filename: `BM_Speedtest_daily_${stamp}.xlsx`,
         sheetName: 'daily', title: t('bms.table.daily'),
         header: [
           t('bms.col.day'),
@@ -417,7 +417,7 @@ export default function BmSpeedtest() {
     if (kind === 'monthly') {
       const list = rows as MonthRow[]
       void exportAoaReport({
-        filename: `BM_Speedtest_月度对比_${stamp}.xlsx`,
+        filename: `BM_Speedtest_monthly_${stamp}.xlsx`,
         sheetName: 'monthly', title: t('bms.table.monthly'),
         header: [
           t('bms.col.month'), t('bms.col.days'),
@@ -439,7 +439,7 @@ export default function BmSpeedtest() {
     }
     const list = rows as DetailRow[]
     void exportAoaReport({
-      filename: `BM_Speedtest_明细_${stamp}.xlsx`,
+      filename: `BM_Speedtest_detail_${stamp}.xlsx`,
       sheetName: 'detail', title: drillTitle || t('bms.drill.title'),
       header: [
         t('bms.col.day'), t('bms.col.brand'), t('bms.metric.download'), t('bms.metric.upload'),

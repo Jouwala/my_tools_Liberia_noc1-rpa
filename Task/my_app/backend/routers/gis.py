@@ -107,8 +107,15 @@ _GIS_FILTER_COLS = [
 ]
 
 # 下钻 TT 列表候选列（按存在性动态选择）
+# ⚠️ 2026-10-19 修复：原列表里没有 `tt_no`，却把 `ticket_no` 放进去了。
+#    实测（gis.py:2191-2198）：eflow_tt 里 `tt_no` 才是真正的 TT 号，
+#    `ticket_no` 列里**装的是 WO 号**（来自上游同步的命名遗留）。
+#    后果：抽屉里 Fault Tickets 表的「TT No.」列展示的是 WO 号，
+#    而真正的 TT 号 (`tt_no`) 没有任何位置显示（realtime/drilldown
+#    端点虽然补选了 tt_no，但前端仍然读 ticket_no 字段）。
+#    现把 `tt_no` 列入、`ticket_no` 移除，让 SELECT 与前端列名同源。
 _TT_DETAIL_COLS = [
-    "title", "ticket_no", "wo_no", "site_id", "site_name", "site_class",
+    "tt_no", "title", "wo_no", "site_id", "site_name", "site_class",
     "status", "creator", "owner", "ticket_severity", "sla_time", "sla_status",
     "region_id", "region_level1", "created_time", "alarm_occur_time",
     "alarm_clear_time", "root_cause", "sub_root_cause",
@@ -2188,7 +2195,7 @@ def get_realtime_drilldown(site_id: str):
         ).fetchall()]
 
         # TT 列表（动态列）
-        # ⚠️ 过滤列必须是 **tt_no**，不能是 ticket_no（2026-10-16 修正）。
+        # ⚠️ 过滤列与 SELECT 都必须是 **tt_no**，不能是 ticket_no（2026-10-16 修正）。
         #    实测证据：eflow_tt 里 `tt_no` 是真正的 TT 号（38482/38482 全部以 'TT' 开头），
         #    而 `ticket_no` 存的其实是 **WO 号**（样例 'WO202609270010'，只有 14523/38482 有值，
         #    且**没有一行**以 'TT' 开头）。
@@ -2198,18 +2205,26 @@ def get_realtime_drilldown(site_id: str):
         #    地图侧（_match_tt_wo）用的就是 tt_no，改这里之后两侧口径才一致。
         tt_list = []
         if tids:
-            # ⚠️ 这里**必须显式带上 tt_no**：`_tt_select_clause` 只选展示列，
-            #    **不含 tt_no**（它的职责是抽屉表格的列）。而下面判断「哪些单镜像里没有」
-            #    要靠 tt_no 比对 —— 少了它，每行 tt_no 都是 None，
-            #    于是所有 tids 都被误判为 miss，实时补漏会为同一单再插一行，
-            #    表现为抽屉里同一条 TT 出现两次、tt_count 比地图多 1
-            #    （2026-10-16 实测：地图 1 条 / 抽屉 2 条）。
+            # 2026-10-19：`tt_no` 已加入 `_TT_DETAIL_COLS`，`_tt_select_clause` 会自动
+            # 带上，因此这里**不再**手动 SELECT tt_no（否则会产生重复列）。
+            # 但需保证 SELECT 中 tt_no 永远存在 —— 下面判断「哪些单镜像里没有」
+            # 要靠 tt_no 比对，少了它每行 tt_no 都是 None，于是所有 tids 都被
+            # 误判为 miss，实时补漏会为同一单再插一行，表现为抽屉里同一条 TT
+            # 出现两次、tt_count 比地图多 1（2026-10-16 实测）。
             ph = ",".join("?" * len(tids))
-            tt_cursor = conn.execute(
-                f"SELECT tt_no, {_tt_select_clause(S)} FROM eflow_tt WHERE tt_no IN ({ph}) "
-                f"ORDER BY alarm_occur_time DESC LIMIT 50",
-                tids
-            )
+            if "tt_no" not in S["tt_cols"]:
+                # 极端兜底：tt_no 列真的不存在时再手动补一次
+                tt_cursor = conn.execute(
+                    f"SELECT tt_no, {_tt_select_clause(S)} FROM eflow_tt WHERE tt_no IN ({ph}) "
+                    f"ORDER BY alarm_occur_time DESC LIMIT 50",
+                    tids
+                )
+            else:
+                tt_cursor = conn.execute(
+                    f"SELECT {_tt_select_clause(S)} FROM eflow_tt WHERE tt_no IN ({ph}) "
+                    f"ORDER BY alarm_occur_time DESC LIMIT 50",
+                    tids
+                )
             tt_list = _dict_rows(tt_cursor)
             # 镜像里缺的（新单还没被每小时同步覆盖）去实时补，补到的也算上 ——
             # 与地图侧 _match_tt_wo 同一判据，否则「地图 1 条 / 抽屉 0 条」会复现。

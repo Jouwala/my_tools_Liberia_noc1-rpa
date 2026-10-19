@@ -86,7 +86,7 @@ export default function CrWorkflowPanel({ steps, C, option, onPick }: Props) {
                   title: t('cr.flow.col.arrived'), dataIndex: 'arrived', align: 'right' as const, width: 110,
                   render: (v: number, r: StepRow) => (
                     <DrillNum
-                      value={v} color={C.total}
+                      value={v} color={C.total} hint={t('cr.drill.clickHint')}
                       onClick={e => onPick(r.step, 'arrived', { x: e.clientX, y: e.clientY })}
                     />
                   ),
@@ -106,7 +106,7 @@ export default function CrWorkflowPanel({ steps, C, option, onPick }: Props) {
                   align: 'right' as const, width: 110,
                   render: (v: number, r: StepRow) => (
                     <DrillNum
-                      value={v} color={v ? C.open : undefined} strong={!!v}
+                      value={v} color={v ? C.open : undefined} strong={!!v} hint={t('cr.drill.clickHint')}
                       onClick={e => onPick(r.step, 'current', { x: e.clientX, y: e.clientY })}
                     />
                   ),

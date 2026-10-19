@@ -662,6 +662,7 @@ const translations: Record<Locale, Record<string, string>> = {
     'cr.drill.count': '共 {{n}} 条',
     'cr.drill.shown': '本页 {{n}} 条',
     'cr.drill.truncated': '结果共 {{total}} 条，仅返回最近 {{shown}} 条，请缩小时间范围后重试。',
+    'cr.drill.clickHint': '点击数字查看该指标对应明细',
     'cr.metric.total': '全部',
     'cr.metric.planned': '已排期',
     'cr.metric.executed': '已执行',
@@ -2113,33 +2114,10 @@ const translations: Record<Locale, Record<string, string>> = {
     'ttwo.milestone.closed': '关闭',
     'ttwo.milestone.other': '其他',
     'ttwo.status.other': '其他',
-    // 2026-10-19：Workflow 卡片化样式新增的节点字段
-    //  - 阶段英文别名：zh 字典空串（不显示），en 字典英文 —— 因为现有 ttwo.milestone.<key>
-    //    在 zh 里是中文、在 en 里是英文，是"按语言切换的同一个名"，不能直接复用。
-    //    节点上要同时显示"英文名称"和"中文名称"两行，所以必须再开一组永远不变语种的键。
-    'ttwo.milestoneEn.reassign': '',
-    'ttwo.milestoneEn.waitAccept': '',
-    'ttwo.milestoneEn.arriveSite': '',
-    'ttwo.milestoneEn.waitDeparture': '',
-    'ttwo.milestoneEn.waitArriveSite': '',
-    'ttwo.milestoneEn.waitProcess': '',
-    'ttwo.milestoneEn.waitConfirmFO': '',
-    'ttwo.milestoneEn.waitConfirm': '',
-    'ttwo.milestoneEn.closed': '',
-    // WO 侧「离场」节点用（TT 阶段表不含此节点，但键必须存在，
-    // 否则 en 界面会直接渲染出 `ttwo.milestoneEn.leaveSite` 原文）
-    'ttwo.milestoneEn.leaveSite': '',
-    //  - 阶段中文别名：zh 字典填中文、en 字典空串
-    'ttwo.milestoneCn.reassign': '派单',
-    'ttwo.milestoneCn.waitAccept': '受理',
-    'ttwo.milestoneCn.arriveSite': '到场',
-    'ttwo.milestoneCn.waitDeparture': '等待出发',
-    'ttwo.milestoneCn.waitArriveSite': '等待到达现场',
-    'ttwo.milestoneCn.waitProcess': '处理中',
-    'ttwo.milestoneCn.waitConfirmFO': '现场确认',
-    'ttwo.milestoneCn.waitConfirm': '待确认',
-    'ttwo.milestoneCn.closed': '已关闭',
-    'ttwo.milestoneCn.leaveSite': '离场',
+    // 2026-10-19：卡片阶段名统一取上面的 ttwo.milestone.<key>（按语言切换，与
+    // milestoneTooltip 同源）。此前为「节点上同时显示中英文名两行」另开的
+    // ttwo.milestoneEn.* / ttwo.milestoneCn.* 两组键实际每行只出一条、与前者等价，
+    // 而 en 侧留空的 milestoneCn 会被 t() 的 || 回退成中文（WO 页露出「离场」），故删除。
     //  - 节点图标（antd icon name，组件按 key 取）
     'ttwo.milestoneIcon.reassign': 'retweet',
     'ttwo.milestoneIcon.waitAccept': 'inbox',
@@ -4900,6 +4878,7 @@ const translations: Record<Locale, Record<string, string>> = {
     'cr.drill.count': '{{n}} records',
     'cr.drill.shown': '{{n}} shown',
     'cr.drill.truncated': '{{total}} records matched but only the latest {{shown}} were returned. Narrow the date range and retry.',
+    'cr.drill.clickHint': 'Click a number to view the underlying records',
     'cr.metric.total': 'All',
     'cr.metric.planned': 'Planned',
     'cr.metric.executed': 'Executed',
@@ -6331,27 +6310,6 @@ const translations: Record<Locale, Record<string, string>> = {
     'ttwo.milestone.closed': 'Closed',
     'ttwo.milestone.other': 'Other',
     'ttwo.status.other': 'Other',
-    // 2026-10-19: workflow card-style new fields (en mirror of the zh block above)
-    'ttwo.milestoneEn.reassign': 'Dispatch',
-    'ttwo.milestoneEn.waitAccept': 'Accept',
-    'ttwo.milestoneEn.arriveSite': 'Arrive Site',
-    'ttwo.milestoneEn.waitDeparture': 'Waiting for Departure',
-    'ttwo.milestoneEn.waitArriveSite': 'Waiting for Arrive Site',
-    'ttwo.milestoneEn.waitProcess': 'Processing',
-    'ttwo.milestoneEn.waitConfirmFO': 'Field Confirm',
-    'ttwo.milestoneEn.waitConfirm': 'Wait Confirm',
-    'ttwo.milestoneEn.closed': 'Closed',
-    'ttwo.milestoneEn.leaveSite': 'Leave Site',
-    'ttwo.milestoneCn.reassign': '',
-    'ttwo.milestoneCn.waitAccept': '',
-    'ttwo.milestoneCn.arriveSite': '',
-    'ttwo.milestoneCn.waitDeparture': '',
-    'ttwo.milestoneCn.waitArriveSite': '',
-    'ttwo.milestoneCn.waitProcess': '',
-    'ttwo.milestoneCn.waitConfirmFO': '',
-    'ttwo.milestoneCn.waitConfirm': '',
-    'ttwo.milestoneCn.closed': '',
-    'ttwo.milestoneCn.leaveSite': '',
     'ttwo.milestoneIcon.reassign': 'retweet',
     'ttwo.milestoneIcon.waitAccept': 'inbox',
     'ttwo.milestoneIcon.arriveSite': 'environment',
@@ -8472,7 +8430,10 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   }, [locale, setLocale])
 
   const t = useCallback((key: string, params?: Record<string, string | number>) => {
-    let text = translations[locale]?.[key] || translations['zh']?.[key] || key
+    // 必须用 ?? 而不是 ||：字典里的空串是**有意留空**（该语言下不显示这条），
+    // 用 || 时空串是 falsy，会回退到 zh 取值，导致英文界面冒出中文
+    //（实测：ttwo.milestoneCn.* 在 en 里留空，界面上却渲染出「离场」）。
+    let text = translations[locale]?.[key] ?? translations['zh']?.[key] ?? key
     if (params) {
       Object.entries(params).forEach(([k, v]) => {
         text = text.replace(`{${k}}`, String(v))

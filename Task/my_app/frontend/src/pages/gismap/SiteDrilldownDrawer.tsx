@@ -439,25 +439,47 @@ export function SiteDrilldownDrawer({
                 label: <span style={{ color: WH.text }}>{t('gis.drilldown.ttTab')} ({tt?.total ?? drilldown.tt_count})</span>,
                 children: (
                   <>
-                    <ChartBlock title={t('gis.chart.dailyTt')} option={ttDailyOption} height={240} fullScope />
-                    <Row gutter={[8, 8]}>
-                      <Col xs={24} md={12}>
-                        <ChartBlock title={t('gis.chart.byStatus')} option={ttStatusOption} height={220} fullScope />
-                      </Col>
-                      <Col xs={24} md={12}>
-                        <ChartBlock title={t('gis.chart.bySeverity')} option={ttSeverityOption} height={220} fullScope />
-                      </Col>
-                      <Col xs={24} md={12}>
-                        <ChartBlock title={t('gis.chart.bySla')} option={ttSlaOption} height={220} fullScope />
-                      </Col>
-                      <Col xs={24} md={12}>
-                        <ChartBlock title={t('gis.chart.durationDist')} option={ttDurationOption} height={220} fullScope />
-                      </Col>
-                      <Col xs={24}>
-                        <ChartBlock title={t('gis.chart.byRootCause')} option={ttRootCauseOption} height={240} fullScope />
-                      </Col>
-                    </Row>
-                    {collapsibleTable('tt', filteredTT.length, ttTable)}
+                    {/* 2026-10-19：Fault Tickets 页签直接展示单子明细（用户需求）。
+                       此前包在 collapsibleTable 里需要点击「Detail Data (n)」才展开，
+                       与站点下钻的「点开后想立刻看到对应单子」这个场景不符——尤其单数极少
+                       时（最常见 1 单），二级折叠把仅有的信息再藏一次。
+                       **实时模式（mode='realtime'）**：本抽屉的入口是实时告警，
+                       单子通常 1 单，图表无意义，按 Realtime Alarm 页签同款只出表 + 提示；
+                       **全量模式（mode='all'）**：保留原图表（按状态/级别/SLA/时长/根因
+                       的聚合对历史数据仍有用），只把明细表提到外面。 */}
+                    {mode === 'realtime' ? (
+                      <>
+                        <Alert
+                          type="info"
+                          showIcon
+                          style={{ marginBottom: 'var(--wh-space-md)' }}
+                          message={<span style={{ fontSize: 12 }}>{t('gis.chart.rtNoChart')}</span>}
+                        />
+                        {ttTable}
+                      </>
+                    ) : (
+                      <>
+                        <ChartBlock title={t('gis.chart.dailyTt')} option={ttDailyOption} height={240} fullScope />
+                        <Row gutter={[8, 8]}>
+                          <Col xs={24} md={12}>
+                            <ChartBlock title={t('gis.chart.byStatus')} option={ttStatusOption} height={220} fullScope />
+                          </Col>
+                          <Col xs={24} md={12}>
+                            <ChartBlock title={t('gis.chart.bySeverity')} option={ttSeverityOption} height={220} fullScope />
+                          </Col>
+                          <Col xs={24} md={12}>
+                            <ChartBlock title={t('gis.chart.bySla')} option={ttSlaOption} height={220} fullScope />
+                          </Col>
+                          <Col xs={24} md={12}>
+                            <ChartBlock title={t('gis.chart.durationDist')} option={ttDurationOption} height={220} fullScope />
+                          </Col>
+                          <Col xs={24}>
+                            <ChartBlock title={t('gis.chart.byRootCause')} option={ttRootCauseOption} height={240} fullScope />
+                          </Col>
+                        </Row>
+                        {ttTable}
+                      </>
+                    )}
                   </>
                 ),
               },
@@ -466,19 +488,34 @@ export function SiteDrilldownDrawer({
                 label: <span style={{ color: WH.text }}>{t('gis.drilldown.woTab')} ({wo?.total ?? drilldown.wo_count})</span>,
                 children: (
                   <>
-                    <ChartBlock title={t('gis.chart.dailyWo')} option={woDailyOption} height={240} fullScope />
-                    <Row gutter={[8, 8]}>
-                      <Col xs={24} md={12}>
-                        <ChartBlock title={t('gis.chart.byStatus')} option={woStatusOption} height={220} fullScope />
-                      </Col>
-                      <Col xs={24} md={12}>
-                        <ChartBlock title={t('gis.chart.bySource')} option={woSourceOption} height={220} fullScope />
-                      </Col>
-                      <Col xs={24}>
-                        <ChartBlock title={t('gis.chart.byRootCause')} option={woRootCauseOption} height={240} fullScope />
-                      </Col>
-                    </Row>
-                    {collapsibleTable('wo', filteredWO.length, woTable)}
+                    {/* 2026-10-19：实时模式下 WO 页签也只出表 + 提示条，理由同上（Fault Tickets 注释）。 */}
+                    {mode === 'realtime' ? (
+                      <>
+                        <Alert
+                          type="info"
+                          showIcon
+                          style={{ marginBottom: 'var(--wh-space-md)' }}
+                          message={<span style={{ fontSize: 12 }}>{t('gis.chart.rtNoChart')}</span>}
+                        />
+                        {woTable}
+                      </>
+                    ) : (
+                      <>
+                        <ChartBlock title={t('gis.chart.dailyWo')} option={woDailyOption} height={240} fullScope />
+                        <Row gutter={[8, 8]}>
+                          <Col xs={24} md={12}>
+                            <ChartBlock title={t('gis.chart.byStatus')} option={woStatusOption} height={220} fullScope />
+                          </Col>
+                          <Col xs={24} md={12}>
+                            <ChartBlock title={t('gis.chart.bySource')} option={woSourceOption} height={220} fullScope />
+                          </Col>
+                          <Col xs={24}>
+                            <ChartBlock title={t('gis.chart.byRootCause')} option={woRootCauseOption} height={240} fullScope />
+                          </Col>
+                        </Row>
+                        {woTable}
+                      </>
+                    )}
                   </>
                 ),
               },

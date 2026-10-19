@@ -325,7 +325,7 @@ export default function PmExecutionAnalysis() {
     if (!rows.length) return
     void exportAoaReport({
       filename: `PM_plan_summary_${dayjs().format('YYYYMMDD_HHmmss')}.xlsx`,
-      sheetName: 'PM计划汇总',
+      sheetName: 'PM Plan Summary',
       title: t('pm.table.planTitle'),
       header: [
         t('pm.col.pmpNo'), t('pm.col.total'), t('pm.col.closed'), t('pm.col.open'),

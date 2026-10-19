@@ -183,7 +183,7 @@ export default function CrChangeAnalysis() {
     if (!rows.length) return
     void exportAoaReport({
       filename: `CR_category_summary_${dayjs().format('YYYYMMDD_HHmmss')}.xlsx`,
-      sheetName: 'CR类别汇总',
+      sheetName: 'CR Category Summary',
       title: t('cr.table.title'),
       header: [
         t('cr.col.category'), t('cr.col.total'), t('cr.col.planned'), t('cr.col.executed'),

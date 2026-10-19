@@ -72,7 +72,7 @@ export default function PmDrillModal({
     if (!rows.length) return
     void exportAoaReport({
       filename: `PM_${metric || 'detail'}_${dayjs().format('YYYYMMDD_HHmmss')}.xlsx`,
-      sheetName: 'PM明细',
+      sheetName: 'PM Detail',
       title: subtitle,
       header: headers,
       rows: rows.map(r => DETAIL_FIELDS.map(f => fmt(r[f]))),

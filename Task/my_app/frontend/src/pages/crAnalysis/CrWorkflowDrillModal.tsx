@@ -80,7 +80,7 @@ export default function CrWorkflowDrillModal({
     if (!rows.length) return
     void exportAoaReport({
       filename: `CR_workflow_${fileKey || 'step'}_${dayjs().format('YYYYMMDD_HHmmss')}.xlsx`,
-      sheetName: 'CR流程明细',
+      sheetName: 'CR Workflow Detail',
       title: subtitle,
       header: columns.map(c => String(c.title)),
       rows: rows.map(r => [

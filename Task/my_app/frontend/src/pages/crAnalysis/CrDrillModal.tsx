@@ -68,7 +68,7 @@ export default function CrDrillModal({
     if (!rows.length) return
     void exportAoaReport({
       filename: `CR_${metric || 'detail'}_${dayjs().format('YYYYMMDD_HHmmss')}.xlsx`,
-      sheetName: 'CR明细',
+      sheetName: 'CR Detail',
       title: subtitle,
       header: headers,
       rows: rows.map(r => DETAIL_FIELDS.map(f => fmt(r[f]))),

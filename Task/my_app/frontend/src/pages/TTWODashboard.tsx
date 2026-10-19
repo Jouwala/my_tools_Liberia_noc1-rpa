@@ -202,7 +202,7 @@ type MilestoneDef = {
   labelKey: string
   /** 下钻时使用的原始状态名（**精确匹配**，顺序即展示顺序） */
   match: string[]
-  /** 与 `ttwo.milestoneCn/En.*` 的 key 后缀不同时才需要填（如出发/到达两节点共用 arriveSite 配色） */
+  /** 取配色/图标时用的后缀，与 `key` 不同才需要填（如出发、到达两节点共用 arriveSite 配色） */
   styleKey?: string
 }
 
@@ -1513,8 +1513,9 @@ export default function TTWODashboard({ only, source }: { only?: TTWOOnly; sourc
             // 进度条宽度：占 statusMilestoneTotal 的比例。
             // 0 进度时仍展示 0%（数字本身已是 0），不画空进度条。
             const pct = total > 0 ? (g.total / total) * 100 : 0
-            const enName = t(`ttwo.milestoneEn.${g.key}`)
-            const cnName = t(`ttwo.milestoneCn.${g.key}`)
+            // 阶段名直接用 g.labelKey（ttwo.milestone.*）：两本字典里已按语言填好，
+            // 且与下面 milestoneTooltip 取的是同一个键 —— 卡片标题和悬浮说明不会出现两套叫法。
+            const stageName = t(g.labelKey)
             return (
               <Tooltip
                 key={g.key}
@@ -1541,7 +1542,7 @@ export default function TTWODashboard({ only, source }: { only?: TTWOOnly; sourc
                   // 数据 / 进度条 inline 注入：颜色由 className 提供（不在 inline 重复定义），
                   // 进度值 --progress 注入是为了让 CSS 端只读、JS 端只写，职责清晰。
                   style={{ ['--progress' as any]: `${pct.toFixed(2)}%` }}
-                  aria-label={`${stageNo} ${enName} ${g.total} ${pct.toFixed(1)}%`}
+                  aria-label={`${stageNo} ${stageName} ${g.total} ${pct.toFixed(1)}%`}
                 >
                   {/* ① 顶部：步骤序号 + 阶段图标 */}
                   <div className="wf-top">
@@ -1550,58 +1551,47 @@ export default function TTWODashboard({ only, source }: { only?: TTWOOnly; sourc
                       {STAGE_ICON[g.styleKey || g.key] || <ClockCircleOutlined />}
                     </div>
                   </div>
-                  {/* ② 中部：英文名 / 中文名 / 工单数量 / 占比。
-                      中文名空时省略整行（en dictionary 下不显示重复的"等待确认"之类）。
+                  {/* ② 中部：阶段名 / 工单数量 / 占比。
                       数量与占比是主读数，字号由 .wf-count / .wf-percent 放大突出。
-                      名称与数字各包一层（.wf-names / .wf-figures）：四个平级子元素时
-                      「英文名 ↔ 中文名」与「数量 ↔ 占比」的间距会被 flex 分配逻辑
-                      一起拉开（zh 下中文名会飘到卡片中间），分组后两段各自成块，
+                      名称与数字各包一层（.wf-names / .wf-figures）：平级子元素变多时
+                      「名称 ↔ 数字」的间距会被 flex 分配逻辑一起拉开，分组后两段各自成块，
                       纵向留白只发生在两段之间。 */}
                   <div className="wf-mid">
                     <div className="wf-names">
-                      <h3 className="wf-name">{enName}</h3>
-                      {cnName && <div className="wf-name-cn">{cnName}</div>}
+                      <h3 className="wf-name">{stageName}</h3>
                     </div>
-                    <div className="wf-figures">
-                      <div className="wf-count">{fmt(g.total)}</div>
-                      <div className="wf-percent">{pct.toFixed(1)}%</div>
+                    <div className="wf-metrics">
+                      <div className="wf-figures">
+                        <div className="wf-count">{fmt(g.total)}</div>
+                        <div className="wf-percent">{pct.toFixed(1)}%</div>
+                      </div>
+                      {g.rows.length > 1 && (
+                        <ul className="wf-subrows">
+                          {g.rows.map(([raw, n]) => (
+                            <li key={raw}>
+                              <Tooltip title={`${raw} · ${fmt(n)} — ${t('ttwo.milestone.ttRowDrill')}`}>
+                                <button
+                                  type="button"
+                                  className="wf-subrow"
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    openDrilldown(e, 'status', raw)
+                                  }}
+                                  onKeyDown={(e) => e.stopPropagation()}
+                                >
+                                  <span className="wf-subrow-name">{raw}</span>
+                                  <span className="wf-subrow-count">{fmt(n)}</span>
+                                </button>
+                              </Tooltip>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
                     </div>
                   </div>
                   <div className="wf-progress" aria-hidden="true">
                     <span />
                   </div>
-                  {/* 子状态明细（2026-10-19 补回）：卡片化改造时丢失了旧版
-                      「多原值阶段逐条列出原始状态 + 单数」的信息，只剩合计，
-                      值班无法看出该阶段里各状态各占多少。
-                      规则与旧版一致：
-                        · 只有一个原始状态时不用列（数字本身就是它）；
-                        · 多个原始状态时逐条列出，每条各自可点、按该状态单值下钻，
-                          保证「点的数字 == 弹窗行数」；
-                        · 点击要 stopPropagation，否则会同时触发节点整体的
-                          「多状态下钻」，叠出两个弹窗。
-                      原始状态名是上游英文状态串，按项目约定**不翻译**。 */}
-                  {g.rows.length > 1 && (
-                    <ul className="wf-subrows">
-                      {g.rows.map(([raw, n]) => (
-                        <li key={raw}>
-                          <Tooltip title={`${raw} · ${fmt(n)} — ${t('ttwo.milestone.ttRowDrill')}`}>
-                            <button
-                              type="button"
-                              className="wf-subrow"
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                openDrilldown(e, 'status', raw)
-                              }}
-                              onKeyDown={(e) => e.stopPropagation()}
-                            >
-                              <span className="wf-subrow-name">{raw}</span>
-                              <span className="wf-subrow-count">{fmt(n)}</span>
-                            </button>
-                          </Tooltip>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
                   {/* 节点间箭头：SVG 蓝色粗箭头（替代原 › 字符）。
                       CSS 把它压在栅格间隙内并垂直居中（见 .wf-arrow），
                       pointer-events:none → 不覆盖卡片、也不拦节点点击下钻。
@@ -1612,11 +1602,11 @@ export default function TTWODashboard({ only, source }: { only?: TTWOOnly; sourc
                           与 CSS 的 grid-template-columns 同源，不会指错。
                           行序由卡片左上角的 01/02… 序号承担（与手机端同一口径）。 */}
                   {idx < renderStages.length - 1 && (idx + 1) % cols !== 0 && (
-                    <svg className="wf-arrow" viewBox="0 0 24 18" aria-hidden="true" focusable="false">
-                      {/* 箭杆：4.5 粗、圆头 */}
-                      <path d="M1 9 H13" fill="none" stroke="currentColor" strokeWidth="4.5" strokeLinecap="round" />
+                    <svg className="wf-arrow" viewBox="0 0 32 24" aria-hidden="true" focusable="false">
+                      {/* 箭杆：6 粗、圆头，加高一档占满 viewBox 高度，方便在大间隙下被看清 */}
+                      <path d="M1 12 H17" fill="none" stroke="currentColor" strokeWidth="6" strokeLinecap="round" />
                       {/* 箭头：实心三角，尖端清晰指向下一阶段 */}
-                      <path d="M12.6 1.6 L22.4 9 L12.6 16.4 Z" fill="currentColor" />
+                      <path d="M16.8 1.6 L30.4 12 L16.8 22.4 Z" fill="currentColor" />
                     </svg>
                   )}
                 </article>

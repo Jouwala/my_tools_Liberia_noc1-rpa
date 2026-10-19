@@ -2091,7 +2091,10 @@ html {
 
 /* 节点网格：列数由组件 inline style 注入（宽屏 = 实际阶段数，TT 页即 6 列） */
 .wf-stages {
-  --wf-gap: 30px;                  /* 间隙宽度：箭头按它算宽度，保证不压到卡片 */
+  --wf-gap: 38px;                  /* 间隙宽度：2026-10-19 五改 30→38——
+                                     卡片高度压缩后多出来的水平空间全给箭头，
+                                     箭头从 24×18 → 32×24（见 .wf-arrow），
+                                     9 卡密集模式仍能看清。 */
   display: grid;
   grid-template-columns: repeat(var(--wf-cols, 6), minmax(0, 1fr));
   gap: var(--wf-gap);
@@ -2103,16 +2106,17 @@ html {
   --stage-color: var(--wf-blue);
   position: relative;
   min-width: 0;
-  /* 高度带：220~250（需求给的卡片高度）。
-     ⚠ 不能在这里写 aspect-ratio: 2/1 —— aspect-ratio 会把 min-height 220
-     「传导」成 min-width 440（transferred minimum），六列下每格只有 ~230px，
-     卡片会横向溢出栅格、互相叠压，连箭头都被盖住（2026-10-19 实测踩坑）。
-     宽屏（单卡 ≥440px，如值班大屏）时 220~250 的高度天然就是 2:1；
-     普通屏由 min-height 兜底，宽高比随列宽自适应 —— 即「宽度不足时自适应」口径。 */
-  min-height: 220px;
-  max-height: 250px;
+  /* 高度带：168~195（2026-10-19 五改：卡片高由 220~250 压到 168~195，
+     同步让 .wf-stages 的 --wf-gap 由 30 拉到 38，多出来的 8px 全部让给箭头宽度。
+     收益：① 卡片下方约 50~70px 空白变成进度条自身的下边距（MTTR 趋势面板的呼吸感恢复）；
+     ② 节点间箭头加粗一档，9 张窄卡场景下箭头不再像细线。
+     ⚠ 不能在这里写 aspect-ratio —— aspect-ratio 会把 min-height 168
+     「传导」成 min-width 336（transferred minimum），六列下每格只有 ~170px，
+     卡片会横向溢出栅格（2026-10-19 实测踩坑）。 */
+  min-height: 168px;
+  max-height: 195px;
   display: flex; flex-direction: column;
-  padding: 12px 12px 11px;
+  padding: 10px 10px 9px;
   /* ⚠ 不能设 overflow:hidden —— 节点间箭头是卡片的子元素，定位在卡片右缘之外，
      一裁就看不见了（旧版 .wf-arrow 之所以可见正是因为它没被卡片裁切）。
      圆角与明细滚动由子元素各自承担（.wf-subrows 自带 overflow-y:auto）。 */
@@ -2177,52 +2181,52 @@ html {
   font-size: 15px; line-height: 1;
 }
 
-/* ② 中部：阶段名（英 / 中）+ 工单数量 + 占比。
-   flex:1 吃掉剩余高度，内容**顶部对齐**。剩余空白落到「占比」与「进度条」之间。
-   为什么不把数字沉底 / 居中（2026-10-19 用真实 TT+WO 数据逐张对比过）：
-     · center（改版前的写法）→ 无明细的卡片整块下坠，同一排里
-       "Dispatch 41" 在最上面、"Accept 213" 掉到中间，成排看不齐；
-     · space-between（数字沉底）→ 数字高度随该卡明细条数变化，一排 6 张卡
-       出现 111/129/164 三种基线，比居中更乱；
-     · 顶部对齐（选用）→ 序号、阶段名、工单数量、占比四项在整排里一一对齐，
-       只有进度条因明细占位而高低不同 —— 这是本轮改造前就有的既有观感。 */
+/* ② 中部：阶段名（英 / 中）+ 数量区域（工单数量 / 占比 / Waiting Details）。
+   flex:1 吃掉剩余高度，内容顶部对齐；明细与数量、百分比处于同一横向区域，
+   不再沉到卡片底部。 */
 .wf-mid {
   flex: 1 1 auto; min-height: 0;
   display: flex; flex-direction: column; justify-content: flex-start;
-  margin-top: 10px;
+  margin-top: 8px;
 }
-/* 两个子块只管分组，不参与自身布局；min-width:0 让长阶段名能正常折行 */
+/* 阶段名独占上方；数量和明细在同一行，长状态名只在明细自己的区域内换行。 */
 .wf-names,
+.wf-metrics,
 .wf-figures { min-width: 0; }
+.wf-metrics {
+  display: flex; align-items: flex-start; gap: 8px;
+  min-height: 0; margin-top: 2px;
+}
+.wf-figures { flex: 0 0 auto; }
 
 .wf-name {
   margin: 0;
   color: var(--wf-text);
-  font-size: 12.5px; font-weight: 750; line-height: 1.25;
+  font-size: 12px; font-weight: 750; line-height: 1.2;
   overflow-wrap: anywhere;
 }
 .wf-name-cn {
-  margin-top: 2px;
+  margin-top: 1px;
   color: var(--wf-muted);
-  font-size: 11px; font-weight: 600; line-height: 1.25;
+  font-size: 10.5px; font-weight: 600; line-height: 1.2;
 }
 .wf-count {
-  margin-top: 8px;
+  margin-top: 4px;
   color: var(--stage-color);
-  font-size: 26px; font-weight: 850; line-height: 1.05;
+  font-size: 22px; font-weight: 850; line-height: 1.05;
   font-variant-numeric: tabular-nums;
 }
 .wf-percent {
-  margin-top: 2px;
+  margin-top: 1px;
   color: var(--stage-color);
-  font-size: 12px; font-weight: 700; line-height: 1.2;
+  font-size: 11px; font-weight: 700; line-height: 1.2;
   font-variant-numeric: tabular-nums;
 }
 
 /* ③ 底部：进度条（宽度 = --progress，由组件注入该阶段占比） */
 .wf-progress {
   flex: none;
-  height: 6px; margin-top: 10px;
+  height: 5px; margin-top: 6px;
   overflow: hidden; border-radius: 6px;
   background: var(--wf-track-bg);
 }
@@ -2234,21 +2238,19 @@ html {
   background: var(--stage-color);
 }
 
-/* ④ 进度条下方：等待明细（多原始状态阶段逐条列出，各自可点下钻）。
+/* Waiting Details：与工单数量 / 百分比同一横向区域，位于数量块右侧。
    行高 / 字号收紧，超出 max-height 时**内部滚动**而不是截断 —— 数据不丢；
    没有明细（单状态阶段）时整块不渲染，不留空白。 */
 .wf-subrows {
-  /* 只缩不撑（flex-grow:0）：行数少时不占多余空间，避免明细下方出现空白；
-     行数多时在卡片剩余高度内收缩并滚动（min-height:0 是收缩的前提）。 */
-  flex: 0 1 auto; min-height: 0;
-  max-height: 92px;
+  flex: 1 1 auto; min-width: 0; min-height: 0;
+  max-height: 72px;
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-width: thin;
-  margin: 8px 0 0;
-  padding: 6px 0 0;
+  margin: 0 0 0 8px;
+  padding: 0 0 0 6px;
   list-style: none;
-  border-top: 1px dashed var(--wf-subrow-divider);
+  border-left: 1px dashed var(--wf-subrow-divider);
   display: flex; flex-direction: column; gap: 0;
   text-align: left;
 }
@@ -2295,7 +2297,7 @@ html {
   left: 100%;
   margin-left: 3px;
   width: calc(var(--wf-gap, 30px) - 6px);
-  height: 18px;
+  height: 24px;
   transform: translateY(-50%);
   color: var(--wf-arrow);
   pointer-events: none;
@@ -2305,24 +2307,19 @@ html {
 
 /* ---------- 单行密集模式（8 列及以上，2026-10-19 三改）----------
  * 需求：page=wo 的 9 个阶段（出现「其他」时 10 个）必须**排在一行**，
- * 靠压缩卡片宽度容纳。1920 屏容器约 1608px → 单卡约 162px，
- * 沿用常规字号会让阶段名折 3 行、明细挤成一条，所以这里统一降一档：
- *   间隙 30→32（四改：压缩出的空间让给箭头 14×12→28×21）、内边距 12→9、
- *   徽章/图标 28→24、数字 26→21、阶段名 12.5→11.5、明细 11→10、进度条 6→5、
- *   卡片高 220→165~200（四改：治理 0 单卡 ~90px 的中段空白）。
+ * 靠压缩卡片宽度容纳。
  * 同时把 `overflow-wrap:anywhere`（会在单词中间硬断，曾出现 "Suspende d"）
  * 改成 `break-word`：优先在空格处换行，只有单个单词超宽才允许断开。
- * 列数仍由组件测量后写入 --wf-cols，与「行末不画箭头」同源。 */
-.wo-workflow[data-wf-dense='1'] .wf-stages { --wf-gap: 32px; }
+ * 列数仍由组件测量后写入 --wf-cols，与「行末不画箭头」同源。
+ *
+ * 2026-10-19 五改同步：常规卡片收紧后，密集模式的卡片高由 165~215 同步压到
+ *   138~170（治理 0 单卡的中段空白），其它规则不再重复，靠默认级联生效。 */
+.wo-workflow[data-wf-dense='1'] .wf-stages { --wf-gap: 40px; }
 .wo-workflow[data-wf-dense='1'] .wf-stage {
-  padding: 10px 9px 9px;
+  padding: 9px 8px 8px;
   border-radius: 10px;
-  /* 空白治理（2026-10-19 四改）：单行 9 卡时全局 220px 高让 0 单的卡
-     （Dispatch / Field Confirm 等）中段空出 ~90px。密集模式降到 165，
-     上限 200 —— 行高由内容最多的卡（Processing 3 条明细）决定，实测 ~180；
-     0 单卡的空白从 ~90 缩到 ~60。再压就要放弃等高（方案 B）或明细改悬浮。 */
-  min-height: 165px;
-  max-height: 215px;
+  min-height: 138px;
+  max-height: 170px;
 }
 .wo-workflow[data-wf-dense='1'] .wf-top { gap: 6px; }
 .wo-workflow[data-wf-dense='1'] .wf-number,
@@ -2341,15 +2338,15 @@ html {
   font-size: 12px; line-height: 1.2;
   overflow-wrap: break-word; word-break: normal;
 }
-.wo-workflow[data-wf-dense='1'] .wf-name-cn { font-size: 12px; }
+.wo-workflow[data-wf-dense='1'] .wf-metrics { gap: 6px; }
 .wo-workflow[data-wf-dense='1'] .wf-count { margin-top: 6px; font-size: 26px; }
 .wo-workflow[data-wf-dense='1'] .wf-percent { font-size: 13px; }
 .wo-workflow[data-wf-dense='1'] .wf-progress { height: 5px; margin-top: 6px; }
 .wo-workflow[data-wf-dense='1'] .wf-subrows {
-  /* 明细区压到 ~3 行（窄卡里长状态名会折行，折行的行也算），
-     更多条在内部滚动 —— 高度让位给"压矮卡片"，数据一条不丢 */
+  /* 窄卡中明细保持在数量右侧，压到约 3 行；更多条在内部滚动。 */
   max-height: 52px;
-  margin-top: 5px; padding-top: 4px;
+  margin: 0 0 0 6px; padding: 0 0 0 5px;
+  border-left: 1px dashed var(--wf-subrow-divider);
   /* 窄卡里状态名经常换成两行，行间留 2px 才分得清是哪一条 */
   gap: 2px;
 }
@@ -2376,11 +2373,10 @@ html {
   opacity: .55;
 }
 .wo-workflow[data-wf-dense='1'] .wf-arrow {
-  /* 间隙 18→32 后多出来的宽度全部让给箭头：14×12 → 28×21，
-     用 aspect-ratio 锁住 viewBox 比例，宽度随间隙自适应、不变形 */
-  width: calc(var(--wf-gap, 32px) - 4px);
+  /* 间隙 32→40 后多出来的宽度全部让给箭头，viewBox 比例锁定 32:24 → 不变形 */
+  width: calc(var(--wf-gap, 40px) - 4px);
   margin-left: 2px;
-  aspect-ratio: 24 / 18;
+  aspect-ratio: 32 / 24;
   height: auto;
 }
 

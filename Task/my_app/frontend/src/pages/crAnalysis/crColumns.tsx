@@ -23,11 +23,13 @@ export type OnDrill = (
 ) => void
 
 /** 可点击的数字单元：整格可点，光标 + 悬停虚线下划线提示可交互 */
-export function DrillNum({ value, onClick, color, strong }: {
+export function DrillNum({ value, onClick, color, strong, hint }: {
   value: number | string
   onClick: (e: React.MouseEvent<HTMLElement>) => void
   color?: string
   strong?: boolean
+  /** 悬停提示（可访问性 + 可发现性）。由调用方传入已翻译文案，本组件不取 i18n */
+  hint: string
 }) {
   return (
     <span
@@ -41,7 +43,7 @@ export function DrillNum({ value, onClick, color, strong }: {
         cursor: 'pointer', color, fontWeight: strong ? 700 : undefined,
         textDecoration: 'underline dotted', textUnderlineOffset: 3,
       }}
-      title="点击查看明细"
+      title={hint}
     >
       {value}
     </span>
@@ -56,6 +58,7 @@ export function DrillNum({ value, onClick, color, strong }: {
 export function categoryColumns(
   t: (k: string) => string, onDrill: OnDrill, C: ChartColors,
 ): ColumnsType<CatRow> {
+  const hint = t('cr.drill.clickHint')
   const numCol = (titleKey: string, field: typeof COUNT_FIELDS[number], color?: string) => ({
     title: t(titleKey),
     dataIndex: field,
@@ -63,7 +66,7 @@ export function categoryColumns(
     sorter: (a: CatRow, b: CatRow) => a[field] - b[field],
     render: (v: number, r: CatRow) => (
       <DrillNum
-        value={v} color={color}
+        value={v} color={color} hint={hint}
         onClick={e => onDrill(field, r.category, '', '', { x: e.clientX, y: e.clientY })}
       />
     ),
@@ -79,7 +82,7 @@ export function categoryColumns(
     sorter: (a: CatRow, b: CatRow) => (a[field] ?? -1) - (b[field] ?? -1),
     render: (v: number | null, r: CatRow) => (
       <DrillNum
-        value={fmtRate(v)} color={rateColor(v)} strong
+        value={fmtRate(v)} color={rateColor(v)} strong hint={hint}
         onClick={e => onDrill(metric, r.category, '', '', { x: e.clientX, y: e.clientY })}
       />
     ),
@@ -108,19 +111,20 @@ export function categoryColumns(
 export function subCategoryColumns(
   t: (k: string) => string, onDrill: OnDrill, C: ChartColors,
 ): ColumnsType<SubRow> {
+  const hint = t('cr.drill.clickHint')
   return [
     { title: t('cr.col.category'), dataIndex: 'category', width: 150 },
     {
       title: t('cr.col.subCategory'), dataIndex: 'sub_category',
       render: (v: string, r: SubRow) => (
-        <DrillNum value={v} onClick={e => onDrill('total', r.category, v, '', { x: e.clientX, y: e.clientY })} />
+        <DrillNum value={v} hint={hint} onClick={e => onDrill('total', r.category, v, '', { x: e.clientX, y: e.clientY })} />
       ),
     },
     {
       title: t('cr.col.total'), dataIndex: 'total', align: 'right' as const, width: 100,
       sorter: (a: SubRow, b: SubRow) => a.total - b.total,
       render: (v: number, r: SubRow) => (
-        <DrillNum value={v}
+        <DrillNum value={v} hint={hint}
           onClick={e => onDrill('total', r.category, r.sub_category, '', { x: e.clientX, y: e.clientY })} />
       ),
     },
@@ -128,7 +132,7 @@ export function subCategoryColumns(
       title: t('cr.col.executed'), dataIndex: 'executed', align: 'right' as const, width: 100,
       sorter: (a: SubRow, b: SubRow) => a.executed - b.executed,
       render: (v: number, r: SubRow) => (
-        <DrillNum value={v} color={C.executed}
+        <DrillNum value={v} color={C.executed} hint={hint}
           onClick={e => onDrill('executed', r.category, r.sub_category, '', { x: e.clientX, y: e.clientY })} />
       ),
     },

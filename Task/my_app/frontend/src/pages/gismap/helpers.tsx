@@ -182,9 +182,15 @@ export const buildAlarmExportColumns = (rows: any[]) => {
 }
 
 // TT 下钻表格列
+// 2026-10-19 修复：把 `ticket_no` 换成 `tt_no`。
+//   后端 eflow_tt 里 `tt_no` 才是真正的 TT 号（gis.py:2191-2198 的注释），
+//   而 `ticket_no` 列里**装的是 WO 号**（来自上游同步的命名遗留）。
+//   此前 Fault Tickets 表里 "TT No." 列展示的其实是 WO 号 ——
+//   用户在 realtime_alarm 站点下钻里看到「TT No. = WO202610190033」就是这个原因。
+//   后端 `_TT_DETAIL_COLS` 已同步替换 SELECT（见 gis.py:109），所以这里也改字段名。
 export const buildTTColumns = (t: TFn, data: any[]) => [
   { title: t('gis.drilldown.colTitle'), dataIndex: 'title', key: 'title', ellipsis: true, width: 180, sorter: (a: any, b: any) => strSorter(a, b, 'title') },
-  { title: t('gis.drilldown.colTicketNo'), dataIndex: 'ticket_no', key: 'ticket_no', width: 100, sorter: (a: any, b: any) => strSorter(a, b, 'ticket_no') },
+  { title: t('gis.drilldown.colTicketNo'), dataIndex: 'tt_no', key: 'tt_no', width: 100, sorter: (a: any, b: any) => strSorter(a, b, 'tt_no') },
   { title: t('gis.drilldown.colWONo'), dataIndex: 'wo_no', key: 'wo_no', width: 100, sorter: (a: any, b: any) => strSorter(a, b, 'wo_no') },
   { title: t('gis.drilldown.colSiteId'), dataIndex: 'site_id', key: 'site_id', width: 80, sorter: (a: any, b: any) => strSorter(a, b, 'site_id') },
   { title: t('gis.drilldown.colSiteName'), dataIndex: 'site_name', key: 'site_name', width: 120, sorter: (a: any, b: any) => strSorter(a, b, 'site_name') },

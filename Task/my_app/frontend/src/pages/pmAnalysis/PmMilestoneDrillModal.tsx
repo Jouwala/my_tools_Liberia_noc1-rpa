@@ -71,7 +71,7 @@ export default function PmMilestoneDrillModal({
     if (!rows.length) return
     void exportAoaReport({
       filename: `PM_milestone_${fileKey || 'step'}_${dayjs().format('YYYYMMDD_HHmmss')}.xlsx`,
-      sheetName: 'PM里程碑明细',
+      sheetName: 'PM Milestone Detail',
       title: subtitle,
       header: columns.map(c => String(c.title)),
       rows: rows.map(r => [

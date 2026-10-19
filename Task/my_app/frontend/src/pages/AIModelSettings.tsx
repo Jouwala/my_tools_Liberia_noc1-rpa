@@ -586,7 +586,7 @@ export default function AIModelSettings() {
                   {r.ok && r.response ? (
                     <Paragraph
                       style={{ color: WH.text, fontSize: '0.8125rem', margin: 0, whiteSpace: 'pre-wrap' }}
-                      ellipsis={{ rows: 12, expandable: true, symbol: '展开' }}
+                      ellipsis={{ rows: 12, expandable: true, symbol: zh ? '展开' : 'Expand' }}
                     >
                       {r.response}
                     </Paragraph>
