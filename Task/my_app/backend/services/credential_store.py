@@ -117,6 +117,50 @@ CREDENTIAL_GROUPS = [
         "env_secret": "VMAX_GBASE_PASS",
     },
     {
+        # RAN Greenplum（L_T216 信令表）取数链路的第一跳。与 vmax_gbase（GBase 8a）无关。
+        "key": "gp_ran_control",
+        "name": "RAN Greenplum control1 跳板 (10.100.29.12:22)",
+        "name_en": "RAN Greenplum control1 jump host (10.100.29.12:22)",
+        "usage": "VoLTE / N78 用户号码取数（backend/services/gp_ran）先 SSH 登录 control1，"
+                 "再经它转发到数据库主节点执行 psql；仅执行只读语句。",
+        "usage_en": "Used by the VoLTE / N78 user-list extract (backend/services/gp_ran) to SSH "
+                    "into control1 and tunnel from it to the Greenplum master for psql; "
+                    "read-only statements only.",
+        "default_user": "ubuntu",
+        "default_secret": "",
+        "username_label": "用户名",
+        "username_label_en": "Username",
+        "secret_label": "密码",
+        "secret_label_en": "Password",
+        "has_username": True,
+        "testable": True,
+        "test_host": "10.100.29.12",
+        "test_port": 22,
+        "env_user": "GP_RAN_CONTROL_USER",
+        "env_secret": "GP_RAN_CONTROL_PASS",
+    },
+    {
+        # 第二跳：主节点 IP 只在内网（193.168.0.6），本机不可直连，故不做端口测试，
+        # 否则设置页永远显示红色失败，反而掩盖真问题。留空口令时自动复用上一组。
+        "key": "gp_ran_master",
+        "name": "RAN Greenplum 主节点 (经 control1 转发)",
+        "name_en": "RAN Greenplum master (via control1)",
+        "usage": "数据库主节点的 ubuntu 账号；口令留空时自动复用 control1 的口令。"
+                 "该节点仅能从 control1 访问，本机无法直连，故此组不做连通性测试。",
+        "usage_en": "ubuntu account on the Greenplum master; falls back to the control1 password "
+                    "when left blank. Reachable only via control1, so no connectivity test.",
+        "default_user": "ubuntu",
+        "default_secret": "",
+        "username_label": "用户名",
+        "username_label_en": "Username",
+        "secret_label": "密码（留空=复用 control1）",
+        "secret_label_en": "Password (blank = reuse control1)",
+        "has_username": True,
+        "testable": False,
+        "env_user": "GP_RAN_MASTER_USER",
+        "env_secret": "GP_RAN_MASTER_PASS",
+    },
+    {
         "key": "ipran_ume",
         "name": "iPRAN UME 网管",
         "name_en": "iPRAN UME NMS",

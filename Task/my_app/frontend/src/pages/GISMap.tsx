@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo, Fragment } from 'react'
+import { useEffect, useState, useMemo, useCallback, Fragment } from 'react'
 import { cachedGet } from '../cache'
 import { Card, Row, Col, Select, Spin, Tag, Space, Badge, DatePicker, Segmented, Button, Input, Table } from 'antd'
 import { DownloadOutlined, FilterOutlined, SearchOutlined } from '@ant-design/icons'
@@ -6,7 +6,10 @@ import { DownloadOutlined, FilterOutlined, SearchOutlined } from '@ant-design/ic
 // 许可（非 OSI，含人权条款/仲裁/赔偿），见 components/LeafletMap.tsx 头部说明。
 // ⚠️ 下面 LeafletMap 的 `Tooltip as MapTooltip` 别名必须保留：它与 antd 的 Tooltip 同名，
 //    本模块只用地图内的常驻标注（县名），antd Tooltip 已随 2026-09-28 的工具栏精简一并移除。
-import { MapContainer, CircleMarker, Marker, Popup, Polyline, Polygon, Pane, Tooltip as MapTooltip } from '../components/LeafletMap'
+// 注：Polyline 已不在本模块使用 —— MW 链路自 2026-10-19 起改由
+// gismap/TopologyLayer.tsx 用 Leaflet 原生 API 批量建层（页面内 844 个
+// <Polyline> 组件是单帧 1547ms 阻塞的根因），故从 import 中移除。
+import { MapContainer, CircleMarker, Marker, Popup, Polygon, Pane, Tooltip as MapTooltip } from '../components/LeafletMap'
 import dayjs, { Dayjs } from 'dayjs'
 import api from '../api'
 import { useI18n } from '../i18n'
@@ -25,6 +28,9 @@ import type { Site, DrilldownData, DrilldownAnalytics, TopologyLink, LegendKey, 
 import { SITE_COLORS, UTIL_LEVEL_COLORS, UTIL_LEVEL_ORDER, utilLevelOf } from './gismap/types'
 import { BASEMAP_PMTILES_URL, BASEMAP_ATTRIBUTION, BASEMAP_MAX_ZOOM } from './gismap/basemap'
 import { PmtilesLayer } from './gismap/PmtilesLayer'
+// MW 链路批量图层（2026-10-19）：844 条线改用 Leaflet 原生批量建层，
+// 原因与实测数据见该文件头注释（原 844 个 <Polyline> 造成单帧 1547ms 阻塞）。
+import { TopologyLayer } from './gismap/TopologyLayer'
 import { LayerToggleControl } from './gismap/LayerToggleControl'
 import { MapOverlayToggle } from './gismap/MapOverlayToggle'
 import { PersonnelLayer, PersonnelToggleButton } from './gismap/PersonnelLayer'
@@ -810,6 +816,54 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
       default: return t('gis.utilLevel.healthy')
     }
   }
+
+  /** 单条链路的 Leaflet pathOptions（2026-10-19）。
+      从原 JSX 的 `<Polyline pathOptions={...}>` 原样搬出，四个取值函数
+      （linkColor/linkWeight/linkOpacity/linkDash）的口径与注释完全不变 ——
+      这里只做组装，不新增任何样式规则。
+      useCallback 是因为它会进 TopologyLayer 的 effect 依赖：每次渲染都换新
+      函数引用会让 844 条线反复重建，必须稳定。 */
+  const topoStyleOf = useCallback((l: TopologyLink) => ({
+    color: linkColor(l),
+    weight: linkWeight(l),
+    opacity: linkOpacity(l),
+    dashArray: linkDash(l),
+  }), [linkColor, linkWeight, linkOpacity, linkDash])
+
+  /** 单条链路的 popup HTML（2026-10-19）。
+      原实现是 844 个 React `<Popup>` 组件，这里改为预拼字符串并由
+      Leaflet 直接 setInnerHTML —— 省掉 844 棵 React 子树与 844 个 portal。
+      内容与文案与原 JSX 逐项对应（标题 / 无数据说明 / Max+等级 / Tx / Rx / 匹配来源）。
+
+      ⚠️ 链路名与站名来自 KML 导入数据，属外部输入，**必须转义**后再拼进 HTML，
+      否则一个含 `<` 的站名就能破坏地图 DOM（AGENTS.md 三.4：外部输入一律不可信）。
+      i18n 文案是我们自己的静态字符串，无需转义。 */
+  const topoPopupHtml = useCallback((l: TopologyLink): string => {
+    const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+    const title = esc(l.name || `${l.site_a_name}-${l.site_b_name}`)
+    const color = linkColor(l)
+    let body: string
+    if (l.util == null) {
+      /* 无 KPI：明确写出「无数据」，不要让用户以为是 0% 或页面坏了。
+         同时说明原因（两端站点未在 MW KPI 数据中匹配到），
+         避免被当成 bug 反复上报。 */
+      body = `<div style="color:${WH.textDim}">${esc(t('gis.utilNoKpi'))}</div>`
+    } else {
+      const lv = l.level || utilLevelOf(l.util)
+      body =
+        `<div>${esc(t('gis.utilMax'))}: <b style="color:${color}">${esc(fmtUtil(l.util))}</b> `
+        + `<span style="color:${color}">${esc(levelLabel(lv))}</span></div>`
+        + `<div>${esc(t('gis.utilTx'))}: ${esc(fmtUtil(l.tx_util))}</div>`
+        + `<div>${esc(t('gis.utilRx'))}: ${esc(fmtUtil(l.rx_util))}</div>`
+        + (l.source && l.target
+          ? `<div style="color:${WH.textDim};font-size:0.6875rem">`
+            + `${esc(t('gis.utilMatchedAs'))}: ${esc(l.source)} → ${esc(l.target)}</div>`
+          : '')
+    }
+    return `<div style="font-size:0.75rem;line-height:1.6;min-width:11rem">`
+      + `<div style="font-weight:600">${title}</div>${body}</div>`
+  }, [t, linkColor, fmtUtil, levelLabel])
 
   /** 统计各分级链路数（供图例显示），仅统计有 KPI 的线 */
   const utilLevelCounts = useMemo(() => {
@@ -2113,54 +2167,18 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
                 </MapTooltip>
               </Marker>
             ))}
-            {showTopology && topologyLinks.map((link, idx) => (
-              <Polyline
-                key={`topo-${idx}`}
-                positions={[[link.lat_a, link.lng_a], [link.lat_b, link.lng_b]]}
-                pathOptions={{
-                  /* 有 KPI → 4 级利用率色；无 KPI → KML 原色（红/黄/蓝/绿）。
-                     两种语义并存，图例已分别说明（见上方图例区）。 */
-                  color: linkColor(link),
-                  weight: linkWeight(link),
-                  // 不透明度按分级分层，让 815 条 healthy/no_kpi 底图线退后（见 linkOpacity）
-                  opacity: linkOpacity(link),
-                  // 无 KPI 的线画虚线（与 mwUmeTopology 的 unknown 同语义，见 linkDash）
-                  dashArray: linkDash(link),
-                }}
-              >
-                {/* 悬浮显示利用率明细（用户 2026-09-28 明确要求 Tx/Rx/最大值）。
-                    用 Popup 而非 Tooltip：Popup 可点选停留，便于运维照着数值去核对；
-                    Tooltip 一移开就消失，抄数字时很难用。 */}
-                <Popup>
-                  <div style={{ fontSize: '0.75rem', lineHeight: 1.6, minWidth: '11rem' }}>
-                    <div style={{ fontWeight: 600 }}>{link.name || `${link.site_a_name}-${link.site_b_name}`}</div>
-                    {link.util == null ? (
-                      /* 无 KPI：明确写出「无数据」，不要让用户以为是 0% 或页面坏了。
-                         同时说明原因（两端站点未在 MW KPI 数据中匹配到），
-                         避免被当成 bug 反复上报。 */
-                      <div style={{ color: WH.textDim }}>
-                        {t('gis.utilNoKpi')}
-                      </div>
-                    ) : (
-                      <>
-                        <div>
-                          {t('gis.utilMax')}: <b style={{ color: linkColor(link) }}>{fmtUtil(link.util)}</b>
-                          {' '}
-                          <span style={{ color: linkColor(link) }}>{levelLabel(link.level || utilLevelOf(link.util))}</span>
-                        </div>
-                        <div>{t('gis.utilTx')}: {fmtUtil(link.tx_util)}</div>
-                        <div>{t('gis.utilRx')}: {fmtUtil(link.rx_util)}</div>
-                        {link.source && link.target && (
-                          <div style={{ color: WH.textDim, fontSize: '0.6875rem' }}>
-                            {t('gis.utilMatchedAs')}: {link.source} → {link.target}
-                          </div>
-                        )}
-                      </>
-                    )}
-                  </div>
-                </Popup>
-              </Polyline>
-            ))}
+            {/* MW 链路（2026-10-19）：844 条线改由 TopologyLayer 用 Leaflet 原生 API
+                批量建层。原实现是 844 个 <Polyline> + 844 个 <Popup>，实测在
+                t=2480ms 单帧建出 844 个 SVG path、阻塞主线程 1547ms。
+                样式（topoStyleOf）与 popup（topoPopupHtml）仍在本组件内组装，
+                分级口径与文案一律不变 —— 见 gismap/TopologyLayer.tsx 文件头。 */}
+            {showTopology && (
+              <TopologyLayer
+                links={topologyLinks}
+                styleOf={topoStyleOf}
+                popupHtmlOf={topoPopupHtml}
+              />
+            )}
           </MapContainer>
           {/* 图例浮层（2026-09-28 用户要求「直接在地图上显示，竖排」；位置为**左下**）。
               放在地图容器**之后**是关键：浮层 z-index 与 Leaflet 控件同为 1000，

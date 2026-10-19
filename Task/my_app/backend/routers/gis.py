@@ -2273,8 +2273,33 @@ def get_region_summary():
         return {"regions": result}
 
 
+# 链路缓存：kml_mw_links 是导入的静态 KML 数据（844 条），两次同步之间不变。
+# 2026-10-19 新增 —— 此前本端点**没有任何缓存**，每次进 GIS 页都重新查库 +
+# 叠加利用率（with_util=1 时还要拉一次 mwRealTime）。实测单次约 100~124ms，
+# 而 /county-boundaries（_COUNTY_TTL）与 /region-boundaries（_BOUNDARIES_TTL）
+# 早就有缓存，本端点漏掉了这一层。
+#
+# TTL 取 300s，与同页 _META_TTL 同量级：
+#   · 链路本身是静态导入，短时间内不可能变化，缓存安全；
+#   · 但 with_util=1 的利用率是「最新 15 分钟粒度槽位」，槽位会滚动，
+#     缓存过久会让用户看到过期槽位 —— 300s 小于一个槽位周期，可接受。
+# 按 with_util 分键：两种取值的响应结构不同（见函数头「利用率叠加」），
+# 共用一个键会让 with_util=0 的请求读到带 util 字段的缓存。
+# 线程安全同 _meta_cache：CPython 下 dict 读写本身原子，最坏情况是重复计算一次。
+_topology_cache: dict = {}   # {with_util(bool): {"ts": epoch, "data": {...}}}
+_TOPOLOGY_TTL = 300          # 秒
+
+
 @router.get("/topology")
 def get_topology(with_util: int = Query(0, description="1=叠加 mwRealTime 最新 15 分钟粒度链路利用率")):
+    _cache_key = bool(with_util)
+    _hit = _topology_cache.get(_cache_key)
+    if _hit and (_time.time() - _hit.get("ts", 0)) < _TOPOLOGY_TTL:
+        return _hit["data"]
+    return _fetch_topology(_cache_key)
+
+
+def _fetch_topology(with_util: bool) -> dict:
     """获取 MW 微波链路连线数据（含经纬度）。
 
     ⚠ 数据源变更（2026-09-25，用户要求）：
@@ -2297,6 +2322,10 @@ def get_topology(with_util: int = Query(0, description="1=叠加 mwRealTime 最�
           前端据此显示为「无 KPI 数据」而不是绿色（无数据 ≠ 正常）；
         - 额外返回 util_meta 统计，让「为什么只有一半线有颜色」在界面上可解释。
       默认 with_util=0 时行为与改动前**逐字节一致**，便于回滚与灰度。
+
+    ⚠ 缓存（2026-10-19）：本函数只负责**计算**，缓存命中判断在路由层
+      get_topology()，见 _topology_cache 的说明。空结果（表不存在）不写缓存，
+      避免一次启动期的瞬时缺表把空响应锁 5 分钟。
     """
     with get_raw_connection() as conn:
         tables = set(list_table_names(conn))
@@ -2352,7 +2381,9 @@ def get_topology(with_util: int = Query(0, description="1=叠加 mwRealTime 最�
             logger.warning("[SILENT-EXCEPT] get_topology with_util: exception swallowed",
                            exc_info=True)
 
-    return {"links": links, "total": len(links), "util_meta": util_meta}
+    payload = {"links": links, "total": len(links), "util_meta": util_meta}
+    _topology_cache[with_util] = {"ts": _time.time(), "data": payload}
+    return payload
 
 
 _boundaries_cache: dict = {}   # {"ts": epoch, "data": {...}}

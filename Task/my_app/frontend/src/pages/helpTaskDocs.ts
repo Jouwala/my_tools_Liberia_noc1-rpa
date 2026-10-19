@@ -18,9 +18,10 @@ export interface TaskDocText {
 export interface TaskDoc {
   id: string
   // 分组键；2026-09-27 由 n 组拆出 s（SP 备件 SFTP）/ w（MW UME），
-  // 2026-10-15 由 n 组拆出 x（实时告警）。与后端
-  // worker_watchdog.GROUP_TASK_MAP 的键一一对应（守卫 tests/test_worker_group_coverage.py 校验）
-  group: 'u' | 'n' | 's' | 'w' | 'v' | 'm' | 'c' | 'x'
+  // 2026-10-15 由 n 组拆出 x（实时告警），2026-10-19 新增 g（RAN Greenplum 取数）。
+  // 与后端 worker_watchdog.GROUP_TASK_MAP 的键一一对应
+  // （守卫 tests/test_worker_group_coverage.py 校验）
+  group: 'u' | 'n' | 's' | 'w' | 'v' | 'm' | 'c' | 'x' | 'g'
   cron: string
   /** 工作流脚本（backend/services/ 下的模块） */
   script: string
@@ -52,6 +53,10 @@ export const WORKER_GROUP_INFO: Record<string, { zh: string; en: string }> = {
   x: {
     zh: '实时告警专属组：2026-10-15 从 n 组拆出，独占一条道不再排在 eflow_sync 等长任务后面（此前最差排队 854s）',
     en: 'Realtime alarm dedicated group: split out of group n on 2026-10-15 to run on its own lane, no longer queued behind long tasks like eflow_sync (worst observed queue wait 854s)',
+  },
+  g: {
+    zh: 'RAN Greenplum 取数组：2026-10-19 新增。上游是 control1 两跳 SSH，与 eFlow/UME/VMAX GBase 无会话交集。独立成组的理由是故障域而非时长（实测单轮 72.6s）—— 这条链路每一跳都可能挂死在网络层，与当年 s 组 sp_data_sync 挂死 5.5h 拖停整组同型，而 m 组跑着每分钟的告警 WhatsApp 推送',
+    en: 'RAN Greenplum extract group (added 2026-10-19): upstream is a two-hop SSH via control1, sharing no session with eFlow/UME/VMAX GBase. It gets its own lane for blast-radius reasons, not duration (measured 72.6s per run) — any hop can wedge at the network layer, the same failure mode that once froze group s for 5.5h, while group m carries the per-minute WhatsApp alarm pushes',
   },
 }
 
@@ -1433,6 +1438,52 @@ export const TASK_DOCS: TaskDoc[] = [
         'Tickets with an empty Ticket Severity are tallied in a separate N/A block without a chart (no SLA target) — otherwise they would be dropped silently',
         'The MTTR axis max is left to Excel auto-scaling so out-of-range months (e.g. P1 2026-05 at 16.37h) are not clipped',
         'Re-pause Summary against an independent pandas recomputation before changing the filter; this output is not in _cleanup_old_tt_reports, its size is bounded by KEEP_FILES here',
+      ],
+    },
+  },
+  {
+    id: 'gp_ran_user_sync', group: 'g', cron: '20 13 * * *',
+    script: 'services/gp_ran/gp_ran_sync.py → run_gp_ran_user_sync',
+    zh: {
+      name: 'RAN 用户身份清单（VoLTE/N78）',
+      desc: '经 control1 两跳 SSH 到 RAN Greenplum，以 gpadmin 跑 psql，取最近 7 个完整 UTC 日的 VoLTE / N78 去重 IMSI 清单，落成 CSV 并记录计数；全程只读，数仓侧不落盘',
+      flow: [
+        '每天 13:20 UTC 连 control1（10.100.29.12:22），在它上面开一条 direct-tcpip 通道转发到数据库主节点 193.168.0.6:22',
+        '主节点上 sudo -S → su - gpadmin → psql（库 netmaxdb），SQL 以 base64 传输避开三层 shell 的引号嵌套',
+        '窗口取 [今天-7, 今天) 的完整 UTC 日，不含仍在累积的当天；两个口径各跑一次 COPY ... TO STDOUT WITH (FORMAT csv, HEADER true)',
+        'CSV 原子写入 backend/data/gp_ran/（volte_起_止.csv / n78_起_止.csv），旁路 sqlite 只记计数与路径，只读守卫拒绝任何写语句与 TO PROGRAM',
+      ],
+      maintain: [
+        '口令在「设置 → 凭据管理」的 gp_ran_control 分组；gp_ran_master 留空即自动复用同一口令，不要抄成第二份',
+        'cron 定在 13:20 UTC 是因为实测数仓落库延迟约 10.5 小时（16:11 UTC 时最新记录才 05:44 UTC），「昨天」要到约 10:30 UTC 才完整；提前跑会静默少一天',
+        'D023 是 IMSI（618=利比里亚 MCC，15 位）不是电话号码；要 MSISDN 必须另找关联表，别把这份清单当可拨打号码交付',
+        '明细里 85% 的 D023 为空，SQL 已加 D023 <> \'\' 排掉；现场人工语句没有这一条，照抄会多出一个空值',
+        '现场给的 volte 语句缺括号：C031=1 OR C032=1 OR C033=1 AND 时间窗 会被解析成时间窗只管 C033，等于全历史。本任务已补括号，**不要改回去**（VoLTE 覆盖 98% 属预期，需求方 2026-10-19 确认）',
+        '这套 psql 是 9.4 / Greenplum 6，不认 --csv（那是 PG 12 才有的）；CSV 必须由 COPY ... TO STDOUT 产出',
+        'L_T216 按 D027 做 12 小时一个分区，最早分区约 62 天前，窗口天数（GP_RAN_WINDOW_DAYS，默认 7）超过就没有数据了',
+        '换机房只改环境变量 GP_RAN_CONTROL_HOST / GP_RAN_MASTER_HOST / GP_RAN_DB，不要改代码；主节点 IP 可在 control1 上 cat /home/gpadmin/paas_hosts_master.cc 查到',
+        '链路诊断：python -m backend.services.gp_ran.gp_ran_check --check（逐层打印两跳、sudo、psql、表与分区）',
+      ],
+    },
+    en: {
+      name: 'RAN User Identity Lists (VoLTE/N78)',
+      desc: 'Two-hop SSH via control1 into the RAN Greenplum, runs psql as gpadmin and pulls distinct VoLTE / N78 IMSI lists for the last 7 complete UTC days, writing CSV plus run counters; strictly read-only, nothing lands on the warehouse',
+      flow: [
+        'Daily 13:20 UTC: connect to control1 (10.100.29.12:22), then open a direct-tcpip channel from it to the DB master 193.168.0.6:22',
+        'On the master: sudo -S -> su - gpadmin -> psql (database netmaxdb); the SQL travels base64-encoded to survive three nested shells',
+        'Window is [today-7, today) of complete UTC days, excluding the still-accumulating current day; one COPY ... TO STDOUT WITH (FORMAT csv, HEADER true) per filter',
+        'CSV is written atomically into backend/data/gp_ran/ (volte_from_to.csv / n78_from_to.csv); the side-car sqlite keeps only counts and paths, and the read-only guard rejects writes and TO PROGRAM',
+      ],
+      maintain: [
+        'The password lives in credential group gp_ran_control; leave gp_ran_master blank to reuse it — do not copy it into a second place',
+        'The 13:20 UTC cron is driven by a measured ~10.5h warehouse lag (at 16:11 UTC the newest record was 05:44 UTC): yesterday is only complete around 10:30 UTC, running earlier silently loses a day',
+        'D023 is the IMSI (618 = Liberia MCC, 15 digits), not a phone number; a MSISDN needs a separate mapping table — never hand this list over as dialable numbers',
+        '85% of detail rows have an empty D023; the SQL filters D023 <> \'\'. The manual statement from site does not, so it returns a blank identity',
+        'The site-provided volte statement misses its parentheses: C031=1 OR C032=1 OR C033=1 AND <window> parses the window onto C033 only, i.e. full history. Parentheses are added here — do not revert (98% VoLTE coverage is expected, confirmed by the requester on 2026-10-19)',
+        'This psql is 9.4 / Greenplum 6 and rejects --csv (added in PG 12); CSV must come from COPY ... TO STDOUT',
+        'L_T216 is range-partitioned on D027 in 12-hour partitions going back ~62 days; GP_RAN_WINDOW_DAYS (default 7) beyond that returns nothing',
+        'Moving datacenter: change GP_RAN_CONTROL_HOST / GP_RAN_MASTER_HOST / GP_RAN_DB only. The master IP is readable on control1 via cat /home/gpadmin/paas_hosts_master.cc',
+        'Chain diagnostics: python -m backend.services.gp_ran.gp_ran_check --check (prints both hops, sudo, psql, table and partitions)',
       ],
     },
   },

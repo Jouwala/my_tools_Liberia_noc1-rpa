@@ -208,7 +208,10 @@ $env:CODEBUDDY_SAFE_DELETE_SANDBOX = ''
 # 2026-09-27: n 组拆为 n/s/w 三组，理由见 worker_watchdog.py 的 GROUP_TASK_MAP 注释。
 # 2026-10-15: eflow_active_alarm 从 n 组拆出为 x 组（要求实时告警 ≤1 分钟，
 #             而 n 组串行会让它排在 eflow_sync 等长任务后面，实测最差排队 854s）。
-$env:MY_APP_WORKER_GROUPS = 'u,n,s,w,m,c,v,x'
+# 2026-10-19: 新增 g 组承载 gp_ran_user_sync（RAN Greenplum 两跳 SSH 取数，实测单轮 72.6s）。
+#             拆组理由是故障域：这条链路每一跳都可能挂死在网络层，而 m 组跑着每分钟的
+#             告警 WhatsApp 推送（同当年 s 组 sp_data_sync 挂死 5.5h 拖停整组的教训）。
+$env:MY_APP_WORKER_GROUPS = 'u,n,s,w,m,c,v,x,g'
 
 # ======================================================================
 # Startup report header
@@ -354,7 +357,9 @@ function Ensure-WorkerWatchdog {
     }
     Start-Hidden $py @('-m', 'backend.worker_watchdog') 'worker_watchdog_console.log'
     # Wait for each group's worker pid files to be ready (up to 20s)
-    $groups = @('u', 'n', 's', 'w', 'm', 'c', 'v', 'x')
+    # 2026-10-19: 加 g 组（RAN Greenplum 取数）。这里漏项会让下面的
+    # $up.Count -eq $groups.Count 判定 9!=8 成立，启动报告反而误报 [FAIL]。
+    $groups = @('u', 'n', 's', 'w', 'm', 'c', 'v', 'x', 'g')
     $deadline = (Get-Date).AddSeconds(20)
     while ((Get-Date) -lt $deadline) {
         $ready = 0

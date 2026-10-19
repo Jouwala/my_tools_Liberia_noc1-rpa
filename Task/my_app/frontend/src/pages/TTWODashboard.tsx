@@ -1,5 +1,5 @@
 // TT&WO Dashboard 前端页面 - Warehouse 暗色科技风
-import { useEffect, useState, useMemo, useCallback } from 'react'
+import { useEffect, useState, useMemo, useCallback, useRef } from 'react'
 // ReactNode：2026-10-19 Workflow 卡片化里 STAGE_ICON 的类型标注用
 import type { ReactNode } from 'react'
 import { cachedGet } from '../cache'
@@ -692,6 +692,73 @@ export default function TTWODashboard({ only, source }: { only?: TTWOOnly; sourc
     [statusMilestones],
   )
 
+  /* ---------- Workflow 栅格列数（2026-10-19 WO 适配 / 三改单行）----------
+   * page=wo 有 9 个阶段（另有「其他」时 10 个）。需求：**全部阶段排成一行**，
+   * 通过压缩卡片宽度容纳 —— 而不是上一版的 5+4 折行。
+   *
+   * 规则（按 .wf-stages 实测宽度算）：
+   *   · 单卡 ≥96px → 一行铺满（1920 屏容器 ~1608 → 单卡 ~162px，9 格一行）
+   *   · 更窄的桌面 → 退回按舒适卡宽（180px）均衡折行 5+4，避免阶段名碎成多行
+   *   · ≤1000px → 三列；≤620px → 两列（需求 7 的平板 / 手机口径不变）
+   * 7 列及以上时根节点带 data-wf-dense，CSS 据此收紧间隙 / 内边距 / 字号。
+   * 用 ResizeObserver 而不是纯媒体查询：列数要跟 Sider 折叠 / 窗口缩放实时变，
+   * 且行末箭头必须按**真实列数**隐藏（:nth-child 吃不到 CSS 变量）。
+   * wfCols=0 表示尚未测量，渲染时退回「一行铺满」，首帧不会闪。 */
+  const wfStageCount = statusMilestones.buckets.length
+    + (statusMilestones.others.reduce((a, [, n]) => a + n, 0) > 0 ? 1 : 0)
+  const [wfCols, setWfCols] = useState(0)
+  const wfRoRef = useRef<ResizeObserver | null>(null)
+  /* 用**回调 ref** 而不是 useLayoutEffect + useRef：
+   * 数据未到 / 全部为 0 时组件走空态 early-return，`.wf-stages` 根本不在 DOM 里，
+   * 而 wfStageCount 在「无数据」和「有数据」时都是 9 —— effect 的依赖不变就不会重跑，
+   * 结果永远是「没测到」，折行彻底失效（2026-10-19 自查发现）。
+   * 回调 ref 在节点真正挂载的那一刻触发，空态 → 有数据切换时必然重新执行。 */
+  const wfStagesRef = useCallback((el: HTMLDivElement | null) => {
+    wfRoRef.current?.disconnect()
+    wfRoRef.current = null
+    if (!el) return
+    let lastW = -1
+    const compute = () => {
+      const w = el.clientWidth
+      // w=0 说明所在容器还没显示（如折叠的 Tab）：此时别按「窄屏」下结论，
+      // 等 ResizeObserver 收到真实宽度再算，避免先闪一下两列。
+      // 其余情况只对宽度变化重算：折行会改变容器高度，RO 也会因此回调。
+      if (!w || w === lastW) return
+      lastW = w
+      const gap = parseFloat(getComputedStyle(el).columnGap || '') || 30
+      // 宽屏折行的「舒适」最小卡宽：低于它就折行（9 列铺满实测 148px 时
+      // 阶段名与明细会硬断词）。只在**放不下单行**时才会用到。
+      const MIN_CARD_W = 180
+      // 单行模式（2026-10-19 三改）：需求要求 WO 的 9 个阶段**排成一行**，
+      // 卡片只能靠压缩宽度容纳。密集模式下 CSS 把栅格间隙定为 32px ——
+      // 间隙里多余的空间全部让给箭头（14×12 → 28×21，四改 2026-10-19），
+      // 这里必须用同一个值估算单卡宽度，否则判定和真实渲染会各说一套。
+      // 96px 是硬下限：再窄阶段名会碎成 4 行以上，宁可退回折行。
+      const DENSE_GAP = 32
+      const DENSE_MIN_CARD_W = 96
+      let perRow: number
+      if (w < 620) perRow = 2                       // 手机两列（需求 7）
+      else if (w < 1000) perRow = 3                 // 平板三列（需求 7）
+      else {
+        const singleRowW = (w - (wfStageCount - 1) * DENSE_GAP) / wfStageCount
+        if (singleRowW >= DENSE_MIN_CARD_W) {
+          // 放得下 → 全部阶段一行铺满（TT 6 格 / WO 9 格都走这里）
+          perRow = wfStageCount
+        } else {
+          // 实在放不下（窄桌面）→ 按舒适卡宽均衡折行（9 格 → 5+4）
+          const fit = Math.max(1, Math.floor((w + gap) / (MIN_CARD_W + gap)))
+          perRow = Math.min(wfStageCount, fit, 6)
+        }
+      }
+      // 均衡分行：先定行数，再把格数摊平到每行（ceil(9/2)=5 → 5+4，不会是 6+3）
+      setWfCols(Math.max(1, Math.ceil(wfStageCount / Math.ceil(wfStageCount / perRow))))
+    }
+    compute()
+    const ro = new ResizeObserver(compute)
+    ro.observe(el)
+    wfRoRef.current = ro
+  }, [wfStageCount])
+
   /* ---------- 页面级导出（2026-09-27 新增）----------
    * 此前本组件唯一的导出按钮在**下钻弹窗**里（导的是下钻明细行），
    * 页面上没有任何导出入口 —— `?page=ttwo` 与 `?page=v1_ttwo` 都因此看不到按钮。
@@ -1317,6 +1384,19 @@ export default function TTWODashboard({ only, source }: { only?: TTWOOnly; sourc
    * 替换说明：保留函数名 renderStatusMilestones 以最小化对调用点与 watch 监听的影响；
    * 实现从「圆点 + 渐变线」改为「CSS Grid 步骤条 + 节点卡片 + 数字徽章 + 进度条 + 底部
    * Waiting Status 面板」，并复用 statusMilestones / statusMilestoneTotal —— 0 新 API。
+   *
+   * 2026-10-19 二改（UI 需求）：卡片高度带 220~250px（宽屏单卡 ≥440 时天然 2:1，
+   * 普通屏随列宽自适应；不用 aspect-ratio —— 它会把 min-height 传导成 min-width
+   * 440 打爆六列栅格，见 index.css .wf-stage 注释），内容重排为四段
+   *   ① 顶部 序号 + 图标  ② 中部 英文名 / 中文名 / 数量 / 占比
+   *   ③ 底部 进度条       ④ 进度条下方 等待明细（超出内部滚动，不丢数据）
+   * 节点间箭头换成 SVG 蓝色粗箭头；去掉渐变与发光。
+   *
+   * 2026-10-19 三改（page=wo 适配）：TT 6 阶段一行铺满正好，但 WO 有 9 阶段
+   * （+其他 10）—— 一行 9 列实测单卡仅 148×250，阶段名折三行、明细断词。
+   * 改为按容器实测宽度均衡折行（9 格 → 5+4），行末不画箭头（下一格在下一行开头），
+   * ≤6 阶段仍保持单行，page=tt 的版式一个字不动。
+   * 数据链路完全没动：阶段映射 / 数量 / 占比 / 明细 / 下钻 / 中英文键全部沿用。
    * 视觉规范由 .wo-workflow / .wf-* 命名空间承担（见 index.css），
    * 节点尺寸 / 文字基线 / 数字基线 / 进度条高度 / 箭头位置全部走 CSS 锁死，
    * 这里只输出"数据"与"结构"，让 CSS 控制"外观"。*/
@@ -1371,7 +1451,9 @@ export default function TTWODashboard({ only, source }: { only?: TTWOOnly; sourc
     // 作为第 9 格排在末尾，序号 / 列数随之调整。
     const othersTotal = statusMilestones.others.reduce((a, [, n]) => a + n, 0)
     const showOthers = othersTotal > 0
-    const cols = ordered.length + (showOthers ? 1 : 0)
+    // 列数优先用实测值（wfCols，WO 9 阶段会被均衡分行成 5+4）；
+    // 首帧尚未测量时退回「一行铺满」，保证 SSR/首帧结构与旧版一致。
+    const cols = wfCols || (ordered.length + (showOthers ? 1 : 0))
     // 空态：所选范围内一个可归类的工单都没有时，一排 0 格没有信息量，
     // 直接给空态（口径与旧版一致）。注意用 total 而非「所有格子都是 0」二者等价，
     // 但 total 已包含 others，语义更直接。
@@ -1403,9 +1485,13 @@ export default function TTWODashboard({ only, source }: { only?: TTWOOnly; sourc
         className="wo-workflow"
         role="region"
         aria-label={t('ttwo.statusMilestone')}
-        // 节点列数：常态 7 阶段，出现「其他」时 8 列 —— 让 grid --wf-cols=N →
-        // repeat(N, 1fr) 自动平分整行。平板 / 手机断点下改 repeat(4) / repeat(2)，
-        // 由 CSS 媒体查询接管（此时列数固定，注入值被断点覆盖）。
+        // 节点列数：由上面的 ResizeObserver 按实测宽度算出（cols = wfCols）。
+        // grid 侧只读 --wf-cols → repeat(N, 1fr)，不再用媒体查询硬编码列数 ——
+        // 否则「JS 隐藏行末箭头」与「CSS 真实列数」会两处各说一套，箭头必然指错。
+        // data-wf-dense：8 列及以上 = 单行密集模式（WO 的 9 / 10 阶段），
+        // CSS 据此收紧栅格间隙 / 内边距 / 字号，让 9 张窄卡也能排成一行。
+        // 7 列（TT 出现「其他」）单卡仍有 ~200px，常规字号放得下，不进密集模式。
+        data-wf-dense={cols >= 8 ? '1' : '0'}
         style={{ ['--wf-cols' as any]: cols }}
       >
         {/* 2026-10-19：去掉卡片内的 h2「TICKET WORKFLOW」。
@@ -1421,7 +1507,7 @@ export default function TTWODashboard({ only, source }: { only?: TTWOOnly; sourc
           <div className="wf-live" aria-live="polite">● {t('ttwo.workflowLive')}</div>
         </header>
 
-        <div className="wf-stages" role="list">
+        <div className="wf-stages" role="list" ref={wfStagesRef}>
           {renderStages.map((g, idx) => {
             const stageNo = String(idx + 1).padStart(2, '0')
             // 进度条宽度：占 statusMilestoneTotal 的比例。
@@ -1457,16 +1543,30 @@ export default function TTWODashboard({ only, source }: { only?: TTWOOnly; sourc
                   style={{ ['--progress' as any]: `${pct.toFixed(2)}%` }}
                   aria-label={`${stageNo} ${enName} ${g.total} ${pct.toFixed(1)}%`}
                 >
-                  <div className="wf-number">{stageNo}</div>
-                  <div className="wf-icon" aria-hidden="true">
-                    {STAGE_ICON[g.styleKey || g.key] || <ClockCircleOutlined />}
+                  {/* ① 顶部：步骤序号 + 阶段图标 */}
+                  <div className="wf-top">
+                    <div className="wf-number">{stageNo}</div>
+                    <div className="wf-icon" aria-hidden="true">
+                      {STAGE_ICON[g.styleKey || g.key] || <ClockCircleOutlined />}
+                    </div>
                   </div>
-                  {/* 节点字段顺序固定：英文名 / 中文名 / 数量 / 占比 / 进度条。
-                      中文名空时省略整行（en dictionary 下不显示重复的"等待确认"之类）。 */}
-                  <h3 className="wf-name">{enName}</h3>
-                  {cnName && <div className="wf-name-en">{cnName}</div>}
-                  <div className="wf-count">{fmt(g.total)}</div>
-                  <div className="wf-percent">{pct.toFixed(1)}%</div>
+                  {/* ② 中部：英文名 / 中文名 / 工单数量 / 占比。
+                      中文名空时省略整行（en dictionary 下不显示重复的"等待确认"之类）。
+                      数量与占比是主读数，字号由 .wf-count / .wf-percent 放大突出。
+                      名称与数字各包一层（.wf-names / .wf-figures）：四个平级子元素时
+                      「英文名 ↔ 中文名」与「数量 ↔ 占比」的间距会被 flex 分配逻辑
+                      一起拉开（zh 下中文名会飘到卡片中间），分组后两段各自成块，
+                      纵向留白只发生在两段之间。 */}
+                  <div className="wf-mid">
+                    <div className="wf-names">
+                      <h3 className="wf-name">{enName}</h3>
+                      {cnName && <div className="wf-name-cn">{cnName}</div>}
+                    </div>
+                    <div className="wf-figures">
+                      <div className="wf-count">{fmt(g.total)}</div>
+                      <div className="wf-percent">{pct.toFixed(1)}%</div>
+                    </div>
+                  </div>
                   <div className="wf-progress" aria-hidden="true">
                     <span />
                   </div>
@@ -1502,9 +1602,23 @@ export default function TTWODashboard({ only, source }: { only?: TTWOOnly; sourc
                       ))}
                     </ul>
                   )}
-                  {/* 节点间箭头：定位在节点右缘中部（CSS 已固定 top/right），
-                      末段不画。CSS 里 .wf-arrow::before 输出 › 字符 + text-shadow 发光。 */}
-                  {idx < renderStages.length - 1 && <span className="wf-arrow" aria-hidden="true" />}
+                  {/* 节点间箭头：SVG 蓝色粗箭头（替代原 › 字符）。
+                      CSS 把它压在栅格间隙内并垂直居中（见 .wf-arrow），
+                      pointer-events:none → 不覆盖卡片、也不拦节点点击下钻。
+                      两种位置不画：
+                        · 最后一格（下一格不存在）；
+                        · **行末**（下一格在下一行开头，横指过去会指向空白）。
+                          折行后列数由 wfCols 决定，故这里按 cols 取模判断，
+                          与 CSS 的 grid-template-columns 同源，不会指错。
+                          行序由卡片左上角的 01/02… 序号承担（与手机端同一口径）。 */}
+                  {idx < renderStages.length - 1 && (idx + 1) % cols !== 0 && (
+                    <svg className="wf-arrow" viewBox="0 0 24 18" aria-hidden="true" focusable="false">
+                      {/* 箭杆：4.5 粗、圆头 */}
+                      <path d="M1 9 H13" fill="none" stroke="currentColor" strokeWidth="4.5" strokeLinecap="round" />
+                      {/* 箭头：实心三角，尖端清晰指向下一阶段 */}
+                      <path d="M12.6 1.6 L22.4 9 L12.6 16.4 Z" fill="currentColor" />
+                    </svg>
+                  )}
                 </article>
               </Tooltip>
             )

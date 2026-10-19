@@ -476,6 +476,24 @@ GROUP_TASK_MAP = {
         #   以及本表；守卫 tests/test_worker_group_coverage.py 会交叉校验
         #   （含 frontend/src/pages/helpTaskDocs.ts 的任务帮助清单）。
         "eflow_active_alarm"),
+    "g": (  # RAN Greenplum 取数组（2026-10-19 新增）：独立上游会话 + 独立故障域。
+        # 【为什么不塞进 m 组】理由是**故障域**而不是时长 —— 实测单轮 72.6s
+        # （10.4 亿行明细，靠 12h 分区裁剪 + 列存扫描，比上线前估的 10 分钟快一个数量级），
+        # 但它的链路是「SSH 到 control1 → 再转发到 GP 主节点 → sudo → su → psql」，
+        # 每一跳都可能挂死在网络层：这与当年 s 组 sp_data_sync 的挂死同型
+        # （worker.py:83-93 记载其 SFTP channel 读挂死 5.5h，因同组串行
+        # 把整组含每分钟任务一起拖停摆）。m 组里有 ume_alarm_whatsapp_alert
+        # （每分钟）与 tt_alarm_whatsapp_alert（每 5 分钟），
+        # 挂死一次就是这两条告警通道停摆直到 4h 兜底强杀。独立成组后最坏只影响 g 组自己。
+        # 【为什么可以独立】上游是 control1(10.100.29.12) 两跳 SSH，
+        # 与 eFlow / UME / VMAX GBase / SFTP 无任何会话或写库交集；
+        # 只写自己的 backend/data/gp_ran/（CSV + 旁路 sqlite）。
+        # ⚠ 新增/改动分组必须同步五处（本表、start_hidden.ps1 的
+        #   MY_APP_WORKER_GROUPS **与** $groups 等待清单、restart_workers.py 的
+        #   ALL_GROUPS 回退值、start.bat 的 pid 计数与分母、前端任务帮助），
+        #   守卫 tests/test_worker_group_coverage.py 交叉校验（$groups 那处守卫抓不到，
+        #   漏改会让启动报告把 9/8 误判成 [FAIL]）。
+        "gp_ran_user_sync"),
 }
 _WORKER_GROUPS = [g.strip() for g in
                   os.environ.get("MY_APP_WORKER_GROUPS", "").split(",") if g.strip()]

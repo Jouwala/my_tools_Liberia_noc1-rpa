@@ -26,7 +26,7 @@ import { exportReport, type ReportSheetSpec } from '../utils/excelReport'
 import { getCnKpi5minsOverview } from '../api'
 import { useI18n } from '../i18n'
 import { formatDateTime } from '../datetime'
-import { WH, axisLabel, axisLine, darkTooltip, splitLine, useTheme } from '../theme'
+import { axisLabel, axisLine, darkTooltip, useTheme } from '../theme'
 
 const { Text } = Typography
 
@@ -78,9 +78,15 @@ function xAxisLabel(n: number) {
  * 与 CnKpi.tsx 的 buildPivotOption 同构，只是这里把 Day0/Day1 的顺序固定下来，
  * 并给两条线固定配色，保证「今天」永远是同一种颜色。
  */
+// 配色与图型参考 vmax_cxo_dashboard.html 的 Total Traffic(GB) 图（day-0 蓝 / day-1 绿）
 const DAY_COLOR: Record<string, string> = {
-  Day0: '#0d9488',
-  Day1: '#8b95a7',
+  Day0: '#2b8cff',
+  Day1: '#08bd83',
+}
+
+function fadeColor(hex: string, alpha: number) {
+  const n = parseInt(hex.slice(1), 16)
+  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${alpha})`
 }
 
 function buildDayOption(w: CnWidget5, isDark: boolean) {
@@ -101,44 +107,71 @@ function buildDayOption(w: CnWidget5, isDark: boolean) {
   names.sort((a, b) => (a === 'Day0' ? -1 : b === 'Day0' ? 1 : a.localeCompare(b)))
   const dense = cats.length > 120
   const isPct = w.pct
+  // tooltip 数值千分位 + 最多两位小数，与参考图的白卡数值形态一致；空值显示 —
+  const fmtValue = (v: unknown) => {
+    if (v === null || v === undefined || v === '') return '—'
+    const n = Number(v)
+    if (!Number.isFinite(n)) return String(v)
+    return isPct ? `${n.toFixed(2)}%` : n.toLocaleString('en-US', { maximumFractionDigits: 2 })
+  }
   return {
-    tooltip: { ...darkTooltip(isDark), trigger: 'axis' as const },
+    tooltip: { ...darkTooltip(isDark), trigger: 'axis' as const, valueFormatter: fmtValue },
     legend: {
-      bottom: 0,
+      top: 2,
       type: 'scroll' as const,
+      icon: 'roundRect' as const,
       show: names.length > 0,
-      textStyle: { color: isDark ? '#aebbd4' : '#3f5468', fontSize: '0.625rem' },
-      itemWidth: 12,
+      textStyle: { color: isDark ? '#aebbd4' : '#3f5468', fontSize: 10 },
+      itemWidth: 14,
       itemHeight: 8,
+      itemGap: 10,
       data: names,
     },
-    grid: { left: 62, right: 20, top: 24, bottom: 46, containLabel: true },
+    grid: { left: 12, right: 16, top: 34, bottom: 24, containLabel: true },
     xAxis: {
       type: 'category' as const,
       data: cats,
       boundaryGap: false,
       axisLabel: { ...axisLabel(isDark), ...xAxisLabel(cats.length) },
       axisLine: axisLine(isDark),
+      axisTick: { show: false },
     },
     yAxis: {
       type: 'value' as const,
       scale: true,
-      splitLine: splitLine(isDark),
+      splitLine: { show: false },
       axisLabel: {
         ...axisLabel(isDark),
         formatter: isPct ? (v: number) => `${Number(v).toFixed(2)}%` : undefined,
       },
     },
-    series: names.map((n) => ({
-      name: n,
-      type: 'line' as const,
-      smooth: false,
-      showSymbol: false,
-      connectNulls: false,
-      sampling: dense ? ('lttb' as const) : undefined,
-      color: DAY_COLOR[n],
-      data: cats.map((x) => lookup.get(`${x}\u0000${n}`) ?? null),
-    })),
+    series: names.map((n) => {
+      const c = DAY_COLOR[n] || '#8b95a7'
+      return {
+        name: n,
+        type: 'line' as const,
+        smooth: true,
+        showSymbol: false,
+        connectNulls: false,
+        sampling: dense ? ('lttb' as const) : undefined,
+        color: c,
+        lineStyle: { width: 1.5 },
+        areaStyle: {
+          color: {
+            type: 'linear' as const,
+            x: 0,
+            y: 0,
+            x2: 0,
+            y2: 1,
+            colorStops: [
+              { offset: 0, color: fadeColor(c, 0.25) },
+              { offset: 1, color: fadeColor(c, 0.02) },
+            ],
+          },
+        },
+        data: cats.map((x) => lookup.get(`${x}\u0000${n}`) ?? null),
+      }
+    }),
   }
 }
 

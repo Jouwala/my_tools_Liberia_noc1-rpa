@@ -923,6 +923,22 @@ TASK_SPECS = [
          description="从最新 Site Down hourly Report 生成 TTs and MTTR (Hour).xlsx：有 WO + 告警发生→清除历时<48h + Site Category 非空 + 2026-01 起，Summary 用 COUNTIFS/AVERAGEIFS 公式分月统计并出 P1~P4 组合图",
          description_en="Build TTs and MTTR (Hour).xlsx from the latest Site Down hourly Report: WO present + occur-to-clear < 48h + non-empty Site Category + from 2026-01; Summary counts via COUNTIFS/AVERAGEIFS formulas with P1-P4 combo charts",
          default_cron="20 7 * * *", category="eflow"),
+
+    # 46. RAN Greenplum 用户身份清单（每天 13:20 UTC，2026-10-19 新增）
+    #     经 control1(10.100.29.12) 两跳到 GP 主节点(193.168.0.6)，以 gpadmin 跑 psql，
+    #     取最近 7 个**完整 UTC 自然日**的 VoLTE / N78 去重 IMSI 清单。
+    #     cron 取 13:20 的依据（实测 2026-10-19）：数仓落库延迟约 10.5h（当时 16:11 UTC，
+    #     最新记录 05:44 UTC），即「昨天」要到今天 ~10:30 UTC 才完整，留 3h 余量。
+    #     窗口不含当天（当天还在累积，取它会让看板的数字每天在动、无法对账）。
+    #     ⚠ 清单是 IMSI 不是 MSISDN（618=利比里亚 MCC，15 位），且明细里 85% 的 D023 为空，
+    #     SQL 已排空值。清单只落 backend/data/gp_ran/*.csv（.gitignore 已挡），
+    #     旁路 sqlite 只存计数与路径 —— 不把用户身份数据带进主库及其备份链路。
+    dict(task_id="gp_ran_user_sync", name="RAN 用户身份清单（VoLTE/N78）",
+         name_en="RAN Greenplum User Lists (VoLTE/N78)",
+         loader=("backend.services.gp_ran.gp_ran_sync", "run_gp_ran_user_sync"),
+         description="SSH 两跳（control1→Greenplum 主节点）以 gpadmin 跑 psql，取最近 7 个完整 UTC 日的 VoLTE / N78 去重 IMSI 清单，落 CSV + 运行记录；只读，数仓侧不落盘（COPY TO STDOUT）",
+         description_en="Two-hop SSH (control1 -> Greenplum master) running psql as gpadmin: last 7 complete UTC days of distinct VoLTE / N78 IMSI lists, saved as CSV plus run records; read-only, nothing written on the warehouse side (COPY TO STDOUT)",
+         default_cron="20 13 * * *", category="gp_ran"),
 ]
 
 # ========== 网关分组（按「获取数据的外部系统」归类，与 category 平行） ==========
@@ -967,6 +983,9 @@ CATEGORY_GATEWAY: dict[str, str] = {
     "general": "system",
     # VMAX 数仓 GBase 8a 直连（10.123.255.12:5258，只读取数）
     "olib_soc": "vmax_gbase",
+    # RAN Greenplum（L_T216 信令明细）：与 GBase 8a 是**两套数仓**，
+    # 走 control1 两跳 SSH + psql，不共用任何会话或凭据，故单列一个网关
+    "gp_ran": "ran_greenplum",
 }
 
 # 将 gateway 注入每个 spec，作为一级分组真相源（前端按此动态分组，不再硬编码 ROW_GROUPS）

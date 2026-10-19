@@ -35,9 +35,10 @@ APScheduler 到点 (backend 进程内)
 | `s` | 1 | SP 备件 SFTP（独立 SFTP 服务器 + UNC 镜像库）。2026-09-27 从 `n` 拆出：它是 `n` 组最大单体负载（实测 347min/天）且是已知挂死源（SFTP channel 读挂死 5.5h 曾拖停整组） | `sp_data_sync` |
 | `w` | 2 | MW UME 微波网管（凭证分组 `mw_ume`），独立会话。2026-09-27 从 `n` 拆出：`mw_ume_kpi_sync_rt` 为 `*/15` 高频任务，此前每次排在 `sp_data_sync` 后，实测队列等待 964s（全场最久） | `mw_ume_kpi_sync`, `mw_ume_kpi_sync_rt` |
 | `v` | 3 | VMAX 门户（本机 8790 单会话代理）：三个任务共用同一个 VMAX 会话，必须彼此串行；2026-09-18 从 `n` 组拆出（原先排在 `sp_data_sync` 这类 1.5~2h 长任务后面，小时级采集滞后一个多小时） | `cxo_dashboard_cache_sync`, `vmax_cxo_daily_sync`, `vmax_multi_data_sync` |
-| `m` | 35 | 内务轻任务：EWS 邮件会话 + 截图/WhatsApp 文件依赖 + VMAX 数仓 GBase 直连取数 | `site_outage_screenshot`, `whatsapp_send`, `whatsapp_send_ext`, `tt_alarm_whatsapp_alert`, `liberia_email_1h`, `liberia_email_8h`, `kpi_ms_contract`, `kpi_ms_wo_sla`, `kpi_sp_spareparts`, `kpi_sp_consumables`, `kpi_ran_availability`, `email_recovery`, `ipran_m6k_chart_email`, `ccn_free_rating_chart_email`, `battery_email`, `mailbox_cleanup`, `incident_overview_sync`, `auto_retry_failed`, `db_freshness_check`, `sp_report_generate`, `sp_email_details`, `sp_details_files_email`, `sp_online_report_generate`, `sp_online_report_send`, `sp_whatsapp_report`, `sp_material_report`, `finebi_report_sync`, `pg_to_sqlite_sync`, `log_cleanup`, `tmp_cleanup`, `mttr_tt_sync`, `progress_sync`, `olib_soc_kpi_daily_sync`, `olib_soc_vmax_report`, `tt_mttr_report_generate` |
+| `m` | 37 | 内务轻任务：EWS 邮件会话 + 截图/WhatsApp 文件依赖 + VMAX 数仓 GBase 直连取数 | `site_outage_screenshot`, `whatsapp_send`, `whatsapp_send_ext`, `liberia_email_1h`, `liberia_email_8h`, `kpi_ms_contract`, `kpi_ms_wo_sla`, `kpi_sp_spareparts`, `kpi_sp_consumables`, `kpi_ran_availability`, `email_recovery`, `ipran_m6k_chart_email`, `ccn_free_rating_chart_email`, `battery_email`, `mailbox_cleanup`, `incident_overview_sync`, `auto_retry_failed`, `db_freshness_check`, `sp_report_generate`, `sp_email_details`, `sp_online_report_generate`, `sp_online_report_send`, `mttr_tt_sync`, `progress_sync`, `sp_whatsapp_report`, `sp_material_report`, `finebi_report_sync`, `pg_to_sqlite_sync`, `log_cleanup`, `tmp_cleanup`, `olib_soc_kpi_daily_sync`, `olib_soc_vmax_report`, `tt_alarm_whatsapp_alert`, `ume_alarm_whatsapp_alert`, `sp_details_files_email`, `tt_mttr_report_generate`, `whatsapp_send_baileys` |
 | `c` | 2 | CN EMS 独立会话，两个任务共享 `_pmcache`/`daily_raw.json`，同组保证互斥 | `ems_kpi_cache_sync`, `ems_kpi_daily` |
 | `x` | 1 | 实时告警专属组（2026-10-15 从 `n` 拆出）。要求告警滞后 ≤1 分钟，而 `n` 组是一条串行道，cron 改 `*/1` 也会被 `eflow_sync`（实测平均 192.5s）/`ms_sla_full`（最久 600.1s）挡住 —— 实测 856 次采样中 5.3% 等待 >60s、最差 853.9s | `eflow_active_alarm` |
+| `g` | 1 | RAN Greenplum 取数（2026-10-19 新增）：经 control1 两跳 SSH 到 193.168.0.6，与 eFlow/UME/VMAX GBase/SFTP 无任何会话与写库交集。独立成组的理由是**故障域**：SSH 通道挂死的风险与当年 s 组 sp_data_sync 同型（worker.py:83-93 记载其 channel 读挂死 5.5h 拖停整组）；实测单轮 72.6s（10.4 亿行明细靠 12h 分区裁剪 + 列存），虽短于 m 组每分钟的告警推送周期，但不愿让它去挤那条道 | `gp_ran_user_sync` |
 
 > **2026-09-27 拆组（`n` → `n`/`s`/`w`）的实测依据**：`n` 组近 24h 单 worker 串行占用
 > `sp_data_sync` 347min + `eflow_sync` 236min + `eflow_active_alarm` 103min ≈ 686min，
@@ -176,6 +177,7 @@ APScheduler 到点 (backend 进程内)
 | `mttr_tt_sync` | MTTR/TT 宽表重建 | `40 7 * * *` | m |
 | `progress_sync` | Progress 宽表重建 | `50 7 * * *` | m |
 | `tt_mttr_report_generate` | TTs and MTTR 报表生成（供 EmailReports 页「TTs and MTTR」页签下载） | `20 7 * * *` | m |
+| `gp_ran_user_sync` | RAN 用户身份清单（VoLTE / N78 去重 **IMSI**，经 control1 两跳 SSH 到 Greenplum，取最近 7 个完整 UTC 日；实测 72.6s / 10.4 亿行扫描） | `20 13 * * *` | g |
 
 ### WhatsApp 发送通道矩阵（2026-10-08）
 
@@ -732,6 +734,7 @@ worker 分组重启才生效（`backend/routers/task_configs.py`）。
 | `ume_in_kpi_sync`、`ume_in_osg_report` | `ume_in` | UME em-portal |
 | `vmax_multi_data_sync`、`cxo_dashboard_cache_sync`、`vmax_cxo_daily_sync` | `vmax_cxo` | VMAX CXO 门户 |
 | `olib_soc_vmax_report` | `vmax_gbase` | VMAX 数仓 GBase 8a |
+| `gp_ran_user_sync` | **`gp_ran_control`**（`gp_ran_master` 留空即复用同一口令） | RAN Greenplum 的 control1 跳板机 SSH（ubuntu） |
 | `sp_data_sync`、`sp_report_generate` 等备件系 | `sftp_sp` | SFTP 备件服务器 |
 | `liberia_email_*`、`kpi_*` 等邮件类 | `mail_126` / `owa_mail` | 126 邮箱 / Exchange OWA |
 

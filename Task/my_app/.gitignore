@@ -113,6 +113,10 @@ _probe_file.txt
 /backend/data/portal_catalog.json
 /backend/data/ui_menu_layout.json
 /backend/data/tt_timeline_cache/
+# gp_ran 导出的 VoLTE / N78 用户号码清单（D023=MSISDN，**用户个人信息**）。
+# 上面 `!backend/data/` 的取反会让这个目录变成可提交，必须在这里挡回来：
+# 号码清单入库等于把订阅者数据分发给每一个拿到仓库的人，且永久留在 git 历史里。
+/backend/data/gp_ran/
 
 # outputs/ 整体是**产物目录**（`ume_in_screen_render.py:97` 的默认输出就落在这里）。
 # 里面的 `ume_screen_caps/`、`ume_screen_platform/` 两份是被人为入库当样例，维持现状不动；

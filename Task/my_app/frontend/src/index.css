@@ -2005,23 +2005,27 @@ html {
   .wh-sider-backdrop{background:var(--wh-scrim-solid)}
 }
 
-/* ===== WO/TT Workflow: 工业科技风 步骤条（独立命名空间 .wo-workflow / .wf-*）=====
- * 2026-10-19：替代旧版 renderStatusMilestones 圆点 + 单线段样式。
- * 设计要点：
- *  - 节点用 CSS Grid repeat(N, 1fr) 自动平分整行，N 取实际渲染的阶段数；
- *  - 每个节点 6 字段：序号 / 图标 / 英文名 / 中文名 / 数量 / 占比 + 进度条；
- *  - 节点间用 › 字符 + text-shadow 做柔光，末段不画；
- *  - 配色：深色档为深海军蓝背景、青蓝色强调；浅色档为白玻璃 + 深色阶阶段色。
- *    两档都只通过下方 .wo-workflow / :root[data-theme='light'] .wo-workflow
- *    的令牌切换，类规则本身无 data-theme 分支（2026-10-19 补浅色适配）。
- *    每阶段一色（--stage-color 由组件按阶段注入）。
- *  - 所有颜色 / 间距 / 圆角 / 发光都用独立 .wo-workflow 命名空间的 CSS 变量，
- *    不污染项目 --wh-* / 不被 .wh-card / .ant-* 覆盖。
- *  - 平板 ≤900px 三列、手机 ≤480px 两列，箭头隐藏（grid 自动换行后箭头方向会变怪）。
+/* ===== WO/TT Workflow: 简洁科技风步骤条（独立命名空间 .wo-workflow / .wf-*）=====
+ * 2026-10-19 二改（需求：卡片宽高比 2:1 + 内容重排 + 醒目蓝色粗箭头 + 简化渐变阴影）：
+ *  - 卡片高度带 min-height 220 / max-height 250；宽屏（单卡 ≥440px，如值班大屏）
+ *    天然呈 2:1，普通屏宽高比随列宽自适应（aspect-ratio 会把 min-height 传导成
+ *    min-width 440 打爆六列栅格，故不使用 —— 详见 .wf-stage 内注释）；
+ *  - 内容四段：顶部(序号 + 图标) / 中部(英文阶段名 + 中文名 + 工单数量 + 占比) /
+ *    底部(进度条) / 进度条下方(等待明细，超出行数内部滚动，不丢业务数据)；
+ *    没有等待明细的卡片不留空白（.wf-mid 撑满、内容顶部对齐）。
+ *  - 节点间箭头改为 SVG 蓝色粗箭头（.wf-arrow）：垂直居中、宽度压在栅格间隙内
+ *    （calc(var(--wf-gap) - 6px)）、pointer-events:none —— 不覆盖卡片、不影响点击。
+ *  - 去掉径向渐变与发光阴影，只留 1px 阶段色描边 + 极浅阶段色底。
+ *  - 阶段配色 / 数据映射 / 下钻 / 中英文切换全部沿用原实现：未新增接口、未新增文案键。
+ *  - 列数（2026-10-19 WO 适配 / 三改单行）：**由组件按实测宽度写入 --wf-cols**，
+ *    不再用媒体查询硬编码。page=tt 6 阶段 → 单行 6 列；page=wo 9 阶段 → **单行 9 列**
+ *    （7 列及以上进密集模式 data-wf-dense，见下方「单行密集模式」：间隙 / 字号 / 内边距
+ *    整体收紧，卡片宽度压到 ~162px 仍可读）；窄桌面放不下时退回均衡折行 5+4。
+ *    ≤620 两列 / ≤1000 三列由组件同一处判定，行末箭头按 cols 取模隐藏，与真实列数同源。
  */
 .wo-workflow {
   /* ---------- 深色（默认）令牌 ---------- */
-  --wf-bg: #06182d;
+  --wf-bg: #071b30;
   --wf-panel: #09213b;
   --wf-line: #0874b9;
   --wf-cyan: #20d5ef;
@@ -2033,22 +2037,18 @@ html {
   --wf-muted: #91b3d4;
   --wf-border-soft: #123e65;
   --wf-border-strong: #0874b9;
-  /* 2026-10-19 浅色适配：原先这些值直接写在各条规则里（#09213b / #071b30 /
-     #103354 / #153954 / #092744 / #071c32 / #104777 / #17466e / #dcecff），
-     浅色主题下整块呈现为「黑卡片」。收敛到令牌层后，浅色只需重定义变量，
-     类规则保持单一版本（与 index.css:369 「按主题切换只发生在令牌层」同一做法）。 */
-  --wf-head-glow: rgba(0, 112, 190, .18);      /* 头部径向辉光 */
-  --wf-stage-from: #09213b;                    /* 节点渐变起点混色基底 */
-  --wf-stage-to: #071b30;                      /* 节点渐变终点 */
-  --wf-stage-mix: 13%;                         /* 阶段色混入节点底的比例 */
-  --wf-stage-shadow: rgba(0, 0, 0, .16);       /* 节点投影 */
-  --wf-number-bg: #103354;                     /* 序号徽章默认底 */
-  --wf-icon-mix: 23%;                          /* 阶段色混入图标圆的比例 */
-  --wf-track-bg: #153954;                      /* 进度条轨道 */
-  --wf-live-border: #087d94;                   /* LIVE 徽标描边 */
+  /* 卡片：纯色底 + 极浅阶段色混底，不再做渐变与发光 */
+  --wf-card-bg: #0a2036;
+  --wf-card-tint: 7%;              /* 阶段色混入卡底的比例 */
+  --wf-card-border-mix: 65%;       /* 阶段色描边浓度 */
+  --wf-card-shadow: rgba(0, 0, 0, .28);
+  --wf-track-bg: #153954;
+  --wf-arrow: #249cff;             /* 节点间箭头色：醒目蓝 */
+  --wf-live-border: #087d94;
   --wf-live-bg: rgba(0, 217, 255, .08);
-  --wf-arrow-glow: rgba(32, 213, 239, .55);    /* 节点间箭头的柔光 */
-  --wf-subrow-divider: rgba(145, 179, 212, .28); /* 子状态列表与上方内容的分隔虚线 */
+  --wf-subrow-divider: rgba(145, 179, 212, .28);
+  --wf-number-fg: #ffffff;         /* 序号徽章文字色（浅色档改为阶段深色） */
+  --wf-icon-tint: 14%;             /* 图标底混入阶段色的比例 */
   /* 序号徽章底色（深色档 = 阶段色的暗版，保证白字对比度） */
   --wf-num-reassign: #4f3f9a;
   --wf-num-waitAccept: #1a4a82;
@@ -2062,12 +2062,10 @@ html {
   position: relative;
   width: 100%;
   box-sizing: border-box;
-  padding: 22px 20px 18px;
+  padding: 18px 18px 16px;
   overflow: hidden;
   color: var(--wf-text);
-  background:
-    radial-gradient(ellipse at 50% 0%, var(--wf-head-glow), transparent 65%),
-    var(--wf-bg);
+  background: var(--wf-bg);
   border: 1px solid var(--wf-border-soft);
   border-radius: 14px;
   font-family: Inter, "Segoe UI", Arial, sans-serif;
@@ -2077,136 +2075,155 @@ html {
 .wo-workflow *::before,
 .wo-workflow *::after { box-sizing: border-box; }
 
-/* 头部：标题 + 副标题 + LIVE 徽标 */
+/* 头部：副标题 + LIVE 徽标（卡片内标题已去重，见 2026-10-19 说明） */
 .wf-header {
   display: flex; align-items: center; justify-content: space-between;
-  gap: 12px; margin-bottom: 22px; flex-wrap: wrap;
+  gap: 12px; margin-bottom: 16px; flex-wrap: wrap;
 }
-/* .wf-title / .wf-title-accent 于 2026-10-19 删除：
- * 卡片内标题与外层 StatDimTitle「Workflow」重复，已去掉卡片标题。
- * 副标题因此独占一行，不再需要给标题留的 margin-top。 */
 .wf-subtitle {
   margin: 0; color: var(--wf-muted); font-size: 11px; letter-spacing: 1.2px;
 }
 .wf-live {
-  padding: 7px 12px; border: 1px solid var(--wf-live-border); border-radius: 20px;
+  padding: 5px 11px; border: 1px solid var(--wf-live-border); border-radius: 20px;
   color: var(--wf-cyan); font-size: 11px; white-space: nowrap;
   background: var(--wf-live-bg);
 }
 
-/* 节点网格：N 列由组件 inline style 注入 */
+/* 节点网格：列数由组件 inline style 注入（宽屏 = 实际阶段数，TT 页即 6 列） */
 .wf-stages {
+  --wf-gap: 30px;                  /* 间隙宽度：箭头按它算宽度，保证不压到卡片 */
   display: grid;
-  /* 兜底 7 列（2026-10-19：arriveSite 恢复为节点、仅 leaveSite 不统计） */
-  grid-template-columns: repeat(var(--wf-cols, 7), minmax(0, 1fr));
-  gap: 26px;
+  grid-template-columns: repeat(var(--wf-cols, 6), minmax(0, 1fr));
+  gap: var(--wf-gap);
   align-items: stretch;
 }
 
-/* 单个节点：CSS 变量 --stage-color 决定该阶段边框 / 数字徽底 / 进度条 / 大数字色 */
+/* 单个节点：--stage-color 决定描边 / 图标 / 大数字 / 进度条 */
 .wf-stage {
   --stage-color: var(--wf-blue);
   position: relative;
   min-width: 0;
-  padding: 22px 10px 14px;
-  text-align: center;
-  border: 1px solid var(--stage-color);
-  border-radius: 11px;
-  background:
-    linear-gradient(180deg,
-      color-mix(in srgb, var(--stage-color) var(--wf-stage-mix), var(--wf-stage-from)),
-      var(--wf-stage-to) 75%);
-  box-shadow:
-    inset 0 -3px 0 color-mix(in srgb, var(--stage-color) 70%, transparent),
-    0 5px 18px var(--wf-stage-shadow);
-  transition: transform .2s ease, box-shadow .2s ease;
+  /* 高度带：220~250（需求给的卡片高度）。
+     ⚠ 不能在这里写 aspect-ratio: 2/1 —— aspect-ratio 会把 min-height 220
+     「传导」成 min-width 440（transferred minimum），六列下每格只有 ~230px，
+     卡片会横向溢出栅格、互相叠压，连箭头都被盖住（2026-10-19 实测踩坑）。
+     宽屏（单卡 ≥440px，如值班大屏）时 220~250 的高度天然就是 2:1；
+     普通屏由 min-height 兜底，宽高比随列宽自适应 —— 即「宽度不足时自适应」口径。 */
+  min-height: 220px;
+  max-height: 250px;
+  display: flex; flex-direction: column;
+  padding: 12px 12px 11px;
+  /* ⚠ 不能设 overflow:hidden —— 节点间箭头是卡片的子元素，定位在卡片右缘之外，
+     一裁就看不见了（旧版 .wf-arrow 之所以可见正是因为它没被卡片裁切）。
+     圆角与明细滚动由子元素各自承担（.wf-subrows 自带 overflow-y:auto）。 */
+  overflow: visible;
+  border: 1px solid color-mix(in srgb, var(--stage-color) var(--wf-card-border-mix), transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--stage-color) var(--wf-card-tint), var(--wf-card-bg));
+  transition: box-shadow .18s ease, border-color .18s ease;
 }
 .wf-stage:hover {
-  transform: translateY(-3px);
-  box-shadow:
-    0 0 18px color-mix(in srgb, var(--stage-color) 20%, transparent),
-    inset 0 -3px 0 var(--stage-color);
+  border-color: var(--stage-color);
+  box-shadow: 0 2px 10px var(--wf-card-shadow);
 }
-/* 颜色变体：与 8 阶段调色板一一对应 */
+.wf-stage:focus-visible { outline: 2px solid var(--stage-color); outline-offset: 2px; }
+/* 颜色变体：阶段调色板（Dispatch 紫 / Accept 蓝 / Processing 橙 /
+   Field Confirm 橙红 / Wait Confirm 青 / Closed 绿，另含到场与「其他」） */
 .wf-stage--reassign        { --stage-color: #a99cff; }
 .wf-stage--waitAccept      { --stage-color: #249cff; }
 .wf-stage--arriveSite      { --stage-color: #20d5ef; }
+.wf-stage--waitDeparture   { --stage-color: #20d5ef; }
+.wf-stage--waitArriveSite  { --stage-color: #20d5ef; }
 .wf-stage--waitProcess     { --stage-color: #ffad32; }
+.wf-stage--leaveSite       { --stage-color: #ffad32; }
 .wf-stage--waitConfirmFO   { --stage-color: #ff922b; }
 .wf-stage--waitConfirm     { --stage-color: #00c9c5; }
 .wf-stage--closed          { --stage-color: #35df7d; }
-/* 「其他」= 未识别的原始状态（2026-10-19）。用中性灰表达「不在状态机里」，
-   既不被 8 个阶段误读，也不像红色那样暗示故障。 */
 .wf-stage--other           { --stage-color: #7c93ad; }
 
-/* 序号徽章：43×43 圆、压顶半出卡，营造"镶嵌"感 */
+/* ① 顶部：步骤序号 + 阶段图标 */
+.wf-top {
+  display: flex; align-items: center; gap: 8px;
+  flex: none;
+}
 .wf-number {
   display: flex; align-items: center; justify-content: center;
-  width: 43px; height: 43px;
-  margin: -33px auto 10px;
-  position: relative;
+  width: 28px; height: 28px; flex: none;
   border-radius: 50%;
-  border: 2px solid var(--stage-color);
-  background: var(--wf-number-bg);
-  color: #fff;
-  font-size: 18px; font-weight: 800; line-height: 1;
+  border: 1.5px solid var(--stage-color);
+  background: var(--wf-number-bg, transparent);
+  color: var(--wf-number-fg);
+  font-size: 12px; font-weight: 800; line-height: 1;
   font-variant-numeric: tabular-nums;
-  box-shadow: 0 0 15px color-mix(in srgb, var(--stage-color) 35%, transparent);
 }
-/* 序号徽章底色：深色档取「阶段色的深色版本」，浅色档改由
-   :root[data-theme='light'] 统一覆写为浅色 tint（见文件末尾浅色块）。 */
+/* 序号徽章底色：深色档取「阶段色的深色版本」，浅色档由末尾浅色块覆写为浅 tint */
 .wf-stage--reassign .wf-number        { background: var(--wf-num-reassign); }
 .wf-stage--waitAccept .wf-number      { background: var(--wf-num-waitAccept); }
-.wf-stage--arriveSite .wf-number      { background: var(--wf-num-arriveSite); }
-.wf-stage--waitProcess .wf-number     { background: var(--wf-num-waitProcess); }
+.wf-stage--arriveSite .wf-number,
+.wf-stage--waitDeparture .wf-number,
+.wf-stage--waitArriveSite .wf-number  { background: var(--wf-num-arriveSite); }
+.wf-stage--waitProcess .wf-number,
+.wf-stage--leaveSite .wf-number       { background: var(--wf-num-waitProcess); }
 .wf-stage--waitConfirmFO .wf-number   { background: var(--wf-num-waitConfirmFO); }
 .wf-stage--waitConfirm .wf-number     { background: var(--wf-num-waitConfirm); }
 .wf-stage--closed .wf-number          { background: var(--wf-num-closed); }
 .wf-stage--other .wf-number           { background: var(--wf-num-other); }
-
-/* 图标圆 */
 .wf-icon {
   display: flex; align-items: center; justify-content: center;
-  width: 42px; height: 42px;
-  margin: 0 auto 10px;
-  border-radius: 50%;
-  background: color-mix(in srgb, var(--stage-color) var(--wf-icon-mix), var(--wf-stage-from));
+  width: 28px; height: 28px; flex: none;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--stage-color) var(--wf-icon-tint), var(--wf-card-bg));
   color: var(--stage-color);
-  font-size: 22px;
-  line-height: 1;
+  font-size: 15px; line-height: 1;
 }
 
-/* 字段统一基线：阶段名（中）/ 阶段名（英）/ 数量 / 占比 / 进度条 */
-.wf-name {
-  min-height: 18px; margin: 0;
-  color: var(--wf-text);
-  font-size: 13px; font-weight: 750;
-  overflow-wrap: anywhere;
-  line-height: 1.2;
+/* ② 中部：阶段名（英 / 中）+ 工单数量 + 占比。
+   flex:1 吃掉剩余高度，内容**顶部对齐**。剩余空白落到「占比」与「进度条」之间。
+   为什么不把数字沉底 / 居中（2026-10-19 用真实 TT+WO 数据逐张对比过）：
+     · center（改版前的写法）→ 无明细的卡片整块下坠，同一排里
+       "Dispatch 41" 在最上面、"Accept 213" 掉到中间，成排看不齐；
+     · space-between（数字沉底）→ 数字高度随该卡明细条数变化，一排 6 张卡
+       出现 111/129/164 三种基线，比居中更乱；
+     · 顶部对齐（选用）→ 序号、阶段名、工单数量、占比四项在整排里一一对齐，
+       只有进度条因明细占位而高低不同 —— 这是本轮改造前就有的既有观感。 */
+.wf-mid {
+  flex: 1 1 auto; min-height: 0;
+  display: flex; flex-direction: column; justify-content: flex-start;
+  margin-top: 10px;
 }
-.wf-name-en {
-  min-height: 16px; margin-top: 3px;
+/* 两个子块只管分组，不参与自身布局；min-width:0 让长阶段名能正常折行 */
+.wf-names,
+.wf-figures { min-width: 0; }
+
+.wf-name {
+  margin: 0;
+  color: var(--wf-text);
+  font-size: 12.5px; font-weight: 750; line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+.wf-name-cn {
+  margin-top: 2px;
   color: var(--wf-muted);
-  font-size: 10.5px; font-weight: 600; letter-spacing: .4px;
-  text-transform: uppercase;
-  line-height: 1.2;
+  font-size: 11px; font-weight: 600; line-height: 1.25;
 }
 .wf-count {
-  margin-top: 12px;
+  margin-top: 8px;
   color: var(--stage-color);
-  font-size: clamp(20px, 1.9vw, 28px);
-  font-weight: 850; line-height: 1.1;
+  font-size: 26px; font-weight: 850; line-height: 1.05;
   font-variant-numeric: tabular-nums;
 }
 .wf-percent {
-  margin-top: 4px;
+  margin-top: 2px;
   color: var(--stage-color);
-  font-size: 13px; font-weight: 700; line-height: 1.2;
+  font-size: 12px; font-weight: 700; line-height: 1.2;
   font-variant-numeric: tabular-nums;
 }
+
+/* ③ 底部：进度条（宽度 = --progress，由组件注入该阶段占比） */
 .wf-progress {
-  height: 6px; margin-top: 12px;
-  overflow: hidden; border-radius: 10px;
+  flex: none;
+  height: 6px; margin-top: 10px;
+  overflow: hidden; border-radius: 6px;
   background: var(--wf-track-bg);
 }
 .wf-progress > span {
@@ -2215,29 +2232,38 @@ html {
   height: 100%;
   border-radius: inherit;
   background: var(--stage-color);
-  box-shadow: 0 0 8px var(--stage-color);
 }
 
-/* 子状态明细（2026-10-19 补回卡片化时丢失的信息）：
- * 多原始状态阶段在进度条下逐条列出「原始状态名 + 该状态单数」，
- * 每条是一个下钻按钮（点击 stopPropagation，不触发节点整体下钻）。
- * 状态名是上游英文串，不翻译；允许折行（最长如
- * `Waiting for FO Process(WO Dispatched FE Handling)`）。 */
+/* ④ 进度条下方：等待明细（多原始状态阶段逐条列出，各自可点下钻）。
+   行高 / 字号收紧，超出 max-height 时**内部滚动**而不是截断 —— 数据不丢；
+   没有明细（单状态阶段）时整块不渲染，不留空白。 */
 .wf-subrows {
-  margin: 10px 0 0;
-  padding: 8px 0 0;
+  /* 只缩不撑（flex-grow:0）：行数少时不占多余空间，避免明细下方出现空白；
+     行数多时在卡片剩余高度内收缩并滚动（min-height:0 是收缩的前提）。 */
+  flex: 0 1 auto; min-height: 0;
+  max-height: 92px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  margin: 8px 0 0;
+  padding: 6px 0 0;
   list-style: none;
   border-top: 1px dashed var(--wf-subrow-divider);
-  display: flex; flex-direction: column; gap: 2px;
+  display: flex; flex-direction: column; gap: 0;
   text-align: left;
+}
+.wf-subrows::-webkit-scrollbar { width: 4px; }
+.wf-subrows::-webkit-scrollbar-thumb {
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--stage-color) 45%, transparent);
 }
 .wf-subrow {
   display: flex; align-items: baseline; justify-content: space-between;
   gap: 6px; width: 100%;
-  padding: 2px 4px;
+  padding: 1px 3px;
   background: none; border: 0; border-radius: 4px;
   color: var(--wf-muted);
-  font: inherit; font-size: 10px; font-weight: 600; line-height: 1.35;
+  font: inherit; font-size: 11px; font-weight: 600; line-height: 1.3;
   text-align: left; cursor: pointer;
   transition: background .15s ease, color .15s ease;
 }
@@ -2260,63 +2286,136 @@ html {
   font-weight: 800;
 }
 
-/* 节点间箭头：固定挂在节点右上 1/3 处，绝对定位溢出后由 .wo-workflow overflow:hidden 裁掉 */
+/* 节点间箭头：SVG 蓝色粗箭头（组件内 .wf-arrow 渲染 <svg>）。
+   宽度按栅格间隙算（间隙 - 6px），两侧各留 3px → 绝不覆盖相邻卡片；
+   垂直居中；pointer-events:none → 不拦点击、不影响节点下钻。 */
 .wf-arrow {
   position: absolute;
-  top: 92px;
-  right: -19px;
-  z-index: 2;
-  color: var(--wf-cyan);
-  font-size: 26px; line-height: 1;
+  top: 50%;
+  left: 100%;
+  margin-left: 3px;
+  width: calc(var(--wf-gap, 30px) - 6px);
+  height: 18px;
+  transform: translateY(-50%);
+  color: var(--wf-arrow);
   pointer-events: none;
-  text-shadow: 0 0 12px var(--wf-arrow-glow);
+  overflow: visible;
+  flex: none;
 }
-.wf-arrow::before { content: '\203A'; } /* › */
 
-/* 2026-10-19 移除：Waiting Status 底部面板与 Order Flow Direction 面板
- * （.wf-bottom / .wf-wait-* / .wf-direction 及其响应式规则）。
- * 对应的 --wf-bottom-* / --wf-item-* 令牌一并删除，避免留下无引用的变量。 */
+/* ---------- 单行密集模式（8 列及以上，2026-10-19 三改）----------
+ * 需求：page=wo 的 9 个阶段（出现「其他」时 10 个）必须**排在一行**，
+ * 靠压缩卡片宽度容纳。1920 屏容器约 1608px → 单卡约 162px，
+ * 沿用常规字号会让阶段名折 3 行、明细挤成一条，所以这里统一降一档：
+ *   间隙 30→32（四改：压缩出的空间让给箭头 14×12→28×21）、内边距 12→9、
+ *   徽章/图标 28→24、数字 26→21、阶段名 12.5→11.5、明细 11→10、进度条 6→5、
+ *   卡片高 220→165~200（四改：治理 0 单卡 ~90px 的中段空白）。
+ * 同时把 `overflow-wrap:anywhere`（会在单词中间硬断，曾出现 "Suspende d"）
+ * 改成 `break-word`：优先在空格处换行，只有单个单词超宽才允许断开。
+ * 列数仍由组件测量后写入 --wf-cols，与「行末不画箭头」同源。 */
+.wo-workflow[data-wf-dense='1'] .wf-stages { --wf-gap: 32px; }
+.wo-workflow[data-wf-dense='1'] .wf-stage {
+  padding: 10px 9px 9px;
+  border-radius: 10px;
+  /* 空白治理（2026-10-19 四改）：单行 9 卡时全局 220px 高让 0 单的卡
+     （Dispatch / Field Confirm 等）中段空出 ~90px。密集模式降到 165，
+     上限 200 —— 行高由内容最多的卡（Processing 3 条明细）决定，实测 ~180；
+     0 单卡的空白从 ~90 缩到 ~60。再压就要放弃等高（方案 B）或明细改悬浮。 */
+  min-height: 165px;
+  max-height: 215px;
+}
+.wo-workflow[data-wf-dense='1'] .wf-top { gap: 6px; }
+.wo-workflow[data-wf-dense='1'] .wf-number,
+.wo-workflow[data-wf-dense='1'] .wf-icon {
+  width: 24px; height: 24px;
+  border-radius: 7px;
+}
+.wo-workflow[data-wf-dense='1'] .wf-number {
+  font-size: 12px; border-width: 1.2px;
+}
+.wo-workflow[data-wf-dense='1'] .wf-icon { font-size: 14px; }
+.wo-workflow[data-wf-dense='1'] .wf-mid { margin-top: 8px; }
+.wo-workflow[data-wf-dense='1'] .wf-name {
+  /* 12px 是 146px 卡宽下「大多数阶段名单行」的上限：13px 时
+     Waiting for Departure / Arrive Site 会折行，整行被拉到 199px（+21）。 */
+  font-size: 12px; line-height: 1.2;
+  overflow-wrap: break-word; word-break: normal;
+}
+.wo-workflow[data-wf-dense='1'] .wf-name-cn { font-size: 12px; }
+.wo-workflow[data-wf-dense='1'] .wf-count { margin-top: 6px; font-size: 26px; }
+.wo-workflow[data-wf-dense='1'] .wf-percent { font-size: 13px; }
+.wo-workflow[data-wf-dense='1'] .wf-progress { height: 5px; margin-top: 6px; }
+.wo-workflow[data-wf-dense='1'] .wf-subrows {
+  /* 明细区压到 ~3 行（窄卡里长状态名会折行，折行的行也算），
+     更多条在内部滚动 —— 高度让位给"压矮卡片"，数据一条不丢 */
+  max-height: 52px;
+  margin-top: 5px; padding-top: 4px;
+  /* 窄卡里状态名经常换成两行，行间留 2px 才分得清是哪一条 */
+  gap: 2px;
+}
+.wo-workflow[data-wf-dense='1'] .wf-subrow {
+  display: block;                 /* 窄卡里改成「名称 · 数字」的行内流 */
+  padding: 1px 2px;
+  font-size: 11px; line-height: 1.25;
+}
+/* 窄卡只有 ~140px，长状态名必然换行。若数字仍右对齐（flex + baseline），
+   两行名称会把数字顶在第一行，读起来像"属于上一行"（实测三种排布对比）。
+   行内流让数字跟在名称末尾：名称换几行，数字都紧贴自己那一条，不会错行。 */
+.wo-workflow[data-wf-dense='1'] .wf-subrow-name {
+  display: inline;
+  overflow-wrap: break-word; word-break: normal;
+}
+.wo-workflow[data-wf-dense='1'] .wf-subrow-count {
+  display: inline;
+  margin-left: 5px;
+  white-space: nowrap;
+}
+.wo-workflow[data-wf-dense='1'] .wf-subrow-count::before {
+  content: '· ';
+  font-weight: 600;
+  opacity: .55;
+}
+.wo-workflow[data-wf-dense='1'] .wf-arrow {
+  /* 间隙 18→32 后多出来的宽度全部让给箭头：14×12 → 28×21，
+     用 aspect-ratio 锁住 viewBox 比例，宽度随间隙自适应、不变形 */
+  width: calc(var(--wf-gap, 32px) - 4px);
+  margin-left: 2px;
+  aspect-ratio: 24 / 18;
+  height: auto;
+}
 
-/* ---------- 浅色主题（2026-10-19） ----------
+/* ---------- 浅色主题 ----------
  * 沿用项目既有做法（index.css:369 注释）：主题切换只发生在令牌层，
- * 下面的类规则一条都不需要 data-theme 分支。
- *
- * 与深色档的三点差异不只是「反色」：
- *  1) 背景从「发光的深海蓝」变为「白玻璃」—— 与 .wh-card 同族，不自造第二套卡片语言；
- *  2) 阶段色必须换深色阶：深色档的 #20d5ef / #35df7d / #249cff 在白底上对比度只有
- *     1.5~2.2:1，读数与图标会糊成一片。浅色档统一取 500~600 级深色阶（约 4.5:1 以上）；
- *  3) 辉光（box-shadow / text-shadow）改为柔和投影 —— 浅色底上辉光会变成脏雾。
- * 背景用途见各变量注释，与深色块一一对应。
+ * 上面的类规则一条都不需要 data-theme 分支。
+ * 浅色档的差异：白底卡片 / 深色阶阶段色（亮色在白底对比度不足）/ 柔和投影。
  */
 :root[data-theme='light'] .wo-workflow {
-  --wf-bg: linear-gradient(155deg, #ffffff 0%, #f4f8fb 60%, #eef4f8 100%);
-  --wf-panel: #ffffff;
+  --wf-bg: #ffffff;
+  --wf-panel: #f5f8fb;
   --wf-line: #b6cfe0;
-  --wf-cyan: #0e7490;          /* 深青：浅底上的「强调色」*/
+  --wf-cyan: #0e7490;
   --wf-blue: #1d6fb8;
   --wf-teal: #0d9488;
-  --wf-orange: #c2410c;        /* 等待态读数：浅底需要暖色深阶才看得清 */
+  --wf-orange: #c2410c;
   --wf-green: #15803d;
-  --wf-text: var(--wh-text);   /* 复用项目正文色，深浅一致 */
+  --wf-text: var(--wh-text);
   --wf-muted: var(--wh-text-dim);
-  --wf-border-soft: rgba(94, 125, 143, 0.28);
+  --wf-border-soft: rgba(94, 125, 143, 0.24);
   --wf-border-strong: rgba(13, 148, 136, 0.55);
 
-  --wf-head-glow: rgba(13, 148, 136, 0.07);
-  --wf-stage-from: #ffffff;    /* 节点渐变：白 → 极浅雾蓝 */
-  --wf-stage-to: #f6fafc;
-  --wf-stage-mix: 9%;          /* 白底上混太深会脏，比例比深色档低 */
-  --wf-stage-shadow: rgba(38, 70, 86, 0.10);
-  --wf-number-bg: #ffffff;
-  --wf-icon-mix: 12%;
-  --wf-track-bg: rgba(94, 125, 143, 0.18);
+  --wf-card-bg: #ffffff;
+  --wf-card-tint: 5%;
+  --wf-card-border-mix: 55%;
+  --wf-card-shadow: rgba(38, 70, 86, 0.12);
+  --wf-track-bg: rgba(94, 125, 143, 0.16);
+  --wf-arrow: #1d6fb8;             /* 浅底上同样醒目的蓝 */
   --wf-live-border: rgba(13, 148, 136, 0.35);
   --wf-live-bg: rgba(13, 148, 136, 0.08);
-  --wf-arrow-glow: rgba(14, 116, 144, 0);  /* 浅底不需要柔光，归零 */
   --wf-subrow-divider: rgba(94, 125, 143, .26);
+  --wf-number-fg: var(--stage-color);
+  --wf-icon-tint: 10%;
 
-  /* 序号徽章：深色档是「暗底白字」，浅色档翻成「浅色 tint + 阶段深色文字」，
-     所以 .wf-number 的 color 也要跟着改（见下一条规则）。 */
+  /* 序号徽章：浅色档 = 浅 tint 底 + 阶段深色字 */
   --wf-num-reassign: #ede9fe;
   --wf-num-waitAccept: #dbeafe;
   --wf-num-arriveSite: #cffafe;
@@ -2326,49 +2425,41 @@ html {
   --wf-num-closed: #dcfce7;
   --wf-num-other: #e8eef4;
 }
+:root[data-theme='light'] .wf-number { box-shadow: none; }
 
-/* 浅色档阶段名 / 读数的颜色来源不变（都取 --stage-color），
-   但徽章底色已翻成浅 tint，白字会看不见 → 徽章文字改用阶段深色。 */
-:root[data-theme='light'] .wf-number {
-  color: var(--stage-color);
-  box-shadow: none;
-}
-/* 浅色档阴影去掉辉光，改为与 .wh-card 一致的柔和投影 */
-:root[data-theme='light'] .wf-stage {
-  box-shadow:
-    inset 0 -3px 0 color-mix(in srgb, var(--stage-color) 70%, transparent),
-    0 2px 8px var(--wf-stage-shadow);
-}
-:root[data-theme='light'] .wf-stage:hover {
-  box-shadow:
-    inset 0 -3px 0 var(--stage-color),
-    0 10px 26px var(--wf-stage-shadow);
-}
-:root[data-theme='light'] .wf-progress > span {
-  box-shadow: none;
-}
 /* 浅色档的阶段色换深色阶（深色档的亮色在白底对比度不足） */
-:root[data-theme='light'] .wf-stage--reassign      { --stage-color: #7c3aed; }
-:root[data-theme='light'] .wf-stage--waitAccept    { --stage-color: #1d6fb8; }
-:root[data-theme='light'] .wf-stage--arriveSite    { --stage-color: #0e7490; }
-:root[data-theme='light'] .wf-stage--waitProcess   { --stage-color: #b45309; }
-:root[data-theme='light'] .wf-stage--waitConfirmFO { --stage-color: #c2410c; }
-:root[data-theme='light'] .wf-stage--waitConfirm   { --stage-color: #0f766e; }
-:root[data-theme='light'] .wf-stage--closed        { --stage-color: #15803d; }
-:root[data-theme='light'] .wf-stage--other         { --stage-color: #5b7288; }
+:root[data-theme='light'] .wf-stage--reassign       { --stage-color: #7c3aed; }
+:root[data-theme='light'] .wf-stage--waitAccept     { --stage-color: #1d6fb8; }
+:root[data-theme='light'] .wf-stage--arriveSite,
+:root[data-theme='light'] .wf-stage--waitDeparture,
+:root[data-theme='light'] .wf-stage--waitArriveSite { --stage-color: #0e7490; }
+:root[data-theme='light'] .wf-stage--waitProcess,
+:root[data-theme='light'] .wf-stage--leaveSite      { --stage-color: #b45309; }
+:root[data-theme='light'] .wf-stage--waitConfirmFO  { --stage-color: #c2410c; }
+:root[data-theme='light'] .wf-stage--waitConfirm    { --stage-color: #0f766e; }
+:root[data-theme='light'] .wf-stage--closed         { --stage-color: #15803d; }
+:root[data-theme='light'] .wf-stage--other          { --stage-color: #5b7288; }
 
-/* 响应式 */
+/* 响应式：**列数不在这里定**（2026-10-19 WO 适配）。
+   原因：page=wo 有 9 个阶段，一行铺满会挤成 148px 竖条，必须折行；
+   而列数一旦折行，「行末不画箭头」的判断就必须知道真实列数。
+   若 CSS 用 repeat(3) / repeat(2) 硬编码、JS 又按 --wf-cols 算行末，
+   两边会各说一套（同一张卡 CSS 认为在行中、JS 认为在行末），箭头必然指错。
+   因此列数统一由组件里的 ResizeObserver 测量后写入 --wf-cols，
+   这里只保留与列数无关的间距 / 内边距 / 高度微调。 */
 @media (max-width: 1280px) {
-  .wo-workflow { padding: 20px 14px 16px; }
-  .wf-stages { gap: 18px; }
-  .wf-arrow { right: -16px; font-size: 22px; top: 88px; }
+  .wo-workflow { padding: 16px 14px 14px; }
+  .wf-stages { --wf-gap: 24px; }
 }
 @media (max-width: 900px) {
-  .wo-workflow { padding: 18px 12px; }
-  .wf-stages { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 22px 14px; }
-  .wf-arrow { display: none; } /* grid 自动换行后箭头方向会变怪，直接隐藏 */
+  .wo-workflow { padding: 14px 12px; }
+  .wf-stages { --wf-gap: 22px; }
 }
-@media (max-width: 480px) {
-  .wo-workflow { padding: 16px 8px; }
-  .wf-stages { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px 10px; }
+@media (max-width: 600px) {
+  .wo-workflow { padding: 12px 10px; }
+  .wf-stages { --wf-gap: 20px; }
+  .wf-stage { min-height: 200px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .wf-stage { transition: none; }
 }

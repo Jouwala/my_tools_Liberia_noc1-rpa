@@ -23,6 +23,10 @@ shapely
 psycopg2-binary==2.9.12
 # VMAX 数仓 GBase 8a（MySQL 协议，10.123.255.12:5258）：纯 Python 驱动，无编译依赖
 pymysql>=1.1.0
+# SSH/SFTP 通道：get_sp_table.py（SP 备件同步）早已 import，但一直没登记进本清单，
+# 换机器按 requirements.txt 装完会在任务运行时才 ImportError。
+# gp_ran（RAN Greenplum 取数）同样依赖它做 control1 两跳转发。
+paramiko>=3.4.0
 exchangelib>=5.6.0
 Pillow>=10.0.0
 python-dotenv>=1.0
