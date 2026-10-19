@@ -128,7 +128,10 @@ DEFAULT_ICON = "dashboard"
 # 还拿 map.title 当 iframe 的 title 属性（无障碍）。与其再发明一个字段、再定义一遍
 # zh/en 归谁，不如就用 {zh,en} 存"标题的中文/英文"，由各前端自己决定谁显示在上、
 # 谁显示在下。这样两门户共用一份数据，改一处两边一致。
-TAB_PAGES = {"gis", "mwRealTime", "realtime_alarm", "packet_loss", "__head"}
+# 2026-10-19 加 `person`：v3 门户（/v3/olbrportal/）的 GIS Map 栏新增 "Person" 页签，
+# 内嵌 my_app 的 ?page=person（人员位置地图）。不加这一项时，编辑态改它的页签名
+# 会被下面的 `continue` **静默丢弃**（既不入库也不报错），用户会以为改名没生效。
+TAB_PAGES = {"gis", "mwRealTime", "person", "realtime_alarm", "packet_loss", "__head"}
 # 标题/副标题比页签名长（MsPortal 现在是 "Central Liberia Regional Topology" 31 字符），
 # 单独放宽上限；页签名仍用 MAX_TAB_LABEL_LEN（页签栏窄，长了会撑破版式）。
 MAX_HEAD_LABEL_LEN = 64

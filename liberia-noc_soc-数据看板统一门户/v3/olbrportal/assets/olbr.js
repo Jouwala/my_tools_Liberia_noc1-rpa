@@ -192,9 +192,10 @@
        它只由"用户当场做了归档这个动作"打开（dropItemFromGroup 与分组浮层的 setGroups），
        刷新即丢。为什么不能用"本会话渲染过归档区"当判据，见 renderArchive() 的注释。 */
     recall: false,
-    /* 当前选中的地图页签（gis / mwRealTime）。跨会话记住上次看的那一页。
+    /* 当前选中的地图页签（gis / person / mwRealTime）。跨会话记住上次看的那一页。
        2026-09-29：本栏恢复成两个页签后它重新有了消费方（curMap / mapHeadHtml /
-       mapClick）。默认 'gis' 与 DATA.MAP_TABS 的第一项一致。 */
+       mapClick）；2026-10-19 起三页签（多一个 person）。
+       默认 'gis' 与 DATA.MAP_TABS 的第一项一致。 */
     mapTab: ls('olbr.maptab', 'gis'),
     /* 知识问答栏当前选中的页签（'rag' / 'eflow'，2026-10-12 加）。
        与 mapTab 同一口径：持久化到 localStorage，跨会话记住上次看的那一个。
@@ -2641,9 +2642,10 @@
 
   /* ⚠️ 2026-09-29（用户要求「GIS Map 添加并只显示 /myapp/?page=mwRealTime 的地图组件，
      reload 和 openlink 放到最右边」，随后澄清「GIS Map 和 mwRealTime 都要显示」）：
-     本栏**内嵌** my_app 的地图页（iframe），共**两个页签**：
-       · gis         —— 「GIS 地图」
-       · mwRealTime  —— 「微波实时」
+     本栏**内嵌** my_app 的地图页（iframe），当前**三个页签**：
+       · gis         —— 「Alarm」（GIS 页）
+       · person      —— 「Person」（人员位置地图，2026-10-19 按用户要求加在 Alarm 之后）
+       · mwRealTime  —— 「MW」（微波实时）
      概念上分两层，读代码时别搞混：
        · 屏幕上方那行标题叫 **GIS Map** —— 那是**栏标题**，来自 map.title
          （headTitleText()，可改名，也可被 catalog.tabLabels.__head 覆盖）；
@@ -2719,8 +2721,13 @@
         /* 2026-10-19：补 `embed=1`。my_app 自 2026-10-18 起不再把「?page=」当作
            隐藏外壳的开关（见 App.tsx readBareModule），门户内嵌若只带 page 与
            mwembed，iframe 里会连 Header / 侧栏一起渲染出来。emailSrc 同一处理。 */
+        /* 2026-10-19：person 页再带 `maponly=1`。用户要求「设计成跟其他页签一样，
+           只显示地图」—— 该页默认是完整看板（筛选条/KPI/图表/人员表），
+           由 my_app 侧按这个参数切成"只有 Leaflet 画布"的形态（见 PersonMap.tsx
+           的 readMapOnlyMode 注释：为什么不让门户用 MAP_STRIP_CSS 去剥）。 */
         src: '/myapp/?page=' + m.page + '&mwembed=1&embed=1'
           + (m.page === 'gis' ? '&gisShift=1' : '')
+          + (m.page === 'person' ? '&maponly=1' : '')
           + (state.theme === 'dark' ? '&theme=dark' : '') + langQs()
       };
     });
@@ -2738,6 +2745,18 @@
      写死 localhost 会在用 IP 访问门户时变成跨域、剥离与取景全部静默失效。 */
   function mapSrc() {
     return curMap().src;
+  }
+  /* Open Link 的地址（2026-10-19 用户：「Open Link 打开完整页面」）。
+     内嵌 src 里的 `maponly=1` 只服务**门户栏内**的"只显示地图"形态；
+     新窗口是给人看的完整页，必须去掉它（Person 页默认就是「筛选条 + KPI +
+     图表 + 地图 + 人员表」的完整看板）。
+     ⚠️ 只剥这一个参数，其余（mwembed / embed / lang / theme）原样保留：
+     它们与本页的取景、语言、主题一致，去掉反而会让新窗口与门户里看到的不一样。 */
+  function mapOpenSrc() {
+    return mapSrc().replace(/([?&])maponly=[^&#]*(&?)/, function (all, pre, post) {
+      if (pre === '?') return post ? '?' : '';
+      return post ? pre : '';
+    }).replace(/[?&]$/, '');
   }
 
   /* 地图栏的面板头 + 页签 + 工具按钮（2026-09-23 抽出）。
@@ -6454,7 +6473,12 @@
        故降回内层页自己的 zoom 7 —— 与 Alarm 页一致，两页统一。
        ⚠️ 改回 true 之前先读下方那段历史注释：zoom 8 的取舍是"高度 860px"为前提的，
           换高度就要重新拍板，不要单凭"裁边了/太小了"来回翻。 */
-    mwRealTime: false
+    mwRealTime: false,
+    /* 2026-10-19 加 person（"Person" 页签，?page=person）：与 Alarm 同理，
+       内层页自己落在 zoom 7.5 装下全境，门户不再自动放大。
+       该页不暴露 fitAllSites，走 zoomOnce 那条路 —— 本项为 false 时 zoomOnce
+       对它早退，即"打开即所见"。 */
+    person: false
   };
   /* 打开后自动**缩小一级**的页（2026-10-12 加，2026-10-13 清空）。
      与 MAP_ZOOM_IN_BY_PAGE 是两个方向、互斥使用：同一页不会既放大又缩小。
@@ -6606,14 +6630,20 @@
         所以两页都开启放大时每页仍只放大一次，不会叠加两级；
        2026-10-16 起 gis 那项已关，实际只有 mwRealTime 会放大。 */
     if (!w || typeof w.fitAllSites === 'function') return;
-    /* 本函数只服务 gis（会自己重新取景的页由 refitLeaflet 管）。
+    /* 本函数只服务「不暴露 fitAllSites 的页」—— 除 gis（"Alarm"）外，
+       2026-10-19 起的 person（"Person"）也走这里：按 iframe src 里的 page 取开关，
+       两页各自查自己那一项（都是 false，故都早退、保持内层页默认取景）。
+       ⚠️ 别写死 'gis'：那样 person 页会被当成 gis 处理，改一页的开关会误伤另一页。
        2026-10-12：gis 曾由"是否放大"改为"是否缩小" —— 容器高度 860→573 后偏大，
        故打开后缩一级（zoom 7→6）。两条分支互斥：同一页只会执行其中一条。
        2026-10-13：高度改回 860px，缩放这一半一并回退 ——
        MAP_ZOOM_OUT_PAGES 清空、MAP_ZOOM_IN_BY_PAGE.gis 仍为 false，
        于是本函数对 gis 早退，地图保持内层页自己的默认取景（即"打开即所见"）。 */
-    var out = shouldZoomOut('gis');
-    if (!out && !shouldZoomIn('gis')) return;
+    /* 由 stripFrame 在调用前把所属 iframe 记到 d.__olbrFrame 上（那样 framePage
+       才能从它真正的 src 反查 page）；拿不到时回落 gis，与改动前的行为一致。 */
+    var page = framePage(d.__olbrFrame || null) || 'gis';
+    var out = shouldZoomOut(page);
+    if (!out && !shouldZoomIn(page)) return;
     if (d.__olbrZoomed) return;
     window.setTimeout(function () {
       if (d.__olbrZoomed || !d.querySelector('.leaflet-container')) return;
@@ -6832,7 +6862,8 @@
       '<i class="ph ' + (on ? DATA.PH.lock : DATA.PH['lock-open']) + '" aria-hidden="true"></i>' +
       '<span>' + esc(t('map.zoomlock')) + '</span></button>' +
       '<button type="button" class="gb gb--t" data-act="map-reload" title="' + esc(t('map.reload')) + '"><i class="ph ph-arrow-clockwise"></i><span>' + esc(t('map.reload')) + '</span></button>' +
-      '<a class="gb gb--t" id="mapOpen" href="' + esc(mapSrc()) + '" target="_blank" rel="noopener noreferrer" title="' + esc(t('map.open')) + '"><i class="ph ph-arrow-square-out"></i><span>' + esc(t('map.open')) + '</span></a>' +
+      /* href 用 mapOpenSrc() 而不是 mapSrc()：新窗口要给完整页面，见上方注释。 */
+      '<a class="gb gb--t" id="mapOpen" href="' + esc(mapOpenSrc()) + '" target="_blank" rel="noopener noreferrer" title="' + esc(t('map.open')) + '"><i class="ph ph-arrow-square-out"></i><span>' + esc(t('map.open')) + '</span></a>' +
       '</div>';
   }
   function stripFrame(f, depth) {
@@ -6843,6 +6874,10 @@
       var s = d.getElementById('olbrStrip');
       if (!s) { s = d.createElement('style'); s.id = 'olbrStrip'; d.head.appendChild(s); }
       if (s.textContent !== DATA.MAP_STRIP_CSS) s.textContent = DATA.MAP_STRIP_CSS;
+      /* 记下这份 document 属于哪个 iframe（2026-10-19，为 zoomOnce 按页取开关）。
+         document.defaultView.frameElement 在**同源**时可用，与本函数其余部分的前提一致；
+         跨域时下面整段已被 catch 静默跳过。内层嵌套的 iframe 同样会被记录，无害。 */
+      try { d.__olbrFrame = (d.defaultView && d.defaultView.frameElement) || null; } catch (e) { /* ignore */ }
       /* 缩放锁：只要拿到 document 就先挂一次拦截路（不依赖地图有没有挂载），
          下面拿到实例再补①那条路。见 applyMapWheelLock 上方的说明。 */
       applyMapWheelLock(f);

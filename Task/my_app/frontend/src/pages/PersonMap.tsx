@@ -52,6 +52,28 @@ const MAP_HEIGHT = 560
 /** 空值统一展示 —（AGENTS.md 三.6：取不到显示 —，不得显示 0） */
 const dash = (v: unknown) => (v == null || v === '' ? '—' : String(v))
 
+/** 「只显示地图」模式（`?maponly=1`）。
+ *
+ * **需求**（用户原话，2026-10-19）：「要设计成跟其他页签一样，只显示地图」——
+ * v3 门户 GIS Map 栏的 Person 页签要和 Alarm / MW 两页同样只留 Leaflet 画布，
+ * 而本页默认是「筛选条 + 说明横幅 + KPI + 图表 + 地图 + 人员表」的完整看板。
+ *
+ * **为什么在 my_app 侧做、而不是让门户去剥**：
+ *   Alarm 页靠 gis 页自己输出「只有地图」的形态（门户的 MAP_STRIP_CSS 只兜底），
+ *   走同一条路才是「跟其他页签一样」。门户侧注入的剥离 CSS 改不到 React 的
+ *   行内 display 与 DOM 结构，本页的分栏布局它剥不干净。
+ *
+ * **刻意不用的开关**：`embed=1` / `mwembed=1` 只隐藏外壳（Header/侧栏），
+ *   页面本体仍整页渲染；且它们是所有门户壳共用的参数，改它们的语义会牵连
+ *   报告文件中心等其它内嵌点。故单起一个只有本页认的参数。
+ * 照搬 `?page=mwRealTime` 的 `mwembed=1` 命名习惯，用 `maponly` 表明只是版式开关。 */
+function readMapOnlyMode(): boolean {
+  try {
+    const sp = new URLSearchParams(window.location.search)
+    return sp.get('maponly') === '1' || sp.get('maponly') === 'true'
+  } catch { return false }
+}
+
 /** WO 明细的一行（/work-orders 响应，字段见后端 _WO_COLS） */
 interface WoRow {
   wo_no: string
@@ -73,6 +95,10 @@ export default function PersonMap() {
   const { t, locale } = useI18n()
   const { isDark } = useTheme()
   const nf = (n?: number | null) => (n == null ? '—' : n.toLocaleString(numLocale(locale)))
+
+  /* 只显示地图（门户内嵌）：URL 首次加载求值即可 —— 门户切页签会整块重建 iframe，
+     不存在"运行中从完整页切到地图页"的路径，故不做联动重算。 */
+  const [mapOnly] = useState<boolean>(readMapOnlyMode)
 
   const [stats, setStats] = useState<PersonStats | null>(null)
   const [loading, setLoading] = useState(true)
@@ -105,9 +131,10 @@ export default function PersonMap() {
 
   useEffect(() => { load() }, [load])
 
-  /* 选中人员 → 拉其站点 */
+  /* 选中人员 → 拉其站点。⚠️ mapOnly 下不拉：门户内嵌时左栏 KPI「负责站点」不渲染，
+     没有人会读 sites —— 每次点人都多发一次请求是纯浪费（见 readMapOnlyMode 注释）。 */
   useEffect(() => {
-    if (!selectedKey) { setSites([]); return }
+    if (mapOnly || !selectedKey) { setSites([]); return }
     setSitesLoading(true)
     api.get(`/gis/personnel/${encodeURIComponent(selectedKey)}/managed-sites`,
       { params: { days: WINDOW_DAYS } })
@@ -117,7 +144,7 @@ export default function PersonMap() {
         setSites([])
       })
       .finally(() => setSitesLoading(false))
-  }, [selectedKey])
+  }, [selectedKey, mapOnly])
 
   const openWoDrill = useCallback((row: PersonRow, ev: React.MouseEvent) => {
     setWoAnchor({ x: ev.clientX, y: ev.clientY })
@@ -335,6 +362,42 @@ export default function PersonMap() {
   ], [t])
 
   /* ---------- 渲染 ---------- */
+  if (mapOnly) {
+    /* ⑦ mapOnly（门户 Person 页签，2026-10-19 加）：只留地图，与 Alarm / MW 两页同一形态。
+       刻意**不渲染**筛选条、说明横幅、KPI、两张统计图、人员表、WO 下钻弹窗。
+       · 加载 / 错误态也单独给：完整页那两套（CardBase 骨架、整块错误卡）在门户栏里
+         会把 iframe 撑成大块白板；
+       · 内层地图对外**不能**再套卡片（CardBase 会带来白底与内边距）；
+       · 尺寸用 100vh 而不是 MAP_HEIGHT：门户给的 iframe 高度由 --maprow-h 决定，
+         内层写死高度会让地图比容器矮、下方留白；
+       · 人员选择仍可用（点人 / 点空白清除）；selectedKey 在 mapOnly 下只驱动高亮，
+         不拉站点（见上方 useEffect 的说明）。 */
+    if (loading || error) {
+      return (
+        <div style={{
+          width: '100%', height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
+          color: WH.textDim, fontSize: '0.875rem', background: 'transparent', padding: 24, textAlign: 'center',
+        }}>
+          {error ? `${t('person.loadFailed')}: ${error}` : t('person.title')}
+        </div>
+      )
+    }
+    return (
+      <div style={{ width: '100%', height: '100vh', margin: 0, padding: 0, overflow: 'hidden', position: 'relative' }}>
+        <MapContainer center={[(3.9 + 8.75) / 2, (-11.7 + -7.3) / 2]} zoom={7.5}
+          style={{ height: '100%', width: '100%' }}>
+          <PersonMapView
+            people={withCoords}
+            loading={false}
+            selectedKey={selectedKey}
+            onSelect={setSelectedKey}
+            sites={sites}
+            sitesLoading={sitesLoading}
+          />
+        </MapContainer>
+      </div>
+    )
+  }
   if (loading) {
     return (
       <div style={{ ...pageWrap }}>

@@ -132,6 +132,9 @@ window.OLBR_DATA = (function () {
          map.alarm / map.loss 是**已下线**页签（2026-09-25 删）留下的键，
          保留是为了将来恢复时不用重写文案，与后端 TAB_PAGES 白名单同口径。 */
       'map.gis': 'Alarm', 'map.mw': 'MW', 'map.alarm': '实时告警', 'map.loss': '传输丢包',
+      /* 2026-10-19 加：内嵌 my_app 的 ?page=person（人员位置地图）。
+         用户给的页签名就是英文 "Person"，中英两份**照写同一串**（同 map.gis 的约定）。 */
+      'map.person': 'Person',
       /* 2026-09-28 按用户要求把按钮文案改成 "Open Link"（原来中英分别是
          「新窗口打开」/ "Open in new tab"）。用户给的是英文串，
          两份字典都照写（与 qc.sub.* 那次改名同一条约定：用户点名的写法不翻译）。
@@ -775,6 +778,8 @@ window.OLBR_DATA = (function () {
       'cxo.title': 'CXO View', 'cxo.sub': 'Executive strategy & operation window',
       'map.title': 'GIS Map', 'map.sub': 'GIS Map',
       'map.gis': 'Alarm', 'map.mw': 'MW', 'map.alarm': 'Live alarms', 'map.loss': 'Packet loss',
+      /* 2026-10-19 加，与中文那份同值（用户点名的英文串，不翻译）。 */
+      'map.person': 'Person',
       /* 2026-09-28：改为用户点名的 "Open Link"（原为 "Open in new tab"）。
          中文那份同值 —— 用户要的就是这一串英文。 */
       'map.open': 'Open Link', 'map.reload': 'Reload', 'map.load': 'Loading…',
@@ -1275,7 +1280,7 @@ window.OLBR_DATA = (function () {
     /* 缩放锁的两态图标（2026-10-22 加）。两个类名都在
        MsPortal/assets/icons/phosphor.css 里核实过（.ph-lock / .ph-lock-open）。 */
     lock: 'ph-lock', 'lock-open': 'ph-lock-open',
-    git: 'ph-git-pull-request', user: 'ph-user', flame: 'ph-fire', folder: 'ph-folder-open',
+    git: 'ph-git-pull-request', user: 'ph-user', users: 'ph-users', flame: 'ph-fire', folder: 'ph-folder-open',
     'arrow-up-right': 'ph-arrow-up-right', 'shield': 'ph-shield-check', 'globe': 'ph-globe-hemisphere-west',
     refresh: 'ph-arrows-clockwise',
     /* 用户管理弹窗用的几个（MsPortal 那边是内联 svg，本页统一走 phosphor 字体图标） */
@@ -1333,8 +1338,13 @@ window.OLBR_DATA = (function () {
      静默滤掉、页签条整条不渲染，表现就是「GIS Map 没有了」）。
      目录只用来取显示标题，取不到就回落这里的 key（map.gis / map.mw）。
      要改页签数量/顺序就改这里，不要再去动目录。 */
+  /* 2026-10-19：用户要求把 ?page=person（人员位置地图）作为页签加到 Alarm 后面，
+     名字就是 "Person"。顺序即创建顺序：Alarm → Person → MW。
+     ⚠️ 后端 TAB_PAGES（my_app backend/routers/portal_catalog.py）同步加了 'person'，
+     否则编辑态里改名会被静默丢弃。 */
   var MAP_TABS = [
     { page: 'gis', key: 'map.gis', icon: 'map' },
+    { page: 'person', key: 'map.person', icon: 'users' },
     { page: 'mwRealTime', key: 'map.mw', icon: 'broadcast' }
   ];
   /* 保留伪页签 key：本栏标题/副标题不是地图页签，但与页签共用同一份
@@ -1342,7 +1352,7 @@ window.OLBR_DATA = (function () {
      且 my_app 的 page 值（gis/mwRealTime/…）不会以双下划线开头，不会撞名。
      后端 TAB_PAGES 里有同名白名单，两处必须一起改。 */
   var RENAME_HEAD = '__head';
-  /** 所有可从界面上改名的项：2 个页签 + 本栏标题/副标题。 */
+  /** 所有可从界面上改名的项：MAP_TABS 的每个页签 + 本栏标题/副标题。 */
   var RENAME_KEYS = MAP_TABS.map(function (m) { return m.page; }).concat([RENAME_HEAD]);
   /* 页签条最右边的「报告文件」：内嵌 my_app 的任务报告文件中心（MsPortal 右列同名卡）。
      EMAIL_TAB 不是分组 id —— 它没有 gid，不进目录、不参与筛选与计数，所以往下任何
