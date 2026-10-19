@@ -3737,16 +3737,28 @@ UME 只是自动同步的补充。**这个优先级是口径决定，不是性�
 | 数据服务 | `backend\services\cn_kpi_5mins_service.py` |
 | 路由 | `GET /api/cn-kpi-5mins/overview`、`/health` |
 
-### 33b.2 ⚠ 上游只有 5 个模板有 5 分钟粒度（2026-10-17 实测）
+### 33b.2 ⚠ 混合粒度：5 个走 5 分钟档，3 个走 15 分钟档（2026-10-19 现状）
 
-| 模板 | gr=300 | 说明 |
+| 模板 | 粒度 | 说明 |
 | --- | --- | --- |
-| VOICE_TRAFFIC / VLR_SUBSCRIBERS / DATA_SUBSCRIBERS / 4G_FDD_DATA_TRAFFIC / FREE_RATING_GROUP | ✅ | 正常返回 `5 minutes` |
-| xGW_LICENSE / xGW_CPU_USAGE / 3G_FDD_DATA_TRAFFIC | ❌ 0 行 | 已排除窗口因素（`gr=3600` 正常、`gr=300` 换 7 天仍 0 行），也试过 `relative`/`groupchoice`/`grouplayer` 均无效 |
+| VOICE_TRAFFIC / VLR_SUBSCRIBERS / DATA_SUBSCRIBERS / 4G_FDD_DATA_TRAFFIC / FREE_RATING_GROUP | `gr=300`（5 分钟） | 正常返回 `5 minutes` |
+| xGW_LICENSE / xGW_CPU_USAGE / 3G_FDD_DATA_TRAFFIC | `gr=900`（15 分钟） | **原模板没有 5 分钟档**（2026-10-17 实测 `gr=300` 恒 0 行，换 7 天窗口也一样）；上游 2026-10-19 补建了 3 个 `*_updated_15mins` 模板，本任务已切过去 |
 
-业务决定：**8 个卡片全列出**，3 个无数据的显示「无5分钟数据」+ 原因（**不报错**）；
-任务对 0 行改为**跳过而非失败**（与 `cnn_kpi_sync` 的「0 行即 raise」刻意不同，
-否则本任务会每 15 分钟失败一次）。
+15 分钟档模板（EMMA 创建，见 `cnn_ume_kpi_5mins_service.FIFTEEN_MIN_TEMPLATES`）：
+
+| KPI | 模板名 | templateid |
+| --- | --- | --- |
+| xGW License | `xGW_LICENSE_OCCUPANCY_TEMPLATE_OSS_updated_15mins` | `1649220598365` |
+| xGW CPU | `xGW_CPU_USAGE_TEMPLATE_OSS_updated_15mins` | `1649220598366` |
+| 3G FDD | `3G_FDD_DATA_TRAFFIC_TEMPLATE_OSS_updated_15mins` | `1649220598364` |
+
+⚠ 这 3 个新模板 **`gr=900` 正常（190/190/1920 行，`15 minutes`），`gr=300` 仍为 0 行**，
+即上游给的是 15 分钟档、不是 5 分钟档。因此页面上这 3 张卡片的点约为其他图的 1/3，
+**属正常**；页头蓝条会显式提示，避免被误读成数据缺失。
+
+任务仍保留「0 行 → 跳过该表且不计失败」的兜底（与 `cnn_kpi_sync` 的「0 行即 raise」
+刻意不同），上游再调整档位时不会让任务每 15 分钟失败一次。
+`cn_kpi_5mins_service.UNAVAILABLE_TABLES` 机制保在该处，用于将来登记「已知无数据」的组件。
 
 ### 33b.3 Day0/Day1 怎么实现的
 
@@ -3776,6 +3788,27 @@ GROUP BY t, day ORDER BY t
    间隔应为 300 秒、`Granularity` 应为 `5 minutes`。
 4. 任务实测单轮约 **105 秒**（Free Rating 一天就 1.4 万行）；若逼近 15 分钟需调低并发。
 5. 改完服务层**必须重启后端与 n 组 worker**（见 `13-operations.md`）。
+
+#### ⚠ 「图里全是 0」先查列名（2026-10-19 事故）
+
+3G FDD 上线后整条曲线贴地。根因**不在数据、不在采集**：SQLite 对双引号包起来的
+**不存在的列名不报错**，而是把该标识符当字符串字面量，于是 `SUM("...)` 恒等于 0。
+
+    · 4G 的列名是 "Byte of ... SGi"（**单数** Byte）
+    · 3G 的列名是 "Bytes of ... Gi"（**复数** Bytes）
+
+抄 4G 的 SQL 时漏了一个 `s`，页面就变成一条 0 线，且全程无报错。
+核对方法：直接对比两种写法，差几个数量级即为踩坑。
+
+```sql
+SELECT SUM("Byte of ...")  AS wrong,   -- 0.0
+       SUM("Bytes of ...") AS right    -- 26673063492307.0
+FROM "5mins_3G_FDD_DATA_TRAFFIC_TEMPLATE_OSS_UME"
+```
+
+现已加守卫 `cn_kpi_5mins_service._verify_columns()`：取数前校验 SQL 里的双引号
+标识符都是该表真实列（排除 AS 别名），不一致就把组件标红并列出真实列名，
+不再让「沉默的 0」出现在图上。**新增/修改组件 SQL 后，若页面出现此报错，照提示改列名即可。**
 
 ### 33b.5 相关文件
 

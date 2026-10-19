@@ -1,6 +1,6 @@
 # my_app 使用帮助
 
-> 面向使用者的平台功能与操作指南。本文件由「使用帮助」页面同源生成（frontend/src/helpMarkdown.ts），内容依据 docs/manual/ 各章与 backend/task_registry.py 整理。生成日期：2026-10-17。
+> 面向使用者的平台功能与操作指南。本文件由「使用帮助」页面同源生成（frontend/src/helpMarkdown.ts），内容依据 docs/manual/ 各章与 backend/task_registry.py 整理。生成日期：2026-10-19。
 
 > 站内入口：侧边栏「使用帮助」，或直链 `http://<host>/myapp/?page=help`。
 
@@ -533,7 +533,7 @@
 - 默认 cron: `*/15 * * * *`　|　worker 组: **n**
 - 工作流脚本: `services/cnn_ume_kpi_5mins_service.py → run_cnn_kpi_sync_5mins`
 
-**功能**: 与「CNN UME KPI 同步」同源同账号，但取 5 分钟粒度（gr=300）、窗口为昨天 00:00 至现在，API 写入 DB CNN 的 5mins_* 新表，供「CN KPI 5分钟」看板做 Day0/Day1 叠画；日/月粒度表不受影响
+**功能**: 与「CNN UME KPI 同步」同源同账号，但取细粒度（5 个模板 5 分钟、3 个模板 15 分钟）、窗口为昨天 00:00 至现在，API 写入 DB CNN 的 5mins_* 新表，供「CN KPI 5分钟」看板做 Day0/Day1 叠画；日/月粒度表不受影响
 
 **工作流与数据流**:
 
@@ -543,7 +543,8 @@
 
 **维护要点**:
 
-- ⚠ 上游只有 5 个模板支持 5 分钟粒度（Voice/VLR/Data/4G FDD/Free Rating）；xGW License、xGW CPU、3G FDD 实测恒为 0 行，任务会跳过且**不计失败**（原 cnn_kpi_sync 的逻辑是 0 行即报错，本任务刻意不同）
+- ⚠ 混合粒度：Voice/VLR/Data/4G FDD/Free Rating 用 5 分钟档（gr=300）；xGW License、xGW CPU、3G FDD 的原模板没有 5 分钟档，改走上游 2026-10-19 补建的 15 分钟档模板（gr=900，见 FIFTEEN_MIN_TEMPLATES）
+- ⚠ 本任务保留「0 行 → 跳过该表且不计失败」的兜底（原 cnn_kpi_sync 的逻辑是 0 行即报错，本任务刻意不同），上游再调整档位时不会让任务每 15 分钟失败一次
 - ⚠ 实测单轮约 105 秒（Free Rating 一天就有 1.4 万行）；若耗时逼近 15 分钟，需降低并发或放宽节拍
 - 与 cnn_kpi_sync 同在 n 组串行，避免两个任务各自登录同一账号互踢
 - 页面为本任务的唯一消费方：?page=cn_kpi_5mins（services/cn_kpi_5mins_service.py 读 5mins_* 表）
@@ -1850,11 +1851,11 @@ CN KPI 看板：原 FineBI「CN KPI」看板的原生重建，18 个组件（VLR
 
 #### cn_kpi_5mins（`cn_kpi_5mins`）
 
-CN KPI 5 分钟看板：以 5 分钟粒度对比「今天（Day0）」与「昨天（Day1）」同一时刻的核心网 KPI 走势。数据由任务 cnn_kpi_sync_5mins 每 15 分钟采集一次（窗口为昨天 00:00 至现在），写入 db_ps_cs_cn 的 5mins_* 新表，与按天/月的 CN KPI 看板互不影响。⚠ 上游网管只对部分模板开放 5 分钟粒度：xGW License、xGW CPU、3G FDD 三个卡片会显示「无5分钟数据」，这是上游能力的限制，不是故障。
+CN KPI 5 分钟看板：对比「今天（Day0）」与「昨天（Day1）」同一时刻的核心网 KPI 走势。数据由任务 cnn_kpi_sync_5mins 每 15 分钟采集一次（窗口为昨天 00:00 至现在），写入 db_ps_cs_cn 的 5mins_* 新表，与按天/月的 CN KPI 看板互不影响。⚠ 本页是**混合粒度**：Voice / VLR / Data / 4G FDD / Free Rating 为 5 分钟粒度；xGW License、xGW CPU、3G FDD 因原模板无 5 分钟档，走上游 2026-10-19 补建的 15 分钟档模板。
 
 - 每张图有两条线：Day0 是今天，Day1 是昨天；横轴为时刻（HH:MM），同一个横坐标即同一时刻，便于看日内波动与日间差异
 - 页面无需选日期：窗口固定为「今天 + 昨天」，每 15 分钟随任务自动更新一次（可在顶栏设置自动刷新）
-- 标「无5分钟数据」的卡片对应上游未开放 5 分钟粒度的模板（xGW License / xGW CPU / 3G FDD），页头蓝条会汇总数量
+- xGW License / xGW CPU / 3G FDD 三张卡片的点是 15 分钟间隔（比其他图稀疏 3 倍），这是上游模板档位决定的，不是数据缺失；页头蓝条会提示
 - 「导出 Excel」每个组件一张表，按时刻展开 Day0 / Day1 两列，便于对账
 
 #### UME iMonitor 大屏（`imonitor`，iframe 页）

@@ -326,7 +326,7 @@ export default function CnKpi5mins() {
         />
       )}
 
-      {/* 空态说明条：把「哪些卡片没有 5 分钟数据」一次讲清，避免被当成故障 */}
+      {/* 空态说明条：把「哪些卡片没有数据」一次讲清，避免被当成故障 */}
       {(data?.meta?.empty ?? 0) > 0 && (
         <Alert
           type="info"
@@ -336,6 +336,16 @@ export default function CnKpi5mins() {
           description={<Text style={{ fontSize: 12 }}>{t('cnkpi5.emptyWhy')}</Text>}
         />
       )}
+
+      {/* 混合粒度说明条：本页同时存在 5 分钟与 15 分钟两种粒度，必须显式告知，
+          否则 15 分钟组件的稀疏点会被误读成「数据缺失」。 */}
+      <Alert
+        type="info"
+        showIcon
+        style={{ marginBottom: 12 }}
+        message={t('cnkpi5.mixedGranularity')}
+        description={<Text style={{ fontSize: 12 }}>{t('cnkpi5.mixedGranularityHint')}</Text>}
+      />
 
       {loading && !data ? (
         <div style={{ textAlign: 'center', padding: 60 }}><Spin size="large" /></div>

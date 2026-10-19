@@ -6,7 +6,8 @@
 与 `cnn_kpi_sync`（`backend/services/ccn_ume_kpi_service.py`，每天 06:00）同源同口令，
 但有三处不同：
 
-  1. **时间粒度**：`gr="300"`（5 分钟），原任务是 3600 / 86400；
+  1. **时间粒度**：多数模板 `gr="300"`（5 分钟），其中 3 个走上游 15 分钟档
+     模板（`gr="900"`，见下节）；原任务为 3600 / 86400；
   2. **运行节拍**：每 15 分钟一次（cron `*/15 * * * *`）；
   3. **落库表名**：`5mins_<原名>`，例如
      `5mins_VOICE_TRAFFIC_TEMPLATE_OSS_UME`。
@@ -15,21 +16,29 @@
 查询窗口为「**昨天 00:00 → 现在**」：页面要把 Day0（今天）与 Day1（昨天）
 两条曲线叠画，窗口必须同时覆盖两天。
 
-=========================== 上游粒度能力实测（2026-10-17）===========================
+=========================== 上游粒度能力 ===========================
 
-⚠ **不是 8 个模板都支持 5 分钟**。实测（`gr=300`、昨天→现在）结果：
+**2026-10-17 实测**（`gr=300`、昨天→现在）：8 个模板中只有 5 个能出 5 分钟数据。
 
     ✅ VOICE_TRAFFIC / VLR_SUBSCRIBERS / DATA_SUBSCRIBERS /
        4G_FDD_DATA_TRAFFIC / FREE_RATING_GROUP   → 正常返回 `5 minutes`
     ❌ xGW_LICENSE / xGW_CPU_USAGE / 3G_FDD_DATA_TRAFFIC → **0 行**
 
-已排除「窗口太短」：这 3 个模板 `gr=3600` 时数据正常（44/46/460 行，`1 hour`），
-`gr=300` 换成 7 天窗口仍是 0 行。也试过改 `relative`、补 `groupchoice`、改
-`grouplayer`，均无效 —— 是**服务端模板没开 5 分钟档**，不是 payload 写法问题。
+已排除「窗口太短」：这 3 个原模板 `gr=3600` 时数据正常（44/46/460 行，`1 hour`），
+`gr=300` 换成 7 天窗口仍是 0 行；改 `relative`、补 `groupchoice`、改 `grouplayer`
+均无效 —— 是**原模板没开 5 分钟档**。
 
-因此本服务对「导出 0 行」的处理是 **跳过该表、不视为失败**（业务决定：8 个表
-都建、空的留空，页面对应卡片显示空态）。这与原任务的 `import_to_database`
-（无数据行直接 raise）是**刻意不同**的行为，不能照抄。
+**2026-10-19 上游补建了 15 分钟档模板**（EMMA 创建，见 `FIFTEEN_MIN_TEMPLATES`），
+本服务已切换过去。实测这 3 个新模板 **`gr=900` 正常返回 `15 minutes`**
+（190 / 190 / 1920 行），而 `gr=300` 仍为 0 行 —— 上游给的是 **15 分钟档**，不是 5 分钟档。
+
+因此本任务当前是「**5 个 5 分钟 + 3 个 15 分钟**」的混合粒度，由各行
+`Granularity` 列标明；表名前缀统一用 `5mins_` 只为「一张表一个 KPI」，
+不表示所有表的粒度都是 5 分钟。
+
+本服务仍保留「导出 0 行 → 跳过该表、不视为失败」的兜底（原任务的
+`import_to_database` 是无数据行直接 raise，此处刻意不同）：上游若再调整模板档位，
+不会把任务变成每 15 分钟失败一次。
 
 =========================== 与 ccn_ume_kpi_service 的复用边界 ===========================
 
@@ -87,19 +96,52 @@ EXPORT_TIMEOUT = int(os.environ.get("CNN_KPI_5MINS_EXPORT_TIMEOUT", "600"))
 
 
 # ============================================================
-# 5 分钟粒度的查询配置（从原 8 个模板派生）
+# 15 分钟专用模板覆盖（2026-10-19）
+# ============================================================
+# 背景：xGW_LICENSE / xGW_CPU_USAGE / 3G_FDD_DATA_TRAFFIC 三个原模板**没有 5 分钟档**
+# （实测 gr=300 恒 0 行）。EMMA 于 2026-10-19 在上游新建了 15 分钟档模板：
+#
+#   xGW_CPU_USAGE_TEMPLATE_OSS_updated_15mins         id=1649220598366  motid=55011
+#   xGW_LICENSE_OCCUPANCY_TEMPLATE_OSS_updated_15mins id=1649220598365  motid=55035
+#   3G_FDD_DATA_TRAFFIC_TEMPLATE_OSS_updated_15mins   id=1649220598364  motid=4923
+#
+# 实测（昨天→现在窗口）：这 3 个模板 **gr=900 正常返回 `15 minutes`**
+# （190 / 190 / 1920 行），而 gr=300 仍为 0 行 —— 即上游给的是 15 分钟档，不是 5 分钟档。
+# 故这 3 个模板单独用 900 秒粒度；其余 5 个仍用 300 秒。
+#
+# ⚠ 同一组件内粒度不一致是**上游能力决定的**，不是配置疏漏。表名前缀统一 5mins_
+# 是为了「一张表一个 KPI、页面不感知粒度差异」；实际粒度由各行的 Granularity 列标明。
+FIFTEEN_MIN_TEMPLATES: dict[str, tuple[str, str]] = {
+    "xGW_LICENSE": ("xGW_LICENSE_OCCUPANCY_TEMPLATE_OSS_updated_15mins", "1649220598365"),
+    "xGW_CPU_USAGE": ("xGW_CPU_USAGE_TEMPLATE_OSS_updated_15mins", "1649220598366"),
+    "3G_FDD_DATA_TRAFFIC": ("3G_FDD_DATA_TRAFFIC_TEMPLATE_OSS_updated_15mins", "1649220598364"),
+}
+
+# 15 分钟粒度（秒）
+GR_15MINS = "900"
+
+
+# ============================================================
+# 查询配置（从原 8 个模板派生）
 # ============================================================
 def _build_5mins_query_configs() -> dict:
-    """从 `base.CNN_KPI_QUERY_CONFIGS` 派生 5 分钟配置：只改 gr 与表名前缀。
+    """从 `base.CNN_KPI_QUERY_CONFIGS` 派生本任务配置。
 
     严格沿用原模块 `_build_monthly_query_configs()` 的做法
-    （`ccn_ume_kpi_service.py:318`）：deepcopy → 改 gr → 给 table_name 加前缀，
-    模板 id / items / grouplayer 等一律保持原值，确保测的是同一批 KPI。
+    （`ccn_ume_kpi_service.py:318`）：deepcopy → 改 gr → 给 table_name 加前缀。
+    唯一例外：`FIFTEEN_MIN_TEMPLATES` 里的 3 个模板换成上游 15 分钟档模板（名字 + id + gr=900），
+    其余参数（items / grouplayer / motid / nfctid）保持原值 —— 同一 KPI 的同一批指标项。
     """
     out = {}
     for key, cfg in base.CNN_KPI_QUERY_CONFIGS.items():
         c = copy.deepcopy(cfg)
         c["gr"] = GR_5MINS
+        if key in FIFTEEN_MIN_TEMPLATES:
+            name, tid = FIFTEEN_MIN_TEMPLATES[key]
+            c["favoriteconditionname"] = name
+            c["templatename"] = name
+            c["templateid"] = tid
+            c["gr"] = GR_15MINS
         c["table_name"] = TABLE_PREFIX + cfg["table_name"]
         out[key] = c
     return out
@@ -108,7 +150,7 @@ def _build_5mins_query_configs() -> dict:
 # 模块级派生一次（原模块在导入期也会重新读 cnn_kpi_config.json，这里在其之后派生）
 CNN_KPI_5MINS_QUERY_CONFIGS = _build_5mins_query_configs()
 
-# 任务清单：8 个模板全上（含上游无 5 分钟数据的 3 个，它们会被跳过，不影响任务结果）
+# 任务清单：8 个模板全上（其中 3 个走上游 15 分钟档模板，见 FIFTEEN_MIN_TEMPLATES）
 CNN_KPI_5MINS_TASKS = [{"key": k} for k in CNN_KPI_5MINS_QUERY_CONFIGS]
 
 
@@ -143,7 +185,9 @@ def _build_payload_5mins(cfg: dict, start_iso: str, end_iso: str) -> dict:
     ti["start"] = start_iso
     ti["end"] = end_iso
     p["timeinfo"] = ti
-    p["gr"] = GR_5MINS
+    # 粒度取 cfg 实际值（多数为 300，FIFTEEN_MIN_TEMPLATES 那 3 个为 900），
+    # 不再统一强制 300 —— 否则 15 分钟档模板会被打回 0 行。
+    p["gr"] = cfg["gr"]
     return p
 
 

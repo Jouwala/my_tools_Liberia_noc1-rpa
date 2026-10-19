@@ -117,7 +117,7 @@ APScheduler 到点 (backend 进程内)
 | `cell_availability_sync` | RAN 小区可用性 1-Day 同步 | `30 4 * * *` | u |
 | `network_kpi_sync` | RAN Network KPI 同步 | `0 5 * * *` | u |
 | `cnn_kpi_sync` | CNN UME KPI 同步 | `0 6 * * *` | n |
-| `cnn_kpi_sync_5mins` | CNN UME KPI 5分钟同步（gr=300，窗口昨天 00:00→现在，写 `5mins_*` 新表；上游仅 5 个模板有 5 分钟数据，其余跳过不计失败） | `*/15 * * * *` | n |
+| `cnn_kpi_sync_5mins` | CNN UME KPI 5分钟同步（窗口昨天 00:00→现在，写 `5mins_*` 新表；**混合粒度**：5 个模板 5 分钟 + 3 个模板走上游 15 分钟档模板；0 行跳过不计失败） | `*/15 * * * *` | n |
 | `sp_data_sync` | SP 备件数据同步 | `10 * * * *` | s |
 | `ipran_kpi_sync` | iPRAN UME KPI 同步 | `0 8 * * *` | u |
 | `liberia_email_1h` | Liberia 宕站 1小时报告邮件 | `15 * * * *` | m |

@@ -37,6 +37,7 @@ xGW_LICENSE / xGW_CPU_USAGE / 3G_FDD_DATA_TRAFFIC 上游恒无 5 分钟数据
 from __future__ import annotations
 
 import logging
+import re
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -52,15 +53,14 @@ CACHE_TTL = 30
 # 并发上限：远端 db_writer_api 单机服务，8 个组件并发已够
 MAX_WORKERS = 6
 
-# 上游无 5 分钟数据的表 → 展示给用户的原因（前端据此显示「无数据」而非「查询失败」）
-UNAVAILABLE_TABLES: Dict[str, str] = {
-    "5mins_xGW_LICENSE_OCCUPANCY_TEMPLATE_OSS_UME":
-        "上游 xGW License 模板不提供 5 分钟粒度（服务端仅开放小时档），本看板无数据。",
-    "5mins_xGW_CPU_USAGE_TEMPLATE_OSS_UME_UME":
-        "上游 xGW CPU 模板不提供 5 分钟粒度（服务端仅开放小时档），本看板无数据。",
-    "5mins_3G_FDD_DATA_TRAFFIC_TEMPLATE_OSS_UME":
-        "上游 3G FDD 模板不提供 5 分钟粒度（服务端仅开放小时档），本看板无数据。",
-}
+# 上游无数据的表 → 展示给用户的原因（前端据此显示「无数据」而非「查询失败」）
+#
+# 2026-10-19 起清空：xGW License / xGW CPU / 3G FDD 三个原模板虽无 5 分钟档，
+# 但上游同日补建了 15 分钟档模板，`cnn_ume_kpi_5mins_service.FIFTEEN_MIN_TEMPLATES`
+# 已切换到那 3 个新模板并正常产出数据。故本表暂时没有「已知无数据」的组件。
+# 保留该机制：将来上游再调整档位、导致某表确实为空时，在此登记原因即可，
+# 无需改前端（`_fetch_widget` 会直接返回业务空态，且不去远端打一次注定失败的查询）。
+UNAVAILABLE_TABLES: Dict[str, str] = {}
 
 
 # ----------------------------------------------------------------------
@@ -172,30 +172,96 @@ WIDGETS: List[Dict[str, Any]] = [
             "RG-6(GB)", extra_where="\"Measurement Object\" = '6'"),
     },
     # ------------------------------------------------------------------
-    # 以下 3 个对应上游**无 5 分钟数据**的模板（实测恒 0 行，见
-    # cnn_ume_kpi_5mins_service.py 文件头）。业务要求「8 个全加、空的不报错」，
-    # 故仍列出卡片，由 `_fetch_widget` 依据 UNAVAILABLE_TABLES 直接返回空态。
-    # sql 留空：它们不会被真正执行。
+    # 以下 3 个在 2026-10-19 前是空态卡（原模板无 5 分钟档）。上游同一天补建了
+    # 15 分钟档模板，采集侧已切到新模板（`FIFTEEN_MIN_TEMPLATES`），这里改为正常取数。
+    # ⚠ 它们的粒度是 15 分钟而非 5 分钟，行数约为其他组件的 1/3，属正常。
     # ------------------------------------------------------------------
     {
         "id": "xgw_license",
         "title": "xGW License Occupancy(%)",
         "table": "5mins_xGW_LICENSE_OCCUPANCY_TEMPLATE_OSS_UME",
-        "sql": "",
+        # 与 CN KPI 看板口径一致：取 Throughput Usage(%) 作为 License 占用率
+        "sql": _agg_sql(
+            "5mins_xGW_LICENSE_OCCUPANCY_TEMPLATE_OSS_UME",
+            'ROUND(AVG("Throughput Usage(%)"),2)', "License Occupancy(%)"),
+        "pct": True,
     },
     {
         "id": "xgw_cpu",
         "title": "xGW CPU Usage(%)",
         "table": "5mins_xGW_CPU_USAGE_TEMPLATE_OSS_UME_UME",
-        "sql": "",
+        # 与 CN KPI 看板一致：峰值 vCPU 使用率
+        "sql": _agg_sql(
+            "5mins_xGW_CPU_USAGE_TEMPLATE_OSS_UME_UME",
+            'ROUND(AVG("Peak usage ratio of UP\'s vCPU(%)"),2)', "xGW CPU Usage(%)"),
+        "pct": True,
     },
     {
         "id": "3g_traffic",
         "title": "3G FDD Traffic(GB)",
         "table": "5mins_3G_FDD_DATA_TRAFFIC_TEMPLATE_OSS_UME",
-        "sql": "",
+        # 字节 → GB
+        # ⚠ 列名是 "Bytes"（复数）。3G 与 4G 的列名**不同**：4G 是 "Byte of ... SGi"（单数），
+        # 3G 是 "Bytes of ... Gi"（复数）。写成单数时 SQLite 不报错，而是把双引号标识符
+        # 当字符串字面量，SUM 恒等于 0 —— 2026-10-19 实测踩过（页面 3G 全 0）。
+        "sql": _agg_sql(
+            "5mins_3G_FDD_DATA_TRAFFIC_TEMPLATE_OSS_UME",
+            'ROUND(SUM("Bytes of downlink data packets received via Gi interface per APN(Byte)")/1000000000.0,3)',
+            "3G FDD Traffic(GB)"),
     },
 ]
+
+
+# ----------------------------------------------------------------------
+# 列名守卫（2026-10-19 新增）
+# ----------------------------------------------------------------------
+# 为什么需要：SQLite 对双引号包起来的**不存在的列名**不报错，而是把它当字符串
+# 字面量。于是 `SUM("Byte of ...")`（真实列名是 "Bytes of ..."）会恒等于 0，
+# 页面显示一条贴地的 0 曲线，**没有任何报错**。3G FDD 就是这么翻车的：
+# 4G 的列名是 "Byte of ... SGi"（单数），3G 是 "Bytes of ... Gi"（复数），
+# 抄的时候漏了一个 s。
+#
+# 本守卫在整页取数时顺带校验：每个 widget 的 SQL 里出现的双引号标识符，必须是
+# 该表真实存在的列（或 SQL 里的别名）。不一致就在组件上标 error，而不是让用户
+# 对着一张「看起来正常、其实全是 0」的图猜。
+_QUOTED_IDENT_RE = re.compile(r'"([^"]+)"')
+
+
+def _known_columns(table: str) -> Optional[set]:
+    """取远端表的真实列名；取不到返回 None（守卫静默跳过，不影响正常出图）。"""
+    try:
+        res = query_remote(f'SELECT * FROM "{table}" LIMIT 0', db=REMOTE_DB, limit=1)
+    except Exception:  # noqa: BLE001 — 表不存在/服务不可达都不该拖垮整页
+        return None
+    if not res.get("success", True):
+        return None
+    return set(res.get("columns") or [])
+
+
+def _verify_columns(w: Dict[str, Any]) -> str:
+    """返回错误说明；空串表示列名都对得上。
+
+    只校验「会出现在 SELECT 列表中、且属于源表」的标识符：表名本身、SQL 别名
+    （AS 后面的名字）、以及 day/t 这类输出列不在校验范围。
+    """
+    table = w.get("table") or ""
+    sql = w.get("sql") or ""
+    if not table or not sql:
+        return ""
+    cols = _known_columns(table)
+    if cols is None:
+        return ""
+    # SQL 里出现的别名（AS "xxx"）不是源表列，排除掉
+    aliases = set(re.findall(r'\bAS\s+"([^"]+)"', sql, flags=re.IGNORECASE))
+    missing = [
+        name for name in _QUOTED_IDENT_RE.findall(sql)
+        if name != table and name not in aliases and name not in cols
+    ]
+    if missing:
+        return (f'列名不存在于表 {table}：{missing}。'
+                f'SQLite 会把未知双引号标识符当字符串字面量，导致结果恒为 0（不会报错）。'
+                f'现有列：{sorted(cols)}')
+    return ""
 
 
 def _fetch_widget(w: Dict[str, Any]) -> Dict[str, Any]:
@@ -205,7 +271,7 @@ def _fetch_widget(w: Dict[str, Any]) -> Dict[str, Any]:
         "title": w["title"],
         "chart": "line",
         "pivot": True,      # 三列 [HH:MM, Day0/Day1, 值]
-        "pct": bool(w.get("pct")),
+        "pct": bool(w.get("pct")),   # 百分比组件（纵轴格式化为 %）
         "sql": w["sql"],
         "columns": ["Time", "Day", w["title"]],
         "rows": [],
@@ -223,6 +289,13 @@ def _fetch_widget(w: Dict[str, Any]) -> Dict[str, Any]:
         # 兜底：没有 SQL 的组件（理论上都已被 UNAVAILABLE_TABLES 覆盖）
         out["empty"] = True
         out["empty_reason"] = "该组件暂无可用查询。"
+        return out
+
+    # 列名守卫：先确认 SQL 引用的标识符都是真实列，避免「不报错但恒为 0」
+    col_err = _verify_columns(w)
+    if col_err:
+        out["error"] = col_err
+        logger.error("CN KPI 5mins 组件 %s 列名校验失败：%s", w["id"], col_err)
         return out
 
     try:

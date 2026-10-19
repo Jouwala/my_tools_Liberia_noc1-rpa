@@ -3496,7 +3496,7 @@ const translations: Record<Locale, Record<string, string>> = {
     // 数据由任务 cnn_kpi_sync_5mins 每 15 分钟写入 5mins_* 表
     // 页面大标题由 App 全局 Header 渲染（菜单名），页内不再重复画标题，只保留上行统计条
     'cnkpi5.barHint': '每张图两条线为今天与昨天同一时刻的值，可对比日内走势',
-    'cnkpi5.noGranularity': '无5分钟数据',
+    'cnkpi5.noGranularity': '无数据',
     'cnkpi5.noData': '暂无数据',
     'cnkpi5.queryFail': '取数失败',
     'cnkpi5.loadFail': '看板数据加载失败',
@@ -3507,8 +3507,12 @@ const translations: Record<Locale, Record<string, string>> = {
     'cnkpi5.day1': 'Day1（昨天）',
     'cnkpi5.summary': '{{ok}}/{{total}} 个组件有数据',
     'cnkpi5.legendHint': '每张图的两条线分别是今天与昨天同一时刻的值，可直接对比日内走势',
-    'cnkpi5.emptyBanner': '{{n}} 个组件无 5 分钟数据（非故障）',
-    'cnkpi5.emptyWhy': 'xGW License、xGW CPU、3G FDD 三个模板在上游网管只开放小时档，没有 5 分钟粒度；其余 5 个 KPI 均正常。',
+    'cnkpi5.emptyBanner': '{{n}} 个组件暂无数据（非故障）',
+    'cnkpi5.emptyWhy': '通常是因为该 KPI 的上游模板未开放对应粒度，或任务尚未采集到最近一批数据。',
+    // 混合粒度提示：xGW License / xGW CPU / 3G FDD 走上游 15 分钟档模板，
+    // 其余 5 个走 5 分钟档；两者在同一张图上并存，必须让用户知道刻度差异。
+    'cnkpi5.mixedGranularity': '部分组件为 15 分钟粒度',
+    'cnkpi5.mixedGranularityHint': 'xGW License、xGW CPU、3G FDD 走上游的 15 分钟档模板（原模板无 5 分钟档），其余 5 个为 5 分钟粒度。15 分钟组件的点更稀疏，但横轴同样是时刻，可直接对比。',
     'cnkpi5.exportSource': '数据源',
     'cnkpi5.exportGenerated': '导出时间',
 
@@ -7562,7 +7566,7 @@ const translations: Record<Locale, Record<string, string>> = {
     // Data is written every 15 min by the cnn_kpi_sync_5mins task into the 5mins_* tables
     // The page title is rendered by the app-wide Header (menu label); the page keeps only the stats bar
     'cnkpi5.barHint': 'Two lines per chart: the same time of day today and yesterday, for intraday comparison',
-    'cnkpi5.noGranularity': 'No 5-min data',
+    'cnkpi5.noGranularity': 'No data',
     'cnkpi5.noData': 'No data',
     'cnkpi5.queryFail': 'Query failed',
     'cnkpi5.loadFail': 'Failed to load dashboard data',
@@ -7573,8 +7577,12 @@ const translations: Record<Locale, Record<string, string>> = {
     'cnkpi5.day1': 'Day1 (yesterday)',
     'cnkpi5.summary': '{{ok}}/{{total}} widgets with data',
     'cnkpi5.legendHint': 'The two lines show the same time of day today and yesterday, so the intraday trend can be compared directly',
-    'cnkpi5.emptyBanner': '{{n}} widget(s) have no 5-minute data (not a fault)',
-    'cnkpi5.emptyWhy': 'The xGW License, xGW CPU and 3G FDD templates only expose an hourly tier upstream — no 5-minute data exists. The other 5 KPIs are working normally.',
+    'cnkpi5.emptyBanner': '{{n}} widget(s) have no data yet (not a fault)',
+    'cnkpi5.emptyWhy': 'Usually because the upstream template for that KPI does not expose this granularity, or the task has not collected the latest batch yet.',
+    // Mixed granularity: xGW License / xGW CPU / 3G FDD use the upstream 15-minute
+    // templates (the originals had no 5-minute tier); the other 5 use 5-minute.
+    'cnkpi5.mixedGranularity': 'Some widgets are 15-minute',
+    'cnkpi5.mixedGranularityHint': 'xGW License, xGW CPU and 3G FDD use the upstream 15-minute templates (the originals had no 5-minute tier); the other 5 are 5-minute. The 15-minute widgets have fewer points, but the x axis is still clock time, so they compare directly.',
     'cnkpi5.exportSource': 'Data source',
     'cnkpi5.exportGenerated': 'Generated at',
 

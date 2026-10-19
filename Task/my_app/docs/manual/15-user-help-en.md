@@ -1,6 +1,6 @@
 # my_app User Help & Guide
 
-> User-facing platform features & operations guide. Generated from the same source as the in-app Help page (frontend/src/helpMarkdown.ts), compiled from docs/manual/ and backend/task_registry.py. Generated on 2026-10-17.
+> User-facing platform features & operations guide. Generated from the same source as the in-app Help page (frontend/src/helpMarkdown.ts), compiled from docs/manual/ and backend/task_registry.py. Generated on 2026-10-19.
 
 > In-app entry: the "Help" sidebar item, or `http://<host>/myapp/?page=help` directly.
 
@@ -533,7 +533,7 @@ Workflow & maintenance notes per task:
 - Default cron: `*/15 * * * *`　|　worker group: **n**
 - Workflow script: `services/cnn_ume_kpi_5mins_service.py → run_cnn_kpi_sync_5mins`
 
-**What it does**: Same source and account as "CNN UME KPI Sync", but at 5-minute granularity (gr=300) with a yesterday-00:00-to-now window; writes into new 5mins_* tables in DB CNN for the Day0/Day1 overlay on the CN KPI 5-minute board. Daily/monthly tables are untouched
+**What it does**: Same source and account as "CNN UME KPI Sync", but at fine granularity (5-minute for 5 templates, 15-minute for 3) with a yesterday-00:00-to-now window; writes into new 5mins_* tables in DB CNN for the Day0/Day1 overlay on the CN KPI 5-minute board. Daily/monthly tables are untouched
 
 **Workflow & data flow**:
 
@@ -543,7 +543,8 @@ Workflow & maintenance notes per task:
 
 **Maintenance**:
 
-- WARNING: only 5 of the 8 templates support 5-minute granularity (Voice / VLR / Data / 4G FDD / Free Rating); xGW License, xGW CPU and 3G FDD return 0 rows every run and are SKIPPED without failing the task (the original cnn_kpi_sync raises on 0 rows — this task deliberately differs)
+- WARNING: mixed granularity — Voice / VLR / Data / 4G FDD / Free Rating use the 5-minute tier (gr=300); xGW License, xGW CPU and 3G FDD had no 5-minute tier and now use the upstream 15-minute templates created 2026-10-19 (gr=900, see FIFTEEN_MIN_TEMPLATES)
+- WARNING: the task keeps a "0 rows → skip this table and do not fail" fallback (the original cnn_kpi_sync raises on 0 rows — this task deliberately differs) so an upstream tier change cannot make it fail every 15 minutes
 - WARNING: one run takes about 105 s (Free Rating alone has 14k rows/day); if it approaches 15 minutes, lower the concurrency or widen the schedule
 - Runs in group n alongside cnn_kpi_sync so the two never log into the same account and kick each other off
 - The only consumer is ?page=cn_kpi_5mins (services/cn_kpi_5mins_service.py reads the 5mins_* tables)
@@ -1850,11 +1851,11 @@ CN KPI dashboard: a native rebuild of the original FineBI "CN KPI" board, with 1
 
 #### cn_kpi_5mins（`cn_kpi_5mins`）
 
-CN KPI 5-minute dashboard: compares core-network KPIs at 5-minute granularity, overlaying today (Day0) against yesterday (Day1) at the same time of day. The cnn_kpi_sync_5mins task collects it every 15 minutes (window: yesterday 00:00 to now) into new 5mins_* tables in db_ps_cs_cn, independent of the daily/monthly CN KPI board. WARNING: the upstream NMS only exposes 5-minute granularity for some templates — the xGW License, xGW CPU and 3G FDD cards show "No 5-min data", which is an upstream capability limit, not a fault.
+CN KPI 5-minute dashboard: compares core-network KPIs, overlaying today (Day0) against yesterday (Day1) at the same time of day. The cnn_kpi_sync_5mins task collects it every 15 minutes (window: yesterday 00:00 to now) into new 5mins_* tables in db_ps_cs_cn, independent of the daily/monthly CN KPI board. WARNING: granularity is MIXED — Voice / VLR / Data / 4G FDD / Free Rating are 5-minute; xGW License, xGW CPU and 3G FDD use the upstream 15-minute templates (created 2026-10-19) because their original templates had no 5-minute tier.
 
 - Each chart has two lines: Day0 is today and Day1 is yesterday; the x axis is the clock time (HH:MM), so the same x value is the same time of day — easy to compare intraday movement and day-to-day differences
 - No date picking is needed: the window is fixed to today + yesterday and refreshes every 15 minutes as the task runs (auto-refresh is available in the top bar)
-- Cards tagged "No 5-min data" correspond to templates the upstream does not expose at 5-minute granularity (xGW License / xGW CPU / 3G FDD); the blue banner in the header summarises how many
+- The xGW License / xGW CPU / 3G FDD cards have points every 15 minutes (3x sparser than the others) — that is the upstream template tier, not missing data; the blue banner in the header says so
 - "Export Excel" writes one sheet per widget, expanded as Day0 / Day1 columns by time of day
 
 #### UME iMonitor Screen（`imonitor`, iframe page）
