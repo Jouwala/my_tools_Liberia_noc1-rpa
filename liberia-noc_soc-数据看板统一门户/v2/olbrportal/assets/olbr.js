@@ -2800,7 +2800,10 @@
            参见 my_app 的 EmailReports.tsx（isPortalFilesMode）—— 那边也是「本壳专属
            参数、只有本壳的 iframe src 带」，并明确记了「不能用 mwembed /
            isShellLessEmbed 判定，那些对所有壳都命中」这条教训。 */
-        src: '/myapp/?page=' + m.page + '&mwembed=1'
+        /* 2026-10-19：补 `embed=1` —— my_app 不再把 ?page= 当隐藏外壳的开关
+           （App.tsx readBareModule），只带 page/mwembed 会让 Header、侧栏
+           一起渲染进 iframe。emailSrc 同一处理。 */
+        src: '/myapp/?page=' + m.page + '&mwembed=1&embed=1'
           + (m.page === 'gis' ? '&gisShift=1' : '')
           + (state.theme === 'dark' ? '&theme=dark' : '') + langQs()
       };
@@ -4333,7 +4336,11 @@
         isPortalFilesMode 与 i18n 的 emailReports.portalCol* 三条文案）。
         只有这里带上它 —— MsPortal / 根 olbrportal / v1 的内嵌 src 都不带，故它们
         与「直接打开 /myapp/?page=email_reports&lang=en」仍显示全部 4 个页签与旧表头。 */
-  function emailSrc() { return '/myapp/?page=' + DATA.EMAIL_PAGE + langQs() + '&portalFiles=1'; }
+  /* ⚠️ 2026-10-19：补 `embed=1`。my_app 自 2026-10-18 起只看 ?embed=1 / ?layout=bare
+     隐藏外壳（App.tsx readBareModule），不再认 ?page=；不补则 Header、侧栏与
+     EmailReports 的 Card 标题「Task Report Files」全会回到 iframe 里。
+     与 portalFiles=1 独立：前者管外壳，后者管精简列/单页签。v3 同步改了。 */
+  function emailSrc() { return '/myapp/?page=' + DATA.EMAIL_PAGE + langQs() + '&portalFiles=1&embed=1'; }
 
   function emailSectionHtml() {
     return '<div class="p-head"><span class="p-hd"><span class="p-t t-orange">' + esc(t('email.title')) + '</span></span>' +

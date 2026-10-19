@@ -1232,7 +1232,10 @@
       return {
         page: m.page, key: m.key, icon: m.icon, item: it,
         title: it ? (state.lang === 'en' ? (it.titleEn || it.titleZh) : (it.titleZh || it.titleEn)) : m.page,
-        src: '/myapp/?page=' + m.page + '&mwembed=1' + (state.theme === 'dark' ? '&theme=dark' : '') + langQs()
+        /* 2026-10-19：补 `embed=1` —— my_app 自 2026-10-18 起只看 ?embed=1 /
+           ?layout=bare 隐藏外壳（App.tsx readBareModule），不再认 ?page=；
+           不补则 Header、侧栏会被一起渲染进 iframe。v1/v2/v3 同步改了。 */
+        src: '/myapp/?page=' + m.page + '&mwembed=1&embed=1' + (state.theme === 'dark' ? '&theme=dark' : '') + langQs()
       };
     }).filter(function (m) { return !!m.item; });
   }
@@ -2157,7 +2160,11 @@
   function emailAllowed() { var it = emailItem(); return !!it && canSee(it); }
   /* 相对路径：门户从 localhost 还是局域网 IP 打开都自适应（与地图同一考虑）。
      深链自身就是 bare 模式（自己的侧栏 / Header 都隐藏），不用地图那套 MAP_STRIP_CSS。 */
-  function emailSrc() { return '/myapp/?page=' + EMAIL_PAGE + langQs(); }
+  /* ⚠️ 2026-10-19：补 `embed=1`。my_app 自 2026-10-18 起只看 ?embed=1 / ?layout=bare
+     隐藏外壳（App.tsx readBareModule），不再认 ?page=；不补则 Header、侧栏与
+     EmailReports 的 Card 标题「Task Report Files」全会回到 iframe 里。
+     本壳不带 portalFiles=1（刻意保留全部页签），故只补 embed。v1/v2/v3 同步改了。 */
+  function emailSrc() { return '/myapp/?page=' + EMAIL_PAGE + langQs() + '&embed=1'; }
 
   function emailSectionHtml() {
     return '<div class="p-head"><span class="p-hd"><span class="p-t">' + esc(t('email.title')) + '</span>' +

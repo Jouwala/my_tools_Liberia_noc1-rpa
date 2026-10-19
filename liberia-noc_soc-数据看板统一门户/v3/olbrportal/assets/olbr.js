@@ -2716,7 +2716,10 @@
            参见 my_app 的 EmailReports.tsx（isPortalFilesMode）—— 那边也是「本壳专属
            参数、只有本壳的 iframe src 带」，并明确记了「不能用 mwembed /
            isShellLessEmbed 判定，那些对所有壳都命中」这条教训。 */
-        src: '/myapp/?page=' + m.page + '&mwembed=1'
+        /* 2026-10-19：补 `embed=1`。my_app 自 2026-10-18 起不再把「?page=」当作
+           隐藏外壳的开关（见 App.tsx readBareModule），门户内嵌若只带 page 与
+           mwembed，iframe 里会连 Header / 侧栏一起渲染出来。emailSrc 同一处理。 */
+        src: '/myapp/?page=' + m.page + '&mwembed=1&embed=1'
           + (m.page === 'gis' ? '&gisShift=1' : '')
           + (state.theme === 'dark' ? '&theme=dark' : '') + langQs()
       };
@@ -4250,7 +4253,17 @@
         isPortalFilesMode 与 i18n 的 emailReports.portalCol* 三条文案）。
         只有这里带上它 —— MsPortal / 根 olbrportal / v1 的内嵌 src 都不带，故它们
         与「直接打开 /myapp/?page=email_reports&lang=en」仍显示全部 4 个页签与旧表头。 */
-  function emailSrc() { return '/myapp/?page=' + DATA.EMAIL_PAGE + langQs() + '&portalFiles=1'; }
+  /* ⚠️ 2026-10-19（用户反馈「Auto Report 里又出现 Task Report Files 标题了」）：
+     `embed=1` **必须带**。2026-10-18 起 my_app 的 App.tsx 把「是否隐藏外壳」的判据
+     从「URL 带 ?page=」改成了**只看 `?embed=1` / `?layout=bare`**
+     （readBareModule 的注释：?page= 是应用内导航常态参数，不能当开关）。
+     门户内嵌页一率走 `?page=…`，于是不再进 bare 模式：my_app 的 Header、侧栏
+     以及 EmailReports 自己的 Card 标题「Task Report Files」全部回来，压在
+     本面板的「Auto Report」下面 —— 这正是用户看到的现象。
+     地图那边同一原因，见 mapItems 的 src（同样补了 embed=1）。
+     与 portalFiles=1 是两个独立开关：前者管**外壳**，后者管 EmailReports 的
+     **精简列/单页签**，缺一不可。 */
+  function emailSrc() { return '/myapp/?page=' + DATA.EMAIL_PAGE + langQs() + '&portalFiles=1&embed=1'; }
 
   function emailSectionHtml() {
     return '<div class="p-head"><span class="p-hd"><span class="p-t t-orange">' + esc(t('email.title')) + '</span></span>' +
@@ -4398,7 +4411,11 @@
     var m = /\/myapp\/\?/.exec(u);
     if (m) {
       var q = u.slice(m.index + '/myapp/'.length);   // '?page=eflow_qa'
-      return '/myapp/' + q + (state.theme === 'dark' ? '&theme=dark' : '') + langQs();
+      /* ⚠️ 2026-10-19：补 `embed=1`。my_app 自 2026-10-18 起只看 ?embed=1 /
+         ?layout=bare 隐藏外壳（App.tsx readBareModule），不再认 ?page=；
+         不补则 eFlow 页签的 iframe 里会连 Header 与侧栏一起显示出来。
+         与 mapItems / emailSrc 同一处理。 */
+      return '/myapp/' + q + '&embed=1' + (state.theme === 'dark' ? '&theme=dark' : '') + langQs();
     }
     /* RAG（外域）：目录若还停在旧地址（`http://192.168.100.27:3000/` 或
        `https://192.168.100.27/`），这里**无条件归一到使用入口** `https://192.168.100.27:8443/`：

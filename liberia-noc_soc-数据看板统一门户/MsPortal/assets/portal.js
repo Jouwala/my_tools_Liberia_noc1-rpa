@@ -265,7 +265,7 @@
       'qc.targetTip.up': '分级阈值：关注 ≥ {warn} · 严重 ≥ {crit}（数值越大越差）',
       'qc.targetTip.down': '分级阈值：关注 < {crit} · 严重 < {warn}（数值越大越好）',
       /* 跳到 my_app 里对应的完整看板（只对有对应页面的维度显示） */
-      'qc.openBoard': '打开完整看板',
+      'qc.openBoard': '打开链接',
       'status.online': '在线',
       'status.beta': '试运行',
       /* 卡片徽标的 hover 备注（2026-09-19 加）。
@@ -422,18 +422,18 @@
          原 System Admin 的位置改为直接显示 /myapp/?page=email_reports 的页面内容，
          所以这里要一套「报告文件」版的标题/加载/登录文案：
          未登录与无权限分开写，因为处置完全不同 —— 前者登录即可，后者登录也没用。 */
-      'email.title': 'Task Report Files',
+      'email.title': 'Auto Report',
       'email.sub': '| 任务报告文件中心（Email Reports）',
       'email.refresh': '刷新',
       'email.open': '新窗口',
       /* 标题可点（2026-09-18 加）：与其他区块标题同款，只是目标是报告文件中心本身 */
-      'email.openTip': '在新标签页打开「Task Report Files」任务报告文件中心',
+      'email.openTip': '在新标签页打开「Auto Report」任务报告文件中心',
       'email.loading': '正在加载报告文件…',
       'email.auth.title': '报告文件需要登录后查看',
       'email.auth.tip': '任务报告文件需通过统一门户登录后访问。登录后回到本页即可正常显示。',
       'email.auth.login': '本页直接登录',
       'email.auth.retry': '我已登录，重试',
-      'email.noAccess': '当前账号没有「Task Report Files」这块看板的权限',
+      'email.noAccess': '当前账号没有「Auto Report」这块看板的权限',
       'topo.stat.total': '门户看板总数',
       'topo.stat.online': '在线运行看板',
       'topo.stat.clicks': '累计访问量',
@@ -682,7 +682,7 @@
       'qc.grp.secondary': 'Backlog & compliance',
       'qc.targetTip.up': 'Thresholds: watch ≥ {warn} · critical ≥ {crit} (higher is worse)',
       'qc.targetTip.down': 'Thresholds: watch < {crit} · critical < {warn} (higher is better)',
-      'qc.openBoard': 'Open full dashboard',
+      'qc.openBoard': 'Open link',
       'status.online': 'Online',
       'status.beta': 'Beta',
       /* Hover notes for the card badges (added 2026-09-19) — see the zh block. */
@@ -833,18 +833,18 @@
       'um.rejected': 'Rejected the account request from {name}',
       'um.notFound': 'Request not found or already handled',
       /* ---- Task Report Files embed card (added 2026-09-18) ---- */
-      'email.title': 'Task Report Files',
+      'email.title': 'Auto Report',
       'email.sub': '| Task report file center (Email Reports)',
       'email.refresh': 'Refresh',
       'email.open': 'New window',
       /* Clickable title (added 2026-09-18): same as other section titles, target is the center itself */
-      'email.openTip': 'Open the Task Report Files center in a new tab',
+      'email.openTip': 'Open the Auto Report center in a new tab',
       'email.loading': 'Loading report files…',
       'email.auth.title': 'Sign in to view report files',
       'email.auth.tip': 'Task report files require a unified-portal sign-in. Sign in, then return to this page.',
       'email.auth.login': 'Sign in here',
       'email.auth.retry': 'I have signed in — retry',
-      'email.noAccess': 'This account has no access to the "Task Report Files" dashboard',
+      'email.noAccess': 'This account has no access to the "Auto Report" dashboard',
       'topo.stat.total': 'Portal dashboards',
       'topo.stat.online': 'Online dashboards',
       'topo.stat.clicks': 'Total visits',
@@ -4075,7 +4075,10 @@
            这两个参数留着是因为：直开本页（不经门户）时仍然有用，
            且将来若有页签直接从 URL 读，也不必再回来改。
            其余 3 个页签（React SPA）不认这两个参数，带了也无副作用。 */
-        src: '/myapp/?page=' + m.page + '&mwembed=1' + (state.theme === 'dark' ? '&theme=dark' : '') + langQs()
+        /* 2026-10-19：补 `embed=1` —— my_app 自 2026-10-18 起只看 ?embed=1 /
+           ?layout=bare 隐藏外壳（App.tsx readBareModule），不再认 ?page=；
+           不补则 Header、侧栏会被一起渲染进 iframe。v1/v2/v3/根 olbrportal 同步改了。 */
+        src: '/myapp/?page=' + m.page + '&mwembed=1&embed=1' + (state.theme === 'dark' ? '&theme=dark' : '') + langQs()
       };
     });
     out = out.filter(function (m) { return m.allowed; });
@@ -5453,8 +5456,23 @@
   /** 内嵌地址：相对路径（门户从 localhost 或 LAN IP 访问都自适应，与地图同一考虑）。
       不带 mwembed=1 —— 那个参数是给地图页用的（my_app 的 isEmbeddedInPortal() 判的是
       ?mwembed=1 或 window.self !== window.top，iframe 内两种都成立），这里带了无副作用
-      但也无用，索性保持 URL 与「新窗口打开」完全一致。 */
+      但也无用。
+
+      ⚠️ 2026-10-19：补 `embed=1`。my_app 自 2026-10-18 起只看 ?embed=1 / ?layout=bare
+      隐藏外壳（App.tsx 的 readBareModule），不再把 ?page= 当开关；不补则 iframe 里
+      Header、侧栏与 EmailReports 的 Card 标题「Task Report Files」全会回来，压在
+      本卡标题下面（用户反馈）。v1/v2/v3/根 olbrportal 同步改了。
+      ⚠️ 这一步打破了原先「URL 与『新窗口打开』完全一致」的说法：标题栏那颗链接与
+      右上角「新窗口」**刻意仍用不带 embed 的地址**，新窗口要完整外壳。
+      所以本函数只喂 iframe，标题/新窗口的 href 在 emailSection() 里另拼。 */
   function emailSrc() {
+    return '/myapp/?page=' + EMAIL_PAGE + langQs() + '&embed=1';
+  }
+
+  /** 「新窗口 / 标题链接」用的地址：与 emailSrc() 只差 `embed=1`。
+      新标签页要的是**完整外壳**（侧栏 + Header），不该被嵌入态吞掉，
+      所以这两处入口刻意不用 emailSrc()（2026-10-19 拆开，见其上注释）。 */
+  function emailOpenHref() {
     return '/myapp/?page=' + EMAIL_PAGE + langQs();
   }
 
@@ -5469,7 +5487,7 @@
        静止态版式不变 —— 与其余区块标题「静止态 1:1、hover 才给反馈」的约定一致。 */
     var head =
       '<div class="flex flex-wrap items-center justify-between pb-2.5 mb-3 border-b border-slate-100 gap-2">' +
-        '<a class="flex items-center gap-2 min-w-0 sec-head-link" href="' + esc(emailSrc()) + '" target="_blank" ' +
+        '<a class="flex items-center gap-2 min-w-0 sec-head-link" href="' + esc(emailOpenHref()) + '" target="_blank" ' +
           'rel="noopener noreferrer" title="' + esc(t('email.openTip')) + '">' +
           '<span class="p-1.5 rounded bg-teal-600 text-white shrink-0">' + ico('folder', 'text-[20px]') + '</span>' +
           '<div class="min-w-0">' +
@@ -5562,7 +5580,7 @@
       syncEmailBoot();
       // 「新窗口」按钮此时还没被赋过 href，保持 # 会让页面跳到顶部
       var no = document.getElementById('emailOpen');
-      if (no) no.href = emailSrc();
+      if (no) no.href = emailOpenHref();
       return;
     }
     if (!emailAllowed()) {
@@ -5608,7 +5626,7 @@
     }
 
     var open = document.getElementById('emailOpen');
-    if (open) open.href = emailSrc();
+    if (open) open.href = emailOpenHref();
     syncEmailBoot();
   }
 
@@ -7111,7 +7129,9 @@
         if (f) {
           delete f.dataset.loaded;
           try { f.contentWindow.location.reload(); }
-          catch (err) { f.setAttribute('src', '/myapp/?page=' + state.mapTab + langQs()); }
+          /* 2026-10-19：这条兜底也必须带 embed=1，否则 reload 失败后重建的 iframe
+             会退回带外壳形态（Header/侧栏冒出来）。与 mapItems 的 src 同口径。 */
+          catch (err) { f.setAttribute('src', '/myapp/?page=' + state.mapTab + '&mwembed=1&embed=1' + langQs()); }
         }
         return;
       }
