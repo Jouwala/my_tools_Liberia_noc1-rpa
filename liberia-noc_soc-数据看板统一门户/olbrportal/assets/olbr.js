@@ -100,9 +100,9 @@
       /* 报告文件页签（2026-09-22 加）：内嵌 my_app 的任务报告文件中心，
          标题说法与 MsPortal 那张 Task Report Files 卡一致，同一内容在两个门户不该有两名。 */
       'email.tab': '报告文件',
-      'email.title': 'Task Report Files', 'email.sub': '任务报告文件中心（Email Reports）',
+      'email.title': 'Auto Report', 'email.sub': '任务报告文件中心（Email Reports）',
       'email.needLogin': '登录后显示报告文件',
-      'email.noAccess': '当前账号没有「Task Report Files」这块看板的权限',
+      'email.noAccess': '当前账号没有「Auto Report」这块看板的权限',
       'esc.title': '升级机制 Escalation Matrix',
       'esc.sub': '值班升级联系人 · Orange / LONESTAR 双网号码',
       'esc.expand': '展开全部 {n} 条', 'esc.collapse': '收起',
@@ -174,7 +174,7 @@
       /* 2026-09-23 统一下钻弹窗：补齐与 MsPortal 同名同义的文案键。
          MsPortal 侧对应 qc.reload / qc.export / qc.openBoard / qc.filterHint /
          qc.loading / qc.page / qc.total / qc.drillSuffix / qc.exportErr。 */
-      'dr.reload': '刷新', 'dr.export': '导出 Excel', 'dr.openBoard': '打开完整看板',
+      'dr.reload': '刷新', 'dr.export': '导出 Excel', 'dr.openBoard': '打开链接',
       'dr.filterHint': '提示：按维度筛选看板列表请用筛选条，这个弹窗只下钻明细。',
       'dr.drillSuffix': ' · 明细', 'dr.total': '共 {n} 条', 'dr.exportErr': '导出失败',
       'dr.noData': '没有可导出的数据',
@@ -319,9 +319,9 @@
       'map.gis': 'Global Map', 'map.mw': 'MW real-time', 'map.alarm': 'Live alarms', 'map.loss': 'Packet loss',
       'map.open': 'Open in new tab', 'map.reload': 'Reload', 'map.load': 'Loading…',
       'email.tab': 'Report files',
-      'email.title': 'Task Report Files', 'email.sub': 'Task report file center (Email Reports)',
+      'email.title': 'Auto Report', 'email.sub': 'Task report file center (Email Reports)',
       'email.needLogin': 'Sign in to view the report files',
-      'email.noAccess': 'This account has no access to the "Task Report Files" dashboard',
+      'email.noAccess': 'This account has no access to the "Auto Report" dashboard',
       'esc.title': 'Escalation Matrix',
       'esc.sub': 'Duty contacts · Orange / LONESTAR numbers',
       'esc.expand': 'Expand all {n} rows', 'esc.collapse': 'Collapse',
@@ -392,7 +392,7 @@
       'dr.title': 'Details', 'dr.rows': '{n} rows', 'dr.page': '{p} / {q}',
       'dr.load': 'Loading details…', 'dr.empty': 'No matching record', 'dr.err': 'Detail failed: {e}',
       'dr.none': 'No data', 'dr.qPh': 'Filter rows…',
-      'dr.reload': 'Refresh', 'dr.export': 'Export Excel', 'dr.openBoard': 'Open full dashboard',
+      'dr.reload': 'Refresh', 'dr.export': 'Export Excel', 'dr.openBoard': 'Open link',
       'dr.filterHint': 'Note: filtering the catalogue by dimension lives on the filter bar chips; this dialog only drills into details.',
       'dr.drillSuffix': ' · Details', 'dr.total': '{n} rows in total', 'dr.exportErr': 'Export failed',
       'dr.noData': 'Nothing to export',
