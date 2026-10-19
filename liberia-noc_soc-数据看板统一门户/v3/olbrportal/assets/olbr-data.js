@@ -44,7 +44,7 @@ window.OLBR_DATA = (function () {
          「Daily Operation Overview」。⚠️ 现在**中英两份字典同值**（都用这个英文名），
          不是漏翻 —— 用户明确要求两边都改成新名称，不要"顺手补齐"中文。
          下面的 qc.sub / qc.sla 等键仍是中英双语，不受影响。 */
-      'qc.title': 'Daily Operation Overview',
+      'qc.title': 'Daily Operation',
       'qc.sub': '未清除告警 / 工单 / 变更 / 维护 / 备件 · 30 天达标口径',
       'qc.sla': '30 天达标率',
       /* 2026-09-25 删：qc.slaTip / qc.slaDrillTip / qc.slaPending 三条随标题行的
@@ -149,9 +149,9 @@ window.OLBR_DATA = (function () {
       /* 报告文件页签（2026-09-22 加）：内嵌 my_app 的任务报告文件中心，
          标题说法与 MsPortal 那张 Task Report Files 卡一致，同一内容在两个门户不该有两名。 */
       'email.tab': '报告文件',
-      'email.title': 'Auto Report Files', 'email.sub': '任务报告文件中心（Email Reports）',
+      'email.title': 'Auto Report', 'email.sub': '任务报告文件中心（Email Reports）',
       'email.needLogin': '登录后显示报告文件',
-      'email.noAccess': '当前账号没有「Task Report Files」这块看板的权限',
+      'email.noAccess': '当前账号没有「Auto Report」这块看板的权限',
       'esc.title': '升级机制 Escalation Matrix',
       'esc.sub': '值班升级联系人 · Orange / LONESTAR 双网号码',
       'esc.expand': '展开全部 {n} 条', 'esc.collapse': '收起',
@@ -264,7 +264,7 @@ window.OLBR_DATA = (function () {
          （= my_app `?page=vmaxCxoDashboard_90Days` 那个 90 天经营看板），
          口径是**昨日完整值**，不是当日进行中；下排三张是 2/3/4G 当月可用率
          （/api/alarm-dashboard/alarm-overview 的 network_availability）。 */
-      'kpi.title': 'Network Status Overview',
+      'kpi.title': 'Network Status',
       'kpi.sub': '昨日完整值 · 90 天区间 · 2G / 3G / 4G 当月可用率',
       'kpi.updated': '数据 {t}',
       'kpi.err': '指标读取失败',
@@ -313,7 +313,7 @@ window.OLBR_DATA = (function () {
          写死一个名字会让另一排的提示直接说错。
          与 v6.headTip 同一条约定：把要去的地方写出来，点之前就知道会去哪儿。
          标点跟着语言走：中文全角（）与「」，英文半角 () 与引号。 */
-      'kpi.openTip': '打开「{n}」的完整看板（{b}）',
+      'kpi.openTip': '打开链接「{n}」（{b}）',
       'kpi.boardRich': 'CXO 90 天经营看板',
       'kpi.boardAvail': 'Daily Availability KPI',
       /* ---- 连体卡组的组头（2026-10-07 加）----------------------------------
@@ -326,7 +326,7 @@ window.OLBR_DATA = (function () {
             BP 那组就不是同一份数据（卡上数来自 bm_meta 快照、
             链接去的是 RAN_UME 重算的 bp_report），说成"详细版"就是假话。
          标点跟着语言走。 */
-      'kpi.grp.go': '打开完整看板',
+      'kpi.grp.go': '打开链接',
       /* ⚠️ 说的是"这一组只去这一页"，**不**说"这些卡的数据来自这份看板"：
          BP 组的卡上数取自 bm_meta 快照，链接却去 bp_report（RAN_UME 重算），
          两者不是同一份数据。说"来自"就是替它们许下同源的承诺。 */
@@ -353,7 +353,7 @@ window.OLBR_DATA = (function () {
          标题用用户点名的英文串，中英两份字典**照写同一串** ——
          与 map.gis / map.open 那几次同一条约定：用户点名的写法不翻译。
          三张卡之间用同一条口径说明（kpi.bf.sub），窗口天数由接口给，不写死。 */
-      'kpi.bf.title': 'Network Benchmark View',
+      'kpi.bf.title': 'Network Benchmark',
       'kpi.bf.sub': 'Orange 与 MTN 的 Speedtest 对比 · 区间均值 · 最近 {n} 天',
       /* 天数取不到时（接口没回 meta.start/end）的兜底 —— 刻意**不说天数**，
          也不编一个 30 出来：卡片上一个与数据无关的天数是错误信息。 */
@@ -530,7 +530,7 @@ window.OLBR_DATA = (function () {
       /* ---- v1 新增：六个视图入口卡（renderViews6）----
          每张卡列出的报告名就是目录里真实存在的看板标题，点击即打开。
          数量由 V6_LIMIT 控制（默认 2 条），多出来的走「展开其余 N 项」。 */
-      'v6.title': 'Team Dashboard Overview',
+      'v6.title': 'Team Dashboard',
       'v6.sub': '点击报告名直接打开对应看板',
       /* 列头标题现在是链接（2026-09-26 加）：点它打开该视图下的第一条看板。
          tooltip 写成「进入本视图：<实际要去的那张看板>」——
@@ -595,7 +595,7 @@ window.OLBR_DATA = (function () {
       /* 2026-09-23 统一下钻弹窗：补齐与 MsPortal 同名同义的文案键。
          MsPortal 侧对应 qc.reload / qc.export / qc.openBoard / qc.filterHint /
          qc.loading / qc.page / qc.total / qc.drillSuffix / qc.exportErr。 */
-      'dr.reload': '刷新', 'dr.export': '导出 Excel', 'dr.openBoard': '打开完整看板',
+      'dr.reload': '刷新', 'dr.export': '导出 Excel', 'dr.openBoard': '打开链接',
       'dr.filterHint': '提示：按维度筛选看板列表请用筛选条，这个弹窗只下钻明细。',
       'dr.drillSuffix': ' · 明细', 'dr.total': '共 {n} 条', 'dr.exportErr': '导出失败',
       'dr.noData': '没有可导出的数据',
@@ -715,7 +715,7 @@ window.OLBR_DATA = (function () {
       'v6.all': 'All',
       /* 2026-09-25 renamed: "Quality Control — key indicators" → "Daily Operation
          Overview" (same value as the zh dict — the user asked for this title in both). */
-      'qc.title': 'Daily Operation Overview',
+      'qc.title': 'Daily Operation',
       'qc.sub': 'Active alarms / tickets / changes / PMT / spares · 30-day compliance',
       'qc.sla': '30-day compliance',
       /* 2026-09-25: 'qc.slaTip' / 'qc.slaDrillTip' / 'qc.slaPending' removed with the
@@ -785,9 +785,9 @@ window.OLBR_DATA = (function () {
       'map.zoomlockOn': 'Wheel zoom locked (scrolling pans the page, click to unlock)',
       'map.zoomlockOff': 'Wheel zoom unlocked (the wheel zooms the map, click to lock)',
       'email.tab': 'Report files',
-      'email.title': 'Auto Report Files', 'email.sub': 'Task report file center (Email Reports)',
+      'email.title': 'Auto Report', 'email.sub': 'Task report file center (Email Reports)',
       'email.needLogin': 'Sign in to view the report files',
-      'email.noAccess': 'This account has no access to the "Auto Report Files" dashboard',
+      'email.noAccess': 'This account has no access to the "Auto Report" dashboard',
       'esc.title': 'Escalation Matrix',
       'esc.sub': 'Duty contacts · Orange / LONESTAR numbers',
       'esc.expand': 'Expand all {n} rows', 'esc.collapse': 'Collapse',
@@ -880,7 +880,7 @@ window.OLBR_DATA = (function () {
       'edit.itemTplFrom': 'Template: {n}',
       'v.emptyFilter': 'Nothing matches the current filters', 'v.adjust': 'Adjust keywords or clear filters',
       /* ---- v1 additions: CXO daily KPI band (renderKpi) ---- */
-      'kpi.title': 'Network Status Overview',
+      'kpi.title': 'Network Status',
       /* ⚠️ 口径必须与中文一致：卡上四个数字都是「昨日完整值」，
          写成 "Today's …" 会让人以为这是实时数（本页其它看板多为实时，
          更容易误读）。2026-09-24 改口径时只改了中文、漏了这里，
@@ -921,14 +921,14 @@ window.OLBR_DATA = (function () {
          none of these four numbers is for today, while most boards on this
          page are live/today — easy to misread. */
       'kpi.tipRich': 'Source: CXO 90-day business board (last complete day; today is still accumulating and excluded)',
-      'kpi.openTip': 'Open the full dashboard for "{n}" ({b})',
+      'kpi.openTip': 'Open link for "{n}" ({b})',
       'kpi.boardRich': 'CXO 90-day business board',
       'kpi.boardAvail': 'Daily Availability KPI',
       /* Group-header strings (added 2026-10-07). See the zh block for the full
          rationale; {b} = target board name, {n} = number of cards in the group.
          Deliberately says "opens this board", never "detailed version of these
          cards" — the BP group's link is a different dataset entirely. */
-      'kpi.grp.go': 'Open full dashboard',
+      'kpi.grp.go': 'Open link',
       /* Says "these cards all open this page", never "these cards come from this
          board": the BP group's card values come from the bm_meta snapshot while
          its link goes to bp_report (recomputed from RAN_UME) — different data. */
@@ -948,7 +948,7 @@ window.OLBR_DATA = (function () {
       /* ---- Benchmark row (Network Benchmark View, added 2026-10-01) ----------
          The title is the exact string the user asked for, so zh and en hold the
          SAME value (same rule as map.gis / map.open). */
-      'kpi.bf.title': 'Network Benchmark View',
+      'kpi.bf.title': 'Network Benchmark',
       'kpi.bf.sub': 'Orange vs MTN Speedtest comparison · range average · last {n} days',
       'kpi.bf.subNone': 'Orange vs MTN Speedtest comparison · range average',
       'kpi.bf.download': 'Download', 'kpi.bf.upload': 'Upload', 'kpi.bf.latency': 'Latency',
@@ -1120,7 +1120,7 @@ window.OLBR_DATA = (function () {
                           + '⚠️ The y-axis spans only this period\'s own range — it does **not** start '
                           + 'at zero; a missing day breaks the line rather than plotting 0.',
       /* ---- v1 additions: six view-entry cards (renderViews6) ---- */
-      'v6.title': 'Team Dashboard Overview',
+      'v6.title': 'Team Dashboard',
       'v6.sub': 'Click a report name to open that dashboard',
       'v6.headTip': 'Enter this view: {n}',
       'v6.more': 'Show {n} more',
@@ -1166,7 +1166,7 @@ window.OLBR_DATA = (function () {
       'dr.title': 'Details', 'dr.rows': '{n} rows', 'dr.page': '{p} / {q}',
       'dr.load': 'Loading details…', 'dr.empty': 'No matching record', 'dr.err': 'Detail failed: {e}',
       'dr.none': 'No data', 'dr.qPh': 'Filter rows…',
-      'dr.reload': 'Refresh', 'dr.export': 'Export Excel', 'dr.openBoard': 'Open full dashboard',
+      'dr.reload': 'Refresh', 'dr.export': 'Export Excel', 'dr.openBoard': 'Open link',
       'dr.filterHint': 'Note: filtering the catalogue by dimension lives on the filter bar chips; this dialog only drills into details.',
       'dr.drillSuffix': ' · Details', 'dr.total': '{n} rows in total', 'dr.exportErr': 'Export failed',
       'dr.noData': 'Nothing to export',
