@@ -2852,6 +2852,13 @@ const translations: Record<Locale, Record<string, string>> = {
     // 徽标第二行的缩写后缀（紧跟数字，不空格）：如「3 单」「16 站」
     'person.badgeOpenShort': ' 单',
     'person.badgeSitesShort': ' 站',
+    // 地图搜索框（2026-10-19）
+    'person.searchPlaceholder2': '搜索人员或站点…',
+    'person.searchPersonSub': '未关闭 {open} · 站点 {sites}',
+    'person.searchSiteOwned': '{id} · {county}（负责人在此）',
+    'person.searchSiteWithOwner': '{id} · {county} · {n} 位负责人',
+    'person.searchSiteNoOwner': '{id} · {county} · 无关联人员',
+    'person.searchNoResult': '无匹配结果',
     'person.siteId': '站点ID',
     'person.county': '县',
     'person.siteHasAlarm': '当前有实时告警',
@@ -7037,6 +7044,13 @@ const translations: Record<Locale, Record<string, string>> = {
     // 徽标第二行的缩写后缀（紧跟数字，不空格）：如「3 WOs」「16 sites」
     'person.badgeOpenShort': ' WO',
     'person.badgeSitesShort': ' st',
+    // Map search box (2026-10-19)
+    'person.searchPlaceholder2': 'Search person or site…',
+    'person.searchPersonSub': '{open} open · {sites} sites',
+    'person.searchSiteOwned': '{id} · {county} (owner here)',
+    'person.searchSiteWithOwner': '{id} · {county} · {n} owners',
+    'person.searchSiteNoOwner': '{id} · {county} · no related person',
+    'person.searchNoResult': 'No matches',
     'person.siteId': 'Site ID',
     'person.county': 'County',
     'person.siteHasAlarm': 'Active alarm now',

@@ -31,6 +31,9 @@ export interface PersonRow {
   tt_total: number
   /** 由 WO 站点反推的县名（不是 managed_regions） */
   counties: string[]
+  /** 未关闭 WO 涉及的站点数（去重）——地图徽标显示。
+   *  与 `/managed-sites` 的 `site_count` 同口径（都只计未关闭 WO 的站点）。 */
+  site_count: number
 }
 
 /** `/personnel/stats` 的响应 */
@@ -60,6 +63,11 @@ export interface ManagedSite {
   uncleared: number
   /** 该站点当前是否有实时告警 */
   has_alarm: boolean
+  /** 仅 `/sites/search` 返回：未关闭 WO 的负责人数（含无坐标者） */
+  owner_count?: number
+  /** 仅 `/sites/search` 返回：其中**有坐标、可在图上选中**的负责人键。
+   *  搜站点后前端据此选中负责人（见 PersonMapView 的 handlePickSite）。 */
+  owner_keys?: string[]
 }
 
 /** `/personnel/{key}/managed-sites` 的响应 */

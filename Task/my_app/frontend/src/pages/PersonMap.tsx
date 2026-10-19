@@ -131,10 +131,14 @@ export default function PersonMap() {
 
   useEffect(() => { load() }, [load])
 
-  /* 选中人员 → 拉其站点。⚠️ mapOnly 下不拉：门户内嵌时左栏 KPI「负责站点」不渲染，
-     没有人会读 sites —— 每次点人都多发一次请求是纯浪费（见 readMapOnlyMode 注释）。 */
+  /* 选中人员 → 拉其站点。
+     ⚠️ 2026-10-19 修：**mapOnly 下同样要拉**。mapOnly 只是隐藏页面外围（筛选条 /
+     KPI / 图表 / 人员表），地图本身仍要画「该人员的 WO 站点圆点 + 连线」——
+     那是本页地图的主内容。此前写成「mapOnly 下不拉」是误判：以为没人读 sites
+     （当时只想到左栏 KPI「负责站点」会消失），结果门户 Person 页签里点人后
+     一个站点都不显示。sites 的消费方是 PersonMapView，与 mapOnly 无关。 */
   useEffect(() => {
-    if (mapOnly || !selectedKey) { setSites([]); return }
+    if (!selectedKey) { setSites([]); return }
     setSitesLoading(true)
     api.get(`/gis/personnel/${encodeURIComponent(selectedKey)}/managed-sites`,
       { params: { days: WINDOW_DAYS } })
@@ -144,7 +148,7 @@ export default function PersonMap() {
         setSites([])
       })
       .finally(() => setSitesLoading(false))
-  }, [selectedKey, mapOnly])
+  }, [selectedKey])
 
   const openWoDrill = useCallback((row: PersonRow, ev: React.MouseEvent) => {
     setWoAnchor({ x: ev.clientX, y: ev.clientY })
@@ -430,6 +434,27 @@ export default function PersonMap() {
         <Button icon={<DownloadOutlined />} onClick={exportAll} disabled={!rows.length}>
           {t('common.exportExcel')}
         </Button>
+        {/* ② 坐标口径说明（2026-10-19 用户要求「隐藏顶部黄条，点击显示」）。
+            原为一条黄色 Alert 横幅，常驻占掉约 80px 首屏高度。现收进**筛选条内的
+            一个问号图标**，悬停显示全文（用户选定 Tooltip 方式）。
+            ⚠️ 这段说明**必须保留可读入口**：坐标是静态登记值、不是 GPS，
+               26/136 人有坐标，人员↔WO 按姓名匹配 —— 这些不说明就会被当成实时定位
+               （见 backend/routers/personnel.py 头注释）。 */}
+        <Tooltip
+          title={
+            <div style={{ maxWidth: 420, whiteSpace: 'normal', lineHeight: 1.5 }}>
+              <div style={{ fontWeight: 700, marginBottom: 4 }}>{t('person.notRealtimeTitle')}</div>
+              <div>{t('person.notRealtimeDesc', {
+                withCoords: stats?.coverage.with_coords ?? 0,
+                total: stats?.coverage.total_all ?? 0,
+              })}</div>
+            </div>
+          }
+          placement="bottomLeft"
+        >
+          <Button type="text" size="small" icon={<WarningOutlined />}
+            aria-label={t('person.notRealtimeTitle')} />
+        </Tooltip>
         {stats && (
           <span style={{ marginLeft: 'auto', fontSize: '0.75rem', color: WH.textDim }}>
             {t('person.generatedAt')}: {dayjs().format('YYYY-MM-DD HH:mm')}
@@ -437,104 +462,99 @@ export default function PersonMap() {
         )}
       </div>
 
-      {/* ② 非实时说明横幅 —— 必须显示，否则会被当成 GPS 定位 */}
-      <Alert
-        type="warning"
-        showIcon
-        message={t('person.notRealtimeTitle')}
-        description={t('person.notRealtimeDesc', {
-          withCoords: stats?.coverage.with_coords ?? 0,
-          total: stats?.coverage.total_all ?? 0,
-        })}
-      />
-
-      {/* ③ KPI */}
-      <Row gutter={[12, 12]}>
-        <Col xs={12} md={6}>
-          <StatCard
-            title={t('person.kpiPeople')}
-            value={kpi.peopleWithCoords}
-            suffix={`/ ${kpi.totalAll}`}
-            accentColor={WH.teal}
-            prefix={<TeamOutlined />}
-            subText={t('person.kpiPeopleSub')}
-          />
-        </Col>
-        <Col xs={12} md={6}>
-          <StatCard
-            title={t('person.kpiUncleared')}
-            value={kpi.uncleared}
-            accentColor={WH.sev.Critical}
-            prefix={<WarningOutlined />}
-            subText={t('person.kpiUnclearedSub')}
-          />
-        </Col>
-        <Col xs={12} md={6}>
-          <StatCard
-            title={t('person.kpiOpen')}
-            value={kpi.open}
-            accentColor={WH.blue}
-            prefix={<FileDoneOutlined />}
-            subText={t('person.kpiOpenSub', { total: kpi.total })}
-          />
-        </Col>
-        <Col xs={12} md={6}>
-          <StatCard
-            title={t('person.kpiSites')}
-            value={selectedKey ? (kpi.siteCount ?? '—') : '—'}
-            accentColor={WH.indigo}
-            prefix={<EnvironmentOutlined />}
-            subText={
-              selectedKey
-                ? t('person.kpiSitesSub', { alarm: kpi.alarmSites ?? 0 })
-                : t('person.kpiSitesHint')
-            }
-          />
-        </Col>
-      </Row>
-
-      {/* ④ 地图 */}
-      <CardBase
-        title={t('person.mapTitle')}
-        extra={selectedKey
-          ? <Button size="small" icon={<CloseCircleOutlined />} onClick={() => setSelectedKey(null)}>
-              {t('person.clearSelection')}
-            </Button>
-          : <span style={{ fontSize: '0.75rem', color: WH.textDim }}>{t('person.mapHint')}</span>}
-        bodyStyle={{ padding: 0 }}
-      >
-        <div style={{ height: MAP_HEIGHT, position: 'relative' }}>
-          <MapContainer center={[(3.9 + 8.75) / 2, (-11.7 + -7.3) / 2]} zoom={7.5}
-            style={{ height: '100%', width: '100%' }}>
-            <PersonMapView
-              people={withCoords}
-              loading={false}
-              selectedKey={selectedKey}
-              onSelect={setSelectedKey}
-              sites={sites}
-              sitesLoading={sitesLoading}
-            />
-          </MapContainer>
-        </div>
-      </CardBase>
-
-      {/* ⑤ 统计 */}
-      <Row gutter={[12, 12]}>
-        <Col xs={24} lg={14}>
+      {/* ③④ 左右分栏（2026-10-19 用户要求，参照 ?page=realtime_alarm 的布局）：
+          左 = KPI 2×2 + 两张统计图，右 = 地图。
+          两列等高（行内默认 align-items:stretch），地图 card → body → 容器
+          三级 flex 链吃满右列高度，底部不会在「人员清单」前留空白。 */}
+      <div style={{ display: 'flex', flexDirection: 'row', gap: '0.75rem' }}>
+        {/* 左列 */}
+        <div style={{
+          flex: '0 0 24rem', minWidth: '18rem', maxWidth: '30rem',
+          display: 'flex', flexDirection: 'column', gap: '0.75rem',
+        }}>
+          <Row gutter={[8, 8]}>
+            <Col span={12}>
+              <StatCard
+                title={t('person.kpiPeople')}
+                value={kpi.peopleWithCoords}
+                suffix={`/ ${kpi.totalAll}`}
+                accentColor={WH.teal}
+                prefix={<TeamOutlined />}
+                subText={t('person.kpiPeopleSub')}
+              />
+            </Col>
+            <Col span={12}>
+              <StatCard
+                title={t('person.kpiUncleared')}
+                value={kpi.uncleared}
+                accentColor={WH.sev.Critical}
+                prefix={<WarningOutlined />}
+                subText={t('person.kpiUnclearedSub')}
+              />
+            </Col>
+            <Col span={12}>
+              <StatCard
+                title={t('person.kpiOpen')}
+                value={kpi.open}
+                accentColor={WH.blue}
+                prefix={<FileDoneOutlined />}
+                subText={t('person.kpiOpenSub', { total: kpi.total })}
+              />
+            </Col>
+            <Col span={12}>
+              <StatCard
+                title={t('person.kpiSites')}
+                value={selectedKey ? (kpi.siteCount ?? '—') : '—'}
+                accentColor={WH.indigo}
+                prefix={<EnvironmentOutlined />}
+                subText={
+                  selectedKey
+                    ? t('person.kpiSitesSub', { alarm: kpi.alarmSites ?? 0 })
+                    : t('person.kpiSitesHint')
+                }
+              />
+            </Col>
+          </Row>
           <CardBase title={t('person.chartByPerson')}>
             {personChartOption && Object.keys(personChartOption).length
-              ? <ReactECharts option={personChartOption} style={{ height: 320 }} />
+              ? <ReactECharts option={personChartOption} style={{ height: 300 }} />
               : <Empty description={t('person.noData')} />}
           </CardBase>
-        </Col>
-        <Col xs={24} lg={10}>
           <CardBase title={t('person.chartByCounty')}>
             {countyChartOption && Object.keys(countyChartOption).length
-              ? <ReactECharts option={countyChartOption} style={{ height: 320 }} />
+              ? <ReactECharts option={countyChartOption} style={{ height: 300 }} />
               : <Empty description={t('person.noData')} />}
           </CardBase>
-        </Col>
-      </Row>
+        </div>
+
+        {/* 右列：地图 */}
+        <div style={{ flex: 1, minWidth: 0, display: 'flex' }}>
+          <CardBase
+            title={t('person.mapTitle')}
+            extra={selectedKey
+              ? <Button size="small" icon={<CloseCircleOutlined />} onClick={() => setSelectedKey(null)}>
+                  {t('person.clearSelection')}
+                </Button>
+              : <span style={{ fontSize: '0.75rem', color: WH.textDim }}>{t('person.mapHint')}</span>}
+            bodyStyle={{ padding: 0, display: 'flex', flex: 1, minHeight: 0 }}
+            style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0 }}
+          >
+            <div style={{ flex: 1, width: '100%', minHeight: MAP_HEIGHT, position: 'relative' }}>
+              <MapContainer center={[(3.9 + 8.75) / 2, (-11.7 + -7.3) / 2]} zoom={7.5}
+                style={{ height: '100%', width: '100%' }}>
+                <PersonMapView
+                  people={withCoords}
+                  loading={false}
+                  selectedKey={selectedKey}
+                  onSelect={setSelectedKey}
+                  sites={sites}
+                  sitesLoading={sitesLoading}
+                />
+              </MapContainer>
+            </div>
+          </CardBase>
+        </div>
+      </div>
 
       {/* ⑥ 人员总表 */}
       <CardBase title={t('person.tableTitle')}>

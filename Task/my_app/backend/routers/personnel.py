@@ -642,6 +642,98 @@ def _site_meta_index(conn, tables: set[str]) -> dict[str, dict]:
     return index
 
 
+@router.get("/sites/search")
+def search_sites(
+    q: str = Query("", description="关键字：站点名或站点 ID 的子串（不区分大小写）"),
+    limit: int = Query(20, ge=1, le=100, description="最多返回条数"),
+):
+    """按名称/ID 搜索**全部**站点（供人员位置地图的地图搜索框）。
+
+    **为什么不复用 `/personnel/{key}/managed-sites`**：那个只返回「某个人
+    WO 涉及过的站点」，而地图搜索要能找**任意**站点（用户 2026-10-19 确认
+    「两者都要（分场景）」：有选中人员时优先其站点，否则搜全量）。
+
+    口径与 `/managed-sites` 保持一致的地方：坐标必须有效（`_COORD_OK` 同款判定），
+    写反的经纬度用同一 `_fix_latlng` 修正 —— 保证搜索结果能被画到地图上。
+
+    `owner_count` 是该站点在**未关闭 WO** 上的负责人数（去重），供前端提示
+    「该站点有无关联人员」。判定复用 `_wo_person_keys` / `_is_closed`。
+    **不带时间窗口**：这是一个「找地方」的工具，不是统计口径，限制窗口会让
+    用户搜不到明明存在的站点。
+    """
+    if not isinstance(limit, int):
+        limit = 20
+    limit = max(1, min(limit, 100))
+    kw = str(q or "").strip()
+    # 空关键字不返回任何结果 —— 避免打开搜索框就吐 824 行
+    if not kw:
+        return {"sites": [], "total": 0}
+
+    like = f"%{kw.lower()}%"
+    with get_raw_connection() as conn:
+        tables = set(list_table_names(conn))
+        if "master_site_db" not in tables:
+            conn.close()
+            raise HTTPException(status_code=404, detail="master_site_db 表不存在")
+
+        rows = conn.execute(
+            "SELECT CAST(site_id AS TEXT), site_name, region, province_county, "
+            "latitude, longitude FROM master_site_db "
+            "WHERE latitude IS NOT NULL AND longitude IS NOT NULL "
+            "AND CAST(latitude AS REAL) != 0 AND CAST(longitude AS REAL) != 0 "
+            "AND (LOWER(site_name) LIKE ? OR LOWER(CAST(site_id AS TEXT)) LIKE ?) "
+            "ORDER BY site_name LIMIT ?",
+            [like, like, limit],
+        ).fetchall()
+
+        # 站点 → 未关闭 WO 的负责人（只为本次命中的站点算，不扫全表）。
+        # 同时返回**人名键**（不仅是计数）—— 前端选中站点后要据此选中负责人
+        # （用户 2026-10-19：「定位并选中负责人」），只给计数做不到这件事。
+        hit_ids = [str(r[0]) for r in rows]
+        owner_cnt: dict[str, set[str]] = {}
+        if hit_ids and "eflow_wo" in tables:
+            marks = ",".join("?" * len(hit_ids))
+            wo_rows = conn.execute(
+                f"SELECT CAST(site_id AS TEXT), last_processer, current_handler, status "
+                f"FROM eflow_wo WHERE CAST(site_id AS TEXT) IN ({marks})",
+                hit_ids,
+            ).fetchall()
+            for sid, last_p, handler, status in wo_rows:
+                if _is_closed(status):
+                    continue
+                owner_cnt.setdefault(str(sid or ""), set()).update(
+                    _wo_person_keys(last_p, handler))
+
+        # 有坐标的人员键集合 —— 只有这些人能在图上被选中。
+        # 负责人若没有坐标，前端选不中（地图上没有他的针），故一并告知。
+        people_keys = {p[1] for p in _people_with_coords(conn)}
+        conn.close()
+
+    sites = []
+    for sid, sname, region, county, lat, lng in rows:
+        try:
+            flat, flng = _fix_latlng(float(lat), float(lng))
+        except (TypeError, ValueError):
+            continue
+        sid_s = str(sid)
+        owners = sorted(owner_cnt.get(sid_s) or ())
+        sites.append({
+            "site_id": sid_s,
+            "site_name": str(sname or ""),
+            "region": str(region or ""),
+            "county": str(county or ""),
+            "lat": round(flat, 6),
+            "lng": round(flng, 6),
+            # 负责人总数（含无坐标者，供提示「有 N 位负责人」）
+            "owner_count": len(owners),
+            # 其中**有坐标、能在图上被选中**的负责人键。前端选站点后用第一个
+            # 来选中负责人；空数组 = 该站点有 WO 但负责人均无坐标（或无人负责）。
+            # 只下发键，不下发完整人员信息 —— 需要名单走 /personnel。
+            "owner_keys": [k for k in owners if k in people_keys],
+        })
+    return {"sites": sites, "total": len(sites), "query": kw}
+
+
 @router.get("/personnel/{name_key}/managed-sites")
 def get_personnel_managed_sites(
     name_key: str,
@@ -813,9 +905,16 @@ def get_personnel_stats(
                 p = per_person.setdefault(k, {
                     "open": 0, "closed": 0, "total": 0, "uncleared": 0,
                     "tt_open": 0, "tt_closed": 0, "tt_total": 0, "counties": set(),
+                    # 未关闭 WO 涉及过的站点集合（去重）。供地图徽标显示「负责站点数」，
+                    # 与 `/managed-sites` 返回的 `site_count` 同口径（那里也只计未关闭）。
+                    "sites": set(),
                 })
                 p[cls] += 1
                 p["total"] += 1
+                if cls == "open":
+                    sid = str(sid_raw or "")
+                    if sid:
+                        p["sites"].add(sid)
                 if _is_uncleared(clear_time, status):
                     p["uncleared"] += 1
                 # TT 维度：该 WO 带了 tt_no 才算一条 TT（同一 TT 可能有多条 WO，
@@ -828,10 +927,16 @@ def get_personnel_stats(
                     p["counties"].add(county)
         conn.close()
 
-    people_index = {k: (name, lat, lng, regions) for (name, k, lat, lng, _ph, regions, _st)
-                    in people}
+    # 同上：元组顺序 (name, name_key, lat, ...)。键必须取 name_key。
+    people_index = {key: (name, lat, lng, regions)
+                    for (name, key, lat, lng, _ph, regions, _st) in people}
     by_person = []
-    for k, name, lat, lng, phone, regions, status in people:
+    # ⚠️ 元组顺序是 (name, name_key, lat, ...) —— 见 `_people_with_coords` 的
+    # append 与文档字符串。这里**必须**先解 name 再解 key：首版写成
+    # `for k, name, ...` 时两者互换，`per_person.get(k)` 永远拿原始姓名去查
+    # 规范化后的键，于是 26 个有坐标的人的统计**全是 0**（实测踩过，
+    # 而表格里 name_key 也变成原始姓名，两者的错误互相掩盖）。
+    for name, k, lat, lng, phone, regions, status in people:
         p = per_person.get(k) or {}
         by_person.append({
             "name": name,
@@ -850,6 +955,9 @@ def get_personnel_stats(
             "tt_total": p.get("tt_total", 0),
             # 县名列表（由 WO 站点反推），供表格展示；不是 managed_regions
             "counties": sorted(p.get("counties") or []),
+            # 未关闭 WO 涉及的站点数（去重）——地图徽标显示；与 /managed-sites 的
+            # site_count 同口径（那边同样只计未关闭 WO 的站点）。
+            "site_count": len(p.get("sites") or ()),
         })
     # 没有坐标但名下有 WO 的人也列出来 —— 否则统计总和对不上（页面会标注「无坐标」）
     for k, p in per_person.items():
@@ -863,6 +971,7 @@ def get_personnel_stats(
             "tt_open": p["tt_open"], "tt_closed": p["tt_closed"],
             "tt_total": p["tt_total"],
             "counties": sorted(p["counties"]),
+            "site_count": len(p.get("sites") or ()),
         })
 
     # 排行按「未清除 → 未关闭」降序，与页面表格默认排序一致
