@@ -10,7 +10,7 @@ import {
   PieChartOutlined, EnvironmentOutlined, TeamOutlined,
   DownloadOutlined, SearchOutlined, FilterOutlined,
   // 2026-10-19 Workflow 卡片化新增图标
-  RetweetOutlined, InboxOutlined, ToolOutlined, ExportOutlined,
+  RetweetOutlined, InboxOutlined, ToolOutlined,
   CheckCircleOutlined, CheckOutlined, QuestionCircleOutlined,
 } from '@ant-design/icons'
 import ReactECharts from 'echarts-for-react'
@@ -164,7 +164,7 @@ const visibleStats = (stats: Record<string, number> | undefined): Record<string,
  * 生命周期：重新派单 → 客户确认 → 受理 → 处理 → 现场确认 → 关闭（终态）。
  * 后端 `status` 维度是**原始状态串**（如 `Waiting for FO Process(WO RCA to FO
  * Confirm)`），实测 12 种取值、名字长，平铺成 12 张卡在页面上无法扫读；
- * 这里按业务阶段归并成 6 个里程碑。
+ * 这里按业务阶段归并成 7 个里程碑（离场 Leave Site 按 2026-10-19 要求不计入）。
  *
  * ⚠️ 归并口径**必须与后端 status 原值逐一对应**，不能用关键词模糊匹配：
  *   - `Wait For Confirm`（历史大小写变体）也要落到「客户确认」，
@@ -181,6 +181,12 @@ const STATUS_MILESTONES: Array<{
   labelKey: string
   /** 下钻时使用的原始状态名（**精确匹配**，顺序即展示顺序） */
   match: string[]
+  /**
+   * true = 该阶段不渲染节点，其 match 里的原始状态也**不计入任何统计**
+   * （不进桶、不进「其他」、不进占比分母）。2026-10-19 起用于 arriveSite / leaveSite。
+   * 保留该条目的意义：让这些状态名有明确归属，避免被误判为「未识别」。
+   */
+  excluded?: boolean
 }> = [
   // 派单：TT 由 BO 指派，尚未被任何一方受理
   { key: 'reassign', labelKey: 'ttwo.milestone.reassign', match: ['Reassign'] },
@@ -197,9 +203,10 @@ const STATUS_MILESTONES: Array<{
     'Waiting for Third Accept', 'Waiting for Third Accept(Suspended)',
     'Waiting for FO Accept', 'Waiting for BO Accept',
   ] },
-  // 到场：接单后前往站点（实测 WO 表有 Waiting for Departure / Arrive Site，
-  // 以及已完成该步但状态仍停在此处的单）。这两个动作是关键大阶段，单列而不是
-  // 折进「处理」—— 值班看里程碑时最关心的就是「卡在路上」还是「卡在现场」。
+  // 到场：接单后前往站点，含「等待出发」与「等待到达现场」两个动作。
+  // 2026-10-19：恢复为独立节点并按此分布统计（此前一度被 excluded）。
+  // 该节点的数字 = Waiting for Departure(+Suspended) + Waiting for Arrive Site，
+  // 两条明细在 tooltip 里逐条列出、各自可下钻。
   { key: 'arriveSite', labelKey: 'ttwo.milestone.arriveSite', match: [
     'Waiting for Departure', 'Waiting for Departure(Suspended)',
     'Waiting for Arrive Site',
@@ -211,8 +218,8 @@ const STATUS_MILESTONES: Array<{
     'Waiting for Process', 'Waiting for Process(Suspended)',
     'Waiting for BONPO Process',
   ] },
-  // 离场：现场作业完成、准备离站（WO 表实测有 Waiting for Leave Site）
-  { key: 'leaveSite', labelKey: 'ttwo.milestone.leaveSite', match: ['Waiting for Leave Site'] },
+  // 离场：同上看场说明 —— 不再成节点、不计入统计，仅用于吸收该原始状态。
+  { key: 'leaveSite', labelKey: 'ttwo.milestone.leaveSite', match: ['Waiting for Leave Site'], excluded: true },
   // 处理确认：FO 已处理完工单，等待 RCA / 驳回确认，或处于现场处置
   { key: 'waitConfirmFO', labelKey: 'ttwo.milestone.waitConfirmFO', match: [
     'Waiting for FO Process(WO RCA to FO Confirm)',
@@ -229,10 +236,17 @@ const STATUS_MILESTONES: Array<{
   { key: 'closed', labelKey: 'ttwo.milestone.closed', match: ['Closed'] },
 ]
 
-/** 某原始状态所属里程碑下标；未识别返回 -1（→「其他」） */
+/**
+ * 某原始状态所属里程碑下标；未识别返回 -1（→「其他」）。
+ *
+ * ⚠ 下标必须相对**参与渲染的阶段列表**（即排除 excluded），因为调用方用它去下
+ * buckets 数组的标，而 buckets 是按 activeDefs 建的。若这里仍按全量
+ * STATUS_MILESTONES 取下标，arriveSite / leaveSite 被排除后，其后的 waitProcess
+ * 等阶段会整体前移，下标全部错位一格、把工单计到错误节点上（2026-10-19 修正）。
+ */
 const milestoneIndexOf = (status: string): number => {
   const norm = String(status ?? '').trim()
-  return STATUS_MILESTONES.findIndex(m => m.match.includes(norm))
+  return STATUS_MILESTONES.filter(m => !m.excluded).findIndex(m => m.match.includes(norm))
 }
 
 /**
@@ -594,7 +608,13 @@ export default function TTWODashboard({ only, source }: { only?: TTWOOnly; sourc
    */
   const statusMilestones = useMemo(() => {
     const raw = sStats?.status || {}
-    const buckets = STATUS_MILESTONES.map((m, idx) => ({
+    // 2026-10-19：excluded 阶段（arriveSite / leaveSite）不渲染节点、不计数。
+    // 过滤放在建桶之前，使它们的单数既不进桶、也不进 others、更不进分母
+    // —— 与用户选定的「彻底不统计」一致。注意这不是「隐藏」，因为下游的
+    // statusMilestoneTotal 与 tooltip 分母都从 buckets/others 推导，
+    // 只隐藏节点会让数字与占比互相矛盾。
+    const activeDefs = STATUS_MILESTONES.filter(m => !m.excluded)
+    const buckets = activeDefs.map(m => ({
       ...m,
       total: 0,
       rows: [] as Array<[string, number]>, // 只保留有单的原始状态，按数量降序
@@ -603,6 +623,8 @@ export default function TTWODashboard({ only, source }: { only?: TTWOOnly; sourc
     for (const [k, v] of Object.entries(raw)) {
       // Unknown 之类的无效取值不参与（与 SLA / Ticket Severity 同口径）
       if (isExcludedStatValue(k)) continue
+      // 属于 excluded 阶段的状态名：吸收掉（不计数、也不落到 others）
+      if (STATUS_MILESTONES.some(m => m.excluded && m.match.includes(String(k ?? '').trim()))) continue
       const idx = milestoneIndexOf(k)
       if (idx >= 0) {
         buckets[idx].total += v as number
@@ -1268,13 +1290,12 @@ export default function TTWODashboard({ only, source }: { only?: TTWOOnly; sourc
   const renderStatusMilestones = () => {
     // 阶段颜色映射（与 CSS 里 .wf-stage--<key> 一一对应，命名同步）——
     // 颜色复制到 inline style 是因为 CSS 变量在 grid 节点上要按运行时 key 注入，
-    // 没法纯靠 className 同时满足「8 阶段 key 动态决定」+「CSS 命名空间隔离」。
+    // 没法纯靠 className 同时满足「阶段 key 动态决定」+「CSS 命名空间隔离」。
     const STAGE_CSS_CLASS: Record<string, string> = {
       reassign: 'wf-stage--reassign',
       waitAccept: 'wf-stage--waitAccept',
       arriveSite: 'wf-stage--arriveSite',
       waitProcess: 'wf-stage--waitProcess',
-      leaveSite: 'wf-stage--leaveSite',
       waitConfirmFO: 'wf-stage--waitConfirmFO',
       waitConfirm: 'wf-stage--waitConfirm',
       closed: 'wf-stage--closed',
@@ -1288,56 +1309,37 @@ export default function TTWODashboard({ only, source }: { only?: TTWOOnly; sourc
       waitAccept: <InboxOutlined />,
       arriveSite: <EnvironmentOutlined />,
       waitProcess: <ToolOutlined />,
-      leaveSite: <ExportOutlined />,
       waitConfirmFO: <CheckCircleOutlined />,
       waitConfirm: <ClockCircleOutlined />,
       closed: <CheckOutlined />,
       other: <QuestionCircleOutlined />,
     }
-    // 阶段展示顺序：按 STATUS_MILESTONES 的声明顺序（与上游 eFlow Workflow History 一致）
-    // —— 阶段数固定为 8（reassign..closed），缺数据时 total=0 也照样展示一格空节点。
-    // 这点与旧"圆点"不同：旧版会过滤掉 total=0 的阶段（buckets.filter），
-    // 新版固定 8 格才能让"序号 → 阶段"严格对应（8 个工单状态机节点 1:1），
+    // 阶段展示顺序：按 STATUS_MILESTONES 的声明顺序（与上游 eFlow Workflow History 一致）。
+    // 2026-10-19 起 leaveSite 标记为 excluded，故实际渲染 **7 个**阶段
+    // （reassign / waitAccept / waitProcess / waitConfirmFO / waitConfirm / closed）。
+    // buckets 已由 statusMilestones 按 activeDefs 建成，这里直接用即可。
+    // 与旧"圆点"不同之处：旧版会过滤掉 total=0 的阶段（buckets.filter），
+    // 现在固定展示全部 active 阶段，total=0 也占一格 —— 序号才能与状态机节点 1:1，
     // 进度条 / 占比用 0% 自然表达"该阶段暂无工单"，与"无数据"区分。
     const ordered = statusMilestones.buckets
-    // 起一个"按键找桶"的索引，方便 Waiting Status 面板取 arriveSite 子集
-    const byKey = new Map(ordered.map(b => [b.key, b]))
-    const arriveBucket = byKey.get('arriveSite')
-    // arriveSite 桶的 rows 里精确挑出 Waiting for Departure / Arrive Site；
-    // 都不存在时显示 0（不报错、不空态）—— 与新版的"严格展示 8 阶段"对齐。
-    const findStatusCount = (rows: Array<[string, number]>, raw: string): number => {
-      const hit = rows.find(([k]) => k === raw)
-      return hit ? hit[1] : 0
-    }
-    // Waiting for Departure 含两变体（普通 + Suspended），Waiting for Arrive Site 单变体。
-    // 注意：只在这里做"展示用拆分"，节点本身的 total 仍是合并值（保证 8 阶段合计 = WO 总数），
-    // 下钻接口 / 数字一致性不受影响。
-    const waitDepartureCount = arriveBucket
-      ? (findStatusCount(arriveBucket.rows, 'Waiting for Departure')
-        + findStatusCount(arriveBucket.rows, 'Waiting for Departure(Suspended)'))
-      : 0
-    const waitArriveCount = arriveBucket
-      ? findStatusCount(arriveBucket.rows, 'Waiting for Arrive Site')
-      : 0
-    // 标题前缀：根据数据源在 TT / WO 间切换（与 /wo-dashboard overview 一致）
-    const isWo = isWoSource
-    const titlePrefix = isWo ? 'WORK ORDER' : 'TICKET'
+    // 标题固定为 TICKET WORKFLOW（2026-10-19 按用户要求）。
+    // 此前按数据源在 TICKET / WORK ORDER 间切换，现已取消。
     const total = statusMilestoneTotal
     // 「其他」节点：未识别的原始状态（others）单列一格，绝不能吞掉 ——
     // statusMilestoneTotal 的分母里含这部分，界面上就必须看得见；
     // statusMilestoneExplain 也向值班承诺了「未识别的状态单列为其他」。
-    // 与 8 个固定阶段不同，它**只在有单时出现**（0 单没有展示价值），
+    // 与固定阶段不同，它**只在有单时出现**（0 单没有展示价值），
     // 作为第 9 格排在末尾，序号 / 列数随之调整。
     const othersTotal = statusMilestones.others.reduce((a, [, n]) => a + n, 0)
     const showOthers = othersTotal > 0
     const cols = ordered.length + (showOthers ? 1 : 0)
-    // 空态：所选范围内一个可归类的工单都没有时，8 个 0 格 + 空面板没有信息量，
+    // 空态：所选范围内一个可归类的工单都没有时，一排 0 格没有信息量，
     // 直接给空态（口径与旧版一致）。注意用 total 而非「所有格子都是 0」二者等价，
     // 但 total 已包含 others，语义更直接。
     if (total <= 0) {
       return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('ttwo.workflow.noData')} />
     }
-    // 统一渲染列表：8 个固定阶段 + （有单时）「其他」。
+    // 统一渲染列表：全部 active 阶段 + （有单时）「其他」。
     // 单独建这个数组是为了让序号 / 箭头末段判断 / 列数三者取自同一来源，
     // 避免「ordered.length」与「实际渲染格数」两处各写一遍而分叉。
     const renderStages = showOthers
@@ -1356,7 +1358,7 @@ export default function TTWODashboard({ only, source }: { only?: TTWOOnly; sourc
         className="wo-workflow"
         role="region"
         aria-label={t('ttwo.statusMilestone')}
-        // 节点列数：常态 8 阶段，出现「其他」时 9 列 —— 让 grid --wf-cols=N →
+        // 节点列数：常态 7 阶段，出现「其他」时 8 列 —— 让 grid --wf-cols=N →
         // repeat(N, 1fr) 自动平分整行。平板 / 手机断点下改 repeat(4) / repeat(2)，
         // 由 CSS 媒体查询接管（此时列数固定，注入值被断点覆盖）。
         style={{ ['--wf-cols' as any]: cols }}
@@ -1364,7 +1366,7 @@ export default function TTWODashboard({ only, source }: { only?: TTWOOnly; sourc
         <header className="wf-header">
           <div>
             <h2 className="wf-title">
-              {titlePrefix} <span className="wf-title-accent">WORKFLOW</span>
+              TICKET <span className="wf-title-accent">WORKFLOW</span>
             </h2>
             <div className="wf-subtitle">
               {t('ttwo.workflowSubtitle')}
@@ -1430,38 +1432,6 @@ export default function TTWODashboard({ only, source }: { only?: TTWOOnly; sourc
             )
           })}
         </div>
-
-        {/* 底部 Waiting Status 面板 —— 仅展示从 arriveSite 桶里拆出来的两个原始状态。
-            数据来源与上方节点同一份 statusMilestones，0 新 API；
-            数字精确到原始 status 维度，与节点上的 arriveSite total 满足
-            waitDeparture + waitArrive + 其它（如有）= arriveSite.total。 */}
-        <footer className="wf-bottom">
-          <div className="wf-wait-heading">
-            ◷ {t('ttwo.workflow.waitTitleEn')}
-            <small>{t('ttwo.workflow.waitTitle')}</small>
-          </div>
-          <div className="wf-wait-item">
-            <div className="wf-wait-label">
-              {t('ttwo.workflow.waitDepartureEn')}
-              <small>{t('ttwo.workflow.waitDeparture')}</small>
-            </div>
-            <div className="wf-wait-count">{fmt(waitDepartureCount)}</div>
-          </div>
-          <div className="wf-wait-item">
-            <div className="wf-wait-label">
-              {t('ttwo.workflow.waitArriveEn')}
-              <small>{t('ttwo.workflow.waitArrive')}</small>
-            </div>
-            <div className="wf-wait-count">{fmt(waitArriveCount)}</div>
-          </div>
-          <div className="wf-direction">
-            {t('ttwo.workflow.directionTitle')}
-            <strong>{t('ttwo.workflow.directionValue')}</strong>
-            <small style={{ display: 'block', marginTop: 4, opacity: 0.85 }}>
-              {t('ttwo.workflow.directionNote')}
-            </small>
-          </div>
-        </footer>
       </div>
     )
   }

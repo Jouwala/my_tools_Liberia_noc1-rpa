@@ -2012,11 +2012,6 @@ html {
   --wf-number-bg: #103354;                     /* 序号徽章默认底 */
   --wf-icon-mix: 23%;                          /* 阶段色混入图标圆的比例 */
   --wf-track-bg: #153954;                      /* 进度条轨道 */
-  --wf-bottom-border: #104777;                 /* 底部面板描边 */
-  --wf-bottom-bg: linear-gradient(110deg, #092744, #071c32);
-  --wf-item-border: #17466e;                   /* 底部条目 / 分隔线描边 */
-  --wf-item-bg: rgba(12, 52, 86, .65);         /* 底部条目底 */
-  --wf-item-text: #dcecff;                     /* 底部条目正文 */
   --wf-live-border: #087d94;                   /* LIVE 徽标描边 */
   --wf-live-bg: rgba(0, 217, 255, .08);
   --wf-arrow-glow: rgba(32, 213, 239, .55);    /* 节点间箭头的柔光 */
@@ -2025,7 +2020,6 @@ html {
   --wf-num-waitAccept: #1a4a82;
   --wf-num-arriveSite: #0e6b8a;
   --wf-num-waitProcess: #a85c0a;
-  --wf-num-leaveSite: #1f6c9b;
   --wf-num-waitConfirmFO: #a85c0a;
   --wf-num-waitConfirm: #0a7878;
   --wf-num-closed: #16834a;
@@ -2071,7 +2065,8 @@ html {
 /* 节点网格：N 列由组件 inline style 注入 */
 .wf-stages {
   display: grid;
-  grid-template-columns: repeat(var(--wf-cols, 8), minmax(0, 1fr));
+  /* 兜底 7 列（2026-10-19：arriveSite 恢复为节点、仅 leaveSite 不统计） */
+  grid-template-columns: repeat(var(--wf-cols, 7), minmax(0, 1fr));
   gap: 26px;
   align-items: stretch;
 }
@@ -2105,7 +2100,6 @@ html {
 .wf-stage--waitAccept      { --stage-color: #249cff; }
 .wf-stage--arriveSite      { --stage-color: #20d5ef; }
 .wf-stage--waitProcess     { --stage-color: #ffad32; }
-.wf-stage--leaveSite       { --stage-color: #35baff; }
 .wf-stage--waitConfirmFO   { --stage-color: #ff922b; }
 .wf-stage--waitConfirm     { --stage-color: #00c9c5; }
 .wf-stage--closed          { --stage-color: #35df7d; }
@@ -2133,7 +2127,6 @@ html {
 .wf-stage--waitAccept .wf-number      { background: var(--wf-num-waitAccept); }
 .wf-stage--arriveSite .wf-number      { background: var(--wf-num-arriveSite); }
 .wf-stage--waitProcess .wf-number     { background: var(--wf-num-waitProcess); }
-.wf-stage--leaveSite .wf-number       { background: var(--wf-num-leaveSite); }
 .wf-stage--waitConfirmFO .wf-number   { background: var(--wf-num-waitConfirmFO); }
 .wf-stage--waitConfirm .wf-number     { background: var(--wf-num-waitConfirm); }
 .wf-stage--closed .wf-number          { background: var(--wf-num-closed); }
@@ -2206,43 +2199,9 @@ html {
 }
 .wf-arrow::before { content: '\203A'; } /* › */
 
-/* Waiting Status 底部面板 */
-.wf-bottom {
-  display: grid;
-  grid-template-columns: 150px minmax(0, 1fr) minmax(0, 1fr) minmax(170px, 1.2fr);
-  gap: 12px;
-  align-items: center;
-  margin-top: 22px;
-  padding: 13px;
-  border: 1px solid var(--wf-bottom-border);
-  border-radius: 12px;
-  background: var(--wf-bottom-bg);
-}
-.wf-wait-heading {
-  color: var(--wf-orange); font-size: 13px; font-weight: 750;
-}
-.wf-wait-heading small {
-  display: block; margin-top: 5px;
-  color: var(--wf-muted); font-size: 11px; font-weight: 400;
-}
-.wf-wait-item {
-  display: flex; justify-content: space-between; align-items: center;
-  gap: 8px; min-width: 0;
-  padding: 11px;
-  border: 1px solid var(--wf-item-border); border-radius: 9px;
-  background: var(--wf-item-bg);
-}
-.wf-wait-label {
-  color: var(--wf-item-text); font-size: 11px; line-height: 1.5;
-  overflow-wrap: anywhere;
-}
-.wf-wait-label small {
-  display: block; color: var(--wf-muted); font-size: 10px;
-}
-.wf-wait-count {
-  color: var(--wf-orange); font-size: 22px; font-weight: 800; line-height: 1;
-  font-variant-numeric: tabular-nums;
-}
+/* 2026-10-19 移除：Waiting Status 底部面板与 Order Flow Direction 面板
+ * （.wf-bottom / .wf-wait-* / .wf-direction 及其响应式规则）。
+ * 对应的 --wf-bottom-* / --wf-item-* 令牌一并删除，避免留下无引用的变量。 */
 
 /* ---------- 浅色主题（2026-10-19） ----------
  * 沿用项目既有做法（index.css:369 注释）：主题切换只发生在令牌层，
@@ -2277,11 +2236,6 @@ html {
   --wf-number-bg: #ffffff;
   --wf-icon-mix: 12%;
   --wf-track-bg: rgba(94, 125, 143, 0.18);
-  --wf-bottom-border: rgba(94, 125, 143, 0.24);
-  --wf-bottom-bg: linear-gradient(110deg, #f8fbfd, #eef4f8);
-  --wf-item-border: rgba(94, 125, 143, 0.20);
-  --wf-item-bg: rgba(255, 255, 255, 0.72);
-  --wf-item-text: var(--wh-text);
   --wf-live-border: rgba(13, 148, 136, 0.35);
   --wf-live-bg: rgba(13, 148, 136, 0.08);
   --wf-arrow-glow: rgba(14, 116, 144, 0);  /* 浅底不需要柔光，归零 */
@@ -2292,7 +2246,6 @@ html {
   --wf-num-waitAccept: #dbeafe;
   --wf-num-arriveSite: #cffafe;
   --wf-num-waitProcess: #ffedd5;
-  --wf-num-leaveSite: #dbeafe;
   --wf-num-waitConfirmFO: #ffedd5;
   --wf-num-waitConfirm: #ccfbf1;
   --wf-num-closed: #dcfce7;
@@ -2324,20 +2277,10 @@ html {
 :root[data-theme='light'] .wf-stage--waitAccept    { --stage-color: #1d6fb8; }
 :root[data-theme='light'] .wf-stage--arriveSite    { --stage-color: #0e7490; }
 :root[data-theme='light'] .wf-stage--waitProcess   { --stage-color: #b45309; }
-:root[data-theme='light'] .wf-stage--leaveSite     { --stage-color: #0369a1; }
 :root[data-theme='light'] .wf-stage--waitConfirmFO { --stage-color: #c2410c; }
 :root[data-theme='light'] .wf-stage--waitConfirm   { --stage-color: #0f766e; }
 :root[data-theme='light'] .wf-stage--closed        { --stage-color: #15803d; }
 :root[data-theme='light'] .wf-stage--other         { --stage-color: #5b7288; }
-.wf-direction {
-  padding-left: 14px; border-left: 1px solid var(--wf-item-border);
-  color: var(--wf-muted); font-size: 11px; line-height: 1.8;
-}
-.wf-direction strong {
-  display: block; color: var(--wf-cyan);
-  font-size: 13px; white-space: nowrap; font-weight: 800;
-  font-variant-numeric: tabular-nums;
-}
 
 /* 响应式 */
 @media (max-width: 1280px) {
@@ -2347,19 +2290,11 @@ html {
 }
 @media (max-width: 900px) {
   .wo-workflow { padding: 18px 12px; }
-  .wf-stages { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 22px 14px; }
+  .wf-stages { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 22px 14px; }
   .wf-arrow { display: none; } /* grid 自动换行后箭头方向会变怪，直接隐藏 */
-  .wf-bottom {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .wf-wait-heading, .wf-direction { grid-column: 1 / -1; }
-  .wf-direction { padding: 8px 0 0; border-left: 0; border-top: 1px solid var(--wf-item-border); }
 }
 @media (max-width: 480px) {
   .wo-workflow { padding: 16px 8px; }
   .wf-stages { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px 10px; }
   .wf-title { font-size: 16px; }
-  .wf-bottom { grid-template-columns: minmax(0, 1fr); }
-  .wf-wait-heading, .wf-direction { grid-column: auto; }
-  .wf-direction strong { white-space: normal; }
 }
