@@ -575,6 +575,316 @@ def get_personnel_alert_sites(
     }
 
 
+# =====================================================================
+# 人员位置地图（?page=person）专用端点（2026-10-19 新增）
+#
+# 与上面三个「GIS 人员图层」端点共用同一套归属/关闭/未清除判定，
+# 只是**聚合粒度不同**：
+#   · /personnel          —— 一个人一行的标签计数（图上打点用）
+#   · /managed-sites      —— 一个人 ↔ 其 WO 涉及过的站点（本条下面第 1 个）
+#   · /stats              —— 全量人员按 WO/TT 聚合，供页面统计图（第 2 个）
+#
+# ⚠️ **站点口径**（2026-10-19 经用户确认）：取 `eflow_wo.site_id` 去重，
+#   即「该人员实际处理过工单的站点」，**不用** `person.managed_regions`。
+#   实测原因是 managed_regions 只是县名文本、且 26 个有坐标的人里 5 人把它
+#   写成全部 15 县（824 站全包）、9 人只有 Montserrado（353 站）——
+#   按区域画会变成「半个国家的人都是同一片」。managed_regions 只在界面上
+#   作为文本展示，不上地图。
+# =====================================================================
+
+def _people_with_coords(conn) -> list[tuple]:
+    """有登记坐标的人员行：(name, name_key, lat, lng, phone, regions, status)。
+
+    与 `/personnel` 的筛选条件**完全一致**（`_COORD_OK` + 规范化去重），
+    保证本页与 GIS 人员图层的「有坐标人数」对得上（AGENTS.md 三.1b）。
+    """
+    rows = conn.execute(f"""
+        SELECT name, latitude, longitude, phone, managed_regions, status
+        FROM person
+        WHERE {_COORD_OK}
+        ORDER BY name
+    """).fetchall()
+    out = []
+    seen: set[str] = set()
+    for name, lat_raw, lng_raw, phone, regions, status in rows:
+        key = normalize_person_name(name)
+        if not key or key in seen:
+            continue
+        try:
+            lat = float(lat_raw)
+            lng = float(lng_raw)
+        except (TypeError, ValueError):
+            continue
+        lat, lng = _fix_latlng(lat, lng)
+        seen.add(key)
+        out.append((str(name or "").strip(), key, lat, lng,
+                    _mask_phone(phone), str(regions or ""), str(status or "")))
+    return out
+
+
+def _site_meta_index(conn, tables: set[str]) -> dict[str, dict]:
+    """站点主数据索引（含县名 province_county，供页面按县展示）。"""
+    index: dict[str, dict] = {}
+    if "master_site_db" not in tables:
+        return index
+    for sid, sname, region, county, lat, lng in conn.execute(
+        "SELECT site_id, site_name, region, province_county, latitude, longitude "
+        "FROM master_site_db"
+    ).fetchall():
+        index[str(sid)] = {
+            "site_name": str(sname or ""),
+            "region": str(region or ""),
+            # province_county 才是「县」；region 只有 Montserrado/North East/South West
+            # 三个大区，与 person.managed_regions 的县名不是同一套编码（实测）。
+            "county": str(county or ""),
+            "lat": lat, "lng": lng,
+        }
+    return index
+
+
+@router.get("/personnel/{name_key}/managed-sites")
+def get_personnel_managed_sites(
+    name_key: str,
+    time_start: str = Query(None, description="时间窗口开始 YYYY-MM-DD（与页面 30 天窗口同口径）"),
+    time_end: str = Query(None, description="时间窗口结束 YYYY-MM-DD"),
+    days: int = Query(None, ge=1, le=3650, description="时间窗口天数"),
+):
+    """某人员 WO 涉及过的全部站点（供人员位置地图画站点层与连线）。
+
+    每个站点返回：
+      - 坐标（无坐标的站点会被剔除，数量记在 `skipped_no_coord`，不静默丢）；
+      - `wo_count`     —— 该人员在窗口内此站的**未关闭** WO 数；
+      - `uncleared`    —— 其中**未清除告警**的 WO 数；
+      - `has_alarm`    —— 该站点当前是否有实时告警（`realtime_alarm` 快照）。
+
+    口径与 `/personnel` 的计数同源：同一 `_wo_person_keys` 归属判定、
+    同一 `_is_closed` / `_is_uncleared` 判定、同一 `_window_clause` 窗口。
+    """
+    key = normalize_person_name(name_key)
+    if not key:
+        raise HTTPException(status_code=400, detail="人员标识为空")
+
+    win_where, win_params = _window_clause(
+        time_start, time_end, days if isinstance(days, int) else None)
+
+    with get_raw_connection() as conn:
+        tables = set(list_table_names(conn))
+        if "eflow_wo" not in tables:
+            conn.close()
+            raise HTTPException(status_code=404, detail="eflow_wo 表不存在")
+
+        # 粗筛与 work-orders 端点同一策略：按姓名首词 LIKE 收敛候选，
+        # 再在 Python 侧精确判定（清洗规则无法下推 SQL）。
+        first_token = key.split(" ")[0] if key.split(" ") else key
+        cand = conn.execute(f"""
+            SELECT site_id, last_processer, current_handler, status, alarm_clear_time
+            FROM eflow_wo
+            WHERE ((last_processer IS NOT NULL AND LOWER(last_processer) LIKE ?)
+               OR (current_handler IS NOT NULL AND LOWER(current_handler) LIKE ?)){win_where}
+            LIMIT ?
+        """, [f"%{first_token}%", f"%{first_token}%", *win_params, _CAND_LIMIT]).fetchall()
+
+        alarm_sites: set[str] = set()
+        if "realtime_alarm" in tables:
+            for (sid,) in conn.execute(
+                "SELECT DISTINCT CAST(site_id AS TEXT) FROM realtime_alarm "
+                "WHERE site_id IS NOT NULL"
+            ).fetchall():
+                alarm_sites.add(str(sid))
+
+        site_meta = _site_meta_index(conn, tables)
+        conn.close()
+
+    # 站点 → {open, uncleared}（**只计未关闭**：已关闭的历史单不构成「当前负责」）
+    per_site: dict[str, dict[str, int]] = {}
+    for sid_raw, last_p, handler, status, clear_time in cand:
+        if key not in _wo_person_keys(last_p, handler):
+            continue
+        if _is_closed(status):
+            continue
+        sid = str(sid_raw or "")
+        if not sid:
+            continue
+        slot = per_site.setdefault(sid, {"open": 0, "uncleared": 0})
+        slot["open"] += 1
+        if _is_uncleared(clear_time, status):
+            slot["uncleared"] += 1
+
+    sites = []
+    skipped_no_coord = 0
+    for sid, cnt in per_site.items():
+        meta = site_meta.get(sid, {})
+        lat, lng = meta.get("lat"), meta.get("lng")
+        if lat is None or lng is None:
+            skipped_no_coord += 1
+            continue
+        try:
+            flat, flng = _fix_latlng(float(lat), float(lng))
+        except (TypeError, ValueError):
+            skipped_no_coord += 1
+            continue
+        sites.append({
+            "site_id": sid,
+            "site_name": meta.get("site_name", ""),
+            "region": meta.get("region", ""),
+            "county": meta.get("county", ""),
+            "lat": round(flat, 6),
+            "lng": round(flng, 6),
+            "wo_count": cnt["open"],
+            "uncleared": cnt["uncleared"],
+            "has_alarm": sid in alarm_sites,
+        })
+    # 告警站在前、未清除多的在前，便于地图图例与列表阅读
+    sites.sort(key=lambda s: (not s["has_alarm"], -s["uncleared"], -s["wo_count"], s["site_id"]))
+
+    return {
+        "name_key": key,
+        "sites": sites,
+        "site_count": len(sites),
+        "alarm_site_count": sum(1 for s in sites if s["has_alarm"]),
+        "uncleared_total": sum(s["uncleared"] for s in sites),
+        "open_total": sum(s["wo_count"] for s in sites),
+        # 有 WO 但站点缺坐标、画不出来的数量（不静默丢）
+        "skipped_no_coord": skipped_no_coord,
+    }
+
+
+# 按状态归一化到两个桶（避免把 Closed / Closed_Confirmed / Closed-Reject 拆成多类）。
+# 与 `_is_closed` 的口径一致：closed = 状态以 closed 开头。
+def _status_class(status) -> str:
+    return "closed" if _is_closed(status) else "open"
+
+
+@router.get("/personnel/stats")
+def get_personnel_stats(
+    time_start: str = Query(None, description="时间窗口开始 YYYY-MM-DD"),
+    time_end: str = Query(None, description="时间窗口结束 YYYY-MM-DD"),
+    days: int = Query(None, ge=1, le=3650, description="时间窗口天数"),
+    top: int = Query(20, ge=1, le=100, description="按人员排行返回的条数"),
+):
+    """全量人员按 WO/TT 的聚合统计（供人员位置地图的统计区）。
+
+    **一次扫描算完全部人的数字**，避免前端对 26 人各打一次接口。
+    返回四块：
+      - `by_person`：
+          name / name_key / has_coords / open / closed / total /
+          uncleared / tt_open / tt_closed / tt_total / counties
+      - `by_county`：{县: {open, closed, total}} —— 以 WO 的站点��在县归类；
+      - `by_status`：{open, closed} —— 全量合计；
+      - `coverage`：有坐标人数 / 全部人数（页面 KPI 与说明横幅用）。
+    """
+    win_where, win_params = _window_clause(
+        time_start, time_end, days if isinstance(days, int) else None)
+
+    # 与 work-orders 端点同样的陷阱：直接调用时 top 仍是 Query 对象，切片会抛
+    # TypeError。显式归一化，保证 HTTP 与直接调用两种路径一致。
+    if not isinstance(top, int):
+        top = 20
+    top = max(1, min(top, 100))
+
+    with get_raw_connection() as conn:
+        tables = set(list_table_names(conn))
+        if "eflow_wo" not in tables:
+            conn.close()
+            raise HTTPException(status_code=404, detail="eflow_wo 表不存在")
+
+        people = _people_with_coords(conn)
+        total_all = conn.execute("SELECT COUNT(*) FROM person").fetchone()[0] or 0
+        site_meta = _site_meta_index(conn, tables)
+
+        # ---- WO 侧：一次扫描，按人聚合 ----
+        per_person: dict[str, dict] = {}
+        county_agg: dict[str, dict[str, int]] = {}
+        by_status = {"open": 0, "closed": 0}
+        rows = conn.execute(
+            f"SELECT site_id, last_processer, current_handler, status, alarm_clear_time, tt_no "
+            f"FROM eflow_wo WHERE 1=1{win_where}",
+            win_params,
+        ).fetchall()
+        for sid_raw, last_p, handler, status, clear_time, tt_no in rows:
+            cls = _status_class(status)
+            by_status[cls] += 1
+            county = (site_meta.get(str(sid_raw or "")) or {}).get("county", "")
+            if county:
+                slot = county_agg.setdefault(county, {"open": 0, "closed": 0, "total": 0})
+                slot[cls] += 1
+                slot["total"] += 1
+            for k in _wo_person_keys(last_p, handler):
+                p = per_person.setdefault(k, {
+                    "open": 0, "closed": 0, "total": 0, "uncleared": 0,
+                    "tt_open": 0, "tt_closed": 0, "tt_total": 0, "counties": set(),
+                })
+                p[cls] += 1
+                p["total"] += 1
+                if _is_uncleared(clear_time, status):
+                    p["uncleared"] += 1
+                # TT 维度：该 WO 带了 tt_no 才算一条 TT（同一 TT 可能有多条 WO，
+                # 这里按**行**计，语义是「涉及该 TT 的 WO 行数」——与业务口径
+                # 「按单量看工作量」一致，不是独立去重计数。前端注释同样说明。）
+                if str(tt_no or "").strip():
+                    p[f"tt_{cls}"] += 1
+                    p["tt_total"] += 1
+                if county:
+                    p["counties"].add(county)
+        conn.close()
+
+    people_index = {k: (name, lat, lng, regions) for (name, k, lat, lng, _ph, regions, _st)
+                    in people}
+    by_person = []
+    for k, name, lat, lng, phone, regions, status in people:
+        p = per_person.get(k) or {}
+        by_person.append({
+            "name": name,
+            "name_key": k,
+            "has_coords": True,
+            "lat": round(lat, 6),
+            "lng": round(lng, 6),
+            "phone": phone,
+            "managed_regions": regions,
+            "open": p.get("open", 0),
+            "closed": p.get("closed", 0),
+            "total": p.get("total", 0),
+            "uncleared": p.get("uncleared", 0),
+            "tt_open": p.get("tt_open", 0),
+            "tt_closed": p.get("tt_closed", 0),
+            "tt_total": p.get("tt_total", 0),
+            # 县名列表（由 WO 站点反推），供表格展示；不是 managed_regions
+            "counties": sorted(p.get("counties") or []),
+        })
+    # 没有坐标但名下有 WO 的人也列出来 —— 否则统计总和对不上（页面会标注「无坐标」）
+    for k, p in per_person.items():
+        if k in people_index:
+            continue
+        by_person.append({
+            "name": k, "name_key": k, "has_coords": False,
+            "lat": None, "lng": None, "phone": "", "managed_regions": "",
+            "open": p["open"], "closed": p["closed"], "total": p["total"],
+            "uncleared": p["uncleared"],
+            "tt_open": p["tt_open"], "tt_closed": p["tt_closed"],
+            "tt_total": p["tt_total"],
+            "counties": sorted(p["counties"]),
+        })
+
+    # 排行按「未清除 → 未关闭」降序，与页面表格默认排序一致
+    ranked = sorted(by_person, key=lambda r: (-r["uncleared"], -r["open"], r["name"]))
+    return {
+        "by_person": ranked,
+        "top_person": ranked[:top],
+        "by_county": county_agg,
+        "by_status": by_status,
+        "coverage": {
+            "with_coords": len(people),
+            "total_all": total_all,
+            "location_is_realtime": False,
+        },
+        "range": {
+            "days": days if isinstance(days, int) else None,
+            "time_start": time_start if isinstance(time_start, str) else None,
+            "time_end": time_end if isinstance(time_end, str) else None,
+        },
+    }
+
+
 @router.get("/route")
 def get_route(
     from_lat: float = Query(..., description="起点纬度"),

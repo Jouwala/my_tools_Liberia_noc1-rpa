@@ -148,6 +148,8 @@ const NativeBoard = lazy(() => import('./pages/NativeBoard'))
 const UmeInKpi = lazy(() => import('./pages/UmeInKpi'))
 const Help = lazy(() => import('./pages/Help'))
 const IssueFeedback = lazy(() => import('./pages/IssueFeedback'))
+// 人员位置地图（?page=person）：人员针 + 其 WO 站点分布 + WO/TT 统计。见 pages/PersonMap.tsx 头注释
+const PersonMap = lazy(() => import('./pages/PersonMap'))
 
 const { Header, Sider, Content } = Layout
 
@@ -180,9 +182,9 @@ const FINEBI_PAGE_TO_SLUG: Record<string, string> = Object.fromEntries(
   FINEBI_BOARDS.map((b) => [`finebi_${b.slug}`, b.slug]),
 )
 
-type PageKey = 'overview' | 'tables' | 'upload' | 'dashboard' | 'alarm' | 'ttwo' | 'v1_ttwo' | 'tt' | 'wo' | 'gis' | 'realtime_alarm' | 'packet_loss' | 'archive' | 'sync' | 'warehouse' | 'sp_material' | 'sp_details' | 'sp_report' | 'com_report' | 'warehouse_summary' | 'ms_wo_sla' | 'ms_contract_kpi' | 'battery' | 'settings' | 'ip_trace' | 'incident_overview' | 'nur' | 'ms_sla' | 'ms_nur_only' | 'ms_sla_only' | 'alarmManagement' | 'cxoDashboard' | 'vmaxCxoDashboard' | 'vmaxCxoDashboard_Daily' | 'vmaxCxoDashboard_90Days' | 'imonitor' | 'email_reports' | 'mwUmeTopology' | 'mwRealTime' | 'portalLogin' | 'eflow_qa' | 'eflow_flow' | 'site_avail' | 'avail_ms' | 'avail_flm' | 'fme_ranking' | 'noc_analyst' | 'repeat_site_down' | 'cr_analysis' | 'pm_analysis' | 'ran_cells_kpi' | 'bm_speedtest' | 'bm_meta' | 'bp_report' | 'cn_kpi' | 'cn_kpi_5mins' | 'ume_in_kpi' | 'feedback' | 'help' | `finebi_${string}`
+type PageKey = 'overview' | 'tables' | 'upload' | 'dashboard' | 'alarm' | 'ttwo' | 'v1_ttwo' | 'tt' | 'wo' | 'gis' | 'realtime_alarm' | 'packet_loss' | 'archive' | 'sync' | 'warehouse' | 'sp_material' | 'sp_details' | 'sp_report' | 'com_report' | 'warehouse_summary' | 'ms_wo_sla' | 'ms_contract_kpi' | 'battery' | 'person' | 'settings' | 'ip_trace' | 'incident_overview' | 'nur' | 'ms_sla' | 'ms_nur_only' | 'ms_sla_only' | 'alarmManagement' | 'cxoDashboard' | 'vmaxCxoDashboard' | 'vmaxCxoDashboard_Daily' | 'vmaxCxoDashboard_90Days' | 'imonitor' | 'email_reports' | 'mwUmeTopology' | 'mwRealTime' | 'portalLogin' | 'eflow_qa' | 'eflow_flow' | 'site_avail' | 'avail_ms' | 'avail_flm' | 'fme_ranking' | 'noc_analyst' | 'repeat_site_down' | 'cr_analysis' | 'pm_analysis' | 'ran_cells_kpi' | 'bm_speedtest' | 'bm_meta' | 'bp_report' | 'cn_kpi' | 'cn_kpi_5mins' | 'ume_in_kpi' | 'feedback' | 'help' | `finebi_${string}`
 
-const VALID_PAGES: PageKey[] = ['overview', 'tables', 'upload', 'dashboard', 'alarm', 'ttwo', 'v1_ttwo', 'tt', 'wo', 'gis', 'realtime_alarm', 'packet_loss', 'archive', 'sync', 'warehouse', 'sp_material', 'sp_details', 'sp_report', 'com_report', 'warehouse_summary', 'ms_wo_sla', 'ms_contract_kpi', 'battery', 'settings', 'ip_trace', 'incident_overview', 'nur', 'ms_sla', 'ms_nur_only', 'ms_sla_only', 'alarmManagement', 'cxoDashboard', 'vmaxCxoDashboard', 'vmaxCxoDashboard_Daily', 'vmaxCxoDashboard_90Days', 'imonitor', 'email_reports', 'mwUmeTopology', 'mwRealTime', 'portalLogin', 'eflow_qa', 'eflow_flow', 'site_avail', 'avail_ms', 'avail_flm', 'fme_ranking', 'noc_analyst', 'repeat_site_down', 'cr_analysis', 'pm_analysis', 'ran_cells_kpi', 'bm_speedtest', 'bm_meta', 'bp_report', 'cn_kpi', 'cn_kpi_5mins', 'ume_in_kpi', 'feedback', 'help', ...FINEBI_BOARDS.map((b) => `finebi_${b.slug}` as PageKey)]
+const VALID_PAGES: PageKey[] = ['overview', 'tables', 'upload', 'dashboard', 'alarm', 'ttwo', 'v1_ttwo', 'tt', 'wo', 'gis', 'realtime_alarm', 'packet_loss', 'archive', 'sync', 'warehouse', 'sp_material', 'sp_details', 'sp_report', 'com_report', 'warehouse_summary', 'ms_wo_sla', 'ms_contract_kpi', 'battery', 'person', 'settings', 'ip_trace', 'incident_overview', 'nur', 'ms_sla','ms_nur_only', 'ms_sla_only', 'alarmManagement', 'cxoDashboard', 'vmaxCxoDashboard', 'vmaxCxoDashboard_Daily', 'vmaxCxoDashboard_90Days', 'imonitor', 'email_reports', 'mwUmeTopology', 'mwRealTime', 'portalLogin', 'eflow_qa', 'eflow_flow', 'site_avail', 'avail_ms', 'avail_flm', 'fme_ranking', 'noc_analyst', 'repeat_site_down', 'cr_analysis', 'pm_analysis', 'ran_cells_kpi', 'bm_speedtest', 'bm_meta', 'bp_report', 'cn_kpi', 'cn_kpi_5mins', 'ume_in_kpi', 'feedback', 'help', ...FINEBI_BOARDS.map((b) => `finebi_${b.slug}` as PageKey)]
 
 /* ==================== 自动刷新（大屏 / NOC 值班场景） ====================
  * 背景：各页面此前只在挂载时拉取一次数据（legacy iframe 页面同样只在 onload
@@ -219,8 +221,8 @@ const AR_PAGE_DEFAULT_SEC = 300 // 看板页默认间隔（秒）
  *
  * 名单按菜单组划定（见 DEFAULT_GROUPS）：
  *   · grp_monitor 全部（监控看板）
- *   · grp_network 的看板（mwUmeTopology/mwRealTime/gis/realtime_alarm/packet_loss/
- *     battery/bm_speedtest/bm_meta；ip_trace 是一次性抓包会话，排除）
+ *   · grp_network 的看板（mwUmeTopology/mwRealTime/gis/realtime_alarm/person/
+ *     packet_loss/battery/bm_speedtest/bm_meta；ip_trace 是一次性抓包会话，排除）
  *   · grp_finebi 全部（原生报表看板）
  *   · grp_analysis 的报表看板（overview/dashboard/warehouse/warehouse_summary/
  *     sp_material/sp_report/com_report/bp_report；tables/upload/archive/sp_details 排除）
@@ -233,7 +235,7 @@ const AR_BOARD_PAGES: PageKey[] = [
   'cn_kpi', 'cn_kpi_5mins', 'ume_in_kpi', 'cxoDashboard', 'vmaxCxoDashboard', 'vmaxCxoDashboard_Daily',
   'vmaxCxoDashboard_90Days', 'imonitor', 'alarmManagement', 'incident_overview',
   // grp_network（看板子集；ip_trace 排除）
-  'mwUmeTopology', 'mwRealTime', 'gis', 'realtime_alarm', 'packet_loss', 'battery',
+  'mwUmeTopology', 'mwRealTime', 'gis', 'realtime_alarm', 'packet_loss', 'battery', 'person',
   'bm_speedtest', 'bm_meta',
   // grp_analysis（报表看板子集）
   'overview', 'dashboard', 'warehouse', 'warehouse_summary', 'sp_material', 'sp_report',
@@ -456,6 +458,7 @@ const PAGE_META: Record<PageKey, { icon: ReactNode; labelKey: string }> = {
   mwRealTime: { icon: <FieldTimeOutlined />, labelKey: 'nav.mwRealTime' },
   gis: { icon: <GlobalOutlined />, labelKey: 'nav.gis' },
   realtime_alarm: { icon: <AlertOutlined />, labelKey: 'nav.realtimeAlarm' },
+  person: { icon: <TeamOutlined />, labelKey: 'nav.person' },
   packet_loss: { icon: <DisconnectOutlined />, labelKey: 'nav.packetLoss' },
   battery: { icon: <ThunderboltOutlined />, labelKey: 'nav.battery' },
   ip_trace: { icon: <AimOutlined />, labelKey: 'nav.ipTrace' },
@@ -494,7 +497,7 @@ const DEFAULT_GROUPS: { key: string; labelKey: string; items: PageKey[] }[] = [
   {
     key: 'grp_network',
     labelKey: 'nav.grp.network',
-    items: ['mwUmeTopology', 'mwRealTime', 'gis', 'realtime_alarm', 'packet_loss', 'battery', 'ip_trace', 'bm_speedtest', 'bm_meta'],
+    items: ['mwUmeTopology', 'mwRealTime', 'gis', 'realtime_alarm', 'person', 'packet_loss', 'battery', 'ip_trace', 'bm_speedtest', 'bm_meta'],
   },
   {
     key: 'grp_analysis',
@@ -1459,6 +1462,8 @@ function AppContent() {
         return <GISMap />
       case 'realtime_alarm':
         return <GISMap mode="realtime" />
+      case 'person':
+        return <PersonMap />
       case 'packet_loss':
         return <PacketLossDashboard />
       case 'battery':
