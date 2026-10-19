@@ -459,9 +459,13 @@ export function PersonnelLayer({
       {enabled && !loading && visiblePeople.length > 0 && visiblePeople.map(p => {
         const selected = p.name_key === selectedKey
         const hovered = p.name_key === hoverKey
-        // 悬停/选中都放大，悬停用告警橙，让人一眼看出「这是当前在看的这个人」
+        /* 颜色优先级（2026-10-19 用户要求「WO 为 0 的人显示深绿以区别」）：
+           选中红 > 悬停橙 > 未关闭 WO 为 0 深绿 > 其余蓝。
+           深绿只用于**未选中未悬停**的大多数人 —— 选中/悬停必须仍是红/橙，
+           否则用户点了一个「没单的人」时看不出选中态。 */
         const color = selected ? SITE_COLORS.rt_alarm_overdue
           : hovered ? '#fa8c16'
+          : (p.wo_count || 0) === 0 ? '#1a7f37'
           : (isDark ? '#4fc3f7' : '#1890ff')
         const size = (selected || hovered) ? 32 : 26
         const iconH = size * 1.5

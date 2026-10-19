@@ -4,6 +4,11 @@
     {
       "name": "portal-v3",
       "url": "https://localhost:443"
+    },
+    {
+      "name": "myapp-alarm-perf",
+      "url": "https://localhost:80",
+      "port": 80
     }
   ]
 }
