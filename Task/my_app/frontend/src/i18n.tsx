@@ -2154,13 +2154,8 @@ const translations: Record<Locale, Record<string, string>> = {
     // WO 侧阶段链不同（到场拆成出发与到达两步），副标题单独一条
     'ttwo.workflowSubtitleWo': '工单生命周期 · 派单 → 受理 → 等待出发 → 等待到达现场 → 处理 → 离场 → 现场确认 → 待确认 → 关闭',
     'ttwo.workflowLive': '实时数据',
-    // 卡片主标题的前缀词（2026-10-19）：此前在组件里硬编码 'TICKET' / 'WORK ORDER'，
-    // 中文界面也会露出英文，现改为按语言取词。后缀 WORKFLOW 保持英文不译
-    // —— 它是产品内的固定术语，与本页其余模块（Auto Report / GIS Map）一致。
-    // 中文用业务上通行的叫法区分两页：TT = 故障单，WO = 工单。
-    // 若都译成「工单」，TT 页与 WO 页标题会完全一样，失去区分度。
-    'ttwo.workflowTitleTicket': '故障单',
-    'ttwo.workflowTitleWo': '工单',
+    // 2026-10-19 移除卡片内标题：外层 StatDimTitle 已显示「Workflow」，
+    // 卡片里再显示「TICKET WORKFLOW」属于重复，故 workflowTitle* 两个键一并删除。
     // 2026-10-19 移除底部 Waiting Status 与 Order Flow Direction 面板，
     // 其 9 个文案键（waitTitle/waitDeparture/waitArrive/direction*）随之删除。
     'ttwo.workflow.noData': '所选范围内无工单',
@@ -6361,8 +6356,7 @@ const translations: Record<Locale, Record<string, string>> = {
     'ttwo.workflowSubtitle': 'Ticket lifecycle · Dispatch → Accept → Process → Field Confirm → Wait Confirm → Closed',
     'ttwo.workflowSubtitleWo': 'Work-order lifecycle · Dispatch → Accept → Waiting for Departure → Waiting for Arrive Site → Process → Leave Site → Field Confirm → Wait Confirm → Closed',
     'ttwo.workflowLive': 'Live Data',
-    'ttwo.workflowTitleTicket': 'TICKET',
-    'ttwo.workflowTitleWo': 'WORK ORDER',
+    // Card title removed 2026-10-19: duplicates the outer StatDimTitle "Workflow".
     // Removed 2026-10-19 with the Waiting Status / Order Flow Direction panels.
     'ttwo.workflow.noData': 'No tickets in the selected range',
     // Milestone tooltips (2026-10-18): spell out the composition, the percentage

@@ -1408,12 +1408,12 @@ export default function TTWODashboard({ only, source }: { only?: TTWOOnly; sourc
         // 由 CSS 媒体查询接管（此时列数固定，注入值被断点覆盖）。
         style={{ ['--wf-cols' as any]: cols }}
       >
+        {/* 2026-10-19：去掉卡片内的 h2「TICKET WORKFLOW」。
+            外层已有 StatDimTitle「Workflow」，两层标题紧挨着会重复。
+            与 Ticket Severity / SLA 两个维度保持一致：标题只在本页统一的
+            StatDimTitle 里出现一次。这里只保留副标题（阶段链说明）与 LIVE 徽标。 */}
         <header className="wf-header">
           <div>
-            <h2 className="wf-title">
-              {t(isWoSource ? 'ttwo.workflowTitleWo' : 'ttwo.workflowTitleTicket')}{' '}
-              <span className="wf-title-accent">WORKFLOW</span>
-            </h2>
             <div className="wf-subtitle">
               {t(isWoSource ? 'ttwo.workflowSubtitleWo' : 'ttwo.workflowSubtitle')}
             </div>

@@ -2082,13 +2082,11 @@ html {
   display: flex; align-items: center; justify-content: space-between;
   gap: 12px; margin-bottom: 22px; flex-wrap: wrap;
 }
-.wf-title {
-  margin: 0; font-size: 20px; font-weight: 800; letter-spacing: 1.4px;
-  color: var(--wf-text);
-}
-.wf-title .wf-title-accent { color: var(--wf-cyan); }
+/* .wf-title / .wf-title-accent 于 2026-10-19 删除：
+ * 卡片内标题与外层 StatDimTitle「Workflow」重复，已去掉卡片标题。
+ * 副标题因此独占一行，不再需要给标题留的 margin-top。 */
 .wf-subtitle {
-  margin-top: 5px; color: var(--wf-muted); font-size: 11px; letter-spacing: 1.2px;
+  margin: 0; color: var(--wf-muted); font-size: 11px; letter-spacing: 1.2px;
 }
 .wf-live {
   padding: 7px 12px; border: 1px solid var(--wf-live-border); border-radius: 20px;
@@ -2373,5 +2371,4 @@ html {
 @media (max-width: 480px) {
   .wo-workflow { padding: 16px 8px; }
   .wf-stages { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px 10px; }
-  .wf-title { font-size: 16px; }
 }
