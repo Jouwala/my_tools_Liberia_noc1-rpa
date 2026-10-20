@@ -504,13 +504,38 @@ function claimFileJob(filePath) {
  * 回写文件作业结果到指定信箱。
  * @param {string} filePath - 信箱文件绝对路径
  */
-function finishFileJob(filePath, job, ok, groupsSent, errors) {
+function finishFileJob(filePath, job, ok, groupsSent, errors, extra) {
   writeJsonAtomic(filePath, {
     ...job,
     status: ok ? 'done' : 'failed',
     completed_at: new Date().toISOString(),
-    result: { ok, groups_sent: groupsSent, errors },
+    // extra（2026-10-20 新增）：把 sent_pairs / deduped 一并回写，供 my_app
+    // 在 auto_retry 重投时算出 skip_pairs（只补发没送达的 item×群）。
+    // 旧版 my_app 读不到这两个字段也不会出错 —— 只是退回"整批重发"的老行为。
+    result: { ok, groups_sent: groupsSent, errors, ...(extra || {}) },
   });
+}
+
+/**
+ * 等待连接恢复（2026-10-20 新增，配合 runFileJob 的断线续发）。
+ *
+ * 为什么要等而不是立刻终止：428/408/500 这类掉线实测**绝大多数在 2~15s 内自愈**
+ * （见 data/logs/notify-*.log 的"Xs 后第 1 次重连"），而单作业的等待窗口有 600s。
+ * 2026-10-20 16:01 那次失败就是掉线正好落在群间 8s 延时里 —— 等 9s 就能发完，
+ * 但旧逻辑直接终止整批，代价是后面 3 张图全没发 + 4 分钟后 auto_retry 整批重发
+ * （第一个群因此在 4 分钟内收到两张一模一样的 ALL.png）。
+ *
+ * @param {number} timeoutMs 最长等待毫秒数（<=0 表示不等，退回旧行为）
+ * @returns {Promise<boolean>} true=连接已恢复（connected 且 sockRef 可用）
+ */
+async function waitForConnection(timeoutMs) {
+  const budget = Math.max(0, Number(timeoutMs) || 0);
+  const deadline = Date.now() + budget;
+  while (!connected || !sockRef) {
+    if (Date.now() >= deadline) return false;
+    await sleep(300);
+  }
+  return true;
 }
 
 /**
@@ -518,7 +543,11 @@ function finishFileJob(filePath, job, ok, groupsSent, errors) {
  *
  * 三条铁律（与文本通道同源，参见 runJob 的注释）：
  *  1. 服务端回执 (`res.key.id`) 才是送达判据；缺 id 一律视为失败；
- *  2. 单条失败不重试到群里 —— 避免重复；统一由 my_app 的 `auto_retry_failed` 决定；
+ *  2. 单条失败不在本进程里重试到群里 —— 避免重复；统一由 my_app 的 `auto_retry_failed` 决定；
+ *     但**连接掉线不算单条失败**：2026-10-20 起先等重连（最多 resumeWaitMs，默认 45s）
+ *     再继续本作业剩下的 item×群，而不是立刻作废整批（见 waitForConnection）。
+ *     等不到重连才终止，并把已成功的那部分写进 `result.sent_pairs`，
+ *     让 my_app 重投时能带上 `skip_pairs` 只补发缺的部分。
  *  3. 同 `payloadSignature` 在一次作业内只发一次（双保险，主防线是抢 running）。
  */
 async function runFileJob(sock, job) {
@@ -527,19 +556,33 @@ async function runFileJob(sock, job) {
   const seen = new Set();
   const groupsSent = [];
   const errors = [];
+  // sentPairs：本作业里**真正拿到服务端 message id** 的 (签名|群) 组合，
+  // 回写进 result.sent_pairs 供重投去重；deduped：本次按 skip_pairs 跳过的组合，
+  // 只为让人看见「不是漏发，是已经发过」。
+  const sentPairs = [];
+  const deduped = [];
+  // skip_pairs 由 my_app 在「上一份作业部分送达后判失败」时写入（见
+  // whatsapp_send_baileys_service._retry_skip_pairs）。缺省空集 = 老行为（整批发）。
+  const skipPairs = new Set(
+    (Array.isArray(job.skip_pairs) ? job.skip_pairs : []).map((x) => String(x)));
   const intervals = (CONFIG.notify && CONFIG.notify.fileSend) || {};
 
   const perItemMs = Math.max(0, Number(intervals.sendIntervalMs ?? 2000));
   const perGroupMs = Math.max(0, Number(intervals.perGroupDelayMs ?? 8000));
   const maxItems = Math.max(1, Number(intervals.maxImages ?? 6));
   const maxDocs = Math.max(1, Number(intervals.maxDocuments ?? 1));
+  // 断线后最多愿意等多久再恢复发送。必须显著小于 my_app 侧 WAIT_SECONDS(600)，
+  // 否则作业一直挂在 running，反而把"整批没发"变成"任务超时"。
+  const resumeWaitMs = Math.max(0, Number(intervals.resumeWaitMs ?? 45000));
 
   if (!items.length) {
-    finishFileJob(job._filePath, job, false, [], ['作业里没有 items']);
+    finishFileJob(job._filePath, job, false, [], ['作业里没有 items'],
+      { sent_pairs: sentPairs, deduped });
     return;
   }
   if (!groups.length) {
-    finishFileJob(job._filePath, job, false, [], ['作业里没有 groups']);
+    finishFileJob(job._filePath, job, false, [], ['作业里没有 groups'],
+      { sent_pairs: sentPairs, deduped });
     return;
   }
 
@@ -552,7 +595,7 @@ async function runFileJob(sock, job) {
       finishFileJob(job._filePath, job, false, [], [
         `找不到群「${g}」对应的 JID（当前已知 ${groupIndex.size} 个群）。`
         + `请确认机器人账号已加入该群，或用 --groups 查看可用群名。`,
-      ]);
+      ], { sent_pairs: sentPairs, deduped });
       return;
     }
     jids.push(jid);
@@ -584,6 +627,20 @@ async function runFileJob(sock, job) {
       : !!ext && ext !== '.png' && ext !== '.jpg' && ext !== '.jpeg'
         && ext !== '.gif' && ext !== '.webp';
 
+    // 去重台账：skip_pairs 命中的 (item×群) 不再发。放在**扣配额之前**，
+    // 否则一条已全部送达的图会白占一个 image 名额，把后面真该发的挤成
+    // 「因单作业配额被跳过」。
+    const pending = jids.filter((jid) => !skipPairs.has(`${sig}|${jid}`));
+    if (pending.length !== jids.length) {
+      for (const jid of jids) {
+        if (skipPairs.has(`${sig}|${jid}`)) deduped.push(`${itemName} → ${jid}`);
+      }
+    }
+    if (pending.length === 0) {
+      log(`↺ 本条各群均已送达（去重台账），跳过：${itemName}`);
+      continue;
+    }
+
     if (isDoc) {
       if (docBudget <= 0) { skippedByBudget.push(`doc:${itemName}`); continue; }
       docBudget--;
@@ -612,8 +669,8 @@ async function runFileJob(sock, job) {
     const mimetype = mimeFor(itemName);
     const caption = String(item.caption || '').trim();
 
-    for (let gi = 0; gi < jids.length; gi++) {
-      const jid = jids[gi];
+    for (let gi = 0; gi < pending.length; gi++) {
+      const jid = pending[gi];
       // 群间延时：仅**非首群**且**上一图/文档真发出**时等；失败不延时（避免问题被掩盖）
       if (gi > 0 && perGroupMs > 0) {
         await sleep(perGroupMs);
@@ -623,18 +680,33 @@ async function runFileJob(sock, job) {
       // 重连前最后那几百毫秒的轮询里跑进来，旧 sock 拿到的会是 "Connection Closed"。
       // 显式 connected 校验可让单条失败快速回错，而不是让一次 8s 群间 sleep 之后
       // 才发现整个连接已死，浪费单作业的 600s 窗口。
-      if (!connected || !sockRef) {
-        errors.push(`${itemName} → ${jid}：连接已断开（abort 后续）`);
-        log(`✗ ${itemName} → ${jid}：连接断开，本作业终止`);
-        finishFileJob(job._filePath, job, false, groupsSent, errors);
-        return;
+      //
+      // ⚠️ 发送必须用**护栏之后重新取到的 sockRef**，不能用形参 `sock`：
+      // 重连是递归调用 start() 换的新 socket，形参那份的 ws 已被 close()，
+      // 继续拿它发会稳定报 "Connection Closed"（2026-10-01 轮询侧同一坑，
+      // 见 pollTimer 里"必须用全局 sockRef"的注释）。
+      //
+      // 2026-10-20 改动：断开先等重连（默认最多 45s），等不到才作废整批。
+      let activeSock = sockRef;
+      if (!connected || !activeSock) {
+        log(`! 连接断开（${itemName} → ${jid}），最多等 ${Math.round(resumeWaitMs / 1000)}s 重连…`);
+        const recovered = resumeWaitMs > 0 && await waitForConnection(resumeWaitMs);
+        activeSock = sockRef;
+        if (!recovered || !connected || !activeSock) {
+          errors.push(`${itemName} → ${jid}：连接已断开（等 ${Math.round(resumeWaitMs / 1000)}s 未恢复，abort 后续）`);
+          log(`✗ ${itemName} → ${jid}：连接未恢复，本作业终止`);
+          finishFileJob(job._filePath, job, false, groupsSent, errors,
+            { sent_pairs: sentPairs, deduped });
+          return;
+        }
+        log(`↻ 连接已恢复，继续本作业：${itemName} → ${jid}`);
       }
       try {
         let res;
         if (isDoc) {
           // document：只发文件，不带 caption（WhatsApp 文档消息不支持 caption，
           // 与 `whatsapp_ext_service` 走发送的语义一致）。
-          res = await sock.sendMessage(jid, {
+          res = await activeSock.sendMessage(jid, {
             document: payload.buf,
             fileName: itemName,
             mimetype,
@@ -642,7 +714,7 @@ async function runFileJob(sock, job) {
         } else {
           // image：caption 走 `caption` 字段，长度 1024 以内（WhatsApp 限制）。
           const safeCaption = caption.length > 1024 ? caption.slice(0, 1020) + '…' : caption;
-          res = await sock.sendMessage(jid, {
+          res = await activeSock.sendMessage(jid, {
             image: payload.buf,
             caption: safeCaption || undefined,
             mimetype,
@@ -651,6 +723,7 @@ async function runFileJob(sock, job) {
         if (res?.key?.id) {
           log(`✓ 已发送 ${itemName} → ${jid}（msg id ${res.key.id}，${(payload.size / 1024).toFixed(1)}KB）`);
           if (!groupsSent.includes(jid)) groupsSent.push(jid);
+          sentPairs.push(`${sig}|${jid}`);
           heartbeat({ lastSendKind: isDoc ? 'document' : 'image' });
         } else {
           errors.push(`${itemName} → ${jid}：sendMessage 未返回 message id，无法确认`);
@@ -680,8 +753,16 @@ async function runFileJob(sock, job) {
     }
   }
 
-  const ok = groupsSent.length > 0;
-  finishFileJob(job._filePath, job, ok, groupsSent, errors);
+  // ok 判据（2026-10-20）：有一个群真收到 = 成功；**一条都没真发但全部命中去重台账**
+  // 且无错误也算成功（那是"上一轮已经发过了"，不是漏发）。
+  // 若只按 `groupsSent.length > 0`，一次全去重的重投会报失败，进而触发 Playwright
+  // 回退，把已送达的图再发一遍 —— 正是本次要消灭的现象。
+  const ok = groupsSent.length > 0 || (deduped.length > 0 && errors.length === 0);
+  if (deduped.length) {
+    log(`↺ 按去重台账跳过 ${deduped.length} 个 (item×群)：${deduped.join(', ')}`);
+  }
+  finishFileJob(job._filePath, job, ok, groupsSent, errors,
+    { sent_pairs: sentPairs, deduped });
   log(`[文件作业完成] ${job.job_id || '(无 id)'} 成功群 ${groupsSent.length} / 错误 ${errors.length}`
     + (skippedByBudget.length ? ` / 配额跳过 ${skippedByBudget.length}` : ''));
 }

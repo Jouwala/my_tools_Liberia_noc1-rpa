@@ -132,6 +132,107 @@ def test_dispatch_within_budget_passes_guard(tmp_job, mk_items, monkeypatch):
     assert bsvc._read_job()["job_id"] == out["job_id"]
 
 
+# ============================================================
+# _retry_skip_pairs：重投去重台账（2026-10-20 新增，四条判据各自锁一条）
+# 纯函数、不碰网络，入参就是「旧作业 + 本次 items」，直接调它最贴近真实判定。
+# ============================================================
+
+
+def _prev_job(status, sent_pairs, items, errors=None, minutes_ago=0):
+    """造一份「上一轮作业」字典（completed_at 按 minutes_ago 回退，便于测时间窗）。
+
+    items 必须**逐条复制**：真实场景里上一轮的 items 来自作业文件，是独立的一份数据。
+    若直接复用调用方的 list 对象，改动 prev["items"][0]["fingerprint"] 会同时改到
+    本轮的 items（同一对象），「文件被重新生成」那类用例就永远测不出差异。
+    """
+    import datetime as _dt
+    return {
+        "job_id": "old-job", "status": status, "groups": ["x"],
+        "items": [dict(i) for i in items],
+        "completed_at": (_dt.datetime.now() - _dt.timedelta(minutes=minutes_ago))
+                        .isoformat(timespec="seconds"),
+        "result": {"ok": True, "groups_sent": ["x"], "errors": errors or [],
+                   "sent_pairs": sent_pairs},
+    }
+
+
+def test_retry_skip_pairs_carries_on_partial_failure(mk_items):
+    """正例：上一份部分送达后判失败 + 文件字节没变 → 重投必须带 skip_pairs。
+
+    2026-10-20 回归：ALL.png 已发到第一个群后掉线，auto_retry 整批重发，
+    第一个群在 4 分钟内收到两张一模一样的图。
+    """
+    items = mk_items(["ALL.png", "COOL.png"])
+    got = bsvc._retry_skip_pairs(
+        _prev_job("failed", ["sig1|x", "sig1|y"], items, errors=["连接已断开"]), items)
+    assert got == {"retry_of": "old-job", "skip_pairs": ["sig1|x", "sig1|y"]}
+
+
+def test_retry_skip_pairs_accepts_done_with_errors(mk_items):
+    """notify 报 done 但 errors 非空 —— my_app 侧同样判失败，也要带去台账。"""
+    items = mk_items(["ALL.png"])
+    got = bsvc._retry_skip_pairs(
+        _prev_job("done", ["sigA|x"], items, errors=["a.png：读盘失败"]), items)
+    assert got and got["skip_pairs"] == ["sigA|x"]
+
+
+def test_retry_skip_pairs_skips_previous_clean_success(mk_items):
+    """上一份是**干净成功** → 不去重：用户手动再点一次就该重发同一批图。"""
+    items = mk_items(["ALL.png"])
+    assert bsvc._retry_skip_pairs(_prev_job("done", ["sigA|x"], items), items) is None
+
+
+def test_retry_skip_pairs_skips_when_no_sent_pairs(mk_items):
+    """旧版 notify.js 没写 sent_pairs → 无从知道发过什么，退回整批重发。"""
+    items = mk_items(["ALL.png"])
+    prev = _prev_job("failed", [], items, errors=["连接已断开"])
+    assert bsvc._retry_skip_pairs(prev, items) is None
+
+
+def test_retry_skip_pairs_skips_when_running(tmp_job, mk_items):
+    """旧作业还在 running（不是重投场景）→ 不带台账。"""
+    items = mk_items(["ALL.png"])
+    prev = _prev_job("running", ["sigA|x"], items, errors=["连接已断开"])
+    assert bsvc._retry_skip_pairs(prev, items) is None
+
+
+def test_retry_skip_pairs_skips_when_fingerprint_changed(mk_items):
+    """上一轮之后文件被重新生成（投递时记录的指纹不同）→ 新的一批图，必须整批发。
+
+    这正是「指纹必须在投递时记录」的理由：如果两边都现读磁盘，
+    上一轮作业与本轮读到的是同一份当前状态，字节变过也测不出来。
+    """
+    items = mk_items(["ALL.png"])
+    prev = _prev_job("failed", ["sigA|x"], items, errors=["连接已断开"])
+    for it in prev["items"]:
+        it["fingerprint"] = f"{it['name']}|{it['path']}|0|0"   # 上一轮投递时的值
+    assert bsvc._retry_skip_pairs(prev, items) is None
+
+
+def test_fingerprint_prefers_recorded_value(mk_items):
+    """投递时记录的指纹优先；旧作业没这个字段时现算（能比，只是测不出字节变化）。"""
+    items = mk_items(["ALL.png"])
+    live = bsvc._item_fingerprint(items[0])
+    assert bsvc._fp_of(items[0]) == live
+    items[0]["fingerprint"] = "recorded-at-delivery-time"
+    assert bsvc._fp_of(items[0]) == "recorded-at-delivery-time"
+
+
+def test_retry_skip_pairs_skips_outside_window(mk_items):
+    """旧作业的失败发生在 2 小时前（远超 30 分钟窗口）→ 今天的调度照发。"""
+    items = mk_items(["ALL.png"])
+    prev = _prev_job("failed", ["sigA|x"], items, errors=["连接已断开"], minutes_ago=120)
+    assert bsvc._retry_skip_pairs(prev, items) is None
+
+
+def test_retry_skip_pairs_skips_when_window_disabled(mk_items, monkeypatch):
+    """RETRY_DEDUP_WINDOW_SECONDS=0 是运维关开关的路径，必须完全退回旧行为。"""
+    monkeypatch.setattr(bsvc, "RETRY_DEDUP_WINDOW_SECONDS", 0)
+    items = mk_items(["ALL.png"])
+    prev = _prev_job("failed", ["sigA|x"], items, errors=["连接已断开"])
+    assert bsvc._retry_skip_pairs(prev, items) is None
+
+
 def test_errors_on_success_are_not_ok(tmp_job, mk_items, monkeypatch):
     """notify 报 ok 但 result.errors 非空 → 仍判失败（有 item 未送达）。"""
     monkeypatch.setattr(bsvc, "WAIT_SECONDS", 5)

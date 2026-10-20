@@ -54,6 +54,13 @@ WAIT_SECONDS = int(os.environ.get("WHATSAPP_BAILEYS_WAIT_SECONDS", "600"))
 TASK_POLL_INTERVAL = float(os.environ.get("WHATSAPP_BAILEYS_POLL_INTERVAL", "1.0"))
 # 僵尸作业判定阈值（秒）—— 与扩展通道取同量级（默认 1h）
 STALE_RUNNING_SECONDS = int(os.environ.get("WHATSAPP_BAILEYS_STALE_RUNNING_SECONDS", "3600"))
+# 「上次部分送达」还算数、可以给本次重投带去重台账的时间窗（秒）。
+# 必须远小于调度间隔（当前 cron 是 0 */8 * * * = 8h）：图片每轮都会重新生成，
+# 但如果上游没刷新、文件字节完全没变，一份几天前的 failed 作业绝不能让今天这轮
+# 调度「跳过发送」。宁可重发，不可漏发 —— 所以窗口只取 30 分钟，够覆盖
+# auto_retry 的几分钟延迟即可。设 0 即关闭该特性。
+RETRY_DEDUP_WINDOW_SECONDS = int(
+    os.environ.get("WHATSAPP_BAILEYS_RETRY_DEDUP_WINDOW_SECONDS", "1800"))
 
 # 作业文件：与 whatsapp_ext_job.json 物理隔离（两份任务不抢同一作业）。
 # 位置：与扩展的 whatsapp_ext_job.json 同目录，便于运维一眼看全。
@@ -104,6 +111,78 @@ def _write_job(job: dict) -> None:
     os.replace(str(tmp), str(JOB_FILE))
 
 
+def _item_fingerprint(item: dict) -> str:
+    """把一条 item 归一成「同一批字节」指纹：名称 + 绝对路径 + 大小 + mtime(秒)。
+
+    投递时**记录**进 items[].fingerprint（见 create_pending_job），比较时才用它 ——
+    如果每次都是现算，两次都读当前磁盘，「上一轮之后文件被重新生成」永远测不出来。
+    旧作业（本 patch 之前投的）没有该字段 → 退回现算，比较仍成立（偏保守）。
+
+    刻意不复刻 notify.js 的 payloadSignature：那个哈希里 mtime 走了 JS 的 `| 0`
+    32 位截断，Python 端复刻只会多出两份必须永远同步的副本。真正拦住「内容变了
+    还去重」的是 notify.js 侧的 payloadSignature —— 文件一变 sig 就变，
+    skip_pairs 里的旧 sig 自然匹配不上，该发照样发。
+    """
+    name = str(item.get("file_name") or item.get("name") or "")
+    path = str(item.get("path") or "")
+    try:
+        st = Path(path).stat()
+        return f"{name}|{path}|{st.st_size}|{int(st.st_mtime)}"
+    except OSError:
+        return f"{name}|{path}|?"
+
+
+def _fp_of(item: dict) -> str:
+    """取投递时记录的指纹；没有记录（旧作业）时现算一次。"""
+    recorded = str(item.get("fingerprint") or "")
+    return recorded or _item_fingerprint(item)
+
+
+def _retry_skip_pairs(prev: dict | None, new_items: list) -> dict | None:
+    """上一份作业「部分送达后判失败」时，为本次重投算出该跳过的 (item×群)。
+
+    2026-10-20 事故：16:00 那轮 ALL.png 发到第一个群后 Baileys 掉线（code=428），
+    notify.js 终止作业 → 任务判失败 → 16:05 auto_retry **整批重发**，第一个群
+    在 4 分钟内收到两张一模一样的 ALL.png，第二个群则白等 4 分钟才收到图。
+
+    返回 ``{"retry_of": 旧 job_id, "skip_pairs": [...]}``；任何一条不满足返回 None
+    （= 不带台账，行为与今天完全一致）：
+
+      1. 旧作业已是终态，且当初被判失败（status=failed，或 done 但 result.errors 非空）
+         —— 成功作业后面再投一轮是「重发同一批」的正常语义，不该去重。
+      2. 旧作业 result 里有 notify.js 写的 `sent_pairs`（旧版 notify.js 没这字段）。
+      3. 本次 items 与旧作业 items **逐条投递时指纹一致**（名称/绝对路径/大小/mtime）
+         —— 图片每轮都重新生成，字节一变指纹就变，正常调度不受影响。
+      4. 旧作业完成时间距今在 RETRY_DEDUP_WINDOW_SECONDS 内。
+
+    ⚠️ 只覆盖 `create_pending_job` 这条路（即 whatsapp_send_baileys 任务本身）。
+    SP 报表走的 `dispatch_items` 失败后按设计回退 Playwright，去重语义不同
+    （两个通道各发一份是既定的取舍），故刻意不在此处共用。
+    """
+    if RETRY_DEDUP_WINDOW_SECONDS <= 0 or not isinstance(prev, dict):
+        return None
+    if job_staleness.s(prev.get("status")) not in TERMINAL_STATUSES:
+        return None
+    res = prev.get("result")
+    if not isinstance(res, dict):
+        return None
+    failed = (job_staleness.s(prev.get("status")) == "failed" or bool(res.get("errors")))
+    sent = [str(x) for x in (res.get("sent_pairs") or [])]
+    if not failed or not sent:
+        return None
+
+    prev_items = prev.get("items")
+    if not isinstance(prev_items, list) or len(prev_items) != len(new_items):
+        return None
+    if {_fp_of(i) for i in prev_items} != {_fp_of(i) for i in new_items}:
+        return None
+
+    done_at = job_staleness.parse_iso(prev.get("completed_at"))
+    if done_at is None or (time.time() - done_at) > RETRY_DEDUP_WINDOW_SECONDS:
+        return None
+    return {"retry_of": str(prev.get("job_id") or ""), "skip_pairs": sent}
+
+
 def create_pending_job() -> dict:
     """投递一个新的待发作业（会取代任何旧的 pending/running 作业）。
 
@@ -135,6 +214,22 @@ def create_pending_job() -> dict:
             for it in outbox.get("items", [])
         ],
     }
+    # 投递时**逐条记录指纹**：重投去重要比的是「上一轮发出去的那批字节」，
+    # 现在才读盘的话两次都读当前磁盘，文件在两轮之间被重新生成是测不出来的。
+    for it in job["items"]:
+        it["fingerprint"] = _item_fingerprint(it)
+
+    # 重投去重：上一份作业「部分送达后判失败」且这批文件字节没变时，把已送达的
+    # (item×群) 作为 skip_pairs 交给 notify.js，让它只补发缺的部分（见 _retry_skip_pairs）。
+    # 必须在 _write_job 之前读 —— 写完旧作业就被覆盖了，sent_pairs 无处可寻。
+    carry = _retry_skip_pairs(_read_job(), job["items"])
+    if carry:
+        job["retry_of"] = carry["retry_of"]
+        job["skip_pairs"] = carry["skip_pairs"]
+        logger.info(
+            "[WABaileys] 本次为 %s 的重投：已送达 %d 个 (item×群) 将跳过，只补发缺的部分",
+            carry["retry_of"], len(carry["skip_pairs"]),
+        )
     _write_job(job)
     logger.info(
         "[WABaileys] 已投递待发作业 %s（groups=%s，items=%d）",
@@ -395,6 +490,10 @@ def run_whatsapp_send_baileys() -> dict:
         "groups_sent": [],
         "errors": [],
         "elapsed_seconds": 0,
+        # retry_of / deduped：仅在本次是「部分送达后的重投」时非空，
+        # 便于任务历史里区分「真的发了」与「上一轮已送达、这次只补差额」。
+        "retry_of": None,
+        "deduped": [],
     }
 
     if not GROUPS:
@@ -422,6 +521,9 @@ def run_whatsapp_send_baileys() -> dict:
             result["errors"] = list(ext.get("errors", []))
             result["success"] = bool(ext.get("ok"))
             result["notify_elapsed_seconds"] = ext.get("elapsed_seconds")
+            result["deduped"] = list(ext.get("deduped") or [])
+            if job.get("retry_of"):
+                result["retry_of"] = job["retry_of"]
             break
     else:
         result["errors"].append(

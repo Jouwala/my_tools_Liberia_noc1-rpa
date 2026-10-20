@@ -347,6 +347,9 @@ export const CONFIG = {
         perGroupDelayMs: Number(merged.perGroupDelayMs ?? 8000),
         maxImages: Number(merged.maxImages ?? 6),
         maxDocuments: Number(merged.maxDocuments ?? 1),
+        // 断线后等待重连的上限（毫秒），0 = 退回"断开即作废整批"的旧行为。
+        // 2026-10-20 新增，必须远小于 my_app 侧 WHATSAPP_BAILEYS_WAIT_SECONDS(600)。
+        resumeWaitMs: Number(merged.resumeWaitMs ?? 45000),
       },
     };
   })(),
