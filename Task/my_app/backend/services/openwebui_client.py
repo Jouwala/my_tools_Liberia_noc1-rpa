@@ -169,6 +169,19 @@ def _http(method: str, path: str, body: Optional[Dict] = None,
         raise UnreachableError(f"请求 {method} {url} 失败: {e}") from e
 
 
+# 2026-10-19 实测：.27 的 Open WebUI 升到 0.12.0 并启用了 trusted-header 单点登录
+# （GET /api/config → features.auth_trusted_header=true、enable_signup=false），
+# 邮箱密码登录被服务端直接拒绝（HTTP 400 "Your provider has not provided a trusted
+# header"），且带上 X-User-Email / X-Forwarded-Email / Remote-Email 等常见头名也不认。
+# 这不是凭据错，改密码无用 —— 所以把服务端原文翻译成可执行的处置建议，
+# 否则页面上只会剩一串看不懂的 400。
+_TRUSTED_HEADER_HINT = (
+    "Open WebUI 服务端已启用 trusted-header 单点登录，邮箱密码登录被禁用"
+    "（不是账号密码错误）。可用方案：①「系统设置 → AI Model」把主用模型方改成 "
+    "both 或 local，走 WorkBuddy 本地代理；② 由 Open WebUI 管理员签发 API Key。"
+)
+
+
 def signin(force: bool = False) -> str:
     """登录拿 JWT；60 分钟内复用缓存，force=True 或 401 后强制重登。
 
@@ -190,7 +203,11 @@ def signin(force: bool = False) -> str:
                              {"email": email, "password": password},
                              base=base_url, timeout=_META_TIMEOUT)
         if status != 200 or not isinstance(data, dict) or not data.get("token"):
-            raise RuntimeError(f"Open WebUI 登录失败 (HTTP {status}): {str(data)[:200]}")
+            detail = str(data)[:200]
+            if status == 400 and "trusted header" in detail.lower():
+                raise RuntimeError(
+                    f"Open WebUI 登录失败 (HTTP 400): {_TRUSTED_HEADER_HINT}（服务端原文: {detail}）")
+            raise RuntimeError(f"Open WebUI 登录失败 (HTTP {status}): {detail}")
         _AUTH_CACHE["jwt"] = data["token"]
         _AUTH_CACHE["ts"] = time.time()
         return data["token"]

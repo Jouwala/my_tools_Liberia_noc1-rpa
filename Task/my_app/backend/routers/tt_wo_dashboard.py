@@ -2,9 +2,10 @@
 import json
 import logging
 from datetime import datetime, timedelta
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
 from backend.database import get_raw_connection, DB_PATH
 from backend.dialect_helpers import list_table_names, table_columns
+from backend.api_i18n import translate_ui_fields
 
 router = APIRouter(prefix="/api/tt-wo-dashboard", tags=["tt-wo-dashboard"])
 
@@ -1099,7 +1100,12 @@ def _fetch_alarm_chain(conn, tt_no: str, alarm_id, site_id,
 
 
 @router.get("/root-cause-audit/{tt_no}")
-def tt_root_cause_audit(tt_no: str):
+def tt_root_cause_audit(request: Request, tt_no: str):
+    """端点外壳：出参里的展示字段按请求语言翻译（见 api_i18n.UI_KEYS）。"""
+    return translate_ui_fields(_build_root_cause_audit(tt_no), request)
+
+
+def _build_root_cause_audit(tt_no: str):
     """单张 TT 的「系统判定根因 vs NOC 填写根因」一致性审计。
 
     权威依据：history_alarm（告警链路）> eflow_tt.alarm_reason_type > NOC 人工填报。

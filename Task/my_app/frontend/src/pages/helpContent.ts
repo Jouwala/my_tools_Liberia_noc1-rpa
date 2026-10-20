@@ -197,8 +197,8 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
       usage: [
         '空格分隔多关键词检索，或从左侧目录选择文章',
         '输入 TT 单号一键分析：派单归属、时间差、根因分布与结论要点',
-        'AI 分析结论下方附「规则命中证据」（本地规则引擎，与 Email Reports → eFlow TT Rules Check 页签同源）：命中规则名称与 ID、逐条条件匹配详情、规则来源文件 eflow_TT_rules.xlsx（可下载）、规则维护人与工单处理人',
-        '模型不可用（本地代理未启动且 Open WebUI 不可达）时不再只报错：页面会给出一份「程序化判定」结论 —— 级别判定、命中规则、规则来源与处置建议全部由本地规则引擎算出',
+        '结论卡片与下方「规则命中证据」都由本地规则引擎程序化算出（与 Email Reports → eFlow TT Rules Check 页签同源）：命中规则名称与 ID、逐条条件匹配详情、规则来源文件 eflow_TT_rules.xlsx（可下载）、规则维护人与工单处理人',
+        '判定不调用任何模型（2026-10-19 起）：毫秒级返回，级别判定、命中规则、规则来源与处置建议全部由本地规则引擎按 eFlow「TT Update Severity Rule」推出，与每天 04:20 的 eflow_tt_rules_check 定时任务逐字一致',
         '「规则来源与责任人」另给推单规则（TT Push Order Rule，触发步骤 FO Accept）：Rule Name / Rule Type / Rule Trigger Step / Push Order Path / *Auto Operator / Target Handler，说明这单会不会自动推 WO、推给谁、谁自动处理（来源 eflow_push_rules.xlsx，可下载）',
         'TT 批量核查：上传 xlsx/csv/txt 单号清单或直接粘贴，逐单判定工单级别是否正常（正常/需调整/无法判定），可导出 Excel',
         'TT 批量核查支持「下载模板 → 填写 → 上传核查」闭环：点「下载模板」得到带表头的 xlsx，填好单号后把同一个文件传回来即可',
@@ -584,8 +584,8 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
       usage: [
         'Search with space-separated keywords or pick an article from the catalog on the left',
         'Enter a TT number for one-click analysis: assignment, time gap, root-cause distribution and key conclusions',
-        'Below the AI conclusion a "Rule match evidence" block (local rule engine, same source as Email Reports → eFlow TT Rules Check) lists the matched rule name/ID, per-condition match details, the rule source file eflow_TT_rules.xlsx (downloadable), the rule owner and the ticket handler',
-        'When no model is reachable (local proxy down and Open WebUI unreachable) the page no longer just shows an error: it renders a "programmatic verdict" — severity verdict, matched rule, rule source and recommended actions all computed by the local rule engine',
+        'The verdict card and the "Rule match evidence" block below it are both computed by the local rule engine (same source as Email Reports → eFlow TT Rules Check): matched rule name/ID, per-condition match details, the rule source file eflow_TT_rules.xlsx (downloadable), the rule owner and the ticket handler',
+        'No model is called (since 2026-10-19): the verdict returns in milliseconds — severity verdict, matched rule, rule source and recommended actions are all derived by the local rule engine from the eFlow "TT Update Severity Rule" table, word-for-word consistent with the daily 04:20 eflow_tt_rules_check job',
         'Rule source & owners also lists the push order rule (TT Push Order Rule, triggerStep=FO Accept): Rule Name / Rule Type / Rule Trigger Step / Push Order Path / *Auto Operator / Target Handler — i.e. whether the TT is auto-pushed to a WO, to whom, and which operator acts automatically (source: eflow_push_rules.xlsx, downloadable)',
         'TT batch check: upload an xlsx/csv/txt list of TT numbers or paste them to judge each ticket severity (OK / needs adjustment / undetermined) and export to Excel',
         'The batch check supports a "download template → fill in → upload" loop: download the templated xlsx, fill in the numbers and upload the same file back',

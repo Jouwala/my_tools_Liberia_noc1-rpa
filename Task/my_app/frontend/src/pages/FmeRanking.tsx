@@ -7,6 +7,7 @@ import {
 } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import { exportAoaReport, exportReport, type ReportSheetSpec } from '../utils/excelReport'
+import { fmtWarning } from '../utils/warnCodes'
 import ReactECharts from 'echarts-for-react'
 import {
   getFmeRankingFilters, getFmeRankingOverview,
@@ -759,7 +760,7 @@ export default function FmeRanking() {
         </Space>
       </Card>
       {error && <Alert type="error" showIcon message={error} />}
-      {data?.meta.warnings?.map(w => <Alert key={w} type="warning" showIcon message={w} />)}
+      {data?.meta.warnings?.map(w => <Alert key={w} type="warning" showIcon message={fmtWarning(w, t)} />)}
 
       {/* ====== 前 / 后三名卡片（置于图表上方；一行 6 张，左 3 张 Top，右 3 张 Bottom） ====== */}
       {!!availRanked.length && (

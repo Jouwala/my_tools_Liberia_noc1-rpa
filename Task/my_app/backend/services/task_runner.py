@@ -845,8 +845,18 @@ def _resolve_group_worker_pid(task_id: str):
         return None
 
 
-def stop_task(task_id: str) -> dict:
+def stop_task(task_id: str, source: str = "manual") -> dict:
     """停止正在执行的任务（队列模式）。
+
+    source 参数用于隔离不同来源的停止操作（2026-10-20 新增），避免执行历史里
+    无法区分「用户手动停单个任务」和「主开关批量关闭」——
+    两者都会写入 task_execution_log，但触发链和后续行为不同：
+
+    | source          | 调用来源                       | error 标记                |
+    |-----------------|------------------------------|---------------------------|
+    | "manual"        | Task Manager 单个「停止」按钮   | STOPPED_BY_USER           |
+    | "master_switch" | 主开关批量关闭                 | STOPPED_BY_MASTER_SWITCH  |
+    | "task_config"  | Settings 任务配置页禁用        | STOPPED_BY_TASK_CONFIG    |
 
     队列模式下任务在独立 Worker 进程串行执行，Web 进程无内存句柄，故停止 =
     标记队列记录为 cancelled + 终止执行该任务的 Worker 进程（worker_watchdog
@@ -854,6 +864,28 @@ def stop_task(task_id: str) -> dict:
 
     非队列模式（进程内线程）无法安全杀线程，直接返回不支持。
     """
+    # source → error 消息映射
+    _ERROR_MESSAGES = {
+        "manual": "用户手动停止执行",
+        "master_switch": "主开关批量关闭，停止执行",
+        "task_config": "任务配置禁用，停止执行",
+    }
+    _PENDING_MESSAGES = {
+        "manual": "用户手动取消排队",
+        "master_switch": "主开关批量关闭，取消排队",
+        "task_config": "任务配置禁用，取消排队",
+    }
+    _STOPPED_BY_TAGS = {
+        "manual": "STOPPED_BY_USER",
+        "master_switch": "STOPPED_BY_MASTER_SWITCH",
+        "task_config": "STOPPED_BY_TASK_CONFIG",
+    }
+    if source not in _ERROR_MESSAGES:
+        source = "manual"
+    error_msg = _ERROR_MESSAGES[source]
+    pending_msg = _PENDING_MESSAGES[source]
+    stopped_tag = _STOPPED_BY_TAGS[source]
+
     if not QUEUE_ENABLED:
         return {"success": False, "stopped": False,
                 "error": "非队列模式不支持停止运行中的任务（请启用 MY_APP_TASK_QUEUE=1）"}
@@ -877,13 +909,13 @@ def stop_task(task_id: str) -> dict:
                 # 尚未被 Worker 认领：直接取消排队，无需杀进程
                 conn.execute(
                     "UPDATE task_queue SET status = 'cancelled', finished_at = ?, "
-                    "error = '用户手动取消排队' WHERE id = ?",
-                    (now_iso, queue_id),
+                    "error = ? WHERE id = ?",
+                    (now_iso, pending_msg, queue_id),
                 )
                 conn.commit()
                 conn.close()
-                logger.info(f"[{task_id}] 已取消排队中的任务 (queue_id={queue_id})")
-                return {"success": True, "stopped": True, "message": "已取消排队中的任务"}
+                logger.info(f"[{task_id}] {pending_msg} (queue_id={queue_id})")
+                return {"success": True, "stopped": True, "message": pending_msg}
 
             # status == 'running'：终止执行该任务的 Worker 进程
             killed = _kill_worker_process(worker_pid)
@@ -895,13 +927,13 @@ def stop_task(task_id: str) -> dict:
                     killed = _kill_worker_process(grp_pid)
             conn.execute(
                 "UPDATE task_queue SET status = 'cancelled', finished_at = ?, "
-                "error = '用户手动停止执行' WHERE id = ?",
-                (now_iso, queue_id),
+                "error = ? WHERE id = ?",
+                (now_iso, error_msg, queue_id),
             )
             conn.commit()
             conn.close()
 
-            # Worker 被强杀无法回写执行日志，此处补写一条失败记录（带 STOPPED_BY_USER
+            # Worker 被强杀无法回写执行日志，此处补写一条失败记录（带停止来源
             # 标记，避免被 auto_retry 误重试）。run_task 内的微信/邮件失败告警不在这里
             # 触发，故手动停止不会骚扰通知渠道。
             task = _task_registry.get(task_id, {})
@@ -915,10 +947,10 @@ def stop_task(task_id: str) -> dict:
                 "completed_at": now_iso,
                 "elapsed_seconds": None,
                 "result": None,
-                "error": "STOPPED_BY_USER: 用户手动停止执行",
+                "error": f"{stopped_tag}: {error_msg}",
                 "error_trace": None,
             })
-            logger.info(f"[{task_id}] 已停止执行 (queue_id={queue_id}, worker_pid={worker_pid}, killed={killed})")
+            logger.info(f"[{task_id}] 已停止执行 source={source} (queue_id={queue_id}, worker_pid={worker_pid}, killed={killed})")
             return {"success": True, "stopped": True,
                     "message": "已停止执行" if killed else "任务进程已结束，已标记为已停止"}
     except Exception as e:  # noqa: BLE001
@@ -1317,6 +1349,11 @@ def toggle_all_tasks(enabled: bool) -> dict:
     刻意关掉的通道重新打开（2026-10-05 的 whatsapp_send_ext 重复发送事故根因）。
     它们不计入 changed/total，单独通过返回值的 exempt 列表告知前端。
 
+    关闭时同步停止执行中任务（方案 C，2026-10-20）：
+    用户直觉认为「总开关关掉 = 全部停掉」，旧实现只停调度、不停执行中任务，
+    造成误解。新实现关闭主开关时同步对所有 running/pending 任务执行 stop_task，
+    让「禁用」真正做到「立即停止一切正在进行的自动工作」。
+
     返回值的 changed 只统计**真正发生状态变更**的任务数（此前无脑返回
     changed=总数，导致「一键启用」在全部已启用的情况下仍报「已启用 69 个」，
     用户无法据此判断操作是否真的做了什么）。
@@ -1326,6 +1363,8 @@ def toggle_all_tasks(enabled: bool) -> dict:
     errors: list[str] = []
     exempt: list[str] = []
     total = 0                      # 参与本次批量操作的任务数（已扣除豁免）
+    running_task_ids: list[str] = []  # 关闭时当前正在执行/排队的任务（用于同步停止）
+
     for task_id, task in list(_task_registry.items()):
         if task.get("master_switch_exempt"):
             exempt.append(task_id)
@@ -1342,10 +1381,30 @@ def toggle_all_tasks(enabled: bool) -> dict:
             else:
                 if sched.get_job(job_id):
                     sched.remove_job(job_id)
+                # 记录当前执行/排队的任务，用于稍后同步停止
+                if is_task_running(task_id):
+                    running_task_ids.append(task_id)
             changed += 1
         except Exception as e:
             logger.warning(f"[SILENT-EXCEPT] toggle_all_tasks: {task_id} 处理失败", exc_info=True)
             errors.append(f"{task_id}: {e}")
+
+    # 关闭时同步停止所有正在执行/排队的任务（方案 C，source=master_switch 隔离来源）
+    stopped: list[str] = []
+    stop_errors: list[str] = []
+    if not enabled and running_task_ids:
+        for task_id in running_task_ids:
+            try:
+                result = stop_task(task_id, source="master_switch")
+                if result.get("stopped"):
+                    stopped.append(task_id)
+                elif result.get("message") == "任务未处于运行/排队状态，无需停止":
+                    # 已在上述 is_task_running 之后结束，属于正常竞态，不算错误
+                    stopped.append(task_id)
+            except Exception as e:
+                logger.warning(f"[SILENT-EXCEPT] toggle_all_tasks stop_task: {task_id} 失败", exc_info=True)
+                stop_errors.append(f"{task_id}: {e}")
+
     return {
         "success": not errors,
         "changed": changed,
@@ -1353,6 +1412,9 @@ def toggle_all_tasks(enabled: bool) -> dict:
         "enabled": enabled,
         "exempt": exempt,
         "errors": errors[:5],
+        # 方案 C 新增字段：关闭时停止了多少个正在执行的任务
+        "stopped_tasks": stopped if not enabled else [],
+        "stop_errors": stop_errors[:5] if not enabled else [],
     }
 
 

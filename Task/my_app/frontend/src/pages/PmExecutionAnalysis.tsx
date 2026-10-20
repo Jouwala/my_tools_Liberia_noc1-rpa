@@ -36,6 +36,7 @@ import { useI18n } from '../i18n'
 import { useTheme } from '../theme'
 import { CardBase } from '../components/cards'
 import { exportAoaReport } from '../utils/excelReport'
+import { fmtWarnings } from '../utils/warnCodes'
 import {
   getPmAnalysisFilters, getPmAnalysisOverview, getPmAnalysisDrilldown,
   getPmAnalysisWorkflow, getPmAnalysisWorkflowDrilldown,
@@ -265,7 +266,7 @@ export default function PmExecutionAnalysis() {
       setDrillRows(d.rows || [])
       setDrillTotal(d.total ?? (d.rows || []).length)
       setDrillTruncated(!!d.truncated)
-      setDrillWarn((d.meta?.warnings || []).join('; '))
+      setDrillWarn(fmtWarnings(d.meta?.warnings, t, '; '))
     } catch (e: any) {
       setDrillWarn(e?.message || String(e))
     } finally {
@@ -312,7 +313,7 @@ export default function PmExecutionAnalysis() {
       setMsRows(d.rows || [])
       setMsTotal(d.total ?? (d.rows || []).length)
       setMsTruncated(!!d.truncated)
-      setMsWarn((d.meta?.warnings || []).join('; '))
+      setMsWarn(fmtWarnings(d.meta?.warnings, t, '; '))
     } catch (e: any) {
       setMsWarn(e?.message || String(e))
     } finally {
@@ -344,7 +345,7 @@ export default function PmExecutionAnalysis() {
   const columns = useMemo(() => planColumns(t, openDrill, C), [t, openDrill, C])
   const sColumns = useMemo(() => siteColumns(t, openDrill, C), [t, openDrill, C])
 
-  const warningText = (ov?.meta?.warnings || []).join('; ')
+  const warningText = fmtWarnings(ov?.meta?.warnings, t, '; ')
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--wh-space-md)' }}>

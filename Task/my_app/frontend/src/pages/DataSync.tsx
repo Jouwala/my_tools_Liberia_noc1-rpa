@@ -492,11 +492,12 @@ export default function DataSync() {
     try {
       const res = await api.post('/tasks/toggle-all', { enabled })
       if (res.data.success) {
-        // changed 只统计真正变更的数量；全量已达标时后端返回 0，据此给出如实反馈，
-        // 不再无脑报「已启用 N 个」（旧实现让用户无法判断操作是否真的做了什么）
         const changed = res.data.changed ?? 0
+        // 关闭时后端同步停止 running/pending 任务，stopped_tasks 告知前端停了多少个
+        const stopped: string[] = res.data.stopped_tasks ?? []
         message.success(changed > 0
-          ? t(enabled ? 'sync.allEnabled' : 'sync.allDisabled', { count: changed })
+          ? t(enabled ? 'sync.allEnabled' : 'sync.allDisabled',
+             { count: changed, stopped: stopped.length })
           : t('sync.allNoChange'))
         loadTasks(true)
       } else {

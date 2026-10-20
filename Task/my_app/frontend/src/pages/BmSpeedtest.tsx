@@ -31,6 +31,7 @@ import { CardBase, StatCard } from '../components/cards'
 import OoklaLogo from '../components/OoklaLogo'
 import DraggableClickModal from '../components/DraggableClickModal'
 import { exportAoaReport } from '../utils/excelReport'
+import { fmtWarnings } from '../utils/warnCodes'
 import {
   getBmSpeedtestOverview,
   getBmSpeedtestTrend,
@@ -221,7 +222,7 @@ export default function BmSpeedtest() {
         end: end.add(1, 'day').format('YYYY-MM-DD'),
       })
       setData(r.data)
-      if (r.data?.meta?.warnings?.length) setError(r.data.meta.warnings.join('；'))
+      if (r.data?.meta?.warnings?.length) setError(fmtWarnings(r.data.meta.warnings, t, '；'))
     } catch (e: any) {
       setError(e?.message || String(e))
       setData(null)

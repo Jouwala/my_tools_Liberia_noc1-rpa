@@ -99,7 +99,7 @@ def overview(
         return svc.build_overview(s, e)
     except Exception as exc:
         logger.exception("[bm-meta/overview] failed: %s", exc)
-        return _empty_overview(s, e, f"数据加载失败: {exc}")
+        return _empty_overview(s, e, f"load_failed: {exc}")
 
 
 @router.get("/trend")
@@ -121,7 +121,7 @@ def trend(
                          "unit": cal.metric_meta(metric)["unit"],
                          "group": cal.metric_meta(metric)["group"],
                          "window": window, "points": 0,
-                         "warnings": [f"数据加载失败: {exc}"]},
+                         "warnings": [f"load_failed: {exc}"]},
                 "points": []}
 
 
@@ -150,5 +150,5 @@ def drilldown(
         return {"meta": {"start": s, "end": e, "metric": metric or None, "day": day or None,
                          "winner": winner or None, "limit": limit,
                          "returned": 0, "truncated": False,
-                         "warnings": [f"数据加载失败: {exc}"]},
+                         "warnings": [f"load_failed: {exc}"]},
                 "rows": []}

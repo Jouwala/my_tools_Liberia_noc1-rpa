@@ -6,6 +6,7 @@ import {
 import { ReloadOutlined, DownloadOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import dayjs, { Dayjs } from 'dayjs'
 import { exportAoaReport, exportReport, type ReportSheetSpec } from '../utils/excelReport'
+import { fmtWarning, fmtWarnings } from '../utils/warnCodes'
 import { getRanCellsKpiOverview, getRanCellsKpiCells } from '../api'
 import { useI18n } from '../i18n'
 import { useTheme, WH } from '../theme'
@@ -222,7 +223,7 @@ export default function RanCellsKpi() {
       }
       setDrillData(r.data)
       const w = r.data?.warnings
-      if (Array.isArray(w) && w.length) setDrillError(w.join('；'))
+      if (Array.isArray(w) && w.length) setDrillError(fmtWarnings(w, t, '；'))
     } catch (err: any) {
       setDrillError(err?.message || String(err))
       setDrillData(null)
@@ -487,7 +488,7 @@ export default function RanCellsKpi() {
           message={t('rck.loadFailed')} description={error} />
       )}
       {(data?.meta?.warnings || []).map((w, i) => (
-        <Alert key={i} type="warning" showIcon style={{ marginBottom: 'var(--wh-space-sm)' }} message={w} />
+        <Alert key={i} type="warning" showIcon style={{ marginBottom: 'var(--wh-space-sm)' }} message={fmtWarning(w, t)} />
       ))}
 
       {/* ---------- 月度汇总卡片 ---------- */}

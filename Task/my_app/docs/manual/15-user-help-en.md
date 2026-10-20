@@ -10,7 +10,7 @@
 
 - [1. Platform Overview](#1-platform-overview)
 - [2. General Usage](#2-general-usage)
-- [3. Task Manager Deep Dive (72 tasks)](#3-task-manager-deep-dive)
+- [3. Task Manager Deep Dive (73 tasks)](#3-task-manager-deep-dive)
 - [4. Pages Guide](#4-pages-guide)
 - [5. Ops & Troubleshooting](#5-ops-troubleshooting)
 - [6. FAQ](#6-faq)
@@ -76,10 +76,11 @@ Built for the NOC scenario "boards every day, reports must go out": 41+ schedule
 | **m** | Housekeeping tasks: EWS mail session + screenshot/WhatsApp file dependencies |
 | **c** | CN EMS dedicated session: cache sync & daily aggregation share _pmcache, serialized for mutual exclusion |
 | **x** | Realtime alarm dedicated group: split out of group n on 2026-10-15 to run on its own lane, no longer queued behind long tasks like eflow_sync (worst observed queue wait 854s) |
+| **g** | RAN Greenplum extract group (added 2026-10-19): upstream is a two-hop SSH via control1, sharing no session with eFlow/UME/VMAX GBase. It gets its own lane for blast-radius reasons, not duration (measured 72.6s per run) — any hop can wedge at the network layer, the same failure mode that once froze group s for 5.5h, while group m carries the per-minute WhatsApp alarm pushes |
 
 > ⚠️ **New tasks MUST also be registered in `GROUP_TASK_MAP` in worker_watchdog.py** — declaring them only in TASK_SPECS leaves them pending forever. This accident happened four times (finebi_report_sync / whatsapp_send_ext / sp_email_details / the olib_soc and vmax_multi_data_sync tasks found on 2026-09-18).
 
-### 3.3 Full task catalog (72 tasks)
+### 3.3 Full task catalog (73 tasks)
 
 | Task | task_id | Default cron | Group | Workflow script |
 | --- | --- | --- | --- | --- |
@@ -155,6 +156,7 @@ Built for the NOC scenario "boards every day, reports must go out": 41+ schedule
 | Log Files Cleanup | `log_cleanup` | `17 3 * * *` | m | `services/log_cleanup.py → run_log_cleanup` |
 | TMP Directory Cleanup | `tmp_cleanup` | `47 3 * * *` | m | `services/tmp_cleanup.py → run_tmp_cleanup` |
 | TTs and MTTR Report Generate | `tt_mttr_report_generate` | `20 7 * * *` | m | `services/tt_mttr_report.py → run_tt_mttr_report` |
+| RAN User Identity Lists (VoLTE/N78) | `gp_ran_user_sync` | `20 13 * * *` | g | `services/gp_ran/gp_ran_sync.py → run_gp_ran_user_sync` |
 
 Workflow & maintenance notes per task:
 
@@ -1466,6 +1468,32 @@ Workflow & maintenance notes per task:
 - The MTTR axis max is left to Excel auto-scaling so out-of-range months (e.g. P1 2026-05 at 16.37h) are not clipped
 - Re-pause Summary against an independent pandas recomputation before changing the filter; this output is not in _cleanup_old_tt_reports, its size is bounded by KEEP_FILES here
 
+#### RAN User Identity Lists (VoLTE/N78)（`gp_ran_user_sync`）
+
+- Default cron: `20 13 * * *`　|　worker group: **g**
+- Workflow script: `services/gp_ran/gp_ran_sync.py → run_gp_ran_user_sync`
+
+**What it does**: Two-hop SSH via control1 into the RAN Greenplum, runs psql as gpadmin and pulls distinct VoLTE / N78 IMSI lists for the last 7 complete UTC days, writing CSV plus run counters; strictly read-only, nothing lands on the warehouse
+
+**Workflow & data flow**:
+
+1. Daily 13:20 UTC: connect to control1 (10.100.29.12:22), then open a direct-tcpip channel from it to the DB master 193.168.0.6:22
+1. On the master: sudo -S -> su - gpadmin -> psql (database netmaxdb); the SQL travels base64-encoded to survive three nested shells
+1. Window is [today-7, today) of complete UTC days, excluding the still-accumulating current day; one COPY ... TO STDOUT WITH (FORMAT csv, HEADER true) per filter
+1. CSV is written atomically into backend/data/gp_ran/ (volte_from_to.csv / n78_from_to.csv); the side-car sqlite keeps only counts and paths, and the read-only guard rejects writes and TO PROGRAM
+
+**Maintenance**:
+
+- The password lives in credential group gp_ran_control; leave gp_ran_master blank to reuse it — do not copy it into a second place
+- The 13:20 UTC cron is driven by a measured ~10.5h warehouse lag (at 16:11 UTC the newest record was 05:44 UTC): yesterday is only complete around 10:30 UTC, running earlier silently loses a day
+- D023 is the IMSI (618 = Liberia MCC, 15 digits), not a phone number; a MSISDN needs a separate mapping table — never hand this list over as dialable numbers
+- 85% of detail rows have an empty D023; the SQL filters D023 <> ''. The manual statement from site does not, so it returns a blank identity
+- The site-provided volte statement misses its parentheses: C031=1 OR C032=1 OR C033=1 AND <window> parses the window onto C033 only, i.e. full history. Parentheses are added here — do not revert (98% VoLTE coverage is expected, confirmed by the requester on 2026-10-19)
+- This psql is 9.4 / Greenplum 6 and rejects --csv (added in PG 12); CSV must come from COPY ... TO STDOUT
+- L_T216 is range-partitioned on D027 in 12-hour partitions going back ~62 days; GP_RAN_WINDOW_DAYS (default 7) beyond that returns nothing
+- Moving datacenter: change GP_RAN_CONTROL_HOST / GP_RAN_MASTER_HOST / GP_RAN_DB only. The master IP is readable on control1 via cat /home/gpadmin/paas_hosts_master.cc
+- Chain diagnostics: python -m backend.services.gp_ran.gp_ran_check --check (prints both hops, sudo, psql, table and partitions)
+
 ### 3.4 Reliability mechanisms (timeout / retry / self-healing)
 
 | Mechanism | Description |
@@ -1945,8 +1973,8 @@ eFlow TT rule knowledge base: full-text search over rule/case documents, with bu
 
 - Search with space-separated keywords or pick an article from the catalog on the left
 - Enter a TT number for one-click analysis: assignment, time gap, root-cause distribution and key conclusions
-- Below the AI conclusion a "Rule match evidence" block (local rule engine, same source as Email Reports → eFlow TT Rules Check) lists the matched rule name/ID, per-condition match details, the rule source file eflow_TT_rules.xlsx (downloadable), the rule owner and the ticket handler
-- When no model is reachable (local proxy down and Open WebUI unreachable) the page no longer just shows an error: it renders a "programmatic verdict" — severity verdict, matched rule, rule source and recommended actions all computed by the local rule engine
+- The verdict card and the "Rule match evidence" block below it are both computed by the local rule engine (same source as Email Reports → eFlow TT Rules Check): matched rule name/ID, per-condition match details, the rule source file eflow_TT_rules.xlsx (downloadable), the rule owner and the ticket handler
+- No model is called (since 2026-10-19): the verdict returns in milliseconds — severity verdict, matched rule, rule source and recommended actions are all derived by the local rule engine from the eFlow "TT Update Severity Rule" table, word-for-word consistent with the daily 04:20 eflow_tt_rules_check job
 - Rule source & owners also lists the push order rule (TT Push Order Rule, triggerStep=FO Accept): Rule Name / Rule Type / Rule Trigger Step / Push Order Path / *Auto Operator / Target Handler — i.e. whether the TT is auto-pushed to a WO, to whom, and which operator acts automatically (source: eflow_push_rules.xlsx, downloadable)
 - TT batch check: upload an xlsx/csv/txt list of TT numbers or paste them to judge each ticket severity (OK / needs adjustment / undetermined) and export to Excel
 - The batch check supports a "download template → fill in → upload" loop: download the templated xlsx, fill in the numbers and upload the same file back

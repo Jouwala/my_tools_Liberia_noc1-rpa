@@ -110,69 +110,16 @@ def update_config(patch: dict) -> dict:
 
 
 def get_effective() -> dict:
-    """返回前端需要的「当前生效配置 + 各字段说明」。"""
+    """返回前端需要的「当前生效配置 + 默认值」。
+
+    字段中文名/提示词由前端 i18n 承担（AIModelSettings.tsx 的 L.* 与
+    PROVIDER_OPTIONS）。这里曾经并列一份 schema.desc_zh/desc_en，前端从不读，
+    等于同一个字段说明存了两处，2026-10-19 删除。
+    """
     cfg = get_config()
     return {
         "config": cfg,
         "defaults": _DEFAULTS,
-        "schema": {
-            "provider": {
-                "type": "enum",
-                "options": ["local", "openwebui", "both", "custom"],
-                "desc_zh": "主用模型方",
-                "desc_en": "Primary model provider",
-            },
-            "local_enabled": {
-                "type": "bool",
-                "desc_zh": "启用本地 WorkBuddy 代理",
-                "desc_en": "Enable local WorkBuddy proxy",
-            },
-            "local_model": {
-                "type": "str",
-                "desc_zh": "本地模型 ID",
-                "desc_en": "Local model ID",
-            },
-            "local_base_url": {
-                "type": "str",
-                "desc_zh": "本地代理地址",
-                "desc_en": "Local proxy base URL",
-            },
-            "openwebui_model": {
-                "type": "str",
-                "desc_zh": "Open WebUI 模型（支持 auto / auto:pattern 自动选）",
-                "desc_en": "Open WebUI model (supports auto / auto:pattern)",
-            },
-            "openwebui_base_url": {
-                "type": "str",
-                "desc_zh": "Open WebUI 地址",
-                "desc_en": "Open WebUI base URL",
-            },
-            "openwebui_email": {
-                "type": "str",
-                "desc_zh": "Open WebUI 登录邮箱",
-                "desc_en": "Open WebUI email",
-            },
-            "openwebui_password": {
-                "type": "str",
-                "desc_zh": "Open WebUI 登录密码",
-                "desc_en": "Open WebUI password",
-            },
-            "custom_model": {
-                "type": "str",
-                "desc_zh": "自定义模型 ID（需配合 Base URL 和 API Key 使用）",
-                "desc_en": "Custom model ID",
-            },
-            "custom_base_url": {
-                "type": "str",
-                "desc_zh": "自定义 API Base URL（如 https://api.openai.com/v1）",
-                "desc_en": "Custom API Base URL",
-            },
-            "custom_api_key": {
-                "type": "str",
-                "desc_zh": "自定义 API Key（支持 OpenAI 兼容接口）",
-                "desc_en": "Custom API Key",
-            },
-        },
     }
 
 

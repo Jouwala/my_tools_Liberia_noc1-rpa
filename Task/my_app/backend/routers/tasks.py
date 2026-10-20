@@ -12,6 +12,8 @@ import logging
 
 from fastapi import APIRouter, Request, Depends, HTTPException, Response
 
+from backend.api_i18n import translate_ui_fields
+
 from backend.security import require_protected
 from backend.services import task_runner
 from backend.task_registry import sync_history
@@ -107,6 +109,7 @@ def tasks_running():
 
 @router.get("/api/tasks/history")
 def get_tasks_history(
+    request: Request,
     limit: int = 50,
     offset: int = 0,
     task_id: str | None = None,
@@ -120,16 +123,16 @@ def get_tasks_history(
 
     返回 {"history": [...], "total": int}；不传任何过滤参数时等价于「最近 limit 条全部任务」。
     """
-    return task_runner.get_global_history(
+    return translate_ui_fields(task_runner.get_global_history(
         limit=limit, offset=offset, task_id=task_id, success=success,
         trigger=trigger, keyword=keyword, start=start, end=end,
-    )
+    ), request)
 
 
 @router.get("/api/tasks/failures")
-def tasks_failures(days: int = 3, limit: int = 200):
+def tasks_failures(request: Request, days: int = 3, limit: int = 200):
     """按 error 首行聚类近期失败，便于快速判断是否为同一根因"""
-    return task_runner.get_recent_failures(days, limit)
+    return translate_ui_fields(task_runner.get_recent_failures(days, limit), request)
 
 
 @router.get("/api/tasks/{task_id}")
@@ -138,19 +141,19 @@ def get_task_info(task_id: str, request: Request):
     detail = task_runner.get_task_detail(task_id, lang=_req_lang(request))
     if not detail:
         raise HTTPException(status_code=404, detail=f"任务 {task_id} 未找到")
-    return detail
+    return translate_ui_fields(detail, request)
 
 
 @router.post("/api/tasks/{task_id}/run", dependencies=[Depends(require_protected)])
-def run_task_now(task_id: str):
+def run_task_now(request: Request, task_id: str):
     """立即执行指定任务（后台异步执行，立即返回 accepted）"""
-    return task_runner.run_task_async(task_id, trigger="manual")
+    return translate_ui_fields(task_runner.run_task_async(task_id, trigger="manual"), request)
 
 
 @router.post("/api/tasks/{task_id}/stop", dependencies=[Depends(require_protected)])
-def stop_task_now(task_id: str):
+def stop_task_now(request: Request, task_id: str):
     """停止正在执行的任务（终止 Worker 进程，看门狗会自动重新拉起）"""
-    return task_runner.stop_task(task_id)
+    return translate_ui_fields(task_runner.stop_task(task_id), request)
 
 
 @router.get("/api/tasks/{task_id}/status")
@@ -172,7 +175,7 @@ def task_history(task_id: str, limit: int = 200):
 
 
 @router.post("/api/tasks/{task_id}/schedule")
-def update_task_schedule(task_id: str, body: dict):
+def update_task_schedule(request: Request, task_id: str, body: dict):
     """更新任务调度频率
     body: {"cron": "分 时 日 月 周"}
     示例: {"cron": "0 8 * * *"} 每天8点
@@ -182,16 +185,16 @@ def update_task_schedule(task_id: str, body: dict):
     cron = body.get("cron", "")
     if not cron:
         raise HTTPException(status_code=400, detail="缺少 cron 表达式")
-    return task_runner.update_task_schedule(task_id, cron)
+    return translate_ui_fields(task_runner.update_task_schedule(task_id, cron), request)
 
 
 @router.post("/api/tasks/{task_id}/toggle")
-def toggle_task_enabled(task_id: str, body: dict):
+def toggle_task_enabled(request: Request, task_id: str, body: dict):
     """启用/禁用任务
     body: {"enabled": true/false}
     """
     enabled = body.get("enabled", True)
-    return task_runner.toggle_task(task_id, enabled)
+    return translate_ui_fields(task_runner.toggle_task(task_id, enabled), request)
 
 
 # ========== 任务配置 导出/导入（Settings「任务配置」页签） ==========
@@ -205,13 +208,13 @@ def task_config_export_all():
 
 
 @router.post("/api/tasks/config/import", dependencies=[Depends(require_protected)])
-def task_config_import_all(body: dict):
+def task_config_import_all(request: Request, body: dict):
     """批量导入任务配置
     body: {"configs": [{"task_id": "...", "cron"?: "...", "enabled"?: bool}, ...]}
     逐项独立成败：非法项只影响自身，返回 {applied, errors}。
     """
     configs = body.get("configs", [])
-    return task_runner.import_task_configs(configs)
+    return translate_ui_fields(task_runner.import_task_configs(configs), request)
 
 
 @router.get("/api/tasks/{task_id}/config")

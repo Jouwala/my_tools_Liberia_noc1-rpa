@@ -2205,11 +2205,6 @@ html {
   font-size: 12px; font-weight: 750; line-height: 1.2;
   overflow-wrap: anywhere;
 }
-.wf-name-cn {
-  margin-top: 1px;
-  color: var(--wf-muted);
-  font-size: 10.5px; font-weight: 600; line-height: 1.2;
-}
 .wf-count {
   margin-top: 4px;
   color: var(--stage-color);

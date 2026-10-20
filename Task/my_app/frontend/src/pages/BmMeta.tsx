@@ -37,6 +37,7 @@ import { CardBase, StatCard } from '../components/cards'
 import DraggableClickModal from '../components/DraggableClickModal'
 import { exportReport } from '../utils/excelReport'
 import type { CellValue } from '../utils/excelReport'
+import { fmtWarnings } from '../utils/warnCodes'
 import { getBmMetaOverview, getBmMetaTrend, getBmMetaDrilldown } from '../api'
 
 const { Text } = Typography
@@ -263,7 +264,7 @@ export default function BmMeta() {
         end: end.add(1, 'day').format('YYYY-MM-DD'),
       })
       setData(r.data)
-      if (r.data?.meta?.warnings?.length) setError(r.data.meta.warnings.join('；'))
+      if (r.data?.meta?.warnings?.length) setError(fmtWarnings(r.data.meta.warnings, t, '；'))
     } catch (e: any) {
       setError(e?.message || String(e))
       setData(null)

@@ -87,7 +87,7 @@ def overview(
         return svc.build_overview(s, e)
     except Exception as exc:
         logger.exception("[bm-speedtest/overview] failed: %s", exc)
-        return _empty_overview(s, e, f"数据加载失败: {exc}")
+        return _empty_overview(s, e, f"load_failed: {exc}")
 
 
 @router.get("/trend")
@@ -106,7 +106,7 @@ def trend(
         logger.exception("[bm-speedtest/trend] failed: %s", exc)
         return {"meta": {"start": s, "end": e, "metric": metric, "kind": cal.METRICS[metric]["kind"],
                          "unit": cal.METRICS[metric]["unit"], "window": window, "points": 0,
-                         "warnings": [f"数据加载失败: {exc}"]},
+                         "warnings": [f"load_failed: {exc}"]},
                 "series": []}
 
 
@@ -138,5 +138,5 @@ def drilldown(
         return {"meta": {"start": s, "end": e, "metric": metric or None, "day": day or None,
                          "brand": brand or None, "winner": winner or None,
                          "total": 0, "returned": 0, "truncated": False, "limit": limit,
-                         "warnings": [f"数据加载失败: {exc}"]},
+                         "warnings": [f"load_failed: {exc}"]},
                 "rows": []}

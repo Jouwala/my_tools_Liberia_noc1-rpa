@@ -48,6 +48,7 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 from backend.database import Base, engine, DB_PATH, DB_MODE
+from backend.api_i18n import translate_text
 from backend.models.analysis import AnalysisArchive, UploadedFile
 from backend.routers import (
     tables, upload, analysis, gis, personnel, tt_wo_dashboard, alarm_dashboard,
@@ -369,10 +370,15 @@ async def _validation_exception_handler(request: Request, exc: RequestValidation
 
 @app.exception_handler(StarletteHTTPException)
 async def _http_exception_handler(request: Request, exc: StarletteHTTPException):
-    """业务主动抛出的 HTTPException：保留原 status/detail，仅补 request_id。"""
+    """业务主动抛出的 HTTPException：保留原 status，补 request_id。
+
+    detail 走 api_i18n 的边界翻译：英文请求（Accept-Language: en*）把已登记的
+    中文提示换成英文。这里是全部 168 处 raise 的唯一咽喉点，所以各路由不必
+    各自注入 request 或改签名。未登记的串原样返回。
+    """
     return JSONResponse(
         status_code=exc.status_code,
-        content={"detail": exc.detail, "request_id": _new_request_id()},
+        content={"detail": translate_text(exc.detail, request), "request_id": _new_request_id()},
         headers=getattr(exc, "headers", None),
     )
 
@@ -392,7 +398,7 @@ async def _unhandled_exception_handler(request: Request, exc: Exception):
     )
     return JSONResponse(
         status_code=500,
-        content={"detail": "服务器内部错误，请稍后重试", "request_id": rid},
+        content={"detail": translate_text("服务器内部错误，请稍后重试", request), "request_id": rid},
     )
 
 

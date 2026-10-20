@@ -693,3 +693,52 @@ def test_no_duplicate_worker_stacks_and_claims_are_atomic():
     )
 
 
+# ---------------------------------------------------------------- 守卫 16
+def test_tt_quick_analysis_is_programmatic_only():
+    """「TT 快速分析」的结论必须纯程序化，且不得带「模型失败」措辞（2026-10-19）。
+
+    现场事故：`?page=eflow_qa` 顶部长期挂着红条
+    `AI analysis failed: RuntimeError: 所有候选模型均失败 ['openwebui:agnes-2.5-flash']:
+    Open WebUI 登录失败 (HTTP 400): {'detail': 'Your provider has not provided a trusted
+    header…'}`。根因在**服务端**：192.168.100.27 的 Open WebUI 0.12.0 已启用
+    trusted-header 单点登录，邮箱密码登录被服务端禁用（改密码无用，实测记录见
+    `backend/services/openwebui_client.md`），而 `provider=openwebui` 时候选链里
+    **只有云端这一档**，本地 WorkBuddy 代理（当时在线、单次对话约 2 秒）根本不进链，
+    于是一次 400 就整条失败。用户裁决：这个页面一律按程序化规则引擎出结果，不再调模型。
+
+    钉死三件事，缺一即回归：
+      1. 前端不得再请求 `/eflow-qa/tt-ai`（只允许 `/eflow-qa/tt-ai-fast`）；
+      2. `/tt-ai-fast` 渲染结论必须传 `reason=""`，否则 Markdown 末尾凭空多出一行
+         「未采用模型结论的原因」，把主结论写成兜底；
+      3. 程序化结论正文（zh/en）不得出现「模型不可用 / 模型失败原因」这类兜底措辞，
+         但必须明确声明「无模型参与」—— 用户要能分辨结论是引擎给的还是模型给的。
+    """
+    page = (PROJECT_ROOT / "frontend" / "src" / "pages" / "EflowQa.tsx").read_text(
+        encoding="utf-8", errors="replace")
+    stale = re.findall(r"/eflow-qa/tt-ai(?!-fast)", page)
+    assert not stale, (
+        f"EflowQa.tsx 又出现 {len(stale)} 处云端 /tt-ai 调用 —— TT 快速分析必须只走"
+        " /tt-ai-fast（本地规则引擎），模型路径只留给人工排障"
+    )
+
+    router = (ROUTERS / "eflow_qa.py").read_text(encoding="utf-8", errors="replace")
+    fast_body = router.split("def tt_ai_fast(", 1)[1].split("\n@router", 1)[0]
+    assert 'reason=""' in fast_body, (
+        'tt_ai_fast 不再用 reason="" 渲染 —— 程序化结论会被写成「模型失败后的兜底」'
+    )
+
+    from backend.services.eflow_rules import tt_rule_evidence as tre
+
+    ev = {"matched": {}, "rules_file": {}, "handler": {}}
+    md_en = tre.render_local_conclusion(ev, report=None, lang="en", reason="")
+    md_zh = tre.render_local_conclusion(ev, report=None, lang="zh", reason="")
+    for bad in ("AI model was unavailable", "Model failure reason",
+                "未采用模型结论的原因", "模型不可用"):
+        assert bad not in md_en and bad not in md_zh, (
+            f"程序化结论残留兜底措辞「{bad}」—— 它现在是主结论，不是模型失败的替代"
+        )
+    assert "No model is involved" in md_en and "无模型参与" in md_zh, (
+        "程序化结论缺少「无模型参与」声明 —— 界面上无法区分引擎判定与模型判定"
+    )
+
+

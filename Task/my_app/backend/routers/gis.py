@@ -1391,10 +1391,10 @@ def _load_site_kpis(site_id: str, site_detail: dict, days: int = 60) -> dict:
                 for (tech, day), value in sorted(merged.items(), key=lambda kv: (kv[0][1], kv[0][0]))
             ]
         else:
-            result["warnings"].append(f"近 {days} 天暂无站点可用率数据")
+            result["warnings"].append(f"avail_no_data_days: {days}")
     except Exception as exc:
         logger.warning("[gis/kpi] availability failed site=%s: %s", sid, exc)
-        result["warnings"].append("站点可用率暂不可用")
+        result["warnings"].append("avail_unavailable")
 
     # 丢包：独立 lte_pl 库。优先按站点编码匹配 Managed Element 末尾编码，再按名称匹配。
     # 双模：PG 模式下数据在 lte_pl.packet_loss_data（线上实时写入，约 167 万行）；
@@ -1433,7 +1433,7 @@ def _load_site_kpis(site_id: str, site_detail: dict, days: int = 60) -> dict:
             else:
                 pl_path = Path(r"d:\01_RPA\Task\my_app\data\packet_lost\lte_pl.sqlite3")
                 if not pl_path.exists():
-                    result["warnings"].append("丢包数据源不存在")
+                    result["warnings"].append("loss_source_missing")
                 else:
                     # 一律走 get_raw_connection（勿改回裸 sqlite3.connect）：
                     # 裸连接绕过占位符 ? → %s 翻译与 _ClosingConnection 语义，
@@ -1465,7 +1465,7 @@ def _load_site_kpis(site_id: str, site_detail: dict, days: int = 60) -> dict:
                 it["samples"] = 0
     except Exception as exc:
         logger.warning("[gis/kpi] packet loss failed site=%s: %s", sid, exc)
-        result["warnings"].append("站点丢包数据暂不可用")
+        result["warnings"].append("loss_unavailable")
 
     # 微波利用率：复用 MW UME 拓扑服务，按节点 site_id 过滤关联链路。
     try:
@@ -1499,7 +1499,7 @@ def _load_site_kpis(site_id: str, site_detail: dict, days: int = 60) -> dict:
                 })
     except Exception as exc:
         logger.warning("[gis/kpi] microwave failed site=%s: %s", sid, exc)
-        result["warnings"].append("微波链路利用率暂不可用")
+        result["warnings"].append("mw_util_unavailable")
 
     result["kpi_series"] = _load_site_kpi_series(site_id, site_name)
     return result
@@ -1597,7 +1597,7 @@ def _tt_wo_analytics(conn, S, site_match, site_params, start=None, end=None):
         result["tt"]["sla_rate"] = round(result["tt"]["sla_met"] / total * 100, 2) if total else None
     except Exception:
         logger.warning("[SILENT-EXCEPT] _tt_wo_analytics tt summary", exc_info=True)
-        result["warnings"].append("TT 汇总统计失败")
+        result["warnings"].append("tt_summary_failed")
         result["tt"]["total"] = 0
 
     # ---- TT 分布（按日 / 状态 / 严重度 / SLA / 根因） ----
@@ -1619,7 +1619,7 @@ def _tt_wo_analytics(conn, S, site_match, site_params, start=None, end=None):
                 tt_params).fetchall(), top_n=10 if key == "by_root_cause" else None)
     except Exception:
         logger.warning("[SILENT-EXCEPT] _tt_wo_analytics tt distribute", exc_info=True)
-        result["warnings"].append("TT 分布统计失败")
+        result["warnings"].append("tt_dist_failed")
 
     # ---- TT 故障时长分桶（解析 '0d0h15m'，SQL 层做不了） ----
     try:
@@ -1676,7 +1676,7 @@ def _tt_wo_analytics(conn, S, site_match, site_params, start=None, end=None):
         except Exception:
             logger.warning("[SILENT-EXCEPT] _tt_wo_analytics wo", exc_info=True)
             result["wo"]["total"] = 0
-            result["warnings"].append("WO 统计失败")
+            result["warnings"].append("wo_stats_failed")
 
     return result
 
@@ -1752,7 +1752,7 @@ def get_site_drilldown_analytics(
         site_match, site_params = _tt_site_match(S, site_id, site_detail)
         if not site_match:
             conn.close()
-            return {"tt": {}, "wo": {}, "his": {}, "warnings": ["无法确定站点关联字段"]}
+            return {"tt": {}, "wo": {}, "his": {}, "warnings": ["site_join_unknown"]}
         data = _tt_wo_analytics(conn, S, site_match, site_params, start, end)
         data.update(_alarm_analytics(conn, S, site_id, start, end))
         conn.close()
@@ -2623,7 +2623,7 @@ def get_site_alarm_suggestions(
             "site_id": site_id,
             "items": [],
             "elapsed_sec": round(_time.time() - t0, 2),
-            "warnings": ["该站点在数据库中没有可解析 alarm_id 的告警记录"],
+            "warnings": ["alarm_no_parseable_id"],
             "cached": False,
         }
         with _ALARM_SUG_LOCK:
@@ -2631,11 +2631,11 @@ def get_site_alarm_suggestions(
         return out
 
     if len(candidates) > limit:
-        warnings.append(f"站点告警过多，仅取最近 {limit} 条去 UME 查建议")
+        warnings.append(f"alarm_capped: {limit}")
         candidates = candidates[:limit]
 
     if skipped_no_id:
-        warnings.append(f"{skipped_no_id} 条告警无可解析的 alarm_id，已跳过")
+        warnings.append(f"alarm_skipped: {skipped_no_id}")
 
     # ---- 2) 逐条调 lookup_alarm，复用 eFlow QA 的同款链路 ----
     try:

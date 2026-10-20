@@ -534,13 +534,15 @@ export default function TTWODashboard({ only, source }: { only?: TTWOOnly; sourc
     api.get(isWoSource ? '/wo-dashboard/drilldown' : '/tt-wo-dashboard/drilldown', { params })
       .then(res => {
         setDrillData(res.data.data || [])
-        setDrillTitle(res.data.title || 'Drilldown')
+        // 后端标题是「WO - <维度键>: <值>」，维度键不随语言变；兜底必须走 i18n，
+        // 原来硬编码 'Drilldown' 会让中文界面冒出英文。
+        setDrillTitle(res.data.title || t('common.drilldown'))
       })
       .catch(() => {
-        setDrillTitle('Failed to load data')
+        setDrillTitle(t('common.drillLoadFailed'))
       })
       .finally(() => setDrillLoading(false))
-  }, [timeRange, selectedRegion, selectedOwner, advParam, isWoSource])
+  }, [timeRange, selectedRegion, selectedOwner, advParam, isWoSource, t])
 
   // 模糊搜索
   const filteredDrillData = useMemo(() => {

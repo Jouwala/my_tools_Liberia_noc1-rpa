@@ -62,7 +62,7 @@ def overview(
         return {
             "meta": {"month": m, "threshold": threshold, "days": [],
                      "source": "", "generated_at": "", "elapsed_seconds": 0,
-                     "warnings": [f"数据加载失败: {e}"]},
+                     "warnings": [f"load_failed: {e}"]},
             "techs": [],
         }
 
@@ -92,7 +92,7 @@ def cells(
             "tech": tech, "label": "", "desc": "", "month": m, "day": d,
             "threshold": threshold, "scope": scope, "roster_cells": 0,
             "total": 0, "meeting": 0, "below": 0, "blank": 0, "rows": [],
-            "warnings": [f"无效制式: {tech!r}（可选 2G/3G/4G）"],
+            "warnings": [f"invalid_tech: {tech}"],
         }
     try:
         return svc.compute_tech_cells(tech, m, d, threshold, scope)
@@ -103,5 +103,5 @@ def cells(
             "desc": svc.TECH_SPEC[tech]["desc"], "month": m, "day": d,
             "threshold": threshold, "scope": scope, "roster_cells": 0,
             "total": 0, "meeting": 0, "below": 0, "blank": 0, "rows": [],
-            "warnings": [f"数据加载失败: {e}"],
+            "warnings": [f"load_failed: {e}"],
         }

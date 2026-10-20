@@ -40,7 +40,7 @@ def overview(
         return svc.build_overview(month, tech=tech, supervisor=supervisor, fme=fme, threshold=threshold)
     except Exception as exc:
         logger.exception("[fme-ranking/overview] failed: %s", exc)
-        return {"meta": {"month": month, "tech": tech, "threshold": threshold, "warnings": [f"数据加载失败: {exc}"]},
+        return {"meta": {"month": month, "tech": tech, "threshold": threshold, "warnings": [f"load_failed: {exc}"]},
                 "filters": {"month": month, "tech": tech, "supervisor": supervisor, "fme": fme},
                 "summary": {"fme_count": 0, "site_count": 0, "sites_with_availability": 0, "wo_total": 0, "wo_open": 0, "wo_closed": 0},
                 "rows": []}

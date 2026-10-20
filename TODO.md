@@ -39,6 +39,25 @@
 
 ### P2 —— 体验与工程规范
 
+- [ ] **7038 找个空闲时段重启，让 TT 快速分析的两项已落盘改动生效（2026-10-19 立，10-20 补充）。**
+  1. **结论卡片正文还是旧文案** —— `> The AI model was unavailable…` 加末行
+     `*Model failure reason: 程序化先行（/tt-ai-fast）…*`。磁盘代码是干净的（离线渲染已确认会输出
+     `No model is involved` / `无模型参与`），旧文案只来自进程内的旧字节码。
+  2. **`provider` 已从 `openwebui` 改成 `both`**（写在 `Task\my_app\backend\services\ai_model_config.json`），
+     但 `ai_model_config._cached` 是进程内缓存，所以 `GET /api/ai-model-settings/chain` 仍回 `openwebui`。
+     改这一项的原因：Open WebUI（.27，0.12.0）启用了 trusted-header SSO，邮箱密码登录被服务端**永久**关死
+     （带真实账密试遍 11 个头名 + 3 组双头全是同一个 400，明细见 `Task\my_app\backend\services\openwebui_client.md`），
+     而 `provider=openwebui` 时候选链里只有云端一档、本地 WorkBuddy 档根本不进链，一次 400 就整条失败；
+     `both` 让 WorkBuddy 先进链（实测在线、一次对话约 2 秒）。
+     **执行**（PowerShell 不支持 `&&`，逐行跑）：
+     `netstat -ano | Select-String ':7038\s'` 取 PID → `Stop-Process -Id <PID> -Force`（`backend_watchdog` 数秒内自动拉起）。
+     **自查**：
+     `(Invoke-RestMethod "http://127.0.0.1:7038/api/eflow-qa/tt-ai-fast?tt=TT202610190094&lang=en").ai.conclusion | Select-String 'No model is involved'` 要命中；
+     `(Invoke-RestMethod "http://127.0.0.1:7038/api/ai-model-settings/chain").provider` 要是 `both`。
+     **回滚**：把该 json 里的 provider 改回 `openwebui`（文件不入库，只在本机生效）。
+     界面不受这两项影响：`?page=eflow_qa` 已只调 `/tt-ai-fast`，线上包 `index-BQiCP-wf.js` 里查不到 `/tt-ai`；
+     回归守卫 `tests\test_engineering_guards.py::test_tt_quick_analysis_is_programmatic_only` 已就位（1 passed）。
+
 - [ ] **本 8 份文档体系的落地与首轮校验。** 根目录、门户 `docs\`、`Task\my_app\` 三处已建立；待办：确认三处文件名一致、互链可达，并把索引页接进门户导航。
 - [ ] **门户移动端体验复查。** 二维码扫码要求同网段 WiFi，需确认现场网络条件下可用。
 - [ ] **根目录过程产物清理。** 根目录残留大量 `tmp_qc*.txt`（76 个）、`_*` 探针与切片文件，属一次性产物。历史教训见 `7b1d33b`（98 个探针脚本误入库）。**清理前先确认无脚本引用。**
@@ -88,14 +107,18 @@
   用户已明确接受该副作用。**待办**：确认历史曲线与对外报表的口径说明是否需要同步调整。
   回滚手段：`TMP/_bak_bp_report_*.sqlite3` 快照。
 
-- [ ] **TT 分析「先快后准」备灾（2026-10-08）。** 本地规则引擎 + 毫秒级 `GET /api/eflow-qa/tt-ai-fast`
+- [ ] **TT 分析「先快后准」备灾（2026-10-08）→ 已转正为纯程序化（2026-10-19）。** 本地规则引擎 + 毫秒级 `GET /api/eflow-qa/tt-ai-fast`
   + `TT_AI_LOCAL_ONLY=1` env 开关，三层兜底详见
-  `Task\my_app\backend\routers\eflow_qa.py:594-712`、`backend\services\eflow_rules\tt_rule_evidence.py:858`。
-  前端 `EflowQa.tsx` 改为「fast 立即显示 → 原端点 AI 替换」模式，并加橙色/蓝色徽标
-  区分「程序化判定」与「云端 AI 结论」。**待办**：(1) `git status --porcelain` 复查
+  `Task\my_app\backend\routers\eflow_qa.py:564-719`、`backend\services\eflow_rules\tt_rule_evidence.py:858`。
+  前端 `EflowQa.tsx` 原先是「fast 立即显示 → 原端点 AI 替换」模式；**2026-10-19 用户要求不再用 AI**，
+  页面已改为**只调 `/tt-ai-fast`**，结论文案与徽标统一为「判定结论（本地规则引擎）/ 程序化判定，无模型参与」，
+  模型路径 `/tt-ai` 保留但界面不再依赖（`openwebui_client` 仍服务「系统设置 → AI 模型」连通性测试）。
+  **待办**：(1) `git status --porcelain` 复查
   `Task\my_app\frontend\src\pages\EflowQa.tsx`、`i18n.tsx`、`backend\routers\eflow_qa.py`
-  改动在版本控制下；(2) 提交并更新手册 `Task\my_app\docs\manual\04-task-system.md`
-  的「TT AI 兜底」一节。回滚手段：env `TT_AI_LOCAL_ONLY=0` 不生效 + 直接回滚 git 即可。
+  改动在版本控制下；(2) 提交（`docs\manual\11-feature-guide.md` 14e / 14e-1 与
+  `17-rule-engine-vs-llm.md` 17.2.2 已于 2026-10-19 改写为「页面只走程序化」；
+  `04-task-system.md` 并没有「TT AI 兜底」一节，无需再等它）。
+  回滚手段：`git revert` 本次提交；env `TT_AI_LOCAL_ONLY` 对本页已无作用。
 
 ## 三、已完成（近期，供对照）
 

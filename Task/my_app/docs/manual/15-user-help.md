@@ -10,7 +10,7 @@
 
 - [1. 平台简介](#1-平台简介)
 - [2. 通用操作](#2-通用操作)
-- [3. 任务管理详解（72 个任务）](#3-任务管理详解)
+- [3. 任务管理详解（73 个任务）](#3-任务管理详解)
 - [4. 页面指南](#4-页面指南)
 - [5. 运维与排障](#5-运维与排障)
 - [6. 常见问题](#6-常见问题)
@@ -76,10 +76,11 @@
 | **m** | 内务轻任务：EWS 邮件会话 + 截图/WhatsApp 文件依赖 |
 | **c** | CN EMS 独立会话：缓存同步与日聚合共享 _pmcache，同组保证互斥 |
 | **x** | 实时告警专属组：2026-10-15 从 n 组拆出，独占一条道不再排在 eflow_sync 等长任务后面（此前最差排队 854s） |
+| **g** | RAN Greenplum 取数组：2026-10-19 新增。上游是 control1 两跳 SSH，与 eFlow/UME/VMAX GBase 无会话交集。独立成组的理由是故障域而非时长（实测单轮 72.6s）—— 这条链路每一跳都可能挂死在网络层，与当年 s 组 sp_data_sync 挂死 5.5h 拖停整组同型，而 m 组跑着每分钟的告警 WhatsApp 推送 |
 
 > ⚠️ **新增任务必须同时登记进 `worker_watchdog.py` 的 `GROUP_TASK_MAP`** —— 只写 `TASK_SPECS` 不分组 = 任务入队后永远 pending。这是本项目已发生过四次的事故模式（finebi_report_sync / whatsapp_send_ext / sp_email_details / 2026-09-18 的 olib_soc 与 vmax_multi_data_sync）。
 
-### 3.3 全量任务清单（72 个）
+### 3.3 全量任务清单（73 个）
 
 | 任务 | task_id | 默认 cron | 组 | 工作流脚本 |
 | --- | --- | --- | --- | --- |
@@ -155,6 +156,7 @@
 | 日志文件清理 | `log_cleanup` | `17 3 * * *` | m | `services/log_cleanup.py → run_log_cleanup` |
 | TMP 目录清理 | `tmp_cleanup` | `47 3 * * *` | m | `services/tmp_cleanup.py → run_tmp_cleanup` |
 | TTs and MTTR 报表生成 | `tt_mttr_report_generate` | `20 7 * * *` | m | `services/tt_mttr_report.py → run_tt_mttr_report` |
+| RAN 用户身份清单（VoLTE/N78） | `gp_ran_user_sync` | `20 13 * * *` | g | `services/gp_ran/gp_ran_sync.py → run_gp_ran_user_sync` |
 
 每个任务的工作流与维护要点：
 
@@ -1466,6 +1468,32 @@
 - MTTR 纵轴上限交给 Excel 自动缩放：超标月份（如 P1 2026-05 的 16.37h）不能被裁掉
 - 口径改动前先跑一次并把 Summary 与 pandas 独立复算对拍；产物不在 _cleanup_old_tt_reports 的清理名单里，靠本任务自己的 KEEP_FILES 控制体积
 
+#### RAN 用户身份清单（VoLTE/N78）（`gp_ran_user_sync`）
+
+- 默认 cron: `20 13 * * *`　|　worker 组: **g**
+- 工作流脚本: `services/gp_ran/gp_ran_sync.py → run_gp_ran_user_sync`
+
+**功能**: 经 control1 两跳 SSH 到 RAN Greenplum，以 gpadmin 跑 psql，取最近 7 个完整 UTC 日的 VoLTE / N78 去重 IMSI 清单，落成 CSV 并记录计数；全程只读，数仓侧不落盘
+
+**工作流与数据流**:
+
+1. 每天 13:20 UTC 连 control1（10.100.29.12:22），在它上面开一条 direct-tcpip 通道转发到数据库主节点 193.168.0.6:22
+1. 主节点上 sudo -S → su - gpadmin → psql（库 netmaxdb），SQL 以 base64 传输避开三层 shell 的引号嵌套
+1. 窗口取 [今天-7, 今天) 的完整 UTC 日，不含仍在累积的当天；两个口径各跑一次 COPY ... TO STDOUT WITH (FORMAT csv, HEADER true)
+1. CSV 原子写入 backend/data/gp_ran/（volte_起_止.csv / n78_起_止.csv），旁路 sqlite 只记计数与路径，只读守卫拒绝任何写语句与 TO PROGRAM
+
+**维护要点**:
+
+- 口令在「设置 → 凭据管理」的 gp_ran_control 分组；gp_ran_master 留空即自动复用同一口令，不要抄成第二份
+- cron 定在 13:20 UTC 是因为实测数仓落库延迟约 10.5 小时（16:11 UTC 时最新记录才 05:44 UTC），「昨天」要到约 10:30 UTC 才完整；提前跑会静默少一天
+- D023 是 IMSI（618=利比里亚 MCC，15 位）不是电话号码；要 MSISDN 必须另找关联表，别把这份清单当可拨打号码交付
+- 明细里 85% 的 D023 为空，SQL 已加 D023 <> '' 排掉；现场人工语句没有这一条，照抄会多出一个空值
+- 现场给的 volte 语句缺括号：C031=1 OR C032=1 OR C033=1 AND 时间窗 会被解析成时间窗只管 C033，等于全历史。本任务已补括号，**不要改回去**（VoLTE 覆盖 98% 属预期，需求方 2026-10-19 确认）
+- 这套 psql 是 9.4 / Greenplum 6，不认 --csv（那是 PG 12 才有的）；CSV 必须由 COPY ... TO STDOUT 产出
+- L_T216 按 D027 做 12 小时一个分区，最早分区约 62 天前，窗口天数（GP_RAN_WINDOW_DAYS，默认 7）超过就没有数据了
+- 换机房只改环境变量 GP_RAN_CONTROL_HOST / GP_RAN_MASTER_HOST / GP_RAN_DB，不要改代码；主节点 IP 可在 control1 上 cat /home/gpadmin/paas_hosts_master.cc 查到
+- 链路诊断：python -m backend.services.gp_ran.gp_ran_check --check（逐层打印两跳、sudo、psql、表与分区）
+
 ### 3.4 可靠性机制（超时 / 重试 / 自愈）
 
 | 机制 | 说明 |
@@ -1945,8 +1973,8 @@ eFlow TT 判定规则知识库：规则/案例文档全文检索，并内置 TT 
 
 - 空格分隔多关键词检索，或从左侧目录选择文章
 - 输入 TT 单号一键分析：派单归属、时间差、根因分布与结论要点
-- AI 分析结论下方附「规则命中证据」（本地规则引擎，与 Email Reports → eFlow TT Rules Check 页签同源）：命中规则名称与 ID、逐条条件匹配详情、规则来源文件 eflow_TT_rules.xlsx（可下载）、规则维护人与工单处理人
-- 模型不可用（本地代理未启动且 Open WebUI 不可达）时不再只报错：页面会给出一份「程序化判定」结论 —— 级别判定、命中规则、规则来源与处置建议全部由本地规则引擎算出
+- 结论卡片与下方「规则命中证据」都由本地规则引擎程序化算出（与 Email Reports → eFlow TT Rules Check 页签同源）：命中规则名称与 ID、逐条条件匹配详情、规则来源文件 eflow_TT_rules.xlsx（可下载）、规则维护人与工单处理人
+- 判定不调用任何模型（2026-10-19 起）：毫秒级返回，级别判定、命中规则、规则来源与处置建议全部由本地规则引擎按 eFlow「TT Update Severity Rule」推出，与每天 04:20 的 eflow_tt_rules_check 定时任务逐字一致
 - 「规则来源与责任人」另给推单规则（TT Push Order Rule，触发步骤 FO Accept）：Rule Name / Rule Type / Rule Trigger Step / Push Order Path / *Auto Operator / Target Handler，说明这单会不会自动推 WO、推给谁、谁自动处理（来源 eflow_push_rules.xlsx，可下载）
 - TT 批量核查：上传 xlsx/csv/txt 单号清单或直接粘贴，逐单判定工单级别是否正常（正常/需调整/无法判定），可导出 Excel
 - TT 批量核查支持「下载模板 → 填写 → 上传核查」闭环：点「下载模板」得到带表头的 xlsx，填好单号后把同一个文件传回来即可

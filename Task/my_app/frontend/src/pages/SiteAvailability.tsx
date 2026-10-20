@@ -8,6 +8,7 @@ import {
   DownloadOutlined,
 } from '@ant-design/icons'
 import { exportAoaReport, exportReport, type ReportSheetSpec } from '../utils/excelReport'
+import { fmtWarnings } from '../utils/warnCodes'
 import dayjs from 'dayjs'
 import ReactECharts from 'echarts-for-react'
 import { getSiteAvailabilityFilters, getSiteAvailabilityOverview, getSiteAvailabilityTickets } from '../api'
@@ -595,7 +596,7 @@ export default function SiteAvailability() {
       {error && <Alert type="error" showIcon message={`${t('siteAvail.loadFailed')}${error}`} />}
       {(overview?.meta?.warnings || []).length > 0 && (
         <Alert type="warning" showIcon icon={<InfoCircleOutlined />}
-          message={overview!.meta.warnings.join('；')} />
+          message={fmtWarnings(overview!.meta.warnings, t, '；')} />
       )}
 
       {/* ==================== 站点主表 ==================== */}

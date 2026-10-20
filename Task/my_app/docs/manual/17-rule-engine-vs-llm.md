@@ -29,6 +29,11 @@
 
 `ai.ok=false`（模型失败）时回退到 `tt_rule_evidence.render_local_conclusion()`，输出纯本地数据推出的 Markdown 结论。**业务上不依赖模型就能出结论** —— 这是这条路径"程序化为底、模型为表"的标准写法。
 
+> **2026-10-19：这条"为底"的实现已经转正为页面唯一结论。** eFlow 知识库的「TT 快速分析」
+> 只调 `GET /api/eflow-qa/tt-ai-fast`（毫秒级、无模型），不再并行调 `/tt-ai` 让模型替换结论。
+> `/tt-ai` 与 `openwebui_client` 仍在，用于排障和口径人工比对；模型侧的凭据与
+> 「系统设置 → AI 模型」连通性测试不受影响。
+
 ### 17.2.3 现场数据对比
 
 数据来源：[`MATCHING_REPORT.md`](../services/eflow_rules/MATCHING_REPORT.md)（2026-10-09 04:20 跑出）

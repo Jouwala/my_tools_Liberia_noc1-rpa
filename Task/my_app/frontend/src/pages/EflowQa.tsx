@@ -29,7 +29,6 @@ import {
   FolderOutlined,
   MenuOutlined,
   ReloadOutlined,
-  RobotOutlined,
   ScissorOutlined,
   SearchOutlined,
   ThunderboltOutlined,
@@ -252,13 +251,13 @@ function verdictColor(status: string): string {
   return 'default'
 }
 
-/* ---------- AI 分析结论：规则命中证据（本地规则引擎，确定性） ----------
- * 数据来自 GET /api/eflow-qa/tt-ai 的 ai.rules
+/* ---------- 判定结论：规则命中证据（本地规则引擎，确定性） ----------
+ * 数据来自 GET /api/eflow-qa/tt-ai-fast 的 ai.rules
  * （后端 backend/services/eflow_rules/tt_rule_evidence.py）。
  * 判定与每天 04:20 的 eflow_tt_rules_check 定时任务、Email Reports →
  * eFlow TT Rules Check 页签的矫正表**同源**（内部复用 eflow_rules_matcher），
  * 所以这里的「命中规则 / 目标级别 / 匹配详情」与那两处逐字一致。
- * 作用：在 AI 文本之外给出可核对的事实，并指明规则来自哪个文件、谁维护、
+ * 作用：在结论文本之外给出可核对的事实，并指明规则来自哪个文件、谁维护、
  * 工单当前谁在处理 —— 避免结论只说级别却说不清依据。 */
 function TtRuleEvidence({ ev, t, isDark, isMobile, border, onOpenRule }: {
   ev: any
@@ -891,6 +890,8 @@ export default function EflowQa() {
   const ttSeqRef = useRef(0)
   const [ttAi, setTtAi] = useState<any>(null)
   const [ttAiLoading, setTtAiLoading] = useState(false)
+  // 程序化结论请求本身失败（服务不可达等）时的原因；与结论内容无关
+  const [ttAiError, setTtAiError] = useState('')
   const [ttAlarm, setTtAlarm] = useState<any>(null)
   const [ttAlarmLoading, setTtAlarmLoading] = useState(false)
   const [ttAlarmLookup, setTtAlarmLookup] = useState<any>(null)
@@ -1095,8 +1096,6 @@ export default function EflowQa() {
     setTtBatchView(false)
     setTtLoading(true)
     setTtError('')
-    setTtAi(null)
-    setTtAiLoading(true)
     setTtAlarm(null)
     setTtAlarmLookup(null)
     setTtAlarmLoading(false)
@@ -1105,7 +1104,7 @@ export default function EflowQa() {
     setTtUme(null)
     setTtUmeFailed(false)
     setTtUmeLoading(true)
-    // 基础报告（本地 sqlite，快）先到先显；告警与 AI 各自独立加载
+    // 基础报告（本地 sqlite，快）先到先显；告警、程序化结论、UME 建议各自独立加载
     // 三个请求都走 ttGet：瞬时故障自动重试，消除「首次点分析失败、再点一次就好」
     ttGet('/eflow-qa/inspect-tt', { tt: clean }).then(res => {
       if (!alive()) return
@@ -1128,37 +1127,20 @@ export default function EflowQa() {
       if (!alive()) return
       setTtError(`${t('qa.tt.failed')}（${ttFailReason(e, t)}）`)
     }).finally(() => { if (alive()) setTtLoading(false) })
-    // AI 结论：「先快后准」交互（2026-10-08）
-    //   ① 立即调 /tt-ai-fast（毫秒级，本地规则引擎程序化）→ 立刻显示结论
-    //   ② 同时并行调 /tt-ai（云端，约 4.5s）→ AI 回来后用 ai.conclusion 替换展示
-    //   ③ 云端全失败时，fast 给的 fallback_conclusion 仍可继续显示（与 /tt-ai 内部兜底同源）
+    // 结论一律走本地规则引擎程序化判定（2026-10-19 起不再调用任何模型）：
+    // /tt-ai-fast 毫秒级返回，判据与 Email Reports → eFlow TT Rules Check 页签逐字同源。
     setTtAi(null)            // 重置（避免显示上一单的结论）
+    setTtAiError('')
     setTtAiLoading(true)
-    // ① 程序化先行
     ttGet('/eflow-qa/tt-ai-fast', { tt: clean, lang: locale }).then(res => {
       if (!alive()) return
       setTtAi(res.data.ai)
       const rep = res.data.report
       if (rep?.alarm?.found) setTtAlarm((prev: any) => prev || rep.alarm)
-    }).catch(() => { /* fast 也失败就保持空，由云端兜底 */ })
-    // ② 云端 AI 并行（拿到后覆盖结论，保持 rules 仍是 fast 的本地证据——它更稳定）
-    ttGet('/eflow-qa/tt-ai', { tt: clean, lang: locale }).then(res => {
+    }).catch((e) => {
       if (!alive()) return
-      setTtAi((prev: any) => {
-        if (!prev) return res.data.ai
-        // 合并：保留 fast 的规则证据（本地规则引擎，与 eFlow TT Rules Check 同源），
-        // 用云端的 conclusion 替换程序化结论；fallback_conclusion 永远保留 fast 的版本
-        return {
-          ...res.data.ai,
-          rules: prev.rules || res.data.ai.rules,
-          evidence: prev.evidence || res.data.ai.evidence,
-          fallback_conclusion: prev.fallback_conclusion || res.data.ai.fallback_conclusion,
-        }
-      })
-      const rep = res.data.report
-      if (rep?.alarm?.found) setTtAlarm((prev: any) => prev || rep.alarm)
-    }).catch(() => { /* AI 失败不阻塞 — fast 已给出程序化结论 */ })
-      .finally(() => { if (alive()) setTtAiLoading(false) })
+      setTtAiError(ttFailReason(e, t))
+    }).finally(() => { if (alive()) setTtAiLoading(false) })
     // RAN UME 处理建议并行请求（TT → 告警 AID → UME，不阻塞其它块）
     ttGet('/eflow-qa/tt-ume-suggestion', { tt: clean }).then(res => {
       if (!alive()) return
@@ -1831,62 +1813,36 @@ export default function EflowQa() {
               const cardStyle = { border, borderRadius: 8, padding: '10px 14px', marginBottom: 10, background: isDark ? 'rgba(0, 217, 255,0.04)' : '#fafcfe' }
               return (
                 <div>
-                  {/* AI 分析结论（TT单分析技能，页面顶部） */}
+                  {/* 判定结论（本地规则引擎程序化算出，无模型参与；页面顶部） */}
                   {ttAiLoading && (
                     <div style={{ ...cardStyle, background: isDark ? 'rgba(24,144,255,0.06)' : '#f0f7ff' }}>
-                      <RobotOutlined style={{ color: '#1677ff', marginRight: 8 }} />
-                      <Text strong>{t('qa.tt.aiConclusion')}</Text>
-                      <div style={{ marginTop: 6, color: isDark ? '#aebbd4' : '#64748b', fontSize: 13 }}>{t('qa.tt.aiAnalyzing')}</div>
+                      <ThunderboltOutlined style={{ color: '#1677ff', marginRight: 8 }} />
+                      <Text strong>{t('qa.tt.progConclusion')}</Text>
+                      <div style={{ marginTop: 6, color: isDark ? '#aebbd4' : '#64748b', fontSize: 13 }}>{t('qa.tt.progLoading')}</div>
                     </div>
                   )}
-                  {!ttAiLoading && ttAi && !ttAi.ok && (
-                    <div style={cardStyle}>
-                      <Alert type="error" showIcon message={`${t('qa.tt.aiFailed')}${ttAi.error}`} />
-                      {/* 模型全档失败 → 后端用本地规则引擎程序化出的结论（无模型参与） */}
-                      {ttAi.fallback_conclusion ? (
-                        <>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', margin: '10px 0 6px' }}>
-                            <Tag color="orange">{t('qa.tt.fallbackTag')}</Tag>
-                            <Text type="secondary" style={{ fontSize: 12 }}>{t('qa.tt.fallbackHint')}</Text>
-                          </div>
-                          <div className="eflowqa-md" style={{ fontSize: 13, lineHeight: 1.7 }}>
-                            <ReactMarkdown remarkPlugins={[remarkGfm]}>{ttAi.fallback_conclusion}</ReactMarkdown>
-                          </div>
-                        </>
-                      ) : null}
-                      {/* 规则命中证据（本地规则引擎，确定性；与 eFlow TT Rules Check 页签同源） */}
-                      <TtRuleEvidence ev={ttAi.rules} t={t} isDark={isDark} isMobile={isMobile}
-                        border={border} onOpenRule={ruleDoc ? () => loadDoc(ruleDoc.path) : undefined} />
-                      {ttAi.elapsed_total_sec != null && (
-                        <div style={{ marginTop: 8, fontSize: 12, color: isDark ? '#aebbd4' : '#64748b' }}>
-                          {t('qa.tt.aiElapsed')}: {ttAi.elapsed_total_sec}s
-                        </div>
-                      )}
-                    </div>
+                  {!ttAiLoading && !ttAi && !!ttAiError && (
+                    <Alert type="error" showIcon style={{ marginBottom: 10 }}
+                      message={`${t('qa.tt.progFailed')}${ttAiError}`} />
                   )}
-                  {!ttAiLoading && ttAi?.ok && (
+                  {!ttAiLoading && ttAi && (
                     <div style={{ ...cardStyle, background: isDark ? 'rgba(24,144,255,0.06)' : '#f0f7ff' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
-                        <RobotOutlined style={{ color: '#1677ff' }} />
-                        <Text strong>{t('qa.tt.aiConclusion')}</Text>
-                        {/* 区分程序化先行 vs AI 替换：先快后准模式下结论可能从程序化升级为云端 */}
-                        {ttAi.provider === 'local_rule_engine' ? (
-                          <Tag color="orange">{t('qa.tt.fallbackTag')}</Tag>
-                        ) : (
-                          <Tag color="blue">{t('qa.tt.aiTag') || 'AI 结论'}</Tag>
-                        )}
+                        <ThunderboltOutlined style={{ color: '#1677ff' }} />
+                        <Text strong>{t('qa.tt.progConclusion')}</Text>
+                        <Tag color="orange">{t('qa.tt.progTag')}</Tag>
                       </div>
                       <div className="eflowqa-md" style={{ fontSize: 13, lineHeight: 1.7 }}>
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{ttAi.conclusion}</ReactMarkdown>
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{ttAi.conclusion || ttAi.fallback_conclusion}</ReactMarkdown>
                       </div>
                       {/* 规则命中证据（本地规则引擎，确定性；与 eFlow TT Rules Check 页签同源） */}
                       <TtRuleEvidence ev={ttAi.rules} t={t} isDark={isDark} isMobile={isMobile}
                         border={border} onOpenRule={ruleDoc ? () => loadDoc(ruleDoc.path) : undefined} />
                       <div style={{ marginTop: 8, fontSize: 12, color: isDark ? '#aebbd4' : '#64748b' }}>
-                        {ttAi.skill_title && <Tag color="blue" style={{ marginRight: 6 }}>{ttAi.skill_title}</Tag>}
-                        {ttAi.model && <Tag style={{ marginRight: 6 }}>{ttAi.model}</Tag>}
                         {ttAi.alarm_source && <Tag color="cyan" style={{ marginRight: 6 }}>{t('qa.tt.alarmSource')}: {ttAi.alarm_source}</Tag>}
-                        {ttAi.elapsed_total_sec != null && <span>{t('qa.tt.aiElapsed')}: {ttAi.elapsed_total_sec}s</span>}
+                        {(ttAi.elapsed_total_sec ?? ttAi.elapsed_sec) != null && (
+                          <span>{t('qa.tt.progElapsed')}: {ttAi.elapsed_total_sec ?? ttAi.elapsed_sec}s</span>
+                        )}
                       </div>
                     </div>
                   )}

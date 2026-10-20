@@ -30,6 +30,7 @@ import { useI18n } from '../i18n'
 import { WH, useTheme } from '../theme'
 import { CardBase, StatCard } from '../components/cards'
 import { exportAoaReport } from '../utils/excelReport'
+import { fmtWarnings } from '../utils/warnCodes'
 import { getCrAnalysisFilters, getCrAnalysisOverview, getCrAnalysisWorkflow } from '../api'
 import CrDrillModal from './crAnalysis/CrDrillModal'
 import CrWorkflowDrillModal from './crAnalysis/CrWorkflowDrillModal'
@@ -203,7 +204,7 @@ export default function CrChangeAnalysis() {
   const columns = useMemo(() => categoryColumns(t, openDrill, C), [t, openDrill, C])
   const subColumns = useMemo(() => subCategoryColumns(t, openDrill, C), [t, openDrill, C])
 
-  const warningText = (ov?.meta?.warnings || []).join('; ')
+  const warningText = fmtWarnings(ov?.meta?.warnings, t, '; ')
 
   /** KPI 卡定义集中一处：键、取值、配色、下钻 metric 一眼对齐，避免 8 张卡手抄 8 遍 */
   const kpis = useMemo(() => ([

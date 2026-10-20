@@ -1530,32 +1530,36 @@ WO 侧更直白：**WO 建单 → FE 接单 中位数 11.0h、P90 41.9h、最长
 ## 14e. eFlow 知识库 · TT 快速分析的「规则命中证据」（2026-09-23 新增）
 
 页面 `?page=eflow_qa`（门户 `MsPortal/viewer.html?gid=Knowledge Q&A&no=47` 内嵌的就是它）。
-输入 TT 单号后，「AI 分析结论（TT单分析技能）」卡片在 AI 正文之下多出一块
+输入 TT 单号后，「判定结论（本地规则引擎）」卡片给出 Markdown 结论，其下附一块
 **规则命中证据（本地规则引擎）**，回答「这条结论依据哪条规则、规则在哪个文件、
 谁维护、工单谁在处理」。
+
+> **2026-10-19 变更：页面不再调用任何模型。** 原先「fast 程序化先行 → 云端 AI 替换」
+> 的先快后准模式已取消，前端只调 `GET /api/eflow-qa/tt-ai-fast`（毫秒级、确定性）。
+> 模型路径 `GET /api/eflow-qa/tt-ai` 保留但界面已不依赖它，只用于排障与口径人工比对。
 
 ### 两块内容的分工（关键）
 
 | 块 | 性质 | 来源 |
 | --- | --- | --- |
-| AI 正文（Markdown） | **模型推断**，可读性好、可解释 | 本地 WorkBuddy 代理主用 → Open WebUI 备用（`backend/services/openwebui_client.py`） |
+| 结论正文（Markdown） | **确定性程序化判定**，四段全部可由规则引擎推出 | `tt_rule_evidence.render_local_conclusion()` |
 | 规则命中证据 | **确定性事实**，与矫正表逐字一致 | `backend/services/eflow_rules/tt_rule_evidence.py` |
 
-两者**不是同一套判定**，页面并列展示正是为了让 AI 结论可以直接被核对；
-证据块不会因为模型不可用而消失（`ai.ok=false` 时照样渲染）。
+两块**同源**（都来自 `build_rule_evidence()`），因此「结论里的级别」与「证据里的命中规则」
+不可能对不上；证据块不随结论缺失（`ai.rules` 为空时整块隐藏，见 `TtRuleEvidence`）。
 
 ### 数据链路
 
 ```
-GET /api/eflow-qa/tt-ai?tt=<单号>&lang=zh|en      （backend/routers/eflow_qa.py）
+GET /api/eflow-qa/tt-ai-fast?tt=<单号>&lang=zh|en      （backend/routers/eflow_qa.py）
   ├─ _tt_context()                        本地库/ eFlow 实时兜底拿工单 + 告警 → report
   ├─ tt_rule_evidence.build_rule_evidence()   本地规则引擎判定（权威）
   │    └─ tt_batch_severity.check_batch()   ← 与每天 04:20 的 eflow_tt_rules_check 同源
   │    └─ eflow_TT_rules.xlsx               ← 规则明细（类型/触发步骤/维护人/条件原文）
   │    └─ eflow_tt_rules_check_latest.json  ← 规则条数与最近一次收集+匹配时间
-  ├─ render_evidence_text()                → 证据文本块，随 user 消息下发
-  └─ openwebui_client.analyze_tt(..., evidence_text=...)
-返回 ai.rules（结构化，页面明细块） + ai.evidence（下发的证据原文，排查用）
+  ├─ render_evidence_text()                → 证据文本块（排查用，模型路径才下发给模型）
+  └─ render_local_conclusion(reason="")    → ai.conclusion（reason 传空，避免出现「未采用模型结论的原因」尾行）
+返回 ai.conclusion（结论 Markdown） + ai.rules（结构化证据） + ai.evidence（证据原文）
 ```
 
 证据块展示的内容：命中规则名称 + ID、优先级、目标级别、逐条条件匹配
@@ -1569,32 +1573,34 @@ GET /api/eflow-qa/tt-ai?tt=<单号>&lang=zh|en      （backend/routers/eflow_qa.
 
 1. **规则引擎判定只在本地 `eflow_tt` 有该单时有效**：工单只存在于 eFlow 实时接口时
    `found=false` → `available=false`，证据块显示「规则引擎未判定」并给出原因，
-   AI 走原有纯文本判定路径。不要把这个当成报错。
-2. **证据文本必须与规则表同时给出**：`analyze_tt` 的 system 消息里已经内嵌了全部 ACTIVE
-   规则（外部模型不走 Open WebUI 的 RAG），证据块是**补充权威判定**，
+   结论正文改说「本地无该工单，请以 eFlow 侧记录核对级别」。不要把这个当成报错。
+2. **证据文本必须与规则表同时给出（仅 `/tt-ai` 模型路径）**：`analyze_tt` 的 system 消息里
+   已经内嵌了全部 ACTIVE 规则（外部模型不走 Open WebUI 的 RAG），证据块是**补充权威判定**，
    不是替代规则文本 —— 少了规则文本，模型无法解释未命中原因。
 3. **下载地址受白名单约束**：`/api/email-reports/download/eflow_tt_rules_check/<文件名>`
    只放行 `backend/routers/email_reports.py` 中 `_SOURCES`/`_EFLOW_FILE_SPECS` 里登记过的
    文件名。新增产物文件必须两处同步登记，否则「能列出却下载 403」。
 
-### 14e-1. 模型全档失败时的「程序化结论」（2026-09-23 新增）
+### 14e-1. 「程序化结论」：从模型兜底升级为页面唯一结论（2026-09-23 新增，2026-10-19 转正）
 
 原先模型不可用时页面只有一行
 `AI analysis failed: RuntimeError: 所有候选模型均失败 ['workbuddy:…','openwebui:…']`，
-用户拿不到任何判定。现在 `tt_ai` 会在 `ai.ok=false` 时再调
-`tt_rule_evidence.render_local_conclusion()`，**由本地规则引擎程序化生成一份 Markdown 结论**：
+用户拿不到任何判定。2026-09-23 起 `tt_ai` 会在 `ai.ok=false` 时再调
+`tt_rule_evidence.render_local_conclusion()`，**由本地规则引擎程序化生成一份 Markdown 结论**；
+**2026-10-19 起这份程序化结论就是页面的结论**（`/tt-ai-fast`），模型兜底路径只在
+手工调 `/tt-ai` 时才成立：
 
 ```
-ai.ok                    false（语义不变：这次不是模型给的）
-ai.error                 真实失败原因（原样保留，便于排障）
-ai.fallback              true
-ai.fallback_conclusion   程序化结论 Markdown（工单字段表 → 判定结论 → 规则来源与责任人 → 处置建议 → 失败原因）
-ai.rules                 结构化证据（页面「规则命中证据」块，正常/失败两种情况都用）
+ai.conclusion            程序化结论 Markdown（工单字段表 → 判定结论 → 规则来源与责任人 → 处置建议）
+ai.ok                    true（程序化对外一律成功）
+ai.provider / ai.model   local_rule_engine / programmatic
+ai.rules                 结构化证据（页面「规则命中证据」块）
+ai.elapsed_sec           判定耗时（页面同时兼容 /tt-ai 的 elapsed_total_sec）
 ```
 
-页面（`EflowQa.tsx`）在 `!ai.ok` 时渲染顺序为：错误 Alert → 「程序化判定（本地规则引擎）」
-标签 + 结论 Markdown → 规则命中证据块 → 耗时。**不要把 `ai.ok` 改成 true** ——
-那会让「模型给的结论」和「引擎给的结论」再也分不开。
+`/tt-ai` 的兜底语义保持不变（`ok=false` + `error` 保留真实失败原因 + `fallback_conclusion`），
+`reason` 非空时结论末尾会多一行「未采用模型结论的原因」—— **`/tt-ai-fast` 必须传空串**，
+否则页面会凭空出现一句模型失败的说明。
 
 四段内容全部可程序化推出，无模型参与：字段表取 `inspect_tt` 报告的列值（数值列去掉 `.0` 尾巴），
 判定取 `level_status`（`ok`/`adjust`/`unknown` 三分支各有一套处置建议），

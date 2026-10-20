@@ -37,6 +37,7 @@ import { useTheme, axisLabel, axisLine, darkTooltip, splitLine, cardStyle, WH } 
 import { CardBase, StatCard } from '../components/cards'
 import DraggableClickModal from '../components/DraggableClickModal'
 import { exportAoaReport } from '../utils/excelReport'
+import { fmtWarning, fmtWarnings } from '../utils/warnCodes'
 import { getBpReportOverview, getBpReportRegional, getBpReportLayer, getBpReportCells, getBpReportMeta } from '../api'
 
 const { Text } = Typography
@@ -216,7 +217,7 @@ export default function BpReport() {
       setLayers(lyRes.data?.layers || [])
       setMeta(mtRes.data || {})
       // 后端在 meta.warnings 里给出「口径不完整」「脏值」等硬告警，必须显式抛到界面
-      if (ov.meta?.warnings?.length) setError(ov.meta.warnings.join(' / '))
+      if (ov.meta?.warnings?.length) setError(fmtWarnings(ov.meta.warnings, t, ' / '))
     } catch (e: any) {
       setError(e?.message || String(e))
       setTrend([])
@@ -721,7 +722,7 @@ export default function BpReport() {
         <Alert
           type="warning" showIcon banner
           message={t('bp.banner.title')}
-          description={au.reason || t('bp.banner.desc')}
+          description={fmtWarning(au.reason || '', t) || t('bp.banner.desc')}
         />
       )}
       {au && au.available && (

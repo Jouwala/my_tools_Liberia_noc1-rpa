@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """TT 单规则命中证据（TT Rule Match Evidence）
 =================================================
-给「TT 快速分析 → AI 分析结论」提供**确定性**的规则命中证据，让 AI 结论不再只是
+给「TT 快速分析 → 判定结论」提供**确定性**的规则命中证据，让结论不只是
 纯文本推断，而是能落到「命中了哪条规则、规则来自哪个文件、规则谁维护、工单谁在处理」。
 
 数据来源与口径（全部复用既有实现，**不产生第二套判定**）
@@ -18,9 +18,12 @@
 --------
 * `build_rule_evidence(tt_no, handler=None)` → dict（结构见函数 docstring）
 * `render_evidence_text(evidence, lang)`   → str（喂给大模型的「本地规则引擎预判定」文本块）
+* `render_local_conclusion(evidence, ...)`  → str（**程序化** Markdown 结论，无模型参与）
 
-页面侧：`GET /api/eflow-qa/tt-ai` 把本模块的结果挂在 `ai.rules` 上返回，
-前端在「AI 分析结论（TT单分析技能）」卡片里渲染成「命中规则」明细块。
+页面侧：`GET /api/eflow-qa/tt-ai-fast` 把本模块的结果挂在 `ai.rules` 上返回、
+结论正文取 `ai.conclusion`，前端在「判定结论（本地规则引擎）」卡片里渲染成
+「命中规则」明细块 + 结论 Markdown。`GET /api/eflow-qa/tt-ai`（模型路径）
+仅在候选模型档全失败时才用同一份程序化结论兜底。
 """
 from __future__ import annotations
 
@@ -783,7 +786,7 @@ def render_evidence_text(evidence: Dict[str, Any], lang: str = "zh") -> str:
 
 
 # ------------------------------------------------------------------ #
-# 程序化结论（模型不可用时的兜底，2026-09-23 新增）
+# 程序化结论（2026-09-23 作为模型兜底新增；2026-10-19 起是页面唯一结论来源）
 # ------------------------------------------------------------------ #
 
 # 结论里要列出的工单字段（用 eflow_tt 的英文列名，与语言无关，取值来自 inspect_tt 报告）
@@ -854,15 +857,20 @@ def render_local_conclusion(evidence: Dict[str, Any],
                             report: Optional[Dict[str, Any]] = None,
                             lang: str = "zh",
                             reason: str = "") -> str:
-    """**程序化**生成 TT 判定结论（Markdown），用于模型全部候选档都失败时的兜底。
+    """**程序化**生成 TT 判定结论（Markdown）。
 
-    与 AI 结论的区别：这里没有任何模型参与，全部来自本地规则引擎与工单字段，
+    用途有两处：`GET /api/eflow-qa/tt-ai-fast` 的**主结论**（页面「TT 快速分析」
+    2026-10-19 起只走这条，不再调用模型），以及 `GET /api/eflow-qa/tt-ai`
+    在候选模型档全失败时的兜底结论。
+
+    这里没有任何模型参与，全部来自本地规则引擎与工单字段，
     因此结论里的规则名/级别/条件与 Email Reports → eFlow TT Rules Check 页签逐字一致。
 
     规则明细的完整版（逐条匹配、下载链接）由页面的「规则命中证据」块展示，
     本函数只给一行摘要，避免同一份内容在页面上出现两次。
 
-    返回 Markdown 文本；`reason` 为模型失败原因（附在末尾，便于复制/归档时自证）。
+    返回 Markdown 文本；`reason` 为「为什么没用模型结论」（模型失败原因或本地化开关），
+    非空时才附在末尾，便于复制/归档时自证；程序化主结论应传空串。
     """
     en = lang == "en"
     ev = evidence or {}
@@ -877,12 +885,12 @@ def render_local_conclusion(evidence: Dict[str, Any],
                if en else "## TT 工单级别判定（程序化 · 本地规则引擎）")
     out.append("")
     out.append(
-        "> The AI model was unavailable, so this verdict was computed directly by the local rule "
-        "engine from the eFlow *TT Update Severity Rule* table — the same source as the daily 04:20 "
-        "`eflow_tt_rules_check` job. See the header notice for the model failure reason."
+        "> This verdict is computed directly by the local rule engine from the eFlow "
+        "*TT Update Severity Rule* table — the same source as the daily 04:20 "
+        "`eflow_tt_rules_check` job. No model is involved."
         if en else
-        "> 模型不可用，本结论由**本地规则引擎**按 eFlow「TT Update Severity Rule」直接算出，"
-        "与每天 04:20 的 `eflow_tt_rules_check` 定时任务同源；模型失败原因见页头提示。"
+        "> 本结论由**本地规则引擎**按 eFlow「TT Update Severity Rule」直接算出，"
+        "与每天 04:20 的 `eflow_tt_rules_check` 定时任务同源，**无模型参与**。"
     )
     out.append("")
 
@@ -898,7 +906,8 @@ def render_local_conclusion(evidence: Dict[str, Any],
             out.append(f"| {label.get(k, k)} | {v} |")
         out.append("")
         if rule_input:
-            out.append(("- Model input (skill prompt): `" if en else "- 模型入参（技能 prompt）：`")
+            out.append(("- Alarm-side fields (skill prompt text): `" if en
+                        else "- 告警侧字段（技能 prompt 原文）：`")
                        + rule_input + "`")
             out.append("")
 
@@ -926,11 +935,11 @@ def render_local_conclusion(evidence: Dict[str, Any],
         out.append("")
         out.append(
             "> Note: the rule engine evaluates the `eflow_tt` columns (the values in the condition "
-            "check above are the real inputs); the model input above may come from the alarm row and "
-            "differ on fields like `downSiteCount`. Trust the condition check."
+            "check above are the real inputs); the alarm-side fields above may come from the alarm row "
+            "and differ on fields like `downSiteCount`. Trust the condition check."
             if en else
             "> 说明：规则引擎按 `eflow_tt` 表字段判定（上面「逐条匹配」里的就是实际取值），"
-            "与「模型入参」不一定同源（如 `downSiteCount` 可能取自告警行），**以逐条匹配为准**。"
+            "与「告警侧字段」不一定同源（如 `downSiteCount` 可能取自告警行），**以逐条匹配为准**。"
         )
     elif ev.get("available") and not ev.get("found"):
         out.append("- The ticket is not in the local `eflow_tt` mirror, so the rule engine cannot "
@@ -1074,8 +1083,8 @@ def render_local_conclusion(evidence: Dict[str, Any],
     if reason:
         out.append("---")
         out.append("")
-        out.append(f"*Model failure / 模型失败原因：`{reason}`*" if not en
-                   else f"*Model failure reason: `{reason}`*")
+        out.append(f"*未采用模型结论的原因：`{reason}`*" if not en
+                   else f"*Reason no model verdict was used: `{reason}`*")
     return "\n".join(out)
 
 

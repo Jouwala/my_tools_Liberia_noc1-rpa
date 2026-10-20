@@ -58,7 +58,7 @@ def overview(
     except Exception as exc:  # noqa: BLE001
         logger.exception("[pm-analysis/overview] 失败: %s", exc)
         return svc._empty_overview(  # noqa: SLF001 - 与服务层共用同一份空壳结构
-            start, end, [f"数据加载失败: {exc}"]
+            start, end, [f"load_failed: {exc}"]
         )
 
 
@@ -91,7 +91,7 @@ def drilldown(
     except Exception as exc:  # noqa: BLE001
         logger.exception("[pm-analysis/drilldown] 失败: %s", exc)
         return {
-            "meta": {"warnings": [f"数据加载失败: {exc}"], "metric": metric},
+            "meta": {"warnings": [f"load_failed: {exc}"], "metric": metric},
             "metric": metric, "pmp_no": pmp_no, "status": status,
             "site_name": site_name, "handler": handler, "month": month,
             "total": 0, "truncated": False,
@@ -117,7 +117,7 @@ def workflow(
     except Exception as exc:  # noqa: BLE001
         logger.exception("[pm-analysis/workflow] 失败: %s", exc)
         return {
-            "meta": {"warnings": [f"数据加载失败: {exc}"], "pmp_no": pmp_no},
+            "meta": {"warnings": [f"load_failed: {exc}"], "pmp_no": pmp_no},
             "milestones": [], "total": 0, "closed": 0, "in_flight": 0,
         }
 
@@ -146,7 +146,7 @@ def workflow_drilldown(
     except Exception as exc:  # noqa: BLE001
         logger.exception("[pm-analysis/workflow-drilldown] 失败: %s", exc)
         return {
-            "meta": {"warnings": [f"数据加载失败: {exc}"], "key": key},
+            "meta": {"warnings": [f"load_failed: {exc}"], "key": key},
             "key": key, "kind": kind, "pmp_no": pmp_no,
             "total": 0, "truncated": False, "rows": [],
         }

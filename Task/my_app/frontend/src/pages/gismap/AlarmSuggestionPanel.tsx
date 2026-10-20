@@ -5,6 +5,7 @@ import api from '../../api'
 import { useI18n } from '../../i18n'
 import { WH, cardStyle, useTheme } from '../../theme'
 import { fmtTs } from './helpers'
+import { fmtWarnings } from '../../utils/warnCodes'
 
 /**
  * 站点下钻抽屉底部「告警处理建议」面板（2026-10-16 新增）。
@@ -138,7 +139,7 @@ export function AlarmSuggestionPanel({
           type="warning"
           showIcon
           style={{ marginBottom: 'var(--wh-space-sm)' }}
-          message={data.warnings.join('；')}
+          message={fmtWarnings(data.warnings, t, '；')}
         />
       )}
 

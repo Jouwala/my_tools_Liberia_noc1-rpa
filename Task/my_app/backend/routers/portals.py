@@ -20,6 +20,7 @@ from fastapi.responses import Response
 from pydantic import BaseModel
 
 from backend.services import portal_login_service as svc
+from backend.api_i18n import translate_text
 
 logger = logging.getLogger(__name__)
 
@@ -154,17 +155,21 @@ def _spawn(system: str, browser: str | None) -> str:
 
 
 @router.get("/login/status")
-def login_status(job_id: str):
-    """查询某次登录任务的状态。"""
+def login_status(request: Request, job_id: str):
+    """查询某次登录任务的状态。
+
+    message 是给人看的句子，走 api_i18n 按请求语言翻译；state 是前端匹配用的码，不动。
+    """
     with svc.JOBS_LOCK:
         j = svc.JOBS.get(job_id)
     if not j:
-        return {"job_id": job_id, "state": "unknown", "message": "未找到该任务（可能已过期）"}
+        return {"job_id": job_id, "state": "unknown",
+                "message": translate_text("未找到该任务（可能已过期）", request)}
     return {
         "job_id": job_id,
         "system": j.get("system"),
         "state": j.get("state"),
-        "message": j.get("message"),
+        "message": translate_text(j.get("message"), request),
         "log": j.get("log", []),
         "start": j.get("start"),
         "end": j.get("end"),

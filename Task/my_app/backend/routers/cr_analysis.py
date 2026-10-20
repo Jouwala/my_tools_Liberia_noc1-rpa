@@ -54,7 +54,7 @@ def overview(
     except Exception as exc:  # noqa: BLE001
         logger.exception("[cr-analysis/overview] 失败: %s", exc)
         return svc._empty_overview(  # noqa: SLF001 - 与服务层共用同一份空壳结构
-            start, end, [f"数据加载失败: {exc}"]
+            start, end, [f"load_failed: {exc}"]
         )
 
 
@@ -89,7 +89,7 @@ def drilldown(
     except Exception as exc:  # noqa: BLE001
         logger.exception("[cr-analysis/drilldown] 失败: %s", exc)
         return {
-            "meta": {"warnings": [f"数据加载失败: {exc}"], "metric": metric},
+            "meta": {"warnings": [f"load_failed: {exc}"], "metric": metric},
             "metric": metric, "category": category, "sub_category": sub_category,
             "month": month, "status": status, "total": 0, "truncated": False,
             "rows": [], "columns": list(svc._DETAIL_COLUMNS),  # noqa: SLF001
@@ -110,7 +110,7 @@ def workflow(
     except Exception as exc:  # noqa: BLE001
         logger.exception("[cr-analysis/workflow] 失败: %s", exc)
         return {
-            "meta": {"warnings": [f"数据加载失败: {exc}"]},
+            "meta": {"warnings": [f"load_failed: {exc}"]},
             "steps": [], "rejected": 0, "total": 0,
         }
 
@@ -132,7 +132,7 @@ def workflow_drilldown(
     except Exception as exc:  # noqa: BLE001
         logger.exception("[cr-analysis/workflow-drilldown] 失败: %s", exc)
         return {
-            "meta": {"warnings": [f"数据加载失败: {exc}"], "step": step},
+            "meta": {"warnings": [f"load_failed: {exc}"], "step": step},
             "step": step, "kind": kind, "status": status,
             "total": 0, "truncated": False, "rows": [],
         }

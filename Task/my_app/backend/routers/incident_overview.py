@@ -10,6 +10,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 from backend.services import incident_ai_service as ai_svc
 from backend.services import incident_overview_service as svc
+from backend.api_i18n import translate_ui_fields
 
 logger = logging.getLogger("incident_overview_router")
 
@@ -109,8 +110,9 @@ async def ai_analyze(request: Request):
     prompt = body.get("prompt") or None
     lang = body.get("lang", "zh")
     context = body.get("context") or svc.get_all_data()
-    return svc.analyze_with_ai(provider=provider, api_key=api_key, base_url=base_url,
-                               model=model, prompt=prompt, lang=lang, context=context)
+    return translate_ui_fields(svc.analyze_with_ai(provider=provider, api_key=api_key, base_url=base_url,
+                                                   model=model, prompt=prompt, lang=lang, context=context),
+                               request)
 
 
 @router.post("/ai/{provider}")
@@ -141,7 +143,7 @@ async def ai_provider(provider: str, request: Request):
     payload, status = ai_svc.dispatch(provider, body)
     if status != 200:
         logger.warning("AI provider %s 返回 %s: %s", provider, status, payload.get("error"))
-    return JSONResponse(status_code=status, content=payload)
+    return JSONResponse(status_code=status, content=translate_ui_fields(payload, request))
 
 
 @router.post("/assistant/call")
@@ -150,8 +152,8 @@ async def assistant_call(request: Request):
         body = await request.json()
     except Exception:  # noqa: BLE001
         body = {}
-    return svc.assistant_call(phone=body.get("phone", ""), message=body.get("message", ""),
-                              ticket=body.get("ticket"))
+    return translate_ui_fields(svc.assistant_call(phone=body.get("phone", ""), message=body.get("message", ""),
+                                                  ticket=body.get("ticket")), request)
 
 
 @router.post("/assistant/sms")
@@ -160,5 +162,5 @@ async def assistant_sms(request: Request):
         body = await request.json()
     except Exception:  # noqa: BLE001
         body = {}
-    return svc.assistant_sms(phone=body.get("phone", ""), message=body.get("message", ""),
-                             ticket=body.get("ticket"))
+    return translate_ui_fields(svc.assistant_sms(phone=body.get("phone", ""), message=body.get("message", ""),
+                                                 ticket=body.get("ticket")), request)

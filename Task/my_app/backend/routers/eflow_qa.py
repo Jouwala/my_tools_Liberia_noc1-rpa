@@ -20,7 +20,9 @@ from datetime import timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
+
+from backend.api_i18n import translate_postmortem
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
@@ -651,28 +653,25 @@ def tt_ai_fast(
     tt: str = Query(..., min_length=2, max_length=64, description="TT 单号"),
     lang: str = Query("zh", pattern="^(zh|en)$", description="结论语言：zh 或 en"),
 ):
-    """**程序化先行**端点：仅跑本地规则引擎（毫秒级），用于「先快后准」交互。
+    """**程序化判定**端点：仅跑本地规则引擎（毫秒级）。TT 快速分析页面只调这一个。
 
     行为
     ----
     * 完全**不调**任何 AI 模型（WorkBuddy / Open WebUI / Ollama 都不走），
       因此可以**毫秒级**返回结论；判定的权威来源是
       `backend/services/eflow_rules/tt_rule_evidence.render_local_conclusion`。
-    * 与 `GET /tt-ai` 的 `ai.fallback_conclusion` **逐字同源** —— 只是把它从
-      「云端全失败才出现」抬到「始终先出」的位置。
+    * 结论正文与 `GET /tt-ai` 的 `ai.fallback_conclusion` **逐字同源** ——
+      只是把它从「云端全失败才出现」抬到「始终就是它」的位置。
     * 返回结构 `{report, ai}`，其中 `ai` 的字段形态与 `/tt-ai` 一致：
       `ok=true`（程序化结论与模型结论对外同源）、`provider="local_rule_engine"`、
-      `model="programmatic"`、`fallback_conclusion` 是直接渲染好的 Markdown 结论、
-      `rules` 是同一份规则命中证据（页面「命中规则」明细块直接复用）。
-    * 即使后续 `/tt-ai` 调用成功、AI 结论已渲染，本接口的结论作为「兜底兜底」
-      继续保留在 `ai.fallback_conclusion` 里，模型失败时也仍然可用。
+      `model="programmatic"`、`conclusion`/`fallback_conclusion` 是直接渲染好的
+      Markdown 结论、`rules` 是同一份规则命中证据（页面「命中规则」明细块直接复用）。
 
     适用
     ----
-    * 「先快后准」交互：前端默认调本端点 → 立即显示程序化结论（毫秒级），
-      同时后台并行调 `/tt-ai` 拿 AI 结论，AI 回来后**替换** `ai.conclusion` 展示。
-    * 云端失效/不在线/不付费时段：单独调本端点即可拿到与 eFlow TT Rules Check
-      页签逐字一致的判定结论。
+    * 页面「TT 快速分析」的结论卡片：2026-10-19 起前端**只**调本端点，
+      不再并行调 `/tt-ai`（模型结论的可靠性与耗时都不如确定性判定划算）。
+    * `/tt-ai` 保留给排障与人工比对模型口径之用，界面已不依赖它。
     """
     from backend.services.eflow_rules import tt_rule_evidence
 
@@ -689,12 +688,14 @@ def tt_ai_fast(
     evidence_text = tt_rule_evidence.render_evidence_text(evidence, lang=lang)
     fallback_md = ""
     try:
+        # reason 留空：本页已不再调用模型，结论不是「模型失败后的兜底」，
+        # 传原因只会在 Markdown 末尾多出一行「模型失败原因」的误导说明
         fallback_md = tt_rule_evidence.render_local_conclusion(
-            evidence, report=report, lang=lang,
-            reason="程序化先行（/tt-ai-fast），与 /tt-ai 同源")
+            evidence, report=report, lang=lang, reason="")
     except Exception:  # noqa: BLE001
         logger.exception("tt-ai-fast 程序化结论生成失败")
 
+    elapsed = round(time.time() - t0, 2)
     ai = {
         "ok": True,
         "conclusion": fallback_md,            # 主结论也填程序化，让前端拿到一份就够用
@@ -706,7 +707,8 @@ def tt_ai_fast(
         "skill_source": "local_rule_engine",
         "language": lang,
         "language_rewritten": False,
-        "elapsed_sec": round(time.time() - t0, 2),
+        "elapsed_sec": elapsed,
+        "elapsed_total_sec": elapsed,         # 页面耗时行读这个字段
         "error": "",
         "fallback": True,
         "fallback_conclusion": fallback_md,
@@ -761,10 +763,14 @@ def tt_batch_check(payload: TtBatchIn):
 # 设计原则：不修改任何已有路由；新端点全部以 `_tt_postmortem_*` 命名，
 # 避免误碰 /eflow-qa/inspect-tt、/tt-batch-check 等既有行为。
 @router.get("/_tt_postmortem/{tt_no}")
-def tt_postmortem(tt_no: str):
-    """单张 TT 的程序化复盘报告（用于 eFlow 知识库页面一键生成）。"""
+def tt_postmortem(request: Request, tt_no: str):
+    """单张 TT 的程序化复盘报告（用于 eFlow 知识库页面一键生成）。
+
+    英文请求按字段白名单翻译展示用句子（见 api_i18n.translate_postmortem）；
+    前端要拿 label / creator_kind / owner 做匹配，那些值保持原样。
+    """
     from backend.services.tt_postmortem import build_tt_postmortem
-    return build_tt_postmortem(tt_no)
+    return translate_postmortem(build_tt_postmortem(tt_no), request)
 
 
 @router.get("/_tt_postmortem_noc")

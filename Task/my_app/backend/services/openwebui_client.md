@@ -37,6 +37,24 @@
   （WorkBuddy 网关要求首条必须是 system，否则 `code 11128` → HTTP 400）
 - 登录：POST /api/v1/auths/signin，JWT 缓存 60 分钟，对话遇 401 自动重登重试一次；
   **登录失败不再让整条链路失败**，只降级为「无 token + 本地技能缓存 + 仅主用档」
+- 登录 400「trusted header」（2026-10-19 实测，Open WebUI 0.12.0）：服务端
+  `GET /api/config` 返回 `features.auth_trusted_header=true`、`enable_signup=false`，
+  即已切换为 trusted-header 单点登录，**邮箱密码登录被服务端禁用**，改密码无用。
+  头名猜测已排除：响应头 `server: uvicorn`（应用自己拒绝，不是反代拦截），带**真实账密 body**
+  依次试 `X-User-Email / X-Forwarded-Email / X-Auth-Request-Email / X-Auth-Email / X-Email /
+  Remote-Email / X-WEBAUTH-USER / X-Authenticated-User / X-SSO-Email / X-Remote-Email / Email`
+  再加三组 email+name 双头组合，**全部同一个 400** —— 启用 SSO 后这条路由就是关死的，别再试头名。
+  `signin()` 已把这条 400 翻译成可执行建议（保留服务端原文），见 `_TRUSTED_HEADER_HINT`。
+  让 AI 重新可用**不需要改代码**，两选一：
+  ① 「系统设置 → AI 模型」主用模型方选 `both` 或 `local`，走 WorkBuddy 本地代理
+  （实测 127.0.0.1:8788 在线，一次对话约 2 秒；模型列表 claude-3.7 / claude-4.0 / gpt-5 /
+  gemini-2.5-flash / auto-chat …，`deepseek-v4.1-flash` 不在列表里但代理照收）；
+  ② 该页选 `custom`，Base URL 填 `http://<openwebui>/api/v1`、API Key 填 Open WebUI
+  用户设置里签发的 API Key、Model 填模型 id —— 实测 `POST /api/v1/chat/completions`
+  路由存在且按 Bearer 校验（无 token 401 Not authenticated，假 token 401 token is invalid），
+  与 `chat(provider="custom")` 的拼法正好对上。
+  注意 `provider=openwebui` 时候选链里**没有本地档**，单点失败即整条失败；这条 400 也**不触发**
+  `_mark_owu_down()` 的 120 秒短路（只认 `UnreachableError`），所以别把它当「服务挂了」查网络
 - 短路：Open WebUI 连接超时/拒绝后 120 秒内不再尝试登录、取模型列表和备用档对话，
   否则内网断开时每个请求都要重复付两次 TCP 超时
 - 技能：GET /api/v1/prompts/list 按 command=TT_PROVITY 取内容作 system 提示，
@@ -59,7 +77,9 @@ python -X utf8 -m backend.services.openwebui_client
 返回 JSON 并打印总运行秒数：
 `{ok, conclusion, provider, model, model_policy, failover_tried, skill_title, skill_source, language, language_rewritten, elapsed_sec}`
 
-页面侧：`GET /api/eflow-qa/tt-ai?tt=<单号>&lang=zh|en`（后端 :7038，改配置或代码后需重启生效）。
+页面侧：2026-10-19 起「TT 快速分析」只调 `GET /api/eflow-qa/tt-ai-fast`（纯本地规则引擎，
+不调模型），本文件描述的 `GET /api/eflow-qa/tt-ai` **界面已不依赖**，只用于排障与
+「系统设置 → AI 模型」连通性测试（后端 :7038，改配置或代码后需重启生效）。
 `ai.provider` / `ai.model` 用来确认这次实际走的是主用还是备用档。
 `ai.rules` 是本地规则引擎的命中证据（结构化，页面「命中规则」明细块直接用，含
 `push_rules` 推单规则），`ai.evidence` 是下发给模型的证据原文（排查用）。

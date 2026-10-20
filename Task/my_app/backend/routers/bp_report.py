@@ -40,8 +40,10 @@ GET /api/bp-report/meta（口径说明、脏值统计、同步状态与对账差
 import logging
 import re
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse
+
+from backend.api_i18n import translate_ui_fields
 
 from backend.services import bp_report_service as svc
 
@@ -89,39 +91,42 @@ def _fail(msg: str):
 
 @router.get("/overview")
 def overview(
+    request: Request,
     start: str = Query("", description="开始日期 YYYY-MM-DD（日粒度）或 YYYY-Www / YYYY-MM"),
     end: str = Query("", description="结束日期"),
     granularity: str = Query("day", description="粒度：day / week / month"),
 ):
     """总体趋势与合计（对应 Excel 的 Overall - Daily / Weekly / Monthly）。"""
     try:
-        return svc.load_overview(start, end, granularity)
+        return translate_ui_fields(svc.load_overview(start, end, granularity), request)
     except FileNotFoundError as e:
         logger.warning("[bp-report/overview] %s", e)
         return _fail(str(e))
     except Exception as e:
         logger.exception("[bp-report/overview] 失败: %s", e)
-        return _fail(f"数据加载失败: {e}")
+        return _fail(f"load_failed: {e}")
 
 
 @router.get("/regional")
 def regional(
+    request: Request,
     start: str = Query("", description="开始日期 YYYY-MM-DD"),
     end: str = Query("", description="结束日期 YYYY-MM-DD"),
     region: str = Query("", description="分区（留空=全部分区）"),
 ):
     """分区维度（Cluster1~6 / Rural / ERA / Unknown）。"""
     try:
-        return svc.load_regional(start, end, region)
+        return translate_ui_fields(svc.load_regional(start, end, region), request)
     except FileNotFoundError as e:
         return _fail(str(e))
     except Exception as e:
         logger.exception("[bp-report/regional] 失败: %s", e)
-        return _fail(f"数据加载失败: {e}")
+        return _fail(f"load_failed: {e}")
 
 
 @router.get("/layer")
 def layer(
+    request: Request,
     start: str = Query("", description="开始日期 YYYY-MM-DD"),
     end: str = Query("", description="结束日期 YYYY-MM-DD"),
     region: str = Query("", description="分区过滤（留空=全部）"),
@@ -129,16 +134,17 @@ def layer(
 ):
     """频层维度（L800 / L1800 20M / L1800 15M / L1800 10M / L2600 / Unknown）。"""
     try:
-        return svc.load_layer(start, end, region, layer_name)
+        return translate_ui_fields(svc.load_layer(start, end, region, layer_name), request)
     except FileNotFoundError as e:
         return _fail(str(e))
     except Exception as e:
         logger.exception("[bp-report/layer] 失败: %s", e)
-        return _fail(f"数据加载失败: {e}")
+        return _fail(f"load_failed: {e}")
 
 
 @router.get("/cells")
 def cells(
+    request: Request,
     day: str = Query("", description="单日 YYYY-MM-DD（下钻单日时用）"),
     start: str = Query("", description="开始日期 YYYY-MM-DD"),
     end: str = Query("", description="结束日期 YYYY-MM-DD"),
@@ -162,8 +168,9 @@ def cells(
     版本标记（用于确认线上 7038 是否已加载本版本代码）：BPR_META_V2
     """
     try:
-        return svc.load_cells(day=_day(day), start=_day(start), end=_day(end),
-                              region=region, layer=layer, scope=scope, limit=limit)
+        return translate_ui_fields(svc.load_cells(day=_day(day), start=_day(start), end=_day(end),
+                                             region=region, layer=layer, scope=scope, limit=limit),
+                                 request)
     except ValueError as e:
         # 参数非法：明确报错，**绝不**退化成"无过滤全表"（那正是 2026-09-29 的事故）
         logger.warning("[bp-report/cells] 参数被拒: %s", e)
@@ -178,14 +185,14 @@ def cells(
         return _fail(str(e))
     except Exception as e:
         logger.exception("[bp-report/cells] 失败: %s", e)
-        return _fail(f"数据加载失败: {e}")
+        return _fail(f"load_failed: {e}")
 
 
 @router.get("/meta")
-def meta():
+def meta(request: Request):
     """口径说明、脏值统计、同步状态与对账差异。"""
     try:
-        return svc.load_meta()
+        return translate_ui_fields(svc.load_meta(), request)
     except FileNotFoundError as e:
         return {"caliber": {}, "active_user": {"available": False, "reason": str(e)},
                 "counts": {}, "regions": [], "layers": [], "dirty": {},
@@ -194,5 +201,5 @@ def meta():
         logger.exception("[bp-report/meta] 失败: %s", e)
         return {"caliber": {}, "active_user": {"available": False, "reason": str(e)},
                 "counts": {}, "regions": [], "layers": [], "dirty": {},
-                "reconcile": {}, "notes": [], "warnings": [f"数据加载失败: {e}"],
+                "reconcile": {}, "notes": [], "warnings": [f"load_failed: {e}"],
                 "errors": []}

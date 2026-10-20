@@ -79,7 +79,7 @@ def overview(
             "meta": {"month": m, "days": [], "weeks": [], "tech": tk,
                      "threshold": threshold,
                      "generated_at": "", "elapsed_seconds": 0,
-                     "warnings": [f"数据加载失败: {e}"], "sources": {}},
+                     "warnings": [f"load_failed: {e}"], "sources": {}},
             "summary": {"site_count": 0, "by_tech": {},
                         "ticket_total": 0, "ticket_open": 0, "ticket_closed": 0},
             "sites": [],

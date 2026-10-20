@@ -167,7 +167,10 @@ export default function AlarmDashboard() {
     api.get(url, { params })
       .then(res => {
         setDrillData(res.data.data || [])
-        setDrillTitle(res.data.title || req.title)
+        // 标题恒取前端按当前语言拼好的 req.title，不采用后端下发的 title：
+        // 后端 METRIC_TITLE / REALTIME_DIMENSION_TITLE 是写死的中文，
+        // 用 `res.data.title ||` 会让英文界面的弹窗标题反被染成中文。
+        setDrillTitle(req.title)
         setDrillTotal(res.data.total || 0)
         setDrillDistinctSites(
           typeof res.data.distinct_sites === 'number' ? res.data.distinct_sites : null
@@ -175,10 +178,10 @@ export default function AlarmDashboard() {
       })
       .catch(err => {
         console.error('Drilldown API error:', err)
-        setDrillTitle('Failed to load data')
+        setDrillTitle(t('common.drillLoadFailed'))
       })
       .finally(() => setDrillLoading(false))
-  }, [])
+  }, [t])
 
   // 模糊搜索
   const filteredDrillData = useMemo(() => {
