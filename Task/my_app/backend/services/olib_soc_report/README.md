@@ -286,6 +286,47 @@ python -m backend.services.olib_soc_report.olib_soc_report_service --start 2026-
 * 看板把 `suspect_json`（上游缺数标记，见 §5）显示成趋势图上的淡红竖带 + 明细表角标，
   避免把「数据缺失」误读成「业务暴跌」。
 
+**分业务「本地 / 海外」服务器分流（看板下钻，2026-10-20 新增）**
+
+* 独立一步 `persist_app_offload()`，**不进 `BLOCKS`/`SHEET_ORDER`**：那 9 个块是月报 Excel 的
+  契约（与 notebook 逐日对账过），这份明细只服务看板的点击下钻，加第 10 个块等于改月报结构。
+  挂在 `run_olib_soc_report` 里 KPI 落库之后，所以月报全量跑与每日增量跑都会顺带写入。
+* 落库到同库的新表 `daily_app_offload(day, appname, total_tb, local_tb, abroad_tb, unknown_tb)`，
+  主键 `(day, appname)`，重跑覆盖；实测规模：单日 3000~3800 个业务（绝大多数是长尾小流量），
+  90 天约 **29 万行 / +30MB**，接口一次窗口聚合 0.2 秒（点一次才查一次）。
+  **全量业务都落库、不按流量阈值截断** —— 截断会让下钻表格的合计比 `traffic` 卡片少
+  0.3%（实测 0.46 TB），对不上账。TOP N 的取舍放在接口层（其余并进「其它」，合计仍按全量算）。
+  对账实测：2026-10-19 下钻合计 140.605 TB vs `daily_kpi.traffic_tb` 140.69 TB，差 0.085 TB
+  （0.06%，来自每行 `round(...,4)` 的累加），无业务被漏。
+* **判定口径用 `sp_country_id`（服务器所在国家）而不是 IP 白名单**：`LOCAL_COUNTRY_ID = 32`
+  （= Liberia，取自 `dim_comm_country_scr`）。三桶互斥且相加=当日全量：
+  `local` = 国家命中 32；`abroad` = 有 server_ip 且国家不是 32；`unknown` = server_ip 或
+  国家解析不出来。接口里「本地占」的分母是 `local + abroad`（**剔除 unknown**），
+  因为 DPI 取不到服务器地址的那部分（HTTPS/QUIC/UDP，实测约占全天 9%）既没走本地也没走海外。
+* 为什么不用 IP 清单：上面「缓存占比」那 5 个 IP **只是 Facebook 视频那几台**。
+  2026-10-19 实测两套本地缓存集群：`41.191.107.0/24`（Meta：Facebook 视频 48.22 /
+  Instagram 1.57 / **WhatsApp 3.21 在 `.227/.226/.224`，白名单一个没算**）与
+  `196.49.16.0/24`（Google：**YouTube 7.84 / Play 1.10 / Ads 1.01，整段不在白名单**）。
+  国家维度一次覆盖两套，且以后加缓存机器不用再改代码。
+* join `dim_service` 前**先按 `(serviceid, appid)` 去重**：`dim_service` 同一个
+  (appid, serviceid) 有多行（不同 `app_content`），直接左连会把流量按行数放大
+  （实测同一天的 APP 合计会算成 185 TB / 真实 140 TB）。
+* 只读接口 `GET /api/olib-soc-dashboard/app-offload?days=90&as_of=YYYY-MM-DD&top=40`，
+  返回「最新一天」与「窗口累计」两套行 + 各自合计；`as_of` 不是真实日期直接 400（不静默回退）。
+  看板 `?page=vmaxCxoDashboard_90Days` 点「缓存服务器流量占比」卡片或其图表面板即弹出该表格。
+* **历史回补**：这张表是新增的，库里已有的天数不会自动长出来，数仓只留约 90 天，越早跑越全。
+  两条路：
+  * 正式入口 `python -m backend.services.olib_soc_report.olib_soc_report_service --sync-kpi --days-back 90 --force`
+    —— 会把 7 个块 × 90 天整体重取（约 630 条 SQL，月报 30 天实测 236 秒，这里十几分钟），
+    并按 COALESCE 重写 `daily_kpi` 的既有日值（结果应当一致，但确实动了看板现有数字）。
+  * **只补这张表**（2026-10-20 首次回补用的就是这个，对生产 MPP 温和得多）：逐日调
+    `fetch_app_offload(client, cfg, [day], run_id)` + `upsert_app_offload(rows)`，跳过
+    `daily_kpi` 已覆盖之外没有分区的天。实测 90 天 **343 秒 / 181 条 SQL / 29 万行**，
+    完全不碰 `daily_kpi`。幂等，中断后重跑只补没落库的天。
+  此后每日增量任务 `olib_soc_kpi_daily_sync` 会自动带上（挂在 KPI 落库之后）。
+* 注意 `GBase` 的 `decimal(65,0)` 经 pymysql 回来是 `Decimal`，**直接绑给 sqlite 会
+  `ProgrammingError`**，落库前一律 `_to_float()` 转 float（`§13c` 离线用例专门盯这条）。
+
 指标字典在 `olib_soc_kpi_store.METRICS`（10 个：4 个 CEO 主卡片 +
 3 个业务结构 + 3 个网络质量），字段含中英标题/单位/小数位/越大越好/周汇总方式，
 后端接口、前端卡片、周趋势、明细表全部引用这一份定义。

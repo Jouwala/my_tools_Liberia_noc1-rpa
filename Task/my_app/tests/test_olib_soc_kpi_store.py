@@ -596,7 +596,7 @@ try:
     check("路由前缀/路径符合约定", dash.router.prefix == "/api/olib-soc-dashboard"
           and {r.path for r in dash.router.routes} == {
               "/api/olib-soc-dashboard/overview", "/api/olib-soc-dashboard/status",
-              "/api/olib-soc-dashboard/days"},
+              "/api/olib-soc-dashboard/days", "/api/olib-soc-dashboard/app-offload"},
           str(sorted(r.path for r in dash.router.routes)))
     kpi.KPI_DB_PATH = Path(tempfile.mkdtemp(prefix="olib_kpi_e_")) / "nope.sqlite3"
     check("空库 /overview 不 500",
@@ -877,6 +877,87 @@ _rb3 = svc.run_block(_PoolStub(_EmptyDayGbase()), "game",
 check("白名单块（game）空天仍记录 days_empty",
       _rb3["days_empty"] == ["2026-09-02"], str(_rb3["days_empty"]))
 check("白名单块（game）空天不降级，仍为 ok", _rb3["status"] == "ok", _rb3["status"])
+
+# ==========================================================================
+section("13c. 分业务「本地 / 海外」服务器分流下钻（看板点击「缓存占比」的数据源）")
+
+
+class _OffloadStub:
+    """假 GBase：只验 SQL 组装 / Decimal 转换 / 分区跳天，不连库。"""
+
+    def __init__(self, rows):
+        self.rows = rows
+        self.sqls = []
+
+    def partition_days(self, family, gran="day"):
+        return ["20261018", "20261019"]
+
+    def query_dicts(self, sql):
+        self.sqls.append(sql)
+        return [dict(r) for r in self.rows]
+
+
+from decimal import Decimal as _D
+_off_rows = [
+    {"appname": "FACEBOOK_VIDEO", "total_tb": _D("50.2280"), "local_tb": _D("48.2190"),
+     "abroad_tb": _D("2.0090"), "unknown_tb": _D("0.0000")},
+    {"appname": "HTTPS", "total_tb": _D("5.7100"), "local_tb": _D("0.0000"),
+     "abroad_tb": _D("0.0000"), "unknown_tb": _D("5.7100")},
+]
+_off_sql = svc.offload_sql("aggr_5gsa_flow_spservice_day_20261019")
+check("分流 SQL 按国家判定本地，不再用 5 个 IP 白名单",
+      "sp_country_id = %d" % svc.LOCAL_COUNTRY_ID in _off_sql
+      and "41.191.107.211" not in _off_sql)
+check("三桶互斥且完整：未识别 = server_ip 或 country 任一为 NULL",
+      "server_ip is null or sp_country_id is null" in _off_sql
+      and "sp_country_id is not null" in _off_sql)
+check("先按 (serviceid, appid) 去重再左连 dim_service（否则 join 扇出把流量算重）",
+      "group by serviceid, appid" in _off_sql)
+_stub = _OffloadStub(_off_rows)
+_got, _skip = svc.fetch_app_offload(_stub, {"granularity": "day"},
+                                    ["20261019", "20991231"], "run_off")
+check("上游分区已过期（超 90 天保留期）的天被跳过，不发起查询",
+      _skip == ["2099-12-31"] and len(_stub.sqls) == 1, str(_skip))
+check("GBase 的 Decimal 转成 float（直接绑给 sqlite 会 ProgrammingError）",
+      len(_got) == 2 and all(isinstance(r[k], float) for r in _got
+                             for k in ("total_tb", "local_tb", "abroad_tb", "unknown_tb")))
+_db_off = Path(tempfile.mkdtemp(prefix="olib_off_")) / "o.sqlite3"
+check("明细按 (day, appname) 落库且重跑幂等",
+      kpi.upsert_app_offload(_got, path=_db_off) == 2
+      and kpi.upsert_app_offload(_got, path=_db_off) == 2
+      and kpi.app_offload_days(path=_db_off) == ["2026-10-19"])
+_ob = kpi.build_app_offload(days=90, path=_db_off)
+_orows = {r["appname"]: r for r in _ob["day"]["rows"]}
+check("本地占的分母剔除未识别 IP：48.219/(48.219+2.009)=96.0%",
+      _orows["FACEBOOK_VIDEO"]["local_pct"] == 96.0, str(_orows["FACEBOOK_VIDEO"]))
+check("整行都没解析出服务器 IP 的业务给 None（界面显示 —，不能显示 0%）",
+      _orows["HTTPS"]["local_pct"] is None and _orows["HTTPS"]["unknown_tb"] == 5.71,
+      str(_orows["HTTPS"]))
+check("合计行等于明细相加（表格合计要与 traffic 卡片对得上账）",
+      _ob["day"]["totals"]["apps"] == 2
+      and abs(_ob["day"]["totals"]["total_tb"] - sum(r["total_tb"] for r in _got)) < 0.01,
+      str(_ob["day"]["totals"]))
+_many = [{"day": "2026-10-19", "appname": "A%03d" % i, "total_tb": 100.0 - i,
+          "local_tb": (100.0 - i) * 0.6, "abroad_tb": (100.0 - i) * 0.3,
+          "unknown_tb": (100.0 - i) * 0.1} for i in range(45)]
+_db_roll = Path(tempfile.mkdtemp(prefix="olib_roll_")) / "r.sqlite3"
+kpi.upsert_app_offload(_many, path=_db_roll)
+_roll = kpi.build_app_offload(days=90, top=40, path=_db_roll)["day"]
+check("只展示 TOP40，其余并进「其它」，四桶相加仍等于合计",
+      len(_roll["rows"]) == 40 and _roll["others"] is not None
+      and all(abs(sum(r[c] for r in _roll["rows"]) + _roll["others"][c] - _roll["totals"][c])
+              < 0.05 for c in kpi.APP_OFFLOAD_COLUMNS), str(_roll["totals"]))
+_o_db = kpi.KPI_DB_PATH
+kpi.KPI_DB_PATH = _db_off
+try:
+    check("as_of 非法直接 400，不静默改看最新一天",
+          dash.get_app_offload(days=90, as_of="2026-13-99").status_code == 400)
+    _api = json.loads(dash.get_app_offload(days=90).body.decode("utf-8"))
+    check("接口给「最新一天」与「窗口累计」两套行 + 各自合计",
+          _api["status"] == "ok" and _api["day"]["rows"] and _api["as_of"] == "2026-10-19"
+          and _api["window_agg"]["totals"]["apps"] == 2, str(_api["window"]))
+finally:
+    kpi.KPI_DB_PATH = _o_db
 
 # ==========================================================================
 if LIVE:

@@ -85,6 +85,34 @@ tbody tr:hover td{background:rgba(37,140,255,.10)}
 .tbl-wrap{max-height:330px;overflow:auto;border:1px solid #153db0;border-radius:9px;background:linear-gradient(180deg,#08122c,#050d22);margin:0 4px}
 .tag{display:inline-block;font-size:9px;border-radius:9px;padding:1px 7px;border:1px solid #2b6fd0;color:#9fd8ee}
 .tag.warn{border-color:#8a6d10;color:#f6cf00;background:rgba(74,60,8,.5)}
+/* ---- 分业务「本地 / 海外」服务器分流下钻 ----
+   点「缓存服务器流量占比」卡片或其图表面板标题打开。
+   配色全部走 --panel/--edge/--text/--muted 变量，浅色态只覆盖这三处容器色，
+   不跟主题迭代的那批规则抢优先级。 */
+.card.drill,.panel[data-mid]{cursor:pointer}
+.off-mask{position:fixed;inset:0;background:rgba(2,5,12,.72);z-index:220;display:none}
+.off-mask.open{display:block}
+.off-modal{position:fixed;top:6vh;left:50%;transform:translateX(-50%);width:min(1080px,95vw);
+  max-height:88vh;display:none;flex-direction:column;z-index:221;background:#071027;
+  border:1px solid var(--edge);border-radius:12px;box-shadow:0 18px 46px rgba(0,0,0,.55)}
+.off-modal.open{display:flex}
+.off-head{display:flex;align-items:baseline;gap:10px;padding:11px 14px;border-bottom:1px solid var(--edge)}
+.off-head b{font-size:14px;color:var(--text)}
+.off-head em{font-size:11px;color:var(--muted);font-style:normal;flex:1}
+.off-head button{font:inherit;font-size:12px;color:var(--text);background:transparent;
+  border:1px solid var(--edge);border-radius:7px;padding:2px 9px;cursor:pointer}
+.off-note{padding:7px 14px;font-size:10.5px;line-height:1.5;color:var(--muted);border-bottom:1px solid var(--edge)}
+.off-body{overflow:auto;padding:0 4px 6px}
+.off-tbl th{color:var(--muted);background:#071027;position:sticky;top:0}
+.off-tbl th,.off-tbl td{border-bottom-color:#173158}
+.off-tbl td.pct{font-weight:700}
+.off-tbl tr.tot td{border-top:1px solid var(--edge);border-bottom:none;font-weight:700;background:rgba(37,140,255,.12)}
+.off-tbl tr.brk td{color:var(--muted);font-style:italic}
+html[data-theme="light"] .off-mask{background:rgba(180,208,222,.62)}
+html[data-theme="light"] .off-modal{background:#f4fbfe;box-shadow:0 18px 40px rgba(22,48,71,.22)}
+html[data-theme="light"] .off-tbl th{color:#0e7490;background:#f4fbfe}
+html[data-theme="light"] .off-tbl th,html[data-theme="light"] .off-tbl td{border-bottom-color:rgba(14,116,144,.18)}
+html[data-theme="light"] .off-tbl tr.tot td{background:rgba(14,116,144,.08)}
 /* ---- 说明条 ---- */
 .notes-wrap{padding:8px 8px 2px;display:flex;flex-direction:column;align-items:center}
 .notes-toggle{cursor:pointer;border:1px solid #17499c;background:rgba(9,34,74,.6);color:#9fd8ee;border-radius:20px;padding:4px 12px;font-size:11px;font-family:inherit;display:inline-flex;align-items:center;gap:6px}
@@ -201,6 +229,16 @@ html[data-theme="light"] .status{border-color:rgba(14,116,144,.3);background:rgb
     <div class="tbl-wrap"><table id="tbl"></table></div>
   </section>
 
+  <!-- 分业务本地/海外服务器分流下钻：静态放 body 里（页面自检要求每个 getElementById
+       都能在这里找到对应 id），表格只写进 #offBody 这个空容器 -->
+  <div class="off-mask" id="offMask"></div>
+  <div class="off-modal" id="offModal" role="dialog" aria-modal="true" aria-labelledby="offTitle">
+    <div class="off-head"><b id="offTitle">Cache Server Share</b><em id="offMeta"></em>
+      <button type="button" id="offClose" aria-label="close">✕</button></div>
+    <div class="off-note" id="offNote"></div>
+    <div class="off-body" id="offBody"></div>
+  </div>
+
   <div class="notes-wrap">
     <button class="notes-toggle" id="notesToggle" aria-expanded="false" aria-controls="cover">
       <span>ⓘ</span><span id="notesLabel">Data notes</span><span class="caret">▾</span>
@@ -235,6 +273,13 @@ var I18N = {
   verTip:'页面文件本身的上次修改时间（不是数据时间）。数据截至日期见左侧「数据截至」与状态栏。',
   refreshTip:'重新拉取数据（数据每日 06:20 增量... 当天未完成不纳入）',
     empty:'KPI 库还没有数据：先跑一次「OLIB SOC 看板 KPI 增量」或「OLIB SOC VMAX 例行报表」任务',
+    offTitle:'分业务服务器分流（本地 / 海外）', offMeta:'数据截至', offDays:'天',
+    offThApp:'业务 (APP)', offThTotal:'总流量 (TB)', offThLocal:'本地服务器 (TB)',
+    offThAbroad:'海外服务器 (TB)', offThUnknown:'未识别 IP (TB)', offThPct:'本地占',
+    offTotals:'合计', offOthers:'其它 {n} 个小业务',
+    offHint:'本地 = 服务器所在国家为利比里亚（sp_country_id=32），一套口径同时覆盖两套缓存集群：Facebook 视频 / Instagram / WhatsApp（41.191.107.0/24）与 YouTube / Google Play（196.49.16.0/24）。「未识别 IP」是 DPI 取不到服务器地址的流量（HTTPS/QUIC/UDP），既没走本地也没走海外，已从「本地占」的分母中剔除，所以表格合计会略高于上方卡片里的「缓存占比」（那个数只认 5 台 Facebook 缓存 IP）。',
+    offLoading:'正在取分业务明细…', offFailed:'分业务明细加载失败',
+    offEmpty:'分流明细为空：跑一次「OLIB SOC 看板 KPI 增量」任务即写入',
     n1:'数据源：VMAX 数仓 GBase（10.123.255.12:5258, 库 zxvmax）直连取数，由任务 olib_soc_kpi_daily_sync 每日增量、olib_soc_vmax_report 每月全量入库',
     n2:'单位：总流量/视频流量 GB（库内 TB × 1024）；视频速率为按视频流量加权的有效下载速率（kbps）；活跃用户为当日去重用户数',
     n3:'周粒度：流量类为当周合计，比率/速率/时延为按流量加权平均；最后一周可能未走完，图上标注实际天数',
@@ -262,6 +307,13 @@ var I18N = {
   verTip:'Last modified time of this page file (not the data date). See "As of" on the left and the status bar for the data date.',
   refreshTip:'Re-fetch data (warehouse is topped up daily at 06:20; today is excluded until complete)',
     empty:'No KPI data yet — run the "OLIB SOC Dashboard KPI Sync" or "OLIB SOC VMAX Report" task first',
+    offTitle:'Per-service server offload (local / overseas)', offMeta:'As of', offDays:'days',
+    offThApp:'Service (APP)', offThTotal:'Total traffic (TB)', offThLocal:'Local servers (TB)',
+    offThAbroad:'Overseas servers (TB)', offThUnknown:'Unresolved IP (TB)', offThPct:'Local share',
+    offTotals:'Total', offOthers:'{n} smaller services',
+    offHint:'"Local" means the server is in Liberia (sp_country_id=32). One rule covers both cache clusters: Facebook Video / Instagram / WhatsApp (41.191.107.0/24) and YouTube / Google Play (196.49.16.0/24). "Unresolved IP" is traffic whose server address DPI could not resolve (HTTPS/QUIC/UDP) — it went neither local nor overseas, so it is excluded from the denominator of "Local share". The total row is therefore slightly above the "Cache Share" card above, which only counts 5 Facebook cache IPs.',
+    offLoading:'loading service breakdown…', offFailed:'failed to load service breakdown',
+    offEmpty:'No offload detail yet — run the "OLIB SOC Dashboard KPI Sync" task once to populate it',
     n1:'Source: VMAX data warehouse GBase (10.123.255.12:5258, db zxvmax) queried directly; filled daily by olib_soc_kpi_daily_sync and monthly by olib_soc_vmax_report',
     n2:'Units: traffic/video in GB (stored as TB × 1024); video rate is the traffic-weighted valid download throughput (kbps); active users are distinct subscribers per day',
     n3:'Weekly: volumes are summed, rates/latency are traffic-weighted averages; the last week may be partial (day count shown on the chart)',
@@ -417,7 +469,8 @@ function cardHtml(c,small){
   chips+='<span class="'+chipCls(c.id,c.wow_pct)+'">'+esc(t('wow'))+' '+(wow==null?'—':esc(wow))+'</span>';
   chips+='<span class="'+chipCls(c.id,c.mom_pct)+'">'+esc(t('mom'))+' '+(mom==null?'—':esc(mom))+'</span>';
   var digits=m.digits==null?2:m.digits;
-  return '<div class="card'+(small?' sm':'')+'">'+
+  return '<div class="card'+(small?' sm':'')+(OFFLOAD_DRILL.indexOf(c.id)>=0?' drill':'')+
+    '" data-mid="'+esc(c.id)+'">'+
     '<div class="ttl"><b>'+esc(LOCALE==='en'?(m.title_en||c.title):(m.title||c.title))+'</b><i>'+esc(m.unit||c.unit||'')+'</i></div>'+
     '<div class="val"><span>'+fmt(c.latest.value,digits)+'</span><em>'+esc(m.unit||c.unit||'')+'</em></div>'+
     '<div class="when">'+esc(t('latest'))+' · '+esc(c.latest.date)+'（'+esc(t('asof'))+' '+esc((payload.as_of)||'')+'）</div>'+
@@ -523,7 +576,7 @@ function panelHtml(id,big){
     if(last<7)extra=' · '+(LOCALE==='en'?('last week '+last+'d'):('最后一周 '+last+' 天'));
   }
   // 口径说明改成 hover 提示（ⓘ），把卡片右上角腾给 最大/平均/最低
-  return '<div class="panel"><div class="panel-title">'+
+  return '<div class="panel" data-mid="'+esc(id)+'"><div class="panel-title">'+
     '<span class="pt-name" title="'+esc(note)+'">'+esc(LOCALE==='en'?(m.title_en||id):(m.title||id))+
       ' <i>'+unit+'</i>'+(note?' <i>ⓘ</i>':'')+esc(extra)+'</span>'+
     panelStats(id,digits)+
@@ -531,6 +584,68 @@ function panelHtml(id,big){
 }
 var PRIMARY_CHART_IDS=['traffic_gb','active_user_k','video_thr_kbps','video_share_pct'];
 var QUALITY_CHART_IDS=['video_tb','cache_ratio_pct','game_tb','tcp_success_pct','tcp_dl_retrans_pct','tcp_dl_rtt_ms'];
+
+/* ==================== 分业务「本地 / 海外」服务器分流下钻 ====================
+ * 为什么点的是「缓存占比」这张卡：卡片本身是 5 台 Facebook 缓存 IP 的口径（沿用 notebook，
+ * 月报与门户对账靠它），而下钻表格走的是 sp_country_id 国家口径，覆盖两套缓存集群。
+ * 两者数值必然不同，弹窗顶部把这件事说清楚，别让人以为界面自相矛盾。
+ * 明细只在首次点击时拉一次并缓存（一天约 190 个业务 × 90 天），刷新/切语言用缓存重绘。 */
+var OFFLOAD_DRILL=['cache_ratio_pct'];
+var OFFLOAD_API='/api/olib-soc-dashboard/app-offload?days=90';
+var offCache=null, offLoading=false;
+
+function offRow(r, label, cls){
+  return '<tr'+(cls?' class="'+cls+'"':'')+'><td>'+esc(label||r.appname||'—')+'</td>'+
+    '<td>'+fmt(r.total_tb,2)+'</td><td>'+fmt(r.local_tb,2)+'</td><td>'+fmt(r.abroad_tb,2)+'</td>'+
+    '<td>'+fmt(r.unknown_tb,2)+'</td><td class="pct">'+
+      (r.local_pct==null?'—':fmt(r.local_pct,1)+'%')+'</td></tr>';
+}
+function offScope(sc){                       // 最新一天没数就退回窗口累计，不给空白表
+  return (sc && sc.rows && sc.rows.length) ? sc : null;
+}
+function fillOffModal(){
+  var body=document.getElementById('offBody'), d=offCache;
+  document.getElementById('offTitle').textContent=t('offTitle');
+  var sc = d && d.status==='ok' ? (offScope(d.day) || offScope(d.window_agg)) : null;
+  if(!d){ body.innerHTML='<div class="empty">'+esc(t(offLoading?'offLoading':'offEmpty'))+'</div>';
+    document.getElementById('offMeta').textContent=''; document.getElementById('offNote').textContent=''; return; }
+  if(d.status!=='ok' || !sc){
+    body.innerHTML='<div class="empty">'+esc(d.message||d.error||t('offFailed'))+'</div>';
+    document.getElementById('offMeta').textContent=''; return;
+  }
+  var n=(sc.rows||[]).length, rest=Math.max(0,((sc.totals&&sc.totals.apps)||n)-n);
+  var html=(sc.rows||[]).map(function(r){return offRow(r)}).join('');
+  if(sc.others) html+=offRow(sc.others, t('offOthers').replace('{n}', String(rest)), 'brk');
+  if(sc.totals) html+=offRow(sc.totals, t('offTotals'), 'tot');
+  body.innerHTML='<table class="off-tbl"><thead><tr><th>'+esc(t('offThApp'))+'</th><th>'+
+    esc(t('offThTotal'))+'</th><th>'+esc(t('offThLocal'))+'</th><th>'+esc(t('offThAbroad'))+
+    '</th><th>'+esc(t('offThUnknown'))+'</th><th>'+esc(t('offThPct'))+'</th></tr></thead><tbody>'+
+    html+'</tbody></table>';
+  var w=d.window||{};
+  document.getElementById('offMeta').textContent=t('offMeta')+' '+(d.as_of||'—')+
+    ' · '+(w.stored_days||0)+'/'+(d.window_days||90)+' '+t('offDays')+
+    (offScope(d.day)?'':' · '+t('week'));
+  document.getElementById('offNote').textContent=t('offHint');
+}
+function openOffload(){
+  document.getElementById('offMask').classList.add('open');
+  document.getElementById('offModal').classList.add('open');
+  fillOffModal();
+  if(offCache||offLoading) return;
+  offLoading=true;
+  fetch(OFFLOAD_API,{cache:'no-store'}).then(function(r){
+      if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
+    .then(function(d){ offCache=d; })
+    .catch(function(e){ offCache={status:'error', message:String(e && e.message || e)}; })
+    .then(function(){ offLoading=false; fillOffModal(); });
+}
+function closeOffload(){
+  document.getElementById('offMask').classList.remove('open');
+  document.getElementById('offModal').classList.remove('open');
+}
+function offloadOpen(){
+  return document.getElementById('offModal').classList.contains('open');
+}
 
 function drawAll(){
   PRIMARY_CHART_IDS.forEach(function(id){ try{chart('ch_'+id).setOption(optionFor(id,true),true)}catch(e){} });
@@ -589,6 +704,7 @@ function renderAll(){
   }
   document.getElementById('hTrendSub').textContent=(GRAN==='day'?t('day'):t('week'))+' · '+
     (LOCALE==='en'?'last 90 days':'最近 90 天');
+  if(offloadOpen()) fillOffModal();     // 切语言/刷新后弹窗文案跟着重绘（表格用缓存，不重拉）
   drawAll();
 }
 function renderEmpty(msg){
@@ -617,6 +733,15 @@ function load(){
     .catch(function(e){ setStatus(t('failed')+': '+e.message,false); });
 }
 document.getElementById('refreshBtn').addEventListener('click',load);
+/* 下钻入口用文档级委托：卡片与面板每次 renderAll 都整块重innerHTML，
+   绑在元素上的监听会随节点一起被换掉，委托不会。 */
+document.addEventListener('click',function(ev){
+  var el=ev.target&&ev.target.closest?ev.target.closest('[data-mid]'):null;
+  if(el&&OFFLOAD_DRILL.indexOf(el.getAttribute('data-mid'))>=0) openOffload();
+});
+document.getElementById('offMask').addEventListener('click',closeOffload);
+document.getElementById('offClose').addEventListener('click',closeOffload);
+document.addEventListener('keydown',function(ev){ if(ev.key==='Escape'&&offloadOpen()) closeOffload(); });
 document.getElementById('granSeg').addEventListener('click',function(ev){
   var btn=ev.target.closest('button[data-gran]'); if(!btn)return;
   GRAN=btn.getAttribute('data-gran');

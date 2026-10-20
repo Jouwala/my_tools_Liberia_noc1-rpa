@@ -86,6 +86,16 @@ SQLITE_PATH = DATA_DIR / "olib_soc_report.sqlite3"
 # 缓存服务器判定用的 IP（notebook 里硬编码的 5 个，放配置里便于维护）
 DEFAULT_CACHE_IPS = ["41.191.107.211", "41.191.107.212", "41.191.107.222",
                      "41.191.107.225", "41.191.107.228"]
+# 分业务「本地 / 海外」分流用 sp_country_id（服务器所在国家，32=Liberia，
+# 取自 dim_comm_country_scr；用缓存段 IP 反查实测两个缓存集群 100% 落在 32）。
+# 不用 IP 白名单：上面那 5 个 IP 只是 Facebook 视频那几台，同集群的 WhatsApp 缓存
+# （41.191.107.227/.226/.224）与整套 Google 缓存（196.49.16.0/24：YouTube/Play/Ads）
+# 都不在里面 —— 2026-10-19 实测各漏 3.73 TB 与 10.28 TB。国家维度不用维护清单。
+LOCAL_COUNTRY_ID = 32
+# 全量业务都落库、不按流量阈值截断：接口只展示 TOP N + 「其它」rollup，但「合计」必须
+# 等于当日总流量，否则下钻表格的合计与 traffic 卡片对不上账（实测截 5GB 少 0.46TB/0.33%）。
+# 实测规模：单日 3000~3800 个业务（绝大多数是长尾），90 天约 29 万行，库文件 +30MB，
+# 接口一次窗口聚合 0.2s（点一次才查一次，可接受）。
 # 核心网元 targetid → 名称（notebook 里 CASE WHEN 50331658 = SGW_HQ_122）
 DEFAULT_TARGET_NAMES = {"50331658": "SGW_HQ_122", "50331660": "SGW_ODC_22"}
 # 视频 / 游戏业务 (service_id, subservice_id)（notebook 里写死的组合）
@@ -748,6 +758,109 @@ def persist_daily_kpi(results: Dict[str, Dict[str, Any]], run_id: str,
         return {"days": 0, "error": "%s: %s" % (type(exc).__name__, exc)}
 
 
+# ==========================================================================
+# 分业务「本地 / 海外 / 未识别」服务器流量（看板点击下钻的数据源）
+# 独立一步，不进 BLOCKS/SHEET_ORDER：那 9 个块是月报 Excel 的契约（与 notebook 逐日
+# 对账过），加第 10 个块等于改月报结构；而这份明细只服务看板的下钻表格。
+# ==========================================================================
+def offload_sql(table: str) -> str:
+    """单日分业务的本地/海外服务器流量三桶拆分。
+
+    三桶互斥且相加=当日全量，所以 `本地占` 的分母用 `total - unknown`：
+    DPI 解析不出 server_ip 的那部分（HTTPS/QUIC/UDP，实测约占全天 9%）既没走本地也没走
+    海外，硬塞给任何一边都会把比例做歪。四个计数列相加沿用 cache 块原样写法（含它的
+    NULL 传播特性），保证两块数字可对账。
+    """
+    flow = "(ppb400402001 + ppb400402002 + ppb400403001 + ppb400403002)"
+    return """
+select coalesce(d.appname, '<未识别业务>') as appname,
+    round(sum(t.allb)/1024/1024/1024/1024, 4) as total_tb,
+    round(sum(t.localb)/1024/1024/1024/1024, 4) as local_tb,
+    round(sum(t.abroadb)/1024/1024/1024/1024, 4) as abroad_tb,
+    round(sum(t.unknownb)/1024/1024/1024/1024, 4) as unknown_tb
+from (
+    select service_id, subservice_id,
+        sum(""" + flow + """) as allb,
+        sum(case when server_ip is not null and sp_country_id = """ + str(LOCAL_COUNTRY_ID) + """
+                 then """ + flow + """ else 0 end) as localb,
+        sum(case when server_ip is not null and sp_country_id is not null
+                  and sp_country_id <> """ + str(LOCAL_COUNTRY_ID) + """
+                 then """ + flow + """ else 0 end) as abroadb,
+        sum(case when server_ip is null or sp_country_id is null
+                 then """ + flow + """ else 0 end) as unknownb
+    from """ + str(table) + """
+    group by service_id, subservice_id
+) t
+left join (select serviceid, appid, min(appname) as appname
+           from dim_service group by serviceid, appid) d
+    on t.service_id = d.serviceid and t.subservice_id = d.appid
+group by appname
+order by total_tb desc"""
+
+
+def _to_float(value: Any) -> Optional[float]:
+    """GBase 的 decimal 列经 pymysql 回来是 Decimal，sqlite 绑不了 —— 落库前转 float。"""
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):                                      # noqa: BLE001
+        return None
+
+
+def fetch_app_offload(client: Any, cfg: Dict[str, Any], days: Sequence[str],
+                      run_id: str = "") -> Tuple[List[Dict[str, Any]], List[str]]:
+    """逐日取分业务分流明细，返回 (明细行, 因上游分区已过期而跳过的天)。"""
+    gran = str(cfg.get("granularity") or "day")
+    want = [vgc.iso_day(d) for d in days]
+    try:
+        have = {vgc.iso_day(d) for d in
+                client.partition_days(vgc.FAMILY_FLOW_SPSERVICE, gran)}
+    except Exception as exc:                                             # noqa: BLE001
+        logger.warning("[olib_soc] 分流块分区预检失败（改为逐日直接尝试）: %s", exc)
+        have = set(want)
+    rows: List[Dict[str, Any]] = []
+    skipped: List[str] = []
+    for day in want:
+        if day not in have:
+            skipped.append(day)                                          # 超保留期，不徒劳查
+            continue
+        table = vgc.day_table(vgc.FAMILY_FLOW_SPSERVICE, day, gran)
+        try:
+            got = client.query_dicts(offload_sql(table))
+        except Exception as exc:                                         # noqa: BLE001
+            logger.warning("[olib_soc] %s 分业务分流取数失败: %s", day, exc)
+            continue
+        for item in got:
+            # GBase 的 decimal(65,0) 经 pymysql 回来是 Decimal，直接绑进 sqlite 会
+            # ProgrammingError（sqlite 不认 Decimal）—— 落库前一律转 float。
+            rows.append({"day": day, "appname": item.get("appname"),
+                         "total_tb": _to_float(item.get("total_tb")),
+                         "local_tb": _to_float(item.get("local_tb")),
+                         "abroad_tb": _to_float(item.get("abroad_tb")),
+                         "unknown_tb": _to_float(item.get("unknown_tb")),
+                         "run_id": run_id})
+    return rows, skipped
+
+
+def persist_app_offload(pool: Any, cfg: Dict[str, Any], days: Sequence[str],
+                        run_id: str = "") -> Dict[str, Any]:
+    """分业务分流明细落库；任何失败只记日志，不影响报表与 KPI 产出（同 persist_daily_kpi）。"""
+    if pool is None:
+        return {"rows": 0, "skipped": "无可用连接池"}
+    try:
+        rows, skipped = fetch_app_offload(pool.get(), cfg, days, run_id)
+        written = kpi_store.upsert_app_offload(rows, path=kpi_db_path())
+        if written:
+            logger.info("[olib_soc] 分业务分流入库 %d 行 / %d 天", written,
+                        len({r["day"] for r in rows}))
+        return {"rows": written, "days": len({r["day"] for r in rows}),
+                "skipped_no_partition": skipped}
+    except Exception as exc:                                             # noqa: BLE001
+        logger.warning("[olib_soc] 分业务分流入库失败: %s", exc)
+        return {"rows": 0, "error": "%s: %s" % (type(exc).__name__, exc)}
+
+
 def excel_path_for(label: str) -> Path:
     return DATA_DIR / ("OLIB SOC VMAX %s.xlsx" % label)
 
@@ -1154,6 +1267,9 @@ def run_olib_soc_report(mode: Optional[str] = None, days: Optional[int] = None,
                 summary["excel"] = xlsx
             if persist and (cfg.get("persist") or {}).get("write_kpi", True):
                 summary["kpi"] = persist_daily_kpi(result_map, run_id, all_days)
+                # 分业务分流明细：只要这次跑了 spservice 表族的块就顺带取一次，
+                # 月报全量跑与看板每日增量跑同一条路径，历史回补不需要单独的命令。
+                summary["app_offload"] = persist_app_offload(pool, cfg, all_days, run_id)
             summary["mail"] = (deliver_mail(cfg, xlsx, summary) if send_mail is not False
                                else {"sent": False, "skipped": "send_mail=False"})
     except vgc.VmaxGbaseUnavailable as exc:

@@ -36,6 +36,10 @@ _ROOT = Path(__file__).resolve().parents[3]
 DATA_DIR = _ROOT / "data" / "olib_soc_report"
 KPI_DB_PATH = DATA_DIR / "olib_soc_report.sqlite3"
 DAILY_TABLE = "daily_kpi"
+# 分业务「本地 / 海外 / 未识别服务器」流量明细（看板下钻用，一天一业务一行）。
+# 与 daily_kpi 分开存放：daily_kpi 是「一天一行的卡片口径」，这张是「一天一业务一行的下钻」，
+# 混在一张表里会让 REQUIRED_COLUMNS 的残缺日自愈把「某个 APP 没取到」误判成整天残缺。
+APP_OFFLOAD_TABLE = "daily_app_offload"
 
 # ==========================================================================
 # 指标字典（CEO 视角：第一屏业务/成本/体验，第二屏网络质量）
@@ -182,6 +186,14 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
         run_id TEXT, updated_at TEXT)""" % DAILY_TABLE)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_%s_day ON %s(day)"
                  % (DAILY_TABLE, DAILY_TABLE))
+    # 下钻明细：主键 (day, appname) —— 重跑同一天覆盖同一天同一业务，天然幂等
+    conn.execute("""CREATE TABLE IF NOT EXISTS %s (
+        day TEXT, appname TEXT,
+        total_tb REAL, local_tb REAL, abroad_tb REAL, unknown_tb REAL,
+        run_id TEXT, updated_at TEXT,
+        PRIMARY KEY (day, appname))""" % APP_OFFLOAD_TABLE)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_%s_day ON %s(day)"
+                 % (APP_OFFLOAD_TABLE, APP_OFFLOAD_TABLE))
     conn.commit()
 
 
@@ -213,6 +225,113 @@ def upsert_days(rows: Iterable[Dict[str, Any]], path: Optional[Path] = None) -> 
                          % (DAILY_TABLE, ",".join(cols), placeholders, updates), values)
         conn.commit()
     return len(items)
+
+
+APP_OFFLOAD_COLUMNS: Tuple[str, ...] = ("total_tb", "local_tb", "abroad_tb", "unknown_tb")
+OFFLOAD_TOP = 40                                            # 下钻表默认展开前 N 个业务，其余并入「其它」
+
+
+def upsert_app_offload(rows: Iterable[Dict[str, Any]], path: Optional[Path] = None) -> int:
+    """写入分业务本地/海外分流明细，按 (day, appname) 覆盖 —— 同一天重跑幂等。"""
+    items = [r for r in rows
+             if r.get("day") not in (None, "") and r.get("appname") not in (None, "")]
+    if not items:
+        return 0
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    cols = ["day", "appname"] + list(APP_OFFLOAD_COLUMNS) + ["run_id", "updated_at"]
+    placeholders = ",".join("?" for _ in cols)
+    with closing(connect(path)) as conn:
+        ensure_schema(conn)
+        for row in items:
+            conn.execute("INSERT OR REPLACE INTO %s (%s) VALUES (%s)"
+                         % (APP_OFFLOAD_TABLE, ",".join(cols), placeholders),
+                         [iso_day(row["day"]), str(row["appname"])[:120]]
+                         + [row.get(c) for c in APP_OFFLOAD_COLUMNS]
+                         + [row.get("run_id"), row.get("updated_at") or now])
+        conn.commit()
+    return len(items)
+
+
+def app_offload_days(path: Optional[Path] = None) -> List[str]:
+    """下钻明细已覆盖的天（升序）。同步用它判断「这天要不要重取」。"""
+    try:
+        with closing(connect(path, readonly=True)) as conn:
+            return [iso_day(r[0]) for r in conn.execute(
+                "SELECT DISTINCT day FROM %s ORDER BY day" % APP_OFFLOAD_TABLE)]
+    except Exception as exc:                                             # noqa: BLE001
+        logger.warning("[olib-kpi] 读取分流日清单失败: %s", exc)
+        return []
+
+
+def _offload_pack(name: str, values: Sequence[Any]) -> Dict[str, Any]:
+    total, local, abroad, unknown = [float(v or 0) for v in values[:4]]
+    known = local + abroad
+    return {"appname": str(name), "total_tb": round(total, 3), "local_tb": round(local, 3),
+            "abroad_tb": round(abroad, 3), "unknown_tb": round(unknown, 3),
+            # 本地占的分母**只含已识别服务器 IP 的流量**：解析不出 server_ip 的那部分
+            # （HTTPS/QUIC/UDP，实测约占全天 9%）既没走本地也没走海外，
+            # 塞进任一边都会让比例失真 —— 单列 unknown_tb，分母用 total_tb - unknown_tb。
+            "local_pct": (round(local / known * 100.0, 1) if known > 0 else None)}
+
+
+def _offload_rollup(rows: List[Dict[str, Any]], limit: int
+                    ) -> Tuple[List[Dict[str, Any]], Optional[Dict[str, Any]]]:
+    """前 limit 行原样返回，其余合并成一行「其它」；totals 由调用方按全量算，不丢数。"""
+    if len(rows) <= limit:
+        return rows, None
+    tail = rows[limit:]
+    rest = [sum(float(r.get(c) or 0) for r in tail) for c in APP_OFFLOAD_COLUMNS]
+    return rows[:limit], _offload_pack("", rest)
+
+
+def build_app_offload(days: int = 90, as_of: Optional[str] = None,
+                      top: int = OFFLOAD_TOP, path: Optional[Path] = None) -> Dict[str, Any]:
+    """下钻载荷：最新一天的分业务本地/海外拆分 + 窗口累计（同一份数据两种视角）。"""
+    days = max(1, min(int(days or 90), 400))
+    top = max(5, min(int(top or OFFLOAD_TOP), 200))
+    body: Dict[str, Any] = {"status": "ok", "source": "olib_soc_report",
+                            "window_days": days, "top": top,
+                            "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                            "as_of": None, "window": {}, "day": {"rows": [], "others": None,
+                                                                 "totals": None},
+                            "window_agg": {"rows": [], "others": None, "totals": None}}
+    if not table_exists(path):
+        body["status"] = "empty"
+        body["message"] = "KPI 库尚未生成，分流明细也就没有"
+        return body
+    have = app_offload_days(path=path)
+    if not have:
+        body["status"] = "empty"
+        body["message"] = "分业务分流明细为空：跑一次 olib_soc_kpi_daily_sync（或月报）即写入"
+        return body
+    newest = iso_day(as_of) if as_of else have[-1]
+    begin = (date.fromisoformat(newest) - timedelta(days=days - 1)).isoformat()
+    body["as_of"] = newest
+    body["window"] = {"begin": begin, "end": newest,
+                      "stored_days": len([d for d in have if begin <= d <= newest])}
+    try:
+        with closing(connect(path, readonly=True)) as conn:
+            cur = conn.execute("SELECT appname, total_tb, local_tb, abroad_tb, unknown_tb "
+                               "FROM %s WHERE day=? ORDER BY total_tb DESC" % APP_OFFLOAD_TABLE,
+                               (newest,))
+            day_rows = [_offload_pack(r[0], r[1:]) for r in cur.fetchall()]
+            cur = conn.execute("SELECT appname, SUM(total_tb), SUM(local_tb), SUM(abroad_tb), "
+                               "SUM(unknown_tb) FROM %s WHERE day>=? AND day<=? "
+                               "GROUP BY appname ORDER BY SUM(total_tb) DESC"
+                               % APP_OFFLOAD_TABLE, (begin, newest))
+            win_rows = [_offload_pack(r[0], r[1:]) for r in cur.fetchall()]
+    except Exception as exc:                                             # noqa: BLE001
+        logger.warning("[olib-kpi] 分流明细查询失败: %s", exc)
+        body["status"] = "error"
+        body["message"] = "%s: %s" % (type(exc).__name__, exc)
+        return body
+    for key, rows in (("day", day_rows), ("window_agg", win_rows)):
+        shown, others = _offload_rollup(rows, top)
+        totals = _offload_pack("", [sum(float(r.get(c) or 0) for r in rows)
+                                    for c in APP_OFFLOAD_COLUMNS])
+        totals["apps"] = len(rows)
+        body[key] = {"rows": shown, "others": others, "totals": totals}
+    return body
 
 
 def stored_days(path: Optional[Path] = None) -> List[str]:
