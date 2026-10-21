@@ -43,10 +43,16 @@
       （`task_runner.toggle_all_tasks` 双向跳过 `manually_stopped=1`；
       `tools/fix_task_schedule_dupes.py` 修掉 SQLite 缺主键导致 146 行的漂移）。
       遗留：
-  1. **旋转那批仍在 git 历史里的明文口令**（`tests/test_engineering_guards.py` 的
-     `_KNOWN_SECRETS` 17 条 + `docs/manual/13-operations.md` 曾写过 3 个 UME 口令）。
-     源码已清、守卫已拦「再写回」，但**进过历史的口令只能轮换才算消除**，
-     需拉运维在 UME / 各凭据后台改密，属仓库外的动作。
+  1. **旋转那批仍在 git 历史里的明文口令（需仓库外动作，2026-10-21 已查清分布）。**
+     黑名单共 17 条（`tests/test_engineering_guards.py::_KNOWN_SECRETS`），对应 17 个凭据组
+     （`zte_ume`/`mw_ume`/`rais`/`ccn_ume`/`ipran_ume`/`fw_kpi`/`mail_126`/`sftp_sp`/
+     `owa_mail`/`weixin`×2/`eflow`/`fms_portal`/`ume_in`/`vmax_cxo`/`vmax_gbase` 等）。
+     **已核实的分布**：其中 3 条（`zte_ume`/`ccn_ume`/`ipran_ume`）在历史提交
+     `b54ceed3` 与 `7c86e0d2` 的快照里仍可见；其余 14 条当前 `git log -G` 检不出
+     （历史上从未以明文入库，或已被改写）。
+     源码与文档已清、守卫已拦「再写回」（2026-10-21 另补了 `.html` 后缀，
+     堵住 `manual.html` 这类生成产物的盲区）。但**进过历史的口令只能轮换才算消除**，
+     需拉运维在 UME / 各凭据后台改密，属仓库外的动作 —— 优先轮换那 3 条可确认的。
   2. **`MASTER_SWITCH_EXEMPT_IDS` 与 `manually_stopped` 的语义分层**：`whatsapp_send_ext`
      已于 2026-10-21 移出豁免名单（改由「用户手动关 + 主开关不覆盖」保证单通道）。
      若日后仍需「按业务长期钉死关闭」这一类，应新增独立的 `master_switch_pinned_off`
