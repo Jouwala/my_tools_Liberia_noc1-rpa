@@ -1549,6 +1549,7 @@ Central control room for all scheduled sync/collection tasks: view status & sche
 
 - First stop when data looks stale: click a stat card to filter, use the failure summary to see which tasks failed overnight
 - Edit cron in the "Schedule" dialog (persisted in task_schedule_config, survives restarts)
+- The "Master switch" enables or disables all tasks at once; tasks you stopped manually are skipped (their cards are tagged "Manually stopped") — enable those individually to restart them
 - "Global History" searches runs across tasks; voice announcement on completion toggles here
 
 #### Task Report Files（`email_reports`）

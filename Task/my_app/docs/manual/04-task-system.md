@@ -188,7 +188,7 @@ APScheduler 到点 (backend 进程内)
 | 任务 | 通道 | 确认送达 | 依赖 | 默认 | 用途 |
 |---|---|---|---|---|---|
 | `whatsapp_send` | Playwright 自启 Chrome + WhatsApp Web DOM | 数 DOM 气泡（**假成功风险**——2026-09-15 SP Details Report 1.5MB 静默漏发） | 浏览器、Playwright、Node session 持久化 | `0 3 * * *` | 原版主通道 |
-| `whatsapp_send_ext` | 浏览器扩展 + 已登录的 WhatsApp Web 标签页 | 数 DOM 气泡 + 双信号 | 浏览器开着 + WhatsApp Web 已登录 | `0 3 * * *`，但**已豁免主开关**（长期关闭） | 兜底 + 侧栏手动 |
+| `whatsapp_send_ext` | 浏览器扩展 + 已登录的 WhatsApp Web 标签页 | 数 DOM 气泡 + 双信号 | 浏览器开着 + WhatsApp Web 已登录 | `0 3 * * *`；**2026-10-21 起由用户手动关闭**（`manually_stopped=1`），主开关不再覆盖它 | 兜底 + 侧栏手动 |
 | `whatsapp_send_baileys` | Baileys 协议直发（不走 Web） | **服务端 message id**（真实回执） | `whatsapp-kb-bot/src/notify.js` 常驻 + `auth-notify/` 凭据 | `0 4 * * *`，但**默认禁用**（`enabled=False`） | 治本通道（取代扩展、补充 Playwright） |
 
 **为什么保留三条**：每条都有不同故障域——Playwright 任务会随 WhatsApp Web 改版失效；
@@ -205,6 +205,130 @@ APScheduler 到点 (backend 进程内)
   默认 1 份会把第 2 份**静默跳过**。my_app 侧 `whatsapp_dispatch` 的默认配额与之对齐，
   **两边改一个必须改另一个**；
 - **已被主开关豁免**（`MASTER_SWITCH_EXEMPT_IDS`），批量切换不参与，避免「一键启用」把它打开。
+
+### 2026-10-20：Baileys 通道「断线续发 + 重投只补发缺的部分」
+
+实测事故：16:00 那轮 `whatsapp_send_baileys` 把 ALL.png 发到第一个群后，Baileys
+WebSocket 被服务端关闭（`code=428`，与 408/500 同属日常抖动，实测 2~15s 自愈）。
+旧逻辑是**断开即作废整批**，任务判失败；4 分钟后 `auto_retry` **整批重发**，
+第一个群因此在 4 分钟内收到两张一模一样的 ALL.png，第二个群则白等 4 分钟。
+
+两处改动（缺一不可，且必须**先发 notify.js 再发 my_app**）：
+
+1. `whatsapp-kb-bot/src/notify.js` `runFileJob`：发送前发现断开改为先等重连，
+   上限 `CONFIG.notify.fileSend.resumeWaitMs`（默认 45000ms，必须远小于 my_app
+   侧 `WHATSAPP_BAILEYS_WAIT_SECONDS=600`，否则作业挂在 running 变成任务超时）；
+   等不到才作废整批。发送一律用护栏之后**重新取到的 `sockRef`**，不用形参
+   `sock`（重连是 `start()` 换的新 socket，旧那份的 ws 已 close）。
+   同时把真正拿到服务端 message id 的 `(payloadSignature|jid)` 写进
+   `result.sent_pairs`，并在 `skip_pairs` 命计时**不扣单作业配额**。
+   收尾判据扩成「有一个群收到 **或** 全部命中去重台账且无错误」—— 后者是为了
+   让全去重的重投报成功，否则它会触发 Playwright 回退，把已送达的图再发一遍。
+2. `backend/services/whatsapp_send_baileys_service.py` `_retry_skip_pairs`：
+   仅当「上一份作业已终态且当初判失败」+「result 里有 sent_pairs」+「本次 items
+   与上次逐条指纹完全一致（指纹在投递时记录进 `items[].fingerprint`，两边都现读
+   磁盘是测不出字节变过的）」+「旧作业完成距今小于
+   `RETRY_DEDUP_WINDOW_SECONDS`（默认 1800s）」四条同时成立，才把 sent_pairs
+   作为 `skip_pairs` 交给 notify.js。任一不成立即退回整批重发。
+   **只覆盖 `create_pending_job`**（本任务这条路）；SP 报表走的 `dispatch_items`
+   失败后按设计回退 Playwright，语义不同，刻意不共用。
+
+开关：`resumeWaitMs=0` 关续发；`WHATSAPP_BAILEYS_RETRY_DEDUP_WINDOW_SECONDS=0`
+关去重台账。生效需重启 notify.js 进程与 worker（改的是任务实现，见本节上方说明）。
+
+### 主开关跳过「手动停止」的任务（2026-10-20）
+
+`task_schedule_config.enabled` 一个布尔量原本同时表达两件事：「该不该跑」与
+「用户是否手动关过」。主开关（`POST /api/tasks/toggle-all`）因此只能全开或全关，
+用户逐个关掉几个任务后点一次「一键启用」，那些**刻意关掉的会被全部重新打开**。
+
+新增 `manually_stopped` 列把两者拆成正交：
+
+| 字段 | 含义 | 谁写 |
+| --- | --- | --- |
+| `enabled` | 现在该不该调度 | 单任务开关 + 主开关 |
+| `manually_stopped` | 用户手动关过（1）/未标记（0） | 单任务开关 + 主开关 |
+
+| 操作 | 对 `manually_stopped=1` 的任务 |
+| --- | --- |
+| 单任务关闭 | 置 1 |
+| 单任务启用 | 清 0 |
+| 主开关**关闭** | **跳过**，标记与 `enabled` 都原样保留 |
+| 主开关**开启** | **跳过**，保持 `enabled=0` |
+
+即主开关**双向都不覆盖**用户的手动决定：手动关过的任务只有行内开关能再打开，
+主开关拨到哪边都不动它（用户 2026-10-20 明确要求）。
+
+⚠️ 早期实现是「开启时跳过、**关闭时清零标记**」，理由是「全部禁用后不存在还想
+单独留着的意图，再开一次主开关理应全部恢复」。已作废：清零会让该任务在**下一次**
+主开关 ON 时被重新打开，等于把用户的手动决定静默丢弃 —— 用户反馈的实际形态
+就是「又自己跑起来了」。
+
+实现要点：
+
+- 跳过发生在 `task_runner.toggle_all_tasks()`，被跳过的 task_id 通过返回值
+  `skipped_tasks` 告知前端（不计入 `changed`/`total`）；
+- `list_tasks()` 与 `get_task_config()` 都回传 `manually_stopped`；
+  「任务配置」导出/导入（`04` 节配置页签）也带上该字段，往返不丢标记；
+- 前端主开关的状态判定同样要排除这些任务（`masterTasks`），否则它们会让开关
+  **永远显示关闭**——与 `master_switch_exempt` 踩的是同一个坑（2026-10-05 / 2026-10-20 各一次）；
+- 数据库迁移 `alembic/versions/0006_manual_stop_flag.py`（PG 侧）。
+  ⚠️ **本表在生产环境的真相源是 SQLite `db/app.db`**，不是 PG：`DB_MODE=pg` 时
+  `main.py` 的 `_init_schedule_table()` 分支根本不执行（它被 `if DB_MODE == "sqlite"` 包着），
+  而 `task_runner._load/_save_schedule_config` 硬编码 `sqlite3.connect(DB_PATH)`。
+  首次上线需对线上 SQLite 手工补列（幂等，先 `PRAGMA table_info` 判存在性）。
+  回滚：`alembic downgrade 0005_tt_exclude_table`，SQLite 侧 `ALTER TABLE ... DROP COLUMN`。
+
+##### ⚠️ SQLite 侧曾缺主键，导致每任务多行、状态随机（2026-10-21 修复）
+
+**这是本功能上线当天发现的真实线上故障，症状极具迷惑性**，务必读完再改这张表。
+
+`task_schedule_config` 在生产 SQLite 里的实际 DDL 是：
+
+```sql
+CREATE TABLE "task_schedule_config" ("task_id" TEXT, "cron" TEXT,
+    "enabled" INTEGER, "updated_at" TEXT, "manually_stopped" INTEGER)
+-- indexes: []   ← 无 PRIMARY KEY、无 UNIQUE
+```
+
+与 alembic `0001_baseline.py:58-64`（建表时带 `PrimaryKeyConstraint('task_id')`）**不一致**，
+PG 侧主键则一直完好（`task_schedule_config_pkey`）。何时丢的已无从追溯。
+
+**后果**：`task_runner._save_schedule_config` 走 `dialect_helpers.upsert()`，
+SQLite 分支是 `INSERT OR REPLACE`（`backend/dialect_helpers.py:126`）。
+该语句依赖**唯一约束**决定替换目标 —— 没有约束时它**不报错，直接追加新行**。
+于是每次保存 cron / 启用状态都新增一行：实测 73 个任务共 **146 行**（71 个 task_id 有重复）。
+
+**为什么症状是「状态随机」而不是「状态不对」**：`SELECT ... WHERE task_id=?` 会命中
+多行中的任意一行（取决于插入顺序），于是同一任务的 `enabled` / `manually_stopped`
+读出来时对时错。实际发生过的连锁反应：
+
+1. 用户手动关掉两个任务 → 写入 `enabled=0 / manually_stopped=1`（新行）；
+2. 读接口命中的是更早的 `enabled=1 / manually_stopped=0` 旧行 → 界面显示仍是开启；
+3. 用户再点主开关 → 旧行被保留、新行再追加一条 → 混乱加剧。
+
+排查时若看到「刚写进去的值又变回去了」，**先查重复行，别急着怀疑有人回滚**：
+
+```sql
+SELECT task_id, COUNT(*) FROM task_schedule_config GROUP BY task_id HAVING COUNT(*) > 1;
+```
+
+**修复**：`tools/fix_task_schedule_dupes.py`（原地删陈旧行 + 建唯一索引，不重建表）：
+
+- 保留规则：每个 task_id 只留 `updated_at` **最新**的一行（`rowid` 最大兜底）；
+- 理由：`updated_at` 的语义就是「这条配置最后一次被写入的时间」，最新行必然是最近一次
+  用户/主开关操作的结果。`cron`/`enabled`/`manually_stopped` **一律取那一行的值**，
+  不做字段级择优 —— 混搭不同时间点的字段会造出从未存在过的组合状态；
+- 脚本默认 dry-run，写库前自动备份整库到 `db/app.db.bak_dedup_<时间戳>`。
+
+修复后 `INSERT OR REPLACE` 恢复「替换」语义（已实测：写入后行数仍为 1）。
+
+##### 双库一致性
+
+生产是**双库**：`db/app.db`（`task_runner` 只读写这里）+ PG `192.168.100.20:5432/myapp`
+（`app` schema，同名同结构且有真主键）。本表**没有自动同步机制** —— 改 SQLite 不会
+影响 PG，反之亦然。运维脚本若只改一侧，另一侧的对账结果就不可信。
+`tools/sync_manual_stop_to_pg.py` 用于把 `manually_stopped` 补到 PG（只改这一列）。
 
 #### SP 报表任务的双通道回退（2026-10-11）
 

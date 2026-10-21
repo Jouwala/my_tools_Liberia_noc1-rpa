@@ -134,7 +134,7 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
   zh: {
     sync: {
       desc: '全站控制中心：查看所有定时同步/采集任务的状态与排程，手动执行、停止、启停、修改 cron 排程，查看执行历史与按天失败聚合。详见本页「任务管理详解」。',
-      usage: ['数据没更新时第一个打开这里：点统计卡即筛选，用「失败聚合」排查昨天夜里哪些任务挂了', '单任务「排程」弹窗修改 cron（写入 task_schedule_config，持久化，重启不丢）', '「全局历史」跨任务检索执行记录；任务完成后语音播报可在本页开关'],
+      usage: ['数据没更新时第一个打开这里：点统计卡即筛选，用「失败聚合」排查昨天夜里哪些任务挂了', '单任务「排程」弹窗修改 cron（写入 task_schedule_config，持久化，重启不丢）', '「统一开关」一键启用/禁用全部任务；**你手动关掉的任务会被跳过**，卡片上标「手动停止」，要重开请单独点它的开关', '「全局历史」跨任务检索执行记录；任务完成后语音播报可在本页开关'],
     },
     email_reports: {
       desc: '汇总四类任务产物并供下载：邮件发送的最新报告附件、FineBI FTP 报表、eFlow 规则检查结果、TTs and MTTR 月粒度报表。eFlow 页签底部列出**从 eFlow 获取的全部规则表**（TT 级别矫正规则 / 告警关联规则 / 推单·配置规则）与本次检查产物（级别矫正表 / 匹配报告）。',
@@ -522,7 +522,7 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
   en: {
     sync: {
       desc: 'Central control room for all scheduled sync/collection tasks: view status & schedules, run/stop/enable/disable, edit cron schedules, inspect run history and daily failure summary. See the "Task Manager Deep Dive" section on this page.',
-      usage: ['First stop when data looks stale: click a stat card to filter, use the failure summary to see which tasks failed overnight', 'Edit cron in the "Schedule" dialog (persisted in task_schedule_config, survives restarts)', '"Global History" searches runs across tasks; voice announcement on completion toggles here'],
+      usage: ['First stop when data looks stale: click a stat card to filter, use the failure summary to see which tasks failed overnight', 'Edit cron in the "Schedule" dialog (persisted in task_schedule_config, survives restarts)', 'The "Master switch" enables or disables all tasks at once; tasks you stopped manually are skipped (their cards are tagged "Manually stopped") — enable those individually to restart them', '"Global History" searches runs across tasks; voice announcement on completion toggles here'],
     },
     email_reports: {
       desc: 'Collects four kinds of task artifacts for download: latest email report attachments, FineBI FTP reports, eFlow rule check results, and the TTs and MTTR monthly workbook. The bottom of the eFlow tab lists **every rule sheet collected from eFlow** (TT severity rules / alarm correlation rules / push & config rules) plus this run\'s outputs (severity correction sheet / matching report).',

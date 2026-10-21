@@ -266,7 +266,8 @@ _KNOWN_SECRETS = (
 _SCAN_SKIP_DIRS = {
     "Lib", "Scripts", "include", ".venv", "TMP", "node_modules",
     "_fe_dist", "_fe_dist_tmp", "log", "db", "auth_cache", "__pycache__",
-    ".workbuddy", ".git", "_quarantine_20260925", "_myapp_trash_20260918",
+    ".workbuddy", ".git", ".claude",  # .claude/worktrees 是 Claude 留下的隔离副本（见 .git/info/exclude:11），不入库、也不该被扫描
+    "_quarantine_20260925", "_myapp_trash_20260918",
 }
 _SCAN_SUFFIXES = {".py", ".ps1", ".bat", ".json", ".ts", ".tsx", ".js", ".mjs", ".md", ".txt"}
 

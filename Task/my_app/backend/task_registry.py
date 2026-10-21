@@ -1012,14 +1012,28 @@ for _spec in TASK_SPECS:
 # 维护约定：新增豁免必须在此写明**为什么它应当长期保持关闭**，否则后来又有人
 # 把它当成「忘开的任务」加回主开关，问题会复发。
 MASTER_SWITCH_EXEMPT_IDS = frozenset({
-    # 与 whatsapp_send 功能重叠（同为 Site Outage 截图投递，一个走 Playwright、
-    # 一个走浏览器扩展），业务上只需保留一条通道，故长期关闭扩展版。
-    "whatsapp_send_ext",
     # 2026-10-08 新增 whatsapp_send_baileys：第三种发图通道，走 Baileys 协议。
     # 与 whatsapp_send（Playwright）默认并存而非互斥，但因 Baileys 违反 WhatsApp ToS，
     # 默认禁用、走人工启用路径；批量主开关跳过它，避免「一键启用」把它打开。
     "whatsapp_send_baileys",
 })
+#
+# 2026-10-20 变更：**移出** `whatsapp_send_ext`（WhatsApp 消息发送（扩展））。
+#
+# 移出的原因：豁免名单的任务**主开关双方向都碰不到**（toggle_all_tasks 第一段
+# 就 continue），因此「用户手动关掉它」这个事实无处记录 —— 它在库里是
+# enabled=0 / manually_stopped=0，看起来像「被主开关关的」，于是：
+#   * 主开关一旦打开，它会被**自动打开**（豁免只挡批量操作，挡不住自身 enabled 之外的状态回填），
+#     用户说「我明明关掉了」；
+#   * 界面也分不清它是「手动关的」还是「按业务长期关的」。
+#
+# 移出后它与其他任务一样：关掉即置 `manually_stopped=1`，主开关**双向**都跳过它
+# （见 task_runner.toggle_all_tasks），只有行内开关能再打开。
+# ⚠️ 业务前提：扩展版与 Playwright 版并存时只保留一条通道 —— 这条约束现在由
+# 「用户手动关掉 + 主开关不覆盖」来保证，**不再**由豁免名单保证。若日后要恢复
+# 「豁免」语义（长期关闭且永不被主开关影响），应改为新增一个独立的
+# `master_switch_pinned_off` 概念，而不是把它塞回豁免名单（豁免 = 不参与主开关，
+# 与「参与了但被用户手动关住」是两种不同的意图，别再混用）。
 
 
 def is_master_switch_exempt(task_id: str) -> bool:

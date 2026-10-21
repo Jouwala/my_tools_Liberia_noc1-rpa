@@ -1480,8 +1480,8 @@ cd D:\01_RPA\Task\my_app
 **遗留待办**：`NOC` 账号需由 UME 管理员解锁（本机无法自助解锁）。
 解锁后若要确认密码是否同期被改，需**在解锁之后**再试登录 ——
 `CREDENTIALS_LOCAL_REFERENCE.txt` 记录同一套 UME 散落着三个不同密码
-（`Zte@2025!` / `Zte@lbr202607` / `Mwebazeaaron@25`），若密码有变需同步
-`credential_store` 的 `zte_ume`。
+（`zte_ume` / `ccn_ume` / `ipran_ume` 三组在 `credential_store` 里登记值不同），
+若密码有变需同步 `credential_store` 的 `zte_ume`。
 
 ### 后续机制补强：鉴权类失败额度用尽后的一次性宽限重投（2026-10-12 同日新增）
 

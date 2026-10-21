@@ -227,13 +227,18 @@ def _init_schedule_table():
                 task_id TEXT PRIMARY KEY,
                 cron TEXT NOT NULL,
                 enabled INTEGER NOT NULL DEFAULT 1,
+                manually_stopped INTEGER NOT NULL DEFAULT 0,
                 updated_at TEXT NOT NULL
             )
         """)
-            # 兼容旧表：仅在 enabled 列不存在时才添加（幂等迁移，避免重复加列抛异常）
+            # 兼容旧表：仅在列不存在时才添加（幂等迁移，避免重复加列抛异常）
             cols = table_columns(conn, "task_schedule_config")
             if "enabled" not in cols:
                 conn.execute("ALTER TABLE task_schedule_config ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1")
+            # manually_stopped：0=否（默认，主开关照旧覆盖）/1=用户手动关过
+            # （主开关重新启用时跳过）。DEFAULT 0 保证加列是零行为变化。
+            if "manually_stopped" not in cols:
+                conn.execute("ALTER TABLE task_schedule_config ADD COLUMN manually_stopped INTEGER NOT NULL DEFAULT 0")
             conn.commit()
             conn.close()
     except Exception as e:
@@ -241,37 +246,65 @@ def _init_schedule_table():
 
 
 def _load_schedule_config(task_id: str) -> tuple:
-    """从数据库加载用户自定义的调度配置和启用状态"""
+    """从数据库加载用户自定义的调度配置和启用状态（读 SQLite 原生文件，不走 DB_MODE）。
+
+    返回 (cron, enabled, manually_stopped)：三个值都可能是 None（表中无此行），
+    调用方负责回落。manually_stopped 区分「用户手动关过」与「被主开关关掉」，
+    只有前者才该在主开关重新启用时被跳过（见 toggle_all_tasks）。
+    """
+    import sqlite3 as _sqlite3
     try:
-        with get_raw_connection(str(DB_PATH), timeout=30) as conn:
+        with _sqlite3.connect(str(DB_PATH), timeout=30) as conn:
             row = conn.execute(
-                "SELECT cron, enabled FROM task_schedule_config WHERE task_id = ?",
+                "SELECT cron, enabled, manually_stopped FROM task_schedule_config WHERE task_id = ?",
                 (task_id,)
             ).fetchone()
-            conn.close()
-            return (row[0], bool(row[1])) if row else (None, None)
+            return (row[0], bool(row[1]), bool(row[2])) if row else (None, None, None)
     except Exception as e:
         logger.warning(f"加载调度配置失败 ({task_id}): {e}")
-        return (None, None)
+        return (None, None, None)
 
 
-def _save_schedule_config(task_id: str, cron: str, enabled: bool = None):
-    """保存用户自定义的调度配置到数据库"""
+def _save_schedule_config(task_id: str, cron: str, enabled: bool = None,
+                          manually_stopped: bool = None):
+    """保存用户自定义的调度配置到数据库。
+
+    强制走 sqlite3.connect，不走 get_raw_connection（后者在 DB_MODE=pg 时
+    永远返回 PG 连接，不看 db_path 参数）。task_schedule_config 表在 SQLite
+    原生文件里，PG 上 INSERT OR REPLACE 语法错误被 except 静默吞掉，
+    导致 toggle-all / toggle 全部写不进去（2026-10-20 排查确认）。
+
+    enabled / manually_stopped 均为 None 时表示「不改动该字段」，沿用表中原值；
+    非 None 时写入新值。两个字段独立，主开关改 enabled 时必须显式传
+    manually_stopped=False，否则会留下「用户手动关过」的陈旧标记。
+    """
+    import sqlite3 as _sqlite3
     try:
-        with get_raw_connection(str(DB_PATH), timeout=30) as conn:
+        with _sqlite3.connect(str(DB_PATH), timeout=30) as conn:
+            # 与 get_raw_connection 的 sqlite 分支保持一致：busy_timeout=30s +
+            # synchronous=NORMAL。让 1.5G 大库的 commit 不阻塞，又能落盘（不设 PRAGMA，
+            # app.db 这种大库在 Windows 上 commit 后 mtime 可能滞后甚至不可见 —— 见
+            # 2026-10-20 排查日记）。
+            conn.execute("PRAGMA busy_timeout=30000")
+            conn.execute("PRAGMA synchronous=NORMAL")
             now = datetime.now().isoformat()
-            if enabled is not None:
-                rows = [{"task_id": task_id, "cron": cron,
-                         "enabled": 1 if enabled else 0, "updated_at": now}]
-            else:
-                cur = conn.execute(
-                    "SELECT enabled FROM task_schedule_config WHERE task_id = ?", (task_id,))
-                r = cur.fetchone()
-                rows = [{"task_id": task_id, "cron": cron,
-                         "enabled": r[0] if r else 1, "updated_at": now}]
+            # 没显式传的字段先回读原值，避免 upsert 用默认值覆盖掉调用方没打算改的东西
+            cur = conn.execute(
+                "SELECT enabled, manually_stopped FROM task_schedule_config WHERE task_id = ?",
+                (task_id,))
+            r = cur.fetchone()
+            rows = [{
+                "task_id": task_id,
+                "cron": cron,
+                "enabled": (1 if enabled else 0) if enabled is not None else (r[0] if r else 1),
+                "manually_stopped": (1 if manually_stopped else 0) if manually_stopped is not None
+                                     else (r[1] if r else 0),
+                "updated_at": now,
+            }]
             upsert(conn, "task_schedule_config", rows, conflict_cols=["task_id"])
             conn.commit()
-            conn.close()
+            logger.info(f"保存调度配置 {task_id} cron={cron!r} enabled={enabled!r} "
+                        f"manually_stopped={manually_stopped!r} → DB 写入成功")
     except Exception as e:
         logger.warning(f"保存调度配置失败 ({task_id}): {e}")
 
@@ -337,7 +370,7 @@ def register_task(
     if is_test is None:
         is_test = False
     # 尝试加载用户自定义的调度配置
-    saved_cron, saved_enabled = _load_schedule_config(task_id)
+    saved_cron, saved_enabled, saved_manual = _load_schedule_config(task_id)
     current_cron = saved_cron if saved_cron else default_cron
     final_enabled = saved_enabled if saved_enabled is not None else enabled
 
@@ -374,6 +407,9 @@ def register_task(
         "gateway": gateway,
         "enabled": final_enabled,
         "master_switch_exempt": bool(master_switch_exempt),
+        # 「用户手动关过」标记：主开关重新启用时跳过这些任务。None=表里没记录，
+        # 回落 False（= 现有行为，主开关照旧覆盖），见 toggle_all_tasks。
+        "manually_stopped": bool(saved_manual),
         "is_test": bool(is_test),
         "registered_at": datetime.now().isoformat(),
         "call_chain": _annotate_call_chain(_chain_raw, task_id),
@@ -425,9 +461,11 @@ def _refresh_task_schedule_from_db(task_id: str) -> None:
     task = _task_registry.get(task_id)
     if not task:
         return
-    saved_cron, saved_enabled = _load_schedule_config(task_id)
+    saved_cron, saved_enabled, saved_manual = _load_schedule_config(task_id)
     if saved_enabled is not None:
         task["enabled"] = bool(saved_enabled)
+    if saved_manual is not None:
+        task["manually_stopped"] = bool(saved_manual)
     if saved_cron:
         task["current_cron"] = saved_cron
 
@@ -1044,9 +1082,21 @@ def schedule_task(task_id: str, cron_expr: str = None):
 
 
 def schedule_all_tasks():
-    """将所有已注册且启用的任务加入调度"""
+    """将所有已注册且启用的任务加入调度。
+
+    读库而不读内存：因为 Web 进程重启后内存恢复成代码默认值，而实际启用状态
+    在数据库 task_schedule_config 表里（用户在页面上改的在这里）。
+    不读库会导致「页面禁用了、重启后又全跑起来」（2026-10-20 用户报告）。
+    """
     for task_id, task in _task_registry.items():
-        if task["enabled"]:
+        # 读数据库最新状态，不用 task["enabled"]（内存重启后是快照）
+        _, db_enabled, _ = _load_schedule_config(task_id)
+        if db_enabled is None:
+            # 数据库无记录，回落代码默认值
+            should_schedule = task["enabled"]
+        else:
+            should_schedule = bool(db_enabled)
+        if should_schedule:
             try:
                 schedule_task(task_id)
             except Exception as e:
@@ -1123,6 +1173,9 @@ def list_tasks(include_runs: bool = False, lang: str = "zh") -> list[dict]:
             # 主开关豁免：前端据此把它排除在「是否全部启用」判定之外，
             # 否则一个按业务长期关闭的任务会把主开关永久钉在关闭态
             "master_switch_exempt": bool(task.get("master_switch_exempt")),
+            # 「用户手动关过」：前端用不同标记区分它与「被主开关关掉」，
+            # 避免用户在列表里看到关闭却不知道为什么关不掉
+            "manually_stopped": bool(task.get("manually_stopped")),
             "current_cron": task["current_cron"],
             "default_cron": task["default_cron"],
             "next_run": str(job.next_run_time) if job else None,
@@ -1316,15 +1369,23 @@ def update_task_schedule(task_id: str, cron_expr: str) -> dict:
 
 
 def toggle_task(task_id: str, enabled: bool) -> dict:
-    """启用/禁用任务"""
+    """启用/禁用**单个**任务（任务管理页每行的开关）。
+
+    语义：这是**用户的显式选择**，因此必然是「手动」的：
+    - 禁用 → 置 manually_stopped=True，此后主开关重新启用时会跳过本任务；
+    - 启用 → 置 manually_stopped=False，清掉标记，恢复受主开关管辖。
+    这样「总开关控制全部非手动停止的任务」才成立（2026-10-20 用户诉求）。
+    """
     task = _task_registry.get(task_id)
     if not task:
         return {"success": False, "error": f"任务 {task_id} 未找到"}
 
     task["enabled"] = enabled
+    task["manually_stopped"] = not enabled
 
-    # 持久化启用状态
-    _save_schedule_config(task_id, task["current_cron"], enabled=enabled)
+    # 持久化启用状态与手动停止标记（两个字段必须一起写，否则标记会与 enabled 不一致）
+    _save_schedule_config(task_id, task["current_cron"], enabled=enabled,
+                          manually_stopped=not enabled)
 
     sched = get_scheduler()
     job_id = f"task_{task_id}"
@@ -1357,24 +1418,41 @@ def toggle_all_tasks(enabled: bool) -> dict:
     返回值的 changed 只统计**真正发生状态变更**的任务数（此前无脑返回
     changed=总数，导致「一键启用」在全部已启用的情况下仍报「已启用 69 个」，
     用户无法据此判断操作是否真的做了什么）。
+
+    跳过手动停止的任务（manually_stopped，2026-10-20）：
+    主开关**双向**都不覆盖用户逐个手动关掉的任务 —— 这才是「总开关只管非手动
+    停止的任务」的准确语义。**开与关都跳过**：用户手动关过的任务从此只有行内
+    开关能再打开，主开关无论拨到哪边都不会动它（用户 2026-10-20 明确要求：
+    「曾经手动关过的任务永远不会被主开关自动打开」）。
+    早期实现是「开启时跳过、关闭时清零标记」，现已作废 —— 清零会让该任务在
+    下一次主开关 ON 时被重新打开，等于把用户的手动决定静默丢弃。
+    被跳过的任务通过返回值的 skipped 列表告知前端（不计入 changed/total）。
     """
     sched = get_scheduler()
     changed = 0
     errors: list[str] = []
     exempt: list[str] = []
-    total = 0                      # 参与本次批量操作的任务数（已扣除豁免）
+    skipped: list[str] = []     # 因「用户手动关过」而被跳过的任务（开与关都跳）
+    total = 0                      # 参与本次批量操作的任务数（已扣除豁免与跳过）
     running_task_ids: list[str] = []  # 关闭时当前正在执行/排队的任务（用于同步停止）
 
     for task_id, task in list(_task_registry.items()):
         if task.get("master_switch_exempt"):
             exempt.append(task_id)
             continue
+        # 主开关双向都不覆盖用户的手动决定（见函数 docstring）
+        if task.get("manually_stopped"):
+            skipped.append(task_id)
+            continue
         total += 1
         if task["enabled"] == enabled:
             continue
         try:
             task["enabled"] = enabled
-            _save_schedule_config(task_id, task["current_cron"], enabled=enabled)
+            # 能走到这里说明 manually_stopped 为 False，保持标记为 False 即可
+            task["manually_stopped"] = False
+            _save_schedule_config(task_id, task["current_cron"], enabled=enabled,
+                                  manually_stopped=False)
             job_id = f"task_{task_id}"
             if enabled:
                 schedule_task(task_id)
@@ -1405,12 +1483,23 @@ def toggle_all_tasks(enabled: bool) -> dict:
                 logger.warning(f"[SILENT-EXCEPT] toggle_all_tasks stop_task: {task_id} 失败", exc_info=True)
                 stop_errors.append(f"{task_id}: {e}")
 
+    # 关键日志：记录本次操作的结果（2026-10-20：用户反映「关掉 Master Switch 后任务还在跑」，
+    # 需要这行日志追踪 changed/stopped 的实际值）
+    logger.info(
+        "[toggle_all_tasks] action=%s total=%d changed=%d exempt=%s skipped=%s stopped=%s errors=%s",
+        "enable" if enabled else "disable",
+        total, changed, exempt, skipped, stopped, errors[:5]
+    )
+
     return {
         "success": not errors,
         "changed": changed,
         "total": total,
         "enabled": enabled,
         "exempt": exempt,
+        # 因「用户手动关过」而被跳过的任务（开与关都会出现，前端用于提示，
+        # 不计入 changed/total）
+        "skipped_tasks": skipped,
         "errors": errors[:5],
         # 方案 C 新增字段：关闭时停止了多少个正在执行的任务
         "stopped_tasks": stopped if not enabled else [],
@@ -1427,17 +1516,20 @@ def get_task_config(task_id: str) -> Optional[dict]:
         return None
     cron = task.get("current_cron") or task.get("default_cron")
     enabled = bool(task.get("enabled", True))
+    manually_stopped = bool(task.get("manually_stopped", False))
     updated_at = None
     try:
         with get_raw_connection(str(DB_PATH), timeout=30) as conn:
             row = conn.execute(
-                "SELECT cron, enabled, updated_at FROM task_schedule_config WHERE task_id = ?",
+                "SELECT cron, enabled, manually_stopped, updated_at "
+                "FROM task_schedule_config WHERE task_id = ?",
                 (task_id,)).fetchone()
             conn.close()
         if row:
             cron = row[0] or cron
             enabled = bool(row[1])
-            updated_at = row[2]
+            manually_stopped = bool(row[2])
+            updated_at = row[3]
     except Exception as e:
         logger.warning(f"读取调度配置失败 ({task_id}): {e}")
     return {
@@ -1449,6 +1541,9 @@ def get_task_config(task_id: str) -> Optional[dict]:
         "gateway": task.get("gateway") or "",
         "cron": cron,
         "enabled": enabled,
+        # 导出/导入往返要带上它，否则「导出 → 在别处导入」会把手动停止标记抹掉，
+        # 主开关随之覆盖用户逐个关掉的任务
+        "manually_stopped": manually_stopped,
         "default_cron": task.get("default_cron") or "",
         "updated_at": updated_at,
     }
@@ -1460,11 +1555,16 @@ def export_all_task_configs() -> list[dict]:
 
 
 def apply_task_config(task_id: str, cron: Optional[str] = None,
-                      enabled: Optional[bool] = None) -> dict:
+                      enabled: Optional[bool] = None,
+                      manually_stopped: Optional[bool] = None) -> dict:
     """应用单任务配置（cron/enabled 至少给一个）；逐项校验，失败不影响其它项。
 
     cron 校验复用 update_task_schedule（内部经 CronTrigger 解析 + 持久化 + 重新调度）；
     enabled 复用 toggle_task（内存 + 持久化 + 增删调度）。
+
+    manually_stopped 与 enabled 正交：不传时由 toggle_task 按 enabled 推导；
+    显式传入则以它为准 —— 用于配置导入的往返（导出时写了 true，导入时
+    就能精确还原「手动关过」而不只是「enabled=false」）。
     """
     if task_id not in _task_registry:
         return {"task_id": task_id, "success": False, "error": "任务未注册"}
@@ -1473,7 +1573,17 @@ def apply_task_config(task_id: str, cron: Optional[str] = None,
         if not res.get("success"):
             return {"task_id": task_id, "success": False, "error": res.get("error", "cron 无效")}
     if enabled is not None:
-        res = toggle_task(task_id, enabled)
+        if manually_stopped is None:
+            res = toggle_task(task_id, enabled)
+        else:
+            # 显式组合：走 toggle_task 拿调度侧副作用，再补写正交标记
+            res = toggle_task(task_id, enabled)
+            if res.get("success") and bool(manually_stopped) == enabled:
+                # 两个字段自相矛盾（enabled 与手动停止标记同时为真）时以 enabled 为准：
+                # 「已启用」与「用户手动关过」不能并存，否则主开关会永远跳过一个正在跑的任务
+                _task_registry[task_id]["manually_stopped"] = False
+                _save_schedule_config(task_id, _task_registry[task_id]["current_cron"],
+                                      enabled=enabled, manually_stopped=False)
         if not res.get("success"):
             return {"task_id": task_id, "success": False, "error": res.get("error", "启用状态更新失败")}
     return {"task_id": task_id, "success": True}
@@ -1504,7 +1614,13 @@ def import_task_configs(configs) -> dict:
         if enabled is not None and not isinstance(enabled, bool):
             errors.append({"task_id": tid, "error": "enabled 必须是布尔值"})
             continue
-        res = apply_task_config(tid, cron=cron, enabled=enabled)
+        # 显式给了 manually_stopped 就以它为准（与 enabled 正交，用于往返导出），
+        # 否则沿用 toggle_task 的推导：enabled=False 即「手动关过」。
+        manual = item.get("manually_stopped")
+        if manual is not None and not isinstance(manual, bool):
+            errors.append({"task_id": tid, "error": "manually_stopped 必须是布尔值"})
+            continue
+        res = apply_task_config(tid, cron=cron, enabled=enabled, manually_stopped=manual)
         if res.get("success"):
             applied.append(tid)
         else:

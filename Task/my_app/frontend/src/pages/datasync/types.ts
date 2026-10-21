@@ -23,6 +23,10 @@ export interface TaskInfo {
   /** 主开关豁免：按业务长期关闭的任务，不参与「一键全部启用/禁用」与主开关状态判定
    *  （后端真相源见 backend/task_registry.py 的 MASTER_SWITCH_EXEMPT_IDS） */
   master_switch_exempt?: boolean
+  /** 用户手动关闭过：主开关再次启用时会跳过它。
+   *  与 enabled=false 的区别是「为什么关着」——被主开关关掉的会在主开关关闭时清零标记，
+   *  而手动关的一直保留（后端真相源见 task_schedule_config.manually_stopped） */
+  manually_stopped?: boolean
   current_cron: string
   default_cron: string
   next_run: string | null

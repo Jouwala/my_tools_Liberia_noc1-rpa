@@ -485,7 +485,13 @@ export default function DataSync() {
   // →当场弹回，表现为「怎么点都关着」（2026-10-05 排查）。豁免名单在后端单一真相源。
   const switchTasks = allTasks.filter(t => !t.master_switch_exempt)
   const exemptTasks = allTasks.filter(t => t.master_switch_exempt)
-  const allEnabled = switchTasks.length > 0 && switchTasks.every(t => t.enabled)
+  // 主开关状态判定要排除「用户手动关过」的任务：它们在主开关打开后依然是关闭态
+  //（按设计就该如此），若算进 every() 判定，开关会永远显示关闭——用户点开→
+  // 后端跳过它们→重新拉取后它们依旧关闭→当场弹回，表现为「怎么点都关着」。
+  // 这与豁免名单踩的是同一个坑（2026-10-05 / 2026-10-20 各一次），故一并排除。
+  const masterTasks = switchTasks.filter(t => !t.manually_stopped)
+  const manualTasks = switchTasks.filter(t => t.manually_stopped)
+  const allEnabled = masterTasks.length > 0 && masterTasks.every(t => t.enabled)
   // 已启用/总数：在开关旁显示 68/69 这类实情，避免 ON/OFF 二值掩盖「部分启用」状态
   const enabledCount = switchTasks.filter(t => t.enabled).length
   const handleToggleAll = async (enabled: boolean) => {
@@ -495,10 +501,23 @@ export default function DataSync() {
         const changed = res.data.changed ?? 0
         // 关闭时后端同步停止 running/pending 任务，stopped_tasks 告知前端停了多少个
         const stopped: string[] = res.data.stopped_tasks ?? []
-        message.success(changed > 0
-          ? t(enabled ? 'sync.allEnabled' : 'sync.allDisabled',
-             { count: changed, stopped: stopped.length })
-          : t('sync.allNoChange'))
+        // 主开关**双向**都跳过「用户手动关过」的任务，skipped_tasks 告知前端跳过了
+        //几个：开时是「本该被打开但你没手动关过的没开」，关时是「你手动关过的没被动」。
+        //（这些任务本来就不该由主开关改，changed 不含它们）——不提示的话
+        //「已启用 N 个」会让人以为开关没生效，实际是设计如此。
+        const skipped: string[] = res.data.skipped_tasks ?? []
+        if (changed > 0) {
+          message.success(t(enabled ? 'sync.allEnabled' : 'sync.allDisabled',
+             { count: changed, stopped: stopped.length }))
+        } else {
+          message.info(skipped.length > 0
+            ? t('sync.allNoChangeSkipped', { count: skipped.length })
+            : t('sync.allNoChange'))
+        }
+        if (skipped.length > 0) {
+          message.warning(t(enabled ? 'sync.allEnabledSkipped' : 'sync.allDisabledSkipped',
+            { names: skipped.join('、') }))
+        }
         loadTasks(true)
       } else {
         // 后端失败时返回的是 errors 数组（旧实现读 res.data.error，永远取不到 → 只显示兜底文案）
@@ -955,6 +974,18 @@ export default function DataSync() {
                 ) : (
                   <Badge status="default" text={<Text style={{ fontSize: '0.6875rem', color: WH.textDim }}>{locale === 'zh' ? '已禁用' : 'Disabled'}</Text>} />
                 )}
+                {/* 「手动停止」与「被主开关关掉」是不同的态：前者不会被统一开关重新打开，
+                    需要在卡片上直接说明，否则用户只会看到关着的任务反复点开关无效 */}
+                {!task.enabled && task.manually_stopped && !task.master_switch_exempt && (
+                  <Tooltip title={t('sync.manualStopHint')}>
+                    <Tag
+                      color="warning"
+                      style={{ fontSize: '0.6875rem', marginInlineStart: 'var(--wh-space-xs)' }}
+                    >
+                      {t('sync.manualStopTag')}
+                    </Tag>
+                  </Tooltip>
+                )}
               </div>
             </div>
             <Switch
@@ -1117,9 +1148,17 @@ export default function DataSync() {
             </Space>
           </Tooltip>
           {/* 统一开关：一键启用/禁用全部任务（豁免任务除外，见 switchTasks 注释） */}
-          <Tooltip title={exemptTasks.length > 0
-            ? `${t('sync.toggleAllHint')}\n${t('sync.toggleAllExemptHint', { names: exemptTasks.map(x => x.name).join(', ') })}`
-            : t('sync.toggleAllHint')}>
+          <Tooltip title={(() => {
+            // 三层说明依次追加：开关做什么 → 豁免名单 → 手动停止名单
+            const parts = [t('sync.toggleAllHint')]
+            if (exemptTasks.length > 0) {
+              parts.push(t('sync.toggleAllExemptHint', { names: exemptTasks.map(x => x.name).join(', ') }))
+            }
+            if (manualTasks.length > 0) {
+              parts.push(t('sync.toggleAllManualHint', { names: manualTasks.map(x => x.name).join('、') }))
+            }
+            return parts.join('\n')
+          })()}>
             <Space size={6} align="center">
               <Text style={{ fontSize: 12, color: WH.textMuted }}>{t('sync.toggleAll')}</Text>
               <Text style={{ fontSize: 12, color: WH.textDim }}>{enabledCount}/{switchTasks.length}</Text>
@@ -1131,7 +1170,7 @@ export default function DataSync() {
                 <Switch
                   size="small"
                   checked={allEnabled}
-                  disabled={switchTasks.length === 0}
+                  disabled={masterTasks.length === 0}
                   onChange={(v) => setPendingAllToggle(v)}
                 />
               </Popconfirm>

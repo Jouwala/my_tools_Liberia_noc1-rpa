@@ -39,6 +39,25 @@
 
 ### P2 —— 体验与工程规范
 
+- [ ] **主开关「跳过手动停止」的后续项（2026-10-21 立）。** 功能与根因修复已落地
+      （`task_runner.toggle_all_tasks` 双向跳过 `manually_stopped=1`；
+      `tools/fix_task_schedule_dupes.py` 修掉 SQLite 缺主键导致 146 行的漂移）。
+      遗留：
+  1. **旋转那批仍在 git 历史里的明文口令**（`tests/test_engineering_guards.py` 的
+     `_KNOWN_SECRETS` 17 条 + `docs/manual/13-operations.md` 曾写过 3 个 UME 口令）。
+     源码已清、守卫已拦「再写回」，但**进过历史的口令只能轮换才算消除**，
+     需拉运维在 UME / 各凭据后台改密，属仓库外的动作。
+  2. **`MASTER_SWITCH_EXEMPT_IDS` 与 `manually_stopped` 的语义分层**：`whatsapp_send_ext`
+     已于 2026-10-21 移出豁免名单（改由「用户手动关 + 主开关不覆盖」保证单通道）。
+     若日后仍需「按业务长期钉死关闭」这一类，应新增独立的 `master_switch_pinned_off`
+     概念，而不是把 ID 塞回豁免名单 —— 豁免（不参与主开关）与「参与但被用户手动关住」
+     是两种意图，混用会再次出现 2026-10-20「关不掉 / 又自己跑起来」那类症状。
+  3. **`task_schedule_config` 双库无自动同步**：本表靠约定人工保持 SQLite 与 PG 一致
+     （`tools/sync_manual_stop_to_pg.py` 补 `manually_stopped`）。是否要加自动同步或
+     干脆二选一，待定。
+  4. **重启 7038 才会加载**：`MASTER_SWITCH_EXEMPT_IDS` 在 import 期求值，
+     `whatsapp_send_ext` 移出豁免名单需重启后端才生效（worker 侧同理）。
+
 - [ ] **7038 找个空闲时段重启，让 TT 快速分析的两项已落盘改动生效（2026-10-19 立，10-20 补充）。**
   1. **结论卡片正文还是旧文案** —— `> The AI model was unavailable…` 加末行
      `*Model failure reason: 程序化先行（/tt-ai-fast）…*`。磁盘代码是干净的（离线渲染已确认会输出

@@ -190,8 +190,11 @@ def update_task_schedule(request: Request, task_id: str, body: dict):
 
 @router.post("/api/tasks/{task_id}/toggle")
 def toggle_task_enabled(request: Request, task_id: str, body: dict):
-    """启用/禁用任务
+    """启用/禁用单个任务（用户显式选择，会被记为「手动停止」）
+
     body: {"enabled": true/false}
+    禁用后该任务的 manually_stopped 置位，主开关再次启用时会跳过它；
+    启用时清零标记，恢复受主开关管辖。
     """
     enabled = body.get("enabled", True)
     return translate_ui_fields(task_runner.toggle_task(task_id, enabled), request)
@@ -210,8 +213,10 @@ def task_config_export_all():
 @router.post("/api/tasks/config/import", dependencies=[Depends(require_protected)])
 def task_config_import_all(request: Request, body: dict):
     """批量导入任务配置
-    body: {"configs": [{"task_id": "...", "cron"?: "...", "enabled"?: bool}, ...]}
+    body: {"configs": [{"task_id": "...", "cron"?: "...", "enabled"?: bool, "manually_stopped"?: bool}, ...]}
     逐项独立成败：非法项只影响自身，返回 {applied, errors}。
+    manually_stopped 可选：省略时由 enabled 推导（false=被导入为手动关过），
+    显式给出则以它为准。
     """
     configs = body.get("configs", [])
     return translate_ui_fields(task_runner.import_task_configs(configs), request)
