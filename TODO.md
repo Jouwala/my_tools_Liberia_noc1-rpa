@@ -39,6 +39,23 @@
 
 ### P2 —— 体验与工程规范
 
+- [ ] **地图页「点别处取消选中」还剩两处未收口（2026-10-21 立）。** `?page=person` 已修
+      （`Task\my_app\frontend\src\useClearOnOutsideClick.ts`，实测点 KPI 卡/表格/筛选条/页面背景均取消、
+      点抽屉内部与表格行不误取消）。盘点其余带地图的页面后剩两处：
+  1. **`?page=gis` / `?page=realtime_alarm` 的人员图层。** `gismap/PersonnelLayer.tsx:187-220` 的
+     `clearSelection` 只挂在 `map.on('click')` 上，所以选中人后点右侧卡片/表格，
+     人员高亮与路线仍挂着 —— 与 person 页改前同一症状。接同一个 hook 即可。
+     **刻意没顺手改**：`pages/GISMap.tsx` 当时有他人 **1069 行未提交改动**在途，叠上去容易被旧缓冲回滚。
+  2. **两个 MW 遗留静态壳。** `frontend/public/mw_ume_topology.html`（节点点击高亮在 `:1463` 的
+     marker `on('click')`，非 map 级）与 `mw_real_time.html`（`:1753` 同构），
+     选中链路/节点后点地图空白不清，只有关抽屉（`#drawer-mask` / × / Esc）才清。
+     属 iframe 里的原生 JS，不在 React 体系内，要各自加 `leafMap.on('click')`。
+     **刻意没顺手改**：`mw_real_time.html` 同样有他人在途改动，且这类壳由 nginx 直接 alias 发布、
+     改错会直接影响线上页。
+  附带结论（不用改）：`DraggableClickModal` 点遮罩不关闭是**刻意设计**（该文件第 5 行注释「避免误触」）；
+  `GISMap` 的 `selectedSite` 虽无清除路径，但它只当抽屉取数的键、**地图上没有任何渲染依赖它**，
+  不构成可见的卡死选中。
+
 - [ ] **主开关「跳过手动停止」的后续项（2026-10-21 立）。** 功能与根因修复已落地
       （`task_runner.toggle_all_tasks` 双向跳过 `manually_stopped=1`；
       `tools/fix_task_schedule_dupes.py` 修掉 SQLite 缺主键导致 146 行的漂移）。

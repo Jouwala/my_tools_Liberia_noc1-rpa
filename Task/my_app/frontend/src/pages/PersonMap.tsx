@@ -10,7 +10,7 @@
  *   ④ 地图（人员针 + 其 WO 站点 + 连线）
  *   ⑤ 统计：WO/TT 按人员排行（堆叠柱）+ 按县分布（柱状）
  *   ⑥ 人员总表（可点行选中、可搜索、可排序；含无坐标人员，保证合计对得上）
- *   ⑦ 下钻弹窗（DraggableClickModal）：选中人员的站点明细 / WO 明细
+ *   ⑦ 下钻抽屉（PersonDrilldownDrawer，右侧滑出、压在卡片列上）：站点 / WO / PMT 三页签
  *
  * **两个口径决定**（2026-10-19 经用户确认，勿擅自改回）：
  *   1. 「负责站点」= 该人员 **WO 实际处理过**的站点，不是 `person.managed_regions`。
@@ -30,17 +30,20 @@ import ReactECharts from 'echarts-for-react'
 import dayjs from 'dayjs'
 
 import api from '../api'
+import { useClearOnOutsideClick } from '../useClearOnOutsideClick'
 import { useI18n, numLocale } from '../i18n'
 import {
   WH, useTheme, pageWrap, controlCardStyle,
   axisLabel, axisLine, splitLine, darkTooltip, WH_COLORS, LIGHT_COLORS,
 } from '../theme'
 import { CardBase, StatCard } from '../components/cards'
-import DraggableClickModal from '../components/DraggableClickModal'
 import { exportAoaReport } from '../utils/excelReport'
 import { MapContainer } from '../components/LeafletMap'
 import { PersonMapView } from './personmap/PersonMapView'
-import type { PersonRow, PersonStats, ManagedSite, ManagedSitesResp } from './personmap/types'
+import { PersonDrilldownDrawer, type PersonDrillTab } from './personmap/PersonDrilldownDrawer'
+import type {
+  PersonRow, PersonStats, ManagedSite, ManagedSitesResp, WoRow, PmtRow, PmtResp,
+} from './personmap/types'
 
 /** 固定时间窗口（天）。用户 2026-10-19 确认：页面固定最近 30 天，
  *  不跟随 GIS 页的时间控件（避免两页口径漂移）。 */
@@ -49,8 +52,14 @@ const WINDOW_DAYS = 30
 /** 地图画布高度：与 GIS 页同量级，门户中列可放下 */
 const MAP_HEIGHT = 560
 
-/** 空值统一展示 —（AGENTS.md 三.6：取不到显示 —，不得显示 0） */
-const dash = (v: unknown) => (v == null || v === '' ? '—' : String(v))
+/** 「PMT 取不到」的档位：徽标侧显示 `—`，页签里显示告警条。
+ *
+ *  **为什么必须有它**：nginx 的 SPA 兜底会把**未知 API 路径**返回成
+ *  `200 + index.html`（实测 `/myapp/api/gis/personnel/x/pmt` 打在旧后端上就是这样），
+ *  axios 因此**不会 reject**，`.catch` 根本不跑。只认 `available===false` 的话，
+ *  后端没重启时页签会安静地显示「Open PMT (0)」—— 把「取不到」装成「确实 0 张」，
+ *  正是 AGENTS.md 三.6 禁止的那种误导。所以判定写成「响应里没有 meta」。 */
+const PMT_UNAVAILABLE = { available: false, truncated: false, limit: 0, overdue_count: 0 }
 
 /** 「只显示地图」模式（`?maponly=1`）。
  *
@@ -74,23 +83,6 @@ function readMapOnlyMode(): boolean {
   } catch { return false }
 }
 
-/** WO 明细的一行（/work-orders 响应，字段见后端 _WO_COLS） */
-interface WoRow {
-  wo_no: string
-  tt_no?: string
-  title?: string
-  status?: string
-  site_id?: string
-  site_name?: string
-  county?: string
-  region?: string
-  alarm_occur_time?: string
-  alarm_clear_time?: string
-  ticket_severity?: string
-  alarm_severity?: string
-  operation_step?: string
-}
-
 export default function PersonMap() {
   const { t, locale } = useI18n()
   const { isDark } = useTheme()
@@ -109,11 +101,16 @@ export default function PersonMap() {
   const [sites, setSites] = useState<ManagedSite[]>([])
   const [sitesLoading, setSitesLoading] = useState(false)
 
-  /* ---- 下钻弹窗：WO 明细 ---- */
-  const [woOpen, setWoOpen] = useState(false)
+  /* ---- 下钻抽屉（站点 / WO / PMT 三页签，2026-10-21 用户要求）----
+     取代原先只装 WO 明细的 DraggableClickModal：那个弹窗的列定义已搬进抽屉的
+     WO 页签，不留第二份（AGENTS.md 三.10 删除优于兼容）。 */
+  const [drillOpen, setDrillOpen] = useState(false)
+  const [drillTab, setDrillTab] = useState<PersonDrillTab>('sites')
   const [woLoading, setWoLoading] = useState(false)
   const [woRows, setWoRows] = useState<WoRow[]>([])
-  const [woAnchor, setWoAnchor] = useState<{ x: number; y: number } | null>(null)
+  const [pmtLoading, setPmtLoading] = useState(false)
+  const [pmtRows, setPmtRows] = useState<PmtRow[]>([])
+  const [pmtMeta, setPmtMeta] = useState<PmtResp['meta'] | null>(null)
 
   /* ---------- 取数 ---------- */
   const load = useCallback(() => {
@@ -150,22 +147,93 @@ export default function PersonMap() {
       .finally(() => setSitesLoading(false))
   }, [selectedKey])
 
-  const openWoDrill = useCallback((row: PersonRow, ev: React.MouseEvent) => {
-    setWoAnchor({ x: ev.clientX, y: ev.clientY })
-    setWoOpen(true)
+  /* ---------- 下钻抽屉 ---------- */
+  /** 选中某人并打开抽屉。表格「查看工单」按钮走这里并直接停在 WO 页签 ——
+   *  它同时是**无坐标人员**唯一的下钻入口（那些人点不到地图针，也点不了表格行，
+   *  见下方 Table 的 onRow：只有 has_coords 的行可点）。 */
+  const openDrill = useCallback((nameKey: string, tab: PersonDrillTab = 'sites') => {
+    setSelectedKey(nameKey)
+    setDrillTab(tab)
+    setDrillOpen(true)
+  }, [])
+
+  /** 地图针 / 表格行选中：选中即开抽屉；`null`（再点同一个人、或点地图空白）**同时**
+   *  清掉选中与抽屉 —— 只关抽屉不清选中的话，会留下「人还高亮着、抽屉没了、
+   *  地图上一片空」这种自相矛盾的状态（2026-10-21 实测出现过）。 */
+  const selectPerson = useCallback((nameKey: string | null) => {
+    if (!nameKey) {
+      setSelectedKey(null)
+      setDrillOpen(false)
+      return
+    }
+    setSelectedKey(nameKey)
+    setDrillTab('sites')
+    setDrillOpen(true)
+  }, [])
+
+  /* 关抽屉**不清选中**：用户关掉明细后仍要在地图上看那个人的站点圈，
+     清除选中另有两条路（再点一次针 / 点地图空白 / 卡片右上角「取消选中」）。 */
+  const closeDrill = useCallback(() => () => setDrillOpen(false), [])
+
+  /* 抽屉打开时拉 WO + PMT 明细。
+     刻意挂在 `drillOpen` 上而不是 `selectedKey`：`?maponly=1` 的门户页签里点人
+     只为高亮和画站点，不该顺手多发两个请求（两端各要扫一次 eflow_wo / eflow_pm）。 */
+  useEffect(() => {
+    if (!drillOpen || !selectedKey) return
+    const q = encodeURIComponent(selectedKey)
+    let alive = true
+
     setWoLoading(true)
-    setWoRows([])
-    // only_uncleared=false：这里看的是「该人员 30 天内全部未关闭 WO」，
-    // 与表格的 open 列同口径；未清除数单独有列。
-    api.get(`/gis/personnel/${encodeURIComponent(row.name_key)}/work-orders`,
+    // only_uncleared=false：看「该人员 30 天内全部未关闭 WO」，与徽标/表格的 open 列同口径
+    api.get(`/gis/personnel/${q}/work-orders`,
       { params: { days: WINDOW_DAYS, only_uncleared: false, limit: 2000 } })
-      .then(res => setWoRows(res.data?.wo_list || []))
+      .then(res => { if (alive) setWoRows(res.data?.wo_list || []) })
       .catch(err => {
         console.error('[PersonMap] work-orders failed:', err?.response?.status, err?.response?.data || err)
-        setWoRows([])
+        if (alive) setWoRows([])
       })
-      .finally(() => setWoLoading(false))
+      .finally(() => { if (alive) setWoLoading(false) })
+
+    // **不传 days** —— PMT 的徽标计数本来就不套时间窗口（后端 _pmt_open_index），
+    // 这里传了就会「徽标 298、页签 132」，正是 AGENTS.md 三.1b 禁止的那类漂移。
+    setPmtLoading(true)
+    api.get(`/gis/personnel/${q}/pmt`)
+      .then(res => {
+        if (!alive) return
+        const meta = res.data?.meta
+        if (!meta) {
+          // 200 + 没有 meta = SPA 兜底把未知路径回成了 index.html（后端还没这个端点）
+          console.error('[PersonMap] pmt: 响应里没有 meta，按「取不到」处理')
+          setPmtRows([])
+          setPmtMeta(PMT_UNAVAILABLE)
+          return
+        }
+        setPmtRows(Array.isArray(res.data.pmt_list) ? res.data.pmt_list : [])
+        setPmtMeta({
+          available: meta.available !== false,
+          truncated: !!meta.truncated,
+          limit: typeof meta.limit === 'number' ? meta.limit : 0,
+          overdue_count: meta.overdue_count || 0,
+        })
+      })
+      .catch(err => {
+        console.error('[PersonMap] pmt failed:', err?.response?.status, err?.response?.data || err)
+        if (alive) { setPmtRows([]); setPmtMeta(PMT_UNAVAILABLE) }
+      })
+      .finally(() => { if (alive) setPmtLoading(false) })
+
+    return () => { alive = false }
+  }, [drillOpen, selectedKey])
+
+  /* 点「其他任意地方」取消选中（2026-10-21 用户要求：此前只有点在地图上才取消，
+     点右侧卡片 / 下方表格 / 筛选条 / 页面背景都取消不掉）。
+     地图内部的取消仍归 `PersonMapView` 的 `map.on('click')`（它要区分点人/点站点/点空白），
+     这里补的是**地图之外**；四类必须放行的点击见 `useClearOnOutsideClick.ts`。 */
+  const clearSelection = useCallback(() => {
+    setSelectedKey(null)
+    setDrillOpen(false)
   }, [])
+  useClearOnOutsideClick(!!selectedKey, clearSelection)
 
   /* ---------- 派生数据 ---------- */
   const rows = useMemo<PersonRow[]>(() => {
@@ -177,6 +245,16 @@ export default function PersonMap() {
   }, [stats, keyword])
 
   const withCoords = useMemo(() => rows.filter(r => r.has_coords), [rows])
+
+  /* 抽屉标题要的那个人。从 **未过滤** 的 `stats.by_person` 里找，不用 `rows`
+     （rows 被搜索框过滤过）—— 否则搜出一个人、点开抽屉、再把搜索框清空，
+     标题会连带变成「—」。也不能用 `withCoords`：无坐标的人同样要能下钻。 */
+  const selectedPerson = useMemo(
+    () => (selectedKey
+      ? (stats?.by_person || []).find(r => r.name_key === selectedKey) || null
+      : null),
+    [stats, selectedKey],
+  )
 
   const kpi = useMemo(() => {
     const sum = (k: 'open' | 'uncleared' | 'total') => rows.reduce((s, r) => s + (r[k] || 0), 0)
@@ -323,12 +401,12 @@ export default function PersonMap() {
     {
       title: t('person.colAction'), key: 'action', width: 130,
       render: (_: unknown, r: PersonRow) => (
-        <Button size="small" onClick={(e) => openWoDrill(r, e)}>
+        <Button size="small" onClick={() => openDrill(r.name_key, 'wo')}>
           {t('person.viewWo')}
         </Button>
       ),
     },
-  ], [t, openWoDrill])
+  ], [t, openDrill])
 
   /* ---------- 导出（本页汇总口径，与下钻明细是两件事） ---------- */
   const exportAll = useCallback(() => {
@@ -352,18 +430,6 @@ export default function PersonMap() {
       columnWidths: [24, 34, 10, 12, 12, 12, 10, 40],
     })
   }, [rows, t])
-
-  const woColumns = useMemo(() => [
-    { title: t('person.colWoNo'), dataIndex: 'wo_no', key: 'wo_no', width: 150 },
-    { title: t('person.colTtNo'), dataIndex: 'tt_no', key: 'tt_no', width: 150 },
-    { title: t('person.colSite'), key: 'site', width: 150,
-      render: (_: unknown, r: WoRow) => r.site_name || r.site_id || '—' },
-    { title: t('person.colStatus'), dataIndex: 'status', key: 'status', width: 130 },
-    { title: t('person.colAlarmOccur'), dataIndex: 'alarm_occur_time', key: 'alarm_occur_time', width: 160 },
-    { title: t('person.colAlarmClear'), dataIndex: 'alarm_clear_time', key: 'alarm_clear_time', width: 160,
-      render: (v: string) => dash(v) },
-    { title: t('person.colTitle'), dataIndex: 'title', key: 'title', ellipsis: true },
-  ], [t])
 
   /* ---------- 渲染 ---------- */
   if (mapOnly) {
@@ -448,6 +514,17 @@ export default function PersonMap() {
                 withCoords: stats?.coverage.with_coords ?? 0,
                 total: stats?.coverage.total_all ?? 0,
               })}</div>
+              {/* 徽标第三项 PMT 的口径（2026-10-21 加）。必须说：它与前两项**不同窗**
+                  （不跟 30 天），且组池单不计任何个人 —— 否则用户拿各人徽标求和
+                  去对全量必然对不上（同页 RCA 那次「31 vs 3」是同一类质疑）。 */}
+              {stats?.pmt && stats.pmt.open_total > 0 && (
+                <div style={{ marginTop: 6 }}>
+                  {t('person.pmtCaliberNote', {
+                    groupPool: stats.pmt.group_pool,
+                    openTotal: stats.pmt.open_total,
+                  })}
+                </div>
+              )}
             </div>
           }
           placement="bottomLeft"
@@ -462,12 +539,41 @@ export default function PersonMap() {
         )}
       </div>
 
-      {/* ③④ 左右分栏（2026-10-19 用户要求，参照 ?page=realtime_alarm 的布局）：
-          左 = KPI 2×2 + 两张统计图，右 = 地图。
+      {/* ③④ 左右分栏：左 = 地图，右 = KPI 2×2 + 两张统计图。
+          （2026-10-19 参照 ?page=realtime_alarm 做成左右分栏，
+            2026-10-21 用户要求把地图挪到左边、卡片列挪到右边。）
           两列等高（行内默认 align-items:stretch），地图 card → body → 容器
-          三级 flex 链吃满右列高度，底部不会在「人员清单」前留空白。 */}
+          三级 flex 链吃满左列高度，底部不会在「人员清单」前留空白。 */}
       <div style={{ display: 'flex', flexDirection: 'row', gap: '0.75rem' }}>
-        {/* 左列 */}
+        {/* 左列：地图 */}
+        <div style={{ flex: 1, minWidth: 0, display: 'flex' }}>
+          <CardBase
+            title={t('person.mapTitle')}
+            extra={selectedKey
+              ? <Button size="small" icon={<CloseCircleOutlined />} onClick={() => selectPerson(null)}>
+                  {t('person.clearSelection')}
+                </Button>
+              : <span style={{ fontSize: '0.75rem', color: WH.textDim }}>{t('person.mapHint')}</span>}
+            bodyStyle={{ padding: 0, display: 'flex', flex: 1, minHeight: 0 }}
+            style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0 }}
+          >
+            <div style={{ flex: 1, width: '100%', minHeight: MAP_HEIGHT, position: 'relative' }}>
+              <MapContainer center={[(3.9 + 8.75) / 2, (-11.7 + -7.3) / 2]} zoom={7.5}
+                style={{ height: '100%', width: '100%' }}>
+                <PersonMapView
+                  people={withCoords}
+                  loading={false}
+                  selectedKey={selectedKey}
+                  onSelect={selectPerson}
+                  sites={sites}
+                  sitesLoading={sitesLoading}
+                />
+              </MapContainer>
+            </div>
+          </CardBase>
+        </div>
+
+        {/* 右列：KPI + 统计图 */}
         <div style={{
           flex: '0 0 24rem', minWidth: '18rem', maxWidth: '30rem',
           display: 'flex', flexDirection: 'column', gap: '0.75rem',
@@ -526,34 +632,6 @@ export default function PersonMap() {
               : <Empty description={t('person.noData')} />}
           </CardBase>
         </div>
-
-        {/* 右列：地图 */}
-        <div style={{ flex: 1, minWidth: 0, display: 'flex' }}>
-          <CardBase
-            title={t('person.mapTitle')}
-            extra={selectedKey
-              ? <Button size="small" icon={<CloseCircleOutlined />} onClick={() => setSelectedKey(null)}>
-                  {t('person.clearSelection')}
-                </Button>
-              : <span style={{ fontSize: '0.75rem', color: WH.textDim }}>{t('person.mapHint')}</span>}
-            bodyStyle={{ padding: 0, display: 'flex', flex: 1, minHeight: 0 }}
-            style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0 }}
-          >
-            <div style={{ flex: 1, width: '100%', minHeight: MAP_HEIGHT, position: 'relative' }}>
-              <MapContainer center={[(3.9 + 8.75) / 2, (-11.7 + -7.3) / 2]} zoom={7.5}
-                style={{ height: '100%', width: '100%' }}>
-                <PersonMapView
-                  people={withCoords}
-                  loading={false}
-                  selectedKey={selectedKey}
-                  onSelect={setSelectedKey}
-                  sites={sites}
-                  sitesLoading={sitesLoading}
-                />
-              </MapContainer>
-            </div>
-          </CardBase>
-        </div>
       </div>
 
       {/* ⑥ 人员总表 */}
@@ -568,32 +646,33 @@ export default function PersonMap() {
           pagination={{ pageSize: 15, showTotal: (n: number) => t('common.itemsTotal', { n }) }}
           rowClassName={(r) => (r.name_key === selectedKey ? 'person-row-selected' : '')}
           onRow={(r) => ({
-            onClick: () => setSelectedKey(r.has_coords
-              ? (r.name_key === selectedKey ? null : r.name_key)
-              : null),
+            /* 行点击只对**有坐标**的人生效（与地图选中同一套 toggle 语义）。
+               无坐标的人不在地图上，行点击不做选中；他们的下钻入口是「查看工单」
+               按钮 —— 那个按钮对所有人都可用。 */
+            onClick: () => {
+              if (!r.has_coords) return
+              selectPerson(r.name_key === selectedKey ? null : r.name_key)
+            },
             style: { cursor: r.has_coords ? 'pointer' : 'default' },
           })}
         />
       </CardBase>
 
-      {/* ⑦ WO 下钻 */}
-      <DraggableClickModal
-        open={woOpen}
-        anchor={woAnchor}
-        onClose={() => setWoOpen(false)}
-        title={t('person.woTitle')}
-      >
-        <Table<WoRow>
-          dataSource={woRows}
-          columns={woColumns}
-          rowKey="wo_no"
-          size="small"
-          loading={woLoading}
-          scroll={{ x: 'max-content' }}
-          pagination={{ pageSize: 15, showTotal: (n: number) => t('common.itemsTotal', { n }) }}
-          locale={{ emptyText: <Empty description={t('person.noWo')} /> }}
-        />
-      </DraggableClickModal>
+      {/* ⑦ 下钻抽屉（右侧滑出，压在右列卡片上、不遮地图；站点 / WO / PMT 三页签） */}
+      <PersonDrilldownDrawer
+        open={drillOpen}
+        onClose={closeDrill}
+        person={selectedPerson}
+        activeTab={drillTab}
+        onTabChange={setDrillTab}
+        sites={sites}
+        sitesLoading={sitesLoading}
+        woRows={woRows}
+        woLoading={woLoading}
+        pmtRows={pmtRows}
+        pmtLoading={pmtLoading}
+        pmtMeta={pmtMeta}
+      />
     </div>
   )
 }

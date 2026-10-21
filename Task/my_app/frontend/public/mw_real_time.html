@@ -2843,6 +2843,26 @@ window.addEventListener('load', function(){
   }, 200);
 });
 
+/* ---------- 画布尺寸跟随容器（ResizeObserver） ----------
+   echarts 只在 init()/resize() 那一刻读一次容器尺寸，而本页右栏两张卡是
+   `flex:1 1 0`（见上方 #right .card 的注释）—— 卡片高度由「Top Risk 列表实际
+   渲染了几行」决定，视口却完全没变，于是 window resize 那条路覆盖不到：
+     首屏 applyTheme() 就建了图，此刻列表还是空的（实测 1680×1050：#risks 182px
+     → 图表容器 277px）；数据到达后 renderRisks() 撑出 6 行（#risks 366px
+     → 容器 184px），画布却停在 277px，多出的 93px 直接溢出卡片、压在下一张卡上。
+   同一链路还会被「过滤框少了几行」「切换语言让标题换行」触发，所以按容器实际
+   尺寸观察，而不是在每个改布局的调用点补一次 resize()。
+   三个容器都是父级定高（flex + min-height:0），画布变化不会反过来撑大容器，
+   不存在观察回流。 #topo/#trend/#dist 三张图全程不 dispose，无需判活。 */
+[['topo', function(){ return chart; }],
+ ['trend', function(){ return trendChart; }],
+ ['dist',  function(){ return distChart; }]].forEach(function(pair){
+  new ResizeObserver(function(){
+    const c = pair[1]();
+    if(c) c.resize();
+  }).observe(el(pair[0]));
+});
+
 /* ============ boot ============ */
 applyTheme(APP_THEME);
 syncRightToggle();

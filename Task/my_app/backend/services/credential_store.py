@@ -74,6 +74,7 @@ CREDENTIAL_GROUPS = [
         "secret_label_en": "Password",
         "has_username": True,
         "testable": True,
+        "test_kind": "zte_oauth2",
         "test_host": "10.100.28.27",
         "test_port": 28001,
         "env_user": "RAN_UME_USER",
@@ -92,7 +93,12 @@ CREDENTIAL_GROUPS = [
         "secret_label": "密码",
         "secret_label_en": "Password",
         "has_username": True,
-        "testable": False,
+        # 2026-10-21 起可测：走门户接口登录（RSA 加密口令），不需要网页验证码。
+        # 实现见 backend/services/credential_tester.py::_test_vmax_cxo。
+        "testable": True,
+        "test_kind": "vmax_portal",
+        "test_host": "10.123.255.12",
+        "test_port": 26180,
         "env_user": "VMAX_CXO_USER",
         "env_secret": "VMAX_CXO_PASS",
     },
@@ -112,7 +118,11 @@ CREDENTIAL_GROUPS = [
         "secret_label": "密码",
         "secret_label_en": "Password",
         "has_username": True,
-        "testable": False,
+        # 2026-10-21 起可测：pymysql 直连后跑只读 SELECT VERSION()。
+        "testable": True,
+        "test_kind": "gbase",
+        "test_host": "10.123.255.12",
+        "test_port": 5258,
         "env_user": "VMAX_GBASE_USER",
         "env_secret": "VMAX_GBASE_PASS",
     },
@@ -133,7 +143,11 @@ CREDENTIAL_GROUPS = [
         "secret_label": "密码",
         "secret_label_en": "Password",
         "has_username": True,
+        # ⚠ 2026-10-21 修正：此前 testable=True 但没有 test_kind，路由默认走
+        # auth_manager 的 ZTE OAuth2 HTTP 登录去打 22 端口 —— 必然失败，按钮
+        # 一直是假阴性。现在按 test_kind 走 paramiko SSH。
         "testable": True,
+        "test_kind": "ssh",
         "test_host": "10.100.29.12",
         "test_port": 22,
         "env_user": "GP_RAN_CONTROL_USER",
@@ -146,9 +160,11 @@ CREDENTIAL_GROUPS = [
         "name": "RAN Greenplum 主节点 (经 control1 转发)",
         "name_en": "RAN Greenplum master (via control1)",
         "usage": "数据库主节点的 ubuntu 账号；口令留空时自动复用 control1 的口令。"
-                 "该节点仅能从 control1 访问，本机无法直连，故此组不做连通性测试。",
+                 "该节点仅能从 control1 访问，本机无法直连，故连接测试走「本机→control1→主节点」两跳，"
+                 "测这一组时 control1 的凭据也必须有效。",
         "usage_en": "ubuntu account on the Greenplum master; falls back to the control1 password "
-                    "when left blank. Reachable only via control1, so no connectivity test.",
+                    "when left blank. Reachable only via control1, so the test goes "
+                    "local -> control1 -> master; the control1 credential must also be valid.",
         "default_user": "ubuntu",
         "default_secret": "",
         "username_label": "用户名",
@@ -156,7 +172,9 @@ CREDENTIAL_GROUPS = [
         "secret_label": "密码（留空=复用 control1）",
         "secret_label_en": "Password (blank = reuse control1)",
         "has_username": True,
-        "testable": False,
+        # 2026-10-21 起可测：本机 → control1 → 主节点两跳 SSH（不能直连）。
+        "testable": True,
+        "test_kind": "ssh_via_control",
         "env_user": "GP_RAN_MASTER_USER",
         "env_secret": "GP_RAN_MASTER_PASS",
     },
@@ -174,6 +192,7 @@ CREDENTIAL_GROUPS = [
         "secret_label_en": "Password",
         "has_username": True,
         "testable": True,
+        "test_kind": "zte_oauth2",
         "test_host": "10.100.2.99",
         "test_port": 28001,
         "env_user": None,
@@ -193,6 +212,7 @@ CREDENTIAL_GROUPS = [
         "secret_label_en": "Password",
         "has_username": True,
         "testable": True,
+        "test_kind": "zte_oauth2",
         "test_host": "10.121.1.2",
         "test_port": 28808,
         "env_user": None,
@@ -212,6 +232,7 @@ CREDENTIAL_GROUPS = [
         "secret_label_en": "Password",
         "has_username": True,
         "testable": True,
+        "test_kind": "zte_oauth2",
         "test_host": "10.100.20.8",
         "test_port": 28001,
         "env_user": "EFLOW_USER",
@@ -234,7 +255,9 @@ CREDENTIAL_GROUPS = [
         "secret_label": "密码",
         "secret_label_en": "Password",
         "has_username": True,
-        "testable": False,
+        # 2026-10-21 起可测：Keystone v3（RSA 加密密码换 token）→ 项目 token。
+        "testable": True,
+        "test_kind": "ume_keystone",
         "test_host": "10.121.8.2",
         "test_port": 443,
         "env_user": "UME_ALARM_USER",
@@ -256,6 +279,7 @@ CREDENTIAL_GROUPS = [
         "secret_label_en": "Password",
         "has_username": True,
         "testable": True,
+        "test_kind": "rais",
         "test_host": "10.100.20.9",
         "test_port": 8766,
         "env_user": "RAIS_USER",
@@ -275,6 +299,7 @@ CREDENTIAL_GROUPS = [
         "secret_label_en": "Password",
         "has_username": True,
         "testable": True,
+        "test_kind": "zte_oauth2",
         "test_host": "10.100.20.8",
         "test_port": 28001,
         "env_user": "FMS_PORTAL_USER",
@@ -293,7 +318,12 @@ CREDENTIAL_GROUPS = [
         "secret_label": "密码",
         "secret_label_en": "Password",
         "has_username": True,
-        "testable": False,
+        # 2026-10-21 起可测：经典 UMC 登录（Node 跑服务器原版 e.js 算 strEnc/SM3），
+        # 与 fw_kpi_sync 任务同一链路。
+        "testable": True,
+        "test_kind": "umc_portal",
+        "test_host": "10.100.2.101",
+        "test_port": 443,
         "env_user": None,
         "env_secret": None,
     },
@@ -311,6 +341,7 @@ CREDENTIAL_GROUPS = [
         "secret_label_en": "Password",
         "has_username": True,
         "testable": True,
+        "test_kind": "zte_oauth2",
         "test_host": "192.168.169.247",
         "test_port": 28001,
         "env_user": "MW_UME_USER",
@@ -330,6 +361,7 @@ CREDENTIAL_GROUPS = [
         "secret_label_en": "Password",
         "has_username": True,
         "testable": True,
+        "test_kind": "zte_oauth2",
         "test_host": "172.17.208.1",
         "test_port": 28808,
         "env_user": "UME_IN_USER",
@@ -353,6 +385,7 @@ CREDENTIAL_GROUPS = [
         "secret_label_en": "Password",
         "has_username": True,
         "testable": True,
+        "test_kind": "zte_oauth2",
         "test_host": "192.168.170.2",
         "test_port": 443,
         "env_user": "BATT_USERNAME",
@@ -374,6 +407,7 @@ CREDENTIAL_GROUPS = [
         "secret_label_en": "Password",
         "has_username": True,
         "testable": True,
+        "test_kind": "zte_oauth2",
         "test_host": "10.100.28.27",
         "test_port": 28001,
         "env_user": "CM_USERNAME",
@@ -392,7 +426,11 @@ CREDENTIAL_GROUPS = [
         "secret_label": "密码",
         "secret_label_en": "Password",
         "has_username": True,
-        "testable": False,
+        # 2026-10-21 起可测：paramiko 口令认证 + 开 SFTP 通道，只读（不下载文件）。
+        "testable": True,
+        "test_kind": "sftp",
+        "test_host": "10.100.20.11",
+        "test_port": 22,
         "env_user": None,
         "env_secret": None,
     },
@@ -409,7 +447,11 @@ CREDENTIAL_GROUPS = [
         "secret_label": "SMTP 授权码",
         "secret_label_en": "SMTP Auth Code",
         "has_username": True,
-        "testable": False,
+        # 2026-10-21 起可测：SMTP_SSL + AUTH 握手，**不发信**（避免污染收件箱）。
+        "testable": True,
+        "test_kind": "smtp",
+        "test_host": "smtp.126.com",
+        "test_port": 465,
         "env_user": None,
         "env_secret": None,
     },
@@ -426,7 +468,11 @@ CREDENTIAL_GROUPS = [
         "secret_label": "邮箱密码",
         "secret_label_en": "Mailbox Password",
         "has_username": True,
-        "testable": False,
+        # 2026-10-21 起可测：exchangelib 登 EWS（与 owa_mail_report 同源配置）。
+        "testable": True,
+        "test_kind": "ews",
+        "test_host": "exchmail.orange-cit.ci",
+        "test_port": 443,
         "env_user": None,
         "env_secret": None,
     },
@@ -446,7 +492,10 @@ CREDENTIAL_GROUPS = [
         "secret_label": "PushPlus Token",
         "secret_label_en": "PushPlus Token",
         "has_username": True,
-        "testable": False,
+        # 2026-10-21 起可测：两个平台都没有「只验 token 不发消息」的接口，
+        # 所以测试**会真的推送一条**（界面已提示）。填了哪个测哪个。
+        "testable": True,
+        "test_kind": "weixin_push",
         "env_user": None,
         "env_secret": None,
     },
@@ -686,5 +735,10 @@ def list_credentials(lang: str = "zh") -> list:
                              else g.get("secret_label", "密码")),
             "has_username": g.get("has_username", True),
             "testable": g.get("testable", False),
+            # 2026-10-21：把测试方式与测试目标一并给前端，界面才能告诉用户
+            # 「这一组点下去会发生什么」（尤其是微信组会真发一条推送）。
+            "test_kind": g.get("test_kind", ""),
+            "test_target": (f"{g['test_host']}:{g['test_port']}"
+                            if g.get("test_host") and g.get("test_port") else ""),
         })
     return result

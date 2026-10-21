@@ -28,6 +28,10 @@ export interface Site {
   supervisor?: string
   /** 现场维护工程师姓名（站点表 fme_name 列，人名如 "Mark D. Paye"） */
   fme_name?: string
+  /** 站点等级（site_caregory 列）—— **已由后端归一化**（ERA / COOL / NORMAL）。
+   *  归一化在后端 `_attach_filter_cols()` 里做（与 `_site_type_stats()` 同一套
+   *  `_norm_site_category()`），前端**不得**再自行归一化，否则两处口径会漂。 */
+  site_caregory?: string
 }
 
 // ========== 图表数据结构（与 backend/routers/gis.py 聚合接口对齐）==========
@@ -196,9 +200,114 @@ export interface SiteTypeStat {
   count: number
 }
 
+/** 单条实时告警（`/gis/realtime/sites` 的 `realtime_alarm_summary.alarm_rows`）。
+ *
+ *  2026-10-21 新增：让三张统计卡（Alarm Stats / Site Stats / TT Priority Stats）
+ *  能跟随「站点维度」的筛选。OSS 类别与 TT 优先级都是**告警级**属性，站点对象上
+ *  只有汇总值，前端必须拿到每条告警才能按当前可见站点集合重新分桶。
+ *
+ *  ⚠️ 与 `oss_problem_stats` / `priority_stats` 同源：后端的那两个汇总就是由
+ *     这批行数出来的，所以无筛选时前端重算结果必然与后端一致（可自校验）。 */
+export interface RealtimeAlarmRow {
+  /** 所属站点 ID —— 前端据此判断该告警是否落在当前筛选后的可见集合里 */
+  site_id: string
+  /** OSS 问题类别（SITE OUTAGE DUE TO POWER OFF / Fiber Break…），与卡片显示的字面量一致 */
+  problem: string
+  /** 关联 TT 号；空串表示该告警没有 TT */
+  tt_id: string
+  /** 优先级档位；**空串 = 无 TT**（没有 TT 就没有优先级，不参与优先级分母） */
+  priority: string
+  /** 优先级来源：mirror / live / none / no_tt —— 仅用于下钻列表的来源标注 */
+  priority_source: string
+}
+
 export type LegendKey = 'tt' | 'wo' | 'vip' | 'normal' | 'rt_alarm' | 'rt_alarm_overdue' | 'rt_alarm_ontime' | 'his_alarm'
 export type LayerKey = 'rt_alarm' | 'his_alarm' | 'tt' | 'wo'
 export type TimePreset = 'all' | '7d' | '30d' | '90d' | '180d' | 'custom'
+
+/* ==================== 根因聚合分析（RCA，2026-10-21） ====================
+ * 对应后端 GET /gis/realtime/rca（backend/services/gis_rca_service.py）。
+ * 三类簇：topology（上游断 → link_path 下挂跟着断）/ same_cause（无链路站
+ * 按问题 + 10 分钟窗聚集）/ eFlow 佐证挂 evidence。字段名与后端 JSON 逐字对齐。 */
+
+/** 簇内成员（断站）行 —— 下钻表格直接消费 */
+export interface RcaMember {
+  site_id: string
+  site_name: string
+  region: string
+  lat: number | null
+  lng: number | null
+  /** 恒 true（成员定义即"当前筛选范围内"）；字段保留便于扩展与导出 */
+  in_scope: boolean
+  /** 不在主站点表（site_info 未命中）时为 false，坐标为空 */
+  in_master?: boolean
+  alarm_count: number
+  tt_id: string
+  /** 传输链（'4542>3297>…'；卫星站为 '--'） */
+  link_path: string
+  transmission_type?: string
+}
+
+/** 根因站的告警明细（cap 10，超限后端已截断） */
+export interface RcaRootAlarm {
+  alarm_title: string
+  alarmcode: string
+  severity: string
+  raised_ms: number | null
+}
+
+/** 一个根因簇 */
+export interface RcaCluster {
+  cluster_id: string
+  kind: 'topology' | 'same_cause'
+  /** transmission | fiber | power | site_outage | other（显式 switch 映射文案键） */
+  cause_type: string
+  root: {
+    site_id: string
+    site_name: string
+    region: string
+    lat: number | null
+    lng: number | null
+    in_scope?: boolean
+    in_master?: boolean
+    alarms: RcaRootAlarm[]
+  }
+  /** 根因站是否在当前高级筛选范围内（false 时卡片加「范围外」标注） */
+  root_in_scope: boolean
+  members: RcaMember[]
+  member_count: number
+  evidence: {
+    link_paths: string[]
+    time_window: { start_ms: number; end_ms: number; span_min: number; count: number } | null
+    shared_code: string | null
+    shared_problem: string | null
+    eflow_impact: { impact_site_number: number | null; impact_site_list: string; matched_members: string[] } | null
+  }
+  /** 0~1 的启发式置信度（确定性公式，见 gis_rca_service 模块头） */
+  confidence: number
+}
+
+/** 与 /realtime/sites 同一次扫描的口径计数（卡片脚注与跨代校验用） */
+export interface RcaMeta {
+  generated_at: string
+  empty: boolean
+  alarm_rows: number
+  alarmed_sites: number
+  in_scope_sites: number
+  with_link_path: number
+  satellite_sites: number
+  covered_sites: number
+  uncovered_sites: number
+  /** 未归因站 id 清单（2026-10-21b）：后端据此产出 uncovered_alarm_rows
+   *  （与 oss 下钻同形的告警明细行，前端弹窗直接复用默认告警明细列） */
+  uncovered_site_ids?: string[]
+  topology_clusters: number
+  same_cause_clusters: number
+  orphan_alarm_rows: number
+  eflow_root_unmatched: number
+  truncated: boolean
+  limit: number
+}
 
 /** 边界蒙层模式：不显示 / Voronoi 大区 / 真实县界（三选一，见 GISMap.tsx） */
 export type BoundaryMode = 'none' | 'region' | 'county'

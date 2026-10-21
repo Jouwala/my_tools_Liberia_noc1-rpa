@@ -15,6 +15,7 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from fastapi import APIRouter, Query, HTTPException
+from pydantic import BaseModel
 from backend.database import get_raw_connection, DB_PATH, DB_MODE
 from backend.dialect_helpers import list_table_names, table_columns
 from backend.routers.gis_geometry import compute_region_boundaries, load_county_boundaries
@@ -72,6 +73,10 @@ def _detect_gis_schema(force: bool = False) -> dict:
         has_realtime_alarm = "realtime_alarm" in tables
         has_history_alarm = "history_alarm" in tables
 
+        # realtime_alarm 实际列清单（2026-10-21 根因聚合 RCA）：扫描按存在性拼
+        # 附加列，缺列时 NULL AS 兜底（防旧部署/方言漂移）；探测一次随 TTL 缓存。
+        rt_cols = set(table_columns(conn, "realtime_alarm")) if has_realtime_alarm else set()
+
         conn.close()
 
         _gis_schema_cache = {
@@ -80,6 +85,7 @@ def _detect_gis_schema(force: bool = False) -> dict:
             "tt_site_key": tt_site_key, "has_wo": has_wo, "has_topology": has_topology,
             "tt_cols": tt_cols,
             "has_realtime_alarm": has_realtime_alarm, "has_history_alarm": has_history_alarm,
+            "rt_cols": rt_cols,
         }
         _gis_schema_cache_ts = now
         return _gis_schema_cache
@@ -785,19 +791,30 @@ def _build_site_id_resolver(conn, site_table):
     return resolve
 
 
-def _scan_realtime_alarms(conn, site_table=None):
-    """单次扫描 realtime_alarm，一次性算出：每站告警数 / tt_id / 超时 / OSS 统计
+def _scan_realtime_alarms(conn, site_table=None, rt_cols=None):
+    """单次扫描 realtime_alarm，一次性算出：每站告警数 / tt_id / 超时 / OSS 统计 / RCA 行
 
     site_table：主站点表名。**传入时**会把「用站点名冒充 site_id」的脏行
       按站点名回退归位到真实站点（见 _build_site_id_resolver）；
       不传则保持原样（不影响历史调用方的行为）。
 
-    返回 7 元组，末尾两项为本轮新增（2026-10-16，OSS 卡改口径 + 下钻）：
+    rt_cols：realtime_alarm 的实际列集合（来自 _detect_gis_schema 的 rt_cols）。
+      RCA 附加列按存在性拼 SQL，缺列时 `NULL AS <col>` 兜底 —— 旧部署 /
+      方言漂移下扫描不炸（PG/SQLite 双模安全），RCA 端点拿到的就是全空字段、
+      自然退化为「无拓扑簇」，而不是 500。
+
+    返回 9 元组，末尾三项按时间倒序新增：
       · oss_alarms —— {类别: 该类别下的**告警明细行**列表}，供下钻列表直接消费。
         在**同一次扫描**里顺带收集，而不是下钻时再查一遍 —— 这样「卡片上的数字」
         与「下钻列出的行数」必然同源同口径（AGENTS.md 三.1b 的硬要求：下钻 WHERE
         必须与概览完全一致；同源是最强的保证）。
       · oss_tt_counts —— {类别: 带有效 TT 的告警数}，即 oss_counts 的分子。
+      · rca_rows —— 每条实时告警一行的 dict 列表（2026-10-21 根因聚合）：
+        含 link_path / transmission_type / mw_layer / impact_site_list 等
+        拓扑与影响面字段，供 gis_rca_service.compute_rca 在内存里聚类。
+        realtime_alarm 每 30 分钟被 sync_from_eflow_api 整表重建
+        （if_exists='replace'），若 RCA 另发一次扫描会拿到**另一代快照**，
+        「地图数字」与「根因簇成员」就对不上 —— 因此必须复用本扫描（同源）。
     """
     rt_alarm_stats: dict = {}
     site_ttids: dict = {}
@@ -807,12 +824,25 @@ def _scan_realtime_alarms(conn, site_table=None):
     oss_sites: dict = {}
     oss_alarms: dict = {}
     oss_tt_counts: dict = {}
+    rca_rows: list = []
     now_ms = int(datetime.now().timestamp() * 1000)
+    # RCA 附加列（2026-10-21）：按 rt_cols 存在性拼 SQL；rt_cols 未传（旧调用方）
+    # 时全 NULL，行为等同「无 RCA 字段」，不影响既有 8 项返回值。
+    _rca_cols = [
+        "link_path", "transmission_type", "mw_layer",
+        "impact_site_list", "impact_site_number",
+        "perceivedseverityname", "rootcount", "alarmraisedtime",
+    ]
+    _have = set(rt_cols or [])
+    rca_sel = ", ".join(
+        c if c in _have else f"NULL AS {c}" for c in _rca_cols
+    )
     alarm_rows = conn.execute(
-        """
+        f"""
     SELECT CAST(site_id AS TEXT), tt_id, servertime, assign_delay,
            COALESCE(oss_specific_problem, ''), alarm_title, alarmcode,
-           site_name, region, province, alarmchangedtime, durationname
+           site_name, region, province, alarmchangedtime, durationname,
+           {rca_sel}
     FROM realtime_alarm
     WHERE site_id IS NOT NULL
         """
@@ -822,7 +852,9 @@ def _scan_realtime_alarms(conn, site_table=None):
     _resolver = None
     _resolver_ready = False
     for (sid, tid, st_raw, ad_raw, osp, title, code,
-         site_name, region, county, changed, duration) in alarm_rows:
+         site_name, region, county, changed, duration,
+         lp_raw, tt_type_raw, mw_layer_raw, impact_list_raw, impact_num_raw,
+         sev_raw, rootcnt_raw, raised_raw) in alarm_rows:
         sid = str(sid)
         # 若该 site_id 不是主表里的真站点，尝试按站点名回退归位。
         # （site_table 未传时不处理，保持既有行为。）
@@ -866,8 +898,36 @@ def _scan_realtime_alarms(conn, site_table=None):
             "duration": str(duration or ""),
             "overdue": bool(overdue),
         })
+        # RCA 行（2026-10-21 根因聚合）：sid 已经过上方脏行归位，与
+        # rt_alarm_stats / oss_alarms 同一口径 —— compute_rca 拿它聚类时
+        # 与地图数字天然一致。NULL AS 兜底列在这里统一转空串/None。
+        rca_rows.append({
+            "site_id": sid,
+            "site_name": str(site_name or ""),
+            "region": str(region or ""),
+            "province_county": str(county or ""),
+            "alarm_title": str(title or ""),
+            "alarmcode": str(code or ""),
+            "oss_specific_problem": str(osp or ""),
+            "tt_id": "" if not with_tt else str(tid),
+            "severity": str(sev_raw or ""),
+            "raised_ms": _parse_ts_ms(raised_raw),
+            "link_path": str(lp_raw) if lp_raw is not None else "",
+            "transmission_type": str(tt_type_raw) if tt_type_raw is not None else "",
+            "mw_layer": str(mw_layer_raw) if mw_layer_raw is not None else "",
+            "impact_site_list": str(impact_list_raw) if impact_list_raw is not None else "",
+            "impact_site_number": impact_num_raw,
+            "rootcount": rootcnt_raw,
+            # 2026-10-21b 补齐默认告警明细三列：未归因清单弹窗要直接复用
+            # **项目默认告警明细列**（与 Alarm Stats 下钻同一列定义，含
+            # 告警时间/时长/是否超时），这三列只在 oss_alarms 行里有 ——
+            # 在同一次扫描里顺带塞进 rca_rows，未归因明细行就不必二次扫描。
+            "servertime": st_ms,
+            "duration": str(duration or ""),
+            "overdue": bool(overdue),
+        })
     return (rt_alarm_stats, site_ttids, overdue_map, ontime_map,
-            oss_counts, oss_sites, oss_alarms, oss_tt_counts)
+            oss_counts, oss_sites, oss_alarms, oss_tt_counts, rca_rows)
 
 
 def _priority_breakdown(alarm_rows, tt_prio: dict):
@@ -1878,9 +1938,9 @@ def get_realtime_sites(
         # 本端点只用 oss_counts / oss_tt_counts 组装 summary，明细行不下发
         # （列表点击时才走 /realtime/oss-alarms，避免每次刷页面都多传几十条）。
         (rt_alarm_stats, site_ttids, overdue_map, ontime_map,
-         oss_counts, oss_sites, _oss_alarms, oss_tt_counts) = (
-            _scan_realtime_alarms(conn, S["site_table"]) if S["has_realtime_alarm"]
-            else ({}, {}, {}, {}, {}, {}, {}, {})
+         oss_counts, oss_sites, _oss_alarms, oss_tt_counts, _rca_rows) = (
+            _scan_realtime_alarms(conn, S["site_table"], S.get("rt_cols")) if S["has_realtime_alarm"]
+            else ({}, {}, {}, {}, {}, {}, {}, {}, [])
         )
 
         if not rt_alarm_stats:
@@ -2024,6 +2084,43 @@ def get_realtime_sites(
             "total": sum(x["count"] for x in prio_rows),
         }
 
+        # ===== 告警明细行下发（2026-10-21 用户要求「筛选时统计卡片跟着变化」）=====
+        #
+        # ---- 为什么必须下发明细，而不是让后端收筛选参数 ----
+        # OSS 类别与 TT 优先级都是**告警级**属性，而地图站点对象 `sites` 上
+        # 没有「该站有几条 SITE OUTAGE / 几条 Fiber Break」这种按类别拆分的字段。
+        # 要让卡片跟随「站点维度」的筛选（区域/等级/FME/站点名…），前端就必须
+        # 拿到**每一条告警**，才能按当前可见站点集合重新分桶。
+        #
+        # 代价可接受：实测 realtime_alarm 当前 118 条，每行只带
+        # site_id / 类别 / TT / 优先级 四个字段，序列化后约 10KB —— 远小于
+        # 已经随响应下发的 `sites`（115 个站点，每个十几个字段）。
+        #
+        # ⚠️ **与卡片数字的同源保证**：这里下发的就是 `scoped_alarms` 的行，
+        #    而 `oss_problem_stats` 的 count / with_tt / sites 三个字段都是**由这批
+        #    行重新数出来的**（见上方 3 的注释），不是三份各自统计的字典。
+        #    所以「卡片数字 = 前端重算的基线」在无筛选时严格成立，不会漂移。
+        #    优先级同理：`priority_stats.rows` 也是由这批行分桶得到的。
+        #
+        # 与下钻端点的区别：那两个端点是**按类别**取子集，这里下发全量基线，
+        # 供前端在筛选后重算 —— 两者用的是同一个 `_scan_realtime_alarms`，
+        # 口径一致。
+        alarm_rows_payload = []
+        # 类别是 `scoped_alarms` 的**字典键**而不是行内字段（见 _scan_realtime_alarms
+        # 的 oss_alarms 结构），所以这里连键一起遍历，不能只 values()。
+        for problem_, rows_ in scoped_alarms.items():
+            for r_ in rows_:
+                tid_ = str(r_.get("tt_id") or "").strip().upper()
+                prio_, src_ = tt_prio.get(tid_, (TT_PRIORITY_UNKNOWN, "none"))
+                alarm_rows_payload.append({
+                    "site_id": str(r_.get("site_id") or ""),
+                    "problem": problem_,
+                    "tt_id": tid_,
+                    # 无 TT 的告警没有优先级可言，前端据此不把它计入优先级分母
+                    "priority": "" if not tid_ else prio_,
+                    "priority_source": ("no_tt" if not tid_ else src_),
+                })
+
         return {
             "sites": site_list,
             "total": len(site_list),
@@ -2038,6 +2135,8 @@ def get_realtime_sites(
                 # 未纳入统计的孤儿告警数（其 site_id 不在主站点表里，地图上画不出来）。
                 # 显式下发而不是丢弃，便于排查数据质量问题。
                 "orphan_alarms": orphan_alarms,
+                # 每条告警一行，供前端按当前筛选范围重算三张统计卡（见上方注释）。
+                "alarm_rows": alarm_rows_payload,
             },
         }
 
@@ -2070,7 +2169,7 @@ def get_realtime_oss_alarms(
         _ensure_perf_indexes(conn)
         try:
             if S["has_realtime_alarm"]:
-                scan = _scan_realtime_alarms(conn, S["site_table"])
+                scan = _scan_realtime_alarms(conn, S["site_table"], S.get("rt_cols"))
                 oss_alarms = scan[6]      # {类别: 告警明细行}
                 oss_tt_counts = scan[7]   # {类别: 带有效 TT 的告警数}
             else:
@@ -2140,7 +2239,7 @@ def get_realtime_priority_alarms(
         _ensure_perf_indexes(conn)
         try:
             if S["has_realtime_alarm"]:
-                scan = _scan_realtime_alarms(conn, S["site_table"])
+                scan = _scan_realtime_alarms(conn, S["site_table"], S.get("rt_cols"))
                 all_rows = [r for rows in scan[6].values() for r in rows]
             else:
                 all_rows = []
@@ -2170,6 +2269,232 @@ def get_realtime_priority_alarms(
         "truncated": total > limit,
         "limit": limit,
         "data": rows[:limit],
+    }
+
+
+# ==================== 根因聚合分析（RCA，2026-10-21） ====================
+# 设计要点（与 /realtime/sites 的同源保证）：
+#   1. 复用**同一次** `_scan_realtime_alarms` 的 rca_rows（第 9 项）——
+#      realtime_alarm 每 30 分钟整表重建（sync_from_eflow_api if_exists='replace'），
+#      另发一次扫描会跨代，「地图数字」与「根因簇成员」对不上（AGENTS.md 三.1b）。
+#   2. in-scope 站点查询**逐字复刻** get_realtime_sites 的收窄口径
+#      （lat/lng 非空非 0 + 告警 sid IN + 同一个 _build_filter_where），
+#      高级筛选是纯前端行为（loadSites 只发 region），所以筛选参数在这里由
+#      前端显式传给本端点、由后端复算口径。
+#   3. 重逻辑全部在 backend/services/gis_rca_service.py（≤500 行约束），本层只做取数。
+
+# 未归因告警明细行数上限（2026-10-21b）：与 oss/priority 下钻的默认 limit 同档。
+# 截断**显式**暴露在 uncovered_truncated，绝不静默（AGENTS.md 三.1b）。
+UNCOVERED_ALARM_LIMIT = 500
+
+class RcaNarrativeIn(BaseModel):
+    """POST /realtime/rca-narrative 请求体。
+
+    筛选参数与 GET /realtime/rca 完全一致 —— 服务端**重新计算**确定性聚类
+    （毫秒级），不信任客户端回传的簇数据（防篡改/防口径漂移）。
+    AI 凭据的安全约定对齐 data_agent.AttributeIn：api_key 只随请求体进出，
+    服务端不落盘、不写日志。
+    """
+    region: Optional[str] = None
+    trm_type: Optional[str] = None
+    site_type: Optional[str] = None
+    hubsite: Optional[str] = None
+    vip_site: Optional[str] = None
+    supervisor: Optional[str] = None
+    fme_name: Optional[str] = None
+    province_county: Optional[str] = None
+    power_sources: Optional[str] = None
+    site_caregory: Optional[str] = None
+    network_type: Optional[str] = None
+    site_name: Optional[str] = None
+    provider: str = "local"
+    api_key: str = ""
+    model: str = ""
+    base_url: str = ""
+    lang: str = "zh"
+
+
+def _realtime_rca_payload(filters: Dict[str, Optional[str]], site_name: Optional[str]) -> Dict:
+    """RCA 取数 + 聚类（GET 与 POST narrative 共用）。
+
+    filters：_GIS_FILTER_COLS 的 10 个参数 + region + network_type（值均可空）。
+    site_name：站点名子串，语义与前端 siteNameFilter 一致（trim + 不区分大小写
+    的子串匹配）；LIKE 通配符做 ESCAPE，防 '100%' 之类输入改变匹配语义。
+    """
+    from backend.services.gis_rca_service import compute_rca
+
+    S = _detect_gis_schema()
+    if not S["site_table"]:
+        raise HTTPException(status_code=404, detail="站点表不存在")
+    if not S["has_realtime_alarm"]:
+        return compute_rca([], set(), {})
+
+    with get_raw_connection() as conn:
+        _ensure_perf_indexes(conn)
+        try:
+            rca_rows = _scan_realtime_alarms(conn, S["site_table"], S.get("rt_cols"))[8]
+            if not rca_rows:
+                return compute_rca([], set(), {})
+
+            alarmed_sids = {str(r.get("site_id") or "") for r in rca_rows}
+            sid_ph = ",".join("?" * len(alarmed_sids))
+
+            # in-scope 收窄：与 get_realtime_sites 同一段 WHERE（含脏行已归位后的 sid 集合）
+            where_parts = [
+                "latitude IS NOT NULL", "longitude IS NOT NULL",
+                "CAST(latitude AS REAL) != 0", "CAST(longitude AS REAL) != 0",
+                f"CAST(site_id AS TEXT) IN ({sid_ph})",
+            ]
+            params: list = list(alarmed_sids)
+            # filter_params 逐字对齐 get_realtime_sites：9 个键，network_type 不入
+            # 字典（它由 _build_filter_where 的第 3 个参数单独收口，进了字典会被
+            # _GIS_FILTER_COLS 循环再应用一次 —— 虽然语义等价，但口径必须同构）。
+            fp = {
+                "trm_type": filters.get("trm_type"), "site_type": filters.get("site_type"),
+                "hubsite": filters.get("hubsite"), "vip_site": filters.get("vip_site"),
+                "supervisor": filters.get("supervisor"), "fme_name": filters.get("fme_name"),
+                "province_county": filters.get("province_county"),
+                "power_sources": filters.get("power_sources"),
+                "site_caregory": filters.get("site_caregory"),
+            }
+            extra_where, extra_params = _build_filter_where(
+                S, fp, filters.get("region"), filters.get("network_type")
+            )
+            where_parts.extend(extra_where)
+            params.extend(extra_params)
+            if site_name and str(site_name).strip():
+                esc = (str(site_name).strip()
+                       .replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_"))
+                # 通配符 % 放进**参数值**而不是 SQL 字面量：psycopg2 对带参 SQL 里的
+                # 字面量 % 会当占位符解析（IndexError），SQLAlchemy/驱动行为如此；
+                # 参数值则原样传给 LIKE —— PG/SQLite 双方言一致。
+                where_parts.append("LOWER(TRIM(site_name)) LIKE ? ESCAPE '\\'")
+                params.append(f"%{esc}%")
+
+            st = S["site_table"]
+            in_scope_rows = conn.execute(f"""
+                SELECT CAST(site_id AS TEXT) FROM {st} WHERE {" AND ".join(where_parts)}
+            """, params).fetchall()
+            in_scope_sids = {str(r[0]) for r in in_scope_rows}
+
+            # 全量告警站信息（**不带筛选**）：范围外根因站也要给坐标/站名 ——
+            # 用户已定决策：根因站落在筛选范围外时完整展示并标注，而不是隐藏。
+            site_info = {
+                str(r[0]): {
+                    "site_name": str(r[1] or ""), "lat": r[2], "lng": r[3],
+                    "region": str(r[4] or ""),
+                }
+                for r in conn.execute(
+                    f"""SELECT CAST(site_id AS TEXT), site_name,
+                               CAST(latitude AS REAL), CAST(longitude AS REAL), region
+                        FROM {st} WHERE CAST(site_id AS TEXT) IN ({sid_ph})""",
+                    list(alarmed_sids),
+                ).fetchall()
+            }
+
+            # 聚类放在连接内完成（纯内存计算）：未归因明细行要解析 TT 优先级，
+            # 需要查 eflow_tt 镜像（镜像优先 + 实时补漏，与 /realtime/oss-alarms
+            # 下钻同款），连接关了就没法查 —— 顺序不能倒。
+            result = compute_rca(rca_rows, in_scope_sids, site_info)
+            uncovered_ids = set((result.get("meta") or {}).get("uncovered_site_ids") or [])
+            unc_src = [r for r in rca_rows
+                       if str(r.get("site_id") or "") in uncovered_ids]
+            tt_prio = _resolve_tt_priorities([r.get("tt_id") for r in unc_src], conn)
+        finally:
+            conn.close()
+
+    # 未归因告警明细（2026-10-21b，用户要求"弹窗要用项目默认的告警明细列表"）：
+    # 输出行**与 /realtime/oss-alarms 下钻行同键同形**（站点/站名/区域/省县/TT/
+    # 告警标题/告警码/告警时间/时长/超时 + 优先级两列），前端未归因弹窗因此
+    # 直接复用项目默认告警明细列定义，不再自造 4 列精简表。
+    # 同源保证：unc_src 来自**同一次**扫描的 rca_rows、uncovered_ids 来自
+    # **同一次**聚类 —— 弹窗行所属的站与卡片脚注"未归因 N 站"必然一致。
+    unc_rows = []
+    for r in unc_src:
+        tid = str(r.get("tt_id") or "").strip().upper()
+        prio, src = tt_prio.get(tid, (TT_PRIORITY_UNKNOWN, "none"))
+        unc_rows.append({
+            "site_id": str(r.get("site_id") or ""),
+            "site_name": str(r.get("site_name") or ""),
+            "region": str(r.get("region") or ""),
+            "province_county": str(r.get("province_county") or ""),
+            "tt_id": str(r.get("tt_id") or ""),
+            "alarm_title": str(r.get("alarm_title") or ""),
+            "alarmcode": str(r.get("alarmcode") or ""),
+            "servertime": r.get("servertime"),
+            "duration": str(r.get("duration") or ""),
+            "overdue": bool(r.get("overdue")),
+            "priority": prio,
+            "priority_source": ("no_tt" if not tid else src),
+        })
+    unc_total = len(unc_rows)
+    result["uncovered_truncated"] = unc_total > UNCOVERED_ALARM_LIMIT
+    result["uncovered_alarm_rows"] = unc_rows[:UNCOVERED_ALARM_LIMIT]
+    return result
+
+
+@router.get("/realtime/rca")
+def get_realtime_rca(
+    region: str = Query(None),
+    trm_type: str = Query(None),
+    site_type: str = Query(None),
+    hubsite: str = Query(None),
+    vip_site: str = Query(None),
+    supervisor: str = Query(None),
+    fme_name: str = Query(None),
+    province_county: str = Query(None),
+    power_sources: str = Query(None),
+    site_caregory: str = Query(None),
+    network_type: str = Query(None),
+    site_name: str = Query(None, description="站点名子串（与高级筛选的站名过滤同语义）"),
+):
+    """RealTime Alarm Map 根因聚合分析：一批断站的共同根因（确定性聚类）。
+
+    输出三类簇（详见 gis_rca_service 模块头）：
+      · topology   —— 上游告警站断 → link_path 下挂站跟着断（最深告警祖先归属）
+      · same_cause —— 无链路站（卫星站等）按「告警问题 + 10 分钟时间窗」聚集
+      · eFlow 佐证 —— impact_site_list 命中簇成员时挂到 evidence 提升置信度
+    根因站可来自筛选范围外（root_in_scope=false 完整展示）。
+    """
+    filters = {
+        "trm_type": trm_type, "site_type": site_type,
+        "hubsite": hubsite, "vip_site": vip_site,
+        "supervisor": supervisor, "fme_name": fme_name,
+        "province_county": province_county, "power_sources": power_sources,
+        "site_caregory": site_caregory, "network_type": network_type,
+        "region": region,
+    }
+    return _realtime_rca_payload(filters, site_name)
+
+
+@router.post("/realtime/rca-narrative")
+def post_realtime_rca_narrative(body: RcaNarrativeIn):
+    """RCA 的 LLM 自然语言解读（渐进加载：簇列表先出，解读后到）。
+
+    降级约定与 alarm_attribution_service.attribute 一致：
+    provider=='local' / 无 key / 调用异常 → 返回 local_summary + note，
+    永不抛错误页给用户。
+    """
+    from backend.services.gis_rca_service import rca_narrative
+
+    filters = {
+        "trm_type": body.trm_type, "site_type": body.site_type,
+        "hubsite": body.hubsite, "vip_site": body.vip_site,
+        "supervisor": body.supervisor, "fme_name": body.fme_name,
+        "province_county": body.province_county, "power_sources": body.power_sources,
+        "site_caregory": body.site_caregory, "network_type": body.network_type,
+        "region": body.region,
+    }
+    result = _realtime_rca_payload(filters, body.site_name)
+    narrative = rca_narrative(
+        result, provider=body.provider, api_key=body.api_key,
+        model=body.model, base_url=body.base_url, lang=body.lang,
+    )
+    return {
+        "narrative": narrative,
+        # 带回 meta 供前端校验"解读对应的簇"没有跨代（generated_at 与簇列表不一致
+        # 时说明两次请求之间发生了 30 分钟整表重建，前端可提示刷新）
+        "meta": result.get("meta"),
     }
 
 

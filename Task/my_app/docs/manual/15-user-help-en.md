@@ -1904,6 +1904,8 @@ UME iMonitor screen (guard-imonitor-iui, screen_id=1): embeds the original UME m
 Site map: alarm/ticket distribution, topology lines, region polygons and multi-dimension filters (history/ticket view).
 
 - Region dropdown + layer tags to filter; click a legend item to hide that layer; time supports segments and custom range
+- The first cell of the "Advanced Filter" panel is a "Site Name" input: fuzzy match on a name fragment (case-insensitive); the rest are dropdowns for region/grade/form/FME etc.
+- Statistics follow the filter: site total and the ERA/COOL/NORMAL grades, the map legend, the county block colors and county labels, and the "MAINTENANCE ALERTS" county ranking panel are all recomputed from the filtered sites instead of showing the full-set numbers;
 - Click a site to open the right drawer: four tabs, searchable, exportable to Excel
 - The "Link Utilization" switch (on by default) overlays MW microwave link utilization from the same 15-min slot as the MW Realtime page, colored on a 4-level scale (>80% critical / ≥70% major / ≥60% minor / <60% healthy); thicker lines mean higher utilization
 - Click a link to see its max/Tx/Rx utilization and the matched MW sites; a link showing "No KPI data" means it could not be matched to realtime metrics (it keeps its original KML color) — that is not 0%
@@ -1911,10 +1913,14 @@ Site map: alarm/ticket distribution, topology lines, region polygons and multi-d
 
 #### Realtime Alarm Map（`realtime_alarm`）
 
-Realtime mode of the GIS map: current active-alarm sites on the map (red "realtime" badge).
+Realtime mode of the GIS map: current active-alarm sites on the map (red "realtime" badge), with Root Cause Aggregation.
 
 - Interactions are identical to the GIS Map page
 - Data comes from eFlow active alarms (eflow_active_alarm) synced every minute
+- The "Root Cause Aggregation" card clusters the down sites within your current advanced-filter scope — topology roots (an upstream site is down, so the sites hanging off its link path go down with it) and same-cause clusters (sites without a link path grouped by alarm problem + a 10-minute time window), each with cause type, affected-site count and a confidence score; click an entry to see member details and evidence (link paths, time window, eFlow impact list); member site names open the site drill-down drawer
+- The "attributed/total" counter in the title uses the same **site** unit as Site Stats: attributed = sites that share a root cause with peers; the rest are isolated failures (upstream healthy, no same-window peers — the site itself is its own cause) — click the footnote to open the unattributed **alarm details**, the same project-standard detail table as clicking an entry in Alarm Stats (site / TT / priority / alarm time / duration / overdue), and verify against the map
+- A root site may fall outside your filter scope (flagged "Out of scope") — outage causes often sit outside your current view; this is expected and is exactly the value of the analysis
+- The "AI Insights" button generates a natural-language conclusion using your own LLM key (stored only in your browser); when AI is unavailable it degrades to a local rule-based summary and is clearly marked — the cluster list itself is unaffected
 
 #### Incident Overview（`incident_overview`, iframe page）
 

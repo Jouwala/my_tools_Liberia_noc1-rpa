@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo, useCallback, Fragment } from 'react'
 import { cachedGet } from '../cache'
-import { Card, Row, Col, Select, Spin, Tag, Space, Badge, DatePicker, Segmented, Button, Input, Table } from 'antd'
-import { DownloadOutlined, FilterOutlined, SearchOutlined } from '@ant-design/icons'
+import { Card, Row, Col, Select, Spin, Tag, Space, Badge, DatePicker, Segmented, Button, Input, Table, Alert } from 'antd'
+import { DownloadOutlined, FilterOutlined, SearchOutlined, RobotOutlined } from '@ant-design/icons'
 // 本模块用自研的 LeafletMap（原生 leaflet）取代 react-leaflet —— 后者是 Hippocratic-2.1
 // 许可（非 OSI，含人权条款/仲裁/赔偿），见 components/LeafletMap.tsx 头部说明。
 // ⚠️ 下面 LeafletMap 的 `Tooltip as MapTooltip` 别名必须保留：它与 antd 的 Tooltip 同名，
@@ -21,7 +21,7 @@ import MapLegendOverlay from './gismap/MapLegendOverlay'
 import RegionRankingOverlay from './gismap/RegionRankingOverlay'
 import { placeCountyLabels, makeProjector } from './gismap/countyLabelLayout'
 import type { MapLegendRow, MapLegendGroup } from './gismap/MapLegendOverlay'
-import type { Site, DrilldownData, DrilldownAnalytics, TopologyLink, LegendKey, LayerKey, TimePreset, BoundaryMode, CountyBoundary, UtilMeta, SiteTypeStat } from './gismap/types'
+import type { Site, DrilldownData, DrilldownAnalytics, TopologyLink, LegendKey, LayerKey, TimePreset, BoundaryMode, CountyBoundary, UtilMeta, SiteTypeStat, RealtimeAlarmRow, RcaCluster, RcaMeta } from './gismap/types'
 // KML_LINK_COLORS 已不在本模块使用：利用率叠加恒开（showUtil 恒真），
 // 于是「按 kml_mw_links 原色分组」的那份图例成了不可达分支，2026-09-28 随图例迁移一并删除。
 // 该常量仍留在 gismap/types.ts（链路数据自带 color，那里的注释是它的说明处）。
@@ -118,6 +118,39 @@ const PRIORITY_COLORS: Record<string, string> = {
   P3: '#f6cf00',
   P4: '#4dabf7',
   Unknown: '#9aa5b5',
+}
+
+/* ===== RCA 标签映射（2026-10-21）=====
+   显式 switch 返回**字面量键**：动态拼 key（如 'gis.rca.cause.' + s）会被
+   check:i18n 守卫读成不存在的键名而拦截（见 AGENTS.md 三.1b 与 NocAnalyst
+   sliceLabelKey 的同类案例）。新增 cause 档位时在这里加 case + i18n 两处字典。 */
+function rcaCauseLabelKey(c: string): string {
+  switch (c) {
+    case 'transmission': return 'gis.rca.cause.transmission'
+    case 'fiber': return 'gis.rca.cause.fiber'
+    case 'power': return 'gis.rca.cause.power'
+    case 'site_outage': return 'gis.rca.cause.site_outage'
+    default: return 'gis.rca.cause.other'
+  }
+}
+
+function rcaKindLabelKey(k: string): string {
+  switch (k) {
+    case 'topology': return 'gis.rca.kind.topology'
+    default: return 'gis.rca.kind.same_cause'
+  }
+}
+
+/* cause → antd Tag 预设色名（Tag 要色板名而非十六进制，与优先级列同款约束）。
+   传输=青、光纤=紫、电源=橙、断站=红、其它=灰 —— 语义族与告警族色系错开。 */
+function rcaCauseTagColor(c: string): string {
+  switch (c) {
+    case 'transmission': return 'cyan'
+    case 'fiber': return 'purple'
+    case 'power': return 'orange'
+    case 'site_outage': return 'red'
+    default: return 'default'
+  }
 }
 
 /* ===== 图例配色（2026-10-17 重新设计）=====
@@ -264,6 +297,20 @@ function alarmBand(n: number | null | undefined): AlarmBand {
   return 'low'
 }
 
+/** 县名的**比较键**（2026-10-21 新增）：去首尾空白 + 内部连续空白压成一个 + 转小写。
+
+   为什么需要它：站点表的 `province_county` 与县界文件的 `db_name` 存在
+   **大小写与空格不一致**的写法（库里同时有 'River Cess' 与 'River cess'，
+   而县界文件里是 'River Cess'）。后端在 /county-boundaries 里用同一套
+   归一化规则（`re.sub(r"\s+", " ", name.strip()).lower()`）对齐了两边 ——
+   前端这里必须**用同一套规则**，否则按筛选后的站点归组时会漏掉 'River cess'。
+
+   ⚠️ 不要改成更「宽松」的比较（如去掉所有空格）：那会让 'River Cess' 与
+   'RiverCess' 合并，而它们在库里是**不同的县名写法**，合并会算错。 */
+function countyKey(name: unknown): string {
+  return String(name ?? '').replace(/\s+/g, ' ').trim().toLowerCase()
+}
+
 /* 区域淡填充的不透明度（用户要求「控制在 8～15% 左右，不要让区域填充成为视觉主体」）。
 
    ⚠️ 为什么**没有**照字面写成「深色 8% / 浅色 15%」：
@@ -359,6 +406,58 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
      前端只负责渲染，不再自行排序 —— 顺序即业务优先级，不该由前端猜。 */
   const [priorityStats, setPriorityStats] = useState<{ priority: string; count: number }[]>([])
   const [priorityTotal, setPriorityTotal] = useState(0)
+  /* 每条实时告警一行（2026-10-21 用户要求「筛选时统计卡片跟着变化」）。
+
+     为什么需要它：OSS 类别（SITE OUTAGE / Fiber Break…）与 TT 优先级（P1~P4）
+     都是**告警级**属性，而地图站点对象上只有「该站共有几条告警」这种汇总值，
+     没有按类别拆分的字段。后端把每条告警的 site_id / 类别 / TT / 优先级下发，
+     前端就能按**当前筛选后可见的站点集合**重新分桶，卡片数字与地图上看到的东西
+     因此不可能不一致（同一份数据、同一个 filterSites，两处读数必然相等）。
+
+     空数组 = 未拿到（首次加载前）。此时三张卡回落到后端下发的汇总值，
+     保证「没筛选也能看」，不会退化成空白。 */
+  const [alarmRows, setAlarmRows] = useState<RealtimeAlarmRow[]>([])
+
+  /* ===== 根因聚合分析（RCA，2026-10-21 用户需求）=====
+
+     「高级筛选能不能结合网络拓扑做聚合的根因分析，快速给出一批断站的相同原因」。
+     后端 GET /gis/realtime/rca：与 /gis/realtime/sites **同一次扫描**（realtime_alarm
+     每 30 分钟整表重建，独立请求会跨代），把当前筛选范围内的断站聚成
+     · topology   上游站断 → 其 link_path 下挂站跟着断（最深告警祖先归属）
+     · same_cause 无链路站（卫星站等）按「告警问题 + 10 分钟窗」聚集
+     两类簇，eFlow 的 impact_site_list 命中成员时作为佐证提升置信度。
+
+     筛选口径：高级筛选是**纯前端行为**（loadSites 只发 region），所以这里
+     把 selectedFilters + selectedRegion + 站名过滤显式传给后端、由后端复算 ——
+     与地图看到的站点集合同一套参数，卡片数字与地图可对拍。
+
+     根因站可以落在筛选范围外（root_in_scope=false）：断站原因往往在视野之外，
+     这正是根因分析的价值，显示并加「范围外」标注（用户已确认）。 */
+  const [rcaClusters, setRcaClusters] = useState<RcaCluster[]>([])
+  const [rcaMeta, setRcaMeta] = useState<RcaMeta | null>(null)
+  const [rcaLoading, setRcaLoading] = useState(false)
+  const [rcaError, setRcaError] = useState('')
+  /* 未归因站的**告警明细行**（2026-10-21b）：随 /realtime/rca 响应一并返回，
+     行结构与 /realtime/oss-alarms 下钻完全同形 —— 未归因弹窗因此直接复用
+     项目默认告警明细列（用户要求，与 Alarm Stats 条目下钻同一张表）。
+     同源：与卡片脚注"未归因 N 站"出自同一次响应，数字必然一致。 */
+  const [rcaUncoveredAlarms, setRcaUncoveredAlarms] = useState<any[]>([])
+  const [rcaUncoveredTruncated, setRcaUncoveredTruncated] = useState(false)
+
+  /* RCA 的 AI 解读弹窗（与 DataAgentBar 共用 localStorage 键：同一 provider 的
+     key / base_url 在两处只填一次）。key 只存本机、只随 POST 体发送（后端不落盘）。 */
+  const [rcaAiOpen, setRcaAiOpen] = useState(false)
+  const [rcaAiAnchor, setRcaAiAnchor] = useState<{ x: number; y: number } | null>(null)
+  const [rcaAiProvider, setRcaAiProvider] = useState(
+    () => localStorage.getItem('myapp-data-agent-provider') || 'deepseek')
+  const [rcaAiKey, setRcaAiKey] = useState(
+    () => localStorage.getItem('myapp-data-agent-key-' + (localStorage.getItem('myapp-data-agent-provider') || 'deepseek')) || '')
+  const [rcaAiBaseUrl, setRcaAiBaseUrl] = useState(
+    () => localStorage.getItem('myapp-data-agent-baseurl-' + (localStorage.getItem('myapp-data-agent-provider') || 'deepseek')) || '')
+  const [rcaAiModel, setRcaAiModel] = useState('')
+  const [rcaAiText, setRcaAiText] = useState('')
+  const [rcaAiNote, setRcaAiNote] = useState('')
+  const [rcaAiLoading, setRcaAiLoading] = useState(false)
 
   /* ===== 告警明细下钻弹窗（2026-10-16）=====
      两个卡共用**同一个**弹窗：OSS 类别卡点开是「该类别下的告警」，
@@ -370,7 +469,7 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
      kind: 'oss' | 'priority' —— 决定请求哪个端点、标题怎么显示。 */
   const [drillOpen, setDrillOpen] = useState(false)
   const [drillAnchor, setDrillAnchor] = useState<{ x: number; y: number } | null>(null)
-  const [drillKind, setDrillKind] = useState<'oss' | 'priority'>('oss')
+  const [drillKind, setDrillKind] = useState<'oss' | 'priority' | 'rca' | 'rca_uncovered'>('oss')
   // 标题里的主体（OSS 类别名 / 优先级档位），如 'SITE OUTAGE DUE TO POWER OFF' 或 'P3'
   const [drillKey, setDrillKey] = useState('')
   const [drillRows, setDrillRows] = useState<any[]>([])
@@ -379,8 +478,12 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
   const [drillSearch, setDrillSearch] = useState('')
 
   /* 打开下钻：kind 决定端点与参数。e.clientX/Y 让弹窗落在点击处
-     （DraggableClickModal 的既定行为，与 AlarmDashboard 一致）。 */
-  const openDrill = (kind: 'oss' | 'priority', key: string, e: React.MouseEvent) => {
+     （DraggableClickModal 的既定行为，与 AlarmDashboard 一致）。
+     kind='rca'（根因簇下钻）与 'rca_uncovered'（未归因告警明细）**都不发请求** ——
+     前者取 rcaClusters、后者取 rcaUncoveredAlarms（都来自同一次 /realtime/rca
+     响应），直接 set 行，天然同源（AGENTS.md 三.1b）。未归因行是**告警明细行**
+     （与 oss 下钻同形），所以列定义走默认的 drillColumns。 */
+  const openDrill = (kind: 'oss' | 'priority' | 'rca' | 'rca_uncovered', key: string, e: React.MouseEvent) => {
     setDrillKind(kind)
     setDrillKey(key)
     setDrillAnchor({ x: e.clientX, y: e.clientY })
@@ -389,6 +492,18 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
     setDrillLoading(true)
     setDrillRows([])
     setDrillTruncated(false)
+    if (kind === 'rca') {
+      const c = rcaClusters.find(x => x.cluster_id === key)
+      setDrillRows(c ? c.members : [])
+      setDrillLoading(false)
+      return
+    }
+    if (kind === 'rca_uncovered') {
+      setDrillRows(rcaUncoveredAlarms)
+      setDrillTruncated(rcaUncoveredTruncated)
+      setDrillLoading(false)
+      return
+    }
     const url = kind === 'oss' ? '/gis/realtime/oss-alarms' : '/gis/realtime/priority-alarms'
     const params = kind === 'oss' ? { problem: key } : { priority: key }
     api.get(url, { params })
@@ -403,60 +518,6 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
       })
       .finally(() => setDrillLoading(false))
   }
-
-  /* 区域排名条数据（2026-10-14 用户要求「增加一个区域排名条，放在地图右上角或左上角」）。
-
-     设计意图（用户原话）：地图负责 **Where**，排名条负责 **How many** ——
-     比让地图标签承担全部信息更专业。因此这里只做一次派生，两处共用同一份数字，
-     不会出现「地图上 Lofa 04、排名条里 Lofa 3」这类对不上的情况。
-
-     排序：告警数降序；**同数按县名升序**打破平局。平局用名称排序而不是沿用接口
-     返回顺序，是为了让「排名」稳定 —— 接口返回顺序由后端 GROUP BY 决定，
-     不保证跨请求一致，排名条每次刷新换序会让人以为数据变了。
-     取全量 15 个县（**不截断**）：用户的示例里 0 告警的县不出现，
-     这个「不显示」的判定交给下游 shouldShowRegion 统一做，而不是在这里砍数据 ——
-     一旦在这里截断，将来想改成「显示全部」就得再回后端补数据。
-     口径：alarm_site_count 与该县地图标签、下钻筛选完全同源（COUNT DISTINCT 站点）。 */
-  const regionRanking = useMemo(() => {
-    return counties
-      .map(c => ({
-        name: c.name,
-        count: c.alarm_site_count ?? 0,
-        color: COUNTY_BAND_COLORS[alarmBand(c.alarm_site_count)],
-      }))
-      .sort((a, b) => (b.count - a.count) || a.name.localeCompare(b.name))
-  }, [counties])
-
-  /* 县名标注的**避让后锚点**（2026-10-14 用户要求「Label 重叠需要动态避让」）。
-
-     与 regionRanking 同源（都用 alarm_site_count + alarmBand），区别只是
-     这里还要几何：每个县先算面积加权质心，再按告警数降序逐个找不冲突的位置。
-     算法与取舍全在 countyLabelLayout.ts 的文件头，这里只说**为什么这样调用**：
-
-       · 用固定取景参数（LB_FIT_ZOOM + 门户中列画布宽 570）算投影，而不是读地图
-         当前 zoom：本函数在渲染期跑，地图实例未必已挂载（见该模块注释）。
-         本页默认就是全国视角，按默认视角避让即可覆盖常态；用户手动放大后
-         标签会重新变稀，反而更不容易重叠。
-       · 画布宽 570 是门户中列的实测宽度（见本文件顶部 LB_FIT_ZOOM 的实测表）。
-         取宽了会让判定的重叠比实际更少，取窄了则避让过度 —— 用实测值最稳。
-       · 依赖里只有 counties：分档色与告警数都从 counties 派生，没有第二个真相源。
-       · 2026-10-13 新增 shiftWestPx：投影器必须知道 MapController 把内容平移了
-         多少，否则标签会按「未平移」的坐标落地，与站点圆点脱节
-         （站点由 Leaflet 自己按平移摆放，标签是本模块先算好的 lat/lng）。
-         方向约定见 countyLabelLayout.ts 的 makeProjector 注释
-         （该参数**正值 = 内容左移**；本页 SHIFT_WEST_PX 取负值即内容右移，
-          直接透传即可 —— makeProjector 内部是 `x - shiftWestPx`，
-         负值等价于 x 加上一个正数，正是右移）。 */
-  const countyLabels = useMemo(() => {
-    const proj = makeProjector(
-      zoomLevel, PORTAL_MAP_WIDTH, LB_CENTER[0], PORTAL_MAP_HEIGHT, shiftWestPx,
-    )
-    return placeCountyLabels(
-      counties,
-      c => c.alarm_site_count ?? 0,
-      proj,
-    )
-  }, [counties, zoomLevel, shiftWestPx])
 
   /* 默认图层（2026-09-25 用户要求调整为「默认只显示实时告警 + MW 链路」）：
        all      —— 只开 rt_alarm（＋上方 showTopology 的 MW 链路）。
@@ -474,6 +535,21 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
 
   const [filterOptions, setFilterOptions] = useState<Record<string, string[]>>({})
   const [selectedFilters, setSelectedFilters] = useState<Record<string, string | undefined>>({})
+  /* 站点名筛选（2026-10-21 用户要求「高级筛选里添加站点名字的过滤」）。
+
+     为什么单独一个 state、而不是塞进 selectedFilters：
+       ① 站点名是**文本输入**而不是下拉枚举 —— 站点有 800+ 个，把候选值全部
+          下发会让 `filter_options` 体积翻几倍，且下拉里翻找一个站名比输入更慢；
+       ② 匹配口径不同：其余筛选项是**精确相等**（`site[key] !== val`），
+          站点名改用**不区分大小写的子串匹配**（站点名里有空格/括号/大小写差异，
+          用户只记得 "Marshall" 时应当能命中 "Qcell LMTI (Marshall)"）；
+       ③ 它不进 `selectedFilters`，也就不会被 `visiblePersonNames` 的
+          「人员维度优先」分支误判（fme_name / supervisor 才是人员维度）。
+
+     `siteNameQuery` 是**输入框里的原文**（未 trim），`siteNameFilter` 是
+     **规范化后的生效值**（trim + 小写）。两者分离是为了让输入框保持
+     "用户正在输入的原文"，而匹配用的是稳定口径。 */
+  const [siteNameQuery, setSiteNameQuery] = useState('')
   const [showFilters, setShowFilters] = useState(false)
   /* 地名注记开关。**默认关闭**：瓦片带 1.7 万个地名，全开时用户反馈
      「密密麻麻，什么都看不清」（2026-10-02）。开关由右上角的 LayerToggleControl
@@ -500,7 +576,7 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
      所以它必须进 PmtilesLayer 的依赖数组。 */
   const [showRoads, setShowRoads] = useState(false)
 
-  const { t } = useI18n()
+  const { t, locale } = useI18n()
   const { isDark } = useTheme()
   /* 2026-09-28：原先这里用 useDataTimestamps() 取「同步时间 / 最新数据时间」两个
      Tag 显示在工具栏，按用户要求已移除（属数据源健康信息，与地图判读无关）。
@@ -538,10 +614,15 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
       .then(res => {
         setSites(res.data.sites || [])
         if (mode === 'realtime' && res.data.realtime_alarm_summary) {
-          setOssStats(res.data.realtime_alarm_summary.oss_problem_stats || [])
-          const pst = res.data.realtime_alarm_summary.priority_stats
+          const sum = res.data.realtime_alarm_summary
+          setOssStats(sum.oss_problem_stats || [])
+          const pst = sum.priority_stats
           setPriorityStats(pst?.rows || [])
           setPriorityTotal(pst?.total || 0)
+          /* 告警明细行：统计卡跟随筛选的依据（2026-10-21）。
+             ⚠️ 字段缺失（旧后端 / 缓存里的旧响应）时置空数组而不是 undefined，
+             前端的派生逻辑据此回落到后端汇总值，界面照常可用。 */
+          setAlarmRows(sum.alarm_rows || [])
         }
         if (regions.length === 0) setRegions(res.data.regions || [])
         if (Object.keys(filterOptions).length === 0 && res.data.filter_options) {
@@ -556,6 +637,103 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
         setSites([])
       })
       .finally(() => setLoading(false))
+  }
+
+  /* ===== RCA 取数（2026-10-21）=====
+
+     触发条件：仅实时模式；高级筛选 / 区域 / 站名过滤任一变化即重算。
+     站名输入做 300ms 防抖（打字过程不逐字符打后端）。
+
+     ⚠️ 不走 cachedGet：根因簇必须与「当前地图代」一致 —— realtime_alarm 每 30 分钟
+     整表重建，若命中缓存跨了重建点，簇成员与地图点位会来自两代快照。
+     ⚠️ loadSites 的缓存键里没有筛选参数（筛选是客户端行为），本请求把筛选
+     参数显式发给后端复算，两边是同一套参数语义（见 state 块注释）。 */
+  const loadRca = () => {
+    setRcaLoading(true)
+    setRcaError('')
+    const params: Record<string, string> = {}
+    Object.entries(selectedFilters).forEach(([k, v]) => { if (v) params[k] = v })
+    if (selectedRegion) params.region = selectedRegion
+    const nm = siteNameQuery.trim()
+    if (nm) params.site_name = nm
+    api.get('/gis/realtime/rca', { params })
+      .then(res => {
+        setRcaClusters(res.data.clusters || [])
+        setRcaMeta(res.data.meta || null)
+        setRcaUncoveredAlarms(res.data.uncovered_alarm_rows || [])
+        setRcaUncoveredTruncated(!!res.data.uncovered_truncated)
+      })
+      .catch(err => {
+        console.error('[GISMap] loadRca failed:', err?.response?.status, err?.response?.data || err)
+        setRcaError(err?.response?.data?.detail || err?.message || 'rca failed')
+        setRcaClusters([])
+        setRcaUncoveredAlarms([])
+        setRcaUncoveredTruncated(false)
+      })
+      .finally(() => setRcaLoading(false))
+  }
+
+  useEffect(() => {
+    if (mode !== 'realtime') return
+    const timer = setTimeout(loadRca, 300)
+    return () => clearTimeout(timer)
+    // selectedFilters 是对象，set 时换新引用即触发；站名 300ms 防抖也由本 effect 承担
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, selectedRegion, selectedFilters, siteNameQuery])
+
+  /* ===== RCA AI 解读（2026-10-21）=====
+     凭据与 DataAgentBar 共用 localStorage 键（同一 provider 只填一次 key）。
+     生成时把**当前筛选参数**随 POST 体发给后端 —— 服务端重算确定性聚类再喂给
+     LLM（不信任前端回传的簇，防口径漂移）；解读失败后端降级为本地规则文案，
+     note 原样展示（降级透明，不静默替换）。 */
+  const openRcaAi = (e: React.MouseEvent) => {
+    setRcaAiAnchor({ x: e.clientX, y: e.clientY })
+    setRcaAiOpen(true)
+  }
+
+  const onRcaAiProviderChange = (p: string) => {
+    setRcaAiProvider(p)
+    try { localStorage.setItem('myapp-data-agent-provider', p) } catch { /* 隐私模式 */ }
+    setRcaAiKey(localStorage.getItem('myapp-data-agent-key-' + p) || '')
+    setRcaAiBaseUrl(localStorage.getItem('myapp-data-agent-baseurl-' + p) || '')
+  }
+
+  const onRcaAiKeyChange = (k: string) => {
+    setRcaAiKey(k)
+    try { localStorage.setItem('myapp-data-agent-key-' + rcaAiProvider, k) } catch { /* 隐私模式 */ }
+  }
+
+  const onRcaAiBaseUrlChange = (u: string) => {
+    setRcaAiBaseUrl(u)
+    try { localStorage.setItem('myapp-data-agent-baseurl-' + rcaAiProvider, u) } catch { /* 隐私模式 */ }
+  }
+
+  const runRcaAi = () => {
+    setRcaAiLoading(true)
+    setRcaAiNote('')
+    setRcaAiText('')
+    const params: Record<string, string> = {}
+    Object.entries(selectedFilters).forEach(([k, v]) => { if (v) params[k] = v })
+    if (selectedRegion) params.region = selectedRegion
+    const nm = siteNameQuery.trim()
+    if (nm) params.site_name = nm
+    api.post('/gis/realtime/rca-narrative', {
+      ...params,
+      provider: rcaAiProvider,
+      api_key: rcaAiKey,
+      model: rcaAiModel,
+      base_url: rcaAiBaseUrl,
+      lang: locale,
+    })
+      .then(res => {
+        setRcaAiText(res.data?.narrative?.analysis || '')
+        setRcaAiNote(res.data?.narrative?.note || '')
+      })
+      .catch(err => {
+        console.error('[GISMap] rca-narrative failed:', err?.response?.status, err?.response?.data || err)
+        setRcaAiNote(err?.response?.data?.detail || err?.message || '')
+      })
+      .finally(() => setRcaAiLoading(false))
   }
 
   /* 拉取 MW 链路。`showUtil` 变化时**必须重拉**（不同 query 返回的数据结构不同：
@@ -877,8 +1055,127 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
     return m
   }, [topologyLinks, showUtil])
 
-  const filteredSites = useMemo(() => {
+  /* 站点名匹配口径（2026-10-21 新增，与 siteNameQuery 的说明配套）：
+     · `siteNameKey` —— 站点名的比较形式：去首尾空白 + 转小写。**不去非字母数字**：
+       站点名里括号、连字符是名字的一部分（"Qcell LMTI (Marshall)"），
+       用户输入时通常也保留它们，粗暴去掉会让 "LMTI Marshall" 命中不到
+       "Qcell LMTI (Marshall)"，反而制造"输了却搜不到"的假象。
+     · `siteNameFilter` —— 生效值：trim + 小写后的 query，空串表示不生效。
+       放在 useMemo 里是为了不把「每次按键都新建一个字符串」变成
+       filteredSites 的依赖抖动。 */
+  const siteNameKey = useCallback((v: unknown) => String(v ?? '').trim().toLowerCase(), [])
+  const siteNameFilter = useMemo(() => siteNameQuery.trim().toLowerCase(), [siteNameQuery])
+
+  /* ===== 两类「缩小」必须分开（2026-10-21）=====
+
+     ---- 为什么要拆 ----
+     高级筛选（区域/等级/站型/FME/站点名…）是**数据范围筛选**：用户在说
+     「我只关心这些站」。图层开关与图例隐藏是**呈现开关**：用户在说
+     「别画 TT 的点」，它回答的是「画什么」而不是「关心什么」。
+
+     统计卡回答的必须是「**我关心的这些站**怎么样」，所以它该跟前者走、
+     不该跟后者走。若把图层开关也算进去，用户随手关掉一个图层，
+     卡片数字就会跳 —— 那会被读成「数据变了」，而数据其实没变，
+     只是他关了一层显示。这正是本次要消灭的那类误导。
+
+     ---- 两个集合的用途 ----
+       · `criteriaSites` —— 只过高级筛选。统计卡 / 图例 / 站点等级 Tag 的取数集合。
+       · `filteredSites` —— 再过图层与图例。**地图上画哪些点**的唯一真相源，
+         也是导出、点位、人员图层的依据（这些确实应当跟随显示开关）。
+
+     口径变清晰的代价是多一次数组遍历（站点量级 827，忽略不计），
+     换来的是「卡片数字只由用户的筛选意图决定」，可解释、不跳动。 */
+  const criteriaSites = useMemo(() => {
     return sites.filter(site => {
+      for (const [key, val] of Object.entries(selectedFilters)) {
+        if (val && (site as any)[key] !== val) return false
+      }
+      if (siteNameFilter && !siteNameKey(site.site_name).includes(siteNameFilter)) return false
+      return true
+    })
+  }, [sites, selectedFilters, siteNameFilter])
+
+  /* 县告警数（**跟随筛选**）：2026-10-21 起不再用后端 /gis/county-boundaries 里的静态
+     告警数，而是按当前筛选结果（criteriaSites）现场汇总。
+
+     原因：后端返回的 alarm_site_count 是**全量**口径的静态值，用户在地图上按
+     站名/高级条件筛选后，地图填充色、县标签数字、右侧「MAINTENANCE ALERTS」
+     排名条仍显示全量数字 —— 与筛选后的站点点对不上，给人「筛选没生效」的错觉。
+
+     口径与 siteNameFilter / selectedFilters 完全一致（同一份 criteriaSites），
+     保证「地图上画出来的点」与「按县汇总出来的数字」同源。
+     归一化用 countyKey：州/县名在数据源里有大小写与空格差异（如 River Cess / River cess）。 */
+  const scopedCountyAlarms = useMemo(() => {
+    const m = new Map<string, number>()
+    for (const s of criteriaSites) {
+      if ((s.rt_alarm_count || 0) <= 0) continue
+      const k = countyKey(s.province_county)
+      if (!k) continue
+      m.set(k, (m.get(k) || 0) + 1)
+    }
+    return m
+  }, [criteriaSites])
+
+  /* 区域排名条数据（2026-10-14 用户要求「增加一个区域排名条，放在地图右上角或左上角」）。
+
+     设计意图（用户原话）：地图负责 **Where**，排名条负责 **How many** ——
+     比让地图标签承担全部信息更专业。因此这里只做一次派生，两处共用同一份数字，
+     不会出现「地图上 Lofa 04、排名条里 Lofa 3」这类对不上的情况。
+
+     排序：告警数降序；**同数按县名升序**打破平局。平局用名称排序而不是沿用接口
+     返回顺序，是为了让「排名」稳定 —— 接口返回顺序由后端 GROUP BY 决定，
+     不保证跨请求一致，排名条每次刷新换序会让人以为数据变了。
+     取全量 15 个县（**不截断**）：用户的示例里 0 告警的县不出现，
+     这个「不显示」的判定交给下游 shouldShowRegion 统一做，而不是在这里砍数据 ——
+     一旦在这里截断，将来想改成「显示全部」就得再回后端补数据。
+     口径：alarm_site_count 与该县地图标签、下钻筛选完全同源（COUNT DISTINCT 站点）。 */
+  const regionRanking = useMemo(() => {
+    return counties
+      .map(c => {
+        const n = scopedCountyAlarms.get(countyKey(c.db_name)) ?? 0
+        return {
+          name: c.name,
+          count: n,
+          color: COUNTY_BAND_COLORS[alarmBand(n)],
+        }
+      })
+      .sort((a, b) => (b.count - a.count) || a.name.localeCompare(b.name))
+  }, [counties, scopedCountyAlarms])
+
+  /* 县名标注的**避让后锚点**（2026-10-14 用户要求「Label 重叠需要动态避让」）。
+
+     与 regionRanking 同源（都用 alarm_site_count + alarmBand），区别只是
+     这里还要几何：每个县先算面积加权质心，再按告警数降序逐个找不冲突的位置。
+     算法与取舍全在 countyLabelLayout.ts 的文件头，这里只说**为什么这样调用**：
+
+       · 用固定取景参数（LB_FIT_ZOOM + 门户中列画布宽 570）算投影，而不是读地图
+         当前 zoom：本函数在渲染期跑，地图实例未必已挂载（见该模块注释）。
+         本页默认就是全国视角，按默认视角避让即可覆盖常态；用户手动放大后
+         标签会重新变稀，反而更不容易重叠。
+       · 画布宽 570 是门户中列的实测宽度（见本文件顶部 LB_FIT_ZOOM 的实测表）。
+         取宽了会让判定的重叠比实际更少，取窄了则避让过度 —— 用实测值最稳。
+       · 依赖里只有 counties：分档色与告警数都从 counties 派生，没有第二个真相源。
+       · 2026-10-13 新增 shiftWestPx：投影器必须知道 MapController 把内容平移了
+         多少，否则标签会按「未平移」的坐标落地，与站点圆点脱节
+         （站点由 Leaflet 自己按平移摆放，标签是本模块先算好的 lat/lng）。
+         方向约定见 countyLabelLayout.ts 的 makeProjector 注释
+         （该参数**正值 = 内容左移**；本页 SHIFT_WEST_PX 取负值即内容右移，
+          直接透传即可 —— makeProjector 内部是 `x - shiftWestPx`，
+         负值等价于 x 加上一个正数，正是右移）。 */
+  const countyLabels = useMemo(() => {
+    const proj = makeProjector(
+      zoomLevel, PORTAL_MAP_WIDTH, LB_CENTER[0], PORTAL_MAP_HEIGHT, shiftWestPx,
+    )
+    return placeCountyLabels(
+      counties,
+      c => scopedCountyAlarms.get(countyKey(c.db_name)) ?? 0,
+      proj,
+    )
+  }, [counties, zoomLevel, shiftWestPx, scopedCountyAlarms])
+
+
+  const filteredSites = useMemo(() => {
+    return criteriaSites.filter(site => {
       if (mode === 'realtime') {
         /* 实时模式的可见性判定（2026-09-28 随图层合并调整）：
            全量模式的 tt / wo 图层键已并入 his_alarm，实时模式**刻意保持原样** ——
@@ -901,12 +1198,9 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
       } else {
         if (hiddenLegends.has(getSiteCategory(site))) return false
       }
-      for (const [key, val] of Object.entries(selectedFilters)) {
-        if (val && (site as any)[key] !== val) return false
-      }
       return true
     })
-  }, [sites, hiddenLegends, selectedFilters, activeLayers, mode])
+  }, [criteriaSites, hiddenLegends, activeLayers, mode])
 
   /* 人员图层跟随高级筛选（2026-10-16 用户报「选中 FME 人员地图没生效」）：
      原先 PersonnelLayer 只收 isDark/enabled/timeRange，完全不知道 selectedFilters，
@@ -942,7 +1236,10 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
       return out
     }
     // ③ 无任何筛选：不过滤
+    // ⚠️ 站点名筛选（siteNameFilter）也算"有筛选"：它同样会把站点缩小到
+    //    一部分，人物图层应当跟着缩到这些站点上，否则会剩下与可见站点无关的人。
     const hasAnyFilter = Object.values(selectedFilters).some(Boolean) || !!selectedRegion
+      || !!siteNameFilter
     if (!hasAnyFilter) return null
     // ② 非人员维度：由可见站点反推相关人员
     const names = new Set<string>()
@@ -953,7 +1250,91 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
       if (p) names.add(p)
     }
     return names
-  }, [filteredSites, selectedFilters, selectedRegion])
+  }, [filteredSites, selectedFilters, selectedRegion, siteNameFilter])
+
+  /* ===== 统计卡跟随筛选（2026-10-21 用户要求：「当我筛选的时候，页面统计卡片和
+     地图上统计没有跟着变化」）====================================
+
+     ---- 问题的根因 ----
+     三张卡（Alarm Stats / Site Stats / TT Priority Stats）与图例计数，原先都是
+     **对后端一次性下发的汇总值**直接渲染（`ossStats` / `priorityStats` /
+     `categoryCounts(sites)`）。而站点是**客户端筛选**的（filteredSites），
+     于是筛选一改，地图上的点少了，卡片数字纹丝不动 —— 两边各自都对，
+     但描述的是**不同的集合**，这正是最难排查的那种不一致。
+
+     ---- 现在的做法：同一份数据、同一个筛选，两处读数必然相等 ----
+     OSS 类别与 TT 优先级是**告警级**属性，站点对象上没有按类别拆分的字段，
+     所以后端把每条告警的 (site_id, 类别, TT, 优先级) 一并下发（alarm_rows，
+     实测约 118 行 / 10KB）。这里按 filteredSites 的站点 ID 集合过滤后重新分桶：
+
+       · Alarm Stats  → 每类：告警数 / 其中带 TT 的告警数 / 涉及的去重站点数
+       · Site Stats   → 每类：涉及的去重站点数（与 Alarm Stats 同源，只换读数字段）
+       · Priority     → 带 TT 的告警按 P1~P4 / Unknown 分桶，分母 = 各档之和
+
+     **无筛选时结果与后端汇总逐项相等** —— 因为后端那两个汇总本身就是由同一批
+     alarm_rows 数出来的（见 gis.py 的 scoped_alarms 注释）。这不是巧合，是同源：
+     两者读同一批行、同一套分桶规则，所以不会出现「筛选一清就跳数」。
+
+     ---- 为什么用 criteriaSites 而不是 filteredSites（2026-10-21）----
+     见 criteriaSites 的注释：统计只跟**数据范围筛选**（高级筛选 / 站点名）走，
+     不跟图层开关与图例隐藏走。关掉一个图层只该少画几个点，不该让「这个站
+     有几条告警」的读数发生变化 —— 那会让用户误以为数据在变。
+
+     ---- 为什么回落 ----
+     alarmRows 为空（旧缓存 / 字段缺失 / 非实时模式）时直接用后端汇总，
+     保证最坏情况下卡片仍有内容可看，而不是空白。 */
+  const scopedOssStats = useMemo(() => {
+    if (!alarmRows.length) return ossStats
+    const visible = new Set(criteriaSites.map(s => s.site_id))
+    // { 类别: { count, with_tt, sites:Set } } —— 与后端的三字段口径逐项对齐
+    const buckets = new Map<string, { count: number; with_tt: number; sites: Set<string> }>()
+    for (const r of alarmRows) {
+      if (!visible.has(r.site_id)) continue
+      let b = buckets.get(r.problem)
+      if (!b) {
+        b = { count: 0, with_tt: 0, sites: new Set() }
+        buckets.set(r.problem, b)
+      }
+      b.count++
+      b.sites.add(r.site_id)
+      // 与后端 _scan_realtime_alarms 同口径：tt_id 非空即算「带 TT」
+      // （下钻表里 `priority` 为空串 ⇔ 无 TT，两者必然一致）
+      if (r.tt_id) b.with_tt++
+    }
+    // 按告警数降序（与后端 sorted(counts, key=-count) 同一排序）
+    return [...buckets.entries()]
+      .map(([oss_specific_problem, b]) => ({
+        oss_specific_problem,
+        count: b.count,
+        with_tt: b.with_tt,
+        sites: b.sites.size,
+      }))
+      .sort((a, b) => b.count - a.count)
+  }, [alarmRows, criteriaSites, ossStats])
+
+  /* 优先级分档同理。⚠️ 分母只算**带 TT** 的告警（priority 非空）：
+     没有 TT 就没有优先级可言，与后端 _priority_breakdown 的排除规则一致。
+     `priority_source` 为 no_tt 的行其 priority 必为空串，这里一并排除。 */
+  const scopedPriorityStats = useMemo(() => {
+    if (!alarmRows.length) return priorityStats
+    const visible = new Set(criteriaSites.map(s => s.site_id))
+    const counts = new Map<string, number>()
+    for (const r of alarmRows) {
+      if (!visible.has(r.site_id) || !r.priority) continue
+      counts.set(r.priority, (counts.get(r.priority) || 0) + 1)
+    }
+    return priorityStats
+      .filter(item => counts.has(item.priority))
+      .map(item => ({ ...item, count: counts.get(item.priority) || 0 }))
+  }, [alarmRows, criteriaSites, priorityStats])
+
+  /* 优先级卡合计 = 各档之和。与后端 priority_stats.total 同口径（都是带 TT 的告警数），
+     写成 reduce 而不是取某个字段，是为了让「合计」永远等于上面各档之和 ——
+     分母与分子来自同一次遍历，不会出现分子改了分母没改的错位。 */
+  const scopedPriorityTotal = useMemo(
+    () => scopedPriorityStats.reduce((s, x) => s + x.count, 0),
+    [scopedPriorityStats],
+  )
 
   // ========== 导出 ==========
   /* 导出**当前地图上可见的站点**（filteredSites）：与用户在图例/图层/高级筛选里
@@ -1079,11 +1460,50 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
     { key: 'power_sources', label: t('gis.filter.powerSources') },
   ]
 
+  /* 站点等级分档：随筛选重算（2026-10-21 用户选择「跟随筛选范围重算」）。
+
+     ⚠️ 为什么从「后端全量」改成「前端按筛选重算」——
+       实时页原先显示 ERA: 201 / COOL: 64 / NORMAL: 559（合计 824，全量站点表），
+       而旁边的 Total Sites 是 115（只有告警站）—— **两个数字本来就对不上**，
+       用户无从判断哪个是"我关心的范围"。改成按筛选重算后，三档之和恒等于
+       当前范围内的站点数，可校验性反而更强。
+
+     ⚠️ 归一化口径必须与后端一致：后端 `_site_type_stats()` 用
+       `_norm_site_category()` 归一（REGULAR / REGULAR(NORMAL) → NORMAL）。
+       前端这里**不能重新实现**那套规则，否则「库里写作 REGULAR 的站」
+       会被算成第四档、而 Tag 列表里看不到它。故：直接用后端下发的
+       `site_caregory`（已归一，见 `_attach_filter_cols`），
+       前端只做「按档位分组计数」，不碰归一化。
+
+     档位顺序沿用后端返回顺序（ERA / COOL / NORMAL 固定在前），
+     避免前端另排一套序。 */
+  const scopedSiteTypeStats = useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const s of criteriaSites) {
+      const k = (s as any).site_caregory
+      if (!k) continue
+      counts.set(k, (counts.get(k) || 0) + 1)
+    }
+    // 保留后端返回的档位顺序（ERA/COOL/NORMAL 在前），只把数量换成筛选后的
+    const order = siteTypeStats.map(st => st.name)
+    const out = order
+      .filter(name => counts.has(name))
+      .map(name => ({ name, count: counts.get(name) || 0 }))
+    // 后端没列出的新档位（脏值归一后的残留）追加在后面，不静默丢弃
+    for (const [name, count] of counts) {
+      if (!order.includes(name)) out.push({ name, count })
+    }
+    return out
+  }, [criteriaSites, siteTypeStats])
+
   /* 生效筛选数：**必须把 region 算进去**。region 存在独立 state 里
      （见 FILTER_CONFIG 的说明），只数 selectedFilters 会让「选了区域」
-     这个筛选状态在按钮徽标上消失，用户以为没生效。 */
+     这个筛选状态在按钮徽标上消失，用户以为没生效。
+     站点名同样是独立 state（siteNameQuery），也要算进去 —— 否则输入了站名
+     徽标却不动，用户会以为没生效。 */
   const activeFilterCount = Object.values(selectedFilters).filter(Boolean).length
     + (selectedRegion ? 1 : 0)
+    + (siteNameFilter ? 1 : 0)
 
   const handleFilterChange = (key: string, value: string | undefined) => {
     setSelectedFilters(prev => ({ ...prev, [key]: value }))
@@ -1094,28 +1514,11 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
     // region 同样是「高级筛选」的一部分，清除时一并复位，否则按钮的徽标
     // 会一直挂着 1，看起来像清不干净
     setSelectedRegion(undefined)
+    // 站点名输入框也要复位（2026-10-21），否则文本还留在框里，
+    // 用户会以为「清除」没清干净
+    setSiteNameQuery('')
   }
 
-  /* 图例数字 = **地图上被画成该颜色的站点数**（每个站点恰好一个颜色）。
-
-     ---- 为什么这么定义（2026-10-17 用户实测反馈后彻底重构）----
-     用户报：「图例 Realtime Alarm 加起来 35，跟哪个都对不上；图例说 29 个 overdue，
-     地图上一个红色都找不到」。
-     根因是图例与地图用了**两套互相矛盾的模型**：
-       ① 图例旧实现：每档**独立**计数（有超时就算 overdue、有 TT 又算 tt，
-          同一站点被数进多档）→ 各档相加可以超过站点总数；
-       ② 地图着色 getSiteCategory：每站**只有一个颜色**，且旧优先级是 tt 最高。
-     实测：29 个站有超时告警，而**这 29 个站全部同时有 TT** → 全被涂成蓝色，
-     红色站点数 = 0。图例说 29 个红点、地图一个红点都没有，就是这么来的。
-
-     现在两处**共用 getSiteCategory 一个函数**：图例直接对该函数的结果分桶，
-     所以「图例数字」与「地图颜色」物理上不可能再不一致（与后端
-     「卡片/下钻同源」是同一条纪律）。
-     同时把超时提升为最高着色优先级，让 SLA 超时不再被工单色盖住。
-
-     代价与取舍：图例不再表达「总共有多少站点有超时告警」（那是可重叠的统计），
-     而表达「有多少站点被画成红色」。后者才是看图例时真正要找的对应关系。
-     全量模式（?page=gis）本来就是这个模型，两个分支现在逻辑一致。 */
   /* ---- 图例计数：两组用**不同模型**（2026-10-17 用户澄清后定稿）----
 
      用户两句反馈合起来才说清楚问题：
@@ -1132,20 +1535,93 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
          按**独立条件**计数（该站是否有 TT / WO / VIP）——
          它们描述"这个站点具备什么属性"，与颜色无关，同一站点可计入多组。
      因此：告警两档之和 = 有告警的站点数；但 Tickets/等级组与它们会重叠，
-     **全部相加不等于站点总数**，这是刻意且正确的 —— ⓘ 说明里已写明。 */
-  const categoryCounts = useMemo(() => {
-    const counts = { tt: 0, wo: 0, vip: 0, normal: 0, rt_alarm: 0, rt_alarm_overdue: 0, rt_alarm_ontime: 0, his_alarm: 0 }
-    sites.forEach(s => {
-      // 告警状态：按地图实际着色分桶（保证与圆点颜色一致）
-      counts[getSiteCategory(s)]++
-      // 关联工单 / 站点等级：独立计数，不受颜色优先级影响
+     **全部相加不等于站点总数**，这是刻意且正确的 —— ⓘ 说明里已写明。
+
+     ⚠️⚠️ 2026-10-21 修复**双计**：上面两套口径原先写在**同一个字典**里，
+     于是同一个键被两条规则写：
+       · 'vip' / 'normal' 既是颜色分桶的兜底桶、又是独立条件的键；
+       · 'tt' / 'wo' 同理（实时模式下它们也是颜色桶）。
+     结果同一批站点被数两遍 —— gis 页实测 VIP 显示 **99**（真值 50）、
+     Normal 显示 **1539**（真值 774），实时页 VIP/Normal 各被加两次。
+     修法见下方 countLegend：两套口径**写不同的键**（详见那里的注释）。 */
+  /* 图例计数的**唯一实现**（2026-10-21 重构，修复「一个键被两条规则写」的双计）。
+
+     ---- 背景 ----
+     2026-10-17 定稿的图例模型是**三组、两种口径**：
+       · 告警状态组（rt_alarm / his_alarm / rt_alarm_overdue / rt_alarm_ontime）
+         —— 按**颜色分桶**（getSiteCategory），必须与地图圆点一一对应；
+       · 关联工单组（tt / wo）与站点等级组（vip / normal）
+         —— 按**独立条件**计数（该站是否带 TT / WO / 是否 VIP 站），
+            它们描述"这个站点具备什么属性"，与颜色无关，同一站点可计入多组。
+     这两条规则写在**同一个字典**里，于是键名撞车：
+       · 'vip' / 'normal' 既是 getSiteCategory 的**兜底颜色桶**，又是独立条件的键；
+       · 'tt' / 'wo' 同理（实时模式下它们也是颜色桶）。
+     撞车的后果是同一批站点被数两遍：gis 页实测 VIP 显示 **99**（真值 50）、
+     Normal 显示 **1539**（真值 774），实时页 VIP/Normal 各被加两次。
+
+     ---- 修法：让两套口径**写不同的键** ----
+     ① 颜色分桶**只对告警状态组的键生效** —— getSiteCategory 返回 'vip'/'normal'/
+        'tt'/'wo' 时**不计数**（那些颜色是"地图上的兜底涂色"，不是独立属性）；
+     ② 独立条件那组按属性计数：vip = vip_site 为 Y/Yes，**normal = 其余全部**
+        （互斥且完备，故 vip + normal ≡ 站点总数，这是一个可自校验的不变式）。
+
+     ⚠️ 「normal」的口径因此从「无告警且无工单」改为「非 VIP 站」：前者会把
+     有历史告警的站点也算成"正常"，与图例「站点等级」这一定位不符。
+
+     注：站点等级组与告警状态组**故意会重叠**（VIP 站也可能被涂成告警色），
+     故各组数字**不能横向相加** —— 这一点已写进图例的 ⓘ 口径说明
+     （i18n 的 `gis.legendNote`），改图例文案时一并维护。 */
+  const countLegend = (list: Site[]) => {
+    const counts = {
+      tt: 0, wo: 0, vip: 0, normal: 0,
+      rt_alarm: 0, rt_alarm_overdue: 0, rt_alarm_ontime: 0, his_alarm: 0,
+    }
+    for (const s of list) {
+      // ① 告警状态组：颜色分桶（仅这四个键），与地图圆点严格对应
+      const cat = getSiteCategory(s)
+      if (cat === 'rt_alarm' || cat === 'his_alarm'
+        || cat === 'rt_alarm_overdue' || cat === 'rt_alarm_ontime') {
+        counts[cat]++
+      }
+      // ② 关联工单组：独立条件计数（该站是否带 TT / WO）
       if ((s.rt_tt_count || 0) > 0) counts.tt++
       if ((s.rt_wo_count || 0) > 0) counts.wo++
+      // ③ 站点等级组：独立条件计数（VIP 站 vs 非 VIP 站），互斥且完备
       if (s.vip_site === 'Y' || s.vip_site === 'Yes') counts.vip++
-      if (s.rt_alarm_count === 0 && (s.rt_tt_count || 0) === 0 && (s.rt_wo_count || 0) === 0) counts.normal++
-    })
+      else counts.normal++
+    }
     return counts
-  }, [sites, activeLayers, mode])
+  }
+
+  /* 无筛选时的图例计数（输入 = 全量 sites）。 */
+  const categoryCounts = useMemo(
+    () => countLegend(sites),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [sites, activeLayers, mode],
+  )
+
+  /* 图例计数**跟随筛选**（2026-10-21 用户要求：「筛选的时候，地图上统计没有跟着变化」）。
+     上一段的 `categoryCounts` 分两档：告警状态组走**每站点恰好一个桶**的颜色分桶
+     （`getSiteCategory`），它天然不能改输入集合 —— 改成按 filteredSites 算，
+     图例里「Overdue 108」就不再等于地图上红色点的个数，那恰恰是 2026-10-17
+     专门重构过一次、消灭掉的「图例与地图各说各话」。
+
+     故按**图例自身的口径**重算一份，输入集合换成 `criteriaSites`：
+       · 告警状态组 → 仍走同一个 `getSiteCategory`，只是限定在筛选后的站点内，
+         所以数字与地图上画出来的圆点依然一一对应；
+       · 工单组 / 等级组 → 与上段同规则（独立条件计数），只是同口径地限定集合。
+     即：**筛选是缩小「算哪些站」，不是改变「怎么算一个站」**。
+
+     `legendCounts` = 有筛选时用这份，无筛选时用 `categoryCounts`（与后端全量一致，
+     可直接对照）。两者在无筛选时**必然相等**（输入集合相同、规则相同），
+     所以切换不会造成数字跳变 —— 这是刻意保留的自校验性质。 */
+  const legendScoped = useMemo(
+    () => countLegend(criteriaSites),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [criteriaSites, activeLayers, mode],
+  )
+
+  const legendCounts = activeFilterCount > 0 ? legendScoped : categoryCounts
 
   /* 实时模式的**告警/工单总数**（per-alarm，按条数累加）。
      2026-10-17：图例数字统一改成「站点数」之后，这些 per-alarm 的总数仍然有用 ——
@@ -1154,21 +1630,26 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
      （原先它们直接当图例数字用，与 Overdue/OnTime 的站点数混在一张表里，
        正是「加起来对不上」的另一个来源。） */
   const realtimeAlarmTotals = useMemo(() => {
+    /* 取数集合跟 criteriaSites（2026-10-21）：与图例计数、三张卡同源，
+       避免 ⓘ 说明里写着一套数字、图例条目写着另一套。
+       这几个数是**告警条数**（每站累加），与图例的**站点数**不同单位，
+       口径说明里已写明不要相加（见 2026-10-17 的注释）。 */
+    const src = criteriaSites
     if (mode === 'realtime') {
       return {
-        alarms: sites.reduce((s, x) => s + (x.rt_alarm_count || 0), 0),
-        overdue: sites.reduce((s, x) => s + (x.rt_alarm_overdue || 0), 0),
-        ontime: sites.reduce((s, x) => s + (x.rt_alarm_ontime || 0), 0),
-        tt: sites.reduce((s, x) => s + (x.rt_tt_count || 0), 0),
-        wo: sites.reduce((s, x) => s + (x.rt_wo_count || 0), 0),
+        alarms: src.reduce((s, x) => s + (x.rt_alarm_count || 0), 0),
+        overdue: src.reduce((s, x) => s + (x.rt_alarm_overdue || 0), 0),
+        ontime: src.reduce((s, x) => s + (x.rt_alarm_ontime || 0), 0),
+        tt: src.reduce((s, x) => s + (x.rt_tt_count || 0), 0),
+        wo: src.reduce((s, x) => s + (x.rt_wo_count || 0), 0),
       }
     }
     return {
       alarms: 0, overdue: 0, ontime: 0,
-      tt: sites.reduce((s, x) => s + (x.tt_count || 0), 0),
-      wo: sites.reduce((s, x) => s + (x.wo_count || 0), 0),
+      tt: src.reduce((s, x) => s + (x.tt_count || 0), 0),
+      wo: src.reduce((s, x) => s + (x.wo_count || 0), 0),
     }
-  }, [sites, mode])
+  }, [criteriaSites, mode])
 
   /* 图例可见性（2026-09-25 修正「假 0」，2026-09-28 随图层合并调整）：
      - rt_alarm_overdue / rt_alarm_ontime 是**实时模式专属**——categoryCounts 只在
@@ -1179,18 +1660,20 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
      - tt / wo 两项**只在实时模式保留**：全量模式下它们已被合并进 his_alarm 一档
        （见 hisAnyHit），再列出来会让同一批站点被数两遍。 */
   const legendItems: { key: LegendKey; color: string; label: string; count: number }[] = [
-    { key: 'rt_alarm_overdue', color: colorFor('rt_alarm_overdue'), label: t('gis.legend.rtAlarmOverdue'), count: categoryCounts.rt_alarm_overdue },
-    { key: 'rt_alarm_ontime', color: colorFor('rt_alarm_ontime'), label: t('gis.legend.rtAlarmOnTime'), count: categoryCounts.rt_alarm_ontime },
-    { key: 'rt_alarm', color: colorFor('rt_alarm'), label: t('gis.legend.rtAlarm'), count: categoryCounts.rt_alarm },
-    { key: 'his_alarm', color: colorFor('his_alarm'), label: t('gis.legend.hisAlarm'), count: categoryCounts.his_alarm },
+    /* count 取 legendCounts（= 有筛选时按 criteriaSites 重算，无筛选时等于 categoryCounts），
+       理由见 legendScoped 的注释。 */
+    { key: 'rt_alarm_overdue', color: colorFor('rt_alarm_overdue'), label: t('gis.legend.rtAlarmOverdue'), count: legendCounts.rt_alarm_overdue },
+    { key: 'rt_alarm_ontime', color: colorFor('rt_alarm_ontime'), label: t('gis.legend.rtAlarmOnTime'), count: legendCounts.rt_alarm_ontime },
+    { key: 'rt_alarm', color: colorFor('rt_alarm'), label: t('gis.legend.rtAlarm'), count: legendCounts.rt_alarm },
+    { key: 'his_alarm', color: colorFor('his_alarm'), label: t('gis.legend.hisAlarm'), count: legendCounts.his_alarm },
     /* tt / wo 改用**站点数**（2026-10-17 统一口径）。原先用 ticketTotals（工单条数），
        与左边的 Overdue/OnTime（站点数）不是同一个单位 —— 同一张图例里混着
        「站点数」与「工单数」，用户没法横向对照，也无法判断某档占比。
        工单**条数**仍保留在 ⓘ 口径说明里（realtimeAlarmTotals）。 */
-    { key: 'tt', color: colorFor('tt'), label: t('gis.legend.tt'), count: categoryCounts.tt },
-    { key: 'wo', color: colorFor('wo'), label: t('gis.legend.wo'), count: categoryCounts.wo },
-    { key: 'vip', color: SITE_COLORS.vip, label: t('gis.legend.vip'), count: categoryCounts.vip },
-    { key: 'normal', color: SITE_COLORS.normal, label: t('gis.legend.normal'), count: categoryCounts.normal },
+    { key: 'tt', color: colorFor('tt'), label: t('gis.legend.tt'), count: legendCounts.tt },
+    { key: 'wo', color: colorFor('wo'), label: t('gis.legend.wo'), count: legendCounts.wo },
+    { key: 'vip', color: SITE_COLORS.vip, label: t('gis.legend.vip'), count: legendCounts.vip },
+    { key: 'normal', color: SITE_COLORS.normal, label: t('gis.legend.normal'), count: legendCounts.normal },
   ].filter(item =>
     mode === 'realtime'
       // 实时模式：无历史告警；rt_alarm 由 overdue/ontime 两档细分取代，TT/WO 保留
@@ -1447,6 +1930,41 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
         : <Tag style={{ borderRadius: 10 }}>{t('gis.ossOverdueNo')}</Tag>) },
   ], [t])
 
+  /* RCA 簇成员表的列（2026-10-21）：与告警下钻**不是同一形状**（成员是站点行、
+     告警下钻是告警行），故单独一份列定义，弹窗按 drillKind 切换。
+     站名列可点 —— 复用 handleSiteClick 打开站点下钻抽屉（根因/成员站的
+     告警、TT、建议都在那个抽屉里，本弹窗不重复实现）。 */
+  const rcaDrillColumns = useMemo(() => [
+    { title: t('gis.drilldown.siteId'), dataIndex: 'site_id', key: 'site_id', width: 110, ellipsis: true },
+    { title: t('gis.drilldown.siteName'), dataIndex: 'site_name', key: 'site_name', width: 160, ellipsis: true,
+      render: (v: string, r: any) => (
+        <a
+          role="button"
+          tabIndex={0}
+          onClick={() => handleSiteClick({ site_id: r.site_id } as Site)}
+          onKeyDown={e => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault()
+              handleSiteClick({ site_id: r.site_id } as Site)
+            }
+          }}
+          style={{ color: WH.teal }}
+        >
+          {v}
+        </a>
+      ) },
+    { title: t('gis.drilldown.region'), dataIndex: 'region', key: 'region', width: 120, ellipsis: true },
+    { title: t('gis.rca.colAlarmCount'), dataIndex: 'alarm_count', key: 'alarm_count', width: 90 },
+    { title: t('gis.ossColTtId'), dataIndex: 'tt_id', key: 'tt_id', width: 150, ellipsis: true,
+      render: (v: string) => v || <span style={{ color: WH.textDim }}>{t('gis.ossNoTt')}</span> },
+    { title: t('gis.rca.colLinkPath'), dataIndex: 'link_path', key: 'link_path', width: 220, ellipsis: true,
+      render: (v: string) => (v && v !== '--' ? v : <span style={{ color: WH.textDim }}>{t('gis.rca.noPath')}</span>) },
+  ], [t])
+
+  /* 未归因弹窗**不再有独立列定义**（2026-10-21b，用户要求改用项目默认告警明细）：
+     未归因行与 oss 下钻同形（见 openDrill 的 rca_uncovered 分支），列直接复用
+     上面的 drillColumns —— 与点击 Alarm Stats 条目打开的是同一张表。 */
+
   /* 导出当前**筛选后**的行（与表格所见一致），走项目统一的 exportAoaReport。
 
      ⚠️ 这里**不用** helpers 的 exportToExcel：它按 dataIndex 直接取原始值导出，
@@ -1458,9 +1976,37 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
         自己再拼一遍会出现两个时间戳。 */
   const exportDrill = () => {
     if (!filteredDrillRows.length) return
-    // 标题/文件名按 kind 区分，两种下钻导出的文件名不会重名
+    // RCA 成员表：形状不同（站点行），单独拼 header/rows 后走同一个 exportAoaReport
+    if (drillKind === 'rca') {
+      const c = rcaClusters.find(x => x.cluster_id === drillKey)
+      const rootName = c?.root?.site_name || drillKey
+      const header = [
+        t('gis.drilldown.siteId'), t('gis.drilldown.siteName'),
+        t('gis.drilldown.region'), t('gis.rca.colAlarmCount'),
+        t('gis.ossColTtId'), t('gis.rca.colLinkPath'),
+      ]
+      const rows = filteredDrillRows.map((r: any) => [
+        r.site_id, r.site_name, r.region, r.alarm_count,
+        r.tt_id || t('gis.ossNoTt'), r.link_path || t('gis.rca.noPath'),
+      ])
+      void exportAoaReport({
+        filename: `rca_${drillKey}`,
+        sheetName: 'RCA Members',
+        title: `${t('gis.rca.title')} · ${rootName}`,
+        subtitle: `${t('common.records', { n: rows.length })}`
+          + `    |    ${t('gis.rca.exportCause', { cause: t(rcaCauseLabelKey(c?.cause_type || 'other')) })}`,
+        header,
+        rows,
+        tabColor: '#2F5496',
+      })
+      return
+    }
+    // 标题/文件名按 kind 区分，几种下钻导出的文件名不会重名。
+    // rca_uncovered 与 oss/priority 同为告警明细行，共用下面的通用 11 列导出。
     const title = drillKind === 'oss'
       ? (drillKey || t('gis.ossStatsTitle'))
+      : drillKind === 'rca_uncovered'
+      ? t('gis.rca.uncoveredTitle')
       : `${t('gis.priorityStatsTitle')} · ${drillKey}`
     const header = [
       t('gis.drilldown.siteId'), t('gis.drilldown.siteName'),
@@ -1504,15 +2050,27 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
                   ③ 「显示 MW 链路」「链路利用率」两个 Switch —— 恒为开启，见 showTopology/showUtil；
                   ④ 「边界」三选一 Segmented —— 恒为县界，见 boundaryMode。
                   保留「站点总数」是因为它是下面 ERA/COOL/NORMAL 分档的合计锚点。 */}
-              <Tag color="cyan">{t('gis.totalSites')}: {sites.length}</Tag>
+              {/* 站点总数（2026-10-21 改为跟随筛选）：
+                  无筛选时显示范围总数；有筛选时显示「筛选后 / 范围总数」，
+                  这样一个 Tag 同时说清"现在看的是多少"和"一共多少"。
+
+                  ⚠️ 范围总数用 `sites.length`（本次响应带回来的站点数），
+                     不是 `site_type_stats` 的合计 —— 后者是**全量站点表**口径
+                     （824），而实时页的 `sites` 只含有告警的站（115）。
+                     两者本就不是一回事，这也是原先「Total Sites 115」
+                     与「ERA 201+COOL 64+NORMAL 559」对不上的根因。
+                     现在分档 Tag 也改成按筛选范围重算，两者重新对齐。 */}
+              <Tag color="cyan">
+                {t('gis.totalSites')}: {activeFilterCount > 0
+                  ? `${criteriaSites.length}/${sites.length}`
+                  : sites.length}
+              </Tag>
               {/* 站点等级分档统计（2026-09-28 用户要求「在旁边添加 RRA/COOL/NORMAL 的统计」）。
-                  数据来自后端 site_type_stats，与上面 sites.length **同为全量口径**（827），
-                  故三档之和恒等于站点总数 —— 这个可校验性是刻意保留的，
-                  不要改成跟随地图可见站点数，否则两个数字对不上会被当成 bug。
+                  数据来源与口径见 scopedSiteTypeStats 的注释（2026-10-21 改为跟随筛选）。
                   「（用户原话是 RRA，经确认为 ERA 的笔误）」
                   每档单独上色（ERA 紫 / COOL 青 / NORMAL 蓝），与站点标记色系区分开：
                   这三档描述的是站点**资产等级**，不是告警状态，用告警的红黄会误导。 */}
-              {siteTypeStats.map(st => (
+              {scopedSiteTypeStats.map(st => (
                 <Tag key={st.name} color={SITE_TYPE_TAG_COLORS[st.name] || 'default'}>
                   {st.name}: {st.count}
                 </Tag>
@@ -1649,7 +2207,13 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
                 </Button>
               )}
               {activeFilterCount > 0 && (
-                <Tag color="cyan">{t('gis.totalSites')}: {filteredSites.length}/{sites.length}</Tag>
+                /* ⚠️ 标签名**刻意与左边的「站点总数」不同**（2026-10-21）：
+                   左边那个说的是「**筛选范围内**的站点数」（criteriaSites），
+                   这里说的是「**地图上画出来的**站点数」（filteredSites，
+                   额外扣掉被图层开关/图例隐藏的）。
+                   两者的差别只在「图层开关关掉了什么」，所以用「地图显示」区分，
+                   而不是两个都叫 Total Sites —— 那会让用户以为有两个总数对不上。 */
+                <Tag color="cyan">{t('gis.onMap')}: {filteredSites.length}/{criteriaSites.length}</Tag>
               )}
               <Button
                 size="small"
@@ -1666,6 +2230,34 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
         <div>
           {showFilters && (
             <Row gutter={[8, 8]} style={{ marginTop: 'var(--wh-space-sm)' }}>
+              {/* 站点名输入框（2026-10-21 用户要求「添加站点名字的过滤」）。
+                  放在**筛选面板的第一格**：站点名是最高频的定位手段，
+                  应当一眼可见，而不是夹在一堆下拉中间。
+
+                  为什么是 Input 而不是 Select：
+                    · 站点有 800+ 个，把候选值全塞进下拉会让 `filter_options`
+                      体积翻几倍，且在长列表里翻找某个站名比直接输入慢得多；
+                    · 其余筛选项都是**枚举**（有限的几十个值），站点名不是。
+
+                  为什么放前端而不是后端：
+                    站点列表本来就全量下发到前端（`sites`），筛选在客户端做
+                    （见 filteredSites）能即时响应，无需往返；后端也不必为
+                    一个模糊文本查询再扫一遍站点表。
+
+                  匹配口径：**不区分大小写的子串匹配**（见 siteNameKey 的说明），
+                  与其它筛选项的"精确相等"不同 —— 站点名是自由文本，
+                  精确相等几乎不可能手打对。 */}
+              <Col>
+                <Input
+                  size="small"
+                  allowClear
+                  prefix={<SearchOutlined />}
+                  placeholder={t('gis.filter.siteName')}
+                  style={{ width: 'min(100%, 12.5rem)' }}
+                  value={siteNameQuery}
+                  onChange={e => setSiteNameQuery(e.target.value)}
+                />
+              </Col>
               {FILTER_CONFIG.map(fc => {
                 // 区域（region）的候选值来自接口的 `regions` 字段，不在 filterOptions 里
                 const opts = fc.options || filterOptions[fc.key] || []
@@ -1725,10 +2317,10 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
             之间的间距由卡片自己的 marginBottom 决定；横向布局下地图卡片在**旁边**
             而不是下方，所以这里不需要下边距，改成 0 让统计列顶部与地图卡片顶部齐平。
             （'all' 模式走不到本卡，故无需对两种布局分别取值。） */}
-      {mode === 'realtime' && ossStats.length > 0 && (
+      {mode === 'realtime' && scopedOssStats.length > 0 && (
         <Card size="small" style={{ ...cardStyle, marginBottom: 0, flexShrink: 0 }}>
           <div style={{ fontSize: '0.8125rem', fontWeight: 600, color: WH.text, marginBottom: 'var(--wh-space-sm)' }}>
-            {t('gis.ossStatsTitle')} ({ossStats.reduce((s, i) => s + i.count, 0)})
+            {t('gis.ossStatsTitle')} ({scopedOssStats.reduce((s, i) => s + i.count, 0)})
           </div>
           {/* 竖排（2026-10-16）：原先横排自动换行，搬到右侧统计列后列宽只剩 320px，
               横排会把每条压得极窄；改为纵向 flex + 每条占满列宽。
@@ -1737,8 +2329,8 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
               每条**可点击**下钻（同日用户要求）：整行是一个按钮语义的 div，
               点击打开该类别的告警明细弹窗。进度条宽度仍按告警总数归一（视觉排序用）。 */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.625rem' }}>
-            {ossStats.map(item => {
-              const max = ossStats[0]?.count || 1
+            {scopedOssStats.map(item => {
+              const max = scopedOssStats[0]?.count || 1
               const pct = Math.max(4, Math.round((item.count / max) * 100))
               return (
                 <div
@@ -1794,15 +2386,15 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
           ⚠️ 为什么站点数之和可能大于站点总数：一个站点可同时有多种告警类别
              （例如既 SITE OUTAGE 又 Fiber Break），各档会重复计它。
              这与图例里「同站点可计入多档」是同一条口径说明。 */}
-      {mode === 'realtime' && ossStats.length > 0 && (
+      {mode === 'realtime' && scopedOssStats.length > 0 && (
         <Card size="small" style={{ ...cardStyle, marginTop: '0.75rem', marginBottom: 0, flexShrink: 0 }}>
           <div style={{ fontSize: '0.8125rem', fontWeight: 600, color: WH.text, marginBottom: 'var(--wh-space-sm)' }}>
-            {t('gis.siteStatsTitle')} ({ossStats.reduce((s, i) => s + (i.sites || 0), 0)})
+            {t('gis.siteStatsTitle')} ({scopedOssStats.reduce((s, i) => s + (i.sites || 0), 0)})
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.625rem' }}>
-            {ossStats.map(item => {
+            {scopedOssStats.map(item => {
               // 进度条按「本卡片内最大的站点数」归一，让各条长度可比
-              const maxSites = Math.max(...ossStats.map(x => x.sites || 0), 1)
+              const maxSites = Math.max(...scopedOssStats.map(x => x.sites || 0), 1)
               const pct = Math.max(4, Math.round(((item.sites || 0) / maxSites) * 100))
               return (
                 <div
@@ -1850,17 +2442,17 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
              这里只负责展示，拿到的数字与后端同源。
 
           每条可点击（同 OSS 卡）：点 P1 → 打开该优先级下的告警明细弹窗。 */}
-      {mode === 'realtime' && priorityStats.length > 0 && (
+      {mode === 'realtime' && scopedPriorityStats.length > 0 && (
         <Card size="small" style={{ ...cardStyle, marginTop: '0.75rem', marginBottom: 0, flexShrink: 0 }}>
           <div style={{ fontSize: '0.8125rem', fontWeight: 600, color: WH.text, marginBottom: 'var(--wh-space-sm)' }}>
-            {t('gis.priorityStatsTitle')} ({priorityTotal})
+            {t('gis.priorityStatsTitle')} ({scopedPriorityTotal})
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.625rem' }}>
-            {priorityStats.map(item => {
+            {scopedPriorityStats.map(item => {
               /* 进度条按总数归一（不用最大值）—— 这里各档之和就是总数，
                  用总数能让各条长度直接读出「占比」，比相对最大值更有信息量。 */
-              const pct = priorityTotal > 0
-                ? Math.max(2, Math.round((item.count / priorityTotal) * 100))
+              const pct = scopedPriorityTotal > 0
+                ? Math.max(2, Math.round((item.count / scopedPriorityTotal) * 100))
                 : 2
               // 不渲染计数为 0 的档，避免 P1(0) 这种占位（与图例「假 0」是同一类问题）
               if (!item.count) return null
@@ -1898,6 +2490,146 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
                         与地图上的告警状态色**刻意分开**——那组描述站点当前状态，
                         这组描述工单等级；混用会让人以为 P1 站点在地图上也是红的。 */}
                     <div style={{ width: `${pct}%`, height: '100%', background: PRIORITY_COLORS[item.priority] || WH.textDim, borderRadius: 3 }} />
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </Card>
+      )}
+
+      {/* ===== 根因聚合分析（RCA，2026-10-21）=====
+          与上方三张统计卡同一来源（/realtime/rca 与 /realtime/sites 同一次扫描），
+          但回答的是另一个问题：这批断站里，哪些是**同一个原因**。
+          · topology 簇：上游站断 → link_path 下挂站跟着断（优先派修根因站）
+          · same_cause 簇：无链路站按「问题 + 10 分钟窗」聚集（疑似批量事件）
+          每条可点开成员明细；「范围外」Tag 表示根因站在当前筛选范围外（用户决策：
+          完整展示并标注）。置信度是后端确定性公式的启发式分值，非 AI 输出。 */}
+      {mode === 'realtime' && (rcaClusters.length > 0 || rcaError) && (
+        <Card size="small" style={{ ...cardStyle, marginTop: '0.75rem', marginBottom: 0, flexShrink: 0 }}>
+          <div style={{ fontSize: '0.8125rem', fontWeight: 600, color: WH.text, marginBottom: 'var(--wh-space-sm)', display: 'flex', alignItems: 'center', gap: 'var(--wh-space-xs)', flexWrap: 'wrap' }}>
+            {/* 计数用**站数**（已归因/总）而不是簇数 —— 簇数与旁边 Site Stats 的
+                站数不是同一单位，曾被当成"两边对不上"（2026-10-21 用户反馈）。
+                簇有几组看列表行数即可，站数才需要与 Site Stats (N) 对拍。 */}
+            <span title={t('gis.rca.titleHint', {
+              covered: rcaMeta?.covered_sites ?? 0, total: rcaMeta?.in_scope_sites ?? 0,
+              n: rcaClusters.length,
+            })}>
+              {t('gis.rca.title')}
+              {' '}({rcaMeta ? `${rcaMeta.covered_sites}/${rcaMeta.in_scope_sites}` : rcaClusters.length})
+            </span>
+            {/* AI 解读：弹窗配置 provider/key（存本机），POST /realtime/rca-narrative。
+                渐进加载 —— 簇列表先出，解读后到，AI 不可用时后端降级为本地规则文案。 */}
+            <Button
+              size="small"
+              type="text"
+              icon={<RobotOutlined />}
+              style={{ marginLeft: 'auto' }}
+              onClick={e => openRcaAi(e)}
+            >
+              {t('gis.rca.aiButton')}
+            </Button>
+          </div>
+          {/* 口径脚注：覆盖数显式给出（"未归入任何簇"的站也要看得见，防静默漏站）。
+              title 给出更细的口径拆解（有链路/卫星站/孤儿告警行）。
+              可点击 → 打开未归因清单（孤立故障站列表，可对地图逐点核验）。 */}
+          {rcaMeta && !rcaError && (
+            <div
+              role="button"
+              tabIndex={0}
+              aria-label={t('gis.rca.uncoveredTitle')}
+              style={{
+                fontSize: '0.6875rem', color: WH.textMuted, marginBottom: 'var(--wh-space-sm)',
+                cursor: 'pointer', textDecoration: 'underline dotted',
+                textDecorationColor: WH.textDim, textUnderlineOffset: 2,
+              }}
+              title={t('gis.rca.metaDetail', {
+                rows: rcaMeta.alarm_rows, sites: rcaMeta.alarmed_sites,
+                link: rcaMeta.with_link_path, sat: rcaMeta.satellite_sites,
+                orphan: rcaMeta.orphan_alarm_rows, unmatched: rcaMeta.eflow_root_unmatched,
+              })}
+              onClick={e => openDrill('rca_uncovered', '', e)}
+              onKeyDown={e => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  openDrill('rca_uncovered', '', e as any)
+                }
+              }}
+            >
+              {t('gis.rca.metaLine', {
+                covered: rcaMeta.covered_sites, uncovered: rcaMeta.uncovered_sites,
+                total: rcaMeta.in_scope_sites,
+              })}
+            </div>
+          )}
+          {rcaError && (
+            <Alert
+              type="error"
+              showIcon
+              style={{ marginBottom: 'var(--wh-space-sm)' }}
+              message={<span style={{ fontSize: 12 }}>{t('gis.rca.fetchFailed')}: {rcaError}</span>}
+            />
+          )}
+          {rcaLoading && (
+            <div style={{ textAlign: 'center', padding: '0.75rem 0' }}>
+              <Spin size="small" />
+            </div>
+          )}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.625rem' }}>
+            {rcaClusters.map(c => {
+              // 进度条按「最大簇成员数」归一；颜色按根因类型，与 Tag 同语义族
+              const maxMembers = Math.max(...rcaClusters.map(x => x.member_count || 0), 1)
+              const pct = Math.max(6, Math.round(((c.member_count || 0) / maxMembers) * 100))
+              const causeBarColor: Record<string, string> = {
+                transmission: '#13c2c2', fiber: '#9254de', power: '#fa8c16',
+                site_outage: '#ff4d4f', other: '#9aa5b5',
+              }
+              return (
+                <div
+                  key={c.cluster_id}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={t('gis.rca.drillHint', { name: c.root?.site_name || c.cluster_id })}
+                  style={{
+                    minWidth: 0, cursor: 'pointer', borderRadius: 'var(--wh-radius-sm)',
+                    padding: '2px var(--wh-space-xs)', margin: '0 -var(--wh-space-xs)',
+                    transition: 'background 0.15s',
+                  }}
+                  onClick={e => openDrill('rca', c.cluster_id, e)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault()
+                      openDrill('rca', c.cluster_id, e as any)
+                    }
+                  }}
+                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'var(--wh-subtle-bg)' }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent' }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.375rem', fontSize: '0.75rem', color: WH.text }}>
+                    <span style={{ minWidth: 0, display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0, maxWidth: '7.5rem' }} title={c.root?.site_name}>
+                        {c.root?.site_name || c.cluster_id}
+                      </span>
+                      <Tag color={rcaCauseTagColor(c.cause_type)} style={{ margin: 0, borderRadius: 10, fontSize: '0.6875rem' }}>
+                        {t(rcaCauseLabelKey(c.cause_type))}
+                      </Tag>
+                      {!c.root_in_scope && (
+                        <Tag
+                          color="orange"
+                          style={{ margin: 0, borderRadius: 10, fontSize: '0.6875rem' }}
+                          title={t('gis.rca.outOfScopeHint')}
+                        >
+                          {t('gis.rca.outOfScope')}
+                        </Tag>
+                      )}
+                    </span>
+                    {/* 读数：受影响站数 · 置信度（确定性启发式，非 AI） */}
+                    <span style={{ color: WH.textMuted, whiteSpace: 'nowrap' }}>
+                      {t('gis.rca.memberCount', { n: c.member_count })} · {Math.round((c.confidence || 0) * 100)}%
+                    </span>
+                  </div>
+                  <div style={{ height: 6, background: 'var(--wh-subtle-bg)', borderRadius: 3, marginTop: 3 }}>
+                    <div style={{ width: `${pct}%`, height: '100%', background: causeBarColor[c.cause_type] || '#9aa5b5', borderRadius: 3 }} />
                   </div>
                 </div>
               )
@@ -2104,8 +2836,11 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
               /* 县级告警分档（2026-10-14 用户要求「>=5 红色，<=5 黄色，1 个绿色」）。
                  档位口径：5 档与 6 档同为橙档（用户以 Montserrado 07 红 / Nimba 05 橙
                  为例给出），因此 5 必须落在橙档，不能归入黄档。
-                 分档只驱动**颜色**，透明度由下方 FILL_OPACITY 统一给出。 */
-              const band = alarmBand(c.alarm_site_count ?? 0)
+                 分档只驱动**颜色**，透明度由下方 FILL_OPACITY 统一给出。
+                 ⚠️ 2026-10-21：告警数改取 scopedCountyAlarms（跟随筛选），
+                 与县名标签、排名条同源 —— 三处不再各说各话。 */
+              const scopedCount = scopedCountyAlarms.get(countyKey(c.db_name)) ?? 0
+              const band = alarmBand(scopedCount)
               const fill = COUNTY_BAND_COLORS[band]
               return (
               <Polygon
@@ -2256,8 +2991,33 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
         onClose={() => setDrillOpen(false)}
         title={
           <span style={{ color: WH.text }}>
-            {/* 标题带上来源，避免「P3」这种孤零零的档位不知从哪张卡点到 */}
-            {drillKind === 'priority'
+            {/* 标题带上来源，避免「P3」这种孤零零的档位不知从哪张卡点到。
+                rca：根因站名 + 类型/簇标签，一眼知道这是哪个根因的影响面。 */}
+            {drillKind === 'rca_uncovered'
+              ? (() => (
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--wh-space-xs)', flexWrap: 'wrap' }}>
+                    {t('gis.rca.uncoveredTitle')}
+                    <Tag style={{ margin: 0, borderRadius: 10 }}>{t('gis.rca.uncoveredTag')}</Tag>
+                  </span>
+                ))()
+              : drillKind === 'rca'
+              ? (() => {
+                  const c = rcaClusters.find(x => x.cluster_id === drillKey)
+                  return (
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--wh-space-xs)', flexWrap: 'wrap' }}>
+                      {t('gis.rca.drillTitle', { name: c?.root?.site_name || drillKey })}
+                      {c && (
+                        <>
+                          <Tag color={rcaCauseTagColor(c.cause_type)} style={{ margin: 0, borderRadius: 10 }}>
+                            {t(rcaCauseLabelKey(c.cause_type))}
+                          </Tag>
+                          <Tag style={{ margin: 0, borderRadius: 10 }}>{t(rcaKindLabelKey(c.kind))}</Tag>
+                        </>
+                      )}
+                    </span>
+                  )
+                })()
+              : drillKind === 'priority'
               ? `${t('gis.priorityStatsTitle')} · ${drillKey === 'Unknown' ? t('gis.priorityUnknown') : drillKey}`
               : drillKey}
             <Tag color="cyan" style={{ marginLeft: 'var(--wh-space-sm)', borderRadius: 10 }}>
@@ -2272,6 +3032,50 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
           </span>
         }
       >
+        {/* RCA 证据块（2026-10-21）：根因站的告警 + 簇证据摘要，位于表格上方。
+            全部来自同一次 /realtime/rca 响应里的 cluster 对象，与成员表同源。 */}
+        {drillKind === 'rca' && (() => {
+          const c = rcaClusters.find(x => x.cluster_id === drillKey)
+          if (!c) return null
+          const ev = c.evidence || {}
+          return (
+            <div style={{
+              marginBottom: '0.75rem', padding: '0.5rem 0.75rem',
+              background: 'var(--wh-subtle-bg)', borderRadius: 'var(--wh-radius-sm)',
+              fontSize: '0.75rem', color: WH.text, display: 'flex',
+              flexDirection: 'column', gap: 4,
+            }}>
+              {/* 根因站告警（cap 10）：先看"根因站自己报了什么"再决定派谁去 */}
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                <span style={{ color: WH.textMuted, whiteSpace: 'nowrap' }}>{t('gis.rca.rootAlarms')}:</span>
+                {(c.root?.alarms || []).map((a, i) => (
+                  <Tag key={i} style={{ margin: 0, borderRadius: 10 }}>{a.alarm_title}</Tag>
+                ))}
+              </div>
+              {/* 证据行：链路 / 时间窗 / 同码 / eFlow 佐证 —— 有哪条显示哪条 */}
+              {ev.link_paths && ev.link_paths.length > 0 && (
+                <div>{t('gis.rca.evidence.linkPath')}: <span style={{ fontFamily: 'monospace' }}>{ev.link_paths.slice(0, 3).join('  ')}</span></div>
+              )}
+              {ev.time_window && (
+                <div>
+                  {t('gis.rca.evidence.timeWindow')}: {fmtTs(new Date(ev.time_window.start_ms))} → {fmtTs(new Date(ev.time_window.end_ms))}
+                  （{ev.time_window.span_min} min）
+                </div>
+              )}
+              {ev.shared_problem && (
+                <div>{t('gis.rca.evidence.sharedProblem')}: {ev.shared_problem}</div>
+              )}
+              {ev.eflow_impact && (
+                <div>
+                  {t('gis.rca.evidence.eflow')}
+                  <Tag color="green" style={{ margin: '0 4px', borderRadius: 10 }}>
+                    impact_site_number = {String(ev.eflow_impact.impact_site_number ?? '—')}
+                  </Tag>
+                </div>
+              )}
+            </div>
+          )
+        })()}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 'var(--wh-space-sm)', marginBottom: '0.75rem' }}>
           <Input
             prefix={<SearchOutlined />}
@@ -2297,15 +3101,117 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
           <div className="wh-table-responsive">
             <Table
               dataSource={filteredDrillRows}
-              columns={drillColumns}
+              columns={drillKind === 'rca' ? rcaDrillColumns : drillColumns}
               size="small"
-              rowKey={(r: any) => `${r.site_id}|${r.servertime}|${r.alarmcode}`}
+              rowKey={(r: any) => (drillKind === 'rca'
+                ? String(r.site_id)
+                : `${r.site_id}|${r.servertime}|${r.alarmcode}`)}
               pagination={{ pageSize: 15, size: 'small', showTotal: (n: number) => t('common.itemsTotal', { n }) }}
               scroll={{ x: 'max-content' }}
-              locale={{ emptyText: t('gis.ossDrillEmpty') }}
+              locale={{ emptyText: drillKind === 'rca_uncovered'
+                ? t('gis.rca.uncoveredEmpty')
+                : t('gis.ossDrillEmpty') }}
             />
           </div>
         )}
+      </DraggableClickModal>
+
+      {/* ===== RCA AI 解读弹窗（2026-10-21）=====
+          第二个 DraggableClickModal：provider/key/model/base_url 配置 + 解读结果。
+          key 与 DataAgentBar 共用 localStorage（同一 provider 只填一次）；
+          provider='local' 走后端本地规则文案，不需要 key。 */}
+      <DraggableClickModal
+        open={rcaAiOpen}
+        anchor={rcaAiAnchor}
+        onClose={() => setRcaAiOpen(false)}
+        title={
+          <span style={{ color: WH.text, display: 'inline-flex', alignItems: 'center', gap: 'var(--wh-space-xs)' }}>
+            <RobotOutlined style={{ color: WH.teal }} />
+            {t('gis.rca.aiTitle')}
+          </span>
+        }
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--wh-space-sm)' }}>
+          <Alert
+            type="info"
+            showIcon
+            message={<span style={{ fontSize: 12 }}>{t('gis.rca.aiHint')}</span>}
+          />
+          <div style={{ display: 'flex', gap: 'var(--wh-space-sm)', flexWrap: 'wrap' }}>
+            <Select
+              size="small"
+              style={{ width: 'min(100%, 10rem)' }}
+              value={rcaAiProvider}
+              onChange={onRcaAiProviderChange}
+              options={[
+                { value: 'deepseek', label: 'DeepSeek' },
+                { value: 'openai', label: 'OpenAI' },
+                { value: 'qianwen', label: 'Qianwen' },
+                { value: 'doubao', label: 'Doubao' },
+                { value: 'glm-coding', label: 'GLM' },
+                { value: 'agnes', label: 'Agnes' },
+                { value: 'local', label: t('gis.rca.aiProviderLocal') },
+              ]}
+            />
+            <Input.Password
+              size="small"
+              style={{ width: 'min(100%, 18.75rem)' }}
+              placeholder={t('gis.rca.aiKey')}
+              value={rcaAiKey}
+              onChange={e => onRcaAiKeyChange(e.target.value)}
+              disabled={rcaAiProvider === 'local'}
+            />
+            <Input
+              size="small"
+              style={{ width: 'min(100%, 12.5rem)' }}
+              placeholder={t('gis.rca.aiModel')}
+              value={rcaAiModel}
+              onChange={e => setRcaAiModel(e.target.value)}
+            />
+            <Input
+              size="small"
+              style={{ width: 'min(100%, 18.75rem)' }}
+              placeholder={t('gis.rca.aiBaseUrl')}
+              value={rcaAiBaseUrl}
+              onChange={e => onRcaAiBaseUrlChange(e.target.value)}
+            />
+          </div>
+          <div>
+            <Button
+              type="primary"
+              size="small"
+              loading={rcaAiLoading}
+              disabled={rcaAiProvider !== 'local' && !rcaAiKey}
+              onClick={runRcaAi}
+            >
+              {t('gis.rca.aiGenerate')}
+            </Button>
+            {/* local 模式 = 后端本地规则文案，不调用外部模型（无需 key） */}
+            {rcaAiProvider === 'local' && (
+              <Tag color="gold" style={{ marginLeft: 'var(--wh-space-sm)', borderRadius: 10 }}>
+                {t('gis.rca.aiLocalTag')}
+              </Tag>
+            )}
+          </div>
+          {rcaAiLoading && <Spin style={{ display: 'block', margin: '0.75rem auto' }} />}
+          {!rcaAiLoading && rcaAiNote && (
+            <Alert
+              type="warning"
+              showIcon
+              message={<span style={{ fontSize: 12 }}>{rcaAiNote}</span>}
+            />
+          )}
+          {!rcaAiLoading && rcaAiText && (
+            <pre style={{
+              whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: 0,
+              fontFamily: 'inherit', fontSize: 13, lineHeight: 1.75, color: WH.text,
+              background: 'var(--wh-subtle-bg)', borderRadius: 'var(--wh-radius-sm)',
+              padding: '0.625rem 0.875rem',
+            }}>
+              {rcaAiText}
+            </pre>
+          )}
+        </div>
       </DraggableClickModal>
     </div>
   )

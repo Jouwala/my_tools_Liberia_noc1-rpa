@@ -4254,6 +4254,124 @@
      结论），所以切页签只动 hidden，不动内容。 */
   var emailLang = null;      /* 报告文件骨架上次渲染时用的语言 */
   var qaLang = null;         /* 知识问答骨架上次渲染时用的语言（2026-10-12 加） */
+  var fbLang = null;         /* 使用反馈骨架上次渲染时用的语言（2026-10-21 加） */
+
+  /* ==================================================================== v3
+     使用反馈面板（2026-10-21 加，用户要求「OSS Portal Login 减少一半高度后，
+     剩下的高度展示 /myapp/?page=feedback 的内容」）
+
+     它是**第三个内嵌 my_app 的面板**，与 Auto Report（email）、Knowledge Q&A（qa）
+     同一套机制，故写法照搬 ensureEmail 那套：
+       ① 未登录不建 iframe（内层会渲染 my_app 自己的登录引导，比空着好看）；
+       ② 主题：my_app 只在启动时读一次 localStorage['myapp-theme']（theme.ts 的
+          detectMode），所以切主题必须「先写键、再重设 src」；
+       ③ 骨架只在「首次 / 切语言 / 被门禁清空」时重建 —— 重建 iframe 等于重下整页。
+
+     ⚠️ 权限：使用反馈**不按目录条目判权限**（canSee）。
+     理由：这条页是 my_app 内置的工单台，任何内网用户都能提交反馈
+     （backend/routers/feedback.py 的 POST 明确「内网开放提交」），
+     目录里那条 custom-issue-feedback 只是入口之一，不是准入条件。
+     若照抄 emailAllowed()，目录里那条条目被删/看不到时整个面板就空了 ——
+     而面板要展示的是**使用反馈功能**，不是目录条目。
+     真正的登录要求由 my_app 侧的 authGate 兜住（会话失效时内层自己出登录引导）。 */
+  function feedbackSrc() {
+    /* ⚠️ embed=1 必须带：2026-10-18 起 my_app 只看 ?embed=1 / ?layout=bare 隐藏外壳
+       （App.tsx readBareModule），不补则 iframe 里会连 Header 与侧栏一起显示。
+       与 mapItems / emailSrc / qaSrc 同一处理。
+       ⚠️ theme 参数**显式给全**（dark / light 都带）：my_app 的 theme.ts 判定链是
+       「URL 参数 → localStorage → 系统偏好」，只给 dark 会让浅色态落回
+       localStorage（可能是旧的 dark）。用 URL 参数还有个好处：它**不写回**
+       localStorage（theme.ts 的注释明确这一点），不会改掉用户的全局偏好。 */
+    return '/myapp/?page=feedback' + langQs() +
+      '&embed=1&theme=' + (state.theme === 'dark' ? 'dark' : 'light');
+  }
+  function feedbackSectionHtml() {
+    return '<div class="p-head"><span class="p-hd"><span class="p-t t-orange">' +
+        esc(t('fb.title')) + '</span></span>' +
+      '<div class="map-tools">' +
+        '<button type="button" class="gb gb--t" data-act="fb-reload" title="' + esc(t('map.reload')) + '">' +
+        '<i class="ph ph-arrow-clockwise" aria-hidden="true"></i><span>' + esc(t('map.reload')) + '</span></button>' +
+        '<a class="gb gb--t" id="fbOpen" href="' + esc(feedbackSrc()) + '" target="_blank" rel="noopener noreferrer"' +
+        ' title="' + esc(t('map.open')) + '"><i class="ph ph-arrow-square-out" aria-hidden="true"></i><span>' +
+        esc(t('map.open')) + '</span></a></div></div>' +
+      '<div class="canvas" id="fbHost">' +
+      '<div class="embed-boot" id="fbBoot"><i class="embed-ring" aria-hidden="true"></i>' +
+      '<span>' + esc(t('map.load')) + '</span></div></div>';
+  }
+  function fbNote(msg) {
+    var host = $('#fbHost'); if (!host) return;
+    var el = $('#fbNote');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'fbNote'; el.className = 'embed-boot';
+      host.appendChild(el);
+    }
+    el.innerHTML = '<i class="ph ph-shield-warning" aria-hidden="true"></i><span>' + esc(msg) + '</span>';
+    var boot = $('#fbBoot'); if (boot) boot.hidden = true;
+  }
+  /* ⚠️ 2026-10-21 修「已登录却显示 Sign in to view the user feedback」：
+     fbNote 只负责**贴**提示，收提示必须有对称的 clear，否则提示一旦贴上就永久留在
+     #fbHost 里。这不是理论上才会遇上：boot() 里 render() 是**同步**跑的，而
+     probe()（探 /api/auth/me、/uniplam/api/auth/me）是异步 fetch —— render() 执行时
+     state.authOk 还是初始的 false，于是先走一次 fbNote；等 probe 回来 authOk 变 true、
+     start() → renderCatalog() → renderFeedbackSection() 时，骨架因「fbLang 未变且
+     #fbHost 已存在」而**不重建**，只剩 ensureFeedback() 建 iframe —— 那句提示没人摘。
+     而 .embed-boot 是 position:absolute; inset:0; z-index:3，正好整块盖在 iframe 上，
+     于是登录了也照样看见「请登录」。
+     ensureEmail() 里有同一个 clearEmailNote()（4428 行），本块是照搬它时漏掉的。 */
+  function clearFbNote() {
+    var el = $('#fbNote');
+    if (el && el.parentNode) el.parentNode.removeChild(el);
+  }
+  function syncFbBoot() {
+    var boot = $('#fbBoot'); if (!boot) return;
+    var f = $('#fbFrame');
+    boot.hidden = !!(f && f.getAttribute('src') && f.dataset.loaded === '1');
+  }
+  function ensureFeedback() {
+    var host = $('#fbHost'); if (!host) return;
+    if (!state.authOk) { fbNote(t('fb.needLogin')); return; }
+    /* 已登录（或会话恢复成功）必须把上一次贴在 #fbHost 里的提示摘掉，否则它会盖住
+       iframe —— 与 ensureEmail() 里 clearEmailNote() 的位置对齐（登录判定之后、
+       建 iframe 之前）。详见 clearFbNote 上方的说明。 */
+    clearFbNote();
+
+    var f = $('#fbFrame');
+    if (!f) {
+      f = document.createElement('iframe');
+      f.id = 'fbFrame';
+      f.setAttribute('title', t('fb.title'));
+      f.addEventListener('load', function () {
+        if (!f.getAttribute('src')) return;
+        f.dataset.loaded = '1';
+        syncFbBoot();
+      });
+      host.appendChild(f);
+    }
+    var want = state.theme === 'dark' ? 'dark' : 'light';
+    var wantLang = langVal();
+    if (!f.getAttribute('src') || f.dataset.theme !== want || f.dataset.lang !== wantLang) {
+      /* ⚠️ 这里**不**写 localStorage['myapp-theme']（与 ensureEmail 不同）：
+         主题改由 URL 参数 ?theme= 传给 my_app（theme.ts 的判定链里 URL 参数最前，
+         且明确不写回 localStorage）。写 localStorage 会改掉用户的**全局**偏好 ——
+         一次在门户里切主题就把直开 /myapp/ 的外观也改了，这正是 theme.ts 注释里
+         要避免的跨应用副作用。 */
+      f.dataset.theme = want;
+      f.dataset.lang = wantLang;
+      delete f.dataset.loaded;
+      f.setAttribute('src', feedbackSrc());
+    }
+    var open = $('#fbOpen'); if (open) open.href = feedbackSrc();
+    syncFbBoot();
+  }
+  function renderFeedbackSection() {
+    var el = $('#fbSlot'); if (!el) return;
+    if (fbLang !== state.lang || !el.querySelector('#fbHost')) {
+      el.innerHTML = feedbackSectionHtml();
+      fbLang = state.lang;
+    }
+    ensureFeedback();
+  }
 
   /* 这条看板在**服务端全局目录里没有**（实测：服务端 49 条、内置 51 条，缺的 17 条里
      就有 no=41 Task Report Files —— MsPortal 那张卡同样读不到，才要靠它自己的兜底文案）。
@@ -4771,7 +4889,7 @@
     box.innerHTML = html;
   }
 
-  function render() { renderBand(); renderKpi(); renderViews6(); renderL0(); renderEsc(); renderEmailSection(); renderQaSection(); renderOssSection(); renderAux(); renderArchive(); applyI18n(); }
+  function render() { renderBand(); renderKpi(); renderViews6(); renderL0(); renderEsc(); renderEmailSection(); renderQaSection(); renderOssSection(); renderFeedbackSection(); renderAux(); renderArchive(); applyI18n(); }
 
   /* 目录保存后的重绘：只画「看得懂目录改动」的那几块，且**不重新加载地图**。
      ⚠️ 不能图省事调 render()：MsPortal 当年就是这么把 4 个地图 iframe 全重建了一遍，
@@ -4783,7 +4901,7 @@
      v1：原先这里还调 renderViews()（L1 页签面板），面板已去掉，改成
      renderEmailSection() —— 报告文件挂在目录条目上（emailItem 查 url 里的 page=），
      所以目录一改它也要跟着重判一次权限与文案。 */
-  function renderCatalog() { renderViews6(); renderL0(true); renderEmailSection(); renderQaSection(); renderOssSection(); renderAux(); renderArchive(); }
+  function renderCatalog() { renderViews6(); renderL0(true); renderEmailSection(); renderQaSection(); renderOssSection(); renderFeedbackSection(); renderAux(); renderArchive(); }
 
   /* --------------------------------------------------------------- auth -- */
   /* 与 MsPortal 共用 PORTAL_TOKEN_KEY：新页面登录不会把 MsPortal 顶掉（同一份会话），
@@ -4834,8 +4952,47 @@
     var n = u && (u.username || u.id || u.name);
     var role = u && u.role === 'admin' ? t('um.roleAdmin') : t('um.roleViewer');
     if (menu) menu.hidden = !state.authOk;
+    /* 2026-10-20 改版：「触发器只剩头像、详细信息全部进面板」
+       · #whoBadge 现在是面板里的大字号用户名，沿用原写入点；触发器端不再有用户名节点。
+       · #userMenuAccount 是面板里的「账号ID」副行，**默认隐藏**：
+         当前后端 (/api/auth/me、/uniplam/api/auth/me) 在用户名字段之外**没有**返回另一个可读字段
+         （my_app 的占位身份只有 {username:'local'}，门户会话有 id 但与 username 重复），
+         所以这一行目前没有可显示的内容。先写好结构，等将来真有 u.displayName /
+         u.fullName / u.realName 等字段时再启用同一段写入即可，**不必**改 HTML。
+         现在硬显示只会让面板里多一行"local / local"这种重复文案。 */
     if (b) { b.textContent = n || ''; }
-    var acct = $('#userMenuAccount'); if (acct) acct.textContent = n || '';
+    var acct = $('#userMenuAccount'); if (acct) { acct.textContent = n || ''; acct.classList.add('is-dup'); }
+    /* 触发器与面板头像的首字母 + 色档：根据 n 哈希到 0..5 的 [data-tint]。
+       取不到 n（未登录）时给空串，等登录后再由 renderWho 自身补一次；
+       这里刻意**不**渲染在线登录前看见的占位首字母 —
+         触发器的容器 #userMenu 在登录前是 hidden（上面那行 hidden = !authOk），
+         面板里的 #userMenuPanel 也隐藏，整个头像区域对用户完全不可见，
+         因此这个空态不需要占位符。 */
+    var letter = n ? (function () {
+      /* 首字母优先级：username 的第一个有意义字符；中文用首字，英文/数字用首字符。
+         trim 一下避免 u.username = ' alice' 时显示成空。 */
+      var s = String(n).trim();
+      return s ? s.charAt(0).toUpperCase() : '';
+    })() : '';
+    /* 哈希：toLocaleLowerCase 后逐字 charCode 求和再取模 —
+       同一用户每次都落到同一色档；不要太在意分布均匀，重要的是"稳"。 */
+    function tintOf(name) {
+      var s = String(name || '').toLowerCase();
+      var h = 0;
+      for (var i = 0; i < s.length; i++) h = (h + s.charCodeAt(i) * 31) & 0xffff;
+      return h % 6;
+    }
+    var tint = n ? String(tintOf(n)) : '';
+    var tri = $('#userMenuTriggerAvatar');
+    if (tri) {
+      tri.textContent = letter;
+      if (tint) tri.setAttribute('data-tint', tint); else tri.removeAttribute('data-tint');
+    }
+    var big = $('#userMenuAvatar');
+    if (big) {
+      big.textContent = letter;
+      if (tint) big.setAttribute('data-tint', tint); else big.removeAttribute('data-tint');
+    }
     var roleEl = $('#userMenuRole'); if (roleEl) { roleEl.hidden = !n; roleEl.textContent = n ? role : ''; }
     if (o) o.hidden = !state.authOk;
     /* 用户管理入口对管理员**一律可见**（2026-09-25 改）。
@@ -4918,9 +5075,12 @@
      ⚠️ v1 修：这份清单原来只列了原版的五块，v1 新增的 #kpi / #views6 / #l0Map
      没被加进来 —— 后果是没登录时这三块**照样显示**在登录框下面（数字还是空的
      「—」，但边框、标题、六张入口卡都在），比整块留白更像坏了。
-     现在按 main 里的实际区块补全；#emailSlot 是内嵌 iframe，同样必须一起藏。 */
+     现在按 main 里的实际区块补全；#emailSlot 是内嵌 iframe，同样必须一起藏。
+     ⚠️ 2026-10-21：补 #fbSlot（使用反馈面板，2026-10-21 新加的那块）。加面板时漏了
+     这一行，未登录时它是唯一不被藏的区块 —— 与本注释开头记的那次 v1 遗漏同源，
+     以后每新增一块 main 里的区块都要回来看一眼这个数组。 */
   function mainLocked(on) {
-    ['#band', '#kpi', '#views6', '#l0Map', '#emailSlot', '#qaSlot', '#ossSlot', '#esc', '#aux']
+    ['#band', '#kpi', '#views6', '#l0Map', '#emailSlot', '#qaSlot', '#ossSlot', '#fbSlot', '#esc', '#aux']
       .forEach(function (s) { var e = $(s); if (e) e.hidden = on; });
   }
   function login(u, p) {
@@ -6975,6 +7135,8 @@
        只能靠 ensureEmail 里的「上次主题 ≠ 本次」判据重设 src。
        v1：报告文件常驻（不再是"切到那个页签才渲染"），所以这里无条件调一次。 */
     renderEmailSection();
+    /* 使用反馈面板同理（2026-10-21 加）：同样是内嵌 my_app、切主题必须重设 src。 */
+    renderFeedbackSection();
   }
   function setLang(v) { state.lang = v; ss('olbr.lang', v); render(); }
   function toast(msg) {
@@ -7187,6 +7349,14 @@
         var ef = $('#emailFrame');
         if (ef && ef.getAttribute('src')) { delete ef.dataset.loaded; syncEmailBoot(); ef.src = emailSrc(); }
         else renderEmailSection();
+      }
+    });
+    /* 使用反馈面板的「刷新」（2026-10-21 加）：与 email-reload 完全同一套做法。 */
+    $('#fbSlot').addEventListener('click', function (e) {
+      if (e.target.closest('[data-act="fb-reload"]')) {
+        var ff = $('#fbFrame');
+        if (ff && ff.getAttribute('src')) { delete ff.dataset.loaded; syncFbBoot(); ff.src = feedbackSrc(); }
+        else renderFeedbackSection();
       }
     });
     /* v2（2026-10-12）：知识问答栏的页签切换（RAG / eFlow）。

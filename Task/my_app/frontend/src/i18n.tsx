@@ -2622,6 +2622,10 @@ const translations: Record<Locale, Record<string, string>> = {
     'gis.regionFilter': '区域筛选：',
     'gis.allRegions': '全部区域',
     'gis.totalSites': '站点总数',
+    /* 「地图显示」Tag（2026-10-21）：有筛选时出现在工具栏右侧，
+       说的是「地图上画出来的站点数 / 筛选范围内站点数」，
+       与左边的「站点总数」（筛选范围内）刻意区分开，避免两个同名数字对不上。 */
+    'gis.onMap': '地图显示',
     'gis.legend.tt': 'TT工单',
     'gis.legend.wo': 'WO工单',
     'gis.legend.vip': 'VIP站点',
@@ -2753,7 +2757,7 @@ const translations: Record<Locale, Record<string, string>> = {
     /* 地图图例浮层（2026-09-28）：图例已从控制卡片迁到地图右侧竖排，故需要分组标题 */
     'gis.legendTitle': '图例',
     'gis.utilLegendTitle': 'MW 链路利用率',
-    'gis.legendNote': '「实时告警」组 = 地图上被画成该颜色的站点数，与地图圆点严格对应；「关联工单」「站点等级」组 = 具备该属性的站点数，按独立条件统计。站点只有一个颜色（优先级：超时告警 > WO > TT > 未超时告警 > VIP），所以工单网点也可能被画成超时红色，两组会重叠、不能简单相加。',
+    'gis.legendNote': '告警状态组（实时告警 / 历史告警 / 超时 / 未超时）= 地图上被画成该颜色的站点数，与地图圆点严格对应；「关联工单」组 = 带 TT / WO 工单的站点数，按独立条件统计；「站点等级」组 = 按站点属性划分（VIP 站 / 非 VIP 站，两者之和 = 站点总数），与地图圆点颜色不是一一对应。三组之间会重叠，数字不能简单相加。',
     'gis.legendGroup.alarm': '实时告警',
     'gis.legendGroup.status': '站点状态',
     'gis.legendGroup.ticket': '关联工单',
@@ -2841,13 +2845,17 @@ const translations: Record<Locale, Record<string, string>> = {
     'person.kpiSitesHint': '点击地图上的人员查看其站点',
     // 地图
     'person.mapTitle': '人员与站点分布',
-    'person.mapHint': '点击人员选中并查看其站点；点击地图空白处取消',
+    'person.mapHint': '点击人员查看其负责站点：绿=当前无未关闭 WO，浅蓝=有未关闭 WO，红=有实时告警；点击地图空白处取消',
     'person.clearSelection': '取消选中',
     'person.badgeLabel': '未清除',
-    'person.badgeHint': '{name}（{phone}）· 未关闭 WO {open} 单 · 负责站点 {sites} 个 · 未清除告警 {uncleared} 单',
-    // 徽标第二行的缩写后缀（紧跟数字，不空格）：如「3 单」「16 站」
+    'person.badgeHint': '{name}（{phone}）· 负责站点 {sites} 个 · 未关闭 WO {open} 单 · 未关闭 PMT {pmt} 张 · 未清除告警 {uncleared} 单',
+    // 徽标第二行的缩写后缀（紧跟数字）：如「16 站」「3 单」「298 PMT」
     'person.badgeOpenShort': ' 单',
     'person.badgeSitesShort': ' 站',
+    'person.badgePmtShort': ' PMT',
+    // 地图 ⓘ 说明里的 PMT 口径段（2026-10-21 加 PMT 时用户确认：不跟随 30 天窗口、
+    // 组池单不计个人但要说明）。理由见 backend/routers/personnel.py::_pmt_open_index
+    'person.pmtCaliberNote': '未关闭 PMT 数按「此刻仍未关闭」统计，不跟随本页的 30 天窗口（库里已关闭的 PMT 不留处理人，历史归属算不出来）。另有 {groupPool} 张未关闭 PMT 只挂在组池（如 G:ZTE_FE_MG）上、不计入任何个人，所以各人徽标相加会小于全量 {openTotal} 张。',
     // 地图搜索框（2026-10-19）
     'person.searchPlaceholder2': '搜索人员或站点…',
     'person.searchPersonSub': '未关闭 {open} · 站点 {sites}',
@@ -2885,6 +2893,27 @@ const translations: Record<Locale, Record<string, string>> = {
     'person.colAlarmClear': '告警清除时间',
     'person.colTitle': '标题',
     'person.noWo': '该人员在此窗口内没有未关闭工单',
+    /* 人员下钻抽屉（2026-10-21 用户要求）：点人员 → 左侧滑出，站点 / WO / PMT 三页签。
+       参考实现是 ?page=realtime_alarm 的站点下钻抽屉（SiteDrilldownDrawer）。 */
+    'person.drillTitle': '{name} 的明细',
+    'person.tabSites': '站点',
+    'person.tabWo': '未关闭 WO',
+    'person.tabPmt': '未关闭 PMT',
+    'person.colAlarm': '实时告警',
+    'person.colPmtNo': 'PMT 单号',
+    'person.colOverdue': '是否逾期',
+    'person.colOverdueShort': '逾期',
+    'person.colTaskWindow': '任务窗口（起 ~ 止）',
+    'person.colProgress': '条目进度',
+    'person.colTemplate': '维护模板',
+    'person.pmtUnavailable': '后端取不到 eflow_pm 表，PMT 页签暂无数据（徽标那侧同样显示 —）。',
+    'person.pmtTruncated': '未关闭 PMT 行数超过取样上限，列表已截断 —— 页签上的数字会小于徽标。',
+    /* 选中人但负责站点为 0 的空态（2026-10-21）。24 个有坐标的人里 6 人如此：
+       3 个是 supervisor（大区主管，全国 824 站三三分），3 个不在站点主数据人员列里。
+       不说清楚就会被当成「连线/站点没画出来」的 bug 来报。 */
+    'person.noFmeSites': '该人员未在任何站点登记为 FME，因此没有负责站点可显示。',
+    'person.noFmeSitesSupervisor': '他是以 supervisor 身份登记（覆盖 {n} 个站）—— supervisor 是把全国站点按大区三三分，不等于单站负责，故不画进地图。',
+    'person.noFmeSitesNone': '站点主数据的人员列里没有他；其名下的工单仍见「未关闭 WO」页签。',
 
     'gis.timeFilter': '时间窗口：',
     'gis.timeAll': '全部时间',
@@ -3072,6 +3101,49 @@ const translations: Record<Locale, Record<string, string>> = {
     'gis.alarmSug.noSugDetail': 'UME 未返回该告警的处理建议',
     'gis.alarmSug.unknownAlarm': '未识别告警',
 
+    // ===== 根因聚合分析（RCA，2026-10-21 新增）=====
+    // 实时告警地图：对当前筛选范围内的断站做拓扑/同因聚类，回答「这批断站哪些是同一个原因」。
+    // 簇类型/根因类型标签用显式 switch 映射（GISMap 的 rcaKindLabelKey/rcaCauseLabelKey），
+    // 键名必须逐字对应，动态拼接会被 check:i18n 拦截。
+    'gis.rca.title': '根因聚合分析',
+    'gis.rca.titleHint': '已归因 {covered}/{total} 个告警站（归入 {n} 个共享根因簇）；其余为孤立故障（无共同原因的同伴），点击下方脚注可查看清单。标题括号与 Site Stats 同为**站数**单位。',
+    'gis.rca.uncoveredTitle': '未归因告警明细（孤立故障）',
+    'gis.rca.uncoveredTag': '不属于任何共享根因簇',
+    'gis.rca.uncoveredEmpty': '当前范围内没有未归因的告警站',
+    'gis.rca.kind.topology': '拓扑根因',
+    'gis.rca.kind.same_cause': '同因聚集',
+    'gis.rca.cause.transmission': '传输中断',
+    'gis.rca.cause.fiber': '光缆中断',
+    'gis.rca.cause.power': '电源断电',
+    'gis.rca.cause.site_outage': '断站',
+    'gis.rca.cause.other': '其它',
+    'gis.rca.memberCount': '{n} 站受影响',
+    'gis.rca.outOfScope': '范围外',
+    'gis.rca.outOfScopeHint': '根因站不在当前高级筛选范围内（它是范围外站点的上游）。根因分析的价值恰在视野之外，故完整展示并标注。',
+    'gis.rca.metaLine': '已归因 {covered}/{total} 站，未归因 {uncovered} 站 —— 点击查看未归因告警明细',
+    'gis.rca.metaDetail': '告警 {rows} 条 / 告警站 {sites} 个；有链路 {link} 站、卫星等无链路 {sat} 站；孤儿告警行 {orphan} 条；eFlow 影响面未匹配 {unmatched} 条',
+    'gis.rca.fetchFailed': '根因聚合分析获取失败',
+    'gis.rca.drillHint': '查看「{name}」根因簇的影响站点明细',
+    'gis.rca.drillTitle': '根因簇：{name}',
+    'gis.rca.rootAlarms': '根因站告警',
+    'gis.rca.colAlarmCount': '告警数',
+    'gis.rca.colLinkPath': '传输链路',
+    'gis.rca.noPath': '无链路（卫星等）',
+    'gis.rca.evidence.linkPath': '链路路径',
+    'gis.rca.evidence.timeWindow': '成员首警时间窗',
+    'gis.rca.evidence.sharedProblem': '共同告警问题',
+    'gis.rca.evidence.eflow': 'eFlow 已标注该告警的影响面：',
+    'gis.rca.exportCause': '疑似根因：{cause}',
+    'gis.rca.aiButton': 'AI 解读',
+    'gis.rca.aiTitle': '根因聚合 AI 解读',
+    'gis.rca.aiHint': '解读基于当前筛选范围内的确定性聚类结果；AI 不可用时自动降级为本地规则结论（会明确标注）。API Key 仅保存在本机浏览器，只随请求发送。',
+    'gis.rca.aiProviderLocal': '本地规则（无需 Key）',
+    'gis.rca.aiKey': 'API Key（存本机）',
+    'gis.rca.aiModel': '模型名（可选，默认用官方）',
+    'gis.rca.aiBaseUrl': '自建 base_url（可选，OpenAI 兼容）',
+    'gis.rca.aiGenerate': '生成解读',
+    'gis.rca.aiLocalTag': '本地规则模式',
+
     // 数据源时间信息
     'datasource.lastSync': '数据同步时间（UTC）',
     'datasource.latestData': '数据最新时间（UTC）',
@@ -3175,6 +3247,8 @@ const translations: Record<Locale, Record<string, string>> = {
     'settings.test': '测试连接',
     'settings.testOk': '连接测试成功',
     'settings.testFail': '连接测试失败',
+    'settings.testTarget': '测试目标',
+    'settings.testWeixinWarn': '微信推送平台没有「只验 Token 不发消息」的接口，点击测试会真的推送一条消息',
     'settings.current': '当前',
     'settings.secretPlaceholder': '输入新密码，留空保持不变',
     'settings.sourceDb': '数据库',
@@ -6835,6 +6909,8 @@ const translations: Record<Locale, Record<string, string>> = {
     'gis.regionFilter': 'Region filter:',
     'gis.allRegions': 'All Regions',
     'gis.totalSites': 'Total Sites',
+    /* 「地图显示」Tag（2026-10-21）：见 zh 侧注释 */
+    'gis.onMap': 'On Map',
     'gis.exportSuccess': 'Export succeeded',
     'gis.legend.tt': 'TT',
     'gis.legend.wo': 'WO',
@@ -6960,7 +7036,7 @@ const translations: Record<Locale, Record<string, string>> = {
     /* Map legend overlay (2026-09-28): legend moved out of the control card onto the map */
     'gis.legendTitle': 'Legend',
     'gis.utilLegendTitle': 'MW Link Utilization',
-    'gis.legendNote': '"Realtime Alarm" = sites painted with that colour and match the map dots exactly. "Related Tickets" / "Site Class" = sites having that attribute, counted independently. A site has only one colour (priority: Overdue > WO > TT > On Time > VIP), so a site with tickets may be painted overdue red; the groups overlap and do not simply add up.',
+    'gis.legendNote': 'Alarm status group (Realtime / History / Overdue / On Time) = sites painted with that colour and match the map dots exactly. "Related Tickets" = sites carrying a TT / WO ticket, counted independently. "Site Class" = split by site attribute (VIP vs non-VIP; the two add up to the site total) and is not a one-to-one match with the dot colours. The three groups overlap, so their numbers do not simply add up.',
     'gis.legendGroup.alarm': 'Realtime Alarm',
     'gis.legendGroup.status': 'Site Status',
     'gis.legendGroup.ticket': 'Related Tickets',
@@ -7038,13 +7114,15 @@ const translations: Record<Locale, Record<string, string>> = {
     'person.kpiSitesSub': '{alarm} with an active alarm',
     'person.kpiSitesHint': 'Click a person on the map to see their sites',
     'person.mapTitle': 'Personnel and site distribution',
-    'person.mapHint': 'Click a person to select and see their sites; click empty map to clear',
+    'person.mapHint': 'Click a person to see their sites: green = no open WO, light blue = open WO, red = live alarm. Click empty map to clear.',
     'person.clearSelection': 'Clear selection',
     'person.badgeLabel': 'Uncleared',
-    'person.badgeHint': '{name} ({phone}) · {open} open WO · {sites} sites · {uncleared} uncleared alarms',
-    // 徽标第二行的缩写后缀（紧跟数字，不空格）：如「3 WOs」「16 sites」
+    'person.badgeHint': '{name} ({phone}) · {sites} sites · {open} open WO · {pmt} open PMT · {uncleared} uncleared alarms',
+    // 徽标第二行的缩写后缀（紧跟数字）：如「16 sites」「3 WOs」「298 PMT」
     'person.badgeOpenShort': ' WO',
     'person.badgeSitesShort': ' st',
+    'person.badgePmtShort': ' PMT',
+    'person.pmtCaliberNote': 'The open-PMT count means "still open right now" and does not follow this page\'s 30-day window (closed PMTs keep no handler in the database, so historical attribution is impossible). A further {groupPool} open PMTs sit only in group pools (e.g. G:ZTE_FE_MG) and count toward nobody, so the per-person badges add up to less than the {openTotal} total.',
     // Map search box (2026-10-19)
     'person.searchPlaceholder2': 'Search person or site…',
     'person.searchPersonSub': '{open} open · {sites} sites',
@@ -7079,6 +7157,24 @@ const translations: Record<Locale, Record<string, string>> = {
     'person.colAlarmClear': 'Alarm cleared',
     'person.colTitle': 'Title',
     'person.noWo': 'No unclosed work orders for this person in this window',
+    // 人员下钻抽屉（2026-10-21），与 zh 侧一一对应
+    'person.drillTitle': 'Details for {name}',
+    'person.tabSites': 'Sites',
+    'person.tabWo': 'Open WO',
+    'person.tabPmt': 'Open PMT',
+    'person.colAlarm': 'Live alarm',
+    'person.colPmtNo': 'PMT No.',
+    'person.colOverdue': 'Overdue',
+    'person.colOverdueShort': 'overdue',
+    'person.colTaskWindow': 'Task window (start ~ end)',
+    'person.colProgress': 'Items',
+    'person.colTemplate': 'Template',
+    'person.pmtUnavailable': 'The backend cannot read the eflow_pm table, so this tab has no data (the badge shows — as well).',
+    'person.pmtTruncated': 'The open-PMT rows exceed the sampling limit and the list is truncated — this tab shows fewer than the badge.',
+    // Empty state when a selected person owns no site (2026-10-21): 3 are supervisors, 3 absent from the site master
+    'person.noFmeSites': 'This person is not registered as the FME of any site, so there are no sites to show.',
+    'person.noFmeSitesSupervisor': 'He is registered as a supervisor (covering {n} sites) — supervisors split the whole country by region, which is not per-site ownership, so they are not drawn on the map.',
+    'person.noFmeSitesNone': 'He does not appear in the site master\'s people columns; his work orders are still in the Open WO tab.',
 
     'gis.timeFilter': 'Time window:',
     'gis.timeAll': 'All Time',
@@ -7251,6 +7347,49 @@ const translations: Record<Locale, Record<string, string>> = {
     'gis.alarmSug.noSugDetail': 'UME did not return a suggestion for this alarm',
     'gis.alarmSug.unknownAlarm': 'Unknown alarm',
 
+    // ===== Root Cause Aggregation (RCA, 2026-10-21) =====
+    // Realtime alarm map: cluster currently-filtered down sites by topology/same-cause.
+    // Kind/cause labels are mapped via explicit switch (rcaKindLabelKey/rcaCauseLabelKey
+    // in GISMap.tsx); key names must match literally — dynamic concat is rejected by check:i18n.
+    'gis.rca.title': 'Root Cause Aggregation',
+    'gis.rca.titleHint': '{covered}/{total} alarmed sites attributed (into {n} shared-cause clusters); the rest are isolated failures (no common-cause peers) — click the footnote below for the list. The title counter uses the same **site** unit as Site Stats.',
+    'gis.rca.uncoveredTitle': 'Unattributed alarms (isolated failures)',
+    'gis.rca.uncoveredTag': 'Not in any shared-cause cluster',
+    'gis.rca.uncoveredEmpty': 'No unattributed alarmed sites in the current scope',
+    'gis.rca.kind.topology': 'Topology root',
+    'gis.rca.kind.same_cause': 'Same cause',
+    'gis.rca.cause.transmission': 'Transmission',
+    'gis.rca.cause.fiber': 'Fiber break',
+    'gis.rca.cause.power': 'Power off',
+    'gis.rca.cause.site_outage': 'Site outage',
+    'gis.rca.cause.other': 'Other',
+    'gis.rca.memberCount': '{n} site(s) affected',
+    'gis.rca.outOfScope': 'Out of scope',
+    'gis.rca.outOfScopeHint': 'The root site is outside the current advanced-filter scope (it is upstream of in-scope sites). Root causes often sit outside your current view — shown in full and flagged.',
+    'gis.rca.metaLine': '{covered}/{total} sites attributed, {uncovered} unattributed — click to view unattributed alarm details',
+    'gis.rca.metaDetail': '{rows} alarms / {sites} alarmed sites; {link} with link path, {sat} without (satellite etc.); {orphan} orphan alarm rows; {unmatched} eFlow impact rows unmatched',
+    'gis.rca.fetchFailed': 'Failed to load root cause aggregation',
+    'gis.rca.drillHint': 'View impacted sites of root cause cluster "{name}"',
+    'gis.rca.drillTitle': 'Root cause cluster: {name}',
+    'gis.rca.rootAlarms': 'Root site alarms',
+    'gis.rca.colAlarmCount': 'Alarms',
+    'gis.rca.colLinkPath': 'Link path',
+    'gis.rca.noPath': 'No path (satellite etc.)',
+    'gis.rca.evidence.linkPath': 'Link paths',
+    'gis.rca.evidence.timeWindow': 'Member first-alarm window',
+    'gis.rca.evidence.sharedProblem': 'Shared alarm problem',
+    'gis.rca.evidence.eflow': 'eFlow marked impact for this alarm:',
+    'gis.rca.exportCause': 'Suspected cause: {cause}',
+    'gis.rca.aiButton': 'AI Insights',
+    'gis.rca.aiTitle': 'Root Cause AI Insights',
+    'gis.rca.aiHint': 'Insights are based on the deterministic clustering of the current filter scope; degrades to local rule-based summary when AI is unavailable (clearly marked). API key is stored only in your browser and sent with the request only.',
+    'gis.rca.aiProviderLocal': 'Local rules (no key)',
+    'gis.rca.aiKey': 'API Key (stored locally)',
+    'gis.rca.aiModel': 'Model (optional, provider default)',
+    'gis.rca.aiBaseUrl': 'Custom base_url (optional, OpenAI-compatible)',
+    'gis.rca.aiGenerate': 'Generate insights',
+    'gis.rca.aiLocalTag': 'Local rules mode',
+
     // 数据源时间信息
     'datasource.lastSync': 'Data Sync Time (UTC)',
     'datasource.latestData': 'Latest Data Time (UTC)',
@@ -7354,6 +7493,8 @@ const translations: Record<Locale, Record<string, string>> = {
     'settings.test': 'Test Connection',
     'settings.testOk': 'Connection test passed',
     'settings.testFail': 'Connection test failed',
+    'settings.testTarget': 'Test target',
+    'settings.testWeixinWarn': 'WeChat push has no "validate token without sending" endpoint — testing will actually send one message',
     'settings.current': 'current',
     'settings.secretPlaceholder': 'Enter new secret, leave blank to keep unchanged',
     'settings.sourceDb': 'Database',

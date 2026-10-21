@@ -548,63 +548,69 @@ html.dark body > header.mp-mast .icon-btn .ic-moon { display: none; }
 /* 站点入口（图钉）：图钉单独给金色，其余按幽灵按钮 */
 .mp-pin .mp-pin-ico { color: var(--mp-pin); }
 
-/* 用户菜单：默认只在顶栏占一个紧凑触发器，管理操作展开后再显示。 */
+/* 用户菜单：默认只在顶栏占一个紧凑触发器（= 一颗头像首字母），详细信息全部挪进面板。
+   2026-10-20（用户要求「右边直接一个头像就行了，下拉都又详细信息的」）：
+     触发器只显示 .mp-user-trigger-avatar（首字母圆），用户名 / 角色 / 编辑态徽章
+     全部搬进 #userMenuPanel 头部 .mp-user-id-* 那一组里；
+     .mp-user-caret 收回（不再露出向下箭头）：
+       · 顶栏已经够密，再加箭头会让头像按钮"两侧各有两个小东西"，观感乱；
+       · 用户习惯头像 = 下拉（Slack/Notion/钉钉皆如此），箭头是冗余信号。
+     保留 .mp-user-menu.is-open .mp-user-caret 这条规则 ——
+     节点虽不在 DOM 里了，规则放着不消耗样式，删掉反而是平白的一处 diff。 */
 .mp-user-menu { position: relative; flex: 0 0 auto; }
+
+/* 触发器：正方形头像按钮。
+   尺寸与顶栏右侧那排 .icon-btn（2.25rem / 36px）齐平；
+   头像圆用首字母，颜色按用户名哈希到一组 6 档品牌色中的某一档（色板见 .mp-user-avatar）。 */
 .mp-user-trigger {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  min-width: 0;
+  justify-content: center;
+  width: 2.25rem;
   height: 2.25rem;
-  max-width: 15rem;
-  padding: 0 10px;
+  padding: 0;
   border: 1px solid var(--mp-line);
-  border-radius: 10px;
+  border-radius: 50%;
   background: var(--mp-fill);
-  color: #d7e0ea;
+  color: var(--mp-ink);
   font-size: .8125rem;
-  font-weight: 600;
+  font-weight: 700;
   line-height: 1;
   cursor: pointer;
-  transition: background .15s ease, border-color .15s ease, color .15s ease;
+  transition: background .15s ease, border-color .15s ease, color .15s ease, transform .15s ease;
 }
+/* 悬浮 / 聚焦：边框变亮 + 轻微抬升，便于发现"这是一颗按钮"。 */
 .mp-user-trigger:hover,
 .mp-user-trigger:focus-visible {
   background: var(--mp-fill-hi);
   border-color: var(--mp-line-hi);
-  color: #fff;
   outline: none;
 }
-.mp-user-trigger > .ph-user-circle { flex: 0 0 auto; font-size: 17px; }
-.mp-user-name {
-  max-width: 8rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  /* 同 .mp-clock：补齐 Cascadia Mono + 中文字体回退，与 --mono 对齐（见该处说明）。
-     用户名可能是中文，缺中文回退会落到 Courier New，观感与时钟不一致。 */
-  font-family: ui-monospace, SFMono-Regular, "Cascadia Mono", Menlo, Consolas,
-    "Microsoft YaHei", monospace;
+/* 头像本身：徽标圆，色档由 olbr.js 根据用户名哈希后写到 --mp-avatar-color 上。
+   默认走中性档（蓝灰），用户名解析失败 / 未登录也至少有颗不闪的中性圆。 */
+.mp-user-trigger-avatar {
+  width: 1.65rem;
+  height: 1.65rem;
+  border-radius: 50%;
+  background: var(--mp-avatar-color, #4a90d9);
+  color: #fff;
   font-size: .75rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-transform: uppercase;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .18);
+  user-select: none;
 }
-.mp-user-role {
-  padding: 3px 6px;
-  border: 1px solid rgba(125, 211, 252, .30);
-  border-radius: 999px;
-  color: #cfe6ff;
-  font-size: .65rem;
-  white-space: nowrap;
+.mp-user-trigger-avatar:empty::before {
+  /* 名字未读出时的兜底占位：白色短横，避免按钮里突然空了一块 */
+  content: "·";
+  font-size: 1.1rem;
+  line-height: 1;
+  margin-top: -.2em;
 }
-.mp-user-editing {
-  padding: 3px 6px;
-  border-radius: 999px;
-  background: rgba(255, 210, 74, .18);
-  color: var(--mp-pin);
-  font-size: .65rem;
-  white-space: nowrap;
-}
-.mp-user-caret { flex: 0 0 auto; font-size: 13px; transition: transform .15s ease; }
-.mp-user-menu.is-open .mp-user-caret { transform: rotate(180deg); }
 .mp-user-panel {
   position: absolute;
   top: calc(100% + 8px);
@@ -613,24 +619,119 @@ html.dark body > header.mp-mast .icon-btn .ic-moon { display: none; }
   display: flex;
   flex-direction: column;
   gap: 5px;
-  width: 14rem;
+  width: 15rem;
   padding: 8px;
   border: 1px solid rgba(125, 211, 252, .22);
   border-radius: 12px;
   background: rgba(4, 20, 48, .98);
   box-shadow: 0 14px 34px rgba(0, 0, 0, .35);
 }
+
+/* 面板头部 = 账户卡片（2026-10-20 改版）：
+     左侧大头像（首字母圆 + 品牌色），右侧上中下堆叠：
+       上  · 用户名（粗体大字）
+       中  · 账号ID（小字次级色；与用户名重复时可隐藏）
+       下  · 角色徽章 + 编辑态徽章（一行）
+   头像色档由 olbr.js 写到 --mp-avatar-color，与触发器同源。 */
 .mp-user-panel-head {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 12px;
   min-width: 0;
-  padding: 6px 8px 8px;
+  padding: 10px 10px 12px;
   color: #d7e0ea;
   font-size: .75rem;
   font-weight: 700;
+  border-bottom: 1px solid rgba(125, 211, 252, .18);
+  margin-bottom: 4px;
 }
-.mp-user-panel-head .ph { color: #8fd4ff; font-size: 16px; }
+.mp-user-avatar {
+  flex: 0 0 auto;
+  width: 2.6rem;
+  height: 2.6rem;
+  border-radius: 50%;
+  background: var(--mp-avatar-color, #4a90d9);
+  color: #fff;
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-transform: uppercase;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .22);
+  user-select: none;
+}
+.mp-user-avatar:empty::before {
+  content: "·";
+  font-size: 1.4rem;
+  line-height: 1;
+  margin-top: -.2em;
+}
+/* 6 档色板：olbr.js 把哈希值落到这里，决定头像背景色。
+   选了一组对比度均匀的品牌相邻色，从浅到深覆盖常见用户名首字母。 */
+.mp-user-avatar[data-tint="0"], .mp-user-trigger-avatar[data-tint="0"] { --mp-avatar-color: #4a90d9; }
+.mp-user-avatar[data-tint="1"], .mp-user-trigger-avatar[data-tint="1"] { --mp-avatar-color: #6c5ce7; }
+.mp-user-avatar[data-tint="2"], .mp-user-trigger-avatar[data-tint="2"] { --mp-avatar-color: #00a884; }
+.mp-user-avatar[data-tint="3"], .mp-user-trigger-avatar[data-tint="3"] { --mp-avatar-color: #f2994a; }
+.mp-user-avatar[data-tint="4"], .mp-user-trigger-avatar[data-tint="4"] { --mp-avatar-color: #eb5757; }
+.mp-user-avatar[data-tint="5"], .mp-user-trigger-avatar[data-tint="5"] { --mp-avatar-color: #2f80ed; }
+.mp-user-id {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.mp-user-id-name {
+  color: #ffffff;
+  font-size: .95rem;
+  font-weight: 700;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mp-user-id-account {
+  color: #8aa6c0;
+  font-size: .7rem;
+  font-weight: 500;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* 账号名与用户名为同一字符串时隐藏（避免重复两行）；
+   用 JS 类名控制也行，这里加一个"完全等于"匹配兜底—将来olbr里谁去重就免维护。
+   注意：CSS 不能直接做"两行文字是否相等"的判断，纯类名切换由 olbr.js 处理。 */
+.mp-user-id-account.is-dup { display: none; }
+.mp-user-id-role {
+  display: inline-block;
+  align-self: flex-start;
+  margin-top: 2px;
+  padding: 2px 8px;
+  border: 1px solid rgba(125, 211, 252, .30);
+  border-radius: 999px;
+  color: #cfe6ff;
+  font-size: .65rem;
+  font-weight: 600;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+.mp-user-id-editing {
+  display: inline-block;
+  margin-left: 5px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(255, 210, 74, .18);
+  color: var(--mp-pin);
+  font-size: .65rem;
+  font-weight: 600;
+  line-height: 1.3;
+  white-space: nowrap;
+  /* 触发器已经没有黄色徽章了，这里是面板里唯一能告诉用户"编辑态还没退"的位置。
+     与 .mp-user-id-role 同行（用 margin-left 顶开），共享一行但颜色区分明显。 */
+}
 html body > header.mp-mast .mp-user-panel .mp-user-action {
   width: 100%;
   justify-content: flex-start;
@@ -648,12 +749,14 @@ html body > header.mp-mast .mp-user-panel .mp-user-action:focus-visible {
 html body > header.mp-mast .mp-user-panel .mp-user-logout { color: #ffaaa5; }
 html body > header.mp-mast .mp-user-panel .mp-user-logout:hover { color: #fff; background: rgba(255, 107, 107, .18); }
 @media (max-width: 1023px) {
-  .mp-user-name { max-width: 6rem; }
+  /* 触发器压一档：尺寸与顶栏右侧 36px 控件统一。 */
+  html body > header.mp-mast .mp-user-trigger { width: 2rem; height: 2rem; }
+  html body > header.mp-mast .mp-user-trigger-avatar { width: 1.4rem; height: 1.4rem; font-size: .65rem; }
 }
 @media (max-width: 767px) {
-  .mp-user-trigger { height: 2rem; width: 2rem; padding: 0; justify-content: center; }
-  .mp-user-name, .mp-user-role, .mp-user-editing { display: none; }
-  .mp-user-panel { right: -2px; width: 13.5rem; }
+  /* 767px 触底：触发器保持原状（头像按钮 36px），保证仍能点击；
+     面板略向右收紧以避免被左边内容挤掉。 */
+  .mp-user-panel { right: -2px; width: 15.5rem; }
 }
 
 /* ==========================================================================

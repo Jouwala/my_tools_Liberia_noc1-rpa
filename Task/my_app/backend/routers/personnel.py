@@ -25,6 +25,7 @@ import logging
 from fastapi import APIRouter, Query, HTTPException
 from backend.database import get_raw_connection
 from backend.dialect_helpers import list_table_names
+from backend.services import pm_caliber
 from backend.services.person_name import normalize_person_name, split_multi_person
 from backend.services.routing_service import plan_route
 from backend.routers.gis import _resolve_window
@@ -55,6 +56,19 @@ _WO_LIMIT = 2000
 # 粗筛候选上限（按姓名首词 LIKE）。与 _WO_LIMIT 解耦：过滤在拉取之后进行，
 # 若用结果上限当候选上限会漏掉窗口外的有效行（见 get_personnel_work_orders 注释）。
 _CAND_LIMIT = 20000
+
+# PMT 明细返回列（顺序即前端列序）。eflow_pm 共 95 列（snake_case + 大写显示孪生列），
+# 这里只取「这个人当前在手什么活」用得上的：大半是流程各步时间戳与审批人，
+# 放进弹窗没人看，反而把关键列挤出可视区。
+_PMT_COLS = (
+    "pmt_no", "status", "title", "pmp_no", "pmt_overdue", "site_name",
+    "template", "completed_items", "total_items",
+    "current_task_start_time", "current_task_end_time",
+    "created_time", "last_modified_time", "current_handler",
+)
+# PMT 取样上限。实测单人最大 298 张未关闭，2000 留足余量（AGENTS.md 三.1b：
+# limit 必须显著大于单页最大数据量，否则会静默截断，「徽标数字」与「明细行数」对不上）。
+_PMT_LIMIT = 2000
 
 # 人员表「有坐标」判定：非空且非 0（实测有 2 条的 0.0/0.0 会落在大西洋上）
 _COORD_OK = (
@@ -197,6 +211,25 @@ def _load_wo_owner_index(conn, time_start=None, time_end=None, days=None) -> dic
     return index
 
 
+def _handler_person_keys(current_handler) -> set[str]:
+    """`current_handler` 字段里归属到**个人**的键集合。
+
+    **只取 `P:` 前缀** —— `G:` 是群组池，挂到个人头上会把整个组的单算给一个人
+    （字段语义见 eflow_qa.py:1197）。WO 与 PMT **共用这一条规则**（2026-10-21
+    加 PMT 时特意抽出来，不再复制一份），否则两处的「谁算这个人」会漂移。
+    实测 `eflow_pm` 有 821 张未关闭 PMT 只挂在组池上（如 `G:ZTE_FE_MG`），
+    它们不计入任何个人，总数在 `/personnel/stats` 的 `pmt.group_pool` 里给出。
+    """
+    keys: set[str] = set()
+    for part in str(current_handler or "").split(","):
+        p = part.strip()
+        if p[:2].lower() == "p:":
+            k = normalize_person_name(p)
+            if k:
+                keys.add(k)
+    return keys
+
+
 def _wo_person_keys(last_processer, current_handler) -> set[str]:
     """一条 WO 归属的所有人员（规范化姓名集合）。
 
@@ -206,17 +239,67 @@ def _wo_person_keys(last_processer, current_handler) -> set[str]:
 
     规则：
       - `last_processer` 取全部（逗号拆分，实测可能多人）；
-      - `current_handler` **只取 `P:` 前缀**的个人名 —— `G:` 是群组池，
-        挂到个人头上会把整个组的单算给一个人（字段语义见 eflow_qa.py:1197）。
+      - `current_handler` 只取个人名，规则见 `_handler_person_keys`。
     """
     keys = set(split_multi_person(last_processer))
-    for part in str(current_handler or "").split(","):
-        p = part.strip()
-        if p[:2].lower() == "p:":
-            k = normalize_person_name(p)
-            if k:
-                keys.add(k)
+    keys |= _handler_person_keys(current_handler)
     return keys
+
+
+def _is_pmt_closed(status) -> bool:
+    """PMT 是否已关闭 —— **精确匹配 `Closed`**，与 PM 分析页同源
+    （`pm_caliber.CLOSED_STATUS` / `CLOSED_SQL`）。
+
+    ⚠ **刻意不复用 `_is_closed`（WO 的前缀匹配）**：eflow_wo 实测存在
+    `Closed_Confirmed` 这类衍生值才需要前缀；eflow_pm 的 6 个状态里
+    （`Wait Accept` / `Closed` / `Wait FLM Leader Approve` / `Wait Process` /
+    `Transfer` / `Wait PM Manager Approve`）只有精确的 `Closed` 是终态。
+    两边共用前缀匹配，将来 eFlow 给 PMT 加一个衍生终态就会**静默改口径**。
+    """
+    return str(status or "").strip().lower() == pm_caliber.CLOSED_STATUS.lower()
+
+
+def _pmt_open_index(conn) -> tuple[dict[str, int] | None, dict[str, int]]:
+    """一次扫描 eflow_pm → (`{姓名键: 未关闭 PMT 数}`, `{open_total, group_pool}`)。
+
+    表不存在时返回 `(None, {0,0})` —— **用 None 而不是空 dict**：前端要能区分
+    「这个人确实 0 张」和「PMT 数据根本取不到」，后者界面显示 `—` 而不是 0
+    （AGENTS.md 三.6：取不到数据不得显示成 0）。
+    注意本端点已对 `eflow_wo` 缺失抛 404，走到这里说明 eFlow 同步在跑，
+    单张可选表缺失只降级、不整页 500。
+
+    **三个与 WO 不同的口径**（2026-10-21 经用户确认，勿擅自改回）：
+
+    1. **不套 30 天时间窗口**，按「当前全部未关闭」算。两条理由：
+       · 库里**已关闭的 PMT 其 `current_handler` 是空的**（实测 1715 张未关闭行
+         handler 全非空），所以历史归属根本做不出来，套窗口只会少算不会多算；
+       · 实测套 30 天（按 `created_time`）会把 1715 砍到 826 —— 3 个月前开立
+         至今未关闭的单会凭空消失，而那恰恰是最该催的。
+    2. **归属只认 `current_handler`**：`eflow_pm` 没有 `last_processer` 列（实测），
+       另有 `pm_manager` / `creator` / `last_*_operator` 等，语义都不是「当前在手」。
+    3. **站点不进这里**：用户确认地图徽标的「站点数」仍只算未关闭 WO 的站点。
+       PMT 的站点覆盖面是 WO 的 2.6 倍（实测全库 824 站，单人最多同时挂 290 个
+       PMT 站点），并进来会让地图变成毛线球、"负责站点"失去意义。
+    """
+    if pm_caliber.TABLE not in set(list_table_names(conn)):
+        return None, {"open_total": 0, "group_pool": 0}
+    index: dict[str, int] = {}
+    open_total = 0
+    group_pool = 0
+    for handler, status in conn.execute(
+        f"SELECT {pm_caliber.HANDLER_COL}, status FROM {pm_caliber.TABLE}"
+    ).fetchall():
+        if _is_pmt_closed(status):
+            continue
+        open_total += 1
+        keys = _handler_person_keys(handler)
+        if not keys:
+            # 整张单只挂在组池上 —— 谁都没法算到他头上，单独计数供界面说明
+            group_pool += 1
+            continue
+        for k in keys:
+            index[k] = index.get(k, 0) + 1
+    return index, {"open_total": open_total, "group_pool": group_pool}
 
 
 @router.get("/personnel")
@@ -464,6 +547,76 @@ def get_personnel_work_orders(
     }
 
 
+@router.get("/personnel/{name_key}/pmt")
+def get_personnel_pmt(
+    name_key: str,
+    limit: int = Query(_PMT_LIMIT, ge=1, le=10000, description="最大取样行数"),
+):
+    """某人员**当前未关闭**的 PMT（预防性维护工单）明细 —— 地图徽标第三项的下钻。
+
+    **与徽标计数严格同源**（AGENTS.md 三.1b「下钻端点的 WHERE 必须与概览端点完全一致」）：
+    同一个 `_is_pmt_closed`、同一个 `_handler_person_keys`、**同样不套时间窗口**、
+    同样先扫全表再在 Python 侧精确判定。三者任一与 `_pmt_open_index` 漂移，
+    就会出现「徽标 298、点进去 305 行」这类被当成 bug 的不一致。
+
+    刻意**不提供** `only_uncleared` / `include_closed` 开关（WO 端点有那两个）：
+    PMT 没有告警清除语义，而**已关闭的 PMT 在库里 `current_handler` 是空的**（实测），
+    给它们做归属根本查不出东西，加开关只会让人误以为「0 行 = 这人没做过 PMT」。
+
+    排序：逾期（`pmt_overdue='Yes'`）优先 → 任务窗口结束时间升序 → 单号。
+    即「最急的要到期/已经逾期的」排最上面，缺结束时间的沉底。
+    **先排序再截断**，否则 limit 生效时留下的是扫描顺序里的前 N 条，
+    恰好把最该看的逾期单切掉。
+    """
+    key = normalize_person_name(name_key)
+    if not key:
+        raise HTTPException(status_code=400, detail="人员标识为空")
+    # 直接调用（单测/脚本）时 limit 仍是 Query 对象，与 _window_clause 同一收敛
+    if not isinstance(limit, int):
+        limit = _PMT_LIMIT
+    limit = max(1, min(limit, 10000))
+
+    with get_raw_connection() as conn:
+        available = pm_caliber.TABLE in set(list_table_names(conn))
+        rows = conn.execute(
+            f"SELECT {', '.join(_PMT_COLS)} FROM {pm_caliber.TABLE}"
+        ).fetchall() if available else []
+        conn.close()
+
+    matched: list[dict] = []
+    for row in rows:
+        d = dict(zip(_PMT_COLS, row))
+        if _is_pmt_closed(d["status"]):
+            continue
+        if key not in _handler_person_keys(d["current_handler"]):
+            continue
+        matched.append(d)
+
+    matched.sort(key=lambda r: (
+        str(r.get("pmt_overdue") or "").strip().upper() != "YES",
+        str(r.get("current_task_end_time") or "9999"),
+        str(r.get("pmt_no") or ""),
+    ))
+    truncated = len(matched) > limit
+    pmt_rows = matched[:limit]
+
+    return {
+        "name_key": key,
+        "pmt_list": pmt_rows,
+        "pmt_count": len(pmt_rows),
+        # 显式暴露截断与档位（AGENTS.md 三.1b：不得静默截断）
+        "meta": {
+            "available": available,
+            "truncated": truncated,
+            "limit": limit,
+            "overdue_count": sum(
+                1 for r in pmt_rows
+                if str(r.get("pmt_overdue") or "").strip().upper() == "YES"
+            ),
+        },
+    }
+
+
 @router.get("/personnel/{name_key}/alert-sites")
 def get_personnel_alert_sites(
     name_key: str,
@@ -642,6 +795,79 @@ def _site_meta_index(conn, tables: set[str]) -> dict[str, dict]:
     return index
 
 
+def _fme_keys(raw) -> set[str]:
+    """`master_site_db.fme_name` → 规范化姓名键集合。
+
+    实测该列 824 站全覆盖、24 个取值，有两种写法：
+      · 单人：`Mark D. Paye`（62 站）、`Clarance Arku Fair`（61 站）
+      · **双人共担**：`Ernest Feikai  Sherman / Darlington Rue`（98 站）、
+        `Fedesco Pelleh /Alex Nagbe`（88 站）—— 分隔符是 `/`，左右空格不定，
+        还出现过双空格。
+    按 `/` 拆开逐段规范化，双人共担的站**两边都算负责**（与
+    `_handler_person_keys` 的逗号拆分同一思路）。
+    """
+    keys: set[str] = set()
+    for part in str(raw or "").split("/"):
+        k = normalize_person_name(part.strip())
+        if k:
+            keys.add(k)
+    return keys
+
+
+def _fme_site_index(conn, tables: set[str]) -> tuple[dict[str, list[dict]], dict[str, int], dict[str, int]]:
+    """「人员 → 其负责的站点」索引，口径 = `master_site_db.fme_name`。
+
+    返回 `(sites, skipped, supervised)`：
+      · `sites[键]` = 该人负责**且有有效坐标**的站点（可直接画）；
+      · `skipped[键]` = 负责但坐标缺失/非法、画不出来的站数。不静默丢，
+        界面 `skipped_no_coord` 显式给出（实测这一档是 0，但缺了就会让人
+        以为「站点数对不上」）。
+      · `supervised[键]` = 该人以 `supervisor` 列登记的站数。**只用于空态解释**：
+        实测 `supervisor` 只有 3 个取值，把全国 824 站三三分掉
+        （Varfee Sarnor 353 / Franklin Peter 294 / Festus Emmanuel 177），
+        语义是「大区主管」而非「单站负责」，所以**刻意不计入站点集合**；
+        但点他们的人要能看到「为什么这人 0 个站、却是在手单最多的」。
+
+    只读 `master_site_db`（824 行），**不碰工单表** —— 「谁负责这个站」与
+    「谁在这个站上有单」是两件事，2026-10-21 用户确认站点集合只看前者。
+    """
+    sites: dict[str, list[dict]] = {}
+    skipped: dict[str, int] = {}
+    supervised: dict[str, int] = {}
+    if "master_site_db" not in tables:
+        return sites, skipped, supervised
+    for sid, sname, region, county, fme, sup, lat_raw, lng_raw in conn.execute(
+        "SELECT site_id, site_name, region, province_county, fme_name, supervisor, latitude, longitude "
+        "FROM master_site_db"
+    ).fetchall():
+        sup_key = normalize_person_name(sup)
+        if sup_key:
+            supervised[sup_key] = supervised.get(sup_key, 0) + 1
+        keys = _fme_keys(fme)
+        if not keys:
+            continue
+        entry = None
+        try:
+            lat, lng = _fix_latlng(float(lat_raw), float(lng_raw))
+            if lat != 0 or lng != 0:      # 与 _COORD_OK 同判定：0/0 会落在大西洋上
+                entry = {
+                    "site_id": str(sid),
+                    "site_name": str(sname or ""),
+                    "region": str(region or ""),
+                    "county": str(county or ""),
+                    "lat": round(lat, 6),
+                    "lng": round(lng, 6),
+                }
+        except (TypeError, ValueError):
+            entry = None
+        for k in keys:
+            if entry is None:
+                skipped[k] = skipped.get(k, 0) + 1
+            else:
+                sites.setdefault(k, []).append(entry)
+    return sites, skipped, supervised
+
+
 @router.get("/sites/search")
 def search_sites(
     q: str = Query("", description="关键字：站点名或站点 ID 的子串（不区分大小写）"),
@@ -741,16 +967,23 @@ def get_personnel_managed_sites(
     time_end: str = Query(None, description="时间窗口结束 YYYY-MM-DD"),
     days: int = Query(None, ge=1, le=3650, description="时间窗口天数"),
 ):
-    """某人员 WO 涉及过的全部站点（供人员位置地图画站点层与连线）。
+    """某人员**负责的站点**（`master_site_db.fme_name`）+ 每站的工单/告警状态。
+    供人员位置地图画站点层、连线，与下钻抽屉的「站点」页签。
+
+    **站点集合的口径**（2026-10-21 用户确认，从「WO 涉及过的站」改成「登记的负责站」）：
+    取 `master_site_db.fme_name`，**不看工单**。双人共担（`A / B`）两边都算。
+    这样每个站都能落进三档之一：红=当前有实时告警、浅蓝=该人有未关闭 WO、
+    绿=负责但当前没有未关闭 WO。**旧口径下绿色永远不可能出现**（集合里每个站
+    都必然有未关闭 WO），这是改口径的直接动机。
 
     每个站点返回：
-      - 坐标（无坐标的站点会被剔除，数量记在 `skipped_no_coord`，不静默丢）；
-      - `wo_count`     —— 该人员在窗口内此站的**未关闭** WO 数；
+      - 坐标（缺坐标的站画不出来，数量记在 `skipped_no_coord`，不静默丢）；
+      - `wo_count`     —— 该人在窗口内此站的**未关闭** WO 数（0 = 该站当前没单）；
       - `uncleared`    —— 其中**未清除告警**的 WO 数；
       - `has_alarm`    —— 该站点当前是否有实时告警（`realtime_alarm` 快照）。
 
-    口径与 `/personnel` 的计数同源：同一 `_wo_person_keys` 归属判定、
-    同一 `_is_closed` / `_is_uncleared` 判定、同一 `_window_clause` 窗口。
+    WO / 告警那两列仍与 `/personnel` 同源：同一 `_wo_person_keys` 归属、
+    同一 `_is_closed` / `_is_uncleared`、同一 `_window_clause` 窗口。
     """
     key = normalize_person_name(name_key)
     if not key:
@@ -761,12 +994,19 @@ def get_personnel_managed_sites(
 
     with get_raw_connection() as conn:
         tables = set(list_table_names(conn))
+        if "master_site_db" not in tables:
+            conn.close()
+            raise HTTPException(status_code=404, detail="master_site_db 表不存在")
         if "eflow_wo" not in tables:
             conn.close()
             raise HTTPException(status_code=404, detail="eflow_wo 表不存在")
 
-        # 粗筛与 work-orders 端点同一策略：按姓名首词 LIKE 收敛候选，
-        # 再在 Python 侧精确判定（清洗规则无法下推 SQL）。
+        # 站点集合 = 登记的负责站（fme_name），**与工单无关**
+        fme_sites, fme_skipped, _supervised = _fme_site_index(conn, tables)
+
+        # 每站的「该人未关闭 WO 数」只用来上色与计数。粗筛与 work-orders 端点
+        # 同一策略：按姓名首词 LIKE 收敛候选，再在 Python 侧精确判定
+        # （清洗规则无法下推 SQL）。
         first_token = key.split(" ")[0] if key.split(" ") else key
         cand = conn.execute(f"""
             SELECT site_id, last_processer, current_handler, status, alarm_clear_time
@@ -783,11 +1023,9 @@ def get_personnel_managed_sites(
                 "WHERE site_id IS NOT NULL"
             ).fetchall():
                 alarm_sites.add(str(sid))
-
-        site_meta = _site_meta_index(conn, tables)
         conn.close()
 
-    # 站点 → {open, uncleared}（**只计未关闭**：已关闭的历史单不构成「当前负责」）
+    # 站点 → {open, uncleared}（**只计未关闭**：已关闭的历史单不构成「当前在手」）
     per_site: dict[str, dict[str, int]] = {}
     for sid_raw, last_p, handler, status, clear_time in cand:
         if key not in _wo_person_keys(last_p, handler):
@@ -803,25 +1041,16 @@ def get_personnel_managed_sites(
             slot["uncleared"] += 1
 
     sites = []
-    skipped_no_coord = 0
-    for sid, cnt in per_site.items():
-        meta = site_meta.get(sid, {})
-        lat, lng = meta.get("lat"), meta.get("lng")
-        if lat is None or lng is None:
-            skipped_no_coord += 1
-            continue
-        try:
-            flat, flng = _fix_latlng(float(lat), float(lng))
-        except (TypeError, ValueError):
-            skipped_no_coord += 1
-            continue
+    for meta in fme_sites.get(key, []):
+        sid = meta["site_id"]
+        cnt = per_site.get(sid) or {"open": 0, "uncleared": 0}
         sites.append({
             "site_id": sid,
-            "site_name": meta.get("site_name", ""),
-            "region": meta.get("region", ""),
-            "county": meta.get("county", ""),
-            "lat": round(flat, 6),
-            "lng": round(flng, 6),
+            "site_name": meta["site_name"],
+            "region": meta["region"],
+            "county": meta["county"],
+            "lat": meta["lat"],
+            "lng": meta["lng"],
             "wo_count": cnt["open"],
             "uncleared": cnt["uncleared"],
             "has_alarm": sid in alarm_sites,
@@ -836,8 +1065,8 @@ def get_personnel_managed_sites(
         "alarm_site_count": sum(1 for s in sites if s["has_alarm"]),
         "uncleared_total": sum(s["uncleared"] for s in sites),
         "open_total": sum(s["wo_count"] for s in sites),
-        # 有 WO 但站点缺坐标、画不出来的数量（不静默丢）
-        "skipped_no_coord": skipped_no_coord,
+        # 负责但站点缺坐标、画不出来的数量（不静默丢）
+        "skipped_no_coord": fme_skipped.get(key, 0),
     }
 
 
@@ -854,15 +1083,19 @@ def get_personnel_stats(
     days: int = Query(None, ge=1, le=3650, description="时间窗口天数"),
     top: int = Query(20, ge=1, le=100, description="按人员排行返回的条数"),
 ):
-    """全量人员按 WO/TT 的聚合统计（供人员位置地图的统计区）。
+    """全量人员按 WO/TT/PMT 的聚合统计（供人员位置地图的统计区与地图徽标）。
 
     **一次扫描算完全部人的数字**，避免前端对 26 人各打一次接口。
-    返回四块：
+    返回五块：
       - `by_person`：
           name / name_key / has_coords / open / closed / total /
-          uncleared / tt_open / tt_closed / tt_total / counties
+          uncleared / tt_open / tt_closed / tt_total / counties / site_count /
+          **pmt_open**（当前未关闭 PMT 数，**不随本端点的 days/时间窗口变**，
+          理由见 `_pmt_open_index`）
       - `by_county`：{县: {open, closed, total}} —— 以 WO 的站点��在县归类；
       - `by_status`：{open, closed} —— 全量合计；
+      - `pmt`：{open_total, group_pool} —— 未关闭 PMT 全量与「只挂在 G: 组池上、
+        归不到个人」的张数；
       - `coverage`：有坐标人数 / 全部人数（页面 KPI 与说明横幅用）。
     """
     win_where, win_params = _window_clause(
@@ -883,6 +1116,10 @@ def get_personnel_stats(
         people = _people_with_coords(conn)
         total_all = conn.execute("SELECT COUNT(*) FROM person").fetchone()[0] or 0
         site_meta = _site_meta_index(conn, tables)
+        # 「负责站点」索引（`master_site_db.fme_name`）。徽标的 site_count 与
+        # `/managed-sites` 的 site_count 必须来自这同一个函数，否则
+        # 「徽标写 16、地图上有 62 个点」—— 2026-10-21 改口径时特意收在一处。
+        fme_sites, _fme_skipped, supervised_sites = _fme_site_index(conn, tables)
 
         # ---- WO 侧：一次扫描，按人聚合 ----
         per_person: dict[str, dict] = {}
@@ -905,16 +1142,9 @@ def get_personnel_stats(
                 p = per_person.setdefault(k, {
                     "open": 0, "closed": 0, "total": 0, "uncleared": 0,
                     "tt_open": 0, "tt_closed": 0, "tt_total": 0, "counties": set(),
-                    # 未关闭 WO 涉及过的站点集合（去重）。供地图徽标显示「负责站点数」，
-                    # 与 `/managed-sites` 返回的 `site_count` 同口径（那里也只计未关闭）。
-                    "sites": set(),
                 })
                 p[cls] += 1
                 p["total"] += 1
-                if cls == "open":
-                    sid = str(sid_raw or "")
-                    if sid:
-                        p["sites"].add(sid)
                 if _is_uncleared(clear_time, status):
                     p["uncleared"] += 1
                 # TT 维度：该 WO 带了 tt_no 才算一条 TT（同一 TT 可能有多条 WO，
@@ -925,6 +1155,9 @@ def get_personnel_stats(
                     p["tt_total"] += 1
                 if county:
                     p["counties"].add(county)
+
+        # ---- PMT 侧：再扫一次 eflow_pm（**不套窗口**，口径见 _pmt_open_index） ----
+        pmt_open, pmt_meta = _pmt_open_index(conn)
         conn.close()
 
     # 同上：元组顺序 (name, name_key, lat, ...)。键必须取 name_key。
@@ -955,9 +1188,15 @@ def get_personnel_stats(
             "tt_total": p.get("tt_total", 0),
             # 县名列表（由 WO 站点反推），供表格展示；不是 managed_regions
             "counties": sorted(p.get("counties") or []),
-            # 未关闭 WO 涉及的站点数（去重）——地图徽标显示；与 /managed-sites 的
-            # site_count 同口径（那边同样只计未关闭 WO 的站点）。
-            "site_count": len(p.get("sites") or ()),
+            # 负责的站点数（`master_site_db.fme_name`）——地图徽标显示；与
+            # `/managed-sites` 的 site_count 出自同一个 `_fme_site_index`，天然同源。
+            "site_count": len(fme_sites.get(k, ())),
+            # 以 supervisor 身份登记的站数。**只为解释「为什么这人 0 个站」**，
+            # 不计入 site_count、也不画进地图（supervisor 是全国三分的大区主管）。
+            "supervised_sites": supervised_sites.get(k, 0),
+            # 当前未关闭的 PMT 数（**不随 30 天窗口变化**，见 _pmt_open_index）。
+            # None = eflow_pm 取不到（前端显示 —）；0 = 确实没有未关闭的 PMT。
+            "pmt_open": None if pmt_open is None else pmt_open.get(k, 0),
         })
     # 没有坐标但名下有 WO 的人也列出来 —— 否则统计总和对不上（页面会标注「无坐标」）
     for k, p in per_person.items():
@@ -971,7 +1210,9 @@ def get_personnel_stats(
             "tt_open": p["tt_open"], "tt_closed": p["tt_closed"],
             "tt_total": p["tt_total"],
             "counties": sorted(p["counties"]),
-            "site_count": len(p.get("sites") or ()),
+            "site_count": len(fme_sites.get(k, ())),
+            "supervised_sites": supervised_sites.get(k, 0),
+            "pmt_open": None if pmt_open is None else pmt_open.get(k, 0),
         })
 
     # 排行按「未清除 → 未关闭」降序，与页面表格默认排序一致
@@ -981,6 +1222,9 @@ def get_personnel_stats(
         "top_person": ranked[:top],
         "by_county": county_agg,
         "by_status": by_status,
+        # 未关闭 PMT 的全局量（`group_pool` = 只挂在 G: 组池上、无法归到个人的张数），
+        # 供页面 ⓘ 说明「为什么各人徽标加起来对不上总数」
+        "pmt": pmt_meta,
         "coverage": {
             "with_coords": len(people),
             "total_all": total_all,

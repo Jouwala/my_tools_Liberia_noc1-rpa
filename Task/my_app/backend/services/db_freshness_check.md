@@ -86,6 +86,11 @@
 
 - `success`：仅表示“检查手段是否可用”（API 不可达 **或** 任务健康检查手段不可用
   （历史库连不上/配置加载失败）→ False，交给 auto_retry 重试）
+- `error`：**`success=False` 时必填**，写明是哪个检查手段坏了（`db_freshness_check.py:1210-1234`）。
+  `task_runner` 的微信/邮件失败通知取的就是这个字段（`task_runner.py:697-710` 依次找
+  `error`/`message`/`errors`），缺了它通知只会显示「未知错误」——2026-10-21 18:15 起
+  m 组 worker 持 15:16 启动时缓存的旧 `task_runner`，新巡检代码 `import load_schedule_config_rows`
+  抛 ImportError，连续 4 轮告警无原因，真凭据只能去 `result_json` 的 `stale` 明细里翻
 - `fresh`：全部表数据新鲜且检查手段可用
 - `stale[]`：滞后/异常清单（含数据滞后与任务健康异常两类）。每项包含：
   - **调用链路**：定时任务 → 服务函数 → 写入方式 → db_writer_api → 远程库文件

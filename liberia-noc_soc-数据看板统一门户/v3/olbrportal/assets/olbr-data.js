@@ -533,7 +533,7 @@ window.OLBR_DATA = (function () {
       /* ---- v1 新增：六个视图入口卡（renderViews6）----
          每张卡列出的报告名就是目录里真实存在的看板标题，点击即打开。
          数量由 V6_LIMIT 控制（默认 2 条），多出来的走「展开其余 N 项」。 */
-      'v6.title': 'Team Dashboard',
+      'v6.title': 'Domain Dashboard',
       'v6.sub': '点击报告名直接打开对应看板',
       /* 列头标题现在是链接（2026-09-26 加）：点它打开该视图下的第一条看板。
          tooltip 写成「进入本视图：<实际要去的那张看板>」——
@@ -551,6 +551,12 @@ window.OLBR_DATA = (function () {
       'v6.subAria': '按专业域筛选本视图',
       'v6.subEmptyTip': '该专业域下暂无看板',
       'aux.qa': 'Knowledge Q&A', 'aux.friends': 'OSS Portal Login', 'aux.admin': 'System Management',
+      /* 2026-10-21 加：使用反馈面板的标题。
+         面板内嵌 my_app 的 /myapp/?page=feedback（IssueFeedback 页）。
+         标题取 my_app 侧菜单里的同一个说法（i18n.tsx 'nav.feedback' = 使用反馈），
+         免得同一功能在两处有两个名字。 */
+      'fb.title': '使用反馈',
+      'fb.needLogin': '登录后显示使用反馈',
       /* 2026-10-14 删除 'qa.credTip'：门户 RAG 改走 8443 使用入口后
          （Open WebUI 自动以 NOC 身份进入、免密码），页签上的「登录凭据」提示
          已整条移除，词条随之删除。 */
@@ -1125,7 +1131,7 @@ window.OLBR_DATA = (function () {
                           + '⚠️ The y-axis spans only this period\'s own range — it does **not** start '
                           + 'at zero; a missing day breaks the line rather than plotting 0.',
       /* ---- v1 additions: six view-entry cards (renderViews6) ---- */
-      'v6.title': 'Team Dashboard',
+      'v6.title': 'Domain Dashboard',
       'v6.sub': 'Click a report name to open that dashboard',
       'v6.headTip': 'Enter this view: {n}',
       'v6.more': 'Show {n} more',
@@ -1134,6 +1140,10 @@ window.OLBR_DATA = (function () {
       'v6.subAria': 'Filter this view by technology domain',
       'v6.subEmptyTip': 'No dashboard under this domain yet',
       'aux.qa': 'Knowledge Q&A', 'aux.friends': 'OSS Portal Login', 'aux.admin': 'System Management',
+      /* 2026-10-21：使用反馈面板的标题（与中文那份同源，
+         说法与 my_app 侧 'nav.feedback' = User Feedback 对齐）。 */
+      'fb.title': 'User Feedback',
+      'fb.needLogin': 'Sign in to view the user feedback',
       /* 2026-10-14 删除 'qa.credTip'（'Login credentials'），与 zh 同因。 */
       'qa.tabEflow': 'eFlow KB', 'qa.tabRag': 'RAG Q&A',
       'aux.reports': 'Task report files', 'aux.tools': 'About this page',

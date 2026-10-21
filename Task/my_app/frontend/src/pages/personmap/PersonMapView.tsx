@@ -32,6 +32,7 @@ import { BASEMAP_PMTILES_URL } from '../gismap/basemap'
 import { SITE_COLORS } from '../gismap/types'
 import { escapeHtml, personIconSvg } from '../gismap/personIcon'
 import { MapSearch } from './MapSearch'
+import { NoSitesNote } from './NoSitesNote'
 import type { PersonRow, ManagedSite } from './types'
 import type { CountyBoundary } from '../gismap/types'
 
@@ -39,6 +40,17 @@ import type { CountyBoundary } from '../gismap/types'
  *  但本页画布更宽，用 zoom=7.5 即可装下全境）。 */
 const LB_CENTER: [number, number] = [(3.9 + 8.75) / 2, (-11.7 + -7.3) / 2]
 const LB_ZOOM = 7.5
+
+/** 站点三档配色（2026-10-21 用户指定）：
+ *    绿 = 负责但当前**没有**该人的未关闭 WO；浅蓝 = 该人在此站**有**未关闭 WO；
+ *    红 = 该站当前**有实时告警**。优先级 红 > 浅蓝 > 绿。
+ *  ⚠ 必须是**实值十六进制**：Leaflet 的 CircleMarker / Polyline 走 SVG 呈现属性，
+ *    解析不了 `var(--wh-*)`（与 ECharts 同一约束，AGENTS.md 三.3 取色表）。
+ *  深浅两套的理由：`#4fc3f7` 这类浅蓝在白色底图上对比不足，浅色主题压深一档。 */
+const SITE_TONE = {
+  dark: { ok: '#51cf66', wo: '#4fc3f7', alarm: '#ff1e1e' },
+  light: { ok: '#2f9e44', wo: '#1e88d2', alarm: '#e03131' },
+} as const
 
 export function PersonMapView({
   people, loading, selectedKey, onSelect, sites, sitesLoading,
@@ -55,6 +67,12 @@ export function PersonMapView({
   const { t } = useI18n()
   const { isDark } = useTheme()
   const map = useMap()
+  /** 站点 → 三档颜色（红=有实时告警 > 浅蓝=该人在此站有未关闭 WO > 绿=负责但当前没单）。
+   *  圆点与连线**共用这一个判定**，否则会出现「线是绿的、点是蓝的」这种看着像 bug 的画面。 */
+  const siteTone = isDark ? SITE_TONE.dark : SITE_TONE.light
+  const siteColor = (s: ManagedSite) => (
+    s.has_alarm ? siteTone.alarm : s.wo_count > 0 ? siteTone.wo : siteTone.ok
+  )
   const [hoverKey, setHoverKey] = useState<string | null>(null)
   /* 县界（2026-10-19 用户要求「地图没有 country 的边界」）。
      与 GIS 页共用同一份静态 GeoJSON（`/gis/county-boundaries`，后端 1 小时缓存），
@@ -77,26 +95,33 @@ export function PersonMapView({
      若不区分，点人的瞬间就会被 map 处理器当成「点空白」清掉选中态。 */
   const personClickRef = useRef(false)
 
+  /* `onSelect` 每次都可能是新闭包（父组件 useCallback 依赖变化），若直接放进 effect 依赖，
+     父组件一重渲染就会 off/on 一次 map 事件 —— 本 effect 用 ref 存最新回调，只挂一次。
+     仍保留 onSelectRef 而不用闭包里的 onSelect：见下方 `onMapClick` 的说明。 */
+  const onSelectRef = useRef(onSelect)
+  onSelectRef.current = onSelect
+
   useEffect(() => {
     if (!isMapAlive(map)) return
     const onMapClick = (e: any) => {
       // 事件源判定：点在人员针（L.Marker，有 setIcon）上不清理。
       // 站点圆点是 L.CircleMarker，只有 setStyle/setRadius、没有 setIcon ——
       // 两者都能 getLatLng，故不能用 getLatLng 区分（GIS 页踩过这个坑）。
+      // ⚠ 两路命中都必须**直接 return**，不能写 `personClickRef.current = false` 当作
+      //   「已处理」标记：map 的 click 可能对同一次点击触发多次（Map 自身监听 +
+      //   冒泡目标各一次），第二次会带着已复位的标志位直落 `onSelect(null)`，
+      //   表现为「点人后被立刻取消选中」。
       const src = e?.sourceTarget
-      if (src && typeof src.setIcon === 'function') {
-        personClickRef.current = false
-        return
-      }
+      if (src && src !== map && typeof src.setIcon === 'function') return
       if (personClickRef.current) {
         personClickRef.current = false
         return
       }
-      onSelect(null)
+      onSelectRef.current(null)
     }
     map.on('click', onMapClick)
     return () => { map.off('click', onMapClick) }
-  }, [map, onSelect])
+  }, [map])
 
   const selectedPerson = useMemo(
     () => people.find(p => p.name_key === selectedKey) || null,
@@ -185,7 +210,7 @@ export function PersonMapView({
   /* 搜索选中站点（2026-10-19 用户要求「定位并选中负责人」）：
      ① 飞行到该站点；
      ② 若后端回了可选的负责人键（该站点未关闭 WO 的负责人中、有坐标的那位），
-        一并选中 —— 这样右侧连线与 KPI 会切到那个人。
+        一并选中 —— 这样地图上的连线与右列 KPI 会切到那个人。
         无负责人 / 负责人无坐标时只定位，**不清空**当前选中，
         避免「搜一个无主站点，把正在看的上下文抹掉」。 */
   const handlePickSite = useCallback((site: ManagedSite) => {
@@ -238,17 +263,17 @@ export function PersonMapView({
         />
       ))}
 
-      {/* 选中人员的 WO 站点层 */}
+      {/* 负责站点层（2026-10-21 起集合 = `master_site_db.fme_name`，不再是「WO 涉及过的站」） */}
       {sites.map(s => {
-        // 有实时告警 → 大红；有未清除 WO → 橙；其余 → 主题青
-        const color = s.has_alarm
-          ? SITE_COLORS.rt_alarm_overdue
-          : s.uncleared > 0 ? '#fa8c16' : (isDark ? '#00d9ff' : '#0d9488')
+        /* 三档取色，优先级 红 > 浅蓝 > 绿。
+           「未清除」不再单独占一档颜色（用户的配色只有三色），
+           改由**半径**表达：告警站 8px > 有未清除 7px > 其余 6px。 */
+        const color = siteColor(s)
         return (
           <CircleMarker
             key={`site-${s.site_id}`}
             center={[s.lat, s.lng]}
-            radius={s.has_alarm ? 8 : 6}
+            radius={s.has_alarm ? 8 : s.uncleared > 0 ? 7 : 6}
             color={color}
             fillColor={color}
             fillOpacity={0.75}
@@ -268,15 +293,17 @@ export function PersonMapView({
         )
       })}
 
-      {/* 人员 → 其站点连线（仅选中时） */}
+      {/* 人员 → 其负责站点的连线（仅选中时）。
+          2026-10-21 用户要求「连线颜色跟站点同色」：原先一律灰色虚线，
+          在国家级缩放下几乎看不见，也分不出哪条指向告警站。 */}
       {selectedPerson && sites.map(s => (
         <Polyline
           key={`line-${s.site_id}`}
           positions={[[selectedPerson.lat as number, selectedPerson.lng as number], [s.lat, s.lng]]}
           pathOptions={{
-            color: s.has_alarm ? SITE_COLORS.rt_alarm_overdue : '#8c8c8c',
+            color: siteColor(s),
             weight: s.has_alarm ? 2.5 : 1.5,
-            opacity: 0.55,
+            opacity: s.has_alarm ? 0.75 : 0.55,
             dashArray: '5 4',
           }}
         />
@@ -302,6 +329,9 @@ export function PersonMapView({
         const tip = ''
         const openCnt = p.open || 0
         const sitesCnt = p.site_count || 0
+        const pmtCnt = p.pmt_open
+        // null = 后端取不到 eflow_pm → 显示 —（不得显示 0，AGENTS.md 三.6）
+        const pmtText = pmtCnt == null ? '—' : String(pmtCnt)
         const unclearedCnt = p.uncleared || 0
         // 有未清除告警 → 红；否则灰。文字与边框共用同一个色，见 .gis-person-badge
         const badgeColor = unclearedCnt > 0 ? '#ff4d4f' : '#8c8c8c'
@@ -314,26 +344,35 @@ export function PersonMapView({
               `<div class="gis-person-anchor">` +
                 tip +
                 personIconSvg(color, size, selected) +
-                /* 常驻徽标（2026-10-19 用户要求）：
+                /* 常驻徽标（2026-10-19 用户要求，2026-10-21 加 PMT 一项）：
                      第一行 = 姓名 + 电话；
-                     第二行 = 未关闭 WO 数 + 负责站点数。
+                     第二行 = 负责站点数 | 未关闭 WO 数 | 未关闭 PMT 数。
+                   三项的顺序是用户 2026-10-21 指定的。
+                   ⚠ PMT 那一项**不跟随页面 30 天窗口**（是「此刻还没关闭」的状态数），
+                     与旁边两项口径不同 —— 后端 personnel.py::_pmt_open_index 有完整理由，
+                     页面 ⓘ 说明里也必须讲清楚，否则用户会拿它跟 WO 那列做加减。
                    徽标内容全部来自后端，拼进 html 前必须 escapeHtml（AGENTS.md 三.4）。 */
                 `<span class="gis-person-badge" style="border-color:${badgeColor}" ` +
-                  `title="${escapeHtml(t('person.badgeHint', { name: p.name, phone: phone || '-', open: openCnt, sites: sitesCnt, uncleared: unclearedCnt }))}">` +
+                  `title="${escapeHtml(t('person.badgeHint', {
+                    name: p.name, phone: phone || '-',
+                    sites: sitesCnt, open: openCnt, pmt: pmtText, uncleared: unclearedCnt,
+                  }))}">` +
                   `<span class="gis-person-badge-name">${escapeHtml(p.name)}` +
                     (phone ? `<i>${escapeHtml(phone)}</i>` : '') +
                   `</span>` +
                   `<span class="gis-person-badge-stats" style="color:${badgeColor}">` +
+                    `<b>${sitesCnt}</b>${escapeHtml(t('person.badgeSitesShort'))}` +
+                    `<em>|</em>` +
                     `<b>${openCnt}</b>${escapeHtml(t('person.badgeOpenShort'))}` +
                     `<em>|</em>` +
-                    `<b>${sitesCnt}</b>${escapeHtml(t('person.badgeSitesShort'))}` +
+                    `<b>${pmtText}</b>${escapeHtml(t('person.badgePmtShort'))}` +
                   `</span>` +
                 `</span>` +
               `</div>`
             }
             iconSize={[size, iconH]}
             iconAnchor={[size / 2, iconH]}
-            iconKey={`${selected}-${hovered}-${size}-${unclearedCnt}-${openCnt}-${sitesCnt}-${p.name}-${phone}`}
+            iconKey={`${selected}-${hovered}-${size}-${unclearedCnt}-${openCnt}-${sitesCnt}-${pmtText}-${p.name}-${phone}`}
             zIndexOffset={selected ? 1000 : hovered ? 900 : 0}
             className="gis-person-marker"
             onClick={() => handleClick(p)}
@@ -342,6 +381,26 @@ export function PersonMapView({
           />
         )
       })}
+
+      {/* 选中了人、但他一个负责站点都没有 → 在地图上把原因说出来（2026-10-21）。
+          实测有人点 Franklin Peter 看到全空，报成「连线没画出来」；他其实是
+          supervisor（覆盖 294 站），不是单站负责，站点集合刻意只认 fme_name。
+          放**底部居中**：左上是 Leaflet 缩放控件与本层的搜索框，右下是 attribution，
+          底部居中三样都避得开。
+          `pointerEvents:none` —— 说明条不能拦地图点击，否则点它就取消不了选中。 */}
+      {selectedPerson && !sitesLoading && sites.length === 0 && (
+        <div style={{
+          position: 'absolute', bottom: 28, left: '50%', transform: 'translateX(-50%)',
+          maxWidth: 420, zIndex: 1000, pointerEvents: 'none',
+          padding: 'var(--wh-space-xs, 4px) var(--wh-space-sm, 8px)',
+          borderRadius: 'var(--wh-radius-sm, 4px)',
+          background: 'var(--wh-card-bg, rgba(255, 255, 255, 0.9))',
+          border: '1px solid rgba(128, 128, 128, 0.35)',
+          boxShadow: '0 1px 4px rgba(0, 0, 0, 0.25)',
+        }}>
+          <NoSitesNote person={selectedPerson} />
+        </div>
+      )}
     </>
   )
 }

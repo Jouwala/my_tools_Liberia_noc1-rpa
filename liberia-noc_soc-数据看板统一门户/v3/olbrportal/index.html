@@ -197,19 +197,29 @@
         <i class="ph ph-moon" aria-hidden="true"></i>
       </button>
       <div class="mp-user-menu" id="userMenu" hidden>
+        <!-- 2026-10-20 简化（用户要求「右边直接一个头像就行了，下拉有详细信息」）：
+             触发器只显示头像首字母，不再把用户名/角色/编辑徽章挤在顶栏里 —
+             这些全部挪进下面 #userMenuPanel 的头部。
+             · #whoBadge 仍保留 id（olbr.js renderWho L4836 一直对它写入），
+               现在它写入的是面板里的大字号用户名；
+             · 首字母走 #userMenuAvatar / .mp-user-avatar-letter，由 olbr.js 写入；
+             · 触发器上的小圆圈头像读 .mp-user-trigger-avatar，也由 olbr.js 写入。
+             为留接口给将来又做"显示菜单时面板有动作"再加钩子，这里只删显示节点，
+             不动 olbr.js 的写入契约。 -->
         <button type="button" class="mp-user-trigger" id="userMenuBtn"
                 aria-expanded="false" aria-controls="userMenuPanel"
                 data-i18n-attr="title:mast.userMenuTip">
-          <i class="ph ph-user-circle" aria-hidden="true"></i>
-          <span class="mp-user-name" id="whoBadge"></span>
-          <span class="mp-user-role" id="userMenuRole"></span>
-          <span class="mp-user-editing" id="userMenuEditing" hidden data-i18n="mast.editing">编辑中</span>
-          <i class="ph ph-caret-down mp-user-caret" aria-hidden="true"></i>
+          <span class="mp-user-trigger-avatar" id="userMenuTriggerAvatar" aria-hidden="true"></span>
         </button>
         <div class="mp-user-panel" id="userMenuPanel" hidden role="menu">
           <div class="mp-user-panel-head">
-            <i class="ph ph-user-circle" aria-hidden="true"></i>
-            <span id="userMenuAccount"></span>
+            <span class="mp-user-avatar" id="userMenuAvatar" aria-hidden="true"></span>
+            <div class="mp-user-id">
+              <span class="mp-user-id-name" id="whoBadge"></span>
+              <span class="mp-user-id-account" id="userMenuAccount"></span>
+              <span class="mp-user-id-role" id="userMenuRole"></span>
+              <span class="mp-user-id-editing" id="userMenuEditing" hidden data-i18n="mast.editing">编辑中</span>
+            </div>
           </div>
           <button type="button" class="btn-ghost mp-user-action" id="editBtn" hidden aria-pressed="false"
                   data-i18n-attr="title:edit.tipOn" role="menuitem">
@@ -290,43 +300,49 @@
        全部保留，所以随便用哪种方式都能到同一个看板。 -->
   <section class="band views6" id="views6" aria-label="View entries"></section>
 
-  <!-- ===================== 地图 + 报告文件（v1 位置调整） =====================
-       v1 改：地图与「报告文件」并排一行 —— 地图在左占大头，报告文件在右。
-
-       ⚠️ 为什么报告文件会跑到这里：
-       它原来是 L1 页签面板里的一个页签（与 MS/FLM/FO/BO 同一排）。
-       本次按要求把整块 L1 页签面板去掉（上面六张入口卡已经覆盖那六个视图），
-       但报告文件（内嵌 my_app 的 /myapp/?page=…）在上面六张卡里**没有对应入口**，
-       跟着一起删就是功能丢失。所以把它单独摘出来，就近放到地图右边 ——
-       两块都是「内嵌页」，并排一行在观感上也归为一类。
+  <!-- ===================== 地图 + 知识问答（2026-10-21 位置互换） =====================
+       ⚠️ 2026-10-21（用户要求「Auto Report 组件和 Knowledge Q&A 组件互换位置」）：
+       原布局是「地图 | Auto Report」一行 + 「Knowledge Q&A | OSS Portal Login」一行。
+       本次把这两个组件**对调**：
+         · Knowledge Q&A 移到上排（地图右边，占原来 Auto Report 的位置）
+         · Auto Report 移到下排（左侧，占原来 Knowledge Q&A 的位置）
+       两块高度本来同源（各自的 --maprow-h / --qarow-h，值都是 860px），
+       所以对调后仍与相邻组件等高，不需要改任何高度变量。
+       id 一个都没改（#qaSlot / #emailSlot），只是换了父容器 ——
+       olbr.js 里按 id 找节点的渲染与事件绑定全部照旧。
 
        ⚠️ 地图为什么单独一个 #l0Map 容器：
        它一度和 CXO/SP 焦点卡并排（.l0 的两栏），后来焦点卡整块去掉，
        地图就成了这一行里唯一的常驻块。renderL0 只写这个容器；
-       报告文件由 renderEmailSection 写 #emailSlot，两者互不干涉。 -->
+       知识问答由 renderQaSection 写 #qaSlot，两者互不干涉。 -->
   <div class="maprow">
     <section class="map-slot" id="l0Map"></section>
     <!-- ⚠️ .panel 必须挂在这个容器**自己**身上，不能在它内部再套一层：
-         renderEmailSection 是把 emailSectionHtml() 的结果（.p-head + .canvas 两段）
-         直接写进 #emailSlot 的，内部没有 .panel 元素。
-         原来它叫 #vEmail 时，.panel 是 viewsShell 搭骨架时写在 <section> 上的。 -->
-    <section class="panel email-slot" id="emailSlot"></section>
+         renderQaSection 是把 qaSectionHtml() 的结果（.p-head + .canvas 两段）
+         直接写进 #qaSlot 的，内部没有 .panel 元素。 -->
+    <section class="panel qa-slot" id="qaSlot"></section>
   </div>
 
-  <!-- ===================== 知识问答 + OSS 门户登录（2026-10-12 加，v2 专有） =====
-       用户要求：
-         · 把 Knowledge Q&A 里的 RAG Knowledge Q&A 与 eFlow Knowledge Base 做成
-           两个页签，位置在 **GIS Map 下方**，高度与 GIS Map 相同；
-         · OSS Portal Login 的内容展开，放到 **Auto Report Files 下方**，
-           高度与上面那块相同，**与它同一行**。
-       两块合成一整行 .qarow（左右等宽各占一半，与 .maprow 同一套栅格做法）：
-         左 #qaSlot  —— Knowledge Q&A（RAG / eFlow 两页签，内嵌 iframe）
-         右 #ossSlot —— OSS Portal Login（Friends Link 全部条目，展开）
-       高度同源：与 .maprow 一样用变量控制，两块 .canvas 共用下限保证等高。
-       这两组内容从底部辅助区 #aux 里**移出**（renderAux 里跳过），避免重复入口。 -->
+  <!-- ===================== 报告文件 + OSS 门户登录 / 使用反馈 =====================
+       2026-10-21（用户要求）：
+         · OSS Portal Login 的高度减少一半；
+         · 里面的卡片每行 6 个（卡片格宽减半）；
+         · 剩下的高度展示 https://localhost/myapp/?page=feedback 的内容。
+       于是下排右列拆成两块上下叠放：
+         上 #ossSlot —— OSS Portal Login（卡片网格，高度 = --oss-h）
+         下 #fbSlot  —— 使用反馈（内嵌 my_app 的 /myapp/?page=feedback）
+       右列容器 .qarow-col 用纵向 flex：#ossSlot 固定 --oss-h，
+       #fbSlot 吃掉剩下的全部高度（flex:1），两者之间留 --s4 间距。
+       高度只有一个真相源：--qarow-h 减 --oss-h 即反馈区的高度，
+       所以「OSS 高度减半」只改一个变量，反馈区自动补齐。 -->
   <div class="qarow">
-    <section class="panel qa-slot" id="qaSlot"></section>
-    <section class="panel oss-slot" id="ossSlot"></section>
+    <!-- ⚠️ .panel 必须挂在这个容器**自己**身上（与上面 #qaSlot 同理）：
+         renderEmailSection 写进来的 emailSectionHtml() 内部没有 .panel 元素。 -->
+    <section class="panel email-slot" id="emailSlot"></section>
+    <div class="qarow-col">
+      <section class="panel oss-slot" id="ossSlot"></section>
+      <section class="panel fb-slot" id="fbSlot"></section>
+    </div>
   </div>
 
   <!-- 升级机制：v1 默认就展开，且只显示前 4 行（见 olbr.js 的 ESC_DEFAULT_ROWS）。

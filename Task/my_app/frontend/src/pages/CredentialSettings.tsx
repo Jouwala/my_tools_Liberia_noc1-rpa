@@ -17,7 +17,12 @@ interface CredentialGroup {
   secret_label: string
   has_username: boolean
   testable: boolean
+  // 2026-10-21：后端下发测试方式与测试目标，界面据此提示「点下去会发生什么」
+  test_kind?: string
+  test_target?: string
 }
+
+const WEIXIN_TEST_KIND = 'weixin_push'
 
 export default function CredentialSettings() {
   const { t } = useI18n()
@@ -99,12 +104,15 @@ export default function CredentialSettings() {
     try {
       const res = await api.post('/credentials/test', { key: g.key })
       const d = res.data || {}
+      // 后端消息里带有账号/主机/服务端版本等定位信息，一律回显，不要只显示"成功/失败"。
       if (d.status === 'ok') {
-        message.success(`${t('settings.testOk')} (${d.elapsed}s)`)
+        message.success(`${t('settings.testOk')} (${d.elapsed}s)${d.message ? '：' + d.message : ''}`, 6)
+      } else if (d.status === 'locked') {
+        message.warning(d.message, 8)
       } else if (d.status === 'unsupported') {
         message.info(d.message)
       } else {
-        message.error(d.message || t('settings.testFail'))
+        message.error(d.message || t('settings.testFail'), 8)
       }
     } catch (e: any) {
       message.error(t('settings.testFail') + ': ' + (e?.response?.data?.detail || e?.message || e))
@@ -231,13 +239,23 @@ export default function CredentialSettings() {
                         {t('settings.save')}
                       </Button>
                       {g.testable && (
-                        <Button
-                          icon={<ApiOutlined />}
-                          loading={testingKey === g.key}
-                          onClick={() => test(g)}
+                        <Tooltip
+                          title={
+                            g.test_kind === WEIXIN_TEST_KIND
+                              ? t('settings.testWeixinWarn')
+                              : g.test_target
+                                ? `${t('settings.testTarget')}: ${g.test_target}`
+                                : t('settings.test')
+                          }
                         >
-                          {t('settings.test')}
-                        </Button>
+                          <Button
+                            icon={<ApiOutlined />}
+                            loading={testingKey === g.key}
+                            onClick={() => test(g)}
+                          >
+                            {t('settings.test')}
+                          </Button>
+                        </Tooltip>
                       )}
                       <Button icon={<EyeOutlined />} onClick={() => reveal(g)}>
                         {t('settings.reveal')}

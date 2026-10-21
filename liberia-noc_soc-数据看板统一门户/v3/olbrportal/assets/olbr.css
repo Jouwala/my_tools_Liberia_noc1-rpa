@@ -487,6 +487,9 @@ main { flex: 1; padding-block: var(--s5) var(--s4); display: flex; flex-directio
    之前 main 的 gap=var(--s4)=16px 让所有区看起来"等距"，**重要区反而不突出**。
    解决：在每个 section 之前画一条 1px 浅分隔线（仅 1024px 以上），
    让 QC / KPI / 视图入口 / 地图 / 升级 / 辅助 6 块之间的"区"能被一眼看出。
+   ⚠️ 分隔线放在相邻区块之间的 gap 里，不再作为 section 的首个 flex 子项。
+      旧写法会把 line 的高度 + margin-bottom 算进 section 内容流，导致后续标题
+      比首个标题多出一段顶部空白；现在各 section 内部统一从 padding-top 开始。
    ⚠️ 只画 section、不画 div（#emailSlot 等是 div，不是 section）—— 选择器精确。
    ⚠️ 1024px 以下不画：窄屏没有"右半边空"的问题，且分隔线在小屏是噪声。
    ⚠️ 不画 #gate（登录闸门，hidden 默认）、#editBar（在 main 之外）：
@@ -497,24 +500,29 @@ main { flex: 1; padding-block: var(--s5) var(--s4); display: flex; flex-directio
       min(宽度能容纳的轨数, 栅格项数)，栅格项数每多 1 个就多 1 条轨，空出的
       那条轨表现为区块一侧的整块空白（v2 的 #aux 常态只渲染 System Admin 一组，
       实际症状是它被挤到右半列、左侧空半页；v1 是 3 个分组被挤到第 2~4 列、
-      左侧空 1/4 页）。其余块是 flex column / 单列 grid，1px 高的 ::before
-      不参与分列，所以当年没暴露。
+      左侧空 1/4 页）。其余块是 flex column / 单列 grid，绝对定位的 ::before
+      不参与分列，所以不会制造额外的内容高度。
       不用事后 .aux::before { display:none } 压制：B5 规则里两个 :not(#gate)
       合计 2 个 ID 级特异性，(0,1,1) 的单类选择器赢不了它（2026-10-12 实测无效）。
       #aux 自带 border-top 作分界，这条线对它是纯叠加；#arch 同理。 */
 @media (min-width: 1024px) {
+  main > section:not(#gate):not(#aux):not(#arch) + section:not(#gate):not(#aux):not(#arch) {
+    position: relative;
+  }
   main > section:not(#gate):not(#aux):not(#arch) + section:not(#gate):not(#aux):not(#arch)::before {
     content: "";
-    display: block;
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: calc(-1 * var(--s4));
     height: 1px;
-    margin: 0 0 var(--s4);
     background: linear-gradient(90deg,
       transparent 0%,
       var(--line) 20%,
       var(--line) 80%,
       transparent 100%);
+    pointer-events: none;
   }
-  main > section:not(#gate):first-of-type::before { display: none; }
 }
 
 /* ============================================================================
@@ -1565,19 +1573,34 @@ main { flex: 1; padding-block: var(--s5) var(--s4); display: flex; flex-directio
 
 /* 图例：两个色点 + 品牌名。用色点而不是只靠线的颜色 ——
    两条线在窄卡里可能长期贴着走，颜色差异在密集处不好认；
-   有了图例就能对照。字号取 --fs-2xs，与卡内其它小字同一档。 */
+   有了图例就能对照。字号取 --fs-2xs，与卡内其它小字同一档。
+
+   ⚠️ 用户 2026-10-20 要求「图例保留但压轻」：原 gap 10px / 色块 8×2，
+   整体块高 14.4px + margin-top 3px = 17.4px，与上面那排 26px 走势相比
+   视觉上"块大、整块总高 43.4px"显得笨重。压紧后：
+     · gap 6px / 色块 6×2 —— 横向更紧凑；
+     · **line-height 临时缩到 1**（与 --lh-solid 同值）—— 这一行是单行图文，
+       不像标题那样需要 1.25 行间呼吸；用 1.25 图例行高就是 14.375px，
+       大于色块的 2px 太多，看上去像"色块嵌在一行大字里"，这是块显得笨重的元凶。
+       这里把 line-height 局部压 1 而不是动全局 --lh-tight，因为后者同
+       时驱动卡名/标题/缩写 —— 那些场景的"单行大块多行缩进"不一样。
+     · 字号、字体、颜色不动 —— 那两项已经在所有卡内统一；
+     · min-height 由 14.4 降到 12 兜底（与新色块/gap 联动）。
+   实测后块高从 ~14.4px → ~12px，整体块（26 + 8 + 12）= 46px，
+   比原来 26 + 3 + 14.4 = 43.4px 略多 2.6px 在 margin-top 上，
+   但视觉上「图」与「图例」主体更接近（图占 57%、图例 26%）。 */
 .bf-spark-lg {
-  display: flex; align-items: center; gap: 10px; margin-top: 3px;
-  font-size: var(--fs-2xs); line-height: var(--lh-tight); color: var(--t3);
+  display: flex; align-items: center; gap: 6px; margin-top: 8px;
+  font-size: var(--fs-2xs); line-height: 1; color: var(--t3);
   white-space: nowrap; overflow: hidden;
 }
-.bf-spark-k { display: inline-flex; align-items: center; gap: 4px; min-width: 0; }
-/* 色块。宽度 8px、高 2px 的一条短横，与折线的线宽观感呼应（比圆点更像"线"）。
+.bf-spark-k { display: inline-flex; align-items: center; gap: 3px; min-width: 0; }
+/* 色块。宽度 6px、高 2px 的一条短横，与折线的线宽观感呼应（比圆点更像"线"）。
    ⚠️ 颜色写在这里，**不**靠 currentColor 从 .k-o/.k-m 继承 ——
    那两个类的 color 是留给下一条规则的（品牌名要回到正文色）。
    色值必须与上面 .l-o / .l-m 两条线的 stroke 是**同一个令牌**。 */
 .bf-spark-k > i {
-  flex: none; width: 8px; height: 2px; border-radius: 1px; background: var(--t3);
+  flex: none; width: 6px; height: 2px; border-radius: 1px; background: var(--t3);
 }
 .bf-spark-k.k-o > i { background: var(--bf-orange); }
 .bf-spark-k.k-m > i { background: var(--bf-mtn); }
@@ -1743,7 +1766,20 @@ main { flex: 1; padding-block: var(--s5) var(--s4); display: flex; flex-directio
    于是"图 + 图例"这一整块的高度六张卡相同。
    ⚠️ 只对 .qc-card--bf 生效：上面那排可用率卡的 .qc-spark 结构不同
    （它在 .qc-ext 内部），不应该被这条规则影响。 */
-.qc-card--bf .bf-spark-wrap { margin-top: auto; }
+/* ⚠️ 用户 2026-10-20 要求「保持品牌色不动，只对齐高度与线宽观感」。
+     原规则把 margin-top 设为 auto，让图吃掉"内容富余"沉到页脚正上方；
+     但实测 1582px 桌面视口下六张 bf 卡片的图顶分别落在
+     0.015625 / 33.5 / 12.75 / 0px —— 卡头/数据区微差让 auto 形同随机，
+     结果是图顶在同排内不齐，与"Network Status 那一排同水平线"的目标反着来。
+     改回固定 8px（与 .qc-spark-wrap 一致）：
+       · 同排内图顶统一（即便卡头折行导致卡本身长高也是整体往上走，不影响图顶）；
+       · 数据区末到图顶的可读间距维持 8px；
+       · 6 张卡的差异来源压回唯一：`.bf-rows` 的真实高度 —— 那是数字区的
+         排版意图，不该用 auto 掩盖。
+     窄断点（@media (max-width: 1200px)）下面那条 min-height: 74px 继续稳数据区，
+     折行后仍能让图落在「数据末 + 8px」处；这是 2026-10-01 留下的保险，
+     留着不动。 */
+  .qc-card--bf .bf-spark-wrap { margin-top: 8px; }
 /* ⚠️ 卡头与数据行在窄断点会**自己长高**，上面那条 auto 就没有富余可吃，
    图仍会被顶下去。2026-10-01 实测 420px 档第 2 行最能说明问题：
    Latency 与 Speed **卡高完全相同（269.4）、页脚也完全对齐（1919.6 / 1951
@@ -1809,8 +1845,11 @@ main { flex: 1; padding-block: var(--s5) var(--s4); display: flex; flex-directio
    .bf-spark-lg（见 olbr.js 的 metaSpark），所以这条同时管住两种卡：
    "图 + 图例"整块等高，图底自然在同一水平线上。
    ⚠️ 不再用 :has() 兜底 —— 那会让"高度从哪来"这件事分成两处（JS 一处、
-   CSS 一处），且 :has() 在旧内核上不可用。统一由渲染层给节点。 */
-.qc-card--bf .bf-spark-lg { min-height: 14.4px; }
+   CSS 一处），且 :has() 在旧内核上不可用。统一由渲染层给节点。
+   ⚠️ 用户 2026-10-20 压轻图例后此值从 14.4 降到 12 与新色块/gap 联动：
+     gap 6px + 色块 6×2 + 字号 fs-2xs (≈10.5px) 下整行实高约 11.5px，
+     留出 0.5px 给 line-height 呼吸。 */
+  .qc-card--bf .bf-spark-lg { min-height: 12px; }
 
 /* 带页脚的卡（可用率那三张）把页脚沉到卡底：
    六张并排时它们的页脚就与富卡片 Max/Avg/Min 那条线对齐，
@@ -1913,33 +1952,40 @@ main { flex: 1; padding-block: var(--s5) var(--s4); display: flex; flex-directio
 /* 报告文件槽位：容器自己就是 .panel（见 index.html 的注释 —— 内容里没有 .panel）。
    做成纵向 flex，让 .canvas 吃掉标题栏之外的全部高度，与左边的地图齐平。
    没权限 / 未登录时 ensureEmail() 会在 .canvas 里画一句提示，
-   所以容器永远不是空的，不做 :empty 收起，交给那句提示说话。 */
+   所以容器永远不是空的，不做 :empty 收起，交给那句提示说话。
+   ⚠️ 2026-10-21：Auto Report 与 Knowledge Q&A 互换位置后，本槽位从 .maprow
+   移到了 .qarow（左列），所以它的 .canvas 高度下限改由 .qarow 的 --qarow-h 给。 */
 .email-slot { display: flex; flex-direction: column; min-width: 0; }
+/* 知识问答槽位（2026-10-21 起在 .maprow 的右列）。
+   容器自己就是 .panel，内容由 renderQaSection 写入（.p-head + .canvas），
+   与 .email-slot 同一套纵向 flex。 */
+.qa-slot { display: flex; flex-direction: column; min-width: 0; }
 
 /* ============================================================================
-   知识问答 + OSS 门户登录（2026-10-12 加，v2 专有）
+   报告文件 + OSS 门户登录 / 使用反馈（2026-10-21 调整，v3 专有）
    ----------------------------------------------------------------------------
-   用户要求：Knowledge Q&A 的两个页签在 GIS Map 下方、OSS Portal Login 展开后
-   在 Auto Report Files 下方，**同一行、等高**。
-   做法与 .maprow 完全对称（左右等宽 2 栏、高度由一个变量给、两块 .canvas 共用
-   同一个下限保证等高），差别只有高度变量名与容器类名 —— 它们是两行不同的东西，
-   共用一套变量会让"只调整其中一行"变得做不到。
+   2026-10-21（用户要求）：
+     ① 「Auto Report 组件和 Knowledge Q&A 组件互换位置」——
+        Knowledge Q&A 移到上排（.maprow 右列），Auto Report 移到下排左列。
+        两块高度本来同源（--maprow-h / --qarow-h 同值 860px），对调后仍等高。
+     ② 「OSS Portal Login 的高度减少一半，卡片每行 6 个」——
+        --oss-h = --qarow-h / 2，卡片网格由 3 列改 6 列（格宽正好减半）。
+     ③ 「剩下的高度展示 /myapp/?page=feedback 的内容」——
+        下排右列 .qarow-col 纵向 flex：上 #ossSlot 固定 --oss-h，
+        下 #fbSlot 吃掉剩余全部高度，内嵌 my_app 的使用反馈页。
 
-   ⚠️ 高度曾经刻意取与 --maprow-h 相同的档位（2026-10-12：两者都是 573px）。
-   **该等高约定已于 2026-10-13 解除**：用户要求 GIS Map 改高以适配利比里亚全境，
-   而本行无需跟着变，且 .qarow 用独立变量 --qarow-h，正好使「只改其中一行」成为
-   可能 —— 这也正是当初不复用 --maprow-h 的理由（见上一段）。
-   故本行**保持 573px 不动，两行从此不等高**，这是用户 2026-10-13 的明确选择，
-   不是漏改；要恢复等高，把 --qarow-h 改成与当前 --maprow-h（860px）相同的值即可。
-
-   ⚠️ 2026-10-15（用户要求）：**恢复与 GIS Map 等高**，--qarow-h 由 573px 改回
-   860px（即与 --maprow-h 同值）。用户原话「Knowledge Q&A 和 OSS Portal Login
-   高度，改成跟 GIS Map 一样」。上一条 2026-10-13 的「不等高」是过渡状态，
-   本次按用户明确要求收回到等高；两个变量仍各自独立（保留「只调整其中一行」的能力）。 */
+   ⚠️ 高度只有一个真相源：--qarow-h（本行总高）。
+   --oss-h 用 calc(var(--qarow-h) / 2) 派生，改主档时 OSS 与反馈区自动按比例分，
+   不会出现「OSS 还是老高度、反馈区空一块」的漂移。
+   ⚠️ 2026-10-15 之前这里记过「本行与地图等高」的约定，那条现在只对
+   **--qarow-h** 成立（它仍与 --maprow-h 同值 860px）；OSS 那一格已按
+   2026-10-21 的要求减半，两者不再是同一口径。 */
 .qarow {
   display: grid; gap: var(--s4); margin-top: var(--s4);
   grid-template-columns: repeat(2, minmax(0, 1fr));
   --qarow-h: 860px;
+  /* OSS 门户登录高度 = 本行高度的一半（2026-10-21 用户要求） */
+  --oss-h: calc(var(--qarow-h) / 2);
 }
 .qarow > section { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 /* ↑ 2026-10-13 加 min-height:0：
@@ -1948,13 +1994,27 @@ main { flex: 1; padding-block: var(--s5) var(--s4); display: flex; flex-directio
 .qarow .canvas { flex: 1 1 auto; min-height: 0; }
 /* ↑ min-height 改 0：原来把 .canvas 锁死在 --qarow-h，撑破父容器；
    改为 0 后由父 .qarow > section 的 --qarow-h 提供高度底线。 */
+/* Auto Report（2026-10-21 起在 .qarow 左列）的画布高度下限：与本行 --qarow-h 同值，
+   保证它与右列的「OSS + 反馈」合计等高（.maprow 那份 .maprow .canvas 规则管不到这里）。 */
+.qarow > section.email-slot .canvas { min-height: var(--qarow-h); }
 @media (max-width: 1200px) { .qarow { grid-template-columns: minmax(0, 1fr); } }
 /* 窄屏档：420px（2026-10-15 随主档 860px 一起从 280px 复原为 420px）。
    与 .maprow 的窄屏档同值 —— 主档既然恢复等高（都是 860px），窄屏档也应对齐。
    280px 是 2026-10-12 从 573px 主档按比例（≈0.49）推来的，主档回到 860 后该比例
    不再成立；420px 与 .maprow 的取舍一致（手机屏放不下，只求"能滚"）。 */
 @media (max-width: 640px) { .qarow { --qarow-h: 420px; } }
-/* OSS 槽位：右栏不是内嵌 iframe，而是一列展开的链接。
+/* 下排右列：OSS 门户登录（上）+ 使用反馈（下）上下叠放。
+   纵向 flex + gap：#ossSlot 固定 --oss-h，#fbSlot 用 flex:1 吃掉剩余高度，
+   所以「OSS 减半」与「反馈区补齐」是一个动作的两个必然结果，不会各自漂移。 */
+.qarow-col {
+  display: flex; flex-direction: column; gap: var(--s4);
+  min-width: 0; min-height: 0;
+}
+.qarow-col > .oss-slot { flex: 0 0 var(--oss-h); height: var(--oss-h); min-height: 0; }
+/* ↑ OSS 面板本身**整体**占 --oss-h（= 本行高度的一半），含标题栏与内边距。
+   内部 .oss-grid 用 flex:1 吃掉标题栏之外剩下的高度（见下），行数不够时滚动。 */
+.qarow-col > .fb-slot { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+/* OSS 槽位：不是内嵌 iframe，而是一列展开的链接。
    让它也走纵向 flex，内容从顶部排；.canvas 之外的单列清单直接撑满。 */
 .oss-slot { display: flex; flex-direction: column; min-width: 0; }
 /* 2026-10-14 删除：原「登录凭据」提示条 .qa-cred 系列
@@ -1963,8 +2023,11 @@ main { flex: 1; padding-block: var(--s5) var(--s4); display: flex; flex-directio
    页签上再无凭据可展示；olbr.js 的 qaCredHtml()/loadQaCred() 与磁盘上的
    assets/_local-credentials.js 已一并移除。 */
 /* OSS 门户登录的卡片网格（2026-10-12 改：原 .oss-list 行列表 → 卡片）。
-   高度锁到 --qarow-h 与左侧 Q&A 画布等高；条目少时卡片自身撑满、不留大片空白
-   （卡片 min-height 给足，行高由 align-content:stretch 分摊）。
+   ⚠️ 2026-10-21（用户要求「OSS Portal Login 的高度减少一半（卡卡片格宽也减少一半，
+   变成每行 6 个卡片）」）：
+     ① 容器高度由 --qarow-h 改为 **--oss-h**（= 本行高度的一半）；
+     ② 列数由 3 改为 **6**（格宽正好是原来的一半，两两成对、不多不少）。
+   行高仍由 grid-auto-rows:auto 决定（卡片取自然高度），行数多时靠 overflow:auto 滚动。
 
    ⚠️ 2026-10-15（用户要求）：「每行改为 3 个卡片平分宽度，列自动高度」。
    两条改动：
@@ -1972,27 +2035,32 @@ main { flex: 1; padding-block: var(--s5) var(--s4); display: flex; flex-directio
         见 olbr.js ossSectionHtml() 里同步删掉的行内 grid-template-columns；
      ② 行高由 grid-auto-rows: 1fr（钉在容器高度上，3 张以上会被压扁）改回 auto ——
         卡片高度改由**自身内容 + padding** 决定，不再被容器摊平。
-   这样 3 列铺开、行数随卡片数自然增长，容器高度不够时靠 overflow:auto 滚动。 */
+   那条「3 列」的约定已被本次的「6 列」取代（列数写在 CSS 里，olbr.js 不再写行内样式）。 */
 .oss-slot .oss-grid {
-  flex: 1 1 auto; height: var(--qarow-h); min-height: var(--qarow-h);
-  max-height: var(--qarow-h); overflow: auto;
+  /* 高度：吃掉 OSS 面板里标题栏之外的全部空间（父 .oss-slot 已定死 --oss-h）。
+     ⚠️ 不再写死 --qarow-h —— 2026-10-21 起 OSS 只占本行高度的一半。 */
+  flex: 1 1 auto; height: auto; min-height: 0; max-height: none; overflow: auto;
   margin-top: var(--s3); border: 1px solid var(--line); border-radius: var(--r2);
   background: var(--surface);
-  /* 每行 3 个，等宽平分。minmax(0,1fr) 而非 1fr：1fr 的最小尺寸是 auto，
+  /* 每行 6 个，等宽平分（2026-10-21：原 3 列，格宽减半）。
+     minmax(0,1fr) 而非 1fr：1fr 的最小尺寸是 auto，
      长卡片名会把列撑破（与全页其它栅格同一条注意事项）。 */
-  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+  display: grid; grid-template-columns: repeat(6, minmax(0, 1fr));
   /* 行高 auto（2026-10-15 改）：由卡片自身内容决定，不被容器高度摊平。
      原先的 grid-auto-rows:1fr 会把行数相对容器高度强行等分，3 列下卡片超过
      2 行时每行被压得很扁；改 auto 后每行拿自己的自然高度。
-     ⚠️ 容器仍是固定高 --qarow-h（与左侧 Q&A 等高），行数多时溢出走上面的
-     overflow:auto 滚动，与 .oss-card 的 height:100% 一起改（见该规则）。 */
+     ⚠️ 容器高度是 --oss-h（本行高度的一半），行数多时溢出走上面的
+     overflow:auto 滚动。 */
   grid-auto-rows: auto;
-  /* 窄栏 / 窄屏下 3 列会太挤，这里不再用 auto-fill 兜底（列数是明确的 3），
+  /* 窄栏 / 窄屏下 6 列会太挤，这里不再用 auto-fill 兜底（列数是明确的 6），
      改由下面的 @media 断点降档。 */
   gap: var(--s2); padding: var(--s3);
 }
-@media (max-width: 1200px) { .oss-slot .oss-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@media (max-width: 640px)  { .oss-slot .oss-grid { grid-template-columns: minmax(0, 1fr); } }
+/* 窄屏降档：1200px 以下整行变单列、面板变宽，仍用 6 列；再窄才逐级降到 4 / 2 列，
+   保证卡片名不至于被挤成一行一个字。 */
+@media (max-width: 1200px) { .oss-slot .oss-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); } }
+@media (max-width: 900px)  { .oss-slot .oss-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+@media (max-width: 640px)  { .oss-slot .oss-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .oss-card {
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
   padding: 12px 10px; text-align: center; text-decoration: none;

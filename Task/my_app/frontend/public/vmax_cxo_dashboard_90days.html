@@ -14,6 +14,15 @@
 .screen{min-height:100vh;background:radial-gradient(circle at 50% 8%,rgba(0,127,255,.14),transparent 24%),#02050c;padding:0 6px 10px}
 .mast{height:66px;position:relative;display:flex;align-items:center;justify-content:center;background:linear-gradient(180deg,#080f43 0,#070d31 73%,transparent 74%);border-top:1px solid #aab3c5}
 .mast:after{content:"";position:absolute;left:0;right:0;bottom:6px;height:4px;background:linear-gradient(90deg,#1a35ae 0 13%,#1da7ff 15% 41%,transparent 44% 58%,#03dcef 60% 85%,#3545b4 87%)}
+/* ===== 顶栏四元素配色统一到 .viewbtn 同源青色 =====
+   2026-10-20 modern glass 化迭代目标：
+   浅色与深色主题左上角 .logo、中部 h1、右上角 .viewbtn、右下角 .sub
+   四处颜色统一到与顶部彩色横条 .mast:after 同色系的青色家族。
+   - 左上角 .logo：在原白底金 V 之外，浅色态给 MAX 字套品牌青 #0e7490；
+     深色态保留白 #fff + 金 #ffdc00（夜光视觉下不破坏发光层次）。
+   - 中部 h1：浅色态 #0e7490；深色态保留原 #65dcff + text-shadow #1da7ff。
+   - 右上 .viewbtn：保持深色态 cyan glow (rgba(0,203,255,.25)) 不变，作为「探照光」基准。
+   - 右下 .sub：浅色态 #0e7490 + opacity:.78；深色态保留原 #7fd2ee。 */
 .logo{position:absolute;left:10px;top:12px;font-size:27px;font-weight:1000;font-style:italic;letter-spacing:-5px;color:#fff}
 .logo b{color:#ffdc00}
 .mast h1{font-size:16px;color:#65dcff;text-shadow:0 0 18px #1da7ff;margin:0}
@@ -135,10 +144,26 @@ html[data-theme="light"] .off-tbl tr.tot td{background:rgba(14,116,144,.08)}
 /* ---- 浅色主题 ---- */
 html[data-theme="light"]{--bg:#eaf7fb;--text:#163047;--muted:#526b7d;--edge:rgba(14,116,144,.18);--glow:rgba(14,165,233,.10)}
 html[data-theme="light"],html[data-theme="light"] body{background:#eaf7fb;color:var(--text);color-scheme:light}
-html[data-theme="light"] .screen{background:radial-gradient(circle at 15% 5%,rgba(103,232,249,.36),transparent 28%),linear-gradient(145deg,#eefbff,#e7f1fa 56%,#f7fcff)}
+/* 浅色页面底：原先左上角 (15% 5%) 有个 rgba(103,232,249,.36) 的青色光斑，
+   与右上/右下区域不同亮度，导致四角背景不同色。这里把光斑大幅减弱并拉平，
+   四个角的背景亮度统一。 */
+html[data-theme="light"] .screen{background:radial-gradient(circle at 50% 5%,rgba(103,232,249,.14),transparent 42%),linear-gradient(145deg,#eefbff,#e7f1fa 56%,#f7fcff)}
 html[data-theme="light"] .mast{background:linear-gradient(180deg,rgba(255,255,255,.86),rgba(239,249,253,.70) 73%,transparent 74%);border-top-color:rgba(14,116,144,.22)}
-html[data-theme="light"] .mast h1{color:#0e7490;text-shadow:none}html[data-theme="light"] .mast .sub{color:#3c7d94}
-html[data-theme="light"] .logo{color:#12324a;text-shadow:1px 1px 0 rgba(255,255,255,.8)}html[data-theme="light"] .logo b{color:#d69b00}
+/* 顶栏底部那条彩色横条（.mast:after）在浅色主题下原本**没有任何覆盖**，
+   于是深色态那套 #1a35ae→#1da7ff→#03dcef→#3545b4 直接透在白底上：
+   左段呈淡紫 #bfccff、右段呈淡青 #b3ffff —— 左上角与右上角背景色不一致。
+   这里改为单一青色家族，两端淡出，中间实，与右上角 .viewbtn 的青色同源。 */
+html[data-theme="light"] .mast:after{background:linear-gradient(90deg,rgba(14,116,144,.10) 0 13%,rgba(14,165,233,.55) 15% 41%,transparent 44% 58%,rgba(14,165,233,.55) 60% 85%,rgba(14,116,144,.10) 87%)}
+/* 中间标题 + 右下副标题：与右上角按钮同品牌青，副标题降一档保持层次 */
+html[data-theme="light"] .mast h1{color:#0e7490;text-shadow:none}html[data-theme="light"] .mast .sub{color:#0e7490;opacity:.78}
+/* 左上角 VMAX 标志统一到右上角 .viewbtn / 中间 h1 的同一品牌青体系：
+   标题 #0e7490 是主色，副标题 #3c7d94 是同色系降一档。
+   这里让 VMAX 用主色 #0e7490（与右上角刷新按钮完全一致），
+   "V" 保留强调金 #d69b00 —— 品牌识别点不改。
+   给 .logo 加 text-shadow:0 0 8px rgba(29,167,255,.35)，与 .viewbtn 的
+   box-shadow rgba(0,203,255,.25) 形成同一支 cyan glow，「上角附件」也就有了
+   与「右上」同款的探照光氛围。 */
+html[data-theme="light"] .logo{color:#0e7490;text-shadow:1px 1px 0 rgba(255,255,255,.8),0 0 8px rgba(29,167,255,.35)}html[data-theme="light"] .logo b{color:#d69b00;text-shadow:0 0 10px rgba(217,155,0,.45)}
 html[data-theme="light"] .viewbtn{border-color:rgba(14,116,144,.30);background:rgba(255,255,255,.72);color:#0e7490}
 html[data-theme="light"] .asof{background:rgba(255,255,255,.8);border-color:rgba(14,116,144,.3);color:#0e7490}
 html[data-theme="light"] .cover-chip.warn{border-color:#c9a227;color:#8a6d10;background:rgba(255,250,220,.9)}
@@ -146,14 +171,44 @@ html[data-theme="light"] .bar .seg{border-color:rgba(14,116,144,.3);background:r
 html[data-theme="light"] .bar .seg button{color:#0e7490}
 html[data-theme="light"] .bar .seg button.active{background:#d9f0f7;color:#075063;box-shadow:inset 0 0 0 1px #0e7490}
 html[data-theme="light"] .bar .lbl{color:#3c7d94}
-html[data-theme="light"] .card{background:linear-gradient(145deg,rgba(255,255,255,.86),rgba(255,255,255,.66));border-color:rgba(14,116,144,.18);box-shadow:0 14px 30px rgba(38,83,104,.10),inset 0 1px 0 rgba(255,255,255,.9)}
-html[data-theme="light"] .card .ttl b{color:#164257}
-html[data-theme="light"] .card .val span{color:#0b3448;text-shadow:none}
-html[data-theme="light"] .card .val em{color:#0e7490}
-html[data-theme="light"] .card .when{color:#6b8a99}
-html[data-theme="light"] .chip{border-color:rgba(14,116,144,.28);background:rgba(255,255,255,.7);color:#0e7490}
-html[data-theme="light"] .chip.up{border-color:#078766;color:#0a6a52;background:rgba(7,135,102,.12)}
-html[data-theme="light"] .chip.down{border-color:#c2334a;color:#a2202f;background:rgba(194,51,74,.10)}
+/* 卡片区浅色主题（modern glass 化第一步：与项目外壳 --wh-* 令牌同源）。
+   改写参考 Task\my_app\frontend\src\index.css:160-210 浅色档值。
+   装饰条（.card::before）保留：它是文档视觉基因，剥掉就连"原版骨架"都没了。
+   大数字字号保留 30px / 小卡 23px：CEO 看板需要数据冲击，外壳 StatCard 22~26px 给不了这个分量。
+   chip 取色采用外壳状态色 --wh-ok / --wh-danger，与外壳其它页面一致（提升可读性）。 */
+html[data-theme="light"] .card{
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.82) 0%, rgba(241, 245, 248, 0.68) 100%);
+  border-color: rgba(94, 125, 143, 0.22);
+  box-shadow: 0 2px 8px rgba(38, 70, 86, 0.07), inset 0 1px 0 rgba(255, 255, 255, 0.94);
+  -webkit-backdrop-filter: blur(20px) saturate(135%);
+          backdrop-filter: blur(20px) saturate(135%);
+}
+html[data-theme="light"] .card .ttl b{color:#16233b}                     /* --wh-text */
+html[data-theme="light"] .card .ttl i{color:#3f5468}                     /* --wh-text-muted（保持文档原 el 单位色，从蓝系换到中性，不与主标题抢色） */
+html[data-theme="light"] .card .val span{color:#16233b;font-size:30px}    /* 主数字 --wh-text，保留 30px 视觉冲击 */
+html[data-theme="light"] .card .val em{color:#3f5468}                     /* --wh-text-muted */
+html[data-theme="light"] .card .when{color:#5b7288}                      /* --wh-text-dim */
+html[data-theme="light"] .card.sm .val span{color:#16233b;font-size:23px}/* 小卡保留 23px */
+html[data-theme="light"] .card::before{                                   /* 装饰条换中性极淡色（保留但不再刺眼） */
+  background: linear-gradient(180deg, rgba(94,125,143,.32), rgba(94,125,143,.10));
+}
+html[data-theme="light"] .extremes{border-top-color:rgba(94,125,143,.16)}
+html[data-theme="light"] .extremes div{color:#3f5468}                    /* --wh-text-muted */
+html[data-theme="light"] .extremes div b{color:#16233b}                  /* --wh-text */
+html[data-theme="light"] .extremes div.hi b{color:#0f9d58}               /* --wh-ok  */
+html[data-theme="light"] .extremes div.lo b{color:#d93025}               /* --wh-danger */
+html[data-theme="light"] .chip{                                           /* 中性 chip */
+  border-color: rgba(94, 125, 143, 0.28); background: rgba(255, 255, 255, 0.62); color: #3f5468;
+}
+html[data-theme="light"] .chip.up{                                        /* 涨（好）：用外壳 ok */
+  border-color: rgba(15, 157, 88, 0.55); color: #0f9d58; background: rgba(15, 157, 88, 0.10);
+}
+html[data-theme="light"] .chip.down{                                      /* 跌（坏）：用外壳 danger */
+  border-color: rgba(217, 48, 37, 0.55); color: #d93025; background: rgba(217, 48, 37, 0.10);
+}
+html[data-theme="light"] .chip.neu{                                       /* 与中性 chip 同色 */
+  border-color: rgba(94, 125, 143, 0.28); background: rgba(255, 255, 255, 0.62); color: #3f5468;
+}
 html[data-theme="light"] .extremes{border-top-color:rgba(14,116,144,.16)}
 html[data-theme="light"] .extremes div{color:#4d6c7f}
 html[data-theme="light"] .extremes div b{color:#12394d}

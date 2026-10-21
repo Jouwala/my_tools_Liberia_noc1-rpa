@@ -129,11 +129,14 @@ def reveal_credential(key: str, request: Request):
 
 @router.post("/test")
 def test_credential(body: CredentialTestRequest, request: Request):
-    """连接测试：使用当前生效的凭据尝试登录。
+    """连接测试：使用当前生效的凭据尝试登录/连通。
 
-    支持 zte_ume / ipran_ume / ccn_ume / eflow（均为 ZTE OAuth2 RSA 登录）
-    以及 rais（AES 加密密码 POST verify4web.serv 的直接鉴权）；
-    其余组返回"暂不支持自动测试"。
+    2026-10-21 起**全部凭据组都可测**：
+      - `test_kind` 为 `zte_oauth2` / `rais` 的走本函数下方的既有路径
+        （auth_manager，带本地熔断冷却提示与终态错误判定）；
+      - 其余 kind（vmax_portal / gbase / ssh / ssh_via_control / ume_keystone /
+        umc_portal / sftp / smtp / ews / weixin_push）统一派发到
+        backend/services/credential_tester.py。
     """
     en = _is_en(request)
     t0 = time.time()
@@ -147,6 +150,30 @@ def test_credential(body: CredentialTestRequest, request: Request):
             "message": ("Automatic connection test is not supported for this system. Save and check the next task run." if en
                         else "该系统暂不支持自动连接测试，请保存后观察下次任务执行结果"),
         }
+
+    # ---- 非 ZTE OAuth2 的组：派发到 credential_tester（2026-10-21）----
+    # 放在 auth_manager 路径之前，避免把 SSH / 数据库 / 邮件 / 推送这类组
+    # 误当成 ZTE 网管去打 OAuth2（gp_ran_control 此前就是这个假阴性）。
+    if (group.get("test_kind") or "") not in ("zte_oauth2", "rais", ""):
+        try:
+            user, pwd = get_credential(
+                group["key"], group["default_user"], group["default_secret"],
+            )
+        except Exception as e:
+            logger.warning(f"[CRED] 读取凭据失败: {body.key}: {e}")
+            user, pwd = group["default_user"], group["default_secret"]
+        try:
+            from backend.services.credential_tester import run_test
+        except Exception as e:
+            logger.warning(f"[CRED] credential_tester 导入失败: {e}")
+            return {
+                "status": "fail", "key": body.key,
+                "message": (f"Test module unavailable: {e}" if en else f"测试模块不可用: {e}"),
+                "elapsed": round(time.time() - t0, 2),
+            }
+        res = run_test(body.key, group, user, pwd, en)
+        res["elapsed"] = round(time.time() - t0, 2)
+        return res
 
     try:
         user, pwd = get_credential(

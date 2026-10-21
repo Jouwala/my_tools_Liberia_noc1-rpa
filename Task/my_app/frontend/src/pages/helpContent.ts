@@ -250,6 +250,8 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
       desc: '站点地图：告警/工单在地图上的分布、拓扑线、区域面与多维筛选（历史/工单口径）。',
       usage: [
         '区域下拉 + 图层 Tag 开关筛选；图例点击可隐藏该类图层；时间支持分段切换与自定义区间',
+        '「高级筛选」面板第一格是「站点名称」输入框：按名称片段模糊匹配（不区分大小写），其余是区域/等级/站型/FME 等下拉；',
+        '筛选后统计同步变化：站点总数与 ERA/COOL/NORMAL 分档、地图图例、县块颜色与县名标注、右上角「MAINTENANCE ALERTS」区域排名条都按筛选后的站点重新统计，不再显示全量数字；',
         '点站点打开右侧抽屉，四个页签明细可搜索、可导出 Excel',
         '「链路利用率」开关（默认开）：把 MW 微波实时页同一 15 分钟槽位的链路利用率叠加到地图链路线上，按 4 级着色（>80% 紧急 / ≥70% 重要 / ≥60% 次要 / <60% 正常），线越粗表示利用率越高',
         '点链路线可看该链路的最高/发送/接收利用率与匹配到的 MW 站点；显示「无 KPI 数据」的链路表示未匹配到实时指标（保持 KML 原线色），不是 0%',
@@ -257,8 +259,15 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
       ],
     },
     realtime_alarm: {
-      desc: 'GIS 地图的实时模式：当前活跃告警站点的地图分布（带红色「实时」标识）。',
-      usage: ['操作与 GIS 地图页一致', '数据来自 eFlow 活动告警（eflow_active_alarm），每分钟同步一次'],
+      desc: 'GIS 地图的实时模式：当前活跃告警站点的地图分布（带红色「实时」标识），含根因聚合分析。',
+      usage: [
+        '操作与 GIS 地图页一致',
+        '数据来自 eFlow 活动告警（eflow_active_alarm），每分钟同步一次',
+        '「根因聚合分析」卡片：把当前高级筛选范围内的断站聚成簇 —— 拓扑根因（上游站断，其传输链下挂站跟着断）/ 同因聚集（无链路站按告警问题 + 10 分钟时间窗聚集），并给出根因类型、受影响站数与置信度；点条目可看成员明细与证据（链路路径、时间窗、eFlow 影响面），成员站名可点开下钻抽屉',
+        '标题括号里的「已归因/总」与 Site Stats 同为**站数**单位：已归因 = 进入共享根因簇的站数；其余是孤立故障（上游没告警、没有同窗同伴，根因就是它自己）—— 点脚注可打开未归因**告警明细**（与点击 Alarm Stats 条目打开的是同一张项目默认明细表：站点/TT/优先级/告警时间/时长/超时），对地图逐点核验',
+        '根因站可能落在高级筛选范围之外（标「范围外」）—— 断站原因往往在当前视野之外，属正常且有价值的输出',
+        '「AI 解读」按钮：用自备 LLM Key 生成自然语言结论（Key 仅存本机浏览器）；AI 不可用时自动降级为本地规则结论并标注，不影响簇列表本身',
+      ],
     },
     alarmManagement: {
       desc: '宕站（Site Outage）监控看板：以「站点是否宕」为视角，ERA / Regular / ALL 三个视图。',
@@ -638,6 +647,8 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
       desc: 'Site map: alarm/ticket distribution, topology lines, region polygons and multi-dimension filters (history/ticket view).',
       usage: [
         'Region dropdown + layer tags to filter; click a legend item to hide that layer; time supports segments and custom range',
+        'The first cell of the "Advanced Filter" panel is a "Site Name" input: fuzzy match on a name fragment (case-insensitive); the rest are dropdowns for region/grade/form/FME etc.',
+        'Statistics follow the filter: site total and the ERA/COOL/NORMAL grades, the map legend, the county block colors and county labels, and the "MAINTENANCE ALERTS" county ranking panel are all recomputed from the filtered sites instead of showing the full-set numbers;',
         'Click a site to open the right drawer: four tabs, searchable, exportable to Excel',
         'The "Link Utilization" switch (on by default) overlays MW microwave link utilization from the same 15-min slot as the MW Realtime page, colored on a 4-level scale (>80% critical / ≥70% major / ≥60% minor / <60% healthy); thicker lines mean higher utilization',
         'Click a link to see its max/Tx/Rx utilization and the matched MW sites; a link showing "No KPI data" means it could not be matched to realtime metrics (it keeps its original KML color) — that is not 0%',
@@ -645,8 +656,15 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
       ],
     },
     realtime_alarm: {
-      desc: 'Realtime mode of the GIS map: current active-alarm sites on the map (red "realtime" badge).',
-      usage: ['Interactions are identical to the GIS Map page', 'Data comes from eFlow active alarms (eflow_active_alarm) synced every minute'],
+      desc: 'Realtime mode of the GIS map: current active-alarm sites on the map (red "realtime" badge), with Root Cause Aggregation.',
+      usage: [
+        'Interactions are identical to the GIS Map page',
+        'Data comes from eFlow active alarms (eflow_active_alarm) synced every minute',
+        'The "Root Cause Aggregation" card clusters the down sites within your current advanced-filter scope — topology roots (an upstream site is down, so the sites hanging off its link path go down with it) and same-cause clusters (sites without a link path grouped by alarm problem + a 10-minute time window), each with cause type, affected-site count and a confidence score; click an entry to see member details and evidence (link paths, time window, eFlow impact list); member site names open the site drill-down drawer',
+        'The "attributed/total" counter in the title uses the same **site** unit as Site Stats: attributed = sites that share a root cause with peers; the rest are isolated failures (upstream healthy, no same-window peers — the site itself is its own cause) — click the footnote to open the unattributed **alarm details**, the same project-standard detail table as clicking an entry in Alarm Stats (site / TT / priority / alarm time / duration / overdue), and verify against the map',
+        'A root site may fall outside your filter scope (flagged "Out of scope") — outage causes often sit outside your current view; this is expected and is exactly the value of the analysis',
+        'The "AI Insights" button generates a natural-language conclusion using your own LLM key (stored only in your browser); when AI is unavailable it degrades to a local rule-based summary and is clearly marked — the cluster list itself is unaffected',
+      ],
     },
     alarmManagement: {
       desc: 'Site Outage Monitor board: watches whether sites are down, with ERA / Regular / ALL views.',

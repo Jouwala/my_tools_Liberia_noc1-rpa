@@ -368,6 +368,23 @@ ZXMW 微波网络拓扑与带宽利用率 NOC 看板（`MwUmeDashboard.tsx:4-8`�
     - **实测**：三档候选恰为 `['ERA','COOL','NORMAL']`；本站库无脏值，204 + 64 + 559 = 827，与分档 Tag 完全一致。
     - **⚠️ 验收时别拿「筛出的可见站数」直接对 `site_type_stats`**：`Total Sites: x/827` 里的 `x` 是**筛选 ∩ 图例可见**的交集。图例默认隐藏「正常 (723)」那一档，所以刚进页面时全量也只渲染 104 个 marker 而不是 827。筛 ERA 得到 20、COOL 14、NORMAL 70 —— 三档互不相同即证明筛选在按档位生效（本次验收就是这么断言的），但**不等于** 204/64/559。
   - **改这个下拉时的两个 DOM 坑**（写验收脚本会撞上）：① 这个 antd 版本里**没有** `.ant-select-selector` 内层元素，点它必然超时，直接点 `.ant-select`；② label 文字是 `.ant-select` 的**兄弟**节点，Playwright 的 `has_text`（只匹配元素自身文本）找不到它，得按 `.ant-select` 的下标定位。
+  - **高级筛选里的「站点名称」输入框（2026-10-21 用户要求「添加站点名字的过滤」）**：面板**第一格**是一个 `Input`（占位文案 `gis.filter.siteName`），不是下拉。
+    - **为什么是输入框而不是下拉**：站点有 800+ 个（实时告警页实测 115 个有告警、全量 827 个），把候选值全塞进 `filter_options` 会让响应体翻几倍，且在长列表里翻找某个站名比直接输入慢得多。其余筛选项都是**枚举**（有限几十个值），站点名不是。
+    - **为什么在前端筛而不是后端**：站点列表本来就全量下发到前端（`sites`），客户端筛选即时响应、无需往返；后端也不必为一个模糊文本查询再扫一遍站点表。
+    - **匹配口径 = 不区分大小写的子串匹配**（`siteNameKey` / `siteNameFilter`，见 `GISMap.tsx`），与其它筛选项的**精确相等**（`site[key] !== val`）**刻意不同** —— 站点名是自由文本，精确相等几乎不可能手打对；用户只记得 "Marshall" 时应当能命中 "Qcell LMTI (Marshall)"。归一化只做 **trim + 转小写**，**不去非字母数字字符**：括号/连字符是名字的一部分，粗暴去掉会让 "LMTI Marshall" 命中不到 "Qcell LMTI (Marshall)"，反而制造「输了却搜不到」的假象。
+    - **独立 state、刻意不进 `selectedFilters`**：① 匹配口径不同（下拉=枚举 vs 输入=子串）；② 不进 `selectedFilters` 就不会被 `visiblePersonNames` 的「人员维度优先」分支误判（只有 `fme_name` / `supervisor` 是人员维度）；③ 但**要计入 `activeFilterCount`**（徽标）并**在「清除筛选」时一并复位**，否则输入了站名徽标不动、文本还留在框里，用户会以为功能坏了。
+    - **实测**（`realtime_alarm` 页，115 个告警站）：输入 `zo` → `Total Sites: 3/115`（`Zolowo` / `Cotton Tree(Joezohn)` / `Zortapla`）；输入 `ganta` → `0/115`（该页无此站）；输入 `ZOLOWO` → `1/115`（大小写不敏感生效）；「清除筛选」后徽标消失、输入框清空、总数回到 115。
+    - **人员图层跟随**：站点名筛选**算作"有筛选"**（`visiblePersonNames` 的 `hasAnyFilter` 含 `siteNameFilter`），人物图层会跟着缩到可见站点上，否则会剩下与可见站点无关的人。
+    - **`?page=gis` 全量页同样生效（2026-10-21 用户要求「同样完成 gis 页面的站点名字筛选和过滤统计适配」）**：站点名筛选框在两种模式下是**同一段 JSX**，所以 `?page=gis` 打开高级筛选面板同样有第一格「站点名称」输入框。**实测**（`?page=gis&mwembed=1&embed=1&gisShift=1&lang=en`，824 站）：输入 `Z` → `Total Sites: 58/824`、ERA/COOL/NORMAL 变 `21/10/27`、图例变 `Realtime Alarm (3)` / `VIP Site (3)` / `Normal (55)`、县排名条只剩 3 个县有告警（Grand Cape Mount 01 / Lofa 01 / Montserrado 01，`3 / 15 counties with alarms`）。「清除筛选」后图例与基线逐项一致（824 站、`Realtime Alarm (30)` / `VIP Site (50)` / `Normal (774)`）。
+    - **⚠️ gis 页的图例数字曾被**双重计数**（已修，2026-10-21）**：`categoryCounts` 里同时有 `counts[getSiteCategory(s)]++`（颜色分桶，`vip`/`normal` 是它的两个桶）与独立的 `counts.vip++` / `counts.normal++`（等级组）—— **写的是同一个键**，于是 gis 页实测 VIP 显示 **99**、Normal 显示 **1539**（真实 50 / 774）。
+      - **修法不是"删掉等级组"，而是"让两套口径写不同的键"**（最终实现收敛为单一函数 `countLegend(list)`，`categoryCounts` = `countLegend(sites)`、`legendScoped` = `countLegend(criteriaSites)`）：
+        ① **告警状态组**（`rt_alarm` / `his_alarm` / `rt_alarm_overdue` / `rt_alarm_ontime`）走**颜色分桶**（`getSiteCategory`）—— 必须与地图圆点一一对应；
+        ② **关联工单组**（`tt` / `wo`）与**站点等级组**（`vip` / `normal`）走**独立条件计数** —— 描述"这个站具备什么属性"，与颜色无关；`vip` = `vip_site` 为 `Y`/`Yes`，`normal` = 其余全部（**互斥且完备**）。
+      - **验收断言**：`VIP Site` + `Normal` === 站点总数（gis 页基线 50+774=824；筛选 `Z` 后 3+55=58；实时页 1+30=31、筛选后 0+3=3）。
+      - **副作用（已接受）**：`normal` 的口径从「无告警且无工单」改为「非 VIP 站」—— 前者会把有历史告警的站也算成"正常"，与图例"站点等级"这一定位不符。图例 ⓘ 口径说明（`i18n` 的 `gis.legendNote`）已同步写明三组口径与"不能横向相加"，zh/en 两份都改过。
+      - **地图侧的隐藏逻辑没动**：`hiddenLegends` 初值仍是 `new Set(['normal'])`，`filteredSites` 仍按 `getSiteCategory` 过滤 —— 那是**呈现开关**（画哪些点），与统计口径（关心哪些站）刻意分开。
+    - **⚠️ 县告警数改为**跟随筛选**（2026-10-21）**：原先县块填充色、县名标签、`MAINTENANCE ALERTS` 排名条用的是后端 `/gis/county-boundaries` 的**静态** `alarm_site_count`（全量口径），用户一筛选就与地图上实际画出的站点对不上。现在三者统一改读前端派生量 `scopedCountyAlarms`（按 `criteriaSites` 现场汇总 `rt_alarm_count > 0` 的站点数），三处**同源**、且**跟随筛选**。归一化用 `countyKey()`（去首尾空白 + 内部连续空白压成一个 + 转小写），与后端 `re.sub(r"\s+", " ", name.strip()).lower()` 同一套规则 —— 库里同时存在 `River Cess` 与 `River cess` 两种写法，不归一会漏掉 9 个站。
+      - **`regionRanking` / `countyLabels` 两个 memo 因此必须声明在 `criteriaSites` 之后**（原声明位置在 `criteriaSites` 之前，会触发 JS TDZ `ReferenceError`）。改动这段时注意声明顺序，别只挪数字不改位置。
 
 - **地图自适应铺满页面（2026-09-28 用户要求：「地图组件不能自适应铺满页面吗，现在下面有大量空白」）**。原先地图高度写死 `calc(100vh - 290px)`，留白从 160px 到 198px 不等。
   - **写死高度必然错，因为要减掉的那部分高度是变化的**：工具栏高度随窗口宽度变（窄屏时第一行按钮/Tag 换行，多出一整行）。实测地图顶边在 `1600×950` 下是 `93px`、在 `1366×768` 下是 `129px`，而代码对两者都减 `290`：
@@ -797,23 +814,74 @@ React 自身驱动（其 cleanup 顺序是「子先父后」，子图层先 remo
 页面：`frontend/src/pages/PersonMap.tsx`（地图视图在 `pages/personmap/PersonMapView.tsx`）。
 
 **看什么**：现场人员的登记位置（小人地图针）+ 每个人员**实际处理过工单的站点**分布，
-以及按人员的 WO / TT 统计。参考实时告警地图的版式（筛选条 → 说明横幅 → KPI → 地图 → 统计图 → 表格）。
+以及按人员的 WO / TT 统计与每人的未关闭 PMT 数。参考实时告警地图的版式（筛选条 → 说明横幅 → KPI → 地图 → 统计图 → 表格）。
 
-**交互**：点人员选中 → 画其站点连线、地图下钻到该人、KPI 的「负责站点」显示其站点数与告警站数；
-点地图空白处取消选中。表格行点击与地图选中双向联动。
+**分栏**（`PersonMap.tsx` 的 ③④ 段）：**左 = 地图，右 = KPI 2×2 + 两张统计图**。2026-10-19 参照 `realtime_alarm` 做成左右分栏（当时地图在右），2026-10-21 用户要求对调。右列宽 `flex: 0 0 24rem`（18~30rem 之间浮动），左列 `flex: 1` 吃满剩余宽度；两列靠 `align-items:stretch` 等高，地图卡片走 card → body → 容器三级 flex 链撑高。`?maponly=1` 只留地图单列，不受分栏影响。
 
-**两个口径决定（勿擅自改回）**：
+**交互**：点人员 → 选中 + **从右侧滑出下钻抽屉**（压在右列卡片上，不遮地图）；
+**点地图空白处、或点地图之外的任何地方**（右侧卡片 / 下方表格 / 筛选条 / 页面背景）都取消选中并关抽屉。
+后者由 `frontend/src/useClearOnOutsideClick.ts` 负责（2026-10-21 用户要求）—— 此前只有点在地图上才取消，
+点别处选中态一直挂着。该 hook 放行四类点击：`.leaflet-container`（归 Leaflet 自己判）、
+`.ant-drawer`（抽屉里搜索翻页切页签都正常）、`.ant-table-row`（行本身就是"选中另一个人"的入口，
+React 的 onClick 先跑、document 监听后跑，不排除会刚选中又被清掉）、`.dcm-overlay`
+（`DraggableClickModal` 刻意"点遮罩不关闭"）。
+表格行点击与地图选中双向联动（仅**有坐标**的行可点，无坐标的人走「查看工单」按钮）。
+
+**人员针的常驻徽标**（`PersonMapView.tsx`）两行：第一行姓名 + 脱敏电话；第二行
+`负责站点数 | 未关闭 WO 数 | 未关闭 PMT 数`（2026-10-21 用户指定这个顺序）。
+PMT 取不到时显示 `—` 而不是 0（AGENTS.md 三.6），所以 `pmt_open` 的类型是 `number | null`。
+**各人徽标求和 ≠ 全量**，去向见下表第三行，已在筛选条的 ⓘ 里写明。
+
+**站点三档配色**（2026-10-21 用户指定）：**红 = 该站当前有实时告警 ＞ 浅蓝 = 该人在此站有未关闭 WO ＞ 绿 = 负责但当前没有未关闭 WO**。
+- 判定收在**一处**（`PersonMapView.tsx::siteColor`），**圆点与连线共用** —— 用户同时要求「连线颜色跟站点同色」，两处各写一套就会出现「线绿点蓝」这种看着像 bug 的画面。
+- 配色是**实值十六进制**且分深浅两套（`SITE_TONE`）：Leaflet 的 CircleMarker / Polyline 走 SVG 呈现属性，解析不了 `var(--wh-*)`，与 ECharts 同一约束（AGENTS.md 三.3 取色表）。
+- 「未清除」不再单独占一档颜色（用户只给了三色），改由**半径**表达：告警站 8px ＞ 有未清除 7px ＞ 其余 6px。
+- 三档含义写在地图卡片头部的提示文字（`person.mapHint`）里，**没有另做图例浮层**。
+- 实测当前分布（24 个有坐标的人合计）：绿 727 / 浅蓝 63 / 红 22。浅蓝比绿少，是因为浅蓝要求「**该人**在 30 天窗口内此站有未关闭 WO」，不是「该站有单」。
+
+**负责站点为 0 的空态说明**（`personmap/NoSitesNote.tsx`，2026-10-21）：有坐标的 24 人里 **6 人 `site_count` 恒为 0**，点他们地图上一片空白，实测就被报成「连线没画出来」。所以选中这样的人时，**地图底部居中**与**抽屉「站点」页签**各给一条同源说明（`pointerEvents:none`，不拦地图点击）。原因分两类，由 `/personnel/stats` 新增的 `supervised_sites` 区分：
+
+| 谁 | `supervised_sites` | 说明文案 |
+| --- | --- | --- |
+| Varfee Sarnor(353) / Franklin Peter(294) / Festus Emmanuel(177) | > 0 | 他是以 `supervisor` 身份登记 —— supervisor 只有 3 个取值、把全国 824 站按大区三三分，是「大区主管」不是「单站负责」，故刻意不画进地图 |
+| Gorson Prince T / Luogon Justin / Pius Onyekachi Elijah | 0 | `master_site_db` 的人员列里根本没有他，名下工单仍见「未关闭 WO」页签 |
+
+`supervised_sites` **只用于解释，不计入 `site_count`**。后端还没这个字段时（重启窗口内）只说基础那句、不猜原因 —— 把 3 个 supervisor 说成「人员列里没有他」是错的。
+`fme_contact_1` / `fme_contact_2` 看着像人员列，**实测是电话号码**，不要拿来做归属。
+
+### 11a-1. 人员下钻抽屉（`pages/personmap/PersonDrilldownDrawer.tsx`，2026-10-21 新增）
+
+**需求原话**：「点击人员要再左边显示弹窗，里面可以看到详细的站点/WO/PMT列表，用页签的形式展示，参考项目中使用的方法如 `?page=realtime_alarm` 页面点击站点下钻后的弹窗。」—— 同日追加**「弹窗要在右边卡片的位置，避免遮挡地图」**，方向以追加的为准。
+
+- **形态是 antd `Drawer` 而不是 `components/DraggableClickModal`**：用户指定的参考实现 `pages/gismap/SiteDrilldownDrawer.tsx:237` 本身就是 Drawer，照它做才叫「参考项目中使用的方法」。DraggableClickModal 是跟点击锚点的小窗，装不下三张「可搜索 + 可导出」的表。AGENTS.md 三.3 禁的是「各页自写弹窗骨架」，这里复用的是同一组件族（Drawer + `components/SearchableExportTable` + `gismap/helpers` 的 `filterBySearch`/`exportToExcel`）。宽度与参考页同为 `min(95vw, 45rem)`。
+- **`placement="right"`，宽度 `min(95vw, 24rem)`**：首版按原话做成左滑，但本页地图就在左列（同日刚做的分栏对调），左滑正好把地图整个盖住，用户随即改口要右侧。改向之后**宽度才是这条需求的关键**：参考页那套 `45rem` 在 1151px 视口下会盖满右列再压住半张地图；实测 `30rem` 仍压住地图右缘 67px，收到与卡片列 `flex-basis` 同值的 `24rem` 才是字面意义上的「卡片那一块」—— **实测抽屉左边缘 713px、地图右边缘 672px，重叠 0px**。表列装不下时靠 `SearchableExportTable` 的 `scroll={{ x: 'max-content' }}` 横向滚，不靠加宽抽屉。
+- **`mask={false}`（不带遮罩）**：参考页那层全屏半透明 mask 会把**整片地图压暗**，与「避免遮挡地图」直接冲突。去掉后抽屉开着也能继续点地图上的人，点中另一个 → 抽屉内容直接换人，不必先关再点（实测 Franklin Peter → Emmanuel Friday 切换正常）。代价是点抽屉外部不再自动关闭，关闭有三条路：右上角 ×、再点一次同一个人、地图卡片右上角「取消选中」。
+- **数据全部由页面传入，组件自身不发请求**：`sites` 就是地图画站点层在用的那一份，所以「地图上的站点圆点数」与「站点页签的行数」物理同源。
+- **抽屉打开才拉 WO + PMT**（effect 挂 `drillOpen` 而非 `selectedKey`）：`?maponly=1` 的门户页签里点人只为高亮和画站点，不该多发两个各要扫一次全表的请求。
+- **关抽屉不清除选中**：用户关掉明细后仍要在地图上看那个人的站点圈；清除选中另有三条路（再点一次针 / 点空白 / 卡片右上角「取消选中」）。
+- **原先只装 WO 明细的 `DraggableClickModal` 已删除**，其列定义搬进抽屉的 WO 页签（AGENTS.md 三.10 删除优于兼容，不留第二份）。表格「查看工单」按钮保留，改为直接开抽屉并停在 WO 页签 —— 它同时是**无坐标人员唯一的下钻入口**。
+- **PMT 页签不传 `days`**：徽标的 PMT 计数本来就不套时间窗口，传了就会出现「徽标 298、页签 132」，正是三.1b 禁止的那类漂移。
+
+**⚠ 一个必须知道的坑：未知 API 路径不会 404，而是 200 + index.html。** nginx 的 SPA 兜底会把 `/myapp/api/...` 里不存在的路径回成前端壳子，axios **不会 reject**、`.catch` 根本不跑（实测把 `/gis/personnel/x/pmt` 打在旧后端上就是这样）。所以判定「PMT 取不到」不能只看 `meta.available`，必须写成**「响应里没有 meta」也算取不到**（`PersonMap.tsx::PMT_UNAVAILABLE`），否则后端没重启时页签会安静地显示 `Open PMT (0)` —— 把「取不到」装成「确实 0 张」。
+
+**同源实测**（2026-10-21，22 个有未关闭 PMT 的人逐个对拍）：徽标三个数与抽屉三个页签计数**逐一相等**，例如 Franklin Peter `12 st | 25 WO | 215 PMT` ↔ `Sites (12) / Open WO (25) / Open PMT (215)`，无一处截断（`_PMT_LIMIT=2000` ≫ 单人实测最大 298）。
+
+**三个口径决定（勿擅自改回）**：
 
 | 项 | 口径 | 原因 |
 | --- | --- | --- |
-| 「负责站点」 | 该人员 **WO 涉及过**的站点（`eflow_wo.site_id` 去重），**不是** `person.managed_regions` | `managed_regions` 只是县名文本；实测 26 个有坐标的人里 5 人写着全部 15 县（824 站全包）、9 人只有 Montserrado，按区域画会变成「半个国家的人都是同一片」。县名只在表格里作为文本展示 |
-| 时间窗口 | 固定**最近 30 天** | 用户确认不跟随 GIS 页的时间控件，避免两页口径漂移 |
+| 「负责的站点」 | `master_site_db.fme_name` 登记的站（`A / B` 双人共担**两边都算**），**不看工单、不看 PMT、不用 `person.managed_regions`** | 2026-10-21 用户确认，从旧口径「30 天内未关闭 WO 涉及的站点」（人均 4.6 站、最多 16）改为现口径（人均 35 站、最多 98）。**改的直接动机**：地图要分绿 / 浅蓝 / 红三档，而旧集合里每个站都必然有该人的未关闭 WO，**绿色永远不可能出现**。仍不用 `managed_regions`（只是县名文本，实测 26 个有坐标的人里 5 人写着全部 15 县 = 824 站全包）；仍不并入 PMT 站点（单人最多同时挂 290 个 PMT 站，并进来地图变毛线球）。⚠ **已知后果**：24 个有坐标的人里 **6 人不是任何站的 FME**（含未关闭单最多的 Varfee Sarnor / Franklin Peter），他们的 `site_count` 恒为 0、点开了地图上没有点 —— 用户看过实测数字后确认接受 |
+| 时间窗口 | WO / TT 固定**最近 30 天**；**PMT 不套窗口** | 用户确认不跟随 GIS 页的时间控件，避免两页口径漂移。PMT 例外的两条理由：库里**已关闭的 PMT 其 `current_handler` 是空的**（历史归属根本做不出来）；套 30 天会把 1715 张未关闭砍到 826，让 3 个月前开立至今未关闭的单凭空消失 —— 那恰恰是最该催的 |
+| PMT 归属 | 只认 `current_handler` 的 `P:` 段，**`G:` 组池不计个人**；终态判定用**精确 `Closed`**（WO 才用前缀） | `eflow_pm` 没有 `last_processer` 列（实测），`pm_manager`/`creator`/`last_*_operator` 语义都不是「当前在手」。实测 1715 张未关闭里 **821 张只挂在组池**（如 `G:ZTE_FE_MG`），挂到个人头上会把整组的单算给一个人，故组池数走 `/personnel/stats` 的 `pmt.group_pool` 并在 ⓘ 里给出。终态不共用 `_is_closed`：`eflow_wo` 有 `Closed_Confirmed` 才需前缀，`eflow_pm` 的 6 个状态里只有精确 `Closed` 是终态，共用会将来静默扩大已关闭集合 |
+
+**守卫**：`tests/test_personnel_fme_sites.py`（4 条：单人 / `A / B` 双人共担 / 空值与纯分隔符不造人 / 同名重复不翻倍）+ `tests/test_pmt_open_caliber.py`（6 条：PMT 精确匹配 vs WO 前缀、与 `pm_caliber.CLOSED_STATUS` 同源、组池不计个人、多人单各计一次、`_pmt_open_index` 签名不接受窗口参数、`_PMT_COLS` 拼出的那条 SELECT 用 `LIMIT 0` 真跑一遍 —— 列被改名会从整页 500 变成一次可跑的失败）。
 
 **数据源**（都在 `backend/routers/personnel.py`，与 GIS 人员图层共用同一套归属判定）：
 
-- `GET /api/gis/personnel/stats?days=30` —— 全量人员聚合（`by_person` / `by_county` / `by_status` / `coverage`）
-- `GET /api/gis/personnel/{name_key}/managed-sites?days=30` —— 某人的站点（带 `has_alarm` / `uncleared` / `wo_count`）
-- `GET /api/gis/personnel/{name_key}/work-orders` —— 下钻明细（复用既有端点）
+- `GET /api/gis/personnel/stats?days=30` —— 全量人员聚合（`by_person` / `by_county` / `by_status` / `coverage` / `pmt`）
+- `GET /api/gis/personnel/{name_key}/managed-sites?days=30` —— 某人**负责的站点**：集合来自 `master_site_db.fme_name`，与徽标 `site_count` 同出一个 `_fme_site_index`（2026-10-21 实测 24 人逐个对拍 0 处不一致）；每站的 `has_alarm` / `uncleared` / `wo_count` 仍按窗口与工单算，**只用于上色，不决定集合**
+- `GET /api/gis/personnel/{name_key}/work-orders` —— WO 下钻明细（复用既有端点）
+- `GET /api/gis/personnel/{name_key}/pmt` —— PMT 下钻明细（2026-10-21 新增，**无 days 参数**；返回 `pmt_list` / `pmt_count` / `meta{available,truncated,overdue_count}`。排序为逾期优先 → 任务窗口结束时间升序，且**先排序再截断**，否则 limit 生效时留下的恰好是扫描顺序的前 N 条，会把最该看的逾期单切掉）
 
 **必须如实呈现的已知限制**（页面顶部横幅已写明）：
 
@@ -821,6 +889,44 @@ React 自身驱动（其 cleanup 顺序是「子先父后」，子图层先 remo
 2. 只有 26/136 人有坐标，其余人员**只出现在表格里、不画在地图上**；
 3. 人员 ↔ WO **无外键**，按规范化姓名匹配（`services/person_name.py`，实测命中约 96%）；
 4. TT 列是「带 `tt_no` 的 **WO 行数**」，不是独立 TT 去重计数（语义为单量/工作量）。
+
+### 10f. 根因聚合分析（RCA，2026-10-21 新增，仅 `?page=realtime_alarm`）
+
+**回答的问题**：「高级筛选出来的一批断站，哪些其实是**同一个原因**？」—— 把人工翻 `link_path` 链路变成卡片上一目了然的簇。
+
+**三类簇**（`backend/services/gis_rca_service.py::compute_rca`，纯内存确定性聚类，无 LLM）：
+
+| 簇 | 判定 | 证据字段 |
+| --- | --- | --- |
+| 拓扑根因 `topology` | 上游告警站的 site_id 出现在其它告警站的 `link_path` 祖先里（核心站→本站的 site_id 链，`'>'` 分隔）。**归属规则：每个断站只归属其最深告警祖先**（最邻近的可证实故障点；"最大簇优先"会让远端核心吞掉本地故障）。一个站可同时是下游簇的根、上游簇的成员（两级故障各成一簇） | `evidence.link_paths` / 根因站告警列表 |
+| 同因聚集 `same_cause` | **无链路站**（`link_path` 为 `--`/空，如卫星站）按「告警问题（`oss_specific_problem`，回退 `alarmcode`）+ 10 分钟时间窗」聚集；窗口首站为代表 | `evidence.time_window` / `shared_problem` |
+| eFlow 佐证（挂到上面两种簇上） | `impact_site_list`（eFlow 已标注根因告警的影响面，分隔符实测逗号/分号混用，按 `[,;\s]+` 兼容切分；纯数字 token 按 sid、其余按站名归一匹配）命中簇成员 → 提升置信度 | `evidence.eflow_impact` |
+
+**根因类型**按根因站告警标题关键词优先级判定（`gis_rca_service.py::_CAUSE_RULES`）：`POWER > FIBER > MW LINK/MICROWAVE > SITE OUTAGE/SITE DOWN > other` —— "SITE OUTAGE DUE TO POWER OFF" 归 `power` 而非 `site_outage`（真实根因是电源）。
+
+**置信度**（确定性启发式公式，模块头有注释）：A 簇 `0.5 + 0.15*(成员≥2) + 0.2*(eFlow 佐证) + 0.15*(根因告警与成员首警时差≤10min)`，上限 0.95；B 簇 `0.4 + 0.15*(站≥3) + 0.2*(同 alarmcode) + 0.15*(窗口跨度≤10min)`，上限 0.90。
+
+**同源保证（AGENTS.md 三.1b 的硬要求）**：
+- 复用 `_scan_realtime_alarms` 的**同一次扫描**（`routers/gis.py` 该函数已扩为 9 元组，第 9 项 `rca_rows`）—— `realtime_alarm` 每 30 分钟被 `sync_from_eflow_api.py` 整表重建（`if_exists='replace'`），另发一次扫描会跨代，「地图数字」与「根因簇成员」对不上；
+- in-scope 站点查询**逐字复刻** `get_realtime_sites` 的收窄口径（lat/lng 非空非 0 + 告警 sid IN + 同一个 `_build_filter_where`，`gis.py::_realtime_rca_payload`）；高级筛选是纯前端行为（`GISMap.tsx::loadSites` 只发 region），故筛选参数由前端显式传给 RCA 端点、后端复算；
+- 前端下钻**不发请求**（`GISMap.tsx::openDrill` kind='rca' 与 kind='rca_uncovered'），成员列表直接取同一次响应里的 `cluster.members`、未归因明细取同一响应里的 `uncovered_alarm_rows`，物理同源。
+
+**范围外根因**：根因站可以不在当前高级筛选范围内（`root_in_scope=false`）—— 用户确认的口径：**完整显示并标「范围外」Tag**（断站原因往往在视野之外，这正是根因分析的价值）。
+
+**端点**（`routers/gis.py`）：
+- `GET /api/gis/realtime/rca?region=…&trm_type=…&site_name=…` —— 10 个筛选参数与 `/realtime/sites` 逐字相同 + `site_name`（站名子串，`LIKE ? ESCAPE '\'` 且通配符放**参数值**里—— psycopg2 对带参 SQL 里的字面量 `%` 会当占位符解析报 IndexError；`%`/`_`/`\` 做了 ESCAPE 转义）。返回 `clusters[]`（按 `member_count` 降序，>100 截断置 `meta.truncated=true`）+ `meta`（口径计数：`covered_sites`/`uncovered_sites`/`satellite_sites`/`orphan_alarm_rows`/`eflow_root_unmatched` 等，卡片脚注显式给出未归因站数，防静默漏站；`meta.uncovered_site_ids` 供路由层挑明细行）+ `uncovered_alarm_rows`（未归因站的**告警明细行**，见下）+ `uncovered_truncated`（明细超 500 条显式截断，`gis.py::UNCOVERED_ALARM_LIMIT`）。
+- `POST /api/gis/realtime/rca-narrative` —— LLM 自然语言解读（用户决策：一并实现）。body = 同样的筛选参数 + `provider/api_key/model/base_url/lang`；服务端**重算**确定性聚类再喂给 LLM（不信任客户端回传，`routers/gis.py::RcaNarrativeIn`）。降级约定与 `alarm_attribution_service.attribute` 一致：`provider=='local'` / 无 key / 调用异常 → `local_summary` + `note`，永不抛错误页。api_key 只随请求体进出、不落盘不写日志；前端与 `DataAgentBar` 共用 localStorage 键（`myapp-data-agent-key-{provider}` 等）。
+
+**前端**（`GISMap.tsx`）：实时模式统计列第 4 张卡（TT 优先级卡之后），标题右侧「AI 解读」按钮（第二个 `DraggableClickModal`：provider/key/model/base_url 配置 + 结果段落，`provider==='local'` 显示金色「本地规则模式」Tag、降级 note 原样展示）；簇条目 = 根因站名 + 类型 Tag + 受影响站数 + 置信度%；点条目开成员明细弹窗（上方证据块：根因站告警/链路路径/时间窗/eFlow 影响面；成员站名可点 → 复用 `handleSiteClick` 开下钻抽屉；导出走 `exportAoaReport`）。取数：`useEffect` deps `[mode, selectedRegion, selectedFilters, siteNameQuery]` + 300ms 防抖，**不走 cachedGet**（实时数据须与地图同代）。簇/类型标签用显式 switch 返回字面量 i18n 键（`rcaKindLabelKey`/`rcaCauseLabelKey`，防 `check:i18n` 拦动态拼接）。
+
+**口径自洽（2026-10-21 用户质疑「Site Stats (31) vs RCA (3) 对不上」后的修正）**：
+- 原标题括号里的数字是**簇数**，与 Site Stats 的**站数**不同单位，必然看着"不自洽"。已改为 `已归因站数/告警站总数`（如 `(6/31)`），与 Site Stats 同单位可直接对拍；hover 提示（`gis.rca.titleHint`）给出簇数与口径解释。
+- **未归因 = 31 − 6 = 25 个站是孤立故障**：上游没告警、下挂没人跟着断、也没有同窗口同问题的同伴 —— 它们的根因就是自己，不进任何"共享根因"簇（这正是 RCA 的定义：只找**相同原因**）。卡片脚注（`gis.rca.metaLine`）**可点击**，打开"未归因告警明细（孤立故障）"弹窗，用户可对地图逐点核验"剩下的站都去哪了"。
+- **未归因弹窗 = 项目默认告警明细列（2026-10-21b 用户要求，明细参考点击 Alarm Stats 条目的弹窗）**：不再用自造的 4 列精简站点表，改为一行一条**告警**、与 `/realtime/oss-alarms` 下钻**同键同形**的明细行（站点/站名/区域/省县/TT/告警标题/告警码/优先级/告警时间/时长/是否超时，前端直接复用默认 `drillColumns`，导出也落同一个 11 列通用分支）。实现：`gis.py::_realtime_rca_payload` 在连接内先跑 `compute_rca`，按 `meta.uncovered_site_ids` 从**同一次扫描**的 `rca_rows` 里挑出未归因行（`rca_rows` 已在扫描时补上 `servertime/duration/overdue` 三列），再用同一个连接走 `_resolve_tt_priorities`（镜像优先+实时补漏）解析优先级 —— 弹窗行所属站点与脚注"未归因 N 站"出自同一次响应，数字必然一致；截断超 500 条显式暴露（`uncovered_truncated` + 弹窗红色 Tag）。
+
+**边界**：78 量级的卫星站无 `link_path`，只走同因聚集或计入 `meta.uncovered_sites`，不会误挂到拓扑簇；脏 site_id 复用扫描内 `_build_site_id_resolver` 归位，孤儿计 `orphan_alarm_rows`；`raised_ms` 缺失的行不参与 B 簇时间窗但仍计数；缺列部署（旧库）由 `rt_cols` 存在性探测兜底（`NULL AS <col>`），RCA 退化为「无拓扑簇」而非 500。
+
+**验证**：单测 `tests/test_gis_rca_service.py`（13 个：最深祖先归属/两级故障不互吞/范围外根因标注/10 分钟窗切割/impact 混合分隔符解析/POWER 优先级/降级路径）；对拍用 python `link_path.split('>')` 集合比对（**不要用 SQL LIKE**——`407` 会误配 `4070`）。
 
 ## 12. 告警管理看板（`?page=alarmManagement`）— iframe
 
@@ -1956,12 +2062,37 @@ TT 复盘抽屉（`TtPostmortemPanel.tsx:693-710`）的红字
 
 | 页签 | 组件 | 能配什么 |
 | --- | --- | --- |
-| 凭据 | `CredentialSettings.tsx` | 12 组上游账号：搜索（:8 区）、保存 `PUT /api/credentials`（:83）、**测试连接** `POST /api/credentials/test`（:100）、**显示明文** `GET /api/credentials/{key}/reveal`（:118）。列表默认掩码显示 |
+| 凭据 | `CredentialSettings.tsx` | **20 组**上游账号：搜索（:8 区）、保存 `PUT /api/credentials`（:83）、**测试连接** `POST /api/credentials/test`（:100）、**显示明文** `GET /api/credentials/{key}/reveal`（:118）。列表默认掩码显示。<br>**2026-10-21 起 20 组全部可测试**（此前只有 11 组有按钮）：按 `credential_store` 的 `test_kind` 派发到 `backend/services/credential_tester.py`，见表 [23.1](#231-凭据连接测试对照表) |
 | 邮件收件人 | `EmailRecipientsSettings.tsx` | 分组收件人名单：编辑 `PUT /api/email-recipients`（:77）、**重置为默认** `POST /api/email-recipients/reset`（:95）。`GET /api/email-recipients`（:31） |
 | 远程主机 | `RemoteHostSettings.tsx` | 一个 `host` 字段：`GET`/`PUT /api/settings/remote-host`（:20,:44）+ 连通性测试 `POST /api/settings/test-connection`（:68）。**改完即时生效，无需重启**（写 `backend/data/settings.json`） |
 | 任务配置 | `datasync/TaskConfigTab.tsx` | 任务的业务参数（非排程）。优先级 `环境变量 > 配置文件 > 默认值` |
 
 > ⚠️ **容易找错位置**：「任务配置」页签在**系统设置**里，不在任务管理页。虽然它的文件在 `pages/datasync/` 目录下。
+
+### 23.1 凭据连接测试对照表
+
+`POST /api/credentials/test`（`backend/routers/credentials.py:130`）按组的 `test_kind` 分发：
+`zte_oauth2` / `rais` 走本文件里的 `auth_manager` 路径（带本地熔断冷却提示与终态错误判定），
+其余 kind 派发到 `backend/services/credential_tester.py`（`run_test()`，:末尾）。
+
+| test_kind | 凭据组 | 实际做什么 |
+| --- | --- | --- |
+| `zte_oauth2` | zte_ume / ipran_ume / ccn_ume / eflow / fms_portal / mw_ume / ume_in / battery_ume / cm_data | ZTE OAuth2 RSA 登录（`auth_manager._do_login`） |
+| `vmax_portal` | vmax_cxo | 取公钥 → PKCS#1 v1.5 加密口令 → `POST /web/res/web-common/login`，判 `result==1`，测完 logout |
+| `gbase` | vmax_gbase | pymysql 连 GBase 8a，`SELECT VERSION()`（只读） |
+| `ssh` | gp_ran_control | paramiko 口令登录 control1:22 |
+| `ssh_via_control` | gp_ran_master | 两跳 SSH：本机 → control1 → 193.168.0.6（主节点不可直连） |
+| `ume_keystone` | ume_alarm | Keystone v3 换 token → 项目 token（`force_refresh=True`，不走缓存） |
+| `rais` | rais | AES-256-CBC 加密 `POST verify4web.serv` 换 SSO token |
+| `umc_portal` | fw_kpi | 经典 UMC 登录（Node 跑服务器原版 `e.js` 算 strEnc/SM3） |
+| `sftp` | sftp_sp | paramiko 认证 + 开 SFTP 通道，只取主目录，不下载 |
+| `smtp` | mail_126 | `SMTP_SSL` + AUTH 握手，**不发信** |
+| `ews` | owa_mail | exchangelib 登 EWS，取收件箱总数探活 |
+| `weixin_push` | weixin | ⚠ Server酱/PushPlus **都没有「只验 Token」接口**，测试会真的推送一条消息 |
+
+> **排障提示**：报「缺少依赖」说明 Web 进程的环境缺包（如 `pymysql`），
+> 用**后端实际在跑的那个 python** 装：`%LOCALAPPDATA%\Programs\Python\Python312\python.exe -m pip install -r requirements.txt`。
+> 注意仓库内的 `Scripts\python.exe` **不是**后端进程用的解释器（它没有 fastapi/sqlalchemy）。
 
 ## 24. 门户一键登录（`?page=portalLogin`）
 
@@ -3917,6 +4048,7 @@ FROM "5mins_3G_FDD_DATA_TRAFFIC_TEMPLATE_OSS_UME"
 | `TMP\_probe_pan_result.py` | 改完后的两页签验收：`pane.marginLeft` / 右缝 / 排名条是否被挪动 |
 | `TMP\_probe_mw_drawer_embed.py` | MW 页签下钻抽屉在**嵌入态**下能否弹出（含"抽屉未被内联 display:none 隐藏"这条关键断言） |
 | `TMP\_probe_map_tabs_regression.py` | 两页签地图尺寸回归（Alarm 885×858 / MW 883×856），防改动互相压坏 |
+| `TMP\_probe_gis_filter_stats.py` | 验证 `?page=gis` 的站名筛选与统计适配：输出基线/筛选后/清除后三态的图例数字（并断言**图例各档之和 == 站点总数**）、`Total Sites: x/y`、`.gis-rank-overlay` 排名条与 `.gis-county-tag` 县标签。改动图例分桶或县告警数口径后必跑 |
 
 > 现役取值与完整取舍写在 `v1\olbrportal\assets\olbr-data.js` 的 `MAP_STRIP_CSS`
 > 注释里（`.leaflet-map-pane` 那一条），改前务必读完再动。
