@@ -3763,14 +3763,15 @@ UME 只是自动同步的补充。**这个优先级是口径决定，不是性�
 
 ---
 
-## 33b. CN KPI 5 分钟看板（`?page=cn_kpi_5mins`）—— Day0/Day1 叠画
+## 33b. CN KPI 5 分钟看板（`?page=cn_kpi_5mins`）—— Day0/Day1/Day7 叠画
 
 2026-10-17 新增。与 §33 的 CN KPI 看板**共用上游与凭据**，但粒度、窗口与数据表都不同。
 
 ### 33b.1 它是什么
 
-每张图两条线：**Day0 = 今天**、**Day1 = 昨天**，横轴为时刻 `HH:MM`。
-同一横坐标即同一时刻，用来对比日内走势与日间差异。
+每张图最多三条线：**Day0 = 今天**、**Day1 = 昨天**、**Day7 = 7 天前（同一个星期几）**，
+横轴为时刻 `HH:MM`。同一横坐标即同一时刻，用来对比日内走势、日间差异与周同期。
+（Day7 是 2026-10-21 加的，能否画出取决于库里攒了几天，见 §33b.3。）
 
 | 项 | 值 |
 | --- | --- |
@@ -3804,21 +3805,54 @@ UME 只是自动同步的补充。**这个优先级是口径决定，不是性�
 刻意不同），上游再调整档位时不会让任务每 15 分钟失败一次。
 `cn_kpi_5mins_service.UNAVAILABLE_TABLES` 机制保在该处，用于将来登记「已知无数据」的组件。
 
-### 33b.3 Day0/Day1 怎么实现的
+### 33b.3 Day0/Day1/Day7 怎么实现的
 
-**在 SQL 里拆，前端零新增逻辑**。每个组件返回三列 `[HH:MM, 'Day0'|'Day1', 值]`：
+**在 SQL 里拆，前端零新增逻辑**。每个组件返回三列 `[HH:MM, 'Day0'|'Day1'|'Day7', 值]`：
 
 ```sql
 SELECT substr("End Time",12,5) AS t,
        CASE WHEN substr("End Time",1,10)=date('now') THEN 'Day0'
-            WHEN substr("End Time",1,10)=date('now','-1 day') THEN 'Day1' END AS day,
+            WHEN substr("End Time",1,10)=date('now','-1 day') THEN 'Day1'
+            WHEN substr("End Time",1,10)=date('now','-7 day') THEN 'Day7' END AS day,
        SUM(...) AS "指标"
-FROM "5mins_<表>" WHERE "End Time" >= date('now','-1 day') AND "End Time" < date('now','+1 day')
+FROM "5mins_<表>"
+WHERE substr("End Time",1,10) IN (date('now'), date('now','-1 day'), date('now','-7 day'))
 GROUP BY t, day ORDER BY t
 ```
 
-前端 `CnKpi5mins.tsx` 的 `buildDayOption()` 按第 2 列透视成两条线（与 `CnKpi.tsx`
+前端 `CnKpi5mins.tsx` 的 `buildDayOption()` 按第 2 列透视成多条线（与 `CnKpi.tsx`
 的 pivot 同构）。日切用 **`End Time`**，与 §33 看板口径一致。
+
+**Day7 = 7 天前 = 同一个星期几**。加它是因为「跟昨天比」会把周中/周末的日内形状差异
+误读成涨跌；`day-0 / day-1 / day-7` 这套叫法沿用门户参考图 `vmax_cxo_dashboard.html`。
+配色由运维侧定为 **Day0 绿 `#08bd83` / Day1 蓝 `#2b8cff` / Day7 青 `#00d9ff`**（参考图里
+day-7 是亮黄，本页改成按「最近→最远」排色）；浅色主题 Day7 换深青 `#0e7490`，理由与
+实值出处见 `CnKpi5mins.tsx` 里 `DAY_COLOR` 上方的注释。
+
+**WHERE 用 `IN (三个日子)`，不是 `>= date('now','-7 day')`**：中间那 5 天会落进 CASE 的
+ELSE 变成 `day=NULL`，而 `GROUP BY t, day` 把它们按同一 HH:MM 塌成一组再 SUM —— 前端虽然
+按「day 为空」丢弃，但那些行既无意义又白占 `limit=5000`。2026-10-21 实测三个日子齐全时
+单组件 583 行（5 分钟档）/ 194 行（15 分钟档）。
+
+**Day7 画不画得出来，取决于库里攒了几天**（这是采集侧的事实，与本页无关）：
+`cnn_kpi_sync_5mins` 的窗口只有「昨天 00:00 → 现在」，但写库是 `upsert` 且**没有任何清理**，
+所以每个日子在它的次日被采到之后就永久留在表里 —— 攒够 8 天，Day7 自然出现。
+2026-10-21 之前 5 分钟档最早只有 10-16、15 分钟档只有 10-18（本任务 2026-10-17 上线，首轮窗口
+把「昨天」10-16 拉了进来；3 个 15 分钟档模板 2026-10-19 才切换，同理最早只有 10-18），
+因此补跑了一次**按日回补**：把 `_window_iso()` 逐日固定到 10-14 / 10-15 / 10-16 / 10-17 各跑一轮
+（单轮约 105 秒、约 1.67 万行），补齐后 8 张表覆盖 10-14 → 10-21、各 8 个日子。
+**上游对 7 天前的数据是留的**（2026-10-21 实测 10-14 那天正常返回），所以以后再出现空洞，
+按日回补即可，不必把采集窗口改宽 —— 每 15 分钟拉 7 天会把单轮行数放大 7 倍。
+
+页面不假设三条线一定齐：页头图例只列**实际取到的日子**，缺 Day7 时直接写
+「Day7（7 天前）暂无历史数据」（`cnkpi5.day7Absent`），导出宽表的列也按组件实际有的日子生成。
+
+两个可复用脚本留在 `Task\my_app\TMP\`（TMP 不入库，重跑前先确认文件还在）：
+
+| 脚本 | 用途 |
+| --- | --- |
+| `TMP\_backfill_5mins_day7.py <YYYY-MM-DD> ...` | 按日回补 `5mins_*` 表（逐日把 `_window_iso()` 固定到目标日再跑生产链路，upsert 与定时任务重叠无害） |
+| `TMP\_check_5mins_day7.py` | 不走后端，直接调 `cn_kpi_5mins_service.get_overview(force=True)`，打印每个组件的日子分布与时间跨度，用于确认 Day0/Day1/Day7 是否真取到 |
 
 ### 33b.4 排查
 
@@ -3859,9 +3893,9 @@ FROM "5mins_3G_FDD_DATA_TRAFFIC_TEMPLATE_OSS_UME"
 | 文件 | 作用 |
 | --- | --- |
 | `backend\services\cnn_ume_kpi_5mins_service.py` | 采集（复用 `ccn_ume_kpi_service` 的鉴权/查询/导出/写库助手） |
-| `backend\services\cn_kpi_5mins_service.py` | 看板数据：11 个组件（8 有数据 + 3 空态）+ SQL + 缓存 |
+| `backend\services\cn_kpi_5mins_service.py` | 看板数据：11 个组件（全部有数据，其中 3 个为 15 分钟粒度）+ Day0/Day1/Day7 SQL + 缓存 |
 | `backend\routers\cn_kpi_5mins.py` | `/api/cn-kpi-5mins/*` |
-| `frontend\src\pages\CnKpi5mins.tsx` | 页面（Day0/Day1 透视 + 空态） |
+| `frontend\src\pages\CnKpi5mins.tsx` | 页面（Day0/Day1/Day7 透视 + 空态） |
 | `backend\task_registry.py` | `TASK_SPECS` 登记 `cnn_kpi_sync_5mins` |
 | `backend\worker_watchdog.py` | `GROUP_TASK_MAP["n"]` 加入该任务 |
 

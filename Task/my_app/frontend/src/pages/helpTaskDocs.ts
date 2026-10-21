@@ -431,7 +431,7 @@ export const TASK_DOCS: TaskDoc[] = [
     script: 'services/cnn_ume_kpi_5mins_service.py → run_cnn_kpi_sync_5mins',
     zh: {
       name: 'CNN UME KPI 5分钟同步',
-      desc: '与「CNN UME KPI 同步」同源同账号，但取细粒度（5 个模板 5 分钟、3 个模板 15 分钟）、窗口为昨天 00:00 至现在，API 写入 DB CNN 的 5mins_* 新表，供「CN KPI 5分钟」看板做 Day0/Day1 叠画；日/月粒度表不受影响',
+      desc: '与「CNN UME KPI 同步」同源同账号，但取细粒度（5 个模板 5 分钟、3 个模板 15 分钟）、窗口为昨天 00:00 至现在，API 写入 DB CNN 的 5mins_* 新表，供「CN KPI 5分钟」看板做 Day0/Day1/Day7 叠画；日/月粒度表不受影响',
       flow: ['登录 CNN UME（与 cnn_kpi_sync 共用会话缓存）', '按 8 个模板并发查询 5 分钟粒度数据（昨天 00:00 至现在）', '写入 db_ps_cs_cn 的 5mins_<原表名> 表（upsert）'],
       maintain: [
         '⚠ 混合粒度：Voice/VLR/Data/4G FDD/Free Rating 用 5 分钟档（gr=300）；xGW License、xGW CPU、3G FDD 的原模板没有 5 分钟档，改走上游 2026-10-19 补建的 15 分钟档模板（gr=900，见 FIFTEEN_MIN_TEMPLATES）',
@@ -443,7 +443,7 @@ export const TASK_DOCS: TaskDoc[] = [
     },
     en: {
       name: 'CNN UME KPI 5-Min Sync',
-      desc: 'Same source and account as "CNN UME KPI Sync", but at fine granularity (5-minute for 5 templates, 15-minute for 3) with a yesterday-00:00-to-now window; writes into new 5mins_* tables in DB CNN for the Day0/Day1 overlay on the CN KPI 5-minute board. Daily/monthly tables are untouched',
+      desc: 'Same source and account as "CNN UME KPI Sync", but at fine granularity (5-minute for 5 templates, 15-minute for 3) with a yesterday-00:00-to-now window; writes into new 5mins_* tables in DB CNN for the Day0/Day1/Day7 overlay on the CN KPI 5-minute board. Daily/monthly tables are untouched',
       flow: ['Log into CNN UME (shares the session cache with cnn_kpi_sync)', 'Query all 8 templates in parallel at 5-minute granularity (yesterday 00:00 to now)', 'Upsert into db_ps_cs_cn tables named 5mins_<original table>'],
       maintain: [
         'WARNING: mixed granularity — Voice / VLR / Data / 4G FDD / Free Rating use the 5-minute tier (gr=300); xGW License, xGW CPU and 3G FDD had no 5-minute tier and now use the upstream 15-minute templates created 2026-10-19 (gr=900, see FIFTEEN_MIN_TEMPLATES)',

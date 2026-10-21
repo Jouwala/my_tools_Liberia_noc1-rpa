@@ -1,6 +1,6 @@
 # my_app 使用帮助
 
-> 面向使用者的平台功能与操作指南。本文件由「使用帮助」页面同源生成（frontend/src/helpMarkdown.ts），内容依据 docs/manual/ 各章与 backend/task_registry.py 整理。生成日期：2026-10-19。
+> 面向使用者的平台功能与操作指南。本文件由「使用帮助」页面同源生成（frontend/src/helpMarkdown.ts），内容依据 docs/manual/ 各章与 backend/task_registry.py 整理。生成日期：2026-10-21。
 
 > 站内入口：侧边栏「使用帮助」，或直链 `http://<host>/myapp/?page=help`。
 
@@ -535,7 +535,7 @@
 - 默认 cron: `*/15 * * * *`　|　worker 组: **n**
 - 工作流脚本: `services/cnn_ume_kpi_5mins_service.py → run_cnn_kpi_sync_5mins`
 
-**功能**: 与「CNN UME KPI 同步」同源同账号，但取细粒度（5 个模板 5 分钟、3 个模板 15 分钟）、窗口为昨天 00:00 至现在，API 写入 DB CNN 的 5mins_* 新表，供「CN KPI 5分钟」看板做 Day0/Day1 叠画；日/月粒度表不受影响
+**功能**: 与「CNN UME KPI 同步」同源同账号，但取细粒度（5 个模板 5 分钟、3 个模板 15 分钟）、窗口为昨天 00:00 至现在，API 写入 DB CNN 的 5mins_* 新表，供「CN KPI 5分钟」看板做 Day0/Day1/Day7 叠画；日/月粒度表不受影响
 
 **工作流与数据流**:
 
@@ -1879,12 +1879,13 @@ CN KPI 看板：原 FineBI「CN KPI」看板的原生重建，18 个组件（VLR
 
 #### cn_kpi_5mins（`cn_kpi_5mins`）
 
-CN KPI 5 分钟看板：对比「今天（Day0）」与「昨天（Day1）」同一时刻的核心网 KPI 走势。数据由任务 cnn_kpi_sync_5mins 每 15 分钟采集一次（窗口为昨天 00:00 至现在），写入 db_ps_cs_cn 的 5mins_* 新表，与按天/月的 CN KPI 看板互不影响。⚠ 本页是**混合粒度**：Voice / VLR / Data / 4G FDD / Free Rating 为 5 分钟粒度；xGW License、xGW CPU、3G FDD 因原模板无 5 分钟档，走上游 2026-10-19 补建的 15 分钟档模板。
+CN KPI 5 分钟看板：把「今天（Day0）」「昨天（Day1）」「7 天前（Day7，与今天同一个星期几）」叠在同一张图上，对比同一时刻的核心网 KPI 走势。数据由任务 cnn_kpi_sync_5mins 每 15 分钟采集一次（窗口为昨天 00:00 至现在），写入 db_ps_cs_cn 的 5mins_* 新表，与按天/月的 CN KPI 看板互不影响。⚠ 本页是**混合粒度**：Voice / VLR / Data / 4G FDD / Free Rating 为 5 分钟粒度；xGW License、xGW CPU、3G FDD 因原模板无 5 分钟档，走上游 2026-10-19 补建的 15 分钟档模板。
 
-- 每张图有两条线：Day0 是今天，Day1 是昨天；横轴为时刻（HH:MM），同一个横坐标即同一时刻，便于看日内波动与日间差异
-- 页面无需选日期：窗口固定为「今天 + 昨天」，每 15 分钟随任务自动更新一次（可在顶栏设置自动刷新）
+- 每张图最多三条线：Day0 今天、Day1 昨天、Day7 七天前（同一个星期几，用来看「这周比上周同一天的同一时刻是涨了还是跌了」，比单纯跟昨天比更不容易被周中/周末的差异误导）；横轴为时刻（HH:MM），同一个横坐标即同一时刻
+- Day7 依赖库里已攒下的历史：采集窗口只取「昨天 → 现在」，但写库是 upsert 且不清理，所以每个日子在其次日被采到后就永久留下 —— 库里攒够 8 天才画得出 Day7，不足时页头只列已有那几天并明说，需要更早的历史得做回补
+- 页面无需选日期：窗口固定为「今天 + 昨天 + 7 天前」，每 15 分钟随任务自动更新一次（可在顶栏设置自动刷新）
 - xGW License / xGW CPU / 3G FDD 三张卡片的点是 15 分钟间隔（比其他图稀疏 3 倍），这是上游模板档位决定的，不是数据缺失；页头蓝条会提示
-- 「导出 Excel」每个组件一张表，按时刻展开 Day0 / Day1 两列，便于对账
+- 「导出 Excel」每个组件一张表，按时刻展开 Day0 / Day1 / Day7 列（只出该组件实际有数据的日子），便于对账
 
 #### UME iMonitor 大屏（`imonitor`，iframe 页）
 

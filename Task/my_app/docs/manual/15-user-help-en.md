@@ -1,6 +1,6 @@
 # my_app User Help & Guide
 
-> User-facing platform features & operations guide. Generated from the same source as the in-app Help page (frontend/src/helpMarkdown.ts), compiled from docs/manual/ and backend/task_registry.py. Generated on 2026-10-19.
+> User-facing platform features & operations guide. Generated from the same source as the in-app Help page (frontend/src/helpMarkdown.ts), compiled from docs/manual/ and backend/task_registry.py. Generated on 2026-10-21.
 
 > In-app entry: the "Help" sidebar item, or `http://<host>/myapp/?page=help` directly.
 
@@ -535,7 +535,7 @@ Workflow & maintenance notes per task:
 - Default cron: `*/15 * * * *`　|　worker group: **n**
 - Workflow script: `services/cnn_ume_kpi_5mins_service.py → run_cnn_kpi_sync_5mins`
 
-**What it does**: Same source and account as "CNN UME KPI Sync", but at fine granularity (5-minute for 5 templates, 15-minute for 3) with a yesterday-00:00-to-now window; writes into new 5mins_* tables in DB CNN for the Day0/Day1 overlay on the CN KPI 5-minute board. Daily/monthly tables are untouched
+**What it does**: Same source and account as "CNN UME KPI Sync", but at fine granularity (5-minute for 5 templates, 15-minute for 3) with a yesterday-00:00-to-now window; writes into new 5mins_* tables in DB CNN for the Day0/Day1/Day7 overlay on the CN KPI 5-minute board. Daily/monthly tables are untouched
 
 **Workflow & data flow**:
 
@@ -1879,12 +1879,13 @@ CN KPI dashboard: a native rebuild of the original FineBI "CN KPI" board, with 1
 
 #### cn_kpi_5mins（`cn_kpi_5mins`）
 
-CN KPI 5-minute dashboard: compares core-network KPIs, overlaying today (Day0) against yesterday (Day1) at the same time of day. The cnn_kpi_sync_5mins task collects it every 15 minutes (window: yesterday 00:00 to now) into new 5mins_* tables in db_ps_cs_cn, independent of the daily/monthly CN KPI board. WARNING: granularity is MIXED — Voice / VLR / Data / 4G FDD / Free Rating are 5-minute; xGW License, xGW CPU and 3G FDD use the upstream 15-minute templates (created 2026-10-19) because their original templates had no 5-minute tier.
+CN KPI 5-minute dashboard: overlays today (Day0), yesterday (Day1) and 7 days ago (Day7, the same weekday) on one chart so the same clock time can be compared. The cnn_kpi_sync_5mins task collects it every 15 minutes (window: yesterday 00:00 to now) into new 5mins_* tables in db_ps_cs_cn, independent of the daily/monthly CN KPI board. WARNING: granularity is MIXED — Voice / VLR / Data / 4G FDD / Free Rating are 5-minute; xGW License, xGW CPU and 3G FDD use the upstream 15-minute templates (created 2026-10-19) because their original templates had no 5-minute tier.
 
-- Each chart has two lines: Day0 is today and Day1 is yesterday; the x axis is the clock time (HH:MM), so the same x value is the same time of day — easy to compare intraday movement and day-to-day differences
-- No date picking is needed: the window is fixed to today + yesterday and refreshes every 15 minutes as the task runs (auto-refresh is available in the top bar)
+- Up to three lines per chart: Day0 today, Day1 yesterday, Day7 seven days ago (the same weekday — it answers "is this hour up or down versus the same hour last week", which is less misleading than comparing with yesterday alone because weekday/weekend shapes differ); the x axis is the clock time (HH:MM), so the same x value is the same time of day
+- Day7 depends on history already sitting in the tables: the sync window only covers "yesterday -> now", but writes are upserts with no purge, so every day is kept permanently once it is collected the next day — Day7 needs 8 days of accumulated history, and when it is not there yet the header lists only the days that exist and says so. Older days require a backfill
+- No date picking is needed: the window is fixed to today + yesterday + 7 days ago and refreshes every 15 minutes as the task runs (auto-refresh is available in the top bar)
 - The xGW License / xGW CPU / 3G FDD cards have points every 15 minutes (3x sparser than the others) — that is the upstream template tier, not missing data; the blue banner in the header says so
-- "Export Excel" writes one sheet per widget, expanded as Day0 / Day1 columns by time of day
+- "Export Excel" writes one sheet per widget, expanded as Day0 / Day1 / Day7 columns by time of day (only the days that widget actually has)
 
 #### UME iMonitor Screen（`imonitor`, iframe page）
 

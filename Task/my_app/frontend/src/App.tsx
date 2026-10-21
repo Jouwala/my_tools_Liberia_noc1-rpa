@@ -142,7 +142,7 @@ const BmMeta = lazy(() => import('./pages/BmMeta'))
 // BP Report 劣化小区报告（umlaut 口径：日均三条件 / 周 4/7 天 / 月 3/4 个完整周）
 const BpReport = lazy(() => import('./pages/BpReport'))
 const CnKpi = lazy(() => import('./pages/CnKpi'))
-// CN KPI 5 分钟看板：读 cnn_kpi_sync_5mins 写入的 5mins_* 表，Day0/Day1 叠画
+// CN KPI 5 分钟看板：读 cnn_kpi_sync_5mins 写入的 5mins_* 表，Day0/Day1/Day7 叠画
 const CnKpi5mins = lazy(() => import('./pages/CnKpi5mins'))
 const NativeBoard = lazy(() => import('./pages/NativeBoard'))
 const UmeInKpi = lazy(() => import('./pages/UmeInKpi'))

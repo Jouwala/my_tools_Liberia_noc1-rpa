@@ -5,9 +5,15 @@
  *   → services/cn_kpi_5mins_service.py（读远端 db_ps_cs_cn 的 5mins_* 表）
  *   → 由任务 cnn_kpi_sync_5mins 每 15 分钟写入（gr=300，窗口昨天 00:00 → 现在）。
  *
- * 核心展示：每个组件画 **Day0（今天）/ Day1（昨天）两条曲线**，x 轴为 HH:MM。
- * 后端 SQL 已输出三列 [HH:MM, 'Day0'|'Day1', 值]，本页复用 pivot 机制
- * （按第 2 列透视成多序列），不需要前端再拆日。
+ * 核心展示：每个组件画 **Day0（今天）/ Day1（昨天）/ Day7（7 天前，同一星期几）
+ * 曲线**，x 轴为 HH:MM。
+ * 后端 SQL 已输出三列 [HH:MM, 'Day0'|'Day1'|'Day7', 值]，本页复用 pivot 机制
+ * （按第 2 列透视成多序列），不需要前端再拆日。序列条数不固定：某个日子在库里
+ * 还没有数据时后端就不会返回那一类标签，本页少画一条线，并在页头说明。
+ *
+ * Day7 的数据从哪来：采集任务的窗口只取「昨天 00:00 → 现在」，但写库是 upsert
+ * 且没有清理，所以每个日子在其次日被采到之后就永久留在表里 —— 库里攒够 8 天
+ * 才画得出 Day7。攒不够的那些天需要回补，见后端服务文件头的实测说明。
  *
  * 空态：上游 xGW License / xGW CPU / 3G FDD 三个模板**没有 5 分钟粒度**
  * （实测恒 0 行，详见后端服务文件头）。它们仍列出卡片，但显示业务原因，
@@ -74,14 +80,51 @@ function xAxisLabel(n: number) {
 }
 
 /**
- * pivot：SQL 返回 [HH:MM, 'Day0'|'Day1', 值] → 按第 2 列透视成 Day0 / Day1 两条序列。
- * 与 CnKpi.tsx 的 buildPivotOption 同构，只是这里把 Day0/Day1 的顺序固定下来，
- * 并给两条线固定配色，保证「今天」永远是同一种颜色。
+ * pivot：SQL 返回 [HH:MM, 'Day0'|'Day1'|'Day7', 值] → 按第 2 列透视成多条序列。
+ * 与 CnKpi.tsx 的 buildPivotOption 同构，只是这里把 Day0/Day1/Day7 的顺序固定下来，
+ * 并给每条线固定配色，保证「今天」永远是同一种颜色。
  */
-// 配色与图型参考 vmax_cxo_dashboard.html 的 Total Traffic(GB) 图（day-0 蓝 / day-1 绿）
+// 配色：Day0 绿 / Day1 蓝 / Day7 青（运维侧指定这三色，与门户参考图
+// vmax_cxo_dashboard.html 的 day-7 亮黄不同 —— 本页按「最近→最远」排色）。
+// Day0/Day1 沿用本页既有实值；Day7 的青取自 theme.ts 的 DARK.teal（#00d9ff）。
+// 必须是实值：canvas 解析不了 CSS 变量（AGENTS.md 第三节第 3 条的取色表）。
 const DAY_COLOR: Record<string, string> = {
-  Day0: '#2b8cff',
-  Day1: '#08bd83',
+  Day0: '#08bd83',
+  Day1: '#2b8cff',
+  Day7: '#00d9ff',
+}
+
+// Day7 的青在浅色主题换成深青（theme.ts 的 LIGHT.blue #0e7490）：#00d9ff 是为深色底
+// 设计的霓虹青，1.5px 画在白卡上会发飘、几乎看不见。深浅各一套实值是本项目既有做法。
+const DAY_COLOR_LIGHT: Record<string, string> = {
+  Day7: '#0e7490',
+}
+
+function dayColor(name: string, isDark: boolean) {
+  return (!isDark && DAY_COLOR_LIGHT[name]) || DAY_COLOR[name] || '#8b95a7'
+}
+
+// 图例与导出列的固定顺序（后端只会产出这三个标签）
+const DAY_ORDER = ['Day0', 'Day1', 'Day7']
+
+/**
+ * 图例文案的 i18n key。必须写成显式 switch 返回字面量：动态拼 key
+ * （`t('cnkpi5.day.' + d)`）会被 `check:i18n` 守卫读成 `cnkpi5.day.` 并报字典缺失，
+ * 见 AGENTS.md 第三节 1b 的第三条铁律。
+ */
+function dayLabelKey(day: string) {
+  switch (day) {
+    case 'Day0': return 'cnkpi5.day0'
+    case 'Day1': return 'cnkpi5.day1'
+    case 'Day7': return 'cnkpi5.day7'
+    default: return ''
+  }
+}
+
+/** 日子标签的界面文案（图例与导出表头共用，避免两边说法不一致） */
+function dayLabel(t: (key: string) => string, day: string) {
+  const key = dayLabelKey(day)
+  return key ? t(key) : day
 }
 
 function fadeColor(hex: string, alpha: number) {
@@ -146,7 +189,7 @@ function buildDayOption(w: CnWidget5, isDark: boolean) {
       },
     },
     series: names.map((n) => {
-      const c = DAY_COLOR[n] || '#8b95a7'
+      const c = dayColor(n, isDark)
       return {
         name: n,
         type: 'line' as const,
@@ -225,6 +268,7 @@ function WidgetCard({ w, height }: { w: CnWidget5; height: number }) {
 
 export default function CnKpi5mins() {
   const { t } = useI18n()
+  const { isDark } = useTheme()
   const [data, setData] = useState<OverviewResp5 | null>(null)
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState('')
@@ -247,6 +291,21 @@ export default function CnKpi5mins() {
   const widgets = data?.widgets ?? []
   const chartWidgets = widgets.filter((w) => w.chart !== 'kpi' && w.chart !== 'text')
   const chartHeight = 320
+
+  /**
+   * 页头图例只列**库里真有数据**的那几天。Day7 需要历史攒够 8 天（或做过回补）
+   * 才会出现，缺的时候明说一句，而不是画三条色块却只出两条线。
+   */
+  const presentDays = useMemo(() => {
+    const found = new Set<string>()
+    for (const w of chartWidgets) {
+      for (const r of w.rows) {
+        const d = String(r[1])
+        if (d && d !== 'null' && d !== 'NULL' && d !== 'undefined') found.add(d)
+      }
+    }
+    return DAY_ORDER.filter((d) => found.has(d))
+  }, [chartWidgets])
 
   /** 有数据的组件数，用于页头统计 */
   const withData = widgets.filter((w) => !w.empty && !w.error).length
@@ -277,8 +336,9 @@ export default function CnKpi5mins() {
 
     for (const w of chartWidgets) {
       if (w.empty || w.error || w.rows.length === 0) continue
-      // 宽表：每行 [HH:MM, Day0, Day1]，便于对账
-      const days = ['Day0', 'Day1']
+      // 宽表：每行 [HH:MM, Day0, Day1, Day7]，便于对账。
+      // 列只取本组件实际有数据的日子，与图上画出的线一一对应。
+      const days = DAY_ORDER.filter((d) => w.rows.some((r) => String(r[1]) === d))
       const byTime = new Map<string, Record<string, number | null>>()
       const times: string[] = []
       for (const r of w.rows) {
@@ -287,7 +347,7 @@ export default function CnKpi5mins() {
         if (!byTime.has(tt)) { byTime.set(tt, {}); times.push(tt) }
         byTime.get(tt)![d] = r[2] === null || r[2] === undefined || r[2] === '' ? null : toNumber(r[2])
       }
-      const hdr = [t('cnkpi5.time'), ...days.map((d) => `${d} (${t('cnkpi5.value')})`)]
+      const hdr = [t('cnkpi5.time'), ...days.map((d) => `${dayLabel(t, d)} (${t('cnkpi5.value')})`)]
       const body = times.map((tt) => [tt, ...days.map((d) => byTime.get(tt)?.[d] ?? null)])
       sheets.push({
         name: w.id,
@@ -295,7 +355,7 @@ export default function CnKpi5mins() {
         subtitle: `${t('cnkpi5.exportSource')}: ${data.meta.db}`,
         header: hdr,
         rows: body as (string | number | null)[][],
-        columnWidths: [12, 18, 18],
+        columnWidths: [12, ...days.map(() => 20)],
       })
     }
 
@@ -322,12 +382,18 @@ export default function CnKpi5mins() {
               {data?.meta && data.meta.failed > 0 && (
                 <Tag color="error">{t('cnkpi.failed', { n: data.meta.failed })}</Tag>
               )}
-              {/* 图例：Day0=今天，Day1=昨天 */}
-              <Space size={6} align="center" style={{ fontSize: 12 }}>
-                <span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: 2, background: DAY_COLOR.Day0 }} />
-                <Text type="secondary" style={{ fontSize: 12 }}>{t('cnkpi5.day0')}</Text>
-                <span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: 2, background: DAY_COLOR.Day1 }} />
-                <Text type="secondary" style={{ fontSize: 12 }}>{t('cnkpi5.day1')}</Text>
+              {/* 图例：按**实际取到的日子**渲染。Day7 要等库里攒够 8 天（或做过回补）
+                  才会出现，缺的时候直接说明，而不是留着一条永远不出来的色块。 */}
+              <Space size={6} align="center" wrap>
+                {presentDays.map((d) => (
+                  <Space key={d} size={4} align="center">
+                    <span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: 2, background: dayColor(d, isDark) }} />
+                    <Text type="secondary" style={{ fontSize: 12 }}>{dayLabel(t, d)}</Text>
+                  </Space>
+                ))}
+                {!presentDays.includes('Day7') && (
+                  <Text type="secondary" style={{ fontSize: 12 }}>{t('cnkpi5.day7Absent')}</Text>
+                )}
               </Space>
             </Space>
           </Col>

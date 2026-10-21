@@ -12,8 +12,9 @@ GET /api/cn-kpi-5mins/overview
 GET /api/cn-kpi-5mins/health
     -> {ok, db, elapsed_ms} | {ok:false, error}
 
-说明：窗口固定为「今天 + 昨天」（Day0/Day1 叠画），因此本端点**不接收**时间区间
-参数 —— 区间由 SQL 里的 date('now') 与 date('now','-1 day') 决定，随系统日期自然滚动。
+说明：窗口固定为「今天 + 昨天 + 7 天前」（Day0/Day1/Day7 叠画），因此本端点**不接收**时间区间
+参数 —— 三个日子由 SQL 里的 date('now') / date('now','-1 day') / date('now','-7 day') 决定，
+随系统日期自然滚动。
 """
 import logging
 

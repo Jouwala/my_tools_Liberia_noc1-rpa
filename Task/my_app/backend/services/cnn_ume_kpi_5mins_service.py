@@ -16,6 +16,11 @@
 查询窗口为「**昨天 00:00 → 现在**」：页面要把 Day0（今天）与 Day1（昨天）
 两条曲线叠画，窗口必须同时覆盖两天。
 
+页面还有第三条 **Day7（7 天前）**曲线，它**不是靠加宽本窗口**取得的：写库是 upsert
+且从不清理，所以每个日子在它的次日被采到之后就永久留在表里，攒够 8 天 Day7 自然出现。
+把 `WINDOW_DAYS_BACK` 改成 7 会让每 15 分钟一轮的行数放大 7 倍，没有必要；真出现空洞
+（任务停跑过、或表上线得晚）按日回补即可，做法见 `docs/manual/11-feature-guide.md` §33b.3。
+
 =========================== 上游粒度能力 ===========================
 
 **2026-10-17 实测**（`gr=300`、昨天→现在）：8 个模板中只有 5 个能出 5 分钟数据。
@@ -87,7 +92,9 @@ TABLE_PREFIX = "5mins_"
 MAX_PARALLEL_WORKERS = int(os.environ.get("CNN_KPI_5MINS_PARALLEL_WORKERS",
                                           os.environ.get("CNN_KPI_PARALLEL_WORKERS", "8")))
 
-# 查询窗口的天数偏移：1 = 从「昨天 00:00」起（Day1 需要完整昨天）
+# 查询窗口的天数偏移：1 = 从「昨天 00:00」起（Day1 需要完整昨天）。
+# ⚠ 别为了页面上的 Day7（7 天前）把它改成 7 —— Day7 靠 upsert 逐日累积即可，
+# 详见模块头「Day7 不是靠加宽本窗口取得的」。
 WINDOW_DAYS_BACK = 1
 
 # 单个模板导出的等待上限（秒）。5 分钟粒度行数远大于日粒度（FREE_RATING_GROUP
@@ -163,7 +170,7 @@ def _window_iso(now: datetime | None = None) -> tuple[str, str]:
     为什么是 UTC 00:00：原模块的所有时间 ISO 都是 UTC（`datetime.now(timezone.utc)`），
     且 UME 的 `clienttimezone` 固定 Atlantic/Reykjavik；沿用同一基准，避免
     与 `cnn_kpi_sync` 在同一批数据上出现「日期归属不一致」。
-    Day0/Day1 的日切也由前端 SQL 按 `End Time` 的前 10 位（UTC 日期）判定。
+    Day0/Day1/Day7 的日切也由前端 SQL 按 `End Time` 的前 10 位（UTC 日期）判定。
     """
     now = now or datetime.now(timezone.utc)
     start_dt = (now - timedelta(days=WINDOW_DAYS_BACK)).replace(

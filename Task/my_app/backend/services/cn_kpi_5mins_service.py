@@ -7,20 +7,29 @@
 db_ps_cs_cn.sqlite3。读取走远端只读 SQL API（`cn_kpi_service.query_remote`），
 与 `cn_kpi` 看板同一套通道。
 
-=========================== Day0 / Day1 拆分 ===========================
+=========================== Day0 / Day1 / Day7 拆分 ===========================
 
-图要把「今天」与「昨天」两条曲线叠画。拆分**在 SQL 里完成**，输出三列
-    [HH:MM, 'Day0' | 'Day1', 值]
+图要把「今天」「昨天」「7 天前（同一星期几）」三条曲线叠画。拆分**在 SQL 里完成**，
+输出三列
+    [HH:MM, 'Day0' | 'Day1' | 'Day7', 值]
 前端 `CnKpi5mins.tsx` 复用 `pivot` 机制（按第 2 列透视成多序列），不需要任何
-新的拆分逻辑。
+新的拆分逻辑。序列条数不固定：某个日子在库里还没有数据时，SQL 就不会返回那一类
+标签，前端少画一条线，不需要专门处理。
 
 日切基准：`substr("End Time", 1, 10)`
-    · "Day0" = 今天；"Day1" = 昨天。
+    · "Day0" = 今天；"Day1" = 昨天；"Day7" = 7 天前（与今天同一个星期几）。
     · 用 End Time 而不是 Begin Time：5 分钟窗口是 [00:00, 00:05)，用 End Time
       与 `cn_kpi` 看板既有的 `substr("End Time",1,10)` 口径保持一致。
 
-x 轴：`substr("End Time", 12, 5)` → "00:05"。两条序列共用同一 HH:MM 轴，
-所以 00:05 的今天值会与 00:05 的昨天值对齐，这正是叠画对比想要的。
+x 轴：`substr("End Time", 12, 5)` → "00:05"。三条序列共用同一 HH:MM 轴，
+所以 00:05 的今天值会与昨天、7 天前的同一时刻对齐，这正是叠画对比想要的。
+
+⚠ **Day7 有没有数据取决于库里累积了几天**，与本页无关：采集任务
+`cnn_kpi_sync_5mins` 每 15 分钟的窗口是「昨天 00:00 → 现在」，写库是 upsert 且
+没有清理，所以历史会自己往上堆 —— 任何一个日子在它的「次日」被采集后就永久留在
+表里。任务上线首日（2026-10-16）之前的日子从来没被取过，那些天要等回补。
+2026-10-21 实测各表最早数据：5 分钟档 5 张表为 10-16，15 分钟档 3 张表为 10-18。
+判据永远以库里 `MIN(substr("End Time",1,10))` 为准，别按本段文字推断。
 
 =========================== 上游无 5 分钟数据的 3 个模板 ===========================
 
@@ -66,21 +75,27 @@ UNAVAILABLE_TABLES: Dict[str, str] = {}
 # ----------------------------------------------------------------------
 # SQL 片段复用
 # ----------------------------------------------------------------------
-# Day0/Day1 标签：外层比较当前日期。
+# Day0/Day1/Day7 标签：外层比较当前日期。
 # 用 SQLite 的 date('now') 让「今天」随时间自然滚动，无需前端传日期。
+# Day7 = 7 天前 = 同一个星期几，用来剔除「周中 vs 周末」的日内曲线形状差异。
 _DAY_LABEL = (
     "CASE WHEN substr(\"End Time\",1,10) = date('now') THEN 'Day0' "
-    "WHEN substr(\"End Time\",1,10) = date('now','-1 day') THEN 'Day1' END"
+    "WHEN substr(\"End Time\",1,10) = date('now','-1 day') THEN 'Day1' "
+    "WHEN substr(\"End Time\",1,10) = date('now','-7 day') THEN 'Day7' END"
 )
 # x 轴：HH:MM
 _TIME_KEY = "substr(\"End Time\",12,5)"
-# 时间窗口：近 2 天（今天 + 昨天）。用 End Time 过滤，与标签口径一致。
-_WINDOW = "\"End Time\" >= date('now','-1 day') AND \"End Time\" < date('now','+1 day')"
+# 时间窗口：Day0 + Day1 + Day7 **三个日子**，不是连续的 7 天。
+# 为什么用 IN 而不是 `"End Time" >= date('now','-7 day')`：中间 5 天（Day2~Day6）
+# 会落进 CASE 的 ELSE 分支变成 day=NULL，而 GROUP BY (t, day) 把它们按同一 HH:MM
+# 塌成一组再 SUM —— 前端虽然按「day 为空」丢弃，但这些行既无意义又白占 limit。
+_WINDOW = ("substr(\"End Time\",1,10) IN "
+           "(date('now'), date('now','-1 day'), date('now','-7 day'))")
 
 
 def _agg_sql(table: str, value_expr: str, series_name: str,
              extra_where: str = "") -> str:
-    """生成一个「按 HH:MM 聚合 + 打 Day0/Day1 标签」的 3 列 SQL。
+    """生成一个「按 HH:MM 聚合 + 打 Day0/Day1/Day7 标签」的 3 列 SQL。
 
     value_expr：对指标列的聚合表达式（如 SUM("x") 或 ROUND(SUM("x")/1e6,2)）
     extra_where：附加过滤（如 RG 编号）
@@ -97,7 +112,7 @@ def _agg_sql(table: str, value_expr: str, series_name: str,
 # ----------------------------------------------------------------------
 # 组件清单（8 个，与 cnn_kpi_sync_5mins 的 8 个模板一一对应）
 # ----------------------------------------------------------------------
-# chart 统一用 line + pivot=True（三列 [HH:MM, Day0/Day1, 值]）。
+# chart 统一用 line + pivot=True（三列 [HH:MM, Day0/Day1/Day7, 值]）。
 # pct=True 的组件纵轴格式化为百分比。
 WIDGETS: List[Dict[str, Any]] = [
     {
@@ -270,7 +285,7 @@ def _fetch_widget(w: Dict[str, Any]) -> Dict[str, Any]:
         "id": w["id"],
         "title": w["title"],
         "chart": "line",
-        "pivot": True,      # 三列 [HH:MM, Day0/Day1, 值]
+        "pivot": True,      # 三列 [HH:MM, Day0/Day1/Day7, 值]
         "pct": bool(w.get("pct")),   # 百分比组件（纵轴格式化为 %）
         "sql": w["sql"],
         "columns": ["Time", "Day", w["title"]],
@@ -318,7 +333,7 @@ def _fetch_widget(w: Dict[str, Any]) -> Dict[str, Any]:
     out["rows"] = [list(r) for r in (res.get("rows") or [])]
     if not out["rows"]:
         out["empty"] = True
-        out["empty_reason"] = "当前窗口（今天 + 昨天）内暂无 5 分钟数据。"
+        out["empty_reason"] = "当前窗口（今天 + 昨天 + 7 天前）内暂无 5 分钟数据。"
     return out
 
 

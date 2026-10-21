@@ -3608,10 +3608,10 @@ const translations: Record<Locale, Record<string, string>> = {
     'nav.cnKpi': 'CN KPI',
     'nav.cnKpi5mins': 'CN KPI 5分钟',
 
-    // ===== CN KPI 5 分钟看板（Day0/Day1 叠画）=====
+    // ===== CN KPI 5 分钟看板（Day0/Day1/Day7 叠画）=====
     // 数据由任务 cnn_kpi_sync_5mins 每 15 分钟写入 5mins_* 表
     // 页面大标题由 App 全局 Header 渲染（菜单名），页内不再重复画标题，只保留上行统计条
-    'cnkpi5.barHint': '每张图两条线为今天与昨天同一时刻的值，可对比日内走势',
+    'cnkpi5.barHint': '每张图的线是今天、昨天、7 天前（同一个星期几）在同一时刻的值，既比日内走势也比周同期',
     'cnkpi5.noGranularity': '无数据',
     'cnkpi5.noData': '暂无数据',
     'cnkpi5.queryFail': '取数失败',
@@ -3621,8 +3621,11 @@ const translations: Record<Locale, Record<string, string>> = {
     'cnkpi5.rows': '行',
     'cnkpi5.day0': 'Day0（今天）',
     'cnkpi5.day1': 'Day1（昨天）',
+    'cnkpi5.day7': 'Day7（7 天前）',
     'cnkpi5.summary': '{{ok}}/{{total}} 个组件有数据',
-    'cnkpi5.legendHint': '每张图的两条线分别是今天与昨天同一时刻的值，可直接对比日内走势',
+    'cnkpi5.legendHint': '每张图的线分别是今天、昨天、7 天前同一时刻的值，可直接对比日内走势与周同期',
+    // Day7 只有库里攒够 8 天历史才画得出来（采集窗口是「昨天 → 现在」，靠 upsert 逐日累积）
+    'cnkpi5.day7Absent': 'Day7（7 天前）暂无历史数据',
     'cnkpi5.emptyBanner': '{{n}} 个组件暂无数据（非故障）',
     'cnkpi5.emptyWhy': '通常是因为该 KPI 的上游模板未开放对应粒度，或任务尚未采集到最近一批数据。',
     // 混合粒度提示：xGW License / xGW CPU / 3G FDD 走上游 15 分钟档模板，
@@ -7775,10 +7778,10 @@ const translations: Record<Locale, Record<string, string>> = {
     'nav.cnKpi': 'CN KPI',
     'nav.cnKpi5mins': 'CN KPI 5-Min',
 
-    // ===== CN KPI 5-minute dashboard (Day0/Day1 overlay) =====
+    // ===== CN KPI 5-minute dashboard (Day0/Day1/Day7 overlay) =====
     // Data is written every 15 min by the cnn_kpi_sync_5mins task into the 5mins_* tables
     // The page title is rendered by the app-wide Header (menu label); the page keeps only the stats bar
-    'cnkpi5.barHint': 'Two lines per chart: the same time of day today and yesterday, for intraday comparison',
+    'cnkpi5.barHint': 'Each chart lines up the same clock time for today, yesterday and 7 days ago (the same weekday), so both the intraday shape and the week-over-week gap are visible',
     'cnkpi5.noGranularity': 'No data',
     'cnkpi5.noData': 'No data',
     'cnkpi5.queryFail': 'Query failed',
@@ -7788,8 +7791,12 @@ const translations: Record<Locale, Record<string, string>> = {
     'cnkpi5.rows': 'rows',
     'cnkpi5.day0': 'Day0 (today)',
     'cnkpi5.day1': 'Day1 (yesterday)',
+    'cnkpi5.day7': 'Day7 (7 days ago)',
     'cnkpi5.summary': '{{ok}}/{{total}} widgets with data',
-    'cnkpi5.legendHint': 'The two lines show the same time of day today and yesterday, so the intraday trend can be compared directly',
+    'cnkpi5.legendHint': 'Each chart shows the same clock time for today, yesterday and 7 days ago, so the intraday trend and the week-over-week level can be compared directly',
+    // Day7 only draws once the tables hold 8 days of history (the sync window is
+    // "yesterday -> now", older days accumulate through upsert)
+    'cnkpi5.day7Absent': 'No Day7 (7 days ago) history yet',
     'cnkpi5.emptyBanner': '{{n}} widget(s) have no data yet (not a fault)',
     'cnkpi5.emptyWhy': 'Usually because the upstream template for that KPI does not expose this granularity, or the task has not collected the latest batch yet.',
     // Mixed granularity: xGW License / xGW CPU / 3G FDD use the upstream 15-minute

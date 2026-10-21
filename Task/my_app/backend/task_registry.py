@@ -444,14 +444,16 @@ TASK_SPECS = [
 
     # 11b. CNN UME KPI 5 分钟粒度同步（每 15 分钟）
     #      与 11 同源同口令，但 gr="300"、窗口「昨天 00:00 → 现在」、写入 5mins_ 前缀新表，
-    #      供 ?page=cn_kpi_5mins 做 Day0/Day1 叠画。日/月粒度表一行不动。
+    #      供 ?page=cn_kpi_5mins 做 Day0/Day1/Day7 叠画。日/月粒度表一行不动。
+    #      Day7（7 天前）靠「窗口只取昨天→现在 + upsert 从不清理」逐日累积而来，
+    #      攒够 8 天就自然有；更早的空洞按日回补，不要把本窗口改宽（单轮行数会放大 7 倍）。
     #      ⚠ 上游只有 5 个模板支持 5 分钟（xGW_LICENSE / xGW_CPU_USAGE / 3G_FDD_DATA_TRAFFIC
     #      实测恒为 0 行，服务内会跳过且不计失败）；实测见 cnn_ume_kpi_5mins_service.py 文件头。
     #      ⚠ 实测单轮约 105s（FREE_RATING_GROUP 一天就有 1.4 万行），远小于 15 分钟节拍。
     dict(task_id="cnn_kpi_sync_5mins", name="CNN UME KPI 5分钟同步", name_en="CNN UME KPI 5-Min Sync",
          loader=("backend.services.cnn_ume_kpi_5mins_service", "run_cnn_kpi_sync_5mins"),
-         description="CNN UME 核心网 KPI 5 分钟粒度同步（同 8 个模板，取昨天 00:00 至现在），API 写入 DB CNN 的 5mins_* 新表，供 5 分钟看板 Day0/Day1 对比",
-         description_en="CNN UME core-network KPI sync at 5-minute granularity (same 8 templates, window yesterday 00:00 to now), API write to DB CNN 5mins_* tables for the 5-minute Day0/Day1 board",
+         description="CNN UME 核心网 KPI 5 分钟粒度同步（同 8 个模板，取昨天 00:00 至现在），API 写入 DB CNN 的 5mins_* 新表，供 5 分钟看板 Day0/Day1/Day7 对比",
+         description_en="CNN UME core-network KPI sync at 5-minute granularity (same 8 templates, window yesterday 00:00 to now), API write to DB CNN 5mins_* tables for the 5-minute Day0/Day1/Day7 board",
          default_cron="*/15 * * * *", category="cnn_kpi"),
 
     # 12. SP 备件数据同步（2026-09-20 起改为每小时 :10，原为每天 07:00）
