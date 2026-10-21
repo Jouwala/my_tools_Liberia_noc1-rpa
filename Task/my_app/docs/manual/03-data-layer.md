@@ -81,7 +81,8 @@
 
 ## PG → SQLite 快照
 
-`pg_to_sqlite_sync`（每小时 :45）把远程 PG 全库同步到本地 `db/app.db`，作为离线备份与回退快照（`task_registry.py:723`）。这意味着 `app.db` 里的业务表是**上一小时的镜像**，别在它上面做"实时"假设。
+`pg_to_sqlite_sync` 把远程 PG 全库同步到本地 `db/app.db`，作为离线备份与回退快照（`task_registry.py:723`）。这意味着 `app.db` 里的业务表是**上一次同步之前的镜像**，别在它上面做"实时"假设。
+⚠️ 估新鲜度别看注册表默认（`45 * * * *`），要看**库里的生效值**：`task_schedule_config` 把它覆盖成了 `45 */12 * * *`（后端/worker 启动日志的 `[SCHEDULE]` 告警会明说这条差异），2026-10-21 实测还出现过一次非整点执行（16:05:07 认领）。要确认最近一次，查 `log/worker_runtime_m_*.log` 里的认领/完成行。
 
 ⚠️ **例外：`SKIP_TABLES` 里的"本地权威表"不是镜像**（`backend/scripts/sync_pg_to_sqlite.py:80`）。
 `credentials`、`email_recipients`、`task_schedule_config` 由本机应用无条件写 SQLite，

@@ -410,7 +410,7 @@ def _save_schedule_config(task_id: str, cron: str, enabled: bool = None,
       - `log_schedule_store_drift` 需要一个可比对象才有哨兵意义。
 
     事故本身（为什么此前只写 SQLite 会出事）：PG 那份停在 10-20 12:03 的旧值，
-    每小时 :45 的 `pg_to_sqlite_sync` 又按 PG 把 SQLite 整表 DROP+CREATE 覆盖回去 ——
+    `pg_to_sqlite_sync` 又按 PG 把 SQLite 整表 DROP+CREATE 覆盖回去 ——
     用户 15:26 点主开关（日志 138 行「DB 写入成功」）在 16:15 被抹掉，24 个任务随即
     按「任务 xxx 已禁用」被跳过。该表现已列入 sync_pg_to_sqlite.SKIP_TABLES，双写则
     保证就算有人手工跑同步或改回 sqlite 模式，拿到的也是页面的配置。

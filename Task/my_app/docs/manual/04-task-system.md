@@ -340,9 +340,11 @@ SELECT task_id, COUNT(*) FROM task_schedule_config GROUP BY task_id HAVING COUNT
 **改前的形态（这就是本次事故根因）**：`_save_schedule_config` 只写 SQLite，而
 `get_task_config`（设置页导出）、`db_freshness_check`、`tt_alarm_trigger` 经
 `get_raw_connection` 读 PG —— 写一处、读两处，PG 那份因此停在 2026-10-20T12:03 的
-「主开关关闭」状态；同时 `pg_to_sqlite_sync`（cron `45 * * * *`，`task_registry.py:723`）
-每小时把 PG **整表 DROP+CREATE** 灌回 SQLite —— 用户 15:26 点主开关
-（日志 138 行「DB 写入成功」）在 16:15:40 被抹掉，SQLite 也变成 1 行 enabled。
+「主开关关闭」状态；同时 `pg_to_sqlite_sync`（注册表默认 `45 * * * *`、`task_registry.py:723`，
+**生效值被库里覆盖成 `45 */12 * * *`** —— 判窗口要按库里的值，启动日志的 `[SCHEDULE]` 覆盖告警
+会把这条差异直接打出来）把 PG **整表 DROP+CREATE** 灌回 SQLite —— 用户 15:26 点主开关，
+16:05:07 那次同步认领、16:15:40 结束（`log/worker_runtime_m_20261021.log`），SQLite 随即
+变回 1 行 enabled。
 
 **后果有迷惑性**：运行中的进程每次执行前重读库，于是 16:15 起 **24 个任务按
 「任务 xxx 已禁用」被跳过**（`grep "跳过执行.*已禁用" log/worker_runtime*.log`），
@@ -719,7 +721,8 @@ USSD 的日表当时只剩 2026-08-25~27 三行，而月表里有完整的 6 个
 > 封装见 `backend/services/tt_alarm_render.py`。
 >
 > **引擎读的是 SQLite 副本 `db/app.db`，不是生产的 PG**（`tt-analyze.py:57`），
-> 而该副本由 `pg_to_sqlite_sync` **每小时第 45 分**才刷新一次 —— 本任务每 5 分钟跑一次。
+> 而该副本由 `pg_to_sqlite_sync` 刷新（2026-09-29 时是**每小时第 45 分**；生效 cron 现被库里
+> 覆盖成 `45 */12 * * *`，见上文「双库一致性」—— 滞后可长达半天，别按一小时估）—— 本任务每 5 分钟跑一次。
 > 2026-09-29 实测到最坏情况：副本落后 **84 分钟**（SQLite 最新 `alarm_occur_time` 16:17
 > vs PG 17:41；17 点这一小时 PG 有 5 单、SQLite **0 单**）。
 >
