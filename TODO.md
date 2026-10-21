@@ -43,16 +43,23 @@
       （`task_runner.toggle_all_tasks` 双向跳过 `manually_stopped=1`；
       `tools/fix_task_schedule_dupes.py` 修掉 SQLite 缺主键导致 146 行的漂移）。
       遗留：
-  1. **旋转那批仍在 git 历史里的明文口令（需仓库外动作，2026-10-21 已查清分布）。**
+  1. **旋转那批明文口令（需仓库外动作，2026-10-21 已查清分布）。**
      黑名单共 17 条（`tests/test_engineering_guards.py::_KNOWN_SECRETS`），对应 17 个凭据组
      （`zte_ume`/`mw_ume`/`rais`/`ccn_ume`/`ipran_ume`/`fw_kpi`/`mail_126`/`sftp_sp`/
      `owa_mail`/`weixin`×2/`eflow`/`fms_portal`/`ume_in`/`vmax_cxo`/`vmax_gbase` 等）。
-     **已核实的分布**：其中 3 条（`zte_ume`/`ccn_ume`/`ipran_ume`）在历史提交
-     `b54ceed3` 与 `7c86e0d2` 的快照里仍可见；其余 14 条当前 `git log -G` 检不出
-     （历史上从未以明文入库，或已被改写）。
+     **分布（按文件区分后核实，2026-10-21 修正过一次误判）**：
+     - **全部 17 条都明文存放在黑名单文件自身**（`tests/test_engineering_guards.py`
+       的 `_KNOWN_SECRETS` 元组）—— 该文件自 `b8a4c0c3` 起就已入库，
+       此前 12 条、`a30045ba` 补到 17 条，**历次提交都把全量口令带进了历史**。
+     - **另有 3 条**（`zte_ume`/`ccn_ume`/`ipran_ume`）在黑名单之外也出现过：
+       `docs/manual/13-operations.md` 与 `frontend/public/manual.html`，
+       涉及提交 `b54ceed3` / `7c86e0d2`（`manual.html` 的残留已于 `20c3469e` 清除）。
+     - 其余 14 条**未在黑名单之外的文件里出现过**。
+     ⚠️ **轮换范围是 17 条全部，不止那 3 条** —— 黑名单文件本身就是一条明文泄露通道。
      源码与文档已清、守卫已拦「再写回」（2026-10-21 另补了 `.html` 后缀，
      堵住 `manual.html` 这类生成产物的盲区）。但**进过历史的口令只能轮换才算消除**，
-     需拉运维在 UME / 各凭据后台改密，属仓库外的动作 —— 优先轮换那 3 条可确认的。
+     需拉运维在 UME / 各凭据后台改密，属仓库外的动作。
+     （仓库为**私有**，外部暴露风险有限；但私有库同样不该存明文口令。）
   2. **`MASTER_SWITCH_EXEMPT_IDS` 与 `manually_stopped` 的语义分层**：`whatsapp_send_ext`
      已于 2026-10-21 移出豁免名单（改由「用户手动关 + 主开关不覆盖」保证单通道）。
      若日后仍需「按业务长期钉死关闭」这一类，应新增独立的 `master_switch_pinned_off`
