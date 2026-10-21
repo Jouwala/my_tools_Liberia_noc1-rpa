@@ -22,6 +22,38 @@ except Exception:
     logging.getLogger(__name__).warning("[SILENT-EXCEPT] <module:main>: exception swallowed", exc_info=True)
     pass
 
+# ========== 根 logger 配置（2026-10-21 补）==========
+# 背景：此前**全仓库没有任何地方配置根 logger**（无 basicConfig / dictConfig /
+# FileHandler），root.handlers 恒为 []、level 恒为 WARNING。于是：
+#   * `logger.info(...)` 被**静默丢弃**（logging.lastResort 只兜 WARNING 及以上）；
+#   * 只有 WARNING/ERROR 通过 lastResort 落到 stderr（无时间戳、无 logger 名）。
+# 这不是理论问题：task_runner 里 14 处 `logger.info`（含「保存调度配置」、
+# 「任务开始执行」、「toggle_all_tasks」主开关结果）**一条都没进过日志文件** ——
+# 实测 `log/backend_runtime_<日期>.log` 里 `toggle_all_tasks` 命中 0 次，
+# 而 `[SCHEDULE]` 这类 logger.warning 有记录（因为它过了 WARNING 门槛）。
+# 主开关「关掉后任务还在跑」那类问题正需要这些 INFO 行来定位。
+#
+# 修法：给 root 挂一个 StreamHandler(stdout)，级别 INFO。
+#   * stdout 会被 backend_watchdog 的 pipe 泵写进 `log/backend_runtime_<日期>.log`
+#     （见 backend/log_writer.py），因此不需要另开文件句柄、不与轮转打架；
+#   * 格式带上时间戳与 logger 名，与 worker 日志口径一致，便于用
+#     `Select-String` 按特征串检索；
+#   * 用 force=True 覆盖 uvicorn 自己的配置，避免两边抢 handler 导致重复输出。
+#
+# ⚠️ 级别可由 MY_APP_LOG_LEVEL 覆盖（DEBUG/INFO/WARNING/ERROR）。
+# 提高到 INFO 会让日志量上升（worker 侧本来就有 task_start/task_done 这类行），
+# 但 backend_runtime 单文件上限 100MB 且会自动切分（log_writer.py），可接受。
+_LOG_LEVEL = os.environ.get("MY_APP_LOG_LEVEL", "INFO").strip().upper()
+try:
+    logging.basicConfig(
+        level=getattr(logging, _LOG_LEVEL, logging.INFO),
+        format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
+        stream=sys.stdout,
+        force=True,
+    )
+except Exception as e:  # noqa: BLE001
+    print(f"[startup] 日志配置失败(不影响服务): {e}")
+
 # 2026-08-14 修复：backend 继承看门狗 CMD 窗口的控制台，窗口关闭时 CTRL_CLOSE_EVENT
 # 导致 uvicorn 与看门狗同时退出（exit_code=1 0xC000013A）。
 # 仅在 stdout 已被重定向到文件时脱离控制台（由看门狗托管时），开发模式不受影响。

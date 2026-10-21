@@ -51,6 +51,44 @@ Get-ChildItem D:\01_RPA\Task\my_app\log\heartbeat_*.json |
 > ⚠️ 部分日志的报错原文里含账号，打包外发前先扫一遍。
 > `backend/restart_dbg.log`（≈751 KB）是调试残留，可直接删。
 
+### ⚠️ 后端 `logger.info` 此前**一条都没落盘**（2026-10-21 已修）
+
+**现象**：想在 `backend_runtime_<日期>.log` 里搜某条 INFO 日志，搜到 0 条；但同一份
+日志里 `logger.warning` 的行（如 `[SCHEDULE] 任务 … 的生效 cron 来自数据库覆盖`）**有**。
+
+**机制**：`backend/main.py` 此前**从未配置过根 logger**（全仓库无 `basicConfig` /
+`dictConfig` / `FileHandler`）。Python 的 `logging` 在 root 无 handler 时，
+- `WARNING` 及以上 → 走 `logging.lastResort`，输出到 **stderr**（无时间戳、无 logger 名）；
+- `INFO` / `DEBUG` → **静默丢弃**，不留任何痕迹。
+
+实测根因：`root.handlers == []`、`root.level == WARNING`、
+`logging.getLogger("task_runner").isEnabledFor(INFO) == False`。
+于是 `task_runner` 里 14 处 `logger.info`（含「保存调度配置」「任务开始执行」
+「[toggle_all_tasks] 主开关结果」）**全部是死的** —— 写代码的人以为留了痕，实际没有。
+这类"以为有日志、其实没有"最坑：排障时按不存在的日志去查，会得出错误结论。
+
+**修法**：`backend/main.py:25-56` 给 root 挂 `StreamHandler(stdout)`，级别 INFO，
+格式 `%(asctime)s [%(name)s] %(levelname)s: %(message)s`（与 worker 日志口径一致）。
+stdout 会被看门狗的 pipe 泵写进 `log/backend_runtime_<日期>.log`
+（`backend/log_writer.py`），因此**不另开文件句柄、不与轮转打架**。
+级别可用环境变量 `MY_APP_LOG_LEVEL` 覆盖（DEBUG/INFO/WARNING/ERROR）。
+
+**现在可以搜到的关键行**（此前全部搜不到）：
+
+```powershell
+# 主开关一次操作的结果（changed/stopped/skipped 实情）
+Select-String -Path log\backend_runtime_*.log -Pattern 'toggle_all_tasks'
+
+# 任务调度写入（含 manually_stopped 两个字段的实参）
+Select-String -Path log\backend_runtime_*.log -Pattern '保存调度配置'
+
+# 任务生命周期
+Select-String -Path log\backend_runtime_*.log -Pattern '任务开始执行|任务执行完成'
+```
+
+> 排障时注意：日志文件**按天命名且随重启更换**（`backend_watchdog.py:47-49`），
+> 翻错文件会误判成"没报错"。
+
 ## 排障 FAQ
 
 | 现象 | 先查什么 | 处置 |

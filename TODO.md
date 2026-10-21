@@ -55,8 +55,18 @@
   3. **`task_schedule_config` 双库无自动同步**：本表靠约定人工保持 SQLite 与 PG 一致
      （`tools/sync_manual_stop_to_pg.py` 补 `manually_stopped`）。是否要加自动同步或
      干脆二选一，待定。
-  4. **重启 7038 才会加载**：`MASTER_SWITCH_EXEMPT_IDS` 在 import 期求值，
-     `whatsapp_send_ext` 移出豁免名单需重启后端才生效（worker 侧同理）。
+  4. ~~**重启 7038 才会加载**~~ → **已于 2026-10-21 重启并验证**：豁免名单只剩
+     `whatsapp_send_baileys`，三个目标任务运行态均为 `manually_stopped=True`；
+     OFF→ON 完整往返后「启用集合」与「手动停止集合」与基线**完全一致**。
+- [ ] **后端 `logger.info` 此前一条都没落盘（2026-10-21 已修，需持续观察）。**
+      `backend/main.py` 从未配置根 logger（`root.handlers == []`、level=WARNING），
+      Python 的 `logging.lastResort` 只兜 WARNING 及以上，**INFO 全被静默丢弃** ——
+      `task_runner` 里 14 处 `logger.info` 全是死的（写代码的人以为留了痕，实际没有）。
+      已在 `backend/main.py:25-56` 给 root 挂 `StreamHandler(stdout)`，级别 INFO
+      （可用 `MY_APP_LOG_LEVEL` 覆盖）。**观察点**：① INFO 级别下日志量上升，
+      `backend_runtime_<日期>.log` 单文件上限 100MB 自动切分，确认 `log/` 不会爆；
+      ② `force=True` 是否与 uvicorn 自己的 handler 打架导致**重复输出**
+      （当前实测无重复，uvicorn 访问日志仍只出现一次）。
 
 - [ ] **7038 找个空闲时段重启，让 TT 快速分析的两项已落盘改动生效（2026-10-19 立，10-20 补充）。**
   1. **结论卡片正文还是旧文案** —— `> The AI model was unavailable…` 加末行
