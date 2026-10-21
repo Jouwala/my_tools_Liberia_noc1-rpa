@@ -506,7 +506,13 @@ def _init_db_with_retry(max_retries: int = 12, base_wait: int = 1, max_wait: int
                     conn.commit()
                     # 初始化调度配置表
                     task_runner._init_schedule_table()
-            # pg 模式：表结构由 Alembic 管理，此处不建表（避免与 Alembic 抢建，风险 11）
+            else:
+                # pg 模式：其余表结构由 Alembic 管理，此处不建表（避免与 Alembic 抢建，风险 11）。
+                # 例外是 task_schedule_config —— 它在**本地 db/app.db** 里还有一份，
+                # `_load_schedule_config` / `schedule_all_tasks` 读的就是它，而 Alembic
+                # 只管 PG 那份；空库上不自建就会「页面禁用了、重启后又全跑起来」。
+                # 函数内部双方言且逐侧 try/except，不会把启动卡进锁重试。
+                task_runner._init_schedule_table()
             return
         except Exception as e:
             last_err = e

@@ -25,7 +25,7 @@ from typing import Callable, Optional
 _SUBPROCESS_FLAGS = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
-from backend.database import get_raw_connection
+from backend.database import get_raw_connection, DB_MODE
 from backend.dialect_helpers import table_columns, upsert
 
 # Phase 4 拆分：以下成员已迁移至 backend.services.task_introspect，反向导入保持本模块引用兼容
@@ -218,31 +218,69 @@ def get_queue_running_task_ids() -> set:
 
 
 # ========== 任务注册 ==========
+SCHEDULE_TABLE = "task_schedule_config"
+# SQLite 侧 task_id 的唯一索引名。表原本靠建表 DDL 里的 PRIMARY KEY 约束，
+# 而 pg_to_sqlite_sync 对该表 DROP+CREATE 重建时只按 PG 的**列**建裸表，主键随之丢失；
+# 缺唯一约束时 upsert 的 SQLite 分支 `INSERT OR REPLACE` 不报错而是追加重复行
+# （2026-10-21 事故，合并重复行见 tools/fix_task_schedule_dupes.py）。
+SCHEDULE_UNIQUE_INDEX = "ux_task_schedule_config_task_id"
+
+
+def _ensure_schedule_table(conn):
+    """确保 task_schedule_config 存在、列齐全、task_id 上有唯一约束（幂等，双方言）。
+
+    两侧都要建：pg 模式下 get_raw_connection 返回的是 PG 连接，而
+    `_load_schedule_config` 读的是 SQLite 原生文件 —— 只建一边，另一边在空库上
+    会「写不进去但只留一行 warning」。
+    """
+    conn.execute(f"""
+        CREATE TABLE IF NOT EXISTS {SCHEDULE_TABLE} (
+            task_id TEXT PRIMARY KEY,
+            cron TEXT NOT NULL,
+            enabled INTEGER NOT NULL DEFAULT 1,
+            manually_stopped INTEGER NOT NULL DEFAULT 0,
+            updated_at TEXT NOT NULL
+        )
+    """)
+    cols = table_columns(conn, SCHEDULE_TABLE)
+    if "enabled" not in cols:
+        conn.execute(f"ALTER TABLE {SCHEDULE_TABLE} ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1")
+    # manually_stopped：0=否（默认，主开关照旧覆盖）/1=用户手动关过
+    # （主开关重新启用时跳过）。DEFAULT 0 保证加列是零行为变化。
+    if "manually_stopped" not in cols:
+        conn.execute(f"ALTER TABLE {SCHEDULE_TABLE} ADD COLUMN manually_stopped INTEGER NOT NULL DEFAULT 0")
+    # CREATE TABLE IF NOT EXISTS 对「表已存在但缺主键」不起作用，这里补等价唯一索引。
+    # 表里有重复 task_id 时建索引必然失败 —— 保留哪一行是取值决策，不在启动路径上
+    # 替用户做，只告警并指向修复脚本。
+    if isinstance(conn, sqlite3.Connection):
+        try:
+            conn.execute(
+                f"CREATE UNIQUE INDEX IF NOT EXISTS {SCHEDULE_UNIQUE_INDEX} "
+                f"ON {SCHEDULE_TABLE} (task_id)"
+            )
+        except sqlite3.Error as e:
+            logger.warning(
+                f"{SCHEDULE_TABLE} 唯一索引创建失败（多半是表里有重复 task_id 行）: {e} "
+                f"→ 运行 python tools/fix_task_schedule_dupes.py --apply"
+            )
+
+
 def _init_schedule_table():
-    """初始化调度配置表"""
+    """初始化调度配置表：get_raw_connection 一侧 + pg 模式下的本地 SQLite 一侧。"""
     try:
         with get_raw_connection(str(DB_PATH), timeout=30) as conn:
-            conn.execute("""
-            CREATE TABLE IF NOT EXISTS task_schedule_config (
-                task_id TEXT PRIMARY KEY,
-                cron TEXT NOT NULL,
-                enabled INTEGER NOT NULL DEFAULT 1,
-                manually_stopped INTEGER NOT NULL DEFAULT 0,
-                updated_at TEXT NOT NULL
-            )
-        """)
-            # 兼容旧表：仅在列不存在时才添加（幂等迁移，避免重复加列抛异常）
-            cols = table_columns(conn, "task_schedule_config")
-            if "enabled" not in cols:
-                conn.execute("ALTER TABLE task_schedule_config ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1")
-            # manually_stopped：0=否（默认，主开关照旧覆盖）/1=用户手动关过
-            # （主开关重新启用时跳过）。DEFAULT 0 保证加列是零行为变化。
-            if "manually_stopped" not in cols:
-                conn.execute("ALTER TABLE task_schedule_config ADD COLUMN manually_stopped INTEGER NOT NULL DEFAULT 0")
+            _ensure_schedule_table(conn)
             conn.commit()
             conn.close()
     except Exception as e:
-        logger.warning(f"初始化调度配置表失败: {e}")
+        logger.warning(f"初始化调度配置表失败（get_raw_connection 侧）: {e}")
+    if DB_MODE == "pg":
+        try:
+            with sqlite3.connect(str(DB_PATH), timeout=30) as conn:
+                _ensure_schedule_table(conn)
+                conn.commit()
+        except Exception as e:
+            logger.warning(f"初始化调度配置表失败（SQLite 侧）: {e}")
 
 
 def _load_schedule_config(task_id: str) -> tuple:
@@ -265,48 +303,81 @@ def _load_schedule_config(task_id: str) -> tuple:
         return (None, None, None)
 
 
-def _save_schedule_config(task_id: str, cron: str, enabled: bool = None,
-                          manually_stopped: bool = None):
-    """保存用户自定义的调度配置到数据库。
+def _upsert_schedule_row(conn, task_id: str, cron: str, enabled, manually_stopped, now: str):
+    """回读本表原值补齐调用方没传的字段，再 upsert 单行。
 
-    强制走 sqlite3.connect，不走 get_raw_connection（后者在 DB_MODE=pg 时
-    永远返回 PG 连接，不看 db_path 参数）。task_schedule_config 表在 SQLite
-    原生文件里，PG 上 INSERT OR REPLACE 语法错误被 except 静默吞掉，
-    导致 toggle-all / toggle 全部写不进去（2026-10-20 排查确认）。
-
-    enabled / manually_stopped 均为 None 时表示「不改动该字段」，沿用表中原值；
-    非 None 时写入新值。两个字段独立，主开关改 enabled 时必须显式传
+    每个存储各回读各的：`enabled` / `manually_stopped` 为 None 表示「不改动该字段」，
+    沿用该存储里的值；两个字段独立，主开关改 enabled 时必须显式传
     manually_stopped=False，否则会留下「用户手动关过」的陈旧标记。
     """
-    import sqlite3 as _sqlite3
+    r = conn.execute(
+        f"SELECT enabled, manually_stopped FROM {SCHEDULE_TABLE} WHERE task_id = ?",
+        (task_id,)).fetchone()
+    upsert(conn, SCHEDULE_TABLE, [{
+        "task_id": task_id,
+        "cron": cron,
+        "enabled": (1 if enabled else 0) if enabled is not None else (r[0] if r else 1),
+        "manually_stopped": (1 if manually_stopped else 0) if manually_stopped is not None
+                             else (r[1] if r else 0),
+        "updated_at": now,
+    }], conflict_cols=["task_id"])
+
+
+def _save_schedule_config(task_id: str, cron: str, enabled: bool = None,
+                          manually_stopped: bool = None):
+    """保存用户自定义的调度配置：SQLite 与 PG **双写**（2026-10-21）。
+
+    为什么必须两边都写 —— 读这张表的地方用了两套连接：
+      - `_load_schedule_config` / `schedule_all_tasks` / 执行前的
+        `_refresh_task_schedule_from_db` 读 SQLite 原生文件（db/app.db）；
+      - `get_task_config`（设置页「任务配置」导出）、`db_freshness_check`、
+        `tt_alarm_trigger` 走 `get_raw_connection`，pg 模式下读的是 PG。
+
+    此前只写 SQLite，PG 侧永远停在旧值，每小时 :45 的 `pg_to_sqlite_sync` 再把旧值
+    灌回 SQLite：2026-10-21 用户 15:26 的主开关操作在 16:15 那次同步被整表覆盖，
+    24 个任务随即按「任务 xxx 已禁用」被跳过；若此时重启，`schedule_all_tasks` 会照
+    库里的旧值只调度 1 个任务。该表已同时列入 sync_pg_to_sqlite.SKIP_TABLES，双写负责
+    让 PG 侧不再是陈旧值。
+
+    旧注释里「PG 上 INSERT OR REPLACE 语法错误会被静默吞掉」已由
+    `dialect_helpers.upsert()` 解决（PG 分支走 ON CONFLICT DO UPDATE），
+    所以这里不再需要绕开 get_raw_connection；写失败的告警点名是哪个存储失败。
+    """
+    now = datetime.now().isoformat()
+    written: list[str] = []
+    failed: list[str] = []
+
+    # ① SQLite：`_load_schedule_config` 读的就是这份。busy_timeout=30s +
+    #    synchronous=NORMAL 与 get_raw_connection 的 sqlite 分支保持一致 —— 不设 PRAGMA，
+    #    app.db 这种 1.5G 大库在 Windows 上 commit 后 mtime 可能滞后甚至不可见
+    #    （2026-10-20 排查日记）。
     try:
-        with _sqlite3.connect(str(DB_PATH), timeout=30) as conn:
-            # 与 get_raw_connection 的 sqlite 分支保持一致：busy_timeout=30s +
-            # synchronous=NORMAL。让 1.5G 大库的 commit 不阻塞，又能落盘（不设 PRAGMA，
-            # app.db 这种大库在 Windows 上 commit 后 mtime 可能滞后甚至不可见 —— 见
-            # 2026-10-20 排查日记）。
+        with sqlite3.connect(str(DB_PATH), timeout=30) as conn:
             conn.execute("PRAGMA busy_timeout=30000")
             conn.execute("PRAGMA synchronous=NORMAL")
-            now = datetime.now().isoformat()
-            # 没显式传的字段先回读原值，避免 upsert 用默认值覆盖掉调用方没打算改的东西
-            cur = conn.execute(
-                "SELECT enabled, manually_stopped FROM task_schedule_config WHERE task_id = ?",
-                (task_id,))
-            r = cur.fetchone()
-            rows = [{
-                "task_id": task_id,
-                "cron": cron,
-                "enabled": (1 if enabled else 0) if enabled is not None else (r[0] if r else 1),
-                "manually_stopped": (1 if manually_stopped else 0) if manually_stopped is not None
-                                     else (r[1] if r else 0),
-                "updated_at": now,
-            }]
-            upsert(conn, "task_schedule_config", rows, conflict_cols=["task_id"])
-            conn.commit()
-            logger.info(f"保存调度配置 {task_id} cron={cron!r} enabled={enabled!r} "
-                        f"manually_stopped={manually_stopped!r} → DB 写入成功")
+            _upsert_schedule_row(conn, task_id, cron, enabled, manually_stopped, now)
+        written.append("sqlite")
     except Exception as e:
-        logger.warning(f"保存调度配置失败 ({task_id}): {e}")
+        failed.append(f"sqlite: {e}")
+
+    # ② PG：只在 pg 模式写。sqlite 模式下 get_raw_connection 返回的就是上面那个文件，
+    #    再写一遍只是多一次并发风险，不做。
+    if DB_MODE == "pg":
+        try:
+            with get_raw_connection(str(DB_PATH), timeout=30) as conn:
+                _upsert_schedule_row(conn, task_id, cron, enabled, manually_stopped, now)
+                conn.close()
+            written.append("pg")
+        except Exception as e:
+            failed.append(f"pg: {e}")
+
+    if failed:
+        logger.warning(f"保存调度配置 {task_id} cron={cron!r} enabled={enabled!r} "
+                       f"manually_stopped={manually_stopped!r} → 已写入 {written or '无'}，"
+                       f"失败 {failed}")
+    else:
+        logger.info(f"保存调度配置 {task_id} cron={cron!r} enabled={enabled!r} "
+                    f"manually_stopped={manually_stopped!r} → DB 写入成功（{'+'.join(written)}）")
 
 
 

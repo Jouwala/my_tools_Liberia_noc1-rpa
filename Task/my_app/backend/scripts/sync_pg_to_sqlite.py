@@ -61,12 +61,27 @@ BATCH_SIZE = 5000  # 每批写入行数
 # 判定标准：看这张表的**写入方**是否与 DB 模式无关地固定写 SQLite。
 #   - credentials      → backend/services/credential_store.py 硬编码 sqlite3.connect
 #   - email_recipients → backend/services/email_recipient_store.py 同样硬编码
+#   - task_schedule_config → backend/services/task_runner.py::_save_schedule_config
+#       无条件写 SQLite（`_load_schedule_config` / `schedule_all_tasks` / 执行前的
+#       `_refresh_task_schedule_from_db` 都读它），2026-10-21 起另外双写一份 PG
+#       给走 get_raw_connection 的读方（get_task_config / db_freshness_check /
+#       tt_alarm_trigger）。
 # 反例：issue_reports（routers/feedback.py）走 get_raw_connection 双模，pg 模式下 PG
 # 才是权威，故**不能**跳过。
+#
+# ⚠️ 2026-10-21 事故（同 09-18 credentials 的模式，第二次）：本表未跳过时，
+#    sync_table 对 SQLite 执行 `DROP TABLE` + 按 PG 的**列**建裸表 ——
+#      ① 表上的 PRIMARY KEY 连同手工补的 ux_task_schedule_config_task_id 一起丢失，
+#         于是 `INSERT OR REPLACE` 不再替换而是**追加重复行**（73 任务变 146 行）；
+#      ② PG 侧的陈旧 enabled 被灌回 SQLite。
+#    实例：用户 15:26 点主开关（日志 138 行「DB 写入成功」）→ 16:15:40 本次同步结束
+#    后覆盖，24 个任务随即按「任务 xxx 已禁用」被跳过，页面显示的 70 运行/3 停用
+#    与实际持久状态相反。
 SKIP_TABLES = {
     "alembic_version",     # 迁移版本表
     "credentials",         # 凭据：本地权威（设置页写 SQLite）
     "email_recipients",    # 邮件收件人名单：本地权威（设置页写 SQLite）
+    "task_schedule_config",  # 任务启停/cron：本地权威（Task Manager 写 SQLite + 双写 PG）
 }
 
 logging.basicConfig(

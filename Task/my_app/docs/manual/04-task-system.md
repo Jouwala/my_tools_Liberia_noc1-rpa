@@ -273,10 +273,14 @@ WebSocket 被服务端关闭（`code=428`，与 408/500 同属日常抖动，实
 - 前端主开关的状态判定同样要排除这些任务（`masterTasks`），否则它们会让开关
   **永远显示关闭**——与 `master_switch_exempt` 踩的是同一个坑（2026-10-05 / 2026-10-20 各一次）；
 - 数据库迁移 `alembic/versions/0006_manual_stop_flag.py`（PG 侧）。
-  ⚠️ **本表在生产环境的真相源是 SQLite `db/app.db`**，不是 PG：`DB_MODE=pg` 时
-  `main.py` 的 `_init_schedule_table()` 分支根本不执行（它被 `if DB_MODE == "sqlite"` 包着），
-  而 `task_runner._load/_save_schedule_config` 硬编码 `sqlite3.connect(DB_PATH)`。
-  首次上线需对线上 SQLite 手工补列（幂等，先 `PRAGMA table_info` 判存在性）。
+  ⚠️ **本表在生产环境有两份，2026-10-21 起由 `_save_schedule_config` 双写**（见下文
+  「双库一致性」）：`db/app.db` 供 `_load_schedule_config` / `schedule_all_tasks` 读，
+  PG `app` schema 供走 `get_raw_connection` 的读方（`get_task_config`、
+  `db_freshness_check.py:503`、`tt_alarm_trigger.py:150`）读。
+  `main.py` 的 `_init_schedule_table()` 原先只在 `if DB_MODE == "sqlite"` 分支里调用，
+  pg 模式根本不执行 —— `main.py:510-515` 已补 pg 分支调用（Alembic 只管 PG 那份，
+  本地 SQLite 那份要自建）。首次上线需对线上 SQLite 手工补列（现在由
+  `task_runner._ensure_schedule_table` 幂等完成）。
   回滚：`alembic downgrade 0005_tt_exclude_table`，SQLite 侧 `ALTER TABLE ... DROP COLUMN`。
 
 ##### ⚠️ SQLite 侧曾缺主键，导致每任务多行、状态随机（2026-10-21 修复）
@@ -323,12 +327,68 @@ SELECT task_id, COUNT(*) FROM task_schedule_config GROUP BY task_id HAVING COUNT
 
 修复后 `INSERT OR REPLACE` 恢复「替换」语义（已实测：写入后行数仍为 1）。
 
-##### 双库一致性
+##### 双库一致性：`_save_schedule_config` 双写（2026-10-21）
 
-生产是**双库**：`db/app.db`（`task_runner` 只读写这里）+ PG `192.168.100.20:5432/myapp`
-（`app` schema，同名同结构且有真主键）。本表**没有自动同步机制** —— 改 SQLite 不会
-影响 PG，反之亦然。运维脚本若只改一侧，另一侧的对账结果就不可信。
-`tools/sync_manual_stop_to_pg.py` 用于把 `manually_stopped` 补到 PG（只改这一列）。
+生产是**双库**：本地 `db/app.db` + PG `192.168.100.20:5432/myapp`（`app` schema）。
+读这张表的地方**用了两套连接**，所以两边都得有真值：
+
+| 读方 | 走哪条连接 | 实际读到 |
+| --- | --- | --- |
+| `_load_schedule_config`（`task_runner.py:286`）、`schedule_all_tasks`（`:1155`）、执行前的 `_refresh_task_schedule_from_db` | 硬编码 `sqlite3.connect(DB_PATH)` | 本地 `db/app.db` |
+| `get_task_config`（设置页「任务配置」导出）、`db_freshness_check.py:503`、`tt_alarm_trigger.py:150` | `get_raw_connection` | pg 模式下是 **PG** |
+
+**改前的形态（这就是本次事故根因）**：`_save_schedule_config` 只写 SQLite，PG 那份停在
+2026-10-20T12:03 的「主开关关闭」状态；而 `pg_to_sqlite_sync`（cron `45 * * * *`，
+`task_registry.py:723`）每小时把 PG **整表 DROP+CREATE** 灌回 SQLite —— 用户 15:26 点主开关
+（日志 138 行「DB 写入成功」）在 16:15:40 被抹掉，SQLite 也变成 1 行 enabled。
+
+**后果有迷惑性**：运行中的进程每次执行前重读库，于是 16:15 起 **24 个任务按
+「任务 xxx 已禁用」被跳过**（`grep "跳过执行.*已禁用" log/worker_runtime*.log`），
+页面却仍显示 70 运行/3 停用（那是 15:26 的内存快照）；此时若重启，
+`schedule_all_tasks` 照库里的旧值只会调度 1 个任务。
+
+**现在的写法**（`task_runner.py:326`）：
+
+- 先写 SQLite，再在 `DB_MODE == "pg"` 时写 PG；**每个存储各回读各的原值**来补齐
+  调用方没传的 `enabled`/`manually_stopped`（`_upsert_schedule_row`，`:306`），
+  因此单边缺行不会把另一边的默认值灌过去；
+- 两侧各一个 try/except：一侧坏了另一侧照写，日志**点名是哪个存储失败**
+  （旧代码的 `except` 只留一行「保存调度配置失败」，正是它让 PG 侧的写失败被吞了一整天）；
+- 方言差异交给 `dialect_helpers.upsert()`（SQLite 用 `INSERT OR REPLACE`、
+  PG 用 `ON CONFLICT (task_id) DO UPDATE`），不再需要绕开 `get_raw_connection`；
+- sqlite 模式下 `get_raw_connection` 返回的就是同一个文件，**不再重复写第二遍**。
+
+**同时切断覆盖源**：`task_schedule_config` 已列入 `sync_pg_to_sqlite.py:80` 的
+`SKIP_TABLES`（`:210` 处早退，不触碰连接）。按该文件里既有的判定标准 ——
+「写入方是否与 DB 模式无关地固定写 SQLite」—— 本表合格：`_save_schedule_config`
+无条件写 SQLite。仅双写而不跳过是不够的：同步的 `DROP+CREATE` 只按 PG 的**列**建裸表，
+会把 SQLite 的主键与 `ux_task_schedule_config_task_id` 一起抹掉，
+`INSERT OR REPLACE` 随即退化成追加重复行（即 2026-10-21 那次事故的第二个症状）。
+这与 2026-09-18 的 `credentials` 事故是同一个模式。
+
+**兜底自修**：`_ensure_schedule_table`（`:229`）在启动时对两侧建表/补列，并在 SQLite
+侧 `CREATE UNIQUE INDEX IF NOT EXISTS`；表里已有重复行时建索引必然失败，此时只告警并
+指向 `tools/fix_task_schedule_dupes.py`（合并重复行是取值决策，不在启动路径上替用户做）。
+
+**一次性状态对齐**：`tools/reconcile_task_schedule_state.py`（默认 dry-run，`--apply` 才写，
+SQLite 先整库备份到 `db/app.db.bak_tscfix_<时间戳>`）。目标状态不写死任务名，
+按表自身的 `manually_stopped` 推导：`enabled = 0 若 manually_stopped=1，否则 1`。
+它同时做 SQLite 去重 + 补唯一索引 + 两侧写回，幂等。
+
+> ⚠️ **跑它的时机**：必须在 `SKIP_TABLES` 改动生效**之后**（即重启跑 `pg_to_sqlite_sync`
+> 的 worker 组之后）。`sync_pg_to_sqlite` 与 `task_runner` 都是 worker 进程 import 进
+> `sys.modules` 的常驻模块（`task_registry._lazy_loader` → `importlib.import_module`，
+> 只在首次调用时导入），**改文件不重启不生效**。
+
+**改完自查**（两条都要成立）：
+
+```
+python tools/reconcile_task_schedule_state.py            # 期望：需改动 0 行 / 两侧一致
+sqlite3 db/app.db "SELECT COUNT(*), SUM(enabled), SUM(manually_stopped) FROM task_schedule_config"
+# 与 PG 上同样一条查询结果一致，且 SQLite 侧 indexes 里有 ux_task_schedule_config_task_id
+```
+
+`tools/sync_manual_stop_to_pg.py` 是双写上线**之前**手工补 PG 用的退路，现在只作应急备份。
 
 #### SP 报表任务的双通道回退（2026-10-11）
 
