@@ -469,7 +469,7 @@ def _task_health_db_query():
     表不存在（sqlite 开发模式未建表）视为“无可检查”而非检查手段故障。"""
     try:
         _ensure_my_app_importable()
-        from backend.database import get_raw_connection, DB_PATH as _APP_DB
+        from backend.database import get_raw_connection, DB_PATH as _APP_DB, DB_MODE as _DB_MODE
     except Exception as e:
         # ⚠ 必须与成功分支一样返回 7 个值：此前只返回 6 个，调用方
         # `a, b, c, d, e, f, g = _task_health_db_query()` 会抛
@@ -499,11 +499,23 @@ def _task_health_db_query():
                 _prev = fail_latest.get(_tid)
                 if _prev is None or str(_ts) > _prev[1]:
                     fail_latest[_tid] = (str(_err or ""), str(_ts))
-            sched_rows = conn.execute(
-                "SELECT task_id, cron, enabled FROM task_schedule_config"
-            ).fetchall()
-            disabled_ids = {r[0] for r in sched_rows if r[2] == 0}
-            cron_map = {r[0]: r[1] for r in sched_rows if r[1]}
+            # task_schedule_config 的权威是**本地 db/app.db**，不能按这条连接的方言判定：
+            # pg 模式下这里连的是 PG，那份只是 _save_schedule_config 双写出来的镜像，
+            # 镜像滞后就会把「页面刚启用的任务」报成已禁用/按旧 cron 判逾期。
+            # sqlite 模式下连接本就是那个文件，沿用 conn（少一次读表，行为不变）。
+            from backend.services.task_runner import load_schedule_config_rows
+            sched = load_schedule_config_rows() if _DB_MODE == "pg" else None
+            if sched is None:
+                # 本地读不到（表未建/文件被占），宁可用连接里的值，也别把「读失败」
+                # 当成「没有任何任务被禁用」
+                sched_rows = conn.execute(
+                    "SELECT task_id, cron, enabled FROM task_schedule_config"
+                ).fetchall()
+                disabled_ids = {r[0] for r in sched_rows if r[2] == 0}
+                cron_map = {r[0]: r[1] for r in sched_rows if r[1]}
+            else:
+                disabled_ids = {t for t, v in sched.items() if not v["enabled"]}
+                cron_map = {t: v["cron"] for t, v in sched.items() if v["cron"]}
             p_cut = (datetime.now() - timedelta(minutes=TASK_HEALTH_PENDING_MAX_MINUTES)).isoformat()
             r_cut = (datetime.now() - timedelta(minutes=TASK_HEALTH_RUNNING_MAX_MINUTES)).isoformat()
             stuck = [dict(id=q[0], task_id=q[1], status="pending", since=q[2]) for q in conn.execute(
@@ -1195,10 +1207,37 @@ def run_db_freshness_check() -> dict:
     elapsed = time.time() - t_start
     print(f"[FreshnessCheck] 巡检完成，耗时 {elapsed:.2f}s")
 
+    # ---------- 判失败时必须自带 error 文本 ----------
+    # success 只取决于「检查手段是否可用」（远程 API + 任务健康检查手段），数据滞后不判失败。
+    # 但 task_runner 的失败通知取的就是这里的 error（backend/services/task_runner.py:697-710
+    # 依次找 error / message / errors），此前判失败时这个键根本不存在，微信 + 邮件 + 页面
+    # 三处一律显示「未知错误」——2026-10-21 18:15 起 m 组 worker 持有 15:16 启动时缓存的旧
+    # task_runner、新 db_freshness_check 里 `import load_schedule_config_rows` 直接 ImportError，
+    # 连续 4 轮告警没有任何原因可读，真凭据只能去 result_json 的 stale 明细里翻。
+    error_text = None
+    if not (api_reachable and task_health_ok):
+        reasons = []
+        if not api_reachable:
+            reasons.append(f"远程库 API 全部不可达（0/{db_total} 个库取到表清单，{_api_base()}）")
+        if not task_health_ok:
+            # 手段故障的两条分支（_task_group_coverage / _task_health_db_query 读取失败）
+            # 都会写一条 db=task_health 的 stale 条目，原因直接复用它。
+            # 只认这两个前缀：group_missing / 队列滞留等**发现项**同样落在 task_health 名下，
+            # 但它们不是「检查手段坏了」，混进来会把失败原因写歪。
+            _fail_prefixes = ("任务健康配置加载失败", "历史库查询失败")
+            _th = "; ".join(str(si.get("reason", "")) for si in stale_items
+                            if si.get("db") == "task_health"
+                            and str(si.get("reason", "")).startswith(_fail_prefixes))
+            reasons.append(f"任务执行健康检查手段不可用: {_th}" if _th
+                           else "任务执行健康检查手段不可用（详见 stale 明细）")
+        error_text = " | ".join(reasons)
+        print(f"[FreshnessCheck] 巡检判失败: {error_text}")
+
     return {
         # 巡检执行本身成功与否只取决于“检查手段是否可用”（远程 API + 任务健康检查手段）；
         # 数据滞后 / 任务健康异常通过 fresh/stale 字段暴露，不触发 auto_retry 重跑巡检
         "success": api_reachable and task_health_ok,
+        "error": error_text,
         "fresh": fresh,
         "checked_items": checked,
         "stale_count": stale_count,

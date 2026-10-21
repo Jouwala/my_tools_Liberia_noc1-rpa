@@ -17,8 +17,8 @@ APScheduler 到点 (backend 进程内)
 关键点：
 
 - **注册是代码注册表，不是配置文件**。41 条声明集中在 `backend/task_registry.py:72-403` 的 `TASK_SPECS`，启动时 `register_all_tasks()`（:405-429）逐条登记，采用懒加载包装（:58-64）——每条二选一给 `func`（需要特殊包装）或 `loader`（`("module.path","func_name")` 元组）。
-- **cron 可以被库里覆盖**：默认值写在 `default_cron`，实际排程读 `task_schedule_config` 表（`task_runner.py:241-296`），所以在"任务管理"页改排程会立即生效且重启不丢。
-  - ⚠️ **库里有值时它永远优先**（`task_runner.py:339` `current_cron = saved_cron if saved_cron else default_cron`）。因此**只改 `task_registry.py` 的 `default_cron` 对已存在的任务完全无效，且不留痕迹** —— 2026-10-04 改 `sp_online_sync`、2026-10-11 改三个 WhatsApp 发送任务时都踩过（以为改了、实际仍按库里的旧值跑）。要改生效值：用任务管理页、或 `POST /api/tasks/{id}/schedule`、或删掉该任务的 `task_schedule_config` 行让它回落到代码默认。
+- **cron 可以被库里覆盖**：默认值写在 `default_cron`，实际排程读 `task_schedule_config` 表（`task_runner.py:232-440`），所以在"任务管理"页改排程会立即生效且重启不丢。
+  - ⚠️ **库里有值时它永远优先**（`task_runner.py:521` `current_cron = saved_cron if saved_cron else default_cron`）。因此**只改 `task_registry.py` 的 `default_cron` 对已存在的任务完全无效，且不留痕迹** —— 2026-10-04 改 `sp_online_sync`、2026-10-11 改三个 WhatsApp 发送任务时都踩过（以为改了、实际仍按库里的旧值跑）。要改生效值：用任务管理页、或 `POST /api/tasks/{id}/schedule`、或删掉该任务的 `task_schedule_config` 行让它回落到代码默认。
   - 下表列的是 **`default_cron`（代码默认值）**，**不是**当前生效值。二者可能不同（2026-10-11 巡检：22 个任务存在 code≠库 的覆盖）。核对三方一致性用 `TMP/_check_task_cron_drift.py`。
 - 另有一套**任务配置文件框架** `services/task_configs_registry.py:1-30`，优先级 `环境变量 > 配置文件 > 默认值`，用于任务的业务参数（不是排程）。
 - **状态回传是纯 HTTP 轮询，没有 WebSocket**：`/api/tasks`、`/api/tasks/{id}/status|history|stats`。
@@ -273,10 +273,9 @@ WebSocket 被服务端关闭（`code=428`，与 408/500 同属日常抖动，实
 - 前端主开关的状态判定同样要排除这些任务（`masterTasks`），否则它们会让开关
   **永远显示关闭**——与 `master_switch_exempt` 踩的是同一个坑（2026-10-05 / 2026-10-20 各一次）；
 - 数据库迁移 `alembic/versions/0006_manual_stop_flag.py`（PG 侧）。
-  ⚠️ **本表在生产环境有两份，2026-10-21 起由 `_save_schedule_config` 双写**（见下文
-  「双库一致性」）：`db/app.db` 供 `_load_schedule_config` / `schedule_all_tasks` 读，
-  PG `app` schema 供走 `get_raw_connection` 的读方（`get_task_config`、
-  `db_freshness_check.py:503`、`tt_alarm_trigger.py:150`）读。
+  ⚠️ **本表在生产环境有两份，2026-10-21 起「读侧只认本地、写侧同时双写」**（见下文
+  「双库一致性」）：判定一律以 `db/app.db` 为准；PG `app` schema 那份由
+  `_save_schedule_config` 双写成镜像，代码里无人据它判定。
   `main.py` 的 `_init_schedule_table()` 原先只在 `if DB_MODE == "sqlite"` 分支里调用，
   pg 模式根本不执行 —— `main.py:510-515` 已补 pg 分支调用（Alembic 只管 PG 那份，
   本地 SQLite 那份要自建）。首次上线需对线上 SQLite 手工补列（现在由
@@ -327,19 +326,22 @@ SELECT task_id, COUNT(*) FROM task_schedule_config GROUP BY task_id HAVING COUNT
 
 修复后 `INSERT OR REPLACE` 恢复「替换」语义（已实测：写入后行数仍为 1）。
 
-##### 双库一致性：`_save_schedule_config` 双写（2026-10-21）
+##### 双库一致性：权威只有一份，PG 只是镜像（2026-10-21）
 
 生产是**双库**：本地 `db/app.db` + PG `192.168.100.20:5432/myapp`（`app` schema）。
-读这张表的地方**用了两套连接**，所以两边都得有真值：
+这次事故的本质是**读写分家**——写只写一处、读读两处，于是任何一处陈旧都会表现成
+「页面改了但没生效」。收口后的分工：
 
-| 读方 | 走哪条连接 | 实际读到 |
+| 角色 | 存储 | 谁用它 |
 | --- | --- | --- |
-| `_load_schedule_config`（`task_runner.py:286`）、`schedule_all_tasks`（`:1155`）、执行前的 `_refresh_task_schedule_from_db` | 硬编码 `sqlite3.connect(DB_PATH)` | 本地 `db/app.db` |
-| `get_task_config`（设置页「任务配置」导出）、`db_freshness_check.py:503`、`tt_alarm_trigger.py:150` | `get_raw_connection` | pg 模式下是 **PG** |
+| **权威**（唯一判定依据） | 本地 `db/app.db` | `load_schedule_config_rows`（`task_runner.py:291`）、`_load_schedule_config`、注册期 `register_task`、启动排程 `schedule_all_tasks`、执行前 `_refresh_task_schedule_from_db`、设置页 `get_task_config` / 导出 |
+| **镜像**（只写不读） | PG `app.task_schedule_config` | 代码里无人据它判定；供 `pg_dump` 备份、直查库的人、以及漂移核对 `log_schedule_store_drift` |
 
-**改前的形态（这就是本次事故根因）**：`_save_schedule_config` 只写 SQLite，PG 那份停在
-2026-10-20T12:03 的「主开关关闭」状态；而 `pg_to_sqlite_sync`（cron `45 * * * *`，
-`task_registry.py:723`）每小时把 PG **整表 DROP+CREATE** 灌回 SQLite —— 用户 15:26 点主开关
+**改前的形态（这就是本次事故根因）**：`_save_schedule_config` 只写 SQLite，而
+`get_task_config`（设置页导出）、`db_freshness_check`、`tt_alarm_trigger` 经
+`get_raw_connection` 读 PG —— 写一处、读两处，PG 那份因此停在 2026-10-20T12:03 的
+「主开关关闭」状态；同时 `pg_to_sqlite_sync`（cron `45 * * * *`，`task_registry.py:723`）
+每小时把 PG **整表 DROP+CREATE** 灌回 SQLite —— 用户 15:26 点主开关
 （日志 138 行「DB 写入成功」）在 16:15:40 被抹掉，SQLite 也变成 1 行 enabled。
 
 **后果有迷惑性**：运行中的进程每次执行前重读库，于是 16:15 起 **24 个任务按
@@ -347,16 +349,35 @@ SELECT task_id, COUNT(*) FROM task_schedule_config GROUP BY task_id HAVING COUNT
 页面却仍显示 70 运行/3 停用（那是 15:26 的内存快照）；此时若重启，
 `schedule_all_tasks` 照库里的旧值只会调度 1 个任务。
 
-**现在的写法**（`task_runner.py:326`）：
+**现在的写法**（`task_runner.py:396`）：
 
 - 先写 SQLite，再在 `DB_MODE == "pg"` 时写 PG；**每个存储各回读各的原值**来补齐
-  调用方没传的 `enabled`/`manually_stopped`（`_upsert_schedule_row`，`:306`），
+  调用方没传的 `enabled`/`manually_stopped`（`_upsert_schedule_row`，`:376`），
   因此单边缺行不会把另一边的默认值灌过去；
 - 两侧各一个 try/except：一侧坏了另一侧照写，日志**点名是哪个存储失败**
   （旧代码的 `except` 只留一行「保存调度配置失败」，正是它让 PG 侧的写失败被吞了一整天）；
 - 方言差异交给 `dialect_helpers.upsert()`（SQLite 用 `INSERT OR REPLACE`、
   PG 用 `ON CONFLICT (task_id) DO UPDATE`），不再需要绕开 `get_raw_connection`；
 - sqlite 模式下 `get_raw_connection` 返回的就是同一个文件，**不再重复写第二遍**。
+
+**读侧收口（同日追加，这一步才叫「老数据覆盖不掉页面配置」）**：只有双写不够 ——
+只要还有代码按 PG 那份判定，它一滞后行为就跟着错。三处读方都改成只认本地权威
+（`load_schedule_config_rows`，`task_runner.py:291`）：
+
+| 读方 | 改前 | 改后 |
+| --- | --- | --- |
+| `get_task_config` / `export_all_task_configs`（设置页「任务配置」导出） | `get_raw_connection` → PG | 本地权威。**「导出 → 导入」不再把镜像里的旧值写回库里** |
+| `db_freshness_check._task_health_db_query` 的 `disabled_ids` / `cron_map` | 同一条连接 → PG | pg 模式改读本地权威；sqlite 模式沿用 conn（本就是同一个文件） |
+| `tt_alarm_trigger._resolve_sync_stale_threshold`（TT 推送的触发窗口） | 传入的 conn → PG | 同上，本地读不到才退回 conn 兜底 |
+
+镜像因此变成**只写不读**：它滞后最多让备份里带旧值，不会改变任何行为。
+
+**漂移哨兵**：`log_schedule_store_drift()`（`task_runner.py:319`）比对本地与镜像，
+不一致就刷 `WARNING 调度配置镜像漂移 N 个任务（以本地 db/app.db 为准，PG 那份仅供备份）`；
+`_init_schedule_table()` 每次后端启动跑一次。它是「还有进程按旧代码单边写」的唯一征兆
+（worker 未重启的窗口里就会看到这行）。本机 2026-10-21 实测输出
+`INFO 调度配置镜像核对：本地与 PG 一致（73 行）`，漂移 0。
+双写本身会把镜像同步回来，所以重启 worker 后这行告警会自行消失。
 
 **同时切断覆盖源**：`task_schedule_config` 已列入 `sync_pg_to_sqlite.py:80` 的
 `SKIP_TABLES`（`:210` 处早退，不触碰连接）。按该文件里既有的判定标准 ——
@@ -366,7 +387,7 @@ SELECT task_id, COUNT(*) FROM task_schedule_config GROUP BY task_id HAVING COUNT
 `INSERT OR REPLACE` 随即退化成追加重复行（即 2026-10-21 那次事故的第二个症状）。
 这与 2026-09-18 的 `credentials` 事故是同一个模式。
 
-**兜底自修**：`_ensure_schedule_table`（`:229`）在启动时对两侧建表/补列，并在 SQLite
+**兜底自修**：`_ensure_schedule_table`（`:232`）在启动时对两侧建表/补列，并在 SQLite
 侧 `CREATE UNIQUE INDEX IF NOT EXISTS`；表里已有重复行时建索引必然失败，此时只告警并
 指向 `tools/fix_task_schedule_dupes.py`（合并重复行是取值决策，不在启动路径上替用户做）。
 
@@ -380,12 +401,14 @@ SQLite 先整库备份到 `db/app.db.bak_tscfix_<时间戳>`）。目标状态�
 > `sys.modules` 的常驻模块（`task_registry._lazy_loader` → `importlib.import_module`，
 > 只在首次调用时导入），**改文件不重启不生效**。
 
-**改完自查**（两条都要成立）：
+**改完自查**（三条都要成立）：
 
 ```
 python tools/reconcile_task_schedule_state.py            # 期望：需改动 0 行 / 两侧一致
 sqlite3 db/app.db "SELECT COUNT(*), SUM(enabled), SUM(manually_stopped) FROM task_schedule_config"
 # 与 PG 上同样一条查询结果一致，且 SQLite 侧 indexes 里有 ux_task_schedule_config_task_id
+python -c "import sys; sys.path.insert(0,'.'); from backend.services.task_runner import log_schedule_store_drift as d; print('漂移', d())"
+# 期望 0；非 0 就是还有进程按旧代码单边写（worker 没重启）
 ```
 
 `tools/sync_manual_stop_to_pg.py` 是双写上线**之前**手工补 PG 用的退路，现在只作应急备份。

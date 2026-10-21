@@ -62,10 +62,10 @@ BATCH_SIZE = 5000  # 每批写入行数
 #   - credentials      → backend/services/credential_store.py 硬编码 sqlite3.connect
 #   - email_recipients → backend/services/email_recipient_store.py 同样硬编码
 #   - task_schedule_config → backend/services/task_runner.py::_save_schedule_config
-#       无条件写 SQLite（`_load_schedule_config` / `schedule_all_tasks` / 执行前的
-#       `_refresh_task_schedule_from_db` 都读它），2026-10-21 起另外双写一份 PG
-#       给走 get_raw_connection 的读方（get_task_config / db_freshness_check /
-#       tt_alarm_trigger）。
+#       无条件写 SQLite（`load_schedule_config_rows` / `_load_schedule_config` /
+#       `schedule_all_tasks` / 执行前的 `_refresh_task_schedule_from_db` 都读它）。
+#       **代码里没有任何判定依据 PG 那份**：它只是 `_save_schedule_config` 双写出来的
+#       镜像，供 pg_dump 备份、直接查库的人，以及漂移核对（`log_schedule_store_drift`）用。
 # 反例：issue_reports（routers/feedback.py）走 get_raw_connection 双模，pg 模式下 PG
 # 才是权威，故**不能**跳过。
 #

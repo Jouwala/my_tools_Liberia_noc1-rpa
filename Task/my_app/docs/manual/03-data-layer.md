@@ -84,11 +84,13 @@
 `pg_to_sqlite_sync`（每小时 :45）把远程 PG 全库同步到本地 `db/app.db`，作为离线备份与回退快照（`task_registry.py:723`）。这意味着 `app.db` 里的业务表是**上一小时的镜像**，别在它上面做"实时"假设。
 
 ⚠️ **例外：`SKIP_TABLES` 里的"本地权威表"不是镜像**（`backend/scripts/sync_pg_to_sqlite.py:80`）。
-`credentials`、`email_recipients`、`task_schedule_config` 由本机应用无条件写 SQLite，PG 那份只是
-给走 `get_raw_connection` 的读方看的，同步任务一律跳过它们 —— 一旦被同步就会 `DROP TABLE`
-重建，抹掉本地数据连带丢主键（`credentials` 2026-09-18、`task_schedule_config` 2026-10-21 各踩过一次，
-判据与事故记录写在该文件注释里）。判断一张表能不能进 `SKIP_TABLES`：**它的写入方是否与 DB 模式
-无关地固定写 SQLite**。细节见 `04-task-system.md` 的「双库一致性：`_save_schedule_config` 双写」。
+`credentials`、`email_recipients`、`task_schedule_config` 由本机应用无条件写 SQLite，
+同步任务一律跳过它们 —— 一旦被同步就会 `DROP TABLE` 重建，抹掉本地数据连带丢主键
+（`credentials` 2026-09-18、`task_schedule_config` 2026-10-21 各踩过一次，判据与事故记录写在
+该文件注释里）。判断一张表能不能进 `SKIP_TABLES`：**它的写入方是否与 DB 模式无关地固定写
+SQLite**。`task_schedule_config` 尤其特殊：判定**只读本地这一份**，PG 那份是
+`_save_schedule_config` 双写出来的**只写不读镜像**（细节见 `04-task-system.md` 的
+「双库一致性：权威只有一份，PG 只是镜像」）。
 
 ## 迁移与建表：三套东西各司其职
 

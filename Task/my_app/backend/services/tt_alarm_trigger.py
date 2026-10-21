@@ -138,6 +138,11 @@ def _resolve_sync_stale_threshold(conn, env: Optional[Dict[str, str]] = None) ->
     就是这张表，注册表里的 default_cron 只是首次注册的初值（2026-10-05 核定：
     该任务默认 */30、生产实际 */5，静态 45 分钟阈值在 5 分钟周期下迟钝 9 倍）。
     表不存在/行不存在/cron 识别不了 → 退回 SYNC_STALE_SECONDS 兜底。
+
+    ⚠️ pg 模式下取值走 `task_runner.load_schedule_config_rows()`（本地 `db/app.db`
+    权威），不走传进来的 `conn`：那条连接在 pg 模式是 PG，那里的这行只是镜像，镜像
+    滞后会让触发窗口按旧周期算（2026-10-21 双库事故）。sqlite 模式下 conn 本就是那个
+    文件，沿用 conn；本地读不到时也退回 conn 兜底。
     """
     env_val = (env or os.environ).get("TT_TRIGGER_SYNC_STALE_SECONDS")
     if env_val:
@@ -145,13 +150,26 @@ def _resolve_sync_stale_threshold(conn, env: Optional[Dict[str, str]] = None) ->
             return int(env_val)
         except ValueError:
             pass
+    cron = None
+    local = None
     try:
-        row = conn.execute(
-            "SELECT cron FROM task_schedule_config WHERE task_id = ?",
-            (SYNC_TASK_ID,)).fetchone()
-    except Exception:  # noqa: BLE001 - 表可能还没建（task_runner 未初始化），走兜底
-        return SYNC_STALE_SECONDS
-    minutes = estimate_cron_interval_minutes(row[0] if row else None)
+        from backend.database import DB_MODE
+        from backend.services.task_runner import load_schedule_config_rows
+        if DB_MODE == "pg":
+            local = load_schedule_config_rows()
+    except Exception:  # noqa: BLE001 - task_runner 不可用时退回连接
+        local = None
+    if local is not None:
+        cron = (local.get(SYNC_TASK_ID) or {}).get("cron")
+    else:
+        try:
+            row = conn.execute(
+                "SELECT cron FROM task_schedule_config WHERE task_id = ?",
+                (SYNC_TASK_ID,)).fetchone()
+            cron = row[0] if row else None
+        except Exception:  # noqa: BLE001 - 表可能还没建（task_runner 未初始化），走兜底
+            return SYNC_STALE_SECONDS
+    minutes = estimate_cron_interval_minutes(cron)
     if minutes is None:
         return SYNC_STALE_SECONDS
     return max(SYNC_STALE_FLOOR_SECONDS, int(minutes * 60 * 1.5))

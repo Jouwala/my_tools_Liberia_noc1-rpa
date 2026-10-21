@@ -26,6 +26,10 @@ def _use_alarm_db(monkeypatch, tmp_path, rows, now: datetime,
     rows: [(tt_id, alarmraisedtime_ms, alarmcode)]；其余列给占位值。
     schedule_cron 非空时额外建 task_schedule_config 并写入该行
     （模拟用户在任务配置页给 eflow_active_alarm 配的实际调度）。
+
+    ⚠️ 生效 cron 的**权威是本地 db/app.db**（`task_runner.load_schedule_config_rows`），
+    不是 get_raw_connection —— pg 模式下后者是 PG 镜像（2026-10-21 双库事故）。
+    所以这里同时把 DB_PATH 指到夹具文件、DB_MODE 置 pg，让用例走与生产一致的分支。
     """
     conn = sqlite3.connect(tmp_path / "alarm.db")
     conn.execute(
@@ -43,9 +47,11 @@ def _use_alarm_db(monkeypatch, tmp_path, rows, now: datetime,
     if schedule_cron:
         conn.execute(
             "CREATE TABLE task_schedule_config ("
-            "task_id TEXT PRIMARY KEY, cron TEXT, enabled INTEGER, updated_at TEXT)")
+            "task_id TEXT PRIMARY KEY, cron TEXT, enabled INTEGER, "
+            "manually_stopped INTEGER, updated_at TEXT)")
         conn.execute(
-            "INSERT INTO task_schedule_config VALUES (?,?,1,?)",
+            "INSERT INTO task_schedule_config (task_id, cron, enabled, manually_stopped, updated_at) "
+            "VALUES (?, ?, 1, 0, ?)",
             ("eflow_active_alarm", schedule_cron, now.isoformat(timespec="seconds")))
     conn.commit()
     conn.close()
@@ -66,7 +72,10 @@ def _use_alarm_db(monkeypatch, tmp_path, rows, now: datetime,
             return False
 
     from backend import database as db
+    from backend.services import task_runner as _tr
     monkeypatch.setattr(db, "get_raw_connection", lambda *a, **k: _Wrap())
+    monkeypatch.setattr(db, "DB_MODE", "pg", raising=False)
+    monkeypatch.setattr(_tr, "DB_PATH", tmp_path / "alarm.db")
     return tmp_path / "alarm.db"
 
 
