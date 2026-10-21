@@ -492,8 +492,12 @@ export default function DataSync() {
   const masterTasks = switchTasks.filter(t => !t.manually_stopped)
   const manualTasks = switchTasks.filter(t => t.manually_stopped)
   const allEnabled = masterTasks.length > 0 && masterTasks.every(t => t.enabled)
-  // 已启用/总数：在开关旁显示 68/69 这类实情，避免 ON/OFF 二值掩盖「部分启用」状态
-  const enabledCount = switchTasks.filter(t => t.enabled).length
+  // 已启用/总数：显示**全局口径**（列表里 73 行就报 x/73）。
+  // 曾用 `switchTasks`（扣除豁免任务）做分母，于是列表 73 行、旁边写 72 ——
+  // 用户会直接读成「数据没更新」（2026-10-21 实例）。开关本身的判定不动：
+  // 它仍只看 `masterTasks`（非豁免、非手动停止），否则又会踩「怎么点都关着」那个坑。
+  // 豁免/手动停止各自是谁，由 Tooltip 逐名列出（见 exemptTasks / manualTasks）。
+  const enabledCount = allTasks.filter(t => t.enabled).length
   const handleToggleAll = async (enabled: boolean) => {
     try {
       const res = await api.post('/tasks/toggle-all', { enabled })
@@ -1161,7 +1165,7 @@ export default function DataSync() {
           })()}>
             <Space size={6} align="center">
               <Text style={{ fontSize: 12, color: WH.textMuted }}>{t('sync.toggleAll')}</Text>
-              <Text style={{ fontSize: 12, color: WH.textDim }}>{enabledCount}/{switchTasks.length}</Text>
+              <Text style={{ fontSize: 12, color: WH.textDim }}>{enabledCount}/{allTasks.length}</Text>
               <Popconfirm
                 title={pendingAllToggle === false ? t('sync.disableAllConfirm') : t('sync.enableAllConfirm')}
                 onConfirm={() => { if (pendingAllToggle !== null) handleToggleAll(pendingAllToggle) }}
