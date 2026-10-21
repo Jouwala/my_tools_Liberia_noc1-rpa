@@ -269,7 +269,14 @@ _SCAN_SKIP_DIRS = {
     ".workbuddy", ".git", ".claude",  # .claude/worktrees 是 Claude 留下的隔离副本（见 .git/info/exclude:11），不入库、也不该被扫描
     "_quarantine_20260925", "_myapp_trash_20260918",
 }
-_SCAN_SUFFIXES = {".py", ".ps1", ".bat", ".json", ".ts", ".tsx", ".js", ".mjs", ".md", ".txt"}
+_SCAN_SUFFIXES = {".py", ".ps1", ".bat", ".json", ".ts", ".tsx", ".js", ".mjs", ".md", ".txt",
+                  # 2026-10-21 补 .html：守卫原先**不扫 HTML**，于是
+                  # `frontend/public/manual.html`（由 docs/manual/*.md 生成的产物）
+                  # 里的 3 条明文口令（zte_ume / ccn_ume / ipran_ume）**长期逃过检查**。
+                  # 源文档 13-operations.md 早已清理为「凭据组名」，但这个生成产物
+                  # 一直没重新生成，于是旧明文一直躺在版本库里。
+                  # 教训：生成产物也要扫 —— 源文档干净不代表产物干净。
+                  ".html", ".htm"}
 
 
 def test_no_hardcoded_secrets_in_source():
