@@ -894,6 +894,19 @@ html {
   overflow: visible;
   line-height: 0;
 }
+/* 悬停放大（2026-10-21，**只作用于 ?page=person**）：**必须用纯 CSS，不能走 React 状态**。
+   此前悬停态被拼进 marker 的 iconKey / html / 尺寸，鼠标一进针 Leaflet 就重建
+   图层、把针的 DOM 元素换掉 —— mousedown 命中旧元素、mouseup 命中新元素，
+   浏览器不产生 click，人员针就点不动了（实测时间线见 PersonMapView 的注释）。
+   这里只做视觉放大，不触碰 DOM 结构；缩放原点取**针尖**（bottom center，
+   与 Marker 的 iconAnchor = [size/2, size*1.5] 对齐），放大时针尖位置不动。
+   前缀 `.person-map-canvas` 是人员页给地图容器加的类：GIS 页的人员图层
+   （gismap/PersonnelLayer）沿用着旧的 React 悬停态，别把两套叠在一起。 */
+.person-map-canvas .gis-person-marker:hover .gis-person-anchor {
+  transform: scale(1.22);
+  transform-origin: 50% 100%;
+  filter: brightness(1.12) saturate(1.25);
+}
 /* 悬停姓名/电话气泡（2026-10-16 用户要求「悬浮时显示人员的名字和电话」）。
    显示在针尖上方（针高 = size*1.5，故 bottom 用 100% 抬到图标顶），水平居中。 */
 .gis-person-tip {

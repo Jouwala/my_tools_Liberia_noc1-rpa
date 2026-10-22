@@ -22,7 +22,9 @@ import { Spin } from 'antd'
 import { useI18n } from '../../i18n'
 import { useTheme } from '../../theme'
 // `Tooltip as MapTooltip`：地图内常驻标注，与 antd 的 Tooltip 同名，必须别名
-import { Marker, CircleMarker, Polyline, Polygon, Tooltip as MapTooltip, useMap, isMapAlive } from '../../components/LeafletMap'
+import {
+  Marker, CircleMarker, Polyline, Polygon, Tooltip as MapTooltip, useMap, isMapAlive, Pane,
+} from '../../components/LeafletMap'
 import api from '../../api'
 import { cachedGet } from '../../cache'
 import { PmtilesLayer } from '../gismap/PmtilesLayer'
@@ -37,9 +39,19 @@ import type { PersonRow, ManagedSite } from './types'
 import type { CountyBoundary } from '../gismap/types'
 
 /** 默认取景：利比里亚全国居中（与 GIS 页 LB_CENTER / ZOOM 同源思路，
- *  但本页画布更宽，用 zoom=7.5 即可装下全境）。 */
+ *  但本页画布更宽，用 zoom=7.5 即可装下全境）。
+ *
+ *  ⚠ 这两个常量**必须是模块级常量**：`MapController` 的 effect 依赖 `center` 的
+ *  引用相等性，若每次渲染新建数组，它就会每次渲染都 `setView` 一次（瞬移），
+ *  把下方聚焦 effect 的 `flyToBounds` 动画掐掉（2026-10-21 实测）。 */
 const LB_CENTER: [number, number] = [(3.9 + 8.75) / 2, (-11.7 + -7.3) / 2]
 const LB_ZOOM = 7.5
+
+/** 人员针所在 pane 的层级。**必须显式给 z-index**，理由见 `<Pane>` 处的注释。
+ *  取值与 `GISMap.tsx` 的 personPane 一致（680）：人员针要压在站点圆点
+ *  （overlay pane 400）与连线之上，且高于 tooltip pane(650)。 */
+const PERSON_PANE = 'personPane'
+const PERSON_PANE_Z = 680
 
 /** 站点三档配色（2026-10-21 用户指定）：
  *    绿 = 负责但当前**没有**该人的未关闭 WO；浅蓝 = 该人在此站**有**未关闭 WO；
@@ -73,7 +85,10 @@ export function PersonMapView({
   const siteColor = (s: ManagedSite) => (
     s.has_alarm ? siteTone.alarm : s.wo_count > 0 ? siteTone.wo : siteTone.ok
   )
-  const [hoverKey, setHoverKey] = useState<string | null>(null)
+  /* 悬停**不再用 React state**（2026-10-21 改）：state 变化会把 hover 拼进图标，
+     导致 Leaflet 重建 marker 图层、把针的 DOM 元素换掉，mousedown/mouseup 因此
+     落在不同元素上、click 事件不产生（详见下方「人员针」处的实测时间线）。
+     悬停反馈改由 CSS `.gis-person-marker:hover` 提供，DOM 保持不动。 */
   /* 县界（2026-10-19 用户要求「地图没有 country 的边界」）。
      与 GIS 页共用同一份静态 GeoJSON（`/gis/county-boundaries`，后端 1 小时缓存），
      经 `cachedGet` 走前端缓存，两页之间不会重复下载约 400KB。
@@ -91,9 +106,17 @@ export function PersonMapView({
       })
   }, [])
 
-  /* 点人时置位，供 map 的 click 处理器跳过 —— Leaflet 会把 marker 的点击冒泡到 map，
-     若不区分，点人的瞬间就会被 map 处理器当成「点空白」清掉选中态。 */
-  const personClickRef = useRef(false)
+  /* 「最近一次点中人员针」的时间戳，供 map 的 click 处理器跳过 —— Leaflet 会把
+     marker 的点击冒泡到 map，若不区分，点人的瞬间就会被 map 处理器当成
+     「点空白」清掉选中态。
+
+     ⚠ 为什么用时间戳而不是布尔标志（2026-10-21 改）：布尔标志有两个死法 ——
+       ① map 的 click 可能对同一次点击触发多次（Map 自身监听 + 冒泡目标各一次），
+          第一路把标志复位后，第二路就带着 false 直落 `onSelect(null)`；
+       ② 命中 marker 分支时又必须保留标志（不能复位），于是它会**残留到下一次点击**，
+          让用户「点空白取消选中」的第一次点击静默失效。
+       时间戳两路都吃得下：只要在窗口期内一律放行，不区分命中顺序。 */
+  const personClickTsRef = useRef(0)
 
   /* `onSelect` 每次都可能是新闭包（父组件 useCallback 依赖变化），若直接放进 effect 依赖，
      父组件一重渲染就会 off/on 一次 map 事件 —— 本 effect 用 ref 存最新回调，只挂一次。
@@ -107,20 +130,46 @@ export function PersonMapView({
       // 事件源判定：点在人员针（L.Marker，有 setIcon）上不清理。
       // 站点圆点是 L.CircleMarker，只有 setStyle/setRadius、没有 setIcon ——
       // 两者都能 getLatLng，故不能用 getLatLng 区分（GIS 页踩过这个坑）。
-      // ⚠ 两路命中都必须**直接 return**，不能写 `personClickRef.current = false` 当作
-      //   「已处理」标记：map 的 click 可能对同一次点击触发多次（Map 自身监听 +
-      //   冒泡目标各一次），第二次会带着已复位的标志位直落 `onSelect(null)`，
-      //   表现为「点人后被立刻取消选中」。
       const src = e?.sourceTarget
       if (src && src !== map && typeof src.setIcon === 'function') return
-      if (personClickRef.current) {
-        personClickRef.current = false
-        return
-      }
+      if (Date.now() - personClickTsRef.current < 400) return
       onSelectRef.current(null)
     }
     map.on('click', onMapClick)
     return () => { map.off('click', onMapClick) }
+  }, [map])
+
+  /* 按下鼠标**不要**让页面跳 —— 2026-10-21 实测的第三个根因，改动前务必读这段。
+     Leaflet 给「可交互 marker 的图标元素」设了 `tabIndex='0'`（键盘可达性），
+     也给地图容器设了 `tabIndex='0'`，并在 mousedown 时主动 `container.focus()`。
+     浏览器把焦点元素滚动进视口是**默认行为**，而本页真正的滚动容器是内层的
+     `#main-content`（不是 window，Leaflet 的 `window.scrollTo` 兜底管不到它），
+     于是按下鼠标的瞬间整块内容上移 —— 实测 104px：
+          hover: activeElement=BODY,              markerTop=611
+          down : activeElement=.gis-person-marker, #main-content.scrollTop=104, markerTop=507
+     人员针从光标底下跑掉了，`mouseup` 落到 `.leaflet-container` 上 ——
+     mousedown 与 mouseup 目标不同，**浏览器不产生 click**，Leaflet 收不到 marker
+     click。点不中人、抽屉闪一下就没，全都出在这一下跳动上。
+
+     两道处理：
+       ① 挂载后摘掉地图容器的 tabindex（Leaflet 建图时加的），让 focus() 无处可落；
+       ② mousedown 捕获阶段再摘一次命中元素的 tabindex 并 preventDefault ——
+          人员针的图标是**选中态变化时才重建**的， tabindex 会跟着重新长出来。
+     只拦地图容器内部：搜索框是容器的**兄弟节点**（MapContainer 把 children 渲染在
+     Leaflet 内层容器之外），所以输入框照常能点、能聚焦。 */
+  useEffect(() => {
+    if (!isMapAlive(map)) return
+    const el = map.getContainer()
+    el.removeAttribute('tabindex')
+    const onDownCapture = (e: MouseEvent) => {
+      const t = e.target as HTMLElement | null
+      const focusable = t && typeof t.closest === 'function'
+        ? (t.closest('[tabindex]') as HTMLElement | null) : null
+      if (focusable) focusable.removeAttribute('tabindex')
+      e.preventDefault()
+    }
+    el.addEventListener('mousedown', onDownCapture, true)
+    return () => el.removeEventListener('mousedown', onDownCapture, true)
   }, [map])
 
   const selectedPerson = useMemo(
@@ -129,13 +178,10 @@ export function PersonMapView({
   )
 
   const handleClick = useCallback((p: PersonRow) => {
-    personClickRef.current = true
+    personClickTsRef.current = Date.now()
     onSelect(p.name_key === selectedKey ? null : p.name_key)
   }, [onSelect, selectedKey])
 
-  /* 选中人员时把它的站点纳入视野：不强制改 zoom，只做「若不在视野内则平移」，
-     避免每次点人地图都跳一下。实现用两次 setView 太粗暴，这里直接让
-     MapController 的 center 跟随选中人员。 */
   /* 搜索定位目标。MapController 只在 center/zoom **变化**时才 setView，
      而用户可能连续搜同一个站点附近的不同点 —— 用 tick 强制触发一次重定位。
      tick 用时间戳而不是递增计数：避免组件重建后计数器归零导致「不生效」。 */
@@ -146,11 +192,13 @@ export function PersonMapView({
      **该人员 + 其全部站点**一起框进视野 —— 站点往往分布在好几个县，
      只居中到人身上时站点会落在画布外，用户还得自己拖。
 
-     为什么不做成 MapController 的 center/zoom：
-       ① fitBounds 需要同时看人 + N 个站点，是一个**包围盒**，不是单个中心点；
-       ② MapController 只在 center/zoom 变化时 setView，同一个人重复点选
-          时它不会动，而用户预期是"再点一次也回到这个范围"。
-     与搜索定位（flyTarget）同一套做法：用 tick 驱动的独立 effect。
+     ⚠️ 本 effect 是**选中态下唯一的取景驱动方**（2026-10-21 改）。
+        原先 `MapController` 还会按「选中人员」另算 center/zoom 再 setView 一次，
+        两套驱动互相打断 —— MapController 的 setView 是**瞬移**，会直接掐掉
+        本 effect 的 flyToBounds 动画。而且它依赖的 center 是每次渲染新建的数组，
+        于是**悬停切换、站点到达、主题切换等任何重渲染**都会触发一次瞬移，
+        表现为「点人之后地图不聚集到人+站点，反而跳回这个人身上、缩放被钉死」。
+        现在 MapController 固定在全国视角（只管初始与回落），选中态全权归这里。
 
      ⚠️ 依赖 sites 是有意的：点击人时 managed-sites 是异步回来的，
         先到的是空数组（此时只聚焦到人），站点到达后本 effect 重跑，
@@ -158,7 +206,18 @@ export function PersonMapView({
   const focusKeyRef = useRef<string | null>(null)
   useEffect(() => {
     if (!isMapAlive(map)) return
-    if (!selectedKey) { focusKeyRef.current = null; return }
+    /* 取消选中 → 飞回全国视角。
+       这一步原先由 `MapController` 的 center/zoom 跟随选中人员来做（见下方说明），
+       现在 MapController 固定在全国视角，回落的动作就归到这里。
+       用 `focusKeyRef.current !== null` 判断「之前确实选中过」：首次挂载时
+       selectedKey 本来就是 null，不该无端播一次动画。 */
+    if (!selectedKey) {
+      if (focusKeyRef.current !== null) {
+        focusKeyRef.current = null
+        map.flyTo(LB_CENTER, LB_ZOOM, { duration: 0.6 })
+      }
+      return
+    }
     const p = people.find(x => x.name_key === selectedKey)
     if (!p || p.lat == null || p.lng == null) return
     const pts: [number, number][] = [[p.lat as number, p.lng as number]]
@@ -183,16 +242,10 @@ export function PersonMapView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedKey, sites])
 
-  const center: [number, number] = selectedPerson
-    ? [selectedPerson.lat as number, selectedPerson.lng as number]
-    : LB_CENTER
-  const zoom = selectedPerson ? Math.max(LB_ZOOM, 8.5) : LB_ZOOM
-
-  /* 搜索定位：直接对 map 调 flyTo，不走 MapController ——
-     MapController 只在 center/zoom 变化时 setView，而「搜同一个站点附近的两个点」
-     或「搜一个与当前选中人员重合的点」时 center 可能不变，导致点了没反应。
-     直接用 tick 驱动的 effect 保证每次选中都飞一次。
-     飞完把 flyTarget 置空，让后续「选中人员」的 center 重新生效。 */
+  /* 搜索定位：直接对 map 调 flyTo ——
+     「搜同一个站点附近的两个点」或「搜一个与当前选中人员重合的点」时目标可能不变，
+     靠 prop 变化驱动是不动的，故用 tick 驱动的 effect 保证每次选中都飞一次。
+     飞完把 flyTarget 置空，后续取景仍归「选中人员」的聚焦 effect。 */
   useEffect(() => {
     if (!flyTarget || !isMapAlive(map)) return
     map.flyTo([flyTarget.lat, flyTarget.lng], Math.max(map.getZoom(), 12), { duration: 0.6 })
@@ -202,7 +255,7 @@ export function PersonMapView({
   }, [flyTarget?.tick])
 
   /* 搜索选中人员 → 与点击人员针同义：交给页面更新 selectedKey，
-     视图中心由上面的 center 跟随（选中后自动飞行到该人）。 */
+     取景由上面的聚焦 effect 接管（自动飞到「人 + 站点」的包围盒）。 */
   const handlePickPerson = useCallback((nameKey: string) => {
     onSelect(nameKey)
   }, [onSelect])
@@ -223,7 +276,24 @@ export function PersonMapView({
 
   return (
     <>
-      <MapController center={center} zoom={zoom} />
+      {/* 人员针的 pane —— **必须在这里显式声明并给 z-index**。
+          ⚠ 2026-10-21 实测的「点人没反应 / 抽屉闪一下就没」根因就在这一行：
+            本视图给 Marker 传了 `pane="personPane"`，但**没有**渲染 `<Pane>`，
+            于是 pane 由 `Marker` 内部的兜底 `map.createPane()` 创建 —— Leaflet 的
+            `createPane` **不设 z-index**，新建的 pane 是 `z-index: auto`，
+            在 CSS 绘制顺序里落在「有正 z-index 的定位元素」之下，
+            也就是被 overlay pane（z-index 400，县界多边形与站点圆点所在）**整片盖住**。
+            无头浏览器实测点击人员针的命中链是：
+                mousedown → <path>（县界多边形）    mouseup → .leaflet-container
+            两者不是同一个元素，**click 事件根本不产生**，Leaflet 只收到一次
+            「点空白」→ `onSelect(null)` —— 表现就是选不中人、偶发选中后又被立刻清掉。
+            GISMap.tsx:2740 用 `<Pane name="personPane" style={{ zIndex: 680 }} />`
+            显式声明过，所以 GIS 页的人员针一直是能点的；本页漏了这一行。 */}
+      <Pane name={PERSON_PANE} style={{ zIndex: PERSON_PANE_Z }} />
+
+      {/* MapController 只负责「初始 / 取消选中后」的全国视角；
+          选中态的取景由下方聚焦 effect 独占（见那里的注释）。 */}
+      <MapController center={LB_CENTER} zoom={LB_ZOOM} />
       <PmtilesLayer url={BASEMAP_PMTILES_URL} isDark={isDark} />
 
       {/* 地图左上角搜索框（人员 + 站点） */}
@@ -259,6 +329,12 @@ export function PersonMapView({
             weight: 1,
             opacity: 0.75,
             dashArray: '4 3',
+            /* `interactive: false` —— 县界只是**装饰性底图**，没有任何点击行为。
+               Leaflet 的 SVG 路径默认 interactive，会带 `pointer-events: auto`
+               拦下命中：哪怕 z-index 已经把人员针抬到它上面，只要县界仍可交互，
+               落在县界范围内的点击还是会先被它吃掉（2026-10-21 实测的命中链
+               `mousedown → <path>` 就是它）。装饰层不该有命中，故显式关掉。 */
+            interactive: false,
           }}
         />
       ))}
@@ -305,23 +381,35 @@ export function PersonMapView({
             weight: s.has_alarm ? 2.5 : 1.5,
             opacity: s.has_alarm ? 0.75 : 0.55,
             dashArray: '5 4',
+            // 同县界：连线没有点击行为，别让它拦下本该落在人员针上的点击
+            interactive: false,
           }}
         />
       ))}
 
-      {/* 人员针 */}
+      {/* 人员针
+          ⚠⚠ 悬停态**绝不能**进图标（2026-10-21 实测，勿改回去）：
+             以前 `hovered` 被拼进 `iconKey` / `html` / 尺寸，于是鼠标一进针，
+             `Marker` 的 `useMemo([parent, iconKey])` 就**重建整个 L.Marker 图层**、
+             把针的 DOM 元素换掉。无头浏览器抓到的真实时间线：
+                 13880 mousedown <path>            （按下，命中人员针）
+                 13883 mouseout   <path>           （悬停态复位 → 触发重建）
+                 13896 DEL / ADD marker-icon       （DOM 元素被换掉）
+                 13987 mouseup <DIV .leaflet-container>
+             mousedown 与 mouseup 落在不同元素上，浏览器**根本不产生 click 事件**，
+             Leaflet 收不到 marker click —— 这就是「点人没反应 / 抽屉闪一下就没」
+             的直接原因。悬停现在纯 CSS 实现（`.gis-person-marker:hover`），
+             不动 DOM；`selected` 才重建，而它只在一次点击**完成之后**变化。 */}
       {people.map(p => {
         const selected = p.name_key === selectedKey
-        const hovered = p.name_key === hoverKey
-        /* 颜色优先级（2026-10-19 用户要求「WO 为 0 的人显示深绿以区别」）：
-           选中红 > 悬停橙 > 未关闭 WO 为 0 深绿 > 其余蓝。
-           深绿只用于**未选中未悬停**的大多数人 —— 选中/悬停必须仍是红/橙，
+        /* 颜色（2026-10-19 用户要求「WO 为 0 的人显示深绿以区别」）：
+           选中红 > 未关闭 WO 为 0 深绿 > 其余蓝。
+           深绿只用于**未选中**的大多数人 —— 选中必须仍是红，
            否则用户点了一个「没单的人」时看不出选中态。 */
         const color = selected ? SITE_COLORS.rt_alarm_overdue
-          : hovered ? '#fa8c16'
           : (p.open || 0) === 0 ? '#1a7f37'
           : (isDark ? '#4fc3f7' : '#1890ff')
-        const size = (selected || hovered) ? 32 : 26
+        const size = selected ? 32 : 26
         const iconH = size * 1.5
         const phone = (p.phone || '').trim()
         // 常驻徽标已含姓名+电话，悬停气泡不再重复渲染同样的内容 ——
@@ -339,7 +427,7 @@ export function PersonMapView({
           <Marker
             key={p.name_key}
             position={[p.lat as number, p.lng as number]}
-            pane="personPane"
+            pane={PERSON_PANE}
             html={
               `<div class="gis-person-anchor">` +
                 tip +
@@ -372,12 +460,12 @@ export function PersonMapView({
             }
             iconSize={[size, iconH]}
             iconAnchor={[size / 2, iconH]}
-            iconKey={`${selected}-${hovered}-${size}-${unclearedCnt}-${openCnt}-${sitesCnt}-${pmtText}-${p.name}-${phone}`}
-            zIndexOffset={selected ? 1000 : hovered ? 900 : 0}
+            /* iconKey 里**没有** hover —— 见上方「人员针」处的实测说明：
+               悬停一旦进 iconKey，图层就会在指针下被重建，点击随之丢失。 */
+            iconKey={`${selected}-${size}-${unclearedCnt}-${openCnt}-${sitesCnt}-${pmtText}-${p.name}-${phone}`}
+            zIndexOffset={selected ? 1000 : 0}
             className="gis-person-marker"
             onClick={() => handleClick(p)}
-            onMouseOver={() => setHoverKey(p.name_key)}
-            onMouseOut={() => setHoverKey(cur => (cur === p.name_key ? null : cur))}
           />
         )
       })}

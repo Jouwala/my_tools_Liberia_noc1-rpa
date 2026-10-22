@@ -17,6 +17,15 @@
  *   · `.dcm-overlay` —— 项目统一的下钻弹窗 `components/DraggableClickModal`
  *     的遮罩层（它刻意「点遮罩不关闭，避免误触」，见该文件第 5 行注释）。
  *
+ * **两类必须放过的事件**（2026-10-21 实测，缺一个就是「抽屉闪一下就消失」）：
+ *   · **目标已脱离文档**（`!el.isConnected`）—— 选中人员会把该人员的地图针**重建**，
+ *     也就是把 mousedown 命中的那个 `<path>` 元素从 DOM 里摘掉。同一次 click
+ *     继续冒泡到 document 时 `e.target` 已是游离节点，`closest()` 找不到任何祖先，
+ *     会被当成「点在别处」→ 刚打开的抽屉立刻被关掉。
+ *   · **本轮点击自身**—— 监听是在选中生效后的 passive effect 里挂上的，
+ *     而 React 会在微任务里补跑 effect，此时同一次 click 还没冒泡到 document。
+ *     故监听延到下一个宏任务再挂（见下方 `setTimeout`）。
+ *
  * `clear` 必须是稳定引用（`useCallback` 包一层），否则每次渲染都会重挂监听。
  */
 import { useEffect } from 'react'
@@ -35,10 +44,21 @@ export function useClearOnOutsideClick(active: boolean, clear: () => void) {
     const onDocClick = (ev: MouseEvent) => {
       const el = ev.target as HTMLElement | null
       if (!el || typeof el.closest !== 'function') return
+      // 目标已被 React 从文档里摘掉（选中会重建人员针）→ 无从判断「点在哪」，
+      // 一律视为点在地图内放过，否则刚打开的抽屉会被同一次点击关掉。
+      if (!el.isConnected) return
       if (KEEP_SELECTORS.some(sel => el.closest(sel))) return
       clear()
     }
-    document.addEventListener('click', onDocClick)
-    return () => document.removeEventListener('click', onDocClick)
+    /* 延到下一个宏任务再挂：选中生效后 React 会在**微任务**里补跑本 effect，
+       而此时触发选中的那次 click 仍在向 document 冒泡 —— 立刻挂上就会被
+       自己这一下打到。宏任务一定晚于整轮事件派发。 */
+    const timer = window.setTimeout(() => {
+      document.addEventListener('click', onDocClick)
+    }, 0)
+    return () => {
+      window.clearTimeout(timer)
+      document.removeEventListener('click', onDocClick)
+    }
   }, [active, clear])
 }

@@ -172,8 +172,11 @@ export default function PersonMap() {
   }, [])
 
   /* 关抽屉**不清选中**：用户关掉明细后仍要在地图上看那个人的站点圈，
-     清除选中另有两条路（再点一次针 / 点地图空白 / 卡片右上角「取消选中」）。 */
-  const closeDrill = useCallback(() => () => setDrillOpen(false), [])
+     清除选中另有两条路（再点一次针 / 点地图空白 / 卡片右上角「取消选中」）。
+     ⚠ 这里必须**直接**返回 `setDrillOpen(false)` 的调用结果，不能写成
+        `() => () => setDrillOpen(false)` —— 多包一层后 `onClose()` 只是"返回了
+        一个函数"而没执行它，抽屉右上角的 × 会完全没反应（2026-10-21 实测）。 */
+  const closeDrill = useCallback(() => setDrillOpen(false), [])
 
   /* 抽屉打开时拉 WO + PMT 明细。
      刻意挂在 `drillOpen` 上而不是 `selectedKey`：`?maponly=1` 的门户页签里点人
@@ -455,7 +458,7 @@ export default function PersonMap() {
     return (
       <div style={{ width: '100%', height: '100vh', margin: 0, padding: 0, overflow: 'hidden', position: 'relative' }}>
         <MapContainer center={[(3.9 + 8.75) / 2, (-11.7 + -7.3) / 2]} zoom={7.5}
-          style={{ height: '100%', width: '100%' }}>
+          className="person-map-canvas" style={{ height: '100%', width: '100%' }}>
           <PersonMapView
             people={withCoords}
             loading={false}
@@ -558,8 +561,10 @@ export default function PersonMap() {
             style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0 }}
           >
             <div style={{ flex: 1, width: '100%', minHeight: MAP_HEIGHT, position: 'relative' }}>
+              {/* `person-map-canvas`：给本页地图容器一个专属类，供 index.css
+                  把「悬停放大」限定在本页（GIS 页的人员图层另有自己的悬停实现）。 */}
               <MapContainer center={[(3.9 + 8.75) / 2, (-11.7 + -7.3) / 2]} zoom={7.5}
-                style={{ height: '100%', width: '100%' }}>
+                className="person-map-canvas" style={{ height: '100%', width: '100%' }}>
                 <PersonMapView
                   people={withCoords}
                   loading={false}
