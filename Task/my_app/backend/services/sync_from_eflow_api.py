@@ -385,6 +385,16 @@ def _sync_tt(df: pd.DataFrame, dst_conn: sqlite3.Connection) -> int:
     df = _apply_column_map(df, TT_COLUMN_MAP)
     df = _convert_ms_timestamps(df, ['created_time', 'last_modified_time', 'alarm_occur_time', 'alarm_clear_time'])
 
+    # wo_no 兜底（2026-10-21 起实测）：eFlow 列表接口不再返回 "WO No."，工单号改放在
+    # "Relation No."（TT_COLUMN_MAP 未映射它，由 _apply_column_map 自动落成 relation_no）。
+    # 不兜底则新单 wo_no 为空：tt_reports 的 WO No. 列全空、8 小时图片与 Open Tickets
+    # 被 notna 过滤成空，且 tt_wo_dashboard._owner_where 把新单全判成 3rd 第三方单。
+    if 'relation_no' in df.columns:
+        if 'wo_no' in df.columns:
+            df['wo_no'] = df['wo_no'].where(df['wo_no'].notna(), df['relation_no'])
+        else:
+            df['wo_no'] = df['relation_no']
+
     # ticket_no 回退
     if 'ticket_no' not in df.columns and 'display_name' in df.columns:
         df['ticket_no'] = df['display_name']
