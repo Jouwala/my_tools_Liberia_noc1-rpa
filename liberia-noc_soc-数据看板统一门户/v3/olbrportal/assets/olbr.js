@@ -1452,18 +1452,33 @@
   /* 一条「两家 × 一个指标」的走势。
    * spec: { key, digits, kind }，rows: 逐日记录数组，
    *   get: function(row, brand) → 该品牌该日的原始值（null = 那天没数据）
+   * axes: **可选**，一份「窗口内每一天」的日期列表（benchWindow.axes 产出）。
+   *   传了就以它为横坐标，rows 里缺少的日期被对齐到轴上（缺 → null 断档）。
    * 返回 '' 表示画不出来（点数不足），调用方**不要**因此把卡片改形 ——
    * 与 availSpark 同一降级：图这一格不占位，卡片靠 has-foot 把页脚沉底。
    *
    * ⚠️ 两家的点**分别**喂给 qcSparkSvg，缺的那天各自推 null（不补 0）：
    * 实测这份数据是按天导入的，个别日子只有一家有测试 —— 补 0 会画出
-   * 「那天 MTN 速率掉到 0」的假谷底，比一段缺口严重得多（同 availSpark）。 */
-  function benchSpark(spec, rows, get, tipKey) {
+   * 「那天 MTN 速率掉到 0」的假谷底，比一段缺口严重得多（同 availSpark）。
+   *
+   * ⚠️ 2026-10-22 新增 axes（第 5 个参数）：横坐标由**日期**决定，不再由
+   *   「数组下标」决定。起因（用户报「Speed 和 Composite 两个卡片的横坐标
+   *   要跟其他的对齐」）：同一 Benchmark 行里两组卡的 daily 数组**不等长** ——
+   *   实测 bm-meta 29 天（末日 09-23）、bm-speedtest 30 天（末日 09-24）。
+   *   qcSparkSvg 内部是 `step = W / (vals.length - 1)`，纯按下标均分，
+   *   于是 29 个点的线整体右移一格：横轴最右那个位置，
+   *   Ookla 卡显示的是 09-24 的数，Meta 卡显示的却是 09-23 的数 ——
+   *   两条线看起来横向可比，实际上差了一天。
+   *   传 axes 之后两组共用同一份 n 天的轴，x 坐标才真正代表同一个日子。 */
+  function benchSpark(spec, rows, get, tipKey, axes) {
     if (!rows || !rows.length) return '';
+    /* 对齐到统一轴（缺的那天补 null 记录）。轴无效时保持原样，
+       即回落到按下标均分的老行为 —— 这条降级让 axes 缺失不至于让图消失。 */
+    var src = benchAxes(rows, axes) || rows;
     var brands = DATA.BENCH_BRANDS;
     var series = brands.map(function (b) {
-      return rows.map(function (r) {
-        var v = get(r, b);
+      return src.map(function (r) {
+        var v = r ? get(r, b) : null;
         /* 先挡 null/'' 再 Number()：Number(null) === 0 是有限数，
            会被当成「那天是 0 Mbps」收进来（同 qcStockSeries 的教训）。 */
         if (v == null || v === '') return null;
@@ -1490,7 +1505,11 @@
     var svgO = qcSparkSvg(scaleTo(series[0], lo, hi));
     var svgM = qcSparkSvg(scaleTo(series[1], lo, hi));
     if (!svgO || !svgM) return '';
-    var days = rows.length;
+    /* tooltip 里的天数取**对齐后的长度**（轴长），不取 rows.length：
+       两者不等时，轴才代表读者看到的横坐标范围；
+       用 rows.length 会出现"图跨 30 天、tooltip 说 29 天"。
+       走的是降级路径（没给 axes）时 src === rows，结果与原来完全一致。 */
+    var days = src.length;
     /* 品牌展示名取后端 label（Orange / MTN），**不直接用 brands 里的键**——
        键是 'ORANGE'（全大写，供接口与字典用），直接塞进 tooltip / 图例会写成
        "上排是 ORANGE"，与卡内两行显示的 "Orange" 不是同一个写法（实测：
@@ -1914,11 +1933,15 @@
         '<span class="bf-spark-lg" aria-hidden="true"></span></span>';
     }
     /* 速率卡与综合评分卡：都是两家 PK 的形态，画同一份逐日速率的双线。
-       评分卡的那条提示语不同（说明画的是速率），由 tipKey 区分。 */
+       评分卡的那条提示语不同（说明画的是速率），由 tipKey 区分。
+       ⚠️ 第 4 个参数 axes（2026-10-22 加）把**统一横坐标轴**透传下去：
+         这三张 Meta 卡的 daily 比 Ookla 那组少一天（29 vs 30），
+         不给轴就会整体右移一格、横坐标与同行的其他卡对不上。
+         详见 benchSpark 头部那条说明。 */
     var tipKey = spec.key === 'scores' ? 'kpi.mm.sparkTipScore' : 'kpi.mm.sparkTip';
     return benchSpark(spec, daily, function (r, b) {
       return r[b === 'ORANGE' ? 'orange_speed' : 'mtn_speed'];
-    }, tipKey);
+    }, tipKey, mm.axes);
   }
   /* ---- 连体卡组的渲染（2026-10-07 加）--------------------------------------
      一组 = 一个 .qc-group，里面是「组头 + 连体卡排」。组头左边是组名
@@ -5908,11 +5931,14 @@
   function loadKpi() {
     if (kpiBusy) return;
     kpiBusy = true;
-    /* 四路并行（第四路见下方 meta），所以计数是 4。
+    /* 三路并行（第四路见下方 meta），所以计数是 3。
        ⚠️ 漏改这个数字的后果很隐蔽：done() 永远等不到 0，
        state.kpi.loading 一直为 true、renderKpi 不执行 ——
-       页面看上去只是"一直停在骨架屏"，不报任何错。 */
-    var left = 4;
+       页面看上去只是"一直停在骨架屏"，不报任何错。
+       ⚠️ 2026-10-22 由 4 改 3：Benchmark 行那两路已收进 loadBenchRow
+       （它们要先探数据末日再定窗口，摊平成两路会把 done() 数错），
+       那一整行现在算**一路**，自己 settle 之后才调这里的 done()。 */
+    var left = 3;
     function done() { if (--left === 0) { kpiBusy = false; state.kpi.loading = false; renderKpi(); } }
     /* 富卡片的主数据源。它自己带 status/error。
        失败时**不清空** state.kpi.olib：把上一次的数字擦成 —，
@@ -5941,17 +5967,144 @@
       };
       done();
     }).catch(function () { done(); });
-    /* Benchmark 行第一组（2026-10-01 加）：ORANGE vs MTN 的下载/上传/时延对比。
-       窗口**由后端给**（传空 start/end，服务端按 default_window(90) 回落，
-       但我们只要最近 30 天，所以显式算一个左闭右开的窗口传过去）。
-       在**前端**算日期而不是让后端默认 90 天：卡片标题要写「最近 {n} 天」，
-       写死的 n 与后端实际窗口一旦不一致，卡上的说明就变成假的。
-       算完的 start/end 再回读做 n，两者必然同源。
-       失败时**不清空** state.kpi.speed（与 olib 同一条理由：
-       接口抖一下不该让三张卡从有数字变成「—」），但也不写 err ——
+    /* Benchmark 行整行取数（2026-10-22 抽出；设计说明见下面 loadBenchRow）。
+       这一行**故意不是两个平级的 then**：它的窗口要先探两个源的 data_max_date
+       才能定下来（benchWindow），天然是"先探、后取"的两段式。
+       失败时**不清空** state.kpi.speed / .meta（与 olib 同一条理由：
+       接口抖一下不该让卡片从有数字变成「—」），也不写 kpi.err ——
        这一行的错误不占用标题行那颗全局错误提示，由卡片自己显示「—」。 */
-    var sw = recentWindow(30);
-    api('/api/bm-speedtest/overview?start=' + sw.start + '&end=' + sw.end).then(function (d) {
+    loadBenchRow(30, done);
+  }
+
+  /* Benchmark 行的取数：先探两个源的 data_max_date，据此定窗口，再各取一次 overview。
+   *
+   * ⚠️ 2026-10-22 的设计要点（为什么不能像原来那样两个 then 平铺）：
+   *
+   * ① **窗口锚在数据末日，不锚在「今天」**。这是本次修复的核心。
+   *    实测：bm_meta 的 meta_data 来自一次性快照 Meta_20260923.xlsx，
+   *    data_max_date = 2026-09-23；bm-speedtest 的 data_max_date = 2026-09-24。
+   *    而"今天"是 10-22 —— 原来那个「最近 30 天」窗口（09-23 → 10-23）里，
+   *    bm_meta 只剩 **1 天**有数据。benchSpark 的门槛是「两家各 ≥2 个有效点」
+   *    （见 benchSpark 里 okBoth 那段），1 天直接 return ''，于是
+   *    Meta 那两张卡的走势图**整块消失**（用户报「Meta 的卡片都是空的」）。
+   *    Ookla 那组之所以还看得到线，只是因为它多一天凑够了 2 个点 ——
+   *    两个点的线也不是趋势，只是碰巧没触发降级而已。
+   *
+   * ② **两组的窗口必须同时定，不能各定各的**。两个源的 data_max_date 差一天
+   *    （09-23 vs 09-24），各自锚自己的末尾会得到两个不同的窗口；而这一行
+   *    两组卡印在**同一个标题底下**，读者会默认它们能横向对比。
+   *    所以 benchWindow 取两者的**共同覆盖段**：右端取两者中较晚的那个
+   *    （max，理由见 benchWindow 自己的注释），左端统一回溯 n 天。
+   *    这是本次新增的唯一一处收敛点。
+   *
+   * ③ **探日期打轻量请求，而不是先取一次 overview 再重取**。
+   *    目标是让**只有一次**决定性请求落到真正的窗口上，
+   *    图和大数字必然同源 —— 这个文件多处反复强调的那条约束。
+   *    探不到日期时 benchWindow 回落到「今天」（与修复前完全一致的行为），
+   *    不让「接口没给日期」变成「整行没数据」。
+   *
+   * ④ **settle 一次，不是两次**。两路都 settle 才调一次 onDone，
+   *    所以 loadKpi 的计数器由 4 改 3（见上面 left 那一处）。
+   *    两路用 allSettled 语义（各自 catch）实现，不用 Promise.all ——
+   *    一路失败不能带死另一路，那与「各自成败」的老约定相反。
+   *
+   * n = 窗口天数（两张卡的副标题与 kpi.bf.subBoth 都印它）。 */
+  function loadBenchRow(n, onDone) {
+    var settled = 0;
+    function settle() { if (++settled === 2) onDone(); }
+    /* 两个源的 filters 并行探日期。任一失败都传 null ——
+       benchWindow 对 null 的处理是「这一侧不参与收敛」，不是整行失败。 */
+    Promise.all([
+      api('/api/bm-speedtest/filters').catch(function () { return null; }),
+      api('/api/bm-meta/filters').catch(function () { return null; })
+    ]).then(function (res) {
+      var win = benchWindow(n, res[0] && res[0].max_date, res[1] && res[1].max_date);
+      loadBenchSpeed(win, settle);
+      loadBenchMeta(win, settle);
+    }).catch(function () {
+      /* 连 filters 都炸了：仍然要把数据取回来，用「今天」窗口 ——
+         宁可给出旧窗口的数据，也不要让整行空白。
+         axes 照样要补上，否则两组各按自己 daily 的长度均分，横坐标又会错位
+         （兜底路径也必须与主路径保持同一种横坐标口径）。 */
+      var win = recentWindow(n);
+      win.axes = windowAxis(win);
+      loadBenchSpeed(win, settle);
+      loadBenchMeta(win, settle);
+    });
+  }
+
+  /* 窗口 = 两源共同覆盖的最近 n 天（2026-10-22 加，见 loadBenchRow 的 ②）。
+   *
+   * ⚠️ 为什么右端取 max(d1, d2) 而不是 min：
+   *   取较早的那个（min）会让**较晚的那个源在窗口里少一天** —— 那正是
+   *   修复前 Meta 组只剩 1 天的成因。取较晚的，最坏情况是较早的那个源
+   *   在窗口尾部多一天空白，而空白在 benchSpark 里是 null（断档），
+   *   不会伪造趋势（见 benchSpark 里「缺的那天各自推 null、不补 0」）。
+   *   两者都拿不到日期时回落到「今天」，与修复前行为一致。
+   *
+   * ⚠️ 2026-10-22 追加 axes：**窗口内每一天的完整日期列表**（左闭右开共 n 天）。
+   *   这是给横坐标用的 —— 见下面 benchAxes 与 benchSpark 的第 5 个参数。
+   *   两个源的 daily 往往不等长（实测 bm-meta 29 天、bm-speedtest 30 天，
+   *   因为 meta 的末日是 09-23 而 speedtest 是 09-24），
+   *   而 qcSparkSvg 过去是**按下标**均分 x 的，长度不同就意味着横坐标错位：
+   *   同样印在一条 Benchmark 行里的两组卡，读者会把 09-24 的位置读成
+   *   同一个日子，却一个显示 09-24 的数、一个显示 09-23 的数。
+   *   所以两组的横坐标必须由**同一份 axes** 驱动，见 benchAxes。 */
+  function benchWindow(n, dateA, dateB) {
+    var ds = [dateA, dateB].filter(function (v) {
+      return v && /^\d{4}-\d{2}-\d{2}$/.test(String(v));
+    });
+    if (!ds.length) {
+      /* 两个源都没给日期：回落到「今天」窗口，行为与修复前一致。
+         但 axes 仍要走 windowAxis —— 这个分支也要与主路径共用同一份轴，
+         否则兜底路径下横坐标又退回按下标均分（见上面 axes 那段说明）。 */
+      var fb = recentWindow(n);
+      fb.axes = windowAxis(fb);
+      return fb;
+    }
+    /* 定长同格式的 YYYY-MM-DD，字典序即日期序，不必经 new Date() ——
+       后者要处理时区，是这里最容易引入跨时区偏差的地方。 */
+    ds.sort();
+    var w = recentWindow(n, ds[ds.length - 1]);
+    w.axes = windowAxis(w);
+    return w;
+  }
+
+  /* 窗口内每一天的日期列表（2026-10-22 加），左闭右开共 n 天。
+     纯 UTC 日递进，不用本地时区 —— 与 recentWindow 同一口径，
+     否则跨时区访问会得到少一天/多一天的轴。 */
+  function windowAxis(w) {
+    var out = [];
+    var end = new Date(w.end + 'T00:00:00Z');
+    for (var i = w.n; i > 0; i--) {
+      var d = new Date(end.getTime());
+      d.setUTCDate(d.getUTCDate() - i);
+      out.push(d.toISOString().slice(0, 10));
+    }
+    return out;
+  }
+
+  /* 把一批逐日记录**对齐到给定的横坐标轴**：返回与 axes 等长的数组，
+     缺的那天推 null（**不补 0** —— 补 0 会画出「那天掉到 0」的假谷底，
+     同 benchSpark 里同一条约定）。
+     2026-10-22 加，见 benchWindow 的 axes 说明与 benchSpark 第 5 个参数。 */
+  function benchAxes(rows, axes) {
+    if (!axes || !axes.length) return null;
+    var byDay = {};
+    (rows || []).forEach(function (r) {
+      var d = r && r.day;
+      if (d) byDay[d] = r;
+    });
+    return axes.map(function (d) { return byDay[d] || null; });
+  }
+
+  /* Benchmark 行第一组（2026-10-01 加）：ORANGE vs MTN 的下载/上传/时延对比。
+     窗口由 benchWindow 给（锚在数据末日，见 loadBenchRow ①）。
+     失败时**不清空** state.kpi.speed（与 olib 同一条理由：
+     接口抖一下不该让三张卡从有数字变成「—」），也不写 err ——
+     这一行的错误不占用标题行那颗全局错误提示，由卡片自己显示「—」。 */
+  function loadBenchSpeed(win, onDone) {
+    api('/api/bm-speedtest/overview?start=' + win.start + '&end=' + win.end).then(function (d) {
       if (d && d.summary) {
         state.kpi.speed = {
           summary: d.summary,
@@ -5959,7 +6112,7 @@
           /* 逐日记录（2026-10-01 加，卡片走势图要用）。
              ⚠️ 直接存 overview 的 daily，**不再打一次 /trend**：同一个窗口下
              /trend 的 series 与 overview 的 daily 是同一段 SQL 的结果，
-             多打一次只会多一个"图与大数字来自不同时刻"的分叉点。
+             多打一次只会多一个「图与大数字来自不同时刻」的分叉点。
              ⚠️ overview 对超过 400 天的窗口会截断（daily_truncated），
              本页窗口固定 30 天，够用；真被截断时图只会短一截，
              不会画错 —— 但那时卡片标题的天数与线的长度会对不上，
@@ -5969,22 +6122,27 @@
           meta: d.meta || {},
           /* 窗口天数取**接口回显的** start/end 算，不取我们请求时那个数：
              后端在 start >= end 时会回落到默认窗口，那时请求的 30 就不是真实窗口了。 */
-          days: windowDays(d.meta, sw),
-          at: (d.meta && d.meta.data_max_date) || ''
+          days: windowDays(d.meta, win),
+          at: (d.meta && d.meta.data_max_date) || '',
+          /* 统一横坐标轴（2026-10-22 加）：与 meta 那组共用 win.axes 的**同一份数组**，
+             两组图才代表同一些日子（不共用就会各按自己 daily 的长度均分而错位，
+             见 benchSpark 头部说明）。两组共用同一个 win 对象，这里天然同源。 */
+          axes: win.axes || null
         };
       }
-      done();
-    }).catch(function () { done(); });
-    /* Benchmark 行第二组（2026-09-30 加）：Meta 基准报告（my_app `?page=bm_meta`）。
-       与上面那路**共用同一个窗口对象 sw**，而不是各算一次「最近 30 天」：
-       两次 new Date() 跨过午夜时（或一先一后落在不同秒），两组卡上的窗口会差一天，
-       而它们印在同一个标题底下、页脚还分别写着「统计窗口 30 天」——
-       差一天就是两个窗口，读者无法判断哪张卡跟哪张卡能比。
-       接口默认窗口是 365 天（见 bm_meta_caliber.default_window），
-       所以这里**必须**显式传 start/end。
-       失败时同样**不清空** state.kpi.meta：接口抖一下不该让 3 张卡从有数字变成「—」；
-       错误也不写 kpi.err（理由同上：这一行由卡片自己显示「—」）。 */
-    api('/api/bm-meta/overview?start=' + sw.start + '&end=' + sw.end).then(function (d) {
+      onDone();
+    }).catch(function () { onDone(); });
+  }
+
+  /* Benchmark 行第二组（2026-09-30 加）：Meta 基准报告（my_app `?page=bm_meta`）。
+     与上面那路**共用同一个窗口对象 win**（本次修复保留的关键约束）：
+     两组卡印在同一个标题底下，窗口不同读者就没法横向对比（见 loadBenchRow ②）。
+     接口默认窗口是 365 天（见 bm_meta_caliber.default_window），
+     所以这里**必须**显式传 start/end。
+     失败时同样**不清空** state.kpi.meta：接口抖一下不该让卡片从有数字变成「—」；
+     错误也不写 kpi.err（理由同上：这一行由卡片自己显示「—」）。 */
+  function loadBenchMeta(win, onDone) {
+    api('/api/bm-meta/overview?start=' + win.start + '&end=' + win.end).then(function (d) {
       if (d && d.summary) {
         state.kpi.meta = {
           summary: d.summary,
@@ -5999,25 +6157,54 @@
              **同一个数组**：页脚说"覆盖 N 天"与图上画的点数必须同源，
              分别取两次的话（一处用 d.daily.length、一处用 meta.daily_returned）
              将来加了截断就会出现"页脚 358 天、图上只有 90 个点"。
-             speed / scores 两张卡用其中的 orange_speed / mtn_speed，
-             bp 那张用 bp 列（见 metaSpark）。 */
+             speed / scores 两张卡用其中的 orange_speed / mtn_speed；
+             那张时延卡的 src 是 'speed'（它取的是 Ookla 的真实时延，
+             见 olbr-data.js 的 KPI_META 第三项），所以走的是 speedCardHtml。 */
           daily: d.daily || [],
           /* 窗口天数同样回读接口回显的 start/end（与 speed 一路同一套算法）。 */
-          days: windowDays(d.meta, sw),
-          at: (d.meta && d.meta.data_max_date) || ''
+          days: windowDays(d.meta, win),
+          at: (d.meta && d.meta.data_max_date) || '',
+          /* 统一横坐标轴（2026-10-22 加）：与 speed 那组**共用同一个数组**
+             （两者取自同一个 win 对象）。本组的 daily 实测只有 29 天
+             （末日 09-23，比 speedtest 少一天），不补这一份轴的话，
+             这两张卡的横坐标会整体右移一格 —— 就是用户报的那个错位。 */
+          axes: win.axes || null
         };
       }
-      done();
-    }).catch(function () { done(); });
+      onDone();
+    }).catch(function () { onDone(); });
   }
-  /* Benchmark 行两组的统计窗口：最近 n 天，**左闭右开**（end 为次日）。
+  /* Benchmark 行两组的统计窗口：n 天，**左闭右开**（end 为数据末日 + 1）。
      与后端 caliber.default_window 完全同一套算法 —— 但这里不能复用它的返回值，
      因为它算的是 90 / 365 天。dayjs 在本页没引，所以直接用 Date 算 UTC 日期串：
      用本地时间的话，跨时区访问门户会得到差一天的窗口，而卡片会把那个天数写在脸上。
-     ⚠️ 两组（Ookla / Meta）共用本函数**返回的同一个对象**，见 loadKpi 的说明。 */
-  function recentWindow(n) {
-    var end = new Date();
-    end.setUTCDate(end.getUTCDate() + 1);   // 次日，构成左闭右开
+     ⚠️ 两组（Ookla / Meta）共用本函数**返回的同一个对象**，见 loadKpi 的说明。
+
+     ⚠️ 2026-10-22 改：右端从「今天」改为**锚到数据实际末日**（anchorDate）。
+     起因（实测）：bm_meta 的 meta_data 来自一次性快照 Meta_20260923.xlsx，
+     data_max_date = 2026-09-23，而今天是 10-22 —— 「最近 30 天」窗口
+     （09-23 → 10-23）里只剩 **1 天**有数据，benchSpark 的「≥2 点」门槛
+     达不到，于是 Meta 那两张卡的走势图整块消失（用户报「Meta 的卡片都是空的」）。
+     同一窗口下 bm-speedtest 多一天（09-24），凑够 2 点还能画出两个点的短线 ——
+     那种线也不构成趋势，只是碰巧没触发降级。
+     改成锚到数据末尾后实测两组都满 30 天，图、大数字、页脚「覆盖 N 天」三者同源。
+     代价是窗口会随数据变旧，但卡上写的是「最近 {n} 天」而 data_max_date
+     在每张卡的 tooltip 里（kpi.mm.tipCover / kpi.bf.tipCover），读者能查到截止日；
+     这比"窗口写着 30 天、图却是空的"诚实。
+     ⚠️ 两组的 data_max_date 不同（09-23 vs 09-24），所以**分别锚**，
+     但锚完要把窗口收窄到两者共同覆盖的那段 —— 否则两组印在同一个标题底下、
+     页脚各写各的窗口天数，读者无法判断哪张卡跟哪张卡能比（见 benchWindow）。 */
+  function recentWindow(n, anchorDate) {
+    /* 锚点缺省时回落「今天」—— 请求那一刻还没拿到接口回显时用，
+       与原行为一致，不让"拿不到数据日期"变成"窗口算不出来"。 */
+    var end;
+    if (anchorDate && /^\d{4}-\d{2}-\d{2}$/.test(anchorDate)) {
+      end = new Date(anchorDate + 'T00:00:00Z');
+      end.setUTCDate(end.getUTCDate() + 1);   // 次日，构成左闭右开
+    } else {
+      end = new Date();
+      end.setUTCDate(end.getUTCDate() + 1);
+    }
     var start = new Date(end.getTime());
     start.setUTCDate(start.getUTCDate() - n);
     var iso = function (d) { return d.toISOString().slice(0, 10); };

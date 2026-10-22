@@ -1806,9 +1806,19 @@ main { flex: 1; padding-block: var(--s5) var(--s4); display: flex; flex-directio
      线条因此对齐。这个值随字号/断点变化 —— 若哪天改了 --fs-2xs 或
      .bf-row 的行高，**必须回来重测这个数**（探针 TMP/_probe_bf_css.cjs
      会直接打出每张卡的数据区实高，不必靠猜）。 */
-@media (max-width: 1200px) {
-  .qc-card--bf .bf-rows { min-height: 74px; }
-}
+/* ⚠️⚠️ 2026-10-22：这条原本锁在 @media (max-width:1200px) 里（见上方注释）。
+   那是个基于「宽屏卡名与数据都只占一行、宽屏一直齐」的旧认知，
+   但实测**宽屏（1582px）就不齐** —— 用户 2026-10-22 报「横坐标轴要水平对齐」。
+   同为 230px 卡高，六张卡的图顶却分别落在
+     119 / 119 / 119 / **86** / **107** / 119
+   根因是 .bf-rows 的**内容行数**真实不同：
+     · Ookla 三张 = 74px（品牌+数值一行、P50/P90+胜率两行 → 每行 36px）
+     · Meta 两张  = 41px（只有「range 12.5 ~ 14」一行 → 每行 19px），差 33px
+   佐证：同取 speedtest 源的 Meta-Latency 是 74px、图顶 119 与 Ookla 一致 ——
+   可见差异既不是分组、也不是数据源，就是这格的内容高度。
+   提到全局是因为：这个差异是**内容真实差异**（Ookla 的分位数值确实更详尽），
+   压掉它会裁掉数字；正确做法是让内容少的那张**补白**，把图顶拉到同一水平线。 */
+.qc-card--bf .bf-rows { min-height: 74px; }
 /* ⚠️ 卡头**锁一个最小高度**，让"卡名折行"不再改变卡内其它元素的位置。
    2026-10-01 实测（420px 档，栅格折成 2 列后的第 2、3 行）：
      「Latency」154.5 vs 「Speed」185.9 —— Speed 卡名折成两行，多占 31.4px；
@@ -1823,9 +1833,13 @@ main { flex: 1; padding-block: var(--s5) var(--s4); display: flex; flex-directio
    折行的卡仍然 42px、没折的卡被撑到 37.5px，两者依旧差 4.5px。
    所以这里**直接量**：42px = 折行卡头的实测高度，写死并注明来源。
    探针 TMP/_probe_bf_css.cjs 会打出每张卡的"卡头"实高，改字号后回来重测。 */
-@media (max-width: 1200px) {
-  .qc-card--bf .bf-hd { min-height: 42px; }
-}
+/* ⚠️ 2026-10-22：同上，从窄断点提到全局 —— 「锁高」的道理与取值都不变。
+   宽屏实测那张「Composite score and wins」的卡头是**折行**的
+   （hdH 42px，其余卡 21px），把它下面的一切压低了 21px，
+   与 .bf-rows 那 33px 叠加，就是该卡图顶 107px 的来源。
+   ⚠️ 两处锁定缺一不可：只锁数据区 → 折行卡头仍差 21px；
+     只锁卡头 → 内容少的数据区仍差 33px。 */
+.qc-card--bf .bf-hd { min-height: 42px; }
 /* ⚠️ 页脚在 .qc-card--bf 里**必须放弃 auto**（覆盖掉下面 has-foot 那条）：
    否则图与页脚各有一个 margin-top:auto，浏览器把富余空间**平分**给两者
    （实测 Speed 卡：图 19.25px、页脚也 19.25px），图仍不在同一水平线上。
