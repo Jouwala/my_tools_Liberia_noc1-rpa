@@ -5,7 +5,7 @@
   1. 从 eFlow API 拉取激活的 TT Update Severity Rule → eflow_TT_rules.xlsx
      （子进程运行 eflow_TT_Rule_Collector.py，隔离其 os.chdir / logging 副作用；
        收集失败则降级使用已有规则文件继续检查，不中断整个任务）
-  2. 用最新规则对最新 1000 条 eflow_tt 记录做匹配与级别矫正
+  2. 用最新规则对建单时间（created_time）最新的 1000 条 eflow_tt 记录做匹配与级别矫正
      → eflow_tt_severity_correction.xlsx + MATCHING_REPORT.md
   3. 摘要落盘 eflow_tt_rules_check_latest.json，供 Email Reports 页 eflow_tt_rules_check 页签展示
 

@@ -9,6 +9,7 @@
 import fnmatch
 import json
 import logging
+import threading
 from pathlib import Path
 from urllib.parse import quote
 
@@ -115,6 +116,49 @@ _EFLOW_FILE_SPECS = [
     dict(pattern="MATCHING_REPORT*.md", kind="report",
          label="匹配检查报告", label_en="Matching Report"),
 ]
+
+# eflow_tt_rules_check 的 TT 级下钻数据源（2026-10-23 新增）。
+# 摘要 JSON 只有按规则聚合的数字，逐条 TT 明细在匹配器导出的矫正表里：
+#   All_TT_Records / Matched_Rules / Severity_Changes 三个 sheet，列名与 _TT_DRILL_COLS 一一对应
+#   （见 backend/services/eflow_rules/eflow_rules_matcher.py:454 export_outputs）。
+# 下钻接口直接读这张表，保证「卡片上的数字」与「下钻弹窗的行数」严格同源 ——
+# 不去查 eflow_tt 主库重算，否则同步延迟会让两边对不上。
+_TT_CORRECTION_XLSX = _BASE / "backend" / "services" / "eflow_rules" / "eflow_tt_severity_correction.xlsx"
+
+# 矫正表 → 前端字段的映射（顺序即弹窗列的先后顺序）
+_TT_DRILL_COLS = [
+    ("tt_no", "tt_no"), ("wo_no", "wo_no"), ("ticket_no", "ticket_no"),
+    ("title", "title"), ("alarm_code", "alarm_code"),
+    ("site_id", "site_id"), ("site_name", "site_name"),
+    ("ne_name", "ne_name"), ("domain", "domain"),
+    ("site_type", "site_type"), ("vip_site", "vip_site"),
+    ("down_site_count", "down_site_count"),
+    # 时间字段（2026-10-23 用户要求）：建单时间 / 告警发生 / 告警清除
+    ("created_time", "created_time"),
+    ("alarm_occur_time", "alarm_occur_time"),
+    ("alarm_clear_time", "alarm_clear_time"),
+    ("ticket_severity", "cur_severity"),
+    ("Matched_Rule_ID", "rule_id"), ("Matched_Rule_Name", "rule_name"),
+    ("New_Severity", "new_severity"), ("Severity_Changed", "changed"),
+    ("Match_Details", "evidence"), ("status", "status"),
+    # 站点拓扑属性（来自 eflow_site / master_site_db，不参与判定的 TRM 也一并展示）
+    ("TRM_Type", "trm_type"),
+    # 规则里用到的**全部**字段 —— 写的是判定时实际比较的值（已归一化）
+    ("Rule_Field_alarmCode", "f_alarm_code"),
+    ("Rule_Field_vipSite", "f_vip_site"),
+    ("Rule_Field_hubSite", "f_hub_site"),
+    ("Rule_Field_siteSubType", "f_site_subtype"),
+    ("Rule_Field_assetType", "f_asset_type"),
+    ("Rule_Field_netWorkType", "f_network_type"),
+    ("Rule_Field_downstreamSites", "f_downstream_sites"),
+    ("Rule_Field_alarmDescription", "f_alarm_description"),
+]
+
+# 下钻结果缓存：(矫正表 mtime_ns, size) -> 已转换的 dict 行列表。
+# 为什么不缓存 DataFrame：pandas → dict 的转换才是每次请求的主要开销（1000 行 × 94 列），
+# 缓存转换结果后单次下钻只剩内存过滤。任务每天 04:20 重写一次文件，缓存自然失效。
+_DRILL_CACHE: dict = {}
+_DRILL_LOCK = threading.Lock()
 
 
 def _eflow_file_meta(filename: str, lang: str) -> dict:
@@ -278,4 +322,249 @@ def eflow_tt_rules_check_summary(request: Request):
                             if fnmatch.fnmatch(item["name"], pat)), len(patterns))
                 return (kind_rank, idx, -item["mtime"])
             files.sort(key=_order)
+    # ---- 摘要与矫正表是否同源（2026-10-23）----
+    # 摘要 JSON 由定时任务整链写出，与矫正表 xlsx 是同一次运行的产物；但两者是**两个文件**，
+    # 只要中间有人单独跑过 eflow_rules_matcher（脚本形态，会重写 xlsx 却不更新 JSON），
+    # 页面上的统计卡与下钻明细就会来自两次不同的运行 —— 实测出现过 624/19 对 1000/85。
+    # 这里以 mtime 是否一致作为判据，不一致就让前端显式提示，而不是默默展示对不上的数字。
+    # 旧摘要没有 correction_mtime 字段，此时不判定（回退为「未知」，不误报）。
+    if summary and summary.get("correction_mtime") is not None and _TT_CORRECTION_XLSX.is_file():
+        drift = abs(_TT_CORRECTION_XLSX.stat().st_mtime - float(summary["correction_mtime"])) > 1.0
+        summary["correction_drift"] = drift
     return {"summary": summary, "files": files, "lang": lang}
+
+
+def _clean_tt_value(v):
+    """pandas 单元格值 → JSON 友好的值（NaN → None，整数值浮点 → int，其余转字符串）。"""
+    if v is None:
+        return None
+    # pandas 读 Excel 会把数字读成 numpy 标量；同时避免 NaN / NaT 泄漏成 "nan" 字符串
+    try:
+        if v != v:  # NaN 自身不等于自身
+            return None
+    except Exception:  # noqa: BLE001 - 不可比较类型直接跳过
+        pass
+    if hasattr(v, "item"):
+        try:
+            v = v.item()
+        except Exception:  # noqa: BLE001
+            pass
+    if isinstance(v, float):
+        if v.is_integer():
+            return int(v)
+        return v
+    if isinstance(v, (int, bool)):
+        return v
+    s = str(v).strip()
+    return s or None
+
+
+def _load_tt_drill_rows() -> list[dict]:
+    """读取矫正表 All_TT_Records 并转换成前端字段；按 (mtime, size) 缓存。"""
+    f = _TT_CORRECTION_XLSX
+    if not f.is_file():
+        raise HTTPException(status_code=404, detail="矫正表尚未生成，请先运行 eflow_tt_rules_check 任务")
+    st = f.stat()
+    key = (st.st_mtime_ns, st.st_size)
+    with _DRILL_LOCK:
+        cached = _DRILL_CACHE.get("key")
+        if cached == key:
+            return _DRILL_CACHE["rows"]
+        try:
+            import pandas as pd
+            df = pd.read_excel(f, sheet_name="All_TT_Records")
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"读取 TT 矫正表失败 ({f}): {e}")
+            raise HTTPException(status_code=500, detail=f"读取矫正表失败: {e}")
+        rows: list[dict] = []
+        for rec in df.to_dict("records"):
+            item = {}
+            for src, dst in _TT_DRILL_COLS:
+                item[dst] = _clean_tt_value(rec.get(src))
+            item["changed"] = (item.get("changed") or "").upper() == "YES"
+            rows.append(item)
+        _DRILL_CACHE.clear()
+        _DRILL_CACHE.update({"key": key, "rows": rows})
+        return rows
+
+
+def _norm_alarm_code(v) -> str:
+    """告警码归一化，与匹配器 build_value_frame 的口径一致（见 eflow_rules_matcher.py:158-161）。"""
+    if v is None:
+        return ""
+    s = str(v).strip()
+    if s.endswith(".0"):
+        s = s[:-2]
+    return s
+
+
+def _rule_num(v) -> int | None:
+    try:
+        return int(float(v))
+    except (TypeError, ValueError):
+        return None
+
+
+@router.get("/api/email-reports/eflow_tt_rules_check/drill")
+def eflow_tt_rules_check_drill(
+    metric: str,
+    rule_id: int | None = None,
+    sev_from: str | None = None,
+    sev_to: str | None = None,
+    alarm_code: str | None = None,
+    limit: int = 2000,
+    offset: int = 0,
+):
+    """eflow_tt_rules_check 页签的 TT 级下钻明细。
+
+    metric 与页面上的数字一一对应，口径严格同源（全部来自同一份矫正表 All_TT_Records）：
+      total    —— 总 TT 数
+      matched  —— 命中任意规则（rule_id 非空）
+      unmatched—— 未命中任何规则
+      changed  —— 需要级别变更（Severity_Changed == YES）
+      rule     —— 命中了 rule_id 指定的规则（需传 rule_id）
+      rule_changed —— 命中了 rule_id 指定规则且需要级别变更
+      shift    —— 变更方向 sev_from → sev_to（需同时传两者）
+
+    可选叠加过滤：alarm_code（未匹配分布下钻用）。
+
+    返回 meta.truncated：样本超过 limit 时**显式**告知，避免静默截断
+    （AGENTS.md 三.1b：截断必须暴露，否则下钻行数会少于表格数字）。
+    """
+    limit = max(1, min(int(limit or 2000), 5000))
+    offset = max(0, int(offset or 0))
+    rows = _load_tt_drill_rows()
+
+    # ---- 按 metric 选口径 ----
+    if metric == "total":
+        pool = rows
+    elif metric == "matched":
+        pool = [r for r in rows if r.get("rule_id") is not None]
+    elif metric == "unmatched":
+        pool = [r for r in rows if r.get("rule_id") is None]
+    elif metric == "changed":
+        pool = [r for r in rows if r.get("changed")]
+    elif metric in ("rule", "rule_changed"):
+        if rule_id is None:
+            raise HTTPException(status_code=400, detail="metric=rule 需要 rule_id")
+        target = _rule_num(rule_id)
+        pool = [r for r in rows if _rule_num(r.get("rule_id")) == target]
+        if metric == "rule_changed":
+            pool = [r for r in pool if r.get("changed")]
+    elif metric == "shift":
+        if not sev_from or not sev_to:
+            raise HTTPException(status_code=400, detail="metric=shift 需要 sev_from 与 sev_to")
+        f_ = sev_from.strip().upper()
+        t_ = sev_to.strip().upper()
+        pool = [r for r in rows
+                if (r.get("cur_severity") or "").upper() == f_
+                and (r.get("new_severity") or "").upper() == t_
+                and r.get("changed")]
+    elif metric in ("cur_sev", "new_sev"):
+        # 级别对照卡的两个下钻口径（2026-10-23）：
+        #   cur_sev —— 按「单子实际级别」(ticket_severity) 筛
+        #   new_sev —— 按「新规则建议级别」(New_Severity) 筛
+        # 需要 sev 参数（P1/P2/P3/P4）。
+        if not sev_from:
+            raise HTTPException(status_code=400, detail="metric=cur_sev/new_sev 需要 sev_from")
+        key = "cur_severity" if metric == "cur_sev" else "new_severity"
+        want = sev_from.strip().upper()
+        pool = [r for r in rows if (r.get(key) or "").upper() == want]
+    else:
+        raise HTTPException(status_code=400, detail=f"未知 metric: {metric}")
+
+    # ---- 叠加过滤 ----
+    if alarm_code:
+        want = _norm_alarm_code(alarm_code)
+        pool = [r for r in pool if _norm_alarm_code(r.get("alarm_code")) == want]
+
+    total = len(pool)
+    page = pool[offset:offset + limit]
+    return {
+        "metric": metric,
+        "total": total,
+        "rows": page,
+        "meta": {
+            "limit": limit,
+            "offset": offset,
+            "returned": len(page),
+            "truncated": total > offset + len(page),
+        },
+    }
+
+
+@router.get("/api/email-reports/eflow_tt_rules_check/severity_matrix")
+def eflow_tt_rules_check_severity_matrix():
+    """级别对照统计：单子「实际级别」vs「新规则建议级别」各自的 P1~P4 单数。
+
+    供页面 Change direction 上方的对照卡使用（2026-10-23）。两者口径同源：
+      · actual  ← 矫正表 `ticket_severity`（单子当前实际级别）
+      · proposed← 矫正表 `New_Severity`（新规则判定出的级别）
+
+    同时给出 4×4 交叉矩阵（actual → proposed），这样「P2 里有多少条被判成 P1」
+    这种问题不用逐个点开也能一眼看到；每一格都可以用
+    drill?metric=shift&sev_from=P2&sev_to=P1 下钻。
+
+    `moved` 是实际发生了级别变化的总数（两列之差的一半），与页面 changed 卡口径一致。
+    """
+    rows = _load_tt_drill_rows()
+    levels = ["P1", "P2", "P3", "P4"]
+    actual = {lv: 0 for lv in levels}
+    proposed = {lv: 0 for lv in levels}
+    other = {"actual": 0, "proposed": 0}   # 空值 / 非 P1~P4 的值，单独计数不吞掉
+    matrix: dict[str, dict[str, int]] = {}
+
+    for r in rows:
+        cur = (r.get("cur_severity") or "").strip().upper()
+        new = (r.get("new_severity") or "").strip().upper()
+        if cur in actual:
+            actual[cur] += 1
+        else:
+            other["actual"] += 1
+        if new in proposed:
+            proposed[new] += 1
+        else:
+            other["proposed"] += 1
+        ck = cur if cur in actual else "—"
+        nk = new if new in proposed else "—"
+        matrix.setdefault(ck, {})
+        matrix[ck][nk] = matrix[ck].get(nk, 0) + 1
+
+    return {
+        "levels": levels,
+        "actual": actual,
+        "proposed": proposed,
+        "other": other,
+        "total": len(rows),
+        "moved": sum(1 for r in rows if r.get("changed")),
+        "matrix": matrix,
+    }
+
+
+@router.get("/api/email-reports/eflow_tt_rules_check/unmatched_dist")
+def eflow_tt_rules_check_unmatched_dist(top: int = 10):
+    """未匹配 TT 的主要分布（按 alarm_code / vip_site / site_type 聚合，取前 top 组）。
+
+    与 MATCHING_REPORT.md 的「未匹配记录 → 主要分布」表同一口径
+    （见 eflow_rules_matcher.py:361-374），供页面点开后按 alarm_code 再下钻。
+    规则本身只取有 alarm_code 的 TT（get_eflow_tt_data，eflow_rules_matcher.py:54），
+    所以这里不会出现空告警码分组。
+    """
+    top = max(1, min(int(top or 10), 50))
+    rows = _load_tt_drill_rows()
+    bucket: dict[tuple, int] = {}
+    for r in rows:
+        if r.get("rule_id") is not None:
+            continue
+        key = (_norm_alarm_code(r.get("alarm_code")),
+               r.get("vip_site") or "", r.get("site_type") or "")
+        bucket[key] = bucket.get(key, 0) + 1
+    groups = sorted(bucket.items(), key=lambda kv: kv[1], reverse=True)[:top]
+    return {
+        "groups": [
+            {"alarm_code": a or None, "vip_site": v or None, "site_type": s or None, "count": n}
+            for (a, v, s), n in groups
+        ],
+        "unmatched_total": sum(bucket.values()),
+        "distinct_groups": len(bucket),
+    }

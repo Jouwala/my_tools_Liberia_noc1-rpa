@@ -1,11 +1,12 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
-import { Card, Table, Button, Space, Select, Tag, Typography, message, Empty, Tabs, Row, Col, Statistic } from 'antd'
-import { ReloadOutlined, DownloadOutlined, FileExcelOutlined, FileTextOutlined, ThunderboltOutlined } from '@ant-design/icons'
+import { Card, Table, Button, Space, Select, Tag, Typography, message, Empty, Tabs, Row, Col, Statistic, Alert, Input, Spin } from 'antd'
+import { ReloadOutlined, DownloadOutlined, FileExcelOutlined, FileTextOutlined, ThunderboltOutlined, SearchOutlined } from '@ant-design/icons'
 import api from '../api'
 import { useI18n } from '../i18n'
 import { formatDateTime } from '../datetime'
 import { cardStyle, pageWrap } from '../theme'
 import { exportReport, type ReportSheetSpec } from '../utils/excelReport'
+import DraggableClickModal from '../components/DraggableClickModal'
 
 const { Text } = Typography
 
@@ -101,6 +102,72 @@ interface EflowBreakdownRow {
   matched: number
   changed: number
 }
+// ===== eFlow TT Rules Check 页签的 TT 级下钻（2026-10-23 新增）=====
+// 口径：/api/email-reports/eflow_tt_rules_check/drill 直接读匹配器导出的矫正表
+// （All_TT_Records），所以「卡片上的数字」与「弹窗里的行数」是同一次运行的同一份数据。
+interface EflowDrillRow {
+  tt_no: string | null
+  wo_no: string | null
+  ticket_no: string | null
+  title: string | null
+  alarm_code: number | string | null
+  site_name: string | null
+  ne_name: string | null
+  domain: string | null
+  site_type: string | null
+  vip_site: string | null
+  down_site_count: number | null
+  cur_severity: string | null
+  rule_id: number | null
+  rule_name: string | null
+  new_severity: string | null
+  changed: boolean
+  evidence: string | null
+  status: string | null
+  // 2026-10-23 用户要求补充的字段
+  site_id: string | null
+  created_time: string | null
+  alarm_occur_time: string | null
+  alarm_clear_time: string | null
+  trm_type: string | null
+  // 规则里用到的全部字段（判定时实际比较的值，已归一化）
+  f_alarm_code: string | null
+  f_vip_site: string | null
+  f_hub_site: string | null
+  f_site_subtype: string | null
+  f_asset_type: string | null
+  f_network_type: string | null
+  f_downstream_sites: string | null
+  f_alarm_description: string | null
+}
+type EflowDrillMetric = 'total' | 'matched' | 'unmatched' | 'changed' | 'rule' | 'rule_changed' | 'shift'
+  | 'cur_sev' | 'new_sev'
+
+// 级别对照统计（Change direction 上方的卡片，2026-10-23）
+interface EflowSeverityMatrix {
+  levels: string[]
+  actual: Record<string, number>
+  proposed: Record<string, number>
+  other: { actual: number; proposed: number }
+  total: number
+  moved: number
+}
+// 打开下钻弹窗所需的全部参数；title 是弹窗标题（已翻译文案 + 可选过滤说明）
+interface EflowDrillTarget {
+  metric: EflowDrillMetric
+  ruleId?: number | null
+  sevFrom?: string
+  sevTo?: string
+  alarmCode?: string | null
+  title: string
+}
+interface EflowUnmatchedGroup {
+  alarm_code: string | number | null
+  vip_site: string | null
+  site_type: string | null
+  count: number
+}
+
 interface EflowSummary {
   success: boolean
   generated_at: string
@@ -113,6 +180,12 @@ interface EflowSummary {
   rule_breakdown?: EflowBreakdownRow[]
   change_matrix?: { from: string; to: string; count: number }[]
   rules_count?: number | null
+  // 摘要 JSON 与矫正表 xlsx 是否出自同一次运行（后端比对 mtime）。
+  // 为 true 时统计卡数字与下钻明细会对不上，页面必须显式告警（2026-10-23）。
+  correction_drift?: boolean
+  // 规则引用了、但本地取不到的字段 → 这些规则**永远不会命中**。
+  // 不展示的话，界面上只表现为「某条规则不在表里」，看起来像统计不全（2026-10-23 HUB 案例）。
+  missing_fields?: Record<string, string[]>
   rules_collected?: { success?: boolean; rules_file_exists?: boolean; error?: string; returncode?: number }
   error?: string
 }
@@ -121,6 +194,246 @@ function formatSize(bytes: number): string {
   if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(2)} MB`
   if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)} KB`
   return `${bytes} B`
+}
+
+/**
+ * 可下钻的数字（2026-10-23）。页面上的「每个数字都要可点」是硬要求
+ * （AGENTS.md 三.1b），这里统一成一种视觉：主色 + 虚线下划线 + 手型。
+ * disabled 时退回纯文本 —— 例如某个规则匹配数为 0，点开只会是空弹窗。
+ */
+function DrillLink({ label, onClick, danger, disabled }: {
+  label: string
+  onClick: (e: React.MouseEvent) => void
+  danger?: boolean
+  disabled?: boolean
+}) {
+  if (disabled) return <Text type="secondary">{label}</Text>
+  return (
+    <a
+      role="button"
+      tabIndex={0}
+      onClick={onClick}
+      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(e as any) } }}
+      style={{
+        color: danger ? '#cf1322' : 'var(--wh-color-primary, #1677ff)',
+        fontWeight: 600,
+        textDecoration: 'underline dotted',
+        textUnderlineOffset: '0.2em',
+        cursor: 'pointer',
+      }}
+    >
+      {label}
+    </a>
+  )
+}
+
+/** 下钻弹窗里的明细表列（语言在渲染时由 i18n 决定，故做成参数化函数） */
+function eflowDrillColumns(t: (k: string, p?: Record<string, string | number>) => string) {
+  return [
+    {
+      title: t('emailReports.drillColTt'),
+      dataIndex: 'tt_no',
+      key: 'tt_no',
+      width: 170,
+      fixed: 'left' as const,
+      render: (v: string | null) => v || '—',
+    },
+    {
+      title: t('emailReports.drillColWo'),
+      dataIndex: 'wo_no',
+      key: 'wo_no',
+      width: 130,
+      render: (v: string | null) => v || '—',
+    },
+    {
+      title: t('emailReports.drillColTitle'),
+      dataIndex: 'title',
+      key: 'title',
+      width: 320,
+      ellipsis: true,
+      render: (v: string | null) => v || '—',
+    },
+    {
+      title: t('emailReports.drillColAlarm'),
+      dataIndex: 'alarm_code',
+      key: 'alarm_code',
+      width: 100,
+      render: (v: number | string | null) => (v == null ? '—' : String(v)),
+    },
+    {
+      title: t('emailReports.drillColSiteId'),
+      dataIndex: 'site_id',
+      key: 'site_id',
+      width: 100,
+      render: (v: string | null) => v || '—',
+    },
+    {
+      title: t('emailReports.drillColSite'),
+      dataIndex: 'site_name',
+      key: 'site_name',
+      width: 160,
+      ellipsis: true,
+      render: (v: string | null) => v || '—',
+    },
+    {
+      title: t('emailReports.drillColTrmType'),
+      dataIndex: 'trm_type',
+      key: 'trm_type',
+      width: 130,
+      render: (v: string | null) => v || '—',
+    },
+    {
+      title: t('emailReports.drillColSiteType'),
+      dataIndex: 'site_type',
+      key: 'site_type',
+      width: 110,
+      render: (v: string | null) => v || '—',
+    },
+    {
+      title: t('emailReports.drillColVip'),
+      dataIndex: 'vip_site',
+      key: 'vip_site',
+      width: 80,
+      render: (v: string | null) => v || '—',
+    },
+    {
+      // 拆成「当前级别」+「变更结果」两列：合在一列时，不需要变更的行也很容易
+      // 被读成「都在变」，用户看到 43 条 P2→P1 会误以为 45 条全是 P2（2026-10-23）。
+      title: t('emailReports.drillColCurSev'),
+      dataIndex: 'cur_severity',
+      key: 'cur_severity',
+      width: 110,
+      render: (v: string | null) => <Tag>{v || '—'}</Tag>,
+    },
+    {
+      title: t('emailReports.drillColChanged'),
+      key: 'changed_flag',
+      width: 150,
+      render: (_: unknown, r: EflowDrillRow) => (
+        r.changed
+          ? <Tag color="red">→ {r.new_severity || '—'}</Tag>
+          : <Text type="secondary">{t('emailReports.drillNoChange')}</Text>
+      ),
+    },
+    {
+      // 「规则变化」列：直接写出这条 TT 被判到了哪条规则、级别怎么变，
+      // 不需要再去对照 status/evidence 自己推（2026-10-23 用户要求下钻体现规则变化）。
+      title: t('emailReports.drillColRule'),
+      key: 'rule',
+      width: 260,
+      render: (_: unknown, r: EflowDrillRow) => (
+        <Space direction="vertical" size={2}>
+          {r.rule_id == null
+            ? <Text type="secondary">{t('emailReports.drillNoMatch')}</Text>
+            : (
+              <span>
+                <Text strong>{r.rule_name || '—'}</Text>
+                <Text type="secondary" style={{ fontSize: '0.75rem' }}> ID {r.rule_id}</Text>
+              </span>
+            )}
+          {r.rule_id != null && (
+            <Text style={{ fontSize: '0.75rem' }}>
+              {r.changed
+                ? <span style={{ color: '#cf1322' }}>
+                    {t('emailReports.drillRuleShift', { from: r.cur_severity || '—', to: r.new_severity || '—' })}
+                  </span>
+                : <Text type="secondary">
+                    {t('emailReports.drillRuleKeep', { sev: r.cur_severity || '—' })}
+                  </Text>}
+            </Text>
+          )}
+        </Space>
+      ),
+    },
+    // ---- 时间字段（2026-10-23 用户要求）----
+    {
+      title: t('emailReports.drillColCreated'),
+      dataIndex: 'created_time',
+      key: 'created_time',
+      width: 170,
+      render: (v: string | null) => v || '—',
+    },
+    {
+      title: t('emailReports.drillColAlarmOccur'),
+      dataIndex: 'alarm_occur_time',
+      key: 'alarm_occur_time',
+      width: 170,
+      render: (v: string | null) => v || '—',
+    },
+    {
+      title: t('emailReports.drillColAlarmClear'),
+      dataIndex: 'alarm_clear_time',
+      key: 'alarm_clear_time',
+      width: 170,
+      // 未清除是业务上的正常状态（单子还开着），不能用「—」表示缺失，要区分开
+      render: (v: string | null) => v || <Text type="secondary">{t('emailReports.drillNotCleared')}</Text>,
+    },
+    // ---- 规则里用到的全部字段（判定时实际比较的值）----
+    {
+      title: t('emailReports.drillColFieldAlarmCode'),
+      dataIndex: 'f_alarm_code',
+      key: 'f_alarm_code',
+      width: 120,
+      render: (v: string | null) => v || '—',
+    },
+    {
+      title: t('emailReports.drillColFieldVip'),
+      dataIndex: 'f_vip_site',
+      key: 'f_vip_site',
+      width: 80,
+      render: (v: string | null) => v || '—',
+    },
+    {
+      title: t('emailReports.drillColFieldHub'),
+      dataIndex: 'f_hub_site',
+      key: 'f_hub_site',
+      width: 80,
+      render: (v: string | null) => v || '—',
+    },
+    {
+      title: t('emailReports.drillColFieldSubtype'),
+      dataIndex: 'f_site_subtype',
+      key: 'f_site_subtype',
+      width: 110,
+      render: (v: string | null) => v || '—',
+    },
+    {
+      title: t('emailReports.drillColFieldAsset'),
+      dataIndex: 'f_asset_type',
+      key: 'f_asset_type',
+      width: 100,
+      render: (v: string | null) => v || '—',
+    },
+    {
+      title: t('emailReports.drillColFieldNetwork'),
+      dataIndex: 'f_network_type',
+      key: 'f_network_type',
+      width: 100,
+      render: (v: string | null) => v || '—',
+    },
+    {
+      title: t('emailReports.drillColFieldDownstream'),
+      dataIndex: 'f_downstream_sites',
+      key: 'f_downstream_sites',
+      width: 130,
+      render: (v: string | null) => v || '—',
+    },
+    {
+      title: t('emailReports.drillColFieldAlarmDesc'),
+      dataIndex: 'f_alarm_description',
+      key: 'f_alarm_description',
+      width: 280,
+      ellipsis: true,
+      render: (v: string | null) => v || '—',
+    },
+    {
+      title: t('emailReports.drillColEvidence'),
+      dataIndex: 'evidence',
+      key: 'evidence',
+      width: 420,
+      render: (v: string | null) => (v ? <Text style={{ fontSize: '0.75rem' }}>{v}</Text> : '—'),
+    },
+  ]
 }
 
 /** 导出文件名时间戳（去掉日期里的分隔符，避免文件名出现空格/冒号） */
@@ -156,6 +469,20 @@ export default function EmailReports() {
   const [eflowLoading, setEflowLoading] = useState(false)
   // 正在触发的任务 id（tt 检查 / 告警规则收集 / 推单规则收集），用于各自按钮的 loading
   const [eflowRunningTask, setEflowRunningTask] = useState<string | null>(null)
+  // TT 级下钻弹窗（2026-10-23）：点哪个数字就取哪个口径的明细
+  const [drillTarget, setDrillTarget] = useState<EflowDrillTarget | null>(null)
+  const [drillRows, setDrillRows] = useState<EflowDrillRow[]>([])
+  const [drillMeta, setDrillMeta] = useState<{ total: number; truncated: boolean; limit: number } | null>(null)
+  const [drillLoading, setDrillLoading] = useState(false)
+  const [drillError, setDrillError] = useState<string | null>(null)
+  // 未匹配分布（点「未匹配」卡片时展示，可再按 alarm_code 下钻）
+  const [unmatchedGroups, setUnmatchedGroups] = useState<EflowUnmatchedGroup[] | null>(null)
+  // 弹窗内的搜索与锚点 —— 与项目其它下钻弹窗（AlarmDashboard / NocAnalyst）保持一致：
+  // 以点击位置为中心弹出、可拖动、带搜索框与导出按钮（2026-10-23）
+  const [drillSearch, setDrillSearch] = useState('')
+  const [drillAnchor, setDrillAnchor] = useState<{ x: number; y: number } | null>(null)
+  // 级别对照统计：单子实际级别 vs 新规则建议级别（Change direction 上方的卡片）
+  const [sevMatrix, setSevMatrix] = useState<EflowSeverityMatrix | null>(null)
   // TTs and MTTR 页签：生成中标志 + 轮询定时器（卸载时要能取消，否则页面切走后仍在打接口）
   const [mttrGenerating, setMttrGenerating] = useState(false)
   const mttrTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -210,12 +537,130 @@ export default function EmailReports() {
       const res = await api.get('/email-reports/eflow_tt_rules_check')
       setEflowSummary(res.data?.summary || null)
       setEflowFiles(res.data?.files || [])
+      // 级别对照数据与摘要同源（都读同一份矫正表），这里失败不应影响主摘要展示
+      try {
+        const m = await api.get('/email-reports/eflow_tt_rules_check/severity_matrix')
+        setSevMatrix(m.data || null)
+      } catch (e2) {
+        setSevMatrix(null)
+      }
     } catch (e) {
       message.error(t('emailReports.eflowLoadFailed'))
     } finally {
       setEflowLoading(false)
     }
   }, [t])
+
+  /**
+   * 打开 TT 级下钻弹窗。target 里的 metric 决定后端取哪一档口径，
+   * 与页面上的数字一一对应（见后端 eflow_tt_rules_check_drill 的文档）。
+   */
+  const openEflowDrill = useCallback(async (target: EflowDrillTarget, anchor?: { x: number; y: number } | null) => {
+    setDrillAnchor(anchor ?? null)
+    setDrillSearch('')
+    setDrillTarget(target)
+    setDrillRows([])
+    setDrillMeta(null)
+    setDrillError(null)
+    setDrillLoading(true)
+    // 「未匹配」分组只在点未匹配卡片时拉一次，其余口径清空
+    if (target.metric === 'unmatched') {
+      try {
+        const g = await api.get('/email-reports/eflow_tt_rules_check/unmatched_dist')
+        setUnmatchedGroups(g.data?.groups || [])
+      } catch (e) {
+        setUnmatchedGroups([])
+      }
+    } else {
+      setUnmatchedGroups(null)
+    }
+    try {
+      // ⚠ 不要按 metric 逐个 if 拼参数：新增口径（cur_sev / new_sev）时漏传 sev_from
+      // 就会直接 400（2026-10-23 实际发生）。这里统一透传 target 里所有非空筛选字段，
+      // 后端按 metric 自行取用需要的那个；多传的字段后端不会理会。
+      const params: Record<string, unknown> = { metric: target.metric, limit: 2000 }
+      if (target.ruleId != null) params.rule_id = target.ruleId
+      if (target.sevFrom) params.sev_from = target.sevFrom
+      if (target.sevTo) params.sev_to = target.sevTo
+      if (target.alarmCode != null) params.alarm_code = target.alarmCode
+      const res = await api.get('/email-reports/eflow_tt_rules_check/drill', { params })
+      setDrillRows(res.data?.rows || [])
+      setDrillMeta({
+        total: res.data?.total ?? 0,
+        truncated: Boolean(res.data?.meta?.truncated),
+        limit: res.data?.meta?.limit ?? 2000,
+      })
+    } catch (e: any) {
+      setDrillError(e?.response?.data?.detail || t('emailReports.drillFailed'))
+    } finally {
+      setDrillLoading(false)
+    }
+  }, [t])
+
+  const closeEflowDrill = useCallback(() => {
+    setDrillTarget(null)
+    setDrillRows([])
+    setDrillMeta(null)
+    setDrillError(null)
+    setUnmatchedGroups(null)
+    setDrillSearch('')
+  }, [])
+
+  // 弹窗内搜索：跨所有展示字段做子串匹配（与 AlarmDashboard 的 common.searchAllFields 同口径）
+  const filteredDrillRows = useMemo(() => {
+    const q = drillSearch.trim().toLowerCase()
+    if (!q) return drillRows
+    return drillRows.filter(r =>
+      [r.tt_no, r.wo_no, r.ticket_no, r.title, r.alarm_code, r.site_id, r.site_name, r.ne_name,
+        r.domain, r.site_type, r.vip_site, r.cur_severity, r.new_severity, r.rule_name,
+        r.rule_id, r.evidence, r.status, r.trm_type,
+        r.created_time, r.alarm_occur_time, r.alarm_clear_time,
+        r.f_alarm_code, r.f_vip_site, r.f_hub_site, r.f_site_subtype, r.f_asset_type,
+        r.f_network_type, r.f_downstream_sites, r.f_alarm_description]
+        .some(v => v != null && String(v).toLowerCase().includes(q)),
+    )
+  }, [drillRows, drillSearch])
+
+  // 弹窗内的导出：导「当前搜索结果」全部行，列与表格一致（不含操作列）
+  const exportEflowDrill = useCallback(async () => {
+    if (!filteredDrillRows.length) return
+    await exportReport([{
+      name: 'TT Detail',
+      title: drillTarget?.title || t('emailReports.drillTotalTitle'),
+      header: [
+        t('emailReports.drillColTt'), t('emailReports.drillColWo'), t('emailReports.drillColTitle'),
+        t('emailReports.drillColAlarm'), t('emailReports.drillColSite'), t('emailReports.drillColSiteType'),
+        t('emailReports.drillColVip'), t('emailReports.drillColCurSev'), t('emailReports.drillColChanged'),
+        t('emailReports.drillColRule'), t('emailReports.drillColEvidence'),
+        // 2026-10-23 补充：站点/时间 + 规则里用到的全部字段
+        t('emailReports.drillColSiteId'), t('emailReports.drillColTrmType'),
+        t('emailReports.drillColCreated'), t('emailReports.drillColAlarmOccur'), t('emailReports.drillColAlarmClear'),
+        t('emailReports.drillColFieldAlarmCode'), t('emailReports.drillColFieldVip'),
+        t('emailReports.drillColFieldHub'), t('emailReports.drillColFieldSubtype'),
+        t('emailReports.drillColFieldAsset'), t('emailReports.drillColFieldNetwork'),
+        t('emailReports.drillColFieldDownstream'), t('emailReports.drillColFieldAlarmDesc'),
+      ],
+      rows: filteredDrillRows.map(r => [
+        r.tt_no ?? '', r.wo_no ?? '', r.title ?? '', r.alarm_code == null ? '' : String(r.alarm_code),
+        r.site_name ?? '', r.site_type ?? '', r.vip_site ?? '',
+        r.cur_severity ?? '',
+        // 与界面一致：需变更的写目标级别，不需要的明确写「不变」而不是留空
+        r.changed ? (r.new_severity ?? '') : '-',
+        r.rule_id == null
+          ? t('emailReports.drillNoMatch')
+          : `${r.rule_name || '—'} (ID ${r.rule_id})`,
+        r.evidence ?? '',
+        r.site_id ?? '', r.trm_type ?? '',
+        r.created_time ?? '', r.alarm_occur_time ?? '', r.alarm_clear_time ?? '',
+        r.f_alarm_code ?? '', r.f_vip_site ?? '', r.f_hub_site ?? '', r.f_site_subtype ?? '',
+        r.f_asset_type ?? '', r.f_network_type ?? '', r.f_downstream_sites ?? '',
+        r.f_alarm_description ?? '',
+      ]),
+      columnWidths: [20, 16, 40, 12, 22, 14, 8, 16, 30, 50,
+        10, 14, 20, 20, 20, 14, 8, 8, 12, 10, 10, 14, 40],
+      tabColor: '#2F5496',
+    }], `eflow_tt_drill_${stamp()}.xlsx`)
+  }, [filteredDrillRows, drillTarget, t])
 
   const runTaskNow = useCallback(async (taskId: string, okMsg: string, failMsg: string) => {
     setEflowRunningTask(taskId)
@@ -454,6 +899,18 @@ export default function EmailReports() {
       key: 'matched',
       width: 100,
       align: 'right' as const,
+      // 0 命中的规则也会列出（规则全集），此时不可下钻 —— 列表本身已说明「本批没有符合的单」
+      render: (v: number, row: EflowBreakdownRow) => (
+        <DrillLink
+          label={String(v)}
+          disabled={!v || row.rule_id == null}
+          onClick={e => { e.stopPropagation(); void openEflowDrill({
+            metric: 'rule',
+            ruleId: row.rule_id,
+            title: `${t('emailReports.drillRuleTitle')} · ${row.rule_name} (ID ${row.rule_id})`,
+          }, { x: e.clientX, y: e.clientY }) }}
+        />
+      ),
     },
     {
       title: t('emailReports.eflowColChanged'),
@@ -461,9 +918,19 @@ export default function EmailReports() {
       key: 'changed',
       width: 110,
       align: 'right' as const,
-      render: (v: number) => v
-        ? <Text type="danger" strong>{v}</Text>
-        : <Text type="secondary">0</Text>,
+      render: (v: number, row: EflowBreakdownRow) => (v
+        ? (
+          <DrillLink
+            danger
+            label={String(v)}
+            onClick={e => { e.stopPropagation(); void openEflowDrill({
+              metric: 'rule_changed',
+              ruleId: row.rule_id,
+              title: `${t('emailReports.drillRuleChangedTitle')} · ${row.rule_name} (ID ${row.rule_id})`,
+            }, { x: e.clientX, y: e.clientY }) }}
+          />
+        )
+        : <Text type="secondary">0</Text>),
     },
   ]
 
@@ -801,6 +1268,32 @@ export default function EmailReports() {
                   </div>
                   {eflowSummary ? (
                     <>
+                      {/* 有字段取不到 → 对应规则永远不会命中。必须显式展示，
+                          否则用户只看到「规则表里少了一条」，会当成统计不全。 */}
+                      {eflowSummary.success
+                        && eflowSummary.missing_fields
+                        && Object.keys(eflowSummary.missing_fields).length > 0 && (
+                        <Alert
+                          type="warning"
+                          showIcon
+                          style={{ marginBottom: '0.75rem' }}
+                          message={t('emailReports.eflowMissingFields', {
+                            detail: Object.entries(eflowSummary.missing_fields)
+                              .map(([f, ids]) => `${f}（${t('emailReports.eflowMissingRules')} ${ids.join(', ')}）`)
+                              .join('；'),
+                          })}
+                        />
+                      )}
+                      {/* 摘要与矫正表不同源：卡片数字（来自 JSON）和下钻明细（来自 xlsx）
+                          会是两次不同运行的结果。沉默会让人以为是下钻的 bug。 */}
+                      {eflowSummary.success && eflowSummary.correction_drift && (
+                        <Alert
+                          type="warning"
+                          showIcon
+                          style={{ marginBottom: '0.75rem' }}
+                          message={t('emailReports.eflowDrift')}
+                        />
+                      )}
                       {!eflowSummary.success ? (
                         <div style={{ marginBottom: '0.75rem' }}>
                           <Tag color="red">FAIL</Tag>
@@ -808,9 +1301,78 @@ export default function EmailReports() {
                         </div>
                       ) : (
                         <Row gutter={[16, 16]} style={{ marginBottom: '0.75rem' }}>
-                          <Col xs={12} sm={6}><Statistic title={t('emailReports.eflowStatTotal')} value={eflowSummary.total} /></Col>
-                          <Col xs={12} sm={6}><Statistic title={t('emailReports.eflowStatMatched')} value={eflowSummary.matched} suffix={`/ ${eflowSummary.total}`} /></Col>
-                          <Col xs={12} sm={6}><Statistic title={t('emailReports.eflowStatChanged')} value={eflowSummary.changed} valueStyle={eflowSummary.changed ? { color: '#cf1322' } : undefined} /></Col>
+                          {/* 四个统计卡里前三个是「可下钻的数字」（AGENTS.md 三.1b），
+                              第四个是时间戳，没有明细可跳，保持纯文本。 */}
+                          {/* Statistic 本身不收 onClick（antd 类型里没有这个属性），
+                              点击挂在外层 div 上。 */}
+                          <Col xs={12} sm={6}>
+                            <div
+                              role="button"
+                              tabIndex={0}
+                              style={{ cursor: 'pointer' }}
+                              onClick={e => void openEflowDrill({
+                                metric: 'total',
+                                title: t('emailReports.drillTotalTitle'),
+                              }, { x: e.clientX, y: e.clientY })}
+                              onKeyDown={e => { if (e.key === 'Enter') void openEflowDrill({ metric: 'total', title: t('emailReports.drillTotalTitle') }, (() => { const r = e.currentTarget.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 } })()) }}
+                            >
+                              <Statistic title={t('emailReports.eflowStatTotal')} value={eflowSummary.total} />
+                            </div>
+                          </Col>
+                          <Col xs={12} sm={6}>
+                            <div
+                              role="button"
+                              tabIndex={0}
+                              style={{ cursor: 'pointer' }}
+                              onClick={e => void openEflowDrill({
+                                metric: 'matched',
+                                title: t('emailReports.drillMatchedTitle'),
+                              }, { x: e.clientX, y: e.clientY })}
+                              onKeyDown={e => { if (e.key === 'Enter') void openEflowDrill({ metric: 'matched', title: t('emailReports.drillMatchedTitle') }, (() => { const r = e.currentTarget.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 } })()) }}
+                            >
+                              <Statistic
+                                title={t('emailReports.eflowStatMatched')}
+                                value={eflowSummary.matched}
+                                suffix={`/ ${eflowSummary.total}`}
+                              />
+                            </div>
+                          </Col>
+                          <Col xs={12} sm={6}>
+                            <div
+                              role="button"
+                              tabIndex={0}
+                              style={{ cursor: 'pointer' }}
+                              onClick={e => void openEflowDrill({
+                                metric: 'unmatched',
+                                title: t('emailReports.drillUnmatchedTitle'),
+                              }, { x: e.clientX, y: e.clientY })}
+                              onKeyDown={e => { if (e.key === 'Enter') void openEflowDrill({ metric: 'unmatched', title: t('emailReports.drillUnmatchedTitle') }, (() => { const r = e.currentTarget.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 } })()) }}
+                            >
+                              <Statistic
+                                title={t('emailReports.eflowStatUnmatched')}
+                                value={eflowSummary.unmatched ?? (eflowSummary.total - eflowSummary.matched)}
+                                valueStyle={{ color: '#cf1322' }}
+                              />
+                            </div>
+                          </Col>
+                          <Col xs={12} sm={6}>
+                            <div
+                              role="button"
+                              tabIndex={0}
+                              style={{ cursor: 'pointer' }}
+                              onClick={e => void openEflowDrill({
+                                metric: 'changed',
+                                title: t('emailReports.drillChangedTitle'),
+                              }, { x: e.clientX, y: e.clientY })}
+                              onKeyDown={e => { if (e.key === 'Enter') void openEflowDrill({ metric: 'changed', title: t('emailReports.drillChangedTitle') }, (() => { const r = e.currentTarget.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 } })()) }}
+                            >
+                              <Statistic
+                                title={t('emailReports.eflowStatChanged')}
+                                value={eflowSummary.changed}
+                                valueStyle={eflowSummary.changed ? { color: '#cf1322' } : undefined}
+                              />
+                            </div>
+                          </Col>
                           <Col xs={12} sm={6}><Statistic title={t('emailReports.eflowStatRunAt')} value={eflowSummary.generated_at} /></Col>
                         </Row>
                       )}
@@ -828,12 +1390,115 @@ export default function EmailReports() {
                           </Space>
                         </div>
                       )}
+                      {/* ===== 级别对照卡（2026-10-23）=====
+                          单子实际级别 vs 新规则建议级别，各 P1~P4 单数对照。
+                          每一格都可下钻；「建议」一侧点开能看到规则变化（当前→目标+命中依据）。 */}
+                      {sevMatrix && (
+                        <Card
+                          size="small"
+                          style={{ marginBottom: '0.75rem' }}
+                          title={t('emailReports.sevMatrixTitle')}
+                        >
+                          <div className="wh-table-responsive">
+                            <Table
+                              size="small"
+                              rowKey="level"
+                              pagination={false}
+                              dataSource={sevMatrix.levels.map(lv => ({ level: lv }))}
+                              columns={[
+                                {
+                                  title: t('emailReports.sevMatrixLevel'),
+                                  dataIndex: 'level',
+                                  width: 90,
+                                  render: (v: string) => <Tag color="blue">{v}</Tag>,
+                                },
+                                {
+                                  title: t('emailReports.sevMatrixActual'),
+                                  dataIndex: 'level',
+                                  width: 150,
+                                  align: 'center' as const,
+                                  render: (lv: string) => {
+                                    const n = sevMatrix.actual[lv] ?? 0
+                                    return (
+                                      <DrillLink
+                                        label={String(n)}
+                                        disabled={!n}
+                                        onClick={e => void openEflowDrill({
+                                          metric: 'cur_sev',
+                                          sevFrom: lv,
+                                          title: `${t('emailReports.drillActualSevTitle')} · ${lv}`,
+                                        }, { x: e.clientX, y: e.clientY })}
+                                      />
+                                    )
+                                  },
+                                },
+                                {
+                                  title: t('emailReports.sevMatrixProposed'),
+                                  dataIndex: 'level',
+                                  width: 150,
+                                  align: 'center' as const,
+                                  render: (lv: string) => {
+                                    const n = sevMatrix.proposed[lv] ?? 0
+                                    return (
+                                      <DrillLink
+                                        label={String(n)}
+                                        disabled={!n}
+                                        onClick={e => void openEflowDrill({
+                                          metric: 'new_sev',
+                                          sevFrom: lv,
+                                          title: `${t('emailReports.drillNewSevTitle')} · ${lv}`,
+                                        }, { x: e.clientX, y: e.clientY })}
+                                      />
+                                    )
+                                  },
+                                },
+                                {
+                                  title: t('emailReports.sevMatrixDelta'),
+                                  dataIndex: 'level',
+                                  width: 140,
+                                  align: 'center' as const,
+                                  render: (lv: string) => {
+                                    const d = (sevMatrix.proposed[lv] ?? 0) - (sevMatrix.actual[lv] ?? 0)
+                                    if (!d) return <Text type="secondary">0</Text>
+                                    return (
+                                      <Text strong style={{ color: d > 0 ? '#389e0d' : '#cf1322' }}>
+                                        {d > 0 ? `+${d}` : d}
+                                      </Text>
+                                    )
+                                  },
+                                },
+                              ] as any}
+                            />
+                          </div>
+                          <div style={{ marginTop: '0.375rem' }}>
+                            <Text type="secondary">
+                              {t('emailReports.sevMatrixHint', {
+                                total: sevMatrix.total,
+                                moved: sevMatrix.moved,
+                              })}
+                            </Text>
+                          </div>
+                        </Card>
+                      )}
                       {eflowSummary.change_matrix && eflowSummary.change_matrix.length > 0 && (
                         <div style={{ marginBottom: '0.75rem' }}>
                           <Space wrap>
                             <Text type="secondary">{t('emailReports.changeDir')}</Text>
                             {eflowSummary.change_matrix.map((c, i) => (
-                              <Tag key={i} color="orange">{c.from} → {c.to}: {c.count}</Tag>
+                              // count 也要可点（AGENTS.md 三.1b）：点开就是该方向下的全部 TT
+                              <Tag
+                                key={i}
+                                color="orange"
+                                style={{ cursor: 'pointer' }}
+                                onClick={e => void openEflowDrill({
+                                  metric: 'shift',
+                                  sevFrom: c.from,
+                                  sevTo: c.to,
+                                  title: `${t('emailReports.drillShiftTitle')} · ${c.from} → ${c.to}`,
+                                }, { x: e.clientX, y: e.clientY })}
+                              >
+                                {c.from} → {c.to}: {c.count}
+                              </Tag>
                             ))}
                           </Space>
                         </div>
@@ -920,6 +1585,132 @@ export default function EmailReports() {
           ].filter(tab => !portalFiles || tab.key === 'email')}
         />
       </Card>
+
+      {/* ===== eFlow TT Rules Check 的 TT 级下钻弹窗（2026-10-23）=====
+          统计卡的每个数字、变更方向标签、规则表每一行都能点到这里；
+          行数口径与卡片数字同源（都来自 eflow_tt_severity_correction.xlsx）。
+          详情行的下钻按钮会把 alarm_code / 规则 作为附加过滤再查一次，
+          这样从「未匹配 → 某告警码」一路都能落到具体 TT。 */}
+      <DraggableClickModal
+        open={drillTarget != null}
+        anchor={drillAnchor}
+        title={(
+          <span>
+            {drillTarget?.title || ''}
+            {drillMeta && (
+              <Tag color="cyan" style={{ borderRadius: 10, marginLeft: '0.5rem' }}>
+                {t('common.records', { n: filteredDrillRows.length })}
+              </Tag>
+            )}
+          </span>
+        )}
+        onClose={closeEflowDrill}
+        width="92%"
+        maxWidth="87.5rem"
+      >
+        {drillError && (
+          <Alert type="error" showIcon message={drillError} style={{ marginBottom: '0.75rem' }} />
+        )}
+        {/* 截断必须显式暴露（AGENTS.md 三.1b）：否则用户看到行数少于卡片数字会当成 bug */}
+        {drillMeta?.truncated && (
+          <Alert
+            type="warning"
+            showIcon
+            style={{ marginBottom: '0.75rem' }}
+            message={t('emailReports.drillTruncated', { n: drillMeta.limit, total: drillMeta.total })}
+          />
+        )}
+
+        {/* 未匹配分布：点「未匹配」卡片时出现，点某行再下钻到该告警码的全部未匹配 TT */}
+        {drillTarget?.metric === 'unmatched' && (
+          <div style={{ marginBottom: '0.75rem' }}>
+            <Text type="secondary">{t('emailReports.drillUnmatchedDistHint')}</Text>
+            {unmatchedGroups && unmatchedGroups.length > 0 ? (
+              <div className="wh-table-responsive" style={{ marginTop: '0.375rem' }}>
+                <Table
+                  size="small"
+                  rowKey={r => `${r.alarm_code}|${r.vip_site}|${r.site_type}`}
+                  pagination={false}
+                  dataSource={unmatchedGroups}
+                  columns={[
+                    {
+                      title: t('emailReports.drillColAlarm'),
+                      dataIndex: 'alarm_code',
+                      render: (v: string | number | null) => (v == null ? '—' : String(v)),
+                    },
+                    { title: t('emailReports.drillColVip'), dataIndex: 'vip_site', render: (v: string | null) => v || '—' },
+                    { title: t('emailReports.drillColSiteType'), dataIndex: 'site_type', render: (v: string | null) => v || '—' },
+                    {
+                      title: t('emailReports.drillColCount'),
+                      dataIndex: 'count',
+                      align: 'right' as const,
+                      render: (v: number, r: EflowUnmatchedGroup) => (
+                        <DrillLink
+                          label={String(v)}
+                          onClick={e => void openEflowDrill({
+                            metric: 'unmatched',
+                            alarmCode: r.alarm_code == null ? '' : String(r.alarm_code),
+                            title: `${t('emailReports.drillUnmatchedTitle')} · ${t('emailReports.drillColAlarm')} ${r.alarm_code ?? '—'}`,
+                          }, { x: e.clientX, y: e.clientY })}
+                        />
+                      ),
+                    },
+                  ]}
+                />
+              </div>
+            ) : (
+              !drillLoading && <Empty description={t('common.noData')} image={Empty.PRESENTED_IMAGE_SIMPLE} />
+            )}
+          </div>
+        )}
+
+        {/* 工具栏：搜索 + 导出 —— 与项目其它下钻弹窗（AlarmDashboard / NocAnalyst）结构一致 */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 'var(--wh-space-sm)', marginBottom: '0.75rem' }}>
+          <Input
+            prefix={<SearchOutlined />}
+            placeholder={t('common.searchAllFields')}
+            allowClear
+            size="middle"
+            style={{ width: 'min(100%, 21.875rem)' }}
+            value={drillSearch}
+            onChange={e => setDrillSearch(e.target.value)}
+          />
+          <Button
+            type="primary"
+            icon={<DownloadOutlined />}
+            onClick={() => void exportEflowDrill()}
+            disabled={!filteredDrillRows.length}
+          >
+            {t('common.exportExcel')}
+          </Button>
+        </div>
+        {drillLoading ? (
+          <Spin style={{ display: 'block', margin: '3.75rem auto' }} />
+        ) : (
+          <div className="wh-table-responsive">
+            <Table
+              size="small"
+              rowKey="tt_no"
+              columns={eflowDrillColumns(t) as any}
+              dataSource={filteredDrillRows}
+              pagination={{
+                pageSize: 15,
+                size: 'small',
+                showTotal: (total: number) => t('common.itemsTotal', { n: total }),
+              }}
+              scroll={{ x: 'max-content' }}
+              locale={{ emptyText: <Empty description={t('common.noData')} image={Empty.PRESENTED_IMAGE_SIMPLE} /> }}
+            />
+          </div>
+        )}
+        {drillMeta && (
+          <div style={{ marginTop: '0.375rem' }}>
+            <Text type="secondary">
+              {t('common.total')} {drillMeta.total} {t('common.items')}
+            </Text>
+          </div>
+        )}
+      </DraggableClickModal>
     </div>
   )
 }

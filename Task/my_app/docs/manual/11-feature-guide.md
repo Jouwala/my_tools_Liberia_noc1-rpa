@@ -107,6 +107,33 @@
 - **eFlow 规则页底部列出「从 eFlow 获取的全部规则表」**（2026-09-23 新增）：TT 级别矫正规则 `eflow_TT_rules.xlsx`、告警关联规则 `eflow_alarm_rules*.xlsx`、推单/配置规则 `eflow_push_rules*.xlsx`，外加本次检查产物（级别矫正表 / 匹配报告）。此前只暴露 TT 规则表，另外两份规则收集任务的产物在界面上**无处可下**。
   - 文件清单由 `backend/routers/email_reports.py` 的 `_EFLOW_FILE_SPECS` 定义（`kind=rule|report` + 中英展示名），排序为「规则表在前（TT → 告警 → 推单）、检查产物在后」。
   - ⚠ `_EFLOW_FILE_SPECS` 的 pattern 必须与 `_SOURCES` 中 `eflow_tt_rules_check` 源的 `patterns` 一致 —— 下载接口 `_resolve_download_file` 按 `patterns` 做白名单校验，只改一处会出现「列得出来、点下载 403」。
+- **规则表始终列出全部规则**（2026-10-23）：`rule_breakdown()` 会补齐**未命中**的规则并置 `matched=0`。
+  此前只列有命中的规则，规则文件 10 条、页面只看到 8~9 条，使用者合理怀疑「统计不全」。
+  现在 0 命中与「规则根本没生效」能区分：后者由 `missing_fields` 告警条单独说明。
+  0 命中的行不可下钻（`DrillLink` 的 `disabled`），因为不会有明细。
+- **`siteSubType` / `assetType` 的取数**（2026-10-23）：改取 `eflow_site` 表，按 `site_id` 关联。
+  - `siteSubType` ← `eflow_site.sitesubtype`（`REGULAR` / `ERA`），供规则 **273/274**
+  - `assetType` ← `eflow_site."Site Type"`（`NORMAL` / `COOL`），供规则 **269/270**
+  - ⚠ 此前两者都取自 `eflow_tt.site_type`（一张表只有一列，值域 NORMAL/COOL/ERA，**没有 REGULAR**），
+    导致 274 从未命中，样本里 110 条 9971/9981/9991 全落兜底 275 —— 同样表现为「规则表少一行」。
+  - ⚠ **不要**改指 `master_site_db.site_type`：那一列是 `Outdoor` / `Indoor`（站点物理形态），与资产类型无关。
+  - `eflow_site` 两列取不到时回退 `eflow_tt.site_type`（保持旧行为，不至于全空）。
+- **`downstreamSites` 的取数**（2026-10-23）：规则 266/268（HUB site P1/P2）按 `downstreamSites` 分档，而 `eflow_tt` **没有这一列** ——
+  此前两条规则从未命中，HUB 的 9995 告警全部落进兜底 275，界面上表现为「规则表里少了 HUB 那两行」。
+  现由 `load_downstream_sites()` 从主数据表 `master_site_db` 取：**`hub_site='Y'` 行的 `victims` 列**，按 **`site_id`** 关联
+  （不用 `site_name`：9995 的 873 条里 site_id 命中 873、site_name 仅部分命中，重名会放大行数）。
+  ⚠ `down_site_count` 是「当前下挂的故障站点数」，**不是** `downstreamSites`，两者不可互换。
+  站点在 `master_site_db` 查不到时该 TT 的 `downstreamSites` 为空、条件不成立，落兜底（保持「宁可漏判不误判」）。
+- **缺失字段会在页面上显式告警**：`run()` 汇总 `missing_fields`（{字段: [引用它的规则 ID]}），有值时页签顶部弹出告警条。
+  没有它，一条规则因缺字段从不命中，界面上只表现为「规则表少了一行」，会被误当成统计不全。
+- **样本口径**：`eflow_tt_rules_check` 每次检查的是 **`created_time` 最新的 1000 条** eflow_tt 记录（且有 alarm_code）。
+  2026-10-23 之前用的是 `last_modified_time`，会让「今天被改了状态的老 TT」把「今天新建的 TT」挤出样本；改口径后实测样本约 10.5% 不同。
+  取数见 `eflow_rules_matcher.py` 的 `get_eflow_tt_data()`。
+- **eFlow 规则页可下钻到 TT 级明细**（2026-10-23 新增）：页面上**每个数字都可点**开明细弹窗（`DraggableClickModal`），落点是 `GET /api/email-reports/eflow_tt_rules_check/drill`。
+  - 可点位置：4 个统计卡（总 TT / 匹配规则 / 未匹配 / 需级别变更）、变更方向标签、规则表每行的「匹配数」「需变更数」。
+  - `metric` 与页面数字一一对应：`total` / `matched` / `unmatched` / `changed` / `rule`（+`rule_id`）/ `rule_changed`（+`rule_id`）/ `shift`（+`sev_from`/`sev_to`）。点「未匹配」卡片时附一份 `unmatched_dist` 主要分布，可按告警码再下钻。
+  - **数据源是矫正表 `eflow_tt_severity_correction.xlsx` 的 `All_TT_Records` sheet，不是查 `eflow_tt` 主库重算**：重算要 50 秒且会因同步延迟与卡片数字对不上，读同一份产物才能保证口径一致（`email_reports.py` 的 `_TT_DRILL_COLS` / `_load_tt_drill_rows`，按 `(mtime, size)` 缓存转换结果）。
+  - ⚠ **摘要 JSON 与矫正表是两个文件**：若有人单独跑 `eflow_rules_matcher.py`（脚本形态），xlsx 会更新而 JSON 不动，卡片与下钻就会来自两次不同运行。后端比对 `correction_mtime`（由 `run()` 写入）与 xlsx 的 mtime，不一致时置 `summary.correction_drift=true`，页面顶部给出告警条。**旧摘要没有该字段时不判定**（避免误报）。
 - **TTs and MTTR 页签**（2026-10-04 新增，`key: 'tt_mttr'`，`EmailReports.tsx:825`）：下载按月统计 TTs / MTTR 的组合图工作簿。
   - 「立即生成」（`generateMttr`，:240）投一次 `POST /api/tasks/tt_mttr_report_generate/run`，任务由 m 组 worker 执行（实测 9.4 秒），
     定时口径为每天 07:20，**要更高频在任务管理页改排程即可，不必改代码**。
@@ -117,7 +144,7 @@
     （`_SOURCES` 注册见 `backend/routers/email_reports.py:44`），下载同样走通用 `/download/{source}/{file}`；
     页签表格只留 文件/大小/生成时间/下载（任务名与类型在该目录内恒定，没有信息量）。
   - 口径、公式写法与验证步骤见 `backend/services/tt_mttr_report.md`。
-- 接口：`GET /api/email-reports/latest`、`GET /api/finebi-reports/latest`、`GET /api/email-reports/eflow_tt_rules_check`、下载 `GET /api/.../download/{source}/{file}`。
+- 接口：`GET /api/email-reports/latest`、`GET /api/finebi-reports/latest`、`GET /api/email-reports/eflow_tt_rules_check`、下钻 `GET /api/email-reports/eflow_tt_rules_check/drill`、未匹配分布 `GET /api/email-reports/eflow_tt_rules_check/unmatched_dist`、下载 `GET /api/.../download/{source}/{file}`。
 - **导出 Excel**（2026-09-27 新增）：**每个页签各一个导出按钮**，导的是该页签表格当前的全量行
   （这些表 `pagination={false}`，无分页截断）——
   - 邮件报表 `exportEmail` → `EmailReports_*.xlsx`（任务/类型/文件/大小/时间，不含「下载」操作列）；
