@@ -7182,6 +7182,67 @@
     if (mapLockTimer) return;
     mapLockTimer = window.setInterval(sweepMapWheelLock, 2000);
   }
+
+  /* ---------------------------------------------- Q&A 滚轮转发：已否决，留档（2026-10-22）--
+     问题（用户报「在 RAG Q&A 里面滚动鼠标滑轮时页面不会下滑」）：
+       悬在 RAG Q&A 上滚一下，外层门户页面纹丝不动。**不是样式问题，是滚动链断了**。
+
+     根因（2026-10-22 实测，非推断）：
+       ① RAG 页签内嵌的是**跨域**地址 https://192.168.100.27:8443/（见 qaSrc）。
+          滚轮落在 iframe 上时，wheel 事件只派发给**内层文档**，
+          外层门户的 document / window 根本收不到 —— 在门户侧 listen 也听不见。
+       ② 内层 Open WebUI 0.12.0 的 <html> 上带着 `overscroll-behavior: none`
+          （实测 getComputedStyle(document.documentElement).overscrollBehaviorY = 'none'），
+          iframe「滚到底把滚动交给父框架」的正常机制被这个属性**明确禁用**。
+       ③ 内层本身也滚不动：实测 body.scrollHeight == clientHeight == innerHeight，
+          全页唯一可滚的是聊天历史列表那条 max-h-36 的小方块。
+       三者叠加 = 滚轮被彻底吃掉，页面不动。
+
+     ⚠️ 为什么**不能复用**上面的地图缩放锁（applyMapWheelLock）：
+       它第一行就是 `d = f.contentDocument`，跨域下拿到 null 直接 return（静默失败），
+       实测确认 —— 所以哪怕把 sweepMapWheelLock 的 #mapFrame 也加上 #qaFrame，一样不生效。
+       地图那边是**同源**（/myapp/ 与门户同为 https://localhost，实测 securityOrigin 一致），
+       RAG 这边是跨域，两者机制上不可合并。
+       ⚠️ 更要紧的：一旦改成同源（见下），这条**本来就能直接复用**，无需新写一段。
+
+     ⚠️ 已否决的做法：**在画布上盖 overlay 接 wheel**（曾写进 olbr.css 的
+        .qa-wheel-forward 与本函数，后于同日实测撤回 —— 不要再按注释里的样子实现）：
+        浏览器**命中测试**是一次性决定的。overlay 铺在 iframe 之上，
+        pointerdown / click / wheel 会被**同一个**最上层元素吃掉，
+        没有任何办法「只让 wheel 归我、click 穿透给 iframe」——
+        常被提起的 `:active { pointer-events: none }` 也救不了：
+        命中目标在 mousedown 那一刻就定了，:active 之后才生效，
+        无法把**已经在途**的那一次按压改派给下面的 iframe。
+        实测（2026-10-22，隔离探针：320×220 同源 iframe + 输入框，上方盖 overlay）：
+        命中栈确实以 overlay 顶头（elementsFromPoint → ['div#probeOverlay','iframe#probeFrame',…]），
+        但点下去之后内层 `window.__ev` = **[]**、内层 activeElement = 空 ——
+        **点击/输入框聚焦/拖选全部失效，RAG 聊天会彻底不能打字。**
+        代价远大于收益，故撤回。
+
+     正确解法只有两条，都不在这两个文件里：
+       ① **改 .27 上的 Open WebUI**（治本，推荐）：`/static/custom.css` 实测存在、
+          200、**当前为空**（Open WebUI 的官方管理员定制钩子）。加一行恢复滚动链：
+            html { overscroll-behavior: auto !important; }
+          改完滚轮先翻聊天、翻到底自动带出外层页面，**门户一行都不用动**。
+       ② **改成本机 nginx 同源反代**：反代到 https://localhost 下之后，
+          qaFrame 与门户同源，上面 applyMapWheelLock 那套**可以直接复用**。
+          ⚠️ 前提：Open WebUI 0.12.0 是 SvelteKit，资产全是绝对路径
+          （实测 /static/…、/_app/immutable/…、/api/…），挂子路径会整片 404 ——
+          必须先给 .27 配 WEBUI_URL 并重启容器。
+
+     ✅ 2026-10-23 状态更新：**方案① 已落地，问题已解决**。
+        .27 的 `/static/custom.css` 已写入
+          `html { overscroll-behavior: auto !important; }`
+        用户实测：鼠标悬在 RAG 区域内滚动，外层门户页面正常下滑，滚动链已恢复。
+        方案② 未采用。
+
+     ⚠️ 因此本文件**继续不含**该问题的任何代码修复 —— 这是**有意为之**，不是遗漏。
+        不要在 olbr.js / olbr.css 里补 wheel 转发或 overlay 拦截：
+        RAG 是跨域（见上面根因①），`f.contentDocument` 拿不到，
+        任何门户侧实现都无效；overlay 那条路已验证会毁掉 RAG 聊天输入。
+        若将来 RAG 页签又出现滚不动，先查 .27 的 custom.css 是否还在
+        （Open WebUI 升级可能覆盖它），不要在门户侧动刀。 */
+
   /* 切换开关：写盘 → 立刻施加到当前 iframe → 重画工具条（图标与 title 要跟着变）。
      不重建 iframe（renderL0 不给 keepMap）—— 重建会让地图重载几十秒，
      见 renderL0 上方「快速路径」那段实测。 */
