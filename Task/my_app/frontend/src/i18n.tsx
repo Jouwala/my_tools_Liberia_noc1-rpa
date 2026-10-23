@@ -2485,6 +2485,16 @@ const translations: Record<Locale, Record<string, string>> = {
     // TableBrowser
     'table.selectTable': '选择数据表',
     'table.searchPlaceholder': '搜索数据...',
+    // 本地权威表提示（2026-10-23）。数据表浏览器读的是「当前主库」（pg 模式下是 PG 的
+    // app schema），而 credentials / email_recipients / task_schedule_config 三张表
+    // 按设计**永远写在本地 SQLite**（db/app.db）。不提示的话，用户在设置页明明存了
+    // 19 条凭据，来这里却看到 0 行，会当成「没存上」。
+    'table.localAuthoritative': '本地权威表：内容只存在本地 SQLite（db/app.db），此处的行数来自当前主库，为空属正常现象，不是数据丢失。',
+    'table.localAuthoritativeEdit': '去编辑',
+    // 空表文案（2026-10-23）：此前空表只剩一个分页条「共 0 条」，表体一片空白，
+    // 分不清「加载失败」与「确实没有数据」（AGENTS.md 三.6）。
+    'table.emptyTable': '该表暂无数据',
+    'table.emptyTableFiltered': '没有匹配「{kw}」的记录',
     'table.browseTab': '数据浏览',
     'table.profileTab': '字段画像',
     'table.totalRecords': '共 {n} 条',
@@ -6772,6 +6782,16 @@ const translations: Record<Locale, Record<string, string>> = {
     // TableBrowser
     'table.selectTable': 'Select Table',
     'table.searchPlaceholder': 'Search data...',
+    // Local-authoritative tables notice (2026-10-23). The table browser reads the
+    // current primary DB (PG's app schema in pg mode), while these three tables are
+    // deliberately written to the local SQLite (db/app.db) only. Without this notice
+    // 19 saved credentials look like "nothing was saved" when the browser shows 0 rows.
+    'table.localAuthoritative': 'Local-authoritative table: its data lives only in the local SQLite (db/app.db). The count here comes from the current primary DB, so 0 rows is expected rather than data loss.',
+    'table.localAuthoritativeEdit': 'Edit instead',
+    // Empty-table copy (2026-10-23): an empty table used to render as a blank body with
+    // only "0 records" in the pager, indistinguishable from a failed load.
+    'table.emptyTable': 'This table has no data',
+    'table.emptyTableFiltered': 'No records match "{kw}"',
     'table.browseTab': 'Browse Data',
     'table.profileTab': 'Field Profile',
     'table.totalRecords': '{n} records',

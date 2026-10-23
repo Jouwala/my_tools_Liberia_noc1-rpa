@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
-import { Card, Table, Select, Input, Tag, Spin, Tabs, Row, Col, Statistic, Progress, Descriptions, Badge, Button, Dropdown, message, Modal, Checkbox, Divider, Upload, Space, AutoComplete } from 'antd'
+import { Card, Table, Select, Input, Tag, Spin, Tabs, Row, Col, Statistic, Progress, Descriptions, Badge, Button, Dropdown, message, Modal, Checkbox, Divider, Upload, Space, AutoComplete, Alert } from 'antd'
 import { DownloadOutlined, SettingOutlined, SearchOutlined, UploadOutlined } from '@ant-design/icons'
 import ReactECharts from 'echarts-for-react'
 import * as XLSX from 'xlsx'
@@ -16,6 +16,27 @@ interface TableInfo {
   row_count: number
   col_count: number
   columns: { name: string; type: string; notnull: number; pk: number }[]
+}
+
+/** 「本地权威表」—— 内容只写本地 SQLite（`db/app.db`），而本页读的是**当前主库**。
+ *
+ *  **为什么要有这份清单**（2026-10-23，用户报「数据库里有，tables 页面的 credentials 是空的」）：
+ *   `backend/services/credential_store.py::_get_conn` 与
+ *   `backend/services/email_recipient_store.py` 刻意用裸 `sqlite3.connect` 写本地库；
+ *   `backend/scripts/sync_pg_to_sqlite.py` 的 `SKIP_TABLES` 又把这三张表排除在 PG→SQLite
+ *   同步之外（2026-09-18 那次「每小时 :45 凭据被抹成空」的事故就是漏了这一步）。
+ *   于是 PG 里只有 SQLAlchemy 建的空壳表（`0 行`），而本页在 `MY_APP_DB_MODE=pg` 下
+ *   经 `get_raw_connection()` 读的正是 PG —— 用户看到 0 行，但设置页里 19 条都在。
+ *
+ *  **为什么在页面上说明而不是让本页改读 SQLite**：
+ *   「表浏览器 = 看当前主库」是它一贯的语义，混进另一路数据源会让所有表的行数
+ *   口径变含糊（而且 PG 里同名空壳还在，两路都显示会出现两个 credentials）。
+ *   这里只做**如实告知**，并给出正确入口（AGENTS.md 三.6：取不到 ≠ 0）。
+ *   清单必须与 `sync_pg_to_sqlite.py::SKIP_TABLES` 保持一致，别再分叉出第二份判断。 */
+const LOCAL_AUTHORITATIVE_TABLES: Record<string, string> = {
+  credentials: 'settings',
+  email_recipients: 'settings',
+  task_schedule_config: 'settings',
 }
 
 interface ProfileColumn {
@@ -437,6 +458,8 @@ export default function TableBrowser() {
     : tableColumns
 
   const tableInfo = tables.find(t => t.name === selectedTable)
+  /** 选中的是不是「内容只在本地 SQLite」的表（见 LOCAL_AUTHORITATIVE_TABLES 注释）。 */
+  const isLocalAuthoritative = !!selectedTable && selectedTable in LOCAL_AUTHORITATIVE_TABLES
 
   const shownCols = useMemo(() => {
     if (visibleCols) {
@@ -530,6 +553,24 @@ export default function TableBrowser() {
             </Space>
           </Col>
         </Row>
+        {/* 本地权威表说明（2026-10-23）：
+            这三张表的真实数据只写本地 SQLite，而本页读当前主库（pg 模式下是 PG）。
+            PG 里的同名表是 SQLAlchemy 建的空壳，恒 0 行 —— 不解释的话，
+            用户在设置页存了 19 条凭据、来这里看到 0 行，只会当成「没存上」。
+            只有表确实是空的才提示：将来若某次迁移把数据真灌进了 PG，这里自然不再出现。 */}
+        {isLocalAuthoritative && tableInfo?.row_count === 0 && (
+          <Alert
+            type="info"
+            showIcon
+            style={{ marginTop: 'var(--wh-space-sm)' }}
+            message={<span style={{ fontSize: 12 }}>{t('table.localAuthoritative')}</span>}
+            action={
+              <Button size="small" onClick={() => window.open(`${window.location.pathname}?page=${LOCAL_AUTHORITATIVE_TABLES[selectedTable]}`, '_self')}>
+                {t('table.localAuthoritativeEdit')}
+              </Button>
+            }
+          />
+        )}
       </Card>
 
       {/* NUR 排除名单上传：固定表名 + 全量替换 + dry-run 预览 */}
@@ -750,6 +791,14 @@ export default function TableBrowser() {
                     scroll={{ x: 'max-content' }}
                     size="small"
                     rowKey={stableRowKey}
+                    /* 空表必须说清楚「是空的」而不是留一片白（2026-10-23 用户报
+                       「credentials 是空的」，实际是表体空白 + 分页条「共 0 条」，
+                       分不清加载失败与确实无数据）。locale.emptyText 会按当前语言取文案。 */
+                    locale={{
+                      emptyText: searchText
+                        ? t('table.emptyTableFiltered', { kw: searchText })
+                        : t('table.emptyTable'),
+                    }}
                     pagination={{
                       ...pagination,
                       showSizeChanger: false,
