@@ -59,7 +59,13 @@
     '/webroot/decision/link/2XPO': 'finebi-fo-spare-management-audit'
   };
   var EXTERNAL_ACCESS_IDS = {
-    'https://192.168.100.27:8443/': 'external-rag-knowledge-qa'
+    /* 2026-10-24：RAG 使用入口从 `.27:8443` 改为经 `.20:9443` 反代（8443 不在
+       VPN 放行名单，同事登 VPN 后超时）。新旧地址**都要保留**：老用户浏览器
+       localStorage 与历史目录里仍可能带旧地址，删掉会让受限用户看不到这张卡
+       （fail-closed，不是越权，但属于功能回归）。三态并存是有意为之。 */
+    'https://192.168.100.20:9443/': 'external-rag-knowledge-qa',
+    'https://192.168.100.27:8443/': 'external-rag-knowledge-qa',
+    'https://192.168.100.27/': 'external-rag-knowledge-qa'
   };
 
   /* 2026-09-21 加：原来的 FineBI 卡片已改用 my_app 的 FINEBI Board 原生页

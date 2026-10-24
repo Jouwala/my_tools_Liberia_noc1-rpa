@@ -219,7 +219,11 @@ export const TaskSyncWidget: React.FC = () => {
           </div>
 
           <div className="hidden xl:flex items-center gap-1.5 pl-1 border-l border-slate-200 dark:border-white/10">
-            <a href="https://192.168.100.27:8443/" target="_blank" rel="noopener noreferrer" title={t('task.ragKnowledgeQa')}
+            {/* 2026-10-24：经 .20 的 9443 反代到 .27 的 Open WebUI。
+                原因：.27:8443 不在 VPN/防火墙放行名单，登录 VPN 后超时；而 .20 在
+                名单内且与 .27 同网段直连可达。反代配置见 nginx/conf/portal_ports.conf
+                末尾的 9443 server 块（与 8081-8088 同构）。 */}
+            <a href="https://192.168.100.20:9443/" target="_blank" rel="noopener noreferrer" title={t('task.ragKnowledgeQa')}
               className="px-2.5 py-1.5 rounded-xl bg-violet-50 hover:bg-violet-100 text-violet-700 dark:bg-violet-950/50 dark:hover:bg-violet-900/60 dark:text-violet-300 text-xs font-medium flex items-center gap-1 transition-colors">
               <Bot className="w-3.5 h-3.5" />{t('task.ragKnowledgeQa')}
             </a>

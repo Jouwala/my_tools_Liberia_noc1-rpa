@@ -57,6 +57,33 @@
 
 - [ ] **`DynamicIcon` 图标名校验。** 该组件传错名字会**静默回退** `LayoutGrid`。抽查现有配置中的图标名是否都真实存在于 lucide-react。
 
+- [ ] **RAG 链接的硬编码 IP 与「只改 config.ts」冲突（2026-10-24 登记）。**
+      本项目 `AGENTS.md` 第二节第 3 条要求"主机/域名只改 `src\config.ts`，其它任何地方不要再出现 IP"，
+      但 RAG 知识问答是 `platform: 'external'` 的外部看板，`resolveUrl()` 对 `external` **直接返回
+      `item.url`、不拼主机**，因此它的地址只能写死在 `item.url` 里，无法走 `rel` 机制。
+      2026-10-24 因 VPN 端口白名单问题，该地址从 `https://192.168.100.27:8443/` 改为
+      `https://192.168.100.20:9443/`（经 `.20` 反代，见 `architecture.md` 九之十三），共改 3 处：
+      `src\components\TaskSyncWidget.tsx`（顶栏按钮）、`src\data\initialDashboards.ts`（初始数据）、
+      `portal-default.json`（服务端默认，**不入库**）。
+      **待办**：二选一 —— ① 在 `config.ts` 的 `EnvConfig` 里加 `ragHost` 字段并让 `resolveUrl()`
+      对 `external` 也支持主机替换；② 在 `AGENTS.md` 为该例外补一条豁免说明（引用本条）。
+      **倾向 ②**：`external` 平台目前只有 RAG 一个条目，为一个用例改 `resolveUrl()` 的通用逻辑
+      收益不足（与工作区总纲第三节第 1 条"抽象延迟到第二个真实用例"一致）。若将来出现第二个
+      `external` 外部看板，则改走 ①。
+
+- [ ] **`logs\nginx.pid` 被清空导致 `-s reload` 失败（2026-10-24 登记）。**
+      2026-10-24 重载 nginx 时发现 `D:\01_RPA\nginx-1.28.0\logs\nginx.pid` 是 **0 字节**，
+      `.\nginx.exe -s reload` 报 `invalid PID number ""`。确认真实 master（worker 17860 的父进程
+      PID 16076）后写回 pid 才成功重载。
+      **为何要紧**：AGENTS.md 第四节第 6b 条已记录"SIG 发到错误目录只留一行 `OpenEvent failed`、
+      命令不报错"，这次是同类问题的另一种表现——**命令报错但服务器看起来还在跑**，容易被误判成
+      "配置没生效"而反复改配置。计划任务 `Nginx_EnsureRunning`（每 5 分钟）拉起的实例若也不写 pid，
+      同样会踩到。
+      **待办**：查明 pid 被清空的触发条件（疑为此前 `-s stop` 后未重启、或被 `nginx_monitor.ps1`
+      以非标准方式拉起）；确认 `nginx_monitor.ps1` 拉起后 pid 文件是否正常写入。
+      **临时应对**：重载前先 `cat logs/nginx.pid`，为空则用
+      `Get-CimInstance Win32_Process -Filter "Name='nginx.exe'"` 找 worker 的父进程作为 master PID 写回。
+
 - [ ] **看板目录加版本号，解决「后写覆盖先写」。** 服务端全局目录（`/api/portal-catalog`）目前
       **无 ETag、无版本号**，两人同时编辑时后者静默赢；前端只有 `state.saving` 挡本页并发自提交，
       挡不住跨用户。要真正解决需给目录加版本号 + 前端冲突提示。

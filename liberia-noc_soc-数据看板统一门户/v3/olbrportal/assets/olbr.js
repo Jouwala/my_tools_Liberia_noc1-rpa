@@ -817,6 +817,15 @@
     var failed = !!(m && m.error) || (!!state.qc.err && !state.qc.at);
     var errMsg = (m && m.error) || state.qc.err || '';
     var v = m && m.value != null ? m.value : null;
+    /* 2026-10-23（用户要求）：Daily Operation 六卡的**数字与柱状图**按大数字分档上色 ——
+       <5 绿 #006400、<20 金 #FFD700、>=20 红 #FF0000。分档只输出 is-tier-* 类，
+       具体上色在 olbr.css（.is-tier-* 那段）：刻意不动 --qc-accent ——
+       那个变量还喂着卡片边框与内发光，用户点名的只有数字和柱子两处。
+       v 取不到或非数时不分档：数字走 .is-na 灰、柱子保持品牌色，
+       「没取到」不能被染成任何一档；failed 同理不分档。 */
+    var nv = (v != null && isFinite(Number(v))) ? Number(v) : null;
+    var tier = (failed || nv == null) ? '' :
+      (nv < 5 ? ' is-tier-ok' : nv < 20 ? ' is-tier-warn' : ' is-tier-crit');
     /* 2026-09-25 删：原来是 `var big = QC_PRIMARY_ORDER.indexOf(d.id) !== -1`，
        只用来决定「这张卡给不给走势位」（主卡必给，次卡要判断）。改成统一走
        qcTrendSlot 后就没有调用点了 —— 直接删掉，不留一个无用的变量。 */
@@ -854,7 +863,7 @@
     var spark = qcTrendSlot(d.id);
     /* 数字没取到一律 —，绝不显示 0：统计里的 0 是「真的一个都没有」，
        与「没取到」必须能分辨，否则会被误读成「已清空」。 */
-    return '<button type="button" class="qc-card' + (failed ? ' is-failed' : '') +
+    return '<button type="button" class="qc-card' + (failed ? ' is-failed' : '') + tier +
       (spark ? '' : ' is-nospark') +
       '" data-qc="' + esc(d.id) + '" title="' + esc(tips.join('\n')) + '">' +
       /* 2026-09-25 改：卡名前的图标（.qc-ico）去掉。它只是装饰，卡名本身已经说明
@@ -4527,10 +4536,15 @@
         匹配串只写主机名 `192.168.100.27`，这样新旧两种形态都能命中 ——
         目录若还没同步改到新地址，也不会在这里漏掉。
         上 https 后，门户（https）内嵌它**不再触发混合内容拦截**，页签能正常显示。
-     ⚠️ 2026-10-14：**最终地址定为 `https://192.168.100.27:8443/`**（见下方 qaSrc）。
-        Open WebUI 侧按地址区分身份：443 是 admin 管理入口（本人用），
-        8443 是 NOC 使用入口（**自动登录为 NOC，无需密码**）。门户是使用方，
-        必须走 8443 —— 走 443 会以 admin 身份打开，属越权，严禁。 */
+     ⚠️ 2026-10-14：**最终地址定为 NOC 使用入口**（见下方 qaSrc）。
+        Open WebUI 侧按地址区分身份：一个端口是 admin 管理入口（本人用），
+        另一个是 NOC 使用入口（**自动登录为 NOC，无需密码**）。门户是使用方，
+        **必须走 NOC 入口** —— 走 admin 入口会以 admin 身份打开，属越权，严禁。
+     ⚠️ 2026-10-24：NOC/admin 的端口归属已调整（NOC 移到 443，admin 挪到 8443），
+        且因 VPN 只放行 `.20` 不放行 `.27:8443`，门户改为经 `.20:9443` 反代到
+        `.27` 的 NOC 入口。**判断依据是"NOC 入口在哪"，不是固定端口号** ——
+        同上条原则：务必确认目标端口是 NOC 而非 admin，切勿按端口号想当然。
+        反代详见门户 `docs/architecture.md` 九之十三。 */
   function qaItems() {
     var all = allowed();
     var pick = function (needle) {
@@ -4577,12 +4591,22 @@
          与 mapItems / emailSrc 同一处理。 */
       return '/myapp/' + q + '&embed=1' + (state.theme === 'dark' ? '&theme=dark' : '') + langQs();
     }
-    /* RAG（外域）：目录若还停在旧地址（`http://192.168.100.27:3000/` 或
-       `https://192.168.100.27/`），这里**无条件归一到使用入口** `https://192.168.100.27:8443/`：
+    /* RAG（外域）：无论目录里存的是什么旧地址（`http://192.168.100.27:3000/`、
+       `https://192.168.100.27/`、`https://192.168.100.27:8443/`），这里**无条件
+       归一到使用入口** `https://192.168.100.20:9443/`：
          · 否则 https 门户内嵌明文 http 会被混合内容拦截成空白；
-         · 更要紧的是身份 —— 443 进去是 admin，8443 进去才是 NOC（自动登录）。
-           门户是使用方，**只认 8443**，故这里必须强制归一，不能依赖目录值。
-       这一步是幂等的：目录已改成 8443 时，归一回自身、无害。
+         · 更要紧的是身份 —— 门户是使用方，只认 NOC 身份入口，故必须强制归一，
+           不能依赖目录值（老用户 localStorage 里存的仍是旧地址）。
+       这一步是幂等的：目录已改成 9443 时，归一回自身、无害。
+
+       ⚠️ 2026-10-24 变更：入口从 `https://192.168.100.27:8443/` 改为
+       `https://192.168.100.20:9443/`。原因：同事登录 VPN 后访问 `.27:8443`
+       稳定超时（8443 不在 VPN/防火墙放行名单），而 `.20` 在名单内且与 `.27`
+       同网段直连可达。故在 `.20` 的 nginx 开 9443 反代到 `.27`（借道 .20 的
+       放行通道），详见门户 `docs/architecture.md` 九之十三与
+       `nginx/conf/portal_ports.conf` 末尾的 9443 server 块。
+       匹配条件从「含 192.168.100.27」放宽到「含 .27 / 3000 / :9443」三种旧形态，
+       保证任何存量目录值都会被正确归一。
 
        ⚠️ 2026-10-15：补 `?lang=` —— 用户报「英文下 RAG 页签里还是中文」。
        Open WebUI v0.12.0 的 i18next 初始化里 `lookupQuerystring` 就是 `lang`，
@@ -4594,8 +4618,10 @@
        （与 my_app 分支的 `&lang=` 不同）。只在语言为英文时补参数：
        中文时 Open WebUI 走它自己的 navigator/默认判定，且避免给中文用户
        多带一个无谓参数。 */
-    if (u.indexOf('192.168.100.27') !== -1) {
-      return 'https://192.168.100.27:8443/' +
+    if (u && (u.indexOf('192.168.100.27') !== -1 ||
+              u.indexOf(':3000') !== -1 ||
+              u.indexOf(':9443') !== -1)) {
+      return 'https://192.168.100.20:9443/' +
         (state.lang === 'en' ? '?lang=en' : '');
     }
     return u || 'about:blank';

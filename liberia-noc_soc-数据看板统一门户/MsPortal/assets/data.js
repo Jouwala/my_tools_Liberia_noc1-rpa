@@ -1605,7 +1605,7 @@ window.MS_PORTAL_DATA = {
       "descEn": "Locally deployed RAG knowledge Q&A system powered by Open WebUI; supports natural-language search and conversational queries over internal documents and the O&M knowledge base. Available to everyone.",
       "platform": "external",
       "platformZh": "外部系统",
-      "url": "https://192.168.100.27:8443/",
+      "url": "https://192.168.100.20:9443/",
       "tags": [
         "RAG",
         "Open WebUI",
