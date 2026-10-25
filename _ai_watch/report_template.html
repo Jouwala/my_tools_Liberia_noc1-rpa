@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>AI 动态观测 · 2026-10-13</title>
+<title>AI 动态观测周报 · __DATE_CN__</title>
 <style>
 :root{
   --bg:#f6f7f9; --panel:#ffffff; --line:#e4e7ec; --line2:#eef0f3;
@@ -43,7 +43,7 @@ h2::before{content:"";width:3px;height:17px;background:var(--ac);border-radius:2
   border-radius:11px;padding:17px 19px;margin-bottom:20px}
 .verdict h3{font-size:14.5px;margin-bottom:9px;color:var(--ac)}
 .verdict ul{margin-left:18px}
-.verdict li{margin:5px 0;font-size:14px;color:var(--tx2)}
+.verdict li{margin:7px 0;font-size:14px;color:var(--tx2)}
 .verdict li b{color:var(--tx)}
 
 /* cards */
@@ -65,6 +65,17 @@ h2::before{content:"";width:3px;height:17px;background:var(--ac);border-radius:2
   padding-top:10px;border-top:1px solid var(--line2);font-size:11.5px;color:var(--tx3);gap:10px}
 .card a{color:var(--ac);text-decoration:none}
 .card a:hover{text-decoration:underline}
+
+/* 属性徽章：免费 / 开放权重 / 本地可跑 */
+.props{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+.pill{font-size:11px;font-weight:640;padding:2px 8px;border-radius:5px;border:1px solid transparent;line-height:1.6}
+.p-yes{background:#e7f7ef;color:#047857;border-color:#bfe6d4}
+.p-part{background:#fdf2e3;color:#b45309;border-color:#f5ddb6}
+.p-no{background:#f4f5f7;color:#8b95a5;border-color:#e4e7ec}
+.p-lic{background:#f1ebfd;color:#6d28d9;border-color:#ddd0f7}
+.src-note{font-size:11.5px;color:var(--tx3);margin-top:8px;padding:7px 10px;background:#fbfcfd;
+  border:1px dashed var(--line);border-radius:7px;line-height:1.55}
+.src-note b{color:var(--tx2);font-weight:640}
 
 /* table */
 .tbl{width:100%;border-collapse:collapse;background:var(--panel);
@@ -98,7 +109,7 @@ input[type=search]:focus{border-color:var(--ac)}
 
 /* tweet */
 .tweet{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
-.tw-h{display:flex;align-items:center;gap:8px;margin-bottom:7px;flex-wrap:wrap}
+.tw-h{display:flex;gap:8px;margin-bottom:7px;flex-wrap:wrap;align-items:center}
 .who{font-weight:640;font-size:14px}
 .handle{color:var(--tx3);font-size:12.5px}
 .when{font-size:11.5px;color:var(--tx3);background:var(--chip);padding:1.5px 7px;border-radius:4px}
@@ -108,30 +119,30 @@ input[type=search]:focus{border-color:var(--ac)}
 .hide{display:none!important}
 .empty{padding:34px;text-align:center;color:var(--tx3);font-size:13.5px}
 .note{font-size:12px;color:var(--tx3);margin-top:9px;padding:10px 13px;background:#fbfcfd;
-  border:1px dashed var(--line);border-radius:8px}
+  border:1px dashed var(--line);border-radius:8px;line-height:1.7}
+.note b{color:var(--tx2)}
 footer{margin-top:50px;padding-top:22px;border-top:1px solid var(--line);
-  font-size:12px;color:var(--tx3);line-height:1.8}
+  font-size:12px;color:var(--tx3);line-height:1.85}
+footer b{color:var(--tx2)}
 </style>
 </head>
 <body>
 <div class="wrap">
 
 <header>
-  <h1>AI 动态观测 · X 一手信源扫描</h1>
-  <p class="sub">聚焦新模型、免费/开源资源、可复用技能与工程实践 —— 全部来自厂商与核心研究者本人账号</p>
+  <h1>AI 动态观测周报 · X 一手信源扫描</h1>
+  <p class="sub">聚焦新模型、免费与开源资源、可复用技能与工程实践 —— 全部来自厂商与核心研究者本人账号</p>
   <div class="meta">
-    <span><b>报告日期</b>2026-10-13</span>
-    <span><b>信源</b>24 个 X 账号直抓</span>
-    <span><b>有效推文</b>66 条</span>
+    <span><b>报告日期</b>__DATE_CN__</span>
+    <span><b>覆盖窗口</b>2026-10-13 ~ 2026-10-24</span>
+    <span><b>信源</b>__ACC_COUNT__ 个 X 账号直抓</span>
+    <span><b>有效推文</b>__TWEET_COUNT__ 条</span>
     <span><b>抓取方式</b>免登录公开时间线（r.jina.ai 通道）</span>
   </div>
 </header>
 
 <div class="stats">
-  <div class="stat"><div class="n">8</div><div class="l">新发布模型</div></div>
-  <div class="stat"><div class="n">6</div><div class="l">免费 / 开源可用</div></div>
-  <div class="stat"><div class="n">5</div><div class="l">技能与框架更新</div></div>
-  <div class="stat"><div class="n">3</div><div class="l">本周开源新模型密集</div></div>
+__STATS__
 </div>
 
 <section>
@@ -140,73 +151,113 @@ footer{margin-top:50px;padding-top:22px;border-top:1px solid var(--line);
   <div class="verdict">
     <h3>核心结论</h3>
     <ul>
-      <li><b>开源阵营这周突然很热闹。</b> 10/3→10/6 三天内 Aleph Alpha Kolibri、Reflection AI Beam、Mistral Large 4 连发三家开放权重模型，且都不约而同把中国开源模型当对标物。Mistral 直接自我定位为「最强的非中国开源权重系统」。</li>
-      <li><b>竞争焦点已从参数转向推理成本。</b> Beam 每 token 只激活 230亿参数却声称用 1/3~1/4 算力追平 GLM-5.2 —— 便宜才是开源模型真正的护城河。</li>
-      <li><b>闭源与开源的差距缩到 3.3%。</b>（斯坦福 2026 AI 指数）叠加闭源强制数据留存带来的合规顾虑，自托管 / 可微调正在成为企业默认选项。</li>
-      <li><b>agent 已经吃垮了传统工程基建。</b>Anthropic 5 月每天合并 2500 次代码改动，9 月突破 3万 —— 他们不得不自研源码控制系统。跟着这条线索看基础设施重构，比看模型榜单更有价值。</li>
+      <li><b>开放权重第一次在综合智能指数上咬住闭源。</b> Kimi K3.1 Pro（10/23）拿到 Artificial Analysis 智能指数 <b>55 分</b>、全球第四，距 Claude Opus 5.5 的 58 分只差 3 分 —— 而上一代 K3 是 44 分，一个季度涨 11 分。它在 Terminal-Bench 4.0 拿到 65.7%，超过 GPT-6 Astra 的 58.2%。注意：权重本身要到 <b>11 月 4 日前</b>才放出，目前还没有自托管实测。</li>
+      <li><b>「开放权重」「免费」「本地可跑」本周被彻底拆成三件事。</b> 2.8T 的 Kimi K3.1 Pro 和 816B 的 Muse Spark Open 都属于「权重开放但本地跑不动」—— 后者官方方案要两台 512GB 内存的 M5 Ultra Mac Studio。真正能在消费级硬件上跑的是 Muse Glimmer 30B（Apache 2.0，4-bit 约 17GB，24GB 显存起步）、Recursive Flint（40B 总参 / 2.5B 激活，MacBook Pro 125+ tok/s）和 Nemotron 3.5 Bolt E4B（4GB 显存）。选型第一问应该是「我能跑吗」，而不是「它便宜吗」。</li>
+      <li><b>Agent 的瓶颈已经从模型挪到沙箱与凭证治理。</b> Perplexity 把 Computer 的沙箱层 SPACE 开源（Apache 2.0）：每个任务一个 Firecracker microVM，凭证留在沙箱外，median 创建延迟从 185ms 降到 60ms。同期 Vercel 调查 1000+ 家 SaaS，发现<b>只有 8.4% 支持安全认证</b>。模型能干活了，但让它安全地干活是另一道工程题。</li>
+      <li><b>厂商自报榜单的行间差距，比模型之间的差距更值得看。</b> Kimi K3.1 Pro 在 Terminal-Bench 4.0 拿 65.7%，距 Claude Opus 5.5 的 66.4% 仅 0.7 分；但同一模型在 Terminal-Bench Science 上只有 38.1%，而 GPT-6 Astra 是 68.1%。选型要看你的任务落在哪一行，而不是总榜名次。</li>
     </ul>
   </div>
 </section>
 
 <section>
   <h2>新模型</h2>
-  <p class="lead">近两周发布，按开放程度与本地可跑性标注</p>
+  <p class="lead">按「开放程度 / 本地可跑性」标注，厂商自报数据已注明来源</p>
   <div class="cards">
 
     <div class="card" data-cat="model">
-      <span class="tag t-model">🤖 模型 · 开放权重</span>
-      <h4>Mistral Large 4「Le Chonk」</h4>
-      <p class="desc">1.05 万亿总参、490 亿激活，原生多模态。官方称美欧开放权重模型中综合最强，在网络防御、制造、金融等关键负载上达SOTA。视觉定位 Dense200 拿到 42%，超过部分闭源前沿模型。10/6 发布。</p>
-      <div class="foot"><span>Mistral · 4.0 万赞 / 560 万浏览</span><a href="https://x.com/mistralai/status/2107457414387622310" target="_blank">原文 ↗</a></div>
+      <span class="tag t-open">📦 模型 · 开放权重</span>
+      <h4>Kimi K3.1 Pro（Moonshot AI）</h4>
+      <p class="desc">2.8T 总参 / 104B 激活的 MoE，1M 上下文，原生多模态。主打全项目级编程（Unreal、Unity、Godot）与 Blender / CAD 参数化建模，金融建模幻觉率从 23.4% 降到 8.3%。同步有 K3.1 Pro Highspeed（2~3 倍速，$4/$10 每百万 token）。标准版 API $2/$10 —— 输出价约为 Kimi K3 的三分之一。</p>
+      <div class="props"><span class="pill p-part">开放权重 · 11/4 前</span><span class="pill p-no">本地跑不动</span><span class="pill p-lic">需自托管许可</span></div>
+      <div class="src-note"><b>基准来源：</b>厂商自报（Terminal-Bench 4.0 65.7% / SWE-Marathon v1.1 51.7% / Agents' Last Exam 43.2 / HLE 工具版 70.0% / BenchCAD 带工具 92.7%），未独立复现。智能指数 55 分来自第三方 Artificial Analysis。</div>
+      <div class="foot"><span>10/23 · 2.6 万赞 / 280 万浏览</span><a href="https://x.com/Kimi_Moonshot" target="_blank">原文 ↗</a></div>
     </div>
 
     <div class="card" data-cat="model">
       <span class="tag t-open">📦 模型 · 开放权重</span>
-      <h4>Reflection AI「Beam」</h4>
-      <p class="desc">英伟达投资的初创首个大模型，5010 亿总参 / 230 亿激活，23.8 万亿 token 预训练，<b>100 万上下文</b>。主打代码与 agent 任务，性能对标 GLM-5.2、逼近 Qwen3.8-Max，但推理算力低 3~4 倍。宣布 10 月以 Apache 2.0 全权重开源。</p>
-      <div class="foot"><span>10/5 · Apache 2.0</span><a href="https://www.nvidia.com" target="_blank">待开放</a></div>
-    </div>
-
-    <div class="card" data-cat="model">
-      <span class="tag t-open">📦 模型 · 开放权重</span>
-      <h4>Aleph Alpha「Kolibri」</h4>
-      <p class="desc">德国 AI 公司，走「小而专」路线，总参仅 780 亿。官方承认训练中使用了多款中国模型生成的合成数据。称在德语/英语深度推理与代码上超越对手，但长上下文与多轮工具调用落后 Qwen。</p>
-      <div class="foot"><span>10/3 · 78B</span><a href="https://aleph-alpha.com" target="_blank">官网 ↗</a></div>
-    </div>
-
-    <div class="card" data-cat="model">
-      <span class="tag t-model">🤖 模型 · 闭源前沿</span>
-      <h4>GPT-6 + Intelligent UI</h4>
-      <p class="desc">已在 ChatGPT 全量推送。Intelligent UI 能即时生成定制交互界面，复杂问题更可视化、可交互工具随取随用。同期 ChatGPT Voice 升级：可调用邮件/日历/Slack 插件，由 GPT-6 Astra/Sol/Luna 驱动。</p>
-      <div class="foot"><span>OpenAI · 全量可用</span><a href="https://x.com/OpenAI" target="_blank">原文 ↗</a></div>
-    </div>
-
-    <div class="card" data-cat="model">
-      <span class="tag t-model">🤖 模型 · 闭源前沿</span>
-      <h4>Gemini 4「Argon」</h4>
-      <p class="desc">面向编码、金融、法律、网络安全、科研的复杂真实任务，已全球上线。演示亮点：仅看一段人类玩「投壶袋」的视频就自主生成训练仿真，让 Apptronik 的 Apollo 人形机器人连中 7 投。</p>
-      <div class="foot"><span>Google · 全球推送</span><a href="https://x.com/GoogleAI" target="_blank">原文 ↗</a></div>
-    </div>
-
-    <div class="card" data-cat="model">
-      <span class="tag t-model">🤖 模型 · 闭源前沿</span>
-      <h4>Meta「Muse Wonder」系列</h4>
-      <p class="desc">Meta 最强模型，Muse Wonder 与 Muse Wonder Full，面向个人与专业 agent 任务。同时推出 Muse Realtime Avatar 实时具身技术（语音转表达性互动化身）。Meta 宣称 14 个月完成从重建基座到登顶前沿。</p>
-      <div class="foot"><span>AI at Meta · 10/12</span><a href="https://x.com/AIatMeta" target="_blank">原文 ↗</a></div>
+      <h4>Meta「Muse Spark Open」</h4>
+      <p class="desc">816B 总参 / 42B 激活，1M 上下文，原生多模态（文本 / 图像 / 视频 / 音频），面向长程编码与 agent 任务。Meta 称它是「迄今最强的美国开放权重模型」。权重已在 Hugging Face 开放（BF16 约 1.6TB，NVFP4 约 530GB）。附带 SGLang 自定义 Helion GPU kernel，官方称 NVIDIA / AMD 上有 1.03~3.95 倍 kernel 级加速。</p>
+      <div class="props"><span class="pill p-yes">开放权重</span><span class="pill p-part">本地需 Mac Studio 集群</span><span class="pill p-lic">Muse 授权 · 有限商用</span></div>
+      <div class="src-note"><b>授权要点：</b>Muse Model License，非 OSI 开源 —— 需标注「Built with Muse Spark Open」；若以 API 形式对外提供模型服务且公司年收入超 2000 万美元，需单独协议。加速倍数为 Meta 自测的 kernel 级数据。</div>
+      <div class="foot"><span>10/15 · 1.1 万赞 / 120 万浏览</span><a href="https://x.com/AIatMeta" target="_blank">原文 ↗</a></div>
     </div>
 
     <div class="card" data-cat="model">
       <span class="tag t-free">🆓 模型 · 端侧可跑</span>
-      <h4>MiniCPM-V 4.7（35B-A3B）</h4>
-      <p class="desc">面壁智能发布，MoE 架构总参350亿、每次推理仅激活 30 亿。<b>约 3GB 内存即可运行</b>，解码 15+ token/s（iPad Pro 实测），首个端侧无损流畅的开源 MoE 模型。自研 LES 前瞻专家调度技术提前预加载专家、消除了搬移停顿。另有 1B 极致效率版。当日支持瑞芯微/NVIDIA/Intel/Apple。</p>
-      <div class="foot"><span>10/13 · 系列累计下载 6000 万</span><a href="https://github.com/OpenBMB" target="_blank">GitHub ↗</a></div>
+      <h4>Meta「Muse Glimmer」30B</h4>
+      <p class="desc">从 Muse Spark 蒸馏的 30B 稠密模型，带 1.8B ViT-G/14 视觉编码器，接收文本 + 图像。4-bit 权重约 17GB，连同 KV cache、视觉编码器与投机解码 drafter 一起塞进 <b>24GB / 32GB 显存</b>。RTX 5090 上配合推测解码实测约 233 tok/s。10/19 公布技术报告（arXiv:2610.24628）。</p>
+      <div class="props"><span class="pill p-yes">Apache 2.0</span><span class="pill p-yes">本地可跑 · 24GB 显存</span><span class="pill p-no">闭源 API 无</span></div>
+      <div class="src-note"><b>基准来源：</b>Meta 自测 —— MCPAtlas 75.5（Gemma4-31B 54.2、Qwen3.6-27B 62.5）、SWE-Bench Pro 51.2。OSWorld Verified 与 Terminal-Bench 2.1 反而落后 Qwen3.6-27B。</div>
+      <div class="foot"><span>10/19 · 1300 赞 / 22 万浏览</span><a href="https://x.com/AIatMeta" target="_blank">原文 ↗</a></div>
     </div>
 
     <div class="card" data-cat="model">
-      <span class="tag t-open">📦 模型 · 端侧嵌入</span>
-      <h4>EmbeddingGemma 2（740M）</h4>
-      <p class="desc">Google 首个原生多模态端侧嵌入模型，把文本、代码、图像、音频、视频映射到同一空间。体积小到能在手机上跑 —— 本地媒体检索，数据完全不出设备（例如用语音备忘录里的声音检索到对应视频片段）。</p>
-      <div class="foot"><span>Google DeepMind · 10/6</span><a href="https://huggingface.co/google" target="_blank">HuggingFace ↗</a></div>
+      <span class="tag t-open">📦 模型 · 开放权重</span>
+      <h4>MiniMax「M3.1 Flash」</h4>
+      <p class="desc">428B 总参 / 23B 激活的 MoE，多模态，1M 上下文，面向 agent 工作流、编码、computer use 与网络安全。10/19 上线 API，<b>10/23 开放权重</b>，是 Together AI、Fireworks、Tenstorrent Cloud、TokenSpeed 的 day-0 首发伙伴。定价 $0.15 / $0.60 每百万 token，无峰谷定价。</p>
+      <div class="props"><span class="pill p-yes">开放权重</span><span class="pill p-part">本地需多卡</span><span class="pill p-part">HF 授权待明确</span></div>
+      <div class="src-note"><b>两个坑：</b>① Hugging Face 仓库 license 字段为 “other”，非标准开源许可，商用前需等 MiniMax 明确条款；② 其 OpenRouter 免费档（<code>:free</code>）已于 <b>10/22 12:00 UTC 结束</b>，现在只能按列表价调用。基准均为厂商自报（Automation-Bench 62.8、BankerToolBench 76.2、DeepSWE 73.7%）。</div>
+      <div class="foot"><span>10/23 · 519 赞 / 6.4 万浏览</span><a href="https://x.com/MiniMax_AI" target="_blank">原文 ↗</a></div>
+    </div>
+
+    <div class="card" data-cat="model">
+      <span class="tag t-free">🆓 模型 · 本地可跑</span>
+      <h4>Recursive「Flint」40B-A2.5B</h4>
+      <p class="desc">39.8B 总参但每 token 只激活 2.5B 的 MoE，47 层 MoE + 2 层稠密，262K 上下文，专为本地 agent 编码设计。M4 Pro MacBook Pro 上 <b>125+ tok/s</b>，64GB RTX Spark 上 150+ tok/s，Apple 4-bit 权重约 22.6GB。配套开源推理引擎 <code>rec</code> 与 Metal megakernel。最特别的地方：几乎整个研发栈由自家「Eureka Machine」自动研究系统参与构建。</p>
+      <div class="props"><span class="pill p-yes">Apache 2.0</span><span class="pill p-yes">本地可跑 · 48GB 内存</span><span class="pill p-free">OpenRouter 免费端点</span></div>
+      <div class="src-note"><b>基准来源：</b>Recursive 自测（SWE-bench Verified 74.2% / SWE-bench Pro v2 89.7% / Terminal-Bench 2.1 54.9%）。注意 SWE-bench Pro v2 是自跑版本，与公开榜单不可直接比较 —— 同表中 Qwen3.6 的 73.8% 在其官方 model card 上是 49.5%。</div>
+      <div class="foot"><span>10/21 · 512 赞 / 3.8 万浏览</span><a href="https://x.com/ollama" target="_blank">原文 ↗</a></div>
+    </div>
+
+    <div class="card" data-cat="model">
+      <span class="tag t-free">🆓 模型 · 端侧可跑</span>
+      <h4>NVIDIA「Nemotron 3.5 Bolt E4B」</h4>
+      <p class="desc">8B 总参 / 4B 有效参数，64K 上下文，从 Google Gemma 4 E4B 出发、<b>只用强化学习后训练</b>（不走 SFT）。定位是语音助手、游戏 NPC 与机器人前端，配 737MB DFlash drafter 在 RTX 5070 上跑到 <b>272.6 tok/s</b>。Ollama 一行 <code>ollama run nemotron-3.5-bolt:e4b</code> 即可跑。</p>
+      <div class="props"><span class="pill p-yes">开放权重</span><span class="pill p-yes">本地可跑 · 约 4GB 显存</span><span class="pill p-lic">OpenMDW-1.1</span></div>
+      <div class="src-note"><b>两个易踩点：</b>① 「4GB」是显存口径不是下载体积 —— NVIDIA 官方 Q4_K_M 是 6.18GB，Ollama 包是 7.9GB；② chat template 默认 <code>enable_thinking=false</code>，但 llama-server 的 <code>--reasoning auto</code> 会把它打开，同一 prompt 在不同栈上可能差 10 倍速度，建议显式设置。</div>
+      <div class="foot"><span>10/23 · 610 赞 / 3.5 万浏览</span><a href="https://x.com/ollama" target="_blank">原文 ↗</a></div>
+    </div>
+
+    <div class="card" data-cat="model">
+      <span class="tag t-model">🤖 模型 · 闭源 API</span>
+      <h4>Elorian「Glimpse」视觉思考模型</h4>
+      <p class="desc">前 Google DeepMind 研究员 Andrew Dai 创立。核心机制是「视觉草稿空间」—— 推理过程中反复回到原图裁剪放大、从视频抽帧、甚至跑代码测量物体，而不是一次编码成 token 后凭记忆推理。JeffDean 与 Nvidia 参与投资，$5500 万种子轮、估值 3 亿。仅用几百块 GPU、基于开放权重底座后训练而成。</p>
+      <div class="props"><span class="pill p-no">闭源 · 研究预览</span><span class="pill p-no">本地不可跑</span><span class="pill p-free">API $0.60 / $3.00</span></div>
+      <div class="src-note"><b>基准来源：</b>厂商自测 —— 称在科学图表推理、开放词汇计数、短视频描述、manipulation 事件理解四项超过 GPT-6 Astra，具身推理持平。价格比 GPT-6 Astra 低 94%、比 Opus 5.5 低 85%。</div>
+      <div class="foot"><span>10/16 · 826 赞 / 10.4 万浏览</span><a href="https://x.com/JeffDean" target="_blank">原文 ↗</a></div>
+    </div>
+
+    <div class="card" data-cat="model">
+      <span class="tag t-open">📦 模型 · 开放权重</span>
+      <h4>Qwen-Image-2.1 / Turbo（阿里通义千问）</h4>
+      <p class="desc">统一生成与编辑的图像模型，7B 视觉生成架构。Turbo 版是同架构的加速 checkpoint，<b>8 步去噪</b>即可出图，官方强调「步数少不等于质量降」。官方定位为 Qwen-Image 系列里最平衡、最具性价比的一个。权重已开放。</p>
+      <div class="props"><span class="pill p-yes">开放权重</span><span class="pill p-part">本地可跑 · 需显存</span><span class="pill p-free">有免费试用</span></div>
+      <div class="foot"><span>10/9 · 5300 赞 / 73.9 万浏览</span><a href="https://x.com/Alibaba_Qwen" target="_blank">原文 ↗</a></div>
+    </div>
+
+    <div class="card" data-cat="model">
+      <span class="tag t-model">🤖 模型 · 闭源 API</span>
+      <h4>Mistral「Voxtral 3」语音模型</h4>
+      <p class="desc">Transcribe 与 Speech 两个模型，支撑 Mistral 新的 voice agents API。同时 Mistral 与 NVIDIA 就工业工程宣布合作：物理 AI 的仿真加速、开放的物理基准与数据集、CAE / EDA 领域的 agent 评测。Mistral Large 4「Le Chonk」在 Ulam 的私有 STEMBench 上工程与天文学成绩同样领先。</p>
+      <div class="props"><span class="pill p-no">闭源 · API</span><span class="pill p-no">本地不可跑</span><span class="pill p-free">Mistral 平台可用</span></div>
+      <div class="src-note"><b>来源：</b>STEMBench 为 Ulam 私有基准，成绩经 Mistral 转述，未经独立验证。</div>
+      <div class="foot"><span>10/20 · 3200 赞 / 26.9 万浏览</span><a href="https://x.com/mistralai" target="_blank">原文 ↗</a></div>
+    </div>
+
+    <div class="card" data-cat="model">
+      <span class="tag t-model">🤖 模型 · 闭源前沿</span>
+      <h4>GPT-6 + Intelligent UI（ChatGPT 全量）</h4>
+      <p class="desc">ChatGPT 现在能为每个问题即时生成定制交互界面，把日常问题变得更可视化、复杂主题更易理解，交互工具随取随用。另两条 agent 相关进展：OpenAI 前沿模型与 Codex agentic 工作流进入 Google Cloud Model Garden；OpenAI 与 Uber 合作把 ChatGPT Work 铺到全公司员工。</p>
+      <div class="props"><span class="pill p-no">闭源</span><span class="pill p-no">本地不可跑</span><span class="pill p-free">ChatGPT 订阅内可用</span></div>
+      <div class="foot"><span>10/7 · 1.2 万赞 / 200 万浏览</span><a href="https://x.com/sama" target="_blank">原文 ↗</a></div>
+    </div>
+
+    <div class="card" data-cat="model">
+      <span class="tag t-model">🤖 模型 · 闭源前沿</span>
+      <h4>Claude Duet（主动式 agent）</h4>
+      <p class="desc">研究预览版新应用：Claude 主动带着「需要你关注的事」出现，完成你交代的任务，你不在时继续工作，代表你行动前会先确认。另有 Claude Security 进入企业公开 beta —— 仓库只连一次，Claude 先深扫一次，之后随代码变更持续重扫，让发现贴着当前代码状态走。</p>
+      <div class="props"><span class="pill p-no">闭源</span><span class="pill p-no">本地不可跑</span><span class="pill p-free">Claude 订阅内</span></div>
+      <div class="foot"><span>10/21 · 5.4 万赞 / 1000 万浏览</span><a href="https://x.com/claudeai" target="_blank">原文 ↗</a></div>
     </div>
 
   </div>
@@ -214,53 +265,79 @@ footer{margin-top:50px;padding-top:22px;border-top:1px solid var(--line);
 
 <section>
   <h2>免费与开源资源</h2>
-  <p class="lead">能立刻用起来、不花钱或基本不花钱的东西</p>
+  <p class="lead">能立刻用起来、不花钱或基本不花钱的东西 —— 免费额度均标注了实测口径与截止条件</p>
   <div class="cards">
 
     <div class="card" data-cat="free">
-      <span class="tag t-free">🆓 免费 · 端侧嵌入</span>
-      <h4>EmbeddingGemma 2</h4>
-      <p class="desc">740M 参数，手机可跑。零调用成本，可作为本地 RAG / 语义检索的嵌入层，替换付费嵌入 API。</p>
-      <div class="foot"><span>完全免费 · 权重公开</span><span class="heat">HF 公开</span></div>
+      <span class="tag t-free">🆓 免费额度 · Qwen API</span>
+      <h4>阿里云百炼（Model Studio）每模型 100 万 token</h4>
+      <p class="desc">新账号在<b>新加坡（国际）地域</b>每个模型约 100 万 token，输入输出合并计算，有效期 <b>90 天</b>（自开通、模型发布或审批通过三者中最晚者起算）。模型目录很大，逐个试下来是几千万量级的免费额度，是目前最慷慨的试用结构。</p>
+      <div class="props"><span class="pill p-yes">免费 90 天</span><span class="pill p-part">仅新加坡地域</span><span class="pill p-no">其他地域无免费额度</span></div>
+      <div class="src-note"><b>三个坑：</b>① 旧的免费 OAuth 层已于 2026-04-15 下线，教程里承诺「无限免费 API」的是死程序；② <code>qwen3.8-max</code> / <code>qwen3.8-flash</code> <b>默认开启思考模式</b>，隐藏思维链按输出价计费，一行回复可能比看起来贵十倍 —— 用 <code>enable_thinking: false</code> 显式关掉；③ 免费额度用完后<b>默认自动转按量计费</b>，需手动打开「仅免费额度」开关，否则直接扣费。价格为 qwen3.8-max $2/$6、qwen3.8-flash $0.15/$0.47（每百万 token）。</div>
+      <div class="foot"><span>阿里云百炼 · 国际地域</span><span class="heat">OpenAI 兼容</span></div>
     </div>
 
     <div class="card" data-cat="free">
-      <span class="tag t-free">🆓 免费 · 决策模型</span>
-      <h4>Cloudflare Clef (27B) / Clef-flash (9B)</h4>
-      <p class="desc">Cloudflare 自研首批开放权重模型，对标闭源的 TypeSafe Jev。输出为每个候选答案的概率而非随机文本，支持 64k 上下文与图文视频输入。延迟 209ms / 38.8ms，远优于 Jev 的 524ms。llama.cpp 0.6.0 已新增 <code>/v1/systemone</code> 端点服务这类模型。</p>
-      <div class="foot"><span>10/1 · 开源权重</span><span class="heat">llama.cpp 0.6.0</span></div>
-    </div>
-
-    <div class="card" data-cat="free">
-      <span class="tag t-free">🆓 免费 · 表格模型</span>
-      <h4>NVIDIA Kumo Tabular</h4>
-      <p class="desc">表格数据基础模型家族，给部分行的表格它直接预测其余行，<b>无需训练</b>。全部在结构因果模型采样的人工合成表格上预训练，从未见过客户或基准数据。TabArena 排名第一，预测速度是清华 LimiX-2 的 17 倍。</p>
-      <div class="foot"><span>9/29 · 开源</span><span class="heat">17× 提速</span></div>
-    </div>
-
-    <div class="card" data-cat="free">
-      <span class="tag t-free">🆓 免费 · 小模型</span>
-      <h4>Strands Decider 2B（AWS）</h4>
-      <p class="desc">基于 Qwen3.5-2B 的开源决策模型：不输出文本，而是从你给的选项中挑选并给出置信度。JevBench 准确率与校准排名第 3，RTX 3090 上中位决策延迟 115ms。</p>
-      <div class="foot"><span>10/1 · 开源</span><span class="heat">115ms</span></div>
+      <span class="tag t-free">🆓 免费额度 · Anthropic 订阅转 API</span>
+      <h4>Claude Max / Team 每月 API 额度</h4>
+      <p class="desc">Anthropic 向 Max 与 Team 订阅者发放每月 Claude Platform API 额度：Max 5x 每月 <b>$100</b>、Max 20x <b>$200</b>、Team 池化最高 <b>$500</b>。可用于任何模型，专为「试验 agent / 应用」设计。同周 Sonnet 5.5 的缓存读取价从 $0.20 砍到 $0.10 —— 缓存读取占 agent 任务 token 消耗的大头，官方称多数 agent 场景成本降约 20%。</p>
+      <div class="props"><span class="pill p-free">订阅内附赠额度</span><span class="pill p-part">需 Max / Team 订阅</span><span class="pill p-no">Pro / Free 无</span></div>
+      <div class="src-note"><b>额度构成：</b>Team 按 Standard 席位 $20、Premium 席位 $100，池化到一个余额、上限 $500/月。Enterprise 与 Pro、Free 不在范围内。价格来源为 Anthropic 官方文档。</div>
+      <div class="foot"><span>Anthropic · 10/7 起</span><span class="heat">Max/Team</span></div>
     </div>
 
     <div class="card" data-cat="free">
       <span class="tag t-free">🆓 免费 · 本地运行时</span>
-      <h4>Ollama 0.9.x + 本地模型库</h4>
-      <p class="desc">已进入 0.9.x：原生本地应用、内置网页搜索、可调用远端模型 —— 不再只是模型运行器。常用免费模型实测排序：<code>Qwen3 8B</code>（约5.2GB，默认首选）、<code>qwen3-coder:30b</code>（约19GB，重构/agent）、<code>gpt-oss:20b</code>（约14GB，16GB 机器）、<code>qwen3-vl:8b</code>（约6GB，本地多模态）。多数为 Apache 2.0 / MIT。</p>
-      <div class="foot"><span>本地 100% 免费</span><span class="heat">兼容 OpenAI API</span></div>
+      <h4>Ollama 本周上新两员</h4>
+      <p class="desc">Flint（<code>ollama run flint</code>）与 Nemotron 3.5 Bolt E4B（<code>ollama run nemotron-3.5-bolt:e4b</code>）均已上架 Ollama 库。Ollama 同时在推「本地或云端、零数据留存」的姿态 —— 官方说法是安全团队做防御性工作时不愿把数据发到控制不了的地方，云端选项提供 zero data retention，本地则完全不外发。</p>
+      <div class="props"><span class="pill p-yes">本地 100% 免费</span><span class="pill p-free">云端零留存</span><span class="pill p-no">不限速说明未公开</span></div>
+      <div class="foot"><span>Ollama · 兼容 OpenAI API</span><span class="heat">2 个新模型</span></div>
     </div>
 
     <div class="card" data-cat="free">
-      <span class="tag t-free">🆓 免费 · 托管 API</span>
-      <h4>Mistral La Plateforme 免费档</h4>
-      <p class="desc">无需信用卡。实测可用：<code>open-mistral-nemo</code>（12B/128k）、<code>open-mistral-7b</code>、<code>codestral-latest</code>（22B 代码）、ministral 3b/8b/14b。⚠️ 注意：mistral-small / medium / mixtral 系列免费密钥会返回 429（配额为 0），large 返回 403。API 完全兼容 OpenAI SDK，改两行即可切换。</p>
-      <div class="foot"><span>免信用卡 · 限流未公开</span><span class="heat">12 模型可调</span></div>
+      <span class="tag t-open">📦 开源 · 沙箱基础设施</span>
+      <h4>Perplexity「SPACE」agent 沙箱</h4>
+      <p class="desc">Computer agent 的底层隔离层开源，Apache 2.0。Rust 写的，基于 AWS 的 Firecracker microVM —— 每个 agent 任务一台独立 VM，任务结束即销毁；凭证留在沙箱外，由宿主机网关统一管控出网策略；支持快照暂停 / 恢复 / 分叉成多个并行沙箱，滚动快照最长保留一周。自 7 月起承载 Computer 全部会话。</p>
+      <div class="props"><span class="pill p-yes">Apache 2.0</span><span class="pill p-yes">可自托管</span><span class="pill p-part">需 Linux + KVM + btrfs</span></div>
+      <div class="src-note"><b>安全与性能均为厂商自测：</b>官方安全机构跑了 216 次，9 个前沿模型（Opus 5.0、GPT-5.6 Sol、Kimi K3 等）在 108 次逃逸尝试中<b>无一突破虚拟机边界</b>，但 4 个模型绕过过部分网络检查（DNS 欺骗 + 共享 CDN 路由），Perplexity 称已修复且复测未再成功，无第三方复现。median 创建延迟 185ms → 60ms（3.1 倍），p90 447ms → 89ms（5 倍）。Akamai / Crusoe / CoreWeave 已宣布提供托管版本。</div>
+      <div class="foot"><span>10/15 · Apache 2.0</span><span class="heat">60ms 建沙箱</span></div>
+    </div>
+
+    <div class="card" data-cat="free">
+      <span class="tag t-open">📦 开源 · 部署工具</span>
+      <h4>Vercel「durable-sessions」与 AI Gateway</h4>
+      <p class="desc">durable-sessions 让 Pi、OpenCode、Codex、Claude Code、eve、fx 或你自己的 harness 在 Vercel 上<b>持久运行</b>，失败自动恢复，可连续跑数小时、数天甚至数月。AI Gateway 提供多 provider 路由、重试、故障转移、预算与密钥管理、Zero Data Retention，并<b>不收平台推理费</b>（含 BYOK 请求）。</p>
+      <div class="props"><span class="pill p-free">网关无平台加价</span><span class="pill p-part">按用量计费</span><span class="pill p-free">支持 BYOK</span></div>
+      <div class="foot"><span>Vercel · 10/20</span><span class="heat">agent 长跑</span></div>
+    </div>
+
+    <div class="card" data-cat="free">
+      <span class="tag t-open">📦 开源 · 模型托管</span>
+      <h4>Cohere「Model Vault」公开 beta</h4>
+      <p class="desc">与 NVIDIA Confidential Computing、Azure 上的 GPU 配合，让任何人在运行 Cohere 模型的同时保持信息不泄露。官方把它定位给受监管行业用 —— 结合 Hugging Face 本周的观察「连最受监管的行业都在转向开源」，两件事指向同一个结论：<b>自托管 / 可私有化部署正在成为企业默认选项</b>。</p>
+      <div class="props"><span class="pill p-free">公开 beta</span><span class="pill p-part">需 Azure GPU</span><span class="pill p-no">非完全离线</span></div>
+      <div class="foot"><span>Cohere · 10/23</span><span class="heat">机密计算</span></div>
+    </div>
+
+    <div class="card" data-cat="free">
+      <span class="tag t-free">🆓 免费 · 云端试用已结束</span>
+      <h4>MiniMax M3.1 Flash 免费档：已下线</h4>
+      <p class="desc">曾有两条免费通道：OpenRouter 的 <code>minimax/minimax-m3.1-flash:free</code>（$0 输入输出，1M 上下文，按 OpenRouter 免费模型限流，保留 prompt 但不训练）与 Vercel AI Gateway 的免费调用（仅当请求路由到 MiniMax 才免费）。<b>两者均已于 10/22 12:00 UTC 结束</b>，:free 变体已从目录移除。</p>
+      <div class="props"><span class="pill p-no">免费已结束</span><span class="pill p-free">现价 $0.15 / $0.60</span></div>
+      <div class="src-note"><b>留个记录：</b>这类「发布即免费 72 小时」的窗口期是规律，值得盯首发动态。本周同类还有 Qwen 在 gmi_cloud 的一周免费 + 提高限流（10/9 起延长 7 天）。</div>
+      <div class="foot"><span>MiniMax / OpenRouter / Vercel</span><span class="heat">10/22 截止</span></div>
+    </div>
+
+    <div class="card" data-cat="free">
+      <span class="tag t-open">📦 开源 · 权重与许可</span>
+      <h4>各模型授权状态一览（本周变动）</h4>
+      <p class="desc">Meta Muse Glimmer 30B 与 Recursive Flint：<b>Apache 2.0</b>，可商用可改可蒸馏。Perplexity SPACE：Apache 2.0。Qwen3.8-27B：Apache 2.0。Nemotron 3.5 Bolt E4B：OpenMDW-1.1，允许商用与非商用。Muse Spark Open：Muse Model License（有限商用，>2000 万美元年收入需单独协议）。Qwen3.8-Max：自定义 qwen3.8-max 许可（MaaS 业务 >5000 万美元/年需单独许可）。MiniMax M3.1 Flash：HF license 字段为 “other”，条款待明确。</p>
+      <div class="props"><span class="pill p-yes">Apache 2.0 × 4</span><span class="pill p-lic">自定义 × 2</span><span class="pill p-part">待明确 × 1</span></div>
+      <div class="src-note"><b>「开放权重」≠「开源」：</b>Meta 与 Qwen 的开放权重都带商用门槛条款，许可原文以各家模型卡为准，商用前务必逐条核对。</div>
+      <div class="foot"><span>厂商官方模型卡 / 许可页</span><span class="heat">8 个模型</span></div>
     </div>
 
   </div>
-  <div class="note"><b>免费额度提示：</b>Mistral 官方未公布免费档具体限额，实测定位是「够做原型，不适合上生产」。做本地部署时优先走 Ollama，注意 Llama 与 Gemma 是社区协议带商用限制，商用前先确认授权。</div>
 </section>
 
 <section>
@@ -268,55 +345,85 @@ footer{margin-top:50px;padding-top:22px;border-top:1px solid var(--line);
   <p class="lead">可以直接搬进现有工作流的框架、实践与技巧</p>
 
   <table class="tbl">
-    <thead><tr><th style="width:23%">项目</th><th style="width:11%">来源</th><th>能解决什么</th><th style="width:15%">获取</th></tr></thead>
+    <thead><tr><th style="width:21%">项目</th><th style="width:12%">来源</th><th>能解决什么</th><th style="width:17%">获取 / 状态</th></tr></thead>
     <tbody>
       <tr>
-        <td><b>Strata 推理引擎</b></td>
-        <td>开源开发者</td>
-        <td>让超大代码模型 Qwen3.8-Flash-Next 跑在普通消费级显卡上。该模型每 token 只激活约 10/24576 个专家，Strata 把最重的部分留在 GPU，其余拆分到 RAM / CPU / SSD。</td>
-        <td><a href="https://github.com" target="_blank">GitHub</a><br><span class="heat"><span class="bar"><i style="width:100%"></i></span> 15k stars/数日</span></td>
+        <td><b>QwenGyre</b></td>
+        <td>阿里通义千问</td>
+        <td>把弹性 RL 引入超长程（XLong）agent 训练。<b>弹性调度器</b>在 rollout 与 training 之间动态调配 GPU，实时执行不中断，官方称最高 <b>1.85 倍</b>加速。这直接对应「agent 训练成本」这个当下最贵的开销。</td>
+        <td><a href="https://x.com/Alibaba_Qwen" target="_blank">官方公告 ↗</a><br><span class="heat"><span class="bar"><i style="width:64%"></i></span> 10/12</span></td>
       </tr>
       <tr>
-        <td><b>多harness RL 实战指南</b></td>
-        <td>HuggingFace</td>
-        <td>揭示一个要命的问题：<b>同一份权重在 A 框架得分62%，在 B 框架只有 33%</b>。这份今年最实用的 RL 写作之一，全开源，教你如何让评测结果可比。</td>
-        <td><a href="https://huggingface.co" target="_blank">HuggingFace</a><br><span class="heat"><span class="bar"><i style="width:82%"></i></span> 1.2k 赞</span></td>
+        <td><b>SPACE 沙箱</b></td>
+        <td>Perplexity</td>
+        <td>Firecracker microVM，每个 agent 任务一台独立虚拟机，凭证留在沙箱外，出网由宿主机网关统一策略。详见「免费与开源资源」一节。</td>
+        <td><a href="https://github.com/perplexityai" target="_blank">GitHub</a><br><span class="heat"><span class="bar"><i style="width:78%"></i></span> Apache 2.0</span></td>
       </tr>
       <tr>
-        <td><b>Claude Managed Agents</b></td>
-        <td>Anthropic</td>
-        <td>公开 beta的新型多 agent 编排：主 agent 写出计划，分阶段跨多个 agent 执行，最终合并结果。面向最重载的工作流。</td>
-        <td><a href="https://x.com/ClaudeDevs/status" target="_blank">产品公告</a><br><span class="heat"><span class="bar"><i style="width:60%"></i></span> 166 赞</span></td>
+        <td><b>durable-sessions</b></td>
+        <td>Vercel</td>
+        <td>让 Pi / OpenCode / Codex / Claude Code / eve / fx 等任意 harness 持久跑在 Vercel 上，失败自动恢复，运行数小时到数月。对长程 agent 是基础设施级的补齐。</td>
+        <td><a href="https://x.com/vercel" target="_blank">官方公告 ↗</a><br><span class="heat"><span class="bar"><i style="width:70%"></i></span> 10/20</span></td>
       </tr>
       <tr>
-        <td><b>DeepSeek Harness v0.2</b></td>
-        <td>DeepSeek</td>
-        <td>预览版带macOS / Windows 桌面应用，内置插件管理器按包名安装、无需终端。实验性创作者模式：直接用一段描述让 agent 生成并配置插件。已是官方 API 用户中日活第一的编码 agent，约 60% 用户在跑第三方插件。</td>
-        <td><a href="https://github.com/deepseek" target="_blank">GitHub</a><br><span class="heat"><span class="bar"><i style="width:70%"></i></span> 9/30 发布</span></td>
+        <td><b>Taste Skill / <code>/impeccable</code></b></td>
+        <td>Perplexity 社区<br>(LexnLin / pbakaus)</td>
+        <td>两个开源技能进 Perplexity Computer 技能市场。<b>Taste Skill</b>在建站前先定美术方向 —— 布局与字体参考 Awwwards、One Page Love 共 247 个站点；<b>/impeccable</b> 专门审 UI 并修掉「一眼 AI 生成」的问题。用户各送 5000 积分，/taste-skill 到 10/31 前免费。</td>
+        <td><a href="https://x.com/AravSrinivas" target="_blank">官方公告 ↗</a><br><span class="heat"><span class="bar"><i style="width:55%"></i></span> 10/23-24</span></td>
       </tr>
       <tr>
-        <td><b>llama.cpp 0.6.0</b></td>
-        <td>开源社区</td>
-        <td>Ollama / LM Studio 等本地 AI 工具背后的 C++ 引擎。本版新增 <code>/v1/systemone</code> 端点，服务六个决策模型，完整支持文本与视觉（含 Cloudflare Clef）。</td>
-        <td><a href="https://github.com/ggml-org/llama.cpp" target="_blank">GitHub</a><br><span class="heat"><span class="bar"><i style="width:75%"></i></span> 生态底座</span></td>
+        <td><b>TokenSpeed</b></td>
+        <td>lightseek.org<br>（社区）</td>
+        <td>把 Qwen3.8-Flash-Next 的单用户输出推到 <b>685 tok/s</b> —— 4× NVIDIA GB300 + NVFP4，来自 kernel 与 serving 两侧的优化。MiniMax M3.1 Flash 也是它的 day-0 支持模型（DSpark 投机解码 + Blackwell 上的 MXFP8/NVFP4 混合精度）。</td>
+        <td><a href="https://x.com/Alibaba_Qwen" target="_blank">社区项目 ↗</a><br><span class="heat"><span class="bar"><i style="width:62%"></i></span> 685 tok/s</span></td>
       </tr>
       <tr>
-        <td><b>Muse Gadgets 固件</b></td>
-        <td>Meta</td>
-        <td>开源 ESP32 固件 + Linux SDK，任何人都能造 Muse 个人 AI agent 的实体硬件。负责人 Nat Friedman 称之为副业，让开发者拿个 API token 把编码 agent 指向仓库即可。</td>
-        <td><a href="https://x.com/AIatMeta" target="_blank">GitHub 仓库</a><br><span class="heat"><span class="bar"><i style="width:55%"></i></span> 10/2</span></td>
-      </tr>
-      <tr>
-        <td><b>MCP × HuggingFace Chat</b></td>
-        <td>HuggingFace</td>
-        <td>MCP 正在回潮 —— 现在可以用 MCP 把自己的数据直接带进 hf.co/chat。HF 官方的 Paper Pages 也开放了。</td>
-        <td><a href="https://hf.co/chat" target="_blank">hf.co/chat</a><br><span class="heat"><span class="bar"><i style="width:45%"></i></span> 46k 浏览</span></td>
-      </tr>
-      <tr>
-        <td><b>Skills 文件用 ASD-STE100 写</b></td>
+        <td><b>karpathy 的四个技巧</b></td>
         <td>karpathy</td>
-        <td>实用技巧：让 LLM 用 <b>ASD-STE100</b>（一套受控语言规范）解释东西，能显著提升输出可读性与稳定性。Karpathy 另提到语音「漫谈」模式 —— 懒得打字时切<code>/voice</code> 把想法说出来，某些场景比打字更有效。</td>
-        <td><a href="https://x.com/karpathy" target="_blank">@karpathy</a><br><span class="heat"><span class="bar"><i style="width:40%"></i></span> 方法论</span></td>
+        <td>① 让 LLM 用 <b>ASD-STE100</b>（受控语言规范）解释东西，输出可读性明显提升；② 语音「漫谈」模式 —— 懒得打字就切 <code>/voice</code> 把想法说出来，某些场景比打字更有效；③ 只问模型「这是陆地还是水？」并给出经纬度文本坐标，重复问 16,200 次后画成图 —— <b>模型知道</b>；④ 给 Opus 5 一段《指环王》开头、100 万 token 预算（约 $10）看它会做什么。</td>
+        <td><a href="https://x.com/karpathy" target="_blank">@karpathy</a><br><span class="heat"><span class="bar"><i style="width:85%"></i></span> 5.5 万赞</span></td>
+      </tr>
+      <tr>
+        <td><b>Claude 做大规模形式化验证</b></td>
+        <td>Anthropic</td>
+        <td>形式化验证过去只适用于小代码库、或需要大量专家时间。Anthropic 把 Claude 用于<b>大规模软件形式化验证</b>，并把过程发在 Frontier Red Team 博客上 —— 这是把「证明代码没有某类 bug」从人力密集变成可自动化的方向。</td>
+        <td><a href="https://x.com/AnthropicAI" target="_blank">官方博客 ↗</a><br><span class="heat"><span class="bar"><i style="width:60%"></i></span> 10/22</span></td>
+      </tr>
+      <tr>
+        <td><b>JOLT 后训练法</b></td>
+        <td>Perplexity</td>
+        <td>一个模型同时扮演 teacher 与 student，但 teacher 被训练成只给 feedback。在 MATH 上用 <b>GRPO 1/6.5 的训练 token</b> 达到 GRPO 的准确率。对「后训练太贵」这个问题是个有想象力但还没被独立复现的答案。</td>
+        <td><a href="https://x.com/perplexity_ai" target="_blank">研究博客 ↗</a><br><span class="heat"><span class="bar"><i style="width:48%"></i></span> 6.5× 省 token</span></td>
+      </tr>
+      <tr>
+        <td><b>CulturalRiddles 基准</b></td>
+        <td>Cohere Labs</td>
+        <td>测 LLM 能不能解「基础谜题」式的文化推理 —— 把文化当作交织的生活经验而非知识条目。官方称「LLM 在数学与科学上越来越强，却出乎意料地解不了基础谜题」。</td>
+        <td><a href="https://x.com/cohere" target="_blank">官方公告 ↗</a><br><span class="heat"><span class="bar"><i style="width:40%"></i></span> 10/22</span></td>
+      </tr>
+      <tr>
+        <td><b>GitHub 程序化纽约</b></td>
+        <td>GitHub</td>
+        <td>用一批 token 写出的完全程序化纽约市模拟，gzip 后仅 <b>784KB</b>，代码开源随便用。既是技术demo也是「vibe coding 能走多远」的一个注脚。</td>
+        <td><a href="https://x.com/GitHub" target="_blank">@GitHub</a><br><span class="heat"><span class="bar"><i style="width:45%"></i></span> 784KB</span></td>
+      </tr>
+      <tr>
+        <td><b>Battle Drones</b></td>
+        <td>simonw</td>
+        <td>用 Claude Opus 5.5 为主的 Command &amp; Conquer 风格即时战略游戏，跑在浏览器里，还带设备间音频链路多人对战。社区已 fork 出法语Belle Époque 风的「Panache」版本，全法语的蒸汽朋克 Warhammer 味。</td>
+        <td><a href="https://x.com/simonw" target="_blank">@simonw</a><br><span class="heat"><span class="bar"><i style="width:42%"></i></span> 10/20-21</span></td>
+      </tr>
+      <tr>
+        <td><b>Vercel Shop（Shopify Hydrogen）</b></td>
+        <td>Vercel × Shopify</td>
+        <td>让 agent 成为一等公民的电商模板：agent 可以直接读商品页，用 <b>MCP 做商品搜索与购物车</b>操作。Shopify 重建的 Hydrogen SDK 之上，Next.js storefront 模板已 GA。</td>
+        <td><a href="https://x.com/vercel" target="_blank">官方公告 ↗</a><br><span class="heat"><span class="bar"><i style="width:38%"></i></span> 已 GA</span></td>
+      </tr>
+      <tr>
+        <td><b>Perplexity Computer 本地化</b></td>
+        <td>AravSrinivas</td>
+        <td>用户把树莓派 5 通过 Tailscale 的 SSH 权限交给 Perplexity Computer，它过夜自主把它改成了一台游戏主机 —— 带街机 UI、工具链和 MCP 集成，能生成 GBA / C / Rust / 终端游戏并自动编译。企业管理员现在还能给组织内设定 Effort 上下限（直接影响成本与能力）。</td>
+        <td><a href="https://x.com/AravSrinivas" target="_blank">@AravSrinivas</a><br><span class="heat"><span class="bar"><i style="width:52%"></i></span> 10/23</span></td>
       </tr>
     </tbody>
   </table>
@@ -324,17 +431,20 @@ footer{margin-top:50px;padding-top:22px;border-top:1px solid var(--line);
 
 <section>
   <h2>图像与视频模型速览</h2>
-  <p class="lead">Replicate 上本周上线，与创作和素材生成相关</p>
+  <p class="lead">本周上线或有更新的生成 / 编辑模型</p>
   <table class="tbl">
-    <thead><tr><th style="width:22%">模型</th><th style="width:12%">厂商</th><th>特点</th><th style="width:16%">状态</th></tr></thead>
+    <thead><tr><th style="width:20%">模型</th><th style="width:13%">厂商</th><th>特点</th><th style="width:19%">开放 / 状态</th></tr></thead>
     <tbody>
-      <tr><td><b>FLUX 3 Image</b></td><td>Black Forest Labs</td><td>原生 4K 生成；用 bounding box 精确构图；多轮定向编辑且不改动其他像素；最多 10 张参考图合成；商业可用</td><td>10/1 已上线</td></tr>
-      <tr><td><b>Nano Banana 2.1</b></td><td>Google DeepMind</td><td>价格与性能平衡导向；mask 式编辑、主体一致性更强，图像更自然</td><td>10/6 已上线</td></tr>
-      <tr><td><b>Ideogram 4.5</b></td><td>Ideogram</td><td>主打超精确多轮编辑，消除编辑累积产生的伪影与色彩漂移，适合编辑类排版与品牌素材</td><td>开放权重「即将」</td></tr>
-      <tr><td><b>Griffin</b></td><td>Tavus</td><td>号称首个通过视频图灵测试的模型 —— 48% 受试者认为视频里是真人（以往系统 &lt;3%）。⚠️ 该数据来自 Tavus 自有 54 通一分钟通话研究，未经独立验证</td><td>Replicate 上线</td></tr>
-      <tr><td><b>P-Video-2 Pro</b></td><td>PrunaAI</td><td>基于 MiniMax H3，图生视频排行榜并列第2（Elo 1325）。质量版 8.0 秒、速度版 4.5 秒生成</td><td>Replicate 上线</td></tr>
+      <tr><td><b>Qwen-Image-2.1-Turbo</b></td><td>阿里通义千问</td><td>7B 视觉生成架构的加速 checkpoint，<b>8 步去噪</b>出图；统一生成 + 编辑；官方强调步数减少不牺牲质量</td><td>开放权重 · 10/9</td></tr>
+      <tr><td><b>Ideogram 4.5</b></td><td>Ideogram</td><td>主打超精确多轮编辑，消除编辑累积产生的伪影、像素漂移与色彩偏移，适合编辑类排版与品牌素材</td><td>开放权重「即将」· 9/30 上线</td></tr>
+      <tr><td><b>Krea 3</b></td><td>Krea</td><td>端到端 2K 编辑 <b>8 秒内</b>完成，比 Nano Banana Pro 快 4 倍；带 bounding box 控制与精确多轮编辑，质量对标 Nano Banana Pro / GPT Image 2.5</td><td>Replicate beta · 10/15</td></tr>
+      <tr><td><b>Nano Banana 2.1</b></td><td>Google DeepMind</td><td>价格与性能平衡导向；mask 式编辑、主体一致性更强，图像更自然</td><td>Replicate · 10/6</td></tr>
+      <tr><td><b>Griffin</b></td><td>Tavus</td><td>号称首个通过视频图灵测试的模型 —— 48% 受试者认为视频里是真人（以往系统 &lt;3%）</td><td>Replicate · 10/1</td></tr>
+      <tr><td><b>Gemini 4 Argon 3D 场景</b></td><td>Google DeepMind</td><td>用<b>一张</b> Nano Banana 图 + Blender MCP 生成 3D 哥特式教堂，迭代几何、材质与灯光；同类演示还有同步到 Tom Lehrer《The Elements》歌曲的 3D 元素周期表、结合三个开源数据集的交互式人体解剖可视化</td><td>闭源 · 10/20-23</td></tr>
+      <tr><td><b>Forest Typology (ForTy)</b></td><td>Google DeepMind</td><td>10 米分辨率的天然林 / 人工林 / 农场林分类地图，用于识别毁林、保护关键森林</td><td>开源数据 · 10/22</td></tr>
     </tbody>
   </table>
+  <div class="note"><b>关于 Griffin 的 48%：</b>该数字来自 Tavus 自有的 54 通一分钟通话研究，<b>未经独立验证</b>，与「视频图灵测试」的通行定义也不完全可比 —— 把它当作技术方向信号，而不是性能结论。</div>
 </section>
 
 <section>
@@ -342,28 +452,64 @@ footer{margin-top:50px;padding-top:22px;border-top:1px solid var(--line);
   <p class="lead">不属于上面任何分类，但可能影响判断的几条</p>
   <div class="cards">
     <div class="card" data-cat="risk">
-      <span class="tag t-risk">⚠️ 工程拐点</span>
-      <h4>Anthropic 被 agent 逼着重构研发基建</h4>
-      <p class="desc">5 月每天合并约 2500 次代码改动 → 9 月每天<b>超过 3 万次</b>。瓶颈转移到为「人」而非「agent」规模设计的研发基础设施，于是自研了源码控制系统。这是 agent 规模化真正落地的一个硬指标，比任何榜单都有说服力。</p>
-      <div class="foot"><span>Anthropic · 8700 赞 / 100 万浏览</span><span class="heat">最高热度工程帖</span></div>
+      <span class="tag t-risk">⚠️ 安全基建</span>
+      <h4>OpenAI 把前沿模型训练环境断网了</h4>
+      <p class="desc">OpenAI 公开说明：过去几个月他们<b>移除了所有前沿模型训练期间的实时互联网访问</b>，改为构建一个离线世界供其使用 —— 一个缓存版网页。gdb 补充说这套「前沿网络模型」工具反过来帮防守方加固了自己的环境。这是本周最高热度的工程帖（11000 赞 / 580 万浏览）。</p>
+      <div class="foot"><span>OpenAI · 10/23</span><span class="heat">最高热度工程帖</span></div>
     </div>
     <div class="card" data-cat="risk">
-      <span class="tag t-risk">⚠️ 合规收紧</span>
-      <h4>OpenAI 文本水印落地，Anthropic 加固反蒸馏</h4>
-      <p class="desc">OpenAI 因欧盟监管要求把内容溯源扩展到文本，同时承认当前文本水印技术有显著局限。Anthropic 则公布近几个月在降低蒸馏攻击有效性上的进展 —— 两件事指向同一个结论：模型权重与输出正在变成需要被严密保护的资产。</p>
-      <div class="foot"><span>OpenAI 10/7 · Anthropic 昨日</span><span class="heat">合规敏感</span></div>
+      <span class="tag t-risk">⚠️ 供应链漏洞</span>
+      <h4>红队演练顺手挖出 Brotli 未授权 RCE</h4>
+      <p class="desc">同一次红队演练中还发现 Brotli 这个广泛部署的压缩库存在<b>未授权远程代码执行</b>漏洞 —— Brotli 被 Node.js、Bun、Envoy 等大量软件集成。gdb 说这暴露了协调打补丁的复杂度，因为它嵌在大量下游软件里。</p>
+      <div class="foot"><span>OpenAI · 10/23</span><span class="heat">影响面广</span></div>
+    </div>
+    <div class="card" data-cat="risk">
+      <span class="tag t-risk">⚠️ 凭证治理</span>
+      <h4>Vercel：长期静态凭证该退休了</h4>
+      <p class="desc">Vercel 调研了 <b>1000+ 家 SaaS 厂商，只有 8.4% 支持安全认证</b>。这是本周最值得单独拎出来的一条 —— 和 Perplexity 开源沙箱、Ollama 推零留存放在一起看，说明「agent 能干活」之后的下一道关卡是<b>凭证与最小权限</b>。</p>
+      <div class="foot"><span>Vercel · 10/22</span><span class="heat">8.4%</span></div>
     </div>
     <div class="card" data-cat="trend">
-      <span class="tag t-trend">📈 内容溯源</span>
-      <h4>SynthID Detector 全面开放</h4>
-      <p class="desc">任何人可访问 synthid.com 检验文件是否由 Google 或 OpenAI、NVIDIA、Kakao（Apple 即将加入）等合作伙伴的 AI 生成。AI 生成内容检测正在从「厂商内部能力」变成公共基础设施。</p>
-      <div class="foot"><span>Google · 10/7</span><span class="heat">免费工具</span></div>
+      <span class="tag t-trend">📈 基础设施</span>
+      <h4>GitHub 把 99.99999% 的 Git 仓库搬到了 Azure</h4>
+      <p class="desc">随着流量指数级增长，GitHub 迁移了几乎全部 Git 仓库到 Azure，并引入新的写入路径处理最后几个最繁忙的仓库，避免跨区域往返成为吞吐上限，同时支持无状态的 Azure Blob Storage 副本。这是「超大规模代码托管重构」的一个硬指标。</p>
+      <div class="foot"><span>GitHub · 10/21</span><span class="heat">99.99999%</span></div>
     </div>
     <div class="card" data-cat="trend">
-      <span class="tag t-trend">📈 行业讨论</span>
-      <h4>Karpathy：AI 认知鸿沟正在变成漏斗</h4>
-      <p class="desc">约 60 亿人（全球 75%）对AI 能力的认知几乎没有更新 —— 很多人去年试过 ChatGPT 免费版就让它塑造了自己对 AI 的看法。原文强调的核心问题是「使用层级与新鲜度」，而不是单纯的技术分歧。</p>
-      <div class="foot"><span>@karpathy · 旧帖重发</span><span class="heat">视角文章</span></div>
+      <span class="tag t-trend">📈 交互范式</span>
+      <h4>Claude 默认自动执行：拦住 89% 的危险命令</h4>
+      <p class="desc">Claude 网页 / 桌面 / 移动端会话下周起在 Pro、Max、Team 上<b>默认 auto 模式</b>：不再逐步征求批准，而是由一个独立的分类器先审查 risky 操作再放行。实测中它拦下 <b>89% 的危险命令，而人工批准只拦下 14%</b>。Claude Code 中 8 月 14 日起同样默认。</p>
+      <div class="foot"><span>Anthropic · 10/22</span><span class="heat">89% vs 14%</span></div>
+    </div>
+    <div class="card" data-cat="trend">
+      <span class="tag t-trend">📈 科研</span>
+      <h4>Claude 设计抗蝎神经毒素蛋白结合物</h4>
+      <p class="desc">Anthropic 在 Science Blog 发布：用 Claude 设计针对蝎子神经毒素的蛋白结合物。全球每年约 <b>120 万人</b>被蝎子蜇伤，而抗毒液往往昂贵或供应短缺。官方措辞谨慎 ——「迈出了寻找新疗法的早期一步」。</p>
+      <div class="foot"><span>Anthropic · 10/20</span><span class="heat">Science Blog</span></div>
+    </div>
+    <div class="card" data-cat="trend">
+      <span class="tag t-trend">📈 药物发现</span>
+      <h4>GPT-Rosalind 找出一个新的药物发现线索</h4>
+      <p class="desc">GPT-Rosalind 提出一个候选：恢复胆固醇运输是否能保护神经元免于退化？DCTN1 是与 Perry 综合征（一种罕见神经退行性疾病）相关的基因。在小鼠脑数据中，破坏它会增加相关基因表达。这属于「模型提出假设、人来验证」范式的实例。</p>
+      <div class="foot"><span>gdb · 10/21</span><span class="heat">OpenAI 内部</span></div>
+    </div>
+    <div class="card" data-cat="trend">
+      <span class="tag t-trend">📈 人才流向</span>
+      <h4>Latent Space 创始人 Sunil Pai 加入 Anthropic</h4>
+      <p class="desc">swyx 转发确认：Latent Space 的 Sunil Pai 已加入 Anthropic。近期 Anthropic 还在 Long-Term Benefit Trust 聘入前哈佛理学院院长、实验物理学家 Christopher Stubbs（曾任美国政府国安与军控顾问）。</p>
+      <div class="foot"><span>swyx / Anthropic · 10/21-24</span><span class="heat">人事信号</span></div>
+    </div>
+    <div class="card" data-cat="trend">
+      <span class="tag t-trend">📈 治理</span>
+      <h4>Anthropic 发布年度公共利益报告</h4>
+      <p class="desc">作为 Public Benefit Corporation，Anthropic 公布年度公共利益报告，列出五大支柱并盘点已采取的行动。同周 Anthropic 完成 Claude 5.5 家族降价（Opus 5.5 $4/$20、Sonnet 5.5 $2/$10、Haiku 5.5 $0.10/$0.50）—— 竞争焦点已从榜单名次转向单位任务成本。</p>
+      <div class="foot"><span>Anthropic · 10/21</span><span class="heat">年度报告</span></div>
+    </div>
+    <div class="card" data-cat="trend">
+      <span class="tag t-trend">📈 政策</span>
+      <h4>英国 1 亿英镑投 AI 生物安全实验室</h4>
+      <p class="desc">英国政府宣布投入 £1 亿设立 AI Biosecurity Lab（AIBL），OpenAI、Anthropic 各提供最多 £1 亿的模型额度与算力（合计 £2 亿私人承诺），实验室与 OpenAI、Anthropic、Google DeepMind 及 Basecamp Research 合作。方向直指前沿模型在生物风险上的评估能力。</p>
+      <div class="foot"><span>政策 · 10/23</span><span class="heat">AIBL</span></div>
     </div>
   </div>
 </section>
@@ -373,16 +519,7 @@ footer{margin-top:50px;padding-top:22px;border-top:1px solid var(--line);
   <p class="lead">全部一手来源，可按账号与关键词过滤；数字为抓取时的点赞/浏览量</p>
   <div class="filters">
     <button class="fbtn on" data-f="all">全部</button>
-    <button class="fbtn" data-f="OpenAI">OpenAI</button>
-    <button class="fbtn" data-f="AnthropicAI">Anthropic</button>
-    <button class="fbtn" data-f="GoogleDeepMind">Google</button>
-    <button class="fbtn" data-f="mistralai">Mistral</button>
-    <button class="fbtn" data-f="AIatMeta">Meta</button>
-    <button class="fbtn" data-f="huggingface">HuggingFace</button>
-    <button class="fbtn" data-f="gdb">gdb</button>
-    <button class="fbtn" data-f="sama">sama</button>
-    <button class="fbtn" data-f="Replicate">Replicate</button>
-    <button class="fbtn" data-f="karpathy">karpathy</button>
+__ACC_BTNS__
     <div class="spacer"></div>
     <input type="search" id="q" placeholder="搜索关键词…">
   </div>
@@ -392,11 +529,14 @@ footer{margin-top:50px;padding-top:22px;border-top:1px solid var(--line);
 
 <footer>
   <b>方法与局限</b><br>
-  · 数据来源：24 个 X 账号的公开时间线，经 r.jina.ai 免登录通道抓取（2026-10-13）。抓取到的仅是每个账号可见的首屏推文，非完整历史，因此覆盖范围受账号活跃度影响。<br>
-  · 排序依据：互动量（点赞 + 浏览量加权）排序，非编辑推荐。<br>
-  · 部分账号（DeepSeek、Together AI、ylecun）本次抓取内容噪声较大或与AI 弱相关，已在正文中剔除或明确标注为低可信。<br>
-  · 涉及厂商自报的基准与数据（如 Griffin 的 48%、Beam 的性能对标）均已标注来源性质，未做独立验证。<br>
-  · 模型发布信息经联网搜索交叉核对，补充了 X 首屏未覆盖的条目（如 MiniCPM-V 4.7、Reflection Beam 细节）。
+  · 数据来源：__ACC_COUNT__ 个 X 账号的公开时间线，经 r.jina.ai 免登录通道抓取（__DATE_CN__）。抓取到的仅是每个账号<b>可见的首屏推文，非完整历史</b>，覆盖范围受账号活跃度与置顶推文影响 —— 例如 karpathy 首屏含 7 月、8 月旧帖，jeffdean 首屏含 9 月内容。<br>
+  · <b>长推文在未登录视图下会被截断</b>：X 对超长正文折叠并显示「Show more」，展开需登录，因此本周 97 条推文中约 28 条正文不完整（已去掉末尾的 Show more 标记，但句子本身在源侧即被截断）。引用推文内容已并入正文，但两部分均可能各自被截断。<br>
+  · 抓取通道说明：jina 的 markdown 渲染对部分账号会返回「降级」结果（缺 status 链接、时间戳与互动量），因此本周统一走 HTML 渲染模式取结构化数据，再还原成与清洗脚本一致的中间格式；互动量取自页面 engagement 区域的计数（回复 / 转发 / 点赞 / 浏览）。<br>
+  · 排序依据：<b>互动量</b>（点赞 + 浏览量加权）排序，<b>非编辑推荐</b>；分类归属由人工判断。<br>
+  · 噪声账号（DeepSeekAI 内容为搬运、TogetherAI 抓到骚扰内容、ylecun 为政治吐槽）未纳入。<br>
+  · 涉及厂商自报的基准与数据均已标注来源性质，<b>未做独立验证</b>；标 ⚠️ 者为厂商或评测方自报。Artificial Analysis 智能指数属第三方评测机构数据，其余基准多数来自厂商自测。<br>
+  · 模型发布信息与免费额度信息经联网搜索交叉核对，以厂商官方博客 / HuggingFace / 官方定价页为准，补充了 X 首屏未覆盖的条目（如 Kimi K3.1 Pro 基准与开放时间、Muse Spark 授权条款、Qwen 免费额度的三个坑、Claude 订阅 API 额度）。<br>
+  · 分类中「免费 / 开放权重 / 本地可跑」三者是独立维度：一个模型可以开放权重但本地跑不动（如 Kimi K3.1 Pro），也可以完全免费但需要托管（如各类托管 API 试用额度）。
 </footer>
 
 </div>
@@ -408,30 +548,30 @@ let f = 'all', q = '';
 
 function fmt(n){
   if(!n) return '0';
-  if(n>=1e6) return (n/1e6).toFixed(1)+'M';
-  if(n>=1e3) return (n/1e3).toFixed(1)+'K';
+  if(n>=1e6) return (n/1e6).toFixed(n>=1e7?0:1).replace(/\.0$/,'')+'M';
+  if(n>=1e3) return (n/1e3).toFixed(n>=1e4?0:1).replace(/\.0$/,'')+'K';
   return String(n);
 }
-function esc(s){return s.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
+function esc(s){return (s||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
 
 function render(){
   const list = DATA.filter(t=>{
     if(f!=='all' && t.account!==f) return false;
-    if(q && !t.text.toLowerCase().includes(q.toLowerCase())) return false;
+    if(q && !(t.text||'').toLowerCase().includes(q.toLowerCase())) return false;
     return true;
   });
   document.getElementById('none').classList.toggle('hide', list.length>0);
   box.innerHTML = list.map(t=>{
-    const m=t.metrics, hi=m.likes>2000?'color:#dc2626;font-weight:640':'';
-    const who = t.account==='gdb'?'Greg Brockman':t.account;
+    const m=t.metrics||{}, hi=m.likes>2000?'color:#dc2626;font-weight:640':'';
+    const who = t.name || t.account;
     return `<div class="tweet">
       <div class="tw-h">
         <span class="who">${esc(who)}</span>
         <span class="handle">@${esc(t.account)}</span>
-        ${t.when?`<span class="when">${esc(t.when)}</span>`:''}
+        ${t.date?`<span class="when">${esc(t.date)}</span>`:''}
       </div>
       <div class="tw-x">${esc(t.text)}</div>
-      ${t.url?`<div class="st"><a href="${t.url}" target="_blank" style="color:#2563eb;text-decoration:none">查看原文 ↗</a></div>`:''}
+      ${t.url?`<div class="st"><a href="${esc(t.url)}" target="_blank" style="color:#2563eb;text-decoration:none">查看原文 ↗</a></div>`:''}
       <div class="st">
         <span>♥ <b style="${hi}">${fmt(m.likes)}</b></span>
         <span>↻ ${fmt(m.reposts)}</span>

@@ -478,7 +478,8 @@ export function PersonnelLayer({
         const openCnt = p.wo_count || 0
         const unclearedCnt = p.wo_count_uncleared || 0
         const badgeColor = unclearedCnt > 0 ? '#ff4d4f' : '#8c8c8c'
-        // 悬停时在针上方显示姓名与电话（电话号码后端已脱敏）
+        // 悬停时在针上方显示姓名与电话（电话 2026-10-23 起完整显示，
+        // 后端 personnel.py::_display_phone；库里打星且补不回的仍显星号）
         const phone = (p.phone || '').trim()
         const tip = hovered
           ? `<span class="gis-person-tip">` +

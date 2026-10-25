@@ -461,6 +461,7 @@ export default function PersonMap() {
           className="person-map-canvas" style={{ height: '100%', width: '100%' }}>
           <PersonMapView
             people={withCoords}
+            allPeople={stats?.by_person || []}
             loading={false}
             selectedKey={selectedKey}
             onSelect={setSelectedKey}
@@ -546,8 +547,20 @@ export default function PersonMap() {
           （2026-10-19 参照 ?page=realtime_alarm 做成左右分栏，
             2026-10-21 用户要求把地图挪到左边、卡片列挪到右边。）
           两列等高（行内默认 align-items:stretch），地图 card → body → 容器
-          三级 flex 链吃满左列高度，底部不会在「人员清单」前留空白。 */}
-      <div style={{ display: 'flex', flexDirection: 'row', gap: '0.75rem' }}>
+          三级 flex 链吃满左列高度，底部不会在「人员清单」前留空白。
+
+          ⚠️ `flexShrink: 0` 不可去掉（2026-10-24 实测）：本页根节点是
+          `display:flex/column`（见 pageWrap），本行与下方人员表都是它的 flex 子项，
+          子项默认 `flex-shrink:1` 且 `min-height:auto`。embed 模式（门户 iframe，
+          `?embed=1&mwembed=1`）下 `#main-content` 高度被钉在视口高度（800px），
+          而本行内容（地图 minHeight 560 + 右列 KPI/图表）实测 1122px ——
+          超出的 322px 只能由可收缩的子项承担。人员表卡片是普通 antd Card，
+          没有内在最小高度、且 `.ant-card` 自带 `overflow:hidden`，于是被压成
+          **2px**（实测 1591×2px），整个「人员清单」被裁成看不见。
+          这与 theme.ts::controlCardStyle 里记录的是同一个失效模式（那边是
+          筛选条被压成 2px），修法也一致：给会被压缩的块显式 `flexShrink: 0`，
+          让它保持内容高度、由外层 `overflow:auto` 滚动。 */}
+      <div style={{ display: 'flex', flexDirection: 'row', gap: '0.75rem', flexShrink: 0 }}>
         {/* 左列：地图 */}
         <div style={{ flex: 1, minWidth: 0, display: 'flex' }}>
           <CardBase
@@ -567,6 +580,7 @@ export default function PersonMap() {
                 className="person-map-canvas" style={{ height: '100%', width: '100%' }}>
                 <PersonMapView
                   people={withCoords}
+                  allPeople={stats?.by_person || []}
                   loading={false}
                   selectedKey={selectedKey}
                   onSelect={selectPerson}
@@ -639,8 +653,9 @@ export default function PersonMap() {
         </div>
       </div>
 
-      {/* ⑥ 人员总表 */}
-      <CardBase title={t('person.tableTitle')}>
+      {/* ⑥ 人员总表
+          `flexShrink: 0` 见上方分栏处的说明：不加这张卡片会被 flex 压成 2px。 */}
+      <CardBase title={t('person.tableTitle')} style={{ flexShrink: 0 }}>
         <Table<PersonRow>
           dataSource={rows}
           columns={columns}

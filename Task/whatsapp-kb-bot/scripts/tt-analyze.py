@@ -1384,6 +1384,14 @@ def analyze(tt_no: str, rules: list[dict], lang: str = DEFAULT_LANG,
     # 缺了它照样出级别判定与处理链路，只是没有「派单依据」这一段。
     assign = resolve_assign(vf, row, push_rules or [])
 
+    # 告警行（里程碑的「告警发生」跳 + assign_delay）。**可选增强**：
+    # 查不到就是 {}，时间轴 9 跳与其余渲染完全不受影响。
+    # 走 fetch_milestone_alarm 而不是现成的 fetch_alarm_row：后者不读 assign_delay。
+    alarm_row = fetch_milestone_alarm(row.get('alarm_id'), row.get('tt_no') or tt_no) or {}
+
+    # 站点波及范围（master_site_db.victims）。同样是**可选增强**：查不到就是 {}。
+    victims = fetch_victims(row.get('site_id') or row.get('ne_id'))
+
     # 「没命中」分两种，必须区别对待（见 missing_rule_fields 的说明）：
     #   · 真没命中：字段都有值，规则就是不匹配 → 可信的「需人工确认」；
     #   · 判不了  ：有字段是空的（实时行只有 24 个紧凑字段）→ 规则**根本没被真正评估**，
@@ -1417,6 +1425,11 @@ def analyze(tt_no: str, rules: list[dict], lang: str = DEFAULT_LANG,
         'matched_rule_name': rule['name'] if rule else '',
         'match_details': fmt_detail(vf, rule['conds']) if rule else '',
         'assign': assign,
+        # 告警行（只含 _MILESTONE_ALARM_COLUMNS 这几列）。刻意**不进 record**：
+        # record 的键必须 ⊆ _TT_COLUMNS（测试 [12] 的字段闭环断言）。
+        'alarm_row': alarm_row,
+        # 站点波及范围（master_site_db）。同样不进 record：record 键 ⊆ _TT_COLUMNS。
+        'victims': victims,
         'wo': wo or {},
         'fields': vf,
         'record': {
@@ -1679,6 +1692,19 @@ _LABELS: dict[str, dict[str, str]] = {
         'route_auto': '自动派单（{rule}）',
         'route_auto_uncertain': '疑似自动派单（{rule}，与本单流水不完全一致）',
         'route_none': '未匹配到自动派单规则',
+        # 告警行的派单时限 / 派单时刻（见 _assign_delay_note）
+        'alarm_limit': '派单时限 {v}',
+        # 故障波及范围（master_site_db，见 fetch_victims）
+        'victims_prefix': '受影响：',
+        'victims': 'Victims',
+        'victims_list': '清单',
+        'hub_site_desc': 'Hub 站',
+        # 告警行里的简写（比 alarm_limit 短，因为要和告警码挤同一行）
+        'alarm_delay': '派单时限 {v}',
+        'assign_before_tt': '派单早于TT建单 {gap}',
+        'assign_after_tt': '建单后派单耗时 {gap}',
+        'delay_ok': '，未超时限',
+        'delay_over': '，**超时限**',
         'wo_auto': '{wo}，{creator} 自动创建',
         'wo_human': '{wo}，创建者 {creator}',
         'no_wo': '未产生 WO',
@@ -1771,6 +1797,17 @@ _LABELS: dict[str, dict[str, str]] = {
         'route_auto': 'auto-dispatch ({rule})',
         'route_auto_uncertain': 'likely auto-dispatch ({rule}, not fully consistent with the log)',
         'route_none': 'no auto-dispatch rule matched',
+        'alarm_limit': 'assign limit {v}',
+        # 英文前缀自带 "Victims: "，主数字前不再重复标签 —— 故 victims 留空
+        'victims_prefix': 'Victims: ',
+        'victims': '',
+        'victims_list': 'list',
+        'hub_site_desc': 'Hub site',
+        'alarm_delay': 'assign limit {v}',
+        'assign_before_tt': 'dispatched {gap} before TT creation',
+        'assign_after_tt': 'dispatched {gap} after TT creation',
+        'delay_ok': ', within limit',
+        'delay_over': ', **over limit**',
         'wo_auto': '{wo}, auto-created by {creator}',
         'wo_human': '{wo}, created by {creator}',
         'no_wo': 'no WO created',
@@ -1959,6 +1996,70 @@ def _sla_line(r: dict, lang: str = DEFAULT_LANG) -> str:
             else L['sla_remain'].format(v=remain)
         )
     return head + (L['sep'] + L['sep'].join(bits) if bits else '')
+
+
+def fetch_victims(site_id, lang: str = DEFAULT_LANG) -> dict:
+    """按站点 ID 取 `master_site_db` 的 victims / hub_site（故障波及范围）。
+
+    为什么单独查：`eflow_tt` 里**没有** victims 列 —— 它来自 eFlow 站表
+    （`Victims` → `victims`，见 my_app `sync_from_eflow_api.SITE_COLUMN_MAP`），
+    语义是「这个站挂了会波及几个站」，与 `down_site_count`（本次已确认
+    断站数）是两个事实，不能互相顶替：Hub 站 victims=7 时，若只断它自己，
+    down_site_count 仍是 1。
+
+    `victims` 是**数值**、`victims_list` 是**清单**（`A/B/C`）；实测
+    victims 可能比清单多（清单被截断），所以两个都取、由渲染层决定展示哪个。
+
+    查不到/读库失败返回 {} —— 缺这段不影响其余渲染。
+    """
+    sid = str(site_id or '').strip()
+    if not sid or not os.path.isfile(DB_PATH):
+        return {}
+    con = _connect()
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute(
+            'SELECT site_name, hub_site, victims, victims_list FROM "master_site_db" '
+            'WHERE CAST("site_id" AS TEXT) = ? LIMIT 1', (sid,)).fetchone()
+        return dict(row) if row else {}
+    except sqlite3.Error:
+        return {}
+    finally:
+        con.close()
+
+
+def _victims_line(v: dict, lang: str = DEFAULT_LANG) -> str:
+    """`Victims: 7 | Hub site | list: A/B/C` 一行；无数据返回空串。
+
+    三个信号按重要性排列：
+      · `victims`  波及站数（主数字，永远显示）；
+      · `hub_site` 是否 Hub 站（Y → 标注，否则不写）；
+      · `victims_list` 清单 —— 超过 `_VICTIMS_LIST_MAX` 个就换行列出，
+        因为截断加「…等 N 个」反而让人以为后面的不重要。
+    """
+    if not v:
+        return ''
+    L = _L(lang)
+    n = str(v.get('victims') or '').strip()
+    # eFlow 用 '--' 占位；数字 0 也是有效值（该站不波及别人），不能当空
+    if n in ('', '--', 'None'):
+        return ''
+    # 中文给「Victims 7」（前缀是「受影响：」，数字前要有词）；英文前缀已含
+    # "Victims: "，`victims` 留空，这里不要多拼一个空格（否则 "Victims:  7"）。
+    parts = [f"{L['victims']} {n}" if L['victims'] else n]
+    if str(v.get('hub_site') or '').strip().upper() in ('Y', 'YES', '1'):
+        parts.append(L['hub_site'])
+    names = [x.strip() for x in str(v.get('victims_list') or '').split('/') if x.strip()]
+    if names:
+        if len(names) > _VICTIMS_LIST_MAX:
+            # 长清单单独成行，避免把一行撑爆（聊天窗口不折行时更难读）
+            parts.append('\n  ' + L['victims_list'] + ': ' + '/'.join(names))
+        else:
+            parts.append(L['victims_list'] + ': ' + '/'.join(names))
+    return L['victims_prefix'] + L['sep'].join(parts)
+
+
+_VICTIMS_LIST_MAX = 6
 
 
 def _norm_fault_duration(v) -> str:
@@ -2206,6 +2307,152 @@ def _wo_json_step(raw) -> tuple[str, str]:
     return display, ts
 
 
+# 里程碑「告警发生」用的告警行字段。**只读这几列**，不整行取：
+# history_alarm 有 175 列、realtime_alarm 151 列，且都在 Y 盘网络盘上。
+_MILESTONE_ALARM_COLUMNS = (
+    'id', 'aid', 'tt_id', 'alarmraisedtime', 'servertime',
+    'assigned_time', 'assign_delay', 'assign_rulename',
+)
+
+
+def fetch_milestone_alarm(alarm_id, tt_no='', occur_dt=None) -> dict | None:
+    """按 TT 的 alarm_id 取告警行，供里程碑的「告警发生」跳与 assign_delay 使用。
+
+    为什么要这一步：`eflow_tt` 里**没有**「派单」这一列，TT 建单/派单的先后
+    只能从告警行看出来 —— eFlow 告警行同时带
+       · `alarmraisedtime` 告警在网管产生的时刻（TT 的 `alarm_occur_time` 是
+         压缩/建单口径，与它可能差几分钟到几小时）；
+       · `assign_delay`    允许派单时限（如 `900s` = 15 min）；
+       · `assigned_time`   实际派给 FO 的时刻。
+    「TT 建单 − alarmraisedtime」就是派单延迟 assign_delay 的观察窗口，
+    少了它，群里那句「派单耗时」只是整体时效里的一段，答不出「有没有超时限」。
+
+    查询顺序：alarm_id 精确命中（realtime → history）→ 按 tt_id 反查。
+    后者是必需的兜底：TT 的 `alarm_id` 列经常为空（实测 TT202610240058 即如此），
+    而告警行本身有 `tt_id`。查不到/读库失败一律返回 None —— 缺这一跳不影响
+    时间轴其余 8 跳（告警行是可选增强，不是前置条件）。
+    """
+    if not os.path.isfile(DB_PATH):
+        return None
+    aid = str(alarm_id or '').strip()
+    if aid.endswith('.0') and aid[:-2].isdigit():
+        aid = aid[:-2]
+    tt = str(tt_no or '').strip().upper()
+    con = _connect()
+    con.row_factory = sqlite3.Row
+    try:
+        for table in ('realtime_alarm', 'history_alarm'):
+            try:
+                cur = con.cursor()
+                cur.execute(f'PRAGMA table_info("{table}")')
+                existing = {c[1] for c in cur.fetchall()}
+                cols = [c for c in _MILESTONE_ALARM_COLUMNS if c in existing]
+                if not cols:
+                    continue
+                sel = ', '.join(f'"{c}"' for c in cols)
+                row = None
+                if aid and 'id' in existing:
+                    row = cur.execute(
+                        f'SELECT {sel} FROM "{table}" WHERE CAST("id" AS TEXT) = ? '
+                        f'OR CAST("aid" AS TEXT) = ? LIMIT 1'
+                        if 'aid' in existing else
+                        f'SELECT {sel} FROM "{table}" WHERE CAST("id" AS TEXT) = ? LIMIT 1',
+                        (aid, aid) if 'aid' in existing else (aid,),
+                    ).fetchone()
+                if row is None and tt and 'tt_id' in existing:
+                    # tt_id 在网络盘上是全表扫描，只在按 id 没命中时才走。
+                    # 没有 alarm_id 的单（本仓库最常见）会走到这里。
+                    row = cur.execute(
+                        f'SELECT {sel} FROM "{table}" WHERE UPPER(CAST("tt_id" AS TEXT)) = ? '
+                        f'ORDER BY "id" DESC LIMIT 1', (tt,)).fetchone()
+                if row:
+                    return dict(row)
+            except sqlite3.Error:
+                continue
+        return None
+    except Exception:
+        # 告警表读不到只降级「告警发生」这一跳的补充信息，不影响整张单。
+        return None
+    finally:
+        con.close()
+
+
+def _delay_short(v, lang: str = DEFAULT_LANG) -> str:
+    """告警行 `assign_delay` → 「派单时限 15m」这种短语；无值返回空串。
+
+    与 `_assign_delay_note` 的分工：本函数只给**告警行**用（一行放不下比较
+    关系）；比较「有没有超时限」放在里程碑的「告警发生」跳。
+    """
+    sec = _parse_delay_sec(v)
+    if sec is None:
+        return ''
+    return _L(lang)['alarm_delay'].format(v=_humanize_gap(sec))
+
+
+def _assign_delay_note(alarm: dict, t_create, lang: str = DEFAULT_LANG) -> str:
+    """告警行的 assign_delay / assigned_time → 给「告警发生」跳的一句补充。
+
+    返回形如 `派单时限 15m，TT建单前已派单 (+4h00m ≤ 24h00m)` 的说明；
+    数据不足时返回空串（渲染层据此不追加任何字）。
+    """
+    if not alarm:
+        return ''
+    L = _L(lang)
+    limit = _parse_delay_sec(alarm.get('assign_delay'))
+    assigned = _parse_ms(alarm.get('assigned_time'))
+    parts = []
+    if limit is not None:
+        parts.append(L['alarm_limit'].format(v=_humanize_gap(limit)))
+    if assigned is not None and t_create is not None:
+        gap = (t_create - assigned).total_seconds()
+        if gap >= 0:
+            # assigned_time 早于 TT 建单：TT 通常由告警触发/压缩后建单
+            note = L['assign_before_tt'].format(gap=_fmt_gap(gap))
+            if limit is not None:
+                note += L['delay_ok'] if gap <= limit else L['delay_over']
+            parts.append(note)
+        else:
+            # TT 先建、派单后到 —— 这一段就是**真正的**派单耗时
+            note = L['assign_after_tt'].format(gap=_fmt_gap(-gap))
+            if limit is not None:
+                note += L['delay_ok'] if -gap <= limit else L['delay_over']
+            parts.append(note)
+    return '；'.join(parts) if parts else ''
+
+
+def _parse_delay_sec(v) -> 'float | None':
+    """`assign_delay` 的 `900s` / `15min` / 纯秒数 → 秒；不可解析返回 None。"""
+    if v in (None, '', '--'):
+        return None
+    m = re.search(r'(\d+)', str(v))
+    if not m:
+        return None
+    n = float(m.group(1))
+    low = str(v).lower()
+    if 'min' in low:
+        n *= 60
+    elif low[-1:].isdigit() and 'h' not in low:
+        n *= 3600
+    elif 'h' in low and 's' not in low.split('h')[0][-1:]:
+        n *= 3600
+    return n
+
+
+def _parse_ms(v) -> 'datetime | None':
+    """epoch 毫秒（可带 `.0` 尾巴）→ datetime；空/非数字返回 None。"""
+    if v in (None, '', '--'):
+        return None
+    s = str(v).strip()
+    if s.endswith('.0'):
+        s = s[:-2]
+    if not s.isdigit():
+        return None
+    try:
+        return datetime.fromtimestamp(int(s) / 1000)
+    except (ValueError, OSError, OverflowError):
+        return None
+
+
 def _fmt_gap(sec) -> str:
     """秒 → `+40m` / `+7h12m` / `+3d2h` 一类紧凑间隔；负值/空返回空串。"""
     if sec is None:
@@ -2245,10 +2492,18 @@ def build_milestones(res: dict, lang: str = DEFAULT_LANG) -> dict:
         })
 
     # 1. 告警发生
-    _add('alarm_occur', _parse_dt(r.get('alarm_occur_time')))
+    # 告警行（有就优先用它）：
+    #   · 时间取 `alarmraisedtime` —— TT 的 `alarm_occur_time` 常是压缩/建单口径，
+    #     与网管真正产生告警的时刻能差几分钟到几小时；
+    #   · 说明里补 assign_delay（派单时限）与 assigned_time 的相对关系，
+    #     这是「派单有没有超时」唯一能从数据里读出来的地方。
+    # 告警行缺失时整段回到旧行为，不产生任何新文案。
+    alarm = res.get('alarm_row') or {}
+    t_create = _parse_dt(r.get('created_time')) or _detail_first(r.get('create_detail'))[1]
+    t_occur = _parse_ms(alarm.get('alarmraisedtime')) or _parse_dt(r.get('alarm_occur_time'))
+    _add('alarm_occur', t_occur, _assign_delay_note(alarm, t_create, lang))
 
     # 2. TT 建单（created_time 优先，流水时间兜底）
-    t_create = _parse_dt(r.get('created_time')) or _detail_first(r.get('create_detail'))[1]
     _add('tt_create', t_create)
 
     # 3. 派单路由 —— 决策型节点，时间点即建单时刻，不重复显示时间
@@ -2475,6 +2730,11 @@ def render_text(res: dict, lang: str = DEFAULT_LANG) -> str:
         alarm += sep + r['domain']
     if r.get('alarm_type'):
         alarm += sep + r['alarm_type']
+    # 派单时限 assign_delay 是**告警属性**（eFlow 告警行自带），归在「告警」这一行，
+    # 不另开段落。告警行查不到时不追加任何字，行格式与以前完全一致。
+    delay = _delay_short((res.get('alarm_row') or {}).get('assign_delay'), lang)
+    if delay:
+        alarm += sep + delay
     out.append(alarm)
 
     if r.get('sub_alarm_name'):
@@ -2563,6 +2823,10 @@ def render_text(res: dict, lang: str = DEFAULT_LANG) -> str:
     # ── 时效 ──
     out.append('')
     out.append(L['timeliness'])
+    # Victims 紧跟 SLA 之前（用户 2026-10-25 指定的顺序）
+    victims = _victims_line(res.get('victims') or {}, lang)
+    if victims:
+        out.append(victims)
     out.append(_sla_line(r, lang))
     out.append(_fault_line(r, lang))
     if r.get('_sync_time'):
@@ -2648,6 +2912,10 @@ def render_text_brief(res: dict, lang: str = DEFAULT_LANG) -> str:
     tail = [v for v in (r.get('domain'), r.get('alarm_type')) if v]
     if tail:
         alarm += sep + sep.join(tail)
+    # 派单时限（告警行属性）——与完整模式同口径，见 render_text 的同一处。
+    delay = _delay_short((res.get('alarm_row') or {}).get('assign_delay'), lang)
+    if delay:
+        alarm += sep + delay
     obj = _first_obj_name(r)
     if obj:
         alarm += sep + obj
@@ -2656,6 +2924,16 @@ def render_text_brief(res: dict, lang: str = DEFAULT_LANG) -> str:
     impact = _impact_parts(r, lang)
     if impact:
         out.append(L['impact'] + sep.join(impact))
+
+    # Victims（波及范围）——只给数字 + Hub 标记，**不列清单**：
+    # brief 的读者是分钟级值班，清单留给完整模式。
+    v = res.get('victims') or {}
+    vn = str(v.get('victims') or '').strip()
+    if vn not in ('', '--', 'None'):
+        bits = [f"{L['victims']} {vn}" if L['victims'] else f"{L['victims_prefix']}{vn}"]
+        if str(v.get('hub_site') or '').strip().upper() in ('Y', 'YES', '1'):
+            bits.append(L['hub_site_desc'])
+        out.append(sep.join(bits))
 
     # ── 级别（一行；缺字段不吐内部列名）──
     sev = res.get('current_severity') or '-'

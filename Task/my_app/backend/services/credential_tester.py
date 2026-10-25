@@ -35,6 +35,10 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional, Tuple
 
+# 测试地址解析（配置 > env > 内置默认）。credential_store 不反向依赖本模块，
+# 无循环导入风险。
+from backend.services.credential_store import resolve_endpoint
+
 logger = logging.getLogger(__name__)
 
 # 单组测试默认超时（秒）。所有 _test_* 都必须显式设超时，不许裸等。
@@ -504,15 +508,31 @@ def run_test(key: str, group: dict, user: str, pwd: str, en: bool = False) -> di
                              "Automatic connection test is not supported for this system. "
                              "Save and check the next task run."),
         }
+
+    # 2026-10-22：测试地址统一由 credential_store.resolve_endpoint 解析
+    # （优先级：环境变量 > 任务配置文件 > 内置默认），覆盖到 group 的**副本**上，
+    # 于是所有 _test_* 里的 test_host / test_port 自动跟随配置，不必逐个改。
+    # 未登记配置的组解析结果仍等于内置默认，行为与改动前一致。
+    # 为什么不能继续用 group 里的硬编码值：任务实际连的地址来自页面可编辑的
+    # <task>_config.json，两边各写一份就会出现「改了配置、测试还在测旧机」，
+    # 更糟的是消息里报的主机跟真正连上的主机不是同一台。
+    group = dict(group or {})
+    ep = resolve_endpoint(key)
+    if ep.get("host"):
+        group["test_host"] = ep["host"]
+    if ep.get("port"):
+        group["test_port"] = ep["port"]
+    group["_endpoint"] = ep
+
     try:
         ok, msg = fn(group, user, pwd, en)
     except Exception as e:  # noqa: BLE001
         # 兜底：任何一个测试函数抛出未捕获异常，都不能让设置页 500。
         logger.warning(f"[CRED-TEST] {key} 测试异常: {e}", exc_info=True)
-        return {"status": "fail", "key": key,
+        return {"status": "fail", "key": key, "endpoint": ep,
                 "message": _disp(en, f"测试异常: {type(e).__name__}: {e}",
                                  f"Test error: {type(e).__name__}: {e}")}
-    return {"status": "ok" if ok else "fail", "key": key, "message": msg}
+    return {"status": "ok" if ok else "fail", "key": key, "endpoint": ep, "message": msg}
 
 
 def supported_kinds() -> list:

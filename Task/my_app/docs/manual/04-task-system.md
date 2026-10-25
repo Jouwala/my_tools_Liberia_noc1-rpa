@@ -31,7 +31,7 @@ APScheduler 到点 (backend 进程内)
 | 组 | 任务数 | 约束原因 | 成员 task_id |
 | --- | --- | --- | --- |
 | `u` | 12 | RAN UME 单账号会话，必须串行（并发会被踢会话）。`bp_report_sync` 也读 RAN UME，且必须排在 `main_kpi_sync` 之后（否则读到昨天的 KPI） | `ran_ume_daily`, `main_kpi_sync`, `cell_availability_sync`, `network_kpi_sync`, `packet_loss_sync`, `packet_loss_email`, `battery_kpi_sync`, `ipran_kpi_sync`, `cm_data_sync`, `cells_kpi_sync`, `avail_recon_sync`, `bp_report_sync` |
-| `n` | 14 | eFlow API / config-center 同源会话（2026-09-27 由 17 项收窄，VMAX→`v`、SFTP→`s`、MW UME→`w`；2026-10-15 实时告警→`x`；2026-10-17 新增 `cnn_kpi_sync_5mins`，与 `cnn_kpi_sync` 共用 CNN UME 会话） | `eflow_sync`, `eflow_sync_full`, `eflow_history_alarm`, `eflow_tt_rules_check`, `ms_sla_full`, `cnn_kpi_sync`, `cnn_kpi_sync_5mins`, `fw_kpi_sync`, `sp_online_sync`, `sp_material_sync`, `eflow_alarm_rules_collect`, `eflow_push_rules_collect`, `ume_in_kpi_sync`, `ume_in_osg_report` |
+| `n` | 17 | eFlow API / config-center 同源会话（2026-09-27 由 17 项收窄，VMAX→`v`、SFTP→`s`、MW UME→`w`；2026-10-15 实时告警→`x`；2026-10-17 新增 `cnn_kpi_sync_5mins`，与 `cnn_kpi_sync` 共用 CNN UME 会话；2026-10-23 新增 3 个 `whatsapp_kb_sync_*`，跟在对应规则采集之后触发知识库同步） | `eflow_sync`, `eflow_sync_full`, `eflow_history_alarm`, `eflow_tt_rules_check`, `ms_sla_full`, `cnn_kpi_sync`, `cnn_kpi_sync_5mins`, `fw_kpi_sync`, `sp_online_sync`, `sp_material_sync`, `eflow_alarm_rules_collect`, `eflow_push_rules_collect`, `eflow_push_rules_check`, `whatsapp_kb_sync_alarm_rules`, `whatsapp_kb_sync_push_rules`, `whatsapp_kb_sync_tt_rules`, `ume_in_kpi_sync`, `ume_in_osg_report` |
 | `s` | 1 | SP 备件 SFTP（独立 SFTP 服务器 + UNC 镜像库）。2026-09-27 从 `n` 拆出：它是 `n` 组最大单体负载（实测 347min/天）且是已知挂死源（SFTP channel 读挂死 5.5h 曾拖停整组） | `sp_data_sync` |
 | `w` | 2 | MW UME 微波网管（凭证分组 `mw_ume`），独立会话。2026-09-27 从 `n` 拆出：`mw_ume_kpi_sync_rt` 为 `*/15` 高频任务，此前每次排在 `sp_data_sync` 后，实测队列等待 964s（全场最久） | `mw_ume_kpi_sync`, `mw_ume_kpi_sync_rt` |
 | `v` | 3 | VMAX 门户（本机 8790 单会话代理）：三个任务共用同一个 VMAX 会话，必须彼此串行；2026-09-18 从 `n` 组拆出（原先排在 `sp_data_sync` 这类 1.5~2h 长任务后面，小时级采集滞后一个多小时） | `cxo_dashboard_cache_sync`, `vmax_cxo_daily_sync`, `vmax_multi_data_sync` |
@@ -114,6 +114,7 @@ APScheduler 到点 (backend 进程内)
 | `eflow_active_alarm` | eFlow 实时告警同步 | `*/1 * * * *` | x |
 | `eflow_history_alarm` | eFlow 历史告警同步 | `0 */3 * * *` | n |
 | `eflow_tt_rules_check` | eFlow TT 规则收集与匹配检查 | `20 4 * * *` | n |
+| `eflow_push_rules_check` | eFlow 推单规则批量检查（规则判定 vs 实际派单 + 周快照） | `10 5 * * 2` | n |
 | `main_kpi_sync` | RAN Main KPI 同步 | `0 4 * * *` | u |
 | `cell_availability_sync` | RAN 小区可用性 1-Day 同步 | `30 4 * * *` | u |
 | `network_kpi_sync` | RAN Network KPI 同步 | `0 5 * * *` | u |
@@ -168,6 +169,9 @@ APScheduler 到点 (backend 进程内)
 | `ume_in_osg_report` | 客户业务 KPI + OSG 周报邮件 | `30 6 * * *` | n |
 | `eflow_alarm_rules_collect` | eFlow 告警规则收集 | `59 23 */3 * *` | n |
 | `eflow_push_rules_collect` | eFlow 推单规则收集 | `59 23 */3 * *` | n |
+| `whatsapp_kb_sync_alarm_rules` | WhatsApp 知识库同步（告警规则） | `4 0 */3 * *` | n |
+| `whatsapp_kb_sync_push_rules` | WhatsApp 知识库同步（推单规则） | `4 0 */3 * *` | n |
+| `whatsapp_kb_sync_tt_rules` | WhatsApp 知识库同步（TT 级别规则） | `35 4 * * *` | n |
 | `log_cleanup` | 日志文件清理 | `17 3 * * *` | m |
 | `cxo_dashboard_cache_sync` | CXO看板数据缓存同步 | `*/10 * * * *` | v |
 | `vmax_cxo_daily_sync` | VMAX CXO天粒度日值归档 | `15 * * * *` | v |

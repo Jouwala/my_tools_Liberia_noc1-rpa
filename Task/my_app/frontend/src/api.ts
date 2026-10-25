@@ -207,6 +207,13 @@ export function getTtPostmortem(ttNo: string) {
   return api.get(`/eflow-qa/_tt_postmortem/${encodeURIComponent(ttNo)}`)
 }
 
+// ========== VMAX 用户信息查询（按号码查 IMSI / 终端）==========
+// 新增于 2026-10-24；对应后端 routers/vmax_cca_query.py（CCA 投诉查询接口，只读透传不落库）
+// start/end：时间窗（YYYY-MM-DD），控制窗口内的按应用流量与驻留小区查询
+export function vmaxCcaQuery(msisdn: string, start?: string, end?: string) {
+  return api.get('/vmax-cca-query', { params: { msisdn, start, end } })
+}
+
 export function getNocAnalystReport(params?: Record<string, string | number>) {
   return api.get('/eflow-qa/_tt_postmortem_noc', { params })
 }

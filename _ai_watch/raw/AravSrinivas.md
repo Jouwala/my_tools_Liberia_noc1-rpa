@@ -1,70 +1,9 @@
-Title: Aravind Srinivas (@AravSrinivas) on X
+*   [![Image 3: @AravSrinivas](https://pbs.twimg.com/profile_images/2099903483457703936/U-W6QQk__normal.jpg)](https://x.com/AravSrinivas)  [Aravind Srinivas](https://x.com/AravSrinivas) [@AravSrinivas](https://x.com/AravSrinivas) [Oct 20](https://x.com/AravSrinivas/status/2112583333825950207)   You can now run Perplexity Computer fully local on your Mac with no cloud based inference, without WiFi too. Enjoy! Perplexity Computer can now run fully local on your Mac. Work with your native Mac apps and local files, and run tasks without sending sensitive data to the cloud. The model and the agent both run on your Mac. Available now in the Perplexity Mac app.   [166](https://x.com/compose/post?in_reply_to=2112583333825950207) 173 2.6K 219.0K
 
-URL Source: https://x.com/AravSrinivas
+*   [![Image 3: @AravSrinivas](https://pbs.twimg.com/profile_images/2099903483457703936/U-W6QQk__normal.jpg)](https://x.com/AravSrinivas)  [Aravind Srinivas](https://x.com/AravSrinivas) [@AravSrinivas](https://x.com/AravSrinivas) [10m](https://x.com/AravSrinivas/status/2114021917586014449)   /impeccable is now a skill inside Computer. It’s an open-source skill built by @pbakaus to let you build interfaces that don’t look like AI-generated slop. We’re offering 5000 credits per user to get started with the skill. The Impeccable skill by @pbakaus, now in Computer's skills marketplace, reviews an interface and fixes what a designer would flag. It checks layout, type, contrast and accessibility. Tasks that use /impeccable are free through October 31, up to 5,000 credits per user.   [14](https://x.com/compose/post?in_reply_to=2114021917586014449) 1 25 3.4K
 
-Markdown Content:
-[](https://x.com/)
+*   [![Image 3: @AravSrinivas](https://pbs.twimg.com/profile_images/2099903483457703936/U-W6QQk__normal.jpg)](https://x.com/AravSrinivas)  [Aravind Srinivas](https://x.com/AravSrinivas) [@AravSrinivas](https://x.com/AravSrinivas) [22h](https://x.com/AravSrinivas/status/2113683117651460532)   We're letting admins have a lot more control over how people get to tokenmax internally by being able to set a floor and a ceiling on the Effort level (which correlates to capability and cost). Enterprise admins can now set Computer's maximum effort and default effort for any role in the organization. Available now in the Organization Settings menu for all enterprise admin users.   [37](https://x.com/compose/post?in_reply_to=2113683117651460532) 4 123 20.0K
 
-[](https://x.com/)
+*   [![Image 3: @AravSrinivas](https://pbs.twimg.com/profile_images/2099903483457703936/U-W6QQk__normal.jpg)](https://x.com/AravSrinivas)  [Aravind Srinivas](https://x.com/AravSrinivas) [@AravSrinivas](https://x.com/AravSrinivas) [Oct 23](https://x.com/AravSrinivas/status/2113661112143282441)   This user gave Perplexity Computer, SSH access to a Raspberry Pi 5 over Tailscale. Overnight, it autonomously turned it into a game console with an arcade UI, toolchains and MCP integration. The console generates GBA, C, Rust and terminal games with automated compilation, Show more   [80](https://x.com/compose/post?in_reply_to=2113661112143282441) 26 495 36.0K
 
-[Log in](https://x.com/i/jf/onboarding/web?mode=login&redirect_after_login=%2FAravSrinivas)[Sign up](https://x.com/i/jf/onboarding/web?mode=signup&redirect_after_login=%2FAravSrinivas)
-
-[Log in](https://x.com/i/jf/onboarding/web?mode=login&redirect_after_login=%2FAravSrinivas)[Sign up](https://x.com/i/jf/onboarding/web?mode=signup&redirect_after_login=%2FAravSrinivas)
-
-Aravind Srinivas
-
-[![Image 1: Perplexity](https://pbs.twimg.com/profile_images/2009310641165660160/XArF3_Ib_normal.jpg)](https://x.com/perplexity_ai)
-
-9,133 posts
-
-[![Image 2: Aravind Srinivas profile banner](https://pbs.twimg.com/profile_banners/759894532649545732/1772509049/1500x500)](https://x.com/AravSrinivas/header_photo)
-
-[![Image 3: @AravSrinivas](https://pbs.twimg.com/profile_images/2099903483457703936/U-W6QQk__400x400.jpg)](https://x.com/AravSrinivas/photo)
-
-# Aravind Srinivas
-
-[![Image 4: Perplexity](https://pbs.twimg.com/profile_images/2009310641165660160/XArF3_Ib_normal.jpg)](https://x.com/perplexity_ai)
-
-@AravSrinivas
-
-cofounder and ceo [@perplexity_ai](https://x.com/perplexity_ai)
-
-SF
-
-[computer.new](https://t.co/IVGc2gbKy8)
-
-[Joined July 2016](https://x.com/AravSrinivas/about)
-
-[1,608 Following](https://x.com/AravSrinivas/following)[1.1M Followers](https://x.com/AravSrinivas/verified_followers)
-
-Mention
-
-[](https://x.com/compose/post?text=%40AravSrinivas+)
-
-Follow
-
-[](https://x.com/AravSrinivas)
-
-Posts Posts[Replies Replies](https://x.com/AravSrinivas/with_replies)[Reposts Reposts](https://x.com/AravSrinivas/reposts)[Media Media](https://x.com/AravSrinivas/media)[Articles Articles](https://x.com/AravSrinivas/articles)
-
-## @AravSrinivas hasn’t posted
-
-When they do, their posts will show up here.
-
-## Log in or sign up for X
-
-See what’s happening and join the conversation
-
-[Continue with phone](https://x.com/i/jf/onboarding/web?mode=signup&redirect_after_login=%2FAravSrinivas)Continue with Apple
-
-Continue with Google
-
-Continue with Google Continue with Google. Opens in new tab
-
- or 
-
-[Log in with username or email](https://x.com/i/jf/onboarding/web?mode=login&redirect_after_login=%2FAravSrinivas)
-
-[Terms](https://x.com/tos)·[Privacy](https://x.com/privacy)·[Cookies](https://support.x.com/articles/20170514)·[Accessibility](https://help.x.com/resources/accessibility)·[Ads Info](https://business.x.com/en/help/troubleshooting/how-twitter-ads-work.html?ref=web-twc-ao-gbl-adsinfo&utm_source=twc&utm_medium=web&utm_campaign=ao&utm_content=adsinfo)·More© 2026 X Corp.
-
-Scan to get the app![Image 5](blob:http://localhost/fb6222c6668407cdc55252bc620d733e)
+*   [![Image 3: @AravSrinivas](https://pbs.twimg.com/profile_images/2099903483457703936/U-W6QQk__normal.jpg)](https://x.com/AravSrinivas)  [Aravind Srinivas](https://x.com/AravSrinivas) [@AravSrinivas](https://x.com/AravSrinivas) [Oct 23](https://x.com/AravSrinivas/status/2113655142201671981)   Computer now has more taste in building websites, thanks to @LexnLin’s open-source skill, now integrated inside. We’re giving 5000 credits per user to tinker around. The Taste Skill by @LexnLin, now in Computer's skills marketplace, sets an art direction before Computer builds a website. Layout and type draw on 247 sites from Awwwards and One Page Love. Tasks that use /taste-skill are free through October 31, up to 5,000 credits per user.   [35](https://x.com/compose/post?in_reply_to=2113655142201671981) 14 272 30.0K

@@ -82,5 +82,10 @@ export function describeRoute(r) {
   if (r.channel === 'lookup') {
     return `通道=查表（data/lookups.json，不经 LLM${ms}）${via}${tool}`;
   }
+  if (r.channel === 'sitealarm') {
+    // 2026-10-24 补：此前漏了这一支，站点告警通道的日志会显示成
+    // 「通道=知识库（bge-m3…）」—— 排障时会被引到错误的通道上。
+    return `通道=站点告警（eFlow 实时活动告警${ms}）${via}${tool}`;
+  }
   return `通道=知识库（${CONFIG.embedModel} 嵌入 + 混合检索${ms}）${via}${tool}`;
 }

@@ -327,6 +327,12 @@ export interface CountyBoundary {
   /** 该县**有实时告警的站点数**（COUNT DISTINCT，口径同 /gis/realtime/sites）。
    *  2026-09-25 新增：地图标签按用户要求改为显示此值而非 site_count。 */
   alarm_site_count: number
+  /** 按传输类型（trm_type）分组的站点数（2026-10-23 人员页县名标签用）。
+   *  与 site_count 同一 WHERE 口径；NULL/空值不进 dict（后端 gis.py 组装），
+   *  旧缓存/旧后端没有该字段 → undefined，标签退化为只显县名+总数。 */
+  trm_counts?: Record<string, number>
+  /** 按维护分类（site_caregory，列名本就拼错）分组的站点数。口径同上。 */
+  caregory_counts?: Record<string, number>
   polygons: [number, number][][]
 }
 

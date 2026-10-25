@@ -1376,6 +1376,24 @@ main { flex: 1; padding-block: var(--s5) var(--s4); display: flex; flex-directio
    取 0.4 而不是 0：完全不给描边时，在深色主题下柱体与卡底色的对比会偏弱；
    vector-effect="non-scaling-stroke"（由 JS 写在路径上）保证它不被拉粗。 */
 .qc-spark .sp-bar { fill: var(--qc-accent); stroke: var(--qc-accent); stroke-width: .4; }
+/* 2026-10-23（用户要求）：Daily Operation 六卡按大数字分档给「数字 + 柱状图」上色 ——
+   <5 绿 #006400、<20 金 #FFD700、>=20 红 #FF0000，色值按用户点名原样写。
+   ⚠️ 刻意**不动 --qc-accent**：那个变量还喂着卡片边框、内发光与 hover 光晕
+   （见上面 .qc-card 与 .qc-card:hover），整卡换色不在需求里 —— 用户点名的只有
+   「数字和下面的柱状图」两处。故单开 --qc-tier 一个变量，只落在 .qc-num 的
+   color 与 .sp-bar 的 fill/stroke 上。
+   类名由 qcCardHtml 按数值输出（is-tier-ok/warn/crit），与旧版等级类
+   .qc-lv-*（v1 起已不渲染，见上）无继承关系 —— 复用那套会连边框一起染色。
+   未分档（数字取不到 / 接口失败）时不命中任何一条，回到品牌色原状。 */
+.qc-card.is-tier-ok   { --qc-tier: #006400; }
+.qc-card.is-tier-warn { --qc-tier: #FFD700; }
+.qc-card.is-tier-crit { --qc-tier: #FF0000; }
+.qc-card.is-tier-ok .qc-num,
+.qc-card.is-tier-warn .qc-num,
+.qc-card.is-tier-crit .qc-num { color: var(--qc-tier); }
+.qc-card.is-tier-ok .qc-spark .sp-bar,
+.qc-card.is-tier-warn .qc-spark .sp-bar,
+.qc-card.is-tier-crit .qc-spark .sp-bar { fill: var(--qc-tier); stroke: var(--qc-tier); }
 /* 线画的是**新增量**，大数字是**存量**，量级不同不能互相印证 ——
    所以说明文字（窗口 + 每格时长）是必需的，否则会把线的起伏当成大数字的起伏。 */
 .qc-spark-wrap { display: block; margin-top: 8px; }

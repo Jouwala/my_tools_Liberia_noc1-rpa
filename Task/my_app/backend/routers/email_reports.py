@@ -91,6 +91,12 @@ _SOURCES = [
          patterns=["eflow_tt_severity_correction*.xlsx", "MATCHING_REPORT*.md", "eflow_TT_rules.xlsx",
                    "eflow_alarm_rules*.xlsx", "eflow_push_rules*.xlsx"],
          label="eFlow TT 规则收集与匹配报告", label_en="eFlow TT Rules Collect & Match Report"),
+    # 2026-10-23 新增：推单规则批量检查的产物（逐单规则判定 vs 实际派单）。
+    # 只放本任务自己的产物 —— 规则表本身仍由上面的 eflow_tt_rules_check 源提供下载。
+    dict(id="eflow_push_rules_check", task_id="eflow_push_rules_check",
+         dir=_BASE / "backend" / "services" / "eflow_rules",
+         patterns=["eflow_push_rules_check*.xlsx"],
+         label="eFlow 推单规则检查表", label_en="eFlow Push Rules Check Sheet"),
 ]
 
 _SOURCE_BY_ID = {s["id"]: s for s in _SOURCES}
@@ -109,6 +115,11 @@ _EFLOW_FILE_SPECS = [
          label="TT 级别矫正规则", label_en="TT Severity Rules"),
     dict(pattern="eflow_alarm_rules*.xlsx", kind="rule",
          label="告警关联规则", label_en="Alarm Correlation Rules"),
+    # ⚠ 必须排在 `eflow_push_rules*.xlsx` **之前**：本函数是「第一个命中的规则说了算」，
+    #   而 `eflow_push_rules_check.xlsx` 也命中 `eflow_push_rules*.xlsx`。
+    #   放在后面会把推单检查表显示成「推单/配置规则」（2026-10-23 实测踩到）。
+    dict(pattern="eflow_push_rules_check*.xlsx", kind="report",
+         label="推单规则检查表", label_en="Push Rules Check Sheet"),
     dict(pattern="eflow_push_rules*.xlsx", kind="rule",
          label="推单/配置规则", label_en="Push / Config Rules"),
     dict(pattern="eflow_tt_severity_correction*.xlsx", kind="report",
@@ -568,3 +579,229 @@ def eflow_tt_rules_check_unmatched_dist(top: int = 10):
         "unmatched_total": sum(bucket.values()),
         "distinct_groups": len(bucket),
     }
+
+
+# ==================================================================
+# eFlow TT Push Rules Check 页签（2026-10-23 新增）
+# ------------------------------------------------------------------
+# 与上面的 eflow_tt_rules_check 页签是**两件事**：
+#   · 上面那个：级别规则（ttLevelRule），回答「这单该是什么级别」；
+#   · 这一个  ：推单规则（ttPushOrderRule / FOAccept），回答「这单会不会自动派 WO、派给谁」。
+# 两者样本口径完全一致（created_time 最新 N 条、alarm_code 非空），所以「总 TT」对得上。
+# 数据源：eflow_push_rules_checker 每次运行导出的 eflow_push_rules_check.xlsx。
+# 卡片数字与下钻明细**同源**（都读这张表），避免 json / xlsx 双写不同步。
+# ==================================================================
+
+_PUSH_CHECK_XLSX = _BASE / "backend" / "services" / "eflow_rules" / "eflow_push_rules_check.xlsx"
+_PUSH_CHECK_JSON = _BASE / "backend" / "services" / "eflow_rules" / "eflow_push_rules_check_latest.json"
+
+_PUSH_DRILL_COLS = [
+    ("tt_no", "tt_no"), ("wo_no", "wo_no"), ("ticket_no", "ticket_no"),
+    ("title", "title"), ("alarm_code", "alarm_code"), ("alarm_name", "alarm_name"),
+    ("site_id", "site_id"), ("site_name", "site_name"), ("ne_name", "ne_name"),
+    ("domain", "domain"), ("site_type", "site_type"), ("vip_site", "vip_site"),
+    ("down_site_count", "down_site_count"), ("ticket_severity", "ticket_severity"),
+    ("created_time", "created_time"),
+    # 实际派单
+    ("has_wo", "has_wo"), ("dispatch_person", "dispatch_person"),
+    ("dispatch_group", "dispatch_group"), ("fo_operator", "fo_operator"),
+    ("robot_handled", "robot_handled"),
+    # 规则判定
+    ("rule_id", "rule_id"), ("rule_name", "rule_name"),
+    ("rule_builds_wo", "rule_builds_wo"), ("target_handler", "target_handler"),
+    ("push_path", "push_path"), ("auto_operator", "auto_operator"),
+    ("evidence", "evidence"),
+    # 分类
+    ("category", "category"), ("diff_kind", "diff_kind"),
+]
+
+_PUSH_CACHE: dict = {}
+_PUSH_LOCK = threading.Lock()
+
+
+def _norm_bool(v) -> bool:
+    """Excel / JSON 里的布尔可能读成 'True' / 'FALSE' / 1 —— 统一成 Python bool。"""
+    if isinstance(v, bool):
+        return v
+    if isinstance(v, (int, float)):
+        return bool(v)
+    return str(v).strip().lower() in ("true", "1", "yes", "y")
+
+
+def _load_push_rows() -> list[dict]:
+    """读推单检查表 All_TT_Records → 前端字段；按 (mtime, size) 缓存。"""
+    f = _PUSH_CHECK_XLSX
+    if not f.is_file():
+        raise HTTPException(status_code=404,
+                            detail="推单检查表尚未生成，请先运行 eflow_push_rules_check 任务")
+    st = f.stat()
+    key = (st.st_mtime_ns, st.st_size)
+    with _PUSH_LOCK:
+        if _PUSH_CACHE.get("key") == key:
+            return _PUSH_CACHE["rows"]
+        try:
+            import pandas as pd
+            df = pd.read_excel(f, sheet_name="All_TT_Records")
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"读取推单检查表失败 ({f}): {e}")
+            raise HTTPException(status_code=500, detail=f"读取推单检查表失败: {e}")
+        rows: list[dict] = []
+        for rec in df.to_dict("records"):
+            item = {dst: _clean_tt_value(rec.get(src)) for src, dst in _PUSH_DRILL_COLS}
+            for k in ("has_wo", "robot_handled", "rule_builds_wo"):
+                item[k] = _norm_bool(rec.get(k))
+            item["rule_id"] = _clean_tt_value(rec.get("rule_id"))
+            rows.append(item)
+        _PUSH_CACHE.clear()
+        _PUSH_CACHE.update({"key": key, "rows": rows})
+        return rows
+
+
+@router.get("/api/email-reports/eflow_push_rules_check")
+def eflow_push_rules_check_summary(request: Request):
+    """推单规则检查页签：最新一次摘要 + 可下载文件 + 可用快照列表。
+
+    摘要来自定时任务落盘的 eflow_push_rules_check_latest.json；
+    快照列表来自 push_rules_snapshots/（页面「两次运行对比」用）。
+    """
+    lang = _req_lang(request)
+    summary = None
+    if _PUSH_CHECK_JSON.is_file():
+        try:
+            summary = json.loads(_PUSH_CHECK_JSON.read_text(encoding="utf-8"))
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"读取 eflow_push_rules_check 摘要失败: {e}")
+
+    # 摘要与检查表是否同源（同 correction_drift 思路）：卡片数字来自 JSON、
+    # 下钻明细来自 xlsx，中间若有人单独跑过 checker 就会错位，必须显式提示。
+    if summary and summary.get("generated_ts") and _PUSH_CHECK_XLSX.is_file():
+        summary["sheet_drift"] = (
+            _PUSH_CHECK_XLSX.stat().st_mtime - float(summary["generated_ts"])) > 1.0
+
+    files = []
+    src = _SOURCE_BY_ID.get("eflow_push_rules_check")
+    if src and src["dir"].is_dir():
+        found = []
+        for pat in src["patterns"]:
+            try:
+                found.extend(src["dir"].glob(pat))
+            except OSError as e:
+                logger.warning(f"扫描推单检查产物失败: {e}")
+        for f in sorted(found, key=lambda p: p.stat().st_mtime, reverse=True):
+            if not f.is_file():
+                continue
+            st = f.stat()
+            files.append({
+                "name": f.name, "size": st.st_size, "mtime": st.st_mtime,
+                "source_id": "eflow_push_rules_check",
+                "label": "推单规则检查表" if lang == "zh" else "Push Rules Check Sheet",
+            })
+
+    runs = []
+    try:
+        from backend.services.eflow_rules.eflow_push_rules_checker import list_snapshots
+        runs = list_snapshots()
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"读取推单检查快照失败: {e}")
+
+    return {"summary": summary, "files": files, "runs": runs, "lang": lang}
+
+
+@router.get("/api/email-reports/eflow_push_rules_check/drill")
+def eflow_push_rules_check_drill(
+    metric: str,
+    rule_id: int | None = None,
+    diff_kind: str | None = None,
+    alarm_code: str | None = None,
+    limit: int = 2000,
+    offset: int = 0,
+):
+    """推单规则检查页签的 TT 级下钻。
+
+    metric 与页面数字一一对应（全部来自同一份检查表 All_TT_Records）：
+      total / correct / mismatch / undecidable / unmatched —— 分类卡
+      rule      —— 命中了 rule_id 指定规则（需传 rule_id）
+      rule_bad  —— 同上，且分类为 mismatch
+      diff      —— 指定差异子类型（需传 diff_kind，如 should_have_wo）
+      has_wo / no_wo —— 实际有 WO / 无 WO
+
+    返回 meta.truncated：样本超过 limit 时**显式**告知（AGENTS.md 三.1b）。
+    """
+    limit = max(1, min(int(limit or 2000), 5000))
+    offset = max(0, int(offset or 0))
+    rows = _load_push_rows()
+
+    if metric in ("total", "correct", "mismatch", "undecidable", "unmatched"):
+        pool = rows if metric == "total" else [r for r in rows if r.get("category") == metric]
+    elif metric in ("rule", "rule_bad"):
+        if rule_id is None:
+            raise HTTPException(status_code=400, detail="metric=rule 需要 rule_id")
+        target = _rule_num(rule_id)
+        pool = [r for r in rows if _rule_num(r.get("rule_id")) == target]
+        if metric == "rule_bad":
+            pool = [r for r in pool if r.get("category") == "mismatch"]
+    elif metric == "diff":
+        pool = [r for r in rows if r.get("diff_kind") == (diff_kind or "")]
+    elif metric == "has_wo":
+        pool = [r for r in rows if r.get("has_wo")]
+    elif metric == "no_wo":
+        pool = [r for r in rows if not r.get("has_wo")]
+    else:
+        raise HTTPException(status_code=400, detail=f"未知 metric: {metric}")
+
+    if alarm_code:
+        want = _norm_alarm_code(alarm_code)
+        pool = [r for r in pool if _norm_alarm_code(r.get("alarm_code")) == want]
+
+    total = len(pool)
+    page = pool[offset:offset + limit]
+    return {
+        "metric": metric,
+        "total": total,
+        "rows": page,
+        "meta": {"limit": limit, "offset": offset, "returned": len(page),
+                 "truncated": total > offset + len(page)},
+    }
+
+
+@router.get("/api/email-reports/eflow_push_rules_check/unmatched_dist")
+def eflow_push_rules_check_unmatched_dist(top: int = 10, category: str = "unmatched"):
+    """未命中 / 无法判定 的 TT 主要分布（按 alarm_code + 站型聚合）。
+
+    口径与 eflow_tt_rules_check 的 unmatched_dist 一致，供点开后按 alarm_code 再下钻。
+    """
+    top = max(1, min(int(top or 10), 50))
+    rows = _load_push_rows()
+    bucket: dict[tuple, int] = {}
+    for r in rows:
+        if r.get("category") != category:
+            continue
+        key = (_norm_alarm_code(r.get("alarm_code")), r.get("site_type") or "")
+        bucket[key] = bucket.get(key, 0) + 1
+    groups = sorted(bucket.items(), key=lambda kv: kv[1], reverse=True)[:top]
+    return {
+        "category": category,
+        "groups": [{"alarm_code": a or None, "site_type": s or None, "count": n}
+                   for (a, s), n in groups],
+        "total": sum(bucket.values()),
+        "distinct_groups": len(bucket),
+    }
+
+
+@router.get("/api/email-reports/eflow_push_rules_check/compare")
+def eflow_push_rules_check_compare(from_id: str, to_id: str):
+    """对比两次运行快照：逐单判定变化 + 逐规则命中数变化。
+
+    样本窗口会移动（新单进来 / 老单滑出），所以响应里把「变化」与
+    「只在某一侧出现」分开给，避免把新增样本误读成判定变化。
+    """
+    try:
+        from backend.services.eflow_rules.eflow_push_rules_checker import compare_snapshots
+        return compare_snapshots(from_id, to_id)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"推单检查快照对比失败: {e}")
+        raise HTTPException(status_code=500, detail=f"快照对比失败: {e}")

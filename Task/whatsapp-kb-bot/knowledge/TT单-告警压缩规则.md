@@ -105,6 +105,8 @@
 - 作用：一个物理站点某个制式不可用时，逻辑站点退服告警会产生，同时归属此逻辑站点的所有小区会退服产生小区退服告警，这时衍生出逻辑站点退服告警作为父告警，基础告警作为子告警，建立起父子关联关系
 - 状态：ENABLED
 - 关键参数：
+  - NE type of the root alarm(rootResType) = zte.ran.enodeb
+  - Root Alarm Code(rootAlarmCode) = 9970
   - NE type(siteAlarmNeType) = ZTE_RAN_ENODEB,ZTE_PS_UMAC,zte.ran.itbbu
   - Site break alarm code(siteAlarmCode) = 198094422,2114322696,198200011
   - Cell out-of-service alarm NE type(cellAlarmNeType) = zte.ran.enodeb
@@ -114,7 +116,7 @@
   - Core network alarm code(siteCoreAlarmCode) = 10000
   - Number of Me types(maxMeTypeNum) = 1
   - Whether to configure only associated alarms(supportrelation) = true
-  - Associated alarm NE types only(relationAlarmNeType) = ZTE_CS_MSCS,ZTE_RAN_BTS,ZTE_RAN_ITBBU,ZTE_RAN_NODEB,ZTE_RAN_ENODEB
+  - Associated alarm NE types only(relationAlarmNeType) = zte.cs.mscs,zte.ran.bts,zte.ran.itbbu,zte.ran.nodeb,zte.ran.enodeb
   - Only associated alarm codes(relationAlarmCode) = 198097062,10000,9971,9981,9991
   - RAT(type) = 4G
   - Whether to enable cell blocking(cellBlock) = true
@@ -122,8 +124,6 @@
   - Derivative alarm name(specificProblem) = 4G site down
   - Delay derivation time window (s)(delayCreateTimeWindow) = 10
   - Delay recovery time window (s)(delayClearTimeWindow) = 120
-  - NE type of the root alarm(rootResType) = zte.ran.enodeb
-  - Root Alarm Code(rootAlarmCode) = 9970
 
 ## 压缩规则：zte-3g-sitedown
 
@@ -141,7 +141,7 @@
   - Core network alarm code(siteCoreAlarmCode) = 2365981958
   - Number of Me types(maxMeTypeNum) = 1
   - Whether to configure only associated alarms(supportrelation) = true
-  - Associated alarm NE types only(relationAlarmNeType) = zte.ps.umm,ZTE_RAN_BTS,ZTE_RAN_ITBBU,ZTE_RAN_NODEB,ZTE_RAN_ENODEB
+  - Associated alarm NE types only(relationAlarmNeType) = zte.ps.umm,zte.ran.bts,zte.ran.itbbu,zte.ran.nodeb,zte.ran.enode
   - Only associated alarm codes(relationAlarmCode) = 2365980930,198097062,9971,9981,9991
   - RAT(type) = 3G
   - Whether to enable cell blocking(cellBlock) = true
@@ -155,6 +155,8 @@
 - 作用：一个物理站点某个制式不可用时，逻辑站点退服告警会产生，同时归属此逻辑站点的所有小区会退服产生小区退服告警，这时衍生出逻辑站点退服告警作为父告警，基础告警作为子告警，建立起父子关联关系
 - 状态：ENABLED
 - 关键参数：
+  - NE type of the root alarm(rootResType) = zte.ran.bts
+  - Root Alarm Code(rootAlarmCode) = 9980
   - NE type(siteAlarmNeType) = zte.ran.bts
   - Site break alarm code(siteAlarmCode) = 199087337
   - Cell out-of-service alarm NE type(cellAlarmNeType) = zte.ran.bts
@@ -164,7 +166,7 @@
   - Core network alarm code(siteCoreAlarmCode) = 33577435
   - Number of Me types(maxMeTypeNum) = 1
   - Whether to configure only associated alarms(supportrelation) = true
-  - Associated alarm NE types only(relationAlarmNeType) = ZTE_RAN_BTS,ZTE_RAN_ITBBU,ZTE_RAN_NODEB,ZTE_RAN_ENODEB
+  - Associated alarm NE types only(relationAlarmNeType) = zte.ran.bts,zte.ran.itbbu,zte.ran.nodeb,zte.ran.enodeb
   - Only associated alarm codes(relationAlarmCode) = 198092072,198097062,9971,9981,9991
   - RAT(type) = 2G
   - Whether to enable cell blocking(cellBlock) = true
@@ -172,8 +174,6 @@
   - Derivative alarm name(specificProblem) = 2G site down
   - Delay derivation time window (s)(delayCreateTimeWindow) = 10
   - Delay recovery time window (s)(delayClearTimeWindow) = 120
-  - NE type of the root alarm(rootResType) = zte.ran.bts
-  - Root Alarm Code(rootAlarmCode) = 9980
 
 ## 压缩规则：mpf-outage
 

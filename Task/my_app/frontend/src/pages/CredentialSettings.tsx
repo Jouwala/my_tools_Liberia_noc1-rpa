@@ -20,6 +20,11 @@ interface CredentialGroup {
   // 2026-10-21：后端下发测试方式与测试目标，界面据此提示「点下去会发生什么」
   test_kind?: string
   test_target?: string
+  // 2026-10-22：测试目标的地址来源（file:<配置文件名> / env:<变量名> / static）。
+  // 后端与任务读同一份配置，这里把「这地址是哪来的」也展示出来，
+  // 免得改了 JSON 却不知道界面上的地址有没有跟着变。
+  test_target_source?: string
+  test_target_conflicts?: { file: string; host: string; port: number | string | null }[]
 }
 
 const WEIXIN_TEST_KIND = 'weixin_push'
@@ -62,6 +67,35 @@ export default function CredentialSettings() {
     if (source === 'db') return <Tag color="green">{t('settings.sourceDb')}</Tag>
     if (source === 'env') return <Tag color="purple">{t('settings.sourceEnv')}</Tag>
     return <Tag>{t('settings.sourceDefault')}</Tag>
+  }
+
+  // 测试目标地址的来源（2026-10-22）。
+  // 只在**有外部来源**时给角标：多数组仍是内置默认，全标一遍会把界面糊住；
+  // 内置默认的情况放到 Tooltip 里说明就够了。冲突用橙色提醒。
+  const targetBadge = (g: CredentialGroup) => {
+    const src = g.test_target_source || ''
+    let label = ''
+    let color = 'blue'
+    if (src.startsWith('file:')) label = src.slice('file:'.length)
+    else if (src.startsWith('env:')) label = t('settings.sourceEnv')
+    else return null
+    if ((g.test_target_conflicts?.length || 0) > 0) color = 'orange'
+    return (
+      <Tag
+        color={color}
+        style={{ fontSize: '0.68rem', lineHeight: '1.3', margin: 0, padding: '0 4px' }}
+      >
+        {label}
+      </Tag>
+    )
+  }
+
+  // Tooltip 里的「来源」一行：把 file:/env:/static 翻译成人话
+  const targetSourceText = (g: CredentialGroup) => {
+    const src = g.test_target_source || ''
+    if (src.startsWith('file:')) return t('settings.testTargetFromFile', { file: src.slice('file:'.length) })
+    if (src.startsWith('env:')) return t('settings.testTargetFromEnv', { env: src.slice('env:'.length) })
+    return t('settings.testTargetDefault')
   }
 
   const fuzzyMatch = (g: CredentialGroup, q: string) => {
@@ -239,23 +273,40 @@ export default function CredentialSettings() {
                         {t('settings.save')}
                       </Button>
                       {g.testable && (
-                        <Tooltip
-                          title={
-                            g.test_kind === WEIXIN_TEST_KIND
-                              ? t('settings.testWeixinWarn')
-                              : g.test_target
-                                ? `${t('settings.testTarget')}: ${g.test_target}`
-                                : t('settings.test')
-                          }
-                        >
-                          <Button
-                            icon={<ApiOutlined />}
-                            loading={testingKey === g.key}
-                            onClick={() => test(g)}
+                        <Space size={4}>
+                          <Tooltip
+                            title={
+                              g.test_kind === WEIXIN_TEST_KIND
+                                ? t('settings.testWeixinWarn')
+                                : g.test_target
+                                  ? (
+                                    <div>
+                                      <div>{`${t('settings.testTarget')}: ${g.test_target}`}</div>
+                                      <div style={{ opacity: 0.85 }}>{targetSourceText(g)}</div>
+                                      {(g.test_target_conflicts?.length || 0) > 0 && (
+                                        <div style={{ marginTop: 2 }}>
+                                          {t('settings.testTargetConflict', {
+                                            files: (g.test_target_conflicts || [])
+                                              .map(c => c.file)
+                                              .join(', '),
+                                          })}
+                                        </div>
+                                      )}
+                                    </div>
+                                  )
+                                  : t('settings.test')
+                            }
                           >
-                            {t('settings.test')}
-                          </Button>
-                        </Tooltip>
+                            <Button
+                              icon={<ApiOutlined />}
+                              loading={testingKey === g.key}
+                              onClick={() => test(g)}
+                            >
+                              {t('settings.test')}
+                            </Button>
+                          </Tooltip>
+                          {targetBadge(g)}
+                        </Space>
                       )}
                       <Button icon={<EyeOutlined />} onClick={() => reveal(g)}>
                         {t('settings.reveal')}

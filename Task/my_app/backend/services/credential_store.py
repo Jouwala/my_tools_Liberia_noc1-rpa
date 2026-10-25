@@ -127,6 +127,33 @@ CREDENTIAL_GROUPS = [
         "env_secret": "VMAX_GBASE_PASS",
     },
     {
+        # VMAX CCA 投诉页的「用户信息查询」接口（backend/services/vmax_cca）。
+        # 与 vmax_cxo 分组的原因：门户同一账号会话数有限，8790 看板代理长持
+        # vmax_cxo 会话，查询页若共用会互相挤掉（见 services/vmax_cca/README.md 第 3 节）。
+        "key": "vmax_cca",
+        "name": "VMAX CCA 用户查询 (10.123.255.12:26180)",
+        "name_en": "VMAX CCA User Query (10.123.255.12:26180)",
+        "usage": "「VMAX 用户查询」页按号码查询用户/终端信息时，用此账号登录 VMAX 门户"
+                 "调用 CCA 投诉查询接口。需具备 CCA 投诉系统权限。",
+        "usage_en": "Used by the VMAX User Query page to log into the VMAX portal and call "
+                    "the CCA complaint query endpoints (user / terminal info by MSISDN). "
+                    "Requires CCA complaint system access.",
+        "default_user": "ZTE_NOC01",
+        "default_secret": "",
+        "username_label": "用户名",
+        "username_label_en": "Username",
+        "secret_label": "密码",
+        "secret_label_en": "Password",
+        "has_username": True,
+        # 登录链路与 vmax_portal 相同（接口登录，无网页验证码），直接复用该测试器
+        "testable": True,
+        "test_kind": "vmax_portal",
+        "test_host": "10.123.255.12",
+        "test_port": 26180,
+        "env_user": "VMAX_CCA_USER",
+        "env_secret": "VMAX_CCA_PASS",
+    },
+    {
         # RAN Greenplum（L_T216 信令表）取数链路的第一跳。与 vmax_gbase（GBase 8a）无关。
         "key": "gp_ran_control",
         "name": "RAN Greenplum control1 跳板 (10.100.29.12:22)",
@@ -505,6 +532,147 @@ _GROUP_INDEX = {g["key"]: g for g in CREDENTIAL_GROUPS}
 
 
 # ============================================================
+# 测试地址解析（2026-10-22）
+# ============================================================
+#
+# 背景：`test_host` / `test_port` 是**硬编码**在 CREDENTIAL_GROUPS 里的，
+# 而任务实际连接的地址来自 `backend/services/<task>_config.json`（页面可编辑）。
+# 两份值各维护一次，改配置后「测试连接」仍在测旧地址 —— 结论不可信。同一个
+# 死值还被另外两处引用：改凭据后要清会话缓存（auth_cache/<host>_<port>_<user>.json）、
+# 熔断状态按 (host, port, user) 查（.locked_<host>_<port>_<user>.json），
+# 所以偏差会同时扩散到「测试」「清缓存」「熔断判断」三条链路。
+#
+# 这里把「测试地址」收敛成**单一解析入口**，优先级与全项目一致：
+#     环境变量 > 配置文件（页面编辑） > 内置默认（原 test_host/test_port）
+# 每次调用**现读文件、不做模块级缓存**，所以页面保存配置后立刻生效
+# （不用重启 7038，也不用重启 worker）。
+#
+# 未登记的组仍用内置默认，因为它们的地址本来就不在任务配置 json 里：
+#   rais         → portal_login_service.PORTALS（代码常量，无外置文件）
+#   fms_portal   → realtime_proxy.py 的代码常量（site_outage_config.json 是
+#                  另一个任务的截图地址，不是本凭据的登录地址，不能混用）
+#   battery_ume  → UME 主机未外置（battery_config.json 只有阈值，见注册表描述）
+#   vmax_cxo / vmax_gbase / owa_mail / mail_126 / weixin → 无外置配置文件
+#   sftp_sp      → 已有专属实现 credential_tester._sftp_host_port()（读 sp_sftp_config.json）
+
+_SERVICES_DIR = Path(__file__).resolve().parent
+
+# 组 -> 地址环境变量（与各客户端自己读的 env 同名，优先级最高）
+_ENDPOINT_ENV = {
+    "ume_alarm": ("UME_ALARM_HOST", "UME_ALARM_PORT"),
+}
+
+# 组 -> 任务配置文件里的地址字段（字段名统一为 host / port）
+# peers：同一台设备被多个任务共用时，其余任务配置文件；用于交叉核对，
+#        防止只改了其中一个文件而测试按另一个文件走。
+_CONFIG_REF = {
+    "zte_ume": {
+        "file": "ran_ume_config.json",
+        "peers": ["main_kpi_config.json", "network_kpi_config.json", "pl_config.json"],
+    },
+    "ipran_ume": {"file": "ipran_kpi_config.json"},
+    "ccn_ume": {"file": "cnn_kpi_config.json"},
+    "eflow": {"file": "eflow_config.json"},
+    "fw_kpi": {"file": "fw_kpi_config.json"},
+    "mw_ume": {"file": "mw_ume_config.json"},
+    "ume_in": {"file": "ume_in_config.json"},
+    "cm_data": {"file": "cm_data_config.json"},
+}
+
+
+def _load_service_config(name: str) -> dict | None:
+    """读 backend/services/<name>（只读、不缓存）。缺失/损坏返回 None。"""
+    try:
+        p = _SERVICES_DIR / name
+        if not p.exists():
+            return None
+        import json as _json
+        with open(p, "r", encoding="utf-8") as f:
+            d = _json.load(f)
+        return d if isinstance(d, dict) else None
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"[CRED] 读取 {name} 失败（回退内置默认）: {e}")
+        return None
+
+
+def _as_int(v):
+    """安全转 int；失败返回 None（调用方保留原值）。"""
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def resolve_endpoint(key: str) -> dict:
+    """解析某凭据组「连接测试」实际该用的 host/port。
+
+    Returns:
+        {
+          "host": "10.100.28.27",
+          "port": 28001,
+          "source": "file:ran_ume_config.json" | "env:UME_ALARM_HOST" | "static",
+          "default": "10.100.28.27:28001",   # 硬编码兜底值（页面提示/排障用）
+          "conflicts": [{"file": "network_kpi_config.json", "host":..., "port":...}],
+        }
+    """
+    group = _GROUP_INDEX.get(key) or {}
+    static_host, static_port = group.get("test_host"), group.get("test_port")
+    out = {
+        "host": static_host,
+        "port": static_port,
+        "source": "static",
+        "default": (f"{static_host}:{static_port}" if static_host and static_port else ""),
+        "conflicts": [],
+    }
+
+    # 1) 环境变量：与客户端自身读的变量同名，客户端用它连、这里就用它测
+    env_names = _ENDPOINT_ENV.get(key) or ()
+    if env_names:
+        eh = os.environ.get(env_names[0])
+        if eh:
+            out["host"] = eh
+            ep = _as_int(os.environ.get(env_names[1])) if len(env_names) > 1 else None
+            if ep:
+                out["port"] = ep
+            out["source"] = f"env:{env_names[0]}"
+            return out
+
+    # 2) 任务配置文件
+    ref = _CONFIG_REF.get(key)
+    if not ref:
+        return out
+    conf = _load_service_config(ref["file"])
+    host = (conf or {}).get("host")
+    if not host:
+        # 文件还没生成（页面没保存过）→ 用内置默认，来源标 static 便于识别
+        return out
+    out["host"] = str(host).strip()
+    port = _as_int((conf or {}).get("port"))
+    if port:
+        out["port"] = port
+    out["source"] = f"file:{ref['file']}"
+
+    # peers 交叉核对：同设备的其它任务配置若仍指向旧地址，单列出来告警
+    for peer in ref.get("peers") or []:
+        pc = _load_service_config(peer) or {}
+        ph = pc.get("host")
+        if not ph:
+            continue
+        pp = _as_int(pc.get("port")) or out["port"]
+        if str(ph).strip() != out["host"] or pp != out["port"]:
+            out["conflicts"].append({"file": peer, "host": ph, "port": pc.get("port")})
+    return out
+
+
+def endpoint_label(key: str) -> dict:
+    """给前端/日志用：未解析出 host 时给出空串，避免 None:None 这种显示。"""
+    ep = resolve_endpoint(key)
+    ep["target"] = (f"{ep['host']}:{ep['port']}"
+                    if ep.get("host") and ep.get("port") else "")
+    return ep
+
+
+# ============================================================
 # 数据库访问（独立 sqlite3，避免与 SQLAlchemy 会话互相干扰）
 # ============================================================
 def _get_conn() -> sqlite3.Connection:
@@ -721,6 +889,9 @@ def list_credentials(lang: str = "zh") -> list:
         if env_s:
             secret = env_s
             source = "env"
+        # 测试目标实时解析（仅可测组；其余组不产生文件 IO）
+        _ep = (endpoint_label(g["key"]) if g.get("testable")
+               else {"target": "", "source": "", "conflicts": []})
         result.append({
             "key": g["key"],
             "name": g.get("name_en") if en and g.get("name_en") else g["name"],
@@ -738,7 +909,10 @@ def list_credentials(lang: str = "zh") -> list:
             # 2026-10-21：把测试方式与测试目标一并给前端，界面才能告诉用户
             # 「这一组点下去会发生什么」（尤其是微信组会真发一条推送）。
             "test_kind": g.get("test_kind", ""),
-            "test_target": (f"{g['test_host']}:{g['test_port']}"
-                            if g.get("test_host") and g.get("test_port") else ""),
+            # 2026-10-22：目标地址改为实时解析（配置 > env > 内置默认），
+            # 与「点测试」实际去连的地址严格同源，避免页面显示旧地址误导。
+            "test_target": _ep["target"],
+            "test_target_source": _ep["source"],
+            "test_target_conflicts": _ep["conflicts"],
         })
     return result

@@ -114,21 +114,58 @@ def _is_uncleared(alarm_clear_time, status) -> bool:
     return not _is_closed(status)
 
 
-def _mask_phone(raw) -> str:
-    """电话脱敏。库里多数行已是 ``231****7417`` 形式，少数为明文（如 231770476985）。
+def _fme_contact_index(conn) -> dict[str, set[str]]:
+    """FME 联系人索引：`normalize_person_name(fme_name)` → 明文电话集合。
 
-    对已脱敏的原样返回；对明文只保留前 3 位与后 4 位，中间固定 4 个星号。
-    非数字（含空）返回空串。**响应里绝不出现完整号码**（AGENTS.md 第四节 2）。
+    来源是 `master_site_db.fme_contact_1 / fme_contact_2`（手册 11a 已实测：
+    这两列看着像人员列，**其实是电话号码**）。只收**明文** —— 打星号的值
+    同样补不回完整号码，收进来只会制造歧义。
+    供 `_display_phone` 给「库里已打星」的人员电话做唯一性补全。
+    """
+    index: dict[str, set[str]] = {}
+    if "master_site_db" not in set(list_table_names(conn)):
+        return index
+    for fme, c1, c2 in conn.execute(
+        "SELECT fme_name, fme_contact_1, fme_contact_2 FROM master_site_db"
+    ).fetchall():
+        key = normalize_person_name(fme)
+        if not key:
+            continue
+        bucket = index.setdefault(key, set())
+        for c in (c1, c2):
+            s = str(c or "").strip()
+            if s and "****" not in s:
+                bucket.add(s)
+    return index
+
+
+def _display_phone(raw, contacts: set[str]) -> str:
+    """电话**完整显示**（2026-10-23 用户要求「不要加密，要全部显示」，取代原脱敏）。
+
+    数据现实（2026-10-23 实测 `person` 表 136 行）：95 行明文、25 行存的是
+    ``231****7417`` 形式 —— **上游入库时就已经打了星，本库任何地方都没有这几行
+    的完整号码**；另有 16 行为空。处理：
+      - 明文 → 原样返回；
+      - 库里打星 → 用 `_fme_contact_index` 按「人名一致 + 尾 4 位一致」唯一补回
+        （实测 25 人里 14 人可唯一补回、0 例歧义；尾 4 位必须吻合才采纳，
+        避免把同名别人的号码安上来），补不回的**原样显示星号值** ——
+        那是数据事实，不是本系统在脱敏；
+      - 空 → 空串。
+
+    ⚠ 这是用户 2026-10-23 明确要求的产品决策：现场 FME 联系号码本来就是给
+    调度看的业务数据。它覆盖的是此前「响应里不出现完整号码」的默认加固约定，
+    **不是**放松口令/Token/密码哈希那类敏感值（那些仍绝不出现，AGENTS.md 四.2）。
     """
     s = str(raw or "").strip()
     if not s:
         return ""
-    if "****" in s:
+    if "****" not in s:
         return s
-    digits = "".join(ch for ch in s if ch.isdigit())
-    if len(digits) < 7:
-        return "****"
-    return f"{digits[:3]}****{digits[-4:]}"
+    tail = s.split("****", 1)[1]
+    cands = sorted(c for c in contacts if c.endswith(tail))
+    if len(cands) != 1:
+        return s
+    return cands[0] if cands[0].startswith("231") else f"231{cands[0]}"
 
 
 def _fix_latlng(lat: float, lng: float):
@@ -331,6 +368,8 @@ def get_personnel(
 
         wo_index = (_load_wo_owner_index(conn, time_start, time_end, days)
                     if "eflow_wo" in tables else {})
+        # 电话补全索引必须在 conn 关闭前建（下面拼 personnel 的循环已拿不到连接）
+        contact_index = _fme_contact_index(conn)
 
         rows = conn.execute(f"""
             SELECT name, latitude, longitude, phone, managed_regions, status
@@ -363,7 +402,7 @@ def get_personnel(
             "name_key": key,                       # 匹配用规范化
             "lat": round(lat, 6),
             "lng": round(lng, 6),
-            "phone": _mask_phone(phone),
+            "phone": _display_phone(phone, contact_index.get(key, ())),
             "managed_regions": str(regions or ""),
             "status": str(status or ""),
             # 未关闭 WO 数（下钻**分母**；不看 only_uncleared 时的列表行数）
@@ -757,6 +796,7 @@ def _people_with_coords(conn) -> list[tuple]:
         WHERE {_COORD_OK}
         ORDER BY name
     """).fetchall()
+    contact_index = _fme_contact_index(conn)
     out = []
     seen: set[str] = set()
     for name, lat_raw, lng_raw, phone, regions, status in rows:
@@ -771,7 +811,8 @@ def _people_with_coords(conn) -> list[tuple]:
         lat, lng = _fix_latlng(lat, lng)
         seen.add(key)
         out.append((str(name or "").strip(), key, lat, lng,
-                    _mask_phone(phone), str(regions or ""), str(status or "")))
+                    _display_phone(phone, contact_index.get(key, ())),
+                    str(regions or ""), str(status or "")))
     return out
 
 
@@ -958,6 +999,64 @@ def search_sites(
             "owner_keys": [k for k in owners if k in people_keys],
         })
     return {"sites": sites, "total": len(sites), "query": kw}
+
+
+@router.get("/personnel/fme-territories")
+def get_personnel_fme_territories():
+    """全部 FME 的「默认站点辖区」（2026-10-23 人员页地图「默认站点」开关用）。
+
+    需求（用户原话）：「显示 master_site_db 里面不同 person 的默认站点，
+    person 放到这些站点的中间，并且连线；默认不显示，打开开关才显示」。
+
+    站点集合与 `/managed-sites` **完全同源**（`_fme_site_index` = fme_name 列，
+    `A / B` 双人共担两边都算），保证开关打开看到的辖区与点开单人下钻的
+    站点页签对得上。每人返回：
+      · `centroid` = 其全部有效坐标站点的算术平均（「放到中间」）；
+      · `sites`    = 站点明细（site_id / site_name / region / county / lat / lng）。
+    量级（2026-10-23 实测）：24 人、1010 条人-站对、去重 824 站。
+
+    `phone` 从 person 表取（`_display_phone` 完整显示口径，含从
+    master_site_db 联系人列补回的逻辑）；person 表没有的人（实测 1 人）
+    phone 为空，前端徽标数字按「取不到」显示 `—`，不冒充 0。
+
+    supervisor 大区主管刻意不在返回里（fme_name 列不含他们，
+    见 `_fme_site_index` 的口径说明）—— 他们的「辖区」是全国三分之一，
+    画出来只会变成一张网，看不出任何信息。
+    """
+    with get_raw_connection() as conn:
+        tables = set(list_table_names(conn))
+        sites, _skipped, _supervised = _fme_site_index(conn, tables)
+        contact_index = _fme_contact_index(conn)
+        person_rows = conn.execute("SELECT name, phone FROM person").fetchall()
+        conn.close()
+
+    by_key: dict[str, tuple[str, object]] = {}
+    for name, phone in person_rows:
+        key = normalize_person_name(name)
+        if key:
+            by_key[key] = (str(name or "").strip(), phone)
+
+    persons = []
+    for key in sorted(sites.keys()):
+        site_list = sites[key]
+        if not site_list:
+            continue
+        centroid = {
+            "lat": round(sum(s["lat"] for s in site_list) / len(site_list), 6),
+            "lng": round(sum(s["lng"] for s in site_list) / len(site_list), 6),
+        }
+        name_raw, phone_raw = by_key.get(key, ("", None))
+        persons.append({
+            # person 表没有的人用「规范化名首字母大写」兜底显示（仅 1 人，
+            # key 是小写规范化串，直接显示会很难看）
+            "name": name_raw or key.title(),
+            "name_key": key,
+            "phone": _display_phone(phone_raw, contact_index.get(key, ())),
+            "centroid": centroid,
+            "sites": site_list,
+        })
+    return {"persons": persons, "person_count": len(persons)}
+
 
 
 @router.get("/personnel/{name_key}/managed-sites")

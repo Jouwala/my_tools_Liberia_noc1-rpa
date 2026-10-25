@@ -67,7 +67,8 @@
 
 所有上游系统账号集中在一个注册表里，前端"系统设置 → 凭据"统一维护：
 
-- **17 个分组 key**：`zte_ume`、`vmax_cxo`、`vmax_gbase`、`ipran_ume`、`ccn_ume`、`eflow`、`rais`、`fms_portal`、`fw_kpi`、`mw_ume`、`ume_in`、`battery_ume`、`cm_data`、`sftp_sp`、`mail_126`、`owa_mail`、`weixin`（`backend/services/credential_store.py:38-372`）。
+- **18 个分组 key**：`zte_ume`、`vmax_cxo`、`vmax_gbase`、`vmax_cca`、`ipran_ume`、`ccn_ume`、`eflow`、`rais`、`fms_portal`、`fw_kpi`、`mw_ume`、`ume_in`、`battery_ume`、`cm_data`、`sftp_sp`、`mail_126`、`owa_mail`、`weixin`（`backend/services/credential_store.py`）。
+  - `vmax_cca`（2026-10-24 新增）：VMAX 用户查询页（`vmax_user_query`）登录 VMAX 门户调 CCA 投诉查询接口。**独立于 `vmax_cxo` 的原因**：门户同一账号会话数有限，8790 看板代理长持 `vmax_cxo` 会话，查询页共用会互踢。测试 kind 复用 `vmax_portal`（登录链路相同）。
 - 每组元数据字段：`key`、`name`、`name_en`、`usage`、`usage_en`、`username_label`、`secret_label`、`env_user`、`env_secret`、`testable`、`test_host`、`test_port`。字段名可写进文档，**值不可以**。
 - 读取优先级：**环境变量 > 数据库 > 代码默认值**（`env_user`/`env_secret` 指定对应变量名）；内存缓存 TTL 默认 30 秒（`CREDENTIAL_CACHE_TTL`）。
 - 列表接口返回**掩码**，"显示明文"走 `GET /api/credentials/{key}/reveal`，"测试连接"走 `POST /api/credentials/test`（仅 `testable: true` 的组走真实登录）。
@@ -439,7 +440,7 @@ MW / CNN 的重复 OAuth2 实现与 `_rsa_encrypt_pem` 一并删除（与
 
 - `DATABASE_URL` 连接串（含用户/口令/IP）
 - 各凭据分组 `user`/`secret` 的值，以及 `default_user` 之类带默认值的字段
-- 环境变量对应值：`RAN_UME_USER/PASS`、`EFLOW_USER/PASS`、`MW_UME_USER/PASSWORD`、`UME_IN_USER/PASSWORD`、`BATT_USERNAME/PASSWORD`、`CM_USERNAME/PASSWORD`、`FMS_PORTAL_USER/PASS`、`VMAX_CXO_USER/PASS`、`VMAX_GBASE_USER/PASS`、`RAIS_USER/PASS`、`FTP_USER/FTP_PASS`、`EMS_USER/EMS_PASS`、SMTP 授权码、`TWILIO_ACCOUNT_SID/AUTH_TOKEN/PHONE_NUMBER`、`GEMINI_API_KEY`、`MY_APP_API_TOKEN`、`PHONE/SMS_SERVICE_PROVIDER`
+- 环境变量对应值：`RAN_UME_USER/PASS`、`EFLOW_USER/PASS`、`MW_UME_USER/PASSWORD`、`UME_IN_USER/PASSWORD`、`BATT_USERNAME/PASSWORD`、`CM_USERNAME/PASSWORD`、`FMS_PORTAL_USER/PASS`、`VMAX_CXO_USER/PASS`、`VMAX_GBASE_USER/PASS`、`VMAX_CCA_USER/PASS`、`RAIS_USER/PASS`、`FTP_USER/FTP_PASS`、`EMS_USER/EMS_PASS`、SMTP 授权码、`TWILIO_ACCOUNT_SID/AUTH_TOKEN/PHONE_NUMBER`、`GEMINI_API_KEY`、`MY_APP_API_TOKEN`、`PHONE/SMS_SERVICE_PROVIDER`
 - 内网 IP/主机名与端口组合、邮箱服务域名、微信 session key 与 OpenClaw 会话标识
 - `backend/services/cn_ems/ems_config.json` 的 `username`/`password`
 

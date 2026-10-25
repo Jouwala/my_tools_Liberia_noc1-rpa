@@ -1,32 +1,9 @@
-Title: NVIDIA (@nvidia) on X
+*   [![Image 3: @nvidia](https://pbs.twimg.com/profile_images/1828904711124078593/SRvCZSfQ_normal.jpg)](https://x.com/nvidia)  [NVIDIA](https://x.com/nvidia) [@nvidia](https://x.com/nvidia) [17h](https://x.com/nvidia/status/2113757030754443437)   A new look for a classic. 💚 RTX Remix for Minecraft: Java Edition gives creators tools to remaster the game with realistic path-traced lighting and AI powered DLSS for maximum performance. Available on @NVIDIAGeForce and @NVIDIARTXSpark.   [87](https://x.com/compose/post?in_reply_to=2113757030754443437) 79 1.0K 78.0K
 
-URL Source: https://x.com/nvidia
+*   [![Image 3: @nvidia](https://pbs.twimg.com/profile_images/1828904711124078593/SRvCZSfQ_normal.jpg)](https://x.com/nvidia)  [NVIDIA](https://x.com/nvidia) [@nvidia](https://x.com/nvidia) [Oct 23](https://x.com/nvidia/status/2113604477261398148)   A country’s data carries its culture, history, and values. It belongs to its people. @JensenHuang on why that knowledge is a natural resource for Kazakhstan’s AI future.   [81](https://x.com/compose/post?in_reply_to=2113604477261398148) 80 649 77.0K
 
-Markdown Content:
-NVIDIA
+*   [![Image 3: @nvidia](https://pbs.twimg.com/profile_images/1828904711124078593/SRvCZSfQ_normal.jpg)](https://x.com/nvidia)  [NVIDIA](https://x.com/nvidia) [@nvidia](https://x.com/nvidia) [Oct 23](https://x.com/nvidia/status/2113565366660063496)   Our CEO @JensenHuang met the next generation of AI builders in Astana. 🇰🇿 At alem.ai, he spent time with students and startups and joined Deputy Prime Minister @Zhaslan_Madiyev to discuss Kazakhstan’s AI future.   [80](https://x.com/compose/post?in_reply_to=2113565366660063496) 79 852 90.0K
 
-14.6K
+*   [![Image 3: @nvidia](https://pbs.twimg.com/profile_images/1828904711124078593/SRvCZSfQ_normal.jpg)](https://x.com/nvidia)  [NVIDIA](https://x.com/nvidia) [@nvidia](https://x.com/nvidia) [Oct 22](https://x.com/nvidia/status/2113253222941077890)   Jensen reporting for booth duty.  Making the rounds at GTC Berlin, meeting the people and partners bringing AI to life across Europe. 🧵   [101](https://x.com/compose/post?in_reply_to=2113253222941077890) 86 1.0K 85.0K
 
-posts
-
-[![Image 1: NVIDIA profile banner](https://pbs.twimg.com/profile_banners/61559439/1749760220/1500x500)](https://x.com/nvidia/header_photo)
-
-[![Image 2: @nvidia](https://pbs.twimg.com/profile_images/1828904711124078593/SRvCZSfQ_400x400.jpg)](https://x.com/nvidia/photo)
-
-@nvidia
-
-Santa Clara, CA
-
-*   [![Image 3: @nvidia](https://pbs.twimg.com/profile_images/1828904711124078593/SRvCZSfQ_normal.jpg)](https://x.com/nvidia) .[@JensenHuang](https://x.com/JensenHuang) wrapped up his Paris visit at the Élysée with President [@EmmanuelMacron](https://x.com/EmmanuelMacron), discussing NVIDIA’s investments in France’s AI ecosystem, open source, and AI safety. Our road to [#NVIDIAGTC](https://x.com/hashtag/NVIDIAGTC) Berlin continues. ![Image 4: President Macron shakes hands with NVIDIA CEO Jensen Huang.](https://pbs.twimg.com/media/HUiNJH9WsAIrJts?format=webp&name=large)    
-*   [![Image 5: @nvidia](https://pbs.twimg.com/profile_images/1828904711124078593/SRvCZSfQ_normal.jpg)](https://x.com/nvidia) An evening in Paris with Jensen and the founders, researchers, and partners shaping AI across France. 🇫🇷 ![Image 6](https://pbs.twimg.com/media/HUhrBcnWwAAzUtW?format=webp&name=large) [Video 9](https://x.com/nvidia)![Image 7](https://pbs.twimg.com/amplify_video_thumb/2110054098078691328/img/NVF85v7OC_wHfFj5?format=webp&name=medium)
-
-00:00   ![Image 8](https://pbs.twimg.com/media/HUhrBciXEAA_h__?format=webp&name=large) ![Image 9](https://pbs.twimg.com/media/HUhrBc4W4AIZOXm?format=webp&name=large)     
-*   [![Image 10: @nvidia](https://pbs.twimg.com/profile_images/1828904711124078593/SRvCZSfQ_normal.jpg)](https://x.com/nvidia) Let’s get building, Paris. 🦞 [@JensenHuang](https://x.com/JensenHuang) stopped by Build-A-Claw, where developers and startups are getting hands-on with open models to build AI agents of their own. ![Image 11](https://pbs.twimg.com/media/HUhA_k3WQAEhjtx?format=webp&name=large) ![Image 12](https://pbs.twimg.com/media/HUhA_k2XsAAZWyv?format=webp&name=large)     
-*   [![Image 13: @nvidia](https://pbs.twimg.com/profile_images/1828904711124078593/SRvCZSfQ_normal.jpg)](https://x.com/nvidia) From satellites to skincare, France is building with NVIDIA. 🇫🇷 Developers, researchers, and businesses across France are using NVIDIA technology and open models to bring AI into the real world. Explore France’s AI ecosystem: [nvda.ws/4jSdAFc](https://nvda.ws/4jSdAFc) Meet two of the people ![Image 14](https://pbs.twimg.com/media/HUfFfw6WkAA7u7J?format=webp&name=large) [Video 10](https://x.com/nvidia)![Image 15](https://pbs.twimg.com/amplify_video_thumb/2109872099896467456/img/rbM-eZ6NZtr4sE59?format=webp&name=medium)
-
-00:00   [Video 11](https://x.com/nvidia)![Image 16](https://pbs.twimg.com/amplify_video_thumb/2109872099904847874/img/uBg9y8pK8KXQ2Zy6?format=webp&name=medium)
-
-00:00   ![Image 17](https://pbs.twimg.com/media/HUfFfw9WMAAiJtl?format=webp&name=large)     
-*   [![Image 18: @nvidia](https://pbs.twimg.com/profile_images/1828904711124078593/SRvCZSfQ_normal.jpg)](https://x.com/nvidia) A new beginning for [@Windows](https://x.com/Windows) PCs deserves a global celebration. Join us at one of our [@NVIDIARTXSpark](https://x.com/NVIDIARTXSpark) launch events. Try out demos on the new laptops, pick up some swag, and enter for a chance to win an [@ASUS](https://x.com/ASUS) ProArt P14 RTX Spark laptop signed by Jensen. Plus, more exclusive [Video 12](https://x.com/nvidia)![Image 19](https://pbs.twimg.com/amplify_video_thumb/2109709548458008576/img/6OTZlpLcHEnr6ccH?format=webp&name=medium)
-
-00:00
+*   [![Image 3: @nvidia](https://pbs.twimg.com/profile_images/1828904711124078593/SRvCZSfQ_normal.jpg)](https://x.com/nvidia)  [NVIDIA](https://x.com/nvidia) [@nvidia](https://x.com/nvidia) [Oct 21](https://x.com/nvidia/status/2112920354230296993)   Demand for compute is extraordinary. NVIDIA and our partners are building new capacity to meet it. We’re working with Amkor, IBIDEN, KYEC, Samsung Mechanics, SPIL, and Unimicron to expand our supply around the world, from essential components to advanced packaging and testing. Show more   [69](https://x.com/compose/post?in_reply_to=2112920354230296993) 64 450 60.0K

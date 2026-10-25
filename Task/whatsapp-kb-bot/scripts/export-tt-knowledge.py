@@ -8,6 +8,7 @@
 产出（写入 whatsapp-kb-bot/knowledge/）：
     TT单-告警压缩规则.md     由 eflow_alarm_rules.xlsx  导出
     TT单-级别判定规则.md     由 eflow_TT_rules.xlsx     导出
+    TT单-推单与指派规则.md   由 eflow_push_rules.xlsx   导出
     TT单-告警码字典.md       由 eflow_tt_alarm_code_distinct.xlsx 导出
 
 规则更新后重跑本脚本 + `npm run ingest` 即可。
@@ -290,7 +291,149 @@ def export_tt_rules() -> str:
 
 
 # ------------------------------------------------------------------ #
-# 3. 告警码字典
+# 3. TT 推单规则（指派与派发）
+# ------------------------------------------------------------------ #
+
+# 推单规则表的行数远多于另外三张（141 条 / 28 种规则类型），全量平铺会稀释
+# 检索命中率。所以只导出**与 TT 派单有关**的四类规则：
+#   ttDispatchRule      —— 直接派发（按告警码/网络制式把 TT 直接派给某组）
+#   ttPushOrderRule     —— 条件推单（满足条件自动推给指定组）
+#   ttGroupConfigRule   —— 环节可处理组名单（该环节「谁有资格」）
+#   ttGroupDefaultRule  —— 环节默认组（没推单时默认给谁）
+# 这与 tt-analyze.py 的 `_PUSH_RULE_TYPES` 口径一致 —— 两处若漂移，
+# bot 的「实时查单」与「知识库问答」会对同一张单给出不同解释。
+_PUSH_RULE_TYPES = (
+    'ttDispatchRule',
+    'ttPushOrderRule',
+    'ttGroupConfigRule',
+    'ttGroupDefaultRule',
+)
+
+_PUSH_RULE_TYPE_TEXT = {
+    'ttDispatchRule': '直接派发规则',
+    'ttPushOrderRule': '条件推单规则',
+    'ttGroupConfigRule': '环节可处理组名单',
+    'ttGroupDefaultRule': '环节默认组',
+}
+
+
+def _parse_targets(raw: str) -> list[str]:
+    """目标处理人形如 `ZTE_NOC_FO(group), SOC-CEM(group)` → ['ZTE_NOC_FO', 'SOC-CEM']。"""
+    out = []
+    for seg in str(raw or '').split('>'):
+        for part in seg.split(','):
+            part = part.strip()
+            if not part:
+                continue
+            name = part.split('(', 1)[0].strip()
+            if name:
+                out.append(name)
+    return out
+
+
+def export_push_rules() -> str:
+    src = os.path.join(RULES_DIR, 'eflow_push_rules.xlsx')
+    if not os.path.isfile(src):
+        return ''
+    wb = openpyxl.load_workbook(src, read_only=True, data_only=True)
+    try:
+        if 'Push_Rules' not in wb.sheetnames:
+            return ''
+        ws = wb['Push_Rules']
+        raw = list(ws.iter_rows(values_only=True))
+    finally:
+        wb.close()
+    if not raw:
+        return ''
+    header = [str(h or '').strip() for h in raw[0]]
+    # 复用全局 cell()：它按列名取值、缺列时返回默认值
+    rows = [r for r in raw[1:] if cell(r, header, 'ID')]
+
+    picked = []
+    for r in rows:
+        rtype = cell(r, header, '规则类型')
+        if rtype in _PUSH_RULE_TYPES:
+            picked.append((rtype, r))
+
+    lines = [
+        '# TT 单 - 推单与指派规则（Dispatch / Push Order / Group Config / Group Default）',
+        '',
+        '本文件说明：一条 TT 单**派给谁、走哪条链路**由哪些规则决定。',
+        '共有四类规则，按下面的顺序理解：',
+        '',
+        '1. **直接派发规则（ttDispatchRule）** —— 创建 TT 时按告警码/网络制式直接派给某组。',
+        '2. **条件推单规则（ttPushOrderRule）** —— 满足条件时，在某个环节自动推给指定组。',
+        '3. **环节可处理组名单（ttGroupConfigRule）** —— 某环节「谁有资格」接手。',
+        '4. **环节默认组（ttGroupDefaultRule）** —— 该环节没人被推单时默认给谁。',
+        '',
+        f'规则来源：eFlow 配置中心，导出文件 `eflow_push_rules.xlsx`（共 {len(picked)} 条 TT 相关规则）。',
+        '状态为 STOP 的规则仍然列出（配置中心的状态列可能滞后于实际生效情况），使用时请留意状态。',
+        '',
+    ]
+
+    for rtype in _PUSH_RULE_TYPES:
+        group = [r for t, r in picked if t == rtype]
+        if not group:
+            continue
+        lines.append(f'## {_PUSH_RULE_TYPE_TEXT[rtype]}（{rtype}）')
+        lines.append('')
+        # 同优先级 → 条件更具体的先列，与 tt-analyze.py 的排序口径一致
+        group.sort(key=lambda r: (
+            cell(r, header, '优先级'),
+            -cell(r, header, '条件').count(';'),
+            cell(r, header, 'ID'),
+        ))
+        for r in group:
+            rid = cell(r, header, 'ID')
+            name = cell(r, header, '规则名称')
+            status = cell(r, header, '状态') or 'UNKNOWN'
+            pri = cell(r, header, '优先级')
+            trigger = cell(r, header, '触发步骤')
+            push_path = cell(r, header, '推送路径')
+            target_raw = cell(r, header, '目标处理人')
+            targets = _parse_targets(target_raw)
+            cond = cell(r, header, '条件')
+
+            lines.append(f'### 规则 {rid}：{name}')
+            lines.append('')
+            head = f'- 状态：{status}'
+            if pri:
+                head += f'；优先级：{pri}'
+            lines.append(head)
+            if rtype == 'ttDispatchRule' and targets:
+                lines.append(f'- 直接派给：{"、".join(targets)}')
+            if trigger:
+                lines.append(f'- 触发步骤：{trigger}')
+            if push_path:
+                lines.append(f'- 推送路径：{push_path}')
+            if targets and rtype != 'ttDispatchRule':
+                lines.append(f'- 目标处理组：{"、".join(targets)}')
+            if cond:
+                lines.append('- 匹配条件：')
+                for part in cond.replace(';', '\n').split('\n'):
+                    part = part.strip()
+                    if not part:
+                        continue
+                    # 条件原文形如 `AND eflow_ticket_ticket_wo.alarmCode in 'x' (string)`，
+                    # 去掉连接词前缀与末尾类型标注，只留可读的「字段 运算符 取值」
+                    part = part.removeprefix('AND ').removeprefix('OR ').strip()
+                    lines.append(f'  - {part}')
+            lines.append('')
+
+    lines += [
+        '## 判定顺序小结',
+        '',
+        '1. 创建 TT 时先看**直接派发规则**：告警码/网络制式命中则直接派给目标组。',
+        '2. 否则按**条件推单规则**判断，命中则推给目标处理组并沿推送路径流转。',
+        '3. 若没有推单规则命中，走该环节的**默认组**。',
+        '4. 接手方必须在该环节的**可处理组名单**内，否则会出现指派断链。',
+        '',
+    ]
+    return write_doc('TT单-推单与指派规则.md', lines)
+
+
+# ------------------------------------------------------------------ #
+# 4. 告警码字典
 # ------------------------------------------------------------------ #
 
 def export_alarm_codes() -> str:
@@ -340,20 +483,33 @@ def export_alarm_codes() -> str:
 
 
 def main() -> int:
+    # 2026-10-23：stdout 重定向到管道（定时任务、计划任务）时 Python 默认按
+    # locale 编码（Windows 上是 cp1252）写，'✓' 这类字符会抛 UnicodeEncodeError。
+    # 文件其实已经写出去了，但脚本以非零码退出，调用方会误判成「导出失败」。
+    # 这里在入口显式改成 utf-8，与 run-py.mjs 的 PYTHONIOENCODING 互为兜底。
+    try:
+        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+    except AttributeError:  # pragma: no cover - Python < 3.7
+        pass
+
     jobs = [
         ('告警压缩规则', export_alarm_rules),
         ('TT 级别判定规则', export_tt_rules),
+        ('推单与指派规则', export_push_rules),
         ('告警码字典', export_alarm_codes),
     ]
+    failed = 0
     for label, fn in jobs:
         try:
             p = fn()
             print(f'  ✓ {label}: {p}' if p else f'  - {label}: 源文件缺失，跳过')
         except Exception as e:
+            failed += 1
             print(f'  ✗ {label} 失败：{e}')
     print(f'\n输出目录：{OUT_DIR}')
     print('下一步：npm run ingest')
-    return 0
+    # 有失败时以非零码退出，让调用方（同步脚本、定时任务）能识别出来
+    return 1 if failed else 0
 
 
 if __name__ == '__main__':

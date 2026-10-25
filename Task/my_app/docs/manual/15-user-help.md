@@ -1,6 +1,6 @@
 # my_app 使用帮助
 
-> 面向使用者的平台功能与操作指南。本文件由「使用帮助」页面同源生成（frontend/src/helpMarkdown.ts），内容依据 docs/manual/ 各章与 backend/task_registry.py 整理。生成日期：2026-10-21。
+> 面向使用者的平台功能与操作指南。本文件由「使用帮助」页面同源生成（frontend/src/helpMarkdown.ts），内容依据 docs/manual/ 各章与 backend/task_registry.py 整理。生成日期：2026-10-24。
 
 > 站内入口：侧边栏「使用帮助」，或直链 `http://<host>/myapp/?page=help`。
 
@@ -10,7 +10,7 @@
 
 - [1. 平台简介](#1-平台简介)
 - [2. 通用操作](#2-通用操作)
-- [3. 任务管理详解（73 个任务）](#3-任务管理详解)
+- [3. 任务管理详解（77 个任务）](#3-任务管理详解)
 - [4. 页面指南](#4-页面指南)
 - [5. 运维与排障](#5-运维与排障)
 - [6. 常见问题](#6-常见问题)
@@ -80,7 +80,7 @@
 
 > ⚠️ **新增任务必须同时登记进 `worker_watchdog.py` 的 `GROUP_TASK_MAP`** —— 只写 `TASK_SPECS` 不分组 = 任务入队后永远 pending。这是本项目已发生过四次的事故模式（finebi_report_sync / whatsapp_send_ext / sp_email_details / 2026-09-18 的 olib_soc 与 vmax_multi_data_sync）。
 
-### 3.3 全量任务清单（73 个）
+### 3.3 全量任务清单（77 个）
 
 | 任务 | task_id | 默认 cron | 组 | 工作流脚本 |
 | --- | --- | --- | --- | --- |
@@ -153,6 +153,10 @@
 | SP 在线未关闭单报表发送 | `sp_online_report_send` | `35 6 * * *` | m | `services/kpi_email_report.py → run_sp_online_report` |
 | eFlow 告警规则收集 | `eflow_alarm_rules_collect` | `59 23 */3 * *` | n | `services/eflow_rules/eflow_Alarm_Rule_Collector.py → run_eflow_alarm_rules` |
 | eFlow 推单规则收集 | `eflow_push_rules_collect` | `59 23 */3 * *` | n | `services/eflow_rules/eflow_Push_Rule_Collector.py → run_eflow_push_rules` |
+| eFlow 推单规则检查 | `eflow_push_rules_check` | `10 5 * * 2` | n | `services/eflow_rules/eflow_push_rules_check_task.py → run_eflow_push_rules_check` |
+| WhatsApp 知识库同步（推单规则） | `whatsapp_kb_sync_push_rules` | `4 0 */3 * *` | n | `services/whatsapp_kb_service.py → run_whatsapp_kb_sync_after_push_rules → whatsapp-kb-bot/scripts/sync-kb.mjs` |
+| WhatsApp 知识库同步（告警规则） | `whatsapp_kb_sync_alarm_rules` | `4 0 */3 * *` | n | `services/whatsapp_kb_service.py → run_whatsapp_kb_sync_after_alarm_rules → whatsapp-kb-bot/scripts/sync-kb.mjs` |
+| WhatsApp 知识库同步（TT 级别规则） | `whatsapp_kb_sync_tt_rules` | `35 4 * * *` | n | `services/whatsapp_kb_service.py → run_whatsapp_kb_sync_after_tt_rules → whatsapp-kb-bot/scripts/sync-kb.mjs` |
 | 日志文件清理 | `log_cleanup` | `17 3 * * *` | m | `services/log_cleanup.py → run_log_cleanup` |
 | TMP 目录清理 | `tmp_cleanup` | `47 3 * * *` | m | `services/tmp_cleanup.py → run_tmp_cleanup` |
 | TTs and MTTR 报表生成 | `tt_mttr_report_generate` | `20 7 * * *` | m | `services/tt_mttr_report.py → run_tt_mttr_report` |
@@ -1410,6 +1414,82 @@
 - 低频任务（每 3 天），与告警规则收集同组同周期
 - 与 eflow_tt_rules_check 用的规则表同处 services/eflow_rules/，目录与文件名不要改名
 
+#### eFlow 推单规则检查（`eflow_push_rules_check`）
+
+- 默认 cron: `10 5 * * 2`　|　worker 组: **n**
+- 工作流脚本: `services/eflow_rules/eflow_push_rules_check_task.py → run_eflow_push_rules_check`
+
+**功能**: 每周二 05:10：先用最新推单规则（ttPushOrderRule / 触发步骤 FOAccept）批量评估最新 1000 条 eflow_tt，逐单比出「规则判定」与「实际派单」是否一致，并留周快照供跨次对比
+
+**工作流与数据流**:
+
+1. 子进程跑 eflow_Push_Rule_Collector 刷新 eflow_push_rules.xlsx（失败则降级用已有规则）
+1. 取与 eflow_tt_rules_check 同一批样本（created_time 最新 1000 条、alarm_code 非空）
+1. 按 FOAccept 推单规则逐单判定：命中规则 / 是否建 WO / 目标处理人 / 推送路径
+1. 解析实际派单（wo_no + fo_accept_detail 的 Operator / Assignee Group）
+1. 分类为 一致 / 不一致 / 无法判定 / 无规则适用，导出 xlsx 并在 push_rules_snapshots/ 留快照
+
+**维护要点**:
+
+- 样本口径必须与 eflow_tt_rules_check 保持一致，否则两个页签的「总 TT」会对不上
+- 与 eflow_push_rules_collect 同组（n）：两者登录同一 eFlow 账号，跨组并发会互踢会话
+- 规则表「历史建 WO 率」用 Python 侧算好的截止时间传参 —— datetime('now') 只有 SQLite 有
+- 快照只保留最近 10 份（_SNAPSHOT_KEEP），如需长期留存请另存
+
+#### WhatsApp 知识库同步（推单规则）（`whatsapp_kb_sync_push_rules`）
+
+- 默认 cron: `4 0 */3 * *`　|　worker 组: **n**
+- 工作流脚本: `services/whatsapp_kb_service.py → run_whatsapp_kb_sync_after_push_rules → whatsapp-kb-bot/scripts/sync-kb.mjs`
+
+**功能**: eFlow 推单规则收集完成后触发：比对规则 xlsx 指纹，有变化才重导知识文档、重建索引并重启 whatsapp-kb-bot
+
+**工作流与数据流**:
+
+1. 比对四份规则 xlsx 的 size+mtime 指纹
+1. 无变化直接退出（不重启 bot，避免与提问竞态）
+1. 有变化时执行 export-kb → ingest → 重启 bot → 核对索引一致
+
+**维护要点**:
+
+- 幂等设计：绝大多数轮次什么都不做，不会频繁重启 bot
+- 指纹只覆盖规则 xlsx；手改 knowledge/ 下的 md 不会被发现，靠 @bot ping 的「磁盘知识比索引新」告警兜底
+- 同一批规则还有实时通道（带 TT 单号提问）直接读 xlsx，不走本任务也不会答错
+
+#### WhatsApp 知识库同步（告警规则）（`whatsapp_kb_sync_alarm_rules`）
+
+- 默认 cron: `4 0 */3 * *`　|　worker 组: **n**
+- 工作流脚本: `services/whatsapp_kb_service.py → run_whatsapp_kb_sync_after_alarm_rules → whatsapp-kb-bot/scripts/sync-kb.mjs`
+
+**功能**: eFlow 告警规则收集完成后触发知识库同步；告警压缩规则来自 eflow_alarm_rules.xlsx，无变化自动跳过
+
+**工作流与数据流**:
+
+1. 比对规则 xlsx 指纹
+1. 有变化时重导 TT单-告警压缩规则.md 并重建索引、重启 bot
+1. 无变化直接退出
+
+**维护要点**:
+
+- 与推单规则同步共用同一套 sync-kb.mjs 逻辑，只是触发时机不同
+- 压缩规则影响「某个告警码会压缩成什么」这类知识库问答
+
+#### WhatsApp 知识库同步（TT 级别规则）（`whatsapp_kb_sync_tt_rules`）
+
+- 默认 cron: `35 4 * * *`　|　worker 组: **n**
+- 工作流脚本: `services/whatsapp_kb_service.py → run_whatsapp_kb_sync_after_tt_rules → whatsapp-kb-bot/scripts/sync-kb.mjs`
+
+**功能**: eFlow TT 级别规则收集（每日 04:20）完成后触发知识库同步；级别规则来自 eflow_TT_rules.xlsx
+
+**工作流与数据流**:
+
+1. 04:35 触发（比 04:20 的规则采集晚 15 分钟，确保 xlsx 已落盘）
+1. 比对指纹，有变化才重导 TT单-级别判定规则.md 并重建索引、重启 bot
+
+**维护要点**:
+
+- 级别规则每天采集一次，所以本任务也是每日节拍
+- 无变化时不做任何事，不会每天重启 bot
+
 #### 日志文件清理（`log_cleanup`）
 
 - 默认 cron: `17 3 * * *`　|　worker 组: **m**
@@ -2021,6 +2101,17 @@ IP 链路探测：从服务器侧探测到目标站点的链路连通性与路�
 
 - 输入目标开始探测，结果表格/地图实时刷新
 - 探测是可中断的长任务，卡住时可手动停止
+
+#### vmax_user_query（`vmax_user_query`）
+
+VMAX 用户信息查询：输入用户号码与时间窗，从 VMAX CCA 投诉系统查询用户信息（IMSI/MSISDN 映射）、终端信息（IMEI/机型/厂商/运营商）、窗口内按应用流量与驻留小区列表（含每小区 KPI 明细）。
+
+- 必须用 231 开头的完整号码（如 231777777322），纯数字；本地 9 位格式上游查不到（2026-10-24 实测）
+- 时间窗默认今天，跨度最多 31 天，不能选未来；流量与驻留小区按窗口查询，终端/用户信息与窗口无关
+- 「查无此号」「流量为空」都是业务正常返回，不是故障；接口报错时先检查 设置→凭据管理 的 vmax_cca 组是否已录入账号密码
+- 驻留小区行内点 KPI 弹出该小区指标明细（ppc 码已映射 KPI 英文名，缺码显示原始码）
+- 查询走 VMAX 门户会话（串行复用），请勿连续大量点击，避免占用上游会话
+- 结果只读透传不落库，刷新页面即清空
 
 ### 4.4 系统管理
 

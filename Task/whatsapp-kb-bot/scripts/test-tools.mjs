@@ -17,6 +17,7 @@ import {
   parseDateRange, parseSeverity, parseStatus, renderStats, fmtDate, shiftDate, parseListIntent,
 } from '../src/ttquery.js';
 import { parseByRule, parseToolCall, leftoverTerms } from '../src/tools.js';
+import { formatRaised } from '../src/sitealarms.js';
 
 // 本测的是纯函数，关掉工具路由不影响这里，但能避免误触发真实查询
 CONFIG.toolsEnabled = false;
@@ -299,6 +300,23 @@ console.log('\n[3d] 站点告警意图 → query_site_alarms（2026-10-08：治�
   const a4 = parseByRule('Palm Bay 有没有告警', NOW);
   check(a4?.tool === 'query_site_alarms', '  「Palm Bay 有没有告警」→ query_site_alarms（没被「有没有」拐去统计）', JSON.stringify(a4));
 
+  // ②2026-10-24：**带告警码**的站点告警问法。
+  //
+  // 群里真实提问：
+  //   site name :Grand Cess(3629），Alarm: 9920(Critical)，Alarm occurred 2026-10-24 10:50:29
+  // 改造前这句被判给 lookup_alarm_code，只回「9920 是 Complete site down」，
+  // 站名、站号、发生时间全丢 —— 用户要的是「这个站这条告警现在什么情况」。
+  const b1 = parseByRule(
+    'site name :Grand Cess(3629），Alarm: 9920(Critical)，Alarm occurred  2026-10-24 10:50:29', NOW);
+  check(b1?.tool === 'query_site_alarms', '  带告警码的站点告警 → query_site_alarms（不再被查表抢走）',
+    JSON.stringify(b1));
+  check(b1?.args?.site === 'Grand Cess', '  站名抽对 = Grand Cess（不吃进 3629 与全角括号）',
+    JSON.stringify(b1?.args));
+
+  const b2 = parseByRule('Grand Cess(3629) 告警', NOW);
+  check(b2?.tool === 'query_site_alarms' && b2?.args?.site === 'Grand Cess',
+    '  站名后紧跟站号括号 → 站名只取 Grand Cess', JSON.stringify(b2));
+
   // 反向：不能误伤
   check(parseByRule('Wood camp 这个站昨天有几个单', NOW)?.tool !== 'query_site_alarms',
     '  反向：「XX站昨天有几个单」不得走告警通道');
@@ -307,7 +325,20 @@ console.log('\n[3d] 站点告警意图 → query_site_alarms（2026-10-08：治�
   check(parseByRule('check TT202610080063', NOW)?.tool === 'analyze_ticket',
     '  反向：带单号 → analyze_ticket（告警通道让位）');
   check(parseByRule('what is alarm code 9920', NOW)?.tool === 'lookup_alarm_code',
-    '  反向：告警码含义 → lookup_alarm_code（不是站点告警）');
+    '  反向：**无站名**的告警码含义 → lookup_alarm_code（不是站点告警）');
+}
+
+console.log('\n[3e] sitealarms 渲染：发生时间 / 告警码 / 站号 / 派单字段（2026-10-24）');
+{
+  // 时间格式化：必须按**本机时区**给出可读时间。
+  // 用户拿它对照「Alarm occurred 2026-10-24 10:50:29」，给 UTC 会让人误判查错了告警。
+  const ts = 1792839029000;
+  const d = new Date(ts);
+  const pad = (x) => String(x).padStart(2, '0');
+  const expect = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ` +
+                 `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  check(formatRaised(ts) === expect, '  时间戳按本地时区格式化', formatRaised(ts));
+  check(formatRaised('') === '' && formatRaised(null) === '', '  缺时间返回空串（不显示 1970）');
 }
 
 /* --------------------------- 模型输出解析 --------------------------- */

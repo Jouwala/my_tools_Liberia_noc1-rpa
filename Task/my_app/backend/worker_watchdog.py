@@ -328,12 +328,24 @@ GROUP_TASK_MAP = {
         "eflow_alarm_rules_collect,"
         # eflow_push_rules_collect 2026-09-03 补录：eFlow 推单规则收集，走 config-center 同源会话
         "eflow_push_rules_collect,"
+        # eflow_push_rules_check 2026-10-23 注册：推单规则批量检查。第 1 步会用子进程跑
+        # eflow_Push_Rule_Collector 刷新规则 xlsx，与 eflow_push_rules_collect **登录同一账号**，
+        # 不同组并发会互踢会话 → 必须与采集任务同组串行（同 eflow_alarm_rules_collect 的理由）。
+        # 漏登记本步骤会出现「队列 pending 卡死、无 worker 认领」（本组已踩过 4 次）。
+        "eflow_push_rules_check,"
         # ume_in_kpi_sync 2026-09-15 补录：UME Dong customer 业务 KPI（门户 172.17.208.1:28808，
         # 与 MW UME 不同主机/不同会话，但与其它网管类任务保守同组）
         "ume_in_kpi_sync,"
         # ume_in_osg_report 2026-09-18 注册：客户业务 KPI + OSG 周报邮件（每天 06:30）。
         # 第 1 步就调用 ume_in_kpi_service.run_ume_in_kpi_sync()，与 ume_in_kpi_sync 共用
         # 同一 UME Dong 门户会话，必须同组串行（且第 3 步走 EWS 发信，组内串行不影响时效）。
+        # 2026-10-23 补录 3 个 whatsapp_kb_sync_*：注册进 TASK_SPECS 时**漏了本步骤**，
+        # 队列 pending 卡死、无任何 worker 认领（与 sp_material_sync / cells_kpi_sync
+        # 同一种事故，本组第 4 次踩）。它们跟在 eFlow 规则采集之后执行，
+        # 读的正是同组 eflow_*_rules_collect 刚写的 xlsx —— 同组串行顺带保证
+        # 「先采集完、再同步知识库」的先后关系，无需额外加锁。
+        "whatsapp_kb_sync_push_rules,whatsapp_kb_sync_alarm_rules,"
+        "whatsapp_kb_sync_tt_rules,"
         "ume_in_osg_report"),
     "s": (  # SP 备件 SFTP 组（2026-09-27 从 n 组拆出）：上游是**独立 SFTP 服务器**
         # （get_sp_table.py:68 SFTP_HOST，独占 channel），成功后另做 UNC 网络路径镜像

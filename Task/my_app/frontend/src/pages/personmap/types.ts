@@ -55,6 +55,11 @@ export interface PersonRow {
    *  `current_handler` 为空，历史归属做不出来；套窗口会把 1715 砍到 826）。
    *  只挂在 `G:` 组池上的 PMT 不计入任何个人，总数在 `PersonStats.pmt.group_pool`。 */
   pmt_open: number | null
+  /** **前端联合标记，非后端字段**：「默认站点」模式下由辖区数据拼出的针，
+   *  若这个人在 /personnel/stats 里没有行（person 表没有他，实测 1 人），
+   *  WO/PMT 统计**取不到** —— 徽标数字显示 `—`、针用中性灰，
+   *  不能拿 0 冒充「真的没有」（AGENTS.md 三.6）。 */
+  stats_unknown?: boolean
 }
 
 /** `/personnel/stats` 的响应 */
@@ -158,4 +163,30 @@ export interface ManagedSitesResp {
   uncleared_total: number
   open_total: number
   skipped_no_coord: number
+}
+
+/* ---- 「默认站点」辖区（/personnel/fme-territories，2026-10-23）----
+ * 人员页地图「默认站点」开关打开后的数据。站点集合与 /managed-sites 同源
+ * （后端同一个 _fme_site_index = master_site_db.fme_name）。 */
+export interface TerritorySite {
+  site_id: string
+  site_name: string
+  region: string
+  county: string
+  lat: number
+  lng: number
+}
+
+export interface TerritoryPerson {
+  name: string
+  name_key: string
+  phone: string
+  /** 该人全部站点的算术平均（「person 放到站点中间」） */
+  centroid: { lat: number; lng: number }
+  sites: TerritorySite[]
+}
+
+export interface TerritoriesResp {
+  persons: TerritoryPerson[]
+  person_count: number
 }

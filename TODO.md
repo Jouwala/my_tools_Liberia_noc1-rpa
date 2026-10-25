@@ -39,6 +39,18 @@
 
 ### P2 —— 体验与工程规范
 
+- [x] **`PersonMapView.tsx` 拆分收尾（2026-10-24 立，同日完成）。** 县标签（2026-10-23）与「默认站点」
+      辖区模式（2026-10-24）两次迭代把它从 ~495 行推到 714 行。已完成拆分（714 → **489 行**，行为不变）：
+      `personmap/useCountyTags.ts`（新，114 行：COUNTY_PALETTE / 填充透明度 / TRM·CAT 常量表 /
+      typeCountsLine / 县→类别色与两行统计文本派生）、`personPinHtml.ts`（新，97 行：人员针图标拼装，
+      悬停不进图表的实测契约随文件头搬走）、`CountyLabels.tsx`（新，91 行：县名标签避让 effect + 渲染 +
+      countyLabelPane）、`SitesLayer.tsx`（新，56 行：站点圆点与提示，siteColor 由调用方传入与连线共用）、
+      `TerritoryToggle.tsx`（新，38 行：开关浮层）；`NoSitesNote.tsx` 新增 `MapNoSitesNote`
+      （底部居中定位外壳），抽屉仍用裸 `NoSitesNote`，文案两处同源。
+      验证：`npm run build`（check-i18n + tsc + vite build）通过；无头浏览器三态实测 ——
+      县标签 15 个三行齐全、开关默认关且打开后 overlay path 15→1849、点针开抽屉 + 选中变红、
+      取消选中/点地图空白/抽屉 × 三条清除路径符合手册 11a、控制台零错误；手册 11a 文件指针已同步。
+      **未提交**：工作区有他人在途改动（EmailReports / GISMap / 凭据等），提交需择干净窗口、只提 personmap 相关文件。
 - [ ] **地图页「点别处取消选中」还剩两处未收口（2026-10-21 立）。** `?page=person` 已修
       （`Task\my_app\frontend\src\useClearOnOutsideClick.ts`，实测点 KPI 卡/表格/筛选条/页面背景均取消、
       点抽屉内部与表格行不误取消）。盘点其余带地图的页面后剩两处：

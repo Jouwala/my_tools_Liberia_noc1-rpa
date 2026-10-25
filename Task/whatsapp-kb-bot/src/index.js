@@ -5,8 +5,9 @@
  *   npm start
  *   npm start -- --debug      打印每次检索的诊断信息
  */
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, statSync } from 'node:fs';
 import { join, dirname } from 'node:path';
+import { myAppDir, RULE_SOURCE_FILES } from './myAppPaths.js';
 import { CONFIG, describeConfig, ROOT, loadRuntimeConfig } from './config.js';
 import { loadIndex } from './rag.js';
 import { loadLookupsOnce } from './tools.js';
@@ -16,6 +17,7 @@ import { validateProvider, providerInfo, pingProvider } from './llm.js';
 import { startWhatsApp, stopWhatsApp } from './whatsapp.js';
 import { ttAvailable } from './tt.js';
 import { scanKnowledge, diffIndex, freshnessWarning } from './indexFreshness.js';
+import { checkRuleSourceFreshness } from './ruleSourceFreshness.js';
 import { LOADED_MTIME, PROCESS_STARTED_AT, fmtTime, isStale, uptimeText } from './buildinfo.js';
 
 const DEBUG = process.argv.includes('--debug') || process.env.DEBUG_RAG === '1';
@@ -199,6 +201,30 @@ async function main() {
       return null; // 扫盘失败（网络盘抖动等）不该影响 ping
     }
   };
+  // 规则源文件新鲜度（第三种「用旧资料」）：my_app 的规则 xlsx 是否已比
+  // 上次知识库同步更新。每次 ping 都刷新（与上面两个检测同一理由）。
+  const ruleSourceWarning = () => {
+    try {
+      const statePath = join(ROOT, 'data', 'kb_sync_state.json');
+      const readSyncedAt = () => {
+        const s = JSON.parse(readFileSync(statePath, 'utf8'));
+        return s?.syncedAt ? new Date(s.syncedAt) : null;
+      };
+      // 四个规则源里取最新的 mtime；与 scripts/sync-kb.mjs 的 SOURCE_FILES 一致
+      let newest = null;
+      for (const segs of RULE_SOURCE_FILES) {
+        try {
+          const st = statSync(join(myAppDir(), ...segs));
+          if (newest === null || st.mtimeMs > newest) newest = st.mtimeMs;
+        } catch {
+          // 单个文件缺失不影响判断，跳过
+        }
+      }
+      return checkRuleSourceFreshness(readSyncedAt, newest);
+    } catch {
+      return null; // 任何异常都不该影响 ping
+    }
+  };
   {
     const w = freshnessWarning(freshness());
     if (w) {
@@ -271,6 +297,12 @@ async function main() {
       // 「代码新鲜」不等于「索引新鲜」——两者是独立的两件事，都要报。
       const fw = freshnessWarning(freshness());
       if (fw) lines.push(fw);
+      // 规则源文件新鲜度：my_app 的规则 xlsx 是否已比知识库同步时间新。
+      // 这是**第三种**「看起来在跑、其实用旧资料」的情形（前两种是代码旧、索引旧）：
+      // eFlow 规则采集跑完了，但 knowledge/ 下的 md 还是上一版导出的。
+      // 定时任务 whatsapp_kb_sync_* 会自动处理，这里只在没跟上时点名，便于群里发现。
+      const rw = ruleSourceWarning();
+      if (rw) lines.push(rw);
       return lines.join('\n');
     },
     help: async () =>

@@ -56,7 +56,7 @@ _PROBE = ('import importlib.util as u, sys;'
 _MISS = '__ALARM_SITE_MISS__'
 
 # 真正取数：复用生产 pipeline，按 site 名过滤。 
-_FETCH = r"""
+_FETCH = """
 import json, os, sys
 app = os.environ["ALARMS_APP_DIR"]
 site = os.environ["ALARMS_SITE"]
@@ -81,21 +81,57 @@ def site_of(r):
     return ""
 hits = [r for r in rows
         if target and (target in norm(site_of(r)) or norm(site_of(r)) in target)]
+
+# 站点名可能要连站号一起匹配（用户常写「Grand Cess(3629)」）。站号在
+# "Site ID" / "Object Name" 里；上面 site_of 取的是站名，所以这里补一次。
+if not hits:
+    num = "".join(ch for ch in site if ch.isdigit())
+    if num:
+        hits = [r for r in rows
+                if str(r.get("Site ID") or "").strip() == num
+                or str(r.get("Object Name") or "").strip() == num]
+
+def _clean(v):
+    # 把 eFlow 里的占位值（空串 / "--" / "-" / None）统一成空串。
+    # 注意：这里用行注释而不是 docstring —— 占位值本身的引号会提前闭合三引号。
+    s = str(v if v is not None else "").strip()
+    return "" if s in ("", "--", "-") else s
+
 def pick(r):
+    # 注意：`codename` 是**告警名**（"Complete site down (CSD)"），
+    # 真正的告警码在 `alarmcode`（9920）。早期版本把两者混成 "code" 字段，
+    # 导致群里收到「Alarm code 9920 → …」之后站点告警回复里反而没有码。
     return {
         "site": site_of(r),
-        "site_id": r.get("Site ID") or r.get("site") or "",
-        "alarm": r.get("Alarm Title") or r.get("codename") or "",
-        "code": r.get("codename") or "",
-        "severity": r.get("perceivedseverityname") or r.get("perceivedseverity") or "",
-        "duration": r.get("durationname") or "",
+        "site_id": _clean(r.get("Site ID")) or _clean(r.get("Object Name")),
+        "alarm": _clean(r.get("Alarm Title")) or _clean(r.get("codename")),
+        "code": _clean(r.get("alarmcode")),
+        "severity": _clean(r.get("perceivedseverityname")) or _clean(r.get("perceivedseverity")),
+        "duration": _clean(r.get("durationname")),
+        # 用户常拿「Alarm occurred <时间>」来核对是哪一条，所以必须原样给出。
         "raised": r.get("alarmraisedtime") or r.get("raised") or "",
-        "tt": r.get("TT ID") or r.get("ttid") or "",
-        "region": r.get("Region") or "",
+        "tt": _clean(r.get("TT ID")) or _clean(r.get("TT Info")),
+        "region": _clean(r.get("Region")),
         "clearstate": r.get("clearstate"),
+        "clearstate_name": _clean(r.get("clearstatename")),
+        # 派单侧诊断：这三项在活动告警接口里是现成的，不用二次查询。
+        "assign_delay": _clean(r.get("Assign Delay")),
+        "hub_site_flag": _clean(r.get("Hub Site Flag")),
+        "link_path": _clean(r.get("Link Path")),
     }
+
+def _raised_key(a):
+    # 按告警发生时间倒序（最新在前），让用户问的那条排第一。
+    # eFlow 的 alarmraisedtime 是毫秒时间戳；缺失的排最后。
+    v = a.get("raised")
+    try:
+        return -int(v)
+    except Exception:
+        return 0
+
+alarms = sorted((pick(r) for r in hits), key=_raised_key)
 out = {"site_query": site, "total_active": len(rows),
-       "matched": len(hits), "alarms": [pick(r) for r in hits]}
+       "matched": len(hits), "alarms": alarms}
 sys.stdout.write(json.dumps(out, ensure_ascii=False, default=str))
 """
 

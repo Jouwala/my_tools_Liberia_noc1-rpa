@@ -1,6 +1,6 @@
 # my_app User Help & Guide
 
-> User-facing platform features & operations guide. Generated from the same source as the in-app Help page (frontend/src/helpMarkdown.ts), compiled from docs/manual/ and backend/task_registry.py. Generated on 2026-10-21.
+> User-facing platform features & operations guide. Generated from the same source as the in-app Help page (frontend/src/helpMarkdown.ts), compiled from docs/manual/ and backend/task_registry.py. Generated on 2026-10-24.
 
 > In-app entry: the "Help" sidebar item, or `http://<host>/myapp/?page=help` directly.
 
@@ -10,7 +10,7 @@
 
 - [1. Platform Overview](#1-platform-overview)
 - [2. General Usage](#2-general-usage)
-- [3. Task Manager Deep Dive (73 tasks)](#3-task-manager-deep-dive)
+- [3. Task Manager Deep Dive (77 tasks)](#3-task-manager-deep-dive)
 - [4. Pages Guide](#4-pages-guide)
 - [5. Ops & Troubleshooting](#5-ops-troubleshooting)
 - [6. FAQ](#6-faq)
@@ -80,7 +80,7 @@ Built for the NOC scenario "boards every day, reports must go out": 41+ schedule
 
 > ⚠️ **New tasks MUST also be registered in `GROUP_TASK_MAP` in worker_watchdog.py** — declaring them only in TASK_SPECS leaves them pending forever. This accident happened four times (finebi_report_sync / whatsapp_send_ext / sp_email_details / the olib_soc and vmax_multi_data_sync tasks found on 2026-09-18).
 
-### 3.3 Full task catalog (73 tasks)
+### 3.3 Full task catalog (77 tasks)
 
 | Task | task_id | Default cron | Group | Workflow script |
 | --- | --- | --- | --- | --- |
@@ -153,6 +153,10 @@ Built for the NOC scenario "boards every day, reports must go out": 41+ schedule
 | SP Online Open Tickets Report Send | `sp_online_report_send` | `35 6 * * *` | m | `services/kpi_email_report.py → run_sp_online_report` |
 | eFlow Alarm Rules Collect | `eflow_alarm_rules_collect` | `59 23 */3 * *` | n | `services/eflow_rules/eflow_Alarm_Rule_Collector.py → run_eflow_alarm_rules` |
 | eFlow Push Rules Collect | `eflow_push_rules_collect` | `59 23 */3 * *` | n | `services/eflow_rules/eflow_Push_Rule_Collector.py → run_eflow_push_rules` |
+| eFlow Push Rules Check | `eflow_push_rules_check` | `10 5 * * 2` | n | `services/eflow_rules/eflow_push_rules_check_task.py → run_eflow_push_rules_check` |
+| WhatsApp KB Sync (Push Rules) | `whatsapp_kb_sync_push_rules` | `4 0 */3 * *` | n | `services/whatsapp_kb_service.py → run_whatsapp_kb_sync_after_push_rules → whatsapp-kb-bot/scripts/sync-kb.mjs` |
+| WhatsApp KB Sync (Alarm Rules) | `whatsapp_kb_sync_alarm_rules` | `4 0 */3 * *` | n | `services/whatsapp_kb_service.py → run_whatsapp_kb_sync_after_alarm_rules → whatsapp-kb-bot/scripts/sync-kb.mjs` |
+| WhatsApp KB Sync (TT Level Rules) | `whatsapp_kb_sync_tt_rules` | `35 4 * * *` | n | `services/whatsapp_kb_service.py → run_whatsapp_kb_sync_after_tt_rules → whatsapp-kb-bot/scripts/sync-kb.mjs` |
 | Log Files Cleanup | `log_cleanup` | `17 3 * * *` | m | `services/log_cleanup.py → run_log_cleanup` |
 | TMP Directory Cleanup | `tmp_cleanup` | `47 3 * * *` | m | `services/tmp_cleanup.py → run_tmp_cleanup` |
 | TTs and MTTR Report Generate | `tt_mttr_report_generate` | `20 7 * * *` | m | `services/tt_mttr_report.py → run_tt_mttr_report` |
@@ -1410,6 +1414,82 @@ Workflow & maintenance notes per task:
 - Low-frequency (every 3 days), same group and cadence as the alarm-rules collector
 - Lives in services/eflow_rules/ next to the rule sheet used by eflow_tt_rules_check — do not rename paths
 
+#### eFlow Push Rules Check（`eflow_push_rules_check`）
+
+- Default cron: `10 5 * * 2`　|　worker group: **n**
+- Workflow script: `services/eflow_rules/eflow_push_rules_check_task.py → run_eflow_push_rules_check`
+
+**What it does**: Weekly (Tue 05:10): evaluate the latest 1000 eflow_tt tickets against the current TT Push Order rules (FOAccept), compare rule decision vs actual dispatch per ticket, and keep a weekly snapshot for run-to-run comparison
+
+**Workflow & data flow**:
+
+1. Refresh eflow_push_rules.xlsx via the collector subprocess (falls back to the existing file on failure)
+1. Load the same sample as eflow_tt_rules_check (newest 1000 by created_time with an alarm_code)
+1. Evaluate each ticket against FOAccept push rules: matched rule / builds WO / target handler / push path
+1. Parse the actual dispatch (wo_no plus Operator / Assignee Group from fo_accept_detail)
+1. Classify into consistent / mismatch / undecidable / unmatched, export xlsx and keep a snapshot under push_rules_snapshots/
+
+**Maintenance**:
+
+- Keep the sample definition identical to eflow_tt_rules_check, otherwise the two tabs show different totals
+- Shares group n with eflow_push_rules_collect: both log in with the same eFlow account and would kick each other across groups
+- The historical WO-rate query passes a Python-computed cutoff — datetime('now') only exists in SQLite
+- Only the latest 10 snapshots are kept (_SNAPSHOT_KEEP); archive elsewhere if long-term retention is needed
+
+#### WhatsApp KB Sync (Push Rules)（`whatsapp_kb_sync_push_rules`）
+
+- Default cron: `4 0 */3 * *`　|　worker group: **n**
+- Workflow script: `services/whatsapp_kb_service.py → run_whatsapp_kb_sync_after_push_rules → whatsapp-kb-bot/scripts/sync-kb.mjs`
+
+**What it does**: Fired after the push-rules collect: compares rule xlsx fingerprints and only re-exports docs, rebuilds the index and restarts whatsapp-kb-bot when something actually changed
+
+**Workflow & data flow**:
+
+1. Compare size+mtime fingerprints of the four rule xlsx files
+1. Exit immediately when unchanged (no bot restart, avoids racing live questions)
+1. When changed: export-kb → ingest → restart bot → verify the index matches disk
+
+**Maintenance**:
+
+- Idempotent by design: most runs do nothing and never restart the bot
+- Fingerprints cover the rule xlsx only; hand-edited markdown under knowledge/ is caught by the "@bot ping" stale-index warning instead
+- The realtime channel (questions with a TT number) reads the xlsx directly, so it stays correct regardless of this task
+
+#### WhatsApp KB Sync (Alarm Rules)（`whatsapp_kb_sync_alarm_rules`）
+
+- Default cron: `4 0 */3 * *`　|　worker group: **n**
+- Workflow script: `services/whatsapp_kb_service.py → run_whatsapp_kb_sync_after_alarm_rules → whatsapp-kb-bot/scripts/sync-kb.mjs`
+
+**What it does**: Triggers a KB sync after the alarm-rules collect; compression rules come from eflow_alarm_rules.xlsx and unchanged runs are skipped
+
+**Workflow & data flow**:
+
+1. Compare rule xlsx fingerprints
+1. When changed, re-export the compression-rules doc, rebuild the index and restart the bot
+1. Exit immediately when unchanged
+
+**Maintenance**:
+
+- Shares the same sync-kb.mjs logic as the push-rules sync; only the trigger timing differs
+- Compression rules drive knowledge-base answers such as "what does this alarm code compress into"
+
+#### WhatsApp KB Sync (TT Level Rules)（`whatsapp_kb_sync_tt_rules`）
+
+- Default cron: `35 4 * * *`　|　worker group: **n**
+- Workflow script: `services/whatsapp_kb_service.py → run_whatsapp_kb_sync_after_tt_rules → whatsapp-kb-bot/scripts/sync-kb.mjs`
+
+**What it does**: Triggers a KB sync after the daily 04:20 TT level-rules collect; level rules come from eflow_TT_rules.xlsx
+
+**Workflow & data flow**:
+
+1. Fires at 04:35, 15 minutes after the 04:20 collect so the xlsx is already written
+1. Compares fingerprints and only re-exports the level-rules doc + rebuilds the index + restarts the bot when changed
+
+**Maintenance**:
+
+- Level rules are collected daily, so this task runs on a daily cadence too
+- Does nothing when unchanged — the bot is not restarted every day
+
 #### Log Files Cleanup（`log_cleanup`）
 
 - Default cron: `17 3 * * *`　|　worker group: **m**
@@ -2021,6 +2101,17 @@ IP trace: probe link connectivity and path nodes from the server side to a targe
 
 - Enter a target and start; the result table/map refreshes live
 - Tracing is a stoppable long task — stop it manually if it hangs
+
+#### vmax_user_query（`vmax_user_query`）
+
+VMAX user info query: enter a subscriber number and time window to look up subscriber info (IMSI/MSISDN mapping), terminal info (IMEI/model/vendor/operator), per-app traffic and camped cells (with per-cell KPI details) from the VMAX CCA complaint system.
+
+- Use the full number with the 231 prefix (e.g. 231777777322), digits only; the local 9-digit format is not matched upstream (verified 2026-10-24)
+- Time window defaults to today, max span 31 days, no future dates; traffic and camped cells follow the window, subscriber/terminal info does not
+- "Not found" and empty traffic are normal business responses, not failures; on API errors first check that the vmax_cca group in Settings → Credential Management has an account and password
+- Click KPI in a camped-cell row for that cell's indicator details (ppc codes mapped to KPI names; unmapped codes shown raw)
+- Queries go through a VMAX portal session (serialized reuse); avoid rapid repeated clicks to keep the upstream session free
+- Results are read-only passthrough, nothing is persisted; refreshing the page clears them
 
 ### 4.4 System
 

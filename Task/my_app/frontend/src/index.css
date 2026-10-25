@@ -836,6 +836,33 @@ html {
   font-feature-settings: 'tnum';
 }
 
+/* ---------- 人员位置地图的三行县标签（2026-10-23，?page=person 专属） ----------
+   第一行县名 + 站点总数；第二行传输类型分组（MW/SAT/ST/IPRAN）；
+   第三行维护分类分组（NORMAL/ERA/COOL）。用户要求「站点总数和类型的统计」，
+   且传输与维护两类都要。
+   外层 tooltip 仍挂 .gis-county-label（主题分档的描边字，pointer-events:none），
+   这里只改内部排布：纵向三行 + 类型行压到 9px —— 10px 会把最坏行撑到 ~190px，
+   Montserrado 这类小县整个装不下一行。避开 GIS 页的 .gis-county-tag 单行结构，
+   互不影响。 */
+.person-county-tag {
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+}
+.person-county-tag__head {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+}
+.person-county-tag__row {
+  font-size: 9px;
+  line-height: 1.25;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum';
+  opacity: 0.92;
+}
+
 /* ---------- GIS 超时告警站点：外圈呼吸光环（2026-10-02 新增） ----------
    用户要求「严重告警加脉冲/外圈」。只作用于 realtime 模式的 rt_alarm_overdue
    （已超时）一档 —— 它是最高优先级且数量最少。见 GISMap.tsx 对应注释。

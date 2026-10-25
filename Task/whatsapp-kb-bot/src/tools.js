@@ -491,6 +491,33 @@ function extractSiteName(q) {
     if (name && !SITE_STOPWORDS.has(name.toLowerCase())) return name;
   }
 
+  // ①.5 「site name X」/「站点 X」显式引导词。
+  //
+  // 2026-10-24 新增：现场提问常写成
+  //   site name :Grand Cess(3629），Alarm: 9920(Critical)…
+  // 站名后面紧跟**中文全角括号**里的站号。纯英文大写词正则会把
+  // `3629` 一起吞成专名的一部分，再被「首词是小写…」等规则卡住而弃权，
+  // 最终整句退回查表通道 —— 站名和时间全丢。
+  //
+  // 边界为什么是「括号/分隔符 **或 遇到停用词**」：
+  // 只靠标点不够——`site name Palm Bay form eflow` 里 `form`（FROM 的拼错）
+  // 是停用词但前面没有标点，会连读成 `Palm Bay form eflow`。
+  // 所以逐词累积，碰到停用词立刻停，保留已累积的部分。
+  const guided = s.match(/(?:site\s*name|站点?)\s*[:：]?\s*([A-Za-z][A-Za-z0-9'.\-\s]{1,60})/);
+  if (guided) {
+    const words = guided[1].split(/[\s,;:()（）,。;]+/).filter(Boolean);
+    const keep = [];
+    for (const w of words) {
+      if (SITE_STOPWORDS.has(w.toLowerCase())) break;
+      keep.push(w);
+      if (keep.length >= 4) break; // 站名极少超过 4 个词，防止吞掉整句
+    }
+    const name = keep.join(' ');
+    if (name.length >= 3 && !SITE_STOPWORDS.has(name.split(/\s+/)[0].toLowerCase())) {
+      return name;
+    }
+  }
+
   // ② 纯英文专名：1~3 个连续「首字母大写」词，且首词不是停用词。
   //    只认**大写开头**的词，天然避开 "site down" 里的 down / "check alarm" 里的 alarm。
   //    例：Palm Bay / Gbonebu / Qcell R.I.A / Wood Camp。
@@ -518,14 +545,23 @@ export function parseByRule(question, now = new Date()) {
   const ttNos = extractTtNos(q);
   if (ttNos.length) return { tool: 'analyze_ticket', args: { tt_no: ttNos[0] } };
 
-  // ①.2 站点告警意图：出现**告警状态词**（且不是纯按单号/告警码查）时，
-  // 优先走 query_site_alarms。必须在统计判断之前 —— 否则
+  // ①.2 站点告警意图：出现**告警状态词**时，优先走 query_site_alarms。
+  // 必须在统计判断**和查表判断**之前 —— 否则
   // 「Palm Bay 有没有告警」会被 COUNT_INTENT 的「有没有」拐去统计，
   // 回一句 tickets: 0，把「工单数」误当「告警状态」。
-  // 覆盖面：站名能被规则可靠抓到时**直接命中**（省一次模型调用）；
-  // 抓不到站名时**弃权**交模型层（模型能从上下文/追问里补全站名）。
-  if (SITE_ALARM_INTENT.test(q) && !extractAlarmCode(q)) {
+  //
+  // 2026-10-24 修正：原先这里有个 `&& !extractAlarmCode(q)`，本意是让出
+  // 「what is alarm code 9920」这类纯查码题。但群里真实问法形如
+  //   site name :Grand Cess(3629)，Alarm: 9920(Critical)，Alarm occurred 2026-10-24 10:50:29
+  // 句子里**同时**有站名和告警码，于是被这个条件否掉 → 继续往下落到
+  // parseLookupIntent → 只回了「9920 是 Complete site down」，整条站名/时间全丢。
+  // 判据改为「**有站名** + 告警语义」：站名才是站点告警通道的前提，
+  // 告警码在这里只是**补充信息**，不再一票否决。
+  // 「what is alarm code 9920」没有站名 → 仍走查表，不受影响。
+  if (SITE_ALARM_INTENT.test(q)) {
     const site = extractSiteName(q);
+    // 告警码不下推：本通道回答的是「这个站现在有哪些活动告警」，
+    // 把码塞进过滤条件会让「码记错了」的用户直接得到「无告警」的假结论。
     if (site) return { tool: 'query_site_alarms', args: { site } };
   }
 

@@ -44,6 +44,7 @@ export const PAGE_LIST: { key: string; iframe?: boolean }[] = [
   { key: 'cn_kpi_5mins' },
   { key: 'imonitor', iframe: true },
   { key: 'ip_trace', iframe: true },
+  { key: 'vmax_user_query' },
   { key: 'incident_overview', iframe: true },
   { key: 'warehouse', iframe: true },
   { key: 'sp_material' },
@@ -99,6 +100,7 @@ export const NAV_KEY_MAP: Record<string, string> = {
   cn_kpi_5mins: 'nav.cnKpi5mins',
   imonitor: 'nav.imonitor',
   ip_trace: 'nav.ipTrace',
+  vmax_user_query: 'nav.vmaxUserQuery',
   incident_overview: 'nav.incidentOverview',
   warehouse: 'nav.sp',
   sp_material: 'nav.spMaterial',
@@ -122,7 +124,7 @@ export const CATEGORIES: { id: string; pages: string[] }[] = [
     id: 'boards',
     pages: ['alarm', 'ttwo', 'v1_ttwo', 'tt', 'wo', 'nur', 'ms_nur_only', 'ms_sla', 'ms_sla_only', 'cxoDashboard', 'mwUmeTopology', 'mwRealTime', 'alarmManagement', 'fme_ranking', 'site_avail', 'avail_ms', 'avail_flm', 'bm_speedtest', 'bm_meta', 'noc_analyst', 'repeat_site_down', 'cr_analysis', 'pm_analysis', 'bp_report', 'packet_loss', 'battery', 'ume_in_kpi', 'cn_kpi', 'cn_kpi_5mins', 'imonitor', 'gis', 'realtime_alarm', 'incident_overview', 'warehouse', 'sp_material', 'sp_details', 'sp_report', 'com_report', 'warehouse_summary'],
   },
-  { id: 'analysis', pages: ['eflow_qa', 'eflow_flow', 'dashboard', 'archive', 'ip_trace'] },
+  { id: 'analysis', pages: ['eflow_qa', 'eflow_flow', 'dashboard', 'archive', 'ip_trace', 'vmax_user_query'] },
   { id: 'system', pages: ['settings', 'portalLogin'] },
 ]
 
@@ -325,6 +327,17 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
     ip_trace: {
       desc: 'IP 链路探测：从服务器侧探测到目标站点的链路连通性与路径节点。',
       usage: ['输入目标开始探测，结果表格/地图实时刷新', '探测是可中断的长任务，卡住时可手动停止'],
+    },
+    vmax_user_query: {
+      desc: 'VMAX 用户信息查询：输入用户号码与时间窗，从 VMAX CCA 投诉系统查询用户信息（IMSI/MSISDN 映射）、终端信息（IMEI/机型/厂商/运营商）、窗口内按应用流量与驻留小区列表（含每小区 KPI 明细）。',
+      usage: [
+        '必须用 231 开头的完整号码（如 231777777322），纯数字；本地 9 位格式上游查不到（2026-10-24 实测）',
+        '时间窗精确到分钟（5 分钟步进），默认今天 00:00 到当前时刻，跨度最多 31 天，不能选未来；流量与驻留小区按窗口查询，终端/用户信息与窗口无关',
+        '「查无此号」「流量为空」都是业务正常返回，不是故障；接口报错时先检查 设置→凭据管理 的 vmax_cca 组是否已录入账号密码',
+        '驻留小区行内点 KPI 弹出该小区指标明细（ppc 码已映射 KPI 英文名，缺码显示原始码）',
+        '查询走 VMAX 门户会话（串行复用），请勿连续大量点击，避免占用上游会话',
+        '结果只读透传不落库，刷新页面即清空',
+      ],
     },
     incident_overview: {
       desc: 'OLR 事件（Incident）总览看板：卡片、矩阵、SLA 图表、分页明细与地图。',
@@ -722,6 +735,17 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
     ip_trace: {
       desc: 'IP trace: probe link connectivity and path nodes from the server side to a target site.',
       usage: ['Enter a target and start; the result table/map refreshes live', 'Tracing is a stoppable long task — stop it manually if it hangs'],
+    },
+    vmax_user_query: {
+      desc: 'VMAX user info query: enter a subscriber number and time window to look up subscriber info (IMSI/MSISDN mapping), terminal info (IMEI/model/vendor/operator), per-app traffic and camped cells (with per-cell KPI details) from the VMAX CCA complaint system.',
+      usage: [
+        'Use the full number with the 231 prefix (e.g. 231777777322), digits only; the local 9-digit format is not matched upstream (verified 2026-10-24)',
+        'Time window defaults to today, max span 31 days, no future dates; traffic and camped cells follow the window, subscriber/terminal info does not',
+        '"Not found" and empty traffic are normal business responses, not failures; on API errors first check that the vmax_cca group in Settings → Credential Management has an account and password',
+        'Click KPI in a camped-cell row for that cell\'s indicator details (ppc codes mapped to KPI names; unmapped codes shown raw)',
+        'Queries go through a VMAX portal session (serialized reuse); avoid rapid repeated clicks to keep the upstream session free',
+        'Results are read-only passthrough, nothing is persisted; refreshing the page clears them',
+      ],
     },
     incident_overview: {
       desc: 'OLR incident overview board: cards, matrix, SLA charts, paginated details and a map.',

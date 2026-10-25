@@ -21,6 +21,7 @@ from backend.services.credential_store import (
     get_credential,
     get_effective,
     list_credentials,
+    resolve_endpoint,
     set_credential,
 )
 
@@ -54,9 +55,18 @@ def _invalidate_sessions_for(key: str, *usernames: str) -> None:
 
     仅供 eFlow / ZTE UME 系（走 auth_manager 的主机）生效；其余组无 test_host
     或不经 auth_manager，静默跳过。
+
+    【2026-10-22】host/port 改用 `resolve_endpoint()` 实时解析：原来读的是
+    硬编码的 `test_host/test_port`，而任务实际连接的地址来自页面可编辑的
+    `<task>_config.json`。两份值各维护一次 → 改了配置后这里还在删旧主机的
+    缓存文件，等于没清（下次任务仍复用一份该失效的会话）。现在与「测试连接」
+    同源，改配置后清的就是任务真正用的那份。
     """
     group = _GROUP_INDEX.get(key) or {}
-    host, port = group.get("test_host"), group.get("test_port")
+    if not group:
+        return
+    ep = resolve_endpoint(key)
+    host, port = ep.get("host"), ep.get("port")
     if not (host and port):
         return
     try:
@@ -197,7 +207,10 @@ def test_credential(body: CredentialTestRequest, request: Request):
             from backend.services.auth_manager import get_lock_state
         except ImportError:
             from auth_manager import get_lock_state
-        _th, _tp = group.get("test_host"), group.get("test_port")
+        # 2026-10-22：host/port 走 resolve_endpoint（配置 > env > 内置默认），
+        # 熔断按实际要连的那台机去查，而不是硬编码的旧地址。
+        _ep = resolve_endpoint(body.key)
+        _th, _tp = _ep.get("host"), _ep.get("port")
         if _th and _tp:
             # 传 user：熔断按 (host, port, username) 隔离，多账号主机上不能把
             # 别的账号的锁拿来报给本账号（2026-10-13）。
@@ -217,6 +230,7 @@ def test_credential(body: CredentialTestRequest, request: Request):
                 return {
                     "status": "locked",
                     "key": body.key,
+                    "endpoint": _ep,
                     "message": ((
                         f"本地熔断冷却中：未向上游发起请求，{remain}s 后可再次尝试。"
                         f"熔断触发原因（记录于 {_st.get('locked_at', '未知时间')}）：{reason}。"
@@ -255,13 +269,20 @@ def test_credential(body: CredentialTestRequest, request: Request):
             from backend.services.auth_manager import _do_login
         except ImportError:
             from auth_manager import _do_login
-        result = _do_login(group["test_host"], group["test_port"], user, pwd)
+        result = _do_login(_ep["host"], _ep["port"], user, pwd)
         ok = bool(result.get("cookie"))
+        _where = f"{_ep['host']}:{_ep['port']}"
         return {
             "status": "ok" if ok else "fail",
             "key": body.key,
-            "message": ("Login succeeded" if ok else "Login failed: no cookie received") if en
-                      else ("登录成功" if ok else "登录失败：未获取到 Cookie"),
+            "endpoint": _ep,
+            "message": ((
+                f"Login succeeded ({_where}, address from {_ep['source']})" if en
+                else f"登录成功（{_where}，地址来源 {_ep['source']}）"
+            ) if ok else (
+                f"Login failed: no cookie received ({_where})" if en
+                else f"登录失败：未获取到 Cookie（{_where}）"
+            )),
             "elapsed": round(time.time() - t0, 2),
         }
     except Exception as e:

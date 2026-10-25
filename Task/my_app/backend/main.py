@@ -115,6 +115,7 @@ from backend.routers import (
     cxo_dashboard,
     vmax_cxo_dashboard,
     vmax_cxo_daily,
+    vmax_cca_query,
     data_agent,
     olib_soc_dashboard,
     feedback,
@@ -284,6 +285,8 @@ app.include_router(vmax_cxo_daily.router)
 # 任务 olib_soc_kpi_daily_sync 每日增量 / olib_soc_vmax_report 每月全量），与上面两个
 # CXO 看板的数据源互不影响。
 app.include_router(olib_soc_dashboard.router)
+# VMAX CCA 用户信息查询（按号码查 IMSI/终端，服务 vmax_user_query 工具页，见 services/vmax_cca/）
+app.include_router(vmax_cca_query.router)
 # 问题登记（用户反馈）：任何内网用户可提交问题，管理侧可筛选/处理/删除
 app.include_router(feedback.router)
 # 界面配置（侧栏菜单结构）：全局共享一份，仅本机可改（见 routers/ui_config.py）

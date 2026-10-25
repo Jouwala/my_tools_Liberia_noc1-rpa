@@ -63,33 +63,76 @@ const T = {
     header: (site) => `【${site}】告警状态（eFlow 实时）`,
     hasAlarms: (n) => `站点当前有 ${n} 条活动告警：`,
     clean: (site) => `【${site}】当前**没有**活动告警（eFlow 实时活动告警列表里查无此站）。`,
-    // 告警行：站名 | 告警 | 级别 | 持续 | 单号
-    line: (a) =>
-      `- ${a.alarm || '（未知告警）'}` +
-      (a.severity ? `（${a.severity}）` : '') +
-      (a.duration ? `，持续 ${a.duration}` : '') +
-      (a.code ? `，码 ${a.code}` : '') +
-      (a.tt ? `，已建单 ${a.tt}` : '，**尚未建单**'),
-    region: (a) => (a.region ? `，区域 ${a.region}` : ''),
+    // 告警块：第一行是「码 + 名 + 级别」，第二行是站点身份，第三行是发生时间与持续。
+    title: (a) => {
+      const code = a.code ? `${a.code} ` : '';
+      const sev = a.severity ? `（${a.severity}）` : '';
+      return `- ${code}${a.alarm || '（未知告警）'}${sev}`;
+    },
+    siteLine: (a) => {
+      const bits = [a.site || '—'];
+      if (a.site_id) bits.push(`站号 ${a.site_id}`);
+      if (a.region) bits.push(a.region);
+      return `  站点：${bits.join(' ｜ ')}`;
+    },
+    timeLine: (a) => {
+      const bits = [];
+      if (a.raisedText) bits.push(`发生 ${a.raisedText}`);
+      if (a.duration) bits.push(`已持续 ${a.duration}`);
+      // eFlow 明确给了 clearstate 时必须如实呈现：已清除/未清除是**结论**，不是细节。
+      if (a.clearText) bits.push(a.clearText);
+      return bits.length ? `  ${bits.join(' ｜ ')}` : '';
+    },
+    ttLine: (a) => (a.tt ? `  工单：${a.tt}` : '  工单：**尚未建单**'),
+    extraLine: (a) => {
+      const bits = [];
+      if (a.assignDelay) bits.push(`派单时限 ${a.assignDelay}`);
+      if (a.hub) bits.push(`Hub 站 ${a.hub}`);
+      // link_path 是拓扑链，可能很长；截断以免撑爆聊天窗口。
+      if (a.linkPath) bits.push(`链路 ${a.linkPath.length > 60 ? `${a.linkPath.slice(0, 60)}…` : a.linkPath}`);
+      return bits.length ? `  ${bits.join(' ｜ ')}` : '';
+    },
+    region: () => '',
     notFound: (site) =>
       `eFlow 里没找到叫「${site}」的站点。请核对站名拼写（可用站表里的正式英文名）。`,
     unavailable: '我这边连不上 eFlow 查告警，暂时给不了结论，请到 eFlow 告警看板确认。',
     error: (detail) =>
       `查 eFlow 告警时出错了${detail ? `：${detail}` : ''}。请稍后再试。`,
     source: '来源：eFlow 活动告警接口（实时）',
-    footer: '（若告警刚发生/刚恢复，可能有秒级延迟）',
+    footer:
+      '（只查**当前活动告警**。若这条告警已经恢复，它不在活动列表里，请到 eFlow 历史告警核对；刚发生的告警可能有秒级延迟）',
   },
   en: {
     header: (site) => `Alarm status for ${site} (eFlow live)`,
     hasAlarms: (n) => `The site currently has ${n} active alarm(s):`,
     clean: (site) => `${site} has **no** active alarms right now (not present in the eFlow live active-alarm list).`,
-    line: (a) =>
-      `- ${a.alarm || '(unknown alarm)'}` +
-      (a.severity ? ` (${a.severity})` : '') +
-      (a.duration ? `, for ${a.duration}` : '') +
-      (a.code ? `, code ${a.code}` : '') +
-      (a.tt ? `, TT ${a.tt}` : `, **no TT yet**`),
-    region: (a) => (a.region ? `, region ${a.region}` : ''),
+    title: (a) => {
+      const code = a.code ? `${a.code} ` : '';
+      const sev = a.severity ? ` (${a.severity})` : '';
+      return `- ${code}${a.alarm || '(unknown alarm)'}${sev}`;
+    },
+    siteLine: (a) => {
+      const bits = [a.site || '—'];
+      if (a.site_id) bits.push(`site ID ${a.site_id}`);
+      if (a.region) bits.push(a.region);
+      return `  Site: ${bits.join(' | ')}`;
+    },
+    timeLine: (a) => {
+      const bits = [];
+      if (a.raisedText) bits.push(`raised ${a.raisedText}`);
+      if (a.duration) bits.push(`for ${a.duration}`);
+      if (a.clearText) bits.push(a.clearText);
+      return bits.length ? `  ${bits.join(' | ')}` : '';
+    },
+    ttLine: (a) => (a.tt ? `  TT: ${a.tt}` : '  TT: **no TT yet**'),
+    extraLine: (a) => {
+      const bits = [];
+      if (a.assignDelay) bits.push(`assign limit ${a.assignDelay}`);
+      if (a.hub) bits.push(`hub site ${a.hub}`);
+      if (a.linkPath) bits.push(`link ${a.linkPath.length > 60 ? `${a.linkPath.slice(0, 60)}…` : a.linkPath}`);
+      return bits.length ? `  ${bits.join(' | ')}` : '';
+    },
+    region: () => '',
     notFound: (site) =>
       `No site named "${site}" found in eFlow. Please check the spelling (use the official site name).`,
     unavailable:
@@ -97,11 +140,54 @@ const T = {
     error: (detail) =>
       `Something went wrong checking eFlow alarms${detail ? `: ${detail}` : ''}. Please try again shortly.`,
     source: 'Source: eFlow active-alarm API (live)',
-    footer: '(if an alarm just raised/cleared, there may be a few seconds of lag)',
+    footer:
+      '(Only **currently active** alarms are checked. If this alarm has already cleared it is not in the active list — verify in eFlow history alarms. A just-raised alarm may lag by a few seconds.)',
   },
 };
 
 /* ------------------------------ 渲染 ------------------------------ */
+
+/**
+ * 把 eFlow 的毫秒时间戳转成本地可读时间（YYYY-MM-DD HH:MM:SS）。
+ *
+ * 为什么不用 `toISOString()`：它输出 UTC，而现场同事看到的「2026-10-24 10:50:29」
+ * 是本机/利比里亚时间。给 UTC 会造成「时间对不上」的误判——用户会以为查错了告警。
+ * 时区以运行机器为准，与 eFlow 页面在同一时区打开时即可直接对照。
+ */
+export function formatRaised(ts) {
+  const n = Number(ts);
+  if (!Number.isFinite(n) || n <= 0) return '';
+  const d = new Date(n);
+  if (Number.isNaN(d.getTime())) return '';
+  const p = (x) => String(x).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+
+/** 把脚本的原始告警行补成渲染需要的形状。 */
+function decorate(a, lang) {
+  const clear = Number(a?.clearstate);
+  return {
+    site: a?.site || '',
+    site_id: a?.site_id || '',
+    alarm: a?.alarm || '',
+    code: a?.code ? String(a.code) : '',
+    severity: a?.severity || '',
+    duration: a?.duration || '',
+    raisedText: formatRaised(a?.raised),
+    tt: a?.tt || '',
+    region: a?.region || '',
+    clearText: Number.isFinite(clear)
+      ? clear === 1 || clear === '1'
+        ? lang === 'en'
+          ? 'cleared'
+          : '已清除'
+        : a?.clearstate_name || (lang === 'en' ? 'not cleared' : '未清除')
+      : '',
+    assignDelay: a?.assign_delay || '',
+    hub: a?.hub_site_flag || '',
+    linkPath: a?.link_path || '',
+  };
+}
 
 /**
  * @param {object} obj   脚本 stdout 的 JSON
@@ -118,13 +204,21 @@ function render(obj, lang, code) {
   const matched = Number(obj?.matched || 0);
   if (code === 1 || matched === 0) {
     // 站点干净：这是**明确结论**（有依据），故 answered=true。
-    return { answered: true, text: t.clean(site) };
+    // 仍然附 footer —— 用户问的可能是**已恢复**的告警，只查活动列表会说成「没有」。
+    return { answered: true, text: `${t.clean(site)}\n\n${t.footer}` };
   }
 
   const alarms = Array.isArray(obj.alarms) ? obj.alarms : [];
   const lines = [t.header(site), t.hasAlarms(matched)];
-  for (const a of alarms.slice(0, 10)) {
-    lines.push(t.line(a) + t.region(a));
+  for (const raw of alarms.slice(0, 10)) {
+    const a = decorate(raw, lang);
+    lines.push(t.title(a));
+    lines.push(t.siteLine(a));
+    const timeLine = t.timeLine(a);
+    if (timeLine.trim()) lines.push(timeLine);
+    lines.push(t.ttLine(a));
+    const extra = t.extraLine(a);
+    if (extra.trim()) lines.push(extra);
   }
   if (alarms.length > 10) {
     lines.push(lang === 'en' ? `…and ${alarms.length - 10} more.` : `…还有 ${alarms.length - 10} 条未列出。`);

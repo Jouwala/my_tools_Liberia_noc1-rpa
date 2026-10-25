@@ -16,6 +16,7 @@ import { useI18n } from '../i18n'
 import { ExplainIcon } from '../components/MetricExplain'
 import { WH, cardStyle, controlCardStyle, pageWrap, useTheme } from '../theme'
 import { MapController } from './gismap/MapController'
+import { MapMetrics } from './gismap/MapMetrics'
 import { SiteDrilldownDrawer } from './gismap/SiteDrilldownDrawer'
 import MapLegendOverlay from './gismap/MapLegendOverlay'
 import RegionRankingOverlay from './gismap/RegionRankingOverlay'
@@ -81,16 +82,14 @@ const ZOOM_LEVELS = [7.5, 8, 8.5] as const
        想要看全，切到 7.5 档或把 ZOOM_LEVELS 改回含 7 的数组即可。
      · 「为什么不把画布改大来两者兼得」：中列宽度由门户版式决定，不是本页能决定的。 */
 
-/* 门户中列地图画布的**实测宽度**（像素），供县名标签避让计算投影用。
-   出处：本文件上方 LB_FIT_ZOOM 的实测表（「门户中列的地图画布是窄竖条，实测 570×856」）。
-   耦合提示：门户版式若改了中列宽度，这里要跟着改 —— 该值偏小会让避让过度
-   （标签被推得离县太远），偏大则会让本该避让的标签被判为不冲突。 */
+/* 门户中列地图画布宽度的**历史实测值**（像素），供县名标签避让投影做降级缺省。
+   2026-10-23 起真实画布尺寸由 <MapMetrics> 在挂载后实测回报（各内嵌壳的画布
+   远不止 570px，写死值曾把东部各县的避让候选位假夹取到同一列、标签摞到邻县），
+   本常量只在 MapContainer 挂载前（counties 尚未拉到、标签本就无内容可算）兜底。 */
 const PORTAL_MAP_WIDTH = 570
 
-/* 门户中列地图画布的**实测高度**（像素），同样来自上方实测表。
-   用途只有一个：把县名标签夹在地图可视范围内（见 countyLabelLayout.ts）。
-   ⚠️ 该值只影响**纵向**夹取。取得过大 = 允许标签跑到下边界外，
-   取得过小 = 把本该正常的标签往上挤。 */
+/* 同上：画布高度的历史实测值，避让投影的纵向降级缺省（2026-10-23 起
+   以 MapMetrics 实测为准）。 */
 const PORTAL_MAP_HEIGHT = 856
 
 /* 站点资产等级 Tag 配色（2026-09-28 新增）：ERA / COOL / NORMAL 三档。
@@ -395,6 +394,19 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
      ⚠️ 让小数档位真正生效还需要 L.map({ zoomSnap: 0.5 })，
      否则 Leaflet 会把 7.5 静默吸附成 8（见 LeafletMap.tsx 该选项的注释）。 */
   const [zoomLevel, setZoomLevel] = useState<number>(ZOOM_LEVELS[1])
+  /* 地图画布的**实测**参数（2026-10-23）：宽/高/当前 zoom，由 <MapMetrics> 回报。
+     县名标签避让原先按写死的 PORTAL_MAP_WIDTH/HEIGHT + zoomLevel 档位投影，
+     而内嵌壳的实际画布远比 570px 宽（实测 ~898px）—— 投影空间与真实渲染
+     对不上，东部各县的候选位被假夹取挤到同一列，标签因此摞到邻县地盘上。
+     测量值就绪前（MapContainer 尚未挂载）退回旧常量；等值回报时 bail-out，
+     不会引发多余重渲。zoom 记录的是**地图真实 zoom**（滚轮缩放也跟），
+     比 zoomLevel（档位下拉的请求值）更可信。 */
+  const [mapMetrics, setMapMetrics] = useState<{ width: number; height: number; zoom: number } | null>(null)
+  const handleMapMetrics = useCallback((m: { width: number; height: number; zoom: number }) => {
+    setMapMetrics(prev => (
+      prev && prev.width === m.width && prev.height === m.height && prev.zoom === m.zoom ? prev : m
+    ))
+  }, [])
   const [counties, setCounties] = useState<CountyBoundary[]>([])
   /* 站点等级（ERA / COOL / NORMAL）统计：随 /gis/sites 一起下发，不额外发请求。
      口径 = **全量站点表**（827），刻意与旁边的「站点总数」对齐，而不是跟随地图上的
@@ -1142,36 +1154,54 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
       .sort((a, b) => (b.count - a.count) || a.name.localeCompare(b.name))
   }, [counties, scopedCountyAlarms])
 
+  // 记忆化：避免每次渲染都生成新数组导致 MapController 反复 setView（会重置用户的平移/缩放）
+  // ⚠️ 必须声明在 countyLabels 之前：该 memo 的投影 latitude 用 center[0]，
+  // 而 useMemo 工厂在渲染期同步执行，「先用后声明」会直接 TDZ ReferenceError。
+  const center = useMemo<[number, number]>(() => {    if (sites.length === 0) return LB_CENTER
+    return [
+      sites.reduce((s, p) => s + p.lat, 0) / sites.length,
+      sites.reduce((s, p) => s + p.lng, 0) / sites.length,
+    ]
+  }, [sites])
+
   /* 县名标注的**避让后锚点**（2026-10-14 用户要求「Label 重叠需要动态避让」）。
 
      与 regionRanking 同源（都用 alarm_site_count + alarmBand），区别只是
      这里还要几何：每个县先算面积加权质心，再按告警数降序逐个找不冲突的位置。
      算法与取舍全在 countyLabelLayout.ts 的文件头，这里只说**为什么这样调用**：
 
-       · 用固定取景参数（LB_FIT_ZOOM + 门户中列画布宽 570）算投影，而不是读地图
-         当前 zoom：本函数在渲染期跑，地图实例未必已挂载（见该模块注释）。
-         本页默认就是全国视角，按默认视角避让即可覆盖常态；用户手动放大后
-         标签会重新变稀，反而更不容易重叠。
-       · 画布宽 570 是门户中列的实测宽度（见本文件顶部 LB_FIT_ZOOM 的实测表）。
-         取宽了会让判定的重叠比实际更少，取窄了则避让过度 —— 用实测值最稳。
-       · 依赖里只有 counties：分档色与告警数都从 counties 派生，没有第二个真相源。
-       · 2026-10-13 新增 shiftWestPx：投影器必须知道 MapController 把内容平移了
+       · 2026-10-23 改用**实测画布参数**（MapMetrics 回报的 width/height/zoom）。
+         原先写死「门户中列 570×856 + 档位 zoom」，但内嵌壳的实际画布 ~898px：
+         zoom 8 下国土在投影里需要 ~800px，570 宽的假画布把东部各县的候选位
+         全夹到右缘同一列，在假坐标里判出假冲突、把标签摞到了邻县地盘上
+         （SINOE 叠进 RIVER GEE、MARYLAND 叠在 GRAND KRU）。
+         测量值就绪前退回旧常量，仅影响首帧前的空 counties 计算。
+       · zoom 用 MapMetrics 回报的**地图真实 zoom**（zoomend 跟踪，滚轮缩放也跟），
+         zoomLevel 只是档位下拉的请求值；两者在只走下拉时相等。
+       · latitude 传 center[0]（MapController setView 的真实视野中心纬度），
+         不再用 LB_CENTER[0] —— 站点重心与国土 bbox 中心差 ~0.2°，
+         原先投影的纵向基准因此整体偏了 ~40px。
+       · shiftWestPx / shiftSouthPx：投影器必须知道 MapController 把内容平移了
          多少，否则标签会按「未平移」的坐标落地，与站点圆点脱节
          （站点由 Leaflet 自己按平移摆放，标签是本模块先算好的 lat/lng）。
          方向约定见 countyLabelLayout.ts 的 makeProjector 注释
-         （该参数**正值 = 内容左移**；本页 SHIFT_WEST_PX 取负值即内容右移，
-          直接透传即可 —— makeProjector 内部是 `x - shiftWestPx`，
-         负值等价于 x 加上一个正数，正是右移）。 */
+         （**正值 = 内容左移/上移**；本页 SHIFT_WEST_PX=-73、SHIFT_SOUTH_PX=-26，
+          直接透传即可）。south 维度 2026-10-23 起也参与修正（原先漏算）。 */
   const countyLabels = useMemo(() => {
     const proj = makeProjector(
-      zoomLevel, PORTAL_MAP_WIDTH, LB_CENTER[0], PORTAL_MAP_HEIGHT, shiftWestPx,
+      mapMetrics?.zoom ?? zoomLevel,
+      mapMetrics?.width ?? PORTAL_MAP_WIDTH,
+      center[0],
+      mapMetrics?.height ?? PORTAL_MAP_HEIGHT,
+      shiftWestPx,
+      shiftSouthPx,
     )
     return placeCountyLabels(
       counties,
       c => scopedCountyAlarms.get(countyKey(c.db_name)) ?? 0,
       proj,
     )
-  }, [counties, zoomLevel, shiftWestPx, scopedCountyAlarms])
+  }, [counties, zoomLevel, mapMetrics, center, shiftWestPx, shiftSouthPx, scopedCountyAlarms])
 
 
   const filteredSites = useMemo(() => {
@@ -1372,14 +1402,6 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
       tabColor: '#2F5496',
     })
   }
-
-  // 记忆化：避免每次渲染都生成新数组导致 MapController 反复 setView（会重置用户的平移/缩放）
-  const center = useMemo<[number, number]>(() => {    if (sites.length === 0) return LB_CENTER
-    return [
-      sites.reduce((s, p) => s + p.lat, 0) / sites.length,
-      sites.reduce((s, p) => s + p.lng, 0) / sites.length,
-    ]
-  }, [sites])
 
   /* 站点圆点色 —— **必须走 colorFor()**，与图例同一份色表（2026-10-17）。
      改配色时若只改了图例、没改这里，就会出现「图例红、地图黄」这种最难排查的
@@ -2723,6 +2745,9 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
             />
             <MapController center={center} zoom={zoomLevel}
               shiftWestPx={shiftWestPx} shiftSouthPx={shiftSouthPx} />
+            {/* 实测画布尺寸 + 真实 zoom 回报（2026-10-23）：县名标签避让的
+                投影输入。必须在 <MapContainer> 内（内部 useMap()，同 MapController）。 */}
+            <MapMetrics onMetrics={handleMapMetrics} />
             <Pane name="sitePane" style={{ zIndex: 650 }} />
             {/* 县名标签专用 pane（2026-10-03）：**必须高于 sitePane(650)**，
                 否则站点红点会盖住标签。
@@ -2883,6 +2908,14 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
                   色点去掉是因为它表达的严重度在**县块填充色上已经有了**，
                   同图重复编码两遍是冗余（排名条里保留色点，那里没有填充色兜底）。
 
+                2026-10-23 第四版（用户：「标签默认显示县名，有告警才显示数字」）：
+                  · 全部 15 个县都常驻县名标签（countyLabelLayout 原先只给
+                    有告警的县占位，无告警的县连名字都没有）；
+                  · 数字段只在 count > 0 时渲染 —— 无告警显示 00 会让人
+                    误读成「0 个告警站」还是「数据没取到」，干脆不显示；
+                  · title 同步：无告警的县不再套 countyAlarmTip（那会拼出
+                    「0 个站点有实时告警」），退回纯县名。
+
                 避让算法（含「夹在地图可视范围内」）见 gismap/countyLabelLayout.ts 文件头。 */}
             {boundaryMode === 'county' && countyLabels.map(lb => (
               <Marker
@@ -2894,10 +2927,14 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
                             pane="countyLabelPane">
                   <span
                     className="gis-county-tag"
-                    title={t('gis.countyAlarmTip', { name: lb.name, n: lb.count })}
+                    title={lb.count > 0
+                      ? t('gis.countyAlarmTip', { name: lb.name, n: lb.count })
+                      : lb.name.toUpperCase()}
                   >
                     <span className="gis-county-tag__name">{lb.name.toUpperCase()}</span>
-                    <span className="gis-county-tag__num">{String(lb.count).padStart(2, '0')}</span>
+                    {lb.count > 0 && (
+                      <span className="gis-county-tag__num">{String(lb.count).padStart(2, '0')}</span>
+                    )}
                   </span>
                 </MapTooltip>
               </Marker>

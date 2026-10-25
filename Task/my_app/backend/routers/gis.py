@@ -3024,10 +3024,15 @@ def get_site_alarm_suggestions(
 
 @router.get("/county-boundaries")
 def get_county_boundaries():
-    """获取利比里亚 15 个县的真实行政边界（含站点数与实时告警站点数）。
+    """获取利比里亚 15 个县的真实行政边界（含站点数、实时告警站点数与类型分组计数）。
 
     site_count 的口径与 /gis/sites 保持一致（同样只统计经纬度有效的站点），
     否则界面上的县名旁数字与点击后的地图站点数会对不上（AGENTS.md 三-1b）。
+
+    trm_counts / caregory_counts（2026-10-23 新增，人员页县名标签的类型统计）：
+    每县按 trm_type（传输）与 site_caregory（维护分类）GROUP BY 的站点数，
+    与 site_count 同一 WHERE 口径；NULL/空值不进 dict，前端按
+    site_count - sum(分组) 补「—」档。GIS 页忽略这两个字段，无兼容影响。
 
     alarm_site_count（2026-09-25 新增，用户要求标签改显示告警数）：
       = 该县**有实时告警的站点个数**（COUNT(DISTINCT site_id)，不是告警条数）。
@@ -3046,6 +3051,14 @@ def get_county_boundaries():
     counts: dict = {}
     # 告警站点计数：与 /gis/realtime/sites 相同的 JOIN 口径（COUNT DISTINCT 站点）
     alarm_counts: dict = {}
+    # 类型分组计数（2026-10-23 人员页县名标签用，用户要求「站点总数和类型的统计」）：
+    #   trm_counts   传输类型（trm_type：MW / Satellite Link / Starlink / IPRAN）
+    #   caregory_counts 维护分类（site_caregory —— 列名就是拼错的 caregiver，
+    #                   值 NORMAL / ERA / COOL）
+    # 两者都与 site_count 同一 WHERE 口径（有效坐标 + 县名非空），
+    # sum(分组) + NULL/空值组 = site_count，前端据此显示「—」档。
+    trm_counts: dict = {}
+    caregory_counts: dict = {}
     S = _detect_gis_schema()
     if counties and S["site_table"]:
         try:
@@ -3063,6 +3076,26 @@ def get_county_boundaries():
                 for name, cnt in rows:
                     key = re.sub(r"\s+", " ", str(name or "").strip()).lower()
                     counts[key] = counts.get(key, 0) + int(cnt or 0)
+
+                # 类型分组：NULL 不进 dict（前端按 site_count - sum 补「—」档），
+                # 空串视作 NULL 同样跳过
+                for col, bucket in (("trm_type", trm_counts), ("site_caregory", caregory_counts)):
+                    trows = conn.execute(f"""
+                        SELECT province_county, {col}, COUNT(*)
+                        FROM {S["site_table"]}
+                        WHERE latitude IS NOT NULL AND longitude IS NOT NULL
+                          AND CAST(latitude AS REAL) != 0
+                          AND CAST(longitude AS REAL) != 0
+                          AND province_county IS NOT NULL AND province_county != ''
+                        GROUP BY province_county, {col}
+                    """).fetchall()
+                    for name, val, cnt in trows:
+                        v = str(val or "").strip()
+                        if not v:
+                            continue
+                        key = re.sub(r"\s+", " ", str(name or "").strip()).lower()
+                        inner = bucket.setdefault(key, {})
+                        inner[v] = inner.get(v, 0) + int(cnt or 0)
 
                 if S["has_realtime_alarm"]:
                     arows = conn.execute(f"""
@@ -3089,6 +3122,8 @@ def get_county_boundaries():
         key = re.sub(r"\s+", " ", c["db_name"]).lower()
         c["site_count"] = counts.get(key, 0)
         c["alarm_site_count"] = alarm_counts.get(key, 0)
+        c["trm_counts"] = trm_counts.get(key, {})
+        c["caregory_counts"] = caregory_counts.get(key, {})
 
     payload = {"counties": counties}
     if counties:

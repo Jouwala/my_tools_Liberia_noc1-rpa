@@ -1,8 +1,18 @@
 /* 人员位置地图（?page=person）—— 地图视图
  *
- * **职责**：画出「人员针 + 其 WO 涉及站点的圆点 + 选中时的连线」，
- * 把点击/悬停结果回传给页面。筛选、KPI、统计图、表格都在 `PersonMap.tsx`，
+ * **职责**：画出「人员针 + 其 WO 涉及站点的圆点 + 选中时的连线」，以及
+ * 县界底图（2026-10-23 起每县一种类别色 + 县名标签），把点击/悬停结果回传给页面。
+ * 筛选、KPI、统计图、表格都在 `PersonMap.tsx`，
  * 本文件只管地图这一块（AGENTS.md 三.2：单个文件不超 500 行、按单一职责拆分）。
+ *
+ * **模块分工**（2026-10-24 按 500 行纪律拆分后）：
+ *   · `useTerritory.ts`    「默认站点」辖区模式的取数与派生（pinPersons 等）；
+ *   · `TerritoryLayer.tsx` 辖区连线/站点的原生批量建层；`LayerToggles.tsx` 图层开关浮层
+ *     （「人员」默认开 +「默认站点」默认关，2026-10-24 起双开关）；
+ *   · `useCountyTags.ts`   县界类别色 / 填充透明度 / 县名标签两行统计文本的派生；
+ *   · `CountyLabels.tsx`   县名标签的避让 effect 与渲染；
+ *   · `personPinHtml.ts`   人员针图标（颜色/尺寸/徽标 HTML/iconKey）的拼装；
+ *   · `NoSitesNote.tsx`    空态说明条（地图版 `MapNoSitesNote` + 抽屉共用文案）。
  *
  * **站点层口径**（2026-10-19 经用户确认）：只画该人员**实际处理过工单**的站点
  * （后端 `eflow_wo.site_id` 去重），**不画** `person.managed_regions` 的全县站点。
@@ -15,26 +25,29 @@
  *   · 点人 → 选中；点地图空白 → 清除。Leaflet 的 marker 点击会冒泡到 map，
  *     故用 `personClickRef` 标志位区分「点人」与「点空白」，否则点人的瞬间
  *     就被地图处理器清空，表现为「点不中」。
- *   · 悬停人 → 在针上方显示姓名/电话提示（电话后端已脱敏）。
+ *   · 悬停人 → 在针上方显示姓名/电话提示（电话 2026-10-23 起完整显示，
+ *     见 backend/routers/personnel.py::_display_phone）。
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Spin } from 'antd'
 import { useI18n } from '../../i18n'
 import { useTheme } from '../../theme'
-// `Tooltip as MapTooltip`：地图内常驻标注，与 antd 的 Tooltip 同名，必须别名
-import {
-  Marker, CircleMarker, Polyline, Polygon, Tooltip as MapTooltip, useMap, isMapAlive, Pane,
-} from '../../components/LeafletMap'
+import { Marker, Polyline, Polygon, useMap, isMapAlive, Pane } from '../../components/LeafletMap'
 import api from '../../api'
 import { cachedGet } from '../../cache'
 import { PmtilesLayer } from '../gismap/PmtilesLayer'
 import type { LatLngBoundsExpression } from 'leaflet'
 import { MapController } from '../gismap/MapController'
 import { BASEMAP_PMTILES_URL } from '../gismap/basemap'
-import { SITE_COLORS } from '../gismap/types'
-import { escapeHtml, personIconSvg } from '../gismap/personIcon'
 import { MapSearch } from './MapSearch'
-import { NoSitesNote } from './NoSitesNote'
+import { MapNoSitesNote } from './NoSitesNote'
+import { TerritoryLayer } from './TerritoryLayer'
+import { LayerToggles } from './LayerToggles'
+import { CountyLabels } from './CountyLabels'
+import { SitesLayer } from './SitesLayer'
+import { useTerritory } from './useTerritory'
+import { useCountyTags, COUNTY_FILL_OPACITY } from './useCountyTags'
+import { buildPersonPin } from './personPinHtml'
 import type { PersonRow, ManagedSite } from './types'
 import type { CountyBoundary } from '../gismap/types'
 
@@ -64,10 +77,19 @@ const SITE_TONE = {
   light: { ok: '#2f9e44', wo: '#1e88d2', alarm: '#e03131' },
 } as const
 
+/** 县块类别配色（COUNTY_PALETTE）、县块填充不透明度（COUNTY_FILL_OPACITY）、
+ * 县名标签两行统计文本的构造（typeCountsLine / TRM·CAT 常量表）与「县 → 类别色」
+ * 的稳定映射，已抽到 `personmap/useCountyTags.ts`（2026-10-24，PersonMapView
+ * 行数纪律，AGENTS.md 三.2）。本文件只保留渲染。 */
+
 export function PersonMapView({
-  people, loading, selectedKey, onSelect, sites, sitesLoading,
+  people, allPeople, loading, selectedKey, onSelect, sites, sitesLoading,
 }: {
   people: PersonRow[]
+  /** /personnel/stats 的**全量**人员行（含无坐标者）。「默认站点」模式下
+   *  人员针挪到其辖区质心，其中部分人不在 `people`（无登记坐标），
+   *  徽标的 WO/PMT 统计从这里按 name_key 联合。 */
+  allPeople: PersonRow[]
   loading: boolean
   /** 当前选中人员的 name_key；null = 未选中 */
   selectedKey: string | null
@@ -87,14 +109,34 @@ export function PersonMapView({
   )
   /* 悬停**不再用 React state**（2026-10-21 改）：state 变化会把 hover 拼进图标，
      导致 Leaflet 重建 marker 图层、把针的 DOM 元素换掉，mousedown/mouseup 因此
-     落在不同元素上、click 事件不产生（详见下方「人员针」处的实测时间线）。
+     落在不同元素上、click 事件不产生（实测时间线见 personPinHtml.ts 文件头）。
      悬停反馈改由 CSS `.gis-person-marker:hover` 提供，DOM 保持不动。 */
   /* 县界（2026-10-19 用户要求「地图没有 country 的边界」）。
      与 GIS 页共用同一份静态 GeoJSON（`/gis/county-boundaries`，后端 1 小时缓存），
      经 `cachedGet` 走前端缓存，两页之间不会重复下载约 400KB。
-     本页**只画轮廓**、不铺告警分档色 —— 那些分档（COUNTY_BAND_COLORS）是 GIS 页
-     「按县统计实时告警」的语义，人员页没有对应口径，照搬会让人误读为人员告警分布。 */
+     2026-10-23 起**每县一种独立类别色**并加县名标签（色表与派生见
+     useCountyTags.ts 的 COUNTY_PALETTE）——
+     仍**不铺** GIS 页的告警分档色（COUNTY_BAND_COLORS）：那五档是「按县统计
+     实时告警」的语义，人员页没有对应口径，照搬会让人误读为人员告警分布；
+     类别色只表达「这是哪个县」，不带任何数值含义。 */
   const [counties, setCounties] = useState<CountyBoundary[]>([])
+
+  /* 县界底图的派生数据：县 → 类别色（县块填充描边用）+ 每县两行统计文本
+     （县名标签用）。已抽到 useCountyTags.ts（2026-10-24，行数纪律）；
+     县名标签的避让与渲染整体在 CountyLabels.tsx（含 placement effect）。 */
+  const { countyColor, countyTypeLines } = useCountyTags(counties)
+
+  /* ---------- 「默认站点」辖区模式（2026-10-23 用户需求） ----------
+     需求原话：「显示 master_site_db 里面不同 person 的默认站点，person 放到
+     这些站点的中间，并且连线。默认不显示，打开地图上的显示开关才显示」。
+     数据侧（取数 / 配色 / 站点归属 / pinPersons）抽在 useTerritory.ts
+     （本文件行数纪律，AGENTS.md 三.2），这里只留渲染：开关浮层在
+     LayerToggles.tsx、批量图层在 TerritoryLayer.tsx，加上人员针位置切换。选中某人时其辖区连线让位给详细图层（见 TerritoryLayer
+     文件头的重影说明）。 */
+  const {
+    showTerritory, setShowTerritory, territory, terrLoading,
+    terrColorOf, terrSiteOwners, territorySiteTip, pinPersons,
+  } = useTerritory({ people, allPeople })
 
   useEffect(() => {
     cachedGet('gis:county-boundaries', () => api.get('/gis/county-boundaries'))
@@ -105,6 +147,9 @@ export function PersonMapView({
         setCounties([])
       })
   }, [])
+
+  /* 县名标签（2026-10-23 用户要求「地图显示县名」）的避让 effect 与渲染
+     已整体移到 CountyLabels.tsx（含投影/避让算法复用说明）。 */
 
   /* 「最近一次点中人员针」的时间戳，供 map 的 click 处理器跳过 —— Leaflet 会把
      marker 的点击冒泡到 map，若不区分，点人的瞬间就会被 map 处理器当成
@@ -123,6 +168,17 @@ export function PersonMapView({
      仍保留 onSelectRef 而不用闭包里的 onSelect：见下方 `onMapClick` 的说明。 */
   const onSelectRef = useRef(onSelect)
   onSelectRef.current = onSelect
+
+  /* 「人员」图层开关（2026-10-24 用户要求「实时人员的信息也弄个开关」）：
+     控制人员针 + 常驻徽标 + 选中者的站点圆点/连线 + 空态说明条。
+     **关掉时必须同时清除选中**：留着选中态会出现「抽屉开着、地图上一片空」
+     的自相矛盾画面（与点空白取消选中同一语义）。走 onSelectRef 而非直接
+     onSelect —— 回调可能随父组件重渲染换新闭包，ref 永远是最新的。 */
+  const [showPeople, setShowPeople] = useState(true)
+  const togglePeople = useCallback((v: boolean) => {
+    setShowPeople(v)
+    if (!v) onSelectRef.current(null)
+  }, [])
 
   useEffect(() => {
     if (!isMapAlive(map)) return
@@ -172,9 +228,11 @@ export function PersonMapView({
     return () => el.removeEventListener('mousedown', onDownCapture, true)
   }, [map])
 
+  /* 选中者取自 pinPersons（「默认站点」模式下位置 = 辖区质心而非登记坐标），
+     下方的连线层（person → 站点）据此从质心起笔。 */
   const selectedPerson = useMemo(
-    () => people.find(p => p.name_key === selectedKey) || null,
-    [people, selectedKey],
+    () => pinPersons.find(p => p.name_key === selectedKey) || null,
+    [pinPersons, selectedKey],
   )
 
   const handleClick = useCallback((p: PersonRow) => {
@@ -218,7 +276,7 @@ export function PersonMapView({
       }
       return
     }
-    const p = people.find(x => x.name_key === selectedKey)
+    const p = pinPersons.find(x => x.name_key === selectedKey)
     if (!p || p.lat == null || p.lng == null) return
     const pts: [number, number][] = [[p.lat as number, p.lng as number]]
     for (const s of sites) {
@@ -226,7 +284,7 @@ export function PersonMapView({
     }
     /* 同一个人且站点数没变 → 不重复 fit（悬停、主题切换等无关重渲染会触发本 effect）。
        站点从 0 变成 N 时 key 变了，会再 fit 一次，这是要的。 */
-    const key = `${selectedKey}|${pts.length}`
+    const key = `${selectedKey}|${pts.length}|${p.lat},${p.lng}`
     if (focusKeyRef.current === key) return
     focusKeyRef.current = key
 
@@ -238,9 +296,10 @@ export function PersonMapView({
     /* maxZoom：包围盒很小时（人 + 站点几乎重叠）fitBounds 会一路放大到
        街道级，反而看不出周边。封顶到 12 既贴得够近、又留得住上下文。 */
     map.flyToBounds(bounds, { padding: [56, 56], maxZoom: 12, duration: 0.7 })
-    // 只按「选中的人 + 站点集合」驱动；people/sites 的其它变化不应重定位
+    // 只按「选中的人 + 站点集合」驱动；key 里含质心坐标，开关切换导致
+    // 同一人位置变化（登记坐标 ↔ 辖区质心）时会重新 fit 一次 —— 这是想要的。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedKey, sites])
+  }, [selectedKey, sites, pinPersons])
 
   /* 搜索定位：直接对 map 调 flyTo ——
      「搜同一个站点附近的两个点」或「搜一个与当前选中人员重合的点」时目标可能不变，
@@ -265,14 +324,17 @@ export function PersonMapView({
      ② 若后端回了可选的负责人键（该站点未关闭 WO 的负责人中、有坐标的那位），
         一并选中 —— 这样地图上的连线与右列 KPI 会切到那个人。
         无负责人 / 负责人无坐标时只定位，**不清空**当前选中，
-        避免「搜一个无主站点，把正在看的上下文抹掉」。 */
+        避免「搜一个无主站点，把正在看的上下文抹掉」。
+     「人员」开关关掉时只定位、**不选中** —— 负责人的针被藏了，
+     选中一个看不见的人只会让抽屉和地图对不上。 */
   const handlePickSite = useCallback((site: ManagedSite) => {
     setFlyTarget({ lat: site.lat, lng: site.lng, tick: Date.now() })
+    if (!showPeople) return
     const ownerKey = site.owner_keys?.[0]
-    if (ownerKey && people.some(p => p.name_key === ownerKey)) {
+    if (ownerKey && pinPersons.some(p => p.name_key === ownerKey)) {
       onSelect(ownerKey)
     }
-  }, [onSelect, people])
+  }, [onSelect, pinPersons, showPeople])
 
   return (
     <>
@@ -296,13 +358,28 @@ export function PersonMapView({
       <MapController center={LB_CENTER} zoom={LB_ZOOM} />
       <PmtilesLayer url={BASEMAP_PMTILES_URL} isDark={isDark} />
 
-      {/* 地图左上角搜索框（人员 + 站点） */}
+      {/* 地图左上角搜索框（人员 + 站点）。
+          「默认站点」模式下人员源换 pinPersons —— 辖区人员（含无登记坐标者）
+          也要能被搜到并选中，否则开关一开图上有针、搜索框里却没有此人。
+          「人员」开关关掉时人员源置空 —— 针都藏了，搜索框不该再提供
+          「选中一个看不见的人」的入口（站点搜索不受影响）。 */}
       <MapSearch
-        people={people}
+        people={showPeople ? pinPersons : []}
         selectedKey={selectedKey}
         sites={sites}
         onPickPerson={handlePickPerson}
         onPickSite={handlePickSite}
+      />
+
+      {/* 图层开关浮层（「人员」默认开 +「默认站点」默认关）——
+          呈现在 LayerToggles.tsx；辖区取数与派生仍在
+          useTerritory.ts，首次打开才拉 /fme-territories（~130KB，24 人 824 站）。 */}
+      <LayerToggles
+        peopleChecked={showPeople}
+        onPeopleChange={togglePeople}
+        terrChecked={showTerritory}
+        terrLoading={terrLoading}
+        onTerrChange={setShowTerritory}
       />
 
 
@@ -315,19 +392,23 @@ export function PersonMapView({
         </div>
       )}
 
-      {/* 县界轮廓（最底层，先于站点与人员绘制）。
-          颜色取主题实值（SVG 不认 CSS 变量，与 GISMap 的 COUNTY_BAND_COLORS 同一约束）。
-          虚线描边沿用 GIS 页的样式，保持两页地图形感一致。 */}
+      {/* 县界（最底层，先于站点与人员绘制）。
+          2026-10-23 起每县一种类别色（COUNTY_PALETTE，按县名字典序稳定映射，
+          派生见 useCountyTags.ts）：
+          填充压淡（COUNTY_FILL_OPACITY，从 useCountyTags.ts 引入）、描边用县色本身，
+          只表达「这是哪个县」，不带数值语义 —— 与 GIS 页按告警数分档的
+          COUNTY_BAND_COLORS 是两回事。
+          虚线描边沿用两页既有样式。颜色是十六进制实值（SVG 不认 CSS 变量）。 */}
       {counties.map(c => (
         <Polygon
           key={`county-${c.name}`}
           positions={c.polygons as any}
           pathOptions={{
-            color: isDark ? '#4a6a8f' : '#9fb3c8',
-            fillColor: isDark ? '#4a6a8f' : '#9fb3c8',
-            fillOpacity: isDark ? 0.06 : 0.04,
-            weight: 1,
-            opacity: 0.75,
+            color: countyColor.get(c.name) || '#9aa5b5',
+            fillColor: countyColor.get(c.name) || '#9aa5b5',
+            fillOpacity: isDark ? COUNTY_FILL_OPACITY.dark : COUNTY_FILL_OPACITY.light,
+            weight: 1.5,
+            opacity: 0.85,
             dashArray: '4 3',
             /* `interactive: false` —— 县界只是**装饰性底图**，没有任何点击行为。
                Leaflet 的 SVG 路径默认 interactive，会带 `pointer-events: auto`
@@ -339,40 +420,42 @@ export function PersonMapView({
         />
       ))}
 
-      {/* 负责站点层（2026-10-21 起集合 = `master_site_db.fme_name`，不再是「WO 涉及过的站」） */}
-      {sites.map(s => {
-        /* 三档取色，优先级 红 > 浅蓝 > 绿。
-           「未清除」不再单独占一档颜色（用户的配色只有三色），
-           改由**半径**表达：告警站 8px > 有未清除 7px > 其余 6px。 */
-        const color = siteColor(s)
-        return (
-          <CircleMarker
-            key={`site-${s.site_id}`}
-            center={[s.lat, s.lng]}
-            radius={s.has_alarm ? 8 : s.uncleared > 0 ? 7 : 6}
-            color={color}
-            fillColor={color}
-            fillOpacity={0.75}
-            weight={2}
-          >
-            <MapTooltip>
-              <div style={{ minWidth: 160, fontSize: '0.75rem' }}>
-                <div style={{ fontWeight: 700, marginBottom: 2 }}>{s.site_name || s.site_id}</div>
-                <div>{t('person.siteId')}: {s.site_id}</div>
-                <div>{t('person.county')}: {s.county || '—'}</div>
-                <div>{t('person.colOpenWo')}: {s.wo_count}</div>
-                <div>{t('person.colUncleared')}: {s.uncleared}</div>
-                <div>{s.has_alarm ? t('person.siteHasAlarm') : t('person.siteNoAlarm')}</div>
-              </div>
-            </MapTooltip>
-          </CircleMarker>
-        )
-      })}
+      {/* 县名标签（2026-10-23 用户要求「地图显示县名」）：三行标签的
+          避让 effect 与渲染整体在 CountyLabels.tsx（结构/样式/算法说明见那里）。
+          center/zoom 必须是模块级常量 LB_CENTER/LB_ZOOM —— 投影按初始全国
+          取景算一次，见文件头关于引用相等性的说明。 */}
+      <CountyLabels
+        counties={counties}
+        typeLines={countyTypeLines}
+        center={LB_CENTER}
+        zoom={LB_ZOOM}
+      />
+
+      {/* 「默认站点」辖区层（2026-10-23，开关控制、默认关）：
+          全部 FME 的质心 → 站点连线（每人一色）+ 去重站点小圆点。
+          原生批量建层（TerritoryLayer 文件头有量级说明），pane 走默认 overlay
+          （400），压在县块上、被人员针/选中站点层盖住 —— 背景语境层。 */}
+      {showTerritory && territory && territory.length > 0 && (
+        <TerritoryLayer
+          persons={territory}
+          selectedKey={selectedKey}
+          colorOf={terrColorOf}
+          siteOwners={terrSiteOwners}
+          tipHtmlOf={territorySiteTip}
+          isDark={isDark}
+        />
+      )}
+
+      {/* 负责站点层（2026-10-21 起集合 = `master_site_db.fme_name`，不再是
+          「WO 涉及过的站」）：圆点 + 悬停提示在 SitesLayer.tsx（行数纪律），
+          取色与下方「人员 → 站点」连线共用 siteColor。
+          「人员」开关关掉时一并隐藏 —— 站点圆点是「选中人的信息」的一部分。 */}
+      <SitesLayer sites={showPeople ? sites : []} siteColor={siteColor} />
 
       {/* 人员 → 其负责站点的连线（仅选中时）。
           2026-10-21 用户要求「连线颜色跟站点同色」：原先一律灰色虚线，
           在国家级缩放下几乎看不见，也分不出哪条指向告警站。 */}
-      {selectedPerson && sites.map(s => (
+      {showPeople && selectedPerson && sites.map(s => (
         <Polyline
           key={`line-${s.site_id}`}
           positions={[[selectedPerson.lat as number, selectedPerson.lng as number], [s.lat, s.lng]]}
@@ -388,81 +471,24 @@ export function PersonMapView({
       ))}
 
       {/* 人员针
-          ⚠⚠ 悬停态**绝不能**进图标（2026-10-21 实测，勿改回去）：
-             以前 `hovered` 被拼进 `iconKey` / `html` / 尺寸，于是鼠标一进针，
-             `Marker` 的 `useMemo([parent, iconKey])` 就**重建整个 L.Marker 图层**、
-             把针的 DOM 元素换掉。无头浏览器抓到的真实时间线：
-                 13880 mousedown <path>            （按下，命中人员针）
-                 13883 mouseout   <path>           （悬停态复位 → 触发重建）
-                 13896 DEL / ADD marker-icon       （DOM 元素被换掉）
-                 13987 mouseup <DIV .leaflet-container>
-             mousedown 与 mouseup 落在不同元素上，浏览器**根本不产生 click 事件**，
-             Leaflet 收不到 marker click —— 这就是「点人没反应 / 抽屉闪一下就没」
-             的直接原因。悬停现在纯 CSS 实现（`.gis-person-marker:hover`），
-             不动 DOM；`selected` 才重建，而它只在一次点击**完成之后**变化。 */}
-      {people.map(p => {
+          ⚠ 悬停态**绝不能**进图标 / iconKey 的契约在 personPinHtml.ts 文件头
+         （2026-10-21 实测：悬停一旦进 iconKey，`Marker` 就会在指针下重建图层、
+         把针的 DOM 元素换掉，mousedown/mouseup 落在不同元素上、click 不产生，
+         表现为「点人没反应 / 抽屉闪一下就没」）。
+         颜色/尺寸/徽标 HTML/iconKey 的推导与拼装（2026-10-24 抽到
+         personPinHtml.ts，行数纪律），本块只保留 Marker 挂载与事件。 */}
+      {showPeople && pinPersons.map(p => {
         const selected = p.name_key === selectedKey
-        /* 颜色（2026-10-19 用户要求「WO 为 0 的人显示深绿以区别」）：
-           选中红 > 未关闭 WO 为 0 深绿 > 其余蓝。
-           深绿只用于**未选中**的大多数人 —— 选中必须仍是红，
-           否则用户点了一个「没单的人」时看不出选中态。 */
-        const color = selected ? SITE_COLORS.rt_alarm_overdue
-          : (p.open || 0) === 0 ? '#1a7f37'
-          : (isDark ? '#4fc3f7' : '#1890ff')
-        const size = selected ? 32 : 26
-        const iconH = size * 1.5
-        const phone = (p.phone || '').trim()
-        // 常驻徽标已含姓名+电话，悬停气泡不再重复渲染同样的内容 ——
-        // 只在常驻徽标之外没有信息时（即无）保留为空，避免两层气泡叠在一起。
-        const tip = ''
-        const openCnt = p.open || 0
-        const sitesCnt = p.site_count || 0
-        const pmtCnt = p.pmt_open
-        // null = 后端取不到 eflow_pm → 显示 —（不得显示 0，AGENTS.md 三.6）
-        const pmtText = pmtCnt == null ? '—' : String(pmtCnt)
-        const unclearedCnt = p.uncleared || 0
-        // 有未清除告警 → 红；否则灰。文字与边框共用同一个色，见 .gis-person-badge
-        const badgeColor = unclearedCnt > 0 ? '#ff4d4f' : '#8c8c8c'
+        const pin = buildPersonPin(p, selected, isDark, t)
         return (
           <Marker
             key={p.name_key}
             position={[p.lat as number, p.lng as number]}
             pane={PERSON_PANE}
-            html={
-              `<div class="gis-person-anchor">` +
-                tip +
-                personIconSvg(color, size, selected) +
-                /* 常驻徽标（2026-10-19 用户要求，2026-10-21 加 PMT 一项）：
-                     第一行 = 姓名 + 电话；
-                     第二行 = 负责站点数 | 未关闭 WO 数 | 未关闭 PMT 数。
-                   三项的顺序是用户 2026-10-21 指定的。
-                   ⚠ PMT 那一项**不跟随页面 30 天窗口**（是「此刻还没关闭」的状态数），
-                     与旁边两项口径不同 —— 后端 personnel.py::_pmt_open_index 有完整理由，
-                     页面 ⓘ 说明里也必须讲清楚，否则用户会拿它跟 WO 那列做加减。
-                   徽标内容全部来自后端，拼进 html 前必须 escapeHtml（AGENTS.md 三.4）。 */
-                `<span class="gis-person-badge" style="border-color:${badgeColor}" ` +
-                  `title="${escapeHtml(t('person.badgeHint', {
-                    name: p.name, phone: phone || '-',
-                    sites: sitesCnt, open: openCnt, pmt: pmtText, uncleared: unclearedCnt,
-                  }))}">` +
-                  `<span class="gis-person-badge-name">${escapeHtml(p.name)}` +
-                    (phone ? `<i>${escapeHtml(phone)}</i>` : '') +
-                  `</span>` +
-                  `<span class="gis-person-badge-stats" style="color:${badgeColor}">` +
-                    `<b>${sitesCnt}</b>${escapeHtml(t('person.badgeSitesShort'))}` +
-                    `<em>|</em>` +
-                    `<b>${openCnt}</b>${escapeHtml(t('person.badgeOpenShort'))}` +
-                    `<em>|</em>` +
-                    `<b>${pmtText}</b>${escapeHtml(t('person.badgePmtShort'))}` +
-                  `</span>` +
-                `</span>` +
-              `</div>`
-            }
-            iconSize={[size, iconH]}
-            iconAnchor={[size / 2, iconH]}
-            /* iconKey 里**没有** hover —— 见上方「人员针」处的实测说明：
-               悬停一旦进 iconKey，图层就会在指针下被重建，点击随之丢失。 */
-            iconKey={`${selected}-${size}-${unclearedCnt}-${openCnt}-${sitesCnt}-${pmtText}-${p.name}-${phone}`}
+            html={pin.html}
+            iconSize={pin.iconSize}
+            iconAnchor={pin.iconAnchor}
+            iconKey={pin.iconKey}
             zIndexOffset={selected ? 1000 : 0}
             className="gis-person-marker"
             onClick={() => handleClick(p)}
@@ -473,21 +499,10 @@ export function PersonMapView({
       {/* 选中了人、但他一个负责站点都没有 → 在地图上把原因说出来（2026-10-21）。
           实测有人点 Franklin Peter 看到全空，报成「连线没画出来」；他其实是
           supervisor（覆盖 294 站），不是单站负责，站点集合刻意只认 fme_name。
-          放**底部居中**：左上是 Leaflet 缩放控件与本层的搜索框，右下是 attribution，
-          底部居中三样都避得开。
-          `pointerEvents:none` —— 说明条不能拦地图点击，否则点它就取消不了选中。 */}
-      {selectedPerson && !sitesLoading && sites.length === 0 && (
-        <div style={{
-          position: 'absolute', bottom: 28, left: '50%', transform: 'translateX(-50%)',
-          maxWidth: 420, zIndex: 1000, pointerEvents: 'none',
-          padding: 'var(--wh-space-xs, 4px) var(--wh-space-sm, 8px)',
-          borderRadius: 'var(--wh-radius-sm, 4px)',
-          background: 'var(--wh-card-bg, rgba(255, 255, 255, 0.9))',
-          border: '1px solid rgba(128, 128, 128, 0.35)',
-          boxShadow: '0 1px 4px rgba(0, 0, 0, 0.25)',
-        }}>
-          <NoSitesNote person={selectedPerson} />
-        </div>
+          说明条本身（含底部居中的定位外壳）在 NoSitesNote.tsx 的 MapNoSitesNote
+          （与下钻抽屉共用文案、容器不同）；抽屉里那条是裸 NoSitesNote。 */}
+      {showPeople && selectedPerson && !sitesLoading && sites.length === 0 && (
+        <MapNoSitesNote person={selectedPerson} />
       )}
     </>
   )

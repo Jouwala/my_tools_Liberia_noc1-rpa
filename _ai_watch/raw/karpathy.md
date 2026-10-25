@@ -1,28 +1,9 @@
-Title: Andrej Karpathy (@karpathy) on X
+*   [![Image 3: @karpathy](https://pbs.twimg.com/profile_images/1296667294148382721/9Pr6XrPB_normal.jpg)](https://x.com/karpathy)  [Andrej Karpathy](https://x.com/karpathy) [@karpathy](https://x.com/karpathy) [Oct 11](https://x.com/karpathy/status/2109361546505966046)   Dusting off this tweet from April because this gap in shared understanding of LLM capability is *widening*. It's now less "two groups of people speaking past each other" and more a sharp funnel. - Napkin math somewhere around 6B people (~75% of the population) have barely come Show more Judging by my tl there is a growing gap in understanding of AI capability. The first issue I think is around recency and tier of use. I think a lot of people tried the free tier of ChatGPT somewhere last year and allowed it to inform their views on AI a little too much. This is   [2.1K](https://x.com/compose/post?in_reply_to=2109361546505966046) 5.8K 43.0K 6.7M
 
-URL Source: https://x.com/karpathy
+*   [![Image 3: @karpathy](https://pbs.twimg.com/profile_images/1296667294148382721/9Pr6XrPB_normal.jpg)](https://x.com/karpathy)  [Andrej Karpathy](https://x.com/karpathy) [@karpathy](https://x.com/karpathy) [Oct 2](https://x.com/karpathy/status/2105909609487872075)   Cool eval. Simply ask an LLM “Land or Water?” and give it a latitude and longitude coordinate as text. Ask 16,200 times, plot as image. The models know. From compressing the internet. results for all claudes   [707](https://x.com/compose/post?in_reply_to=2105909609487872075) 1.0K 19.0K 1.4M
 
-Markdown Content:
-Andrej Karpathy
+*   [![Image 3: @karpathy](https://pbs.twimg.com/profile_images/1296667294148382721/9Pr6XrPB_normal.jpg)](https://x.com/karpathy)  [Andrej Karpathy](https://x.com/karpathy) [@karpathy](https://x.com/karpathy) [Oct 2](https://x.com/karpathy/status/2105819303471976479)   We'll be spending a lot more time trying to understand the outputs of language models. A few thoughts, tips & tricks: Writing. Something I've had success with: Ask your LLM to explain something in ASD-STE100, it's a controlled language specification originally developed for Show more   [1.6K](https://x.com/compose/post?in_reply_to=2105819303471976479) 6.6K 55.0K 7.9M
 
-10.2K
+*   [![Image 3: @karpathy](https://pbs.twimg.com/profile_images/1296667294148382721/9Pr6XrPB_normal.jpg)](https://x.com/karpathy)  [Andrej Karpathy](https://x.com/karpathy) [@karpathy](https://x.com/karpathy) [Aug 2](https://x.com/karpathy/status/2083749667410727319)   We're starting to leave the territory where you'd test an LLM by e.g. "create an svg of pelican on a bicycle". As one idea to generalize it, I was interested what Opus 5 would do if I gave it the first paragraph of the Lord of the Rings, a 1M token budget (~$10) and asked for Show more   [1.8K](https://x.com/compose/post?in_reply_to=2083749667410727319) 2.3K 29.0K 6.2M
 
-posts
-
-[![Image 1: Andrej Karpathy profile banner](https://pbs.twimg.com/profile_banners/33836629/1407117611/1500x500)](https://x.com/karpathy/header_photo)
-
-[![Image 2: @karpathy](https://pbs.twimg.com/profile_images/1296667294148382721/9Pr6XrPB_400x400.jpg)](https://x.com/karpathy/photo)
-
-@karpathy
-
-Earth
-
-*   [![Image 3: @karpathy](https://pbs.twimg.com/profile_images/1296667294148382721/9Pr6XrPB_normal.jpg)](https://x.com/karpathy) Dusting off this tweet from April because this gap in shared understanding of LLM capability is *widening*. It's now less "two groups of people speaking past each other" and more a sharp funnel. - Napkin math somewhere around 6B people (~75% of the population) have barely come [![Image 4: @karpathy](https://pbs.twimg.com/profile_images/1296667294148382721/9Pr6XrPB_normal.jpg)](https://x.com/karpathy) 
-Judging by my tl there is a growing gap in understanding of AI capability. The first issue I think is around recency and tier of use. I think a lot of people tried the free tier of ChatGPT somewhere last year and allowed it to inform their views on AI a little too much. This is     
-*   [![Image 5: @karpathy](https://pbs.twimg.com/profile_images/1296667294148382721/9Pr6XrPB_normal.jpg)](https://x.com/karpathy) Cool eval. Simply ask an LLM “Land or Water?” and give it a latitude and longitude coordinate as text. Ask 16,200 times, plot as image. The models know. From compressing the internet. [![Image 6: @celestepoasts](https://pbs.twimg.com/profile_images/1986524542718681088/lvp6Q9FW_normal.png)](https://x.com/celestepoasts) 
-results for all claudes ![Image 7](https://pbs.twimg.com/media/HTAureBb0AA1BoW?format=webp&name=large)     
-*   [![Image 8: @karpathy](https://pbs.twimg.com/profile_images/1296667294148382721/9Pr6XrPB_normal.jpg)](https://x.com/karpathy) We'll be spending a lot more time trying to understand the outputs of language models. A few thoughts, tips & tricks: Writing. Something I've had success with: Ask your LLM to explain something in ASD-STE100, it's a controlled language specification originally developed for ![Image 9](https://pbs.twimg.com/media/HTlaHqgbwAAS1lv?format=webp&name=large)    
-*   [![Image 10: @karpathy](https://pbs.twimg.com/profile_images/1296667294148382721/9Pr6XrPB_normal.jpg)](https://x.com/karpathy) We're starting to leave the territory where you'd test an LLM by e.g. "create an svg of pelican on a bicycle". As one idea to generalize it, I was interested what Opus 5 would do if I gave it the first paragraph of the Lord of the Rings, a 1M token budget (~$10) and asked for [Video 3](blob:https://x.com/ea6f18cd-0c29-4867-8a67-24102641df54)![Image 11](https://pbs.twimg.com/amplify_video_thumb/2083744791876292608/img/tWEKnM_bdE_nlfYD?format=webp&name=medium)
-
-01:32      
-*   [![Image 12: @karpathy](https://pbs.twimg.com/profile_images/1296667294148382721/9Pr6XrPB_normal.jpg)](https://x.com/karpathy) One pattern I find useful for working with LLMs is a nice long ramble session. Sometimes the LLM needs more bits to understand what you're trying to achieve, but you're too lazy to type them. In these cases I like to lean back, switch to /voice and just ramble for like 10
+*   [![Image 3: @karpathy](https://pbs.twimg.com/profile_images/1296667294148382721/9Pr6XrPB_normal.jpg)](https://x.com/karpathy)  [Andrej Karpathy](https://x.com/karpathy) [@karpathy](https://x.com/karpathy) [Jul 21](https://x.com/karpathy/status/2079610838143623371)   One pattern I find useful for working with LLMs is a nice long ramble session. Sometimes the LLM needs more bits to understand what you're trying to achieve, but you're too lazy to type them. In these cases I like to lean back, switch to /voice and just ramble for like 10 Show more   [2.5K](https://x.com/compose/post?in_reply_to=2079610838143623371) 4.0K 50.0K 4.4M

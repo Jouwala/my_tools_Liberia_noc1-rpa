@@ -190,6 +190,169 @@ interface EflowSummary {
   error?: string
 }
 
+// ===== eFlow TT Push Rules Check 页签（2026-10-23 新增）=====
+// 口径：/api/email-reports/eflow_push_rules_check* 全部读同一份检查表
+// （eflow_push_rules_check.xlsx 的 All_TT_Records），卡片数字与下钻明细严格同源。
+//
+// 四类互斥（求和 = 总数）：
+//   correct     规则判定与实际派单一致
+//   mismatch    规则判定与实际不同（典型：规则说该建 WO，实际没建）
+//   undecidable 命中了引用本地取不到字段的规则 —— 判不了，不算命中也不算未命中
+//   unmatched   没有任何 FOAccept 推单规则适用于本单
+type PushCategory = 'correct' | 'mismatch' | 'undecidable' | 'unmatched'
+
+// 差异子类型。前端按这个查文案，**不动态拼 key**（check:i18n 会拦）。
+type PushDiffKind = 'should_have_wo' | 'pushed_elsewhere' | 'unexpected_wo' | 'both_no_wo' | 'both_wo'
+
+interface PushRuleHistory {
+  window_days: number
+  alarm_codes: string[]
+  total: number
+  with_wo: number
+  wo_rate: number | null
+}
+
+interface PushRuleRow {
+  rule_id: string
+  rule_name: string
+  priority: number | null
+  status: 'active' | 'no_hit' | 'undecidable' | 'error'
+  matched: number
+  unknown_fields: string[]
+  trigger_step?: string
+  push_path?: string
+  target_handler?: string
+  auto_operator?: string
+  built_wo?: boolean
+  // 该规则最近一年在**历史单**上的实际建 WO 率。
+  // 用来区分「历来如此」与「这次规则变更导致的」——规则 200 就是典型：
+  // 当前 340 张单判为 mismatch，但历史建 WO 率仅 0.5%，说明它长期就没生效。
+  history?: PushRuleHistory | null
+}
+
+interface PushSummary {
+  success: boolean
+  generated_at: string
+  generated_ts?: number
+  limit: number
+  total: number
+  counts: Record<PushCategory, number>
+  consistent?: boolean
+  diff?: Record<string, number>
+  actual_wo?: number
+  actual_no_wo?: number
+  rule_wo?: number
+  dispatch_unparsed?: number
+  group_dist?: { group: string; count: number }[]
+  rule_breakdown?: PushRuleRow[]
+  rules_count?: number
+  missing_fields?: Record<string, string[]>
+  sheet_drift?: boolean
+  rules_collected?: { success?: boolean; rules_file_exists?: boolean; error?: string }
+  error?: string
+}
+
+interface PushRun {
+  id: string
+  generated_at: string | null
+  total: number | null
+  counts: Partial<Record<PushCategory, number>>
+  rules_count: number | null
+}
+
+interface PushDrillRow {
+  tt_no: string | null
+  wo_no: string | null
+  title: string | null
+  alarm_code: string | number | null
+  alarm_name: string | null
+  site_id: string | null
+  site_name: string | null
+  ne_name: string | null
+  domain: string | null
+  site_type: string | null
+  vip_site: string | null
+  created_time: string | null
+  has_wo: boolean
+  dispatch_person: string | null
+  dispatch_group: string | null
+  fo_operator: string | null
+  robot_handled: boolean
+  rule_id: string | null
+  rule_name: string | null
+  rule_builds_wo: boolean
+  target_handler: string | null
+  push_path: string | null
+  auto_operator: string | null
+  evidence: string | null
+  category: PushCategory | null
+  diff_kind: PushDiffKind | null
+}
+
+type PushDrillMetric = 'total' | PushCategory | 'rule' | 'rule_bad' | 'diff' | 'has_wo' | 'no_wo'
+
+interface PushDrillTarget {
+  metric: PushDrillMetric
+  ruleId?: string | null
+  diffKind?: PushDiffKind | null
+  title: string
+}
+
+interface PushCompareRow {
+  tt_no: string
+  alarm_code: string | null
+  from_rule_id: string
+  to_rule_id: string
+  from_rule_name: string
+  to_rule_name: string
+  from_builds_wo: boolean
+  to_builds_wo: boolean
+  from_has_wo: boolean
+  to_has_wo: boolean
+  from_group: string
+  to_group: string
+  from_category: string
+  to_category: string
+}
+
+interface PushCompare {
+  from: { id: string; generated_at: string | null; rules_count: number | null }
+  to: { id: string; generated_at: string | null; rules_count: number | null }
+  rules_changed: boolean
+  counts: Record<string, { from: number; to: number; delta: number }>
+  changed_total: number
+  changed: PushCompareRow[]
+  only_to: number
+  only_from: number
+  rule_delta: { rule_id: string; rule_name: string; status: string; matched_from: number | null; matched_to: number | null }[]
+}
+
+/**
+ * 差异子类型 → i18n 键。
+ * 用显式 switch 而不是 `t('push.diff.' + kind)`：动态拼 key 会被 check:i18n
+ * 读成残缺键名并报「字典缺失」（AGENTS.md 三.1b 第 3 条）。
+ */
+function pushDiffLabelKey(kind: PushDiffKind | null | undefined): string {
+  switch (kind) {
+    case 'should_have_wo': return 'emailReports.pushDiffShouldHaveWo'
+    case 'pushed_elsewhere': return 'emailReports.pushDiffPushedElsewhere'
+    case 'unexpected_wo': return 'emailReports.pushDiffUnexpectedWo'
+    case 'both_no_wo': return 'emailReports.pushDiffBothNoWo'
+    case 'both_wo': return 'emailReports.pushDiffBothWo'
+    default: return ''
+  }
+}
+
+function pushCategoryLabelKey(cat: PushCategory | null | undefined): string {
+  switch (cat) {
+    case 'correct': return 'emailReports.pushCatCorrect'
+    case 'mismatch': return 'emailReports.pushCatMismatch'
+    case 'undecidable': return 'emailReports.pushCatUndecidable'
+    case 'unmatched': return 'emailReports.pushCatUnmatched'
+    default: return ''
+  }
+}
+
 function formatSize(bytes: number): string {
   if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(2)} MB`
   if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)} KB`
@@ -225,6 +388,95 @@ function DrillLink({ label, onClick, danger, disabled }: {
       {label}
     </a>
   )
+}
+
+/** 推单检查下钻弹窗的明细列（语言在渲染时由 i18n 决定，故做成参数化函数）。 */
+function pushDrillColumns(t: (k: string, p?: Record<string, string | number>) => string) {
+  const dash = '—'
+  return [
+    {
+      title: t('emailReports.drillColTt'), dataIndex: 'tt_no', key: 'tt_no',
+      width: 170, fixed: 'left' as const, render: (v: string | null) => v || dash,
+    },
+    {
+      title: t('emailReports.drillColWo'), dataIndex: 'wo_no', key: 'wo_no',
+      width: 140,
+      // 无 WO 时显示「—」而不是空：这是本页最关键的判断依据
+      render: (v: string | null) => v || <Text type="secondary">{dash}</Text>,
+    },
+    {
+      title: t('emailReports.drillColAlarm'), dataIndex: 'alarm_code', key: 'alarm_code',
+      width: 100, render: (v: number | string | null) => (v == null ? dash : String(v)),
+    },
+    {
+      title: t('emailReports.pushColAlarmName'), dataIndex: 'alarm_name', key: 'alarm_name',
+      width: 220, ellipsis: true, render: (v: string | null) => v || dash,
+    },
+    {
+      title: t('emailReports.drillColSite'), dataIndex: 'site_name', key: 'site_name',
+      width: 150, ellipsis: true, render: (v: string | null) => v || dash,
+    },
+    {
+      title: t('emailReports.drillColSiteType'), dataIndex: 'site_type', key: 'site_type',
+      width: 100, render: (v: string | null) => v || dash,
+    },
+    {
+      // 规则判定：命中哪条规则、会不会建 WO、目标处理人、推送路径
+      title: t('emailReports.eflowColRule'), dataIndex: 'rule_name', key: 'rule_name',
+      width: 250, ellipsis: true,
+      render: (v: string | null, r: PushDrillRow) => (
+        r.rule_id ? `${v || dash} (ID ${r.rule_id})` : <Text type="secondary">{t('emailReports.pushNoRule')}</Text>
+      ),
+    },
+    {
+      title: t('emailReports.pushColBuildsWo'), dataIndex: 'rule_builds_wo', key: 'rule_builds_wo',
+      width: 110,
+      render: (v: boolean) => (v ? <Tag color="blue">{t('emailReports.pushYes')}</Tag> : <Tag>{t('emailReports.pushNo')}</Tag>),
+    },
+    {
+      title: t('emailReports.pushColTarget'), dataIndex: 'target_handler', key: 'target_handler',
+      width: 180, ellipsis: true, render: (v: string | null) => v || dash,
+    },
+    {
+      title: t('emailReports.pushColPushPath'), dataIndex: 'push_path', key: 'push_path',
+      width: 200, ellipsis: true, render: (v: string | null) => v || dash,
+    },
+    {
+      // 实际派单：FO Accept 的处理人与接手组
+      title: t('emailReports.pushColFoOperator'), dataIndex: 'fo_operator', key: 'fo_operator',
+      width: 130, render: (v: string | null) => v || dash,
+    },
+    {
+      title: t('emailReports.pushColActualGroup'), dataIndex: 'dispatch_group', key: 'dispatch_group',
+      width: 140, render: (v: string | null) => v || dash,
+    },
+    {
+      title: t('emailReports.pushColActualPerson'), dataIndex: 'dispatch_person', key: 'dispatch_person',
+      width: 140, render: (v: string | null) => v || dash,
+    },
+    {
+      title: t('emailReports.pushColCategory'), dataIndex: 'category', key: 'category',
+      width: 130,
+      render: (v: PushCategory | null) => {
+        const label = t(pushCategoryLabelKey(v))
+        if (!label) return dash
+        const color = v === 'mismatch' ? 'red' : v === 'correct' ? 'green' : v === 'undecidable' ? 'orange' : 'default'
+        return <Tag color={color}>{label}</Tag>
+      },
+    },
+    {
+      title: t('emailReports.pushColDiffKind'), dataIndex: 'diff_kind', key: 'diff_kind',
+      width: 200, render: (v: PushDiffKind | null) => (v ? t(pushDiffLabelKey(v)) : dash),
+    },
+    {
+      title: t('emailReports.drillColEvidence'), dataIndex: 'evidence', key: 'evidence',
+      width: 320, ellipsis: true, render: (v: string | null) => v || dash,
+    },
+    {
+      title: t('emailReports.drillColCreated'), dataIndex: 'created_time', key: 'created_time',
+      width: 170, render: (v: string | null) => v || dash,
+    },
+  ]
 }
 
 /** 下钻弹窗里的明细表列（语言在渲染时由 i18n 决定，故做成参数化函数） */
@@ -531,6 +783,27 @@ export default function EmailReports() {
     }
   }, [t])
 
+  // ===== eFlow TT Push Rules Check 页签的状态（2026-10-23 新增）=====
+  // 与上面 eflow_tt_rules_check 的下钻是**两套独立状态**：两个页签的数据源是两份
+  // 不同的 xlsx，共用一套 state 会让「切页签后弹窗里还是上一个页签的内容」。
+  const [pushSummary, setPushSummary] = useState<PushSummary | null>(null)
+  const [pushFiles, setPushFiles] = useState<EflowFile[]>([])
+  const [pushRuns, setPushRuns] = useState<PushRun[]>([])
+  const [pushLoading, setPushLoading] = useState(false)
+  const [pushDrillTarget, setPushDrillTarget] = useState<PushDrillTarget | null>(null)
+  const [pushDrillRows, setPushDrillRows] = useState<PushDrillRow[]>([])
+  const [pushDrillMeta, setPushDrillMeta] = useState<{ total: number; truncated: boolean; limit: number } | null>(null)
+  const [pushDrillLoading, setPushDrillLoading] = useState(false)
+  const [pushDrillError, setPushDrillError] = useState<string | null>(null)
+  const [pushDrillSearch, setPushDrillSearch] = useState('')
+  const [pushDrillAnchor, setPushDrillAnchor] = useState<{ x: number; y: number } | null>(null)
+  // 两次运行对比：选中的 from / to 快照 id 及结果
+  const [cmpFrom, setCmpFrom] = useState<string | null>(null)
+  const [cmpTo, setCmpTo] = useState<string | null>(null)
+  const [cmpResult, setCmpResult] = useState<PushCompare | null>(null)
+  const [cmpLoading, setCmpLoading] = useState(false)
+  const [cmpError, setCmpError] = useState<string | null>(null)
+
   const loadEflowCheck = useCallback(async () => {
     setEflowLoading(true)
     try {
@@ -597,6 +870,94 @@ export default function EmailReports() {
     }
   }, [t])
 
+  // ---------- eFlow TT Push Rules Check：加载 / 下钻 / 对比 ----------
+
+  const loadPushCheck = useCallback(async () => {
+    setPushLoading(true)
+    try {
+      const res = await api.get('/email-reports/eflow_push_rules_check')
+      setPushSummary(res.data?.summary || null)
+      setPushFiles(res.data?.files || [])
+      const runs: PushRun[] = res.data?.runs || []
+      setPushRuns(runs)
+      // 默认对比「最近两次运行」：规则改没改、派单变了没，一眼可见。
+      // 只选一次（已有选择时不覆盖），避免用户选好后被后台刷新重置。
+      setCmpTo(prev => prev ?? (runs[0]?.id || null))
+      setCmpFrom(prev => prev ?? (runs[1]?.id || null))
+    } catch (e) {
+      message.error(t('emailReports.pushLoadFailed'))
+    } finally {
+      setPushLoading(false)
+    }
+  }, [t])
+
+  /**
+   * 打开推单检查的下钻弹窗。metric 与页面数字一一对应（见后端
+   * eflow_push_rules_check_drill 的文档），统一透传非空筛选项。
+   */
+  const openPushDrill = useCallback(async (target: PushDrillTarget,
+                                           anchor?: { x: number; y: number } | null) => {
+    setPushDrillAnchor(anchor ?? null)
+    setPushDrillSearch('')
+    setPushDrillTarget(target)
+    setPushDrillRows([])
+    setPushDrillMeta(null)
+    setPushDrillError(null)
+    setPushDrillLoading(true)
+    try {
+      const params: Record<string, unknown> = { metric: target.metric, limit: 2000 }
+      if (target.ruleId != null) params.rule_id = target.ruleId
+      if (target.diffKind) params.diff_kind = target.diffKind
+      const res = await api.get('/email-reports/eflow_push_rules_check/drill', { params })
+      setPushDrillRows(res.data?.rows || [])
+      setPushDrillMeta({
+        total: res.data?.total ?? 0,
+        truncated: Boolean(res.data?.meta?.truncated),
+        limit: res.data?.meta?.limit ?? 2000,
+      })
+    } catch (e: any) {
+      setPushDrillError(e?.response?.data?.detail || t('emailReports.drillFailed'))
+    } finally {
+      setPushDrillLoading(false)
+    }
+  }, [t])
+
+  const closePushDrill = useCallback(() => {
+    setPushDrillTarget(null)
+    setPushDrillRows([])
+    setPushDrillMeta(null)
+    setPushDrillError(null)
+    setPushDrillSearch('')
+  }, [])
+
+  const filteredPushRows = useMemo(() => {
+    const q = pushDrillSearch.trim().toLowerCase()
+    if (!q) return pushDrillRows
+    return pushDrillRows.filter(r =>
+      [r.tt_no, r.wo_no, r.title, r.alarm_code, r.alarm_name, r.site_id, r.site_name,
+        r.ne_name, r.domain, r.site_type, r.vip_site, r.created_time,
+        r.dispatch_person, r.dispatch_group, r.fo_operator,
+        r.rule_id, r.rule_name, r.target_handler, r.push_path, r.auto_operator, r.evidence]
+        .some(v => v != null && String(v).toLowerCase().includes(q)),
+    )
+  }, [pushDrillRows, pushDrillSearch])
+
+  const runPushCompare = useCallback(async () => {
+    if (!cmpFrom || !cmpTo) return
+    setCmpLoading(true)
+    setCmpError(null)
+    try {
+      const res = await api.get('/email-reports/eflow_push_rules_check/compare',
+        { params: { from_id: cmpFrom, to_id: cmpTo } })
+      setCmpResult(res.data || null)
+    } catch (e: any) {
+      setCmpResult(null)
+      setCmpError(e?.response?.data?.detail || t('emailReports.pushCompareFailed'))
+    } finally {
+      setCmpLoading(false)
+    }
+  }, [cmpFrom, cmpTo, t])
+
   const closeEflowDrill = useCallback(() => {
     setDrillTarget(null)
     setDrillRows([])
@@ -662,7 +1023,10 @@ export default function EmailReports() {
     }], `eflow_tt_drill_${stamp()}.xlsx`)
   }, [filteredDrillRows, drillTarget, t])
 
-  const runTaskNow = useCallback(async (taskId: string, okMsg: string, failMsg: string) => {
+  // onDone：任务触发后要刷新的 loader。默认刷 eFlow 级别规则页签；
+  // 推单检查页签传自己的 loadPushCheck，否则触发了却刷新的是另一个页签的数据。
+  const runTaskNow = useCallback(async (taskId: string, okMsg: string, failMsg: string,
+                                     onDone?: () => void) => {
     setEflowRunningTask(taskId)
     try {
       // 同 generateMttr：/run 失败时也是 200，必须看响应体的 accepted
@@ -673,7 +1037,7 @@ export default function EmailReports() {
       }
       message.success(okMsg)
       // 任务在后台线程/队列执行，3 秒后刷新一次（再由用户手动刷新补全）
-      setTimeout(loadEflowCheck, 3000)
+      setTimeout(onDone ?? loadEflowCheck, 3000)
     } catch (e) {
       message.error(failMsg)
     } finally {
@@ -684,6 +1048,7 @@ export default function EmailReports() {
   useEffect(() => { load() }, [load])
   useEffect(() => { loadFinebi() }, [loadFinebi])
   useEffect(() => { loadEflowCheck() }, [loadEflowCheck])
+  useEffect(() => { loadPushCheck() }, [loadPushCheck])
   useEffect(() => () => {
     if (mttrTimer.current) clearTimeout(mttrTimer.current)
   }, [])
@@ -703,6 +1068,9 @@ export default function EmailReports() {
 
   const eflowDownloadUrl = (f: EflowFile) =>
     `/api/email-reports/download/eflow_tt_rules_check/${encodeURIComponent(f.name)}`
+
+  const pushDownloadUrl = (f: EflowFile) =>
+    `/api/email-reports/download/eflow_push_rules_check/${encodeURIComponent(f.name)}`
 
   // 该页签的行取自 /email-reports/latest 已展平的结果，只留 tt_mttr 源
   // （与「Email Reports」页签共用一次请求，且受同一个「保留最近 N 份」选择控制）
@@ -1124,6 +1492,328 @@ export default function EmailReports() {
     await exportReport(sheets, `eflow_tt_rules_check_${stamp()}.xlsx`)
   }, [eflowSummary, eflowFiles, t])
 
+  // ---------- eFlow TT Push Rules Check 的表格列 / 导出 ----------
+
+  // 规则表：每条 FOAccept 推单规则的命中数、目标处理人、**历史建 WO 率**。
+  // 历史列是关键：它区分「历来如此」与「这次规则变更导致的」
+  // （规则 200 当前 340 张 mismatch，但历史建 WO 率仅 0.5%）。
+  const pushRuleColumns = [
+    {
+      title: t('emailReports.eflowColRule'),
+      dataIndex: 'rule_name',
+      key: 'rule_name',
+      width: 300,
+      render: (v: string, r: PushRuleRow) => (
+        <Space size={4} wrap>
+          <Text strong>{v || '—'}</Text>
+          <Tag>{`ID ${r.rule_id}`}</Tag>
+          {r.status === 'undecidable' && <Tag color="orange">{t('emailReports.pushStatusUndecidable')}</Tag>}
+          {r.status === 'error' && <Tag color="red">{t('emailReports.pushStatusError')}</Tag>}
+          {r.status === 'no_hit' && <Tag>{t('emailReports.pushStatusNoHit')}</Tag>}
+        </Space>
+      ),
+    },
+    {
+      title: t('emailReports.pushColBuildsWo'),
+      dataIndex: 'built_wo',
+      key: 'built_wo',
+      width: 110,
+      render: (v: boolean) => (v ? <Tag color="blue">{t('emailReports.pushYes')}</Tag> : <Tag>{t('emailReports.pushNo')}</Tag>),
+    },
+    {
+      title: t('emailReports.pushColTarget'),
+      dataIndex: 'target_handler',
+      key: 'target_handler',
+      width: 200,
+      ellipsis: true,
+      render: (v: string) => v || '—',
+    },
+    {
+      title: t('emailReports.eflowColMatched'),
+      dataIndex: 'matched',
+      key: 'matched',
+      width: 110,
+      align: 'right' as const,
+      render: (v: number, r: PushRuleRow) => (
+        <DrillLink
+          label={String(v)}
+          disabled={!v}
+          onClick={e => {
+            e.stopPropagation()
+            const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+            void openPushDrill({ metric: 'rule', ruleId: r.rule_id, title: `${r.rule_name} (ID ${r.rule_id})` },
+              { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 })
+          }}
+        />
+      ),
+    },
+    {
+      // 「判为不一致」= 该规则命中且分类 mismatch。0 时不可点。
+      title: t('emailReports.pushColMismatch'),
+      key: 'mismatch',
+      width: 120,
+      align: 'right' as const,
+      render: (_: unknown, r: PushRuleRow) => {
+        // mismatch 数由后端按规则聚合在副表里，这里从整体 rule_breakdown 无法直接取，
+        // 因此改为可下钻的「命中数」+ 一个按规则筛 mismatch 的链接（数量由下钻弹窗给出）。
+        return r.matched
+          ? (
+            <DrillLink
+              label={t('emailReports.pushViewMismatch')}
+              danger
+              onClick={e => {
+                e.stopPropagation()
+                const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+                void openPushDrill(
+                  { metric: 'rule_bad', ruleId: r.rule_id, title: `${r.rule_name} (ID ${r.rule_id})` },
+                  { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 })
+              }}
+            />
+          )
+          : <Text type="secondary">—</Text>
+      },
+    },
+    {
+      // 历史建 WO 率：取不到（规则条件里没有可用的 alarmCode）时显示 `—`，不显示 0
+      title: t('emailReports.pushColHistory'),
+      key: 'history',
+      width: 150,
+      align: 'right' as const,
+      render: (_: unknown, r: PushRuleRow) => {
+        const h = r.history
+        if (!h || h.wo_rate == null) return <Text type="secondary">—</Text>
+        const pct = (h.wo_rate * 100).toFixed(1)
+        // 历史几乎不生效（< 5%）且当前有命中 → 用醒目色提示「这条规则长期没生效」
+        const alarming = h.wo_rate < 0.05 && r.matched > 0
+        return (
+          <span title={`${h.with_wo} / ${h.total}（${h.window_days}d）`}>
+            <Text type={alarming ? 'danger' : undefined}>
+              {`${pct}%`}
+            </Text>
+            <Text type="secondary" style={{ fontSize: '0.75rem', marginLeft: 4 }}>
+              {`${h.with_wo}/${h.total}`}
+            </Text>
+          </span>
+        )
+      },
+    },
+    {
+      title: t('emailReports.pushColPushPath'),
+      dataIndex: 'push_path',
+      key: 'push_path',
+      width: 220,
+      ellipsis: true,
+      render: (v: string) => v || '—',
+    },
+  ]
+
+  const pushFileColumns = [
+    {
+      title: t('emailReports.colType'),
+      dataIndex: 'label',
+      key: 'label',
+      width: 220,
+      render: (v: string, row: EflowFile) => (
+        <Space size={4}>
+          <Tag color="blue">{t('emailReports.pushFileTag')}</Tag>
+          <span>{v || row.name}</span>
+        </Space>
+      ),
+    },
+    {
+      title: t('emailReports.colFile'),
+      dataIndex: 'name',
+      key: 'name',
+      width: 320,
+      ellipsis: true,
+      render: (v: string, row: EflowFile) => (
+        <a href={pushDownloadUrl(row)} download={row.name}>{v}</a>
+      ),
+    },
+    {
+      title: t('emailReports.colSize'),
+      dataIndex: 'size',
+      key: 'size',
+      width: 120,
+      render: (v: number) => formatSize(v),
+    },
+    {
+      title: t('emailReports.colTime'),
+      dataIndex: 'mtime',
+      key: 'mtime',
+      width: 190,
+      render: (v: number) => formatDateTime(v),
+    },
+    {
+      title: t('emailReports.colActions'),
+      key: 'actions',
+      width: 120,
+      render: (_: unknown, row: EflowFile) => (
+        <Button size="small" icon={<DownloadOutlined />} href={pushDownloadUrl(row)} download={row.name}>
+          {t('emailReports.download')}
+        </Button>
+      ),
+    },
+  ]
+
+  // 两次运行对比：逐单变化
+  const pushCompareColumns = [
+    {
+      title: t('emailReports.drillColTt'), dataIndex: 'tt_no', key: 'tt_no', width: 170, fixed: 'left' as const,
+      render: (v: string) => v || '—',
+    },
+    {
+      title: t('emailReports.drillColAlarm'), dataIndex: 'alarm_code', key: 'alarm_code', width: 100,
+      render: (v: string | null) => v || '—',
+    },
+    {
+      title: t('emailReports.pushCmpFromRule'), key: 'from_rule', width: 240, ellipsis: true,
+      render: (_: unknown, r: PushCompareRow) =>
+        (r.from_rule_id ? `${r.from_rule_name || '—'} (ID ${r.from_rule_id})` : t('emailReports.pushNoRule')),
+    },
+    {
+      title: t('emailReports.pushCmpToRule'), key: 'to_rule', width: 240, ellipsis: true,
+      render: (_: unknown, r: PushCompareRow) =>
+        (r.to_rule_id ? `${r.to_rule_name || '—'} (ID ${r.to_rule_id})` : t('emailReports.pushNoRule')),
+    },
+    {
+      title: t('emailReports.pushCmpBuildWo'), key: 'build', width: 150,
+      render: (_: unknown, r: PushCompareRow) => (
+        <Text>
+          {r.from_builds_wo ? t('emailReports.pushYes') : t('emailReports.pushNo')}
+          {' → '}
+          <Text strong type={r.from_builds_wo !== r.to_builds_wo ? 'danger' : undefined}>
+            {r.to_builds_wo ? t('emailReports.pushYes') : t('emailReports.pushNo')}
+          </Text>
+        </Text>
+      ),
+    },
+    {
+      title: t('emailReports.pushCmpCategory'), key: 'category', width: 230,
+      render: (_: unknown, r: PushCompareRow) => (
+        <Text>
+          {t(pushCategoryLabelKey(r.from_category as PushCategory)) || '—'}
+          {' → '}
+          <Text strong type={r.from_category !== r.to_category ? 'danger' : undefined}>
+            {t(pushCategoryLabelKey(r.to_category as PushCategory)) || '—'}
+          </Text>
+        </Text>
+      ),
+    },
+  ]
+
+  const pushRuleDeltaColumns = [
+    {
+      title: t('emailReports.eflowColRule'), key: 'rule', width: 300, ellipsis: true,
+      render: (_: unknown, r: { rule_id: string; rule_name: string }) =>
+        `${r.rule_name || '—'} (ID ${r.rule_id})`,
+    },
+    {
+      title: t('emailReports.eflowColMatched'), key: 'matched', width: 170, align: 'right' as const,
+      render: (_: unknown, r: { matched_from: number | null; matched_to: number | null }) => {
+        const from = r.matched_from == null ? t('emailReports.pushCmpNew') : String(r.matched_from)
+        const to = r.matched_to == null ? t('emailReports.pushCmpRemoved') : String(r.matched_to)
+        return <Text>{from}{' → '}<Text strong>{to}</Text></Text>
+      },
+    },
+  ]
+
+  const exportPushCheck = useCallback(async () => {
+    const breakdown = pushSummary?.rule_breakdown || []
+    if (!breakdown.length && !pushFiles.length) return
+    const sheets: ReportSheetSpec[] = []
+    if (pushSummary) {
+      const rowsSummary: (string | number)[][] = [
+        [t('emailReports.pushStatTotal'), pushSummary.total],
+        [t('emailReports.pushStatCorrect'), pushSummary.counts?.correct ?? 0],
+        [t('emailReports.pushStatMismatch'), pushSummary.counts?.mismatch ?? 0],
+        [t('emailReports.pushStatUndecidable'), pushSummary.counts?.undecidable ?? 0],
+        [t('emailReports.pushStatUnmatched'), pushSummary.counts?.unmatched ?? 0],
+        [t('emailReports.pushStatActualWo'), pushSummary.actual_wo ?? 0],
+        [t('emailReports.pushStatNoWo'), pushSummary.actual_no_wo ?? 0],
+        [t('emailReports.pushStatRuleWo'), pushSummary.rule_wo ?? 0],
+        [t('emailReports.pushStatUnparsed'), pushSummary.dispatch_unparsed ?? 0],
+        [t('emailReports.eflowStatRunAt'), pushSummary.generated_at],
+      ]
+      if (pushSummary.rules_count != null) {
+        rowsSummary.push([t('emailReports.rulesCollected'), pushSummary.rules_count])
+      }
+      sheets.push({
+        name: 'Summary',
+        title: t('emailReports.tabPushCheck'),
+        header: [t('emailReports.eflowColRule'), t('emailReports.eflowColMatched')],
+        rows: rowsSummary,
+        numericCols: [1],
+        columnWidths: [34, 18],
+        tabColor: '#2F5496',
+      })
+    }
+    if (breakdown.length) {
+      sheets.push({
+        name: 'Rules',
+        title: t('emailReports.pushRulesLabel'),
+        header: [
+          t('emailReports.eflowColRule'), t('emailReports.pushColBuildsWo'),
+          t('emailReports.pushColTarget'), t('emailReports.eflowColMatched'),
+          t('emailReports.pushColHistory'), t('emailReports.pushColPushPath'),
+        ],
+        rows: breakdown.map(r => [
+          `${r.rule_name || '—'} (ID ${r.rule_id})`,
+          r.built_wo ? t('emailReports.pushYes') : t('emailReports.pushNo'),
+          r.target_handler || '',
+          r.matched,
+          r.history?.wo_rate != null
+            ? `${(r.history.wo_rate * 100).toFixed(1)}% (${r.history.with_wo}/${r.history.total})`
+            : '',
+          r.push_path || '',
+        ]),
+        numericCols: [3],
+        columnWidths: [44, 12, 26, 12, 18, 30],
+        tabColor: '#BF8F00',
+      })
+    }
+    if (pushFiles.length) {
+      sheets.push({
+        name: 'Files',
+        title: t('emailReports.pushFilesLabel'),
+        header: [t('emailReports.colType'), t('emailReports.colFile'), t('emailReports.colSize'), t('emailReports.colTime')],
+        rows: pushFiles.map(f => [f.label || f.name, f.name, formatSize(f.size), formatDateTime(f.mtime)]),
+        columnWidths: [30, 44, 12, 20],
+        tabColor: '#843C0C',
+      })
+    }
+    await exportReport(sheets, `eflow_push_rules_check_${stamp()}.xlsx`)
+  }, [pushSummary, pushFiles, t])
+
+  // 推单检查下钻弹窗内的导出：导「当前搜索结果」全部行
+  const exportPushDrill = useCallback(async () => {
+    if (!filteredPushRows.length) return
+    await exportReport([{
+      name: 'TT Detail',
+      title: pushDrillTarget?.title || t('emailReports.pushStatTotal'),
+      header: [
+        t('emailReports.drillColTt'), t('emailReports.drillColWo'), t('emailReports.drillColTitle'),
+        t('emailReports.drillColAlarm'), t('emailReports.drillColSite'), t('emailReports.drillColSiteType'),
+        t('emailReports.pushColActualGroup'), t('emailReports.pushColFoOperator'),
+        t('emailReports.eflowColRule'), t('emailReports.pushColTarget'),
+        t('emailReports.pushColBuildsWo'), t('emailReports.pushColPushPath'),
+        t('emailReports.pushColCategory'), t('emailReports.drillColCreated'),
+      ],
+      rows: filteredPushRows.map(r => [
+        r.tt_no ?? '', r.wo_no ?? '', r.title ?? '',
+        r.alarm_code == null ? '' : String(r.alarm_code),
+        r.site_name ?? '', r.site_type ?? '',
+        r.dispatch_group ?? '', r.fo_operator ?? '',
+        r.rule_id ? `${r.rule_name || '—'} (ID ${r.rule_id})` : t('emailReports.pushNoRule'),
+        r.target_handler ?? '',
+        r.rule_builds_wo ? t('emailReports.pushYes') : t('emailReports.pushNo'),
+        r.push_path ?? '',
+        t(pushCategoryLabelKey(r.category)) || '',
+        r.created_time ?? '',
+      ]),
+    }], `eflow_push_drill_${stamp()}.xlsx`)
+  }, [filteredPushRows, pushDrillTarget, t])
+
   const exportMttr = useCallback(async () => {
     if (!mttrRows.length) return
     await exportReport([{
@@ -1538,6 +2228,279 @@ export default function EmailReports() {
               ),
             },
             {
+              // 推单规则批量检查：回答「规则改了以后，这批单会被派给谁 / 与上一次比变了什么」。
+              // 与上一个页签（级别规则）的样本口径完全一致，总 TT 相同。
+              key: 'eflow_push_rules_check',
+              label: t('emailReports.tabPushCheck'),
+              children: (
+                <>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', gap: 'var(--wh-space-sm)', marginBottom: '0.75rem' }}>
+                    <Text type="secondary" style={{ maxWidth: '60rem' }}>{t('emailReports.pushHint')}</Text>
+                    <Space wrap>
+                      <Button
+                        size="small"
+                        icon={<ThunderboltOutlined />}
+                        onClick={() => runTaskNow('eflow_push_rules_check', t('emailReports.eflowRunOk'), t('emailReports.eflowRunFail'), loadPushCheck)}
+                        loading={eflowRunningTask === 'eflow_push_rules_check'}
+                      >
+                        {t('emailReports.pushRunNow')}
+                      </Button>
+                      <Button size="small" icon={<ReloadOutlined />} onClick={loadPushCheck} loading={pushLoading}>
+                        {t('emailReports.refresh')}
+                      </Button>
+                      <Button
+                        size="small"
+                        icon={<DownloadOutlined />}
+                        onClick={() => void exportPushCheck()}
+                        disabled={!(pushSummary?.rule_breakdown?.length || pushFiles.length)}
+                      >
+                        {t('common.exportExcel')}
+                      </Button>
+                    </Space>
+                  </div>
+
+                  {/* 摘要与检查表不同源：卡片数字（JSON）与下钻明细（xlsx）来自两次运行 */}
+                  {pushSummary?.success && pushSummary.sheet_drift && (
+                    <Alert type="warning" showIcon style={{ marginBottom: '0.75rem' }}
+                      message={t('emailReports.pushDrift')} />
+                  )}
+                  {/* 无法判定的规则：本地缺字段，这些规则既不算命中也不算未命中 */}
+                  {pushSummary?.success && pushSummary.missing_fields
+                    && Object.keys(pushSummary.missing_fields).length > 0 && (
+                    <Alert type="warning" showIcon style={{ marginBottom: '0.75rem' }}
+                      message={t('emailReports.pushMissingFields', {
+                        detail: Object.entries(pushSummary.missing_fields)
+                          .map(([f, ids]) => `${f}（${t('emailReports.eflowMissingRules')} ${ids.join(', ')}）`)
+                          .join('；'),
+                      })} />
+                  )}
+
+                  {pushSummary ? (
+                    <>
+                      {!pushSummary.success ? (
+                        <div style={{ marginBottom: '0.75rem' }}>
+                          <Tag color="red">FAIL</Tag>
+                          <Text type="danger">{pushSummary.error || 'unknown error'}</Text>
+                        </div>
+                      ) : (
+                        <Row gutter={[16, 16]} style={{ marginBottom: '0.75rem' }}>
+                          {/* 每张卡都可下钻（AGENTS.md 三.1b）：点击落到该分类的逐单明细 */}
+                          {([
+                            ['total', 'emailReports.pushStatTotal', t('emailReports.pushStatTotal'), pushSummary.total, false],
+                            ['correct', 'emailReports.pushStatCorrect', t('emailReports.pushStatCorrect'), pushSummary.counts?.correct ?? 0, false],
+                            ['mismatch', 'emailReports.pushStatMismatch', t('emailReports.pushStatMismatch'), pushSummary.counts?.mismatch ?? 0, true],
+                            ['undecidable', 'emailReports.pushStatUndecidable', t('emailReports.pushStatUndecidable'), pushSummary.counts?.undecidable ?? 0, false],
+                            ['unmatched', 'emailReports.pushStatUnmatched', t('emailReports.pushStatUnmatched'), pushSummary.counts?.unmatched ?? 0, false],
+                          ] as [PushDrillMetric, string, string, number, boolean][]).map(([metric, _k, label, value, danger]) => (
+                            <Col xs={12} sm={8} md={4} key={metric}>
+                              <div
+                                role="button"
+                                tabIndex={0}
+                                style={{ cursor: 'pointer' }}
+                                onClick={e => void openPushDrill({ metric, title: label }, { x: e.clientX, y: e.clientY })}
+                                onKeyDown={e => {
+                                  if (e.key === 'Enter') {
+                                    const r = e.currentTarget.getBoundingClientRect()
+                                    void openPushDrill({ metric, title: label }, { x: r.left + r.width / 2, y: r.top + r.height / 2 })
+                                  }
+                                }}
+                              >
+                                <Statistic
+                                  title={label}
+                                  value={value}
+                                  valueStyle={danger && value ? { color: '#cf1322' } : undefined}
+                                />
+                              </div>
+                            </Col>
+                          ))}
+                          <Col xs={12} sm={8} md={4}>
+                            <Statistic title={t('emailReports.pushStatRunAt')} value={pushSummary.generated_at} />
+                          </Col>
+                        </Row>
+                      )}
+
+                      {/* 规则 vs 实际 的总体分布：这两个数字也都能下钻 */}
+                      {pushSummary.success && (
+                        <Row gutter={[16, 16]} style={{ marginBottom: '0.75rem' }}>
+                          <Col xs={12} sm={6}>
+                            <div
+                              role="button" tabIndex={0} style={{ cursor: 'pointer' }}
+                              onClick={e => void openPushDrill({ metric: 'has_wo', title: t('emailReports.pushStatActualWo') }, { x: e.clientX, y: e.clientY })}
+                            >
+                              <Statistic title={t('emailReports.pushStatActualWo')} value={pushSummary.actual_wo ?? 0}
+                                suffix={`/ ${pushSummary.total}`} />
+                            </div>
+                          </Col>
+                          <Col xs={12} sm={6}>
+                            <div
+                              role="button" tabIndex={0} style={{ cursor: 'pointer' }}
+                              onClick={e => void openPushDrill({ metric: 'no_wo', title: t('emailReports.pushStatNoWo') }, { x: e.clientX, y: e.clientY })}
+                            >
+                              <Statistic title={t('emailReports.pushStatNoWo')} value={pushSummary.actual_no_wo ?? 0} />
+                            </div>
+                          </Col>
+                          <Col xs={12} sm={6}>
+                            <Statistic title={t('emailReports.pushStatRuleWo')} value={pushSummary.rule_wo ?? 0} />
+                          </Col>
+                          <Col xs={12} sm={6}>
+                            {/* 取不到处理组的单数：显示 `—` 而不是 0（AGENTS.md 三.6） */}
+                            <Statistic
+                              title={t('emailReports.pushStatUnparsed')}
+                              value={pushSummary.dispatch_unparsed ?? '—'}
+                            />
+                          </Col>
+                        </Row>
+                      )}
+
+                      {/* 顶部结论条：说明这批单里最值得关注的一件事 */}
+                      {pushSummary.success && pushSummary.counts && (
+                        <Alert
+                          type={pushSummary.counts.mismatch > 0 ? 'info' : 'success'}
+                          showIcon
+                          style={{ marginBottom: '0.75rem' }}
+                          message={t('emailReports.pushVerdict', {
+                            total: pushSummary.total,
+                            wo: pushSummary.actual_wo ?? 0,
+                            mismatch: pushSummary.counts.mismatch ?? 0,
+                          })}
+                        />
+                      )}
+
+                      <Text type="secondary" style={{ display: 'block', marginBottom: '0.375rem' }}>
+                        {t('emailReports.pushRulesLabel')}
+                      </Text>
+                      <div className="wh-table-responsive" style={{ marginBottom: '1rem' }}>
+                        <Table
+                          size="small"
+                          rowKey="rule_id"
+                          loading={pushLoading}
+                          columns={pushRuleColumns as any}
+                          dataSource={pushSummary.rule_breakdown || []}
+                          pagination={false}
+                          scroll={{ x: 'max-content' }}
+                          locale={{ emptyText: <Empty description={t('emailReports.pushEmpty')} image={Empty.PRESENTED_IMAGE_SIMPLE} /> }}
+                        />
+                      </div>
+
+                      {/* ---- 两次运行对比 ---- */}
+                      <Card size="small" style={{ marginBottom: '0.75rem' }} title={t('emailReports.pushCompareTitle')}>
+                        <Space wrap style={{ marginBottom: '0.5rem' }}>
+                          <Text type="secondary">{t('emailReports.pushCompareFrom')}</Text>
+                          <Select
+                            size="small"
+                            style={{ width: '15rem' }}
+                            value={cmpFrom || undefined}
+                            onChange={v => setCmpFrom(v)}
+                            placeholder={t('emailReports.pushComparePick')}
+                            options={pushRuns.map(r => ({
+                              value: r.id,
+                              label: `${r.generated_at || r.id} (${r.counts?.mismatch ?? 0} ${t('emailReports.pushStatMismatch')})`,
+                            }))}
+                          />
+                          <Text type="secondary">{t('emailReports.pushCompareTo')}</Text>
+                          <Select
+                            size="small"
+                            style={{ width: '15rem' }}
+                            value={cmpTo || undefined}
+                            onChange={v => setCmpTo(v)}
+                            placeholder={t('emailReports.pushComparePick')}
+                            options={pushRuns.map(r => ({
+                              value: r.id,
+                              label: `${r.generated_at || r.id} (${r.counts?.mismatch ?? 0} ${t('emailReports.pushStatMismatch')})`,
+                            }))}
+                          />
+                          <Button size="small" type="primary" onClick={() => void runPushCompare()}
+                            loading={cmpLoading} disabled={!cmpFrom || !cmpTo || cmpFrom === cmpTo}>
+                            {t('emailReports.pushCompareRun')}
+                          </Button>
+                        </Space>
+                        {pushRuns.length < 2 && (
+                          <Text type="secondary">{t('emailReports.pushCompareNeedTwo')}</Text>
+                        )}
+                        {cmpError && <Alert type="error" showIcon message={cmpError} style={{ marginTop: '0.5rem' }} />}
+                        {cmpResult && (
+                          <div style={{ marginTop: '0.5rem' }}>
+                            <Alert
+                              type={cmpResult.rules_changed ? 'warning' : 'info'}
+                              showIcon
+                              style={{ marginBottom: '0.5rem' }}
+                              message={cmpResult.rules_changed
+                                ? t('emailReports.pushCompareRulesChanged')
+                                : t('emailReports.pushCompareRulesSame')}
+                            />
+                            <Row gutter={[16, 16]} style={{ marginBottom: '0.5rem' }}>
+                              {(['correct', 'mismatch', 'undecidable', 'unmatched'] as PushCategory[]).map(c => (
+                                <Col xs={12} sm={6} key={c}>
+                                  <Statistic
+                                    title={t(pushCategoryLabelKey(c))}
+                                    value={cmpResult.counts?.[c]?.to ?? 0}
+                                    // 增量用 suffix 展示：+12 / -3 / ±0
+                                    suffix={<Text type="secondary" style={{ fontSize: '0.75rem' }}>
+                                      {`${(cmpResult.counts?.[c]?.delta ?? 0) > 0 ? '+' : ''}${cmpResult.counts?.[c]?.delta ?? 0}`}
+                                    </Text>}
+                                  />
+                                </Col>
+                              ))}
+                            </Row>
+                            <Text type="secondary" style={{ display: 'block' }}>
+                              {t('emailReports.pushCompareSummary', {
+                                changed: cmpResult.changed_total,
+                                onlyTo: cmpResult.only_to,
+                                onlyFrom: cmpResult.only_from,
+                                ruleDelta: cmpResult.rule_delta.length,
+                              })}
+                            </Text>
+                            {cmpResult.changed.length > 0 && (
+                              <div className="wh-table-responsive" style={{ marginTop: '0.5rem' }}>
+                                <Table
+                                  size="small"
+                                  rowKey="tt_no"
+                                  columns={pushCompareColumns as any}
+                                  dataSource={cmpResult.changed}
+                                  pagination={{ pageSize: 10, size: 'small' }}
+                                  scroll={{ x: 'max-content' }}
+                                />
+                              </div>
+                            )}
+                            {cmpResult.rule_delta.length > 0 && (
+                              <div className="wh-table-responsive" style={{ marginTop: '0.5rem' }}>
+                                <Table
+                                  size="small"
+                                  rowKey="rule_id"
+                                  columns={pushRuleDeltaColumns as any}
+                                  dataSource={cmpResult.rule_delta}
+                                  pagination={false}
+                                  scroll={{ x: 'max-content' }}
+                                />
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </Card>
+
+                      {pushFiles.length > 0 && (
+                        <div style={{ marginTop: '0.75rem' }}>
+                          <Text type="secondary">{t('emailReports.pushFilesLabel')}</Text>
+                          <div className="wh-table-responsive" style={{ marginTop: '0.375rem' }}>
+                            <Table
+                              size="small"
+                              rowKey="name"
+                              columns={pushFileColumns as any}
+                              dataSource={pushFiles}
+                              pagination={false}
+                              scroll={{ x: 'max-content' }}
+                            />
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <Empty description={t('emailReports.pushNotRun')} image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                  )}
+                </>
+              ),
+            },
+            {
               key: 'tt_mttr',
               label: t('emailReports.tabTtMttr'),
               children: (
@@ -1707,6 +2670,82 @@ export default function EmailReports() {
           <div style={{ marginTop: '0.375rem' }}>
             <Text type="secondary">
               {t('common.total')} {drillMeta.total} {t('common.items')}
+            </Text>
+          </div>
+        )}
+      </DraggableClickModal>
+
+      {/* ===== 推单规则检查的 TT 级下钻弹窗（2026-10-23）=====
+          与上面级别规则的下钻是两套独立 state：数据源是两份不同的 xlsx，
+          共用会让「切页签后弹窗里还是上一个页签的内容」。
+          行数口径与卡片数字同源（都来自 eflow_push_rules_check.xlsx 的 All_TT_Records）。 */}
+      <DraggableClickModal
+        open={pushDrillTarget != null}
+        anchor={pushDrillAnchor}
+        title={(
+          <span>
+            {pushDrillTarget?.title || ''}
+            {pushDrillMeta && (
+              <Tag color="cyan" style={{ borderRadius: 10, marginLeft: '0.5rem' }}>
+                {t('common.records', { n: filteredPushRows.length })}
+              </Tag>
+            )}
+          </span>
+        )}
+        onClose={closePushDrill}
+        width="92%"
+        maxWidth="87.5rem"
+      >
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--wh-space-sm)', marginBottom: '0.75rem', alignItems: 'center' }}>
+          <Input
+            allowClear
+            size="small"
+            prefix={<SearchOutlined />}
+            placeholder={t('emailReports.drillSearchPlaceholder')}
+            value={pushDrillSearch}
+            onChange={e => setPushDrillSearch(e.target.value)}
+            style={{ width: 'min(100%, 22rem)' }}
+          />
+          {/* 导出放在弹窗内工具栏：DraggableClickModal 没有 footer 插槽 */}
+          <Button size="small" icon={<FileExcelOutlined />} disabled={!filteredPushRows.length}
+            onClick={() => void exportPushDrill()}>
+            {t('common.exportExcel')}
+          </Button>
+        </div>
+        {pushDrillError && (
+          <Alert type="error" showIcon message={pushDrillError} style={{ marginBottom: '0.75rem' }} />
+        )}
+        {pushDrillMeta?.truncated && (
+          <Alert
+            type="warning"
+            showIcon
+            style={{ marginBottom: '0.75rem' }}
+            message={t('emailReports.drillTruncated', { n: pushDrillMeta.limit, total: pushDrillMeta.total })}
+          />
+        )}
+        {pushDrillLoading ? (
+          <Spin style={{ display: 'block', margin: '3.75rem auto' }} />
+        ) : (
+          <div className="wh-table-responsive">
+            <Table
+              size="small"
+              rowKey="tt_no"
+              columns={pushDrillColumns(t) as any}
+              dataSource={filteredPushRows}
+              pagination={{
+                pageSize: 15,
+                size: 'small',
+                showTotal: (total: number) => t('common.itemsTotal', { n: total }),
+              }}
+              scroll={{ x: 'max-content' }}
+              locale={{ emptyText: <Empty description={t('common.noData')} image={Empty.PRESENTED_IMAGE_SIMPLE} /> }}
+            />
+          </div>
+        )}
+        {pushDrillMeta && (
+          <div style={{ marginTop: '0.375rem' }}>
+            <Text type="secondary">
+              {t('common.total')} {pushDrillMeta.total} {t('common.items')}
             </Text>
           </div>
         )}

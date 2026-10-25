@@ -92,9 +92,9 @@
 
 ## 2. 任务报告文件（`?page=email_reports`）
 
-取回四类产物并下载：**邮件附件**、**FineBI 报表**、**eFlow TT 规则检查结果**、**TTs and MTTR 月粒度报表**。
+取回五类产物并下载：**邮件附件**、**FineBI 报表**、**eFlow TT 规则检查结果**、**eFlow 推单规则检查结果**、**TTs and MTTR 月粒度报表**。
 
-- 四页签切换（`EmailReports.tsx:636` 的 `Tabs items`，key 依次为 `email` / `finebi` / `eflow_tt_rules_check` / `tt_mttr`）；可设「保留最近 N 份」（:348）。
+- 五页签切换（`EmailReports.tsx` 的 `Tabs items`，key 依次为 `email` / `finebi` / `eflow_tt_rules_check` / `eflow_push_rules_check` / `tt_mttr`）；可设「保留最近 N 份」。
 - 各页独立刷新按钮（:350 / :377 / :407）；行内下载（:231 / :277 / 表格内「下载」列）。
 - eFlow 规则页有**三个手动触发按钮**（:463/:471/:479），点击后 3 秒做一次刷新（:157，**不是轮询**，任务慢时得手动再点刷新）：
   | 按钮 | 触发任务 | 端点 |
@@ -134,6 +134,62 @@
   - `metric` 与页面数字一一对应：`total` / `matched` / `unmatched` / `changed` / `rule`（+`rule_id`）/ `rule_changed`（+`rule_id`）/ `shift`（+`sev_from`/`sev_to`）。点「未匹配」卡片时附一份 `unmatched_dist` 主要分布，可按告警码再下钻。
   - **数据源是矫正表 `eflow_tt_severity_correction.xlsx` 的 `All_TT_Records` sheet，不是查 `eflow_tt` 主库重算**：重算要 50 秒且会因同步延迟与卡片数字对不上，读同一份产物才能保证口径一致（`email_reports.py` 的 `_TT_DRILL_COLS` / `_load_tt_drill_rows`，按 `(mtime, size)` 缓存转换结果）。
   - ⚠ **摘要 JSON 与矫正表是两个文件**：若有人单独跑 `eflow_rules_matcher.py`（脚本形态），xlsx 会更新而 JSON 不动，卡片与下钻就会来自两次不同运行。后端比对 `correction_mtime`（由 `run()` 写入）与 xlsx 的 mtime，不一致时置 `summary.correction_drift=true`，页面顶部给出告警条。**旧摘要没有该字段时不判定**（避免误报）。
+### 2b. eFlow TT 推单规则检查页签（`key: 'eflow_push_rules_check'`，2026-10-23 新增）
+
+回答的是级别规则页签**回答不了**的问题：eFlow 应用新派单规则后，「这批单会被自动派 WO 吗、派给谁、
+与规则的要求是否一致、相对上次运行变了什么」。级别规则（`ttLevelRule`）只决定「这单该是什么级别」，
+推单规则（`ttPushOrderRule` / 触发步骤 `FOAccept`）才决定「是否自动建 WO、推给哪个组」。
+
+- **任务**：`eflow_push_rules_check`（`backend/services/eflow_rules/eflow_push_rules_check_task.py`），
+  在 `task_registry.py` 的 `TASK_SPECS` 登记，cron `10 5 * * 2`（**每周二 05:10**，排在周一 23:59 的
+  `eflow_push_rules_collect` 之后，保证对比的是刚收集到的最新规则）。页签上另有「立即检查」按钮。
+- **样本口径与级别规则检查完全一致**：`created_time` 最新的 1000 条、且 `alarm_code` 非空的 eflow_tt，
+  所以两个页签的「总 TT」相同。取数走 `database.get_raw_connection`（**不是** `eflow_rules_matcher.get_eflow_tt_data`
+  的裸 sqlite3 —— 那个只用于离线脚本，在 pg 模式下必然失败）。
+- **判定复用同一套代码，不产生第二套规则语义**：条件解析用 `tt_rule_evidence._parse_push_conditions`，
+  求值用 `eflow_rules_matcher.build_value_frame` / `build_rule_mask` / `format_details`，
+  规则字段展示用 `tt_rule_evidence._push_rule_block`。同一行命中多条时取「优先级最小 → 条件数最多 → ID 最小」
+  的第一条为实际生效规则（与单 TT 版 `build_push_rule_evidence` 一致）。
+- **四类互斥、求和 = 总数**（页面四张卡，每张都可下钻）：
+
+  | 分类 | 含义 |
+  | --- | --- |
+  | `correct` | 规则判定与实际派单一致 |
+  | `mismatch` | 规则判定与实际不同（`diff_kind`：`should_have_wo` / `pushed_elsewhere` / `unexpected_wo`） |
+  | `undecidable` | 命中了引用本地取不到字段的规则 → 判不了，**不算命中也不算未命中** |
+  | `unmatched` | 没有任何 `FOAccept` 推单规则适用 |
+
+- **「实际派单」怎么取**：解析 `eflow_tt` 已有的 `wo_no` 与 `fo_accept_detail`（`_actual_dispatch`）。
+  三个必须注意的口径，否则会造出上千条假异常：
+  1. **Assignee Group 有两种写法**：`G:ZTE_FE_FE(ZTE_FE_FE)` 与 `G:ZTE_NOC_FO`（不带括号）。只认带括号的写法
+     会把「实际派给 ZTE_NOC_FO」显示成 `—`。
+  2. **FO Accept 常由机器人代做**：`Operator:FE Robot` 时，`Assignee Group` 只是「下一步接手方」，
+     不代表规则没生效 —— 记为 `robot_handled`，不判为 `pushed_elsewhere`。
+  3. **「建了 WO」的判据只能是 `wo_no`，不能用「流程里出现过目标组」代替**（2026-10-23 实测教训）：
+     规则 200 的 340 张单全部在 `third_accept_detail` 里有 `G:3rd_Power`，但全程 `wo_no` 为空、
+     已闭环的单同样没有 WO —— 说明「推送到某个组」是**路由**（转第三方处理），与「建 WO 派现场」
+     是两件事。用「到达过目标组」判一致，会把这 340 张真实差异全部吞掉（`mismatch` 从 340 变 0）。
+     目标组到达信息只用于「建了 WO 但推给了别的组」那一种判断。
+- **`undecidable` 的范围不整批扩张**：引用 `alarmName` / `category` 等本地取不到字段的规则，用
+  `tt_postmortem._rule_wants_keys` + `_ticket_signature` 从规则名/描述推断适用对象，只把「特征吻合且未被
+  已知规则命中」的行标为 `undecidable`。推断不出特征的规则不计入（但会出现在 `missing_fields` 告警条里）。
+- **规则表的「历史建 WO 率」列**：`_rule_history()` 按规则的 `alarmCode` + `siteSubType` 条件，
+  统计近 365 天同条件单里实际有 `wo_no` 的比例。**这是区分「历来如此」与「这次规则变更导致的」的关键**：
+  实测规则 200（`Regular电源故障推送TT到IPT`）当前 340 张 `mismatch`，但历史建 WO 率仅 **0.5%**
+  （17619 单只建过 90 张）；规则 203 则为 99.8%。没有这一列，用户会误以为 340 张全是这次改坏的。
+  - ⚠ 规则条件里没有正向 `alarmCode`（例如只有 `netWorkType`）时不给历史比例，显示 `—`（不猜）。
+  - ⚠ 该查询的截止时间由 Python 算好再传参：`datetime('now','-N day')` **只有 SQLite 有**，PG 会报
+    「函数 datetime 不存在」。`eflow_site` 的列名在 PG 下是小写（`site_id`），`"Site ID"` 会报字段不存在。
+- **两次运行对比**：每次运行在 `push_rules_snapshots/` 留一份快照（保留最近 10 份），页签底部可选任意两次对比。
+  响应里把「判定变化」与「只在某一侧出现」（样本窗口移动）**分开给**，避免把新增样本误读成判定变化；
+  同时比对两次的规则文件 mtime，规则改过时显式提示「变化很可能由此引起」。
+- **接口**：`GET /api/email-reports/eflow_push_rules_check`（摘要 + 文件 + 快照列表）、
+  `/drill`（`metric` = `total`/`correct`/`mismatch`/`undecidable`/`unmatched`/`rule`/`rule_bad`/`diff`/`has_wo`/`no_wo`）、
+  `/unmatched_dist`、`/compare?from_id=&to_id=`。
+- **产物**：`backend/services/eflow_rules/eflow_push_rules_check.xlsx`（`All_TT_Records` + `Rule_Hits`），
+  下载源 `eflow_push_rules_check`。⚠ `_EFLOW_FILE_SPECS` 里 `eflow_push_rules_check*.xlsx` 必须排在
+  `eflow_push_rules*.xlsx` **之前**：`_eflow_file_meta` 是「第一个命中说了算」，否则检查表会显示成「推单/配置规则」。
+
 - **TTs and MTTR 页签**（2026-10-04 新增，`key: 'tt_mttr'`，`EmailReports.tsx:825`）：下载按月统计 TTs / MTTR 的组合图工作簿。
   - 「立即生成」（`generateMttr`，:240）投一次 `POST /api/tasks/tt_mttr_report_generate/run`，任务由 m 组 worker 执行（实测 9.4 秒），
     定时口径为每天 07:20，**要更高频在任务管理页改排程即可，不必改代码**。
@@ -151,6 +207,8 @@
   - FineBI 报表 `exportFinebi` → `finebi_reports_*.xlsx`（文件夹/文件/大小/时间）；
   - eFlow 规则检查 `exportEflowCheck` → `eflow_tt_rules_check_*.xlsx`，多 sheet：`Summary`（统计卡 + 变更方向）、
     `Rules`（规则明细，变更列走数值着色）、`Files`（可下载产物清单）；
+  - 推单规则检查 `exportPushCheck` → `eflow_push_rules_check_*.xlsx`，多 sheet：`Summary`（分类计数 + 规则 vs 实际）、
+    `Rules`（规则明细 + 历史建 WO 率）、`Files`（可下载产物清单）；
   - TTs and MTTR `exportMttr`（:617）→ `tt_mttr_reports_*.xlsx`（文件/大小/时间）。
 
 ## 3. 实时告警看板（`?page=alarm`）
@@ -575,7 +633,7 @@ ZXMW 微波网络拓扑与带宽利用率 NOC 看板（`MwUmeDashboard.tsx:4-8`�
   | `alarm_site_count` | 该县**有实时告警的站点数**（`COUNT(DISTINCT site_id)`，非告警条数） | 同 `/gis/realtime/sites`（`realtime_alarm` JOIN 站点表 + 经纬度有效） | **38** |
 
   - 合计 **38 = `/gis/realtime/sites` 的站点数**，两处口径严格对齐。主表 JOIN 不上的告警（实测 4 站）**不计入任何县**，与实时页一致。
-  - 标签写成 `Bong (7 告警)` 形式 —— 单个裸数字无法区分「站数」还是「告警数」，故带单位小字。用户要看站点总数时改用上方「高级筛选」的区县下拉（2026-10-16 起县块不可点击）。
+  - 标签格式（2026-10-23 起现状）：**全部 15 个县常驻县名标签**（大写、无底色），**有实时告警的县在县名后拼两位数字**（如 `BOMI 03`），无告警的县只有县名、不带数字（不再显示 `00`）。更早的 `Bong (7 告警)` 带单位写法已废弃。标签数字随筛选联动（见上方 2026-10-21 的 `scopedCountyAlarms` 条目）。**锚点必须落在本县多边形内**（2026-10-23 修正，用户报「标签没有在州里面显示」）：避让候选位先做点在多边形判定，兜底链为「县内且不冲突 → 县内 → 质心」，不再丢弃标签。**避让投影使用实测画布参数**：`gismap/MapMetrics.tsx`（`ResizeObserver` + `zoomend`）回报真实容器宽高与地图当前 zoom（含滚轮缩放），原先写死 570×856 + 档位 zoom，内嵌画布 ~898px 时东部各县候选位被假夹取挤到同一列、标签摞到邻县（SINOE 叠进 RIVER GEE 的根因）。细节见 `gismap/countyLabelLayout.ts` 文件头。用户要看站点总数时改用上方「高级筛选」的区县下拉（2026-10-16 起县块不可点击）。
 - **交互**：县界用「描边 + 淡色底块」（浅色主题 `fillOpacity 0.14` / 深色 `0.10`，深底同透明度会显脏），虚线描边以区分于大区实线；县名 + 告警站点数用 Leaflet `Tooltip(permanent)` 常驻在县域质心（样式见 `index.css` 的 `.gis-county-label`）。**县块不响应点击**（2026-10-16 用户要求：区域不可点击选中，过滤只走高级筛选）。
 - **性能**：县界 GeoJSON 约 384KB，前端**只在首次切到「县界」模式时拉取**（`GISMap.tsx` 的 effect 带 `boundaryMode !== 'county'` 守卫），不影响默认打开速度。
 
@@ -642,7 +700,8 @@ ZXMW 微波网络拓扑与带宽利用率 NOC 看板（`MwUmeDashboard.tsx:4-8`�
 **「有未关闭 WO 且站点当前有实时告警」**的每个站点的虚线（红色，`5 4`）；移出或
 **点击该人员**即消失（用户要求「点击后消失」）。状态条显示「XXX：未关闭告警站点连线 N 条」。
 **同一次悬停还会在针尖上方弹出姓名 + 电话气泡**（`.gis-person-tip`，2026-10-16 补）——
-电话走后端已脱敏值（如 `231****7287`），且姓名/电话拼进 divIcon 的 html 前**必须过
+电话 2026-10-23 起为**完整显示**（用户要求取消脱敏，见 `personnel.py::_display_phone`；
+库里打星且补不回的仍显 `231****7287` 形式），且姓名/电话拼进 divIcon 的 html 前**必须过
 `escapeHtml()`**（值来自数据库，防结构破坏/注入，AGENTS.md 三.4）。
 - 端点：`GET /api/gis/personnel/{name_key}/alert-sites`（`personnel.py`）。
 - **是交集**：站点须同时满足「该人员有未关闭 WO」**且**「`realtime_alarm` 里有活跃告警」——
@@ -838,7 +897,7 @@ React 自身驱动（其 cleanup 顺序是「子先父后」，子图层先 remo
 
 ## 11a. 人员位置地图（`?page=person`，2026-10-19 新增）
 
-页面：`frontend/src/pages/PersonMap.tsx`（地图视图在 `pages/personmap/PersonMapView.tsx`）。
+页面：`frontend/src/pages/PersonMap.tsx`（地图视图在 `pages/personmap/PersonMapView.tsx`）。2026-10-24 按 500 行纪律拆分后，personmap/ 下的模块分工：`PersonMapView.tsx`（地图总装：state/effect/事件）+ `useTerritory.ts`（辖区取数与派生）+ `TerritoryLayer.tsx` / `LayerToggles.tsx`（辖区批量层 / 图层开关浮层：人员+默认站点双开关）+ `useCountyTags.ts`（县界色与标签文本派生）+ `CountyLabels.tsx`（县名标签避让与渲染）+ `SitesLayer.tsx`（站点圆点与提示）+ `personPinHtml.ts`（人员针图标拼装）+ `NoSitesNote.tsx`（空态说明，地图版 `MapNoSitesNote` + 抽屉共用文案）。
 
 **看什么**：现场人员的登记位置（小人地图针）+ 每个人员**实际处理过工单的站点**分布，
 以及按人员的 WO / TT 统计与每人的未关闭 PMT 数。参考实时告警地图的版式（筛选条 → 说明横幅 → KPI → 地图 → 统计图 → 表格）。
@@ -854,17 +913,41 @@ React 的 onClick 先跑、document 监听后跑，不排除会刚选中又被�
 （`DraggableClickModal` 刻意"点遮罩不关闭"）。
 表格行点击与地图选中双向联动（仅**有坐标**的行可点，无坐标的人走「查看工单」按钮）。
 
-**人员针的常驻徽标**（`PersonMapView.tsx`）两行：第一行姓名 + 脱敏电话；第二行
+**人员针的常驻徽标**（拼装在 `personmap/personPinHtml.ts`，Marker 挂载仍在 `PersonMapView.tsx`）两行：第一行姓名 + 电话；第二行
 `负责站点数 | 未关闭 WO 数 | 未关闭 PMT 数`（2026-10-21 用户指定这个顺序）。
+**电话完整显示**（2026-10-23 用户要求「不要加密，要全部显示」，取代原脱敏）：
+`person.phone` 里 95/136 行是明文，原样返回；25 行**上游入库时就已打成
+`231****7417` 形式**（本库任何地方都没有这几行的完整号码），由 `personnel.py::_display_phone`
+按「人名一致 + 尾 4 位一致」从 `master_site_db.fme_contact_1/2` **唯一**补回（实测 14/25
+可补、0 例歧义），补不回的 11 人原样显示星号值 —— 那是数据事实，不是漏改。
 PMT 取不到时显示 `—` 而不是 0（AGENTS.md 三.6），所以 `pmt_open` 的类型是 `number | null`。
 **各人徽标求和 ≠ 全量**，去向见下表第三行，已在筛选条的 ⓘ 里写明。
 
 **站点三档配色**（2026-10-21 用户指定）：**红 = 该站当前有实时告警 ＞ 浅蓝 = 该人在此站有未关闭 WO ＞ 绿 = 负责但当前没有未关闭 WO**。
-- 判定收在**一处**（`PersonMapView.tsx::siteColor`），**圆点与连线共用** —— 用户同时要求「连线颜色跟站点同色」，两处各写一套就会出现「线绿点蓝」这种看着像 bug 的画面。
+- 判定收在**一处**（`PersonMapView.tsx::siteColor`，站点圆点画在 `personmap/SitesLayer.tsx`、由调用方把同一个函数传进去），**圆点与连线共用** —— 用户同时要求「连线颜色跟站点同色」，两处各写一套就会出现「线绿点蓝」这种看着像 bug 的画面。
 - 配色是**实值十六进制**且分深浅两套（`SITE_TONE`）：Leaflet 的 CircleMarker / Polyline 走 SVG 呈现属性，解析不了 `var(--wh-*)`，与 ECharts 同一约束（AGENTS.md 三.3 取色表）。
 - 「未清除」不再单独占一档颜色（用户只给了三色），改由**半径**表达：告警站 8px ＞ 有未清除 7px ＞ 其余 6px。
 - 三档含义写在地图卡片头部的提示文字（`person.mapHint`）里，**没有另做图例浮层**。
 - 实测当前分布（24 个有坐标的人合计）：绿 727 / 浅蓝 63 / 红 22。浅蓝比绿少，是因为浅蓝要求「**该人**在 30 天窗口内此站有未关闭 WO」，不是「该站有单」。
+
+**县界底图：每县一种类别色 + 县名标签**（2026-10-23 用户要求「地图显示县名、不同的县不同颜色」）：
+- **类别色 ≠ 告警分档色**。GIS 页的 `COUNTY_BAND_COLORS`（红/橙/黄/绿/灰五档）表达「该县有几站实时告警」，人员页没有这个口径，照搬会让人误读为人员告警分布 —— 故本页用 `personmap/useCountyTags.ts::COUNTY_PALETTE` 的 **15 个互不相同的色相**，只表达「这是哪个县」，不带数值语义。
+- **不用后端 `CountyBoundary.color`**：那是为 3 个大区设计的 `REGION_COLORS` 6 色循环套在 15 个县上，按名称排序必然撞色且撞在接壤县上（Bong/Lofa 同色、Nimba/Grand Gedeh 同色）。前端按**县名字典序**稳定映射 15 色表，刷新/换主题不换色；改后端色表需重启 7038 生产服务，故不动后端。
+- 填充透明度与 GIS 页 `FILL_OPACITY` 同值（深 0.13 / 浅 0.09，底图瓦片深色主题被反相，两个主题对比表现相反）；描边用县色本身、虚线 `4 3`。
+- **县名标签（三行，2026-10-23 第二版）**：复用 GIS 页 `gismap/countyLabelLayout.ts` 的避让算法（质心 + 屏幕像素贪心错位 + 锚点必须落在**本县多边形内**），但包围盒传 `PERSON_LABEL_SIZE`（170×44，该模块据此参数化了标签尺寸 —— 本页是第二个真实用例）。三行内容 = ①县名 + 站点总数 ②**传输类型**（`trm_type`：MW/SAT/ST/IPRAN）③**维护分类**（`site_caregory`：NORMAL/ERA/COOL），用户确认两类都要。数据由 `/gis/county-boundaries` 新增的 `trm_counts` / `caregory_counts` 提供（与 `site_count` 同一 WHERE 口径；GIS 页忽略新字段，无兼容影响）。展示规则：计 0 的组不显示；`site_count − sum(分组) > 0` 时补「— n」段（类型为 NULL/空串的站点）；旧后端/旧缓存没有分组字段时退化为「县名+总数」。投影按初始全国取景（zoom 7.5）算一次，画布尺寸用 `map.getSize()` 实测；样式复用 `.gis-county-label` 主题描边字 + 本页专属 `.person-county-tag`（纵向三行、类型行 9px），不拦地图点击。沿海小县（BOMI/MARGIBI/GRAND BASSA）标签会彼此贴近 —— 「各在各县内」优先于「互不重叠」（与 GIS 页 2026-10-23 的取舍一致）。
+
+**图层开关浮层**（地图右上角，`personmap/LayerToggles.tsx`，前身 TerritoryToggle 只装一个开关、第二个真实开关出现即更名）—— 两个**独立图层**：
+
+**「人员」开关**（2026-10-24 用户要求「实时人员的信息也弄个开关」，**默认开**）：控制人员针 + 常驻徽标 + 选中者的站点圆点/连线/空态说明条。要点：
+- **关掉时同时清除选中**（`PersonMapView::togglePeople` → `onSelect(null)`）—— 留着选中会出现「抽屉开着、地图上一片空」的自相矛盾画面（与点空白取消选中同一语义），抽屉随之关闭。
+- 搜索框的人员源同步置空（`MapSearch people={showPeople ? pinPersons : []}`）—— 针都藏了，搜索框不该再提供「选中一个看不见的人」的入口；**站点搜索不受影响**，但 `handlePickSite` 在人员隐藏时只定位、**不选中负责人**。
+- 「默认站点」连线不受它影响 —— 实测组合：人员关+辖区开 = 0 针 + 1849 图形元素（纯辖区总览，不被针和徽标遮挡）；双开 = 30 针 + 1849。
+
+**「默认站点」辖区开关**（2026-10-23 用户要求，**默认关**）：打开后画**全国 FME 辖区总览** —— 每人一色的「质心 → 全部负责站点」放射状连线 + 去重站点小圆点（悬停出站点名/县/负责人），人员针从登记坐标**挪到其站点的几何中心**。数据来自 `GET /api/gis/personnel/fme-territories`（`personnel.py`，`_fme_site_index` 同源：24 人 / 1010 条人-站对 / 去重 824 站，与单人下钻的站点页签是同一集合）。要点：
+- **原生批量建层**（`personmap/TerritoryLayer.tsx`，模式照搬 `gismap/TopologyLayer.tsx`）：1010 条线走 React `<Polyline>` 逐条渲染会单帧阻塞秒级（仓库 844 条线实测卡 1547ms 的教训），原生 `L.layerGroup` 批量建层百毫秒级。线 1.5px/50% 不透明（首版 1px/35% 目检几乎看不见）。
+- **辖区模式下针集合变化**（`useTerritory.ts::pinPersons`）：24 个辖区人员（含**无登记坐标**的人 —— 他们平时根本不上图；person 表没有的显示 `key.title()` 兜底名、统计列显示 `—`，实测 1 人 Julius K. Johnson）+ 6 个有登记坐标但非 FME 的人（supervisor 等，保留原位、无连线）= 30 针。WO/PMT 统计从 `/personnel/stats` 的 `by_person` 按 `name_key` 联合。
+- **选中交互不冲突**：选中某人后**其辖区连线让位**给详细图层（三档配色大圆点 + 从质心起笔的连线 —— 两层同坐标叠画会重影）；聚焦 effect 按质心取景（focusKey 含坐标，开关切换导致同一人位置变化会重新 fit）。
+- 连线 `interactive:false`（不拦点击）；站点圆点按 `site_id` 去重（A/B 双人共担只画一个点，归属由线色表达）；辖区配色 `TERRITORY_PALETTE` 12 色循环，刻意与县块 `COUNTY_PALETTE` **不同值**（同一张图两套色不能撞）。
 
 **负责站点为 0 的空态说明**（`personmap/NoSitesNote.tsx`，2026-10-21）：有坐标的 24 人里 **6 人 `site_count` 恒为 0**，点他们地图上一片空白，实测就被报成「连线没画出来」。所以选中这样的人时，**地图底部居中**与**抽屉「站点」页签**各给一条同源说明（`pointerEvents:none`，不拦地图点击）。原因分两类，由 `/personnel/stats` 新增的 `supervised_sites` 区分：
 
@@ -4132,3 +4215,47 @@ eFlow 里 FE 处理完后大量 WO 停在 `WaitConfirm`（待 NOC 确认关闭�
 
 
 
+
+## 35. VMAX 用户查询（`?page=vmax_user_query`，2026-10-24 新增；同日扩展时间窗 + 流量/小区）
+
+输入用户号码与时间窗，从 VMAX CCA 投诉系统查询用户、终端、流量与驻留小区信息。
+
+### 35.1 功能
+
+- **查询条**：号码输入框（回车或按钮触发）+ **时间窗（起止日期时间，精确到
+  分钟、5 分钟步进，默认今天 00:00 ~ 当前时刻；跨度上限 31 天由后端校验；
+  不能选未来日期与时刻）**。号码**必须用 `231` 开头的
+  完整号码**（如 `231777777322`；2026-10-24 真号实测：剥成本地 9 位上游返回
+  IMSI is not found，客户端已改回原样透传）。只接受数字，其余格式由后端 422 拒绝。
+  只选日期（不带时间）时后端自动补 CCA 日界 00:00:00 / 23:59:59。
+- **用户信息卡**：MSISDN/IMSI 映射（上游 `query_imsimdn`）。
+- **终端信息卡**：IMEI/机型/厂商/操作系统/网络类型/运营商等
+  （上游 `query_terminal`，依赖用户信息返回的 IMSI 列表）。
+- **流量信息卡**：窗口内总流量 + 按应用明细（上游 `query_flow`）。多数用户
+  无 DPI 采集记录，空态是正常返回（CCA 网页同样为空）。
+- **用户轨迹小区卡**：窗口内驻留小区列表（小区名/厂商/PCI/频点/经纬度/方位角/
+  挂高，上游 `usertrack/query_cell`）；点行内 KPI 打开可拖拽弹窗看该小区指标明细，
+  ppc 码已通过 `query_kpi` 字典（121 条）映射成 KPI 英文名，缺码回落原始码。
+- 已知字段显示中文标签；上游新增的未知字段按原始键名兜底展示，不会丢信息。
+
+### 35.2 状态语义
+
+- **查无此号**是业务正常返回（上游 `status=3 / IMSI is not found`），页面展示
+  黄色警示，不是故障。
+- **流量/小区为空**同样是业务正常返回（无 DPI / usertrack 记录）；若 flow/cells
+  子查询异常，结果带 `failures` 说明，页面顶部黄色警示但不影响已返回的卡片。
+- 接口报错先查两件事：① 设置→凭据管理 的 **vmax_cca** 组是否已录入账号密码
+  （未配置时接口返回 503 与明确指引）；② 该账号是否具备 CCA 投诉系统权限。
+
+### 35.3 实现与协议
+
+- 后端 `routers/vmax_cca_query.py` → `services/vmax_cca/vmax_cca_client.py`，
+  协议复刻自 CCA 投诉页前端（加密信封与 vReport 同源复用
+  `encrypt_long`，RSA `encryptedStr` GET 参数 + `X-Content-Type` 头），
+  完整记录见 `backend/services/vmax_cca/README.md`。
+- 登录走 VMAX 门户接口链路（无网页验证码），凭据组 **vmax_cca**（独立于
+  vmax_cxo：门户同账号会话有限，避免与 8790 看板代理互踢）。
+- 会话进程内单例串行复用，401/403/404/407 自动重登重试一次；**只读透传不落库**，
+  日志中号码打码。
+- 前端 `VmaxUserQuery.tsx`：三态渲染与请求序号守卫抄 EflowQa 的 TT 快速分析；
+  工具页，不参与顶栏自动刷新。

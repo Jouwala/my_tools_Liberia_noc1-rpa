@@ -834,6 +834,57 @@ TASK_SPECS = [
          description_en="Every 3 days at 23:59: pull all rules from eFlow config-center (query filter=\"\", 28 rule types incl. push/level/group/auto-close), merge detail per rule into backend/services/eflow_rules/eflow_push_rules.xlsx (sheets Push_Rules + Rule_Type_Summary)",
          default_cron="59 23 */3 * *", category="eflow"),
 
+    # 37b. eFlow 推单规则批量检查（每周二 05:10）：2026-10-23 新增。
+    #      eFlow 应用新派单规则后，需要能回答两件事：
+    #        ① 按**当前**推单规则，这批单会被派给谁、与实际派单是否一致；
+    #        ② 相对**上一次**运行，逐单判定 / 逐条规则命中数变了什么。
+    #      为此每周跑一次并留快照（push_rules_snapshots/），页面可选两次运行对比。
+    #      ⚠ 登记在推单规则收集（周一 23:59）之后，保证对比的是刚收集到的最新规则。
+    #      样本口径与 eflow_tt_rules_check 完全一致（created_time 最新 1000 条），
+    #      两个页签的「总 TT」因此对得上。
+    dict(task_id="eflow_push_rules_check", name="eFlow 推单规则检查",
+         name_en="eFlow Push Rules Check",
+         loader=("backend.services.eflow_rules.eflow_push_rules_check_task",
+                 "run_eflow_push_rules_check"),
+         description="每周二 05:10：先用最新推单规则（ttPushOrderRule / FOAccept）批量评估最新 1000 条 eflow_tt，"
+                     "逐单给出规则判定 vs 实际派单（wo_no / FO Accept 处理组）的一致性分类"
+                     "（一致 / 不一致 / 无法判定 / 无规则适用），并留存周快照供跨次对比；"
+                     "导出 eflow_push_rules_check.xlsx（All_TT_Records + Rule_Hits）",
+         description_en="Weekly (Tue 05:10): evaluate the latest 1000 eflow_tt tickets against the current "
+                        "TT Push Order rules (FOAccept), classifying rule-decision vs actual dispatch "
+                        "(wo_no / FO Accept handler) as correct / mismatch / undecidable / unmatched; "
+                        "keeps a weekly snapshot for run-to-run comparison and exports eflow_push_rules_check.xlsx",
+         default_cron="10 5 * * 2", category="eflow"),
+
+    # 38b. WhatsApp 知识库同步（三个采集任务之后各跟一次）：
+    #      2026-10-23 新增。why：规则 xlsx 更新后，whatsapp-kb-bot 的知识库
+    #      （knowledge/*.md 由 xlsx 导出 + data/index.json 索引 + 进程内存快照）
+    #      不会自动跟进，bot 会**静默按旧规则回答**（2026-09-15 / 2026-10-23 各踩一次）。
+    #      实际同步逻辑在 whatsapp-kb-bot/scripts/sync-kb.mjs：先比源文件指纹，
+    #      没变化直接跳过（不重启进程）；变了才 export → ingest → 重启 bot。
+    #      错开 5 分钟，避免与采集任务抢写同一个 xlsx。
+    #      失败只记在任务结果里，**不影响采集任务本身**的成功与否。
+    dict(task_id="whatsapp_kb_sync_push_rules",
+         name="WhatsApp 知识库同步（推单规则）", name_en="WhatsApp KB Sync (Push Rules)",
+         loader=("backend.services.whatsapp_kb_service", "run_whatsapp_kb_sync_after_push_rules"),
+         description="eFlow 推单规则收集完成后 5 分钟触发：比对规则 xlsx 指纹，有变化才重导知识文档、重建索引并重启 whatsapp-kb-bot（无变化直接跳过，不重启进程）",
+         description_en="5 min after the push-rules collect: compare rule xlsx fingerprints; re-export knowledge docs, rebuild the index and restart whatsapp-kb-bot only when something changed (skips without restarting otherwise)",
+         default_cron="4 0 */3 * *", category="eflow"),
+
+    dict(task_id="whatsapp_kb_sync_alarm_rules",
+         name="WhatsApp 知识库同步（告警规则）", name_en="WhatsApp KB Sync (Alarm Rules)",
+         loader=("backend.services.whatsapp_kb_service", "run_whatsapp_kb_sync_after_alarm_rules"),
+         description="eFlow 告警规则收集完成后触发知识库同步（压缩规则来自 eflow_alarm_rules.xlsx）；无变化自动跳过",
+         description_en="Trigger KB sync after the alarm-rules collect (compression rules come from eflow_alarm_rules.xlsx); auto-skips when unchanged",
+         default_cron="4 0 */3 * *", category="eflow"),
+
+    dict(task_id="whatsapp_kb_sync_tt_rules",
+         name="WhatsApp 知识库同步（TT 级别规则）", name_en="WhatsApp KB Sync (TT Level Rules)",
+         loader=("backend.services.whatsapp_kb_service", "run_whatsapp_kb_sync_after_tt_rules"),
+         description="eFlow TT 级别规则收集（每日 04:20）完成后触发知识库同步（级别规则来自 eflow_TT_rules.xlsx）；无变化自动跳过",
+         description_en="Trigger KB sync after the daily 04:20 TT level-rules collect (level rules come from eflow_TT_rules.xlsx); auto-skips when unchanged",
+         default_cron="35 4 * * *", category="eflow"),
+
     # 39. 日志文件清理（每天 03:17）：2026-09-11 新增。log/ 下 runtime 日志此前由各 watchdog
     #     以 open(...,"ab") 追加且把句柄交给子进程继承 —— Windows 下被占用的文件无法轮转，
     #     单文件曾涨到 177MB（合计 466MB）。已改为父进程 pipe 泵 + 单文件超 LOG_ROTATE_MAX_MB

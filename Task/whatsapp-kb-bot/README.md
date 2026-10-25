@@ -73,7 +73,32 @@ Baileys 客户端（Node.js，扫码登录，作为「已关联的设备」）
 | ① 单票 | 带 TT/WO 单号 | `tt-analyze.py` 脚本渲染 |
 | ② 区间统计 | 「今天有几个 P1」「昨天多少单」 | 聚合查询脚本渲染，模型不参与 |
 | ③ **告警码/压缩/级别查表** | 「99933 是什么意思」「198094422 会被压缩成什么」「告警码 9990 是几级」「P1 规则」 | `data/lookups.json` 查表 + 模板渲染，**不经 LLM**；答案带出处文件名 |
+| ③b **站点实时告警** | 「Palm Bay 有没有告警」「site name :Grand Cess(3629)，Alarm: 9920…」 | 直接查 eFlow **活动告警**接口，脚本渲染；含发生时间/告警码/站号/派单字段 |
 | ④ 知识库 | 其余（流程 / 为什么 / SOP） | 向量检索 + LLM 生成；每个候选块带文件名，回答末给出「来源：」 |
+
+> ③b 是站点告警通道（工具 `query_site_alarms`），回答的是**告警事实**，
+> 与 ② 的**工单数量**是两回事，不能互相顶替（详见 `src/sitealarms.js` 头部注释）。
+>
+> 2026-10-24 修正了两处，起因是群里这句被答成了纯查表：
+>
+> ```
+> site name :Grand Cess(3629），Alarm: 9920(Critical)，Alarm occurred 2026-10-24 10:50:29
+> → 旧答：Alarm code 9920 → Complete site down (CSD)   （站名/站号/时间全丢）
+> ```
+>
+> 1. **路由**：原判据是「有告警词 **且没有**告警码」才走站点告警，句子同时含站名与码时
+>    被一票否决，落到查表。现改为「**有站名** + 告警语义」即走站点告警，
+>    告警码只作补充信息、不下推成过滤条件（码记错会得到「无告警」的假结论）。
+>    同时补了 `site name X(站号)` 的站名边界识别 —— 原先会把 `3629` 和全角括号一起吃进站名。
+> 2. **渲染**：原桥接脚本把 `codename`（告警**名**）当成 `code` 输出，真正的
+>    `alarmcode`（9920）被丢掉，`alarmraisedtime` 也没显示。现在补齐
+>    **告警码 + 告警名、发生时间（本地时区）、站号/区域、清除状态、关联工单、
+>    派单时限 `Assign Delay` / Hub 站 `Hub Site Flag` / 拓扑链 `Link Path`**，
+>    并按发生时间倒序，让用户问的那条排第一。
+>
+> 通道**只查实时活动告警**（刻意不做历史库兜底：`history_alarm` 只有 48h 滚动窗口，
+> 且多一次 Python 往返）。已恢复的告警不在活动列表里，所以回复固定附一句
+> 「若该告警已恢复，请到 eFlow 历史告警核对」，**不把「查不到」说成「不存在」**。
 
 > ③ 是 2026-10-07 新增的通道。此前「告警码含义 / 压缩结果 / 级别规则」走 RAG 生成，
 > 而规则表被 420 字切块后 AND/OR 与结论分离，模型总结必然失真。
@@ -1442,7 +1467,38 @@ Matched: alarmCode=9991 in 9971/9981 (7 total)
 |---|---|---|
 | `07_iMind-eFlow-Function-Operation-Guide.md` | ZTE 官方 docx（V6.26.10.F30B3，24MB / 497 图） | 平台操作：用户组、角色与流程、TT/WO 创建与处理、配置 |
 
-**规则更新后**：`npm run export-kb && npm run ingest`。
+**规则更新后**：`npm run sync-kb`（一条命令完成 导出 → 重建索引 → 重启进程）。
+
+### 规则更新的自动化（2026-10-23 起）
+
+**正常情况下不需要人工干预。** my_app 的规则采集任务跑完后会自动调用
+`scripts/sync-kb.mjs`：
+
+| my_app 任务 | 触发时机 | 覆盖的规则 |
+|---|---|---|
+| `whatsapp_kb_sync_alarm_rules` | 每 3 天 00:04 | 告警压缩规则（`eflow_alarm_rules.xlsx`） |
+| `whatsapp_kb_sync_push_rules` | 每 3 天 00:04 | 推单与指派规则（`eflow_push_rules.xlsx`） |
+| `whatsapp_kb_sync_tt_rules` | 每天 04:35 | TT 级别判定规则（`eflow_TT_rules.xlsx`） |
+
+`sync-kb.mjs` 是**幂等**的：先比四份规则 xlsx 的 size+mtime 指纹，
+没变化就直接退出（**不重启进程**，避免与提问竞态）；变了才执行
+`export-kb → ingest → 重启 bot`。同步成功后才写回指纹，
+中途失败不写 —— 下次自动重试。
+
+手动兜底命令：
+
+| 命令 | 用途 |
+|---|---|
+| `npm run sync-kb` | 检查并同步（无变化则跳过） |
+| `npm run sync-kb -- --force` | 跳过指纹判断，强制重建 |
+| `npm run sync-kb -- --dry-run` | 只报告会做什么，不执行 |
+
+> **规则更新有两条通道，自动性不同**：
+> - 带 TT 单号提问 → `src/tt.js` 每次起子进程实时读 xlsx，**规则一改立即生效**；
+> - 知识库叙述题 → 依赖索引快照，需要上面这套同步流程。
+>
+> 群里 `@bot ping` 会报三种「用旧资料」的告警：代码旧、索引旧、**规则表比知识库新**
+> （第三种由 `src/ruleSourceFreshness.js` 检测，2026-10-23 新增）。
 
 > 不要手工编辑 ① 的文件 —— 下次导出会覆盖。要补充说明请另建文件。
 
@@ -1766,7 +1822,8 @@ npm run diag                # 云端对话模型诊断（对照实验，定位"�
 npm run tt -- TT202609150073   # 单条 TT 单分析（实时查工单库）
 npm run tt-level -- 9990 --asset NORMAL --vip 0   # 按码+属性直接判级别（复用同一套规则引擎）
 npm run tt-index            # 重建本地单号索引（首次部署 / 急着查新单时跑）
-npm run export-kb           # 从 my_app 重新导出 TT 知识库文档（规则更新后跑）
+npm run sync-kb             # 规则更新后一键同步：导出 → 重建索引 → 重启 bot（幂等）
+npm run export-kb           # 只做导出（一般不用，sync-kb 已包含）
 npm run docx2md -- 手册.docx 手册.md   # docx → markdown（入库前转换）
 npm run ingest              # 重建索引（改完资料必跑）
 npm start                   # 启动机器人

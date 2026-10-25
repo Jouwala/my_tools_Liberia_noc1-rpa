@@ -1370,6 +1370,112 @@ export const TASK_DOCS: TaskDoc[] = [
     },
   },
   {
+    id: 'eflow_push_rules_check', group: 'n', cron: '10 5 * * 2',
+    script: 'services/eflow_rules/eflow_push_rules_check_task.py → run_eflow_push_rules_check',
+    zh: {
+      name: 'eFlow 推单规则检查',
+      desc: '每周二 05:10：先用最新推单规则（ttPushOrderRule / 触发步骤 FOAccept）批量评估最新 1000 条 eflow_tt，逐单比出「规则判定」与「实际派单」是否一致，并留周快照供跨次对比',
+      flow: [
+        '子进程跑 eflow_Push_Rule_Collector 刷新 eflow_push_rules.xlsx（失败则降级用已有规则）',
+        '取与 eflow_tt_rules_check 同一批样本（created_time 最新 1000 条、alarm_code 非空）',
+        '按 FOAccept 推单规则逐单判定：命中规则 / 是否建 WO / 目标处理人 / 推送路径',
+        '解析实际派单（wo_no + fo_accept_detail 的 Operator / Assignee Group）',
+        '分类为 一致 / 不一致 / 无法判定 / 无规则适用，导出 xlsx 并在 push_rules_snapshots/ 留快照',
+      ],
+      maintain: [
+        '样本口径必须与 eflow_tt_rules_check 保持一致，否则两个页签的「总 TT」会对不上',
+        '与 eflow_push_rules_collect 同组（n）：两者登录同一 eFlow 账号，跨组并发会互踢会话',
+        '规则表「历史建 WO 率」用 Python 侧算好的截止时间传参 —— datetime(\'now\') 只有 SQLite 有',
+        '快照只保留最近 10 份（_SNAPSHOT_KEEP），如需长期留存请另存',
+      ],
+    },
+    en: {
+      name: 'eFlow Push Rules Check',
+      desc: 'Weekly (Tue 05:10): evaluate the latest 1000 eflow_tt tickets against the current TT Push Order rules (FOAccept), compare rule decision vs actual dispatch per ticket, and keep a weekly snapshot for run-to-run comparison',
+      flow: [
+        'Refresh eflow_push_rules.xlsx via the collector subprocess (falls back to the existing file on failure)',
+        'Load the same sample as eflow_tt_rules_check (newest 1000 by created_time with an alarm_code)',
+        'Evaluate each ticket against FOAccept push rules: matched rule / builds WO / target handler / push path',
+        'Parse the actual dispatch (wo_no plus Operator / Assignee Group from fo_accept_detail)',
+        'Classify into consistent / mismatch / undecidable / unmatched, export xlsx and keep a snapshot under push_rules_snapshots/',
+      ],
+      maintain: [
+        'Keep the sample definition identical to eflow_tt_rules_check, otherwise the two tabs show different totals',
+        'Shares group n with eflow_push_rules_collect: both log in with the same eFlow account and would kick each other across groups',
+        'The historical WO-rate query passes a Python-computed cutoff — datetime(\'now\') only exists in SQLite',
+        'Only the latest 10 snapshots are kept (_SNAPSHOT_KEEP); archive elsewhere if long-term retention is needed',
+      ],
+    },
+  },
+  {
+    id: 'whatsapp_kb_sync_push_rules', group: 'n', cron: '4 0 */3 * *',
+    script: 'services/whatsapp_kb_service.py → run_whatsapp_kb_sync_after_push_rules → whatsapp-kb-bot/scripts/sync-kb.mjs',
+    zh: {
+      name: 'WhatsApp 知识库同步（推单规则）',
+      desc: 'eFlow 推单规则收集完成后触发：比对规则 xlsx 指纹，有变化才重导知识文档、重建索引并重启 whatsapp-kb-bot',
+      flow: ['比对四份规则 xlsx 的 size+mtime 指纹', '无变化直接退出（不重启 bot，避免与提问竞态）', '有变化时执行 export-kb → ingest → 重启 bot → 核对索引一致'],
+      maintain: [
+        '幂等设计：绝大多数轮次什么都不做，不会频繁重启 bot',
+        '指纹只覆盖规则 xlsx；手改 knowledge/ 下的 md 不会被发现，靠 @bot ping 的「磁盘知识比索引新」告警兜底',
+        '同一批规则还有实时通道（带 TT 单号提问）直接读 xlsx，不走本任务也不会答错',
+      ],
+    },
+    en: {
+      name: 'WhatsApp KB Sync (Push Rules)',
+      desc: 'Fired after the push-rules collect: compares rule xlsx fingerprints and only re-exports docs, rebuilds the index and restarts whatsapp-kb-bot when something actually changed',
+      flow: ['Compare size+mtime fingerprints of the four rule xlsx files', 'Exit immediately when unchanged (no bot restart, avoids racing live questions)', 'When changed: export-kb → ingest → restart bot → verify the index matches disk'],
+      maintain: [
+        'Idempotent by design: most runs do nothing and never restart the bot',
+        'Fingerprints cover the rule xlsx only; hand-edited markdown under knowledge/ is caught by the "@bot ping" stale-index warning instead',
+        'The realtime channel (questions with a TT number) reads the xlsx directly, so it stays correct regardless of this task',
+      ],
+    },
+  },
+  {
+    id: 'whatsapp_kb_sync_alarm_rules', group: 'n', cron: '4 0 */3 * *',
+    script: 'services/whatsapp_kb_service.py → run_whatsapp_kb_sync_after_alarm_rules → whatsapp-kb-bot/scripts/sync-kb.mjs',
+    zh: {
+      name: 'WhatsApp 知识库同步（告警规则）',
+      desc: 'eFlow 告警规则收集完成后触发知识库同步；告警压缩规则来自 eflow_alarm_rules.xlsx，无变化自动跳过',
+      flow: ['比对规则 xlsx 指纹', '有变化时重导 TT单-告警压缩规则.md 并重建索引、重启 bot', '无变化直接退出'],
+      maintain: [
+        '与推单规则同步共用同一套 sync-kb.mjs 逻辑，只是触发时机不同',
+        '压缩规则影响「某个告警码会压缩成什么」这类知识库问答',
+      ],
+    },
+    en: {
+      name: 'WhatsApp KB Sync (Alarm Rules)',
+      desc: 'Triggers a KB sync after the alarm-rules collect; compression rules come from eflow_alarm_rules.xlsx and unchanged runs are skipped',
+      flow: ['Compare rule xlsx fingerprints', 'When changed, re-export the compression-rules doc, rebuild the index and restart the bot', 'Exit immediately when unchanged'],
+      maintain: [
+        'Shares the same sync-kb.mjs logic as the push-rules sync; only the trigger timing differs',
+        'Compression rules drive knowledge-base answers such as "what does this alarm code compress into"',
+      ],
+    },
+  },
+  {
+    id: 'whatsapp_kb_sync_tt_rules', group: 'n', cron: '35 4 * * *',
+    script: 'services/whatsapp_kb_service.py → run_whatsapp_kb_sync_after_tt_rules → whatsapp-kb-bot/scripts/sync-kb.mjs',
+    zh: {
+      name: 'WhatsApp 知识库同步（TT 级别规则）',
+      desc: 'eFlow TT 级别规则收集（每日 04:20）完成后触发知识库同步；级别规则来自 eflow_TT_rules.xlsx',
+      flow: ['04:35 触发（比 04:20 的规则采集晚 15 分钟，确保 xlsx 已落盘）', '比对指纹，有变化才重导 TT单-级别判定规则.md 并重建索引、重启 bot'],
+      maintain: [
+        '级别规则每天采集一次，所以本任务也是每日节拍',
+        '无变化时不做任何事，不会每天重启 bot',
+      ],
+    },
+    en: {
+      name: 'WhatsApp KB Sync (TT Level Rules)',
+      desc: 'Triggers a KB sync after the daily 04:20 TT level-rules collect; level rules come from eflow_TT_rules.xlsx',
+      flow: ['Fires at 04:35, 15 minutes after the 04:20 collect so the xlsx is already written', 'Compares fingerprints and only re-exports the level-rules doc + rebuilds the index + restarts the bot when changed'],
+      maintain: [
+        'Level rules are collected daily, so this task runs on a daily cadence too',
+        'Does nothing when unchanged — the bot is not restarted every day',
+      ],
+    },
+  },
+  {
     id: 'log_cleanup', group: 'm', cron: '17 3 * * *',
     script: 'services/log_cleanup.py → run_log_cleanup',
     zh: {

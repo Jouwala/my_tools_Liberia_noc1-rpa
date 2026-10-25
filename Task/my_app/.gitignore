@@ -171,3 +171,18 @@ _probe_file.txt
 /.coverage
 /coverage.xml
 /htmlcov/
+
+# eFlow 规则检查的**运行时产物**（2026-10-23 补）
+#
+# 背景：backend/services/eflow_rules/ 下既有源码/规则文件，也有任务每轮重写的产物。
+# 此前的 eflow_*_latest.json / *.xlsx 因为没人加规则而一直处于**未跟踪**状态
+# （未被忽略，但也没人 git add），每次跑任务 git status 就多一批 ?? 行 ——
+# 正是 AGENTS.md 四.4 / 四.7 要杜绝的「运行时产物混入版本库」。
+# 这些文件每次运行都由任务重新生成、可由任务重建，不属于源码：
+#   · eflow_push_rules_check.xlsx          —— 推单检查表（卡片与下钻的数据源）
+#   · eflow_push_rules_check_latest.json   —— 推单检查摘要
+#   · push_rules_snapshots/                —— 推单检查周快照（跨次对比用）
+# ⚠ **忽略跟踪 ≠ 可以删除**：它们是线上页面正在读的数据源，必须留在磁盘上。
+/backend/services/eflow_rules/eflow_push_rules_check*.xlsx
+/backend/services/eflow_rules/eflow_push_rules_check_latest.json
+/backend/services/eflow_rules/push_rules_snapshots/
