@@ -248,6 +248,41 @@ check(not left, '英文输出零中文 / 零全角标点', f'残留：{left!r}')
 step_re = re.compile(r'^\d+\. ')
 zh_steps = [l for l in zh_lines if step_re.match(l)]
 en_steps = [l for l in en_lines if step_re.match(l)]
+
+
+# 状态标记符号表 —— 与 tt-analyze.py 的 st_done / st_fail / ... 一一对应。
+# 显式列出而不是靠正则猜：符号里含变体选择符（⚠️ 是 U+26A0 U+FE0F），
+# 用「非 ASCII 字符」这类笼统规则既容易多吞也容易漏吞。
+_STATE_SYMS = ('✅', '❌', '⏳', '⚠️', 'ℹ️', '—', '·')
+
+
+# 标记附注（`❌ 异常` 的「异常」部分）—— 中英两份都要在这里列出。
+# 与 tt-analyze.py 的 st_note_* 一一对应；漏一条会让标签比对多吞/少吞文字。
+_STATE_NOTES = {
+    'zh': ('异常', '未完成', '未证实', '不适用', '决策型', '无数据'),
+    'en': ('PROBLEM', 'not done yet', 'unproven', 'n/a', 'decision point', 'no data'),
+}
+
+
+def strip_mark(line: str, lang: str = 'zh') -> str:
+    """去掉行首的 `N. ` 与状态标记，只留标签（供顺序断言比对）。
+
+    2026-10-25 起里程碑每行多了状态标记（见 build_milestones 的 state）；
+    断言**状态本身**的另有专门用例（见 [4b]）。
+    """
+    body = line.split('. ', 1)[1]
+    for sym in _STATE_SYMS:
+        if body.startswith(sym):
+            body = body[len(sym):].lstrip()
+            # 有的标记带附注（`❌ 异常`），一并剥掉 —— 按最长匹配，
+            # 避免 'n/a' 之类的短串先命中导致残留
+            for note in sorted(_STATE_NOTES[lang], key=len, reverse=True):
+                if body.startswith(note):
+                    body = body[len(note):].lstrip()
+                    break
+            break
+    return body
+
 check(len(zh_steps) == len(en_steps) == 9,
       f'里程碑跳数中英一致（各 {len(zh_steps)} 跳，契约固定 9 跳）')
 
@@ -279,13 +314,13 @@ check('(5/9 with confirmed timestamps)' in en_text, 'en 标题带 5/9 时间戳�
 
 # 排序契约：有确凿时间戳的按真实时间升序在前，无时间的按契约位置排在其后。
 # 告警常在接单前就自愈 —— 按流水列固定顺序排会出现负间隔，这是换掉旧链路的原因。
-en_labels = [l.split('. ', 1)[1].split('  ')[0] for l in en_steps]
+en_labels = [strip_mark(l, 'en').split('  ')[0] for l in en_steps]
 check(en_labels == ['Alarm occurred', 'TT created', 'FO Accept', 'FO Process',
                     'Alarm cleared', 'Dispatch route', 'WO dispatch', 'Onsite action',
                     'Confirm'],
       'en 9 跳顺序：时间跳按真实时间升序，无时间跳按契约位置排后',
       f'实得 {en_labels}')
-zh_labels = [l.split('. ', 1)[1].split('  ')[0] for l in zh_steps]
+zh_labels = [strip_mark(l).split('  ')[0] for l in zh_steps]
 check(zh_labels == ['告警发生', 'TT建单', 'FO接单', 'FO填报', '告警清除',
                     '派单路由', 'WO派单', '现场处置', '关单确认'],
       'zh 9 跳顺序与 en 一一对应', f'实得 {zh_labels}')
@@ -321,13 +356,102 @@ check('Start' in en_w and 'Arrive' in en_w, '现场处置跳显示出发/到场'
 check('出发' in zh_w and '到场' in zh_w, 'zh 现场处置跳显示出发/到场')
 check('auto-created by fe_robot' in en_w, 'WO 创建者是机器人账号时明确标注')
 # 现场动作(08:30/08:35)晚于告警清除(08:25) → Onsite action 排在 Alarm cleared 之后
-en_w_labels = [l.split('. ', 1)[1].split('  ')[0]
+en_w_labels = [strip_mark(l, 'en').split('  ')[0]
                for l in en_w.split('\n') if step_re.match(l)]
 check(en_w_labels.index('Onsite action') > en_w_labels.index('Alarm cleared'),
       '现场动作晚于告警清除时，排序如实反映（自愈后补现场动作）',
       f'实得 {en_w_labels}')
 check(not cjk_left(en_w), '含 WO 两跳的英文输出无中文残留', f'残留：{cjk_left(en_w)!r}')
 
+
+
+# ------------------------------------------------------------------ #
+print('\n[4c] 里程碑状态标记：完成打勾 / 有问题打叉 / 未完成也给状态')
+
+# 用户 2026-10-25 的要求：Milestone timeline 每一跳都要有状态，
+# 已完成的 ✅、出了问题的 ❌、还没走到的 ⏳。核心断言是**三态可区分**，
+# 而不是「每行都有符号」—— 全都一样就等于没有状态。
+
+def _state_of(line: str) -> str:
+    """从一行里取出状态符号（找不到返回 ''）。"""
+    body = line.split('. ', 1)[1]
+    for sym in _STATE_SYMS:
+        if body.startswith(sym):
+            return sym
+    return ''
+
+
+_base = tt.build_milestones(RES, 'zh')['nodes']
+_by_key = {n['key']: n for n in _base}
+
+# ① 有确凿时间戳的跳 = done
+check(all(_by_key[k]['state'] == 'done'
+          for k in ('alarm_occur', 'tt_create', 'fo_accept', 'fo_process', 'alarm_clear')),
+      '有时间戳的 5 跳状态为 done',
+      f"实得 {{k: _by_key[k]['state'] for k in ('alarm_occur', 'tt_create', 'fo_accept', 'fo_process', 'alarm_clear')}}")
+
+# ② 全体都是已完成时，输出里压根不该出现红叉
+check('❌' not in en_text, '数据正常的单不出现 ❌', en_text)
+
+# ③ 派单路由是决策型 —— 没有时间但不是「未完成」，不能标成 ⏳
+check(_by_key['dispatch_route']['state'] in ('decision', 'fail'),
+      '派单路由是决策型节点（不误判为未完成）',
+      f"实得 {_by_key['dispatch_route']['state']}")
+
+# ④ 有 WO 但无现场明细 = 未证实，且必须区分于「未完成」
+_wo_nosteps = copy.deepcopy(RES)
+_wo_nosteps['wo'] = {'wo_no': 'WO202609110099', 'created_time': '2026-09-11 03:20:00',
+                     'creator': 'fe_robot', 'status': 'Closed',
+                     'start_trip_detail': '[]', 'arrive_site_detail': '[]',
+                     'leave_site_detail': '[]'}
+_wo_nodes = {n['key']: n for n in tt.build_milestones(_wo_nosteps, 'zh')['nodes']}
+check(_wo_nodes['onsite_action']['state'] == 'unproven',
+      '有 WO 无现场明细 → onsite_action 标为 unproven（不是 pending）',
+      f"实得 {_wo_nodes['onsite_action']['state']}")
+
+# ⑤ 无 WO → 两跳都应是「不适用」，不该报红
+check(_by_key['wo_dispatch']['state'] == 'skipped', '无 WO → WO 派单标为 skipped')
+check(_by_key['onsite_action']['state'] == 'skipped',
+      '无 WO → 现场处置标为 skipped（不重复报警）',
+      f"实得 {_by_key['onsite_action']['state']}")
+
+# ⑥ 派单超时 → 红叉（与文本「超时限」同源）
+_late = copy.deepcopy(RES)
+_late['alarm_row'] = {'assign_delay': '15min',
+                      'assigned_time': '1762816800000',   # 远早于建单
+                      'alarmraisedtime': '1762776000000'}
+_late_nodes = {n['key']: n for n in tt.build_milestones(_late, 'zh')['nodes']}
+check(_late_nodes['alarm_occur']['state'] == 'fail',
+      '派单超出 assign_delay 时限 → alarm_occur 标为 fail',
+      f"实得 {_late_nodes['alarm_occur']['state']}")
+
+# ⑦ 现场动作时间倒挂 → 红叉（离场早于到场）
+_rev = copy.deepcopy(RES_WO)
+_rev['wo'] = dict(RES_WO['wo'])
+_rev['wo']['start_trip_detail'] = ('[{"opname":"Start Trip","operator":"FE_1",'
+                                   '"opertime":"2026-09-11 08:30:00"}]')
+_rev['wo']['arrive_site_detail'] = ('[{"opname":"Arrive Site","operator":"FE_1",'
+                                    '"opertime":"2026-09-11 09:00:00"}]')
+_rev['wo']['leave_site_detail'] = ('[{"opname":"Leave Site","operator":"FE_1",'
+                                   '"opertime":"2026-09-11 08:45:00"}]')
+_rev_nodes = {n['key']: n for n in tt.build_milestones(_rev, 'zh')['nodes']}
+check(_rev_nodes['onsite_action']['state'] == 'fail',
+      '离场早于到场 → onsite_action 标为 fail（时间倒挂）',
+      f"实得 {_rev_nodes['onsite_action']['state']}")
+
+# ⑧ 渲染层：红叉行必须真的写进输出
+_rev_text = tt.render_text(_rev, 'zh')
+check(any(l.startswith(tuple(f'{i}. ❌' for i in range(1, 10)))
+          for l in _rev_text.split('\n')),
+      'zh 输出里出现 ❌ 标记行', _rev_text)
+check(cjk_left(tt.render_text(_rev, 'en')) == '',
+      '带 ❌ 的英文输出仍无中文残留（附注是纯 ASCII）',
+      f"残留：{cjk_left(tt.render_text(_rev, 'en'))!r}")
+
+# ⑨ 中英标记符号必须完全一致（只有附注文字可以不同）
+for _k in ('done', 'fail', 'pending', 'unproven', 'skipped', 'decision', 'empty'):
+    check(tt._L('zh')[f'st_{_k}'] == tt._L('en')[f'st_{_k}'],
+          f'st_{_k} 中英符号一致')
 
 
 # ------------------------------------------------------------------ #

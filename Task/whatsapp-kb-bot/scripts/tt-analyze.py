@@ -1689,6 +1689,23 @@ _LABELS: dict[str, dict[str, str]] = {
         # 里程碑时间轴（见 build_milestones，与 my_app 复盘报告同口径）
         'milestone': '【里程碑时间轴】',
         'ts_count': '（{n}/{total} 有确凿时间戳）',
+        # 里程碑每跳的完成状态标记（见 build_milestones 的 state 说明）。
+        # 符号本身中英共用，只有颜色语义不同 —— 所以两边都放在 _LABELS 里，
+        # 保证渲染层不用判断语言就能取到。
+        'st_done': '✅',
+        'st_fail': '❌',
+        'st_pending': '⏳',
+        'st_unproven': '⚠️',
+        'st_skipped': '—',
+        'st_decision': 'ℹ️',
+        'st_empty': '·',
+        # 状态附注（跟在标记后面，解释"为什么是红叉"）
+        'st_note_fail': '异常',
+        'st_note_pending': '未完成',
+        'st_note_unproven': '未证实',
+        'st_note_skipped': '不适用',
+        'st_note_decision': '决策型',
+        'st_note_empty': '无数据',
         'route_auto': '自动派单（{rule}）',
         'route_auto_uncertain': '疑似自动派单（{rule}，与本单流水不完全一致）',
         'route_none': '未匹配到自动派单规则',
@@ -1794,6 +1811,22 @@ _LABELS: dict[str, dict[str, str]] = {
         # zero-Chinese-residue assertion. Rule names are data, not labels.
         'milestone': '[Milestone timeline]',
         'ts_count': ' ({n}/{total} with confirmed timestamps)',
+        # Status markers for each milestone hop (see state in build_milestones).
+        # Symbols are language-neutral; only the note text differs. Plain ASCII
+        # for the notes -- the English output passes a zero-CJK assertion.
+        'st_done': '✅',
+        'st_fail': '❌',
+        'st_pending': '⏳',
+        'st_unproven': '⚠️',
+        'st_skipped': '—',
+        'st_decision': 'ℹ️',
+        'st_empty': '·',
+        'st_note_fail': 'PROBLEM',
+        'st_note_pending': 'not done yet',
+        'st_note_unproven': 'unproven',
+        'st_note_skipped': 'n/a',
+        'st_note_decision': 'decision point',
+        'st_note_empty': 'no data',
         'route_auto': 'auto-dispatch ({rule})',
         'route_auto_uncertain': 'likely auto-dispatch ({rule}, not fully consistent with the log)',
         'route_none': 'no auto-dispatch rule matched',
@@ -2420,6 +2453,22 @@ def _assign_delay_note(alarm: dict, t_create, lang: str = DEFAULT_LANG) -> str:
     return '；'.join(parts) if parts else ''
 
 
+def _assign_is_over_limit(alarm: dict, t_create) -> bool:
+    """派单耗时是否超出告警行的 `assign_delay` 时限。
+
+    与 `_assign_delay_note` 用**同一份**取数与比较口径 —— 两处若各写一份，
+    迟早出现「文本说超时限、里程碑却打对号」的矛盾。数据不足一律返回 False
+    （不红判为绿，而是不判定 —— 缺数据不等于超时）。
+    """
+    if not alarm or t_create is None:
+        return False
+    limit = _parse_delay_sec(alarm.get('assign_delay'))
+    assigned = _parse_ms(alarm.get('assigned_time'))
+    if limit is None or assigned is None:
+        return False
+    return abs((t_create - assigned).total_seconds()) > limit
+
+
 def _parse_delay_sec(v) -> 'float | None':
     """`assign_delay` 的 `900s` / `15min` / 纯秒数 → 秒；不可解析返回 None。"""
     if v in (None, '', '--'):
@@ -2472,8 +2521,28 @@ def _fmt_gap(sec) -> str:
 def build_milestones(res: dict, lang: str = DEFAULT_LANG) -> dict:
     """构建里程碑时间轴。返回 {'nodes': [...], 'ts_count': int, 'total': 9}。
 
-    node: {'key','label','time'(str|''),'text'(补充说明),'gap'(距上一跳)}
+    node: {'key','label','time'(str|''),'text'(补充说明),'gap'(距上一跳),'state'}
     时间为空的节点 `time=''`，说明放 `text`（未证实 / 未发生 / 决策型）。
+
+    ## `state` —— 每跳的完成状态（2026-10-25 新增）
+
+    用户要求「已发生的打对号、有问题的打红叉、没完成的也给个状态」。
+    取值与判定依据（渲染层按此加 `✅` / `❌` / `⏳` 等标记，见 render_text）：
+
+      · `done`     有确凿时间戳且未发现问题 —— 正常完成
+      · `fail`     有确凿时间戳但**出了问题**：
+                     - 任一相邻间隔为负（时间倒挂，数据自相矛盾）；
+                     - 派单路由反推不成立（`route_auto_uncertain`）；
+                     - 派单耗时超出 `assign_delay` 时限；
+                     - 同一动作的时间戳互相矛盾（如告警清除早于告警发生）。
+                   **宁可标红也不要漏标**：时间倒挂是用户最需要被提醒的信号。
+      · `pending`  该发生但还没发生（后续环节尚未走到，或整单仍在处理中）
+      · `unproven` 没有证据能证实发生过（现场处置无出发/到场/离场明细）
+      · `skipped`  条件性跳，本单不适用（未产生 WO）
+      · `decision` 决策型节点，本来就没有独立时间（派单路由）
+      · `empty`    既无时间也无说明 —— 兜底，正常不该出现
+
+    `reason`（可选）是 `fail` / `pending` 的具体依据键，供渲染层补充说明。
     """
     r = res.get('record') or {}
     labels = _MILESTONE_LABELS.get(lang) or _MILESTONE_LABELS[DEFAULT_LANG]
@@ -2483,12 +2552,16 @@ def build_milestones(res: dict, lang: str = DEFAULT_LANG) -> dict:
 
     nodes: list[dict] = []
 
-    def _add(key, dt, text=''):
+    def _add(key, dt, text='', state='', reason=''):
         nodes.append({
             'key': key,
             'label': labels.get(key, key),
             'time': dt.strftime('%Y-%m-%d %H:%M:%S') if dt else '',
             'text': _one_line(text) if text else '',
+            # 显式给出的 state 优先；否则按「有没有时间」给 done/pending 的初值，
+            # 排序后再按间隔与业务规则统一修订（见下方 _finalize_states）。
+            'state': state or ('done' if dt else 'pending'),
+            'reason': reason,
         })
 
     # 1. 告警发生
@@ -2501,20 +2574,29 @@ def build_milestones(res: dict, lang: str = DEFAULT_LANG) -> dict:
     alarm = res.get('alarm_row') or {}
     t_create = _parse_dt(r.get('created_time')) or _detail_first(r.get('create_detail'))[1]
     t_occur = _parse_ms(alarm.get('alarmraisedtime')) or _parse_dt(r.get('alarm_occur_time'))
-    _add('alarm_occur', t_occur, _assign_delay_note(alarm, t_create, lang))
+    # 派单超限 = 本单的核心问题信号，标红。判定与文案同源（_assign_is_over_limit），
+    # 避免「文字写超时限、状态却是绿的」这种自相矛盾。
+    # 注意：超时的责任点在「派单」而非「告警发生」，但只有这一行带着
+    # assign_delay/assigned_time 两个字段，挂在它上面才不会丢信息。
+    over = _assign_is_over_limit(alarm, t_create)
+    _add('alarm_occur', t_occur, _assign_delay_note(alarm, t_create, lang),
+         'fail' if over else '', 'assign_over_limit' if over else '')
 
     # 2. TT 建单（created_time 优先，流水时间兜底）
     _add('tt_create', t_create)
 
     # 3. 派单路由 —— 决策型节点，时间点即建单时刻，不重复显示时间
+    #    state 单独判：反推不成立 = 红叉（这单的派单没有依规则走，是问题信号）
     disp = (assign.get('dispatch') or {})
     if disp.get('rule'):
         brief = _rule_brief(disp['rule'], lang)
-        _add('dispatch_route', None,
-             L['route_auto'].format(rule=brief) if disp.get('ok')
-             else L['route_auto_uncertain'].format(rule=brief))
+        if disp.get('ok'):
+            _add('dispatch_route', None, L['route_auto'].format(rule=brief), 'decision')
+        else:
+            _add('dispatch_route', None,
+                 L['route_auto_uncertain'].format(rule=brief), 'fail', 'route_uncertain')
     else:
-        _add('dispatch_route', None, L['route_none'])
+        _add('dispatch_route', None, L['route_none'], 'decision')
 
     # 4. FO 接单（BO 流程的单回退 bo_accept_detail，信息不丢）
     op, t = _detail_first(r.get('fo_accept_detail'))
@@ -2531,7 +2613,8 @@ def build_milestones(res: dict, lang: str = DEFAULT_LANG) -> dict:
             else L['wo_human'].format(wo=wo['wo_no'], creator=wo_creator or '-')
         _add('wo_dispatch', t_wo, note)
     else:
-        _add('wo_dispatch', None, L['no_wo'])
+        # 有 WO 号却拿不到创建时间仍是 pending（不是不适用），交给下方统一判定
+        _add('wo_dispatch', None, L['no_wo'], 'skipped')
 
     # 6. 现场处置 —— 无出发/到场/离场明细时**必须报「未证实」**，
     #    不能拿「有 WO」当「有人到场」的证据（WO 多为 fe_robot 自动生成）。
@@ -2551,7 +2634,10 @@ def build_milestones(res: dict, lang: str = DEFAULT_LANG) -> dict:
         text = L['step_sep'].join(f'{lbl} {ts or "-"} {op or "-"}' for lbl, op, ts in wo_steps)
         _add('onsite_action', first_dt, text)
     else:
-        _add('onsite_action', None, L['onsite_unproven'])
+        # 没有 WO 时「未证实」已由 WO 那一跳表达；这里再标 unproven 会重复报警。
+        # 但有 WO 而无现场明细 = 真问题信号，保留 unproven。
+        _add('onsite_action', None, L['onsite_unproven'],
+             'unproven' if wo.get('wo_no') else 'skipped')
 
     # 7. 告警清除
     _add('alarm_clear', _parse_dt(r.get('alarm_clear_time')))
@@ -2595,7 +2681,69 @@ def build_milestones(res: dict, lang: str = DEFAULT_LANG) -> dict:
         else:
             n['gap'] = ''
 
+    # ── 状态最终修订（必须在排序与间隔重算之后）──
+    _finalize_states(nodes)
+
     return {'nodes': nodes, 'ts_count': ts_count, 'total': len(nodes)}
+
+
+def _finalize_states(nodes: list[dict]) -> None:
+    """排序后统一修订每跳的 `state`，就地写回 `nodes`。
+
+    只做两件 `_add` 阶段**做不到**的事（那时还没排序、文本也还没拼好）：
+
+    1. **时间倒挂兜底**：同一节点内部的多值时间先后错乱（典型是现场处置的
+       出发/到场/离场），文本是拼好后才可见的。参与倒挂的节点标红 ——
+       否则用户看到「离场早于到场」只会以为是显示 bug。
+    2. **兜底状态**：既无时间也无任何说明的节点降为 `empty`；
+       有说明但无时间的保持 `pending` / `unproven` / `skipped` 原判。
+
+    `skipped` / `unproven` / `decision` 是**明确的不适用 / 无法证实**结论，
+    兜底不应把它们改成别的状态。
+    """
+    for n in nodes:
+        if n.get('state') not in ('skipped', 'unproven', 'decision'):
+            if n.get('key') == 'onsite_action' and n.get('text'):
+                steps = _onsite_step_times(n['text'])
+                if any(b < a for a, b in zip(steps, steps[1:])):
+                    n['state'] = 'fail'
+                    n['reason'] = 'step_time_reversed'
+        if not n.get('time') and not n.get('text'):
+            n['state'] = 'empty'
+        elif not n.get('time') and n.get('state') == 'done':
+            # 初值给了 done 却没时间 —— 不可能，降级为 pending
+            n['state'] = 'pending'
+
+
+def _state_mark(node: dict, L: dict) -> str:
+    """里程碑节点的状态标记：`✅` / `❌ 异常` / `⏳ 未完成` ……
+
+    只有 `fail` 与 `pending` 带文字附注 —— 这两个是用户要**立刻看见**的信号
+    （这跳出了问题 / 这跳还没走到）。`done` 只给对号，不加字，避免九行全是注释
+    反而看不出哪行要紧。`decision` / `skipped` / `unproven` 也带附注，
+    因为它们的「没有时间」容易被误读成「没完成」。
+    """
+    state = node.get('state') or 'pending'
+    sym = L.get('st_' + state) or L['st_empty']
+    # done 不加注；empty 也不加（它就是"什么都没有"）
+    if state in ('done', 'empty'):
+        return sym
+    note = L.get('st_note_' + state) or ''
+    return f"{sym} {note}" if note else sym
+
+
+def _onsite_step_times(text: str) -> list:
+    """从现场处置文本里按出现顺序取出时间戳（检查出发→到场→离场是否倒挂）。
+
+    文本形如 `Start 2026-09-11 03:14:07 a / Arrive 2026-09-11 05:20:00 b`，
+    时间格式与语言无关（标签随语言变，时间串不变）。
+    """
+    out = []
+    for m in re.finditer(r'\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}', text or ''):
+        dt = _parse_dt(m.group(0))
+        if dt:
+            out.append(dt)
+    return out
 
 
 def _assign_lines(res: dict, lang: str = DEFAULT_LANG) -> list[str]:
@@ -2789,17 +2937,20 @@ def render_text(res: dict, lang: str = DEFAULT_LANG) -> str:
     ms = build_milestones(res, lang)
     out.append('')
     out.append(L['milestone'] + L['ts_count'].format(n=ms['ts_count'], total=ms['total']))
+    # 状态标记排在行首（紧跟序号）：一列竖着扫下来，哪跳红了/哪跳没走到一目了然，
+    # 不必读到行尾才发现问题。标记含义见 build_milestones 的 state 说明。
     for i, n in enumerate(ms['nodes'], 1):
+        mark = _state_mark(n, L)
         if n['time']:
-            line = f"{i}. {n['label']}  {n['time']}"
+            line = f"{i}. {mark} {n['label']}  {n['time']}"
             if n['gap']:
                 line += f"{L['lparen']}{n['gap']}{L['rparen']}"
             if n['text']:
                 line += f"  {n['text']}"
         elif n['text']:
-            line = f"{i}. {n['label']}  {L['lparen']}{n['text']}{L['rparen']}"
+            line = f"{i}. {mark} {n['label']}  {L['lparen']}{n['text']}{L['rparen']}"
         else:
-            line = f"{i}. {n['label']}"
+            line = f"{i}. {mark} {n['label']}"
         out.append(line)
 
     out.append(L['current'] + _one_line(r.get('operation_type') or r.get('status') or '-'))
@@ -2945,11 +3096,13 @@ def render_text_brief(res: dict, lang: str = DEFAULT_LANG) -> str:
         out.append(f"{L['level']}{sev}")
 
     # ── 里程碑：只列已有时间戳的节点 ──
+    # brief 模式面向分钟级值班告警，不列「未完成」的跳（那是完整版的事）——
+    # 但**红叉必须保留**：超时是值班员现在就要处理的信号，砍掉就失去精简的意义。
     ms = build_milestones(res, lang)
     timed = [n for n in ms['nodes'] if n['time']]
     if timed:
         for i, n in enumerate(timed, 1):
-            line = f"{i}. {n['label']}  {n['time']}"
+            line = f"{i}. {_state_mark(n, L)} {n['label']}  {n['time']}"
             if n['gap']:
                 line += f"{L['lparen']}{n['gap']}{L['rparen']}"
             out.append(line)
