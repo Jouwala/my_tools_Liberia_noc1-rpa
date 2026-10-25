@@ -455,6 +455,55 @@ for _k in ('done', 'fail', 'pending', 'unproven', 'skipped', 'decision', 'empty'
 
 
 # ------------------------------------------------------------------ #
+print('\n[4d] 第三方派单：WO 两跳标「不适用」并说明原因，不误报未证实')
+
+# 用户 2026-10-25 反馈（TT202610250010，推单规则 200 → 3RD_POWER）：
+# 第三方组不走 WO 流程，里程碑第 8/9 跳应显示「不适用 + 原因」，
+# 而不是笼统的「未产生 WO」/「未证实」——后者会被误读成数据缺失或漏采。
+_TP_PUSH = {'id': '200', 'name': 'RegularPowerToIPT', 'type': 'ttPushOrderRule',
+            'trigger': 'FOAccept', 'priority': 2, 'status': 'ACTIVE',
+            'target_raw': '3RD_POWER(group)', 'targets': ['3RD_POWER'],
+            'push_path': '', 'operation_result': '', 'conds': [], 'cond_count': 0}
+
+RES_TP = copy.deepcopy(RES)
+RES_TP['assign'] = {'dispatch': {'rule': _TP_PUSH, 'ok': True, 'reason_code': '', 'tier': 'active'},
+                    'push': {'rule': _TP_PUSH, 'ok': True, 'reason_code': '', 'tier': 'active'},
+                    'accepted': True}
+
+_tp_nodes = {n['key']: n for n in tt.build_milestones(RES_TP, 'zh')['nodes']}
+check(_tp_nodes['wo_dispatch']['state'] == 'skipped', '第三方派单 → WO 派单标 skipped')
+check(_tp_nodes['onsite_action']['state'] == 'skipped',
+      '第三方派单 → 现场处置标 skipped（不是 unproven）',
+      f"实得 {_tp_nodes['onsite_action']['state']}")
+check('3RD_POWER' in _tp_nodes['wo_dispatch']['text'],
+      'WO 跳写明派给了哪个第三方组', f"实得 {_tp_nodes['wo_dispatch']['text']!r}")
+
+_tp_zh = tt.render_text(RES_TP, 'zh')
+_tp_en = tt.render_text(RES_TP, 'en')
+check('第三方 3RD_POWER' in _tp_zh, 'zh 输出点明第三方组名')
+check('不走 WO 流程' in _tp_zh, 'zh 输出说明不走 WO 流程')
+check('未证实' not in _tp_zh.split('[Assignment basis]')[0].split('【派单依据】')[0],
+      'zh 第三方单不再出现「未证实」误报', _tp_zh)
+check(cjk_left(_tp_en) == '', '第三方单的英文输出无中文残留',
+      f"残留：{cjk_left(_tp_en)!r}")
+check('3RD_POWER' in _tp_en and 'no WO flow' in _tp_en, 'en 输出点明第三方与不走 WO')
+
+# 非第三方（ZTE_NOC_FO）不能命中这条分支 —— 否则 FO 单的「未产生 WO」会被改错
+_fo_push = dict(_TP_PUSH, target_raw='ZTE_NOC_FO(group)', targets=['ZTE_NOC_FO'])
+RES_FO = copy.deepcopy(RES)
+RES_FO['assign'] = {'dispatch': {'rule': _fo_push, 'ok': True, 'reason_code': '', 'tier': 'active'},
+                    'push': {'rule': _fo_push, 'ok': True, 'reason_code': '', 'tier': 'active'},
+                    'accepted': True}
+check(tt._third_party_target(RES_FO) == '', 'FO 派单不被误判为第三方')
+check(tt._third_party_target({'assign': {}}) == '', '无派单数据时返回空串（不误判）')
+
+# 三种第三方组名都要能认出来（知识库里 ThirdAccept 环节的默认组）
+for _name in ('3rd_Power', '3rd_Fiber_HW', '3rd_Fiber_NANOTECH', 'Orange', 'ORANGE_NOC'):
+    _r = {'assign': {'push': {'rule': dict(_TP_PUSH, target_raw=_name, targets=[_name])}}}
+    check(tt._third_party_target(_r) != '', f'识别第三方组 {_name}')
+
+
+# ------------------------------------------------------------------ #
 print('\n[4b] 抬头：站点类型 / 站点子类型（不再显示「站点等级 P2」）')
 
 # 需求：抬头去掉 `站点等级 P2`，改成 `站点类型` + `站点子类型`。

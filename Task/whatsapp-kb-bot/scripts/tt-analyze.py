@@ -527,6 +527,43 @@ def _parse_targets(raw) -> list[str]:
     return [t for t in (_norm_handler(x) for x in str(raw).split(';')) if t]
 
 
+# 第三方协作组的标识片段（小写比较）。命中即视为「本单派给了外部承包商」。
+#
+# 依据 `knowledge/01_告警到TT到指派_端到端链路总览.md` 与 `02_告警衍生规则.md`：
+# ThirdAccept / ThirdProcess 两个环节的默认组是
+#   3rd_Power、3rd_Fiber_HW、3rd_Fiber_NANOTECH、Orange、ORANGE_NOC。
+# 这些组**不走 WO（Work Order）流程**，也没有现场出发/到场/离场流水 ——
+# 所以里程碑里的「WO 派单」「现场处置」两跳对本单根本不适用，
+# 判成「未完成」或「未证实」都是误报（用户 2026-10-25 反馈 TT202610250010）。
+#
+# 只按**前缀/包含**匹配而不写死完整组名：组名以后可能新增后缀
+# （如 3rd_Power_North），写死会让新组静默退回成「未证实」。
+_THIRD_PARTY_TOKENS = ('3rd_', 'third_', 'orange')
+
+
+def _third_party_target(res: dict) -> str:
+    """本单的派单目标是否落在第三方组 → 返回组名；不是第三方返回 ''。
+
+    取数优先级与 `_assign_lines` 一致：派单阶段（push）优先，其次创建阶段
+    （dispatch）。两处都取不到目标时返回 ''，退化成原来的通用措辞 ——
+    宁可少一次「不适用」的提示，也不要把 FO/BO 的单子误判成第三方。
+    """
+    a = res.get('assign') or {}
+    for stage in ('push', 'dispatch'):
+        entry = a.get(stage) or {}
+        rule = entry.get('rule') or {}
+        # 目标可能挂在 targets 列表，也可能只有 target_raw 原文
+        names = list(rule.get('targets') or [])
+        raw = rule.get('target_raw') or ''
+        if raw:
+            names.append(raw)
+        for name in names:
+            low = str(name or '').lower()
+            if any(tok in low for tok in _THIRD_PARTY_TOKENS):
+                return str(name).split('(')[0].strip()
+    return ''
+
+
 def _push_path_results(path: str) -> set:
     """从 `推送路径` 里抽出各步的 Operation Result。
 
@@ -1725,6 +1762,10 @@ _LABELS: dict[str, dict[str, str]] = {
         'wo_auto': '{wo}，{creator} 自动创建',
         'wo_human': '{wo}，创建者 {creator}',
         'no_wo': '未产生 WO',
+        # 第三方派单：不走 WO 流程，两跳「不适用」而非「缺失」。
+        # 用户 2026-10-25 反馈 TT202610250010（200 → 3rd_Power）时要求明确提示。
+        'no_wo_third_party': '不适用：本单派给第三方 {target}，不走 WO 流程',
+        'onsite_third_party': '不适用：第三方 {target} 协作，无我方现场动作流水',
         'step_start': '出发', 'step_arrive': '到场', 'step_leave': '离场',
         'step_sep': '；',
         'onsite_unproven': '未证实：无现场动作明细（有 WO 不等于有人到场）',
@@ -1844,6 +1885,10 @@ _LABELS: dict[str, dict[str, str]] = {
         'wo_auto': '{wo}, auto-created by {creator}',
         'wo_human': '{wo}, created by {creator}',
         'no_wo': 'no WO created',
+        # Third-party dispatch skips the WO flow entirely -- "n/a with reason",
+        # not "missing". Plain ASCII (zero-CJK assertion on English output).
+        'no_wo_third_party': 'n/a: dispatched to third party {target}, no WO flow',
+        'onsite_third_party': 'n/a: handled by third party {target}, no onsite steps on our side',
         'step_start': 'Start', 'step_arrive': 'Arrive', 'step_leave': 'Leave',
         'step_sep': '; ',
         'onsite_unproven': 'unproven: no onsite step found (a WO alone does not prove anyone went onsite)',
@@ -2605,6 +2650,9 @@ def build_milestones(res: dict, lang: str = DEFAULT_LANG) -> dict:
     _add('fo_accept', t, op)
 
     # 5. WO 派单（条件动作：没有 WO 不算缺失）
+    # 第三方组不走 WO 流程 —— 这不是「缺失」，而是「本单根本不适用」，
+    # 措辞要说明原因，否则读者会以为是漏采数据。
+    third_party = _third_party_target(res)
     if wo.get('wo_no'):
         wo_creator = str(wo.get('creator') or '').strip()
         t_wo = _parse_dt(wo.get('created_time'))
@@ -2612,8 +2660,10 @@ def build_milestones(res: dict, lang: str = DEFAULT_LANG) -> dict:
             if _is_robot_operator(wo_creator) \
             else L['wo_human'].format(wo=wo['wo_no'], creator=wo_creator or '-')
         _add('wo_dispatch', t_wo, note)
-    else:
+    elif third_party:
         # 有 WO 号却拿不到创建时间仍是 pending（不是不适用），交给下方统一判定
+        _add('wo_dispatch', None, L['no_wo_third_party'].format(target=third_party), 'skipped')
+    else:
         _add('wo_dispatch', None, L['no_wo'], 'skipped')
 
     # 6. 现场处置 —— 无出发/到场/离场明细时**必须报「未证实」**，
@@ -2633,6 +2683,11 @@ def build_milestones(res: dict, lang: str = DEFAULT_LANG) -> dict:
         # 分隔符必须按语言取：en 输出里残留全角「；」会被零中文断言抓出来
         text = L['step_sep'].join(f'{lbl} {ts or "-"} {op or "-"}' for lbl, op, ts in wo_steps)
         _add('onsite_action', first_dt, text)
+    elif third_party:
+        # 第三方组不派 WO、也没有我方现场流水 —— 说明「不适用」而不是「未证实」，
+        # 否则每张电源单都会挂着一条假的「未证实」告警。
+        _add('onsite_action', None,
+             L['onsite_third_party'].format(target=third_party), 'skipped')
     else:
         # 没有 WO 时「未证实」已由 WO 那一跳表达；这里再标 unproven 会重复报警。
         # 但有 WO 而无现场明细 = 真问题信号，保留 unproven。
