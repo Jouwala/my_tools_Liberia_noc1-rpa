@@ -97,13 +97,15 @@ def test_service_whitelist():
     check("1100 在册", "1100" in vxc._VALID_SERVICE_IDS)
     check("1300 在册", "1300" in vxc._VALID_SERVICE_IDS)
     check("1301 在册", "1301" in vxc._VALID_SERVICE_IDS)
-    check("32 未接（数据面另一套参数）", "32" not in vxc._VALID_SERVICE_IDS)
+    check("32 在册（RAN 无线侧，2026-10-26 接入）", "32" in vxc._VALID_SERVICE_IDS)
+    check("33 未接（上游 3100100319，参数待补）", "33" not in vxc._VALID_SERVICE_IDS)
+    check("34 未接（同上）", "34" not in vxc._VALID_SERVICE_IDS)
     check("XDR_SERVICES 与白名单一致",
           {s["id"] for s in vxc.XDR_SERVICES} == vxc._VALID_SERVICE_IDS)
 
     c = vxc.VmaxXdrClient(cca=FakeCca([]))
     try:
-        c.query("231773777115", "32", *WINDOW)
+        c.query("231773777115", "33", *WINDOW)
         check("未接入类型应抛 VmaxXdrUnsupported", False)
     except vxc.VmaxXdrUnsupported as exc:
         check("未接入类型抛 VmaxXdrUnsupported", True)
@@ -136,6 +138,32 @@ def test_param_structure():
     check("列头走 get_xdrheader_info", second["url"].endswith("/get_xdrheader_info"))
     check("列头带 RSA 头",
           second["headers"].get("X-Content-Type") == "application/x-vmax-s-rsa-encrypted")
+    check("5gsa 域 Referer", "domain=5gsa" in first["headers"].get("Referer", ""),
+          first["headers"].get("Referer", ""))
+
+
+# --------------------------------------------------------- 2b. RAN 域（32）
+def test_ran_domain():
+    section("2b. RAN 域（serviceType 32）")
+    cca = FakeCca([_merge_ok([]), _header_ok(["btime"], ["Time"])])
+    c = vxc.VmaxXdrClient(cca=cca)
+    r = c.query("231773777115", "32", *WINDOW)
+
+    check("32 可查询（不再抛 Unsupported）", r["service_type"] == "32")
+    first = cca.session.calls[0]
+    check("走 ran_service 域",
+          "domain=ran_service" in first["headers"].get("Referer", ""),
+          first["headers"].get("Referer", ""))
+    check("列头也用 ran_service 域",
+          "domain=ran_service" in cca.session.calls[1]["headers"].get("Referer", ""))
+
+    # 配置层断言：时间字段名随域切换（RAN=btime，5G=start_time）
+    spec32 = vxc._SERVICE_BY_ID["32"]
+    spec1100 = vxc._SERVICE_BY_ID["1100"]
+    check("32 时间字段 = btime", spec32["time_field"] == "btime")
+    check("1100 时间字段 = start_time", spec1100["time_field"] == "start_time")
+    check("32 域 = ran_service", spec32["domain"] == vxc.DOMAIN_RAN)
+    check("1100 域 = 5gsa", spec1100["domain"] == vxc.DOMAIN_5GSA)
 
 
 # ---------------------------------------------------------------- 3. 行绑定
@@ -210,6 +238,7 @@ def test_paging_bounds():
 if __name__ == "__main__":
     test_service_whitelist()
     test_param_structure()
+    test_ran_domain()
     test_row_binding()
     test_business_error()
     test_header_envelope()

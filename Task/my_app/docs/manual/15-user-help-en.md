@@ -2115,7 +2115,7 @@ VMAX user info query: enter a subscriber number and time window to look up subsc
 - Results are read-only passthrough, nothing is persisted; refreshing the page clears them
 - The "XDR Records" tab (merged in on 2026-10-26) reuses the number above to query per-record signaling detail from the Talon XDR platform, drillable down to a single session/procedure
 - XDR query types: 5G Session (1100), Signaling Plane (1300), User Plane Services (1301); window defaults to the last 24 hours (max 72); columns come from the upstream header (59~88, scrollable)
-- The data-plane types (32/33/34) use a different upstream parameter set and are not wired yet
+- RAN radio side (32) is now supported and includes over-the-air measurements such as RSRP/SINR — use it to inspect radio quality; 33/34 are not wired yet
 - "Export Excel" exports the entire query result, not just the current page (fetched in batches, capped at 5,000 records); when the cap is hit the subtitle states it was truncated — narrow the window and export in batches
 
 ### 4.4 System

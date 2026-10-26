@@ -33,14 +33,27 @@ vmax_xdr_client.py —— Talon XDR 信令详单查询客户端
 
 2026-10-26 真号（231773777115，窗口 24h）实测：
 
-| serviceType | 业务名 | 合并查询 | 列头字段数 |
-| --- | --- | --- | --- |
-| 1100 | 5G Session | OK（12530 条） | 59 |
-| 1300 | 信令面 | OK（40 条） | 88 |
-| 1301 | User Plane Services | OK（6 条） | 88 |
+| serviceType | 业务名 | 域 | 时间字段 | 合并查询 | 列头字段数 |
+| --- | --- | --- | --- | --- | --- |
+| 1100 | 5G Session | 5gsa | start_time | OK（12530 条） | 59 |
+| 1300 | 信令面 | 5gsa | start_time | OK（40 条） | 88 |
+| 1301 | User Plane Services | 5gsa | start_time | OK（6 条） | 88 |
+| 32 | RAN 无线侧 | ran_service | btime | OK（2651 条，2026-10-26） | 46 |
 
-`32/33/34`（数据面）走另一套参数（`btime` + `User Number` 字段名），
-实测返回 `3100100314`，**尚未接**——需要一份这三个 serviceType 成功查询的抓包。
+### RAN 域（32）的坑
+
+`url3.txt` 抓包证实：RAN 类服务走 **`domain=ran_service`** 且时间字段是
+**`btime`**、号码字段名是 **`"User Number"`**。三处任一用错都会被拒：
+
+- 用 `5gsa` 域 → `3100100314 Query no data`
+- 用 `start_time` 字段 → `3100100202`
+- 这两条错误码**不是**「数据为空」，是域/字段不匹配，别当成没数据。
+
+32 的数据含 RSRP/SINR 等无线测量列（如 `-92` / `-9.5`），是排障时看空口质量的关键。
+
+`33/34` 列头能取到（ran_service 域，49/64 列），但查询返回 `3100100319`，
+**尚未接**：`url3.txt` 只覆盖了 32。补一份 33/34 成功查询的抓包即可按同一模式接入
+（大概率只差 `XDRTable` 或 `serviceName` 的取值）。
 """
 from __future__ import annotations
 
@@ -56,16 +69,31 @@ from backend.services.vmax_multi_data.vmax_report_client import encrypt_long
 logger = logging.getLogger("vmax_cca.xdr")
 
 SERVICE_PATH = "/rdk/service/app/talon/xdr/server/scripts/service/"
-APP_REFERER = "/rdk/app/talon/xdr/web/index.html?domain=5gsa"
 AUTH_HEADER = {"X-Content-Type": "application/x-vmax-s-rsa-encrypted"}
 
+# 业务域：不同 serviceType 归属不同的 Talon 域，Referer 与时间字段名都跟着变。
+# 2026-10-26 从 url3.txt 抓包确认：RAN 类（32）走 domain=ran_service 且时间字段是
+# `btime`；5G 会话/信令面（1100/1300/1301）走 domain=5gsa 且时间字段是 `start_time`。
+# 用错会返回 `3100100314 Query no data`（不是参数格式错，是域不匹配）。
+DOMAIN_5GSA = "5gsa"
+DOMAIN_RAN = "ran_service"
+
 # 已验证可用的 serviceType 与业务名（前端下拉与文档共用这一份真值）
+# 每项配置该类型所属的域与时间字段名，query() 据此拼请求。
 XDR_SERVICES: List[Dict[str, str]] = [
-    {"id": "1100", "name": "5G Session", "name_zh": "5G 会话"},
-    {"id": "1300", "name": "Signaling Plane", "name_zh": "信令面"},
-    {"id": "1301", "name": "User Plane Services", "name_zh": "用户面业务"},
+    {"id": "1100", "name": "5G Session", "name_zh": "5G 会话",
+     "domain": DOMAIN_5GSA, "time_field": "start_time"},
+    {"id": "1300", "name": "Signaling Plane", "name_zh": "信令面",
+     "domain": DOMAIN_5GSA, "time_field": "start_time"},
+    {"id": "1301", "name": "User Plane Services", "name_zh": "用户面业务",
+     "domain": DOMAIN_5GSA, "time_field": "start_time"},
+    # RAN 侧（2026-10-26 接入）：时间字段是 btime，号码字段名是 "User Number"。
+    # 实测 2651 条，含 RSRP/SINR 等无线测量列，是排障时看空口质量的关键数据。
+    {"id": "32", "name": "RAN XDR", "name_zh": "RAN 无线侧",
+     "domain": DOMAIN_RAN, "time_field": "btime"},
 ]
-_VALID_SERVICE_IDS = {s["id"] for s in XDR_SERVICES}
+_SERVICE_BY_ID = {s["id"]: s for s in XDR_SERVICES}
+_VALID_SERVICE_IDS = set(_SERVICE_BY_ID)
 
 # 单页上限：上游分页参数，前端也会二次限制
 MAX_PAGE_SIZE = 200
@@ -80,10 +108,12 @@ class VmaxXdrUnsupported(VmaxXdrError):
     """请求了尚未接入的 serviceType。"""
 
 
-def _headers(c: VmaxCcaClient, json_body: bool) -> Dict[str, str]:
+def _headers(c: VmaxCcaClient, json_body: bool,
+             domain: str = DOMAIN_5GSA) -> Dict[str, str]:
+    """Referer 必须带正确的 domain：拿 5gsa 去查 RAN 类会被拒（3100100314）。"""
     h = {
         "User-Agent": "Mozilla/5.0",
-        "Referer": c.host + APP_REFERER,
+        "Referer": "%s/rdk/app/talon/xdr/web/index.html?domain=%s" % (c.host, domain),
         "X-Requested-With": "XMLHttpRequest",
     }
     if json_body:
@@ -106,18 +136,19 @@ class VmaxXdrClient:
 
     # ---------- 内部 ----------
     def _post(self, path: str, data: Dict[str, str],
+              domain: str = DOMAIN_5GSA,
               retry_on_session: bool = True) -> Dict[str, Any]:
         c = self.cca
         with c._lock:                                   # noqa: SLF001 复用既有串行锁
             if not c._logged_in:
                 c._login()
             resp = c.session.post(c.host + SERVICE_PATH + path, data=data,
-                                  headers=_headers(c, json_body=False),
+                                  headers=_headers(c, json_body=False, domain=domain),
                                   timeout=DEFAULT_TIMEOUT, verify=False)
             if resp.status_code in (401, 403, 404, 407) and retry_on_session:
                 logger.info("[vmax_xdr] 会话失效(HTTP %s)，重登后重试", resp.status_code)
                 c._logged_in = False
-                return self._post(path, data, retry_on_session=False)
+                return self._post(path, data, domain, retry_on_session=False)
         if resp.status_code != 200:
             raise VmaxCcaUnavailable("%s -> HTTP %s: %s"
                                      % (path, resp.status_code, resp.text[:200]))
@@ -129,7 +160,8 @@ class VmaxXdrClient:
 
     # ---------- 列头 ----------
     def fetch_headers(self, service_type: str,
-                      condition: List[Dict[str, str]]) -> Dict[str, Any]:
+                      condition: List[Dict[str, str]],
+                      domain: str = DOMAIN_5GSA) -> Dict[str, Any]:
         """取列定义 -> {"field": [...原始字段名], "header": [...显示名]}。
 
         响应被包在 `{"result": "<JSON 字符串>"}` 里，需要二次解析
@@ -142,7 +174,8 @@ class VmaxXdrClient:
             if not c._logged_in:
                 c._login()
             resp = c.session.post(c.host + SERVICE_PATH + "get_xdrheader_info",
-                                  data=body, headers=_headers(c, json_body=True),
+                                  data=body,
+                                  headers=_headers(c, json_body=True, domain=domain),
                                   timeout=DEFAULT_TIMEOUT, verify=False)
         if resp.status_code != 200:
             raise VmaxCcaUnavailable("get_xdrheader_info -> HTTP %s" % resp.status_code)
@@ -177,14 +210,19 @@ class VmaxXdrClient:
             raise VmaxXdrUnsupported(
                 "serviceType %s 暂未接入；当前支持 %s"
                 % (service_type, ", ".join(sorted(_VALID_SERVICE_IDS))))
+        spec = _SERVICE_BY_ID[service_type]
+        domain = spec["domain"]
         page = max(1, int(page or 1))
         page_size = min(max(1, int(page_size or 20)), MAX_PAGE_SIZE)
 
+        # 时间字段名与号码字段名随域变化（RAN 侧是 btime + "User Number"），
+        # 用错会返回 3100100314 —— 那是域/字段不匹配，不是数据为空。
         condition = [
-            {"field": "start_time", "value": "%s,%s" % (starttime, endtime), "type": "4"},
+            {"field": spec["time_field"], "value": "%s,%s" % (starttime, endtime), "type": "4"},
             {"field": "serviceType", "value": service_type, "type": "-1"},
             {"field": "dbType", "value": "", "type": ""},
-            {"field": "msisdn", "value": msisdn, "type": "6", "name": "MSISDN"},
+            {"field": "msisdn", "value": msisdn, "type": "6",
+             "name": "User Number" if domain == DOMAIN_RAN else "MSISDN"},
         ]
         # 参数结构照抄 _xdr_merge.js::initCommonConditionProcessor
         # （XDRTable 必为空串、serviceName 固定 xdr_query，见模块头注释）
@@ -211,7 +249,8 @@ class VmaxXdrClient:
         }
         payload = self._post("exec_merge_query", {
             "_search": "false", "nd": "1", "rows": str(page_size),
-            "page": str(page), "sidx": "", "sord": "", "params": _encrypt(param)})
+            "page": str(page), "sidx": "", "sord": "", "params": _encrypt(param)},
+            domain=domain)
 
         # status: 0=成功, 1=业务失败（errMsg 带上游说明）
         status = payload.get("status")
@@ -220,7 +259,7 @@ class VmaxXdrClient:
             raise VmaxXdrError("XDR 查询失败: %s" % (msg or "上游返回 status=%s" % status))
 
         rows = payload.get("rows")
-        cols = self.fetch_headers(service_type, condition)
+        cols = self.fetch_headers(service_type, condition, domain=domain)
         return {
             "msisdn": msisdn,
             "service_type": service_type,
