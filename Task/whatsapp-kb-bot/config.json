@@ -93,6 +93,11 @@
   "$ttSiteAlarmTimeoutMs": "按站点拉活动告警的超时（毫秒）。比单票查询宽：要探测解释器 + 登录 eFlow + 拉全量活动告警。可用环境变量 TT_SITE_ALARM_TIMEOUT_MS 覆盖。",
   "ttSiteAlarmTimeoutMs": 180000,
 
+  "$vmaxCca": "VMAX CCA 用户查询（query_vmax_cca，src/vmaxcca.js）：群里发「TEL 231773777115，2026-10-25 10:07」即查 XDR CCA 投诉信息（MSISDN/IMSI/IMEI/机型/流量/驻留小区/根因分析），窗口=截止时间往前 60 分钟，未给时间按当前时刻；本地 9 位号码（77 377 7115 这类写法）自动补 231。数据经 my_app /api/vmax-cca-query 实时透传（同机回环免登录，凭据只在 my_app 侧），无本地降级 —— my_app 或 VMAX 挂了就如实说查不了，不编。置 false 关闭该工具（提问退回模型路由/知识库通道）。",
+  "vmaxCcaEnabled": true,
+  "$vmaxCcaTimeoutMs": "CCA 查询超时（毫秒）。上游要做门户登录 + 号码/终端/流量/小区/根因共 5 个子查询，根因最慢（上游读超时 60s），故比统计通道（15s）宽得多。可用环境变量 VMAX_CCA_TIMEOUT_MS 覆盖。",
+  "vmaxCcaTimeoutMs": 240000,
+
   "$rewriteRetry": "二跳检索：第一跳未命中时，让对话模型把用户的口语提问改写成「知识库文档里可能会出现的表述」（中英各一条）再检索一次，任一跳命中就用它回答。治两类病：① 用户问法与文档标题差异大（如「端到端链路」vs 文档用词）；② 英文问法召回偏到无关块。只重试一次；改写失败或仍不命中 → 维持 notFoundText 兜底。置 false 关闭。",
   "rewriteRetry": true,
 

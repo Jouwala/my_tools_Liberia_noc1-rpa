@@ -74,6 +74,7 @@ Baileys 客户端（Node.js，扫码登录，作为「已关联的设备」）
 | ② 区间统计 | 「今天有几个 P1」「昨天多少单」 | 聚合查询脚本渲染，模型不参与 |
 | ③ **告警码/压缩/级别查表** | 「99933 是什么意思」「198094422 会被压缩成什么」「告警码 9990 是几级」「P1 规则」 | `data/lookups.json` 查表 + 模板渲染，**不经 LLM**；答案带出处文件名 |
 | ③b **站点实时告警** | 「Palm Bay 有没有告警」「site name :Grand Cess(3629)，Alarm: 9920…」 | 直接查 eFlow **活动告警**接口，脚本渲染；含发生时间/告警码/站号/派单字段 |
+| ③c **VMAX CCA 用户查询** | 「TEL 231773777115，2026-10-25 10:07」 | my_app `/api/vmax-cca-query`（VMAX 实时），脚本渲染；号码归一 + 60 分钟窗口 |
 | ④ 知识库 | 其余（流程 / 为什么 / SOP） | 向量检索 + LLM 生成；每个候选块带文件名，回答末给出「来源：」 |
 
 > ③b 是站点告警通道（工具 `query_site_alarms`），回答的是**告警事实**，
@@ -357,6 +358,8 @@ echo 'AGNES_API_KEY=你的key' > .env
 | `ttLiveTimeoutMs` | 240000 | 实时查询超时（比本地宽松得多，见该节） |
 | `ttSiteAlarmFallback` | `true` | 「某站有没有告警 / up 没 up」这类**事实查询**是否走 eFlow 实时活动告警（工具 `query_site_alarms`）。置 `false` 则提问退回知识库通道。实现见 `scripts/eflow-live-alarms.py`：复用 my_app 的告警 pipeline，凭据只读 my_app 那一份；探测不到解释器/依赖时优雅降级为「查不了」，**绝不**误报成「没告警」。踩坑口径见 `docs/排障复盘-站点告警与answered0-degraded1-20261008.md`。环境变量 `TT_SITE_ALARM_FALLBACK=0` 可临时关 |
 | `ttSiteAlarmTimeoutMs` | 180000 | 按站点拉活动告警的超时（要探测解释器 + 登录 eFlow + 拉全量，比单票查询宽）。环境变量 `TT_SITE_ALARM_TIMEOUT_MS` |
+| `vmaxCcaEnabled` | `true` | 是否启用 VMAX CCA 用户查询工具（`TEL 号码` 问法，`src/vmaxcca.js`）。置 `false` 后这类提问退回模型路由/知识库通道。环境变量 `VMAX_CCA_ENABLED=0` 可临时关 |
+| `vmaxCcaTimeoutMs` | 240000 | CCA 查询超时。上游要做门户登录 + 号码/终端/流量/小区/根因 5 个子查询，根因最慢（上游读超时 60s），故比统计通道（15s）宽。环境变量 `VMAX_CCA_TIMEOUT_MS` |
 | `toolsEnabled` | `true` | 工具路由总开关。置 `false` 回到改造前的纯知识库行为（所有问题都走向量检索），排查「是不是路由把问题带偏了」时很有用。环境变量 `TOOLS_ENABLED=0` 可临时关 |
 | `myAppApiBase` | `http://127.0.0.1:7038` | my_app 后端地址。工单**聚合统计**与**单号分析**都优先走它的 HTTP 接口（PG 实时）；留空或连不上则降级到本地 SQLite 副本。环境变量 `MY_APP_API_BASE` 可覆盖 |
 | `ttStatsTimeoutMs` | 15000 | 聚合查询的 HTTP 超时。`overview` 要出全量统计，比单票查询慢；超时即降级，不重试（用户在群里等着，重试等于双倍等待） |
@@ -570,6 +573,52 @@ TT202609150073 · Gee City
 > 对"群里随口说个站名"这种用法太重。所以带站名的提问直接走本地库
 > （那里 `site_name` / `site_id` 能做模糊匹配）。
 
+### 领域关键字过滤（「Fiber 相关的单」）
+
+2026-10-26 群里实测，同一分钟连问两句，机器人回了**同一个数**：
+
+```
+[14:49] How many Fiber issues related TTs for last 7 days?  → 753 ticket(s)
+[14:50] How many  TTs in last 7 days?                       → 753 ticket(s)
+```
+
+**「Fiber」这个条件被整个丢掉了**，而回复里没有任何提示。两处叠加造成：
+
+| 环节 | 问题 |
+| --- | --- |
+| 路由 | `leftoverTerms` 剥完日期/级别后剩下 `["Fiber","related","TTs"]`，判成「有额外条件」→ 规则层弃权 |
+| 参数 | `query_tickets` **压根没有关键字这一项**，模型层看懂了也无处可填，只能回全网总数 |
+
+现在补上 `keyword` 参数，**只认已知词表**（`ttquery.js` 的 `KEYWORD_TERMS`）：
+
+| 提问里的写法 | keyword |
+| --- | --- |
+| `Fiber` / `光纤` / `光缆` | `Fiber`（`Fiber Break` / 光纤断 优先匹配成 `Fiber Break`） |
+| `Microwave` / `MW link` / `微波` | `Microwave` |
+| `Power` / `电源` | `Power` |
+| `Transmission` / `传输` | `Transmission` |
+| `Congestion` / `拥塞` | `Congestion` |
+
+**为什么是封闭词表而不是「任意陌生英文词」**：站名（`Wood camp`）也是陌生词，
+若一律当关键字去 LIKE，结果是 0 单 —— 比现在答错得更干脆也没用。
+站名继续走 `site` 参数。
+
+匹配列只有 4 个告警语义文本列：`title` / `description` / `alarm_description` /
+`specific_problem`（实测 DB 里含 `fiber` 的行数分别为 277 / 413 / 249 / 37）。
+**不匹配 `site_name`** —— 站名里带 "Fiber" 不代表这一单是光纤故障。
+
+三条纪律：
+
+1. **标题必须写出条件。** 回复是「Fiber 相关工单 12 个」而不是「工单 12 个」；
+   0 单时也说「tickets matching "Fiber": 0」—— 否则读起来就是全网总数。
+2. **关键字过滤只走本地库。** `overview` 不支持关键字，走它会返回**不带过滤**的
+   全网总数（正是本次故障）。宁可慢一点读 SQLite 副本，也不答一个假数。
+3. **关键字不算「解释不了的专名」。** 抹掉词表里的写法后再判 `leftoverTerms`；
+   但**站名等残余仍按原纪律弃权**（「fiber tickets at Wood camp」仍交模型层）。
+
+回归测试见 `scripts/test-tools.mjs` 的 `[3i]`，其中一条专门断言
+**两个问句的查询参数必须不同** —— 相同就是本次故障的指纹。
+
 ### 单号分析的数据源：HTTP 优先，SQLite 降级（2026-10-15 起）
 
 **上面那条「HTTP 优先」原先只覆盖聚合统计**；单号分析（`tt.js` → `scripts/tt-analyze.py`）
@@ -733,6 +782,95 @@ P1：0 个
 且**只在真的要显示单号时才付**——`overview` 那条路径仍是 ~70ms。
 
 补不到就退回站号：站名只是展示字段，不能因为它让整个查询失败。
+
+## VMAX CCA 用户查询（TEL 手机号码）
+
+2026-10-25 新增的数据通道。群里发 `TEL <号码>[，<截止时间>]`，机器人按
+「截止时间往前 60 分钟」的窗口实时查 VMAX CCA 投诉信息：
+
+```
+@机器人 TEL 231773777115，2026-10-25 10:07
+@机器人 TEL 77 377 7115                ← 时间可不填：按当前时刻往前 60 分钟
+```
+
+回复字段按与现场约定的模板输出（字段名是 CCA 页面上的领域标识符，
+与「规则名不翻译」同一口径，两种提问语言下一致；界面说明句按提问语言走）：
+
+```
+XDR CCA：231773777115 ｜ 窗口 2026-10-24 09:07 ~ 10:07
+MSISDN: 231773777115
+IMSI: 618070113596304
+IMEI: 3505054006161501
+Model: —                              ← 上游查不到机型时填 '--'，这里显示 —
+Total traffic: 2.38MB
+Track Cells: 3
+Cell Name: Methodist Compound-X1; Methodist Compound-F1; Methodist Compound-S8
+Lat, Lon: (6.29356, -10.78105); …
+Root Cause Analysis:
+1. [100%] Web Access Response code 4XX — PALMPLAYSTORE
+2. [95%] Average Delay of The Maximum Uplink UDP Packet Interval(OTT Voice Call) — Methodist Compound-X1
+   建议：Based on the probability of occurrence, …（仅置信度最高的一条带处理建议，超长截断）
+来源：VMAX CCA（经 my_app 实时查询）
+```
+
+### 号码归一
+
+现场写法五花八门，而 VMAX 服务端只认 **231 开头的 12 位完整号码**
+（真号实测：剥成 9 位返回 `IMSI is not found`，见 my_app
+`backend/services/vmax_cca/README.md`）。所以统一在 `src/vmaxcca.js` 归一：
+
+| 输入 | 归一成 |
+| --- | --- |
+| `231 77 377 7115` / `+231773777115` / `(231) 773-777-115` | `231773777115` |
+| `77 377 7115`（本地 9 位） | `231773777115`（自动补 231） |
+| `0773777115`（0 + 本地号） | `231773777115`（剥 0 补 231） |
+
+形状对不上（位数不对）的**原样透传**，让上游如实回「查无此号」——
+比这边悄悄改号去查一个错号码强。
+
+### 时间窗
+
+- 给了时间 → 窗口 = `[截止时间 − 60 分钟, 截止时间]`。支持的写法：
+  `2026-10-25 10:07`、`10:07:30`、`2026/10/25 10:07`、`2026年10月25日 10:07`、
+  仅时刻 `10:07`（按当天）、仅日期 `2026-10-25`（按当天 23:59，CCA 日界惯例）、
+  全角冒号 `10：07`。
+- 没给时间 → 窗口 = `[当前时刻 − 60 分钟, 当前时刻]`，且回复**必须声明**
+  （「（未给截止时间，按 … 往前 60 分钟查询）」）—— 猜的时间不能装成用户给的，
+  与统计通道的 dateGuessed 同一纪律。
+
+### 数据来源与如实降级
+
+数据走 my_app 的只读透传接口 `GET /api/vmax-cca-query`（my_app 的
+`backend/routers/vmax_cca_query.py` → `backend/services/vmax_cca/`，含号码→IMSI、
+终端、流量、驻留小区、根因共 5 个上游子查询）。机器人与 my_app 同机，
+走 127.0.0.1 回环，my_app 的会话中间件对真实本机回环放行
+（`backend/security.py` 的 `client_is_local`）—— 与工单统计通道同一条路，
+不另配凭据，VMAX 密码只在 my_app 侧。
+
+**没有本地降级**（XDR 数据没有本地副本）：my_app / VMAX 不可用时如实回
+「暂时查不了，请到 my_app 的 VMAX 用户查询页」，绝不把「查不了」伪装成
+「查无此号」。**部分子查询失败**（如根因上游超时）不阻断已到手的用户/终端
+信息，字段后面附一行 `⚠ 部分子查询失败` 说明。
+
+### 路由
+
+- **规则层**：`TEL`/`MSISDN` 关键字 + ≥7 位数字 → `query_vmax_cca`
+  （「看到 TEL 就是查 CCA」是与群的约定信号）。必须排在查表意图**之前** ——
+  `TEL 231773777115` 里的 12 位长数字会被 `extractAlarmCode` 当成告警码拐去
+  `lookup_alarm_code`，只回一句「码表里没有」，号码与时间全丢
+  （与 2026-10-24 站点名+告警码被查表吞掉是同一类故障）。
+- **模型层**：其他问法（如「check user 773777115」）由路由模型选
+  `query_vmax_cca` 并填 `msisdn`；号码归一与时间解析仍在执行层做
+  （模型不知道现在几点，规则层有本机时钟）。
+
+实测（2026-10-25，规则层路由，端到端约 4~5 秒）：
+
+```
+问：TEL 231773777115，2026-10-24 10:07
+通道=VMAX CCA（my_app HTTP 实时，4771ms）｜路由=规则｜工具=query_vmax_cca
+```
+
+---
 
 ## 问答记录（`data/qa.sqlite`）
 
@@ -1834,6 +1972,7 @@ npm run notify              # 前台启动 P1 告警推送（首次登录用它�
 npm run notify:check        # 告警通道自检：连一次、确认发送能力后退出
 npm run notify:groups       # 列出该通道可见的群名 → JID
 npm run ask -- "分析TT单TT202609150073"  # 离线测一条，不连 WhatsApp
+npm run ask -- "TEL 231773777115，2026-10-25 10:07"   # 离线测一条 VMAX CCA 查询
 npm run ask -- --debug "年假有几天"       # 离线测一条 + 检索诊断
 ```
 
@@ -1851,6 +1990,7 @@ npm run ask -- --debug "年假有几天"       # 离线测一条 + 检索诊断
 | `test-llm.mjs` | 47 | provider 分发、请求构造、密钥优先级、thinking 三态、空内容处理、启动自检不阻断、错误翻译（用 mock fetch，无需真实密钥） |
 | `test-lang.mjs` | 74 | 提问语言判定（含「英文句子 + 全角问号」边界）、`pickText` 回退、三组固定文案的中英配对、`buildMessages` 语言提示落点、各调用点是否真的按语言取、实时垫话的中英配对 |
 | `test-tt-extract.mjs` | 32 | 单号抽取：**WO 前缀**、词边界（`ATT202609...` 不误判）、非单号文本不入工单通道、多单去重保序、路由分流、上限常量 |
+| `test-vmaxcca.mjs` | 68 | CCA 通道：号码归一（空格/本地 9 位/0 前缀/00/+/括号）、截止时间解析（全角冒号/仅日期/仅时刻）、意图识别与**路由次序**（12 位号码不得被当告警码拐进查表）、渲染模板顺序、`--` 占位过滤、查无此号/部分失败空态、小区截断计数、zh/en 成对 |
 | `test-tt-rules.py` | 31 | TT 规则匹配：条件解析（`>=` 不被误吞为 `=`）、运算符边界、AND/OR 左折叠、字段归一化、真实规则表排序不变式 |
 | `test-tt-lang.py` | 165 | 中英文案表键集一致、**英文输出零中文残留**（含 167 种「缺字段」组合的矩阵扫描）、链路顺序、超期双信号、查无此单、失败文案前缀、实时来源标记 |
 | `test-tt-live.py` | 42 | 实时行（`--live-row`）渲染：完整报告 + `⚡ 已实时查 eFlow` 标记、缺字段不崩、`tt_no` 缺失用入参兜底、**非法 JSON 报错退出而非静默退回本地库**、**真实 eFlow 字段集下级别判定如实说「未能核对规则」而非「未命中」** |
@@ -2044,6 +2184,7 @@ whatsapp-kb-bot/
 │   ├── lang.js              提问语言判定 + 固定文案按语言取（纯函数，可单测）
 │   ├── buildinfo.js         代码指纹 / 进程启动时间 —— 判断「跑的是不是旧代码」
 │   ├── tt.js                TT 单分析（调 Python 子进程查工单库）
+│   ├── vmaxcca.js           VMAX CCA 用户查询（TEL 号码 → my_app HTTP 实时，60 分钟窗口）
 │   ├── mentions.js          @提及识别与消息解析（纯函数，可单测）
 │   ├── ingest.js            索引构建 CLI
 │   └── whatsapp.js          Baileys 接入、限流、队列、重连、优雅关闭
@@ -2065,6 +2206,7 @@ whatsapp-kb-bot/
     ├── test-llm.mjs         provider 层单测（47 项）
     ├── test-lang.mjs        语言判定与固定文案单测（74 项）
     ├── test-tt-extract.mjs  工单号抽取与多单路由单测（32 项）
+    ├── test-vmaxcca.mjs     VMAX CCA 通道单测（68 项）
     ├── test-tt-live-route.mjs 实时兜底编排单测（33 项）
     ├── test-tt-rules.py     TT 规则匹配单测（65 项）
     ├── test-tt-live.py      实时行渲染单测（42 项）

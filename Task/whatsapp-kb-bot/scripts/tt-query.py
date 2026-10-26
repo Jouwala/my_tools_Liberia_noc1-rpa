@@ -82,11 +82,15 @@ def _connect():
 
 
 def build_where(start: str | None, end: str | None, severity: str | None,
-                status: str, site: str | None):
+                status: str, site: str | None, keyword: str | None = None):
     """构建 WHERE 片段与参数。
 
     end 为**闭区间**（与 my_app 的 `_time_filter` 一致）：内部 +1 天后取 `<`，
     即包含 end 当天全天。
+
+    keyword 是**领域关键字**（如 `Fiber`），在各文本列上做不区分大小写的模糊匹配。
+    2026-10-26 起因：群里问「How many Fiber issues related TTs for last 7 days?」
+    与「How many TTs in last 7 days?」得到**同一个数**（753）——「Fiber」被丢掉了。
     """
     parts, params = [], []
     if start:
@@ -114,14 +118,23 @@ def build_where(start: str | None, end: str | None, severity: str | None,
     if site:
         parts.append('(site_name LIKE ? OR site_id LIKE ?)')
         params.extend([f'%{site}%', f'%{site}%'])
+    if keyword:
+        # 只在这些**告警语义文本列**上匹配。实测 DB 里 `iber` 的分布：
+        #   title 277 / description 413 / alarm_description 249 / specific_problem 37，
+        # 而 alarm_category / sub_alarm_name 等结构化列几乎为空（≤5 行），
+        # 所以结构化列不进匹配集 —— 加了只会让语义更含糊。
+        # ⚠️ 不匹配 site_name：站名里出现 "Fiber" 不代表这一单是光纤故障。
+        cols = ('title', 'description', 'alarm_description', 'specific_problem')
+        parts.append('(' + ' OR '.join(f'COALESCE({c}, \'\') LIKE ?' for c in cols) + ')')
+        params.extend([f'%{keyword}%'] * len(cols))
 
     where = (' WHERE ' + ' AND '.join(parts)) if parts else ''
     return where, params
 
 
-def query(start, end, severity, status, site, limit):
+def query(start, end, severity, status, site, limit, keyword=None):
     """执行一次聚合查询，返回结果字典。"""
-    where, params = build_where(start, end, severity, status, site)
+    where, params = build_where(start, end, severity, status, site, keyword)
 
     con = _connect()
     try:
@@ -184,6 +197,7 @@ def query(start, end, severity, status, site, limit):
             'end': end,
             'severity': severity,
             'status': status,
+            'keyword': keyword or '',
             'total': total,
             'open': open_cnt,
             'closed': total - open_cnt,
@@ -248,6 +262,7 @@ def main() -> int:
     ap.add_argument('--status', default='all', choices=['all', 'open', 'closed'],
                     help='闭环状态过滤，默认 all')
     ap.add_argument('--site', help='站点名/站号模糊匹配')
+    ap.add_argument('--keyword', help='领域关键字模糊匹配（如 Fiber），见 build_where')
     ap.add_argument('--limit', type=int, default=5, help='样例单最多返回几条')
     ap.add_argument('--site-names', metavar='TT_NO[,TT_NO...]',
                     help='只按单号批量取站名（供 HTTP 通道补 site_name）')
@@ -269,7 +284,8 @@ def main() -> int:
                 return 2
 
     try:
-        res = query(args.start, args.end, args.severity, args.status, args.site, args.limit)
+        res = query(args.start, args.end, args.severity, args.status, args.site,
+                    args.limit, args.keyword)
     except Exception as e:
         # 只打原因，不加前缀 —— 上游 ttquery.js 会按语言包一层「查询失败：」。
         print(str(e), file=sys.stderr)

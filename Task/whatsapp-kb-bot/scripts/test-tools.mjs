@@ -341,6 +341,79 @@ console.log('\n[3e] sitealarms 渲染：发生时间 / 告警码 / 站号 / 派�
   check(formatRaised('') === '' && formatRaised(null) === '', '  缺时间返回空串（不显示 1970）');
 }
 
+console.log('\n[3h] VMAX CCA 意图 → query_vmax_cca（2026-10-25：12 位号码会被当告警码拐进查表）');
+{
+  // 详细用例在 scripts/test-vmaxcca.mjs，这里只钉**路由次序**这一件事：
+  // CCA 判断必须排在查表意图之前，否则「TEL 231773777115」被 extractAlarmCode
+  // 认成告警码，只回一句「码表里没有」，号码与时间全丢（与站点名+告警码被
+  // 查表吞掉是同一类故障）。
+  const c1 = parseByRule('TEL 231773777115，2026-10-25 10:07', NOW);
+  check(c1 && c1.tool === 'query_vmax_cca', '「TEL 号码，时间」→ query_vmax_cca', JSON.stringify(c1));
+
+  const c2 = parseByRule('TEL 77 377 7115', NOW);
+  check(c2 && c2.tool === 'query_vmax_cca', '本地号码写法也触发（执行层补 231）', JSON.stringify(c2));
+
+  // 反向：没有 TEL/MSISDN 关键字的长数字仍走查表，不受影响
+  const c3 = parseByRule('告警码 198094422 会被压缩成什么', NOW);
+  check(c3 === null || c3.tool === 'lookup_compress' || c3.tool === 'search_knowledge', '无关键字的压缩问法不受影响', JSON.stringify(c3));
+}
+
+console.log('\n[3i] 领域关键字（Fiber）不能被丢掉（2026-10-26 群里实测）');
+{
+  // 实测原文：同一分钟连问两句，机器人回了**同一个数** 753 ——
+  //   「How many Fiber issues related TTs for last 7 days?」
+  //   「How many  TTs in last 7 days?」
+  // 根因是「Fiber」被 leftoverTerms 当成陌生专名 → 规则层弃权，
+  // 而 query_tickets 根本没有关键字参数，模型层也无处可填。
+  const NOW2 = new Date(2026, 9, 26); // 2026-10-26
+  const qFiber = 'How many Fiber issues related TTs for last 7 days?';
+  const qAll = 'How many  TTs in last 7 days?';
+
+  const cFiber = parseByRule(qFiber, NOW2);
+  check(cFiber?.tool === 'query_tickets', '「Fiber … TTs last 7 days」走统计通道', JSON.stringify(cFiber));
+  check(cFiber?.args?.keyword === 'Fiber', '  关键字 Fiber 被抽出并传进查询', JSON.stringify(cFiber?.args));
+
+  // 最核心的一条：两句必须**不同** —— 相同的数就是本次故障的指纹。
+  const cAll = parseByRule(qAll, NOW2);
+  check(cAll?.tool === 'query_tickets', '「TTs last 7 days」仍走统计通道');
+  check(!cAll?.args?.keyword, '  没有限定词时 keyword 必须为空', JSON.stringify(cAll?.args));
+  check(
+    JSON.stringify(cFiber?.args) !== JSON.stringify(cAll?.args),
+    '  两句的查询参数必须不同（否则又答同一个数）',
+    `${JSON.stringify(cFiber?.args)} vs ${JSON.stringify(cAll?.args)}`
+  );
+
+  // 中文侧 + 更具体的关键字
+  check(
+    parseByRule('最近7天有多少光纤故障单', NOW2)?.args?.keyword === 'Fiber',
+    '中文「光纤」→ keyword=Fiber',
+    JSON.stringify(parseByRule('最近7天有多少光纤故障单', NOW2))
+  );
+  check(
+    parseByRule('how many fiber break tickets today', NOW2)?.args?.keyword === 'Fiber Break',
+    '「Fiber Break」优先于裸 Fiber'
+  );
+
+  // 反向：站名仍必须让规则层弃权（不能被 keyword 顺带放行）
+  check(
+    parseByRule('how many fiber tickets at Wood camp last 7 days', NOW2) === null,
+    'Fiber + 站名 → 仍弃权交模型层（站名规则层抽不准）',
+    JSON.stringify(parseByRule('how many fiber tickets at Wood camp last 7 days', NOW2))
+  );
+  check(leftoverTerms('How many  TTs in last 7 days?').length === 0, '「TTs」不再被当陌生专名');
+
+  // 渲染层：带关键字时**必须**在标题里写出来，否则读起来就是全网总数
+  const d0 = {
+    start: '2026-10-20', end: '2026-10-26', keyword: 'Fiber',
+    total: 0, open: 0, closed: 0, by_severity: {}, samples: [],
+  };
+  const t0 = renderStats(d0, 'en', true, false, false);
+  check(/matching "Fiber"/.test(t0), '  0 单时标题写明是 Fiber 相关', t0);
+  const d1 = { ...d0, total: 12, open: 5, closed: 7 };
+  const t1 = renderStats(d1, 'zh', true, false, false);
+  check(/「Fiber」相关工单 12 个/.test(t1), '  有结果时标题写明是 Fiber 相关', t1);
+}
+
 /* --------------------------- 模型输出解析 --------------------------- */
 
 console.log('\n[4] 模型工具调用的解析（宽容但不能乱认）');

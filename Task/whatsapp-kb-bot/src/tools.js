@@ -35,6 +35,7 @@ import { chat } from './llm.js';
 import { answer as ragAnswer, withWebHint } from './rag.js';
 import { extractTtNos, analyzeTickets, lookupLevelByRule } from './tt.js';
 import { querySiteAlarms } from './sitealarms.js';
+import { parseVmaxCcaIntent, runVmaxCca } from './vmaxcca.js';
 import {
   queryTickets,
   renderStats,
@@ -42,6 +43,8 @@ import {
   parseSeverity,
   parseStatus,
   parseListIntent,
+  parseKeyword,
+  KEYWORD_TERMS,
 } from './ttquery.js';
 import {
   loadLookups,
@@ -90,8 +93,10 @@ const TOOL_SPEC = [
     name: 'query_tickets',
     desc:
       '按条件统计工单数量。用于「今天有几个 P1」「昨天未闭环多少单」这类' +
-      '**区间统计**问题。参数是日期范围、级别、闭环状态、站点名（都可选）。',
-    args: '{"start":"YYYY-MM-DD 或 空","end":"YYYY-MM-DD 或 空","severity":"P1~P4 或 空","status":"open|closed|all","site":"站点名 或 空"}',
+      '**区间统计**问题。参数是日期范围、级别、闭环状态、站点名、领域关键字（都可选）。' +
+      '**提问里带了告警类型限定词**（Fiber / 光纤 / Microwave / Power / Transmission / Congestion）' +
+      '→ 必须填 keyword，否则会把「Fiber 相关」答成全网总数。',
+    args: '{"start":"YYYY-MM-DD 或 空","end":"YYYY-MM-DD 或 空","severity":"P1~P4 或 空","status":"open|closed|all","site":"站点名 或 空","keyword":"Fiber 或 空"}',
   },  {
     name: 'analyze_ticket',
     desc: '查询**单个**工单的详情与级别判定依据。仅当提问里明确出现了 TT/WO 单号时使用。',
@@ -105,6 +110,15 @@ const TOOL_SPEC = [
       '「XX站有告警吗」「XX站是不是 down 了」。参数是站点名。' +
       '**不要**用 query_tickets 答这类问题 —— 那是工单数量，不是告警状态。',
     args: '{"site":"Palm Bay"}',
+  },
+  {
+    name: 'query_vmax_cca',
+    desc:
+      '按**手机号码**查 VMAX CCA 投诉系统的 XDR 用户信息：MSISDN/IMSI/IMEI/机型/流量/' +
+      '驻留小区/根因分析。用于提问里出现 TEL 或 MSISDN + 手机号码（利比里亚号：231 开头 ' +
+      '12 位，或本地 9 位如 773777115）的查询，可带一个截止时间（查它往前 60 分钟）。' +
+      '**不要**用 lookup_alarm_code / query_tickets 答这类问题 —— 手机号不是告警码。',
+    args: '{"msisdn":"231773777115 或 773777115","time":"2026-10-25 10:07 或 空"}',
   },
   {
     name: 'lookup_alarm_code',
@@ -157,11 +171,17 @@ const ROUTER_PROMPT =
   '· 问某个**站点当前有没有告警 / 是不是 up / 什么告警 / down 没 down** → 用 query_site_alarms；' +
   '把站点名填进 site。**这类问题绝不要用 query_tickets** —— query_tickets 是工单数量，' +
   '按站名匹配工单会得到 0，而 0 张工单**不等于**没有告警，那会答错。\n' +
+  '· 出现 TEL / MSISDN + **手机号码**（利比里亚号：231 开头 12 位，或 773777115 这类本地号）' +
+  '→ 用 query_vmax_cca，号码填 msisdn（本地号原样填，执行层自动补 231），截止时间填 time。' +
+  '手机号**不是**告警码，不要用 lookup_alarm_code。\n' +
   '· 其余「流程 / 为什么 / 怎么走 / 定义」这类**叙述性静态知识** → 用 search_knowledge。\n' +
   '· 注意区分：「P1 是什么」= lookup_level_rule；「今天有几个 P1」= query_tickets。\n' +
   '· 拿不准且**没有**告警码 → 用 search_knowledge。\n' +
   '· 提问里若点名了**具体站点**（如「Wood camp 这个站」「Qcell R.I.A 有几个单」），' +
   '把站点名原样填进 site；没点名就留空字符串。\n' +
+  '· 提问里若带了**告警类型限定词**（Fiber / 光纤 / 光缆 / Microwave / Power / ' +
+  'Transmission / Congestion），把该词填进 keyword。**没限定就留空** —— ' +
+  '漏填等于把「Fiber 相关的工单」答成全网总数（2026-10-26 实测的故障）。\n' +
   '· 若提问**本身没说清问什么**（如「那个单子未闭环」「还有几个」），' +
   '参考【最近对话】把上一轮的日期/级别/站点**照抄**进来 —— ' +
   '这种追问单看是缺主语的，猜错就会答成另一个问题。\n' +
@@ -271,6 +291,9 @@ const STOP_WORDS = new Set([
   'how', 'many', 'much', 'is', 'are', 'the', 'a', 'an', 'of', 'in', 'on', 'for',
   'and', 'or', 'to', 'do', 'does', 'did', 'have', 'has', 'any', 'there', 'be',
   'ticket', 'tickets', 'tt', 'wo', 'order', 'orders', 'count', 'number', 'total',
+  // 复数/不规则写法：2026-10-26 实测「How many TTs in last 7 days?」残余出
+  // `["TTs"]`（`tt` 有、`tts` 没有），规则层弃权 → 白多花一次模型调用。
+  'tts', 'wos', 'nums',
   'today', 'yesterday', 'open', 'closed', 'pending', 'p1', 'p2', 'p3', 'p4',
   'severity', 'priority', 'please', 'show', 'me', 'list', 'get', 'check', 'status',
   // 英文时间/限定词：这些是**规则层已认得**的日期信号，不能当残余专名，
@@ -294,7 +317,29 @@ const STOP_WORDS = new Set([
   // 若不在这里，会被当成陌生专名 → 规则层弃权（2026-10-18 与中文同因）。
   'fault', 'faults', 'incident', 'incidents', 'case', 'cases',
   'issue', 'issues', 'problem', 'problems', 'outage', 'outages',
+  // 「X 相关的单」里的关联词：2026-10-26 实测「How many Fiber issues **related**
+  // TTs for last 7 days?」残余出 "related" —— 它不是条件，只是一句连接词。
+  // 漏了它，即使 keyword 已经抽出来，规则层仍会弃权（弃权后就没人填 keyword 了）。
+  'related', 'regarding', 'concerning', 'about', 'involving', 'linked',
 ]);
+
+/**
+ * 抹掉提问里所有已知的领域关键字写法（英文与中文）。
+ *
+ * 与 `parseKeyword` 共用同一张词表（`KEYWORD_TERMS`），只是这里要的是「抹掉」
+ * 而不是「取出第一个」—— 一句话里可能既有 "Fiber" 又有 "光纤"。
+ *
+ * 不能只抹 `parseKeyword` 返回的那一个：它的返回值是**规范名**（`Fiber`），
+ * 而句子里写的是 `光纤`/`Fiber Break`，正则对不上。
+ */
+function stripKeywordWords(q) {
+  let s = String(q || '');
+  for (const [, re] of KEYWORD_TERMS) {
+    const g = new RegExp(re.source, 'gi');
+    s = s.replace(g, ' ');
+  }
+  return s;
+}
 
 /**
  * 剥掉规则层已经认得的东西，返回剩余的"解释不了的片段"。
@@ -545,6 +590,15 @@ export function parseByRule(question, now = new Date()) {
   const ttNos = extractTtNos(q);
   if (ttNos.length) return { tool: 'analyze_ticket', args: { tt_no: ttNos[0] } };
 
+  // ①.15 VMAX CCA 用户查询：TEL/MSISDN + 号码是用户与群的**约定信号**
+  //（「看到 TEL 就是查 CCA」）。必须排在站点告警与查表意图**之前**：
+  //   · 「TEL 231773777115」里的 12 位长数字会被 extractAlarmCode 当成告警码，
+  //     拐去 lookup_alarm_code 只回一句「码表里没有」，号码与时间全丢
+  //     （与 2026-10-24 站点名+告警码被查表吞掉是同一类故障）；
+  //   · 号码查询也不是工单统计/告警状态，晚判同样会被前面的数量词截走。
+  const cca = parseVmaxCcaIntent(q, now);
+  if (cca) return { tool: 'query_vmax_cca', args: { msisdn: cca.msisdn, time: cca.endText } };
+
   // ①.2 站点告警意图：出现**告警状态词**时，优先走 query_site_alarms。
   // 必须在统计判断**和查表判断**之前 —— 否则
   // 「Palm Bay 有没有告警」会被 COUNT_INTENT 的「有没有」拐去统计，
@@ -580,12 +634,27 @@ export function parseByRule(question, now = new Date()) {
   // ② 统计意图：必须有数量/时间信号，且不是纯知识问法。
   const date = parseDateRange(q, now);
   const sev = parseSeverity(q);
+  const kw = parseKeyword(q);
   const hasCountWord = COUNT_INTENT.test(q);
   const isKnowledge = KNOWLEDGE_INTENT.test(q);
   const isStats = (hasCountWord || date) && !isKnowledge;
 
   // ③ 有额外条件（站名等规则抽不准的专名）时弃权，交模型层。
-  if (isStats && leftoverTerms(q).length) return null;
+  //
+  // ⚠️ 但已知的**领域关键字**（Fiber / Microwave…）不算「抽不准的专名」——
+  // 它有对应的查询参数（keyword），吃掉它是静默丢条件。
+  // 2026-10-26 实测：「How many Fiber issues related TTs for last 7 days?」
+  // 残余出 `["Fiber","related","TTs"]` 直接弃权，模型层也没有 keyword 参数可填，
+  // 于是回了全网 753，而同一句去掉 "Fiber issues related" 之后还是 753。
+  // 现在把关键字从残余里剥掉再判断；剩下的残余仍按原纪律弃权。
+  if (isStats) {
+    // ⚠️ 不能用 `\b` 包关键字：中文与 ASCII 之间**没有词边界**
+    //（「有多少光纤故障单」里 `\b光纤\b` 根本不成立），所以这里改为
+    // 把词表里**所有**能命中本句的写法一律抹掉，再判残余。
+    // 2026-10-26 实测：只用 `\b${kw}\b` 时中文问法仍弃权。
+    const residual = leftoverTerms(kw ? stripKeywordWords(q) : q);
+    if (residual.length) return null;
+  }
 
   if (isStats) {
     // 只有「P1 今天」没有数量词也算（「今天P1」＝问今天有没有 P1）
@@ -597,6 +666,9 @@ export function parseByRule(question, now = new Date()) {
           end: date?.end || '',
           severity: sev || '',
           status: parseStatus(q),
+          // 规则层已认出的领域关键字：必须真的传到查询里，
+          // 否则就是「解析了但不用」——与没解析一样，且更隐蔽。
+          keyword: kw,
           site: '',
           list: parseListIntent(q),
         },
@@ -724,6 +796,14 @@ function normalizeArgs(args, now = new Date(), question = '') {
   const st = String(raw.status || '').toLowerCase();
   out.status = st === 'open' || st === 'closed' ? st : 'all';
   out.site = String(raw.site || '').trim().slice(0, 40);
+  // 领域关键字：仍以**原始提问**为准（parseKeyword 是封闭词表，规则层与模型层
+  // 同一个函数）—— 模型给的 keyword 只在原句里确实出现时采信，
+  // 防止模型把「TTs」之类泛词当关键字塞进来，导致 0 单。
+  const kwFromQ = parseKeyword(question);
+  const kwFromModel = String(raw.keyword || '').trim().slice(0, 30);
+  out.keyword =
+    kwFromQ ||
+    (kwFromModel && question.toLowerCase().includes(kwFromModel.toLowerCase()) ? kwFromModel : '');
   // 要单号名单这件事**只从原始提问判断**，不看模型返回什么 ——
   // 模型容易漏掉「请输出TT单的ID给我」这种附加要求，
   // 而漏判的后果是用户要 ID 却只拿到一个数字。
@@ -770,6 +850,23 @@ export async function runTool(call, index, lang, opts = {}) {
       channel: 'sitealarm',
       stats: { ...(r.stats || {}), totalMs: Date.now() - t0 },
       routeArgs: { site },
+    };
+  }
+
+  if (call.tool === 'query_vmax_cca') {
+    // 号码/时间的最终解析在 vmaxcca.js 里做（优先级：规则层解析 > 模型参数 > 当前时刻），
+    // 与统计通道 normalizeArgs 同一纪律 —— 模型不知道现在几点。
+    const r = await runVmaxCca(call.args || {}, {
+      lang,
+      now: opts.now,
+      question: opts.question || '',
+    });
+    return {
+      text: r.text,
+      answered: r.answered,
+      channel: 'vmaxcca',
+      stats: { ...(r.stats || {}), totalMs: Date.now() - t0 },
+      routeArgs: r.routeArgs,
     };
   }
 

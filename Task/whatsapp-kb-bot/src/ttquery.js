@@ -384,6 +384,55 @@ export function parseStatus(text) {
   return 'all';
 }
 
+/**
+ * 领域关键字过滤（如「Fiber issues related TTs」里的 Fiber）。
+ *
+ * ## 为什么必须有这个
+ *
+ * 2026-10-26 群里实测（同一分钟连问两句）：
+ *
+ * ```
+ * How many Fiber issues related TTs for last 7 days?  → 753 ticket(s)
+ * How many  TTs in last 7 days?                       → 753 ticket(s)
+ * ```
+ *
+ * 两句数一模一样 —— **Fiber 这个条件被整个丢掉了**。根因在路由层：
+ * `leftoverTerms` 剥完日期/级别/工单同义词后剩下 `["Fiber","related","TTs"]`，
+ * 判定为「有额外条件」，规则层弃权交模型层；而 `query_tickets` 的参数表里
+ * **压根没有关键字这一项**，模型就算看懂了「Fiber」也无处可填，
+ * 只能回一个全网总数，且回复里不带任何「条件没生效」的提示。
+ *
+ * 这与 README 第三节「答错不如弃权」是同一类故障：宁可不答，也不能
+ * 把「全网 753」当成「Fiber 相关 753」发到群里。
+ *
+ * ## 只认已知的领域词表
+ *
+ * 不做「任意陌生英文词都当关键字」—— 那样会把站名（Wood camp）也当成
+ * 关键字去 LIKE，结果是 0 单，比现在更糟。站名有 `site` 参数单独走。
+ * 词表只收**工单正文里确有取值**的告警族（实测 DB：
+ * title 277 行 / description 413 行 / alarm_description 249 行含 "fiber"）。
+ *
+ * @param {string} text 原始提问
+ * @returns {string} 关键字（首个大写形式原样返回），或 ''
+ */
+export const KEYWORD_TERMS = [
+  // 词表按「最具体 → 最泛化」排列，先命中先返回
+  ['Fiber Break', /fiber\s*break|光纤断|光缆断/i],
+  ['Fiber', /fiber|光纤|光缆/i],
+  ['Microwave', /\bmicrowave\b|\bMW\s+link|\bMWL\b|微波/i],
+  ['Power', /\bpower\b|电源|发电机/i],
+  ['Transmission', /\btransmission\b|传输/i],
+  ['Congestion', /\bcongestion\b|拥塞/i],
+];
+
+export function parseKeyword(text) {
+  const s = String(text || '');
+  for (const [term, re] of KEYWORD_TERMS) {
+    if (re.test(s)) return term;
+  }
+  return '';
+}
+
 /* -------------------------------- 渲染 -------------------------------- */
 
 /** 把 status 分桶压成一行人话；只取前 3 个，避免刷屏。 */
@@ -420,7 +469,10 @@ export function renderStats(
   const T = {
     zh: {
       range: (s, e) => (s === e ? `${s}` : `${s} ~ ${e}`),
-      found: (n, sev) => (sev ? `${sev} 单 ${n} 个` : `工单 ${n} 个`),
+      // 有领域关键字时，标签必须带上它 —— 「753 个工单」与
+      // 「Fiber 相关工单 753 个」是两个不同的事实，标签不写就成了前者。
+      found: (n, sev, kw) =>
+        kw ? `「${kw}」相关工单 ${n} 个` : sev ? `${sev} 单 ${n} 个` : `工单 ${n} 个`,
       amongOpen: (n) => `其中未闭环 ${n} 个`,
       openLabel: '未闭环',
       sevPart: '级别分布',
@@ -443,7 +495,8 @@ export function renderStats(
     },
     en: {
       range: (s, e) => (s === e ? `${s}` : `${s} ~ ${e}`),
-      found: (n, sev) => (sev ? `${n} ${sev} ticket(s)` : `${n} ticket(s)`),
+      found: (n, sev, kw) =>
+        kw ? `${n} ticket(s) matching "${kw}"` : sev ? `${n} ${sev} ticket(s)` : `${n} ticket(s)`,
       amongOpen: (n) => `of which ${n} still open`,
       openLabel: 'open',
       sevPart: 'By severity',
@@ -476,14 +529,18 @@ export function renderStats(
     const cond = [data.status === 'open' ? T.openLabel : '', data.site || ''].filter(Boolean);
     let body;
     if (lang === 'en') {
-      body = data.severity ? `${data.severity}${T.colon}0` : `tickets${T.colon}0`;
+      body = data.keyword
+        ? `tickets matching "${data.keyword}"${T.colon}0`
+        : data.severity ? `${data.severity}${T.colon}0` : `tickets${T.colon}0`;
     } else {
-      body = data.severity ? `${data.severity}${T.colon}0 个` : `工单${T.colon}0 个`;
+      body = data.keyword
+        ? `「${data.keyword}」相关工单${T.colon}0 个`
+        : data.severity ? `${data.severity}${T.colon}0 个` : `工单${T.colon}0 个`;
     }
     return [range, cond.length ? `${body}${T.paren(cond.join(T.sep))}` : body].filter(Boolean).join('\n');
   }
 
-  lines.push(`${range} ${T.found(data.total, data.severity)}`.trim());
+  lines.push(`${range} ${T.found(data.total, data.severity, data.keyword)}`.trim());
   // 「6 个」和「未闭环 1 个」并列容易读成"6 个里只有 1 个没闭环"，
   // 但两者其实是同一批单的两个侧面：总数 6、其中 1 个还没闭环。
   // 补一个「其中」把关系说死，省掉一次误读。

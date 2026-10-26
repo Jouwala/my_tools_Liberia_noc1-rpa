@@ -311,6 +311,15 @@ export const CONFIG = {
       : raw.ttSiteAlarmFallback !== false,
   ttSiteAlarmTimeoutMs: Number(process.env.TT_SITE_ALARM_TIMEOUT_MS ?? raw.ttSiteAlarmTimeoutMs ?? 180000),
 
+  // —— VMAX CCA 用户查询（query_vmax_cca，src/vmaxcca.js）——
+  // 走 my_app 的 /api/vmax-cca-query 只读透传，与工单统计共用 myAppApiBase；
+  // 无本地降级（XDR 数据没有副本），my_app 不可用时如实回「查不了」。
+  vmaxCcaEnabled:
+    process.env.VMAX_CCA_ENABLED != null
+      ? !(process.env.VMAX_CCA_ENABLED === '0' || process.env.VMAX_CCA_ENABLED === 'false')
+      : raw.vmaxCcaEnabled !== false,
+  vmaxCcaTimeoutMs: Number(process.env.VMAX_CCA_TIMEOUT_MS ?? raw.vmaxCcaTimeoutMs ?? 240000),
+
   // —— 会话记忆 ——
   memoryEnabled:
     process.env.MEMORY_ENABLED != null

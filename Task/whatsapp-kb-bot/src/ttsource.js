@@ -319,13 +319,14 @@ async function enrichSiteNames(samples) {
 }
 
 /** 跑 scripts/tt-query.py 做聚合，返回结构化结果。永不抛异常。 */
-function runFallback({ start, end, severity, status, site }) {
+function runFallback({ start, end, severity, status, site, keyword }) {
   const args = [];
   if (start) args.push('--start', start);
   if (end) args.push('--end', end);
   if (severity) args.push('--severity', severity);
   if (status && status !== 'all') args.push('--status', status);
   if (site) args.push('--site', site);
+  if (keyword) args.push('--keyword', keyword);
   // 与 HTTP 通道的 fetchDrilldown 取同一个上限，避免两条通道给出不同长度的名单
   args.push('--limit', String(sampleCap()));
   return runPython(args);
@@ -351,6 +352,7 @@ export async function queryTickets(spec) {
     severity: spec.severity || null,
     status: spec.status || 'all',
     site: spec.site || null,
+    keyword: spec.keyword || null,
   };
   const wantList = !!spec.list;
 
@@ -360,7 +362,10 @@ export async function queryTickets(spec) {
   if (!q.start && q.end) q.start = q.end;
 
   const httpEnabled = CONFIG.ttStatsHttp !== false && !!CONFIG.myAppApiBase;
-  if (httpEnabled && !q.site) {
+  // 关键字过滤同样只有本地库支持（见 tt-query.py 的 --keyword），走 overview
+  // 会返回**不带关键字过滤**的全网总数 —— 那正是 2026-10-26 的故障形态
+  // （问 Fiber 相关，答全网 753）。宁可慢一点读本地副本，也不能答一个假数。
+  if (httpEnabled && !q.site && !q.keyword) {
     // 站点过滤 overview 接口不支持（要 JOIN 站点表的高级过滤参数），
     // 这种情况直接走本地库 —— 那里有 site_name / site_id 能做模糊匹配。
     try {
@@ -398,5 +403,8 @@ export async function queryTickets(spec) {
   // 让降级结果也能显示「还有 N 单未列出」—— 脚本返回的 samples 已被 limit 截断，
   // detail_total 用过滤后的 total 代替（SQLite 侧的 total 就是过滤后行数）。
   fb.detail_total = fb.total;
+  // 渲染层靠 keyword 判断标题要不要写「Fiber 相关」—— 降级结果里若丢了这一项，
+  // 用户看到的会是一个**没有条件的裸总数**，正是本次故障的形态。
+  fb.keyword = fb.keyword || q.keyword || '';
   return { ok: true, data: fb, degraded: true };
 }
