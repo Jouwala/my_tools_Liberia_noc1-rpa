@@ -27,6 +27,7 @@ import makeWASocket, {
   fetchLatestBaileysVersion,
   isJidGroup,
   Browsers,
+  WAMessageStatus,
 } from 'baileys';
 import P from 'pino';
 import qrcode from 'qrcode-terminal';
@@ -202,6 +203,92 @@ const botMessageIds = createBoundedIdSet(500);
 const lastReplyAt = new Map();
 
 /**
+ * 已发出但**尚未收到服务端回执**的消息：id → { chatJid, at, timer, sample }。
+ *
+ * ## 为什么需要它（2026-10-26 实测事故）
+ *
+ * 用户报告「OLR Eflow Issues 群里 10:50 那次没收到回答」。查库发现 qa_log
+ * 里躺着一条 1179 字符的完整答案、`[回复]` 日志也打了、**零条 `[发送失败]`**
+ * ——看起来一切正常。但同一群同一号码在 11:35 重试就能收到，说明消息确实
+ * 没到。根因是：`sock.sendMessage()` 只是把消息**放进加密队列**就返回
+ * message id，真正的服务端受理是异步 `messages.update` 事件。本项目原先
+ * 根本没监听它，所以「发出去了」和「对方收到了」从来没有被区分过。
+ *
+ * 现在的处理：发出时登记，收到 `SERVER_ACK`/`DELIVERY_ACK`/`READ` 即移除；
+ * 超过 `ACK_TIMEOUT_MS` 仍无回执则打 `[未送达]` 日志。注意这只是**观测**，
+ * 不改发送行为 —— 回执缺失既可能是真没送到，也可能是回执本身丢了。
+ */
+const pendingAcks = new Map();
+
+/** 发出后多久还没回执就报「未送达」。WhatsApp 正常回执在 1~3 秒内。 */
+const ACK_TIMEOUT_MS = 30000;
+
+/** 未送达日志里附的正文片段长度（够判别是哪条，又不刷屏）。 */
+const ACK_SAMPLE_CHARS = 60;
+
+/**
+ * 最近一次连接 open 的时刻。用于**登录预热期限速发送**。
+ *
+ * 2026-10-26 事故的另一半：10:46:20 扫码登录完成，10:50:52 那条回答就没到。
+ * 中间只成功发出过 2 条消息（10:49:04 ping、10:49:15 首次提问）—— 紧接着的
+ * 第 3 条落进了 session/信号会话尚未完全建立的窗口，服务端不报错但也没投递。
+ * `sendMessage` 照样返回 message id，所以日志上完全看不出来。
+ *
+ * 处理方式：open 之后的 WARMUP_MS 内，每条消息前等 WARMUP_SEND_GAP_MS，
+ * 把连发摊开，给信号会话留出建立时间。这只是**延长间隔**，不丢弃消息。
+ */
+let connectedAt = 0;
+const WARMUP_MS = 30000;
+const WARMUP_SEND_GAP_MS = 2000;
+
+/** 预热期内让出一条时间片；预热期外立即返回。 */
+async function warmupGate() {
+  if (!connectedAt) return;
+  const elapsed = Date.now() - connectedAt;
+  if (elapsed >= WARMUP_MS) return;
+  await new Promise((r) => setTimeout(r, WARMUP_SEND_GAP_MS));
+}
+
+/** 已送达的状态值。低于这些的一律算「还没确认」。 */
+const ACK_DONE = new Set([
+  WAMessageStatus.SERVER_ACK,
+  WAMessageStatus.DELIVERY_ACK,
+  WAMessageStatus.READ,
+  WAMessageStatus.PLAYED,
+]);
+
+/** 登记一条待回执消息（send() 调用）。 */
+function trackAck(id, jid, text) {
+  if (!id) return;
+  const timer = setTimeout(() => {
+    const rec = pendingAcks.get(id);
+    if (!rec) return;
+    pendingAcks.delete(id);
+    log(
+      `[未送达] ${rec.chatJid}：发出 ${Math.round(ACK_TIMEOUT_MS / 1000)}s 无服务端回执` +
+        `（msgId=${id}｜${rec.sample}）`
+    );
+  }, ACK_TIMEOUT_MS);
+  // 定时器不该拖住进程退出
+  timer.unref?.();
+  pendingAcks.set(id, { chatJid: jid, at: Date.now(), timer, sample: String(text).slice(0, ACK_SAMPLE_CHARS) });
+  // 防泄漏：正常情况下回执很快到，这里是万一回执永远不来的兜底
+  if (pendingAcks.size > 500) {
+    const oldest = pendingAcks.keys().next().value;
+    clearTimeout(pendingAcks.get(oldest)?.timer);
+    pendingAcks.delete(oldest);
+  }
+}
+
+/** 收到回执：确认送达并从待确认表移除。 */
+function resolveAck(id) {
+  const rec = pendingAcks.get(id);
+  if (!rec) return;
+  clearTimeout(rec.timer);
+  pendingAcks.delete(id);
+}
+
+/**
  * chatJid → 最近几轮问答（时间正序），用于**追问**。
  *
  * ## 为什么需要它
@@ -316,6 +403,7 @@ export async function startWhatsApp({ onQuestion, builtins = null }) {
         restarting = true;
         try {
           activeSock?.ev?.removeAllListeners('messages.upsert');
+          activeSock?.ev?.removeAllListeners('messages.update');
           activeSock?.ev?.removeAllListeners('connection.update');
           activeSock?.ev?.removeAllListeners('creds.update');
           activeSock?.ws?.close();
@@ -388,6 +476,8 @@ export async function startWhatsApp({ onQuestion, builtins = null }) {
 
     if (connection === 'open') {
       reconnectAttempts = 0;
+      // 记下 open 时刻，供 warmupGate() 判断是否还在登录预热期（见其注释）。
+      connectedAt = Date.now();
       // 连上就清掉「连续登出」计数：下一次再被登出应从 0 重新数，
       // 否则长时间运行后偶发的登出会累积、过早触发停机保护。
       loggedOutCount = 0;
@@ -529,6 +619,7 @@ export async function startWhatsApp({ onQuestion, builtins = null }) {
       // 清理旧 socket，否则其事件监听器会一直挂在内存里
       try {
         sock.ev.removeAllListeners('messages.upsert');
+        sock.ev.removeAllListeners('messages.update');
         sock.ev.removeAllListeners('connection.update');
         sock.ev.removeAllListeners('creds.update');
         sock.ws?.close();
@@ -562,6 +653,17 @@ export async function startWhatsApp({ onQuestion, builtins = null }) {
       } catch (err) {
         log(`处理消息出错：${err.stack || err.message}`);
       }
+    }
+  });
+
+  // 送达回执：只用来确认「我们发出的消息服务端是否受理」，故只关心 fromMe 的
+  // 那些 update。见 pendingAcks 的注释（2026-10-26 未送达事故）。
+  sock.ev.on('messages.update', (updates) => {
+    for (const u of updates || []) {
+      const id = u?.key?.id;
+      if (!id || !u.key?.fromMe) continue;
+      const status = u.update?.status;
+      if (status != null && ACK_DONE.has(status)) resolveAck(id);
     }
   });
 
@@ -810,8 +912,13 @@ export async function startWhatsApp({ onQuestion, builtins = null }) {
     if (!text) return;
     const s = liveSock();
     try {
+      await warmupGate();
       const sent = await s.sendMessage(jid, { text }, quotedMsg ? { quoted: quotedMsg } : undefined);
-      if (sent?.key?.id) botMessageIds.add(sent.key.id);
+      if (sent?.key?.id) {
+        botMessageIds.add(sent.key.id);
+        // 只拿到 message id 不代表送达 —— 登记后由 messages.update 回执确认。
+        trackAck(sent.key.id, jid, text);
+      }
       return sent;
     } catch (err) {
       // 记录「本该发出但没发出去」的条数。这是用户能直接感知的症状（问了没回应），
