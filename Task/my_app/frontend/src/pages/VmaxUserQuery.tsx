@@ -13,7 +13,7 @@
 
 import { useCallback, useMemo, useRef, useState } from 'react'
 import {
-  Alert, Button, DatePicker, Descriptions, Input, Space, Spin, Table, Tag, Typography,
+  Alert, Button, DatePicker, Descriptions, Input, Segmented, Space, Spin, Table, Tag, Typography,
 } from 'antd'
 import { MobileOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons'
 import type { Dayjs } from 'dayjs'
@@ -22,38 +22,18 @@ import dayjs from 'dayjs'
 import { useI18n } from '../i18n'
 import { CardBase } from '../components/cards'
 import DraggableClickModal from '../components/DraggableClickModal'
+import VmaxXdrPanel from '../components/VmaxXdrPanel'
+import VmaxCcaCards, {
+  type CcaResult, type CauseItem, type CellRecord,
+} from '../components/VmaxCcaCards'
 import { vmaxCcaQuery } from '../api'
 
 const { Text } = Typography;
 const { RangePicker } = DatePicker
 
+// 结果类型与 VmaxCcaCards 共用一份（避免同一结构两处维护后漂移）
 type KpiItem = { code: string; name: string; value: unknown }
-
-type CauseItem = {
-  rule_name: string; object_type: string; object_name: string; objectinfo: string
-  confidence: number; description: string; solution: string; vendor: string
-  province: string; city: string; poortime: string; kqicode: string
-  app_info: { clttime: string; judge: string }[]
-}
-
-type CellRecord = {
-  cellname?: string; vendor?: string; pci?: number; earfcn?: string
-  celllat?: number; celllon?: number; azimuth?: number; height?: number
-  cellkey?: string; rat?: number; cell?: number
-}
-
-type QueryResult = {
-  msisdn: string
-  found: boolean
-  user: Record<string, unknown>
-  terminal: Record<string, unknown> | null
-  window?: { starttime: string; endtime: string }
-  flow?: { total_flux: string; apps: unknown[] } | null
-  cells?: { cells: CellRecord[]; cell_kpi: Record<string, KpiItem[]> } | null
-  causes?: CauseItem[] | null
-  failures?: string[]
-  msg: string
-}
+type QueryResult = CcaResult
 
 /** 统一空值展示：— 而不是 undefined / null（AGENTS.md 三.6） */
 const fmt = (v: unknown) => (v == null || v === '' || v === '--' ? '—' : String(v))
@@ -93,6 +73,9 @@ export default function VmaxUserQuery() {
   const [error, setError] = useState('')
   const [result, setResult] = useState<QueryResult | null>(null)
   const [searched, setSearched] = useState(false)
+  // 视图切换：概览（CCA）/ 详单（Talon XDR）。用 Segmented 而非 Tabs，
+  // 与 ttwo 的时间范围开关同一观感（.wh-seg 实心青选中态，选项一眼可见）。
+  const [view, setView] = useState<'overview' | 'xdr'>('overview')
   // 当前查询的请求序号：旧请求的迟到结果直接丢弃（抄 EflowQa 的 ttSeqRef）
   const seqRef = useRef(0)
 
@@ -269,6 +252,29 @@ export default function VmaxUserQuery() {
         </Space>
       </CardBase>
 
+      {/* ② 视图切换：概览（CCA）/ 详单（Talon XDR）。共用上面那一个号码输入。
+          用 Segmented + .wh-seg（与 ttwo 时间范围开关同一观感）：
+          默认 antd Tabs 的页签太淡，用户反馈看不出是两个视角。 */}
+      <CardBase bodyStyle={{ padding: 'var(--wh-space-sm) var(--wh-space-md)' }}>
+        <Space wrap align="center" size="middle">
+          <Segmented
+            className="wh-seg"
+            options={[
+              { label: t('vmaxq.tab.overview'), value: 'overview' },
+              { label: t('vmaxq.tab.xdr'), value: 'xdr' },
+            ]}
+            value={view}
+            onChange={(v) => setView(v as 'overview' | 'xdr')}
+            style={{ background: 'var(--wh-seg-bg)' }}
+          />
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            {view === 'overview' ? t('vmaxq.tab.overviewHint') : t('vmaxq.tab.xdrHint')}
+          </Text>
+        </Space>
+      </CardBase>
+
+      {view === 'overview' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--wh-space-md)' }}>
       {/* ② 错误（接口失败）+ 重试 */}
       {error && (
         <Alert
@@ -315,99 +321,11 @@ export default function VmaxUserQuery() {
       {/* ⑥ 命中：用户 / 终端 / 流量 / 驻留小区 */}
       {!loading && !error && result?.found && (
         <>
-          <CardBase title={t('vmaxq.userCard')} extra={<Tag color="cyan">{result.msisdn}</Tag>}>
-            <Descriptions
-              column={{ xs: 1, sm: 2, md: 3 }}
-              size="small"
-              bordered
-              items={userItems(result.user || {})}
-            />
-          </CardBase>
-
-          <CardBase title={t('vmaxq.terminalCard')}>
-            {result.terminal ? (
-              <Descriptions
-                column={{ xs: 1, sm: 2, md: 3 }}
-                size="small"
-                bordered
-                items={terminalItems(result.terminal)}
-              />
-            ) : (
-              <Text type="secondary">{t('vmaxq.noTerminal')}</Text>
-            )}
-          </CardBase>
-
-          <CardBase
-            title={t('vmaxq.flowCard')}
-            extra={result.window
-              ? <Text type="secondary" style={{ fontSize: 12 }}>
-                  {result.window.starttime.slice(0, 10)} ~ {result.window.endtime.slice(0, 10)}
-                </Text>
-              : undefined}
-          >
-            {result.flow ? (
-              <>
-                <Descriptions size="small" bordered column={1} items={[{
-                  key: 'total', label: t('vmaxq.flowTotal'),
-                  children: <Text strong>{result.flow.total_flux}</Text>,
-                }]} />
-                {flowApps.length > 0 && (
-                  <Table
-                    style={{ marginTop: 12 }}
-                    rowKey={(_, i) => String(i)}
-                    columns={flowColumns}
-                    dataSource={flowApps as Record<string, unknown>[]}
-                    pagination={{ pageSize: 8 }}
-                    size="small"
-                  />
-                )}
-              </>
-            ) : (
-              <Text type="secondary">{t('vmaxq.noFlow')}</Text>
-            )}
-          </CardBase>
-
-          <CardBase title={t('vmaxq.cellsCard')}>
-            {result.cells?.cells?.length ? (
-              <>
-                <div style={{ marginBottom: 8 }}>
-                  <Tag color="blue">{t('vmaxq.cellCount', { n: result.cells.cells.length })}</Tag>
-                  <Text type="secondary" style={{ fontSize: 12 }}>{t('vmaxq.cellsHint')}</Text>
-                </div>
-                <Table
-                  rowKey={r => String(r.cell ?? r.cellkey ?? r.cellname)}
-                  columns={cellColumns}
-                  dataSource={result.cells.cells}
-                  pagination={{ pageSize: 10, showSizeChanger: true }}
-                  size="small"
-                  scroll={{ x: 760 }}
-                />
-              </>
-            ) : (
-              <Text type="secondary">{t('vmaxq.noCells')}</Text>
-            )}
-          </CardBase>
-
-          <CardBase title={t('vmaxq.causesCard')}>
-            {causes.length ? (
-              <>
-                <div style={{ marginBottom: 8 }}>
-                  <Tag color="red">{t('vmaxq.causeCount', { n: causes.length })}</Tag>
-                  <Text type="secondary" style={{ fontSize: 12 }}>{t('vmaxq.causesHint')}</Text>
-                </div>
-                <Table
-                  rowKey={r => `${r.kqicode}-${r.objectinfo}-${r.poortime}`}
-                  columns={causeColumns}
-                  dataSource={causes}
-                  pagination={{ pageSize: 10, showSizeChanger: true }}
-                  size="small"
-                  scroll={{ x: 760 }}
-                />
-              </>
-            ) : (
-              <Text type="secondary">{t('vmaxq.noCauses')}</Text>
-            )}
-          </CardBase>
+          <VmaxCcaCards
+            result={result as CcaResult}
+            onOpenKpi={(cell) => { setKpiCell(cell); setKpiItems(result?.cells?.cell_kpi?.[String(cell.cell)] || []); setKpiOpen(true) }}
+            onOpenCause={(item) => { setCauseItem(item); setCauseOpen(true) }}
+          />
         </>
       )}
 
@@ -443,6 +361,13 @@ export default function VmaxUserQuery() {
           <Text type="secondary">{t('vmaxq.noKpi')}</Text>
         )}
       </DraggableClickModal>
+              </div>
+      )}
+
+      {view === 'xdr' && (
+        // 号码沿用上面查询条；XDR 的窗口与类型在本视图内独立选（见 VmaxXdrPanel 头注释）
+        <VmaxXdrPanel msisdn={msisdn} />
+      )}
 
       {/* ⑨ 根因详情弹窗（劣化描述 + 处理建议 + 逐时段明细） */}
       <DraggableClickModal

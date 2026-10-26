@@ -2113,18 +2113,10 @@ VMAX user info query: enter a subscriber number and time window to look up subsc
 - The Root Cause card lists complaint causes in the window (confidence descending); click Details for degradation, suggested solution and per-period judgments; this query may time out on large windows (7-day scale) without affecting other cards
 - Queries go through a VMAX portal session (serialized reuse); avoid rapid repeated clicks to keep the upstream session free
 - Results are read-only passthrough, nothing is persisted; refreshing the page clears them
-
-#### vmax_xdr_query（`vmax_xdr_query`）
-
-VMAX XDR records: enter a subscriber number and time window to query per-record signaling detail (merged table) from the Talon XDR platform. Complements "VMAX User Query", which gives the subscriber profile and root-cause summary — this page gives raw records drillable down to a single session/procedure.
-
-- Use the full number with the 231 prefix (e.g. 231773777115), digits only
-- Query types currently supported: 5G Session (1100), Signaling Plane (1300), User Plane Services (1301); the data-plane types (32/33/34) use a different upstream parameter set and are not wired yet
-- Time window defaults to the last 24 hours, max 72 hours; XDR volume is large (tens of thousands of records per day), so wider windows are slower
-- Column titles are generated dynamically from the upstream header; different query types have different column counts (59~88), so the table scrolls horizontally with the first column frozen
-- "No records of this type in the window" is a normal business result, not a failure; on errors first check that the vmax_cca group in Settings → Credential Management is usable
-- Shares the same portal session with "VMAX User Query" — avoid heavy simultaneous clicking on both
-- Results are read-only passthrough, nothing is persisted or cached; refreshing the page clears them
+- The "XDR Records" tab (merged in on 2026-10-26) reuses the number above to query per-record signaling detail from the Talon XDR platform, drillable down to a single session/procedure
+- XDR query types: 5G Session (1100), Signaling Plane (1300), User Plane Services (1301); window defaults to the last 24 hours (max 72); columns come from the upstream header (59~88, scrollable)
+- The data-plane types (32/33/34) use a different upstream parameter set and are not wired yet
+- "Export Excel" exports the entire query result, not just the current page (fetched in batches, capped at 5,000 records); when the cap is hit the subtitle states it was truncated — narrow the window and export in batches
 
 ### 4.4 System
 

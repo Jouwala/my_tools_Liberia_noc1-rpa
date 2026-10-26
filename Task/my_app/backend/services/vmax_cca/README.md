@@ -182,7 +182,9 @@ result = client.query("231777777322", "2026-10-23", "2026-10-23")
 
 - 客户端：`vmax_xdr_client.py`（头注释有完整协议与踩坑清单）
 - 路由：`routers/vmax_xdr_query.py` → `GET /api/vmax-xdr-query`
-- 页面：`vmax_xdr_query`（`frontend/src/pages/VmaxXdrQuery.tsx`）
+- 页面：`vmax_user_query` 的「信令详单」页签
+  （`frontend/src/components/VmaxXdrPanel.tsx`；2026-10-26 由独立页合并而来，
+  旧链接 `?page=vmax_xdr_query` 作为历史别名仍可用）
 
 **与 CCA 的三处关键差异**（都在 `vmax_xdr_client.py` 头注释里详述）：
 
