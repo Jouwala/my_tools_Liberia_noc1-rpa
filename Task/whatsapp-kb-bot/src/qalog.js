@@ -69,7 +69,8 @@ CREATE TABLE IF NOT EXISTS qa_log (
   top_base    REAL,                   -- 检索 top1 混合分（诊断「为什么走错通道」）
   gap         REAL,                   -- top1 − 中位数基线
   hit_source  TEXT,                   -- top1 命中的文件名（前 3 个 confident 来源，| 分隔）
-  route_args  TEXT                    -- 路由/工具参数 JSON（**不塞完整工单正文**）
+  route_args  TEXT,                   -- 路由/工具参数 JSON（**不塞完整工单正文**）
+  ack         TEXT                    -- delivered / undelivered；NULL=改动前的老记录
 );
 CREATE INDEX IF NOT EXISTS idx_qa_ts      ON qa_log(ts);
 CREATE INDEX IF NOT EXISTS idx_qa_chat    ON qa_log(chat_jid, ts);
@@ -89,6 +90,8 @@ const MIGRATIONS = [
   ['gap', 'REAL'],
   ['hit_source', 'TEXT'],
   ['route_args', 'TEXT'],
+  // 送达状态。老记录留 NULL（当时没观测），不谎称 delivered。
+  ['ack', 'TEXT'],
 ];
 
 function migrate(db) {
@@ -140,8 +143,8 @@ export function recordQa(rec) {
     db.prepare(
       `INSERT INTO qa_log
          (ts, chat_jid, sender, question, answer, answered, channel, tool, via, ms, lang, degraded,
-          top_base, gap, hit_source, route_args)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          top_base, gap, hit_source, route_args, ack)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       rec.ts || new Date().toISOString(),
       String(rec.chatJid || ''),
@@ -159,7 +162,9 @@ export function recordQa(rec) {
       Number.isFinite(rec.topBase) ? rec.topBase : null,
       Number.isFinite(rec.gap) ? rec.gap : null,
       rec.hitSource || null,
-      rec.routeArgs || null
+      rec.routeArgs || null,
+      // delivered / undelivered；传 undefined 时为 NULL（老口径，未观测）
+      rec.ack || null
     );
     return true;
   } catch {

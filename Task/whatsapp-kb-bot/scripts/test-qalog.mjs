@@ -143,7 +143,7 @@ console.log('\n[4b] 旧库兼容：ALTER 补列（库已在线上跑过，不能
     const probe = new DatabaseSync(DB, { readOnly: true });
     const cols = probe.prepare('PRAGMA table_info(qa_log)').all().map((c) => c.name);
     check(
-      ['top_base', 'gap', 'hit_source', 'route_args'].every((c) => cols.includes(c)),
+      ['top_base', 'gap', 'hit_source', 'route_args', 'ack'].every((c) => cols.includes(c)),
       '缺列已补齐',
       JSON.stringify(cols)
     );
@@ -189,8 +189,55 @@ console.log('\n[4b] 旧库兼容：ALTER 补列（库已在线上跑过，不能
   closeQaLog();
   {
     const probe = new DatabaseSync(DB, { readOnly: true });
-    const r = probe.prepare('SELECT top_base, gap, hit_source, route_args FROM qa_log ORDER BY id DESC LIMIT 1').get();
-    check(r.top_base === null && r.gap === null && r.hit_source === null && r.route_args === null, '  新列全为 null', JSON.stringify(r));
+    const r = probe.prepare('SELECT top_base, gap, hit_source, route_args, ack FROM qa_log ORDER BY id DESC LIMIT 1').get();
+    check(r.top_base === null && r.gap === null && r.hit_source === null && r.route_args === null && r.ack === null, '  新列全为 null', JSON.stringify(r));
+    probe.close();
+  }
+}
+
+console.log('\n[4c] 送达状态：undelivered 可与正常回答区分（2026-10-26 事故）');
+{
+  freshDb();
+  openQaLog(DB);
+  // 模拟「查询成功但没送达」：answered=1，但 ack='undelivered'
+  recordQa({
+    ts: '2026-10-26T10:50:56.000Z',
+    chatJid: 'olr@g.us',
+    sender: '1',
+    question: 'TEL 231773777115',
+    answer: 'XDR CCA: …',
+    answered: true,
+    channel: 'vmaxcca',
+    tool: 'query_vmax_cca',
+    via: 'rule',
+    ms: 4141,
+    lang: 'en',
+    ack: 'undelivered',
+  });
+  recordQa({
+    ts: '2026-10-26T11:35:34.000Z',
+    chatJid: 'olr@g.us',
+    sender: '1',
+    question: 'TEL 231773777115',
+    answer: 'XDR CCA: …',
+    answered: true,
+    channel: 'vmaxcca',
+    tool: 'query_vmax_cca',
+    via: 'rule',
+    ms: 5101,
+    lang: 'en',
+    ack: 'delivered',
+  });
+  closeQaLog();
+  {
+    const probe = new DatabaseSync(DB, { readOnly: true });
+    const und = probe.prepare("SELECT COUNT(*) n FROM qa_log WHERE ack='undelivered'").get().n;
+    const del = probe.prepare("SELECT COUNT(*) n FROM qa_log WHERE ack='delivered'").get().n;
+    check(und === 1, '未送达记录可单独筛出', `undelivered=${und}`);
+    check(del === 1, '已送达记录可单独筛出', `delivered=${del}`);
+    // 关键：两条 answered 都是 1（查询确实成功了），靠 ack 列区分送达与否
+    const both = probe.prepare('SELECT COUNT(*) n FROM qa_log WHERE answered=1').get().n;
+    check(both === 2, '查询成功与否与送达与否是两个独立维度', `answered=1 共 ${both}`);
     probe.close();
   }
 }

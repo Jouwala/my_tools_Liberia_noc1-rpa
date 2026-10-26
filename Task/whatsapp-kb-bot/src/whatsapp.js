@@ -257,9 +257,20 @@ const ACK_DONE = new Set([
   WAMessageStatus.PLAYED,
 ]);
 
-/** 登记一条待回执消息（send() 调用）。 */
-function trackAck(id, jid, text) {
+/**
+ * 登记一条待回执消息。
+ *
+ * @param {string} id message id
+ * @param {string} jid 会话
+ * @param {string} text 正文（只用于未送达日志取片段）
+ * @param {object} [opts]
+ * @param {() => void} [opts.onDelivered] 送达后才执行的副作用（写历史/记账）
+ * @param {object} [opts.undelivered] 未送达时落审计记录用的字段
+ */
+function trackAck(id, jid, text, opts = {}) {
   if (!id) return;
+  if (opts.onDelivered) ackCommitHooks.set(id, opts.onDelivered);
+
   const timer = setTimeout(() => {
     const rec = pendingAcks.get(id);
     if (!rec) return;
@@ -268,14 +279,23 @@ function trackAck(id, jid, text) {
       `[未送达] ${rec.chatJid}：发出 ${Math.round(ACK_TIMEOUT_MS / 1000)}s 无服务端回执` +
         `（msgId=${id}｜${rec.sample}）`
     );
+    // 回执没来 → 那句答案用户很可能没看到，会话历史与「答上了」的记账都要撤回。
+    abortAck(id, rec.undelivered);
   }, ACK_TIMEOUT_MS);
   // 定时器不该拖住进程退出
   timer.unref?.();
-  pendingAcks.set(id, { chatJid: jid, at: Date.now(), timer, sample: String(text).slice(0, ACK_SAMPLE_CHARS) });
+  pendingAcks.set(id, {
+    chatJid: jid,
+    at: Date.now(),
+    timer,
+    sample: String(text).slice(0, ACK_SAMPLE_CHARS),
+    undelivered: opts.undelivered || null,
+  });
   // 防泄漏：正常情况下回执很快到，这里是万一回执永远不来的兜底
   if (pendingAcks.size > 500) {
     const oldest = pendingAcks.keys().next().value;
     clearTimeout(pendingAcks.get(oldest)?.timer);
+    abortAck(oldest, pendingAcks.get(oldest)?.undelivered);
     pendingAcks.delete(oldest);
   }
 }
@@ -286,6 +306,60 @@ function resolveAck(id) {
   if (!rec) return;
   clearTimeout(rec.timer);
   pendingAcks.delete(id);
+}
+
+/**
+ * 未送达消息上的**待撤销动作**：msgId → () => void。
+ *
+ * ## 为什么需要它（2026-10-26 事故的后半个 bug）
+ *
+ * 回答发出后，`rememberTurn` 与 `recordQa` **无条件执行**（原先在 send() 之后
+ * 直接调用）。但 send() 返回只代表「进了加密队列」，不代表送达 —— 于是 10:50
+ * 那条群里没人看到的答案，仍然作为「你看过了」写进了会话历史，下一句追问会
+ * 以它为上下文；qa_log 里也记成 answered=1，报表据此算成功率。
+ *
+ * 现在的处理：发送时把这两个副作用**登记为待定**，收到回执才真正执行
+ * （见 commitAck）。超时未送达则撤销（见 abortAck），并单独记一条
+ * `ack=undelivered` 的记录，让「答对了但没送达」在报表里可区分，而不是
+ * 悄悄算成一次成功回答。
+ */
+const ackCommitHooks = new Map();
+
+/**
+ * 确认送达：执行登记时的副作用（写会话历史 / 记账）。
+ * 没有登记的 id（例如垫话、ping 的回复）直接忽略。
+ */
+function commitAck(id) {
+  const fn = ackCommitHooks.get(id);
+  if (!fn) return;
+  ackCommitHooks.delete(id);
+  try {
+    fn();
+  } catch (err) {
+    // 旁路失败不能反过来影响回复流程
+    log(`[回执] 送达后动作执行失败（msgId=${id}）：${err.message}`);
+  }
+}
+
+/** 未送达：丢弃副作用，并记一条可区分的审计记录。 */
+function abortAck(id, rec) {
+  ackCommitHooks.delete(id);
+  if (!rec) return;
+  reviewUndelivered(rec);
+}
+
+/**
+ * 未送达的答案仍要留痕，但必须与「正常答上了」区分开。
+ *
+ * 为什么不是直接不记：这条答案**查询是成功的**（CCA/TT/知识库都跑了、结论也对），
+ * 只是没能送到用户眼前。完全不记会让「为什么这条没答」无从查起；记成
+ * answered=1 又会让成功率失真。所以记为 `ack='undelivered'`，报表可以单独筛。
+ *
+ * 为什么不写会话历史：用户没看到答案，把它当上下文会让下一句追问建立在
+ * 一段用户从未见过的文字上 —— 这正是本次要修的问题。
+ */
+function reviewUndelivered(rec) {
+  recordQa({ ...rec, ack: 'undelivered' });
 }
 
 /**
@@ -663,7 +737,11 @@ export async function startWhatsApp({ onQuestion, builtins = null }) {
       const id = u?.key?.id;
       if (!id || !u.key?.fromMe) continue;
       const status = u.update?.status;
-      if (status != null && ACK_DONE.has(status)) resolveAck(id);
+      if (status != null && ACK_DONE.has(status)) {
+        resolveAck(id);
+        // 确认送达后才提交副作用（写会话历史 / 记 answered=1）
+        commitAck(id);
+      }
     }
   });
 
@@ -818,13 +896,10 @@ export async function startWhatsApp({ onQuestion, builtins = null }) {
           clearTimeout(pendingTimer);
           pendingTimer = null;
         }
-        await send(chatJid, text2, CONFIG.replyQuote ? msg : undefined);
-        // 记进会话历史，供下一句追问用。答不上来的（answered=false）不记 ——
-        // 「资料里没有」进历史，只会把下一轮也带偏。
-        if (result.answered) rememberTurn(chatJid, question, text2);
-        // 问答记录落盘：**记的是实际发出去的那一条**（text2，已截断），
-        // 不是 result.text —— 分析"用户实际看到了什么"时，截断后的才是真相。
-        recordQa({
+        // 这一条要记的账：**送达之后**才落，没送达就不落（见 ackCommitHooks）。
+        // 原先是在 send() 之后无条件执行的，于是 2026-10-26 那条群里没人看到的
+        // 答案仍然进了会话历史、也在报表里算成一次成功回答。
+        const qaRecord = {
           ts: new Date().toISOString(),
           chatJid,
           sender,
@@ -847,6 +922,17 @@ export async function startWhatsApp({ onQuestion, builtins = null }) {
           // 路由/工具参数 JSON（统计/查表用）。**只存参数，不塞完整工单正文** ——
           // 那是另一条通道的事实，进了 qa 库既占空间又混口径。
           routeArgs: formatRouteArgs(result),
+        };
+        await send(chatJid, text2, CONFIG.replyQuote ? msg : undefined, {
+          // 记进会话历史，供下一句追问用。答不上来的（answered=false）不记 ——
+          // 「资料里没有」进历史，只会把下一轮也带偏。
+          onDelivered: () => {
+            if (result.answered) rememberTurn(chatJid, question, text2);
+            // 问答记录落盘：**记的是实际发出去的那一条**（text2，已截断），
+            // 不是 result.text —— 分析"用户实际看到了什么"时，截断后的才是真相。
+            recordQa({ ...qaRecord, ack: 'delivered' });
+          },
+          undelivered: qaRecord,
         });
         log(
           `[回复] ${Date.now() - t0}ms｜命中=${result.answered}` +
@@ -908,7 +994,13 @@ export async function startWhatsApp({ onQuestion, builtins = null }) {
    */
   const liveSock = () => activeSock || sock;
 
-  async function send(jid, text, quotedMsg) {
+  /**
+   * @param {string} jid
+   * @param {string} text
+   * @param {object} [quotedMsg]
+   * @param {object} [ackOpts] 见 trackAck —— 送达后才执行的副作用
+   */
+  async function send(jid, text, quotedMsg, ackOpts) {
     if (!text) return;
     const s = liveSock();
     try {
@@ -917,7 +1009,7 @@ export async function startWhatsApp({ onQuestion, builtins = null }) {
       if (sent?.key?.id) {
         botMessageIds.add(sent.key.id);
         // 只拿到 message id 不代表送达 —— 登记后由 messages.update 回执确认。
-        trackAck(sent.key.id, jid, text);
+        trackAck(sent.key.id, jid, text, ackOpts);
       }
       return sent;
     } catch (err) {
