@@ -41,10 +41,11 @@ def query_user_info(
     end: Optional[str] = Query(
         None, description="窗口终点 YYYY-MM-DD[ HH:MM:SS]，缺省起点当天 23:59:00"),
 ):
-    """输入号码 + 时间窗，返回用户信息（含 IMSI）、终端信息、窗口内流量与驻留小区。
+    """输入号码 + 时间窗，返回用户信息（含 IMSI）、终端信息、窗口内流量、驻留小区与投诉根因。
 
     found=False 表示 VMAX 查无此号（业务正常，返回 200，由前端展示空态）。
-    flow / cells 为 None 表示该窗口无数据（DPI / usertrack 无记录），同样是业务正常。
+    flow / cells / causes 为 None 表示该窗口无对应数据（DPI / usertrack / getcause
+    无记录或模型未命中），同样是业务正常；分项查询失败只记入 failures，不影响 HTTP 状态。
     """
     normalized = normalize_msisdn(msisdn)
     if not re.fullmatch(r"\d{5,20}", normalized):

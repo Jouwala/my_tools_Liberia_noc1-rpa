@@ -56,6 +56,7 @@ import {
   SolutionOutlined,
   ScheduleOutlined,
   MobileOutlined,
+  PartitionOutlined,
 } from '@ant-design/icons'
 import zhCN from 'antd/locale/zh_CN'
 import enUS from 'antd/locale/en_US'
@@ -125,6 +126,8 @@ const EflowQa = lazy(() => import('./pages/EflowQa'))
 const EflowFlow = lazy(() => import('./pages/EflowFlow'))
 // VMAX 用户信息查询（CCA 投诉系统按号码查 IMSI/终端，2026-10-24）
 const VmaxUserQuery = lazy(() => import('./pages/VmaxUserQuery'))
+// VMAX 信令详单（Talon XDR 合并表，按号码逐条查，2026-10-26）
+const VmaxXdrQuery = lazy(() => import('./pages/VmaxXdrQuery'))
 const SiteAvailability = lazy(() => import('./pages/SiteAvailability'))
 // 可用率多维矩阵：区域/制式/站点类型 × 日/周/月（读本机派生库 avail_recon.sqlite3）
 const AvailMs = lazy(() => import('./pages/AvailMs'))
@@ -185,9 +188,9 @@ const FINEBI_PAGE_TO_SLUG: Record<string, string> = Object.fromEntries(
   FINEBI_BOARDS.map((b) => [`finebi_${b.slug}`, b.slug]),
 )
 
-type PageKey = 'overview' | 'tables' | 'upload' | 'dashboard' | 'alarm' | 'ttwo' | 'v1_ttwo' | 'tt' | 'wo' | 'gis' | 'realtime_alarm' | 'packet_loss' | 'archive' | 'sync' | 'warehouse' | 'sp_material' | 'sp_details' | 'sp_report' | 'com_report' | 'warehouse_summary' | 'ms_wo_sla' | 'ms_contract_kpi' | 'battery' | 'person' | 'settings' | 'ip_trace' | 'incident_overview' | 'nur' | 'ms_sla' | 'ms_nur_only' | 'ms_sla_only' | 'alarmManagement' | 'cxoDashboard' | 'vmaxCxoDashboard' | 'vmaxCxoDashboard_Daily' | 'vmaxCxoDashboard_90Days' | 'imonitor' | 'email_reports' | 'mwUmeTopology' | 'mwRealTime' | 'portalLogin' | 'eflow_qa' | 'eflow_flow' | 'site_avail' | 'avail_ms' | 'avail_flm' | 'fme_ranking' | 'noc_analyst' | 'repeat_site_down' | 'cr_analysis' | 'pm_analysis' | 'ran_cells_kpi' | 'bm_speedtest' | 'bm_meta' | 'bp_report' | 'cn_kpi' | 'cn_kpi_5mins' | 'ume_in_kpi' | 'vmax_user_query' | 'feedback' | 'help' | `finebi_${string}`
+type PageKey = 'overview' | 'tables' | 'upload' | 'dashboard' | 'alarm' | 'ttwo' | 'v1_ttwo' | 'tt' | 'wo' | 'gis' | 'realtime_alarm' | 'packet_loss' | 'archive' | 'sync' | 'warehouse' | 'sp_material' | 'sp_details' | 'sp_report' | 'com_report' | 'warehouse_summary' | 'ms_wo_sla' | 'ms_contract_kpi' | 'battery' | 'person' | 'settings' | 'ip_trace' | 'incident_overview' | 'nur' | 'ms_sla' | 'ms_nur_only' | 'ms_sla_only' | 'alarmManagement' | 'cxoDashboard' | 'vmaxCxoDashboard' | 'vmaxCxoDashboard_Daily' | 'vmaxCxoDashboard_90Days' | 'imonitor' | 'email_reports' | 'mwUmeTopology' | 'mwRealTime' | 'portalLogin' | 'eflow_qa' | 'eflow_flow' | 'site_avail' | 'avail_ms' | 'avail_flm' | 'fme_ranking' | 'noc_analyst' | 'repeat_site_down' | 'cr_analysis' | 'pm_analysis' | 'ran_cells_kpi' | 'bm_speedtest' | 'bm_meta' | 'bp_report' | 'cn_kpi' | 'cn_kpi_5mins' | 'ume_in_kpi' | 'vmax_user_query' | 'vmax_xdr_query' | 'feedback' | 'help' | `finebi_${string}`
 
-const VALID_PAGES: PageKey[] = ['overview', 'tables', 'upload', 'dashboard', 'alarm', 'ttwo', 'v1_ttwo', 'tt', 'wo', 'gis', 'realtime_alarm', 'packet_loss', 'archive', 'sync', 'warehouse', 'sp_material', 'sp_details', 'sp_report', 'com_report', 'warehouse_summary', 'ms_wo_sla', 'ms_contract_kpi', 'battery', 'person', 'settings', 'ip_trace', 'incident_overview', 'nur', 'ms_sla','ms_nur_only', 'ms_sla_only', 'alarmManagement', 'cxoDashboard', 'vmaxCxoDashboard', 'vmaxCxoDashboard_Daily', 'vmaxCxoDashboard_90Days', 'imonitor', 'email_reports', 'mwUmeTopology', 'mwRealTime', 'portalLogin', 'eflow_qa', 'eflow_flow', 'site_avail', 'avail_ms', 'avail_flm', 'fme_ranking', 'noc_analyst', 'repeat_site_down', 'cr_analysis', 'pm_analysis', 'ran_cells_kpi', 'bm_speedtest', 'bm_meta', 'bp_report', 'cn_kpi', 'cn_kpi_5mins', 'ume_in_kpi', 'vmax_user_query', 'feedback', 'help', ...FINEBI_BOARDS.map((b) => `finebi_${b.slug}` as PageKey)]
+const VALID_PAGES: PageKey[] = ['overview', 'tables', 'upload', 'dashboard', 'alarm', 'ttwo', 'v1_ttwo', 'tt', 'wo', 'gis', 'realtime_alarm', 'packet_loss', 'archive', 'sync', 'warehouse', 'sp_material', 'sp_details', 'sp_report', 'com_report', 'warehouse_summary', 'ms_wo_sla', 'ms_contract_kpi', 'battery', 'person', 'settings', 'ip_trace', 'incident_overview', 'nur', 'ms_sla','ms_nur_only', 'ms_sla_only', 'alarmManagement', 'cxoDashboard', 'vmaxCxoDashboard', 'vmaxCxoDashboard_Daily', 'vmaxCxoDashboard_90Days', 'imonitor', 'email_reports', 'mwUmeTopology', 'mwRealTime', 'portalLogin', 'eflow_qa', 'eflow_flow', 'site_avail', 'avail_ms', 'avail_flm', 'fme_ranking', 'noc_analyst', 'repeat_site_down', 'cr_analysis', 'pm_analysis', 'ran_cells_kpi', 'bm_speedtest', 'bm_meta', 'bp_report', 'cn_kpi', 'cn_kpi_5mins', 'ume_in_kpi', 'vmax_user_query', 'vmax_xdr_query', 'feedback', 'help', ...FINEBI_BOARDS.map((b) => `finebi_${b.slug}` as PageKey)]
 
 /* ==================== 自动刷新（大屏 / NOC 值班场景） ====================
  * 背景：各页面此前只在挂载时拉取一次数据（legacy iframe 页面同样只在 onload
@@ -451,6 +454,7 @@ const PAGE_META: Record<PageKey, { icon: ReactNode; labelKey: string }> = {
   cn_kpi_5mins: { icon: <FieldTimeOutlined />, labelKey: 'nav.cnKpi5mins' },
   ume_in_kpi: { icon: <DotChartOutlined />, labelKey: 'nav.umeInKpi' },
   vmax_user_query: { icon: <MobileOutlined />, labelKey: 'nav.vmaxUserQuery' },
+  vmax_xdr_query: { icon: <PartitionOutlined />, labelKey: 'nav.vmaxXdrQuery' },
   cxoDashboard: { icon: <PieChartOutlined />, labelKey: 'nav.cxoDashboard' },
   vmaxCxoDashboard: { icon: <DashboardOutlined />, labelKey: 'nav.vmaxCxoDashboard' },
   vmaxCxoDashboard_Daily: { icon: <LineChartOutlined />, labelKey: 'nav.vmaxCxoDashboardDaily' },
@@ -501,7 +505,7 @@ const DEFAULT_GROUPS: { key: string; labelKey: string; items: PageKey[] }[] = [
   {
     key: 'grp_network',
     labelKey: 'nav.grp.network',
-    items: ['mwUmeTopology', 'mwRealTime', 'gis', 'realtime_alarm', 'person', 'packet_loss', 'battery', 'ip_trace', 'vmax_user_query', 'bm_speedtest', 'bm_meta'],
+    items: ['mwUmeTopology', 'mwRealTime', 'gis', 'realtime_alarm', 'person', 'packet_loss', 'battery', 'ip_trace', 'vmax_user_query', 'vmax_xdr_query', 'bm_speedtest', 'bm_meta'],
   },
   {
     key: 'grp_analysis',
@@ -1408,6 +1412,8 @@ function AppContent() {
         return <EflowFlow />
       case 'vmax_user_query':
         return <VmaxUserQuery />
+      case 'vmax_xdr_query':
+        return <VmaxXdrQuery />
       case 'nur':
         return <NurDashboard />
       case 'ms_sla':

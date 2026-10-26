@@ -214,6 +214,20 @@ export function vmaxCcaQuery(msisdn: string, start?: string, end?: string) {
   return api.get('/vmax-cca-query', { params: { msisdn, start, end } })
 }
 
+// ========== VMAX 信令详单（Talon XDR 合并表）==========
+// 新增于 2026-10-26；对应后端 routers/vmax_xdr_query.py（只读透传不落库、不缓存）
+// service_type：1100 / 1300 / 1301（以 /vmax-xdr-query/services 返回为准）
+export function vmaxXdrServices() {
+  return api.get('/vmax-xdr-query/services')
+}
+
+export function vmaxXdrQuery(params: {
+  msisdn: string; service_type: string; start?: string; end?: string
+  page?: number; page_size?: number
+}) {
+  return api.get('/vmax-xdr-query', { params })
+}
+
 export function getNocAnalystReport(params?: Record<string, string | number>) {
   return api.get('/eflow-qa/_tt_postmortem_noc', { params })
 }

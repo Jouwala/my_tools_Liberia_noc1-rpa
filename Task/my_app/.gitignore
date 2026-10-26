@@ -186,3 +186,10 @@ _probe_file.txt
 /backend/services/eflow_rules/eflow_push_rules_check*.xlsx
 /backend/services/eflow_rules/eflow_push_rules_check_latest.json
 /backend/services/eflow_rules/push_rules_snapshots/
+
+# VMAX / Talon 浏览器抓包（curl 导出，含 JSESSIONID 会话 cookie）——
+# 2026-10-26：url2.txt 是 Talon XDR 协议复刻的一手依据，但内容含有效会话凭据，
+# 按 AGENTS.md 四.2「绝不写敏感值」禁止入库；后续新抓包同样按此规则。
+# ⚠ 同目录 url.txt（已入库）是历史遗留，待另行清理，不在本规则覆盖范围内。
+/backend/services/vmax_cca/url*.txt
+!/backend/services/vmax_cca/url.txt

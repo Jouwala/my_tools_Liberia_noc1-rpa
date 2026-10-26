@@ -63,17 +63,43 @@
 
 `data` 是扁平对象，数组型字段（`*_arr`）直接渲染即可。
 
-### getcause（未接，仅记录）
+### getcause —— 窗口内投诉根因（2026-10-25 接入）
 
-`{"imsi", "rattype", "servicetype", "starttime", "endtime", "model_id"}`，
-是小区维度的投诉根因列表（前端用它做 Top 根因/GIS 联动），与"用户信息"无关，不进查询页。
+明文参数：`{imsi, rattype: 0, servicetype: 1, starttime, endtime, model_id: "1"}`。
+
+⚠️ **`model_id` 必须传 `"1"`（默认分析模型）**：空串时上游恒返回
+`{"msg": "cause info is null", "status": 1, "data": []}`（2026-10-25 实测）。
+大窗口（7 天级）上游会读超时（60s），由 query() 记入 failures 不阻断其它分项。
+
+实测响应（真号 2026-10-24 全天，59 条根因）：
+
+```json
+{"status": 0, "data": [{
+  "rule_name": "Downlink weak coverage(cell) ",
+  "object_type": "CELL(4G)", "object_name": "Thinker Village-X2",
+  "objectinfo": "4559_42", "ne_id": "461807001167146",
+  "confidence": "90%",                       // 客户端去 % 转 float，列表按其降序
+  "description": "Poor Quality Period:2026-10-24 03:00,Cell Dlweakcover MRs Ratio:...",
+  "solution": "1.Adjusting a tilt of the Serving Cell;2...",   // 处理建议，高价值
+  "vendor": "ZTE", "province": "Montserrado", "city": "Montserrado",
+  "poortime": "2026-10-24 03:00,...", "kqicode": "ppd6-2-1-1-2",
+  "appInfo": [{"clttime": "...", "judgeInfo": "Cell Dlweakcover MRs Ratio:12.33%,..."}]
+}]}
+```
+
+客户端归一为 `[{rule_name, object_*, confidence, description, solution, vendor,
+province, city, poortime, kqicode, app_info: [{clttime, judge}]}]`。
+
+### rule/node（未接）
+
+定界规则树（CN/UPF/Video/Perception… 静态配置，14KB），非用户维度数据，不接。
 
 ### 已知扩展面板（未接）
 
-`userinfo/query_speedlimit`（限速）、`userinfo/query_tethering`（热点共享）、`vs/userinfo`；
-`getcause`（投诉根因，参数 `{imsi, rattype, servicetype, starttime, endtime, model_id}`，
-真号样本返回空 `cause info is null`，命中时的嵌套结构未采集到，暂不接）与
-`rule/node`（定界规则树，静态配置非用户数据）也未接，需要时按同一信封补充。
+`userinfo/query_speedlimit`（限速）、`userinfo/query_tethering`（热点共享）、
+`vs/userinfo` 需要时按同一信封补充。url.txt 抓包里其余非静态请求（门户 notice/theme/
+鉴权、talon XDR 框架的 get_config_info/decrypt_param、webgis 地图密钥）均为平台框架
+基础设施调用，与用户数据无关，不接。
 
 ### flowinfo/query_flow —— 窗口内按应用流量
 
@@ -113,6 +139,8 @@
 ### 时间窗约定（normalize_window）
 
 CCA 投诉页按天查询：`starttime="YYYY-MM-DD 00:00:00"`、`endtime="YYYY-MM-DD 23:59:00"`。
+本页时间选择器**精确到分钟**（5 分钟步进），带时分的时间原样透传；
+只给日期时自动补 CCA 日界 00:00:00 / 23:59:59。
 `query_terminal` 的 starttime 用窗口起点（今天/昨天/7 天前实测返回同一份终端数据）。
 窗口跨度上限 31 天（`MAX_WINDOW_DAYS`，大窗口上游明显变慢且无意义）。
 
@@ -144,3 +172,30 @@ result = client.query("231777777322", "2026-10-23", "2026-10-23")
 
 号码归一化（客户端内做，`normalize_msisdn`）：只剔除空格/横线/括号/`+`
 等分隔符，**前缀原样透传**（服务端只认 `231` 开头完整号码，见第 2 节实测）。
+
+---
+
+# VMAX 信令详单（vmax_xdr_client）
+
+与上面 CCA 用户查询**同主机、同门户会话、同 RSA 公钥**，但接口属于 Talon XDR
+框架（`/rdk/service/app/talon/xdr/...`），是另一套业务。2026-10-26 接入。
+
+- 客户端：`vmax_xdr_client.py`（头注释有完整协议与踩坑清单）
+- 路由：`routers/vmax_xdr_query.py` → `GET /api/vmax-xdr-query`
+- 页面：`vmax_xdr_query`（`frontend/src/pages/VmaxXdrQuery.tsx`）
+
+**与 CCA 的三处关键差异**（都在 `vmax_xdr_client.py` 头注释里详述）：
+
+1. 查询走**合并表** `exec_merge_query`，不是 `exec_query` 分表；
+2. `XDRTable` 必须**空串**、`serviceName` 固定 `"xdr_query"` —— 填表名恒返回
+   `3100100303 Query no data`；
+3. 时间参数是**毫秒边界** `YYYY-MM-DD HH:MM:SS.000`，CCA 是秒级。
+
+**已接入的 serviceType**：`1100`（5G 会话）、`1300`（信令面）、
+`1301`（用户面业务）。`32/33/34`（数据面）用另一套字段
+（`btime` + `User Number`），实测 `3100100314`，**未接**。
+
+**会话纪律**：`VmaxXdrClient` 内部持 `VmaxCcaClient` 的锁与 session，**不自行登录**。
+2026-10-26 排查时反复登录触发过
+`The maximum number of connections for the user is reached`，会短时影响 CCA 页——
+上游按用户限并发，任何新增查询都必须复用同一会话。

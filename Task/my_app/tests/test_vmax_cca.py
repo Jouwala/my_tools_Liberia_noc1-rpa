@@ -426,8 +426,8 @@ def test_query_with_window():
         check("cells 命中且 KPI 已映射",
               r["cells"]["cell_kpi"]["1"][0]["name"] == "KPI One")
         check("failures 为空", r["failures"] == [])
-        # 调用序列 = 登录两步 + 用户/终端/流量/小区/KPI字典 共 7 次
-        check("调用序列 = 登录2 + 业务5", len(client.session.calls) == 7,
+        # 调用序列 = 登录两步 + 用户/终端/流量/小区/KPI字典/根因 共 8 次
+        check("调用序列 = 登录2 + 业务6", len(client.session.calls) == 8,
               "calls=%d" % len(client.session.calls))
     finally:
         _restore_credential_store(orig)
@@ -453,6 +453,42 @@ def test_query_with_window():
         _restore_credential_store(orig)
 
 
+# ---------------------------------------------------------------- 11. getcause 根因
+def test_query_causes():
+    section("11. getcause 根因分析")
+    hit = FakeResponse(200, {"msg": "cause info fetched success", "status": 0, "data": [
+        {"rule_name": "Downlink weak coverage(cell)", "confidence": "80%",
+         "object_name": "CellA", "object_type": "CELL(4G)", "objectinfo": "4559_42",
+         "description": "Poor Quality Period:...", "solution": "Adjust tilt",
+         "vendor": "ZTE", "province": "Montserrado", "city": "Montserrado",
+         "poortime": "2026-10-24 03:00", "kqicode": "ppd6-2-1-1-2",
+         "appInfo": [{"clttime": "2026-10-24 03:00", "judgeInfo": "Ratio:12.33%"}]},
+        {"rule_name": "PRB usage high", "confidence": "100%",
+         "object_name": "CellB", "object_type": "CELL(4G)", "objectinfo": "1_1",
+         "description": "d2", "solution": "Load balancing", "vendor": "ZTE",
+         "appInfo": []},
+    ]})
+    window = {"starttime": "2026-10-24 00:00:00", "endtime": "2026-10-24 23:59:00"}
+    client, orig = _make_client(responses=[hit])
+    try:
+        cs = client.query_causes("618070109668163", window)
+        check("根因列表归一", cs is not None and len(cs) == 2)
+        check("按置信度降序", cs[0]["confidence"] == 100.0 and cs[1]["confidence"] == 80.0)
+        check("置信度去 % 转数值", isinstance(cs[1]["confidence"], float))
+        check("appInfo 归一为 app_info", cs[1]["app_info"][0]["judge"] == "Ratio:12.33%")
+        url = client.session.calls[-1]["url"]
+        check("请求发出（model_id 在密文内不可见，只验证路径）", "getcause" in url)
+    finally:
+        _restore_credential_store(orig)
+
+    empty = FakeResponse(200, {"msg": "cause info is null", "status": 1, "data": []})
+    client, orig = _make_client(responses=[empty])
+    try:
+        check("无根因 -> None", client.query_causes("618070109668163", window) is None)
+    finally:
+        _restore_credential_store(orig)
+
+
 if __name__ == "__main__":
     test_normalize()
     test_envelope()
@@ -464,6 +500,7 @@ if __name__ == "__main__":
     test_normalize_window()
     test_flow_and_cells()
     test_query_with_window()
+    test_query_causes()
     if "--live" in sys.argv:
         idx = sys.argv.index("--live")
         live_msisdn = sys.argv[idx + 1] if len(sys.argv) > idx + 1 else "777123456"

@@ -30,7 +30,7 @@ import json
 import logging
 import re
 import threading
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import requests
 
@@ -47,6 +47,10 @@ QUERY_TERMINAL_PATH = "/vmax/cca/view/userinfo/query_terminal"
 QUERY_FLOW_PATH = "/vmax/cca/view/flowinfo/query_flow"
 QUERY_CELL_PATH = "/vmax/cca/view/usertrack/query_cell"
 KPI_DICT_PATH = "/vmax/cca/view/global/kpi_popup/query_kpi"
+QUERY_CAUSE_PATH = "/vmax/cca/view/getcause"
+# 根因分析模型 id（2026-10-25 实测：model_id 为空串时上游恒返回 "cause info is null"，
+# 传 "1" 即出全量根因；CCA 前端由页面模型下拉选择，本页固定用默认模型）
+CCA_CAUSE_MODEL_ID = "1"
 
 # 时间窗参数（2026-10-24 从 CCA 前端 main.js 复刻 + 真号实测，见 README 第 2 节）：
 # CCA 投诉页按「天」查询，starttime/endtime 是 "YYYY-MM-DD HH:MM:SS" 全格式，
@@ -362,6 +366,49 @@ class VmaxCcaClient:
             cell_kpi[str(cell)] = items
         return {"cells": track, "cell_kpi": cell_kpi}
 
+    # ---------- 根因分析（getcause）----------
+    def query_causes(self, imsi: str, window: Dict[str, str]) -> Optional[List[Dict[str, Any]]]:
+        """IMSI + 时间窗 -> 投诉根因列表（规则名/置信度/劣化明细/处理建议）。
+
+        ⚠ `model_id` 必须传 "1"（默认分析模型）：空串时上游恒返回
+        "cause info is null"（2026-10-25 实测）。大窗口（7 天级）上游会超时，
+        由 query() 记入 failures 不阻断其它数据。按置信度降序。
+        """
+        payload = self._get(QUERY_CAUSE_PATH, {
+            "imsi": imsi, "rattype": CCA_RATTYPE_ALL, "servicetype": CCA_SERVICE_DATA,
+            "starttime": window["starttime"], "endtime": window["endtime"],
+            "model_id": CCA_CAUSE_MODEL_ID})
+        data = payload.get("data")
+        if payload.get("status") != 0 or not isinstance(data, list) or not data:
+            return None
+        causes = []
+        for row in data:
+            if not isinstance(row, dict):
+                continue
+            try:
+                confidence = float(str(row.get("confidence", "0")).rstrip("%") or 0)
+            except ValueError:
+                confidence = 0.0
+            causes.append({
+                "rule_name": str(row.get("rule_name") or ""),
+                "object_type": str(row.get("object_type") or ""),
+                "object_name": str(row.get("object_name") or ""),
+                "objectinfo": str(row.get("objectinfo") or ""),
+                "confidence": confidence,
+                "description": str(row.get("description") or ""),
+                "solution": str(row.get("solution") or ""),
+                "vendor": str(row.get("vendor") or ""),
+                "province": str(row.get("province") or ""),
+                "city": str(row.get("city") or ""),
+                "poortime": str(row.get("poortime") or ""),
+                "kqicode": str(row.get("kqicode") or ""),
+                "app_info": [{"clttime": str(a.get("clttime") or ""),
+                              "judge": str(a.get("judgeInfo") or "")}
+                             for a in (row.get("appInfo") or []) if isinstance(a, dict)],
+            })
+        causes.sort(key=lambda c: (-c["confidence"], c["rule_name"]))
+        return causes
+
     def query(self, msisdn: str, start: Any = None,
               end: Any = None) -> Dict[str, Any]:
         """完整查询：用户信息 + 终端 + 窗口内流量 + 驻留小区。
@@ -372,30 +419,28 @@ class VmaxCcaClient:
         msisdn = normalize_msisdn(msisdn)
         window = normalize_window(start, end)
         user_result = self.query_user(msisdn)
-        flow = cells = None
+        sections: Dict[str, Any] = {"flow": None, "cells": None, "causes": None}
         failures: list = []
         terminal = None
         if user_result["found"]:
             imsi = user_result["imsi_arr"][0] if user_result["imsi_arr"] else ""
             terminal = self.query_terminal(user_result["imsi_arr"], window["starttime"])
             if imsi:
-                for name, fn in (("flow", self.query_flow), ("cells", self.query_cells)):
+                # causes 放最后：大窗口时它最慢，超时只影响自己（记入 failures）
+                for name, fn in (("flow", self.query_flow), ("cells", self.query_cells),
+                                 ("causes", self.query_causes)):
                     try:
-                        result = fn(imsi, window)
-                        if name == "flow":
-                            flow = result
-                        else:
-                            cells = result
+                        sections[name] = fn(imsi, window)
                     except VmaxCcaError as exc:
-                        # flow/cells 是锦上添花：此处失败不阻断已到手的用户/终端信息
+                        # 各分项是锦上添花：此处失败不阻断已到手的用户/终端信息
                         # （会话级故障同理——用户信息既然已取到，说明登录是好的）
                         failures.append("%s: %s" % (name, exc))
                         logger.warning("[vmax_cca] %s %s 查询失败: %s",
                                        name, _mask(msisdn), exc)
         return {"msisdn": msisdn, "found": user_result["found"],
                 "user": user_result["user"], "terminal": terminal,
-                "window": window, "flow": flow, "cells": cells,
-                "failures": failures, "msg": user_result["msg"]}
+                "window": window, "failures": failures,
+                "msg": user_result["msg"], **sections}
 
 
 _default_client: Optional[VmaxCcaClient] = None

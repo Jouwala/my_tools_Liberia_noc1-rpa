@@ -1,6 +1,6 @@
 # my_app User Help & Guide
 
-> User-facing platform features & operations guide. Generated from the same source as the in-app Help page (frontend/src/helpMarkdown.ts), compiled from docs/manual/ and backend/task_registry.py. Generated on 2026-10-24.
+> User-facing platform features & operations guide. Generated from the same source as the in-app Help page (frontend/src/helpMarkdown.ts), compiled from docs/manual/ and backend/task_registry.py. Generated on 2026-10-26.
 
 > In-app entry: the "Help" sidebar item, or `http://<host>/myapp/?page=help` directly.
 
@@ -2107,11 +2107,24 @@ IP trace: probe link connectivity and path nodes from the server side to a targe
 VMAX user info query: enter a subscriber number and time window to look up subscriber info (IMSI/MSISDN mapping), terminal info (IMEI/model/vendor/operator), per-app traffic and camped cells (with per-cell KPI details) from the VMAX CCA complaint system.
 
 - Use the full number with the 231 prefix (e.g. 231777777322), digits only; the local 9-digit format is not matched upstream (verified 2026-10-24)
-- Time window defaults to today, max span 31 days, no future dates; traffic and camped cells follow the window, subscriber/terminal info does not
+- Time window is minute-precise (5-minute step), defaulting to today 00:00 through now, max span 31 days, no future times; traffic and camped cells follow the window, subscriber/terminal info does not
 - "Not found" and empty traffic are normal business responses, not failures; on API errors first check that the vmax_cca group in Settings → Credential Management has an account and password
 - Click KPI in a camped-cell row for that cell's indicator details (ppc codes mapped to KPI names; unmapped codes shown raw)
+- The Root Cause card lists complaint causes in the window (confidence descending); click Details for degradation, suggested solution and per-period judgments; this query may time out on large windows (7-day scale) without affecting other cards
 - Queries go through a VMAX portal session (serialized reuse); avoid rapid repeated clicks to keep the upstream session free
 - Results are read-only passthrough, nothing is persisted; refreshing the page clears them
+
+#### vmax_xdr_query（`vmax_xdr_query`）
+
+VMAX XDR records: enter a subscriber number and time window to query per-record signaling detail (merged table) from the Talon XDR platform. Complements "VMAX User Query", which gives the subscriber profile and root-cause summary — this page gives raw records drillable down to a single session/procedure.
+
+- Use the full number with the 231 prefix (e.g. 231773777115), digits only
+- Query types currently supported: 5G Session (1100), Signaling Plane (1300), User Plane Services (1301); the data-plane types (32/33/34) use a different upstream parameter set and are not wired yet
+- Time window defaults to the last 24 hours, max 72 hours; XDR volume is large (tens of thousands of records per day), so wider windows are slower
+- Column titles are generated dynamically from the upstream header; different query types have different column counts (59~88), so the table scrolls horizontally with the first column frozen
+- "No records of this type in the window" is a normal business result, not a failure; on errors first check that the vmax_cca group in Settings → Credential Management is usable
+- Shares the same portal session with "VMAX User Query" — avoid heavy simultaneous clicking on both
+- Results are read-only passthrough, nothing is persisted or cached; refreshing the page clears them
 
 ### 4.4 System
 

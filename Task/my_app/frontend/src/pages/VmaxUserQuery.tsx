@@ -29,6 +29,13 @@ const { RangePicker } = DatePicker
 
 type KpiItem = { code: string; name: string; value: unknown }
 
+type CauseItem = {
+  rule_name: string; object_type: string; object_name: string; objectinfo: string
+  confidence: number; description: string; solution: string; vendor: string
+  province: string; city: string; poortime: string; kqicode: string
+  app_info: { clttime: string; judge: string }[]
+}
+
 type CellRecord = {
   cellname?: string; vendor?: string; pci?: number; earfcn?: string
   celllat?: number; celllon?: number; azimuth?: number; height?: number
@@ -43,6 +50,7 @@ type QueryResult = {
   window?: { starttime: string; endtime: string }
   flow?: { total_flux: string; apps: unknown[] } | null
   cells?: { cells: CellRecord[]; cell_kpi: Record<string, KpiItem[]> } | null
+  causes?: CauseItem[] | null
   failures?: string[]
   msg: string
 }
@@ -93,6 +101,10 @@ export default function VmaxUserQuery() {
   const [kpiCell, setKpiCell] = useState<CellRecord | null>(null)
   const [kpiItems, setKpiItems] = useState<KpiItem[]>([])
   const [kpiAnchor, setKpiAnchor] = useState<{ x: number; y: number } | null>(null)
+
+  // 根因详情弹窗
+  const [causeOpen, setCauseOpen] = useState(false)
+  const [causeItem, setCauseItem] = useState<CauseItem | null>(null)
 
   const run = useCallback(async (raw: string) => {
     const q = raw.trim()
@@ -179,6 +191,33 @@ export default function VmaxUserQuery() {
       render: fmt },
     { title: t('vmaxq.kpiCode'), dataIndex: 'code', width: 150, ellipsis: true,
       render: (v: string) => <Text type="secondary" style={{ fontSize: 12 }}>{v}</Text> },
+  ], [t])
+
+  /* ---- 根因分析表列 ---- */
+  const causes = result?.causes || []
+  const causeColumns = useMemo(() => [
+    {
+      title: t('vmaxq.cause.confidence'), dataIndex: 'confidence', width: 90,
+      render: (v: number) => (
+        <Tag color={v >= 90 ? 'red' : v >= 60 ? 'orange' : 'default'}>{v}%</Tag>
+      ),
+      sorter: (a: CauseItem, b: CauseItem) => a.confidence - b.confidence,
+    },
+    { title: t('vmaxq.cause.rule'), dataIndex: 'rule_name', ellipsis: true },
+    {
+      title: t('vmaxq.cause.object'), key: 'obj', width: 190, ellipsis: true,
+      render: (_: unknown, r: CauseItem) => r.object_name || r.objectinfo || '—',
+    },
+    { title: t('vmaxq.cause.poortime'), dataIndex: 'poortime', width: 150, ellipsis: true,
+      render: fmt },
+    {
+      title: t('vmaxq.cause.detail'), key: 'act', width: 80,
+      render: (_: unknown, r: CauseItem) => (
+        <Button type="link" size="small" onClick={() => { setCauseItem(r); setCauseOpen(true) }}>
+          {t('vmaxq.cause.detail')}
+        </Button>
+      ),
+    },
   ], [t])
 
   const flowApps = result?.flow?.apps || []
@@ -348,6 +387,27 @@ export default function VmaxUserQuery() {
               <Text type="secondary">{t('vmaxq.noCells')}</Text>
             )}
           </CardBase>
+
+          <CardBase title={t('vmaxq.causesCard')}>
+            {causes.length ? (
+              <>
+                <div style={{ marginBottom: 8 }}>
+                  <Tag color="red">{t('vmaxq.causeCount', { n: causes.length })}</Tag>
+                  <Text type="secondary" style={{ fontSize: 12 }}>{t('vmaxq.causesHint')}</Text>
+                </div>
+                <Table
+                  rowKey={r => `${r.kqicode}-${r.objectinfo}-${r.poortime}`}
+                  columns={causeColumns}
+                  dataSource={causes}
+                  pagination={{ pageSize: 10, showSizeChanger: true }}
+                  size="small"
+                  scroll={{ x: 760 }}
+                />
+              </>
+            ) : (
+              <Text type="secondary">{t('vmaxq.noCauses')}</Text>
+            )}
+          </CardBase>
         </>
       )}
 
@@ -381,6 +441,56 @@ export default function VmaxUserQuery() {
           />
         ) : (
           <Text type="secondary">{t('vmaxq.noKpi')}</Text>
+        )}
+      </DraggableClickModal>
+
+      {/* ⑨ 根因详情弹窗（劣化描述 + 处理建议 + 逐时段明细） */}
+      <DraggableClickModal
+        open={causeOpen}
+        title={causeItem?.rule_name || t('vmaxq.causesCard')}
+        onClose={() => setCauseOpen(false)}
+      >
+        {causeItem && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12, minWidth: 380 }}>
+            <Descriptions size="small" bordered column={1} items={[
+              { key: 'conf', label: t('vmaxq.cause.confidence'),
+                children: <Tag color={causeItem.confidence >= 90 ? 'red' : 'orange'}>
+                  {causeItem.confidence}%</Tag> },
+              { key: 'obj', label: t('vmaxq.cause.object'),
+                children: `${causeItem.object_name}（${causeItem.object_type}）` },
+              { key: 'area', label: t('vmaxq.cause.area'),
+                children: [causeItem.province, causeItem.city, causeItem.vendor]
+                  .filter(Boolean).join(' / ') || '—' },
+              { key: 'poor', label: t('vmaxq.cause.poortime'),
+                children: fmt(causeItem.poortime) },
+            ]} />
+            <div>
+              <Text strong>{t('vmaxq.cause.description')}</Text>
+              <div style={{ marginTop: 4, whiteSpace: 'pre-wrap' }}>{causeItem.description}</div>
+            </div>
+            {causeItem.solution && (
+              <div>
+                <Text strong>{t('vmaxq.cause.solution')}</Text>
+                <div style={{ marginTop: 4, whiteSpace: 'pre-wrap' }}>{causeItem.solution}</div>
+              </div>
+            )}
+            {!!causeItem.app_info.length && (
+              <div>
+                <Text strong>{t('vmaxq.cause.timeline')}</Text>
+                <Table
+                  style={{ marginTop: 4 }}
+                  rowKey={r => r.clttime + r.judge}
+                  columns={[
+                    { title: t('vmaxq.cause.time'), dataIndex: 'clttime', width: 140 },
+                    { title: t('vmaxq.cause.judge'), dataIndex: 'judge' },
+                  ]}
+                  dataSource={causeItem.app_info}
+                  pagination={false}
+                  size="small"
+                />
+              </div>
+            )}
+          </div>
         )}
       </DraggableClickModal>
     </div>

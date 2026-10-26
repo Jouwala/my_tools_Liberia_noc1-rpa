@@ -45,6 +45,7 @@ export const PAGE_LIST: { key: string; iframe?: boolean }[] = [
   { key: 'imonitor', iframe: true },
   { key: 'ip_trace', iframe: true },
   { key: 'vmax_user_query' },
+  { key: 'vmax_xdr_query' },
   { key: 'incident_overview', iframe: true },
   { key: 'warehouse', iframe: true },
   { key: 'sp_material' },
@@ -101,6 +102,7 @@ export const NAV_KEY_MAP: Record<string, string> = {
   imonitor: 'nav.imonitor',
   ip_trace: 'nav.ipTrace',
   vmax_user_query: 'nav.vmaxUserQuery',
+  vmax_xdr_query: 'nav.vmaxXdrQuery',
   incident_overview: 'nav.incidentOverview',
   warehouse: 'nav.sp',
   sp_material: 'nav.spMaterial',
@@ -124,7 +126,7 @@ export const CATEGORIES: { id: string; pages: string[] }[] = [
     id: 'boards',
     pages: ['alarm', 'ttwo', 'v1_ttwo', 'tt', 'wo', 'nur', 'ms_nur_only', 'ms_sla', 'ms_sla_only', 'cxoDashboard', 'mwUmeTopology', 'mwRealTime', 'alarmManagement', 'fme_ranking', 'site_avail', 'avail_ms', 'avail_flm', 'bm_speedtest', 'bm_meta', 'noc_analyst', 'repeat_site_down', 'cr_analysis', 'pm_analysis', 'bp_report', 'packet_loss', 'battery', 'ume_in_kpi', 'cn_kpi', 'cn_kpi_5mins', 'imonitor', 'gis', 'realtime_alarm', 'incident_overview', 'warehouse', 'sp_material', 'sp_details', 'sp_report', 'com_report', 'warehouse_summary'],
   },
-  { id: 'analysis', pages: ['eflow_qa', 'eflow_flow', 'dashboard', 'archive', 'ip_trace', 'vmax_user_query'] },
+  { id: 'analysis', pages: ['eflow_qa', 'eflow_flow', 'dashboard', 'archive', 'ip_trace', 'vmax_user_query', 'vmax_xdr_query'] },
   { id: 'system', pages: ['settings', 'portalLogin'] },
 ]
 
@@ -335,8 +337,21 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
         '时间窗精确到分钟（5 分钟步进），默认今天 00:00 到当前时刻，跨度最多 31 天，不能选未来；流量与驻留小区按窗口查询，终端/用户信息与窗口无关',
         '「查无此号」「流量为空」都是业务正常返回，不是故障；接口报错时先检查 设置→凭据管理 的 vmax_cca 组是否已录入账号密码',
         '驻留小区行内点 KPI 弹出该小区指标明细（ppc 码已映射 KPI 英文名，缺码显示原始码）',
+        '根因分析卡列出窗口内投诉根因（置信度降序），点详情看劣化描述、处理建议与逐时段判定；大窗口（7 天级）该查询可能超时，不影响其它卡片',
         '查询走 VMAX 门户会话（串行复用），请勿连续大量点击，避免占用上游会话',
         '结果只读透传不落库，刷新页面即清空',
+      ],
+    },
+    vmax_xdr_query: {
+      desc: 'VMAX 信令详单：输入用户号码与时间窗，从 Talon XDR 平台查询该号码逐条信令记录（合并表）。与「VMAX 用户查询」互补——那个给用户画像与根因摘要，本页给可下钻到单次会话/过程的原始详单。',
+      usage: [
+        '必须用 231 开头的完整号码（如 231773777115），纯数字',
+        '查询类型目前支持 5G 会话（1100）、信令面（1300）、用户面业务（1301）；数据面（32/33/34）上游接口参数不同，暂未接入',
+        '时间窗默认最近 24 小时，最长 72 小时；信令量很大（一天可达万级记录），窗口越大越慢',
+        '列的标题由上游列头动态生成，不同查询类型列数不同（59~88 列），表格可横向滚动并冻结首列',
+        '「该窗口内无此类信令记录」是业务正常返回，不是故障；查询失败先看 设置→凭据管理 的 vmax_cca 组是否可用',
+        '与「VMAX 用户查询」共用同一条门户会话，请勿在两端同时大量点击',
+        '结果只读透传不落库、不缓存，刷新页面即清空',
       ],
     },
     incident_overview: {
@@ -740,11 +755,24 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
       desc: 'VMAX user info query: enter a subscriber number and time window to look up subscriber info (IMSI/MSISDN mapping), terminal info (IMEI/model/vendor/operator), per-app traffic and camped cells (with per-cell KPI details) from the VMAX CCA complaint system.',
       usage: [
         'Use the full number with the 231 prefix (e.g. 231777777322), digits only; the local 9-digit format is not matched upstream (verified 2026-10-24)',
-        'Time window defaults to today, max span 31 days, no future dates; traffic and camped cells follow the window, subscriber/terminal info does not',
+        'Time window is minute-precise (5-minute step), defaulting to today 00:00 through now, max span 31 days, no future times; traffic and camped cells follow the window, subscriber/terminal info does not',
         '"Not found" and empty traffic are normal business responses, not failures; on API errors first check that the vmax_cca group in Settings → Credential Management has an account and password',
         'Click KPI in a camped-cell row for that cell\'s indicator details (ppc codes mapped to KPI names; unmapped codes shown raw)',
+        'The Root Cause card lists complaint causes in the window (confidence descending); click Details for degradation, suggested solution and per-period judgments; this query may time out on large windows (7-day scale) without affecting other cards',
         'Queries go through a VMAX portal session (serialized reuse); avoid rapid repeated clicks to keep the upstream session free',
         'Results are read-only passthrough, nothing is persisted; refreshing the page clears them',
+      ],
+    },
+    vmax_xdr_query: {
+      desc: 'VMAX XDR records: enter a subscriber number and time window to query per-record signaling detail (merged table) from the Talon XDR platform. Complements "VMAX User Query", which gives the subscriber profile and root-cause summary — this page gives raw records drillable down to a single session/procedure.',
+      usage: [
+        'Use the full number with the 231 prefix (e.g. 231773777115), digits only',
+        'Query types currently supported: 5G Session (1100), Signaling Plane (1300), User Plane Services (1301); the data-plane types (32/33/34) use a different upstream parameter set and are not wired yet',
+        'Time window defaults to the last 24 hours, max 72 hours; XDR volume is large (tens of thousands of records per day), so wider windows are slower',
+        'Column titles are generated dynamically from the upstream header; different query types have different column counts (59~88), so the table scrolls horizontally with the first column frozen',
+        '"No records of this type in the window" is a normal business result, not a failure; on errors first check that the vmax_cca group in Settings → Credential Management is usable',
+        'Shares the same portal session with "VMAX User Query" — avoid heavy simultaneous clicking on both',
+        'Results are read-only passthrough, nothing is persisted or cached; refreshing the page clears them',
       ],
     },
     incident_overview: {
