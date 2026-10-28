@@ -112,6 +112,27 @@ def test_service_whitelist():
         check("错误信息列出可用类型", "1100" in str(exc), str(exc))
 
 
+# ------------------------------------------------- 1b. 保留时长与错误码翻译
+def test_retention_and_hints():
+    section("1b. 保留时长与错误码翻译")
+    by_id = {s["id"]: s for s in vxc.XDR_SERVICES}
+    check("32 保留 24h（上游热存储只留一天）",
+          by_id["32"]["retention_hours"] == 24, str(by_id["32"]))
+    check("1100 保留 72h",
+          by_id["1100"]["retention_hours"] == 72, str(by_id["1100"]))
+    check("每个类型都配了 retention_hours",
+          all(s.get("retention_hours") for s in vxc.XDR_SERVICES))
+
+    # 路由层：错误码 -> 中文说明（直接抛 3100100xxx 用户看不懂）
+    from backend.routers.vmax_xdr_query import _humanize_upstream
+    raw202 = "Query no data! operation code:3100100202, please contact the administrator!"
+    check("3100100202 翻成「时间范围内无数据」", "无数据" in _humanize_upstream(raw202))
+    check("翻译后不再含原始 operation code",
+          "operation code" not in _humanize_upstream(raw202))
+    check("认不出的错误码原样返回",
+          _humanize_upstream("some other failure") == "some other failure")
+
+
 # ---------------------------------------------------------------- 2. 参数结构
 def test_param_structure():
     section("2. 请求参数结构")
@@ -237,6 +258,7 @@ def test_paging_bounds():
 
 if __name__ == "__main__":
     test_service_whitelist()
+    test_retention_and_hints()
     test_param_structure()
     test_ran_domain()
     test_row_binding()

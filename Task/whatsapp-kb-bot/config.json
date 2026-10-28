@@ -72,7 +72,7 @@
 
   "$myAppApiBase": "my_app 后端地址。工单**聚合统计**与**单号分析**都优先走它的 HTTP 接口（生产库 PostgreSQL，实时）；my_app 没起或超时时自动降级到本机 SQLite 副本（聚合走 scripts/tt-query.py，单号分析走 scripts/tt-analyze.py）。留空则直接走 SQLite。改端口看 Task/my_app/AGENTS.md 第七节。",
   "myAppApiBase": "http://127.0.0.1:7038",
-  "$ttAnalysisHttp": "单号分析是否优先走 my_app 的 PG 实时接口（/api/tt-wo-dashboard/tt/{tt_no} 与 /wo/{wo_no}）。置 false 只用本地 SQLite 副本 + eFlow 实时兜底。为什么要它：SQLite 副本由 pg_to_sqlite_sync 刷新、cron 每 12 小时一次，PG 里已更新/恢复的数据机器人最坏要等 12 小时才看见。环境变量 TT_ANALYSIS_HTTP=0 可临时关。",
+  "$ttAnalysisHttp": "单号分析的取数顺序开关。true（默认）= PG 优先 → eFlow 实时 → 本地 SQLite 副本（最后兜底，命中打「可能滞后」标记）；false = 老顺序，本地副本优先 → eFlow 实时，且不打滞后标记。为什么要它：SQLite 副本由 pg_to_sqlite_sync 每 12 小时才重建一次，而 PG 每小时从 eFlow 同步、eFlow 才是源头 —— 让 12 小时前的副本挡在实时源前面等于用旧答案覆盖新答案（2026-10-28 调整顺序）。环境变量 TT_ANALYSIS_HTTP=0 可临时关。",
   "ttAnalysisHttp": true,
   "$ttStatsTimeoutMs": "聚合查询的 HTTP 超时。overview 要出全量统计，比单票查询慢；超时即降级到 SQLite，不重试（用户在群里等着，重试一次等于双倍等待）。",
   "ttStatsTimeoutMs": 15000,

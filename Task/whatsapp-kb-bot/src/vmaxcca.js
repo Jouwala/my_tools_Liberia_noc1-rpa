@@ -6,9 +6,25 @@
  * 群成员发「TEL 231773777115，2026-10-25 10:07」，机器人按「截止时间往前
  * 60 分钟」的窗口查 VMAX CCA，按固定模板回：
  *   XDR CCA / MSISDN / IMSI / IMEI / Model / Total traffic /
- *   Track Cells / Cell Name / Lat, Lon / Root Cause Analysis
+ *   Track Cells / Cell Name / Lat, Lon / Coverage KPI / Root Cause Analysis
  * 字段名沿用需求方给的英文标签 —— 它们是 CCA 页面上的领域标识符，与
  * TT 通道「规则名不翻译」同一口径；界面说明句仍按提问语言中英各一份。
+ *
+ * ## 2026-10-27 新增两段内容
+ *
+ * ① **Coverage KPI（RSRP/SINR/RSRQ 等）** —— 需求方要求把覆盖类读数带上。
+ *   数据来自 `query_cell` 返回的 `cellKpi`（my_app 已把 ppc/ppb 码映射成
+ *   英文名），见 `extractCoverage`。只有无线小区（rat=6）有这些指标，
+ *   2G/3G 小区的 KPI 是信令类（PDP/Attach/TAU 成功率），不混进来。
+ *   作用是给根因提供**支撑读数**：根因说「下行弱覆盖」，这里给
+ *   RSRP -92dBm 与弱覆盖占比 6.5%，排障时两者要对着看。
+ *
+ * ② **Root Cause Analysis 改为按 Cause Rule 归并后全列** —— 需求方问
+ *   「Root Cause Analysis 里是如何选择，能按 Cause Rule 都显示吗」。
+ *   上游 `getcause` 返回的是**明细条目**（实测一天 58 条，去重后只有 23 条
+ *   不同规则）；原先只取前 3 条，信息被丢掉且看不出「哪条规则命中几处」。
+ *   现在按 `rule_name` 归并，23 条规则**全部列出**，每条带置信度、命中对象
+ *   （小区/SP，可有多个）与命中条数，见 `groupCausesByRule`。
  *
  * ## 为什么单独开一条通道（而不是塞进 RAG / 查表）
  *
@@ -52,10 +68,27 @@ export const CCA_WINDOW_MIN = 60;
 
 /** 小区列表最多列几个 —— 全列会刷屏（实测一天 41 个小区）。 */
 const MAX_CELLS_LISTED = 8;
-/** 根因最多列几条 —— 实测一天 16~59 条，全列没人读得完；只带置信度最高的前几条。 */
-const MAX_CAUSES_LISTED = 3;
+/** 覆盖 KPI 最多列几个小区 —— 每个小区一行，全列同样刷屏。 */
+const MAX_COVERAGE_CELLS = 6;
+/** 单条 Cause Rule 最多列几个对象（小区 / SP），超出只报数量。 */
+const MAX_OBJECTS_PER_RULE = 3;
 /** 单行截断长度（根因的处理建议可能很长）。 */
 const LINE_BUDGET = 200;
+
+/**
+ * CCA 这条通道的回复长度上限（字符）。
+ *
+ * 为什么单独一份、而不是沿用 CONFIG.maxReplyChars（2000）：
+ *   · 2000 是**给 TT 通道**定的（config.json 里写了来由：TT 英文回复最长 ~1690）；
+ *   · CCA 要多带「覆盖 KPI」段 + **按 Cause Rule 归并后的全部根因**，
+ *     实测一天 58 条原始命中按 rule_name 归并后仍有 23 条规则，
+ *     加上头部与覆盖段约 3.5~4 千字符 —— 塞进 2000 会被 whatsapp.js 的
+ *     truncate **从尾部砍掉**「来源」行与「处理建议」（与 2026-10-07
+ *     TT 通道「时效」段被砍是同一类问题，见 config.json 的 $maxReplyChars）。
+ *   · 覆盖类内容若放不下，宁可少列几条低置信度根因，也必须保住尾部的
+ *     来源行/失败说明 —— 所以这里给一个独立上限，渲染层再按预算自我裁剪。
+ */
+export const CCA_REPLY_BUDGET = 4500;
 
 const TIMEOUT_MS = Number(
   process.env.VMAX_CCA_TIMEOUT_MS ?? CONFIG.vmaxCcaTimeoutMs ?? 240000
@@ -217,6 +250,15 @@ const T = {
       '（时间可不填，默认查当前时刻往前 60 分钟；号码写 77 377 7115 这类本地格式也行）。',
     failures: (list) => `⚠ 部分子查询失败：${list}`,
     source: '来源：VMAX CCA（经 my_app 实时查询）',
+    // —— 覆盖段（2026-10-27 新增）——
+    coverageTitle: 'Coverage KPI（RSRP/SINR/RSRQ）：',
+    noCoverage: 'Coverage KPI: —（该窗口无线小区无覆盖类 KPI）',
+    moreCoverage: (n) => `…（还有 ${n} 个小区的覆盖 KPI 未列出）`,
+    // —— 根因段（2026-10-27 改为按 Cause Rule 归并全列）——
+    causeTitle: 'Root Cause Analysis（按 Cause Rule 归并）：',
+    moreObjects: (n) => ` 等 ${n} 个对象`,
+    moreRules: (n) => `（其余 ${n} 条规则的完整明细与各自处理建议见 my_app「VMAX 用户查询」页）`,
+    droppedRules: (n) => `…（另有 ${n} 条规则因回复长度上限未列出）`,
   },
   en: {
     header: (msisdn, win) => `XDR CCA: ${msisdn} | window ${win.start} ~ ${win.end}`,
@@ -237,6 +279,13 @@ const T = {
       '(time is optional — defaults to the last 60 minutes from now; local formats like 77 377 7115 also work).',
     failures: (list) => `⚠ Some sub-queries failed: ${list}`,
     source: 'Source: VMAX CCA (live via my_app)',
+    coverageTitle: 'Coverage KPI (RSRP/SINR/RSRQ):',
+    noCoverage: 'Coverage KPI: —(no coverage KPIs for radio cells in this window)',
+    moreCoverage: (n) => `…(+${n} more cells with coverage KPIs not listed)`,
+    causeTitle: 'Root Cause Analysis (grouped by Cause Rule):',
+    moreObjects: (n) => ` and ${n} more object(s)`,
+    moreRules: (n) => `(full detail and per-rule advice for the other ${n} rule(s): my_app "VMAX User Query" page)`,
+    droppedRules: (n) => `…(+${n} more rule(s) omitted — reply length limit)`,
   },
 };
 
@@ -258,6 +307,175 @@ function trunc(s, n) {
 
 /** 坐标：缺的一侧显示 —（不能显示成 0，那是另一个位置）。 */
 const fmtCoord = (v) => (v == null || v === '' ? '—' : String(v));
+
+/* ----------------------------- 覆盖类 KPI ----------------------------- */
+
+/**
+ * 覆盖类 KPI 的「展示名 → 匹配规则」。
+ *
+ * 数据来源是 CCA 的 `query_cell` 返回的 `cellKpi`，键是 ppc/ppb 码，
+ * 名是 `global/kpi_popup/query_kpi` 字典映射出来的英文名（my_app 侧
+ * `vmax_cca_client.kpi_names`）。实测（2026-10-26 真号）无线侧小区会带：
+ *
+ *   Average RSRP(dBm)                    ppc1208204003_42
+ *   Average Uplink SINR(LTE)(dB)         ppc1208204008_42
+ *   Average RSRQ(dB)                     ppc1208204036_42
+ *   Downlink weak coverage ratio(LTE)(%) ppc1208204005_42
+ *   Uplink SINR Poor Ratio(LTE)(%)       ppc1208204026_42
+ *   MR ratio of downlink RSRQ interference(%) ppc1208204056_42
+ *   prb_dl_avail_rate_42 / prb_ul_avail_rate_42（PRB 空闲率，原名就是码）
+ *
+ * 匹配用**名字**（不是码）：码是厂商内部编号，上游改字典就会失效；
+ * 名字是领域可读标识，且 CC 前端也按名字展示。
+ */
+const COVERAGE_KPI_DEFS = [
+  { key: 'rsrp', label: 'RSRP', match: /Average\s+RSRP/i, unit: 'dBm' },
+  { key: 'sinr', label: 'SINR', match: /Average\s+Uplink\s+SINR/i, unit: 'dB' },
+  { key: 'rsrq', label: 'RSRQ', match: /Average\s+RSRQ/i, unit: 'dB' },
+  { key: 'dlCov', label: 'DL弱覆盖', match: /Downlink weak coverage ratio/i, unit: '%' },
+  { key: 'ulSinrPoor', label: '上行SINR劣化', match: /Uplink SINR Poor Ratio/i, unit: '%' },
+  { key: 'rsrqInt', label: 'RSRQ干扰比', match: /MR ratio of downlink RSRQ interference/i, unit: '%' },
+  { key: 'prbDl', label: 'PRB下行空闲', match: /^prb_dl_avail_rate/i, unit: '%' },
+  { key: 'prbUl', label: 'PRB上行空闲', match: /^prb_ul_avail_rate/i, unit: '%' },
+];
+
+/** KPI 值转显示文本：数字去掉无意义小数尾零，'--'/空 → null（缺，不是 0）。 */
+function fmtKpiValue(v) {
+  if (v == null || v === '' || v === '--') return null;
+  const n = Number(v);
+  if (Number.isFinite(n)) return String(Math.round(n * 100) / 100);
+  return String(v);
+}
+
+/**
+ * 从 `cells.cell_kpi` 里挑出覆盖类 KPI，按小区聚合。
+ *
+ * ## cell_kpi 的键是「小区 ID 或 cellkey」，同一个小区可能两套键都有
+ *
+ * 实测（2026-10-26 真号，15 个小区）两种键混用：
+ *   · 大多数是小区 ID（`461807001031977`），与 `cells[].cell` 对得上；
+ *   · 少数是 cellkey（`4808_21`），上游只给了 cellkey 形态。
+ * 更麻烦的是**同一个小区两个键都存在、且内容不同** ——
+ * `461807001230869`（cellkey `4808_21`）按 ID 取到的是信令类 KPI，
+ * 按 cellkey 取到的才是无线覆盖 KPI。
+ * 所以这里**两个键都取、并集**（按 code 去重），不能二选一 ——
+ * 二选一会让「根因指向 4808_21 的覆盖问题」在覆盖段里查不到对应读数。
+ *
+ * ## 只有 LTE（rat=6）小区才有无线覆盖 KPI
+ *
+ * 2G/3G 小区（rat=1）的 cellKpi 是信令类（PDP/Attach/TAU 成功率），
+ * 没有 RSRP/SINR/RSRQ —— 覆盖段只列真正有无线指标的区。
+ *
+ * @returns {Array<{cell, cellkey, cellname, kpis: Array<{key,label,value,unit}>}>}
+ */
+export function extractCoverage(cellsData) {
+  const cells = Array.isArray(cellsData?.cells) ? cellsData.cells : [];
+  const kpiMap = cellsData?.cell_kpi && typeof cellsData.cell_kpi === 'object'
+    ? cellsData.cell_kpi
+    : {};
+  const out = [];
+  for (const c of cells) {
+    // 两个键都取，并集（按 code 去重，优先保留先命中的）
+    const byId = kpiMap[String(c?.cell)];
+    const byKey = kpiMap[String(c?.cellkey)];
+    const items = [];
+    const seen = new Set();
+    for (const src of [byId, byKey]) {
+      if (!Array.isArray(src)) continue;
+      for (const it of src) {
+        const code = String(it?.code ?? '');
+        if (seen.has(code)) continue;
+        seen.add(code);
+        items.push(it);
+      }
+    }
+    if (!items.length) continue;
+    const kpis = [];
+    for (const def of COVERAGE_KPI_DEFS) {
+      const hit = items.find((it) => def.match.test(String(it?.name || '')));
+      if (!hit) continue;
+      const value = fmtKpiValue(hit.value);
+      if (value === null) continue;   // 缺值不是 0，别显示成 0
+      kpis.push({ key: def.key, label: def.label, value, unit: def.unit });
+    }
+    if (!kpis.length) continue;       // 只有信令类 KPI 的小区不进覆盖段
+    out.push({
+      cell: String(c?.cell ?? ''),
+      cellkey: String(c?.cellkey ?? ''),
+      cellname: String(c?.cellname ?? '').trim(),
+      kpis,
+    });
+  }
+  // 覆盖类小区多的排前面（问题最重的先看）
+  out.sort((a, b) => b.kpis.length - a.kpis.length);
+  return out;
+}
+
+/* --------------------------- 根因按规则归并 --------------------------- */
+
+/**
+ * 把根因按 **Cause Rule（rule_name）** 归并。
+ *
+ * ## 为什么要归并而不是直接列原始条目
+ *
+ * 上游 `getcause` 对同一窗口返回的是**明细条目**：实测一天 58 条，
+ * 但去重后只有 23 条不同的 Cause Rule（例："High RSRQ interference(cell)"
+ * 一条规则就命中 5 次，分别落在 4 个小区、5 个劣化时段）。
+ * 直接列 58 条没人读得完，而且同一个建议会重复 5 遍。
+ * 归并后是「23 条规则 × 命中对象」，正是排障要看的粒度。
+ *
+ * ## 每组保留什么
+ *   · confidence：取组内**最高**（最严重的那条代表这条规则）；
+ *   · objects  ：命中的对象（小区名 / SP 名），去重后列出；
+ *   · solution ：处理建议（组内取第一条非空；同一规则的建议相同）；
+ *   · count    ：该规则命中的明细条数（>1 说明多处命中）。
+ *
+ * @returns {Array<{rule, confidence, objects, objectCount, solution, count, poortime}>}
+ */
+export function groupCausesByRule(causes) {
+  const list = Array.isArray(causes) ? causes : [];
+  const groups = new Map();
+  for (const c of list) {
+    const rule = String(c?.rule_name || '').trim();
+    if (!rule) continue;
+    let g = groups.get(rule);
+    if (!g) {
+      g = {
+        rule,
+        confidence: 0,
+        objects: [],
+        objectCount: 0,
+        solution: '',
+        count: 0,
+        poortime: '',
+      };
+      groups.set(rule, g);
+    }
+    g.count += 1;
+    const conf = Number(c?.confidence);
+    if (Number.isFinite(conf) && conf > g.confidence) g.confidence = conf;
+    // 对象名可能是 '--'（上游没给名字，但 objectinfo 里有 cellkey），
+    // 这时用 objectinfo 顶上，不能让它变成空对象。
+    const objName = String(c?.object_name || '').trim();
+    const objInfo = String(c?.objectinfo || '').trim();
+    const obj = objName && objName !== '--' ? objName : objInfo && objInfo !== '--' ? objInfo : '';
+    if (obj && !g.objects.includes(obj)) {
+      g.objects.push(obj);
+      g.objectCount += 1;
+    }
+    if (!g.solution) g.solution = String(c?.solution || '').trim();
+    if (!g.poortime) g.poortime = String(c?.poortime || '').trim();
+  }
+  // 排序：置信度降序 → 命中对象多的在前 → 规则名（保证稳定输出）
+  const out = [...groups.values()];
+  out.sort(
+    (a, b) =>
+      b.confidence - a.confidence ||
+      b.objectCount - a.objectCount ||
+      a.rule.localeCompare(b.rule)
+  );
+  return out;
+}
 
 /**
  * 把 /api/vmax-cca-query 的响应渲染成群消息（纯函数，可离线测试）。
@@ -317,31 +535,92 @@ export function renderCcaResult(data, lang, ctx = {}) {
     lines.push('Lat, Lon: —');
   }
 
-  // 根因：列表按置信度降序（客户端排好序），只取前几条；首条附处理建议。
+  // —— 覆盖类 KPI（RSRP/SINR/RSRQ 等）——
+  // 单独一段，因为它是「无线质量」的直接读数：根因说"下行弱覆盖"，
+  // 这里给出支撑数据（RSRP -92dBm / 弱覆盖比 6.5%），排障时两者要对着看。
+  const coverage = extractCoverage(data.cells);
+  if (coverage.length) {
+    lines.push(t.coverageTitle);
+    coverage.slice(0, MAX_COVERAGE_CELLS).forEach((c) => {
+      const name = c.cellname || c.cellkey || c.cell || '—';
+      const kpiText = c.kpis.map((k) => `${k.label} ${k.value}${k.unit}`).join(' | ');
+      lines.push(`  ${name}: ${kpiText}`);
+    });
+    if (coverage.length > MAX_COVERAGE_CELLS) {
+      lines.push(`  ${t.moreCoverage(coverage.length - MAX_COVERAGE_CELLS)}`);
+    }
+  } else {
+    lines.push(t.noCoverage);
+  }
+
+  // 根因：按 **Cause Rule 归并**后全部列出（不再是"前 3 条"）。
+  // 实测一天 58 条明细 = 23 条规则，全列是排障要的信息量；
+  // 同一条规则的对象/条数合并显示，避免重复刷屏。
+  //
+  // ⚠️ 预算裁剪：整条回复有 CCA_REPLY_BUDGET 上限（whatsapp.js 会从尾部
+  // 截断，那会把「来源」行砍掉 —— 与 2026-10-07 TT 通道「时效」段被砍
+  // 同一类问题）。所以这里**主动**按预算裁剪根因条数：从低置信度开始
+  // 少列，保住尾部；裁掉多少必须如实告知，不能让用户以为「就这些」。
   const causes = Array.isArray(data.causes) ? data.causes : [];
   const failures = Array.isArray(data.failures) ? data.failures : [];
-  if (causes.length) {
-    lines.push('Root Cause Analysis:');
-    causes.slice(0, MAX_CAUSES_LISTED).forEach((c, i) => {
-      const conf = Number(c?.confidence);
+  const ruleGroups = groupCausesByRule(causes);
+
+  // 尾部固定行（失败说明 / 兜底说明 / 来源）——预算里先给它留位置。
+  const tail = [];
+  if (failures.length) tail.push(t.failures(trunc(failures.join('；'), LINE_BUDGET)));
+  if (ctx.timeGiven === false && ctx.nowText) tail.push(t.windowNote(ctx.nowText));
+  tail.push(t.source);
+  const tailLen = tail.join('\n').length + 1;
+
+  if (ruleGroups.length) {
+    const head = lines.join('\n');
+    const budgetLeft = CCA_REPLY_BUDGET - head.length - tailLen;
+    // 每条根因行的预估长度（规则名 + 置信度 + 对象）
+    const costOf = (g) =>
+      g.rule.length + (g.confidence > 0 ? 7 : 0) + g.objects.slice(0, MAX_OBJECTS_PER_RULE).join('; ').length + 12;
+    // 从低置信度往上加，直到放不下 —— 高置信度的先保住。
+    const kept = [];
+    let used = 0;
+    for (let i = ruleGroups.length - 1; i >= 0; i--) {
+      const c = costOf(ruleGroups[i]);
+      if (used + c > budgetLeft) continue;   // 跳过这一条，继续试更短的
+      used += c;
+      kept.unshift(ruleGroups[i]);
+    }
+    const dropped = ruleGroups.length - kept.length;
+
+    lines.push(t.causeTitle);
+    kept.forEach((g, i) => {
       const bits = [
-        Number.isFinite(conf) && conf > 0 ? `[${Math.round(conf)}%]` : '',
-        String(c?.rule_name || '').trim(),
-        c?.object_name ? `— ${String(c.object_name).trim()}` : '',
+        g.confidence > 0 ? `[${Math.round(g.confidence)}%]` : '',
+        g.rule,
       ].filter(Boolean);
-      lines.push(`${i + 1}. ${bits.join(' ')}`);
+      let line = `${i + 1}. ${bits.join(' ')}`;
+      if (g.objectCount) {
+        const shown = g.objects.slice(0, MAX_OBJECTS_PER_RULE).join('; ');
+        const more = g.objectCount - MAX_OBJECTS_PER_RULE;
+        line += ` — ${shown}`;
+        if (more > 0) line += t.moreObjects(more);
+      }
+      lines.push(line);
     });
-    const sol = String(causes[0]?.solution || '').trim();
-    if (sol) lines.push(`   ${t.advice(trunc(sol, LINE_BUDGET))}`);
+    if (dropped > 0) lines.push(t.droppedRules(dropped));
+    // 处理建议：每条规则一条建议太长（23 条 × 上百字会撑爆消息），
+    // 只给置信度最高的那条，其余规则的处理建议去 my_app 页面看。
+    const top = kept[0];
+    if (top?.solution) {
+      lines.push(`   ${t.advice(trunc(top.solution, LINE_BUDGET))}`);
+    }
+    // 指向 my_app 页面（完整明细 + 每条规则各自的建议）。
+    // 不重复写「来源：VMAX CCA」——末尾已经有来源行了，这里只说去哪看。
+    if (kept.length > 1) lines.push(t.moreRules(kept.length - 1));
   } else if (failures.some((f) => String(f).startsWith('causes'))) {
     lines.push(`Root Cause Analysis: ${t.causeFail}`);
   } else {
     lines.push(`Root Cause Analysis: ${t.noCause}`);
   }
 
-  if (failures.length) lines.push(t.failures(trunc(failures.join('；'), LINE_BUDGET)));
-  if (ctx.timeGiven === false && ctx.nowText) lines.push(t.windowNote(ctx.nowText));
-  lines.push(t.source);
+  lines.push(...tail);
   return { answered: true, text: lines.join('\n') };
 }
 
@@ -445,6 +724,9 @@ export async function runVmaxCca(args, { lang = 'zh', now = new Date(), question
     return {
       ...rendered,
       channel: 'vmaxcca',
+      // 本通道自带的回复长度上限（比全局 maxReplyChars=2000 宽，
+      // 因为要多带覆盖 KPI 段与全部 Cause Rule）。whatsapp.js 优先用这个值。
+      maxReplyChars: CCA_REPLY_BUDGET,
       stats: {
         totalMs: Date.now() - t0,
         found: !!data?.found,

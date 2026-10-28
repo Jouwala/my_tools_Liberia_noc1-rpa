@@ -1378,6 +1378,37 @@ domain 时才改写；此处保留该行是为防御上游未来改成带 domain
 才成功。成因未查明，疑为此前某次 `-s stop` 或被计划任务拉起时未正确写入。**影响**：
 `Nginx_EnsureRunning` 计划任务与手工 reload 都可能踩到。**待办**见门户 `TODO.md`。
 
+## 九之十四、2026-10-27 `/v3/olbrportal/` 右下角问答挂件（复用 WhatsApp 机器人知识库）
+
+**要什么。** 门户页面上直接问「告警码什么意思 / 这个单怎么样了 / 操作步骤」，答案与
+WhatsApp 群里一致，不另建一套知识库、也不让浏览器直连模型。
+
+**链路。** 浏览器（同源，带 `myapp_session`）
+→ `POST /api/portal-qa/ask`（nginx `/api/` → `7038`，my_app 路由 `backend/routers/portal_qa.py`）
+→ `127.0.0.1:9269`（whatsapp-kb-bot 的 `src/http-server.js`）
+→ `src/answer.js:routeAnswer`（与群机器人**同一个**答题入口：查表 / 工单统计 / 单号分析 /
+站点告警 / VMAX CCA / 知识库 RAG）。
+9269 不常驻，由后端 `backend/services/portal_qa_ctl.py` 按需拉起（详见 my_app
+`docs/manual/13-operations.md` 的「网页问答助手」一节）。
+
+**两个文件，纯增量，不改 olbr.js。**
+`assets/qa-assistant.css`（只用 `--surface/--line/--t1/--b/--grad` 令牌，深浅色随 `html.dark`）与
+`assets/qa-assistant.js`（IIFE，自建 FAB + 面板）。在 `index.html` 里只加一行 `link`、一行 `script`，
+`script` 排在 `assets/olbr.js` **之后**。它不读 `window.OLBR_DATA`、不碰 olbr.js 的 DOM，
+靠两个 `MutationObserver` 跟随页面状态：
+
+- `<html lang>` 变化 → 重刷挂件文案（中/英由页面语言开关驱动，自身不存语言偏好）；
+- `#gate` 的 `hidden` 属性变化 → 登录门打开时隐藏 FAB 并收起面板（门户未登录时不该出现问答入口）。
+
+**为什么不让浏览器直连 9269 / 直连 `.27`。** 9269 只绑回环；模型 key 不能下发到前端；
+同源还省掉 CORS 与第二个鉴权口。`clientId` 由后端拼成 `用户名#页面id`，服务端每会话留 5 轮，
+同名不同浏览器不串上下文。
+
+**已知限制（2026-10-27 实测）。** OWU 侧的 `OPENWEBUI_API_KEY` 对 `/api/v1/models`、
+`/api/v1/chat/completions` 返回 403/400，网页问答实际走的是「OWU 失败 → 本地 Ollama 同款 7b」
+兜底；`.27` 的 Ollama 只常驻一个模型，7b 与 `bge-m3` 换载一次 7~30 秒，知识库类问题
+单次 **60~90 秒**（规则通道毫秒级）。补一个具备模型权限的 key 后自动切回 OWU，无需改代码。
+
 ## 十、相关文档
 
 | 内容 | 去哪里 |

@@ -544,3 +544,86 @@ def test_render_still_runs_when_snapshot_unavailable(monkeypatch):
     R.render_with_reason("TT9", lang="en")
     assert seen.get("db"), "快照不可用时也应给引擎一个库路径"
     assert "app.db" in str(seen["db"]), "应退回镜像库 db/app.db"
+
+
+# ==========================================================
+# 首推（--brief）消息内容：2026-10-28 用户反馈的三处不准确
+# ==========================================================
+
+@pytest.mark.skipif(not R.engine_available(),
+                    reason="分析引擎不在本机（部署环境可能没有 whatsapp-kb-bot）")
+def test_brief_message_shows_codename_site_ip_and_impact_sites(tmp_path, monkeypatch):
+    """首推消息必须带：告警码的 codename、站点 IP、受影响站点清单。
+
+    用户 2026-10-28 反馈的原话是「P1 消息推送的内容能不准确」，附的例子是：
+
+        Alarm: 9995 | Communication Alarm | 1 3G SITE DOWN(...)
+
+    —— 值班人看不出 9995 就是 MW LINK DOWN，也看不到到底哪 16 个站受影响。
+    故锁定三条：`Alarm: 9995 | MW LINK DOWN | ...`、`Site: 名字(站号) | IP: ...`、
+    `Additional Information: Total N impact sites:...`。
+    """
+    db_path = tmp_path / "raw.db"
+    con = sqlite3.connect(db_path)
+    con.execute(
+        "CREATE TABLE eflow_tt (tt_no TEXT, ticket_no TEXT, wo_no TEXT, "
+        "site_name TEXT, site_id TEXT, region_level1 TEXT, alarm_code TEXT, "
+        "domain TEXT, alarm_type TEXT, sub_alarm_name TEXT, "
+        "specific_problem TEXT, sub_alarm_ne_ip TEXT, down_site_count TEXT, "
+        "down_site_list TEXT, site_outage TEXT, ticket_severity TEXT, "
+        "alarm_occur_time TEXT, status TEXT)")
+    con.execute(
+        "INSERT INTO eflow_tt VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        ("TT1", "T1", None, "Cocopa", "4104", "Nimba", "9995", "RAN",
+         "Communication Alarm", "2G SITE DOWN", "MW LINK DOWN", "129.0.1.1",
+         "3", "3299,4104,9167", "Yes", "P1",
+         "2026-10-28 00:10:09", "WaitFOAccept"))
+    con.commit()
+    con.close()
+
+    from backend import database as db
+    monkeypatch.setattr(db, "DB_MODE", "sqlite")
+    monkeypatch.setattr(db, "DB_PATH", db_path)
+
+    text, reason = R.render_with_reason("TT1", lang="en", brief=True)
+    assert reason == "", f"渲染降级了（应当出完整 brief）：{reason}"
+    lines = text.split("\n")
+
+    alarm_line = next(l for l in lines if l.startswith("Alarm: "))
+    assert alarm_line.startswith("Alarm: 9995 | MW LINK DOWN |"), alarm_line
+    assert any(l.startswith("Site: Cocopa(4104)") and "129.0.1.1" in l
+               for l in lines), f"缺站点行：{lines}"
+    assert ("Additional Information: Total 3 impact sites:3299,4104,9167"
+            in text), text
+
+
+@pytest.mark.skipif(not R.engine_available(),
+                    reason="分析引擎不在本机（部署环境可能没有 whatsapp-kb-bot）")
+def test_brief_message_omits_impact_line_when_no_list(tmp_path, monkeypatch):
+    """没有清单时整行不输出 —— 空的「Total 0 impact sites」是噪音。"""
+    db_path = tmp_path / "raw.db"
+    con = sqlite3.connect(db_path)
+    con.execute(
+        "CREATE TABLE eflow_tt (tt_no TEXT, ticket_no TEXT, wo_no TEXT, "
+        "site_name TEXT, site_id TEXT, region_level1 TEXT, alarm_code TEXT, "
+        "domain TEXT, alarm_type TEXT, sub_alarm_name TEXT, "
+        "specific_problem TEXT, sub_alarm_ne_ip TEXT, down_site_count TEXT, "
+        "down_site_list TEXT, site_outage TEXT, ticket_severity TEXT, "
+        "alarm_occur_time TEXT, status TEXT)")
+    con.execute(
+        "INSERT INTO eflow_tt VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        ("TT2", "T2", None, "Vai Town", "4004", "Montserrado", "99933", "RAN",
+         "Communication Alarm", "3G SITE DOWN", "SITE DOWN DUE TO POWER OFF",
+         "", "1", "--", "Yes", "P1", "2026-10-28 00:10:09", "WaitFOAccept"))
+    con.commit()
+    con.close()
+
+    from backend import database as db
+    monkeypatch.setattr(db, "DB_MODE", "sqlite")
+    monkeypatch.setattr(db, "DB_PATH", db_path)
+
+    text, reason = R.render_with_reason("TT2", lang="en", brief=True)
+    assert reason == "", reason
+    assert "Additional Information" not in text, text
+    # IP 取不到时给 '-'（不是 0，也不是空）
+    assert "IP: -" in text, text

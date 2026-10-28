@@ -21,14 +21,18 @@ def test_eflow_client_plan_contains_session_not_password(monkeypatch):
     assert "username" not in plan and "password" not in plan
 
 
-def test_rais_client_plan_seeds_all_browser_sso_cookies(monkeypatch):
-    monkeypatch.setattr(svc, "_rais_direct_auth", lambda spec: ("portal-user", "session-token"))
-    plan = svc.build_client_login_plan("rais")
+def test_captcha_portal_gets_no_client_session():
+    """RAIS 登录需人工图形验证码（2026-10-26 上游改版）：服务端拿不到会话，
+    既不能构造客户端计划，也不能签发票据；但它仍是 direct（客户端模式直连上游）。"""
+    spec = svc.PORTALS["rais"]
+    assert spec.get("captcha") is True and spec.get("direct") is True
 
-    assert plan["target_url"].endswith("#/homepage")
-    assert {item["name"] for item in plan["cookies"]} == {name for name, _ in svc.RAIS_SSO_COOKIES}
-    assert all(item["httpOnly"] is False for item in plan["cookies"])
-    assert all(item["value"] in {"portal-user", "session-token"} for item in plan["cookies"])
+    with pytest.raises(ValueError):
+        svc.build_client_login_plan("rais")
+
+    with pytest.raises(HTTPException) as error:
+        portals.create_client_login_ticket(portals.PortalClientTicketRequest(system="rais"))
+    assert error.value.status_code == 400
 
 
 def test_oauth2_direct_portal_plan_uses_generic_branch(monkeypatch):

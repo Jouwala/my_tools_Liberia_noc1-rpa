@@ -228,6 +228,47 @@ export function vmaxXdrQuery(params: {
   return api.get('/vmax-xdr-query', { params })
 }
 
+// ========== VMAX XDR Records（分表信令详单 + 取证存档）==========
+// 新增于 2026-10-27；对应后端 routers/vmax_xdr_records.py
+// 与合并表查询的区别：按具体 XDR 表（UEMR_XDR / UU_XDR / X2_XDR…）查，
+// 列结构由该表列头决定；查询历史与存档按登录用户隔离。
+export function vmaxXdrTables(service_type: string) {
+  return api.get('/vmax-xdr-records/tables', { params: { service_type } })
+}
+
+export function vmaxXdrRecords(params: {
+  msisdn: string; service_type: string; table: string
+  start?: string; end?: string; page?: number; page_size?: number
+}) {
+  return api.get('/vmax-xdr-records', { params })
+}
+
+export function vmaxXdrSaveRecord(body: {
+  msisdn: string; service_type: string; table: string
+  table_label?: string; record_time?: string; note?: string
+  payload: Record<string, string>
+}) {
+  return api.post('/vmax-xdr-records/saved', body)
+}
+
+export function vmaxXdrSavedRecords(params?: {
+  service_type?: string; keyword?: string; limit?: number; offset?: number
+}) {
+  return api.get('/vmax-xdr-records/saved', { params })
+}
+
+export function vmaxXdrSavedRecord(id: number) {
+  return api.get(`/vmax-xdr-records/saved/${id}`)
+}
+
+export function vmaxXdrDeleteSaved(id: number) {
+  return api.delete(`/vmax-xdr-records/saved/${id}`)
+}
+
+export function vmaxXdrQueryHistory(limit = 50) {
+  return api.get('/vmax-xdr-records/history', { params: { limit } })
+}
+
 export function getNocAnalystReport(params?: Record<string, string | number>) {
   return api.get('/eflow-qa/_tt_postmortem_noc', { params })
 }

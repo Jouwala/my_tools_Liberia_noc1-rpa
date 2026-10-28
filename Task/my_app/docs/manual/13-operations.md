@@ -8,9 +8,27 @@
 | `7090` | vite preview（前端） | `0.0.0.0` | `start_hidden.ps1:244` |
 | `5432` | PostgreSQL 16 | 视 `listen_addresses` | 自启脚本用 `pg_ctl` 拉起 |
 | `8787`/`8790` | 实时代理（FMS / VMAX） | **仅 `127.0.0.1`** | backend 启动线程 |
+| `9269` | 网页问答服务（whatsapp-kb-bot） | **仅 `127.0.0.1`** | backend 按需拉起（`services/portal_qa_ctl.py`） |
 | 无端口 | worker × 5 组（u/n/v/m/c） | — | `worker_watchdog.py` |
 
 > ⚠️ **7038/7090 与 MTN_Comsal 项目共用**，两套不能同时运行（PROJECT_DOCS.md 局域网章节原文即如此）。端口被占时 `start_hidden.ps1` 会 FAIL 并提示先 `stop.bat` 或加 `-Force`（:166-168）。
+
+### 网页问答助手（`9269`，按需拉起）
+
+门户 `/v3/olbrportal/` 右下角的问答挂件走 `POST /api/portal-qa/ask`（`backend/routers/portal_qa.py`），
+后端再转发到本机 `127.0.0.1:9269` 的 whatsapp-kb-bot 问答服务（`Task/whatsapp-kb-bot/src/http-server.js`）。
+
+- **不常驻**：只有第一次 `GET /api/portal-qa/health` 或 `POST .../ask` 时，`backend/services/portal_qa_ctl.py`
+  才会 `node --env-file-if-exists=.env src/http-server.js` 起它（`CREATE_NO_WINDOW`，不建计划任务）。
+  端口活着但 `/health` 不健康时会先杀掉再重起一次。
+- **改了 bot 源码要重启它**：杀掉占用 9269 的 node 进程即可，下一次提问/健康检查会自动重拉
+  （旧进程不会热加载）。日志：`log/portal_qa_YYYYMMDD_console.log`。
+- **健康自检**：`curl http://127.0.0.1:7038/api/portal-qa/health` —— 返回里 `detail.channel` 是
+  下一次提问会先走的通道（`openwebui` / `ollama`），`detail.indexChunks` 是知识库索引块数。
+- **问答能力与群机器人同源**：查表 / 工单统计 / 单号分析 / 站点告警 / VMAX CCA / 知识库 RAG 全复用
+  `src/answer.js:routeAnswer`，唯一差别是网页侧 `webHint:false`（查不到时不再附带「去网页版问」的尾巴）。
+- **超时**：单次提问后端给 300 秒（`.27` 的 Ollama 只常驻一个模型，7b 与 `bge-m3` 换载一次 7~30 秒，
+  知识库类问题实测 60~90 秒）。`UI` 在等待期间显示计时与「较慢」提示。
 
 ## 日常巡检（5 分钟）
 
@@ -794,20 +812,21 @@ iMonitor）、`10.100.20.9:8766`（RAIS），原先记为「一律回退 86400�
 | 门户 | 地址 | `kind` | 登录路径 | 经 `auth_manager`？ |
 | --- | --- | --- | --- | --- |
 | `vmax_cxo` | `10.123.255.12:26180` | `vmax` | `launch_and_login`（浏览器填表） | **否** |
-| `rais` | `10.100.20.9:8766` | `rais` | `launch_and_login_rais_direct`（AES-256-CBC 换 SSO token） | **否** |
+| `rais` | `10.100.20.9:8766` | `rais` | `launch_and_login`（浏览器填表，`captcha: true` 需人工补验证码。2026-10-26 前是 `launch_and_login_rais_direct`，上游改版后已删） | **否** |
 | `ume_in` | `172.17.208.1:28808` | `oauth2` | 通用分支 `_oauth2_direct_auth` | **是** |
 
-判定依据：`routers/portals.py:_spawn` 只对 `eflow` / `rais` 分流到专用登录函数，
+判定依据：`routers/portals.py:_spawn` 只对 `eflow` 分流到专用登录函数，
 其余走 `launch_and_login`；而客户端模式的 `build_client_login_plan` 里，只有
 `kind == "oauth2"` 的通用分支才调 `_oauth2_direct_auth`（`portal_login_service.py`）。
 `grep auth_manager` 在 VMAX（`vmax_report_client.py` 自有 `JSESSIONID` 单会话 +
-内部 re-login）与 RAIS（`_rais_direct_auth`）中**零命中**。
+内部 re-login）与 RAIS（登录页填表）中**零命中**。
 
 所以：
 
 - **`vmax_cxo` / `rais`**：不受 TTL 与探活管辖。它们的「落回登录页」若有，
   根因在各自实现（VMAX 是 `JSESSIONID` 单会话互相踢 + `captcha: true` 需人工输
-  验证码；RAIS 是 SSO token 有效期），**不是 TTL 覆盖表能解决的**，`_audit_ttl_v3.py`
+  验证码；RAIS 同样是 `captcha: true`，且 2026-10-26 起网关强制同源 `Referer`），
+  **不是 TTL 覆盖表能解决的**，`_audit_ttl_v3.py`
   也量不到它们（它只统计 `auth_manager` 写的 `auth_cache/*.json`）。
 - **`ume_in`**：**确实**经 `auth_manager`，此前既没进覆盖表也没接探活 ——
   这台才是「一键登录落回登录页」在 TTL 侧的真正嫌疑对象。已按实测处理：
@@ -848,15 +867,18 @@ iMonitor）、`10.100.20.9:8766`（RAIS），原先记为「一律回退 86400�
 
 > 🚫 **rais / vmax_cxo / fw_kpi 不登记探针，这是有意的、不是遗漏**：
 > 它们**根本不走 `auth_manager.get_auth`**（`kind` 分别是 `rais` / `vmax` /
-> `umc`，各有自己的登录流程：RAIS 是 POST `verify4web.serv` 换 SSO token，
-> VMAX 走填表且**有图形验证码**，FW 是 UMC 的 DES/SM3 页面加密）。
-> 它们的会话「当场登录、当场用 CDP 种进浏览器」，**没有可复用的共享缓存**，
+> `umc`，各有自己的登录流程：RAIS 与 VMAX 走登录页填表且**都有服务端强制的图形验证码**，
+> FW 是 UMC 的 DES/SM3 页面加密）。
+> 它们的会话「当场登录、当场用在同一个浏览器窗口里」，**没有可复用的共享缓存**，
 > 所以「缓存快路径把死会话发出去」这个失效模式在它们身上**不存在**。
 > 给它们登记探针是**死代码没人调用**，只会让人误以为已经覆盖了。
 >
 > 结论：这三台若出现「落回登录页」，**不是 TTL/探活能修的**（那是 eFlow/RAN
-> 那类「吃缓存」门户的病）。排查方向应转向：VMAX 验证码是否人工通过、
-> RAIS 的 SSO token 是否过期、上游是否在建新会话时踢掉旧会话（mutual-kick）。
+> 那类「吃缓存」门户的病）。排查方向应转向：VMAX / RAIS 的验证码是否人工通过、
+> 上游是否在建新会话时踢掉旧会话（mutual-kick）。
+> ⚠️ RAIS 特别说明（2026-10-26）：上游改版后它**不再是「直接鉴权」门户**，
+> 详见 `11-feature-guide.md` 第 24 节；若又看到 `HTTP 445`，那是请求缺同源 `Referer`
+> 被网关挡在业务逻辑之外，不是口令错误。
 > 判定脚本：`TMP/_which_portals_can_probe.py`（列出每个门户的鉴权路径与
 > 能否受益于探活）。
 
@@ -1715,6 +1737,33 @@ Select-String -Path log\worker_runtime_*20261016.log -Pattern '认领任务 queu
 重启一律走 `stop.bat` → `start.bat`，或 `restart_workers.py --mode watchdog`。
 （`backend/WORKER.md` 的「人为停机」一节 2026-10-06 就记载过同族的坑，当时只补了
 `worker_stopping.flag`，没堵"文件被删但进程还活着"这条路。）
+
+## VMAX 门户并发会话被占满（2026-10-27 事故）
+
+**现象**：`/api/vmax-cca-query` 与 `/api/vmax-xdr-query`、`/api/vmax-xdr-records`
+同时返回 502，detail 里是
+
+```
+VMAX 门户登录失败: {"result":0,"errors":{"4":"The maximum number of connections for the user is reached."}}
+```
+
+**成因**：VMAX 门户按**账号**限制并发会话。集成侧每次新建 `VmaxCcaClient` 并登录都会占一个
+会话位；旧进程退出**不会**立刻释放，要等门户侧会话超时。2026-10-27 摸 XDR 分表协议时
+连开 5 个探针进程各自登录，直接把 vmax_cca 的位占满，后端重启后也登不上。
+
+**处置**：
+
+1. **停止一切重试**（每次失败登录都可能续期/新建会话，越试越久）；
+2. 等待门户会话超时（实测 ≥30 分钟）后首个请求即恢复，无需重启后端；
+3. 期间**不要**改用 `vmax_cxo` 账号去救急 —— 那是 CXO 看板代理的会话，挤掉会更难查。
+
+**纪律**（写进 `services/vmax_cca/README.md`，新接接口前先看）：
+
+- 探测新接口一律**单进程、单次登录**，脚本内复用同一个 `VmaxCcaClient`；
+- 需要真机验证又不确定配额时，用 `VmaxCcaClient(credential_key="vmax_cxo")`
+  单独跑（与线上 CCA 会话隔离），跑完即退出；
+- 断言类验证优先写离线守卫（如 `tests/test_vmax_xdr_records.py` 用 monkeypatch
+  断言报文字段），不要靠反复真机试错。
 
 ## 备份与恢复
 

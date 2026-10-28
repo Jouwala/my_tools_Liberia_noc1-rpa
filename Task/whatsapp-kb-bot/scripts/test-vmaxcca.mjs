@@ -18,6 +18,8 @@ import {
   parseCcaEndtime,
   parseVmaxCcaIntent,
   renderCcaResult,
+  extractCoverage,
+  groupCausesByRule,
   fmtDateTime,
 } from '../src/vmaxcca.js';
 import { parseByRule } from '../src/tools.js';
@@ -180,7 +182,7 @@ const MOCK = {
   });
   check(zh.answered === true, '命中 → answered=true');
   const labels = ['XDR CCA：', 'MSISDN: ', 'IMSI: ', 'IMEI: ', 'Model: ', 'Total traffic: ',
-    'Track Cells: ', 'Cell Name: ', 'Lat, Lon: ', 'Root Cause Analysis:'];
+    'Track Cells: ', 'Cell Name: ', 'Lat, Lon: ', 'Coverage KPI', 'Root Cause Analysis'];
   let order = -1;
   let okOrder = true;
   for (const lb of labels) {
@@ -200,6 +202,7 @@ const MOCK = {
   check(zh.text.includes('建议：1.Adjusting a tilt'), '首条根因带处理建议');
   check(!zh.text.includes('（未给截止时间'), '用户给了时间就不出现兜底说明');
   check(zh.text.includes('来源：VMAX CCA'), '带来源行');
+  check(zh.text.includes('Coverage KPI: —'), '无覆盖 KPI → 空态（不是 0）', zh.text.match(/Coverage KPI.*/)?.[0]);
 
   // 未给时间：必须说清是按当前时刻算的（猜的日期不能装成用户给的）
   const zh2 = renderCcaResult(MOCK, 'zh', {
@@ -244,6 +247,117 @@ console.log('\n[5b] 渲染：空态与部分失败');
   const r3 = renderCcaResult(many, 'zh', { msisdn: '231773777115', timeGiven: true, win: { start: 'a', end: 'b' } });
   check((r3.text.match(/Cell-/g) || []).length === 8, '小区列表封顶 8 个', String((r3.text.match(/Cell-/g) || []).length));
   check(r3.text.includes('还有 4 个小区未列出'), '  截断计数如实告知');
+}
+
+/* ------------------- [6] 覆盖 KPI（RSRP/SINR/RSRQ） ------------------- */
+// 2026-10-27 需求：返图信息里补上覆盖类读数。
+// 形状取自 2026-10-26 对真号 231773777115 的实测响应（cellKpi 的 ppc/ppb 码
+// 已由 my_app 侧映射成英文名，这里保留映射后的名字）。
+console.log('\n[6] 覆盖 KPI 提取与渲染');
+
+const COV_CELLS = {
+  cells: [
+    { cellname: 'Methodist Compound-X1', cell: '461807001031977', cellkey: '4031_41', rat: 6 },
+    { cellname: 'Methodist Compound-S1', cell: '461807001031937', cellkey: '4031_1', rat: 6 },
+    // 2G 小区：只有信令类 KPI（无 RSRP/SINR/RSRQ），不该进覆盖段
+    { cellname: 'Methodist Compound-S2', cell: '3618071000630312', cellkey: '103_30312', rat: 1 },
+  ],
+  cell_kpi: {
+    // 按小区 ID 形态
+    '461807001031977': [
+      { code: 'ppc1208204003_42', name: 'Average RSRP(dBm)', value: -92.31 },
+      { code: 'ppc1208204008_42', name: 'Average Uplink SINR(LTE)(dB)', value: 19.27 },
+      { code: 'ppc1208204036_42', name: 'Average RSRQ(dB)', value: -13.25 },
+      { code: 'ppc1208204005_42', name: 'Downlink weak coverage ratio(LTE)(%)', value: 6.48 },
+      { code: 'prb_dl_avail_rate_42', name: 'prb_dl_avail_rate_42', value: 14.01 },
+    ],
+    // 按 cellkey 形态（实测上游两种键混用）
+    '4031_1': [
+      { code: 'ppc1208204003_42', name: 'Average RSRP(dBm)', value: -92.26 },
+      { code: 'ppc1208204008_42', name: 'Average Uplink SINR(LTE)(dB)', value: 20.42 },
+      { code: 'ppc1208204036_42', name: 'Average RSRQ(dB)', value: -13.38 },
+    ],
+    // 2G 小区：信令类，无覆盖指标
+    '3618071000630312': [
+      { code: 'ppc300101005_23', name: 'PDP Creation Successful Rate(%)', value: 87.61 },
+    ],
+  },
+};
+
+{
+  const cov = extractCoverage(COV_CELLS);
+  check(cov.length === 2, '只有无线小区进覆盖段（2G 小区被排除）', String(cov.length));
+  const x1 = cov.find((c) => c.cellname === 'Methodist Compound-X1');
+  check(!!x1, '按小区 ID 取到 KPI 的小区在列表里');
+  check(x1?.kpis.find((k) => k.key === 'rsrp')?.value === '-92.31', 'RSRP 取值', JSON.stringify(x1?.kpis));
+  check(x1?.kpis.find((k) => k.key === 'sinr')?.value === '19.27', 'SINR 取值');
+  check(x1?.kpis.find((k) => k.key === 'rsrq')?.value === '-13.25', 'RSRQ 取值');
+  check(x1?.kpis.find((k) => k.key === 'dlCov')?.value === '6.48', '下行弱覆盖占比取值');
+  const s1 = cov.find((c) => c.cellname === 'Methodist Compound-S1');
+  check(s1?.kpis.find((k) => k.key === 'rsrp')?.value === '-92.26', '按 cellkey 取到 KPI（两种键混用）');
+
+  // 缺值必须是 null（缺 ≠ 0）：上游用 '--' 占位
+  const missing = extractCoverage({
+    cells: [{ cellname: 'C1', cell: 'x1', cellkey: 'k1' }],
+    cell_kpi: { x1: [{ code: 'c1', name: 'Average RSRP(dBm)', value: '--' }] },
+  });
+  check(missing.length === 0, "KPI 值为 '--' → 该小区不进覆盖段（不当成 0）", JSON.stringify(missing));
+
+  // 渲染层：覆盖段要出现在回复里，且在 Lat/Lon 之后、根因之前
+  const withCov = renderCcaResult(
+    { ...MOCK, cells: COV_CELLS },
+    'zh',
+    { msisdn: '231773777115', timeGiven: true, win: { start: 'a', end: 'b' } }
+  );
+  check(withCov.text.includes('Coverage KPI（RSRP/SINR/RSRQ）：'), '覆盖段标题');
+  check(withCov.text.includes('RSRP -92.31dBm'), '覆盖段列出 RSRP 读数', withCov.text.match(/Coverage KPI[\s\S]{0,200}/)?.[0]);
+  check(withCov.text.includes('SINR 19.27dB'), '  SINR 读数');
+  check(withCov.text.includes('RSRQ -13.25dB'), '  RSRQ 读数');
+  const covIdx = withCov.text.indexOf('Coverage KPI');
+  const causeIdx = withCov.text.indexOf('Root Cause Analysis');
+  check(covIdx > 0 && covIdx < causeIdx, '覆盖段在根因段之前');
+}
+
+/* ------------------- [7] Cause Rule 归并全列 ------------------- */
+// 2026-10-27 需求：根因改为「按 Cause Rule 都显示」。
+// 实测一天 58 条明细 → 23 条规则；原先只取前 3 条。
+console.log('\n[7] Cause Rule 归并（全部列出，不再只取前 3 条）');
+
+{
+  const many = Array.from({ length: 12 }, (_, i) => ({
+    rule_name: i < 6 ? 'High RSRQ interference(cell)' : `Rule-${i}`,
+    object_name: i < 6 ? `Cell-${i}` : `Cell-${i}`,
+    confidence: i < 6 ? 90 : 50,
+    solution: i === 0 ? 'Downlink interference troubleshooting' : '',
+  }));
+  const groups = groupCausesByRule(many);
+  check(groups.length === 7, '12 条明细归并成 7 条规则', String(groups.length));
+  const rq = groups.find((g) => g.rule === 'High RSRQ interference(cell)');
+  check(rq?.count === 6, '  命中条数累计', String(rq?.count));
+  check(rq?.objectCount === 6, '  命中对象去重计数', String(rq?.objectCount));
+  check(rq?.confidence === 90, '  置信度取组内最高');
+
+  // 渲染：全部规则都列出（不再只前 3 条）
+  const r = renderCcaResult(
+    { ...MOCK, causes: many },
+    'zh',
+    { msisdn: '231773777115', timeGiven: true, win: { start: 'a', end: 'b' } }
+  );
+  check(r.text.includes('Root Cause Analysis（按 Cause Rule 归并）：'), '根因段标题说明按规则归并');
+  check(r.text.includes('Rule-11'), '第 12 条规则也列出（不是只取前 3 条）', r.text);
+  check((r.text.match(/^\d+\. \[/gm) || []).length === 7, '  列出 7 条规则', String((r.text.match(/^\d+\. \[/gm) || []).length));
+  check(r.text.includes('建议：Downlink interference troubleshooting'), '  首条规则带处理建议');
+  check(r.text.includes('my_app「VMAX 用户查询」页'), '  指向 my_app 看其余规则的完整明细');
+
+  // 英文版成对
+  const rEn = renderCcaResult(
+    { ...MOCK, causes: many },
+    'en',
+    { msisdn: '231773777115', timeGiven: true, win: { start: 'a', end: 'b' } }
+  );
+  check(rEn.text.includes('Root Cause Analysis (grouped by Cause Rule):'), '英文根因段标题');
+  check(rEn.text.includes('Rule-11'), '  英文版同样全列');
+  check(rEn.text.includes('my_app "VMAX User Query" page'), '  英文版指向 my_app');
 }
 
 /* ------------------------------- 收尾 ------------------------------- */

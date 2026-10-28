@@ -443,6 +443,14 @@ GROUP_TASK_MAP = {
         # 与 tt_alarm_whatsapp_alert，可承载每分钟任务。
         # 新任务必须显式分组，否则无 worker 认领 → 队列 pending 卡死直到 300s 超时
         "ume_alarm_whatsapp_alert,"
+        # eflow_fiber_assign 2026-10-26 注册：Fiber Break 告警自动派单 + WhatsApp 通报。
+        # 归 m 组理由：① 与 tt_alarm_whatsapp_alert 同属 eFlow 会话 + WhatsApp 通道
+        # （ensure_login 复用进程内存/磁盘缓存会话，notify 走 Baileys 推送进程）；
+        # ② 自身只写 eflow_fiber_assign_log（本任务独占表），与同组任务无写冲突；
+        # ③ 默认 dry_run（只读告警+记录，不写 eFlow），单轮约 5s、每 5 分钟一轮，
+        #    m 组已承载每分钟的 ume_alarm 与 */5 的 tt_alarm，可承载。
+        # 新任务必须显式分组，否则无 worker 认领 → 队列 pending 卡死直到 300s 超时
+        "eflow_fiber_assign,"
         # sp_details_files_email 2026-09-30 注册：SP 备件明细分文件邮件（每天 10:05）。
         # 归 m 组理由：与 sp_email_details / sp_material_report 同类——只读本地 xlsx
         # （data/sp_email/data）+ 走 EWS 发信，不占任何上游业务会话，属内务轻任务。

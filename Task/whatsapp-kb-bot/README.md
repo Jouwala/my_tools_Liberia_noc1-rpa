@@ -364,7 +364,7 @@ echo 'AGNES_API_KEY=你的key' > .env
 | `myAppApiBase` | `http://127.0.0.1:7038` | my_app 后端地址。工单**聚合统计**与**单号分析**都优先走它的 HTTP 接口（PG 实时）；留空或连不上则降级到本地 SQLite 副本。环境变量 `MY_APP_API_BASE` 可覆盖 |
 | `ttStatsTimeoutMs` | 15000 | 聚合查询的 HTTP 超时。`overview` 要出全量统计，比单票查询慢；超时即降级，不重试（用户在群里等着，重试等于双倍等待） |
 | `ttStatsHttp` | `true` | 是否启用 HTTP 聚合通道。置 `false` 只用本地 SQLite 副本（口径一致、零外部依赖，但有同步延迟） |
-| `ttAnalysisHttp` | `true` | 单号分析是否优先走 my_app 的 PG 实时接口（`/api/tt-wo-dashboard/tt/{tt_no}`、`/wo/{wo_no}`）。置 `false` 只用本地 SQLite 副本 + eFlow 实时兜底。为什么要它：SQLite 副本每 12 小时才刷一次，PG 里已更新/恢复的数据机器人最坏要等 12 小时才看见。环境变量 `TT_ANALYSIS_HTTP=0` 可临时关 |
+| `ttAnalysisHttp` | `true` | 单号分析的**取数顺序**开关。`true`（默认）= **PG 优先 → eFlow 实时 → 本地 SQLite 副本**（副本只作最后兜底，命中打「可能滞后」标记）；`false` = 老顺序（副本优先 → eFlow 实时，不打标记）。为什么要它：SQLite 副本每 12 小时才刷一次，PG 每小时从 eFlow 同步、eFlow 才是源头 —— 让 12 小时前的副本挡在实时源前面等于用旧答案覆盖新答案。环境变量 `TT_ANALYSIS_HTTP=0` 可临时关 |
 | `ttStatsSampleLimit` | 3 | 统计回复里附的样例单号条数。给单号是为了让用户能复查，多了会挤爆聊天窗口 |
 | `ttStatsListLimit` | 10 | 用户**点名要单号**（「请输出TT单的ID」）时最多列几条。超出部分回复里会写明「还有 N 单未列出」 |
 | `systemPrompt` | （见文件） | 约束模型只依据资料作答 |
@@ -619,31 +619,73 @@ TT202609150073 · Gee City
 回归测试见 `scripts/test-tools.mjs` 的 `[3i]`，其中一条专门断言
 **两个问句的查询参数必须不同** —— 相同就是本次故障的指纹。
 
-### 单号分析的数据源：HTTP 优先，SQLite 降级（2026-10-15 起）
+### 单号分析的数据源：PG 优先 → eFlow 实时 → 本地副本（2026-10-28 调整）
 
 **上面那条「HTTP 优先」原先只覆盖聚合统计**；单号分析（`tt.js` → `scripts/tt-analyze.py`）
-此前**只读 SQLite 副本**。这导致一个 12 小时的空窗：
+此前**只读 SQLite 副本**。这导致一个 12 小时的空窗。
 
-| 通道 | 来源 | 口径 | 何时用 |
+2026-10-28 再把顺序调了一次：本地副本从第二位挪到**最后**。
+
+| 顺位 | 来源 | 口径 | 何时用 |
 | --- | --- | --- | --- |
-| 主 | my_app `/api/tt-wo-dashboard/tt/{tt_no}`（TT）与 `/wo/{wo_no}`（WO） | 生产库 **PostgreSQL**，实时 | 默认 |
-| 降级 | `scripts/tt-analyze.py` 读 `my_app/db/app.db` | SQLite **同步副本**，有延迟 | my_app 没起 / HTTP 失败 / `ttAnalysisHttp=false` |
-| 兜底 | `scripts/eflow-live-tt.py` | eFlow **实时拉取** | 本地副本确凿「查无此单」时 |
+| ① 主 | my_app `/api/tt-wo-dashboard/tt/{tt_no}`（TT）与 `/wo/{wo_no}`（WO） | 生产库 **PostgreSQL**，实时 | 默认 |
+| ② 次 | `scripts/eflow-live-tt.py` | eFlow **实时拉取**（数据源头） | ①说「没这单」或 ①请求失败 |
+| ③ 兜底 | `scripts/tt-analyze.py` 读 `my_app/db/app.db` | SQLite **同步副本**，最坏滞后 12h | ①②都拿不到；命中打 `[stale]` 标记 |
 
-**为什么必须加这条**：SQLite 副本由 `pg_to_sqlite_sync` 刷新，**cron 每 12 小时一次**
-（`45 */12 * * *`）；而 `eflow_sync` 是每小时。于是 PG 里数据已更新/恢复后，单号分析
-最坏要再等 12 小时才看见。实测投诉原文：「这些数据不是每周个小时都在更新吗，为什么找不到」。
-改成 HTTP 优先后，单号分析读的是 PG 实时库，空窗消失。
+**为什么把副本挪到最后**：副本由 `pg_to_sqlite_sync` 每 12 小时才重建一次
+（`45 */12 * * *`），而 PG 由 `eflow_sync` 每小时同步、eFlow 是源头。
+让一份 12 小时前的数据挡在实时源前面，等于**用旧答案覆盖新答案**。
+2026-10-28 实测：`TT202610280006`（00:25 建单）在 PG 里有、在副本里没有
+（副本停在 00:13 的 `TT202610280002`）—— 若 PG 恰好请求失败，旧顺序会答
+「查无此单」，而真相是「有，只是副本旧」。
 
-**实现**：HTTP 取到 TT/WO 行后，经 `tt-analyze.py` 的 `--live-row -` 通道（信封
-`{"row": <TT行>, "wo": <WO行>}`）注入，**跳过本地库**。渲染与规则匹配**完全复用**
-同一套代码，所以「实时查到的单」与「本地查到的单」格式一致，不存在两套口径。
-来源不同时标注也不同：PG 来源显示「已从实时数据库（my_app / PostgreSQL）取此单」，
-eFlow 兜底显示「本地库暂无此单，已实时查 eFlow」——**不混用**，否则用户会误判数据来源。
+**为什么 PG 说「没这单」也要去 eFlow**：PG 里最长会缺席一小时。
+同一个实测：建单 00:25、01:00 才被 `eflow_sync` 拉进 PG。
 
-**降级仍保留**（`src/tt.js:9` 的独立性原则不变）：my_app 挂了、HTTP 超时、
-或 `ttAnalysisHttp=false` 时，退回本地 SQLite + eFlow 实时兜底，机器人照样能答，只是可能旧一点。
-`TT_ANALYSIS_HTTP=0` 可临时关闭本通道。开关与超时见 `config.json` 的 `ttAnalysisHttp`。
+**实现**：PG 与 eFlow 都经 `tt-analyze.py` 的 `--live-row -` 通道注入
+（PG 是信封 `{"row": <TT行>, "wo": <WO行>}`，eFlow 是裸行），渲染与规则匹配
+**完全复用**同一套代码，不存在两套口径。来源标注也不混用：PG 显示
+「已从实时数据库（my_app / PostgreSQL）取此单」，eFlow 显示「本地库暂无此单，已实时查 eFlow」。
+
+**③ 命中必须打标记**：`⚠️ 实时库暂时取不到，下面这份来自本地副本（每 12 小时同步一次，可能滞后）`。
+不打的话，用户会拿一份最坏落后 12 小时的数据去做派单决策。
+
+**`ttAnalysisHttp=false`（或 `TT_ANALYSIS_HTTP=0`）退回老顺序** ①→③→②，
+且 ③ 作为主路径**不打** `[stale]` —— 那是显式关掉实时库的部署方式，
+不该被新顺序悄悄改成「每次都先去 eFlow 绕一圈」。开关与超时见 `config.json` 的 `ttAnalysisHttp`。
+
+### 单号分析的耗时：`[回复]` 里已带逐跳明细（2026-10-28）
+
+`qa_log.ms` 显示 TT 通道 p50 11.8s、max 57.5s，而同一个单号在命令行跑只要 1.0s。
+原先日志里只有一个总数，只能靠翻 my_app 的任务日志对时间去猜是哪一跳慢。
+现在 `[回复]` 行会带上拆分：
+
+```
+[回复] 1053ms｜命中=true｜lang=en｜pg(取行:184/渲染:868) 1053ms
+[回复] 8424ms｜命中=true｜lang=en｜eflow-miss(取行:223/渲染:0/实时:8201) 8424ms
+```
+
+`src` 取值：`pg`（PG 实时库命中）/ `eflow`（eFlow 实时命中）/ `eflow-miss`（实时也没有）/
+`local`（本地副本兜底）/ `local-retry`（副本重试后命中）/ `local-miss` / `failed`。
+
+**2026-10-28 实测（本机，空闲）**：
+
+| 场景 | 耗时 | 拆分 |
+| --- | --- | --- |
+| PG 命中（热） | ~1.0s | 取行 150~190ms + 渲染 820~870ms |
+| PG 命中（**冷启动首单**） | 9.1s | 取行 154ms + 渲染 **8913ms** |
+| eFlow 实时（PG 没有这单） | ~8.4s | 取行 200ms + 实时 8.2s |
+| 本地副本直查 | ~0.9s（热）/ 3.4s（冷） | 走 `tt-index.json`，约 3ms 定位 |
+
+冷启动那一跳的大头是 **Python 进程 + openpyxl 首次加载**（不是查库）：
+同一进程内紧接着查第二单只要 0.8s。所以「第一单特别慢」是正常现象，
+不必去查库；持续慢才需要看 `取行` 那一项（PG/my_app 侧）或 `实时` 那一项（eFlow 登录 + 翻页）。
+
+> 另一处会拖慢本地兜底的是**索引缓存被污染**：`data/tt-index.json` 若被写进一份
+> 残缺映射，每次查询都会「锚点抽查不通过 → 索引作废 → 全表直查」，
+> `data/logs/tt-index-invalidations.log` 会持续增长。现在重建结果若不足旧索引的
+> 20%，会拒绝落盘并退回全表直查（见 `tt-analyze.py` 的 `loaded_count`）。
+> 手工重建：`npm run tt-index`（实测 0.2s 出 54873 个单号）。
 
 ### 时间字段统一用 `alarm_occur_time`
 
@@ -806,12 +848,78 @@ Total traffic: 2.38MB
 Track Cells: 3
 Cell Name: Methodist Compound-X1; Methodist Compound-F1; Methodist Compound-S8
 Lat, Lon: (6.29356, -10.78105); …
-Root Cause Analysis:
-1. [100%] Web Access Response code 4XX — PALMPLAYSTORE
-2. [95%] Average Delay of The Maximum Uplink UDP Packet Interval(OTT Voice Call) — Methodist Compound-X1
+Coverage KPI（RSRP/SINR/RSRQ）：        ← 2026-10-27 新增
+  Methodist Compound-X1: RSRP -92.31dBm | SINR 19.27dB | RSRQ -13.25dB | DL弱覆盖 6.48% | …
+Root Cause Analysis（按 Cause Rule 归并）：  ← 2026-10-27 改为全部列出
+1. [100%] Downlink PRB usage(cell) is high — 4808_21
+2. [100%] E-RAB call drop rate(cell) is high — Methodist Compound-F1
+3. [95%] Average Delay of TCP Connection Confirmation(WEB) in the cell is large. — Methodist Compound-X1; Methodist Compound-S1; Methodist Compound-F1 等 1 个对象
    建议：Based on the probability of occurrence, …（仅置信度最高的一条带处理建议，超长截断）
+（其余 22 条规则的完整明细与各自处理建议见 my_app「VMAX 用户查询」页）
 来源：VMAX CCA（经 my_app 实时查询）
 ```
+
+### 覆盖 KPI 段（2026-10-27 新增）
+
+需求：用户查询时把 **RSRP / SINR / RSRQ 等覆盖信息**一并返回。
+
+数据来自上游 `query_cell` 的 `cellKpi`（my_app 已把 ppc/ppb 码映射成英文名，
+见 `vmax_cca_client.kpi_names`）。机器人侧 `extractCoverage()` 从中挑出覆盖类指标：
+
+| 展示名 | 上游 KPI 名 | 单位 |
+| --- | --- | --- |
+| RSRP | `Average RSRP(dBm)` | dBm |
+| SINR | `Average Uplink SINR(LTE)(dB)` | dB |
+| RSRQ | `Average RSRQ(dB)` | dB |
+| DL弱覆盖 | `Downlink weak coverage ratio(LTE)(%)` | % |
+| 上行SINR劣化 | `Uplink SINR Poor Ratio(LTE)(%)` | % |
+| RSRQ干扰比 | `MR ratio of downlink RSRQ interference(%)` | % |
+| PRB下行/上行空闲 | `prb_dl_avail_rate_*` / `prb_ul_avail_rate_*` | % |
+
+三个**踩过的坑**（都在 `src/vmaxcca.js` 的注释里）：
+
+1. **`cell_kpi` 的键混用「小区 ID」与「cellkey」两种形态** —— 实测同一个小区
+   两个键都存在、且内容不同（`461807001230869` 按 ID 取到的是信令类 KPI，
+   按 cellkey `4808_21` 取到的才是无线覆盖 KPI）。所以两个键都取、**并集**，
+   二选一会让「根因指向 4808_21 的覆盖问题」在覆盖段里查不到读数。
+2. **只有无线小区（rat=6）有覆盖 KPI** —— 2G/3G 小区的 `cellKpi` 是信令类
+   （PDP/Attach/TAU 成功率），不带 RSRP/SINR/RSRQ，不混进覆盖段。
+3. **缺值不是 0** —— 上游用 `--` 占位，`'--'` 的 KPI 直接跳过（不显示成 0，
+   与 AGENTS.md 原则 6 一致）。
+
+覆盖段的作用是**给根因提供支撑读数**：根因说「下行弱覆盖」，这里给
+RSRP -92dBm 与弱覆盖占比 6.5%，排障时两者要对着看。
+
+### Root Cause Analysis 改为按 Cause Rule 全列（2026-10-27）
+
+需求：「Root Cause Analysis 里是如何选择，能按 Cause Rule 都显示吗」。
+
+**原先的做法**：上游 `getcause` 返回的原始条目直接取前 3 条（`MAX_CAUSES_LISTED`）。
+问题有两个 —— 一是**信息被丢掉**（实测一天 58 条，只列 3 条）；二是看不出
+「哪条规则命中了几处」。
+
+**上游返回的是明细条目，不是规则**：实测一天 58 条，按 `rule_name` 去重后只有
+**23 条不同的 Cause Rule**（例：`High RSRQ interference(cell)` 一条规则命中 5 次，
+分别落在 4 个小区、5 个劣化时段）。直接列 58 条没人读得完，且同一个处理建议
+会重复 5 遍。
+
+**现在的做法**（`groupCausesByRule()`）：按 `rule_name` 归并，**23 条规则全部列出**，
+每条带：
+
+- 置信度（取组内最高 —— 最严重的那条代表这条规则）；
+- 命中对象（小区名 / SP 名，去重；上游 `object_name` 为 `--` 时用 `objectinfo` 顶上）；
+- 命中条数；
+- 处理建议**只给置信度最高的那条**（23 条 × 上百字会撑爆消息），其余规则的
+  各自建议指向 my_app「VMAX 用户查询」页看。
+
+回复长度有独立上限 `CCA_REPLY_BUDGET`（4500 字符，比全局 `maxReplyChars`=2000 宽），
+渲染时按预算**主动**裁剪根因条数（从低置信度开始少列），裁掉多少会如实写明
+「…（另有 N 条规则因回复长度上限未列出）」。**不能**让 whatsapp.js 的
+`truncate` 从尾部硬砍 —— 那会把「来源」行与处理建议砍掉，与 2026-10-07
+TT 通道「时效」段被砍是同一类问题。
+
+为此 `whatsapp.js` 的截断改成**按通道取上限**：通道自己返回 `maxReplyChars`
+就用自己的，没给才回落全局值（`src/whatsapp.js` 的 `truncate` 调用处）。
 
 ### 号码归一
 
@@ -872,6 +980,145 @@ Root Cause Analysis:
 
 ---
 
+## 库房查询（SP 备件库房）
+
+2026-10-27 新增。库房相关问题分**两条腿**走，各走各的通道 —— 这不是随意
+拆分，而是库房数据的性质决定的：
+
+| 问题类型 | 例子 | 走哪条腿 | 为什么 |
+| --- | --- | --- | --- |
+| **口径/定义** | 「库房有哪些单据类型」「库存表怎么对账 Gap 怎么算」 | **知识库（RAG）** | 答案写在文档里，是稳定的知识 |
+| **实时事实** | 「库房现在什么情况」「某物料还有多少库存」「SPIB… 这单什么状态」 | **工具通道** | 答案在数据库里，每小时都在变 |
+
+### 为什么实时事实不能塞进知识库
+
+库房数据由 eFlow SP 服务**每小时同步一次**，库存数量与单据状态随时在变。
+把数据快照进向量知识库，等于把「昨天的库存」当成「今天的库存」——
+这正是本项目一贯反对的（工单实时数据同理，见 `src/answer.js` 的通道说明）。
+所以库房事实走**脚本查库 + 模板渲染**，数字由 SQL 的 `COUNT`/`SUM` 产出，
+模型一个数字都不参与。
+
+### 提问示例
+
+```
+@机器人 库房现在什么情况
+@机器人 各仓库存还有多少
+@机器人 物料 033030100282 还有多少库存
+@机器人 SFP 在库多少
+@机器人 SPIB202610220006 这个入库单什么状态
+@机器人 SPOB202609150003 怎么样
+@机器人 warehouse stock status
+```
+
+### 回复样例（实测）
+
+```
+库房总览（SP 备件库房）：
+数据同步时间：2026-10-27 15:10:13
+
+入库单：共 312 张，已闭环 312，未闭环 0
+出库单：共 746 张，已闭环 736，未闭环 10
+
+各仓当前库存（快照日期 2026-10-27）：
+- Liberia Monrovia  Entrusted Spare Parts Warehouse：6431（1389 条明细）
+- Liberia Gbarnga  Entrusted Spare Parts DOP：2025（425 条明细）
+- Liberia Kweaken Entrusted Spare Parts DOP：393（146 条明细）
+- Liberia Monrovia Entrusted Spare Parts Warehouse-2nd floor：170（170 条明细）
+- Liberia Monrovia material warehouse：16（1 条明细）
+
+入库按类型：
+- New Inbound：137 张单，数量 12540
+- Borrow Return Inbound：133 张单，数量 419
+- …
+```
+
+单号查询（入库单 `SPIB202610220006`）：
+
+```
+库房单据 SPIB202610220006（入库单）：
+- 状态：Closed
+- 类型：Inventory Gain Inbound
+- 库房：Liberia Monrovia Entrusted Spare Parts Warehouse-2nd floor
+- 时间：2026-10-23 10:34:46
+- 请求时间：2026-10-22 19:21:34
+- 关闭时间：2026-10-23 10:34:46
+
+物料明细（2 行）：
+- ZXMW SRU3D 13 RFU Component Assaembly-SRU3D(13G/266/B/TH) / 219692981472 — 1 PCS @ …
+```
+
+### 数据来源与降级
+
+- **单据统计** → my_app `/api/data`（生产库 PostgreSQL，**实时**）
+- **分仓库存** → 本地 `my_app/db/app.db` 的 `inventory_details`
+  （my_app 的 `/api/data` 只有总量聚合，**没有分仓明细**）
+
+my_app 不可用时整体降级到本地 SQLite 副本，并在回复里**如实标注口径**
+（「注：本次读的是本地 SQLite 副本（有延迟）」），与工单统计通道同一纪律。
+
+### ⚠️ 三个踩过的坑（都在 `src/warehousesource.js` 的注释里）
+
+1. **`inventory_details` 是按日快照表，不是当前库存表。**
+   每个 `update_date` 各存一份当日快照，全表累积 **21 万行**；
+   **只有 `update_date = max(update_date)` 的那一份才是当前库存**（约 2100 行）。
+   直接对全表 `SUM` 会得到当前库存的好几倍（把历史快照全加了一遍）。
+   my_app 的 `backend/services/native_catalog.py:1952` 用的是同一口径。
+2. **单位列名一会儿带空格一会儿不带。**
+   `inventory_details` 的列叫 **`Unit `**（**带尾随空格**），
+   `inband_details` / `outband_details` 的叫 **`Unit`**（没有空格）——
+   两张表都是 Excel 直接导进来的，表头原样保留，连空格都保留下来了。
+   写成 `"Unit"` 查 inventory 会报 `no such column: "Unit "`，
+   报错信息里那个空格是唯一的线索。
+3. **时间有两套表示，同一行并存。**
+   `inboundTime` 是 **epoch 毫秒**（`1792751686560`），
+   `inboundTime_str` 是**可读字符串**（`2026-10-23 10:34:46`）。
+   直接显示 epoch 毫秒用户看不出是哪天，所以优先取 `_str` 版本。
+
+### 路由上的两道护栏
+
+1. **库房意图必须排在查表与统计之前。**
+   「物料 033030100282 还有多少库存」里有「多少」→ 会被 `COUNT_INTENT`
+   抢去查工单表（那里没有物料，答「0 单」）；「SPIB202610220006」里的长数字
+   会被当成告警码 → 拐去 `lookup_alarm_code` 只回「码表里没有」。
+   两者都是**答错而不报错**，所以库房解析排在它们前面。
+2. **口径问题不能走实时工具。**
+   「库房有哪些单据类型」若走工具，答的是「入库单 312 张」——
+   用户问的是**有哪些类型**，答的是**有多少张**，答非所问。
+   故加了 `WAREHOUSE_KNOWLEDGE_INTENT` 护栏：命中「是什么/有哪些/怎么算/
+   区别/流程」等特征词且提到库房话题的，改走知识库。
+   护栏由 `WAREHOUSE_TOPIC` 限定范围，避免误伤「P1 是什么级别」这类工单问法。
+
+### 知识库文档
+
+库房的**静态口径**另有一份导出文档：
+
+| 文件 | 内容 |
+| --- | --- |
+| `knowledge/库房-业务与数据字典.md` | 8 张表的字段清单、枚举值字典、关键业务口径（库存快照口径、Gap 对账、入库/出库量口径、借出归还、序列号管理） |
+| `knowledge/库房-仓库与物料清单.md` | 5 个仓库、各仓当前库存、单据统计、945 条物料主数据 |
+
+重新导出（库房数据变了时）：
+
+```bash
+npm run export-kb-warehouse   # 生成上面两个 md
+npm run ingest                # 重建向量索引
+```
+
+> 注：`npm run ingest` 后**必须重启 bot 进程**才会加载新索引
+> （索引是启动时一次性读进内存的）。网页助手 `src/http-server.js` 按
+> `index.json` 的 mtime **懒加载**，重建后自动生效，无需重启。
+
+### 代码位置
+
+| 文件 | 职责 |
+| --- | --- |
+| `src/warehousesource.js` | **取数层**：HTTP 优先 / SQLite 降级、库存快照口径、列名与时间的坑 |
+| `src/warehousetool.js` | **意图解析 + 渲染**：三类问法的判定、模板渲染（含中英文） |
+| `scripts/export-warehouse-knowledge.py` | 导出知识库文档（读 `my_app/db/app.db`） |
+| `scripts/test-warehouse.mjs` | 离线测试（51 项，不联网不调模型） |
+
+---
+
 ## 问答记录（`data/qa.sqlite`）
 
 每条回复**落盘一行**，用来回答「哪类问题在答错」。这是优化唯一的依据。
@@ -901,8 +1148,34 @@ Root Cause Analysis:
 | `top_base` / `gap` | 检索 top1 混合分与相对基线差值（诊断「为什么走错通道」） |
 | `hit_source` | top1 命中的文件名（前 3 个 confident 来源，`\|` 分隔） |
 | `route_args` | 路由/工具参数 JSON（**不塞完整工单正文**） |
+| `ack` | 送达确认：`delivered` / `undelivered`；`NULL` = 该列上线前的老记录 |
 
 **答不上的也记**，包括抛异常那批 —— 库里只剩正确答案的话，优化就无从下手。
+
+### `ack` 是怎么判定的：回执有**两条**通道
+
+`sendMessage()` 返回只代表「进了加密队列」，不代表送达。所以发送时把
+「写会话历史 / 记 `answered=1`」登记为待定，**收到服务端回执才执行**；
+30s 没回执则撤销并记一行 `ack='undelivered'`（见 `src/whatsapp.js` 的 `pendingAcks`）。
+
+关键在于回执本身分两条事件通道，**两个监听器缺一不可**：
+
+| 会话类型 | 事件 | 载荷 |
+| --- | --- | --- |
+| 私聊 | `messages.update` | `{ key:{id,fromMe}, update:{ status } }`，`status` 是 `WAMessageStatus` 枚举 |
+| 群聊 / 状态广播 | `message-receipt.update` | `{ key:{id,...}, receipt:{ receiptTimestamp \| readTimestamp } }`，**没有 `status`** |
+
+分支写在 `node_modules/baileys/lib/Socket/messages-recv.js` 的 `handleReceipt` 里：
+`isJidGroup(remoteJid)` 为真就走 `message-receipt.update`，否则走 `messages.update`。
+
+> **2026-10-28 踩坑**：本项目原先只订阅了 `messages.update`，于是**群里的每条回复**
+> 都在 30s 后被打成 `[未送达]`，`qa_log.ack` 恒为 `undelivered` —— 包括用户明明
+> 收到并正常追问了的回答。这个假警报还连带 `abortAck` 撤销「写会话历史 /
+> `answered=1`」，等于把好好的回答当成没送达处理。
+>
+> 判定逻辑现在抽在 `src/ack.js`（纯函数），两条通道的载荷形状由
+> `scripts/test-whatsapp-ack.mjs` 固化 —— 升级 baileys 改了字段名时，
+> 这个测试会先红，而不是等群里再出一次「答案发了但没人看见」。
 
 ### 检索得分已入库（2026-10-07 补齐）
 
@@ -1304,10 +1577,11 @@ Windows fatal exception: page error
 （`eflow_data_mapper.fetch_tt_live`，见 my_app 的
 `.trae/documents/eflow-tt-real-time-fallback.md`），只是机器人这条通道以前没接上。
 
-现在的行为：本地 miss → **先垫一句**再实时查 → 拿到就把完整分析回给用户。
+现在的行为（2026-10-28 起）：**PG 没给答案 → 先垫一句 → 实时查 → 拿到就把完整分析回给用户**。
+中间的本地副本不再插队（见上一节的顺序说明）。
 
 ```
-本地工单库还没有 TT202609290052（同步有延迟），我去 eFlow 实时查一下，请稍等…
+实时库里还没有 TT202609290052（PG 每小时从 eFlow 同步一次），我去 eFlow 实时查一下，请稍等…
 ```
 
 垫话是必须的：实时查询要登录 eFlow（OAuth2 + RSA）再分页扫描（每页 2000 行 / ~4s / 3MB），
@@ -1321,18 +1595,27 @@ TT202609290052 · Bokessa(3283)｜Lofa｜站点类型 NORMAL
 ...
 ```
 
-三种收尾，都不会让用户误判：
+四种收尾，都不会让用户误判：
 
 | 情形 | 回复 |
 |---|---|
 | 实时命中 | 完整报告 + `⚡ 已实时查 eFlow` 标记 |
-| 本地 + 实时都没有 | 「本地库和 eFlow 实时都没查到 X，请核对单号」+ 库内最新单号 |
-| 实时通道不可用/出错 | 说明「实时没查成」+ **保留**原来那句「库里没有 + 库内最新单号」 |
+| PG + 实时都没有 | 「实时库和 eFlow 实时都没查到 X，请核对单号」 |
+| 实时通道不可用 → 副本有这单 | 完整报告 + `⚠️ …来自本地副本（每 12 小时同步一次，可能滞后）` |
+| 实时通道不可用 → 副本也没有 | 说明「实时没查成」+ **保留**原来那句「库里没有 + 库内最新单号」 |
 
-> ⚠️ **第 3 行是关键，也是最容易写错的地方。** 实时通道会因为「my_app 的解释器
+> ⚠️ **第 3、4 行是关键，也是最容易写错的地方。** 实时通道会因为「my_app 的解释器
 > 装不齐 pandas/sqlalchemy」「eFlow 登录失败」等原因不可用。这时如果直接把
 > 「库里没有找到」当成最终答案，用户会以为**实时也确认过了**，从而得出「这单不存在」
 > 的错误结论。所以必须显式区分「查过了没有」和「没查成」。
+>
+> 同理，第 3 行如果**不打** `[stale]` 标记，用户会把一份最坏落后 12 小时的数据
+> 当成实时数据去派单 —— 那是另一种形式的错答案。
+>
+> ⚠️ 还有一个 2026-10-28 修掉的坑：`eflow-live-tt.py` 用**退出码 1** 表示
+> 「eFlow 确实没这单」、**3** 表示出错。而 `execFile` 对任何非零退出码都给 `err`，
+> 旧实现把两者一起判成「通道不可用」，于是「没有这一单」被说成「查询出错了」——
+> 结论方向完全相反。现在按 `err.code === 1` 单独识别。
 
 实现拆成两段，各管一件事：
 
@@ -1568,9 +1851,9 @@ Matched: alarmCode=9991 in 9971/9981 (7 total)
 
 ---
 
-## 知识库内容（TT 领域）
+## 知识库内容（TT 领域 + 库房）
 
-`knowledge/` 下现有 10 个文档，分三个来源：
+`knowledge/` 下现有 12 个文档，分四个来源：
 
 **① 从 my_app 自动导出**（`npm run export-kb`）
 
@@ -1604,6 +1887,16 @@ Matched: alarmCode=9991 in 9971/9981 (7 total)
 | 文档 | 来源 | 内容 |
 |---|---|---|
 | `07_iMind-eFlow-Function-Operation-Guide.md` | ZTE 官方 docx（V6.26.10.F30B3，24MB / 497 图） | 平台操作：用户组、角色与流程、TT/WO 创建与处理、配置 |
+
+**④ 库房（SP 备件库房）**（`npm run export-kb-warehouse`）
+
+| 文档 | 来源 | 内容 |
+|---|---|---|
+| `库房-业务与数据字典.md` | `my_app/db/app.db` 的 8 张库房表 | 字段清单、枚举值字典、关键业务口径（库存快照口径、Gap 对账、入出库量口径、借出归还、序列号管理） |
+| `库房-仓库与物料清单.md` | 同上 | 5 个仓库、各仓当前库存、单据统计、945 条物料主数据 |
+
+> 库房文档只放**稳定的口径与字典**。实时数量走 `query_warehouse` 工具
+> 实时查库，不进语料 —— 详见「[库房查询](#库房查询sp-备件库房)」一节。
 
 **规则更新后**：`npm run sync-kb`（一条命令完成 导出 → 重建索引 → 重启进程）。
 
@@ -1699,6 +1992,49 @@ python scripts/docx-to-md.py 输入.docx 输出.md
 > 按 120 字符前缀删会误删大量有用上下文。必须比全文。
 
 回归测试：`node scripts/test-dedupe.mjs`（含用线上 `data/index.json` 实测的用例）。
+
+---
+
+## 网页问答服务（`/ask` HTTP 接口，`9269`）
+
+同一套答题链路也给**网页**用（2026-10-27 加）：门户 `/v3/olbrportal/` 右下角的问答挂件
+→ my_app `POST /api/portal-qa/ask`（`Task/my_app/backend/routers/portal_qa.py`）
+→ 本服务 `127.0.0.1:9269`。**群里那条链路一行没改**，两条只是共用 `src/answer.js:routeAnswer`。
+
+```bash
+npm run serve-http          # 手动前台起（调试用）
+# 生产：由 my_app 后端按需拉起，见 backend/services/portal_qa_ctl.py
+```
+
+| 接口 | 说明 |
+| --- | --- |
+| `POST /ask` | `{question, lang?: "zh"\|"en", clientId?}` → `{ok, answer, answered, channel, tool, via, model, fallbackReason, ms}` |
+| `POST /session/clear` | `{clientId}` 清掉该会话的多轮记忆（服务端每会话留 5 轮） |
+| `GET /health` | 索引规模、嵌入模型、**下一次提问会先走的通道**、并发队列 |
+
+要点：
+
+- **只绑回环**（`QA_HTTP_HOST` 默认 `127.0.0.1`），对外一律由 my_app 后端中转并做会话鉴权。
+- **网页版的对话模型是独立通道，不跟 my_app 的 AI 设置走**：固定 OWU
+  `qwen2.5:7b-instruct`（`QA_OWU_BASE`，默认 `http://192.168.100.27:3000/api/v1`，
+  静态 key 只认 `/api/v1` 这条 base，见 `src/config.js:89`）。`clientId` 由 my_app 拼成
+  `用户名#页面id`，同名不同浏览器互不串上下文。
+- **OWU 通道级失败自动兜底到同一个模型**：`.27` 的 Ollama 上就是同一份 7b 权重，兜底不降质。
+  只认通道问题（401/403/404、key 无效、model not found、连不上、超时），
+  **不兜底业务错误**；失败后 `QA_OWU_COOLDOWN_MS`（默认 5 分钟）内直接走本地，不再白打一次 OWU。
+  `src/llm.js` 自带的 `fallbackTarget()` 在本服务里被刻意关掉（它指向已不可用的 WorkBuddy 代理）。
+- **`webHint:false`**：查不到时的「去网页版问」尾巴只对群里有意义，网页挂件不追加
+  （`src/answer.js:routeAnswer` → `src/tools.js` 的 `webHintFor`）。
+- **延迟**：查表/工单统计/单号分析等规则通道毫秒级；知识库 RAG 要模型，`.27` 只常驻一个模型，
+  7b 与 `bge-m3` 换载一次 7~30 秒，实测单次 **60~90 秒**。后端转发超时给到 300 秒。
+- 环境变量：`QA_HTTP_PORT`、`QA_HTTP_HOST`、`QA_OWU_BASE`、`QA_CHAT_MODEL`、
+  `QA_OWU_COOLDOWN_MS`、`QA_CHAT_TIMEOUT_MS`、`OPENWEBUI_API_KEY`（密钥只从环境变量读，
+  不进代码/日志；缺 key 时 `validateProvider()` 会报出来，但**不阻止进程启动**）。
+
+> 已知限制（2026-10-27）：OWU 侧的 `OPENWEBUI_API_KEY` 目前对 `/api/v1/models`、
+> `/api/v1/chat/completions` 报 403 / 400，网页问答实际一直在走本地 Ollama 兜底
+> （`/health` 的 `channel` 会显示 `ollama`，回答的 `via` 是 `ollama-fallback`）。
+> 补一个具备模型权限的 key 后无需改代码，冷却期一过会自动切回 OWU。
 
 ---
 
@@ -1996,6 +2332,8 @@ npm run ask -- --debug "年假有几天"       # 离线测一条 + 检索诊断
 | `test-tt-live.py` | 42 | 实时行（`--live-row`）渲染：完整报告 + `⚡ 已实时查 eFlow` 标记、缺字段不崩、`tt_no` 缺失用入参兜底、**非法 JSON 报错退出而非静默退回本地库**、**真实 eFlow 字段集下级别判定如实说「未能核对规则」而非「未命中」** |
 | `test-tt-live-bridge.py` | 28 | 桥接退出码契约：哨兵常量、**子进程崩溃(exit 1) 必须映射为 3 而非 1**（曾把「依赖坏了」误报成「eFlow 没这单」）、空/坏 JSON、无解释器 → 2 |
 | `test-tt-live-route.mjs` | 33 | 编排：本地 miss → **先发垫话**再实时查、实时命中不残留「库里没有」、实时不可用退回原文案、**超时走重试而不走实时**、英文回复**零中文残留**、`TT_LIVE_FALLBACK=0` 退回旧行为 |
+| `test-tt-analysis-http.mjs` | 33 | 取数**顺序**（2026-10-28 新序）：PG 命中不碰副本、**PG miss → eFlow 实时且不读副本**、PG 连不上 → eFlow 实时、eFlow 明确「没这单」→ 直接结论不扫副本、两级都不可用才落副本并打 `[stale]`、`ttAnalysisHttp=false` 退回老顺序且不打标记、中英标记成对 |
+| `test-whatsapp-ack.mjs` | 20 | 送达回执**两条通道**的载荷形状：私聊 `messages.update`（`status` 枚举，PENDING 不算送达）、群聊 `message-receipt.update`（`receiptTimestamp`/`readTimestamp`，**没有 status**）、两条通道互不串味（群回执喂给私聊判定必须返回 null —— 这正是 2026-10-28 那个「群里全是未送达」的 bug）、空载荷不抛 |
 
 > `test-tt-rules.py` 的第 5 段需要读 Y 盘的规则表。读不到时打印 `SKIP` 而非失败——
 > 那是环境问题不是代码问题，不该让离线环境下整个 `npm test` 变红、掩盖前几段回归。
@@ -2185,6 +2523,8 @@ whatsapp-kb-bot/
 │   ├── buildinfo.js         代码指纹 / 进程启动时间 —— 判断「跑的是不是旧代码」
 │   ├── tt.js                TT 单分析（调 Python 子进程查工单库）
 │   ├── vmaxcca.js           VMAX CCA 用户查询（TEL 号码 → my_app HTTP 实时，60 分钟窗口）
+│   ├── warehousesource.js   库房取数层（HTTP 优先 / SQLite 降级；库存快照口径）
+│   ├── warehousetool.js     库房意图解析 + 模板渲染（总览 / 物料 / 单据）
 │   ├── mentions.js          @提及识别与消息解析（纯函数，可单测）
 │   ├── ingest.js            索引构建 CLI
 │   └── whatsapp.js          Baileys 接入、限流、队列、重连、优雅关闭
@@ -2198,6 +2538,7 @@ whatsapp-kb-bot/
     ├── tt-analyze.py        TT 单分析（查工单库 + 套级别规则；支持 --live-row 渲染实时行）
     ├── eflow-live-tt.py     实时兜底桥接：用 my_app 的 fetch_tt_live 去 eFlow 实时拉单
     ├── export-tt-knowledge.py  从 my_app 导出 TT 知识库文档
+    ├── export-warehouse-knowledge.py  从库房库导出库房知识库文档
     ├── docx-to-md.py        docx → markdown（保留标题层级，纯标准库）
     ├── test-mentions.mjs    @提及识别单测（39 项）
     ├── test-chunking.mjs    分块器单测（23 项）
@@ -2207,6 +2548,7 @@ whatsapp-kb-bot/
     ├── test-lang.mjs        语言判定与固定文案单测（74 项）
     ├── test-tt-extract.mjs  工单号抽取与多单路由单测（32 项）
     ├── test-vmaxcca.mjs     VMAX CCA 通道单测（68 项）
+    ├── test-warehouse.mjs   库房查询通道单测（51 项，离线不联网不调模型）
     ├── test-tt-live-route.mjs 实时兜底编排单测（33 项）
     ├── test-tt-rules.py     TT 规则匹配单测（65 项）
     ├── test-tt-live.py      实时行渲染单测（42 项）

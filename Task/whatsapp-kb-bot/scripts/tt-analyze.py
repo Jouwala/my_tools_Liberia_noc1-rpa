@@ -1251,6 +1251,9 @@ def fetch_tt(tt_no: str, lang: str = DEFAULT_LANG) -> dict | None:
         #    这一步必须做在「用索引回答」之前：索引失效时的错误答案有两种形态 ——
         #    取回别人的工单（静默错），或者目标单号的新 rowid 对不上旧值而误报「查无此单」。
         mapping, built_at, max_rid, anchors = _load_index()
+        # 旧索引的规模。重建后要拿它做「这次重建是不是明显不完整」的自保判断，
+        # 所以必须在下面把 mapping 清空之前先记下来。
+        loaded_count = len(mapping)
         if mapping and not _verify_anchors(cur, anchors):
             _log_invalidation(f'锚点抽查不通过（{len(anchors)} 个锚点），索引作废')
             mapping = {}
@@ -1297,7 +1300,28 @@ def fetch_tt(tt_no: str, lang: str = DEFAULT_LANG) -> dict | None:
                 mapping = {}
                 suspect = True
         if mapping:
-            _save_index(mapping, max_rid)
+            # 落盘前自保：**不拿一份明显不完整的新索引覆盖旧的完整索引**。
+            #
+            # 2026-10-28 实测踩到：某次重建只产出 **1 个单号**，却照样覆盖了
+            # 5 万多条的索引。之后每次查询都「锚点抽查不通过 → 索引作废 →
+            # 全表直查」，data/logs/tt-index-invalidations.log 刷了 590 多行；
+            # 而查询结果本身仍然是对的，所以这个 bug 一直没被发现，
+            # 只是把每次查询都拖成一次全表扫描。
+            #
+            # 阈值取 20%：正常增删不会让单号总量掉到五分之一以下，
+            # 真掉到那个程度多半是「库正在被 DROP+CREATE 重写」扫到的半截状态。
+            shrunk = loaded_count >= 1000 and len(mapping) < loaded_count * 0.2
+            if shrunk:
+                _log_invalidation(
+                    f'重建只得到 {len(mapping)} 个单号（原 {loaded_count}），'
+                    '疑似库正在被改写，索引不落盘'
+                )
+                # 连「落盘都不敢」的映射当然也不能拿来回答：这份残缺映射里
+                # 没有的单号会被误判成「查无此单」。作废它，退回全表直查。
+                mapping = {}
+                suspect = True
+            else:
+                _save_index(mapping, max_rid)
 
         if mapping:
             rid = mapping.get(target)
@@ -1486,7 +1510,12 @@ def analyze(tt_no: str, rules: list[dict], lang: str = DEFAULT_LANG,
                 'sub_alarm_name', 'sub_alarm_ne_name', 'sub_alarm_ne_ip',
                 'specific_problem',
                 # 影响面
-                'down_site_count', 'impacted_service', 'whether_impacted_service',
+                # ⚠️ `down_site_list`（受影响站点号清单，如 '3748,4251,4091'）
+                # 必须在 `_TT_COLUMNS`（取数）**和**这里（进 record）同时出现，
+                # 否则 `r.get()` 恒为 None —— 2026-10-28 用户要求 P1 首推给出
+                # 「Total 16 impact sites:...」清单，缺这一行清单永远渲染不出来。
+                'down_site_count', 'down_site_list',
+                'impacted_service', 'whether_impacted_service',
                 'site_outage', 'ticket_type', 'suspended', 'root_cause',
                 # 链路
                 'status', 'operation_type', 'current_handler',
@@ -1791,6 +1820,13 @@ _LABELS: dict[str, dict[str, str]] = {
         'brief_step': '当前环节：',
         'brief_open': '已持续：',
         'brief_level_warn': '请人工确认 —— 级别未经规则核对（站点属性不全）',
+        # 站点行（告警行下面）：名字(站号) + IP —— 值班人复制 IP 去 ping/登设备。
+        'site': '站点：',
+        'site_ip': 'IP：',
+        # 补充信息（影响站点清单）。格式与用户 2026-10-28 的要求一致：
+        # `Additional Information: Total 16 impact sites:4104,3665,...`
+        'addl': '补充信息：',
+        'impact_total': '共 {n} 个受影响站点：',
     },
     'en': {
         'need_openpyxl': 'openpyxl is missing, so the rules workbook cannot be read '
@@ -1917,6 +1953,14 @@ _LABELS: dict[str, dict[str, str]] = {
         'brief_open': 'Open: ',
         'brief_level_warn': 'PLEASE CONFIRM — level not rule-checked '
                             '(site attributes missing)',
+        # Site line (right under the Alarm line): name(site id) + IP — the duty
+        # engineer copies the IP to ping / log into the NE. 纯 ASCII。
+        'site': 'Site: ',
+        'site_ip': 'IP: ',
+        # Additional information (impacted-site list). Wording follows the
+        # 2026-10-28 request verbatim: `Total 16 impact sites:4104,3665,...`.
+        'addl': 'Additional Information: ',
+        'impact_total': 'Total {n} impact sites:',
     },
 }
 
@@ -3115,6 +3159,13 @@ def render_text_brief(res: dict, lang: str = DEFAULT_LANG) -> str:
     alarm = (
         f"{L['alarm']}{norm_alarm_code_text(r.get('alarm_code')) or '-'}"
     )
+    # 告警码本身对值班人没有语义 —— 9995 是什么？2026-10-28 用户反馈：
+    # 群里只看到 `Alarm: 9995 | Communication Alarm`，没人知道这是微波链路中断。
+    # 故把 eFlow 的 `specific_problem`（= 告警码的 codename，如 MW LINK DOWN）
+    # 紧跟告警码之后；缺值时不占位（与 domain/alarm_type 同语义）。
+    codename = _one_line(r.get('specific_problem'), 60)
+    if codename:
+        alarm += sep + codename
     tail = [v for v in (r.get('domain'), r.get('alarm_type')) if v]
     if tail:
         alarm += sep + sep.join(tail)
@@ -3127,9 +3178,29 @@ def render_text_brief(res: dict, lang: str = DEFAULT_LANG) -> str:
         alarm += sep + obj
     out.append(alarm)
 
+    # ── 站点行：名字(站号) + IP ──（2026-10-28 用户要求放在 Alarm 行下面）
+    # 抬头虽然已有「站名(站号)」，但值班人要的是**能直接用的 IP**（ping / 登设备），
+    # 而 IP 只在告警对象里、抬头拿不到；单列一行比塞进 Alarm 行更好扫。
+    ip = _one_line(re.split(r'[;,\s]+', str(r.get('sub_alarm_ne_ip') or ''))[0], 40)
+    site_label = _one_line(r.get('site_name') or r.get('ne_name'), 60)
+    if site_label and sid:
+        site_label += f"{L['lparen']}{sid}{L['rparen']}"
+    if site_label or ip:
+        out.append(f"{L['site']}{site_label or '-'}{sep}{L['site_ip']}{ip or '-'}")
+
     impact = _impact_parts(r, lang)
     if impact:
         out.append(L['impact'] + sep.join(impact))
+
+    # ── 补充信息：受影响站点清单 ──
+    # `down_site_count` 只说「16 个站受影响」，值班人要的是**哪 16 个**。
+    # 清单来自 eflow_tt.down_site_list（逗号/分号混用），无清单时整行不输出
+    # —— 空清单行是噪音，且会让人以为「查过了，没有波及站」。
+    imp_sites = _impact_site_list(r)
+    if imp_sites:
+        n = _one_line(r.get('down_site_count')) or str(len(imp_sites))
+        out.append(f"{L['addl']}{L['impact_total'].format(n=n)}"
+                   + ','.join(imp_sites))
 
     # Victims（波及范围）——只给数字 + Hub 标记，**不列清单**：
     # brief 的读者是分钟级值班，清单留给完整模式。
@@ -3183,6 +3254,27 @@ def _first_obj_name(r: dict) -> str:
     """告警对象：子告警名（取第一个），无则空。brief 用。"""
     name = _one_line(re.split(r'[;\n]', str(r.get('sub_alarm_name') or ''))[0], 50)
     return name
+
+
+def _impact_site_list(r: dict) -> list[str]:
+    """`down_site_list` → 站点号清单（去重、保序、单行）。
+
+    实测该字段三种写法混用：`3748,4251,4091`（逗号）、`Kileaken;\\nDulay`
+    （分号+换行）、以及 eFlow 的占位 `--`。故统一按 `[,;\\s]+` 切分。
+    `--` / `-` / 空 一律当「没有清单」，返回 []（调用方据此整行不输出）。
+    """
+    raw = _one_line(r.get('down_site_list'))
+    if raw in ('', '--', '-'):
+        return []
+    out: list[str] = []
+    seen: set[str] = set()
+    for x in re.split(r'[,;\s]+', raw):
+        x = x.strip()
+        if not x or x in ('--', '-') or x in seen:
+            continue
+        seen.add(x)
+        out.append(x)
+    return out
 
 
 def _impact_parts(r: dict, lang: str = DEFAULT_LANG) -> list[str]:

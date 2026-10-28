@@ -5,9 +5,21 @@
  *   知识库（RAG）回答「规则是什么」——静态知识，向量检索就够；
  *   这里回答「这一单现在什么情况」——必须实时查库，所以走独立通道。
  *
- * 实现方式：Node 起子进程跑 scripts/tt-analyze.py。
- * 之所以不用 my_app 的 HTTP 接口：那要求 my_app 服务在跑，
- * 而子进程方式只依赖「工单库文件可读」，机器人独立可用。
+ * 实现方式：Node 起子进程跑 scripts/tt-analyze.py 渲染。
+ * 之所以还留这条子进程路径：它只依赖「工单库文件可读」，my_app 服务挂了也能用，
+ * 机器人因此保持独立可用（见 analyzeTt 的第 ③ 步）。
+ *
+ * ## 取数顺序（2026-10-28 调整）
+ *
+ *   ① PG 实时库（my_app HTTP）—— 首选，数据最全最新。
+ *   ② eFlow 实时拉取 —— PG 说「没这单」或 PG 请求失败时**直接走这里**。
+ *   ③ 本地 SQLite 副本 —— 只在 ①② 都拿不到时兜底，命中必须标「可能滞后」。
+ *
+ * 为什么把 ③ 从第二位挪到最后：那份副本由 `pg_to_sqlite_sync` 每 12 小时
+ * 才重建一次，最坏滞后半天；而 eFlow 是数据源头、PG 每小时同步一次。
+ * 让一份 12 小时前的数据挡在实时源前面，等于**用旧答案覆盖新答案** ——
+ * 2026-10-28 实测：TT202610280006（00:25 建单）在 PG 里有、在副本里没有，
+ * 若按旧顺序且 PG 请求失败，用户拿到的会是「查无此单」，而真相是「有，只是副本旧」。
  */
 import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
@@ -189,6 +201,9 @@ export async function analyzeTickets(question, { lang = 'zh', onRetry, onLive } 
     okCount,
     total: ttNos.length,
     truncated,
+    // 逐跳耗时（见 analyzeTt 的 timing）。多单时按单号列全，
+    // 这样「3 个单里有 1 个慢」和「整条通道慢」能分开看。
+    timing: results.map((r) => ({ no: r.no, ...(r.timing || {}) })),
   };
 }
 
@@ -275,15 +290,28 @@ const FAIL_TEXT = {
     empty: (tt) => `分析 ${tt} 没有返回结果。`,
     unknown: '未知错误',
     retrying: (tt) => `分析 ${tt} 没成功，正在自动重试一次…`,
-    // 本地库查不到 → 即将去 eFlow 实时查。**必须先说一声**：
+    // PG 里没有（或 PG 连不上）→ 即将去 eFlow 实时查。**必须先说一声**：
     // 实时查询要登录 eFlow + 翻页扫描，实测比本地查询慢得多，
     // 不垫这句的话用户只会看到机器人沉默十几秒，以为它掉线了。
-    goingLive: (tt) => `本地工单库还没有 ${tt}（同步有延迟），我去 eFlow 实时查一下，请稍等…`,
-    liveMiss: (tt) =>
-      `本地库和 eFlow 实时都没查到 ${tt}。请核对一下单号有没有写错。`,
+    // 措辞按 2026-10-28 的新顺序改：现在卡在 PG 这一层（不再是 SQLite 副本），
+    // 而 PG 由 `eflow_sync` 每小时从 eFlow 同步一次 —— 说「同步有延迟」太空泛，
+    // 说清是「每小时一次」用户才知道该等多久。
+    goingLive: (tt) =>
+      `实时库里还没有 ${tt}（PG 每小时从 eFlow 同步一次），我去 eFlow 实时查一下，请稍等…`,
+    // src 由调用方给：PG 通道说「实时库」，SQLite 通道说「本地库」。
+    // 说错来源比不说更糟 —— 用户会照着这句话去核对另一套系统。
+    // ⚠️ 来源名必须**按语言**取（F.srcPg / F.srcLocal），不能直接写中文字面量：
+    // 英文回复里塞一个「实时库」就是中英混排，实测当场踩到。
+    srcPg: '实时库',
+    srcLocal: '本地库',
+    liveMiss: (tt, src) =>
+      `${src || '本地库'}和 eFlow 实时都没查到 ${tt}。请核对一下单号有没有写错。`,
     // detail 是 Python 脚本的 stderr（中文诊断），**只给中文回复用**。
     // 英文回复塞进去就成了中英混排 —— 见下面 en.liveError。
     liveError: (tt, detail) => `实时查 eFlow 时出错了：${detail}`,
+    // 最后兜底（本地副本）命中时必须标注：这份数据最坏落后 12 小时，
+    // 不标的话用户会拿它当实时数据去做派单决策。
+    stale: '⚠️ 实时库暂时取不到，下面这份来自本地副本（每 12 小时同步一次，可能滞后）',
   },
   en: {
     timeout: (tt, s) =>
@@ -294,10 +322,12 @@ const FAIL_TEXT = {
     unknown: 'unknown error',
     retrying: (tt) => `Analyzing ${tt} failed — retrying once automatically…`,
     goingLive: (tt) =>
-      `${tt} is not in the local ticket DB yet (sync has a delay) — ` +
+      `${tt} is not in the live DB yet (PG syncs from eFlow hourly) — ` +
       `checking eFlow live, one moment…`,
-    liveMiss: (tt) =>
-      `Neither the local DB nor a live eFlow lookup found ${tt}. ` +
+    srcPg: 'the live database',
+    srcLocal: 'the local DB',
+    liveMiss: (tt, src) =>
+      `Neither ${src || 'the local DB'} nor a live eFlow lookup found ${tt}. ` +
       `Please double-check the ticket number.`,
     // ⚠️ 这里**刻意丢掉 detail**：它来自 Python 脚本的 stderr，
     // 内容是中文（如「实时兜底不可用：…没找到同时装齐 pandas + sqlalchemy 的解释器」）。
@@ -307,6 +337,9 @@ const FAIL_TEXT = {
     liveError: (tt) =>
       `The live eFlow lookup did not go through, so ${tt} could only be ` +
       `checked against the local ticket DB.`,
+    // 纯 ASCII：英文回复要过「零中文残留」断言（见 test-tt-live-route.mjs [7]）。
+    stale: '[stale] live DB unavailable — this is the local replica ' +
+      '(synced every 12h, may lag)',
   },
 };
 
@@ -420,15 +453,15 @@ function runAnalyze(ttNo, replyLang, liveJson = null) {
 }
 
 /**
- * 本地库查不到时，去 eFlow 实时拉这一单。
+ * PG 没给出答案时（没这单 / 请求失败），去 eFlow 实时拉这一单。
  *
  * 返回：
  *   {hit:'yes', analyze:{...}}  实时行拿到了，并且用它渲染出了分析
- *   {hit:'no'}                  实时也没有这一单（本地 + 实时都没有）
+ *   {hit:'no'}                  实时也没有这一单（eFlow 是源头，这就是结论）
  *   {hit:'unavailable', detail} 实时通道不可用/出错（缺解释器、登录失败…）
  *
  * **任何失败都只降级、不抛出** —— 这是给群里用户的回复，
- * 实时兜底挂掉时，至少要保住原来那句「库里没有找到」。
+ * 实时通道挂掉时，调用方还要继续往本地副本兜。
  */
 function tryLive(ttNo, replyLang) {
   return new Promise((resolvePromise) => {
@@ -447,14 +480,23 @@ function tryLive(ttNo, replyLang) {
       async (err, stdout, stderr) => {
         const out = (stdout || '').trim();
 
-        if (err && !out) {
-          const detail = String(stderr || err.message || '').trim().split('\n').filter(Boolean).pop();
-          resolvePromise({ hit: 'unavailable', detail: detail || FAIL_TEXT[replyLang].unknown });
-          return;
-        }
         if (!out) {
-          // 退出码 1 = 实时也查无此单（脚本约定）
-          resolvePromise({ hit: 'no' });
+          // ⚠️ 退出码 1 = **实时也查无此单**，不是故障。
+          //
+          // `eflow-live-tt.py` 的约定（见该脚本 `_MISS` 的注释）：查到→JSON、
+          // 没查到→退出码 1 且 stdout 为空、出错→退出码 3。而 execFile 对
+          // **任何**非零退出码都给 err，于是退出码 1 也带着 err。
+          //
+          // 旧实现把 `err && !out` 一律判成 'unavailable'，导致「eFlow 里确实
+          // 没有这一单」被说成「实时查 eFlow 时出错了」—— 前者是结论，后者是
+          // 故障，用户据此做的决定完全相反（2026-10-28 由 test-tt-analysis-http
+          // 的 [7] 抓出）。
+          if (err && err.code === 1) {
+            resolvePromise({ hit: 'no' });
+            return;
+          }
+          const detail = String(stderr || err?.message || '').trim().split('\n').filter(Boolean).pop();
+          resolvePromise({ hit: 'unavailable', detail: detail || FAIL_TEXT[replyLang].unknown });
           return;
         }
         const res = await runAnalyze(ttNo, replyLang, out);
@@ -471,22 +513,26 @@ function tryLive(ttNo, replyLang) {
 /**
  * 分析一个工单（TT / WO）。
  *
- * 取数顺序（2026-10-15 起）：
- *   ① **HTTP（my_app 的 PG 实时库）** —— 首选。命中即用，消除 SQLite 副本
- *      最长 12 小时的镜像延迟（见 `analysisHttpEnabled` 的说明）。
- *   ② 本地 SQLite（`tt-analyze.py` 直读副本）—— HTTP 未命中/失败/未配置时。
- *   ③ eFlow 实时兜底（`eflow-live-tt.py`）—— 本地 miss 且确凿「查无此单」时。
- * 失败时**自动重试一次**（针对 ②/③ 的本地库抖动）。
+ * 取数顺序（2026-10-28 起，理由见文件头）：
+ *   ① **PG 实时库**（my_app HTTP）—— 首选，命中即用。
+ *   ② **eFlow 实时**（`eflow-live-tt.py`）—— ①说「没这单」或 ①请求失败时。
+ *   ③ **本地 SQLite 副本**（`tt-analyze.py` 直读 app.db）—— ①②都拿不到时兜底，
+ *      命中会打「可能滞后」标记。
+ *
+ * 旧顺序是 ①→③→②。把 ③ 挪到最后，是因为那份副本每 12 小时才重建一次，
+ * 让它挡在 eFlow 前面等于**用旧答案覆盖新答案**。
+ *
+ * `ttAnalysisHttp=false`（或 `TT_ANALYSIS_HTTP=0`）时回到**老顺序** ①→③→②，
+ * 且 ③ 作为主路径不打滞后标记 —— 那是显式关掉实时库的部署方式，
+ * 不该被新顺序悄悄改成「每次都先去 eFlow 绕一圈」。
+ *
+ * 失败时**自动重试一次**（只针对 ③ 的超时/瞬时读不到；「查无此单」不重试）。
  *
  * 为什么要自动重试：实测同一单 `TT202609110023` 被用户连问了 5 次，
  * 前 3 次都失败、第 4 次才成功 —— 失败原因几乎都是 Y 盘网络盘
  * 首次建索引慢（11s~100s 波动）或瞬时不可达，**再跑一次就好了**。
  * 让用户自己重复提问，等于把基础设施的抖动转嫁成人工重试，
  * 而且用户会以为「这单查不到」。
- *
- * 为什么要实时兜底：本地库同步有延迟，用户报的单号常常比库里最新的还新。
- * 以前这种情况只回一句「库里没有 + 库内最新单号」，用户拿不到数据。
- * 现在先垫一句「正在实时查」再回 eFlow 拉 —— 详见 `tryLive`。
  *
  * 刻意**永不抛异常** —— 这是在群里回复用户，
  * 子进程失败也必须给出一句人话，不能静默或抛栈。
@@ -495,70 +541,162 @@ function tryLive(ttNo, replyLang) {
  * @param {{lang?: 'zh'|'en', onRetry?: Function, onLive?: Function}} [opts]
  *        回复语言（按提问语言判定，见 lang.js）；
  *        onRetry 在「即将重试」时回调，供上层发垫话；
- *        onLive  在「本地 miss、即将回 eFlow 实时查」时回调，供上层发垫话。
+ *        onLive  在「即将回 eFlow 实时查」时回调，供上层发垫话。
  */
-export async function analyzeTt(ttNo, { lang = 'zh', onRetry, onLive } = {}) {
+export async function analyzeTt(ttNo, opts = {}) {
+  // 逐跳计时。**为什么非要这个**：2026-10-28 实测同一单号，独立调用 1.0s，
+  // 群里却是 24~58s（qa_log 里 tt 通道 p50 11.8s、max 57.5s），而日志里只有
+  // 一个总数 —— 只能靠猜。把「取 PG 行」「跑渲染脚本」「eFlow 实时」分开计时，
+  // 下一次慢的时候一眼就能看出是哪一跳，不必再翻 my_app 的任务日志去对时间。
+  // 计时是旁路，任何异常都不影响查询结果。
+  const timing = { src: '', pg: 0, render: 0, live: 0, total: 0 };
+  const started = Date.now();
+  try {
+    // 先算返回值再补 total：finally 里改的是同一个对象，
+    // 所以返回出去的 timing.total 是含全流程的。
+    return { ...(await analyzeTtOnce(ttNo, opts, timing)), timing };
+  } finally {
+    timing.total = Date.now() - started;
+  }
+}
+
+/**
+ * analyzeTt 的本体。单独拆出来只是为了让上面那层能统一收口 timing ——
+ * 本体里有 8 个 return 点，逐个补 total 迟早漏一个。
+ *
+ * @param {{lang?: string, onRetry?: Function, onLive?: Function}} opts
+ * @param {{src:string, pg:number, render:number, live:number}} timing 就地累加
+ */
+async function analyzeTtOnce(ttNo, { lang = 'zh', onRetry, onLive } = {}, timing) {
   // 只放行脚本认得的取值，避免上游传错让 argparse 直接退出（exit 2）
   const replyLang = lang === 'en' ? 'en' : 'zh';
   const F = FAIL_TEXT[replyLang];
+  const httpOn = analysisHttpEnabled();
 
-  // ① HTTP 优先（PG 实时）。命中即回，不碰本地库。
-  //    未命中分两种：接口正常但确实没这单（tt:null），或请求失败（抛）——
-  //    两种都落到下面的本地通道，本地可能有、也可能没有，与改造前一致。
-  if (analysisHttpEnabled()) {
+  // ① PG 实时库。
+  //    未命中分两种，语义不同故分开记：接口正常但确实没这单（notfound），
+  //    与请求失败（error，my_app 没起 / 超时 / 返回结构异常）。
+  let pgMiss = null; // null | 'notfound' | 'error'
+  if (httpOn) {
+    const tp = Date.now();
     try {
       const { tt, wo } = await fetchRowsHttp(ttNo);
+      timing.pg = Date.now() - tp;
       if (tt) {
-        // 走已有的 --live-row 通道（信封形状 {"row":<TT>,"wo":<WO>}），
+        // 走已有的 --live-row 通道（信封 {"row":<TT>,"wo":<WO>}），
         // 渲染/规则匹配/口径全部复用 tt-analyze.py，不引入第二套格式。
         const env = JSON.stringify({ row: tt, wo: wo || undefined });
+        const tr = Date.now();
         const res = await runAnalyze(ttNo, replyLang, env);
-        if (res.ok) return res;
-        // HTTP 拿到了行、但脚本渲染失败（如规则表缺失）→ 不吞，落到本地通道再试。
-        if (process.env.DEBUG_TOOLS === '1') console.error(`[tt] HTTP 行渲染失败：${res.text}`);
+        timing.render = Date.now() - tr;
+        if (res.ok) {
+          timing.src = 'pg';
+          return res;
+        }
+        // 行拿到了、但脚本渲染失败（如规则表缺失）→ 不吞，继续走 ②/③。
+        pgMiss = 'error';
+        if (process.env.DEBUG_TOOLS === '1') console.error(`[tt] PG 行渲染失败：${res.text}`);
+      } else {
+        pgMiss = 'notfound';
       }
     } catch (err) {
-      // 网络/服务异常 → 静默降级到本地库（机器人保持独立可用）
-      if (process.env.DEBUG_TOOLS === '1') console.error(`[tt] HTTP 取行失败：${err.message}`);
+      timing.pg = Date.now() - tp;
+      // 网络/服务异常 → 继续 ②（机器人保持独立可用）
+      pgMiss = 'error';
+      if (process.env.DEBUG_TOOLS === '1') console.error(`[tt] PG 取行失败：${err.message}`);
     }
   }
 
-  const first = await attemptTt(ttNo, replyLang);
-
-  // 本地查到了 → 直接回。
-  if (first.ok) return first;
-
-  // 本地 miss（不是故障）→ 回 eFlow 实时查。
+  // ② eFlow 实时 —— 紧跟 PG，**不让 12 小时前的副本插队**。
   //
-  // 判断用 `notFound` 而不是 `!first.ok`：只有**确凿的「查无此单」**才值得
-  // 去实时拉。超时/库读不到等故障走下面的重试逻辑 —— 对那些情况，
-  // 本地库其实是有这一单的，去 eFlow 反而绕远路且更慢。
-  if (first.notFound) {
+  //    为什么 PG 说「没这单」也要去 eFlow：PG 由 `eflow_sync` 每小时从 eFlow
+  //    同步一次，刚建的单在 PG 里最长会缺席一小时（2026-10-28 实测：
+  //    TT202610280006 建单 00:25、01:00 才进 PG）。eFlow 才是源头。
+  let liveFail = ''; // 实时通道「没查成」的原因；收尾文案要用
+  if (httpOn && pgMiss && liveFallbackEnabled()) {
+    // 先垫话：实时要登录 + 翻页扫描，十几秒起步，不垫用户以为掉线了。
+    onLive?.(F.goingLive(ttNo));
+    const tl = Date.now();
+    const live = await tryLive(ttNo, replyLang);
+    timing.live = Date.now() - tl;
+    if (live.hit === 'yes') {
+      timing.src = 'eflow';
+      return live.analyze;
+    }
+    // eFlow 明确「没这单」= 结论。副本比 eFlow 更旧，再查一次不可能有新结果，
+    // 所以**直接返回**，不再落到 ③（省掉一次可能几十秒的全表扫描）。
+    if (live.hit === 'no') {
+      timing.src = 'eflow-miss';
+      return { ok: false, text: F.liveMiss(ttNo, F.srcPg) };
+    }
+    liveFail = live.detail || F.unknown;
+  }
+
+  // ③ 本地 SQLite 副本 —— 最后兜底。
+  //    · httpOn=false：这是**主路径**（老行为），不打滞后标记；
+  //    · httpOn=true ：①②都没拿到，命中必须标「可能滞后」，否则用户会
+  //      拿一份最坏落后 12 小时的数据去做派单决策。
+  const withStale = (res) =>
+    httpOn ? { ...res, text: `${F.stale}\n${res.text || ''}`.trim(), stale: true } : res;
+  // ①②都没成时，③ 的结论也要带上「实时没查成」——
+  // 否则用户会把「查无此单」当成实时确认过的结论。
+  const finalize = (res) =>
+    liveFail
+      ? { ok: false, text: `${F.liveError(ttNo, liveFail)}\n${res.text || ''}`.trim() }
+      : res;
+
+  const tl0 = Date.now();
+  const first = await attemptTt(ttNo, replyLang);
+  timing.render = Date.now() - tl0;
+  if (first.ok) {
+    timing.src = 'local';
+    return withStale(first);
+  }
+
+  // 老顺序（PG 关闭）才有的「本地 miss → 实时」分支。
+  if (!httpOn && first.notFound) {
     const live = await liveFallback(ttNo, replyLang, first, onLive);
-    if (live) return live;
+    if (live) {
+      timing.src = 'eflow-legacy';
+      return live;
+    }
+  }
+
+  // 确凿「查无此单」不是故障，重试没有意义 —— 直接给结论。
+  if (first.notFound) {
+    timing.src = 'local-miss';
+    return finalize(first);
   }
 
   // 值得重试的失败（超时 / 库瞬时读不到）→ 垫一句话再试一次。
   onRetry?.(F.retrying(ttNo));
   await sleep(RETRY_DELAY_MS);
+  const tl1 = Date.now();
   const second = await attemptTt(ttNo, replyLang);
-  if (second.ok) return second;
+  timing.render = Date.now() - tl1; // 重试覆盖掉第一次的读数（第二次才是「当下」）
+  if (second.ok) {
+    timing.src = 'local-retry';
+    return withStale(second);
+  }
 
-  // 重试后变成「查无此单」也再兜一次 —— 第一次是超时时尤其容易这样：
-  // 索引刚建好，本地确实没有这一单，但实时可能有。
-  if (second.notFound) {
+  if (!httpOn && second.notFound) {
     const live = await liveFallback(ttNo, replyLang, second.text ? second : first, onLive);
     if (live) return live;
   }
 
   // 第二次仍失败 → 返回第二次的结果（文案更贴近当下状态）。
   // 但如果第二次的文案是空的，保留第一次的 —— 有总比没有强。
-  return second.text ? second : first;
+  timing.src = 'failed';
+  return finalize(second.text ? second : first);
 }
 
 /**
- * 走一次实时兜底，把「垫话 → 查询 → 三种收尾」这套固定流程收在一处
- *（`analyzeTt` 里两处都会用到，复制两份迟早改漏一处）。
+ * 走一次实时兜底，把「垫话 → 查询 → 三种收尾」这套固定流程收在一处。
+ *
+ * ⚠️ 2026-10-28 起**只服务于老顺序**（`ttAnalysisHttp=false` 时的
+ * 本地副本 → eFlow）。PG 通道开着时走的是 `analyzeTt` 里内联的第 ② 步：
+ * 那里 PG 已经试过，收尾文案要说「实时库」（不是「本地库」），
+ * 且 eFlow 明确「没这单」时不该再落到副本 —— 与这里的语义不同，故没有复用。
  *
  * @param {string} ttNo
  * @param {'zh'|'en'} replyLang
@@ -581,7 +719,7 @@ async function liveFallback(ttNo, replyLang, fallback, onLive) {
     // 本地 + 实时都没有：原来那句「库里没有 + 库内最新单号」仍然有用
     //（用户能对比「我的单比库内最新还新多少」），保留它，
     // 只在前面加一句「实时也查过了」—— 否则用户会以为我们没去查。
-    return { ok: false, text: `${F.liveMiss(ttNo)}\n${tail}` };
+    return { ok: false, text: `${F.liveMiss(ttNo, F.srcLocal)}\n${tail}` };
   }
   // 实时通道不可用/出错：不能因为兜底挂了就把本地那句也丢掉，
   // 但要说清「实时没查成」，免得用户以为已经实时确认过没有了。
@@ -590,4 +728,27 @@ async function liveFallback(ttNo, replyLang, fallback, onLive) {
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+/**
+ * 把逐跳计时压成一行，供 `[回复]` 日志用。
+ *
+ * 形如 `tt=pg:190/渲染:1010/实时:0/计:1200`（毫秒，只列非零的跳）。
+ * 之所以要压成一行：日志按行读，多跳多行会把同一次提问切散，
+ * 出问题时反而要在日志里做关联。
+ *
+ * @param {Array<{no:string,src:string,pg:number,render:number,live:number,total:number}>|object} timing
+ * @returns {string} 没有计时数据时返回空串
+ */
+export function formatTtTiming(timing) {
+  const list = Array.isArray(timing) ? timing : timing ? [timing] : [];
+  const parts = list
+    .filter((t) => t && t.total)
+    .map((t) => {
+      const hops = [`取行:${t.pg || 0}`, `渲染:${t.render || 0}`];
+      if (t.live) hops.push(`实时:${t.live}`);
+      const head = list.length > 1 ? `${t.no} ` : '';
+      return `${head}${t.src || '?'}(${hops.join('/')}) ${t.total}ms`;
+    });
+  return parts.join('，');
 }

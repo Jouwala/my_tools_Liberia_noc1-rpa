@@ -35,6 +35,9 @@
      注意：**没有**引 masthead.js —— 时钟、环境徽标、主题、语言这四件事
      olbr.js 已经全部接管，再引一份会出现两套实现抢同一个 DOM。 -->
 <link rel="stylesheet" href="assets/masthead.css">
+<!-- 右下角网页问答助手（2026-10-27 加）。样式只用本页 --surface/--line/--t1 等令牌，
+     深浅色随 <html class="dark"> 自动切换；脚本见 </body> 前。 -->
+<link rel="stylesheet" href="assets/qa-assistant.css">
 <!-- 主题/语言在首帧前落到 <html>，避免闪白。
    键名刻意用 olbr.* 而不是复用 msportal.* —— 两个页面各自记忆各自的选择
    （历史注：检索轨还在时本页也刻意不持久化搜索与筛选；轨已于 2026-10-16 整块移除，
@@ -533,5 +536,10 @@
      直接读 window.OLBR_DATA，顺序反了会拿到空对象、整页文案变裸 key。 -->
 <script src="assets/olbr-data.js"></script>
 <script src="assets/olbr.js"></script>
+<!-- 网页问答助手（2026-10-27 加）：右下角悬浮入口 + 对话面板，走同源
+     /api/portal-qa/*（my_app 后端转发到本机 9269 的 whatsapp-kb-bot 问答服务）。
+     排最后：它只读写自己的 DOM，不依赖 olbr.js 的内部状态；靠 MutationObserver
+     跟随 <html lang> 与登录门 #gate，不与 olbr.js 抢任何节点。 -->
+<script src="assets/qa-assistant.js"></script>
 </body>
 </html>

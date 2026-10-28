@@ -31,6 +31,7 @@ import {
   UnorderedListOutlined,
   WarningOutlined,
   SoundOutlined,
+  DownOutlined,
 } from '@ant-design/icons'
 import api from '../api'
 import { useI18n } from '../i18n'
@@ -184,6 +185,9 @@ export default function DataSync() {
   const [aggLoading, setAggLoading] = useState(false)
   // 总历史记录弹窗：跨所有任务的执行历史查询
   const [ghOpen, setGhOpen] = useState(false)
+  // 失败汇总横幅的展开状态：默认收缩，只留一行「⚠️ N 个任务执行失败」，
+  // 由用户点击展开明细（失败任务多时不再把列表整块铺在页面上挤走任务卡片）。
+  const [failBannerOpen, setFailBannerOpen] = useState(false)
 
   // 根据搜索/筛选/排序计算展示列表
   const applyFilters = (src: TaskInfo[]): TaskInfo[] => {
@@ -1492,7 +1496,7 @@ export default function DataSync() {
         </Text>
       </div>
 
-      {/* 失败任务汇总横幅：一眼看到当前哪些任务在持续失败，点击错误可直达历史 */}
+      {/* 失败任务汇总横幅：默认收缩成一行，点击标题展开失败明细（错误可直达历史） */}
       {failedTasks.length > 0 && (
         <Alert
           type="error"
@@ -1512,14 +1516,41 @@ export default function DataSync() {
             </Space>
           }
           message={
-            <Text strong style={{ color: 'var(--wh-error-text)' }}>
-              {locale === 'zh'
-                ? `⚠️ ${failedTasks.length} 个任务执行失败`
-                : `⚠️ ${failedTasks.length} task(s) failed`}
-            </Text>
+            // 整行可点：默认只显示计数，展开后才渲染明细，避免十几个失败任务把首屏占满
+            <div
+              role="button"
+              tabIndex={0}
+              aria-expanded={failBannerOpen}
+              onClick={() => setFailBannerOpen(v => !v)}
+              onKeyDown={e => {
+                if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setFailBannerOpen(v => !v) }
+              }}
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: 'var(--wh-space-xs)',
+                cursor: 'pointer', userSelect: 'none', outline: 'none',
+              }}
+            >
+              <Text strong style={{ color: 'var(--wh-error-text)' }}>
+                {t('sync.failBanner', { count: failedTasks.length })}
+              </Text>
+              <Text style={{ color: 'var(--wh-error-text)', opacity: 0.72, fontSize: '0.75rem' }}>
+                {failBannerOpen ? t('sync.failBannerCollapse') : t('sync.failBannerExpand')}
+              </Text>
+              <DownOutlined
+                style={{
+                  color: 'var(--wh-error-text)', fontSize: '0.6875rem',
+                  transform: failBannerOpen ? 'rotate(180deg)' : 'none',
+                  transition: 'transform .15s ease',
+                }}
+              />
+            </div>
           }
-          description={
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--wh-space-xs)', marginTop: 'var(--wh-space-xs)' }}>
+          description={failBannerOpen ? (
+            <div style={{
+              display: 'flex', flexDirection: 'column', gap: 'var(--wh-space-xs)', marginTop: 'var(--wh-space-xs)',
+              // 失败任务可能很多（实测一次 17 个），限高滚动，展开后也不把下面的任务卡片顶走
+              maxHeight: 'min(40vh, 20rem)', overflowY: 'auto', paddingRight: 'var(--wh-space-xs)',
+            }}>
               {/* 循环变量命名为 task：用 t 会遮蔽 i18n 的 t()，导致此处无法翻译 */}
               {failedTasks.map(task => (
                 <div key={task.task_id} style={{ display: 'flex', alignItems: 'center', gap: 'var(--wh-space-sm)', flexWrap: 'wrap' }}>
@@ -1538,7 +1569,7 @@ export default function DataSync() {
                 </div>
               ))}
             </div>
-          }
+          ) : undefined}
         />
       )}
 

@@ -1,0 +1,291 @@
+curl --url ^"https://10.100.20.15:28001/api/oauth2/v1/username^" ^
+  -H ^"Accept: text/plain, */*; q=0.01^" ^
+  -H ^"Accept-Language: en-US,en;q=0.9^" ^
+  -H ^"Connection: keep-alive^" ^
+  -H ^"Content-Type: application/json; charset=utf-8^" ^
+  -b ^"X-Rm-Data-Version-zenap=1773147720002_0_0_0_0_0_0_0_0; Z-AUTH-CODE-28001=1500284588_123fad8412504aaaa64ea545e57b4b6a; x-dexmesh-user-28001=D86935A99B38A02CDAEA05C225E9303A21FA22B872499884D7B2A1E26A5645FE; forgerydefense-28001=3e56b93f77d986a04862a5c5dd735244e6b630c49fd7794899624ae5f9dde012^" ^
+  -H ^"Referer: https://10.100.20.15:28001/uportal/framework/default.html^" ^
+  -H ^"Sec-Fetch-Dest: empty^" ^
+  -H ^"Sec-Fetch-Mode: cors^" ^
+  -H ^"Sec-Fetch-Site: same-origin^" ^
+  -H ^"User-Agent: Mozilla/5.0 ^(Windows NT 10.0; Win64; x64^) AppleWebKit/537.36 ^(KHTML, like Gecko^) Chrome/155.0.0.0 Safari/537.36^" ^
+  -H ^"X-Requested-With: XMLHttpRequest^" ^
+  -H ^"forgerydefense: 3e56b93f77d986a04862a5c5dd735244e6b630c49fd7794899624ae5f9dde012^" ^
+  -H ^"language-option: en-US^" ^
+  -H ^"sec-ch-ua: ^\^"Google Chrome^\^";v=^\^"155^\^", ^\^"Chromium^\^";v=^\^"155^\^", ^\^"Not^(A:Brand^\^";v=^\^"24^\^"^" ^
+  -H ^"sec-ch-ua-mobile: ?0^" ^
+  -H ^"sec-ch-ua-platform: ^\^"Windows^\^"^" ^
+  -H ^"timeZoneInfo: Default,Atlantic/Reykjavik,^" ^
+  --insecure &
+curl --url ^"https://10.100.20.15:28001/api/fm-active/v1/activealarms/morebuttons^" ^
+  -H ^"Accept: application/json, text/plain, */*^" ^
+  -H ^"Accept-Language: en-US,en;q=0.9^" ^
+  -H ^"Connection: keep-alive^" ^
+  -H ^"Content-Type: application/json; charset=UTF-8^" ^
+  -b ^"X-Rm-Data-Version-zenap=1773147720002_0_0_0_0_0_0_0_0; Z-AUTH-CODE-28001=1500284588_123fad8412504aaaa64ea545e57b4b6a; x-dexmesh-user-28001=D86935A99B38A02CDAEA05C225E9303A21FA22B872499884D7B2A1E26A5645FE; forgerydefense-28001=3e56b93f77d986a04862a5c5dd735244e6b630c49fd7794899624ae5f9dde012^" ^
+  -H ^"Origin: https://10.100.20.15:28001^" ^
+  -H ^"Referer: https://10.100.20.15:28001/iui/fm/angularFm/dist/index.html^" ^
+  -H ^"Sec-Fetch-Dest: empty^" ^
+  -H ^"Sec-Fetch-Mode: cors^" ^
+  -H ^"Sec-Fetch-Site: same-origin^" ^
+  -H ^"User-Agent: Mozilla/5.0 ^(Windows NT 10.0; Win64; x64^) AppleWebKit/537.36 ^(KHTML, like Gecko^) Chrome/155.0.0.0 Safari/537.36^" ^
+  -H ^"X-Requested-With: XMLHttpRequest^" ^
+  -H ^"forgerydefense: 3e56b93f77d986a04862a5c5dd735244e6b630c49fd7794899624ae5f9dde012^" ^
+  -H ^"language-option: en-US^" ^
+  -H ^"sec-ch-ua: ^\^"Google Chrome^\^";v=^\^"155^\^", ^\^"Chromium^\^";v=^\^"155^\^", ^\^"Not^(A:Brand^\^";v=^\^"24^\^"^" ^
+  -H ^"sec-ch-ua-mobile: ?0^" ^
+  -H ^"sec-ch-ua-platform: ^\^"Windows^\^"^" ^
+  -H ^"timeZoneInfo: Default,Atlantic/Reykjavik,^" ^
+  --data-raw ^"^{^\^"data^\^":^[^{^\^"moc^\^":^\^"zte.ran.itbbu^\^",^\^"siteStatus^\^":^{^\^"value^\^":^\^"1^\^",^\^"displayname^\^":^\^"1^\^",^\^"columnname^\^":^\^"Site Status^\^",^\^"extentionfield^\^":true,^\^"datatype^\^":1^},^\^"networktype^\^":^{^\^"value^\^":^\^"RAN^\^",^\^"displayname^\^":^\^"RAN^\^",^\^"columnname^\^":^\^"Networktype^\^",^\^"extentionfield^\^":true,^\^"datatype^\^":0^},^\^"type^\^":^{^\^"value^\^":^\^"9184^\^",^\^"displayname^\^":^\^"9184^\^",^\^"columnname^\^":^\^"Type^\^",^\^"extentionfield^\^":true,^\^"datatype^\^":1^},^\^"clearstate^\^":0,^\^"originalSpecificProblem^\^":^{^\^"displayname^\^":^{^\^"en^\^":^\^"Fan failure^\^",^\^"zh^\^":^\^"Fan failure^\^"^},^\^"value^\^":^\^"Fan failure^\^"^},^\^"alarmchangedtime^\^":0,^\^"province^\^":^{^\^"displayname^\^":^{^\^"en^\^":^\^"^\^",^\^"zh^\^":^\^"^\^"^},^\^"value^\^":^\^"empty^\^"^},^\^"alarmSource^\^":^{^\^"value^\^":^\^"zte-ume-ran^\^",^\^"displayname^\^":^\^"zte-ume-ran^\^",^\^"columnname^\^":^\^"Alarm Source^\^",^\^"extentionfield^\^":true,^\^"datatype^\^":0^},^\^"sitename^\^":^{^\^"value^\^":^\^"Bartehjam Mining Camp^\^",^\^"displayname^\^":^\^"Bartehjam Mining Camp^\^",^\^"columnname^\^":^\^"Site Name^\^",^\^"extentionfield^\^":true,^\^"datatype^\^":1^},^\^"ackstatename^\^":^\^"Unack^\^",^\^"id^\^":1765371002876,^\^"mocname^\^":^\^"ZTE_RAN_ITBBU^\^",^\^"alarmkey^\^":^\^"zte-ume-ran035598a7-e292-42c1-9fb7-40f35d8036c8_ae16083f4427afd541b5ae4b852fd7d41639657713300^\^",^\^"tenant^\^":^{^\^"displayname^\^":^{^\^"en^\^":^\^"global^\^",^\^"zh^\^":^\^"^ ^ ^\^"^},^\^"value^\^":^\^"global.smdomain^\^"^},^\^"neUID^\^":^{^\^"displayname^\^":^{^\^"en^\^":^\^"^\^",^\^"zh^\^":^\^"^\^"^},^\^"value^\^":^\^"empty^\^"^},^\^"linkpath^\^":^{^\^"value^\^":^\^"--^\^",^\^"displayname^\^":^\^"--^\^",^\^"columnname^\^":^\^"Link Path^\^",^\^"extentionfield^\^":true,^\^"datatype^\^":0^},^\^"positionname^\^":^\^"Equipment=1,ReplaceableUnit=OVFc_1_25 MocObjectInstance:Bartehjam Mining Camp^(9184^), OriginalSiteName:Bartehjam Mining Camp^\^",^\^"cellson2g^\^":^{^\^"value^\^":^\^"--^\^",^\^"displayname^\^":^\^"--^\^",^\^"columnname^\^":^\^"2G Cells^\^",^\^"extentionfield^\^":true,^\^"datatype^\^":1^},^\^"reasoncode^\^":198098111,^\^"nbiid^\^":^\^"4170^\^",^\^"neip^\^":^\^"10.25.111.34^\^",^\^"restypename^\^":^\^"ZTE_RAN_ITBBU^\^",^\^"intermittenceduplicatedkey^\^":^\^"^\^",^\^"relationflag^\^":0,^\^"probename^\^":^{^\^"value^\^":^\^"zte-ume-ran^\^",^\^"displayname^\^":^\^"zte-ume-ran^\^",^\^"columnname^\^":^\^"Probe Name^\^",^\^"extentionfield^\^":true,^\^"datatype^\^":0^},^\^"aid^\^":^\^"1639657713300^\^",^\^"standardcode^\^":^{^\^"displayname^\^":^{^\^"en^\^":^\^"^\^",^\^"zh^\^":^\^"^\^"^},^\^"value^\^":^\^"empty^\^"^},^\^"ransitetype^\^":^{^\^"value^\^":^\^"ERA^\^",^\^"displayname^\^":^\^"ERA^\^",^\^"columnname^\^":^\^"RAN Site Type^\^",^\^"extentionfield^\^":true,^\^"datatype^\^":0^},^\^"offsetalarmraisedtime^\^":1793029698000,^\^"administrativeregionname3^\^":^{^\^"value^\^":^\^"-^\^",^\^"displayname^\^":^\^"-^\^",^\^"columnname^\^":^\^"Thana^\^",^\^"extentionfield^\^":true,^\^"datatype^\^":0^},^\^"administrativeregionname1^\^":^{^\^"value^\^":^\^"-^\^",^\^"displayname^\^":^\^"-^\^",^\^"columnname^\^":^\^"Division^\^",^\^"extentionfield^\^":true,^\^"datatype^\^":0^},^\^"administrativeregionname2^\^":^{^\^"value^\^":^\^"-^\^",^\^"displayname^\^":^\^"-^\^",^\^"columnname^\^":^\^"District^\^",^\^"extentionfield^\^":true,^\^"datatype^\^":0^},^\^"probeid^\^":^{^\^"displayname^\^":^{^\^"en^\^":^\^"87da044a-bf59-4e53-b344-882f3e74cb3e^\^",^\^"zh^\^":^\^"87da044a-bf59-4e53-b344-882f3e74cb3e^\^"^},^\^"value^\^":^\^"87da044a-bf59-4e53-b344-882f3e74cb3e^\^"^},^\^"naffiltered^\^":false,^\^"mwlinklayer^\^":^{^\^"value^\^":^\^"1^\^",^\^"displayname^\^":^\^"1^\^",^\^"columnname^\^":^\^"MW Layer^\^",^\^"extentionfield^\^":true,^\^"datatype^\^":0^},^\^"vendor^\^":^{^\^"value^\^":^\^"ZTE^\^",^\^"displayname^\^":^\^"ZTE^\^",^\^"columnname^\^":^\^"Vendor^\^",^\^"extentionfield^\^":true,^\^"datatype^\^":0^},^\^"vimrespool^\^":^{^\^"displayname^\^":^{^\^"en^\^":^\^"global^\^",^\^"zh^\^":^\^"^ ^ ^\^"^},^\^"value^\^":^\^"global.smdomain^\^"^},^\^"timezoneid^\^":^\^"Z^\^",^\^"ttstatus^\^":^{^\^"value^\^":^\^"0^\^",^\^"displayname^\^":^\^"UnAssigned^\^",^\^"columnname^\^":^\^"Assigned Status^\^",^\^"extentionfield^\^":true,^\^"datatype^\^":0^},^\^"powerinfo^\^":^{^\^"value^\^":^\^"NORMAL^\^",^\^"displayname^\^":^\^"NORMAL^\^",^\^"columnname^\^":^\^"Power Infomation^\^",^\^"extentionfield^\^":true,^\^"datatype^\^":1^},^\^"alarmcode^\^":198098111,^\^"acksystemid^\^":^\^"^\^",^\^"commenttext^\^":^\^"^\^",^\^"salesregion1^\^":^{^\^"value^\^":^\^"--^\^",^\^"displayname^\^":^\^"--^\^",^\^"columnname^\^":^\^"Sales Area^\^",^\^"extentionfield^\^":true,^\^"datatype^\^":1^},^\^"salesregion2^\^":^{^\^"value^\^":^\^"--^\^",^\^"displayname^\^":^\^"--^\^",^\^"columnname^\^":^\^"Sales Region^\^",^\^"extentionfield^\^":true,^\^"datatype^\^":1^},^\^"salesregion3^\^":^{^\^"value^\^":^\^"--^\^",^\^"displayname^\^":^\^"--^\^",^\^"columnname^\^":^\^"Sales Territory^\^",^\^"extentionfield^\^":true,^\^"datatype^\^":1^},^\^"perceivedseverity^\^":2,^\^"transmissiontype^\^":^{^\^"value^\^":^\^"Start Link^\^",^\^"displayname^\^":^\^"Start Link^\^",^\^"columnname^\^":^\^"Transmission Type^\^",^\^"extentionfield^\^":true,^\^"datatype^\^":1^},^\^"site^\^":^{^\^"value^\^":^\^"9184^\^",^\^"displayname^\^":^\^"9184^\^",^\^"columnname^\^":^\^"Site ID^\^",^\^"extentionfield^\^":true,^\^"datatype^\^":0^},^\^"servicetype^\^":^{^\^"displayname^\^":^{^\^"en^\^":^\^"^\^",^\^"zh^\^":^\^"^\^"^},^\^"value^\^":^\^"empty^\^"^},^\^"locationinfo^\^":^{^\^"displayname^\^":^{^\^"en^\^":^\^"^\^",^\^"zh^\^":^\^"^\^"^},^\^"value^\^":^\^"empty^\^"^},^\^"relationflagname^\^":^\^"^\^",^\^"smpim^\^":^{^\^"displayname^\^":^{^\^"en^\^":^\^"global^\^",^\^"zh^\^":^\^"^ ^ ^\^"^},^\^"value^\^":^\^"global.smdomain^\^"^},^\^"largearea^\^":^{^\^"displayname^\^":^{^\^"en^\^":^\^"^\^",^\^"zh^\^":^\^"^\^"^},^\^"value^\^":^\^"empty^\^"^},^\^"cellson5g^\^":^{^\^"value^\^":^\^"--^\^",^\^"displayname^\^":^\^"--^\^",^\^"columnname^\^":^\^"5G Cells^\^",^\^"extentionfield^\^":true,^\^"datatype^\^":1^},^\^"smres^\^":^{^\^"displayname^\^":^{^\^"en^\^":^\^"global^\^",^\^"zh^\^":^\^"^ ^ ^\^"^},^\^"value^\^":^\^"global.smdomain^\^"^},^\^"alarmraisedtime^\^":1793029698000,^\^"ackuserid^\^":^\^"^\^",^\^"delayFlag^\^":^{^\^"value^\^":^\^"--^\^",^\^"displayname^\^":^\^"--^\^",^\^"columnname^\^":^\^"Delay Flag^\^",^\^"extentionfield^\^":true,^\^"datatype^\^":1^},^\^"acktime^\^":0,^\^"platinum^\^":^{^\^"value^\^":^\^"--^\^",^\^"displayname^\^":^\^"--^\^",^\^"columnname^\^":^\^"Platinum Site^\^",^\^"extentionfield^\^":true,^\^"datatype^\^":0^},^\^"meNotFound^\^":^{^\^"displayname^\^":^{^\^"en^\^":^\^"^\^",^\^"zh^\^":^\^"^\^"^},^\^"value^\^":^\^"false^\^"^},^\^"relatedrules^\^":^\^"^\^",^\^"smservarch^\^":^{^\^"displayname^\^":^{^\^"en^\^":^\^"global^\^",^\^"zh^\^":^\^"^ ^ ^\^"^},^\^"value^\^":^\^"global.smdomain^\^"^},^\^"siteviplevel^\^":^{^\^"value^\^":^\^"NO^\^",^\^"displayname^\^":^\^"NO^\^",^\^"columnname^\^":^\^"Site VIP Level^\^",^\^"extentionfield^\^":true,^\^"datatype^\^":0^},^\^"me^\^":^\^"5cd6984f-624d-32f2-850c-a91e7e56acb1^\^",^\^"siteAttribute^\^":^{^\^"value^\^":^\^"--^\^",^\^"displayname^\^":^\^"--^\^",^\^"columnname^\^":^\^"Site Attribute^\^",^\^"extentionfield^\^":true,^\^"datatype^\^":0^},^\^"smcimtenant^\^":^{^\^"displayname^\^":^{^\^"en^\^":^\^"global^\^",^\^"zh^\^":^\^"^ ^ ^\^"^},^\^"value^\^":^\^"global.smdomain^\^"^},^\^"downstreamsites^\^":^{^\^"value^\^":^\^"0^\^",^\^"displayname^\^":^\^"0^\^",^\^"columnname^\^":^\^"Downstream Site Count^\^",^\^"extentionfield^\^":true,^\^"datatype^\^":1^},^\^"backuptype^\^":^{^\^"value^\^":^\^"--^\^",^\^"displayname^\^":^\^"--^\^",^\^"columnname^\^":^\^"Backup Type^\^",^\^"extentionfield^\^":true,^\^"datatype^\^":1^},^\^"visible^\^":1,^\^"servertime^\^":1793030467794,^\^"smcim^\^":^{^\^"displayname^\^":^{^\^"en^\^":^\^"global^\^",^\^"zh^\^":^\^"^ ^ ^\^"^},^\^"value^\^":^\^"global.smdomain^\^"^},^\^"ttid^\^":^{^\^"value^\^":^\^"empty^\^",^\^"displayname^\^":^\^"empty^\^",^\^"columnname^\^":^\^"TT ID^\^",^\^"extentionfield^\^":true,^\^"datatype^\^":1^},^\^"infratype^\^":^{^\^"value^\^":^\^"--^\^",^\^"displayname^\^":^\^"--^\^",^\^"columnname^\^":^\^"Infrastructure Type^\^",^\^"extentionfield^\^":true,^\^"datatype^\^":1^},^\^"restype^\^":^\^"zte.ran.itbbu^\^",^\^"sequence^\^":7671815,^\^"durationname^\^":^\^"19min 29s^\^",^\^"intermittencecount^\^":0,^\^"cellname^\^":^{^\^"value^\^":^\^"empty^\^",^\^"displayname^\^":^\^"^\^",^\^"columnname^\^":^\^"Cell Name^\^",^\^"extentionfield^\^":true,^\^"datatype^\^":0^},^\^"codename^\^":^\^"Fan failure^\^",^\^"alarmtitle^\^":^{^\^"value^\^":^\^"Fan failure^\^",^\^"displayname^\^":^\^"Fan failure^\^",^\^"columnname^\^":^\^"Alarm Title^\^",^\^"extentionfield^\^":true,^\^"datatype^\^":0^},^\^"smregion^\^":^{^\^"displayname^\^":^{^\^"en^\^":^\^"Grand_Gedeh^\^",^\^"zh^\^":^\^"Grand_Gedeh-^\^"^},^\^"value^\^":^\^"Grand_Gedeh^\^"^},^\^"position^\^":^\^"Equipment=1,ReplaceableUnit=OVFc_1_25 MocObjectInstance:Bartehjam Mining Camp^(9184^), OriginalSiteName:Bartehjam Mining Camp^\^",^\^"maintainstatus^\^":^{^\^"value^\^":^\^"0^\^",^\^"displayname^\^":^\^"Normal^\^",^\^"columnname^\^":^\^"Maintain Status^\^",^\^"extentionfield^\^":true,^\^"datatype^\^":0^},^\^"region^\^":^{^\^"value^\^":^\^"Grand_Gedeh^\^",^\^"displayname^\^":^\^"Grand_Gedeh^\^",^\^"columnname^\^":^\^"Region^\^",^\^"extentionfield^\^":true,^\^"datatype^\^":1^},^\^"linkname^\^":^\^"^\^",^\^"pvflag^\^":^{^\^"displayname^\^":^{^\^"en^\^":^\^"^\^",^\^"zh^\^":^\^"^\^"^},^\^"value^\^":^\^"empty^\^"^},^\^"smvimarch^\^":^{^\^"displayname^\^":^{^\^"en^\^":^\^"global^\^",^\^"zh^\^":^\^"^ ^ ^\^"^},^\^"value^\^":^\^"global.smdomain^\^"^},^\^"alarmsource^\^":^\^"zte-ume-ran^\^",^\^"commenttime^\^":0,^\^"alarmtypename^\^":^\^"Environment Alarm^\^",^\^"ns^\^":^{^\^"displayname^\^":^{^\^"en^\^":^\^"^\^",^\^"zh^\^":^\^"^\^"^},^\^"value^\^":^\^"empty^\^"^},^\^"cellson3g^\^":^{^\^"value^\^":^\^"--^\^",^\^"displayname^\^":^\^"--^\^",^\^"columnname^\^":^\^"3G Cells^\^",^\^"extentionfield^\^":true,^\^"datatype^\^":1^},^\^"sbiVersion^\^":^{^\^"displayname^\^":^{^\^"en^\^":^\^"^\^",^\^"zh^\^":^\^"^\^"^},^\^"value^\^":^\^"empty^\^"^},^\^"link^\^":^\^"^\^",^\^"powermaintainer^\^":^{^\^"value^\^":^\^"--^\^",^\^"displayname^\^":^\^"--^\^",^\^"columnname^\^":^\^"Power Maintainer^\^",^\^"extentionfield^\^":true,^\^"datatype^\^":1^},^\^"generator^\^":^{^\^"value^\^":^\^"--^\^",^\^"displayname^\^":^\^"--^\^",^\^"columnname^\^":^\^"Generator^\^",^\^"extentionfield^\^":true,^\^"datatype^\^":0^},^\^"perceivedseverityname^\^":^\^"Major^\^",^\^"nmcreasoncode^\^":0,^\^"standardname^\^":^{^\^"displayname^\^":^{^\^"en^\^":^\^"^\^",^\^"zh^\^":^\^"^\^"^},^\^"value^\^":^\^"empty^\^"^},^\^"reasonname^\^":^\^"Fan failure^\^",^\^"commentuserid^\^":^\^"^\^",^\^"operations^\^":^[^\^"operation.fm.currentAlarm.ackstate^\^",^\^"operation.fm.currentAlarm.comment^\^",^\^"operation.fm.currentAlarm.delete^\^",^\^"operation.fm.currentAlarm.export^\^",^\^"operation.fm.currentAlarm.forward^\^"^],^\^"ackstate^\^":2,^\^"additionaltext^\^":^\^"G BSCId: 1; G siteId:2184,LTE eNBId:9184.Location: rack=1,shelf=1,board=25.^\^",^\^"admc^\^":false,^\^"mwlinkroot^\^":^{^\^"value^\^":^\^"9184^\^",^\^"displayname^\^":^\^"9184^\^",^\^"columnname^\^":^\^"POP Site^\^",^\^"extentionfield^\^":true,^\^"datatype^\^":1^},^\^"land^\^":^{^\^"displayname^\^":^{^\^"en^\^":^\^"^\^",^\^"zh^\^":^\^"^\^"^},^\^"value^\^":^\^"empty^\^"^},^\^"hubsiteflag^\^":^{^\^"value^\^":^\^"NO^\^",^\^"displayname^\^":^\^"NO^\^",^\^"columnname^\^":^\^"Hub Site Flag^\^",^\^"extentionfield^\^":true,^\^"datatype^\^":1^},^\^"clearstatename^\^":^\^"Uncleared^\^",^\^"alarmStandardID^\^":^{^\^"displayname^\^":^{^\^"en^\^":^\^"ZTE^&^&zte.ran.itbbu^&^&1^\^",^\^"zh^\^":^\^"ZTE^&^&zte.ran.itbbu^&^&1^\^"^},^\^"value^\^":^\^"ZTE^&^&zte.ran.itbbu^&^&1^\^"^},^\^"cellson4g^\^":^{^\^"value^\^":^\^"--^\^",^\^"displayname^\^":^\^"--^\^",^\^"columnname^\^":^\^"4G Cells^\^",^\^"extentionfield^\^":true,^\^"datatype^\^":1^},^\^"mename^\^":^\^"R2^\^",^\^"smnetype^\^":^{^\^"displayname^\^":^{^\^"en^\^":^\^"global^\^",^\^"zh^\^":^\^"^ ^ ^\^"^},^\^"value^\^":^\^"global.smdomain^\^"^},^\^"alarmtype^\^":4,^\^"admcname^\^":^\^"No^\^",^\^"regionname2^\^":^{^\^"value^\^":^\^"-^\^",^\^"displayname^\^":^\^"-^\^",^\^"columnname^\^":^\^"Subcenter^\^",^\^"extentionfield^\^":true,^\^"datatype^\^":0^},^\^"regionname1^\^":^{^\^"value^\^":^\^"Grand_Gedeh^\^",^\^"displayname^\^":^\^"Grand_Gedeh^\^",^\^"columnname^\^":^\^"Circle^\^",^\^"extentionfield^\^":true,^\^"datatype^\^":0^},^\^"commentsystemid^\^":^\^"^\^",^\^"smcnodetype^\^":^{^\^"displayname^\^":^{^\^"en^\^":^\^"global^\^",^\^"zh^\^":^\^"^ ^ ^\^"^},^\^"value^\^":^\^"global.smdomain^\^"^},^\^"cleartypename^\^":^\^"-^\^",^\^"specificProblem^\^":^{^\^"value^\^":^\^"Fan failure^\^",^\^"displayname^\^":^\^"Fan failure^\^",^\^"columnname^\^":^\^"OSS Specific Problem^\^",^\^"extentionfield^\^":true,^\^"datatype^\^":1^},^\^"ackinfo^\^":^\^"^\^",^\^"objectName^\^":^{^\^"value^\^":^\^"ITBBU:SubNetwork=1^@ManagedElement=4170^\^",^\^"displayname^\^":^\^"ITBBU:SubNetwork=1^@ManagedElement=4170^\^",^\^"columnname^\^":^\^"Object Name^\^",^\^"extentionfield^\^":true,^\^"datatype^\^":1^},^\^"siteclass^\^":^{^\^"value^\^":^\^"NORMAL^\^",^\^"displayname^\^":^\^"NORMAL^\^",^\^"columnname^\^":^\^"Site Class^\^",^\^"extentionfield^\^":true,^\^"datatype^\^":0^},^\^"originalMe^\^":^{^\^"value^\^":^\^"Bartehjam Mining Camp^(9184^)^\^",^\^"displayname^\^":^\^"Bartehjam Mining Camp^(9184^)^\^",^\^"columnname^\^":^\^"Original Me^\^",^\^"extentionfield^\^":true,^\^"datatype^\^":1^},^\^"originalMeUUID^\^":^{^\^"value^\^":^\^"035598a7-e292-42c1-9fb7-40f35d8036c8^\^",^\^"displayname^\^":^\^"035598a7-e292-42c1-9fb7-40f35d8036c8^\^",^\^"columnname^\^":^\^"Original Me UUID^\^",^\^"extentionfield^\^":true,^\^"datatype^\^":1^},^\^"severity^\^":^{^\^"severity^\^":2,^\^"severityName^\^":^\^"^\^"^},^\^"displaycodenameintable^\^":^\^"Fan failure^\^",^\^"displayreasoncodename^\^":^\^"Fan failure^(198098111^)^\^",^\^"displaycodename^\^":^\^"Fan failure^(198098111^)^\^",^\^"getIsRootAlarm^\^":false,^\^"isCorrelatedAlarm^\^":false,^\^"originalClearTime^\^":^\^"^\^",^\^"timeInTable^\^":1793029698000,^\^"alarmclearedtime^\^":^\^"^\^",^\^"clearservertime^\^":^\^"^\^",^\^"notificationraisedtime^\^":^\^"^\^",^\^"durationnameori^\^":^\^"19min 30s^\^",^\^"duration^\^":1169063,^\^"alarmpath^\^":^{^},^\^"topstate^\^":1,^\^"isLeaf^\^":true,^\^"nonPlxVirtualRow^\^":true^}^],^\^"place^\^":1^}^" ^
+  --insecure &
+curl --url ^"https://10.100.20.15:28001/iui/assign-ui/assign-ui/^" ^
+  -H ^"Accept: */*^" ^
+  -H ^"Accept-Language: en-US,en;q=0.9^" ^
+  -H ^"Connection: keep-alive^" ^
+  -b ^"X-Rm-Data-Version-zenap=1773147720002_0_0_0_0_0_0_0_0; Z-AUTH-CODE-28001=1500284588_123fad8412504aaaa64ea545e57b4b6a; x-dexmesh-user-28001=D86935A99B38A02CDAEA05C225E9303A21FA22B872499884D7B2A1E26A5645FE; forgerydefense-28001=3e56b93f77d986a04862a5c5dd735244e6b630c49fd7794899624ae5f9dde012^" ^
+  -H ^"Referer: https://10.100.20.15:28001/iui/fm/angularFm/dist/index.html^" ^
+  -H ^"Sec-Fetch-Dest: empty^" ^
+  -H ^"Sec-Fetch-Mode: cors^" ^
+  -H ^"Sec-Fetch-Site: same-origin^" ^
+  -H ^"User-Agent: Mozilla/5.0 ^(Windows NT 10.0; Win64; x64^) AppleWebKit/537.36 ^(KHTML, like Gecko^) Chrome/155.0.0.0 Safari/537.36^" ^
+  -H ^"sec-ch-ua: ^\^"Google Chrome^\^";v=^\^"155^\^", ^\^"Chromium^\^";v=^\^"155^\^", ^\^"Not^(A:Brand^\^";v=^\^"24^\^"^" ^
+  -H ^"sec-ch-ua-mobile: ?0^" ^
+  -H ^"sec-ch-ua-platform: ^\^"Windows^\^"^" ^
+  --insecure &
+curl --url ^"https://10.100.20.15:28001/iui/assign-ui/assign-ui/styles.css^" ^
+  -H ^"Accept: */*^" ^
+  -H ^"Accept-Language: en-US,en;q=0.9^" ^
+  -H ^"Connection: keep-alive^" ^
+  -b ^"X-Rm-Data-Version-zenap=1773147720002_0_0_0_0_0_0_0_0; Z-AUTH-CODE-28001=1500284588_123fad8412504aaaa64ea545e57b4b6a; x-dexmesh-user-28001=D86935A99B38A02CDAEA05C225E9303A21FA22B872499884D7B2A1E26A5645FE; forgerydefense-28001=3e56b93f77d986a04862a5c5dd735244e6b630c49fd7794899624ae5f9dde012^" ^
+  -H ^"Referer: https://10.100.20.15:28001/iui/fm/angularFm/dist/index.html^" ^
+  -H ^"Sec-Fetch-Dest: empty^" ^
+  -H ^"Sec-Fetch-Mode: cors^" ^
+  -H ^"Sec-Fetch-Site: same-origin^" ^
+  -H ^"User-Agent: Mozilla/5.0 ^(Windows NT 10.0; Win64; x64^) AppleWebKit/537.36 ^(KHTML, like Gecko^) Chrome/155.0.0.0 Safari/537.36^" ^
+  -H ^"sec-ch-ua: ^\^"Google Chrome^\^";v=^\^"155^\^", ^\^"Chromium^\^";v=^\^"155^\^", ^\^"Not^(A:Brand^\^";v=^\^"24^\^"^" ^
+  -H ^"sec-ch-ua-mobile: ?0^" ^
+  -H ^"sec-ch-ua-platform: ^\^"Windows^\^"^" ^
+  --insecure &
+curl --url ^"https://10.100.20.15:28001/iui/assign-ui/assign-ui/runtime.js^" ^
+  -H ^"Accept: */*^" ^
+  -H ^"Accept-Language: en-US,en;q=0.9^" ^
+  -H ^"Connection: keep-alive^" ^
+  -b ^"X-Rm-Data-Version-zenap=1773147720002_0_0_0_0_0_0_0_0; Z-AUTH-CODE-28001=1500284588_123fad8412504aaaa64ea545e57b4b6a; x-dexmesh-user-28001=D86935A99B38A02CDAEA05C225E9303A21FA22B872499884D7B2A1E26A5645FE; forgerydefense-28001=3e56b93f77d986a04862a5c5dd735244e6b630c49fd7794899624ae5f9dde012^" ^
+  -H ^"Referer: https://10.100.20.15:28001/iui/fm/angularFm/dist/index.html^" ^
+  -H ^"Sec-Fetch-Dest: empty^" ^
+  -H ^"Sec-Fetch-Mode: cors^" ^
+  -H ^"Sec-Fetch-Site: same-origin^" ^
+  -H ^"User-Agent: Mozilla/5.0 ^(Windows NT 10.0; Win64; x64^) AppleWebKit/537.36 ^(KHTML, like Gecko^) Chrome/155.0.0.0 Safari/537.36^" ^
+  -H ^"sec-ch-ua: ^\^"Google Chrome^\^";v=^\^"155^\^", ^\^"Chromium^\^";v=^\^"155^\^", ^\^"Not^(A:Brand^\^";v=^\^"24^\^"^" ^
+  -H ^"sec-ch-ua-mobile: ?0^" ^
+  -H ^"sec-ch-ua-platform: ^\^"Windows^\^"^" ^
+  --insecure &
+curl --url ^"https://10.100.20.15:28001/iui/assign-ui/assign-ui/polyfills.js^" ^
+  -H ^"Accept: */*^" ^
+  -H ^"Accept-Language: en-US,en;q=0.9^" ^
+  -H ^"Connection: keep-alive^" ^
+  -b ^"X-Rm-Data-Version-zenap=1773147720002_0_0_0_0_0_0_0_0; Z-AUTH-CODE-28001=1500284588_123fad8412504aaaa64ea545e57b4b6a; x-dexmesh-user-28001=D86935A99B38A02CDAEA05C225E9303A21FA22B872499884D7B2A1E26A5645FE; forgerydefense-28001=3e56b93f77d986a04862a5c5dd735244e6b630c49fd7794899624ae5f9dde012^" ^
+  -H ^"Referer: https://10.100.20.15:28001/iui/fm/angularFm/dist/index.html^" ^
+  -H ^"Sec-Fetch-Dest: empty^" ^
+  -H ^"Sec-Fetch-Mode: cors^" ^
+  -H ^"Sec-Fetch-Site: same-origin^" ^
+  -H ^"User-Agent: Mozilla/5.0 ^(Windows NT 10.0; Win64; x64^) AppleWebKit/537.36 ^(KHTML, like Gecko^) Chrome/155.0.0.0 Safari/537.36^" ^
+  -H ^"sec-ch-ua: ^\^"Google Chrome^\^";v=^\^"155^\^", ^\^"Chromium^\^";v=^\^"155^\^", ^\^"Not^(A:Brand^\^";v=^\^"24^\^"^" ^
+  -H ^"sec-ch-ua-mobile: ?0^" ^
+  -H ^"sec-ch-ua-platform: ^\^"Windows^\^"^" ^
+  --insecure &
+curl --url ^"https://10.100.20.15:28001/iui/assign-ui/assign-ui/main.js^" ^
+  -H ^"Accept: */*^" ^
+  -H ^"Accept-Language: en-US,en;q=0.9^" ^
+  -H ^"Connection: keep-alive^" ^
+  -b ^"X-Rm-Data-Version-zenap=1773147720002_0_0_0_0_0_0_0_0; Z-AUTH-CODE-28001=1500284588_123fad8412504aaaa64ea545e57b4b6a; x-dexmesh-user-28001=D86935A99B38A02CDAEA05C225E9303A21FA22B872499884D7B2A1E26A5645FE; forgerydefense-28001=3e56b93f77d986a04862a5c5dd735244e6b630c49fd7794899624ae5f9dde012^" ^
+  -H ^"Referer: https://10.100.20.15:28001/iui/fm/angularFm/dist/index.html^" ^
+  -H ^"Sec-Fetch-Dest: empty^" ^
+  -H ^"Sec-Fetch-Mode: cors^" ^
+  -H ^"Sec-Fetch-Site: same-origin^" ^
+  -H ^"User-Agent: Mozilla/5.0 ^(Windows NT 10.0; Win64; x64^) AppleWebKit/537.36 ^(KHTML, like Gecko^) Chrome/155.0.0.0 Safari/537.36^" ^
+  -H ^"sec-ch-ua: ^\^"Google Chrome^\^";v=^\^"155^\^", ^\^"Chromium^\^";v=^\^"155^\^", ^\^"Not^(A:Brand^\^";v=^\^"24^\^"^" ^
+  -H ^"sec-ch-ua-mobile: ?0^" ^
+  -H ^"sec-ch-ua-platform: ^\^"Windows^\^"^" ^
+  --insecure &
+curl --url ^"https://10.100.20.15:28001/api/oauth2/v1/user^" ^
+  -H ^"Accept: application/json, text/plain, */*^" ^
+  -H ^"Accept-Language: en-US,en;q=0.9^" ^
+  -H ^"Connection: keep-alive^" ^
+  -H ^"Content-Type: application/json^" ^
+  -b ^"X-Rm-Data-Version-zenap=1773147720002_0_0_0_0_0_0_0_0; Z-AUTH-CODE-28001=1500284588_123fad8412504aaaa64ea545e57b4b6a; x-dexmesh-user-28001=D86935A99B38A02CDAEA05C225E9303A21FA22B872499884D7B2A1E26A5645FE; forgerydefense-28001=3e56b93f77d986a04862a5c5dd735244e6b630c49fd7794899624ae5f9dde012^" ^
+  -H ^"Referer: https://10.100.20.15:28001/iui/fm/angularFm/dist/index.html^" ^
+  -H ^"Sec-Fetch-Dest: empty^" ^
+  -H ^"Sec-Fetch-Mode: cors^" ^
+  -H ^"Sec-Fetch-Site: same-origin^" ^
+  -H ^"User-Agent: Mozilla/5.0 ^(Windows NT 10.0; Win64; x64^) AppleWebKit/537.36 ^(KHTML, like Gecko^) Chrome/155.0.0.0 Safari/537.36^" ^
+  -H ^"X-Requested-With: XMLHttpRequest^" ^
+  -H ^"forgerydefense: 3e56b93f77d986a04862a5c5dd735244e6b630c49fd7794899624ae5f9dde012^" ^
+  -H ^"language-option: en-US^" ^
+  -H ^"sec-ch-ua: ^\^"Google Chrome^\^";v=^\^"155^\^", ^\^"Chromium^\^";v=^\^"155^\^", ^\^"Not^(A:Brand^\^";v=^\^"24^\^"^" ^
+  -H ^"sec-ch-ua-mobile: ?0^" ^
+  -H ^"sec-ch-ua-platform: ^\^"Windows^\^"^" ^
+  -H ^"timeZoneInfo: Default,Atlantic/Reykjavik,^" ^
+  --insecure &
+curl --url ^"https://10.100.20.15:28001/iui/fm/angularFm/dist/plx-icons.ttf?15hpu9^" ^
+  -H ^"Origin: https://10.100.20.15:28001^" ^
+  -H ^"Referer: https://10.100.20.15:28001/iui/fm/angularFm/dist/index.html^" ^
+  --insecure &
+curl --url ^"https://10.100.20.15:28001/api/fms-assign-svr/v1/wo/userGroupList^" ^
+  -H ^"Accept: application/json, text/plain, */*^" ^
+  -H ^"Accept-Language: en-US,en;q=0.9^" ^
+  -H ^"Connection: keep-alive^" ^
+  -H ^"Content-Type: application/json^" ^
+  -b ^"X-Rm-Data-Version-zenap=1773147720002_0_0_0_0_0_0_0_0; Z-AUTH-CODE-28001=1500284588_123fad8412504aaaa64ea545e57b4b6a; x-dexmesh-user-28001=D86935A99B38A02CDAEA05C225E9303A21FA22B872499884D7B2A1E26A5645FE; forgerydefense-28001=3e56b93f77d986a04862a5c5dd735244e6b630c49fd7794899624ae5f9dde012^" ^
+  -H ^"Referer: https://10.100.20.15:28001/iui/fm/angularFm/dist/index.html^" ^
+  -H ^"Sec-Fetch-Dest: empty^" ^
+  -H ^"Sec-Fetch-Mode: cors^" ^
+  -H ^"Sec-Fetch-Site: same-origin^" ^
+  -H ^"User-Agent: Mozilla/5.0 ^(Windows NT 10.0; Win64; x64^) AppleWebKit/537.36 ^(KHTML, like Gecko^) Chrome/155.0.0.0 Safari/537.36^" ^
+  -H ^"X-Requested-With: XMLHttpRequest^" ^
+  -H ^"forgerydefense: 3e56b93f77d986a04862a5c5dd735244e6b630c49fd7794899624ae5f9dde012^" ^
+  -H ^"language-option: en-US^" ^
+  -H ^"sec-ch-ua: ^\^"Google Chrome^\^";v=^\^"155^\^", ^\^"Chromium^\^";v=^\^"155^\^", ^\^"Not^(A:Brand^\^";v=^\^"24^\^"^" ^
+  -H ^"sec-ch-ua-mobile: ?0^" ^
+  -H ^"sec-ch-ua-platform: ^\^"Windows^\^"^" ^
+  -H ^"timeZoneInfo: Default,Atlantic/Reykjavik,^" ^
+  --insecure &
+curl --url ^"https://10.100.20.15:28001/api/fms-assign-svr/v1/wo/userGroupList^" ^
+  -H ^"Accept: application/json, text/plain, */*^" ^
+  -H ^"Accept-Language: en-US,en;q=0.9^" ^
+  -H ^"Connection: keep-alive^" ^
+  -H ^"Content-Type: application/json^" ^
+  -b ^"X-Rm-Data-Version-zenap=1773147720002_0_0_0_0_0_0_0_0; Z-AUTH-CODE-28001=1500284588_123fad8412504aaaa64ea545e57b4b6a; x-dexmesh-user-28001=D86935A99B38A02CDAEA05C225E9303A21FA22B872499884D7B2A1E26A5645FE; forgerydefense-28001=3e56b93f77d986a04862a5c5dd735244e6b630c49fd7794899624ae5f9dde012^" ^
+  -H ^"Referer: https://10.100.20.15:28001/iui/fm/angularFm/dist/index.html^" ^
+  -H ^"Sec-Fetch-Dest: empty^" ^
+  -H ^"Sec-Fetch-Mode: cors^" ^
+  -H ^"Sec-Fetch-Site: same-origin^" ^
+  -H ^"User-Agent: Mozilla/5.0 ^(Windows NT 10.0; Win64; x64^) AppleWebKit/537.36 ^(KHTML, like Gecko^) Chrome/155.0.0.0 Safari/537.36^" ^
+  -H ^"X-Requested-With: XMLHttpRequest^" ^
+  -H ^"forgerydefense: 3e56b93f77d986a04862a5c5dd735244e6b630c49fd7794899624ae5f9dde012^" ^
+  -H ^"language-option: en-US^" ^
+  -H ^"sec-ch-ua: ^\^"Google Chrome^\^";v=^\^"155^\^", ^\^"Chromium^\^";v=^\^"155^\^", ^\^"Not^(A:Brand^\^";v=^\^"24^\^"^" ^
+  -H ^"sec-ch-ua-mobile: ?0^" ^
+  -H ^"sec-ch-ua-platform: ^\^"Windows^\^"^" ^
+  -H ^"timeZoneInfo: Default,Atlantic/Reykjavik,^" ^
+  --insecure &
+curl --url ^"https://10.100.20.15:28001/api/oauth2/v1/username^" ^
+  -H ^"Accept: text/plain, */*; q=0.01^" ^
+  -H ^"Accept-Language: en-US,en;q=0.9^" ^
+  -H ^"Connection: keep-alive^" ^
+  -H ^"Content-Type: application/json; charset=utf-8^" ^
+  -b ^"X-Rm-Data-Version-zenap=1773147720002_0_0_0_0_0_0_0_0; Z-AUTH-CODE-28001=1500284588_123fad8412504aaaa64ea545e57b4b6a; x-dexmesh-user-28001=D86935A99B38A02CDAEA05C225E9303A21FA22B872499884D7B2A1E26A5645FE; forgerydefense-28001=3e56b93f77d986a04862a5c5dd735244e6b630c49fd7794899624ae5f9dde012^" ^
+  -H ^"Referer: https://10.100.20.15:28001/uportal/framework/default.html^" ^
+  -H ^"Sec-Fetch-Dest: empty^" ^
+  -H ^"Sec-Fetch-Mode: cors^" ^
+  -H ^"Sec-Fetch-Site: same-origin^" ^
+  -H ^"User-Agent: Mozilla/5.0 ^(Windows NT 10.0; Win64; x64^) AppleWebKit/537.36 ^(KHTML, like Gecko^) Chrome/155.0.0.0 Safari/537.36^" ^
+  -H ^"X-Requested-With: XMLHttpRequest^" ^
+  -H ^"forgerydefense: 3e56b93f77d986a04862a5c5dd735244e6b630c49fd7794899624ae5f9dde012^" ^
+  -H ^"language-option: en-US^" ^
+  -H ^"sec-ch-ua: ^\^"Google Chrome^\^";v=^\^"155^\^", ^\^"Chromium^\^";v=^\^"155^\^", ^\^"Not^(A:Brand^\^";v=^\^"24^\^"^" ^
+  -H ^"sec-ch-ua-mobile: ?0^" ^
+  -H ^"sec-ch-ua-platform: ^\^"Windows^\^"^" ^
+  -H ^"timeZoneInfo: Default,Atlantic/Reykjavik,^" ^
+  --insecure &
+curl --url ^"https://10.100.20.15:28001/api/alarm-assign/manual/assign^" ^
+  -H ^"Accept: application/json, text/plain, */*^" ^
+  -H ^"Accept-Language: en-US,en;q=0.9^" ^
+  -H ^"Connection: keep-alive^" ^
+  -H ^"Content-Type: application/json^" ^
+  -b ^"X-Rm-Data-Version-zenap=1773147720002_0_0_0_0_0_0_0_0; Z-AUTH-CODE-28001=1500284588_123fad8412504aaaa64ea545e57b4b6a; x-dexmesh-user-28001=D86935A99B38A02CDAEA05C225E9303A21FA22B872499884D7B2A1E26A5645FE; forgerydefense-28001=3e56b93f77d986a04862a5c5dd735244e6b630c49fd7794899624ae5f9dde012^" ^
+  -H ^"Origin: https://10.100.20.15:28001^" ^
+  -H ^"Referer: https://10.100.20.15:28001/iui/fm/angularFm/dist/index.html^" ^
+  -H ^"Sec-Fetch-Dest: empty^" ^
+  -H ^"Sec-Fetch-Mode: cors^" ^
+  -H ^"Sec-Fetch-Site: same-origin^" ^
+  -H ^"User-Agent: Mozilla/5.0 ^(Windows NT 10.0; Win64; x64^) AppleWebKit/537.36 ^(KHTML, like Gecko^) Chrome/155.0.0.0 Safari/537.36^" ^
+  -H ^"X-Requested-With: XMLHttpRequest^" ^
+  -H ^"forgerydefense: 3e56b93f77d986a04862a5c5dd735244e6b630c49fd7794899624ae5f9dde012^" ^
+  -H ^"language-option: en-US^" ^
+  -H ^"sec-ch-ua: ^\^"Google Chrome^\^";v=^\^"155^\^", ^\^"Chromium^\^";v=^\^"155^\^", ^\^"Not^(A:Brand^\^";v=^\^"24^\^"^" ^
+  -H ^"sec-ch-ua-mobile: ?0^" ^
+  -H ^"sec-ch-ua-platform: ^\^"Windows^\^"^" ^
+  -H ^"timeZoneInfo: Default,Atlantic/Reykjavik,^" ^
+  --data-raw ^"^{^\^"assignedType^\^":1,^\^"alarmMsgType^\^":1,^\^"data^\^":^[^{^\^"alarmkey^\^":^\^"zte-ume-ran035598a7-e292-42c1-9fb7-40f35d8036c8_ae16083f4427afd541b5ae4b852fd7d41639657713300^\^",^\^"assignedtime^\^":1793030874240,^\^"id^\^":1765371002876,^\^"aid^\^":^\^"1639657713300^\^",^\^"alarmcode^\^":^\^"Fan failure^(198098111^)^\^",^\^"occurtime^\^":^\^"2026-10-26 15:48:18^\^",^\^"site^\^":^\^"9184^\^",^\^"perceivedseverity^\^":2,^\^"codename^\^":^\^"Fan failure^\^",^\^"me^\^":^\^"5cd6984f-624d-32f2-850c-a91e7e56acb1^\^",^\^"nbiid^\^":^\^"4170^\^",^\^"position^\^":^\^"Equipment=1,ReplaceableUnit=OVFc_1_25 MocObjectInstance:Bartehjam Mining Camp^(9184^), OriginalSiteName:Bartehjam Mining Camp^\^",^\^"additionaltext^\^":^\^"G BSCId: 1; G siteId:2184,LTE eNBId:9184.Location: rack=1,shelf=1,board=25.^\^",^\^"servertime^\^":^\^"2026-10-26 16:01:07^\^",^\^"alarmtype^\^":4,^\^"plxTableDataIndex^\^":0,^\^"plxTableDataKey^\^":^\^"key0^\^"^}^],^\^"assigneduser^\^":^\^"admin^\^",^\^"assigninformation^\^":^\^"^\^",^\^"groupId^\^":^\^"26833f43-c4b5-4210-ab5c-e6312cb28091^\^",^\^"autotag^\^":^\^"manual^\^",^\^"acceptType^\^":^\^"FO^\^",^\^"disableInput^\^":^\^"Fan failure^\^"^}^" ^
+  --insecure &
+curl --url ^"https://10.100.20.15:28001/api/fm-active/v1/activealarms/table^" ^
+  -H ^"Accept: application/json, text/plain, */*^" ^
+  -H ^"Accept-Language: en-US,en;q=0.9^" ^
+  -H ^"Connection: keep-alive^" ^
+  -H ^"Content-Type: application/json; charset=UTF-8^" ^
+  -b ^"X-Rm-Data-Version-zenap=1773147720002_0_0_0_0_0_0_0_0; Z-AUTH-CODE-28001=1500284588_123fad8412504aaaa64ea545e57b4b6a; x-dexmesh-user-28001=D86935A99B38A02CDAEA05C225E9303A21FA22B872499884D7B2A1E26A5645FE; forgerydefense-28001=3e56b93f77d986a04862a5c5dd735244e6b630c49fd7794899624ae5f9dde012^" ^
+  -H ^"Origin: https://10.100.20.15:28001^" ^
+  -H ^"Referer: https://10.100.20.15:28001/iui/fm/angularFm/dist/index.html^" ^
+  -H ^"Sec-Fetch-Dest: empty^" ^
+  -H ^"Sec-Fetch-Mode: cors^" ^
+  -H ^"Sec-Fetch-Site: same-origin^" ^
+  -H ^"User-Agent: Mozilla/5.0 ^(Windows NT 10.0; Win64; x64^) AppleWebKit/537.36 ^(KHTML, like Gecko^) Chrome/155.0.0.0 Safari/537.36^" ^
+  -H ^"X-Requested-With: XMLHttpRequest^" ^
+  -H ^"forgerydefense: 3e56b93f77d986a04862a5c5dd735244e6b630c49fd7794899624ae5f9dde012^" ^
+  -H ^"language-option: en-US^" ^
+  -H ^"sec-ch-ua: ^\^"Google Chrome^\^";v=^\^"155^\^", ^\^"Chromium^\^";v=^\^"155^\^", ^\^"Not^(A:Brand^\^";v=^\^"24^\^"^" ^
+  -H ^"sec-ch-ua-mobile: ?0^" ^
+  -H ^"sec-ch-ua-platform: ^\^"Windows^\^"^" ^
+  -H ^"timeZoneInfo: Default,Atlantic/Reykjavik,^" ^
+  --data-raw ^"^{^\^"timestamp^\^":^\^"2026-10-26T16:08:02.491Z^\^",^\^"condition^\^":^{^\^"alarmcodefiltermode^\^":0,^\^"extensionconds^\^":^{^\^"maintainstatus^\^":^{^\^"filtertype^\^":1,^\^"valuelist^\^":^[^\^"0^\^"^]^}^},^\^"sortinfo^\^":^{^\^"sortdirection^\^":0,^\^"sortfield^\^":^\^"servertime^\^",^\^"combinesortinfos^\^":^[^]^},^\^"timezonetype^\^":0,^\^"querymetype^\^":2,^\^"id^\^":-1,^\^"visibles^\^":^[1^]^},^\^"pagesize^\^":200,^\^"page^\^":1,^\^"queryid^\^":^\^"T2fbbc7ee45524ce1944215deb817f6a6^\^",^\^"activeTabId^\^":^\^"fm-active_ALARM_MONITOR^\^",^\^"manual^\^":false^}^" ^
+  --insecure &
+curl --url ^"https://10.100.20.15:28001/api/fm-active/v1/activealarms/totalandseverity^" ^
+  -H ^"Accept: application/json, text/plain, */*^" ^
+  -H ^"Accept-Language: en-US,en;q=0.9^" ^
+  -H ^"Connection: keep-alive^" ^
+  -H ^"Content-Type: application/json; charset=UTF-8^" ^
+  -b ^"X-Rm-Data-Version-zenap=1773147720002_0_0_0_0_0_0_0_0; Z-AUTH-CODE-28001=1500284588_123fad8412504aaaa64ea545e57b4b6a; x-dexmesh-user-28001=D86935A99B38A02CDAEA05C225E9303A21FA22B872499884D7B2A1E26A5645FE; forgerydefense-28001=3e56b93f77d986a04862a5c5dd735244e6b630c49fd7794899624ae5f9dde012^" ^
+  -H ^"Origin: https://10.100.20.15:28001^" ^
+  -H ^"Referer: https://10.100.20.15:28001/iui/fm/angularFm/dist/index.html^" ^
+  -H ^"Sec-Fetch-Dest: empty^" ^
+  -H ^"Sec-Fetch-Mode: cors^" ^
+  -H ^"Sec-Fetch-Site: same-origin^" ^
+  -H ^"User-Agent: Mozilla/5.0 ^(Windows NT 10.0; Win64; x64^) AppleWebKit/537.36 ^(KHTML, like Gecko^) Chrome/155.0.0.0 Safari/537.36^" ^
+  -H ^"X-Requested-With: XMLHttpRequest^" ^
+  -H ^"forgerydefense: 3e56b93f77d986a04862a5c5dd735244e6b630c49fd7794899624ae5f9dde012^" ^
+  -H ^"language-option: en-US^" ^
+  -H ^"sec-ch-ua: ^\^"Google Chrome^\^";v=^\^"155^\^", ^\^"Chromium^\^";v=^\^"155^\^", ^\^"Not^(A:Brand^\^";v=^\^"24^\^"^" ^
+  -H ^"sec-ch-ua-mobile: ?0^" ^
+  -H ^"sec-ch-ua-platform: ^\^"Windows^\^"^" ^
+  -H ^"timeZoneInfo: Default,Atlantic/Reykjavik,^" ^
+  --data-raw ^"^{^\^"timestamp^\^":^\^"2026-10-26T16:08:02.493Z^\^",^\^"condition^\^":^{^\^"alarmcodefiltermode^\^":0,^\^"extensionconds^\^":^{^\^"maintainstatus^\^":^{^\^"filtertype^\^":1,^\^"valuelist^\^":^[^\^"0^\^"^]^}^},^\^"sortinfo^\^":^{^\^"sortdirection^\^":0,^\^"sortfield^\^":^\^"servertime^\^",^\^"combinesortinfos^\^":^[^]^},^\^"timezonetype^\^":0,^\^"querymetype^\^":2,^\^"id^\^":-1,^\^"visibles^\^":^[1^]^},^\^"pagesize^\^":200,^\^"page^\^":1,^\^"queryid^\^":^\^"T2fbbc7ee45524ce1944215deb817f6a6^\^"^}^" ^
+  --insecure &
+curl --url ^"https://10.100.20.15:28001/api/oauth2/v1/username^" ^
+  -H ^"Accept: text/plain, */*; q=0.01^" ^
+  -H ^"Accept-Language: en-US,en;q=0.9^" ^
+  -H ^"Connection: keep-alive^" ^
+  -H ^"Content-Type: application/json; charset=utf-8^" ^
+  -b ^"X-Rm-Data-Version-zenap=1773147720002_0_0_0_0_0_0_0_0; Z-AUTH-CODE-28001=1500284588_123fad8412504aaaa64ea545e57b4b6a; x-dexmesh-user-28001=D86935A99B38A02CDAEA05C225E9303A21FA22B872499884D7B2A1E26A5645FE; forgerydefense-28001=3e56b93f77d986a04862a5c5dd735244e6b630c49fd7794899624ae5f9dde012^" ^
+  -H ^"Referer: https://10.100.20.15:28001/uportal/framework/default.html^" ^
+  -H ^"Sec-Fetch-Dest: empty^" ^
+  -H ^"Sec-Fetch-Mode: cors^" ^
+  -H ^"Sec-Fetch-Site: same-origin^" ^
+  -H ^"User-Agent: Mozilla/5.0 ^(Windows NT 10.0; Win64; x64^) AppleWebKit/537.36 ^(KHTML, like Gecko^) Chrome/155.0.0.0 Safari/537.36^" ^
+  -H ^"X-Requested-With: XMLHttpRequest^" ^
+  -H ^"forgerydefense: 3e56b93f77d986a04862a5c5dd735244e6b630c49fd7794899624ae5f9dde012^" ^
+  -H ^"language-option: en-US^" ^
+  -H ^"sec-ch-ua: ^\^"Google Chrome^\^";v=^\^"155^\^", ^\^"Chromium^\^";v=^\^"155^\^", ^\^"Not^(A:Brand^\^";v=^\^"24^\^"^" ^
+  -H ^"sec-ch-ua-mobile: ?0^" ^
+  -H ^"sec-ch-ua-platform: ^\^"Windows^\^"^" ^
+  -H ^"timeZoneInfo: Default,Atlantic/Reykjavik,^" ^
+  --insecure &
+curl --url ^"https://10.100.20.15:28001/api/oauth2/v1/username^" ^
+  -H ^"Accept: text/plain, */*; q=0.01^" ^
+  -H ^"Accept-Language: en-US,en;q=0.9^" ^
+  -H ^"Connection: keep-alive^" ^
+  -H ^"Content-Type: application/json; charset=utf-8^" ^
+  -b ^"X-Rm-Data-Version-zenap=1773147720002_0_0_0_0_0_0_0_0; Z-AUTH-CODE-28001=1500284588_123fad8412504aaaa64ea545e57b4b6a; x-dexmesh-user-28001=D86935A99B38A02CDAEA05C225E9303A21FA22B872499884D7B2A1E26A5645FE; forgerydefense-28001=3e56b93f77d986a04862a5c5dd735244e6b630c49fd7794899624ae5f9dde012^" ^
+  -H ^"Referer: https://10.100.20.15:28001/uportal/framework/default.html^" ^
+  -H ^"Sec-Fetch-Dest: empty^" ^
+  -H ^"Sec-Fetch-Mode: cors^" ^
+  -H ^"Sec-Fetch-Site: same-origin^" ^
+  -H ^"User-Agent: Mozilla/5.0 ^(Windows NT 10.0; Win64; x64^) AppleWebKit/537.36 ^(KHTML, like Gecko^) Chrome/155.0.0.0 Safari/537.36^" ^
+  -H ^"X-Requested-With: XMLHttpRequest^" ^
+  -H ^"forgerydefense: 3e56b93f77d986a04862a5c5dd735244e6b630c49fd7794899624ae5f9dde012^" ^
+  -H ^"language-option: en-US^" ^
+  -H ^"sec-ch-ua: ^\^"Google Chrome^\^";v=^\^"155^\^", ^\^"Chromium^\^";v=^\^"155^\^", ^\^"Not^(A:Brand^\^";v=^\^"24^\^"^" ^
+  -H ^"sec-ch-ua-mobile: ?0^" ^
+  -H ^"sec-ch-ua-platform: ^\^"Windows^\^"^" ^
+  -H ^"timeZoneInfo: Default,Atlantic/Reykjavik,^" ^
+  --insecure

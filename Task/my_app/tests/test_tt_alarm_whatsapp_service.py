@@ -345,6 +345,55 @@ def test_merged_render_row_live_occur_time_wins():
     assert row["alarm_occur_time"] == "2026-10-05 09:30:00"
 
 
+def test_merged_render_row_empty_live_does_not_blank_mirror():
+    """实时行里的空串**不能**覆盖镜像的真值（2026-10-28 修复）。
+
+    eFlow `base/list` 实测会返回空的 `subAlarmName`，也不返回 `downSiteList`；
+    裸 update() 会把镜像里的告警对象抹成空，群里就只剩
+    「Alarm: 9995 | Communication Alarm」这种没有语义的行。
+    """
+    from backend.services.tt_alarm_sources import merged_render_row
+    trig = {"tt_no": "T1"}
+    mirror = {"sub_alarm_name": "2G SITE DOWN", "specific_problem": "MW LINK DOWN",
+              "down_site_list": "3299,4104"}
+    live = {"sub_alarm_name": "", "specific_problem": "", "down_site_list": None,
+            "status": "WaitFOAccept"}
+    row = merged_render_row(trig, mirror, live)
+    assert row["sub_alarm_name"] == "2G SITE DOWN"
+    assert row["specific_problem"] == "MW LINK DOWN"
+    assert row["down_site_list"] == "3299,4104"
+    assert row["status"] == "WaitFOAccept"   # 非空的新值仍然覆盖
+
+
+def test_merged_render_row_backfills_codename_and_impact_sites_from_trigger():
+    """触发行的 codename / impact_site_list 要落到 eflow_tt 的同义列上。
+
+    首推时刻那一单通常还没进 `eflow_tt` 镜像，实时行又只有 eflow_tt 的少数字段；
+    没有这条回填，`Alarm:` 行就没有 codename（9995 = MW LINK DOWN），
+    也没有「Total N impact sites」清单 —— 这正是用户 2026-10-28 反馈的问题。
+    """
+    from backend.services.tt_alarm_sources import merged_render_row
+    trig = {"tt_no": "T1", "codename": "MW LINK DOWN",
+            "impact_site_list": "3299,4104,9167", "impact_site_number": "3",
+            "neip": "129.0.1.1"}
+    row = merged_render_row(trig, None, {"alarm_type": "Communication Alarm"})
+    assert row["specific_problem"] == "MW LINK DOWN"
+    assert row["alarm_description"] == "MW LINK DOWN"
+    assert row["down_site_list"] == "3299,4104,9167"
+    assert row["down_site_count"] == "3"
+    assert row["sub_alarm_ne_ip"] == "129.0.1.1"
+
+
+def test_merged_render_row_mirror_wins_over_trigger_backfill():
+    """回填只在目标列仍为空时生效 —— 镜像/实时有值就以它们为准。"""
+    from backend.services.tt_alarm_sources import merged_render_row
+    trig = {"tt_no": "T1", "codename": "MW LINK DOWN", "impact_site_list": "1,2"}
+    mirror = {"specific_problem": "Fiber Break", "down_site_list": "9,8,7"}
+    row = merged_render_row(trig, mirror, None)
+    assert row["specific_problem"] == "Fiber Break"
+    assert row["down_site_list"] == "9,8,7"
+
+
 # ---------------- 4. 时间解析 ----------------
 
 def test_parse_ts_accepts_project_formats():

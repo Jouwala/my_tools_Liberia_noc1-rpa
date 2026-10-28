@@ -27,7 +27,6 @@ import makeWASocket, {
   fetchLatestBaileysVersion,
   isJidGroup,
   Browsers,
-  WAMessageStatus,
 } from 'baileys';
 import P from 'pino';
 import qrcode from 'qrcode-terminal';
@@ -38,6 +37,9 @@ import { createQrWatcher, QR_STATE } from './qrLogin.js';
 import { detectLang, pickText } from './lang.js';
 import { selfIdentifiers, extractText, detectTrigger, stripMentions, isAllowedChat } from './mentions.js';
 import { openQaLog, recordQa, closeQaLog } from './qalog.js';
+import { ackIdFromUpdate, ackIdFromReceipt } from './ack.js';
+// 只为了把 TT 通道的逐跳耗时打进 `[回复]` 日志（见下面的日志组装）。
+import { formatTtTiming } from './tt.js';
 
 const logger = P({ level: 'silent' });
 
@@ -217,6 +219,9 @@ const lastReplyAt = new Map();
  * 现在的处理：发出时登记，收到 `SERVER_ACK`/`DELIVERY_ACK`/`READ` 即移除；
  * 超过 `ACK_TIMEOUT_MS` 仍无回执则打 `[未送达]` 日志。注意这只是**观测**，
  * 不改发送行为 —— 回执缺失既可能是真没送到，也可能是回执本身丢了。
+ *
+ * ⚠️ 回执有**两条**事件通道（私聊 `messages.update` / 群聊 `message-receipt.update`），
+ * 两个监听器缺一不可，详见 startWhatsApp 里 onDelivered 上方的注释。
  */
 const pendingAcks = new Map();
 
@@ -249,13 +254,8 @@ async function warmupGate() {
   await new Promise((r) => setTimeout(r, WARMUP_SEND_GAP_MS));
 }
 
-/** 已送达的状态值。低于这些的一律算「还没确认」。 */
-const ACK_DONE = new Set([
-  WAMessageStatus.SERVER_ACK,
-  WAMessageStatus.DELIVERY_ACK,
-  WAMessageStatus.READ,
-  WAMessageStatus.PLAYED,
-]);
+// 已送达的判定与「两条回执通道」的形状差异都收在 src/ack.js
+// （纯函数，可脱离连接做单元测试）。这里只负责把事件接到 pendingAcks 上。
 
 /**
  * 登记一条待回执消息。
@@ -478,6 +478,7 @@ export async function startWhatsApp({ onQuestion, builtins = null }) {
         try {
           activeSock?.ev?.removeAllListeners('messages.upsert');
           activeSock?.ev?.removeAllListeners('messages.update');
+          activeSock?.ev?.removeAllListeners('message-receipt.update');
           activeSock?.ev?.removeAllListeners('connection.update');
           activeSock?.ev?.removeAllListeners('creds.update');
           activeSock?.ws?.close();
@@ -694,6 +695,7 @@ export async function startWhatsApp({ onQuestion, builtins = null }) {
       try {
         sock.ev.removeAllListeners('messages.upsert');
         sock.ev.removeAllListeners('messages.update');
+        sock.ev.removeAllListeners('message-receipt.update');
         sock.ev.removeAllListeners('connection.update');
         sock.ev.removeAllListeners('creds.update');
         sock.ws?.close();
@@ -730,18 +732,37 @@ export async function startWhatsApp({ onQuestion, builtins = null }) {
     }
   });
 
-  // 送达回执：只用来确认「我们发出的消息服务端是否受理」，故只关心 fromMe 的
-  // 那些 update。见 pendingAcks 的注释（2026-10-26 未送达事故）。
+  // 送达回执：只用来确认「我们发出的消息服务端是否受理」。
+  // 见 pendingAcks 的注释（2026-10-26 未送达事故）。
+  //
+  // ⚠️ 两条通道**必须都听**，否则群聊永远算「未送达」（2026-10-28 修正）：
+  //   · 私聊：Baileys 走 `messages.update`，带 `update.status`（枚举值）；
+  //   · 群聊：走 `message-receipt.update`，**没有 status 字段**，只给时间戳
+  //     （见 node_modules/baileys/lib/Socket/messages-recv.js 的 handleReceipt：
+  //      `if (isJidGroup(remoteJid) || isJidStatusBroadcast(remoteJid)) { … emit('message-receipt.update') }`）。
+  //
+  // 本项目原先只订阅了 `messages.update`，于是群里的每条回复都在 30s 后被打成
+  // `[未送达]`、`qa_log.ack` 一律 undelivered —— 包括那些用户明明收到并正常
+  // 追问了的回答。这个假警报还会连带 abortAck，把「写会话历史 / answered=1」
+  // 一并撤销，等于把好好的回答当成没送达处理。
+  const onDelivered = (id) => {
+    resolveAck(id);
+    // 确认送达后才提交副作用（写会话历史 / 记 answered=1）
+    commitAck(id);
+  };
+
   sock.ev.on('messages.update', (updates) => {
     for (const u of updates || []) {
-      const id = u?.key?.id;
-      if (!id || !u.key?.fromMe) continue;
-      const status = u.update?.status;
-      if (status != null && ACK_DONE.has(status)) {
-        resolveAck(id);
-        // 确认送达后才提交副作用（写会话历史 / 记 answered=1）
-        commitAck(id);
-      }
+      const id = ackIdFromUpdate(u);
+      if (id) onDelivered(id);
+    }
+  });
+
+  // 群聊 / 状态广播的回执（没有 status 枚举，只有 receiptTimestamp / readTimestamp）。
+  sock.ev.on('message-receipt.update', (receipts) => {
+    for (const r of receipts || []) {
+      const id = ackIdFromReceipt(r);
+      if (id) onDelivered(id);
     }
   });
 
@@ -891,7 +912,18 @@ export async function startWhatsApp({ onQuestion, builtins = null }) {
           onLive: (text) =>
             send(chatJid, text, CONFIG.replyQuote ? msg : undefined).catch(() => {}),
         });
-        const text2 = truncate(result.text, CONFIG.maxReplyChars);
+        // 截断上限：默认用全局 maxReplyChars（2000，那是给 TT 通道定的）。
+        // 但 CCA 通道的内容量天然更大（覆盖 KPI 段 + 按 Cause Rule 归并后的
+        // 全部根因，实测一天就 ~4000 字符），若沿用 2000，truncate 会**从尾部**
+        // 砍掉「来源」行与「处理建议」—— 与 2026-10-07 TT 通道「时效」段被砍
+        // 是同一类问题（config.json 的 $maxReplyChars 里记着那次教训）。
+        // 所以按通道取上限：通道自己给 maxReplyChars 就用自己的，
+        // 没给才回落全局值。渲染层已按 CCA_REPLY_BUDGET 主动裁剪过，
+        // 这里只是最后一道保险，保证「来源」行一定在。
+        const cap = Number(result.maxReplyChars) > 0
+          ? Number(result.maxReplyChars)
+          : CONFIG.maxReplyChars;
+        const text2 = truncate(result.text, cap);
         if (pendingTimer) {
           clearTimeout(pendingTimer);
           pendingTimer = null;
@@ -942,6 +974,10 @@ export async function startWhatsApp({ onQuestion, builtins = null }) {
             // 多单提问：记录「成功几个/共几个」，否则事后无法判断
             // 用户贴了 3 个单是不是只回了 1 个。
             (result.stats?.count > 1 ? `｜单=${result.stats.okCount}/${result.stats.count}` : '') +
+            // TT 通道逐跳耗时。**为什么非要单独打**：2026-10-28 同一单号独立调用
+            // 1.0s、群里 57.8s，日志里只有一个总数，只能靠翻 my_app 的任务日志
+            // 对时间去猜是取数慢还是渲染慢。分开打之后一眼就能定位。
+            (result.stats?.ttTiming ? `｜${formatTtTiming(result.stats.ttTiming)}` : '') +
             (result.retrieval
               ? `｜gap=${result.retrieval.gap.toFixed(3)} top=${result.retrieval.topBase.toFixed(3)} base=${result.retrieval.baseline.toFixed(3)}`
               : '')

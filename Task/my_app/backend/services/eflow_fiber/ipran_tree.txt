@@ -1,0 +1,282 @@
+curl --url ^"https://10.100.2.99:28001/api/oauth2/v1/username^" ^
+  -H ^"accept: text/plain, */*; q=0.01^" ^
+  -H ^"accept-language: en-US,en;q=0.9^" ^
+  -H ^"content-type: application/json; charset=utf-8^" ^
+  -b ^"X-Rm-Data-Version-umebn=1755323820002_0_0_0_0_0_0_0_0; Z-AUTH-CODE-28001=111709030_814fa75c6e044c81bf59bc02c241d535; x-dexmesh-user-28001=D3F1F853DF05E92A09B7058FFE3C328A2B382CECA1D2743B7943679EDB7770A0; forgerydefense-28001=0a59109f08c1a45298b7cee8fd51565865b28ad3353112584cca2d134c7003d2^" ^
+  -H ^"forgerydefense: 0a59109f08c1a45298b7cee8fd51565865b28ad3353112584cca2d134c7003d2^" ^
+  -H ^"language-option: en-US^" ^
+  -H ^"priority: u=1, i^" ^
+  -H ^"referer: https://10.100.2.99:28001/portal-athena/framework/default.html^" ^
+  -H ^"sec-ch-ua: ^\^"Google Chrome^\^";v=^\^"155^\^", ^\^"Chromium^\^";v=^\^"155^\^", ^\^"Not^(A:Brand^\^";v=^\^"24^\^"^" ^
+  -H ^"sec-ch-ua-mobile: ?0^" ^
+  -H ^"sec-ch-ua-platform: ^\^"Windows^\^"^" ^
+  -H ^"sec-fetch-dest: empty^" ^
+  -H ^"sec-fetch-mode: cors^" ^
+  -H ^"sec-fetch-site: same-origin^" ^
+  -H ^"timezoneinfo: Default,Atlantic/Reykjavik,^" ^
+  -H ^"user-agent: Mozilla/5.0 ^(Windows NT 10.0; Win64; x64^) AppleWebKit/537.36 ^(KHTML, like Gecko^) Chrome/155.0.0.0 Safari/537.36^" ^
+  -H ^"x-requested-with: XMLHttpRequest^" ^
+  --insecure &
+curl --url ^"https://10.100.2.99:28001/api/fm-active/v1/statistic/severity^" ^
+  -H ^"accept: application/json, text/javascript, */*; q=0.01^" ^
+  -H ^"accept-language: en-US,en;q=0.9^" ^
+  -H ^"content-type: application/json; charset=UTF-8^" ^
+  -b ^"X-Rm-Data-Version-umebn=1755323820002_0_0_0_0_0_0_0_0; Z-AUTH-CODE-28001=111709030_814fa75c6e044c81bf59bc02c241d535; x-dexmesh-user-28001=D3F1F853DF05E92A09B7058FFE3C328A2B382CECA1D2743B7943679EDB7770A0; forgerydefense-28001=0a59109f08c1a45298b7cee8fd51565865b28ad3353112584cca2d134c7003d2^" ^
+  -H ^"forgerydefense: 0a59109f08c1a45298b7cee8fd51565865b28ad3353112584cca2d134c7003d2^" ^
+  -H ^"language-option: en-US^" ^
+  -H ^"origin: https://10.100.2.99:28001^" ^
+  -H ^"priority: u=1, i^" ^
+  -H ^"referer: https://10.100.2.99:28001/portal-athena/framework/default.html^" ^
+  -H ^"sec-ch-ua: ^\^"Google Chrome^\^";v=^\^"155^\^", ^\^"Chromium^\^";v=^\^"155^\^", ^\^"Not^(A:Brand^\^";v=^\^"24^\^"^" ^
+  -H ^"sec-ch-ua-mobile: ?0^" ^
+  -H ^"sec-ch-ua-platform: ^\^"Windows^\^"^" ^
+  -H ^"sec-fetch-dest: empty^" ^
+  -H ^"sec-fetch-mode: cors^" ^
+  -H ^"sec-fetch-site: same-origin^" ^
+  -H ^"timezoneinfo: Default,Atlantic/Reykjavik,^" ^
+  -H ^"user-agent: Mozilla/5.0 ^(Windows NT 10.0; Win64; x64^) AppleWebKit/537.36 ^(KHTML, like Gecko^) Chrome/155.0.0.0 Safari/537.36^" ^
+  -H ^"x-requested-with: XMLHttpRequest^" ^
+  --data-raw ^"^{^\^"extensionconds^\^":^{^\^"maintainstatus^\^":^{^\^"valuelist^\^":^[^\^"0^\^"^]^}^},^\^"querymetype^\^":2^}^" ^
+  --insecure &
+curl --url ^"https://10.100.2.99:28001/api/topo/v1/layer/topo-header-path/1293626099480711168^" ^
+  -H ^"accept: text/plain, */*; q=0.01^" ^
+  -H ^"accept-language: en-US,en;q=0.9^" ^
+  -b ^"X-Rm-Data-Version-umebn=1755323820002_0_0_0_0_0_0_0_0; Z-AUTH-CODE-28001=111709030_814fa75c6e044c81bf59bc02c241d535; x-dexmesh-user-28001=D3F1F853DF05E92A09B7058FFE3C328A2B382CECA1D2743B7943679EDB7770A0; forgerydefense-28001=0a59109f08c1a45298b7cee8fd51565865b28ad3353112584cca2d134c7003d2^" ^
+  -H ^"forgerydefense: 0a59109f08c1a45298b7cee8fd51565865b28ad3353112584cca2d134c7003d2^" ^
+  -H ^"language-option: en-US^" ^
+  -H ^"priority: u=0, i^" ^
+  -H ^"referer: https://10.100.2.99:28001/iui/topo/index.html^" ^
+  -H ^"sec-ch-ua: ^\^"Google Chrome^\^";v=^\^"155^\^", ^\^"Chromium^\^";v=^\^"155^\^", ^\^"Not^(A:Brand^\^";v=^\^"24^\^"^" ^
+  -H ^"sec-ch-ua-mobile: ?0^" ^
+  -H ^"sec-ch-ua-platform: ^\^"Windows^\^"^" ^
+  -H ^"sec-fetch-dest: empty^" ^
+  -H ^"sec-fetch-mode: cors^" ^
+  -H ^"sec-fetch-site: same-origin^" ^
+  -H ^"timezoneinfo: Default,Atlantic/Reykjavik,^" ^
+  -H ^"user-agent: Mozilla/5.0 ^(Windows NT 10.0; Win64; x64^) AppleWebKit/537.36 ^(KHTML, like Gecko^) Chrome/155.0.0.0 Safari/537.36^" ^
+  -H ^"x-requested-with: XMLHttpRequest^" ^
+  --insecure &
+curl --url ^"https://10.100.2.99:28001/iui/umebn-spt-melcm-ui/assets/umebnIcons-svg/symbol-defs.svg^" -H ^"Referer: https://10.100.2.99:28001/iui/topo/index.html^" &
+curl --url ^"https://10.100.2.99:28001/api/res/v1/tree?dataType=tree^&function=topotree^&operation=operation.topo.viewlogicview^&structureFlag=0^&id=dfe167e4-d039-4d59-84c4-1939f1ca5aef^" ^
+  -H ^"accept: application/json, text/plain, */*^" ^
+  -H ^"accept-language: en-US,en;q=0.9^" ^
+  -H ^"content-type: application/json;charset=UTF-8^" ^
+  -b ^"X-Rm-Data-Version-umebn=1755323820002_0_0_0_0_0_0_0_0; Z-AUTH-CODE-28001=111709030_814fa75c6e044c81bf59bc02c241d535; x-dexmesh-user-28001=D3F1F853DF05E92A09B7058FFE3C328A2B382CECA1D2743B7943679EDB7770A0; forgerydefense-28001=0a59109f08c1a45298b7cee8fd51565865b28ad3353112584cca2d134c7003d2^" ^
+  -H ^"forgerydefense: 0a59109f08c1a45298b7cee8fd51565865b28ad3353112584cca2d134c7003d2^" ^
+  -H ^"language-option: en-US^" ^
+  -H ^"priority: u=1, i^" ^
+  -H ^"referer: https://10.100.2.99:28001/iui/topo/index.html^" ^
+  -H ^"sec-ch-ua: ^\^"Google Chrome^\^";v=^\^"155^\^", ^\^"Chromium^\^";v=^\^"155^\^", ^\^"Not^(A:Brand^\^";v=^\^"24^\^"^" ^
+  -H ^"sec-ch-ua-mobile: ?0^" ^
+  -H ^"sec-ch-ua-platform: ^\^"Windows^\^"^" ^
+  -H ^"sec-fetch-dest: empty^" ^
+  -H ^"sec-fetch-mode: cors^" ^
+  -H ^"sec-fetch-site: same-origin^" ^
+  -H ^"timezoneinfo: Default,Atlantic/Reykjavik,^" ^
+  -H ^"user-agent: Mozilla/5.0 ^(Windows NT 10.0; Win64; x64^) AppleWebKit/537.36 ^(KHTML, like Gecko^) Chrome/155.0.0.0 Safari/537.36^" ^
+  -H ^"x-requested-with: XMLHttpRequest^" ^
+  --insecure &
+curl --url ^"https://10.100.2.99:28001/api/topo/v1/log^" ^
+  -H ^"accept: application/json, text/plain, */*^" ^
+  -H ^"accept-language: en-US,en;q=0.9^" ^
+  -H ^"content-type: application/json^" ^
+  -b ^"X-Rm-Data-Version-umebn=1755323820002_0_0_0_0_0_0_0_0; Z-AUTH-CODE-28001=111709030_814fa75c6e044c81bf59bc02c241d535; x-dexmesh-user-28001=D3F1F853DF05E92A09B7058FFE3C328A2B382CECA1D2743B7943679EDB7770A0; forgerydefense-28001=0a59109f08c1a45298b7cee8fd51565865b28ad3353112584cca2d134c7003d2^" ^
+  -H ^"forgerydefense: 0a59109f08c1a45298b7cee8fd51565865b28ad3353112584cca2d134c7003d2^" ^
+  -H ^"language-option: en-US^" ^
+  -H ^"origin: https://10.100.2.99:28001^" ^
+  -H ^"priority: u=1, i^" ^
+  -H ^"referer: https://10.100.2.99:28001/iui/topo/index.html^" ^
+  -H ^"sec-ch-ua: ^\^"Google Chrome^\^";v=^\^"155^\^", ^\^"Chromium^\^";v=^\^"155^\^", ^\^"Not^(A:Brand^\^";v=^\^"24^\^"^" ^
+  -H ^"sec-ch-ua-mobile: ?0^" ^
+  -H ^"sec-ch-ua-platform: ^\^"Windows^\^"^" ^
+  -H ^"sec-fetch-dest: empty^" ^
+  -H ^"sec-fetch-mode: cors^" ^
+  -H ^"sec-fetch-site: same-origin^" ^
+  -H ^"timezoneinfo: Default,Atlantic/Reykjavik,^" ^
+  -H ^"user-agent: Mozilla/5.0 ^(Windows NT 10.0; Win64; x64^) AppleWebKit/537.36 ^(KHTML, like Gecko^) Chrome/155.0.0.0 Safari/537.36^" ^
+  -H ^"x-requested-with: XMLHttpRequest^" ^
+  --data-raw ^"Od0ZFs07ONfu1O5GmEF1gMGUbLjfVAdsAIp1rBYmO53bxFfIR0YMCJvQNZ1Z5Eq50NZjIy8tMkke6dK+TEjed/bNhCbPqH1hC3qJf4ywHNDVtvqSxxlrfhGp+YR0nxCltSxttEKBVdjSSiOsFCT+KtZZvLnasKiadwTKj0yS9ZUMctUT9Brd9zjio64Iv6vf4zJfAp3j9dsX3lnDZB4Q+rtVk2ri/QJFAJ9A18IDfkryCfHcUl43JrXmB7eONvxSHykfnOYcByCx3bJ0/gEYglmCDd9vh6ByP0xWd/JYdcmikiguv//FUkLJp0jfDC8hRCO5R3FwaBdt7KuvQAuRDlcCRVl7cDu3kr4M2/ycn0Nn10jo1OleEJfMTI59C6i7ExkOibase4+GqKexgLiO4nWbMrg0Ojat9mD2e3okZ1eAMHFo8LyvBVdPZXLmljxuvjyzYkGL08W3LE+LX08BRIATv4Z8H5o4Ps7pi6vt5em9G65qMz7NqC/UACzDYrhtqXuierZYHmqzrDPn4r/vZfEhiFAth9kDQr4G/CrlF2xxOdTPUcyX0S4BuFjeDrNz6UO38uAd8Lz2aWI8XShNf5NzpY4IXI9bOPAeoIIRvf2fh/wLw1upTcu8QjBOhf2yY7eWVcwydZqlU4aezEJFpoLuhbkUsUqPirltszhe/VARXdui0EHl0qzXXiz5AbLB7r3RdluvJuxLtdC2dksHSa3vdJvhFbfl3rsB8cTma0aXpwMJWSNMrR2dCcX7eT0EyeGRt/Y63pM3iPTY+NfX9cRZfmgoZdhfXp43RalQlBZlmq/7i/uR2DlrghiDbUGsREbYKUNErvIhEvkokqiILAU+oGMmxNXfJ6dvS1gtpZcqjJnX01KyPWyBMCPyva0O+f8UtTeQ/MtDio38Dagi9FW1+Vq+7vY/P5MnPkSVi0EL6PgRJztjzkaB1bqySuW7iGQkH7RChodnlju2i1Z5PvyLaXKSZa3EsD/rqnrnRGYiObMK6pmi1ssm0wYP00ZP^" ^
+  --insecure &
+curl --url ^"https://10.100.2.99:28001/api/oauth2/v1/username^" ^
+  -H ^"accept: text/plain, */*; q=0.01^" ^
+  -H ^"accept-language: en-US,en;q=0.9^" ^
+  -H ^"content-type: application/json; charset=utf-8^" ^
+  -b ^"X-Rm-Data-Version-umebn=1755323820002_0_0_0_0_0_0_0_0; Z-AUTH-CODE-28001=111709030_814fa75c6e044c81bf59bc02c241d535; x-dexmesh-user-28001=D3F1F853DF05E92A09B7058FFE3C328A2B382CECA1D2743B7943679EDB7770A0; forgerydefense-28001=0a59109f08c1a45298b7cee8fd51565865b28ad3353112584cca2d134c7003d2^" ^
+  -H ^"forgerydefense: 0a59109f08c1a45298b7cee8fd51565865b28ad3353112584cca2d134c7003d2^" ^
+  -H ^"language-option: en-US^" ^
+  -H ^"priority: u=1, i^" ^
+  -H ^"referer: https://10.100.2.99:28001/portal-athena/framework/default.html^" ^
+  -H ^"sec-ch-ua: ^\^"Google Chrome^\^";v=^\^"155^\^", ^\^"Chromium^\^";v=^\^"155^\^", ^\^"Not^(A:Brand^\^";v=^\^"24^\^"^" ^
+  -H ^"sec-ch-ua-mobile: ?0^" ^
+  -H ^"sec-ch-ua-platform: ^\^"Windows^\^"^" ^
+  -H ^"sec-fetch-dest: empty^" ^
+  -H ^"sec-fetch-mode: cors^" ^
+  -H ^"sec-fetch-site: same-origin^" ^
+  -H ^"timezoneinfo: Default,Atlantic/Reykjavik,^" ^
+  -H ^"user-agent: Mozilla/5.0 ^(Windows NT 10.0; Win64; x64^) AppleWebKit/537.36 ^(KHTML, like Gecko^) Chrome/155.0.0.0 Safari/537.36^" ^
+  -H ^"x-requested-with: XMLHttpRequest^" ^
+  --insecure &
+curl --url ^"https://10.100.2.99:28001/api/fm-active/v1/statistic/severity^" ^
+  -H ^"accept: application/json, text/javascript, */*; q=0.01^" ^
+  -H ^"accept-language: en-US,en;q=0.9^" ^
+  -H ^"content-type: application/json; charset=UTF-8^" ^
+  -b ^"X-Rm-Data-Version-umebn=1755323820002_0_0_0_0_0_0_0_0; Z-AUTH-CODE-28001=111709030_814fa75c6e044c81bf59bc02c241d535; x-dexmesh-user-28001=D3F1F853DF05E92A09B7058FFE3C328A2B382CECA1D2743B7943679EDB7770A0; forgerydefense-28001=0a59109f08c1a45298b7cee8fd51565865b28ad3353112584cca2d134c7003d2^" ^
+  -H ^"forgerydefense: 0a59109f08c1a45298b7cee8fd51565865b28ad3353112584cca2d134c7003d2^" ^
+  -H ^"language-option: en-US^" ^
+  -H ^"origin: https://10.100.2.99:28001^" ^
+  -H ^"priority: u=1, i^" ^
+  -H ^"referer: https://10.100.2.99:28001/portal-athena/framework/default.html^" ^
+  -H ^"sec-ch-ua: ^\^"Google Chrome^\^";v=^\^"155^\^", ^\^"Chromium^\^";v=^\^"155^\^", ^\^"Not^(A:Brand^\^";v=^\^"24^\^"^" ^
+  -H ^"sec-ch-ua-mobile: ?0^" ^
+  -H ^"sec-ch-ua-platform: ^\^"Windows^\^"^" ^
+  -H ^"sec-fetch-dest: empty^" ^
+  -H ^"sec-fetch-mode: cors^" ^
+  -H ^"sec-fetch-site: same-origin^" ^
+  -H ^"timezoneinfo: Default,Atlantic/Reykjavik,^" ^
+  -H ^"user-agent: Mozilla/5.0 ^(Windows NT 10.0; Win64; x64^) AppleWebKit/537.36 ^(KHTML, like Gecko^) Chrome/155.0.0.0 Safari/537.36^" ^
+  -H ^"x-requested-with: XMLHttpRequest^" ^
+  --data-raw ^"^{^\^"extensionconds^\^":^{^\^"maintainstatus^\^":^{^\^"valuelist^\^":^[^\^"0^\^"^]^}^},^\^"querymetype^\^":2^}^" ^
+  --insecure &
+curl --url ^"https://10.100.2.99:28001/api/fm-active/v1/north/statistic/me?visible=1^&maintainstatus=0^" ^
+  -H ^"accept: application/json, text/plain, */*^" ^
+  -H ^"accept-language: en-US,en;q=0.9^" ^
+  -H ^"content-type: application/json^" ^
+  -b ^"X-Rm-Data-Version-umebn=1755323820002_0_0_0_0_0_0_0_0; Z-AUTH-CODE-28001=111709030_814fa75c6e044c81bf59bc02c241d535; x-dexmesh-user-28001=D3F1F853DF05E92A09B7058FFE3C328A2B382CECA1D2743B7943679EDB7770A0; forgerydefense-28001=0a59109f08c1a45298b7cee8fd51565865b28ad3353112584cca2d134c7003d2^" ^
+  -H ^"forgerydefense: 0a59109f08c1a45298b7cee8fd51565865b28ad3353112584cca2d134c7003d2^" ^
+  -H ^"language-option: en-US^" ^
+  -H ^"origin: https://10.100.2.99:28001^" ^
+  -H ^"priority: u=1, i^" ^
+  -H ^"referer: https://10.100.2.99:28001/iui/topo/index.html^" ^
+  -H ^"sec-ch-ua: ^\^"Google Chrome^\^";v=^\^"155^\^", ^\^"Chromium^\^";v=^\^"155^\^", ^\^"Not^(A:Brand^\^";v=^\^"24^\^"^" ^
+  -H ^"sec-ch-ua-mobile: ?0^" ^
+  -H ^"sec-ch-ua-platform: ^\^"Windows^\^"^" ^
+  -H ^"sec-fetch-dest: empty^" ^
+  -H ^"sec-fetch-mode: cors^" ^
+  -H ^"sec-fetch-site: same-origin^" ^
+  -H ^"timezoneinfo: Default,Atlantic/Reykjavik,^" ^
+  -H ^"user-agent: Mozilla/5.0 ^(Windows NT 10.0; Win64; x64^) AppleWebKit/537.36 ^(KHTML, like Gecko^) Chrome/155.0.0.0 Safari/537.36^" ^
+  -H ^"x-requested-with: XMLHttpRequest^" ^
+  --data-raw ^"^[^{^\^"dn^\^":^\^"^\^",^\^"me^\^":^\^"17fcc28d-9f86-4608-a57e-7b0e93ad6cc9^\^"^},^{^\^"dn^\^":^\^"^\^",^\^"me^\^":^\^"93a01390-5c8c-4e54-8aa1-1a48048d7e3f^\^"^}^]^" ^
+  --insecure &
+curl --url ^"https://10.100.2.99:28001/api/fm-active/v1/north/statistic/groups?visible=1^&maintainstatus=0^" ^
+  -H ^"accept: application/json, text/plain, */*^" ^
+  -H ^"accept-language: en-US,en;q=0.9^" ^
+  -H ^"content-type: application/json^" ^
+  -b ^"X-Rm-Data-Version-umebn=1755323820002_0_0_0_0_0_0_0_0; Z-AUTH-CODE-28001=111709030_814fa75c6e044c81bf59bc02c241d535; x-dexmesh-user-28001=D3F1F853DF05E92A09B7058FFE3C328A2B382CECA1D2743B7943679EDB7770A0; forgerydefense-28001=0a59109f08c1a45298b7cee8fd51565865b28ad3353112584cca2d134c7003d2^" ^
+  -H ^"forgerydefense: 0a59109f08c1a45298b7cee8fd51565865b28ad3353112584cca2d134c7003d2^" ^
+  -H ^"language-option: en-US^" ^
+  -H ^"origin: https://10.100.2.99:28001^" ^
+  -H ^"priority: u=1, i^" ^
+  -H ^"referer: https://10.100.2.99:28001/iui/topo/index.html^" ^
+  -H ^"sec-ch-ua: ^\^"Google Chrome^\^";v=^\^"155^\^", ^\^"Chromium^\^";v=^\^"155^\^", ^\^"Not^(A:Brand^\^";v=^\^"24^\^"^" ^
+  -H ^"sec-ch-ua-mobile: ?0^" ^
+  -H ^"sec-ch-ua-platform: ^\^"Windows^\^"^" ^
+  -H ^"sec-fetch-dest: empty^" ^
+  -H ^"sec-fetch-mode: cors^" ^
+  -H ^"sec-fetch-site: same-origin^" ^
+  -H ^"timezoneinfo: Default,Atlantic/Reykjavik,^" ^
+  -H ^"user-agent: Mozilla/5.0 ^(Windows NT 10.0; Win64; x64^) AppleWebKit/537.36 ^(KHTML, like Gecko^) Chrome/155.0.0.0 Safari/537.36^" ^
+  -H ^"x-requested-with: XMLHttpRequest^" ^
+  --data-raw ^"^[^{^\^"group^\^":^\^"550e8400-e29b-41d4-a716-446655440000^\^"^},^{^\^"group^\^":^\^"85be4983-1ca6-416d-8ba6-03e19a848ba6^\^"^},^{^\^"group^\^":^\^"8099f1d8-0da3-4716-a441-78e03f26f2da^\^"^},^{^\^"group^\^":^\^"ec40080a-d8ed-4622-9953-c8116340311d^\^"^},^{^\^"group^\^":^\^"f2eaac95-beb0-4374-a0de-52964a913d5c^\^"^},^{^\^"group^\^":^\^"5971bb47-5805-4f46-b527-413b009b2db0^\^"^},^{^\^"group^\^":^\^"73337bc0-180c-4fdb-b55f-053653775563^\^"^}^]^" ^
+  --insecure &
+curl --url ^"https://10.100.2.99:28001/api/fm-active/v1/statistic/severity^" ^
+  -H ^"accept: application/json, text/javascript, */*; q=0.01^" ^
+  -H ^"accept-language: en-US,en;q=0.9^" ^
+  -H ^"content-type: application/json; charset=UTF-8^" ^
+  -b ^"X-Rm-Data-Version-umebn=1755323820002_0_0_0_0_0_0_0_0; Z-AUTH-CODE-28001=111709030_814fa75c6e044c81bf59bc02c241d535; x-dexmesh-user-28001=D3F1F853DF05E92A09B7058FFE3C328A2B382CECA1D2743B7943679EDB7770A0; forgerydefense-28001=0a59109f08c1a45298b7cee8fd51565865b28ad3353112584cca2d134c7003d2^" ^
+  -H ^"forgerydefense: 0a59109f08c1a45298b7cee8fd51565865b28ad3353112584cca2d134c7003d2^" ^
+  -H ^"language-option: en-US^" ^
+  -H ^"origin: https://10.100.2.99:28001^" ^
+  -H ^"priority: u=1, i^" ^
+  -H ^"referer: https://10.100.2.99:28001/portal-athena/framework/default.html^" ^
+  -H ^"sec-ch-ua: ^\^"Google Chrome^\^";v=^\^"155^\^", ^\^"Chromium^\^";v=^\^"155^\^", ^\^"Not^(A:Brand^\^";v=^\^"24^\^"^" ^
+  -H ^"sec-ch-ua-mobile: ?0^" ^
+  -H ^"sec-ch-ua-platform: ^\^"Windows^\^"^" ^
+  -H ^"sec-fetch-dest: empty^" ^
+  -H ^"sec-fetch-mode: cors^" ^
+  -H ^"sec-fetch-site: same-origin^" ^
+  -H ^"timezoneinfo: Default,Atlantic/Reykjavik,^" ^
+  -H ^"user-agent: Mozilla/5.0 ^(Windows NT 10.0; Win64; x64^) AppleWebKit/537.36 ^(KHTML, like Gecko^) Chrome/155.0.0.0 Safari/537.36^" ^
+  -H ^"x-requested-with: XMLHttpRequest^" ^
+  --data-raw ^"^{^\^"extensionconds^\^":^{^\^"maintainstatus^\^":^{^\^"valuelist^\^":^[^\^"0^\^"^]^}^},^\^"querymetype^\^":2^}^" ^
+  --insecure &
+curl --url ^"https://10.100.2.99:28001/api/fm-active/v1/north/statistic/me?visible=1^&maintainstatus=0^" ^
+  -H ^"accept: application/json, text/plain, */*^" ^
+  -H ^"accept-language: en-US,en;q=0.9^" ^
+  -H ^"content-type: application/json^" ^
+  -b ^"X-Rm-Data-Version-umebn=1755323820002_0_0_0_0_0_0_0_0; Z-AUTH-CODE-28001=111709030_814fa75c6e044c81bf59bc02c241d535; x-dexmesh-user-28001=D3F1F853DF05E92A09B7058FFE3C328A2B382CECA1D2743B7943679EDB7770A0; forgerydefense-28001=0a59109f08c1a45298b7cee8fd51565865b28ad3353112584cca2d134c7003d2^" ^
+  -H ^"forgerydefense: 0a59109f08c1a45298b7cee8fd51565865b28ad3353112584cca2d134c7003d2^" ^
+  -H ^"language-option: en-US^" ^
+  -H ^"origin: https://10.100.2.99:28001^" ^
+  -H ^"priority: u=1, i^" ^
+  -H ^"referer: https://10.100.2.99:28001/iui/topo/index.html^" ^
+  -H ^"sec-ch-ua: ^\^"Google Chrome^\^";v=^\^"155^\^", ^\^"Chromium^\^";v=^\^"155^\^", ^\^"Not^(A:Brand^\^";v=^\^"24^\^"^" ^
+  -H ^"sec-ch-ua-mobile: ?0^" ^
+  -H ^"sec-ch-ua-platform: ^\^"Windows^\^"^" ^
+  -H ^"sec-fetch-dest: empty^" ^
+  -H ^"sec-fetch-mode: cors^" ^
+  -H ^"sec-fetch-site: same-origin^" ^
+  -H ^"timezoneinfo: Default,Atlantic/Reykjavik,^" ^
+  -H ^"user-agent: Mozilla/5.0 ^(Windows NT 10.0; Win64; x64^) AppleWebKit/537.36 ^(KHTML, like Gecko^) Chrome/155.0.0.0 Safari/537.36^" ^
+  -H ^"x-requested-with: XMLHttpRequest^" ^
+  --data-raw ^"^[^{^\^"dn^\^":^\^"^\^",^\^"me^\^":^\^"17fcc28d-9f86-4608-a57e-7b0e93ad6cc9^\^"^},^{^\^"dn^\^":^\^"^\^",^\^"me^\^":^\^"93a01390-5c8c-4e54-8aa1-1a48048d7e3f^\^"^},^{^\^"dn^\^":^\^"^\^",^\^"me^\^":^\^"9da7385c-2a03-4455-ba58-484879522ec9^\^"^},^{^\^"dn^\^":^\^"^\^",^\^"me^\^":^\^"d0206735-c593-49ec-8fe6-7cc74ce1aa9a^\^"^}^]^" ^
+  --insecure &
+curl --url ^"https://10.100.2.99:28001/api/fm-active/v1/north/statistic/groups?visible=1^&maintainstatus=0^" ^
+  -H ^"accept: application/json, text/plain, */*^" ^
+  -H ^"accept-language: en-US,en;q=0.9^" ^
+  -H ^"content-type: application/json^" ^
+  -b ^"X-Rm-Data-Version-umebn=1755323820002_0_0_0_0_0_0_0_0; Z-AUTH-CODE-28001=111709030_814fa75c6e044c81bf59bc02c241d535; x-dexmesh-user-28001=D3F1F853DF05E92A09B7058FFE3C328A2B382CECA1D2743B7943679EDB7770A0; forgerydefense-28001=0a59109f08c1a45298b7cee8fd51565865b28ad3353112584cca2d134c7003d2^" ^
+  -H ^"forgerydefense: 0a59109f08c1a45298b7cee8fd51565865b28ad3353112584cca2d134c7003d2^" ^
+  -H ^"language-option: en-US^" ^
+  -H ^"origin: https://10.100.2.99:28001^" ^
+  -H ^"priority: u=1, i^" ^
+  -H ^"referer: https://10.100.2.99:28001/iui/topo/index.html^" ^
+  -H ^"sec-ch-ua: ^\^"Google Chrome^\^";v=^\^"155^\^", ^\^"Chromium^\^";v=^\^"155^\^", ^\^"Not^(A:Brand^\^";v=^\^"24^\^"^" ^
+  -H ^"sec-ch-ua-mobile: ?0^" ^
+  -H ^"sec-ch-ua-platform: ^\^"Windows^\^"^" ^
+  -H ^"sec-fetch-dest: empty^" ^
+  -H ^"sec-fetch-mode: cors^" ^
+  -H ^"sec-fetch-site: same-origin^" ^
+  -H ^"timezoneinfo: Default,Atlantic/Reykjavik,^" ^
+  -H ^"user-agent: Mozilla/5.0 ^(Windows NT 10.0; Win64; x64^) AppleWebKit/537.36 ^(KHTML, like Gecko^) Chrome/155.0.0.0 Safari/537.36^" ^
+  -H ^"x-requested-with: XMLHttpRequest^" ^
+  --data-raw ^"^[^{^\^"group^\^":^\^"550e8400-e29b-41d4-a716-446655440000^\^"^},^{^\^"group^\^":^\^"85be4983-1ca6-416d-8ba6-03e19a848ba6^\^"^},^{^\^"group^\^":^\^"8099f1d8-0da3-4716-a441-78e03f26f2da^\^"^},^{^\^"group^\^":^\^"ec40080a-d8ed-4622-9953-c8116340311d^\^"^},^{^\^"group^\^":^\^"f2eaac95-beb0-4374-a0de-52964a913d5c^\^"^},^{^\^"group^\^":^\^"5971bb47-5805-4f46-b527-413b009b2db0^\^"^},^{^\^"group^\^":^\^"73337bc0-180c-4fdb-b55f-053653775563^\^"^}^]^" ^
+  --insecure &
+curl --url ^"https://10.100.2.99:28001/api/oauth2/v1/username^" ^
+  -H ^"accept: text/plain, */*; q=0.01^" ^
+  -H ^"accept-language: en-US,en;q=0.9^" ^
+  -H ^"content-type: application/json; charset=utf-8^" ^
+  -b ^"X-Rm-Data-Version-umebn=1755323820002_0_0_0_0_0_0_0_0; Z-AUTH-CODE-28001=111709030_814fa75c6e044c81bf59bc02c241d535; x-dexmesh-user-28001=D3F1F853DF05E92A09B7058FFE3C328A2B382CECA1D2743B7943679EDB7770A0; forgerydefense-28001=0a59109f08c1a45298b7cee8fd51565865b28ad3353112584cca2d134c7003d2^" ^
+  -H ^"forgerydefense: 0a59109f08c1a45298b7cee8fd51565865b28ad3353112584cca2d134c7003d2^" ^
+  -H ^"language-option: en-US^" ^
+  -H ^"priority: u=1, i^" ^
+  -H ^"referer: https://10.100.2.99:28001/portal-athena/framework/default.html^" ^
+  -H ^"sec-ch-ua: ^\^"Google Chrome^\^";v=^\^"155^\^", ^\^"Chromium^\^";v=^\^"155^\^", ^\^"Not^(A:Brand^\^";v=^\^"24^\^"^" ^
+  -H ^"sec-ch-ua-mobile: ?0^" ^
+  -H ^"sec-ch-ua-platform: ^\^"Windows^\^"^" ^
+  -H ^"sec-fetch-dest: empty^" ^
+  -H ^"sec-fetch-mode: cors^" ^
+  -H ^"sec-fetch-site: same-origin^" ^
+  -H ^"timezoneinfo: Default,Atlantic/Reykjavik,^" ^
+  -H ^"user-agent: Mozilla/5.0 ^(Windows NT 10.0; Win64; x64^) AppleWebKit/537.36 ^(KHTML, like Gecko^) Chrome/155.0.0.0 Safari/537.36^" ^
+  -H ^"x-requested-with: XMLHttpRequest^" ^
+  --insecure &
+curl --url ^"https://10.100.2.99:28001/api/oauth2/v1/login/status^" ^
+  -H ^"accept: */*^" ^
+  -H ^"accept-language: en-US,en;q=0.9^" ^
+  -H ^"content-type: application/json; charset=utf-8^" ^
+  -b ^"X-Rm-Data-Version-umebn=1755323820002_0_0_0_0_0_0_0_0; Z-AUTH-CODE-28001=111709030_814fa75c6e044c81bf59bc02c241d535; x-dexmesh-user-28001=D3F1F853DF05E92A09B7058FFE3C328A2B382CECA1D2743B7943679EDB7770A0; forgerydefense-28001=0a59109f08c1a45298b7cee8fd51565865b28ad3353112584cca2d134c7003d2^" ^
+  -H ^"forgerydefense: 0a59109f08c1a45298b7cee8fd51565865b28ad3353112584cca2d134c7003d2^" ^
+  -H ^"language-option: en-US^" ^
+  -H ^"priority: u=1, i^" ^
+  -H ^"referer: https://10.100.2.99:28001/portal-athena/framework/default.html^" ^
+  -H ^"sec-ch-ua: ^\^"Google Chrome^\^";v=^\^"155^\^", ^\^"Chromium^\^";v=^\^"155^\^", ^\^"Not^(A:Brand^\^";v=^\^"24^\^"^" ^
+  -H ^"sec-ch-ua-mobile: ?0^" ^
+  -H ^"sec-ch-ua-platform: ^\^"Windows^\^"^" ^
+  -H ^"sec-fetch-dest: empty^" ^
+  -H ^"sec-fetch-mode: cors^" ^
+  -H ^"sec-fetch-site: same-origin^" ^
+  -H ^"timezoneinfo: Default,Atlantic/Reykjavik,^" ^
+  -H ^"user-agent: Mozilla/5.0 ^(Windows NT 10.0; Win64; x64^) AppleWebKit/537.36 ^(KHTML, like Gecko^) Chrome/155.0.0.0 Safari/537.36^" ^
+  -H ^"x-requested-with: XMLHttpRequest^" ^
+  --insecure

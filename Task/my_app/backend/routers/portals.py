@@ -62,9 +62,11 @@ def _purge_client_tickets(now: float) -> None:
 def get_portals(request: Request):
     """列出全部可登录门户。
 
-    RCK_PORTALS_V2_RAIS：门户表已含 RAIS（10.100.20.9:8766，直接鉴权登录）。
+    RCK_PORTALS_V2_RAIS：门户表已含 RAIS（10.100.20.9:8766）。
     RCK_PORTALS_V3_LOCAL：额外返回 `client_is_local`（访问者是否就在 my_app 服务器本机），
-    供前端判断「直连门户（eFlow/RAIS）能否直接用服务器端直接鉴权登录」。
+    供前端判断「直连门户（eFlow/RAIS）能否直接用服务器端登录」。
+    RCK_PORTALS_V4_RAIS_MANUAL：RAIS 上游改版后不再程序化鉴权，`/api/portals` 多出
+    `captcha` 字段；服务器模式改为「预填账号密码 + 人工输验证码」。
     """
     ip = request.client.host if request.client else None
     return {"portals": svc.list_portals(), "client_is_local": svc.client_is_local(ip)}
@@ -88,12 +90,17 @@ def create_client_login_ticket(body: PortalClientTicketRequest):
     ⚠️ 判定依据必须是「该门户是否 direct」（即前端会走扩展种 Cookie 的那条路），
     不能写死 `("eflow", "rais")` —— 后端 PORTALS 新增直连门户时（如 battery_ume），
     写死的白名单会让前端拿到 400「该门户不支持客户端会话登录」。
+    `captcha` 门户（RAIS）也在这里挡下：上游登录要人工图形验证码，服务端根本没有
+    会话可交给扩展写，让扩展白跑一趟不如直接报错。
     """
     spec = svc.PORTALS.get(body.system)
     if spec is None:
         raise HTTPException(status_code=400, detail=f"未知门户: {body.system}")
     if not spec.get("direct"):
         raise HTTPException(status_code=400, detail="该门户不支持客户端会话登录")
+    if spec.get("captcha"):
+        raise HTTPException(status_code=400,
+                            detail="该门户登录需人工输入图形验证码，不支持客户端会话登录")
     now = time.monotonic()
     ticket = secrets.token_urlsafe(32)
     with _CLIENT_TICKETS_LOCK:
@@ -138,10 +145,6 @@ def _spawn(system: str, browser: str | None) -> str:
             # 仅对 eflow 生效，其余门户仍走原 launch_and_login（填表）路径，零改动。
             if system == "eflow":
                 svc.launch_and_login_eflow_direct(system, browser, job_id=job_id)
-            elif system == "rais":
-                # RAIS 同为「直接鉴权」：AES-256-CBC 加密密码 POST verify4web.serv 换 SSO token，
-                # 再 CDP 种 cookie（RAIS_PORTALSSOCookie 等）打开已登录主页。
-                svc.launch_and_login_rais_direct(system, browser, job_id=job_id)
             else:
                 svc.launch_and_login(system, browser, job_id=job_id)
         except Exception as e:  # pragma: no cover

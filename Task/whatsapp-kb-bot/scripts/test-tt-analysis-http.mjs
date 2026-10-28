@@ -14,11 +14,15 @@
  *     把经 stdin 收到的 live-row 信封回显出来，供断言检查。
  *
  * 覆盖：
- *   ① HTTP 命中 → 走信封注入，且**不碰本地库**（桩记录 python 调用参数）。
- *   ② HTTP 返回 found:false → 降级到本地库。
- *   ③ HTTP 连不上 → 降级到本地库。
- *   ④ ttAnalysisHttp=false → 直接本地库，**不发 HTTP**。
+ *   ① PG 命中 → 走信封注入，且**不碰本地副本**。
+ *   ② PG found:false + 实时不可用 → 落到本地副本（带「可能滞后」语义）。
+ *   ③ PG 连不上 + 实时不可用 → 落到本地副本。
+ *   ④ ttAnalysisHttp=false → 直接本地副本，**不发 HTTP、也不先绕 eFlow**。
  *   ⑤ 信封形状正确（{"row":...,"wo":...}）且 WO 行随之注入。
+ *   ⑥ **PG found:false → eFlow 实时命中**，且**不读本地副本**（2026-10-28 新顺序）。
+ *   ⑦ **PG 连不上 → eFlow 实时命中**，同样不读副本。
+ *   ⑧ PG found:false + eFlow 明确「没这单」→ 直接给结论，不读副本（省一次全表扫描）。
+ *   ⑨ PG 连不上 + 实时不可用 → 落到副本，且**必须打 [stale] 标记**。
  */
 import { createServer } from 'node:http';
 import { mkdtempSync, writeFileSync, copyFileSync, rmSync } from 'node:fs';
@@ -90,7 +94,7 @@ function startStub(mode) {
  *
  * argv 形如 [script, ttNo, --lang, zh, --live-row, -]。
  */
-function makePyStub(dir, { foundLocal }) {
+function makePyStub(dir, { foundLocal, live = 'off' }) {
   const stubJs = join(dir, 'pystub.mjs');
   writeFileSync(
     stubJs,
@@ -98,7 +102,25 @@ function makePyStub(dir, { foundLocal }) {
 import { readFileSync } from 'node:fs';
 const argv = process.argv.slice(1);
 const script = String(argv[0] || '').split('\\\\').join('/');
-if (!script.endsWith('tt-analyze.py')) process.exit(3);  // 本套件只桩 tt-analyze.py
+
+// ② eFlow 实时桥接（2026-10-28 起紧跟 PG）。
+//   'hit'   → 吐一行 JSON（裸行，没有 row 信封）
+//   'miss'  → 按脚本约定 exit 1（eFlow 也没有这一单）
+//   'off'   → 模拟通道不可用（缺依赖 / 解释器探测失败）
+if (script.endsWith('eflow-live-tt.py')) {
+  if (argv.includes('--which')) {
+    process.stdout.write('C:/fake/python.exe\\n');
+    process.exit(0);
+  }
+  if (${JSON.stringify(live)} === 'hit') {
+    process.stdout.write(JSON.stringify({ tt_no: 'TT202609290052', site_name: 'Live Site', status: 'WaitFOProcess' }));
+    process.exit(0);
+  }
+  if (${JSON.stringify(live)} === 'miss') process.exit(1);
+  process.exit(3);
+}
+
+if (!script.endsWith('tt-analyze.py')) process.exit(3);  // 本套件只桩这两个脚本
 
 if (argv.includes('--live-row')) {
   let data = '';
@@ -106,7 +128,9 @@ if (argv.includes('--live-row')) {
   process.stdout.write('LIVE_INJECTED|' + data.trim() + '\\n');
   process.exit(0);
 }
-// 无 live → 模拟本地库结果（决定降级用例的走向）
+// 无 live-row → 走的是**本地 SQLite 副本**。打 LOCAL_READ 标记，
+// 供断言「该走实时的时候没有去读那份 12 小时前的副本」。
+process.stdout.write('LOCAL_READ|');
 process.stdout.write(${foundLocal ? "'LOCAL_FOUND\\n'" : "'Ticket not found in the ticket database.\\n'"});
 process.exit(${foundLocal ? '0' : '1'});
 `,
@@ -160,18 +184,20 @@ console.log('='.repeat(50));
   }
 }
 
-/* ② HTTP found:false → 降级本地库 */
+/* ② PG found:false + 实时不可用 → 落到本地副本 */
 {
-  console.log('\n[2] HTTP found:false → 降级本地库');
+  console.log('\n[2] PG found:false + 实时不可用 → 落到本地副本');
   const stub = await startStub('miss');
   const dir = mkdtempSync(join(tmpdir(), 'tthttp-'));
-  const { cmd, stubJs } = makePyStub(dir, { foundLocal: false });
+  const { cmd, stubJs } = makePyStub(dir, { foundLocal: false, live: 'off' });
   try {
     const tt = await loadTt(cmd, stubJs, stub.url, 'on');
     const r = await tt.analyzeTt(TT_NO, { lang: 'en' });
     check(!/LIVE_INJECTED/.test(r.text), '没有走 live 注入（本地路径）', r.text);
+    check(/LOCAL_READ/.test(r.text), '确实读了本地副本', r.text);
     check(/not found in the ticket database/i.test(r.text) || r.ok === false,
-      '给出本地库「查无此单」结论', r.text);
+      '给出本地副本「查无此单」结论', r.text);
+    check(/eFlow/.test(r.text), '同时说明「实时没查成」（不假装实时确认过）', r.text);
   } finally {
     delete process.env.NODE_OPTIONS;
     rmSync(dir, { recursive: true, force: true });
@@ -179,14 +205,14 @@ console.log('='.repeat(50));
   }
 }
 
-/* ③ HTTP 连不上 → 降级本地库 */
+/* ③ PG 连不上 + 实时不可用 → 落到本地副本 */
 {
-  console.log('\n[3] HTTP 连不上 → 降级本地库');
+  console.log('\n[3] PG 连不上 + 实时不可用 → 落到本地副本');
   const stub = await startStub('hit');
   const deadUrl = stub.url;
   await stub.close(); // 端口关闭，模拟 my_app 没起
   const dir = mkdtempSync(join(tmpdir(), 'tthttp-'));
-  const { cmd, stubJs } = makePyStub(dir, { foundLocal: false });
+  const { cmd, stubJs } = makePyStub(dir, { foundLocal: false, live: 'off' });
   try {
     const tt = await loadTt(cmd, stubJs, deadUrl, 'on');
     const r = await tt.analyzeTt(TT_NO, { lang: 'en' });
@@ -208,10 +234,123 @@ console.log('='.repeat(50));
     const r = await tt.analyzeTt(TT_NO, { lang: 'en' });
     check(stub.requests.length === 0, '一个 HTTP 请求都没发', JSON.stringify(stub.requests));
     check(!/LIVE_INJECTED/.test(r.text), '没走 live 注入');
+    check(/LOCAL_READ/.test(r.text), '直接读本地副本（老顺序）', r.text);
+    check(!/\[stale\]/.test(r.text), '副本作为主路径时**不**打 [stale] 标记', r.text);
   } finally {
     delete process.env.NODE_OPTIONS;
     rmSync(dir, { recursive: true, force: true });
     await stub.close();
+  }
+}
+
+/* ⑤ PG found:false → eFlow 实时命中（副本不再插队） */
+{
+  console.log('\n[5] PG found:false → eFlow 实时命中，且不读本地副本');
+  const stub = await startStub('miss');
+  const dir = mkdtempSync(join(tmpdir(), 'tthttp-'));
+  // ⚠️ 副本里**有**这一单：若顺序回退成「副本优先」，这里会返回 LOCAL_FOUND，
+  // 断言就会挂 —— 这是本条用例的关键设计，不是随手写的 true。
+  const { cmd, stubJs } = makePyStub(dir, { foundLocal: true, live: 'hit' });
+  try {
+    const tt = await loadTt(cmd, stubJs, stub.url, 'on');
+    const liveMsgs = [];
+    const r = await tt.analyzeTt(TT_NO, { lang: 'en', onLive: (t) => liveMsgs.push(t) });
+    check(r.ok === true, '返回 ok=true（实时拿到了数据）', r.text);
+    check(/LIVE_INJECTED/.test(r.text), '走的是实时行注入', r.text);
+    check(!/LOCAL_READ/.test(r.text), '**没有**读本地副本（旧数据不该插队）', r.text);
+    const envRaw = (r.text.match(/LIVE_INJECTED\|(\{.*\})/) || [])[1] || '';
+    let row = {};
+    try { row = JSON.parse(envRaw); } catch { /* 下面的断言会给出原文 */ }
+    check(row.tt_no === TT_NO && !row.row,
+      '注入的是 eFlow 裸行（不是 PG 的 {"row":..} 信封）', envRaw.slice(0, 140));
+    check(liveMsgs.length === 1 && /eFlow/.test(liveMsgs[0] || ''),
+      '先垫了「去 eFlow 实时查」那句', JSON.stringify(liveMsgs));
+  } finally {
+    delete process.env.NODE_OPTIONS;
+    rmSync(dir, { recursive: true, force: true });
+    await stub.close();
+  }
+}
+
+/* ⑥ PG 连不上 → eFlow 实时命中 */
+{
+  console.log('\n[6] PG 连不上 → eFlow 实时命中，不读本地副本');
+  const stub = await startStub('hit');
+  const deadUrl = stub.url;
+  await stub.close();
+  const dir = mkdtempSync(join(tmpdir(), 'tthttp-'));
+  const { cmd, stubJs } = makePyStub(dir, { foundLocal: true, live: 'hit' });
+  try {
+    const tt = await loadTt(cmd, stubJs, deadUrl, 'on');
+    const r = await tt.analyzeTt(TT_NO, { lang: 'en', onLive: () => {} });
+    check(r.ok === true, '返回 ok=true', r.text);
+    check(/LIVE_INJECTED/.test(r.text), '走的是实时行注入', r.text);
+    check(!/LOCAL_READ/.test(r.text), '**没有**读本地副本', r.text);
+  } finally {
+    delete process.env.NODE_OPTIONS;
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+/* ⑦ PG found:false + eFlow 明确「没这单」→ 直接给结论 */
+{
+  console.log('\n[7] PG found:false + eFlow 明确「没这单」→ 直接给结论');
+  const stub = await startStub('miss');
+  const dir = mkdtempSync(join(tmpdir(), 'tthttp-'));
+  const { cmd, stubJs } = makePyStub(dir, { foundLocal: true, live: 'miss' });
+  try {
+    const tt = await loadTt(cmd, stubJs, stub.url, 'on');
+    const r = await tt.analyzeTt(TT_NO, { lang: 'en', onLive: () => {} });
+    check(r.ok === false, '返回 ok=false');
+    check(/Neither the live database nor a live eFlow lookup/.test(r.text),
+      '结论说的是「实时库 + eFlow 都没有」（不是「本地库」）', r.text);
+    check(!/LOCAL_READ/.test(r.text),
+      '**不读副本**：副本比 eFlow 更旧，再扫一遍不可能有新结果', r.text);
+  } finally {
+    delete process.env.NODE_OPTIONS;
+    rmSync(dir, { recursive: true, force: true });
+    await stub.close();
+  }
+}
+
+/* ⑧ PG 连不上 + 实时不可用 → 落到副本，必须标 [stale] */
+{
+  console.log('\n[8] PG 连不上 + 实时不可用 → 落到副本，标 [stale]');
+  const stub = await startStub('hit');
+  const deadUrl = stub.url;
+  await stub.close();
+  const dir = mkdtempSync(join(tmpdir(), 'tthttp-'));
+  const { cmd, stubJs } = makePyStub(dir, { foundLocal: true, live: 'off' });
+  try {
+    const tt = await loadTt(cmd, stubJs, deadUrl, 'on');
+    const r = await tt.analyzeTt(TT_NO, { lang: 'en', onLive: () => {} });
+    check(r.ok === true, '返回 ok=true（副本里有这一单）', r.text);
+    check(/LOCAL_READ/.test(r.text), '落到本地副本', r.text);
+    check(/\[stale\]/.test(r.text), '**打了 [stale] 标记**（最坏落后 12 小时）', r.text);
+    check(!/[\u4e00-\u9fff]/.test(r.text), '英文回复零中文残留', r.text);
+  } finally {
+    delete process.env.NODE_OPTIONS;
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+/* ⑨ 中文侧：同样的降级要出中文标记 */
+{
+  console.log('\n[9] 中文 + 落副本 → 中文 [stale] 文案');
+  const stub = await startStub('hit');
+  const deadUrl = stub.url;
+  await stub.close();
+  const dir = mkdtempSync(join(tmpdir(), 'tthttp-'));
+  const { cmd, stubJs } = makePyStub(dir, { foundLocal: true, live: 'off' });
+  try {
+    const tt = await loadTt(cmd, stubJs, deadUrl, 'on');
+    const r = await tt.analyzeTt(TT_NO, { lang: 'zh', onLive: () => {} });
+    check(r.ok === true, '返回 ok=true');
+    check(/可能滞后/.test(r.text), '中文标记里说清「可能滞后」', r.text);
+    check(!/\[stale\]/.test(r.text), '中文回复里不混英文标记', r.text);
+  } finally {
+    delete process.env.NODE_OPTIONS;
+    rmSync(dir, { recursive: true, force: true });
   }
 }
 

@@ -1,6 +1,6 @@
 # my_app User Help & Guide
 
-> User-facing platform features & operations guide. Generated from the same source as the in-app Help page (frontend/src/helpMarkdown.ts), compiled from docs/manual/ and backend/task_registry.py. Generated on 2026-10-26.
+> User-facing platform features & operations guide. Generated from the same source as the in-app Help page (frontend/src/helpMarkdown.ts), compiled from docs/manual/ and backend/task_registry.py. Generated on 2026-10-27.
 
 > In-app entry: the "Help" sidebar item, or `http://<host>/myapp/?page=help` directly.
 
@@ -10,7 +10,7 @@
 
 - [1. Platform Overview](#1-platform-overview)
 - [2. General Usage](#2-general-usage)
-- [3. Task Manager Deep Dive (77 tasks)](#3-task-manager-deep-dive)
+- [3. Task Manager Deep Dive (78 tasks)](#3-task-manager-deep-dive)
 - [4. Pages Guide](#4-pages-guide)
 - [5. Ops & Troubleshooting](#5-ops-troubleshooting)
 - [6. FAQ](#6-faq)
@@ -80,7 +80,7 @@ Built for the NOC scenario "boards every day, reports must go out": 41+ schedule
 
 > ⚠️ **New tasks MUST also be registered in `GROUP_TASK_MAP` in worker_watchdog.py** — declaring them only in TASK_SPECS leaves them pending forever. This accident happened four times (finebi_report_sync / whatsapp_send_ext / sp_email_details / the olib_soc and vmax_multi_data_sync tasks found on 2026-09-18).
 
-### 3.3 Full task catalog (77 tasks)
+### 3.3 Full task catalog (78 tasks)
 
 | Task | task_id | Default cron | Group | Workflow script |
 | --- | --- | --- | --- | --- |
@@ -94,6 +94,7 @@ Built for the NOC scenario "boards every day, reports must go out": 41+ schedule
 | eFlow P1 Alarm WhatsApp Push | `tt_alarm_whatsapp_alert` | `2-59/5 * * * *` | m | `services/tt_alarm_whatsapp_service.py → run_tt_alarm_whatsapp_alert` |
 | MS SLA Full Sync | `ms_sla_full` | `0 5 * * *` | n | `services/ms_sla_service.py → run_full_sync` |
 | DC Server Alarm WhatsApp Push | `ume_alarm_whatsapp_alert` | `* * * * *` | m | `services/ume_alarm_whatsapp_service.py → run_ume_alarm_whatsapp` |
+| Fiber Break Alarm Auto Assign | `eflow_fiber_assign` | `3-59/5 * * * *` | m | `services/eflow_fiber/fiber_assign_service.py → run_fiber_assign` |
 | eFlow Realtime Alarm Sync | `eflow_active_alarm` | `*/1 * * * *` | x | `services/eflow_api_client.py → fetch_and_save_active_alarm` |
 | eFlow History Alarm Sync | `eflow_history_alarm` | `0 */3 * * *` | n | `services/eflow_api_client.py → fetch_and_save_history_alarm` |
 | eFlow TT Rules Collect & Match Check | `eflow_tt_rules_check` | `20 4 * * *` | n | `services/eflow_rules/eflow_tt_rules_check_task.py → run_eflow_tt_rules_check` |
@@ -349,6 +350,38 @@ Workflow & maintenance notes per task:
 
 - The first round only registers and never sends, so the existing backlog is not dumped into the group
 - Independent of the eFlow tt_alarm_whatsapp_alert channel (different upstream and alarm-code scheme)
+
+#### Fiber Break Alarm Auto Assign（`eflow_fiber_assign`）
+
+- Default cron: `3-59/5 * * * *`　|　worker group: **m**
+- Workflow script: `services/eflow_fiber/fiber_assign_service.py → run_fiber_assign`
+
+**What it does**: Queries eFlow active alarms; when the alarm code matches the whitelist (default 4758 Fiber Break, configurable), it has been alive for at least 15 minutes (assign delay, configurable), is within the trigger window AND the same site has no 99933 alarm in the same time window, resolves the ME name to site ID + site name and assigns a TT to the configured user group; after assigning, re-queries ttid to confirm the TT really exists (with retries) before notifying the WhatsApp group. Dry-run by default
+
+**Workflow & data flow**:
+
+1. Query eFlow active (uncleared) alarms
+1. Filter by alarm code + alive for at least 15 minutes (assign delay) + trigger window + no 99933 on the same site (if the site names do not line up, treat it as "no correlation" and keep going)
+1. Skip alarms that already carry an upstream TT (ttid) or were already assigned
+1. Resolve the ME name to a site name then look up the numeric site ID in cmdb (exact -> normalized -> equal-length vowel-swap)
+1. Call the assign API to create a TT -> re-query ttid to confirm -> notify WhatsApp
+
+**Maintenance**:
+
+- Assign delay of 15 minutes: the alarm must have been alive for at least 15 minutes before it is assigned and notified to WhatsApp (business rule: "assign only after the alarm has lasted more than 15 minutes") — it is NOT dispatched the moment it raises; the delay lets short transient breaks clear by themselves. Set it to 0 to restore immediate dispatch
+- Dry-run (dry_run) by default: match + record only, no real assign; turn it off on the Task Config page once verified
+- When the 99933 correlation cannot be determined (fiber only has an ME-derived site name that differs from cmdb, e.g. luogan/luogon) the alarm is treated as "no correlation" and still assigned, with the count logged under correlation_undetermined — never let a name mismatch silently block assignment indefinitely
+- When site resolution fails (site absent from cmdb, e.g. Tokadeh) the TT cannot be created automatically: record N and post a "manual handling required in eFlow" notice to the group, once per alarm (suppressed via send_status) so nothing is silently dropped
+- Fiber assign must carry the numeric site ID + site name; passing only the ME name makes the API return success without creating a TT (measured lesson)
+- Fiber assign is intermittent, so it retries and only treats success as confirmed when ttid is found (never trusts status:true)
+- Skip alarms whose upstream ttid is already set: eFlow's own assign rule may have created the TT first, otherwise duplicate TTs are created (measured: two Zardun alarms)
+- The 99933 correlation compares site identity as a set of keys (numeric site id + site name): the site/mename shapes differ between 4758 and 99933, a single-key compare silently misses the match
+- Site-name fuzzy matching only accepts "equal length + vowel swaps only" (e.g. luogan -> luogon): scanning all 830 sites in the production cmdb showed generic 0.9 similarity merges distinct sites such as Garplay/Gbarplay, Butuo/Buutuo and Sanniquillie 5/1. Phase sites (X vs X2) and ambiguous candidates are also rejected. Hits are reported in warnings and flagged in the notification for manual review
+- A non-zero eFlow-side ttstatus no longer blocks assignment (2026-10-27 requirement: never let an unbound ME stop the assign): it still tries, but with a minimal budget (1 attempt x 2 re-queries); if no TT appears it records N and posts a single "manual handling required in eFlow" notice to the group, and picks the alarm up automatically once the ME-to-site binding is fixed
+- One fiber cut means one TT (2026-10-27): a single cable break raises alarms on every site along the link (measured: 5 alarms within 9 seconds at 14:21, producing 5 duplicate TTs). Alarms raised within the merge window (group_window_minutes, default 10 minutes) are merged into ONE TT, created on the earliest alarm of the group (the most likely root cause); the others share the same TT number and the notification lists every site covered. Set it to 0 to disable merging (rollback switch). The window is used because no existing data source can prove "same fiber": probeid is one shared UUID, impact_site_list/link_path are empty, flm_database.fdn is shared by 96 sites (far too coarse), R.I.A and Tower Hill are not related in victim_topology (independent gateways), and eFlow relatedAlarms returns 0 rows
+- State recorded in eflow_fiber_assign_log: Y = assigned / upstream TT already existed, D = dry-run (reprocessed once dry_run is off), N = failed and retried next round
+- The TT title is auto-generated by eFlow as `<site>.[<site name>]<alarm>`; the API does not accept a custom title
+- Notifications are English-only (2026-10-27 requirement): field labels, warning lines and failure reasons are all English; Chinese stays in the status table last_error, the result warnings and the logs, because the group is an English-speaking front line
 
 #### eFlow Realtime Alarm Sync（`eflow_active_alarm`）
 
@@ -2112,11 +2145,16 @@ VMAX user info query: enter a subscriber number and time window to look up subsc
 - Click KPI in a camped-cell row for that cell's indicator details (ppc codes mapped to KPI names; unmapped codes shown raw)
 - The Root Cause card lists complaint causes in the window (confidence descending); click Details for degradation, suggested solution and per-period judgments; this query may time out on large windows (7-day scale) without affecting other cards
 - Queries go through a VMAX portal session (serialized reuse); avoid rapid repeated clicks to keep the upstream session free
-- Results are read-only passthrough, nothing is persisted; refreshing the page clears them
-- The "XDR Records" tab (merged in on 2026-10-26) reuses the number above to query per-record signaling detail from the Talon XDR platform, drillable down to a single session/procedure
-- XDR query types: 5G Session (1100), Signaling Plane (1300), User Plane Services (1301); window defaults to the last 24 hours (max 72); columns come from the upstream header (59~88, scrollable)
+- Results are read-only passthrough and nothing is persisted, but the conditions of every executed query are written into the URL — refreshing, using back/forward, or sharing the link re-runs the same query automatically
+- The link carries the number and time window (msisdn / vqStart and friends); check that the recipient is allowed to see that number before forwarding
+- Switching between the three views (Overview / XDR / XDR Records) no longer discards results, so you can compare without re-querying
+- The "Merged XDR" tab (merged in on 2026-10-26) reuses the number above to query per-record signaling detail from the Talon XDR platform, drillable down to a single session/procedure
+- XDR query types: 5G Session (1100), Signaling Plane (1300), User Plane Services (1301) and RAN radio side (32); window defaults to the last 2 hours; columns come from the upstream header (46~88, scrollable)
+- Look-back differs by type: 72 hours for the 5G types, only 24 hours for RAN. Periods beyond retention are greyed out in the picker — upstream simply does not keep older records; it is not a failure
 - RAN radio side (32) is now supported and includes over-the-air measurements such as RSRP/SINR — use it to inspect radio quality; 33/34 are not wired yet
 - "Export Excel" exports the entire query result, not just the current page (fetched in batches, capped at 5,000 records); when the cap is hit the subtitle states it was truncated — narrow the window and export in batches
+- The "XDR Records" tab (new on 2026-10-27) queries a **single XDR table** (UEMR_XDR / UU_XDR / X2_XDR for type 32, similar for 33/34); columns come from that table's header. UEMR_XDR carries over-the-air measurements such as RSRP/SINR — use it for radio-quality troubleshooting
+- Click any record row for every field and for "Archive", which persists the record locally (upstream keeps only 24–72 hours). The "Saved records" modal also shows the query history (numbers masked, isolated per signed-in user, for compliance audit)
 
 ### 4.4 System
 

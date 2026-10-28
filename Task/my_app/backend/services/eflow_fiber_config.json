@@ -1,0 +1,12 @@
+{
+  "alarm_codes": "4758",
+  "correlation_codes": "99933",
+  "correlation_window_minutes": 60,
+  "window_minutes": 180,
+  "min_age_minutes": 15,
+  "assign_group": "ZTE_NOC_FO",
+  "dry_run": false,
+  "site_fuzzy_enabled": true,
+  "site_fuzzy_threshold": 0.9,
+  "groups": "lbr_assistant"
+}

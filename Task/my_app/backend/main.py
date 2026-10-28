@@ -98,6 +98,7 @@ from backend.routers import (
     ume_in_screen,
     email_recipients,
     realtime_proxy,
+    portal_qa,
     settings,
     cm_flows,
     task_configs,
@@ -117,6 +118,7 @@ from backend.routers import (
     vmax_cxo_daily,
     vmax_cca_query,
     vmax_xdr_query,
+    vmax_xdr_records,
     data_agent,
     olib_soc_dashboard,
     feedback,
@@ -247,6 +249,8 @@ app.include_router(ume_in_kpi.router)
 app.include_router(ume_in_screen.router)
 # 实时代理控制（前端「启用实时刷新」开关按需拉起/关闭本地代理 8787/8790）
 app.include_router(realtime_proxy.router)
+# 门户问答助手（v3 /olbrportal 右下角挂件 → 本机 whatsapp-kb-bot 的 9269 问答服务）
+app.include_router(portal_qa.router)
 # 全局设置（远程主机等，供「系统设置」页面读写）
 app.include_router(settings.router)
 # RAN CM 流程/网元配置（Settings「任务配置」页签 -> 网元配置）
@@ -291,6 +295,9 @@ app.include_router(vmax_cca_query.router)
 # VMAX 信令详单（Talon XDR 合并表）：按号码查 5G 会话/信令面/用户面 XDR，
 # 服务 vmax_xdr_query 页；复用 vmax_cca 的门户会话，见 services/vmax_cca/vmax_xdr_client.py
 app.include_router(vmax_xdr_query.router)
+# XDR Records（分表信令详单 + 取证存档）：按 XDR 表（UEMR_XDR/UU_XDR/X2_XDR…）查记录，
+# 并把关键记录存档到本地库（按登录用户隔离，见 routers/vmax_xdr_records.py）
+app.include_router(vmax_xdr_records.router)
 # 问题登记（用户反馈）：任何内网用户可提交问题，管理侧可筛选/处理/删除
 app.include_router(feedback.router)
 # 界面配置（侧栏菜单结构）：全局共享一份，仅本机可改（见 routers/ui_config.py）

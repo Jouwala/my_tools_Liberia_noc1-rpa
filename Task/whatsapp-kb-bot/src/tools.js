@@ -36,6 +36,7 @@ import { answer as ragAnswer, withWebHint } from './rag.js';
 import { extractTtNos, analyzeTickets, lookupLevelByRule } from './tt.js';
 import { querySiteAlarms } from './sitealarms.js';
 import { parseVmaxCcaIntent, runVmaxCca } from './vmaxcca.js';
+import { parseWarehouseIntent, runWarehouseQuery, isWarehouseKnowledgeQuestion } from './warehousetool.js';
 import {
   queryTickets,
   renderStats,
@@ -142,6 +143,17 @@ const TOOL_SPEC = [
     args: '{"code":"9990","severity":"P1"}',
   },
   {
+    name: 'query_warehouse',
+    desc:
+      '查**库房（SP 备件库房）**的实时数据。用于「库房现在什么情况」「各仓库存多少」' +
+      '「某物料还有多少库存」「这张入库单/出库单什么状态」这类**事实查询**。' +
+      '参数：kind=overview（总览）/ material（按物料查库存，给 keyword）/ ' +
+      'ticket（按单号查单据，给 ticket_no，单号形如 SPIB202610220006 或 SPOB202609150003）。' +
+      '**不要**用 search_knowledge 答这类问题 —— 库存和单据状态每小时都在变，' +
+      '语料里没有也不该有这些数字。',
+    args: '{"kind":"overview","keyword":"物料编码或名称 或 空","ticket_no":"SPIB... 或 SPOB... 或 空"}',
+  },
+  {
     name: 'search_knowledge',
     desc:
       '检索知识库文档。用于「流程怎么走」「为什么没有级别」这类**叙述性静态知识**问题，' +
@@ -172,8 +184,13 @@ const ROUTER_PROMPT =
   '把站点名填进 site。**这类问题绝不要用 query_tickets** —— query_tickets 是工单数量，' +
   '按站名匹配工单会得到 0，而 0 张工单**不等于**没有告警，那会答错。\n' +
   '· 出现 TEL / MSISDN + **手机号码**（利比里亚号：231 开头 12 位，或 773777115 这类本地号）' +
-  '→ 用 query_vmax_cca，号码填 msisdn（本地号原样填，执行层自动补 231），截止时间填 time。' +
-  '手机号**不是**告警码，不要用 lookup_alarm_code。\n' +
+    '→ 用 query_vmax_cca，号码填 msisdn（本地号原样填，执行层自动补 231），截止时间填 time。' +
+    '手机号**不是**告警码，不要用 lookup_alarm_code。\n' +
+    '· 提到**库房/仓库/库存/存货/备件/领料/入库/出库/调拨**（或 warehouse / inventory / stock / spare parts）' +
+    '→ 用 query_warehouse。带单号（SPIB/SPOB 开头）填 ticket_no；' +
+    '点名物料时填 keyword 且 kind=material；其余（只说「库房怎么样」）kind=overview。\n' +
+    '· 库房问题**一律不要**用 search_knowledge —— 库存数量与单据状态是实时数据，' +
+    '语料里没有，检索只会给出「资料里没有实际库房数据」。\n' +
   '· 其余「流程 / 为什么 / 怎么走 / 定义」这类**叙述性静态知识** → 用 search_knowledge。\n' +
   '· 注意区分：「P1 是什么」= lookup_level_rule；「今天有几个 P1」= query_tickets。\n' +
   '· 拿不准且**没有**告警码 → 用 search_knowledge。\n' +
@@ -599,6 +616,19 @@ export function parseByRule(question, now = new Date()) {
   const cca = parseVmaxCcaIntent(q, now);
   if (cca) return { tool: 'query_vmax_cca', args: { msisdn: cca.msisdn, time: cca.endText } };
 
+  // ①.18 库房（SP 备件库房）意图。
+  //
+  // 必须排在**查表**与**统计**之前，两条都会被抢：
+  //   · 「物料 033030100282 还有多少库存」里有「多少」→ COUNT_INTENT 命中，
+  //     会被统计通道接走，去查工单表 —— 工单表里没有物料，答「0 单」，
+  //     而用户问的是库存数量，**答错而不报错**；
+  //   · 「SPIB202610220006 这个入库单什么状态」里的长数字会被
+  //     extractAlarmCode 当成告警码，拐去 lookup_alarm_code 只回「码表里没有」。
+  //
+  // 库房单号（SPIB/SPOB）不是告警码，这一点与 VMAX 手机号同理。
+  const wh = parseWarehouseIntent(q);
+  if (wh) return wh;
+
   // ①.2 站点告警意图：出现**告警状态词**时，优先走 query_site_alarms。
   // 必须在统计判断**和查表判断**之前 —— 否则
   // 「Palm Bay 有没有告警」会被 COUNT_INTENT 的「有没有」拐去统计，
@@ -837,7 +867,9 @@ export async function runTool(call, index, lang, opts = {}) {
       text: r.text,
       answered: r.ok,
       channel: 'tt',
-      stats: { totalMs: Date.now() - t0, okCount: r.okCount, total: r.total },
+      // ttTiming 是逐跳耗时（取 PG 行 / 跑渲染脚本 / eFlow 实时），
+      // 只在日志里用，不进回复正文。见 tt.js 的 analyzeTt。
+      stats: { totalMs: Date.now() - t0, okCount: r.okCount, total: r.total, ttTiming: r.timing },
     };
   }
 
@@ -865,8 +897,36 @@ export async function runTool(call, index, lang, opts = {}) {
       text: r.text,
       answered: r.answered,
       channel: 'vmaxcca',
+      // 透传本通道的回复长度上限（CCA 内容比全局 2000 长，见 vmaxcca.js 注释）
+      maxReplyChars: r.maxReplyChars,
       stats: { ...(r.stats || {}), totalMs: Date.now() - t0 },
       routeArgs: r.routeArgs,
+    };
+  }
+
+  if (call.tool === 'query_warehouse') {
+    // kind 决定查什么：总览 / 按物料 / 按单号。
+    // 参数优先用规则层解析出的（rule 层 > 模型层），与统计通道同一纪律。
+    const args = {
+      ...(call.args || {}),
+      ...(opts.warehouseArgs || {}),
+    };
+    // 模型可能漏填 kind（只回 {"tool":"query_warehouse","args":{}}），
+    // 也可能把单号当物料名填进 keyword —— 这里按提问重新校一遍。
+    // 返回 null = 这是道**口径问题**，该走知识库而不是实时数据。
+    const corrected = correctWarehouseArgs(args, opts.question || '');
+    if (!corrected) {
+      const res = await ragAnswer(opts.question || '', index, { lang, onDebug: opts.onDebug });
+      return { ...res, channel: 'kb' };
+    }
+    opts.onDebug?.({ stage: 'tool-query_warehouse', args: corrected });
+    const r = await runWarehouseQuery(corrected, lang);
+    return {
+      text: r.text,
+      answered: r.answered,
+      channel: 'warehouse',
+      stats: { ...(r.stats || {}), totalMs: Date.now() - t0 },
+      routeArgs: corrected,
     };
   }
 
@@ -905,13 +965,18 @@ export async function runTool(call, index, lang, opts = {}) {
   return { ...res, channel: 'kb' };
 }
 
+/** 「查不到时去网页版问」的尾巴：网页挂件自己要传 webHint:false 关掉（见 http-server.js）。 */
+function webHintFor(opts) {
+  return opts.webHint === false ? (text) => text : (text) => withWebHint(text, opts.lang || 'zh', CONFIG);
+}
+
 /** 渲染失败不让整条回复挂掉。 */
-function lookupFail(lang, kind, code) {
+function lookupFail(lang, kind, code, opts = {}) {
   const text = renderNotFound(kind, code, lang);
   return {
     answered: false,
     channel: 'lookup',
-    text: withWebHint(text, lang, CONFIG),
+    text: webHintFor({ ...opts, lang })(text),
     stats: { totalMs: 0 },
   };
 }
@@ -972,9 +1037,9 @@ export async function runLookup(call, lang, opts = {}) {
   }
 
   if (call.tool === 'lookup_alarm_code') {
-    if (!code) return lookupFail(lang, 'alarm', code);
+    if (!code) return lookupFail(lang, 'alarm', code, opts);
     const data = findAlarmCode(lookups, code);
-    if (!data) return lookupFail(lang, 'alarm', code);
+    if (!data) return lookupFail(lang, 'alarm', code, opts);
     return {
       answered: true,
       channel: 'lookup',
@@ -985,9 +1050,9 @@ export async function runLookup(call, lang, opts = {}) {
   }
 
   if (call.tool === 'lookup_compress') {
-    if (!code) return lookupFail(lang, 'compress', code);
+    if (!code) return lookupFail(lang, 'compress', code, opts);
     const rows = findCompress(lookups, code);
-    if (!rows.length) return lookupFail(lang, 'compress', code);
+    if (!rows.length) return lookupFail(lang, 'compress', code, opts);
     return {
       answered: true,
       channel: 'lookup',
@@ -1040,7 +1105,7 @@ export async function runLookup(call, lang, opts = {}) {
       return {
         answered: false,
         channel: 'lookup',
-        text: withWebHint(text, lang, CONFIG),
+        text: webHintFor({ ...opts, lang })(text),
         stats: { totalMs: Date.now() - t0 },
         routeArgs: { code, severity: sev },
       };
@@ -1069,6 +1134,54 @@ function renderStatsSafe(data, lang, degraded, wantList, dateGuessed) {
 }
 
 /* --------------------------------- 入口 --------------------------------- */
+
+/**
+ * 校正模型吐出的库房参数。
+ *
+ * 模型在这件事上会犯三种错，每一种都会让答案**完全跑偏**：
+ *   ① 漏填 kind —— 只回 {"tool":"query_warehouse","args":{}}，
+ *      执行层默认按总览查，于是「某物料还有多少库存」答成全库总览；
+ *   ② 把单号填进 keyword —— 「SPIB202610220006 这个单什么状态」
+ *      变成去物料表里 LIKE '%SPIB202610220006%'，答「没找到」；
+ *   ③ 把物料名填进 ticket_no —— 反过来，查单据时查不到。
+ *
+ * 所以：**只要原句里能自己解析出来，就以规则层为准**（与统计通道
+ * 「规则解析 > 模型给的」同一纪律）。模型只在规则层也认不出时才被采信。
+ */
+function correctWarehouseArgs(args, question) {
+  const out = { ...(args || {}) };
+  const rule = parseWarehouseIntent(question);
+
+  // 规则层认不出（纯英文长句等）→ 至少保证 kind 合法。
+  // ⚠️ 但**知识问法**（有哪些类型/怎么算）规则层会返回 null（走 RAG），
+  //    这里必须把它也判出来交回知识库通道 ——
+  //    否则模型一旦选了 query_warehouse，口径问题又被实时数据吃掉。
+  if (!rule && isWarehouseKnowledgeQuestion(question)) {
+    return null; // ← 调用方据此改走 RAG
+  }
+
+  // 规则层认得出 → 用规则层的 kind 与关键参数
+  if (rule) {
+    out.kind = rule.args.kind;
+    if (rule.args.kind === 'ticket') {
+      out.ticket_no = rule.args.ticket_no;
+      out.keyword = '';
+    } else if (rule.args.kind === 'material') {
+      out.keyword = rule.args.keyword || out.keyword || '';
+      out.ticket_no = '';
+    }
+    return out;
+  }
+
+  // 规则层认不出（纯英文长句等）→ 至少保证 kind 合法
+  const kind = String(out.kind || '').toLowerCase();
+  if (!['overview', 'material', 'ticket'].includes(kind)) {
+    out.kind = out.ticket_no ? 'ticket' : out.keyword ? 'material' : 'overview';
+  }
+  out.keyword = String(out.keyword || '').trim();
+  out.ticket_no = String(out.ticket_no || '').trim().toUpperCase();
+  return out;
+}
 
 /**
  * 完整路由：规则层 → 模型层 → 知识库兜底。

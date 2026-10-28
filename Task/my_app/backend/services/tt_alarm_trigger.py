@@ -71,10 +71,18 @@ SYNC_STALE_FLOOR_SECONDS = 300
 
 # 本模块要读的列。与表实际列求交集（兼容不同同步版本的列差异）；
 # alarm_title/codename/perceivedseverityname 仅用于任务结果的现场信息，非必填。
+#
+# ⚠️ `neip` / `impact_site_list` / `impact_site_number` 是**渲染兜底**用的
+# （2026-10-28 用户反馈：首推消息里告警码没有 codename、也没有受影响站点清单）：
+# 触发时刻那一单往往还没进 `eflow_tt` 镜像（同步每小时 :22 才刷一次），而实时行
+# （eFlow base/list）**不带**这三项，于是首推只能渲染出「Alarm: 9995 | Communication
+# Alarm」这种没有语义的行。realtime_alarm 里恰好有它们，故一并读出来，
+# 由 `tt_alarm_sources.merged_render_row` 回填到 eflow_tt 的同义列上。
 _TRIGGER_COLUMNS = (
     "tt_id", "alarmraisedtime", "alarmcode", "site_id", "site_name",
     "region", "codename", "alarm_title", "perceivedseverityname",
-    "clearstatename", "_sync_time",
+    "clearstatename", "neip", "impact_site_list", "impact_site_number",
+    "_sync_time",
 )
 
 

@@ -33,7 +33,7 @@ import { routeWithTools } from './tools.js';
 export async function routeAnswer(
   question,
   index,
-  { onDebug, onRoute, onRetry, onLive, lang, history } = {}
+  { onDebug, onRoute, onRetry, onLive, lang, history, webHint } = {}
 ) {
   // 回复语言跟着提问语言走（英文提问 → 英文回复）。
   // 两条通道的机制不同，所以处理方式也不同：
@@ -51,6 +51,8 @@ export async function routeAnswer(
     onRetry,
     onLive,
     history,
+    // 网页挂件传 false：查不到时不要附「去网页版问」的尾巴（见 src/http-server.js）
+    webHint,
   });
 
   const ms = Date.now() - t0;
@@ -89,6 +91,11 @@ export function describeRoute(r) {
   }
   if (r.channel === 'vmaxcca') {
     return `通道=VMAX CCA（my_app HTTP 实时${ms}）${via}${tool}`;
+  }
+  if (r.channel === 'warehouse') {
+    // 库房通道：单据统计走 my_app HTTP，分仓库存走本地 SQLite 快照。
+    const src = r.stats?.source === 'http' ? 'my_app HTTP（实时）' : '本地 SQLite 副本';
+    return `通道=库房（${src}${ms}）${via}${tool}`;
   }
   return `通道=知识库（${CONFIG.embedModel} 嵌入 + 混合检索${ms}）${via}${tool}`;
 }

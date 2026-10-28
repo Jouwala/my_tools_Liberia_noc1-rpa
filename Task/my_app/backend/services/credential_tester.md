@@ -2,7 +2,7 @@
 
 ## 为什么有这个模块
 
-设置页「系统设置 → 凭据」原先只有 ZTE UME 系 / eFlow / RAIS 等 11 组带
+设置页「系统设置 → 凭据」原先只有 ZTE UME 系 / eFlow 等 11 组带
 「测试连接」按钮，其余 9 组（VMAX CXO、GBase 数仓、Greenplum 主节点、
 UME 服务器网管、FW UMC、SFTP、126 邮箱、OWA 邮箱、微信推送）改完密码只能
 "保存后等任务跑一次才知道对不对"。
@@ -16,7 +16,9 @@ UME 服务器网管、FW UMC、SFTP、126 邮箱、OWA 邮箱、微信推送）�
 `credential_store.CREDENTIAL_GROUPS` 每条记录带 `test_kind`；
 `routers/credentials.py:157` 先看 kind：
 
-- `zte_oauth2` / `rais` → 留在路由里走 `auth_manager`（带本地熔断冷却与终态错误判定）；
+- `zte_oauth2` → 留在路由里走 `auth_manager`（带本地熔断冷却与终态错误判定）；
+  `rais_uaclite` 自 2026-10-26 起改由本模块 `_test_rais` 处理
+  （上游登录强制人工图形验证码，不能再程序化登录，只探公钥与验证码两个前置接口）；
 - 其余 → `credential_tester.run_test(key, group, user, pwd, en)`。
 
 本模块用 `TESTERS` 字典（kind → 函数）登记，函数在定义处用 `@_register("kind")` 注册。

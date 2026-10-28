@@ -298,6 +298,11 @@ _TT_LIVE_COL_MAP = {
     "alarmSeverity": "alarm_severity",
     "alarmType": "alarm_type",
     "alarmCode": "alarm_code",
+    # `netWorkType` 就是 eflow_tt 的 `domain`（'RAN' / 'OCS'…，见 tt-analyze.py 的
+    # `--domain` 帮助文案「netWorkType（如 OCS）」）。2026-10-28 补：此前漏映射，
+    # 首推消息的 `Alarm:` 行因此少了网域段（镜像有值、实时行覆盖后变空），
+    # 与「用户看到的 9995 那行」对不上。
+    "netWorkType": "domain",
     "subAlarmName": "sub_alarm_name",
     "reasonType": "alarm_reason_type",
     "siteOutageOrNo": "site_outage",

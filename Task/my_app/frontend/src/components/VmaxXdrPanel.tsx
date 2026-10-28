@@ -24,11 +24,16 @@ import dayjs from 'dayjs'
 import { useI18n } from '../i18n'
 import { exportAoaReport } from '../utils/excelReport'
 import { vmaxXdrQuery, vmaxXdrServices } from '../api'
+import { readParam, writeParams } from '../urlState'
 
 const { Text } = Typography
 const { RangePicker } = DatePicker
 
-type ServiceItem = { id: string; name: string; name_zh?: string }
+type ServiceItem = {
+  id: string; name: string; name_zh?: string
+  /** 上游保留时长（小时）：窗口上限与「最早可选时间」都按它来 */
+  retention_hours?: number
+}
 
 type XdrRow = Record<string, string>
 
@@ -48,8 +53,27 @@ type XdrResult = {
 /** 统一空值展示：— 而不是 null / 空串（AGENTS.md 三.6） */
 const fmt = (v: unknown) => (v == null || v === '' || v === '--' ? '—' : String(v))
 
-/** 时间窗默认：最近 24 小时（信令详单一天可达万级记录，再大既慢又难读） */
-const defaultRange = () => [dayjs().subtract(24, 'hour'), dayjs()] as [dayjs.Dayjs, dayjs.Dayjs]
+/** 时间窗默认：最近 2 小时（排障通常看当下，一天的信令可达万级、既慢又难读；
+ *  需要更早的数据用户自己往回调，上限由所选类型的 retention_hours 决定）。 */
+const DEFAULT_WINDOW_HOURS = 2
+const defaultRange = () =>
+  [dayjs().subtract(DEFAULT_WINDOW_HOURS, 'hour'), dayjs()] as [dayjs.Dayjs, dayjs.Dayjs]
+
+/** 小时禁用表：把 [0, from) 与 (to, 23] 置灰（antd 的 disabledHours 要的是列表） */
+const rangeHours = (from: number, to: number) =>
+  Array.from({ length: 24 }, (_, h) => h).filter((h) => h < from || h > to)
+
+/** 首屏时间窗：URL 里成对合法才用（刷新/后退回来接着看同一个窗口） */
+const readInitialRange = (): [dayjs.Dayjs, dayjs.Dayjs] => {
+  const s = readParam('mxStart')
+  const e = readParam('mxEnd')
+  if (s && e) {
+    const ds = dayjs(s)
+    const de = dayjs(e)
+    if (ds.isValid() && de.isValid() && ds.isBefore(de)) return [ds, de]
+  }
+  return defaultRange()
+}
 
 export default function VmaxXdrPanel({ msisdn }: { msisdn: string }) {
   const { t, locale } = useI18n()
@@ -57,8 +81,8 @@ export default function VmaxXdrPanel({ msisdn }: { msisdn: string }) {
   // 号码由父页面给；父页面改了号码要重置本面板的结果，避免张冠李戴
   const lastMsisdn = useRef(msisdn)
 
-  const [serviceType, setServiceType] = useState('1100')
-  const [range, setRange] = useState<[dayjs.Dayjs, dayjs.Dayjs] | null>(defaultRange)
+  const [serviceType, setServiceType] = useState(() => readParam('mxSvc') || '1100')
+  const [range, setRange] = useState<[dayjs.Dayjs, dayjs.Dayjs] | null>(readInitialRange)
   const [pageSize, setPageSize] = useState(20)
 
   const [services, setServices] = useState<ServiceItem[]>([])
@@ -72,7 +96,17 @@ export default function VmaxXdrPanel({ msisdn }: { msisdn: string }) {
   // 查询类型清单由后端给（单一真相源，避免前后端各写一份）
   useEffect(() => {
     vmaxXdrServices()
-      .then((r) => setServices((r.data?.services || []) as ServiceItem[]))
+      .then((r) => {
+        const list = (r.data?.services || []) as ServiceItem[]
+        setServices(list)
+        // URL 里带来的类型可能已下线：回落到 1100（或清单首个），
+        // 否则下拉会显示一个查不动、用户也没法解释的值
+        if (list.length) {
+          setServiceType((cur) => (list.some((s) => s.id === cur)
+            ? cur
+            : (list.find((s) => s.id === '1100')?.id || list[0].id)))
+        }
+      })
       .catch(() => setServices([]))     // 取不到就用空清单，不阻塞主流程
   }, [])
 
@@ -103,7 +137,15 @@ export default function VmaxXdrPanel({ msisdn }: { msisdn: string }) {
         page_size: ps,
       })
       if (seq !== seqRef.current) return      // 已有更新的查询，丢弃本次结果
-      setResult(r.data as XdrResult)
+      const data = r.data as XdrResult
+      setResult(data)
+      // 查询条件随结果入 URL：用服务端归一后的窗口（控件值可能是用户刚改、
+      // 还没点查询的中间态，写进去会让 URL 与屏幕上这张表对不上）
+      writeParams({
+        mxSvc: data.service_type,
+        mxStart: (data.window?.starttime || '').slice(0, 16),
+        mxEnd: (data.window?.endtime || '').slice(0, 16),
+      })
     } catch (e: any) {
       if (seq !== seqRef.current) return
       // 后端 HTTPException 的中文说明在 detail（凭据未配置 / 上游不可用等）
@@ -113,6 +155,19 @@ export default function VmaxXdrPanel({ msisdn }: { msisdn: string }) {
       if (seq === seqRef.current) setLoading(false)
     }
   }, [serviceType, range])
+
+  // 首屏恢复：URL 里带着一次完整执行的查询（窗口存在）才自动重放，
+  // 空链接打开不会白打一次上游。等类型清单到达再跑 —— 否则可能拿一个
+  // 已下线的 serviceType 空打一次并报错。只跑一次。
+  const bootRef = useRef(false)
+  useEffect(() => {
+    if (bootRef.current) return
+    if (!msisdn.trim() || !readParam('mxStart') || !readParam('mxEnd')) return
+    if (!services.length || !services.some((s) => s.id === serviceType)) return
+    bootRef.current = true
+    void run(msisdn, 1, pageSize)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [services, serviceType, msisdn, pageSize, run])
 
   const onSearch = () => run(msisdn, 1, pageSize)
 
@@ -134,6 +189,13 @@ export default function VmaxXdrPanel({ msisdn }: { msisdn: string }) {
 
   const serviceLabel = (s: ServiceItem) => (locale === 'zh' ? (s.name_zh || s.name) : s.name)
   const noMsisdn = !msisdn.trim()
+
+  /* 所选类型的上游保留时长（小时）：超出这个范围上游直接回「无数据」，
+   * 所以时间选择器直接把早于此刻的点置灰，选不了也就不用去撞那个错误。
+   * 服务清单没取到 retention_hours 时退回 72（最宽松），由后端兜底校验。 */
+  const currentSvc = services.find((s) => s.id === serviceType)
+  const retentionHours = currentSvc?.retention_hours ?? 72
+  const earliest = dayjs().subtract(retentionHours, 'hour')
 
   /* ---- 导出整个查询结果 ----
    * 表格是服务端分页的，当前页只有 pageSize 条。导「当前页」会让人误以为
@@ -213,7 +275,19 @@ export default function VmaxXdrPanel({ msisdn }: { msisdn: string }) {
         <Select
           style={{ width: 200 }}
           value={serviceType}
-          onChange={(v) => { setServiceType(v); setResult(null) }}
+          onChange={(v) => {
+            setServiceType(v)
+            setResult(null)
+            // 换类型后保留期可能更短（如 1100 的 72h → 32 的 24h）：
+            // 把超出的起点收回到新类型的界限内，否则一查就报「无数据」。
+            const r = services.find((s) => s.id === v)?.retention_hours ?? 72
+            const floor = dayjs().subtract(r, 'hour')
+            setRange((cur) => {
+              if (!cur) return defaultRange()
+              const [s, e] = cur
+              return [s.isBefore(floor) ? floor : s, e.isAfter(dayjs()) ? dayjs() : e]
+            })
+          }}
           options={services.map((s) => ({ value: s.id, label: serviceLabel(s) }))}
           placeholder={t('vmaxxdr.servicePlaceholder')}
         />
@@ -223,6 +297,17 @@ export default function VmaxXdrPanel({ msisdn }: { msisdn: string }) {
           value={range}
           onChange={(v) => setRange(v as [dayjs.Dayjs, dayjs.Dayjs] | null)}
           allowClear={false}
+          // 早于保留期的时段置灰、未来的时段也置灰：两者上游都查不到，
+          // 与其让人选了再收到「无数据」，不如直接选不到。
+          // 日期按「整天都早于 earliest」判，当天内再由 disabledTime 精确到小时。
+          disabledDate={(d: dayjs.Dayjs) =>
+            d.endOf('day').isBefore(earliest) || d.startOf('day').isAfter(dayjs())}
+          disabledTime={(d: dayjs.Dayjs | null) => {
+            if (!d) return {}
+            if (d.isSame(dayjs(), 'day')) return { disabledHours: () => rangeHours(0, dayjs().hour() + 1) }
+            if (d.isSame(earliest, 'day')) return { disabledHours: () => rangeHours(0, earliest.hour()) }
+            return {}
+          }}
         />
         <Button
           type="primary"
@@ -242,7 +327,9 @@ export default function VmaxXdrPanel({ msisdn }: { msisdn: string }) {
         >
           {t('vmaxxdr.export')}
         </Button>
-        <Text type="secondary" style={{ fontSize: 12 }}>{t('vmaxxdr.hint')}</Text>
+        <Text type="secondary" style={{ fontSize: 12 }}>
+          {t('vmaxxdr.hintRetention', { h: retentionHours })}
+        </Text>
       </Space>
 
       {noMsisdn && (

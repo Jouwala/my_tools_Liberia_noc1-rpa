@@ -19,13 +19,17 @@ type Portal = {
   // 后端标记：该门户在客户端模式下必须「直连上游」（不经反代、无自动填表），
   // 因为其前端把根地址/接口地址写死为上游绝对地址，反代到别的 host 会失效。
   direct?: boolean
+  // 后端标记：登录页有服务端强制的图形验证码（RAIS / VMAX CXO）。
+  // 服务端拿不到会话 → 扩展种 Cookie 那条路必须跳过，只能预填后交回人工。
+  captcha?: boolean
 }
 
 // 直连上游的门户（后端 spec 里 direct=true 优先；此集合是旧后端/兜底）。
 // eFlow：前端把根地址写死为 http://localhost，经同源反代后子页面/接口会打到访问者本机
 //        → "当前系统异常，稍后重试"、当前告警列与默认模板查询失败。
-// RAIS：前端把 API 根地址写死为 https://10.100.20.9:8766/，登录响应要往该域种 cookie，
-//        经反代打开时 fetch 不带 credentials，SSO cookie 种不下来。
+// RAIS：rais-env.js 把 API 根地址写死为 https://10.100.20.9:8766/，且网关只认同源
+//        Referer；经反代打开时页面域名与接口域名不一致，登录必然被拒。
+//        2026-10-26 起该门户还需人工输入图形验证码（见 Portal.captcha）。
 // Battery UME：与 eFlow 同为 ZTE UAC 系门户，前端同样写死上游绝对地址。
 const DIRECT_PORTALS = new Set(['eflow', 'rais', 'battery_ume'])
 
@@ -35,7 +39,8 @@ const canClientLogin = (p: Portal) => p.proxy_prefix != null || isDirect(p)
 
 // 访问者的浏览器是否就在 my_app 服务器本机（回环地址）。
 // 此时「服务器模式」弹出的浏览器窗口正好落在用户自己桌面上，等价于「本机登录」，
-// 而直连门户（eFlow/RAIS）恰恰只能靠服务器端直接鉴权登录（见下方 handleLogin 注释）。
+// 而直连门户（eFlow/RAIS）恰恰只能在服务器侧登录（eFlow 直接鉴权；RAIS 预填后人工补验证码，
+// 见下方 handleLogin 注释）。
 const isOnServerHost = () => {
   const h = window.location.hostname.toLowerCase()
   return h === 'localhost' || h === '127.0.0.1' || h === '::1' || h === '[::1]'
@@ -194,9 +199,10 @@ export default function PortalLogin() {
       showMsg('info', t('portal.noClient'))
       return
     }
-    // eFlow / RAIS 直连时，由受管扩展在用户自己的 Chrome profile 内种会话 Cookie。
+    // eFlow / Battery UME 直连时，由受管扩展在用户自己的 Chrome profile 内种会话 Cookie。
     // 页面只传一次性票据；账号密码和 Cookie 从不放进 DOM 或 URL。
-    if (direct && portalExtensionReady) {
+    // 验证码门户（RAIS）跳过这条路：上游登录需人工图形验证码，服务端没有会话可交。
+    if (direct && !p.captcha && portalExtensionReady) {
       setStatus((prev) => ({ ...prev, [p.key]: { state: 'launching', message: '' } }))
       void api.post('/portals/client-login/ticket', { system: p.key })
         .then(({ data }) => {
@@ -349,7 +355,7 @@ export default function PortalLogin() {
                 <div style={{ fontSize: 13, color: '#64748b', marginBottom: 8 }}>
                   {t('portal.host')}: <code>{p.host}:{p.port}</code>
                 </div>
-                <div style={{ marginBottom: 8 }}>
+                <div style={{ display: 'flex', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
                   {isDirect(p) ? (
                     <Tooltip title={t('portal.clientOpenedDirect')}>
                       <Tag color="orange">{t('portal.direct')}</Tag>
@@ -360,6 +366,11 @@ export default function PortalLogin() {
                     </Tooltip>
                   ) : (
                     <Tag color="blue">{t('portal.modeClient')}</Tag>
+                  )}
+                  {p.captcha && (
+                    <Tooltip title={t('portal.captchaTip')}>
+                      <Tag color="volcano">{t('portal.captchaTag')}</Tag>
+                    </Tooltip>
                   )}
                 </div>
                 <Tag color={STATE_COLOR[st]}>{t(STATE_TEXT[st])}</Tag>

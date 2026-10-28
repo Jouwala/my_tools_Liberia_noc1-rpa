@@ -31,7 +31,7 @@ CREATE TABLE credentials (
 | ccn_ume | CCN UME 网管 | zte_oauth2 | ZTE OAuth2 RSA 登录 |
 | eflow | eFlow 告警系统 | zte_oauth2 | ZTE OAuth2 RSA 登录 |
 | ume_alarm | ZTE UME 服务器网管 | ume_keystone | Keystone v3 → 项目 token |
-| rais | RAIS 统一权限平台 | rais | AES 加密 POST verify4web.serv |
+| rais | RAIS 统一权限平台 | rais_uaclite | 探 getAesConfig + 验证码接口（登录需人工验证码，不校验口令） |
 | fms_portal | FMS 实时代理门户 | zte_oauth2 | ZTE OAuth2 RSA 登录 |
 | fw_kpi | FW 整机吞吐 KPI (UMC) | umc_portal | 经典 UMC 登录（Node 跑 e.js） |
 | mw_ume | MW UME 微波网管 | zte_oauth2 | ZTE OAuth2 RSA 登录 |

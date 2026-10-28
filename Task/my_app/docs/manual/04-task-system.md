@@ -35,7 +35,7 @@ APScheduler 到点 (backend 进程内)
 | `s` | 1 | SP 备件 SFTP（独立 SFTP 服务器 + UNC 镜像库）。2026-09-27 从 `n` 拆出：它是 `n` 组最大单体负载（实测 347min/天）且是已知挂死源（SFTP channel 读挂死 5.5h 曾拖停整组） | `sp_data_sync` |
 | `w` | 2 | MW UME 微波网管（凭证分组 `mw_ume`），独立会话。2026-09-27 从 `n` 拆出：`mw_ume_kpi_sync_rt` 为 `*/15` 高频任务，此前每次排在 `sp_data_sync` 后，实测队列等待 964s（全场最久） | `mw_ume_kpi_sync`, `mw_ume_kpi_sync_rt` |
 | `v` | 3 | VMAX 门户（本机 8790 单会话代理）：三个任务共用同一个 VMAX 会话，必须彼此串行；2026-09-18 从 `n` 组拆出（原先排在 `sp_data_sync` 这类 1.5~2h 长任务后面，小时级采集滞后一个多小时） | `cxo_dashboard_cache_sync`, `vmax_cxo_daily_sync`, `vmax_multi_data_sync` |
-| `m` | 37 | 内务轻任务：EWS 邮件会话 + 截图/WhatsApp 文件依赖 + VMAX 数仓 GBase 直连取数 | `site_outage_screenshot`, `whatsapp_send`, `whatsapp_send_ext`, `liberia_email_1h`, `liberia_email_8h`, `kpi_ms_contract`, `kpi_ms_wo_sla`, `kpi_sp_spareparts`, `kpi_sp_consumables`, `kpi_ran_availability`, `email_recovery`, `ipran_m6k_chart_email`, `ccn_free_rating_chart_email`, `battery_email`, `mailbox_cleanup`, `incident_overview_sync`, `auto_retry_failed`, `db_freshness_check`, `sp_report_generate`, `sp_email_details`, `sp_online_report_generate`, `sp_online_report_send`, `mttr_tt_sync`, `progress_sync`, `sp_whatsapp_report`, `sp_material_report`, `finebi_report_sync`, `pg_to_sqlite_sync`, `log_cleanup`, `tmp_cleanup`, `olib_soc_kpi_daily_sync`, `olib_soc_vmax_report`, `tt_alarm_whatsapp_alert`, `ume_alarm_whatsapp_alert`, `sp_details_files_email`, `tt_mttr_report_generate`, `whatsapp_send_baileys` |
+| `m` | 38 | 内务轻任务：EWS 邮件会话 + 截图/WhatsApp 文件依赖 + VMAX 数仓 GBase 直连取数 | `site_outage_screenshot`, `whatsapp_send`, `whatsapp_send_ext`, `liberia_email_1h`, `liberia_email_8h`, `kpi_ms_contract`, `kpi_ms_wo_sla`, `kpi_sp_spareparts`, `kpi_sp_consumables`, `kpi_ran_availability`, `email_recovery`, `ipran_m6k_chart_email`, `ccn_free_rating_chart_email`, `battery_email`, `mailbox_cleanup`, `incident_overview_sync`, `auto_retry_failed`, `db_freshness_check`, `sp_report_generate`, `sp_email_details`, `sp_online_report_generate`, `sp_online_report_send`, `mttr_tt_sync`, `progress_sync`, `sp_whatsapp_report`, `sp_material_report`, `finebi_report_sync`, `pg_to_sqlite_sync`, `log_cleanup`, `tmp_cleanup`, `olib_soc_kpi_daily_sync`, `olib_soc_vmax_report`, `tt_alarm_whatsapp_alert`, `ume_alarm_whatsapp_alert`, `sp_details_files_email`, `tt_mttr_report_generate`, `whatsapp_send_baileys`, `eflow_fiber_assign` |
 | `c` | 2 | CN EMS 独立会话，两个任务共享 `_pmcache`/`daily_raw.json`，同组保证互斥 | `ems_kpi_cache_sync`, `ems_kpi_daily` |
 | `x` | 1 | 实时告警专属组（2026-10-15 从 `n` 拆出）。要求告警滞后 ≤1 分钟，而 `n` 组是一条串行道，cron 改 `*/1` 也会被 `eflow_sync`（实测平均 192.5s）/`ms_sla_full`（最久 600.1s）挡住 —— 实测 856 次采样中 5.3% 等待 >60s、最差 853.9s | `eflow_active_alarm` |
 | `g` | 1 | RAN Greenplum 取数（2026-10-19 新增）：经 control1 两跳 SSH 到 193.168.0.6，与 eFlow/UME/VMAX GBase/SFTP 无任何会话与写库交集。独立成组的理由是**故障域**：SSH 通道挂死的风险与当年 s 组 sp_data_sync 同型（worker.py:83-93 记载其 channel 读挂死 5.5h 拖停整组）；实测单轮 72.6s（10.4 亿行明细靠 12h 分区裁剪 + 列存），虽短于 m 组每分钟的告警推送周期，但不愿让它去挤那条道 | `gp_ran_user_sync` |
@@ -156,6 +156,7 @@ APScheduler 到点 (backend 进程内)
 | `whatsapp_send_baileys` | WhatsApp 消息发送（Baileys；**默认禁用**，需在「任务管理」页手动启用） | `0 4 * * *` | m |
 | `tt_alarm_whatsapp_alert` | eFlow P1 告警 WhatsApp 推送（**可在「任务配置」页调级别/告警码/触发窗口/重报间隔/群组**） | `2-59/5 * * * *` | m |
 | `ume_alarm_whatsapp_alert` | DC server  alarm WhatsApp push（**可在「任务配置」页调告警码:级别对/群组/催报间隔**） | `* * * * *` | m |
+| `eflow_fiber_assign` | Fiber Break 告警自动派单 + WhatsApp 通报（**默认 dry_run 演练**；可在「任务配置」页调告警码/关联码/时间窗/目标组/群组） | `3-59/5 * * * *` | m |
 | `cells_kpi_sync` | RAN Cells KPI 同步 | `50 4 * * *` | u |
 | `sp_email_details` | SP 备件明细报表邮件 | `5 7 * * *` | m |
 | `sp_details_files_email` | SP 备件明细分文件邮件（6 份 xlsx 一文件一邮件发 NOC） | `5 10 * * *` | m |
@@ -1000,3 +1001,251 @@ worker 分组重启才生效（`backend/routers/task_configs.py`）。
 3. 业务函数放 `backend/services/`，抛异常即算失败，不要自己吞异常；
 4. 重启后端（`stop.bat` → `start.bat`）让注册表重载；只改分组清单无需重启后端，`python restart_workers.py --mode watchdog --force`（**需管理员权限**，否则 watchdog 进程杀不掉而静默失败，旧组清单会一直在内存里生效）；
 5. 在任务管理页手动"执行"一次验证链路，再更新本页任务清单表格与前端帮助（`frontend/src/pages/helpTaskDocs.ts`，改完跑 `npm run docs`）。
+
+### `eflow_fiber_assign` 的口径与上线步骤（2026-10-26 首版）
+
+**做什么**：Fiber Break（默认告警码 **4758**，页面可配）自动派 TT + WhatsApp 通报。
+
+**判定链**（全部满足才派单）：
+1. 告警码命中白名单；
+2. 告警**存续时长满 15 分钟**（`min_age_minutes`，页面可配）—— 业务口径「告警发生到选择超过 15 分钟，才要指派单子和发送 WhatsApp 消息」，**不是一升起就派**。留这段时间给短时闪断自然清除，避免建出无效 TT。配 `0` = 恢复「一升起就派」；
+3. `alarmraisedtime` 在触发窗口内（`window_minutes`，默认 180 分钟，防上线瞬间把积压的历史告警一次性派出去）—— 这是**上界**，与第 2 条的**下界**独立生效：存续时长必须落在 `[min_age_minutes, window_minutes]` 区间内；
+4. **同站点在同时间窗口内没有关联告警**（默认 `99933`、窗口 60 分钟）—— 站点已因 99933 派过单就不重复派；
+5. 告警**上游没有 TT**：eFlow 自己的 `assign_rule` 会给部分 fiber 告警先建 TT，这类告警
+   `ttid` 已非空，必须直接跳过（否则会建出重复单，2026-10-26 生产自查发现：Zardun 两条
+   告警都有 `TT202610260083` / `TT202610270031`，而本地状态表是空的）；
+6. 状态表里没有 `Y` 记录。**`D`（演练）只在 `dry_run=true` 时算「已处理」** —— 一旦关掉
+   演练，演练期扫过的告警必须重新走完整流程真派单，否则会被永久跳过（同一次自查发现）。
+7. **eFlow 侧 `ttstatus` 不是阻断条件**（2026-10-27 按业务要求由「非 0 一律跳过」改为
+   「照派 + 收缩预算 + 失败通报」）：非 `0` 也照样尝试派单，只是把本轮的尝试/回查预算
+   收窄，失败后记 `N` 并通报人工。
+
+   | ttstatus | 含义 | 处理 |
+   | --- | --- | --- |
+   | `0` | UnAssigned | 正常派单：最多 3 次尝试 × 3 次回查（`FIBER_ASSIGN_MAX_ATTEMPTS`） |
+   | `1` | Assigned | 已派（此时 `ttid` 已有，第 5 条已先跳过） |
+   | `2` / `4` / `5` / `6` | 其它状态 | **仍尝试派单**：1 次尝试 × 2 次回查；失败记 `N`、通报人工 |
+
+   **为什么曾经挡、后来放开**（2026-10-27）：切生产首轮发现 `ttstatus=2` 的告警（全库
+   6669 条里只有 5 条：1 条 fiber + 4 条环境温度 761761）派单接口**每次都回
+   `200 manual assign succeed.`，但 `ttid` 永远为空、`ttstatus` 不变** —— 共同特征是
+   `site` 是 ME 名、`sitename` 为 `--`/None，即 **ME 未在 eFlow 侧关联站点**（站点 ID/名
+   都对，**不是 payload 问题**）。当时为不白烧 70 秒/轮、不误发失败通知而加了「非 0 一律
+   跳过」。业务随后明确要求 **不能被 eFlow 侧的 ME 绑定问题挡住** —— 该试还得试，于是改为：
+   `ttstatus` 异常时用最小预算（1 次尝试 × 2 次回查，约 15s）照派；失败记 `N`（`last_error`
+   写明 `ttstatus`），并在群里发一条「需人工在 eFlow 处理」（同一条只发一次，`send_status`
+   抑制）。ME 绑定修好后下一轮自动派单成功 —— 任务不需要人再去改配置。
+
+   结果字段：`suspect_ttstatus`（本轮 `ttstatus` 异常的条数）、`suspect_ttstatus_samples`。
+
+**关联判定的站点键：为什么是「集合」而不是「一个字段」**（2026-10-27 生产实测，原实现会静默漏判）：
+两类告警的站点字段形态**不同，且同一类也不稳定**：
+
+| 字段 | 4758（Fiber） | 99933（小区退服） |
+| --- | --- | --- |
+| `site` | 有时数字（`4030`）、有时 ME 名（`6120HS_..._UPE80`） | 数字站号（`4523`） |
+| `sitename` | 有时真名（`Old Road`）、有时 `--` | 站点名（`Tokpah Camp`） |
+| `mename` | ME 名，或 **UUID**（`6784c258-...`） | 站点名 |
+
+原实现「优先 `site_id` → 再 `site_name` → 最后 `mename`」只认**数据库列名**，对原始 API 行
+（`site` / `sitename`）取不到值，最后落到 `mename` 的 UUID —— 4758 的键成了 UUID、99933 的键
+是站点名，**永远不相交，「同站已有 99933 就不派单」会静默失效、导致重复派单**。
+现改为 `_alarm_site_keys()` 收集全部站点标识（`id:<数字站号>` / `name:<站名小写>`），
+**任一相交即同站**。实测收益：`Tailing Storage Facility`（站号 4847）的 4758 与 8.1 分钟后的
+99933 正确命中（旧写法漏判）。回归测试见 `tests/test_fiber_assign.py::test_correlation_matches_raw_api_field_shapes`。
+（`mename` 是 UUID 时不再当站点名收键，只保留数字站号键。）
+
+**关联判定的三态：匹配不到就当作「没有」，继续派单**（2026-10-27 按业务要求明确化）：
+
+| 结论 | 触发条件 | 动作 |
+| --- | --- | --- |
+| `hit` | 站点键相交 + 升起时间差 ≤ 关联窗口 | 跳过派单（记 `S`） |
+| `none` | 有数字站号、确实查过没有 | 继续派单 |
+| `undetermined` | **站点名写法对不上**（fiber 只有 ME 推导的站名、无数字站号），或任一侧站点信息缺失 | **继续派单**，并写 `warnings` / `correlation_undetermined_samples` 留痕 |
+
+为什么不因 `undetermined` 卡住：fiber 的站名来自 ME 名（`<机型>_<站点名>_UPE<nn>`），
+与 99933 的 cmdb 站名可能写法不同（实测 `Peter_luogan_town` vs `Peter Luogon Town`）——
+强求对得上会**长期漏派**，而漏派无人知道比重复派单更难发现。故按「匹配不到即没有」处理，
+每轮结果里的 `correlation_undetermined` 计数与明细可事后复核是否出现重复派单。
+
+**为什么必须先解析数字站号（实测教训，最容易踩的坑）**：
+Fiber（TRM/IPRAN）告警的 `site` 字段是**ME 名**（如 `6120HA_zardun_UPE128`）、
+`sitename` 恒为 `--`。直接把 ME 名放进派单 payload，接口**返回 `status:true` 但 TT 不生成**
+（`ttid` 仍为空、`ttstatus` 停在 2）。必须解析出**数字站点 ID + 站点名**再派单，
+TT 才会真正建出（实测 `site=3462` + `sitename=Zardun` → `ttid=TT202610260089`）。
+
+解析优先级（`eflow_assign_client.resolve_site`）：
+1. 告警自带站号是纯数字 + 有站点名 → 直接用（生产 `realtime_alarm.site_id` 多数已带）；
+2. 有站点名 → 查 cmdb Site 拿数字 `_id`；
+3. 从 ME 名解析站点名（`<机型>_<站点名>_UPE<nn>` 取中间段）再查 cmdb。
+**解析不出站点则跳过该告警**（不派没有站点的单），并在 `last_error` 里写明原因；
+**同时在 WhatsApp 群里发一条「需人工在 eFlow 处理」通报**（2026-10-27 起），
+同一条告警只发一次（状态表 `send_status=Y` 抑制，避免每 5 分钟刷屏）。
+`Tokadeh` 就是这类：cmdb 830 个站点里连 0.75 相似度的候选都没有，属站点数据缺失。
+
+**站点名近似匹配（cmdb 命名与网管不一致时的兜底，2026-10-27 上线）**：
+生产实测 `6120HS_Peter_luogan_town_UPE80` 推出站名 `Peter luogan town`，而 cmdb 写作
+`Peter Luogon Town`（`luogan` / `luogon` 差一字母）→ 精确查不到、每轮记 `N`、永远派不出去。
+故在精确匹配之后加了两档（都在 `SiteIndex.lookup` 里，`matched_by` 字段标明命中方式）：
+
+| 档 | 条件 | 是否算「近似」告警 |
+| --- | --- | --- |
+| `exact` | 大小写不敏感完全相同 | 否 |
+| `normalized` | 归一化（去空格/下划线/连字符）后相同 | 否 |
+| `fuzzy` | **等长且差异位全是元音互换** + 相似度 ≥ 阈值(0.9) + 唯一领先 | **是**，写 `warnings` 并在 WhatsApp 通报里附提示 |
+
+⚠ **为什么不直接用「相似度 ≥ 0.9」**（扫生产 cmdb 830 个站点得出的硬结论）：
+这些是 Liberia 网络上**互不相同**的站点，相似度却不低于目标案例（0.9333）——
+
+| 站点 A | 站点 B | 相似度 |
+| --- | --- | --- |
+| `Garplay` | `Gbarplay` | 0.9333 |
+| `Banwea` | `Gbanwea` | 0.9231 |
+| `Butuo` | `Buutuo` | 0.9091 |
+| `Sanniquillie 5` | `Sanniquillie 1` | 0.9231 |
+| `Buchanan 3 AML` | `Buchanan AML` | 0.9565 |
+| `18th Street` | `16th Street` | 0.9000 |
+
+即「插入/删除一个字母」与「两个不同站点」在分数上完全无法区分，纯分数兜底必然错派。
+加上「等长 + 仅元音互换」这条硬约束后，830 个站点里**误判 0 对**，同时仍覆盖目标案例。
+另有两道保护：**分期站点**（`X` / `X2` / `X3`，生产 cmdb 里 66 对近似名绝大多数是这类）
+一律拒绝；**最优候选取不到唯一领先**（歧义）时放弃。
+
+**代价（已知且有意）**：漏字母/多字母/辅音打错的拼写差异**不再兜底**，会如实记
+「站点解析失败」等人工处理。**宁可漏派，不可错派** —— 错派到隔壁站比不派更难收拾。
+命中的近似匹配会在结果 `warnings` 与状态表 `skip_reason` 里留痕，便于逐个核对 cmdb 命名。
+
+配置项：`site_fuzzy_enabled`（默认开）、`site_fuzzy_threshold`（默认 0.9，钳在 0.5~1.0），
+均在「任务配置」页可改；关掉即回到「必须完全一致（含分隔符归一化）」才派单。
+
+**Fiber 派单"时灵时不灵"**（2026-10-26 实测）：同一告警、同一 payload，有时建出 TT、
+有时接口回 success 却不建。故实现是「派单 → 回查 `ttid` → 没建出就重试」，
+单轮最多 3 次（`FIBER_ASSIGN_MAX_ATTEMPTS`），**只有回查到 TT 编号才记 `Y` 并通报**。
+未建出的记 `N`，下一轮会再次尝试（因为状态不是 `Y`）。
+
+**TT 标题**：由 eFlow 自动生成，格式 `<站号>.[<站点名>]<告警名>`（如 ` 3462.[Zardun]Fiber/Link Break`）。
+派单接口**不接受自定义标题**，故 `SITE ID_Site name_Alarm Code` 的格式只在 WhatsApp 通报里呈现。
+
+**⚠ 通报正文一律英文**（2026-10-27 如意要求）：群里是一线英文环境（`lbr_assistant`），
+故通报的字段标签、警示语、失败原因全为英文；中文只允许留在状态表 `last_error`、
+结果里的 `warnings` 与日志里（内部排障用）。成功通报模板：
+
+```text
+Fiber Break Alarm TT Assign Notification
+
+TT Title : 3462_Zardun_4758
+Site ID  : 3462
+Site Name: Zardun
+Alarm    : 4758 Fiber/Link Break
+Occurred : 2026-10-27 11:38:12
+ME       : 6120HA_zardun_UPE128
+TT No.   : TT202610270046
+Assigned : ZTE_NOC_FO
+```
+
+需人工处理的通报共用同一标题，首行换成
+`⚠ Auto assign failed — manual action required in eFlow`，并带 `Reason` 行与英文 `Note:` 说明段
+（站点解析失败 → 补 cmdb 站点；`ttstatus` 异常 → 先把 ME 绑定到数字站点）。
+站点名近似匹配、99933 关联无法判定时，末尾附 `⚠` 英文提示行，便于事后核查命名/派单依据。
+
+#### 同一次光纤中断只派一个 TT（合并派单，2026-10-27）
+
+**问题**：一条光缆断掉会让链路上多个站点**同时**告警。2026-10-27 14:21 一次故障在
+**9 秒内**产生 5 条 4758 告警（R.I.A×3 + Tower Hill + HQ_Site），按原逻辑建出 5 个 TT
+（`TT202610270066`~`070`），现场反馈却是同一个故障。
+
+**做法**：升起时间落在 `group_window_minutes`（默认 **10 分钟**）内的 fiber 告警
+**合并成一个 TT**，以组内升起最早的那条为**组长**（最可能是根因站点）建单；
+同组其余告警登记同一个 `tt_no`、不再单独建单，结果里计 `merged`。
+通报正文列出本单实际涵盖的站点：
+
+```text
+This TT covers 3 sites from the same fiber cut:
+  - 4017/R.I.A  (TT created on this site)
+  - HQ_Site/HQ_Site
+  - 4016/Tower Hill
+```
+
+**⚠ 为什么用时间窗而不是拓扑**：实测项目现有数据**判不出**「同一条光纤」——
+`probeid` 全库同一个 UUID（无区分度）、告警的 `impact_site_list` / `link_path` 全空、
+`flm_database.fdn` 被 **96 个站点共用**（太粗，会把大半个蒙罗维亚合成一单）、
+`victim_topology` 里 R.I.A 与 Tower Hill 互不包含且各是独立网关、
+eFlow 的 `relatedAlarms` 对这 5 条返回 **0 条**（eFlow 自己也没把它们关联）。
+时间聚集是唯一立即可用的强信号。
+
+**分组规则**（`group_by_occurrence`）：按升起时间升序，与组内**第一条**的差 ≤ 窗口则并入。
+刻意不用「与上一条比」的链式比较 —— 那会让 A→B(9min)→C(9min) 三条形变 18 分钟却同组，
+窗口形同虚设。取不到升起时间的告警**不参与合并**（无法判断时序时宁可多派一单，
+也不把来路不明的告警并进别人的 TT）。
+
+**风险与回滚**：窗口越大越省单，但**不同地点恰好同时断纤会被误合并**
+（正文会列出站点名，人工能看出来）。`group_window_minutes` 配 **0** 即关闭合并，
+恢复「每条告警各派一单」的旧行为 —— 这是最快的回滚开关，不需要改代码。
+
+**状态表** `eflow_fiber_assign_log`：`assign_status`（`Y` 成功 / `N` 失败 / `S` 跳过 / `D` 演练）、
+`tt_no`、`skip_reason`、`send_status`（WhatsApp 是否确认送达）。
+`Y` 有三种来源，用 `skip_reason` 区分：真正由本任务派出的单（空）、
+**上游已有 TT** 的单（`上游已存在 TT（eFlow 规则已派单），不重复派`）、
+以及**合并到组长**的单（`同一次光纤中断，已合并到组长告警 … 的 TT（本组共 N 条告警）`）。
+`D` 是演练记录，关掉 `dry_run` 后会被重新处理。
+
+**⚠ 上线顺序（默认演练，必须按此走）**：
+1. 部署后任务默认 `dry_run=true`：只查告警、匹配、写状态表（`D`），**不派单、不发消息**；
+2. 在任务管理页手动执行 1~2 轮，看结果里的 `due` / `samples`（含解析出的站点 ID/名）是否符合预期，
+   并核对 `eflow_fiber_assign_log` 的 `site_id` / `site_name`；
+3. 到 **Settings → 任务配置 → Fiber Break 告警自动派单** 核对 `groups`
+   （2026-10-27 已配成 `lbr_assistant`）；
+4. 仍保持 `dry_run=true` 跑一段，确认没有误判（尤其关联 99933 的跳过是否合理）；
+5. 确认无误后，把 `dry_run` 关掉 → 下一轮开始真派单；此时先用 `window_minutes` 小值（如 30）
+   观察首批，稳定后再放到 180；
+6. 若出现异常，**先开回 `dry_run`** 止血（这是最快的回滚开关，不需要改代码/重启）。
+
+> 演练期留下的 `D` 记录在关掉 `dry_run` 后会被自动重新处理，**但跑过 30 天窗口的探针会留下
+> 一批 `D` 行让演练结果看着"跳过变多"**。上线前清一次即可：
+> `DELETE FROM eflow_fiber_assign_log WHERE assign_status='D'`。
+
+**配置项**（Settings → 任务配置，文件 `backend/services/eflow_fiber_config.json`）：
+`alarm_codes`（告警码，留空回退 4758）、`correlation_codes`（关联码，默认 99933）、
+`correlation_window_minutes`、`window_minutes`、`min_age_minutes`（**派单等待时长**，
+默认 15，业务口径「超过 15 分钟才派单」；配 0 = 立即派）、`assign_group`
+（默认 `ZTE_NOC_FO`）、`dry_run`、`groups`、
+`group_window_minutes`（**合并派单时间窗**，默认 10；配 0 = 关闭合并）。
+改完保存会自动重启各 worker 组使配置生效。
+
+**排障速查**：
+- `due=0` 但确实有新 fiber 告警 → 先看 `waiting`（还在等派单时机，存续时长未满 `min_age_minutes`，正常等下一轮）与 `expired`（超过 `window_minutes` 已过期）；
+  再看告警是否被关联 99933 跳过（看 `skip_reason`）；
+- `skipped` 里出现 `skip_existing_tt` → 该告警上游已有 TT（eFlow 规则先派了），属正常，不会重复建单；
+- `failed>0` 且 `last_error` 是「接口回执成功但未回查到 TT」→ 上文的时灵时不灵，下一轮会重试；
+- `suspect_ttstatus>0` → 这些告警在 eFlow 侧 `ttstatus` 非 0（ME 未关联站点）。
+  **任务已照派**（不阻断），只是用最小预算；派不出时记 `N` 并在群里通报一次「需人工在
+  eFlow 处理」。明细见 `suspect_ttstatus_samples`。在 eFlow 页面确认 ME→站点绑定
+  （`site` 应显示数字站号、`sitename` 应有值），绑定修好后下一轮自动派单成功，
+  不需要改配置。**已知案例（2026-10-27）**：`6120HS_Peter_luogan_town_UPE80`
+  站号已解析为 `4478`/`Peter Luogon Town`，但 `ttstatus` 在 `2`/`6` 之间跳，
+  接口回 `manual assign succeed.` 却不建 TT —— 必须在 eFlow 侧把 ME 绑到站点；
+- `last_error` 是「站点解析失败」→ ME 名不在 cmdb；`last_error` 里会附 `已尝试站名 [...]`，
+  拿它去 cmdb 比对命名。若只是拼写差异（且不是等长元音互换），近似匹配**不会**兜底，
+  应修 ME 命名或 cmdb 站名，而不是调低 `site_fuzzy_threshold`（调低只会把它变成错派风险）。
+  这类告警**不静默**：群里会收到一条「需人工在 eFlow 处理」通报（同一条只发一次）。
+- `merged>0` → 有告警被合并进组长告警的 TT（同一次光纤中断），这是**预期行为**，不是漏派。
+  核对方法：拿 `skip_reason` 里的组长 alarm_key 去状态表查它的 `tt_no`，
+  确认这个单号确实建出来了；若组长那条失败（`N`），成员**不会被合并**
+  （合并只在组长真正建出 TT / 演练覆盖后才生效），会各自独立派单；
+- 通报里出现 `This TT covers N sites` 但站点列表看着不对 → 说明窗口内混进了另一次故障，
+  调小 `group_window_minutes`（如 3~5 分钟）；真出了误合并就配 0 止血；
+- `correlation_undetermined>0` → 这些告警的 99933 判定无法完成（站名对不上），
+  已按「没有关联」继续派单；明细见结果里的 `correlation_undetermined_samples`，
+  若发现同一站点出现重复派单，优先修 ME 命名让站名与 cmdb 一致。
+- `warnings` 里出现「站点名近似匹配」→ 派单是按近似结果走的，**必须人工核对** cmdb 命名，
+  确认是同一站点后建议直接修正命名，让后续走 `exact`。
+  **已知案例（2026-10-27）**：`6120HS_Peter_luogan_UPE80` 解析出的 `peter luogan town`
+  在 cmdb 里写作 `Peter Luogon Town`（`luogan` / `luogon` 差一个字母）→ 走了
+  `fuzzy` 档（等长元音互换），解析到 `4478`，通报里会附提示。
+- `warnings` **同一告警只在首次出现时报告**：`warnings` 非空会让 `task_runner` 判
+  「任务降级完成」并推一条微信，而「近似匹配 / 关联判定不了 / ttstatus 异常」是告警级的
+  长期状态，每轮都写就等于每 5 分钟推一条微信。后续轮次只写 `samples` /
+  `correlation_undetermined_samples` / `suspect_ttstatus_samples` 与状态表（2026-10-27 实测
+  11:33 与 11:38 两轮之间微信通知只在首轮出现）。
+- WhatsApp 没收到 → 看 `send_status` 是否 `Y`；`wa_notify` 离线会写进结果的 `warnings`。
+

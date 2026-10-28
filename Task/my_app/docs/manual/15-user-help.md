@@ -1,6 +1,6 @@
 # my_app 使用帮助
 
-> 面向使用者的平台功能与操作指南。本文件由「使用帮助」页面同源生成（frontend/src/helpMarkdown.ts），内容依据 docs/manual/ 各章与 backend/task_registry.py 整理。生成日期：2026-10-26。
+> 面向使用者的平台功能与操作指南。本文件由「使用帮助」页面同源生成（frontend/src/helpMarkdown.ts），内容依据 docs/manual/ 各章与 backend/task_registry.py 整理。生成日期：2026-10-27。
 
 > 站内入口：侧边栏「使用帮助」，或直链 `http://<host>/myapp/?page=help`。
 
@@ -10,7 +10,7 @@
 
 - [1. 平台简介](#1-平台简介)
 - [2. 通用操作](#2-通用操作)
-- [3. 任务管理详解（77 个任务）](#3-任务管理详解)
+- [3. 任务管理详解（78 个任务）](#3-任务管理详解)
 - [4. 页面指南](#4-页面指南)
 - [5. 运维与排障](#5-运维与排障)
 - [6. 常见问题](#6-常见问题)
@@ -80,7 +80,7 @@
 
 > ⚠️ **新增任务必须同时登记进 `worker_watchdog.py` 的 `GROUP_TASK_MAP`** —— 只写 `TASK_SPECS` 不分组 = 任务入队后永远 pending。这是本项目已发生过四次的事故模式（finebi_report_sync / whatsapp_send_ext / sp_email_details / 2026-09-18 的 olib_soc 与 vmax_multi_data_sync）。
 
-### 3.3 全量任务清单（77 个）
+### 3.3 全量任务清单（78 个）
 
 | 任务 | task_id | 默认 cron | 组 | 工作流脚本 |
 | --- | --- | --- | --- | --- |
@@ -94,6 +94,7 @@
 | eFlow P1 告警 WhatsApp 推送 | `tt_alarm_whatsapp_alert` | `2-59/5 * * * *` | m | `services/tt_alarm_whatsapp_service.py → run_tt_alarm_whatsapp_alert` |
 | MS SLA 完整同步 | `ms_sla_full` | `0 5 * * *` | n | `services/ms_sla_service.py → run_full_sync` |
 | DC server 告警 WhatsApp 推送 | `ume_alarm_whatsapp_alert` | `* * * * *` | m | `services/ume_alarm_whatsapp_service.py → run_ume_alarm_whatsapp` |
+| Fiber Break 告警自动派单 | `eflow_fiber_assign` | `3-59/5 * * * *` | m | `services/eflow_fiber/fiber_assign_service.py → run_fiber_assign` |
 | eFlow 实时告警同步 | `eflow_active_alarm` | `*/1 * * * *` | x | `services/eflow_api_client.py → fetch_and_save_active_alarm` |
 | eFlow 历史告警同步 | `eflow_history_alarm` | `0 */3 * * *` | n | `services/eflow_api_client.py → fetch_and_save_history_alarm` |
 | eFlow TT 规则收集与匹配检查 | `eflow_tt_rules_check` | `20 4 * * *` | n | `services/eflow_rules/eflow_tt_rules_check_task.py → run_eflow_tt_rules_check` |
@@ -349,6 +350,38 @@
 
 - 首轮只登记不发送，避免把存量告警一次性刷进群
 - 与 eflow 系列的 tt_alarm_whatsapp_alert 是两条独立通道（不同上游、不同告警码体系）
+
+#### Fiber Break 告警自动派单（`eflow_fiber_assign`）
+
+- 默认 cron: `3-59/5 * * * *`　|　worker 组: **m**
+- 工作流脚本: `services/eflow_fiber/fiber_assign_service.py → run_fiber_assign`
+
+**功能**: 查 eFlow 实时告警，命中告警码白名单（默认 4758 Fiber Break，页面可配）、存续时长满 15 分钟（派单等待时长，页面可配）、在触发窗口内、且同站点同时间窗口无 99933 告警时，把 ME 名解析成站点 ID+站点名后派单到指定用户组；派单后回查 ttid 确认真建出（内置重试）才通报到 WhatsApp 群。默认演练模式
+
+**工作流与数据流**:
+
+1. 查 eFlow 实时告警（未清除）
+1. 按告警码 + 存续满 15 分钟（派单等待时长）+ 触发窗口 + 同站点无 99933 过滤（站名对不上则按「无关联」继续派单）
+1. 跳过上游已有 TT（ttid 非空）与已派过的告警
+1. ME 名解析成站点名 → cmdb 查数字站点 ID（精确 → 归一化 → 等长元音近似）
+1. 调派单接口建 TT → 回查 ttid 确认 → WhatsApp 通报
+
+**维护要点**:
+
+- 派单等待时长 15 分钟：告警升起后要先存在满 15 分钟才派单并发 WhatsApp（业务口径「告警发生到选择超过 15 分钟才派」）——不是一升起就派，留这段时间让短时闪断自然清除；配 0 可恢复立即派单
+- 默认 dry_run 演练（只匹配记录不真派单），核对无误后到「任务配置」关掉
+- 关联 99933 无法判定时（fiber 只有 ME 推导站名、与 cmdb 写法不同，如 luogan/luogon）按「没有关联」继续派单并记 correlation_undetermined 留痕——不能因为站名匹配不到就长期漏派
+- 站点解析失败（cmdb 无此站点，如实测 Tokadeh）时自动派不了：记 N 并在群里发一条「需人工在 eFlow 处理」通报，同一条只发一次（send_status 抑制），不静默漏派
+- Fiber 派单必须带数字站点 ID + 站点名，只传 ME 名接口回 success 却不建 TT（实测教训）
+- Fiber 派单时灵时不灵，故内置重试，且以回查到 ttid 才判成功（不信接口的 status:true）
+- 告警上游已有 ttid 时直接跳过：eFlow 自己的派单规则会先建 TT，不跳过就会重复建单（实测 Zardun 两条）
+- 关联 99933 的站点比对按「数字站号 + 站点名」多键取交集（4758 与 99933 的 site/mename 形态不同，单键比对会漏判）
+- 站点名近似匹配只接受「等长且仅元音互换」（如 luogan→luogon）：扫生产 cmdb 830 站，通用 0.9 相似度会把 Garplay/Gbarplay、Butuo/Buutuo、Sanniquillie 5/1 这些不同站点判成同一个；另拒绝分期站点(X/X2)与歧义候选。命中会写 warnings 并在通报里附提示，需人工核对
+- eFlow 侧 ttstatus 非 0 不再阻断派单（2026-10-27 业务要求：不能被 ME 未绑定站点挡住）：照派，但只用最小预算（1 次尝试 × 2 次回查）；派不出时记 N 并在群里通报一次「需人工在 eFlow 处理」，ME 绑定修好后下一轮自动派单成功
+- 同一次光纤中断只派一个 TT（2026-10-27 需求）：一条光缆断掉会让链路上多个站点同时告警（实测 14:21 一次故障 9 秒内 5 条告警、建出 5 个重复单）；升起时间落在合并窗口（group_window_minutes，默认 10 分钟）内的告警合并成一个 TT，以组内最早的那条为组长建单，其余登记同一个单号，通报正文列出本单实际涵盖的站点；配 0 = 关闭合并（回滚开关）。判据用时间窗而非拓扑，是因为现有数据判不出同一条光纤：probeid 全库同一个 UUID、impact_site_list/link_path 全空、flm_database.fdn 被 96 个站点共用（太粗）、victim_topology 里 R.I.A 与 Tower Hill 互不包含且各是独立网关、eFlow relatedAlarms 返回 0 条
+- 状态落 eflow_fiber_assign_log：Y=已派成功/上游已有 TT，D=演练（关掉演练会重新处理），N=失败下轮重试
+- TT 标题由 eFlow 自动生成，格式 `<site>.[<站点名>]<告警名>`，接口不接受自定义标题
+- 通报正文一律英文（2026-10-27 要求）：字段标签、警示语、失败原因全英文；中文只留在状态表 last_error、结果 warnings 与日志里，因为群是一线英文环境
 
 #### eFlow 实时告警同步（`eflow_active_alarm`）
 
@@ -2112,11 +2145,16 @@ VMAX 用户信息查询：输入用户号码与时间窗，从 VMAX CCA 投诉�
 - 驻留小区行内点 KPI 弹出该小区指标明细（ppc 码已映射 KPI 英文名，缺码显示原始码）
 - 根因分析卡列出窗口内投诉根因（置信度降序），点详情看劣化描述、处理建议与逐时段判定；大窗口（7 天级）该查询可能超时，不影响其它卡片
 - 查询走 VMAX 门户会话（串行复用），请勿连续大量点击，避免占用上游会话
-- 结果只读透传不落库，刷新页面即清空
+- 结果只读透传不落库；但「执行过的查询」条件会写进地址栏，刷新、浏览器前进后退或把链接发给同事，重进时会自动按同一条件重查一次
+- 链接里带号码与时间窗（msisdn / vqStart 等参数），转发前确认接收方可以看这个号码
+- 三个视图（概览 / 信令详单 / XDR 记录）切换不会丢已查到的结果，来回对比不用重查
 - 「信令详单」页签（2026-10-26 并入）：号码沿用上方输入框，从 Talon XDR 平台查该号码逐条信令记录，可下钻到单次会话/过程
-- 信令详单支持 5G 会话（1100）、信令面（1300）、用户面业务（1301）；时间窗默认近 24 小时、最长 72 小时，列由上游列头动态生成（59~88 列，可横向滚动）
+- 信令详单支持 5G 会话（1100）、信令面（1300）、用户面业务（1301）与 RAN 无线侧（32）；时间窗默认近 2 小时，列由上游列头动态生成（46~88 列，可横向滚动）
+- 各类型可回溯时长不同：5G 系类 72 小时，RAN 无线侧只有 24 小时。超出保留期的时段选择器会置灰——那是上游不保留旧数据，不是故障
 - RAN 无线侧（32）已接入，含 RSRP/SINR 等空口测量列，排查无线质量用它；33/34 尚未接入
 - 「导出 Excel」导出的是**整个查询结果**而非当前页（自动分批拉全，上限 5000 条）；超限会在文件名副标题里写明已截断，此时请缩小时间窗分批导出
+- 「XDR 记录」页签（2026-10-27 新增）：按**单张 XDR 表**查（32 下为 UEMR_XDR / UU_XDR / X2_XDR，33/34 同类），列由该表列头决定；UEMR_XDR 含 RSRP/SINR 等空口测量列，排查无线质量用它
+- 点击任意记录行看全字段详情，可「存档」到本地库长期保留（上游只留 24~72 小时，过期就查不到了）；「已存记录」弹窗里另有查询历史（号码打码、按登录用户隔离，用于合规审计）
 
 ### 4.4 系统管理
 

@@ -109,18 +109,55 @@ def live_tt_rows(tt_nos: List[str]) -> Dict[str, Dict[str, Any]]:
 
 def merged_render_row(trig: Dict[str, Any], mirror: Optional[Dict[str, Any]],
                       live: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-    """合并三层来源为渲染行：触发行打底 → 镜像 → 实时（越右越新鲜越优先）。"""
+    """合并三层来源为渲染行：触发行打底 → 镜像 → 实时（越右越新鲜越优先）。
+
+    ⚠️ **只在「新值非空」时覆盖**（2026-10-28 修复）。
+    早先是裸 `update()`，于是实时行里那些**空串**会把镜像的真值抹掉：
+    eFlow `base/list` 的 `subAlarmName` 实测就是空的，`neIP` / `downSiteList`
+    这类字段更是根本不返回 —— 结果首推消息丢了告警对象、codename 与断站清单，
+    群里看到的是一行 `Alarm: 9995 | Communication Alarm`（用户反馈的原话是
+    「内容不准确」）。空值不是「新事实」，不能用来覆盖已知事实。
+    """
     merged = dict(trig)
-    if mirror:
-        merged.update(mirror)
-    if live:
-        merged.update(live)
+    for layer in (mirror, live):
+        for k, v in (layer or {}).items():
+            if v is None:
+                continue
+            # 空串 / 纯空白：只有当 merged 里本来也没有值时才写进去，
+            # 避免抹掉低层来源的真值（见 docstring）。
+            if isinstance(v, str) and not v.strip() and _s(merged.get(k)):
+                continue
+            merged[k] = v
     merged.setdefault("tt_no", trig.get("tt_no"))
     # 渲染与横幅要用的发生时间：实时/镜像的 alarm_occur_time 优先，
     # 缺失时退回触发行的告警升起时间（alarmraisedtime 的可读形式）。
     if not _s(merged.get("alarm_occur_time")):
         merged["alarm_occur_time"] = trig.get("alarm_raised_time")
+
+    # 触发行独有的「同义字段」回填（realtime_alarm 的列名 ≠ eflow_tt 的列名）。
+    # 只在目标列仍为空时填 —— 镜像/实时行有值就以它们为准（更贴近工单本身）。
+    for dst, src in _TRIGGER_BACKFILL:
+        if not _s(merged.get(dst)) and _s(trig.get(src)):
+            merged[dst] = trig.get(src)
     return merged
+
+
+# 触发行字段 → 渲染行（eflow_tt 列名）同义映射。用途见 merged_render_row。
+#
+# 为什么需要：`tt-analyze.py` 只认 eflow_tt 列名，而触发时刻的新单常常还没进
+# 镜像、实时行又不带这些字段。realtime_alarm 里它们的名字不同但语义相同：
+#   codename            → specific_problem / alarm_description（告警码的中文名，
+#                          如 'MW LINK DOWN'；渲染层用它给 `Alarm: 9995` 加注释）
+#   impact_site_list    → down_site_list（受影响站点号清单，'4104,3665,...'）
+#   impact_site_number  → down_site_count（受影响站点数）
+#   neip                → sub_alarm_ne_ip（告警对象 IP）
+_TRIGGER_BACKFILL = (
+    ("specific_problem", "codename"),
+    ("alarm_description", "codename"),
+    ("down_site_list", "impact_site_list"),
+    ("down_site_count", "impact_site_number"),
+    ("sub_alarm_ne_ip", "neip"),
+)
 
 
 def cleared_rows(conn, tt_nos) -> Dict[str, Dict[str, Any]]:

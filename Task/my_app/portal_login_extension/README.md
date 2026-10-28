@@ -1,13 +1,15 @@
 # my_app Portal Login Chrome 扩展
 
-为 eFlow 和 RAIS 的“本浏览器”模式提供本机登录。扩展不会保存门户账号或密码：用户点击 my_app 卡片后，前端申请 45 秒、仅可消费一次的票据；扩展消费票据，服务端完成既有的 RSA/OAuth2 或 AES 鉴权，再由扩展把结果种进**当前用户自己的 Chrome profile**。
+为 eFlow 等「直连 + 服务端可程序化拿到会话」的门户提供“本浏览器”模式登录。扩展不会保存门户账号或密码：用户点击 my_app 卡片后，前端申请 45 秒、仅可消费一次的票据；扩展消费票据，服务端完成既有的 RSA/OAuth2 鉴权，再由扩展把结果种进**当前用户自己的 Chrome profile**。
+
+> **RAIS 不在扩展范围内（2026-10-26 起）**：上游把登录改成 RSA 公钥加密 + **服务端强制一次性图形验证码**，服务端拿不到会话，也就没有东西可交给扩展种。`/api/portals/client-login/ticket` 对验证码门户直接回 400，前端会自动跳过扩展、改为打开上游登录页。
 
 ## 运行方式
 
 1. 确认客户端能直接打开 `https://10.100.20.8:28001` 与 `https://10.100.20.9:8766`，且 Windows/Chrome 已通过企业根证书信任它们的 HTTPS 证书。扩展不能绕过 Chrome 的证书错误页。
 2. 确认 my_app 的客户端访问地址是 `http://192.168.100.20/myapp/` 或 HTTPS 同地址。若实际地址不同，先同步修改 `manifest.json` 中的 `host_permissions`、my_app bridge 的 `matches`，以及 `background.js` 的 `MYAPP_ORIGINS`；不要用 `*://*/*` 放宽权限。
 3. 测试期：Chrome 打开 `chrome://extensions`，开启开发者模式，选择“加载已解压的扩展程序”，目录选本目录。
-4. 回到 `/myapp/?page=portalLogin`，选择“本浏览器”，点击 eFlow 或 RAIS。成功后新标签页在当前 Chrome profile 中打开，关闭 my_app 不会清除门户会话。
+4. 回到 `/myapp/?page=portalLogin`，选择“本浏览器”，点击 eFlow（RAIS 已不走扩展，见上文说明）。成功后新标签页在当前 Chrome profile 中打开，关闭 my_app 不会清除门户会话。
 
 ## 企业部署
 

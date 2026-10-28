@@ -142,10 +142,10 @@ def test_credential(body: CredentialTestRequest, request: Request):
     """连接测试：使用当前生效的凭据尝试登录/连通。
 
     2026-10-21 起**全部凭据组都可测**：
-      - `test_kind` 为 `zte_oauth2` / `rais` 的走本函数下方的既有路径
+      - `test_kind` 为 `zte_oauth2` 的走本函数下方的既有路径
         （auth_manager，带本地熔断冷却提示与终态错误判定）；
       - 其余 kind（vmax_portal / gbase / ssh / ssh_via_control / ume_keystone /
-        umc_portal / sftp / smtp / ews / weixin_push）统一派发到
+        umc_portal / sftp / smtp / ews / weixin_push / rais_uaclite）统一派发到
         backend/services/credential_tester.py。
     """
     en = _is_en(request)
@@ -164,7 +164,7 @@ def test_credential(body: CredentialTestRequest, request: Request):
     # ---- 非 ZTE OAuth2 的组：派发到 credential_tester（2026-10-21）----
     # 放在 auth_manager 路径之前，避免把 SSH / 数据库 / 邮件 / 推送这类组
     # 误当成 ZTE 网管去打 OAuth2（gp_ran_control 此前就是这个假阴性）。
-    if (group.get("test_kind") or "") not in ("zte_oauth2", "rais", ""):
+    if (group.get("test_kind") or "") not in ("zte_oauth2", ""):
         try:
             user, pwd = get_credential(
                 group["key"], group["default_user"], group["default_secret"],
@@ -243,28 +243,6 @@ def test_credential(body: CredentialTestRequest, request: Request):
                     "elapsed": round(time.time() - t0, 2),
                 }
 
-        # RAIS 不是 ZTE OAuth2 RSA 登录，不能走 auth_manager._do_login：
-        # 它走门户登录模块里的「直接鉴权」（AES-256-CBC 加密密码 POST
-        # verify4web.serv 换 SSO token），复用它即可当作真实的登录测试。
-        if body.key == "rais":
-            from backend.services import portal_login_service as portal_svc
-            try:
-                acct, _token = portal_svc._rais_direct_auth(portal_svc.PORTALS["rais"])
-                return {
-                    "status": "ok",
-                    "key": body.key,
-                    "message": (f"Login succeeded (account {acct}, SSO token acquired)" if en
-                                else f"登录成功（账号 {acct}，已获取 SSO token）"),
-                    "elapsed": round(time.time() - t0, 2),
-                }
-            except Exception as e:
-                logger.warning(f"[CRED] RAIS 连接测试失败: {e}")
-                return {
-                    "status": "fail",
-                    "key": body.key,
-                    "message": f"Login failed: {e}" if en else f"登录失败: {e}",
-                    "elapsed": round(time.time() - t0, 2),
-                }
         try:
             from backend.services.auth_manager import _do_login
         except ImportError:

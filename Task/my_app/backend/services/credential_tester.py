@@ -1,8 +1,8 @@
 """
 credential_tester.py - 凭据「连接测试」的按系统分发实现
 =======================================================
-背景：设置页（`/myapp/?page=settings` → 凭据）原先只有 ZTE UME 系 / eFlow /
-RAIS 几组带「连接测试」按钮，其余组（VMAX CXO、GBase 数仓、Greenplum、
+背景：设置页（`/myapp/?page=settings` → 凭据）原先只有 ZTE UME 系 / eFlow 几组带
+「连接测试」按钮，其余组（VMAX CXO、GBase 数仓、Greenplum、
 UME 服务器网管、UMC、SFTP、126 邮箱、OWA 邮箱、微信推送）只能"保存后等任务跑
 才知道对不对"。本模块把**每一组都接上各自系统的真实登录/连通性检查**。
 
@@ -20,9 +20,11 @@ UME 服务器网管、UMC、SFTP、126 邮箱、OWA 邮箱、微信推送）只�
 5. 有**会话配额**的系统（VMAX CXO 门户按用户限并发）测试完主动登出/关闭连接。
 
 分发方式：`credential_store` 每条记录带 `test_kind`，本模块用 `TESTERS` 字典
-按 kind 找函数；`test_kind` 为 `zte_oauth2` / `rais` 的仍走
-`routers/credentials.py` 里既有的 auth_manager 路径（那两条带本地熔断与
+按 kind 找函数；`test_kind` 为 `zte_oauth2`（或空）的仍走
+`routers/credentials.py` 里既有的 auth_manager 路径（那条带本地熔断与
 终态错误判定，逻辑不适合搬到这里）。
+RAIS 自 2026-10-26 起改为 `_test_rais`（上游强制人工图形验证码，
+无法再走 Python 端直接鉴权，见该函数）。
 """
 from __future__ import annotations
 
@@ -487,6 +489,102 @@ def _test_weixin(group: dict, user: str, pwd: str, en: bool) -> Tuple[bool, str]
         return True, _disp(en, f"推送成功（已发出测试消息）：{detail}",
                            f"Push succeeded (a test message was sent): {detail}")
     return False, _disp(en, f"推送失败：{detail}", f"Push failed: {detail}")
+
+
+# ==================================================================
+# RAIS 统一权限平台（ZTE UAC-Lite）
+# ==================================================================
+@_register("rais_uaclite")
+def _test_rais(group: dict, user: str, pwd: str, en: bool) -> Tuple[bool, str]:
+    """只测「上游可达 + 登录链路正常」，**测不了口令**。
+
+    2026-10-26 上游改版，程序化登录已经不可能，实测三点：
+      1) 密码改用服务端下发的 RSA 公钥加密
+         （POST `/raisprod/platform-service/web/config/getAesConfig` → `bo.publicKey`），
+         原先硬编码在前端 chunk 里的 AES-256-CBC key/iv 已废弃；
+      2) `verify4web.serv` **服务端强制**一次性图形验证码（先
+         POST `/raisprod/uaclite/web/api/captcha/generate` 拿 `captchaId` + PNG，
+         错或缺回 code=0005「验证码错误」）。历史实现靠「验证码只做前端比对」蒙过
+         服务端，这条前提已经没了；
+      3) 网关强制**同源 Referer**，缺了直接回 HTTP 445 空响应体
+         （就是「Login failed: HTTPStatusError: Client error '445'」那条报错的成因）。
+    所以这里**不发登录请求**（撞一次只会白烧上游失败计数，可能触发账号锁定），
+    改为探这两个前置接口，并检查本机是否已配置口令。
+    """
+    host, port = group.get("test_host"), group.get("test_port")
+    base = f"https://{host}:{port}"
+    # Referer 必须是同源页面地址，否则网关 445（见上面第 3 条）
+    headers = {
+        "Content-Type": "application/json",
+        "Referer": base + "/raisprod/uacliteweb/",
+        "Origin": base,
+    }
+    try:
+        import requests  # noqa: WPS433
+    except Exception as e:  # noqa: BLE001
+        return False, _disp(en, f"缺少依赖: {e}", f"Missing dependency: {e}")
+    try:
+        import urllib3
+        urllib3.disable_warnings()
+    except Exception:  # noqa: BLE001
+        pass
+
+    sess = requests.Session()
+    # my_app 主机上可能配了 http_proxy，内网直连必须绕过代理
+    sess.trust_env = False
+
+    def call(path: str) -> dict:
+        """POST 一个前置接口；把网关的各种拒绝翻译成人能看懂的一句话。"""
+        r = sess.post(base + path, json={}, headers=headers,
+                      timeout=DEFAULT_TIMEOUT, verify=False)
+        if r.status_code == 445:
+            # 空响应体 + 非标准状态码 = 网关在业务逻辑之外就把请求拦了，
+            # 与账号密码无关。历史上这里报出来的就是那句看不懂的 445。
+            raise RuntimeError(_disp(
+                en, "HTTP 445：被 RAIS 网关拦在业务逻辑之外（同源 Referer 校验没过），"
+                    "与凭据无关",
+                "HTTP 445: rejected by the RAIS gateway before reaching business logic "
+                "(same-origin Referer check failed); unrelated to the credentials"))
+        if not r.ok:
+            raise RuntimeError(f"HTTP {r.status_code} {r.reason}: {r.text[:160]}")
+        try:
+            return r.json()
+        except ValueError:
+            raise RuntimeError(_disp(
+                en, f"上游返回的不是 JSON（HTTP {r.status_code}，body={r.text[:120]!r}）",
+                f"Upstream did not return JSON (HTTP {r.status_code}, body={r.text[:120]!r})"))
+
+    try:
+        aes = call("/raisprod/platform-service/web/config/getAesConfig")
+        if (aes.get("code") or {}).get("code") != "0000" or not (aes.get("bo") or {}).get("publicKey"):
+            return False, _disp(
+                en, f"取登录公钥失败：{str(aes)[:200]}",
+                f"Failed to fetch login public key: {str(aes)[:200]}")
+        cap = call("/raisprod/uaclite/web/api/captcha/generate")
+        if (cap.get("code") or {}).get("code") != "0000" or not (cap.get("bo") or {}).get("captchaId"):
+            return False, _disp(
+                en, f"取图形验证码失败：{str(cap)[:200]}",
+                f"Failed to fetch the captcha: {str(cap)[:200]}")
+    except Exception as e:  # noqa: BLE001
+        text = str(e)
+        # 445 的文案已经是成品句子，不要再套一层「连接失败」
+        if "HTTP 445" not in text:
+            text = _disp(en, f"连接失败: {type(e).__name__}: {e}",
+                         f"Connect failed: {type(e).__name__}: {e}")
+        return False, text
+
+    if not (pwd or "").strip():
+        return False, _disp(
+            en, "上游可达（公钥与验证码接口正常），但本机未配置 RAIS 密码，"
+                "门户登录页将无法预填",
+            f"Upstream is reachable (key & captcha endpoints OK) but no RAIS password "
+            f"is configured here, so the portal login page cannot be prefilled")
+    return True, _disp(
+        en, f"上游可达（账号 {user} @ {host}:{port}，RSA 公钥与验证码接口正常）。"
+            "RAIS 登录需人工输入图形验证码，本测试不校验口令",
+        f"Upstream reachable (account {user} @ {host}:{port}; RSA key and captcha "
+        "endpoints OK). RAIS login needs a human-typed captcha, so this test "
+        "does not verify the password")
 
 
 # ==================================================================

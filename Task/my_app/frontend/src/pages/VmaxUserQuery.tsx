@@ -11,7 +11,7 @@
  * 三态渲染与请求序号守卫抄 EflowQa 的 TT 快速分析（防旧请求迟到回写）。
  * ========================================================================== */
 
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Alert, Button, DatePicker, Descriptions, Input, Segmented, Space, Spin, Table, Tag, Typography,
 } from 'antd'
@@ -23,10 +23,12 @@ import { useI18n } from '../i18n'
 import { CardBase } from '../components/cards'
 import DraggableClickModal from '../components/DraggableClickModal'
 import VmaxXdrPanel from '../components/VmaxXdrPanel'
+import VmaxXdrRecordsPanel from '../components/VmaxXdrRecordsPanel'
 import VmaxCcaCards, {
   type CcaResult, type CauseItem, type CellRecord,
 } from '../components/VmaxCcaCards'
 import { vmaxCcaQuery } from '../api'
+import { readParam, writeParams } from '../urlState'
 
 const { Text } = Typography;
 const { RangePicker } = DatePicker
@@ -61,23 +63,65 @@ const fmtArr = (v: unknown) => {
   return fmt(v)
 }
 
+type ViewKey = 'overview' | 'xdr' | 'records'
+const isViewKey = (v: string): v is ViewKey =>
+  v === 'overview' || v === 'xdr' || v === 'records'
+
+/** 首屏视图：地址栏里带的视角优先（跳回上次看的页签） */
+const readInitialView = (): ViewKey => {
+  const v = readParam('vmaxView')
+  return isViewKey(v) ? v : 'overview'
+}
+
+/** 首屏时间窗：URL 里成对合法才用，否则回落「今天 00:00 ~ 现在」 */
+const readInitialRange = (): [Dayjs | null, Dayjs | null] => {
+  const s = readParam('vqStart')
+  const e = readParam('vqEnd')
+  if (s && e) {
+    const ds = dayjs(s)
+    const de = dayjs(e)
+    if (ds.isValid() && de.isValid()) return [ds, de]
+  }
+  return [dayjs().startOf('day'), dayjs()]
+}
+
 export default function VmaxUserQuery() {
   const { t } = useI18n()
 
-  const [msisdn, setMsisdn] = useState('')
+  // 号码 / 时间窗 / 视角都从地址栏恢复：刷新、浏览器前进后退、别人发来的链接
+  // 都能落回同一个查询上下文（URL 是页面状态的唯一真相源，见 urlState.ts）
+  const [msisdn, setMsisdn] = useState(() => readParam('msisdn'))
   // 时间窗：精确到分钟，默认今天 00:00 ~ 当前时刻（后端归一，跨度上限 31 天）
-  const [range, setRange] = useState<[Dayjs | null, Dayjs | null] | null>([
-    dayjs().startOf('day'), dayjs(),
-  ])
+  const [range, setRange] = useState<[Dayjs | null, Dayjs | null] | null>(readInitialRange)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [result, setResult] = useState<QueryResult | null>(null)
   const [searched, setSearched] = useState(false)
-  // 视图切换：概览（CCA）/ 详单（Talon XDR）。用 Segmented 而非 Tabs，
-  // 与 ttwo 的时间范围开关同一观感（.wh-seg 实心青选中态，选项一眼可见）。
-  const [view, setView] = useState<'overview' | 'xdr'>('overview')
+  // 视图切换：概览（CCA）/ 详单（Talon 合并表）/ XDR Records（分表）。
+  // 用 Segmented 而非 Tabs，与 ttwo 的时间范围开关同一观感（.wh-seg 实心青选中态）。
+  const [view, setView] = useState<ViewKey>(readInitialView)
+  // 已打开过的子视图：切走只隐藏、不卸载，保住面板里的查询结果。
+  // 面板的结果/已选表/时间窗/分页全在各自 state 里，条件渲染一卸载就全丢
+  // （用户反馈：查完 XDR 回概览看一眼，再回来数据没了）。
+  // 首次不预先挂载，是为了概览首屏不多打 services / tables 这几支请求。
+  // 但从 URL 直接落到 xdr/records 时，该视图必须立刻挂载，否则首屏空白。
+  const [mounted, setMounted] = useState<Record<string, boolean>>(() => {
+    const v = readInitialView()
+    return v === 'overview' ? {} : { [v]: true }
+  })
+  const switchView = useCallback((v: ViewKey) => {
+    setView(v)
+    if (v !== 'overview') setMounted((m) => (m[v] ? m : { ...m, [v]: true }))
+  }, [])
   // 当前查询的请求序号：旧请求的迟到结果直接丢弃（抄 EflowQa 的 ttSeqRef）
   const seqRef = useRef(0)
+
+  // 视角写回地址栏（replaceState，不新增历史记录）。
+  // 时间窗与号码不在这里写：URL 描述的是「已执行过的查询」，改控件不等于查过，
+  // 提前写会让链接里的窗口与屏幕上的结果对不上（见 run）。
+  useEffect(() => {
+    writeParams({ vmaxView: view === 'overview' ? '' : view })
+  }, [view])
 
   // 小区 KPI 弹窗（可拖拽，点遮罩不关闭）
   const [kpiOpen, setKpiOpen] = useState(false)
@@ -98,6 +142,9 @@ export default function VmaxUserQuery() {
     setSearched(true)
     const start = range?.[0]?.format('YYYY-MM-DD HH:mm') || undefined
     const end = range?.[1]?.format('YYYY-MM-DD HH:mm') || undefined
+    // 「已执行的查询」才入 URL：号码与窗口都取这一次真正发出去的值，
+    // 输入框里改到一半的号码不该出现在可分享的链接里
+    writeParams({ msisdn: q, vqStart: start || '', vqEnd: end || '' })
     try {
       const r = await vmaxCcaQuery(q, start, end)
       if (seq !== seqRef.current) return   // 已有更新的查询，丢弃本次结果
@@ -111,6 +158,33 @@ export default function VmaxUserQuery() {
       if (seq === seqRef.current) setLoading(false)
     }
   }, [range])
+
+  // 首屏恢复：URL 带号码说明这是一次真实执行过的查询，自动重放一次，
+  // 不让人对着已经填好的号码再点一遍「查询」。只跑一次，之后不干预用户操作。
+  // 只在落到「概览」时跑：链接指向 XDR 时后台再跑一次看不见的 CCA 查询，
+  // 会占住 VMAX 的串行会话，把用户真正要看的那次查询往后拖。
+  const bootRef = useRef(false)
+  const backfillRef = useRef(false)
+  useEffect(() => {
+    if (bootRef.current) return
+    bootRef.current = true
+    if (!msisdn.trim()) return
+    if (readInitialView() === 'overview') {
+      backfillRef.current = true      // 概览的首查由这里负责，别让下面再补一次
+      void run(msisdn)
+    }
+    // 只在挂载时跑：run 会随 range 变化，跟着它跑会变成「改个时间窗就自动查」
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // 从 XDR / 记录视图的链接进来时概览还没查过：第一次切回概览补一次，
+  // 别让人对着已经填好的号码发愣。补一次就收手（失败也不反复打上游）。
+  useEffect(() => {
+    if (view !== 'overview' || backfillRef.current) return
+    if (result || loading || error || !msisdn.trim()) return
+    backfillRef.current = true
+    void run(msisdn)
+  }, [view, result, loading, error, msisdn, run])
 
   /* ---- 用户信息卡：已知字段给 i18n 标签，其余键值兜底 ---- */
   const userItems = useCallback((user: Record<string, unknown>) => {
@@ -262,19 +336,26 @@ export default function VmaxUserQuery() {
             options={[
               { label: t('vmaxq.tab.overview'), value: 'overview' },
               { label: t('vmaxq.tab.xdr'), value: 'xdr' },
+              { label: t('vmaxq.tab.records'), value: 'records' },
             ]}
             value={view}
-            onChange={(v) => setView(v as 'overview' | 'xdr')}
+            onChange={(v) => switchView(v as 'overview' | 'xdr' | 'records')}
             style={{ background: 'var(--wh-seg-bg)' }}
           />
           <Text type="secondary" style={{ fontSize: 12 }}>
-            {view === 'overview' ? t('vmaxq.tab.overviewHint') : t('vmaxq.tab.xdrHint')}
+            {view === 'overview' && t('vmaxq.tab.overviewHint')}
+            {view === 'xdr' && t('vmaxq.tab.xdrHint')}
+            {view === 'records' && t('vmaxq.tab.recordsHint')}
           </Text>
         </Space>
       </CardBase>
 
-      {view === 'overview' && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--wh-space-md)' }}>
+      {/* 概览：常驻挂载，切走只 display:none（keep-alive），避免来回复查 CCA */}
+      <div style={{
+        display: view === 'overview' ? 'flex' : 'none',
+        flexDirection: 'column',
+        gap: 'var(--wh-space-md)',
+      }}>
       {/* ② 错误（接口失败）+ 重试 */}
       {error && (
         <Alert
@@ -341,7 +422,10 @@ export default function VmaxUserQuery() {
         </CardBase>
       )}
 
-      {/* ⑧ 小区 KPI 弹窗（可拖拽） */}
+      </div>
+
+      {/* ⑧ 小区 KPI 弹窗（可拖拽）：浮层放在视图容器外，
+          切页签时不该被上面的 display:none 连带隐藏 */}
       <DraggableClickModal
         open={kpiOpen}
         title={`${t('vmaxq.kpiTitle')} · ${kpiCell?.cellname || kpiCell?.cellkey || ''}`}
@@ -361,12 +445,22 @@ export default function VmaxUserQuery() {
           <Text type="secondary">{t('vmaxq.noKpi')}</Text>
         )}
       </DraggableClickModal>
-              </div>
+
+      {/* ⑨ 两个 XDR 视图：打开过一次就一直挂着，切走只隐藏 ——
+          面板里的查询结果、已选表、时间窗、分页都靠组件 state 活着，
+          条件渲染会在切回概览时把它们全部卸载（这正是「数据没了」的原因）。 */}
+      {mounted.xdr && (
+        // 号码沿用上面查询条；XDR 的窗口与类型在本视图内独立选（见 VmaxXdrPanel 头注释）
+        <div style={{ display: view === 'xdr' ? 'block' : 'none' }}>
+          <VmaxXdrPanel msisdn={msisdn} />
+        </div>
       )}
 
-      {view === 'xdr' && (
-        // 号码沿用上面查询条；XDR 的窗口与类型在本视图内独立选（见 VmaxXdrPanel 头注释）
-        <VmaxXdrPanel msisdn={msisdn} />
+      {mounted.records && (
+        // XDR Records：按单张 XDR 表查（UEMR_XDR 等）+ 存档/审计（见 VmaxXdrRecordsPanel）
+        <div style={{ display: view === 'records' ? 'block' : 'none' }}>
+          <VmaxXdrRecordsPanel msisdn={msisdn} />
+        </div>
       )}
 
       {/* ⑨ 根因详情弹窗（劣化描述 + 处理建议 + 逐时段明细） */}

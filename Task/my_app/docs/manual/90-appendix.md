@@ -37,6 +37,7 @@
 | `routers/finebi_reports.py:26-48` | `/api/finebi-reports/latest`、下载 |
 | `routers/sp_dashboard.py:25-55` | 仓库看板 iframe 用：`/api/data`、`/api/warehouses`、`/api/details` |
 | `routers/realtime_proxy.py:23-39` | 实时代理入口（实际代理端口 8787/8790 只绑回环） |
+| `routers/portal_qa.py` | 门户问答挂件：`/api/portal-qa/ask`、`/api/portal-qa/session/clear`、`/api/portal-qa/health`（转发到本机 9269，见 `13-operations.md`） |
 | `routers/cm_flows.py:21-46` | CM 小区配置流程 |
 | `routers/task_configs.py:48-82` | 任务参数配置（系统设置 → 任务配置页签） |
 

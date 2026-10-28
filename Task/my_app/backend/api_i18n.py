@@ -73,6 +73,13 @@ _EXACT = {
     "正在启动浏览器...": "Launching the browser...",
     "正在直接鉴权...": "Authenticating directly...",
     "未找到该任务（可能已过期）": "Job not found (it may have expired)",
+    # 验证码门户（RAIS / VMAX CXO）：脚本只预填账号密码，最后一步交回人工。
+    "已预填账号密码，请在浏览器里输入图形验证码后点登录":
+        "Account and password prefilled — please type the image captcha in the browser and click Login",
+    "未配置该门户的密码，请在浏览器里手动输入账号密码与验证码后登录":
+        "No password is configured for this portal — please enter the account, password and captcha in the browser",
+    "该门户登录需人工输入图形验证码，不支持客户端会话登录":
+        "This portal's login requires a human-typed image captcha, so client-side session sign-in is not supported",
     # ---- TT 复盘面板：只登记「纯展示字段」的句子 ----
     # wo_people[].step（表格直接 dataIndex 显示，前端不匹配它）
     "WO 接单": "WO accepted",

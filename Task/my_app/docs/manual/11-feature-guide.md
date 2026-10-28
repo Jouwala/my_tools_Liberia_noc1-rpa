@@ -2193,7 +2193,7 @@ TT 复盘抽屉（`TtPostmortemPanel.tsx:693-710`）的红字
 | `ssh` | gp_ran_control | paramiko 口令登录 control1:22 |
 | `ssh_via_control` | gp_ran_master | 两跳 SSH：本机 → control1 → 193.168.0.6（主节点不可直连） |
 | `ume_keystone` | ume_alarm | Keystone v3 换 token → 项目 token（`force_refresh=True`，不走缓存） |
-| `rais` | rais | AES-256-CBC 加密 `POST verify4web.serv` 换 SSO token |
+| `rais_uaclite` | rais | **不发登录请求**（上游强制人工图形验证码）：只探 `getAesConfig` 取 RSA 公钥 + `web/api/captcha/generate` 取验证码，两个都 0000 才算「上游可达」；本组密码为空则报未配置 |
 | `umc_portal` | fw_kpi | 经典 UMC 登录（Node 跑服务器原版 `e.js` 算 strEnc/SM3） |
 | `sftp` | sftp_sp | paramiko 认证 + 开 SFTP 通道，只取主目录，不下载 |
 | `smtp` | mail_126 | `SMTP_SSL` + AUTH 握手，**不发信** |
@@ -2220,7 +2220,7 @@ TT 复盘抽屉（`TtPostmortemPanel.tsx:693-710`）的红字
 |---|---|---|---|
 | `zte_ume` / `ccn_ume` / `ipran_ume` / `mw_ume` | 各 UME 网管 | 见 `PORTALS` 默认值 | ZTE OAuth2 登录页填表（客户端模式反代 8081/8082/8083/8084） |
 | `eflow` | eFlow 告警系统 | 10.100.20.8:28001 | **直接鉴权**（复刻 RSA+OAuth2 拿会话 → CDP 种 cookie） |
-| `rais` | RAIS 统一权限平台 | 10.100.20.9:8766 | **直接鉴权**（AES-256-CBC 加密密码换 SSO token → CDP 种 cookie） |
+| `rais` | RAIS 统一权限平台 | 10.100.20.9:8766 | 登录页填表（`direct=true` 直连上游；**图形验证码需人工**，见下） |
 | `fw_kpi` | FW 整机吞吐 UMC | 10.100.2.101:443 | 登录页填表（客户端模式反代 8085） |
 | `vmax_cxo` | VMAX CXO 经营看板 | 10.123.255.12:26180 | 登录页填表（客户端模式反代 8086） |
 | `ume_in` | UME iMonitor 大屏 | 172.17.208.1:28808 | 登录页填表（客户端模式反代 **8088**；同时被 `?page=imonitor` 复用） |
@@ -2240,7 +2240,24 @@ TT 复盘抽屉（`TtPostmortemPanel.tsx:693-710`）的红字
 页面右上角切换，选择存在浏览器 `localStorage.myapp_portal_login_mode`：
 
 - **客户端（默认）**：在访问者自己的浏览器里打开门户，会话落在访问者本机。非直连门户经 nginx 同源反代 + 注入 `/api/portals/inject.js` 自动填表。
-- **服务器**：在 my_app 服务器桌面弹 Chrome。`eflow`/`rais` 走「直接鉴权」，**完全免手工**，直接落到已登录主页。
+- **服务器**：在 my_app 服务器桌面弹 Chrome。`eflow` 走「直接鉴权」，**完全免手工**，直接落到已登录主页；`rais` 只能**预填账号密码**，验证码由人补（见下一段）。
+
+> **RAIS 为什么从「直接鉴权」退回来（2026-10-26 上游改版，实测）**：
+> 1. `/raisprod/*` 网关强制**同源 `Referer`**，缺了直接回 **HTTP 445 空响应体**——
+>    请求根本没进到业务逻辑，所以报错只有一句 `Client error '445 '`，看不出原因；
+> 2. 密码不再用硬编码在前端 chunk 里的 AES-256-CBC key/iv，改为
+>    RSA 公钥加密，公钥由 `POST /raisprod/platform-service/web/config/getAesConfig`
+>    现场下发（`bo.publicKey`，RSA-1024）；
+> 3. 接口搬到 `/raisprod/uaclite/web/` 前缀下，且 `verify4web.serv` **服务端强制**
+>    一次性图形验证码（先 `POST web/api/captcha/generate` 拿 `captchaId` + PNG，
+>    缺或错回 `code=0005`「验证码错误」）。历史上验证码只做前端比对，这条前提已经没了。
+>
+> 所以 `PORTALS['rais']` 改打 `captcha: True`：服务器模式启动 Chrome → CDP 填账号密码 →
+> **不自动提交**，任务以 `need_manual` 收尾（卡片显示「需验证码」(zh) / 「Captcha」(en)），
+> 窗口保持打开等人工补验证码。客户端模式下扩展种 Cookie 那条路也一并跳过
+> （服务端没有会话可交，`/api/portals/client-login/ticket` 对验证码门户直接 400）。
+> 撞开着的登录接口只会白烧一次失败计数，所以「凭据 → 连接测试」也不再发登录请求，
+> 改测两个前置接口（公钥 + 验证码）来判断「上游可达但口令无法程序化校验」。
 
 > **直连门户（`eflow`/`rais`）的特殊处理**（`handleLogin` 的 `localDirect` 分支）：
 > 这两个门户**不能用反代**——实测经 nginx 同源反代后「能登录但告警数据全 0」
@@ -2248,13 +2265,15 @@ TT 复盘抽屉（`TtPostmortemPanel.tsx:693-710`）的红字
 > Default Templates*），因为它们的前端把根地址/实时通道写死成上游绝对地址。
 > 所以：
 > - 访问者就在服务器本机（`/api/portals` 的 `client_is_local=true`，或页面主机名是回环）→
->   点「登录」**自动改走服务器端直接鉴权**，弹出来的窗口就在他自己桌面上（不必手动切「服务器」）；
+>   点「登录」**自动改走服务器端登录**（eFlow 直接鉴权、RAIS 预填 + 人工验证码），
+>   弹出来的窗口就在他自己桌面上（不必手动切「服务器」）；
 > - 远程访问者 → 只打开上游登录页（不会填表，卡片标「已打开页面，请手动登录」），
->   要一键登录得把「登录位置」切到「服务器」。
+>   要预填账号密码得把「登录位置」切到「服务器」。
 
 > 实现注意（判定「已登录」）：
-> 1. 不能只看 URL——RAIS 的 hash 路由切到 `#/homepage` 是瞬时的，必须等首屏真正渲染出内容
->    （`PORTALS['rais']['ready_js']`）。
+> 1. 不能只看 URL——RAIS 的 hash 路由切到 `#/homepage` 是瞬时的，必须等首屏真正渲染出内容。
+>    （历史上这里靠 `PORTALS['rais']['ready_js']`；2026-10-26 RAIS 退回人工验证码后
+>    该键已随直接鉴权代码一起删除，现在只有 eFlow 那条路还做首屏判定。）
 > 2. eFlow 必须**等启动页真正落到门户源**再写 `localStorage.csrftoken`：Chrome 一启动
 >    `DevToolsActivePort` 就有，此时页面还在 `about:blank`（origin=null），
 >    `localStorage.setItem` 会抛 SecurityError → 整页渲染
@@ -4320,10 +4339,15 @@ Talon XDR 平台的**逐条信令详单**查询（2026-10-26 接入）。与第 
 ### 36.2 状态语义
 
 - `records=0` / 表格空态 = 该窗口内无此类信令，**业务正常**，不是故障。
-- 时间窗默认最近 24 小时，上限 **72 小时**（`routers/vmax_xdr_query.py`
-  的 `MAX_WINDOW_HOURS`）：XDR 量大，窗口越大越慢。
-- 上游 `status=1` 时 `errMsg` 原样透到界面（如鉴权码 `31001003xx`），
-  便于区分是参数问题还是权限问题。
+- **时间窗默认最近 2 小时**（排障看当下；`VmaxXdrPanel.tsx` 的
+  `DEFAULT_WINDOW_HOURS`），上限跟着所选类型的 `retention_hours` 走：
+  `1100/1300/1301` 是 72h，`32`（RAN）只有 **24h**。
+- **保留期外查不到是上游限制，不是故障**（2026-10-26 实测）：32 的近 24h 有
+  2577 条，但用前一天同一时刻的窗口就返回 `3100100202`。所以前端把早于保留期
+  与未来的时段都置灰，切换类型时也会把超出的起点收回；后端在入口按同一上限校验。
+- **上游错误码翻成中文再给用户看**（`routers/vmax_xdr_query.py` 的
+  `_UPSTREAM_HINTS` / `_humanize_upstream`）：原始 `3100100202` 这类码用户看不懂，
+  且极易把「窗口超出保留期」误判成系统故障。认不出的码仍原样透出，**日志里始终保留原文**。
 
 ### 36.3 实现与协议
 
@@ -4343,5 +4367,139 @@ Talon XDR 平台的**逐条信令详单**查询（2026-10-26 接入）。与第 
 
 ### 36.4 未接入
 
-`serviceType` `32 / 33 / 34`（数据面）使用另一套字段（`btime` + `User Number`），
-实测返回 `3100100314`，**尚未接**。接入需要一份这三个类型成功查询的抓包。
+`33 / 34`（NR / UMTS）的**合并表**查询尚未接入（列头可取，查询返回
+`3100100319`）；它们的分表查询已可用，见第 37 节。
+
+---
+
+## 37. XDR Records（`vmax_user_query` 的「XDR 记录」页签，2026-10-27 新增）
+
+按**单张 XDR 表**查明细，并能把关键记录存档、把每次查询记入审计。
+与第 36 节（合并表）互补：
+
+| 视角 | 后端接口 | 适用场景 |
+| --- | --- | --- |
+| 信令详单（第 36 节） | `exec_merge_query`（合并表） | 这个号码在窗口内**发生了什么**，一条流水看全接口 |
+| XDR 记录（本节） | `exec_query` + `XDRTable`（分表） | 看**某一张表**的完整列，如 UEMR_XDR 的 RSRP/SINR |
+
+### 37.1 表清单来自上游，不写死
+
+`get_tabinfo`（入参 `{"xdrServiceId": "<serviceType>", "condition": []}`）返回
+该类型下的 `[{table_name, xdr_name}]`，客户端缓存 10 分钟。2026-10-27 实测：
+
+| serviceType | 表（xdr_name → table_name） |
+| --- | --- |
+| `32`（LTE RAN） | `UU_XDR` → `ods_lte_xdr_uu_cmcc`、`X2_XDR` → `ods_lte_xdr_x2_cmcc`、**`UEMR_XDR` → `fact_lte_uemr`** |
+| `33`（NR） | `Uu_XDR` → `ods_nr_xdr_uu_cmcc`、`Xn_XDR` → `ods_nr_xdr_xn_cmcc`、`UEMR_XDR` → `fact_nr_uemr` |
+| `34`（UMTS） | `UU_XDR` → `ods_umts_uu`、`HO_XDR` → `ods_umts_ho`、`UEMR_XDR` → `ods_umts_uemr` |
+| `1100` | `S1MME_XDR` / `S10S11_XDR` / `S6A_XDR` / `SGS_XDR` / `GN_XDR` |
+| `1300` | `FLOW_XDR` / `HTTP_XDR` / `DNS_XDR` … 共 10 张 |
+| `1301` | `VIDEO_XDR` / `WEB_XDR` / `APP_XDR` / `OTT_*` 共 5 张 |
+
+`services/vmax_cca/vmax_xdr_client.py` 的 `XDR_TABLES_FALLBACK` 保留同一份静态清单：
+上游限流/不可用时下拉仍有选项，但**查询前仍按清单做表名白名单校验**
+（`XDRTable` 会被拼进上游 SQL 的 FROM 子句，任意字符串有注入风险）。
+
+### 37.2 协议要点（与合并表的四处差异）
+
+1. 走 `exec_query`（不是 `exec_merge_query`）；
+2. `XDRTable = <table_name>`，**不传 `serviceName`**（合并表是 `XDRTable=""` +
+   `serviceName="xdr_query"`，填错恒返回 `3100100303`）；
+3. 列头用 `get_xdrheader_info` + `queryType: 1` + `XDRTable`（合并表是
+   `queryType: 2` + `condition`），拿到 `field/header` 后 `colModel` 必须回填同一份字段名数组；
+4. 其余（毫秒边界时间、域配对、`condition` 结构）与第 36 节完全相同，
+   条件数组由 `_build_condition()` 统一构造，不重复实现。
+
+### 37.2b 号码条件：`type` 必须是 `"1"`（2026-10-27 修复）
+
+页面 `initcomponent` 给出的号码组件类型是 `6`（SELECT_INPUT 下拉+输入），但
+**组件类型不是上游的过滤类型**。把 `6` 原样下发，上游既不报错也不按号码过滤：
+
+| condition 写法 | 分表 `exec_query` | 合并 `exec_merge_query` |
+| --- | --- | --- |
+| `{"field":"msisdn","type":"6",...}` | `3100100202`（有数据却说无数据） | **完全不按号码过滤**，返回整窗所有用户的详单 |
+| `{"field":"msisdn","type":"1",...}` | 正常，只返回该号码 | 正常，只返回该号码 |
+
+即旧写法同时造成「页面能查到、接口查不到」和**越权展示他人详单**两个问题
+（1301 用伪造号码也返回了真实号码的记录）。现固定为 `type="1"`，由
+`vmax_xdr_client.py` 的 `_build_condition()` 实现、`tests/test_vmax_xdr_records.py`
+断言（`文件路径:行号` 见 `backend/services/vmax_cca/README.md` 同名小节）。
+
+**RAN 侧（32/33/34）没有 `msisdn` 列**，号码是隐藏列 `$msisdn`；且 UEMR/UU 记录
+实测只带 IMSI、`$msisdn` 为空串 —— 所以 RAN 按号码查会**如实返回空**（而不是像
+旧写法那样用不存在的字段、忽略条件把整窗数据吐出来）。按 IMSI 查 RAN 需另做输入项。
+
+### 37.3 落库：存档 + 查询审计
+
+VMAX 其余页面都是只读透传，本节是**唯一落库**的页签，原因是合规与时效：
+
+| 表 | 用途 | 关键字段 |
+| --- | --- | --- |
+| `vmax_xdr_saved_record` | 用户主动存档的单条记录（取证/复核） | `username`、`msisdn_mask`、`service_type`、`table_name`、`record_time`、`payload`(JSON)、`note`、`created_at` |
+| `vmax_xdr_query_log` | 每次查询的审计留痕 | `username`、`msisdn_mask`、`service_type`、`table_name`、`window_*`、`records`、`elapsed_ms`、`status`、`err_msg` |
+
+- 上游热存储只留 24~72 小时，过期无法回查 —— 存档是为了「事后还能复核」；
+- 审计是为了回答「谁在什么时候查了谁」，号码**只存打码串**，不存明文；
+- 两张表都**按 `username` 隔离**：列表/详情/删除都带 `WHERE username = ?`，
+  他人存档一律返回 404（不暴露存在性）；
+- 单用户存档上限 500 条、单条 200KB（见 `routers/vmax_xdr_records.py`）；
+- 惰性建表（`_ensure_tables`，sqlite / pg 双模），写法同 `routers/feedback.py`；
+- 写审计失败**不阻断查询**（`_write_log` 内部吞异常并记 warning）。
+
+### 37.4 接口
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/api/vmax-xdr-records/tables?service_type=32` | 表清单（含 `retention_hours`） |
+| GET | `/api/vmax-xdr-records?msisdn=&service_type=&table=&start=&end=&page=&page_size=` | 记录查询 |
+| POST | `/api/vmax-xdr-records/saved` | 存档一条记录 |
+| GET | `/api/vmax-xdr-records/saved` | 我的存档列表（不含 payload） |
+| GET | `/api/vmax-xdr-records/saved/{id}` | 存档详情（含 payload） |
+| DELETE | `/api/vmax-xdr-records/saved/{id}` | 删除我的存档 |
+| GET | `/api/vmax-xdr-records/history` | 我的查询历史 |
+
+鉴权：全部走 `Depends(require_user)`（`services/portal_auth.py`），与 `/api/*`
+中间件同源；本机回环与免登录开发模式视为 admin（`current_user` 的既有语义）。
+
+### 37.5 前端
+
+`components/VmaxXdrRecordsPanel.tsx`（父页面第三页签）：
+
+- 查询类型 + XDR 表联动（换类型即重拉表清单，默认选 `UEMR_XDR`）；
+- 列由 `header/field` 动态生成，首列冻结、横向滚动；
+- **点行下钻**：`DraggableClickModal` 展示全字段（label 用上游列头），可复制 JSON、可存档；
+- 「已存记录」弹窗内两页：存档列表（查看/删除）与查询历史（记录数/耗时/状态）；
+- 导出复用 `exportAoaReport`，同样按 200/批拉全、上限 5000 条并显式提示截断。
+
+**页签保活（2026-10-27 修）**：三个视图切换**不卸载**组件，只切 `display`，
+所以「查完 XDR → 回概览 → 再回来」结果仍在（已选表、时间窗、页码都保留）。
+首次进入某页签时才挂载，避免概览首屏多打 `services` / `tables` 两支请求。
+改动 `VmaxUserQuery.tsx` 的渲染方式时，别退回 `{view === 'xdr' && <Panel/>}`
+这种条件渲染 —— 面板的查询结果全在组件 state 里，一卸载就没了。
+`tests/test_vmax_user_query_keepalive.py` 会守这条约束。
+
+**查询条件进 URL（同日）**：组件 state 只活到卸载为止，刷新 / 浏览器前进后退 /
+把链接发给同事都会重新挂载。所以**执行过的查询**条件写在地址栏里，重进时
+自动重放一次（不缓存结果：旧快照不加提示地回显会被当成新查的）。
+
+| 参数 | 含义 | 写入时机 |
+| --- | --- | --- |
+| `msisdn` | 号码 | 点「查询」时（输入框改到一半不写） |
+| `vmaxView` | `xdr` / `records`（缺省 = 概览） | 切页签时 |
+| `vqStart` / `vqEnd` | 概览的时间窗，`YYYY-MM-DD HH:mm` | 点「查询」时 |
+| `mxSvc` / `mxStart` / `mxEnd` | 信令详单（合并表）的类型与窗口 | 该面板查询成功时 |
+| `rtSvc` / `rtTable` / `rtStart` / `rtEnd` | XDR 记录（分表）的类型、表名与窗口 | 该面板查询成功时 |
+
+一律 `replaceState`：改窗口不该产生一条历史记录，否则后退键要点很多次。
+读写统一走 `frontend/src/urlState.ts`（`readParam` / `writeParams`）。
+**号码会出现在 URL 里**（含浏览器历史与反代 access log），这是「链接能还原
+现场」的代价；内网工具可接受，对外分享先确认。
+`tests/check_urlstate.mjs` 守「只用 replaceState / 保留 history.state / 不动系统参数」。
+
+### 37.6 排障提醒
+
+**不要为了探测反复新建登录会话**：上游按用户限并发，超过后所有新登录都会
+`The maximum number of connections for the user is reached`，连 CCA 页也会一起坏，
+而且**要等旧会话超时**才恢复。探测一律复用后端进程内的单例会话
+（`get_xdr_client()`），或直接把新查询挂到已有路由上验证。
+

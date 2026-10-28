@@ -12,11 +12,17 @@ vmax_xdr_query.py - Talon XDR 信令详单查询 API
 """
 import logging
 import re
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
 
+from backend.routers.vmax_xdr_common import (
+    humanize_login as _humanize_login,
+    humanize_upstream as _humanize_upstream,
+    mask_msisdn as _mask_msisdn,
+    parse_bound as _parse_bound,
+)
 from backend.services.vmax_cca.vmax_cca_client import (
     VmaxCcaError, VmaxCcaNotConfigured, VmaxCcaUnavailable, normalize_msisdn,
 )
@@ -28,36 +34,10 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/vmax-xdr-query", tags=["vmax-xdr-query"])
 
-# 窗口跨度上限：信令详单一天可达万级记录，再大既慢又无意义
-MAX_WINDOW_HOURS = 72
-
-
-def _mask_msisdn(msisdn: str) -> str:
-    """日志里只留号码头尾，中间打码（与 vmax_cca_query 同一口径）。"""
-    if len(msisdn) <= 6:
-        return "*" * len(msisdn)
-    return msisdn[:4] + "*" * (len(msisdn) - 6) + msisdn[-2:]
-
-
-def _parse_bound(raw: Optional[str], end_of: bool) -> datetime:
-    """解析 "YYYY-MM-DD" / "YYYY-MM-DD HH:MM[:SS]"，日粒度补全天边界。"""
-    if not raw:
-        return datetime.now().replace(minute=59 if end_of else 0,
-                                      second=59 if end_of else 0, microsecond=0)
-    text = str(raw).strip().replace("T", " ")
-    day_only = len(text) <= 10
-    try:
-        dt = datetime.fromisoformat(text)
-    except ValueError:
-        try:
-            dt = datetime.strptime(text[:16], "%Y-%m-%d %H:%M")
-        except ValueError as exc:
-            raise HTTPException(status_code=422,
-                                detail="时间格式不正确：请用 YYYY-MM-DD 或 YYYY-MM-DD HH:MM") from exc
-    if day_only:
-        dt = dt.replace(hour=23 if end_of else 0, minute=59 if end_of else 0,
-                        second=59 if end_of else 0)
-    return dt
+# 窗口跨度上限（小时）统一由 XDR_SERVICES 每项的 retention_hours 决定：
+# 不同 serviceType 在上游的保留时长不同，用同一个上限会让用户查到「不存在」
+# 的时间段并收到看不懂的上游错误码。见 services/vmax_cca/vmax_xdr_client.py。
+# 时间解析 / 号码脱敏 / 错误码翻译与「XDR Records」路由共用一份，见 vmax_xdr_common。
 
 
 @router.get("/services")
@@ -85,13 +65,26 @@ def query_xdr(
         raise HTTPException(status_code=422,
                             detail="号码格式不正确：请输入 231 开头的完整数字号码")
 
+    spec = next((s for s in XDR_SERVICES if s["id"] == service_type), None)
+    if spec is None:
+        raise HTTPException(
+            status_code=422,
+            detail="serviceType %s 暂未接入；当前支持 %s"
+                   % (service_type, ", ".join(s["id"] for s in XDR_SERVICES)))
+    # 窗口上限跟着该类型的保留时长走（32 只留 ~24h，1100 等留 72h）
+    max_hours = int(spec.get("retention_hours") or 72)
+    default_hours = min(24, max_hours)
+
     end_dt = _parse_bound(end, end_of=True)
-    start_dt = _parse_bound(start, end_of=False) if start else end_dt - timedelta(hours=24)
+    start_dt = (_parse_bound(start, end_of=False) if start
+                else end_dt - timedelta(hours=default_hours))
     if start_dt > end_dt:
         start_dt, end_dt = end_dt, start_dt
-    if end_dt - start_dt > timedelta(hours=MAX_WINDOW_HOURS):
-        raise HTTPException(status_code=422,
-                            detail="时间窗跨度不能超过 %d 小时" % MAX_WINDOW_HOURS)
+    if end_dt - start_dt > timedelta(hours=max_hours):
+        raise HTTPException(
+            status_code=422,
+            detail="%s 的时间窗跨度不能超过 %d 小时（上游只保留最近 %d 小时的数据）"
+                   % (spec.get("name_zh") or spec["name"], max_hours, max_hours))
 
     # 上游要求毫秒边界（与 CCA 的秒级窗口不同，见 vmax_xdr_client 头注释）
     fmt = "%Y-%m-%d %H:%M:%S.000"
@@ -105,10 +98,16 @@ def query_xdr(
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except VmaxCcaUnavailable as exc:
         logger.warning("[vmax_xdr] 查询 %s 上游不可用: %s", _mask_msisdn(normalized), exc)
-        raise HTTPException(status_code=502, detail="XDR 查询服务暂不可用: %s" % exc) from exc
+        raise HTTPException(status_code=502,
+                            detail="XDR 查询服务暂不可用: %s" % _humanize_login(str(exc))) from exc
     except VmaxXdrError as exc:
         logger.warning("[vmax_xdr] 查询 %s 失败: %s", _mask_msisdn(normalized), exc)
-        raise HTTPException(status_code=502, detail="XDR 查询失败: %s" % exc) from exc
+        detail = _humanize_upstream(str(exc))
+        # 上游原始文案仍留在日志里（带 operation code），便于排障；
+        # 但不再把 3100100xxx 这种码直接甩给界面。
+        if detail == str(exc):
+            raise HTTPException(status_code=502, detail="XDR 查询失败: %s" % exc) from exc
+        raise HTTPException(status_code=422, detail=detail) from exc
     except VmaxCcaError as exc:
         logger.warning("[vmax_xdr] 查询 %s 异常: %s", _mask_msisdn(normalized), exc)
         raise HTTPException(status_code=502, detail="XDR 查询失败: %s" % exc) from exc

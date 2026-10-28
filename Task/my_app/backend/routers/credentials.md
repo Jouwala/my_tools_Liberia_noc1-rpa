@@ -13,12 +13,15 @@
 
 `POST /test` 按 `credential_store` 里该组的 `test_kind` 分发：
 
-- `zte_oauth2` / `rais` → 本文件内的 `auth_manager` 路径（ZTE OAuth2 RSA 登录 /
-  RAIS 直接鉴权），带本地熔断冷却提示（`get_lock_state`）与终态错误判定
+- `zte_oauth2` → 本文件内的 `auth_manager` 路径（ZTE OAuth2 RSA 登录），
+  带本地熔断冷却提示（`get_lock_state`）与终态错误判定
   （`_is_terminal_login_error`）；
+  （`rais` 曾走这里的「RAIS 直接鉴权」分支，2026-10-26 上游强制人工图形验证码后
+  改判给 `credential_tester._test_rais`，本文件内不再有 RAIS 专用代码；
+  历史上那条分支报出的 `HTTP 445` 是网关缺同源 Referer 拦的，不是口令错误）
 - 其余 kind → `backend/services/credential_tester.py::run_test()`
   （vmax_portal / gbase / ssh / ssh_via_control / ume_keystone / umc_portal /
-  sftp / smtp / ews / weixin_push）。
+  sftp / smtp / ews / weixin_push / rais_uaclite）。
 
 分发判断在 `credentials.py:157`，必须放在 auth_manager 路径**之前** ——
 否则 SSH / 数据库 / 邮件这类组会被当成 ZTE 网管去打 OAuth2

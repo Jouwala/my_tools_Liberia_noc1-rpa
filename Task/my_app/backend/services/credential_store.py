@@ -294,10 +294,12 @@ CREDENTIAL_GROUPS = [
         "key": "rais",
         "name": "RAIS 统一权限平台 (10.100.20.9:8766)",
         "name_en": "RAIS Unified Permission Platform (10.100.20.9:8766)",
-        "usage": "一键门户登录（RAIS 统一认证中心 / uacliteweb）使用此账号做直接鉴权登录；"
-                 "该站点与 eFlow 同网段，同为 ZTE UAC 系账号。",
+        "usage": "一键门户登录（RAIS 统一认证中心 / uacliteweb）用此账号预填登录页；"
+                 "该站点与 eFlow 同网段，同为 ZTE UAC 系账号。"
+                 "2026-10-26 起上游登录强制人工图形验证码，脚本只填账号密码，验证码由人补。",
         "usage_en": "Used by the one-click portal login for RAIS (Unified Permission Platform / "
-                    "uacliteweb) direct authentication.",
+                    "uacliteweb) to prefill the login form. Since 2026-10-26 the upstream "
+                    "enforces a human-typed image captcha, so scripts only fill account/password.",
         "default_user": "admin",
         "default_secret": "",
         "username_label": "用户名",
@@ -306,7 +308,7 @@ CREDENTIAL_GROUPS = [
         "secret_label_en": "Password",
         "has_username": True,
         "testable": True,
-        "test_kind": "rais",
+        "test_kind": "rais_uaclite",
         "test_host": "10.100.20.9",
         "test_port": 8766,
         "env_user": "RAIS_USER",

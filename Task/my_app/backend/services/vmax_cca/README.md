@@ -201,3 +201,92 @@ result = client.query("231777777322", "2026-10-23", "2026-10-23")
 2026-10-26 排查时反复登录触发过
 `The maximum number of connections for the user is reached`，会短时影响 CCA 页——
 上游按用户限并发，任何新增查询都必须复用同一会话。
+
+---
+
+# XDR Records —— 分表查询（2026-10-27 接入）
+
+同一 Talon 框架的另一半：合并表看「一个号码所有接口的流水」，分表看**单张 XDR 表**
+的完整列（`UEMR_XDR` 带 RSRP/SINR 等空口测量列，是无线排障的主力表）。
+
+- 客户端：`vmax_xdr_client.py` 的 `tables()` / `query_table()`
+- 路由：`routers/vmax_xdr_records.py` → `/api/vmax-xdr-records/*`
+- 页面：`vmax_user_query` 的「XDR 记录」页签（`components/VmaxXdrRecordsPanel.tsx`）
+
+## 表清单：get_tabinfo
+
+```
+POST /rdk/service/app/talon/xdr/server/scripts/service/get_tabinfo
+body  {"param":{"encryptedStr":"<RSA({"xdrServiceId":"32","condition":[]})>"}}
+resp  {"result":"{\"status\":0,\"data\":[{\"table_name\":\"fact_lte_uemr\",\"xdr_name\":\"UEMR_XDR\"},...]}"}
+```
+
+`xdr_name` 是界面上的页签名，`table_name` 才是 `XDRTable` 要填的值。实测：
+
+| serviceType | 表 |
+| --- | --- |
+| 32 | `ods_lte_xdr_uu_cmcc`(UU_XDR) / `ods_lte_xdr_x2_cmcc`(X2_XDR) / **`fact_lte_uemr`(UEMR_XDR)** |
+| 33 | `ods_nr_xdr_uu_cmcc` / `ods_nr_xdr_xn_cmcc` / `fact_nr_uemr` |
+| 34 | `ods_umts_uu` / `ods_umts_ho` / `ods_umts_uemr` |
+| 1100 | `fact_pscp_s1mme` / `_s11` / `_s6a` / `_sgs` / `_gn` |
+| 1300 | `fact_5gsa_psup_flow` / `_http` / `_dns` / `_mms` / `_ftp` / `_email` / `_voip` / `_rtsp` / `_https`、`fact_5gsa_nbup_coap` |
+| 1301 | `fact_5gsa_psup_video` / `_web` / `_app` / `_ott_nslice` / `_ott_slice` |
+
+## 查询：exec_query
+
+表模式与合并表模式的参数差异（照抄前端 `show_table_module.js::initCommonConditionProcessor`）：
+
+| 项 | 合并表 | 分表 |
+| --- | --- | --- |
+| 接口 | `exec_merge_query` | `exec_query` |
+| `XDRTable` | `""` | 表名，如 `fact_lte_uemr` |
+| `serviceName` | `"xdr_query"` | **不传** |
+| `colModel` | `[]` | 该表列名数组（先取列头） |
+| 列头 | `queryType=2` + `condition` | `queryType=1` + `XDRTable` |
+
+其余一致：`condition` 四元组（时间 / serviceType / dbType / 号码）、
+毫秒边界时间、域配对（32 用 `ran_service` + `btime` + `User Number`）。
+
+### 号码条件的 `type` 必须是 `"1"`，不能照抄页面的 `"6"`（2026-10-27 实测）
+
+页面 `initcomponent` 返回的组件类型是 `6`（SELECT_INPUT 下拉+输入），但**组件类型
+不等于线上过滤类型**：把 `6` 原样发给 `exec_query` / `exec_merge_query`，上游既不报错
+也不按号码过滤。实测（serviceType 1301，`fact_5gsa_psup_video`，窗口内确有该号码记录）：
+
+| condition | 结果 |
+| --- | --- |
+| `{"field":"msisdn","type":"6",...}` | `3100100202`（有数据却说无数据） |
+| `{"field":"msisdn","type":"1",...}` | `status=0`，命中该号码的记录 |
+
+合并查询上 `type=6` 更危险：**完全不按号码过滤**，会把整窗别的用户的详单当成
+当前查询结果返回（1301 用伪造号码也返回了真实号码的记录）。因此 `_build_condition()`
+统一用 `type="1"`，并由 `tests/test_vmax_xdr_records.py` 固化。
+
+RAN 域（32/33/34）没有 `msisdn` 列，号码列是隐藏列 `$msisdn`（前端列头里以 `$` 标记）；
+且 UEMR/UU 记录实测只带 IMSI、`$msisdn` 为空串，所以**RAN 按号码查会如实返回空**，
+而不是像旧实现那样用不存在的 `msisdn` 字段、忽略条件把整窗数据吐出来。
+
+⚠️ **表名要白名单校验**：`XDRTable` 会被上游拼进 FROM 子句，任意字符串有注入风险。
+`query_table()` 先用 `tables(service_type)` 匹配 `table_name` 或 `xdr_name`，
+不匹配直接报错，不接受调用方随意传表名。
+
+## 落库（合规审计 + 取证）
+
+其余 VMAX 接口都只读透传；本功能落两张表（`routers/vmax_xdr_records.py`）：
+
+- `vmax_xdr_saved_record`：用户存档的单条记录（`payload` 为 JSON），本人可见；
+- `vmax_xdr_query_log`：每次查询留痕（号码打码、记录数、耗时、状态）。
+
+理由：上游只保留 24~72 小时，过期无法回查；且信令属用户隐私数据，
+需要能回答「谁在什么时候查了谁」。归档上限 500 条/人、200KB/条。
+
+## ⚠️ 探测纪律（2026-10-27 再次踩到）
+
+为了摸清 `get_tabinfo` / `exec_query`，我连开了 5 个探针进程各自登录，
+直接把该账号的并发会话占满：之后**所有**新登录（包括后端重启后的首次登录）
+都返回 `The maximum number of connections for the user is reached`，
+CCA 页与 XDR 页一起不可用，只能等旧会话超时。
+
+结论：**任何探测都必须在同一个进程里只登录一次**（或直接复用后端单例会话），
+不要在多个脚本里各 `VmaxCcaClient()` 一次。
+
