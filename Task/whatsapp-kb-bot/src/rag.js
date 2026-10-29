@@ -10,7 +10,7 @@
  * 完全无关的查询 top1 也有 0.33~0.40。绝对阈值必然"永远命中"。
  * gap 是逐查询自适应归一化的量，实测命中/未命中相差约 4 倍，稳定得多。
  */
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { CONFIG } from './config.js';
 import { pickText } from './lang.js';
@@ -222,7 +222,13 @@ export function annotateChunks(raw, parts) {
 
 export function saveIndex(index, path = CONFIG.indexPathAbs) {
   mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, JSON.stringify(index), 'utf8');
+  // 原子写入：先落 .tmp 再 rename 覆盖。
+  // 直接 writeFileSync 到已存在的文件在 SMB（Y: 盘）上会 EPERM ——
+  // 该共享只允许新建文件、不允许原地覆写，但 rename 覆盖是允许的。
+  // 顺带避免写到一半中断把索引写坏（旧文件在 rename 成功前始终完整）。
+  const tmp = `${path}.tmp`;
+  writeFileSync(tmp, JSON.stringify(index), 'utf8');
+  renameSync(tmp, path);
 }
 
 export function loadIndex(path = CONFIG.indexPathAbs) {
@@ -361,13 +367,34 @@ export function bm25Score(queryTokens, tfMap, stats) {
 }
 
 /**
- * 把 BM25 原始分归一化到 [0,1]（除以本轮最高分），便于与余弦融合。
- * 全 0 时返回全 0（查询没有字面信号 —— 纯语义题不应被 BM25 影响）。
+ * 把 BM25 原始分归一化到 [0,1]，便于与余弦融合。
+ *
+ * ## 为什么要「带门槛」而不是简单除以最高分（2026-10-28 修）
+ *
+ * 旧实现是 `s / max`。它有个致命性质：**任何查询都会产生一个 1.0** ——
+ * 只要语料里有一块和问题共享哪怕一个字，那一块就被顶成满分，再乘权重 0.3，
+ * 等于白送 +0.3。语料从 1244 块涨到 5884 块（整套 iMind 手册入库）之后，
+ * 「今天天气怎么样」「公司食堂几点开饭」「报销流程怎么走」全部被判成**命中**：
+ * 实测 top1 = 0.62~0.69，而它们其实只共享了「天/气/报/公」这种单字噪声。
+ *
+ * 实测原始分分布（bge-m3 + 5884 块）：
+ *   · 真命中：34 ~ 55（「库房有哪些仓库」52.5、「压缩规则」54.5）
+ *   · 单字噪声：7 ~ 10（天气 10.5、报销 7.2、食堂 8.2）
+ *   · 完全无重叠：0（「年假有几天」）
+ * 两档之间有一条很宽的空档，所以用**双门槛**：
+ *   `minRaw` 绝对地板（挡单字噪声）+ `relMin * max` 相对地板（挡「同一查询里
+ *   明显弱一档」的块，例如 52.5 与 15.7 同场时，15.7 不该拿到 0.3 的加成）。
+ * 门槛以下的块 BM25 记 0，与「没有字面证据」等价 —— 纯语义题不受影响。
+ *
+ * @param {number[]} scores 原始 BM25
+ * @param {{minRaw?:number, relMin?:number}} [opts] 门槛；不传则退回旧的纯 max 归一
  */
-export function normalizeBm25(scores) {
+export function normalizeBm25(scores, { minRaw = 0, relMin = 0 } = {}) {
   const max = Math.max(0, ...scores);
   if (!max) return scores.map(() => 0);
-  return scores.map((s) => s / max);
+  const floor = Math.max(minRaw, relMin * max);
+  if (!floor) return scores.map((s) => s / max);
+  return scores.map((s) => (s >= floor ? s / max : 0));
 }
 
 /* ---------------------------------- 检索 ---------------------------------- */
@@ -443,7 +470,12 @@ export function retrieve({ queryVec, queryText, index, cfg = CONFIG }) {
     const stats = bm25StatsFor(index, allowManual, liveIdx);
     const qToks = tokenize(queryText);
     const raw = liveIdx.map((gi, k) => bm25Score(qToks, stats.tf[k], stats));
-    const norm = normalizeBm25(raw);
+    // 双门槛见 normalizeBm25 的注释：不设门槛时任何查询都会拿到一个 1.0，
+    // 手册入库后「今天天气怎么样」这类域外问题会被判成命中。
+    const norm = normalizeBm25(raw, {
+      minRaw: Number(cfg.bm25MinRaw ?? 0),
+      relMin: Number(cfg.bm25RelMin ?? 0),
+    });
     liveIdx.forEach((gi, k) => bm25norm.set(gi, norm[k]));
   }
 
@@ -750,6 +782,8 @@ async function retryWithRewrite(question, index, cfg, lang, onDebug) {
     const { content: answerText, stats } = await chat(
       buildMessages(best.query, best.retrieval.hits, lang)
     );
+    // 二跳的生成同样可能是空的（只剩标记/思考）—— 空串不能当回答，交回调用方兜底
+    if (!String(answerText || '').trim()) return null;
     return {
       answered: true,
       text: answerText,
@@ -848,6 +882,20 @@ export async function answer(
   }
 
   const { content, stats } = await chat(buildMessages(question, retrieval.hits, lang));
+
+  // ── 空正文兜底 ──
+  // 检索判了命中，但模型一个字都没吐（思考烧光预算 / 只剩工具调用标记被剥离）。
+  // 以前这里会直接 `answered:true, text:''` —— 群里收到一条空消息，看着像机器人挂了。
+  // 退回「原文摘录」：给的是资料原话 + 来源，比空消息有用，也不涉及任何编造。
+  if (!content) {
+    onDebug?.({ stage: 'empty-content' });
+    return {
+      answered: false,
+      text: groundExcerpt(retrieval.hits, lang) || pickText(lang, cfg.notFoundText, cfg.notFoundTextEn),
+      retrieval,
+      stats: { ...stats, embedMs: tEmbed, totalMs: Date.now() - t0, emptyContent: true },
+    };
+  }
 
   // ── 生成后检测 ──
   // 模型守着「只依据资料」的规矩：召回的块答不了问题时，它会明说「资料里没有」。

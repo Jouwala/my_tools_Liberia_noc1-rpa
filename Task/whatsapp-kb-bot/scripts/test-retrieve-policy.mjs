@@ -176,6 +176,28 @@ console.log('\n[8] B2 分词 / BM25');
   const norm = normalizeBm25(raw);
   check(norm[0] === 1 && norm[1] === 0, '归一化到 [0,1]，最高为 1', JSON.stringify(norm.map((x) => +x.toFixed(3))));
   check(normalizeBm25([0, 0, 0]).every((x) => x === 0), '全 0 时归一化仍全 0（纯语义题不受影响）');
+
+  // ── 2026-10-28：双门槛（见 rag.js normalizeBm25 的注释）──
+  // 语料涨到 5884 块后，纯 max 归一化会让**任何**查询都有一个 1.0，
+  // 「今天天气怎么样」因此被判命中（top1 0.62）。下面钉住两个门槛的行为。
+  const noisy = [10.48, 7.17, 8.24, 0]; // 实测的「天气 / 报销 / 食堂 / 无重叠」原始分
+  check(
+    normalizeBm25(noisy, { minRaw: 12, relMin: 0.35 }).every((x) => x === 0),
+    '绝对门槛：单字噪声（原始分 <12）全部记 0',
+    JSON.stringify(normalizeBm25(noisy, { minRaw: 12, relMin: 0.35 }))
+  );
+  const mixed = [52.48, 15.69, 15.62, 34.5]; // 实测：真命中 52.5 与同场的 15.7
+  const gated = normalizeBm25(mixed, { minRaw: 12, relMin: 0.35 });
+  check(
+    gated[0] === 1 && gated[1] === 0 && gated[2] === 0,
+    '相对门槛：52.5 同场时 15.7/15.6 归 0（不白送 +0.3）',
+    JSON.stringify(gated.map((x) => +x.toFixed(3)))
+  );
+  check(gated[3] > 0 && gated[3] < 1, '  过了门槛的次优块仍保留比例分', String(+gated[3].toFixed(3)));
+  check(
+    normalizeBm25([52.48, 34.5], { minRaw: 0, relMin: 0 })[0] === 1,
+    '不传门槛时保持旧的纯 max 归一（向后兼容）'
+  );
 }
 
 console.log('\n[9] B2 融合：BM25 把字面精确的块顶上来');

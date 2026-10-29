@@ -135,39 +135,58 @@ function fallbackTarget() {
 
 /* ------------------------- OpenAI 兼容 provider ------------------------- */
 
-async function openaiChat(messages, opts = {}) {
-  // __override：回退链路专用，用兜底 provider 的 base/model/key 替换被覆盖的 CONFIG。
-  const ov = opts.__override;
-  const key = ov
-    ? ((ov.chatApiKeyEnv && process.env[ov.chatApiKeyEnv] ? String(process.env[ov.chatApiKeyEnv]).trim() : '') ||
-       (ov.chatApiKey || '').trim())
-    : resolveApiKey().key;
-  if (!key) throw new Error('缺少 API Key，无法调用云端对话模型');
+/**
+ * 剥离模型混进正文的思维链与工具调用标记。
+ *
+ * 为什么必须做：mimo-v2.6-flash 实测约 1/4 的请求会把「决定调用工具」这一轮
+ * 原样写进 `content`，群里收到的是
+ *   `I'll check the available tools…<tool_call><function=search_knowledge>…`
+ * —— 既不是答案，还暴露了内部工具名。旧代码只防了「content 为空」和
+ * 「只有 reasoning_content」两种，对「content 非空但全是标记」毫无防备，
+ * 于是这类垃圾被当成正常回答发了出去（answered 还是 true）。
+ *
+ * @param {string} raw 原始 content
+ * @returns {{text:string, think:boolean, toolCall:boolean}}
+ *   text      净化后的正文（可能为空串）
+ *   think     出现过 think 标记（剥掉后正文仍可用）
+ *   toolCall  出现过工具调用标记（**整轮不可信**，调用方应重试或弃权）
+ */
+export function stripModelMarkup(raw) {
+  let s = String(raw ?? '');
+  if (!s.trim()) return { text: '', think: false, toolCall: false };
 
-  const base = (ov ? ov.chatBaseUrl : CONFIG.chatBaseUrl).replace(/\/+$/, '');
-  const url = `${base}/chat/completions`;
-  const timeoutMs = opts.timeoutMs ?? CONFIG.chatTimeoutMs;
-  const t0 = Date.now();
+  const think = /<think(?:ing)?\b|<\/think(?:ing)?>/i.test(s);
+  // `<function=x>` 这种不带右尖括号的开标签也要认（实测就是这个形态）
+  const toolCall = /<tool_call\b|<\/tool_call>|<function\s*=|<parameter\s*=|<\|tool[_▁]?calls?[_▁]?(?:begin|end)\|>/i.test(s);
 
-  const body = {
-    model: opts.model ?? (ov ? ov.chatModel : CONFIG.chatModel),
-    messages,
-    temperature: opts.temperature ?? CONFIG.temperature,
-    max_tokens: opts.maxTokens ?? CONFIG.maxTokens,
-    stream: false,
-  };
-
-  // Thinking 模式控制。
-  // 知识库问答不需要思维链——只会白白消耗 token 预算，还可能把预算烧光
-  // 导致 content 返回空串（实测 Agnes 3.0 Flash 上就是这个现象）。
-  // 有些 provider 默认开启 thinking，必须显式关闭。
-  const wantThinking = opts.enableThinking ?? CONFIG.enableThinking;
-  if (wantThinking === false) {
-    body.chat_template_kwargs = { enable_thinking: false };
-  } else if (wantThinking === true) {
-    body.chat_template_kwargs = { enable_thinking: true };
+  if (think) {
+    // 完整块（含 <thinking> 变体）
+    s = s.replace(/<think(?:ing)?\b[^>]*>[\s\S]*?<\/think(?:ing)?>/gi, '');
+    // 未闭合块：被 max_tokens 截断时只剩开头，一直吃到结尾
+    s = s.replace(/<think(?:ing)?\b[^>]*>[\s\S]*$/gi, '');
+    // 开标签连 '>' 都被截掉了
+    s = s.replace(/<think(?:ing)?\b[\s\S]*$/gi, '');
+    // 只剩闭合标签：**它前面的文字就是思考内容**。
+    // 实测 mimo 把思维链塞进 content，却只漏出闭合标签（reasoning 已拆到
+    // reasoning_content 字段），于是正文前面挂着一句「Wait — the question is…」。
+    s = s.replace(/^[\s\S]*<\/think(?:ing)?>/gi, '');
   }
 
+  if (toolCall) {
+    s = s.replace(/<tool_call\b[^>]*>[\s\S]*?<\/tool_call>/gi, '');
+    s = s.replace(/<tool_call\b[^>]*>[\s\S]*$/gi, ''); // 未闭合
+    s = s.replace(/<\/?tool_call\b[^>]*>/gi, '');
+    s = s.replace(/<function\s*=[^>]*>[\s\S]*?<\/function>/gi, '');
+    s = s.replace(/<parameter\s*=[^>]*>[\s\S]*?<\/parameter>/gi, '');
+    s = s.replace(/<\/?(?:function|parameter)\b[^>]*>/gi, '');
+    s = s.replace(/<\|?tool[_▁]?calls?[_▁]?begin\|?>[\s\S]*?<\|?tool[_▁]?calls?[_▁]?end\|?>/gi, '');
+  }
+
+  return { text: s.replace(/\n{3,}/g, '\n\n').trim(), think, toolCall };
+}
+
+/** 发一次 chat/completions，返回 {data, text}；传输层与 HTTP 错误在此翻译成可读信息 */
+async function postCompletion({ url, body, key, timeoutMs }) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   let res;
@@ -204,26 +223,80 @@ async function openaiChat(messages, opts = {}) {
   } catch {
     throw new Error(`云端模型返回的不是 JSON：${text.slice(0, 200)}`);
   }
+  return { data, text };
+}
 
-  const choice = data.choices?.[0];
-  const msg = choice?.message;
-  const content = (msg?.content ?? '').trim();
-  const reasoning = msg?.reasoning_content;
+async function openaiChat(messages, opts = {}) {
+  // __override：回退链路专用，用兜底 provider 的 base/model/key 替换被覆盖的 CONFIG。
+  const ov = opts.__override;
+  const key = ov
+    ? ((ov.chatApiKeyEnv && process.env[ov.chatApiKeyEnv] ? String(process.env[ov.chatApiKeyEnv]).trim() : '') ||
+       (ov.chatApiKey || '').trim())
+    : resolveApiKey().key;
+  if (!key) throw new Error('缺少 API Key，无法调用云端对话模型');
 
-  if (!content) {
+  const base = (ov ? ov.chatBaseUrl : CONFIG.chatBaseUrl).replace(/\/+$/, '');
+  const url = `${base}/chat/completions`;
+  const timeoutMs = opts.timeoutMs ?? CONFIG.chatTimeoutMs;
+  // 计时从进入函数开始算：发生重试时 totalMs 要如实反映「用户等了多久」，
+  // 只算最后一次会让人以为回答很快。
+  const startedAt = Date.now();
+
+  const body = {
+    model: opts.model ?? (ov ? ov.chatModel : CONFIG.chatModel),
+    messages,
+    temperature: opts.temperature ?? CONFIG.temperature,
+    max_tokens: opts.maxTokens ?? CONFIG.maxTokens,
+    stream: false,
+  };
+
+  // Thinking 模式控制。
+  // 知识库问答不需要思维链——只会白白消耗 token 预算，还可能把预算烧光
+  // 导致 content 返回空串（实测 Agnes 3.0 Flash 上就是这个现象）。
+  // 有些 provider 默认开启 thinking，必须显式关闭。
+  const wantThinking = opts.enableThinking ?? CONFIG.enableThinking;
+  if (wantThinking === false) {
+    body.chat_template_kwargs = { enable_thinking: false };
+  } else if (wantThinking === true) {
+    body.chat_template_kwargs = { enable_thinking: true };
+  }
+
+  // 一轮「只有标记、没有正文」的回复不值得直接甩给用户，但它确实是偶发的：
+  // 原样再打一次几乎总能拿到正常正文。只重试一次，避免把 5s 的回答拖成 30s。
+  const maxAttempts = Math.max(1, Number(opts.maxAttempts ?? 2));
+  let failure = null;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const { data, text } = await postCompletion({ url, body, key, timeoutMs });
+
+    const choice = data.choices?.[0];
+    const msg = choice?.message;
+    const raw = (msg?.content ?? '').trim();
+    const reasoning = msg?.reasoning_content;
+    const { text: content, think, toolCall } = stripModelMarkup(raw);
+    const stats = {
+      promptTokens: data.usage?.prompt_tokens ?? 0,
+      outputTokens: data.usage?.completion_tokens ?? 0,
+      totalMs: Date.now() - startedAt,
+    };
+    if (attempt > 1) stats.attempts = attempt;
+
+    // 正文可用、且这一轮没被工具调用标记污染 → 正常返回。
+    // think 标记只剥掉不弃用：正文本身是好的，只是前面多了一段思考。
+    if (content && !toolCall) {
+      return think ? { content, degraded: 'think_stripped', stats } : { content, stats };
+    }
+
     // lenient 模式（ping 专用）：只要模型返回了任何非空文本，就说明
     // 密钥有效、模型存在、链路通畅 —— 这已经足够回答"能不能连上"。
     // 至于 content 为空本身，交给运行时正常报错，不在探测阶段拦截。
-    if (opts.lenient && reasoning && String(reasoning).trim()) {
+    if (opts.lenient && (raw || (reasoning && String(reasoning).trim()))) {
+      const onlyReasoning = !raw && reasoning && String(reasoning).trim();
       return {
         content: '',
-        degraded: 'reasoning_only',
-        reasoningChars: String(reasoning).length,
-        stats: {
-          promptTokens: data.usage?.prompt_tokens ?? 0,
-          outputTokens: data.usage?.completion_tokens ?? 0,
-          totalMs: Date.now() - t0,
-        },
+        degraded: onlyReasoning ? 'reasoning_only' : 'markup_only',
+        reasoningChars: String(reasoning || '').length,
+        stats,
       };
     }
 
@@ -232,6 +305,12 @@ async function openaiChat(messages, opts = {}) {
     const fields = msg ? Object.keys(msg).join(', ') : '（没有 message 字段）';
     const notes = [];
 
+    if (toolCall) {
+      notes.push(
+        `content 里只有工具调用标记（<tool_call>/<function>），没有正文 —— ` +
+          `模型把「决定调用工具」这一轮当成了回答。这是间歇行为，重打一次通常就恢复。`
+      );
+    }
     if (reasoning) {
       notes.push(
         `但返回了 reasoning_content（${String(reasoning).length} 字符）—— 说明模型把预算花在思考上，` +
@@ -241,28 +320,28 @@ async function openaiChat(messages, opts = {}) {
     if (reason === 'length') {
       notes.push(`finish_reason=length 表示被 max_tokens(${body.max_tokens}) 截断，请调大 maxTokens。`);
     }
-    if (!reasoning && reason !== 'length') {
+    if (!toolCall && !reasoning && reason !== 'length') {
       notes.push(
         `未发现 reasoning_content。finish_reason=${reason} 表示模型正常结束但没输出正文 —— ` +
           `请运行 npm run diag 对比不同模型名与参数，确认是模型权限问题还是参数问题。`
       );
     }
 
-    throw new Error(
+    failure = new Error(
       `云端模型返回空内容（finish_reason=${reason}；message 字段=[${fields}]；max_tokens=${body.max_tokens}）\n` +
         notes.map((n) => `  · ${n}`).join('\n') +
         `\n  原始响应：${text.slice(0, 400)}`
     );
+
+    // 只有「标记泄漏」值得重试 —— 那是模型的偶发行为。
+    // 纯粹的 content 为空（思考烧光预算 / 被截断）重试也是同样结果，只会白等一轮。
+    if (!(toolCall || think) || attempt >= maxAttempts) break;
+    console.warn(
+      `[llm] ${body.model} 第 ${attempt} 次只返回了${toolCall ? '工具调用标记' : '思维链标记'}、没有正文，重试一次`
+    );
   }
 
-  return {
-    content,
-    stats: {
-      promptTokens: data.usage?.prompt_tokens ?? 0,
-      outputTokens: data.usage?.completion_tokens ?? 0,
-      totalMs: Date.now() - t0,
-    },
-  };
+  throw failure;
 }
 
 /** 云端 provider 的连通性探测（用极小请求验证 key 与模型名） */
@@ -284,15 +363,19 @@ export async function pingProvider() {
     });
     const ms = Date.now() - t0;
 
-    if (r.degraded === 'reasoning_only') {
-      // 能连上，但模型只吐思维链、没吐正文。启动不该被这个拦住 ——
-      // 但要如实告知，否则用户会以为一切正常，到群里问才发现没回答。
+    if (r.degraded === 'reasoning_only' || r.degraded === 'markup_only') {
+      // 能连上，但模型没吐正文（只吐思维链 / 只吐工具调用标记）。
+      // 启动不该被这个拦住 —— 但要如实告知，否则用户会以为一切正常，
+      // 到群里问才发现没回答。
+      const why =
+        r.degraded === 'markup_only'
+          ? 'content 里只有工具调用标记、没有正文'
+          : `content 为空、只返回了 ${r.reasoningChars} 字符的 reasoning_content`;
       return {
         ok: true,
         warning: true,
         message:
-          `${CONFIG.chatModel} 可达（${ms}ms），但 content 为空、只返回了 ${r.reasoningChars} 字符的 ` +
-          `reasoning_content。\n` +
+          `${CONFIG.chatModel} 可达（${ms}ms），但${why}。\n` +
           `    实际问答很可能也返回空。请运行 npm run diag 定位（对比模型名/参数）。`,
       };
     }

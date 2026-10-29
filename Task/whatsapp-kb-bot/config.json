@@ -1,51 +1,51 @@
 {
   "$comment": "本文件是机器人的唯一配置源。改完保存后重启进程生效（索引相关改动需重跑 npm run ingest）。",
-
-  "$providers": "嵌入走 Ollama（本机没有，见下方 $ollamaUrl 指向 .27）；对话可走本地或任意 OpenAI 兼容的云端接口。chatProvider: ollama | openai。**注意**：下面 chatModel/chatBaseUrl 只是兜底默认 —— 若 my_app 后端在跑，bot 启动时会调 GET {myAppApiBase}/api/ai-model-settings，用「Settings → AI 模型设置」页的值覆盖它们（见 src/config.js 的 loadRuntimeConfig）。当该页 provider=openwebui 时，bot 会把页面存的 UI 地址（如 http://192.168.100.27:3000）自动规范化为 /api/v1（OpenAI 兼容端点），并从环境变量 OPENWEBUI_API_KEY 读鉴权 key —— 静态 key 只在 /api/v1 放行，打 /api 会得到 403、打无前缀路径会得到 405。",
+  "$providers": "嵌入走 Ollama（本机没有，见下方 $ollamaUrl 指向 .27）；对话可走本地或任意 OpenAI 兼容的云端接口。chatProvider: ollama | openai。**注意**：下面 chatModel/chatBaseUrl 只是兜底默认 —— 若 my_app 后端在跑，bot 启动时会调 GET {myAppApiBase}/api/ai-model-settings，用「Settings → AI 模型设置」页的值覆盖它们（见 src/config.js 的 loadRuntimeConfig）。当该页 provider=openwebui 时，bot 会把页面存的 UI 地址（如 https://192.168.100.27:8443）自动规范化为 /api/v1（OpenAI 兼容端点），并从环境变量 OPENWEBUI_API_KEY 读鉴权 key —— 静态 key 只在 /api/v1 放行，打 /api 会得到 403、打无前缀路径会得到 405。",
   "chatProvider": "openai",
-  "chatModel": "deepseek-v4.1-flash",
-  "chatBaseUrl": "http://127.0.0.1:8788/v1",
-  "chatApiKeyEnv": "AGNES_API_KEY",
-  "chatApiKey": "wbproxy",
+  "chatModel": "mimo-v2.6-flash",
+  "chatBaseUrl": "https://192.168.100.27:8443/api/v1",
+  "chatApiKeyEnv": "OPENWEBUI_API_KEY",
+  "chatApiKey": "",
   "chatTimeoutMs": 60000,
+  "$chatCaFile": "内网私有 CA（PEM）。Open WebUI 2026-10-28 起挂在 https://192.168.100.27:8443，证书由 CN=192.168.100.20 这个内网 CA 签发，不在 Node 内置根证书里 —— 不加这份 CA，fetch 会直接抛 SELF_SIGNED_CERT_IN_CHAIN（实测）。注意：靠 --env-file 注入 NODE_EXTRA_CA_CERTS **无效**（Node 读 env-file 之前根证书已初始化完），所以改由 src/config.js 的 applyChatCa() 在启动早期调 tls.setDefaultCACertificates()。文件缺失只告警不抛。可用环境变量 CHAT_CA_FILE 覆盖。",
+  "chatCaFile": "certs/liberia-noc-ca.pem",
+  "$chatEndpoint": "2026-10-28 实测（8443 那台 Open WebUI）：OpenAI 兼容路径是 **/api/v1**，不是 /v1 —— /v1 会落到前端 SPA（GET 回 index.html、POST 回 405 Method Not Allowed）。该实例当前只暴露一个模型：id=mimo-v2.6-flash（显示名 OLBR_Assistant，owned_by=openai，上游是 OpenAI 兼容代理）。旧的 3000 端口 / qwen2.5:7b-instruct 那套已失效（/api/v1/models 返回空列表、chat 回 400 Model not found）。",
   "$chatProxy": "2026-10-07 切换：原 agnes-3.0-flash @ apihub.agnes-ai.com 换为本机 WorkBuddy 代理（端口 8788，start-workbuddy-chain.ps1 启动）。chatApiKey=wbproxy 仅为占位，代理用 WorkBuddy session 鉴权、不校验该值。代理要求首条消息为 system，bot 的 buildMessages 已满足。切回 Agnes: chatModel=agnes-3.0-flash, chatBaseUrl=https://apihub.agnes-ai.com/v1, chatApiKey=\"\"",
-
   "$enableThinking": "false=显式关闭思维链；true=显式开启；删除本行=不传该参数，用服务端默认。知识库问答不需要思维链，开启只会白烧 token 预算，极端情况下思考把预算吃光会导致 content 返回空串。",
   "enableThinking": false,
-
   "$ollamaUrl": "嵌入用的 Ollama 地址。本机（192.168.100.20）**从未安装** Ollama（ollama.exe 不存在），故指向内网的 192.168.100.27:11434 —— 原来写 127.0.0.1 时永远连不上，而机器人把「Ollama 不可用」当致命错误直接退出，导致整机静默停机 29 小时（2026-10-01 事故）。指向 .27 后 doctor 与完整启动均通过（bge-m3 已在那台就位）。",
   "ollamaUrl": "http://192.168.100.27:11434",
   "embedModel": "bge-m3:latest",
   "keepAlive": "30m",
-
   "knowledgeDir": "knowledge",
   "indexPath": "data/index.json",
   "$lookupsPath": "查表数据文件（告警码字典 / 压缩规则 / 级别规则），由 npm run ingest 从 knowledge/ 解析生成。告警码含义、压缩结果、级别规则这三类问法走查表工具、**不经 LLM 自由生成**，答案带出处。缺文件时查表工具如实回「查找表未构建，请 npm run ingest」，不退回 RAG 装懂。",
   "lookupsPath": "data/lookups.json",
-
-  "$kbSourcePolicy": "默认检索排除这些相对路径（操作手册体量大、且含厂商机密 ZTE CONFIDENTIAL）。07_ 手册占索引 52% 的块，中文问「级别/压缩」时向量容易漂到通用操作段落、topK 被同一文件占满；命中块还会随 search_knowledge 上传到云端对话模型（合规风险）。仅当问法命中 kbManualIntent（界面/菜单/如何创建用户组等）时才纳入 07_。清空数组即回到旧行为。",
-  "kbExcludeSources": ["knowledge/07_iMind-eFlow-Function-Operation-Guide.md"],
+  "$kbExcludeSources": "检索时跳过的来源相对路径列表（精确字符串相等，形如 knowledge/xxx.md）。2026-10-28 起清空：操作手册全量入库并全部参与检索，由用户明确决定，不再按来源排除。",
+  "kbExcludeSources": [],
   "kbManualIntent": "(用户组|角色|菜单|界面|如何创建|怎么创建|创建用户|how to (create|open|configure|navigate)|Creating A User Group|Function Operation|user group|role assignment|menu|UI)",
-
   "chunkSize": 420,
   "chunkOverlap": 80,
-
   "$topK": "每次检索取前 K 个知识块喂给模型。规则类文档信息密度高（一条压缩规则有 20+ 个参数），单块装不下，K 太小会漏掉关键参数所在的那块。",
   "topK": 6,
-  "$thresholds": "以下两个阈值是用 npm run calibrate 在本机语料上实测出来的，不是通用经验值。换嵌入模型或大幅增删语料后必须重新校准。",
-  "minAbs": 0.43,
-  "minGap": 0.05,
+  "$thresholds": "以下两个阈值是用 npm run calibrate 在本机语料上实测出来的，不是通用经验值。换嵌入模型或大幅增删语料后必须重新校准。**2026-10-28 重校准**：语料从 1244 块（14 文件）涨到 5884 块（40 文件，整套 iMind 手册入库），旧值 0.43/0.05 会让「报销流程怎么走」这类域外问题命中（top1 0.467）。19 条样本实测：应命中 top1 ∈ [0.539, 0.921]，应未命中 top1 ∈ [0.372, 0.467]，间隔 0.073；calibrate 建议 0.503/0.164，这里取 0.50/0.15 留一点余量（另测英文问法 which warehouses do we have = 0.537，仍过线）。",
+  "minAbs": 0.5,
+  "minGap": 0.15,
   "semanticWeight": 0.78,
   "lexicalWeight": 0.22,
   "$p1Retrieval": "P1 检索增强（B1/B2/B4）。parentMergeMaxChars：同标题路径的相邻块合并回上下文的字符上限（治「规则被切碎」）。mmrMaxPerSource：topK 内同一文件最多几块（治「topK 被同一文件占满」）。bm25Weight：词级 BM25 融合权重（0=关闭，回退旧 bigram 混合）。",
   "parentMergeMaxChars": 1200,
   "mmrMaxPerSource": 3,
   "bm25Weight": 0.3,
+  "$bm25Gate": "BM25 双门槛（2026-10-28 语料从 1244 块涨到 5884 块后必须加）。旧实现把 BM25 除以本轮最高分，于是**任何**查询都会有一块拿到 1.0，乘上权重 0.3 = 白送 +0.3：实测「今天天气怎么样」「公司食堂几点开饭」「报销流程怎么走」全部被判成命中（top1 0.62~0.69），而它们只共享「天/气/报/公」这类单字。实测原始分：真命中 34~55，单字噪声 7~10，无重叠 0 —— 中间有宽空档。bm25MinRaw 是绝对地板（挡单字噪声），bm25RelMin 是相对地板（同场出现 52.5 与 15.7 时，15.7 不该拿加成）。门槛以下的块 BM25 记 0，等价于「没有字面证据」。改语料后请重跑 scripts/probe-bm25 类似的分布统计再定这两个值。",
+  "bm25MinRaw": 12,
+  "bm25RelMin": 0.35,
   "$idBonus": "查询里出现长数字（告警码 / 单号）且候选块原文包含该数字时，给该块额外加分。纯语义检索对这类精确 ID 查询有盲区：语料里大量「告警码X → 父告警码Y」的块结构高度同质，向量几乎重合，22% 的字面权重压不过语义噪声，导致正确答案压根进不了 topK。设 0 可关闭。",
   "idBonus": 0.15,
-
   "replyMode": "group",
-  "allowGroups": ["*"],
+  "allowGroups": [
+    "*"
+  ],
   "replyQuote": true,
   "cooldownMs": 4000,
   "maxQueue": 3,
@@ -53,7 +53,6 @@
   "maxReplyChars": 2000,
   "temperature": 0.2,
   "maxTokens": 512,
-
   "$fixedTexts": "下面三组是**不经过模型**的固定回复（未命中 / 故障 / 排队）。英文提问要走英文版，否则只改 systemPrompt 是管不到它们的。英文缺失时回退中文（宁可回中文，也不要发空消息）。",
   "notFoundText": "这个问题我在知识库里没有找到依据，建议直接问一下相关同事～",
   "notFoundTextEn": "I couldn't find anything in the knowledge base to back this up — best to ask a colleague directly~",
@@ -61,15 +60,12 @@
   "errorTextEn": "Sorry, something went wrong on my side. Please try again in a moment.",
   "busyText": "现在问的人有点多，稍等一下再 @我～",
   "busyTextEn": "A few people are asking right now — give me a moment and @ me again~",
-
   "$pending": "慢查询预告：提问进入处理后超过 pendingAfterMs 毫秒还没答出，先发一条「正在查」垫一句（TT 通道索引重建时要 10~100 秒，干等像掉线）。回复发出即取消定时器；3 秒内答完就只有一条回复，不发垫话。置 0 关闭。",
   "pendingAfterMs": 3000,
   "pendingText": "正在查知识库和工单库，请稍等，马上回复你～",
   "pendingTextEn": "Searching the knowledge base and ticket DB — will get back to you in a moment.",
-
   "$toolsEnabled": "工具路由：提问先判断该「查数据」还是「查资料」，再执行。解决「今天有P1吗」被当成知识问题塞进向量检索、答非所问的问题（2026-10-06 实测）。参数抽取分两层：规则能定的（单号/日期/级别）就不花模型调用，定不了才让模型选工具。置 false 回到改造前的纯知识库行为。",
   "toolsEnabled": true,
-
   "$myAppApiBase": "my_app 后端地址。工单**聚合统计**与**单号分析**都优先走它的 HTTP 接口（生产库 PostgreSQL，实时）；my_app 没起或超时时自动降级到本机 SQLite 副本（聚合走 scripts/tt-query.py，单号分析走 scripts/tt-analyze.py）。留空则直接走 SQLite。改端口看 Task/my_app/AGENTS.md 第七节。",
   "myAppApiBase": "http://127.0.0.1:7038",
   "$ttAnalysisHttp": "单号分析的取数顺序开关。true（默认）= PG 优先 → eFlow 实时 → 本地 SQLite 副本（最后兜底，命中打「可能滞后」标记）；false = 老顺序，本地副本优先 → eFlow 实时，且不打滞后标记。为什么要它：SQLite 副本由 pg_to_sqlite_sync 每 12 小时才重建一次，而 PG 每小时从 eFlow 同步、eFlow 才是源头 —— 让 12 小时前的副本挡在实时源前面等于用旧答案覆盖新答案（2026-10-28 调整顺序）。环境变量 TT_ANALYSIS_HTTP=0 可临时关。",
@@ -82,25 +78,26 @@
   "ttStatsSampleLimit": 3,
   "$ttStatsListLimit": "用户**点名要单号**时（「请输出TT单的ID」）最多列几条。比 ttStatsSampleLimit 宽松，但仍有上限——本月 P2 有几百条，全列会刷屏；超出部分回复里会写明「还有 N 单未列出」。",
   "ttStatsListLimit": 10,
-
   "$ttLiveFallback": "工单实时兜底：本地 app.db 查不到单号时（数据还没同步过来），改去 eFlow 实时按单号拉这一单。实现见 scripts/eflow-live-tt.py —— 它复用 my_app 的 fetch_tt_live，凭据也只读 my_app 那一份（backend/services/eflow_config.json 与 EFLOW_* 环境变量），机器人侧不另存密码。桥接脚本会自己探测一个装齐 pandas + sqlalchemy 的解释器；探测不到就优雅降级回「本地库没有找到」，绝不影响本地查询。置 false 关闭实时兜底。",
   "ttLiveFallback": true,
   "$ttLiveTimeoutMs": "实时查询超时（毫秒）。比本地宽松：要探测解释器 + 登录 eFlow（OAuth2+RSA）+ 分页扫描。可用环境变量 TT_LIVE_TIMEOUT_MS 覆盖。",
   "ttLiveTimeoutMs": 240000,
-
   "$ttSiteAlarmFallback": "按站点查 eFlow 实时活动告警（query_site_alarms 工具）。用户问「某站有没有告警 / up 没 up」是一类**事实查询**，答案是活动告警列表，不是工单数量 —— 改造前被误路由到 query_tickets，按站名匹配工单得 0，把「0 张工单」误当「没有告警」。实现见 scripts/eflow-live-alarms.py：复用 my_app 的告警 pipeline 拉全量活动告警后本地按站名过滤，凭据只读 my_app 那一份（与 ttLiveFallback 同构），机器人侧不另存密码。脚本探测不到解释器就优雅降级为「查不了」，**绝不**把「查不了」误报成「没告警」。置 false 关闭该工具（提问退回知识库通道）。",
   "ttSiteAlarmFallback": true,
   "$ttSiteAlarmTimeoutMs": "按站点拉活动告警的超时（毫秒）。比单票查询宽：要探测解释器 + 登录 eFlow + 拉全量活动告警。可用环境变量 TT_SITE_ALARM_TIMEOUT_MS 覆盖。",
   "ttSiteAlarmTimeoutMs": 180000,
-
+  "$eflowRuleLookup": "eFlow **规则配置**查询（src/eflowRules.js + scripts/eflow-rule-lookup.py）。查「这个告警码会不会被压缩成父告警 / 会不会自动建 TT / 由哪条定级·派发·推单规则接管」。**为什么不能只靠 data/lookups.json**：那张表是从 knowledge/TT单-告警压缩规则.md 解析出来的快照，只收录「真实产生过 TT 的码」（12 条压缩规则 / 36 个码）；用户问的新码（如 5G 的 200201001）必然落在快照之外，旧文案就把它答成「知识库里没有，我不猜」—— 而用户问的是「eFlow 里配没配」。本通道直接读 my_app 从 eFlow 配置中心导出的 eflow_alarm_rules.xlsx（关联/衍生规则）与 eflow_push_rules.xlsx（ttLevelRule / ttDispatchRule / ttPushOrderRule），**没查到才说「没配 → 不支持」**，并给出核对了多少条规则、导出于何时。规则表读不到时只说「查不了」，**绝不**把超时说成「不支持」。置 false 关闭（提问退回本地查表，未命中即「知识库里没有」）。环境变量 EFLOW_RULE_LOOKUP=0 可临时关。",
+  "eflowRuleLookup": true,
+  "$eflowRuleTimeoutMs": "规则查询超时（毫秒）。只读本地 xlsx，正常 1 秒内返回；给足余量是因为要探测 openpyxl（本机 Python 没装时会去 my_app/Lib/site-packages 兜）。可用环境变量 EFLOW_RULE_TIMEOUT_MS 覆盖。",
+  "eflowRuleTimeoutMs": 25000,
+  "$eflowRuleCacheTtlMs": "规则查询结果缓存（毫秒）。规则表由 my_app 的 Collector 一天刷新几次，10 分钟缓存足够挡住群里的连问。可用环境变量 EFLOW_RULE_CACHE_TTL_MS 覆盖。",
+  "eflowRuleCacheTtlMs": 600000,
   "$vmaxCca": "VMAX CCA 用户查询（query_vmax_cca，src/vmaxcca.js）：群里发「TEL 231773777115，2026-10-25 10:07」即查 XDR CCA 投诉信息（MSISDN/IMSI/IMEI/机型/流量/驻留小区/根因分析），窗口=截止时间往前 60 分钟，未给时间按当前时刻；本地 9 位号码（77 377 7115 这类写法）自动补 231。数据经 my_app /api/vmax-cca-query 实时透传（同机回环免登录，凭据只在 my_app 侧），无本地降级 —— my_app 或 VMAX 挂了就如实说查不了，不编。置 false 关闭该工具（提问退回模型路由/知识库通道）。",
   "vmaxCcaEnabled": true,
   "$vmaxCcaTimeoutMs": "CCA 查询超时（毫秒）。上游要做门户登录 + 号码/终端/流量/小区/根因共 5 个子查询，根因最慢（上游读超时 60s），故比统计通道（15s）宽得多。可用环境变量 VMAX_CCA_TIMEOUT_MS 覆盖。",
   "vmaxCcaTimeoutMs": 240000,
-
   "$rewriteRetry": "二跳检索：第一跳未命中时，让对话模型把用户的口语提问改写成「知识库文档里可能会出现的表述」（中英各一条）再检索一次，任一跳命中就用它回答。治两类病：① 用户问法与文档标题差异大（如「端到端链路」vs 文档用词）；② 英文问法召回偏到无关块。只重试一次；改写失败或仍不命中 → 维持 notFoundText 兜底。置 false 关闭。",
   "rewriteRetry": true,
-
   "$memory": "会话记忆：按「群 + 提问人」记住最近 memoryMaxTurns 轮问答，让「那第二种情况呢」「刚才说的时效是多少」这类追问接得上（改造前每条提问都是全新会话，指代必然丢）。memoryTtlMs 是空闲超时，超过就没有上下文了；memoryMaxChats 是最多同时记多少个会话，超了淘汰最久没用的。只存内存，重启即清空。置 memoryEnabled=false 回到单轮行为。",
   "memoryEnabled": true,
   "memoryMaxTurns": 3,
@@ -108,7 +105,6 @@
   "memoryMaxChats": 200,
   "$memoryResolve": "追问消解：有记忆时先花一次小模型调用，把口语追问补全成「能拿去检索的独立问题」（否则「那第二种呢」这几个字压根召不回正确的块），同时判断这句是不是在延续上一话题——是新话题就不带历史，避免旧上下文污染。这一步失败会自动退回原句，不影响回答。置 false 关闭。",
   "memoryResolve": true,
-
   "$notify": "notify 进程（src/notify.js）专用配置块。**不**影响聊天机器人的问答行为，只控制「P1 告警文本 + 文件作业（图片/文档）」的发送节奏。fileSend：sendIntervalMs 每发一图/文档后等多少毫秒（防 WhatsApp 风控），perGroupDelayMs 群间延时，maxImages / maxDocuments 单作业配额（防止单次突增触发限频）。可被环境变量 NOTIFY_FILE_SEND 整段 JSON 覆盖（便于临时调参）。",
   "notify": {
     "fileSend": {
@@ -118,11 +114,10 @@
       "maxDocuments": 1
     }
   },
-
   "$webUiFallback": "网页版兜底：知识库确实没找到依据时，除了那句固定文案，再附一个网页版助手的地址，让提问人去那里追问（那边能用模型通用知识、也能多轮聊）。URL 置空则不追加这一段。注意这是**给同事看的地址**，需要本机能被那个地址访问到。",
-  "webUiFallbackUrl": "http://192.168.100.27:3000/",
+  "webUiFallbackUrl": "https://192.168.100.27:8443/",
   "webUiFallbackText": "想继续追问可以到网页版问我：{url}",
   "webUiFallbackTextEn": "For follow-up questions, ask the web assistant here: {url}",
-
-  "systemPrompt": "你是一个只依据「资料」回答问题的助手，服务于一个 WhatsApp 群。\n\n硬性规则：\n1. 只使用「资料」中的内容作答，不得引入资料之外的知识，不得编造。\n2. 资料足以回答时，直接给结论，再补必要细节；「用与提问相同的语言回答」（英文提问就用英文，中文提问就用中文），口语化、简短，适合聊天窗口阅读。\n3. 不要复述问题，不要说“根据资料显示”这类套话，直接说答案。\n4. 若资料只覆盖了问题的一部分，就只回答被覆盖的那部分，并明确说明哪部分没有依据。\n5. 不要输出 Markdown 标题、表格、代码块；可用短横线列点。优先简短，但规则/条件类问题需要时可到 12 行以内 —— 不要为了短而剪掉 AND/OR 条件。\n6. 结论后用一行给出依据，格式：来源：文件名（可多个）。\n7. 不得输出资料中未出现的规则 ID、告警码、阈值、编号 —— 拿不准就说资料里没有。"
+  "systemPrompt": "你是一个只依据「资料」回答问题的助手，服务于一个 WhatsApp 群。\n\n硬性规则：\n1. 只使用「资料」中的内容作答，不得引入资料之外的知识，不得编造。\n2. 资料足以回答时，直接给结论，再补必要细节；「用与提问相同的语言回答」（英文提问就用英文，中文提问就用中文），口语化、简短，适合聊天窗口阅读。\n3. 不要复述问题，不要说“根据资料显示”这类套话，直接说答案。\n4. 若资料只覆盖了问题的一部分，就只回答被覆盖的那部分，并明确说明哪部分没有依据。\n5. 不要输出 Markdown 标题、表格、代码块；可用短横线列点。优先简短，但规则/条件类问题需要时可到 12 行以内 —— 不要为了短而剪掉 AND/OR 条件。\n6. 结论后用一行给出依据，格式：来源：文件名（可多个）。\n7. 不得输出资料中未出现的规则 ID、告警码、阈值、编号 —— 拿不准就说资料里没有。",
+  "$kbSourcePolicy": "2026-10-28 起**清空**：knowledge/ 已扩到 40 个文件（整套 iMind 手册入库），产品口径是「所有文档都要能答」，所以不再按来源排除。原先排 07_ 的两条理由现在都不成立：① 它只占索引 12.6%（742/5884），topK 被单一文件占满由 mmrMaxPerSource 处理；② 内容与 07b 中文版重复，只排英文件反而让英文提问吃亏。字段保留是为了需要时能一键恢复（填相对路径数组即可）；kbManualIntent 同理，仅在数组非空时生效。注意：手册带 ZTE CONFIDENTIAL 标记，命中块会随检索上传云端模型 —— 这是明确接受的取舍。"
 }

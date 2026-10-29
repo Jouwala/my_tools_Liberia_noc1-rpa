@@ -73,6 +73,7 @@ Baileys 客户端（Node.js，扫码登录，作为「已关联的设备」）
 | ① 单票 | 带 TT/WO 单号 | `tt-analyze.py` 脚本渲染 |
 | ② 区间统计 | 「今天有几个 P1」「昨天多少单」 | 聚合查询脚本渲染，模型不参与 |
 | ③ **告警码/压缩/级别查表** | 「99933 是什么意思」「198094422 会被压缩成什么」「告警码 9990 是几级」「P1 规则」 | `data/lookups.json` 查表 + 模板渲染，**不经 LLM**；答案带出处文件名 |
+| ③d **eFlow 规则配置** | 「200201001 会被压缩成什么，会不会自动建单」「will alarm X be compressed / create a ticket automatically」 | 直接读 eFlow 导出的 `eflow_alarm_rules.xlsx` + `eflow_push_rules.xlsx`，脚本渲染；**没查到 = eFlow 没配专门规则**（压缩/建单分开下结论） |
 | ③b **站点实时告警** | 「Palm Bay 有没有告警」「site name :Grand Cess(3629)，Alarm: 9920…」 | 直接查 eFlow **活动告警**接口，脚本渲染；含发生时间/告警码/站号/派单字段 |
 | ③c **VMAX CCA 用户查询** | 「TEL 231773777115，2026-10-25 10:07」 | my_app `/api/vmax-cca-query`（VMAX 实时），脚本渲染；号码归一 + 60 分钟窗口 |
 | ④ 知识库 | 其余（流程 / 为什么 / SOP） | 向量检索 + LLM 生成；每个候选块带文件名，回答末给出「来源：」 |
@@ -113,6 +114,37 @@ Baileys 客户端（Node.js，扫码登录，作为「已关联的设备」）
 > - **站点属性过滤 + 真规则匹配**（`告警码 9990 NORMAL 非 VIP 是几级`）→ 现在会
 >   **调用 `scripts/tt-analyze.py --lookup-level`**（与「分析 TT 单」**同一套规则引擎**），
 >   直接给出命中级别与逐条判定依据。口径与工单分析完全一致，避免「查表说 P2、分析工单说 P3」。
+
+> **③d 是 2026-10-28 新增的通道**（`src/eflowRules.js` + `scripts/eflow-rule-lookup.py`）。
+> 起因是群里这句被答成了一句「我不知道」：
+>
+> ```
+> How will Alarm Code 200201001 be compressed, and will a service ticket be automatically generated?
+> → 旧答：The knowledge base compression rule table does not contain 200201001. I won't guess.
+> ```
+>
+> 两处错：
+> 1. **答错了对象**。用户问的是「**eFlow 里配没配**这条规则」，而 `data/lookups.json`
+>    是从知识库 md 解析出来的**快照**，只收录「真实产生过 TT 的码」（12 条压缩规则 /
+>    36 个码）。快照里没有 ≠ eFlow 没配 —— 旧文案把「我们没采集」说成了「查不到」。
+> 2. **后半句整段丢了**。「会不会自动建单」和「怎么压缩」是两件事（子告警会被压缩、
+>    TT 却建在**父告警**上），旧路由只认压缩意图，建单那句直接被丢弃。
+>
+> 现在的行为：
+> - 复合问法（压缩 + 建单）→ 工具 `lookup_eflow_rule`，**两件事都答**；
+> - 只问压缩 → 仍走本地查表（快），**未命中自动升级**到 eFlow 规则表核实；
+> - 只问「会不会自动建单」→ 直接查 eFlow 规则表（旧实现会把它当成「码是什么意思」）；
+> - **压缩与建单分开下结论**，因为它们是两条链路：没配关联规则 = 不压缩；
+>   但没配专门规则 **≠ 不建单** —— `autoDispatch` 有一条**条件为空**的
+>   `ttDispatchRule` #164「TT单直接派FO accept」（ACTIVE，优先级 3），
+>   任何没被 #165（按 `netWorkType` ∈ CS/PS/VAS/OCS 派 BO 线，优先级 2 更靠前）接走的码，
+>   都会被它接进 FO 线并自动建 TT，级别落到兜底 #230 → P4。
+>   所以「没配」在这条链路上的准确含义是**没有专门处理路径**，不是「不建单」；
+> - 规则表里确实没有 → 给出「核对了多少条规则、导出于何时」+ 覆盖范围（现有规则只有
+>   2G/3G/4G + MW，新制式没有规则）+ **边界声明**（告警屏蔽/过滤规则不在导出范围，
+>   若该码在告警层被屏蔽则不会产生 TT）；
+> - **规则表读不到时绝不说「没配」**，只说「查不了、分不清是没配还是没查到」——
+>   把超时说成「不支持」比不回答更糟。
 >   脚本不可用（没装 Python / 规则表不在）时自动回退到静态候选列表（只过滤写明冲突条件的行）。
 >   判不了时输出 `incomplete`（缺字段，措辞「未能核对规则」），与「未命中」分开。
 
@@ -296,14 +328,40 @@ pong ✅ 机器人在线
 | `ollama` | 全本地，离线可用。首次响应 8–12 秒（受本地模型重载影响） |
 | `openai` | 任意 OpenAI 兼容接口。首次响应 1–3 秒 |
 
-当前配置指向 **Agnes AI**（新加坡 Sapiens AI，OpenAI 兼容，当前免费）：
+当前配置指向 **内网 Open WebUI**（`https://192.168.100.27:8443`，OpenAI 兼容）：
 
 ```json
 "chatProvider": "openai",
-"chatModel": "agnes-3.0-flash",
-"chatBaseUrl": "https://apihub.agnes-ai.com/v1",
-"chatApiKeyEnv": "AGNES_API_KEY"
+"chatModel": "mimo-v2.6-flash",
+"chatBaseUrl": "https://192.168.100.27:8443/api/v1",
+"chatApiKeyEnv": "OPENWEBUI_API_KEY",
+"chatCaFile": "certs/liberia-noc-ca.pem"
 ```
+
+> **路径是 `/api/v1`，不是 `/v1`**（2026-10-28 实测）：该实例的 `/v1/*` 会落到前端 SPA
+> （GET 回 index.html、POST 回 405 Method Not Allowed），`/api/*` 用静态 key 打会 403，
+> 只有 `/api/v1/*` 放行。把 Settings 页的地址写成 `https://192.168.100.27:8443/v1`
+> 也行 —— `toOpenWebUiApiBase()` 会把结尾的裸 `/v1` 归一到 `/api/v1`。
+>
+> **该实例只暴露一个模型**：`mimo-v2.6-flash`（显示名 OLBR_Assistant）。旧的 3000 端口 +
+> `qwen2.5:7b-instruct` 已失效（`/api/v1/models` 返回空列表、chat 回 400 Model not found）。
+> 注意 Ollama 那台（`.27:11434`）上 `qwen2.5:7b-instruct` 其实还在，是 Open WebUI
+> 不向该静态 key 暴露它 —— 别误判成「模型被删了」。
+>
+> **HTTPS 是内网私有 CA 签发的**（issuer `CN=192.168.100.20`），Node 不认，会直接抛
+> `SELF_SIGNED_CERT_IN_CHAIN`。所以有 `chatCaFile` 这一项：`src/config.js` 启动早期
+> 用 `tls.setDefaultCACertificates()` 把它并进默认信任链（对全局 `fetch` 生效）。
+> 注意**不能**靠 `--env-file` 注入 `NODE_EXTRA_CA_CERTS` —— Node 读 env-file 之前
+> 根证书就已初始化完，实测仍报自签错误。文件缺失只告警不抛。
+>
+> **`mimo-v2.6-flash` 会把思维链/工具调用标记漏进 `content`**（2026-10-28 实测，约 1/4 的
+> 请求）。泄漏形态有两种：① 正文前挂一段 `Wait — the question is…</think>`；
+> ② 整轮回复变成 `I'll check the available tools…<tool_call><function=search_knowledge>…`，
+> 一个字的答案都没有。旧代码只防「content 为空」，于是②这种会被当成正常回答发进群里
+> （`answered` 还是 `true`）。现在由 `src/llm.js` 的 `stripModelMarkup()` 统一净化：
+> think 标记剥掉留正文；出现工具调用标记则**整轮判为不可信**，自动重打一次
+> （`opts.maxAttempts`，默认 2），仍失败就抛错由上层走兜底文案。
+> 若日志里频繁出现 `[llm] … 只返回了工具调用标记`，说明该模型这个毛病在变严重。
 
 **密钥必须通过环境变量提供**，不要写进 `config.json`（那个文件容易被误提交）：
 
@@ -333,17 +391,18 @@ echo 'AGNES_API_KEY=你的key' > .env
 | 字段 | 默认 | 说明 |
 |---|---|---|
 | `chatProvider` | `openai` | `ollama` 或 `openai` |
-| `chatModel` | `agnes-3.0-flash` | 对话模型名 |
-| `chatBaseUrl` | `https://apihub.agnes-ai.com/v1` | OpenAI 兼容接口的 base URL |
-| `chatApiKeyEnv` | `AGNES_API_KEY` | 从哪个环境变量读密钥 |
+| `chatModel` | `mimo-v2.6-flash` | 对话模型名 |
+| `chatBaseUrl` | `https://192.168.100.27:8443/api/v1` | OpenAI 兼容接口的 base URL（注意是 `/api/v1`） |
+| `chatApiKeyEnv` | `OPENWEBUI_API_KEY` | 从哪个环境变量读密钥 |
+| `chatCaFile` | `certs/liberia-noc-ca.pem` | 内网私有 CA（PEM），自签 HTTPS 必填；缺失只告警 |
 | `chatApiKey` | `""` | 直接写密钥（不推荐，优先用环境变量） |
 | `chatTimeoutMs` | 60000 | 云端调用超时 |
 | `ollamaUrl` | `http://127.0.0.1:11434` | 本地 Ollama 地址（嵌入用） |
 | `embedModel` | `bge-m3:latest` | 嵌入模型 |
 | `chunkSize` / `chunkOverlap` | 420 / 80 | 分块大小与重叠量（改完需 `npm run ingest`） |
 | `topK` | 6 | 喂给模型的候选块数 |
-| `minAbs` | 0.43 | **绝对分下限**，必须校准 |
-| `minGap` | 0.05 | **相对基线差值下限**，必须校准 |
+| `minAbs` | 0.50 | **绝对分下限**，必须校准（2026-10-28 语料 40 文件/5884 块后重校准） |
+| `minGap` | 0.15 | **相对基线差值下限**，必须校准（同上） |
 | `semanticWeight` / `lexicalWeight` | 0.78 / 0.22 | 混合检索权重（语义 / 字面） |
 | `idBonus` | 0.15 | 查询含长数字且块原文命中时的加分，见下文 |
 | `replyMode` | `group` | `group` 仅群内响应；`all` 群内 + 私聊 |
@@ -369,11 +428,15 @@ echo 'AGNES_API_KEY=你的key' > .env
 | `ttStatsListLimit` | 10 | 用户**点名要单号**（「请输出TT单的ID」）时最多列几条。超出部分回复里会写明「还有 N 单未列出」 |
 | `systemPrompt` | （见文件） | 约束模型只依据资料作答 |
 | `lookupsPath` | `data/lookups.json` | 查表数据（告警码/压缩/级别），由 `npm run ingest` 生成；供 ③ 通道使用 |
-| `kbExcludeSources` | `["knowledge/07_...md"]` | 默认检索排除的来源（操作手册占 52% 且含机密）。环境变量 `KB_EXCLUDE_SOURCES` 逗号分隔覆盖；清空即回退旧行为 |
+| `eflowRuleLookup` | `true` | ③d 通道开关：查「某告警码会不会被压缩 / 会不会自动建 TT」时读 eFlow 导出的规则表（`eflow_alarm_rules.xlsx` + `eflow_push_rules.xlsx`），**没查到才判「没配 → 不支持」**。置 `false` 退回本地快照（未命中即「知识库里没有」）。环境变量 `EFLOW_RULE_LOOKUP=0` |
+| `eflowRuleTimeoutMs` | 25000 | ③d 规则查询超时。只读本地 xlsx（正常 1s 内），余量留给 openpyxl 探测（本机 Python 没装时去 `my_app/Lib/site-packages` 兜）。环境变量 `EFLOW_RULE_TIMEOUT_MS` |
+| `eflowRuleCacheTtlMs` | 600000 | ③d 结果缓存。规则表一天刷新几次，10 分钟足够挡住群里连问。环境变量 `EFLOW_RULE_CACHE_TTL_MS` |
+| `kbExcludeSources` | `[]` | 默认检索排除的来源。**2026-10-28 起清空**：语料扩到 40 个文件后产品口径是「所有文档都要能答」，不再按来源排除（原先是排 07_ 手册，理由已由 `mmrMaxPerSource` 与「07b 中文版重复」取代）。需要时填相对路径数组即可恢复 |
 | `kbManualIntent` | （正则） | 问法命中时才把被排除的手册纳入检索（界面/菜单/如何创建用户组…）。环境变量 `KB_MANUAL_INTENT` |
 | `parentMergeMaxChars` | 1200 | P1/B1 同标题路径相邻块合并回上下文的字符上限；超限的块作为独立条目保留（不丢） |
 | `mmrMaxPerSource` | 3 | P1/B4 topK 内同一文件最多几块（0=不限流）；治「topK 被同一文件占满」 |
 | `bm25Weight` | 0.3 | P1/B2 词级 BM25（中文 bigram / 英文 token）融合权重（0=关闭，回退旧 bigram 混合） |
+| `bm25MinRaw` / `bm25RelMin` | 12 / 0.35 | BM25 **双门槛**：原始分低于绝对地板、或低于本轮最高分的 35% 时，该块 BM25 记 0。没有它的话「任何查询都会有一块拿满分」，手册入库后域外问题会被判命中 |
 
 > 上面三组 `*Text` 是**不经过模型**的固定回复，必须成对配置。
 > 只配中文的话，英文提问会收到一句中文兜底 —— 详见「回复语言」一节。
@@ -2016,25 +2079,29 @@ npm run serve-http          # 手动前台起（调试用）
 
 - **只绑回环**（`QA_HTTP_HOST` 默认 `127.0.0.1`），对外一律由 my_app 后端中转并做会话鉴权。
 - **网页版的对话模型是独立通道，不跟 my_app 的 AI 设置走**：固定 OWU
-  `qwen2.5:7b-instruct`（`QA_OWU_BASE`，默认 `http://192.168.100.27:3000/api/v1`，
-  静态 key 只认 `/api/v1` 这条 base，见 `src/config.js:89`）。`clientId` 由 my_app 拼成
-  `用户名#页面id`，同名不同浏览器互不串上下文。
-- **OWU 通道级失败自动兜底到同一个模型**：`.27` 的 Ollama 上就是同一份 7b 权重，兜底不降质。
-  只认通道问题（401/403/404、key 无效、model not found、连不上、超时），
+  `mimo-v2.6-flash`（`QA_OWU_BASE`，默认 `https://192.168.100.27:8443/api/v1`，
+  静态 key 只认 `/api/v1` 这条 base —— `/v1` 会落到前端 SPA，POST 回 405）。
+  `clientId` 由 my_app 拼成 `用户名#页面id`，同名不同浏览器互不串上下文。
+  自签证书的信任链由 `src/config.js:applyChatCa()` 统一装好（本服务 import 了 config.js）。
+- **OWU 通道级失败自动兜底到本地 Ollama**，但**兜底模型不是同一个**（2026-10-28 改）：
+  `mimo-v2.6-flash` 是云端代理，Ollama 上没有这份权重，拿它去问只会 model not found。
+  所以兜底目标单列为 `QA_FALLBACK_MODEL`（默认 `qwen2.5:7b-instruct`）——**降质但可用**。
+  只认通道问题（401/403/404、key 无效、model not found、连不上、超时、证书），
   **不兜底业务错误**；失败后 `QA_OWU_COOLDOWN_MS`（默认 5 分钟）内直接走本地，不再白打一次 OWU。
   `src/llm.js` 自带的 `fallbackTarget()` 在本服务里被刻意关掉（它指向已不可用的 WorkBuddy 代理）。
 - **`webHint:false`**：查不到时的「去网页版问」尾巴只对群里有意义，网页挂件不追加
   （`src/answer.js:routeAnswer` → `src/tools.js` 的 `webHintFor`）。
-- **延迟**：查表/工单统计/单号分析等规则通道毫秒级；知识库 RAG 要模型，`.27` 只常驻一个模型，
-  7b 与 `bge-m3` 换载一次 7~30 秒，实测单次 **60~90 秒**。后端转发超时给到 300 秒。
+- **延迟**：查表/工单统计/单号分析等规则通道毫秒级；知识库 RAG 走 8443 的云端模型，
+  实测单次 **0.5~10 秒**（旧配置走本地 Ollama、7b 与 `bge-m3` 抢显存换载，要 60~90 秒）。
+  后端转发超时给到 300 秒。
 - 环境变量：`QA_HTTP_PORT`、`QA_HTTP_HOST`、`QA_OWU_BASE`、`QA_CHAT_MODEL`、
-  `QA_OWU_COOLDOWN_MS`、`QA_CHAT_TIMEOUT_MS`、`OPENWEBUI_API_KEY`（密钥只从环境变量读，
-  不进代码/日志；缺 key 时 `validateProvider()` 会报出来，但**不阻止进程启动**）。
+  `QA_FALLBACK_MODEL`、`QA_OWU_COOLDOWN_MS`、`QA_CHAT_TIMEOUT_MS`、`OPENWEBUI_API_KEY`
+  （密钥只从环境变量读，不进代码/日志；缺 key 时 `validateProvider()` 会报出来，
+  但**不阻止进程启动**）。
 
-> 已知限制（2026-10-27）：OWU 侧的 `OPENWEBUI_API_KEY` 目前对 `/api/v1/models`、
-> `/api/v1/chat/completions` 报 403 / 400，网页问答实际一直在走本地 Ollama 兜底
-> （`/health` 的 `channel` 会显示 `ollama`，回答的 `via` 是 `ollama-fallback`）。
-> 补一个具备模型权限的 key 后无需改代码，冷却期一过会自动切回 OWU。
+> 历史（2026-10-27 的已知限制，2026-10-28 已解除）：当时 OWU 侧的 `OPENWEBUI_API_KEY`
+> 对 `/api/v1/models`、`/api/v1/chat/completions` 报 403 / 400，网页问答一直在走本地 Ollama 兜底。
+> 迁到 8443 后 `/health` 的 `channel` 恢复为 `openwebui`，`via` 是 `model`。
 
 ---
 

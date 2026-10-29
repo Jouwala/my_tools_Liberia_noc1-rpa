@@ -1,0 +1,377 @@
+/**
+ * eFlow **规则配置**查询（不是工单数据）。
+ *
+ * 解决的问题（2026-10-28 群内实测）：
+ *   问「How will Alarm Code 200201001 be compressed, and will a service ticket be
+ *   automatically generated?」时，旧实现走 `lookup_compress` 查本地
+ *   `data/lookups.json` —— 那张表是从 `knowledge/TT单-告警压缩规则.md` 解析的**快照**，
+ *   只收录「真实产生过 TT 的码」（12 条压缩规则 / 36 个告警码）。
+ *   查不到就回「知识库压缩规则表里没有 200201001，我不会按通用知识猜」。
+ *
+ *   这句话在语义上是错的：用户问的是 **eFlow 里到底有没有配规则**，
+ *   而我们答的是 **我们的快照里有没有**。两者之间差着「没采集」这一整类情况。
+ *
+ * 现在的链路：
+ *   本地查表（快）→ 未命中 → 查 eFlow 规则配置（权威）→ 仍未命中才说
+ *   「eFlow 没配 → 不支持」，并把「查了哪些规则、快照时间」一并给出。
+ *
+ * 数据源：my_app 的 `backend/services/eflow_rules/eflow_alarm_rules.xlsx`（关联/衍生规则）
+ * 与 `eflow_push_rules.xlsx`（ttLevelRule / ttDispatchRule / ttPushOrderRule）。
+ * 这两个文件由 my_app 的 Collector 从 eFlow 配置中心定时导出，是本地能拿到的
+ * 最接近「eFlow 真实配置」的副本；机器人侧**不另存 eFlow 凭据**（与 ttLiveFallback 同构）。
+ *
+ * 硬规则：**数据不可用时绝不说「没配」**。通道挂了只能回「查不了规则配置」，
+ * 否则就是把一次超时说成「这条告警不支持」—— 比不回答更糟。
+ */
+import { execFile } from 'node:child_process';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+import { CONFIG } from './config.js';
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const SCRIPT = path.join(HERE, '..', 'scripts', 'eflow-rule-lookup.py');
+
+const PYTHON =
+  process.env.EFLOW_RULE_PYTHON ||
+  process.env.TT_PYTHON ||
+  'C:/Users/ZTEEMS/AppData/Local/Programs/Python/Python312/python.exe';
+
+function enabled() {
+  return CONFIG.eflowRuleLookup !== false;
+}
+
+const TIMEOUT_MS = () => CONFIG.eflowRuleTimeoutMs || 25000;
+const CACHE_TTL_MS = () => CONFIG.eflowRuleCacheTtlMs || 600000;
+
+/** code → {ts, data}。规则表几小时才变一次，缓存 10 分钟不会过时。 */
+const CACHE = new Map();
+
+/* ------------------------------ 取数 ------------------------------ */
+
+/**
+ * 跑脚本拿规则判定结果。
+ * @param {string} code 告警码
+ * @returns {Promise<{ok:true, data:object}|{ok:false, reason:string, detail?:string}>}
+ */
+export async function lookupEflowRules(code) {
+  const c = String(code || '').trim();
+  if (!c) return { ok: false, reason: 'empty_code' };
+  if (!enabled()) return { ok: false, reason: 'disabled' };
+
+  const hit = CACHE.get(c);
+  if (hit && Date.now() - hit.ts < CACHE_TTL_MS()) return { ok: true, data: hit.data };
+
+  return new Promise((resolve) => {
+    execFile(
+      PYTHON,
+      [SCRIPT, '--code', c, '--json'],
+      {
+        timeout: TIMEOUT_MS(),
+        encoding: 'utf8',
+        windowsHide: true,
+        maxBuffer: 8 * 1024 * 1024,
+        env: { ...process.env, PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8' },
+      },
+      (err, stdout, stderr) => {
+        const out = (stdout || '').trim();
+        if (out) {
+          try {
+            const obj = JSON.parse(out);
+            if (obj.ok) {
+              CACHE.set(c, { ts: Date.now(), data: obj });
+              return resolve({ ok: true, data: obj });
+            }
+            return resolve({
+              ok: false,
+              reason: obj.reason || 'script_error',
+              detail: obj.detail || '',
+            });
+          } catch {
+            /* 落到下面按失败处理 */
+          }
+        }
+        const detail = (stderr || err?.message || '').trim().split('\n').pop() || '';
+        return resolve({ ok: false, reason: err?.killed ? 'timeout' : 'script_error', detail });
+      }
+    );
+  });
+}
+
+/* ------------------------------ 渲染 ------------------------------ */
+
+const T = {
+  zh: {
+    head: (code) => `告警 ${code}`,
+    compressNone: (n, at) =>
+      `压缩：没有。已核对 eFlow 里 ${n} 条启用的告警关联/衍生规则（导出于 ${at}），` +
+      `该码不在任何一条的子告警清单里，因此不会被压缩成父告警。`,
+    compressChild: (parent, name, rule, status, role) =>
+      `压缩：会压进父告警 ${parent}${name ? `（${name}）` : ''}，规则 ${rule}（${status}${role ? `，${role}` : ''}）。` +
+      `TT 是跟着父告警 ${parent} 建的，子告警本身不单独建单。`,
+    compressLinked: (parent, name, rule, role) =>
+      `关联：该码是规则 ${rule} 的${role || '关联告警'}，本身不被压缩；它参与衍生出的父告警是 ` +
+      `${parent}${name ? `（${name}）` : ''}，TT 建在父告警上。`,
+    compressParent: (rule) =>
+      `压缩：该码本身就是衍生出来的父告警（规则 ${rule}），不会再被压成别的码。`,
+    compressDisabledOnly: (rule) =>
+      `压缩：只有一条已停用的规则 ${rule} 提到它 —— 停用等于当前不生效，所以现在不压缩。`,
+    ttCatchAllDispatch: (dispatch, catchAll, byField = []) =>
+      `建单：会。autoDispatch 有一条**无条件兜底**派发规则 #${dispatch.id} ${dispatch.name}` +
+      `（${dispatch.status}，优先级 ${dispatch.priority}）—— 任何没被专门规则接走的告警码都会被它接进 FO 线。` +
+      (byField.length
+        ? `但要注意：若该告警的 ${fieldDesc(byField)} 命中，会先被 ` +
+          `${byField.map((r) => `#${r.id} ${r.name}`).join(' / ')} 接走（按专业域匹配，优先级更靠前，走的是另一条线）。`
+        : '') +
+      (catchAll
+        ? `没有专门的定级规则，级别由兜底规则 #${catchAll.id} ${catchAll.name} → ${catchAll.severity} 决定。`
+        : '') +
+      `也没有专门的推单规则，所以不会自动推给 ZTE_NOC_FO / BO / 第三方组。`,
+    ttNone: (catchAll) =>
+      catchAll
+        ? `建单：没有 ACTIVE 的定级/派发/推单规则引用它。真建了单也只会落到兜底规则 ` +
+          `#${catchAll.id} ${catchAll.name} → ${catchAll.severity}（条件 ${catchAll.condition}），没有专门的处理路径。`
+        : '建单：没有任何 ACTIVE 的定级/派发/推单规则引用它，也没有兜底定级规则可用。',
+    ttLevel: (rules) =>
+      `建单：会自动建 TT，定级由 ${rules.map((r) => `#${r.id}（${r.severity}）`).join(' / ')} 按站点属性决定。`,
+    ttLevelForParent: (parent, rules) =>
+      `建单：TT 跟着父告警 ${parent} 建，定级由 ${rules.map((r) => `#${r.id}（${r.severity}）`).join(' / ')} 按站点属性决定。`,
+    ttPush: (rules) =>
+      `推单：${rules.map((r) => `#${r.id} ${r.name}${r.target ? ` → ${r.target}` : ''}`).join('；')}。`,
+    ttDispatchOnly: (rules) =>
+      `建单：会，派发由 ${rules.map((r) => `#${r.id} ${r.name}${r.target ? ` → ${r.target}` : ''}`).join('；')} 接管。`,
+    verdictYes: '结论：配置存在，按上面这条链路走。',
+    verdictCompressNo: '结论（压缩）：eFlow 没配关联/衍生规则 → 不压缩，该告警独立上送。',
+    verdictTicketFallback: (id) =>
+      `结论（建单）：会建 TT，走的是兜底派发 #${id} —— 这里的「没配置」指**没有专门处理路径**，不等于「不建单」。`,
+    verdictTicketNone: '结论（建单）：没有找到自动建单的路径。',
+    boundary:
+      '注：以上覆盖「告警关联/衍生」与「TT 定级/派发/推单」两类规则；告警屏蔽/过滤规则不在导出范围内，' +
+      '若该码在告警层就被屏蔽，则不会产生 TT。',
+    scope: (rats, ne) =>
+      rats?.length
+        ? `覆盖范围：现有压缩规则只覆盖 ${rats.join('/')}（NE 类型 ${ne.slice(0, 4).join('、')}${ne.length > 4 ? ' 等' : ''}），` +
+          `超出这个范围的制式（新 RAT / 新 NE 类型）没有对应规则。`
+        : '',
+    source: (a, p) => `来源：${a.file}（${a.mtime}）、${p.file}（${p.mtime}）`,
+    unavailable: 'eFlow 规则配置暂时查不到（规则导出文件或 Python 依赖不可用），这条我没法确认是「没配」还是「没查到」。',
+    disabled: 'eFlow 规则配置查询已关闭（eflowRuleLookup=false）。',
+  },
+  en: {
+    head: (code) => `Alarm ${code}`,
+    compressNone: (n, at) =>
+      `Compression: none. I checked all ${n} enabled alarm-correlation rules in eFlow (export ${at}); ` +
+      `the code is not listed as a child alarm in any of them, so it is not folded into a parent alarm.`,
+    compressChild: (parent, name, rule, status, role) =>
+      `Compression: folded into parent alarm ${parent}${name ? ` (${name})` : ''} by rule ${rule} (${status}${role ? `, ${role}` : ''}). ` +
+      `The TT is raised for parent ${parent}, not for the child code.`,
+    compressLinked: (parent, name, rule, role) =>
+      `Linkage: the code is a ${role || 'associated alarm'} of rule ${rule} — it is not compressed itself; ` +
+      `it drives the derived parent alarm ${parent}${name ? ` (${name})` : ''}, and the TT is raised on that parent.`,
+    compressParent: (rule) =>
+      `Compression: this code is itself a derived parent alarm (rule ${rule}); it is not compressed further.`,
+    compressDisabledOnly: (rule) =>
+      `Compression: only a DISABLED rule (${rule}) references it — disabled means not in effect, so it is not compressed today.`,
+    ttCatchAllDispatch: (dispatch, catchAll, byField = []) =>
+      `Ticket: yes. autoDispatch has an unconditional fallback rule #${dispatch.id} ${dispatch.name} ` +
+      `(${dispatch.status}, priority ${dispatch.priority}) — any alarm code no specific rule claims is auto-ticketed and routed into the FO line.` +
+      (byField.length
+        ? ` Caveat: if this alarm's ${fieldDesc(byField)} matches, ` +
+          `${byField.map((r) => `#${r.id} ${r.name}`).join(' / ')} takes it first (network-type match, higher priority, different line).`
+        : '') +
+      (catchAll
+        ? ` With no dedicated severity rule, severity falls to catch-all #${catchAll.id} ${catchAll.name} → ${catchAll.severity}.`
+        : '') +
+      ` No dedicated push rule exists either, so it is not pushed to ZTE_NOC_FO / BO / third-party groups.`,
+    ttNone: (catchAll) =>
+      catchAll
+        ? `Ticket: no ACTIVE severity/dispatch/push rule references it. If a TT is created at all it only gets ` +
+          `catch-all #${catchAll.id} ${catchAll.name} → ${catchAll.severity} (condition ${catchAll.condition}), with no dedicated routing.`
+        : 'Ticket: no ACTIVE severity/dispatch/push rule references it, and there is no catch-all severity rule either.',
+    ttLevel: (rules) =>
+      `Ticket: a TT is auto-created; severity comes from ${rules.map((r) => `#${r.id} (${r.severity})`).join(' / ')} based on site attributes.`,
+    ttLevelForParent: (parent, rules) =>
+      `Ticket: the TT is raised for parent ${parent}; severity comes from ${rules.map((r) => `#${r.id} (${r.severity})`).join(' / ')} based on site attributes.`,
+    ttPush: (rules) =>
+      `Push: ${rules.map((r) => `#${r.id} ${r.name}${r.target ? ` → ${r.target}` : ''}`).join('; ')}.`,
+    ttDispatchOnly: (rules) =>
+      `Ticket: yes, dispatched by ${rules.map((r) => `#${r.id} ${r.name}${r.target ? ` → ${r.target}` : ''}`).join('; ')}.`,
+    verdictYes: 'Conclusion: configuration exists — it follows the chain above.',
+    verdictCompressNo: 'Conclusion (compression): no correlation/derivation rule in eFlow → not compressed; the alarm stays standalone.',
+    verdictTicketFallback: (id) =>
+      `Conclusion (ticket): a TT IS created, via fallback dispatch #${id} — "not configured" here means "no dedicated routing", not "no ticket".`,
+    verdictTicketNone: 'Conclusion (ticket): no auto-ticket path found.',
+    boundary:
+      'Note: this covers alarm correlation/derivation and TT severity/dispatch/push rules only. Alarm masking/filter rules are not in the export — ' +
+      'if this code is suppressed at the alarm layer, no TT is raised at all.',
+    scope: (rats, ne) =>
+      rats?.length
+        ? `Scope: existing correlation rules cover ${rats.join('/')} only (NE types ${ne.slice(0, 4).join(', ')}${ne.length > 4 ? '…' : ''}); ` +
+          `RATs / NE types outside that set have no rule at all.`
+        : '',
+    source: (a, p) => `Source: ${a.file} (${a.mtime}), ${p.file} (${p.mtime})`,
+    unavailable: 'eFlow rule configuration is not readable right now (rule export or Python dependency unavailable), so I can\'t confirm whether this alarm has no rule at all or the rules just aren\'t retrievable.',
+    disabled: 'eFlow rule-config lookup is switched off (eflowRuleLookup=false).',
+  },
+};
+
+/**
+ * 「按字段匹配」的派发规则 → 一行可读描述。
+ * 例：[{id:'165', fields:{netWorkType:['CS','PS','VAS','OCS']}}] → `netWorkType = CS/PS/VAS/OCS`
+ */
+function fieldDesc(rules) {
+  const parts = [];
+  for (const r of rules || []) {
+    for (const [k, v] of Object.entries(r.fields || {})) {
+      const d = `${k} = ${(v || []).join('/')}`;
+      if (!parts.includes(d)) parts.push(d);
+    }
+  }
+  return parts.join('，') || '专业域字段';
+}
+
+/**
+ * 把 eFlow 原始条件文本压成人话（只用于兜底规则那一行，不做规则求值）。
+ * 例：`AND eflow_ticket_ticket_asset.vipSite in '0, 1' (enums)` → `vipSite = 0 or 1`
+ */
+function humanizeCond(cond) {
+  return String(cond || '')
+    .replace(/eflow_ticket_ticket_(asset|wo)\./g, '')
+    .replace(/^\s*(AND|OR)\s+/i, '')
+    .replace(/\s+in\s+'([^']*)'\s*\((enums|string|number)\)/gi, (_, v, t) =>
+      t.toLowerCase() === 'enums'
+        ? ` = ${v.split(',').map((x) => x.trim()).join(' or ')}`
+        : ` in [${v}]`
+    )
+    .replace(/\s*=\s*'([^']*)'\s*\((enums|string|number)\)/gi, " = '$1'")
+    .replace(/\s*\(enums\)/gi, '')
+    .trim();
+}
+
+const ROLE_LABEL = {
+  zh: {
+    site_child: '站点退服子告警',
+    cell_child: '小区退服子告警',
+    era_child: 'ERA 站点退服子告警',
+    ipbh: '微波链路侧告警',
+    power: '电源告警（衍生触发条件）',
+    related: '关联告警（挂靠，不是父告警驱动源）',
+  },
+  en: {
+    site_child: 'site-down child',
+    cell_child: 'cell-outage child',
+    era_child: 'ERA site-down child',
+    ipbh: 'microwave link alarm',
+    power: 'power alarm (correlation trigger)',
+    related: 'associated alarm (attached, not the parent driver)',
+  },
+};
+
+/**
+ * 渲染成聊天窗口里的一段话。
+ *
+ * @param {object} data  脚本输出
+ * @param {'zh'|'en'} lang
+ * @param {'both'|'compress'|'tt'} parts 用户到底问了哪几件事
+ * @returns {string}
+ */
+export function renderEflowRuleAnswer(data, lang = 'zh', parts = 'both') {
+  const t = T[lang] || T.zh;
+  const role = ROLE_LABEL[lang] || ROLE_LABEL.zh;
+  const src = data.sources?.alarmRules || {};
+  const srcP = data.sources?.pushRules || {};
+  const enabledRules = src.correlationEnabled || src.enabled || 0;
+
+  const lines = [`${t.head(data.code)}`];
+
+  const childEnabled = (data.compression?.asChild || []).filter((h) => h.status === 'ENABLED');
+  const childDisabled = (data.compression?.asChild || []).filter((h) => h.status !== 'ENABLED');
+  const asParent = (data.compression?.asParent || []).filter((h) => h.status === 'ENABLED');
+
+  if (parts !== 'tt') {
+    if (childEnabled.length) {
+      const h = childEnabled[0];
+      const linked = h.role === 'power' || h.role === 'related';
+      lines.push(
+        linked
+          ? t.compressLinked(h.parentCode, h.parentName, h.ruleName, role[h.role] || '')
+          : t.compressChild(h.parentCode, h.parentName, h.ruleName, h.status, role[h.role] || '')
+      );
+      for (const extra of childEnabled.slice(1)) {
+        lines.push(
+          lang === 'en'
+            ? `Also ${extra.ruleName}: → ${extra.parentCode}${extra.parentName ? ` (${extra.parentName})` : ''}.`
+            : `另有 ${extra.ruleName}：→ ${extra.parentCode}${extra.parentName ? `（${extra.parentName}）` : ''}。`
+        );
+      }
+    } else if (asParent.length) {
+      lines.push(t.compressParent(asParent[0].ruleName));
+    } else if (childDisabled.length) {
+      lines.push(t.compressDisabledOnly(childDisabled[0].ruleName));
+    } else {
+      lines.push(t.compressNone(enabledRules, src.mtime || '-'));
+    }
+  }
+
+  const lv = data.tt?.levelRules || [];
+  const dp = data.tt?.dispatchRules || [];
+  const push = data.tt?.pushRules || [];
+  // 条件为空的 ttDispatchRule（#164「TT单直接派FO accept」）不引用任何告警码，
+  // 所以按码匹配永远匹配不到它 —— 但它对**任何**码都生效。
+  // 漏掉它，就会把「会不会自动建单」答成「没有任何规则引用它」，
+  // 而事实是会自动建 TT 并进 FO 线（2026-10-28 实测 200201001）。
+  const cad = data.tt?.catchAllDispatch || null;
+  // 除 alarmCode 外还按字段匹配的派发规则（#165 的 netWorkType）：
+  // 按码查不到，但对任何码都可能生效 —— 不提示就会把「进 BO 线」答成「进 FO 线」。
+  const byField = data.tt?.dispatchByField || [];
+  const cadCond = data.tt?.catchAll
+    ? { ...data.tt.catchAll, condition: humanizeCond(data.tt.catchAll.condition) }
+    : null;
+  // 子告警的 TT 建在父告警上 —— 定级规则要看**父告警**那一份，
+  // 否则会出现「上面写『定级由 #227 决定』、下面结论说『没有专门定级规则』」的自相矛盾。
+  const parentLv = (data.tt?.parentRules || []).find((p) => (p.levelRules || []).length);
+
+  if (parts !== 'compress') {
+    if (childEnabled.length && parentLv) {
+      // 子告警：TT 跟着父告警走，定级看父告警的规则
+      lines.push(t.ttLevelForParent(parentLv.code, parentLv.levelRules));
+    } else if (lv.length) {
+      lines.push(t.ttLevel(lv));
+    } else if (dp.length) {
+      lines.push(t.ttDispatchOnly(dp));
+    } else if (cad) {
+      lines.push(t.ttCatchAllDispatch(cad, cadCond, byField));
+    } else {
+      lines.push(t.ttNone(cadCond));
+    }
+
+    if (push.length) lines.push(t.ttPush(push));
+  }
+
+  const scope = t.scope(data.compression?.ratsCovered || [], data.compression?.neTypesCovered || []);
+  // 压缩与建单是两条独立链路，结论必须分开下：
+  // 「没配压缩规则」≠「不建单」—— 兜底派发 #164 无条件生效。
+  const compressConfigured = !!(childEnabled.length || asParent.length || childDisabled.length);
+  const ticketConfigured = !!(lv.length || dp.length || parentLv);
+  const nothingConfigured = !compressConfigured && !ticketConfigured;
+  if (scope && parts !== 'tt' && (nothingConfigured || parts === 'compress')) lines.push(scope);
+
+  const verdicts = [];
+  if (parts !== 'tt' && !compressConfigured) verdicts.push(t.verdictCompressNo);
+  if (parts !== 'compress' && !ticketConfigured) {
+    verdicts.push(cad ? t.verdictTicketFallback(cad.id) : t.verdictTicketNone);
+  }
+  lines.push(verdicts.length ? verdicts.join('\n') : t.verdictYes);
+  if (verdicts.length) lines.push(t.boundary);
+  lines.push(t.source(src, srcP));
+  return lines.filter(Boolean).join('\n');
+}
+
+/** 通道不可用时给用户的一句话（绝不能当成「没配」）。 */
+export function renderEflowRuleUnavailable(lang = 'zh', reason = '') {
+  const t = T[lang] || T.zh;
+  if (reason === 'disabled') return t.disabled;
+  return t.unavailable;
+}
+
+export const _internal = { enabled, SCRIPT, PYTHON, CACHE };

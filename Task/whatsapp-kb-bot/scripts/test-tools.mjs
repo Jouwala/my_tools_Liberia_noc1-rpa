@@ -416,6 +416,49 @@ console.log('\n[3i] 领域关键字（Fiber）不能被丢掉（2026-10-26 群�
 
 /* --------------------------- 模型输出解析 --------------------------- */
 
+console.log('\n[3j] 日期/号码不得被当成告警码（2026-10-28 群里实测：知识类提问被劫持成查表）');
+{
+  // 实测原文（qa_log 11:20，answered=0，834ms）：
+  //   Liscr site one 5G AAU radio offline since 2026-10-27 22:41:57, still no auto TT…
+  // 机器人回「alarm code table does not contain 2026」—— 年份被当告警码。
+  const qOffline =
+    'Liscr site one 5G AAU radio offline since 2026-10-27 22:41:57, still no auto TT. Please check and update';
+  const r1 = parseByRule(qOffline, NOW);
+  check(
+    !(r1 && r1.tool === 'lookup_alarm_code' && r1.args?.code === '2026'),
+    '日期里的年份 2026 不得被抽成告警码',
+    JSON.stringify(r1)
+  );
+  check(
+    r1 === null || !String(r1.tool).startsWith('lookup_'),
+    '  整句不得落进查表通道（应交给站点/知识库/模型层）',
+    JSON.stringify(r1)
+  );
+
+  // 同理：时间戳里的 22:41:57 不能被当成码
+  const r2 = parseByRule('Alarm cleared at 23:15:02, is there any rule?', NOW);
+  check(!(r2 && r2.args?.code && /^\d{2}$/.test(r2.args.code)), '时刻数字不当码', JSON.stringify(r2));
+
+  // 号码写在 TEL 前面的写法 → 仍走 CCA（旧实现会抽成 12 位告警码）
+  const r3 = parseByRule('231777550122 TEL please check this user last 3 days..', NOW);
+  check(r3?.tool === 'query_vmax_cca', '号码在 TEL 之前也走 CCA', JSON.stringify(r3));
+  check(r3?.args?.msisdn === '231777550122', '  号码原样带进 CCA 参数', JSON.stringify(r3?.args));
+
+  // 反向：正常告警码不受影响（9 位、显式上下文 4 位）
+  check(
+    parseByRule('告警码 198094422 会被压缩成什么', NOW)?.args?.code === '198094422',
+    '9 位告警码仍正常抽取',
+    JSON.stringify(parseByRule('告警码 198094422 会被压缩成什么', NOW))
+  );
+  check(
+    parseByRule('what does alarm code 9920 mean', NOW)?.args?.code === '9920',
+    '显式上下文 4 位码仍正常抽取',
+    JSON.stringify(parseByRule('what does alarm code 9920 mean', NOW))
+  );
+}
+
+/* --------------------------- 模型输出解析 --------------------------- */
+
 console.log('\n[4] 模型工具调用的解析（宽容但不能乱认）');
 {
   check(parseToolCall('{"tool":"query_tickets","args":{"severity":"P1"}}')?.tool === 'query_tickets', '标准 JSON');

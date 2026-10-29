@@ -61,6 +61,11 @@ import {
   renderLevelRules,
   renderNotFound,
 } from './lookups.js';
+import {
+  lookupEflowRules,
+  renderEflowRuleAnswer,
+  renderEflowRuleUnavailable,
+} from './eflowRules.js';
 
 /* ------------------------------ 查找表（查表工具） ------------------------------ */
 
@@ -143,6 +148,17 @@ const TOOL_SPEC = [
     args: '{"code":"9990","severity":"P1"}',
   },
   {
+    name: 'lookup_eflow_rule',
+    desc:
+      '查**eFlow 规则配置**：这个告警码会不会被压缩成父告警、会不会自动建 TT、由哪条定级/派发/推单规则接管。' +
+      '用于「X 会被压缩成什么，会不会自动建单」「will alarm X be compressed / create a ticket automatically」' +
+      '「这条告警支持自动派单吗」。查的是 eFlow 规则表本身：**没查到 = eFlow 没配专门规则**；' +
+      '但「没配专门规则」**不等于「不建单」** —— 派发有兜底规则（#164 无条件进 FO 线），' +
+      '所以压缩结论和建单结论必须分开给，不能一句「不支持」了事。' +
+      '参数：code=告警码；parts=both|compress|tt（问了几件事）。',
+    args: '{"code":"200201001","parts":"both"}',
+  },
+  {
     name: 'query_warehouse',
     desc:
       '查**库房（SP 备件库房）**的实时数据。用于「库房现在什么情况」「各仓库存多少」' +
@@ -178,6 +194,10 @@ const ROUTER_PROMPT =
   '· 问的是「多少单 / 有几个 / 有没有 / 今天昨天的单」这类**数量与事实** → 用 query_tickets。\n' +
   '· 出现告警码，且问**含义**（是什么意思/what does … mean）→ 用 lookup_alarm_code。\n' +
   '· 出现告警码，且问**压缩 / 父告警 / 会被压成什么** → 用 lookup_compress。\n' +
+  '· 出现告警码，且**同时**问「压缩」和「会不会自动建单/派单」（compressed + service ticket ' +
+  'automatically generated）→ 用 lookup_eflow_rule，parts=both。两件事都要答，别只答压缩。\n' +
+  '· 出现告警码，只问**会不会自动建单 / 自动派单 / 支持自动处理吗**（will a ticket be created ' +
+  'automatically / 自动建 TT）→ 用 lookup_eflow_rule，parts=tt。\n' +
   '· 出现告警码，且问**级别 / 定级 / 几级**；或只问「P1 是什么级别」「P1 规则」→ 用 lookup_level_rule。\n' +
   '· 有告警码且问含义/压缩/级别时，**一律不要**用 search_knowledge —— 那是查表题，不是叙述题。\n' +
   '· 问某个**站点当前有没有告警 / 是不是 up / 什么告警 / down 没 down** → 用 query_site_alarms；' +
@@ -447,16 +467,56 @@ const SITE_WORD = /(站点?|基站|站名|这个站|那个站|某站|哪个站)/
 const MEANING_INTENT = /(是什么|什么意思|啥意思|含义|什么意思|代表什么|what\s+is|what\s+does|mean|meaning|字典)/i;
 /** 压缩类问法 → lookup_compress。 */
 const COMPRESS_INTENT = /(压缩|压缩成|父告警|父码|compress|parent|会被压)/i;
+/**
+ * 「会不会自动建单」类问法 → lookup_eflow_rule（parts=tt）。
+ *
+ * 为什么要单列：压缩和建单是**两件事**，答案不同（子告警会被压缩、TT 却建在父告警上）。
+ * 旧实现只认压缩，用户问「会被压缩吗，会不会自动建单」时后半句被整段丢掉
+ * —— 2026-10-28 群内实测（200201001）。
+ */
+const TICKET_INTENT =
+  /(建单|建\s*TT|自动.{0,4}(建单|创建|生成|派单|开工单)|生成.{0,4}工单|service\s*ticket|trouble\s*ticket|auto.{0,6}ticket|ticket.{0,20}(automatic|auto|created|generated)|raise\s+a\s+ticket)/i;
 /** 级别类问法 → lookup_level_rule。 */
 const LEVEL_INTENT = /(级[别位]|定级|几级|什么级别|怎么判定|如何判定|severity|priority|P\s*[1-4]\s*(级别|是什么|怎么|规则)?|P\s*[1-4]\s*规则)/i;
 
-/** 从提问里抽告警码：≥3 位数字（够长才算码；短码只在「告警码」上下文里认）。 */
+/**
+ * 去掉日期/时间片段，避免把年份、时钟数字当成告警码。
+ *
+ * 2026-10-28 群里实测：`Liscr site one 5G AAU radio offline since 2026-10-27 22:41:57,
+ * still no auto TT…` 被 `extractAlarmCode` 抽出 **2026**（日期里的年份），
+ * 路由成 lookup_alarm_code，回一句「码表里没有 2026」，整条站名/时间/无自动建单
+ * 的诉求全丢 —— 压根没进知识库。
+ *
+ * 只摘「形如日期/时刻」的片段，不动裸数字码：
+ *   2026-10-27 / 2026/10/27 / 2026年10月27日 / 22:41:57 / 22:41 / 裸年份 2026
+ */
+function stripDateTime(q) {
+  return String(q)
+    .replace(/\d{4}\s*[-/.年]\s*\d{1,2}\s*[-/.月]\s*\d{1,2}\s*日?/g, ' ')
+    .replace(/\d{1,2}:\d{2}(?::\d{2})?/g, ' ')
+    .replace(/\b(?:19|20)\d{2}\b/g, ' ');
+}
+
+/** TEL / MSISDN 上下文：这类句子里的长数字是手机号，不是告警码。 */
+const CCA_CONTEXT = /(?:^|[^A-Za-z])(?:tel|msisdn)\b/i;
+
+/**
+ * 从提问里抽告警码：≥3 位数字（够长才算码；短码只在「告警码」上下文里认）。
+ *
+ * 两条护栏（都是 2026-10-28 实测补的，否则知识类提问会被静默劫持成查表）：
+ *   · 先摘掉日期/时间片段 —— 年份 2026 不是码；
+ *   · 长号码（≥10 位）不是码 —— 手机号 12 位、TT 单号 12 位都归各自通道；
+ *   · 句中出现 TEL/MSISDN 时一律不认码，让 CCA 通道处理（号码写在前面的
+ *     「231777550122 TEL please check…」旧实现会漏判成码）。
+ */
 function extractAlarmCode(q) {
+  const s = String(q);
   // 「告警码 9990」/「alarm code 9920」这类显式上下文里，3 位也可以
-  const explicit = String(q).match(/(?:告警码|告警|alarm\s*code|alarm)\s*[:：]?\s*(\d{3,})/i);
+  const explicit = s.match(/(?:告警码|告警|alarm\s*code|alarm)\s*[:：]?\s*(\d{3,})/i);
   if (explicit) return explicit[1];
-  // 否则要 ≥4 位，避免把「P1」「3G」「2G」这类短数字误当码
-  const long = String(q).match(/\b(\d{4,})\b/);
+  if (CCA_CONTEXT.test(s)) return '';
+  // 否则要 4~9 位：低于 4 位会误吃「P1」「3G」；≥10 位是手机号/单号，不是码
+  const long = stripDateTime(s).match(/\b(\d{4,9})\b/);
   return long ? long[1] : '';
 }
 
@@ -471,7 +531,13 @@ export function parseLookupIntent(q, lookups) {
 
   // 有告警码：按问法细分
   if (code) {
+    // 压缩 + 建单是两件事，一起问时必须两个都答 → 走 eFlow 规则配置（能同时给压缩与建单）
+    if (COMPRESS_INTENT.test(q) && TICKET_INTENT.test(q)) {
+      return { tool: 'lookup_eflow_rule', args: { code, parts: 'both' } };
+    }
     if (COMPRESS_INTENT.test(q)) return { tool: 'lookup_compress', args: { code } };
+    // 只问建单（没问压缩）→ 直接查 eFlow 规则；旧实现会当成「含义」回一句码表解释，答非所问
+    if (TICKET_INTENT.test(q)) return { tool: 'lookup_eflow_rule', args: { code, parts: 'tt' } };
     if (LEVEL_INTENT.test(q)) return { tool: 'lookup_level_rule', args: { code } };
     if (MEANING_INTENT.test(q)) return { tool: 'lookup_alarm_code', args: { code } };
     // 有码但没明确问法：默认当「含义」（最常见的「这个码是什么」意图）
@@ -481,11 +547,16 @@ export function parseLookupIntent(q, lookups) {
   // 无数字码，但问句里出现**已知告警名/缩写**（CSD、MW LINK DOWN…）→ 解析成码再查。
   // 手册 §3.3 的场景：「CSD 定几级」没有长数字，向量会召回错行；这里改走查表。
   // 仅在**有级别/含义/压缩意图**时才生效，避免把普通叙述题误当查表。
-  const wantsLookup = LEVEL_INTENT.test(q) || MEANING_INTENT.test(q) || COMPRESS_INTENT.test(q);
+  const wantsLookup =
+    LEVEL_INTENT.test(q) || MEANING_INTENT.test(q) || COMPRESS_INTENT.test(q) || TICKET_INTENT.test(q);
   if (wantsLookup) {
     const byName = resolveCodeByName(lookups, q);
     if (byName) {
+      if (COMPRESS_INTENT.test(q) && TICKET_INTENT.test(q)) {
+        return { tool: 'lookup_eflow_rule', args: { code: byName, parts: 'both' } };
+      }
       if (COMPRESS_INTENT.test(q)) return { tool: 'lookup_compress', args: { code: byName } };
+      if (TICKET_INTENT.test(q)) return { tool: 'lookup_eflow_rule', args: { code: byName, parts: 'tt' } };
       if (LEVEL_INTENT.test(q)) return { tool: 'lookup_level_rule', args: { code: byName } };
       return { tool: 'lookup_alarm_code', args: { code: byName } };
     }
@@ -541,6 +612,10 @@ const SITE_STOPWORDS = new Set([
   'up', 'down', 'have', 'has', 'is', 'the', 'for', 'form', 'from', 'and', 'or', 'not',
   'no', 'yes', 'created', 'create', 'why', 'what', 'which', 'any', 'there', 'this',
   'that', 'status', 'now', 'current', 'eflow', 'and', 'of', 'in', 'on', 'to',
+  // 疑问词/助动词不是站名 —— 2026-10-28 实测：「How will Alarm Code 200201001 be
+  // compressed…」被抽成站名「How」，整题拐进站点告警通道，答了一句「How 现在没有告警」。
+  'how', 'will', 'would', 'be', 'was', 'were', 'are', 'do', 'does', 'did', 'can',
+  'could', 'should', 'may', 'might', 'code', 'alarmcode', 'mean', 'means',
 ]);
 
 function extractSiteName(q) {
@@ -629,6 +704,11 @@ export function parseByRule(question, now = new Date()) {
   const wh = parseWarehouseIntent(q);
   if (wh) return wh;
 
+  // 查表意图**提前算一次**：下面站点告警通道要靠它区分「名称→码的查表题」
+  // 与「某站现在有没有告警」。①.5 复用同一结果，不重复解析（名称反查要扫码表）。
+  const hasCountWordEarly = COUNT_INTENT.test(q);
+  const lookupIntentEarly = hasCountWordEarly ? null : parseLookupIntent(q);
+
   // ①.2 站点告警意图：出现**告警状态词**时，优先走 query_site_alarms。
   // 必须在统计判断**和查表判断**之前 —— 否则
   // 「Palm Bay 有没有告警」会被 COUNT_INTENT 的「有没有」拐去统计，
@@ -646,7 +726,26 @@ export function parseByRule(question, now = new Date()) {
     const site = extractSiteName(q);
     // 告警码不下推：本通道回答的是「这个站现在有哪些活动告警」，
     // 把码塞进过滤条件会让「码记错了」的用户直接得到「无告警」的假结论。
-    if (site) return { tool: 'query_site_alarms', args: { site } };
+    //
+    // 2026-10-28 补充：**明确在问某个告警码的规则**时，不要拐进站点通道。
+    // 「How will Alarm Code 200201001 be compressed…」里 `alarm` 命中了
+    // SITE_ALARM_INTENT，站点名又误抽成「How」，于是整题被答成
+    // 「How 现在没有告警」—— 与用户问的压缩/建单毫无关系。
+    // 判据：有「告警码/alarm code」这类**码上下文**，且**没有**显式站点引导词。
+    const codeContext = /(告警码|告警\s*号|alarm\s*code)/i.test(q);
+    const explicitSite = /(\bsite\s*name\b|\bsite\s*[:：]|站点|基站|\*[^*]{2,40}\*)/i.test(q);
+    // 2026-10-28 再补：**「名称 → 告警码」的查表题**也不能进站点通道。
+    // 黄金集里三条一直是红的：
+    //   Fiber Break 是什么告警 / Complete site down 是什么码 / MW LINK DOWN 是几级
+    // 它们没有数字码，靠名称反查（resolveCodeByName）；但「告警 / down」命中了
+    // SITE_ALARM_INTENT，站名又被抽成「Fiber Break」「Complete」这类短语，
+    // 于是被答成「X 现在没有告警」—— 与用户问的码/级别毫无关系。
+    // 判据：句子里**没有数字码**且能按名称解析出告警码 → 那是查表题，让给 ①.5。
+    // 有数字码的混合问法（site name X, Alarm: 9920）不受影响，仍是站点通道。
+    const nameToCode = lookupIntentEarly && !/\d{3,}/.test(q);
+    if (site && !nameToCode && !(codeContext && !explicitSite)) {
+      return { tool: 'query_site_alarms', args: { site } };
+    }
   }
 
   // ①.5 查表意图（告警码含义 / 压缩 / 级别）。
@@ -655,11 +754,8 @@ export function parseByRule(question, now = new Date()) {
   // 「告警码 198094422 会被压缩成什么」不得被当成统计。
   // 但若问题里同时有**数量词**（「198094422 压缩后有几单」），那是统计意图 ——
   // 所以这里只在**没有数量词**时才认查表，交下面走统计。
-  const hasCountWordEarly = COUNT_INTENT.test(q);
-  if (!hasCountWordEarly) {
-    const lk = parseLookupIntent(q);
-    if (lk) return lk;
-  }
+  // （结果在 ①.2 之前已算好，见 lookupIntentEarly。）
+  if (lookupIntentEarly) return lookupIntentEarly;
 
   // ② 统计意图：必须有数量/时间信号，且不是纯知识问法。
   const date = parseDateRange(q, now);
@@ -854,7 +950,13 @@ export async function runTool(call, index, lang, opts = {}) {
   const t0 = Date.now();
 
   // 查表工具：脚本渲染，不经 LLM（P0 准确率最大杠杆）。
-  if (call.tool === 'lookup_alarm_code' || call.tool === 'lookup_compress' || call.tool === 'lookup_level_rule') {
+  // lookup_eflow_rule 同属这一类 —— 规则配置的结论必须原样给，不能让模型改写。
+  if (
+    call.tool === 'lookup_alarm_code' ||
+    call.tool === 'lookup_compress' ||
+    call.tool === 'lookup_level_rule' ||
+    call.tool === 'lookup_eflow_rule'
+  ) {
     const out = await runLookup(call, lang, opts);
     out.stats = { ...(out.stats || {}), totalMs: Date.now() - t0 };
     return out;
@@ -1028,6 +1130,40 @@ export async function runLookup(call, lang, opts = {}) {
   const t0 = Date.now();
   const code = String(call.args?.code || '').trim();
 
+  // —— eFlow 规则配置通道（压缩 + 自动建单）——
+  // **不依赖** data/lookups.json：那张表只是「产生过 TT 的码」的快照。
+  // 用户问的是「eFlow 里配没配」，所以这里查的是规则表本身。
+  if (call.tool === 'lookup_eflow_rule') {
+    // 模型有时会把整句塞进 code（"Alarm Code 200201001"）。必须抽出数字再查 ——
+    // 否则是拿一个不存在的码去比对规则，会得出「没配」的**假结论**。
+    const rawCode = String(call.args?.code || '').trim();
+    const codeN = /^\d+$/.test(rawCode) ? rawCode : (rawCode.match(/\d{3,}/) || [''])[0];
+    if (!codeN) return lookupFail(lang, 'compress', rawCode, opts);
+    const parts =
+      call.args?.parts === 'tt' || call.args?.parts === 'compress' ? call.args.parts : 'both';
+    const r = await lookupEflowRules(codeN);
+    if (!r.ok) {
+      // 通道不可用 → 只说「查不了」，绝不说「没配」
+      return {
+        answered: false,
+        channel: 'eflowrule',
+        text: webHintFor({ ...opts, lang })(renderEflowRuleUnavailable(lang, r.reason)),
+        stats: { totalMs: Date.now() - t0, reason: r.reason },
+        routeArgs: { code: codeN, parts },
+      };
+    }
+    return {
+      answered: true,
+      channel: 'eflowrule',
+      text: renderEflowRuleAnswer(r.data, lang, parts),
+      stats: {
+        totalMs: Date.now() - t0,
+        rulesChecked: r.data.sources?.alarmRules?.correlationEnabled,
+      },
+      routeArgs: { code: codeN, parts },
+    };
+  }
+
   if (!lookups) {
     const text =
       lang === 'en'
@@ -1052,7 +1188,26 @@ export async function runLookup(call, lang, opts = {}) {
   if (call.tool === 'lookup_compress') {
     if (!code) return lookupFail(lang, 'compress', code, opts);
     const rows = findCompress(lookups, code);
-    if (!rows.length) return lookupFail(lang, 'compress', code, opts);
+    if (!rows.length) {
+      // 本地快照未命中 ≠ eFlow 没配。快照只收录「产生过 TT 的码」，
+      // 用户问的新码（如 5G 的 200201001）必然落在快照之外。
+      // 先升级到 eFlow 规则表核实；核实不到才回「查不到」。
+      const r = await lookupEflowRules(code);
+      if (r.ok) {
+        return {
+          answered: true,
+          channel: 'eflowrule',
+          text: renderEflowRuleAnswer(r.data, lang, 'compress'),
+          stats: {
+            totalMs: Date.now() - t0,
+            escalated: 'eflow',
+            rulesChecked: r.data.sources?.alarmRules?.correlationEnabled,
+          },
+          routeArgs: { code },
+        };
+      }
+      return lookupFail(lang, 'compress', code, opts);
+    }
     return {
       answered: true,
       channel: 'lookup',

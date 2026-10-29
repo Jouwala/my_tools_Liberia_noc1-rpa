@@ -37,8 +37,14 @@
  *
  * ## 对话模型（网页版专属，**不跟** my_app 的 AI 设置走）
  *
- * 2026-10-27 定：网页助手固定走 **局域网 Open WebUI（.27:3000）的 qwen2.5:7b-instruct**，
- * 该模型由 .27 的 Ollama 提供。
+ * 2026-10-28 统一：网页助手走 **`https://192.168.100.27:8443/api/v1`** 的
+ * `mimo-v2.6-flash`（与群机器人同一个 OWU 实例、同一个模型）。
+ * 之前是 `.27:3000` + `qwen2.5:7b-instruct`，那台已经不再向静态 key 暴露模型
+ * （`/api/v1/models` 返回空列表、chat 回 400 Model not found），故整体迁移。
+ *
+ * ⚠️ base 是 `/api/v1` 而不是 `/v1`：`/v1/*` 会落到前端 SPA（POST 回 405）。
+ * ⚠️ 8443 是内网私有 CA 签的证书 —— 信任链由 `src/config.js` 的 `applyChatCa()`
+ *    统一装好（本文件 import 了 config.js，所以自动生效）。
  *
  * 为什么不像 src/index.js 那样 `loadRuntimeConfig()` 跟 my_app 设置走：
  * my_app 的 AI 设置页是**群机器人**的开关，改它会影响群里所有人；网页助手是另一条
@@ -49,9 +55,13 @@
  *
  * 2026-10-27 实测：OWU 的静态 API Key 若权限不足（403 / Model not found），
  * 整条 RAG 就答不出来。为了「OWU 抽风时网页还能用」，这里加了一层兜底：
- * 同一个模型名改打 **.27 的 Ollama（OpenAI 兼容 /v1）**，模型与质量完全一致，
- * 只是绕过 OWU。仅在**通道级错误**（403/401/Model not found/超时/连不上）时触发，
- * 业务错误不兜底（否则会把 bug 伪装成「模型没答上来」）。
+ * 改打 **.27 的 Ollama（OpenAI 兼容）**。仅在**通道级错误**
+ * （401/403/404/Model not found/超时/连不上/证书）时触发，业务错误不兜底
+ * （否则会把 bug 伪装成「模型没答上来」）。
+ *
+ * 2026-10-28 注意：兜底模型**不再是同一个模型名** —— `mimo-v2.6-flash` 是云端代理，
+ * Ollama 上没有这份权重，拿它去问 Ollama 只会 model not found。所以兜底目标单列为
+ * `QA_FALLBACK_MODEL`（默认 `qwen2.5:7b-instruct`）：**降质但可用**，这是刻意的取舍。
  * 兜底持续 QA_OWU_COOLDOWN_MS（默认 5 分钟）后再试 OWU，避免每问一次先白等一次 403。
  *
  * ## 启动
@@ -78,8 +88,17 @@ const HOST = process.env.QA_HTTP_HOST || '127.0.0.1';
 /* ---------------------------- 对话模型通道 ---------------------------- */
 
 /** OWU 的 OpenAI 兼容 base。注意是 `/api/v1`（静态 key 只认这条，见 config.js 的说明）。 */
-const OWU_BASE = (process.env.QA_OWU_BASE || 'http://192.168.100.27:3000/api/v1').replace(/\/+$/, '');
-const QA_MODEL = process.env.QA_CHAT_MODEL || 'qwen2.5:7b-instruct';
+const OWU_BASE = (process.env.QA_OWU_BASE || 'https://192.168.100.27:8443/api/v1').replace(/\/+$/, '');
+const QA_MODEL = process.env.QA_CHAT_MODEL || 'mimo-v2.6-flash';
+/**
+ * 兜底模型 —— **必须与 QA_MODEL 分开**。
+ *
+ * 2026-10-28 统一到 8443 之后，OWU 上只有 `mimo-v2.6-flash`（云端代理，Ollama 上没有这个权重）。
+ * 旧的兜底逻辑是「同一个模型名改打本地 Ollama」，那条前提已经不成立：拿 mimo 去问 Ollama
+ * 只会得到 model not found，兜底等于没有。所以兜底目标单列，默认用 .27 Ollama 上确实存在的
+ * `qwen2.5:7b-instruct` —— 质量不同，但「OWU 抽风时网页还能答」这个目标保住了。
+ */
+const FALLBACK_MODEL = process.env.QA_FALLBACK_MODEL || 'qwen2.5:7b-instruct';
 /** OWU 失败后多久内直接走本地兜底（毫秒）。 */
 const OWU_COOLDOWN_MS = Number(process.env.QA_OWU_COOLDOWN_MS || 5 * 60 * 1000);
 /**
@@ -105,9 +124,10 @@ function pinOwu() {
 }
 
 function pinLocalFallback() {
-  // 同一个模型名在 .27 的 Ollama 上就是同一个权重 —— 兜底不降质，只是绕过 OWU。
+  // 换成 Ollama 直连（绕过 OWU）。模型必须用 FALLBACK_MODEL：
+  // QA_MODEL 是 OWU 上的云端代理模型，Ollama 那边没有这个权重。
   RUNTIME_CONFIG.chatProvider = 'ollama';
-  RUNTIME_CONFIG.chatModel = QA_MODEL;
+  RUNTIME_CONFIG.chatModel = FALLBACK_MODEL;
   RUNTIME_CONFIG.chatTimeoutMs = QA_CHAT_TIMEOUT_MS;
   // provider 不同源时 llm.js 才回退；置成 ollama 即彻底关闭它（我们的兜底已在上层）。
   FALLBACK_CONFIG.chatProvider = 'ollama';
@@ -145,6 +165,9 @@ function isChannelError(err) {
     /模型名或路径不对/.test(msg) ||
     /连不上云端模型/.test(msg) ||
     /超时/.test(msg) ||
+    // 8443 是自签证书；CA 没装好时 fetch 抛 SELF_SIGNED_CERT_IN_CHAIN。
+    // 这同样是「换条通道就好」—— 本地 Ollama 是 http，不涉及证书。
+    /SELF_SIGNED_CERT|CERT_HAS_EXPIRED|UNABLE_TO_VERIFY|self-signed certificate/i.test(msg) ||
     /ECONNREFUSED|ENOTFOUND|ETIMEDOUT|EAI_AGAIN/.test(msg)
   );
 }
@@ -301,7 +324,7 @@ async function runAnswer(question, index, opts) {
     if (activeChannel() !== 'openwebui' || !isChannelError(e)) throw e;
     const reason = String(e.message).split('\n')[0];
     owuDownUntil = Date.now() + OWU_COOLDOWN_MS;
-    console.warn(`[qa-http] OWU 通道失败（${reason}），切换本地 Ollama 兜底 ${QA_MODEL}，${Math.round(OWU_COOLDOWN_MS / 1000)}s 内不再试 OWU`);
+    console.warn(`[qa-http] OWU 通道失败（${reason}），切换本地 Ollama 兜底 ${FALLBACK_MODEL}，${Math.round(OWU_COOLDOWN_MS / 1000)}s 内不再试 OWU`);
     pinLocalFallback();
     const result = await routeAnswer(question, index, opts);
     return { result, via: 'ollama-fallback', fallbackReason: reason };
@@ -323,7 +346,11 @@ const server = createServer(async (req, res) => {
       // 对话通道：正常是 OWU，冷却期内是本地兜底（见文件头「OWU 不可用时的本地兜底」）
       provider: nextChannel() === 'ollama' ? 'ollama' : 'openai',
       channel: nextChannel(),
-      model: QA_MODEL,
+      // model 报「下一次提问实际会用的那个」—— 两条通道的模型名已经不同了，
+      // 只报 QA_MODEL 会让兜底期间的健康检查看起来在说谎。
+      model: nextChannel() === 'ollama' ? FALLBACK_MODEL : QA_MODEL,
+      primaryModel: QA_MODEL,
+      fallbackModel: FALLBACK_MODEL,
       owuBase: OWU_BASE,
       owuCooldownMs: Math.max(0, owuDownUntil - Date.now()),
       ollama: h ? { ok: h.embedModelPresent } : { ok: false },
@@ -387,7 +414,7 @@ const server = createServer(async (req, res) => {
         channel: result.channel || 'kb',
         tool: result.tool || null,
         via: result.via || via,
-        model: QA_MODEL,
+        model: via === 'ollama-fallback' ? FALLBACK_MODEL : QA_MODEL,
         fallbackReason: fallbackReason || null,
         ms: Date.now() - t0,
       });

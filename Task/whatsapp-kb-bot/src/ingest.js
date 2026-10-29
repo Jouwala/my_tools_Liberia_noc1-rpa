@@ -133,9 +133,19 @@ async function main() {
   }
 
   const chunks = [];
+  const unreadable = [];
   for (const file of files) {
-    const raw = readFileSync(file, 'utf8');
     const rel = relative(ROOT, file).replace(/\\/g, '/');
+    let raw;
+    try {
+      raw = readFileSync(file, 'utf8');
+    } catch (e) {
+      // 单个文件读不了（SMB 权限 / 被独占打开）不该让整库重建失败：
+      // 记下来、跳过、最后统一告警，让其余文件正常入库。
+      unreadable.push(rel);
+      console.log(`  ! ${rel}  →  读取失败（${e.code || e.message}），已跳过`);
+      continue;
+    }
     const title = docTitle(raw, rel.split('/').pop());
     const parts = chunkText(raw);
     // B1 parent-child：为每块旁挂「标题路径 + 规则 ID + 告警码」，供检索后合并上下文。
@@ -155,7 +165,12 @@ async function main() {
     });
     console.log(`  · ${rel}  →  ${parts.length} 块（${raw.length} 字符）`);
   }
-  console.log(`  合计 ${files.length} 个文件 / ${chunks.length} 个知识块`);
+  console.log(`  合计 ${files.length - unreadable.length} 个文件 / ${chunks.length} 个知识块`);
+  if (unreadable.length) {
+    console.log(`  ⚠ ${unreadable.length} 个文件因权限问题被跳过，索引里不含它们的内容：`);
+    unreadable.forEach((r) => console.log(`     - ${r}`));
+    console.log('     修好权限后重新运行 npm run ingest 即可补回。');
+  }
 
   if (!chunks.length) {
     console.error('  ✗ 分块结果为空，请检查文件内容。');

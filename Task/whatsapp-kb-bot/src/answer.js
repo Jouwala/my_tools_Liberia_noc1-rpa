@@ -84,6 +84,13 @@ export function describeRoute(r) {
   if (r.channel === 'lookup') {
     return `通道=查表（data/lookups.json，不经 LLM${ms}）${via}${tool}`;
   }
+  if (r.channel === 'eflowrule') {
+    // eFlow 规则配置（压缩/建单）。与 lookup 分开记：
+    // 「本地快照没有 → 升级到 eFlow 规则表」是排障时要能一眼看出来的路径。
+    const esc = r.stats?.escalated === 'eflow' ? '，本地快照未命中已升级' : '';
+    const n = r.stats?.rulesChecked != null ? `，核对 ${r.stats.rulesChecked} 条关联规则` : '';
+    return `通道=eFlow规则配置（eflow_*_rules.xlsx${n}${esc}${ms}）${via}${tool}`;
+  }
   if (r.channel === 'sitealarm') {
     // 2026-10-24 补：此前漏了这一支，站点告警通道的日志会显示成
     // 「通道=知识库（bge-m3…）」—— 排障时会被引到错误的通道上。

@@ -9,7 +9,14 @@
  *   两个 provider 是否正确分发
  */
 import { CONFIG, RUNTIME_CONFIG, FALLBACK_CONFIG } from '../src/config.js';
-import { chat, resolveApiKey, providerInfo, validateProvider, pingProvider } from '../src/llm.js';
+import {
+  chat,
+  resolveApiKey,
+  providerInfo,
+  validateProvider,
+  pingProvider,
+  stripModelMarkup,
+} from '../src/llm.js';
 
 // CONFIG 的对话字段（chatProvider/chatModel/chatBaseUrl/chatApiKey/chatApiKeyEnv/
 // chatTimeoutMs/enableThinking）在 2026-10 的 RUNTIME_CONFIG 改造后是**只读 getter**，
@@ -80,7 +87,14 @@ console.log('\n[2] 启动自检');
 setCfg('chatProvider', 'openai');
 const bad = validateProvider();
 check(!bad.ok, 'openai 但无密钥 → 校验失败');
-check(/AGNES_API_KEY/.test(bad.message || ''), '错误信息里点明了该设置哪个环境变量', bad.message);
+// 断言「点明了**当前配置的那个**环境变量」，不硬编码具体名字 ——
+// chatApiKeyEnv 是部署时可切的（AGNES_API_KEY / OPENWEBUI_API_KEY …），
+// 硬编码会让「换个 provider 就测试红」，而那是配置变更、不是代码回归。
+check(
+  ENV_NAME ? bad.message.includes(ENV_NAME) : /环境变量/.test(bad.message || ''),
+  '错误信息里点明了该设置哪个环境变量',
+  bad.message
+);
 check(/export|env:/.test(bad.message || ''), '错误信息给出了具体设置命令');
 
 process.env[ENV_NAME] = 'test-key-123';
@@ -265,6 +279,97 @@ check(local.content === '本地回答', '正确解析 Ollama 响应格式');
 check(!calls[0].init.headers.Authorization, 'Ollama 请求不带 Authorization 头');
 
 setCfg('chatProvider', 'openai');
+
+/* ------------------- 模型输出净化（think / tool_call 泄漏） ------------------- */
+
+// 实测背景：mimo-v2.6-flash 约 1/4 的请求会把「决定调用工具」这一轮原样写进
+// content，群里收到的是 `I'll check the available tools…<tool_call><function=…>`。
+// 旧代码只防了「content 为空」，这类「非空但全是标记」的回复被当成正常答案发出，
+// answered 还是 true —— 用户在群里看到的是一段 XML。
+console.log('\n[7b] 模型输出净化（think / tool_call 标记）');
+
+// 纯文本：一个字都不该动
+const plain = stripModelMarkup('告警码 9920 表示 Complete site down。');
+check(plain.text === '告警码 9920 表示 Complete site down。', '正常文本原样保留');
+check(!plain.think && !plain.toolCall, '正常文本不误判为标记');
+
+// think 块：剥掉思考、留下正文（正文是好的，不该整轮弃用）。
+// 标签用拼接写法，避免在源码里直接出现标签干扰阅读。
+const T_OPEN = '<' + 'think>';
+const T_CLOSE = '<' + '/think>';
+const thinkR = stripModelMarkup(`让我想想站点告警……${T_CLOSE}告警码 9920 表示 Complete site down。`);
+check(thinkR.text === '告警码 9920 表示 Complete site down。', '孤立闭合标签 → 它前面的思考文字一并丢弃', thinkR.text);
+check(thinkR.think && !thinkR.toolCall, 'think 块被标记为 think（不当作工具调用）');
+
+const thinkPair = stripModelMarkup(`${T_OPEN}用户问站点告警${T_CLOSE}告警码 9920。`);
+check(thinkPair.text === '告警码 9920。', '完整 think 块被剥离', thinkPair.text);
+
+// 未闭合 think：被 max_tokens 截断时只剩开头，必须吃到结尾，不能漏出半句思考
+const thinkOpen = stripModelMarkup(`先看资料${T_OPEN}用户问的是站点告警`);
+check(thinkOpen.text === '先看资料', '未闭合的 think 块被截到结尾，不泄漏半句思考', thinkOpen.text);
+
+// tool_call 块：整轮不可信（实测样本，注意 <function=x> 是不带右尖括号的开标签）
+const toolSample =
+  "I'll check the available tools for querying site alarm and ticket status." +
+  '<tool_call><function=mcp-eflow-ops-kb-mcp__search_knowledge>' +
+  '<parameter=query>site alarm trend</parameter></function></tool_call>';
+const toolR = stripModelMarkup(toolSample);
+check(toolR.toolCall === true, 'tool_call 标记被识别');
+check(!/tool_call|<function=|<parameter=/.test(toolR.text), '标记本身被剥干净', toolR.text);
+check(toolR.text === "I'll check the available tools for querying site alarm and ticket status.", '标记前后的旁白被单独留下（由调用方判定整轮弃用）');
+
+// 只有标记、没有任何正文 → text 为空
+check(stripModelMarkup('<tool_call><function=x></function></tool_call>').text === '', '纯标记 → 净化后为空串');
+check(stripModelMarkup('').text === '', '空输入 → 空串');
+
+// —— 接线验证：净化必须真的作用在 openaiChat 的返回值上 ——
+
+// ① think + 正文 → 只拿到正文，并带 degraded 标记
+calls = mockFetch(() =>
+  jsonResponse({
+    choices: [{ message: { content: `思考中……${T_CLOSE}真正的答案。` }, finish_reason: 'stop' }],
+  })
+);
+const thinkChat = await chat([{ role: 'user', content: 'hi' }], { noFallback: true });
+check(thinkChat.content === '真正的答案。', 'chat() 返回的 content 已剥离 think 块', thinkChat.content);
+check(thinkChat.degraded === 'think_stripped', '带 degraded=think_stripped 便于日志追溯');
+
+// ② 第一次只吐工具调用、第二次正常 → 自动重试一次并拿到正文
+let seq = 0;
+calls = mockFetch(() => {
+  seq++;
+  return seq === 1
+    ? jsonResponse({ choices: [{ message: { content: toolSample }, finish_reason: 'stop' }] })
+    : jsonResponse({ choices: [{ message: { content: '重试后的正常答案。' }, finish_reason: 'stop' }] });
+});
+const retried = await chat([{ role: 'user', content: 'hi' }], { noFallback: true });
+check(calls.length === 2, '工具调用标记 → 自动重试一次（共 2 次请求）', `实际 ${calls.length} 次`);
+check(retried.content === '重试后的正常答案。', '重试拿到正常正文');
+check(retried.stats.attempts === 2, 'stats.attempts 记录重试次数，便于统计泄漏频率');
+check(!/tool_call/.test(retried.content), '重试结果里没有标记残留');
+
+// ③ 一直只吐工具调用 → 重试后仍失败，必须抛错（不能把标记当答案返回）
+calls = mockFetch(() =>
+  jsonResponse({ choices: [{ message: { content: toolSample }, finish_reason: 'stop' }] })
+);
+try {
+  await chat([{ role: 'user', content: 'hi' }], { noFallback: true });
+  check(false, '连续工具调用 → 抛错而不是返回标记', '未抛异常');
+} catch (err) {
+  check(calls.length === 2, '连续失败时只重试一次，不做无限重打', `实际 ${calls.length} 次`);
+  check(/工具调用标记/.test(err.message), '错误信息点明「只有工具调用标记」这一成因', err.message.slice(0, 120));
+}
+
+// ④ 纯粹的 content 为空（思考烧光预算）不该重试 —— 重打也是同样结果，只会白等一轮
+calls = mockFetch(() =>
+  jsonResponse({ choices: [{ message: { content: '', reasoning_content: '想很久' }, finish_reason: 'stop' }] })
+);
+try {
+  await chat([{ role: 'user', content: 'hi' }], { noFallback: true });
+  check(false, '只有 reasoning_content → 抛错', '未抛异常');
+} catch {
+  check(calls.length === 1, '只有 reasoning_content 时不重试（重打也是空）', `实际 ${calls.length} 次`);
+}
 
 /* ---------------------------- 主模型回退兜底 ---------------------------- */
 

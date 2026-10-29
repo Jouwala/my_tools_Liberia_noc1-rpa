@@ -212,7 +212,22 @@ export function parseVmaxCcaIntent(question, now = new Date()) {
   const kw = rest.match(CCA_KEYWORD);
   if (!kw) return null;
   const after = rest.slice((kw.index || 0) + kw[0].length);
-  const num = after.match(/^[\s:=（(\-]*((?:\d[\s\-().]*){7,15})/);
+  let num = after.match(/^[\s:=（(\-]*((?:\d[\s\-().]*){7,15})/);
+
+  // 2026-10-28 补：号码写在关键字**前面**的写法也要认。
+  // 群里真实问法 `231777550122 TEL please check this user last 3 days..` ——
+  // 关键字后面的号码段为空，旧实现返回 null，于是这句话落到 extractAlarmCode，
+  // 12 位号码被当成告警码，回一句「码表里没有 231777550122」，号码与时间全丢。
+  // 只在「已确认有 TEL/MSISDN 关键字」的前提下才全句找号码，所以不会误伤普通提问。
+  if (!num) {
+    for (const m of rest.matchAll(/[\d][\d\s\-().]{6,}/g)) {
+      const d = m[0].replace(/\D/g, '');
+      if (d.length >= 7 && d.length <= 15) {
+        num = [m[0], d];
+        break;
+      }
+    }
+  }
   if (!num) return null;
   const digits = num[1].replace(/\D/g, '');
   if (digits.length < 7 || digits.length > 15) return null;

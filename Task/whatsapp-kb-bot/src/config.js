@@ -16,9 +16,10 @@
  *
  * @module config
  */
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { dirname, resolve, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import tls from 'node:tls';
 
 export const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -34,6 +35,44 @@ const raw = readJson('config.json');
 
 /** 把相对路径解析为绝对路径 */
 const abs = (p) => (isAbsolute(p) ? p : resolve(ROOT, p));
+
+/**
+ * 把内网私有 CA 加进 Node 的默认信任链。
+ *
+ * 为什么必须在这里做（而不是靠 NODE_EXTRA_CA_CERTS 环境变量）：
+ *   · Open WebUI 现挂在 https://192.168.100.27:8443，证书由内网 CA
+ *     （CN=192.168.100.20）签发，不在 Node 内置根证书里；
+ *   · 用 `--env-file` 注入 NODE_EXTRA_CA_CERTS **不生效** —— Node 在解析
+ *     env-file 之前就已经初始化完根证书，实测仍报 SELF_SIGNED_CERT_IN_CHAIN；
+ *   · 计划任务 / 看门狗拉起进程时也不保证带上这个环境变量。
+ * 所以改用 Node 22.19+ 的 tls.setDefaultCACertificates()：进程启动早期把
+ * 「内置根证书 + 这个 CA」一起设为默认，对全局 fetch 生效（实测 HTTP 200）。
+ *
+ * 文件缺失或 Node 版本不支持时**只告警不抛**：退回到「HTTPS 自签会失败」的
+ * 原有行为，不影响 HTTP 场景与其余功能。
+ */
+function applyChatCa() {
+  const rel = process.env.CHAT_CA_FILE || raw.chatCaFile;
+  if (!rel) return;
+  const file = abs(rel);
+  if (!existsSync(file)) {
+    console.warn(`[config] chatCaFile 指向的文件不存在：${file}（自签 HTTPS 将校验失败）`);
+    return;
+  }
+  if (typeof tls.setDefaultCACertificates !== 'function') {
+    console.warn('[config] 当前 Node 不支持 tls.setDefaultCACertificates（需 22.19+），跳过自定义 CA');
+    return;
+  }
+  try {
+    const ca = readFileSync(file, 'utf8');
+    const base = typeof tls.getCACertificates === 'function' ? tls.getCACertificates('default') : [];
+    tls.setDefaultCACertificates([...base, ca]);
+    console.log(`[config] 已加载私有 CA：${rel}`);
+  } catch (err) {
+    console.warn(`[config] 加载私有 CA 失败：${err.message}`);
+  }
+}
+applyChatCa();
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 运行时对话配置（可被 my_app API 覆盖）
@@ -97,12 +136,21 @@ export const FALLBACK_CONFIG = {
  * 只对 Open WebUI 来源套用 —— WorkBuddy 本地代理（…/v1）与 custom（用户自填）
  * 本来就是完整 API base，补前缀会把它们拼坏。
  *
+ * 2026-10-28 补：Settings 页里把地址写成 `https://192.168.100.27:8443/v1` 时，
+ * 旧实现会拼成 `/v1/api/v1`（404）。实测该实例的 OpenAI 兼容路径是
+ * **`/api/v1`**，`/v1` 会落到前端 SPA（GET 返回 index.html、POST 返回 405）。
+ * 所以把结尾的裸 `/v1` 归一到 `/api/v1`；`/api` 结尾仍按原样保留。
+ *
  * @param {string} url  UI 地址或已带 /api(/v1) 的地址
  * @returns {string}    OpenAI 兼容 API base（以 /api/v1 结尾）
  */
 function toOpenWebUiApiBase(url) {
-  const base = String(url || '').replace(/\/+$/, '');
+  let base = String(url || '').replace(/\/+$/, '');
   if (!base) return base;
+  // 裸 /v1（用户按 OpenAI 习惯写的）→ /api/v1
+  if (/\/v1$/i.test(base) && !/\/api\/v1$/i.test(base)) {
+    base = base.replace(/\/v1$/i, '');
+  }
   // 已显式带 API 路径就尊重用户写法，不再补（避免 /api/v1/api/v1）
   if (/\/api(\/v1)?$/.test(base)) return base;
   return `${base}/api/v1`;
@@ -310,6 +358,19 @@ export const CONFIG = {
       ? !(process.env.TT_SITE_ALARM_FALLBACK === '0' || process.env.TT_SITE_ALARM_FALLBACK === 'false')
       : raw.ttSiteAlarmFallback !== false,
   ttSiteAlarmTimeoutMs: Number(process.env.TT_SITE_ALARM_TIMEOUT_MS ?? raw.ttSiteAlarmTimeoutMs ?? 180000),
+
+  // —— eFlow 规则配置查询（src/eflowRules.js + scripts/eflow-rule-lookup.py）——
+  // 查「这个告警码会不会被压缩 / 会不会自动建 TT」时，本地 lookups.json 只是
+  // 从知识库解析出来的**快照**（只含产生过 TT 的码）。快照里没有 ≠ eFlow 没配。
+  // 打开后会用 my_app 导出的 eflow_alarm_rules / eflow_push_rules 判定，
+  // 判定不到才敢说「eFlow 没配这条规则 → 不支持」。
+  eflowRuleLookup:
+    process.env.EFLOW_RULE_LOOKUP != null
+      ? !(process.env.EFLOW_RULE_LOOKUP === '0' || process.env.EFLOW_RULE_LOOKUP === 'false')
+      : raw.eflowRuleLookup !== false,
+  eflowRuleTimeoutMs: Number(process.env.EFLOW_RULE_TIMEOUT_MS ?? raw.eflowRuleTimeoutMs ?? 25000),
+  // 规则表由 my_app 的 Collector 定时刷新（一天几次），10 分钟缓存足够且能挡住群里的连问。
+  eflowRuleCacheTtlMs: Number(process.env.EFLOW_RULE_CACHE_TTL_MS ?? raw.eflowRuleCacheTtlMs ?? 600000),
 
   // —— VMAX CCA 用户查询（query_vmax_cca，src/vmaxcca.js）——
   // 走 my_app 的 /api/vmax-cca-query 只读透传，与工单统计共用 myAppApiBase；
