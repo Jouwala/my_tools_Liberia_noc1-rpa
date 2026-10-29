@@ -13,26 +13,31 @@
   z-index: 240;
   width: 58px;
   height: 58px;
-  border: 1px solid rgba(255, 255, 255, .92);
+  border: 0;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 24px;
   color: #fff;
-  padding: 2px;
-  background: linear-gradient(145deg, #0b245e 8%, #123b91 58%, #087e9b 100%);
-  box-shadow: 0 0 0 1px rgba(8, 126, 155, .24), 0 8px 20px rgba(5, 34, 89, .3), 0 2px 5px rgba(5, 34, 89, .2);
+  padding: 0;
+  /* 2026-10-28 换用 3D 机器人徽章位图（logo-qa-badge*.png，透明底）。
+     **不铺任何背景底色**：素材自带 alpha，徽章之外是真透明，
+     页面底色直接透出来 —— 这是「不要背景」的要求。
+     只留一圈细描边 + 投影做「可点击浮标」的视觉锚点，不再是原来那块
+     实心深蓝青渐变圆盘（那圈渐变正是用户要去掉的「背景」）。 */
+  background: transparent;
+  box-shadow: 0 0 0 1px rgba(14, 116, 144, .35), 0 6px 16px rgba(5, 34, 89, .28);
   cursor: pointer;
   transition: transform .2s ease, box-shadow .2s ease, opacity .2s ease;
 }
 .qa-fab:hover {
   transform: translateY(-2px) rotate(3deg);
-  box-shadow: 0 0 0 3px rgba(34, 211, 238, .16), 0 12px 26px rgba(5, 34, 89, .36);
+  box-shadow: 0 0 0 2px rgba(34, 211, 238, .30), 0 10px 22px rgba(5, 34, 89, .34);
 }
 .qa-fab:active { transform: translateY(0) scale(.96); }
-/* 透明圆形图标叠在深蓝青色底上，保留清晰外圈并避免位图白角。 */
-.qa-fab img { width: 100%; height: 100%; object-fit: contain; border-radius: 50%; pointer-events: none; }
+/* 徽章位图铺满按钮：底色由素材自身的透明 alpha 决定（无白角、无灰底）。 */
+.qa-fab img { width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
 .qa-fab:focus-visible { outline: 2px solid var(--b); outline-offset: 3px; }
 .qa-fab[hidden] { display: none; }
 .qa-fab.is-busy::after {
@@ -118,13 +123,16 @@
   align-items: center;
   justify-content: center;
   color: #fff;
-  background: #fcfcfc;
+  /* 2026-10-28：同样换成透明底徽章，不再铺 #fcfcfc 底板。
+     原来那块实心底是为了盖住「旧图标是白底方图」的边角；新素材本身
+     就是透明 alpha 切图，铺底反而会在浅色页面上露出一块灰白色方块。 */
+  background: transparent;
   font-size: 17px;
   flex: none;
   overflow: hidden;
 }
-/* 头像同 FAB 共用一张位图：铺满 9px 圆角框，底色与位图画布一致（#fcfcfc）防白边 */
-.qa-avatar img { width: 100%; height: 100%; object-fit: cover; pointer-events: none; }
+/* 头像与 FAB 共用同一张徽章位图：铺满 9px 圆角框，框外是真空透明 */
+.qa-avatar img { width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
 .qa-head-txt { flex: 1 1 auto; min-width: 0; }
 .qa-head-txt strong {
   display: block;

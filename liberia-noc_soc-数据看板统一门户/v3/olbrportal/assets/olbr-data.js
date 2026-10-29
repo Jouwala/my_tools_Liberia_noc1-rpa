@@ -67,6 +67,14 @@ window.OLBR_DATA = (function () {
       'qc.rangeHint': '点击查看数据范围',
       'qc.na': '不可用',
       'qc.lv.ok': '正常', 'qc.lv.warn': '关注', 'qc.lv.crit': '严重', 'qc.lv.na': '不可用',
+      /* 2026-10-28 加：Daily Operation 六卡「数字 + 柱状图」的分档图例。
+         之前页面上只有橙色/深色两条基准线的图例，柱状图的分档没有对应图例，
+         用户看到红/黄/绿的柱子无从对照 —— 这次把「图例」本身补回标题行。 */
+      'qc.lvLegend': '分档图例',
+      /* 2026-10-28 晚改：图例说明必须复述**同一把尺子**（5 / 20）。
+         分档刚统一成绝对阈值那会儿，这句话还写着"各指标自己的阈值"，而屏幕上
+         已经按 5/20 上色了 —— 图例说 A、柱子画 B，正是上一次用户反馈的那个问题。 */
+      'qc.lvLegendTip': '全页统一分档：< 5 正常 · 5~19 关注 · ≥ 20 严重（柱状图每根柱子与大数字各自按自己的值判档）',
       'qc.dataAt': '数据 {t}（{ago}）',
       'qc.ago.now': '刚刚', 'qc.ago.min': '{n} 分钟前', 'qc.ago.hour': '{n} 小时前', 'qc.ago.day': '{n} 天前',
       'qc.sites': 'Cells/ Sites Outage', 'qc.overdue': '超期', 'qc.inbound': '入库', 'qc.outbound': '出库',
@@ -740,6 +748,10 @@ window.OLBR_DATA = (function () {
       'qc.rangeHint': 'Click to view data range',
       'qc.na': 'n/a',
       'qc.lv.ok': 'OK', 'qc.lv.warn': 'Watch', 'qc.lv.crit': 'Critical', 'qc.lv.na': 'N/A',
+      /* 2026-10-28: level legend for the Daily Operation bar charts. See the zh dict. */
+      'qc.lvLegend': 'Level legend',
+      /* 2026-10-28 晚改：必须与屏幕上那把尺子（5 / 20）一致，见 zh 处说明。 */
+      'qc.lvLegendTip': 'One scale for the whole page: < 5 OK · 5~19 Watch · ≥ 20 Critical (each bar and the big number are judged on their own value)',
       'qc.dataAt': 'data {t} ({ago})',
       'qc.ago.now': 'just now', 'qc.ago.min': '{n}m ago', 'qc.ago.hour': '{n}h ago', 'qc.ago.day': '{n}d ago',
       'qc.sites': 'Cells/ Sites Outage', 'qc.overdue': 'overdue', 'qc.inbound': 'Inbound', 'qc.outbound': 'Outbound',
@@ -1529,6 +1541,17 @@ window.OLBR_DATA = (function () {
     spms: { dir: 'up', warn: 150, crit: 400 },
     sla: { dir: 'down', warn: 90, crit: 95 }
   };
+  /* 2026-10-28 用户拍板（「颜色是要统一标准，5，20，不要按照不同标准」）：
+     **分档统一用这一把尺子** —— < 5 正常 / 5~19 关注 / ≥ 20 严重。
+     六张卡的**大数字**与卡内**柱状图的每一根柱子**都拿它判，与是哪张卡、画的是存量
+     还是新增量统统无关。判档实现见 olbr.js 的 qcLevelAbs()。
+     为什么不再按指标分档：六个指标量级差两个数量级（PMT 1,679 对 SPMS 12），
+     各判各的时候「红」在每张卡上指的不是同一件事，跨卡一眼扫过去没法比；
+     统一刻度后「这个数是红的」=「它过了 20」，在整屏任何位置都是同一个含义。
+     ⚠️ QC_TARGETS 上面的那张表**不删**：它仍是与 MsPortal / v0 同源的那份口径，
+        将来若要恢复按指标阈值，把 qcLevelAbs 换回 qcLevel 即可，不必重抄一遍
+        （抄一遍就有抄歪的风险）。它现在只是不参与判档。 */
+  var QC_LEVEL_ABS = { warn: 5, crit: 20 };
   /* 主卡 = 当班要立刻有人动的；次卡 = 周期性消化的积压。
      六张等宽同排后「主/次」靠字号表达，不再各占一行分组小标题。 */
   var QC_PRIMARY_ORDER = ['alarm', 'tt', 'wo'];
@@ -1880,7 +1903,8 @@ window.OLBR_DATA = (function () {
     T0: T0, T1: T1, T2: T2, AUX_ROWS: AUX_ROWS, OTHER: OTHER, ARCHIVE: ARCHIVE, AUX_TITLES: AUX_TITLES,
     MAP_TABS: MAP_TABS, RENAME_HEAD: RENAME_HEAD, RENAME_KEYS: RENAME_KEYS,
     EMAIL_PAGE: EMAIL_PAGE, EMAIL_TAB: EMAIL_TAB, MAP_STRIP_CSS: MAP_STRIP_CSS,
-    QC_TARGETS: QC_TARGETS, QC_PRIMARY_ORDER: QC_PRIMARY_ORDER, QC_SECONDARY_ORDER: QC_SECONDARY_ORDER,
+    QC_TARGETS: QC_TARGETS, QC_LEVEL_ABS: QC_LEVEL_ABS,
+    QC_PRIMARY_ORDER: QC_PRIMARY_ORDER, QC_SECONDARY_ORDER: QC_SECONDARY_ORDER,
     QC_TREND_METRICS: QC_TREND_METRICS, QC_SUB_KEY: QC_SUB_KEY, QC_LV_KEY: QC_LV_KEY,
     QC_FULL_MIN: QC_FULL_MIN, QC_FULL_OFFSET: QC_FULL_OFFSET,
     QC_ALARM_MIN: QC_ALARM_MIN, QC_ALARM_OFFSET: QC_ALARM_OFFSET,

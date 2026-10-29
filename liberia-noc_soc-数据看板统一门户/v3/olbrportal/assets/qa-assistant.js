@@ -399,8 +399,10 @@
     fab.hidden = true;
     fab.setAttribute('aria-expanded', 'false');
     fab.setAttribute('aria-controls', 'qaPanel');
-    /* 透明圆形机器人图标使用 2x/3x 位图；底色与按钮的深蓝青色边框衔接。 */
-    fab.innerHTML = '<img src="assets/logo-qa-share-112.png" srcset="assets/logo-qa-share-112.png 2x, assets/logo-qa-share-168.png 3x" alt="" draggable="false">';
+    /* 3D 机器人徽章（2026-10-28 换）：素材自带透明 alpha，**不带背景**。
+       生成过程见 scripts/make_qa_badge.py（裁掉四周留白 + 预乘 alpha 缩放，
+       避免缩到 112px 后边缘出现一圈灰黑描边）。 */
+    fab.innerHTML = '<img src="assets/logo-qa-badge-112.png" srcset="assets/logo-qa-badge-112.png 2x, assets/logo-qa-badge-168.png 3x" alt="" draggable="false">';
 
     panel = el('section', 'qa-panel');
     panel.id = 'qaPanel';
@@ -408,7 +410,7 @@
     panel.setAttribute('aria-live', 'polite');
     panel.innerHTML =
       '<header class="qa-head">' +
-        '<span class="qa-avatar"><img src="assets/logo-qa-share-112.png" srcset="assets/logo-qa-share-112.png 2x, assets/logo-qa-share-168.png 3x" alt="" draggable="false"></span>' +
+        '<span class="qa-avatar"><img src="assets/logo-qa-badge-112.png" srcset="assets/logo-qa-badge-112.png 2x, assets/logo-qa-badge-168.png 3x" alt="" draggable="false"></span>' +
         '<div class="qa-head-txt"><strong id="qaTitle"></strong><small id="qaSub"></small></div>' +
         '<button type="button" class="qa-icon-btn" id="qaClear"><i class="ph ph-trash" aria-hidden="true"></i></button>' +
         '<button type="button" class="qa-icon-btn" id="qaClose"><i class="ph ph-x" aria-hidden="true"></i></button>' +

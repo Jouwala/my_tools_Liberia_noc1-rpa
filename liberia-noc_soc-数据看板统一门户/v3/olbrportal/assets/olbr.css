@@ -1062,6 +1062,28 @@ main { flex: 1; padding-block: var(--s5) var(--s4); display: flex; flex-directio
 /* 「未判定 N 条不计入」.band-pend 已随「30 天达标率」删除（它只出现在那一段里）。 */
 .band-when { margin-top: 8px; font: 500 var(--fs-xs)/var(--lh-base) var(--mono); color: var(--t3); }
 
+/* 分档图例（2026-10-28 加，用户反馈「柱状图的颜色没有按图例要求显示对应的颜色」）。
+   放在 Daily Operation 标题行、心跳左侧。
+   ⚠️ 色点颜色必须与**上色的令牌**同一个来源：数字走 --qc-tier、柱子走 --ok/--warn/--crit。
+   两者是**各自拿自己的值**判档（2026-10-28「数字和柱状图各自按照数字大小」），
+   但用的是同一把尺子 —— 统一阈值 5 / 20（用户「不要按照不同标准」），
+   三档的色值也始终是同一组令牌。这里同样直接取 --ok/--warn/--crit ——
+   若这里另写一套色值，就会重演「图例画的是 A、柱子是 B」那个问题本身。
+   字号取 --fs-2xs（与卡内小字同档）；「分档图例」四个字用 --t3 压轻，
+   避免与分区标题（--title 橙、18px）抢视线 —— 它是注释，不是标题。
+   窄屏（≤760px）整块折行，不挤压标题。 */
+.qc-lvlegend { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  font-size: var(--fs-2xs); line-height: 1; color: var(--t3); }
+.qc-lvlegend-k { font-weight: 600; }
+.qc-lvlegend-i { display: inline-flex; align-items: center; gap: 4px; }
+/* 色点：与 Benchmark 图例（.bf-spark-k > i）同款做法 —— 用色块而不是纯文字，
+   因为「红色」这两个字在浅色底上几乎不可读，而色块能直接对上柱子。 */
+.qc-lvlegend-i > i { flex: none; width: 8px; height: 8px; border-radius: 2px; background: var(--t3); }
+.qc-lvlegend-i.k-ok > i   { background: var(--ok); }
+.qc-lvlegend-i.k-warn > i { background: var(--warn); }
+.qc-lvlegend-i.k-crit > i { background: var(--crit); }
+@media (max-width: 760px) { .qc-lvlegend { width: 100%; } }
+
 /* 心跳：绿色脉冲 = 这块面板确实在自动刷新。取不到数据时变红且不脉冲。
    秒必须精确到秒 —— 只到分钟时，轮询叠上后端 60s 缓存会出现「一分钟没变」的错觉。
 
@@ -1376,24 +1398,43 @@ main { flex: 1; padding-block: var(--s5) var(--s4); display: flex; flex-directio
    取 0.4 而不是 0：完全不给描边时，在深色主题下柱体与卡底色的对比会偏弱；
    vector-effect="non-scaling-stroke"（由 JS 写在路径上）保证它不被拉粗。 */
 .qc-spark .sp-bar { fill: var(--qc-accent); stroke: var(--qc-accent); stroke-width: .4; }
-/* 2026-10-23（用户要求）：Daily Operation 六卡按大数字分档给「数字 + 柱状图」上色 ——
-   <5 绿 #006400、<20 金 #FFD700、>=20 红 #FF0000，色值按用户点名原样写。
-   ⚠️ 刻意**不动 --qc-accent**：那个变量还喂着卡片边框、内发光与 hover 光晕
+/* ⚠️ 2026-10-28 二改（用户要求「卡片的数字和柱状图要**各自**按照数字大小显示颜色」）：
+   柱子不再跟着卡片那一档走。**上面那三条 .qc-card.is-tier-* .sp-bar 已删除** ——
+   它们比下面的 .sp-* 更具体，留着会把逐柱判出来的颜色重新刷回「整图一色」，
+   而且那种写法本来就只能给整张图一个颜色（一个 <path> 一种 fill）。
+   现在是 qcBarsSvg 逐根判档、按档分组输出（见 olbr.js），每条 path 自带 sp-* 类：
+     .sp-crit / .sp-warn / .sp-ok → 该柱子自己那格的值达到哪一档，就是哪一档的色
+     .sp-bar 且无 sp-*（该指标没配阈值 / 值不是数字）→ 保持品牌色 --qc-accent
+   这里的选择器**不挂在 .qc-card 下**：判色的依据来自柱子自己那一格的值，
+   与卡片中央那个大数字无关 —— 同一张卡同时出现「红字 + 绿柱」是正常的，
+   因为前者是「当前积压」（存量），后者是「这段时间每小时新增」（流量），两回事。 */
+.qc-spark .sp-bar.sp-ok   { fill: var(--ok);   stroke: var(--ok); }
+.qc-spark .sp-bar.sp-warn { fill: var(--warn); stroke: var(--warn); }
+.qc-spark .sp-bar.sp-crit { fill: var(--crit); stroke: var(--crit); }
+/* 2026-10-28 改（用户反馈「柱状图的颜色没有按图例要求显示对应的颜色」）：
+   分档的**判定**换成了每个指标自己的阈值（QC_TARGETS，见 olbr.js 的 qcCardHtml），
+   与 /olbrportal/(v0) / MsPortal 同一份口径。
+   ⚠️ 本段的**色值**也跟着换了：2026-10-23 写死的 #006400 / #FFD700 / #FF0000
+   是纯绝对色，既不跟浅/深两套主题走，也与全站状态色（--ok/--warn/--crit）不是一套 ——
+   同一屏里「可用率卡的达标绿」与「QC 卡的正常绿」会是两个不同的绿。
+   现在三档直接取令牌，与 v0 徽章、MsPortal 徽章、页面其它状态色**完全同色**：
+     浅色：--ok #0a6a52 / --warn #7c5e07 / --crit #a2202f
+     深色：--ok #0bc78c / --warn #f6cf00 / --crit #ff5c6c
+   ⚠️ 仍然刻意**不动 --qc-accent**：那个变量还喂着卡片边框、内发光与 hover 光晕
    （见上面 .qc-card 与 .qc-card:hover），整卡换色不在需求里 —— 用户点名的只有
-   「数字和下面的柱状图」两处。故单开 --qc-tier 一个变量，只落在 .qc-num 的
-   color 与 .sp-bar 的 fill/stroke 上。
-   类名由 qcCardHtml 按数值输出（is-tier-ok/warn/crit），与旧版等级类
+   「数字和下面的柱状图」两处 —— 现在这两处**分开判档**，各自拿各自的值去比：
+     · .qc-num ← 卡片的大数字（当前存量），走下面的 --qc-tier
+     · .sp-bar ← 每根柱子自己那格的值，走上面那三条 .sp-*（2026-10-28 二改，
+                 用户「各自按照数字大小」；原先把它俩刷成同一个色的三条规则已删除）
+   类名由 qcCardHtml 按**阈值判定**输出（is-tier-ok/warn/crit），与旧版等级类
    .qc-lv-*（v1 起已不渲染，见上）无继承关系 —— 复用那套会连边框一起染色。
-   未分档（数字取不到 / 接口失败）时不命中任何一条，回到品牌色原状。 */
-.qc-card.is-tier-ok   { --qc-tier: #006400; }
-.qc-card.is-tier-warn { --qc-tier: #FFD700; }
-.qc-card.is-tier-crit { --qc-tier: #FF0000; }
+   未分档（数字取不到 / 接口失败）时不命中任何一条，数字回到品牌色原状。 */
+.qc-card.is-tier-ok   { --qc-tier: var(--ok); }
+.qc-card.is-tier-warn { --qc-tier: var(--warn); }
+.qc-card.is-tier-crit { --qc-tier: var(--crit); }
 .qc-card.is-tier-ok .qc-num,
 .qc-card.is-tier-warn .qc-num,
 .qc-card.is-tier-crit .qc-num { color: var(--qc-tier); }
-.qc-card.is-tier-ok .qc-spark .sp-bar,
-.qc-card.is-tier-warn .qc-spark .sp-bar,
-.qc-card.is-tier-crit .qc-spark .sp-bar { fill: var(--qc-tier); stroke: var(--qc-tier); }
 /* 线画的是**新增量**，大数字是**存量**，量级不同不能互相印证 ——
    所以说明文字（窗口 + 每格时长）是必需的，否则会把线的起伏当成大数字的起伏。 */
 .qc-spark-wrap { display: block; margin-top: 8px; }

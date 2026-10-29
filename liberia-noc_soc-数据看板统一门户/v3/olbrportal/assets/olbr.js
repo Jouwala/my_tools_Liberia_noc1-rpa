@@ -485,6 +485,18 @@
     if (tg.dir === 'down') return n < tg.warn ? 'crit' : (n < tg.crit ? 'warn' : 'ok');
     return n >= tg.crit ? 'crit' : (n >= tg.warn ? 'warn' : 'ok');
   }
+  /* 2026-10-28 用户拍板（「颜色是要统一标准，5，20，不要按照不同标准」）：
+     **全页唯一的判档尺子** —— < 5 正常 / 5~19 关注 / ≥ 20 严重。
+     六张卡的大数字与柱状图的每一根柱子都调它，不看指标 id、不看是存量还是新增量。
+     ⚠️ 上面的 qcLevel(id, v)（按各指标自己的 QC_TARGETS 判）**没有调用点了**，
+        刻意保留而不是删：它与 MsPortal / v0 是同一份口径，将来若要切回去，
+        把下面两处 qcLevelAbs 换回 qcLevel 即可，不必重抄一遍（抄就有抄歪的风险）。
+     ⚠️ 无值 / 非数字一律 'na'，绝不当成 0、也绝不当成正常 —— 与 qcLevel 同一条克制。 */
+  function qcLevelAbs(v) {
+    if (v == null || isNaN(Number(v))) return 'na';
+    var n = Number(v), a = DATA.QC_LEVEL_ABS;
+    return n >= a.crit ? 'crit' : (n >= a.warn ? 'warn' : 'ok');
+  }
   /* 告警优先用 5 分钟那一档：它比全量新，且失败时会被置成 error 态，
      不会把一小时前的旧数字留在屏幕上冒充实时值。 */
   function qcMetric(id) {
@@ -648,7 +660,29 @@
      补 0 会画出一根「积压清零」的假柱子，那比缺一根严重得多。
      柱子基线固定在 H（底部），高度按**0 到 max** 归零，
      而不是像折线那样按 min~max 拉伸：折线的 min/max 归一只是为了看清起伏，
-     但柱子的高度是「量」，从 0 起算才对得上「谁比谁多」。 */
+     但柱子的高度是「量」，从 0 起算才对得上「谁比谁多」。
+
+     ⚠️ 2026-10-28 改（用户要求「卡片的数字和柱状图要**各自**按照数字大小显示颜色」）：
+     每根柱子按**它自己的数值**判档 —— qcLevelAbs(这根柱子的值)，而不是整张图跟着
+     卡片中央那个大数字共用一种颜色。改之前的结构是「大数字判一次档 → 类名挂在
+     .qc-card 上 → CSS 把同一个色同时刷给 .qc-num 和整条 .sp-bar」，
+     于是柱子永远不反映自己那条曲线的起伏：alarm 大数字 43（存量，严重→红）
+     会把它那张「今天每小时新增 1~2 条」的柱子也刷成红。现在两处各自回家：
+       · .qc-num  ← 大数字（当前存量）自己判一次
+       · .sp-bar  ← 每根柱子按该格数值自己判一次
+     两处用的是**同一把尺子**（统一阈值 5 / 20，见 qcLevelAbs），
+     用户 2026-10-28 明确「颜色是要统一标准，5，20，不要按照不同标准」——
+     所以"各自"指的是各自拿自己的值去比，不是各自拿一套阈值。
+
+     为什么同档位的柱子要拼进同一条 <path>、而不是每根柱子一个元素：
+       一个 <path> 只能有一种 fill/stroke，这正是过去只能整图一色的根因。
+       按档位分桶后最多输出四条 path（ok / warn / crit / na），
+       30 格图从「1 个元素」变成「最多 4 个元素」，DOM 代价几乎为零，
+       而 <path> 闭合路径的既有写法（避免 preserveAspectRatio="none" 把描边拉粗）
+       一条都不用改。
+     na（这格的值取不到、或不是数字）不挂 sp-* 类，退回品牌色 --qc-accent：
+       没有规则可依的时候不给颜色 —— 与卡片数字取不到时走 .is-na 灰是同一条克制，
+       用一个"看着像正常"的品牌色去假装这一格达标，比不给颜色更糟。 */
   function qcBarsSvg(vals) {
     if (!vals || vals.length < 2) return '';
     var W = 300, H = 26;
@@ -666,21 +700,32 @@
     var slot = W / n;
     var gap = slot > 2 ? Math.min(slot * 0.34, 1.6) : 0;
     var bw = Math.max(slot - gap, slot * 0.34);
-    var paths = [];
+    /* 四个桶：三档 + na。见上面「为什么同档位的柱子要拼进同一条 <path>」。
+       判档统一走 qcLevelAbs（5 / 20），不看这张图属于哪个指标。 */
+    var buckets = { ok: [], warn: [], crit: [], na: [] };
     vals.forEach(function (v, i) {
       if (v == null) return;                 // 空档：不画，也不补 0
       var h = (H - 1) * (Number(v) / max);
       if (!(h > 0)) h = 0.6;                 // 真 0 也给一丝可见的高度，否则那格看着像空档
       var x = i * slot + (slot - bw) / 2;
-      paths.push('M' + x.toFixed(2) + ' ' + H +
+      var d = 'M' + x.toFixed(2) + ' ' + H +
         ' L' + x.toFixed(2) + ' ' + (H - h).toFixed(2) +
         ' L' + (x + bw).toFixed(2) + ' ' + (H - h).toFixed(2) +
-        ' L' + (x + bw).toFixed(2) + ' ' + H + ' Z');
+        ' L' + (x + bw).toFixed(2) + ' ' + H + ' Z';
+      buckets[qcLevelAbs(Number(v))].push(d);
     });
-    if (!paths.length) return '';
+    /* 输出顺序刻意固定为 crit → warn → ok → na：若把低档写在前，
+       相邻档位的柱体描边在接缝处会互相压住，视觉上像是"高值的红被旁边的绿啃掉一块"。
+       按严重程度降序输出，重的压在轻的上面，读图时优先看到极值。 */
+    var order = ['crit', 'warn', 'ok', 'na'], out = '';
+    order.forEach(function (k) {
+      if (!buckets[k].length) return;
+      out += '<path class="sp-bar' + (k === 'na' ? '' : ' sp-' + k) + '" d="' +
+        buckets[k].join(' ') + '" vector-effect="non-scaling-stroke"/>';
+    });
+    if (!out) return '';
     return '<span class="qc-spark" aria-hidden="true"><svg viewBox="0 0 ' + W + ' ' + H +
-      '" preserveAspectRatio="none"><path class="sp-bar" d="' + paths.join(' ') +
-      '" vector-effect="non-scaling-stroke"/></svg></span>';
+      '" preserveAspectRatio="none">' + out + '</svg></span>';
   }
   function qcBars(id) {
     var s = qcTrendSeries(id);
@@ -767,7 +812,8 @@
     }
     /* ⚠️ 2026-09-28：与 qcSparkSlot 同步改为柱状（用户要求「曲线换成柱状」）。
        存量序列里的 null（没采到的那一小时）qcBarsSvg 同样不画柱子，
-       于是断档处是一段**空缺**，与折线版的"断开"表达同一件事。 */
+       于是断档处是一段**空缺**，与折线版的"断开"表达同一件事。
+       判档不需要 id：统一阈值 5/20 与指标无关（见 qcBarsSvg / qcLevelAbs）。 */
     var bars = qcBarsSvg(s.vals);
     if (!bars) return '<span class="qc-spark-empty">' + esc(t('qc.stock.starving')) + '</span>';
     var v = { n: s.hours };
@@ -817,15 +863,21 @@
     var failed = !!(m && m.error) || (!!state.qc.err && !state.qc.at);
     var errMsg = (m && m.error) || state.qc.err || '';
     var v = m && m.value != null ? m.value : null;
-    /* 2026-10-23（用户要求）：Daily Operation 六卡的**数字与柱状图**按大数字分档上色 ——
-       <5 绿 #006400、<20 金 #FFD700、>=20 红 #FF0000。分档只输出 is-tier-* 类，
-       具体上色在 olbr.css（.is-tier-* 那段）：刻意不动 --qc-accent ——
-       那个变量还喂着卡片边框与内发光，用户点名的只有数字和柱子两处。
-       v 取不到或非数时不分档：数字走 .is-na 灰、柱子保持品牌色，
-       「没取到」不能被染成任何一档；failed 同理不分档。 */
-    var nv = (v != null && isFinite(Number(v))) ? Number(v) : null;
-    var tier = (failed || nv == null) ? '' :
-      (nv < 5 ? ' is-tier-ok' : nv < 20 ? ' is-tier-warn' : ' is-tier-crit');
+    /* 2026-10-28 用户最终拍板（「颜色是要统一标准，5，20，不要按照不同标准」）：
+       **全页一把尺子** —— < 5 正常 / 5~19 关注 / ≥ 20 严重，六张卡的大数字与卡内
+       柱状图的每一根柱子都用它判（qcLevelAbs）。
+       这一条把当天早些时候那次「回到每个指标自己的 QC_TARGETS」推翻了：
+       那次改的理由是绝对阈值对量级差两个数量级的六个指标不公（PMT 1,700 判严重、
+       CRs 86 也判严重），但换来的是「红」在每张卡上含义不同 —— 跨卡扫一眼没法比。
+       用户要的是**统一**：宁可 PMT 那张一直红，也要"红 = 过了 20"在整屏是同一件事。
+       ⚠️ DATA.QC_TARGETS 那张表保留不删（MsPortal / v0 同源口径），只是不参与判档；
+          按指标分档的实现 qcLevel() 也保留，切回去只要把 qcLevelAbs 换回 qcLevel。
+       v 取不到 / 接口失败 → 不分档（数字走 .is-na 灰），「没取到」不能被染成任何一档。
+       ⚠️ tier 只喂给这张卡的**大数字**（见 olbr.css 的 .qc-num 段）；下面的柱状图
+       不再吃这个 tier —— 它由 qcBarsSvg 逐根按自己的值另判一次档
+       （用户「数字和柱状图各自按照数字大小」），所以大数字取不到并不会让柱子失色。 */
+    var lv = (failed || v == null) ? 'na' : qcLevelAbs(v);
+    var tier = lv === 'na' ? '' : ' is-tier-' + lv;
     /* 2026-09-25 删：原来是 `var big = QC_PRIMARY_ORDER.indexOf(d.id) !== -1`，
        只用来决定「这张卡给不给走势位」（主卡必给，次卡要判断）。改成统一走
        qcTrendSlot 后就没有调用点了 —— 直接删掉，不留一个无用的变量。 */
@@ -846,10 +898,19 @@
     if (failed) sub = t('qc.err') + (errMsg ? ': ' + errMsg : '');
     else sub = def;
     /* tooltip 只留口径与点击提示。
-       v1 改：阈值那两行**去掉了** —— 等级分档整个不显示了，再把
-       「关注 ≥ 30 / 严重 ≥ 80」挂在悬浮里，等于让用户按一个屏幕上不存在的规则去读数字。
-       要看阈值请回 /olbrportal/（那边卡片带分档徽章，两者配套）。 */
+       2026-10-28 改（跟着分档一起回来）：**阈值那两行加回来** ——
+       分档重新可见之后，如果 hover 看不到「凭什么算红」，用户就只能凭感觉读色，
+       那比没有分档更糟（黑盒）。文案沿用与 MsPortal 同一套 qc.targetTip.*。
+       v1 摘掉阈值行的理由是「等级分档整个不显示了，再把阈值挂在悬浮里，
+       等于让用户按一个屏幕上不存在的规则去读数字」—— 前提已经不成立了。 */
     var tips = [def];
+    /* 阈值提示挂的是**统一刻度**（5 / 20），不是各指标自己的 QC_TARGETS：
+       屏幕上数字与柱子就是按这把尺子染的色，提示也必须是同一把，
+       否则 hover 看到 10/30、屏幕上却是按 5/20 上的色 —— 那就又成了黑盒。 */
+    if (lv !== 'na') {
+      tips.push(tf('qc.targetTip.up',
+        { warn: fmt(DATA.QC_LEVEL_ABS.warn), crit: fmt(DATA.QC_LEVEL_ABS.crit) }));
+    }
     if (!failed) tips.push(t('qc.drill'));
     /* 走势插槽**先生成再判断**：qcTrendSlot 对一个"本该有走势"的指标也可能
        返回空串（趋势接口没数据），所以不能只看 d.id 在不在 DATA.QC_TREND_METRICS 里。
@@ -958,6 +1019,20 @@
     var rangeEl = range ? '<p class="band-range" id="qcRangePop">' +
       '<i class="ph ph-chart-bar" aria-hidden="true"></i>' +
       '<span>' + esc(tf('qc.range', { a: range[0], b: range[1] })) + '</span></p>' : '';
+    /* 2026-10-28 加：分档图例（正常 / 关注 / 严重）。
+       为什么必须补这一行：六张卡的**数字与柱状图**按各指标自己的阈值分档上色，
+       但页面上原本只有 Benchmark 那两条基准线（Orange / MTN）的图例 ——
+       柱状图的红/黄/绿没有任何对应说明，用户无从判断「为什么这张是红的」，
+       于是「颜色没有按图例显示」这种疑问就出现了。图例与上色取**同一组令牌**
+       （--ok / --warn / --crit），所以图例里看到的就是柱子上的。
+       放在标题行、心跳左侧：既不占卡片内部的空间（卡片高度是各排对齐的硬约束），
+       又在视线的第一落点（标题行）上。 */
+    var lvLegend = '<span class="qc-lvlegend" title="' + esc(t('qc.lvLegendTip')) + '">' +
+      '<span class="qc-lvlegend-k">' + esc(t('qc.lvLegend')) + '</span>' +
+      '<span class="qc-lvlegend-i k-ok"><i aria-hidden="true"></i>' + esc(t('qc.lv.ok')) + '</span>' +
+      '<span class="qc-lvlegend-i k-warn"><i aria-hidden="true"></i>' + esc(t('qc.lv.warn')) + '</span>' +
+      '<span class="qc-lvlegend-i k-crit"><i aria-hidden="true"></i>' + esc(t('qc.lv.crit')) + '</span>' +
+      '</span>';
     /* 环（.ring / .ring-btn）已随「30 天达标率」一起删除，见上面那段说明。 */
     box.innerHTML =
       '<div class="band-h">' +
@@ -976,6 +1051,7 @@
             : '<div class="band-k">' + esc(t('qc.title')) + '</div>') +
           rangeEl +
         '</div>' +
+        lvLegend +
         '<span class="band-sp" aria-hidden="true"></span>' +
         live +
         '<button type="button" class="gb" data-act="qc-reload" title="' + esc(t('qc.reload')) + '">' +
