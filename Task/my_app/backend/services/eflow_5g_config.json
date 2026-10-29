@@ -9,8 +9,8 @@
   "fallback_full_scan": true,
   "cell_dedupe": true,
   "assign_group": "ZTE_NOC_FO",
-  "dry_run": true,
-  "groups": "test123",
+  "dry_run": false,
+  "groups": "lbr_assistant",
   "site_fuzzy_enabled": true,
   "site_fuzzy_threshold": 0.9
 }
