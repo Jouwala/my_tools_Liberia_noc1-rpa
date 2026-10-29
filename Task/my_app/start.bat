@@ -85,7 +85,7 @@ if %errorlevel%==0 (
 :: (Note: use `rem` for comments inside a block - a `::` label there makes cmd
 ::  emit "The system cannot find the drive specified." and misparse the block.)
 if exist "%~dp0backend\worker_watchdog.pid" (
-    echo [OK] Task worker watchdog is running ^(auto-restart enabled, groups=u,n,s,w,m,c,v,x,g^)
+    echo [OK] Task worker watchdog is running ^(auto-restart enabled, groups=u,n,s,w,m,c,v,x,g,p^)
 ) else (
     echo [WARN] Worker watchdog PID file not found! Check log\worker_watchdog_console.log
 )
@@ -97,6 +97,8 @@ if exist "%~dp0backend\worker_watchdog.pid" (
 :: 2026-09-27: n 拆为 n/s/w 后同步补 s、w 两项，否则 s/w 组死了仍报 all-green。
 :: 2026-10-15: 实时告警从 n 拆到 x 组，同步补 x 一项并把分母改为 8。
 :: 2026-10-19: added g (RAN Greenplum extract group), denominator 8 -> 9.
+:: 2026-10-28: added p (PG full-snapshot group; pg_to_sqlite_sync moved out of m because
+::             a 577~1174s hourly run blocked the every-minute alarm pushes). Denominator 9 -> 10.
 :: Comments here stay English-only for the newly added lines: cmd reads a UTF-8-no-BOM
 :: .bat as ANSI, so Chinese can corrupt the following lines silently.
 set /a WCOUNT=0
@@ -109,8 +111,9 @@ if exist "%~dp0backend\worker_c.pid" set /a WCOUNT+=1
 if exist "%~dp0backend\worker_v.pid" set /a WCOUNT+=1
 if exist "%~dp0backend\worker_x.pid" set /a WCOUNT+=1
 if exist "%~dp0backend\worker_g.pid" set /a WCOUNT+=1
-echo [*] Worker groups up: %WCOUNT% / 9
-if %WCOUNT% LSS 9 (
+if exist "%~dp0backend\worker_p.pid" set /a WCOUNT+=1
+echo [*] Worker groups up: %WCOUNT% / 10
+if %WCOUNT% LSS 10 (
     echo [WARN] Task queue has no full consumer set! Tasks will pile up as pending.
     echo        Check log\worker_runtime*.log ^(one per group^) and log\worker_watchdog.log
 )

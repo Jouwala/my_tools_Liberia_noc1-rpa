@@ -203,8 +203,43 @@ def sanitize_table_name(schema: str, table: str) -> str:
     return f"{schema}_{table}"
 
 
+def _end_pg_read_txn(pg_conn):
+    """结束 PG 侧读事务，尽快释放表上的 ACCESS SHARE 锁。
+
+    背景（2026-10-28 排查）：本脚本原先只 `set_session(readonly=True)`，
+    **全脚本没有一处 commit/rollback**（psycopg2 默认 autocommit=False）→
+    113 张表的 SELECT 全落在同一个事务里，ACCESS SHARE 锁从第一张表一直
+    持到最后一张表（实测 577~1174s）。而 `app.realtime_alarm` 的写入走
+    「影子表 + DROP + RENAME」（`eflow_alarm_service.py::_replace_table_via_engine`
+    → `_swap_in_staging_table`，PG 分支是单条 DO 块 DDL），需要
+    ACCESS EXCLUSIVE，与 ACCESS SHARE 互斥 → 等锁。
+
+    实测证据：每一轮同步里 `eflow_active_alarm` 的 completed_at 都比本脚本的
+    finished_at 早 0.6~1.7 秒（10-26~10-28 共 6 轮全部吻合），单次挂
+    341~720s；它挂住期间每分钟触发被队列单飞保护拒绝，`task_execution_log`
+    没有新记录 → sync 页时间线出现 5~10 分钟空白。
+
+    commit 与 rollback 语义等价（会话是 read-only、无写操作），但必须二选一：
+    SELECT 失败后 PG 事务进入 aborted 状态，只 commit 不 rollback 会让同一
+    连接上的下一次 execute 报 "current transaction is aborted"。
+    """
+    try:
+        pg_conn.commit()
+    except Exception:  # noqa: BLE001 - 事务已 aborted / 连接已断，退回 rollback
+        try:
+            pg_conn.rollback()
+        except Exception:  # noqa: BLE001 - 连接不可用时不阻断同步流程
+            pass
+
+
 def sync_table(pg_conn, sqlite_conn, schema: str, table: str):
-    """同步单张表"""
+    """同步单张表。
+
+    ⚠️ 本函数会在这张表上开启 PG 读事务（`get_pg_columns` + `SELECT`），
+    但**不负责结束它** —— 由调用方 `main()` 的循环在每张表之后调用
+    `_end_pg_read_txn()`。这样「跳过表 / 无列信息 / 同步失败」三种提前返回
+    路径也能释放锁，不必在每个 return 前重复写一遍。
+    """
     sqlite_name = sanitize_table_name(schema, table)
 
     if table in SKIP_TABLES:
@@ -287,6 +322,9 @@ def main():
     try:
         # 连接 PG
         pg_conn = psycopg2.connect(PG_URL, connect_timeout=10)
+        # 只读会话：本脚本对 PG 只做 SELECT，绝不允许误写。
+        # ⚠️ 只读不等于「不持锁」—— 读事务一样持 ACCESS SHARE，所以事务边界
+        #    必须按表切断（见 _end_pg_read_txn 与下方循环里的 finally）。
         pg_conn.set_session(readonly=True)
 
         # 连接 SQLite（isolation_level=None：显式 BEGIN/COMMIT，配合 sync_table 的原子表替换）
@@ -313,6 +351,11 @@ def main():
             except Exception as e:
                 log.error(f"  ✗ {schema}.{table} 失败: {e}")
                 errors.append(f"{schema}.{table}: {e}")
+            finally:
+                # 每张表都结束 PG 读事务 → ACCESS SHARE 只持有「读这一张表」的时间，
+                # 不再跨越整轮同步（原因见 _end_pg_read_txn 的说明）。
+                # 放在 finally 是为了让「跳过 / 无列 / 失败」路径同样释放锁。
+                _end_pg_read_txn(pg_conn)
 
         # 汇总
         elapsed = time.time() - t0

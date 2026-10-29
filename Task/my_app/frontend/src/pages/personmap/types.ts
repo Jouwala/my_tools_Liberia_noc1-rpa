@@ -165,6 +165,41 @@ export interface ManagedSitesResp {
   skipped_no_coord: number
 }
 
+/* ---- 站点类别图例（/personnel/site-classes，2026-10-28）----
+ * 需求（用户原话）：「添加图例，按照数据库的站点类型如 COOLI/ERA/NORMAL 显示站点。
+ *   默认不显示，当用户点击的时候在地图上显示。同样的，添加 vip_site/hub_site/trm_type」。
+ * 数据结构与后端 `personnel.py::get_personnel_site_classes` 一一对应，改后端必须同步改这里。 */
+
+/** 一个分组下的一个取值（如 site_caregory = COOL）及其站点数 */
+export interface SiteClassValue {
+  value: string
+  count: number
+}
+
+/** 一个分组（如 vip_site）。`values` 由后端从库里扫出，顺序即界面展示顺序。 */
+export interface SiteClassGroup {
+  key: string
+  column: string
+  values: SiteClassValue[]
+}
+
+/** 图例用的站点精简行。`classes` = { 分组键: 归一化后的值 }，空串 = 该列未填。 */
+export interface SiteClassSite {
+  site_id: string
+  site_name: string
+  county: string
+  lat: number
+  lng: number
+  classes: Record<string, string>
+}
+
+/** `/gis/personnel/site-classes` 的响应 */
+export interface SiteClassesResp {
+  groups: SiteClassGroup[]
+  sites: SiteClassSite[]
+  total: number
+}
+
 /* ---- 「默认站点」辖区（/personnel/fme-territories，2026-10-23）----
  * 人员页地图「默认站点」开关打开后的数据。站点集合与 /managed-sites 同源
  * （后端同一个 _fme_site_index = master_site_db.fme_name）。 */

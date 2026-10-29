@@ -158,6 +158,86 @@ def upsert(conn, table, rows, conflict_cols):
     return len(rows)
 
 
+def dedupe_rows(conn, table, key_cols, *, logger=None):
+    """按 ``key_cols`` 去重，每组只保留一行（保留物理位置最早的那行）。
+
+    为什么必须有这个函数（2026-10-28）
+    ----------------------------------
+    ``DELETE FROM t WHERE ctid NOT IN (SELECT MIN(ctid) FROM t GROUP BY <pk>)``
+    在 PG 上会被优化器展开成嵌套循环（对每个 ctid 跑一次子查询），复杂度近似
+    O(n²)。实测：``ipran_ume.Metro_ring_me_15mins`` 上这条语句跑了 **25.9 小时
+    仍未结束**（pid 15116，backend_start 2026-10-27 18:47:24 UTC），期间一直
+    ``active`` 且 ``wait_event=IO/BufFileRead``（外部排序不停刷临时文件），
+    持有 ``RowExclusiveLock`` 挡住该表上的 ``CREATE/DROP INDEX``，并持续吃磁盘 IO。
+    同一反模式在 ``packet_loss_service.py:362`` 的注释里早有记录（「134 万行实测
+    卡死 11 分钟未完成」），但仍有 4 处调用点没改，故抽到本模块统一。
+
+    实现要点
+    --------
+    1. **先探查再删**：``GROUP BY ... HAVING count(*) > 1 LIMIT 1`` 命中即停。
+       正常情况（已有唯一索引 / 上游已去重）只需一次索引扫描就返回，完全跳过
+       排序与写入 —— 这是本函数相对原写法的**主要收益**，因为它在每次同步时都会跑。
+    2. 真有重复时走窗口函数单次排序 + ``ctid``/``rowid`` 回删，保留 ``rn = 1``。
+    3. **不 commit**：事务边界由调用方掌握（PG 分支的连接本身是 autocommit）。
+
+    参数
+    ----
+    conn      : sqlite3.Connection（走 rowid）或 PG 连接包装（走 ctid）
+    table     : 表名，可含 ``schema.`` 前缀
+    key_cols  : 参与去重的列名（空则直接返回 0）
+    logger    : 可选，用于记录实际删除了多少行
+
+    返回：删除的行数（0 表示本来就没有重复）。
+    """
+    log = logger or logging.getLogger(__name__)
+    keys = [str(k) for k in (key_cols or []) if str(k)]
+    if not keys:
+        return 0
+
+    is_pg = not isinstance(conn, sqlite3.Connection)
+    table_sql = _quote_table(table, truncate=is_pg)
+    # PG 下建表时列名已按 63 字节截断（见 upsert），这里必须用同一套名字
+    key_sql = ", ".join(
+        _quote_ident(pg_trunc_ident(k) if is_pg else k) for k in keys
+    )
+    rowid_col = "ctid" if is_pg else "rowid"
+
+    # ── 1. 先探查：没有重复就完全不碰这张表 ──
+    has_dup = conn.execute(
+        f"SELECT 1 FROM {table_sql} GROUP BY {key_sql} HAVING count(*) > 1 LIMIT 1"
+    ).fetchone()
+    if not has_dup:
+        return 0
+
+    # ── 2. 窗口函数单次排序定位重复行，再按物理行号回删 ──
+    if is_pg:
+        # PG 支持 DELETE ... USING，直接把 ctid 集合连上去，避免再套一层 IN
+        sql = (
+            f"DELETE FROM {table_sql} p USING ("
+            f"SELECT {rowid_col} AS rid, row_number() OVER ("
+            f"PARTITION BY {key_sql} ORDER BY {rowid_col}) AS rn "
+            f"FROM {table_sql}) d "
+            f"WHERE p.{rowid_col} = d.rid AND d.rn > 1"
+        )
+    else:
+        sql = (
+            f"DELETE FROM {table_sql} WHERE {rowid_col} IN ("
+            f"SELECT rid FROM ("
+            f"SELECT {rowid_col} AS rid, row_number() OVER ("
+            f"PARTITION BY {key_sql} ORDER BY {rowid_col}) AS rn "
+            f"FROM {table_sql}) x WHERE x.rn > 1)"
+        )
+
+    cur = conn.execute(sql)
+    deleted = cur.rowcount if cur is not None and cur.rowcount and cur.rowcount > 0 else 0
+    if deleted:
+        log.warning(
+            "[DEDUPE] %s 按 (%s) 删除 %d 行重复数据（保留每组物理最早一行）",
+            table, ", ".join(keys), deleted,
+        )
+    return deleted
+
+
 def write_df(df, table, engine_override=None, if_exists="append", index=False):
     """DataFrame 写入表（双模，走 SQLAlchemy 引擎）。
 

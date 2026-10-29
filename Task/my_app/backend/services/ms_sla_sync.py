@@ -37,7 +37,9 @@ from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
 from openpyxl.styles import PatternFill, Font
 from backend.database import get_raw_connection
-from backend.dialect_helpers import table_columns, upsert, safe_pragma, pg_trunc_ident, pg_quote_ident
+from backend.dialect_helpers import (
+    table_columns, upsert, safe_pragma, pg_trunc_ident, pg_quote_ident, dedupe_rows,
+)
 
 
 from backend.config.remote_host import get_ftp_host
@@ -306,17 +308,12 @@ def write_to_db(db_path, table_name, headers, data):
         if pk_cols_db:
             pk_q = ", ".join(_q(k) for k in pk_cols_db)
             try:
-                if is_sqlite:
-                    cursor.execute(
-                        f'DELETE FROM "{tname}" WHERE rowid NOT IN ('
-                        f'SELECT MIN(rowid) FROM "{tname}" GROUP BY {pk_q})'
-                    )
-                else:
-                    # PG：以 ctid 代替 sqlite 的 rowid 做物理行去重（保留每组最早一行）
-                    cursor.execute(
-                        f'DELETE FROM "{tname}" WHERE ctid NOT IN ('
-                        f'SELECT MIN(ctid) FROM "{tname}" GROUP BY {pk_q})'
-                    )
+                # 去重统一走 dialect_helpers.dedupe_rows：先探查（无重复则完全不写）
+                # 再用窗口函数单次排序回删。原写法
+                # ``ctid NOT IN (SELECT MIN(ctid) ... GROUP BY ...)`` 在 PG 上会退化
+                # 成嵌套循环，2026-10-28 实测在 ipran_ume.Metro_ring_me_15mins 上
+                # 跑了 25.9 小时仍未结束。
+                dedupe_rows(conn, tname, pk_cols_db, logger=logger)
                 # 先删除旧的同名唯一索引，避免主键列变更后 IF NOT EXISTS 跳过导致旧索引残留
                 cursor.execute(f'DROP INDEX IF EXISTS "u_{tname}"')
                 cursor.execute(

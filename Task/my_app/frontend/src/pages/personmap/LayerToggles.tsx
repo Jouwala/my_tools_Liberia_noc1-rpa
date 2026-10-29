@@ -7,9 +7,12 @@
  *   useTerritory.ts，首次打开才拉 /fme-territories（~130KB，24 人 824 站）。
  *
  * 两个开关是**独立图层**：辖区线可以单独显示（纯辖区总览、不被针和徽标
- * 挡住），人员针也可以单独显示。浮在地图右上角（左上被搜索框占了；
- * 缩放控件在左上 Leaflet 默认位）。前身 TerritoryToggle.tsx 只装一个开关，
+ * 挡住），人员针也可以单独显示。前身 TerritoryToggle.tsx 只装一个开关，
  * 第二个真实开关出现即更名（AGENTS.md 三.10 删除优于兼容）。
+ *
+ * **位置由调用方决定**（2026-10-28 改）：本组件只负责卡片外观，定位交给
+ * PersonMapView 的「右上角浮层列」—— 它与站点类别图例纵向堆叠，避免各自
+ * 绝对定位时互相压盖。
  */
 import { Switch } from 'antd'
 import { useI18n } from '../../i18n'
@@ -28,7 +31,6 @@ export function LayerToggles({
   return (
     <div
       style={{
-        position: 'absolute', right: 12, top: 12, zIndex: 1000,
         display: 'flex', flexDirection: 'column', gap: 4,
         padding: '6px 10px',
         borderRadius: 'var(--wh-radius-sm, 4px)',

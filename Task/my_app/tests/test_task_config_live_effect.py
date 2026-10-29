@@ -198,6 +198,20 @@ def _is_num_list(s):
     return isinstance(s, str) and bool(re.fullmatch(r"\s*-?\d+(\s*,\s*-?\d+)*\s*", s))
 
 
+def _num_set(s):
+    """逗号整数串 → 整数集合；不是逗号整数串返回 None。
+
+    为什么比较要用集合：这类字段（告警码 / 端口 / 用户组号）在服务侧普遍被收成
+    `set`（见 `assign_config.parse_common_config`），**重复值会被折叠**。
+    2026-10-28 5G 派单卡片就是被这条卡住的：默认 5 个告警码，用例写入
+    `60001,60001,60001,60001,60001`，服务返回去重后的 `60001` → 误报"字段没生效"。
+    集合比较仍能抓住真问题（值被丢弃 / 字段没读到），只是不再要求保留重复项。
+    """
+    if not _is_num_list(s):
+        return None
+    return frozenset(int(x) for x in str(s).replace(" ", "").split(",") if x)
+
+
 def _flat(obj, prefix=""):
     """配置摊成 {点路径: 标量}，用于查"这个字段在代码默认里长什么样"。
 
@@ -233,10 +247,16 @@ def _sentinel(sub, cur, seq, hint=None):
     if t == "str":
         hint_num = _is_num_list(hint)
         if sub.get("int_list") or _is_num_list(cur) or hint_num:
-            # 逗号整数串：保持元素个数只换值，字母会让服务在导入期 int() 崩
+            # 逗号整数串：保持元素个数只换值，字母会让服务在导入期 int() 崩。
+            # 值必须**逐个不同**：服务侧多收成 set，全填同一个数会被折叠成 1 项，
+            # 用例就会误判成"只读到 1 个值"。
             src = cur if _is_num_list(cur) else (hint if hint_num else "")
             n = max(1, len([x for x in str(src).split(",") if x.strip()]))
-            return ",".join([str(60000 + (seq[0] or 1) % 9)] * n)
+            used = _num_set(src) or frozenset()
+            start = 60001
+            while used & set(range(start, start + n)):
+                start += 100
+            return ",".join(str(start + i) for i in range(n))
         return STR_SENT
     seq[0] += 1
     return _mutate_json(cur, seq[0])
@@ -311,6 +331,10 @@ def _check(pairs, live, tag):
         got = _get_path(live, path)
         if got == _MISSING:
             issues.append(f"{tag}: {path} 服务侧取不到（死字段？）")
+        elif _num_set(sent) is not None and _num_set(got) is not None:
+            # 逗号整数串按集合比：服务侧收成 set，重复值会被折叠（不是丢值）
+            if _num_set(got) != _num_set(sent):
+                issues.append(f"{tag}: {path} 期望 {_brief(sent)} 实得 {_brief(got)}")
         elif _norm(got) != _norm(sent):
             issues.append(f"{tag}: {path} 期望 {_brief(sent)} 实得 {_brief(got)}")
     return issues

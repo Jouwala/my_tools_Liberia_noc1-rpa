@@ -1429,3 +1429,135 @@ register_config(ConfigResource(
                    "State recorded in eflow_fiber_assign_log. Alarm codes / correlation codes / time "
                    "windows / target group / groups are maintained on the Task Config page.",
 ))
+
+# ========== 5G 站点告警自动派单（eflow_5g_assign） ==========
+def _g5_assign_defaults():
+    """默认值取服务当前生效值（含 env），页面所见 = 任务所用。"""
+    from backend.services.eflow_5g import g5_assign_service as s
+    return {
+        "alarm_codes": ",".join(sorted(s.ALARM_CODES)),
+        "correlation_codes": ",".join(sorted(s.CORRELATION_CODES)),
+        "correlation_window_minutes": int(s.CORRELATION_WINDOW_MINUTES),
+        "window_minutes": int(s.WINDOW_MINUTES),
+        "min_age_minutes": int(s.MIN_AGE_MINUTES),
+        "assign_group": s.ASSIGN_GROUP,
+        "dry_run": bool(s.DRY_RUN),
+        "groups": ",".join(s.GROUPS),
+        "site_fuzzy_enabled": bool(s.SITE_FUZZY_ENABLED),
+        "site_fuzzy_threshold": float(s.SITE_FUZZY_THRESHOLD),
+        "group_window_minutes": int(s.GROUP_WINDOW_MINUTES),
+        "restypes": ",".join(s.RESTYPES),
+        "fallback_full_scan": bool(s.FALLBACK_FULL_SCAN),
+        "cell_dedupe": bool(s.CELL_DEDUPE),
+    }
+
+
+register_config(ConfigResource(
+    task_id="eflow_5g_assign",
+    path=_cfg("eflow_5g_config.json"),
+    defaults={
+        "alarm_codes": "200201001,200201018,200201041,200201043,200201060",
+        "correlation_codes": "99933",
+        "correlation_window_minutes": 60,
+        "window_minutes": 180,
+        "min_age_minutes": 15,
+        "assign_group": "ZTE_NOC_FO",
+        "dry_run": True,
+        "groups": "test123",
+        "restypes": ("zte.ran.gnodeb,zte.ran.nodeb,zte.ran.itbbu,zte.ran.bbu,"
+                     "zte.ran.du,zte.ran.cp,zte.ran.gbb,zte.ran.mi,"
+                     "zte.ran.nr9150,zte.ran.nr9000,zte.trm_mw.nr9150,zte.trm_mw.nr9000"),
+        "fallback_full_scan": True,
+        "cell_dedupe": True,
+    },
+    schema={
+        "alarm_codes": _txt("触发派单的 5G 告警码（逗号分隔，**支持多个**）。"
+                            "默认 5 个退服类码：200201001(DU cell out-of-service)、"
+                            "200201018(Super cell CP out-of-service)、"
+                            "200201041(gNodeB DU out-of-service)、"
+                            "200201043(NSA unavailable)、"
+                            "200201060(Super MIMO cell CP out-of-service)。"
+                            "命中其一即进入派单判定；**留空回退这 5 个默认码**"),
+        "correlation_codes": _txt("关联告警码（逗号分隔，默认 99933 小区退服）—— 同站点在"
+                                  "同时间窗口内已有这些码的告警时，本条 5G 告警**不派单**"
+                                  "（避免重复派单）"),
+        "correlation_window_minutes": _num("关联时间窗口（分钟）—— 两条告警升起时间相差在此"
+                                           "窗口内才算「同时间」（默认 60）", 1, 1440),
+        "min_age_minutes": _num("派单等待时长（分钟）—— 告警升起后必须先存在满 N 分钟才派单"
+                                "（需求口径「5G 站点告警发生 15 分钟条件满足后派单和推送」，"
+                                "默认 15）。**不是一升起就派**，等这段时间让短时抖动自然清除。"
+                                "配 0 = 恢复「一升起就派」的旧行为", 0, 1440),
+        "window_minutes": _num("触发窗口（分钟）—— 告警升起时间在近 N 分钟内才派单"
+                               "（兼防上线瞬间把积压的历史未清除告警一次性全派出去，默认 180）",
+                               5, 43200),
+        "assign_group": _txt("派单目标用户组名（如 ZTE_NOC_FO；从 eFlow 用户组列表按名解析 groupId）"),
+        "dry_run": _bool("演练模式 —— **默认开**：只查告警、匹配、记录将要派的单（状态 D），"
+                         "**不真正调用派单接口**。核对日志/结果无误后关掉，才会真正建 TT"),
+        "groups": _txt("WhatsApp 群组名（逗号分隔；留空=回退测试群 test123 并告警）。"
+                       "派单成功后通报到此群"),
+        "site_fuzzy_enabled": _bool(
+            "站点名近似匹配兜底 —— **默认开**：cmdb 与网管命名常不一致时，"
+            "精确/归一化都查不到就按相似度兜底。**带歧义保护**："
+            "最优候选不唯一领先时不采用、宁可不派。关掉则只需完全一致才派单"),
+        "site_fuzzy_threshold": _num(
+            "近似匹配相似度阈值（0.5~1.0，默认 0.9）。**调低会显著提高把告警派到相邻"
+            "站点的风险**，除非确知 cmdb 命名混乱否则不要低于 0.85", 0.5, 1.0, t="float"),
+        "group_window_minutes": _num(
+            "同一次站点故障的合并派单时间窗（分钟，默认 10）—— 同一 gNB 的多个小区"
+            "**同时**退服时各产生一条告警（实测 cell 50/51/52），不合并就是一堆重复单。"
+            "**同一站点**内升起时间落在此窗口内的告警合并成一个 TT，通报列出涵盖的小区。"
+            "**配 0 = 关闭合并**（每条告警各派一单，回滚开关）。"
+            "注意：只合并同站点告警，不同站点即使同时退服也各派一单（那是两个故障）",
+            0, 1440),
+        "restypes": _txt("服务端按码过滤用的 restype 候选（逗号分隔）。"
+                         "⚠ eFlow 的 alarmcodeconds **必须同时带 restype**"
+                         "（只给 alarmcode 返回 HTTP 499），且**通配不被支持**"
+                         "（`zte.ran.*` 返回 0 条），故只能穷举具体值。"
+                         "默认已覆盖 gNodeB/nodeB/DU/CP/BBU 等常见 RAN 形态 —— "
+                         "**若某个告警码实时存在却一直没触发，多半是它的 restype 不在此列表**，"
+                         "把查到的 restype 补进来即可（任务有全量审计，会明确告警提示）"),
+        "fallback_full_scan": _bool(
+            "全量审计 —— **默认开**：定期（每 60 分钟）拉一次全量实时告警与按码过滤结果"
+            "对账，一旦发现「全量里有、过滤里没有」的目标码就写告警报出"
+            "（否则该码会被静默过滤、永远不触发）。关掉则不再对账"),
+        "cell_dedupe": _bool(
+            "一站多小区去重 —— **默认开**：同一 gNB 的多个小区退服时合并成一个 TT。"
+            "关掉则每个小区各派一单"),
+    },
+    defaults_factory=_g5_assign_defaults,
+    description="5G 站点告警自动派单 + WhatsApp 通报：每 5 分钟查 eFlow 实时告警，"
+                "命中告警码白名单（**支持多个**，默认 200201001 DU cell out-of-service、"
+                "200201018 Super cell CP out-of-service、200201041 gNodeB DU out-of-service、"
+                "200201043 NSA unavailable、200201060 Super MIMO cell CP out-of-service）、"
+                "**存续时长满 15 分钟**（派单等待时长，不是一升起就派）、"
+                "在触发窗口 180 分钟内、且**同站点同时间窗口无 99933** 时，"
+                "派单到指定用户组（TT 标题由 eFlow 自动生成）；"
+                "同一 gNB 的多个小区同时退服时按「同站点 + 时间窗」（默认 10 分钟）"
+                "合并成**一个** TT，通报正文列出本单实际涵盖的小区；"
+                "派单后回查 ttid 确认真建出（eFlow 派单时灵时不灵，内置重试）才通报到 "
+                "WhatsApp 群。拉取走服务端按码过滤（实测 21 条 / 0.03s，全量是 6752 条 / "
+                "4.45s），并定期全量审计对账 —— 发现告警码被 restype 配置漏掉"
+                "（会静默永不触发）立即告警。**默认演练模式**（只匹配记录不真派单），"
+                "核对无误后关掉 dry_run。状态落 eflow_5g_assign_log。"
+                "告警码/关联码/restype/时间窗/目标组/群组均在「任务配置」页维护。",
+    description_en="5G site alarm auto-assign + WhatsApp notification: every 5 minutes, query eFlow "
+                   "active alarms; when the alarm code matches the whitelist (MULTIPLE codes supported; "
+                   "default 200201001 DU cell out-of-service, 200201018 Super cell CP out-of-service, "
+                   "200201041 gNodeB DU out-of-service, 200201043 NSA unavailable, "
+                   "200201060 Super MIMO cell CP out-of-service), it has been alive for at least "
+                   "15 minutes (assign delay — not dispatched the moment it raises), is within the "
+                   "180-minute trigger window, AND the same site has no 99933 alarm in the same time "
+                   "window, assign a TT to the configured user group (TT title is auto-generated by "
+                   "eFlow). When several cells of the same gNB go out of service at once, the alarms "
+                   "are merged into ONE TT by site + time window (default 10 minutes), created on the "
+                   "earliest alarm of the group; the notification lists every cell covered. After "
+                   "assigning, re-query ttid to confirm the TT really exists (eFlow assign is "
+                   "intermittent, so it retries) before notifying the WhatsApp group. Alarms are "
+                   "pulled with server-side code filtering (measured 21 rows / 0.03s vs 6752 rows / "
+                   "4.45s for a full scan) plus a periodic full-scan audit that raises a warning if "
+                   "an alarm code is missed by the restype configuration (which would otherwise "
+                   "never trigger silently). **Dry-run by default** (match + record only, no real "
+                   "assign); turn dry_run off once verified. State recorded in eflow_5g_assign_log. "
+                   "Alarm codes / correlation codes / restypes / time windows / target group / groups "
+                   "are maintained on the Task Config page.",
+))

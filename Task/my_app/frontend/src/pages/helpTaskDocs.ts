@@ -1,6 +1,6 @@
 /* ==================== 任务清单详解数据（供 Help 页「任务管理详解」使用） ====================
  * 内容依据 backend/task_registry.py 的 TASK_SPECS（60 条声明）、
- * backend/worker_watchdog.py 的 GROUP_TASK_MAP（worker 分组 u/n/v/m/c）以及
+ * backend/worker_watchdog.py 的 GROUP_TASK_MAP（worker 分组 u/n/s/w/v/m/c/x/g/p）以及
  * docs/manual/04-task-system.md、14-integrations.md、03-data-layer.md 整理。
  * 改动后端任务注册表时请同步更新本文件（字段：cron / group / script / flow / maintain）。
  * 2026-09-18：补齐此前注册表有、本清单缺的 13 个任务，现与 GROUP_TASK_MAP 一一对应。
@@ -18,10 +18,11 @@ export interface TaskDocText {
 export interface TaskDoc {
   id: string
   // 分组键；2026-09-27 由 n 组拆出 s（SP 备件 SFTP）/ w（MW UME），
-  // 2026-10-15 由 n 组拆出 x（实时告警），2026-10-19 新增 g（RAN Greenplum 取数）。
+  // 2026-10-15 由 n 组拆出 x（实时告警），2026-10-19 新增 g（RAN Greenplum 取数），
+  // 2026-10-28 由 m 组拆出 p（PG 全量快照 pg_to_sqlite_sync，单轮 577~1174s）。
   // 与后端 worker_watchdog.GROUP_TASK_MAP 的键一一对应
   // （守卫 tests/test_worker_group_coverage.py 校验）
-  group: 'u' | 'n' | 's' | 'w' | 'v' | 'm' | 'c' | 'x' | 'g'
+  group: 'u' | 'n' | 's' | 'w' | 'v' | 'm' | 'c' | 'x' | 'g' | 'p'
   cron: string
   /** 工作流脚本（backend/services/ 下的模块） */
   script: string
@@ -57,6 +58,18 @@ export const WORKER_GROUP_INFO: Record<string, { zh: string; en: string }> = {
   g: {
     zh: 'RAN Greenplum 取数组：2026-10-19 新增。上游是 control1 两跳 SSH，与 eFlow/UME/VMAX GBase 无会话交集。独立成组的理由是故障域而非时长（实测单轮 72.6s）—— 这条链路每一跳都可能挂死在网络层，与当年 s 组 sp_data_sync 挂死 5.5h 拖停整组同型，而 m 组跑着每分钟的告警 WhatsApp 推送',
     en: 'RAN Greenplum extract group (added 2026-10-19): upstream is a two-hop SSH via control1, sharing no session with eFlow/UME/VMAX GBase. It gets its own lane for blast-radius reasons, not duration (measured 72.6s per run) — any hop can wedge at the network layer, the same failure mode that once froze group s for 5.5h, while group m carries the per-minute WhatsApp alarm pushes',
+  },
+  s: {
+    zh: 'SP 备件 SFTP：独立 SFTP 服务器 + UNC 镜像库，2026-09-27 从 n 组拆出（曾是 n 组最大单体负载，也是已知挂死源）',
+    en: 'SP spare-parts SFTP: separate SFTP server + UNC mirror DB; split out of group n on 2026-09-27 (used to be group n\'s heaviest single load and a known hang source)',
+  },
+  w: {
+    zh: 'MW UME 微波网管（凭证分组 mw_ume）：独立会话，2026-09-27 从 n 组拆出，避免 */15 的实时同步排在长任务后面',
+    en: 'MW UME microwave NMS (credential group mw_ume): dedicated session; split out of group n on 2026-09-27 so the */15 realtime sync no longer queues behind long tasks',
+  },
+  p: {
+    zh: 'PG 全量快照专属组：2026-10-28 从 m 组拆出。本任务每小时 :45 把 PG 全库灌进 db/app.db（113 表 / 489 万行 / 1.5GB，实测单轮 577~1174s），挂在 m 组会把每分钟的告警推送一起堵死',
+    en: 'PG full-snapshot dedicated group (split out of group m on 2026-10-28): every hour at :45 it dumps the whole PG database into db/app.db (113 tables / 4.89M rows / 1.5GB, measured 577~1174s per run); in group m it blocked the per-minute alarm pushes',
   },
 }
 
@@ -281,6 +294,23 @@ export const TASK_DOCS: TaskDoc[] = [
       desc: 'Queries eFlow active alarms; when the alarm code matches the whitelist (default 4758 Fiber Break, configurable), it has been alive for at least 15 minutes (assign delay, configurable), is within the trigger window AND the same site has no 99933 alarm in the same time window, resolves the ME name to site ID + site name and assigns a TT to the configured user group; after assigning, re-queries ttid to confirm the TT really exists (with retries) before notifying the WhatsApp group. Dry-run by default',
       flow: ['Query eFlow active (uncleared) alarms', 'Filter by alarm code + alive for at least 15 minutes (assign delay) + trigger window + no 99933 on the same site (if the site names do not line up, treat it as "no correlation" and keep going)', 'Skip alarms that already carry an upstream TT (ttid) or were already assigned', 'Resolve the ME name to a site name then look up the numeric site ID in cmdb (exact -> normalized -> equal-length vowel-swap)', 'Call the assign API to create a TT -> re-query ttid to confirm -> notify WhatsApp'],
       maintain: ['Assign delay of 15 minutes: the alarm must have been alive for at least 15 minutes before it is assigned and notified to WhatsApp (business rule: "assign only after the alarm has lasted more than 15 minutes") — it is NOT dispatched the moment it raises; the delay lets short transient breaks clear by themselves. Set it to 0 to restore immediate dispatch','Dry-run (dry_run) by default: match + record only, no real assign; turn it off on the Task Config page once verified', 'When the 99933 correlation cannot be determined (fiber only has an ME-derived site name that differs from cmdb, e.g. luogan/luogon) the alarm is treated as "no correlation" and still assigned, with the count logged under correlation_undetermined — never let a name mismatch silently block assignment indefinitely', 'When site resolution fails (site absent from cmdb, e.g. Tokadeh) the TT cannot be created automatically: record N and post a "manual handling required in eFlow" notice to the group, once per alarm (suppressed via send_status) so nothing is silently dropped', 'Fiber assign must carry the numeric site ID + site name; passing only the ME name makes the API return success without creating a TT (measured lesson)', 'Fiber assign is intermittent, so it retries and only treats success as confirmed when ttid is found (never trusts status:true)', 'Skip alarms whose upstream ttid is already set: eFlow\'s own assign rule may have created the TT first, otherwise duplicate TTs are created (measured: two Zardun alarms)', 'The 99933 correlation compares site identity as a set of keys (numeric site id + site name): the site/mename shapes differ between 4758 and 99933, a single-key compare silently misses the match', 'Site-name fuzzy matching only accepts "equal length + vowel swaps only" (e.g. luogan -> luogon): scanning all 830 sites in the production cmdb showed generic 0.9 similarity merges distinct sites such as Garplay/Gbarplay, Butuo/Buutuo and Sanniquillie 5/1. Phase sites (X vs X2) and ambiguous candidates are also rejected. Hits are reported in warnings and flagged in the notification for manual review', 'A non-zero eFlow-side ttstatus no longer blocks assignment (2026-10-27 requirement: never let an unbound ME stop the assign): it still tries, but with a minimal budget (1 attempt x 2 re-queries); if no TT appears it records N and posts a single "manual handling required in eFlow" notice to the group, and picks the alarm up automatically once the ME-to-site binding is fixed', 'One fiber cut means one TT (2026-10-27): a single cable break raises alarms on every site along the link (measured: 5 alarms within 9 seconds at 14:21, producing 5 duplicate TTs). Alarms raised within the merge window (group_window_minutes, default 10 minutes) are merged into ONE TT, created on the earliest alarm of the group (the most likely root cause); the others share the same TT number and the notification lists every site covered. Set it to 0 to disable merging (rollback switch). The window is used because no existing data source can prove "same fiber": probeid is one shared UUID, impact_site_list/link_path are empty, flm_database.fdn is shared by 96 sites (far too coarse), R.I.A and Tower Hill are not related in victim_topology (independent gateways), and eFlow relatedAlarms returns 0 rows', 'State recorded in eflow_fiber_assign_log: Y = assigned / upstream TT already existed, D = dry-run (reprocessed once dry_run is off), N = failed and retried next round', 'The TT title is auto-generated by eFlow as `<site>.[<site name>]<alarm>`; the API does not accept a custom title', 'Notifications are English-only (2026-10-27 requirement): field labels, warning lines and failure reasons are all English; Chinese stays in the status table last_error, the result warnings and the logs, because the group is an English-speaking front line'],
+    },
+  },
+  {
+    // 2026-10-28 注册：5G 站点告警自动派单 + WhatsApp 通报（参考 Fiber Break）
+    id: 'eflow_5g_assign', group: 'm', cron: '8-59/5 * * * *',
+    script: 'services/eflow_5g/g5_assign_service.py → run_5g_assign',
+    zh: {
+      name: '5G 站点告警自动派单',
+      desc: '查 eFlow 实时告警，命中告警码白名单（支持多个，默认 200201001 DU cell out-of-service / 200201018 Super cell CP out-of-service / 200201041 gNodeB DU out-of-service / 200201043 NSA unavailable / 200201060 Super MIMO cell CP out-of-service，页面可配）、存续时长满 15 分钟（派单等待时长）、在触发窗口内、且同站点同时间窗口无 99933 告警时，派单到指定用户组；同一 gNB 的多个小区同时退服时合并成一个 TT，通报列出涵盖的小区；派单后回查 ttid 确认真建出才通报到 WhatsApp 群。默认演练模式',
+      flow: ['服务端按码过滤拉 eFlow 实时告警（实测 21 条 / 0.03s，全量是 6752 条 / 4.45s）', '定期全量审计对账：发现告警码被 restype 配漏（会静默永不触发）立即告警', '按告警码 + 存续满 15 分钟（派单等待时长）+ 触发窗口 + 同站点无 99933 过滤', '跳过上游已有 TT（ttid 非空）与已派过的告警', '按「同站点 + 时间窗」合并一站多小区告警（cell 50/51/52）', '调派单接口建 TT → 回查 ttid 确认 → WhatsApp 通报（正文列出涵盖的小区）'],
+      maintain: ['告警码支持多个（需求明确要求），页面改逗号分隔即可；留空回退 5 个默认退服码', '派单等待时长 15 分钟：告警升起后要先存在满 15 分钟才派单并发 WhatsApp（需求口径「5G 站点告警发生 15 分钟条件满足后派单和推送」）——不是一升起就派，留这段时间让短时抖动自然清除；配 0 可恢复立即派单', '默认 dry_run 演练：只匹配 + 记录 + **渲染将发的通报正文**（结果里的 dry_run_preview，不投递），核对文案与 Cells 行无误后到「任务配置」关掉', '一站多小区去重：同一 gNB 的多个小区退服各产生一条告警，不合并就是一堆重复单；按「同站点 + 时间窗」合并成一个 TT，通报正文列出涵盖的小区', '只合并同站点告警，不同站点即使同时退服也各派一单（那是两个故障，合并后现场要跑两个站）', '5G 的 site 字段本身就是数字站点 ID、sitename 已是站点名（实测 4162/Liscr），不需要像 Fiber 那样从 ME 名解析 cmdb', '服务端按码过滤必须带 restype（只给 alarmcode 返回 HTTP 499），且通配 restype 不被支持（zte.ran.* 返回 0 条）→ 只能穷举具体值；默认已配 12 个常见 RAN restype', '全量审计是防「静默失效」的关键：restype 配漏会让某个告警码永远拉不到且无任何报错，审计发现后直接写 warnings 报出（实测混入无实例的码不会让查询失败，HTTP 200）', '关联 99933 无法判定时按「无关联」继续派单并记 correlation_undetermined 留痕——不能因为站点信息对不上就长期漏派', '站点解析失败时记 N 并在群里发一条「需人工在 eFlow 处理」通报，同一条只发一次（send_status 抑制），不静默漏派', 'eFlow 侧 ttstatus 非 0 不阻断派单：照派但只用最小预算，失败后通报人工去 eFlow 修站点绑定', 'eFlow 派单时灵时不灵，故内置重试，且以回查到 ttid 才判成功（不信接口的 status:true）', '告警上游已有 ttid 时直接跳过：eFlow 自己的派单规则会先建 TT，不跳过就会重复建单'],
+    },
+    en: {
+      name: '5G Site Alarm Auto Assign',
+      desc: 'Queries eFlow active alarms; when the alarm code matches the whitelist (MULTIPLE codes supported; default 200201001 DU cell out-of-service, 200201018 Super cell CP out-of-service, 200201041 gNodeB DU out-of-service, 200201043 NSA unavailable, 200201060 Super MIMO cell CP out-of-service, configurable), it has been alive for at least 15 minutes (assign delay), is within the trigger window AND the same site has no 99933 alarm in the same time window, assigns a TT to the configured user group; when several cells of the same gNB go out of service at once, the alarms are merged into ONE TT and the notification lists every cell covered; after assigning, re-queries ttid to confirm the TT really exists before notifying the WhatsApp group. Dry-run by default',
+      flow: ['Pull eFlow active alarms with server-side code filtering (measured 21 rows / 0.03s vs 6752 rows / 4.45s for a full scan)', 'Periodic full-scan audit: raises a warning if an alarm code is missed by the restype configuration (it would otherwise never trigger silently)', 'Filter by alarm code + alive for at least 15 minutes (assign delay) + trigger window + no 99933 on the same site', 'Skip alarms that already carry an upstream TT (ttid) or were already assigned', 'Merge the multi-cell alarms of one site by site + time window (cell 50/51/52)', 'Call the assign API to create a TT -> re-query ttid to confirm -> notify WhatsApp (the text lists the cells covered)'],
+      maintain: ['Multiple alarm codes are supported (explicit requirement); edit the comma-separated list on the Task Config page; leaving it empty falls back to the 5 default out-of-service codes', 'Assign delay of 15 minutes: the alarm must have been alive for at least 15 minutes before it is assigned and notified to WhatsApp (requirement: "assign and push once the 5G site alarm has been up for 15 minutes") — it is NOT dispatched the moment it raises; the delay lets short transient jitter clear by itself. Set it to 0 to restore immediate dispatch', 'Dry-run (dry_run) by default: match + record + render the notification that WOULD be sent (dry_run_preview in the task result, never delivered); turn it off on the Task Config page once the wording and the Cells line look right', 'One-site multi-cell dedupe: several cells of the same gNB going out of service each raise their own alarm; without merging that is a pile of duplicate TTs. They are merged into ONE TT by site + time window, and the notification lists the cells covered', 'Only alarms on the same site are merged — two different sites going out of service at the same time still get one TT each (those are two separate faults)', 'The 5G site field is already the numeric site ID and sitename is already the site name (measured 4162/Liscr), so unlike Fiber there is no need to resolve the ME name against cmdb', 'Server-side code filtering must carry a restype (alarmcode alone returns HTTP 499) and wildcard restypes are not supported (zte.ran.* returns 0 rows) → only explicit values can be enumerated; 12 common RAN restypes are configured by default', 'The full-scan audit is the key guard against silent failure: a missed restype means an alarm code can never be fetched and raises no error at all; the audit reports it as a warning (measured: codes without live instances do not break the query — HTTP 200)', 'When the 99933 correlation cannot be determined the alarm is treated as "no correlation" and still assigned, with the count logged under correlation_undetermined — never let a site-info mismatch silently block assignment indefinitely', 'When site resolution fails the TT cannot be created automatically: record N and post a "manual handling required in eFlow" notice to the group, once per alarm (send_status suppression), so nothing is silently dropped', 'A non-zero eFlow ttstatus does not block assignment: it is still attempted but with a minimal retry budget, and on failure a notice asks a human to fix the site binding in eFlow', 'eFlow assign is intermittent, so it retries internally, and success is judged only by re-querying ttid (the API status:true is not trusted)', 'Skip alarms that already carry an upstream ttid: eFlow own assign rules create some TTs first, and skipping avoids duplicate TTs'],
     },
   },
   {
@@ -998,7 +1028,7 @@ export const TASK_DOCS: TaskDoc[] = [
     },
   },
   {
-    id: 'pg_to_sqlite_sync', group: 'm', cron: '45 * * * *',
+    id: 'pg_to_sqlite_sync', group: 'p', cron: '45 * * * *',
     script: 'backend/scripts/sync_pg_to_sqlite.py → main',
     zh: {
       name: 'PG→SQLite 数据快照',

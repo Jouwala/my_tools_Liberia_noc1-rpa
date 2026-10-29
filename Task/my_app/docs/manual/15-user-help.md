@@ -1,6 +1,6 @@
 # my_app 使用帮助
 
-> 面向使用者的平台功能与操作指南。本文件由「使用帮助」页面同源生成（frontend/src/helpMarkdown.ts），内容依据 docs/manual/ 各章与 backend/task_registry.py 整理。生成日期：2026-10-27。
+> 面向使用者的平台功能与操作指南。本文件由「使用帮助」页面同源生成（frontend/src/helpMarkdown.ts），内容依据 docs/manual/ 各章与 backend/task_registry.py 整理。生成日期：2026-10-29。
 
 > 站内入口：侧边栏「使用帮助」，或直链 `http://<host>/myapp/?page=help`。
 
@@ -10,7 +10,7 @@
 
 - [1. 平台简介](#1-平台简介)
 - [2. 通用操作](#2-通用操作)
-- [3. 任务管理详解（78 个任务）](#3-任务管理详解)
+- [3. 任务管理详解（79 个任务）](#3-任务管理详解)
 - [4. 页面指南](#4-页面指南)
 - [5. 运维与排障](#5-运维与排障)
 - [6. 常见问题](#6-常见问题)
@@ -77,10 +77,13 @@
 | **c** | CN EMS 独立会话：缓存同步与日聚合共享 _pmcache，同组保证互斥 |
 | **x** | 实时告警专属组：2026-10-15 从 n 组拆出，独占一条道不再排在 eflow_sync 等长任务后面（此前最差排队 854s） |
 | **g** | RAN Greenplum 取数组：2026-10-19 新增。上游是 control1 两跳 SSH，与 eFlow/UME/VMAX GBase 无会话交集。独立成组的理由是故障域而非时长（实测单轮 72.6s）—— 这条链路每一跳都可能挂死在网络层，与当年 s 组 sp_data_sync 挂死 5.5h 拖停整组同型，而 m 组跑着每分钟的告警 WhatsApp 推送 |
+| **s** | SP 备件 SFTP：独立 SFTP 服务器 + UNC 镜像库，2026-09-27 从 n 组拆出（曾是 n 组最大单体负载，也是已知挂死源） |
+| **w** | MW UME 微波网管（凭证分组 mw_ume）：独立会话，2026-09-27 从 n 组拆出，避免 */15 的实时同步排在长任务后面 |
+| **p** | PG 全量快照专属组：2026-10-28 从 m 组拆出。本任务每小时 :45 把 PG 全库灌进 db/app.db（113 表 / 489 万行 / 1.5GB，实测单轮 577~1174s），挂在 m 组会把每分钟的告警推送一起堵死 |
 
 > ⚠️ **新增任务必须同时登记进 `worker_watchdog.py` 的 `GROUP_TASK_MAP`** —— 只写 `TASK_SPECS` 不分组 = 任务入队后永远 pending。这是本项目已发生过四次的事故模式（finebi_report_sync / whatsapp_send_ext / sp_email_details / 2026-09-18 的 olib_soc 与 vmax_multi_data_sync）。
 
-### 3.3 全量任务清单（78 个）
+### 3.3 全量任务清单（79 个）
 
 | 任务 | task_id | 默认 cron | 组 | 工作流脚本 |
 | --- | --- | --- | --- | --- |
@@ -95,6 +98,7 @@
 | MS SLA 完整同步 | `ms_sla_full` | `0 5 * * *` | n | `services/ms_sla_service.py → run_full_sync` |
 | DC server 告警 WhatsApp 推送 | `ume_alarm_whatsapp_alert` | `* * * * *` | m | `services/ume_alarm_whatsapp_service.py → run_ume_alarm_whatsapp` |
 | Fiber Break 告警自动派单 | `eflow_fiber_assign` | `3-59/5 * * * *` | m | `services/eflow_fiber/fiber_assign_service.py → run_fiber_assign` |
+| 5G 站点告警自动派单 | `eflow_5g_assign` | `8-59/5 * * * *` | m | `services/eflow_5g/g5_assign_service.py → run_5g_assign` |
 | eFlow 实时告警同步 | `eflow_active_alarm` | `*/1 * * * *` | x | `services/eflow_api_client.py → fetch_and_save_active_alarm` |
 | eFlow 历史告警同步 | `eflow_history_alarm` | `0 */3 * * *` | n | `services/eflow_api_client.py → fetch_and_save_history_alarm` |
 | eFlow TT 规则收集与匹配检查 | `eflow_tt_rules_check` | `20 4 * * *` | n | `services/eflow_rules/eflow_tt_rules_check_task.py → run_eflow_tt_rules_check` |
@@ -136,7 +140,7 @@
 | Progress 宽表重建 | `progress_sync` | `50 7 * * *` | m | `services/progress_sync.py → run_progress_sync` |
 | 失败任务自动重试 | `auto_retry_failed` | `*/10 * * * *` | m | `services/auto_retry.py → run_auto_retry_task` |
 | RAN CM 小区数据同步 | `cm_data_sync` | `30 8 * * *` | u | `services/cm_data/cm_data_export.py → run_cm_data_sync` |
-| PG→SQLite 数据快照 | `pg_to_sqlite_sync` | `45 * * * *` | m | `backend/scripts/sync_pg_to_sqlite.py → main` |
+| PG→SQLite 数据快照 | `pg_to_sqlite_sync` | `45 * * * *` | p | `backend/scripts/sync_pg_to_sqlite.py → main` |
 | MW UME KPI 同步 | `mw_ume_kpi_sync` | `15 5 * * *` | w | `services/mw_ume/mw_ume_kpi_service.py → run_mw_ume_kpi_sync` |
 | MW UME KPI 实时同步 | `mw_ume_kpi_sync_rt` | `*/15 * * * *` | w | `services/mw_ume/mw_ume_kpi_service.py → run_mw_ume_kpi_sync_rt` |
 | CN EMS KPI 缓存同步 | `ems_kpi_cache_sync` | `*/15 * * * *` | c | `services/cn_ems/ems_kpi_service.py → run_ems_kpi_cache_sync` |
@@ -382,6 +386,38 @@
 - 状态落 eflow_fiber_assign_log：Y=已派成功/上游已有 TT，D=演练（关掉演练会重新处理），N=失败下轮重试
 - TT 标题由 eFlow 自动生成，格式 `<site>.[<站点名>]<告警名>`，接口不接受自定义标题
 - 通报正文一律英文（2026-10-27 要求）：字段标签、警示语、失败原因全英文；中文只留在状态表 last_error、结果 warnings 与日志里，因为群是一线英文环境
+
+#### 5G 站点告警自动派单（`eflow_5g_assign`）
+
+- 默认 cron: `8-59/5 * * * *`　|　worker 组: **m**
+- 工作流脚本: `services/eflow_5g/g5_assign_service.py → run_5g_assign`
+
+**功能**: 查 eFlow 实时告警，命中告警码白名单（支持多个，默认 200201001 DU cell out-of-service / 200201018 Super cell CP out-of-service / 200201041 gNodeB DU out-of-service / 200201043 NSA unavailable / 200201060 Super MIMO cell CP out-of-service，页面可配）、存续时长满 15 分钟（派单等待时长）、在触发窗口内、且同站点同时间窗口无 99933 告警时，派单到指定用户组；同一 gNB 的多个小区同时退服时合并成一个 TT，通报列出涵盖的小区；派单后回查 ttid 确认真建出才通报到 WhatsApp 群。默认演练模式
+
+**工作流与数据流**:
+
+1. 服务端按码过滤拉 eFlow 实时告警（实测 21 条 / 0.03s，全量是 6752 条 / 4.45s）
+1. 定期全量审计对账：发现告警码被 restype 配漏（会静默永不触发）立即告警
+1. 按告警码 + 存续满 15 分钟（派单等待时长）+ 触发窗口 + 同站点无 99933 过滤
+1. 跳过上游已有 TT（ttid 非空）与已派过的告警
+1. 按「同站点 + 时间窗」合并一站多小区告警（cell 50/51/52）
+1. 调派单接口建 TT → 回查 ttid 确认 → WhatsApp 通报（正文列出涵盖的小区）
+
+**维护要点**:
+
+- 告警码支持多个（需求明确要求），页面改逗号分隔即可；留空回退 5 个默认退服码
+- 派单等待时长 15 分钟：告警升起后要先存在满 15 分钟才派单并发 WhatsApp（需求口径「5G 站点告警发生 15 分钟条件满足后派单和推送」）——不是一升起就派，留这段时间让短时抖动自然清除；配 0 可恢复立即派单
+- 默认 dry_run 演练：只匹配 + 记录 + **渲染将发的通报正文**（结果里的 dry_run_preview，不投递），核对文案与 Cells 行无误后到「任务配置」关掉
+- 一站多小区去重：同一 gNB 的多个小区退服各产生一条告警，不合并就是一堆重复单；按「同站点 + 时间窗」合并成一个 TT，通报正文列出涵盖的小区
+- 只合并同站点告警，不同站点即使同时退服也各派一单（那是两个故障，合并后现场要跑两个站）
+- 5G 的 site 字段本身就是数字站点 ID、sitename 已是站点名（实测 4162/Liscr），不需要像 Fiber 那样从 ME 名解析 cmdb
+- 服务端按码过滤必须带 restype（只给 alarmcode 返回 HTTP 499），且通配 restype 不被支持（zte.ran.* 返回 0 条）→ 只能穷举具体值；默认已配 12 个常见 RAN restype
+- 全量审计是防「静默失效」的关键：restype 配漏会让某个告警码永远拉不到且无任何报错，审计发现后直接写 warnings 报出（实测混入无实例的码不会让查询失败，HTTP 200）
+- 关联 99933 无法判定时按「无关联」继续派单并记 correlation_undetermined 留痕——不能因为站点信息对不上就长期漏派
+- 站点解析失败时记 N 并在群里发一条「需人工在 eFlow 处理」通报，同一条只发一次（send_status 抑制），不静默漏派
+- eFlow 侧 ttstatus 非 0 不阻断派单：照派但只用最小预算，失败后通报人工去 eFlow 修站点绑定
+- eFlow 派单时灵时不灵，故内置重试，且以回查到 ttid 才判成功（不信接口的 status:true）
+- 告警上游已有 ttid 时直接跳过：eFlow 自己的派单规则会先建 TT，不跳过就会重复建单
 
 #### eFlow 实时告警同步（`eflow_active_alarm`）
 
@@ -1123,7 +1159,7 @@
 
 #### PG→SQLite 数据快照（`pg_to_sqlite_sync`）
 
-- 默认 cron: `45 * * * *`　|　worker 组: **m**
+- 默认 cron: `45 * * * *`　|　worker 组: **p**
 - 工作流脚本: `backend/scripts/sync_pg_to_sqlite.py → main`
 
 **功能**: 把远程 PostgreSQL 全库数据同步到本地 db/app.db 作为离线备份/回退快照

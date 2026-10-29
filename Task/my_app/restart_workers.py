@@ -78,7 +78,7 @@ try:
     from backend.worker_watchdog import GROUP_TASK_MAP as _GROUP_TASK_MAP
     ALL_GROUPS = tuple(_GROUP_TASK_MAP.keys())
 except Exception:  # pragma: no cover - import 失败时不阻断运维入口
-    ALL_GROUPS = ("u", "n", "s", "w", "m", "c", "v", "x", "g")
+    ALL_GROUPS = ("u", "n", "s", "w", "m", "c", "v", "x", "g", "p")
 WD_PID_FILE = BACKEND / "worker_watchdog.pid"
 WD_CONSOLE = LOG_DIR / "worker_watchdog_console.log"
 WD_CONSOLE_ERR = LOG_DIR / "worker_watchdog_console.log.err"

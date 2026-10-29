@@ -412,9 +412,10 @@ GROUP_TASK_MAP = {
         # 只读本地/PG 数据 + EWS 发信，内务轻任务，归 m 组。
         # 新任务必须显式分组，否则无 worker 认领 → 队列 pending 卡死直到 300s 超时
         "sp_material_report,"
-        # finebi_report_sync/pg_to_sqlite_sync：注册表中存在但此前未分组，
+        # finebi_report_sync：注册表中存在但此前未分组，
         # 2026-08-25 分组模式启用后无任何 worker 认领，队列 pending 卡死断档
-        "finebi_report_sync,pg_to_sqlite_sync,"
+        # （同批补录的 pg_to_sqlite_sync 已于 2026-10-28 拆到独立 p 组，见本表末尾）
+        "finebi_report_sync,"
         # log_cleanup 2026-09-11 补录：日志文件清理（每天 03:17），内务轻任务。
         # 新任务必须显式分组，否则无 worker 认领 → 队列 pending 卡死直到 300s 超时
         "log_cleanup,"
@@ -451,6 +452,17 @@ GROUP_TASK_MAP = {
         #    m 组已承载每分钟的 ume_alarm 与 */5 的 tt_alarm，可承载。
         # 新任务必须显式分组，否则无 worker 认领 → 队列 pending 卡死直到 300s 超时
         "eflow_fiber_assign,"
+        # eflow_5g_assign 2026-10-28 注册：5G 站点告警自动派单 + WhatsApp 通报。
+        # 归 m 组理由：① 与 eflow_fiber_assign 同属 eFlow 会话 + WhatsApp 通道
+        # （ensure_login 复用进程内存/磁盘缓存会话，notify 走 Baileys 推送进程）；
+        # ② 自身只写 eflow_5g_assign_log（本任务独占表），与同组任务无写冲突；
+        # ③ 拉取走服务端按码过滤（实测 21 条 / 0.03s），单轮约 1~2s、每 5 分钟一轮，
+        #    比 Fiber 的全量拉取（4.45s）更轻；m 组已承载 */5 的 tt_alarm 与
+        #    eflow_fiber_assign，可承载。
+        # ⚠ cron 错开 Fiber 的 3-59/5（8-59/5）：两个任务都查 eFlow 实时告警，
+        #   错开分钟避免同秒并发压 eFlow 会话。
+        # 新任务必须显式分组，否则无 worker 认领 → 队列 pending 卡死直到 300s 超时
+        "eflow_5g_assign,"
         # sp_details_files_email 2026-09-30 注册：SP 备件明细分文件邮件（每天 10:05）。
         # 归 m 组理由：与 sp_email_details / sp_material_report 同类——只读本地 xlsx
         # （data/sp_email/data）+ 走 EWS 发信，不占任何上游业务会话，属内务轻任务。
@@ -514,6 +526,30 @@ GROUP_TASK_MAP = {
         #   守卫 tests/test_worker_group_coverage.py 交叉校验（$groups 那处守卫抓不到，
         #   漏改会让启动报告把 9/8 误判成 [FAIL]）。
         "gp_ran_user_sync"),
+    "p": (  # PG 全量快照专属组（2026-10-28 从 m 组拆出）
+        # 【为什么必须拆】本任务每小时 :45 把 PG 全库灌进 db/app.db：
+        #   113 张表 / 489 万行 / 输出 1511 MB，实测单轮 577~1174s（9.6~19.6 分钟）。
+        #   它原先挂在 m 组，而 m 组是**一条串行道**，且含每分钟的
+        #   ume_alarm_whatsapp_alert 与 */5 的 tt_alarm_whatsapp_alert ——
+        #   同步期间整条 m 组停摆，每分钟触发被队列单飞保护拒绝
+        #   （task_runner.py:174-197「任务已在队列中等待或执行」），
+        #   task_execution_log 没有新记录，sync 页时间线出现 5~10 分钟空白。
+        #   实测（app.task_execution_log 自算 LAG，近 7 天）：>2min 空窗共 20 次，
+        #   其中 14 次起点是 00:50 或 12:50（= 同步 :45 启动后 5 分钟），天天复现。
+        # 【为什么可以独立】本任务只读 PG + 只写本地 db/app.db（离线快照），
+        #   不占任何上游会话（eFlow / UME / VMAX / SFTP / GBase / GP 全无交集），
+        #   与其它组的串行约束毫无关系。
+        # 【代价】多一个常驻 worker 进程；本机 28 逻辑核、worker 实测基本闲置。
+        # 【配套改动】同日还给 sync_pg_to_sqlite.py 加了「每张表结束 PG 读事务」——
+        #   那是另一半根因：读事务不提交会让 113 张表的 ACCESS SHARE 锁跨越整轮
+        #   同步，阻塞 realtime_alarm 的 DROP+RENAME（x 组的 eflow_active_alarm
+        #   因此挂 341~720s）。两处必须一起改：只拆组不切事务仍会拖住 x 组。
+        # ⚠️ 新增/改动分组必须同步五处（本表、start_hidden.ps1 的
+        #   MY_APP_WORKER_GROUPS **与** $groups 等待清单、restart_workers.py 的
+        #   ALL_GROUPS 回退值、start.bat 的 pid 计数与分母、前端任务帮助），
+        #   守卫 tests/test_worker_group_coverage.py 交叉校验（$groups 那处守卫抓不到，
+        #   漏改会让启动报告把 10/9 误判成 [FAIL]）。
+        "pg_to_sqlite_sync"),
 }
 _WORKER_GROUPS = [g.strip() for g in
                   os.environ.get("MY_APP_WORKER_GROUPS", "").split(",") if g.strip()]

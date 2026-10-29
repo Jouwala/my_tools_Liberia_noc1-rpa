@@ -1,6 +1,6 @@
 # my_app User Help & Guide
 
-> User-facing platform features & operations guide. Generated from the same source as the in-app Help page (frontend/src/helpMarkdown.ts), compiled from docs/manual/ and backend/task_registry.py. Generated on 2026-10-27.
+> User-facing platform features & operations guide. Generated from the same source as the in-app Help page (frontend/src/helpMarkdown.ts), compiled from docs/manual/ and backend/task_registry.py. Generated on 2026-10-29.
 
 > In-app entry: the "Help" sidebar item, or `http://<host>/myapp/?page=help` directly.
 
@@ -10,7 +10,7 @@
 
 - [1. Platform Overview](#1-platform-overview)
 - [2. General Usage](#2-general-usage)
-- [3. Task Manager Deep Dive (78 tasks)](#3-task-manager-deep-dive)
+- [3. Task Manager Deep Dive (79 tasks)](#3-task-manager-deep-dive)
 - [4. Pages Guide](#4-pages-guide)
 - [5. Ops & Troubleshooting](#5-ops-troubleshooting)
 - [6. FAQ](#6-faq)
@@ -77,10 +77,13 @@ Built for the NOC scenario "boards every day, reports must go out": 41+ schedule
 | **c** | CN EMS dedicated session: cache sync & daily aggregation share _pmcache, serialized for mutual exclusion |
 | **x** | Realtime alarm dedicated group: split out of group n on 2026-10-15 to run on its own lane, no longer queued behind long tasks like eflow_sync (worst observed queue wait 854s) |
 | **g** | RAN Greenplum extract group (added 2026-10-19): upstream is a two-hop SSH via control1, sharing no session with eFlow/UME/VMAX GBase. It gets its own lane for blast-radius reasons, not duration (measured 72.6s per run) — any hop can wedge at the network layer, the same failure mode that once froze group s for 5.5h, while group m carries the per-minute WhatsApp alarm pushes |
+| **s** | SP spare-parts SFTP: separate SFTP server + UNC mirror DB; split out of group n on 2026-09-27 (used to be group n's heaviest single load and a known hang source) |
+| **w** | MW UME microwave NMS (credential group mw_ume): dedicated session; split out of group n on 2026-09-27 so the */15 realtime sync no longer queues behind long tasks |
+| **p** | PG full-snapshot dedicated group (split out of group m on 2026-10-28): every hour at :45 it dumps the whole PG database into db/app.db (113 tables / 4.89M rows / 1.5GB, measured 577~1174s per run); in group m it blocked the per-minute alarm pushes |
 
 > ⚠️ **New tasks MUST also be registered in `GROUP_TASK_MAP` in worker_watchdog.py** — declaring them only in TASK_SPECS leaves them pending forever. This accident happened four times (finebi_report_sync / whatsapp_send_ext / sp_email_details / the olib_soc and vmax_multi_data_sync tasks found on 2026-09-18).
 
-### 3.3 Full task catalog (78 tasks)
+### 3.3 Full task catalog (79 tasks)
 
 | Task | task_id | Default cron | Group | Workflow script |
 | --- | --- | --- | --- | --- |
@@ -95,6 +98,7 @@ Built for the NOC scenario "boards every day, reports must go out": 41+ schedule
 | MS SLA Full Sync | `ms_sla_full` | `0 5 * * *` | n | `services/ms_sla_service.py → run_full_sync` |
 | DC Server Alarm WhatsApp Push | `ume_alarm_whatsapp_alert` | `* * * * *` | m | `services/ume_alarm_whatsapp_service.py → run_ume_alarm_whatsapp` |
 | Fiber Break Alarm Auto Assign | `eflow_fiber_assign` | `3-59/5 * * * *` | m | `services/eflow_fiber/fiber_assign_service.py → run_fiber_assign` |
+| 5G Site Alarm Auto Assign | `eflow_5g_assign` | `8-59/5 * * * *` | m | `services/eflow_5g/g5_assign_service.py → run_5g_assign` |
 | eFlow Realtime Alarm Sync | `eflow_active_alarm` | `*/1 * * * *` | x | `services/eflow_api_client.py → fetch_and_save_active_alarm` |
 | eFlow History Alarm Sync | `eflow_history_alarm` | `0 */3 * * *` | n | `services/eflow_api_client.py → fetch_and_save_history_alarm` |
 | eFlow TT Rules Collect & Match Check | `eflow_tt_rules_check` | `20 4 * * *` | n | `services/eflow_rules/eflow_tt_rules_check_task.py → run_eflow_tt_rules_check` |
@@ -136,7 +140,7 @@ Built for the NOC scenario "boards every day, reports must go out": 41+ schedule
 | Progress Wide Table Rebuild | `progress_sync` | `50 7 * * *` | m | `services/progress_sync.py → run_progress_sync` |
 | Failed Task Auto Retry | `auto_retry_failed` | `*/10 * * * *` | m | `services/auto_retry.py → run_auto_retry_task` |
 | RAN CM Cell Data Sync | `cm_data_sync` | `30 8 * * *` | u | `services/cm_data/cm_data_export.py → run_cm_data_sync` |
-| PG→SQLite Data Snapshot | `pg_to_sqlite_sync` | `45 * * * *` | m | `backend/scripts/sync_pg_to_sqlite.py → main` |
+| PG→SQLite Data Snapshot | `pg_to_sqlite_sync` | `45 * * * *` | p | `backend/scripts/sync_pg_to_sqlite.py → main` |
 | MW UME KPI Sync | `mw_ume_kpi_sync` | `15 5 * * *` | w | `services/mw_ume/mw_ume_kpi_service.py → run_mw_ume_kpi_sync` |
 | MW UME KPI Realtime Sync | `mw_ume_kpi_sync_rt` | `*/15 * * * *` | w | `services/mw_ume/mw_ume_kpi_service.py → run_mw_ume_kpi_sync_rt` |
 | CN EMS KPI Cache Sync | `ems_kpi_cache_sync` | `*/15 * * * *` | c | `services/cn_ems/ems_kpi_service.py → run_ems_kpi_cache_sync` |
@@ -382,6 +386,38 @@ Workflow & maintenance notes per task:
 - State recorded in eflow_fiber_assign_log: Y = assigned / upstream TT already existed, D = dry-run (reprocessed once dry_run is off), N = failed and retried next round
 - The TT title is auto-generated by eFlow as `<site>.[<site name>]<alarm>`; the API does not accept a custom title
 - Notifications are English-only (2026-10-27 requirement): field labels, warning lines and failure reasons are all English; Chinese stays in the status table last_error, the result warnings and the logs, because the group is an English-speaking front line
+
+#### 5G Site Alarm Auto Assign（`eflow_5g_assign`）
+
+- Default cron: `8-59/5 * * * *`　|　worker group: **m**
+- Workflow script: `services/eflow_5g/g5_assign_service.py → run_5g_assign`
+
+**What it does**: Queries eFlow active alarms; when the alarm code matches the whitelist (MULTIPLE codes supported; default 200201001 DU cell out-of-service, 200201018 Super cell CP out-of-service, 200201041 gNodeB DU out-of-service, 200201043 NSA unavailable, 200201060 Super MIMO cell CP out-of-service, configurable), it has been alive for at least 15 minutes (assign delay), is within the trigger window AND the same site has no 99933 alarm in the same time window, assigns a TT to the configured user group; when several cells of the same gNB go out of service at once, the alarms are merged into ONE TT and the notification lists every cell covered; after assigning, re-queries ttid to confirm the TT really exists before notifying the WhatsApp group. Dry-run by default
+
+**Workflow & data flow**:
+
+1. Pull eFlow active alarms with server-side code filtering (measured 21 rows / 0.03s vs 6752 rows / 4.45s for a full scan)
+1. Periodic full-scan audit: raises a warning if an alarm code is missed by the restype configuration (it would otherwise never trigger silently)
+1. Filter by alarm code + alive for at least 15 minutes (assign delay) + trigger window + no 99933 on the same site
+1. Skip alarms that already carry an upstream TT (ttid) or were already assigned
+1. Merge the multi-cell alarms of one site by site + time window (cell 50/51/52)
+1. Call the assign API to create a TT -> re-query ttid to confirm -> notify WhatsApp (the text lists the cells covered)
+
+**Maintenance**:
+
+- Multiple alarm codes are supported (explicit requirement); edit the comma-separated list on the Task Config page; leaving it empty falls back to the 5 default out-of-service codes
+- Assign delay of 15 minutes: the alarm must have been alive for at least 15 minutes before it is assigned and notified to WhatsApp (requirement: "assign and push once the 5G site alarm has been up for 15 minutes") — it is NOT dispatched the moment it raises; the delay lets short transient jitter clear by itself. Set it to 0 to restore immediate dispatch
+- Dry-run (dry_run) by default: match + record + render the notification that WOULD be sent (dry_run_preview in the task result, never delivered); turn it off on the Task Config page once the wording and the Cells line look right
+- One-site multi-cell dedupe: several cells of the same gNB going out of service each raise their own alarm; without merging that is a pile of duplicate TTs. They are merged into ONE TT by site + time window, and the notification lists the cells covered
+- Only alarms on the same site are merged — two different sites going out of service at the same time still get one TT each (those are two separate faults)
+- The 5G site field is already the numeric site ID and sitename is already the site name (measured 4162/Liscr), so unlike Fiber there is no need to resolve the ME name against cmdb
+- Server-side code filtering must carry a restype (alarmcode alone returns HTTP 499) and wildcard restypes are not supported (zte.ran.* returns 0 rows) → only explicit values can be enumerated; 12 common RAN restypes are configured by default
+- The full-scan audit is the key guard against silent failure: a missed restype means an alarm code can never be fetched and raises no error at all; the audit reports it as a warning (measured: codes without live instances do not break the query — HTTP 200)
+- When the 99933 correlation cannot be determined the alarm is treated as "no correlation" and still assigned, with the count logged under correlation_undetermined — never let a site-info mismatch silently block assignment indefinitely
+- When site resolution fails the TT cannot be created automatically: record N and post a "manual handling required in eFlow" notice to the group, once per alarm (send_status suppression), so nothing is silently dropped
+- A non-zero eFlow ttstatus does not block assignment: it is still attempted but with a minimal retry budget, and on failure a notice asks a human to fix the site binding in eFlow
+- eFlow assign is intermittent, so it retries internally, and success is judged only by re-querying ttid (the API status:true is not trusted)
+- Skip alarms that already carry an upstream ttid: eFlow own assign rules create some TTs first, and skipping avoids duplicate TTs
 
 #### eFlow Realtime Alarm Sync（`eflow_active_alarm`）
 
@@ -1123,7 +1159,7 @@ Workflow & maintenance notes per task:
 
 #### PG→SQLite Data Snapshot（`pg_to_sqlite_sync`）
 
-- Default cron: `45 * * * *`　|　worker group: **m**
+- Default cron: `45 * * * *`　|　worker group: **p**
 - Workflow script: `backend/scripts/sync_pg_to_sqlite.py → main`
 
 **What it does**: Sync all remote PostgreSQL data into local db/app.db as an offline backup / fallback snapshot

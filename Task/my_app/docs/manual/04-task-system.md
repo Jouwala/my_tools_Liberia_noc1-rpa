@@ -35,10 +35,11 @@ APScheduler 到点 (backend 进程内)
 | `s` | 1 | SP 备件 SFTP（独立 SFTP 服务器 + UNC 镜像库）。2026-09-27 从 `n` 拆出：它是 `n` 组最大单体负载（实测 347min/天）且是已知挂死源（SFTP channel 读挂死 5.5h 曾拖停整组） | `sp_data_sync` |
 | `w` | 2 | MW UME 微波网管（凭证分组 `mw_ume`），独立会话。2026-09-27 从 `n` 拆出：`mw_ume_kpi_sync_rt` 为 `*/15` 高频任务，此前每次排在 `sp_data_sync` 后，实测队列等待 964s（全场最久） | `mw_ume_kpi_sync`, `mw_ume_kpi_sync_rt` |
 | `v` | 3 | VMAX 门户（本机 8790 单会话代理）：三个任务共用同一个 VMAX 会话，必须彼此串行；2026-09-18 从 `n` 组拆出（原先排在 `sp_data_sync` 这类 1.5~2h 长任务后面，小时级采集滞后一个多小时） | `cxo_dashboard_cache_sync`, `vmax_cxo_daily_sync`, `vmax_multi_data_sync` |
-| `m` | 38 | 内务轻任务：EWS 邮件会话 + 截图/WhatsApp 文件依赖 + VMAX 数仓 GBase 直连取数 | `site_outage_screenshot`, `whatsapp_send`, `whatsapp_send_ext`, `liberia_email_1h`, `liberia_email_8h`, `kpi_ms_contract`, `kpi_ms_wo_sla`, `kpi_sp_spareparts`, `kpi_sp_consumables`, `kpi_ran_availability`, `email_recovery`, `ipran_m6k_chart_email`, `ccn_free_rating_chart_email`, `battery_email`, `mailbox_cleanup`, `incident_overview_sync`, `auto_retry_failed`, `db_freshness_check`, `sp_report_generate`, `sp_email_details`, `sp_online_report_generate`, `sp_online_report_send`, `mttr_tt_sync`, `progress_sync`, `sp_whatsapp_report`, `sp_material_report`, `finebi_report_sync`, `pg_to_sqlite_sync`, `log_cleanup`, `tmp_cleanup`, `olib_soc_kpi_daily_sync`, `olib_soc_vmax_report`, `tt_alarm_whatsapp_alert`, `ume_alarm_whatsapp_alert`, `sp_details_files_email`, `tt_mttr_report_generate`, `whatsapp_send_baileys`, `eflow_fiber_assign` |
+| `m` | 38 | 内务轻任务：EWS 邮件会话 + 截图/WhatsApp 文件依赖 + VMAX 数仓 GBase 直连取数 | `site_outage_screenshot`, `whatsapp_send`, `whatsapp_send_ext`, `liberia_email_1h`, `liberia_email_8h`, `kpi_ms_contract`, `kpi_ms_wo_sla`, `kpi_sp_spareparts`, `kpi_sp_consumables`, `kpi_ran_availability`, `email_recovery`, `ipran_m6k_chart_email`, `ccn_free_rating_chart_email`, `battery_email`, `mailbox_cleanup`, `incident_overview_sync`, `auto_retry_failed`, `db_freshness_check`, `sp_report_generate`, `sp_email_details`, `sp_online_report_generate`, `sp_online_report_send`, `mttr_tt_sync`, `progress_sync`, `sp_whatsapp_report`, `sp_material_report`, `finebi_report_sync`, `log_cleanup`, `tmp_cleanup`, `olib_soc_kpi_daily_sync`, `olib_soc_vmax_report`, `tt_alarm_whatsapp_alert`, `ume_alarm_whatsapp_alert`, `sp_details_files_email`, `tt_mttr_report_generate`, `whatsapp_send_baileys`, `eflow_fiber_assign`, `eflow_5g_assign` |
 | `c` | 2 | CN EMS 独立会话，两个任务共享 `_pmcache`/`daily_raw.json`，同组保证互斥 | `ems_kpi_cache_sync`, `ems_kpi_daily` |
 | `x` | 1 | 实时告警专属组（2026-10-15 从 `n` 拆出）。要求告警滞后 ≤1 分钟，而 `n` 组是一条串行道，cron 改 `*/1` 也会被 `eflow_sync`（实测平均 192.5s）/`ms_sla_full`（最久 600.1s）挡住 —— 实测 856 次采样中 5.3% 等待 >60s、最差 853.9s | `eflow_active_alarm` |
 | `g` | 1 | RAN Greenplum 取数（2026-10-19 新增）：经 control1 两跳 SSH 到 193.168.0.6，与 eFlow/UME/VMAX GBase/SFTP 无任何会话与写库交集。独立成组的理由是**故障域**：SSH 通道挂死的风险与当年 s 组 sp_data_sync 同型（worker.py:83-93 记载其 channel 读挂死 5.5h 拖停整组）；实测单轮 72.6s（10.4 亿行明细靠 12h 分区裁剪 + 列存），虽短于 m 组每分钟的告警推送周期，但不愿让它去挤那条道 | `gp_ran_user_sync` |
+| `p` | 1 | PG 全量快照专属组（2026-10-28 从 `m` 拆出）：每小时 `:45` 把 PG 全库灌进 `db/app.db`（113 表 / 489 万行 / 输出 1511 MB，实测单轮 577~1174s）。只读 PG + 只写本地快照，不占任何上游会话，因此可独占一条道 | `pg_to_sqlite_sync` |
 
 > **2026-09-27 拆组（`n` → `n`/`s`/`w`）的实测依据**：`n` 组近 24h 单 worker 串行占用
 > `sp_data_sync` 347min + `eflow_sync` 236min + `eflow_active_alarm` 103min ≈ 686min，
@@ -50,8 +51,27 @@ APScheduler 到点 (backend 进程内)
 > 整点前后要等 `eflow_sync`（`22 * * * *`，实测平均 192.5s/最久 214.3s）与 `ms_sla_full`（最久 600.1s）。
 > `task_queue` 计时（近 3 天 856 次）显示等待 >60s 的占 5.3%，最差 853.9s。独立成 `x` 组后
 > 不再与任何长任务争道。代价是多一个常驻 worker（本机 28 逻辑核、worker 基本闲置；本任务单次仅 ~0.3s）。
+>
+> **2026-10-28 拆组（`m` → `m`/`p`）的实测依据**：`pg_to_sqlite_sync` 每小时 `:45` 全量快照
+> 113 张表 / 489 万行 / 输出 1511 MB，单轮 577~1174s（9.6~19.6 分钟）。它挂在 `m` 组时，
+> 该组的 `ume_alarm_whatsapp_alert`（`* * * * *`）与 `tt_alarm_whatsapp_alert`（`2-59/5`）
+> 整段被堵在串行道上，每分钟触发被队列单飞保护拒绝（`task_runner.py:174-197`
+> 「任务已在队列中等待或执行」），`task_execution_log` 没有新记录 —— sync 页
+> 「任务分布时间线」因此出现 5~10 分钟空白。用 `app.task_execution_log` 自算 `LAG`，
+> 近 7 天 >2 分钟的空窗共 20 次，其中 **14 次起点是 00:50 或 12:50**（= 同步 `:45`
+> 启动后 5 分钟），每天两轮、天天复现。
+>
+> **同一根因还有第二半（不在分组侧）**：`sync_pg_to_sqlite.py` 原先只
+> `set_session(readonly=True)`、全脚本没有一处 `commit`/`rollback`，于是 113 张表的
+> `SELECT` 落在同一个读事务里，`ACCESS SHARE` 锁跨越整轮同步。而 `app.realtime_alarm`
+> 的写入走「影子表 + `DROP` + `RENAME`」（`eflow_alarm_service.py::_replace_table_via_engine`
+> → `_swap_in_staging_table`，PG 分支是单条 `DO` 块 DDL），需要 `ACCESS EXCLUSIVE` ——
+> 实测 `x` 组的 `eflow_active_alarm` 每轮都被卡住 341~720s，且其 `completed_at`
+> 比同步的 `finished_at` 早 **0.6~1.7 秒**（6 轮全部吻合）。现已改为**每张表结束读事务**
+> （`_end_pg_read_txn`，放在循环的 `finally` 里覆盖跳过/失败路径）。两处必须一起改：
+> 只拆组不切事务，`x` 组的实时告警仍会被拖住。
 
-`m` 组末尾几条有注释记录：`finebi_report_sync`/`pg_to_sqlite_sync`（2026-08-25）、`whatsapp_send_ext`（08-31）、`sp_email_details`（09-01）、`cells_kpi_sync`/`sp_material_sync`（09-09~11）在启用分组模式后都因**未归入任何组而无人认领，队列 pending 卡死断档**才补进来（`worker_watchdog.py` 内的补录注释）。
+`m` 组末尾几条有注释记录：`finebi_report_sync`/`pg_to_sqlite_sync`（2026-08-25）、`whatsapp_send_ext`（08-31）、`sp_email_details`（09-01）、`cells_kpi_sync`/`sp_material_sync`（09-09~11）在启用分组模式后都因**未归入任何组而无人认领，队列 pending 卡死断档**才补进来（`worker_watchdog.py` 内的补录注释）。其中 `pg_to_sqlite_sync` 已于 2026-10-28 拆到独立的 `p` 组（见上文拆组依据），`m` 组现为 38 项。
 
 > **新增任务必须同时登记进 `GROUP_TASK_MAP`；新增/调整「组」必须同步五处**（2026-10-15 补全：原文档只写了 2 处，拆 `x` 组时守卫当场抓出 `start.bat` 与帮助文档两处遗漏）：`worker_watchdog.py::GROUP_TASK_MAP` 的键、`start_hidden.ps1` 的 `$env:MY_APP_WORKER_GROUPS` **与** `$groups` 等待清单（两处）、`restart_workers.py::ALL_GROUPS` 兜底值、`start.bat` 的 worker pid 计数与 `%WCOUNT% / N` 分母、`frontend/src/pages/helpTaskDocs.ts` 的 `group` 字段与 `WORKER_GROUP_INFO`。只加分组表不改启动脚本 = 该组 worker 从不被拉起，症状与漏登记完全一样；漏改 `start.bat` 则「该组 worker 死了仍报全绿」。`restart_workers.py::ALL_GROUPS` 已改为从 `GROUP_TASK_MAP` 取键，其字面值只是 import 失败时的兜底。
 >
@@ -144,7 +164,7 @@ APScheduler 到点 (backend 进程内)
 | `db_freshness_check` | 数据库数据新鲜度巡检 | `15 * * * *` | m |
 | `auto_retry_failed` | 失败任务自动重试 | `*/10 * * * *` | m |
 | `cm_data_sync` | RAN CM 小区数据同步 | `30 8 * * *` | u |
-| `pg_to_sqlite_sync` | PG→SQLite 数据快照 | `45 * * * *` | m |
+| `pg_to_sqlite_sync` | PG→SQLite 数据快照 | `45 * * * *` | p |
 | `mw_ume_kpi_sync` | MW UME KPI 同步 | `15 5 * * *` | w |
 | `mw_ume_kpi_sync_rt` | MW UME KPI 实时同步（15 分钟粒度） | `*/15 * * * *` | w |
 | `ems_kpi_cache_sync` | CN EMS KPI 缓存同步 | `*/15 * * * *` | c |
@@ -157,6 +177,7 @@ APScheduler 到点 (backend 进程内)
 | `tt_alarm_whatsapp_alert` | eFlow P1 告警 WhatsApp 推送（**可在「任务配置」页调级别/告警码/触发窗口/重报间隔/群组**） | `2-59/5 * * * *` | m |
 | `ume_alarm_whatsapp_alert` | DC server  alarm WhatsApp push（**可在「任务配置」页调告警码:级别对/群组/催报间隔**） | `* * * * *` | m |
 | `eflow_fiber_assign` | Fiber Break 告警自动派单 + WhatsApp 通报（**默认 dry_run 演练**；可在「任务配置」页调告警码/关联码/时间窗/目标组/群组） | `3-59/5 * * * *` | m |
+| `eflow_5g_assign` | 5G 站点告警自动派单 + WhatsApp 通报（**告警码支持多个**、一站多小区合并；**默认 dry_run 演练**；可在「任务配置」页调告警码/关联码/restype/时间窗/目标组/群组） | `8-59/5 * * * *` | m |
 | `cells_kpi_sync` | RAN Cells KPI 同步 | `50 4 * * *` | u |
 | `sp_email_details` | SP 备件明细报表邮件 | `5 7 * * *` | m |
 | `sp_details_files_email` | SP 备件明细分文件邮件（6 份 xlsx 一文件一邮件发 NOC） | `5 10 * * *` | m |
@@ -404,7 +425,7 @@ SQLite 先整库备份到 `db/app.db.bak_tscfix_<时间戳>`）。目标状态�
 它同时做 SQLite 去重 + 补唯一索引 + 两侧写回，幂等。
 
 > ⚠️ **跑它的时机**：必须在 `SKIP_TABLES` 改动生效**之后**（即重启跑 `pg_to_sqlite_sync`
-> 的 worker 组之后）。`sync_pg_to_sqlite` 与 `task_runner` 都是 worker 进程 import 进
+> 的 **`p` 组**之后；2026-10-28 前它在 `m` 组，现已拆出）。`sync_pg_to_sqlite` 与 `task_runner` 都是 worker 进程 import 进
 > `sys.modules` 的常驻模块（`task_registry._lazy_loader` → `importlib.import_module`，
 > 只在首次调用时导入），**改文件不重启不生效**。
 
@@ -1249,3 +1270,71 @@ eFlow 的 `relatedAlarms` 对这 5 条返回 **0 条**（eFlow 自己也没把�
   11:33 与 11:38 两轮之间微信通知只在首轮出现）。
 - WhatsApp 没收到 → 看 `send_status` 是否 `Y`；`wa_notify` 离线会写进结果的 `warnings`。
 
+
+### `eflow_5g_assign` 的口径与上线步骤（2026-10-28 首版）
+
+**做什么**：5G 站点退服类告警自动派 TT + WhatsApp 通报，参考 `eflow_fiber_assign`，
+但按 5G 的字段形态与业务口径改了三处：**告警码支持多个**、**一站多小区合并**、
+**站点直接用告警自带的数字站号**（不再从 ME 名解析）。
+
+**默认 5 个告警码**（页面可改成逗号分隔的任意多个）：
+
+| 告警码 | 告警名 |
+| --- | --- |
+| `200201001` | DU cell out-of-service |
+| `200201018` | Super cell CP out-of-service |
+| `200201041` | gNodeB DU out-of-service |
+| `200201043` | NSA unavailable |
+| `200201060` | Super MIMO cell CP out-of-service |
+
+**判定链**（与 Fiber 同一套引擎 `backend/services/eflow_assign/assign_engine.py`，口径参数见
+`g5_assign_service.py:89` 的 `CTX`）：告警码命中白名单 → 存续时长落在
+`[min_age_minutes, window_minutes]`（默认 15 / 180 分钟）→ 上游无 TT（`ttid` 空）→
+状态表无 `Y` → 同站同窗口无 `99933`。
+
+**与 Fiber 的三处实质差异**：
+
+1. **一站多小区合并**（`group_by_site_occurrence`，`g5_assign_service.py:178`）：同一 gNB 的
+   多个小区（实测 cell 50/51/52）各自产生一条告警 → 按「**同站点** + 时间窗」合并成一个 TT，
+   组长 = 组内最早升起的那条，其余成员共用组长建出的单号，通报正文列 `Cells` 与
+   `This TT covers N cells`。
+   ⚠ **不同站点即使同时退服也绝不合并** —— 那是两个故障，现场要跑两个站。
+   这与 Fiber 的「纯时间窗跨站合并」正好相反（Fiber 是同一条光缆上的多个站）。
+2. **服务端按码过滤 + 全量审计**（`fetch_target_alarms`，`g5_assign_service.py:272`）：
+   eFlow 的 `alarmcodeconds` **必须同时带 `restype`**（只给 `alarmcode` 返回 HTTP 499），
+   且**通配 restype 不被支持**（`zte.ran.*` 返回 0 条）→ 只能穷举 12 个候选 RAN restype。
+   默认码里有 4 个当前无实例、无法实测其 restype，配错会**静默永不触发**，故每 60 分钟
+   拉一次全量与过滤结果对账：发现「全量里有、过滤里没有」的目标码 → 写 `warnings` +
+   `logger.error`，提示把该码的 restype 补进配置。
+3. **站点解析**：5G 的 `site` 已是数字站号（实测 `4162`）、`sitename` 已是站名（`Liscr`），
+   通常第一档 `alarm_fields` 直接命中；仍走 `resolve_site` 兜底（cmdb 校准 + 近似匹配）。
+
+**状态表** `eflow_5g_assign_log`（与 Fiber 表结构一致，多一列 `cell_name`）：
+`assign_status`（`Y` 成功 / `N` 失败 / `S` 跳过 / `D` 演练）、`tt_no`、`skip_reason`、
+`send_status`、`cell_name`。建表走幂等 `CREATE TABLE IF NOT EXISTS`，不进 Alembic。
+
+**配置项**（Settings → 任务配置，文件 `backend/services/eflow_5g_config.json`）：
+`alarm_codes`（**多个**，逗号分隔，留空回退 5 个默认码）、`correlation_codes`（默认 99933）、
+`correlation_window_minutes`、`window_minutes`、`min_age_minutes`、
+`group_window_minutes`（一站多小区合并窗，默认 10；配 0 = 关闭合并）、
+`restypes`（服务端过滤候选）、`fallback_full_scan`（全量审计开关）、
+`cell_dedupe`（去重开关）、`assign_group`、`dry_run`、`groups`、
+`site_fuzzy_enabled` / `site_fuzzy_threshold`。
+
+**⚠ 上线顺序**（默认 `dry_run=true`，与 Fiber 同款流程）：
+1. 部署后先手动执行 1~2 轮，看结果里的 `due` / `groups` / `merged` / `samples`；
+   **`dry_run_preview` 里就是「将发的通报正文」**（演练模式不投递，只渲染），
+   关掉 `dry_run` 前先用它核对文案与 Cells 行；
+2. 核对 `eflow_5g_assign_log` 的 `site_id` / `site_name` / `cell_name` 是否符合预期；
+3. 到 **Settings → 任务配置 → 5G 站点告警自动派单** 把 `groups` 从测试群改成正式群；
+4. 保持 `dry_run=true` 跑一段，确认「合并的小区确实是同一个 gNB」；
+5. 关掉 `dry_run` → 下一轮开始真派单；出现异常**先开回 `dry_run`** 止血。
+
+**排障速查**：
+- `target_alarms=0` 但 eFlow 页面能看到 5G 告警 → 先看 `warnings` 里有没有
+  「告警码被 restype 配置漏掉」（全量审计会明确点名该码），把 `restypes` 补上；
+- `merged>0` → 有小区告警被合并进组长的 TT，属**预期**；组长失败（`N`）时成员不会被合并，
+  会各自独立派单；
+- 两个不同站点被合并了 → 说明 `alarm_site_identity` 取不到数字站号、退化成站名匹配，
+  先查告警行的 `site` / `sitename` 字段是否为空或 `--`；
+- `waiting>0` → 存续未满 15 分钟，正常等下一轮；`expired>0` → 超过 180 分钟窗口不派。

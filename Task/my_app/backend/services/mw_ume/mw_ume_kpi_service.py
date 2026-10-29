@@ -36,7 +36,7 @@ from pathlib import Path
 import openpyxl
 
 from backend.database import get_raw_connection
-from backend.dialect_helpers import table_columns, upsert, safe_pragma
+from backend.dialect_helpers import table_columns, upsert, safe_pragma, dedupe_rows
 
 logger = logging.getLogger("mw_ume_kpi_service")
 
@@ -832,18 +832,14 @@ def save_to_db(table_name: str, headers: list, data: list, key_cols: list) -> in
                     except Exception:
                         pass
 
-            # 清理历史重复行（rowid 仅 sqlite；PG 用 ctid），再重建唯一索引，upsert 才能生效
+            # 清理历史重复行，再重建唯一索引，upsert 才能生效。
+            # 去重统一走 dialect_helpers.dedupe_rows：先探查（无重复则完全不写），
+            # 真有重复才用窗口函数单次排序回删。原写法
+            # ``ctid NOT IN (SELECT MIN(ctid) ... GROUP BY ...)`` 在 PG 上会退化成
+            # 嵌套循环 —— 2026-10-28 实测在 ipran_ume.Metro_ring_me_15mins 上跑了
+            # 25.9 小时仍未结束（一直 active + IO/BufFileRead）。
             pk_q = ", ".join(_q(k) for k in key_cols)
-            if isinstance(conn, sqlite3.Connection):
-                cursor.execute(
-                    f'DELETE FROM "{table_name}" WHERE rowid NOT IN ('
-                    f'SELECT MIN(rowid) FROM "{table_name}" GROUP BY {pk_q})'
-                )
-            else:
-                cursor.execute(
-                    f'DELETE FROM "{table_name}" WHERE ctid NOT IN ('
-                    f'SELECT MIN(ctid) FROM "{table_name}" GROUP BY {pk_q})'
-                )
+            dedupe_rows(conn, table_name, key_cols, logger=logger)
             cursor.execute(f'DROP INDEX IF EXISTS "u_{table_name}"')
             cursor.execute(f'CREATE UNIQUE INDEX "u_{table_name}" ON "{table_name}" ({pk_q})')
 

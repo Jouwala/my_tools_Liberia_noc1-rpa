@@ -1,0 +1,16 @@
+{
+  "alarm_codes": "200201001,200201018,200201041,200201043,200201060",
+  "correlation_codes": "99933",
+  "correlation_window_minutes": 60,
+  "window_minutes": 180,
+  "min_age_minutes": 15,
+  "group_window_minutes": 10,
+  "restypes": "zte.ran.gnodeb,zte.ran.nodeb,zte.ran.itbbu,zte.ran.bbu,zte.ran.du,zte.ran.cp,zte.ran.gbb,zte.ran.mi,zte.ran.nr9150,zte.ran.nr9000,zte.trm_mw.nr9150,zte.trm_mw.nr9000",
+  "fallback_full_scan": true,
+  "cell_dedupe": true,
+  "assign_group": "ZTE_NOC_FO",
+  "dry_run": true,
+  "groups": "test123",
+  "site_fuzzy_enabled": true,
+  "site_fuzzy_threshold": 0.9
+}

@@ -24,11 +24,11 @@ import logging
 
 from fastapi import APIRouter, Query, HTTPException
 from backend.database import get_raw_connection
-from backend.dialect_helpers import list_table_names
+from backend.dialect_helpers import list_table_names, table_columns
 from backend.services import pm_caliber
 from backend.services.person_name import normalize_person_name, split_multi_person
 from backend.services.routing_service import plan_route
-from backend.routers.gis import _resolve_window
+from backend.routers.gis import _resolve_window, _norm_site_category
 
 logger = logging.getLogger(__name__)
 
@@ -1057,6 +1057,116 @@ def get_personnel_fme_territories():
         })
     return {"persons": persons, "person_count": len(persons)}
 
+
+# =====================================================================
+# 站点类别（人员页地图「站点类型图例」，2026-10-28）
+#
+# **需求**（用户原话）：「添加图例，按照数据库的站点类型如 COOLI/ERA/NORMAL
+# 显示站点。默认不显示，当用户点击的时候在地图上显示。同样的，添加
+# vip_site/hub_site/trm_type」。
+#
+# **两个设计决定**：
+#   1. 本端点只给**数据与取值域**，过滤与着色全在前端 —— 改配色不用动后端、
+#      也不用改 SQL（改后端要重启 7038 生产服务）。
+#   2. 分组的**取值从库里扫出来**，不硬编码。库里出现新类别值时图例自动多一项；
+#      反过来，硬编码表会因为漏值把同一档劈成两档（实测 `site_caregory` 里
+#      混着 `REGULAR（NORMAL)` 就是这么来的）。
+#
+# **口径**：只返回坐标有效的站点（`_COORD_OK`，与 `/managed-sites` 同判定）——
+# 画不出来的站不该出现在图例计数里，否则「图例说 830、图上只有 824」。
+# =====================================================================
+
+# 图例分组，顺序即界面自上而下的顺序：(前端键, 数据库列)
+_SITE_CLASS_GROUPS = (
+    ("site_caregory", "site_caregory"),
+    ("vip_site", "vip_site"),
+    ("hub_site", "hub_site"),
+    ("trm_type", "trm_type"),
+)
+
+
+def _norm_class_value(raw, group_key: str) -> str:
+    """类别值归一化 → 该分组取值域里的一个值；空值返回 `''`（= 未填）。
+
+    `site_caregory` 必须走 `_norm_site_category`：库里混着 `REGULAR（NORMAL)`
+    这类脏写法，不归一化就会把 NORMAL 劈成两档（详见 gis.py 的注释，
+    且与 eflow_rules_matcher 的 `_norm_site_type` 同口径）。
+    其余三列是干净枚举（Y/N；MW / Satellite Link / Starlink / IPRAN），只需去空白。
+    """
+    if group_key == "site_caregory":
+        return _norm_site_category(raw)
+    return str(raw or "").strip()
+
+
+@router.get("/personnel/site-classes")
+def get_personnel_site_classes():
+    """人员页地图「站点类型图例」的数据源（2026-10-28）。
+
+    返回两部分：
+
+      · `groups` —— 每个分组的取值与该取值的**站点数**（界面直接显示
+        「COOL 64」这种）。计数与过滤用的是同一批行，故图例数字与图上点数
+        必然一致（AGENTS.md 三.1b 要求的那种对得上）。
+      · `sites`  —— 站点精简列表（site_id / site_name / county / lat / lng /
+        classes），`classes` = `{分组键: 归一化值}`，前端按它过滤。
+
+    **为什么不复用 `/gis/sites`**：那个端点会顺带跑 TT / WO / 实时告警 / 历史告警
+    四套聚合统计（秒级开销），而图例只想要类别与坐标 —— 为此多扫一遍工单表不划算。
+
+    **过滤语义由前端定**：同一分组内多选取**并集**、不同分组之间取**交集**
+    （与 GIS 页 `_build_filter_where` 的多列 AND 同思路）。
+    """
+    with get_raw_connection() as conn:
+        tables = set(list_table_names(conn))
+        if "master_site_db" not in tables:
+            conn.close()
+            raise HTTPException(status_code=404, detail="master_site_db 表不存在")
+        cols = set(table_columns(conn, "master_site_db"))
+        # 缺列时该分组整个不出现，不伪造空组（AGENTS.md 三.6）
+        sel = [c for _k, c in _SITE_CLASS_GROUPS if c in cols]
+        sql = (
+            "SELECT site_id, site_name, province_county, latitude, longitude"
+            + "".join(", " + c for c in sel)
+            + f" FROM master_site_db WHERE {_COORD_OK}"
+        )
+        rows = conn.execute(sql).fetchall()
+        conn.close()
+
+    groups = []
+    for gkey, col in _SITE_CLASS_GROUPS:
+        if col not in cols:
+            continue
+        idx = 5 + sel.index(col)
+        counter: dict[str, int] = {}
+        for r in rows:
+            v = _norm_class_value(r[idx], gkey)
+            counter[v] = counter.get(v, 0) + 1
+        # 排序：计数降序、同计数按值字典序；「未填」（''）永远垫底 ——
+        # 它不是一类，不该因为空串排在字典序最前。
+        values = [
+            {"value": v, "count": n}
+            for v, n in sorted(counter.items(), key=lambda kv: (kv[0] == "", -kv[1], kv[0]))
+        ]
+        groups.append({"key": gkey, "column": col, "values": values})
+
+    sites = []
+    for r in rows:
+        try:
+            lat, lng = _fix_latlng(float(r[3]), float(r[4]))
+        except (TypeError, ValueError):
+            continue
+        sites.append({
+            "site_id": str(r[0] or ""),
+            "site_name": str(r[1] or ""),
+            "county": str(r[2] or ""),
+            "lat": round(lat, 6),
+            "lng": round(lng, 6),
+            "classes": {
+                gkey: _norm_class_value(r[5 + sel.index(col)], gkey)
+                for gkey, col in _SITE_CLASS_GROUPS if col in cols
+            },
+        })
+    return {"groups": groups, "sites": sites, "total": len(sites)}
 
 
 @router.get("/personnel/{name_key}/managed-sites")

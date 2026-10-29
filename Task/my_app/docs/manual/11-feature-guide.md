@@ -897,7 +897,7 @@ React 自身驱动（其 cleanup 顺序是「子先父后」，子图层先 remo
 
 ## 11a. 人员位置地图（`?page=person`，2026-10-19 新增）
 
-页面：`frontend/src/pages/PersonMap.tsx`（地图视图在 `pages/personmap/PersonMapView.tsx`）。2026-10-24 按 500 行纪律拆分后，personmap/ 下的模块分工：`PersonMapView.tsx`（地图总装：state/effect/事件）+ `useTerritory.ts`（辖区取数与派生）+ `TerritoryLayer.tsx` / `LayerToggles.tsx`（辖区批量层 / 图层开关浮层：人员+默认站点双开关）+ `useCountyTags.ts`（县界色与标签文本派生）+ `CountyLabels.tsx`（县名标签避让与渲染）+ `SitesLayer.tsx`（站点圆点与提示）+ `personPinHtml.ts`（人员针图标拼装）+ `NoSitesNote.tsx`（空态说明，地图版 `MapNoSitesNote` + 抽屉共用文案）。
+页面：`frontend/src/pages/PersonMap.tsx`（地图视图在 `pages/personmap/PersonMapView.tsx`）。2026-10-24 按 500 行纪律拆分后，personmap/ 下的模块分工：`PersonMapView.tsx`（地图总装：state/effect/事件）+ `useTerritory.ts`（辖区取数与派生）+ `TerritoryLayer.tsx` / `LayerToggles.tsx`（辖区批量层 / 图层开关浮层：人员+默认站点双开关）+ `useCountyTags.ts`（县界色与标签文本派生）+ `CountyLabels.tsx`（县名标签避让与渲染）+ `SitesLayer.tsx`（站点圆点与提示）+ `personPinHtml.ts`（人员针图标拼装）+ `NoSitesNote.tsx`（空态说明，地图版 `MapNoSitesNote` + 抽屉共用文案）。2026-10-28 再加站点类别图例四件套：`SiteClassLegend.tsx`（图例浮层）/ `useSiteClasses.ts`（取数与过滤）/ `SiteClassLayer.tsx`（类别站点圆点）/ `siteClassColors.ts`（类别配色）。
 
 **看什么**：现场人员的登记位置（小人地图针）+ 每个人员**实际处理过工单的站点**分布，
 以及按人员的 WO / TT 统计与每人的未关闭 PMT 数。参考实时告警地图的版式（筛选条 → 说明横幅 → KPI → 地图 → 统计图 → 表格）。
@@ -948,6 +948,21 @@ PMT 取不到时显示 `—` 而不是 0（AGENTS.md 三.6），所以 `pmt_open
 - **辖区模式下针集合变化**（`useTerritory.ts::pinPersons`）：24 个辖区人员（含**无登记坐标**的人 —— 他们平时根本不上图；person 表没有的显示 `key.title()` 兜底名、统计列显示 `—`，实测 1 人 Julius K. Johnson）+ 6 个有登记坐标但非 FME 的人（supervisor 等，保留原位、无连线）= 30 针。WO/PMT 统计从 `/personnel/stats` 的 `by_person` 按 `name_key` 联合。
 - **选中交互不冲突**：选中某人后**其辖区连线让位**给详细图层（三档配色大圆点 + 从质心起笔的连线 —— 两层同坐标叠画会重影）；聚焦 effect 按质心取景（focusKey 含坐标，开关切换导致同一人位置变化会重新 fit）。
 - 连线 `interactive:false`（不拦点击）；站点圆点按 `site_id` 去重（A/B 双人共担只画一个点，归属由线色表达）；辖区配色 `TERRITORY_PALETTE` 12 色循环，刻意与县块 `COUNTY_PALETTE` **不同值**（同一张图两套色不能撞）。
+
+**站点类别图例**（`personmap/SiteClassLegend.tsx` + `useSiteClasses.ts` + `SiteClassLayer.tsx` + `siteClassColors.ts`，2026-10-28 新增）
+
+需求原话：「添加图例，按照数据库的站点类型如 COOLI/ERA/NORMAL 显示站点。默认不显示，当用户点击的时候在地图上显示。同样的，添加 vip_site/hub_site/trm_type」。
+
+- **取值来自数据库，不是硬编码**：`GET /api/gis/personnel/site-classes`（`personnel.py::get_personnel_site_classes`）扫 `master_site_db` 的 `site_caregory` / `vip_site` / `hub_site` / `trm_type` 四列，返回**分组 + 每值的站点数 + 站点精简列表**（824 站 / 约 100KB，`cachedGet` 缓存 30s）。界面按 `groups` 渲染，**库里出现新类别值时图例自动多一项**；缺列时该组整个不出现（不伪造空组）。
+  - ⚠ 用户口述的 `COOLI` 在库里是 **`COOL`**（`site_caregory` 实测 NORMAL 559 / ERA 201 / COOL 64）；`vip_site` 50 Y / 774 N，`hub_site` 168 Y / 656 N，`trm_type` MW 580 / Satellite Link 92 / Starlink 88 / IPRAN 64。**界面显示库里的真值**，不做同义词替换。
+  - `site_caregory` 走 `gis.py::_norm_site_category` 归一化 —— 库里混着 `REGULAR（NORMAL)` 这类脏写法，不归一化会把同一档劈成两档。
+  - 坐标口径与 `/managed-sites` 同判定（`_COORD_OK`），故图例计数 = 图上点数，**不会出现「图例说 830、只画出 824」**。
+- **默认全不选 = 一个类别站点都不画**（需求原话）。过滤语义与 GIS 页多列筛选同思路：**组内多选取并集、组间取交集**；某组全选等价于不筛该组（四组全选 = 824 站）。
+- **着色**（`siteClassColors.ts`）：已知取值固定色，未知取值按稳定散列取备用色，未填（空串）中性灰 `#8b93a1`；站点颜色取**第一个激活分组**的类别色，`activeGroups` 按分组固定顺序（与点击先后无关），保证同批站点配色稳定。
+- **与 `SitesLayer` 是两层东西**：`SitesLayer` 画「选中人员负责的站点」并按告警/WO 三档着色；`SiteClassLayer` 画「按类别筛出来的站」，两者互不影响（类别点半径 5px + 白/深描边，走 SVG 默认 overlayPane，压在县界上、被负责站点层盖住）。
+- **位置必须放右上角**（与 `LayerToggles` 纵向堆叠成一个浮层列，`PersonMapView.tsx` 里统一绝对定位）：首版放左下角，在门户嵌入（`?embed=1&mwembed=1`）下地图容器被撑到 1122px、底部超出视口约 320px，**实测图例按钮中心 y=982 而视口只有 805 —— 整块落在屏幕外，看不见也点不中**。两个浮层组件自身只负责卡片外观，定位交给调用方。
+- 面板可折叠（标题栏点击）；有选中时标题显示 `已显示 N / 824`。实测：VIP=Y → 50 点、再叠 HUB=Y → 28 点（交集，与 SQL 一致）、COOL → 64 点、四组全选 → 824 点（11 次点击累计约 1.4s，单次最慢 32ms，无需像辖区层那样下沉到原生批量建层）。
+- 守卫：`TMP/cdp_person_legend.mjs`（真实鼠标点击 + 点数与 SQL 对拍）、`TMP/cdp_legend_maponly.mjs`（门户 `?maponly=1` 形态）。
 
 **负责站点为 0 的空态说明**（`personmap/NoSitesNote.tsx`，2026-10-21）：有坐标的 24 人里 **6 人 `site_count` 恒为 0**，点他们地图上一片空白，实测就被报成「连线没画出来」。所以选中这样的人时，**地图底部居中**与**抽屉「站点」页签**各给一条同源说明（`pointerEvents:none`，不拦地图点击）。原因分两类，由 `/personnel/stats` 新增的 `supervised_sites` 区分：
 

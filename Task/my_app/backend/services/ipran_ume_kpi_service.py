@@ -33,7 +33,7 @@ from requests.adapters import HTTPAdapter
 from urllib3.util import Retry
 from urllib3.exceptions import InsecureRequestWarning
 from backend.database import get_raw_connection
-from backend.dialect_helpers import table_columns, upsert, safe_pragma
+from backend.dialect_helpers import table_columns, upsert, safe_pragma, dedupe_rows
 from backend.security_tls import tls_verify, silence_insecure_warning
 
 # 仅在校验关闭时才抑制不安全的 HTTPS 警告（见 backend/security_tls.py）
@@ -988,17 +988,12 @@ def save_data_to_db_or_api(table_name: str, headers: list, data: list, api_failu
         # 确保唯一约束存在（先清理历史重复行，再建唯一索引，upsert 才能生效）
         if pk_cols:
             pk_q = ", ".join(_q(k) for k in pk_cols)
-            if isinstance(conn, sqlite3.Connection):
-                cursor.execute(
-                    f'DELETE FROM "{table_name}" WHERE rowid NOT IN ('
-                    f'SELECT MIN(rowid) FROM "{table_name}" GROUP BY {pk_q})'
-                )
-            else:
-                # PG：以 ctid 代替 sqlite 的 rowid 做物理行去重（保留每组最早一行）
-                cursor.execute(
-                    f'DELETE FROM "{table_name}" WHERE ctid NOT IN ('
-                    f'SELECT MIN(ctid) FROM "{table_name}" GROUP BY {pk_q})'
-                )
+            # 去重统一走 dialect_helpers.dedupe_rows：先探查（无重复则完全不写），
+            # 真有重复才用窗口函数单次排序回删。原写法
+            # ``ctid NOT IN (SELECT MIN(ctid) ... GROUP BY ...)`` 在 PG 上会退化成
+            # 嵌套循环 —— 2026-10-28 实测在 ipran_ume.Metro_ring_me_15mins 上跑了
+            # 25.9 小时仍未结束（pid 15116 一直 active + IO/BufFileRead）。
+            dedupe_rows(conn, table_name, pk_cols, logger=logger)
             # 先删除旧的同名唯一索引，避免主键列变更后 IF NOT EXISTS 跳过导致旧索引残留
             cursor.execute(f'DROP INDEX IF EXISTS "u_{table_name}"')
             cursor.execute(

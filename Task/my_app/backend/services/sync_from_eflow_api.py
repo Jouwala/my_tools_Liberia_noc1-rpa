@@ -21,7 +21,7 @@ from pathlib import Path
 from datetime import datetime
 from backend.database import get_raw_connection
 from backend.dialect_helpers import (
-    list_table_names, table_columns, upsert, safe_pragma, write_df,
+    list_table_names, table_columns, upsert, safe_pragma, write_df, dedupe_rows,
 )
 from backend.services.reconcile_helper import delete_not_in_keys
 
@@ -350,17 +350,11 @@ def _upsert_df(dst_conn: sqlite3.Connection, table_name: str, df: pd.DataFrame,
             dst_conn.execute(f'ALTER TABLE "{table_name}" ADD COLUMN {_q(c)} TEXT')
 
     key_q = ", ".join(_q(k) for k in keys)
-    if isinstance(dst_conn, sqlite3.Connection):
-        dst_conn.execute(
-            f'DELETE FROM "{table_name}" WHERE rowid NOT IN '
-            f'(SELECT MIN(rowid) FROM "{table_name}" GROUP BY {key_q})'
-        )
-    else:
-        # PG：以 ctid 代替 sqlite 的 rowid 做物理行去重（保留每组最早一行）
-        dst_conn.execute(
-            f'DELETE FROM "{table_name}" WHERE ctid NOT IN '
-            f'(SELECT MIN(ctid) FROM "{table_name}" GROUP BY {key_q})'
-        )
+    # 去重统一走 dialect_helpers.dedupe_rows：先探查（无重复则完全不写），真有重复
+    # 才用窗口函数单次排序回删。原写法
+    # ``ctid NOT IN (SELECT MIN(ctid) ... GROUP BY ...)`` 在 PG 上会退化成嵌套循环，
+    # 2026-10-28 实测在 ipran_ume.Metro_ring_me_15mins 上跑了 25.9 小时仍未结束。
+    dedupe_rows(dst_conn, table_name, keys, logger=logger)
     # 先删除旧的同名唯一索引（主键列可能变更，IF NOT EXISTS 会跳过导致旧索引残留）
     dst_conn.execute(f'DROP INDEX IF EXISTS "u_{table_name}"')
     dst_conn.execute(f'CREATE UNIQUE INDEX "u_{table_name}" ON "{table_name}" ({key_q})')

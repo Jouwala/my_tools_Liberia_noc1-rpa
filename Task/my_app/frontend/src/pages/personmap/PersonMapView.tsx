@@ -12,7 +12,10 @@
  *   · `useCountyTags.ts`   县界类别色 / 填充透明度 / 县名标签两行统计文本的派生；
  *   · `CountyLabels.tsx`   县名标签的避让 effect 与渲染；
  *   · `personPinHtml.ts`   人员针图标（颜色/尺寸/徽标 HTML/iconKey）的拼装；
- *   · `NoSitesNote.tsx`    空态说明条（地图版 `MapNoSitesNote` + 抽屉共用文案）。
+ *   · `NoSitesNote.tsx`    空态说明条（地图版 `MapNoSitesNote` + 抽屉共用文案）；
+ *   · `MapTopRightOverlays.tsx` / `CountyLayer.tsx` / `PersonPinsLayer.tsx`
+ *     右上角浮层列（图层开关 + 站点类别图例）/ 县界底图 / 人员针
+ *     （2026-10-28 站内类别图例落地后本文件回到 500 行纪律内）。
  *
  * **站点层口径**（2026-10-19 经用户确认）：只画该人员**实际处理过工单**的站点
  * （后端 `eflow_wo.site_id` 去重），**不画** `person.managed_regions` 的全县站点。
@@ -30,9 +33,8 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Spin } from 'antd'
-import { useI18n } from '../../i18n'
 import { useTheme } from '../../theme'
-import { Marker, Polyline, Polygon, useMap, isMapAlive, Pane } from '../../components/LeafletMap'
+import { Polyline, useMap, isMapAlive, Pane } from '../../components/LeafletMap'
 import api from '../../api'
 import { cachedGet } from '../../cache'
 import { PmtilesLayer } from '../gismap/PmtilesLayer'
@@ -42,12 +44,15 @@ import { BASEMAP_PMTILES_URL } from '../gismap/basemap'
 import { MapSearch } from './MapSearch'
 import { MapNoSitesNote } from './NoSitesNote'
 import { TerritoryLayer } from './TerritoryLayer'
-import { LayerToggles } from './LayerToggles'
 import { CountyLabels } from './CountyLabels'
+import { CountyLayer } from './CountyLayer'
 import { SitesLayer } from './SitesLayer'
+import { PersonPinsLayer } from './PersonPinsLayer'
+import { SiteClassLayer } from './SiteClassLayer'
+import { MapTopRightOverlays } from './MapTopRightOverlays'
+import { useSiteClasses } from './useSiteClasses'
 import { useTerritory } from './useTerritory'
-import { useCountyTags, COUNTY_FILL_OPACITY } from './useCountyTags'
-import { buildPersonPin } from './personPinHtml'
+import { useCountyTags } from './useCountyTags'
 import type { PersonRow, ManagedSite } from './types'
 import type { CountyBoundary } from '../gismap/types'
 
@@ -98,7 +103,6 @@ export function PersonMapView({
   sites: ManagedSite[]
   sitesLoading: boolean
 }) {
-  const { t } = useI18n()
   const { isDark } = useTheme()
   const map = useMap()
   /** 站点 → 三档颜色（红=有实时告警 > 浅蓝=该人在此站有未关闭 WO > 绿=负责但当前没单）。
@@ -137,6 +141,12 @@ export function PersonMapView({
     showTerritory, setShowTerritory, territory, terrLoading,
     terrColorOf, terrSiteOwners, territorySiteTip, pinPersons,
   } = useTerritory({ people, allPeople })
+
+  /* ---------- 站点类别图例（2026-10-28 用户需求） ----------
+     左下角浮层（SiteClassLegend）控制，默认一项都不选 → 地图上一个类别站点
+     都不画。取数与过滤口径见 useSiteClasses.ts 文件头，渲染在
+     SiteClassLayer.tsx。 */
+  const siteClasses = useSiteClasses()
 
   useEffect(() => {
     cachedGet('gis:county-boundaries', () => api.get('/gis/county-boundaries'))
@@ -374,12 +384,15 @@ export function PersonMapView({
       {/* 图层开关浮层（「人员」默认开 +「默认站点」默认关）——
           呈现在 LayerToggles.tsx；辖区取数与派生仍在
           useTerritory.ts，首次打开才拉 /fme-territories（~130KB，24 人 824 站）。 */}
-      <LayerToggles
-        peopleChecked={showPeople}
+      {/* 右上角浮层列：图层开关（人员 / 默认站点）+ 站点类别图例。
+          布局与「为什么不能放左下角」的理由见 MapTopRightOverlays.tsx 文件头。 */}
+      <MapTopRightOverlays
+        showPeople={showPeople}
         onPeopleChange={togglePeople}
-        terrChecked={showTerritory}
+        showTerritory={showTerritory}
         terrLoading={terrLoading}
         onTerrChange={setShowTerritory}
+        siteClasses={siteClasses}
       />
 
 
@@ -392,33 +405,9 @@ export function PersonMapView({
         </div>
       )}
 
-      {/* 县界（最底层，先于站点与人员绘制）。
-          2026-10-23 起每县一种类别色（COUNTY_PALETTE，按县名字典序稳定映射，
-          派生见 useCountyTags.ts）：
-          填充压淡（COUNTY_FILL_OPACITY，从 useCountyTags.ts 引入）、描边用县色本身，
-          只表达「这是哪个县」，不带数值语义 —— 与 GIS 页按告警数分档的
-          COUNTY_BAND_COLORS 是两回事。
-          虚线描边沿用两页既有样式。颜色是十六进制实值（SVG 不认 CSS 变量）。 */}
-      {counties.map(c => (
-        <Polygon
-          key={`county-${c.name}`}
-          positions={c.polygons as any}
-          pathOptions={{
-            color: countyColor.get(c.name) || '#9aa5b5',
-            fillColor: countyColor.get(c.name) || '#9aa5b5',
-            fillOpacity: isDark ? COUNTY_FILL_OPACITY.dark : COUNTY_FILL_OPACITY.light,
-            weight: 1.5,
-            opacity: 0.85,
-            dashArray: '4 3',
-            /* `interactive: false` —— 县界只是**装饰性底图**，没有任何点击行为。
-               Leaflet 的 SVG 路径默认 interactive，会带 `pointer-events: auto`
-               拦下命中：哪怕 z-index 已经把人员针抬到它上面，只要县界仍可交互，
-               落在县界范围内的点击还是会先被它吃掉（2026-10-21 实测的命中链
-               `mousedown → <path>` 就是它）。装饰层不该有命中，故显式关掉。 */
-            interactive: false,
-          }}
-        />
-      ))}
+      {/* 县界（最底层，先于站点与人员绘制）：每县一种类别色，
+          口径与「为什么不用后端 color」见 CountyLayer.tsx / useCountyTags.ts 头注释。 */}
+      <CountyLayer counties={counties} countyColor={countyColor} isDark={isDark} />
 
       {/* 县名标签（2026-10-23 用户要求「地图显示县名」）：三行标签的
           避让 effect 与渲染整体在 CountyLabels.tsx（结构/样式/算法说明见那里）。
@@ -450,6 +439,14 @@ export function PersonMapView({
           「WO 涉及过的站」）：圆点 + 悬停提示在 SitesLayer.tsx（行数纪律），
           取色与下方「人员 → 站点」连线共用 siteColor。
           「人员」开关关掉时一并隐藏 —— 站点圆点是「选中人的信息」的一部分。 */}
+      {/* 按图例筛选出的类别站点（背景语境层：压在县界上、被负责站点层盖住） */}
+      <SiteClassLayer
+        sites={siteClasses.visibleSites}
+        colorOf={siteClasses.colorOf}
+        labelOf={siteClasses.labelOf}
+        isDark={isDark}
+      />
+
       <SitesLayer sites={showPeople ? sites : []} siteColor={siteColor} />
 
       {/* 人员 → 其负责站点的连线（仅选中时）。
@@ -470,31 +467,17 @@ export function PersonMapView({
         />
       ))}
 
-      {/* 人员针
-          ⚠ 悬停态**绝不能**进图标 / iconKey 的契约在 personPinHtml.ts 文件头
-         （2026-10-21 实测：悬停一旦进 iconKey，`Marker` 就会在指针下重建图层、
-         把针的 DOM 元素换掉，mousedown/mouseup 落在不同元素上、click 不产生，
-         表现为「点人没反应 / 抽屉闪一下就没」）。
-         颜色/尺寸/徽标 HTML/iconKey 的推导与拼装（2026-10-24 抽到
-         personPinHtml.ts，行数纪律），本块只保留 Marker 挂载与事件。 */}
-      {showPeople && pinPersons.map(p => {
-        const selected = p.name_key === selectedKey
-        const pin = buildPersonPin(p, selected, isDark, t)
-        return (
-          <Marker
-            key={p.name_key}
-            position={[p.lat as number, p.lng as number]}
-            pane={PERSON_PANE}
-            html={pin.html}
-            iconSize={pin.iconSize}
-            iconAnchor={pin.iconAnchor}
-            iconKey={pin.iconKey}
-            zIndexOffset={selected ? 1000 : 0}
-            className="gis-person-marker"
-            onClick={() => handleClick(p)}
-          />
-        )
-      })}
+      {/* 人员针（渲染在 PersonPinsLayer.tsx；「悬停态绝不能进 iconKey」的契约
+          见 personPinHtml.ts 文件头，2026-10-21 实测踩过） */}
+      {showPeople && (
+        <PersonPinsLayer
+          persons={pinPersons}
+          selectedKey={selectedKey}
+          isDark={isDark}
+          pane={PERSON_PANE}
+          onSelect={handleClick}
+        />
+      )}
 
       {/* 选中了人、但他一个负责站点都没有 → 在地图上把原因说出来（2026-10-21）。
           实测有人点 Franklin Peter 看到全空，报成「连线没画出来」；他其实是
