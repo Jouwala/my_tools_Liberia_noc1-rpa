@@ -1,3 +1,35 @@
+/* Inter 随项目本地部署（2026-10-29）。
+   为什么不走 Google Fonts CDN：本系统跑在内网，外网字体请求会失败或被网关改写；
+   字体一挂，地图标签悄悄退回 Segoe UI，**字宽随之变化**，而县名标签的避让包围盒
+   是按实测像素算的（gismap/countyLabelLayout.ts 的 PERSON_LABEL_SIZE），字宽一变
+   叠字判定就失准 —— 所以这不是「换个字体」的观感问题，是会让布局算错的功能问题。
+   文件取自 @fontsource/inter 的 latin 子集（400/500/700 三档，合计 72KB），已入库。
+   font-display: swap —— 本地文件没有网络往返，swap 只兜极端情况下的首帧不可见。 */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('./assets/fonts/inter-latin-400-normal.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF;
+}
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('./assets/fonts/inter-latin-500-normal.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF;
+}
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('./assets/fonts/inter-latin-700-normal.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF;
+}
+
 /* 主题变量：默认深色（跟随系统由 index.html 内联脚本在首帧前设置 data-theme） */
 :root {
   --wh-bg: linear-gradient(180deg, #02050c 0%, #04091a 52%, #02050c 100%);
@@ -776,25 +808,59 @@ html {
   box-shadow: none;
   color: #ffffff;
   pointer-events: none;
-  /* 深色细描边：在浅色瓦片与淡色县块上都能排出字形轮廓 */
+  /* 极细描边（2026-10-29 按用户要求把原来的 4 层重阴影改成 1px 硬描边）：
+     原先是「两层模糊(2px/1px) + 两层 1px 斜偏移」，小字号下发虚、压花底图显脏。
+     现在只留上下左右 4 个 1px 实心偏移 —— 等于一圈 hairline 轮廓，无模糊。
+     深色主题用暗描边（白字压浅瓦片会消失，故两主题必须分档）。 */
   text-shadow:
-    0 0 2px rgba(0, 0, 0, 0.9),
-    0 0 1px rgba(0, 0, 0, 0.95),
-     1px 1px 0 rgba(0, 0, 0, 0.55),
-    -1px -1px 0 rgba(0, 0, 0, 0.55);
+    1px 0 0 rgba(0, 0, 0, 0.85),
+   -1px 0 0 rgba(0, 0, 0, 0.85),
+    0 1px 0 rgba(0, 0, 0, 0.85),
+    0 -1px 0 rgba(0, 0, 0, 0.85);
 }
 .gis-county-label.leaflet-tooltip::before {
   display: none; /* 去掉箭头 */
 }
 :root[data-theme='light'] .gis-county-label.leaflet-tooltip {
-  /* 浅色主题：翻成深字 + 白色描边。纯白字压在浅瓦片上会彻底消失，
-     这是「无底色」方案必须按主题分档的原因。 */
-  color: #0b1f38;
+  /* 浅色主题：翻成深字 + 白色 hairline 描边。 */
+  color: #0b2447;
   text-shadow:
-    0 0 2px rgba(255, 255, 255, 0.95),
-    0 0 1px rgba(255, 255, 255, 1),
-     1px 1px 0 rgba(255, 255, 255, 0.8),
-    -1px -1px 0 rgba(255, 255, 255, 0.8);
+    1px 0 0 rgba(255, 255, 255, 0.95),
+   -1px 0 0 rgba(255, 255, 255, 0.95),
+    0 1px 0 rgba(255, 255, 255, 0.95),
+    0 -1px 0 rgba(255, 255, 255, 0.95);
+}
+
+/* 人员位置地图（?page=person）的县标签：**深蓝文字、无描边无阴影**。
+   2026-10-29 用户第二次反馈「地图上的标签不要显示白色阴影，跟人的感觉更不清晰」——
+   上一版按「极细白色描边」做的 4×1px hairline + 2px 白晕，在 80% 实心县块上给小字
+   糊出一圈白边，比不加更难看。本页县块填充已是实心（`COUNTY_FILL_OPACITY` 0.8），
+   深蓝 `#0b2447` 压在饱和县色上本身就有对比，不需要描边托字。
+   ⚠ **必须写两条选择器**：浅色主题那条 `:root[data-theme='light'] .gis-county-label.leaflet-tooltip`
+     特异性是 (0,4,0)，单写 `.person-county-label.leaflet-tooltip` 只有 (0,2,0) —— 首版
+     只改低特异性的那条，浏览器实测计算值仍是白描边（改了个不生效的规则，静默失败）。
+     补一条带 `:root[data-theme='light']` 前缀的同源选择器 (0,5,0) 才压得住；
+     深色主题由第一条 (0,3,0) 压过基础规则 (0,2,0)。
+   GIS 页（?page=gis）**未跟着改**：那边填充仍是 0.13、字直接压在随主题反相的底图瓦片上，
+   描边是把小字从花哨瓦片里托起来的唯一手段（原始论证见上方 .gis-county-label 注释）。 */
+.gis-county-label.person-county-label.leaflet-tooltip,
+:root[data-theme='light'] .gis-county-label.person-county-label.leaflet-tooltip {
+  color: #0b2447;
+  text-shadow: none;
+}
+
+/* 地图文字层统一 Inter（2026-10-29 用户指定，并明确不要 Orbitron 这类装饰性科技字体
+   —— 小字号下可读性差）。范围只圈地图容器与图例浮层，不动全站正文：
+   全站字体栈是另一套既有约定（见上面的 body 规则），改了会波及 60+ 个页面。
+   县名标签、站点 tooltip/popup、人员针徽标、图例都在这个容器内，一并生效。
+   ⚠ 选择器**必须带 `body` 前缀**：`node_modules/leaflet/dist/leaflet.css:275` 自己也写了
+     `.leaflet-container { font-family: "Helvetica Neue", Arial, ... }`，同为单类选择器，
+     而 leaflet.css 由 `components/LeafletMap.tsx` 引入、打包顺序在本文件之后 ——
+     同特异性下后来者胜，只写 `.leaflet-container` 会被它压掉（实测计算值仍是
+     Helvetica Neue、三个 @font-face 全部停在 unloaded）。加一层 body 变成 (0,1,1) 才稳。 */
+body .leaflet-container,
+.gis-legend-overlay {
+  font-family: 'Inter', "Segoe UI", Arial, sans-serif;
 }
 
 /* 县名标注的承载锚点（2026-10-14）：一个零尺寸、零视觉的 divIcon。
@@ -814,6 +880,9 @@ html {
    理由见上方 .gis-county-label 的注释）。
    字距的拉开是为了让「县名」与「数字」在字形上天然分层 ——
    没有底色和色点之后，可读性全靠文字本身，这层区分就更有必要。 */
+/* 字号字重按 2026-10-29 用户给的参数表：
+     区域名称 Inter 15px/700 · 主要指标 Inter 12px/500 · 辅助指标 Inter 11px/400。
+   原先三档全挤在 11px（名字靠 700 撑），小字号下县名与数字分不出层级。 */
 .gis-county-tag {
   display: inline-flex;
   align-items: baseline;
@@ -823,15 +892,19 @@ html {
   white-space: nowrap;
 }
 .gis-county-tag__name {
+  font-size: 15px;
   font-weight: 700;
   letter-spacing: 0.04em;
 }
 /* 数字用等宽数字：各标签的序号宽度一致，竖排下来右边缘自然对齐。
    **不补零**（用户要的是 `BOMI 01` 这种「名 + 号」的写法，
    补零成 `01` 与写成 `1` 在这里等价 —— 保留补零是因为它对单数字更整齐，
-   且与排名条的数字风格一致）。 */
+   且与排名条的数字风格一致）。
+   字重 500 + 12px（2026-10-29 用户参数表「主要指标 Inter 12px/500」）：与 15px/700
+   的县名形成「标题重 / 数值中」的分层，原先两档都是 700 且同为 11px，数字和名字抢重心。 */
 .gis-county-tag__num {
-  font-weight: 700;
+  font-size: 12px;
+  font-weight: 500;
   font-variant-numeric: tabular-nums;
   font-feature-settings: 'tnum';
 }
@@ -848,6 +921,33 @@ html {
   flex-direction: column;
   align-items: center;
   gap: 1px;
+  /* 悬停展开要求标签本身可命中：外层 .gis-county-label 是 pointer-events:none
+     （不能拦地图点击），CSS 允许**后代反向开启**。命中区只有文字那一小条，
+     且人员针在 personPane(680) 高于 countyLabelPane(670) —— 与针重叠处仍是针先
+     收到点击，不会重演 2026-10-21 县界多边形成片拦掉命中的问题。 */
+  pointer-events: auto;
+}
+/* 两行统计 = **悬停才展开**（2026-10-29 用户在实测重叠数据前选定单行常驻）。
+   常驻三行时包围盒 190×51，西海岸三县实测 8 对重叠（最严重 MONTSERRADO×MARGIBI
+   113×51 = 整块压住）；改单行常驻后 190×22，与 GIS 页同档（同字号实测 0 重叠）。
+   展开块用实心小卡承载而非纯文字：它要盖在别的县色块/邻县标签之上，
+   无底文字在那种背景上读不出来。 */
+.person-county-tag__detail {
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  margin-top: 2px;
+  padding: 2px 5px;
+  border-radius: var(--wh-radius-sm, 4px);
+  background: var(--wh-card-bg, rgba(255, 255, 255, 0.92));
+  border: 1px solid rgba(128, 128, 128, 0.35);
+  color: #0b2447;
+  /* 展开后不再扩大命中区（避免鼠标在展开块上时反复触发 hover 抖动） */
+  pointer-events: none;
+}
+.person-county-tag:hover .person-county-tag__detail {
+  display: flex;
 }
 .person-county-tag__head {
   display: inline-flex;
@@ -855,9 +955,14 @@ html {
   gap: 4px;
 }
 .person-county-tag__row {
-  font-size: 9px;
+  /* 辅助指标 Inter 11px/400（2026-10-29 用户参数表）。
+     ⚠ 原为 9px/500，当时的理由是「10px 会把最坏行撑到 ~190px，Montserrado 这类
+       小县整个装不下一行」—— 11px 会更宽，标签避让包围盒 `PERSON_LABEL_SIZE`
+       必须跟着实测重量，否则叠字判定失准（见 countyLabelLayout.ts）。 */
+  font-size: 11px;
   line-height: 1.25;
   white-space: nowrap;
+  font-weight: 400;
   font-variant-numeric: tabular-nums;
   font-feature-settings: 'tnum';
   opacity: 0.92;
@@ -989,20 +1094,27 @@ html {
   display: flex;
   flex-direction: column;
   line-height: 1.25;
-  font-weight: 600;
+  /* 人员姓名 Inter 14px/700（2026-10-29 用户参数表）。原先不设字号、继承父级
+     .gis-person-badge 的 11px/600 —— 父级 GIS 页人员图层也在用，不能动父级，
+     所以在本页专属的子元素上显式覆盖。 */
+  font-size: 14px;
+  font-weight: 700;
   color: var(--wh-text, #333);
 }
+/* 电话 = 人员详细信息档：Inter 12px/400 */
 .gis-person-badge-name i {
   font-style: normal;
   font-weight: 400;
-  font-size: 0.625rem;
+  font-size: 12px;
   color: var(--wh-text-secondary, #888);
 }
+/* 站点数 | 未关闭 WO | 未关闭 PMT 同样归「人员详细信息」：12px/400。
+   数字仍由 <b> 加粗到 700（下方规则），保持「值比标签名抢眼」的既有读法。 */
 .gis-person-badge-stats {
   display: block;
   margin-top: 1px;
-  font-size: 0.625rem;
-  font-weight: 500;
+  font-size: 12px;
+  font-weight: 400;
   white-space: nowrap;
 }
 .gis-person-badge-stats b {

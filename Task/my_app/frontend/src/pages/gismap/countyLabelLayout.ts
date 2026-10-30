@@ -14,8 +14,10 @@
  *  2. 冲突判定在**屏幕像素**空间做，不是在经纬度空间：经度 1° ≈ 111km×cos(纬度)，
  *     而纬度 1° ≈ 111km，同一个度数在横竖两个方向的视觉宽度不同；
  *     用度数判冲突会让东西向的标签叠得更狠。
- *  3. 每个标签按固定的候选方向序列（质心 → 上 → 下 → 右 → 左 → 斜角…）
- *     逐圈外扩，取第一个与已放置标签不冲突的位置。
+ *  3. 每个标签在质心周围的**1/4 标签尺寸细格**上取候选位，按「离质心的像素
+ *     距离」升序逐个试（2026-10-29 改，见 candidateOffsets 的注释），取第一个
+ *     既落在本县内、又不与已放置标签相撞的位置 —— 于是「挪开」永远是**最小必要位移**。
+ *     旧版手写的粗序列纵向最小一步 = 48px，会把只需挪 9px 的县整档推出中心。
  *
  * 2026-10-23 修正一：**候选位必须落在本县多边形内**（用户报
  * 「标签没有在州里面显示」）。原先只顾躲开别的标签，不管是否还站在自己县里，
@@ -36,34 +38,47 @@
 import type { CountyBoundary } from './types'
 
 /** 标签预估尺寸（像素）。用于碰撞检测的包围盒。
- *  取值依据：.gis-county-tag 是 0.625rem(10px) 字 + 5px 色点 + 两位数字，
- *  实测最长的 "GRAND CAPE MOUNT ● 03" 约 118px 宽、14px 高。
- *  宁可估大一点：估小会让本来能分开的标签被判为不冲突。
- *  2026-10-23 起无告警的县是「纯县名」标签，实际比该上界窄 ~30px ——
- *  继续用同一上界估，对它们只是判得保守（多让一点位），不会漏判重叠。 */
-const LABEL_W = 124
-const LABEL_H = 16
+ *  ⚠ 这组数**随字号变**，改 `.gis-county-tag*` 的 font-size 必须重新实测这里，
+ *  否则包围盒小于真实标签 —— 判成「不冲突」的两位其实叠在一起（静默失效）。
+ *  2026-10-29 用户参数表把县名档提到 15px/700、数字 12px/500 后，浏览器实测
+ *  GIS 页单行标签最宽 "GRAND CAPE MOUNT 04" = **190×21**（旧字号时是 118×14），
+ *  故上界从 124×16 提到 200×22。沿用「宁可估大」：估大只是多让位，估小会漏判重叠。
+ *  2026-10-23 起无告警的县是「纯县名」标签，实际比该上界窄 ~70px ——
+ *  继续用同一上界估，对它们只是判得保守。 */
+const LABEL_W = 200
+const LABEL_H = 22
 
-/** 人员页三行标签（县名+总数 / 传输分组 / 维护分组，2026-10-23）的包围盒。
- *  GIS 页单行标签继续用上面的默认值；本尺寸只由 placeCountyLabels 的
- *  可选参数 size 传入，不改变任何既有调用方的行为。
- *  宽按最坏类型行估："MW 88 · SAT 8 · ST 4 · IPRAN 3 · — 2" ≈ 165px；
- *  高 = 名行 16 + 两个 9px 小行 ≈ 44。沿用「宁可估大」：估大了只是多让位。 */
-export const PERSON_LABEL_SIZE = { w: 170, h: 44 } as const
+/** 人员页三行标签的包围盒 `PERSON_LABEL_SIZE` **已删除**（2026-10-29）：
+ *  用户按实测重叠数据选定「常驻只留单行、两行统计收进悬停」，本页标签尺寸
+ *  回到与 GIS 页同一档 → 直接用上面的 LABEL_W/LABEL_H 默认值。
+ *  留一个只有一处调用的第二套尺寸是死重量（AGENTS.md 三.10 删除优于兼容）。
+ *  ⚠ 若将来再把统计行放回常驻，必须**重新实测**包围盒上界并恢复 size 参数 ——
+ *    字号变大而盒子没跟上，会把实际重叠的标签判成「不冲突」（静默叠字）。 */
 
-/** 候选偏移序列，单位是**标签尺寸的倍数**（x = 横向，y = 纵向）。
- *  第 0 项 (0,0) 即质心原位。之后按「先上下、再左右、最后对角」的次序外扩 ——
- *  上下优先是因为本页标签默认横排，垂直方向挪动不会让标签盖住县界本身。 */
-const OFFSETS: [number, number][] = [
-  [0, 0],
-  [0, -1.1], [0, 1.1],
-  [1.05, 0], [-1.05, 0],
-  [1.05, -1.1], [-1.05, -1.1], [1.05, 1.1], [-1.05, 1.1],
-  [0, -2.2], [0, 2.2],
-  [1.05, -2.2], [-1.05, -2.2], [1.05, 2.2], [-1.05, 2.2],
-  [0, -3.3], [0, 3.3],
-  [1.05, -3.3], [-1.05, -3.3], [1.05, 3.3], [-1.05, 3.3],
-]
+/** 候选偏移位的生成参数：以 **1/4 标签尺寸**为一格取质心周围的网格点。
+ *  SPAN=4 与旧手写序列的上界（3.3 档）相当，细到 1/4 档是为了「只挪够用的一点」。 */
+const OFFSET_STEP = 0.25
+const OFFSET_SPAN = 4
+
+/** 候选偏移位：按**离质心的真实像素距离**升序。
+ *  旧版是手写的 21 档粗序列，纵向最小一步就是 `1.1 × 标签高`。实测后果：
+ *  GRAND BASSA 只需避开 MARGIBI 约 9px，却被整档推到 48px 外 —— 浏览器量得
+ *  标签中心离本县质心 48px、离县体北缘只剩 18px，用户据此报「标签没居于州的中心」。
+ *  细格 + 像素距离升序之后，贪心取到的第一个可用位 = **离本县中心最近的可用位**，
+ *  「挪动尽量小」由排序本身保证，不再依赖手写序列取对档位。
+ *  两个乘子分别用 labelW / labelH 换算（与调用处 `px0 + ox * labelW` 同式）。 */
+function candidateOffsets(labelW: number, labelH: number): [number, number][] {
+  const n = Math.round(OFFSET_SPAN / OFFSET_STEP)
+  const out: [number, number][] = [[0, 0]]
+  for (let iy = -n; iy <= n; iy++) {
+    for (let ix = -n; ix <= n; ix++) {
+      if (ix === 0 && iy === 0) continue
+      out.push([ix * OFFSET_STEP, iy * OFFSET_STEP])
+    }
+  }
+  return out.sort((a, b) =>
+    Math.hypot(a[0] * labelW, a[1] * labelH) - Math.hypot(b[0] * labelW, b[1] * labelH))
+}
 
 export interface PlacedLabel {
   /** 县名（保持原大小写，展示时由调用方 toUpperCase） */
@@ -149,19 +164,17 @@ function pointInPolygons(lat: number, lng: number, polygons: [number, number][][
  * @param counties 全部县（含几何与告警数）
  * @param countOf  取告警数的函数（与地图填充、排名条同源）
  * @param proj     投影器（经纬度 ↔ 像素），由调用方按**真实画布**当前 zoom 构造
- * @param size     标签包围盒（像素）。缺省 = GIS 页单行标签的 LABEL_W/H；
- *                 人员页三行标签传 PERSON_LABEL_SIZE
- *                 （2026-10-23 加，是本模块第二个真实用例，故参数化尺寸而非复制算法）
+ *   （曾经还有第 4 个 `size` 参数，是给人员页三行标签用的 —— 该页 2026-10-29 改回
+ *    单行后两个调用方都走默认 LABEL_W/LABEL_H，参数成死重量，按 AGENTS.md 三.10 删除）
  * @returns 每个县一个标签，已错位且锚点在本县多边形内
  */
 export function placeCountyLabels(
   counties: CountyBoundary[],
   countOf: (c: CountyBoundary) => number,
   proj: Projector,
-  size: { w: number; h: number } = { w: LABEL_W, h: LABEL_H },
 ): PlacedLabel[] {
-  const labelW = size.w
-  const labelH = size.h
+  const labelW = LABEL_W
+  const labelH = LABEL_H
   // 全部县都排标签（2026-10-23 用户要求「标签默认显示县名」）：无告警的县
   // 也要有「只有名字」的标签位，数字是否拼接由渲染端按 count>0 决定。
   // 排序仍按告警数降序 —— 最痛的县先占最正的质心位，无告警的县最后落位、
@@ -170,6 +183,8 @@ export function placeCountyLabels(
     .map(c => ({ c, count: countOf(c), latlng: polygonCentroid(c.polygons) }))
     .filter(x => x.latlng)
     .sort((a, b) => (b.count - a.count) || a.c.name.localeCompare(b.c.name))
+
+  const offsets = candidateOffsets(labelW, labelH)
 
   const placed: PlacedLabel[] = []
   const boxes: { x: number; y: number }[] = []   // 已占用的屏幕中心点
@@ -190,7 +205,7 @@ export function placeCountyLabels(
     let chosen: Candidate | null = null
     let insideFallback: Candidate | null = null
 
-    for (const [ox, oy] of OFFSETS) {
+    for (const [ox, oy] of offsets) {
       /* 先夹到画面内，再判「在本县内」与冲突。
          顺序很关键：若先判冲突后夹取，夹取会把标签推回一个**已被占用**的位置，
          于是「不冲突」的结论失效。夹取在前，判的就是它真正落脚的位置。 */
@@ -198,8 +213,14 @@ export function placeCountyLabels(
       const y = Math.min(maxY, Math.max(minY, py0 + oy * labelH))
       /* 屏幕像素 → 经纬度反投影，用等距近似（像素增量 × 度/像素）。
          本页取景跨度小（全国 ~4.4° 经 × 4.85° 纬），等距近似的误差远小于
-         标签本身的尺寸，而这里只需要「挪开一点点」的精度。 */
-      const lat = lat0 + (y - py0) * proj.degPerPx.y
+         标签本身的尺寸，而这里只需要「挪开一点点」的精度。
+         ⚠ 纬度方向**必须减**：`proj.to()` 是 `height/2 - (lat - 中心纬)/degPerPx.y`，
+           即屏幕 y 越大 = 越往南 = 纬度越小。此前这里写成 `lat0 + (y - py0) * …`，
+           纵向候选位被**镜像**到赤道另一侧 —— 算法以为自己把标签挪开了，实际挪到
+           相反方向（2026-10-29 实测：GRAND BASSA 被推到县体北缘 18px 处，且仍与
+           MARGIBI 的标签框重叠）。经度方向不受影响（x 与 lng 同向），所以这个符号
+           错误只在纵向偏移时暴露。 */
+      const lat = lat0 - (y - py0) * proj.degPerPx.y
       const lng = lng0 + (x - px0) * proj.degPerPx.x
 
       /* 2026-10-23 用户要求「标签要显示在州里面」：候选位必须在本县多边形内。

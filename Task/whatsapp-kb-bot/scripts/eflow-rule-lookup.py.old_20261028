@@ -1,0 +1,364 @@
+# -*- coding: utf-8 -*-
+r"""按**告警码**查 eFlow 的**规则配置**（不是工单数据）。
+
+回答两个问题：
+  1. 这个告警码会被压缩成哪个父告警？（eflow_alarm_rules.xlsx 的关联/衍生规则）
+  2. 它会不会自动建 TT？定级/派发/推单由哪条规则接管？（eflow_push_rules.xlsx）
+
+## 为什么要这个脚本
+
+本地 `data/lookups.json` 是从 `knowledge/TT单-告警压缩规则.md` 解析出来的**快照**，
+只覆盖 12 条压缩规则、36 个告警码 —— 因为那份知识库只收录了「真实产生过 TT 的码」。
+用户问一个没收录的码（例：5G 的 200201001）时，旧实现只会回
+「知识库压缩规则表里没有 200201001，我不会按通用知识猜」——
+这句话把**「我们没采集到」**说成了**「查不到」**，用户真正想知道的是
+**eFlow 里到底有没有配规则**。
+
+规则配置的权威源是 my_app 从 eFlow 导出的三份 Excel（由
+`backend/services/eflow_rules/eflow_*_Rule_Collector.py` 定时刷新）。
+本脚本直接读它们，因此结论是「eFlow 没配这条规则」，而不是「我不知道」。
+
+## 匹配语义（重要，别当成规则引擎）
+
+- **压缩**：规则把子告警码写在 `siteAlarmCode`（站点退服）/ `cellAlarmList`（小区退服）/
+  `ERAAlarmList` / `IPAlarmCode` 里，把父告警码写在 `rootAlarmCode` 里。
+  码出现在子字段 → 会被压成 `rootAlarmCode`；码本身是 `rootAlarmCode` → 它**是**父告警。
+- **建单/定级**：`ttLevelRule` / `ttPushOrderRule` / `ttDispatchRule` 的条件里
+  以 `alarmCode = '...'` 或 `alarmCode in '...'` 枚举告警码。本脚本只做**枚举包含**
+  判断，不做 AND/OR 求值 —— 与 `lookups.js` 的口径一致（避免与 tt-analyze.py 的
+  真规则引擎漂移）。
+- **兜底**：`#230 TT-lowest severity`（条件里不含 alarmCode、只要 vipSite ∈ {0,1}）
+  是「没被任何规则覆盖时的 P4」。它存在 ≠ 这个码被支持，必须单独说明。
+
+## 退出码
+
+0 = 有结论（stdout 是 JSON）；2 = 通道不可用（缺 openpyxl / 缺规则表，stdout 也是 JSON，
+带 reason）；3 = 其它异常。
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import sys
+from datetime import datetime
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+if HERE not in sys.path:
+    sys.path.insert(0, HERE)
+
+try:
+    import my_app_paths  # noqa: E402
+except Exception:  # pragma: no cover - 单独拷走脚本时才会发生
+    my_app_paths = None
+
+RULES_REL = os.path.join('backend', 'services', 'eflow_rules')
+
+# 告警码在规则条件里的写法：alarmCode = '9970' / alarmCode in '9970, 9980'
+_CODE_IN_COND = re.compile(r"alarmCode\s*(?:=|in)\s*'([^']*)'", re.I)
+
+# 子告警码字段 → 角色（决定渲染时怎么说）
+_CHILD_FIELDS = {
+    'siteAlarmCode': 'site_child',       # 站点退服子告警
+    'cellAlarmList': 'cell_child',       # 小区退服子告警
+    'ERAAlarmList': 'era_child',         # ERA 站点退服子告警
+    'IPAlarmCode': 'ipbh',               # 微波链路侧告警
+    'powerAlarmList': 'power',           # 电源告警（衍生触发条件，不是被压缩对象）
+    'relationAlarmCode': 'related',      # 只关联的告警（挂靠，不是父告警驱动源）
+}
+
+
+def _rules_dir() -> str:
+    override = os.environ.get('EFLOW_RULES_DIR')
+    if override:
+        return override
+    if my_app_paths is not None:
+        try:
+            return os.path.join(my_app_paths.find_my_app_dir(), RULES_REL)
+        except Exception:
+            pass
+    return os.path.join(os.path.dirname(HERE), '..', 'my_app', RULES_REL)
+
+
+def _load_openpyxl():
+    try:
+        import openpyxl  # noqa: F401
+        return openpyxl
+    except Exception:
+        pass
+    # 本机 Python 没装 openpyxl，但 my_app 的 Lib/site-packages 里通常有
+    if my_app_paths is not None:
+        try:
+            my_app_paths.apply_fallback_site_packages(my_app_paths.find_my_app_dir())
+        except Exception:
+            pass
+    try:
+        import openpyxl  # noqa: F401
+        return openpyxl
+    except Exception:
+        return None
+
+
+def _fmt_mtime(path: str) -> str:
+    try:
+        return datetime.fromtimestamp(os.path.getmtime(path)).strftime('%Y-%m-%d %H:%M')
+    except Exception:
+        return ''
+
+
+def _rows(openpyxl, path: str, sheet: str):
+    """读一个 sheet，返回 (表头, 行字典列表)。表头缺失时返回 ([], [])。"""
+    wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    try:
+        if sheet not in wb.sheetnames:
+            return [], []
+        ws = wb[sheet]
+        it = ws.iter_rows(values_only=True)
+        try:
+            header = next(it)
+        except StopIteration:
+            return [], []
+        keys = [str(h).strip() if h is not None else '' for h in header]
+        out = []
+        for row in it:
+            if row is None or all(c is None for c in row):
+                continue
+            out.append({keys[i]: row[i] for i in range(min(len(keys), len(row)))})
+        return keys, out
+    finally:
+        wb.close()
+
+
+def _s(v) -> str:
+    return '' if v is None else str(v).strip()
+
+
+def _params(raw) -> dict:
+    """参数(JSON) 列 → {name: value}。老快照没有这一列时退回解析「参数」文本。"""
+    if not raw:
+        return {}
+    try:
+        arr = json.loads(raw) if isinstance(raw, str) else raw
+        return {str(p.get('name')): _s(p.get('value')) for p in arr if isinstance(p, dict)}
+    except Exception:
+        return {}
+
+
+def _params_from_text(raw) -> dict:
+    """`参数` 列形如 `NE type(x)=a,b; Root Alarm Code(y)=9970`。"""
+    out = {}
+    for part in _s(raw).split(';'):
+        if '=' not in part:
+            continue
+        left, right = part.split('=', 1)
+        m = re.search(r'\(([^)]+)\)\s*$', left.strip())
+        if m:
+            out[m.group(1)] = right.strip()
+    return out
+
+
+def _codes_in_cond(cond: str) -> set:
+    out = set()
+    for grp in _CODE_IN_COND.findall(_s(cond)):
+        for c in grp.split(','):
+            c = c.strip()
+            if c:
+                out.add(c)
+    return out
+
+
+# --------------------------------------------------------------------------
+# 压缩规则
+# --------------------------------------------------------------------------
+def _compress_hits(alarm_rules, code: str):
+    as_child, as_parent = [], []
+    ne_types, rats, enabled_count = set(), set(), 0
+    corr_enabled = 0  # 真正配了父子关系的启用规则（排除「初始化资源」这类无参数规则）
+
+    for r in alarm_rules:
+        name = _s(r.get('规则名称'))
+        rid = _s(r.get('规则ID'))
+        status = _s(r.get('状态')).upper() or 'UNKNOWN'
+        p = _params(r.get('参数(JSON)')) or _params_from_text(r.get('参数'))
+        if status == 'ENABLED':
+            enabled_count += 1
+            if p.get('rootAlarmCode'):
+                corr_enabled += 1
+            for k in ('siteAlarmNeType', 'cellAlarmNeType', 'ERAAlarmNeType',
+                      'IPAlarmNeType', 'powerAlarmNeType', 'rootResType'):
+                for t in p.get(k, '').split(','):
+                    t = t.strip()
+                    if t:
+                        ne_types.add(t)
+            if p.get('type'):
+                rats.add(p['type'].upper())
+
+        root = p.get('rootAlarmCode', '')
+        base = {
+            'ruleId': rid,
+            'ruleName': name,
+            'status': status,
+            'parentCode': root,
+            'parentName': p.get('specificProblem', ''),
+            'rat': p.get('type', ''),
+            'neTypes': p.get('siteAlarmNeType', '') or p.get('cellAlarmNeType', ''),
+            'timeWindow': p.get('timeWindow1', ''),
+        }
+
+        # 码本身是父告警（衍生结果）
+        if root and code == root:
+            as_parent.append({**base, 'childCount': len(
+                set().union(*[_codes_in_cond(p.get(f, '')) for f in
+                              ('siteAlarmCode', 'cellAlarmList', 'ERAAlarmList')]) or set())})
+
+        # 码出现在子字段里
+        for field, role in _CHILD_FIELDS.items():
+            vals = {c.strip() for c in _s(p.get(field)).split(',') if c.strip()}
+            if code in vals:
+                as_child.append({**base, 'role': role, 'field': field})
+
+    # ENABLED 在前
+    as_child.sort(key=lambda x: 0 if x['status'] == 'ENABLED' else 1)
+    as_parent.sort(key=lambda x: 0 if x['status'] == 'ENABLED' else 1)
+    return as_child, as_parent, sorted(ne_types), sorted(rats), enabled_count, corr_enabled
+
+
+# --------------------------------------------------------------------------
+# TT 规则（定级 / 派发 / 推单）
+# --------------------------------------------------------------------------
+def _tt_rules(push_rules, code: str):
+    """返回 (level, dispatch, push, catch_all, stopped)。
+
+    只把 **ACTIVE** 的规则当结论；STOP 的单独放 stopped ——
+    把停用规则当成「会建单/会定级」是这套知识库历史上最常犯的错
+    （见 knowledge/TT单-推单与指派规则.md 里 201 已停用的备注）。
+    """
+    level, dispatch, push, catch_all, stopped = [], [], [], None, []
+    for r in push_rules:
+        rtype = _s(r.get('规则类型'))
+        status = _s(r.get('状态')).upper()
+        cond = _s(r.get('条件'))
+        item = {
+            'id': _s(r.get('ID')),
+            'name': _s(r.get('规则名称')),
+            'status': status,
+            'severity': _s(r.get('严重级别')),
+            'priority': _s(r.get('优先级')),
+            'step': _s(r.get('触发步骤')),
+            'target': _s(r.get('目标处理人')),
+            'path': _s(r.get('推送路径')),
+            'condition': cond[:300],
+        }
+        codes = _codes_in_cond(cond)
+
+        if rtype == 'ttLevelRule' and status == 'ACTIVE' and not codes:
+            # 条件里不含告警码 → 兜底定级规则（#230）
+            if item['severity']:
+                catch_all = item
+            continue
+
+        if code in codes:
+            if status != 'ACTIVE':
+                stopped.append({**item, 'ruleType': rtype})
+                continue
+            if rtype == 'ttLevelRule':
+                level.append(item)
+            elif rtype == 'ttDispatchRule':
+                dispatch.append(item)
+            elif rtype == 'ttPushOrderRule':
+                push.append(item)
+
+    return level, dispatch, push, catch_all, stopped
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument('--code', required=True, help='告警码，如 200201001')
+    ap.add_argument('--json', action='store_true', help='输出 JSON（默认就是 JSON）')
+    args = ap.parse_args()
+
+    code = _s(args.code)
+    if not code:
+        print(json.dumps({'ok': False, 'reason': 'empty_code'}, ensure_ascii=False))
+        return 3
+
+    openpyxl = _load_openpyxl()
+    if openpyxl is None:
+        print(json.dumps({'ok': False, 'reason': 'no_openpyxl',
+                          'detail': 'openpyxl 不可用（本机 Python 与 my_app/Lib/site-packages 都没装）'},
+                         ensure_ascii=False))
+        return 2
+
+    rdir = _rules_dir()
+    alarm_path = os.path.join(rdir, 'eflow_alarm_rules.xlsx')
+    push_path = os.path.join(rdir, 'eflow_push_rules.xlsx')
+
+    missing = [p for p in (alarm_path, push_path) if not os.path.isfile(p)]
+    if missing:
+        print(json.dumps({'ok': False, 'reason': 'rules_missing',
+                          'detail': '规则导出文件不存在: ' + '; '.join(missing),
+                          'rulesDir': os.path.abspath(rdir)}, ensure_ascii=False))
+        return 2
+
+    try:
+        _, alarm_rules = _rows(openpyxl, alarm_path, 'Alarm_Rules')
+        _, push_rules = _rows(openpyxl, push_path, 'Push_Rules')
+    except Exception as e:  # noqa: BLE001
+        print(json.dumps({'ok': False, 'reason': 'read_error', 'detail': str(e)}, ensure_ascii=False))
+        return 3
+
+    as_child, as_parent, ne_types, rats, enabled_count, corr_enabled = _compress_hits(alarm_rules, code)
+    level, dispatch, push, catch_all, stopped = _tt_rules(push_rules, code)
+
+    # 若该码会被压缩，TT 实际是跟着**父告警**建的 —— 父告警的规则也要一并查
+    parent_codes = []
+    for h in as_child:
+        if h['status'] == 'ENABLED' and h['parentCode'] and h['parentCode'] != code:
+            if h['parentCode'] not in parent_codes:
+                parent_codes.append(h['parentCode'])
+    parent_rules = []
+    for pc in parent_codes:
+        lv, dp, ps, _, st = _tt_rules(push_rules, pc)
+        parent_rules.append({'code': pc, 'levelRules': lv, 'dispatchRules': dp,
+                             'pushRules': ps, 'stopped': st})
+
+    out = {
+        'ok': True,
+        'code': code,
+        'rulesDir': os.path.abspath(rdir),
+        'sources': {
+            'alarmRules': {
+                'file': 'eflow_alarm_rules.xlsx',
+                'mtime': _fmt_mtime(alarm_path),
+                'total': len(alarm_rules),
+                'enabled': enabled_count,
+                'correlationEnabled': corr_enabled,
+            },
+            'pushRules': {
+                'file': 'eflow_push_rules.xlsx',
+                'mtime': _fmt_mtime(push_path),
+                'total': len(push_rules),
+            },
+        },
+        'compression': {
+            'asChild': as_child,
+            'asParent': as_parent,
+            'neTypesCovered': ne_types,
+            'ratsCovered': rats,
+        },
+        'tt': {
+            'levelRules': level,
+            'dispatchRules': dispatch,
+            'pushRules': push,
+            'catchAll': catch_all,
+            'stopped': stopped,
+            'parentRules': parent_rules,
+        },
+    }
+    print(json.dumps(out, ensure_ascii=False))
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main())

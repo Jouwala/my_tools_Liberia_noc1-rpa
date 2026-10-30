@@ -242,6 +242,10 @@
       nu: '', np: '', nr: 'viewer',
       resetId: '', resetPwd: '', approveRoles: {},
       profileId: '', pv: '', pc: '', restricted: false, groups: [], cards: [],
+      /* team：团队门户归属（fo/bo/flm/smc/cxo），空 = 未指派。
+         与 landing/白名单是**独立**的一维：白名单管「看得到哪些看板」，
+         team 管「进哪个门户」。 */
+      team: '',
       saving: false, busy: '', error: '', success: ''
     },
     drill: { metric: '', q: '', page: 1, size: 50, sort: '', dir: 'desc', rows: [], columns: [], total: 0, loading: false, err: '' }
@@ -5494,6 +5498,7 @@
     state.um.restricted = u.allowedGroups != null || u.allowedCards != null;
     state.um.groups = Array.isArray(u.allowedGroups) ? u.allowedGroups.slice() : [];
     state.um.cards = Array.isArray(u.allowedCards) ? u.allowedCards.slice() : [];
+    state.um.team = u.team || '';
     state.um.error = '';
     state.um.success = '';
     renderUserMgmt();
@@ -5509,8 +5514,19 @@
   }
 
   function umHasProfile(u) {
-    return !!u.landing || u.allowedGroups != null || u.allowedCards != null;
+    return !!u.landing || u.allowedGroups != null || u.allowedCards != null || !!u.team;
   }
+
+  /* 团队门户白名单：与后端 server/auth/types.ts 的 TEAM_IDS 一一对应。
+     这里是**唯一**的团队 → 路径映射来源（门户 React 侧另有 src/auth/AuthContext.tsx
+     的一份，两边必须同步改）。 */
+  var UM_TEAMS = [
+    { id: 'fo', path: '/v3/fo_portal/' },
+    { id: 'bo', path: '/v3/bo_portal/' },
+    { id: 'flm', path: '/v3/flm_portal/' },
+    { id: 'smc', path: '/v3/smc_portal/' },
+    { id: 'cxo', path: '/v3/cxo_portal/' }
+  ];
 
   var UM_VIEWS = ['grid', 'list', 'matrix', 'tasks'];
   function umViewLabel(v) {
@@ -5637,6 +5653,24 @@
             }).join('') +
           '</select>' +
           '<select data-um="landing-card" aria-label="' + esc(t('um.landingNoCard')) + '">' + landingCards + '</select>' +
+        '</div>' +
+
+        /* ---- 团队门户（2026-10-29 加）----
+           与上面「登录后落地」是**两件不同的事**：
+             · 落地 = 打开门户后的**视图/卡片**（门户自己的界面）
+             · 团队 = 进**哪个门户**（/v3/fo_portal/ 等）
+           指派团队后：该账号访问 /v3/olbrportal/ 会自动跳到对应团队门户，
+           且**只能**进入该门户（其余四个被服务端拒绝）。 */
+        '<div class="um-field">' +
+          '<span class="um-label">' + esc(t('um.team')) + '</span>' +
+          '<select data-um="team" aria-label="' + esc(t('um.team')) + '">' +
+            '<option value="">' + esc(t('um.teamNone')) + '</option>' +
+            UM_TEAMS.map(function (tm) {
+              return '<option value="' + tm.id + '"' + (state.um.team === tm.id ? ' selected' : '') + '>' +
+                esc(t('um.team.' + tm.id)) + ' · ' + esc(tm.path) + '</option>';
+            }).join('') +
+          '</select>' +
+          '<span class="um-dim">' + esc(t('um.teamHint')) + '</span>' +
         '</div>' +
 
         '<div class="um-field um-field-col">' +
@@ -5859,7 +5893,10 @@
         id: id,
         landing: landing,
         allowedGroups: state.um.restricted ? state.um.groups : null,
-        allowedCards: state.um.restricted ? state.um.cards : null
+        allowedCards: state.um.restricted ? state.um.cards : null,
+        /* team：空字符串 = 未指派（传 null 清除）；有值 = 指派到该团队。
+           与 landing/白名单独立：白名单管「看得到哪些看板」，team 管「进哪个门户」。 */
+        team: state.um.team || null
       }
     }).then(function (r) {
       if (!r.ok || !r.data.user) { umFlash('err', umErrorText(r.status, r.data && r.data.detail)); return; }
@@ -5917,6 +5954,7 @@
       if (act === 'approve-role') { state.um.approveRoles[el.getAttribute('data-id')] = el.value; return; }
       if (act === 'landing-view') { state.um.pv = el.value; return; }
       if (act === 'landing-card') { state.um.pc = el.value; return; }
+      if (act === 'team') { state.um.team = el.value; return; }
       if (act === 'restricted') { state.um.restricted = !!el.checked; renderUserMgmt(); return; }
     });
     mask.addEventListener('submit', function (e) {

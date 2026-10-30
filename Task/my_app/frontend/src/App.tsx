@@ -73,6 +73,7 @@ import {
   setOnUnauthorized,
   portalPasswordLogin,
   readPortalToken,
+  getBootRole,
   apiLogout,
   type MenuLayoutPayload,
 } from './api'
@@ -247,9 +248,26 @@ const AR_BOARD_PAGES: PageKey[] = [
 // 按页面覆盖的默认间隔：实时看板数据每 15 分钟同步一次，刷新过快无意义；
 // 90 天经营看板的数据由 olib_soc_kpi_daily_sync 每天 02:20 增量入库（一天只变一次），
 // 15 分钟足够及时反映最新完成日，也避免无谓查询。
+// 2026-10-29 用户定策略：**实时告警相关 = 1 分钟，其余看板页 = 5 分钟**
+// （全局默认 AR_PAGE_DEFAULT_SEC=300 已经是 5 分钟，这里只需列出 1 分钟的那几个）。
+// 范围按用户勾选：realtime_alarm + alarm + alarmManagement。
+// ⚠ mwRealTime 虽带「实时」二字但**不给 60s** —— 它的数据每 15 分钟才同步一次，
+//   提到 1 分钟只会多打 15 倍查询而画面不变，故维持上面的 900。
 const AR_PAGE_DEFAULTS: Partial<Record<PageKey, number>> = {
   mwRealTime: 900, mwUmeTopology: 900, vmaxCxoDashboard_90Days: 900,
+  realtime_alarm: 60, alarm: 60, alarmManagement: 60,
 }
+/** 原地刷新（不重挂载）的 React 看板页。
+ *  这些页到点**只重拉数据**：外壳 `document.dispatchEvent('myapp-refresh')`，页面自己
+ *  监听并静默 refetch —— 不走下面 `key={refreshTick}` 的整页重挂载。
+ *  动机（2026-10-29 用户反馈 person 页「刷新太快」）：person 的间隔本来就是 300s，
+ *  真正刺眼的是每 5 分钟一次的**整页重建** —— Leaflet 地图销毁重建、flyTo 回全国视角、
+ *  图层与县名标签全部重画，在门户 iframe 里就是一下闪白。改成原地刷新后画面不动，
+ *  只有数字更新。
+ *  与 AR_SOFT_REFRESH_PAGES 的区别：那条是给 **iframe / legacy 静态页**用的（靠
+ *  postMessage 让文档自己重载）；本条给同文档内的 React 页用（靠 DOM 事件）。
+ *  逐页加入前必须确认该页的取数函数能在不清 loading 的前提下重跑。 */
+const AR_INPLACE_REFRESH_PAGES: PageKey[] = ['person']
 // 支持软刷新协议（postMessage myapp-refresh 原地重拉数据）的 legacy 页面 / React 内嵌页。
 // imonitor：跨端口 iframe 无法由外壳重挂载来刷新（会整页闪白），改由页面自己
 // 监听 myapp-refresh 后在 iframe 内原地重载（见 ImonitorScreen.tsx）。
@@ -648,6 +666,34 @@ function readBareModule(): boolean {
   } catch { return false }
 }
 
+/* ===================== 左侧目录「强制隐藏」判定（2026-10-29） =====================
+ * 需求（用户原话）：从 FO 门户组点开 /myapp/ 的页面内容时，
+ *   「默认不显示左边的目录，并且展开目录按钮不允许显示，header 正常显示」，
+ *   并建议「不是 admin 登录都如此」。
+ *
+ * 因此这里有**两条**独立的触发条件，命中任一条即隐藏目录：
+ *   ① **被门户 iframe 内嵌**：MsPortal/viewer.html?no=12&gid=FO%20View 的看板查看器、
+ *      团队门户（/v3/*_portal/）的面板都是用 iframe 套 my_app 的。这类场景下目录
+ *      只是「门户外壳的重复品」，占了半屏却给不了新信息 —— 门户自己已经有分组导航。
+ *      判定用 `window.self !== window.top`：这是**浏览器事实**，不依赖任何 URL 参数，
+ *      所以门户将来加新入口也不用同步改 my_app 一行代码。
+ *      ⚠️ 只能比引用、不能读 window.top 的属性（跨域会抛 SecurityError），
+ *      所以用 `!==` 而不是 `window.top.location`。
+ *   ② **角色不是 admin**：门户组的账号是 viewer 角色，他们不该拿到 my_app 的
+ *      全量目录（里面还有本机才可编辑的配置类页面）。admin 保留完整目录。
+ *
+ * 与既有两个开关的关系（务必分清）：
+ *   · embedMode（?embed=1）/ bareModule（?bare=1）→「整个外壳都不渲染」，
+ *     连 Header 一起没有 —— 那是「单模块嵌入」语义。
+ *   · 本处的 siderLocked →「**只隐藏左侧目录**」，**Header 照常渲染** ——
+ *     正是用户要的形态。两个开关叠加时 embed 优先（外壳整体不渲染）。
+ */
+
+/** 本页是否被嵌在 iframe 里（门户看板查看器 / 团队门户面板都是 iframe 套 my_app）。 */
+function readEmbeddedInFrame(): boolean {
+  try { return window.self !== window.top } catch { return false }
+}
+
 function AppContent() {
   // 支持 ?page=xxx 直链定位（右键菜单「在新标签页打开」使用），非法值回退到默认页
   const [currentPage, setCurrentPage] = useState<PageKey>(() => {
@@ -678,6 +724,13 @@ function AppContent() {
   // 启动鉴权引导（?t= 换会话 / 免登录探测 / 会话确认）是否已结束：
   // 结束前不挂载业务页面，避免页面在会话 Cookie 落地前抢跑数据接口拿到 401
   const [bootDone, setBootDone] = useState(false)
+  /* 当前身份的角色（'admin' | 'viewer' 等）。
+   * 初值取**引导期快照**（api.getBootRole）：引导在 React 渲染前就完成了，
+   * 所以首帧就能同步判定「要不要隐藏目录」—— 不会出现「目录闪一下再消失」。
+   * null（未知）时按 fail-closed 处理（见 siderLocked 的注释）。
+   * ⚠️ 这个值**不写 localStorage**：那会让「上个账号是 admin」的用户在换成
+   *    viewer 账号后首屏闪出目录，正是用户不接受的行为。 */
+  const [role, setRole] = useState<string | null>(getBootRole)
   // 侧边栏默认隐藏（完全收起、不占空间），展开/收起偏好持久化到 localStorage
   const [collapsed, setCollapsed] = useState<boolean>(() => {
     try {
@@ -855,12 +908,29 @@ function AppContent() {
   const { isDark, toggle } = useTheme()
   const isMobile = useIsMobile()
 
-  // 移动端抽屉：侧栏浮在内容之上时，Esc / 遮罩 / X 三条关闭路径都要可用，
-  // 并且要锁住背景滚动、把焦点关进抽屉、关闭后再还给汉堡按钮。
-  const drawerOpen = isMobile && !collapsed
   // 统一「外壳隐藏」开关：embedMode（?embed=1）或 直链 bare（?page=xxx）任一命中，
   // 即不渲染侧栏/Header 等外壳元素、模块占满视口。
   const shellHidden = embedMode || bareModule
+  /* 「左侧目录强制隐藏」开关（2026-10-29 用户要求，详见文件顶部 readEmbeddedInFrame 注释）：
+   *   · 嵌在 iframe 里（门户看板查看器 / 团队门户面板）→ 隐藏，门户已有分组导航；
+   *   · 角色**不是 admin** → 隐藏，非管理员不该拿到 my_app 全量目录。
+   * 命中时：**侧栏不渲染、汉堡（展开目录）按钮不渲染**，但 **Header 照常渲染**。
+   * 这与 shellHidden（embed/bare，连 Header 一起隐藏）是两种不同的语义，别混。
+   *
+   * ⚠️ 判定是 **fail-closed**：role 未知（null，即 /auth/me 还没回来）时按「非 admin」处理，
+   *    目录与按钮先不出现，等 /auth/me 回来是 admin 再放开。理由：非 admin 是常见情形，
+   *    让按钮「先出现再消失」正是用户明确不接受的行为；而 admin 只是晚几十毫秒
+   *    看到按钮出现，完全可以接受。 */
+  const inFrame = useMemo(() => readEmbeddedInFrame(), [])
+  const siderLocked = inFrame || role !== 'admin'
+  /** 目录是否实际渲染：外壳整体隐藏时不渲染；被锁定时也不渲染（不留空壳占位）。 */
+  const siderVisible = !shellHidden && !siderLocked
+
+  // 移动端抽屉：侧栏浮在内容之上时，Esc / 遮罩 / X 三条关闭路径都要可用，
+  // 并且要锁住背景滚动、把焦点关进抽屉、关闭后再还给汉堡按钮。
+  // ⚠️ siderLocked 时侧栏根本不渲染，遮罩必须跟着不出现 —— 否则「曾展开过目录」
+  //    的移动端浏览器上会留下一块挡住整屏的不可见遮罩，页面点不动。
+  const drawerOpen = isMobile && !collapsed && !siderLocked
   const toggleBtnRef = useRef<HTMLButtonElement | null>(null)
   const closeBtnRef = useRef<HTMLButtonElement | null>(null)
 
@@ -906,6 +976,19 @@ function AppContent() {
     document.querySelectorAll('iframe').forEach((f) => {
       try { f.contentWindow?.postMessage({ __type: 'myapp-refresh' }, '*') } catch { /* ignore */ }
     })
+    // 原地刷新页（同文档内的 React 页，见 AR_INPLACE_REFRESH_PAGES）：广播一个同名 DOM
+    // 事件，页面自己静默重拉数据。与上面的 iframe 广播同属**无副作用**一路，所以也放在
+    // 交互拦截之前 —— 标签页后台 / 弹层打开 / 全屏时照样更新，重拉只是一次 fetch，
+    // 不移除 DOM、不丢焦点、不退全屏。发完直接 return，绝不再走下面的整页重挂载。
+    // 顶栏图标仍转 800ms：用户要的是「画面不闪」，不是「看不出它刷新过」。
+    if (AR_INPLACE_REFRESH_PAGES.includes(currentPage)) {
+      invalidateCache() // 供页面内走 cachedGet 的那几路（县界 / 站点类别）绕开 30s 缓存
+      setArSpin(true)
+      if (arSpinTimer.current) window.clearTimeout(arSpinTimer.current)
+      arSpinTimer.current = window.setTimeout(() => setArSpin(false), 800)
+      document.dispatchEvent(new CustomEvent('myapp-refresh'))
+      return
+    }
     // 硬刷新兜底：重挂载当前页面（useEffect 重取数 / iframe 因 cacheBust 重载）。
     // 重挂载会移除 iframe、丢焦点、退出全屏，属于有副作用的操作 —— 只有这里才需要
     // 「用户正忙（输入中/弹层打开/标签页后台）」与元素级全屏的拦截。
@@ -1292,7 +1375,12 @@ function AppContent() {
     getAuthMe()
       .then((r) => {
         const u = r?.data?.user
-        if (u?.username) setIdentity({ username: u.username, role: u.role || 'viewer' })
+        if (u?.username) {
+          const r2 = u.role || 'viewer'
+          setIdentity({ username: u.username, role: r2 })
+          // 角色拿到后即刷新「是否隐藏目录」的判定（见 siderLocked 的注释）
+          setRole(r2)
+        }
       })
       .catch(() => setIdentity(null))
     return () => setOnUnauthorized(null)
@@ -1610,9 +1698,11 @@ function AppContent() {
         {/* 拖拽期不再盖遮罩层：遮罩会吞掉落在它上面的 mouseup/click，导致
             「双击复位」永远收不到 dblclick。改为在 CSS 里把内容区与 iframe
             的 pointer-events 关掉，事件照常冒泡到 window 上的拖拽监听。 */}
-        {/* 外壳隐藏（embed/bare）：整个侧栏不渲染 —— 不是收起（收起仍占布局树），
-            而是条件渲染，确保 DOM 里不存在目录导航及拖拽手柄等外壳元素。 */}
-        {!shellHidden && (
+        {/* 侧栏渲染条件：
+            · shellHidden（embed/bare）→ 整个外壳都不渲染；
+            · siderLocked（iframe 内嵌 / 非 admin）→ **只隐藏目录**，Header 照常。
+          都是**条件渲染**而非「收起」——收起仍占布局树，DOM 里还留着目录导航。 */}
+        {siderVisible && (
         <Sider
           className="spatial-panel"
           collapsible
@@ -1905,7 +1995,10 @@ function AppContent() {
               pointerEvents: 'none',
             }} />
 
-            {/* 汉堡按钮：侧边栏默认隐藏，点击展开/收起 */}
+            {/* 汉堡按钮：侧边栏默认隐藏，点击展开/收起。
+                siderLocked（iframe 内嵌 / 非 admin）时**不渲染** —— 用户要求
+                「展开目录按钮不允许显示」。既然目录根本不渲染，这个按钮就是死按钮。 */}
+            {!siderLocked && (
             <Button
               ref={toggleBtnRef as any}
               type="text"
@@ -1931,8 +2024,12 @@ function AppContent() {
                 borderRadius: 'var(--wh-radius-md)',
               }}
             />
+            )}
 
-            {/* 左侧装饰箭头 */}
+            {/* 左侧装饰箭头（▶▶，即「展开目录」的视觉提示）。
+                siderLocked 时一并隐藏 —— 目录不存在时这个箭头是误导性的死装饰。
+                注意它与右侧的 ◀（收起提示）成对出现，只藏一半会失衡，故两侧同藏。 */}
+            {!siderLocked && (
             <div className="wh-hide-mobile" aria-hidden="true" style={{
               position: 'absolute',
               left: '3.25rem',
@@ -1945,8 +2042,10 @@ function AppContent() {
             }}>
               ▶▶
             </div>
+            )}
 
-            {/* 右侧装饰箭头 */}
+            {/* 右侧装饰箭头（◀，收侧栏的视觉提示）—— 同上，目录被锁时一并隐藏。 */}
+            {!siderLocked && (
             <div className="wh-hide-mobile" aria-hidden="true" style={{
               position: 'absolute',
               right: '10rem',
@@ -1959,6 +2058,7 @@ function AppContent() {
             }}>
               ◀
             </div>
+            )}
 
             {/* 居中标题 */}
             <div style={{

@@ -26,7 +26,7 @@ import dayjs from 'dayjs'
 import api from '../api'
 import { useI18n } from '../i18n'
 import { formatDateTime } from '../datetime'
-import { WH, useTheme, darkTooltip, axisLabel, axisLine, splitLine, cardStyle, pageWrap } from '../theme'
+import { WH, useTheme, darkTooltip, axisLabel, axisLine, splitLine, cardStyle, controlCardStyle, pageWrap } from '../theme'
 import { ExplainIcon } from '../components/MetricExplain'
 
 const SEV_COLORS: Record<string, string> = {
@@ -82,6 +82,11 @@ const SectionTitle = ({ icon, title, sub }: { icon: React.ReactNode; title: stri
     <span style={{ fontSize: '1rem', fontWeight: 700, color: WH.text, letterSpacing: '-0.3px' }}>{title}</span>
     {sub && <span style={{ fontSize: '0.75rem', color: WH.textDim, marginLeft: 'var(--wh-space-xs)' }}>{sub}</span>}
   </div>
+)
+
+// 顶部筛选条里每个控件上方的小标签（横向排布后不再有卡片内的纵向间距）
+const FilterLabel = ({ children }: { children: React.ReactNode }) => (
+  <div style={{ fontSize: '0.75rem', color: WH.textMuted, marginBottom: 'var(--wh-space-xs)' }}>{children}</div>
 )
 
 const KpiCard = ({ value, label, sub, color, icon, hint }: {
@@ -555,6 +560,68 @@ export default function BatteryDashboard() {
 
   return (
     <div style={pageWrap}>
+      {/* ===== 顶部筛选条（原左侧栏筛选上移成整行，下方组件因此拿到全宽） ===== */}
+      <Card size="small" style={controlCardStyle}
+        title={<span style={{ color: WH.text, fontSize: '0.8125rem' }}><FilterOutlined style={{ color: WH.teal, marginRight: '0.375rem' }} />{t('batt.filters')}</span>}
+        extra={
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--wh-space-sm)' }}>
+            <span style={{ fontSize: '0.6875rem', color: WH.textDim }}>
+              {t('batt.matched')}: <span style={{ color: WH.teal, fontWeight: 700 }}>{filtered.length}</span> / {batteries.length}
+            </span>
+            {filterActive && <Tag color="cyan" style={{ border: 'none' }}>{t('batt.filtered')}</Tag>}
+            <Button type="link" size="small" onClick={resetFilters}
+              style={{ color: WH.teal, fontSize: '0.75rem', padding: 0 }}>{t('batt.reset')}</Button>
+          </span>
+        }>
+        <Row gutter={[12, 10]} align="bottom">
+          <Col xs={24} sm={12} lg={8} xl={5}>
+            <FilterLabel>{t('batt.searchSite')}</FilterLabel>
+            <Input allowClear size="small" prefix={<SearchOutlined style={{ color: WH.textDim }} />}
+              placeholder={t('batt.searchPlaceholder')} value={search}
+              onChange={e => setSearch(e.target.value)} />
+          </Col>
+          <Col xs={12} sm={12} lg={8} xl={4}>
+            <FilterLabel>{t('batt.category')}</FilterLabel>
+            <Select mode="multiple" allowClear size="small" style={{ width: '100%' }}
+              placeholder={t('batt.allCategories')} options={categoryOptions}
+              value={cats} onChange={setCats} maxTagCount="responsive" />
+          </Col>
+          <Col xs={12} sm={12} lg={8} xl={4}>
+            <FilterLabel>{t('batt.status')}</FilterLabel>
+            <Select mode="multiple" allowClear size="small" style={{ width: '100%' }}
+              placeholder={t('batt.allStatuses')}
+              options={[{ label: t('batt.statusCharge'), value: 'Charge' }, { label: t('batt.statusDischarge'), value: 'Discharge' }, { label: t('batt.statusUnknown'), value: 'Unknown' }]}
+              value={statuses} onChange={setStatuses} maxTagCount="responsive" />
+          </Col>
+          <Col xs={24} sm={12} lg={8} xl={4}>
+            <FilterLabel>{`${t('batt.health')} (${healthRange[0]} - ${healthRange[1]}%)`}</FilterLabel>
+            <Slider range min={0} max={100} value={healthRange} onChange={v => setHealthRange(v as [number, number])}
+              style={{ margin: '8px 4px 4px' }}
+              styles={{ track: { background: WH.teal } }} />
+          </Col>
+          <Col xs={24} sm={12} lg={8} xl={4}>
+            <FilterLabel>{`${t('batt.soc')} (${socRange[0]} - ${socRange[1]}%)`}</FilterLabel>
+            <Slider range min={0} max={100} value={socRange} onChange={v => setSocRange(v as [number, number])}
+              style={{ margin: '8px 4px 4px' }}
+              styles={{ track: { background: WH.blue } }} />
+          </Col>
+          <Col xs={24} sm={12} lg={8} xl={3}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 'var(--wh-space-sm)' }}>
+              <ATooltip title={t('batt.freshOnlyHint')}>
+                <span style={{ fontSize: '0.75rem', color: WH.textMuted }}>{t('batt.freshOnly')}</span>
+              </ATooltip>
+              <Switch size="small" checked={freshOnly} onChange={setFreshOnly} />
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 'var(--wh-space-sm)', marginTop: '0.625rem' }}>
+              <ATooltip title={t('batt.includeNullHint')}>
+                <span style={{ fontSize: '0.75rem', color: WH.textMuted }}>{t('batt.includeNull')}</span>
+              </ATooltip>
+              <Switch size="small" checked={includeNullMetric} onChange={setIncludeNullMetric} />
+            </div>
+          </Col>
+        </Row>
+      </Card>
+
       {/* ===== 顶部信息条 ===== */}
       <Card size="small" style={{ ...cardStyle, marginBottom: '0.75rem' }} styles={{ body: { padding: 'var(--wh-space-sm) var(--wh-space-md)' } }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--wh-space-md)', flexWrap: 'wrap' }}>
@@ -580,212 +647,153 @@ export default function BatteryDashboard() {
         </div>
       </Card>
 
-      <Row gutter={12}>
-        {/* ===== 侧边栏筛选 ===== */}
-        <Col xs={24} lg={5} xl={4}>
-          <Card size="small" style={{ ...cardStyle, marginBottom: '0.75rem', position: 'sticky', top: 'var(--wh-space-sm)' }}
-            title={<span style={{ color: WH.text, fontSize: '0.8125rem' }}><FilterOutlined style={{ color: WH.teal, marginRight: '0.375rem' }} />{t('batt.filters')}</span>}
-            extra={<Button type="link" size="small" onClick={resetFilters} style={{ color: WH.teal, fontSize: '0.75rem' }}>{t('batt.reset')}</Button>}
-          >
-            <div style={{ fontSize: '0.75rem', color: WH.textMuted, marginBottom: 'var(--wh-space-xs)' }}>{t('batt.searchSite')}</div>
-            <Input allowClear size="small" prefix={<SearchOutlined style={{ color: WH.textDim }} />}
-              placeholder={t('batt.searchPlaceholder')} value={search}
-              onChange={e => setSearch(e.target.value)} style={{ marginBottom: '0.875rem' }} />
+      {/* KPI 卡片 */}
+      <Row gutter={[12, 12]}>
+        <Col xs={12} sm={8} lg={6} xxl={3}>
+          <KpiCard value={view.total} label={t('batt.kpiBatteries')} color={WH.teal}
+            icon={<ThunderboltOutlined />} sub={`${view.sites} ${t('batt.sitesUnit')}`}
+            hint={t('batt.hintBatteries')} />
+        </Col>
+        <Col xs={12} sm={8} lg={6} xxl={3}>
+          <KpiCard value={view.sites} label={t('batt.kpiSites')} color={WH.blue}
+            icon={<EnvironmentOutlined />} hint={t('batt.hintSites')} />
+        </Col>
+        <Col xs={12} sm={8} lg={6} xxl={3}>
+          <KpiCard value={`${view.freshRate}%`} label={t('batt.kpiFreshRate')}
+            color={view.freshRate >= 80 ? '#51cf66' : view.freshRate >= 50 ? '#ffd43b' : '#ff922b'}
+            icon={<ClockCircleOutlined />} sub={`${view.freshCount}/${view.baseTotal}`}
+            hint={t('batt.hintFreshRate')} />
+        </Col>
+        <Col xs={12} sm={8} lg={6} xxl={3}>
+          <KpiCard value={view.avgSoc == null ? '--' : `${view.avgSoc}%`} label={t('batt.kpiAvgSoc')}
+            color={(view.avgSoc ?? 100) < 50 ? '#ff922b' : '#ffd43b'}
+            icon={<DashboardOutlined />} hint={t('batt.hintAvgSoc')} />
+        </Col>
+        <Col xs={12} sm={8} lg={6} xxl={3}>
+          <KpiCard value={view.avgHealth == null ? '--' : `${view.avgHealth}%`} label={t('batt.kpiAvgHealth')}
+            color="#51cf66" icon={<HeartOutlined />}
+            sub={`${t('batt.degraded')}: ${view.degraded}`} hint={t('batt.hintAvgHealth')} />
+        </Col>
+        <Col xs={12} sm={8} lg={6} xxl={3}>
+          <KpiCard value={view.discharging} label={t('batt.kpiDischarging')} color="#ff922b"
+            icon={<PoweroffOutlined />} sub={`${view.dischargingSites} ${t('batt.sitesUnit')}`}
+            hint={t('batt.hintDischarging')} />
+        </Col>
+        <Col xs={12} sm={8} lg={6} xxl={3}>
+          <KpiCard value={view.critical} label={t('batt.kpiCriticalSoc')} color="#ff4757"
+            icon={<AlertOutlined />} sub={`${view.criticalSites} ${t('batt.sitesUnit')}`}
+            hint={t('batt.hintCriticalSoc')} />
+        </Col>
+        <Col xs={12} sm={8} lg={6} xxl={3}>
+          <KpiCard value={view.stale} label={t('batt.kpiStale')} color="#7c8ff0"
+            icon={<DatabaseOutlined />} sub={`${view.staleSites} ${t('batt.sitesUnit')}`}
+            hint={t('batt.hintStale')} />
+        </Col>
+      </Row>
 
-            <div style={{ fontSize: '0.75rem', color: WH.textMuted, marginBottom: 'var(--wh-space-xs)' }}>{t('batt.category')}</div>
-            <Select mode="multiple" allowClear size="small" style={{ width: '100%', marginBottom: '0.875rem' }}
-              placeholder={t('batt.allCategories')} options={categoryOptions}
-              value={cats} onChange={setCats} maxTagCount="responsive" />
-
-            <div style={{ fontSize: '0.75rem', color: WH.textMuted, marginBottom: 'var(--wh-space-xs)' }}>{t('batt.status')}</div>
-            <Select mode="multiple" allowClear size="small" style={{ width: '100%', marginBottom: '0.875rem' }}
-              placeholder={t('batt.allStatuses')}
-              options={[{ label: t('batt.statusCharge'), value: 'Charge' }, { label: t('batt.statusDischarge'), value: 'Discharge' }, { label: t('batt.statusUnknown'), value: 'Unknown' }]}
-              value={statuses} onChange={setStatuses} maxTagCount="responsive" />
-
-            <div style={{ fontSize: '0.75rem', color: WH.textMuted, marginBottom: '0.125rem' }}>
-              {t('batt.health')} ({healthRange[0]} - {healthRange[1]}%)
-            </div>
-            <Slider range min={0} max={100} value={healthRange} onChange={v => setHealthRange(v as [number, number])}
-              styles={{ track: { background: WH.teal } }} />
-
-            <div style={{ fontSize: '0.75rem', color: WH.textMuted, marginBottom: '0.125rem' }}>
-              {t('batt.soc')} ({socRange[0]} - {socRange[1]}%)
-            </div>
-            <Slider range min={0} max={100} value={socRange} onChange={v => setSocRange(v as [number, number])}
-              styles={{ track: { background: WH.blue } }} />
-
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.75rem' }}>
-              <ATooltip title={t('batt.freshOnlyHint')}>
-                <span style={{ fontSize: '0.75rem', color: WH.textMuted }}>{t('batt.freshOnly')}</span>
-              </ATooltip>
-              <Switch size="small" checked={freshOnly} onChange={setFreshOnly} />
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.625rem' }}>
-              <ATooltip title={t('batt.includeNullHint')}>
-                <span style={{ fontSize: '0.75rem', color: WH.textMuted }}>{t('batt.includeNull')}</span>
-              </ATooltip>
-              <Switch size="small" checked={includeNullMetric} onChange={setIncludeNullMetric} />
-            </div>
-
-            <div style={{ marginTop: '0.875rem', paddingTop: '0.625rem', borderTop: '1px dashed rgba(0, 217, 255,0.15)', fontSize: '0.6875rem', color: WH.textDim }}>
-              {t('batt.matched')}: <span style={{ color: WH.teal, fontWeight: 700 }}>{filtered.length}</span> / {batteries.length}
-              {filterActive && <Tag color="cyan" style={{ marginLeft: '0.375rem', border: 'none' }}>{t('batt.filtered')}</Tag>}
-            </div>
+      {/* 分布图 */}
+      <SectionTitle icon={<DashboardOutlined />} title={t('batt.distribution')} sub={t('batt.distributionSub')} />
+      <Row gutter={[12, 12]}>
+        <Col xs={24} md={12} xl={8}>
+          <Card size="small" style={cardStyle}
+            title={<span style={{ color: WH.text, fontSize: '0.8125rem' }}>{t('batt.socDist')}</span>}
+            extra={<span style={{ fontSize: '0.6875rem', color: WH.textDim }}>{freshOnly ? t('batt.freshSubset') : t('batt.allData')}</span>}>
+            <ReactECharts option={pieOption(view.socDist, SOC_COLORS)} style={{ height: CHART_H }} notMerge />
           </Card>
         </Col>
-
-        {/* ===== 主区 ===== */}
-        <Col xs={24} lg={19} xl={20}>
-          {/* KPI 卡片 */}
-          <Row gutter={[12, 12]}>
-            <Col xs={12} sm={8} lg={6} xxl={3}>
-              <KpiCard value={view.total} label={t('batt.kpiBatteries')} color={WH.teal}
-                icon={<ThunderboltOutlined />} sub={`${view.sites} ${t('batt.sitesUnit')}`}
-                hint={t('batt.hintBatteries')} />
-            </Col>
-            <Col xs={12} sm={8} lg={6} xxl={3}>
-              <KpiCard value={view.sites} label={t('batt.kpiSites')} color={WH.blue}
-                icon={<EnvironmentOutlined />} hint={t('batt.hintSites')} />
-            </Col>
-            <Col xs={12} sm={8} lg={6} xxl={3}>
-              <KpiCard value={`${view.freshRate}%`} label={t('batt.kpiFreshRate')}
-                color={view.freshRate >= 80 ? '#51cf66' : view.freshRate >= 50 ? '#ffd43b' : '#ff922b'}
-                icon={<ClockCircleOutlined />} sub={`${view.freshCount}/${view.baseTotal}`}
-                hint={t('batt.hintFreshRate')} />
-            </Col>
-            <Col xs={12} sm={8} lg={6} xxl={3}>
-              <KpiCard value={view.avgSoc == null ? '--' : `${view.avgSoc}%`} label={t('batt.kpiAvgSoc')}
-                color={(view.avgSoc ?? 100) < 50 ? '#ff922b' : '#ffd43b'}
-                icon={<DashboardOutlined />} hint={t('batt.hintAvgSoc')} />
-            </Col>
-            <Col xs={12} sm={8} lg={6} xxl={3}>
-              <KpiCard value={view.avgHealth == null ? '--' : `${view.avgHealth}%`} label={t('batt.kpiAvgHealth')}
-                color="#51cf66" icon={<HeartOutlined />}
-                sub={`${t('batt.degraded')}: ${view.degraded}`} hint={t('batt.hintAvgHealth')} />
-            </Col>
-            <Col xs={12} sm={8} lg={6} xxl={3}>
-              <KpiCard value={view.discharging} label={t('batt.kpiDischarging')} color="#ff922b"
-                icon={<PoweroffOutlined />} sub={`${view.dischargingSites} ${t('batt.sitesUnit')}`}
-                hint={t('batt.hintDischarging')} />
-            </Col>
-            <Col xs={12} sm={8} lg={6} xxl={3}>
-              <KpiCard value={view.critical} label={t('batt.kpiCriticalSoc')} color="#ff4757"
-                icon={<AlertOutlined />} sub={`${view.criticalSites} ${t('batt.sitesUnit')}`}
-                hint={t('batt.hintCriticalSoc')} />
-            </Col>
-            <Col xs={12} sm={8} lg={6} xxl={3}>
-              <KpiCard value={view.stale} label={t('batt.kpiStale')} color="#7c8ff0"
-                icon={<DatabaseOutlined />} sub={`${view.staleSites} ${t('batt.sitesUnit')}`}
-                hint={t('batt.hintStale')} />
-            </Col>
-          </Row>
-
-          {/* 分布图 */}
-          <SectionTitle icon={<DashboardOutlined />} title={t('batt.distribution')} sub={t('batt.distributionSub')} />
-          <Row gutter={[12, 12]}>
-            <Col xs={24} md={12} xl={8}>
-              <Card size="small" style={cardStyle}
-                title={<span style={{ color: WH.text, fontSize: '0.8125rem' }}>{t('batt.socDist')}</span>}
-                extra={<span style={{ fontSize: '0.6875rem', color: WH.textDim }}>{freshOnly ? t('batt.freshSubset') : t('batt.allData')}</span>}>
-                <ReactECharts option={pieOption(view.socDist, SOC_COLORS)} style={{ height: CHART_H }} notMerge />
-              </Card>
-            </Col>
-            <Col xs={24} md={12} xl={8}>
-              <Card size="small" style={cardStyle}
-                title={<span style={{ color: WH.text, fontSize: '0.8125rem' }}>{t('batt.statusDist')}</span>}
-                extra={<span style={{ fontSize: '0.6875rem', color: WH.textDim }}>{t('batt.statusHint')}</span>}>
-                <ReactECharts option={pieOption(view.statusDist, STATUS_COLORS)} style={{ height: CHART_H }} notMerge />
-              </Card>
-            </Col>
-            <Col xs={24} md={12} xl={8}>
-              <Card size="small" style={cardStyle}
-                title={<span style={{ color: WH.text, fontSize: '0.8125rem' }}>{t('batt.freshnessDist')}</span>}
-                extra={<span style={{ fontSize: '0.6875rem', color: WH.textDim }}>{t('batt.freshnessHint')}</span>}>
-                <ReactECharts option={pieOption(view.freshDist, FRESH_COLORS)} style={{ height: CHART_H }} notMerge />
-              </Card>
-            </Col>
-            <Col xs={24} xl={12}>
-              <Card size="small" style={cardStyle}
-                title={<span style={{ color: WH.text, fontSize: '0.8125rem' }}>{t('batt.healthDist')}</span>}
-                extra={
-                  <Segmented className="wh-seg" size="small" value={healthMode} onChange={v => setHealthMode(v as any)}
-                    options={[{ label: t('batt.byGrade'), value: 'bucket' }, { label: t('batt.histogram'), value: 'hist' }]} />
-                }>
-                <ReactECharts option={healthBarOption} style={{ height: CHART_H }} notMerge />
-                <div style={{ fontSize: '0.6875rem', color: WH.textDim, marginTop: 'var(--wh-space-xs)' }}>{t('batt.healthNote')}</div>
-              </Card>
-            </Col>
-            <Col xs={24} xl={12}>
-              <Card size="small" style={cardStyle}
-                title={<span style={{ color: WH.text, fontSize: '0.8125rem' }}><ApartmentOutlined style={{ marginRight: '0.375rem', color: WH.teal }} />{t('batt.byCategory')}</span>}>
-                <ReactECharts option={categoryOption} style={{ height: CHART_H }} notMerge />
-              </Card>
-            </Col>
-          </Row>
-
-          {/* 趋势 */}
-          <SectionTitle icon={<LineChartOutlined />} title={t('batt.trend')}
-            sub={trend.source === 'poll' ? t('batt.trendPoll') : t('batt.trendReading')} />
+        <Col xs={24} md={12} xl={8}>
           <Card size="small" style={cardStyle}
+            title={<span style={{ color: WH.text, fontSize: '0.8125rem' }}>{t('batt.statusDist')}</span>}
+            extra={<span style={{ fontSize: '0.6875rem', color: WH.textDim }}>{t('batt.statusHint')}</span>}>
+            <ReactECharts option={pieOption(view.statusDist, STATUS_COLORS)} style={{ height: CHART_H }} notMerge />
+          </Card>
+        </Col>
+        <Col xs={24} md={12} xl={8}>
+          <Card size="small" style={cardStyle}
+            title={<span style={{ color: WH.text, fontSize: '0.8125rem' }}>{t('batt.freshnessDist')}</span>}
+            extra={<span style={{ fontSize: '0.6875rem', color: WH.textDim }}>{t('batt.freshnessHint')}</span>}>
+            <ReactECharts option={pieOption(view.freshDist, FRESH_COLORS)} style={{ height: CHART_H }} notMerge />
+          </Card>
+        </Col>
+        <Col xs={24} xl={12}>
+          <Card size="small" style={cardStyle}
+            title={<span style={{ color: WH.text, fontSize: '0.8125rem' }}>{t('batt.healthDist')}</span>}
             extra={
-              <Radio.Group size="small" value={trendDays} onChange={e => setTrendDays(e.target.value)}>
-                <Radio.Button value={1}>{t('batt.range24h')}</Radio.Button>
-                <Radio.Button value={7}>{t('batt.range7d')}</Radio.Button>
-                <Radio.Button value={30}>{t('batt.range30d')}</Radio.Button>
-              </Radio.Group>
+              <Segmented className="wh-seg" size="small" value={healthMode} onChange={v => setHealthMode(v as any)}
+                options={[{ label: t('batt.byGrade'), value: 'bucket' }, { label: t('batt.histogram'), value: 'hist' }]} />
             }>
-            {(trend.points || []).length === 0
-              ? <Empty description={<span style={{ color: WH.textMuted }}>{t('batt.noTrend')}</span>} />
-              : <ReactECharts option={trendOption} style={{ height: 300 }} notMerge />}
+            <ReactECharts option={healthBarOption} style={{ height: CHART_H }} notMerge />
+            <div style={{ fontSize: '0.6875rem', color: WH.textDim, marginTop: 'var(--wh-space-xs)' }}>{t('batt.healthNote')}</div>
           </Card>
-
-          {/* 告警表 */}
-          <SectionTitle icon={<WarningOutlined />} title={t('batt.alarms')} sub={`${alarms.length} ${t('batt.records')}`} />
-          <Card size="small" style={cardStyle}>
-            <div style={{ display: 'flex', gap: 'var(--wh-space-sm)', marginBottom: '0.625rem', flexWrap: 'wrap' }}>
-              <Segmented className="wh-seg" size="small" value={alarmSev} onChange={v => setAlarmSev(v as string)}
-                options={[
-                  { label: t('batt.all'), value: 'all' },
-                  { label: `Critical (${alarmCounts.Critical || 0})`, value: 'Critical' },
-                  { label: `Major (${alarmCounts.Major || 0})`, value: 'Major' },
-                  { label: `Minor (${alarmCounts.Minor || 0})`, value: 'Minor' },
-                ]} />
-              <Input allowClear size="small" style={{ width: 'min(100%, 13.75rem)' as any }} prefix={<SearchOutlined style={{ color: WH.textDim }} />}
-                placeholder={t('batt.searchAlarm')} value={alarmSearch} onChange={e => setAlarmSearch(e.target.value)} />
-              <span style={{ flex: 1 }} />
-              <Button size="small" icon={<DownloadOutlined />} onClick={() => exportXlsx(alarms, 'battery_alarms')}
-                style={{ color: WH.teal, borderColor: 'rgba(0, 217, 255,0.35)', background: 'transparent' }}>
-                {t('batt.export')}
-              </Button>
-            </div>
-            <div className="wh-table-responsive">
-              <Table rowKey={(r: any, i) => `${r.position}_${r.type}_${i}`} size="small"
-                dataSource={alarms} columns={alarmColumns as any}
-                scroll={{ x: 'max-content', y: 420 }}
-                pagination={{ pageSize: 20, showSizeChanger: true, showTotal: (n) => `${n} ${t('batt.records')}` }} />
-            </div>
-          </Card>
-
-          {/* 站点汇总 */}
-          <SectionTitle icon={<EnvironmentOutlined />} title={t('batt.siteSummary')} sub={`${sites.length} ${t('batt.sitesUnit')}`} />
-          <Card size="small" style={cardStyle}>
-            <div style={{ display: 'flex', marginBottom: '0.625rem', flexWrap: 'wrap', gap: 'var(--wh-space-sm)' }}>
-              <span style={{ fontSize: '0.75rem', color: WH.textDim }}>{t('batt.siteSummaryHint')}</span>
-              <span style={{ flex: 1 }} />
-              <Button size="small" icon={<DownloadOutlined />} onClick={() => exportXlsx(sites, 'battery_sites')}
-                style={{ color: WH.teal, borderColor: 'rgba(0, 217, 255,0.35)', background: 'transparent' }}>
-                {t('batt.export')}
-              </Button>
-            </div>
-            <div className="wh-table-responsive">
-              <Table rowKey="site" size="small" dataSource={sites} columns={siteColumns as any}
-                scroll={{ x: 'max-content', y: 460 }}
-                pagination={{ pageSize: 20, showSizeChanger: true, showTotal: (n) => `${n} ${t('batt.sitesUnit')}` }} />
-            </div>
+        </Col>
+        <Col xs={24} xl={12}>
+          <Card size="small" style={cardStyle}
+            title={<span style={{ color: WH.text, fontSize: '0.8125rem' }}><ApartmentOutlined style={{ marginRight: '0.375rem', color: WH.teal }} />{t('batt.byCategory')}</span>}>
+            <ReactECharts option={categoryOption} style={{ height: CHART_H }} notMerge />
           </Card>
         </Col>
       </Row>
+
+      {/* 趋势 */}
+      <SectionTitle icon={<LineChartOutlined />} title={t('batt.trend')}
+        sub={trend.source === 'poll' ? t('batt.trendPoll') : t('batt.trendReading')} />
+      <Card size="small" style={cardStyle}
+        extra={
+          <Radio.Group size="small" value={trendDays} onChange={e => setTrendDays(e.target.value)}>
+            <Radio.Button value={1}>{t('batt.range24h')}</Radio.Button>
+            <Radio.Button value={7}>{t('batt.range7d')}</Radio.Button>
+            <Radio.Button value={30}>{t('batt.range30d')}</Radio.Button>
+          </Radio.Group>
+        }>
+        {(trend.points || []).length === 0
+          ? <Empty description={<span style={{ color: WH.textMuted }}>{t('batt.noTrend')}</span>} />
+          : <ReactECharts option={trendOption} style={{ height: 300 }} notMerge />}
+      </Card>
+
+      {/* 告警表 */}
+      <SectionTitle icon={<WarningOutlined />} title={t('batt.alarms')} sub={`${alarms.length} ${t('batt.records')}`} />
+      <Card size="small" style={cardStyle}>
+        <div style={{ display: 'flex', gap: 'var(--wh-space-sm)', marginBottom: '0.625rem', flexWrap: 'wrap' }}>
+          <Segmented className="wh-seg" size="small" value={alarmSev} onChange={v => setAlarmSev(v as string)}
+            options={[
+              { label: t('batt.all'), value: 'all' },
+              { label: `Critical (${alarmCounts.Critical || 0})`, value: 'Critical' },
+              { label: `Major (${alarmCounts.Major || 0})`, value: 'Major' },
+              { label: `Minor (${alarmCounts.Minor || 0})`, value: 'Minor' },
+            ]} />
+          <Input allowClear size="small" style={{ width: 'min(100%, 13.75rem)' as any }} prefix={<SearchOutlined style={{ color: WH.textDim }} />}
+            placeholder={t('batt.searchAlarm')} value={alarmSearch} onChange={e => setAlarmSearch(e.target.value)} />
+          <span style={{ flex: 1 }} />
+          <Button size="small" icon={<DownloadOutlined />} onClick={() => exportXlsx(alarms, 'battery_alarms')}
+            style={{ color: WH.teal, borderColor: 'rgba(0, 217, 255,0.35)', background: 'transparent' }}>
+            {t('batt.export')}
+          </Button>
+        </div>
+        <div className="wh-table-responsive">
+          <Table rowKey={(r: any, i) => `${r.position}_${r.type}_${i}`} size="small"
+            dataSource={alarms} columns={alarmColumns as any}
+            scroll={{ x: 'max-content', y: 420 }}
+            pagination={{ pageSize: 20, showSizeChanger: true, showTotal: (n) => `${n} ${t('batt.records')}` }} />
+        </div>
+      </Card>
+
+      {/* 站点汇总 */}
+      <SectionTitle icon={<EnvironmentOutlined />} title={t('batt.siteSummary')} sub={`${sites.length} ${t('batt.sitesUnit')}`} />
+      <Card size="small" style={cardStyle}>
+        <div style={{ display: 'flex', marginBottom: '0.625rem', flexWrap: 'wrap', gap: 'var(--wh-space-sm)' }}>
+          <span style={{ fontSize: '0.75rem', color: WH.textDim }}>{t('batt.siteSummaryHint')}</span>
+          <span style={{ flex: 1 }} />
+          <Button size="small" icon={<DownloadOutlined />} onClick={() => exportXlsx(sites, 'battery_sites')}
+            style={{ color: WH.teal, borderColor: 'rgba(0, 217, 255,0.35)', background: 'transparent' }}>
+            {t('batt.export')}
+          </Button>
+        </div>
+        <div className="wh-table-responsive">
+          <Table rowKey="site" size="small" dataSource={sites} columns={siteColumns as any}
+            scroll={{ x: 'max-content', y: 460 }}
+            pagination={{ pageSize: 20, showSizeChanger: true, showTotal: (n) => `${n} ${t('batt.sitesUnit')}` }} />
+        </div>
+      </Card>
 
       {/* 站点下钻 */}
       <Modal open={!!drillSite} onCancel={() => setDrillSite(null)} footer={null} width={'min(95vw, 61.25rem)' as any}

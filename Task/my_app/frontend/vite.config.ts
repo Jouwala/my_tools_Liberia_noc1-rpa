@@ -1,5 +1,38 @@
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+
+// ---------------------------------------------------------------------------
+// 页面级 chunk 名单：App.tsx 里所有 lazy(() => import('./pages/XXX')) 的页面名。
+//
+// 用途（下方 modulePreload.resolveDependencies）：动态 import 一个页面时，vite 会
+// 把它的 **依赖闭包** 全部作为 <link rel=modulepreload> 一起下发。rolldown 会把
+// 共享业务模块合并进「第一个引用它的页面 chunk」，于是某页面的闭包里可能混进
+// **别的页面** 的入口 chunk（历史上 GISMap 的闭包里就挂着 ArchiveList / DataSync /
+// WarehouseDashboard / SpReport / ComReport 等一长串）。结果：进一个页面要下载
+// 一堆用不上的代码。这里按名单把「别的页面的入口 chunk」从 preload 列表里剔除。
+//
+// ⚠ 只剔除 preload（提前下载），**不改动模块图**：真正需要的静态依赖仍由浏览器
+//   按 ESM 语义加载，不会缺模块；最坏情况只是少了一点提前量，不会白屏。
+// ⚠ 名单从 App.tsx 现读，新增/改名页面无需维护第二份清单。
+// ---------------------------------------------------------------------------
+const PAGE_CHUNK_NAMES: Set<string> = (() => {
+  const names = new Set<string>()
+  try {
+    const src = readFileSync(fileURLToPath(new URL('./src/App.tsx', import.meta.url)), 'utf8')
+    const re = /lazy\(\(\)\s*=>\s*import\(['"]\.\/pages\/([^'"]+)['"]\)\)/g
+    let m: RegExpExecArray | null
+    while ((m = re.exec(src))) names.add(m[1].split('/')[0])
+  } catch {
+    // 读不到（如从别的目录构建）就退化成不过滤，不影响构建成功
+  }
+  return names
+})()
+
+/** `assets/GISMap-DJIQUQjl.js` -> `GISMap`；`assets/leaflet-vh-t_kPv.css` -> `leaflet-vh` */
+const chunkBaseName = (f: string): string =>
+  (f.split('/').pop() || '').replace(/-[A-Za-z0-9_-]{6,}\.(js|css)$/, '')
 
 export default defineConfig({
   // 让前端资源从 /myapp/ 子路径加载，配合 nginx 的 location /myapp/ 反代
@@ -60,6 +93,23 @@ export default defineConfig({
     emptyOutDir: false,
     // 提升单包体积告警阈值，避免 2.9MB 单包在构建日志刷红
     chunkSizeWarningLimit: 1200,
+    // 2026-10-29 首屏提速：裁剪动态 import 的 preload 列表（见文件头 PAGE_CHUNK_NAMES
+    // 注释）。只动 preload、不动模块图；入口 HTML（hostType=html）的依赖原样保留。
+    modulePreload: {
+      resolveDependencies(filename, deps, { hostType }) {
+        if (hostType !== 'js') return deps
+        const self = chunkBaseName(filename)
+        const kept = deps.filter(d => {
+          const base = chunkBaseName(d)
+          const isOtherPage = base && PAGE_CHUNK_NAMES.has(base) && base !== self
+          return !isOtherPage
+        })
+        if (kept.length !== deps.length) {
+          console.log(`[modulePreload] ${filename}: ${deps.length} -> ${kept.length} (剔除 ${deps.length - kept.length})`)
+        }
+        return kept
+      },
+    },
     rollupOptions: {
       output: {
         // 【循环分包修复·勿删】rolldown 默认把 ESM/CJS 互操作 runtime helper 合并进

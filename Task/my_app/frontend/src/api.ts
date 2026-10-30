@@ -775,9 +775,38 @@ export interface PortalUser {
   role: 'admin' | 'viewer'
   mustChangePassword?: boolean
   createdAt?: string
-  landing?: string | null
+  /** 登录后落地目标。
+   * ⚠️ 服务端存的是**对象** {view?, cardId?}（后端 LandingTarget），
+   *   不是字符串 —— 早期 my_app 的类型声明写成 string，导致列表里
+   *   `{u.landing}` 直接把对象当子节点渲染，React 抛 #31 整个白屏。
+   *   历史遗留：库里的 landing 列是 JSON 串，读出来是对象。 */
+  landing?: PortalLandingTarget | null
   allowedGroups?: string[] | null
   allowedCards?: string[] | null
+  /** 团队门户归属（fo/bo/flm/smc/cxo）：决定登录后自动进入哪个团队门户。
+      null/undefined = 未指派（停在主门户，且不放行任何团队门户）。
+      与门户侧 src/auth/AuthContext.tsx 的 TEAM_IDS 保持一致。 */
+  team?: TeamId | null
+}
+
+/** 登录后落地目标（与后端 server/auth/types.ts 的 LandingTarget 对齐） */
+export interface PortalLandingTarget {
+  /** 门户自身视图；留空 = 不自动切换视图 */
+  view?: 'grid' | 'list' | 'matrix' | 'tasks'
+  /** 目标卡片 id */
+  cardId?: string
+}
+
+/** 团队门户 id —— 与门户侧 AuthContext.tsx 的 TEAM_IDS 一一对应 */
+export type TeamId = 'fo' | 'bo' | 'flm' | 'smc' | 'cxo'
+
+/** 团队 id → 门户路径前缀。**唯一**的「团队 → URL」映射（两端同步维护）。 */
+export const TEAM_PORTAL_PATHS: Record<TeamId, string> = {
+  fo: '/v3/fo_portal/',
+  bo: '/v3/bo_portal/',
+  flm: '/v3/flm_portal/',
+  smc: '/v3/smc_portal/',
+  cxo: '/v3/cxo_portal/',
 }
 
 export interface PortalRegRequest {
@@ -835,7 +864,13 @@ export function portalResetPassword(id: string, newPassword: string) {
 /** 用户管理：改落地页 / 看板分组 / 看板权限（需 admin；传 null 表示清除） */
 export function portalSetUserProfile(
   id: string,
-  patch: { landing?: string | null; allowedGroups?: string[] | null; allowedCards?: string[] | null },
+  patch: {
+    landing?: PortalLandingTarget | null
+    allowedGroups?: string[] | null
+    allowedCards?: string[] | null
+    /** 团队门户归属：null = 清除指派；非法值 = 视为未指派（不静默保留旧值） */
+    team?: TeamId | null
+  },
 ) {
   return portalFetch<{ user: PortalUser }>('/auth/users/profile', {
     method: 'POST',
@@ -923,21 +958,45 @@ export function readPortalToken(): string | null {
   try { return localStorage.getItem(PORTAL_TOKEN_KEY) || null } catch { return null }
 }
 
+/**
+ * 启动引导期间拿到的当前角色（'admin' | 'viewer' | null=未知）。
+ *
+ * 为什么单独存一份（2026-10-29）：左侧目录「非 admin 隐藏」这个判定需要在
+ * **首屏渲染前**就知道角色，否则会出现「目录先出现、/auth/me 回来后再消失」的闪动。
+ * 引导（bootstrapAuth）在 React 渲染**之前**完成（见 main.tsx），把角色存到这里，
+ * App 首帧就能同步读到，闪动从根上消除。
+ *
+ * ⚠️ 这是**引导期快照**，不是缓存：每次页面加载都会重新取，取不到就是 null
+ * （按 fail-closed 处理，即按非 admin 隐藏目录）。绝不写入 localStorage ——
+ * 那会让「上一个账号是 admin」的用户在换成 viewer 账号后首屏闪出目录。
+ */
+let _bootRole: string | null = null
+
+/** 读取引导期拿到的角色（null = 未知）。 */
+export function getBootRole(): string | null {
+  return _bootRole
+}
+
 /** 启动前把门户 token 换成 myapp 会话 Cookie，返回「是否已具备访问数据的身份」。 */
 export async function bootstrapAuth(): Promise<boolean> {
   const token = readPortalToken()
   if (token) {
     try {
-      await portalLogin(token)
+      const resp = await portalLogin(token)
+      const u = resp?.data?.user
+      if (u?.role) _bootRole = String(u.role)
       return true
     } catch { /* token 失效 / 门户不可达：继续往下探测会话 */ }
   }
   try {
     const mode = await getAuthMode()
-    if (mode.data?.authEnabled === false) return true // 日常开发免登录
+    // 免登录模式（日常开发）：后端一律按开发管理员放行（portal_auth.DEV_USER）
+    if (mode.data?.authEnabled === false) { _bootRole = 'admin'; return true }
   } catch { /* 探测失败按未登录处理 */ }
   try {
-    await getAuthMe()
+    const me = await getAuthMe()
+    const u = me?.data?.user
+    if (u?.role) _bootRole = String(u.role)
     return true
   } catch {
     return false

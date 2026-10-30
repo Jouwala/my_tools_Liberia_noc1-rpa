@@ -57,10 +57,15 @@ schemas/   预留，实际为空
 - `gis` 与 `realtime_alarm` 复用同一组件：`<GISMap/>` 与 `<GISMap mode="realtime"/>`（`App.tsx:286-289`）。
 - 共享组件只有 4 个：`DraggableClickModal`（下钻弹窗）、`LegacyToolFrame`（iframe 壳）、`MetricExplain`（指标口径说明）、`SearchableExportTable`（可搜索导出表）。
 
-**自动刷新**（`App.tsx` 顶部「自动刷新（大屏 / NOC 值班场景）」注释块与 `performAutoRefresh`）：顶栏统一控制，间隔存 `localStorage['myapp_auto_refresh_sec']`，可选 `[0,30,60,300,600,900,1800]` 秒、看板页默认 300 秒。
+**自动刷新**（`App.tsx` 顶部「自动刷新（大屏 / NOC 值班场景）」注释块与 `performAutoRefresh`）：顶栏统一控制，间隔存 `localStorage['myapp_auto_refresh_sec']`，可选 `[0,30,60,300,600,900,1800]` 秒。生效值 = **用户选择 > 本页默认 `AR_PAGE_DEFAULTS` > 全局默认 300 秒**。2026-10-29 用户定的每页策略：**实时告警相关（`realtime_alarm` / `alarm` / `alarmManagement`）= 60 秒，其余看板页 = 300 秒**（`mwRealTime` 虽名「实时」仍维持 900 —— 它的数据 15 分钟才同步一次，提到 60s 只会多打 15 倍查询而画面不变）。⚠ 顶栏一旦手动选择，`arOverride` 会**全局**盖过每页默认（含 60s 那几页），要回到按页策略需清掉 `myapp_auto_refresh_sec`。
 
 - **白名单制**：只有「看板 / 展示页」参与自动刷新（`AR_BOARD_PAGES`）；配置、操作、工具类页面（如 `settings` / `upload` / `tables` / `ip_trace` / `eflow_*` 等）的生效间隔恒为 0，**完全不刷新**，顶栏选择器对它们禁用。
-- **两条刷新路径**：软刷新页（`AR_SOFT_REFRESH_PAGES`）由外壳广播 `postMessage({__type:'myapp-refresh'})` 在 iframe 内原地重拉；其余看板页走硬重挂载（`key={refreshTick}` 变化 → 组件重挂载）。广播无副作用，**在 `arInteractionInProgress()` 拦截之前发出**，故全屏 / 后台也照发；硬重挂载有副作用，才受「用户正忙」与 `document.fullscreenElement` 拦截。
+- **三条刷新路径**（2026-10-29 由两条拆成三条）：
+  1. **iframe / legacy 页软刷新**（`AR_SOFT_REFRESH_PAGES`）：外壳广播 `postMessage({__type:'myapp-refresh'})`，文档内原地重拉；
+  2. **同文档 React 页原地刷新**（`AR_INPLACE_REFRESH_PAGES`，目前只有 `person`）：外壳 `document.dispatchEvent(new CustomEvent('myapp-refresh'))`，页面自己静默重拉数据；
+  3. **硬重挂载**（其余看板页）：`key={refreshTick}` 变化 → 整页重挂载。
+  前两条无副作用，**在 `arInteractionInProgress()` 拦截之前发出**，故全屏 / 后台 / 弹层打开时照刷；只有第 3 条受「用户正忙」与 `document.fullscreenElement` 拦截。
+  ⚠ `person` 走第 2 条的原因：它的间隔本来就是 300s，用户反馈「刷新太快」实际指的是**每 5 分钟一次的整页重建** —— Leaflet 地图销毁重建、flyTo 回全国视角、图层与县名标签全部重画，在门户 iframe 里就是一下闪白。页面侧的 `load(silent)` 因此**不清 loading、不清 error、失败时保留旧数据**（详见 `PersonMap.tsx` 取数处注释）。新页加入 `AR_INPLACE_REFRESH_PAGES` 前必须确认它的取数能在不清 loading 的前提下重跑。
 - **生效间隔**通过 `localStorage['myapp_auto_refresh_effective']` 公开给 legacy 页，并写 `localStorage['myapp_auto_refresh_is_board']`（`'1'/'0'`）标记本页是否看板。
 - **legacy 页自刷新安全网**：7 个 iframe 看板页 + 2 个 React 内嵌页统一引入 `public/myapp-refresh-protocol.js`（`MyAppRefresh.install`）—— 父外壳广播即「提前触发」原地重拉，广播被挡时按生效间隔自调度兜底；非看板页不启用；看板页全屏时忽略「关闭」按本页默认兜底。`alarm-management.html` 有自身 live 模式，仅补广播入口。
 

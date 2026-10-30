@@ -1,0 +1,3228 @@
+/* ============================================================================
+   olbr.css — OLR MS 门户「只读展示版」样式系统
+   ----------------------------------------------------------------------------
+   与 /MsPortal/ 的关系：只读引用它的 data.js / access.js / 图标 / Logo / 接口，
+   不复用它的 portal.js 与 Tailwind 产物，也不写它的任何文件。
+   刻意不用 Tailwind：上一版「不高级」的根因就是令牌层是品牌青 #0e7490，
+   组件层却散落着 text-blue-600 / hover:border-blue-400 / from-blue-700 等硬编码
+   蓝，再加按分组上色的 6 个色相图标砖 —— 一屏三种强调色互相打架。
+   这里只有两个色相：品牌青（一切可交互）+ OLR 橙（只标 L0 决策层）。
+
+   层级只有三级，靠减法区分而不是加装饰：
+     L0 焦点  有底色、有内阴影、标题大、唯一允许用橙色
+     L1 主视图 白卡 + 1px 边
+     L2 辅助  无卡、无边、无阴影，只有一行标题 + 条目
+   容器只有三种：焦点卡 .fcard（L0）、条目卡 .card（卡片流）、辅助行 .lrow（无卡）。
+
+   ----------------------------------------------------------------------------
+   2026-09-30 · 字阶令牌化
+   ----------------------------------------------------------------------------
+   在令牌层补上**字号 / 行高 / 字距**三组令牌（见 :root 里的 --fs-* / --lh-* /
+   --ls-*），并全量替换掉散落的手写像素字号。起因是全文件曾有 18 个不同 px 值
+   出现在 160+ 处声明里，相邻 0.5px 的档位人眼不可分辨、同种语义在不同组件里
+   各写一个值（三张表三种表头字号）、改一处口径要同步多处。
+
+   归并结果：18 档 → 7 档字阶；行高 9 档 → 3 档；字距 em/px 混用 9 种 → 3 档；
+   字重去掉冗余的 800 档。**图标字号刻意不进字阶**（跟图标视觉重量，不跟文字
+   层级），文件里凡保留裸 px 的地方都加了「图标字号」或「特例」注释标明原因。
+   详细归并口径见 :root 字阶块处的注释。视觉预期：几乎无变化（只归并了 0.5px
+   级别的差），变的是「以后改字号只需动一处」。
+
+   ----------------------------------------------------------------------------
+   附：本文件里「当前没有任何元素会命中」的规则清单（2026-09-30 复核）
+   ----------------------------------------------------------------------------
+   成因：v1 是「只读精简版」，砍掉了 L1 分组页签面板、L0 焦点区、等级徽章、
+   QC 卡图标、右侧滑入抽屉等，但对应 CSS **刻意保留**（不是漏删）——
+   一是为了与 /olbrportal/（v0，那些功能还在用：v0 的 renderViews() 会调
+   subLocatorHtml / subManageHtml 画出 .subs-v/.subv）保持**类名可对照**，
+   二是因为「改版前长什么样」是排查显示问题的第一手依据。
+   以下选择器在 v1 屏幕上不会出现（已逐个对 index.html / olbr.js / olbr-data.js
+   核实：或零引用，或只在注释里出现）：
+     · 等级徽章：.qc-lv-ok / .qc-lv-warn / .qc-lv-crit / .qc-lv-na / .qc-lvchip
+     · 卡内图标盒：.qc-ico
+     · 卡片尺寸类：.qc-card--lg / .qc-card--sm（会盖掉 .qc-num 的 24px，见该处）
+     · L0 焦点区 / L1 页签面板：.stage / .vcol / .l0-col / .view-1 / .tabs-v /
+       .tabv / .subs-v / .subv（及 .sub-t/.sub-x/.sub-add/.sub-i 等子控件）
+     · 旧右侧抽屉：.scrim / .drawer / .dr-head / .dr-sub / .dr-tools / .dr-body /
+       .dr-foot / .dr-empty
+   判定：**保留**。它们不执行、不影响性能与首屏；删掉反而破坏与 v0 的对照约定，
+   且 v0 侧仍在用同名类。将来若确定两门户不再需要对照，可整块删除 —— 但那是
+   「改结构」不是「优化」，需单独评审（见 docs/architecture.md 九之四）。
+   ⚠️ 别被"占位"误导：.map-slot / .email-slot 是**活的**（index.html 在用），
+      不在本清单里。
+   ========================================================================== */
+
+/* --------------------------------------------------------------- tokens --
+   色值一律照抄项目口径，不在这里另发明一套：
+     唯一来源 = MsPortal/assets/portal.css 的 --mp-* 令牌块
+              （它自己又抄自 my_app public/vmax_cxo_dashboard_90days.html），
+              顶栏/OLR 橙/ZTE 蓝另见 MsPortal/assets/masthead.css。
+   对位关系：--surface=--mp-surface-flat，--line=--mp-border-soft（分隔线），
+   --line-2=--mp-border（卡框/按钮/输入框），--b=--mp-brand，--b-ink=--mp-brand-text，
+   --b-on=--mp-on-accent，--ok/--warn/--crit=--mp-ok/--mp-warn/--mp-sev-critical。
+   改色先去改上面那两个文件，再同步到这里；本页面不 link portal.css
+   （它重定义了 .gb/.chip/.btn/.toast/.tabs/.panel，会和这套类名打架）。      */
+:root {
+  color-scheme: light;
+
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC",
+          "Hiragino Sans GB", "Microsoft YaHei", "WenQuanYi Micro Hei", sans-serif;
+  /* 2026-10-01：末尾补中文字体 "Microsoft YaHei"（原栈到 monospace 即止）。
+     为什么必须有：本页 **37 处**用 --mono，其中至少 6 处会渲染中文 ——
+     `.esc-note`(数据源：升级机制.xlsx)、`.gf-note`(模板：#1 …)、
+     `.canvas-note`(中文地图标题)、`.meta`(含负责人/分组中文名) 等。
+     栈里没有中文字体时，这些汉字会落到最后的 `monospace` 兜底
+     （Windows 上多为 Courier New / 宋体），与前面 Consolas 的拉丁等宽
+     **字形、字宽、基线都不同**，中英混排处观感会明显"跳一下"。
+     补 "Microsoft YaHei" 后中文稳定走雅黑，与 --sans 的中文回退同一款，
+     全页中文观感统一。
+     ⚠️ 放在 monospace **之前**：等宽拉丁仍优先（Consolas 等），
+        中文才轮到雅黑；雅黑本身非等宽，但中文在等宽区里本就是"整字"，
+        对齐诉求（tabular-nums）只针对数字/拉丁，不受影响。 */
+  /* 2026-10-11 改：栈首加 "JetBrains Mono"（设计打磨 A2）。
+     为什么只动 --mono 不动 --sans：本页 37 处用 --mono（数字 / 时间戳 /
+     计数 / 表格数字列 / 升级机制电话邮箱），运维场景里**等宽字体一致性
+     比正文西文字体重要得多**。运维每天用 PuTTY / Windows Terminal，
+     对 JetBrains Mono 眼熟、字形识别成本最低。
+     为什么**不**用 webfont：会增加 ~200KB 字体包 + 阻塞首屏渲染；
+     栈里列在首位置 = "本机装了用本机的，没装回退到 Cascadia Mono"，
+     跨平台观感差异从"4 款"收敛到"2-3 款"。 */
+  --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, "Cascadia Mono", Menlo, Consolas,
+          "Microsoft YaHei", monospace;
+
+  /* Speedtest by Ookla 标识的颜色（2026-10-01 加）。
+     浅色主题取参考图实测的笔画核心色 #172143（Ookla 的深海军蓝）；
+     深色主题在 html.dark 里换成一个浅色 —— 官方对深底也提供白色版 lockup，
+     这里按"同一个标识、两套底色"处理，而不是把深蓝硬画在深底上看不见。
+     ⚠️ 改这里等于改品牌标识的呈现，别顺手把它并进 --t1：
+     --t1 是正文色（深色侧是近白），标识需要一个**品牌色**，两者语义不同。 */
+  --logo-ink: #172143;
+
+  --bg: #eaf7fb;
+  --bg-deco: radial-gradient(circle at 15% 5%, rgba(103, 232, 249, .36), transparent 28rem),
+             linear-gradient(145deg, #eefbff 0%, #e7f1fa 56%, #f7fcff 100%);
+  --surface: #ffffff;
+  --surface-2: #f2fbfd;
+  --surface-3: #e7f1fa;
+  /* 粘表格头必须是**不透明**底：深色侧的 --surface-2 是 60% 半透明（项目的
+     --mp-surface-2），跟着行滚过去会在表头下透出重影。这里给一个把
+     surface-2 压在 surface 上合成后的实色档，只用于需要遮住下层的元素。 */
+  --surface-2-solid: #f2fbfd;
+  /* 毛玻璃浮层（吸顶工具条、地图角标）：项目的 --mp-glass-panel 浅色档 */
+  --glass: rgba(255, 255, 255, .86);
+  --line: rgba(14, 116, 144, .10);
+  --line-2: rgba(14, 116, 144, .18);
+
+  --t1: #163047;
+  --t2: #526b7d;
+  /* #5b7288 落在最深的浅色面 #e7f1fa 上只有 4.36:1，项目统一压深到 #596f85 */
+  --t3: #596f85;
+
+  --b: #0e7490;            /* 品牌青：链接 / hover / 选中 / 焦点 */
+  --b-ink: #075063;        /* 需要 AA 的文字档 */
+  --b-line: rgba(14, 116, 144, .55);
+  --b-tint: rgba(14, 116, 144, .08);
+  --b-tint2: rgba(14, 116, 144, .12);
+  --b-on: #ffffff;
+  --grad: linear-gradient(135deg, #0e7490, #0891b2);   /* 卡片左侧竖条 */
+  --hover: rgba(14, 165, 233, .08);
+
+  --hi: #a55a09;           /* OLR 橙（浅色下压深到 AA）：只给 L0 */
+  --hi-line: rgba(180, 105, 20, .40);
+  --hi-tint: rgba(196, 120, 24, .10);
+  /* --olr 已删除（2026-09-25）：原值 #ff9d1c 是「顶栏深底上的 OLR 原色」，
+     但它在本文件里从来没有被 var() 引用过（顶栏 OLR 走 masthead.css 的 --mp-olr），
+     留着只会与新的 #FF7900 形成第二个互相矛盾的橙值。 */
+
+  /* 2026-09-25 用户要求：标题统一用门户标准橙 #FF7900。
+     单独一个令牌而不是改 --hi —— --hi 喂着 .panel[data-tier="0"] .p-hd::before
+     （面板顶部竖条）与 .esc-note--more；当年的第三个消费方 .hit（搜索命中高亮）
+     已随检索轨 2026-10-16 移除。改 --hi 会连带改掉这些使用点，属超范围改动。
+     本令牌**只给标题**（当前唯一使用点 = .band-k）。
+     已知取舍（用户 2026-09-25 明确拍板「就要 #FF7900，可读性我自己拍板」）：
+     实测对比度 深色底 #02050C = 7.76:1、浅色白底 #FFFFFF = 2.63:1。
+     浅色下 2.63:1 低于 WCAG 大字档 3:1 —— 这是用户指定的品牌色优先于无障碍阈值的
+     有意选择，**不是疏漏**。日后若要补回可读性，最小改动是把本行换成同色相压深版
+     （#C25A00，白底约 4.5:1），不必动 .band-k 与深色块。 */
+  --title: #ff7900;
+
+  --ok: #0a6a52;  --ok-tint: rgba(10, 106, 82, .09);
+  --warn: #7c5e07; --warn-tint: rgba(124, 94, 7, .09);
+  --crit: #a2202f; --crit-tint: rgba(162, 32, 47, .08);
+
+  /* ---- Benchmark 行两条走势线的颜色（2026-10-01 加）------------------------
+     这一排的卡片里画**两条**线（Orange / MTN），上面那排的单线卡用的是
+     --qc-accent（= --b 品牌青），所以这里要额外给两个色。
+
+     ⚠️ 2026-10-01 用户指定：「orange 使用橙色的线，MTN 使用黑色的线」——
+     按运营商自己的品牌色分配，比早先那版（青+紫，只按"色相距离最远"挑）
+     更好读：看图的人不用先查图例就知道哪条是哪家。
+     这一版**取代**了原来的 --bf-mtn: #7c3aed 紫，
+     原来的"避开 --ok/--crit 语义色"那条理由仍然成立，这两个值也没踩到它们。
+
+     Orange 用 #f97316：是 Orange 品牌橙，且在浅色白底上够亮、在深色底上
+     也分得开（下面深色档再提亮一档）。
+     它**不等于** --title(#ff7900)：那个是 ZTE 门户标题橙、只给标题用，
+     而且用户 2026-09-25 拍板"就要 #FF7900"是针对 .band-k 的，
+     把那个色借来画线会让"标题色"与"数据线色"两个语义纠缠在一起。
+
+     MTN 是黑底黄字品牌，但线不能画成品牌黄（--warn #f6cf00 在浅色白底上
+     几乎看不见，且 --warn 在本页有"关注"语义）。用户要的是黑线，就取黑：
+       · 浅色档 #1a1a1a —— 不能用纯 #000：与卡片边框/文字的深色(#163047)
+         太接近会显得"这不是一条数据线、而是卡的描边"，
+         抬一档到 #1a1a1a 仍是视觉上的黑，但能靠线宽与面积与边框区分开；
+       · 深色档**必须**反过来用浅色 #e8eaf0 —— 深底上画黑线等于看不见。
+         这是用户要求里唯一需要"按主题翻译"的地方，不是擅自改他的色。 */
+  --bf-orange: #f97316;
+  --bf-mtn: #1a1a1a;
+
+  /* ---- Escalation Matrix 四级配色（2026-09-28 加）----
+     用户要求「表格按照 Level 显示不同的颜色，注意深浅两种主题背景」。
+     每级一对值，沿用本文件既有的 **ink + tint** 约定（同 --ok/--ok-tint）：
+       · --lv{n}      ：文字/左侧色条的颜色，必须在**对应主题底色**上过 AA
+       · --lv{n}-tint ：整行底色，同色系的极淡水洗（浅色）或极淡辉光（深色）
+     色相顺序刻意走「冷→暖」：L1 青蓝（最低、最常打交道）→ L4 品红（最高、最少动用）。
+     这样一眼看过去，"越往下越紧急"这件事本身就有颜色方向，
+     不用去读 L1/L2 那几个字符。**不**用红黄绿：那套在本页已被
+     --ok/--warn/--crit 占用（表示"达标/关注/严重"），再拿去表示职级会串味 ——
+     同一个绿色在别处是"一切正常"，在这里变成"L3 工程师"。
+     浅色档文字压暗、深色档提亮，是因为同一支色相在白底上要变暗才够对比、
+     在深底上要变亮才够对比，两档不能共用一组值。 */
+  --lv1: #0b6f8a; --lv1-tint: rgba(11, 111, 138, .07);
+  --lv2: #3f4fa8; --lv2-tint: rgba(63, 79, 168, .07);
+  --lv3: #8a4a86; --lv3-tint: rgba(138, 74, 134, .07);
+  --lv4: #a32d5e; --lv4-tint: rgba(163, 45, 94, .07);
+
+  --sh-1: 0 14px 30px rgba(38, 83, 104, .10), inset 0 1px 0 rgba(255, 255, 255, .90);
+  --sh-2: 0 16px 34px rgba(38, 83, 104, .12), inset 0 1px 0 rgba(255, 255, 255, .90);
+  --sh-3: 0 24px 52px rgba(38, 83, 104, .18), inset 0 1px 0 rgba(255, 255, 255, .90);
+
+  --scrim: rgba(22, 48, 71, .24);
+  --toast-bg: #0e7490;
+  --toast-fg: #ffffff;
+
+  --r1: 6px; --r2: 10px; --r3: 14px; --r4: 20px;
+  --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 20px; --s6: 28px; --s7: 40px;
+  --ring: 0 0 0 3px rgba(14, 116, 144, .18);
+
+  /* ------------------------------------------------------------- 字阶 --
+     2026-09-30 新增。在此之前，颜色/间距/圆角/阴影早就收进令牌了，唯独**字号**
+     仍是散落的手写像素：全文件统计出 18 个不同 px 值（9.5 / 10 / 10.5 / 11 /
+     11.5 / 12 / 12.5 / 13 / 13.5 / 14 / 15 / 16 / 17 / 18 / 21 / 24 / 26 / 36），
+     共出现在 160+ 处声明里。后果有三：
+       · 相邻 0.5px 的档位挤成一堆（10/10.5/11/11.5/12/12.5/13/13.5 八档只占
+         3.5px），人眼在正常观看距离下**分辨不出 0.5px** —— 这八档在视觉上并没有
+         形成八个层级，只是让「改字号」变成一件要翻遍全文件的事；
+       · 同一种语义在不同组件里各写一个值（表头 11 / 12 / 12.5 三种、表格正文
+         12.5 / 13 / 13.5 三种），看起来像三个系统拼起来的；
+       · 改一处口径要在多处同步，漏一处就分叉（文件里已有多条注释在抱怨这件事，
+         见 .qc-name「改这里的任何一项必须同步改 .qc-ttl b」）。
+
+     现在收成 **7 档**，相邻档位至少差 1px 或约 15%，保证肉眼可分。取舍是
+     「层级更少但每一级都站得住」，而不是「层级很多但彼此看不出区别」。
+     归并口径（左=原值，右=新档）：
+       9.5 / 10 / 10.5        → --fs-2xs (10px)    角标、时间戳、口径脚注
+       11 / 11.5              → --fs-xs  (11.5px)  次要标签、chip 计数、表头
+       12 / 12.5 / 13         → --fs-sm  (12.5px)  正文次级：卡名、说明、表格正文
+       13.5 / 14              → --fs-md  (14px)    正文/控件默认
+       15 / 16                → --fs-lg  (16px)    区块标题、面板标题
+       17 / 18                → --fs-xl  (18px)    L0 决策带标题
+       21 / 24                → --fs-num (24px)    指标大数字（26/36 为卡内特例，见
+                                                    .qc-num / .qc-card--lg/--sm）
+     ⚠️ 只归并**语义字号**（文字大小）。图标字号**不进本套**：它们跟的是图标
+        视觉重量、不是文字层级，混进来会让「图标 15px」和「正文 15px」被误当成
+        同层。图标字号另有一套 **--icon-***（见本块末尾），两者刻意分开。
+     ⚠️ 六个入口卡不以本表为准：它们在自己的 .v6-grid 作用域内重定义这套令牌
+        （见 .v6-grid 处的说明），字号仍随 --v6-k 缩放，但**引用的是同一批名字**。 */
+  /* ⚠️ 2026-10-01：--fs-2xs 与 --fs-xs **已合并为同一档 11.5px**（此前是 11 / 11.5）。
+     原因：这两档只差 0.5px，人眼在正常观看距离下分不出来，却制造了
+     「同一张 KPI 卡里 .qc-asof 是 11px、.qc-sub 是 11.5px」这类不一致观感。
+     取 11.5 而非 11：11px 偏小，抬到 11.5 对中文更友好。
+     保留两个令牌名（而不是删掉 --fs-2xs 把 21 处引用改指 --fs-xs）是**刻意**的：
+     · 「角标/脚注」与「标签/表头」在**语义**上仍是两类（将来若真要分开还能各调各的）；
+     · 21 处改指会让 diff 很大、增加误改风险，而当前值相同、行为完全一致。
+     读到两个令牌同值时不要以为是笔误 —— 见这里。 */
+  --fs-2xs: 11.5px;  /* 角标 / 时间戳 / 口径脚注（2026-10-01 起与 --fs-xs 同值） */
+  --fs-xs:  11.5px;  /* 次要标签 / chip 计数 / 表头 */
+  --fs-sm:  12.5px;  /* 正文次级：卡名 / 说明 / 表格正文 */
+  --fs-md:  14px;    /* 正文 / 控件默认 */
+  --fs-lg:  16px;    /* 区块标题 / 面板标题 */
+  --fs-xl:  18px;    /* L0 决策带标题 */
+  --fs-num: 24px;    /* 指标大数字 */
+
+  /* 行高：原先散着 1 / 1.2 / 1.3 / 1.35 / 1.4 / 1.45 / 1.5 / 1.55 / 1.6 九档，
+     其中 1.3~1.55 五档在实际排版里不可分辨。收成三档。 */
+  --lh-solid: 1;     /* 单行徽章 / 数字（高度由容器定，行高不参与） */
+  --lh-tight: 1.25;  /* 标题 / 卡名 */
+  --lh-base:  1.5;   /* 正文 */
+
+  /* 字距：原先 em 与 px 混用（.2px / .01em / .02em / .04em / .085em /
+     -.005em / -.01em / -.012em / -.02em 九种写法），而 .2px 与 .02em 语义相同。
+     统一走 em，收成三档。 */
+  --ls-tight: -.01em;  /* 大字标题收紧 */
+  --ls-base:  0;       /* 正文 */
+  --ls-wide:  .02em;   /* 小号标签 / 全大写 */
+
+  /* 图标字号（2026-09-30 加）。**刻意独立于 --fs-\* 字阶**：
+     图标的大小跟的是「它旁边那行文字 / 那个按钮的视觉重量」，不是文字层级 ——
+     把「15px 的按钮图标」和「15px 的正文」塞进同一个令牌，会让下一个人以为
+     改正文就会连带改图标。所以这里是第二套、只服务 <i> 字形的令牌。
+     取值就是原文件里实际在用的四档，**一个数值都没变**，纯粹是把散落各处的
+     同一个数字收成名字（原先 12px 写 3 遍、13px 写 4 遍、15px 写 4 遍）。
+     ⚠️ .tab i(14px) 只用一次，没进这套令牌（.q > i 的 16px 已随检索轨 2026-10-16 移除） ——
+        单点使用不存在「收拢」的价值，进令牌反而增加一层间接。
+     ⚠️ 若将来要统调图标大小，改这里四处即可；它们不参与 --v6-k 缩放
+        （那六卡的图标是 .v6-ico 的方砖，另有尺寸，不走本套）。 */
+  --icon-xs: 12px;   /* 紧凑行尾箭头 / 小按钮图标（.ct i / .aux-x i / .lrow .go） */
+  --icon-sm: 13px;   /* 次级图标（.band-range i / .p-x i / .esc-note--more i / .gp-tpl i） */
+  --icon-md: 15px;   /* 按钮/列表主图标（.gb i / .ib i / .lrow i / .um-storage i；
+                         检索轨 2026-10-16 移除后不再有 .rail-t i） */
+  --icon-lg: 18px;   /* 大图标（.embed-boot > i.ph 加载态） */
+
+  /* 2026-09-24：原先这里还有 --mast-h: 66px 与顶栏深门面的
+     --mast-1/--mast-2/--mast-3/--mast-glow 一组令牌。顶栏换成 MsPortal 结构后，
+     门面底色与高度都由 assets/masthead.css 的 --mp-* 令牌负责，这几个已无人引用，
+     故一并删除（引用点随顶栏规则一起删掉了）。深色档里对应的同名令牌同样已删。 */
+}
+
+html.dark {
+  color-scheme: dark;
+
+  /* 标识在深底上改用浅色（同 --logo-ink 的说明）。 */
+  --logo-ink: #ccd9f0;
+
+  --bg: #02050c;
+  --bg-deco: radial-gradient(circle at 50% 8%, rgba(0, 127, 255, .14), transparent 32rem),
+             linear-gradient(180deg, #02050c 0%, #04091a 52%, #02050c 100%);
+  --surface: #071027;
+  --surface-2: rgba(9, 34, 74, .60);
+  --surface-3: rgba(13, 46, 94, .55);
+  --surface-2-solid: #081b3c;   /* = surface-2 压在 #071027 上的合成色 */
+  --glass: rgba(5, 13, 34, .88);  /* = --mp-glass-panel */
+  --line: #173158;
+  --line-2: #153db0;
+
+  --t1: #f5f7ff;
+  --t2: #aebbd4;
+  --t3: #6f8cb4;
+
+  --b: #00d9ff;
+  --b-ink: #7fd2ee;
+  --b-line: rgba(0, 217, 255, .50);
+  --b-tint: rgba(0, 217, 255, .10);
+  --b-tint2: rgba(0, 217, 255, .16);
+  /* 亮青当底色时字必须压深：白字压 #00d9ff 只有 1.6:1 */
+  --b-on: #04122b;
+  --grad: linear-gradient(135deg, #1da7ff, #00d9ff);
+  --hover: rgba(37, 140, 255, .10);
+
+  --hi: #ff9d1c;
+  --hi-line: rgba(255, 157, 28, .45);
+  --hi-tint: rgba(255, 157, 28, .13);
+  /* 标题橙深色档：用户要求深浅两模式都用 #FF7900 原值，不做提亮。
+     深底 #02050c 上 #FF7900 对比度 =7.76:1，过 AA 正文，无需变体。 */
+  --title: #ff7900;
+
+  --ok: #0bc78c;  --ok-tint: rgba(11, 199, 140, .13);
+  --warn: #f6cf00; --warn-tint: rgba(246, 207, 0, .13);
+  --crit: #ff5c6c; --crit-tint: rgba(255, 92, 108, .13);
+
+  /* Benchmark 行两条走势线的深色档（2026-10-01 加，与浅色档同一条说明）。
+     ⚠️ MTN 在这里**必须从黑翻成浅灰**：深底上画黑线等于没画。
+     这不是改用户指定的颜色，而是"黑色"在深色主题下的等价物 ——
+     用户要的是"MTN 那条是中性色、一眼认得出"，深底上只有浅灰能做到。
+     ⚠️ 取值不能只求"看得见"，还要与橙线**分得开**。实测（TMP/_probe_bf_pick.cjs，
+     深色卡底 ≈ #0b1220）：#c9ced8 与橙只有 1.43:1，两条线在图上会糊成一条；
+     取 #e8eaf0 后与橙 1.88:1、与卡底 15.57:1，两个条件都过。
+     它比正文色更亮，但深色主题下"白色数据线"是常规画法，不抢橙线的主角位。 */
+  --bf-orange: #fb923c;
+  --bf-mtn: #e8eaf0;
+
+  /* ---- Escalation Matrix 四级配色 · 深色档（2026-09-28 加）----
+     与浅色档**同一组色相、不同的明度**（见浅色档处的完整说明）：
+     深底上必须提亮才够对比，把浅色那组直接搬过来会糊成一片。
+     tint 的透明度比浅色档略高（.13 上下）：深底上的淡水洗本来就比白底上难分辨。 */
+  --lv1: #4fd2ea; --lv1-tint: rgba(79, 210, 234, .12);
+  --lv2: #8fa2ff; --lv2-tint: rgba(143, 162, 255, .12);
+  --lv3: #d79ad2; --lv3-tint: rgba(215, 154, 210, .12);
+  --lv4: #ff8fb4; --lv4-tint: rgba(255, 143, 180, .12);
+
+  /* 内辉光 inset 0 7px 17px rgba(58,118,255,.48) 是该看板卡片的招牌，一并继承；
+     浮层（抽屉 / 轻提示）只留外阴影，否则会在小胶囊上晕成一条亮边。 */
+  --sh-1: 0 4px 14px rgba(0, 0, 0, .32), inset 0 7px 17px rgba(58, 118, 255, .48);
+  --sh-2: 0 20px 52px rgba(0, 0, 0, .45), inset 0 7px 17px rgba(58, 118, 255, .48);
+  --sh-3: 0 26px 70px rgba(0, 0, 0, .55);
+
+  --scrim: rgba(2, 5, 12, .72);
+  --toast-bg: #092348;
+  --toast-fg: #8cecff;
+
+  --ring: 0 0 0 3px rgba(0, 217, 255, .20);
+}
+
+/* ------------------------------------------------ 高对比偏好降级（a11y）--
+   2026-09-30 加。背景：--title(#FF7900) 是用户 2026-09-25 明确拍板的品牌色，
+   在浅色白底上对比度只有 2.63:1（低于 WCAG 大字档 3:1）—— 这是用户有意选择，
+   **默认档一个字都不动**。但系统开启了「高对比」偏好
+   （Windows 设置 → 辅助功能 → 对比度主题，或浏览器/扩展写入该媒体特性）时，
+   说明用户已主动声明「可读性优先」，此时把标题橙换成同色相压深版 #C25A00
+   （白底约 4.5:1，过 AA 正文档）是合适的，且不影响默认用户的观感。
+   只改 --title 一个令牌：标题橙的全部使用点（.band-k / .band-range-btn / .t-orange）
+   都是 var(--title)，一处改动整页生效，不碰任何组件规则。
+   ⚠️ 深色档不在此列：#FF7900 在深底 #02050c 上是 7.76:1，已过 AA，无需降级。 */
+@media (prefers-contrast: more) {
+  :root { --title: #c25a00; }
+}
+
+/* ---------------------------------------------------------------- base -- */
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+
+html { -webkit-text-size-adjust: 100%; background-color: var(--bg); }
+body {
+  margin: 0;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  font: 400 var(--fs-md)/var(--lh-base) var(--sans);
+  color: var(--t1);
+  background-color: var(--bg);
+  background-image: var(--bg-deco);
+  background-attachment: fixed;
+  background-repeat: no-repeat;
+  -webkit-font-smoothing: antialiased;
+  /* 2026-10-11 加：全局默认开启 tabular-nums（设计打磨 A3）。
+     之前 22 处用 `font-variant-numeric: tabular-nums` 是因为属性简写
+     (font:) 不会自动开。挂到 body 之后**不**删那 22 处：
+       · 显式声明 + 简写混用是 .qc-card / .qc-live / .cnt 等的现状
+       · 删了之后 font: 简写会重置为 normal → 真正回退
+     本行负责"html/body 默认所有数字等宽"，22 处负责"类里再显式确保一次"，
+     两者并存不冲突。 */
+  font-variant-numeric: tabular-nums;
+}
+a { color: inherit; text-decoration: none; }
+button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+input { font: inherit; color: inherit; }
+h1, h2, h3, p { margin: 0; }
+table { border-collapse: collapse; width: 100%; }
+svg { display: block; }
+
+/* 整宽，不限 max-width 也不居中：2560 屏上 1780 的上限会让两侧各留 390px 空白，
+   MsPortal 顶栏 2026-09-18 就因为同样的抱怨去掉了居中约束（见 masthead.css .mp-mast-inner）。
+   左右留白跟着视口走，超宽屏上文字不至于贴边。 */
+.wrap { width: 100%; padding-inline: clamp(var(--s5), 1.6vw, 44px); }
+.mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.skip {
+  position: absolute; left: -9999px; top: 0; z-index: 99;
+  padding: 10px 16px; background: var(--b); color: var(--b-on); border-radius: 0 0 var(--r2) 0;
+}
+.skip:focus { left: 0; }
+:where(a, button, input, [tabindex]):focus-visible { outline: 2px solid var(--b); outline-offset: 2px; box-shadow: var(--ring); border-radius: var(--r1); }
+
+/* ------------------------------------------------------------ masthead --
+   2026-09-24：本页顶栏整块换成了 MsPortal 的同款结构，样式全部搬到
+   assets/masthead.css（那份文件的顶栏副本），这里原先约 60 行 `.mast` /
+   `.mast-bg` / `.globe` / `.mast-in` / `.brand` / `.mark` / `.word-zte` /
+   `.brand-sep` / `.title` / `.t-olr` / `.t-ms` / `.t-tail` / `.tagline` /
+   `.tools` / `.env` / `.env-dot` / `.clock` / `.tools-sep` / `.who` 规则已全部删除。
+   删除理由（逐条核过是否别处在用，结论都是「只有顶栏在用」）：
+     · 这些类名在 index.html 里只出现在顶栏那一块，olbr.js 也没有任何选择器依赖
+       （`.title` / `.tools` / `.tagline` 在 JS 里的命中全是 i18n 键名，不是选择器）；
+     · 顶栏高度改由 masthead.css 的 `--mp-mast-h` 驱动，本文件旧的 `--mast-h`
+       与 `--mast-1/2/3`、`--mast-glow` 随之失去用处（已从 :root 里清掉）。
+   ⚠️ 唯一**必须保留**的顶栏相关约定是 header 上的 `mast` 类本身 ——
+   olbr.js 用 `$$('.mast .seg-b[data-lang]')` 选语言按钮，所以要的是那个类名
+   留在 <header> 上，而不是这里的规则。
+   ⚠️ 另两处「同名但不同命」的规则已分别处理，不要连坐删掉：
+     · `.gb` / `.ib` —— 编辑条、用户管理弹窗等顶栏之外的地方仍在用，保留；
+     · `.rail .seg` / `.rail .seg-b` —— 已随检索轨（2026-10-16）整块删除。
+       顶栏语言按钮仍带着 `.seg-b`，但那是 olbr.js 的 JS 选择器钩子
+       （`$$('.mast .seg-b[data-lang]')`），样式由 masthead.css 的 `.seg-btn` 负责。 */
+/* 2026-09-24：原先这里有 5 条 `.mast .gb/.ib/.seg/.seg-b` —— 给旧顶栏的
+   「深色门面上把浅色控件提亮」的覆盖。顶栏已整块换成 MsPortal 那套结构
+   （见 index.html 的 masthead 段 + assets/masthead.css），这些规则全部作废：
+     · .mast 规则（0,2,0）会被 masthead.css 的 `html body > header.mp-mast …`
+       （0,2,3）压过，留着也是死代码；
+     · 其中 `.mast .seg-b[aria-pressed="true"]` 尤其危险 —— 它画的是**浅色**底
+       （var(--surface)），而新顶栏是深色门面，一旦它生效就是深底上一块浅色。
+       现在选中态由 masthead.css 的 `.seg-btn.is-active`（#0d6fe0）负责，
+       olbr.js 也同步写 is-active 类，两个钩子已对齐。
+   最后一条 .mast 规则已随 L185 的 `.mast {}` 一并删除，这里不再有任何 .mast 选择器。 */
+
+/* 通用小按钮：浅色下描边，深色由各主题块自己的规则负责 */
+.gb {
+  display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
+  height: 30px; padding: 0 10px; border-radius: var(--r1);
+  border: 1px solid var(--line-2); background: transparent; color: var(--t2);
+  font-size: var(--fs-sm); font-weight: 600;
+  transition: border-color .14s, color .14s, background .14s;
+}
+.gb:hover { border-color: var(--b-line); color: var(--b-ink); background: var(--b-tint); }
+.gb i { font-size: var(--icon-md); }
+.gb:disabled { opacity: .45; cursor: not-allowed; }
+.ib {
+  display: inline-grid; place-items: center; width: 30px; height: 30px; flex: none;
+  border: 1px solid var(--line-2); border-radius: var(--r1); color: var(--t2);
+  transition: border-color .14s, color .14s, background .14s;
+}
+.ib:hover { border-color: var(--b-line); color: var(--b-ink); background: var(--b-tint); }
+.ib i { font-size: var(--icon-md); }
+
+/* 2026-10-16：检索轨（Search & filters，Ctrl K）整块移除 —— .rail / .rail-bar /
+   .rail-in / .rail-t / .rail-sum / .q / .kbd / .chips / .chip / .rail-end / .count
+   与收窄到 .rail 的 .seg 那一组规则随之全部删除（对应的 HTML 已不在 index.html，
+   顶栏语言切换的 .seg/.seg-btn 样式在 masthead.css，不受影响）。 */
+
+/* ---------------------------------------------------------------- main -- */
+/* ⚠️ 2026-10-13：padding-bottom 由 var(--s6)=28px 收到 var(--s4)=16px。
+   与 .foot 的 margin-top 归零是**同一处修复的两半**（用户选定「两段都收窄」）——
+   原来 28+28=56px 是同一档间距被算了两遍，#esc 卡片下面因此显得空。
+   完整推导与实测数据见下方 .foot 那条注释。
+   上面 padding-top 仍是 var(--s5)=20px：检索轨（2026-10-16 移除）当年吸顶，
+   这一段是主体与顶栏之间的呼吸距；轨没了它就只是普通的上边距，
+   与页尾这个"主体→页脚"的间距不是同一件事，不要为了对称一起改。 */
+main { flex: 1; padding-block: var(--s5) var(--s4); display: flex; flex-direction: column; gap: var(--s4); }
+
+/* 2026-10-11 加（设计打磨 B5）：main 直接子 section 之间的视觉分界。
+   之前 main 的 gap=var(--s4)=16px 让所有区看起来"等距"，**重要区反而不突出**。
+   解决：在每个 section 之前画一条 1px 浅分隔线（仅 1024px 以上），
+   让 QC / KPI / 视图入口 / 地图 / 升级 / 辅助 6 块之间的"区"能被一眼看出。
+   ⚠️ 分隔线放在相邻区块之间的 gap 里，不再作为 section 的首个 flex 子项。
+      旧写法会把 line 的高度 + margin-bottom 算进 section 内容流，导致后续标题
+      比首个标题多出一段顶部空白；现在各 section 内部统一从 padding-top 开始。
+   ⚠️ 只画 section、不画 div（#emailSlot 等是 div，不是 section）—— 选择器精确。
+   ⚠️ 1024px 以下不画：窄屏没有"右半边空"的问题，且分隔线在小屏是噪声。
+   ⚠️ 不画 #gate（登录闸门，hidden 默认）、#editBar（在 main 之外）：
+   这两个选择器只匹配 #band / #kpi / #views6 / #l0Map / #esc / #aux / #arch 7 个。
+   ⚠️ 2026-10-12：#aux / #arch 要**排除**在这条分隔线之外（:not(#aux):not(#arch)）。
+      原因：#aux / #arch 是本页仅有的**水平 grid 容器**，::before 会成为它们的
+      第 1 个栅格项 —— repeat(auto-fit, minmax(240px,1fr)) 的重复次数 =
+      min(宽度能容纳的轨数, 栅格项数)，栅格项数每多 1 个就多 1 条轨，空出的
+      那条轨表现为区块一侧的整块空白（v2 的 #aux 常态只渲染 System Admin 一组，
+      实际症状是它被挤到右半列、左侧空半页；v1 是 3 个分组被挤到第 2~4 列、
+      左侧空 1/4 页）。其余块是 flex column / 单列 grid，绝对定位的 ::before
+      不参与分列，所以不会制造额外的内容高度。
+      不用事后 .aux::before { display:none } 压制：B5 规则里两个 :not(#gate)
+      合计 2 个 ID 级特异性，(0,1,1) 的单类选择器赢不了它（2026-10-12 实测无效）。
+      #aux 自带 border-top 作分界，这条线对它是纯叠加；#arch 同理。 */
+@media (min-width: 1024px) {
+  main > section:not(#gate):not(#aux):not(#arch) + section:not(#gate):not(#aux):not(#arch) {
+    position: relative;
+  }
+  main > section:not(#gate):not(#aux):not(#arch) + section:not(#gate):not(#aux):not(#arch)::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: calc(-1 * var(--s4));
+    height: 1px;
+    background: linear-gradient(90deg,
+      transparent 0%,
+      var(--line) 20%,
+      var(--line) 80%,
+      transparent 100%);
+    pointer-events: none;
+  }
+}
+
+/* ============================================================================
+   v1 · 精简指标卡（质量核心指标 + CXO 每日经营指标）
+   ----------------------------------------------------------------------------
+   v1 与 /olbrportal/ 原版的差别，全部收在这一段：改回去只要删这一段、
+   并在 olbr.js 的 qcCardHtml 里恢复 .qc-lvchip 的渲染。
+
+   为什么摘掉等级徽章：
+     原版每张卡有「正常 / 关注 / 严重 / 不可用」徽章 + 四档阈值配色，
+     六张并排时第一眼落在颜色上，要先分档再读数字 —— 而这一版要的是「一眼看数」。
+     所以：
+       · 卡片不再套 .qc-lv-ok/-warn/-crit/-na 四个配色档，统一品牌青；
+       · 徽章元素**整个不渲染**（不是 display:none —— 隐藏会留出空白占位）。
+     颜色只保留一个用途：数字取不到时压成灰（.is-na）。这是「绝不显示 0」
+     那条硬约束在视觉上的落点，不能连它一起摘掉。
+
+   为什么不直接复用 .qc-card 原样：原版的字号是围绕「徽章 + 大数字」两层排的，
+   摘掉徽章后 21/26px 的大数字在六卡一行里偏大，重新定一档 24px 更平衡。
+   这一档 24px 现在写在 **.qc-num 的基础规则**里（见下方 .qc-num 那段的注释），
+   告警行与 CXO 行共用同一份字号，不再各写一遍。 */
+/* 这里原本把 .qc-name 的字号/字重/颜色又抄了一遍（12px/600/t2，与当时的基础规则
+   同值）。2026-09-25 起字号字重颜色**只写在基础 .qc-name 里**，这里只留排版差异：
+   CXO 的卡名比 QC 的长，"不换行 + 省略号"会把「4G 可用率」这类名字切掉，
+   所以这两条（行高与换行）必须保留在 .kpi 作用域内。
+   与 .qc-num 24px 上移成基础规则是同一个道理：同值写两遍迟早只剩一处被改。 */
+.kpi .qc-name { line-height: 1.35; white-space: normal; }
+.kpi .qc-numrow { margin-top: 6px; }
+/* v1：这里原来写的是 `.kpi .qc-num { font-size: 24px; }`，2026-09-24 已上移成
+   .qc-num 的**基础**字号。当时只写在这一行，导致告警行 #band 漏掉了这一档、
+   数字只有 15px。现在两行都由 .qc-num 统一给 24px，不再各写一遍。 */
+.kpi .qc-unit { font-size: var(--fs-xs); font-weight: 600; color: var(--t3); letter-spacing: 0; }
+/* 口径文字允许换行：CXO 那三张的口径（哪个看板、哪一天）比 QC 的长，
+   单行省略会把「这数是哪天的」正好切掉 —— 那是最要紧的半句。 */
+.kpi .qc-sub { white-space: normal; }
+
+/* ============================================================================
+   v1 · 六个视图入口卡（CXO / SP / MS / FLM / FO / BO）
+   ----------------------------------------------------------------------------
+   一张卡 = 一个视图：标题行 → 一句说明 → 报告清单。
+   清单是主体 —— 用户是冲着**具体报告名**来的，不是来看视图缩写的。
+   卡片高度随报告条数走，不强行等高：把 3 条的报告撑到和 5 条一样高，
+   只会多出一片空白，反而更难扫。
+
+   报告条目本身是 <a>，点击 = 打开对应看板（与查看器同一条链接口径，
+   vlink + target=_blank）。
+
+   2026-09-26（用户要求「卡片的标题也要能点击打开下级页面」）：
+   卡头标题现在也是链接，指向**本组排序后的第一条看板** —— 与列内第一行同目的地，
+   等于「进入这个视图」。整张卡仍然刻意**不**做成可点，理由未变：
+   一张卡里有多个不同去向时，「整卡可点」会让用户以为点哪里都一样；
+   现在可点的恰好是两处语义明确的入口（卡头=进入本视图，行条目=打开那一张）。
+   计数徽章与编辑按钮务必留在链接**外** —— 否则「想看看有几张」会变成误跳转。
+   样式与边界条件的实现说明见下方 .v6-t-link 那一段。
+
+   ----------------------------------------------------------------------------
+   2026-09-25：整组卡按 1.5 倍放大（用户要求「卡片高度修改为现在的 1.5 倍，
+   里面的文字等也要同步修改」）。
+   ----------------------------------------------------------------------------
+   实现方式：**不是**把每条规则的字号/内边距手工乘 1.5 抄一遍，而是在 .v6-grid
+   上放一个 --v6-k 倍率，下面所有参与高度的长度都写成 `calc(<原值> * var(--v6-k))`。
+   这么做的理由：
+     · 这些值必须**一起**变。卡高 = 标题行(内边距 + 图标 + 标题文字) + 清单
+       (内边距 + 每行 内边距 + 行文字) —— 只放大字号会把文字顶出内边距，
+       只放大内边距会在文字周围留一圈空。1.5 这个意图只能有一个真相源，
+       否则下次要调到 1.6 时又得把十几处数字重算一遍，必然漏掉几处。
+     · 公式里**保留原始字面值**（15.75 写成 `10.5 * k` 而不是 15.75），
+       这样「放大前是多少」在代码里仍然读得出来，与原版对照不必翻备份文件。
+   倍率写在 .v6-grid 上而不是 :root —— 这是本组卡片的局部排版档，同一个页面的
+   QC 卡 / KPI 带不应该跟着变（它们是各自独立的视觉档位）。
+
+   ⚠️ 边框与圆角**不乘** k（这一条是实测出来的，别改回去）：
+     卡片外框与标题行下沿这两条 1px 线在无小数缩放时看起来"应该"跟着放大，
+     但浏览器会把边框宽度**吸附到整数设备像素**：实测 `border: 1.5px` 与
+     `border: calc(1px * 1.5)` 在 1x DPR 下计算值都仍然是 **1px**（不是 1.5px）。
+     也就是说乘了 k 也拿不到 1.5px 的边，只会让代码看起来"算过"而结果没变 ——
+     属于自欺，故不乘，直接保留 1px。
+     由此卡高只能到 **1.4908 倍**（243.375 / 163.25）而不是精确的 1.5：
+     2px 固定边在 163px 的卡上正好占掉那 0.9 个百分点，这是浏览器像素吸附的
+     固有结果，肉眼不可分辨；要精确到 1.5 只能连边框一起变，那会更难看。
+     圆角（--r1/--r2/999px）与 .v6-row/.v6-row em 的描边同样不乘 k：
+     它们不参与卡高，跟着放大只会让卡片显得笨重。
+   内边距（padding/gap/margin）、字号、图标砖尺寸三类**全部**乘 k，
+   这三类都参与卡高且都能被浏览器精确渲染成小数。
+
+   ⚠️ 清单条数没变（V6_LIMIT 仍是 2）：本次只放大尺寸，不改「显示几条」的口径。
+   卡片变高后一屏容纳的行数变少是预期结果 —— 总高比原来多占约 0.5 屏。 */
+/* 倍率默认 1.5（相对 2026-09-25 之前的尺寸）。写成 var 是为了让「调多大」
+   只有一个可改点；将来若要回到原尺寸，把这里改回 1 即可，其余规则不动。
+
+   ⚠️ 必须定义在 **.v6-grid**（父容器）上，不能定义在 .v6（卡片）上：
+   网格自己的 gap 也要用它，而 gap 由父元素解析 —— 定义在卡片上时，
+   父容器的 var(--v6-k) 取不到值，calc() 整体失效、gap 退回 normal(0)，
+   卡间距会凭空消失，卡片宽度随之被撑大（2026-09-25 实测到这个现象）。
+   写在父容器上，卡片通过继承同样拿得到，一处定义两处可用。 */
+.v6-grid {
+  --v6-k: 1.5;
+  /* 2026-09-30：六卡的字号改为**在本作用域内重定义字阶令牌**，而不是在每条规则里
+     散写 `calc(14px * var(--v6-k))`。名字回到 --fs-*，读代码的人不必再猜
+     "21px 是哪个层级"，它写的是 --fs-md，与全页其它区块同一套语义。
+     为什么在这里重定义而不是直接用 :root 的值：六卡按 1.5 倍放大是本页唯一一处
+     "整块缩放"的设计意图（用户 2026-09-25 要求），它需要放大后的字号**互相之间**
+     以及与内部留白（padding/gap 仍按 calc 走 --v6-k）**之间**都成比例。
+
+     ⚠️ 字号**不写成 `calc(base × var(--v6-k))`，而是直接写 1.5 倍后的整数**：
+     原写法会产出 17.25 / 18.75 这类 0.25 尾数，而浏览器在 1x DPR 下会把这些
+     字号吸附到各自不同的行盒高度，一列里几行文字的基线反而对不齐；
+     整数（15/17/19/21）之间是干净的 2px 递进，且更接近「1.5 倍」的原意。
+     与原 1.5k 值的差：--fs-sm 18.75→19（+0.25）、--fs-xs 17.25→17（-0.25），
+     均在 0.25px 级别，肉眼不可辨；换成整数后整组字号落在 15/17/19/21 的
+     2px 网格上，六卡内部各行基线重新对齐。--fs-2xs 15 与 --fs-md 21 与原值相同。
+     ⚠️ 令牌定义在 .v6-grid（父容器）上：卡片通过继承拿到，一处定义整组可用；
+        定义在 .v6（卡片）上则 grid 自己的 gap 取不到值（见上方 --v6-k 的同类说明）。 */
+  --fs-2xs: 15px;   /* = 10px   × 1.5 */
+  --fs-xs:  17px;   /* = 11.5px × 1.5，取整（原 17.25） */
+  --fs-sm:  19px;   /* = 12.5px × 1.5，取整（原 18.75） */
+  --fs-md:  21px;   /* = 14px   × 1.5 */
+  display: grid; gap: calc(var(--s2) * var(--v6-k));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+@media (max-width: 1400px) { .v6-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 820px)  { .v6-grid { grid-template-columns: minmax(0, 1fr); } }
+
+.v6 {
+  display: flex; flex-direction: column; min-width: 0;
+  border: 1px solid var(--line-2); border-radius: var(--r2);
+  background: var(--surface-2); overflow: hidden;
+  transition: border-color .14s, box-shadow .14s;
+}
+.v6:hover { border-color: var(--b-line); box-shadow: var(--sh-1); }
+/* ---- 编辑态：整列可拖（2026-10-07 加，用户要求「group 的顺序也要能调整」）----
+   抓手光标只加在编辑态渲染出来的 .is-col-ed 上：只读访客的列既拖不动、
+   也不该长出一个"看起来能抓"的光标（那是一次假承诺）。
+
+   ⚠️ 抓手刻意**只给列头**，不给整列：列体里住的是一行行可点的看板链接，
+   整列 cursor:grab 会让"这里是链接"的暗示消失，而且窄列里几乎点不到空白处。
+
+   ⚠️ is-drag-col / is-col-A / is-col-B 与卡片的 is-drag / is-in-A / is-in-B
+   **分开命名**：两套拖拽在同一块 DOM 里（列是卡片的祖先），
+   复用同一批类会让"拖列"时整列里所有卡片一起被压暗，
+   也会让 CSS 里两条规则互相打架、以后分不清是哪一种拖拽在生效。 */
+.v6.is-col-ed > .v6-h { cursor: grab; }
+.v6.is-col-ed > .v6-h:active { cursor: grabbing; }
+.v6.is-drag-col { opacity: .45; }
+/* 落点：网格是横向排列，所以高亮走**左右**两条粗线（与卡片排序的左右线同一个手感）。
+   用 outline 而不是 border/box-shadow：outline 不吃盒模型、不会把网格撑出一像素位移。 */
+.v6.is-col-A { outline: 3px solid var(--b); outline-offset: -3px; }
+.v6.is-col-B { outline: 3px solid var(--b); outline-offset: -3px; }
+/* 列头：[图标] [标题链接] [子页签] [计数] [工具] 的单行 flex。
+   ⚠️ 2026-09-27 起允许 flex-wrap：子页签搬进这一行后，窄列下
+   六个页签放不开，需要能折到第二行而不是把标题挤成竖排或被裁掉。
+   折行时 align-items:center 让两行各自垂直居中，观感仍整齐。
+
+   gap 用固定 6px（不乘 --v6-k）：这一行现在塞了五样东西，
+   实测总需求 658.4px，而 3 列网格的列头可用宽只有 459-562px。
+   k=1.5 会把 6px 放大成 9px，四道缝就多花 12px —— 在没有余量的行里，
+   这点差值足以决定"折不折行"。卡头横向空间是硬约束，不随屏幕放大。 */
+.v6-h {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 6px; min-width: 0;
+  /* 横向 padding 从 11px 收到 9px（不乘 k）：一行里挤出 2×1.5=3px 的余量，
+     与 gap 一样是"没有余量的行"里能省则省的地方。纵向仍按 k 走。 */
+  padding: calc(9px * var(--v6-k)) 9px;
+  border-bottom: 1px solid var(--line);
+}
+.v6-ico {
+  flex: none; display: inline-flex; align-items: center; justify-content: center;
+  width: calc(24px * var(--v6-k)); height: calc(24px * var(--v6-k));
+  border-radius: var(--r1);
+  color: var(--b); background: var(--b-tint); font-size: var(--fs-md);   /* 图标字号 */
+}
+/* 六视图卡标题。2026-09-30 修正**层级倒挂**：原先用 var(--fs-md)，在 .v6-grid
+   作用域里被重定义为 21px（= 14×1.5），**比页面分区标题 .band-k(18px) 还大** ——
+   卡片标题盖过分区标题，是「层级倒挂」最伤专业感的一处。
+   现用 --fs-lg(16px)：分组标题(18) > 卡片标题(16) > 正文(14)，层级方向恢复正确。
+   刻意**不引用 --fs-md** —— 那个令牌在本作用域里被重定义为 21px（给图标砖 .v6-ico 用）。
+   ⚠️ 2026-10-01 由字面 16px 改为 var(--fs-lg)：两者同值、视觉零变化，但字面量会
+      在将来调 --fs-lg 时不跟随，制造新的分叉（本轮复查发现的真实隐患）。
+      --fs-lg **不在** .v6-grid 的作用域覆盖列表里（只覆盖了 2xs/xs/sm/md），
+      所以此处 var(--fs-lg) 取到的就是 :root 的 16px，与"卡片标题不随六卡放大"
+      的意图一致 —— 即：它跟随的是**全页标题层级**，不是这块卡的 1.5 倍缩放。 */
+.v6-t { min-width: 0; font-size: var(--fs-lg); line-height: var(--lh-tight); font-weight: 700; letter-spacing: var(--ls-tight); }
+/* ⚠️ 2026-09-27：分组说明（gSub，如 "Back Office Expert Support"）在 v1 列头
+   **已不再渲染**，所以这里不再有 .v6-t small / .v6-t-top > small 的规则。
+   演进过程记一笔，免得后人以为漏写了：
+     ① 最初 display:block，说明独占标题下方一行；
+     ② 改成与标题并排（用户要求「不要单独一行」）；
+     ③ 再把子页签也挪进同一行后，实测这一行需要 649px
+        （图标36 + 标题与说明316 + 六颗页签239 + 计数40 + 缝），
+        而三列网格每列只有 474-577px —— 差 70-175px，页签必然折行。
+        用户选择"去掉说明腾地方给页签"，于是 ③ 这一步直接把 <small> 从
+        HTML 里移除了（见 olbr.js renderViews6）。
+   gSub 数据本身仍在服务端目录里、MsPortal 与编辑面板照旧使用，
+   只是本页列头不显示 —— 这是显示层取舍，不是删数据。 */
+/* 列头标题链接（2026-09-26 加）。原来 .v6-t 是个 <span>，现在是 <a>：
+   必须把这四件事显式写回来，否则会「看起来对、实际坏」：
+   1. 颜色 —— 链接默认走浏览器/全局 a 的蓝色，会盖掉卡头该有的正文色；
+   2. 下划线 —— 默认 a 有 text-decoration，卡头挂一条下划线很难看，
+      悬停时才给（与 .v6-row 的 hover 反馈同一手感）；
+   3. flex 收缩 —— 标题要在窄列里被挤窄（配合 .v6-n 的 margin-left:auto），
+      不写 min-width:0 / flex:1 会把右侧计数徽章顶出卡片；
+   4. 点击区域 —— 只让「图标 + 标题」这块可点，
+      右侧计数徽章与编辑按钮留在链接外（结构上已分开），否则点徽章也会跳走。
+
+   ⚠️ 箭头图标默认 opacity:0，只在 hover / focus-visible 时出现：
+   常显会让六个卡头都多出一个箭头，与行条目的 .go 重复；但键盘 Tab 到它时
+   必须显形，否则"当前焦点在哪个链接上"完全看不出来（可访问性）。 */
+/* 2026-09-27：分组说明并入标题行后，这个链接里只剩 .v6-t-top 一个子元素，
+   原来的 flex-direction: column 已经没有"第二行"可排，去掉。
+   display:flex 保留 —— 它让 .v6-t-top 撑满可用宽度。
+
+   ⚠️ 2026-09-28 第二次改（用户把第 7 项**又提了一次**，说明第一次没做到位）。
+   第一次只把 <a> 从"包住标题文字"上移到"包住标题+箭头"，看着像修好了，
+   实测仍然只有 120px / 487px 可点（探针在行的垂直中点每 4px 采样一次，
+   命中链接的只有标题自己那一段）—— 因为 flex 是 `0 1 auto`：<a> 只占内容宽，
+   标题右边那大片空白仍是死区。用户说的"整行"是这一行，不是这两个字。
+
+   现在改成 `1 1 0`（可缩可长、基准 0），让它吃满 .v6-h 里图标与页签之间的
+   全部剩余空间：
+     · 标题左边紧贴 .v6-ico，右边一直延伸到"子页签/计数徽章"之前；
+     · 点这片空白里任何一处都跳转，与点标题文字等效。
+   ⚠️ 为什么是 `1 1 0` 而不是 `flex:1`：`flex:1` 展开是 `1 1 0%`，
+   语义相同但基准写 0% 更明确 —— 真正的理由是**必须同时保留 min-width:0**，
+   否则 flex 子项默认 min-width:auto 会让长标题撑破行、把 .v6-n 顶出卡片
+   （与 .v6-h / .v6-t-top 上那两处是同一条注意事项，见下方注释）。
+
+   ⚠️ 右侧的计数徽章 .v6-n 与子页签**故意留在链接外**：
+   它们不是"进入某个视图"的一部分。包进来会出现"点计数也跳走"，
+   而且 .v6-n 带 margin-left:auto 是这一行的右对齐锚点，
+   把它卷进 .v6-t-link 会让"标题吃掉剩余宽度"重新发生（就是 09-27 那次
+   页签被挤到第二行的成因）。现在 <a> 与它们并列，各占自己的宽度。 */
+.v6-t-link {
+  display: flex; flex: 1 1 0; min-width: 0;
+  color: inherit; text-decoration: none; border-radius: var(--r1);
+}
+.v6-t-link:hover { color: var(--b-ink); text-decoration: underline; text-underline-offset: 3px; }
+.v6-t-link:focus-visible { outline: 2px solid var(--b); outline-offset: 2px; }
+/* 标题那一行：名字 + 箭头横排（说明已于 2026-09-27 移除，见上方说明）。
+   文本省略写在文字那一颗上（.v6-t-top > span），不是写在链接上 ——
+   写在链接上会把箭头一起裁掉，剩不下可点的提示。
+   ⚠️ min-width:0 与 overflow:hidden 缺一不可：flex 子项默认 min-width:auto，
+   只给 overflow 不解除 min-width，长标题仍会把 .v6-n 计数徽章顶出卡片
+   （与 .v6-h / .v6-row 上那两处是同一条注意事项）。 */
+.v6-t-top { display: flex; align-items: center; min-width: 0; overflow: hidden; }
+/* 名字：允许被压缩，放不下时省略号（窄列下必须让位给页签与计数）。
+   ⚠️ align-items 从 baseline 改回 center：baseline 是当年为了跟 11px 的
+   说明对齐才用的；说明没了，这一行只剩 14px 的名字与图标，
+   center 才是对的（baseline 在单元素居中上没有意义）。 */
+.v6-t-top > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.v6-t-go {
+  flex: none; margin-left: calc(5px * var(--v6-k));
+  font-size: var(--fs-sm); color: var(--t3);   /* 图标字号（与标题同档的箭头） */
+  opacity: 0; transition: opacity .14s;
+}
+.v6-t-link:hover .v6-t-go, .v6-t-link:focus-visible .v6-t-go { opacity: .8; }
+.v6-n {
+  margin-left: auto; flex: none;
+  padding: calc(4px * var(--v6-k)) calc(7px * var(--v6-k));
+  border-radius: 999px; background: var(--surface-3);
+  font: 600 var(--fs-xs)/var(--lh-solid) var(--mono); color: var(--t2); font-variant-numeric: tabular-nums;
+}
+.v6-list { display: flex; flex-direction: column; padding: calc(5px * var(--v6-k)); }
+/* 列内二级子分组页签（2026-09-27 加，BO View 的 RAN/IP/MW/CN/OCS）。
+   ⚠️ 位置变过两次，两次都是用户要求的，别改回去：
+     ① 最初夹在 .v6-h 与 .v6-list 之间、**自己占一整行**（带下描边与底色）；
+     ② 现在住进 .v6-h 内、标题之后计数之前，与标题同一行
+        （用户："也放到同一行，可以适当小一点"）。
+   所以这里不再需要上下描边和底色 —— 它们是"独立一行"时代的产物，
+   留着会在卡头中间多出一条横线。分隔改用左边框 + 左间距（见下）。
+
+   为什么允许换行（flex-wrap）：列宽只有网格的 1/3（实测约 490px），
+   六个页签跟标题、说明、计数挤一行，窄屏下确实放不下。
+   放不下时折成第二行，比横向滚动强 —— 卡头里的滚动条既难点，
+   又会把行高顶起来（见 olbr.js 里同一处注释）。 */
+.v6-subs {
+  display: flex; align-items: center; flex-wrap: wrap;
+  gap: 3px;
+  /* 左边框当与标题的分隔：一条 1px 竖线比"空一段"更能说明
+     「这些是筛选项，不是标题的一部分」。padding-left 让竖线不贴着标题。
+     ⚠️ 用固定 px 不乘 --v6-k：这一行的横向空间已经不够（见 .v6-sub 注释），
+     k=1.5 会把 9px 放大成 13.5px，纯属浪费。 */
+  margin-left: 7px;
+  padding-left: 7px;
+  border-left: 1px solid var(--line);
+}
+/* 页签尺寸：比独立一行时整体收小一档。
+   为什么敢小：它们现在是**列头的一部分**，与 11px 的说明同级，
+   不再是需要"一眼抓住"的独立控件；而且必须让出横向空间给标题与计数。
+
+   ⚠️ 这里全部用**固定 px**、不再乘 --v6-k。实测（1600px 视口、BO View 卡）：
+   列头内容宽只有 459.3px，而标题链接（"BO View" + 说明
+   "Back Office Expert Support"）本身就要 320px；六颗页签按 k=1.5 算是 282.5px，
+   320+9+282.5=611.5px 远超可用宽度，于是页签被整条挤到第二行。
+   乘 k 的写法在这块**不可能**成立 —— 卡头横向空间是硬约束，不随屏幕放大。
+   收小后页签条约 190px，与标题、计数合计 ≈ 560px…… 仍高于 459px，
+   所以窄列下**保留折行**（见 .v6-h 的 flex-wrap），
+   但宽列（3 列网格在大屏下每列 597px）已经足够排成一行。 */
+.v6-sub {
+  flex: none; height: 17px; padding: 0 4px;
+  border-radius: 999px; white-space: nowrap;
+  border: 1px solid var(--line-2); background: var(--surface);
+  /* ⚠️ 10px 是**不乘 --v6-k 的字面值**：子页签是卡头里的筛选项，横向空间是硬约束
+     （见上方长注释），所以刻意不走 v6 的缩放字阶。因此这里不能引用 --fs-2xs
+     （那在本作用域里已经 = 10px × 1.5 = 15px）。 */
+  font-size: 10px; font-weight: 600; color: var(--t2);
+  display: inline-flex; align-items: center; gap: 2.5px;
+  transition: border-color .14s, background .14s, color .14s;
+}
+.v6-sub:hover { border-color: var(--b-line); color: var(--b-ink); }
+.v6-sub[aria-pressed="true"] { background: var(--b-tint); border-color: var(--b-line); color: var(--b-ink); }
+.v6-sub:focus-visible { outline: 2px solid var(--b); outline-offset: 2px; }
+.v6-sub small {
+  font: 500 10px/var(--lh-solid) var(--mono);   /* 同上：固定值，不乘 k */
+  opacity: .8; font-variant-numeric: tabular-nums;
+}
+/* 空桶（该专业域下暂时没有看板）：**保留可见但压暗**，不做成隐形。
+   隐藏它等于告诉用户「BO View 没有 OCS 这一域」，而事实是这一域暂时没挂卡；
+   压暗 + not-allowed 光标把「点不动」写在脸上，比点开一片空白诚实。 */
+.v6-sub[disabled] { opacity: .45; cursor: not-allowed; }
+.v6-sub[disabled]:hover { border-color: var(--line-2); color: var(--t2); }
+.v6-row {
+  display: flex; align-items: center; gap: calc(7px * var(--v6-k)); min-width: 0;
+  padding: calc(6px * var(--v6-k)) calc(7px * var(--v6-k));
+  border-radius: var(--r1); font-size: var(--fs-sm); color: var(--t1);
+  transition: background .14s, color .14s;
+}
+.v6-row:hover { background: var(--b-tint); color: var(--b-ink); }
+/* 行首图标：原 13px×k，归到 --fs-sm(12.5×k=18.75) 与行文字同档 ——
+   13px 与 12.5px 的 0.5px 差在 1.5 倍后是 0.75px，人眼不可辨，
+   却让它成为全页唯一一个"和同行文字不等"的图标档，没有存在理由。 */
+.v6-row i.ph { flex: none; font-size: var(--fs-sm); color: var(--t3); }
+.v6-row:hover i.ph { color: var(--b-ink); }
+.v6-row span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.v6-row .go { margin-left: auto; flex: none; font-size: var(--fs-sm); opacity: 0; transition: opacity .14s; }  /* 图标字号 */
+.v6-row:hover .go { opacity: .8; }
+.v6-row em {
+  flex: none; font: 600 var(--fs-2xs)/var(--lh-solid) var(--sans); font-style: normal; letter-spacing: var(--ls-wide);
+  color: var(--t3); border: 1px solid var(--line-2); border-radius: 4px;
+  padding: calc(2px * var(--v6-k)) calc(4px * var(--v6-k));
+}
+/* ============================================================================
+   BO View「全部」视图的专业域分段（2026-10-12 加，v2 专有）
+   ----------------------------------------------------------------------------
+   照 MsPortal viewer.html 的 .sb-sub 分段标题（MsPortal/viewer.html:149-174）：
+   caret 图标 + 域短名 + 计数，默认展开、点标题折叠。
+   与页签条的取舍一致：可见文字用**域短名**（RAN/IP/MW/CN/OCS），全称放 title。
+   分段标题比行条目更"轻"（无底无边、小一号字、更暗），避免与可点条目抢视线 ——
+   它只是分组标签，不是可跳转的对象。 */
+.v6-seg-h {
+  display: flex; align-items: center; gap: calc(6px * var(--v6-k));
+  width: 100%; text-align: left; cursor: pointer; background: none; border: 0;
+  padding: calc(7px * var(--v6-k)) calc(7px * var(--v6-k)) calc(3px * var(--v6-k));
+  margin-top: calc(3px * var(--v6-k));
+  color: var(--t3); font: 600 var(--fs-2xs)/var(--lh-solid) var(--sans);
+  letter-spacing: var(--ls-wide); text-transform: uppercase;
+  border-top: 1px solid var(--line-2);
+}
+/* 第一个分段不画上分隔线：它紧跟页签条，多一条线只是噪声。 */
+.v6-seg-h:first-child { margin-top: 0; border-top: 0; }
+.v6-seg-h:hover { color: var(--b-ink); }
+.v6-seg-h:focus-visible { outline: 2px solid var(--b); outline-offset: 2px; }
+.v6-seg-h i.ph { flex: none; font-size: var(--fs-xs); transition: transform .14s; }
+.v6-seg-h.closed i.ph { transform: rotate(-90deg); }
+.v6-seg-t { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.v6-seg-n {
+  margin-left: auto; flex: none; font: 500 var(--fs-2xs)/var(--lh-solid) var(--mono);
+  color: var(--t3); letter-spacing: 0;
+}
+/* 清单默认收 4 条：六张卡全部摊开会把地图顶到第三屏。
+   多出来的走同一个「展开其余 N 项」，与 L2 辅助区分组手感一致。 */
+.v6-more {
+  display: inline-flex; align-items: center; gap: calc(5px * var(--v6-k)); align-self: flex-start;
+  margin: calc(3px * var(--v6-k)) calc(6px * var(--v6-k)) calc(7px * var(--v6-k));
+  padding: calc(3px * var(--v6-k)) calc(7px * var(--v6-k)); border-radius: 6px;
+  font-size: var(--fs-xs); font-weight: 600; color: var(--b-ink);
+}
+.v6-more:hover { background: var(--b-tint); }
+.v6-empty {
+  padding: calc(8px * var(--v6-k)) calc(11px * var(--v6-k)) calc(11px * var(--v6-k));
+  font-size: var(--fs-sm); color: var(--t3);
+}
+
+/* ---------- 编辑态的六个入口卡（2026-09-26 恢复编辑能力时加）----------
+   本页没有 L1 分组页签面板，可编辑的卡片就是这六列里的行条目，
+   所以编辑态给行条目加上 a.card.is-ed —— 这样 bindEdit() 里那套
+   只认 `a.card.is-ed` 的拖拽三件套才会对它生效。
+
+   ⚠️ 三处必须覆盖，否则只是"看起来能编辑"：
+   1. .v6-row 是单行 flex（图标 + 标题 + 角标 + 箭头），
+      塞进 .c-ed 那排按钮后单行放不下 —— 编辑态改成竖排、允许折行；
+   2. .card 自身带 padding / border / 背景（见 :941），
+      与 .v6-row 的紧凑内边距叠加会变得很胖，这里把它压回行条目的量级；
+   3. `.v6-row span` 上的 ellipsis 会连按钮里的 <span> 一起截断，
+      编辑态要放开（只让标题那一颗继续裁）。
+   用 .v6-row.is-ed 提升优先级，不去动只读态的既有规则。 */
+.v6-row.is-ed {
+  display: block; padding: calc(6px * var(--v6-k)) calc(7px * var(--v6-k));
+  border: 1px solid transparent; background: transparent;
+}
+.v6-row.is-ed:hover { border-color: var(--b-line); background: var(--b-tint); }
+.v6-row.is-ed > i.ph { float: left; margin: calc(2px * var(--v6-k)) calc(6px * var(--v6-k)) 0 0; }
+.v6-row.is-ed > span { display: block; overflow: visible; text-overflow: clip; white-space: normal; }
+/* 只让标题那一颗继续单行省略；按钮里的 span 不参与省略。 */
+.v6-row.is-ed > span:first-of-type { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.v6-row.is-ed .c-ed { margin-top: calc(6px * var(--v6-k)); }
+.v6-row.is-ed .c-ed .ct { font-size: var(--fs-xs); }
+/* 编辑态的列头多两颗分组工具，标题要能被挤窄而不是把按钮顶出去 */
+.v6-h { flex-wrap: wrap; }
+.v6-h .ct { flex: none; font-size: var(--fs-xs); }
+/* 拖拽落点高亮：.cards 下的规则（:1119-1120）选不到 .v6-list，这里补一份。 */
+.v6-list .v6-row.is-in-A { box-shadow: inset 3px 0 0 0 var(--b); }
+.v6-list .v6-row.is-in-B { box-shadow: inset -3px 0 0 0 var(--b); }
+
+/* 地图高度：不再在这里单独定，改成由 .maprow 上的 --maprow-h 统一给
+   （地图与报告文件必须等高，高度只能有一个真相源）。详见下方 .maprow 那一段。 */
+
+/* 地图那格为空时（权限被收窄到看不到任何地图页）不要让它白占一半 ——
+   改成整宽单列，报告文件自己占满一行。
+   :has() 在本项目已经在用（见 .meta > .dot:has(+ .ow)），不引入新的兼容风险。
+   特异性 (0,3,0) 高于 .maprow 本身与窄屏那条 @media 里的 (0,1,0)，
+   所以写在文件靠前的位置也能压住它们，不必关心声明顺序。 */
+.maprow:has(.map-slot:empty) { grid-template-columns: minmax(0, 1fr); }
+
+/* L0 决策带：QC 指标面板（2026-09-22 与 MsPortal 的 Quality Control 对齐）
+   语义与 MsPortal 同一套：颜色只由阈值分档（.qc-lv-ok/-warn/-crit/-na），
+   描边 + 内发光 + 数字色 + 文字徽章四个通道同时传意（色盲与黑白打印也能分档），
+   卡片是「小标题 → 等级徽章 → 大数字 → 趋势线 → 口径 → 数据时间戳」的居中堆叠，
+   刷新分两档（告警 5 分钟 / 其余每小时）并在标题行显示心跳与下次刷新倒计时。
+   色值不新造：--qc-accent* 全部由本页令牌（照抄 --mp-*）合成。 */
+.band {
+  display: flex; flex-direction: column; gap: var(--s4);
+  padding: var(--s5);
+  background: var(--surface);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r3);
+  box-shadow: var(--sh-1);
+}
+.band-h { display: flex; align-items: center; gap: var(--s4); flex-wrap: wrap; min-width: 0; }
+/* 标题行的弹性占位（2026-09-25 加）。
+   标题行原来是「圆环 + .band-txt(flex:1 1 200px) + 心跳 + 刷新」，靠 .band-txt 的
+   flex:1 把心跳和刷新按钮顶到右边。去掉「30 天达标率」整块后没有东西撑开间距了，
+   心跳会紧贴刷新按钮、整行堆在左侧。
+   用专门的占位元素而不是给 .band-k 加 flex:1：后者会让标题吃掉所有空隙，
+   心跳被推到最右，视觉上反而更像"标题和状态分家了"。gap 仍由 .band-h 统一给。 */
+.band-sp { flex: 1 1 0; min-width: 0; }
+/* ⚠️ .ring / .ring-btn / .band-pend 已随「30 天达标率」一起删除（2026-09-25，用户要求
+   「去掉 30-day compliance 和圆环图」）。要恢复请看
+   assets/olbr.css.bak_20260925_去30天达标率与ALARM图标前。
+   .band-txt / .band-k 仍被 CXO 指标带与六个入口卡的标题行使用，故保留。 */
+/* 2026-09-25 用户要求：标题不再是全大写，改为「首字母大写、其余小写」的书写形式。
+   做法是**去掉** text-transform: uppercase，而不是换成 capitalize ——
+   数据源本来就是规范写法（'Daily Operation Overview' / 'System Management' /
+   'Level' / 'online'），直接按原样显示即为所求；反之 capitalize 会把
+   'EFLOW/VMAX/UME' 这类专有缩写压成 'Eflow/Vmax/Ume'，把品牌名改错。
+   letter-spacing 同时从 .12em 收到 .02em：宽字距是为「全大写」配的（大写字母
+   彼此更难分辨），改回混合大小写后留着会显得松散、也拉长标题占位。 */
+/* 行高 2026-09-30 由 --lh-solid(1) 改为 --lh-tight(1.25)：分区标题是 18px 的
+   一行文字，行高=1 会让英文字母的下行笔画（g / y / p）贴着行盒底边被裁一点点，
+   尤其 'Daily Operation Overview'、'Network Overview' 这类含 g/y 的标题。
+   1.25 给下行笔画留出呼吸位，同时不改变标题行占位（容器高度由 padding 决定）。 */
+.band-k { font: 700 var(--fs-xl)/var(--lh-tight) var(--sans); letter-spacing: var(--ls-wide); color: var(--title); }
+/* 标题上挂了 title 的（目前只有 CXO Daily Dashboard 的口径说明 kpi.sub）
+   给一个「可以悬浮看看」的指针形状。用属性选择器而不是另加类名：
+   挂没挂提示是**结构事实**，让样式跟着它走，将来谁加/撤 title 都自动对齐，
+   不会出现「有提示但没光标」或「没提示却有光标」。 */
+.band-k[title] { cursor: help; }
+.band-n { margin-top: 6px; font-size: var(--fs-lg); color: var(--t2); }
+.band-n em { font: 700 var(--fs-md)/var(--lh-solid) var(--mono); font-style: normal; color: var(--t1); font-variant-numeric: tabular-nums; }
+/* 数据区间行（2026-09-28 加）：标题下方一句「Data range 08-30 ~ 09-28」。
+   字号比 .band-n（16px，用于 CXO 的口径说明）小得多，因为它只是**注释**、
+   不是数据；也不与标题抢视线。用 --t3（三级文字色）同理。
+   nowrap + ellipsis：区间串本身不长，但窄屏下两端的完整时间戳会超宽，
+   截断比换行好 —— 换行会把整个标题行顶高，把六张卡往下推。
+
+   ⚠️ 2026-09-28 同日三改（用户要求「改成点击切换」）：触发方式由
+   「悬停 / 聚焦自动展开」改为「**点击标题切换**」。
+   展开与否由 .band-txt 上的 .is-open 类决定（JS 在 olbr.js 里切），
+   不再用 :hover / :focus-within 自动展开 —— 那两种方式在触屏上不可用
+   （触屏没有真正的 hover，点一下会"粘住"），且鼠标扫过标题时一闪而过，
+   用户还没来得及读就没了。点击是显式的：要么开着，要么关着。
+   保留的三条旧设计仍然成立：① 不占布局（position:absolute）不会让卡片跳动；
+   ② 用 opacity/visibility 而非 display:none，屏幕阅读器仍能读到；
+   ③ 内容始终在 DOM 里。
+   无障碍：标题本身渲染成 <button class="band-range-btn">，有 aria-expanded，
+   键盘 Enter/Space 可切换、Esc 收起（见 olbr.js 的 wireRangeToggle）。 */
+.band-txt { position: relative; min-width: 0; }
+/* 点击切换的触发行：把标题包成按钮，但**长得和原来一模一样** ——
+   直接给 <button> 抹掉浏览器默认的边框/底色/字体/内边距，
+   否则标题会突然多出一个灰底方框。
+   ⚠️ 字体这里写 `font: inherit` 是**不够**的：本按钮同时带 .band-k 类，
+   而 .band-k（L747，18px/700）在本规则**之前**，同特异性下后者覆盖前者，
+   结果标题会被这条的 inherit 打回 16px 默认字号 —— 与旁边 CXO/v6 的
+   标题大小不一致。所以显式重复 .band-k 的字体，不依赖两条规则的先后顺序。 */
+.band-range-btn {
+  display: inline-flex; align-items: center; gap: 4px;
+  margin: 0; padding: 0; border: 0; background: none;
+  font: 700 var(--fs-xl)/var(--lh-tight) var(--sans); letter-spacing: var(--ls-wide); color: var(--title);
+  text-align: left;
+  cursor: pointer;
+}
+/* 「可点」的视觉暗示：一个很小的 ▾，随展开状态翻转。
+   用 CSS 旋转而不是换图标，省一次图标重绘、也避免切换时闪一下。
+   默认给 .45 透明度：它是提示不是内容，不该和标题抢视线，
+   但也不能太淡（实测 0.35 在浅色主题下几乎看不见）。 */
+.band-range-btn::after {
+  content: ''; flex: none; width: 0; height: 0;
+  border-left: 4px solid transparent; border-right: 4px solid transparent;
+  border-top: 4.5px solid currentColor;
+  opacity: .45; transform: translateY(1px);
+  transition: transform .14s ease, opacity .14s ease;
+}
+.band-range-btn:hover::after,
+.band-range-btn:focus-visible::after { opacity: .8; }
+.band-txt.is-open > .band-range-btn::after { transform: translateY(1px) rotate(180deg); }
+/* 展开态才显示的气泡。注意选择器用 .is-open 而不是 :hover。 */
+.band-range {
+  position: absolute; left: 0; bottom: calc(100% + 2px); z-index: 3;
+  display: flex; align-items: center; gap: 6px; min-width: 0; max-width: 100%;
+  padding: 4px 9px; border-radius: var(--r2);
+  /* 底板必须是**不透明的 surface**：它是压在下层内容上的浮层，
+     用 --surface-2（半透明）会让底下的卡片/表格透出来、字读不清。
+     --surface-2-solid 就是为这种场合准备的（两份主题各自给了
+     "把 surface-2 压在本主题底色上的合成色"，见变量定义处）。
+     阴影用 --sh-1 而不是 --sh-3：这是一条 11.5px 的注释条，
+     用卡片级的大阴影会显得比它承载的内容还重。 */
+  background: var(--surface-2-solid); border: 1px solid var(--line);
+  box-shadow: var(--sh-1);
+  font: 500 var(--fs-xs)/var(--lh-tight) var(--mono); color: var(--t2); font-variant-numeric: tabular-nums;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  opacity: 0; visibility: hidden;
+  transition: opacity .14s ease, visibility .14s ease;
+}
+/* 展开：由 JS 切 .is-open。刻意**不**保留 :hover / :focus-within，
+   否则鼠标扫过仍会自动弹一下，又变回"悬停显示"了。 */
+.band-txt.is-open > .band-range { opacity: 1; visibility: visible; }
+.band-range > i { flex: none; font-size: var(--icon-sm); opacity: .8; }
+.band-range > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 「未判定 N 条不计入」.band-pend 已随「30 天达标率」删除（它只出现在那一段里）。 */
+.band-when { margin-top: 8px; font: 500 var(--fs-xs)/var(--lh-base) var(--mono); color: var(--t3); }
+
+/* 分档图例（2026-10-28 加，用户反馈「柱状图的颜色没有按图例要求显示对应的颜色」）。
+   放在 Daily Operation 标题行、心跳左侧。
+   ⚠️ 色点颜色必须与**上色的令牌**同一个来源：数字走 --qc-tier、柱子走 --ok/--warn/--crit。
+   两者是**各自拿自己的值**判档（2026-10-28「数字和柱状图各自按照数字大小」），
+   但用的是同一把尺子 —— 统一阈值 5 / 20（用户「不要按照不同标准」），
+   三档的色值也始终是同一组令牌。这里同样直接取 --ok/--warn/--crit ——
+   若这里另写一套色值，就会重演「图例画的是 A、柱子是 B」那个问题本身。
+   字号取 --fs-2xs（与卡内小字同档）；「分档图例」四个字用 --t3 压轻，
+   避免与分区标题（--title 橙、18px）抢视线 —— 它是注释，不是标题。
+   窄屏（≤760px）整块折行，不挤压标题。 */
+.qc-lvlegend { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  font-size: var(--fs-2xs); line-height: 1; color: var(--t3); }
+.qc-lvlegend-k { font-weight: 600; }
+.qc-lvlegend-i { display: inline-flex; align-items: center; gap: 4px; }
+/* 色点：与 Benchmark 图例（.bf-spark-k > i）同款做法 —— 用色块而不是纯文字，
+   因为「红色」这两个字在浅色底上几乎不可读，而色块能直接对上柱子。 */
+.qc-lvlegend-i > i { flex: none; width: 8px; height: 8px; border-radius: 2px; background: var(--t3); }
+.qc-lvlegend-i.k-ok > i   { background: var(--ok); }
+.qc-lvlegend-i.k-warn > i { background: var(--warn); }
+.qc-lvlegend-i.k-crit > i { background: var(--crit); }
+@media (max-width: 760px) { .qc-lvlegend { width: 100%; } }
+
+/* 心跳：绿色脉冲 = 这块面板确实在自动刷新。取不到数据时变红且不脉冲。
+   秒必须精确到秒 —— 只到分钟时，轮询叠上后端 60s 缓存会出现「一分钟没变」的错觉。
+
+   2026-09-29 三轮调整，过程本身就是这份样式为什么长这样的说明：
+   ① 用户「闪动太快，不好看」→ 我把 2.2s 放慢到 3.6s、把光晕缩到 4px/28%。
+   ② 用户「现在太慢了，并且呼吸效果不明显」→ ① 改错了方向。
+      复盘：扩散环的观感**全靠变化率**。周期拉长、幅度和浓度又一起削弱，结果是
+      「大半个周期里那颗点是静止的，动的时候又几乎看不见」—— 读起来就是「慢」+
+      「感觉不到在呼吸」。快和慢是对矛盾，靠削弱单个动画无法同时满足。
+   ③ 用户「呼吸的太快了」→ ② 里我把 qcBreathe 定成 1.25s（每秒 2.4 次）是为了让
+      呼吸"看得见"，但那个频率读起来是**抖动**（flutter），不是呼吸 ——
+      真实的一次呼吸是 3~4s，1.25s 连一半都不到。
+
+   最终做法：**把两种信号拆开**，各自用符合自身语义的节奏。
+     · 圆点本体：qcBreathe 3.6s 一轮（≈每秒 0.28 次）的柔和缩放 8px→9.4px
+       + 透明度 1→.72。这是一次真正的「吸气—呼气」，也是持续存在的"活着"信号。
+       ② 时代它只需 1.25s 就会被看见；现在**不必靠快来刷存在感**了 ——
+       因为"有节拍"这件事已经交给下面的光环去做，两者分开正是为了能各自放慢。
+     · 扩散光环：qcPulse 2.6s 一轮、扩到 6px、起始 40% 绿。
+       有节拍的那一路，比原始 2.2s 从容、比 3.6s 明确，不"闪"也不"等"。
+
+   周期比是 3.6s : 2.6s ≈ 1.38，**刻意不取整数倍**：完全同步（如 2:1）会让两个动画
+   反复在同一相位对齐，观感机械且会放大"节拍感"；非整数比让每次对齐都错开，
+   整体更像"自然的呼吸 + 偶然泛起的涟漪"。调到这一版请**不要再单独加速 qcBreathe** ——
+   它一快就退回 ③ 的抖动问题。
+
+   注意 .qc-dot 的 box-shadow 初始值必须是 `0 0 0 0 var(--ok-tint)`（半径为 0 的透明环），
+   它是 qcPulse 的起始态；两个动画分别写 box-shadow 与 transform，互不抢属性。 */
+.qc-live { display: inline-flex; align-items: center; gap: 6px; font: 500 var(--fs-xs)/var(--lh-solid) var(--mono); color: var(--t2); font-variant-numeric: tabular-nums; }
+.qc-live .qc-sep { color: var(--t3); }
+.qc-dot {
+  display: block;
+  width: 8px; height: 8px; border-radius: 50%; flex: none;
+  background: var(--ok); box-shadow: 0 0 0 0 var(--ok-tint);
+  animation: qcPulse 2.6s ease-out infinite, qcBreathe 3.6s ease-in-out infinite;
+}
+/* 故障态：变红且**两个动画都停** —— 静止的红点是"这块面板不再刷新"的信号，
+   任何残余动画都会让人误以为它还在工作。 */
+.qc-dot-bad { background: var(--crit); animation: none; }
+@keyframes qcPulse {
+  0%   { box-shadow: 0 0 0 0 color-mix(in srgb, var(--ok) 40%, transparent); }
+  70%  { box-shadow: 0 0 0 6px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+@keyframes qcBreathe {
+  0%, 100% { transform: scale(1);    opacity: 1; }
+  50%      { transform: scale(1.16); opacity: .75; }
+}
+
+.qc-grid {
+  display: grid; gap: var(--s2); align-items: stretch;
+  /* 六张一行。告警带 #band 与 CXO 指标带 #kpi 都用这一档（两处都输出 .qc-grid）：
+     前者是 6 张 Quality Control 卡，后者是 3 张富卡片 + 3 张可用率卡。
+     两个带想要的列数一致，所以没有必要再分出一个修饰类 ——
+     2026-09-24 一度加过 .qc-grid--kpi（CXO 加第四张卡时改成 4 列），
+     用户要求去掉 Video Traffic、恢复六张一行后已删除。
+     minmax(0,1fr) 而不是 1fr：1fr 的最小尺寸是 auto，
+     长卡名 / 长副行会把列撑破、把整行挤出容器。 */
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+/* 断点跟视口走，不写死在渲染逻辑里。
+   6 → 3 → 2：富卡片里有一行「Max/Avg/Min」三段加一个 30 点走势，
+   比简卡片宽，所以 1200px 这一档收到 3 列（每张约 380px）刚好。 */
+@media (max-width: 1200px) { .qc-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 760px)  { .qc-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* ===================== 连体卡组 .qc-group（2026-10-07 加）=====================
+   要解决的问题（用户原话）：「前 3 个卡片下钻都是打开相同的页面，容易让人误解
+   是 3 个不同的页面」。此前同组的卡在 .qc-grid 里平铺、彼此间距与组间一致，
+   「都去同一页」只写在每张卡的 tooltip 里 —— 不悬停看不见。
+   解法是把同组的卡做成**一个可见的整体**，并给组一个写着目标看板名的组头。
+
+   层次：
+     .qc-grid        —— 一行（6 列），组是它的直接子项
+       .qc-group     —— 组：组头 + 卡身（跨越 N 列）
+         .qc-group-h —— 组头：组名 + 「打开完整看板 ↗」链接
+         .qc-group-b —— 卡身：连体卡排（N 列，N = 卡数）
+
+   「连体」怎么做到（三条缺一不可）：
+     ① 组内**不留栅格间距**（gap:0），卡与卡之间只有一条 1px 细缝；
+     ② 组内卡去掉自己的圆角与左右描边，只保留相邻处的一条分隔线；
+     ③ 整组共享一个外框与圆角（把圆角做在组上、卡做直角，接口处才不会
+        出现"两个圆角对扣"的缺口）。
+
+   ⚠️ 为什么列数必须按卡数走（--n 由 JS 的 data-n 给）：
+     BF 行的三个组分别是 3 / 2 / 1 张。写死 3 列的话，2 张那组会空出一列、
+     1 张那组（BP）会被压成 1/3 宽 —— 而它承载的信息量与另外两组同级。
+     用 repeat(var(--n)) 让每组各自排满，组与组之间仍对齐在同一行。
+   ⚠️ 断点：≤1200px 时整行收成 3 列，组跟着变宽，所以组内列数也要跟着降档
+     （3 列那组在 3 列栅格里就是整行宽，此时组内改成 2 列才不至于把卡压扁）；
+     最窄档（≤760px）所有组内一律 1 列 —— 手机上"并排两张"已无意义。 */
+.qc-group {
+  /* 组跨越的列数 = 成员卡数。JS 通过 data-n 给（见 qcGroupHtml）。 */
+  grid-column: span var(--n, 3);
+  /* ⚠️ 组自己是一个 flex 列：组头一行 + 卡身一行，卡身撑满余下宽度。 */
+  display: flex; flex-direction: column; min-width: 0;
+  /* 外框做在组上（卡做直角），所以圆角、描边、内发光都归这一层。
+     底色用 --surface-2：与卡片同色 —— 组内卡是"同一块面板被分了格"，
+     不该出现两种底色。 */
+  border: 1px solid var(--line-2); border-radius: var(--r2);
+  background: var(--surface-2);
+  overflow: hidden;
+  transition: border-color .16s ease-out, box-shadow .16s ease-out;
+}
+/* 悬停整组：一组是一个入口，所以反馈也做在组上。
+   ⚠️ 不是逐卡反馈：逐卡抬升会让"连体"在鼠标下散架（视觉上手一碰就分成 N 块，
+   恰好又把"这是一个整体"这件事说反了）。 */
+.qc-group:hover {
+  border-color: var(--b-line);
+  box-shadow: 0 8px 18px color-mix(in srgb, var(--b) 14%, transparent);
+}
+/* 组头。底色略深于卡面，让它看起来像"这一格的表头"而不是另一张卡。 */
+.qc-group-h {
+  display: flex; align-items: center; gap: 6px; min-width: 0;
+  padding: 5px 8px 5px 10px;
+  border-bottom: 1px solid var(--line-2);
+  background: color-mix(in srgb, var(--b) 5%, transparent);
+}
+.qc-group-n {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: var(--fs-2xs); font-weight: 700; letter-spacing: var(--ls-wide);
+  color: var(--t2); cursor: help;
+}
+/* 组头里的**品牌标识图形**（2026-10-13 加，用户要求「标题改成卡片左下角的 logo」）。
+   与 .qc-group-n 同占位（组头左端一格），差别只有内容从文字换成 SVG。
+   ⚠️ 用 <span> 而非块级元素：.qc-group-h 是 flex 行，块级会把组级链接顶到下一行。
+   ⚠️ 高度锁定：SVG 用 "宽度驱动、高度按比例"（见下方 .qc-group-logo svg），
+   宽度给固定值，这样标识既不会因组宽变化而缩放，也不会撑高组头。
+   两个标识的 viewBox 比例不同（Ookla 174:45、Meta 89:34），若要视觉等高，
+   按比例取宽 —— Ookla 96px → 高约 24.8px，Meta 取 65px → 高约 24.8px。
+   ⚠️ 2026-10-15 起这里是这两个标识的**唯一**渲染处：卡片页脚右下角那份
+   已按用户要求删除（「不要了，跟标题重复了」），所以下面那一串"与页脚
+   106/72 等高"的写法也随之作废，本段的宽高是独立定的。 */
+.qc-group-logo { flex: 0 0 auto; display: flex; align-items: center; color: var(--logo-ink); }
+.qc-group-logo .ookla-svg { display: block; width: 96px; height: auto; }
+.qc-group-logo .meta-svg  { display: block; width: 65px; height: auto; }
+/* 字标用页面正文字体渲染（品牌自有字体拿不到）。 */
+.qc-group-logo .ookla-svg text,
+.qc-group-logo .meta-svg text { font-family: var(--sans); }
+/* 显式的组级链接（撑到右端）。它是这一组唯一可见的跳转说明。 */
+.qc-group-go {
+  flex: none; margin-left: auto;
+  display: inline-flex; align-items: center; gap: 3px;
+  padding: 1px 7px; border-radius: 999px;
+  border: 1px solid var(--b-line);
+  color: var(--b-ink); background: var(--b-tint);
+  font-size: var(--fs-2xs); font-weight: 600; text-decoration: none;
+  transition: color .16s ease-out, background-color .16s ease-out;
+}
+.qc-group-go:hover { color: var(--b-ink-h, var(--b-ink)); background: color-mix(in srgb, var(--b) 18%, transparent); }
+.qc-group-go:focus-visible { outline: 2px solid var(--b); outline-offset: 1px; }
+.qc-group-go i { font-size: var(--fs-sm); }
+
+/* 卡身：连体卡排。gap:0 + 组内卡去圆角/描边 = 一条细缝的连体效果。 */
+.qc-group-b { display: grid; gap: 0; align-items: stretch; flex: 1 1 auto; min-width: 0; }
+.qc-group-b > .qc-card {
+  /* 边界由"相邻处的一条线"表达，不再每张卡各画一圈 —— 双线在 1px 上会糊成 2px。 */
+  border: 0; border-radius: 0; box-shadow: none;
+  /* 卡自己的悬停抬升在组内必须关掉（理由见 .qc-group:hover）。 */
+  transform: none;
+  background: transparent;
+}
+.qc-group-b > .qc-card + .qc-card { border-left: 1px solid var(--line-2); }
+/* 组内卡被悬停：只加内部淡色底作为"这一格是热区"的提示，不动几何。 */
+.qc-group-b > .qc-card:hover { box-shadow: inset 0 0 0 999px color-mix(in srgb, var(--b) 4%, transparent); }
+/* 组内卡是链接，键盘可达 —— 焦点环改成内描边（外描边会被组的外框裁掉）。 */
+.qc-group-b > .qc-card:focus-visible {
+  outline: 2px solid var(--b); outline-offset: -2px; border-radius: 0;
+}
+
+/* 组内列数 = 卡数。data-n 由 qcGroupHtml 输出（3 / 2 / 1）。 */
+.qc-group-b[data-n="1"] { grid-template-columns: minmax(0, 1fr); }
+.qc-group-b[data-n="2"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.qc-group-b[data-n="3"] { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+/* 组跨越的列数也按卡数走（同上，BP 组 1 张就只占 1 列）。
+   ⚠️ meta 组 2026-10-15 由 2 张变 3 张（加了一张时延卡，见 olbr-data.js 的
+   KPI_META），所以 --n 由 2 改 3：整行仍恰好 6 列（speed 3 + meta 3）。
+   data-n 由 JS 按 g.items.length 自动产出（qcGroupHtml），无需在此重复声明。 */
+.qc-group[data-grp="speed"] { --n: 3; }
+.qc-group[data-grp="meta"]  { --n: 3; }
+.qc-group[data-grp="bp"]    { --n: 1; }
+.qc-group[data-grp="rich"]  { --n: 3; }
+.qc-group[data-grp="avail"] { --n: 3; }
+
+/* 断点。1200px：整行由 6 列收成 3 列 —— 组不再横跨多列，
+   改为"一组一整行"，否则 3 张卡挤在 1/3 行宽里会扁得读不了。 */
+@media (max-width: 1200px) {
+  .qc-group { grid-column: 1 / -1; }
+  .qc-group-b[data-n="3"] { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  /* 2 张的组保持 2 列：一行宽够放两张，且与 3 张组同宽更整齐。 */
+  .qc-group-b[data-n="2"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  /* ⚠️ 1 张的组（BP）**保持 1 列但不拉伸**：它在宽屏上本来只占 1 列，
+     到这一档突然变成整行宽会很突兀。限制最大宽度，与 2 列组的一张卡等宽。 */
+  .qc-group-b[data-n="1"] { grid-template-columns: minmax(0, 50%); }
+}
+@media (max-width: 760px) {
+  /* 手机：组内一律单列，卡片纵向堆叠 —— 并排两张在这个宽度上已是挤压。 */
+  .qc-group-b[data-n="1"], .qc-group-b[data-n="2"], .qc-group-b[data-n="3"] {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  /* 单列时"左细缝"要改成"上细缝"，否则分隔线跑到左边、上下两卡粘在一起。 */
+  .qc-group-b > .qc-card + .qc-card { border-left: 0; border-top: 1px solid var(--line-2); }
+}
+
+.qc-card {
+  --qc-accent: var(--b);
+  --qc-accent-soft: var(--b-tint);
+  --qc-accent-line: var(--b-line);
+  position: relative;
+  display: flex; flex-direction: column; align-items: center;
+  width: 100%; min-width: 0; text-align: center; cursor: pointer; overflow: hidden;
+  padding: 10px 10px 11px;
+  border: 1px solid var(--qc-accent-line); border-radius: var(--r2);
+  background: var(--surface-2);
+  box-shadow: inset 0 0 14px color-mix(in srgb, var(--qc-accent) 12%, transparent);
+  transition: box-shadow .16s ease-out, transform .16s ease-out, border-color .16s ease-out;
+}
+.qc-card:hover {
+  transform: translateY(-2px);
+  box-shadow: inset 0 0 18px color-mix(in srgb, var(--qc-accent) 20%, transparent),
+              0 8px 18px color-mix(in srgb, var(--qc-accent) 16%, transparent);
+}
+.qc-card:active { transform: translateY(0); }
+
+/* 等级 → 描边 / 内发光 / 数字 / 徽章共用同一组色（放在 .qc-card 之后才能盖掉默认档） */
+/* ⚠️ v1：下面这四档配色（.qc-lv-ok/-warn/-crit/-na）与 .qc-lvchip 徽章样式
+   **在当前版本没有任何元素会用到** —— v1 按要求摘掉了等级徽章，
+   qcCardHtml 不再输出 .qc-lv-* 类名，SLA 环也不再吃分档色。
+   保留（而不是删）是为了与 /olbrportal/ 那份保持同一套类名：
+   两个门户的 CSS 是各自独立的一份，但类名语义一致才好对照；
+   以后若要恢复徽章，接回 qcCardHtml 即可，样式这边一行都不用动。
+   读代码的人请注意：屏幕上不会有这四个颜色。 */
+.qc-lv-ok   { --qc-accent: var(--ok);   --qc-accent-soft: var(--ok-tint);   --qc-accent-line: color-mix(in srgb, var(--ok) 32%, transparent); }
+.qc-lv-warn { --qc-accent: var(--warn); --qc-accent-soft: var(--warn-tint); --qc-accent-line: color-mix(in srgb, var(--warn) 32%, transparent); }
+.qc-lv-crit { --qc-accent: var(--crit); --qc-accent-soft: var(--crit-tint); --qc-accent-line: color-mix(in srgb, var(--crit) 38%, transparent); }
+.qc-lv-na   { --qc-accent: var(--t3);   --qc-accent-soft: transparent;      --qc-accent-line: var(--line-2); }
+
+/* 没有迷你走势的卡（告警带的 CRs / PMT，以及任何趋势数据没取到的卡）：
+   内容天然比同排带走势的卡矮 50px 上下，而 .qc-grid 的 align-items:stretch
+   会把差额全堆在底部，看起来像"下面少了一块"。
+   内容改为垂直居中，差额就上下对分，是"刻意居中"而不是"缺内容"。
+   ⚠️ 这两张卡补不了内容：/api/portal-qc/trend 没有对应的趋势序列，
+   不是没取，是上游就没有 —— 所以只能居中，不能像可用率卡那样补页脚。 */
+.qc-card.is-nospark { justify-content: center; }
+
+.qc-hd { display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; min-width: 0; }
+/* ⚠️ 2026-09-28：这条 .qc-ico **已经没有任何元素会命中**。
+   告警带那六张卡的图标是 2026-09-25 去掉的（qcCardHtml 不再输出 .qc-ico），
+   CXO 那三张可用率卡是 2026-09-28 去掉的（kpiCardHtml 同款处理，用户要求
+   「跟其他卡片保持一致」）—— 于是全页再没有 .qc-ico。
+   刻意保留而不是删：本文件与 /olbrportal/ 那份是各自独立的两份 CSS，
+   但类名语义保持一致才好对照；将来若要给某排卡恢复图标，接回 JS 即可。
+   读代码的人请注意：屏幕上不会有这个图标盒。 */
+.qc-ico {
+  flex: none; display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; border-radius: var(--r1);
+  color: var(--qc-accent); background: var(--qc-accent-soft); font-size: 12px;
+}
+/* 卡名字号/字重/颜色与富卡片的标题（.qc-ttl b）**逐项对齐**：
+   12.5px / 700 / var(--t1) / letter-spacing .2px。
+   用户 2026-09-25 要求「Alarms 等标题要跟 Traffic 一样字体大小和格式、粗细」——
+   同一排卡片里两种标题规格会显得一档是"次级"，而它们是同级标题。
+   ⚠️ 改这里的任何一项，必须同步改 .qc-ttl b，否则两排标题立刻重新分叉。 */
+.qc-name {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: var(--fs-sm); font-weight: 700; color: var(--t1); letter-spacing: var(--ls-wide);
+}
+/* 等级徽章独立成行：六卡并排单卡只有 ~240px，挤进标题行会把卡名截断。
+   颜色之外再给一枚文字徽章 —— 只靠颜色传意对色盲和黑白打印都不可读。 */
+.qc-lvchip {
+  margin-top: 5px; padding: 3px 7px; border-radius: 999px;
+  font-size: var(--fs-2xs); font-weight: 600; line-height: var(--lh-solid);
+  color: var(--qc-accent); background: var(--qc-accent-soft);
+  border: 1px solid var(--qc-accent-line);
+}
+.qc-numrow { display: flex; align-items: baseline; justify-content: center; gap: 6px; margin-top: 8px; }
+/* ⚠️ 2026-09-24 修：这里原先是 `font: 600 1em/1`，那个 `1em` 是**继承父级字号**，
+   不是一个确定的数。原版之所以看不出问题，是因为它的 qcCardHtml 一定会额外输出
+   `qc-card--lg`(26px) / `qc-card--sm`(21px) 把字号顶掉；v1 摘掉等级徽章时
+   把这两个尺寸类一起删了，于是字号一路继承到 .qc-card 的 15px ——
+   告警行 #band 的数字实测只有 15px，而同宽(396px)的 CXO 行是 24px，两行差一大截。
+   写成明确像素后，任何 .qc-card 不论放在哪一行都是这个字号，不再依赖继承。
+   24px 与 CXO 行一致（用户要求告警行数字「大并且醒目」，参照 Total Traffic 那几张卡）。 */
+.qc-num {
+  /* 36px 是 L0 告警带六卡数字的专用档：它比 --fs-num(24px) 还大一档，
+     因为这一排是"一眼看数"的主视觉，且六卡并排时每卡仍有 ~240px 容得下。
+     刻意**不并入字阶** —— 并入就得为它单开一档，而全页只有这一处用到。 */
+  font: 600 36px/var(--lh-solid) var(--mono); color: var(--qc-accent); font-variant-numeric: tabular-nums;
+  letter-spacing: var(--ls-tight);
+}
+.qc-num.is-na { color: var(--t3); }
+/* ⚠️ 下面两档 v1 **没有任何元素会命中**：qcCardHtml 已不再输出 qc-card--lg/--sm
+   （就是上面那条 15px 问题的成因）。保留是为了和 /olbrportal/ 共用同一套类名，
+   方便两边对照；注意它们的选择器比 .qc-num 更具体，**哪天恢复输出这两个类就会盖掉
+   上面的 24px**，届时要一并重新决定字号。 */
+/* 主/次分层只靠字号这一个通道（分组标题已经去掉）。
+   ⚠️ 26/21px 同样不并入字阶：它们是 .qc-num(36px) 的两个降档，只在这两处出现。 */
+.qc-card--lg .qc-num { font-size: 26px; }
+.qc-card--sm .qc-num { font-size: 21px; }
+
+/* 趋势线：内联 SVG，零依赖（门户要求零 CDN、断网可用）。
+   preserveAspectRatio=none 会横向拉伸，故不画端点圆点。 */
+.qc-spark { display: block; margin-top: 8px; height: 26px; }
+.qc-spark svg { display: block; width: 100%; height: 26px; overflow: visible; }
+.qc-spark .sp-area { fill: var(--qc-accent-soft); }
+.qc-spark .sp-line { fill: none; stroke: var(--qc-accent); stroke-width: 1.6; stroke-linejoin: round; stroke-linecap: round; }
+/* 柱状图的柱子（2026-09-28 加，用户要求「当前的曲线换成柱状，数字不变」）。
+   整根柱子是一个闭合路径（见 qcBarsSvg 的说明），所以 fill 与 stroke 都作用在
+   同一个元素上：fill 给柱体、stroke 给柱体描边。
+   ⚠️ stroke-width 必须很小：svg 挂着 preserveAspectRatio="none"，
+   描边在横向会被拉伸，宽度偏大就会让柱子看起来"糊成一团"。
+   取 0.4 而不是 0：完全不给描边时，在深色主题下柱体与卡底色的对比会偏弱；
+   vector-effect="non-scaling-stroke"（由 JS 写在路径上）保证它不被拉粗。 */
+.qc-spark .sp-bar { fill: var(--qc-accent); stroke: var(--qc-accent); stroke-width: .4; }
+/* ⚠️ 2026-10-28 二改（用户要求「卡片的数字和柱状图要**各自**按照数字大小显示颜色」）：
+   柱子不再跟着卡片那一档走。**上面那三条 .qc-card.is-tier-* .sp-bar 已删除** ——
+   它们比下面的 .sp-* 更具体，留着会把逐柱判出来的颜色重新刷回「整图一色」，
+   而且那种写法本来就只能给整张图一个颜色（一个 <path> 一种 fill）。
+   现在是 qcBarsSvg 逐根判档、按档分组输出（见 olbr.js），每条 path 自带 sp-* 类：
+     .sp-crit / .sp-warn / .sp-ok → 该柱子自己那格的值达到哪一档，就是哪一档的色
+     .sp-bar 且无 sp-*（该指标没配阈值 / 值不是数字）→ 保持品牌色 --qc-accent
+   这里的选择器**不挂在 .qc-card 下**：判色的依据来自柱子自己那一格的值，
+   与卡片中央那个大数字无关 —— 同一张卡同时出现「红字 + 绿柱」是正常的，
+   因为前者是「当前积压」（存量），后者是「这段时间每小时新增」（流量），两回事。 */
+.qc-spark .sp-bar.sp-ok   { fill: var(--ok);   stroke: var(--ok); }
+.qc-spark .sp-bar.sp-warn { fill: var(--warn); stroke: var(--warn); }
+.qc-spark .sp-bar.sp-crit { fill: var(--crit); stroke: var(--crit); }
+/* 2026-10-28 改（用户反馈「柱状图的颜色没有按图例要求显示对应的颜色」）：
+   分档的**判定**换成了每个指标自己的阈值（QC_TARGETS，见 olbr.js 的 qcCardHtml），
+   与 /olbrportal/(v0) / MsPortal 同一份口径。
+   ⚠️ 本段的**色值**也跟着换了：2026-10-23 写死的 #006400 / #FFD700 / #FF0000
+   是纯绝对色，既不跟浅/深两套主题走，也与全站状态色（--ok/--warn/--crit）不是一套 ——
+   同一屏里「可用率卡的达标绿」与「QC 卡的正常绿」会是两个不同的绿。
+   现在三档直接取令牌，与 v0 徽章、MsPortal 徽章、页面其它状态色**完全同色**：
+     浅色：--ok #0a6a52 / --warn #7c5e07 / --crit #a2202f
+     深色：--ok #0bc78c / --warn #f6cf00 / --crit #ff5c6c
+   ⚠️ 仍然刻意**不动 --qc-accent**：那个变量还喂着卡片边框、内发光与 hover 光晕
+   （见上面 .qc-card 与 .qc-card:hover），整卡换色不在需求里 —— 用户点名的只有
+   「数字和下面的柱状图」两处 —— 现在这两处**分开判档**，各自拿各自的值去比：
+     · .qc-num ← 卡片的大数字（当前存量），走下面的 --qc-tier
+     · .sp-bar ← 每根柱子自己那格的值，走上面那三条 .sp-*（2026-10-28 二改，
+                 用户「各自按照数字大小」；原先把它俩刷成同一个色的三条规则已删除）
+   类名由 qcCardHtml 按**阈值判定**输出（is-tier-ok/warn/crit），与旧版等级类
+   .qc-lv-*（v1 起已不渲染，见上）无继承关系 —— 复用那套会连边框一起染色。
+   未分档（数字取不到 / 接口失败）时不命中任何一条，数字回到品牌色原状。 */
+.qc-card.is-tier-ok   { --qc-tier: var(--ok); }
+.qc-card.is-tier-warn { --qc-tier: var(--warn); }
+.qc-card.is-tier-crit { --qc-tier: var(--crit); }
+.qc-card.is-tier-ok .qc-num,
+.qc-card.is-tier-warn .qc-num,
+.qc-card.is-tier-crit .qc-num { color: var(--qc-tier); }
+/* 线画的是**新增量**，大数字是**存量**，量级不同不能互相印证 ——
+   所以说明文字（窗口 + 每格时长）是必需的，否则会把线的起伏当成大数字的起伏。 */
+.qc-spark-wrap { display: block; margin-top: 8px; }
+.qc-spark-wrap .qc-spark { margin-top: 0; }
+.qc-spark-cap {
+  display: block; margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font: 500 var(--fs-2xs)/var(--lh-tight) var(--mono); color: var(--t3); font-variant-numeric: tabular-nums;
+}
+.qc-spark-empty {
+  margin-top: 8px; height: 26px; display: flex; align-items: center;
+  font-size: var(--fs-xs); color: var(--t3);
+}
+.qc-sub {
+  display: block;   /* 卡内是 <span>：<button> 只允许短语内容，故靠 display 布局 */
+  width: 100%; margin-top: 7px;
+  font-size: var(--fs-xs); line-height: var(--lh-tight); color: var(--t2);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.qc-card.is-failed .qc-sub { color: var(--crit); white-space: normal; }
+/* 每张卡自带数据时间戳：面板上有两档刷新节奏，只给一个全局「更新于」
+   会让每小时那五项看起来也是 5 分钟前刚取的。 */
+.qc-age {
+  display: block; width: 100%; margin-top: 5px;
+  font: 500 var(--fs-2xs)/var(--lh-tight) var(--mono); color: var(--t3); font-variant-numeric: tabular-nums;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* ============================================================================
+   富卡片（CXO 三张：总流量 / 活跃用户 / 视频下载速率）
+   ----------------------------------------------------------------------------
+   结构与 my_app `?page=vmaxCxoDashboard_90Days` 的卡片一致：
+     标题 + 右上角单位 → 大数字 + 单位 → Latest/As of → WoW/MoM 徽章
+     → 迷你走势 → Max / Avg / Min 页脚
+   标记仍用 `.qc-card`（沿用底/边/hover/内发光/--qc-accent 一整组既有规则），
+   只加一个 `--rich` 修饰类把「居中单列」改成「左对齐多段」。
+
+   ⚠️ 2026-09-29 更正：上面原写「四张 … 总流量 / 活跃用户 / 视频下载速率 /
+      视频流量」。第四张 video_tb 早在 2026-09-24 就按要求去掉了
+      （KPI_RICH 里只剩三条），这行标题一直没跟着改，属于陈旧注释。
+      实际是**三张**，与 olbr-data.js 的 KPI_RICH 条数一致。
+
+   2026-09-29：这三张卡改为**整卡可点**（点开对应 my_app 看板），
+   卡片本体由 <a href> 渲染，配套样式见下面 .qc-card--open。
+
+   ⚠️ 刻意**不抄源页那张卡的整卡渐变**（源页是
+      `background:linear-gradient(180deg,#08122c,#050d22)`）。
+     本仓库 DESIGN.md 第 39~42 行明令：整张数据卡不许加渐变
+     会给数据带"贴纸感"、降低可信度，QC 卡改版就是这么改的。
+     所以底色仍用 .qc-card 的 var(--surface-2) 纯色，靠边框 + 内发光分层。
+     渐变只保留在「迷你走势的面积」上 —— 那是图表元素，不是卡片底。 */
+.qc-card--rich { align-items: stretch; text-align: left; padding-bottom: 9px; }
+
+/* ============================================================================
+   Benchmark 行（Network Benchmark View，2026-10-01 加）
+   ----------------------------------------------------------------------------
+   三张卡 = 三个指标（下载 / 上传 / 时延），每张卡里两家并排。
+   用户要求「在 Network Status Overview 组件下面新增一行」。
+
+   为什么不复用 .qc-card--rich：那个类的排版意图是「一个大数字当主角」，
+   字号 24px + 芯片 + 走势 + 三段页脚。这一排要的是**两组数上下对齐**，
+   每张卡里有两行（Orange / MTN）而不是一个大数字 —— 同一个类装不下两种
+   排版意图，硬套会让"谁是主角"这件事在两张卡上给出不同答案。
+   复用的是**外层** .qc-card（底/边/hover/内发光/--qc-accent 一整组），
+   所以三排卡片的边框、悬停手感、页脚基线仍然一致。
+   ---------------------------------------------------------------------------- */
+.qc-card--bf { align-items: stretch; text-align: left; padding-bottom: 9px; }
+
+/* 卡头：指标名 + 单位 + 领先方徽章。左对齐，与下面两行数的起点对齐 ——
+   居中的话"品牌名"那一列就没法上下对齐，卡片会看起来是斜的。
+   ⚠️ 允许折行（flex-wrap）：六列栅格下卡宽只有 257px，到 420px 视口时
+   更是只剩 169px，「卡名 + 单位 + 徽章」一行放不下。不折行的话三者会互相挤压
+   （实测卡名 51px 塞进 45px、徽章 72px 塞进 65px，都只能靠 ellipsis 显示不全）。
+   折行后徽章落到第二行，卡名与单位保住完整 —— 窄屏多占一行高度是可接受的代价，
+   而"卡名显示不全"不是。 */
+.bf-hd {
+  display: flex; align-items: baseline; flex-wrap: wrap; gap: 2px 5px;
+  width: 100%; min-width: 0;
+}
+.bf-hd b {
+  /* ⚠️ min-width:0 不能省：flex 子项的默认 min-width 是 auto，
+     内容不缩，窄断点（实测 420px 视口、卡宽 169px）下卡名会溢出容器
+     而不是走 ellipsis —— 扫描探针实测 scrollWidth 51 > clientWidth 38。
+     ⚠️ 2026-09-30：white-space 由 nowrap 改为 normal（ellipsis 随之删掉）。
+     触发点是 Meta 组那张「综合评分与胜场」：它的英文名照抄 my_app 的
+     bmm.card.scores = "Composite score and wins"，在 420px 视口下
+     （卡宽 169px、可用宽 147px）实测 159px，nowrap 只能显示成
+     "Composite score and …" —— 而本块上面已经立过口径：
+     「窄屏多占一行高度是可接受的代价，而"卡名显示不全"不是」。
+     改成按需折行后：宽卡下本来就只占一行，折行只在真的放不下时发生。
+     实测折出来的那一行落在同排最高的 Ookla 卡（219.5px）之内，**整个栅格行
+     的高度不变**，所以同排六张卡的顶/底基线仍然齐。
+     overflow:hidden 保留作硬兜底（万一某个语言来了一个超长的单字）。 */
+  min-width: 0;
+  font-size: var(--fs-sm); font-weight: 700; color: var(--t1); letter-spacing: var(--ls-wide);
+  white-space: normal; overflow: hidden;
+}
+.bf-hd i { font-style: normal; flex: none; font-size: var(--fs-2xs); color: var(--t3); }
+/* 领先方徽章。用 --ok 绿色而不是品牌色：它表达的是"这家在这项上更强"，
+   不是"这是 Orange"—— 品牌归属已经由每行左边的品牌名说了。
+   绿色与 .qc-ext .hi 同色系，于是"好的一端是绿的"在整页是同一条规则。
+   折行时（窄断点）徽章落到卡名下一行、贴左显示：margin-left:auto 只在
+   与卡名同一行时才有意义，所以用 .bf-hd > * + .bf-lead 之外无法判断 ——
+   这里改成 `margin-left:auto` 保留（同行时顶右），折行后它自己占一行、
+   auto 左边距把徽章推到最右，视觉上仍是"右侧的补充信息"。 */
+.bf-lead {
+  flex: none; margin-left: auto; font-size: var(--fs-2xs); line-height: var(--lh-base);
+  border-radius: 11px; padding: 1px 8px; white-space: nowrap;
+  border: 1px solid color-mix(in srgb, var(--ok) 55%, transparent);
+  color: var(--ok); background: var(--ok-tint);
+}
+
+/* 两个品牌各一行。两列：左「品牌 + 数值」，右「P50/P90 + 胜率」。
+   ⚠️ 2026-10-01 实测踩到：最初写成四列（品牌 / 数值 / P50-P90 / 胜率），
+   在 257px 的卡里（六列栅格下每张卡的实宽）**装不下** —— grid 会把
+   唯一的弹性列 minmax(0,1fr) 压到 12px，而大数字需要 35px，
+   于是 「93.0」被裁成「93.…」（scrollWidth 35 > clientWidth 12）。
+   四列各自的自然宽度加起来（46+35+90+69+3×6gap = 258px）本来就超过了 235px 的可用宽。
+   改成两列后每行只需 ~105px + ~125px，且数值不再是弹性列，不会再被压。
+   结论：卡片里的列数要按**最窄断点下的实宽**定，不能按设计稿的宽度定。 */
+.bf-rows { display: flex; flex-direction: column; gap: 3px; margin-top: 6px; width: 100%; }
+.bf-row {
+  display: grid; align-items: baseline;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 8px; width: 100%;
+  font-size: var(--fs-2xs); line-height: var(--lh-base); color: var(--t3);
+  font-variant-numeric: tabular-nums;
+}
+/* 左列：品牌名 + 数值同一行。品牌名给一个稳定的最小宽度，
+   让「Orange」「MTN」两行的数字左边缘对齐（不靠空格凑）。 */
+/* 左列：品牌名 + 数值同一行。品牌名给一个稳定的最小宽度，
+   让「Orange」「MTN」两行的数字左边缘对齐（不靠空格凑）。 */
+.bf-brand {
+  display: inline-flex; align-items: baseline; gap: 6px;
+  font-weight: 600; color: var(--t2);
+}
+.bf-brand > i {
+  font-style: normal; flex: none; min-width: 30px;
+}
+/* 数值是这一行的主角：与 .qc-val 同族但小一档（15px）——
+   三张卡一行、每张卡里还有两行数，用 24px 会撑破卡片宽度。 */
+.bf-val {
+  font: 600 15px/var(--lh-tight) var(--mono); color: var(--t1);
+  font-variant-numeric: tabular-nums;
+}
+/* 领先方的数字转绿加粗，与徽章呼应；落后的保持常态 ——
+   两家都加粗就等于都没加粗。 */
+.bf-row.is-lead .bf-val { color: var(--ok); }
+/* 右列：P50/P90 与胜率上下两行，统一右对齐，两行之间能对齐 */
+.bf-meta {
+  display: flex; flex-direction: column; align-items: flex-end;
+  min-width: 0; text-align: right;
+}
+.bf-pct, .bf-win { white-space: nowrap; font-size: var(--fs-2xs); }
+/* 无数据：整卡数字转灰，与 .qc-card--rich.is-na 同一处理 */
+.qc-card--bf.is-na .bf-val { color: var(--t3); }
+
+/* 卡片走势图（2026-10-01 加，用户要求「卡片能跟 Network Status Overview 里的
+   卡片一样添加图」）。
+   ----------------------------------------------------------------------------
+   高度与间距**刻意与上面那排的 .qc-spark 取同一个值**（26px / margin-top 8px）：
+   三排卡片插在同一列里，走势图若高一档，六张卡的页脚基线就会错开一行。
+
+   ⚠️ .qc-card--bf 里插的这一格**不是**单个 .qc-spark，而是「两张 SVG 叠放 +
+   一行图例」——因为这一排的卡内是两家并排，线也是两条（见 olbr.js 的 benchSpark）。
+   叠放用绝对定位：两条线共用同一个坐标盒（同一个 viewBox、同一份 lo/hi），
+   所以第 N 天的两个点必然落在同一像素列上，不会左右错开。 */
+.bf-spark-wrap { display: block; margin-top: 8px; }
+/* 线区：定高 26px 作为两条线的共同容器。position:relative 是绝对定位的锚点。 */
+.bf-spark { position: relative; display: block; height: 26px; }
+/* 两条线各自铺满这一格，互相重合。
+   ⚠️ 下面两条 .bf-spark-l 都必须是 absolute + inset:0：
+   若写成 static，两张 SVG 会变成上下两行、整块高度翻倍。 */
+.bf-spark-l { position: absolute; inset: 0; display: block; }
+/* 里面那张 .qc-spark 的高度/边距由既有规则给（26px / margin-top:0，
+   因为父级 .qc-spark-wrap 已经出了 margin）。这里只需保证 SVG 撑满该格。 */
+.bf-spark-l .qc-spark { height: 26px; }
+
+/* 两条线的配色。**颜色不写死在 JS 里**：改主题只改这一处。
+   取值由用户 2026-10-01 指定：**Orange 画橙线、MTN 画黑线**（见令牌定义处的说明）。
+   这样看图的人不用先查图例就知道哪条是哪家 —— 之前那版按"色相距离"挑的青+紫
+   做不到这一点。
+   ⚠️ 面积仍压到很淡（下面 .10）：两条实色面积叠在一起会糊成第三种颜色，
+   读者反而看不出哪条是哪条。线色区分足够，面积只用来给"量感"。 */
+.bf-spark-l.l-o .sp-line { stroke: var(--bf-orange); }
+.bf-spark-l.l-m .sp-line { stroke: var(--bf-mtn); }
+/* 面积：两条都要，但压到很淡（.10）—— 单线卡（可用率那三张）用的是
+   --qc-accent-soft，那个浓度在这里叠加两次就会糊。 */
+.bf-spark-l .sp-area { fill-opacity: .10; }
+.bf-spark-l.l-o .sp-area { fill: var(--bf-orange); }
+.bf-spark-l.l-m .sp-area { fill: var(--bf-mtn); }
+/* 线宽：与单线卡同为 1.6 的观感。这里必须靠 vector-effect 锁住 ——
+   SVG 挂着 preserveAspectRatio="none"，线宽会被横向拉伸
+   （qcSparkSvg 已经在路径上写了 vector-effect="non-scaling-stroke"，
+   所以这里不必再写，记一笔是为了别在后人"顺手加个 stroke-width"时踩到）。 */
+
+/* 图例：两个色点 + 品牌名。用色点而不是只靠线的颜色 ——
+   两条线在窄卡里可能长期贴着走，颜色差异在密集处不好认；
+   有了图例就能对照。字号取 --fs-2xs，与卡内其它小字同一档。
+
+   ⚠️ 用户 2026-10-20 要求「图例保留但压轻」：原 gap 10px / 色块 8×2，
+   整体块高 14.4px + margin-top 3px = 17.4px，与上面那排 26px 走势相比
+   视觉上"块大、整块总高 43.4px"显得笨重。压紧后：
+     · gap 6px / 色块 6×2 —— 横向更紧凑；
+     · **line-height 临时缩到 1**（与 --lh-solid 同值）—— 这一行是单行图文，
+       不像标题那样需要 1.25 行间呼吸；用 1.25 图例行高就是 14.375px，
+       大于色块的 2px 太多，看上去像"色块嵌在一行大字里"，这是块显得笨重的元凶。
+       这里把 line-height 局部压 1 而不是动全局 --lh-tight，因为后者同
+       时驱动卡名/标题/缩写 —— 那些场景的"单行大块多行缩进"不一样。
+     · 字号、字体、颜色不动 —— 那两项已经在所有卡内统一；
+     · min-height 由 14.4 降到 12 兜底（与新色块/gap 联动）。
+   实测后块高从 ~14.4px → ~12px，整体块（26 + 8 + 12）= 46px，
+   比原来 26 + 3 + 14.4 = 43.4px 略多 2.6px 在 margin-top 上，
+   但视觉上「图」与「图例」主体更接近（图占 57%、图例 26%）。 */
+.bf-spark-lg {
+  display: flex; align-items: center; gap: 6px; margin-top: 8px;
+  font-size: var(--fs-2xs); line-height: 1; color: var(--t3);
+  white-space: nowrap; overflow: hidden;
+}
+.bf-spark-k { display: inline-flex; align-items: center; gap: 3px; min-width: 0; }
+/* 色块。宽度 6px、高 2px 的一条短横，与折线的线宽观感呼应（比圆点更像"线"）。
+   ⚠️ 颜色写在这里，**不**靠 currentColor 从 .k-o/.k-m 继承 ——
+   那两个类的 color 是留给下一条规则的（品牌名要回到正文色）。
+   色值必须与上面 .l-o / .l-m 两条线的 stroke 是**同一个令牌**。 */
+.bf-spark-k > i {
+  flex: none; width: 6px; height: 2px; border-radius: 1px; background: var(--t3);
+}
+.bf-spark-k.k-o > i { background: var(--bf-orange); }
+.bf-spark-k.k-m > i { background: var(--bf-mtn); }
+/* 品牌名用正文次要色（继承 .bf-spark-lg 的 --t3），**不**染成品牌色：
+   染了会让这一行读起来像两个链接（本页链接色就是 --b，
+   那样 Orange 看起来可点、MTN 不可点）。色相已经由左边的色块表达了。 */
+
+/* Speedtest by Ookla 品牌标识（页脚第三格，2026-10-01 加）。
+   ⚠️ 2026-10-15 **已移除**（用户要求「右下角的 LOGO 不要了，跟标题重复了」）：
+   组头标题 2026-10-13 起已直接显示同一份 Ookla 图形（.qc-group-logo），
+   卡内页脚再放一次等于同一标识在一屏里出现两遍。
+   被删掉的三块：.bf-ookla 格、.bf-metalogo 格、以及 560px 断点下
+   「标识换行 + 页脚锁 82.5px min-height」的那一整套（那是为"标识换行导致
+   页脚高度不齐"写的补丁，标识没了，问题本身也就不存在了）。
+   现在页脚退回「两格文字」：共用 .qc-ext 的 flex:1 三等分 + space-between，
+   两格自然摊到左右两端，与上面几排卡片的页脚基线仍是一致的。 */
+
+/* 页脚第三格的**纯文字**来源徽章（2026-09-30 加，2026-10-15 起只有 BP 那张卡用它，
+   写「网络侧 KPI」）。说明这张卡的数从哪来。
+   为什么 BP 用文字而不是标识：它是**网络侧 KPI**（Radio 侧 FDD 指标），
+   与 Meta 基准报告不是同一组指标，没有对应的品牌资产 ——
+   而**绝不能**拿 Ookla 或 Meta 的标识去标一份不属于它们的数据，
+   那既是对商标的错误使用，也会让用户把不同的数当成同一个来源。
+   ⚠️ 它**不参与** 2026-10-15 那次清理：BP 的文字徽章与组头 logo 不重复
+   （组头那组是 Meta 的标识，BP 卡属于网络侧 KPI 那一类），所以保留。 */
+.qc-ext > .bf-src {
+  flex: 0 0 auto; min-width: 0; align-self: center; margin-left: auto;
+  white-space: nowrap; font-size: var(--fs-2xs); line-height: var(--lh-base);
+  border: 1px solid var(--line-2); border-radius: 11px; padding: 1px 8px; color: var(--t3);
+}
+/* 极窄卡（实测 420px 视口下卡宽只剩 169px、页脚可用宽 149px）：
+   BP 的文字徽章虽然在两格文字之外，但它只有约 46~66px 自然宽，
+   两格文字 + 徽章在 149px 里仍放得下，所以这一档只需让它换行独占一行、
+   靠 margin-left:auto 贴右（它是 span 不是 flex 容器，用不了 justify-content）。
+   ⚠️ flex-wrap: wrap 是让下面 flex:0 0 100% 生效的**前提**，不能省 ——
+   .qc-ext 默认是 nowrap（见共用规则），不加 wrap 时 100% 宽的那一格不会换行，
+   而是直接溢出卡外。这条覆盖的正是 Benchmark 那几张卡（它们才有 .bf-src）。
+   2026-10-15 之前这里还有 .bf-ookla / .bf-metalogo 的换行规则与页脚 82.5px
+   min-height 补丁（那是为"标识换行导致页脚高度不齐"写的），标识移除后一并删除。 */
+@media (max-width: 560px) {
+  .qc-card--bf .qc-ext { flex-wrap: wrap; }
+  .qc-ext > .bf-src { flex: 0 0 100%; }
+}
+
+/* 整卡可点的卡片（2026-09-29 加）。
+   两处会用到这个类，都是"整张卡渲染成 <a href>"：
+     · kpiRichHtml —— 三张富卡片（总流量 / 活跃用户 / 视频下载速率）；
+     · kpiCardHtml —— 三张可用率卡（2G / 3G / 4G），走它可选的 o.href 参数。
+   六张卡同一排，所以样式必须共用一套：任何一边单独写，两排的
+   链接色 / 下划线 / 焦点环立刻分叉。
+
+   卡片本体是 <a>，于是必须把浏览器给链接的默认样式逐项摁掉，
+   否则这六张卡会突然变成「蓝字 + 下划线」，与页面上其它卡片分家：
+     · color: inherit  —— 不加的话卡内所有文字继承 <a> 的链接色（蓝色）；
+     · text-decoration: none —— 下划线会穿到每个子元素上，包括大数字；
+     · cursor: pointer 本就从 .qc-card 继承，这里不用重复写。
+   卡内各元素（.qc-ttl b / .qc-val span / .qc-name / .qc-num 等）自己都写了 color，
+   本来不会被链接色影响；但 .qc-ext > div 这类没写 color 的会继承 ——
+   逐项去补不如在链接上兜住，这也是「一处兜底」比「多处补丁」更不容易漏的写法。
+
+   焦点环（键盘 Tab 到这张卡时）：
+   卡片有 overflow:hidden，outline 画在卡外会被裁掉一半，
+   所以用 box-shadow 内侧画环 —— 与 .qc-card 既有的 inset 内发光同一套画法，
+   不会因为裁切而看不见。⚠️ 只在 :focus-visible 时给，鼠标点击不出环
+   （:focus 会让"刚点完还停在卡上"也亮一圈，看起来像没点成功）。 */
+.qc-card--open {
+  color: inherit; text-decoration: none;
+}
+.qc-card--open:focus-visible {
+  outline: none;
+  border-color: var(--qc-accent);
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--qc-accent) 60%, transparent),
+              inset 0 0 18px color-mix(in srgb, var(--qc-accent) 20%, transparent);
+}
+
+/* 标题行：左标题、右单位（单位在源页是右上角的浅色小字） */
+.qc-ttl {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 6px;
+  width: 100%; min-width: 0;
+}
+.qc-ttl b {
+  font-size: var(--fs-sm); font-weight: 700; color: var(--t1);
+  letter-spacing: var(--ls-wide); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.qc-ttl i { font-style: normal; flex: none; font-size: var(--fs-2xs); color: var(--t3); }
+
+/* 大数字：字号跟 QC 卡那档一致（24px），不要另开一档 ——
+   同一屏上两组卡片数字不一样大，会让人以为量级不同。 */
+.qc-val { display: flex; align-items: baseline; gap: 6px; margin-top: 6px; width: 100%; min-width: 0; }
+.qc-val span {
+  font: 600 var(--fs-num)/1.05 var(--mono); color: var(--t1);
+  font-variant-numeric: tabular-nums;
+}
+.qc-val em { font-style: normal; font-size: var(--fs-xs); font-weight: 600; color: var(--t3); }
+.qc-card--rich.is-na .qc-val span { color: var(--t3); }
+
+/* 口径行：「最新 · 2026-09-23（数据截至 2026-09-23）」。
+   这一行是**必须**的：四个数字都不是当天的，而本页其它看板多为实时/当日。 */
+.qc-asof {
+  display: block; width: 100%; margin-top: 2px;
+  font-size: var(--fs-2xs); line-height: var(--lh-tight); color: var(--t3);
+}
+
+/* WoW / MoM 徽章。涨跌配色取「业务语义」而非红涨绿跌的股市习惯：
+   指标 better=up，故涨=正面(绿)、跌=负面(红)；接口给了 better 就跟着走。 */
+.qc-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.qc-chip {
+  font-size: var(--fs-2xs); line-height: var(--lh-base); border-radius: 11px; padding: 1px 8px;
+  border: 1px solid var(--line-2); background: transparent; color: var(--t2);
+  white-space: nowrap; font-variant-numeric: tabular-nums;
+}
+.qc-chip.up   { border-color: color-mix(in srgb, var(--ok) 55%, transparent);
+                color: var(--ok);   background: var(--ok-tint); }
+.qc-chip.down { border-color: color-mix(in srgb, var(--crit) 55%, transparent);
+                color: var(--crit); background: var(--crit-tint); }
+.qc-chip.neu  { border-color: var(--b-line); color: var(--t2); background: var(--b-tint); }
+
+/* Max / Avg / Min 页脚：三段等分，中间那段是 90 天均值。
+   上边框把「极值」与上面的走势分开（源页同款处理）。 */
+.qc-ext {
+  display: flex; justify-content: space-between; gap: 4px;
+  margin-top: 5px; padding-top: 5px; border-top: 1px solid var(--line-2);
+  width: 100%;
+}
+.qc-ext > div {
+  flex: 1; min-width: 0; text-align: center;
+  font-size: var(--fs-2xs); line-height: var(--lh-tight); color: var(--t3);
+  display: flex; flex-direction: column; gap: 1px;
+}
+.qc-ext > div b {
+  font: 600 var(--fs-xs)/var(--lh-tight) var(--mono); color: var(--t1);
+  font-variant-numeric: tabular-nums;
+}
+.qc-ext > div > span:last-child {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* 最高绿、最低红 —— 与走势线同色系，扫一眼就知道哪端是好的一端 */
+/* 最高绿、最低红 —— 与走势线同色系，扫一眼就知道哪端是好的一端 */
+.qc-ext > div.hi b { color: var(--ok); }
+.qc-ext > div.lo b { color: var(--crit); }
+
+/* 走势图这一格**要沉底**（2026-10-01 用户反馈修）：
+   「同一行卡片里面的线图的横坐标没有对齐，左边 3 个对齐了右边的有办法对齐吗」
+   —— 实测不是横向错位，是**纵向**错位：左三张（Ookla）线底离线顶 138.2px，
+   右两张（Meta）124px、BP 只有 88.5px，最大差 49.7px。右三张的图明显偏上。
+
+   根因（两层，都要治）：
+   1) 卡片是 flex column，页脚靠 .qc-card.has-foot 的 margin-top:auto 沉到底；
+      **但图没有**——它是 .bf-rows 之后的流内元素，位置由"上面有多少内容"决定。
+   2) 更关键：**左三张（Ookla）根本没有 has-foot 类**（见 olbr.js 的
+      speedCardHtml 与 metaCardHtml 两处 class 拼接），右三张有。
+      于是"有没有把内容往下压"这件事两组本来就不一样 —— 这正是
+      "左边齐、右边不齐"的直接来源。
+   3) 即便都加上 auto，两个 auto 会平分剩余空间，图与页脚之间被拉开；
+      且 BP 那张**没有图例**（单线卡），块高天生比另外五张矮 14.4px。
+
+   修法：以**页脚**为锚，把图固定在页脚正上方 —— 用 flex 的 order + margin
+   不如直接用 `margin-top:auto` 让图吃掉它上方的全部富余量，
+   再给图与页脚之间一个固定的 5px。这样"图底到页脚顶"的间距六张卡一致，
+   而页脚本来就已对齐，所以六张卡的图必然在同一水平线上。
+   ⚠️ 图例有无造成的 14.4px 差异用**固定行高占位**抹平：给 .bf-spark-lg
+   一个统一的 min-height，没有图例的卡（BP）也留出同高的空位，
+   于是"图 + 图例"这一整块的高度六张卡相同。
+   ⚠️ 只对 .qc-card--bf 生效：上面那排可用率卡的 .qc-spark 结构不同
+   （它在 .qc-ext 内部），不应该被这条规则影响。 */
+/* ⚠️ 用户 2026-10-20 要求「保持品牌色不动，只对齐高度与线宽观感」。
+     原规则把 margin-top 设为 auto，让图吃掉"内容富余"沉到页脚正上方；
+     但实测 1582px 桌面视口下六张 bf 卡片的图顶分别落在
+     0.015625 / 33.5 / 12.75 / 0px —— 卡头/数据区微差让 auto 形同随机，
+     结果是图顶在同排内不齐，与"Network Status 那一排同水平线"的目标反着来。
+     改回固定 8px（与 .qc-spark-wrap 一致）：
+       · 同排内图顶统一（即便卡头折行导致卡本身长高也是整体往上走，不影响图顶）；
+       · 数据区末到图顶的可读间距维持 8px；
+       · 6 张卡的差异来源压回唯一：`.bf-rows` 的真实高度 —— 那是数字区的
+         排版意图，不该用 auto 掩盖。
+     窄断点（@media (max-width: 1200px)）下面那条 min-height: 74px 继续稳数据区，
+     折行后仍能让图落在「数据末 + 8px」处；这是 2026-10-01 留下的保险，
+     留着不动。 */
+  .qc-card--bf .bf-spark-wrap { margin-top: 8px; }
+/* ⚠️ 卡头与数据行在窄断点会**自己长高**，上面那条 auto 就没有富余可吃，
+   图仍会被顶下去。2026-10-01 实测 420px 档第 2 行最能说明问题：
+   Latency 与 Speed **卡高完全相同（269.4）、页脚也完全对齐（1919.6 / 1951
+   相对卡顶差 31.4 —— 注意页脚其实也不同，见下），但图差了 31.4px。
+   根因：`.bf-row` 是「品牌+数值 | P50/P90+胜率」两列栅格，
+   窄卡里右列会折行，于是**某些卡的数据区比另一些高**。
+
+   修法（两条一起，才完整）：
+   1) 数据区锁高：两行品牌 × 两行文字，给 .bf-rows 一个 min-height，
+      折行不再改变它的高度 —— 数据区的"下限"由这里定；
+   2) 图仍靠 margin-top:auto 沉底，但此时"上面"的高度已经可预测，
+      auto 一定吃得到富余，图必然落在页脚正上方。
+
+   ⚠️ 锁的是 min-height 而不是 height：数据天生可能更高（真折行到第 3 行时
+   需要显示完整），锁 height 会裁掉内容。min-height 保证"至少这么高"，
+   于是六张卡在这条线上拉平；万一某张真的更高，它是六张里唯一变高的，
+   表现为该行整体变高 —— 这是可接受的降级，且比"图错位"轻得多。
+
+   ⚠️⚠️ 取值必须 ≥ **折行后的实际高度**，否则等于没锁。
+   2026-10-01 实测 420px 档：先取 62px 完全无效 ——
+     数据区折行的卡（Latency）两行各 35.5px，合计 74px，早已超过 62px，
+     min-height 形同虚设；没折行的卡（Speed）才被撑到 62px。
+     真正需要的是覆盖"两行都折"的 74px。取 74px 后两种卡一致，
+     线条因此对齐。这个值随字号/断点变化 —— 若哪天改了 --fs-2xs 或
+     .bf-row 的行高，**必须回来重测这个数**（探针 TMP/_probe_bf_css.cjs
+     会直接打出每张卡的数据区实高，不必靠猜）。 */
+/* ⚠️⚠️ 2026-10-22：这条原本锁在 @media (max-width:1200px) 里（见上方注释）。
+   那是个基于「宽屏卡名与数据都只占一行、宽屏一直齐」的旧认知，
+   但实测**宽屏（1582px）就不齐** —— 用户 2026-10-22 报「横坐标轴要水平对齐」。
+   同为 230px 卡高，六张卡的图顶却分别落在
+     119 / 119 / 119 / **86** / **107** / 119
+   根因是 .bf-rows 的**内容行数**真实不同：
+     · Ookla 三张 = 74px（品牌+数值一行、P50/P90+胜率两行 → 每行 36px）
+     · Meta 两张  = 41px（只有「range 12.5 ~ 14」一行 → 每行 19px），差 33px
+   佐证：同取 speedtest 源的 Meta-Latency 是 74px、图顶 119 与 Ookla 一致 ——
+   可见差异既不是分组、也不是数据源，就是这格的内容高度。
+   提到全局是因为：这个差异是**内容真实差异**（Ookla 的分位数值确实更详尽），
+   压掉它会裁掉数字；正确做法是让内容少的那张**补白**，把图顶拉到同一水平线。 */
+.qc-card--bf .bf-rows { min-height: 74px; }
+/* ⚠️ 卡头**锁一个最小高度**，让"卡名折行"不再改变卡内其它元素的位置。
+   2026-10-01 实测（420px 档，栅格折成 2 列后的第 2、3 行）：
+     「Latency」154.5 vs 「Speed」185.9 —— Speed 卡名折成两行，多占 31.4px；
+     同理「Composite」167.7/179.7 vs BP 154.5 —— BP 折行、Composite 没折。
+   也就是说：**卡头折行**是窄屏不齐的直接原因（宽屏卡名都只占一行，
+   所以宽屏一直齐）。图靠 margin-top:auto 只能吃掉"内容不足留下的富余"，
+   一旦某个元素自己长高、富余被吃光，图就被顶下去。
+
+   ⚠️ 取值不能写成 calc(字号 × 行高 × 2) —— 那个算法在 420px 档实测得到
+   37.5px，而**真正折行后的卡头是 42px**（折行时 .bf-lead 徽章会掉到第二行，
+   它自带 padding 1px + 边框 1px，比纯文字高）。锁一个偏小的值等于没锁：
+   折行的卡仍然 42px、没折的卡被撑到 37.5px，两者依旧差 4.5px。
+   所以这里**直接量**：42px = 折行卡头的实测高度，写死并注明来源。
+   探针 TMP/_probe_bf_css.cjs 会打出每张卡的"卡头"实高，改字号后回来重测。 */
+/* ⚠️ 2026-10-22：同上，从窄断点提到全局 —— 「锁高」的道理与取值都不变。
+   宽屏实测那张「Composite score and wins」的卡头是**折行**的
+   （hdH 42px，其余卡 21px），把它下面的一切压低了 21px，
+   与 .bf-rows 那 33px 叠加，就是该卡图顶 107px 的来源。
+   ⚠️ 两处锁定缺一不可：只锁数据区 → 折行卡头仍差 21px；
+     只锁卡头 → 内容少的数据区仍差 33px。 */
+.qc-card--bf .bf-hd { min-height: 42px; }
+/* ⚠️ 页脚在 .qc-card--bf 里**必须放弃 auto**（覆盖掉下面 has-foot 那条）：
+   否则图与页脚各有一个 margin-top:auto，浏览器把富余空间**平分**给两者
+   （实测 Speed 卡：图 19.25px、页脚也 19.25px），图仍不在同一水平线上。
+   把富余量全部交给**图上方**那一个 auto，图就被推到页脚正上方，
+   于是"图底 → 页脚顶"的间距对六张卡都等于下面这个 5px。
+
+   ⚠️ 选择器要带 .has-foot 且写在 has-foot 那条**之前**不行 —— 必须赢过它。
+   `.qc-card.has-foot .qc-ext`（0,2,0）与 `.qc-card--bf .qc-ext`（0,2,0）
+   同特异性，靠源码顺序定胜负；has-foot 那条在本段之后，所以这里显式
+   用 `.qc-card--bf.has-foot`（0,2,0）+ 再叠一个 .qc-card 提到 (0,3,0)，
+   避免"以后有人把 has-foot 那段往下挪"时这条又被翻掉。 */
+.qc-card.qc-card--bf.has-foot .qc-ext { margin-top: 5px; }
+/* 左三张（Ookla）没有 has-foot，页脚本来就是流内 5px，无需覆盖；
+   但为防将来给它们加上 has-foot，这里一并写上（同一条规则覆盖两态）。 */
+.qc-card.qc-card--bf .qc-ext { margin-top: 5px; }
+/* 图例占位：六张卡统一高度。单线卡（BP）在渲染时就补了一个**空的**
+   .bf-spark-lg（见 olbr.js 的 metaSpark），所以这条同时管住两种卡：
+   "图 + 图例"整块等高，图底自然在同一水平线上。
+   ⚠️ 不再用 :has() 兜底 —— 那会让"高度从哪来"这件事分成两处（JS 一处、
+   CSS 一处），且 :has() 在旧内核上不可用。统一由渲染层给节点。
+   ⚠️ 用户 2026-10-20 压轻图例后此值从 14.4 降到 12 与新色块/gap 联动：
+     gap 6px + 色块 6×2 + 字号 fs-2xs (≈10.5px) 下整行实高约 11.5px，
+     留出 0.5px 给 line-height 呼吸。 */
+  .qc-card--bf .bf-spark-lg { min-height: 12px; }
+
+/* 带页脚的卡（可用率那三张）把页脚沉到卡底：
+   六张并排时它们的页脚就与富卡片 Max/Avg/Min 那条线对齐，
+   剩下的富余量落在数字与页脚之间，读起来是"留白"而不是"缺内容"。
+   富卡片不加这个（它内容本来就顶满，页脚天然贴底）。 */
+.qc-card.has-foot .qc-ext { margin-top: auto; }
+/* 下内边距跟 .qc-card--rich 取同一个值（9px），否则两排页脚的底边
+   差 2px —— 实测过：富卡片页脚距卡底 10px、可用率卡 12px。
+   差 2px 肉眼几乎看不出，但既然两排的页脚要在同一条线上，就取准。 */
+.qc-card.has-foot { padding-bottom: 9px; }
+
+/* ============================================================================
+   地图 + 报告文件（Central Liberia Regional Topology | Task Report Files）
+   ----------------------------------------------------------------------------
+   一行两块、等宽各占一半（2026-09-24 用户要求，原来是 1.8fr : 1fr）。
+   两块都是 .panel（.p-head + .canvas），栅格项默认 align-items: stretch，
+   所以等高天然成立 —— 谁内容高都不会让另一块矮一截。
+
+   ⚠️ 高度只有一个真相源：--maprow-h。
+   用户要求「高度以适合展示利比里亚全国为准，且报告文件与该地图等高」。
+   地图那一侧不是 fitBounds 自适应，而是写死 zoom=8 的 Leaflet
+   （Task\my_app\frontend\src\pages\GISMap.tsx:605、:615），
+   中心点取站点经纬度的平均值（同文件 :212，回退 [6.4, -9.4]）。
+   zoom 写死意味着**能看见多大范围只由容器的像素尺寸决定**，与宽度无关，于是高度可以算出来：
+
+     Web Mercator 每像素米数 = 156543.03392 × cos(纬度) / 2^zoom
+     纬度 6.45°N、zoom 8 → 156543.03392 × 0.99367 / 256 ≈ 607.6 m/px
+
+     利比里亚南北跨 4°21′N ~ 8°33′N ≈ 4.20° ≈ 467.5 km → 467500 / 607.6 ≈ 769 px
+     东西跨 7°22′W ~ 11°29′W ≈ 4.12° ≈ 455.4 km → 455400 / 607.6 ≈ 749 px
+
+   即：**地图那一侧要 ≥ 770px 才装得下全国**。
+
+   关键前提（踩过一次坑，记下来）：内嵌时地图高度 == iframe 高度，中间**没有**扣减。
+   GISMap.tsx:607 写的是 style height: calc(100vh - 290px)，但那句只在**直接打开**
+   /myapp/?page=gis 时生效；一旦被门户 iframe 嵌住，运行时会把它改写成
+   `height: 100% !important`，同时 my_app 的外壳（页头/侧栏）在 iframe 里根本不渲染 ——
+   实测 iframe 内 body.scrollHeight == innerHeight == .leaflet-container 高度，卡片 top 也是 0。
+   （证据：TMP\v1_mapframe_result.json，2026-09-24 Playwright 实测。）
+
+   所以在本页里：**--maprow-h 就是地图的像素高度**，可以直接按 770px 这个门槛取。
+
+   ⚠️ 下面这组是 2026-09-24 在真实 v1 页面上实测的（探针 TMP\probe_sweep.py，
+   结果 TMP\sweep_result.json，截图 TMP\sweep_h*.png）。zoom 8 → 607.6 m/px，
+   利比里亚南北需 467.5km：
+     --maprow-h  700 → 可见南北 424km → 差 9.3%，国土上下被切
+     --maprow-h  780 → 473km → 只余 1.1%，贴边，没有呼吸空间
+     --maprow-h  860 → 521km → 余 11.5% ✅ 取这个
+     --maprow-h  960 → 582km → 余 24.5%，上下大片空瓦片，反而显得图小
+   860px 与 MsPortal 的 .map-canvas（正好也是 860px）一致，等于沿用了兄弟门户已验证的档位。
+
+   ⚠️ 这个数与 GISMap 的 zoom=8 绑定。哪天 my_app 改了这个 zoom，
+   必须按上面的式子重算并重跑 TMP\probe_sweep.py 复核。
+
+   ⚠️ 2026-10-12（v2 专有改动）：用户要求「GIS Map 和 Auto Report Files 高度
+   减少为当前的 2/3」。860 × 2/3 ≈ 573px，故当时取 **573px**。
+   代价（用户已知悉并接受）：上面的算式说明「≥770px 才装得下利比里亚全境」，
+   573px 会让国土上下被裁掉一部分。
+
+   ⚠️ 2026-10-13（v2 专有改动）：**撤销上一条，改回 860px**。
+   用户要求「GIS Map 加载 ALARM 地图后不用再缩小了，保持默认的大小，
+   改变 GIS Map 组件的高度，使得适配利比里亚地图就行」——
+   即高度是「适配利比里亚」的手段。按上面 2026-09-24 的实测档位表，
+   860px 是唯一满足「装得下全国且留 11.5% 呼吸空间」的档位（780px 仅余 1.1% 贴边，
+   700px 裁掉 9.3%），故取回 860px。
+   与「不再自动缩小」是同一次需求的两半：让地图在自己的默认 zoom 下就能看全全国，
+   门户一侧不再靠缩小来迁就矮容器（缩小逻辑见 olbr.js 的 MAP_ZOOM_OUT_PAGES）。
+   ⚠️ 本次**只改地图这一行**：.qarow（Q&A 行）保持 573px，两行不再等高 —— 这是
+      用户明确选择（2026-10-13），不是漏改。下方 .qarow 的等高说明随之失效，见那里。
+
+   ⚠️ 地图取景与图例在 iframe 内部（my_app 侧），门户只注入 DATA.MAP_STRIP_CSS；
+   高度变化后其左移量与图例遮挡需实测复核（见下方 MAP_STRIP_CSS 相关说明）。 */
+.maprow {
+  display: grid; gap: var(--s4);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  --maprow-h: 860px;
+}
+/* 两块内部的 .canvas 共用同一个下限，等高由此保证（不是靠两边都写一遍数字） */
+.maprow > section { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+/* ↑ 2026-10-13 加 min-height:0：同上，grid item 默认 min-height:auto
+   会按内容最大者撑到 iframe 实际高度（674px），把 .maprow 撑高并
+   与 .qarow 重叠。 */
+.maprow .canvas { flex: 1 1 auto; min-height: var(--maprow-h); }
+/* 窄屏：并排两块内嵌页都太窄，改成上下排。
+   高度只在手机上收一档 —— 手机那块屏幕本来也放不下一个全国地图，
+   取舍是「先保证能滚」。
+   ⚠️ 只改 --maprow-h 一个变量，两块仍然等高（若在这里单独改某一侧的
+   min-height，等高就破了）。 */
+@media (max-width: 1200px) { .maprow { grid-template-columns: minmax(0, 1fr); } }
+/* 窄屏档：420px（2026-10-13 随主档 860px 一起复原）。
+   ⚠️ 2026-10-12 曾与主档同比例降为 280px（420 × 2/3），本次主档回到 860px 时
+      一并复原。手机屏幕本来就放不下全国地图，此档只求「能滚」，不追求装下全国，
+      故 420px 与主档 860px 不是同一比例关系 —— 主档按「装下全国」算，本档按「能滚」算。 */
+@media (max-width: 640px) { .maprow { --maprow-h: 420px; } }
+
+/* 地图槽位：.map-slot 本身只是个占位容器，视觉全部交给里面的 .panel.map；
+   它为空（mapItems() 一个都没匹配上，比如权限被收窄到看不到任何地图页）时整块收起，
+   不留一段空白把下面的升级带顶下去。 */
+.map-slot:empty { display: none; }
+/* 报告文件槽位：容器自己就是 .panel（见 index.html 的注释 —— 内容里没有 .panel）。
+   做成纵向 flex，让 .canvas 吃掉标题栏之外的全部高度，与左边的地图齐平。
+   没权限 / 未登录时 ensureEmail() 会在 .canvas 里画一句提示，
+   所以容器永远不是空的，不做 :empty 收起，交给那句提示说话。
+   ⚠️ 2026-10-21：Auto Report 与 Knowledge Q&A 互换位置后，本槽位从 .maprow
+   移到了 .qarow（左列），所以它的 .canvas 高度下限改由 .qarow 的 --qarow-h 给。 */
+.email-slot { display: flex; flex-direction: column; min-width: 0; }
+/* 知识问答槽位（2026-10-21 起在 .maprow 的右列）。
+   容器自己就是 .panel，内容由 renderQaSection 写入（.p-head + .canvas），
+   与 .email-slot 同一套纵向 flex。 */
+.qa-slot { display: flex; flex-direction: column; min-width: 0; }
+
+/* ============================================================================
+   报告文件 + OSS 门户登录 / 使用反馈（2026-10-21 调整，v3 专有）
+   ----------------------------------------------------------------------------
+   2026-10-21（用户要求）：
+     ① 「Auto Report 组件和 Knowledge Q&A 组件互换位置」——
+        Knowledge Q&A 移到上排（.maprow 右列），Auto Report 移到下排左列。
+        两块高度本来同源（--maprow-h / --qarow-h 同值 860px），对调后仍等高。
+     ② 「OSS Portal Login 的高度减少一半，卡片每行 6 个」——
+        --oss-h = --qarow-h / 2，卡片网格由 3 列改 6 列（格宽正好减半）。
+     ③ 「剩下的高度展示 /myapp/?page=feedback 的内容」——
+        下排右列 .qarow-col 纵向 flex：上 #ossSlot 固定 --oss-h，
+        下 #fbSlot 吃掉剩余全部高度，内嵌 my_app 的使用反馈页。
+
+   ⚠️ 高度只有一个真相源：--qarow-h（本行总高）。
+   --oss-h 用 calc(var(--qarow-h) / 2) 派生，改主档时 OSS 与反馈区自动按比例分，
+   不会出现「OSS 还是老高度、反馈区空一块」的漂移。
+   ⚠️ 2026-10-15 之前这里记过「本行与地图等高」的约定，那条现在只对
+   **--qarow-h** 成立（它仍与 --maprow-h 同值 860px）；OSS 那一格已按
+   2026-10-21 的要求减半，两者不再是同一口径。 */
+.qarow {
+  display: grid; gap: var(--s4); margin-top: var(--s4);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  --qarow-h: 860px;
+  /* OSS 门户登录高度 = 本行高度的一半（2026-10-21 用户要求） */
+  --oss-h: calc(var(--qarow-h) / 2);
+}
+.qarow > section { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+/* ↑ 2026-10-13 加 min-height:0：
+   grid item 默认 min-height: auto = 内容最大者，会被 .canvas 内的 iframe
+   / .oss-grid 内容撑到 700+px，导致 .qarow 比 --qarow-h 高、与 #esc 重叠。 */
+.qarow .canvas { flex: 1 1 auto; min-height: 0; }
+/* ↑ min-height 改 0：原来把 .canvas 锁死在 --qarow-h，撑破父容器；
+   改为 0 后由父 .qarow > section 的 --qarow-h 提供高度底线。 */
+/* Auto Report（2026-10-21 起在 .qarow 左列）的画布高度下限：与本行 --qarow-h 同值，
+   保证它与右列的「OSS + 反馈」合计等高（.maprow 那份 .maprow .canvas 规则管不到这里）。 */
+.qarow > section.email-slot .canvas { min-height: var(--qarow-h); }
+@media (max-width: 1200px) { .qarow { grid-template-columns: minmax(0, 1fr); } }
+/* 窄屏档：420px（2026-10-15 随主档 860px 一起从 280px 复原为 420px）。
+   与 .maprow 的窄屏档同值 —— 主档既然恢复等高（都是 860px），窄屏档也应对齐。
+   280px 是 2026-10-12 从 573px 主档按比例（≈0.49）推来的，主档回到 860 后该比例
+   不再成立；420px 与 .maprow 的取舍一致（手机屏放不下，只求"能滚"）。 */
+@media (max-width: 640px) { .qarow { --qarow-h: 420px; } }
+/* 下排右列：OSS 门户登录（上）+ 使用反馈（下）上下叠放。
+   纵向 flex + gap：#ossSlot 固定 --oss-h，#fbSlot 用 flex:1 吃掉剩余高度，
+   所以「OSS 减半」与「反馈区补齐」是一个动作的两个必然结果，不会各自漂移。 */
+.qarow-col {
+  display: flex; flex-direction: column; gap: var(--s4);
+  min-width: 0; min-height: 0;
+}
+.qarow-col > .oss-slot { flex: 0 0 var(--oss-h); height: var(--oss-h); min-height: 0; }
+/* ↑ OSS 面板本身**整体**占 --oss-h（= 本行高度的一半），含标题栏与内边距。
+   内部 .oss-grid 用 flex:1 吃掉标题栏之外剩下的高度（见下），行数不够时滚动。 */
+.qarow-col > .fb-slot { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+/* OSS 槽位：不是内嵌 iframe，而是一列展开的链接。
+   让它也走纵向 flex，内容从顶部排；.canvas 之外的单列清单直接撑满。 */
+.oss-slot { display: flex; flex-direction: column; min-width: 0; }
+/* 2026-10-14 删除：原「登录凭据」提示条 .qa-cred 系列
+   （.qa-cred / .qa-cred .ph / -t / -u / -p，2026-10-12 加）。
+   门户 RAG 改走 8443 使用入口（Open WebUI 侧自动以 NOC 身份进入、免密码）后，
+   页签上再无凭据可展示；olbr.js 的 qaCredHtml()/loadQaCred() 与磁盘上的
+   assets/_local-credentials.js 已一并移除。 */
+/* OSS 门户登录的卡片网格（2026-10-12 改：原 .oss-list 行列表 → 卡片）。
+   ⚠️ 2026-10-21（用户要求「OSS Portal Login 的高度减少一半（卡卡片格宽也减少一半，
+   变成每行 6 个卡片）」）：
+     ① 容器高度由 --qarow-h 改为 **--oss-h**（= 本行高度的一半）；
+     ② 列数由 3 改为 **6**（格宽正好是原来的一半，两两成对、不多不少）。
+   行高仍由 grid-auto-rows:auto 决定（卡片取自然高度），行数多时靠 overflow:auto 滚动。
+
+   ⚠️ 2026-10-15（用户要求）：「每行改为 3 个卡片平分宽度，列自动高度」。
+   两条改动：
+     ① 列数固定 3（原来由 olbr.js 按 ceil(卡片数/2) 算出行数 2、列数随卡片数变）——
+        见 olbr.js ossSectionHtml() 里同步删掉的行内 grid-template-columns；
+     ② 行高由 grid-auto-rows: 1fr（钉在容器高度上，3 张以上会被压扁）改回 auto ——
+        卡片高度改由**自身内容 + padding** 决定，不再被容器摊平。
+   那条「3 列」的约定已被本次的「6 列」取代（列数写在 CSS 里，olbr.js 不再写行内样式）。 */
+.oss-slot .oss-grid {
+  /* 高度：吃掉 OSS 面板里标题栏之外的全部空间（父 .oss-slot 已定死 --oss-h）。
+     ⚠️ 不再写死 --qarow-h —— 2026-10-21 起 OSS 只占本行高度的一半。 */
+  flex: 1 1 auto; height: auto; min-height: 0; max-height: none; overflow: auto;
+  margin-top: var(--s3); border: 1px solid var(--line); border-radius: var(--r2);
+  background: var(--surface);
+  /* 每行 6 个，等宽平分（2026-10-21：原 3 列，格宽减半）。
+     minmax(0,1fr) 而非 1fr：1fr 的最小尺寸是 auto，
+     长卡片名会把列撑破（与全页其它栅格同一条注意事项）。 */
+  display: grid; grid-template-columns: repeat(6, minmax(0, 1fr));
+  /* 行高 auto（2026-10-15 改）：由卡片自身内容决定，不被容器高度摊平。
+     原先的 grid-auto-rows:1fr 会把行数相对容器高度强行等分，3 列下卡片超过
+     2 行时每行被压得很扁；改 auto 后每行拿自己的自然高度。
+     ⚠️ 容器高度是 --oss-h（本行高度的一半），行数多时溢出走上面的
+     overflow:auto 滚动。 */
+  grid-auto-rows: auto;
+  /* 窄栏 / 窄屏下 6 列会太挤，这里不再用 auto-fill 兜底（列数是明确的 6），
+     改由下面的 @media 断点降档。 */
+  gap: var(--s2); padding: var(--s3);
+}
+/* 窄屏降档：1200px 以下整行变单列、面板变宽，仍用 6 列；再窄才逐级降到 4 / 2 列，
+   保证卡片名不至于被挤成一行一个字。 */
+@media (max-width: 1200px) { .oss-slot .oss-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); } }
+@media (max-width: 900px)  { .oss-slot .oss-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+@media (max-width: 640px)  { .oss-slot .oss-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.oss-card {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+  padding: 12px 10px; text-align: center; text-decoration: none;
+  border: 1px solid var(--line-2); border-radius: var(--r2); background: var(--surface-2);
+  color: var(--t1); transition: background .14s, border-color .14s, color .14s, transform .14s;
+}
+/* ↑ 2026-10-15：去掉 height:100%（2026-10-13 加），配合 grid-auto-rows 由 1fr 改
+   auto —— 卡片高度改回「内容 + padding」的自然高度（用户要求「列自动高度」）。
+   保留 2026-10-13 去掉 min-height:92px 的决定：自然高度下 92px 的下限同样无必要，
+   且会让单张卡片显得空。 */
+.oss-card:hover, .oss-card:focus-visible {
+  background: var(--b-tint); border-color: var(--b-line); color: var(--b-ink); transform: translateY(-1px);
+}
+.oss-card-ico { font-size: 22px; line-height: 1; color: var(--b); }
+.oss-card:hover .oss-card-ico { color: var(--b-ink); }
+.oss-card-t {
+  min-width: 0; max-width: 100%; font-size: var(--fs-sm); font-weight: 600;
+  overflow: hidden; text-overflow: ellipsis; display: -webkit-box;
+  -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+}
+.oss-card.is-empty { grid-column: 1 / -1; align-self: center; border-style: dashed; color: var(--t3); }
+
+/* ============================================================================
+   团队门户专有面板（2026-10-29 加）：Auto Report 过滤表 + 客户投诉入口
+   ----------------------------------------------------------------------------
+   这两组样式**只服务** v3/team_portal/ 的两块新面板：
+     · .tr-table    —— Auto Report 的报告附件表（team-panels.js 渲染）
+     · .complaint-slot / .oss-grid.is-single —— 客户投诉入口卡片
+   上游 /v3/olbrportal/ 那份 olbr.css **没有**这几条（那边没有对应元素），
+   两边互不影响；同一份 olbr.css 在两处都能用，是因为这段是纯新增、
+   没有改写任何既有规则。
+
+   ⚠️ 表体用 .canvas 的滚动语义：Auto Report 这块在 .qarow 左列，
+     高度与右列的「OSS + 反馈」合计等高（--qarow-h），行数多时表体内滚动，
+     不把整页撑长。 */
+.tr-table {
+  width: 100%; border-collapse: collapse; font-size: var(--fs-sm);
+  table-layout: fixed;
+}
+.tr-table th {
+  text-align: left; font-weight: 600; color: var(--t3); font-size: var(--fs-xs);
+  padding: 8px 10px; border-bottom: 1px solid var(--line); white-space: nowrap;
+}
+.tr-table td {
+  padding: 9px 10px; border-bottom: 1px solid var(--line); vertical-align: top;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* 文件名列宽一点（它是这一栏最有用的信息：具体哪份报告） */
+.tr-table th:nth-child(2), .tr-table td:nth-child(2) { width: 34%; }
+.tr-table th:nth-child(3), .tr-table td:nth-child(3) { width: 10%; }
+.tr-table th:nth-child(4), .tr-table td:nth-child(4) { width: 18%; }
+.tr-table th:nth-child(5), .tr-table td:nth-child(5) { width: 12%; }
+.tr-table tbody tr:hover td { background: var(--surface-2); }
+.tr-file { font-family: var(--mono, ui-monospace, Consolas, monospace); font-size: var(--fs-xs); }
+.tr-num { color: var(--t2); }
+.tr-sub { color: var(--t3); font-size: var(--fs-xs); }
+.tr-empty { text-align: center; color: var(--t3); padding: 22px 10px; }
+.tr-dl { color: var(--b); text-decoration: none; font-weight: 600; }
+.tr-dl:hover { text-decoration: underline; }
+/* 客户投诉：只有一张卡片时铺满整行，不必占 6 列里的一格 */
+.oss-grid.is-single { grid-template-columns: minmax(0, 1fr); }
+.complaint-slot { margin-top: var(--s4); }
+.complaint-slot .oss-grid { margin-top: 0; }
+
+/* 舞台：v1 已拆掉。
+   ⚠️ 这里原本是 .stage { display:grid } —— 装「升级带 + L0 焦点区 + L1 页签」三块，
+   宽屏时排成「焦点区 | 页签」两栏、升级带整宽压在上一行。
+   L0 焦点区与 L1 页签面板本次都按要求去掉了，.stage 里只剩升级带一块，
+   栅格没有存在意义，于是 index.html 里这一层也一并拆掉、#esc 直接挂在 main 下。
+   所以下面 .stage / .vcol / .l0 / .l0-col 四组规则**当前都没有元素会命中**：
+   保留是为了与 /olbrportal/ 那份保持可对照（类名语义一致），
+   以后若要恢复焦点区 / 页签，样式这边不用重写。读代码的人请注意屏幕上没有它们。 */
+.stage { display: grid; gap: var(--s4); grid-template-columns: minmax(0, 1fr); }
+
+/* L0 焦点区：原为「CXO 焦点卡在上、SP View 行式清单在下」，v1 整块去掉。 */
+.l0 { display: grid; gap: var(--s4); grid-template-columns: minmax(0, 1fr); align-items: stretch; }
+.l0-col { display: flex; flex-direction: column; gap: var(--s3); min-width: 0; }
+.l0-col:empty { display: none; }
+
+.panel {
+  background: var(--surface); border: 1px solid var(--line-2); border-radius: var(--r3);
+  padding: var(--s4); box-shadow: var(--sh-1); min-width: 0;
+}
+.p-head { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap; padding-bottom: 10px; margin-bottom: var(--s3); border-bottom: 1px solid var(--line); }
+.p-hd { display: flex; align-items: baseline; gap: 8px; min-width: 0; flex: 1 1 auto; }
+.p-hd::before { content: ""; flex: none; width: 3px; height: 15px; border-radius: 2px; background: var(--grad); transform: translateY(1px); }
+.panel[data-tier="0"] .p-hd::before { background: var(--hi); }
+/* 面板标题（L1）：2026-09-30 由 15px 上调到 --fs-lg(16px)，与下方 h2 级标题
+   （.fcard .ttl 16px / .um-head h3 16px / .qc-head h3 16px / .gate-c h2 18px）同频。
+   原先 15px 落在 --fs-md(14) 与 --fs-lg(16) 之间，既不与正文成档、也不与标题成档，
+   是「面板标题看起来和正文差不多大」的成因之一；归到 16px 后 L1 标题真正立起来。 */
+/* 行高显式给 --lh-tight（2026-10-01）：此前不写、继承 body 的 --lh-base(1.5)，
+   而分区标题 .band-k 是 --lh-tight(1.25) —— 同类标题两种行高口径。
+   统一到 --lh-tight 后，全页标题行高只有一个真相源。
+   单行标题下 1.25 与 1.5 视觉差异极小，这条是**口径**统一而非观感修正。 */
+.p-t { font-size: var(--fs-lg); line-height: var(--lh-tight); font-weight: 700; letter-spacing: var(--ls-tight); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.p-s { font-size: var(--fs-xs); color: var(--t3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ----------------------------------------------------------------------------
+   入口标题橙（2026-09-25 用户要求）
+   ----------------------------------------------------------------------------
+   要改的是**六处入口标题**：GIS Map、Auto Report Files、Escalation Matrix、
+   Q&A、EFLOW/VMAX/UME entries、System Management。
+   为什么用修饰类而不是直接把 .p-t / .esc-t / .aux-n 改成 --title：
+   这三个类都是**共用**的 ——
+     · .p-t  同时给侧边栏视图分组标题（CXO View / MS View …，olbr.js:361）
+     · .esc-t 只有升级机制用（可改），但 .aux-n 的父级 .aux-h 是所有辅助分组共用
+   用户只点名了六处，侧边栏「CXO View」这类分组标题**不在**名单内，
+   把共用类整体染色会连它们一起改掉，属超范围改动。故新增 .t-orange 逐个挂。
+   ⚠️ 以后这六处若新增同类标题，记得一并挂上 .t-orange，否则颜色会不一致。 */
+.t-orange { color: var(--title); }
+.p-x { display: inline-flex; align-items: center; gap: 5px; font-size: var(--fs-xs); font-weight: 600; color: var(--b-ink); flex: none; }
+.p-x:hover { text-decoration: underline; }
+.p-x i { font-size: var(--icon-sm); }
+.cnt { flex: none; font: 600 var(--fs-xs)/var(--lh-solid) var(--mono); color: var(--t2); background: var(--surface-3); border-radius: 999px; padding: 4px 7px; font-variant-numeric: tabular-nums; }
+
+/* 焦点卡（L0 专用：CXO 看板） */
+.fcard {
+  display: grid; grid-template-columns: 44px minmax(0, 1fr) 18px; gap: var(--s3);
+  align-items: start; padding: var(--s4);
+  border: 1px solid var(--line-2); border-radius: var(--r2); background: var(--surface-2);
+  transition: border-color .16s, background .16s, box-shadow .16s;
+}
+.fcard:hover { border-color: var(--b-line); background: var(--b-tint); box-shadow: var(--sh-1); }
+.fcard .ttl { display: block; font-size: var(--fs-lg); font-weight: 700; letter-spacing: var(--ls-tight); line-height: var(--lh-tight); }
+.fcard:hover .ttl { color: var(--b-ink); }
+.fcard .dsc { margin-top: 5px; font-size: var(--fs-sm); line-height: var(--lh-base); color: var(--t2);
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.fcard .meta { margin-top: var(--s3); }
+/* 焦点卡的箭头平时收起、悬停再滑出来（条目行的箭头是常显的） */
+.fcard .ic-go { opacity: 0; transform: translateX(-3px); }
+.fcard:hover .ic-go { opacity: 1; transform: none; color: var(--b-ink); }
+
+/* 图标砖与卡体内层：焦点卡 .fcard 用 .ic-ico/.ic-bd，条目行用 .r-ico */
+.ic-ico {
+  display: grid; place-items: center; width: 34px; height: 34px; border-radius: 8px;
+  background: var(--b-tint2); color: var(--b-ink); font-size: 17px; flex: none;
+}
+.ic-bd { min-width: 0; }
+.meta { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; font: 500 var(--fs-xs)/var(--lh-base) var(--mono); color: var(--t3); letter-spacing: var(--ls-wide); font-variant-numeric: tabular-nums; }
+.meta .dot { opacity: .45; }
+.ic-go { color: var(--t3); font-size: 14px; transition: opacity .16s, transform .16s, color .16s; }  /* 图标字号 */
+
+/* 条目卡：卡片流 —— 一行放得下几张就排几张，排满自动折到下一行。
+   auto-fill 而不是 auto-fit：fit 会把空轨合并掉，MS View 只有 3 条时被拉成 3 张 800px
+   宽的大板；fill 保住同一套列宽，四个面板上下对得齐。
+   min(312px, 100%) 是窄栏兜底：auto-fill 的轨不会缩到下限以下，左栏 ~308px 里
+   直接写 312px 会顶出横向滚动。 */
+.cards { display: grid; gap: var(--s3); grid-template-columns: repeat(auto-fill, minmax(min(312px, 100%), 1fr)); }
+.card {
+  display: grid; grid-template-columns: 32px minmax(0, 1fr) 16px; gap: 0 var(--s2);
+  align-items: start; min-width: 0; padding: 12px 13px;
+  border: 1px solid var(--line-2); border-radius: var(--r2); background: var(--surface-2);
+  transition: border-color .16s, background .16s, box-shadow .16s;
+}
+.card:hover { border-color: var(--b-line); background: var(--b-tint); box-shadow: var(--sh-1); }
+.c-ico {
+  display: grid; place-items: center; width: 32px; height: 32px; border-radius: 8px;
+  background: var(--b-tint2); color: var(--b-ink); font-size: 16px;
+}
+.c-bd { min-width: 0; }
+.c-t { display: block; font-size: var(--fs-md); font-weight: 600; line-height: var(--lh-tight); color: var(--t1); }
+.card:hover .c-t { color: var(--b-ink); }
+.c-d {
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
+  margin-top: 3px; font-size: var(--fs-sm); line-height: var(--lh-base); color: var(--t3);
+}
+.card:hover .c-d { color: var(--t2); }
+.card .meta { margin-top: 8px; }
+.card .ic-go { opacity: .4; }
+.card:hover .ic-go { opacity: 1; color: var(--b-ink); }
+/* 两栏布局下左栏只有一条窄轨：负责人会把 meta 挤成两行，连它前面那个分隔点一起藏 */
+@media (min-width: 1001px) {
+  .l0-col .card .meta .ow { display: none; }
+  .l0-col .card .meta > .dot:has(+ .ow) { display: none; }
+}
+
+/* 状态徽章：9.5px 归并到 --fs-2xs(10px)。0.5px 的差别人眼不可辨，
+   而独立的 9.5px 只会让人以为"这档和别的 10px 不一样"，其实一样。 */
+.st { font: 700 var(--fs-2xs)/var(--lh-solid) var(--mono); letter-spacing: var(--ls-wide); padding: 3px 6px; border-radius: 4px; }
+.st-online { color: var(--ok); background: var(--ok-tint); }
+.st-beta { color: var(--warn); background: var(--warn-tint); }
+.pf { color: var(--t2); }
+/* 2026-10-16：.hit（搜索命中高亮）已随检索轨整块移除 —— hl() 是它唯一的写入方。 */
+
+/* 地图 */
+.map { display: flex; flex-direction: column; }
+/* ═══ 地图栏标题条：三段式布局（2026-09-29）═══════════════════════════════════
+   用户当天先要求「reload 和 openlink 放到最右边」，随后又要求「两个页签居中显示」。
+   两条合起来 = 标题条必须分成**三段**，各段独立定位：
+
+     ┌──────────────┬──────────────────────┬────────────────────┐
+     │ .p-hd 标题   │ .map-tabs 页签（居中）│ .map-tools 按钮（贴右）│
+     └──────────────┴──────────────────────┴────────────────────┘
+         flex:1 1 0        flex:none           flex:1 1 0 + justify-end
+
+   居中的做法：左右两段都设 flex:1 1 0（等宽、可压缩）并加 min-width:0，
+   页签段 flex:none 固定成内容宽 —— 两侧弹簧等长，页签自然落在正中。
+   ⚠️ 用 flex 弹簧而不是绝对定位（position:absolute; left:50%; transform:translateX(-50%)）：
+      绝对定位会让页签脱离文档流，长标题时标题会**压到页签下面**（页签盖住文字）。
+      弹簧方案里三段互相避让，标题超长时自己省略（.p-t 带 ellipsis），互不重叠。
+
+   ⚠️ 历史坑（别改回去）：曾经靠 `.map-tabs { margin-left:auto }` 让「页签+按钮」
+      整块贴右。居中和它是**互斥**的 —— 两者同时存在，页签会停在中偏右。
+      现在 .map-tabs 上**没有** margin-left:auto，贴右由 .map-tools 自己的
+      margin-left:auto + justify-content:flex-end 负责（双保险：前者管块的位置，
+      后者管块内两颗按钮的顺序）。
+
+   ⚠️ 换行必须关掉（nowrap），这是居中能否成立的**前提**，不是可选项。
+      全局 .p-head 是 flex-wrap: wrap（olbr.css:1213）。三段各自带 gap（12px），
+      实测三段"自然内容宽 + 2 条 gap" = 772px，而容器正好 771px —— **差 1px**
+      就触发 wrap，于是三段各占一行（实测不同 top 数 = 3），弹簧彻底失效。
+      注意这里"1px 之差"不是巧合必然：wrap 的判定发生在**收缩之前**，
+      所以只要内容总宽 ≥ 容器宽就一定换行，永远不会走到"靠 flex-shrink 让
+      1fr 弹簧吸收差额"那条路。改成 nowrap 后，两个 1fr 弹簧才会真正去分
+      "容器宽 − 页签宽"，页签也就落在正中。
+      ⚠️ 别用"给 .p-head 加宽"或"减 gap"来绕：那只是把 1px 之争挪到别的宽度
+      档位上，换个视口宽度又会翻。nowrap 才是从机制上消除这个判定。
+
+   ⚠️ 窄屏退让：nowrap 之后三段永不换行，极窄视口下靠 .p-hd 的 min-width:0
+      让标题先被压到 0（省略号），再把余量给按钮 —— 按钮**始终可见**，
+      这是刻意的取舍（按钮是操作入口，标题被压缩可接受）。 */
+/* ⚠️ 只改地图栏（#l0Map），不动全局 .p-head（olbr.css:1213）：
+   全局那条被报告文件栏等**没有页签**的面板共用，那些面板"标题吃余量 +
+   按钮自然贴右"就够了，不需要三段式，给它们加 nowrap 只会让窄屏更挤。
+   这里用 #l0Map 前缀把作用域钉死在地图栏。
+   ⚠️ .p-hd 也只改地图栏这一条：全局 .p-hd（olbr.css:1214）是 flex:1 1 auto，
+   若无差别改成 1 1 0，其他面板的标题会被压成 0 宽（1fr 弹簧没人与它配对时会一直缩）。 */
+#l0Map .p-head { flex-wrap: nowrap; }
+#l0Map .p-head > .p-hd { flex: 1 1 0; }
+.map-tabs { display: flex; align-items: center; justify-content: center; gap: var(--s2); flex: none; }
+/* 工具按钮段：吃掉剩余空间并把自己的内容推到右端。
+   margin-left:auto 在这里是**必要的** —— 页签只有两个时 .p-hd 的 1fr 弹簧
+   已经把它推到中间，若本段不带 auto，两颗按钮会紧贴在页签右侧而不是卡片右缘。 */
+.map-tools { display: flex; align-items: center; justify-content: flex-end; gap: var(--s2); flex: 1 1 0; min-width: 0; margin-left: auto; }
+/* 缩放锁的两态（2026-10-22 加）。
+   · 锁定（默认）= 普通 .gb：中性色，和刷新 / Open Link 同一档，不抢眼 ——
+     它是常态，不该看起来像"有什么需要注意的"；
+   · 解锁（.unlocked）= 描边与文字转成 accent：滚轮已经交给地图了，
+     这是一个**偏离默认**的状态，值得让用户一眼看见。
+   ⚠️ 刻意复用 .gb 的 .on 那条 warn 配色吗？不 —— .on 是**编辑态**的语义色
+      （olbr.css:2177，标"正在改全站共享目录"），此处复用会把"危险"稀释。
+      aria-pressed 同时写上，给读屏与将来可能的样式钩子。 */
+.gb--t.unlocked { border-color: var(--b-line); color: var(--b-ink); background: var(--b-tint); }
+.tabs { display: inline-flex; gap: 2px; padding: 2px; border: 1px solid var(--line); border-radius: var(--r1); background: var(--surface-3); }
+.tab { height: 26px; padding: 0 10px; border-radius: 4px; font-size: var(--fs-sm); font-weight: 600; color: var(--t2); display: inline-flex; align-items: center; gap: 6px; }
+.tab i { font-size: 14px; }   /* 图标字号：单独一档，与 --icon-* 都不等，仅此处使用 */
+.tab:hover { color: var(--b-ink); }
+.tab[aria-selected="true"] { background: var(--surface); color: var(--b-ink); box-shadow: 0 1px 2px rgba(0, 0, 0, .12); }
+html.dark .tab[aria-selected="true"] { background: var(--b-tint2); }
+/* 编辑模式下点地图页签是「改名」而不是「切地图」，必须给出可见暗示，
+   否则用户会以为页签坏了（点了不切地图）。虚线描边 + 铅笔图标即为该暗示。 */
+.tabs.is-renaming .tab { outline: 1px dashed var(--b-line, rgba(13, 148, 136, .45)); outline-offset: -1px; }
+.tabs.is-renaming .tab:hover { color: var(--b-ink); }
+.maptab-pen { opacity: .65; font-size: var(--fs-xs) !important; }  /* 图标字号 */
+/* 面板标题在编辑态变成可点按钮（改的是这一栏的标题/副标题，与页签改名同一入口） */
+.p-t-edit {
+  font: inherit; color: inherit; background: none; border: 0; padding: 0 4px; margin: 0 -4px;
+  border-radius: 4px; display: inline-flex; align-items: center; gap: 5px; cursor: text;
+  outline: 1px dashed var(--b-line, rgba(13, 148, 136, .45)); outline-offset: 0;
+}
+.p-t-edit:hover { color: var(--b-ink); }
+.canvas {
+  position: relative; flex: 1; min-height: 460px; margin-top: var(--s3);
+  border: 1px solid var(--line); border-radius: var(--r2); overflow: hidden;
+  background: var(--surface);
+}
+.canvas iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+.canvas-note {
+  position: absolute; left: 0; right: 0; bottom: 0; display: flex; justify-content: space-between;
+  gap: var(--s3); padding: 5px 10px; font: 500 var(--fs-xs)/var(--lh-base) var(--mono); color: var(--t3);
+  background: var(--glass); border-top: 1px solid var(--line);
+}
+/* 内嵌 iframe 的加载遮罩 / 门禁提示（报告文件页签用）：盖在画布上，加载完成就摘掉，
+   所以底色跟 .canvas 一致，不会在切换瞬间露出一块白。 */
+.embed-boot {
+  position: absolute; inset: 0; z-index: 3; display: flex; align-items: center; justify-content: center;
+  gap: 8px; padding: 0 var(--s4); text-align: center; font-size: var(--fs-sm); color: var(--t3);
+  background: var(--surface-2);
+}
+.embed-boot > i.ph { font-size: var(--icon-lg); }
+.embed-ring { flex: none; width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--line-2); border-top-color: var(--b); animation: olbr-spin .8s linear infinite; }
+@keyframes olbr-spin { to { transform: rotate(360deg); } }
+
+/* 升级机制：折叠值班带 */
+.esc { background: var(--surface); border: 1px solid var(--line-2); border-radius: var(--r3); box-shadow: var(--sh-1); overflow: hidden; }
+.esc-bar { display: flex; align-items: center; gap: var(--s3); padding: 11px var(--s4); flex-wrap: wrap; }
+.esc-bar::before { content: ""; width: 3px; height: 15px; border-radius: 2px; background: var(--grad); flex: none; }
+.esc-t { font-size: var(--fs-lg); line-height: var(--lh-tight); font-weight: 700; }
+.esc-s { font-size: var(--fs-xs); color: var(--t3); }
+.esc-lv { display: flex; gap: 6px; flex-wrap: wrap; margin-left: auto; }
+.lvchip { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 9px; border-radius: 999px; border: 1px solid var(--line-2); font: 600 var(--fs-xs)/var(--lh-solid) var(--mono); color: var(--t2); }
+.lvchip b { color: var(--t1); }
+.lvchip[data-now="1"] { border-color: var(--b-line); background: var(--b-tint); color: var(--b-ink); }
+.esc-body { padding: 0 var(--s4) var(--s4); border-top: 1px solid var(--line); }
+.esc-scroll { max-height: 62vh; overflow: auto; margin-top: var(--s3); border: 1px solid var(--line); border-radius: var(--r2); }
+
+/* 三张表口径对齐（2026-09-30）：
+   本文件里有三处表格 —— 升级机制 table.grid、用户管理 .um-table、下钻弹窗 .qc-table
+   （后者在共用的 qcDrill.css 里）。原先表头分别是 11 / 12.5 / 12px、正文分别是
+   12.5 / 13.5 / 13px，同一种语义三套尺寸，看起来像三个系统拼的。
+   现在统一：表头 = --fs-xs(11.5px)，正文 = --fs-sm(12.5px)。
+   ⚠️ 升级表是数据密集表，表头沿用 --sans 的 700（不用 mono），与另两张表一致。 */
+table.grid { font-size: var(--fs-sm); }
+table.grid th, table.grid td { padding: 7px 10px; text-align: left; white-space: nowrap; }
+table.grid thead th {
+  position: sticky; top: 0; z-index: 2; background: var(--surface-2-solid);
+  font: 700 var(--fs-xs)/var(--lh-solid) var(--sans); letter-spacing: var(--ls-wide); color: var(--t2);
+  border-bottom: 1px solid var(--line-2);
+}
+table.grid td { border-bottom: 1px solid var(--line); }
+table.grid tbody tr:last-child td { border-bottom: 0; }
+table.grid tbody tr:hover { background: var(--hover); }
+table.grid td.lv { font: 700 var(--fs-xs)/var(--lh-solid) var(--mono); color: var(--b-ink); letter-spacing: var(--ls-wide); }
+/* ---- Escalation Matrix：按 Level 上色（2026-09-28 加）----
+   用户要求「表格按照 Level 显示不同的颜色，注意深浅两种主题背景」。
+   数据侧由 renderEsc() 在 <tr> 上写 data-lv="1..4"，配色全部在这里，
+   四种色相的含义与两档明度差异见上面 --lv* 变量的定义处。
+
+   为什么**整行**铺 tint 而不是只给 Level 那一格上色：
+     这张表一行 6 列，一行是一条完整的"该找谁"的信息。只染第一格的话，
+     视线扫到电话/邮箱时已经脱离那一格的颜色，得回头去对；整行水洗之后
+     "这一行是 L3"在眼睛移动的任何时刻都成立。tint 刻意很淡（.07/.12），
+     压不住 12.5px 的正文 —— 它是分组底色，不是高亮。
+   为什么左侧再压一条 3px 色条：tint 淡到接近白/深底时，色相本身很难分辨
+     （尤其是打印或低色域屏）。色条用同一个 --lv{n}、饱和度不打折，
+     给眼睛一个稳定的锚点。用 border-left 而非伪元素：它不参与
+     border-collapse 的复杂性，也不会在 sticky 表头下错位。 */
+table.grid tbody tr[data-lv] { background: var(--lvt); border-left: 3px solid var(--lvv); }
+table.grid tbody tr[data-lv="1"] { --lvv: var(--lv1); --lvt: var(--lv1-tint); }
+table.grid tbody tr[data-lv="2"] { --lvv: var(--lv2); --lvt: var(--lv2-tint); }
+table.grid tbody tr[data-lv="3"] { --lvv: var(--lv3); --lvt: var(--lv3-tint); }
+table.grid tbody tr[data-lv="4"] { --lvv: var(--lv4); --lvt: var(--lv4-tint); }
+/* 第一格的文字（L1/L2…）本身也用本级色，让"这一行属于哪级"有个高对比锚点 ——
+   整行 tint 太淡，光靠它认级别在深色主题下尤其吃力。
+   ⚠️ 这几条必须写全 [data-lv="n"]，不能图省事写成 tr[data-lv] td.lv { color: var(--lvv) }：
+   --lvv 是在**同一个元素**(tr)上定义的，但 td.lv 是它的**子元素**，
+   子元素继承自定义属性没问题 —— 问题在于上面那条通用规则
+   `table.grid td.lv { color: var(--b-ink) }` 与 `tr[data-lv] td.lv` 权重相同
+   （都是 0,1,1 vs 0,2,1，实际后者更高），写全 n 只是为了让"哪级什么色"
+   在这一屏里一眼可读，不必回头去查 tr 上挂的 --lvv 是什么。 */
+table.grid tbody tr[data-lv="1"] td.lv { color: var(--lv1); }
+table.grid tbody tr[data-lv="2"] td.lv { color: var(--lv2); }
+table.grid tbody tr[data-lv="3"] td.lv { color: var(--lv3); }
+table.grid tbody tr[data-lv="4"] td.lv { color: var(--lv4); }
+/* hover 与"按级上色"会打架：通用规则 table.grid tbody tr:hover 用的是 --hover，
+   它是中性灰、按源码顺序又排在上色规则**之前**，同级优先级下会被这里的
+   tr[data-lv] 背景压掉（属性选择器权重更高）—— 结果就是"悬停不再变色"。
+   所以在这里补一条**更高权重**的 hover：把颜色往本色相推深一点，
+   既保住悬停反馈，又不丢掉级别信息。 */
+table.grid tbody tr[data-lv]:hover { background: var(--lvt); filter: brightness(.97); }
+html.dark table.grid tbody tr[data-lv]:hover { filter: brightness(1.35); }
+table.grid td.num, table.grid th.num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+table.grid a { color: var(--b-ink); }
+table.grid a:hover { text-decoration: underline; }
+.esc-note { margin-top: var(--s2); font: 500 var(--fs-xs)/var(--lh-base) var(--mono); color: var(--t3); }
+/* v1：默认只显示前 4 行时的那句「还有 N 条」。用 --hi（OLR 橙）而不是灰：
+   它是一句**行动提示**（告诉用户去哪看剩下的），不是数据来源脚注。
+   与下面的 .esc-note 挤在一起时，靠颜色和图标把两者分开。 */
+.esc-note--more {
+  display: flex; align-items: center; gap: 6px;
+  margin-top: var(--s3); padding: 7px 10px; border-radius: var(--r1);
+  background: var(--hi-tint); color: var(--hi);
+  font-family: var(--sans); font-size: var(--fs-xs);
+}
+.esc-note--more i { flex: none; font-size: var(--icon-sm); }
+
+/* L1 主视图：一组一个页签，一次只展开一个面板，面板内是卡片流。
+   页签外观照抄上面筛选 chip 的胶囊（用户要的就是这个形状），但语义是 tab：
+   选中态用 aria-selected，容器带 role=tablist。
+
+   ⚠️ v1：下面 .view-1 / .tabs-v / .tabv 三组**当前都没有元素会命中** ——
+   L1 页签面板整块去掉了（上面六张视图入口卡已经覆盖那六个视图）。
+   随它一起失去作用的还有：#vGroup 面板、二级子页签 .subs-v / .subv。
+   保留的理由与 .stage / .l0 那段相同：类名与 /olbrportal/ 保持一致，
+   以后要恢复页签时不用重写样式。读代码的人请注意屏幕上没有这些元素。
+
+   ⚠️ 但 **.cards / .card 不在"没人命中"之列**（2026-09-26 起）：
+   v1 的编辑对象是六个入口卡里的行条目，编辑态它们就渲染成 a.card.is-ed，
+   并复用 .c-ed（卡片底部按钮排）等规则。下面的 .card 一组照旧生效，
+   另外 .v6-row.is-ed 补了必要的覆盖（见前面「编辑态的六个入口卡」那段）。 */
+.view-1 { display: grid; gap: 12px; }
+.tabs-v { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.tabv {
+  flex: none; height: 28px; padding: 0 11px; border-radius: 999px;
+  border: 1px solid var(--line-2); background: var(--surface);
+  font-size: var(--fs-sm); font-weight: 600; color: var(--t2); white-space: nowrap;
+  display: inline-flex; align-items: center; gap: 6px;
+  transition: border-color .14s, background .14s, color .14s;
+}
+.tabv:hover { border-color: var(--b-line); color: var(--b-ink); }
+.tabv[aria-selected="true"] { background: var(--b); border-color: var(--b); color: var(--b-on); }
+.tabv small { font: 500 var(--fs-xs)/var(--lh-solid) var(--mono); opacity: .8; font-variant-numeric: tabular-nums; }
+
+/* 二级子页签（BO View 的无线 / 核心网 / IP 承载…）：比一级页签轻一档 ——
+   实心 = 一级、浅色描边 = 二级，靠填充深浅读层级，不再发明第三种形状。 */
+.subs-v { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-bottom: var(--s3); }
+.subv {
+  flex: none; height: 24px; padding: 0 9px; border-radius: 999px; white-space: nowrap;
+  border: 1px solid var(--line-2); background: var(--surface);
+  font-size: var(--fs-xs); font-weight: 600; color: var(--t2);
+  display: inline-flex; align-items: center; gap: 5px;
+  transition: border-color .14s, background .14s, color .14s;
+}
+.subv:hover { border-color: var(--b-line); color: var(--b-ink); }
+.subv[aria-pressed="true"] { background: var(--b-tint); border-color: var(--b-line); color: var(--b-ink); }
+.subv small { font: 500 var(--fs-2xs)/var(--lh-solid) var(--mono); opacity: .8; font-variant-numeric: tabular-nums; }
+
+/* ---------------------------------------------------------- 编辑态 -- */
+/* 顶栏那颗开关 + 一条提示带。改动写的是**全站共享**目录（/api/portal-catalog），
+   MsPortal 的用户刷新就看得见，所以编辑态必须一眼可辨、且随时能退出。
+   用 warn 而不用 accent：accent 是这个页面「正常交互色」，借它标危险态会稀释。 */
+.gb.on { border-color: var(--warn); color: var(--warn); background: var(--warn-tint); }
+.editbar {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px;
+  margin-bottom: var(--s3); padding: 7px 10px;
+  border: 1px solid var(--warn); border-radius: var(--r2); background: var(--warn-tint);
+  font-size: var(--fs-xs); color: var(--t2);
+}
+.editbar .eb-k {
+  display: inline-flex; align-items: center; flex: none;
+  font: 700 var(--fs-2xs)/var(--lh-solid) var(--mono); letter-spacing: var(--ls-wide);
+  color: var(--warn); border: 1px solid var(--warn); border-radius: 4px; padding: 4px 6px;
+}
+.editbar .eb-t { color: var(--t1); font-weight: 600; }
+.editbar .eb-h { color: var(--t3); }
+.editbar .eb-x { margin-left: auto; flex: none; }
+
+/* 卡片：编辑态才给抓取指针与工具行；拖动的那张压暗，落点用主轴方向的粗线指示
+   （网格一行有好几张卡，只按上下判定会把「插到左边那张之前」判成插到后面）。
+
+   ⚠️ 落点高亮那两条选择器限定在 `.cards` 下，而 v1 的编辑行住在 `.v6-list` 里，
+   所以 `.v6-list .v6-row.is-in-A / is-in-B` 另补了一份（见前面那一段）。
+   `.card.is-ed` / `.is-drag` / `.c-ed` 三条是通用的，v1 直接复用。 */
+.card.is-ed { cursor: grab; }
+.card.is-ed:active { cursor: grabbing; }
+.card.is-drag { opacity: .45; }
+.cards .card.is-in-A { box-shadow: inset 4px 0 0 0 var(--b); }
+.cards .card.is-in-B { box-shadow: inset -4px 0 0 0 var(--b); }
+.c-ed { display: flex; align-items: center; gap: 6px; margin-top: 8px; }
+.ct {
+  display: inline-flex; align-items: center; gap: 5px; flex: none;
+  height: 22px; padding: 0 8px; border: 1px solid var(--line-2); border-radius: 6px;
+  background: var(--surface); color: var(--t2); font-size: var(--fs-xs); font-weight: 600;
+  transition: border-color .14s, color .14s, background .14s;
+}
+.ct:hover { border-color: var(--b-line); color: var(--b-ink); background: var(--b-tint); }
+.ct i { font-size: var(--icon-xs); }
+.ct--rst { margin-left: var(--s3); }
+/* 「删除看板」是这条编辑带上唯一不可逆的动作，必须一眼能认出来。
+   只染 hover + 图标，不做常驻红底：一排里六张卡各一颗红按钮会很吵。
+   位置也有讲究：`.ct:hover` 与本条都设了 border-color/color/background，
+   且 `.ct--del:hover`（0,2,0）比 `.ct:hover`（0,2,0）**同权重** ——
+   同权重时后者胜出，所以这条必须排在 `.ct:hover` 之后，否则红色被灰蓝盖掉。 */
+.ct--del:hover { border-color: var(--crit); color: var(--crit); background: var(--crit-tint); }
+
+/* 子分组管理条：胶囊本身是拖拽落点（is-drop），里面拆成「选择」+「改名」「删除」
+   三颗控件；is-hot 是拖进来时的反馈。输入框刻意做矮（22px），不抢正文的视觉重量。 */
+.subv.is-drop { padding: 0 3px 0 0; gap: 2px; cursor: default; }
+.subv.is-drop.is-hot { border-color: var(--b); background: var(--b-tint); color: var(--b-ink); }
+.sub-t { display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 4px;
+  background: none; border: 0; font: inherit; color: inherit; cursor: pointer; border-radius: 999px; }
+.subv.is-drop.is-on { background: var(--b-tint); border-color: var(--b-line); color: var(--b-ink); }
+.sub-x { display: inline-grid; place-items: center; width: 18px; height: 18px; flex: none;
+  border: 0; border-radius: 5px; background: none; color: var(--t3); font-size: 11px; cursor: pointer; }
+  /* ↑ 11px 是 × 号图标字号。此处**不并入 --icon-***：那套只有 12/13/15/18 四档，
+     没有 11px；硬套 12px 会让这个 18×18 小圆钮里的 × 变大 1px。
+     且 .sub-x 属「v1 无命中」的死规则（.subv/.subs-v 的渲染函数在 v1 无调用，
+     见文件头「无命中规则清单」），改与不改都不影响显示，故保留原值仅加注。 */
+.sub-x:hover { background: var(--surface-3); color: var(--b-ink); }
+.sub-x[data-act="sub-del"]:hover { color: var(--crit); background: var(--crit-tint); }
+.subv.is-ren { padding: 3px 4px; gap: 4px; height: auto; }
+.sub-add { display: inline-flex; align-items: center; gap: 4px; }
+.sub-i {
+  width: 108px; height: 22px; padding: 0 7px; border: 1px solid var(--line-2); border-radius: 6px;
+  background: var(--surface-2); color: var(--t1); font-size: var(--fs-xs); font-family: inherit;
+}
+.sub-i:focus { outline: none; border-color: var(--b-line); box-shadow: 0 0 0 2px var(--b-tint2); }
+
+/* 分组归属浮层：fixed 贴在卡片旁边，不用遮罩 —— 改归属时还要看得见卡片本身 */
+.gp {
+  position: fixed; z-index: 90; min-width: 230px; max-width: 320px; max-height: 320px; overflow: auto;
+  padding: 10px; border: 1px solid var(--line); border-radius: var(--r2);
+  background: var(--surface); box-shadow: var(--sh-2); scrollbar-width: thin;
+}
+.gp-hd { display: grid; gap: 2px; margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--line-2); }
+.gp-hd b { font-size: var(--fs-md); color: var(--t1); }
+.gp-hd span { font-size: var(--fs-xs); color: var(--t3); }
+.gp-list { display: grid; gap: 1px; }
+.gp-i { display: flex; align-items: center; gap: 8px; padding: 4px 5px; border-radius: 6px; font-size: var(--fs-sm); color: var(--t2); cursor: pointer; }
+.gp-i:hover { background: var(--b-tint); color: var(--t1); }
+.gp-i input { accent-color: var(--b); width: 14px; height: 14px; flex: none; margin: 0; }
+/* 归档那一项的计数（2026-09-29 加）。结构上是 .gp-i 里的第三个孩子，
+   所以「名字占满、计数贴右」只需给名字那一段 auto：
+   ⚠️ 不能写成 `.gp-i span:first-of-type` —— 名称永远不需要让位，
+   让位的是「名字后面那个东西」，按位置写将来插元素就会错位。 */
+.gp-i > span { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gp-n { flex: none; font: 500 var(--fs-2xs)/var(--lh-solid) var(--mono); font-style: normal; color: var(--warn); background: var(--warn-tint); padding: 3px 5px; border-radius: 4px; }
+/* ⚠️ 空计数不显示。为什么用 :empty 而不是在拼串处决定「要不要输出这个节点」：
+   那样"0 不显示"就有两个判据（拼串 + 样式），改一处漏一处；
+   这里拼串只负责"有几张"，显示与否只有这一条规则。
+   —— 实测线上 Arch 恒为 3，0 只在有人清空归档后出现。 */
+.gp-n:empty { display: none; }
+/* 「新增看板」第一步：选模板。列表比分组勾选长得多（55 条），所以限定高度滚动 +
+   一行一条（模板名可能很长，两列会把名字压成省略号）。搜索框常驻在顶部。 */
+.gp-search { margin-bottom: 6px; }
+.gp-search input {
+  width: 100%; height: 26px; padding: 0 8px; border: 1px solid var(--line-2); border-radius: 6px;
+  background: var(--surface-2); color: var(--t1); font: inherit; font-size: var(--fs-sm);
+}
+.gp-search input:focus { outline: none; border-color: var(--b-line); box-shadow: 0 0 0 2px var(--b-tint); }
+.gp-list--tpl { max-height: 220px; overflow: auto; scrollbar-width: thin; gap: 1px; }
+/* 「专业域」选择区（2026-10-12 加）：接在分组勾选列表下方，用一条上分隔线区分。
+   .gp-i--sub 是单选行，缩进一级以体现"它从属于某个父分组"。 */
+.gp-sec { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line-2); }
+.gp-sec-h {
+  display: flex; align-items: baseline; gap: 6px; margin-bottom: 5px;
+  font-size: var(--fs-xs); font-weight: 700; color: var(--t3); letter-spacing: var(--ls-wide);
+  text-transform: uppercase;
+}
+.gp-sec-p { font-weight: 500; text-transform: none; letter-spacing: 0; color: var(--t3); }
+.gp-sub-list { display: grid; gap: 1px; padding-left: 4px; }
+.gp-i--sub { padding-left: 6px; }
+.gp-tpl {
+  display: flex; align-items: center; gap: 8px; width: 100%; padding: 5px 6px;
+  border: 0; border-radius: 6px; background: none; color: var(--t2);
+  font: inherit; font-size: var(--fs-sm); text-align: left; cursor: pointer;
+  /* ⚠️ `min-width: 0` 不能省。`.gp-list` 是 grid，而 grid/flex 子项默认
+     `min-width: auto` —— 它会按内容的**最小内容宽度**撑开，`width: 100%` 管不住。
+     模板名最长的那些（如 "TT&WO Dashboard (故障与运维工单流转看板)"）会把整行
+     顶到 439px，而父级 `.gp-list` 只有 298px，按钮于是横向溢出浮层。
+     给按钮和里面的名字都允许收缩（名字那颗再配 ellipsis），才能真正压住。 */
+  min-width: 0;
+  box-sizing: border-box;
+}
+.gp-tpl:hover { background: var(--b-tint); color: var(--t1); }
+.gp-tpl i { flex: none; font-size: var(--icon-sm); color: var(--t3); }
+.gp-tpl:hover i { color: var(--b-ink); }
+.gp-tpl-t { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gp-tpl-n { flex: none; font: 500 var(--fs-2xs)/var(--lh-solid) var(--mono); color: var(--t3); }
+.gp-none { padding: 10px 6px; font-size: var(--fs-sm); color: var(--t3); }
+
+/* 改名浮层（一级分组改名 / 新增分组 / 看板改标题）：标签在上、输入框在下 ——
+   230px 宽的浮栏里并排放不下「中文名」这种三字标签 + 中文名输入框。 */
+.gp--form { width: 286px; }
+/* 新增看板那颗表单里有一条 URL（带 token 的 myapp 链接能到 80+ 字符），
+   286px 下只能看见开头一小截，改起来得全程盲打。单独给它一档宽度。
+   只加宽度不加字段逻辑 —— 靠 :has() 命中，老浏览器不认时退回 286px，仍然可用。 */
+.gp--form:has([data-f="itemUrl"]) { width: 400px; max-width: calc(100vw - 24px); }
+.gp--form .gf { display: grid; gap: 3px; margin-bottom: 7px; }
+.gp--form .gf > span { font: 500 var(--fs-xs)/var(--lh-tight) var(--mono); color: var(--t3); }
+.gf-i {
+  min-width: 0; height: 26px; padding: 0 7px; border: 1px solid var(--line-2); border-radius: 6px;
+  background: var(--surface-2); color: var(--t1); font: inherit; font-size: var(--fs-sm);
+}
+.gf-i:focus { outline: none; border-color: var(--b-line); box-shadow: 0 0 0 2px var(--b-tint); }
+.gf-b { display: flex; align-items: center; gap: 6px; margin-top: 2px; }
+.gf-ok { border-color: var(--b-line); color: var(--b-ink); background: var(--b-tint); }
+.gf-del { margin-left: auto; }
+.gf-del:hover { border-color: var(--crit); color: var(--crit); background: var(--crit-tint); }
+/* 「换一个模板」跟在「添加」后面，不加 margin-left:auto —— 那会把保存键顶到最左，
+   与上面「删除该分组」靠右的语义相反。这里就该是紧挨着主按钮的次要动作。 */
+.gf-back { color: var(--t3); }
+.gf-back:hover { border-color: var(--b-line); color: var(--b-ink); background: var(--b-tint); }
+/* 表单底部那行「模板：#1 NUR Dashboard」：只是让人确认继承的是哪一张，
+   不是交互元素，所以刻意压低对比度，别和输入框抢注意力。 */
+.gf-note { margin-top: 7px; font: 500 var(--fs-2xs)/var(--lh-tight) var(--mono); color: var(--t3); }
+
+/* L2 辅助：去卡片化，默认只露 2 行，其余靠标题右侧「展开 / 收起」。
+   收缩靠隐藏第 3 条起的 li，不用 max-height —— 后者会把半行裁在中间。 */
+.aux { display: grid; gap: var(--s5) var(--s6); grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); padding-top: var(--s4); border-top: 1px solid var(--line); }
+/* ⚠️ 2026-10-12（v2 专有）：T2 的三组（Knowledge Q&A / Friends Link / System Admin）
+   已全部移到别处（.qarow 两栏 + 右上角用户菜单），#aux 现在恒为空。
+   空着时它仍会画出 padding-top + border-top —— 页面上会留一条没有归属的分隔线与空隙。
+   故整块隐藏：:empty 命中"无任何子节点"（renderAux 空时 box.innerHTML = ''），
+   此时不渲染。将来若要恢复某一组，把它从 renderAux 的 AUX_MOVED 移除即可，
+   这块会自动重新出现。 */
+.aux:empty { display: none; }
+.aux-g { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; align-content: start; min-width: 0; }
+/* 必须显式写 minmax(0,1fr)：默认那条隐式 auto 轨会被 .lrow 里 nowrap 文本的 min-content
+   撑到 357px（列宽只有 253），整页就跟着出横向滚动条。 */
+/* 辅助区标题。2026-09-30 修正**层级倒挂**：原为 --fs-sm(12.5px)，而它下面的
+   链接行 .lrow 是 --fs-md(14px) —— 标题比正文小，读起来像"标题是脚注"。
+   现在标题升到 --fs-md(14px)，与链接同字号但靠 700 字重 + --ls-wide 字距 +
+   --t3 灰 + 下边框区分层级（同级靠字重/装饰分层，而不是靠"标题更小"）。
+   为何不进一步升到 16px：这组 L2 辅助区本就是"去卡片化"的轻量层级，
+   16px 会与 L1 面板标题(.p-t=16px)抢同一档，反而制造新的层级歧义。 */
+.aux-h { display: flex; align-items: center; gap: 8px; font-size: var(--fs-md); font-weight: 700; letter-spacing: var(--ls-wide); color: var(--t3); padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+.aux-n { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.aux-h .cnt { margin-left: auto; }
+.aux-x { display: inline-flex; align-items: center; gap: 4px; flex: none; font: 600 var(--fs-xs)/var(--lh-solid) var(--sans); letter-spacing: var(--ls-wide); color: var(--b-ink); padding: 4px 7px; border-radius: 999px; background: var(--b-tint); transition: background .14s; }
+.aux-x:hover { background: var(--b-tint2); }
+.aux-x i { font-size: var(--icon-xs); }
+.aux-g:not([data-open="1"]) ul > li:nth-child(n+3) { display: none; }
+.aux ul { list-style: none; margin: 0; padding: 0; }
+.aux li + li { margin-top: 1px; }
+.lrow { display: flex; align-items: center; gap: 9px; padding: 7px 0; font-size: var(--fs-md); border-bottom: 1px dotted var(--line); }
+.lrow i { color: var(--t3); font-size: var(--icon-md); flex: none; }
+.lrow:hover { color: var(--b-ink); }
+.lrow:hover i { color: var(--b-ink); }
+.lrow > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lrow .go { margin-left: auto; flex: none; font-size: var(--icon-xs); opacity: .55; }
+.lrow em { font: 500 var(--fs-2xs)/var(--lh-solid) var(--mono); font-style: normal; color: var(--warn); background: var(--warn-tint); padding: 3px 5px; border-radius: 4px; flex: none; }
+
+/* 归档区（2026-09-28 加）。结构复用 .aux-g / .aux-h / .lrow，只有这两条是新的：
+   · .arch-hint —— 一行说明。没有它，这一块看起来像"回收站"，而它其实是可逆的暂存；
+   · .arch-g 的折叠规则 —— 上面那条 .aux-g:not([data-open="1"]) 只对 .aux 下的 ul 生效，
+     归档区在 .aux 之外（#arch），所以必须自己再写一条，否则"收起"时仍然全列出来。 */
+.arch-hint { margin: 0; font-size: var(--fs-xs); line-height: var(--lh-base); color: var(--t3); }
+#arch .arch-g:not([data-open="1"]) ul > li:nth-child(n+3) { display: none; }
+/* 归档行尾的「取消归档」：与 .lrow 的 .go 箭头抢右侧位置，所以用 margin-left:auto
+   把它推到最右（箭头在它右边时靠 .go 自己的 margin-left:auto 会失效 —— 两者都
+   声明 auto 时右边距由靠后出现的元素拿走，这里靠 DOM 顺序保证按钮在箭头之前）。 */
+#arch .lrow + .ct, #arch .ct { margin-left: auto; flex: none; font-size: var(--fs-xs); padding: 3px 8px; }
+#arch .lrow .go { margin-left: 6px; }
+
+/* 空态与骨架 */
+.empty { padding: 10px 2px; font-size: var(--fs-sm); color: var(--t3); }
+.empty b { color: var(--t2); font-weight: 600; }
+.sk { display: block; height: 12px; border-radius: 4px; background: linear-gradient(90deg, var(--surface-3) 25%, var(--surface-2) 37%, var(--surface-3) 63%); background-size: 400% 100%; animation: sh 1.3s ease-in-out infinite; }
+.sk.v { height: 28px; width: 62%; margin: 6px 0; }
+.sk.s { width: 40%; margin-top: 7px; }
+@keyframes sh { from { background-position: 100% 0; } to { background-position: 0 0; } }
+
+/* 门禁 / 登录 */
+.gate { display: grid; place-items: center; padding: var(--s7) 0; }
+.gate-c { width: min(420px, 100%); background: var(--surface); border: 1px solid var(--line-2); border-radius: var(--r3); box-shadow: var(--sh-2); padding: var(--s6); }
+.gate-c h2 { font-size: var(--fs-xl); font-weight: 700; }
+.gate-c p { margin-top: 6px; font-size: var(--fs-md); color: var(--t2); line-height: var(--lh-base); }
+.fld { display: block; margin-top: var(--s4); }
+.fld span { display: block; font-size: var(--fs-xs); font-weight: 600; color: var(--t2); margin-bottom: 5px; }
+.fld input { width: 100%; height: 38px; padding: 0 11px; border: 1px solid var(--line-2); border-radius: var(--r2); background: var(--surface-2); }
+.fld input:focus { outline: none; border-color: var(--b); box-shadow: var(--ring); }
+.gate-err { margin-top: var(--s3); font-size: var(--fs-sm); color: var(--crit); background: var(--crit-tint); border: 1px solid var(--crit); border-radius: var(--r1); padding: 8px 10px; }
+/* 注册申请成功提示。与 .gate-err 同构、只换色 —— 成功不该长得像报错。 */
+.gate-ok { margin-top: var(--s3); font-size: var(--fs-sm); color: var(--ok); background: var(--ok-tint); border: 1px solid var(--ok); border-radius: var(--r1); padding: 8px 10px; }
+/* 「本页现在是免登录身份」的说明条（只在主动唤起闸门时出现）。
+   用中性色而不是警告色：这不是错误，只是说明为什么把你带到这里。 */
+.gate-hint { margin-top: var(--s3); font-size: var(--fs-sm); color: var(--t2); background: var(--surface-2); border: 1px solid var(--line-2); border-radius: var(--r1); padding: 8px 10px; line-height: var(--lh-base); }
+/* 两种形态之间的切换（申请一个 / 返回登录）。做成文字按钮而不是 .btn ——
+   .gate-ft 里已经有两个并排按钮，再放一个会挤，且这是次要动作。 */
+.gate-alt { margin-top: var(--s3); text-align: center; }
+.gate-link { font-size: var(--fs-sm); font-weight: 600; color: var(--b-ink); background: none; border: 0; padding: 4px 6px; cursor: pointer; }
+.gate-link:hover { text-decoration: underline; }
+.gate-ft { margin-top: var(--s5); display: flex; align-items: center; justify-content: space-between; gap: var(--s3); }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; height: 36px; padding: 0 16px; border-radius: var(--r2); font-size: var(--fs-md); font-weight: 600; border: 1px solid var(--line-2); color: var(--t2); transition: background .14s, border-color .14s, color .14s; }
+.btn:hover { border-color: var(--b-line); color: var(--b-ink); background: var(--b-tint); }
+.btn.primary { background: var(--b); border-color: var(--b); color: var(--b-on); }
+.btn.primary:hover { background: var(--b-ink); border-color: var(--b-ink); color: #fff; }
+.btn:disabled { opacity: .5; cursor: not-allowed; }
+
+/* QC 下钻 —— 样式已移到共用的 /MsPortal/assets/qcDrill.css（2026-09-23）
+   ----------------------------------------------------------------------------
+   原来是右侧滑入抽屉：.scrim + .drawer(+.dr-head/.dr-body/.dr-foot/table.grid)。
+   现在改成与 /MsPortal/ 逐类一致的居中弹窗 .qc-mask/.qc-modal/…，样式源自
+   两边共引的 /MsPortal/assets/qcDrill.css —— 一份文件、一套类名，
+   两个门户的下钻弹窗因此结构/间距/字号/交互完全相同。
+
+   ⚠️ 下面这段是**故意留下的**：本文件里 .drawer/.dr-* 已无任何引用点
+      （index.html 的抽屉骨架已换成 .qc-*），删掉也不影响显示。保留是因为
+      「改版前长什么样」是排查「用户说下钻弹窗变了」时的第一手依据，
+      且 .pager 一条仍被别处复用，单独摘容易漏。
+      新代码不要再往 .drawer / .dr-* 上挂东西。 */
+.scrim { position: fixed; inset: 0; z-index: 50; background: var(--scrim); backdrop-filter: blur(2px); }
+.drawer {
+  position: fixed; z-index: 51; top: 0; right: 0; bottom: 0; width: min(880px, 94vw);
+  display: flex; flex-direction: column; background: var(--surface);
+  border-left: 1px solid var(--line-2); box-shadow: var(--sh-3);
+  transform: translateX(101%); transition: transform .22s cubic-bezier(.2, .8, .2, 1);
+}
+.drawer.open { transform: none; }
+.dr-head { display: flex; align-items: flex-start; gap: var(--s4); padding: var(--s4) var(--s5); border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.dr-t { flex: 1 1 240px; min-width: 0; }
+.dr-t h3 { font-size: var(--fs-lg); font-weight: 700; }
+.dr-sub { margin-top: 3px; font: 500 var(--fs-xs)/var(--lh-base) var(--mono); color: var(--t3); }
+.dr-tools { display: flex; align-items: center; gap: var(--s2); }
+.dr-tools input { height: 30px; width: min(260px, 46vw); padding: 0 10px; border: 1px solid var(--line-2); border-radius: var(--r1); background: var(--surface-2); font-size: var(--fs-md); }
+.dr-tools input:focus { outline: none; border-color: var(--b); box-shadow: var(--ring); }
+.dr-body { flex: 1; overflow: auto; padding: var(--s4) var(--s5); }
+.dr-foot { display: flex; align-items: center; justify-content: space-between; gap: var(--s3); padding: var(--s3) var(--s5); border-top: 1px solid var(--line); font: 500 var(--fs-xs)/var(--lh-solid) var(--mono); color: var(--t2); }
+.pager { display: inline-flex; align-items: center; gap: var(--s2); }
+.dr-empty { padding: var(--s6); text-align: center; color: var(--t3); font-size: var(--fs-md); }
+
+/* 轻提示（复制升级表等动作用）：fixed 居中偏下，不抢焦点、2s 后由 JS 收起。
+   z-index 压在所有浮层之上（.qc-mask 200 / .um-mask 210）：用户管理弹窗里
+   「按看板候选项锁住」这类提示就是从弹窗内部 toast 出来的，被遮罩盖住等于没说。 */
+.toast {
+  position: fixed; z-index: 260; left: 50%; bottom: 26px; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 7px;
+  padding: 9px 15px; border-radius: 999px;
+  background: var(--toast-bg); color: var(--toast-fg); box-shadow: var(--sh-3);
+  font-size: var(--fs-md); font-weight: 600;
+  animation: toast-in .18s cubic-bezier(.2, .8, .2, 1);
+}
+@keyframes toast-in { from { opacity: 0; transform: translate(-50%, 8px); } to { opacity: 1; transform: translate(-50%, 0); } }
+
+/* ---------------------------------------------------------------- foot -- */
+.foot {
+  border-top: 1px solid var(--line); background: var(--surface);
+  /* ⚠️ 2026-10-13：**margin-top 已删除**，不要再加回来。
+     用户报「Escalation Matrix 组件跟底部有些空白」。实测（TMP/_probe_esc.json）
+     #esc 卡片底边(y=3397)到文档底(3496)共 99px，由三段叠成：
+       · main 的 padding-bottom  var(--s6)=28px
+       · .foot 的 margin-top     var(--s6)=28px   ← **这里**
+       · footer 自身高          42px（版权行 + 状态行，真实内容）
+     前两段是**同一档间距被算了两遍**：设计意图只是"主体与页脚之间留一档"，
+     却因为 main 已经给了 padding-bottom、footer 又给了一次 margin-top，
+     实际空出 56px。而 #esc 是带边框的卡片，下面紧接一段什么都不画的空白，
+     最容易被读成"组件没贴到底 / 多出一块空白"。
+     修复口径（用户 2026-10-13 选定「两段都收窄」）：
+       main 的 padding-bottom  28px → var(--s4)=16px（见 main 那条）
+       .foot 的 margin-top     28px → **0**（本条，去重）
+     净效果：#esc 到页脚从 56px 收到 16px，仍保留一档呼吸，且不再是两倍。 */
+}
+.foot-in { display: flex; align-items: center; justify-content: space-between; gap: var(--s4); flex-wrap: wrap; padding-block: 12px; font-size: var(--fs-xs); color: var(--t3); }
+.foot-r { display: flex; align-items: center; gap: var(--s4); flex-wrap: wrap; font-variant-numeric: tabular-nums; }
+.foot-r .ok { color: var(--ok); display: inline-flex; align-items: center; gap: 5px; }
+.foot-r .ver { font-family: var(--mono); }
+
+/* ------------------------------------------------------------ responsive -- */
+/* ⚠️ v1：这里原本有一整段 @media (min-width: 1600px)，作用是让 .stage 在宽屏下变成
+   「升级带整宽 / 焦点区 | 页签」两行两栏，并用绝对定位做「右栏高度 = 左栏高度」的
+   等高契约（#views { position:absolute } 让右栏不参与行高计算）。
+   L0 焦点区与 L1 页签面板本次都去掉了、.stage 这一层也已拆掉，
+   这些选择器（.stage / #l0 / .vcol / #views / .view-1）**当前一个都不会命中**，
+   整段因此删掉 —— 留着它只会让人以为 1600px 还有一套并排布局。
+   宽屏下现在的实际版式：单列，地图 + 报告文件那一行按 .maprow 的**等宽 1:1** 分
+   （2026-09-24 用户要求各占一半；原先是 1.8fr : 1fr）。
+   恢复焦点区 / 页签时，这段需要从 /olbrportal/assets/olbr.css 抄回来。 */
+@media (max-width: 1240px) {
+  .canvas { min-height: 420px; }
+}
+@media (max-width: 1000px) {
+  /* v1：地图已经不在 #l0 里，这里不再需要为「左栏 + 地图」两栏收窄 ——
+     #l0 现在只装 .l0-col 一块，任何宽度下都是整宽。
+     2026-09-24：原先这里还有一条 `.tagline { display: none; }` 给顶栏副标题用，
+     顶栏换 MsPortal 结构后，副标题的窄屏收起已由 masthead.css 的
+     @media (max-width: 1339px) 接管（`.mp-tagline`），故本条一并删除。 */
+}
+@media (max-width: 820px) {
+  /* 2026-09-24：原先这里有三条顶栏规则 —— `:root{--mast-h:58px}`、`.globe{display:none}`、
+     `.clock{display:none}`、`.title .t-tail{display:none}`。顶栏换 MsPortal 结构后，
+     高度改由 --mp-mast-h 驱动，地球/时钟/标题尾词的窄屏处理全部在 masthead.css 的
+     767px / 1339px 断点里，这里的同名规则已无对应 DOM，全部删除。 */
+  .qc-live { display: none; }      /* 窄屏放不下「更新于 / 下次」这一整串，卡上的时间戳还在 */
+  main { gap: var(--s3); }
+  .canvas { min-height: 340px; }
+  /* 2026-10-16：.rail-in 的四条窄屏栅格规则随检索轨整块移除（DOM 已不在）。 */
+  /* 窄屏：卡片流本身就会掉到一列，这里只把内边距收一档 */
+  .card { padding: 10px 11px; }
+  .gb--t > span { display: none; }   /* 地图工具条的「刷新 / 新窗口」退回纯图标 */
+  .gb--t { padding-inline: 8px; }
+}
+@media (max-width: 640px) {
+  .band { padding: var(--s4); }
+  /* v1：地图高度的窄屏档已上移到 .maprow 那条 @media（改 --maprow-h）。
+     原来这里写的是 .map-slot .canvas { min-height: 300px } —— 只改地图那一侧、
+     不改报告文件，会把两块拉成不等高，正好破坏用户"高度保持一致"的要求，故删除。 */
+}
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+}
+@media print {
+   /* 2026-10-16：.rail 已随检索轨整块移除，打印隐藏清单里不再列它 */
+   .esc-body, .drawer, .scrim { display: none !important; }
+  .qc-mask { display: none !important; }   /* 下钻弹窗同样不进纸质稿 */
+  .um-mask { display: none !important; }
+}
+
+/* ============================================================================
+   QC 下钻弹窗 —— 本页的主题映射（2026-09-23 加）
+   ----------------------------------------------------------------------------
+   /MsPortal/assets/qcDrill.css 是**两边共用**的下钻弹窗外壳，它内部只用一套自有的
+   --qc-* 变量，不认任何一方的私有名。本区块负责把本页的 --surface/--line/--t1…
+   灌进那套变量。于是：
+
+     · 结构 / 间距 / 字号 / 交互 —— 由同一个 qcDrill.css 决定 → 与 MsPortal 完全一致
+     · 配色 / 深浅色          —— 由这里决定                → 各随各的主题
+
+   为什么不直接把本页变量塞进 qcDrill.css：MsPortal 引它时 --surface/--line 全是
+   未定义，弹窗会变成一堆透明框。分开写、谁引用谁映射，缺映射也只是退回
+   qcDrill.css 里的兜底默认色，不会崩。
+
+   映射对位（照抄本文件顶部 tokens 注释的口径）：
+     --surface=--mp-surface-flat  --line=--mp-border-soft  --line-2=--mp-border
+     --b=--mp-brand  --b-ink=--mp-brand-text  --crit=--mp-sev-critical
+   深浅色不用在这里各写一遍 —— 下面全是 var() 引用，html.dark 一翻，弹窗跟着翻。
+   只有「表头 / 首列吸附」两处需要额外压深，故单独补 html.dark 三条。
+
+   ⚠️ 维护约定：qcDrill.css 里新增任何 --qc-* 变量，这里与
+      /MsPortal/assets/qcDrill.theme.css 都要补对应映射行。
+   ========================================================================== */
+:root {
+  --qc-scrim: var(--scrim);
+  --qc-surface: var(--surface);
+  --qc-surface-2: var(--surface-2);
+  --qc-surface-3: var(--surface-3);
+  --qc-border: var(--line-2);
+  --qc-border-soft: var(--line);
+  --qc-text: var(--t1);
+  --qc-text-2: var(--t2);
+  --qc-text-3: var(--t3);
+  --qc-heading: var(--t1);       /* 本页没有独立的标题色，用主文字色 */
+  --qc-brand: var(--b);
+  --qc-danger: var(--crit);
+  --qc-hover-row: var(--hover);
+  --qc-shadow: var(--sh-3);
+  --qc-focus-ring: var(--ring);
+}
+
+/* 表头与首列吸附需要比正文再深一档，不能靠变量翻档解决 */
+html.dark .qc-table th { background: var(--surface-3); }
+html.dark .qc-table th.qc-sticky-col { background: var(--surface-3); }
+html.dark .qc-table td.qc-sticky-col { background: var(--surface); }
+html.dark .qc-table tbody tr:hover td.qc-sticky-col { background: var(--surface-3); }
+
+/* ---------------------------------------------------------------------------
+   ⚠️ 深色必须**再映射一遍**，不能只靠上面那块 :root 自动跟着翻 —— 这是实测踩到的坑。
+
+   自定义属性在**声明它的那个元素**上完成替换。上面 :root 里的
+   `--qc-surface: var(--surface)` 是在 :root 上求值的；而深色档
+   `html.dark { --surface: #071027 }` 声明在 html 元素上，特异性（0,1,1）高于
+   :root（0,1,0），于是 html 上的 --surface 翻成了深色，但 :root 上那条
+   --qc-surface 早已按浅色 #ffffff 定死 —— 结果 html.dark 下弹窗是
+   **白底 + 浅色字**（内容几乎看不见）。实测确认过：修之前 olbrportal 深色下
+   .qc-modal 的 background-color 是 rgb(255,255,255)。
+
+   修法就是在 html.dark 里把 --qc-* 重新指一次，让它在 html 这一层上、
+   对着已经翻过档的 --surface/--t1… 重新求值。下面这些行看着冗余，
+   删掉就会复现上面的白底 bug。 */
+html.dark {
+  --qc-scrim: var(--scrim);
+  --qc-surface: var(--surface);
+  --qc-surface-2: var(--surface-2);
+  --qc-surface-3: var(--surface-3);
+  --qc-border: var(--line-2);
+  --qc-border-soft: var(--line);
+  --qc-text: var(--t1);
+  --qc-text-2: var(--t2);
+  --qc-text-3: var(--t3);
+  --qc-heading: var(--t1);
+  --qc-brand: var(--b);
+  --qc-danger: var(--crit);
+  --qc-hover-row: var(--hover);
+  --qc-shadow: var(--sh-3);
+  --qc-focus-ring: var(--ring);
+}
+
+/* ============================================================================
+   用户管理弹窗（2026-09-22 加）
+   ----------------------------------------------------------------------------
+   骨架在 index.html 的 #umMask，表体 / 表单 / 页面配置面板由 olbr.js 的
+   renderUserMgmt() 整块重画，所以这里只有内容样式，没有依赖 JS 的类。
+
+   与 /MsPortal/ 那份的关系：照搬它的 .um-* 规则结构，但把 --mp-* 换成本页令牌
+   （--surface / --line / --t1… / --b / --crit / --warn），因为本页从不引 portal.css。
+   两处因此省掉了，不是漏写：
+     · 每个组件的 [hidden] 补丁 —— 文件顶部已有全局 [hidden]{display:none!important}
+     · html.dark 的重复规则      —— 深浅色只改令牌值，组件不感知
+   按钮刻意复用本页的 .gb 外壳 + .um-primary / .um-danger 两个修饰，
+   不另起一套按钮体系（延续「卡片只有两种、强调色只有两个色相」那条口径）。
+   ========================================================================== */
+.um-mask {
+  position: fixed; inset: 0; z-index: 210;
+  display: flex; align-items: center; justify-content: center;
+  padding: 24px; background: var(--scrim);
+}
+.um-modal {
+  width: 100%; max-width: min(1120px, 96vw); max-height: 88vh;
+  display: flex; flex-direction: column; overflow: hidden;
+  background: var(--surface); border: 1px solid var(--line-2);
+  border-radius: var(--r3); box-shadow: var(--sh-3);
+}
+.um-head {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
+  padding: 12px 16px; border-bottom: 1px solid var(--line-2); flex: 0 0 auto;
+}
+.um-head-txt { min-width: 0; }
+/* ⚠️ 800 归并到 700（2026-09-30）：全页只有这里与 .qc-head h3 用 800，
+   .um-head h3 / .um-foot-who / .um-box-head / .um-profile-head b 等其余标题全是 700。
+   同一层级的标题出现两种字重，会让它们看起来分属两套体系，而 800 与 700 在
+   这些字号（16px）下的视觉差异本就微乎其微。统一到 700。 */
+.um-head h3 { margin: 0; font-size: var(--fs-lg); font-weight: 700; color: var(--t1); }
+.um-sub { margin: 2px 0 0; font-size: var(--fs-sm); color: var(--t3); }
+.um-head-actions { display: inline-flex; align-items: center; gap: 8px; flex: 0 0 auto; }
+.um-head-actions a.gb { text-decoration: none; }
+
+.um-body {
+  flex: 1 1 auto; min-height: 0; overflow-y: auto;
+  display: flex; flex-direction: column; gap: var(--s3); padding: var(--s3) 16px;
+}
+/* 底栏固定在滚动区之外：表体很长时「保存页面配置」不能跟着滚出视野 */
+.um-foot {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 10px 16px; border-top: 1px solid var(--line-2);
+  background: var(--surface-2); flex: 0 0 auto;
+}
+.um-foot-who { font-size: var(--fs-md); font-weight: 700; color: var(--t1); }
+.um-foot-actions { display: inline-flex; align-items: center; gap: 8px; }
+
+/* ---- 按钮的两个强调档（外壳仍是 .gb）---- */
+.gb.um-primary { border-color: var(--b); background: var(--b); color: var(--b-on); }
+.gb.um-primary:hover { border-color: var(--b); background: var(--b); filter: brightness(.93); color: var(--b-on); }
+.gb.um-primary:disabled { filter: none; }
+.gb.um-danger:hover { border-color: var(--crit); background: var(--crit-tint); color: var(--crit); }
+
+/* ---- 提示条 ---- */
+.um-banner {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 12px; border-radius: var(--r2); font-size: var(--fs-md);
+  border: 1px solid var(--line-2);
+}
+.um-banner.is-ok { background: var(--b-tint); border-color: var(--b-line); color: var(--b-ink); }
+.um-banner.is-err { background: var(--crit-tint); border-color: var(--crit); color: var(--crit); }
+
+/* ---- 存储位置条（后端类型 / 备份数 / 最后写入 / 落盘路径）---- */
+.um-storage {
+  display: flex; gap: 8px; padding: 9px 12px; border-radius: var(--r2);
+  border: 1px solid var(--line); background: var(--surface-2);
+  font-size: var(--fs-xs); color: var(--t3);
+}
+.um-storage > i { font-size: var(--icon-md); color: var(--b-ink); margin-top: 2px; }
+.um-storage-txt { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.um-storage-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+.um-storage-row b { color: var(--t2); }
+.um-tag {
+  padding: 1px 6px; border-radius: 5px; font-weight: 600;
+  background: var(--b-tint); color: var(--b-ink);
+}
+.um-warn { color: var(--warn); display: inline-flex; align-items: center; gap: 5px; }
+
+/* ---- 卡片式分区（待审批 / 新增用户 / 用户表）---- */
+.um-box {
+  border: 1px solid var(--line-2); border-radius: var(--r3);
+  background: var(--surface); overflow: hidden;
+}
+.um-box-warn { border-color: var(--warn); }
+.um-box-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 9px 12px; font-size: var(--fs-md); font-weight: 700;
+  background: var(--surface-2); border-bottom: 1px solid var(--line);
+  color: var(--t1);
+}
+.um-box-warn .um-box-head { background: var(--warn-tint); color: var(--warn); }
+.um-pill {
+  margin-left: auto; padding: 1px 8px; border-radius: 999px;
+  font-size: var(--fs-xs); font-weight: 700; background: var(--warn); color: var(--surface);
+}
+
+/* ---- 表格 ---- */
+/* 口径同 table.grid（见该处注释）：正文 --fs-sm、表头 --fs-xs，
+   与升级机制表、下钻弹窗表三张统一。 */
+.um-scroll { overflow-x: auto; }
+.um-table { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
+.um-table th {
+  text-align: left; white-space: nowrap; padding: 7px 10px;
+  font-size: var(--fs-xs); font-weight: 600; color: var(--t2);
+  /* 粘不住也不重叠，但半透明档在深色下会透出滚动内容，所以用实色档 */
+  background: var(--surface-2-solid); border-bottom: 1px solid var(--line-2);
+}
+.um-table td {
+  padding: 7px 10px; vertical-align: middle; color: var(--t2);
+  border-bottom: 1px solid var(--line);
+}
+.um-table tbody tr:hover > td { background: var(--hover); }
+.um-table tbody tr.is-open > td { background: var(--b-tint); }
+.um-table .um-right { text-align: right; }
+.um-table select {
+  padding: 4px 6px; font-size: var(--fs-sm); font-family: inherit;
+  border: 1px solid var(--line-2); border-radius: 7px;
+  background: var(--surface); color: var(--t1);
+}
+.um-strong { font-weight: 600; color: var(--t1); }
+.um-dim { color: var(--t3); }
+.um-mono { font-family: var(--mono); }
+.um-ellipsis { max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.um-empty { padding: 18px 10px; text-align: center; color: var(--t3); }
+
+.um-self {
+  margin-left: 6px; padding: 1px 6px; font-size: var(--fs-xs); border-radius: 999px;
+  background: var(--b-tint); color: var(--b-ink); border: 1px solid var(--b-line);
+}
+.um-role {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 8px; font-size: var(--fs-xs); border-radius: 999px;
+  border: 1px solid var(--line-2); background: var(--surface-2); color: var(--t2);
+}
+.um-role.is-admin {
+  border-color: var(--b-line); background: var(--b-tint);
+  color: var(--b-ink); font-weight: 600;
+}
+
+/* ---- 行内操作按钮 ---- */
+.um-row-actions { display: inline-flex; align-items: center; justify-content: flex-end; gap: 6px; }
+.um-icon-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; padding: 0; font-size: var(--icon-md); cursor: pointer;
+  border: 1px solid var(--line-2); border-radius: var(--r1);
+  background: var(--surface); color: var(--t2);
+}
+.um-icon-btn:hover, .um-icon-btn.is-on {
+  border-color: var(--b-line); background: var(--b-tint); color: var(--b-ink);
+}
+.um-icon-btn.is-danger:hover { border-color: var(--crit); background: var(--crit-tint); color: var(--crit); }
+.um-icon-btn:disabled { opacity: .42; cursor: not-allowed; }
+.um-icon-btn:disabled:hover { border-color: var(--line-2); background: var(--surface); color: var(--t2); }
+
+/* ---- 表单控件的焦点态（三处输入共用一条，避免各写一份）---- */
+.um-add-row input, .um-add-row select, .um-inline input, .um-field select {
+  min-width: 0; font-family: inherit;
+  border: 1px solid var(--line-2); border-radius: var(--r2);
+  background: var(--surface); color: var(--t1);
+}
+.um-add-row input:focus, .um-add-row select:focus,
+.um-inline input:focus, .um-field select:focus {
+  outline: none; border-color: var(--b-line); box-shadow: var(--ring);
+}
+
+/* ---- 新增用户 ---- */
+.um-add-row { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 12px; }
+.um-add-row input, .um-add-row select { padding: 7px 10px; font-size: var(--fs-md); }
+.um-add-row input { flex: 1 1 200px; }
+
+/* ---- 行内重置密码 ---- */
+.um-inline-row > td { background: var(--surface-2); }
+.um-inline { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.um-inline input { flex: 1 1 220px; padding: 6px 9px; font-size: var(--fs-md); }
+
+/* ---- 页面配置面板（落地 + 可见范围）---- */
+.um-profile-row > td { padding: 0; background: var(--surface-2); }
+.um-profile { display: flex; flex-direction: column; gap: 10px; padding: var(--s3); }
+.um-profile-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: var(--t1); }
+.um-profile-head b { font-size: var(--fs-md); }
+.um-field { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.um-field-col { align-items: flex-start; }
+.um-field select { max-width: 100%; padding: 6px 9px; font-size: var(--fs-md); }
+.um-label { margin: 0; font-size: var(--fs-sm); font-weight: 600; color: var(--t2); }
+.um-check { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-md); color: var(--t2); cursor: pointer; }
+.um-check input { margin: 0; accent-color: var(--b); }
+
+.um-groups { display: flex; flex-direction: column; gap: 10px; }
+.um-group-block { display: flex; flex-direction: column; gap: 6px; }
+.um-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.um-chip {
+  padding: 3px 10px; font-size: var(--fs-sm); cursor: pointer;
+  border: 1px solid var(--line-2); border-radius: 999px;
+  background: var(--surface); color: var(--t2);
+}
+.um-chip:hover { border-color: var(--b-line); color: var(--b-ink); }
+/* 全局目录读不到时「按看板」候选项被锁住（见 olbr.js umCardsAreShared）：
+   明确画成不可点，别让人以为只是没生效。 */
+.um-chip[disabled] { opacity: .45; cursor: not-allowed; }
+.um-chip[disabled]:hover { border-color: var(--line-2); color: var(--t2); }
+.um-chip.is-on {
+  border-color: var(--b-line); background: var(--b-tint);
+  color: var(--b-ink); font-weight: 600;
+}
+.um-hint { margin: 0; font-size: var(--fs-xs); line-height: var(--lh-base); }
+
+/* 窄屏：副标题与跳转按钮让位给表格本身，别把弹窗顶宽 */
+@media (max-width: 767px) {
+  .um-mask { padding: 10px; }
+  .um-sub { display: none; }
+  .um-head-actions a.gb { display: none; }
+}
+
+
+/* ============================================================================
+   用户菜单里的 System Management 子菜单（2026-10-12 加，v2 专有）
+   ----------------------------------------------------------------------------
+   位置在用户菜单「编辑分组」与「用户管理」之间。样式对齐 masthead.css 的
+   .mp-user-panel / .mp-user-action（那是顶栏那套的**副本**，改它会影响 /MsPortal/，
+   故这里另写一份放在 olbr.css —— 它排在 masthead.css 之后，能覆盖同名规则）。
+   子条目是一列 a.mp-user-sub-item，形制与 .mp-user-action 一致（左图标 + 文字）。 */
+.mp-user-sub { display: flex; flex-direction: column; }
+.mp-user-sub-caret { margin-left: auto; font-size: 12px; transition: transform .14s; }
+.mp-user-sub.is-open .mp-user-sub-caret { transform: rotate(180deg); }
+.mp-user-sub-panel {
+  display: flex; flex-direction: column; gap: 3px;
+  margin: 3px 0 3px 6px; padding-left: 8px;
+  border-left: 1px solid rgba(125, 211, 252, .25);
+}
+.mp-user-sub-item {
+  display: flex; align-items: center; gap: 8px; min-width: 0;
+  height: 1.9rem; padding: 0 8px; border-radius: 8px;
+  color: var(--t1); font-size: .72rem; text-decoration: none;
+  transition: background .14s, color .14s;
+}
+.mp-user-sub-item:hover, .mp-user-sub-item:focus-visible { background: var(--mp-fill-hi); color: #fff; }
+.mp-user-sub-item .ph { color: #8fd4ff; font-size: 15px; flex: none; }
+.mp-user-sub-item > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mp-user-sub-item.is-empty { color: var(--t3); cursor: default; }

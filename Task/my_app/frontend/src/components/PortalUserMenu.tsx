@@ -66,7 +66,26 @@ import {
   type PortalUser,
   type PortalRegRequest,
   type PortalSwitchState,
+  type PortalLandingTarget,
+  type TeamId,
+  TEAM_PORTAL_PATHS,
 } from '../api'
+
+/** 团队门户白名单 —— 与门户侧 AuthContext.tsx / 后端 types.ts 的 TEAM_IDS 保持一致 */
+const TEAM_IDS: TeamId[] = ['fo', 'bo', 'flm', 'smc', 'cxo']
+
+/** 门户视图模式（与后端 server/auth/types.ts 的 PortalViewMode 对齐） */
+const LANDING_VIEWS = ['grid', 'list', 'matrix', 'tasks'] as const
+
+/** 落地目标的显示文案：视图名 + 卡片 id。空 → '—'。
+ *  ⚠️ landing 是**对象**，不能直接当子节点渲染（React 会抛 #31 白屏）。 */
+function landingLabel(landing: PortalLandingTarget | null | undefined): string {
+  if (!landing) return '—'
+  const parts: string[] = []
+  if (landing.view) parts.push(landing.view)
+  if (landing.cardId) parts.push(landing.cardId)
+  return parts.length ? parts.join(' · ') : '—'
+}
 
 /** 后端 /api/auth/me 返回的当前身份 */
 export interface AuthIdentity {
@@ -270,9 +289,13 @@ function UserManagementModal({
 
   // 权限配置
   const [profileId, setProfileId] = useState('')
-  const [landing, setLanding] = useState('')
+  // 落地目标：服务端存的是对象 {view?, cardId?}，不是字符串（见 api.ts 的 PortalLandingTarget）
+  const [landing, setLanding] = useState<PortalLandingTarget | null>(null)
   const [groups, setGroups] = useState<string[]>([])
   const [cards, setCards] = useState<string[]>([])
+  // 团队门户归属：'' = 未指派。与 landing/白名单是**独立**的一维：
+  // 白名单管「看得到哪些看板」，team 管「进哪个门户」。
+  const [team, setTeam] = useState<string>('')
   const [savingProfile, setSavingProfile] = useState(false)
 
   const [approveRoles, setApproveRoles] = useState<Record<string, 'admin' | 'viewer'>>({})
@@ -338,9 +361,10 @@ function UserManagementModal({
 
   const openProfile = (u: PortalUser) => {
     setProfileId(u.id)
-    setLanding(u.landing ?? '')
+    setLanding(u.landing ?? null)
     setGroups(u.allowedGroups ?? [])
     setCards(u.allowedCards ?? [])
+    setTeam(u.team ?? '')
   }
 
   const saveProfile = async () => {
@@ -350,6 +374,8 @@ function UserManagementModal({
         landing: landing || null,
         allowedGroups: groups.length ? groups : null,
         allowedCards: cards.length ? cards : null,
+        // team：空字符串 = 未指派（传 null 清除）；有值 = 指派到该团队。
+        team: (team || null) as TeamId | null,
       })
       message.success(t('user.profileSaved'))
       setProfileId('')
@@ -417,6 +443,7 @@ function UserManagementModal({
                     <th style={{ padding: '0.4rem', borderBottom: cellBorder }}>{t('user.role')}</th>
                     <th style={{ padding: '0.4rem', borderBottom: cellBorder }}>{t('user.mustChange')}</th>
                     <th style={{ padding: '0.4rem', borderBottom: cellBorder }}>{t('user.landing')}</th>
+                    <th style={{ padding: '0.4rem', borderBottom: cellBorder }}>{t('user.team')}</th>
                     <th style={{ padding: '0.4rem', borderBottom: cellBorder }}>{t('user.actions')}</th>
                   </tr>
                 </thead>
@@ -433,7 +460,14 @@ function UserManagementModal({
                         {u.mustChangePassword ? t('user.yes') : t('user.no')}
                       </td>
                       <td style={{ padding: '0.4rem', borderBottom: cellBorder }}>
-                        {u.landing || '—'}
+                        {landingLabel(u.landing)}
+                      </td>
+                      <td style={{ padding: '0.4rem', borderBottom: cellBorder }}>
+                        {u.team ? (
+                          <Tag color="cyan">{t(`user.team.${u.team}`)}</Tag>
+                        ) : (
+                          '—'
+                        )}
                       </td>
                       <td style={{ padding: '0.4rem', borderBottom: cellBorder }}>
                         <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
@@ -479,11 +513,27 @@ function UserManagementModal({
           {profileId && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', padding: '0.75rem', border: cellBorder, borderRadius: 'var(--wh-radius-md)' }}>
               <div style={{ fontWeight: 600 }}>{t('user.permissions')}</div>
-              <Input
-                placeholder={t('user.landingPlaceholder')}
-                value={landing}
-                onChange={(e) => setLanding(e.target.value)}
-              />
+              {/* 落地页：门户视图模式（grid/list/matrix/tasks）+ 可选卡片 id。
+                  留空 = 不干预。服务端按**整对象**替换，故两个字段一起提交。 */}
+              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                <Select
+                  style={{ width: '11rem' }}
+                  placeholder={t('user.landingView')}
+                  value={landing?.view}
+                  allowClear
+                  onChange={(v) => setLanding(v ? { ...(landing || {}), view: v } : (landing?.cardId ? { cardId: landing.cardId } : null))}
+                  options={LANDING_VIEWS.map((v) => ({ value: v, label: v }))}
+                />
+                <Input
+                  style={{ width: '16rem' }}
+                  placeholder={t('user.landingCard')}
+                  value={landing?.cardId || ''}
+                  onChange={(e) => {
+                    const cardId = e.target.value.trim()
+                    setLanding(cardId ? { ...(landing || {}), cardId } : (landing?.view ? { view: landing.view } : null))
+                  }}
+                />
+              </div>
               <Select
                 mode="tags"
                 style={{ width: '100%' }}
@@ -498,6 +548,28 @@ function UserManagementModal({
                 value={cards}
                 onChange={setCards}
               />
+              {/* ---- 团队门户（2026-10-29 加）----
+                  与上面的 landing/白名单是**两件不同的事**：
+                    · 落地 = 打开门户后的**视图/卡片**
+                    · 团队 = 进**哪个门户**（/v3/fo_portal/ 等）
+                  指派后：该账号访问 /v3/olbrportal/ 会自动跳到对应团队门户，
+                  且**只能**进入该门户（其余四个被服务端拒绝）。 */}
+              <Select
+                style={{ width: '100%' }}
+                placeholder={t('user.team')}
+                value={team || undefined}
+                onChange={(v) => setTeam(String(v ?? ''))}
+                options={[
+                  { value: '', label: t('user.teamNone') },
+                  ...TEAM_IDS.map((tid) => ({
+                    value: tid,
+                    label: `${t(`user.team.${tid}`)} · ${TEAM_PORTAL_PATHS[tid]}`,
+                  })),
+                ]}
+              />
+              <div style={{ fontSize: '0.75rem', color: 'var(--wh-text-muted)' }}>
+                {t('user.teamHint')}
+              </div>
               <div style={{ display: 'flex', gap: '0.5rem' }}>
                 <Button type="primary" size="small" loading={savingProfile} onClick={() => void saveProfile()}>
                   {t('user.save')}

@@ -54,15 +54,6 @@ const disableFutureTime = (d: unknown, type?: string) => {
   }
 }
 
-/** 数组值（imei_arr / network_arr / flag_arr…）扁平化成可读字符串 */
-const fmtArr = (v: unknown) => {
-  if (Array.isArray(v)) {
-    const flat = v.flat(2).map(x => String(x))
-    return flat.filter(s => s && s !== '--').join('，') || '—'
-  }
-  return fmt(v)
-}
-
 type ViewKey = 'overview' | 'xdr' | 'records'
 const isViewKey = (v: string): v is ViewKey =>
   v === 'overview' || v === 'xdr' || v === 'records'
@@ -186,62 +177,7 @@ export default function VmaxUserQuery() {
     void run(msisdn)
   }, [view, result, loading, error, msisdn, run])
 
-  /* ---- 用户信息卡：已知字段给 i18n 标签，其余键值兜底 ---- */
-  const userItems = useCallback((user: Record<string, unknown>) => {
-    const known: Record<string, (v: unknown) => string> = {
-      msisdn: fmt, imsi: fmt, imsi_arr: fmtArr,
-    }
-    return Object.entries(user).map(([key, value]) => ({
-      key,
-      label: t(`vmaxq.field.${key}`) === `vmaxq.field.${key}` ? key : t(`vmaxq.field.${key}`),
-      children: (known[key] ?? fmt)(value),
-    }))
-  }, [t])
-
-  /* ---- 终端信息卡 ---- */
-  const terminalItems = useCallback((terminal: Record<string, unknown>) => {
-    const known: Record<string, (v: unknown) => string> = {
-      imei_arr: fmtArr, modelname_arr: fmtArr, modelvendor_arr: fmtArr,
-      modelos_arr: fmtArr, network_arr: fmtArr, flag_arr: fmtArr,
-      country_name: fmt, operator: fmt, msisdn: fmt,
-    }
-    return Object.entries(terminal).map(([key, value]) => ({
-      key,
-      label: t(`vmaxq.field.${key}`) === `vmaxq.field.${key}` ? key : t(`vmaxq.field.${key}`),
-      children: (known[key] ?? fmt)(value),
-    }))
-  }, [t])
-
-  /* ---- 驻留小区表列 ---- */
-  const cellColumns = useMemo(() => [
-    { title: t('vmaxq.field.cellname'), dataIndex: 'cellname', render: fmt,
-      ellipsis: true },
-    { title: t('vmaxq.field.vendor'), dataIndex: 'vendor', render: fmt, width: 80 },
-    { title: t('vmaxq.field.pci'), dataIndex: 'pci', render: fmt, width: 70 },
-    { title: t('vmaxq.field.earfcn'), dataIndex: 'earfcn', render: fmt, width: 90 },
-    { title: t('vmaxq.field.latlon'), key: 'latlon', width: 170,
-      render: (_: unknown, r: CellRecord) =>
-        r.celllat == null && r.celllon == null ? '—' : `${fmt(r.celllat)}, ${fmt(r.celllon)}` },
-    { title: t('vmaxq.field.azimuth'), dataIndex: 'azimuth', key: 'az', width: 90,
-      render: (v: unknown) => (v == null ? '—' : `${v}°`) },
-    { title: t('vmaxq.field.height'), dataIndex: 'height', width: 80,
-      render: (v: unknown) => (v == null ? '—' : `${v} m`) },
-    {
-      title: 'KPI', key: 'kpi', width: 90,
-      render: (_: unknown, r: CellRecord) => (
-        <Button type="link" size="small"
-          onClick={e => {
-            setKpiCell(r)
-            setKpiItems(result?.cells?.cell_kpi?.[String(r.cell)] || [])
-            setKpiAnchor({ x: e.clientX, y: e.clientY })
-            setKpiOpen(true)
-          }}>
-          {t('vmaxq.kpi')}
-        </Button>
-      ),
-    },
-  ], [t, result])
-
+  /* ---- 小区 KPI 弹窗表列 ---- */
   const kpiColumns = useMemo(() => [
     { title: t('vmaxq.kpiName'), dataIndex: 'name', ellipsis: true },
     { title: t('vmaxq.kpiValue'), dataIndex: 'value', width: 110, align: 'right' as const,
@@ -249,44 +185,6 @@ export default function VmaxUserQuery() {
     { title: t('vmaxq.kpiCode'), dataIndex: 'code', width: 150, ellipsis: true,
       render: (v: string) => <Text type="secondary" style={{ fontSize: 12 }}>{v}</Text> },
   ], [t])
-
-  /* ---- 根因分析表列 ---- */
-  const causes = result?.causes || []
-  const causeColumns = useMemo(() => [
-    {
-      title: t('vmaxq.cause.confidence'), dataIndex: 'confidence', width: 90,
-      render: (v: number) => (
-        <Tag color={v >= 90 ? 'red' : v >= 60 ? 'orange' : 'default'}>{v}%</Tag>
-      ),
-      sorter: (a: CauseItem, b: CauseItem) => a.confidence - b.confidence,
-    },
-    { title: t('vmaxq.cause.rule'), dataIndex: 'rule_name', ellipsis: true },
-    {
-      title: t('vmaxq.cause.object'), key: 'obj', width: 190, ellipsis: true,
-      render: (_: unknown, r: CauseItem) => r.object_name || r.objectinfo || '—',
-    },
-    { title: t('vmaxq.cause.poortime'), dataIndex: 'poortime', width: 150, ellipsis: true,
-      render: fmt },
-    {
-      title: t('vmaxq.cause.detail'), key: 'act', width: 80,
-      render: (_: unknown, r: CauseItem) => (
-        <Button type="link" size="small" onClick={() => { setCauseItem(r); setCauseOpen(true) }}>
-          {t('vmaxq.cause.detail')}
-        </Button>
-      ),
-    },
-  ], [t])
-
-  const flowApps = result?.flow?.apps || []
-  // app_flux 命中样本尚缺（多数用户无 DPI 记录），列名从首条记录的键动态生成
-  const flowColumns = useMemo(() => {
-    const first = flowApps.find(a => a && typeof a === 'object') as Record<string, unknown> | undefined
-    if (!first) return []
-    return Object.keys(first).map(k => ({
-      title: t(`vmaxq.field.${k}`) === `vmaxq.field.${k}` ? k : t(`vmaxq.field.${k}`),
-      dataIndex: k, render: fmt, ellipsis: true,
-    }))
-  }, [flowApps, t])
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--wh-space-md)' }}>

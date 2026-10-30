@@ -75,6 +75,11 @@ _COORD_OK = (
     "latitude IS NOT NULL AND longitude IS NOT NULL "
     "AND CAST(latitude AS REAL) != 0 AND CAST(longitude AS REAL) != 0"
 )
+# 「一线（FE）人员」判定：`person.isfe` 列取值 Yes。实测该列只有 `Yes` 与 NULL
+# 两种（PG 的 app.person 与 sqlite 的 db/app.db 都是 32 Yes / 105 NULL，共 137 行），
+# 所以用「trim 后等于 yes」而不是 `IS NOT NULL` —— 将来若出现 No/其它写法，
+# 不会被当成 FE 蒙进分母。
+_IS_FE = "isfe IS NOT NULL AND lower(trim(isfe)) = 'yes'"
 
 
 def _is_closed(status) -> bool:
@@ -785,13 +790,17 @@ def get_personnel_alert_sites(
 # =====================================================================
 
 def _people_with_coords(conn) -> list[tuple]:
-    """有登记坐标的人员行：(name, name_key, lat, lng, phone, regions, status)。
+    """有登记坐标的人员行：(name, name_key, lat, lng, phone, regions, status, is_fe)。
 
     与 `/personnel` 的筛选条件**完全一致**（`_COORD_OK` + 规范化去重），
     保证本页与 GIS 人员图层的「有坐标人数」对得上（AGENTS.md 三.1b）。
+
+    `is_fe` 只用于「People with coordinates」这一档 KPI 的分子 —— 该指标的分母是
+    FE 人员（`person.isfe = Yes`），分子必须是它的子集，所以在这里顺带把 isfe
+    取出来打标，**不改变返回集合本身**（地图仍画全部有坐标的人，含非 FE 的 3 人）。
     """
     rows = conn.execute(f"""
-        SELECT name, latitude, longitude, phone, managed_regions, status
+        SELECT name, latitude, longitude, phone, managed_regions, status, isfe
         FROM person
         WHERE {_COORD_OK}
         ORDER BY name
@@ -799,7 +808,7 @@ def _people_with_coords(conn) -> list[tuple]:
     contact_index = _fme_contact_index(conn)
     out = []
     seen: set[str] = set()
-    for name, lat_raw, lng_raw, phone, regions, status in rows:
+    for name, lat_raw, lng_raw, phone, regions, status, isfe in rows:
         key = normalize_person_name(name)
         if not key or key in seen:
             continue
@@ -812,7 +821,8 @@ def _people_with_coords(conn) -> list[tuple]:
         seen.add(key)
         out.append((str(name or "").strip(), key, lat, lng,
                     _display_phone(phone, contact_index.get(key, ())),
-                    str(regions or ""), str(status or "")))
+                    str(regions or ""), str(status or ""),
+                    str(isfe or "").strip().lower() == "yes"))
     return out
 
 
@@ -1305,7 +1315,13 @@ def get_personnel_stats(
       - `by_status`：{open, closed} —— 全量合计；
       - `pmt`：{open_total, group_pool} —— 未关闭 PMT 全量与「只挂在 G: 组池上、
         归不到个人」的张数；
-      - `coverage`：有坐标人数 / 全部人数（页面 KPI 与说明横幅用）。
+      - `coverage`：两套并存的人群口径，别混用 ——
+        `fe_total` / `fe_with_coords` 是「FE 人员（`person.isfe=Yes`）总数 / 其中坐标有效」，
+        页面 KPI「People with coordinates」用这一对（分子是分母的子集）；
+        `with_coords` / `total_all` 是「全表有坐标人数 / person 全表行数」，
+        顶部 ⓘ 横幅用它解释「为什么有些人只在表格里、没画在地图上」。
+        （2026-10-29 用户确认 KPI 分母改为 isfe=Yes；实测 32 名 FE 中 11 人有坐标，
+        全表 137 人中 14 人有坐标 —— 差的 3 人是有坐标但不是 FE 的。）
     """
     win_where, win_params = _window_clause(
         time_start, time_end, days if isinstance(days, int) else None)
@@ -1324,6 +1340,8 @@ def get_personnel_stats(
 
         people = _people_with_coords(conn)
         total_all = conn.execute("SELECT COUNT(*) FROM person").fetchone()[0] or 0
+        fe_total = conn.execute(
+            f"SELECT COUNT(*) FROM person WHERE {_IS_FE}").fetchone()[0] or 0
         site_meta = _site_meta_index(conn, tables)
         # 「负责站点」索引（`master_site_db.fme_name`）。徽标的 site_count 与
         # `/managed-sites` 的 site_count 必须来自这同一个函数，否则
@@ -1371,14 +1389,14 @@ def get_personnel_stats(
 
     # 同上：元组顺序 (name, name_key, lat, ...)。键必须取 name_key。
     people_index = {key: (name, lat, lng, regions)
-                    for (name, key, lat, lng, _ph, regions, _st) in people}
+                    for (name, key, lat, lng, _ph, regions, _st, _fe) in people}
     by_person = []
     # ⚠️ 元组顺序是 (name, name_key, lat, ...) —— 见 `_people_with_coords` 的
     # append 与文档字符串。这里**必须**先解 name 再解 key：首版写成
     # `for k, name, ...` 时两者互换，`per_person.get(k)` 永远拿原始姓名去查
     # 规范化后的键，于是 26 个有坐标的人的统计**全是 0**（实测踩过，
     # 而表格里 name_key 也变成原始姓名，两者的错误互相掩盖）。
-    for name, k, lat, lng, phone, regions, status in people:
+    for name, k, lat, lng, phone, regions, status, _fe in people:
         p = per_person.get(k) or {}
         by_person.append({
             "name": name,
@@ -1435,8 +1453,17 @@ def get_personnel_stats(
         # 供页面 ⓘ 说明「为什么各人徽标加起来对不上总数」
         "pmt": pmt_meta,
         "coverage": {
+            # 全表人群：有登记坐标的人数 与 person 表总行数。
+            # 顶部 ⓘ 横幅用它说明「为什么有些人只在表格里、没画在地图上」。
             "with_coords": len(people),
             "total_all": total_all,
+            # KPI「People with coordinates」用它做分母 —— 口径是 FE 人员
+            # （`person.isfe = Yes`），不是全表。2026-10-29 用户确认。
+            "fe_total": fe_total,
+            # 分子必须是分母的子集，故从同一份去重后的 `people` 里按 isfe 打标计数，
+            # 不另开一条 SQL —— 否则「14 人有坐标 / 32 名 FE」这种分子分母来自
+            # 两个群体的写法会再次出现（实测非 FE 却有坐标的有 3 人）。
+            "fe_with_coords": sum(1 for p in people if p[7]),
             "location_is_realtime": False,
         },
         "range": {

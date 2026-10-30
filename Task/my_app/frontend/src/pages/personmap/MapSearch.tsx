@@ -136,8 +136,14 @@ export function MapSearch({
 
   return (
     <div style={{
-      position: 'absolute', left: 12, top: 12, zIndex: 1000,
-      width: 'min(320px, calc(100% - 24px))',
+      /* left 56 而不是 12：Leaflet 默认缩放条在**同一个左上角**（容器相对 x 10..44、
+         y 10..74，实测 34×64px），原先 left:12/top:12 的搜索框正好压在「+」上
+         （两个元素的 y 区间 123..147 完全重叠）—— 用户报「搜索窗挡住了地图+号」。
+         留 12px 间隙取 56；宽度同步扣掉左侧多占的 44px，右侧仍留 12px 不贴边。
+         不动缩放条位置：`zoomControl: true` 在 components/LeafletMap.tsx 的共享
+         MapContainer 上，改它会波及全站所有地图，而搜索框只有本页在用。 */
+      position: 'absolute', left: 56, top: 12, zIndex: 1000,
+      width: 'min(320px, calc(100% - 68px))',
     }}>
       <AutoComplete
         value={kw}

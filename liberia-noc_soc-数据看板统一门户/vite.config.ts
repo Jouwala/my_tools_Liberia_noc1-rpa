@@ -133,6 +133,11 @@ export default defineConfig(() => {
                 '**/MsPortal/**',
                 '**/OlrPortal/**',
                 '**/olbrportal/**',
+                //  v3/team_portal/ 与 v3/olbrportal/ 同理：手写静态壳，nginx 直接
+                //  alias 发它，src/ 里没有 import 它。漏在 watch 清单外的后果是
+                //  每次改团队门户的 olbr.js 都会让 /uniplam/ 整页刷新一次
+                //  （与 2026-09-21 记录的 MsPortal 同款现象）。
+                '**/team_portal/**',
                 '**/scripts/**',
                 '**/*.py',
                 '**/*.ps1',

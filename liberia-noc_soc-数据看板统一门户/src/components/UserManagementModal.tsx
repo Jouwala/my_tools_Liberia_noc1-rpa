@@ -18,6 +18,7 @@ import {
 import { useI18n } from '../i18n';
 import { PORTAL_API } from '../config';
 import { useAuth, type AuthUser, type Role } from '../auth/AuthContext';
+import { TEAM_IDS, TEAM_PORTAL_PATHS } from '../auth/AuthContext';
 import { PasswordInput } from './PasswordInput';
 import type { DashboardItem } from '../types/dashboard';
 
@@ -105,6 +106,9 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
   const [profileRestricted, setProfileRestricted] = useState(false);
   const [profileGroups, setProfileGroups] = useState<string[]>([]);
   const [profileCards, setProfileCards] = useState<string[]>([]);
+  /** 团队归属（'' = 未指派）。指派后该账号登录即自动进入对应团队门户，
+      且只能进入该门户（其余四个在服务端被拒）。 */
+  const [profileTeam, setProfileTeam] = useState('');
   const [savingProfile, setSavingProfile] = useState(false);
 
   /** 账号与看板权限的落盘位置（SQLite/JSON）与自动备份情况 */
@@ -342,6 +346,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
     setProfileRestricted(target.allowedGroups != null || target.allowedCards != null);
     setProfileGroups(Array.isArray(target.allowedGroups) ? target.allowedGroups : []);
     setProfileCards(Array.isArray(target.allowedCards) ? target.allowedCards : []);
+    setProfileTeam(target.team || '');
     setError('');
     setSuccess('');
     // 面板在长列表底部时自动滚进可视区（等这一帧渲染完再滚）
@@ -373,6 +378,10 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
           landing,
           allowedGroups: profileRestricted ? profileGroups : null,
           allowedCards: profileRestricted ? profileCards : null,
+          // team：空字符串 = 未指派（传 null 清除）；有值 = 指派到该团队。
+          // ⚠️ 与 landing/白名单不同，team 是**独立**的一维：白名单管「看得到哪些看板」，
+          //   team 管「进哪个门户」。两者都为空 = 能看全部看板，但登录后停在主门户。
+          team: profileTeam || null,
         }),
       });
       const data = (await res.json().catch(() => null)) as {
@@ -398,7 +407,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
 
   /** 该账号是否已配置页面（按钮高亮用） */
   const hasPageConfig = (u: AuthUser) =>
-    !!u.landing || u.allowedGroups != null || u.allowedCards != null;
+    !!u.landing || u.allowedGroups != null || u.allowedCards != null || !!u.team;
 
   /** 页面配置里可选的落地视图（value 与后端 PortalViewMode 对齐） */
   const landingViews: { value: string; label: string }[] = [
@@ -796,6 +805,32 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                                     </option>
                                   ))}
                                 </select>
+                              </div>
+
+                              {/* ---- 团队归属（2026-10-29 加）----
+                                  与上面「登录后落地」是**两件不同的事**：
+                                    · 落地 = 打开门户后的**视图/卡片**（门户自己的界面）
+                                    · 团队 = 进**哪个门户**（/v3/fo_portal/ 等）
+                                  指派团队后：该账号访问 /v3/olbrportal/ 会自动跳到
+                                  对应团队门户，且**只能**进入该门户（其余四个被服务端拒绝）。 */}
+                              <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                                <span className="text-[11px] text-slate-500 dark:text-slate-400 sm:w-24 shrink-0">
+                                  {t('um.team')}
+                                </span>
+                                <select
+                                  value={profileTeam}
+                                  onChange={(e) => setProfileTeam(e.target.value)}
+                                  data-team-select
+                                  className={`${inputClass} sm:w-56 py-1.5 text-xs`}
+                                >
+                                  <option value="">{t('um.teamNone')}</option>
+                                  {TEAM_IDS.map((tid) => (
+                                    <option key={tid} value={tid}>
+                                      {t(`um.team.${tid}`)} · {TEAM_PORTAL_PATHS[tid]}
+                                    </option>
+                                  ))}
+                                </select>
+                                <span className="text-[11px] text-slate-400">{t('um.teamHint')}</span>
                               </div>
 
                               <div className="border-t border-slate-200/70 dark:border-slate-700/70 pt-2.5 space-y-2">

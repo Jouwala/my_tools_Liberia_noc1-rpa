@@ -76,8 +76,14 @@ export interface PersonStats {
     group_pool: number
   }
   coverage: {
+    /** 全表有登记坐标的人数（地图针数）——ⓘ 横幅用它解释「谁没画在地图上」 */
     with_coords: number
+    /** person 表全量行数 ——ⓘ 横幅的分母，与 KPI 的 fe_total 不是同一个群体 */
     total_all: number
+    /** FE 人员数（`person.isfe = Yes`）。KPI「People with coordinates」的分母 */
+    fe_total: number
+    /** FE 人员中坐标有效的人数。必为 fe_total 的子集（不是 with_coords 的子集） */
+    fe_with_coords: number
     location_is_realtime: boolean
   }
 }

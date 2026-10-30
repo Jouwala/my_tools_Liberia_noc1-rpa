@@ -1,0 +1,33 @@
+{
+  // ==========================================================================
+  // v1/olbrportal 手写静态壳的独立类型守卫
+  // --------------------------------------------------------------------------
+  // 这一份是 IIFE 全局脚本（assets/olbr.js），不经 vite 构建、由 nginx 直接
+  // alias 发出。门户根 tsconfig.json 的 `tsc --noEmit`（npm run lint）只覆盖
+  // React 源码 src/，不碰手写壳；这里给手写壳一个独立、隔离的检查入口，
+  // 由 `npm run lint:shells` 调用。
+  //
+  // 设计取舍：
+  //  - 关 strict / noImplicitAny：4591 行无类型注解的脚本，开严格规则只会产生
+  //    海量 any 噪声、无收益。这里只抓「真 bug 级」：语法错、引用未声明的变量。
+  //  - lib 与门户根 tsconfig 同口径（ES2022 + DOM），用到 Promise/fetch 等。
+  //  - include 只收 assets/*.js：当前仅 olbr.js；masthead.css 不涉及。
+  //    将来若把 MsPortal/ 也纳入，改这一处 include 或新建它的 tsconfig。
+  //  - 放在本目录而非仓库根：让守卫自带边界，tsc -p 此文件不会意外扫到 src/。
+  // ==========================================================================
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "moduleDetection": "force",
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "strict": false,
+    "noImplicitAny": false,
+    "skipLibCheck": true,
+    "isolatedModules": true
+  },
+  "include": ["assets/*.js", "globals.d.ts"]
+}

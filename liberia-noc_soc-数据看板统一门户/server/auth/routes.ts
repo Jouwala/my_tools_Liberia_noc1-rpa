@@ -5,11 +5,17 @@ import { AuthStore } from './store';
 import { resolveCaller, isRealAdmin, DEV_ADMIN, DEV_TOKEN } from './guard';
 import {
   MIN_PASSWORD_LENGTH,
+  SESSION_TTL_MS,
   USERNAME_PATTERN,
   readJsonBody,
+  readSessionToken,
   sanitizeLanding,
   sanitizeNames,
+  sanitizeTeam,
   sendJson,
+  setSessionCookie,
+  clearSessionCookie,
+  teamPortalPath,
   toPublic,
   type PageProfilePatch,
   type Role,
@@ -103,6 +109,11 @@ async function handleAuthRoute(store: AuthStore, req: IncomingMessage, res: Serv
       }
       store.clearFailures(ip);
       const newToken = store.createSession(user.id);
+      /* 同时种下 Cookie 副本：团队门户的服务端访问控制（nginx auth_request）
+         靠它判断「这个人属于哪个团队」—— 浏览器直接访问 URL 时不会带
+         localStorage 里的 token，只有 Cookie 能跟请求一起到服务端。
+         详见 types.ts 的 SESSION_COOKIE_NAME 一节。 */
+      setSessionCookie(res, newToken, SESSION_TTL_MS / 1000);
       sendJson(res, 200, { token: newToken, user: toPublic(user) });
       return;
     }
@@ -133,6 +144,127 @@ async function handleAuthRoute(store: AuthStore, req: IncomingMessage, res: Serv
               : 400;
         sendJson(res, status, { detail: reason });
       }
+      return;
+    }
+
+    /* --------------------------------------------------------------- 团队 --
+     * 团队门户的访问控制（2026-10-29 加）。三个端点：
+     *   GET  /team         —— 前端用：我是谁、属于哪个团队、该去哪
+     *   GET  /team-gate    —— nginx auth_request 用：这个团队我能不能进
+     *   GET  /team-landing —— nginx 用：/v3/olbrportal/ 该 302 到哪
+     *
+     * ⚠️⚠️ **下面两个 nginx 端点必须在「未登录就 401」那道闸门之前**
+     *   （即在 `if (!caller)` 之前），原因有两条，都很要紧：
+     *
+     *   ① nginx 的 auth_request **子请求不带 Authorization 头** —— 它只带
+     *      原始请求的 Cookie。resolveCaller 只认 Authorization 头，所以
+     *      在闸门之后的话，caller 恒为 null → 一律 401 → 「已登录但团队不对」
+     *      与「压根没登录」被混成同一个结果，nginx 只能一律拒绝，
+     *      用户看不到「你没权限」和「请先登录」的区别。
+     *      故这两个端点**自己**用 readSessionToken() 解析身份
+     *      （Authorization 头优先、Cookie 其次）。
+     *
+     *   ② /team-landing 的语义是「无团队归属 → 200 放行；未登录 → 也 200 放行」，
+     *      若被闸门拦成 401，nginx 会把它当成拒绝 → 主门户对未登录用户也 401，
+     *      那就把「主门户是公开入口」这个既有行为改掉了（回归事故）。
+     * ------------------------------------------------------------------ */
+
+    /* nginx auth_request 的判定端点。
+     * nginx 侧配置：
+     *     auth_request /uniplam/api/auth/team-gate/fo;
+     *     error_page 401 = @team_unauthorized;
+     *     error_page 403 = @team_forbidden;
+     *
+     * ⚠️⚠️ **为什么用路径参数（/team-gate/fo）而不是查询参数（?team=fo）**
+     *   —— 这是本机 2026-10-29 实测踩出来的坑，不是风格偏好：
+     *   nginx 的 `auth_request` 指令里写的 URI 会被当成**内部子请求的 URI**，
+     *   其中出现的 `?` **不会被当作查询串分隔符**，而是被转义进路径里。
+     *   实测（独立 nginx 实例 + 回显上游）上游收到的是：
+     *       auth_request /probe?team=fo  →  上游看到 url = "/probe%3Fteam=fo"
+     *   也就是说 `?` 变成了 `%3F`，**后端拿不到 team 参数**。
+     *   于是后端只能返回 400（缺参数）→ nginx 把非 2xx 当作拒绝 →
+     *   「合法用户访问自己的团队门户」被误判成 401。
+     *   改成路径形式后，nginx 子请求的 URI 就是干净的 /team-gate/fo，
+     *   后端从路径末段取团队 id —— 实测通过。
+     *
+     * 判定规则（fail-closed）：
+     *   · 没有身份            → 401（未登录）→ nginx 回 401，页面引导登录
+     *   · 有身份但没有 team   → 403（未分配团队）→ 一律不放行
+     *   · team 与请求的不一致 → 403（不是该团队成员）
+     *   · 完全一致            → 200（放行）
+     *
+     * auth_request 只关心「2xx = 放行、401/403 = 拒绝」，
+     * 故不必回传业务结论头；nginx 用 error_page 区分两种拒绝。
+     *
+     * ⚠️ 免登录旁路（开发模式）下没有真实会话（Cookie 里没有 token）→ 401，
+     *   团队门户进不去。这是刻意的：免登录是「跳过登录」，不是「变成某个团队的人」。
+     *   要在免登录模式下调试团队门户，正确做法是给测试账号配好 team。
+   */
+    if (method === 'GET' && url.startsWith('/team-gate/')) {
+      /* 团队 id 从路径末段取（sanitizeTeam 会把认不得的值变成 undefined） */
+      const wanted = sanitizeTeam(url.slice('/team-gate/'.length).replace(/\/+$/, ''));
+      if (!wanted) {
+        // 没带团队段（或非法）→ 无法判定，一律拒绝（不给「默认放行」的口子）
+        sendJson(res, 400, { detail: 'team path segment is required' });
+        return;
+      }
+      // 自己解析身份：Authorization 头优先（脚本场景），Cookie 其次（页面导航场景）
+      const token = readSessionToken(req);
+      const user = token ? store.getUserByToken(token) : null;
+      if (!user) {
+        sendJson(res, 401, { detail: 'authentication required' });
+        return;
+      }
+      if (!user.team) {
+        sendJson(res, 403, { detail: 'account is not assigned to a team' });
+        return;
+      }
+      if (user.team !== wanted) {
+        sendJson(res, 403, { detail: 'account belongs to a different team' });
+        return;
+      }
+      sendJson(res, 200, { ok: true, team: wanted, username: user.username });
+      return;
+    }
+
+    /* nginx 用：/v3/olbrportal/ 该 302 到哪个团队门户。
+     *
+     * 语义（**与 auth_request 的协议约定**，本机 2026-10-29 实测确定）：
+     *   auth_request 里，上游返回 2xx = 放行；401/403 = 拒绝。
+     *   nginx 侧配的是 `error_page 403 = @team_landing_redirect`，
+     *   所以本端点**必须**在「有团队归属、要跳走」时返回 **403**，
+     *   并用响应头 X-Team-Landing 带上目标路径 —— nginx 收到 403 才进
+     *   named location 做 302。
+     *   · 有团队归属 → **403** + X-Team-Landing: /v3/fo_portal/  → nginx 302 跳转
+     *   · 无团队归属 → **200**（无该头）→ nginx 正常放行主门户
+     *   · 未登录     → **200**（无该头）→ 同上，主门户是公开入口
+     *
+     * ⚠️ 为什么「有归属」要用 403 这个看起来反直觉的状态码：
+     *   auth_request 没有「拒绝但带信息」的第三种状态，只有 2xx/非 2xx。
+     *   而我们要表达的是「**别在这里服务，去那边**」—— 用 403 触发
+     *   error_page → named location → 302，是这套机制里唯一能做到
+     *   「按响应头内容跳转」的写法。（若返回 2xx，nginx 会直接放行，
+     *   根本不会去看响应头。）
+     *
+     * 为什么不让 nginx 直接读 Cookie 自己判断：
+     *   Cookie 里放的是**会话 token**，不是团队 id —— 团队归属是**库里的属性**，
+     *   管理员随时能改。若把团队 id 也写进 Cookie，管理员改了归属、而用户的
+     *   旧 Cookie 还在，nginx 就会按**过期的**团队 id 放行 —— 那正是权限事故。
+     *   所以 nginx 必须回源问服务端「这个人现在属于哪个团队」。
+     */
+    if (method === 'GET' && url === '/team-landing') {
+      const token = readSessionToken(req);
+      const user = token ? store.getUserByToken(token) : null;
+      const team = user?.team ?? null;
+      const path = teamPortalPath(team);
+      if (path) {
+        res.setHeader('X-Team-Landing', path);
+        // 403 = 请 nginx 跳到 X-Team-Landing 指的地方（见上面的协议约定）
+        sendJson(res, 403, { team, landing: path });
+        return;
+      }
+      // 无团队归属 / 未登录 → 200 → nginx 正常放行主门户
+      sendJson(res, 200, { team: null, landing: null });
       return;
     }
 
@@ -217,12 +349,30 @@ async function handleAuthRoute(store: AuthStore, req: IncomingMessage, res: Serv
 
     if (method === 'POST' && url === '/logout') {
       if (token) store.destroySession(token);
+      /* 一起清掉 Cookie 副本：否则会话 token 虽然在服务端失效了，
+         浏览器仍带着一个「看起来有身份」的 Cookie 去访问团队门户 ——
+         虽然服务端会 401，但那会让每次登出后都留下一条无意义的 401 日志。
+         登出后 Cookie 与 localStorage 两处都清干净，状态才是一致的。 */
+      clearSessionCookie(res);
       sendJson(res, 200, { ok: true });
       return;
     }
 
     if (method === 'GET' && url === '/me') {
       sendJson(res, 200, { user: caller });
+      return;
+    }
+
+    /* /team（前端用）：回答「我是谁、属于哪个团队、该去哪」。
+     * 放在这里（已过 caller 检查）是因为它需要真实登录身份 ——
+     * 免登录占位身份没有团队归属，返回 null 即可。 */
+    if (method === 'GET' && url === '/team') {
+      const team = caller?.team ?? null;
+      sendJson(res, 200, {
+        team,
+        portal: teamPortalPath(team),
+        user: caller ? { id: caller.id, username: caller.username, role: caller.role } : null,
+      });
       return;
     }
 
@@ -372,6 +522,11 @@ async function handleAuthRoute(store: AuthStore, req: IncomingMessage, res: Serv
       }
       if ('allowedCards' in body) {
         patch.allowedCards = body.allowedCards === null ? null : sanitizeNames(body.allowedCards);
+      }
+      /* team：null = 清除团队归属（回到「不跳转」）；合法 id = 指派。
+         传认不得的值一律当「未指派」（不静默保留旧值）。 */
+      if ('team' in body) {
+        patch.team = body.team === null ? null : (sanitizeTeam(body.team) ?? null);
       }
       const updated = store.setProfile(id, patch);
       if (!updated) {

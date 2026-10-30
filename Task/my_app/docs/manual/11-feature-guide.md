@@ -5,7 +5,7 @@
 **先记住两件事**
 
 - 有 **7 个页面是 iframe 壳**（下表标注「iframe」），真正界面在 `frontend/public/*.html` 里，React 只负责加载与注入语言。这类页面样式/交互和 React 页不一致，改了 React 代码不会影响它们。
-- 只有「任务管理」有常驻轮询（60s 刷列表 + 30s 时基，`pages/DataSync.tsx:165,173`）。**看板 / 展示页**的"自动刷新"来自**顶栏全局设置**（默认 300 秒，可改 0/30/60/300/600/900/1800）；**配置 / 操作 / 工具类页面（如系统设置、上传、表浏览、IP 探测、eFlow 等）不参与自动刷新**（白名单 `AR_BOARD_PAGES`，生效间隔恒为 0，顶栏选择器禁用）。看板数据看起来不动，先看顶栏刷新间隔；全屏挂机时看板页即使选「关闭」也会按本页默认兜底刷新（详见 `myapp-refresh-protocol.js`）。
+- 只有「任务管理」有常驻轮询（60s 刷列表 + 30s 时基，`pages/DataSync.tsx:165,173`）。**看板 / 展示页**的"自动刷新"来自**顶栏全局设置**（可改 0/30/60/300/600/900/1800；生效值 = 用户选择 > 本页默认 > 300 秒。2026-10-29 用户定的每页策略：**实时告警相关 `realtime_alarm`/`alarm`/`alarmManagement` = 60 秒，其余看板页 = 300 秒**，详见 `02-architecture.md` 的「自动刷新」）；**配置 / 操作 / 工具类页面（如系统设置、上传、表浏览、IP 探测、eFlow 等）不参与自动刷新**（白名单 `AR_BOARD_PAGES`，生效间隔恒为 0，顶栏选择器禁用）。看板数据看起来不动，先看顶栏刷新间隔；全屏挂机时看板页即使选「关闭」也会按本页默认兜底刷新（详见 `myapp-refresh-protocol.js`）。
 
 | # | 菜单 | key | 形态 |
 | --- | --- | --- | --- |
@@ -933,17 +933,46 @@ PMT 取不到时显示 `—` 而不是 0（AGENTS.md 三.6），所以 `pmt_open
 **县界底图：每县一种类别色 + 县名标签**（2026-10-23 用户要求「地图显示县名、不同的县不同颜色」）：
 - **类别色 ≠ 告警分档色**。GIS 页的 `COUNTY_BAND_COLORS`（红/橙/黄/绿/灰五档）表达「该县有几站实时告警」，人员页没有这个口径，照搬会让人误读为人员告警分布 —— 故本页用 `personmap/useCountyTags.ts::COUNTY_PALETTE` 的 **15 个互不相同的色相**，只表达「这是哪个县」，不带数值语义。
 - **不用后端 `CountyBoundary.color`**：那是为 3 个大区设计的 `REGION_COLORS` 6 色循环套在 15 个县上，按名称排序必然撞色且撞在接壤县上（Bong/Lofa 同色、Nimba/Grand Gedeh 同色）。前端按**县名字典序**稳定映射 15 色表，刷新/换主题不换色；改后端色表需重启 7038 生产服务，故不动后端。
-- 填充透明度与 GIS 页 `FILL_OPACITY` 同值（深 0.13 / 浅 0.09，底图瓦片深色主题被反相，两个主题对比表现相反）；描边用县色本身、虚线 `4 3`。
-- **县名标签（三行，2026-10-23 第二版）**：复用 GIS 页 `gismap/countyLabelLayout.ts` 的避让算法（质心 + 屏幕像素贪心错位 + 锚点必须落在**本县多边形内**），但包围盒传 `PERSON_LABEL_SIZE`（170×44，该模块据此参数化了标签尺寸 —— 本页是第二个真实用例）。三行内容 = ①县名 + 站点总数 ②**传输类型**（`trm_type`：MW/SAT/ST/IPRAN）③**维护分类**（`site_caregory`：NORMAL/ERA/COOL），用户确认两类都要。数据由 `/gis/county-boundaries` 新增的 `trm_counts` / `caregory_counts` 提供（与 `site_count` 同一 WHERE 口径；GIS 页忽略新字段，无兼容影响）。展示规则：计 0 的组不显示；`site_count − sum(分组) > 0` 时补「— n」段（类型为 NULL/空串的站点）；旧后端/旧缓存没有分组字段时退化为「县名+总数」。投影按初始全国取景（zoom 7.5）算一次，画布尺寸用 `map.getSize()` 实测；样式复用 `.gis-county-label` 主题描边字 + 本页专属 `.person-county-tag`（纵向三行、类型行 9px），不拦地图点击。沿海小县（BOMI/MARGIBI/GRAND BASSA）标签会彼此贴近 —— 「各在各县内」优先于「互不重叠」（与 GIS 页 2026-10-23 的取舍一致）。
+- 填充透明度 `COUNTY_FILL_OPACITY` **深/浅两档统一 0.8**（2026-10-29 用户要求「颜色的不透明度改成 80%」）。原值深 0.13 / 浅 0.09 与 GIS 页 `FILL_OPACITY` 同值同因（底图瓦片深色主题被反相，两主题对比表现相反；类别色只作底、不压过站点/人员针）—— 0.8 之下县块成为画面主体、底图细节基本不可见，这是用户直接指定的值，旧理由留此备查（若后续反馈「点/针看不清」先回退 0.13 / 0.09），GIS 页那份未改，两页透明度不同属预期。描边仍用县色本身、虚线 `4 3`、`opacity 0.85`。
+- **县名标签（常驻单行，2026-10-23 首版三行 → 2026-10-29 改单行）**：复用 GIS 页 `gismap/countyLabelLayout.ts` 的避让算法（质心 + 屏幕像素贪心错位 + 锚点必须落在**本县多边形内**），包围盒走该模块默认的 `LABEL_W/LABEL_H`。常驻只有「县名 + 站点总数」；**传输类型**（`trm_type`：MW/SAT/ST/IPRAN）与**维护分类**（`site_caregory`：NORMAL/ERA/COOL）两行统计收进**悬停展开**的 `.person-county-tag__detail`（实心小卡承载，`pointer-events:none` 不扩大命中区）。改单行的直接原因是实测：15px 字号下常驻三行的包围盒 190×51，西海岸三县标签 **8 对重叠、最严重 MONTSERRADO×MARGIBI 113×51（整块压住）**；单行 190×22 与 GIS 页同档（那边同字号实测 0 重叠），本页改后只剩 1 对 6×21px 的擦边。两类统计内容都保留（用户确认都要），数据仍由 `/gis/county-boundaries` 的 `trm_counts` / `caregory_counts` 提供（与 `site_count` 同一 WHERE 口径；GIS 页忽略新字段，无兼容影响）。展示规则：计 0 的组不显示；`site_count − sum(分组) > 0` 时补「— n」段（类型为 NULL/空串的站点）；旧后端/旧缓存没有分组字段时展开块不出现。投影按初始全国取景（zoom 7.5）算一次，画布尺寸用 `map.getSize()` 实测。悬停要求标签可命中，故 `.person-county-tag` 显式 `pointer-events: auto`（外层 tooltip 是 none）—— 人员针在 personPane(680) 高于 countyLabelPane(670)，重叠处仍是针先收到点击。
+
+**县名标签避让的两处修正（2026-10-29，用户报「GRAND BASSA 的标签没有居于州的中心」）**：
+
+1. **反投影符号错**（`countyLabelLayout.ts`）：`proj.to()` 是 `height/2 − (lat − 中心纬)/degPerPx.y`（屏幕 y 越大越往南），而候选位回写纬度时写成了 `lat0 + (y − py0) * degPerPx.y` —— 纵向候选位被**镜像**到质心另一侧。后果：算法以为把标签挪开了，实际挪到反方向，且 `boxes` 记录的像素位与真实渲染位置不一致，后续县的冲突判定跟着失真。经度方向同向故不受影响，**只有纵向偏移时暴露**。已改为减号。
+2. **候选档位太粗**：旧手写序列纵向最小一步 = `1.1 × 标签高`。实测 GRAND BASSA 只需避开 MARGIBI 约 9px，却被整档推到 **48px** 外（浏览器量得标签中心距本县质心 48px、距县体北缘仅 18px）。改为 `candidateOffsets()`：以 **1/4 标签尺寸**为格生成网格候选位，按「离质心的真实像素距离」升序试 —— 贪心取到的第一个可用位即**离中心最近的可用位**，「挪动最小」由排序本身保证。
+
+修正后浏览器实测（`?page=person`，15 县逐个量标签中心 vs 该 SVG 路径的面积质心）：GRAND BASSA **48px → 11px**；GIS 页（`?page=gis`）单行标签无退化（重叠仅 0～2px 的擦边）。代价是 SINOE/BONG/GBARPOLU 从「钉在质心但压着邻县标签」变成挪 22～43px（仍在各自县内）。
+**仍未解决（结构性，非本次引入）**：西海岸 BOMI / MONTSERRADO / MARGIBI 三县标签实测重叠 86×44、96×16、54×16 px，GRAND KRU / MARYLAND 重叠 57×35 px。根因是这三县本体在 zoom 7.5 下只有约 100×100px，而标签宽 120～136px —— 要互相避开必须挪出 `|dy| ≥ 46px`，可一旦挪出 46px 就出县界了，于是按 2026-10-23 的既定取舍「**各在各县内** 优先于 互不重叠」落回质心并接受叠字。要真正消掉只能三选一：允许标签出县 + 引线、缩小标签字号/行数、或提高最小取景 zoom。
+
+**地图文字排版（2026-10-29 用户给定参数表，同日二次反馈修正描边）**：
+
+| 文字类型 | 字体 | 字号 | 字重 | 落点 |
+| --- | --- | --- | --- | --- |
+| 区域名称（如 `SINOE 14` 的县名） | Inter | 15px | 700 | `.gis-county-tag__name` |
+| 主要指标（站点总数） | Inter | 12px | 500 | `.gis-county-tag__num` |
+| 辅助指标（悬停展开的类型分组） | Inter | 11px | 400 | `.person-county-tag__row` |
+| 人员姓名 | Inter | 14px | 700 | `.gis-person-badge-name` |
+| 人员详细信息（电话 / `st\|WO\|PMT` 行） | Inter | 12px | 400 | `.gis-person-badge-name i`、`.gis-person-badge-stats` |
+
+整体**深蓝 `#0b2447`** 文字；明确**不要用 Orbitron 这类装饰性科技字体**作地图正文（小字号可读性差）。
+- **白色描边/光晕已去掉**（用户第二次反馈「不要显示白色阴影，跟人的感觉更不清晰」）。首版按「极细白色描边」做过 4×1px hairline + 2px 白晕，在 80% 实心县块上给小字糊出一圈白边，比不加更差 → `.person-county-label` 改 `text-shadow: none`。**GIS 页未跟着改**：那边填充仍 0.13、字直接压在随主题反相的底图瓦片上，描边是把小字托出花哨瓦片的唯一手段。
+- **人员徽标的字色未强制深蓝**：`.gis-person-badge` 自带实心卡片底（`--wh-card-bg`），深色主题下底是深色，写死深蓝字会直接看不见 —— 那里只按参数表改字号字重，颜色仍走主题令牌。
+- **Inter 必须本地部署，不走 Google Fonts**：系统跑在内网，外网字体请求会失败或被网关改写；字体一挂标签悄悄退回 Segoe UI，**字宽一变，县名标签的避让包围盒（按像素算）就失准** —— 这不是观感问题而是布局正确性问题。文件取自 `@fontsource/inter` 的 latin 子集，`frontend/src/assets/fonts/inter-latin-{400,500,700}-normal.woff2`（合计 72KB，已入库、未被 `.gitignore` 覆盖），`@font-face` 写在 `index.css` 顶部，`font-display: swap`。全站 `body` 字体栈**未动**（另一套约定，改了波及 60+ 页面），只有地图容器与图例浮层切到 Inter。
+- ⚠ **`body .leaflet-container` 的前缀不能去**：`leaflet.css:275` 自己写了 `.leaflet-container { font-family: "Helvetica Neue", ... }`，同为单类选择器且打包顺序在后，同特异性后来者胜 —— 实测只写 `.leaflet-container` 时计算值仍是 Helvetica Neue、三个 `@font-face` 全停在 `unloaded`。加 `body` 提到 (0,1,1) 才生效。
+- **字号变了要重测包围盒**：换 Inter（11px 档）时最宽 `GRAND CAPE MOUNT` 158 → 160px；按参数表放大到 15px/12px/11px 后，GIS 页单行实测 **190×21**、人员页常驻三行实测 **190×51** —— `LABEL_W/LABEL_H` 因此从 124×16 提到 **200×22**。人员页改回单行（统计进悬停）后尺寸档与 GIS 页合一，`PERSON_LABEL_SIZE` 常量与 `placeCountyLabels` 的第 4 个 `size` 参数一并删除（两个调用方都走默认值，属死重量，AGENTS.md 三.10）。包围盒若小于真实标签，会把实际重叠的判成「不冲突」—— 静默叠字，改字号必得重测。
+- **仍未本地化的外链字体**（都是 `frontend/public/` 下的独立静态页，不在 React 应用里）：`incident-overview.html`（Inter/Poppins/Roboto/Material Symbols）、`ip-trace.html`（Space Grotesk/Material Symbols）、`warehouse-dashboard.html`（**Orbitron** + Rajdhani，正是用户不推荐的那类）。内网断外网时这三页会退回系统字体；是否一并本地化待用户定。
 
 **图层开关浮层**（地图右上角，`personmap/LayerToggles.tsx`，前身 TerritoryToggle 只装一个开关、第二个真实开关出现即更名）—— 两个**独立图层**：
 
 **「人员」开关**（2026-10-24 用户要求「实时人员的信息也弄个开关」，**默认开**）：控制人员针 + 常驻徽标 + 选中者的站点圆点/连线/空态说明条。要点：
-- **关掉时同时清除选中**（`PersonMapView::togglePeople` → `onSelect(null)`）—— 留着选中会出现「抽屉开着、地图上一片空」的自相矛盾画面（与点空白取消选中同一语义），抽屉随之关闭。
-- 搜索框的人员源同步置空（`MapSearch people={showPeople ? pinPersons : []}`）—— 针都藏了，搜索框不该再提供「选中一个看不见的人」的入口；**站点搜索不受影响**，但 `handlePickSite` 在人员隐藏时只定位、**不选中负责人**。
-- 「默认站点」连线不受它影响 —— 实测组合：人员关+辖区开 = 0 针 + 1849 图形元素（纯辖区总览，不被针和徽标遮挡）；双开 = 30 针 + 1849。
+- **关掉时清除选中，但只在针真的看不见时**（`PersonMapView::togglePeople` → `onSelect(null)`，判据 `!v && !showTerritory`）—— 留着选中会出现「抽屉开着、地图上一片空」的自相矛盾画面（与点空白取消选中同一语义）。2026-10-29 加条件：辖区开着时中心标签还在（见下），此时关「人员」不该顺手把用户正在看的抽屉关掉。
+- 搜索框的人员源与图上**实际可见**的针同源（见下方 `visiblePins`，2026-10-29 前是 `showPeople ? pinPersons : []`）—— 针藏起来时，搜索框不该再提供「选中一个看不见的人」的入口；**站点搜索不受影响**，但 `handlePickSite` 在针全藏时（两个开关都关）只定位、**不选中负责人**。
+- **搜索框让位给缩放条**（2026-10-29 用户报「搜索窗挡住了地图+号」）：`MapSearch` 容器左上角定位从 `left: 12` 改 `left: 56`、宽度从 `calc(100% - 24px)` 改 `calc(100% - 68px)`。实测 Leaflet 默认缩放条占容器相对 x 10..44（34×64px，`+` 在 y 123..153），而搜索框原先 x 18..338 / y 123..147 —— 两者在同一横带上完全重叠。改后实测间隙 12px，`elementsFromPoint` 打在「+」中心返回的是该按钮自己的内层 `<span>`（不再被搜索框盖住）。**没有改缩放条位置**：`zoomControl: true` 挂在 `components/LeafletMap.tsx` 的共享 `MapContainer` 上，动它会波及全站所有地图，而 `MapSearch` 只有本页在用。
+- **中心标签属于辖区层**（2026-10-29 用户要求「显示 Default Site 时，中心要显示人员的图标和站点数、电话号码等，跟 People 一样的标签」）：可见针集合 `visiblePins` 三档 —— 人员开 = `pinPersons`（辖区开 30 针 / 辖区关 14 针）；**人员关 + 辖区开 = `territoryPins` 24 个中心标签**；两个都关 = 无针。浏览器实测开关切换：14 → 30 → 24 针，`leaflet-marker-icon` 15 → 39（15 个县名锚点 + 24 个中心针）。
+  ⚠ 这一条**取代**了 2026-10-24 记下的「人员关+辖区开 = 0 针 + 1849 图形元素（纯辖区总览，不被针和徽标遮挡）」形态：现在该组合是 24 针 + 1849 图形，想要无标签的纯辖区底视图已不可能，只能靠缩放/截图。保留的语义是「无辖区连线的人（supervisor 等 6 人）在人员关掉时不出现」，所以用的是 `territoryPins` 而不是 `pinPersons`。
+  搜索框人员源同样改喂 `visiblePins`（与图上实际可见的针同源，不再提供「选中一个看不见的人」的入口）；`MapNoSitesNote` 的判据一并从 `showPeople` 换成 `pinsVisible`。
 
-**「默认站点」辖区开关**（2026-10-23 用户要求，**默认关**）：打开后画**全国 FME 辖区总览** —— 每人一色的「质心 → 全部负责站点」放射状连线 + 去重站点小圆点（悬停出站点名/县/负责人），人员针从登记坐标**挪到其站点的几何中心**。数据来自 `GET /api/gis/personnel/fme-territories`（`personnel.py`，`_fme_site_index` 同源：24 人 / 1010 条人-站对 / 去重 824 站，与单人下钻的站点页签是同一集合）。要点：
+**「默认站点」辖区开关**（2026-10-23 用户要求，**默认关**）：打开后画**全国 FME 辖区总览** —— 每人一色的「质心 → 全部负责站点」放射状连线 + 去重站点小圆点（悬停出站点名/县/负责人），人员针从登记坐标**挪到其站点的几何中心**，且中心带**与 People 完全相同的常驻徽标**（图标 + 姓名 + 电话 + `站点数 | 未关闭 WO | 未关闭 PMT`，2026-10-29 用户要求）。数据来自 `GET /api/gis/personnel/fme-territories`（`personnel.py`，`_fme_site_index` 同源：24 人 / 1010 条人-站对 / 去重 824 站，与单人下钻的站点页签是同一集合）。要点：
 - **原生批量建层**（`personmap/TerritoryLayer.tsx`，模式照搬 `gismap/TopologyLayer.tsx`）：1010 条线走 React `<Polyline>` 逐条渲染会单帧阻塞秒级（仓库 844 条线实测卡 1547ms 的教训），原生 `L.layerGroup` 批量建层百毫秒级。线 1.5px/50% 不透明（首版 1px/35% 目检几乎看不见）。
 - **辖区模式下针集合变化**（`useTerritory.ts::pinPersons`）：24 个辖区人员（含**无登记坐标**的人 —— 他们平时根本不上图；person 表没有的显示 `key.title()` 兜底名、统计列显示 `—`，实测 1 人 Julius K. Johnson）+ 6 个有登记坐标但非 FME 的人（supervisor 等，保留原位、无连线）= 30 针。WO/PMT 统计从 `/personnel/stats` 的 `by_person` 按 `name_key` 联合。
 - **选中交互不冲突**：选中某人后**其辖区连线让位**给详细图层（三档配色大圆点 + 从质心起笔的连线 —— 两层同坐标叠画会重影）；聚焦 effect 按质心取景（focusKey 含坐标，开关切换导致同一人位置变化会重新 fit）。
@@ -991,13 +1020,14 @@ PMT 取不到时显示 `—` 而不是 0（AGENTS.md 三.6），所以 `pmt_open
 
 **同源实测**（2026-10-21，22 个有未关闭 PMT 的人逐个对拍）：徽标三个数与抽屉三个页签计数**逐一相等**，例如 Franklin Peter `12 st | 25 WO | 215 PMT` ↔ `Sites (12) / Open WO (25) / Open PMT (215)`，无一处截断（`_PMT_LIMIT=2000` ≫ 单人实测最大 298）。
 
-**三个口径决定（勿擅自改回）**：
+**四个口径决定（勿擅自改回）**：
 
 | 项 | 口径 | 原因 |
 | --- | --- | --- |
 | 「负责的站点」 | `master_site_db.fme_name` 登记的站（`A / B` 双人共担**两边都算**），**不看工单、不看 PMT、不用 `person.managed_regions`** | 2026-10-21 用户确认，从旧口径「30 天内未关闭 WO 涉及的站点」（人均 4.6 站、最多 16）改为现口径（人均 35 站、最多 98）。**改的直接动机**：地图要分绿 / 浅蓝 / 红三档，而旧集合里每个站都必然有该人的未关闭 WO，**绿色永远不可能出现**。仍不用 `managed_regions`（只是县名文本，实测 26 个有坐标的人里 5 人写着全部 15 县 = 824 站全包）；仍不并入 PMT 站点（单人最多同时挂 290 个 PMT 站，并进来地图变毛线球）。⚠ **已知后果**：24 个有坐标的人里 **6 人不是任何站的 FME**（含未关闭单最多的 Varfee Sarnor / Franklin Peter），他们的 `site_count` 恒为 0、点开了地图上没有点 —— 用户看过实测数字后确认接受 |
 | 时间窗口 | WO / TT 固定**最近 30 天**；**PMT 不套窗口** | 用户确认不跟随 GIS 页的时间控件，避免两页口径漂移。PMT 例外的两条理由：库里**已关闭的 PMT 其 `current_handler` 是空的**（历史归属根本做不出来）；套 30 天会把 1715 张未关闭砍到 826，让 3 个月前开立至今未关闭的单凭空消失 —— 那恰恰是最该催的 |
 | PMT 归属 | 只认 `current_handler` 的 `P:` 段，**`G:` 组池不计个人**；终态判定用**精确 `Closed`**（WO 才用前缀） | `eflow_pm` 没有 `last_processer` 列（实测），`pm_manager`/`creator`/`last_*_operator` 语义都不是「当前在手」。实测 1715 张未关闭里 **821 张只挂在组池**（如 `G:ZTE_FE_MG`），挂到个人头上会把整组的单算给一个人，故组池数走 `/personnel/stats` 的 `pmt.group_pool` 并在 ⓘ 里给出。终态不共用 `_is_closed`：`eflow_wo` 有 `Closed_Confirmed` 才需前缀，`eflow_pm` 的 6 个状态里只有精确 `Closed` 是终态，共用会将来静默扩大已关闭集合 |
+| KPI「People with coordinates」（`person.kpiPeople`） | 分母 = `person.isfe = Yes`（FE 人员），分子 = 其中**经纬度有效**者（`_COORD_OK` + 规范化去重），走 `/personnel/stats` 的 `coverage.fe_total` / `fe_with_coords`。**不用** `total_all` / `with_coords` | 2026-10-29 用户确认。实测 `person` 137 行里 `isfe` 只有 `Yes`(32) 与 NULL(105) 两种取值，全表 14 人有坐标、其中 11 人是 FE —— 有坐标却**不是** FE 的 3 人（Franklin Peter / GORSON PRINCE T / Festus Emmanuel）若算进分子，就成了「分子 14 来自全表、分母 32 只含 FE」两个群体相除，比率不成立。判定收在 `_IS_FE`；分子从同一份去重后的 `_people_with_coords` 结果按 `is_fe` 打标求和（该元组第 8 位），**不另开 SQL**，否则分子分母来自不同快照又是一类漂移。**`coverage.with_coords`/`total_all` 保持全表口径不动** —— 顶部 ⓘ 横幅用它解释「谁没画在地图上」，两套人群各说各的；地图针与人员表格**未过滤 isfe**（用户选「只改统计数字」），所以屏上是「11/32 FE」与「14 个针」并存，这是设计而非 bug |
 
 **守卫**：`tests/test_personnel_fme_sites.py`（4 条：单人 / `A / B` 双人共担 / 空值与纯分隔符不造人 / 同名重复不翻倍）+ `tests/test_pmt_open_caliber.py`（6 条：PMT 精确匹配 vs WO 前缀、与 `pm_caliber.CLOSED_STATUS` 同源、组池不计个人、多人单各计一次、`_pmt_open_index` 签名不接受窗口参数、`_PMT_COLS` 拼出的那条 SELECT 用 `LIMIT 0` 真跑一遍 —— 列被改名会从整页 500 变成一次可跑的失败）。
 
@@ -1008,10 +1038,16 @@ PMT 取不到时显示 `—` 而不是 0（AGENTS.md 三.6），所以 `pmt_open
 - `GET /api/gis/personnel/{name_key}/work-orders` —— WO 下钻明细（复用既有端点）
 - `GET /api/gis/personnel/{name_key}/pmt` —— PMT 下钻明细（2026-10-21 新增，**无 days 参数**；返回 `pmt_list` / `pmt_count` / `meta{available,truncated,overdue_count}`。排序为逾期优先 → 任务窗口结束时间升序，且**先排序再截断**，否则 limit 生效时留下的恰好是扫描顺序的前 N 条，会把最该看的逾期单切掉）
 
+**自动刷新 = 原地静默重拉，不重挂载**（2026-10-29）：本页登记在 `App.tsx` 的 `AR_INPLACE_REFRESH_PAGES`，顶栏到点时外壳派发 `document` 事件 `myapp-refresh`，`PersonMap` 监听后调 `load(true)` 只重拉 `/personnel/stats`。间隔走每页默认 **300 秒**（用户当时反馈的「刷新太快」其实是**每 5 分钟一次的整页重建**：地图销毁重建 + flyTo 回全国视角 + 图层重画，在门户 iframe 里表现为闪白 —— 改成原地刷新后画面不动，只有数字更新）。静默路径三条硬约束，缺一就变成"假静默"：不清 `loading`（否则 `<Spin>` 遮罩盖住地图）、不清错误条、**失败时保留上一次的数据**（拿不到新数据不该把整张图清空）。手动「Refresh」按钮仍走非静默路径（要看到转圈），故 `onClick={() => load()}` **必须包一层** —— 写成 `onClick={load}` 会把 `MouseEvent` 当成 `silent` 传进去（事件对象恒真），实测由 tsc 拦下。
+浏览器实测（派发一次 `myapp-refresh`）：`/personnel/stats` 请求数 1 → 2、`.leaflet-container` **仍是同一个 DOM 节点**（未重挂载）、无遮罩（地图中心命中 `span.gis-county-tag__name`）、无错误条。
+
 **必须如实呈现的已知限制**（页面顶部横幅已写明）：
 
 1. 坐标是 `person` 表的**静态登记值，不是实时 GPS**（无时间戳、无轨迹）；
-2. 只有 26/136 人有坐标，其余人员**只出现在表格里、不画在地图上**；
+2. 坐标覆盖分两套人群说清，别互相套用（实测 2026-10-29）：顶部 ⓘ 横幅讲**全表**
+   —— 137 人中 14 人有登记坐标，其余人员**只出现在表格里、不画在地图上**；
+   KPI 卡讲 **FE 人群** —— 32 名 FE（`isfe=Yes`）中 11 人有坐标（见上表第 4 条口径）。
+   地图仍画全部 14 人，含 3 名非 FE；
 3. 人员 ↔ WO **无外键**，按规范化姓名匹配（`services/person_name.py`，实测命中约 96%）；
 4. TT 列是「带 `tt_no` 的 **WO 行数**」，不是独立 TT 去重计数（语义为单量/工作量）。
 
@@ -4518,3 +4554,22 @@ VMAX 其余页面都是只读透传，本节是**唯一落库**的页签，原�
 而且**要等旧会话超时**才恢复。探测一律复用后端进程内的单例会话
 （`get_xdr_client()`），或直接把新查询挂到已有路由上验证。
 
+
+## 38. 使用反馈（`?page=feedback`）—— 全字段必填 + 附件上传（2026-10-29 增强）
+
+问题登记的提交契约（前端 `frontend\src\pages\IssueFeedback.tsx`、后端 `backend\routers\feedback.py`）：
+
+- **全字段必填**：反馈人 / 联系方式 / 类型 / 优先级 / 关联页面 / 标题 / 描述 七项都不许为空，
+  表单带红星标记；点提交时除字段级红字外，还会弹一条**汇总提示**列出所有未填项
+  （`fb.form.missingPrefix`，如「请先填写以下必填项：反馈人、问题标题」）。
+  后端 `POST /api/feedback` 同步兜底：字段缺失由 FastAPI 返回 422，传了但全空白的由
+  业务校验返回 400 并逐项列出（`REQUIRED_FIELDS`）。
+- **附件（选填）**：最多 5 个、单个 ≤10MB，拒收可执行/脚本类扩展名（前后端同一份黑名单
+  `DENIED_EXTS`）。提交走 `multipart/form-data`，附件随表单字段一起发。
+- 附件落盘 `db\attachments\fb_<id>\`（与 upload.py 的 `db\uploads` 同范式），元数据 JSON 存
+  `issue_reports.attachments` 列（`_ensure_table` 幂等迁移，老库自动补列）。
+  列表展开行给出下载/预览链接：图片 / PDF / 纯文本内联打开（`Content-Disposition: inline`），
+  其余强制下载；`stored` 名须与元数据精确匹配，天然防路径穿越。
+- 删除登记记录时连同附件目录一起清理（`shutil.rmtree`）；登记中途落盘失败会回滚整条记录，
+  不留无附件元数据的残缺行。
+- 附件写入按 1MB 分块限量（`_save_attachments`），不信任 multipart 声明的大小——那可以被伪造。

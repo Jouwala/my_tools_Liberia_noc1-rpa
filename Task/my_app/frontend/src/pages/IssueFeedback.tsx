@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Button, Card, Col, Descriptions, Form, Input, Modal, Popconfirm,
-  Row, Select, Space, Statistic, Table, Tag, Tooltip, message,
+  Row, Select, Space, Statistic, Table, Tag, Tooltip, Upload, message,
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import {
   BugOutlined, CheckCircleOutlined, DeleteOutlined, DownloadOutlined, EditOutlined,
-  PlusOutlined, ReloadOutlined, SearchOutlined,
+  PaperClipOutlined, PlusOutlined, ReloadOutlined, SearchOutlined,
 } from '@ant-design/icons'
 import api from '../api'
 import { useI18n } from '../i18n'
@@ -18,6 +18,14 @@ type Category = 'bug' | 'data' | 'feature' | 'other'
 type Priority = 'low' | 'medium' | 'high' | 'urgent'
 type Status = 'open' | 'processing' | 'resolved' | 'rejected'
 
+/** 附件元数据，与后端 issue_reports.attachments 的 JSON 结构一致 */
+interface AttachmentMeta {
+  name: string
+  stored: string
+  size: number
+  content_type?: string
+}
+
 interface IssueItem {
   id: number
   reporter: string
@@ -27,6 +35,7 @@ interface IssueItem {
   page?: string | null
   title: string
   description: string
+  attachments?: AttachmentMeta[] | null
   status: Status
   handler?: string | null
   resolution?: string | null
@@ -44,6 +53,29 @@ interface Stats {
 const CATEGORY_COLORS: Record<Category, string> = { bug: 'red', data: 'orange', feature: 'blue', other: 'default' }
 const PRIORITY_COLORS: Record<Priority, string> = { low: 'default', medium: 'blue', high: 'orange', urgent: 'red' }
 const STATUS_COLORS: Record<Status, string> = { open: 'volcano', processing: 'processing', resolved: 'success', rejected: 'default' }
+
+// 附件限制（与后端 routers/feedback.py 的 _validate_attachments 保持一致）
+const MAX_ATTACHMENTS = 5
+const MAX_FILE_MB = 10
+const DENIED_EXTS = new Set([
+  '.exe', '.bat', '.cmd', '.com', '.scr', '.msi', '.dll',
+  '.js', '.mjs', '.vbs', '.vbe', '.ps1', '.psm1', '.sh', '.jar', '.lnk', '.reg',
+])
+
+// 附件下载直链用的 API 基址（与 api 实例同源，兼容 ?api= 云端模式）
+const API_BASE = (api.defaults.baseURL as string) || '/api'
+
+/** antd Upload 受控值转换（valuePropName="fileList" 标准写法） */
+function normFile(e: any): any[] {
+  return Array.isArray(e) ? e : e?.fileList || []
+}
+
+/** 附件大小展示 */
+function fmtSize(n: number): string {
+  if (n >= 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)}MB`
+  if (n >= 1024) return `${Math.round(n / 1024)}KB`
+  return `${n}B`
+}
 
 export default function IssueFeedback() {
   const { t } = useI18n()
@@ -102,14 +134,45 @@ export default function IssueFeedback() {
 
   const refresh = () => load(page, pageSize)
 
+  // 必填项 → 展示名映射：校验失败时用于汇总提示「哪些必填项没填」
+  const requiredLabels: Record<string, string> = {
+    reporter: t('fb.form.reporter'),
+    contact: t('fb.form.contact'),
+    category: t('fb.col.category'),
+    priority: t('fb.col.priority'),
+    page: t('fb.form.page'),
+    title: t('fb.form.title'),
+    description: t('fb.col.description'),
+  }
+
   const submit = async () => {
     let values: any
     try {
       values = await form.validateFields()
-    } catch { return }
+    } catch (err: any) {
+      // 字段级红字由 antd 同步展示；这里再弹一条汇总，一次性告诉用户缺了哪几项
+      const missing = (err?.errorFields || [])
+        .map((ef: any) => requiredLabels[ef.name?.[0]])
+        .filter(Boolean)
+      if (missing.length) message.warning(`${t('fb.form.missingPrefix')}：${missing.join('、')}`)
+      return
+    }
     setSubmitting(true)
     try {
-      await api.post('/feedback', values)
+      // 附件用 multipart 随表单一起发；后端全字段必填，这里做 trim 后原样提交
+      const fd = new FormData()
+      fd.append('reporter', values.reporter.trim())
+      fd.append('contact', values.contact.trim())
+      fd.append('category', values.category)
+      fd.append('priority', values.priority)
+      fd.append('page', values.page.trim())
+      fd.append('title', values.title.trim())
+      fd.append('description', values.description.trim())
+      for (const f of (values.attachments || []) as any[]) {
+        const raw = f?.originFileObj as File | undefined
+        if (raw) fd.append('attachments', raw, raw.name)
+      }
+      await api.post('/feedback', fd)
       message.success(t('fb.submitOk'))
       setSubmitOpen(false)
       form.resetFields()
@@ -120,6 +183,25 @@ export default function IssueFeedback() {
     } finally {
       setSubmitting(false)
     }
+  }
+
+  // 选附件时不自动上传，仅收集文件，提交时随 multipart 一起发；超量/超限/危险类型直接拒收
+  const beforeUpload = (file: File) => {
+    const list = (form.getFieldValue('attachments') || []) as any[]
+    if (list.length >= MAX_ATTACHMENTS) {
+      message.warning(t('fb.form.attachTooMany'))
+      return Upload.LIST_IGNORE
+    }
+    if (file.size > MAX_FILE_MB * 1024 * 1024) {
+      message.warning(t('fb.form.attachTooLarge', { name: file.name }))
+      return Upload.LIST_IGNORE
+    }
+    const ext = `.${(file.name.split('.').pop() || '').toLowerCase()}`
+    if (DENIED_EXTS.has(ext)) {
+      message.warning(t('fb.form.attachBadType', { name: file.name }))
+      return Upload.LIST_IGNORE
+    }
+    return false
   }
 
   const openHandle = (it: IssueItem) => {
@@ -207,6 +289,19 @@ export default function IssueFeedback() {
         <Descriptions.Item label={t('fb.col.description')} span={2}>{r.description}</Descriptions.Item>
         <Descriptions.Item label={t('fb.col.contact')}>{r.contact || '-'}</Descriptions.Item>
         <Descriptions.Item label={t('fb.col.page')}>{r.page || '-'}</Descriptions.Item>
+        <Descriptions.Item label={t('fb.col.attachments')} span={2}>
+          {r.attachments?.length ? (
+            <Space size={12} wrap>
+              {r.attachments.map(a => (
+                <a key={a.stored}
+                  href={`${API_BASE}/feedback/${r.id}/attachments/${encodeURIComponent(a.stored)}`}
+                  target="_blank" rel="noreferrer">
+                  <PaperClipOutlined style={{ marginRight: 4 }} />{a.name}（{fmtSize(a.size)}）
+                </a>
+              ))}
+            </Space>
+          ) : '-'}
+        </Descriptions.Item>
         <Descriptions.Item label={t('fb.col.resolution')} span={2}>{r.resolution || '-'}</Descriptions.Item>
         <Descriptions.Item label={t('fb.col.updated')} span={2}>{r.updated_at}</Descriptions.Item>
       </Descriptions>
@@ -336,7 +431,7 @@ export default function IssueFeedback() {
         confirmLoading={submitting} okText={t('fb.submit')} cancelText={t('fb.cancel')}
         destroyOnClose
       >
-        <Form form={form} layout="vertical" requiredMark={false} initialValues={{ category: 'bug', priority: 'medium' }}>
+        <Form form={form} layout="vertical" initialValues={{ category: 'bug', priority: 'medium' }}>
           <Row gutter={12}>
             <Col span={12}>
               <Form.Item name="reporter" label={t('fb.form.reporter')} rules={[{ required: true, message: t('fb.form.reporterReq') }]}>
@@ -344,24 +439,24 @@ export default function IssueFeedback() {
               </Form.Item>
             </Col>
             <Col span={12}>
-              <Form.Item name="contact" label={t('fb.form.contact')}>
+              <Form.Item name="contact" label={t('fb.form.contact')} rules={[{ required: true, message: t('fb.form.contactReq') }]}>
                 <Input placeholder={t('fb.form.contactPh')} maxLength={128} />
               </Form.Item>
             </Col>
           </Row>
           <Row gutter={12}>
             <Col span={12}>
-              <Form.Item name="category" label={t('fb.col.category')}>
+              <Form.Item name="category" label={t('fb.col.category')} rules={[{ required: true, message: t('fb.form.categoryReq') }]}>
                 <Select options={(Object.keys(CATEGORY_COLORS) as Category[]).map(c => ({ value: c, label: catLabel(c) }))} />
               </Form.Item>
             </Col>
             <Col span={12}>
-              <Form.Item name="priority" label={t('fb.col.priority')}>
+              <Form.Item name="priority" label={t('fb.col.priority')} rules={[{ required: true, message: t('fb.form.priorityReq') }]}>
                 <Select options={(Object.keys(PRIORITY_COLORS) as Priority[]).map(p => ({ value: p, label: priLabel(p) }))} />
               </Form.Item>
             </Col>
           </Row>
-          <Form.Item name="page" label={t('fb.form.page')}>
+          <Form.Item name="page" label={t('fb.form.page')} rules={[{ required: true, message: t('fb.form.pageReq') }]}>
             <Input placeholder={t('fb.form.pagePh')} maxLength={64} />
           </Form.Item>
           <Form.Item name="title" label={t('fb.form.title')} rules={[{ required: true, message: t('fb.form.titleReq') }]}>
@@ -369,6 +464,15 @@ export default function IssueFeedback() {
           </Form.Item>
           <Form.Item name="description" label={t('fb.col.description')} rules={[{ required: true, message: t('fb.form.descReq') }]}>
             <Input.TextArea rows={4} placeholder={t('fb.form.descPh')} maxLength={4000} showCount />
+          </Form.Item>
+          <Form.Item
+            name="attachments" label={t('fb.form.attachments')}
+            valuePropName="fileList" getValueFromEvent={normFile}
+            extra={<span style={{ color: WH.textMuted }}>{t('fb.form.attachmentsHint')}</span>}
+          >
+            <Upload multiple beforeUpload={beforeUpload}>
+              <Button icon={<PaperClipOutlined />}>{t('fb.form.attachmentsBtn')}</Button>
+            </Upload>
           </Form.Item>
         </Form>
       </Modal>

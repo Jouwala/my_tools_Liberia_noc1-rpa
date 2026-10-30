@@ -57,6 +57,7 @@
 | `src\components\RequireAuth.tsx` | **新页面鉴权门**：`<RequireAuth>` / `<RequireAuth admin>` |
 | `src\pages\_TemplatePage.tsx` | **新页面接入模板**（照抄即可）；下划线前缀文件是真源码，**不得被忽略规则吞掉** |
 | `MsPortal\index.html`（48KB） | 早期复刻版单页（QC 面板等大量内联实现） |
+| `v3\team_portal\` | **五个团队门户共用的静态根**（2026-10-29 新增）：`/v3/{fo,bo,flm,smc,cxo}_portal/` 五个 URL 由 nginx 五个 `location ... alias` 指向它。可见性矩阵由 `scripts\gen_team_matrix.py` 从《新看板设计.xlsx》生成成 `assets\team-matrix.js`，运行时由 `assets\team-scope.js` 按 URL 前缀判定团队；`assets\olbr.js` 由 `scripts\patch_team_portal.py` 从上游 `v3\olbrportal\assets\olbr.js` 打钩子生成（**上游那份一行未改**）。⚠️ 改上游 `olbr.js` 后必须重跑 patch 脚本 |
 | `vite.config.ts` | 构建配置（含 `base`、代理、门户后端挂载） |
 
 ## 五、改代码前的检查清单

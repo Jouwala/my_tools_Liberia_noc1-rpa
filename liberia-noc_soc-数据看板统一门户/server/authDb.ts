@@ -28,6 +28,10 @@ import { createRequire } from 'node:module';
 // store.ts → authDb.ts → auth/index.ts → store.ts 会构成循环依赖，
 // 故持久化层只依赖纯类型文件（2026-09-25 鉴权模块拆分时修正）。
 import type { RegistrationRequest, StoredUser } from './auth/types';
+// sanitizeTeam 是**值**导入（不是纯类型）：读库时要把 team 列归一成合法团队 id。
+// ⚠️ types.ts 只 import node:http 的类型、不 import 任何本项目的模块，
+//   故这里不会构成循环依赖（循环的根因是经 auth/index.ts 绕回 store.ts）。
+import { sanitizeTeam } from './auth/types';
 
 const require_ = createRequire(import.meta.url);
 
@@ -171,6 +175,8 @@ interface UserRow {
   landing: string | null;
   allowed_groups: string | null;
   allowed_cards: string | null;
+  /** 团队归属（2026-10-29 加）：NULL = 未指派。老库可能没有这一列，读时按缺列处理。 */
+  team?: string | null;
 }
 
 interface RequestRow {
@@ -195,7 +201,8 @@ const SCHEMA_STATEMENTS = [
       created_at TEXT NOT NULL,
       landing TEXT,
       allowed_groups TEXT,
-      allowed_cards TEXT
+      allowed_cards TEXT,
+      team TEXT
     )`,
   `CREATE TABLE IF NOT EXISTS registration_requests (
       id TEXT PRIMARY KEY,
@@ -235,6 +242,37 @@ class SqlitePersistence implements AuthPersistence {
     fs.mkdirSync(this.backupDir, { recursive: true });
     this.db = this.openWithRecovery();
     this.execStatements(SCHEMA_STATEMENTS);
+    this.migrateSchema();
+  }
+
+  /**
+   * 补齐后加的列（2026-10-29：users.team —— 账号归属团队）。
+   *
+   * 为什么不能只靠 CREATE TABLE IF NOT EXISTS：
+   *   那条语句对**已存在的表**是空操作。本机 auth-data/portal-auth.db 早在
+   *   2026-09 就建好了，users 表里没有 team 列 —— 只改 SCHEMA_STATEMENTS
+   *   的话，新库有 team、老库没有，于是 saveUsers 的 INSERT 会因
+   *   "table users has no column named team" 而整批写入失败，
+   *   症状是「改了团队归属，保存后刷新又变回去」，且**只在老库上复现**。
+   *
+   * 做法：查 PRAGMA table_info(users)，缺哪列补哪列（ADD COLUMN 是幂等的，
+   *   重复执行不报错 —— 故这里可以放心每次启动都跑一遍）。
+   * ⚠️ SQLite 的 ALTER TABLE ADD COLUMN 不支持带默认值以外的约束，
+   *   所以这里只加可空列、不加 NOT NULL（历史行自然是 NULL = 未指派）。
+   */
+  private migrateSchema(): void {
+    const columns = this.db.prepare('PRAGMA table_info(users)').all() as unknown as {
+      name: string;
+    }[];
+    const names = new Set(columns.map((c) => c.name));
+    if (!names.has('team')) {
+      try {
+        this.db.exec('ALTER TABLE users ADD COLUMN team TEXT');
+        console.warn('[auth-db] 已为 users 表补加 team 列（团队归属，2026-10-29）');
+      } catch (e) {
+        console.error('[auth-db] 补加 users.team 列失败：', e);
+      }
+    }
   }
 
   // —— 打开 / 损坏恢复 ——
@@ -321,6 +359,9 @@ class SqlitePersistence implements AuthPersistence {
       // allowedGroups/allowedCards：NULL = 不限制，'[]' = 一条都不给看（语义必须区分）
       if (row.allowed_groups !== null) user.allowedGroups = safeJson<string[]>(row.allowed_groups, []);
       if (row.allowed_cards !== null) user.allowedCards = safeJson<string[]>(row.allowed_cards, []);
+      // team：NULL/空 = 未指派；认不得的值一律当成未指派（脏数据不该把人塞进某个团队）
+      const team = sanitizeTeam(row.team);
+      if (team) user.team = team;
       return user;
     });
 
@@ -347,8 +388,8 @@ class SqlitePersistence implements AuthPersistence {
   saveUsers(users: StoredUser[]): void {
     this.transact(() => {
       const upsert = this.db.prepare(
-        `INSERT INTO users (id, username, role, password_hash, must_change_password, created_at, landing, allowed_groups, allowed_cards)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO users (id, username, role, password_hash, must_change_password, created_at, landing, allowed_groups, allowed_cards, team)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            username = excluded.username,
            role = excluded.role,
@@ -357,7 +398,8 @@ class SqlitePersistence implements AuthPersistence {
            created_at = excluded.created_at,
            landing = excluded.landing,
            allowed_groups = excluded.allowed_groups,
-           allowed_cards = excluded.allowed_cards`
+           allowed_cards = excluded.allowed_cards,
+           team = excluded.team`
       );
       const keep = new Set<string>();
       for (const u of users) {
@@ -371,7 +413,9 @@ class SqlitePersistence implements AuthPersistence {
           u.createdAt,
           u.landing ? JSON.stringify(u.landing) : null,
           Array.isArray(u.allowedGroups) ? JSON.stringify(u.allowedGroups) : null,
-          Array.isArray(u.allowedCards) ? JSON.stringify(u.allowedCards) : null
+          Array.isArray(u.allowedCards) ? JSON.stringify(u.allowedCards) : null,
+          // team：存的是团队 id；未指派存 NULL（= 不限制跳转）
+          u.team ?? null
         );
       }
       const del = this.db.prepare('DELETE FROM users WHERE id = ?');

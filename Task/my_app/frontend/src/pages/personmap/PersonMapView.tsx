@@ -139,7 +139,7 @@ export function PersonMapView({
      文件头的重影说明）。 */
   const {
     showTerritory, setShowTerritory, territory, terrLoading,
-    terrColorOf, terrSiteOwners, territorySiteTip, pinPersons,
+    terrColorOf, terrSiteOwners, territorySiteTip, pinPersons, territoryPins,
   } = useTerritory({ people, allPeople })
 
   /* ---------- 站点类别图例（2026-10-28 用户需求） ----------
@@ -183,12 +183,27 @@ export function PersonMapView({
      控制人员针 + 常驻徽标 + 选中者的站点圆点/连线 + 空态说明条。
      **关掉时必须同时清除选中**：留着选中态会出现「抽屉开着、地图上一片空」
      的自相矛盾画面（与点空白取消选中同一语义）。走 onSelectRef 而非直接
-     onSelect —— 回调可能随父组件重渲染换新闭包，ref 永远是最新的。 */
+     onSelect —— 回调可能随父组件重渲染换新闭包，ref 永远是最新的。
+     2026-10-29 加条件：「默认站点」开着时中心仍有该人的标签（针没消失），
+     此时关人员开关**不该**清掉选中 —— 否则用户看到的是「关掉一个图层，
+     正在看的抽屉被顺手关了」。只有两个开关都关、针真的看不见时才清。 */
   const [showPeople, setShowPeople] = useState(true)
   const togglePeople = useCallback((v: boolean) => {
     setShowPeople(v)
-    if (!v) onSelectRef.current(null)
-  }, [])
+    if (!v && !showTerritory) onSelectRef.current(null)
+  }, [showTerritory])
+
+  /* 人员针的可见集合（2026-10-29 用户要求「显示 Default Site 的时候，中心要显示
+     人员的图标和站点数、电话号码等，跟 People 一样的标签」）。
+     中心标签归**辖区层**所有：「人员」开关关掉时它仍随辖区一起出，但此时无辖区
+     连线的人（supervisor 等 6 人）不该凭空冒出来，所以走 territoryPins 而非 pinPersons。
+       · 人员开 → pinPersons（辖区开 = 24 辖区人 + 6 有坐标非 FME = 30；辖区关 = 14 个有登记坐标的人）
+       · 人员关 + 辖区开 → territoryPins（24 个中心标签，针在其站点几何中心）
+       · 两个都关 → 空
+     ⚠ 这改变了 2026-10-24 记下的「人员关 + 辖区开 = 0 针 + 1849 图形」纯辖区总览形态，
+       见手册 11a 与 LayerToggles 的开关说明。必须声明在 showPeople 之后（块级作用域）。 */
+  const visiblePins = showPeople ? pinPersons : (showTerritory ? territoryPins : [])
+  const pinsVisible = showPeople || showTerritory
 
   useEffect(() => {
     if (!isMapAlive(map)) return
@@ -335,16 +350,17 @@ export function PersonMapView({
         一并选中 —— 这样地图上的连线与右列 KPI 会切到那个人。
         无负责人 / 负责人无坐标时只定位，**不清空**当前选中，
         避免「搜一个无主站点，把正在看的上下文抹掉」。
-     「人员」开关关掉时只定位、**不选中** —— 负责人的针被藏了，
-     选中一个看不见的人只会让抽屉和地图对不上。 */
+     「人员」开关关掉且无中心标签时（两个开关都关）只定位、**不选中** ——
+     负责人的针被藏了，选中一个看不见的人只会让抽屉和地图对不上。
+     2026-10-29：辖区开着时中心有标签，针看得见，故判据从 showPeople 换成 pinsVisible。 */
   const handlePickSite = useCallback((site: ManagedSite) => {
     setFlyTarget({ lat: site.lat, lng: site.lng, tick: Date.now() })
-    if (!showPeople) return
+    if (!pinsVisible) return
     const ownerKey = site.owner_keys?.[0]
-    if (ownerKey && pinPersons.some(p => p.name_key === ownerKey)) {
+    if (ownerKey && visiblePins.some(p => p.name_key === ownerKey)) {
       onSelect(ownerKey)
     }
-  }, [onSelect, pinPersons, showPeople])
+  }, [onSelect, visiblePins, pinsVisible])
 
   return (
     <>
@@ -371,10 +387,10 @@ export function PersonMapView({
       {/* 地图左上角搜索框（人员 + 站点）。
           「默认站点」模式下人员源换 pinPersons —— 辖区人员（含无登记坐标者）
           也要能被搜到并选中，否则开关一开图上有针、搜索框里却没有此人。
-          「人员」开关关掉时人员源置空 —— 针都藏了，搜索框不该再提供
-          「选中一个看不见的人」的入口（站点搜索不受影响）。 */}
+          人员源与地图上**实际可见**的针同源（visiblePins）：针藏起来时，
+          搜索框不该再提供「选中一个看不见的人」的入口（站点搜索不受影响）。 */}
       <MapSearch
-        people={showPeople ? pinPersons : []}
+        people={visiblePins}
         selectedKey={selectedKey}
         sites={sites}
         onPickPerson={handlePickPerson}
@@ -468,10 +484,13 @@ export function PersonMapView({
       ))}
 
       {/* 人员针（渲染在 PersonPinsLayer.tsx；「悬停态绝不能进 iconKey」的契约
-          见 personPinHtml.ts 文件头，2026-10-21 实测踩过） */}
-      {showPeople && (
+          见 personPinHtml.ts 文件头，2026-10-21 实测踩过）。
+          2026-10-29：判据从 showPeople 换成 pinsVisible —— 「默认站点」开着时，
+          每个辖区的几何中心要带与 People 同样的标签（图标 + 姓名 + 电话 + 站点数），
+          即使「人员」开关是关的。集合见上方 visiblePins 的注释。 */}
+      {pinsVisible && (
         <PersonPinsLayer
-          persons={pinPersons}
+          persons={visiblePins}
           selectedKey={selectedKey}
           isDark={isDark}
           pane={PERSON_PANE}
@@ -484,7 +503,7 @@ export function PersonMapView({
           supervisor（覆盖 294 站），不是单站负责，站点集合刻意只认 fme_name。
           说明条本身（含底部居中的定位外壳）在 NoSitesNote.tsx 的 MapNoSitesNote
           （与下钻抽屉共用文案、容器不同）；抽屉里那条是裸 NoSitesNote。 */}
-      {showPeople && selectedPerson && !sitesLoading && sites.length === 0 && (
+      {pinsVisible && selectedPerson && !sitesLoading && sites.length === 0 && (
         <MapNoSitesNote person={selectedPerson} />
       )}
     </>

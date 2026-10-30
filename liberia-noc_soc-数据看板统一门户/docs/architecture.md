@@ -1514,6 +1514,406 @@ alias 发出，无构建步骤），改完刷新即生效。
 + `npm run lint` + `npm run build` 均通过。`v3` 是手写静态壳，**改完刷新即生效，无需构建**。
 ⚠️ 只改了 `v3`；`v1` / `v2` / `olbrportal`(v0) 的分档本就正确（走 `QC_TARGETS`），未动。
 
+## 九之十六、2026-10-29 五个团队门户（FO/BO/FLM/SMC/CXO）：**一套资产 + 一张可见性矩阵**
+
+**起因。** 用户要求以 `/v3/olbrportal/` 为样板，另开五个只显示各自团队应看内容的门户：
+`/v3/fo_portal/`、`/v3/bo_portal/`、`/v3/flm_portal/`、`/v3/smc_portal/`、`/v3/cxo_portal/`。
+内容清单来自 `C:\Users\ZTEEMS\Desktop\新看板设计.xlsx`（「各团队看板内容清单」表），
+按「团队列打勾 = 该团队应看」翻译成机器可读的可见性矩阵。
+
+**结论：可行，且上游 `/v3/olbrportal/` 一行未改。** 实现上做了三个关键取舍。
+
+### 一、五个 URL 共用一套资产，而不是五份副本
+
+`v3/team_portal/` 一份 HTML/CSS/JS，nginx 侧五个 `location ... alias` 到同一目录：
+
+```
+/v3/fo_portal/  ─┐
+/v3/bo_portal/  ─┤
+/v3/flm_portal/ ─┼─→ alias →  v3/team_portal/
+/v3/smc_portal/ ─┤
+/v3/cxo_portal/ ─┘
+```
+
+**为什么不是五份副本。** 五份副本意味着 HTML/CSS/JS 有五个真相源：上游 `olbr.js` 修一次 bug
+要手工合并五遍，漏一处就有一个团队看到旧行为；门户改一次样式要改五处 CSS。
+`v3/olbrportal/assets/olbr.js` 有 37 万字符，fork 一次就是两份真相源，
+后续每次上游改动都要手工合并一遍，必然漂移。
+
+**为什么共用不会串味。** 团队判定靠 URL 前缀（`team-scope.js` 的 `detectTeam()`），
+五个 location 同源共用后端 API（`/api/portal-catalog`、`/api/portal-qc/*`、
+`/api/email-reports/*`），所以各门户看到的是同一份目录、同一份数据，差异**只**在可见性矩阵。
+
+⚠️ **目录深度必须与 `/v3/olbrportal/` 一致**（同样理由见 nginx 里 v3 那条 location），
+否则 `index.html` 里 `assets/xxx.js` 相对路径会指向错误目录。
+
+⚠️ 五个 location 均带 `Cache-Control: no-cache, no-store, must-revalidate` ——
+矩阵或 scope 改完后刷新即生效，不需要清 nginx 缓存。
+
+### 二、矩阵从 Excel 生成；`olbr.js` 用薄适配层，不 fork
+
+```
+scripts/gen_team_matrix.py  ──读 Excel──→  v3/team_portal/assets/team-matrix.js
+                                          （window.OLBR_TEAM_MATRIX）
+                                                ↓
+                            assets/team-scope.js（window.OLBR_SCOPE 查询引擎）
+                                                ↓
+                            assets/olbr.js（team_portal 版）
+                            渲染点：if (SCOPE && !SCOPE.ok('qc','alarm')) return '';
+```
+
+**矩阵生成脚本。** `scripts/gen_team_matrix.py` 解析 Excel，输出 `window.OLBR_TEAM_MATRIX`
+（结构 `{域键: {子键: [有勾的团队id]}}`）。Excel 表头里的团队列名与内部 id 的对应在脚本内定义：
+`ZTE FO Team → fo`、`ZTE BO Team → bo`、`ZTE FLM Team → flm`、`Orange SMC → smc`、`Orange CXO → cxo`。
+
+**两个必须消解的歧义。**
+
+  · **`SPMS` 在两个域里指两件不同的事。** Excel 的 QC 指标域有 `SPMS`（备件存量），
+    Domain Dashboard 域也有 `SPMS`（视图分组）。按名字全局匹配就会张冠李戴 ——
+    脚本内用 `DETAIL_BY_DOMAIN` **按域分别解析**才能唯一确定。
+  · **全角/半角括号不一致。** Excel 里 `CXO View（ User/Traffic/Throughput）` 用全角，
+    其它行用半角 `CXO View(User/Traffic/Throughput)`。脚本内做括号归一化后匹配。
+
+**为什么矩阵是生成文件而不是手写 JS。** 矩阵是需求文档的机器可读形式：需求变了改 Excel 重跑脚本，
+而不是在 JS 里手改一串团队 id。手改会在下次重跑时被静默覆盖 ——
+这正是本仓库「不新增第二个真相源」的硬性约束。
+
+**薄适配层。** `team-scope.js` 提供 `window.OLBR_SCOPE`（`ok(domain,sub)`、`subs(domain)`、
+`ossSlots()`、`viewGroups()`、`mapPages()`、`qaTabs()`、`reportIds()`、`hasComplaint()` 等）。
+`team_portal` 版的 `olbr.js` 里每个渲染点都是一行
+`if (SCOPE && !SCOPE.ok('qc','alarm')) return '';` 形态 —— **一行判据，不 fork 逻辑**。
+
+**矩阵缺项 = 不显示**，没有「默认全显」兜底 —— 缺一行就意味着那行没勾，不显示是唯一正确的行为。
+
+**上游隔离。** `/v3/olbrportal/` 不引这三个文件，`window.OLBR_SCOPE` 为 null，
+每个 `if (SCOPE && ...)` 都短路，上游那页行为**一行未变**
+（`git status --porcelain v3/olbrportal/` 输出为空）。
+
+### 三、Auto Report 与 Customer Complaint：两个不能靠矩阵过滤的特例
+
+**Auto Report。** 上游那页的自动报表区是嵌入 my_app 的 iframe（不带过滤，渲染全部报告源），
+无法按团队过滤；而 Excel 的 Auto-report 域是**逐条**勾选了要哪几种报告。
+`assets/team-panels.js` 改为渲染一张**门户自绘表格**：查 `/api/email-reports/latest?limit=1`，
+按 `source_id` 与 `SCOPE.reportIds()` 匹配过滤后再渲染，下载链接直连
+`/api/email-reports/download/<source_id>/<name>`。
+实测行数与 Excel 勾选数一致：FO 10 行、BO 3 行、FLM 8 行；
+SMC / CXO 该域无勾选 → **整块消失**（矩阵 `report` 域对这两个团队为空）。
+处置口径与其余各域一致：「这一域对这个团队完全无关」就不留空标题。
+
+⚠️ **口径要如实说。** 这张表是**门户侧渲染**的，不是 my_app 页面截图；它复用同一个
+`/api/email-reports/latest` 接口（同源、同一份数据），登录态由 Cookie 携带，
+故受门户登录门保护 —— 与上游那块的行为一致。
+
+**Customer Complaint。** 上游页面**没有**这一块（门户从未做过客户投诉入口），
+它对应 my_app 的 `/myapp/?page=vmax_user_query`（VMAX CCA 投诉系统，按号码查用户与投诉根因）。
+Excel 里是独立一行，故单独一块卡片式入口（`<a>` 跳页，不用 iframe ——
+那是个需要输入号码的查询页，嵌进来只是个空表单，看不出能干什么）。
+CXO 未勾选 → 不显示该块。
+
+### 四、五个门户的实测可见范围（2026-10-29）
+
+浏览器逐个打开实测，与 Excel 矩阵逐项对齐：
+
+| 域 | FO | BO | FLM | SMC | CXO |
+| --- | --- | --- | --- | --- | --- |
+| QC 指标 | alarm/tt/wo/cr | alarm/cr | alarm/tt/wo/pmt/spms | alarm/tt/wo | 全部隐藏 |
+| KPI | CXO 视图 + Availability | CXO 视图 + Availability | 仅 Availability | CXO 视图 + Availability | CXO 视图 + Availability |
+| Benchmark | 隐藏 | 隐藏 | 隐藏 | Speedtest/Meta | Speedtest/Meta |
+| Domain View | FO View | CXO View + BO View | FLM View + SP View | 隐藏 | CXO View |
+| GIS Map | alarm/person/mw | 仅 mw（单页，无页签条） | alarm/person/mw | alarm/person/mw | alarm/person/mw |
+| Knowledge QA | eflow/rag/assistant | eflow/rag/assistant | eflow/rag/assistant | eflow/rag/assistant | rag/assistant |
+| Auto Report | 10 份 | 3 份 | 8 份 | 隐藏 | 隐藏 |
+| OSS | 10 项 | 10 项 | 隐藏 | 10 项 | 隐藏 |
+| Complaint | 显示 | 显示 | 显示 | 显示 | 隐藏 |
+| Escalation | 显示 | 显示 | 显示 | 显示 | 显示 |
+| Feedback | 显示 | 显示 | 显示 | 显示 | 显示 |
+
+⚠️ **Benchmark 的隐藏是矩阵语义的结果，不是 bug。** Excel 里 Benchmark 域只勾了
+`Speedtest` 与 `Meta`（仅 SMC / CXO），BO/FO/FLM 未勾 → 不显示。
+⚠️ **OSS 的「10 项」是 Excel 的条目数**，门户目录里 Friends Link 分组有 11 条 ——
+Excel 的「ZTE UME NMSCCN」对应目录里「ZTE UME NMS」+「CCN UME NMS」两条，
+「UME iMonitor Screen」对应「UME iMonitor 大屏」+「OCS iMonitor Screen」两条。
+`team-scope.js` 的 `OSS_SLOTS` 用 **url 片段**（`page=` / 主机名）匹配槽位，
+**不匹配标题** —— 标题在门户目录里是可编辑的，模糊匹配会突然失效。
+
+### 五、遗留与后续
+
+  · **矩阵重新生成的入口**：`python scripts/gen_team_matrix.py`（读 Excel → 写 `team-matrix.js`）。
+    Excel 改了必须重跑，否则门户显示的是旧矩阵。**`team-matrix.js` 勿手改**（会被静默覆盖）。
+  · **`team_portal` 版 `olbr.js` 由脚本生成**：`scripts/patch_team_portal.py` 读上游
+    `v3/olbrportal/assets/olbr.js`，施加 **23 处** scope 钩子，输出 `v3/team_portal/assets/olbr.js`。
+    ⚠️ **上游 `olbr.js` 改动后必须重跑该脚本**，否则团队门户的钩子会与上游脱节。
+    脚本有 `--check` 模式（只比对不写盘），可挂 CI；钩子原文片段找不到会**报错退出**，
+    不会静默漏改。
+  · **`v3/team_portal/` 已纳入 `vite.config.ts` 的 `server.watch.ignored`**
+    （与 `**/olbrportal/**` 同一处理）—— 它同样是 nginx 直接 alias 的手写静态壳，
+    漏在 watch 清单外会导致每次改团队门户的 `olbr.js` 都让 `/uniplam/` 整页刷新一次。
+  · **`olbr-data.js`（QC 阈值等）仍是一份拷贝**在 `v3/team_portal/assets/`。
+    它内容与上游相同，本次未改；将来若上游调阈值，需同步。
+    可改为让 team_portal 直接引上游目录的文件，但 nginx `alias` 下要改相对路径，风险大于收益，本期不做。
+  · **`globals.d.ts` 声明了三个团队门户专用全局**
+    （`OLBR_TEAM_MATRIX` / `OLBR_SCOPE` / `OLBR_TEAM_REPORTS`）。
+    上游 `v3/olbrportal/globals.d.ts` **未加**这些声明 —— 上游那页的 `window` 上
+    本来就没有这三个对象，加了反而是给不存在的东西发类型。
+
+## 九之十七、2026-10-29 团队门户访问控制：数据模型 + 服务端闸门 + 登录后跳转
+
+**起因。** 账号被指派到某个团队后，该账号登录 `/v3/olbrportal/` 应**自动跳到**对应的
+`/v3/<team>_portal/`；且**只能**进入自己那个团队门户，越权必须被服务端拦下。
+上游 `/v3/olbrportal/` 仍是**一行未改**。
+
+**结论：四层纵深防御，最外两层在服务端（不依赖 JS）。**
+
+```
+① 数据模型      users.team          'fo'|'bo'|'flm'|'smc'|'cxo'|NULL
+② 会话 Cookie   olbr_token (HttpOnly) 登录时种下，登出时清掉
+③ 服务端闸门    nginx auth_request → /uniplam/api/auth/team-gate/<team>
+④ 跳转          nginx auth_request → /uniplam/api/auth/team-landing（403 + X-Team-Landing）
+                 + 注入的 team-gate.js（登录**那一刻**的即时跳转）
+```
+
+### 一、数据模型：账号的团队归属
+
+`server/auth/types.ts` 新增 `TeamId`（`'fo'|'bo'|'flm'|'smc'|'cxo'`）与
+`TEAM_PORTAL_PATHS`（团队 id → 门户路径的**唯一**映射），
+`StoredUser` / `PublicUser` / `PageProfilePatch` 各加一个 `team?: TeamId | null`。
+
+`server/authDb.ts` 的 `users` 表加 `team TEXT` 列。⚠️ **老库必须迁移**：
+`CREATE TABLE IF NOT EXISTS` 对已存在的表是空操作，只改 schema 声明的话
+新库有 `team`、老库没有，`saveUsers` 的 INSERT 会整批失败 ——
+症状是「改了团队归属，保存后刷新又变回去」，且**只在老库上复现**。
+故 `migrateSchema()` 查 `PRAGMA table_info(users)`，缺列就 `ALTER TABLE ADD COLUMN`
+（幂等，每次启动都跑一遍）。本机实测迁移日志：
+`[auth-db] 已为 users 表补加 team 列（团队归属，2026-10-29）`。
+
+**取值语义**：`null` = 未指派 = **不跳转、且五个团队门户一律不放行**（fail-closed）。
+没配置就没有团队身份，凭什么看某个团队的内容。
+
+### 二、为什么要 Cookie 副本：让服务端在**页面导航**时也能认出用户
+
+门户的会话 token 历来只存 **localStorage**（键 `liberia_noc_auth_v1`）。
+但浏览器**直接访问一个 URL** 时不会带 localStorage 里的任何东西 ——
+nginx 在处理页面请求时**看不到**登录态。若团队门户是静态文件（nginx alias 直发），
+它自己的 JS 要到浏览器里跑完才知道身份，**那时内容已经发到客户端了** ——
+那不是访问控制。
+
+故登录成功时把**同一个 token** 再种一份 Cookie（`HttpOnly; SameSite=Lax; Path=/`）：
+`server/auth/types.ts` 的 `setSessionCookie()` / `clearSessionCookie()` /
+`readSessionToken()`（Authorization 头优先、Cookie 其次）。
+
+⚠️ **两份是同一个 token 的两个载体，不是两份真相源。**
+localStorage 那份**保留不动** —— 前端既有逻辑（`apiFetch` 附带 Authorization 头、
+`viewer.html` 读同一个键）都依赖它。Cookie 由服务端种、由服务端清，前端 JS 读不到。
+
+⚠️ **Cookie 里绝不能放团队 id。** 团队归属是**库里的属性**，管理员随时能改。
+若把团队 id 也写进 Cookie，管理员改了归属而用户的旧 Cookie 还在时，
+nginx 会按**过期的**团队 id 放行 —— 那正是权限事故。故 nginx 必须**回源问服务端**
+「这个人现在属于哪个团队」。
+
+### 三、服务端闸门：`auth_request` + `team-gate`
+
+五个团队 location 各带一条闸门：
+
+```nginx
+location /v3/fo_portal/ {
+    alias  ".../v3/team_portal/";
+    auth_request /uniplam/api/auth/team-gate/fo;
+    error_page   401 = @team_unauthorized;   # 未登录
+    error_page   403 = @team_forbidden;       # 已登录但不是该团队
+}
+```
+
+`GET /uniplam/api/auth/team-gate/<team>` 的判定（**fail-closed**）：
+
+| 情形 | 状态码 | nginx 行为 |
+| --- | --- | --- |
+| 没有身份 | 401 | 回 401，页面引导登录 |
+| 有身份、无团队归属 | 403 | 回 403 拒绝页 |
+| 团队与请求的不一致 | 403 | 回 403 拒绝页 |
+| 完全一致 | 200 | 放行 |
+
+⚠️⚠️ **为什么用路径参数（`/team-gate/fo`）而不是查询参数（`?team=fo`）**
+—— 这是本机 2026-10-29 实测踩出来的坑，不是风格偏好：
+
+nginx 的 `auth_request` 指令里写的 URI 会被当成**内部子请求的 URI**，
+其中出现的 `?` **不会被当作查询串分隔符**，而是被转义进路径里。
+实测（独立 nginx 实例 + 回显上游）上游收到的是：
+
+```
+auth_request /probe?team=fo  →  上游看到 url = "/probe%3Fteam=fo"
+```
+
+也就是说 `?` 变成了 `%3F`，**后端拿不到 team 参数** → 后端返回 400 →
+nginx 把非 2xx 当作拒绝 → **「合法用户访问自己的团队门户」被误判成 401**。
+改成路径形式后子请求 URI 是干净的 `/team-gate/fo`，后端从路径末段取团队 id。
+
+⚠️ **这两个 nginx 端点必须放在「未登录就 401」那道闸门之前**（`routes.ts` 里
+`if (!caller)` 之前），原因有两条：
+  ① nginx 的 auth_request **子请求不带 Authorization 头** —— 只带原始请求的 Cookie。
+     `resolveCaller` 只认 Authorization 头，若放在闸门之后，caller 恒为 null →
+     一律 401 → 「已登录但团队不对」与「压根没登录」被混成同一个结果。
+     故这两个端点**自己**用 `readSessionToken()` 解析身份。
+  ② `/team-landing` 的语义是「无团队归属 → 200 放行；未登录 → 也 200 放行」，
+     若被闸门拦成 401，nginx 会当成拒绝 → 主门户对未登录用户也 401，
+     那就把「主门户是公开入口」这个既有行为改掉了（回归事故）。
+
+### 四、跳转：服务端 302（打开页面时）+ 客户端即时跳转（登录那一刻）
+
+**服务端 302。** `/v3/olbrportal/` 带 `auth_request /uniplam/api/auth/team-landing`。
+该端点：有团队归属 → **403** + `X-Team-Landing: /v3/fo_portal/`；
+无归属或未登录 → **200**（无该头）。
+
+⚠️ **为什么「有归属」要用 403 这个反直觉的状态码。** auth_request 没有
+「拒绝但带信息」的第三种状态，只有 2xx / 非 2xx。我们要表达的是
+「**别在这里服务，去那边**」—— 用 403 触发 `error_page 403 = @named`，
+在 named location 里 `return 302 $team_landing`（content 相位，
+`$upstream_http_x_team_landing` 已就位）。若返回 2xx，nginx 直接放行，
+根本不会去看响应头。
+
+⚠️⚠️ **相位陷阱（本机实测，2026-10-29）—— 这段写法为什么长这样**
+
+nginx 的指令分属不同相位：
+  · `if` / `return` → **rewrite 相位**（最早）
+  · `auth_request`  → **preaccess 相位**（靠后）
+
+故在同一个 location 里写 `auth_request ...; if ($v) { return 302 $v; }` 是**无效的**：
+`if` 在 rewrite 相位就返回了 302，`auth_request` 根本没跑，$v 永远是空 →
+实测得到 200 而不是 302。正确写法：**location 里不写 return**，让请求走完完整相位链；
+用 `error_page` 把上游的 403 导向 named location，在 named location 里 return 302。
+
+**客户端即时跳转。** 上面那套只覆盖「**打开页面时**」——
+而「首次登录」这条路走不到它：用户打开本页时还没有 Cookie → nginx 放行
+（主门户是公开入口）→ 用户在页面上填账号密码 → **页面早已加载完毕**，
+nginx 那次请求早就结束了。nginx 无法拦截页面里发出的登录请求。
+
+故新增 `v3/team-gate.js`：包住 `window.fetch`，盯住 `POST /uniplam/api/auth/login`
+的响应，响应体里带 `user.team` → `location.replace('/v3/<team>_portal/')`。
+三条触发路径：① 本地已有 token（刷新/收藏夹进入）→ `GET /api/auth/me` 取 team；
+② 本地无 token → 不跳（还没登录，主门户是公开入口）；③ 登录成功那一刻 → 跳。
+
+⚠️ **`clone()` 在 Response 上，不在 Promise 上。** `rawFetch()` 返回
+`Promise<Response>`，`clone` 要等 Promise 兑现后才有。写成 `p.clone()`（p 是 Promise）
+→ `clone is not a function` → 静默失败，登录成功却不跳转。必须用
+`.then(function (res) { res.clone().json() ... })`。
+
+**⚠️ 上游 `/v3/olbrportal/` 一行未改。** `team-gate.js` 由 nginx 用 `sub_filter`
+在**响应下发时**注入 `</head>` 前（磁盘上的 `index.html` 一个字节都没动）：
+
+```nginx
+sub_filter_once on;
+sub_filter '</head>' '<script src="/v3/team-gate.js"></script></head>';
+```
+
+注入点选 `</head>` 是因为它在 `olbr.js`（`</body>` 前的 `<script>`）**之前**，
+这样脚本能赶在 olbr.js 发登录请求之前把 fetch 包起来。
+脚本本体放在 `v3/team-gate.js`（**不在** `v3/olbrportal/` 里 —— 那一页不许改；
+**不在** `v3/team_portal/` 里 —— 那五个 location 带闸门，未登录时连脚本都取不到，
+而闸门页恰恰要引导去登录）。该 location **不加** `auth_request`：
+它是公开静态脚本，不含任何敏感信息；真正的访问控制在服务端，与它无关（两者不重复）。
+
+### 五、管理界面（**三个入口都支持**）
+
+**关键前提：三处面板改的是同一行记录。**
+`/uniplam/`、`/v3/olbrportal/`、`/myapp/` 的 User Management 都调
+`/uniplam/api/auth/users` 与 `/uniplam/api/auth/users/profile` ——
+**同一个门户后端、同一份 `auth-data/portal-auth.db`**。
+my_app 虽有独立的会话表（`portal_sessions`，见 `backend/services/portal_auth.py`），
+但**账号数据一律回调门户**，不落地第二份用户库。
+
+三处面板各有独立实现，需要**同步维护**：
+
+| 入口 | 实现文件 | 风格 |
+| --- | --- | --- |
+| `/uniplam/` | `src/components/UserManagementModal.tsx` | React 19 + Tailwind |
+| `/v3/olbrportal/` | `v3/olbrportal/assets/olbr.js` | 原生 JS 手写面板 |
+| `/myapp/` | `Task/my_app/frontend/src/components/PortalUserMenu.tsx` | React + Ant Design |
+
+每处都加了「Team Portal / 团队门户」下拉框（`um.team` / `um.teamNone` / `um.team.<id>`，
+中英两份字典都已加），提交时走 `POST /uniplam/api/auth/users/profile` 的 `team` 字段。
+
+⚠️ **团队的「id → URL」映射在三处各有一份字面量**（后端 `server/auth/types.ts`
+的 `TEAM_PORTAL_PATHS` 是唯一真相源）：
+  · `src/auth/AuthContext.tsx` 的 `TEAM_PORTAL_PATHS`
+  · `v3/olbrportal/assets/olbr.js` 的 `UM_TEAMS`
+  · `Task/my_app/frontend/src/api.ts` 的 `TEAM_PORTAL_PATHS`
+  · `v3/team-gate.js` 的 `TEAM_PORTAL`（纯静态脚本，不能 import 后端模块）
+**改一处必须改其余各处。**
+
+⚠️ **my_app 的 `landing` 字段类型曾与后端不一致**：后端存的是**对象**
+`{view?, cardId?}`（`LandingTarget`），而 my_app 的 `PortalUser.landing` 声明成了
+`string`。于是列表里 `{u.landing}` 把对象当子节点渲染 —— React 抛
+**#31**（"Objects are not valid as a React child"）**整个页面白屏**。
+2026-10-29 已修：类型改为 `PortalLandingTarget`，渲染走 `landingLabel()`，
+编辑区改为「视图下拉 + 卡片 id 输入」两个字段（服务端按**整对象**替换，故一起提交）。
+
+
+### 六、实测结果（2026-10-29，本机 9267 + nginx 80/443）
+
+端到端脚本覆盖 65 项断言，**全部通过**：
+
+| 场景 | 期望 | 实测 |
+| --- | --- | --- |
+| 五个团队账号登录 | 拿到 `olbr_token` Cookie，响应体带 team | ✅ |
+| 带团队身份访问 `/v3/olbrportal/` | 302 → `/v3/<team>_portal/` | ✅ |
+| 无团队归属 / 未登录访问主门户 | 200（不跳转） | ✅ |
+| 访问**本**团队门户 | 200 | ✅ |
+| 访问**他人**团队门户（20 组交叉） | 403 | ✅ |
+| 未登录访问团队门户 | 401 | ✅ |
+| 无团队归属账号访问团队门户 | 403 | ✅ |
+| `sub_filter` 注入 | 首页含 `/v3/team-gate.js`，且在 `</head>` 前 | ✅ |
+| 磁盘上的 `v3/olbrportal/index.html` | **不含** team-gate.js（未改动） | ✅ |
+
+浏览器实测：清掉 localStorage 后在页面上登录 `team_fo` 账号 →
+**自动跳到 `https://127.0.0.1/v3/fo_portal/`**；页面内 `window.OLBR_SCOPE.teamId`
+为 `fo`，作用域与 Excel 矩阵一致（QC = alarm/cr/tt/wo，Domain View = FO View，
+OSS = 10 项，Auto Report = 10 份）；同会话 fetch `/v3/bo_portal/` → **403** 拒绝页。
+
+### 七、遗留与后续
+
+  · **测试账号已删除。** 验证用的 `team_fo`/`team_bo`/…/`team_admin` 七个账号
+    （口令已知）在验证结束后**立即从 `auth-data/portal-auth.db` 删除** ——
+    留一个已知口令的账号在生产库是事故，不是遗留。
+  · **`team-gate.js` 与后端的团队映射是两份字面量**（纯静态脚本不能 import 后端模块）。
+    后端那份是 `server/auth/types.ts` 的 `TEAM_PORTAL_PATHS`（唯一真相源）；
+    脚本那份在 `v3/team-gate.js` 的 `TEAM_PORTAL`。**改一处必须改另一处**。
+  · **免登录旁路（开发模式）下团队门户一律 401** —— 免登录是「跳过登录」，
+    不是「变成某个团队的人」。要在免登录模式下调试团队门户，正确做法是给测试账号配好 `team`。
+  · **`v3/team-gate.js` 不在 `vite.config.ts` 的 `server.watch.ignored` 清单里** ——
+    它在 `v3/` 根目录，不在 `v3/team_portal/` 或 `v3/olbrportal/` 里，
+    故不在那两个 watch 忽略规则覆盖范围内（改它会触发一次 `/uniplam/` 整页刷新，可接受）。
+  · **团队归属变更不即时踢下线。** 管理员改了某账号的 `team` 后，
+    该账号**已登录的会话**在下一次访问团队门户时立刻按新归属判定
+    （闸门每次都回源查库），但**主门户的 302 目标**同样每次重算 ——
+    即**改归属立即生效，无需重新登录**。
+
+### 八、三处管理入口补齐（2026-10-29 追加）
+
+**起因**：原先只有 `/uniplam/` 能配置 Team Portal。管理员问「为什么只有这一个能调」——
+根因是**三套前端各自实现了 User Management 面板**，而当时只改了 React 那套。
+数据源本就是同一个（都走 `/uniplam/api/auth/*`），缺的只是控件。
+
+本轮改动：
+
+| 文件 | 改动 |
+| --- | --- |
+| `v3/olbrportal/assets/olbr.js` | 面板加团队下拉框（`UM_TEAMS` 映射 + `state.um.team` + 提交 `team` 字段 + change 事件委托） |
+| `v3/olbrportal/assets/olbr-data.js` | 中英两份字典加 `um.team*` 六个键 |
+| `Task/my_app/frontend/src/api.ts` | `PortalUser` 加 `team`；`landing` 类型改 `PortalLandingTarget`；`portalSetUserProfile` 的 patch 加 `team` |
+| `Task/my_app/frontend/src/components/PortalUserMenu.tsx` | 面板加团队下拉框 + 表格加「团队门户」列；修 React #31 白屏 |
+| `Task/my_app/frontend/src/i18n.tsx` | 中英两份字典加 `user.team*` 与 `user.landingView` / `user.landingCard` |
+
+实测（三处面板，浏览器逐个点开确认）：
+
+| 入口 | 下拉框选项 | 保存 | 列表显示 |
+| --- | --- | --- | --- |
+| `/uniplam/` | 未指派 + 5 个团队 | ✅ | — |
+| `/v3/olbrportal/` | 未指派 + 5 个团队 | ✅（"Saved page setup for admin"） | — |
+| `/myapp/` | 未指派 + 5 个团队 | ✅ | 表格「Team portal」列显示 `ZTE FLM Team` |
+
+**零改动约束仍然成立**：`v3/olbrportal/index.html` 一行未动
+（团队面板是 `olbr.js` 里的运行时渲染，不是页面内联）。
+
+
 ## 十、相关文档
 
 | 内容 | 去哪里 |

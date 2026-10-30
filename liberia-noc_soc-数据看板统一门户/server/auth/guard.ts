@@ -41,6 +41,13 @@ export const DEV_ADMIN: PublicUser = {
   landing: null,
   allowedGroups: null,
   allowedCards: null,
+  /* ⚠️ team 刻意留 null（未指派团队）：
+     免登录占位身份**不属于任何团队**，所以团队门户一律不放行它
+     （见 routes.ts 的 /team-gate：没有 team → 403）。
+     免登录是「跳过登录」，不是「变成某个团队的人」—— 若给占位身份塞一个团队，
+     免登录模式下就能进团队门户，那等于把访问控制在开发模式下整个关掉了。
+     要在免登录模式下调试团队门户，正确做法是给测试账号配好 team。 */
+  team: null,
 };
 
 /** 免登录模式下签发给前端的占位 token（服务端不落库，仅用于前端携带） */

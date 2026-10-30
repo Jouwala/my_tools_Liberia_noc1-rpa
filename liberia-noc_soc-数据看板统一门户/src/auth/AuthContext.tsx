@@ -19,6 +19,24 @@ export type Role = 'admin' | 'viewer';
 /** 门户自身视图（与 App 的 ViewMode 一致） */
 export type PortalViewMode = 'grid' | 'list' | 'matrix' | 'tasks';
 
+/**
+ * 团队门户 id —— 与服务端 server/auth/types.ts 的 TeamId 一一对应。
+ * 账号被指派到某个团队后，登录即自动进入该团队门户，且只能进入该门户。
+ */
+export type TeamId = 'fo' | 'bo' | 'flm' | 'smc' | 'cxo';
+
+/** 团队门户白名单（与 server/auth/types.ts 的 TEAM_IDS 一致） */
+export const TEAM_IDS: readonly TeamId[] = ['fo', 'bo', 'flm', 'smc', 'cxo'];
+
+/** 团队 id → 门户路径（与 server/auth/types.ts 的 TEAM_PORTAL_PATHS 一致） */
+export const TEAM_PORTAL_PATHS: Record<TeamId, string> = {
+  fo: '/v3/fo_portal/',
+  bo: '/v3/bo_portal/',
+  flm: '/v3/flm_portal/',
+  smc: '/v3/smc_portal/',
+  cxo: '/v3/cxo_portal/',
+};
+
 /** 登录后落地目标：门户视图 或 指定卡片（管理员在用户管理里配置） */
 export interface LandingTarget {
   view?: PortalViewMode;
@@ -37,6 +55,8 @@ export interface AuthUser {
   allowedGroups?: string[] | null;
   /** 可见卡片白名单（DashboardItem.id）；null = 不限制 */
   allowedCards?: string[] | null;
+  /** 团队归属；null = 未指派（不跳转，且不放行任何团队门户） */
+  team?: TeamId | null;
 }
 
 export type AuthStatus = 'loading' | 'anon' | 'authed';

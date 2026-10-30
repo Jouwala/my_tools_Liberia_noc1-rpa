@@ -112,21 +112,39 @@ export default function PersonMap() {
   const [pmtRows, setPmtRows] = useState<PmtRow[]>([])
   const [pmtMeta, setPmtMeta] = useState<PmtResp['meta'] | null>(null)
 
-  /* ---------- 取数 ---------- */
-  const load = useCallback(() => {
-    setLoading(true)
-    setError('')
+  /* ---------- 取数 ----------
+     silent=true 供**原地自动刷新**用（App.tsx 的 AR_INPLACE_REFRESH_PAGES → 派发
+     document 事件 'myapp-refresh'）。三条差异缺一不可，否则「静默」就是空话：
+       · 不 setLoading(true) —— loading 会渲染盖住地图的 <Spin> 遮罩，那正是用户
+         反馈「刷新太刺眼」的观感来源（重挂载式刷新还会连带重建 Leaflet 地图）；
+       · 失败时**保留旧 stats**、不清 error 条 —— 拿不到新数据就继续显示上一次的结果，
+         而不是把整张地图清空（AGENTS.md 三.6：取不到显示 —，但这里连"—"都不该出现，
+         旧值仍是已知的正确值）；
+       · 不动 selectedKey / 取景 —— 只换数据。 */
+  const load = useCallback((silent = false) => {
+    if (!silent) { setLoading(true); setError('') }
     api.get('/gis/personnel/stats', { params: { days: WINDOW_DAYS } })
       .then(res => setStats(res.data))
       .catch(err => {
         console.error('[PersonMap] stats failed:', err?.response?.status, err?.response?.data || err)
-        setStats(null)
-        setError(err?.response?.data?.detail || err?.message || String(err))
+        if (!silent) {
+          setStats(null)
+          setError(err?.response?.data?.detail || err?.message || String(err))
+        }
       })
-      .finally(() => setLoading(false))
+      .finally(() => { if (!silent) setLoading(false) })
   }, [])
 
   useEffect(() => { load() }, [load])
+
+  /* 自动刷新到点时**原地重拉**，不重挂载整页（画面不闪、地图不重建、不飞回全国视角）。
+     只重拉 stats：县界与站点类别是慢变量、各自走 cachedGet；选中人的站点由下方
+     selectedKey 的 effect 管，不该被定时器打断。 */
+  useEffect(() => {
+    const onInplaceRefresh = () => { load(true) }
+    document.addEventListener('myapp-refresh', onInplaceRefresh)
+    return () => document.removeEventListener('myapp-refresh', onInplaceRefresh)
+  }, [load])
 
   /* 选中人员 → 拉其站点。
      ⚠️ 2026-10-19 修：**mapOnly 下同样要拉**。mapOnly 只是隐藏页面外围（筛选条 /
@@ -262,8 +280,12 @@ export default function PersonMap() {
   const kpi = useMemo(() => {
     const sum = (k: 'open' | 'uncleared' | 'total') => rows.reduce((s, r) => s + (r[k] || 0), 0)
     return {
-      peopleWithCoords: stats?.coverage.with_coords ?? 0,
-      totalAll: stats?.coverage.total_all ?? 0,
+      // KPI 走 FE 人群口径（`person.isfe = Yes`）：分母 = FE 人数，
+      // 分子 = 其中经纬度有效的人数。2026-10-29 用户确认。
+      // 不用 with_coords/total_all —— 那一对是全表口径（地图针数/表行数），
+      // 拿来当分母会把「有坐标但不属于 FE 的 3 人」算进分子，比率不成立。
+      peopleWithCoords: stats?.coverage.fe_with_coords ?? 0,
+      totalAll: stats?.coverage.fe_total ?? 0,
       // 站点数：选中时用其站点数，否则用全量人员涉及站点去重（由 stats 的 by_county 无此口径，
       // 故这里用选中态站点数或「—」—— 不臆造数字）
       siteCount: selectedKey ? sites.length : null,
@@ -500,7 +522,9 @@ export default function PersonMap() {
           onChange={e => setKeyword(e.target.value)}
           style={{ width: 240 }}
         />
-        <Button icon={<ReloadOutlined />} onClick={load}>{t('person.refresh')}</Button>
+        {/* 必须包一层：`onClick={load}` 会把 MouseEvent 当成 `silent` 传进去
+            （事件对象恒为真值）→ 手动刷新反而不再显示 loading、失败也不弹错误条。 */}
+        <Button icon={<ReloadOutlined />} onClick={() => load()}>{t('person.refresh')}</Button>
         <Button icon={<DownloadOutlined />} onClick={exportAll} disabled={!rows.length}>
           {t('common.exportExcel')}
         </Button>

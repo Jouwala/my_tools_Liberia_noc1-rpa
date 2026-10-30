@@ -126,9 +126,11 @@ export default function VmaxCcaCards({
     return <Text style={{ fontSize: 12, color }}>{text}</Text>
   }
 
+  // 全列固定宽 + scroll.x=列宽总和：宽屏上富余宽度按列宽比例分摊。
+  // cellname 若不设宽会独吞全部剩余空间（其余 10 列都有 width），宽屏上撑得离谱。
   const cellColumns = [
     { title: t('vmaxq.field.cellname'), dataIndex: 'cellname', render: fmt,
-      ellipsis: true },
+      width: 220, ellipsis: true },
     { title: t('vmaxq.field.vendor'), dataIndex: 'vendor', render: fmt, width: 80 },
     { title: t('vmaxq.field.pci'), dataIndex: 'pci', render: fmt, width: 70 },
     { title: t('vmaxq.field.earfcn'), dataIndex: 'earfcn', render: fmt, width: 90 },
@@ -240,7 +242,7 @@ export default function VmaxCcaCards({
                 dataSource={result.cells.cells}
                 pagination={{ pageSize: 10, showSizeChanger: true }}
                 size="small"
-                scroll={{ x: 1060 }}
+                scroll={{ x: 1195 }}
               />
             </>
           ) : (

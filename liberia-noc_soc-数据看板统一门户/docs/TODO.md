@@ -118,6 +118,37 @@
 - [ ] **`/v1/olbrportal/` 死规则去留（2026-09-30 登记）。** `v1/olbrportal/assets/olbr.css` 里有一批「v1 无命中、但为与 `/olbrportal/`(v0) 保持类名对照而保留」的规则：等级徽章 `.qc-lv-*`/`.qc-lvchip`、`.qc-ico`、`.qc-card--lg/--sm`、L0/L1 的 `.stage`/`.vcol`/`.l0-col`/`.view-1`/`.tabs-v`/`.tabv`/`.subs-v`/`.subv`、旧抽屉 `.drawer`/`.dr-*`/`.scrim`（完整清单见 `olbr.css` 头部「无命中规则清单」）。
       **阻塞**：v0 侧仍在用同名类（其 `renderViews()` 会调 `subLocatorHtml`/`subManageHtml` 画 `.subs-v`/`.subv`）。**验收**：先确认两门户**不再需要**类名对照，才整块删除；删除属「改结构」，需单独评审。
 
+- [ ] **团队门户的矩阵与上游同步（2026-10-29 登记）。** 五个团队门户（`/v3/{fo,bo,flm,smc,cxo}_portal/`）
+      共用 `v3/team_portal/`，其可见性来自《新看板设计.xlsx》，但有两处**会漂移**：
+      ① `assets/olbr.js` 是 `scripts/patch_team_portal.py` 从上游 `v3/olbrportal/assets/olbr.js`
+      打钩子生成的 —— **上游改了必须重跑 patch 脚本**，否则钩子位置失配（脚本会报错退出，不会静默漏改）；
+      ② `assets/olbr-data.js` 是上游的一份**拷贝**（QC 阈值 / KPI 规格 / i18n 字典）——
+      上游调阈值后需同步。
+      **验收**：`python scripts/patch_team_portal.py --check` 退出码为 0；
+      `git diff v3/olbrportal/assets/olbr-data.js` 与 `v3/team_portal/assets/olbr-data.js` 无实质差异。
+
+- [ ] **团队门户的 Auto Report 表是门户侧渲染（2026-10-29 登记）。**
+      `v3/team_portal/assets/team-panels.js` 自己拉 `/api/email-reports/latest?limit=1` 并按矩阵过滤，
+      **不是**内嵌 my_app 的 `email_reports` 页（那个页面渲染全部 14 个源，无法按 `source_id` 过滤）。
+      后续若 my_app 侧报告源增减或字段改名，需同步 `team-panels.js` 的字段映射。
+      **验收**：FO/BO/FLM 三门户的报告行数与 Excel 勾选数一致（10 / 3 / 8）。
+
+- [ ] **团队归属映射有两份字面量（2026-10-29 登记）。** 团队 id → 门户路径的映射在两处：
+      后端 `server/auth/types.ts` 的 `TEAM_PORTAL_PATHS`（唯一真相源）与纯静态脚本
+      `v3/team-gate.js` 的 `TEAM_PORTAL`（该脚本不能 import 后端模块，只能内联一份）。
+      **改一处必须改另一处** —— 否则登录后跳到错误的团队门户（或跳到不存在的路径）。
+      **验收**：两端五个团队的路径逐字相同；端到端脚本覆盖五组「登录 → 302 → 落地路径」。
+
+- [ ] **团队门户的访问控制依赖 nginx 配置，不在版本库里（2026-10-29 登记）。**
+      五个 `location /v3/{fo,bo,flm,smc,cxo}_portal/` 的 `auth_request` 闸门、
+      `/v3/olbrportal/` 的 `sub_filter` 注入、以及 `@team_unauthorized` / `@team_forbidden`
+      两个 named location，**全部只存在于 `D:\01_RPA\nginx-1.28.0\conf\nginx.conf`**
+      （该目录已 `.gitignore`，是运行时依赖不是源码）。故这台机器重建 nginx 时
+      这些闸门会**静默丢失**（团队门户变成任何人都能进的静态页）。
+      **验收**：重装/迁移 nginx 后，按 `docs/architecture.md`「九之十七」节核对
+      `auth_request /uniplam/api/auth/team-gate/<team>` 与 `sub_filter` 两条都在。
+
+
 - [ ] **v1 顶栏 rem 的路线选择（2026-09-30 登记）。** `v1/olbrportal/assets/masthead.css` 全用 `rem`，但 v1 不加载 `portal.js`（根字号缩放逻辑在 `MsPortal/assets/portal.js:1167`），故 rem 在 v1 **等效 px**。两条路二选一：① 在 `olbr.js` 落地字号缩放（照抄 portal.js 系数）让 rem 真正生效；② 把顶栏 rem 全量换算回 px（视觉不变，但放弃缩放可能性）。**当前保持 rem 不动**（文件头已注明真相）。**验收**：选定一条后同步更新 `masthead.css` 头部注释。
 
 ## 五、待定 —— 需决策

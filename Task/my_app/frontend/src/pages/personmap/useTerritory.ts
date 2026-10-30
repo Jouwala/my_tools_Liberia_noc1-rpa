@@ -84,16 +84,15 @@ export function useTerritory({ people, allPeople }: {
       `</div>`
   }, [t])
 
-  /* 实际画针的人员集合：
-     · 关（默认）= `people`（person 表登记坐标）；
-     · 开 = 辖区人员（针在质心，含**无登记坐标**的人 —— 这类人平时根本不上图）
-       + 有登记坐标但不在 fme_name 里的人（supervisor 等，保留原位、无连线）。
-     统计（WO/PMT）从 `allPeople` 按 name_key 联合；联合不到的标 stats_unknown，
-     徽标显示 `—`（不冒充 0，AGENTS.md 三.6）。 */
-  const pinPersons = useMemo<PersonRow[]>(() => {
-    if (!showTerritory || !territory?.length) return people
-    const terrKeys = new Set(territory.map(tp => tp.name_key))
-    const merged: PersonRow[] = territory.map(tp => {
+  /* 辖区人员针：24 个 FME，针在**其站点的几何中心**（不是 person 表的登记坐标），
+     含**无登记坐标**的人 —— 这类人平时根本不上图。统计（WO/PMT）从 `allPeople`
+     按 name_key 联合；联合不到的标 stats_unknown，徽标显示 `—`（不冒充 0，AGENTS.md 三.6）。
+     单独成一个集合（不只服务 pinPersons）：2026-10-29 用户要求「显示 Default Site 时，
+     中心要有人员图标 + 站点数 + 电话，跟 People 一样的标签」—— 即中心标签属于**辖区层**，
+     「人员」开关关掉时它仍要显示，而此时那些无辖区连线的人不该跟着冒出来。 */
+  const territoryPins = useMemo<PersonRow[]>(() => {
+    if (!territory?.length) return []
+    return territory.map(tp => {
       const row = allPeople.find(r => r.name_key === tp.name_key)
       if (row) {
         return {
@@ -113,12 +112,20 @@ export function useTerritory({ people, allPeople }: {
         stats_unknown: true,
       }
     })
-    merged.push(...people.filter(p => !terrKeys.has(p.name_key)))
-    return merged
-  }, [showTerritory, territory, people, allPeople])
+  }, [territory, allPeople])
+
+  /* 「人员」开关打开时实际画针的集合：
+     · 辖区关（默认）= `people`（person 表登记坐标）；
+     · 辖区开 = 辖区人员（针在质心）+ 有登记坐标但不在 fme_name 里的人
+       （supervisor 等，保留原位、无连线）。 */
+  const pinPersons = useMemo<PersonRow[]>(() => {
+    if (!showTerritory || !territoryPins.length) return people
+    const terrKeys = new Set((territory || []).map(tp => tp.name_key))
+    return [...territoryPins, ...people.filter(p => !terrKeys.has(p.name_key))]
+  }, [showTerritory, territory, territoryPins, people])
 
   return {
     showTerritory, setShowTerritory, territory, terrLoading,
-    terrColorOf, terrSiteOwners, territorySiteTip, pinPersons,
+    terrColorOf, terrSiteOwners, territorySiteTip, pinPersons, territoryPins,
   }
 }

@@ -14,6 +14,7 @@ import {
   toPublicRequest,
   sanitizeLanding,
   sanitizeNames,
+  sanitizeTeam,
   type PageProfilePatch,
   type PublicRequest,
   type PublicUser,
@@ -168,26 +169,32 @@ export class AuthStore {
     return toPublic(user);
   }
 
-  /**
-   * 更新账号的「页面配置」（落地页 + 可见范围白名单）。
-   * 只处理显式传入的字段：缺省 = 不改；显式传 null = 清除该维度限制。
-   */
-  setProfile(id: string, patch: PageProfilePatch): PublicUser | null {
-    this.ensureLoaded();
-    const user = this.users.find((u) => u.id === id);
-    if (!user) return null;
-    if (patch.landing !== undefined) {
-      user.landing = patch.landing ? sanitizeLanding(patch.landing) : undefined;
-    }
-    if (patch.allowedGroups !== undefined) {
-      user.allowedGroups = patch.allowedGroups === null ? null : sanitizeNames(patch.allowedGroups);
-    }
-    if (patch.allowedCards !== undefined) {
-      user.allowedCards = patch.allowedCards === null ? null : sanitizeNames(patch.allowedCards);
-    }
-    this.persist();
-    return toPublic(user);
+/**
+ * 更新账号的「页面配置」（落地页 + 可见范围白名单 + 团队归属）。
+ * 只处理显式传入的字段：缺省 = 不改；显式传 null = 清除该维度限制。
+ */
+setProfile(id: string, patch: PageProfilePatch): PublicUser | null {
+  this.ensureLoaded();
+  const user = this.users.find((u) => u.id === id);
+  if (!user) return null;
+  if (patch.landing !== undefined) {
+    user.landing = patch.landing ? sanitizeLanding(patch.landing) : undefined;
   }
+  if (patch.allowedGroups !== undefined) {
+    user.allowedGroups = patch.allowedGroups === null ? null : sanitizeNames(patch.allowedGroups);
+  }
+  if (patch.allowedCards !== undefined) {
+    user.allowedCards = patch.allowedCards === null ? null : sanitizeNames(patch.allowedCards);
+  }
+  // team：显式传 null = 清除团队归属（回到「不跳转」）；传合法 id = 指派。
+  // ⚠️ 传认不得的值一律当成「未指派」，不静默保留旧值 —— 避免管理员
+  //   以为自己改成功了、实际账号还留在旧团队里（那正是权限事故）。
+  if (patch.team !== undefined) {
+    user.team = patch.team === null ? null : (sanitizeTeam(patch.team) ?? null);
+  }
+  this.persist();
+  return toPublic(user);
+}
 
   /**
    * 分组改名/删除后迁移各账号白名单里的旧组名（跨文件一致性）。
