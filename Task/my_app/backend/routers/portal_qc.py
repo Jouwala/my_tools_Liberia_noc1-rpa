@@ -94,7 +94,7 @@ from backend.services.sp_common import (  # noqa: E402  （放在常量区，imp
 # 额外「不算未关闭」的在途状态（2026-09-20 按需求加）：WaitingForUpdate 是**尚未生效**
 # 的单（申请人还没提交更新，属在途态，见 sp_online_sync.STATUS_ALL），不是真正待处理的
 # 出入库任务 —— 所以既不计入 SPMS 大数字，也不出现在下钻明细里。
-# 与报表侧同一口径：sp_report_gen.gernarate_sp_report.OUTBOUND_DROP_STATUS 与
+# 与报表侧同一口径：sp_report_gen.gernarate_sp_report.DETAIL_DROP_STATUS 与
 # sp_report_gen.generate_sp_online_report.EXCLUDED_STATUS 生成报表前也都剔除它。
 # 只影响本面板：get_sp_table._status_breakdown 的 closed 口径不动（那边是仓库看板的
 # 「已关闭/未关闭」拆分，语义不同，不能顺手改）。

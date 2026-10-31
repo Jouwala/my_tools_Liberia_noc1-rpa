@@ -27,8 +27,8 @@
 ## 口径（全项目唯一）
 
 - **已关闭**：`Status` 归一化（去空白 + 小写）后命中 :data:`CLOSED_WORDS`。
-- **不计入在途**：命中 :data:`IGNORED_WORDS`（`WaitingForUpdate` 是尚未生效的
-  出库单，申请人还没提交更新，不是真正待处理的任务）。
+- **不计入在途**：命中 :data:`IGNORED_WORDS`（`WaitingForUpdate` 是尚未生效的单据，
+  申请人还没提交更新，不是真正待处理的任务）。
 - **未关闭单** = `Status` 非空、且不属于上面两组。
 - **粒度** = 按单据号去重：`Inbound No.` / `Outbound No.`。同一张单的多条物料
   行算 1 张单。这是本模块与旧实现**行为不同**的地方 —— 旧实现数行。
@@ -63,10 +63,11 @@ SP_CLOSED_WORDS = (
     "closed", "close", "done", "已关闭", "完成", "yes", "y", "1", "true",
 )
 
-#: 「不算未关闭」的在途状态。WaitingForUpdate = 尚未生效的出库单
+#: 「不算未关闭」的在途状态。WaitingForUpdate = 尚未生效的单据
 #: （申请人还没提交更新，见 sp_online_sync.STATUS_ALL），不是真正待处理的任务。
-#: 与 sp_report_gen.gernarate_sp_report.OUTBOUND_DROP_STATUS、
-#: sp_report_gen.generate_sp_online_report.EXCLUDED_STATUS 生成报表前也都剔除它。
+#: 与 sp_report_gen.gernarate_sp_report.DETAIL_DROP_STATUS（入库/出库明细生成报表前
+#: 也都剔除它，2026-10-31 起入库侧一并剔除）、
+#: sp_report_gen.generate_sp_online_report.EXCLUDED_STATUS 同一份口径。
 SP_IGNORED_WORDS = ("waitingforupdate",)
 
 #: 判据全集：不在这个集合里 = 未关闭。

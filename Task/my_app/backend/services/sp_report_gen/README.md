@@ -62,7 +62,7 @@ EWS 发送邮件（owa_mail_report.py）
 |------|------|------|------|
 | Step 1.5 | `snapshot_raw_details()` | 下载后、任何过滤之前把 5 份明细原样复制成 `*_details_source.xlsx`（固定名，每次覆盖）；复制失败只告警，下游回退读过滤后的明细 | ➕ 新文件 |
 | Step 2.1 | `apply_exclude_to_details()` | 按 `data\sp_email\data\in&out_exclude.xlsx`（sheet `3_剔除单据Serial明细`）剔除指定单据行，分入库/出库两组 | ✅ |
-| Step 2.2 | `apply_status_filters()` | 出库明细剔除 `Status='WaitingForUpdate'`（`OUTBOUND_DROP_STATUS`）。⚠️ 这是**共享明细**过滤，影响 SpareParts/Consumables 与看板；SP Online 报表的 Outbound 支路已于 2026-09-30 改读库表，**不再受它影响**，故不必改动此处 | ✅ |
+| Step 2.2 | `apply_status_filters()` | 入库 **与** 出库明细剔除 `Status='WaitingForUpdate'`（`DETAIL_DROP_STATUS`；入库侧 2026-10-31 加，此前只剔除出库）。⚠️ 这是**共享明细**过滤，影响 SpareParts/Consumables 报表、`com_report` / `sp_report` / `warehouse_summary` 页面与 `sp_online` 的 Inbound 支路；SP Online 报表的 Outbound 支路已于 2026-09-30 改读库表，**不再受它影响**，故不必改动此处 | ✅ |
 | Step 2.3 | `apply_operation_result_filter()` | 入库/出库明细剔除 `Operation Result Status='Canceled'`（`OP_RESULT_DROP_STATUS`） | ✅ |
 | Step 2.4 | `apply_operation_result_filter_to_file()` | 转仓明细（transfer / transfer_return）剔除 `Operation Result Status='Canceled'` | ✅ |
 | Step 2.5 | `apply_inventory_fields()` | 覆盖明细的 **Material Name**（取数据库表 `sp_material`，回退 inventory）与 **Material Type**（取 inventory） | ✅ |
@@ -107,7 +107,7 @@ EWS 发送邮件（owa_mail_report.py）
 
 `sp_email_details`（05:55）合并 **5 份** `*_details_source.xlsx` 原始快照
 （inventory / inband / outband / transfer / transfer_return），**不经过任何过滤** ——
-含 `Operation Result Status=Canceled`、出库 `Status=WaitingForUpdate` 与
+含 `Operation Result Status=Canceled`、入库/出库 `Status=WaitingForUpdate` 与
 `in&out_exclude.xlsx` 手工剔除名单里的行，与 SFTP 上游逐行一致。
 2026-09-22 起生效（此前合并的是 Step 2.x 处理过的 `*_details.xlsx`）。
 `*_source.xlsx` 缺失时逐份回退到过滤后的明细，并在任务 message / 页面 warnings 里注明。
@@ -120,6 +120,13 @@ SpareParts/Comsumables 报表走的是**另一条**：过滤后的 `*_details.xl
 （WaitingForUpdate 45 + Canceled 26，名单 6 条含在 Canceled 内）。
 Inventory / Transfer 两份行数不变（原始即无 Canceled）。
 
+> 2026-10-31 起入库侧也剔除 `WaitingForUpdate`。当天实测：入库原始 4659 行里有
+> **81 行 WaitingForUpdate**，全部属于同一张单 `SPIB202610300002`（`New Inbound`、
+> 全为 Consumables、Monrovia Entrusted Spare Parts Warehouse、11 种物料、Inbound Qty 合计 81）。
+> 剔除后合并总表：Inbound sheet 1835 → 1754 行、未关闭单数 111 → 110 张、
+> Summary-Current `Total` 的 Inbound Qty 16343 → 16262（正好 −81）。
+> 出库侧当天为 0 行（上游 `sp/outbound` 导出根本不产这个状态，见下文「为什么 Outbound 改读库表」）。
+
 `Transfer Return` 是**可选** sheet：源文件缺失时只告警并跳过（其余 4 份缺失仍报错，
 避免静默发出残缺报表）。2026-09 上游的 `wh_transfer_return.xlsx` 一直是空表（0 行）。
 
@@ -129,7 +136,7 @@ Inventory / Transfer 两份行数不变（原始即无 Canceled）。
 |------|---------|----------|-----------|
 | 下载原始 | 4015 | 2021 | 2094 |
 | 剔除（in&out_exclude） | -299 → 3716 | -6 → 2015 | — |
-| 剔除 WaitingForUpdate | — | -66 → 1949 | — |
+| 剔除 WaitingForUpdate | —（入库侧 2026-10-31 起同样剔除） | -66 → 1949 | — |
 | 排除仓库（仅报表） | -26 → 3690 | -26 → 1923 | -1 → 2093 |
 | Material Type=SpareParts（仅报表） | -1628 → **2062** | -1058 → **865** | -896 → **1197** |
 
@@ -223,10 +230,10 @@ Inventory / Transfer 两份行数不变（原始即无 Canceled）。
 
 | sheet | 说明行内容 |
 |-------|-----------|
-| Inbound | `Material Type = <类型>` + `Warehouse Name ≠ 'Liberia Monrovia material warehouse'` + `Excluded orders: in&out_exclude.xlsx [sheet 3: excluded order serial details]` + `Operation Result Status ≠ 'Canceled'` |
-| Outbound | 同 Inbound，末尾再加 `Status ≠ 'WaitingForUpdate'` |
+| Inbound | `Material Type = <类型>` + `Warehouse Name ≠ 'Liberia Monrovia material warehouse'` + `Excluded orders: in&out_exclude.xlsx [sheet 3: excluded order serial details]` + `Operation Result Status ≠ 'Canceled'` + `Status ≠ 'WaitingForUpdate'` |
+| Outbound | 同 Inbound（两支说明行逐字一致，2026-10-31 起入库侧也剔除 `Status ≠ 'WaitingForUpdate'`） |
 | Inventory | `Material Type = <类型>` + `Warehouse Name ≠ 'Liberia Monrovia material warehouse'` |
-| Summary-Current / Summary-Changed | `Material Type = <类型>` + 排除仓库 + `same exclusions as the Inbound / Outbound / Inventory sheets` |
+| Summary-Current / Summary-Changed | `Material Type = <类型>` + 排除仓库 + `same exclusions as the Inbound / Outbound / Inventory sheets` + `Status ≠ 'WaitingForUpdate'`（后一条 2026-10-31 起显式写出：页面的「口径说明」面板取的就是 Summary-Current 这几行说明，只写「same exclusions」页面上看不到入库/出库剔除条件） |
 
 分仓报表在说明行里额外带 `Warehouse Name = '<仓库名>'`。
 

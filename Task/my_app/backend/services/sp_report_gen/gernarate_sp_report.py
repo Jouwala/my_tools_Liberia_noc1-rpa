@@ -5,7 +5,7 @@ Inbound&Outbound&Inventory Excel files with Summary images.
 
 Pipeline:
   sftp_download() → load_data() → apply_exclude_to_details()（按 in&out_exclude.xlsx
-  剔除指定单据行并写回明细）→ apply_status_filters()（出库剔除 Status=WaitingForUpdate）
+  剔除指定单据行并写回明细）→ apply_status_filters()（入库/出库均剔除 Status=WaitingForUpdate）
   → apply_inventory_fields()（用 inventory 的 Material Name / Material Type 覆盖明细并写回）
   → preprocess() → build_lookup() → fill_missing()
   → generate_report() (Excel + Summary PNG image)
@@ -745,14 +745,20 @@ def snapshot_raw_details():
 
 
 # ==============================================================================
-# status filter - 出库明细剔除 Status='WaitingForUpdate'
+# status filter - 入库 / 出库明细剔除 Status='WaitingForUpdate'
 # ==============================================================================
-# 从 SFTP 取回的 outband 明细里，WaitingForUpdate 是尚未生效的出库单，生成报表前剔除
-OUTBOUND_DROP_STATUS = ('WaitingForUpdate',)
+# 从 SFTP 取回的明细里，WaitingForUpdate 是**尚未生效**的单据（申请人还没提交更新，
+# 入/出库动作实际没有发生），生成报表前剔除。
+# 2026-10-31 起入库同样剔除：实测 inbound 有 81 行 WaitingForUpdate（同一张
+# New Inbound 单、全为 Consumables），此前只有出库剔除，入库侧把这些未生效单
+# 当成已入库计进了 Inbound Qty 与 Summary-Current。
+# 词表与 backend/services/sp_common.SP_IGNORED_WORDS（未关闭单口径）、
+# generate_sp_online_report.EXCLUDED_STATUS 保持一致。
+DETAIL_DROP_STATUS = ('WaitingForUpdate',)
 
 
-def drop_outbound_status(df, statuses=OUTBOUND_DROP_STATUS):
-    """剔除出库明细中 Status 命中 statuses 的行，返回 (新 df, 剔除行数)。"""
+def drop_detail_status(df, statuses=DETAIL_DROP_STATUS):
+    """剔除 Status 命中 statuses 的行，返回 (新 df, 剔除行数)。"""
     if df is None or df.empty or 'Status' not in df.columns:
         return df, 0
     targets = {str(s).strip().casefold() for s in statuses}
@@ -764,16 +770,31 @@ def drop_outbound_status(df, statuses=OUTBOUND_DROP_STATUS):
 
 
 def apply_status_filters(inb, outb):
-    """出库明细剔除 WaitingForUpdate 并写回保存。返回 (inb, outb, stats)。"""
-    new_outb, n = drop_outbound_status(outb)
-    if n == 0:
+    """入库 / 出库明细剔除 WaitingForUpdate 并写回保存。返回 (inb, outb, stats)。"""
+    new_inb, n_in = drop_detail_status(inb)
+    if n_in:
+        print(f'[Status] inbound: 剔除 Status={DETAIL_DROP_STATUS[0]} {n_in} 行，'
+              f'{len(inb)} -> {len(new_inb)} 行')
+        if not _save_detail_xlsx(new_inb, INB_PATH):
+            print('[Status][WARN] inbound: 写回失败，下游任务将使用未过滤的旧文件')
+    else:
+        print('[Status] inbound: 无 WaitingForUpdate 行，保持原样')
+
+    new_outb, n_out = drop_detail_status(outb)
+    if n_out:
+        print(f'[Status] outbound: 剔除 Status={DETAIL_DROP_STATUS[0]} {n_out} 行，'
+              f'{len(outb)} -> {len(new_outb)} 行')
+        if not _save_detail_xlsx(new_outb, OUTB_PATH):
+            print('[Status][WARN] outbound: 写回失败，下游任务将使用未过滤的旧文件')
+    else:
         print('[Status] outbound: 无 WaitingForUpdate 行，保持原样')
-        return inb, outb, {}
-    print(f'[Status] outbound: 剔除 Status=WaitingForUpdate {n} 行，'
-          f'{len(outb)} -> {len(new_outb)} 行')
-    if not _save_detail_xlsx(new_outb, OUTB_PATH):
-        print('[Status][WARN] outbound: 写回失败，下游任务将使用未过滤的旧文件')
-    return inb, new_outb, {'outbound': n}
+
+    stats = {}
+    if n_in:
+        stats['inbound'] = n_in
+    if n_out:
+        stats['outbound'] = n_out
+    return new_inb, new_outb, stats
 
 
 # ==============================================================================
@@ -2200,10 +2221,12 @@ def _build_filter_note(kind, material_type, warehouse_name=''):
     if kind in ('inbound', 'outbound'):
         parts.append('Excluded orders: in&out_exclude.xlsx [sheet 3: excluded order serial details]')
         parts.append(f"Operation Result Status \u2260 '{OP_RESULT_DROP_STATUS[0]}'")
-    if kind == 'outbound':
-        parts.append(f"Status \u2260 '{OUTBOUND_DROP_STATUS[0]}'")
+        parts.append(f"Status \u2260 '{DETAIL_DROP_STATUS[0]}'")
     if kind == 'summary':
         parts.append('same exclusions as the Inbound / Outbound / Inventory sheets')
+        # 页面的「口径说明」面板取的是 Summary-Current 的说明行（见 sp_report_service
+        # 的 notes），所以入库/出库都剔除的这条单独写出，不让它只藏在「same exclusions」里。
+        parts.append(f"Status \u2260 '{DETAIL_DROP_STATUS[0]}'")
     return 'Filters:  ' + '  |  '.join(parts)
 
 
@@ -2390,7 +2413,7 @@ def main():
     inb, outb, _excl_stats = apply_exclude_to_details(inb, outb)
     print(f'After exclude list: inbound: {len(inb)}, outbound: {len(outb)}')
 
-    # Step 2.2: 出库明细剔除 Status='WaitingForUpdate'，并写回保存
+    # Step 2.2: 入库/出库明细剔除 Status='WaitingForUpdate'，并写回保存
     inb, outb, _status_stats = apply_status_filters(inb, outb)
 
     # Step 2.3: 入库/出库明细剔除 Operation Result Status='Canceled'，并写回保存
@@ -2456,7 +2479,8 @@ def main():
         print(f'[Exclude] 汇总: inbound 剔除 {_excl_stats.get("inbound", 0)} 行, '
               f'outbound 剔除 {_excl_stats.get("outbound", 0)} 行')
     if _status_stats:
-        print(f'[Status] 汇总: outbound 剔除 WaitingForUpdate {_status_stats.get("outbound", 0)} 行')
+        print(f'[Status] 汇总: inbound 剔除 WaitingForUpdate {_status_stats.get("inbound", 0)} 行, '
+              f'outbound 剔除 WaitingForUpdate {_status_stats.get("outbound", 0)} 行')
     if _matname_stats:
         print(f'[MatSync] 汇总: inbound 覆盖 {_matname_stats.get("inbound", 0)} 行, '
               f'outbound 覆盖 {_matname_stats.get("outbound", 0)} 行')
