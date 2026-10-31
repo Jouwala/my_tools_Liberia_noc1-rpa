@@ -1,8 +1,12 @@
-import type { IncomingMessage, ServerResponse } from 'node:http';
+﻿import type { IncomingMessage, ServerResponse } from 'node:http';
+import path from 'node:path';
+import { createRequire } from 'node:module';
 import type { Plugin } from 'vite';
 import { getAuthSwitch, setAuthEnabled } from '../authSwitch';
 import { AuthStore } from './store';
 import { resolveCaller, isRealAdmin, DEV_ADMIN, DEV_TOKEN } from './guard';
+import { TeamScopeStore, sanitizeMatrix, type TeamScopeMatrix } from '../teamScopeDb';
+import type { SqliteModuleLike } from '../authDb';
 import {
   MIN_PASSWORD_LENGTH,
   SESSION_TTL_MS,
@@ -19,6 +23,7 @@ import {
   toPublic,
   type PageProfilePatch,
   type Role,
+  type TeamId,
 } from './types';
 
 // ============================================================================
@@ -55,6 +60,40 @@ export function clientIp(req: IncomingMessage): string {
     if (first) return first;
   }
   return socketIp;
+}
+
+/**
+ * 把矩阵按某个团队过滤：只保留该团队勾了的项。
+ *
+ * 传给门户时**必须**先过滤 —— 门户不该知道别的团队勾了什么：
+ *   · 那是信息泄露（团队 A 能从浏览器 devtools 里看到团队 B 的可见范围）；
+ *   · 前端也不需要那份数据（它只需要「我能不能看这一项」）。
+ *
+ * ⚠️ 未登录 / 无团队归属 → 返回**空矩阵**（什么都不显示）。
+ *   这与 team-gate.js 的 fail-closed 语义一致：没有团队身份就没有可见范围。
+ */
+export function filterMatrixByTeam(
+  matrix: TeamScopeMatrix,
+  team: TeamId | null
+): TeamScopeMatrix {
+  const out: TeamScopeMatrix = {};
+  if (!team) return out;
+  for (const [domKey, subs] of Object.entries(matrix ?? {})) {
+    const domOut: Record<string, TeamId[]> = {};
+    for (const [subKey, teams] of Object.entries(subs ?? {})) {
+      if (Array.isArray(teams) && teams.includes(team)) domOut[subKey] = [team];
+    }
+    out[domKey] = domOut;
+  }
+  return out;
+}
+
+/** 清洗外部传入的矩阵（认不得的域/项/团队一律丢弃） */
+export function sanitizeTeamMatrix(
+  input: unknown,
+  template: ReturnType<TeamScopeStore['getTemplate']>
+): TeamScopeMatrix {
+  return sanitizeMatrix(input, template);
 }
 
 async function handleAuthRoute(store: AuthStore, req: IncomingMessage, res: ServerResponse) {
@@ -376,6 +415,74 @@ async function handleAuthRoute(store: AuthStore, req: IncomingMessage, res: Serv
       return;
     }
 
+    /* ------------------------------------------------------ 团队可见性矩阵 --
+     * 三个端点：
+     *   GET  /team-scope       —— 门户运行时用：当前矩阵（按需团队过滤）
+     *   GET  /team-scope/admin —— 管理界面用：完整矩阵 + 目录 + 元信息
+     *   POST /team-scope       —— 管理界面用：保存矩阵（仅管理员）
+     *
+     * ⚠️ 为什么 GET /team-scope 在**登录闸门之后**：
+     *   团队门户的页面本身是公开入口（未登录也能看到登录框），
+     *   但它渲染出来之后要按团队过滤 —— 而「我是哪个团队」这件事
+     *   必须靠**登录态**才能知道。未登录就没有团队身份，
+     *   拿到的矩阵按「哪个团队都不属于」过滤 → 什么都不显示。
+     *   这与 team-gate.js 的语义一致（没团队身份 = 什么都看不到）。
+     *
+     * ⚠️ 返回给门户的是**已经按调用者团队过滤好**的矩阵：
+     *   门户不该（也不需要）知道别的团队勾了什么 ——
+     *   那既是信息泄露，也让前端的过滤逻辑多一份不必要的数据。 */
+    if (method === 'GET' && url === '/team-scope') {
+      const scopeStore = getTeamScopeStore();
+      const matrix = scopeStore.load();
+      const team = caller?.team ?? null;
+      sendJson(res, 200, {
+        team,
+        matrix: filterMatrixByTeam(matrix, team),
+      });
+      return;
+    }
+
+    if (method === 'GET' && url === '/team-scope/admin') {
+      if (caller.role !== 'admin') {
+        sendJson(res, 403, { detail: 'admin role required' });
+        return;
+      }
+      const scopeStore = getTeamScopeStore();
+      const template = scopeStore.getTemplate();
+      sendJson(res, 200, {
+        matrix: scopeStore.load(),
+        domains: template?.domains ?? [],
+        items: template?.items ?? {},
+        info: scopeStore.info(),
+      });
+      return;
+    }
+
+    if (method === 'POST' && url === '/team-scope') {
+      if (caller.role !== 'admin') {
+        sendJson(res, 403, { detail: 'admin role required' });
+        return;
+      }
+      let body: Record<string, unknown>;
+      try {
+        body = await readJsonBody(req);
+      } catch {
+        sendJson(res, 400, { detail: 'invalid JSON payload' });
+        return;
+      }
+      const scopeStore = getTeamScopeStore();
+      const clean = sanitizeTeamMatrix(body.matrix, scopeStore.getTemplate());
+      if (!scopeStore.save(clean, caller.username)) {
+        sendJson(res, 500, { detail: '保存团队可见性矩阵失败（详见服务端日志）' });
+        return;
+      }
+      console.warn(
+        `[team-scope] 管理员 ${caller.username} 更新了团队可见性矩阵（${caller.username}）`
+      );
+      sendJson(res, 200, { ok: true, matrix: clean, info: scopeStore.info() });
+      return;
+    }
+
     if (method === 'POST' && url === '/change-password') {
       const body = await readJsonBody(req);
       const currentPassword = String(body.currentPassword || '');
@@ -553,6 +660,47 @@ async function handleAuthRoute(store: AuthStore, req: IncomingMessage, res: Serv
     sendJson(res, 404, { detail: 'not found' });
   } catch (e) {
     sendJson(res, 400, { detail: `bad request: ${String(e)}` });
+  }
+}
+
+/**
+ * 团队可见性矩阵的存储实例（进程内单例）。
+ *
+ * ⚠️ 数据目录必须与账号数据**同一个目录**（auth-data/）——
+ *   矩阵存进同一个 SQLite 库（team_scope 表），这样账号与矩阵一起备份/恢复，
+ *   不会出现「账号在一个库、矩阵在另一个库」的半配置状态。
+ *
+ * 目录来源与 vite.config.ts 的 AUTH_DATA_DIR 保持一致：
+ *   PORTAL_AUTH_DATA_DIR 环境变量优先，其次 <项目根>/auth-data。
+ */
+function resolveScopeDataDir(): string {
+  const env = process.env.PORTAL_AUTH_DATA_DIR;
+  if (env) return path.resolve(env);
+  return path.resolve(process.cwd(), 'auth-data');
+}
+
+let scopeStoreSingleton: TeamScopeStore | null = null;
+let scopeStoreDir: string | null = null;
+
+export function getTeamScopeStore(dataDir?: string): TeamScopeStore {
+  const dir = dataDir ?? resolveScopeDataDir();
+  // 目录变了（测试实例切换）就重建 —— 否则会连到上一个实例的库上
+  if (!scopeStoreSingleton || scopeStoreDir !== dir) {
+    scopeStoreSingleton = new TeamScopeStore(tryLoadSqlite(), path.join(dir, 'portal-auth.db'));
+    scopeStoreDir = dir;
+  }
+  return scopeStoreSingleton;
+}
+
+/** 载入 node:sqlite（不可用时返回 null → 矩阵回落为静态模板、不可编辑） */
+const nodeRequire = createRequire(import.meta.url);
+
+function tryLoadSqlite(): SqliteModuleLike | null {
+  try {
+    const mod = nodeRequire('node:sqlite') as { DatabaseSync?: unknown };
+    return typeof mod?.DatabaseSync === 'function' ? (mod as SqliteModuleLike) : null;
+  } catch {
+    return null;
   }
 }
 

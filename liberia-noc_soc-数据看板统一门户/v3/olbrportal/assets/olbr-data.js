@@ -572,7 +572,13 @@ window.OLBR_DATA = (function () {
          目录里的标题很长（"RAG Knowledge Q&A (本地知识问答 / Open WebUI)"），
          直接当页签名会把页签条撑爆。故页签只显示短名，全称挂 title 悬停可见
          （与六视图列的 subChipLabel 同一套做法：可见短名 + title 全称）。 */
-      'qa.tabEflow': 'eFlow KB', 'qa.tabRag': 'RAG Q&A',
+      /* ⚠️ 2026-10-31（用户要求）：「eflow KB 页签名字改为 TT/Alarm Analysis；
+         RAG Q&A 改为 Knowledge Q&A」；同日再次要求 RAG 页签只显示「O&A」，
+         故 tabRag 的**最终值**是 'O&A'（中英两份字典同值，不是笔误，别再"顺手改回"）。
+         键名仍叫 tabEflow / tabRag —— 它对应的是**条目来源**（eflow_qa 页 /
+         Open WebUI），不是显示名，改名不影响 qaItems() 的识别条件。
+         全称仍挂 title/aria-label（见 olbr.js 的 qaTabTitle），悬停可见。 */
+      'qa.tabEflow': 'TT/Alarm Analysis', 'qa.tabRag': 'O&A',
       'aux.reports': 'Task report files', 'aux.tools': '本页相关',
       'aux.ms': '在 MsPortal 维护分组 / 看板 / 账号', 'aux.uni': '统一门户看板门户',
       'aux.more': '展开其余 {n} 项', 'aux.less': '收起',
@@ -1165,7 +1171,13 @@ window.OLBR_DATA = (function () {
       'fb.title': 'User Feedback',
       'fb.needLogin': 'Sign in to view the user feedback',
       /* 2026-10-14 删除 'qa.credTip'（'Login credentials'），与 zh 同因。 */
-      'qa.tabEflow': 'eFlow KB', 'qa.tabRag': 'RAG Q&A',
+      /* ⚠️ 2026-10-31（用户要求）：「eflow KB 页签名字改为 TT/Alarm Analysis；
+         RAG Q&A 改为 Knowledge Q&A」；同日再次要求 RAG 页签只显示「O&A」，
+         故 tabRag 的**最终值**是 'O&A'（中英两份字典同值，不是笔误，别再"顺手改回"）。
+         键名仍叫 tabEflow / tabRag —— 它对应的是**条目来源**（eflow_qa 页 /
+         Open WebUI），不是显示名，改名不影响 qaItems() 的识别条件。
+         全称仍挂 title/aria-label（见 olbr.js 的 qaTabTitle），悬停可见。 */
+      'qa.tabEflow': 'TT/Alarm Analysis', 'qa.tabRag': 'O&A',
       'aux.reports': 'Task report files', 'aux.tools': 'About this page',
       'aux.ms': 'Manage groups / dashboards / accounts in MsPortal', 'aux.uni': 'Unified dashboard portal',
       'aux.more': 'Show {n} more', 'aux.less': 'Show less',

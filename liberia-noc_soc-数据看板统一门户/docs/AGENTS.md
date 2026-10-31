@@ -57,7 +57,7 @@
 | `src\components\RequireAuth.tsx` | **新页面鉴权门**：`<RequireAuth>` / `<RequireAuth admin>` |
 | `src\pages\_TemplatePage.tsx` | **新页面接入模板**（照抄即可）；下划线前缀文件是真源码，**不得被忽略规则吞掉** |
 | `MsPortal\index.html`（48KB） | 早期复刻版单页（QC 面板等大量内联实现） |
-| `v3\team_portal\` | **五个团队门户共用的静态根**（2026-10-29 新增）：`/v3/{fo,bo,flm,smc,cxo}_portal/` 五个 URL 由 nginx 五个 `location ... alias` 指向它。可见性矩阵由 `scripts\gen_team_matrix.py` 从《新看板设计.xlsx》生成成 `assets\team-matrix.js`，运行时由 `assets\team-scope.js` 按 URL 前缀判定团队；`assets\olbr.js` 由 `scripts\patch_team_portal.py` 从上游 `v3\olbrportal\assets\olbr.js` 打钩子生成（**上游那份一行未改**）。⚠️ 改上游 `olbr.js` 后必须重跑 patch 脚本 |
+| `v3\team_portal\` | **五个团队门户共用的静态根**（2026-10-29 新增）：`/v3/{fo,bo,flm,smc,cxo}_portal/` 五个 URL 由 nginx 五个 `location ... alias` 指向它。可见性矩阵的**真相源是 `v3\team_portal\scope-map.json`**（仓库内），由 `scripts\gen_team_matrix.py` 生成成 `assets\team-matrix.js`；运行时由 `assets\team-scope.js` 向 `/uniplam/api/auth/team-scope` 取**数据库**里的矩阵（管理员可在门户界面直接勾选）；`assets\olbr.js` 由 `scripts\patch_team_portal.py` 从上游 `v3\olbrportal\assets\olbr.js` 打钩子生成（**上游那份一行未改**）；其余共享资产由 `scripts\sync_team_assets.py` 同步。⚠️ **这些生成物都在版本库里**（nginx 直接 alias，不经构建），改上游后必须重跑对应脚本；`npm run check:team-scope` 会替你查（已挂 pre-commit） |
 | `vite.config.ts` | 构建配置（含 `base`、代理、门户后端挂载） |
 
 ## 五、改代码前的检查清单
@@ -68,6 +68,8 @@
 - [ ] 新图标用 `DynamicIcon` 传名称，不新引图标库
 - [ ] 没有硬编码 IP
 - [ ] 没有提交 `auth-data\`、`portal-default.json`
+- [ ] 改过 `v3\olbrportal\` / `v3\team_portal\` 时跑过 `npm run check:team-scope`（生成物与上游一致）
+- [ ] 上游新增了内容容器时，已在 `v3\team_portal\block-manifest.json` 登记（否则 fail-open 漏给全部团队）
 - [ ] 改了大文件前建了 `_bak_<日期>` 快照
 
 ## 六、本项目的 8 份体系文档

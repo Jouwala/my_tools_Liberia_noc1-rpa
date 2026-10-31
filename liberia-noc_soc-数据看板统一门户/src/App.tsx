@@ -41,6 +41,7 @@ import { DocsIndexModal } from './components/DocsIndexModal';
 import { LoginView } from './components/LoginView';
 import { ChangePasswordModal } from './components/ChangePasswordModal';
 import { UserManagementModal } from './components/UserManagementModal';
+import { TeamScopeModal } from './components/TeamScopeModal';
 import { AuthSwitchModal } from './components/AuthSwitchModal';
 import { GroupManagerModal, type GroupOpFeedback } from './components/GroupManagerModal';
 import { PORTAL_API, saveEnvConfig, resolveUrl, buildRel, getMyappHost, type EnvConfig } from './config';
@@ -304,6 +305,7 @@ export default function App() {
   const [qrDashboard, setQrDashboard] = useState<DashboardItem | null>(null);
   const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
   const [isUserManagementOpen, setIsUserManagementOpen] = useState(false);
+  const [isTeamScopeOpen, setIsTeamScopeOpen] = useState(false);
   const [isAuthSwitchOpen, setIsAuthSwitchOpen] = useState(false);
   const [restoringAuth, setRestoringAuth] = useState(false);
   const [isGroupManagerOpen, setIsGroupManagerOpen] = useState(false);
@@ -825,6 +827,7 @@ export default function App() {
         user={user}
         onChangePassword={() => setIsChangePasswordOpen(true)}
         onOpenUserManagement={() => setIsUserManagementOpen(true)}
+        onOpenTeamScope={() => setIsTeamScopeOpen(true)}
         onOpenAuthSwitch={() => setIsAuthSwitchOpen(true)}
         onLogout={() => void logout()}
       />
@@ -1089,6 +1092,14 @@ export default function App() {
         groups={groups}
         dashboards={dashboards}
         labelOf={labelOf}
+      />
+
+      {/* 团队可见性矩阵（仅管理员）：勾选哪个团队能看到哪些内容。
+          结果落进服务端数据库（portal-auth.db 的 team_scope 表），
+          团队门户运行时按它过滤。 */}
+      <TeamScopeModal
+        isOpen={isTeamScopeOpen && user.role === 'admin'}
+        onClose={() => setIsTeamScopeOpen(false)}
       />
 
       {/* 鉴权总开关（仅管理员）：切换 /uniplam/ 与 /myapp/ 是否需要登录 */}

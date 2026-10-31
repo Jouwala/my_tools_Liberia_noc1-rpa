@@ -259,6 +259,10 @@
       nu: '', np: '', nr: 'viewer',
       resetId: '', resetPwd: '', approveRoles: {},
       profileId: '', pv: '', pc: '', restricted: false, groups: [], cards: [],
+      /* team：团队门户归属（fo/bo/flm/smc/cxo），空 = 未指派。
+         与 landing/白名单是**独立**的一维：白名单管「看得到哪些看板」，
+         team 管「进哪个门户」。 */
+      team: '',
       saving: false, busy: '', error: '', success: ''
     },
     drill: { metric: '', q: '', page: 1, size: 50, sort: '', dir: 'desc', rows: [], columns: [], total: 0, loading: false, err: '' }
@@ -4984,6 +4988,11 @@
   function renderArchive() {
     var box = $('#arch');
     if (!box) return;
+    /* 团队门户作用域（2026-10-30 加）：归档区受 archive 域控制，默认整块隐藏。
+       ⚠️ 判据放在归档项判空**之前** —— 否则归档区为空时会走「隐藏」分支，
+         但非空时又会画出来（那正是 fail-open 的口子）。 */
+    if (SCOPE && !SCOPE.ok('archive')) { box.innerHTML = ''; box.hidden = true; return; }
+    if (SCOPE) { box.hidden = false; }
     var list = archivedItems();
     /* 没有归档项就整块不渲染（不是渲染一个空框）：绝大多数会话用不到它，
        常驻一个"归档为空的框"只是噪声。 */
@@ -5057,6 +5066,13 @@
 
   function renderAux() {
     var box = $('#aux'), html = '';
+    /* 团队门户作用域（2026-10-30 加）：辅助入口受 aux 域控制。
+       ⚠️ Excel 的内容清单里没有这一行（它是结构性区块，不是需求条目），
+         所以默认**一个团队都没勾** = 整块隐藏。
+         要放出某个辅助分组，得在 scope-map.json 的 matrix.aux 里显式勾上。
+       ⚠️ hidden 成对管理：mainLocked(false) 会把区块的 hidden 设成 false。 */
+    if (SCOPE && !SCOPE.ok('aux')) { box.innerHTML = ''; box.hidden = true; return; }
+    if (SCOPE) { box.hidden = false; }
     /* 2026-10-12（v2 专有）：这三组已各有了新的去处，底部辅助区不再重复渲染 ——
          · Knowledge Q&A → .qarow 左栏（renderQaSection）
          · Friends Link（OSS Portal Login）→ .qarow 右栏（renderOssSection）
@@ -5375,7 +5391,12 @@
      这一行，未登录时它是唯一不被藏的区块 —— 与本注释开头记的那次 v1 遗漏同源，
      以后每新增一块 main 里的区块都要回来看一眼这个数组。 */
   function mainLocked(on) {
-    ['#band', '#kpi', '#views6', '#l0Map', '#emailSlot', '#qaSlot', '#ossSlot', '#fbSlot', '#esc', '#aux']
+    /* 团队门户专有补丁（2026-10-30）：清单里补 '#complaintSlot'。
+       上游 /v3/olbrportal/ 没有 Customer Complaint 这一整块，基线那行不需要它；
+       团队副本里 #complaintSlot 是 #main 的子区块（index.html 的 .complaint-slot），
+       不写进这份清单，登出后 renderGate() → mainLocked(true) 就藏不掉它 —— 登录框下面
+       照常挂着「Customer Complaint」。上面那段基线注释记的两次漏藏是同一个坑。 */
+    ['#band', '#kpi', '#views6', '#l0Map', '#emailSlot', '#qaSlot', '#ossSlot', '#fbSlot', '#esc', '#complaintSlot', '#aux']
       .forEach(function (s) { var e = $(s); if (e) e.hidden = on; });
   }
   function login(u, p) {
@@ -5655,6 +5676,7 @@
     state.um.restricted = u.allowedGroups != null || u.allowedCards != null;
     state.um.groups = Array.isArray(u.allowedGroups) ? u.allowedGroups.slice() : [];
     state.um.cards = Array.isArray(u.allowedCards) ? u.allowedCards.slice() : [];
+    state.um.team = u.team || '';
     state.um.error = '';
     state.um.success = '';
     renderUserMgmt();
@@ -5670,8 +5692,19 @@
   }
 
   function umHasProfile(u) {
-    return !!u.landing || u.allowedGroups != null || u.allowedCards != null;
+    return !!u.landing || u.allowedGroups != null || u.allowedCards != null || !!u.team;
   }
+
+  /* 团队门户白名单：与后端 server/auth/types.ts 的 TEAM_IDS 一一对应。
+     这里是**唯一**的团队 → 路径映射来源（门户 React 侧另有 src/auth/AuthContext.tsx
+     的一份，两边必须同步改）。 */
+  var UM_TEAMS = [
+    { id: 'fo', path: '/v3/fo_portal/' },
+    { id: 'bo', path: '/v3/bo_portal/' },
+    { id: 'flm', path: '/v3/flm_portal/' },
+    { id: 'smc', path: '/v3/smc_portal/' },
+    { id: 'cxo', path: '/v3/cxo_portal/' }
+  ];
 
   var UM_VIEWS = ['grid', 'list', 'matrix', 'tasks'];
   function umViewLabel(v) {
@@ -5798,6 +5831,24 @@
             }).join('') +
           '</select>' +
           '<select data-um="landing-card" aria-label="' + esc(t('um.landingNoCard')) + '">' + landingCards + '</select>' +
+        '</div>' +
+
+        /* ---- 团队门户（2026-10-29 加）----
+           与上面「登录后落地」是**两件不同的事**：
+             · 落地 = 打开门户后的**视图/卡片**（门户自己的界面）
+             · 团队 = 进**哪个门户**（/v3/fo_portal/ 等）
+           指派团队后：该账号访问 /v3/olbrportal/ 会自动跳到对应团队门户，
+           且**只能**进入该门户（其余四个被服务端拒绝）。 */
+        '<div class="um-field">' +
+          '<span class="um-label">' + esc(t('um.team')) + '</span>' +
+          '<select data-um="team" aria-label="' + esc(t('um.team')) + '">' +
+            '<option value="">' + esc(t('um.teamNone')) + '</option>' +
+            UM_TEAMS.map(function (tm) {
+              return '<option value="' + tm.id + '"' + (state.um.team === tm.id ? ' selected' : '') + '>' +
+                esc(t('um.team.' + tm.id)) + ' · ' + esc(tm.path) + '</option>';
+            }).join('') +
+          '</select>' +
+          '<span class="um-dim">' + esc(t('um.teamHint')) + '</span>' +
         '</div>' +
 
         '<div class="um-field um-field-col">' +
@@ -6020,7 +6071,10 @@
         id: id,
         landing: landing,
         allowedGroups: state.um.restricted ? state.um.groups : null,
-        allowedCards: state.um.restricted ? state.um.cards : null
+        allowedCards: state.um.restricted ? state.um.cards : null,
+        /* team：空字符串 = 未指派（传 null 清除）；有值 = 指派到该团队。
+           与 landing/白名单独立：白名单管「看得到哪些看板」，team 管「进哪个门户」。 */
+        team: state.um.team || null
       }
     }).then(function (r) {
       if (!r.ok || !r.data.user) { umFlash('err', umErrorText(r.status, r.data && r.data.detail)); return; }
@@ -6078,6 +6132,7 @@
       if (act === 'approve-role') { state.um.approveRoles[el.getAttribute('data-id')] = el.value; return; }
       if (act === 'landing-view') { state.um.pv = el.value; return; }
       if (act === 'landing-card') { state.um.pc = el.value; return; }
+      if (act === 'team') { state.um.team = el.value; return; }
       if (act === 'restricted') { state.um.restricted = !!el.checked; renderUserMgmt(); return; }
     });
     mask.addEventListener('submit', function (e) {
@@ -6123,13 +6178,24 @@
 
   /* ---------------------------------------------------------------- QC -- */
   function api(u) {
-    return fetch(u, { credentials: 'same-origin', headers: { Accept: 'application/json' } }).then(function (r) {
-      var ct = (r.headers.get('Content-Type') || '').toLowerCase();
-      if (!r.ok) throw new Error('HTTP ' + r.status);
-      /* my_app 的 catch-all 会把未注册的 /api/* 也回成 SPA 的 index.html（200 + text/html） */
-      if (ct.indexOf('json') === -1) throw new Error('non-JSON');
-      return r.json();
-    });
+    /* 团队门户（2026-10-30 加）：原始取数逻辑抽成 apiRaw()，api() 在外面包一层
+       401 自愈。**SCOPE 为 null（上游 /v3/olbrportal/）时行为与改动前完全一致** ——
+       那一侧既不引 team-session.js，window.OLBR_SESSION 也是 null。
+       ⚠️ 重试**只做一次**：再失败就抛出去，由调用方显示错误态。
+         无限重试会把 401 变成死循环、把后端打爆。
+       ⚠️ 只对 GET 生效：本文件里 api() 的调用点**全部是 GET**（QC 汇总/趋势/明细/
+         KPI 概览/目录），幂等，重试安全。 */
+    var apiRaw = function (u) {
+      return fetch(u, { credentials: 'same-origin', headers: { Accept: 'application/json' } }).then(function (r) {
+        var ct = (r.headers.get('Content-Type') || '').toLowerCase();
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        /* my_app 的 catch-all 会把未注册的 /api/* 也回成 SPA 的 index.html（200 + text/html） */
+        if (ct.indexOf('json') === -1) throw new Error('non-JSON');
+        return r.json();
+      });
+    };
+    if (SCOPE && window.OLBR_SESSION) return window.OLBR_SESSION.retryOn401(apiRaw)(u);
+    return apiRaw(u);
   }
   var qcFullBusy = false, qcAlarmBusy = false;
   function loadQc(force) {
@@ -8143,6 +8209,15 @@
     }).catch(function () { /* 服务端没有目录就用内置 data.js，首屏已经渲染过了（编辑按钮保持隐藏） */ });
   }
 
+  /* 团队门户作用域（2026-10-30 加）：运行时矩阵是**异步**取回来的
+     （/uniplam/api/auth/team-scope），而 boot() 同步跑完 —— 故矩阵到位后
+     必须重画一次，否则页面停在「矩阵未就绪 → 什么都不显示」的状态。
+     ⚠️ 事件名带 'olbr' 前缀，避免与页面上的其它事件撞名。
+     ⚠️ SCOPE 为 null（上游页面）时这个监听器**不注册** ——
+       上游那份 index.html 不引 team-scope.js，永远不会有这个事件。 */
+  if (SCOPE) {
+    document.addEventListener('olbr:scope-ready', function () { render(); });
+  }
   function boot() {
     applyI18n();
     mainLocked(true);
@@ -8153,8 +8228,31 @@
        放这里而不是 wireMap 里：地图会被重建（切页签 / 换主题），wireMap 也会重跑，
        定时器必须只有**一个**。 */
     startMapWheelLockTimer();
-    envBadge();
-    probe().then(function () {
+    /* 团队门户（2026-10-30 加）：**先换 my_app 会话，再做任何取数**。
+       页面判「已登录」用的是**门户 token**，而 my_app 的数据接口认的是
+       **myapp_session** Cookie —— 两者不是一回事。此前本页从不换这个会话，
+       于是首屏必然 401（心跳点变红、卡片空、报告表「加载失败」）；
+       真正种下会话的是页面里 my_app 内嵌 iframe 的 bootstrapAuth()，
+       那是个**副作用**且必然慢一拍 —— 踩空是结构性的，不是偶发。
+
+       ⚠️ probe() 与 ensure() **并行**发起，不串行：
+         probe() 判「登没登录」，ensure() 换会话，两者互不依赖，
+         串行会白白多一个来回（首屏延迟直接翻倍）。
+       ⚠️ envBadge() 的位置**按门户类型分开**：
+         · 团队门户：挪到会话建立**之后**再探活。
+           它是顶栏那个红点（探活），原先在 probe() 之前就发第一个请求 ——
+           那时 myapp_session 还不存在，远端用户必然收到 401，
+           于是「后端明明正常」却被显示成「后端挂了」。
+           会话就位之后再探，才是名副其实的探活。
+         · 上游 /v3/olbrportal/：位置**保持原样**（仍在 boot() 开头），
+           一行都没动 —— 那一侧不引 team-session.js，TEAM_SESSION 为 null。
+       ⚠️ 换不到会话也不阻断：ensure() 自己吞掉失败，这里照样 start()，
+         只是首屏可能空 —— 由 api() 的 401 自愈在下一轮兜住。 */
+    var TEAM_SESSION = (SCOPE && window.OLBR_SESSION) ? window.OLBR_SESSION : null;
+    if (!TEAM_SESSION) envBadge();
+    var warm = TEAM_SESSION ? TEAM_SESSION.ensure() : Promise.resolve();
+    Promise.all([probe(), warm]).then(function () {
+      if (TEAM_SESSION) envBadge();
       if (!state.authOk) { renderGate(); return; }
       renderGate(); mainLocked(false); start();
     });

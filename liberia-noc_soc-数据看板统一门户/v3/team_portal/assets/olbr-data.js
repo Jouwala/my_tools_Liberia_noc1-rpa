@@ -572,7 +572,13 @@ window.OLBR_DATA = (function () {
          目录里的标题很长（"RAG Knowledge Q&A (本地知识问答 / Open WebUI)"），
          直接当页签名会把页签条撑爆。故页签只显示短名，全称挂 title 悬停可见
          （与六视图列的 subChipLabel 同一套做法：可见短名 + title 全称）。 */
-      'qa.tabEflow': 'eFlow KB', 'qa.tabRag': 'RAG Q&A',
+      /* ⚠️ 2026-10-31（用户要求）：「eflow KB 页签名字改为 TT/Alarm Analysis；
+         RAG Q&A 改为 Knowledge Q&A」；同日再次要求 RAG 页签只显示「O&A」，
+         故 tabRag 的**最终值**是 'O&A'（中英两份字典同值，不是笔误，别再"顺手改回"）。
+         键名仍叫 tabEflow / tabRag —— 它对应的是**条目来源**（eflow_qa 页 /
+         Open WebUI），不是显示名，改名不影响 qaItems() 的识别条件。
+         全称仍挂 title/aria-label（见 olbr.js 的 qaTabTitle），悬停可见。 */
+      'qa.tabEflow': 'TT/Alarm Analysis', 'qa.tabRag': 'O&A',
       'aux.reports': 'Task report files', 'aux.tools': '本页相关',
       'aux.ms': '在 MsPortal 维护分组 / 看板 / 账号', 'aux.uni': '统一门户看板门户',
       'aux.more': '展开其余 {n} 项', 'aux.less': '收起',
@@ -692,6 +698,14 @@ window.OLBR_DATA = (function () {
       'um.cardsLocalOnly': '读不到统一门户的全局目录，候选项暂时锁住：这里的看板 id 是按 URL 推导的，与 /uniplam/ 实际使用的那套不一致，勾选后保存会让对方认不出来。请刷新重试。',
       'um.allowedHint': '「按看板」用的是两套门户共用的看板 id，勾选后在 /olbrportal/ 与 /uniplam/ 同时生效；两组「按分组」各自只在本侧生效，可都勾。',
       'um.allowedEmpty': '白名单为空：该账号登录后将看不到任何看板。',
+      'um.team': '团队门户',
+      'um.teamNone': '未指派（停在主门户）',
+      'um.teamHint': '指派后访问 /v3/olbrportal/ 自动跳到该团队门户，且只能进这一个',
+      'um.team.fo': 'ZTE FO Team',
+      'um.team.bo': 'ZTE BO Team',
+      'um.team.flm': 'ZTE FLM Team',
+      'um.team.smc': 'Orange SMC',
+      'um.team.cxo': 'Orange CXO',
       'um.navVisibilityOnly': '仅影响门户的导航可见性，不是访问控制；被隐藏的看板仍可通过直链打开。',
       'um.pagesSaved': '已保存 {name} 的页面配置',
       'um.pagesSave': '保存页面配置',
@@ -1157,7 +1171,13 @@ window.OLBR_DATA = (function () {
       'fb.title': 'User Feedback',
       'fb.needLogin': 'Sign in to view the user feedback',
       /* 2026-10-14 删除 'qa.credTip'（'Login credentials'），与 zh 同因。 */
-      'qa.tabEflow': 'eFlow KB', 'qa.tabRag': 'RAG Q&A',
+      /* ⚠️ 2026-10-31（用户要求）：「eflow KB 页签名字改为 TT/Alarm Analysis；
+         RAG Q&A 改为 Knowledge Q&A」；同日再次要求 RAG 页签只显示「O&A」，
+         故 tabRag 的**最终值**是 'O&A'（中英两份字典同值，不是笔误，别再"顺手改回"）。
+         键名仍叫 tabEflow / tabRag —— 它对应的是**条目来源**（eflow_qa 页 /
+         Open WebUI），不是显示名，改名不影响 qaItems() 的识别条件。
+         全称仍挂 title/aria-label（见 olbr.js 的 qaTabTitle），悬停可见。 */
+      'qa.tabEflow': 'TT/Alarm Analysis', 'qa.tabRag': 'O&A',
       'aux.reports': 'Task report files', 'aux.tools': 'About this page',
       'aux.ms': 'Manage groups / dashboards / accounts in MsPortal', 'aux.uni': 'Unified dashboard portal',
       'aux.more': 'Show {n} more', 'aux.less': 'Show less',
@@ -1261,6 +1281,14 @@ window.OLBR_DATA = (function () {
       'um.cardsLocalOnly': 'The unified portal catalog could not be loaded; the options are locked: the dashboard ids here are inferred from the URL and do not match what /uniplam/ actually uses — saving a selection would make it unreadable there. Please refresh and retry.',
       'um.allowedHint': '“By dashboard” uses ids shared by both portals; it takes effect on /olbrportal/ and /uniplam/ at once. The two “by group” scopes are per-side only; both can be ticked.',
       'um.allowedEmpty': 'Empty allowlist: this account will see no dashboards after sign-in.',
+      'um.team': 'Team portal',
+      'um.teamNone': 'Unassigned (stay on main portal)',
+      'um.teamHint': 'Once assigned, visiting /v3/olbrportal/ auto-redirects to that team portal, and only that one is reachable',
+      'um.team.fo': 'ZTE FO Team',
+      'um.team.bo': 'ZTE BO Team',
+      'um.team.flm': 'ZTE FLM Team',
+      'um.team.smc': 'Orange SMC',
+      'um.team.cxo': 'Orange CXO',
       'um.navVisibilityOnly': 'Affects only the portal navigation visibility, not access control; hidden dashboards remain reachable by direct link.',
       'um.pagesSaved': 'Saved page setup for {name}',
       'um.pagesSave': 'Save page setup',

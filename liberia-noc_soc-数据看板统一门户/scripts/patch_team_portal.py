@@ -37,6 +37,10 @@ import argparse
 import io
 import os
 import sys
+# 钩子（.git/hooks/pre-commit -> check-team-scope.mjs）与 CI 里 stdout 是管道，
+# Windows 下 Python 默认按 cp1252 编码，打印中文/✓ 会抛 UnicodeEncodeError 让
+# 校验误判失败（校验本身是通过的）。见 .qoder/rules/shell_safe.md 第 2 条。
+sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -93,6 +97,137 @@ H(
      SCOPE 为 null 时下面每个 `if (SCOPE && ...)` 都短路 —— 行为与改动前完全一致。 */
   var SCOPE = window.OLBR_SCOPE || null;
 """,
+)
+
+# ==========================================================================
+# 1b) 运行时矩阵到达后重画（2026-10-30 加）
+# ==========================================================================
+# 为什么需要：矩阵是**异步**从服务端取回来的（/uniplam/api/auth/team-scope），
+# 而 boot() 在 DOMContentLoaded 时同步跑完。若不重画，页面会停在
+# 「矩阵未就绪 → 什么都不显示」的状态 —— 团队门户整页空白。
+#
+# 为什么用自定义事件而不是直接调 render()：render() 是这个 IIFE 里的私有函数，
+# team-scope.js（另一个文件）拿不到。故由 team-scope.js 派发事件，
+# 这里监听后自己重画 —— 两侧通过**事件名**这个契约对接。
+H(
+    "scope-refresh",
+    """  function boot() {
+    applyI18n();""",
+    """  /* 团队门户作用域（2026-10-30 加）：运行时矩阵是**异步**取回来的
+     （/uniplam/api/auth/team-scope），而 boot() 同步跑完 —— 故矩阵到位后
+     必须重画一次，否则页面停在「矩阵未就绪 → 什么都不显示」的状态。
+     ⚠️ 事件名带 'olbr' 前缀，避免与页面上的其它事件撞名。
+     ⚠️ SCOPE 为 null（上游页面）时这个监听器**不注册** ——
+       上游那份 index.html 不引 team-scope.js，永远不会有这个事件。 */
+  if (SCOPE) {
+    document.addEventListener('olbr:scope-ready', function () { render(); });
+  }
+  function boot() {
+    applyI18n();""",
+)
+
+# ==========================================================================
+# 1c) my_app 会话预热 + 401 自愈（2026-10-30 加）
+# ==========================================================================
+# 背景（真实故障，2026-10-30）：
+#   团队门户页的数据全部来自 **my_app 后端**（QC 汇总、KPI 指标、报告列表、
+#   看板目录），这些接口在 my_app 侧要求 `myapp_session` Cookie
+#   （Task\my_app\backend\main.py 的 require_session_middleware）。
+#   但团队门户页自己**从不**建立这个会话 —— 全页唯一换会话的地方是登录闸门里的
+#   login() → POST /api/auth/portal-login。真实故障链：
+#     ① 用户在 /uniplam/ 登录 → 拿到**门户 token**（localStorage + HttpOnly Cookie）；
+#     ② 打开 /v3/fo_portal/ → nginx auth_request 校验团队通过 → 页面打开；
+#     ③ 页面 probe() 判「已登录」用的是**门户 token** → 直接 start() 拉数据；
+#     ④ 但 myapp_session **根本不存在** → my_app 回 401
+#        → 心跳点变红（qc-dot-bad）、卡片显示「—」、报告表显示「加载失败」；
+#     ⑤ 页面里的 **my_app 内嵌 iframe**（地图/QA/反馈）自己会跑 bootstrapAuth()
+#        （Task\my_app\frontend\src\api.ts），从**同一个 localStorage** 读到门户 token
+#        再调一次 /api/auth/portal-login → 这才是真正种下 myapp_session 的那一步；
+#     ⑥ 用户刷新 → Cookie 已在 → 全部 200 → 恢复正常。
+#   第 ⑤ 步的 iframe 是**副作用**，且必然比父页的数据请求慢一拍 —— 踩空是结构性的。
+#   本机管理员看不到，是因为 my_app 对本机回环直接放行（portal_auth.current_user
+#   → client_is_local），只有局域网其他机器才是真实远端。
+#
+# 修法（两处，配合 assets/team-session.js）：
+#   ① boot() 里**先 ensure() 换会话、再 start() 拉数据** —— 首屏就有会话；
+#   ② api() 收到 401 时**换一次会话再重试一次** —— 兜住运行期失效
+#      （会话过期、门户进程重启导致门户 token 失效）。
+#
+# 为什么用独立文件 assets/team-session.js 而不是把代码塞在这里：
+#   本文件是**生成物**（从上游基线生成），直接改生成物会被下次重跑覆盖。
+#   scripts/sync_team_assets.py 明确把 team-*.js 列为「纯团队专有、不动」。
+#
+# ⚠️ 上游 /v3/olbrportal/ 的 index.html **不引** team-session.js
+#   → window.OLBR_SESSION 为 null → 下面两处 `if (SCOPE && ...)` 短路
+#   → 上游行为一行未变。
+H(
+    "session-api-retry",
+    """  function api(u) {
+    return fetch(u, { credentials: 'same-origin', headers: { Accept: 'application/json' } }).then(function (r) {
+      var ct = (r.headers.get('Content-Type') || '').toLowerCase();
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      /* my_app 的 catch-all 会把未注册的 /api/* 也回成 SPA 的 index.html（200 + text/html） */
+      if (ct.indexOf('json') === -1) throw new Error('non-JSON');
+      return r.json();
+    });
+  }""",
+    """  function api(u) {
+    /* 团队门户（2026-10-30 加）：原始取数逻辑抽成 apiRaw()，api() 在外面包一层
+       401 自愈。**SCOPE 为 null（上游 /v3/olbrportal/）时行为与改动前完全一致** ——
+       那一侧既不引 team-session.js，window.OLBR_SESSION 也是 null。
+       ⚠️ 重试**只做一次**：再失败就抛出去，由调用方显示错误态。
+         无限重试会把 401 变成死循环、把后端打爆。
+       ⚠️ 只对 GET 生效：本文件里 api() 的调用点**全部是 GET**（QC 汇总/趋势/明细/
+         KPI 概览/目录），幂等，重试安全。 */
+    var apiRaw = function (u) {
+      return fetch(u, { credentials: 'same-origin', headers: { Accept: 'application/json' } }).then(function (r) {
+        var ct = (r.headers.get('Content-Type') || '').toLowerCase();
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        /* my_app 的 catch-all 会把未注册的 /api/* 也回成 SPA 的 index.html（200 + text/html） */
+        if (ct.indexOf('json') === -1) throw new Error('non-JSON');
+        return r.json();
+      });
+    };
+    if (SCOPE && window.OLBR_SESSION) return window.OLBR_SESSION.retryOn401(apiRaw)(u);
+    return apiRaw(u);
+  }""",
+)
+
+H(
+    "session-boot-prewarm",
+    """    envBadge();
+    probe().then(function () {
+      if (!state.authOk) { renderGate(); return; }
+      renderGate(); mainLocked(false); start();
+    });""",
+    """    /* 团队门户（2026-10-30 加）：**先换 my_app 会话，再做任何取数**。
+       页面判「已登录」用的是**门户 token**，而 my_app 的数据接口认的是
+       **myapp_session** Cookie —— 两者不是一回事。此前本页从不换这个会话，
+       于是首屏必然 401（心跳点变红、卡片空、报告表「加载失败」）；
+       真正种下会话的是页面里 my_app 内嵌 iframe 的 bootstrapAuth()，
+       那是个**副作用**且必然慢一拍 —— 踩空是结构性的，不是偶发。
+
+       ⚠️ probe() 与 ensure() **并行**发起，不串行：
+         probe() 判「登没登录」，ensure() 换会话，两者互不依赖，
+         串行会白白多一个来回（首屏延迟直接翻倍）。
+       ⚠️ envBadge() 的位置**按门户类型分开**：
+         · 团队门户：挪到会话建立**之后**再探活。
+           它是顶栏那个红点（探活），原先在 probe() 之前就发第一个请求 ——
+           那时 myapp_session 还不存在，远端用户必然收到 401，
+           于是「后端明明正常」却被显示成「后端挂了」。
+           会话就位之后再探，才是名副其实的探活。
+         · 上游 /v3/olbrportal/：位置**保持原样**（仍在 boot() 开头），
+           一行都没动 —— 那一侧不引 team-session.js，TEAM_SESSION 为 null。
+       ⚠️ 换不到会话也不阻断：ensure() 自己吞掉失败，这里照样 start()，
+         只是首屏可能空 —— 由 api() 的 401 自愈在下一轮兜住。 */
+    var TEAM_SESSION = (SCOPE && window.OLBR_SESSION) ? window.OLBR_SESSION : null;
+    if (!TEAM_SESSION) envBadge();
+    var warm = TEAM_SESSION ? TEAM_SESSION.ensure() : Promise.resolve();
+    Promise.all([probe(), warm]).then(function () {
+      if (TEAM_SESSION) envBadge();
+      if (!state.authOk) { renderGate(); return; }
+      renderGate(); mainLocked(false); start();
+    });""",
 )
 
 # ==========================================================================
@@ -485,6 +620,68 @@ H(
   function render() { renderBand(); renderKpi(); renderViews6(); renderL0(); renderEsc(); renderEmailSection(); renderQaSection(); renderOssSection(); renderFeedbackSection(); renderComplaintSection(); renderAux(); renderArchive(); applyI18n(); }""",
 )
 
+
+# ==========================================================================
+# 11) 辅助入口（#aux）：受 aux 域控制（2026-10-30 加）
+# ==========================================================================
+# 为什么此前没管它：Excel 的内容清单里没有「辅助入口」这一行 ——
+# 它是门户页面的**结构性区块**（L2 辅助分组），不是需求清单里的一个条目。
+# 于是它对五个团队全都显示，与「矩阵缺项 = 不显示」的既定语义相悖（fail-open）。
+# 现在给它一个单独的域 aux（scope-map.json 的 extra_domains 里），
+# 默认**一个团队都没勾** —— 即默认整块隐藏；要放出某一块得显式勾。
+H(
+    "aux-scope",
+    """  function renderAux() {
+    var box = $('#aux'), html = '';""",
+    """  function renderAux() {
+    var box = $('#aux'), html = '';
+    /* 团队门户作用域（2026-10-30 加）：辅助入口受 aux 域控制。
+       ⚠️ Excel 的内容清单里没有这一行（它是结构性区块，不是需求条目），
+         所以默认**一个团队都没勾** = 整块隐藏。
+         要放出某个辅助分组，得在 scope-map.json 的 matrix.aux 里显式勾上。
+       ⚠️ hidden 成对管理：mainLocked(false) 会把区块的 hidden 设成 false。 */
+    if (SCOPE && !SCOPE.ok('aux')) { box.innerHTML = ''; box.hidden = true; return; }
+    if (SCOPE) { box.hidden = false; }""",
+)
+
+# ==========================================================================
+# 12) 归档区（#arch）：受 archive 域控制（2026-10-30 加）
+# ==========================================================================
+# 同 aux：归档是「把看板收起来」的去处，是结构性区块，默认对所有团队隐藏。
+H(
+    "archive-scope",
+    """  function renderArchive() {
+    var box = $('#arch');
+    if (!box) return;
+    var list = archivedItems();""",
+    """  function renderArchive() {
+    var box = $('#arch');
+    if (!box) return;
+    /* 团队门户作用域（2026-10-30 加）：归档区受 archive 域控制，默认整块隐藏。
+       ⚠️ 判据放在归档项判空**之前** —— 否则归档区为空时会走「隐藏」分支，
+         但非空时又会画出来（那正是 fail-open 的口子）。 */
+    if (SCOPE && !SCOPE.ok('archive')) { box.innerHTML = ''; box.hidden = true; return; }
+    if (SCOPE) { box.hidden = false; }
+    var list = archivedItems();""",
+)
+
+
+
+# ==========================================================================
+# 24) 登录闸门藏正文的清单：补 #complaintSlot
+# ==========================================================================
+H(
+    "mainlocked-complaint",
+    """  function mainLocked(on) {
+    ['#band', '#kpi', '#views6', '#l0Map', '#emailSlot', '#qaSlot', '#ossSlot', '#fbSlot', '#esc', '#aux']""",
+    """  function mainLocked(on) {
+    /* 团队门户专有补丁（2026-10-30）：清单里补 '#complaintSlot'。
+       上游 /v3/olbrportal/ 没有 Customer Complaint 这一整块，基线那行不需要它；
+       团队副本里 #complaintSlot 是 #main 的子区块（index.html 的 .complaint-slot），
+       不写进这份清单，登出后 renderGate() → mainLocked(true) 就藏不掉它 —— 登录框下面
+       照常挂着「Customer Complaint」。上面那段基线注释记的两次漏藏是同一个坑。 */
+    ['#band', '#kpi', '#views6', '#l0Map', '#emailSlot', '#qaSlot', '#ossSlot', '#fbSlot', '#esc', '#complaintSlot', '#aux']""",
+)
 
 def build(src_text: str) -> str:
     use_crlf = "\r\n" in src_text

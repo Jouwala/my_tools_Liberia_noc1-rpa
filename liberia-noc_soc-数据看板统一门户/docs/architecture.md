@@ -1550,21 +1550,35 @@ alias 发出，无构建步骤），改完刷新即生效。
 ⚠️ 五个 location 均带 `Cache-Control: no-cache, no-store, must-revalidate` ——
 矩阵或 scope 改完后刷新即生效，不需要清 nginx 缓存。
 
-### 二、矩阵从 Excel 生成；`olbr.js` 用薄适配层，不 fork
+### 二、矩阵从 `scope-map.json` 生成；`olbr.js` 用薄适配层，不 fork
 
 ```
-scripts/gen_team_matrix.py  ──读 Excel──→  v3/team_portal/assets/team-matrix.js
-                                          （window.OLBR_TEAM_MATRIX）
-                                                ↓
-                            assets/team-scope.js（window.OLBR_SCOPE 查询引擎）
-                                                ↓
-                            assets/olbr.js（team_portal 版）
-                            渲染点：if (SCOPE && !SCOPE.ok('qc','alarm')) return '';
+v3/team_portal/scope-map.json  ← 唯一真相源（仓库内，可评审、可 diff）
+   │  ├─ domains[].items[].excel       Excel 的 Detail 文案（匹配用）
+   │  ├─ domains[].items[].urlPatterns OSS 槽位 → 门户目录条目的匹配依据
+   │  └─ matrix                        当前生效的勾选矩阵
+   │
+   ├─ scripts/gen_team_matrix.py ──→ v3/team_portal/assets/team-matrix.js
+   │                              ──→ v3/team_portal/assets/team-scope-map.js
+   │     （--import-excel 可从 Excel 把勾选导回 scope-map.json；
+   │      --check-excel 只跑孤儿行检测）
+   │
+   ├─ assets/team-scope.js（window.OLBR_SCOPE 查询引擎）
+   │        └─ 运行时向 /uniplam/api/auth/team-scope 取矩阵（数据库为真相源）
+   │
+   └─ assets/olbr.js（team_portal 版）
+        渲染点：if (SCOPE && !SCOPE.ok('qc','alarm')) return '';
 ```
 
-**矩阵生成脚本。** `scripts/gen_team_matrix.py` 解析 Excel，输出 `window.OLBR_TEAM_MATRIX`
-（结构 `{域键: {子键: [有勾的团队id]}}`）。Excel 表头里的团队列名与内部 id 的对应在脚本内定义：
-`ZTE FO Team → fo`、`ZTE BO Team → bo`、`ZTE FLM Team → flm`、`Orange SMC → smc`、`Orange CXO → cxo`。
+**矩阵生成脚本。** `scripts/gen_team_matrix.py` 解析 `scope-map.json`，输出
+`window.OLBR_TEAM_MATRIX`（结构 `{域键: {子键: [有勾的团队id]}}`）
+与 `window.OLBR_SCOPE_MAP`（域 → 子键 → `urlPatterns`）。
+团队 id 与 Excel 列名的对应：`ZTE FO Team → fo`、`ZTE BO Team → bo`、
+`ZTE FLM Team → flm`、`Orange SMC → smc`、`Orange CXO → cxo`。
+
+> ⚠️ **2026-10-30 重构后真相源已改为 `scope-map.json`**（不再是「某人桌面上的 Excel」），
+> 且矩阵在运行时以**数据库**为准，`scope-map.json` 降级为默认模板。
+> 详见本节之后的「六、2026-10-30 重构」。
 
 **两个必须消解的歧义。**
 
@@ -1574,7 +1588,8 @@ scripts/gen_team_matrix.py  ──读 Excel──→  v3/team_portal/assets/team
   · **全角/半角括号不一致。** Excel 里 `CXO View（ User/Traffic/Throughput）` 用全角，
     其它行用半角 `CXO View(User/Traffic/Throughput)`。脚本内做括号归一化后匹配。
 
-**为什么矩阵是生成文件而不是手写 JS。** 矩阵是需求文档的机器可读形式：需求变了改 Excel 重跑脚本，
+**为什么矩阵是生成文件而不是手写 JS。** 矩阵是需求文档的机器可读形式：需求变了改
+`scope-map.json`（或改 Excel 后 `--import-excel`）重跑脚本，
 而不是在 JS 里手改一串团队 id。手改会在下次重跑时被静默覆盖 ——
 这正是本仓库「不新增第二个真相源」的硬性约束。
 
@@ -1638,23 +1653,130 @@ Excel 的「ZTE UME NMSCCN」对应目录里「ZTE UME NMS」+「CCN UME NMS」�
 
 ### 五、遗留与后续
 
-  · **矩阵重新生成的入口**：`python scripts/gen_team_matrix.py`（读 Excel → 写 `team-matrix.js`）。
-    Excel 改了必须重跑，否则门户显示的是旧矩阵。**`team-matrix.js` 勿手改**（会被静默覆盖）。
+  · **矩阵重新生成的入口**：`python scripts/gen_team_matrix.py`（读 `scope-map.json` → 写
+    `team-matrix.js` 与 `team-scope-map.js`）。**`team-matrix.js` 勿手改**（会被静默覆盖）。
   · **`team_portal` 版 `olbr.js` 由脚本生成**：`scripts/patch_team_portal.py` 读上游
-    `v3/olbrportal/assets/olbr.js`，施加 **23 处** scope 钩子，输出 `v3/team_portal/assets/olbr.js`。
+    `v3/olbrportal/assets/olbr.js`，施加 **27 处** scope 钩子，输出 `v3/team_portal/assets/olbr.js`。
     ⚠️ **上游 `olbr.js` 改动后必须重跑该脚本**，否则团队门户的钩子会与上游脱节。
     脚本有 `--check` 模式（只比对不写盘），可挂 CI；钩子原文片段找不到会**报错退出**，
     不会静默漏改。
   · **`v3/team_portal/` 已纳入 `vite.config.ts` 的 `server.watch.ignored`**
     （与 `**/olbrportal/**` 同一处理）—— 它同样是 nginx 直接 alias 的手写静态壳，
     漏在 watch 清单外会导致每次改团队门户的 `olbr.js` 都让 `/uniplam/` 整页刷新一次。
-  · **`olbr-data.js`（QC 阈值等）仍是一份拷贝**在 `v3/team_portal/assets/`。
-    它内容与上游相同，本次未改；将来若上游调阈值，需同步。
-    可改为让 team_portal 直接引上游目录的文件，但 nginx `alias` 下要改相对路径，风险大于收益，本期不做。
-  · **`globals.d.ts` 声明了三个团队门户专用全局**
-    （`OLBR_TEAM_MATRIX` / `OLBR_SCOPE` / `OLBR_TEAM_REPORTS`）。
+  · **`globals.d.ts` 声明了四个团队门户专用全局**
+    （`OLBR_TEAM_MATRIX` / `OLBR_SCOPE_MAP` / `OLBR_SCOPE` / `OLBR_TEAM_REPORTS`）。
     上游 `v3/olbrportal/globals.d.ts` **未加**这些声明 —— 上游那页的 `window` 上
-    本来就没有这三个对象，加了反而是给不存在的东西发类型。
+    本来就没有这些对象，加了反而是给不存在的东西发类型。
+
+### 六、2026-10-30 重构：真相源收敛 + 覆盖度对账 + 运行时可编辑
+
+上面那套（2026-10-29 建的）在实测中暴露了**三个结构性缺口**，本节记录它们的成因与处置。
+
+#### 缺口一：矩阵的真相源在**别人的桌面**上，且不可编辑
+
+`scope-map.json` 之前**不存在** —— 真相源是「某人桌面上的《新看板设计.xlsx》」。
+后果：
+  · 仓库里没有任何文件能回答「现在 FO 能不能看 PMT」；
+  · 别人 clone 下来跑 `--import-excel` 会失败（找不到 Excel）；
+  · **管理员（非开发者）根本改不了** —— 改一次要走「改 Excel → 跑脚本 → 生成 → 提交
+    → 部署到服务器的文件系统」，而最后一步最容易被忘掉。
+
+**处置：** 引入 `v3/team_portal/scope-map.json` 作为**仓库内的唯一真相源**，
+它同时承担三件事：域/项的目录（Excel 文案 → 门户组件的映射）、OSS 槽位 → 目录条目的
+url 片段映射、当前生效的矩阵。Excel 降级为**一个编辑器**：
+`python scripts/gen_team_matrix.py --import-excel` 把 Excel 的勾选导回 JSON。
+
+**孤儿行检测。** Excel 里新增一行内容、而映射表没跟上时，脚本此前**静默跳过** ——
+门户看上去就是「那一项没显示」，没人知道是需求没配还是代码漏了。
+现在 Excel 里出现 `scope-map.json` 未登记的 Detail 文案 → 打印**行号 + 文案**并以
+**非零退出码**结束（`--check-excel` 只检测不写盘）。
+
+#### 缺口二：上游新增内容会**默认漏给所有团队**（fail-open）
+
+团队门户靠一组**手写钩子**过滤，而钩子只覆盖已知的 11 个域。
+上游 `/v3/olbrportal/` 新增一个 `<section>` 时，它会**原样出现在全部五个团队门户里** ——
+与「矩阵缺项 = 不显示」的既定语义正好相反。
+手工发现这件事要等到「某个团队看到了不该看的内容」被投诉才知道。
+
+**处置：块清单 + 机器对账。** 新增 `v3/team_portal/block-manifest.json` ——
+上游每个内容容器与团队作用域的对应关系，并新增
+`scripts/check_scope_coverage.py`：扫描上游 `index.html` 的**全部**带 id 的块，
+与清单对账，**上游多出任何一个未登记的区块 → 退出码非零**。
+
+  · 判据是「**静态出现的容器一律要登记**」，不是「被 JS 引用过的才算」——
+    后者太宽松：上游新增一个 section 但 JS 还没写渲染逻辑时它不出现，
+    检查会放行，而它**已经在页面上了**（空壳也是露出来的）。
+  · `always`（不受矩阵控制）的块必须写 `reason` —— 那是给下一个维护者看的理由。
+  · 每块登记一条 `probe`（判据的**原文片段**，如 `SCOPE.ok('qc', id)`），
+    对账脚本逐条核对 —— 片段缺失 = 钩子脱节（改了上游却没重跑 patch 脚本）。
+    probe 必须具体到方法调用，不能只写域名，否则两个共用一个域的块会互相顶包。
+  · 本次对账顺带查出并修掉两个真实的 fail-open：**辅助入口 `#aux`** 与
+    **归档区 `#arch`** 此前对五个团队全都显示，现已纳入矩阵（默认整块隐藏）。
+
+#### 缺口三：共享资产是**手工复制**的，必然漂移
+
+`v3/team_portal/assets/` 与 `v3/olbrportal/assets/` 的同名文件本该完全相同，
+但它们是**手工复制**的 —— 于是必然漂移。
+
+**实测（2026-10-30）：** 上游加了「团队门户」功能（`um.team*` 的 16 个 i18n 键、
+`olbr.js` 里的 `UM_TEAMS` 与团队选择器），而团队门户那份 `olbr-data.js` / `olbr.js`
+**还是改动前的副本** —— 团队门户的「用户管理」面板里**没有团队归属下拉框**，
+管理员在团队门户上无法给账号指派团队。这类漂移肉眼极难发现（两份文件都「看起来对」），
+但症状是真实的功能缺失。
+
+**处置：共享资产改为生成。** 新增 `scripts/sync_team_assets.py`：
+
+  | 资产 | 处置 |
+  | --- | --- |
+  | `olbr-data.js` / `masthead.css` / `qa-assistant.css` / `_local-credentials.js` / `logo-*.png` | 逐字节复制 |
+  | `olbr.css` | 上游 + 团队门户专有样式（纯新增，不改写既有规则） |
+  | `qa-assistant.js` | 上游 + Quick Q&A 的作用域判据 |
+  | `olbr.js` | 由 `patch_team_portal.py` 负责（它另有 `--check`） |
+  | `index.html` | **不自动同步**（两边结构有意不同），由对账脚本的「检查 6」盯着 |
+
+#### 运行时矩阵：数据库成为真相源，静态文件降级为默认模板
+
+管理员现在能在**门户界面上直接勾选**（用户菜单 → 团队可见性），结果落进
+`portal-auth.db` 的 `team_scope` 表（与账号数据同库，一起备份/恢复）。
+
+  · `GET  /uniplam/api/auth/team-scope` —— 门户运行时用。**服务端已按调用者团队过滤**：
+    门户不该知道别的团队勾了什么（那是信息泄露），前端也只需要一个比特。
+  · `GET  /uniplam/api/auth/team-scope/admin` —— 管理界面用（完整矩阵 + 目录 + 元信息）。
+  · `POST /uniplam/api/auth/team-scope` —— 保存（仅管理员）。
+
+⚠️ **保存时清洗是 fail-closed 的。** `sanitizeMatrix` 认不得的域键/项键/团队 id 一律丢弃；
+**连模板都读不到时，整份矩阵直接丢弃**（而不是照单全收）——
+否则会写进一份「看着存下来了、实际永远不生效」的矩阵，
+让「我明明勾了却没生效」变成查不出原因的问题。宁可这次保存报错（管理员会看到
+并去修 `scope-map.json`），也不要静默存一份无效数据。
+这一条由 `server/teamScopeDb.test.ts` 的
+「没有模板时不认任何域」用例锁住（该用例在写实现时确实抓到了一个 fail-open）。
+
+`scope-map.json` 降级为**默认模板**：数据库为空时用它播种一份，之后以库为准。
+
+⚠️ **取不到矩阵时一律「什么都不显示」**，不退回静态矩阵。理由：静态矩阵可能已过期
+（管理员改过了但静态文件没重新生成），拿它兜底 = 把旧权限又放出来一次，那正是权限事故。
+故 `team-scope.js` 的 `ok()` 在矩阵未就绪时一律返回 `false`（fail-closed）。
+
+⚠️ 矩阵是**异步**取的，而 `olbr.js` 的 `boot()` 同步跑完 —— 故矩阵到位后由
+`team-scope.js` 派发 `olbr:scope-ready` 事件，`olbr.js` 监听后自己重画。
+不用静态矩阵先画一遍再换，是为了避免用户先看到一版**可能已过期**的权限内容再消失。
+
+### 七、提交前的机器守卫
+
+四个检查串在 `scripts/check-team-scope.mjs` 里，已挂进 `.git/hooks/pre-commit`：
+
+```
+node scripts/check-team-scope.mjs
+  ├─ patch_team_portal.py --check   团队门户 olbr.js 与上游基线一致
+  ├─ gen_team_matrix.py --check     可见性矩阵与 scope-map.json 一致
+  ├─ sync_team_assets.py --check    团队门户共享资产与上游一致
+  └─ check_scope_coverage.py        作用域覆盖度对账
+```
+
+⚠️ 这些生成物**都在版本库里**（团队门户是静态壳，nginx 直接 alias 发它们，
+不经任何构建步骤），所以「改了上游忘了重跑脚本」会**直接上线**。
+钩子拦住之后跑对应脚本重新生成即可，不要用 `--no-verify` 绕过。
 
 ## 九之十七、2026-10-29 团队门户访问控制：数据模型 + 服务端闸门 + 登录后跳转
 

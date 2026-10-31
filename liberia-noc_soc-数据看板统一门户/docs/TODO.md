@@ -118,21 +118,36 @@
 - [ ] **`/v1/olbrportal/` 死规则去留（2026-09-30 登记）。** `v1/olbrportal/assets/olbr.css` 里有一批「v1 无命中、但为与 `/olbrportal/`(v0) 保持类名对照而保留」的规则：等级徽章 `.qc-lv-*`/`.qc-lvchip`、`.qc-ico`、`.qc-card--lg/--sm`、L0/L1 的 `.stage`/`.vcol`/`.l0-col`/`.view-1`/`.tabs-v`/`.tabv`/`.subs-v`/`.subv`、旧抽屉 `.drawer`/`.dr-*`/`.scrim`（完整清单见 `olbr.css` 头部「无命中规则清单」）。
       **阻塞**：v0 侧仍在用同名类（其 `renderViews()` 会调 `subLocatorHtml`/`subManageHtml` 画 `.subs-v`/`.subv`）。**验收**：先确认两门户**不再需要**类名对照，才整块删除；删除属「改结构」，需单独评审。
 
-- [ ] **团队门户的矩阵与上游同步（2026-10-29 登记）。** 五个团队门户（`/v3/{fo,bo,flm,smc,cxo}_portal/`）
-      共用 `v3/team_portal/`，其可见性来自《新看板设计.xlsx》，但有两处**会漂移**：
-      ① `assets/olbr.js` 是 `scripts/patch_team_portal.py` 从上游 `v3/olbrportal/assets/olbr.js`
-      打钩子生成的 —— **上游改了必须重跑 patch 脚本**，否则钩子位置失配（脚本会报错退出，不会静默漏改）；
-      ② `assets/olbr-data.js` 是上游的一份**拷贝**（QC 阈值 / KPI 规格 / i18n 字典）——
-      上游调阈值后需同步。
-      **验收**：`python scripts/patch_team_portal.py --check` 退出码为 0；
-      `git diff v3/olbrportal/assets/olbr-data.js` 与 `v3/team_portal/assets/olbr-data.js` 无实质差异。
+- [x] **团队门户的矩阵与上游同步（2026-10-29 登记，2026-10-30 完成）。**
+      五个团队门户（`/v3/{fo,bo,flm,smc,cxo}_portal/`）共用 `v3/team_portal/`。
+      **原问题**：① `assets/olbr.js` 是 `scripts/patch_team_portal.py` 从上游生成，
+      改上游必须重跑；② `assets/olbr-data.js` 等共享资产是上游的**手工拷贝** —— 必然漂移。
+      **已完成（2026-10-30）**：
+      ① 新增 `scripts/sync_team_assets.py`，把共享资产改为**脚本生成**（逐字节复制 /
+      追加式合并 / `olbr.js` 交给 patch 脚本）；
+      ② 新增 `scripts/check_scope_coverage.py` 做**作用域覆盖度对账**（上游新增内容容器
+      必须先登记到 `block-manifest.json`，否则 fail-open 漏给全部团队）；
+      ③ 新增 `scripts/check-team-scope.mjs` 把四项检查串起来，**已挂进 `.git/hooks/pre-commit`**。
+      **验收**：`npm run check:team-scope` 四项全绿（退出码 0）。
+      **实测收获**：对账查出了两个真实的 fail-open（`#aux` 辅助入口、`#arch` 归档区
+      此前对五个团队全都显示），现已纳入矩阵（默认整块隐藏）；
+      共享资产同步则修掉了「团队门户的用户管理面板没有团队归属下拉框」这个功能缺失。
+
+- [x] **团队门户的可见性矩阵真相源在别人的桌面上（2026-10-30 登记并完成）。**
+      原设计的真相源是「某人桌面上的《新看板设计.xlsx》」—— 仓库里没有任何文件能回答
+      「现在 FO 能不能看 PMT」，别人 clone 下来也跑不了。
+      **已完成**：引入 `v3/team_portal/scope-map.json` 作为**仓库内的唯一真相源**；
+      Excel 降级为一个编辑器（`--import-excel` 导回 JSON，`--check-excel` 查孤儿行）；
+      并新增**运行时可编辑**通道 —— 管理员在门户界面直接勾选，落进 `portal-auth.db`
+      的 `team_scope` 表（`scope-map.json` 退化为默认模板）。
+      **验收**：`server/teamScopeDb.test.ts` 19 个用例全绿；
+      `npm run lint` / `npm test`（64 个）/ `npm run build` 全过。
 
 - [ ] **团队门户的 Auto Report 表是门户侧渲染（2026-10-29 登记）。**
       `v3/team_portal/assets/team-panels.js` 自己拉 `/api/email-reports/latest?limit=1` 并按矩阵过滤，
       **不是**内嵌 my_app 的 `email_reports` 页（那个页面渲染全部 14 个源，无法按 `source_id` 过滤）。
       后续若 my_app 侧报告源增减或字段改名，需同步 `team-panels.js` 的字段映射。
       **验收**：FO/BO/FLM 三门户的报告行数与 Excel 勾选数一致（10 / 3 / 8）。
-
 - [ ] **团队归属映射有两份字面量（2026-10-29 登记）。** 团队 id → 门户路径的映射在两处：
       后端 `server/auth/types.ts` 的 `TEAM_PORTAL_PATHS`（唯一真相源）与纯静态脚本
       `v3/team-gate.js` 的 `TEAM_PORTAL`（该脚本不能 import 后端模块，只能内联一份）。

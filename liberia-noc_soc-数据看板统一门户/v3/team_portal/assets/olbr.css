@@ -2156,48 +2156,6 @@ main { flex: 1; padding-block: var(--s5) var(--s4); display: flex; flex-directio
 }
 .oss-card.is-empty { grid-column: 1 / -1; align-self: center; border-style: dashed; color: var(--t3); }
 
-/* ============================================================================
-   团队门户专有面板（2026-10-29 加）：Auto Report 过滤表 + 客户投诉入口
-   ----------------------------------------------------------------------------
-   这两组样式**只服务** v3/team_portal/ 的两块新面板：
-     · .tr-table    —— Auto Report 的报告附件表（team-panels.js 渲染）
-     · .complaint-slot / .oss-grid.is-single —— 客户投诉入口卡片
-   上游 /v3/olbrportal/ 那份 olbr.css **没有**这几条（那边没有对应元素），
-   两边互不影响；同一份 olbr.css 在两处都能用，是因为这段是纯新增、
-   没有改写任何既有规则。
-
-   ⚠️ 表体用 .canvas 的滚动语义：Auto Report 这块在 .qarow 左列，
-     高度与右列的「OSS + 反馈」合计等高（--qarow-h），行数多时表体内滚动，
-     不把整页撑长。 */
-.tr-table {
-  width: 100%; border-collapse: collapse; font-size: var(--fs-sm);
-  table-layout: fixed;
-}
-.tr-table th {
-  text-align: left; font-weight: 600; color: var(--t3); font-size: var(--fs-xs);
-  padding: 8px 10px; border-bottom: 1px solid var(--line); white-space: nowrap;
-}
-.tr-table td {
-  padding: 9px 10px; border-bottom: 1px solid var(--line); vertical-align: top;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-/* 文件名列宽一点（它是这一栏最有用的信息：具体哪份报告） */
-.tr-table th:nth-child(2), .tr-table td:nth-child(2) { width: 34%; }
-.tr-table th:nth-child(3), .tr-table td:nth-child(3) { width: 10%; }
-.tr-table th:nth-child(4), .tr-table td:nth-child(4) { width: 18%; }
-.tr-table th:nth-child(5), .tr-table td:nth-child(5) { width: 12%; }
-.tr-table tbody tr:hover td { background: var(--surface-2); }
-.tr-file { font-family: var(--mono, ui-monospace, Consolas, monospace); font-size: var(--fs-xs); }
-.tr-num { color: var(--t2); }
-.tr-sub { color: var(--t3); font-size: var(--fs-xs); }
-.tr-empty { text-align: center; color: var(--t3); padding: 22px 10px; }
-.tr-dl { color: var(--b); text-decoration: none; font-weight: 600; }
-.tr-dl:hover { text-decoration: underline; }
-/* 客户投诉：只有一张卡片时铺满整行，不必占 6 列里的一格 */
-.oss-grid.is-single { grid-template-columns: minmax(0, 1fr); }
-.complaint-slot { margin-top: var(--s4); }
-.complaint-slot .oss-grid { margin-top: 0; }
-
 /* 舞台：v1 已拆掉。
    ⚠️ 这里原本是 .stage { display:grid } —— 装「升级带 + L0 焦点区 + L1 页签」三块，
    宽屏时排成「焦点区 | 页签」两栏、升级带整宽压在上一行。
@@ -3226,3 +3184,44 @@ html.dark {
 .mp-user-sub-item .ph { color: #8fd4ff; font-size: 15px; flex: none; }
 .mp-user-sub-item > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mp-user-sub-item.is-empty { color: var(--t3); cursor: default; }
+/* ============================================================================
+   团队门户专有面板（2026-10-29 加）：Auto Report 过滤表 + 客户投诉入口
+   ----------------------------------------------------------------------------
+   这两组样式**只服务** v3/team_portal/ 的两块新面板：
+     · .tr-table    —— Auto Report 的报告附件表（team-panels.js 渲染）
+     · .complaint-slot / .oss-grid.is-single —— 客户投诉入口卡片
+   上游 /v3/olbrportal/ 那份 olbr.css **没有**这几条（那边没有对应元素），
+   两边互不影响；同一份 olbr.css 在两处都能用，是因为这段是纯新增、
+   没有改写任何既有规则。
+
+   ⚠️ 表体用 .canvas 的滚动语义：Auto Report 这块在 .qarow 左列，
+     高度与右列的「OSS + 反馈」合计等高（--qarow-h），行数多时表体内滚动，
+     不把整页撑长。 */
+.tr-table {
+  width: 100%; border-collapse: collapse; font-size: var(--fs-sm);
+  table-layout: fixed;
+}
+.tr-table th {
+  text-align: left; font-weight: 600; color: var(--t3); font-size: var(--fs-xs);
+  padding: 8px 10px; border-bottom: 1px solid var(--line); white-space: nowrap;
+}
+.tr-table td {
+  padding: 9px 10px; border-bottom: 1px solid var(--line); vertical-align: top;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* 文件名列宽一点（它是这一栏最有用的信息：具体哪份报告） */
+.tr-table th:nth-child(2), .tr-table td:nth-child(2) { width: 34%; }
+.tr-table th:nth-child(3), .tr-table td:nth-child(3) { width: 10%; }
+.tr-table th:nth-child(4), .tr-table td:nth-child(4) { width: 18%; }
+.tr-table th:nth-child(5), .tr-table td:nth-child(5) { width: 12%; }
+.tr-table tbody tr:hover td { background: var(--surface-2); }
+.tr-file { font-family: var(--mono, ui-monospace, Consolas, monospace); font-size: var(--fs-xs); }
+.tr-num { color: var(--t2); }
+.tr-sub { color: var(--t3); font-size: var(--fs-xs); }
+.tr-empty { text-align: center; color: var(--t3); padding: 22px 10px; }
+.tr-dl { color: var(--b); text-decoration: none; font-weight: 600; }
+.tr-dl:hover { text-decoration: underline; }
+/* 客户投诉：只有一张卡片时铺满整行，不必占 6 列里的一格 */
+.oss-grid.is-single { grid-template-columns: minmax(0, 1fr); }
+.complaint-slot { margin-top: var(--s4); }
+.complaint-slot .oss-grid { margin-top: 0; }

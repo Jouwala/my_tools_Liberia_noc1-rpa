@@ -1,0 +1,172 @@
+{
+  "_comment": "团队门户的**块清单** —— 上游 /v3/olbrportal/ 的每个内容区块与团队作用域的对应关系。这是「上游新增内容会不会漏进所有团队门户」这个问题的**唯一判定依据**：scripts/check_scope_coverage.py 拿它与上游实际结构对账，上游多出任何一个未登记的区块 → 退出码非零。",
+  "_comment_why": "此前团队门户靠一组**手写钩子**实现过滤，钩子只覆盖已知的 11 个域。上游新增一个 section 时，它会默认出现在全部五个团队门户里 —— 与「矩阵缺项 = 不显示」的既定语义相反（fail-open）。有了这份清单，新区块必须**显式**登记：要么纳入某个域（受矩阵控制），要么声明 always（不受矩阵控制，需写明理由）。",
+  "_comment_always": "always = 该区块不受团队矩阵控制（如 QC 下钻弹窗、用户管理面板、顶栏）。必须写 reason —— 那是给下一个维护者看的「为什么这里不管」的理由，不是装饰。",
+  "_comment_probe": "probe = 团队门户版 olbr.js 里必须存在的**判据原文片段**。对账脚本逐条核对：片段缺失 = 钩子脱节（改了上游却没重跑 patch 脚本）。它必须是**唯一**能证明该块受控的片段，故要具体到方法名（SCOPE.ok('qc') / SCOPE.viewGroups() …），不能只写域名 —— 否则两个块共用一个域时会互相顶包。",
+
+  "blocks": [
+    {
+      "id": "band",
+      "selector": "#band",
+      "dom": "qc",
+      "sub": null,
+      "probe": "SCOPE.ok('qc', id)",
+      "title": "Daily Operation（QC 指标带）",
+      "note": "六张 QC 卡。子项按 data-qc 过滤（alarm/tt/wo/cr/pmt/spms）。"
+    },
+    {
+      "id": "kpi",
+      "selector": "#kpi",
+      "dom": "kpi",
+      "sub": null,
+      "probe": "SCOPE.ok('kpi', g.id)",
+      "title": "Network Status 指标带",
+      "note": "按组过滤：KPI_GROUPS 的 id（rich / avail）。"
+    },
+    {
+      "id": "kpi-bf",
+      "selector": "#kpi (Benchmark 行)",
+      "dom": "bf",
+      "sub": null,
+      "probe": "SCOPE.ok('bf', g.id)",
+      "title": "Network Benchmark 基准行",
+      "note": "与 Network Status 同处 #kpi，但按 BF_GROUPS 的 id（speed / meta）单独过滤。"
+    },
+    {
+      "id": "views6",
+      "selector": "#views6",
+      "dom": "view",
+      "sub": null,
+      "probe": "SCOPE.viewGroups()",
+      "title": "Domain Dashboard 视图列",
+      "note": "按目录分组 id 过滤（CXO View / MS View / SP View / FLM View / FO View / BO View）。"
+    },
+    {
+      "id": "l0Map",
+      "selector": "#l0Map",
+      "dom": "map",
+      "sub": null,
+      "probe": "SCOPE.mapPages()",
+      "title": "GIS MAP 地图",
+      "note": "按 MAP_TABS 的 page 过滤（gis / person / mwRealTime）。"
+    },
+    {
+      "id": "qaSlot",
+      "selector": "#qaSlot",
+      "dom": "qa",
+      "sub": null,
+      "probe": "SCOPE.qaTabs()",
+      "title": "Knowledge Q&A 页签区",
+      "note": "页签级过滤：eflow / rag；右下角悬浮助手由 qa-assistant.js 按 assistant 判断。"
+    },
+    {
+      "id": "ossSlot",
+      "selector": "#ossSlot",
+      "dom": "oss",
+      "sub": null,
+      "probe": "SCOPE.ossSlots()",
+      "title": "OSS Portal Login 入口",
+      "note": "按槽位过滤（portalLogin / nmsccn / …），槽位 → 目录条目靠 url 片段匹配。"
+    },
+    {
+      "id": "emailSlot",
+      "selector": "#emailSlot",
+      "dom": "report",
+      "sub": null,
+      "probe": "SCOPE.ok('report')",
+      "title": "Auto Report 报告区",
+      "note": "团队门户走 team-panels.js 自绘的表（按 source_id 过滤），不内嵌 my_app 的全量页。"
+    },
+    {
+      "id": "esc",
+      "selector": "#esc",
+      "dom": "escalation",
+      "sub": null,
+      "probe": "SCOPE.hasEscalation()",
+      "title": "Escalation Matrix 升级机制"
+    },
+    {
+      "id": "fbSlot",
+      "selector": "#fbSlot",
+      "dom": "feedback",
+      "sub": null,
+      "probe": "SCOPE.hasFeedback()",
+      "title": "User Feedback 用户反馈"
+    },
+    {
+      "id": "complaintSlot",
+      "selector": "#complaintSlot",
+      "dom": "complaint",
+      "sub": null,
+      "teamOnly": true,
+      "probe": "SCOPE.hasComplaint()",
+      "title": "Customer Complaint 客户投诉",
+      "note": "**团队门户专有**：上游 /v3/olbrportal/ 没有这一块。它在团队门户的 index.html 里是 #main 的子区块。"
+    },
+    {
+      "id": "aux",
+      "selector": "#aux",
+      "dom": "aux",
+      "sub": null,
+      "probe": "SCOPE.ok('aux')",
+      "title": "L2 辅助入口（知识库/生态/系统运维）",
+      "note": "2026-10-30 纳入矩阵。此前它对五个团队全都显示，与「缺项=不显示」相悖。"
+    },
+    {
+      "id": "arch",
+      "selector": "#arch",
+      "dom": "archive",
+      "sub": null,
+      "probe": "SCOPE.ok('archive')",
+      "title": "归档区",
+      "note": "2026-10-30 纳入矩阵。归档是「把看板收起来」的去处，默认整块隐藏。"
+    },
+
+    {
+      "id": "qc-drill",
+      "selector": "#qcMask",
+      "dom": null,
+      "always": true,
+      "title": "QC 下钻弹窗",
+      "reason": "弹窗是**点击 QC 卡之后**才出现的详情层，内容由被点的卡片决定。卡片本身已按矩阵过滤（看不到的卡片点不到），弹窗无需再判一次；且它在 DOM 上常驻 hidden，若纳入矩阵会出现「矩阵里没勾 qa 就打不开下钻」这种反直觉行为。"
+    },
+    {
+      "id": "user-mgmt",
+      "selector": "#umMask",
+      "dom": null,
+      "always": true,
+      "title": "用户管理弹窗",
+      "reason": "管理面板是**管理员**的工具，不是业务内容。它只对 role==='admin' 显示，与「哪个团队能看到什么」正交。若纳入矩阵，管理员打开某个团队门户时会因矩阵没勾该项而打不开管理面板。"
+    },
+    {
+      "id": "masthead",
+      "selector": "#mast",
+      "dom": null,
+      "always": true,
+      "title": "顶栏",
+      "reason": "顶栏是所有门户共用的外壳（语言/主题/用户菜单），五个团队门户长得一样。它的内容不承载业务信息，与团队可见性无关。"
+    },
+    {
+      "id": "user-menu",
+      "selector": "#userMenu",
+      "dom": null,
+      "always": true,
+      "children": ["#userMenuPanel", "#sysMenu", "#sysMenuPanel"],
+      "title": "顶栏用户菜单",
+      "reason": "用户菜单（头像 / 系统管理 / 用户管理 / 退出）是**当前登录者自己的**操作入口，与「这个团队能看到哪些业务内容」正交 —— 它按登录者的角色显隐，不按团队。子面板（用户菜单面板 / 系统管理折叠区 / 系统管理面板）都是这一个菜单的内部结构，故登记为它的 children。"
+    },
+    {
+      "id": "qa-assistant",
+      "selector": "#qaFab",
+      "dom": "qa",
+      "sub": "assistant",
+      "runtime": true,
+      "probe": "scope.ok('qa', 'assistant')",
+      "probeFile": "v3/team_portal/assets/qa-assistant.js",
+      "title": "右下角问答助手",
+      "note": "不是静态 section，是 qa-assistant.js 在运行时 createElement 出来的悬浮件（fab.id = 'qaFab'）。按 qa/assistant 判断。"
+    }
+  ],
+
+  "_comment_domains": "域键必须与 scope-map.json 的 domains[].key / extra_domains[].key 一致；本清单里出现而 scope-map.json 里没有的域 → 对账脚本报错（那个域永远匹配不到任何勾选，等于该区块对所有团队都隐藏 = 静默失效）。"
+}

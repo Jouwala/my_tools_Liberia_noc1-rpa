@@ -48,6 +48,15 @@ declare interface Window {
   OLBR_TEAM_MATRIX: {
     [domain: string]: { [sub: string]: string[] };
   };
+  /**
+   * assets/team-scope-map.js 注入：作用域映射（生成文件，勿手改）。
+   * 与 OLBR_TEAM_MATRIX 同源（都来自 v3/team_portal/scope-map.json）：
+   * 一个说「勾了哪些」，一个说「子键怎么对应到门户组件」。
+   * urlPatterns 只在 OSS 域出现（槽位 → 门户目录条目的匹配依据）。
+   */
+  OLBR_SCOPE_MAP: {
+    [domain: string]: { [sub: string]: { urlPatterns?: string[] } };
+  } | null;
   /** assets/team-scope.js 注入：作用域查询引擎 */
   OLBR_SCOPE: {
     teamId: string;

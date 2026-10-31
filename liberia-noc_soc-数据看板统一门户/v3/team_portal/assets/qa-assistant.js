@@ -273,14 +273,29 @@
   }
 
   function api(path, payload) {
-    return fetch(API + path, {
-      method: 'POST',
-      credentials: 'same-origin',
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-      body: JSON.stringify(payload || {})
-    }).then(function (r) {
-      return r.json().catch(function () { return {}; }).then(function (j) {
-        return { status: r.status, body: j };
+    /* 团队门户（2026-10-30 加）：401 时换一次 my_app 会话再重试一次。
+       背景见 scripts/sync_team_assets.py 里本补丁的说明。
+       ⚠️ SCOPE/OLBR_SESSION 为 null 时（上游 /v3/olbrportal/）行为与改动前完全一致。 */
+    var SESSION = window.OLBR_SESSION || null;
+    var raw = function () {
+      return fetch(API + path, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify(payload || {})
+      }).then(function (r) {
+        return r.json().catch(function () { return {}; }).then(function (j) {
+          return { status: r.status, body: j };
+        });
+      });
+    };
+    if (!SESSION) return raw();
+    return raw().then(function (res) {
+      /* 只在 401 时自愈；重试**仅一次**，避免把 401 变成死循环。 */
+      if (!res || res.status !== 401) return res;
+      return SESSION.ensure(true).then(function (r) {
+        if (!r.ok) return res;          /* 换不到会话 → 把 401 如实交回调用方 */
+        return raw();
       });
     });
   }
@@ -349,7 +364,22 @@
     if (healthDone) return;
     healthDone = true;
     foot.textContent = t('booting');
-    fetch(API + '/health', { credentials: 'same-origin', headers: { Accept: 'application/json' } })
+    /* 团队门户（2026-10-30 加）：探活也要带会话，否则远端用户看到的是
+       「服务未就绪」而不是真实状态。401 时换一次会话再试一次。
+       ⚠️ 这是 GET，幂等，重试安全。 */
+    var SESSION = window.OLBR_SESSION || null;
+    var healthRaw = function () {
+      return fetch(API + '/health', { credentials: 'same-origin', headers: { Accept: 'application/json' } });
+    };
+    var healthFetch = SESSION
+      ? healthRaw().then(function (r) {
+          if (r.status !== 401) return r;
+          return SESSION.ensure(true).then(function (res) {
+            return res.ok ? healthRaw() : r;
+          });
+        })
+      : healthRaw();
+    healthFetch
       .then(function (r) { return r.json(); })
       .then(function (j) {
         if (j && j.healthy && j.detail) {

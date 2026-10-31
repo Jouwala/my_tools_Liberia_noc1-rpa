@@ -545,14 +545,27 @@
      直接读 window.OLBR_DATA，顺序反了会拿到空对象、整页文案变裸 key。 -->
 <script src="assets/olbr-data.js"></script>
 <!-- 团队门户可见性矩阵（**生成文件**，由 scripts/gen_team_matrix.py 从
-     《新看板设计.xlsx》产出）与作用域引擎。
+     v3/team_portal/scope-map.json 产出）与作用域引擎。
      ⚠️ 加载顺序必须在 olbr.js **之前**：olbr.js 启动时读 window.OLBR_SCOPE，
      顺序反了拿到的就是 undefined —— 那一版会退化成「什么都不显示」，
      而页面看上去只是一片空白，很难联想到是加载顺序的问题。
-     这两个文件是 team_portal 独有的；上游 /v3/olbrportal/ 那份 index.html
-     一行未改（它不引这两个文件，SCOPE 为 null，行为与改动前完全一致）。 -->
+     这几个文件是 team_portal 独有的；上游 /v3/olbrportal/ 那份 index.html
+     一行未改（它不引这几个文件，SCOPE 为 null，行为与改动前完全一致）。 -->
 <script src="assets/team-matrix.js"></script>
+<script src="assets/team-scope-map.js"></script>
 <script src="assets/team-scope.js"></script>
+<!-- my_app 会话预热 + 401 自愈（2026-10-30 加）。
+     ⚠️ 加载顺序必须在 olbr.js **之前**：olbr.js 的 boot() 与 api() 启动时
+     读 window.OLBR_SESSION，顺序反了拿到的就是 undefined ——
+     那一版会退化成「不预热、不自愈」，症状回到「首屏红点、刷新才正常」。
+     为什么需要它：团队门户的数据全部来自 my_app 后端（QC 汇总、KPI 指标、
+     报告列表、看板目录），那些接口认的是 **myapp_session** Cookie；
+     而本页判「已登录」用的是**门户 token**，两者不是一回事。此前本页从不
+     换 myapp 会话，真正种下它的是页面里 my_app 内嵌 iframe 的 bootstrapAuth()
+     —— 那是副作用且必然慢一拍，故首屏必然 401，刷新才恢复。
+     这几个文件是 team_portal 独有的；上游 /v3/olbrportal/ 那份 index.html
+     一行未改（它不引这几个文件，SCOPE 为 null，行为与改动前完全一致）。 -->
+<script src="assets/team-session.js"></script>
 <script src="assets/olbr.js"></script>
 <!-- 团队门户专属面板（2026-10-29 加）：Auto Report 按团队过滤的表 +
      Customer Complaint 入口。放在 olbr.js 之后 —— 它只提供

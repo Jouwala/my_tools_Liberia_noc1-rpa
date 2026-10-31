@@ -23,6 +23,7 @@ import {
   ShieldCheck,
   ShieldOff,
   Users,
+  Grid3x3,
 } from 'lucide-react';
 import { useI18n } from '../i18n';
 import { PORTAL_API } from '../config';
@@ -48,6 +49,8 @@ interface NavbarProps {
   onOpenUserManagement: () => void;
   /** 仅 admin 展示「鉴权开关」入口 */
   onOpenAuthSwitch: () => void;
+  /** 仅 admin 展示「团队可见性」入口（2026-10-30 加） */
+  onOpenTeamScope: () => void;
   onLogout: () => void;
 }
 
@@ -67,6 +70,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onChangePassword,
   onOpenUserManagement,
   onOpenAuthSwitch,
+  onOpenTeamScope,
   onLogout,
 }) => {
   const { t, lang, setLang } = useI18n();
@@ -162,6 +166,16 @@ export const Navbar: React.FC<NavbarProps> = ({
               {t('nav.authSwitchOff')}
             </span>
           )}
+        </button>
+      )}
+      {isAdmin && (
+        <button
+          onClick={() => { onOpenTeamScope(); onNavigate(); }}
+          title={t('ts.hint')}
+          className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-medium transition-colors"
+        >
+          <Grid3x3 className="w-4 h-4 text-violet-500" />
+          <span>{t('nav.teamScope')}</span>
         </button>
       )}
       <button

@@ -14,8 +14,9 @@
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
     "lint:shells": "tsc -p v1/olbrportal/tsconfig.json",
-    "test": "node --import tsx --test src/utils/groups.test.ts src/utils/format.test.ts server/portalDefault.test.ts",
+    "test": "node --import tsx --test src/utils/groups.test.ts src/utils/format.test.ts server/portalDefault.test.ts server/teamScopeDb.test.ts",
     "verify:readiness": "node scripts/verify-readiness.mjs",
+    "check:team-scope": "node scripts/check-team-scope.mjs",
     "check:clean": "node scripts/check-cleanliness.mjs audit",
     "tmp:clean": "node scripts/check-cleanliness.mjs clean",
     "tmp:clean:apply": "node scripts/check-cleanliness.mjs clean --apply"

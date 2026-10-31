@@ -72,6 +72,43 @@ npm run clean      # 删除 dist / server.js
 - 被钩子拦下但确实要提交：`git commit --no-verify`（先确认文件真的是源码）。
 - `_*` 前缀的真源码（如 `src\`、`server\` 下的下划线文件）在脚本里有豁免清单，新增类似文件时记得同步该清单。
 
+### 团队门户（`v3/team_portal/`）的生成物一致性（2026-10-30 起有机器守卫）
+
+`v3/team_portal/` 的资产是从上游 `v3/olbrportal/` **生成**出来的，而且**都在版本库里** ——
+团队门户是静态壳，nginx 直接 alias 发它们，**不经任何构建步骤**。
+于是「改了上游忘了重跑生成脚本」会**直接上线**，症状是团队门户里的功能悄悄消失。
+
+| 机制 | 命令 | 作用 |
+| --- | --- | --- |
+| 提交前拦截 | `.git\hooks\pre-commit`（工作区根，随 git 生效） | 提交时自动跑四项检查，不一致就拦下 |
+| 手工体检 | `npm run check:team-scope` | 随时自查生成物是否与上游一致 |
+
+四项检查（全在 `scripts/check-team-scope.mjs` 里串起来）：
+
+```
+python scripts/patch_team_portal.py --check   团队门户 olbr.js 与上游基线一致（scope 钩子未脱节）
+python scripts/gen_team_matrix.py --check     可见性矩阵与 scope-map.json 一致
+python scripts/sync_team_assets.py --check    团队门户共享资产与上游一致
+python scripts/check_scope_coverage.py        作用域覆盖度对账（上游新增内容容器必须先登记）
+```
+
+**改了上游之后怎么做**（按改了什么选）：
+
+| 你改了什么 | 要重跑什么 |
+| --- | --- |
+| 上游 `olbr.js` | `python scripts/patch_team_portal.py` |
+| 上游 `olbr-data.js` / `masthead.css` / `qa-assistant.*` / logo / `_local-credentials.js` | `python scripts/sync_team_assets.py` |
+| `v3/team_portal/scope-map.json`（矩阵或映射） | `python scripts/gen_team_matrix.py` |
+| 上游新增了内容容器 | 先在 `v3/team_portal/block-manifest.json` 登记，再跑上面的脚本 |
+
+⚠️ **`check_scope_coverage.py` 报错 = 上游新增了内容但还没纳入矩阵作用域。**
+这时**必须**在 `block-manifest.json` 里登记该块（写明它受哪个域控制，
+或标 `always` 并给出 `reason`），否则它会**默认漏给全部五个团队**（fail-open）。
+不要用 `--no-verify` 绕过 —— 那正是权限事故的成因。
+
+⚠️ **`team-matrix.js` / `team-scope-map.js` / `team_portal/assets/olbr.js` 勿手改**，
+下次重跑脚本会被静默覆盖。
+
 ## 三、代码结构约定
 
 ### 状态中枢只有一个
@@ -159,6 +196,7 @@ var seq = ++qcDrillSeq;
 - [ ] `npm run dev` 后刷新页面，改动**实际可见**
 - [ ] `git status --porcelain` 复查：没有 `dist/`、`node_modules/`、`auth-data/`、`portal-default.json`、`*.log`、探针文件混入
 - [ ] `npm run check:clean` 通过（探针/快照/日志没被 git 跟踪；pre-commit 钩子也会自动拦）
+- [ ] 改过 `v3/olbrportal/` 或 `v3/team_portal/` 时：`npm run check:team-scope` 通过（生成物与上游一致）
 
 ### 文案 / i18n
 

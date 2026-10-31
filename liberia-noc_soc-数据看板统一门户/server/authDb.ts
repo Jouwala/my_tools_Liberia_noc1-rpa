@@ -165,6 +165,12 @@ interface SqliteModule {
   backup: (source: DatabaseSyncLike, destination: string) => Promise<number>;
 }
 
+/**
+ * 对外的最小 SQLite 接口形状（只含 DatabaseSync）。
+ * 供需要**单独开一条连接**的模块（如 teamScopeDb）复用同一套类型。
+ */
+export type SqliteModuleLike = { DatabaseSync: new (location: string) => DatabaseSyncLike };
+
 interface UserRow {
   id: string;
   username: string;

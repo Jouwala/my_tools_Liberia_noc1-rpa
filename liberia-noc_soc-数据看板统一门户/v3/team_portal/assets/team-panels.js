@@ -115,13 +115,30 @@
     if (reportState.loaded && !force) { renderReportsTable(); return; }
     reportState.loading = true;
     reportState.err = '';
-    fetch('/api/email-reports/latest?limit=1', {
-      credentials: 'same-origin',
-      headers: { Accept: 'application/json' }
-    }).then(function (r) {
-      if (!r.ok) throw new Error('HTTP ' + r.status);
-      return r.json();
-    }).then(function (d) {
+    /* 2026-10-30：走**会话自愈**的取数通道，与 olbr.js 的 api() 同一套。
+       为什么必须这样：本文件是团队门户**专有**资产，自带一个裸 fetch ——
+       它不走 olbr.js 的 api()，故拿不到「401 → 换会话 → 重试」的自愈。
+       实测 /api/email-reports/latest 在远端无会话时回 401，症状是
+       Auto Report 表整块显示「加载失败」—— 与本次修复的 QC 红点是同一个病根。
+       ⚠️ window.OLBR_SESSION 不存在时（理论上不会：本文件只在团队门户里被引，
+         而 team-session.js 与它同在 assets/）退回裸 fetch，行为与改动前一致。 */
+    var SESSION = window.OLBR_SESSION || null;
+    var doFetch = SESSION
+      ? SESSION.retryOn401(function (u) {
+          return fetch(u, { credentials: 'same-origin', headers: { Accept: 'application/json' } })
+            .then(function (r) {
+              if (!r.ok) throw new Error('HTTP ' + r.status);
+              return r.json();
+            });
+        })
+      : function (u) {
+          return fetch(u, { credentials: 'same-origin', headers: { Accept: 'application/json' } })
+            .then(function (r) {
+              if (!r.ok) throw new Error('HTTP ' + r.status);
+              return r.json();
+            });
+        };
+    doFetch('/api/email-reports/latest?limit=1').then(function (d) {
       var allow = SCOPE.reportIds();
       var rows = [];
       (d && d.reports ? d.reports : []).forEach(function (src) {

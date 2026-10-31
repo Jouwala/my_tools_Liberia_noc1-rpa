@@ -1,0 +1,266 @@
+{
+  "_comment": "团队门户可见性的**唯一真相源**（手工维护）。scripts/gen_team_matrix.py 从本文件生成 assets/team-matrix.js；Excel（各团队看板内容清单）只是本文件 matrix 段的一个编辑器 —— 用脚本从 Excel 导入即可。改动需求请改本文件或改 Excel 后重跑脚本，不要直接编辑生成物。",
+  "version": 2,
+
+  "_comment_teams": "团队白名单。与 server/auth/types.ts 的 TEAM_IDS、v3/team-gate.js 的 TEAM_PORTAL 三处对应，改一处必须改另两处。",
+  "teams": [
+    { "id": "fo",  "zh": "ZTE FO Team",  "en": "ZTE FO Team",  "excelColumn": "ZTE FO Team"  },
+    { "id": "bo",  "zh": "ZTE BO Team",  "en": "ZTE BO Team",  "excelColumn": "ZTE BO Team"  },
+    { "id": "flm", "zh": "ZTE FLM Team", "en": "ZTE FLM Team", "excelColumn": "ZTE FLM Team" },
+    { "id": "smc", "zh": "Orange SMC",   "en": "Orange SMC",   "excelColumn": "Orange SMC"   },
+    { "id": "cxo", "zh": "Orange CXO",   "en": "Orange CXO",   "excelColumn": "Orange CXO"   }
+  ],
+
+  "_comment_domains": "域 = 门户上的一个大区块（QC 指标带、KPI 指标带…）。每个域下列出 items：key 是门户内部标识（矩阵与渲染点都用它），excel 是 Excel 里那一行的 Detail 文案（匹配用）。",
+  "_comment_extra_domains": "⚠️ extra_domains 里的域**不在 Excel 里** —— 它们是门户页面的结构性区块（辅助入口 / 归档区），Excel 的内容清单里没有对应行。但它们同样需要受矩阵控制（否则会出现在全部五个团队门户里，与「缺项=不显示」相悖）。故单列一段，语义与 domains 完全一致。",
+  "extra_domains": [
+    {
+      "key": "aux",
+      "zh": "辅助入口",
+      "en": "Auxiliary entries",
+      "excelDomain": "",
+      "portalAnchor": "aux",
+      "items": [
+        { "key": "aux", "zh": "辅助分组（知识库 / 生态 / 系统运维）", "en": "Auxiliary groups", "excel": "" }
+      ]
+    },
+    {
+      "key": "archive",
+      "zh": "归档区",
+      "en": "Archived",
+      "excelDomain": "",
+      "portalAnchor": "arch",
+      "items": [
+        { "key": "archive", "zh": "归档分组", "en": "Archive group", "excel": "" }
+      ]
+    }
+  ],
+
+  "domains": [
+    {
+      "key": "qc",
+      "zh": "Daily Operation",
+      "en": "Daily Operation",
+      "excelDomain": "Daily Operation",
+      "portalAnchor": "band",
+      "items": [
+        { "key": "alarm", "zh": "Alarm", "en": "Alarm", "excel": "Alarm" },
+        { "key": "tt",    "zh": "TT",    "en": "TT",    "excel": "TT" },
+        { "key": "wo",    "zh": "WO",    "en": "WO",    "excel": "WO" },
+        { "key": "cr",    "zh": "CR",    "en": "CR",    "excel": "CR" },
+        { "key": "pmt",   "zh": "PMT",   "en": "PMT",   "excel": "PMT" },
+        { "key": "spms",  "zh": "SPMS",  "en": "SPMS",  "excel": "SPMS" }
+      ]
+    },
+    {
+      "key": "kpi",
+      "zh": "Network Status",
+      "en": "Network Status",
+      "excelDomain": "Network Status",
+      "portalAnchor": "kpi",
+      "items": [
+        { "key": "rich",  "zh": "CXO View（用户/流量/带宽）", "en": "CXO View (User/Traffic/Throughput)", "excel": "CXO View( User/Traffic/Throughput)" },
+        { "key": "avail", "zh": "可用率（2G/3G/4G）", "en": "Availability (2G/3G/4G)", "excel": "Availability(2G/3G/4G)" }
+      ]
+    },
+    {
+      "key": "bf",
+      "zh": "Network Benchmark",
+      "en": "Network Benchmark",
+      "excelDomain": "Network Benchmark",
+      "portalAnchor": "kpi",
+      "items": [
+        { "key": "speed", "zh": "Speedtest", "en": "Speedtest", "excel": "Speedtest" },
+        { "key": "meta",  "zh": "Meta",      "en": "Meta",      "excel": "Meta" }
+      ]
+    },
+    {
+      "key": "view",
+      "zh": "Domain Dashboard",
+      "en": "Domain Dashboard",
+      "excelDomain": "Domain Dashboard",
+      "portalAnchor": "views6",
+      "items": [
+        { "key": "CXO View", "zh": "CXO View", "en": "CXO View", "excel": "CXO" },
+        { "key": "MS View",  "zh": "MS View",  "en": "MS View",  "excel": "PD" },
+        { "key": "SP View",  "zh": "SP View",  "en": "SP View",  "excel": "SPMS" },
+        { "key": "FLM View", "zh": "FLM View", "en": "FLM View", "excel": "FLM" },
+        { "key": "FO View",  "zh": "FO View",  "en": "FO View",  "excel": "FO" },
+        { "key": "BO View",  "zh": "BO View",  "en": "BO View",  "excel": "BO" }
+      ]
+    },
+    {
+      "key": "map",
+      "zh": "GIS MAP",
+      "en": "GIS MAP",
+      "excelDomain": "GIS MAP",
+      "portalAnchor": "l0Map",
+      "items": [
+        { "key": "gis",        "zh": "告警地图", "en": "Alarm Map",   "excel": "Alarm MAP" },
+        { "key": "person",     "zh": "人员地图", "en": "Person Map",  "excel": "Person MAP" },
+        { "key": "mwRealTime", "zh": "微波实时", "en": "MW Map",      "excel": "MW MAP" }
+      ]
+    },
+    {
+      "key": "qa",
+      "zh": "Knowledge Q&A",
+      "en": "Knowledge Q&A",
+      "excelDomain": "Knowledge Q&A",
+      "portalAnchor": "qaSlot",
+      "items": [
+        { "key": "eflow",     "zh": "TT/Alarm 分析", "en": "TT/Alarm Analysis", "excel": "TT/Alarm Analysis" },
+        { "key": "rag",       "zh": "知识问答",       "en": "Knowledge O&A",     "excel": "Knowledge O&A" },
+        { "key": "assistant", "zh": "快速问答",       "en": "Quick Q&A",         "excel": "Quick Q&A" }
+      ]
+    },
+    {
+      "key": "report",
+      "zh": "Auto-report",
+      "en": "Auto-report",
+      "excelDomain": "Auto-report",
+      "portalAnchor": "emailSlot",
+      "items": [
+        { "key": "liberia_8h",      "zh": "Liberia Site-Down 8H Report Email",      "en": "Liberia Site-Down 8H Report Email",      "excel": "Liberia Site-Down 8H Report Email" },
+        { "key": "liberia_1h",      "zh": "Liberia Site-Down 1H Report Email",      "en": "Liberia Site-Down 1H Report Email",      "excel": "Liberia Site-Down 1H Report Email" },
+        { "key": "battery",         "zh": "Battery KPI Email",                      "en": "Battery KPI Email",                      "excel": "Battery KPI Email" },
+        { "key": "tt_mttr",         "zh": "TTs and MTTR Report Generate",            "en": "TTs and MTTR Report Generate",            "excel": "TTs and MTTR Report Generate" },
+        { "key": "packet_loss",     "zh": "Packet Loss Daily Report Email",          "en": "Packet Loss Daily Report Email",          "excel": "Packet Loss Daily Report Email" },
+        { "key": "sp_spareparts",   "zh": "SpareParts Report Email",                 "en": "SpareParts Report Email",                 "excel": "SpareParts Report Email" },
+        { "key": "sp_consumables",  "zh": "Comsumables Report Email",                "en": "Comsumables Report Email",                "excel": "Comsumables Report Email" },
+        { "key": "ran_availability", "zh": "RAN UME Daily Report",                   "en": "RAN UME Daily Report",                   "excel": "RAN UME Daily Report" },
+        { "key": "ms_wo_sla",       "zh": "MS WOs SLA Daily Report Email",           "en": "MS WOs SLA Daily Report Email",           "excel": "MS WOs SLA Daily Report Email" },
+        { "key": "ms_contract",     "zh": "MS Contract KPIs Daily Report Email",     "en": "MS Contract KPIs Daily Report Email",     "excel": "MS Contract KPIs Daily Report Email" }
+      ]
+    },
+    {
+      "key": "oss",
+      "zh": "OSS Portal Login",
+      "en": "OSS Portal Login",
+      "excelDomain": "OSS Portal Login",
+      "portalAnchor": "ossSlot",
+      "_comment_patterns": "urlPatterns：目录条目 → 槽位的匹配依据。用 url 片段（page= / 主机名）而不是标题 —— 标题在门户目录里可编辑，模糊匹配会突然失效。一个槽位可对应多条目录条目。",
+      "items": [
+        { "key": "portalLogin", "zh": "网管门户一键登录", "en": "Portal Login (NMS one-click)", "excel": "Portal Login (NMS Portal One-click Login)", "urlPatterns": ["page=portalLogin"] },
+        { "key": "nmsccn",      "zh": "ZTE UME NMSCCN",   "en": "ZTE UME NMSCCN",   "excel": "ZTE UME NMSCCN",      "urlPatterns": ["192.168.100.19", "10.100.28.27", "10.121.1.2"] },
+        { "key": "ipran",       "zh": "UME NMSiPRAN",    "en": "UME NMSiPRAN",    "excel": "UME NMSiPRAN",       "urlPatterns": ["10.100.2.99"] },
+        { "key": "mw",          "zh": "UME NMSMW",       "en": "UME NMSMW",       "excel": "UME NMSMW",          "urlPatterns": ["192.168.169.247"] },
+        { "key": "fwumc",       "zh": "UME NMSFW UMC（防火墙）", "en": "UME NMSFW UMC (Firewall)", "excel": "UME NMSFW UMC (Firewall)", "urlPatterns": ["10.100.2.101"] },
+        { "key": "vmaxcxo",     "zh": "VMAX CXO Dashboard", "en": "VMAX CXO Dashboard", "excel": "VMAX CXO Dashboard", "urlPatterns": ["10.123.255.12"] },
+        { "key": "imonitor",    "zh": "UME iMonitor 大屏", "en": "UME iMonitor Screen", "excel": "UME iMonitor Screen", "urlPatterns": ["172.17.208.1", "page=imonitor"] },
+        { "key": "eflow",       "zh": "eFlow 告警系统",  "en": "eFlow Alarm System", "excel": "eFlow Alarm System", "urlPatterns": ["10.100.20.8"] },
+        { "key": "rais",        "zh": "RAIS 权限平台",   "en": "RAIS Permission Platform", "excel": "RAIS Permission Platform", "urlPatterns": ["10.100.20.9"] },
+        { "key": "dcserver",    "zh": "DC 服务器",       "en": "DC Server",        "excel": "DC Server",          "urlPatterns": ["10.121.8.2"] }
+      ]
+    },
+    {
+      "key": "complaint",
+      "zh": "客户投诉查询",
+      "en": "Customer Complaint",
+      "excelDomain": "Customer complaint",
+      "portalAnchor": "complaintSlot",
+      "domainOnly": true,
+      "items": [
+        { "key": "vmax", "zh": "VMAX 用户查询（投诉系统）", "en": "VMAX User Query (complaint system)", "excel": "" }
+      ]
+    },
+    {
+      "key": "escalation",
+      "zh": "升级机制",
+      "en": "Escalation Matrix",
+      "excelDomain": "Escalation Matrix",
+      "portalAnchor": "esc",
+      "domainOnly": true,
+      "items": [
+        { "key": "esc", "zh": "升级矩阵", "en": "Escalation matrix", "excel": "" }
+      ]
+    },
+    {
+      "key": "feedback",
+      "zh": "用户反馈",
+      "en": "User Feedback",
+      "excelDomain": "User Feedback",
+      "portalAnchor": "fbSlot",
+      "domainOnly": true,
+      "items": [
+        { "key": "fb", "zh": "使用反馈", "en": "Usage feedback", "excel": "" }
+      ]
+    }
+  ],
+
+  "_comment_matrix": "当前生效的可见性矩阵：{ 域键: { 子键: [有勾的团队 id, ...] } }。矩阵缺项 = 不显示（没有「默认全显」兜底）。可用 `python scripts/gen_team_matrix.py --import-excel` 从 Excel 重新导入本段。",
+  "matrix": {
+    "qc": {
+      "alarm": ["fo", "bo", "flm", "smc"],
+      "tt":    ["fo", "flm", "smc"],
+      "wo":    ["fo", "flm", "smc"],
+      "cr":    ["fo", "bo"],
+      "pmt":   ["flm"],
+      "spms":  ["flm"]
+    },
+    "kpi": {
+      "rich":  ["fo", "bo", "smc", "cxo"],
+      "avail": ["fo", "bo", "flm", "smc", "cxo"]
+    },
+    "bf": {
+      "speed": ["smc", "cxo"],
+      "meta":  ["smc", "cxo"]
+    },
+    "view": {
+      "CXO View": ["bo", "cxo"],
+      "MS View":  [],
+      "SP View":  ["flm"],
+      "FLM View": ["flm"],
+      "FO View":  ["fo"],
+      "BO View":  ["bo"]
+    },
+    "map": {
+      "gis":        ["fo", "flm", "smc", "cxo"],
+      "person":     ["fo", "flm", "smc", "cxo"],
+      "mwRealTime": ["fo", "bo", "flm", "smc", "cxo"]
+    },
+    "qa": {
+      "eflow":     ["fo", "bo", "flm", "smc"],
+      "rag":       ["fo", "bo", "flm", "smc", "cxo"],
+      "assistant": ["fo", "bo", "flm", "smc", "cxo"]
+    },
+    "report": {
+      "liberia_8h":      ["fo", "flm"],
+      "liberia_1h":      ["fo", "flm"],
+      "battery":         ["fo", "bo", "flm"],
+      "tt_mttr":         ["fo", "flm"],
+      "packet_loss":     ["fo", "bo"],
+      "sp_spareparts":   ["fo", "flm"],
+      "sp_consumables":  ["fo", "flm"],
+      "ran_availability": ["fo", "bo"],
+      "ms_wo_sla":       ["fo", "flm"],
+      "ms_contract":     ["fo", "flm"]
+    },
+    "oss": {
+      "portalLogin": ["fo", "bo", "smc"],
+      "nmsccn":      ["fo", "bo", "smc"],
+      "ipran":       ["fo", "bo", "smc"],
+      "mw":          ["fo", "bo", "smc"],
+      "fwumc":       ["fo", "bo", "smc"],
+      "vmaxcxo":     ["fo", "bo", "smc"],
+      "imonitor":    ["fo", "bo", "smc"],
+      "eflow":       ["fo", "bo", "smc"],
+      "rais":        ["fo", "bo", "smc"],
+      "dcserver":    ["fo", "bo", "smc"]
+    },
+    "complaint": {
+      "vmax": ["fo", "bo", "flm", "smc"]
+    },
+    "escalation": {
+      "esc": ["fo", "bo", "flm", "smc", "cxo"]
+    },
+    "feedback": {
+      "fb": ["fo", "bo", "flm", "smc", "cxo"]
+    },
+    "aux": {
+      "aux": []
+    },
+    "archive": {
+      "archive": []
+    }
+  }
+}
