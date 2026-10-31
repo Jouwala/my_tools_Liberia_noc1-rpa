@@ -349,12 +349,15 @@ var I18N = {
     dThRttUl:'上行 RTT (ms)', dThRttDl:'下行 RTT (ms)',
     vTitle:'分视频 APP 明细', vNote:'速率为该 APP 按流量加权的有效下载速率；「占总流量」= 该 APP 流量 ÷ 当日全网总流量，与「视频流量占比」卡片同口径 —— 三家合计即卡片数值。',
     gTitle:'分游戏 APP 明细', gNote:'流量为游戏业务清单内各 APP 当日流量，合计可与「游戏流量」卡片对账；RTT 为该 APP 按流量加权的 TCP 平均往返时延。',
+    neTh:'核心网元', neTitle:'TCP 质量逐核心网元明细', neOthers:'其它 {n} 个网元',
+    dThSuc:'建链成功率', dThRetrans:'下行重传率',
+    neNote:'【口径】「合计」行与卡面数值同源可对账：三个指标都是对当日原始计数 SUM(分子)/SUM(分母) 的重聚合，明细行按网元分组取自与卡片同一次查询的行集合（网元名与月报 GUW 表同一份映射，站点级小流量 targetid 并入 SGW_ODC_22）。建链请求为 0 的网元按卡片口径计 100%，重传/时延分母为 0 计 0 —— 与卡面显示规则逐条一致，不是下钻自创的数。',
     dLoading:'正在取明细…', dFailed:'明细加载失败',
     dEmpty:'明细为空：跑一次「OLIB SOC 看板 KPI 增量」任务即写入；历史天可用报表 CLI 的 --details-only 回填',
-    /* 逐日下钻（无分业务维度的 4 个指标用这套，见 DRILLS 里的 series:true） */
+    /* 逐日下钻（上游没有分业务维度的指标只有活跃用户，用这套，见 DRILLS 里的 series:true） */
     sThDay:'日期', sThVal:'数值', sThChg:'环比',
     sDetailDay:'逐日明细',
-    sNote:'明细是日口径，与卡面「最新值」取自同一份日序列：标 ◀ 的那一行就是卡片数字的出处，两者必然相等。上方「日/周」开关只改变曲线的聚合方式，不改变本明细 —— 周点当周合计/加权均值，与日口径的卡片不能直接对账。窗口末端当天可能尚未落库（值显示 —，卡面会自动取上一个有值的日子，即 ◀ 那一行）。这 4 个指标在上游没有分业务（APP）维度，所以只能落到逐日，不与其它卡片的分业务明细混用。',
+    sNote:'明细是日口径，与卡面「最新值」取自同一份日序列：标 ◀ 的那一行就是卡片数字的出处，两者必然相等。上方「日/周」开关只改变曲线的聚合方式，不改变本明细 —— 周点当周合计/加权均值，与日口径的卡片不能直接对账。窗口末端当天可能尚未落库（值显示 —，卡面会自动取上一个有值的日子，即 ◀ 那一行）。上游没有分业务（APP）维度的指标只剩「活跃用户」（去重用户数无法归属到业务），所以只能落到逐日；TCP 质量三卡已按核心网元维度单独下钻，不走本表。',
     n1:'数据源：VMAX 数仓 GBase（10.123.255.12:5258, 库 zxvmax）直连取数，由任务 olib_soc_kpi_daily_sync 每日增量、olib_soc_vmax_report 每月全量入库',
     n2:'单位：总流量/视频流量 GB（库内 TB × 1024）；视频速率为按视频流量加权的有效下载速率（kbps）；活跃用户为当日去重用户数',
     n3:'周粒度：流量类为当周合计，比率/速率/时延为按流量加权平均；最后一周可能未走完，图上标注实际天数',
@@ -392,12 +395,15 @@ var I18N = {
     dThRttUl:'UL RTT (ms)', dThRttDl:'DL RTT (ms)',
     vTitle:'Per-video-app breakdown', vNote:'Throughput is the traffic-weighted valid download rate of each app; "Share of total" = app traffic ÷ the day\'s total network traffic (same caliber as the "Video Traffic Share" card — the three apps add up to the card value).',
     gTitle:'Per-game-app breakdown', gNote:'Traffic is each game app\'s daily traffic; the total reconciles with the "Game Traffic" card. RTT is the traffic-weighted average TCP round-trip time of that app.',
+    neTh:'Core NE', neTitle:'TCP quality per core network element', neOthers:'{n} other NEs',
+    dThSuc:'SYN success rate', dThRetrans:'DL retransmission rate',
+    neNote:'CALIBER — the "Total" row reconciles with the card: all three metrics are re-aggregated as SUM(numerator)/SUM(denominator) over the same raw daily counts, and the per-NE rows come from grouping the very query set behind the card (NE names use the same mapping as the monthly GUW sheet; low-traffic site-level targetids fold into SGW_ODC_22). An NE with 0 SYN attempts counts as 100% success and a 0 denominator for retransmission/latency counts as 0 — identical to the card\'s display rules, not an invention of this drill-down.',
     dLoading:'loading detail…', dFailed:'failed to load detail',
     dEmpty:'No detail yet — run the "OLIB SOC Dashboard KPI Sync" task once to populate it; history can be back-filled via the report CLI --details-only',
-    /* 逐日下钻（无分业务维度的 4 个指标用这套，见 DRILLS 里的 series:true） */
+    /* 逐日下钻（上游没有分业务维度的指标只有活跃用户，用这套，见 DRILLS 里的 series:true） */
     sThDay:'Date', sThVal:'Value', sThChg:'Change',
     sDetailDay:'Daily detail',
-    sNote:'These rows are daily, taken from the same day series that feeds the card: the row marked ◀ is exactly where the card value comes from, so the two always match. The Day/Week switch above only changes how the curves aggregate — weekly points are that week\'s sum or traffic-weighted average and are not directly comparable with a daily-caliber card. The last day of the window may not be loaded yet (shown as —; the card then falls back to the most recent day that has a value, i.e. the ◀ row). These 4 metrics have no per-app dimension upstream, so they drill to per-day only — kept separate from the per-app breakdowns of the other cards.',
+    sNote:'These rows are daily, taken from the same day series that feeds the card: the row marked ◀ is exactly where the card value comes from, so the two always match. The Day/Week switch above only changes how the curves aggregate — weekly points are that week\'s sum or traffic-weighted average and are not directly comparable with a daily-caliber card. The last day of the window may not be loaded yet (shown as —; the card then falls back to the most recent day that has a value, i.e. the ◀ row). Only active users still have no per-app dimension upstream (distinct-user counts cannot be attributed to a service), so they drill to per-day only; the three TCP quality cards now break down per core network element instead.',
     n1:'Source: VMAX data warehouse GBase (10.123.255.12:5258, db zxvmax) queried directly; filled daily by olib_soc_kpi_daily_sync and monthly by olib_soc_vmax_report',
     n2:'Units: traffic/video in GB (stored as TB × 1024); video rate is the traffic-weighted valid download throughput (kbps); active users are distinct subscribers per day',
     n3:'Weekly: volumes are summed, rates/latency are traffic-weighted averages; the last week may be partial (day count shown on the chart)',
@@ -679,11 +685,14 @@ var QUALITY_CHART_IDS=['video_tb','cache_ratio_pct','game_tb','tcp_success_pct',
  *   video_tb / video_thr_kbps / video_share_pct ← daily_video_app（video 块逐 APP 结果帧，
  *     share 分母 = 当日全网总流量，与「视频流量占比」卡片同口径）
  *   game_tb ← daily_game_app（game 块逐 APP 结果帧，RTT 按流量加权）
+ *   tcp_success_pct / tcp_dl_retrans_pct / tcp_dl_rtt_ms ← daily_tcp_target
+ *     （tcp_ne 伪块按 targetid 分组，存原始计数现算比率 —— 合计行与卡片恒等可重聚合）
  * 明细只在首次点击时按接口拉一次并缓存，刷新/切语言用缓存重绘。
  * appname 为空的行是「其它 / 合计」，标签由渲染层给（后端不背文案）。 */
 var OFFLOAD_API='/api/olib-soc-dashboard/app-offload?days=90';
 var VIDEO_APP_API='/api/olib-soc-dashboard/video-apps?days=90';
 var GAME_APP_API='/api/olib-soc-dashboard/game-apps?days=90';
+var TCP_TARGET_API='/api/olib-soc-dashboard/tcp-targets?days=90';
 /* 列集：k=行字段，tk=列头 i18n 键，d=小数位，pct=带 % 后缀 */
 var COLS_OFFLOAD=[
   {k:'total_tb',tk:'offThTotal',d:2},{k:'local_tb',tk:'offThLocal',d:2},
@@ -695,6 +704,9 @@ var COLS_VIDEO=[
 var COLS_GAME=[
   {k:'traffic_tb',tk:'dThTb',d:2},{k:'ul_rtt_ms',tk:'dThRttUl',d:1},
   {k:'dl_rtt_ms',tk:'dThRttDl',d:1}];
+var COLS_TCP=[
+  {k:'success_pct',tk:'dThSuc',d:2,pct:true},{k:'dl_retrans_pct',tk:'dThRetrans',d:2,pct:true},
+  {k:'dl_rtt_ms',tk:'dThRttDl',d:2},{k:'tcp_tb',tk:'dThTb',d:2}];
 var DRILLS={
   traffic_gb:{api:OFFLOAD_API,cols:COLS_OFFLOAD,title:'trTitle',note:'trNote'},
   cache_ratio_pct:{api:OFFLOAD_API,cols:COLS_OFFLOAD,title:'offTitle',note:'offHint'},
@@ -702,17 +714,26 @@ var DRILLS={
   video_thr_kbps:{api:VIDEO_APP_API,cols:COLS_VIDEO,title:'vTitle',note:'vNote'},
   video_share_pct:{api:VIDEO_APP_API,cols:COLS_VIDEO,title:'vTitle',note:'vNote'},
   game_tb:{api:GAME_APP_API,cols:COLS_GAME,title:'gTitle',note:'gNote'},
-  /* 这 4 个指标上游没有分业务（APP）维度 —— app-offload / video-apps / game-apps 返回的
-     都是流量与缓存口径的 APP 清单，用户数与 TCP 质量类不在其中。它们的明细只能取
-     payload.series[GRAN]，也就是画这张卡/这条曲线用的同一份数据，所以声明 series:true：
-     不猜 APP 映射，也不硬凑一个对不上号的拆分（AGENTS.md 三.1b：下钻口径必须与概览一致）。 */
-  active_user_k:{series:true}, tcp_success_pct:{series:true},
-  tcp_dl_retrans_pct:{series:true}, tcp_dl_rtt_ms:{series:true}
+  /* TCP 质量三卡：2026-10-31 起按核心网元下钻（tcp_ne 伪块 —— 与卡片同一行集合按
+     targetid 分组，存原始计数现算比率，合计 = 卡片是恒等式）。th/othersTk 覆盖
+     首列表头与「其它」行文案 —— 这组明细的键是网元，不是 APP。 */
+  tcp_success_pct:{api:TCP_TARGET_API,cols:COLS_TCP,title:'neTitle',note:'neNote',
+                   th:'neTh',othersTk:'neOthers'},
+  tcp_dl_retrans_pct:{api:TCP_TARGET_API,cols:COLS_TCP,title:'neTitle',note:'neNote',
+                      th:'neTh',othersTk:'neOthers'},
+  tcp_dl_rtt_ms:{api:TCP_TARGET_API,cols:COLS_TCP,title:'neTitle',note:'neNote',
+                 th:'neTh',othersTk:'neOthers'},
+  /* 活跃用户上游没有分业务（APP）维度 —— app-offload / video-apps / game-apps 返回的
+     都是流量与缓存口径的 APP 清单，去重用户数不在其中，也无法按网元拆（口径不存在，
+     不是没做）。它的明细只能取 payload.series[GRAN]，也就是画这张卡用的同一份数据，
+     所以声明 series:true：不猜映射，也不硬凑一个对不上号的拆分（AGENTS.md 三.1b）。 */
+  active_user_k:{series:true}
 };
 var drillCache={}, drillLoading={}, activeDrill=null;
 
 function detailRow(r, cols, label, cls){
-  var tds='<td>'+esc(label||r.appname||'—')+'</td>';
+  // 键列标签：逐 APP 明细用 appname，逐网元明细用 target_ne（后端载荷字段名，非文案）
+  var tds='<td>'+esc(label||r.appname||r.target_ne||'—')+'</td>';
   cols.forEach(function(c){
     var v=r[c.k];
     tds+='<td'+(c.pct?' class="pct"':'')+'>'+
@@ -779,9 +800,9 @@ function fillDrillModal(){
     meta.textContent=''; note.textContent=''; return; }
   var n=(sc.rows||[]).length, rest=Math.max(0,((sc.totals&&sc.totals.apps)||n)-n);
   var html=(sc.rows||[]).map(function(r){return detailRow(r,cfg.cols)}).join('');
-  if(sc.others) html+=detailRow(sc.others,cfg.cols,t('offOthers').replace('{n}',String(rest)),'brk');
+  if(sc.others) html+=detailRow(sc.others,cfg.cols,t(cfg.othersTk||'offOthers').replace('{n}',String(rest)),'brk');
   if(sc.totals) html+=detailRow(sc.totals,cfg.cols,t('offTotals'),'tot');
-  var head='<tr><th>'+esc(t('offThApp'))+'</th>'+
+  var head='<tr><th>'+esc(t(cfg.th||'offThApp'))+'</th>'+
     cfg.cols.map(function(c){return '<th>'+esc(t(c.tk))+'</th>'}).join('')+'</tr>';
   body.innerHTML='<table class="off-tbl"><thead>'+head+'</thead><tbody>'+html+'</tbody></table>';
   var w=d.window||{};

@@ -1403,18 +1403,23 @@ python -m backend.services.olib_soc_report.olib_soc_report_service --sync-kpi --
 > 巡检也可 `curl /api/olib-soc-dashboard/status` 看 `incomplete_days` 计数。
 
 > **下钻明细表（2026-10-30 起 `daily_app_offload` / `daily_video_app` / `daily_game_app`，
-> 层在 `olib_soc_app_detail.py`）不在 `REQUIRED_COLUMNS` 自愈范围内**，残缺判定按明细表自己
+> 层在 `olib_soc_app_detail.py`；2026-10-31 起再加 `daily_tcp_target`，层在
+> `olib_soc_ne_detail.py`）不在 `REQUIRED_COLUMNS` 自愈范围内**，残缺判定按明细表自己
 > 「有没有这天」。**2026-10-31 起已自动续写**：每日任务 `olib_soc_kpi_daily_sync`
 > 改走完整落库路径（不再 `kpi_only=True`），并按 `olib_soc_app_detail.gap_days()` 单独算
-> 「明细缺口」—— 窗口内 video/game 两表任一缺天后，下次调度自动补，不必人工干预。
+> 「明细缺口」—— 窗口内 video/game/tcp 三表任一缺天后，下次调度自动补，不必人工干预
+> （逐网元 TCP 数据来自伪块 `tcp_ne` 的一条按 targetid 分组的只读 SELECT，生产数仓纪律见
+> 总纲四.8；数仓侧若有异议，配置 `blocks.tcp_ne=false` 即整体关停，其余下钻不受影响）。
 > 任务历史的摘要里看两个字段即可确认：`detail_requested_days`（本次要补的明细天）与
-> `app_detail`（video/game 各写入多少行）；`app_detail` 里出现 `error` 才是真失败。
+> `app_detail`（video/game/tcp 各写入多少行）；`app_detail` 里出现 `error` 才是真失败。
 > 仍需手工回补时（历史缺口、或明细写入连续失败）**不要**跑 `--sync-kpi --force`
 > （会重写 `daily_kpi` 既有日值），用只回填明细的命令：
 > `python backend/services/olib_soc_report/olib_soc_report_service.py --details-only --mode last_n_days --days 90`
-> （只跑 video/game 两块并落 `daily_video_app`/`daily_game_app`，不碰 `daily_kpi`/Excel/邮件；
+> （默认跑 video/game + tcp_ne 三个明细来源块并落对应明细表，不碰 `daily_kpi`/Excel/邮件；
+> 只补某一张表时显式 `--blocks tcp_ne`，新表接入时的 90 天回补即此形态；
 > offload 明细的回补方式见服务 README「分业务本地/海外」一节）。
-> 看板侧验证：点对应卡片，弹窗「数据截至」与卡片一致、合计与卡片数值对得上账。
+> 看板侧验证：点对应卡片，弹窗「数据截至」与卡片一致、合计与卡片数值对得上账
+> （TCP 三卡为构造性成立：明细存原始分子/分母计数，合计=同式重聚合，2026-10-30 实测全等）。
 > ⚠️ **例外**：缓存占比那张卡的「本地占」与卡片「缓存占比」**不是同一个指标**
 > （前者按服务器所在国家、覆盖两套缓存集群，实测高约 8 个百分点），不要拿它俩互相对账。
 

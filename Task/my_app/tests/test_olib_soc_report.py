@@ -263,13 +263,16 @@ def test_window():
 
 # ---------------------------------------------------------------- 4. SQL 组装
 def test_sql():
-    section("4. SQL 组装（9 个块，sheet 名与 notebook 一致）")
-    check("块数量 = 9", len(svc.BLOCKS) == 9, str(sorted(svc.BLOCKS)))
+    section("4. SQL 组装（月报 9 块 + 1 伪块，sheet 名与 notebook 一致）")
+    check("块数量 = 10（9 个月报块 + tcp_ne 伪块）",
+          len(svc.BLOCKS) == 10 and svc.DETAIL_PSEUDO_BLOCKS == ("tcp_ne",),
+          str(sorted(svc.BLOCKS)))
     expect_sheets = {"traffic": "traffic", "active_user": "Active_user", "cache": "cache",
                      "core": "GUW", "video": "Video", "game": "game", "tcp": "TCP",
                      "top_service": "df_TOP_Service", "top_video": "df_TOP_Video"}
-    check("sheet 名与 notebook 一致",
-          {k: v["sheet"] for k, v in svc.BLOCKS.items()} == expect_sheets)
+    check("月报 9 块的 sheet 名与 notebook 一致（伪块不进 SHEET_ORDER）",
+          {k: svc.BLOCKS[k]["sheet"] for k in svc.SHEET_ORDER} == expect_sheets
+          and "tcp_ne" not in svc.SHEET_ORDER, str(svc.SHEET_ORDER))
     check("SHEET_ORDER 与 notebook 的 writer 顺序一致",
           svc.SHEET_ORDER == ["traffic", "active_user", "cache", "core", "video", "game",
                               "tcp", "top_service", "top_video"])
@@ -314,8 +317,17 @@ def test_sql():
           and "Avg_Tcp_DL_RTT_ms" in svc.build_sql("tcp", "t", cfg))
     check("块开关：可只选部分块",
           svc.enabled_blocks(cfg, ["traffic", "guw"]) == ["traffic", "core"]
-          and svc.enabled_blocks(cfg, ["all"]) == svc.SHEET_ORDER)
+          and svc.enabled_blocks(cfg, ["all"]) == svc.SHEET_ORDER + ["tcp_ne"])
+    check("块开关：伪块只被显式点名/全量时选中，默认月报不含；开关关了连点名也不选",
+          svc.enabled_blocks(cfg, None) == svc.SHEET_ORDER
+          and svc.enabled_blocks(cfg, ["tcp_ne"]) == ["tcp_ne"]
+          and svc.enabled_blocks({**cfg, "blocks": {"tcp_ne": False}}, ["tcp_ne"]) == [])
     check("块开关：未知名字被忽略", svc.enabled_blocks(cfg, ["nope"]) == [])
+    sql_ne = svc.build_sql("tcp_ne", "aggr_5gsa_flow_ciservice_day_20260801", cfg)
+    check("tcp_ne SQL 按网元分组且只存原始计数（比率留给明细层现算）",
+          "group by Target_NE, clttime" in sql_ne and "Target_NE" in sql_ne
+          and "Tcp_Syn_Attempts" in sql_ne and "Successful_Rate" not in sql_ne
+          and "{" not in sql_ne, sql_ne[:200])
 
 
 # ---------------------------------------------------------------- 5. 取数
@@ -742,25 +754,32 @@ def _portal_daily_totals():
 
 # ---------------------------------------------------------------- 7b. 明细回填
 def test_details_only(tmp):
-    """details_only：只把 video/game 块的逐 APP 结果帧落进下钻明细表。
+    """details_only：只把明细来源块的结果帧落进下钻明细表。
 
     守住的契约：不写 daily_kpi（部分块跑出的结果若照常走 persist_daily_kpi，
-    会把 blocks_ok 从 7 覆盖成 2）、不出 Excel、不写 app_offload。
+    会把 blocks_ok 从 7 覆盖成 2）、不出 Excel、不写 app_offload；
+    2026-10-31 起 tcp_ne 伪块也走同一条回填路径（逐网元明细）。
     """
     from backend.services.olib_soc_report import olib_soc_app_detail as det
+    from backend.services.olib_soc_report import olib_soc_ne_detail as ne
 
-    section("7b. 明细回填 details_only（只落 video/game 逐 APP 明细）")
+    section("7b. 明细回填 details_only（video/game 逐 APP + tcp_ne 逐网元）")
     svc.DATA_DIR = Path(tmp)                                             # KPI 库随 tmp 走
     svc.SQLITE_PATH = Path(tmp) / "olib_soc_report.sqlite3"
     fake = _FakeGbase()
     out = svc.run_olib_soc_report(mode="explicit", start="20260802", end="20260802",
-                                  blocks=["video", "game"], persist=True, kpi_only=True,
+                                  blocks=["video", "game", "tcp_ne"], persist=True,
+                                  kpi_only=True,
                                   details_only=True, client=fake, today=date(2026, 9, 16))
     check("details_only 状态 ok", out["status"] == "ok", str(out.get("errors")))
-    check("不出 Excel（两块出了会污染月报文件序列）", out["excel"] is None, str(out.get("excel")))
+    check("不出 Excel（伪块出了会污染月报文件序列；SHEET_ORDER 也不认识它）",
+          out["excel"] is None, str(out.get("excel")))
     check("摘要只有 app_detail、没有 kpi/app_offload",
           "kpi" not in out and "app_offload" not in out
           and isinstance(out.get("app_detail"), dict), str(sorted(out)))
+    check("app_detail 摘要含三张明细表的写入统计",
+          all(k in out["app_detail"] for k in ("video", "game", "tcp")),
+          str(sorted(out["app_detail"])))
     db = Path(tmp) / "olib_soc_report.sqlite3"
     conn = sqlite3.connect(str(db))
     try:
@@ -768,17 +787,26 @@ def test_details_only(tmp):
         vrows = conn.execute("SELECT day, appname, traffic_tb, thr_mbps FROM daily_video_app"
                              ).fetchall()
         grows = conn.execute("SELECT day, appname, traffic_tb FROM daily_game_app").fetchall()
+        trows = conn.execute("SELECT day, target_ne, syn_attempts, tcp_tb"
+                             " FROM daily_tcp_target").fetchall()
     finally:
         conn.close()
     check("daily_kpi 未被建表/写入（details_only 不碰卡片口径表）",
           "daily_kpi" not in tables, str(sorted(tables)))
     check("video/game 逐 APP 明细已落库",
           len(vrows) >= 1 and len(grows) >= 1, str((len(vrows), len(grows))))
+    check("tcp_ne 逐网元明细已落库（Target_NE→target_ne，原始计数直存）",
+          len(trows) >= 1 and trows[0][1] == "SGW_HQ_122" and trows[0][2] is not None,
+          str(trows[:2]))
     check("明细行带 run_id 与帧数值",
           all(r[2] is not None for r in vrows), str(vrows[:2]))
     _vb = det.build_video_apps(days=90, path=db)
     check("明细表能被下钻 builder 读回（day 视图有行）",
           _vb["status"] == "ok" and _vb["day"]["rows"], str(_vb.get("message")))
+    _nb = ne.build_tcp_targets(days=90, path=db)
+    check("逐网元 builder 能读回填库（day 视图有行 + 合计存在）",
+          _nb["status"] == "ok" and _nb["day"]["rows"] and _nb["day"]["totals"],
+          str(_nb.get("message")))
 
 
 def test_cross_check(client, days):

@@ -19,6 +19,7 @@ from fastapi.responses import JSONResponse
 
 from backend.services.olib_soc_report import olib_soc_app_detail as detail
 from backend.services.olib_soc_report import olib_soc_kpi_store as kpi
+from backend.services.olib_soc_report import olib_soc_ne_detail as ne_detail
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/olib-soc-dashboard", tags=["olib-soc-dashboard"])
@@ -100,6 +101,31 @@ def get_game_apps(days: int = 90, as_of: str = "", top: int = 40):
         body = detail.build_game_apps(days=days, as_of=as_of or None, top=top)
     except Exception as exc:                                             # noqa: BLE001
         logger.exception("[olib-soc-dashboard] 游戏逐 APP 明细载荷构建失败")
+        return JSONResponse({"status": "error", "error": "%s: %s" % (type(exc).__name__, exc)},
+                            status_code=500, headers=_NO_STORE)
+    return JSONResponse(body, headers=_NO_STORE)
+
+
+@router.get("/tcp-targets")
+def get_tcp_targets(days: int = 90, as_of: str = "", top: int = 40):
+    """TCP 质量逐核心网元下钻（「建链成功率 / 下行重传率 / 下行时延」三张卡共用）。
+
+    行 = {target_ne, success_pct, dl_retrans_pct, dl_rtt_ms, tcp_tb}；库里存原始
+    分子/分母计数、比率查询时现算 —— 合计行与卡片是同一行集合套同一公式，
+    **必然对得上账**（AGENTS.md 三.1b 下钻第一铁律的构造性满足）。
+    数据来源为 tcp_ne 伪块的按 targetid 分组 SELECT（生产 GBase 只读，
+    blocks.tcp_ne=false 可整体关停回退）。
+    """
+    if as_of:
+        try:
+            date.fromisoformat(as_of)
+        except ValueError:
+            return JSONResponse({"status": "error", "error": "as_of 需为真实存在的 YYYY-MM-DD 日期"},
+                                status_code=400, headers=_NO_STORE)
+    try:
+        body = ne_detail.build_tcp_targets(days=days, as_of=as_of or None, top=top)
+    except Exception as exc:                                             # noqa: BLE001
+        logger.exception("[olib-soc-dashboard] 逐网元 TCP 明细载荷构建失败")
         return JSONResponse({"status": "error", "error": "%s: %s" % (type(exc).__name__, exc)},
                             status_code=500, headers=_NO_STORE)
     return JSONResponse(body, headers=_NO_STORE)

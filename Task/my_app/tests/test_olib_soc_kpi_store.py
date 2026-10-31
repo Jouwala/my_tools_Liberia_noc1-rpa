@@ -38,6 +38,7 @@ except Exception:                                                        # noqa:
 import pandas as pd                                                      # noqa: E402
 
 from backend.services.olib_soc_report import olib_soc_app_detail as det              # noqa: E402
+from backend.services.olib_soc_report import olib_soc_ne_detail as ne                # noqa: E402
 from backend.services.olib_soc_report import olib_soc_kpi_store as kpi          # noqa: E402
 from backend.services.olib_soc_report import olib_soc_report_service as svc     # noqa: E402
 from backend.services.vmax_gbase import vmax_gbase_client as vgc                # noqa: E402
@@ -524,7 +525,8 @@ try:
     check("第二次同步重取窗口最新 1 天（防数仓当晚未完成 / 任务漏跑）",
           out2["status"] in ("ok", "partial") and out2["requested_days"] == ["2026-09-15"],
           "%s %s" % (out2["status"], out2["requested_days"]))
-    check("重取最新 1 天只查 7 条 SQL", fake.queries - q1 == 7, str(fake.queries - q1))
+    # 7 个 KPI 块 + tcp_ne 伪块 1 条 = 8（逐网元下钻续写，2026-10-31）
+    check("重取最新 1 天只查 8 条 SQL", fake.queries - q1 == 8, str(fake.queries - q1))
     q2 = fake.queries
     out2b = svc.run_olib_soc_kpi_sync(days_back=3, client=fake, config_path=cfg_none,
                                       today=date(2026, 9, 16), refresh_last=0)
@@ -543,18 +545,26 @@ try:
           out3["requested_days"] == ["2026-09-14", "2026-09-15"]
           and kpi.stored_days(db9) == ["2026-09-13", "2026-09-14", "2026-09-15"],
           str(out3["requested_days"]))
-    check("补一天 + 刷新最新 1 天 = 14 条 SQL", fake.queries - q3 == 14, str(fake.queries - q3))
+    check("补一天 + 刷新最新 1 天 = 16 条 SQL（2 天 × (7 块 + tcp_ne)）",
+          fake.queries - q3 == 16, str(fake.queries - q3))
     q4 = fake.queries
     out4 = svc.run_olib_soc_kpi_sync(days_back=3, only_missing=False, client=fake,
                                     config_path=cfg_none, today=date(2026, 9, 16))
     check("only_missing=False 整窗重取",
           out4["requested_days"] == ["2026-09-13", "2026-09-14", "2026-09-15"],
           str(out4["requested_days"]))
-    check("整窗重取 = 3×7 条 SQL", fake.queries - q4 == 21, str(fake.queries - q4))
+    check("整窗重取 = 3×8 条 SQL（3 天 × (7 块 + tcp_ne 伪块)）",
+          fake.queries - q4 == 24, str(fake.queries - q4))
     check("窗口结束于昨天", out4["window"][1] == "20260915", str(out4["window"]))
     b9 = kpi.build_overview(days=7, today=date(2026, 9, 16))
     check("同步后看板立刻有数", b9["status"] == "ok" and len(b9["cards"]) == 10,
           str(b9["status"]))
+    with sqlite3.connect(str(db9)) as _c9:
+        _bok = [r[0] for r in _c9.execute(
+            "SELECT blocks_ok FROM daily_kpi "
+            "WHERE day BETWEEN '2026-09-13' AND '2026-09-15'")]
+    check("伪块不进 daily_kpi.blocks_ok 口径（卡片层仍是 7 块，不是 8）",
+          _bok and all(v == 7 for v in _bok), str(_bok))
     check("KPI 库跟随 DATA_DIR（测试不会写进生产库）",
           Path((out.get("kpi") or {}).get("db", "")) == db9, str((out.get("kpi") or {}).get("db")))
 finally:
@@ -599,7 +609,8 @@ try:
           and {r.path for r in dash.router.routes} == {
               "/api/olib-soc-dashboard/overview", "/api/olib-soc-dashboard/status",
               "/api/olib-soc-dashboard/days", "/api/olib-soc-dashboard/app-offload",
-              "/api/olib-soc-dashboard/video-apps", "/api/olib-soc-dashboard/game-apps"},
+              "/api/olib-soc-dashboard/video-apps", "/api/olib-soc-dashboard/game-apps",
+              "/api/olib-soc-dashboard/tcp-targets"},
           str(sorted(r.path for r in dash.router.routes)))
     kpi.KPI_DB_PATH = Path(tempfile.mkdtemp(prefix="olib_kpi_e_")) / "nope.sqlite3"
     check("空库 /overview 不 500",
@@ -762,19 +773,33 @@ if page.exists():
     check("状态条不再 position:fixed（原来会盖住右下角卡片）",
           ".status{position:fixed" not in html.replace(" ", "")
           and ".status{margin:8pxauto" in html.replace(" ", ""))
-    # --- 卡片下钻（DRILLS 配置驱动，2026-10-30 泛化自「缓存占比」单卡实现） ---
-    check("页面登记 6 张可下钻卡片（总流量/缓存占比/视频三卡/游戏流量）",
+    # --- 卡片下钻（DRILLS 配置驱动，2026-10-30 泛化自「缓存占比」单卡实现；
+    #     2026-10-31 TCP 三卡接入逐网元明细后共 9 张可下钻，只剩活跃用户走逐日） ---
+    check("页面登记 9 张可下钻卡片（总流量/缓存占比/视频三卡/游戏/TCP 三卡）",
           all(x in html for x in ("traffic_gb:", "cache_ratio_pct:", "video_tb:",
-                                  "video_thr_kbps:", "video_share_pct:", "game_tb:")),
+                                  "video_thr_kbps:", "video_share_pct:", "game_tb:",
+                                  "tcp_success_pct:", "tcp_dl_retrans_pct:",
+                                  "tcp_dl_rtt_ms:")),
           "DRILLS 配置缺卡")
-    check("页面引用三个下钻接口",
-          all(x in html for x in ("/app-offload", "/video-apps", "/game-apps")))
+    check("页面引用四个下钻接口",
+          all(x in html for x in ("/app-offload", "/video-apps", "/game-apps",
+                                  "/tcp-targets")))
+    check("TCP 三卡走逐网元明细接口（不再是 series:true 逐日兜底）",
+          html.count("tcp_success_pct:{api:TCP_TARGET_API") == 1
+          and html.count("tcp_dl_retrans_pct:{api:TCP_TARGET_API") == 1
+          and html.count("tcp_dl_rtt_ms:{api:TCP_TARGET_API") == 1
+          and "{series:true}" in html,  # 活跃用户仍保留逐日下钻
+          "TCP 卡下钻接线不对")
     check("手型光标只给可下钻卡片（不给全部 [data-mid]）",
           ".card.drill,.panel.drill{cursor:pointer}" in html.replace(" ", "")
           and ".panel[data-mid]{cursor:pointer}" not in html.replace(" ", ""))
     check("下钻弹窗的中英标题/说明/空态文案成对齐全",
-          all(html.count(x) == 2 for x in ("vTitle:", "gTitle:", "trTitle:", "dEmpty:")),
-          str({x: html.count(x) for x in ("vTitle:", "gTitle:", "trTitle:", "dEmpty:")}))
+          all(html.count(x) == 2 for x in ("vTitle:", "gTitle:", "trTitle:", "dEmpty:",
+                                           "neTitle:", "neNote:", "neTh:", "neOthers:",
+                                           "dThSuc:", "dThRetrans:")),
+          str({x: html.count(x) for x in ("vTitle:", "gTitle:", "trTitle:", "dEmpty:",
+                                          "neTitle:", "neNote:", "neTh:", "neOthers:",
+                                          "dThSuc:", "dThRetrans:")}))
 app_text = (ROOT / "frontend" / "src" / "App.tsx").read_text(encoding="utf-8")
 check("React 页面已注册（lazy/PageKey/VALID_PAGES/META/菜单/switch）",
       app_text.count("vmaxCxoDashboard_90Days") >= 5,
@@ -1120,6 +1145,123 @@ check("明细缺口表不存在时安全返回全窗口",
       det.gap_days(3, path=_db_gap.with_name("none.sqlite3"), today=_gap_today,
                    refresh_last=0) == ["2026-09-17", "2026-09-18", "2026-09-19"],
       "空库未返回全窗口")
+
+# ==========================================================================
+section("13e. TCP 逐网元明细下钻（tcp_ne 伪块 → daily_tcp_target → /tcp-targets）")
+
+# tcp_ne 块帧一行 = 一天一网元的**原始计数**（不存比率 —— 下钻合计与卡片恒等的根基）
+_tcpres = {"tcp_ne": {"block": "tcp_ne", "frame": pd.DataFrame({
+    "clttime": pd.to_datetime(["2026-10-19", "2026-10-19", "2026-10-20"]),
+    "Target_NE": ["SGW_HQ_122", "SGW_ODC_22", "SGW_HQ_122"],
+    "Tcp_Syn_Attempts": [1000.0, 500.0, 2000.0],
+    "Tcp_Syn_Success": [990.0, 495.0, 1970.0],
+    "Tcp_DL_Segments": [8000.0, 2000.0, 9000.0],
+    "Tcp_DL_Retrans": [80.0, 30.0, 99.0],
+    "Tcp_DL_Rtt_Sum": [1200000.0, 250000.0, 1350000.0],
+    "Tcp_DL_Rtt_Cnt": [8000.0, 2000.0, 9000.0],
+    "Tcp_Traffic_TB": [120.0, 40.0, 150.0]})}}
+_trows = svc.extract_app_detail_rows(_tcpres, "tcp")
+check("tcp_ne 块帧 → 逐网元明细行（Target_NE→target_ne，原始计数直存）",
+      len(_trows) == 3 and _trows[0]["target_ne"] == "SGW_HQ_122"
+      and _trows[0]["syn_attempts"] == 1000.0 and _trows[0]["tcp_tb"] == 120.0,
+      str(_trows[:1]))
+check("空帧 / 没跑该块时提取为空（不炸）",
+      svc.extract_app_detail_rows({"tcp_ne": {"frame": pd.DataFrame()}}, "tcp") == []
+      and svc.extract_app_detail_rows({}, "tcp") == [])
+_db_ne = Path(tempfile.mkdtemp(prefix="olib_ne_")) / "n.sqlite3"
+ne.upsert_tcp_target(_trows, path=_db_ne)
+ne.upsert_tcp_target(_trows, path=_db_ne)                        # 同一天重跑幂等
+with sqlite3.connect(str(_db_ne)) as _cn:
+    _n_cnt = _cn.execute("SELECT COUNT(*) FROM daily_tcp_target").fetchone()[0]
+check("daily_tcp_target 主键 (day,target_ne) 幂等（重跑不翻倍）", _n_cnt == 3, str(_n_cnt))
+_nb = ne.build_tcp_targets(days=90, path=_db_ne)
+check("day 视图 = 最新一天（10-20 只有 SGW_HQ_122）",
+      _nb["as_of"] == "2026-10-20"
+      and [r["target_ne"] for r in _nb["day"]["rows"]] == ["SGW_HQ_122"], str(_nb["day"]))
+# —— 口径铁律（AGENTS.md 三.1b）：下钻合计 = 卡片公式直接套全量行（同一行集合同一公式）。
+#    期望值按 tcp 块 SQL 的 CASE 手算写死，与实现独立：两边漂了这里就红。
+check("day 合计 = 卡片同式（1970/2000=98.5%；99/9000=1.1%；1350000/9000=150ms）",
+      _nb["day"]["totals"]["success_pct"] == 98.5
+      and _nb["day"]["totals"]["dl_retrans_pct"] == 1.1
+      and _nb["day"]["totals"]["dl_rtt_ms"] == 150.0, str(_nb["day"]["totals"]))
+_w = {r["target_ne"]: r for r in _nb["window_agg"]["rows"]}
+check("窗口聚合先加计数再套式（HQ 两天 (990+1970)/(1000+2000)=98.67%）",
+      _w["SGW_HQ_122"]["success_pct"] == 98.67 and _w["SGW_ODC_22"]["dl_rtt_ms"] == 125.0
+      and close(_w["SGW_HQ_122"]["tcp_tb"], 270.0), str(_w))
+check("窗口合计 = 90 天卡片口径（3455/3500=98.71；209/19000=1.1；2800000/19000=147.37）",
+      _nb["window_agg"]["totals"]["success_pct"] == 98.71
+      and _nb["window_agg"]["totals"]["dl_retrans_pct"] == 1.1
+      and _nb["window_agg"]["totals"]["dl_rtt_ms"] == 147.37,
+      str(_nb["window_agg"]["totals"]))
+# 「其它」行与截断：合计按**全量**计数，截断不丢账（truncated 显式化）
+_six = [{"day": "2026-10-21", "target_ne": "NE%d" % i, "syn_attempts": float(100 * i),
+         "syn_success": float(99 * i), "dl_segments": 1000.0, "dl_retrans": 10.0,
+         "dl_rtt_sum": 100000.0, "dl_rtt_cnt": 1000.0, "tcp_tb": float(10 - i)}
+        for i in range(1, 7)]
+ne.upsert_tcp_target(_six, path=_db_ne)
+_n6 = ne.build_tcp_targets(days=90, path=_db_ne, top=5)
+check("超过 top 截断并入「其它」，合计按全量（apps=6 不丢数）",
+      len(_n6["day"]["rows"]) == 5 and _n6["day"]["others"] is not None
+      and _n6["day"]["totals"]["apps"] == 6, str(len(_n6["day"]["rows"])))
+check("「其它」行 = 尾部网元计数重算（NE6 成功率 99.0 与其它 1 个）",
+      _n6["day"]["others"]["target_ne"] == ""
+      and _n6["day"]["others"]["success_pct"] == 99.0, str(_n6["day"]["others"]))
+# 分母为 0 的兜底与卡面逐条一致（成功率 CASE=100 / 重传与 RTT CASE=0），不是 —
+ne.upsert_tcp_target([{"day": "2026-10-22", "target_ne": "SGW_X", "syn_attempts": 0.0,
+                       "syn_success": 0.0, "dl_segments": 0.0, "dl_retrans": 0.0,
+                       "dl_rtt_sum": 0.0, "dl_rtt_cnt": 0.0, "tcp_tb": 0.0}], path=_db_ne)
+_nz = ne.build_tcp_targets(days=90, path=_db_ne)
+check("分母 0 按卡片口径兜底（100%/0/0，与 Avg_TCP_* 卡片显示规则同式）",
+      _nz["as_of"] == "2026-10-22" and _nz["day"]["rows"][0]["success_pct"] == 100.0
+      and _nz["day"]["rows"][0]["dl_retrans_pct"] == 0.0
+      and _nz["day"]["rows"][0]["dl_rtt_ms"] == 0.0, str(_nz["day"]["rows"]))
+# 三表判缺：任一明细表缺天即缺口（video/game 双表口径保持默认不变，同步侧显式传 tables）
+_db_g3 = Path(tempfile.mkdtemp(prefix="olib_g3_")) / "g3.sqlite3"
+det.upsert_video_app([{"day": "2026-09-17", "appname": "A", "traffic_tb": 1.0}], path=_db_g3)
+det.upsert_game_app([{"day": "2026-09-17", "appname": "B", "traffic_tb": 1.0}], path=_db_g3)
+_tables3 = (det.VIDEO_APP_TABLE, det.GAME_APP_TABLE, ne.TCP_TARGET_TABLE)
+_g3 = det.gap_days(3, path=_db_g3, today=date(2026, 9, 20), refresh_last=0, tables=_tables3)
+check("三表判缺：video/game 有那天但 tcp 空 → 仍是缺口",
+      _g3 == ["2026-09-17", "2026-09-18", "2026-09-19"], str(_g3))
+ne.upsert_tcp_target([{"day": "2026-09-17", "target_ne": "SGW_HQ_122", "syn_attempts": 1.0,
+                       "syn_success": 1.0, "dl_segments": 1.0, "dl_retrans": 0.0,
+                       "dl_rtt_sum": 1.0, "dl_rtt_cnt": 1.0, "tcp_tb": 0.5}], path=_db_g3)
+check("tcp 补齐后缺口收窄到两表也缺的天",
+      det.gap_days(3, path=_db_g3, today=date(2026, 9, 20), refresh_last=0,
+                   tables=_tables3) == ["2026-09-18", "2026-09-19"],
+      str(det.gap_days(3, path=_db_g3, today=date(2026, 9, 20), refresh_last=0,
+                       tables=_tables3)))
+check("默认 tables 仍是分业务两表（逐 APP 老口径未被拖下水）",
+      det.gap_days(3, path=_db_g3, today=date(2026, 9, 20),
+                   refresh_last=0) == ["2026-09-18", "2026-09-19"],
+      "默认口径变了")
+_o_db4 = kpi.KPI_DB_PATH
+kpi.KPI_DB_PATH = _db_ne
+try:
+    check("tcp-targets 接口 as_of 非法直接 400",
+          dash.get_tcp_targets(days=90, as_of="2026-13-99").status_code == 400)
+    _tapi = json.loads(dash.get_tcp_targets(days=90).body.decode("utf-8"))
+    check("tcp-targets 接口给两套行 + 合计",
+          _tapi["status"] == "ok" and _tapi["day"]["rows"] and _tapi["window_agg"]["totals"],
+          str(_tapi.get("message")))
+    kpi.KPI_DB_PATH = Path(tempfile.mkdtemp(prefix="olib_ne_empty_")) / "nope.sqlite3"
+    check("空库 tcp-targets 给友好空态（不 500）",
+          json.loads(dash.get_tcp_targets(days=90).body.decode("utf-8"))["status"] == "empty")
+finally:
+    kpi.KPI_DB_PATH = _o_db4
+# 伪块只在选择性调用时进入（--blocks tcp_ne / 补跑段），默认月报全量不含它：
+# SHEET_ORDER 与 KPI_BLOCKS 都不认识它，Excel 合同与 blocks_ok 口径才守得住。
+check("tcp_ne 是伪块：不在 SHEET_ORDER / KPI_BLOCKS，但登记在 BLOCKS 且默认开启",
+      "tcp_ne" not in svc.SHEET_ORDER and "tcp_ne" not in svc.KPI_BLOCKS
+      and "tcp_ne" in svc.BLOCKS and svc.DETAIL_PSEUDO_BLOCKS == ("tcp_ne",)
+      and svc.load_config(Path(tempfile.mkdtemp()) / "none.json")["blocks"]["tcp_ne"] is True)
+check("enabled_blocks：显式点名才选伪块，默认全量不含（月报 9 块合同不破）",
+      svc.enabled_blocks(svc.load_config(), ["video", "game", "tcp_ne"]) == ["video", "game",
+                                                                             "tcp_ne"]
+      and "tcp_ne" not in svc.enabled_blocks(svc.load_config())
+      and svc.enabled_blocks({**svc.load_config(), "blocks": {"tcp_ne": False}},
+                             ["tcp_ne"]) == [],
+      str(svc.enabled_blocks(svc.load_config(), ["video", "game", "tcp_ne"])))
 
 # ==========================================================================
 if LIVE:

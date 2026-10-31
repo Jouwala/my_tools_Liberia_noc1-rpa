@@ -13,6 +13,9 @@
 三张明细表共用同一份 builder 载荷契约（status/as_of/window/day/window_agg，最新一天
 与窗口累计两套行 + TOP-N 之外的并成「其它」+ 合计行），前端弹窗按列配置渲染 ——
 看板再加一张下钻卡 = 一张明细表 + 一个 builder + 一份列集，不再各写一套。
+第 4 张下钻表 daily_tcp_target（TCP 三卡的逐网元明细，键列 target_ne）在
+olib_soc_ne_detail：键列与载荷语义不同（原始计数现算比率 vs 数值直存），但建表写入
+复用本模块的 _upsert_rows（key_col 参数化），缺口判定复用 gap_days（tables 参数化）。
 
 写入方（olib_soc_report_service）：offload 由 persist_app_offload 逐日专查 spservice
 表族；video/game 直接复用 video/game 块**本来就按 appname 查询**的结果帧，extract
@@ -65,21 +68,25 @@ def ensure_schema(conn) -> None:
 # 写入（三个 upsert 共用同一份逐行 INSERT OR REPLACE；row 字典键与列名一致）
 # ==========================================================================
 def _upsert_rows(table: str, value_cols: Tuple[str, ...],
-                 rows: Iterable[Dict[str, Any]], path: Optional[Path]) -> int:
+                 rows: Iterable[Dict[str, Any]], path: Optional[Path],
+                 key_col: str = "appname", ensure=None) -> int:
+    """按 (day, key_col) 幂等覆盖写一行。key_col 默认 appname（分业务三表）；
+    逐网元明细表（olib_soc_ne_detail.daily_tcp_target）传 target_ne + 自带建表函数 ——
+    同一份写入契约，两类下钻共用，建表/upsert 语义完全一致。"""
     items = [r for r in rows
-             if r.get("day") not in (None, "") and r.get("appname") not in (None, "")]
+             if r.get("day") not in (None, "") and r.get(key_col) not in (None, "")]
     if not items:
         return 0
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    cols = ["day", "appname"] + list(value_cols) + ["run_id", "updated_at"]
+    cols = ["day", key_col] + list(value_cols) + ["run_id", "updated_at"]
     placeholders = ",".join("?" for _ in cols)
     with closing(kpi_store.connect(path)) as conn:
         # 只管明细层自己的表：daily_kpi 归 kpi_store（details_only 回填不碰卡片口径表）
-        ensure_schema(conn)
+        (ensure or ensure_schema)(conn)
         for row in items:
             conn.execute("INSERT OR REPLACE INTO %s (%s) VALUES (%s)"
                          % (table, ",".join(cols), placeholders),
-                         [kpi_store.iso_day(row["day"]), str(row["appname"])[:120]]
+                         [kpi_store.iso_day(row["day"]), str(row[key_col])[:120]]
                          + [row.get(c) for c in value_cols]
                          + [row.get("run_id"), row.get("updated_at") or now])
         conn.commit()
@@ -113,21 +120,31 @@ def detail_days(table: str, path: Optional[Path] = None) -> List[str]:
 
 
 def gap_days(days_back: int = 7, path: Optional[Path] = None,
-             today: Optional[date] = None, refresh_last: int = 1) -> List[str]:
-    """视频/游戏明细缺哪些天：窗口内 video 与 game 明细表**任一张**没有的天，外加最新 N 天重取。
+             today: Optional[date] = None, refresh_last: int = 1,
+             tables: Optional[Sequence[str]] = None) -> List[str]:
+    """明细缺哪些天：窗口内 tables 各明细表**任一张**没有的天，外加最新 N 天重取。
 
-    单独一套缺口的原因：明细表跟着 video/game 块的结果帧走，而 daily_kpi 的 gap_days
+    单独一套缺口的原因：明细表跟着块的结果帧走，而 daily_kpi 的 gap_days
     只看 `daily_kpi` 有没有那一行。两者一旦脱钩（例如某次只跑了 --kpi-only、或明细表
     是后加的），daily_kpi 有行而明细没有，看板下钻就会缺这一天，且永远不会自愈。
-    重取是幂等的（按 (day, appname) 覆盖），所以「最近 N 天重取」与卡片层的
+    重取是幂等的（按 (day, key) 覆盖），所以「最近 N 天重取」与卡片层的
     refresh_last_days 同一思路：数仓当天分区常晚到，第二天自动纠正。
     `refresh_last=0` 表示**不做任何重取**（与 run_olib_soc_kpi_sync 的
     refresh_last=0 语义严格对齐，否则「零查询」就被明细重取偷偷打破了）。
+
+    tables 默认「分业务两表」（video∩game）；逐网元 TCP 明细（olib_soc_ne_detail）
+    接入续写后由同步侧传三表 —— 判缺口径是「任一明细表缺这天就重取当天」，
+    取数本来就是一趟全块重放，多一张表的缺口不多花一次查询。
     """
     today = today or date.today()
     end = today - timedelta(days=1)
     begin = end - timedelta(days=max(1, int(days_back)) - 1)
-    have = set(detail_days(VIDEO_APP_TABLE, path)) & set(detail_days(GAME_APP_TABLE, path))
+    gap_tables = tuple(tables) if tables else (VIDEO_APP_TABLE, GAME_APP_TABLE)
+    have: Optional[set] = None
+    for table in gap_tables:
+        covered = set(detail_days(table, path))
+        have = covered if have is None else (have & covered)
+    have = have or set()
     window = [(begin + timedelta(days=i)).isoformat()
               for i in range((end - begin).days + 1)]
     refreshed = set(window[-int(refresh_last):]) if int(refresh_last) > 0 else set()

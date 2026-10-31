@@ -344,9 +344,10 @@ python -m backend.services.olib_soc_report.olib_soc_report_service --start 2026-
   `as_of` 非法日期同样 400）。窗口视图口径与卡片周汇总一致：流量求和、速率/RTT 按流量加权；
   video 的 `share_pct` 分母取 `daily_kpi.traffic_tb`（当日全网总流量），
   三家合计 ≈「视频流量占比」卡片。
-* 前端下钻入口在 `vmax_cxo_dashboard_90days.html` 的 `DRILLS` 配置表（一处登记六张卡）：
+* 前端下钻入口在 `vmax_cxo_dashboard_90days.html` 的 `DRILLS` 配置表（一处登记九张卡）：
   总流量 + 缓存占比 → `/app-offload`；视频流量 / 视频速率 / 视频占比 → `/video-apps`；
-  游戏流量 → `/game-apps`。弹窗标题/口径说明/列集随卡走。
+  游戏流量 → `/game-apps`；TCP 建链成功率 / 下行重传率 / 下行时延 → `/tcp-targets`。
+  弹窗标题/口径说明/列集随卡走（逐网元卡的键列标题/「其它」文案由 `th`/`othersTk` 覆盖）。
 * **续写（2026-10-31 修正，务必留意）**：每日任务 `olib_soc_kpi_daily_sync` 原先调用
   `run_olib_soc_report(..., kpi_only=True)`，那条路径**只写 `daily_kpi`**，明细表永远不会
   增长（只能靠 `--details-only` 手工补）。现在改成 `kpi_only=False` 走完整落库路径，
@@ -362,7 +363,7 @@ python -m backend.services.olib_soc_report.olib_soc_report_service --start 2026-
   弹窗里已写进口径提醒，不要拿它们互相对账。
 * **「最新一天」一律夹到昨天**（`_window_bounds`，与卡片层 `end = today - 1` 同一约定）：
   当天分区仍在累积，白天点开不能看到半天数据，「数据截至」也不能跑到卡片前面。
-* **历史回填**：CLI 新增 `--details-only`（默认块 video,game）——只把结果帧落明细表，
+* **历史回填**：CLI 新增 `--details-only`（默认块 video,game,tcp_ne）——只把结果帧落明细表，
   不写 `daily_kpi` / `app_offload` / Excel / 邮件（部分块的结果若照常走 persist_daily_kpi，
   会把 `blocks_ok` 从 7 覆盖成 2）。2026-10-30 首次回补 90 天：video/game 各 270 行，
   对账 video 流量/速率误差 0.000%、share 0.061%、game 0.000%（见 `§13d` 离线用例）。
@@ -372,6 +373,32 @@ python -m backend.services.olib_soc_report.olib_soc_report_service --start 2026-
   python backend/services/olib_soc_report/olib_soc_report_service.py \
       --details-only --mode last_n_days --days 90
   ```
+
+**TCP 质量逐网元明细（看板下钻，2026-10-31 新增，路线 A）**
+
+* 模块在 **`olib_soc_ne_detail.py`**：表 `daily_tcp_target(day, target_ne, 原始计数…, tcp_tb)`，
+  主键 `(day, target_ne)`；builder `build_tcp_targets()` 与分业务明细共用同一套载荷契约。
+* **伪块 `tcp_ne`**（`BLOCKS` 里有、`SHEET_ORDER`/`KPI_BLOCKS` 里没有）：对
+  `aggr_5gsa_flow_ciservice_day_*`（tcp/core 块已在扫的同一天分区）多跑一条按
+  `clttime × targetid` 分组的 SELECT；网元名映射/站点折叠复用 core 块的 `{core_case}`
+  配置（`core_target_names` / `core_fold_unmapped_to`），两处口径不分叉。
+  进入路径：①每日同步/月报的「补跑」段自动续写；②`--details-only --blocks tcp_ne` 回填。
+* **存原始计数、比率现算**：三个卡片指标都是 `SUM(分子)/SUM(分母)` 形态，明细存同一批
+  计数后「Σ(网元) 重聚合 = 卡片」是恒等式（2026-10-30 实测四项全等：90.4 / 1.94 /
+  136.19 / 92.17）。分母 0 的兜底与 tcp 块 SQL 的 CASE 逐条一致（成功率 100 / 重传 0 /
+  RTT 0），弹窗合计行永远能和卡面对上。
+* **生产库负载纪律**（AGENTS.md 三.12 / 总纲四.8）：全链路只读 SELECT，数仓上不建任何东西；
+  单日试跑实测 ~2s/查询；每日同步仅多 1 条 SELECT/缺口天；关停 = 配置
+  `blocks.tcp_ne=false`（软回滚，明细与接口自动回空态，前端 DRILLS 保留、弹窗显示空态文案）。
+  90 天回填命令（低峰执行）：
+
+  ```bash
+  python backend/services/olib_soc_report/olib_soc_report_service.py \
+      --details-only --blocks tcp_ne --start 2026-08-02 --end 2026-10-30
+  ```
+
+* 明细缺口判缺扩为**三表**（video ∩ game ∩ tcp，任一缺天即重取该天），
+  `gap_days(tables=…)` 参数化 —— 分业务两表默认口径不变（`§13e` 用例守着）。
 
 指标字典在 `olib_soc_kpi_store.METRICS`（10 个：4 个 CEO 主卡片 +
 3 个业务结构 + 3 个网络质量），字段含中英标题/单位/小数位/越大越好/周汇总方式，

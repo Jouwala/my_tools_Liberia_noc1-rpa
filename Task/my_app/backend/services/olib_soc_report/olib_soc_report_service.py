@@ -75,6 +75,7 @@ if __package__ in (None, ""):                                            # 直�
 
 from backend.services.vmax_gbase import vmax_gbase_client as vgc
 from backend.services.olib_soc_report import olib_soc_app_detail as app_detail
+from backend.services.olib_soc_report import olib_soc_ne_detail as ne_detail
 from backend.services.olib_soc_report import olib_soc_kpi_store as kpi_store
 
 logger = logging.getLogger("olib_soc_report")
@@ -127,7 +128,11 @@ DEFAULTS: Dict[str, Any] = {
     "kpi_sync": {"days_back": 7, "only_missing": True, "refresh_last_days": 1},
     "blocks": {"traffic": True, "active_user": True, "cache": True, "core": True,
                "video": True, "game": True, "tcp": True, "top_service": True,
-               "top_video": True},
+               "top_video": True,
+               # tcp_ne 是「伪块」：只喂逐网元 TCP 下钻明细（daily_tcp_target），不进月报 Excel。
+               # 设 false = 软回滚开关（GBase 是生产库，新增 SELECT 要备好关停手段，
+               # 见工作区总纲第四节第 8 条的负载纪律），无需改代码、无需清表。
+               "tcp_ne": True},
     "persist": {"write_excel": True, "write_sqlite": True, "keep_csv": False,
                 "write_kpi": True},
     "mail": {"enabled": False, "smtp_host": "smtp.126.com", "smtp_port": 465,
@@ -276,6 +281,31 @@ from (
 ) t
 left join dim_service a on t.service_id = a.serviceid and t.subservice_id = a.appid
 group by a.appname, clttime order by clttime asc"""},
+    # tcp_ne 伪块：TCP 三卡（建链成功率/下行重传率/下行时延）的逐核心网元下钻数据源。
+    # 不进 SHEET_ORDER（月报 9 表合同不变、Excel 无此页），由每日同步/月报的「补跑」段与
+    # --details-only --blocks tcp_ne 回填进入。表族与 tcp/core 块相同（flow_ciservice 同一天
+    # 分区），只是把 group by 从 clttime 改成 clttime×targetid —— 存**原始分子/分母计数**
+    # （不做比率 CASE），比率在明细层现算：Σ(网元) 重聚合与卡片整日聚合是同一行集合套
+    # 同一公式，「下钻合计 = 卡片」是恒等式。网元名映射/站点折叠复用 core 块的 {core_case}
+    # （core_target_names / core_fold_unmapped_to 同一份配置，两处下钻口径不会分叉）。
+    # 负载：每日同步多 1 条单日分区 SELECT/缺口天；blocks.tcp_ne=false 即整体关停。
+    "tcp_ne": {
+        "sheet": "TCP_NE", "title": "TCP 质量逐网元（仅下钻，不进月报）", "family": vgc.FAMILY_FLOW_CISERVICE,
+        "sql": """
+select t.clttime, {core_case} as Target_NE,
+    SUM(ppb400403020) as Tcp_Syn_Attempts, SUM(ppb400403021) as Tcp_Syn_Success,
+    SUM(ppb400403008) as Tcp_DL_Segments, SUM(ppb400403016) as Tcp_DL_Retrans,
+    SUM(ppb400403045) as Tcp_DL_Rtt_Sum, SUM(ppb400403039) as Tcp_DL_Rtt_Cnt,
+    round(SUM(ppb400403001 + ppb400403002)/1024/1024/1024/1024,6) as Tcp_Traffic_TB
+from (
+    select clttime, targetid, SUM(ppb400403020) as ppb400403020, SUM(ppb400403021) as ppb400403021,
+           SUM(ppb400403008) as ppb400403008, SUM(ppb400403016) as ppb400403016,
+           SUM(ppb400403045) as ppb400403045, SUM(ppb400403039) as ppb400403039,
+           SUM(ppb400403001) as ppb400403001, SUM(ppb400403002) as ppb400403002
+    from {t}
+    group by targetid, clttime
+) t
+group by Target_NE, clttime order by clttime asc"""},
 }
 # sheet 顺序（与 notebook 的 writer 顺序一致，便于人工对照）
 SHEET_ORDER = ["traffic", "active_user", "cache", "core", "video", "game",
@@ -286,6 +316,7 @@ DAILY_METRIC = {
     "cache": "Total_traffic_TB", "core": "Total_Traffic_TB", "video": "Total_traffic_TB",
     "game": "Total_traffic_TB", "tcp": "TCP_Total_Traffic_TB",
     "top_service": "TrafficTB", "top_video": "TrafficTB",
+    "tcp_ne": "Tcp_Traffic_TB",
 }
 # 体检阈值：某天主指标 < 中位数 * SUSPECT_RATIO 且窗口 >= SUSPECT_MIN_DAYS 天就记一笔
 # 实测依据：正常日流量波动只有 ±10%、活跃用户 ±15%，而 2026-08-12~14 活跃用户掉到中位数的
@@ -295,6 +326,11 @@ SUSPECT_MIN_DAYS = 5
 QUALITY_SHEET = "_数据质量"
 # 看板（?page=vmaxCxoDashboard_90Days）需要的块：比全量报表少 top_video，其余全部要用
 KPI_BLOCKS = ["traffic", "active_user", "cache", "video", "game", "tcp", "top_service"]
+# 伪块：只喂看板下钻明细表，不进 SHEET_ORDER（月报 Excel 合同）、不进 KPI_BLOCKS
+# （daily_kpi.blocks_ok 是「卡片层块数」口径，混进来会让残缺判定和测试全部失真）。
+# 两条进入路径：①完整落库路径的「补跑」段（每日同步/月报自动续写）；
+# ②--details-only --blocks <伪块名> 显式回填。cfg.blocks.<伪块>=false 整体关停。
+DETAIL_PSEUDO_BLOCKS = ("tcp_ne",)
 
 # 「某天查出来是空」不算异常的块：这些块天然可能整天没有产出，缺一天不代表取数失败。
 #   * top_service / top_video 是「TOP 业务」排行，理论上每天都有；但它们查的是 dim_service
@@ -342,6 +378,13 @@ def enabled_blocks(cfg: Dict[str, Any], keys: Optional[Iterable[str]] = None) ->
         if "all" not in wanted:
             chosen = [k for k in chosen
                       if k.lower() in wanted or str(BLOCKS[k]["sheet"]).lower() in wanted]
+        # 伪块只有显式要求（或 --blocks all）才进主路径：月报默认全量跑不含它，
+        # 它的日常续写走「补跑」段，保证 blocks_ok 口径不变。
+        for pseudo in DETAIL_PSEUDO_BLOCKS:
+            if (flags.get(pseudo, True) and pseudo not in chosen
+                    and ("all" in wanted or pseudo.lower() in wanted
+                         or str(BLOCKS[pseudo]["sheet"]).lower() in wanted)):
+                chosen.append(pseudo)
     return chosen
 
 
@@ -862,12 +905,12 @@ def persist_app_offload(pool: Any, cfg: Dict[str, Any], days: Sequence[str],
         return {"rows": 0, "error": "%s: %s" % (type(exc).__name__, exc)}
 
 
-# ---------------------- 视频 / 游戏逐 APP 明细落库（下钻用） ----------------------
+# ---------------------- 下钻明细落库（逐 APP 两表 + 逐网元 TCP 表） ----------------------
 # 与 persist_app_offload 的区别：offload 明细不是报表块，要逐日专查一遍数仓；
 # 而 video/game 块的 SQL 本来就按 appname 分组，结果帧里现成带着逐 APP 行 ——
 # 直接从帧提取落库即可，**不增加任何数仓查询**。
 _APP_DETAIL_SOURCES: Dict[str, Dict[str, Any]] = {
-    # kind: {块名, 帧列名 -> 明细表列名}
+    # kind: {块名, 键列名 name_col（缺省 appname）, 帧列名 -> 明细表列名}
     "video": {"block": "video",
               "cols": {"Total_traffic_TB": "traffic_tb",
                        "Valid_video_download_throughput_Mbps": "thr_mbps"}},
@@ -875,27 +918,41 @@ _APP_DETAIL_SOURCES: Dict[str, Dict[str, Any]] = {
              "cols": {"Total_traffic_TB": "traffic_tb",
                       "Avg_TCP_UL_RTT_ms": "ul_rtt_ms",
                       "Avg_TCP_DL_RTT_ms": "dl_rtt_ms"}},
+    # tcp 逐网元：来自 tcp_ne 伪块（多一次按 targetid 分组的 SELECT，只读）；
+    # 存原始计数不存比率 —— 合计/「其它」行与卡片恒等的根基（见 olib_soc_ne_detail 头注）。
+    "tcp": {"block": "tcp_ne", "name_col": "Target_NE", "name_key": "target_ne",
+            "cols": {"Tcp_Syn_Attempts": "syn_attempts", "Tcp_Syn_Success": "syn_success",
+                     "Tcp_DL_Segments": "dl_segments", "Tcp_DL_Retrans": "dl_retrans",
+                     "Tcp_DL_Rtt_Sum": "dl_rtt_sum", "Tcp_DL_Rtt_Cnt": "dl_rtt_cnt",
+                     "Tcp_Traffic_TB": "tcp_tb"}},
 }
 
 
 def extract_app_detail_rows(results: Dict[str, Dict[str, Any]],
                             kind: str) -> List[Dict[str, Any]]:
-    """某块的结果帧（clttime × appname 一行）→ 明细表行（day × appname 一行）。"""
+    """某块的结果帧 → 明细表行（day × 键列一行）。
+
+    键列默认 appname（分业务两表）；tcp 用 name_col=Target_NE / name_key=target_ne，
+    同一份提取契约服务两类下钻（AGENTS.md 三.1b：口径 = 同一次查询的行集合，
+    这里只做 clttime→ISO day 与列名映射，不重新过滤、不聚合）。
+    """
     import pandas as pd
 
     spec = _APP_DETAIL_SOURCES[kind]
     frame = (results or {}).get(spec["block"], {}).get("frame")
     if frame is None or getattr(frame, "empty", True):
         return []
+    name_col = spec.get("name_col", "appname")
+    name_key = spec.get("name_key", "appname")
     work = frame.copy()
     work["_day"] = pd.to_datetime(work.get("clttime"), errors="coerce").dt.strftime("%Y-%m-%d")
     rows: List[Dict[str, Any]] = []
     for item in work.to_dict("records"):
         day = item.get("_day")
-        appname = item.get("appname")
-        if not day or day == "NaT" or appname in (None, ""):
+        name = item.get(name_col)
+        if not day or day == "NaT" or name in (None, ""):
             continue
-        row: Dict[str, Any] = {"day": day, "appname": str(appname)}
+        row: Dict[str, Any] = {"day": day, name_key: str(name)}
         for src_col, dst_col in spec["cols"].items():
             value = _to_float(item.get(src_col))
             # pandas 把缺失值统一成 NaN（_to_float 转它不报错）；库里/界面口径是 NULL→—，
@@ -906,7 +963,11 @@ def extract_app_detail_rows(results: Dict[str, Dict[str, Any]],
 
 
 def persist_app_detail(results: Dict[str, Dict[str, Any]], run_id: str = "") -> Dict[str, Any]:
-    """视频/游戏逐 APP 明细落库；只处理这次真正跑过的块，失败只记日志（同 persist_daily_kpi）。"""
+    """下钻明细落库（逐 APP 两表 + 逐网元 TCP 表）；只处理这次真正跑过的来源块，
+    失败只记日志（同 persist_daily_kpi）。"""
+    upserters = {"video": app_detail.upsert_video_app,
+                 "game": app_detail.upsert_game_app,
+                 "tcp": ne_detail.upsert_tcp_target}
     out: Dict[str, Any] = {}
     for kind in _APP_DETAIL_SOURCES:
         if not (results or {}).get(_APP_DETAIL_SOURCES[kind]["block"]):
@@ -914,14 +975,13 @@ def persist_app_detail(results: Dict[str, Dict[str, Any]], run_id: str = "") -> 
         try:
             rows = extract_app_detail_rows(results, kind)
             rows = [{**r, "run_id": run_id} for r in rows]
-            written = (app_detail.upsert_video_app(rows, path=kpi_db_path()) if kind == "video"
-                       else app_detail.upsert_game_app(rows, path=kpi_db_path()))
+            written = upserters[kind](rows, path=kpi_db_path())
             if written:
-                logger.info("[olib_soc] %s 逐 APP 明细入库 %d 行 / %d 天", kind, written,
+                logger.info("[olib_soc] %s 明细入库 %d 行 / %d 天", kind, written,
                             len({r["day"] for r in rows}))
             out[kind] = {"rows": written, "days": len({r["day"] for r in rows})}
         except Exception as exc:                                         # noqa: BLE001
-            logger.warning("[olib_soc] %s 逐 APP 明细入库失败: %s", kind, exc)
+            logger.warning("[olib_soc] %s 明细入库失败: %s", kind, exc)
             out[kind] = {"rows": 0, "error": "%s: %s" % (type(exc).__name__, exc)}
     return out
 
@@ -1176,8 +1236,9 @@ def run_olib_soc_report(mode: Optional[str] = None, days: Optional[int] = None,
     * preview_rows>0 时摘要里附每块前 N 行明细（CLI --full 用）。
     * persist=False 时只返回摘要，不写 Excel / sqlite / KPI 库 / 摘要 JSON。
     * kpi_only=True 时只跑看板需要的 7 个块、默认不写 Excel（每日增量同步用）。
-    * details_only=True 时只把 video/game 块的逐 APP 结果帧落进下钻明细表，
-      不写 daily_kpi / app_offload / Excel（历史明细回填用，配合 --blocks video,game）。
+    * details_only=True 时只把明细来源块（video/game 逐 APP，或 --blocks 里点名的
+      tcp_ne 伪块逐网元）的结果帧落进下钻明细表，不写 daily_kpi / app_offload / Excel
+      （历史明细回填用，默认块=video,game,tcp_ne）。
     * excel 显式覆盖配置里的 persist.write_excel（None=按配置；名字不用 write_excel，
       否则会在函数内遮蔽同名的 `write_excel()` 函数）。
     * invoked_by 记录发起本次运行的任务 id（落进 report_runs.invoked_by），供任务列表
@@ -1197,7 +1258,8 @@ def run_olib_soc_report(mode: Optional[str] = None, days: Optional[int] = None,
     run_id = "%s_%s_%s" % (real_mode, begin, end)
     chosen = enabled_blocks(cfg, blocks)
     if kpi_only:
-        chosen = [b for b in chosen if b in KPI_BLOCKS]
+        # 伪块放行（--details-only --blocks tcp_ne 回填要走瘦身过滤后仍在）；不进 KPI_BLOCKS
+        chosen = [b for b in chosen if b in KPI_BLOCKS or b in DETAIL_PSEUDO_BLOCKS]
     # 「纯 KPI 路径」（kpi_only）：只把块结果压成 daily_kpi 的一天一行，**不写**分业务明细
     # （app_offload / video / game）。历史残留重取、CLI --kpi-only 都走它。
     # 2026-10-31 修正：每日增量原先是 kpi_only=True，导致 video/game 逐 APP 明细表永远只有
@@ -1341,23 +1403,36 @@ def run_olib_soc_report(mode: Optional[str] = None, days: Optional[int] = None,
                 summary["excel"] = xlsx
             if persist and (cfg.get("persist") or {}).get("write_kpi", True):
                 if details_only:
-                    # 明细回填专用：只落 video/game 逐 APP 明细，不碰 daily_kpi / app_offload
+                    # 明细回填专用：只落本次跑过的明细来源块（逐 APP / 逐网元），
+                    # 不碰 daily_kpi / app_offload
                     # （部分块跑出的结果若照常走 persist_daily_kpi，会把 blocks_ok 从 7 覆盖成 2）
                     summary["app_detail"] = persist_app_detail(result_map, run_id)
                 else:
                     # 写逐 APP 明细要 video/game 的结果帧：调用方若只传了瘦身块子集就补跑这两块
                     # （同一次数仓会话，代价很小），否则明细表会缺这天。
-                    for extra in ("video", "game"):
+                    # tcp_ne 伪块在这里一起补跑（逐网元下钻的续写入口），但它受
+                    # blocks.tcp_ne 开关门控 —— 生产数仓负载纪律要求的软回滚；
+                    # video/game 维持既有口径（补跑不受开关影响）。
+                    extras = ["video", "game"]
+                    if (cfg.get("blocks") or {}).get("tcp_ne", True):
+                        extras.append("tcp_ne")
+                    for extra in extras:
                         if extra not in result_map and extra in BLOCKS:
                             logger.info("[olib_soc] 补跑明细来源块: %s", extra)
                             res = run_block(pool, extra, all_days, cfg, progress=progress)
                             fetched.append(res)
                             result_map[extra] = res
-                    summary["kpi"] = persist_daily_kpi(result_map, run_id, all_days)
+                    # 伪块不进 persist_daily_kpi：daily_kpi.blocks_ok 是「卡片层块数」（7/9）
+                    # 口径，extract 端遍历全部结果计数，混入伪块会静默把 7 变 8（残缺判定
+                    # 与既有测试都压在这个口径上，同 details_only 不落 daily_kpi 是同一个道理）。
+                    summary["kpi"] = persist_daily_kpi(
+                        {k: v for k, v in result_map.items()
+                         if k not in DETAIL_PSEUDO_BLOCKS}, run_id, all_days)
                     # 分业务分流明细：只要这次跑了 spservice 表族的块就顺带取一次，
                     # 月报全量跑与看板每日增量跑同一条路径，历史回补不需要单独的命令。
                     summary["app_offload"] = persist_app_offload(pool, cfg, all_days, run_id)
-                    # 视频/游戏逐 APP 明细：复用本次 video/game 块的结果帧，零额外数仓查询
+                    # 视频/游戏逐 APP + 逐网元 TCP 明细：逐 APP 复用本次结果帧零额外查询；
+                    # tcp_ne 没被显式跑时由上面的补跑段跑一次（受 blocks.tcp_ne 开关门控）
                     summary["app_detail"] = persist_app_detail(result_map, run_id)
             summary["mail"] = (deliver_mail(cfg, xlsx, summary) if send_mail is not False
                                else {"sent": False, "skipped": "send_mail=False"})
@@ -1420,7 +1495,7 @@ def run_olib_soc_kpi_sync(days_back: Optional[int] = None, only_missing: bool = 
     }
     historical: List[str] = []                                           # 窗口外、保留期内的历史残缺日
     abandoned: List[str] = []                                            # 超出上游保留期、放弃重取的残缺日
-    # 视频/游戏逐 APP 下钻明细则另算一套缺口（见下方 detail_gaps 的注释）：
+    # 下钻明细（逐 APP / 逐网元）则另算一套缺口（见下方 detail_gaps 的注释）：
     # 它既不在 KPI_BLOCKS 的落库路径上，也不再能靠 kpi_only=True 顺带写入。
     detail_gaps: List[str] = []
     if only_missing:
@@ -1468,7 +1543,7 @@ def run_olib_soc_kpi_sync(days_back: Optional[int] = None, only_missing: bool = 
         # 统一成 ISO：与 gap_days 的返回格式、与 kpi.days_list 的比较口径保持一致，
         # 否则 force 重取后 `still_missing` 会把所有天都误报成「仍然缺」
         gaps = [vgc.iso_day(d) for d in vgc.day_range(begin, end)]
-    # 视频/游戏逐 APP 下钻明细走另一套缺口（见 detail_gaps 计算处的注释）：
+    # 下钻明细（逐 APP / 逐网元）另算一套缺口（见 detail_gaps 计算处的注释）：
     # 它既不在 KPI_BLOCKS 的落库路径上，也不再能靠 kpi_only=True 顺带写入。
     detail_gaps: List[str] = []
     if persist:
@@ -1476,8 +1551,13 @@ def run_olib_soc_kpi_sync(days_back: Optional[int] = None, only_missing: bool = 
         # 明细的「最新 1 天重取」必须跟着关掉，否则零查询语义就失效了
         _refresh = int(refresh_last if refresh_last is not None
                        else (sync_cfg.get("refresh_last_days") or 0))
+        # 三张明细表一起判缺（逐网元 TCP 表接入续写，2026-10-31）：任一表缺天就重取那天，
+        # 取数是一趟全块重放，多一张表的缺口不多花一次查询窗口。
         detail_gaps = app_detail.gap_days(window, path=kpi_db_path(), today=base,
-                                          refresh_last=_refresh)
+                                          refresh_last=_refresh,
+                                          tables=(app_detail.VIDEO_APP_TABLE,
+                                                  app_detail.GAME_APP_TABLE,
+                                                  ne_detail.TCP_TARGET_TABLE))
     summary["detail_requested_days"] = detail_gaps
     summary["requested_days"] = gaps
     if not gaps and not historical and not detail_gaps:
@@ -1645,8 +1725,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--force", action="store_true", help="--sync-kpi 时强制重取窗口内所有天")
     ap.add_argument("--kpi-only", action="store_true", help="只跑看板用的 7 个块，跳过 top_video")
     ap.add_argument("--details-only", action="store_true",
-                    help="只回填看板下钻明细（video/game 逐 APP，默认块=video,game），"
-                         "不写 daily_kpi / app_offload / Excel / 邮件")
+                    help="只回填看板下钻明细（video/game 逐 APP + tcp_ne 逐网元，"
+                         "默认块=video,game,tcp_ne），不写 daily_kpi / app_offload / Excel / 邮件")
     ap.add_argument("--no-excel", action="store_true", help="不写 Excel（只入库/打印摘要）")
     ap.add_argument("--no-persist", action="store_true", help="不落盘（只打印摘要）")
     ap.add_argument("--mail", action="store_true", help="强制发送邮件（需配置 mail 收件人）")
@@ -1663,6 +1743,10 @@ def main(argv: Optional[List[str]] = None) -> int:
             spec = BLOCKS[key]
             print("%-12s sheet=%-16s %-20s %s"
                   % (key, spec["sheet"], spec["title"], spec["family"]))
+        for key in DETAIL_PSEUDO_BLOCKS:
+            spec = BLOCKS[key]
+            print("%-12s %-7s （伪块：只喂看板下钻明细，不进月报 Excel） %s"
+                  % (key, "[pseudo]", spec["family"]))
         return 0
     if args.check:
         return _cmd_check(cfg)
@@ -1676,8 +1760,9 @@ def main(argv: Optional[List[str]] = None) -> int:
         return 0 if sync.get("status") in ("ok", "up_to_date", "partial") else 2
 
     if args.details_only:
-        # 历史明细回填：默认只跑 video/game 两块（明细来源块），零 Excel / 邮件副作用
-        blocks = (args.blocks.split(",") if args.blocks else ["video", "game"])
+        # 历史明细回填：默认跑全部明细来源块（video/game 逐 APP + tcp_ne 逐网元），
+        # 零 Excel / 邮件副作用；只想补新表时显式 --blocks tcp_ne 即可（省两次既有回填）
+        blocks = (args.blocks.split(",") if args.blocks else ["video", "game", "tcp_ne"])
         summary = run_olib_soc_report(mode=args.mode, days=args.days, start=args.start,
                                       end=args.end, blocks=blocks,
                                       persist=not args.no_persist, send_mail=False,
