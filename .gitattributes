@@ -27,4 +27,21 @@
 # （PowerShell 本身两种行尾都能跑，这里只为与 .bat 保持一致、便于 diff。）
 *.ps1   text eol=crlf
 
+# ---------------------------------------------------------------------------
+# Git 钩子必须用 LF（2026-10-31 新增）
+#
+# 背景：`.githooks/pre-commit` 是 **sh 脚本**，由 Git for Windows 的 bash 执行。
+# CRLF 的 sh 脚本会出现两类故障：
+#   1. `#!/bin/sh\r` → 解释器名变成 "/bin/sh\r"，报 "bad interpreter"；
+#   2. 脚本体内的行尾 `\r` 被当成命令的一部分（`exit 0\r` → 报 command not found）。
+#
+# 本仓库 core.autocrlf=true，不显式声明就会检出成 CRLF。已实测本文件
+# 初次写入时有 122 处 CRLF —— 故在此固定。
+#
+# 校验方法（应为 CR==0）：
+#   $b=[IO.File]::ReadAllBytes('.githooks\pre-commit')
+#   ($b|?{$_ -eq 13}).Count
+# ---------------------------------------------------------------------------
+.githooks/*   text eol=lf
+
 # 其余文本类型交给 git 默认规则即可；这里只固定上述几类。
