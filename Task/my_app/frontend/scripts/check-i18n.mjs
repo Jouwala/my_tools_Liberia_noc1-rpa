@@ -15,11 +15,21 @@
  *   本脚本把这类问题变成**可自动检测的构建前检查**。
  *
  * 检查项：
- *   [1] 页面里 t('xxx') 用到的键，是否在 zh 与 en **两份**字典都存在（漏一份 → 英文界面露 key）
+ *   [1] 页面里 t('xxx') 用到的键，是否在 zh 与 en **两份**字典都存在
  *   [1b] `labelKey: 'xxx'` 形式的**间接引用**同样纳入 [1] 的检查范围（2026-10-06 补，见下）
+ *   [1c] t(`xxx.${...}`) 模板调用按前缀族纳入检查（2026-10-19 补）
  *   [2] 是否用了 `t(key, { defaultValue: ... })` 这种**错误签名**（t 的第二参数是插值参数）
  *   [3] 硬编码中文界面字面量（应走 t()）
  *   [4] zh/en 键集合差异（任一侧多出或缺失）
+ *   [5] **非 t() 调用位里的间接引用键**（2026-10-31 补，见下）：`return 'a.b'`、
+ *       `Record<K,string>` 的值、数组元素里的点分字面量，同样要求两本字典都有
+ *
+ * ⚠ 缺失的**后果**按 t() 的实现而定（`i18n.tsx:10357`：
+ *   `translations[locale]?.[key] ?? translations['zh']?.[key] ?? key`）：
+ *     - 两份都缺            → 中英文界面**都**露出 key 原文 `xxx.yyy`
+ *     - zh 有、en 缺        → 英文界面**回落成中文**（不露 key，容易长期无人发现）
+ *     - en 有、zh 缺        → 中文界面露出 key 原文
+ *   早期版本把第二行写反成「露 key」，按那个提示去修会找错方向，2026-10-31 已更正。
  *
  * 为什么有 [1b]：
  *   全部 ~80 个侧栏标签**不写** t('nav.xxx')，而是把键名放进 PAGE_META / DEFAULT_GROUPS /
@@ -27,6 +37,19 @@
  *   只匹配 t('字面量') 时这批键全部落在守卫视野之外 —— 2026-10-06 的 `nav.warehouseSummary`
  *   漏键就是这样逃过构建、直到界面上露出 key 原文才被发现。
  *   实测这些 labelKey 全是静态字面量（无 `labelKey: someVar`），因此可以静态提取，不需要真做变量分析。
+ *
+ * 为什么有 [5]（2026-10-31 审计）：
+ *   [1b] 只认 `labelKey` 这一个字段名，而把键名**存进变量再传给 t()** 的写法到处都是，
+ *   全部在守卫视野之外。实测三例：
+ *     - `AvailFlm.tsx` 的 `warnKey()` 用 15 个 `case …: return 'availFlm.warn.xxx'`，
+ *       其中 14 个键两本字典都没有 → 中英界面都露 key 原文；
+ *       而它上面一行注释写着「刻意用显式 switch，避免 check:i18n 误报」——
+ *       AGENTS.md 第三节 1b 教的绕法正好制造了这个盲区，绕开守卫的同时绕开了字典。
+ *     - `AvailFlm.tsx` 的 `const DIM_TITLE_KEY: Record<Dim, string>` 里 2 个键双缺，
+ *       渲染点含 ECharts `series[].name`（canvas）与 Excel sheet 名。
+ *     - 同族的 `availMs.warn.*` 15 个键明明在用，却因为不走 t() 字面量而被 [未引用] 误报。
+ *   降噪靠**字典命名空间**：只有首段与字典里某个命名空间（`availMs` / `nav` / `ttwo` …）
+ *   同名的点分字面量才当键看待，于是 `'manual.html'`、`'echarts.min.js'`、版本号一类不会进来。
  *
  * 用法：
  *   cd frontend && node scripts\check-i18n.mjs
@@ -81,6 +104,29 @@ function extractKeys(src) {
 const zhKeys = extractKeys(zhSrc)
 const enKeys = extractKeys(enSrc)
 
+/**
+ * [5] 用的命名空间集合：取字典键首段（`availMs.warn.x` → `availMs`）。
+ * 只有首段命中这里的点分字面量才当「键的间接引用」看待 —— 否则 `'manual.html'`
+ * `'echarts.min.js'` 这类文件名会被大量误报，规则就没法阻断提交。
+ */
+const namespaces = new Set()
+for (const k of [...zhKeys, ...enKeys]) {
+  const i = k.indexOf('.')
+  if (i > 0) namespaces.add(k.slice(0, i))
+}
+/** 尾部是文件扩展名的不是键（`soc_trend_dashboard.html` 这种在源码里成串出现） */
+const FILE_EXT_TAIL = /\.(html?|js|jsx|ts|tsx|css|json|md|png|jpe?g|svg|xlsx?|csv|py|db|sqlite3?|log|zip|exe|dll|bak)$/
+/** 形如 'a.b' / 'a.b.c' 的单引号点分字面量（键在本仓库一律单引号） */
+const DOTTED_LITERAL = /'([A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z0-9_]+)+)'/g
+
+/**
+ * 「形状像键、其实不是文案键」的逐条白名单（与上面 TEMPLATE_KEY_PREFIX 豁免同一思路）。
+ * 只列精确值、不放宽 [5] 本身：将来加条目必须写清它凭什么是标识符而不是界面文案。
+ *   - 'user.login'        ImonitorScreen.tsx:95 的 scope 标识，传给注入脚本的登录范围名
+ *   - 'msKpi.catOrder.v1' MsKpiShared.tsx:288 的 localStorage 键名（:294 getItem / :305 setItem）
+ */
+const NOT_A_COPY_KEY = new Set(['user.login', 'msKpi.catOrder.v1'])
+
 // ------------------------------------------------- [4] 两份字典的键集合是否一致
 const onlyZh = [...zhKeys].filter((k) => !enKeys.has(k)).sort()
 const onlyEn = [...enKeys].filter((k) => !zhKeys.has(k)).sort()
@@ -88,7 +134,7 @@ const onlyEn = [...enKeys].filter((k) => !zhKeys.has(k)).sort()
 if (onlyZh.length) {
   exitCode = 1
   problems.push(
-    `zh 有、en 缺失的键 ${onlyZh.length} 个（英文界面会露出 key 原文）：\n` +
+    `zh 有、en 缺失的键 ${onlyZh.length} 个（英文界面回落显示中文，见 i18n.tsx 的 ?? translations['zh'] 兜底）：\n` +
       onlyZh.map((k) => `      - ${k}`).join('\n')
   )
 }
@@ -177,6 +223,24 @@ for (const file of files) {
     if (!usedKeys.has(key)) usedKeys.set(key, new Set())
     usedKeys.get(key).add(`${rel(file)} (labelKey)`)
   }
+
+  // ---------------------------------------- [5] 间接引用键（t() 调用位之外）
+  // 覆盖 `case …: return 'a.b'`、`const X: Record<K,string> = { k: 'a.b' }`、
+  // `const ARR = ['a.b','c.d']`、三元 / 实参位里的键名。判定只看「首段是不是字典里
+  // 已有的命名空间」，不做数据流分析 —— 键在本仓库永远是 `<namespace>.<…>` 形状，
+  // 而非键的点分字面量（文件名、扩展名、版本号）首段进不了 namespaces。
+  // 已由 [1]/[1b] 在同一文件里收过的键跳过，避免同一条键报两遍。
+  for (const m of src.matchAll(DOTTED_LITERAL)) {
+    const key = m[1]
+    const dot = key.indexOf('.')
+    if (!namespaces.has(key.slice(0, dot))) continue
+    if (FILE_EXT_TAIL.test(key)) continue
+    if (NOT_A_COPY_KEY.has(key)) continue
+    const seen = usedKeys.get(key)
+    if (seen && (seen.has(rel(file)) || seen.has(`${rel(file)} (labelKey)`))) continue
+    if (!seen) usedKeys.set(key, new Set())
+    usedKeys.get(key).add(`${rel(file)} (间接引用)`)
+  }
   // 记录 tpl.* 是否出现在非模板文件（= 复制模板后忘了改前缀）
   if (file !== TEMPLATE_FILE) {
     for (const m of src.matchAll(/\bt\(\s*'(tpl\.[^'\n]+)'/g)) {
@@ -241,8 +305,8 @@ for (const [key, where] of usedKeys) {
 if (missingZh.length) {
   exitCode = 1
   problems.push(
-    `以下 ${missingZh.length} 个键在代码里被 t() 使用，但 zh 字典缺失` +
-      `（标 * 的表示 en 也缺失 → 界面会显示 key 原文）：\n` +
+    `以下 ${missingZh.length} 个键被代码引用（t() 字面量 / labelKey / 间接引用），但 zh 字典缺失` +
+      `（标 * 的表示 en 也缺失 → 中英文界面都显示 key 原文）：\n` +
       missingZh
         .map(
           (x) =>
@@ -254,7 +318,7 @@ if (missingZh.length) {
 if (missingEn.length) {
   exitCode = 1
   problems.push(
-    `以下 ${missingEn.length} 个键被 t() 使用，但 en 字典缺失（英文界面显示 key 原文）：\n` +
+    `以下 ${missingEn.length} 个键在代码里被用到，但 en 字典缺失（英文界面回落显示中文）：\n` +
       missingEn.map((x) => `      - ${x.key}   ← ${[...x.where].join(', ')}`).join('\n')
   )
 }
@@ -278,7 +342,7 @@ console.log(line)
 console.log(`  扫描源码文件      : ${files.length}`)
 console.log(`  zh 字典键数       : ${zhKeys.size}`)
 console.log(`  en 字典键数       : ${enKeys.size}`)
-console.log(`  代码中 t() 用到的键: ${usedKeys.size}`)
+console.log(`  代码引用到的键    : ${usedKeys.size}（含 t() / labelKey / 模板前缀 / 间接引用）`)
 console.log('')
 
 if (problems.length) {
