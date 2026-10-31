@@ -1,0 +1,122 @@
+#!/bin/sh
+# ─────────────────────────────────────────────────────────────────────────────
+# 提交前守卫（入库版）
+#
+# 为什么这个文件在仓库里（2026-10-31）：
+#   以前的守卫只写在 `.git/hooks/pre-commit` —— **那个目录不随仓库分发**。
+#   换机器、克隆一份、或者别人来提交，守卫根本不存在，于是
+#   「改了代码忘了改文档」的老问题在别的机器上完全没有牙齿。
+#
+#   现在把钩子本身放进仓库（`.githooks/pre-commit`），用
+#   `git config core.hooksPath .githooks` 指过去。core.hooksPath 是**本地配置**
+#   （在 .git/config 里，不入库），所以每个人第一次克隆后跑一次
+#   `npm run setup:hooks` 即可 —— 详见根 AGENTS.md「提交前守卫」。
+#
+# 配套：
+#   · 本地钩子  = 早发现（提交前就拦）
+#   · CI        = 兜底（.github/workflows/docs-consistency.yml，push/PR 都跑）
+#   两者跑的是**同一份脚本**，不会规则分叉。
+#
+# 紧急绕过：git commit --no-verify
+# ─────────────────────────────────────────────────────────────────────────────
+
+repo_root="$(git rev-parse --show-toplevel)"
+portal_dir="$repo_root/liberia-noc_soc-数据看板统一门户"
+myapp_dir="$repo_root/Task/my_app"
+
+fail_with_hint() {
+  echo ""
+  echo "提交被拦下：$1"
+  echo "若确认无误，可用 git commit --no-verify 绕过。"
+  exit 1
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 门户整洁度守卫
+#
+# 复用 scripts/check-cleanliness.mjs audit —— 与手工跑 `npm run check:clean`
+# 是同一份代码，避免两处规则分叉。
+#
+# 依据：AGENTS.md 第四节第 7 条「探针落 TMP\ 并自清」已失效过三次，
+# 最近一次是 2026-09-24 审计 —— 门户 506 个跟踪文件里 347 个是探针/转储/快照。
+# 靠文档提醒治不住，必须在提交这一步挡住。
+# ─────────────────────────────────────────────────────────────────────────────
+
+if [ -f "$portal_dir/scripts/check-cleanliness.mjs" ]; then
+  node "$portal_dir/scripts/check-cleanliness.mjs" audit || \
+    fail_with_hint "门户整洁度检查未通过（探针/快照/日志混入版本库）。"
+fi
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 团队门户生成物一致性守卫
+#
+# v3/team_portal/ 的资产是从上游 v3/olbrportal/ **生成**出来的，且**都在版本库里**
+# （团队门户是静态壳，nginx 直接 alias 发它们，不经任何构建步骤）。
+# 于是「改了上游忘了重跑生成脚本」会直接上线 —— 症状是团队门户里的功能悄悄消失。
+#
+# 实测（2026-10-30）：上游加了 um.team* 的 16 个 i18n 键与团队选择器，
+# 而团队门户那份 olbr-data.js / olbr.js 还是改动前的副本 ——
+# 团队门户的「用户管理」面板里没有团队归属下拉框，管理员无法给账号指派团队。
+# 肉眼极难发现（两份文件都看起来对），故交给机器。
+# ─────────────────────────────────────────────────────────────────────────────
+
+if [ -f "$portal_dir/scripts/check-team-scope.mjs" ]; then
+  node "$portal_dir/scripts/check-team-scope.mjs" || \
+    fail_with_hint "团队门户生成物与上游不一致（需重跑生成脚本）。"
+fi
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 门户文档一致性守卫
+#
+# 与 my_app 的 test_doc_consistency.py 同一思路：门户 README / docs 里也有
+# 「从代码抄来的数字」（看板条数、组件数、任务数），过期了没人会发现。
+#
+# 实测（2026-10-31 审计）：README 说「21 个 my_app 直链 + 19 个 FineBI 条目」→
+# 实际 53 + 2 + 1 = 56 条；README 说「34 个定时任务」→ 实际 80 个；
+# project-overview 说「21 个组件」→ 实际 24 个。
+# ─────────────────────────────────────────────────────────────────────────────
+
+if [ -f "$portal_dir/scripts/check-doc-consistency.mjs" ]; then
+  node "$portal_dir/scripts/check-doc-consistency.mjs" || \
+    fail_with_hint "门户文档与代码不一致。"
+fi
+
+# ─────────────────────────────────────────────────────────────────────────────
+# my_app 文档一致性守卫
+#
+# 为什么需要它：手册里到处是「80 个定时任务」「10 个 worker 组」「79 个功能页」
+# 这类**从代码里抄来的数字**，以及一张逐页的页面表。代码加了任务/页面而文档没跟上，
+# 症状是「手册说的和界面对不上」—— 肉眼极难发现，两边看起来都自洽。
+#
+# 实测（2026-10-31 审计）：04-task-system.md 还写着 41 个任务、13-operations.md
+# 写着 5 个 worker 组、11-feature-guide.md 的 iframe 页数与 PAGE_LIST 差 1 个；
+# 更狠的是 helpContent.ts 里 4 个已在侧边栏的页面（ms_wo_sla / ms_contract_kpi /
+# ran_cells_kpi / person）**完全没有帮助条目** —— 用户点进帮助页找不到说明。
+#
+# 该守卫零第三方依赖（真相源用 AST 静态解析），任何有 Python 3.10+ 的机器都能跑。
+# ─────────────────────────────────────────────────────────────────────────────
+
+if [ -f "$myapp_dir/tests/test_doc_consistency.py" ] && command -v python >/dev/null 2>&1; then
+  (cd "$myapp_dir" && python tests/test_doc_consistency.py) || \
+    fail_with_hint "my_app 文档与代码不一致。"
+fi
+
+# ─────────────────────────────────────────────────────────────────────────────
+# my_app i18n 漏键守卫
+#
+# 为什么需要它：AGENTS.md 第三节第 3 条「文案必须中英两处都加」以前全靠自觉，
+# 而 check:i18n 只挂在 npm run build 里 —— 改完源码不构建就算「做完」，守卫
+# 从来没机会跑。挂到提交这一步才有牙齿。
+#
+# 实测（2026-10-31 审计）：守卫当时是**绿的**，界面上却有 16 个键中英两侧都
+# 不存在 —— AvailFlm.tsx 的 warnKey() 用 `case …: return 'availFlm.warn.xxx'`
+# 把键名传下去，正是旧版守卫视线之外的写法。用户看到的就是
+# availFlm.warn.otherSiteType 这种原文，还同时进了 ECharts 图例与 Excel sheet 名。
+# ─────────────────────────────────────────────────────────────────────────────
+
+if [ -f "$myapp_dir/frontend/scripts/check-i18n.mjs" ] && command -v node >/dev/null 2>&1; then
+  (cd "$myapp_dir/frontend" && node scripts/check-i18n.mjs) || \
+    fail_with_hint "i18n 有漏键 / 间接引用键不在字典 / t() 错误签名。"
+fi
+
+exit 0

@@ -1,0 +1,75 @@
+# 文档一致性守卫 —— CI
+#
+# 为什么要有这个（2026-10-31）：
+#   文档一致性守卫以前只挂在**本机** `.git/hooks/pre-commit` 上。`.git/hooks`
+#   不随仓库分发 —— 换机器、克隆一份、或者别人来提交，守卫都不存在。
+#   于是「AI 改了代码忘了改文档」这个老问题在别的机器上完全没有牙齿。
+#
+#   这里把同一套守卫搬到 CI：**每次 push / PR 都跑**。本地钩子是「早发现」，
+#   CI 是「兜底」—— 有人用 `--no-verify` 绕过了本地钩子，CI 依然会红。
+#
+# 判断逻辑与本地完全同一份代码（不另起一套，避免规则分叉）：
+#   · my_app   → `Task/my_app/tests/test_doc_consistency.py`（15 个用例）
+#   · 门户     → `liberia-noc_soc-数据看板统一门户/scripts/check-doc-consistency.mjs`（6 个用例）
+#   · my_app i18n → `Task/my_app/frontend/scripts/check-i18n.mjs`
+#   · 门户整洁度 → `liberia-noc_soc-数据看板统一门户/scripts/check-cleanliness.mjs audit`
+#
+# 全部**零第三方依赖**（只用 Python 标准库 / Node 内置模块）：
+#   · my_app 守卫的真相源用 AST 静态解析（`tests/doc_truth.py`），
+#     不 import 业务模块 —— 否则 `ctypes.wintypes` 在 Linux 上直接失败；
+#   · i18n / 文档 / 整洁度守卫都是纯 Node 内置模块。
+#   所以 CI 不需要 `pip install`、不需要 `npm install`，克隆下来就能跑。
+
+name: docs-consistency
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+# 允许并发；同一分支的新 push 会取消旧的运行
+concurrency:
+  group: docs-consistency-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  myapp-docs:
+    name: my_app 文档一致性
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: 跑文档一致性守卫
+        working-directory: Task/my_app
+        run: python tests/test_doc_consistency.py
+
+      - name: 跑 i18n 漏键守卫
+        working-directory: Task/my_app/frontend
+        run: node scripts/check-i18n.mjs
+
+  portal-docs:
+    name: 门户文档一致性
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: 跑文档一致性守卫
+        working-directory: liberia-noc_soc-数据看板统一门户
+        run: node scripts/check-doc-consistency.mjs
+
+      - name: 跑团队门户生成物一致性守卫
+        working-directory: liberia-noc_soc-数据看板统一门户
+        run: node scripts/check-team-scope.mjs
+
+      - name: 跑整洁度守卫（探针/快照/日志不得入库）
+        working-directory: liberia-noc_soc-数据看板统一门户
+        run: node scripts/check-cleanliness.mjs audit
