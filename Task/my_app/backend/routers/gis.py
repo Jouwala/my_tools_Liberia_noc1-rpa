@@ -1018,6 +1018,51 @@ def _match_tt_wo(conn, site_ttids):
     return existing_tts, tt_to_wo, valid_wos
 
 
+def _realtime_site_stats(conn, site_table=None) -> dict[str, dict]:
+    """每站的**实时**告警/工单统计 —— 实时告警页与人员页共用这一份口径。
+
+    返回 `{site_id: {...}}`，每个站给：
+      · `rt_alarm_count`    该站当前实时告警条数
+      · `rt_alarm_overdue`  其中 SLA 已超时（派单时限已破）的条数
+      · `rt_alarm_ontime`   其中未超时的条数
+      · `rt_tt_count`       由这些告警关联到、且**确实存在**的 TT 数
+      · `rt_wo_count`       由这些告警关联到、且确实存在的 WO 数
+
+    ---- 为什么抽成共享函数（2026-10-30）----
+    人员页（`?page=person`）原先只从 `realtime_alarm` 取一个 `has_alarm` 布尔，
+    于是它的站点圆点用的是**另一套三档配色**（红/浅蓝/绿），与实时告警页
+    （深红超时 / 橙未超时 / 蓝 TT / 青 WO / 紫 VIP / 灰无状态）毫无关系 ——
+    两页看的是同一批站点、同一个 `realtime_alarm` 快照，颜色却对不上。
+    本函数让两页**从同一次扫描**取数，数字与颜色档位必然一致
+    （AGENTS.md 三.1b：概览与下钻必须同源）。
+
+    ---- 口径与 `/gis/realtime/sites` **逐值相同** ----
+    直接复用 `_scan_realtime_alarms`（同一次单遍扫描，含「脏 site_id 按站点名
+    回退归位」）与 `_match_tt_wo`（TT/WO 关联，镜像缺失时实时补漏），
+    不另写一套判定 —— 另写就会漂移，那正是本次要消灭的问题。
+
+    ⚠ TT/WO 计数依赖 `eflow_tt` / `eflow_wo` **镜像**，镜像每小时同步一次；
+      镜像缺失的 TT 由 `_match_tt_wo` 里的实时补漏兜底（进程内 5 分钟缓存），
+      故首次调用可能有数秒延迟，之后命中缓存。
+    """
+    (rt_alarm_stats, site_ttids, overdue_map, ontime_map,
+     _oss_counts, _oss_sites, _oss_alarms, _oss_tt_counts, _rca_rows) = (
+        _scan_realtime_alarms(conn, site_table)
+    )
+    existing_tts, tt_to_wo, valid_wos = _match_tt_wo(conn, site_ttids)
+    out: dict[str, dict] = {}
+    for sid, rt_cnt in rt_alarm_stats.items():
+        tids = site_ttids.get(sid, [])
+        out[sid] = {
+            "rt_alarm_count": rt_cnt,
+            "rt_alarm_overdue": overdue_map.get(sid, 0),
+            "rt_alarm_ontime": ontime_map.get(sid, 0),
+            "rt_tt_count": sum(1 for t in tids if t in existing_tts),
+            "rt_wo_count": len({tt_to_wo[t] for t in tids if t in tt_to_wo and tt_to_wo[t] in valid_wos}),
+        }
+    return out
+
+
 def _site_id_match(site_id):
     """构建 site_id 匹配条件 → (clause, params)
 

@@ -1,6 +1,6 @@
 # my_app User Help & Guide
 
-> User-facing platform features & operations guide. Generated from the same source as the in-app Help page (frontend/src/helpMarkdown.ts), compiled from docs/manual/ and backend/task_registry.py. Generated on 2026-10-29.
+> User-facing platform features & operations guide. Generated from the same source as the in-app Help page (frontend/src/helpMarkdown.ts), compiled from docs/manual/ and backend/task_registry.py. Generated on 2026-10-31.
 
 > In-app entry: the "Help" sidebar item, or `http://<host>/myapp/?page=help` directly.
 
@@ -10,7 +10,7 @@
 
 - [1. Platform Overview](#1-platform-overview)
 - [2. General Usage](#2-general-usage)
-- [3. Task Manager Deep Dive (79 tasks)](#3-task-manager-deep-dive)
+- [3. Task Manager Deep Dive (80 tasks)](#3-task-manager-deep-dive)
 - [4. Pages Guide](#4-pages-guide)
 - [5. Ops & Troubleshooting](#5-ops-troubleshooting)
 - [6. FAQ](#6-faq)
@@ -83,7 +83,7 @@ Built for the NOC scenario "boards every day, reports must go out": 41+ schedule
 
 > ⚠️ **New tasks MUST also be registered in `GROUP_TASK_MAP` in worker_watchdog.py** — declaring them only in TASK_SPECS leaves them pending forever. This accident happened four times (finebi_report_sync / whatsapp_send_ext / sp_email_details / the olib_soc and vmax_multi_data_sync tasks found on 2026-09-18).
 
-### 3.3 Full task catalog (79 tasks)
+### 3.3 Full task catalog (80 tasks)
 
 | Task | task_id | Default cron | Group | Workflow script |
 | --- | --- | --- | --- | --- |
@@ -148,6 +148,7 @@ Built for the NOC scenario "boards every day, reports must go out": 41+ schedule
 | CXO Dashboard Cache Sync | `cxo_dashboard_cache_sync` | `*/10 * * * *` | v | `services/cxo_dashboard_cache.py → run_cxo_dashboard_cache_sync` |
 | VMAX CXO Daily Value Archive | `vmax_cxo_daily_sync` | `15 * * * *` | v | `services/vmax_cxo_daily_cache.py → run_vmax_cxo_daily_sync` |
 | VMAX Multi-Report KPI Collect | `vmax_multi_data_sync` | `45 * * * *` | v | `services/vmax_multi_data/vmax_multi_data_service.py → run_vmax_multi_data_sync` |
+| SOC Multi-Dim Trend Sync | `soc_trend_sync` | `40 * * * *` | v | `services/soc_trend/soc_trend_sync.py → run_soc_trend_sync` |
 | OLIB SOC Dashboard KPI Sync | `olib_soc_kpi_daily_sync` | `20 6 * * *` | m | `services/olib_soc_report/olib_soc_report_service.py → run_olib_soc_kpi_sync` |
 | OLIB SOC VMAX Routine Report | `olib_soc_vmax_report` | `30 7 1 * *` | m | `services/olib_soc_report/olib_soc_report_service.py → run_olib_soc_report` |
 | Customer Service KPI Sync | `ume_in_kpi_sync` | `45 5 * * *` | n | `services/ume_in/ume_in_kpi_service.py → run_ume_in_kpi_sync` |
@@ -1295,18 +1296,38 @@ Workflow & maintenance notes per task:
 - Never ran before its group registration on 2026-09-18 (the fourth accident); now in group v with the other two 8790 tasks
 - Pages read the latest.json snapshot, so a failing task still shows the previous run without any error
 
+#### SOC Multi-Dim Trend Sync（`soc_trend_sync`）
+
+- Default cron: `40 * * * *`　|　worker group: **v**
+- Workflow script: `services/soc_trend/soc_trend_sync.py → run_soc_trend_sync`
+
+**What it does**: Hourly read-only pulls from the VMAX GBase warehouse: traffic / TCP / per-service categories (traffic, video, web, game, OTT voice, OTT video) aggregated at hour and day granularity, feeding the SOC multi-dim trend dashboard (dual-baseline alarms, D/D-1/D-7 comparison)
+
+**Workflow & data flow**:
+
+1. At :40 hourly, open a dedicated pymysql connection to the VMAX GBase warehouse (read-only guard: SELECT / SHOW / DESC only)
+1. Probe partitions with SHOW TABLES, then run ciservice (by area + targetid), spservice (by area x service) and the video-specific aggregates per partition
+1. Delete-then-insert whole days into data/soc_trend/soc_trend.sqlite3 (hour table ~94 days, day table ~90 days; the last 2 days are re-pulled every run, other days are back-filled only when missing)
+
+**Maintenance**:
+
+- Same VMAX warehouse as olib_soc_* / vmax_cxo_daily_sync but on its own connection, so it does not consume the local 8790 portal proxy session; serializing within the group is enough and sessions do not collide
+- When GBase is unreachable the run degrades gracefully (records the error, no exception); once the link is back the missing-partition back-fill resumes automatically, no manual reload needed
+- Registered on 2026-10-30 with TASK_SPECS only and no worker group, so the first scheduled run (23:15:55) was never claimed and got expired as failed; group v was added on 2026-10-31
+
 #### OLIB SOC Dashboard KPI Sync（`olib_soc_kpi_daily_sync`）
 
 - Default cron: `20 6 * * *`　|　worker group: **m**
 - Workflow script: `services/olib_soc_report/olib_soc_report_service.py → run_olib_soc_kpi_sync`
 
-**What it does**: Daily incremental fill of the 90-day CXO dashboard KPI store (daily_kpi): only the 7 dashboard blocks, missing days plus the newest day re-read, no Excel output
+**What it does**: Daily incremental fill of the 90-day CXO dashboard KPI store (daily_kpi): only the 7 dashboard blocks, missing days plus days whose key metrics are NULL plus the newest day re-read; also tops up the drill-down detail tables (per-app video/game + per-NE TCP), no Excel output
 
 **Workflow & data flow**:
 
 1. Daily 06:20 connect straight to the VMAX GBase DWH (10.123.255.12:5258, db zxvmax)
 1. Run only the 7 board blocks (traffic/active users/cache/video/game/TCP/top services)
-1. Fetch missing days plus re-read the newest day (7-day lookback, idempotent) into daily_kpi in data/olib_soc_report/olib_soc_report.sqlite3
+1. Fetch missing days, days with NULL key metrics and re-read the newest day (7-day lookback, idempotent) into daily_kpi in data/olib_soc_report/olib_soc_report.sqlite3
+1. Top up the drill-down detail tables by their own gaps (any of video/game/tcp missing a day); per-NE TCP comes from pseudo-block tcp_ne (one read-only SELECT), disable via blocks.tcp_ne=false
 
 **Maintenance**:
 
@@ -2173,26 +2194,58 @@ IP trace: probe link connectivity and path nodes from the server side to a targe
 
 #### vmax_user_query（`vmax_user_query`）
 
-VMAX user info query: enter a subscriber number and time window to look up subscriber info (IMSI/MSISDN mapping), terminal info (IMEI/model/vendor/operator), per-app traffic and camped cells (with per-cell KPI details) from the VMAX CCA complaint system.
+VMAX complaint diagnosis: enter a subscriber number and time window to answer "why is this user complaining?". The page pulls four Talon XDR sources in one shot (user plane 1300 / signaling 1100 / video 1301 / RAN 32), scores the network on four dimensions, names a conclusion, and drills down to the minute-level evidence chain. Built for voice, OTT voice/video, video stall, gaming and slow-data complaints.
 
 - Use the full number with the 231 prefix (e.g. 231777777322), digits only; the local 9-digit format is not matched upstream (verified 2026-10-24)
-- Time window is minute-precise (5-minute step), defaulting to today 00:00 through now, max span 31 days, no future times; traffic and camped cells follow the window, subscriber/terminal info does not
-- "Not found" and empty traffic are normal business responses, not failures; on API errors first check that the vmax_cca group in Settings → Credential Management has an account and password
-- Click KPI in a camped-cell row for that cell's indicator details (ppc codes mapped to KPI names; unmapped codes shown raw)
-- The Root Cause card lists complaint causes in the window (confidence descending); click Details for degradation, suggested solution and per-period judgments; this query may time out on large windows (7-day scale) without affecting other cards
-- Queries go through a VMAX portal session (serialized reuse); avoid rapid repeated clicks to keep the upstream session free
-- Results are read-only passthrough and nothing is persisted, but the conditions of every executed query are written into the URL — refreshing, using back/forward, or sharing the link re-runs the same query automatically
-- The link carries the number and time window (msisdn / vqStart and friends); check that the recipient is allowed to see that number before forwarding
-- Switching between the three views (Overview / XDR / XDR Records) no longer discards results, so you can compare without re-querying
-- The "Merged XDR" tab (merged in on 2026-10-26) reuses the number above to query per-record signaling detail from the Talon XDR platform, drillable down to a single session/procedure
-- XDR query types: 5G Session (1100), Signaling Plane (1300), User Plane Services (1301) and RAN radio side (32); window defaults to the last 2 hours; columns come from the upstream header (46~88, scrollable)
-- Look-back differs by type: 72 hours for the 5G types, only 24 hours for RAN. Periods beyond retention are greyed out in the picker — upstream simply does not keep older records; it is not a failure
-- RAN radio side (32) is now supported and includes over-the-air measurements such as RSRP/SINR — use it to inspect radio quality; 33/34 are not wired yet
-- "Export Excel" exports the entire query result, not just the current page (fetched in batches, capped at 5,000 records); when the cap is hit the subtitle states it was truncated — narrow the window and export in batches
-- The "XDR Records" tab (new on 2026-10-27) queries a **single XDR table** (UEMR_XDR / UU_XDR / X2_XDR for type 32, similar for 33/34); columns come from that table's header. UEMR_XDR carries over-the-air measurements such as RSRP/SINR — use it for radio-quality troubleshooting
-- Click any record row for every field and for "Archive", which persists the record locally (upstream keeps only 24–72 hours). The "Saved records" modal also shows the query history (numbers masked, isolated per signed-in user, for compliance audit)
+- **Complaint-type tabs** (not a dropdown) come first: All / Voice / OTT voice & video / Video / Game / Slow data. Switching them **does not re-query** — it only changes the weighting and which chain gets judged, so switching is instant
+- The three-line layout is deliberate: query bar → complaint-type tabs (what the user is complaining about) → view tabs (diagnosis / traffic / connection / radio). The hint under the complaint tabs always states which chain is being judged right now
+- The "Voice" tab judges **CSFB and VoLTE**. The 1100 SGs interface records are the evidence source: SGs location update count, CS Fallback Triggered, Extended Service Request, paging, timeout/failure and QCI=1 bearers are all counted, plus the fallback chain (S1-MME / SGs interleaved by time) and the fallback duration
+- CSFB fallback time over 2 s is flagged; when the window has CSFB activity but **zero SGs records**, the card raises an explicit warning instead of quietly reporting success — that usually means the SGs interface is not reporting
+- The "Game" tab is kept on purpose: XDR bills really do carry app names such as egame / E-GAME. Game detection is keyword-based (so new titles can be added without code changes), and **app stores are blacklisted** (palmplaystore / googleplay / app store / huawei_appgallery) — otherwise "opened the store" would be counted as "played a game"
+- **Capability boundary — OTT voice/video (WeChat, WhatsApp) cannot be judged at the application layer**: this platform has no SIP/RTP signaling. The OTT card therefore answers only "was there a call" and "how good was the network during the call" (duration, downlink RTT, RTT jitter, retransmission) and **cannot answer "the other side rejected me / my call failed to connect"**. That banner is rendered above the conclusion on purpose — please do not read the OTT card as a call-failure verdict
+- Four-dimension scoring: Availability / Latency / Transport quality / Radio quality. Each is 0–100 with a colour band (≥80 green, 50–79 amber, <50 red); the dimension matching the complaint type carries an orange dot. A dimension with no data shows "—", **never 0** (0 would look like a real failure)
+- Click any scoring card to open that dimension's full evidence (every raw metric with its threshold); click any cell in the minute-level evidence timeline to open the underlying XDR rows
+- The evidence timeline aligns the four sources into minute buckets, so a stall shows up as one row where traffic is normal but latency, radio and the conclusion all go bad — that is what you paste into the ticket
+- **Manual override is allowed and encouraged**: click "Override conclusion", pick the severity, enter the reason (at least 10 characters, required) and submit. The override renders **above** the system verdict with a blue left border, so the human judgement is what the reader sees first; the system verdict stays visible for comparison
+- Overrides are scoped to one operator + one masked number + one time window, so the same window can only hold one active override (re-submitting updates the same row). Every change is kept in the override history for audit
+- "Export Excel" produces four sheets (verdict / scoring + evidence / voice chain / timeline) and "Export PDF" prints the page for pasting straight into a complaint ticket
+- The page-level time window is minute-precise (5-minute step) and defaults to the last 3 hours; **max 24 hours per query** — the RAN radio source only retains 24 hours upstream, and a longer window would make the radio dimension silently empty
+- All four sources are fetched **serially** on purpose: they reuse one VMAX portal session, and hitting upstream in parallel makes the account hit "The maximum number of connections for the user is reached" and all sources fail at once. One slow source is much better than four dead ones
+- A single failed source never blanks the page: it is reported in the "data source hit" line with its own error, and the other dimensions still score. If the portal session is exhausted, wait about 30 minutes or stop clicking for a while
+- RAN (32) is queried by **IMSI, not by number** — the upstream subscriber-number column in the RAN table is empty for every row. The IMSI is taken from the 1300/1100 results first; when neither has one, the radio dimension says "no IMSI mapping" out loud instead of silently returning zero rows
+- The **"Radio quality" tab aggregates the radio data already fetched for this window — you do not need to query again**. It consumes the same RAN(32) rows behind the radio score, so the tab can never contradict the scorecard (no "score 62 but the tab says coverage is fine"). Top to bottom: verdict bar (one line + reasons), five KPI cards, level/quality trend chart, per-cell breakdown table, and a raw-record drill-down collapsed at the bottom
+- Read the **edge value (P10, worst 10% of samples), not the average**: a good average does not mean calls work — the edge level drives complaint experience. That is why the cards, the chart and the table all put P10 next to the average. The per-cell table is sorted by edge RSRP ascending, so **the worst cell is first**
+- The trend chart is dual-axis: RSRP average (solid) and RSRP P10 (red dashed) share the left axis, SINR uses the right axis. Read both together to tell weak coverage from interference — looking at only one line invites a wrong call
+- When there is no radio data the page **distinguishes three cases**: the query failed (with the backend error text), there are simply no measurement reports in this window, and there are radio rows but RSRP/SINR are all empty (the upstream table shape or permissions changed). The last case is never reported as "coverage is fine"
+- This page is **fully bilingual**: switch the language in the top-right corner. Every name coming from the backend (data sources, KPIs, app categories) carries both a translation key and a Chinese fallback, and units (万 / K) plus punctuation (：/ (n)) follow the active language
+- RAN (32) is queried by **IMSI, not MSISDN** — the RAN table's user-number column is entirely empty strings upstream. The IMSI is resolved from the 1300/1100 results first; if neither returns one, the radio dimension says "no IMSI mapping" instead of silently reporting 0 records
+- Results are read-only passthrough and nothing is persisted, but the number and current view are written into the URL — refreshing or sharing the link re-runs the same number
+- The link carries the number; check that the recipient is allowed to see that number before forwarding
 
-### 4.4 System
+### 4.4 Workflow
+
+#### ap_center（`ap_center`）
+
+Action Plan (AP) workbench: turn problems, risks or management requirements into trackable, reviewable corrective tasks. The flow is "Dispatch -> Acknowledge -> Update progress -> Submit for review -> Approved and closed" - an assignee cannot close a task by themselves; a reviewer must approve it. The org structure comes from the Escalation Matrix (4 levels, 21 people), so assigning by name automatically carries the position, email and escalation path.
+
+- Three tabs: My AP (owned by me + created by me), To Review, All AP (admin / AP Manager only)
+- The four stat cards are clickable: Open / In progress / Pending review / Overdue - clicking filters the list by that criterion
+- Only role=admin or an AP Manager whitelist can create an AP; everyone else can only handle tasks assigned to them
+- Assignee: Accept -> Start -> Update progress (repeatable) -> Submit for review (completion note required, images/PDF evidence allowed)
+- Reviewer: Approve (closes the task) or Return (reason required); after a return, the assignee updating progress moves it back to In progress automatically
+- "WhatsApp groups" defaults to lbr_assistant (test group); separate multiple groups with commas. Email goes to the owner and reviewer using the addresses in the Escalation Matrix
+- Overdue is a computed attribute: it never changes the task status, it only marks the row/detail in red and is counted on its own stat card
+- Every status transition is validated server-side; duplicate submissions or unauthorized actions are rejected instead of corrupting data
+
+#### feedback（`feedback`）
+
+Issue report (user feedback): any intranet user can submit a system problem or improvement suggestion with screenshots/attachments; the admin side can filter by status/type/priority and record a resolution.
+
+- Reporter, contact, type, priority, page, title and description are required; up to 5 attachments, 10MB each
+- The list supports keyword search, status/type/priority filters and Excel export
+- Statuses: open -> processing -> resolved / rejected
+
+### 4.5 System
 
 #### Settings（`settings`）
 

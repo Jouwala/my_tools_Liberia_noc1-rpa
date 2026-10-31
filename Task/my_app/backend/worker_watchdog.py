@@ -374,7 +374,9 @@ GROUP_TASK_MAP = {
         #   start_hidden.ps1 的 MY_APP_WORKER_GROUPS、restart_workers.py 的 ALL_GROUPS、
         #   以及本表（守卫 tests/test_worker_group_coverage.py 会交叉校验三处一致性）。
         # cxo_dashboard_cache_sync 2026-09-02 补录：CXO 看板缓存同步（每 10 分钟）经 8790
-        # VMAX 代理进程（DETACHED、单会话）取数
+        # VMAX 代理进程（DETACHED、单会话）取数。
+        # 注：v 组并非「全部共用 8790」—— 2026-10-31 加入的 soc_trend_sync 直连数仓 GBase
+        # （独立 pymysql 连接），归 v 是**同源 VMAX、同域故障影响**，不会挤 8790 会话。
         "cxo_dashboard_cache_sync,"
         # vmax_cxo_daily_sync 2026-09-15 补录：VMAX CXO 天粒度日值归档（每小时 :15），
         # 写独立目录 data/vmax_cxo_daily/
@@ -384,7 +386,18 @@ GROUP_TASK_MAP = {
         # 无人认领一直 pending，且这条陈旧 pending 占住该任务
         # 的单飞名额，把之后每一次小时级调度全部挡掉（vreport 明细断档约 37 小时）。
         # 教训同 finebi_report_sync / whatsapp_send_ext / sp_email_details：第四次踩坑。
-        "vmax_multi_data_sync"),
+        "vmax_multi_data_sync,"
+        # soc_trend_sync 2026-10-31 补录：SOC 多维趋势同步（每小时 :40），直连 VMAX 数仓
+        # GBase（10.123.255.12:5258/zxvmax，pymysql，VmaxGbaseClient 只读断言）取流量/TCP/
+        # 分业务类目聚合，落 data/soc_trend/soc_trend.sqlite3。
+        # 归 v 组理由：① 与 olib_soc_* / vmax_cxo_daily_sync 同源 VMAX 数仓（**独立 pymysql
+        # 连接**，不经 8790 门户代理，故不挤 8790 会话）；② 只写自己的 sqlite，与组内三个
+        # 8790 任务无写库/文件冲突；③ cron :40 与 :15/:45 错峰，组内本就是一个小时级任务
+        # 串行链，单轮量为若干分区的聚合查询，量级可接受。
+        # ⚠️ 事故：2026-10-30 注册时**只改 TASK_SPECS、漏登记本表** → 23:15:55 首次调度
+        # 无 worker 认领，23:55 被 _expire_orphan_pending 判 `队列 pending 超时无人认领` 失败。
+        # 这已是第五次同型事故（前四次见下方注释与 tests/test_worker_group_coverage.py）。
+        "soc_trend_sync"),
     "m": (  # 内务轻任务：EWS 邮件会话 + 截图/WhatsApp 文件依赖
         # whatsapp_send_ext 2026-08-31 补录：新注册时漏分组，无 worker 认领，
         # 任务管理页手动执行一直「队列中等待」直到 300s 超时（同下方 finebi 教训）

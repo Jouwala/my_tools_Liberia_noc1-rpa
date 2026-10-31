@@ -95,7 +95,7 @@ const TABS: { kind: SpReportKind; label: string }[] = [
 const ALERT_COLOR: Record<string, string> = {
   'Urgent Replenish': WH.sev.Critical,
   Replenish: WH.sev.Warning,
-  Excess: WH.teal,
+  Redundant: WH.teal,
 }
 
 const num = (v: unknown): number => {

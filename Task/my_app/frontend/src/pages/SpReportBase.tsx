@@ -66,7 +66,7 @@ interface Overview {
   remarks: CounterItem[]
   urgent: number
   replenish: number
-  excess: number
+  redundant: number
   failure_rate: number
   actual_consumption: number
 }
@@ -180,7 +180,7 @@ const SHEET_LABEL_KEY: Record<string, string> = {
 const ALERT_COLOR: Record<string, string> = {
   'Urgent Replenish': WH.sev.Critical,
   Replenish: WH.sev.Warning,
-  Excess: WH.teal,
+  Redundant: WH.teal,
 }
 
 const EXPORT_MAX_ROWS = 5000
@@ -748,7 +748,7 @@ export default function SpReportBase({ kind }: { kind: SpReportKind }) {
             {([
               { key: 'urgent', label: t('spRep.alert.urgent'), value: ov?.urgent ?? 0, color: WH.sev.Critical, icon: <WarningOutlined /> },
               { key: 'replenish', label: t('spRep.alert.replenish'), value: ov?.replenish ?? 0, color: WH.sev.Warning, icon: <RiseOutlined /> },
-              { key: 'excess', label: t('spRep.alert.excess'), value: ov?.excess ?? 0, color: WH.teal, icon: <FallOutlined /> },
+              { key: 'redundant', label: t('spRep.alert.redundant'), value: ov?.redundant ?? 0, color: WH.teal, icon: <FallOutlined /> },
               { key: 'failure', label: t('spRep.alert.failureRate'), value: ov?.failure_rate ?? 0, color: WH.textMuted, icon: <InfoCircleOutlined /> },
               { key: 'actual', label: t('spRep.alert.actualConsumption'), value: ov?.actual_consumption ?? 0, color: WH.textMuted, icon: <InfoCircleOutlined /> },
             ]).map(a => (
@@ -759,7 +759,7 @@ export default function SpReportBase({ kind }: { kind: SpReportKind }) {
                     const col = a.key === 'failure' || a.key === 'actual' ? 'Remark' : 'Alert Level'
                     const val = a.key === 'urgent' ? 'Urgent Replenish'
                       : a.key === 'replenish' ? 'Replenish'
-                        : a.key === 'excess' ? 'Excess'
+                        : a.key === 'redundant' ? 'Redundant'
                           : a.key === 'failure' ? 'Failure Rate' : 'Actual Consumption'
                     setActiveSheet('Summary-Current')
                     setFilters({ [col]: [val] })

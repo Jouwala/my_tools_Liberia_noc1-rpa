@@ -26,21 +26,17 @@
   html[data-theme="light"] header{background:var(--panel)}
   .brand{font-weight:700;font-size:0.938rem;letter-spacing:.3px}
   .brand small{color:var(--muted);font-weight:400;font-size:0.75rem;margin-left:0.375rem}
-  .tabs{display:flex;gap:0.25rem;margin-left:0.875rem}
-  .tab{padding:0.375rem 1.125rem;border-radius:16px;font-size:0.875rem;color:var(--muted);cursor:pointer;
-    border:1px solid transparent;user-select:none;transition:.15s}
-  .tab:hover{color:var(--text);background:var(--panel2)}
-  .tab.on{color:var(--tab-on-text, var(--vmax-bg));background:var(--accent);font-weight:700;border-color:var(--accent)}
+  /* 页签观感统一交给共享基线的 .wht（legacy-glass-baseline.css），
+     这里只留本页的摆位；.tab/.tab.on 等类名仍被 selectTop() 用来做选中态与事件绑定，不能改名。 */
+  .tabs{margin-left:0.875rem}
   .spacer{flex:1}
   .btn{padding:0.375rem 0.875rem;border-radius:14px;border:1px solid var(--line);background:var(--panel2);
     color:var(--text);cursor:pointer;font-size:0.812rem}
   .btn:hover{border-color:var(--accent)}
   #status{font-size:0.75rem;color:var(--muted);min-width:120px;text-align:right}
-  .subtabs{display:flex;gap:0.25rem;padding:0.5rem 1.125rem;background:var(--panel2);border-bottom:1px solid var(--line-soft)}
-  .subtab{font-size:0.812rem;color:var(--muted);padding:0.312rem 0.875rem;border-radius:13px;cursor:pointer;
-    border:1px solid transparent;user-select:none;transition:.15s}
-  .subtab:hover{color:var(--text)}
-  .subtab.on{color:var(--tab-on-text, var(--vmax-bg));background:var(--accent2);font-weight:700}
+  /* 次级页签同样走 .wht：原先这里是「整幅带底色+下边线的条带」，与主区背景连成一块；
+     统一后它是一个独立的分段控件，主/次两级只靠尺寸分层（次级用 .wht--sm）。
+     .subtab/.subtab.on 类名被 selectBiz()/selectNet() 用于选中态与点击绑定，保留不动。 */
   .view{display:none;padding:0.875rem 1.125rem}
   .view.on{display:block}
   /* network layout */
@@ -85,10 +81,6 @@
     --good:#0f9d6b; --bad:#d92d20;
     /* 浅色档回到平涂表面；内部分割线仍与 --line 同色（保持改动前的单一描边观感） */
     --line-soft:#d3e0ec; --surface-bg:var(--panel); --surface-shadow:none;
-    /* 激活态标签的文字色：深色档用 vmax 页面底色（.tab.on/.subtab.on 里的 fallback），
-       浅色档沿用改动前的 #04222f —— 两者都是「亮底上的近黑字」，但保留原值可让
-       浅色档做到逐元素零差异。 */
-    --tab-on-text:#04222f;
   }
 </style>
 
@@ -111,8 +103,7 @@ img, svg, canvas, iframe { max-width: 100%; }
 
 @media (max-width: 768px) {
   header { flex-wrap: wrap; padding: .5rem .75rem; gap: .5rem; }
-  .tabs { margin-left: 0; flex-wrap: wrap; }
-  .subtabs { flex-wrap: wrap; padding: .5rem .75rem; gap: .25rem; }
+  .tabs { margin-left: 0; }
   .net-grid, .sum-grid, .health-grid { grid-template-columns: 1fr; }
   .trend-grid { grid-template-columns: 1fr; }
   .kpis { grid-template-columns: repeat(2, 1fr); }
@@ -121,7 +112,6 @@ img, svg, canvas, iframe { max-width: 100%; }
 }
 @media (max-width: 480px) {
   .kpis { grid-template-columns: 1fr; }
-  .tab, .subtab { padding: .375rem .875rem; font-size: .8125rem; }
 }
 
 </style>
@@ -129,7 +119,7 @@ img, svg, canvas, iframe { max-width: 100%; }
 <body>
 <header>
   <div class="brand">CXO Dashboard<small>Overseas · live snapshot</small></div>
-  <div class="tabs">
+  <div class="tabs wht">
     <span class="tab on" data-tab="service">Service</span>
     <span class="tab" data-tab="network">Network</span>
     <span class="tab" data-tab="summary">Summary</span>
@@ -141,7 +131,7 @@ img, svg, canvas, iframe { max-width: 100%; }
   <span id="status">loaded</span>
 </header>
 
-<div class="subtabs" id="subtabs-service">
+<div class="subtabs wht wht--sm" id="subtabs-service">
   <span class="subtab on" data-biz="Mobility">Mobility</span>
   <span class="subtab" data-biz="Voice">Voice</span>
   <span class="subtab" data-biz="Data">Data</span>
@@ -152,7 +142,7 @@ img, svg, canvas, iframe { max-width: 100%; }
   <span class="subtab" data-biz="OTTVoice">OTTVoice</span>
   <span class="subtab" data-biz="OTTVideo">OTTVideo</span>
 </div>
-<div class="subtabs" id="subtabs-network" style="display:none">
+<div class="subtabs wht wht--sm" id="subtabs-network" style="display:none">
   <span class="subtab on" data-net="1">Mobility</span>
   <span class="subtab" data-net="2">Service Request</span>
   <span class="subtab" data-net="3">Accessibility</span>
@@ -789,8 +779,8 @@ async function renderHealth(){
 function selectTop(tab){
   curTop = tab;
   document.querySelectorAll(".tab").forEach(t=>t.classList.toggle("on", t.dataset.tab===tab));
-  document.getElementById("subtabs-service").style.display = (tab==="service") ? "flex" : "none";
-  document.getElementById("subtabs-network").style.display = (tab==="network") ? "flex" : "none";
+  document.getElementById("subtabs-service").style.display = (tab==="service") ? "" : "none";
+  document.getElementById("subtabs-network").style.display = (tab==="network") ? "" : "none";
   document.getElementById("view-service").classList.toggle("on", tab==="service");
   document.getElementById("view-network").classList.toggle("on", tab==="network");
   document.getElementById("view-summary").classList.toggle("on", tab==="summary");

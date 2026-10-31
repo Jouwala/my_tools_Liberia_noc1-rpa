@@ -35,7 +35,7 @@ PNG 截图，都不属于本页数据源 —— 汇总工作簿的文件名是�
   ``Outbound Repair Qty``（报修出库，Outbound Type = Repair Outbound），
   二者之和恒等于 ``Outbound Qty``；本服务按表头名动态读列，无需为它们写专门的代码
   （生成端口径见 ``sp_report_gen/gernarate_sp_report.build_summary``）。
-- 告警分布：``Alert Level`` ∈ {Urgent Replenish, Replenish, Excess}；
+- 告警分布：``Alert Level`` ∈ {Urgent Replenish, Replenish, Redundant}；
   ``Remark`` ∈ {Failure Rate, Actual Consumption}。
 - 明细 sheet 的数量合计：Inbound=Inbound Qty、Outbound=Outbound Qty、
   Inventory=Stock Qty。
@@ -608,7 +608,7 @@ def _summary_current_stats(sd: SheetData) -> Dict[str, Any]:
         "remarks": remarks,
         "urgent": alert_map.get("Urgent Replenish", 0),
         "replenish": alert_map.get("Replenish", 0),
-        "excess": alert_map.get("Excess", 0),
+        "redundant": alert_map.get("Redundant", 0),
         "failure_rate": remark_map.get("Failure Rate", 0),
         "actual_consumption": remark_map.get("Actual Consumption", 0),
     }

@@ -56,6 +56,7 @@ import {
   SolutionOutlined,
   ScheduleOutlined,
   MobileOutlined,
+  RadarChartOutlined,
 } from '@ant-design/icons'
 import zhCN from 'antd/locale/zh_CN'
 import enUS from 'antd/locale/en_US'
@@ -116,6 +117,7 @@ const AlarmManagement = lazy(() => import('./pages/AlarmManagement'))
 const CxoDashboard = lazy(() => import('./pages/CxoDashboard'))
 const VmaxCxoDashboard = lazy(() => import('./pages/VmaxCxoDashboard'))
 const VmaxCxoDashboardDaily = lazy(() => import('./pages/VmaxCxoDashboardDaily'))
+const SocTrendDashboard = lazy(() => import('./pages/SocTrendDashboard'))
 const VmaxCxoDashboard90Days = lazy(() => import('./pages/VmaxCxoDashboard90Days'))
 const ImonitorScreen = lazy(() => import('./pages/ImonitorScreen'))
 const EmailReports = lazy(() => import('./pages/EmailReports'))
@@ -152,6 +154,9 @@ const NativeBoard = lazy(() => import('./pages/NativeBoard'))
 const UmeInKpi = lazy(() => import('./pages/UmeInKpi'))
 const Help = lazy(() => import('./pages/Help'))
 const IssueFeedback = lazy(() => import('./pages/IssueFeedback'))
+// AP（Action Plan）工作台：下发 → 确认 → 更新进度 → 提交 → 审核关闭
+// 组织架构取 Escalation Matrix，见 backend/services/ap_manager/org.py
+const ApCenter = lazy(() => import('./pages/ApCenter'))
 // 人员位置地图（?page=person）：人员针 + 其 WO 站点分布 + WO/TT 统计。见 pages/PersonMap.tsx 头注释
 const PersonMap = lazy(() => import('./pages/PersonMap'))
 
@@ -186,9 +191,9 @@ const FINEBI_PAGE_TO_SLUG: Record<string, string> = Object.fromEntries(
   FINEBI_BOARDS.map((b) => [`finebi_${b.slug}`, b.slug]),
 )
 
-type PageKey = 'overview' | 'tables' | 'upload' | 'dashboard' | 'alarm' | 'ttwo' | 'v1_ttwo' | 'tt' | 'wo' | 'gis' | 'realtime_alarm' | 'packet_loss' | 'archive' | 'sync' | 'warehouse' | 'sp_material' | 'sp_details' | 'sp_report' | 'com_report' | 'warehouse_summary' | 'ms_wo_sla' | 'ms_contract_kpi' | 'battery' | 'person' | 'settings' | 'ip_trace' | 'incident_overview' | 'nur' | 'ms_sla' | 'ms_nur_only' | 'ms_sla_only' | 'alarmManagement' | 'cxoDashboard' | 'vmaxCxoDashboard' | 'vmaxCxoDashboard_Daily' | 'vmaxCxoDashboard_90Days' | 'imonitor' | 'email_reports' | 'mwUmeTopology' | 'mwRealTime' | 'portalLogin' | 'eflow_qa' | 'eflow_flow' | 'site_avail' | 'avail_ms' | 'avail_flm' | 'fme_ranking' | 'noc_analyst' | 'repeat_site_down' | 'cr_analysis' | 'pm_analysis' | 'ran_cells_kpi' | 'bm_speedtest' | 'bm_meta' | 'bp_report' | 'cn_kpi' | 'cn_kpi_5mins' | 'ume_in_kpi' | 'vmax_user_query' | 'feedback' | 'help' | `finebi_${string}`
+type PageKey = 'overview' | 'tables' | 'upload' | 'dashboard' | 'alarm' | 'ttwo' | 'v1_ttwo' | 'tt' | 'wo' | 'gis' | 'realtime_alarm' | 'packet_loss' | 'archive' | 'sync' | 'warehouse' | 'sp_material' | 'sp_details' | 'sp_report' | 'com_report' | 'warehouse_summary' | 'ms_wo_sla' | 'ms_contract_kpi' | 'battery' | 'person' | 'settings' | 'ip_trace' | 'incident_overview' | 'nur' | 'ms_sla' | 'ms_nur_only' | 'ms_sla_only' | 'alarmManagement' | 'cxoDashboard' | 'vmaxCxoDashboard' | 'vmaxCxoDashboard_Daily' | 'vmaxCxoDashboard_90Days' | 'socTrendDashboard' | 'imonitor' | 'email_reports' | 'mwUmeTopology' | 'mwRealTime' | 'portalLogin' | 'eflow_qa' | 'eflow_flow' | 'site_avail' | 'avail_ms' | 'avail_flm' | 'fme_ranking' | 'noc_analyst' | 'repeat_site_down' | 'cr_analysis' | 'pm_analysis' | 'ran_cells_kpi' | 'bm_speedtest' | 'bm_meta' | 'bp_report' | 'cn_kpi' | 'cn_kpi_5mins' | 'ume_in_kpi' | 'vmax_user_query' | 'feedback' | 'ap_center' | 'help' | `finebi_${string}`
 
-const VALID_PAGES: PageKey[] = ['overview', 'tables', 'upload', 'dashboard', 'alarm', 'ttwo', 'v1_ttwo', 'tt', 'wo', 'gis', 'realtime_alarm', 'packet_loss', 'archive', 'sync', 'warehouse', 'sp_material', 'sp_details', 'sp_report', 'com_report', 'warehouse_summary', 'ms_wo_sla', 'ms_contract_kpi', 'battery', 'person', 'settings', 'ip_trace', 'incident_overview', 'nur', 'ms_sla','ms_nur_only', 'ms_sla_only', 'alarmManagement', 'cxoDashboard', 'vmaxCxoDashboard', 'vmaxCxoDashboard_Daily', 'vmaxCxoDashboard_90Days', 'imonitor', 'email_reports', 'mwUmeTopology', 'mwRealTime', 'portalLogin', 'eflow_qa', 'eflow_flow', 'site_avail', 'avail_ms', 'avail_flm', 'fme_ranking', 'noc_analyst', 'repeat_site_down', 'cr_analysis', 'pm_analysis', 'ran_cells_kpi', 'bm_speedtest', 'bm_meta', 'bp_report', 'cn_kpi', 'cn_kpi_5mins', 'ume_in_kpi', 'vmax_user_query', 'feedback', 'help', ...FINEBI_BOARDS.map((b) => `finebi_${b.slug}` as PageKey)]
+const VALID_PAGES: PageKey[] = ['overview', 'tables', 'upload', 'dashboard', 'alarm', 'ttwo', 'v1_ttwo', 'tt', 'wo', 'gis', 'realtime_alarm', 'packet_loss', 'archive', 'sync', 'warehouse', 'sp_material', 'sp_details', 'sp_report', 'com_report', 'warehouse_summary', 'ms_wo_sla', 'ms_contract_kpi', 'battery', 'person', 'settings', 'ip_trace', 'incident_overview', 'nur', 'ms_sla','ms_nur_only', 'ms_sla_only', 'alarmManagement', 'cxoDashboard', 'vmaxCxoDashboard', 'vmaxCxoDashboard_Daily', 'vmaxCxoDashboard_90Days', 'socTrendDashboard', 'imonitor', 'email_reports', 'mwUmeTopology', 'mwRealTime', 'portalLogin', 'eflow_qa', 'eflow_flow', 'site_avail', 'avail_ms', 'avail_flm', 'fme_ranking', 'noc_analyst', 'repeat_site_down', 'cr_analysis', 'pm_analysis', 'ran_cells_kpi', 'bm_speedtest', 'bm_meta', 'bp_report', 'cn_kpi', 'cn_kpi_5mins', 'ume_in_kpi', 'vmax_user_query', 'feedback', 'ap_center', 'help', ...FINEBI_BOARDS.map((b) => `finebi_${b.slug}` as PageKey)]
 
 /* ==================== 自动刷新（大屏 / NOC 值班场景） ====================
  * 背景：各页面此前只在挂载时拉取一次数据（legacy iframe 页面同样只在 onload
@@ -237,6 +242,7 @@ const AR_BOARD_PAGES: PageKey[] = [
   'ms_wo_sla', 'ms_contract_kpi', 'site_avail', 'avail_ms', 'avail_flm', 'fme_ranking',
   'noc_analyst', 'repeat_site_down', 'cr_analysis', 'pm_analysis', 'ran_cells_kpi',
   'cn_kpi', 'cn_kpi_5mins', 'ume_in_kpi', 'cxoDashboard', 'vmaxCxoDashboard', 'vmaxCxoDashboard_Daily',
+  'socTrendDashboard',
   'vmaxCxoDashboard_90Days', 'imonitor', 'alarmManagement', 'incident_overview',
   // grp_network（看板子集；ip_trace 排除）
   'mwUmeTopology', 'mwRealTime', 'gis', 'realtime_alarm', 'packet_loss', 'battery', 'person',
@@ -276,6 +282,7 @@ const AR_INPLACE_REFRESH_PAGES: PageKey[] = ['person']
 const AR_SOFT_REFRESH_PAGES: PageKey[] = [
   'mwUmeTopology', 'mwRealTime', 'vmaxCxoDashboard_90Days', 'imonitor',
   'incident_overview', 'cxoDashboard', 'vmaxCxoDashboard', 'vmaxCxoDashboard_Daily',
+  'socTrendDashboard',
   'warehouse', 'alarmManagement',
 ]
 
@@ -472,6 +479,7 @@ const PAGE_META: Record<PageKey, { icon: ReactNode; labelKey: string }> = {
   cxoDashboard: { icon: <PieChartOutlined />, labelKey: 'nav.cxoDashboard' },
   vmaxCxoDashboard: { icon: <DashboardOutlined />, labelKey: 'nav.vmaxCxoDashboard' },
   vmaxCxoDashboard_Daily: { icon: <LineChartOutlined />, labelKey: 'nav.vmaxCxoDashboardDaily' },
+  socTrendDashboard: { icon: <RadarChartOutlined />, labelKey: 'nav.socTrendDashboard' },
   vmaxCxoDashboard_90Days: { icon: <FundOutlined />, labelKey: 'nav.vmaxCxoDashboard90Days' },
   imonitor: { icon: <DesktopOutlined />, labelKey: 'nav.imonitor' },
   alarmManagement: { icon: <AlertOutlined />, labelKey: 'nav.alarmManagement' },
@@ -500,6 +508,7 @@ const PAGE_META: Record<PageKey, { icon: ReactNode; labelKey: string }> = {
   settings: { icon: <SettingOutlined />, labelKey: 'nav.settings' },
   portalLogin: { icon: <LoginOutlined />, labelKey: 'nav.portalLogin' },
   feedback: { icon: <MessageOutlined />, labelKey: 'nav.feedback' },
+  ap_center: { icon: <ScheduleOutlined />, labelKey: 'nav.apCenter' },
   help: { icon: <QuestionCircleOutlined />, labelKey: 'nav.help' },
   // 原生看板（原 my-finebi 看板迁移）：由 FINEBI_BOARDS 统一注入，避免两处维护
   ...Object.fromEntries(FINEBI_BOARDS.map((b) => [
@@ -532,6 +541,8 @@ const DEFAULT_GROUPS: { key: string; labelKey: string; items: PageKey[] }[] = [
     labelKey: 'nav.grp.finebi',
     items: FINEBI_BOARDS.map((b) => `finebi_${b.slug}` as PageKey),
   },
+  // 工作流类页面（AP 下发/审核；后续审核中心、分析页也归这里）
+  { key: 'grp_workflow', labelKey: 'nav.grp.workflow', items: ['ap_center'] },
   { key: 'grp_system', labelKey: 'nav.grp.system', items: ['settings', 'portalLogin', 'feedback', 'help'] },
 ]
 
@@ -1546,6 +1557,8 @@ function AppContent() {
         return <VmaxCxoDashboard />
       case 'vmaxCxoDashboard_Daily':
         return <VmaxCxoDashboardDaily />
+      case 'socTrendDashboard':
+        return <SocTrendDashboard />
       case 'vmaxCxoDashboard_90Days':
         return <VmaxCxoDashboard90Days />
       case 'imonitor':
@@ -1602,6 +1615,8 @@ function AppContent() {
         return <PortalLogin />
       case 'feedback':
         return <IssueFeedback />
+      case 'ap_center':
+        return <ApCenter />
       case 'help':
         return <Help />
       default:

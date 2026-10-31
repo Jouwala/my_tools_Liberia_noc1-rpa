@@ -153,6 +153,217 @@ def _is_placeholder(value: Any) -> bool:
     return False
 
 
+def _parse_app_flux(raw: str) -> list:
+    """解析上游 app_flux 字符串 -> 应用列表。
+
+    ⚠️ 上游给的是 **Python 对象字面量**（单引号键值），不是 JSON：
+    `"[{'app_name': 'HTTPS', 'app_flux': '444.89MB', ...}]"`。
+    2026-10-30 实测 `json.loads` 会抛 JSONDecodeError，
+    旧实现 catch 后当空列表 —— 命中用户的应用明细被整段丢弃。
+
+    这里先用 `ast.literal_eval`（只求值字面量，不执行任意代码），失败再退回
+    `json.loads`（万一上游哪天改成标准 JSON 也能用）。
+    """
+    text = (raw or "").strip()
+    if not text or text == "[]":
+        return []
+    try:
+        import ast
+        value = ast.literal_eval(text)
+        return value if isinstance(value, list) else []
+    except (ValueError, SyntaxError):
+        pass
+    try:
+        value = json.loads(text)
+        return value if isinstance(value, list) else []
+    except ValueError:
+        logger.warning("[vmax_cca] app_flux 解析失败（长度 %d）", len(text))
+        return []
+
+
+# ---------------------------------------------------------------------------
+# 流量分类（上游 CCA「流量信息」面板的页签口径，2026-10-30 实测还原）
+# ---------------------------------------------------------------------------
+# 上游 app_flux 每条记录带 service/service_name/service_id：
+#   service=1 VIDEO / 2 WEB / 4 OTT VOICE / 0 OTHERS
+# 且 kpiinfo 里的 query_tablename 直接暴露了分类（aggr_cca_app_<分类>_day）。
+# CCA 网页的页签是「数据 | 语音」两级 + 下面一排应用分类，
+# 这里把上游口径映射成前端页签，前端不再自己猜分类名。
+#
+# 注意：语音（servicetype=2）上游**不支持**
+# （实测 "Traffic info of service type [VOICE] is not supported"），
+# 故 FLOW_SERVICE_TYPES 只有数据一档。
+FLOW_SERVICE_DATA = CCA_SERVICE_DATA
+FLOW_SERVICE_VOICE = 2
+
+# 上游 service_name -> 页签 key。OTT VIDEO 在样本里并入 OTHERS（上游把
+# OTT Video Call 归到 others 聚合表），故这里不做臆测映射，缺省归 others。
+FLOW_CATEGORY_BY_SERVICE_NAME = {
+    "VIDEO": "video",
+    "WEB": "web",
+    "GAME": "game",
+    "OTT VOICE": "ottvoice",
+    "OTT VIDEO": "ottvideo",
+    "OTHERS": "others",
+}
+
+# 分类 -> 上游 KPI 聚合表名（kpiinfo.query_tablename 的中间段）。
+# 「all」是全量口径（TCP/时延/重传等通用指标），各分类表是该分类的专有指标。
+FLOW_CATEGORY_TABLES = {
+    "others": "aggr_cca_app_others_day",
+    "video": "aggr_cca_app_video_day",
+    "web": "aggr_cca_app_web_day",
+    "game": "aggr_cca_app_game_day",
+    "ottvoice": "aggr_cca_app_ottvoice_day",
+    "ottvideo": "aggr_cca_app_ottvideo_day",
+    "all": "aggr_cca_app_all_day_7",
+}
+
+
+_FLUX_RE = re.compile(r"^\s*([0-9]+(?:\.[0-9]+)?)\s*([A-Za-z/]*)\s*$")
+
+
+def _split_flux(text: str) -> tuple:
+    """把上游的 '444.89MB' 拆成 (444.89, 'MB')。
+
+    上游 app_flux 是**带单位的字符串**（不是数字），分类求和需要数值，
+    所以在这里统一拆开。解析不了就返回 (None, 原串)，前端显示原值。
+    """
+    raw = str(text or "").strip()
+    m = _FLUX_RE.match(raw)
+    if not m:
+        return None, (raw or "")
+    try:
+        return float(m.group(1)), (m.group(2) or "")
+    except ValueError:
+        return None, raw
+
+
+def normalize_flow_apps(apps: list) -> List[Dict[str, Any]]:
+    """把上游 app_flux 列表归一成前端要的形状（分类 + KPI 明细）。
+
+    每条返回：
+      {app_name, flux, flux_numeric, flux_unit, flux_ratio, category,
+       category_label, is_key_app, service, service_id, kpis: [{name, value, unit}]}
+
+    KPI 归集口径（重要）：上游每个应用的 kpiinfo 是一个**数组**，每个元素对应
+    一张聚合表（aggr_cca_app_all_day_7 / _video_day / _web_day / _others_day…），
+    元素里的 kpi_name/kpi_value/kpi_unit 是等长数组，且带 qci 档位
+    （'all' 全量 / '6-9' 高优先级队列）。若把所有元素混在一起，
+    「视频」页签会显示网页的指标 —— 所以这里按 query_tablename 分流：
+      - 该应用所属分类的表 -> 归入应用自身的 kpis；
+      - 全量表（aggr_cca_app_all*）-> 归入全量口径（前端「流量/TCP指标/控制面」用）；
+      - 其它分类的表 -> 丢弃（那是别的分类的指标）。
+    """
+    out: List[Dict[str, Any]] = []
+    for item in apps or []:
+        if not isinstance(item, dict):
+            continue
+        service_name = str(item.get("service_name") or "").strip().upper()
+        category = FLOW_CATEGORY_BY_SERVICE_NAME.get(service_name, "others")
+        own_table = FLOW_CATEGORY_TABLES.get(category, "")
+        all_table = FLOW_CATEGORY_TABLES.get("all", "")
+
+        own_kpis: List[Dict[str, Any]] = []
+        all_kpis: List[Dict[str, Any]] = []
+        other_kpis: List[Dict[str, Any]] = []
+        for entry in (item.get("kpiinfo") or []):
+            if not isinstance(entry, dict):
+                continue
+            if str(entry.get("qci") or "") != "all":
+                continue
+            table = str(entry.get("query_tablename") or "")
+            names = entry.get("kpi_name") or []
+            values = entry.get("kpi_value") or []
+            units = entry.get("kpi_unit") or []
+            rows: List[Dict[str, Any]] = []
+            for idx, name in enumerate(names):
+                rows.append({
+                    "name": str(name),
+                    "value": str(values[idx]) if idx < len(values) else "",
+                    "unit": str(units[idx]) if idx < len(units) else "",
+                })
+            if own_table and table == own_table:
+                own_kpis = rows
+            elif all_table and table == all_table:
+                all_kpis = rows
+            else:
+                # 兜底：上游的表名不一定与 FLOW_CATEGORY_TABLES 完全对得上
+                # （实测 OTT VOICE 的应用被放进 others 表）。留一份备选，
+                # 下面 own_kpis 为空时用它。
+                other_kpis = rows
+
+        if not own_kpis:
+            own_kpis = other_kpis
+
+        flux_num, flux_unit = _split_flux(item.get("app_flux"))
+        out.append({
+            "app_name": str(item.get("app_name") or ""),
+            "flux": str(item.get("app_flux") or ""),
+            "flux_numeric": flux_num,
+            "flux_unit": flux_unit,
+            "flux_ratio": str(item.get("app_flux_ratio") or ""),
+            "category": category,
+            "category_label": service_name or "OTHERS",
+            "is_key_app": int(item.get("is_key_app") or 0),
+            "service": item.get("service"),
+            "service_id": item.get("service_id"),
+            "subservice_id": item.get("subservice_id"),
+            "kpis": own_kpis,
+            "all_kpis": all_kpis,
+        })
+    return out
+
+
+def aggregate_flow_categories(apps: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """按分类聚合应用与其 KPI，供前端拆成页签（对齐上游 CCA 面板口径）。
+
+    每个分类返回 {key, apps, kpis, total_flux}：
+      - apps：该分类下的应用列表；
+      - kpis：该分类的专有指标（同一分类下各应用的指标表是同一份，取一份即可）；
+      - total_flux：该分类流量合计（按拆出的数值 + 单位求和）。
+
+    「all」这一档是**通用口径**（上游 aggr_cca_app_all 聚合表：TCP 握手成功率、
+    时延、重传率等），它不属于任何一个应用分类，但前端「流量 / TCP指标 /
+    控制面」三个页签都要用它，所以单列一档。
+    """
+    by_cat: Dict[str, Dict[str, Any]] = {}
+    all_kpis: List[Dict[str, Any]] = []
+    for app in apps or []:
+        key = str(app.get("category") or "others")
+        cat = by_cat.setdefault(key, {"key": key, "apps": [], "kpis": [], "total_flux": ""})
+        cat["apps"].append(app)
+        if not cat["kpis"] and app.get("kpis"):
+            cat["kpis"] = list(app["kpis"])
+        if not all_kpis and app.get("all_kpis"):
+            all_kpis = list(app["all_kpis"])
+
+    def _total(items: List[Dict[str, Any]]) -> str:
+        total = 0.0
+        unit = ""
+        seen = False
+        for it in items:
+            num = it.get("flux_numeric")
+            if isinstance(num, (int, float)):
+                total += float(num)
+                seen = True
+            if not unit and it.get("flux_unit"):
+                unit = str(it["flux_unit"])
+        if not seen:
+            return ""
+        return "%.2f%s" % (total, unit)
+
+    out: List[Dict[str, Any]] = [{
+        "key": "all", "apps": list(apps or []), "kpis": all_kpis,
+        "total_flux": _total(list(apps or [])),
+    }]
+    for key in sorted(by_cat.keys()):
+        cat = by_cat[key]
+        cat["total_flux"] = _total(cat["apps"])
+        out.append(cat)
+    return out
+
+
 class VmaxCcaClient:
     """CCA 用户信息查询客户端。进程内单例（get_client），全程持锁串行。"""
 
@@ -308,15 +519,22 @@ class VmaxCcaClient:
         return names
 
     # ---------- 流量（query_flow）----------
-    def query_flow(self, imsi: str, window: Dict[str, str]) -> Optional[Dict[str, Any]]:
+    def query_flow(self, imsi: str, window: Dict[str[str, str]],
+                   servicetype: int = CCA_SERVICE_DATA) -> Optional[Dict[str, Any]]:
         """IMSI + 时间窗 -> 按应用流量。未命中（无 DPI 记录）返回 None。
 
         实测大量用户此接口为空（data[0].app_flux="[]"、total_flux="--"，
-        CCA 网页同样为空）；命中时 app_flux 是**JSON 字符串**，这里解析成列表。
+        CCA 网页同样为空）；命中时 app_flux 是**字符串**。
+
+        ⚠️ app_flux 用的**不是合法 JSON**，而是 Python 对象字面量（单引号、
+        True/False/None 写法）。2026-10-30 实测：`json.loads` 直接抛
+        JSONDecodeError → 旧实现 catch 掉当空列表，于是**命中用户的应用列表
+        被整段丢弃**（页面永远显示「无流量」）。改用 `ast.literal_eval`
+        （只解析字面量，不执行代码）。
         """
         payload = self._get(QUERY_FLOW_PATH, {
             "imsi": imsi, "starttime": window["starttime"], "endtime": window["endtime"],
-            "rat": CCA_RAT_ALL, "rattype": CCA_RATTYPE_ALL, "servicetype": CCA_SERVICE_DATA})
+            "rat": CCA_RAT_ALL, "rattype": CCA_RATTYPE_ALL, "servicetype": servicetype})
         data = payload.get("data")
         if payload.get("status") != 0 or not (isinstance(data, list) and data):
             return None
@@ -326,11 +544,9 @@ class VmaxCcaClient:
             return None
         apps: Any = row.get("app_flux")
         if isinstance(apps, str):
-            try:
-                apps = json.loads(apps)
-            except ValueError:
-                apps = []
-        return {"total_flux": str(total), "apps": apps if isinstance(apps, list) else []}
+            apps = _parse_app_flux(apps)
+        return {"total_flux": str(total), "apps": apps if isinstance(apps, list) else [],
+                "service_type": servicetype}
 
     # ---------- 用户轨迹小区（query_cell）----------
     def query_cells(self, imsi: str,
@@ -411,7 +627,7 @@ class VmaxCcaClient:
 
     def query(self, msisdn: str, start: Any = None,
               end: Any = None) -> Dict[str, Any]:
-        """完整查询：用户信息 + 终端 + 窗口内流量 + 驻留小区。
+        """完整查询：用户信息 + 终端 + 窗口内流量 + 驻留小区 + 根因。
 
         flow / cells 是时间窗查询，失败不阻断用户信息（置 None 并带 failures 说明）；
         终端的 starttime 用窗口起点（真号实测今天/昨天/7 天前返回同一份数据）。
@@ -437,6 +653,12 @@ class VmaxCcaClient:
                         failures.append("%s: %s" % (name, exc))
                         logger.warning("[vmax_cca] %s %s 查询失败: %s",
                                        name, _mask(msisdn), exc)
+                # 流量应用列表归一（分类 + KPI 明细），前端据此拆分类页签
+                if sections["flow"]:
+                    normalized = normalize_flow_apps(
+                        sections["flow"].get("apps") or [])
+                    sections["flow"]["apps"] = normalized
+                    sections["flow"]["categories"] = aggregate_flow_categories(normalized)
         return {"msisdn": msisdn, "found": user_result["found"],
                 "user": user_result["user"], "terminal": terminal,
                 "window": window, "failures": failures,

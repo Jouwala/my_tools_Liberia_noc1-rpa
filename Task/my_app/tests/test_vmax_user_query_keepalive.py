@@ -28,6 +28,10 @@ PAGE = SRC / "pages" / "VmaxUserQuery.tsx"
 MERGE = SRC / "components" / "VmaxXdrPanel.tsx"
 TABLE = SRC / "components" / "VmaxXdrRecordsPanel.tsx"
 URLSTATE = SRC / "urlState.ts"
+# 2026-10-30 统一时间窗后，窗口的唯一真相源搬到了 vmaxWindow.ts
+# （三个页签共用一份 RangePicker，URL 参数 vqStart/vqEnd 也由它读写）。
+# 父页与两个子面板都不再各自读自己的 mxStart/rtStart。
+WINDOW = SRC / "pages" / "vmaxWindow.ts"
 
 FAILS = []
 
@@ -43,12 +47,14 @@ def check(name, cond, detail=""):
 def main():
     src = PAGE.read_text(encoding="utf-8")
 
-    # 1) 两个重面板都由 mounted 门控（首次点开才挂载，避免概览首屏多打请求）
-    for key in ("xdr", "records"):
+    # 1) 重面板都由 mounted 门控（首次点开才挂载，避免概览首屏多打请求）
+    for key in ("flow", "xdr", "records"):
         check("mounted.%s 门控存在" % key, ("{mounted.%s && (" % key) in src,
               "缺少 `{mounted.%s && (`，面板可能又变回条件渲染" % key)
 
     # 2) 切走用 display 隐藏，而不是不渲染
+    check("flow 视图 display 切换",
+          re.search(r"display:\s*view === 'flow' \? 'flex' : 'none'", src) is not None)
     check("xdr 视图 display 切换",
           re.search(r"display:\s*view === 'xdr' \? 'block' : 'none'", src) is not None)
     check("records 视图 display 切换",
@@ -63,6 +69,13 @@ def main():
         check("%s 未被条件渲染直接卸载" % comp, bad is None,
               "出现 `{view === '%s' && < %s ...>`，切页签会丢数据" % (key, comp))
 
+    # 4) 视图切换必须走 switchView（它负责置 mounted 标记）
+    check("分类流量页签已独立（顶层 flow 视图）",
+          "'flow'" in src and "VmaxFlowCategoryTabs" in src,
+          "VmaxUserQuery 里没有 flow 视图，分类页签可能又被塞回概览")
+    check("概览不再嵌流量卡（VmaxCcaCards 不收 flow）",
+          "flow={result.flow}" not in src,
+          "概览还在拼 flow={result.flow}，分类流量没真正独立")
     # 4) 视图切换必须走 switchView（它负责置 mounted 标记）
     check("Segmented 走 switchView", "onChange={(v) => switchView(" in src,
           "切回 setView 会导致面板不挂载 / 挂载后不再保活")
@@ -79,22 +92,32 @@ def main():
 
     check("父页从 URL 读号码", "readParam('msisdn')" in src)
     check("父页从 URL 读视角", "readParam('vmaxView')" in src)
-    check("父页从 URL 读时间窗", "readParam('vqStart')" in src and "readParam('vqEnd')" in src)
+    # 2026-10-31 起时间窗滚动：首屏永远是「当时」的最近 3 小时，
+    # URL 里不再记窗口（旧链接残留的 vqStart/vqEnd 忽略并清掉）。
+    win = WINDOW.read_text(encoding="utf-8")
+    check("首屏窗口滚动（不再重放 URL 里旧窗口）",
+          "readParam('vqStart')" not in win and "readParam('vqEnd')" not in win,
+          "vmaxWindow.ts 还在读 vqStart/vqEnd，旧链接会落回固定时间")
+    check("首屏窗口走 defaultRange（最近 3 小时）",
+          "return defaultRange()" in win)
+    check("父页引用统一时间窗模块",
+          "from './vmaxWindow'" in src or 'from "./vmaxWindow"' in src)
     check("父页查询时写号码（不是每次按键写）",
           re.search(r"writeParams\(\{\s*msisdn: q", src) is not None)
     check("父页首屏自动重放（URL 带号码才跑一次）", "bootRef" in src)
 
     merge = MERGE.read_text(encoding="utf-8")
     check("合并表面板读 mxSvc", "readParam('mxSvc')" in merge)
-    check("合并表面板读窗口 mxStart/mxEnd",
-          "readParam('mxStart')" in merge and "readParam('mxEnd')" in merge)
+    # 窗口不再由面板自己读 URL，而是从页面级 context 取（三个页签同一份）
+    check("合并表面板从 context 取窗口", "useVmaxWindow()" in merge)
     check("合并表面板查询后写回条件", "mxSvc: data.service_type" in merge)
 
     table = TABLE.read_text(encoding="utf-8")
     check("分表面板读 rtSvc/rtTable",
           "readParam('rtSvc')" in table and "readParam('rtTable')" in table)
-    check("分表面板读窗口 rtStart/rtEnd",
-          "readParam('rtStart')" in table and "readParam('rtEnd')" in table)
+    check("分表面板不再自己读窗口 URL（统一由 vmaxWindow.ts 管）",
+          "readParam('rtStart')" not in table and "readParam('rtEnd')" not in table)
+    check("分表面板从 context 取窗口", "useVmaxWindow()" in table)
     check("分表面板查询后写回条件", "rtTable: data.table" in table)
     check("分表面板换类型时保留仍在清单里的表",
           re.search(r"setTable\(\(cur\) =>", table) is not None,

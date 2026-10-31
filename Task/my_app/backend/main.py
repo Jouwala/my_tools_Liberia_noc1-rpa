@@ -116,12 +116,19 @@ from backend.routers import (
     cxo_dashboard,
     vmax_cxo_dashboard,
     vmax_cxo_daily,
+    soc_trend,
     vmax_cca_query,
     vmax_xdr_query,
     vmax_xdr_records,
+    vmax_flow_xdr,
+    vmax_diagnosis,
+    vmax_diagnosis_override,
     data_agent,
     olib_soc_dashboard,
     feedback,
+    # AP（Action Plan）：下发 → 确认 → 更新进度 → 提交 → 审核关闭
+    # 组织架构取 Escalation Matrix，权限见 services/ap_manager/permissions.py
+    ap,
     ui_config,
     ui_tool_order,
     portal_qc,
@@ -285,6 +292,10 @@ app.include_router(vmax_cxo_dashboard.router)
 # 独立数据源 data/vmax_cxo_daily/daily.json，由新任务 vmax_cxo_daily_sync 写入，
 # 与上面两个 CXO 接口/页面完全隔离（新增，不影响现有看板）
 app.include_router(vmax_cxo_daily.router)
+# SOC 多维趋势组合看板（socTrendDashboard）专用只读接口：
+# 数据源 data/soc_trend/soc_trend.sqlite3，由任务 47 soc_trend_sync 从 VMAX 数仓 GBase
+# **只读**拉取落盘（VmaxGbaseClient 强制 SELECT/SHOW/DESC），与上面两个 CXO 接口互不影响。
+app.include_router(soc_trend.router)
 # VMAX 90 天经营看板（vmaxCxoDashboard_90Days）专用只读接口：
 # 数据源 data/olib_soc_report/olib_soc_report.sqlite3 的 daily_kpi 表（数仓 GBase 直连取数，
 # 任务 olib_soc_kpi_daily_sync 每日增量 / olib_soc_vmax_report 每月全量），与上面两个
@@ -298,8 +309,20 @@ app.include_router(vmax_xdr_query.router)
 # XDR Records（分表信令详单 + 取证存档）：按 XDR 表（UEMR_XDR/UU_XDR/X2_XDR…）查记录，
 # 并把关键记录存档到本地库（按登录用户隔离，见 routers/vmax_xdr_records.py）
 app.include_router(vmax_xdr_records.router)
+# 按分类流量（由 XDR 用户面话单算出）：服务 vmax_user_query 的「流量信息」卡。
+# CCA 的 DPI 流量对多数用户为空，这里改用 Talon 用户面数据自行聚合分类。
+app.include_router(vmax_flow_xdr.router)
+# 投诉诊断聚合（2026-10-31）：一次取齐 1300/1100/32/1301 四个源，
+# 前端在其上算四维评分 + 投诉类型判据 + 证据时间线（见 services/vmax_cca/vmax_diagnosis.py）
+app.include_router(vmax_diagnosis.router)
+# 诊断结论的人工覆写（方案 §4.5）：原结论永不覆盖、理由必填、按用户隔离、软删留痕
+app.include_router(vmax_diagnosis_override.router)
 # 问题登记（用户反馈）：任何内网用户可提交问题，管理侧可筛选/处理/删除
 app.include_router(feedback.router)
+# AP（Action Plan）：下发/确认/进度/凭证/提交审核/审核关闭。
+# 组织架构取 Escalation Matrix（services/ap_manager/org.py），
+# 权限：role=admin 或 ap_role=AP_MANAGER 才能创建下发。
+app.include_router(ap.router)
 # 界面配置（侧栏菜单结构）：全局共享一份，仅本机可改（见 routers/ui_config.py）
 app.include_router(ui_config.router)
 # eFlow Q&A 工具块顺序：全局共享一份，仅本机可改（见 routers/ui_tool_order.py）

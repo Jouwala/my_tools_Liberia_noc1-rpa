@@ -28,7 +28,9 @@ from backend.dialect_helpers import list_table_names, table_columns
 from backend.services import pm_caliber
 from backend.services.person_name import normalize_person_name, split_multi_person
 from backend.services.routing_service import plan_route
-from backend.routers.gis import _resolve_window, _norm_site_category
+from backend.routers.gis import (
+    _resolve_window, _norm_site_category, _realtime_site_stats,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -887,9 +889,19 @@ def _fme_site_index(conn, tables: set[str]) -> tuple[dict[str, list[dict]], dict
     supervised: dict[str, int] = {}
     if "master_site_db" not in tables:
         return sites, skipped, supervised
-    for sid, sname, region, county, fme, sup, lat_raw, lng_raw in conn.execute(
-        "SELECT site_id, site_name, region, province_county, fme_name, supervisor, latitude, longitude "
-        "FROM master_site_db"
+    # vip_site 列在个别部署里可能缺失（如 MTN_Comsal 的 site_db）——
+    # 用 table_columns 判断存在性，缺列时该列为空串（前端按「非 VIP」处理）。
+    _cols = set(table_columns(conn, "master_site_db"))
+    _vip_sel = "vip_site" if "vip_site" in _cols else "'' AS vip_site"
+    # site_type / network_type：站点弹窗（人员页与实时告警页同款）要显示
+    # 「类型 | 网络类型」，两页读同一批列，故这里一并下发（2026-10-30 对齐）。
+    # 缺列时给空串（不伪造），前端按「—」显示。
+    _st_sel = "site_type" if "site_type" in _cols else "'' AS site_type"
+    _nt_sel = "network_type" if "network_type" in _cols else "'' AS network_type"
+    for sid, sname, region, county, fme, sup, vip, stype, ntype, lat_raw, lng_raw in conn.execute(
+        f"SELECT site_id, site_name, region, province_county, fme_name, supervisor, "
+        f"{_vip_sel}, {_st_sel}, {_nt_sel}, latitude, longitude "
+        f"FROM master_site_db"
     ).fetchall():
         sup_key = normalize_person_name(sup)
         if sup_key:
@@ -906,6 +918,12 @@ def _fme_site_index(conn, tables: set[str]) -> tuple[dict[str, list[dict]], dict
                     "site_name": str(sname or ""),
                     "region": str(region or ""),
                     "county": str(county or ""),
+                    # 2026-10-30：VIP 档取色要用（与实时告警页同一套 VIP 判定：
+                    # vip_site == 'Y' / 'Yes'）。
+                    "vip_site": str(vip or ""),
+                    # 站点类型 / 网络类型：与实时告警页弹窗同款字段（2026-10-30）
+                    "site_type": str(stype or ""),
+                    "network_type": str(ntype or ""),
                     "lat": round(lat, 6),
                     "lng": round(lng, 6),
                 }
@@ -1191,9 +1209,6 @@ def get_personnel_managed_sites(
 
     **站点集合的口径**（2026-10-21 用户确认，从「WO 涉及过的站」改成「登记的负责站」）：
     取 `master_site_db.fme_name`，**不看工单**。双人共担（`A / B`）两边都算。
-    这样每个站都能落进三档之一：红=当前有实时告警、浅蓝=该人有未关闭 WO、
-    绿=负责但当前没有未关闭 WO。**旧口径下绿色永远不可能出现**（集合里每个站
-    都必然有未关闭 WO），这是改口径的直接动机。
 
     每个站点返回：
       - 坐标（缺坐标的站画不出来，数量记在 `skipped_no_coord`，不静默丢）；
@@ -1201,8 +1216,31 @@ def get_personnel_managed_sites(
       - `uncleared`    —— 其中**未清除告警**的 WO 数；
       - `has_alarm`    —— 该站点当前是否有实时告警（`realtime_alarm` 快照）。
 
-    WO / 告警那两列仍与 `/personnel` 同源：同一 `_wo_person_keys` 归属、
+    WO 计数仍与 `/personnel` 同源：同一 `_wo_person_keys` 归属、
     同一 `_is_closed` / `_is_uncleared`、同一 `_window_clause` 窗口。
+
+    ---- 2026-10-30：站点显色与实时告警页对齐 ----
+    站点圆点原先只用 `has_alarm` 一个布尔，配色是**人员页自己的一套三档**
+    （红 / 浅蓝 / 绿），与 `?page=realtime_alarm` 的分档毫无关系 ——
+    两页看同一批站点、同一个 `realtime_alarm` 快照，颜色却对不上。
+    现补齐四个与实时告警页**逐值相同**的实时字段：
+
+      · `rt_alarm_count`    该站当前实时告警条数
+      · `rt_alarm_overdue`  其中 SLA 已超时的条数
+      · `rt_alarm_ontime`   其中未超时的条数
+      · `rt_tt_count`       由这些告警关联到、确实存在的 TT 数
+      · `rt_wo_count`       由这些告警关联到、确实存在的 WO 数
+
+    这五个值由 `gis.py::_realtime_site_stats` 从**同一次 `realtime_alarm` 扫描**
+    产出 —— 与 `/gis/realtime/sites` 走同一个函数，故两页数字必然一致
+    （AGENTS.md 三.1b：概览与下钻必须同源）。
+
+    ⚠ **人员页的「WO 档」语义与实时告警页不同，这是刻意的**（用户 2026-10-30 确认）：
+      · 实时告警页的 WO 档 = 该站**由实时告警关联到**的 WO 数；
+      · 人员页的 WO 档 = **该人员**在此站有未关闭 WO（`wo_count`）。
+      后者是人员页自己的语义（「谁的手上有单」），不能被上游口径覆盖。
+      故前端取色优先级见 `personmap/siteTone.ts`：
+      超时 > 该人有未关闭 WO > 该站有告警 TT > 未超时 > VIP > 无状态。
     """
     key = normalize_person_name(name_key)
     if not key:
@@ -1236,12 +1274,14 @@ def get_personnel_managed_sites(
         """, [f"%{first_token}%", f"%{first_token}%", *win_params, _CAND_LIMIT]).fetchall()
 
         alarm_sites: set[str] = set()
+        rt_stats: dict[str, dict] = {}
         if "realtime_alarm" in tables:
-            for (sid,) in conn.execute(
-                "SELECT DISTINCT CAST(site_id AS TEXT) FROM realtime_alarm "
-                "WHERE site_id IS NOT NULL"
-            ).fetchall():
-                alarm_sites.add(str(sid))
+            # 2026-10-30：与实时告警页**同一次扫描**取全部实时字段
+            # （告警数 / 超时 / 未超时 / 关联 TT / 关联 WO）。
+            # 旧实现只 SELECT DISTINCT site_id 拿一个「有没有告警」的布尔，
+            # 前端因此只能用自己那套三档配色，与实时告警页对不上。
+            rt_stats = _realtime_site_stats(conn, "master_site_db")
+            alarm_sites = set(rt_stats.keys())
         conn.close()
 
     # 站点 → {open, uncleared}（**只计未关闭**：已关闭的历史单不构成「当前在手」）
@@ -1263,6 +1303,7 @@ def get_personnel_managed_sites(
     for meta in fme_sites.get(key, []):
         sid = meta["site_id"]
         cnt = per_site.get(sid) or {"open": 0, "uncleared": 0}
+        rt = rt_stats.get(sid) or {}
         sites.append({
             "site_id": sid,
             "site_name": meta["site_name"],
@@ -1273,6 +1314,17 @@ def get_personnel_managed_sites(
             "wo_count": cnt["open"],
             "uncleared": cnt["uncleared"],
             "has_alarm": sid in alarm_sites,
+            # VIP 档取色用（与实时告警页同一判定：'Y' / 'Yes'）
+            "vip_site": meta.get("vip_site", ""),
+            # 站点类型 / 网络类型：站点弹窗与实时告警页同款（2026-10-30 对齐）
+            "site_type": meta.get("site_type", ""),
+            "network_type": meta.get("network_type", ""),
+            # 与实时告警页逐值相同的实时字段（2026-10-30，见函数头注释）
+            "rt_alarm_count": rt.get("rt_alarm_count", 0),
+            "rt_alarm_overdue": rt.get("rt_alarm_overdue", 0),
+            "rt_alarm_ontime": rt.get("rt_alarm_ontime", 0),
+            "rt_tt_count": rt.get("rt_tt_count", 0),
+            "rt_wo_count": rt.get("rt_wo_count", 0),
         })
     # 告警站在前、未清除多的在前，便于地图图例与列表阅读
     sites.sort(key=lambda s: (not s["has_alarm"], -s["uncleared"], -s["wo_count"], s["site_id"]))

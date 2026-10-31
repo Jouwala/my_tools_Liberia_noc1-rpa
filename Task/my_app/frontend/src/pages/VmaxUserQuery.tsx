@@ -1,14 +1,38 @@
 /* ============================================================================
- * VmaxUserQuery —— VMAX 用户信息查询（CCA 投诉系统）
+ * VmaxUserQuery —— VMAX 投诉诊断（CCA 投诉系统）
  * ============================================================================
  *
- * 输入用户号码 + 时间窗 → 后端经 VMAX CCA 投诉查询接口（services/vmax_cca）取：
- *   ① 用户信息（MSISDN/IMSI 映射）  ② 终端信息（IMEI/机型/运营商…）
- *   ③ 窗口内按应用流量（多数用户无 DPI 记录，空态正常）
- *   ④ 窗口内驻留小区列表 + 每小区 KPI（点行弹 DraggableClickModal 看 KPI 明细）
+ * 输入用户号码 + 时间窗 → 后端一次取齐四个源，页面给出**一个诊断结论**。
  *
- * 后端只做透传不落库；found=false 表示 VMAX 查无此号（业务正常，展示警示态）。
- * 三态渲染与请求序号守卫抄 EflowQa 的 TT 快速分析（防旧请求迟到回写）。
+ * ── 2026-10-31 改版（v2）：从「四个数据源」到「一个诊断结论」 ──────────────
+ * 改版前的问题（用户原话：「设计非常混乱，没有一点逻辑性」）：
+ *   1. 四个页签是**按数据源切的**（Categorized Traffic / Merged XDR /
+ *      XDR Records / 用户概览），不是按**投诉问题**切的。接到「视频卡」，
+ *      用户要自己在四个页签之间对时间、还得自己判断哪个现象更有解释力。
+ *   2. 分类流量经常为空 —— 因为用的是 CCA 的 DPI 流量（多数用户查不到），
+ *      而不是 XDR 用户面话单。
+ *   3. 无线质量（RAN 32）**从来查不到**：按号码查，而 `$msisdn` 列全为空
+ *      （后端已修：改按 IMSI 查，见 docs/VMAX_DIAGNOSIS_REDESIGN.md §5.1）。
+ *
+ * 改版后（方案 §4.1）：
+ *   第一行：号码 + 时间窗（沿用：整页唯一、默认近 3h、滚动）
+ *   第二行：**投诉类型**页签（全部/语音/OTT语音视频/视频/游戏/上网慢）
+ *           —— 不是过滤器，而是换一套判据权重，切换秒回不重新取数
+ *   第三行：视图页签（诊断结论 / 业务流量 / 连接过程 / 无线质量）
+ *           —— 每个页签回答一个问题，不再按数据源命名
+ *   诊断结论页：结论条 → 人工覆写 → 四维评分 → 语音/OTT/游戏专卡
+ *              → 证据时间线 → 导出 Excel / PDF
+ *
+ * 取数策略（P0'-3/P0'-4，单账号约束：上游同账号限并发）：
+ *   - `vmaxDiagnosis` 先行：一次拿四源原始行 + 后端顺手算好的 `flow`
+ *     （诊断与时间线用，单源失败不整页失败；`flow` 复用 1300/1301 行，不再打上游）
+ *   - `vmaxFlowXdr` 只作回退/懒加载：诊断没给 flow（失败/旧后端）、
+ *     诊断失败、或切到 flow 页签仍为空时才单查一次
+ *   - `vmaxCcaQuery`：用户/终端/根因（CCA，用户信息条用；慢，但不挡诊断）
+ *   诊断与 CCA 各自独立 loading，谁先回谁先渲染 —— CCA 慢 30s 不会挡住诊断先出结果。
+ *   流量默认复用 `diag.flow`，不再与诊断并行打第二遍 1300（省约 12s + 避开上游并发上限）。
+ *
+ * 时间窗：首屏恒为「当时」的最近 3 小时，不写进 URL（见 vmaxWindow.ts）。
  * ========================================================================== */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -16,166 +40,457 @@ import {
   Alert, Button, DatePicker, Descriptions, Input, Segmented, Space, Spin, Table, Tag, Typography,
 } from 'antd'
 import { MobileOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons'
-import type { Dayjs } from 'dayjs'
-import dayjs from 'dayjs'
 
+import { renderI18n, renderI18nList } from '../renderI18n'
 import { useI18n } from '../i18n'
 import { CardBase } from '../components/cards'
 import DraggableClickModal from '../components/DraggableClickModal'
 import VmaxXdrPanel from '../components/VmaxXdrPanel'
-import VmaxXdrRecordsPanel from '../components/VmaxXdrRecordsPanel'
+import VmaxRadioPanel from '../components/VmaxRadioPanel'
 import VmaxCcaCards, {
   type CcaResult, type CauseItem, type CellRecord,
 } from '../components/VmaxCcaCards'
-import { vmaxCcaQuery } from '../api'
+import VmaxFlowCategoryTabs, { type FlowData } from '../components/VmaxFlowCategoryTabs'
+import VmaxComplaintTabs from '../components/VmaxComplaintTabs'
+import VmaxDiagnosisCard, { type OverrideInfo } from '../components/VmaxDiagnosisCard'
+import VmaxEvidenceTimeline from '../components/VmaxEvidenceTimeline'
+import VmaxVoiceCard from '../components/VmaxVoiceCard'
+import VmaxOttCard from '../components/VmaxOttCard'
+import VmaxGameCard from '../components/VmaxGameCard'
+import VmaxOverrideModal from '../components/VmaxOverrideModal'
+import { vmaxCcaQuery, vmaxDiagnosis, vmaxFlowXdr } from '../api'
 import { readParam, writeParams } from '../urlState'
+import { exportReport } from '../utils/excelReport'
+import {
+  clampRange, disabledRangeProps, PAGE_RETENTION_HOURS, rangeToParams, readInitialRange,
+  type VmaxRange,
+} from './vmaxWindow'
+import { VmaxWindowContext, type VmaxQuerySnapshot } from './vmaxWindowContext'
+import {
+  analyzeGame, analyzeOtt, analyzeRadio, analyzeVoice, buildTimeline, buildVerdict,
+  isComplaintKey, isDiagViewKey, scoreAll, sourceLabel, type ComplaintKey,
+  type DiagnosisPayload, type DiagViewKey,
+} from './vmaxDiagnosisRules'
 
-const { Text } = Typography;
+const { Text } = Typography
 const { RangePicker } = DatePicker
 
-// 结果类型与 VmaxCcaCards 共用一份（避免同一结构两处维护后漂移）
 type KpiItem = { code: string; name: string; value: unknown }
 type QueryResult = CcaResult
 
 /** 统一空值展示：— 而不是 undefined / null（AGENTS.md 三.6） */
 const fmt = (v: unknown) => (v == null || v === '' || v === '--' ? '—' : String(v))
 
-const rangeNums = (start: number, end: number) =>
-  Array.from({ length: end - start }, (_, i) => start + i)
-
-/** 当天面板禁用未来时/分（日期级 disabledDate 管不到时间面板） */
-const disableFutureTime = (d: unknown, type?: string) => {
-  const day = d as Dayjs | null
-  if (!day || !day.isSame(dayjs(), 'day')) return {}
-  const now = dayjs()
-  return {
-    disabledHours: () => (type ? rangeNums(now.hour() + 1, 24) : []),
-    disabledMinutes: (h: number) => (h === now.hour() ? rangeNums(now.minute() + 1, 60) : []),
-  }
-}
-
-type ViewKey = 'overview' | 'xdr' | 'records'
-const isViewKey = (v: string): v is ViewKey =>
-  v === 'overview' || v === 'xdr' || v === 'records'
-
 /** 首屏视图：地址栏里带的视角优先（跳回上次看的页签） */
-const readInitialView = (): ViewKey => {
+const readInitialView = (): DiagViewKey => {
   const v = readParam('vmaxView')
-  return isViewKey(v) ? v : 'overview'
+  return isDiagViewKey(v) ? v : 'diagnosis'
 }
 
-/** 首屏时间窗：URL 里成对合法才用，否则回落「今天 00:00 ~ 现在」 */
-const readInitialRange = (): [Dayjs | null, Dayjs | null] => {
-  const s = readParam('vqStart')
-  const e = readParam('vqEnd')
-  if (s && e) {
-    const ds = dayjs(s)
-    const de = dayjs(e)
-    if (ds.isValid() && de.isValid()) return [ds, de]
-  }
-  return [dayjs().startOf('day'), dayjs()]
+/** 首屏投诉类型：可分享（同一个人常年在处理同一类投诉） */
+const readInitialComplaint = (): ComplaintKey => {
+  const v = readParam('complaint')
+  return v && isComplaintKey(v) ? v : 'all'
 }
 
 export default function VmaxUserQuery() {
   const { t } = useI18n()
 
-  // 号码 / 时间窗 / 视角都从地址栏恢复：刷新、浏览器前进后退、别人发来的链接
-  // 都能落回同一个查询上下文（URL 是页面状态的唯一真相源，见 urlState.ts）
   const [msisdn, setMsisdn] = useState(() => readParam('msisdn'))
-  // 时间窗：精确到分钟，默认今天 00:00 ~ 当前时刻（后端归一，跨度上限 31 天）
-  const [range, setRange] = useState<[Dayjs | null, Dayjs | null] | null>(readInitialRange)
+  const [range, setRange] = useState<VmaxRange>(readInitialRange)
+
+  /* ---- 三路取数各自的状态（互不阻塞：任一失败不影响其余）---- */
+  const [diag, setDiag] = useState<DiagnosisPayload | null>(null)
+  const [diagLoading, setDiagLoading] = useState(false)
+  const [diagError, setDiagError] = useState('')
+
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [result, setResult] = useState<QueryResult | null>(null)
   const [searched, setSearched] = useState(false)
-  // 视图切换：概览（CCA）/ 详单（Talon 合并表）/ XDR Records（分表）。
-  // 用 Segmented 而非 Tabs，与 ttwo 的时间范围开关同一观感（.wh-seg 实心青选中态）。
-  const [view, setView] = useState<ViewKey>(readInitialView)
-  // 已打开过的子视图：切走只隐藏、不卸载，保住面板里的查询结果。
-  // 面板的结果/已选表/时间窗/分页全在各自 state 里，条件渲染一卸载就全丢
-  // （用户反馈：查完 XDR 回概览看一眼，再回来数据没了）。
-  // 首次不预先挂载，是为了概览首屏不多打 services / tables 这几支请求。
-  // 但从 URL 直接落到 xdr/records 时，该视图必须立刻挂载，否则首屏空白。
-  const [mounted, setMounted] = useState<Record<string, boolean>>(() => {
-    const v = readInitialView()
-    return v === 'overview' ? {} : { [v]: true }
-  })
-  const switchView = useCallback((v: ViewKey) => {
-    setView(v)
-    if (v !== 'overview') setMounted((m) => (m[v] ? m : { ...m, [v]: true }))
-  }, [])
-  // 当前查询的请求序号：旧请求的迟到结果直接丢弃（抄 EflowQa 的 ttSeqRef）
+
+  const [flowXdr, setFlowXdr] = useState<FlowData | null>(null)
+  const [flowError, setFlowError] = useState('')
+  const [flowLoading, setFlowLoading] = useState(false)
+
+  const [query, setQuery] = useState<VmaxQuerySnapshot | null>(null)
+  const queryTokenRef = useRef(0)
+
+  const [view, setView] = useState<DiagViewKey>(readInitialView)
+  const [complaint, setComplaint] = useState<ComplaintKey>(readInitialComplaint)
+
+  /* 四个视图**默认全部挂载**：并行取数要求它们同时在跑；
+     切走只 display:none（keep-alive），保住面板里的查询结果。
+     条件渲染会在切回时把结果/已选表/分页全部卸载（用户反馈过「数据没了」）。
+     这里不写 mounted 开关表：四个页签没有任何一个是「按需挂载」的。 */
   const seqRef = useRef(0)
 
-  // 视角写回地址栏（replaceState，不新增历史记录）。
-  // 时间窗与号码不在这里写：URL 描述的是「已执行过的查询」，改控件不等于查过，
-  // 提前写会让链接里的窗口与屏幕上的结果对不上（见 run）。
+  // 视角与投诉类型写回地址栏（replaceState，不新增历史记录）
   useEffect(() => {
-    writeParams({ vmaxView: view === 'overview' ? '' : view })
-  }, [view])
+    writeParams({
+      vmaxView: view === 'diagnosis' ? '' : view,
+      complaint: complaint === 'all' ? '' : complaint,
+    })
+  }, [view, complaint])
 
-  // 小区 KPI 弹窗（可拖拽，点遮罩不关闭）
+  /* ---- 弹窗 ---- */
   const [kpiOpen, setKpiOpen] = useState(false)
   const [kpiCell, setKpiCell] = useState<CellRecord | null>(null)
   const [kpiItems, setKpiItems] = useState<KpiItem[]>([])
   const [kpiAnchor, setKpiAnchor] = useState<{ x: number; y: number } | null>(null)
-
-  // 根因详情弹窗
   const [causeOpen, setCauseOpen] = useState(false)
   const [causeItem, setCauseItem] = useState<CauseItem | null>(null)
 
-  const run = useCallback(async (raw: string) => {
+  /* ---- 人工覆写（按用户隔离；本地表，惰性建表见方案 §4.5）---- */
+  const [overrideOpen, setOverrideOpen] = useState(false)
+  const [overrideSaving, setOverrideSaving] = useState(false)
+  const [override, setOverride] = useState<OverrideInfo | null>(null)
+
+  /* ======================================================================
+   * 取数：诊断优先、流量复用/懒加载（P0'-3/P0'-4，单账号约束）
+   * ----------------------------------------------------------------------
+   * 上游 VMAX 同账号限并发（"The maximum number of connections for the user
+   * is reached"），三路并行 = 三个请求抢同一个门户会话，谁都慢。
+   * 所以：诊断先行（四源一次取齐，含复用的 flow）；CCA 随后（慢不挡诊断）；
+   * 流量默认复用 `diag.flow`，只在诊断没给 flow（失败/旧后端）时才回退
+   * 单查 `/api/vmax-flow-xdr`，且切到 flow 页签时仍为空才补查一次。
+   * ==================================================================== */
+  useEffect(() => {
+    if (!query) return
+    const seq = ++seqRef.current
+    const { start, end } = rangeToParams(query.range)
+
+    // 诊断聚合（四源一次取齐，附带 flow 复用）—— 页面最重要的那路
+    setDiagLoading(true); setDiagError(''); setSearched(true)
+    // 切新号码先清空旧流量，避免旧号码的流量残留；诊断回来再填
+    setFlowXdr(null); setFlowError(''); setFlowLoading(true)
+    void (async () => {
+      try {
+        const r = await vmaxDiagnosis(query.msisdn, start, end)
+        if (seq !== seqRef.current) return
+        const data = r.data as DiagnosisPayload
+        setDiag(data)
+        // P0'-1 复用：诊断已顺手算好 flow，不再打第二遍 1300（省 ~12s）
+        if (data.flow && (data.flow as FlowData)?.apps) {
+          setFlowXdr({ found: true, ...(data.flow as FlowData) })
+          setFlowError('')
+          setFlowLoading(false)
+        } else {
+          // 回退：诊断没给 flow（失败/旧后端）才单查一次
+          try {
+            const f = await vmaxFlowXdr(query.msisdn, start, end)
+            if (seq !== seqRef.current) return
+            setFlowXdr(f.data as FlowData)
+            setFlowError('')
+          } catch (e: any) {
+            if (seq !== seqRef.current) return
+            setFlowXdr(null)
+            setFlowError(e?.response?.data?.detail || e?.message || String(e))
+          } finally {
+            if (seq === seqRef.current) setFlowLoading(false)
+          }
+        }
+      } catch (e: any) {
+        if (seq !== seqRef.current) return
+        setDiagError(e?.response?.data?.detail || e?.message || String(e))
+        setDiag(null)
+        // 诊断失败时流量也不复用，直接单查（页面至少能看流量）
+        try {
+          const f = await vmaxFlowXdr(query.msisdn, start, end)
+          if (seq !== seqRef.current) return
+          setFlowXdr(f.data as FlowData)
+          setFlowError('')
+        } catch (e2: any) {
+          if (seq !== seqRef.current) return
+          setFlowXdr(null)
+          setFlowError(e2?.response?.data?.detail || e2?.message || String(e2))
+        } finally {
+          if (seq === seqRef.current) setFlowLoading(false)
+        }
+      } finally {
+        if (seq === seqRef.current) setDiagLoading(false)
+      }
+    })()
+
+    // ② CCA（用户/终端/根因）—— 慢，但不挡诊断
+    setLoading(true); setError('')
+    void (async () => {
+      try {
+        const r = await vmaxCcaQuery(query.msisdn, start, end)
+        if (seq !== seqRef.current) return
+        setResult(r.data as QueryResult)
+      } catch (e: any) {
+        if (seq !== seqRef.current) return
+        setError(e?.response?.data?.detail || e?.message || String(e))
+        setResult(null)
+      } finally {
+        if (seq === seqRef.current) setLoading(false)
+      }
+    })()
+  }, [query?.token])   // eslint-disable-line react-hooks/exhaustive-deps
+
+  /* 切到 flow 页签时仍无流量（诊断没给 + 回退也失败）→ 补查一次 */
+  useEffect(() => {
+    if (view !== 'flow') return
+    if (flowXdr || flowLoading || diagLoading) return
+    if (!query) return
+    const seq = seqRef.current
+    const { start, end } = rangeToParams(query.range)
+    setFlowLoading(true)
+    void (async () => {
+      try {
+        const f = await vmaxFlowXdr(query.msisdn, start, end)
+        if (seq !== seqRef.current) return
+        setFlowXdr(f.data as FlowData)
+        setFlowError('')
+      } catch (e: any) {
+        if (seq !== seqRef.current) return
+        setFlowError(e?.response?.data?.detail || e?.message || String(e))
+      } finally {
+        if (seq === seqRef.current) setFlowLoading(false)
+      }
+    })()
+  }, [view, flowXdr, flowLoading, diagLoading, query])   // eslint-disable-line react-hooks/exhaustive-deps
+
+  /* ======================================================================
+   * 诊断计算：**纯前端**，切投诉类型不重新取数（方案 §4.2）
+   * ==================================================================== */
+  const sources = useMemo(() => diag?.sources || [], [diag])
+  const scores = useMemo(() => (sources.length ? scoreAll(sources) : []), [sources])
+  const voice = useMemo(() => (sources.length ? analyzeVoice(sources) : null), [sources])
+  const ott = useMemo(() => (sources.length ? analyzeOtt(sources) : null), [sources])
+  const game = useMemo(() => (sources.length ? analyzeGame(sources) : null), [sources])
+  const timeline = useMemo(() => (sources.length ? buildTimeline(sources) : []), [sources])
+  /* 无线专项：Radio 页签用。与 scoreRadio 同一批采样，保证页签解释得了评分卡 */
+  const radio = useMemo(() => (sources.length ? analyzeRadio(sources) : null), [sources])
+  const verdict = useMemo(() => (
+    sources.length && voice && ott && game
+      ? buildVerdict(complaint, scores, voice, ott, game, sources)
+      : null
+  ), [complaint, scores, voice, ott, game, sources])
+
+  /* 覆写读取：号码 + 窗口变了才重取（用 token 而不是 msisdn，避免输入框打字触发） */
+  useEffect(() => {
+    if (!query) { setOverride(null); return }
+    const { start, end } = rangeToParams(query.range)
+    void (async () => {
+      try {
+        const r = await fetch(
+          `/api/vmax-diagnosis/override?msisdn=${encodeURIComponent(query.msisdn)}`
+          + `&start=${encodeURIComponent(start || '')}&end=${encodeURIComponent(end || '')}`,
+          { credentials: 'same-origin' })
+        if (!r.ok) { setOverride(null); return }
+        const body = await r.json()
+        setOverride(body?.data || null)
+      } catch {
+        setOverride(null)   // 覆写读不到不影响诊断，静默降级
+      }
+    })()
+  }, [query?.token])   // eslint-disable-line react-hooks/exhaustive-deps
+
+  /* ======================================================================
+   * 发起查询
+   * ==================================================================== */
+  const run = useCallback((raw: string) => {
     const q = raw.trim()
     if (!q) return
-    const seq = ++seqRef.current
-    setLoading(true)
-    setError('')
-    setSearched(true)
-    const start = range?.[0]?.format('YYYY-MM-DD HH:mm') || undefined
-    const end = range?.[1]?.format('YYYY-MM-DD HH:mm') || undefined
-    // 「已执行的查询」才入 URL：号码与窗口都取这一次真正发出去的值，
-    // 输入框里改到一半的号码不该出现在可分享的链接里
-    writeParams({ msisdn: q, vqStart: start || '', vqEnd: end || '' })
-    try {
-      const r = await vmaxCcaQuery(q, start, end)
-      if (seq !== seqRef.current) return   // 已有更新的查询，丢弃本次结果
-      setResult(r.data as QueryResult)
-    } catch (e: any) {
-      if (seq !== seqRef.current) return
-      // 后端 HTTPException 的中文说明在 detail（凭据未配置 / 上游不可用等）
-      setError(e?.response?.data?.detail || e?.message || String(e))
-      setResult(null)
-    } finally {
-      if (seq === seqRef.current) setLoading(false)
-    }
+    const win = clampRange(range)
+    queryTokenRef.current += 1
+    // 地址栏不再固定时间：时间窗滚动（总是最新的近 3h），残留的旧值清掉
+    writeParams({ msisdn: q, vqStart: '', vqEnd: '' })
+    setQuery({ token: queryTokenRef.current, msisdn: q, range: win })
   }, [range])
 
-  // 首屏恢复：URL 带号码说明这是一次真实执行过的查询，自动重放一次，
-  // 不让人对着已经填好的号码再点一遍「查询」。只跑一次，之后不干预用户操作。
-  // 只在落到「概览」时跑：链接指向 XDR 时后台再跑一次看不见的 CCA 查询，
-  // 会占住 VMAX 的串行会话，把用户真正要看的那次查询往后拖。
+  const refresh = useCallback(() => {
+    if (!query) return
+    queryTokenRef.current += 1
+    setQuery({ token: queryTokenRef.current, msisdn: query.msisdn, range: query.range })
+  }, [query])
+
+  // 首屏恢复：URL 带号码说明这是一次真实执行过的查询，自动重放一次
   const bootRef = useRef(false)
-  const backfillRef = useRef(false)
   useEffect(() => {
     if (bootRef.current) return
     bootRef.current = true
+    writeParams({ vqStart: '', vqEnd: '' })
     if (!msisdn.trim()) return
-    if (readInitialView() === 'overview') {
-      backfillRef.current = true      // 概览的首查由这里负责，别让下面再补一次
-      void run(msisdn)
-    }
-    // 只在挂载时跑：run 会随 range 变化，跟着它跑会变成「改个时间窗就自动查」
+    void run(msisdn)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // 从 XDR / 记录视图的链接进来时概览还没查过：第一次切回概览补一次，
-  // 别让人对着已经填好的号码发愣。补一次就收手（失败也不反复打上游）。
-  useEffect(() => {
-    if (view !== 'overview' || backfillRef.current) return
-    if (result || loading || error || !msisdn.trim()) return
-    backfillRef.current = true
-    void run(msisdn)
-  }, [view, result, loading, error, msisdn, run])
+  /* ======================================================================
+   * 导出：Excel（贴工单）/ PDF（走浏览器打印）
+   * ==================================================================== */
+  const exportExcel = useCallback(async () => {
+    if (!diag || !verdict) return
+    const win = diag.window
+    const cc = t(`vmaxq.complaint.${complaint}`)
+    const masked = query ? `****${query.msisdn.slice(-4)}` : ''
+
+    // 导出文件是给外国同事/工单系统看的，标签与值区**都跟随当前界面语言**。
+    // （早期版本把结论句/证据句写成中文字面量，注释里还留着「保持中文」的说法，
+    //  那是当时的将就；现在规则层已全部改为 i18n key，译文即等于界面语言。）
+    const verdictRows: (string | number)[][] = [
+      ['MSISDN', masked],
+      [t('vmaxq.diag.window'), `${win.start} ~ ${win.end}`],
+      [t('vmaxq.print.complaint'), cc],
+      [t('vmaxq.diag.verdictAuto'), renderI18n(t, verdict.headline)],
+      [t('vmaxq.diag.confidence'), t(`vmaxq.diag.confidence.${verdict.confidence}`)],
+      [verdict.reproduced ? t('vmaxq.diag.reproduced') : t('vmaxq.diag.notReproduced'), ''],
+      [t('vmaxq.diag.verdictManual'), override?.verdict_manual || '—'],
+      [t('vmaxq.override.reason'), override?.reason || '—'],
+      [t('vmaxq.diag.overridden'), override
+        ? `${override.username} @ ${override.created_at.replace('T', ' ').slice(0, 16)}`
+        : '—'],
+      [t('vmaxq.print.generated'), new Date().toLocaleString()],
+      ['—', '—'],
+      [t('vmaxq.diag.basis'), renderI18nList(t, verdict.basis).join(' | ')],
+      [t('vmaxq.diag.suggestion'), renderI18n(t, verdict.suggestion)],
+      ['—', '—'],
+      [t('vmaxq.diag.score.availability'), scores.find((s) => s.key === 'availability')?.score ?? 'N/A'],
+      [t('vmaxq.diag.score.latency'), scores.find((s) => s.key === 'latency')?.score ?? 'N/A'],
+      [t('vmaxq.diag.score.transport'), scores.find((s) => s.key === 'transport')?.score ?? 'N/A'],
+      [t('vmaxq.diag.score.radio'), scores.find((s) => s.key === 'radio')?.score ?? 'N/A'],
+      ['—', '—'],
+      ...diag.sources.map((s) => [
+        sourceLabel(t, s),
+        s.ok
+          ? t('vmaxq.diag.sourceOk', { n: s.rows.length }) + (s.truncated ? ' *' : '')
+          // 导出表里就是「原因: 说明」，不需要「数据源（原因）」那种括号包裹，
+          // 所以不复用 vmaxq.diag.failItem，直接拼一个不带括号的版本。
+          : `${t('vmaxq.diag.sourceFail')}: ${s.error || ''}`.trim(),
+      ] as (string | number)[]),
+    ]
+
+    const tlHeader = [
+      t('vmaxq.print.tl.minute'), t('vmaxq.print.tl.traffic'), t('vmaxq.print.tl.latency'),
+      t('vmaxq.print.tl.transport'), t('vmaxq.print.tl.radio'), t('vmaxq.print.tl.voice'),
+      t('vmaxq.print.tl.verdict'),
+    ]
+    const tlRows = timeline.map((r) => [
+      r.minute.slice(11),
+      renderI18n(t, r.traffic.text), renderI18n(t, r.latency.text),
+      renderI18n(t, r.transport.text), renderI18n(t, r.radio.text),
+      renderI18n(t, r.voice.text), renderI18n(t, r.judge),
+    ])
+
+    // 表头也要走 i18n：这几个数组原来是硬编码英文，中文界面下导出反而全英文。
+    const voiceHeader = [
+      t('vmaxq.print.col.time'), t('vmaxq.print.col.iface'), t('vmaxq.print.col.proc'),
+      t('vmaxq.print.col.cause'), t('vmaxq.print.col.result'), t('vmaxq.print.col.cell'),
+    ]
+    const voiceRows = (voice?.steps || []).map((s) => [
+      s.time, s.iface, s.proc, s.cause, s.status, s.cell,
+    ])
+
+    const appHeader = [
+      t('vmaxq.print.col.app'), t('vmaxq.print.col.category'), t('vmaxq.print.col.ul'),
+      t('vmaxq.print.col.dl'), t('vmaxq.print.col.total'), t('vmaxq.print.col.share'),
+    ]
+    const appRows = (flowXdr?.apps || []).map((a) => [
+      a.app_name, a.category_label, a.ul_traffic, a.dl_traffic, a.total_traffic, a.ratio,
+    ])
+
+    const dash = ['—', '—', '—', '—', '—', '—']
+    await exportReport([
+      {
+        name: t('vmaxq.diag.card'),
+        title: t('vmaxq.diag.expVerdictTitle'),
+        subtitle: t('vmaxq.diag.expVerdictSub', {
+          msisdn: masked, window: `${win.start} ~ ${win.end}`, complaint: cc,
+        }),
+        header: [t('vmaxq.diag.expItem'), t('vmaxq.diag.expValue')],
+        rows: verdictRows,
+        columnWidths: [24, 80],
+      },
+      {
+        name: t('vmaxq.tl.card'),
+        title: t('vmaxq.diag.expTimelineTitle'),
+        subtitle: `${win.start} ~ ${win.end}`,
+        header: tlHeader,
+        rows: tlRows,
+        columnWidths: [8, 16, 16, 14, 22, 20, 28],
+      },
+      {
+        name: t('vmaxq.voice.card'),
+        title: t('vmaxq.diag.expVoiceTitle'),
+        subtitle: voice
+          ? t('vmaxq.diag.expVoiceSub', {
+            mode: t(`vmaxq.voice.mode.${voice.mode}`),
+            sgs: voice.sgsCount, csfb: voice.csfbTrigger,
+            rate: voice.successRate ?? 'N/A',
+          })
+          : '',
+        header: voiceHeader,
+        rows: voiceRows.length ? voiceRows : [dash],
+        columnWidths: [22, 12, 30, 28, 12, 24],
+      },
+      {
+        name: t('vmaxq.flow.cat.all'),
+        title: t('vmaxq.diag.expAppTitle'),
+        subtitle: t('vmaxq.diag.expAppSub', {
+          total: flowXdr?.total_flux || '—', records: flowXdr?.records || 0,
+        }),
+        header: appHeader,
+        rows: appRows.length ? appRows : [dash],
+        columnWidths: [30, 16, 12, 12, 12, 10],
+      },
+    ], `vmax_diagnosis_${query?.msisdn || ''}_${win.start.slice(0, 10)}.xlsx`)
+  }, [diag, verdict, complaint, override, scores, timeline, voice, flowXdr, query, t])
+
+  const exportPdf = useCallback(() => {
+    // 不引第三方 PDF 库（前端体积 + 中文字体问题）：
+    // 加一个 body class 让 @media print 只留结论/评分/时间线/证据，然后走打印对话框。
+    document.body.classList.add('vmax-print-mode')
+    const cleanup = () => {
+      document.body.classList.remove('vmax-print-mode')
+      window.removeEventListener('afterprint', cleanup)
+    }
+    window.addEventListener('afterprint', cleanup)
+    window.print()
+    // 某些浏览器不触发 afterprint（或被用户取消），兜底 1 秒后清掉
+    window.setTimeout(cleanup, 1500)
+  }, [])
+
+  /* ---- 覆写提交 ---- */
+  const submitOverride = useCallback(async (v: string, reason: string) => {
+    if (!query) return
+    const { start, end } = rangeToParams(query.range)
+    setOverrideSaving(true)
+    try {
+      const r = await fetch('/api/vmax-diagnosis/override', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          msisdn: query.msisdn, start, end,
+          verdict_auto: verdict?.headline || '',
+          verdict_manual: v, reason,
+        }),
+      })
+      if (r.ok) {
+        const body = await r.json()
+        setOverride(body?.data || null)
+        setOverrideOpen(false)
+      }
+    } finally {
+      setOverrideSaving(false)
+    }
+  }, [query, verdict])
+
+  const revokeOverride = useCallback(async () => {
+    if (!override) return
+    setOverrideSaving(true)
+    try {
+      await fetch(`/api/vmax-diagnosis/override/${override.id}`, {
+        method: 'DELETE', credentials: 'same-origin',
+      })
+      setOverride(null)
+      setOverrideOpen(false)
+    } finally {
+      setOverrideSaving(false)
+    }
+  }, [override])
 
   /* ---- 小区 KPI 弹窗表列 ---- */
   const kpiColumns = useMemo(() => [
@@ -186,10 +501,16 @@ export default function VmaxUserQuery() {
       render: (v: string) => <Text type="secondary" style={{ fontSize: 12 }}>{v}</Text> },
   ], [t])
 
+  const rangePickerProps = disabledRangeProps(PAGE_RETENTION_HOURS)
+  const anyData = !!sources.length && sources.some((s) => s.rows.length > 0)
+
   return (
+    <VmaxWindowContext.Provider value={{
+      range, setRange, retentionHours: PAGE_RETENTION_HOURS, query,
+    }}>
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--wh-space-md)' }}>
 
-      {/* ① 查询条：号码 + 时间窗 */}
+      {/* ① 查询条：号码 + 整页唯一时间窗 */}
       <CardBase bodyStyle={{ padding: 'var(--wh-space-sm) var(--wh-space-md)' }}>
         <Space wrap>
           <Input
@@ -199,23 +520,24 @@ export default function VmaxUserQuery() {
             value={msisdn}
             onChange={e => setMsisdn(e.target.value)}
             onPressEnter={() => void run(msisdn)}
-            style={{ width: 260 }}
+            style={{ width: 240 }}
             maxLength={24}
           />
           <RangePicker
             value={range}
-            onChange={v => setRange(v as [Dayjs | null, Dayjs | null] | null)}
+            onChange={(v) => {
+              if (v && v[0] && v[1]) setRange(clampRange([v[0], v[1]]))
+            }}
             allowClear={false}
             showTime={{ format: 'HH:mm' }}
             format="YYYY-MM-DD HH:mm"
             minuteStep={5}
-            disabledDate={(d: Dayjs) => d.isAfter(dayjs(), 'day')}
-            disabledTime={disableFutureTime}
+            {...rangePickerProps}
           />
           <Button
             type="primary"
             icon={<SearchOutlined />}
-            loading={loading}
+            loading={diagLoading || loading}
             onClick={() => void run(msisdn)}
           >
             {t('vmaxq.search')}
@@ -224,106 +546,199 @@ export default function VmaxUserQuery() {
         </Space>
       </CardBase>
 
-      {/* ② 视图切换：概览（CCA）/ 详单（Talon XDR）。共用上面那一个号码输入。
-          用 Segmented + .wh-seg（与 ttwo 时间范围开关同一观感）：
-          默认 antd Tabs 的页签太淡，用户反馈看不出是两个视角。 */}
+      {/* ② 投诉类型页签：换判据权重，不重新取数（方案 §4.2） */}
+      <CardBase bodyStyle={{ padding: 'var(--wh-space-sm) var(--wh-space-md)' }}>
+        <VmaxComplaintTabs
+          value={complaint}
+          onChange={setComplaint}
+          disabled={!anyData}
+        />
+      </CardBase>
+
+      {/* ③ 视图页签：每个页签回答一个问题，不再按数据源切 */}
       <CardBase bodyStyle={{ padding: 'var(--wh-space-sm) var(--wh-space-md)' }}>
         <Space wrap align="center" size="middle">
           <Segmented
             className="wh-seg"
             options={[
-              { label: t('vmaxq.tab.overview'), value: 'overview' },
-              { label: t('vmaxq.tab.xdr'), value: 'xdr' },
-              { label: t('vmaxq.tab.records'), value: 'records' },
+              { label: t('vmaxq.tab.diagnosis'), value: 'diagnosis' },
+              { label: t('vmaxq.tab.flow'), value: 'flow' },
+              { label: t('vmaxq.tab.connect'), value: 'connect' },
+              { label: t('vmaxq.tab.radio'), value: 'radio' },
             ]}
             value={view}
-            onChange={(v) => switchView(v as 'overview' | 'xdr' | 'records')}
+            onChange={(v) => setView(v as DiagViewKey)}
             style={{ background: 'var(--wh-seg-bg)' }}
           />
           <Text type="secondary" style={{ fontSize: 12 }}>
-            {view === 'overview' && t('vmaxq.tab.overviewHint')}
-            {view === 'xdr' && t('vmaxq.tab.xdrHint')}
-            {view === 'records' && t('vmaxq.tab.recordsHint')}
+            {t(`vmaxq.tab.${view}Hint`)}
           </Text>
         </Space>
       </CardBase>
 
-      {/* 概览：常驻挂载，切走只 display:none（keep-alive），避免来回复查 CCA */}
+      {/* ================= 诊断结论 ================= */}
       <div style={{
-        display: view === 'overview' ? 'flex' : 'none',
+        display: view === 'diagnosis' ? 'flex' : 'none',
         flexDirection: 'column',
         gap: 'var(--wh-space-md)',
       }}>
-      {/* ② 错误（接口失败）+ 重试 */}
-      {error && (
-        <Alert
-          type="error"
-          showIcon
-          message={error}
-          action={
-            <Button size="small" icon={<ReloadOutlined />} onClick={() => void run(msisdn)}>
-              {t('vmaxq.retry')}
-            </Button>
-          }
-        />
-      )}
-
-      {/* ③ 部分查询失败（不阻断整体结果） */}
-      {!!result?.failures?.length && (
-        <Alert type="warning" showIcon
-          message={t('vmaxq.partialFail')}
-          description={result.failures.join('；')} />
-      )}
-
-      {/* ④ 加载态 */}
-      {loading && (
-        <CardBase>
-          <div style={{ textAlign: 'center', padding: 60 }}>
-            <Spin size="large" />
-            <div style={{ marginTop: 12 }}>
-              <Text type="secondary">{t('vmaxq.querying')}</Text>
+        {!!diagError && (
+          <Alert
+            type="error" showIcon message={diagError}
+            action={<Button size="small" icon={<ReloadOutlined />} onClick={refresh}>{t('vmaxq.retry')}</Button>}
+          />
+        )}
+        {!searched && !diagLoading && (
+          <CardBase>
+            <div style={{ textAlign: 'center', padding: 48 }}>
+              <MobileOutlined style={{ fontSize: 40, color: 'var(--wh-text-dim)' }} />
+              <div style={{ marginTop: 12 }}>
+                <Text type="secondary">{t('vmaxq.empty')}</Text>
+              </div>
             </div>
-          </div>
-        </CardBase>
-      )}
+          </CardBase>
+        )}
 
-      {/* ⑤ 查无此号（业务正常返回，非错误） */}
-      {!loading && !error && result && !result.found && (
-        <Alert
-          type="warning"
-          showIcon
-          message={t('vmaxq.notFound', { msisdn: result.msisdn })}
-          description={result.msg ? `${t('vmaxq.upstreamMsg')}：${result.msg}` : undefined}
+        <VmaxDiagnosisCard
+          payload={diag}
+          scores={scores}
+          verdict={verdict}
+          complaint={complaint}
+          loading={diagLoading}
+          error={diagError}
+          overrides={override}
+          onOverride={() => setOverrideOpen(true)}
+          onExportExcel={() => void exportExcel()}
+          onExportPdf={exportPdf}
+          onRefresh={refresh}
+          onGotoView={(v) => setView(v === 'flow' ? 'flow' : v === 'connect' ? 'connect' : 'radio')}
         />
-      )}
 
-      {/* ⑥ 命中：用户 / 终端 / 流量 / 驻留小区 */}
-      {!loading && !error && result?.found && (
-        <>
+        {!!voice && <VmaxVoiceCard voice={voice} />}
+        {!!ott && <VmaxOttCard ott={ott} />}
+        {!!game && <VmaxGameCard game={game} />}
+
+        <VmaxEvidenceTimeline rows={timeline} loading={diagLoading} />
+
+        {/* 用户画像 / 终端 / 根因：诊断结论页的最后一屏（辅助信息，不是主判据） */}
+        {!!error && (
+          <Alert type="error" showIcon message={error}
+            action={<Button size="small" icon={<ReloadOutlined />} onClick={refresh}>{t('vmaxq.retry')}</Button>} />
+        )}
+        {!!result?.failures?.length && (
+          <Alert type="warning" showIcon message={t('vmaxq.partialFail')}
+            description={result.failures.join('；')} />
+        )}
+        {!loading && !error && result && !result.found && (
+          <Alert type="warning" showIcon
+            message={t('vmaxq.notFound', { msisdn: result.msisdn })}
+            description={result.msg ? `${t('vmaxq.upstreamMsg')}：${result.msg}` : undefined} />
+        )}
+        {!loading && !error && result?.found && (
           <VmaxCcaCards
             result={result as CcaResult}
-            onOpenKpi={(cell) => { setKpiCell(cell); setKpiItems(result?.cells?.cell_kpi?.[String(cell.cell)] || []); setKpiOpen(true) }}
+            onOpenKpi={(cell) => {
+              setKpiCell(cell)
+              setKpiItems(result?.cells?.cell_kpi?.[String(cell.cell)] || [])
+              setKpiOpen(true)
+            }}
             onOpenCause={(item) => { setCauseItem(item); setCauseOpen(true) }}
           />
-        </>
-      )}
-
-      {/* ⑦ 初始空态 */}
-      {!loading && !error && !result && !searched && (
-        <CardBase>
-          <div style={{ textAlign: 'center', padding: 48 }}>
-            <MobileOutlined style={{ fontSize: 40, color: 'var(--wh-text-dim)' }} />
-            <div style={{ marginTop: 12 }}>
-              <Text type="secondary">{t('vmaxq.empty')}</Text>
-            </div>
-          </div>
-        </CardBase>
-      )}
-
+        )}
       </div>
 
-      {/* ⑧ 小区 KPI 弹窗（可拖拽）：浮层放在视图容器外，
-          切页签时不该被上面的 display:none 连带隐藏 */}
+      {/* ================= 业务流量 ================= */}
+      <div style={{
+        display: view === 'flow' ? 'flex' : 'none',
+        flexDirection: 'column',
+        gap: 'var(--wh-space-md)',
+      }}>
+        {!!flowError && (
+          <Alert type="error" showIcon message={flowError}
+            action={<Button size="small" icon={<ReloadOutlined />} onClick={refresh}>{t('vmaxq.retry')}</Button>} />
+        )}
+        {(diagLoading || flowLoading) && !flowXdr && (
+          <CardBase>
+            <div style={{ textAlign: 'center', padding: 60 }}>
+              <Spin size="large" />
+              <div style={{ marginTop: 12 }}>
+                <Text type="secondary">{t('vmaxq.diag.loading')}</Text>
+              </div>
+            </div>
+          </CardBase>
+        )}
+        {/* 空态三段式：告诉用户「别的源有没有数据」（方案 §4.10） */}
+        {!diagLoading && !flowLoading && !flowXdr && searched && !flowError && (
+          <CardBase>
+            <div style={{ textAlign: 'center', padding: 40 }}>
+              <MobileOutlined style={{ fontSize: 40, color: 'var(--wh-text-dim)' }} />
+              <div style={{ marginTop: 12 }}>
+                <Text type="secondary">{t('vmaxq.empty.title')}</Text>
+              </div>
+              <div style={{ marginTop: 8 }}>
+                <Text style={{ fontSize: 12, color: 'var(--wh-textMuted)' }}>
+                  · {t('vmaxq.empty.sources')}：{sources
+                    .map((s) => t('vmaxq.diag.srcCount', { src: sourceLabel(t, s), n: s.rows.length }))
+                    .join(t('vmaxq.listSep'))}
+                </Text>
+              </div>
+              {sources.filter((s) => s.key !== '1300' && s.rows.length > 0).map((s) => (
+                <div key={s.key} style={{ marginTop: 2 }}>
+                  <Text style={{ fontSize: 12, color: 'var(--wh-textMuted)' }}>
+                    · {t('vmaxq.empty.otherHint', { src: sourceLabel(t, s), n: s.rows.length })}
+                  </Text>
+                </div>
+              ))}
+              <Space size={6} style={{ marginTop: 10 }} wrap>
+                <Button size="small" onClick={() => setView('connect')}>{t('vmaxq.empty.gotoConn')}</Button>
+                <Button size="small" onClick={() => setView('radio')}>{t('vmaxq.empty.gotoRadio')}</Button>
+              </Space>
+            </div>
+          </CardBase>
+        )}
+        {!diagLoading && flowXdr && (
+          <CardBase
+            title={t('vmaxq.flowCard')}
+            extra={flowXdr.source ? <Tag color="cyan">{flowXdr.source}</Tag> : undefined}
+          >
+            <VmaxFlowCategoryTabs flow={flowXdr} />
+          </CardBase>
+        )}
+      </div>
+
+      {/* ================= 连接过程（合并 XDR 明细） ================= */}
+      <div style={{ display: view === 'connect' ? 'block' : 'none' }}>
+        <VmaxXdrPanel msisdn={msisdn} />
+      </div>
+
+      {/* ================= 无线质量（专项分析 + 原始下钻） =================
+          不再直接挂原始分表面板：那个面板要自己选表选时间重新查，
+          查出来是几千行原始话单，回答不了「这段时间空口好不好、差在哪个小区」。
+          改为吃诊断已取到的 RAN(32) 行做聚合（同一批采样，才和评分卡不矛盾），
+          原始下钻折叠在面板底部，需要跨窗口查单条话单时再展开。 */}
+      <div style={{
+        display: view === 'radio' ? 'flex' : 'none',
+        flexDirection: 'column',
+        gap: 'var(--wh-space-md)',
+      }}>
+        <VmaxRadioPanel
+          analysis={radio}
+          loading={diagLoading}
+          msisdn={msisdn}
+        />
+      </div>
+
+      {/* ================= 弹窗区 ================= */}
+      <VmaxOverrideModal
+        open={overrideOpen}
+        autoVerdict={verdict ? renderI18n(t, verdict.headline) : ''}
+        existing={override}
+        saving={overrideSaving}
+        onCancel={() => setOverrideOpen(false)}
+        onSubmit={(v, r) => void submitOverride(v, r)}
+        onRevoke={() => void revokeOverride()}
+      />
+
       <DraggableClickModal
         open={kpiOpen}
         title={`${t('vmaxq.kpiTitle')} · ${kpiCell?.cellname || kpiCell?.cellkey || ''}`}
@@ -344,24 +759,6 @@ export default function VmaxUserQuery() {
         )}
       </DraggableClickModal>
 
-      {/* ⑨ 两个 XDR 视图：打开过一次就一直挂着，切走只隐藏 ——
-          面板里的查询结果、已选表、时间窗、分页都靠组件 state 活着，
-          条件渲染会在切回概览时把它们全部卸载（这正是「数据没了」的原因）。 */}
-      {mounted.xdr && (
-        // 号码沿用上面查询条；XDR 的窗口与类型在本视图内独立选（见 VmaxXdrPanel 头注释）
-        <div style={{ display: view === 'xdr' ? 'block' : 'none' }}>
-          <VmaxXdrPanel msisdn={msisdn} />
-        </div>
-      )}
-
-      {mounted.records && (
-        // XDR Records：按单张 XDR 表查（UEMR_XDR 等）+ 存档/审计（见 VmaxXdrRecordsPanel）
-        <div style={{ display: view === 'records' ? 'block' : 'none' }}>
-          <VmaxXdrRecordsPanel msisdn={msisdn} />
-        </div>
-      )}
-
-      {/* ⑨ 根因详情弹窗（劣化描述 + 处理建议 + 逐时段明细） */}
       <DraggableClickModal
         open={causeOpen}
         title={causeItem?.rule_name || t('vmaxq.causesCard')}
@@ -411,5 +808,6 @@ export default function VmaxUserQuery() {
         )}
       </DraggableClickModal>
     </div>
+    </VmaxWindowContext.Provider>
   )
 }

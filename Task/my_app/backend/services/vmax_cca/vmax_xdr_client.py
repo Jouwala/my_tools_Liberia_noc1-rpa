@@ -177,6 +177,12 @@ _TABLE_CACHE_TTL = 600.0
 _TABLE_FALLBACK_TTL = 60.0
 _table_cache: Dict[str, Any] = {}          # service_type -> (expire_ts, tables)
 
+# 列头缓存：get_xdrheader_info 慢（数百 ms），诊断一次取数会触发多次
+# （每页/每源各一次）。按 (service_type, table) 缓存 10 分钟，失败不缓存。
+# 2026-11-01 P0'-2：诊断 6 页 × 4 源原来最多打 24 次列头，现在每表只打 1 次。
+_HEADER_CACHE_TTL = 600.0
+_header_cache: Dict[str, Any] = {}        # key -> (expire_ts, cols)
+
 
 class VmaxXdrError(VmaxCcaError):
     """XDR 查询失败（上游业务错误 / 报文无法解析）。"""
@@ -319,7 +325,16 @@ class VmaxXdrClient:
         - 合并表：`queryType=2` + condition（不传 table）；
         - 分表：`queryType=1` + `XDRTable=<表名>`（UEMR_XDR 等），**不带 condition**。
         响应被包在 `{"result": "<JSON 字符串>"}` 里，`_post_json` 已统一拆包。
+
+        2026-11-01 P0'-2：进程内缓存 10 分钟。诊断一次取数原来每页/每源
+        各打一次 get_xdrheader_info（6 页×4 源最多 24 次，单次数百 ms），
+        现在每张表只打 1 次。key 带 domain 避免 5gsa/ran 串表。
         """
+        cache_key = "%s||%s||%s" % (service_type, table, domain)
+        cached = _header_cache.get(cache_key)
+        if cached and time.time() < cached[0]:
+            return {"field": list(cached[1]["field"]),
+                    "header": list(cached[1]["header"])}
         req: Dict[str, Any] = {"serviceType": service_type,
                                "queryType": 1 if table else 2}
         if table:
@@ -340,13 +355,16 @@ class VmaxXdrClient:
             inner = outer
         if not isinstance(inner, dict):
             raise VmaxXdrError("列头响应结构异常: %s" % str(outer)[:200])
-        return {"field": list(inner.get("field") or []),
-                "header": list(inner.get("header") or [])}
+        out = {"field": list(inner.get("field") or []),
+               "header": list(inner.get("header") or [])}
+        _header_cache[cache_key] = (time.time() + _HEADER_CACHE_TTL, out)
+        return {"field": list(out["field"]), "header": list(out["header"])}
 
     # ---------- 查询 ----------
     def query(self, msisdn: str, service_type: str,
               starttime: str, endtime: str,
-              page: int = 1, page_size: int = 20) -> Dict[str, Any]:
+              page: int = 1, page_size: int = 20,
+              imsi: Optional[str] = None) -> Dict[str, Any]:
         """按号码 + 时间窗查合并 XDR。
 
         starttime/endtime 必须是 "YYYY-MM-DD HH:MM:SS.000" 全格式（含毫秒），
@@ -361,7 +379,7 @@ class VmaxXdrClient:
         page = max(1, int(page or 1))
         page_size = min(max(1, int(page_size or 20)), MAX_PAGE_SIZE)
 
-        condition = _build_condition(spec, service_type, msisdn, starttime, endtime)
+        condition = _build_condition(spec, service_type, msisdn, starttime, endtime, imsi=imsi)
         # 参数结构照抄 _xdr_merge.js::initCommonConditionProcessor
         # （XDRTable 必为空串、serviceName 固定 xdr_query，见模块头注释）
         param = {
@@ -415,7 +433,9 @@ class VmaxXdrClient:
     # ---------- 分表查询（XDR Records：UEMR_XDR 等） ----------
     def query_table(self, msisdn: str, service_type: str, table: str,
                     starttime: str, endtime: str,
-                    page: int = 1, page_size: int = 20) -> Dict[str, Any]:
+                    page: int = 1, page_size: int = 20,
+                    imsi: Optional[str] = None,
+                    columns: Optional[List[str]] = None) -> Dict[str, Any]:
         """按号码 + 时间窗查**单张 XDR 表**（UEMR_XDR / UU_XDR / X2_XDR…）。
 
         与 `query()`（合并表 `exec_merge_query`）的差别照抄前端
@@ -424,6 +444,13 @@ class VmaxXdrClient:
         - `colModel` 必须是该表的列名数组（先取 get_xdrheader_info）。
         `table` 必须来自 `tables(service_type)` 的清单 —— 上游把表名拼进
         SQL 的 FROM，任意字符串有注入风险，白名单校验由本方法与 router 双层做。
+
+        `imsi`：RAN 域（32）必须传，否则 `$msisdn` 为空串查不到任何记录
+        （见 `_build_condition` 的 2026-10-31 说明）。
+
+        `columns`：P0'-2 列裁剪 —— 只取诊断真正要的列，大幅缩小 payload
+        （88 列全取 × 1200 行 ≈ 数 MB）。传 None 则取全列（兼容旧调用）。
+        实现：先取表头做白名单交集，交集为空则回退全列（避免上游拒空 colModel）。
         """
         if service_type not in _VALID_SERVICE_IDS:
             raise VmaxXdrUnsupported(
@@ -445,8 +472,14 @@ class VmaxXdrClient:
                    ", ".join(t["xdr_name"] for t in self.tables(service_type))))
         table_name = matched["table_name"]
 
-        condition = _build_condition(spec, service_type, msisdn, starttime, endtime)
+        condition = _build_condition(spec, service_type, msisdn, starttime, endtime, imsi=imsi)
         cols = self.fetch_headers(service_type, domain=domain, table=table_name)
+        if columns:
+            want_set = {str(c) for c in columns}
+            picked = [f for f in cols["field"] if f in want_set]
+            col_model = picked or list(cols["field"])
+        else:
+            col_model = list(cols["field"])
         param = {
             "paging": {"currentPage": page, "pageSize": page_size},
             "orderBy": {"direction": "", "field": ""},
@@ -456,7 +489,7 @@ class VmaxXdrClient:
             "isFirst": page == 1,
             "sqlMaxNum": "",
             "loginfo": {"isRecord": 0, "comment": "", "jumpSigIsRecord": 0},
-            "colModel": list(cols["field"]),
+            "colModel": col_model,
             "queryReason": "",
             "appSessionId": "",
             "sourcePath": "",
@@ -491,6 +524,16 @@ class VmaxXdrClient:
             raise VmaxXdrError(msg or "上游返回 status=%s" % status)
 
         rows = payload.get("rows")
+        # P0'-2：裁列时返回的 cell 数组长度 == colModel 长度，不是全表列数。
+        # 必须按实际下发的 colModel 绑字段，否则「按表头顺序绑」会把值错位
+        # （如第 3 个值本是 service，却被绑到全表的第 3 列名上）。
+        # 这里用 colModel 重建 field/header 子集返回，保持「field[i] 对 rows[i]」。
+        if col_model != list(cols["field"]):
+            hdr_by_field = dict(zip(cols["field"], cols["header"]))
+            use_cols = {"field": list(col_model),
+                        "header": [hdr_by_field.get(f, f) for f in col_model]}
+        else:
+            use_cols = cols
         return {
             "msisdn": msisdn,
             "service_type": service_type,
@@ -501,14 +544,15 @@ class VmaxXdrClient:
             "page_size": page_size,
             "total_pages": payload.get("total", 0),
             "records": int(payload.get("records") or 0),
-            "field": cols["field"],
-            "header": cols["header"],
-            "rows": [_row_to_dict(r, cols) for r in (rows or []) if isinstance(r, dict)],
+            "field": use_cols["field"],
+            "header": use_cols["header"],
+            "rows": [_row_to_dict(r, use_cols) for r in (rows or []) if isinstance(r, dict)],
         }
 
 
 def _build_condition(spec: Dict[str, Any], service_type: str, msisdn: str,
-                     starttime: str, endtime: str) -> List[Dict[str, str]]:
+                     starttime: str, endtime: str,
+                     imsi: Optional[str] = None) -> List[Dict[str, str]]:
     """查询条件数组（合并表与分表共用一份，字段名随域变化）。
 
     ⚠ 号码条件必须用 `type="1"`（纯文本输入），**不能照抄页面组件的
@@ -525,8 +569,26 @@ def _build_condition(spec: Dict[str, Any], service_type: str, msisdn: str,
     RAN 域的表没有 `msisdn` 列，号码列是隐藏的 `$msisdn`；且 UEMR/UU 记录
     实测 `$msisdn` 为空串（只带 IMSI），所以按 `$msisdn` 过滤会如实返回空，
     而不是像以前那样忽略条件、把整窗数据全吐出来。
+
+    【2026-10-31 修】RAN 域**改按 IMSI 查**（P0 bug）：
+    实测 `$msisdn` 列在该号码的 101 条 UEMR 记录里**全是空串**，
+    只带 IMSI。也就是说「按号码查无线质量」这条路从来就没通过 ——
+    界面上表现为「该时段无驻留小区记录」，被当成「用户没数据」，
+    实际是查询条件错。改用 `{"field":"imsi","value":<imsi>,"type":"1"}`
+    后同一窗口 0 条 → 101 条（见 docs/VMAX_DIAGNOSIS_REDESIGN.md §5.1）。
+
+    `imsi` 由调用方先用 1300/1100 解析出来传进来；拿不到时**不静默**，
+    在条件里仍带 `$msisdn`（保持旧行为，返回空），并由上层把
+    「无 IMSI 映射，无法查无线质量」写进结论 —— 不能让「查不到」看起来像「正常」。
     """
     if spec["domain"] == DOMAIN_RAN:
+        if imsi:
+            return [
+                {"field": spec["time_field"], "value": "%s,%s" % (starttime, endtime), "type": "4"},
+                {"field": "serviceType", "value": service_type, "type": "-1"},
+                {"field": "dbType", "value": "", "type": ""},
+                {"field": "imsi", "value": str(imsi), "type": "1", "name": "IMSI"},
+            ]
         number_field, number_name = "$msisdn", "User Number"
     else:
         number_field, number_name = "msisdn", "MSISDN"

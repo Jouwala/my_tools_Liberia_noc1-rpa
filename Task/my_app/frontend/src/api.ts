@@ -269,6 +269,23 @@ export function vmaxXdrQueryHistory(limit = 50) {
   return api.get('/vmax-xdr-records/history', { params: { limit } })
 }
 
+// ========== 按分类流量（由 XDR 用户面话单算出）==========
+// 新增于 2026-10-30；对应后端 routers/vmax_flow_xdr.py
+// 数据源是 Talon XDR 用户面（fact_5gsa_psup_flow 等），不是 CCA 的 DPI 流量
+// —— 后者对多数用户为空（见 services/vmax_cca/vmax_flow_from_xdr.py 头注释）。
+export function vmaxFlowXdr(msisdn: string, start?: string, end?: string) {
+  return api.get('/vmax-flow-xdr', { params: { msisdn, start, end } })
+}
+
+// ========== 投诉诊断聚合（四个源一次取齐）==========
+// 新增于 2026-10-31；对应后端 routers/vmax_diagnosis.py
+// 一次返回 1300/1100/32/1301 的**原始行**，评分与结论在前端算
+// （pages/vmaxDiagnosisRules.ts）—— 这样切投诉类型不用重新取数。
+// 单源失败不整页失败：某源 ok=false + error，其余照常返回。
+export function vmaxDiagnosis(msisdn: string, start?: string, end?: string) {
+  return api.get('/vmax-diagnosis', { params: { msisdn, start, end } })
+}
+
 export function getNocAnalystReport(params?: Record<string, string | number>) {
   return api.get('/eflow-qa/_tt_postmortem_noc', { params })
 }

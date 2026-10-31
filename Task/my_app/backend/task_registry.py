@@ -991,8 +991,8 @@ TASK_SPECS = [
     #     导致 2026-09-18~23 的 active_user 连丢 6 天（见 kpi_store.incomplete_days）。
     dict(task_id="olib_soc_kpi_daily_sync", name="OLIB SOC 看板 KPI 增量", name_en="OLIB SOC Dashboard KPI Sync",
          loader=("backend.services.olib_soc_report.olib_soc_report_service", "run_olib_soc_kpi_sync"),
-         description="每日增量补齐 VMAX 90 天经营看板的 KPI 库（daily_kpi 表）：只跑流量/活跃用户/缓存/视频/游戏/TCP/TOP业务 7 个块，只取缺的日期 + 关键指标为 NULL 的残缺日 + 重取最新 1 天（默认回看 7 天，幂等自愈），不出 Excel",
-         description_en="Daily incremental fill of the 90-day CXO dashboard KPI store (daily_kpi): 7 dashboard blocks, missing days plus days whose key metrics are NULL plus the newest day re-read (7-day lookback, idempotent), no Excel output",
+         description="每日增量补齐 VMAX 90 天经营看板的 KPI 库（daily_kpi 表）：只跑流量/活跃用户/缓存/视频/游戏/TCP/TOP业务 7 个块，只取缺的日期 + 关键指标为 NULL 的残缺日 + 重取最新 1 天（默认回看 7 天，幂等自愈），并同批续写下钻明细表（分业务 video/game + 逐网元 TCP，blocks.tcp_ne=false 可关），不出 Excel",
+         description_en="Daily incremental fill of the 90-day CXO dashboard KPI store (daily_kpi): 7 dashboard blocks, missing days plus days whose key metrics are NULL plus the newest day re-read (7-day lookback, idempotent); also tops up the drill-down detail tables (per-app video/game + per-NE TCP, disable via blocks.tcp_ne), no Excel output",
          # 06:20（服务器 UTC）：数仓「前一天」分区不一定在零点后立刻完成，
          # 与 ems_kpi_daily(05:20) 同一批早班；配合 refresh_last_days 双保险。
          default_cron="20 6 * * *", category="olib_soc"),
@@ -1035,6 +1035,19 @@ TASK_SPECS = [
          description="SSH 两跳（control1→Greenplum 主节点）以 gpadmin 跑 psql，取最近 7 个完整 UTC 日的 VoLTE / N78 去重 IMSI 清单，落 CSV + 运行记录；只读，数仓侧不落盘（COPY TO STDOUT）",
          description_en="Two-hop SSH (control1 -> Greenplum master) running psql as gpadmin: last 7 complete UTC days of distinct VoLTE / N78 IMSI lists, saved as CSV plus run records; read-only, nothing written on the warehouse side (COPY TO STDOUT)",
          default_cron="20 13 * * *", category="gp_ran"),
+
+    # 47. SOC 多维趋势同步（每小时 :40，2026-10-30 新增，服务 socTrendDashboard 页）：
+    #     直连 VMAX 数仓 GBase（10.123.255.12:5258/zxvmax，pymysql，VmaxGbaseClient 只读断言
+    #     强制 SELECT/SHOW/DESC），每个分区 4 条聚合 SQL（ciservice 按 area/targetid +
+    #     spservice 按 area×service_id + video 专项），落盘 data/soc_trend/soc_trend.sqlite3。
+    #     小时表只留 ~94 天、天表 ~90 天 -> 窗口 8/92 天，最近 2 天每次重拉（当天分区在累积），
+    #     其余缺哪天补哪天（幂等：整日先删后插）。与 olib_soc_*（:20/:30）、vmax_cxo_daily（:15）、
+    #     vmax_multi_data（:45）错峰。
+    dict(task_id="soc_trend_sync", name="SOC 多维趋势同步", name_en="SOC Multi-Dim Trend Sync",
+         loader=("backend.services.soc_trend.soc_trend_sync", "run_soc_trend_sync"),
+         description="每小时直连 VMAX 数仓 GBase 只读拉取流量/TCP/分业务类目（流量/视频/网页/游戏/OTT语音/OTT视频，按区域+SGW网元维度）的小时与天粒度聚合，落盘 data/soc_trend/soc_trend.sqlite3 供 SOC 多维趋势组合看板的双基线告警与三日对比",
+         description_en="Hourly read-only GBase pulls of traffic/TCP/per-service categories (traffic/video/web/game/OTT voice/OTT video, by area + SGW NE) at hour and day granularity into data/soc_trend/soc_trend.sqlite3, feeding the SOC multi-dim trend dashboard (dual-baseline alarms, D/D-1/D-7 comparison)",
+         default_cron="40 * * * *", category="olib_soc"),
 ]
 
 # ========== 网关分组（按「获取数据的外部系统」归类，与 category 平行） ==========

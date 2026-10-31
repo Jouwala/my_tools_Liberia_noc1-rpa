@@ -23,16 +23,11 @@
 .carousel-btn:hover{background:#0d3868}
 .carousel-btn.on{color:#04101d;background:#21d5ec;border-color:#8dffff}
 .carousel-step{position:absolute;right:14px;top:46px;z-index:3;font-size:10px;color:#8cecff;background:rgba(9,35,72,.75);border:1px solid #17499c;border-radius:12px;padding:2px 10px;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-/* ---- 页签（对齐参考看板 vmaxCxoDashboard 的页签观感）---- */
-.tabs{display:flex;gap:10px;padding:8px 8px 0;justify-content:center;flex-wrap:wrap}
-.tabs button{cursor:pointer;font-family:inherit;font-weight:700;font-size:14px;color:#fff;background:#087a96;border:1px solid #00769a;padding:6px 30px;
-  clip-path:polygon(9% 0,91% 0,100% 30%,100% 100%,9% 100%,0 70%,0 26%)}
-.tabs button:hover{background:#0b93b4}
-.tabs button.active{background:#08090f;border:1px dashed #ff4c24;clip-path:none;color:#ffd9cf}
-.subtabs{display:flex;flex-wrap:wrap;gap:6px;padding:8px 8px 2px;justify-content:center}
-.subtabs button{cursor:pointer;font-family:inherit;font-size:11px;color:#9fd8ee;background:rgba(9,34,74,.6);border:1px solid #17499c;border-radius:14px;padding:4px 12px}
-.subtabs button:hover{border-color:#2b6fd0;color:#cfeaff}
-.subtabs button.active{background:#0d3868;border-color:#21d5ec;color:#cfeaff}
+/* ---- 页签：观感统一交给共享基线的 .wht（legacy-glass-baseline.css）----
+   原先主页签是 clip-path 斜切梯形 + 选中态橙色虚线框，与站点青色系无关。
+   .tabs/.subtabs 类名与 button.active 状态由 renderTabBars() 生成与切换，保留不动。
+   下面那条只管「整组居中」—— 属于本页版式，不属于页签观感本身，所以留在本页。 */
+.tabs,.subtabs{display:flex;justify-content:center}
 .subtabs button span{opacity:.6;font-size:10px}
 /* ---- 说明条：默认收起，点击展开 ---- */
 .notes-wrap{padding:6px 8px 2px;display:flex;flex-direction:column;align-items:center}
@@ -70,16 +65,13 @@ tbody tr:hover td{background:rgba(37,140,255,.10)}
 .dot.ok{background:#0bc78c}.dot.partial{background:#f6cf00}.dot.incomplete{background:#f58b1f}.dot.missing{background:#6f7f9c}
 .status{position:fixed;right:12px;bottom:10px;z-index:9;padding:6px 12px;border-radius:20px;font-size:11px;border:1px solid #16bfe3;background:#092348;color:#8cecff}
 .status.bad{border-color:#ff5c6c;color:#ffb3bc;background:#480a14}
-html[data-theme="light"]{--bg:#eaf7fb;--text:#163047;--muted:#526b7d;--edge:rgba(14,116,144,.18);--glow:rgba(14,165,233,.10)}
-html[data-theme="light"],html[data-theme="light"] body{background:#eaf7fb;color:var(--text);color-scheme:light}
-html[data-theme="light"] .screen{background:radial-gradient(circle at 15% 5%,rgba(103,232,249,.36),transparent 28%),linear-gradient(145deg,#eefbff,#e7f1fa 56%,#f7fcff)}
+html[data-theme="light"]{--bg:var(--legacy-page-bg,#e9eef3);--text:#163047;--muted:#526b7d;--edge:rgba(14,116,144,.18);--glow:rgba(14,165,233,.10)}
+html[data-theme="light"],html[data-theme="light"] body{background:var(--legacy-page-bg,#e9eef3);color:var(--text);color-scheme:light}
+html[data-theme="light"] .screen{background:var(--legacy-screen-bg,linear-gradient(155deg,#e9eef3 0%,#f5f7f9 52%,#e7edf2 100%))}
 html[data-theme="light"] .mast{background:linear-gradient(180deg,rgba(255,255,255,.86),rgba(239,249,253,.70) 73%,transparent 74%);border-top-color:rgba(14,116,144,.22)}
 html[data-theme="light"] .mast h1{color:#0e7490;text-shadow:none}html[data-theme="light"] .mast .sub{color:#3c7d94}
 html[data-theme="light"] .logo{color:#12324a;text-shadow:1px 1px 0 rgba(255,255,255,.8)}html[data-theme="light"] .logo b{color:#d69b00}
-html[data-theme="light"] .notes-toggle,html[data-theme="light"] .subtabs button{border-color:rgba(14,116,144,.3);background:rgba(255,255,255,.75);color:#0e7490}
-html[data-theme="light"] .subtabs button.active{background:#d9f0f7;border-color:#0e7490;color:#075063}
-html[data-theme="light"] .tabs button{background:#0e7490;border-color:#0e7490;color:#fff}
-html[data-theme="light"] .tabs button.active{background:#fff;border:1px dashed #d2691e;color:#a1440a}
+html[data-theme="light"] .notes-toggle{border-color:rgba(14,116,144,.3);background:rgba(255,255,255,.75);color:#0e7490}
 html[data-theme="light"] .cover span{border-color:rgba(14,116,144,.28);background:rgba(255,255,255,.7);color:#0e7490}
 html[data-theme="light"] .cover span.warn{border-color:#c9a227;color:#8a6d10;background:rgba(255,250,220,.8)}
 html[data-theme="light"] .cover span.bad{border-color:#d97b86;color:#a2202f;background:rgba(255,235,238,.85)}
@@ -112,8 +104,8 @@ html[data-theme="light"] .carousel-step{background:rgba(255,255,255,.8);border-c
    <button class="carousel-btn" id="carouselBtn" type="button" aria-pressed="false"></button>
    <div class="carousel-step" id="carouselStep" hidden></div>
  </header>
- <nav class="tabs" id="tabBar" role="tablist"></nav>
- <nav class="subtabs" id="subBar"></nav>
+ <nav class="tabs wht" id="tabBar" role="tablist"></nav>
+ <nav class="subtabs wht wht--sm" id="subBar"></nav>
  <div class="notes-wrap">
    <button class="notes-toggle" id="notesToggle" aria-expanded="false" aria-controls="cover">
      <span>ⓘ</span><span id="notesLabel">Data notes</span><span class="caret">▾</span>

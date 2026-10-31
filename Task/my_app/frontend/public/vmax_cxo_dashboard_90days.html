@@ -146,12 +146,12 @@ html[data-theme="light"] .off-tbl tr.tot td{background:rgba(14,116,144,.08)}
 @media(max-width:1200px){.mixrow{grid-template-columns:1fr}}
 .empty{padding:26px;text-align:center;color:#9fd8ee;font-size:13px}
 /* ---- 浅色主题 ---- */
-html[data-theme="light"]{--bg:#eaf7fb;--text:#163047;--muted:#526b7d;--edge:rgba(14,116,144,.18);--glow:rgba(14,165,233,.10)}
-html[data-theme="light"],html[data-theme="light"] body{background:#eaf7fb;color:var(--text);color-scheme:light}
+html[data-theme="light"]{--bg:var(--legacy-page-bg,#e9eef3);--text:#163047;--muted:#526b7d;--edge:rgba(14,116,144,.18);--glow:rgba(14,165,233,.10)}
+html[data-theme="light"],html[data-theme="light"] body{background:var(--legacy-page-bg,#e9eef3);color:var(--text);color-scheme:light}
 /* 浅色页面底：原先左上角 (15% 5%) 有个 rgba(103,232,249,.36) 的青色光斑，
    与右上/右下区域不同亮度，导致四角背景不同色。这里把光斑大幅减弱并拉平，
    四个角的背景亮度统一。 */
-html[data-theme="light"] .screen{background:radial-gradient(circle at 50% 5%,rgba(103,232,249,.14),transparent 42%),linear-gradient(145deg,#eefbff,#e7f1fa 56%,#f7fcff)}
+html[data-theme="light"] .screen{background:var(--legacy-screen-bg,linear-gradient(155deg,#e9eef3 0%,#f5f7f9 52%,#e7edf2 100%))}
 html[data-theme="light"] .mast{background:linear-gradient(180deg,rgba(255,255,255,.86),rgba(239,249,253,.70) 73%,transparent 74%);border-top-color:rgba(14,116,144,.22)}
 /* 顶栏底部那条彩色横条（.mast:after）在浅色主题下原本**没有任何覆盖**，
    于是深色态那套 #1a35ae→#1da7ff→#03dcef→#3545b4 直接透在白底上：

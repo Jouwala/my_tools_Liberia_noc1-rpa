@@ -102,6 +102,28 @@ export interface ManagedSite {
   uncleared: number
   /** 该站点当前是否有实时告警 */
   has_alarm: boolean
+  /** ---- 2026-10-30 新增：与实时告警页逐值相同的实时字段 ----
+   *  取色分档见 `personmap/siteTone.ts`；色值与实时告警页共用
+   *  `gismap/types.ts` 的 `LEGEND_COLORS`（两页同一份真相源）。
+   *  后端来源：`gis.py::_realtime_site_stats`，与 `/gis/realtime/sites`
+   *  同一次 `realtime_alarm` 扫描 —— 故两页数字必然一致。 */
+  /** 该站当前实时告警条数 */
+  rt_alarm_count?: number
+  /** 其中 SLA 已超时（派单时限已破）的条数 */
+  rt_alarm_overdue?: number
+  /** 其中未超时的条数 */
+  rt_alarm_ontime?: number
+  /** 由这些告警关联到、确实存在的 TT 数 */
+  rt_tt_count?: number
+  /** 由这些告警关联到、确实存在的 WO 数 */
+  rt_wo_count?: number
+  /** VIP 站点标记（`master_site_db.vip_site` 列，取值 Y / Yes）——
+   *  用于 VIP 档取色（与实时告警页同一判定）。 */
+  vip_site?: string
+  /** 站点类型（`master_site_db.site_type`）—— 站点弹窗与实时告警页同款字段 */
+  site_type?: string
+  /** 网络类型（`master_site_db.network_type`）—— 同上 */
+  network_type?: string
   /** 仅 `/sites/search` 返回：未关闭 WO 的负责人数（含无坐标者） */
   owner_count?: number
   /** 仅 `/sites/search` 返回：其中**有坐标、可在图上选中**的负责人键。

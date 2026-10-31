@@ -16,6 +16,20 @@ html[data-theme="light"] {
   --legacy-glass-focus: 0 0 0 3px rgba(13, 148, 136, 0.22);
 }
 
+/* ---- legacy 浅色页面底（真相源是 frontend/src/index.css） ----
+   :root[data-theme='light'] 的 --wh-bg（index.css:191）与 --wh-page-bg（index.css:219）：
+  雾蓝灰 linear-gradient(155deg,#e9eef3 0%,#f5f7f9 52%,#e7edf2 100%) / 纯色 #e9eef3。
+   各 legacy 页浅色块此前各自写死的 #eaf7fb / #eefbff 系浅青底，已统一改成引用
+   这里的 --legacy-page-bg / --legacy-screen-bg（各页保留 var 回退，基线缺失时仍是项目灰）。
+   深色档不收敛：各页深色仍是自有 vmax 深空蓝渐变 + 径向辉光，保持原样。 */
+:root {
+  --legacy-page-bg: #02050c;
+}
+html[data-theme="light"] {
+  --legacy-page-bg: #e9eef3;
+  --legacy-screen-bg: linear-gradient(155deg, #e9eef3 0%, #f5f7f9 52%, #e7edf2 100%);
+}
+
 /* Apply only to generic surfaces and controls; do not alter charts or status colors. */
 button, input, select, textarea {
   transition: border-color .2s ease, box-shadow .2s ease, background-color .2s ease;
@@ -46,3 +60,270 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 @media (max-width: 767px) {
   button, input, select, textarea { min-height: 2.25rem; }
 }
+
+/* ==========================================================================
+   统一页签（.wht） —— legacy 静态页与 React 外壳的同一条观感
+   --------------------------------------------------------------------------
+   React 侧的页签有两条统一路径：antd <Tabs> 由 src/App.tsx:1665 的
+   ConfigProvider token 着色；页面级视图切换用 <Segmented className="wh-seg">
+   （src/index.css:2067-2129，2026-10-18 定的「全站同类分段开关统一处理」）。
+   public/ 下的 legacy 页是独立文档，用 <iframe> 嵌进外壳
+   （src/components/LegacyToolFrame.tsx:115），React 组件与 index.css 都进不来
+   —— CSS 自定义属性不跨文档继承，是浏览器的硬限制。所以这里把 .wh-seg 的观感
+   落到原生 button/a/span 上，各页不再各写一套。
+
+   令牌是**镜像**，真相源仍是 frontend/src/index.css（逐条标了源行号）。
+   改那边这几条时这里要同步。镜像的先例见 public/warehouse-dashboard.html:128-193
+   的 --whd-* 块。
+
+   用法（两步，不用改 JS）：
+     1) 页签条容器加 class="wht"，容器的**直接子元素**自动成为页签项；
+     2) 选中态沿用各页原有的写法，四种都认：
+        .active / .on / [aria-selected="true"] / [aria-pressed="true"]
+   JS 动态拼出来的页签（如 vmax_cxo_dashboard_daily.html:354）带上上述任一种即可。
+
+   变体：.wht--sm 等价 <Segmented size="small">（index.css:2115）；
+         .wht--block 等分铺满整行。
+   次级页签（subtabs）不另造观感：统一样式的选中态就是实心品牌青，两级都用实心，
+   只靠 .wht--sm 的尺寸差分层级 —— 与外壳 Segmented 的做法一致。
+   ========================================================================== */
+
+/* 深色为默认档，与本文件上面那四条 --legacy-glass-* 的写法保持一致 */
+:root {
+  --wht-teal: #00d9ff;                        /* index.css:39  --wh-teal */
+  --wht-teal-20: rgba(0, 217, 255, 0.20);     /* index.css:62 */
+  --wht-teal-27: rgba(0, 217, 255, 0.27);     /* index.css:63 */
+  --wht-teal-40: rgba(0, 217, 255, 0.40);     /* index.css:64 */
+  --wht-on-accent: #041227;                   /* index.css:56  --wh-on-accent */
+  --wht-text: #f5f7ff;                        /* index.css:50  --wh-text */
+  --wht-border: #258cff;                      /* index.css:137 --wh-glass-border-strong */
+  --wht-radius: 0.5rem;                       /* index.css:186 --wh-radius-md */
+  --wht-track: rgba(9, 34, 74, 0.60);         /* App.tsx:1668  Segmented.trackBg（深色档） */
+}
+html[data-theme="light"] {
+  --wht-teal: #0d9488;                        /* index.css:195 */
+  --wht-teal-20: rgba(13, 148, 136, 0.20);    /* index.css:215 */
+  --wht-teal-27: rgba(13, 148, 136, 0.27);    /* index.css:216 */
+  --wht-teal-40: rgba(13, 148, 136, 0.40);    /* index.css:217 */
+  --wht-on-accent: #ffffff;                   /* index.css:209 */
+  --wht-text: #16233b;                        /* index.css:205 */
+  --wht-border: rgba(13, 148, 136, 0.55);     /* index.css:246 */
+  /* 浅色档外壳没给 Segmented 配 token（App.tsx:1684 的浅色分支只有 Table），
+     取 antd v6 默认的中性浅底，保证与 React 页渲染一致。 */
+  --wht-track: rgba(0, 0, 0, 0.04);
+}
+
+/* ---- 容器 ---- */
+.wht {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 3px;
+  padding: 3px;
+  box-sizing: border-box;
+  background: var(--wht-track);
+  border: 1px solid var(--wht-border);
+  border-radius: var(--wht-radius);
+}
+.wht--block { display: flex; width: 100%; }
+.wht--block > * { flex: 1 1 0; min-width: 0; }
+/* 页签条常由 JS 异步填充（如 vmax_cxo_dashboard.html 的 #subnav、
+   vmax_cxo_dashboard_daily.html 的 #subBar）。空的时候若仍画出一条带描边的轨道，
+   会露出一个几像素宽的空胶囊 —— 没数据时整条不占位。 */
+.wht:empty { display: none; }
+
+/* ---- 页签项：容器的直接子元素，不要求自带类名 ---- */
+.wht > * {
+  appearance: none;
+  -webkit-appearance: none;
+  box-sizing: border-box;
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--wht-text);
+  font-family: inherit;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  line-height: 22px;
+  white-space: nowrap;
+  text-decoration: none;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.18s ease, color 0.18s ease, box-shadow 0.18s ease;
+}
+.wht--sm > * { padding: 0 10px; line-height: 18px; font-size: 0.75rem; }
+/* 区块主控用的粒度开关：在常规尺寸上再放宽字距，等价外壳的 .wh-gran-switch
+   （index.css:2133-2135，那是「三档语义固定且是页面主控」时叠在 .wh-seg 之上的一档）。
+   与 .wht--sm 是两种用途：主控用 --gran，筛选条里的小开关用 --sm。 */
+.wht--gran > * { padding: 0 14px; line-height: 24px; font-size: 0.875rem; }
+
+/* 未选中项的悬浮反馈（index.css:2086-2094） */
+.wht > *:not(.active):not(.on):not([aria-selected="true"]):not([aria-pressed="true"]):hover,
+.wht > *:not(.active):not(.on):not([aria-selected="true"]):not([aria-pressed="true"]):active {
+  color: var(--wht-teal);
+  background: var(--wht-teal-27);
+}
+
+/* 选中项：实心品牌青 + onAccent 字色（index.css:2097-2107） */
+.wht > .active,
+.wht > .on,
+.wht > [aria-selected="true"],
+.wht > [aria-pressed="true"] {
+  background: var(--wht-teal);
+  color: var(--wht-on-accent);
+  font-weight: 700;
+  box-shadow: 0 0 0 1px var(--wht-teal-40), 0 2px 8px var(--wht-teal-20);
+}
+/* 项内若有 <span>/图标，一并跟随 onAccent，否则在青色实心底上看不清（index.css:2110-2113） */
+.wht > .active > *,
+.wht > .on > *,
+.wht > [aria-selected="true"] > *,
+.wht > [aria-pressed="true"] > * {
+  color: inherit;
+}
+/* 焦点环沿用本文件上方既有的 :focus-visible 约定（--legacy-glass-focus），
+   .wht 不另起一套，避免同一元素叠两层环。 */
+.wht > *[disabled],
+.wht > *[aria-disabled="true"] {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* 窄屏：选项多时换行，不把整条页签挤出屏幕（index.css:2121-2129）。
+   只覆盖内边距 —— 本文件顶部那条 @media(max-width:767px) 的
+   button{min-height:2.25rem} 是移动端点触尺寸的既有约定，页签项保持继承。 */
+@media (max-width: 575px) {
+  .wht { row-gap: 3px; }
+  .wht > * { padding: 0 8px; }
+  .wht--block > * { flex: 1 1 auto; }
+}
+/* 页签项常用 <a>/<span>（如 alarm-management.html 的 #tabBar），不在上方
+   button{min-height:2.25rem} 那条规则的覆盖范围内，这里补齐同档移动端点触尺寸。 */
+@media (max-width: 767px) {
+  .wht > * { min-height: 2.25rem; }
+}
+
+/* ==========================================================================
+   统一「可下钻」标识与明细弹窗（.wh-drill / .whx）—— legacy 静态页共用
+   --------------------------------------------------------------------------
+   背景：AGENTS.md 第三节 1b 要求「能下钻尽下钻」，React 页的下钻弹窗规定用
+   components/DraggableClickModal。**iframe 里的 legacy 页做不到**：那是 React
+   组件，静态页没有运行时，也不会为了一个弹窗引入 React。所以这里给出一条
+   对规范的既成偏离 —— 用同一份 CSS + legacy-drill.js 复刻同样的交互
+   （点数字 → 弹窗看明细 → Esc/遮罩关闭），而不是放任四页各画各的弹窗。
+   新增 legacy 页要下钻时接这一套，不要再另起第三套。
+
+   可下钻的判定口径（四页一致，务必遵守）：
+     · 只有当「明细与概览同源」时才挂 .wh-drill —— 即弹窗里的每一行都取自
+       渲染那个数字的同一份数据。做不到同源的数字**宁可显式声明不可下钻**，
+       也不要猜一个映射去凑（1b：下钻的 WHERE 必须与概览完全一致）。
+     · 截断必须显式（.whx-note 由 JS 在 truncated 时常驻显示），静默截断会被
+       用户当成数字对不上。
+     · 取不到值显示 —（em dash），不得显示 0。
+
+   令牌同样是 index.css 的镜像（逐条标源行）。
+   ========================================================================== */
+:root {
+  --whx-teal: #00d9ff;                     /* index.css:39 */
+  --whx-teal-40: rgba(0, 217, 255, 0.40);  /* index.css:64 */
+  --whx-text: #f5f7ff;                     /* index.css:50 */
+  --whx-muted: #aebbd4;                    /* index.css:51 */
+  --whx-surface: #08122c;                  /* App.tsx:1647 Card.colorBgContainer（深色档） */
+  --whx-elevated: #070d31;                 /* App.tsx:1652 Modal.contentBg（深色档） */
+  --whx-head: #0a1730;                     /* 表头底色，同 --whd-chart-tooltip-bg 的取值口径 */
+  --whx-border: #153db0;                   /* index.css:136 --wh-glass-border */
+  --whx-scrim: rgba(2, 5, 12, 0.38);       /* index.css:146 --wh-scrim */
+  --whx-hover: rgba(37, 140, 255, 0.10);   /* index.css:68 --wh-hover-row */
+  --whx-ok: #0bc78c;                       /* index.css:78 --wh-ok */
+  --whx-danger: #ff5c6c;                   /* index.css:79 --wh-danger */
+  --whx-warn: #f6cf00;                     /* index.css:80 --wh-warn */
+  --whx-radius: 0.5rem;                    /* index.css:186 */
+}
+html[data-theme="light"] {
+  --whx-teal: #0d9488;                     /* index.css:195 */
+  --whx-teal-40: rgba(13, 148, 136, 0.40); /* index.css:217 */
+  --whx-text: #16233b;                     /* index.css:205 */
+  --whx-muted: #3f5468;                    /* index.css:206 */
+  --whx-surface: #ffffff;
+  --whx-elevated: #ffffff;
+  --whx-head: #f0f5fa;                     /* index.css:727 浅色表头 */
+  --whx-border: rgba(94, 125, 143, 0.28);  /* index.css:245 --wh-glass-border（浅色档） */
+  --whx-scrim: rgba(38, 83, 104, 0.20);    /* index.css:253 */
+  --whx-hover: rgba(71, 101, 119, 0.06);   /* index.css:264 */
+  --whx-ok: #0f9d58;                       /* index.css:274 */
+  --whx-danger: #d93025;                   /* index.css:275 */
+  --whx-warn: #d97706;                     /* index.css:276 */
+}
+
+/* ---- 可下钻标识：数字本身 ---- */
+.wh-drill {
+  cursor: pointer;
+  color: var(--whx-teal);
+  border-bottom: 1px dashed var(--whx-teal-40);
+  transition: color .15s ease, border-color .15s ease, background-color .15s ease;
+}
+.wh-drill:hover { border-bottom-color: var(--whx-teal); }
+.wh-drill:focus-visible { outline: var(--legacy-glass-focus); }
+/* 整卡可点：不给每个数字加虚线，只在悬停时给一层描边+底色反馈 */
+.wh-drill-card { cursor: pointer; transition: box-shadow .15s ease, background-color .15s ease; }
+.wh-drill-card:hover { box-shadow: 0 0 0 1px var(--whx-teal-40), 0 2px 10px var(--whx-scrim); }
+/* 同源做不到时的显式声明：保留说明气泡，但不给可点的错觉 */
+.wh-nodrill { cursor: help; border-bottom: 1px dotted var(--whx-muted); }
+
+/* ---- 弹窗骨架（由 legacy-drill.js 建 DOM，页面不需要自带 modal 标记） ---- */
+.whx-mask {
+  position: fixed; inset: 0; z-index: 9990;
+  background: var(--whx-scrim);
+  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(3px);
+  display: flex; align-items: flex-start; justify-content: center;
+  padding: 6vh 12px 24px;
+}
+.whx {
+  background: var(--whx-elevated);
+  border: 1px solid var(--whx-border);
+  border-radius: var(--whx-radius);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, .35);
+  width: min(1080px, 100%);
+  max-height: 88vh;
+  display: flex; flex-direction: column;
+  color: var(--whx-text);
+  font-family: inherit;
+}
+.whx-head {
+  flex: none;
+  display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--whx-border);
+  background: var(--whx-head);
+  border-radius: var(--whx-radius) var(--whx-radius) 0 0;
+}
+.whx-title { font-size: 14px; font-weight: 700; color: var(--whx-text); }
+.whx-sub { font-size: 11px; font-weight: 400; color: var(--whx-muted); margin-left: 8px; }
+.whx-close {
+  appearance: none; border: 1px solid var(--whx-border); background: transparent;
+  color: var(--whx-muted); border-radius: 6px; padding: 2px 10px;
+  font: inherit; font-size: 12px; cursor: pointer; flex: none;
+}
+.whx-close:hover { color: var(--whx-teal); border-color: var(--whx-teal); }
+.whx-body { flex: 1 1 auto; overflow: auto; padding: 4px 14px 10px; }
+.whx-note { font-size: 11px; color: var(--whx-muted); padding: 8px 0 4px; }
+.whx-note.warn { color: var(--whx-warn); }
+.whx-empty { padding: 24px; text-align: center; color: var(--whx-muted); font-size: 12px; }
+
+.whx table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.whx th, .whx td { text-align: right; padding: 5px 8px; border-bottom: 1px solid var(--whx-border); white-space: nowrap; }
+.whx th:first-child, .whx td:first-child { text-align: left; }
+.whx th { position: sticky; top: 0; background: var(--whx-head); color: var(--whx-muted); font-weight: 600; z-index: 1; }
+.whx tbody tr:hover { background: var(--whx-hover); }
+/* 数字用等宽字形对齐，纵向可比 —— 与 .gis-rank-row__num 同一做法（index.css:1308） */
+.whx td { font-variant-numeric: tabular-nums; font-feature-settings: 'tnum'; }
+.whx td.miss { color: var(--whx-muted); }
+.whx td.pos { color: var(--whx-ok); }
+.whx td.neg { color: var(--whx-danger); }

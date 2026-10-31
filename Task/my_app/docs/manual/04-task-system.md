@@ -70,6 +70,25 @@ APScheduler 到点 (backend 进程内)
 > 比同步的 `finished_at` 早 **0.6~1.7 秒**（6 轮全部吻合）。现已改为**每张表结束读事务**
 > （`_end_pg_read_txn`，放在循环的 `finally` 里覆盖跳过/失败路径）。两处必须一起改：
 > 只拆组不切事务，`x` 组的实时告警仍会被拖住。
+>
+> **2026-10-30 二次优化（单表锁窗口再压 93%）**：上面「每张表结束读事务」只解决了
+> **跨表**累积的问题，**单表内部**的锁窗口仍等于「读 PG + 写 SQLite」——`battery_reading`
+> 105 万行最坏实测 399.5s。现改为在 `sync_table` 里 `SELECT` 的 `execute()` 返回后
+> **立刻**调用 `_end_pg_read_txn()`，不等数据写完 SQLite。依据：psycopg2 普通（非命名）
+> 游标在 `execute()` 时已由 libpq 把整个结果集**同步**拉回客户端，因此 commit 之后游标
+> 仍可继续 `fetchmany`（已实测验证，见 `TMP/t_sync_lockwindow.py`）。于是 `ACCESS SHARE`
+> 只覆盖「纯 SELECT 执行」，写 SQLite 的那段时间不再持锁。
+> 对照实测 `TMP/t_sync_lock_ab.py`（`battery.battery_reading`，113.5 万行）：
+> 旧逻辑 8.8s / 锁窗口 **9.1s** → 新逻辑 6.2s / 锁窗口 **0.6s**，行数完全一致。
+> **刻意不用 `fetchall`**：三张百万行表（140 万 / 110 万 / 105 万）整体转成 Python 对象
+> 峰值内存约 900MB，会顶爆 worker —— 仍保持 `fetchmany(BATCH_SIZE)` 分批消费客户端缓冲，
+> 并在 `finally` 里显式 `cur.close()` 及时释放该缓冲。
+>
+> ⚠️ **这个改造必须重启 `p` 组 worker 才生效**（Python 不热重载模块）。2026-10-30 排查时
+> 发现：10-28 的 4 处 `ctid NOT IN (SELECT MIN(ctid)...)` 反模式早已改成
+> `dialect_helpers.dedupe_rows`，但**旧进程还在跑旧模块**，`ipran_ume.Metro_ring_me_15mins`
+> 上一条 22 小时的 `DELETE` 把 `DROP INDEX` 和后续 8 个读全堵在锁队列里，
+> 连带 `pg_to_sqlite_sync` 卡 1h49m、`eflow_sync` 跑满 7265s。
 
 `m` 组末尾几条有注释记录：`finebi_report_sync`/`pg_to_sqlite_sync`（2026-08-25）、`whatsapp_send_ext`（08-31）、`sp_email_details`（09-01）、`cells_kpi_sync`/`sp_material_sync`（09-09~11）在启用分组模式后都因**未归入任何组而无人认领，队列 pending 卡死断档**才补进来（`worker_watchdog.py` 内的补录注释）。其中 `pg_to_sqlite_sync` 已于 2026-10-28 拆到独立的 `p` 组（见上文拆组依据），`m` 组现为 38 项。
 

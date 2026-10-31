@@ -235,10 +235,20 @@ def _end_pg_read_txn(pg_conn):
 def sync_table(pg_conn, sqlite_conn, schema: str, table: str):
     """同步单张表。
 
-    ⚠️ 本函数会在这张表上开启 PG 读事务（`get_pg_columns` + `SELECT`），
-    但**不负责结束它** —— 由调用方 `main()` 的循环在每张表之后调用
-    `_end_pg_read_txn()`。这样「跳过表 / 无列信息 / 同步失败」三种提前返回
-    路径也能释放锁，不必在每个 return 前重复写一遍。
+    锁窗口（2026-10-30 二次优化）
+    ----------------------------
+    `get_pg_columns` 与 `SELECT` 各开一次 PG 读事务。本函数在 `SELECT` 的
+    `execute()` 返回后**立刻** `_end_pg_read_txn()`，不等把数据写完 SQLite ——
+    因为 psycopg2 普通（非命名）游标在 `execute()` 时已由 libpq 把整个结果集
+    同步拉回客户端，commit 之后游标仍可继续 `fetchmany`（已实测验证）。
+
+    这样 PG 侧的 ACCESS SHARE 只覆盖「纯 SELECT 执行」，不再包含「写 SQLite」
+    那段（原写法边读边写，锁窗口 = 读 + 写，`battery_reading` 最坏 399.5s）。
+    仍用 `fetchmany` 分批而非 `fetchall`：三张百万行表（1.4M/1.1M/1.05M）
+    若整体转成 Python 对象，峰值内存约 900MB，会顶爆 worker。
+
+    「跳过表 / 无列信息 / 同步失败」等提前返回路径的锁由调用方 `main()`
+    循环里的 `finally: _end_pg_read_txn()` 兜底释放（重复 commit 是幂等的）。
     """
     sqlite_name = sanitize_table_name(schema, table)
 
@@ -264,18 +274,25 @@ def sync_table(pg_conn, sqlite_conn, schema: str, table: str):
         col_names.append(name)
     col_defs = ", ".join(f'"{c}" {pg_type_to_sqlite(next(ct[1] for ct in columns if ct[0] == c))}' for c in col_names)
 
-    # 2. 在 SQLite 中原子重建表：DROP+CREATE+INSERT 放进同一事务，
+    # 2. 先在 PG 侧执行 SELECT，**execute 返回即结束读事务**（详见 docstring）。
+    #    此刻数据已由 libpq 全量缓冲到客户端，后续 fetchmany 不再触达服务端，
+    #    也就无需继续持有 ACCESS SHARE。
+    cur = pg_conn.cursor()
+    col_list = ", ".join(f'"{c}"' for c in col_names)
+    try:
+        cur.execute(f'SELECT {col_list} FROM "{schema}"."{table}"')
+    finally:
+        # SELECT 失败时事务已 aborted，这里走 rollback 分支，语义同样正确
+        _end_pg_read_txn(pg_conn)
+
+    # 3. 在 SQLite 中原子重建表：DROP+CREATE+INSERT 放进同一事务，
     #    失败则回滚——旧快照数据保持完整，不会出现"空表/半张表"。
     sqlite_conn.execute("BEGIN IMMEDIATE")
     try:
         sqlite_conn.execute(f'DROP TABLE IF EXISTS "{sqlite_name}"')
         sqlite_conn.execute(f'CREATE TABLE "{sqlite_name}" ({col_defs})')
 
-        # 3. 从 PG 读取数据并批量写入 SQLite
-        cur = pg_conn.cursor()
-        col_list = ", ".join(f'"{c}"' for c in col_names)
-        cur.execute(f'SELECT {col_list} FROM "{schema}"."{table}"')
-
+        # 4. 从客户端缓冲分批取出，写入 SQLite
         placeholders = ", ".join(["?"] * len(col_names))
         insert_sql = f'INSERT INTO "{sqlite_name}" VALUES ({placeholders})'
 
@@ -301,6 +318,13 @@ def sync_table(pg_conn, sqlite_conn, schema: str, table: str):
         except sqlite3.Error:
             pass
         raise
+    finally:
+        # 显式关闭游标：它持有整个结果集的客户端缓冲（百万行表可达数百 MB），
+        # 靠 GC 回收会让「下一张表读取」与「上一张表的残留缓冲」在内存里叠加。
+        try:
+            cur.close()
+        except Exception:  # noqa: BLE001 - 连接已断时不阻断同步流程
+            pass
     return total
 
 

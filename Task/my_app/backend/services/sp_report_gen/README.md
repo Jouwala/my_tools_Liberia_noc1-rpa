@@ -164,7 +164,7 @@ Inventory / Transfer 两份行数不变（原始即无 Canceled）。
 | 10 | Safety Stock | 月均消耗 > 0 → `ceil(6 × Avg Monthly Consumption)`（整数，按 2 位小数月均验算）；**月均消耗 = 0 → `ceil(20% × max(Inbound Qty, Outbound Qty, Inventory Qty))`**（整数） |
 | 11 | **Remark** | 月均消耗 > 0 → `Actual Consumption`；**月均消耗 = 0 → `Failure Rate`**（`Total` 行留空） |
 | 12 | Replenishment Qty | Safety Stock − Inventory Qty，**向上取整**；**≤ 0 留空**（不显示 0/负数，便于直接求和） |
-| 13 | Alert Level | Inventory Qty / Safety Stock：< 50% `Urgent Replenish`；50%~100% `Replenish`；> 100% `Excess`（红/黄/绿三色；`Total` 行留空） |
+| 13 | Alert Level | Inventory Qty / Safety Stock：< 50% `Urgent Replenish`；50%~100% `Replenish`；> 100% `Redundant`（红/黄/绿三色；`Total` 行留空） |
 
 - **Outbound 拆分（2026-09-24 新增）**：`Outbound Repair Qty` 只统计 `Outbound Type = 'Repair Outbound'`，
   `Outbound Site Qty` 由 **`Outbound Qty` 减去**（而不是再筛一次类型）得到，
@@ -195,7 +195,7 @@ Inventory / Transfer 两份行数不变（原始即无 Canceled）。
   常量：`REPLENISH_DEC_COLS` / `REPLENISH_INT_COLS`。
 - **月均消耗 = 0 的物料**（无出库记录）按「故障率」备件处理：`Safety Stock = ceil(20% × 主表三列数量最大值)`、`Remark = Failure Rate`。
   常量：`REPLENISH_ZERO_CONSUMPTION_SAFETY_PCT` / `REMARK_FAILURE_RATE` / `REMARK_ACTUAL_CONSUMPTION`。
-  三列数量全 0 时 Safety Stock 为 0，Alert Level 分母保护后落入 `Excess`（库存也是 0，补库列留空）。
+  三列数量全 0 时 Safety Stock 为 0，Alert Level 分母保护后落入 `Redundant`（库存也是 0，补库列留空）。
 - `Total` 行：Avg 列为**各行 2 位小数值的合计**（仍为 2 位小数），Safety / Replenishment Qty 为各行取整后的合计（整数），
   `Domain` / `Remark` / `Alert Level` 留空。
 - 口径说明写在**文件上方**（2026-09-17 起，改前在表身下方）：Summary-Current 的第 4/5/6/7 行是**四行**英文说明

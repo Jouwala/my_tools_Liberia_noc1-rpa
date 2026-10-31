@@ -10,6 +10,18 @@
 
 ## B. 下钻/明细类弹窗的既有组件（直接用，别自建 `Modal` + 裸 `Table`）
 - `components/DraggableClickModal.tsx`：锚点=鼠标点击坐标、可拖动、Esc/× 关闭、点遮罩不关、自动跟随深浅主题。
+- ⚠️ **必须用 `createPortal` 挂到 `document.body`**（2026-10-31 修，别再删）。全站卡片样式给
+  `.ant-card/.wh-card` 挂了 `backdrop-filter`（玻璃态，`index.css:420` 那一组），而
+  **`backdrop-filter`（同 `filter`/`transform`/`will-change`/`contain`）会让该元素成为
+  `position:fixed` 子元素的包含块**。弹窗本来渲染在诊断卡内部时，fixed 变成「相对卡片固定」，
+  JS 写的 `top` 再叠加卡片的文档偏移 —— 实测 `top:522px` 渲染成 `rect.top=882.5`，
+  `bottom=1328 > vh=1100`，弹窗整体被推出视口。**判据：`el.style.top` 与
+  `getBoundingClientRect().top` 不等时，先查祖先链上的 backdrop-filter。**
+- 同理，`.dcm-body` 必须有 `flex:1 1 auto; min-height:0; overflow:auto`（三件套缺一不可）：
+  否则 flex 子项默认 `min-height:auto` 会撑破 `.dcm-modal` 的 `max-height:88vh`，
+  高度超过视口后 clamp 公式算出负数，弹窗上下同时被裁。
+- 另外 `.dcm-overlay` **不要用 `display:flex` 居中**：modal 是 flex item 时会被
+  `align-items:center` 预置偏移，JS 写的 `top` 叠加其上。
 - `components/SearchableExportTable.tsx`：搜索框 + 导出按钮 + 分页表格，注释写明「供下钻/明细类抽屉复用」；已支持透传 `onRow`，整行可点即用它做下钻。
 - 参考实现：`pages/UmeInKpi.tsx`（全页下钻，最完整）、`pages/gismap/SiteDrilldownDrawer.tsx`、`pages/RanCellsKpi.tsx`。
 
@@ -35,6 +47,45 @@
 - **英文环境回归方法**（可复用）：`createTreeWalker(body, SHOW_TEXT)` 扫文本节点里带 `[\u4e00-\u9fff]` 的**可见**文本（过滤 `getBoundingClientRect()` 宽高为 0），去重打印。整站逐页 `TMP/t_i18n_allpages.py`、单页全下钻 `TMP/t_i18n_sweep2.py`。**导出 xlsx 也要逐单元格 grep CJK**（「失败分解」sheet 是独立代码路径，最易漏）。
 - ⚠️ **先分清「请求时生成」还是「已落库」**：只有**请求时生成、不落库**的文案才值得本地化（如 `sp_material` 的 12 条 warnings → 后端加 `lang` 参数 + `_w(lang, zh, en)`）。**落库的中文不要翻译**：`tables` 页是 `task_queue.result_json` 的**值**、`sync` 页是任务 `error`/`message` 字段、`archive` 页的「分析 - xxx」是中文环境存进去的分析名称 —— 这些是**数据**，翻它们要么改源语言，要么上结构化 code + 渲染时本地化，都是独立工程。
 - 现状：`ume_in_kpi` / `ran_cells_kpi` / `sp_material` 已 0 残留；整站 32 页 UI 文案全干净，剩余「中文」全属上面那类**存库数据**。
+
+### E.1 规则层（纯函数）怎么写可翻译文案（2026-10-31，`vmaxDiagnosisRules.ts`）
+- **规则层是纯函数、拿不到 `t()`**（不能 import React/context，否则不可单测）。
+  所以描述一律返回 `I18nText = { key, params? }`，由组件用 `renderI18n(t, v)` 渲染。
+  `params` 允许嵌套 `I18nText`（「无线侧不可判：{{why}}」），`renderI18n` 递归展开。
+- `frontend/src/renderI18n.ts` **故意不 import `I18nText` 类型**，改用结构判断
+  `isTranslatable` —— 否则形成 `rules ↔ render` 双向依赖。
+- ⚠️ **`check:i18n` 扫不到这类漏翻**：它只扫 JSX 文本与 `t()` 的**字面量**入参，
+  扫不到规则层拼好的中文串，也扫不到 `render: (v) => \`${v} 次\`` 这类回调里的内容。
+  **真正的验收只有一条：切 EN 跑一遍，扫页面上的 `[\u4e00-\u9fa5]`。**
+- ⚠️ **`t()` 占位符必须两种括号都替换**：字典主流写法是 `{{name}}`，早期有 `{name}`。
+  只写 `replace('{name}')` 时 `'{{n}}'.replace('{n}','5')` = `'{5}'`（内层被吃、外层残留），
+  **不报错也不缺键**，只有肉眼能发现。正确顺序：**先 `replaceAll('{{k}}')` 再 `replaceAll('{k}}')`**，
+  且必须 `replaceAll`（同一参数在句中可能重复）。
+- **标点 / 单位 / 分隔符都是文案**，不能硬编码：
+  中文全角「：」「（）」「、」「；」↔ 英文半角「: 」「 (n)」「, 」「; 」。
+  解决法：把「带标点的标签」整条做成键（`vmaxq.voice.estLabel` / `vmaxq.diag.suggestionLabel` /
+  `vmaxq.diag.srcTag` / `vmaxq.game.keywordsCount`），值单独渲染以便染色。
+- **量纲不同的单位词不能共用数值模板**：中文「万」=10^4、英文「K」=10^3，
+  一个 `{{v}} 万 / {{v}}K` 模板吃同一个 `v` 会差 10 倍（1.42万==14200，1.42K==1420）。
+  正确做法：**除数跟着语言走**（JS 里按 locale 选），字典只出单位词。
+- **后端中文文案的正确修法**：后端**同时给 key 和中文兜底**
+  （`label_key` + `label`、`key` + `name`、`service_key` + `category_label`、`raw` + `value`），
+  前端按 key 翻译、缺键回退中文。不要只给 key（老版本后端/缓存会缺）也不要只给中文。
+  两张映射表用 `assert set(A) == set(B)` 防漂移。
+- **同一字段多处渲染时抽一个函数**（`sourceLabel(t, s)`）：三处各写一遍，
+  改 i18n 只改一处就会出现「1300 是英文、空态那行还是中文」的割裂。
+
+### E.2 英文界面回归脚本写法（`TMP/t_vmax_diag_i18n.py`，可复用）
+- 切换语言**用 URL 参数 `?lang=en`**：`i18n.tsx::detectLocale` 判定链是
+  `?lang= > app-locale > olbr.lang > 浏览器语言`，优先级最高，比点按钮稳。
+  同时把 `locale` 也设成 `en-US` 兜底，避免「语言没切过去」被误判成漏翻。
+- 白名单只放行**数据**：应用名（`EGAME_FREEFIRE`）/ 小区名 / 厂商名，
+  以及**语言切换按钮**（显示目标语言本名，是通行做法）。其余一律算漏翻。
+- 断言里的英文文案**必须查字典真实取值**，别凭印象写（曾写 "All Complaints"，实际是 "All"，白等 30s 超时）。
+- ⚠️ **点下一个页签前必须先关 `.dcm-modal`**：它 Portal 挂 body，
+  `.dcm-overlay` 会拦截后续所有点击（30s 超时 + "intercepts pointer events"）。
+- ⚠️ **脚本内联的 mock 要跟着后端契约更新**，否则验证的是旧结构、漏翻会假通过。
+- 反向也要跑：中文回归脚本确认没改坏（`TMP/t_vmax_diag_shot.py`）。
 
 ## F. 页面高度别自己减「外壳留白」（2026-09-17 实测，修掉 108px 底部空白）
 - **外壳 embed/bare 模式**：URL 首屏带 `?page=`（直链/门户深链）或 `?embed=1` 时，

@@ -47,6 +47,9 @@
 - **4.7 ume_in KPI 看板**：任务尚未被 worker 认领（暂缓）。
 - **4.8 OSG Weekly QoS Report**：改 sheet XML 填数，保公式与图表。
 - **4.9 前端 / Playwright / i18n** → `memory/FRONTEND_PITFALLS.md`。
+- **4.10 身份与组织主数据（任何"按人/按部门"的功能都踩这里）**：门户会话只带 `username` + `role`(admin/viewer) + `allowedGroups/Cards`，**没有邮箱、没有部门、没有真名**（`portal_auth.py::create_session`）。身份桥（2026-10-30 实测）：门户 username 小写 == `app.flm_team_information."unnamed_5"`（eFlow Acount，仅 30 人）→ 同行取 `unnamed_3`姓名 / `unnamed_4`职位 / `unnamed_2`Base location / `unnamed_1`County → 姓名经 `services/person_name.py::normalize_person_name` 归一 → `app.person`（email 仅 50/137、`managed_regions`、`leavestatus`）。**`app.person` 的 `department`/`position`/`office`/各级 `*_leader` 列全为空（0 行非空），不要当部门主数据用**。办公室账号（admin/jouwala/6000056629 等）不在 FLM 花名册，需人工建档。`person_name.py` 是姓名跨表 JOIN 的唯一实现（`Name(FE_FE_111)` / `P:Name` 归一，实测 96% 命中率）。
+
+- **4.11 AP 行动计划（`?page=ap_center`，2026-10-30 上线）**：整改任务闭环（DRAFT→ASSIGNED→ACKNOWLEDGED→IN_PROGRESS→PENDING_REVIEW→COMPLETED/REJECTED）。细节见 `docs/manual/11-feature-guide.md` §39 与 `backend/services/ap_manager/AP_Plan_Review.md`。四条硬规则：① 状态值一律下划线、转换白名单在 `ap_manager/store.py::TRANSITIONS`，并发用乐观锁 `UPDATE ... WHERE id=? AND status=?`（sqlite 无行锁）；② 组织架构 = Escalation Matrix（`ap_manager/org.py::ORG_SEED`，4 级 21 人），**不是部门表**；任务里存姓名、账号靠 `permissions.keys()` 的「账号+姓名+显示名」别名互认，否则按姓名派单本人看不到；③ WhatsApp 走 `wa_notify_service` 是**单槽作业文件**，必须批量 dispatch（`notify.py` 3 秒合并窗口），逐条发会互相覆盖；④ PG 上 `COALESCE(时间列,'9999')` 会报错、`datetime` 序列化带 `T` 会让逾期比较出错，统一用 `store.normalize_ts()`。
 
 ## 5. 验证与排障（详细 → `memory/PLAYBOOK.md`）
 - 后端纯逻辑用系统 Python312 起 FastAPI TestClient（**只挂目标 router，不加载 main**，否则鉴权中间件 401）；前端真交互用工作区 venv 的 Playwright（`--no-proxy-server` + `locale="zh-CN"`）。**写/改代码要验证、或排查线上异常时先读 `memory/PLAYBOOK.md`**（含：前端改动是否真上线怎么查、帮助文档生成链路、Excel 导出约定、改 xlsx 模板保图表的三步校验、nginx→7038 瞬时 502 的判法、代理污染 vs 真网络不通、`/api/tasks/history` 参数格式、任务被禁用静默跳过、EWS 邮件网关故障与补发机制）。

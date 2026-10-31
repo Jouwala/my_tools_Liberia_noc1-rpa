@@ -228,12 +228,12 @@ def replenish_notes(as_of=None):
     )
 ALERT_URGENT = 'Urgent Replenish'
 ALERT_REPLENISH = 'Replenish'
-ALERT_EXCESS = 'Excess'
+ALERT_REDUNDANT = 'Redundant'
 # 预警级别 → (背景色, 文字色)，Excel 与 PNG 共用
 ALERT_COLORS = {
     ALERT_URGENT: ((255, 199, 206), (156, 0, 6)),
     ALERT_REPLENISH: ((255, 235, 156), (156, 101, 0)),
-    ALERT_EXCESS: ((198, 239, 206), (0, 97, 0)),
+    ALERT_REDUNDANT: ((198, 239, 206), (0, 97, 0)),
 }
 
 # ==============================================================================
@@ -1308,7 +1308,7 @@ def build_replenishment(outb_df, inv_df, base_index=None, summary_qty=None, as_o
       net Outbound Qty 为已剔除异常单据与 Repair Outbound 的净消耗）
     - Remark = Actual Consumption（月均消耗 > 0）/ Failure Rate（月均消耗 = 0）
     - Replenishment Qty = Safety Stock - Inventory Qty，<= 0 记为空（不显示，便于求和）；结果向上取整
-    - Alert Level = Inventory Qty / Safety Stock：< 50% Urgent Replenish；50% ~ 100% Replenish；> 100% Excess
+    - Alert Level = Inventory Qty / Safety Stock：< 50% Urgent Replenish；50% ~ 100% Replenish；> 100% Redundant
 
     base_index：主表的 Material Name 序列。给了就按它逐行对齐（主表里没有出库消耗的物料
     按 0 消耗计算，保证与主表行数、顺序一一对应）；不给则只输出有出库消耗的物料。
@@ -1382,7 +1382,7 @@ def build_replenishment(outb_df, inv_df, base_index=None, summary_qty=None, as_o
     result[REPLENISH_ALERT_COL] = np.select(
         [ratio < 0.5, ratio <= 1.0],
         [ALERT_URGENT, ALERT_REPLENISH],
-        default=ALERT_EXCESS,
+        default=ALERT_REDUNDANT,
     )
 
     return result[REPLENISH_COLS]

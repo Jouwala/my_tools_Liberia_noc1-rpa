@@ -26,7 +26,7 @@ import type { Site, DrilldownData, DrilldownAnalytics, TopologyLink, LegendKey, 
 // KML_LINK_COLORS 已不在本模块使用：利用率叠加恒开（showUtil 恒真），
 // 于是「按 kml_mw_links 原色分组」的那份图例成了不可达分支，2026-09-28 随图例迁移一并删除。
 // 该常量仍留在 gismap/types.ts（链路数据自带 color，那里的注释是它的说明处）。
-import { SITE_COLORS, UTIL_LEVEL_COLORS, UTIL_LEVEL_ORDER, utilLevelOf } from './gismap/types'
+import { SITE_COLORS, LEGEND_COLORS, colorFor, UTIL_LEVEL_COLORS, UTIL_LEVEL_ORDER, utilLevelOf } from './gismap/types'
 import { BASEMAP_PMTILES_URL, BASEMAP_ATTRIBUTION, BASEMAP_MAX_ZOOM } from './gismap/basemap'
 import { PmtilesLayer } from './gismap/PmtilesLayer'
 // MW 链路批量图层（2026-10-19）：844 条线改用 Leaflet 原生批量建层，
@@ -154,34 +154,12 @@ function rcaCauseTagColor(c: string): string {
 
 /* ===== 图例配色（2026-10-17 重新设计）=====
 
-   用户反馈「图例总是不好区分」。原来的 SITE_COLORS 是**六个互不相干的色相**
-   （大红/黄/灰/蓝/绿/紫），色相之间没有亲疏关系 —— 读者只能逐行看文字。
-
-   现在按**语义族**重新分配色相，同族用同色相不同深浅：
-     · 告警族（红橙）  overdue 深红 / ontime 橙 / rt_alarm 中红
-     · 工单族（蓝青）  tt 蓝 / wo 青
-     · 其它            vip 紫（重要但非告警）、normal 灰（无状态）
-   这样「同组=同族色」本身就是线索，不必读字。
+   色表与 `colorFor()` 已于 2026-10-30 搬到 `gismap/types.ts`（`LEGEND_COLORS`），
+   供人员页（?page=person）复用同一份 —— 详见那里的说明。
 
    ⚠️ 关键约束：**这份配色必须与地图上实际画的圆点同源**，否则图例骗人。
       因此 GISMap 里站点圆点的 getMarkerColor 也改为走 colorFor()，
-      而不是直接读 SITE_COLORS —— 见该函数。
-   ⚠️ 值必须是十六进制实值：它们要喂给 Leaflet 的 SVG（fillColor），
-      解析不了 CSS 变量（与 SITE_COLORS 段头注释同一约束）。 */
-const LEGEND_COLORS: Record<string, string> = {
-  rt_alarm_overdue: '#e03131',   // 深红：SLA 已超时（最紧急）
-  rt_alarm_ontime: '#ff922b',    // 橙：在 SLA 内
-  rt_alarm: '#ff6b6b',           // 中红：全量模式的实时告警档
-  his_alarm: '#868e96',          // 灰：历史
-  tt: '#4dabf7',                 // 蓝
-  wo: '#20c997',                 // 青
-  vip: '#9775fa',                // 紫：重要站点（与告警状态无关）
-  normal: '#adb5bd',             // 浅灰：无任何状态
-}
-
-/* 取图例/站点圆点色。集中一处，保证「图例色 == 地图点色」。
-   未知 key 回落到 SITE_COLORS.normal（与改动前一致，不臆造颜色）。 */
-const colorFor = (key: string): string => LEGEND_COLORS[key] || SITE_COLORS.normal
+      而不是直接读 SITE_COLORS —— 见该函数。 */
 
 /* ========== 区域（County）告警分档与淡填充（2026-10-14） ==========
 

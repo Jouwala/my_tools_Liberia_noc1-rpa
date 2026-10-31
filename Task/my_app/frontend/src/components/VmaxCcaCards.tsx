@@ -38,7 +38,6 @@ export type CcaResult = {
   user: Record<string, unknown>
   terminal: Record<string, unknown> | null
   window?: { starttime: string; endtime: string }
-  flow?: { total_flux: string; apps: unknown[] } | null
   cells?: { cells: CellRecord[]; cell_kpi: Record<string, KpiItem[]> } | null
   causes?: CauseItem[] | null
   failures?: string[]
@@ -74,16 +73,6 @@ export default function VmaxCcaCards({
   const terminalItems = Object.entries(result.terminal || {}).map(([key, value]) => ({
     key, label: fieldLabel(key, t), children: fmt(value),
   }))
-
-  // app_flux 命中样本尚缺（多数用户无 DPI 记录），列名从首条记录的键动态生成
-  const flowApps = (result.flow?.apps || []).filter(a => a && typeof a === 'object')
-  const flowColumns = (() => {
-    const first = flowApps[0] as Record<string, unknown> | undefined
-    if (!first) return []
-    return Object.keys(first).map(k => ({
-      title: fieldLabel(k, t), dataIndex: k, render: fmt, ellipsis: true,
-    }))
-  })()
 
   const cells = result.cells?.cells || []
   const causes = result.causes || []
@@ -196,36 +185,6 @@ export default function VmaxCcaCards({
             />
           ) : (
             <Text type="secondary">{t('vmaxq.noTerminal')}</Text>
-          )}
-        </CardBase>
-
-        <CardBase
-          title={t('vmaxq.flowCard')}
-          extra={result.window
-            ? <Text type="secondary" style={{ fontSize: 12 }}>
-                {result.window.starttime.slice(0, 10)} ~ {result.window.endtime.slice(0, 10)}
-              </Text>
-            : undefined}
-        >
-          {result.flow ? (
-            <>
-              <Descriptions size="small" bordered column={1} items={[{
-                key: 'total', label: t('vmaxq.flowTotal'),
-                children: <Text strong>{result.flow.total_flux}</Text>,
-              }]} />
-              {flowApps.length > 0 && (
-                <Table
-                  style={{ marginTop: 12 }}
-                  rowKey={(_, i) => String(i)}
-                  columns={flowColumns}
-                  dataSource={flowApps as Record<string, unknown>[]}
-                  pagination={{ pageSize: 8 }}
-                  size="small"
-                />
-              )}
-            </>
-          ) : (
-            <Text type="secondary">{t('vmaxq.noFlow')}</Text>
           )}
         </CardBase>
 

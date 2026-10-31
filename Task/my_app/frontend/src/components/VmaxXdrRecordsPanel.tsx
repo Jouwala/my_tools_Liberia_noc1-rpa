@@ -7,6 +7,10 @@
  *   - 本面板：按**单张 XDR 表**查（UEMR_XDR / UU_XDR / X2_XDR…），列由该表列头
  *     决定。UEMR_XDR 带 RSRP/SINR 等空口测量列，排障看无线质量必须用它。
  *
+ * 2026-10-30 改版：**时间窗改为页面级共用**（见 pages/vmaxWindowContext.ts）。
+ *   本面板不再渲染自己的 RangePicker，也不存 rtStart/rtEnd 两份 URL 参数；
+ *   窗口从 useVmaxWindow() 取，顶部「查询」一点即与另外两个页签并行取数。
+ *
  * 表清单来自后端 /vmax-xdr-records/tables（上游 get_tabinfo 缓存 10 分钟），
  * 不在前端写死 —— 现场新增表无需改码。
  *
@@ -18,7 +22,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
-  Alert, Button, DatePicker, Descriptions, Input, Popconfirm, Segmented, Select, Space,
+  Alert, Button, Descriptions, Input, Popconfirm, Segmented, Select, Space,
   Spin, Table, Tag, Typography, message,
 } from 'antd'
 import {
@@ -35,9 +39,10 @@ import {
   vmaxXdrSavedRecord, vmaxXdrSavedRecords, vmaxXdrServices, vmaxXdrTables,
 } from '../api'
 import { readParam, writeParams } from '../urlState'
+import { useVmaxWindow } from '../pages/vmaxWindowContext'
+import { rangeToParams } from '../pages/vmaxWindow'
 
 const { Text } = Typography
-const { RangePicker } = DatePicker
 
 type ServiceItem = {
   id: string; name: string; name_zh?: string; retention_hours?: number
@@ -89,34 +94,15 @@ type HistoryItem = {
 /** 统一空值展示：— 而不是 null / 空串（AGENTS.md 三.6） */
 const fmt = (v: unknown) => (v == null || v === '' || v === '--' ? '—' : String(v))
 
-const DEFAULT_WINDOW_HOURS = 2
-const defaultRange = () =>
-  [dayjs().subtract(DEFAULT_WINDOW_HOURS, 'hour'), dayjs()] as [dayjs.Dayjs, dayjs.Dayjs]
-
-const rangeHours = (from: number, to: number) =>
-  Array.from({ length: 24 }, (_, h) => h).filter((h) => h < from || h > to)
-
-/** 首屏时间窗：URL 里成对合法才用（刷新/后退回来接着看同一个窗口） */
-const readInitialRange = (): [dayjs.Dayjs, dayjs.Dayjs] => {
-  const s = readParam('rtStart')
-  const e = readParam('rtEnd')
-  if (s && e) {
-    const ds = dayjs(s)
-    const de = dayjs(e)
-    if (ds.isValid() && de.isValid() && ds.isBefore(de)) return [ds, de]
-  }
-  return defaultRange()
-}
-
 /** 单次导出行数上限：UEMR 一天可达数万条，全拉会拖死上游与浏览器 */
 const MAX_EXPORT = 5000
 
 export default function VmaxXdrRecordsPanel({ msisdn }: { msisdn: string }) {
   const { t, locale } = useI18n()
+  const ctx = useVmaxWindow()
 
   const [serviceType, setServiceType] = useState(() => readParam('rtSvc') || '32')
   const [table, setTable] = useState(() => readParam('rtTable'))
-  const [range, setRange] = useState<[dayjs.Dayjs, dayjs.Dayjs] | null>(readInitialRange)
   const [pageSize, setPageSize] = useState(20)
 
   const [services, setServices] = useState<ServiceItem[]>([])
@@ -195,29 +181,29 @@ export default function VmaxXdrRecordsPanel({ msisdn }: { msisdn: string }) {
   }, [msisdn])
 
   const run = useCallback(async (raw: string, p: number, ps: number, tbl = table,
-                               sid = serviceType, win = range) => {
+                               sid = serviceType,
+                               winParams?: { start?: string; end?: string }) => {
     const q = raw.trim()
     if (!q || !tbl) return
     const seq = ++seqRef.current
     setLoading(true)
     setError('')
     setSearched(true)
+    const w = winParams || rangeToParams(ctx?.range || null)
     try {
       const r = await vmaxXdrRecords({
         msisdn: q, service_type: sid, table: tbl,
-        start: win?.[0]?.format('YYYY-MM-DD HH:mm') || undefined,
-        end: win?.[1]?.format('YYYY-MM-DD HH:mm') || undefined,
+        start: w.start,
+        end: w.end,
         page: p, page_size: ps,
       })
       if (seq !== seqRef.current) return      // 旧请求迟到，丢弃
       const data = r.data as RecordResult
       setResult(data)
-      // 条件随结果入 URL：用服务端归一后的窗口与真实表名（不是控件的中间态）
+      // 类型与表名随结果入 URL（时间窗滚动、不再写进 URL，此处只记类型与表）
       writeParams({
         rtSvc: data.service_type,
         rtTable: data.table,
-        rtStart: (data.window?.starttime || '').slice(0, 16),
-        rtEnd: (data.window?.endtime || '').slice(0, 16),
       })
     } catch (e: any) {
       if (seq !== seqRef.current) return
@@ -226,20 +212,32 @@ export default function VmaxXdrRecordsPanel({ msisdn }: { msisdn: string }) {
     } finally {
       if (seq === seqRef.current) setLoading(false)
     }
-  }, [serviceType, table, range])
+  }, [serviceType, table, ctx])
 
-  // 首屏恢复：URL 里有表名（说明查过一次分表）才自动重放。要等表清单校验完
-  // ——URL 里那张表可能已下线，得先落到回退表再查，否则一定报「无数据」。
-  const bootRef = useRef(false)
+  /* 并行取数：页面级「查询」每执行一次，context.query.token 就 +1。
+     这里盯着 token 变化自动发请求 —— 与 CCA 概览、信令详单两个页签
+     同时跑，谁先回来谁先渲染，互不等待。
+     依赖 services/table 是因为 URL 带来的表可能已下线：等清单到达、
+     确认表有效再查，否则会白打一次上游并报「无数据」。 */
+  const lastToken = useRef(0)
   useEffect(() => {
-    if (bootRef.current) return
-    if (!msisdn.trim() || !readParam('rtTable')) return
+    const q = ctx?.query
+    if (!q || q.token === lastToken.current) return
+    if (!q.msisdn.trim()) return
     if (!services.length || !table) return
     if (!services.some((s) => s.id === serviceType)) return
-    bootRef.current = true
-    void run(msisdn, 1, pageSize)
+    lastToken.current = q.token
+    void run(q.msisdn, 1, pageSize, table, serviceType, rangeToParams(q.range))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [services, serviceType, table, msisdn, pageSize, run])
+  }, [ctx?.query?.token, services, serviceType, table])
+
+  /* 翻页/改页长必须沿用**屏幕上这张表**的窗口，而不是控件当前值 ——
+     用户可能改了顶部时间选择器却还没点「查询」，按控件值拉会把两次查询的
+     数据混在一起。result.window 是服务端归一后的窗口（格式 "YYYY-MM-DD HH:MM:SS.000"，
+     后端 parse 只认前 16 位）。 */
+  const resultWindow = result
+    ? { start: result.window.starttime.slice(0, 16), end: result.window.endtime.slice(0, 16) }
+    : undefined
 
   /* ---- 动态列：上游 header[i] 对齐 field[i] ---- */
   const columns = (result?.header || []).map((title, idx) => {
@@ -386,9 +384,11 @@ export default function VmaxXdrRecordsPanel({ msisdn }: { msisdn: string }) {
   }
 
   const serviceLabel = (s: ServiceItem) => (locale === 'zh' ? (s.name_zh || s.name) : s.name)
+  /* 所选类型的上游保留时长（小时）：窗口跨度上限由后端按它校验，
+   * 这里只做提示。页面级的时间选择器按最短保留期（24h）置灰，
+   * 所以任何类型都不会因为窗口太长而查不到（见 vmaxWindow.ts）。 */
   const currentSvc = services.find((s) => s.id === serviceType)
   const retentionHours = currentSvc?.retention_hours ?? 72
-  const earliest = dayjs().subtract(retentionHours, 'hour')
   const noMsisdn = !msisdn.trim()
   const tableLabel = tables.find((x) => x.table_name === table)?.xdr_name || table
 
@@ -431,27 +431,12 @@ export default function VmaxXdrRecordsPanel({ msisdn }: { msisdn: string }) {
           showSearch
           optionFilterProp="label"
         />
-        <RangePicker
-          showTime={{ format: 'HH:mm' }}
-          format="YYYY-MM-DD HH:mm"
-          value={range}
-          onChange={(v) => setRange(v as [dayjs.Dayjs, dayjs.Dayjs] | null)}
-          allowClear={false}
-          disabledDate={(d: dayjs.Dayjs) =>
-            d.endOf('day').isBefore(earliest) || d.startOf('day').isAfter(dayjs())}
-          disabledTime={(d: dayjs.Dayjs | null) => {
-            if (!d) return {}
-            if (d.isSame(dayjs(), 'day')) return { disabledHours: () => rangeHours(0, dayjs().hour() + 1) }
-            if (d.isSame(earliest, 'day')) return { disabledHours: () => rangeHours(0, earliest.hour()) }
-            return {}
-          }}
-        />
         <Button
           type="primary"
           icon={<SearchOutlined />}
           loading={loading}
           disabled={noMsisdn || !table}
-          onClick={() => void run(msisdn, 1, pageSize)}
+          onClick={() => void run(ctx?.query?.msisdn || msisdn, 1, pageSize)}
         >
           {t('vmaxxdr.search')}
         </Button>
@@ -482,7 +467,7 @@ export default function VmaxXdrRecordsPanel({ msisdn }: { msisdn: string }) {
           description={error}
           action={
             <Button size="small" icon={<ReloadOutlined />}
-                    onClick={() => void run(msisdn, 1, pageSize)}>
+                    onClick={() => void run(ctx?.query?.msisdn || msisdn, 1, pageSize)}>
               {t('vmaxxdr.retry')}
             </Button>
           }
@@ -518,7 +503,7 @@ export default function VmaxXdrRecordsPanel({ msisdn }: { msisdn: string }) {
                 showSizeChanger: true,
                 pageSizeOptions: ['20', '50', '100', '200'],
                 showTotal: (n) => t('vmaxxdr.total', { n }),
-                onChange: (p, ps) => { setPageSize(ps); void run(msisdn, p, ps) },
+                onChange: (p, ps) => { setPageSize(ps); void run(ctx?.query?.msisdn || msisdn, p, ps, table, serviceType, resultWindow) },
               }}
             />
           </>

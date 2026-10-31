@@ -61,6 +61,11 @@ export default defineConfig({
     host: '0.0.0.0',
     port: 7090,
     strictPort: true,
+    // 隧道访问时 vite 按 Host 头拦外部域名（实测 403 "Blocked request. This host ... is not allowed"）。
+    // 不要用 cloudflared --http-host-header localhost 绕过：nginx 的 proxy_cookie_domain 用 $host 改写
+    // 门户 Cookie，Host 一旦变成 localhost，Cookie 就落到 Domain=localhost，eFlow/UME 登录直接失效。
+    // 命名隧道上线后，把自己的域后缀也加进来，例如 '.example.com'。
+    allowedHosts: ['.trycloudflare.com'],
     proxy: {
       '/api': {
         target: 'http://localhost:7038',

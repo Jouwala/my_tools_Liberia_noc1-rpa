@@ -16,6 +16,13 @@
  *     onClick 在 root 容器上、document 监听在它之后跑，不排除就会刚选中又被清掉；
  *   · `.dcm-overlay` —— 项目统一的下钻弹窗 `components/DraggableClickModal`
  *     的遮罩层（它刻意「点遮罩不关闭，避免误触」，见该文件第 5 行注释）。
+ *   · `.gis-legend-overlay` —— **地图图例浮层**（`gismap/MapLegendOverlay`；
+ *     人员页也复用它，见 `personmap/PersonMapView.tsx`）。图例是地图上的**控件**，
+ *     点它的每一行 = 「切换该档的显隐」，属于地图内部的正常操作，
+ *     不该被当成「点了地图之外」。⚠ 图例浮层渲染在 MapContainer 的**子层**
+ *     里（是 Leaflet 容器 `inner` 的兄弟节点，不在 `.leaflet-container` 之内），
+ *     所以它同时会被 Leaflet 的 `map.on('click')` 与本监听同时看到 ——
+ *     实测 2026-10-30：人员页点图例某一行会立刻把选中的人清掉、图例跟着消失。
  *
  * **两类必须放过的事件**（2026-10-21 实测，缺一个就是「抽屉闪一下就消失」）：
  *   · **目标已脱离文档**（`!el.isConnected`）—— 选中人员会把该人员的地图针**重建**，
@@ -36,6 +43,7 @@ const KEEP_SELECTORS = [
   '.ant-drawer',
   '.ant-table-row',
   '.dcm-overlay',
+  '.gis-legend-overlay',
 ]
 
 export function useClearOnOutsideClick(active: boolean, clear: () => void) {

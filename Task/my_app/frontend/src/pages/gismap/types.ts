@@ -364,6 +364,43 @@ export const SITE_COLORS = {
   normal: '#94a3b8',
 } as const
 
+/* ===== 图例配色（2026-10-17 重新设计）=====
+
+   用户反馈「图例总是不好区分」。原来的 SITE_COLORS 是**六个互不相干的色相**
+   （大红/黄/灰/蓝/绿/紫），色相之间没有亲疏关系 —— 读者只能逐行看文字。
+
+   现在按**语义族**重新分配色相，同族用同色相不同深浅：
+     · 告警族（红橙）  overdue 深红 / ontime 橙 / rt_alarm 中红
+     · 工单族（蓝青）  tt 蓝 / wo 青
+     · 其它            vip 紫（重要但非告警）、normal 灰（无状态）
+   这样「同组=同族色」本身就是线索，不必读字。
+
+   ⚠️ 关键约束：**这份配色必须与地图上实际画的圆点同源**，否则图例骗人。
+      因此 GISMap 里站点圆点的 getMarkerColor 也改为走 colorFor()，
+      而不是直接读 SITE_COLORS —— 见该函数。
+   ⚠️ 值必须是十六进制实值：它们要喂给 Leaflet 的 SVG（fillColor），
+      解析不了 CSS 变量（与 SITE_COLORS 段头注释同一约束）。
+
+   ---- 2026-10-30：搬到本文件，供人员页（?page=person）复用 ----
+   人员页原先有**自己的一套**三档配色（红 / 浅蓝 / 绿），与实时告警页毫无关系，
+   两页看同一批站点、同一个 realtime_alarm 快照，颜色却对不上。
+   现人员页改用**本表的同一份色值**（`personmap/siteTone.ts` 负责分档判定），
+   故本表是「地图上站点圆点颜色」的**唯一真相源** —— 改这里，两页同时生效。 */
+export const LEGEND_COLORS: Record<string, string> = {
+  rt_alarm_overdue: '#e03131',   // 深红：SLA 已超时（最紧急）
+  rt_alarm_ontime: '#ff922b',    // 橙：在 SLA 内
+  rt_alarm: '#ff6b6b',           // 中红：全量模式的实时告警档
+  his_alarm: '#868e96',          // 灰：历史
+  tt: '#4dabf7',                 // 蓝
+  wo: '#20c997',                 // 青
+  vip: '#9775fa',                // 紫：重要站点（与告警状态无关）
+  normal: '#adb5bd',             // 浅灰：无任何状态
+}
+
+/* 取图例/站点圆点色。集中一处，保证「图例色 == 地图点色」。
+   未知 key 回落到 SITE_COLORS.normal（与改动前一致，不臆造颜色）。 */
+export const colorFor = (key: string): string => LEGEND_COLORS[key] || SITE_COLORS.normal
+
 /* MW 链路线色图例 —— 与 backend/services/mw_ume/mw_links_store.py 的
    STYLE_COLORS 一一对应（KML 样式名 → 色值），是那 4 个颜色的前端副本。
    改 KML 样式色时两处要一起改（后端 `STYLE_COLORS` 已声明同源约束）。 */

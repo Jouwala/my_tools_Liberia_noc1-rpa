@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="zh">
+<head>
+    <link rel="stylesheet" href="./legacy-glass-baseline.css">
+    <link rel="stylesheet" href="./soc_trend_dashboard.css">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SOC 多维趋势组合看板</title>
+<script src="/myapp/lib/echarts.min.js"></script>
+<script src="/myapp/myapp-refresh-protocol.js"></script>
+</head>
+<body>
+<main class="screen">
+ <header class="mast">
+   <div class="mlogo">S</div>
+   <div>
+     <h1 id="appTitle">SOC 多维趋势组合看板</h1>
+     <div class="sub" id="appSub">一个入口 · 三日对比 · 多选定位</div>
+   </div>
+   <div class="mast-actions">
+     <div class="seg" id="granSeg" role="tablist">
+       <button data-g="hour" class="on">小时</button>
+       <button data-g="day">天</button>
+     </div>
+     <button class="ghost-btn" id="dictBtn">指标字典</button>
+   </div>
+ </header>
+
+ <div class="notice" id="notice"></div>
+
+ <nav class="tabs wht" id="scopeTabs" role="tablist">
+   <button role="tab" aria-selected="true" class="active" data-scope="data">数据</button>
+   <button role="tab" aria-selected="false" data-scope="voice">语音</button>
+ </nav>
+
+ <div id="dataArea">
+   <div class="cats" id="catBar"></div>
+   <div class="controls">
+     <span id="lblDay">分析日 D</span><input type="date" id="dayInput">
+     <span id="lblDim">维度</span>
+     <select id="dimSel"></select>
+     <span id="lblMetric">指标</span>
+     <select id="metricSel"></select>
+     <button class="ghost-btn" id="resetBtn">清除本页下钻</button>
+     <span class="win-info" id="winInfo"></span>
+   </div>
+   <div id="memberBar" class="chips" style="padding:2px"></div>
+
+   <section class="panel" id="alarmPanel">
+     <div class="p-head">重大告警分析 <span class="hint" id="alTime"></span>
+       <span class="badge" id="alCount" hidden></span></div>
+     <div id="alarmList"></div>
+     <div class="al-foot" id="alFoot"></div>
+   </section>
+
+   <div class="grid">
+     <section class="panel" id="trendPanel">
+       <div class="p-head"><span id="trendTitle">流量 · 当前业务趋势</span>
+         <span class="hint" id="trendHint"></span></div>
+       <div class="big-num"><span id="bigVal">—</span><small id="bigUnit"></small></div>
+       <div class="chips" id="trendChips"></div>
+       <div id="mainChart" class="chart-lg"></div>
+     </section>
+     <section class="panel" id="radarPanel">
+       <div class="p-head">局部异常雷达 <span class="badge" id="radarCount" hidden></span>
+         <span class="hint" id="radarHint"></span></div>
+       <div id="radarList"></div>
+     </section>
+   </div>
+ </div>
+
+ <div id="voiceArea" hidden>
+   <section class="panel"><div class="empty" id="voiceEmpty"></div></section>
+ </div>
+
+ <div id="status" class="status">loading</div>
+
+ <div class="modal" id="dictModal" hidden>
+   <div class="box">
+     <button class="ghost-btn close" id="dictClose">✕</button>
+     <h3 id="dictTitle">指标字典</h3>
+     <div class="rule-box" id="dictRules"></div>
+     <table id="dictTable"></table>
+   </div>
+ </div>
+</main>
+<script src="./soc_trend_dashboard.js"></script>
+</body>
+</html>

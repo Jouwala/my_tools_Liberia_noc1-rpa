@@ -907,10 +907,12 @@ React 自身驱动（其 cleanup 顺序是「子先父后」，子图层先 remo
 **交互**：点人员 → 选中 + **从右侧滑出下钻抽屉**（压在右列卡片上，不遮地图）；
 **点地图空白处、或点地图之外的任何地方**（右侧卡片 / 下方表格 / 筛选条 / 页面背景）都取消选中并关抽屉。
 后者由 `frontend/src/useClearOnOutsideClick.ts` 负责（2026-10-21 用户要求）—— 此前只有点在地图上才取消，
-点别处选中态一直挂着。该 hook 放行四类点击：`.leaflet-container`（归 Leaflet 自己判）、
+点别处选中态一直挂着。该 hook 放行五类点击：`.leaflet-container`（归 Leaflet 自己判）、
 `.ant-drawer`（抽屉里搜索翻页切页签都正常）、`.ant-table-row`（行本身就是"选中另一个人"的入口，
 React 的 onClick 先跑、document 监听后跑，不排除会刚选中又被清掉）、`.dcm-overlay`
-（`DraggableClickModal` 刻意"点遮罩不关闭"）。
+（`DraggableClickModal` 刻意"点遮罩不关闭"）、`.gis-legend-overlay`（地图图例浮层；
+点它的每一行 = 切换该档显隐，属地图内部正常操作 —— 2026-10-30 加，不放行的话
+点图例会立刻把选中的人清掉、图例跟着消失）。
 表格行点击与地图选中双向联动（仅**有坐标**的行可点，无坐标的人走「查看工单」按钮）。
 
 **人员针的常驻徽标**（拼装在 `personmap/personPinHtml.ts`，Marker 挂载仍在 `PersonMapView.tsx`）两行：第一行姓名 + 电话；第二行
@@ -923,12 +925,29 @@ React 的 onClick 先跑、document 监听后跑，不排除会刚选中又被�
 PMT 取不到时显示 `—` 而不是 0（AGENTS.md 三.6），所以 `pmt_open` 的类型是 `number | null`。
 **各人徽标求和 ≠ 全量**，去向见下表第三行，已在筛选条的 ⓘ 里写明。
 
-**站点三档配色**（2026-10-21 用户指定）：**红 = 该站当前有实时告警 ＞ 浅蓝 = 该人在此站有未关闭 WO ＞ 绿 = 负责但当前没有未关闭 WO**。
-- 判定收在**一处**（`PersonMapView.tsx::siteColor`，站点圆点画在 `personmap/SitesLayer.tsx`、由调用方把同一个函数传进去），**圆点与连线共用** —— 用户同时要求「连线颜色跟站点同色」，两处各写一套就会出现「线绿点蓝」这种看着像 bug 的画面。
-- 配色是**实值十六进制**且分深浅两套（`SITE_TONE`）：Leaflet 的 CircleMarker / Polyline 走 SVG 呈现属性，解析不了 `var(--wh-*)`，与 ECharts 同一约束（AGENTS.md 三.3 取色表）。
-- 「未清除」不再单独占一档颜色（用户只给了三色），改由**半径**表达：告警站 8px ＞ 有未清除 7px ＞ 其余 6px。
-- 三档含义写在地图卡片头部的提示文字（`person.mapHint`）里，**没有另做图例浮层**。
-- 实测当前分布（24 个有坐标的人合计）：绿 727 / 浅蓝 63 / 红 22。浅蓝比绿少，是因为浅蓝要求「**该人**在 30 天窗口内此站有未关闭 WO」，不是「该站有单」。
+**站点显色 / 半径 / 动画 / 弹窗：与实时告警页完全对齐**（2026-10-30 改造，取代 2026-10-21 的「三档配色」）。
+
+改造前人员页有**自己一套三档配色**（红 = 有实时告警 / 浅蓝 = 该人有未关闭 WO / 绿 = 无单），与 `?page=realtime_alarm` 的分档毫无关系 —— 两页看的是**同一批站点、同一个 `realtime_alarm` 快照**，颜色却对不上（用户报「人员页没有用实时告警页的点显色样式」）。现逐项对齐：
+
+| 项 | 实时告警页 | 人员页（现） |
+| --- | --- | --- |
+| 色值真相源 | `gismap/types.ts::LEGEND_COLORS` | **同一份**（`personmap/siteTone.ts::siteColor` → `colorFor`） |
+| 分档判定 | `GISMap.tsx::getSiteCategory` | `personmap/siteTone.ts::siteCategory`（人员页自有 WO 语义，见下） |
+| pane / 层级 | `sitePane`（z-index 650） | **同一 pane 同一层级**（原为 overlayPane 400，会被县块盖住） |
+| 填充不透明度 | 1 | **1**（原 0.85，半透明会让底图透过来，图例色 ≠ 点色） |
+| 描边 | 按主题反着挑（浅底白边 / 深底近黑边） | **同规则**（`rgba(0,0,0,0.55)` / `#ffffff`） |
+| 半径 | `getMarkerRadius`（realtime 分支）：TT>5→9、TT>0→7、WO>5→8、WO>0→6、有告警→10、其余→4 | `siteTone.ts::siteRadius`：**同一套数字、同一套字段**（`rt_tt_count` / `rt_wo_count` / `rt_alarm_count`），末尾多一档 `wo_count>0→6`（人员页独有的「该人自己手上有单」） |
+| 超时告警动画 | 外圈 `gis-halo` 呼吸光环（CSS 1.8s） | **同一实现**（`SitesLayer.tsx` 叠一圈 `radius+4`、只描边不填充的 CircleMarker，`className="gis-halo"`）—— 改造前完全没有这一项 |
+| 图例浮层 | `gismap/MapLegendOverlay` | **直接复用同一组件**（原先另起一份 `personmap/PersonLegendOverlay`，样式照抄一遍必然分叉，已删除）；标题用 `gis.legendTitle`、组名用 `gis.legendGroup.*` |
+| 图例点击 = 隐藏该档 | `hiddenLegends` | `hiddenSiteCats`（同语义：行加删除线 + 「已隐藏」，圆点与**连线**一起不画；图例数字仍按全量统计，与实时告警页一致） |
+| 站点提示指标 | 区域 / 类型\|网络类型 / 实时告警（超时·未超时）/ 关联 TT / 关联 WO | **同一组指标**（`SitesLayer.tsx` 的 MapTooltip）+ 人员页自有的「该人未关闭 WO / 未清除」两行 |
+| 默认隐藏 | `normal` 档默认隐藏（827 站里 739 个无状态会淹没告警站） | **一档都不隐藏**（人员页画的是「选中人员的负责站」，人均 35 站，全画才有信息量）—— 这是刻意的唯一差别 |
+
+- **分档优先级**（`siteTone.ts::siteCategory`，每站恰好一档，故图例数字 = 地图点数）：超时告警（深红）＞ **该人有未关闭 WO（青）** ＞ 该站有告警 TT（蓝）＞ 未超时告警（橙）＞ VIP 站（紫）＞ 无状态（灰）。
+  - 第 2 档用的是「**该人员**在此站的未关闭 WO 数」（`wo_count`），实时告警页用的是「**该站**由告警关联到的 WO 数」（`rt_wo_count`）—— 语义不同（后者是「站上有什么单」，前者是「谁的手上有单」），用户 2026-10-30 明确选人员页口径，故保留。
+  - 告警档（超时/未超时）整体优先于工单档，只是「超时」额外压过人员页自己的 WO 档 —— 否则「有未超时告警但该人也有未关闭 WO」的站会被涂成青色，告警被工单色盖住（实时告警页 2026-10-17 修过同类问题）。
+- **后端补字段**（`personnel.py::_fme_site_index` / `get_personnel_managed_sites`）：补 `site_type` / `network_type`（弹窗的「类型 | 网络类型」）与 `vip_site`；五个实时字段（`rt_alarm_count` / `rt_alarm_overdue` / `rt_alarm_ontime` / `rt_tt_count` / `rt_wo_count`）由 `gis.py::_realtime_site_stats` **同一次 `realtime_alarm` 扫描**产出，与 `/gis/realtime/sites` 走同一个函数，故两页数字必然一致。
+- 旧的三档配色（`SITE_TONE`）与「未清除用半径表达（8/7/6px）」已删除；分档与半径的判定收在**一处**（`siteTone.ts`），**圆点与连线共用** —— 用户同时要求「连线颜色跟站点同色」，两处各写一套就会出现「线绿点蓝」这种看着像 bug 的画面。
 
 **县界底图：每县一种类别色 + 县名标签**（2026-10-23 用户要求「地图显示县名、不同的县不同颜色」）：
 - **类别色 ≠ 告警分档色**。GIS 页的 `COUNTY_BAND_COLORS`（红/橙/黄/绿/灰五档）表达「该县有几站实时告警」，人员页没有这个口径，照搬会让人误读为人员告警分布 —— 故本页用 `personmap/useCountyTags.ts::COUNTY_PALETTE` 的 **15 个互不相同的色相**，只表达「这是哪个县」，不带数值语义。
@@ -1024,7 +1043,7 @@ PMT 取不到时显示 `—` 而不是 0（AGENTS.md 三.6），所以 `pmt_open
 
 | 项 | 口径 | 原因 |
 | --- | --- | --- |
-| 「负责的站点」 | `master_site_db.fme_name` 登记的站（`A / B` 双人共担**两边都算**），**不看工单、不看 PMT、不用 `person.managed_regions`** | 2026-10-21 用户确认，从旧口径「30 天内未关闭 WO 涉及的站点」（人均 4.6 站、最多 16）改为现口径（人均 35 站、最多 98）。**改的直接动机**：地图要分绿 / 浅蓝 / 红三档，而旧集合里每个站都必然有该人的未关闭 WO，**绿色永远不可能出现**。仍不用 `managed_regions`（只是县名文本，实测 26 个有坐标的人里 5 人写着全部 15 县 = 824 站全包）；仍不并入 PMT 站点（单人最多同时挂 290 个 PMT 站，并进来地图变毛线球）。⚠ **已知后果**：24 个有坐标的人里 **6 人不是任何站的 FME**（含未关闭单最多的 Varfee Sarnor / Franklin Peter），他们的 `site_count` 恒为 0、点开了地图上没有点 —— 用户看过实测数字后确认接受 |
+| 「负责的站点」 | `master_site_db.fme_name` 登记的站（`A / B` 双人共担**两边都算**），**不看工单、不看 PMT、不用 `person.managed_regions`** | 2026-10-21 用户确认，从旧口径「30 天内未关闭 WO 涉及的站点」（人均 4.6 站、最多 16）改为现口径（人均 35 站、最多 98）。**改的直接动机**：地图要按状态分档着色，而旧集合里每个站都必然有该人的未关闭 WO，**最低那一档永远不可能出现**。（原话按旧三档写的是「绿 / 浅蓝 / 红」，2026-10-30 起分档改为与实时告警页同一套六档，见上文「站点显色 / 半径 / 动画 / 弹窗」。）仍不用 `managed_regions`（只是县名文本，实测 26 个有坐标的人里 5 人写着全部 15 县 = 824 站全包）；仍不并入 PMT 站点（单人最多同时挂 290 个 PMT 站，并进来地图变毛线球）。⚠ **已知后果**：24 个有坐标的人里 **6 人不是任何站的 FME**（含未关闭单最多的 Varfee Sarnor / Franklin Peter），他们的 `site_count` 恒为 0、点开了地图上没有点 —— 用户看过实测数字后确认接受 |
 | 时间窗口 | WO / TT 固定**最近 30 天**；**PMT 不套窗口** | 用户确认不跟随 GIS 页的时间控件，避免两页口径漂移。PMT 例外的两条理由：库里**已关闭的 PMT 其 `current_handler` 是空的**（历史归属根本做不出来）；套 30 天会把 1715 张未关闭砍到 826，让 3 个月前开立至今未关闭的单凭空消失 —— 那恰恰是最该催的 |
 | PMT 归属 | 只认 `current_handler` 的 `P:` 段，**`G:` 组池不计个人**；终态判定用**精确 `Closed`**（WO 才用前缀） | `eflow_pm` 没有 `last_processer` 列（实测），`pm_manager`/`creator`/`last_*_operator` 语义都不是「当前在手」。实测 1715 张未关闭里 **821 张只挂在组池**（如 `G:ZTE_FE_MG`），挂到个人头上会把整组的单算给一个人，故组池数走 `/personnel/stats` 的 `pmt.group_pool` 并在 ⓘ 里给出。终态不共用 `_is_closed`：`eflow_wo` 有 `Closed_Confirmed` 才需前缀，`eflow_pm` 的 6 个状态里只有精确 `Closed` 是终态，共用会将来静默扩大已关闭集合 |
 | KPI「People with coordinates」（`person.kpiPeople`） | 分母 = `person.isfe = Yes`（FE 人员），分子 = 其中**经纬度有效**者（`_COORD_OK` + 规范化去重），走 `/personnel/stats` 的 `coverage.fe_total` / `fe_with_coords`。**不用** `total_all` / `with_coords` | 2026-10-29 用户确认。实测 `person` 137 行里 `isfe` 只有 `Yes`(32) 与 NULL(105) 两种取值，全表 14 人有坐标、其中 11 人是 FE —— 有坐标却**不是** FE 的 3 人（Franklin Peter / GORSON PRINCE T / Festus Emmanuel）若算进分子，就成了「分子 14 来自全表、分母 32 只含 FE」两个群体相除，比率不成立。判定收在 `_IS_FE`；分子从同一份去重后的 `_people_with_coords` 结果按 `is_fe` 打标求和（该元组第 8 位），**不另开 SQL**，否则分子分母来自不同快照又是一类漂移。**`coverage.with_coords`/`total_all` 保持全表口径不动** —— 顶部 ⓘ 横幅用它解释「谁没画在地图上」，两套人群各说各的；地图针与人员表格**未过滤 isfe**（用户选「只改统计数字」），所以屏上是「11/32 FE」与「14 个针」并存，这是设计而非 bug |
@@ -4293,16 +4312,77 @@ eFlow 里 FE 处理完后大量 WO 停在 `WaitConfirm`（待 NOC 确认关闭�
 ### 35.1 功能
 
 - **查询条**：号码输入框（回车或按钮触发）+ **时间窗（起止日期时间，精确到
-  分钟、5 分钟步进，默认今天 00:00 ~ 当前时刻；跨度上限 31 天由后端校验；
+  分钟、5 分钟步进，**默认最近 3 小时**；跨度上限 31 天由后端校验；
   不能选未来日期与时刻）**。号码**必须用 `231` 开头的
   完整号码**（如 `231777777322`；2026-10-24 真号实测：剥成本地 9 位上游返回
   IMSI is not found，客户端已改回原样透传）。只接受数字，其余格式由后端 422 拒绝。
   只选日期（不带时间）时后端自动补 CCA 日界 00:00:00 / 23:59:59。
+- **整页唯一时间窗**（2026-10-30 改版）：本页**只有顶部这一个**时间选择器，
+  「用户概览 / 信令详单 / XDR 记录」三个页签共用同一份 state
+  （`frontend/src/pages/vmaxWindowContext.ts` 提供上下文，窗口值与保留期下限
+  见 `frontend/src/pages/vmaxWindow.ts`）。改版前本页有三个独立时间选择器
+  （默认还不一致），很容易出现「概览看全天、详单看近两小时」的错位。
+  - **保留期下限取最短的 24 小时**：三个页签并行用同一个窗口取数，
+    只要有一个页签查不到，这个窗口对用户就是废的；而 XDR 记录页签默认查
+    RAN 侧单表（上游热存储只留 24h）。故时间选择器把更早的点直接置灰。
+  - **URL 是唯一真相源**：窗口写进 `vqStart` / `vqEnd`（`replaceState`，
+    不新增历史记录）。旧版的 `mxStart/mxEnd`（信令详单）与 `rtStart/rtEnd`
+    （XDR 记录）随改版一并作废，不再读写。
+- **三页签并行取数**（2026-10-30 改版）：点一次「查询」即生成一份
+  「已执行查询」快照 `{token, msisdn, range}`（`token` 每次 +1），
+  三个页签各自监听 `token` 变化并发自己的请求——**互不 await、互不阻塞**，
+  哪个先回来哪个先渲染。改版前只有 CCA 会查，信令详单与 XDR 记录还要
+  再点两次「查询」。
 - **用户信息卡**：MSISDN/IMSI 映射（上游 `query_imsimdn`）。
 - **终端信息卡**：IMEI/机型/厂商/操作系统/网络类型/运营商等
   （上游 `query_terminal`，依赖用户信息返回的 IMSI 列表）。
-- **流量信息卡**：窗口内总流量 + 按应用明细（上游 `query_flow`）。多数用户
-  无 DPI 采集记录，空态是正常返回（CCA 网页同样为空）。
+- **流量信息卡**：窗口内总流量 + **按分类页签**展示。
+  - **数据源：XDR 用户面话单，不是 CCA 的 DPI 流量**（2026-10-30 改）。
+    原先取自 CCA `query_flow`（DPI 应用识别），但**实测绝大多数用户查不到**
+    （`total_flux="--"`、`app_flux="[]"`，CCA 网页同样为空）——那是采集侧
+    的问题，换查询参数解决不了。现改由后端用 Talon XDR **用户面话单**
+    （`fact_5gsa_psup_flow` / `_video`）自行聚合：
+    实现见 `backend/services/vmax_cca/vmax_flow_from_xdr.py`，
+    路由 `backend/routers/vmax_flow_xdr.py`（`GET /api/vmax-flow-xdr`）。
+    每条话单带 `service`（业务大类）/ 应用名 / 上下行流量与包数 /
+    TCP 时延与重传乱序，足以还原出同构的分类结果。
+  - **两级页签**（对齐参考面板）：
+    第一级 `数据 | 语音`，第二级
+    `流量 | 视频 | 网页 | 游戏 | OTT语音 | OTT视频 | TCP指标 | 控制面`。
+  - **分类口径**（上游 `service` 是 DPI 业务大类，与页签不是一一对应）：
+    实测 1558 条样本的 `service` 取值有 10 类
+    （`Web Browse` / `Video` / `Social` / `IM` / `Shopping` / `eMail` /
+    `Network Storage` / `Public Traffic` / `Comm Traffic` / `Others`）。
+    只有 `Video` / `Web Browse` / `VoIP` / `OTT*` 能直接对上页签；
+    `Social` / `IM` / `Shopping` 等**应用类业务**落到「流量」页签的全量
+    应用清单里（该页签本就不按类过滤）。**不为了凑满页签而臆造分类**，
+    所以「游戏」「OTT视频」在多数样本里为空 —— 那是上游没采到该业务。
+  - **「流量」页签 = 全量应用清单**（按总流量降序，带占比、上下行流量、
+    业务分类标签），不是某一类的子集。
+  - **「视频」页签额外带质量指标**：视频专表 `fact_5gsa_psup_video` 提供
+    `vmos`（平均 MOS）、主要分辨率分布、会话成功率。
+  - **「TCP指标」与「控制面」不是应用分类，是指标口径**：
+    前者由全部话单聚合出 TCP 握手响应时延 / 应答时延 / 上下行 RTT /
+    重传包数与重传率 / 乱序包数与乱序率；
+    后者给出上行下行峰值速率与会话总时长。故这两页签只有指标表、没有应用列表。
+  - **页签条恒在渲染**（2026-10-30 修）：此前 `flow` 为空时组件直接返回一句
+    空态文案，页签条整个不出现 —— 用户看到的就是「没有页签」，误以为功能
+    没做。现在页签条始终渲染，无数据时在页签内显示空态说明：页签结构是
+    「这个面板长什么样」的信息，不该随数据有无消失。
+  - **「语音」档保留但不可用**：XDR 用户面话单只有数据面口径，没有语音
+    流量分类，选中时给出明确说明，而不是静默隐藏（隐藏会让用户以为
+    上游没有这个维度）。
+  - **上游时窗的坏分区边界**（实测）：`end` 落在某些刻钟上（如 `:45`）会让
+    整个分区查不到 —— `end=17:44` 有 785 条、`end=17:45` 变 0 条、
+    `end=17:46` 又回到 785 条。取数时把 `end` 往后挪 1 分钟避开边界。
+  - **号码过滤类型必须是 `type="1"`**：页面组件用 `6`（SELECT_INPUT），
+    上游既不报错也不过滤 —— 会把整窗别人的详单当成结果返回（越权风险）。
+  - **CCA 的 DPI 流量仍作兜底**：XDR 这一路没数据时回落到 CCA 的 flow 段
+    （结构同构，前端同一套页签组件渲染）。
+  - **上游 `app_flux` 不是合法 JSON**（是 Python 对象字面量，单引号写法）。
+    旧实现用 `json.loads` 解析会抛异常并被 catch 成空列表 —— 命中用户的
+    应用明细被整段丢弃，页面永远显示「无流量」。现改用
+    `ast.literal_eval`（只求值字面量，不执行代码），失败再退回 `json.loads`。
 - **用户轨迹小区卡**：窗口内驻留小区列表（小区名/厂商/PCI/频点/经纬度/方位角/
   挂高，上游 `usertrack/query_cell`）；点行内 KPI 打开可拖拽弹窗看该小区指标明细，
   ppc 码已通过 `query_kpi` 字典（121 条）映射成 KPI 英文名，缺码回落原始码。
@@ -4325,8 +4405,13 @@ eFlow 里 FE 处理完后大量 WO 停在 `WaitConfirm`（待 NOC 确认关闭�
 
 - **查无此号**是业务正常返回（上游 `status=3 / IMSI is not found`），页面展示
   黄色警示，不是故障。
-- **流量/小区为空**同样是业务正常返回（无 DPI / usertrack 记录）；若 flow/cells
+- **流量/小区为空**同样是业务正常返回（无用户面话单 / usertrack 记录）；若 flow/cells
   子查询异常，结果带 `failures` 说明，页面顶部黄色警示但不影响已返回的卡片。
+- **「流量信息」卡为空**有两种成因，要分开看：① 该号码窗口内确实没有上网
+  流量（用户面话单为空）——业务正常；② XDR 用户面链路异常（上游不可用）——
+  会在 `failures` 里带说明。**注意 `231777777322` 这类 LTE 终端在
+  5gsa 域用户面表里没有数据**（该域主要收 S1-U 用户面话单），
+  换一个有上网记录的号码即可看到分类效果。
 - 接口报错先查两件事：① 设置→凭据管理 的 **vmax_cca** 组是否已录入账号密码
   （未配置时接口返回 503 与明确指引）；② 该账号是否具备 CCA 投诉系统权限。
 
@@ -4343,6 +4428,160 @@ eFlow 里 FE 处理完后大量 WO 停在 `WaitConfirm`（待 NOC 确认关闭�
 - 前端 `VmaxUserQuery.tsx`：三态渲染与请求序号守卫抄 EflowQa 的 TT 快速分析；
   工具页，不参与顶栏自动刷新。
 
+### 35.4 投诉诊断改版（2026-10-31，方案见 `docs/VMAX_DIAGNOSIS_REDESIGN.md` v2）
+
+> 改版动因：原页面把「用户信息 / 流量 / 信令详单 / XDR 记录」四类**不同性质**
+> 的数据堆在一屏，用户看到一堆表格但**回答不了「为什么投诉」**。本节记录改版后的
+> 结构，与 35.1 的旧卡片并存（旧卡仍在，只是不再是一级信息）。
+
+**页面骨架三行**（顺序是信息层级，不要调换）：
+
+1. 查询条（号码 + 时间窗）
+2. **投诉类型页签**（Segmented，非下拉）：全部投诉 / 语音 / OTT 语音视频 /
+   视频 / 游戏 / 上网慢；下方一行说明「这次按哪条链在判」
+3. **视图页签**：诊断结论 / 业务流量 / 连接过程 / 无线质量
+
+**切投诉类型不重新取数**——判据全部集中在前端纯函数
+`frontend/src/pages/vmaxDiagnosisRules.ts`，切页签只换权重与优先判定的链，故秒切。
+
+**四路数据源一次并发取回**（后端 `services/vmax_cca/vmax_diagnosis.py`）：
+
+| 源 | serviceType | 表/域 | 页数上限 | 用途 |
+| --- | --- | --- | --- | --- |
+| 用户面 | 1300 | `fact_5gsa_psup_flow`（5gsa 域，`start_time`） | 6 | 时延 / 重传 / 应用识别 |
+| 信令面 | 1100 | 会话与信令（S1-MME / S11 / SGs / S6a） | 4 | 可用性 / CSFB / QCI |
+| 视频 | 1301 | `fact_5gsa_psup_video` | 3 | 视频质量 |
+| 无线 | 32 | `fact_lte_uemr`（RAN 域，`btime`） | 3 | RSRP / SINR |
+
+四条硬规则（都有实测教训）：
+
+- **必须串行**（`max_workers=1`）。四路复用同一个 VMAX 门户会话，并行打上游会
+  触发 `The maximum number of connections for the user is reached`，四路同时全挂。
+  一路慢远好于四路全死。真要提速只能多开账号，属运维动作。
+- **单源失败隔离**：每源独立 `try/except`，失败只让该源 `ok=false` 并带 error，
+  其它维度照常打分，绝不整页失败。
+- **RAN 必须按 IMSI 查，不能按号码**：RAN 域 `$msisdn` 列在上游**整列为空串**，
+  按号码查永远 0 条。IMSI 先从 1300/1100 结果里取；取不到时无线维度明说
+  「无 IMSI 映射」，**不静默返回 0 条**（静默 0 条会被误读成「无线没问题」）。
+  条件必须 `type="1"`，`type="6"` 会不过滤直接越权返回全量。
+- **端点刻钟边界坑**：上游分区按刻钟切，`end=:45` 会整分区返回 0 条。
+  `_shift_end()` 统一把 end 往后挪 1 分钟。
+
+**四维评分**（`scoreAvailability / scoreLatency / scoreTransport / scoreRadio`）：
+各 0–100，含硬扣分项（如 S1-U Path Failure、`procedure_status` 失败率超阈）。
+**无数据的维度返回 `null` → 页面显示「—」，不是 0 分**（0 分会看起来像真故障）。
+分档 ≥80 绿 / 50–79 黄 / <50 红（`THRESHOLDS.scoreGood / scoreBad`）。
+
+**投诉类型 → 权重**：`COMPLAINT_WEIGHTS` 表，如语音侧重可用性+时延，游戏侧重
+时延+传输，上网慢侧重传输+无线。
+
+**三条专项链**：
+
+- `analyzeVoice`：CSFB/VoLTE。SGs 位置更新、CS Fallback Triggered、ESR、
+  寻呼、超时失败、QCI=1 承载逐项计数 + 回落链明细 + 回落耗时（>2s 标黄）。
+  窗口内有 CSFB 活动但 **SGs 为 0 条**时给明确预警（`noSgs`），
+  因为那通常意味着 SGs 接口没上报，而不是「没发生回落」。
+- `analyzeOtt`：STUN / 长连接识别 + 抖动对比基线。**能力边界必须显式告知**：
+  本平台无 SIP/RTP 信令（实测 XDR `protocol ∈ {SIP, RTP}` 恒为 0 条），
+  只能答「有没有通话」+「通话期间网络质量」，**不能答「对方拒接 / 未拨通」**。
+  该横幅渲染在结论**之上**，不可下移。
+- `analyzeGame`：关键词识别 `GAME_KEYWORDS`（含 `egame` / `e-game`），
+  **黑名单 `GAME_EXCLUDE`**（`palmplaystore` / `googleplay` / `app store` /
+  `huawei_appgallery`）——否则「下商店」会被算成「打游戏」。
+
+**证据时间线** `buildTimeline`：四源按分钟桶对齐，每格可下钻到原始 XDR 行。
+卡顿时会表现为**同一行「流量正常但时延/无线/结论都变差」**——这一行就是能贴进
+工单的证据。只渲染 `level !== 'none'` 的行，但至少保留 1 行（全绿时也要有内容）。
+
+**人工覆写**（`routers/vmax_diagnosis_override.py`，表 `vmax_diagnosis_override`）：
+
+- 按 `username + msisdn_mask + window` 唯一，同一窗口只有一条有效覆写，
+  重复提交是 UPDATE 同一条（不是插入新行）。
+- `MIN_REASON_LEN = 10`，理由必填。
+- 删除是**软删**（`revoked_at`），保留审计链；`GET /override/history` 可查全部变更。
+- 前端覆写块渲染在系统判定**之上**（蓝色左边框），人工判断先被看到，
+  系统判定仍可见以便对比。
+
+**导出**：Excel 四 Sheet（结论 / 评分与证据 / 语音链 / 时间线，走 `exportReport`），
+PDF 走 `body.vmax-print-mode` + `window.print()`（`index.css` 的 `@media print`
+隐藏侧栏/顶栏/按钮/页签/分页器，`@page { margin: 12mm 10mm }`）。
+
+**时间窗上限 24 小时**（`MAX_WINDOW_HOURS`）：受 RAN 上游 24h 保留期约束，
+窗再大无线维度会静默变空。
+
+### 35.5 无线质量页签专项改版（2026-10-31）
+
+> 改版动因：Radio 页签原本直接挂 `VmaxXdrRecordsPanel`（通用「按 XDR 分表查原始话单」
+> 面板）。那个面板要自己选表、选时间、点查询，出来是几千行原始表，
+> **回答不了本页签该回答的问题**：「用户投诉这段时间，空口到底好不好？差在哪个小区？
+> 什么时候差？」更糟的是诊断页已经算出「无线质量 62 分」，点进 Radio 却要重新查一遍，
+> 分数和页签之间没有解释关系。
+
+**改版后**（`components/VmaxRadioPanel.tsx` + 规则层 `analyzeRadio(sources)`）：
+
+1. **不重新取数** —— 直接吃诊断接口已拉回的 RAN(32) 行。同一窗口、同一批采样，
+   才不会和评分卡自相矛盾（评分说 62 分、页签说覆盖良好）。
+2. **结论条**：一句话结论 + 逐条判据（与诊断卡同一排版语言）。
+   判据顺序：弱覆盖（RSRP P10 < −110 dBm）→ 上行干扰/受限（SINR P10 < 0 dB）→ 正常。
+   额外判「电平波动 ≥ 15 dB」提示处于覆盖边缘或移动中。
+   **只在确实存在明显更差的小区时才点名**，避免大窗口正常波动也报小区。
+3. **五张 KPI 卡**：采样数 / 平均电平 / **边缘电平 P10** / 平均 SINR / 平均 CQI。
+   均值与 P10 **成对出现**：均值好不代表能打电话，边缘值才决定投诉体验。
+4. **趋势图**（ECharts）：RSRP 均值（实线）+ RSRP P10（红虚线）共用左轴，
+   SINR 用右轴。**必须双轴** —— 两个量纲差一个数量级，同轴会把 SINR 压成直线。
+5. **逐小区明细表**：按 `cell` 聚合（采样数 / 平均电平 / 边缘 P10 / 平均 SINR /
+   平均 CQI），**按边缘电平升序，最差的排最前**；覆盖与干扰各判一次取更差者染色。
+   ⚠️ RAN 表的小区列名是 **`cell`**，不是 `cellname`/`cell_name`（2026-10-31 实测，
+   只读 `cellname` 会让所有行塌成「未知小区」，见 35.7）。
+6. **原始下钻折叠在底部**（保留 `VmaxXdrRecordsPanel`）：需要跨窗口查单条话单时展开。
+
+**空态必须分三种说清楚**（否则用户只会以为「没数据」）：
+查询失败（带后端 error 原文）/ 本窗口无 MR 采样 / 有无线行但 RSRP、SINR 全空
+（上游表结构或权限变了，**不能当成"覆盖良好"**）。
+
+### 35.6 国际化约定（2026-10-31，本页通用）
+
+- **规则层是纯函数、拿不到 `t()`**：`vmaxDiagnosisRules.ts` 里会显示给人看的
+  文案一律返回 `I18nText = { key, params? }`，由组件用 `renderI18n(t, v)` 渲染；
+  `params` 支持嵌套（一句话里嵌一个已翻译短语）。
+- **后端中文文案的修法**：后端**同时给 key 和中文兜底**，前端按 key 翻译、缺键回退中文。
+  本页涉及：`label_key` + `label`（数据源名）、`key` + `name`（TCP/控制面 KPI 名）、
+  `service_key` + `category_label`（应用分类）、`raw` + `value`（包数类指标）。
+  两张映射表（`SERVICE_LABELS` / `SERVICE_KEYS`）用 `assert set(...) == set(...)` 防漂移。
+- **标点 / 单位 / 分隔符都是文案**：中文全角「：（）、；」↔ 英文半角「:  (n) , ; 」。
+  量纲不同的单位词（万 = 10⁴、K = 10³）**不能共用数值模板**，除数按语言选、字典只出单位词。
+- ⚠️ `check:i18n` **扫不到规则层漏翻**（只扫 JSX 文本与 `t()` 字面量入参）。
+  验收只有一条：切 EN 跑 `TMP/t_vmax_diag_i18n.py`，扫页面上的中文字符。
+
+### 35.7 真实数据契约（2026-10-31 首次跑通，三个必知坑）
+
+> 改版期间所有截图与断言都跑在 `TMP/vmax_diag_mock.json` 上，**只能证明渲染对**，
+> 证明不了「上游能不能取到数」。第一次用真号码打通真实链路时暴露了三个问题，
+> 前两个会让整页静默变空，第三个会让统计量级失真。
+
+**① `fetch_all` 漏传号码（P0，四个源恒 0 条）**
+`vmax_diagnosis.py::fetch_all(start, end)` 早期签名没有 `msisdn`，内部调
+`query_table("", ...)` → 查询条件变成 `{"field":"msisdn","value":"","type":"1"}` →
+上游如实按空号码过滤，**每个源都返回 0 条**。表现极像「该号码这段时间没业务」，
+连带 RAN 拿不到 IMSI 报「无 IMSI 映射」，一度被误判成「上游门户会话被占满」。
+同表同窗口实测：带号码 **2484 条** / 空号码 **0 条**。
+现在 `fetch_all(msisdn, start, end)` 必填并显式拒绝空号码（宁可 500 不静默全空）。
+
+**② 小区列名是 `cell`**
+`r.cell`（实测值如 `Methodist Compound-X1`）；`cellname` / `cell_name` 都是空。
+规则层已改为 `cellOf()` 统一取值（`cell` → `cellname` → `cell_name` → `—`）。
+
+**③ 哨兵值不是空串，是 65535 / 255**
+上游「没上报」时给的是定值而非空：`cqi` 实测 **216/216 行全是 65535**，
+`ulsinr` 与 `phr` 出现 **255**。直接进统计的后果：
+CQI 平均变成 65535、SINR 的 P10/均值被拉高，结论从「干扰」翻成「正常」——
+**比缺数据更危险**。规则层按物理范围过滤：`rsrpOf`(<0) / `sinrOf`((-30,40)) /
+`cqiOf`(0,31]，超范围一律当「无采样」，KPI 卡显示 `—`。
+
+**验收口径**（`TMP/t_vmax_radio_real.py`，**不注入 mock**）：
+真号码 `231773777115` + 近 3 小时 → 断言取到真实小区名、页面无 `65535`、
+无「无 IMSI 映射」、无空态、无 JS 错误。8/8 通过即视为 RAN 链路打通。
+
 ## 36. VMAX 信令详单（`vmax_user_query` 的「信令详单」页签）
 
 Talon XDR 平台的**逐条信令详单**查询（2026-10-26 接入）。与第 35 节的
@@ -4357,7 +4596,10 @@ Talon XDR 平台的**逐条信令详单**查询（2026-10-26 接入）。与第 
 
 ### 36.1 功能
 
-- 号码沿用父页面输入框；页签内独立选查询类型 + 时间窗 → 返回该号码窗口内的逐条 XDR 记录。
+- 号码沿用父页面输入框；页签内独立选查询类型 → 返回该号码窗口内的逐条 XDR 记录。
+- **时间窗不再页签内独立选**（2026-10-30 改版）：跟随整页唯一时间窗
+  （见第 35 节），本面板不再渲染 RangePicker，也不读写 `mxStart/mxEnd`。
+  点整页「查询」时本面板与另外两个页签**并行**取数。
 - **查询类型**（`serviceType`，服务端真值；前端下拉由
   `GET /api/vmax-xdr-query/services` 动态拉取，不前后端各写一份）：
 
@@ -4390,12 +4632,13 @@ Talon XDR 平台的**逐条信令详单**查询（2026-10-26 接入）。与第 
 ### 36.2 状态语义
 
 - `records=0` / 表格空态 = 该窗口内无此类信令，**业务正常**，不是故障。
-- **时间窗默认最近 2 小时**（排障看当下；`VmaxXdrPanel.tsx` 的
-  `DEFAULT_WINDOW_HOURS`），上限跟着所选类型的 `retention_hours` 走：
+- **时间窗跟随整页**（2026-10-30 改版后不再是本面板独立的 `DEFAULT_WINDOW_HOURS`）：
+  统一取第 35 节的页面级窗口（默认最近 3 小时），选择器按最短保留期
+  **24 小时**置灰。类型自身的上限仍由后端按 `retention_hours` 校验：
   `1100/1300/1301` 是 72h，`32`（RAN）只有 **24h**。
 - **保留期外查不到是上游限制，不是故障**（2026-10-26 实测）：32 的近 24h 有
-  2577 条，但用前一天同一时刻的窗口就返回 `3100100202`。所以前端把早于保留期
-  与未来的时段都置灰，切换类型时也会把超出的起点收回；后端在入口按同一上限校验。
+  2577 条，但用前一天同一时刻的窗口就返回 `3100100202`。所以页面级时间选择器
+  把早于保留期与未来的时段都置灰；后端在入口按同一上限校验。
 - **上游错误码翻成中文再给用户看**（`routers/vmax_xdr_query.py` 的
   `_UPSTREAM_HINTS` / `_humanize_upstream`）：原始 `3100100202` 这类码用户看不懂，
   且极易把「窗口超出保留期」误判成系统故障。认不出的码仍原样透出，**日志里始终保留原文**。
@@ -4537,9 +4780,9 @@ VMAX 其余页面都是只读透传，本节是**唯一落库**的页签，原�
 | --- | --- | --- |
 | `msisdn` | 号码 | 点「查询」时（输入框改到一半不写） |
 | `vmaxView` | `xdr` / `records`（缺省 = 概览） | 切页签时 |
-| `vqStart` / `vqEnd` | 概览的时间窗，`YYYY-MM-DD HH:mm` | 点「查询」时 |
-| `mxSvc` / `mxStart` / `mxEnd` | 信令详单（合并表）的类型与窗口 | 该面板查询成功时 |
-| `rtSvc` / `rtTable` / `rtStart` / `rtEnd` | XDR 记录（分表）的类型、表名与窗口 | 该面板查询成功时 |
+| `vqStart` / `vqEnd` | **整页唯一时间窗**，`YYYY-MM-DD HH:mm` | 点「查询」时 |
+| `mxSvc` | 信令详单（合并表）的类型 | 该面板查询成功时 |
+| `rtSvc` / `rtTable` | XDR 记录（分表）的类型与表名 | 该面板查询成功时 |
 
 一律 `replaceState`：改窗口不该产生一条历史记录，否则后退键要点很多次。
 读写统一走 `frontend/src/urlState.ts`（`readParam` / `writeParams`）。
@@ -4573,3 +4816,160 @@ VMAX 其余页面都是只读透传，本节是**唯一落库**的页签，原�
 - 删除登记记录时连同附件目录一起清理（`shutil.rmtree`）；登记中途落盘失败会回滚整条记录，
   不留无附件元数据的残缺行。
 - 附件写入按 1MB 分块限量（`_save_attachments`），不信任 multipart 声明的大小——那可以被伪造。
+
+## 39. AP 行动计划（`?page=ap_center`，2026-10-30 新增）
+
+把问题 / 风险 / 管理要求变成**可跟踪、可审核、可追溯**的整改任务。方案原文见
+`backend\services\ap_manager\AP_Development_Plan.md`，与现状的差异与取舍见同目录
+`AP_Plan_Review.md`（先读它，不要照着原方案实现"部门下发"）。
+
+### 39.1 状态机与权限（后端是唯一判定处）
+
+```
+DRAFT --dispatch--> ASSIGNED --accept--> ACKNOWLEDGED --start--> IN_PROGRESS
+   |                                                                  |
+   |                                                     submit       v
+   +--cancel--> CANCELLED  <--cancel-- ... <--cancel--  PENDING_REVIEW
+                                                             |
+                                              approve --> COMPLETED
+                                              reject  --> REJECTED --progress--> IN_PROGRESS
+```
+
+- 转换白名单在 `backend\services\ap_manager\store.py::TRANSITIONS`；**不接受客户端指定目标状态**。
+- 并发用**乐观锁**（`UPDATE ... WHERE id=? AND status=?`，`rowcount=0` → 409）。
+  不用 `SELECT ... FOR UPDATE`：sqlite 无行锁，双模下无法统一。
+- **逾期是计算属性**（`due_at < now()` 且状态未终态），不落库、不建定时任务，避免"标记会静默失效"。
+- 权限：`role=admin` 或 `ap_user_profile.ap_role=AP_MANAGER` 才能创建 / 下发 / 取消；
+  执行人只能操作派给自己的；审核人只能审 `PENDING_REVIEW`，且退回必须填原因。
+  判定集中在 `ap_manager\permissions.py`，路由层不重复实现。
+- **不要用 `security.require_protected` 保护 AP 接口**：它对回环请求一律放行，
+  在门户反代下等于不设防（`security.py` 顶部注释）。
+
+### 39.2 组织架构 = Escalation Matrix（不是部门表）
+
+`app.person` 的 `department / position / office / *_leader` 实测**全空**（137 行，非空 0 行），
+所以组织架构取**升级机制**（`升级机制.xlsx` → 门户 `MsPortal/assets/data.js` 的
+`escalation.rows`），内置为 `ap_manager\org.py::ORG_SEED`（4 级 / 21 人，含岗位、邮箱、
+Orange/Lonestar 电话），首次访问种入 `app.ap_org_people`。
+
+**身份桥**（这是"派给人"能成立的前提）：门户会话只有 `username`，组织清单只有英文姓名。
+
+| 优先级 | 规则 | 例 |
+| --- | --- | --- |
+| 1 | `ap_org_people.username` 已人工绑定 | — |
+| 2 | `name_key` 完全相等（去非字母数字 + 小写） | — |
+| 3 | 去尾部数字后前缀匹配（≥4 字符） | `franklinp` → `FranklinPeter`；`varfee_sarnor1` → `VarfeeSarnor` |
+| 4 | 经 `app.flm_team_information."unnamed_5"`（eFlow Acount）反查姓名 | `fe_fe_128` → `Luogon Justin` |
+
+匹配不到**不阻塞**：自动建档、显示名用 username 兜底、邮箱为空则不发邮件
+（`org.py::resolve_profile`）。反过来，任务里存的是姓名也能被账号认领 ——
+`permissions.keys()` 把「账号 + 组织姓名 + 显示名」当同一人，列表 WHERE 与权限判定
+都用这套别名（`routers/ap.py::_scope_where`）。
+
+> 办公室账号（`admin` / `jouwala` / `6000056629` 等）不在 FLM 花名册，需人工建档
+> （直接改 `ap_user_profile` 的 `display_name` / `email`）。
+
+### 39.3 通知：邮件 + WhatsApp 群（群名可自定义）
+
+- 群名存 `ap_tasks.notify_groups`（逗号分隔，默认 `lbr_assistant` 测试群），
+  下发时可在表单里改。走 `services\wa_notify_service.py::dispatch`（Baileys 文本通道）。
+- **必须批量投递**：该通道只有一个 pending 作业文件，逐条 dispatch 会互相覆盖
+  （连续下发 5 个 AP 只剩最后一条）。`ap_manager\notify.py` 用 3 秒合并窗口的
+  批处理线程把同一批消息合成一次 dispatch —— 改这段代码前先看它的注释。
+- 邮件走 `email_notifier` 的 SMTP 凭据（126 邮箱），**自己组装多收件人**：
+  `send_status_email` 只支持单收件人，别为 AP 去改那个被 20+ 任务共用的函数。
+- 收件人邮箱按 `org.email_of()` 取（身份档案 → 组织行）；取不到就跳过邮件，不报错。
+- 通知失败**一律不回滚业务**（`email_notifier` 的既有设计原则）。
+
+### 39.4 接口与文件
+
+| 端点 | 说明 |
+| --- | --- |
+| `GET /api/ap/meta` | 当前身份（含 `can_manage`）、组织清单、枚举、默认群组 |
+| `GET /api/ap/org` | Escalation Matrix |
+| `GET /api/ap/stats` | 统计卡；WHERE 与列表同源（`_scope_where`），避免数字对不上 |
+| `GET /api/ap?scope=mine\|review\|all` | 列表（`all` 对非管理者退化为"与我相关"） |
+| `POST /api/ap` | 创建（`dispatch=true` 直接下发） |
+| `PUT /api/ap/{id}` | 编辑（仅 DRAFT / 未确认的 ASSIGNED） |
+| `POST /api/ap/{id}/dispatch\|accept\|start\|progress\|submit\|approve\|reject\|cancel` | 状态流转 |
+| `POST /api/ap/{id}/attachments` / `GET .../attachments/{stored}` | 凭证上传 / 下载（**带权限校验**） |
+
+- ⚠️ `/meta`、`/org`、`/stats` 必须注册在 `/{ap_id}` **之前**，否则 FastAPI 把
+  `meta` 当 id 解析直接 422。
+- 凭证落盘 `db\attachments\ap_<id>\`，元数据 JSON 存 `ap_tasks.attachments`
+  （与 `issue_reports.attachments` 同范式）；**下载必须过 `can_view`**，
+  不能照抄 feedback 的"内网不鉴权"。
+- 前端：`frontend\src\pages\ApCenter.tsx`（三页签：我的 AP / 待我审核 / 全部 AP）。
+  登记点：`App.tsx` 的 `PageKey`+`VALID_PAGES`+`PAGE_META`+`DEFAULT_GROUPS`(`grp_workflow`)+路由、
+  `i18n.tsx` 中英两处、`helpContent.ts` 的 `PAGE_DOCS`(zh/en)+`PAGE_LIST`+`NAV_KEY_MAP`+`CATEGORIES`。
+- 自测：`TMP\t_ap_flow.py`（只挂 ap 路由的端到端，覆盖方案第 14 节 AT-01~AT-16）与
+  `TMP\t_ap_page.py`（Playwright 页面渲染）。两者都**打桩通知**，不会真往群里发消息。
+
+### 39.5 待办（首版刻意未做）
+
+部门维度（等组织数据）、AP Analytics、多执行人 `ALL_REQUIRED`、模板、多级审核、
+SLA 升级、独立通知中心、到期提醒定时任务（逾期目前是查询时计算）。
+
+## 40. SOC 多维趋势组合看板（`?page=socTrendDashboard`，2026-10-30 新增）
+
+「一个入口 · 三日对比 · 多选定位」：数据/语音双页签 × 8 类目（流量/视频/网页/游戏/OTT语音/
+OTT视频/TCP指标/控制面）× 全网/区域/网元维度，D / D-1 / D-7 三日小时曲线对比，
+带**双基线重大告警分析**（Critical/Major + 维度归因）与**局部异常雷达**。
+
+### 40.1 数据链路（与 vmaxCxoDashboard 三兄弟完全独立）
+
+```
+VMAX 数仓 GBase（10.123.255.12:5258/zxvmax，只读）
+  → 任务 47 soc_trend_sync（每小时 :40，VmaxGbaseClient 只读断言强制 SELECT/SHOW/DESC）
+  → data/soc_trend/soc_trend.sqlite3（唯一落盘点：kpi_hour / kpi_day / dim_area / dim_ne / sync_runs）
+  → /api/soc-trend/{meta,series,alarms,dict}（只读，routers/soc_trend.py）
+  → frontend/public/soc_trend_dashboard.html(+css/js)，React 壳 pages/SocTrendDashboard.tsx
+```
+
+- 表族与口径实测结论见 `backend\services\vmax_gbase\README.md`；每分区 4 条聚合 SQL
+  （ciservice 按 area/targetid、spservice 按 service_id、video 专项速率）。
+- **只存原始计数器，比率读取侧现算**（soc_trend_metrics.py 是口径唯一维护点）。
+- 小时表留 ~94 天、天表 ~90 天；同步窗口 hour 8 天 / day 92 天，最近 2 天每次重拉
+  （当天分区持续累积），其余缺哪天补哪天（整日先删后插，幂等）。
+
+### 40.2 数据面实测约束（2026-10-30，决定了页面形态）
+
+| 事实 | 影响 |
+| --- | --- |
+| spservice 的 area_id 恒为 0 | 分业务类目只有「全网」维度；区域/网元仅 flow / tcp（ciservice）可用 |
+| ciservice targetid 有 8 个零流量噪声成员 | 同步侧过滤（保留 ≥ max(1GB, 最大成员 0.1%)），ne 维度只出 2 个 SGW 池 |
+| 控制面表族全空（aggr_base_control_* / 2b2c 信令） | 「控制面」页签空态占位，`meta.cats.control.ready=false` |
+| VoLTE/VoNR KQI 表族全空 | 「语音」页签空态占位；OTT语音用 VoIP(service_id=13) 流量在数据页展示 |
+| 当天分区是移动靶 | 大数字取「最后一个完整小时」；告警窗口 = 00:00 至该小时 |
+
+### 40.3 告警与归因规则（`soc_trend_metrics.py` 集中维护，页面「指标字典」弹窗同步展示）
+
+- 触发：D-1 与 D-7 **双基线同时**越限；Critical ≥ ±20%、Major ≥ ±10%；
+  体量/速率/成功率取**下降**、重传/乱序/丢包/RTT 取**上升**为不利方向。
+- 防噪三门槛：体量类基线 ≥ 1 GB；比率类分母 ≥ 1000；% 类指标绝对变化 ≥ 0.2 个百分点
+  （2026-10-30 实测标定：丢包率 0.13%→0.47% 属真劣化保留，0.01%→0.04% 的 +300% 属噪声滤除）。
+- 贡献按同一维度互斥切片（其它维度成员的不利变化量占比，Top3）；比率类不可加，不给贡献。
+- 雷达 = 按区域/网元成员聚合的告警分组（Critical 优先），点击卡片定位到趋势图。
+
+### 40.3b 业务 APP 下钻（dim=app，2026-10-30 晚补充）
+
+- 每个分业务类目（视频/网页/游戏/OTT语音/OTT视频）的维度选择器多一档「业务APP (Top20)」：
+  成员是 `dim_service.appname`（FACEBOOK_VIDEO / TIKTOK / YOUTUBE / WHATSAPP.VOIP / ROBLOX…），
+  曲线同样是 D / D-1 / D-7 三日对比。
+- 取数：每分区先 `group by service_id, subservice_id` 排名（SQL-A），再按 Tuple IN 只拉
+  Top-N 的小时明细（SQL-B）——Web 类目全天 1810 个 APP，全存不现实；
+  `TOP_APPS_PER_CAT=20`（soc_trend_sync），本地 `kpi_app_hour` + `dim_app` 两张新表。
+- 成员并集上限 40（跨日 Top-N 会滚动，按窗口流量排序）；APP 维度**不参与告警**
+  （成员漂移噪声），总览口径不受影响。
+- 回填入口：`run_soc_trend_sync(refresh_all=True)`（表结构变更后一次性整窗重拉）。
+
+### 40.4 登记点与自测
+
+- 后端：`backend/services/soc_trend/`（store/sync/service/metrics 四模块，均 <500 行）、
+  `backend/routers/soc_trend.py`、`main.py` include、`task_registry.py` 任务 47（cron `40 * * * *`）。
+- 前端：`public/soc_trend_dashboard.{html,css,js}` + `pages/SocTrendDashboard.tsx`；
+  `App.tsx`（PageKey/VALID_PAGES/AR_BOARD_PAGES/AR_SOFT_REFRESH_PAGES/PAGE_META/路由）、
+  `i18n.tsx` 中英两处、`backend/data/ui_menu_layout.json`（grp_monitor，侧栏全局共享）。
+- 自测：`TMP\_soc_trend_smoke.py`（库/服务/路由函数级冒烟，只读本地库）；
+  首轮回填日志 `TMP\_soc_trend_sync_backfill2.log`（hour 8 天 + day 90 天，91s）。
+- 手动补数：`cd Task\my_app && Scripts 下生产 Python312 跑 python -m backend.services.soc_trend.soc_trend_sync`。

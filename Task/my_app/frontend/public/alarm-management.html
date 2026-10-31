@@ -80,10 +80,8 @@
   .breadcrumb b{color:var(--text)}
 
   .content-bar{display:flex;align-items:center;justify-content:space-between;margin-bottom:0.875rem;gap:0.75rem;flex-wrap:wrap}
-  .secnav{display:flex;gap:0.375rem;flex-wrap:wrap}
-  .secnav a{font-size:0.812rem;font-weight:600;color:var(--muted);padding:0.438rem 0.875rem;border:1px solid var(--border);background:#fff;border-radius:999px;transition:all .15s;cursor:pointer;user-select:none}
-  .secnav a:hover{color:var(--primary);border-color:var(--primary)}
-  .secnav a.active{background:var(--primary);color:#fff;border-color:var(--primary)}
+  /* 顶部页签的观感统一交给共享基线的 .wht（见 legacy-glass-baseline.css），本页不再自写一套。
+     顺带修掉一个老问题：原先深色档因特异性相撞，选中页签与未选中同色（见下方深色块的历史说明）。 */
   /* 新看板通用网格 */
   .chart-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:0.875rem}
   .probe-card{background:#fff;border:1px solid var(--border);border-radius:8px;padding:0.625rem 0.75rem;box-shadow:var(--shadow1)}
@@ -364,12 +362,9 @@
   [data-theme="dark"] .user-dd .uhead{ background:var(--panel-sub); border-color:var(--border); }
   [data-theme="dark"] .user-dd li a{ color:var(--userdd-link); }
   [data-theme="dark"] .user-dd li a:hover{ background:var(--hover); }
-  [data-theme="dark"] .secnav a{ background:var(--vmax-fill-3); border-color:var(--vmax-edge-3); color:var(--muted); }
-  [data-theme="dark"] .secnav a:hover{ color:var(--primary); border-color:var(--primary); }
-  /* 深色档补齐：.secnav a.active 的特异性 (0,2,1) 与上面的 [data-theme="dark"] .secnav a 完全相同、
-     且更靠前，改动前就被后者吃掉 —— 深色下当前 Tab 与未选中态同色（老问题，实测改前
-     active 与普通 tab 都是 #112540/#94a3b8）。补一条深色档专用规则把选中态还原为 vmax 主色。 */
-  [data-theme="dark"] .secnav a.active{ background:var(--primary); border-color:var(--primary); color:#fff; }
+  /* 深色档的 .secnav 页签规则已随观感统一删给 .wht；顺带修掉它原有的一处缺陷：
+     .secnav a.active 与 [data-theme="dark"] .secnav a 特异性同为 (0,2,1) 且更靠前，
+     选中态被吃掉，深色下当前页签与未选中同色（改前实测都是 #112540/#94a3b8）。 */
   /* 同一类被吃掉的情况：.chip input:focus (0,2,1) 被 [data-theme="dark"] .chip input 覆盖 */
   [data-theme="dark"] .chip input:focus{ border-color:var(--primary); }
   [data-theme="dark"] .probe-card,
@@ -481,7 +476,6 @@ img, svg, canvas, iframe { max-width: 100%; }
   .alarm-strip { grid-template-columns: 1fr; }
   .kpis { grid-template-columns: 1fr; }
   .top5-cards { grid-template-columns: 1fr; }
-  .secnav a { padding: .375rem .75rem; font-size: .8125rem; }
 }
 
 </style>
@@ -510,7 +504,7 @@ img, svg, canvas, iframe { max-width: 100%; }
     <div class="breadcrumb">Alarm Management / Alarm Monitor / <b>Site Outages Monitor Dashboard</b></div>
 
     <div class="content-bar">
-      <div class="secnav" id="tabBar">
+      <div class="wht" id="tabBar">
         <a class="tab active" data-sec="secOverview" data-i18n="tabOverview">站点宕机监控</a>
         <a class="tab" data-sec="secTrend" data-i18n="tabTrend">告警趋势监控</a>
         <a class="tab" data-sec="secAssign" data-i18n="tabAssign">派单趋势监控</a>

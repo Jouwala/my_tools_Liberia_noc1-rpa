@@ -606,11 +606,15 @@ img, svg, canvas, iframe { max-width: 100%; }
             <div class="flex items-center justify-between mb-4">
                 <h3 class="text-sm font-bold uppercase tracking-wider text-caption">Hop Analysis &amp; Path Detection</h3>
                 <div class="flex gap-4">
-                    <div class="flex items-center gap-2">
-                        <button id="icmpTableBtn" class="px-3 py-1.5 rounded-lg text-xs font-bold bg-primary text-background-dark transition-colors hover:bg-primary/80">
+                    <!-- ICMP/TCP 切表：观感走共享基线的 .wht（legacy-glass-baseline.css）。
+                         原先用 Tailwind 的 bg-primary/text-background-dark 与
+                         bg-border-dark/50/text-caption 表示选中/未选中，由 switchTable()
+                         直接增删这四个类 —— 现改为只切 .on 一个状态类（见 switchTable）。 -->
+                    <div class="wht wht--sm">
+                        <button id="icmpTableBtn" class="on">
                             ICMP
                         </button>
-                        <button id="tcpTableBtn" class="px-3 py-1.5 rounded-lg text-xs font-bold bg-border-dark/50 text-caption transition-colors hover:bg-border-dark/70">
+                        <button id="tcpTableBtn">
                             TCP
                         </button>
                     </div>
@@ -1659,29 +1663,13 @@ function switchTable(type) {
 
     appState.currentTableType = type;
 
-    if (type === 'icmp') {
-        if (icmpTableContainer) icmpTableContainer.classList.remove('hidden');
-        if (tcpTableContainer) tcpTableContainer.classList.add('hidden');
-        if (icmpTableBtn) {
-            icmpTableBtn.classList.remove('bg-border-dark/50', 'text-caption');
-            icmpTableBtn.classList.add('bg-primary', 'text-background-dark');
-        }
-        if (tcpTableBtn) {
-            tcpTableBtn.classList.remove('bg-primary', 'text-background-dark');
-            tcpTableBtn.classList.add('bg-border-dark/50', 'text-caption');
-        }
-    } else {
-        if (icmpTableContainer) icmpTableContainer.classList.add('hidden');
-        if (tcpTableContainer) tcpTableContainer.classList.remove('hidden');
-        if (tcpTableBtn) {
-            tcpTableBtn.classList.remove('bg-border-dark/50', 'text-caption');
-            tcpTableBtn.classList.add('bg-primary', 'text-background-dark');
-        }
-        if (icmpTableBtn) {
-            icmpTableBtn.classList.remove('bg-primary', 'text-background-dark');
-            icmpTableBtn.classList.add('bg-border-dark/50', 'text-caption');
-        }
-    }
+    // 选中态只切一个 .on 类，观感由共享基线的 .wht 负责（见本页 #icmpTableBtn 处注释）
+    const onBtn = type === 'icmp' ? icmpTableBtn : tcpTableBtn;
+    const offBtn = type === 'icmp' ? tcpTableBtn : icmpTableBtn;
+    if (icmpTableContainer) icmpTableContainer.classList.toggle('hidden', type !== 'icmp');
+    if (tcpTableContainer) tcpTableContainer.classList.toggle('hidden', type !== 'tcp');
+    if (onBtn) onBtn.classList.add('on');
+    if (offBtn) offBtn.classList.remove('on');
 
     // 重新获取数据并更新图表
     if (appState.isAnalyzing && appState.sessionId) {

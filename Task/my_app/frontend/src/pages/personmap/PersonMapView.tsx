@@ -34,6 +34,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Spin } from 'antd'
 import { useTheme } from '../../theme'
+import { useI18n } from '../../i18n'
 import { Polyline, useMap, isMapAlive, Pane } from '../../components/LeafletMap'
 import api from '../../api'
 import { cachedGet } from '../../cache'
@@ -47,6 +48,17 @@ import { TerritoryLayer } from './TerritoryLayer'
 import { CountyLabels } from './CountyLabels'
 import { CountyLayer } from './CountyLayer'
 import { SitesLayer } from './SitesLayer'
+import { siteColor, siteCategory, type PersonSiteCategory } from './siteTone'
+/* 图例浮层**直接复用**实时告警页那一份（`gismap/MapLegendOverlay`）——
+ * 2026-10-30 对齐：人员页原先另起了一份 `personmap/PersonLegendOverlay`，
+ * 样式（位置 / 分组 / 色块 / 置灰删除线 / 点击隐藏）逐项照抄一遍，
+ * 于是两页浮层各改各的，很快就会分叉。
+ * 现只保留**人员页自己的一处差异**：多一个「该人有未关闭 WO」档
+ * （这一档在实时告警页不存在，行文案见 `person.siteLegend.wo`）。
+ * 组件与行/组类型都取自 gismap 那份，故样式永远一致。 */
+import MapLegendOverlay from '../gismap/MapLegendOverlay'
+import type { MapLegendRow, MapLegendGroup } from '../gismap/MapLegendOverlay'
+import { colorFor } from '../gismap/types'
 import { PersonPinsLayer } from './PersonPinsLayer'
 import { SiteClassLayer } from './SiteClassLayer'
 import { MapTopRightOverlays } from './MapTopRightOverlays'
@@ -71,16 +83,15 @@ const LB_ZOOM = 7.5
 const PERSON_PANE = 'personPane'
 const PERSON_PANE_Z = 680
 
-/** 站点三档配色（2026-10-21 用户指定）：
- *    绿 = 负责但当前**没有**该人的未关闭 WO；浅蓝 = 该人在此站**有**未关闭 WO；
- *    红 = 该站当前**有实时告警**。优先级 红 > 浅蓝 > 绿。
- *  ⚠ 必须是**实值十六进制**：Leaflet 的 CircleMarker / Polyline 走 SVG 呈现属性，
- *    解析不了 `var(--wh-*)`（与 ECharts 同一约束，AGENTS.md 三.3 取色表）。
- *  深浅两套的理由：`#4fc3f7` 这类浅蓝在白色底图上对比不足，浅色主题压深一档。 */
-const SITE_TONE = {
-  dark: { ok: '#51cf66', wo: '#4fc3f7', alarm: '#ff1e1e' },
-  light: { ok: '#2f9e44', wo: '#1e88d2', alarm: '#e03131' },
-} as const
+/** 站点圆点 pane（2026-10-30，与实时告警页的 sitePane 同层级）。
+ *  650：高于 overlay(400) 的县块填充，低于 countyLabel(670) 与 personPane(680)。 */
+const PERSON_SITE_PANE = 'sitePane'
+const PERSON_SITE_PANE_Z = 650
+
+/** 站点配色与半径已抽到 `personmap/siteTone.ts`（2026-10-30，与实时告警页对齐）：
+ *  色值取自 `gismap/types.ts` 的 `LEGEND_COLORS`（两页同一份真相源），
+ *  分档判定与「人员 → 站点」连线共用 `siteTone.ts::siteCategory`。
+ *  旧的三档配色（绿/浅蓝/红，`SITE_TONE`）已删除。 */
 
 /** 县块类别配色（COUNTY_PALETTE）、县块填充不透明度（COUNTY_FILL_OPACITY）、
  * 县名标签两行统计文本的构造（typeCountsLine / TRM·CAT 常量表）与「县 → 类别色」
@@ -104,13 +115,12 @@ export function PersonMapView({
   sitesLoading: boolean
 }) {
   const { isDark } = useTheme()
+  const { t } = useI18n()
   const map = useMap()
-  /** 站点 → 三档颜色（红=有实时告警 > 浅蓝=该人在此站有未关闭 WO > 绿=负责但当前没单）。
-   *  圆点与连线**共用这一个判定**，否则会出现「线是绿的、点是蓝的」这种看着像 bug 的画面。 */
-  const siteTone = isDark ? SITE_TONE.dark : SITE_TONE.light
-  const siteColor = (s: ManagedSite) => (
-    s.has_alarm ? siteTone.alarm : s.wo_count > 0 ? siteTone.wo : siteTone.ok
-  )
+  /* 站点 → 颜色 / 半径：全部由 `personmap/siteTone.ts` 决定（2026-10-30）。
+     圆点与连线**共用同一个分档函数**（`siteCategory`），否则会出现
+     「线是绿的、点是蓝的」这种看着像 bug 的画面（用户 2026-10-21 要求）。
+     色值与实时告警页共用 `LEGEND_COLORS` —— 两页同一份真相源。 */
   /* 悬停**不再用 React state**（2026-10-21 改）：state 变化会把 hover 拼进图标，
      导致 Leaflet 重建 marker 图层、把针的 DOM 元素换掉，mousedown/mouseup 因此
      落在不同元素上、click 事件不产生（实测时间线见 personPinHtml.ts 文件头）。
@@ -260,6 +270,85 @@ export function PersonMapView({
     [pinPersons, selectedKey],
   )
 
+  /* 站点状态图例（2026-10-30，与实时告警页对齐）。
+     **每站恰好一个档**（`siteCategory`），故各档之和 = 站点总数，
+     图例数字与地图上画出来的点数必然一一对应（AGENTS.md 三.1b）。
+     文案复用 `gis.legend.*` 那套（同一档位两页同一种说法），只把
+     「该人有未关闭 WO」这一档换成人员页自己的说法。
+
+     ⚠ 「点图例 = 隐藏该档」是实时告警页的既有能力（`toggleLegend`），
+     人员页原先没有对应物 —— 这是「两页同构」的最后一块拼图：
+     同一批站点、同一套颜色，若不能按档隐藏，用户在两页的操作习惯不一致。
+
+     ⚠ 与实时告警页的差别（刻意）：那边**默认隐藏 normal**（739/827 个
+     无状态站会把告警站淹没）；人员页画的是「选中人员的负责站」，量级只有
+     几十个（实测人均 35 站），全部显示才有信息量，故默认一档都不隐藏。 */
+  const [hiddenSiteCats, setHiddenSiteCats] = useState<Set<PersonSiteCategory>>(new Set())
+  const toggleSiteCat = useCallback((id: PersonSiteCategory) => {
+    setHiddenSiteCats(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }, [])
+
+  const siteLegendGroups = useMemo<MapLegendGroup[]>(() => {
+    const visible = showPeople ? sites : []
+    const counts: Record<string, number> = {}
+    for (const s of visible) {
+      const c = siteCategory(s)
+      counts[c] = (counts[c] || 0) + 1
+    }
+    const row = (id: PersonSiteCategory, color: string, label: string, hint?: string): MapLegendRow => ({
+      id, color, label, count: counts[id] || 0, hint,
+      shape: 'dot',
+      hidden: hiddenSiteCats.has(id),
+      hiddenNote: t('gis.legend.hidden'),
+      onClick: () => toggleSiteCat(id),
+    })
+    return [
+      {
+        /* 组标题复用实时告警页那套键（`gis.legendGroup.*`）—— 两页组名逐字相同，
+           刻意不另起一套 `person.siteLegend.group.*`（那会造成第二份真相源，
+           改一边就分叉）。措辞差异只体现在「该人有未关闭 WO」那一**行**，
+           行文案用 `person.siteLegend.wo`（语义确实不同，见该键注释）。 */
+        title: t('gis.legendGroup.alarm'),
+        rows: [
+          row('rt_alarm_overdue', colorFor('rt_alarm_overdue'), t('gis.legend.rtAlarmOverdue'),
+            t('gis.legend.rtAlarmOverdueHint')),
+          row('rt_alarm_ontime', colorFor('rt_alarm_ontime'), t('gis.legend.rtAlarmOnTime'),
+            t('gis.legend.rtAlarmOnTimeHint')),
+        ],
+      },
+      {
+        title: t('gis.legendGroup.ticket'),
+        rows: [
+          row('tt', colorFor('tt'), t('gis.legend.tt')),
+          row('wo', colorFor('wo'), t('person.siteLegend.wo'), t('person.siteLegend.woHint')),
+        ],
+      },
+      {
+        title: t('gis.legendGroup.site'),
+        rows: [
+          row('vip', colorFor('vip'), t('gis.legend.vip')),
+          row('normal', colorFor('normal'), t('gis.legend.normal')),
+        ],
+      },
+    ]
+  }, [sites, showPeople, hiddenSiteCats, toggleSiteCat, t])
+
+  /* 被图例隐藏的档位 → 圆点与连线一起不画（2026-10-30）。
+     ⚠ **图例计数仍按全量统计**（上面 counts 用的是全部站点），与实时告警页
+     一致：那边隐藏某档后图例数字也不变（数字是「该档有多少站」，
+     不是「当前画了几个点」）。两页口径相同，用户对照时才不会觉得数字跳了。
+     ⚠ 连线一并隐藏：线是「人 → 站点」的指引，端点圆点都不见了还留着线，
+     会指向一个看不见的站点。 */
+  const visibleSites = useMemo(
+    () => sites.filter(s => !hiddenSiteCats.has(siteCategory(s))),
+    [sites, hiddenSiteCats],
+  )
+
   const handleClick = useCallback((p: PersonRow) => {
     personClickTsRef.current = Date.now()
     onSelect(p.name_key === selectedKey ? null : p.name_key)
@@ -379,6 +468,14 @@ export function PersonMapView({
             显式声明过，所以 GIS 页的人员针一直是能点的；本页漏了这一行。 */}
       <Pane name={PERSON_PANE} style={{ zIndex: PERSON_PANE_Z }} />
 
+      {/* 站点圆点专用 pane（2026-10-30，与实时告警页对齐）。
+          **必须显式声明**：若让 CircleMarker 的兜底 createPane 建，
+          pane 拿不到 z-index，会掉到 overlayPane(400) 里与县块填充同层
+          （谁后画谁在上）→ 圆点可能被县块盖住（与 2026-10-21 人员针那个坑同类）。
+          取 650：高于 overlay(400) 的县块填充，低于 countyLabel(670) 与
+          personPane(680)，层级链与 `GISMap.tsx` 完全一致。 */}
+      <Pane name={PERSON_SITE_PANE} style={{ zIndex: PERSON_SITE_PANE_Z }} />
+
       {/* MapController 只负责「初始 / 取消选中后」的全国视角；
           选中态的取景由下方聚焦 effect 独占（见那里的注释）。 */}
       <MapController center={LB_CENTER} zoom={LB_ZOOM} />
@@ -463,25 +560,31 @@ export function PersonMapView({
         isDark={isDark}
       />
 
-      <SitesLayer sites={showPeople ? sites : []} siteColor={siteColor} />
+      <SitesLayer sites={showPeople ? visibleSites : []} isDark={isDark} />
 
       {/* 人员 → 其负责站点的连线（仅选中时）。
           2026-10-21 用户要求「连线颜色跟站点同色」：原先一律灰色虚线，
-          在国家级缩放下几乎看不见，也分不出哪条指向告警站。 */}
-      {showPeople && selectedPerson && sites.map(s => (
-        <Polyline
-          key={`line-${s.site_id}`}
-          positions={[[selectedPerson.lat as number, selectedPerson.lng as number], [s.lat, s.lng]]}
-          pathOptions={{
-            color: siteColor(s),
-            weight: s.has_alarm ? 2.5 : 1.5,
-            opacity: s.has_alarm ? 0.75 : 0.55,
-            dashArray: '5 4',
-            // 同县界：连线没有点击行为，别让它拦下本该落在人员针上的点击
-            interactive: false,
-          }}
-        />
-      ))}
+          在国家级缩放下几乎看不见，也分不出哪条指向告警站。
+          2026-10-30：颜色改由 `siteTone.ts::siteColor` 给（与圆点同一份），
+          线宽/透明度按**分档**给（告警档更粗更实），不再是「有告警与否」两档。 */}
+      {showPeople && selectedPerson && visibleSites.map(s => {
+        const cat = siteCategory(s)
+        const isAlarm = cat === 'rt_alarm_overdue' || cat === 'rt_alarm_ontime'
+        return (
+          <Polyline
+            key={`line-${s.site_id}`}
+            positions={[[selectedPerson.lat as number, selectedPerson.lng as number], [s.lat, s.lng]]}
+            pathOptions={{
+              color: siteColor(s),
+              weight: isAlarm ? 2.5 : 1.5,
+              opacity: isAlarm ? 0.75 : 0.55,
+              dashArray: '5 4',
+              // 同县界：连线没有点击行为，别让它拦下本该落在人员针上的点击
+              interactive: false,
+            }}
+          />
+        )
+      })}
 
       {/* 人员针（渲染在 PersonPinsLayer.tsx；「悬停态绝不能进 iconKey」的契约
           见 personPinHtml.ts 文件头，2026-10-21 实测踩过）。
@@ -505,6 +608,22 @@ export function PersonMapView({
           （与下钻抽屉共用文案、容器不同）；抽屉里那条是裸 NoSitesNote。 */}
       {pinsVisible && selectedPerson && !sitesLoading && sites.length === 0 && (
         <MapNoSitesNote person={selectedPerson} />
+      )}
+
+      {/* 站点状态图例（2026-10-30，与实时告警页同构）。
+          放左下角：右上角已被「图层开关 + 站点类别图例」占住。
+          ⚠ 只在「人员」开关打开且**选中了人**时显示 —— 图例统计的是
+          「该人员的负责站点」，没选中就没有站点可统计，画一个全 0 的图例
+          只会让人以为数据是空的。 */}
+      {showPeople && selectedPerson && (
+        <MapLegendOverlay
+          /* 标题复用实时告警页的 `gis.legendTitle`（"图例 / Legend"）——
+             两页浮层标题逐字相同，便于左右对照。口径说明（ⓘ）用人员页自己的：
+             分档优先级里有一档是人员页独有的，措辞必须不同。 */
+          title={t('gis.legendTitle')}
+          note={t('person.siteLegend.note')}
+          groups={siteLegendGroups}
+        />
       )}
     </>
   )

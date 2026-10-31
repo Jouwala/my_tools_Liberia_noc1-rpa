@@ -1177,12 +1177,36 @@ export const TASK_DOCS: TaskDoc[] = [
     },
   },
   {
+    id: 'soc_trend_sync', group: 'v', cron: '40 * * * *',
+    script: 'services/soc_trend/soc_trend_sync.py → run_soc_trend_sync',
+    zh: {
+      name: 'SOC 多维趋势同步',
+      desc: '每小时直连 VMAX 数仓 GBase 只读拉取流量 / TCP / 分业务类目（流量、视频、网页、游戏、OTT 语音、OTT 视频）的小时与天粒度聚合，供 SOC 多维趋势组合看板的双基线告警与三日对比',
+      flow: ['每小时 :40 建独立 pymysql 连接直连 VMAX 数仓 GBase（只读断言：仅允许 SELECT / SHOW / DESC）', '先 SHOW TABLES 探分区，再按分区跑 ciservice（按区域 + targetid）、spservice（按区域 × 业务）与 video 专项聚合', '整日先删后插写入 data/soc_trend/soc_trend.sqlite3（小时表约 94 天、天表约 90 天；最近 2 天每次重拉，其余缺哪天补哪天）'],
+      maintain: [
+        '与 olib_soc_* / vmax_cxo_daily_sync 同源 VMAX 数仓但走独立连接，不占用本机 8790 门户代理会话，故同组串行即可、不会互相挤会话',
+        'GBase 不可用时本轮降级返回（记 error，不抛异常），链路恢复后按「缺失分区补拉」自动续上，无需人工回填',
+        '2026-10-30 上线时只登记了 TASK_SPECS、漏登记 worker 分组 → 首次调度（23:15:55）无 worker 认领，被队列过期判定为失败；2026-10-31 补录 v 组',
+      ],
+    },
+    en: {
+      name: 'SOC Multi-Dim Trend Sync',
+      desc: 'Hourly read-only pulls from the VMAX GBase warehouse: traffic / TCP / per-service categories (traffic, video, web, game, OTT voice, OTT video) aggregated at hour and day granularity, feeding the SOC multi-dim trend dashboard (dual-baseline alarms, D/D-1/D-7 comparison)',
+      flow: ['At :40 hourly, open a dedicated pymysql connection to the VMAX GBase warehouse (read-only guard: SELECT / SHOW / DESC only)', 'Probe partitions with SHOW TABLES, then run ciservice (by area + targetid), spservice (by area x service) and the video-specific aggregates per partition', 'Delete-then-insert whole days into data/soc_trend/soc_trend.sqlite3 (hour table ~94 days, day table ~90 days; the last 2 days are re-pulled every run, other days are back-filled only when missing)'],
+      maintain: [
+        'Same VMAX warehouse as olib_soc_* / vmax_cxo_daily_sync but on its own connection, so it does not consume the local 8790 portal proxy session; serializing within the group is enough and sessions do not collide',
+        'When GBase is unreachable the run degrades gracefully (records the error, no exception); once the link is back the missing-partition back-fill resumes automatically, no manual reload needed',
+        'Registered on 2026-10-30 with TASK_SPECS only and no worker group, so the first scheduled run (23:15:55) was never claimed and got expired as failed; group v was added on 2026-10-31',
+      ],
+    },
+  },
+  {
     id: 'olib_soc_kpi_daily_sync', group: 'm', cron: '20 6 * * *',
     script: 'services/olib_soc_report/olib_soc_report_service.py → run_olib_soc_kpi_sync',
     zh: {
       name: 'OLIB SOC 看板 KPI 增量',
-      desc: '每日增量补齐 VMAX 90 天经营看板的 KPI 库（daily_kpi 表）：只跑 7 个看板块，只取缺的日期 + 重取最新 1 天，不出 Excel',
-      flow: ['每天 06:20 直连 VMAX 数仓 GBase（10.123.255.12:5258，库 zxvmax）', '只跑流量/活跃用户/缓存/视频/游戏/TCP/TOP 业务 7 个块', '只取缺失日期 + 重取最新 1 天（默认回看 7 天，幂等自愈），写 data/olib_soc_report/olib_soc_report.sqlite3 的 daily_kpi'],
+      desc: '每日增量补齐 VMAX 90 天经营看板的 KPI 库（daily_kpi 表）：只跑 7 个看板块，只取缺的日期 + 关键指标为 NULL 的残缺日 + 重取最新 1 天，并同批续写下钻明细表（逐 APP video/game + 逐网元 TCP），不出 Excel',
+      flow: ['每天 06:20 直连 VMAX 数仓 GBase（10.123.255.12:5258，库 zxvmax）', '只跑流量/活跃用户/缓存/视频/游戏/TCP/TOP 业务 7 个块', '只取缺失日期 + 关键指标为 NULL 的残缺日 + 重取最新 1 天（默认回看 7 天，幂等自愈），写 data/olib_soc_report/olib_soc_report.sqlite3 的 daily_kpi', '按明细表自己的缺口（video/game/tcp 三表任一缺天）同批续写下钻明细；逐网元 TCP 来自伪块 tcp_ne 的一条只读 SELECT，配置 blocks.tcp_ne=false 可整体关停'],
       maintain: [
         '数仓分区只保留约 90 天，回看窗口必须落在保留期内',
         'GBase 不可达时本任务失败；链路恢复后 days_back=7 会自动补齐断档，无需人工回填',
@@ -1191,8 +1215,8 @@ export const TASK_DOCS: TaskDoc[] = [
     },
     en: {
       name: 'OLIB SOC Dashboard KPI Sync',
-      desc: 'Daily incremental fill of the 90-day CXO dashboard KPI store (daily_kpi): only the 7 dashboard blocks, missing days plus the newest day re-read, no Excel output',
-      flow: ['Daily 06:20 connect straight to the VMAX GBase DWH (10.123.255.12:5258, db zxvmax)', 'Run only the 7 board blocks (traffic/active users/cache/video/game/TCP/top services)', 'Fetch missing days plus re-read the newest day (7-day lookback, idempotent) into daily_kpi in data/olib_soc_report/olib_soc_report.sqlite3'],
+      desc: 'Daily incremental fill of the 90-day CXO dashboard KPI store (daily_kpi): only the 7 dashboard blocks, missing days plus days whose key metrics are NULL plus the newest day re-read; also tops up the drill-down detail tables (per-app video/game + per-NE TCP), no Excel output',
+      flow: ['Daily 06:20 connect straight to the VMAX GBase DWH (10.123.255.12:5258, db zxvmax)', 'Run only the 7 board blocks (traffic/active users/cache/video/game/TCP/top services)', 'Fetch missing days, days with NULL key metrics and re-read the newest day (7-day lookback, idempotent) into daily_kpi in data/olib_soc_report/olib_soc_report.sqlite3', 'Top up the drill-down detail tables by their own gaps (any of video/game/tcp missing a day); per-NE TCP comes from pseudo-block tcp_ne (one read-only SELECT), disable via blocks.tcp_ne=false'],
       maintain: [
         'DWH partitions are kept ~90 days, so the lookback window must stay inside that retention',
         'When GBase is unreachable the task fails; once the link returns, days_back=7 refills the gap by itself',

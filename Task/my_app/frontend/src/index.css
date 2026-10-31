@@ -2606,3 +2606,59 @@ body .leaflet-container,
 @media (prefers-reduced-motion: reduce) {
   .wf-stage { transition: none; }
 }
+
+/* ============================================================================
+ * VMAX 诊断页 · 打印版（导出 PDF）
+ * ============================================================================
+ * 方案 §4.6：不引第三方 PDF 库（前端体积 + 中文字体问题），
+ * 走浏览器打印样式，用户在打印对话框里选「另存为 PDF」。
+ *
+ * 触发方式：VmaxUserQuery 的「导出 PDF」给 <body> 加 .vmax-print-mode，
+ * window.print() 后移除（print 事件同步触发，页面来不及重排）。
+ *
+ * 打印版只留：结论 + 四维评分 + 语音/OTT/游戏证据 + 时间线 + 数据源命中。
+ * 隐藏：页签、查询条、所有按钮/下钻箭头/分页器、侧边栏、顶栏。
+ * 理由：贴进投诉工单的是「结论与证据」，不是可操作界面 ——
+ * 按钮印在纸上只会占地方，还会让人误以为纸质件能点。
+ * ========================================================================== */
+@media print {
+  /* 打印统一白底黑字：深色主题直接打印会烧掉半卷墨且看不清 */
+  html, body { background: #fff !important; }
+  body.vmax-print-mode .wh-sidebar,
+  body.vmax-print-mode .wh-header,
+  body.vmax-print-mode .app-sidebar,
+  body.vmax-print-mode .app-header,
+  body.vmax-print-mode nav { display: none !important; }
+
+  /* 隐藏操作控件：查询条、页签条、卡片右上角按钮、分页器 */
+  body.vmax-print-mode .ant-btn,
+  body.vmax-print-mode .ant-segmented,
+  body.vmax-print-mode .ant-pagination,
+  body.vmax-print-mode .ant-empty,
+  body.vmax-print-mode .ant-alert-close-icon { display: none !important; }
+
+  /* 卡片：去渐变底、去阴影，改细边框（渐变打印出来是一条条色带） */
+  body.vmax-print-mode .wh-card {
+    background: #fff !important;
+    box-shadow: none !important;
+    border: 1px solid #d9d9d9 !important;
+    break-inside: avoid;
+    page-break-inside: avoid;
+    margin-bottom: 8px;
+  }
+  body.vmax-print-mode .wh-card-head { border-bottom: 1px solid #eee !important; }
+
+  /* 表格：不要横向滚动条，字号收小，避免长表格被切到两页中间 */
+  body.vmax-print-mode .ant-table-wrapper,
+  body.vmax-print-mode .ant-table { font-size: 10px !important; }
+  body.vmax-print-mode .ant-table-scroll,
+  body.vmax-print-mode .ant-table-body { overflow: visible !important; }
+  body.vmax-print-mode .ant-table-thead > tr > th { background: #fafafa !important; }
+  body.vmax-print-mode tr { break-inside: avoid; page-break-inside: avoid; }
+
+  /* 证据时间线：行多时允许跨页，但表头每页重复（antd 的 sticky 在打印无效） */
+  body.vmax-print-mode .vmax-print-timeline { break-inside: auto; page-break-inside: auto; }
+
+  /* 打印页边距：够贴进 A4 工单 */
+  @page { margin: 12mm 10mm; }
+}
