@@ -35,11 +35,13 @@
 .cover-chip.warn{border:1px solid #8a6d10;color:#f6cf00;background:rgba(74,60,8,.7)}
 /* ---- 工具栏：粒度 / 对比窗口 ---- */
 .bar{display:flex;gap:10px;justify-content:center;align-items:center;flex-wrap:wrap;padding:9px 8px 2px}
-.bar .seg{display:flex;border:1px solid #17499c;border-radius:16px;overflow:hidden;background:rgba(9,34,74,.6)}
-.bar .seg button{cursor:pointer;font-family:inherit;font-size:12px;color:#9fd8ee;background:transparent;border:0;padding:5px 16px}
-.bar .seg button:hover{color:#cfeaff;background:rgba(43,111,208,.25)}
-.bar .seg button.active{background:#0d3868;color:#fff;box-shadow:inset 0 0 0 1px #21d5ec}
-.bar .lbl{font-size:11px;color:#7fd2ee}
+/* 粒度开关（Day/Week/Month）的观感统一交给共享基线的 .wht —— 它与外壳
+   MsSlaDashboard.tsx:760 的 .wh-seg .wh-gran-switch 本来就是同一个控件。
+   原先这里自写一套：外框 #17499c + 选中 #0d3868/内描边 #21d5ec，浅色档换成 #d9f0f7。
+   #granSeg 与 button.active 由 :820 的 JS 切换，类名保留不动。 */
+/* .lbl 原本只在 .bar 里用；粒度标签跟着开关挪进了区块标题行，
+   所以选择器放开到 .lbl，两处共用同一档弱化文字。 */
+.lbl{font-size:11px;color:#7fd2ee}
 /* ---- 卡片 ---- */
 .cards{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;padding:10px 4px 0}
 .cards.trio{grid-template-columns:repeat(3,1fr);padding-top:2px}
@@ -94,11 +96,13 @@ tbody tr:hover td{background:rgba(37,140,255,.10)}
 .tbl-wrap{max-height:330px;overflow:auto;border:1px solid #153db0;border-radius:9px;background:linear-gradient(180deg,#08122c,#050d22);margin:0 4px}
 .tag{display:inline-block;font-size:9px;border-radius:9px;padding:1px 7px;border:1px solid #2b6fd0;color:#9fd8ee}
 .tag.warn{border-color:#8a6d10;color:#f6cf00;background:rgba(74,60,8,.5)}
-/* ---- 分业务「本地 / 海外」服务器分流下钻 ----
-   点「缓存服务器流量占比」卡片或其图表面板标题打开。
+/* ---- 卡片下钻弹窗（分业务明细，DRILLS 配置驱动）----
+   可下钻的卡片/图表面板（总流量、缓存占比、视频三卡、游戏流量）点开同一个弹窗。
    配色全部走 --panel/--edge/--text/--muted 变量，浅色态只覆盖这三处容器色，
-   不跟主题迭代的那批规则抢优先级。 */
-.card.drill,.panel[data-mid]{cursor:pointer}
+   不跟主题迭代的那批规则抢优先级。
+   手型光标只给真正登记了下钻的（.drill），不给全部 [data-mid] ——
+   不可下钻的卡显示手型会误导「能点」。 */
+.card.drill,.panel.drill{cursor:pointer}
 .off-mask{position:fixed;inset:0;background:rgba(2,5,12,.72);z-index:220;display:none}
 .off-mask.open{display:block}
 .off-modal{position:fixed;top:6vh;left:50%;transform:translateX(-50%);width:min(1080px,95vw);
@@ -167,10 +171,10 @@ html[data-theme="light"] .logo{color:#0e7490;text-shadow:1px 1px 0 rgba(255,255,
 html[data-theme="light"] .viewbtn{border-color:rgba(14,116,144,.30);background:rgba(255,255,255,.72);color:#0e7490}
 html[data-theme="light"] .asof{background:rgba(255,255,255,.8);border-color:rgba(14,116,144,.3);color:#0e7490}
 html[data-theme="light"] .cover-chip.warn{border-color:#c9a227;color:#8a6d10;background:rgba(255,250,220,.9)}
-html[data-theme="light"] .bar .seg{border-color:rgba(14,116,144,.3);background:rgba(255,255,255,.75)}
-html[data-theme="light"] .bar .seg button{color:#0e7490}
-html[data-theme="light"] .bar .seg button.active{background:#d9f0f7;color:#075063;box-shadow:inset 0 0 0 1px #0e7490}
-html[data-theme="light"] .bar .lbl{color:#3c7d94}
+html[data-theme="light"] .lbl{color:#3c7d94}
+/* 区块标题行：标题在左、该区块的主控在右，窄屏自动折行 */
+.sechead{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.gran{display:inline-flex;align-items:center;gap:8px}
 /* 卡片区浅色主题（modern glass 化第一步：与项目外壳 --wh-* 令牌同源）。
    改写参考 Task\my_app\frontend\src\index.css:160-210 浅色档值。
    装饰条（.card::before）保留：它是文档视觉基因，剥掉就连"原版骨架"都没了。
@@ -245,11 +249,6 @@ html[data-theme="light"] .status{border-color:rgba(14,116,144,.3);background:rgb
   </header>
 
   <div class="bar">
-    <span class="lbl" id="granLabel">Granularity</span>
-    <div class="seg" id="granSeg">
-      <button type="button" data-gran="day" class="active" id="granDay">Day</button>
-      <button type="button" data-gran="week" id="granWeek">Week</button>
-    </div>
     <span class="lbl" id="arLabel"></span>
     <span class="lbl" id="verLabel"></span>
     <span class="lbl" id="hintLabel"></span>
@@ -270,7 +269,19 @@ html[data-theme="light"] .status{border-color:rgba(14,116,144,.3);background:rgb
   </div>
 
   <section class="block">
-    <h2 id="hTrend"><em id="hTrendSub"></em></h2>
+    <div class="sechead">
+      <h2 id="hTrend"><em id="hTrendSub"></em></h2>
+      <!-- 粒度开关：驱动本页全部趋势图（本区块 4 张 + 下方「网络质量与业务结构」6 张），
+           文案由 paintStatic() 按语言覆写 granLabel/granDay/granWeek。
+           质量区的小标题在 renderAll() 里同步带上当前粒度，避免只在本区块标注。 -->
+      <div class="gran">
+        <span class="lbl" id="granLabel">Granularity</span>
+        <div class="seg wht wht--gran" id="granSeg">
+          <button type="button" data-gran="day" class="active" id="granDay">Day</button>
+          <button type="button" data-gran="week" id="granWeek">Week</button>
+        </div>
+      </div>
+    </div>
     <div class="grid" id="chartsPrimary"></div>
   </section>
 
@@ -284,8 +295,8 @@ html[data-theme="light"] .status{border-color:rgba(14,116,144,.3);background:rgb
     <div class="tbl-wrap"><table id="tbl"></table></div>
   </section>
 
-  <!-- 分业务本地/海外服务器分流下钻：静态放 body 里（页面自检要求每个 getElementById
-       都能在这里找到对应 id），表格只写进 #offBody 这个空容器 -->
+  <!-- 卡片下钻弹窗（分业务明细，DRILLS 配置驱动）：静态放 body 里（页面自检要求每个
+       getElementById 都能在这里找到对应 id），表格只写进 #offBody 这个空容器 -->
   <div class="off-mask" id="offMask"></div>
   <div class="off-modal" id="offModal" role="dialog" aria-modal="true" aria-labelledby="offTitle">
     <div class="off-head"><b id="offTitle">Cache Server Share</b><em id="offMeta"></em>
@@ -332,9 +343,18 @@ var I18N = {
     offThApp:'业务 (APP)', offThTotal:'总流量 (TB)', offThLocal:'本地服务器 (TB)',
     offThAbroad:'海外服务器 (TB)', offThUnknown:'未识别 IP (TB)', offThPct:'本地占',
     offTotals:'合计', offOthers:'其它 {n} 个小业务',
-    offHint:'本地 = 服务器所在国家为利比里亚（sp_country_id=32），一套口径同时覆盖两套缓存集群：Facebook 视频 / Instagram / WhatsApp（41.191.107.0/24）与 YouTube / Google Play（196.49.16.0/24）。「未识别 IP」是 DPI 取不到服务器地址的流量（HTTPS/QUIC/UDP），既没走本地也没走海外，已从「本地占」的分母中剔除，所以表格合计会略高于上方卡片里的「缓存占比」（那个数只认 5 台 Facebook 缓存 IP）。',
-    offLoading:'正在取分业务明细…', offFailed:'分业务明细加载失败',
-    offEmpty:'分流明细为空：跑一次「OLIB SOC 看板 KPI 增量」任务即写入',
+    offHint:'【口径提醒】本表的「本地占」与上方卡片的「缓存占比」是两个不同的数，不要互相对账：卡片 = 缓存在指定 5 台 Facebook 缓存 IP 上的流量 / 总流量（约 36%）；下表「本地占」= 服务器在利比里亚的流量 /（本地+海外），按服务器所在国家判定，因此同时包含 Facebook / Instagram / WhatsApp 缓存集群（41.191.107.0/24）与 YouTube / Google Play 缓存集群（196.49.16.0/24），数值更高（约 45%）。「未识别 IP」是 DPI 取不到服务器地址的流量（HTTPS/QUIC/UDP），既没走本地也没走海外，已从「本地占」的分母中剔除。要看缓存承载比例请以上方卡片为准。',
+    trTitle:'分业务流量（本地 / 海外）', trNote:'「合计」为当日全部业务上下行流量，可与「总流量」卡片对账（明细全量落库，不按流量截断）；本地 / 海外 / 未识别是服务器位置分流口径，与「缓存占比」卡片不是同一个数，别互相对账（详见缓存占比卡下钻里的口径提醒）。',
+    dThTb:'流量 (TB)', dThThr:'速率 (kbps)', dThShare:'占总流量',
+    dThRttUl:'上行 RTT (ms)', dThRttDl:'下行 RTT (ms)',
+    vTitle:'分视频 APP 明细', vNote:'速率为该 APP 按流量加权的有效下载速率；「占总流量」= 该 APP 流量 ÷ 当日全网总流量，与「视频流量占比」卡片同口径 —— 三家合计即卡片数值。',
+    gTitle:'分游戏 APP 明细', gNote:'流量为游戏业务清单内各 APP 当日流量，合计可与「游戏流量」卡片对账；RTT 为该 APP 按流量加权的 TCP 平均往返时延。',
+    dLoading:'正在取明细…', dFailed:'明细加载失败',
+    dEmpty:'明细为空：跑一次「OLIB SOC 看板 KPI 增量」任务即写入；历史天可用报表 CLI 的 --details-only 回填',
+    /* 逐日下钻（无分业务维度的 4 个指标用这套，见 DRILLS 里的 series:true） */
+    sThDay:'日期', sThVal:'数值', sThChg:'环比',
+    sDetailDay:'逐日明细',
+    sNote:'明细是日口径，与卡面「最新值」取自同一份日序列：标 ◀ 的那一行就是卡片数字的出处，两者必然相等。上方「日/周」开关只改变曲线的聚合方式，不改变本明细 —— 周点当周合计/加权均值，与日口径的卡片不能直接对账。窗口末端当天可能尚未落库（值显示 —，卡面会自动取上一个有值的日子，即 ◀ 那一行）。这 4 个指标在上游没有分业务（APP）维度，所以只能落到逐日，不与其它卡片的分业务明细混用。',
     n1:'数据源：VMAX 数仓 GBase（10.123.255.12:5258, 库 zxvmax）直连取数，由任务 olib_soc_kpi_daily_sync 每日增量、olib_soc_vmax_report 每月全量入库',
     n2:'单位：总流量/视频流量 GB（库内 TB × 1024）；视频速率为按视频流量加权的有效下载速率（kbps）；活跃用户为当日去重用户数',
     n3:'周粒度：流量类为当周合计，比率/速率/时延为按流量加权平均；最后一周可能未走完，图上标注实际天数',
@@ -366,9 +386,18 @@ var I18N = {
     offThApp:'Service (APP)', offThTotal:'Total traffic (TB)', offThLocal:'Local servers (TB)',
     offThAbroad:'Overseas servers (TB)', offThUnknown:'Unresolved IP (TB)', offThPct:'Local share',
     offTotals:'Total', offOthers:'{n} smaller services',
-    offHint:'"Local" means the server is in Liberia (sp_country_id=32). One rule covers both cache clusters: Facebook Video / Instagram / WhatsApp (41.191.107.0/24) and YouTube / Google Play (196.49.16.0/24). "Unresolved IP" is traffic whose server address DPI could not resolve (HTTPS/QUIC/UDP) — it went neither local nor overseas, so it is excluded from the denominator of "Local share". The total row is therefore slightly above the "Cache Share" card above, which only counts 5 Facebook cache IPs.',
-    offLoading:'loading service breakdown…', offFailed:'failed to load service breakdown',
-    offEmpty:'No offload detail yet — run the "OLIB SOC Dashboard KPI Sync" task once to populate it',
+    offHint:'READ THIS FIRST — "Local share" here is NOT the same number as the "Cache Server Share" card above, and the two are not meant to reconcile: the card = traffic served by the 5 listed Facebook cache IPs / total traffic (~36%); "Local share" here = traffic whose server is in Liberia / (local + overseas), matched by the server\'s country, so it also covers the Facebook / Instagram / WhatsApp cache cluster (41.191.107.0/24) and the YouTube / Google Play cache cluster (196.49.16.0/24) and therefore reads higher (~45%). "Unresolved IP" is traffic whose server address DPI could not resolve (HTTPS/QUIC/UDP) — it went neither local nor overseas, so it is excluded from the "Local share" denominator. For cache offload, trust the card above.',
+    trTitle:'Per-service traffic (local / overseas)', trNote:'"Total" equals the day\'s full uplink+downlink traffic of all services — reconciles with the "Total Traffic" card (detail is stored untruncated). Local / overseas / unresolved split by server location and is NOT the same figure as the "Cache Server Share" card — do not reconcile the two (see the note inside that card\'s drill-down).',
+    dThTb:'Traffic (TB)', dThThr:'Throughput (kbps)', dThShare:'Share of total',
+    dThRttUl:'UL RTT (ms)', dThRttDl:'DL RTT (ms)',
+    vTitle:'Per-video-app breakdown', vNote:'Throughput is the traffic-weighted valid download rate of each app; "Share of total" = app traffic ÷ the day\'s total network traffic (same caliber as the "Video Traffic Share" card — the three apps add up to the card value).',
+    gTitle:'Per-game-app breakdown', gNote:'Traffic is each game app\'s daily traffic; the total reconciles with the "Game Traffic" card. RTT is the traffic-weighted average TCP round-trip time of that app.',
+    dLoading:'loading detail…', dFailed:'failed to load detail',
+    dEmpty:'No detail yet — run the "OLIB SOC Dashboard KPI Sync" task once to populate it; history can be back-filled via the report CLI --details-only',
+    /* 逐日下钻（无分业务维度的 4 个指标用这套，见 DRILLS 里的 series:true） */
+    sThDay:'Date', sThVal:'Value', sThChg:'Change',
+    sDetailDay:'Daily detail',
+    sNote:'These rows are daily, taken from the same day series that feeds the card: the row marked ◀ is exactly where the card value comes from, so the two always match. The Day/Week switch above only changes how the curves aggregate — weekly points are that week\'s sum or traffic-weighted average and are not directly comparable with a daily-caliber card. The last day of the window may not be loaded yet (shown as —; the card then falls back to the most recent day that has a value, i.e. the ◀ row). These 4 metrics have no per-app dimension upstream, so they drill to per-day only — kept separate from the per-app breakdowns of the other cards.',
     n1:'Source: VMAX data warehouse GBase (10.123.255.12:5258, db zxvmax) queried directly; filled daily by olib_soc_kpi_daily_sync and monthly by olib_soc_vmax_report',
     n2:'Units: traffic/video in GB (stored as TB × 1024); video rate is the traffic-weighted valid download throughput (kbps); active users are distinct subscribers per day',
     n3:'Weekly: volumes are summed, rates/latency are traffic-weighted averages; the last week may be partial (day count shown on the chart)',
@@ -524,7 +553,7 @@ function cardHtml(c,small){
   chips+='<span class="'+chipCls(c.id,c.wow_pct)+'">'+esc(t('wow'))+' '+(wow==null?'—':esc(wow))+'</span>';
   chips+='<span class="'+chipCls(c.id,c.mom_pct)+'">'+esc(t('mom'))+' '+(mom==null?'—':esc(mom))+'</span>';
   var digits=m.digits==null?2:m.digits;
-  return '<div class="card'+(small?' sm':'')+(OFFLOAD_DRILL.indexOf(c.id)>=0?' drill':'')+
+  return '<div class="card'+(small?' sm':'')+(DRILLS[c.id]?' drill':'')+
     '" data-mid="'+esc(c.id)+'">'+
     '<div class="ttl"><b>'+esc(LOCALE==='en'?(m.title_en||c.title):(m.title||c.title))+'</b><i>'+esc(m.unit||c.unit||'')+'</i></div>'+
     '<div class="val"><span>'+fmt(c.latest.value,digits)+'</span><em>'+esc(m.unit||c.unit||'')+'</em></div>'+
@@ -631,7 +660,7 @@ function panelHtml(id,big){
     if(last<7)extra=' · '+(LOCALE==='en'?('last week '+last+'d'):('最后一周 '+last+' 天'));
   }
   // 口径说明改成 hover 提示（ⓘ），把卡片右上角腾给 最大/平均/最低
-  return '<div class="panel" data-mid="'+esc(id)+'"><div class="panel-title">'+
+  return '<div class="panel'+(DRILLS[id]?' drill':'')+'" data-mid="'+esc(id)+'"><div class="panel-title">'+
     '<span class="pt-name" title="'+esc(note)+'">'+esc(LOCALE==='en'?(m.title_en||id):(m.title||id))+
       ' <i>'+unit+'</i>'+(note?' <i>ⓘ</i>':'')+esc(extra)+'</span>'+
     panelStats(id,digits)+
@@ -640,65 +669,159 @@ function panelHtml(id,big){
 var PRIMARY_CHART_IDS=['traffic_gb','active_user_k','video_thr_kbps','video_share_pct'];
 var QUALITY_CHART_IDS=['video_tb','cache_ratio_pct','game_tb','tcp_success_pct','tcp_dl_retrans_pct','tcp_dl_rtt_ms'];
 
-/* ==================== 分业务「本地 / 海外」服务器分流下钻 ====================
- * 为什么点的是「缓存占比」这张卡：卡片本身是 5 台 Facebook 缓存 IP 的口径（沿用 notebook，
- * 月报与门户对账靠它），而下钻表格走的是 sp_country_id 国家口径，覆盖两套缓存集群。
- * 两者数值必然不同，弹窗顶部把这件事说清楚，别让人以为界面自相矛盾。
- * 明细只在首次点击时拉一次并缓存（一天约 190 个业务 × 90 天），刷新/切语言用缓存重绘。 */
-var OFFLOAD_DRILL=['cache_ratio_pct'];
+/* ==================== 卡片下钻（分业务明细，配置驱动） ====================
+ * 原先只有「缓存占比」能下钻，现在泛化成 DRILLS 配置表：每张可下钻的卡声明
+ * 「调哪个接口 + 弹窗标题 + 口径说明 + 表格列集」，弹窗骨架/懒加载缓存/Esc 关闭共用。
+ * 明细与卡片口径的关系（对账前先读这段）：
+ *   traffic_gb / cache_ratio_pct ← daily_app_offload（sp_country_id 国家口径，覆盖两套
+ *     缓存集群；「缓存占比」卡片本身是 5 台 Facebook 缓存 IP 的口径，两者数值必然不同，
+ *     弹窗说明里讲清楚，别让人以为界面自相矛盾）
+ *   video_tb / video_thr_kbps / video_share_pct ← daily_video_app（video 块逐 APP 结果帧，
+ *     share 分母 = 当日全网总流量，与「视频流量占比」卡片同口径）
+ *   game_tb ← daily_game_app（game 块逐 APP 结果帧，RTT 按流量加权）
+ * 明细只在首次点击时按接口拉一次并缓存，刷新/切语言用缓存重绘。
+ * appname 为空的行是「其它 / 合计」，标签由渲染层给（后端不背文案）。 */
 var OFFLOAD_API='/api/olib-soc-dashboard/app-offload?days=90';
-var offCache=null, offLoading=false;
+var VIDEO_APP_API='/api/olib-soc-dashboard/video-apps?days=90';
+var GAME_APP_API='/api/olib-soc-dashboard/game-apps?days=90';
+/* 列集：k=行字段，tk=列头 i18n 键，d=小数位，pct=带 % 后缀 */
+var COLS_OFFLOAD=[
+  {k:'total_tb',tk:'offThTotal',d:2},{k:'local_tb',tk:'offThLocal',d:2},
+  {k:'abroad_tb',tk:'offThAbroad',d:2},{k:'unknown_tb',tk:'offThUnknown',d:2},
+  {k:'local_pct',tk:'offThPct',d:1,pct:true}];
+var COLS_VIDEO=[
+  {k:'traffic_tb',tk:'dThTb',d:2},{k:'thr_kbps',tk:'dThThr',d:0},
+  {k:'share_pct',tk:'dThShare',d:1,pct:true}];
+var COLS_GAME=[
+  {k:'traffic_tb',tk:'dThTb',d:2},{k:'ul_rtt_ms',tk:'dThRttUl',d:1},
+  {k:'dl_rtt_ms',tk:'dThRttDl',d:1}];
+var DRILLS={
+  traffic_gb:{api:OFFLOAD_API,cols:COLS_OFFLOAD,title:'trTitle',note:'trNote'},
+  cache_ratio_pct:{api:OFFLOAD_API,cols:COLS_OFFLOAD,title:'offTitle',note:'offHint'},
+  video_tb:{api:VIDEO_APP_API,cols:COLS_VIDEO,title:'vTitle',note:'vNote'},
+  video_thr_kbps:{api:VIDEO_APP_API,cols:COLS_VIDEO,title:'vTitle',note:'vNote'},
+  video_share_pct:{api:VIDEO_APP_API,cols:COLS_VIDEO,title:'vTitle',note:'vNote'},
+  game_tb:{api:GAME_APP_API,cols:COLS_GAME,title:'gTitle',note:'gNote'},
+  /* 这 4 个指标上游没有分业务（APP）维度 —— app-offload / video-apps / game-apps 返回的
+     都是流量与缓存口径的 APP 清单，用户数与 TCP 质量类不在其中。它们的明细只能取
+     payload.series[GRAN]，也就是画这张卡/这条曲线用的同一份数据，所以声明 series:true：
+     不猜 APP 映射，也不硬凑一个对不上号的拆分（AGENTS.md 三.1b：下钻口径必须与概览一致）。 */
+  active_user_k:{series:true}, tcp_success_pct:{series:true},
+  tcp_dl_retrans_pct:{series:true}, tcp_dl_rtt_ms:{series:true}
+};
+var drillCache={}, drillLoading={}, activeDrill=null;
 
-function offRow(r, label, cls){
-  return '<tr'+(cls?' class="'+cls+'"':'')+'><td>'+esc(label||r.appname||'—')+'</td>'+
-    '<td>'+fmt(r.total_tb,2)+'</td><td>'+fmt(r.local_tb,2)+'</td><td>'+fmt(r.abroad_tb,2)+'</td>'+
-    '<td>'+fmt(r.unknown_tb,2)+'</td><td class="pct">'+
-      (r.local_pct==null?'—':fmt(r.local_pct,1)+'%')+'</td></tr>';
+function detailRow(r, cols, label, cls){
+  var tds='<td>'+esc(label||r.appname||'—')+'</td>';
+  cols.forEach(function(c){
+    var v=r[c.k];
+    tds+='<td'+(c.pct?' class="pct"':'')+'>'+
+      (v==null?'—':(c.pct?fmt(v,c.d)+'%':fmt(v,c.d)))+'</td>';
+  });
+  return '<tr'+(cls?' class="'+cls+'"':'')+'>'+tds+'</tr>';
 }
-function offScope(sc){                       // 最新一天没数就退回窗口累计，不给空白表
-  return (sc && sc.rows && sc.rows.length) ? sc : null;
+function detailScope(d){                    // 最新一天没数就退回窗口累计，不给空白表
+  return (d && d.rows && d.rows.length) ? d : null;
 }
-function fillOffModal(){
-  var body=document.getElementById('offBody'), d=offCache;
-  document.getElementById('offTitle').textContent=t('offTitle');
-  var sc = d && d.status==='ok' ? (offScope(d.day) || offScope(d.window_agg)) : null;
-  if(!d){ body.innerHTML='<div class="empty">'+esc(t(offLoading?'offLoading':'offEmpty'))+'</div>';
-    document.getElementById('offMeta').textContent=''; document.getElementById('offNote').textContent=''; return; }
-  if(d.status!=='ok' || !sc){
-    body.innerHTML='<div class="empty">'+esc(d.message||d.error||t('offFailed'))+'</div>';
-    document.getElementById('offMeta').textContent=''; return;
+/* 逐日明细：不发请求，直接读 payload.series.day —— 卡面的「最新值」就是从这里取的
+   （payload.cards[].latest），所以只有**日口径**才能保证「明细某一行 = 卡面数字」。
+   两件事必须说清楚，不能让人以为界面自相矛盾：
+     ① 上方「日/周」开关只作用于曲线聚合，卡片与本明细一律是日口径 —— 实测卡面
+        「Latest · 2026-10-29」切到周也不变，若这里跟随周就会拿 454.9 去对 453.1。
+     ② 窗口末端当天可能还没落库（值=—），卡面会自动退到上一个有值的日子。
+        因此高亮卡面真正取自哪一行，空值行保留但排在其后并标出，不做静默丢弃。 */
+function fillSeriesDrill(){
+  var mid=activeDrill, m=metricMeta(mid);
+  var s=(payload&&payload.series&&payload.series.day)||{};
+  var xs=s.dates||[], ys=s.values||{};
+  var arr=ys[mid]||[];
+  var digits=(m.digits==null?2:m.digits), unit=m.unit||'';
+  var body=document.getElementById('offBody'), meta=document.getElementById('offMeta'), note=document.getElementById('offNote');
+  var card=null; (payload.cards||[]).forEach(function(c){ if(c.id===mid) card=c; });
+  var cardDate=card&&card.latest?card.latest.date:null;
+  document.getElementById('offTitle').textContent=
+    (LOCALE==='en'?(m.title_en||m.title):(m.title||''))+' · '+t('sDetailDay');
+  if(!xs.length||!arr.length){
+    body.innerHTML='<div class="empty">'+esc(t('dEmpty'))+'</div>'; meta.textContent=''; note.textContent=''; return;
   }
-  var n=(sc.rows||[]).length, rest=Math.max(0,((sc.totals&&sc.totals.apps)||n)-n);
-  var html=(sc.rows||[]).map(function(r){return offRow(r)}).join('');
-  if(sc.others) html+=offRow(sc.others, t('offOthers').replace('{n}', String(rest)), 'brk');
-  if(sc.totals) html+=offRow(sc.totals, t('offTotals'), 'tot');
-  body.innerHTML='<table class="off-tbl"><thead><tr><th>'+esc(t('offThApp'))+'</th><th>'+
-    esc(t('offThTotal'))+'</th><th>'+esc(t('offThLocal'))+'</th><th>'+esc(t('offThAbroad'))+
-    '</th><th>'+esc(t('offThUnknown'))+'</th><th>'+esc(t('offThPct'))+'</th></tr></thead><tbody>'+
-    html+'</tbody></table>';
-  var w=d.window||{};
-  document.getElementById('offMeta').textContent=t('offMeta')+' '+(d.as_of||'—')+
-    ' · '+(w.stored_days||0)+'/'+(d.window_days||90)+' '+t('offDays')+
-    (offScope(d.day)?'':' · '+t('week'));
-  document.getElementById('offNote').textContent=t('offHint');
+  var missTail=0; for(var k=arr.length-1;k>=0&&arr[k]==null;k--) missTail++;
+  var rows='';
+  for(var i=xs.length-1;i>=0;i--){                 // 最近的排最前，与看板「最新值」的阅读顺序一致
+    var v=arr[i], pv=i>0?arr[i-1]:null;
+    var chg='—';
+    if(v!=null&&pv!=null&&pv!==0){ var pc=(v-pv)/Math.abs(pv)*100; chg=(pc>=0?'+':'')+pc.toFixed(1)+'%'; }
+    var isCard=(cardDate!=null&&xs[i]===cardDate);
+    rows+='<tr'+(isCard?' class="tot"':'')+'><td>'+esc(xs[i])+(isCard?' ◀':'')+'</td>'+
+      '<td class="pct">'+(v==null?'—':fmt(v,digits))+'</td><td>'+esc(chg)+'</td></tr>';
+  }
+  body.innerHTML='<table class="off-tbl"><thead><tr><th>'+esc(t('sThDay'))+'</th><th>'+
+    esc(t('sThVal'))+(unit?'（'+esc(unit)+'）':'')+'</th><th>'+esc(t('sThChg'))+'</th></tr></thead><tbody>'+
+    rows+'</tbody></table>';
+  meta.textContent=t('offMeta')+' '+(payload.as_of||'—')+' · '+(xs.length-missTail)+'/'+xs.length+' '+t('offDays');
+  note.textContent=t('sNote');
 }
-function openOffload(){
+function fillDrillModal(){
+  var cfg=DRILLS[activeDrill], body=document.getElementById('offBody');
+  var meta=document.getElementById('offMeta'), note=document.getElementById('offNote');
+  if(!cfg){ body.innerHTML=''; meta.textContent=''; note.textContent=''; return; }
+  if(cfg.series){ fillSeriesDrill(); return; }     // 明细在 payload 里，没有 api 可取
+  document.getElementById('offTitle').textContent=t(cfg.title);
+  var d=drillCache[cfg.api];
+  if(!d){
+    body.innerHTML='<div class="empty">'+esc(t(drillLoading[cfg.api]?'dLoading':'dEmpty'))+'</div>';
+    meta.textContent=''; note.textContent=''; return; }
+  if(d.status!=='ok'){
+    body.innerHTML='<div class="empty">'+esc(d.message||d.error||t('dFailed'))+'</div>';
+    meta.textContent=''; note.textContent=''; return; }
+  var sc=detailScope(d.day)||detailScope(d.window_agg);
+  if(!sc){
+    body.innerHTML='<div class="empty">'+esc(t('dEmpty'))+'</div>';
+    meta.textContent=''; note.textContent=''; return; }
+  var n=(sc.rows||[]).length, rest=Math.max(0,((sc.totals&&sc.totals.apps)||n)-n);
+  var html=(sc.rows||[]).map(function(r){return detailRow(r,cfg.cols)}).join('');
+  if(sc.others) html+=detailRow(sc.others,cfg.cols,t('offOthers').replace('{n}',String(rest)),'brk');
+  if(sc.totals) html+=detailRow(sc.totals,cfg.cols,t('offTotals'),'tot');
+  var head='<tr><th>'+esc(t('offThApp'))+'</th>'+
+    cfg.cols.map(function(c){return '<th>'+esc(t(c.tk))+'</th>'}).join('')+'</tr>';
+  body.innerHTML='<table class="off-tbl"><thead>'+head+'</thead><tbody>'+html+'</tbody></table>';
+  var w=d.window||{};
+  meta.textContent=t('offMeta')+' '+(d.as_of||'—')+
+    ' · '+(w.stored_days||0)+'/'+(d.window_days||90)+' '+t('offDays')+
+    (sc===d.day?'':' · '+t('week'));
+  note.textContent=t(cfg.note);
+}
+function fetchDrill(){
+  var cfg=DRILLS[activeDrill]; if(!cfg) return;
+  if(!cfg.api) return;   // series:true 的逐日明细没有接口，数据就在 payload 里；
+                         // 少了这道守卫，fetch(undefined) 会把当前页 URL 当接口拉回来
+  if(drillCache[cfg.api]||drillLoading[cfg.api]) return;
+  drillLoading[cfg.api]=true;
+  fetch(cfg.api,{cache:'no-store'}).then(function(r){
+      if(!r.ok) throw new Error('HTTP '+r.status);
+      // 路由未就绪时网关会回 SPA 的 index.html（200 + HTML），r.json() 的报错是
+      // 「Unexpected token '<'」这种天书 —— 先取文本再解析，失败给本地化提示
+      return r.text().then(function(text){
+        try { return JSON.parse(text); }
+        catch(e){ throw new Error('HTTP '+r.status+' · '+t('dFailed')); }
+      }); })
+    .then(function(d){ drillCache[cfg.api]=d; })
+    .catch(function(e){ drillCache[cfg.api]={status:'error', message:String(e && e.message || e)}; })
+    .then(function(){ drillLoading[cfg.api]=false; if(detailOpen()&&activeDrill) fillDrillModal(); });
+}
+function openDrill(mid){
+  if(!DRILLS[mid]) return;
+  activeDrill=mid;
   document.getElementById('offMask').classList.add('open');
   document.getElementById('offModal').classList.add('open');
-  fillOffModal();
-  if(offCache||offLoading) return;
-  offLoading=true;
-  fetch(OFFLOAD_API,{cache:'no-store'}).then(function(r){
-      if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
-    .then(function(d){ offCache=d; })
-    .catch(function(e){ offCache={status:'error', message:String(e && e.message || e)}; })
-    .then(function(){ offLoading=false; fillOffModal(); });
+  fillDrillModal();                          // 先画出「正在取明细…」，再懒加载
+  fetchDrill();
 }
-function closeOffload(){
+function closeDrill(){
+  activeDrill=null;
   document.getElementById('offMask').classList.remove('open');
   document.getElementById('offModal').classList.remove('open');
 }
-function offloadOpen(){
+function detailOpen(){
   return document.getElementById('offModal').classList.contains('open');
 }
 
@@ -757,9 +880,14 @@ function renderAll(){
       covChip.hidden=false;
     }else{ covChip.hidden=true; covChip.textContent=''; }
   }
-  document.getElementById('hTrendSub').textContent=(GRAN==='day'?t('day'):t('week'))+' · '+
+  var gWord=(GRAN==='day'?t('day'):t('week'));
+  document.getElementById('hTrendSub').textContent=gWord+' · '+
     (LOCALE==='en'?'last 90 days':'最近 90 天');
-  if(offloadOpen()) fillOffModal();     // 切语言/刷新后弹窗文案跟着重绘（表格用缓存，不重拉）
+  /* 同一个粒度还驱动下方 6 张质量图（共 10 张），那里也标出来：
+     否则开关只写在 Business Trends 标题上，质量区的图看起来像不受它管。 */
+  var hqSub=document.getElementById('hQualitySub');
+  if(hqSub) hqSub.textContent=gWord+' · '+t('qualitySub');
+  if(detailOpen()) fillDrillModal();    // 切语言/刷新后弹窗文案跟着重绘（表格用缓存，不重拉）
   drawAll();
 }
 function renderEmpty(msg){
@@ -792,11 +920,11 @@ document.getElementById('refreshBtn').addEventListener('click',load);
    绑在元素上的监听会随节点一起被换掉，委托不会。 */
 document.addEventListener('click',function(ev){
   var el=ev.target&&ev.target.closest?ev.target.closest('[data-mid]'):null;
-  if(el&&OFFLOAD_DRILL.indexOf(el.getAttribute('data-mid'))>=0) openOffload();
+  if(el&&DRILLS[el.getAttribute('data-mid')]) openDrill(el.getAttribute('data-mid'));
 });
-document.getElementById('offMask').addEventListener('click',closeOffload);
-document.getElementById('offClose').addEventListener('click',closeOffload);
-document.addEventListener('keydown',function(ev){ if(ev.key==='Escape'&&offloadOpen()) closeOffload(); });
+document.getElementById('offMask').addEventListener('click',closeDrill);
+document.getElementById('offClose').addEventListener('click',closeDrill);
+document.addEventListener('keydown',function(ev){ if(ev.key==='Escape'&&detailOpen()) closeDrill(); });
 document.getElementById('granSeg').addEventListener('click',function(ev){
   var btn=ev.target.closest('button[data-gran]'); if(!btn)return;
   GRAN=btn.getAttribute('data-gran');

@@ -1402,6 +1402,22 @@ python -m backend.services.olib_soc_report.olib_soc_report_service --sync-kpi --
 > 降级 `partial`（任务不再静默成功）；② 看板页面顶部与明细表会直接标出残缺日，
 > 巡检也可 `curl /api/olib-soc-dashboard/status` 看 `incomplete_days` 计数。
 
+> **下钻明细表（2026-10-30 起 `daily_app_offload` / `daily_video_app` / `daily_game_app`，
+> 层在 `olib_soc_app_detail.py`）不在 `REQUIRED_COLUMNS` 自愈范围内**，残缺判定按明细表自己
+> 「有没有这天」。**2026-10-31 起已自动续写**：每日任务 `olib_soc_kpi_daily_sync`
+> 改走完整落库路径（不再 `kpi_only=True`），并按 `olib_soc_app_detail.gap_days()` 单独算
+> 「明细缺口」—— 窗口内 video/game 两表任一缺天后，下次调度自动补，不必人工干预。
+> 任务历史的摘要里看两个字段即可确认：`detail_requested_days`（本次要补的明细天）与
+> `app_detail`（video/game 各写入多少行）；`app_detail` 里出现 `error` 才是真失败。
+> 仍需手工回补时（历史缺口、或明细写入连续失败）**不要**跑 `--sync-kpi --force`
+> （会重写 `daily_kpi` 既有日值），用只回填明细的命令：
+> `python backend/services/olib_soc_report/olib_soc_report_service.py --details-only --mode last_n_days --days 90`
+> （只跑 video/game 两块并落 `daily_video_app`/`daily_game_app`，不碰 `daily_kpi`/Excel/邮件；
+> offload 明细的回补方式见服务 README「分业务本地/海外」一节）。
+> 看板侧验证：点对应卡片，弹窗「数据截至」与卡片一致、合计与卡片数值对得上账。
+> ⚠️ **例外**：缓存占比那张卡的「本地占」与卡片「缓存占比」**不是同一个指标**
+> （前者按服务器所在国家、覆盖两套缓存集群，实测高约 8 个百分点），不要拿它俩互相对账。
+
 ### 后端静默停摆：连崩 10 次永久退出（2026-10-05 事故，2026-10-06 修复）
 
 **现象**：`https://localhost/myapp/` 打得开（SPA 外壳 200、2866B），但页面全是空数据；
@@ -1764,6 +1780,23 @@ VMAX 门户登录失败: {"result":0,"errors":{"4":"The maximum number of connec
   单独跑（与线上 CCA 会话隔离），跑完即退出；
 - 断言类验证优先写离线守卫（如 `tests/test_vmax_xdr_records.py` 用 monkeypatch
   断言报文字段），不要靠反复真机试错。
+
+### 2026-10-30 复现与新绕法
+
+接「按分类流量」（由 XDR 用户面话单算出）时，为摸清用户面表的可查性，
+连开 8 个探针脚本各登录一次，**再次**把 vmax_cca 的并发位占满，
+所有新登录都返回同样的限流错误，CCA 页与 XDR 页一起不可用。
+
+**新绕法（比等超时快得多）**：**借用运行中后端的会话**取数 ——
+后端持有单例会话，调它的 `/api/vmax-xdr-records` 即可，既不占新连接，
+也不用改后端。探测脚本改成「HTTP 调本地后端」而不是「自己 new 一个 client」。
+本次即用此法在限流状态下完成了全部取数验证。
+
+**另外**：排查「同样参数有时有数据有时没有」时，先怀疑上游的**坏分区边界**，
+再怀疑会话。实测 `end` 落在某些刻钟上（如 `:45`）会让整个分区查不到，
+且上游**不报错**（status=0、records=0）——
+`end=17:44` 有 785 条、`17:45` 变 0 条、`17:46` 又回到 785 条。
+
 
 ## 备份与恢复
 

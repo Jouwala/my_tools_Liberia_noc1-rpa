@@ -740,6 +740,47 @@ def _portal_daily_totals():
     return totals or None
 
 
+# ---------------------------------------------------------------- 7b. 明细回填
+def test_details_only(tmp):
+    """details_only：只把 video/game 块的逐 APP 结果帧落进下钻明细表。
+
+    守住的契约：不写 daily_kpi（部分块跑出的结果若照常走 persist_daily_kpi，
+    会把 blocks_ok 从 7 覆盖成 2）、不出 Excel、不写 app_offload。
+    """
+    from backend.services.olib_soc_report import olib_soc_app_detail as det
+
+    section("7b. 明细回填 details_only（只落 video/game 逐 APP 明细）")
+    svc.DATA_DIR = Path(tmp)                                             # KPI 库随 tmp 走
+    svc.SQLITE_PATH = Path(tmp) / "olib_soc_report.sqlite3"
+    fake = _FakeGbase()
+    out = svc.run_olib_soc_report(mode="explicit", start="20260802", end="20260802",
+                                  blocks=["video", "game"], persist=True, kpi_only=True,
+                                  details_only=True, client=fake, today=date(2026, 9, 16))
+    check("details_only 状态 ok", out["status"] == "ok", str(out.get("errors")))
+    check("不出 Excel（两块出了会污染月报文件序列）", out["excel"] is None, str(out.get("excel")))
+    check("摘要只有 app_detail、没有 kpi/app_offload",
+          "kpi" not in out and "app_offload" not in out
+          and isinstance(out.get("app_detail"), dict), str(sorted(out)))
+    db = Path(tmp) / "olib_soc_report.sqlite3"
+    conn = sqlite3.connect(str(db))
+    try:
+        tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        vrows = conn.execute("SELECT day, appname, traffic_tb, thr_mbps FROM daily_video_app"
+                             ).fetchall()
+        grows = conn.execute("SELECT day, appname, traffic_tb FROM daily_game_app").fetchall()
+    finally:
+        conn.close()
+    check("daily_kpi 未被建表/写入（details_only 不碰卡片口径表）",
+          "daily_kpi" not in tables, str(sorted(tables)))
+    check("video/game 逐 APP 明细已落库",
+          len(vrows) >= 1 and len(grows) >= 1, str((len(vrows), len(grows))))
+    check("明细行带 run_id 与帧数值",
+          all(r[2] is not None for r in vrows), str(vrows[:2]))
+    _vb = det.build_video_apps(days=90, path=db)
+    check("明细表能被下钻 builder 读回（day 视图有行）",
+          _vb["status"] == "ok" and _vb["day"]["rows"], str(_vb.get("message")))
+
+
 def test_cross_check(client, days):
     section("10. 与门户 vreport 口径对账（数仓 SQL vs 门户天粒度接口）")
     portal = _portal_daily_totals()
@@ -805,6 +846,7 @@ def main(argv):
         test_suspect_days()
         test_persist(tmpdir)
         test_orchestration(tmpdir)
+        test_details_only(tmpdir)
         test_recent_runs_provider(tmpdir)
         test_registry()
         if live:

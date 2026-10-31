@@ -17,6 +17,7 @@ from datetime import date, timedelta
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 
+from backend.services.olib_soc_report import olib_soc_app_detail as detail
 from backend.services.olib_soc_report import olib_soc_kpi_store as kpi
 
 logger = logging.getLogger(__name__)
@@ -39,7 +40,7 @@ def get_overview(days: int = 90):
 
 @router.get("/app-offload")
 def get_app_offload(days: int = 90, as_of: str = "", top: int = 40):
-    """分业务「本地 / 海外」服务器流量下钻（看板点「缓存占比」卡片时调一次）。
+    """分业务「本地 / 海外」服务器流量下钻（看板点「缓存占比」/「总流量」卡片时调一次）。
 
     * `as_of` 指定看哪一天（默认库里最新一天）；只认 YYYY-MM-DD，非法值直接 400，
       不静默回退 —— 静默回退会让用户以为看的是自己点的那天。
@@ -53,9 +54,52 @@ def get_app_offload(days: int = 90, as_of: str = "", top: int = 40):
             return JSONResponse({"status": "error", "error": "as_of 需为真实存在的 YYYY-MM-DD 日期"},
                                 status_code=400, headers=_NO_STORE)
     try:
-        body = kpi.build_app_offload(days=days, as_of=as_of or None, top=top)
+        body = detail.build_app_offload(days=days, as_of=as_of or None, top=top)
     except Exception as exc:                                             # noqa: BLE001
         logger.exception("[olib-soc-dashboard] 分业务分流载荷构建失败")
+        return JSONResponse({"status": "error", "error": "%s: %s" % (type(exc).__name__, exc)},
+                            status_code=500, headers=_NO_STORE)
+    return JSONResponse(body, headers=_NO_STORE)
+
+
+@router.get("/video-apps")
+def get_video_apps(days: int = 90, as_of: str = "", top: int = 40):
+    """视频逐 APP 明细下钻（「视频流量 / 视频速率 / 视频占比」三张卡共用）。
+
+    行 = {appname, traffic_tb, thr_kbps, share_pct}；share 分母取当日全网总流量
+    （daily_kpi.traffic_tb），与「视频流量占比」卡片同口径，三家合计 ≈ 卡片数值。
+    """
+    if as_of:
+        try:
+            date.fromisoformat(as_of)
+        except ValueError:
+            return JSONResponse({"status": "error", "error": "as_of 需为真实存在的 YYYY-MM-DD 日期"},
+                                status_code=400, headers=_NO_STORE)
+    try:
+        body = detail.build_video_apps(days=days, as_of=as_of or None, top=top)
+    except Exception as exc:                                             # noqa: BLE001
+        logger.exception("[olib-soc-dashboard] 视频逐 APP 明细载荷构建失败")
+        return JSONResponse({"status": "error", "error": "%s: %s" % (type(exc).__name__, exc)},
+                            status_code=500, headers=_NO_STORE)
+    return JSONResponse(body, headers=_NO_STORE)
+
+
+@router.get("/game-apps")
+def get_game_apps(days: int = 90, as_of: str = "", top: int = 40):
+    """游戏逐 APP 明细下钻（「游戏流量」卡片）。
+
+    行 = {appname, traffic_tb, ul_rtt_ms, dl_rtt_ms}；合计行 RTT 为各 APP 按流量加权。
+    """
+    if as_of:
+        try:
+            date.fromisoformat(as_of)
+        except ValueError:
+            return JSONResponse({"status": "error", "error": "as_of 需为真实存在的 YYYY-MM-DD 日期"},
+                                status_code=400, headers=_NO_STORE)
+    try:
+        body = detail.build_game_apps(days=days, as_of=as_of or None, top=top)
+    except Exception as exc:                                             # noqa: BLE001
+        logger.exception("[olib-soc-dashboard] 游戏逐 APP 明细载荷构建失败")
         return JSONResponse({"status": "error", "error": "%s: %s" % (type(exc).__name__, exc)},
                             status_code=500, headers=_NO_STORE)
     return JSONResponse(body, headers=_NO_STORE)

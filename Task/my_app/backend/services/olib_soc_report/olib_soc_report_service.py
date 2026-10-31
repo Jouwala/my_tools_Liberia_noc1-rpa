@@ -74,6 +74,7 @@ if __package__ in (None, ""):                                            # 直�
     sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 from backend.services.vmax_gbase import vmax_gbase_client as vgc
+from backend.services.olib_soc_report import olib_soc_app_detail as app_detail
 from backend.services.olib_soc_report import olib_soc_kpi_store as kpi_store
 
 logger = logging.getLogger("olib_soc_report")
@@ -850,7 +851,7 @@ def persist_app_offload(pool: Any, cfg: Dict[str, Any], days: Sequence[str],
         return {"rows": 0, "skipped": "无可用连接池"}
     try:
         rows, skipped = fetch_app_offload(pool.get(), cfg, days, run_id)
-        written = kpi_store.upsert_app_offload(rows, path=kpi_db_path())
+        written = app_detail.upsert_app_offload(rows, path=kpi_db_path())
         if written:
             logger.info("[olib_soc] 分业务分流入库 %d 行 / %d 天", written,
                         len({r["day"] for r in rows}))
@@ -859,6 +860,70 @@ def persist_app_offload(pool: Any, cfg: Dict[str, Any], days: Sequence[str],
     except Exception as exc:                                             # noqa: BLE001
         logger.warning("[olib_soc] 分业务分流入库失败: %s", exc)
         return {"rows": 0, "error": "%s: %s" % (type(exc).__name__, exc)}
+
+
+# ---------------------- 视频 / 游戏逐 APP 明细落库（下钻用） ----------------------
+# 与 persist_app_offload 的区别：offload 明细不是报表块，要逐日专查一遍数仓；
+# 而 video/game 块的 SQL 本来就按 appname 分组，结果帧里现成带着逐 APP 行 ——
+# 直接从帧提取落库即可，**不增加任何数仓查询**。
+_APP_DETAIL_SOURCES: Dict[str, Dict[str, Any]] = {
+    # kind: {块名, 帧列名 -> 明细表列名}
+    "video": {"block": "video",
+              "cols": {"Total_traffic_TB": "traffic_tb",
+                       "Valid_video_download_throughput_Mbps": "thr_mbps"}},
+    "game": {"block": "game",
+             "cols": {"Total_traffic_TB": "traffic_tb",
+                      "Avg_TCP_UL_RTT_ms": "ul_rtt_ms",
+                      "Avg_TCP_DL_RTT_ms": "dl_rtt_ms"}},
+}
+
+
+def extract_app_detail_rows(results: Dict[str, Dict[str, Any]],
+                            kind: str) -> List[Dict[str, Any]]:
+    """某块的结果帧（clttime × appname 一行）→ 明细表行（day × appname 一行）。"""
+    import pandas as pd
+
+    spec = _APP_DETAIL_SOURCES[kind]
+    frame = (results or {}).get(spec["block"], {}).get("frame")
+    if frame is None or getattr(frame, "empty", True):
+        return []
+    work = frame.copy()
+    work["_day"] = pd.to_datetime(work.get("clttime"), errors="coerce").dt.strftime("%Y-%m-%d")
+    rows: List[Dict[str, Any]] = []
+    for item in work.to_dict("records"):
+        day = item.get("_day")
+        appname = item.get("appname")
+        if not day or day == "NaT" or appname in (None, ""):
+            continue
+        row: Dict[str, Any] = {"day": day, "appname": str(appname)}
+        for src_col, dst_col in spec["cols"].items():
+            value = _to_float(item.get(src_col))
+            # pandas 把缺失值统一成 NaN（_to_float 转它不报错）；库里/界面口径是 NULL→—，
+            # NaN 会一路漏进 JSON（json.dumps 出 NaN 不是合法 JSON），落库前归一成 None
+            row[dst_col] = None if (value is None or value != value) else value
+        rows.append(row)
+    return rows
+
+
+def persist_app_detail(results: Dict[str, Dict[str, Any]], run_id: str = "") -> Dict[str, Any]:
+    """视频/游戏逐 APP 明细落库；只处理这次真正跑过的块，失败只记日志（同 persist_daily_kpi）。"""
+    out: Dict[str, Any] = {}
+    for kind in _APP_DETAIL_SOURCES:
+        if not (results or {}).get(_APP_DETAIL_SOURCES[kind]["block"]):
+            continue                                          # 这次没跑该块，不碰它的明细表
+        try:
+            rows = extract_app_detail_rows(results, kind)
+            rows = [{**r, "run_id": run_id} for r in rows]
+            written = (app_detail.upsert_video_app(rows, path=kpi_db_path()) if kind == "video"
+                       else app_detail.upsert_game_app(rows, path=kpi_db_path()))
+            if written:
+                logger.info("[olib_soc] %s 逐 APP 明细入库 %d 行 / %d 天", kind, written,
+                            len({r["day"] for r in rows}))
+            out[kind] = {"rows": written, "days": len({r["day"] for r in rows})}
+        except Exception as exc:                                         # noqa: BLE001
+            logger.warning("[olib_soc] %s 逐 APP 明细入库失败: %s", kind, exc)
+            out[kind] = {"rows": 0, "error": "%s: %s" % (type(exc).__name__, exc)}
+    return out
 
 
 def excel_path_for(label: str) -> Path:
@@ -1100,6 +1165,7 @@ def run_olib_soc_report(mode: Optional[str] = None, days: Optional[int] = None,
                         persist: bool = True, send_mail: Optional[bool] = None,
                         progress: bool = False, preview_rows: int = 0,
                         kpi_only: bool = False, excel: Optional[bool] = None,
+                        details_only: bool = False,
                         client: Any = None,
                         config_path: Optional[Path] = None,
                         today: Optional[date] = None,
@@ -1110,6 +1176,8 @@ def run_olib_soc_report(mode: Optional[str] = None, days: Optional[int] = None,
     * preview_rows>0 时摘要里附每块前 N 行明细（CLI --full 用）。
     * persist=False 时只返回摘要，不写 Excel / sqlite / KPI 库 / 摘要 JSON。
     * kpi_only=True 时只跑看板需要的 7 个块、默认不写 Excel（每日增量同步用）。
+    * details_only=True 时只把 video/game 块的逐 APP 结果帧落进下钻明细表，
+      不写 daily_kpi / app_offload / Excel（历史明细回填用，配合 --blocks video,game）。
     * excel 显式覆盖配置里的 persist.write_excel（None=按配置；名字不用 write_excel，
       否则会在函数内遮蔽同名的 `write_excel()` 函数）。
     * invoked_by 记录发起本次运行的任务 id（落进 report_runs.invoked_by），供任务列表
@@ -1130,10 +1198,16 @@ def run_olib_soc_report(mode: Optional[str] = None, days: Optional[int] = None,
     chosen = enabled_blocks(cfg, blocks)
     if kpi_only:
         chosen = [b for b in chosen if b in KPI_BLOCKS]
+    # 「纯 KPI 路径」（kpi_only）：只把块结果压成 daily_kpi 的一天一行，**不写**分业务明细
+    # （app_offload / video / game）。历史残留重取、CLI --kpi-only 都走它。
+    # 2026-10-31 修正：每日增量原先是 kpi_only=True，导致 video/game 逐 APP 明细表永远只有
+    # 回填那 90 天、每天要手工 --details-only 补 —— 现在每日增量改走完整落库路径，
+    # 明细随 daily_kpi 一起写、一起自愈。
     want_excel = bool((cfg.get("persist") or {}).get("write_excel", True)) \
         if excel is None else bool(excel)
-    if kpi_only and excel is None:
-        want_excel = False                                               # 每日同步不重复出 Excel
+    if (kpi_only or details_only) and excel is None:
+        want_excel = False                    # 每日同步/明细回填不重复出 Excel（回填只有两块，
+                                              # 出了 Excel 会污染与 notebook 对账的月报文件序列）
     summary: Dict[str, Any] = {
         "status": "ok", "run_id": run_id, "mode": real_mode,
         "window": [begin, end], "days": len(all_days), "source": "gbase",
@@ -1266,10 +1340,25 @@ def run_olib_soc_report(mode: Optional[str] = None, days: Optional[int] = None,
                                    keep_csv=bool((cfg.get("persist") or {}).get("keep_csv")))
                 summary["excel"] = xlsx
             if persist and (cfg.get("persist") or {}).get("write_kpi", True):
-                summary["kpi"] = persist_daily_kpi(result_map, run_id, all_days)
-                # 分业务分流明细：只要这次跑了 spservice 表族的块就顺带取一次，
-                # 月报全量跑与看板每日增量跑同一条路径，历史回补不需要单独的命令。
-                summary["app_offload"] = persist_app_offload(pool, cfg, all_days, run_id)
+                if details_only:
+                    # 明细回填专用：只落 video/game 逐 APP 明细，不碰 daily_kpi / app_offload
+                    # （部分块跑出的结果若照常走 persist_daily_kpi，会把 blocks_ok 从 7 覆盖成 2）
+                    summary["app_detail"] = persist_app_detail(result_map, run_id)
+                else:
+                    # 写逐 APP 明细要 video/game 的结果帧：调用方若只传了瘦身块子集就补跑这两块
+                    # （同一次数仓会话，代价很小），否则明细表会缺这天。
+                    for extra in ("video", "game"):
+                        if extra not in result_map and extra in BLOCKS:
+                            logger.info("[olib_soc] 补跑明细来源块: %s", extra)
+                            res = run_block(pool, extra, all_days, cfg, progress=progress)
+                            fetched.append(res)
+                            result_map[extra] = res
+                    summary["kpi"] = persist_daily_kpi(result_map, run_id, all_days)
+                    # 分业务分流明细：只要这次跑了 spservice 表族的块就顺带取一次，
+                    # 月报全量跑与看板每日增量跑同一条路径，历史回补不需要单独的命令。
+                    summary["app_offload"] = persist_app_offload(pool, cfg, all_days, run_id)
+                    # 视频/游戏逐 APP 明细：复用本次 video/game 块的结果帧，零额外数仓查询
+                    summary["app_detail"] = persist_app_detail(result_map, run_id)
             summary["mail"] = (deliver_mail(cfg, xlsx, summary) if send_mail is not False
                                else {"sent": False, "skipped": "send_mail=False"})
     except vgc.VmaxGbaseUnavailable as exc:
@@ -1331,6 +1420,9 @@ def run_olib_soc_kpi_sync(days_back: Optional[int] = None, only_missing: bool = 
     }
     historical: List[str] = []                                           # 窗口外、保留期内的历史残缺日
     abandoned: List[str] = []                                            # 超出上游保留期、放弃重取的残缺日
+    # 视频/游戏逐 APP 下钻明细则另算一套缺口（见下方 detail_gaps 的注释）：
+    # 它既不在 KPI_BLOCKS 的落库路径上，也不再能靠 kpi_only=True 顺带写入。
+    detail_gaps: List[str] = []
     if only_missing:
         gaps = kpi_store.gap_days(window, path=kpi_db_path(), today=base)
         # 除了「整天没有行」的天，还要补「有行但关键指标为 NULL」的天：某次运行若单个块
@@ -1376,8 +1468,19 @@ def run_olib_soc_kpi_sync(days_back: Optional[int] = None, only_missing: bool = 
         # 统一成 ISO：与 gap_days 的返回格式、与 kpi.days_list 的比较口径保持一致，
         # 否则 force 重取后 `still_missing` 会把所有天都误报成「仍然缺」
         gaps = [vgc.iso_day(d) for d in vgc.day_range(begin, end)]
+    # 视频/游戏逐 APP 下钻明细走另一套缺口（见 detail_gaps 计算处的注释）：
+    # 它既不在 KPI_BLOCKS 的落库路径上，也不再能靠 kpi_only=True 顺带写入。
+    detail_gaps: List[str] = []
+    if persist:
+        # refresh_last 显式给 0 = 调用方要求「纯 only_missing，最新一天也不重取」，
+        # 明细的「最新 1 天重取」必须跟着关掉，否则零查询语义就失效了
+        _refresh = int(refresh_last if refresh_last is not None
+                       else (sync_cfg.get("refresh_last_days") or 0))
+        detail_gaps = app_detail.gap_days(window, path=kpi_db_path(), today=base,
+                                          refresh_last=_refresh)
+    summary["detail_requested_days"] = detail_gaps
     summary["requested_days"] = gaps
-    if not gaps and not historical:
+    if not gaps and not historical and not detail_gaps:
         summary["status"] = "up_to_date"
         summary["finished_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         summary["elapsed_seconds"] = round(time.time() - started, 2)
@@ -1390,14 +1493,14 @@ def run_olib_soc_kpi_sync(days_back: Optional[int] = None, only_missing: bool = 
         logger.info("[olib_soc] KPI 增量：最近 %d 天已齐，无需取数", window)
         return summary
     # 主调用：窗口内的缺口。若窗口内无缺口（gaps 为空）则跳过，只跑下面的历史残留。
+    query_days = sorted(set(gaps) | set(detail_gaps))
     inner: Dict[str, Any] = {}
-    if gaps:
-        inner = run_olib_soc_report(mode="explicit", start=gaps[0], end=gaps[-1],
-                                    blocks=KPI_BLOCKS, persist=persist, kpi_only=True,
+    if query_days:
+        inner = run_olib_soc_report(mode="explicit", start=query_days[0], end=query_days[-1],
+                                    blocks=KPI_BLOCKS, persist=persist, kpi_only=False,
                                     excel=False, client=client,
                                     config_path=config_path, today=today,
-                                    invoked_by="olib_soc_kpi_daily_sync")
-    # 历史残留在真正重取前，先用**一次**上游分区清单检查把它们再筛一遍：
+                                    invoked_by="olib_soc_kpi_daily_sync")    # 历史残留在真正重取前，先用**一次**上游分区清单检查把它们再筛一遍：
     # 数仓只留约 90 天，某些残留（如 2026-09-07 的流量/TCP 分区）其实早已消失 ——
     # 这种"永远补不上"的天若每天都重取，只会每天徒劳查询 + 每天刷一条 warning。
     # 用便宜的 SHOW TABLES（partition_days）确认分区确实还在，才值得重取；
@@ -1465,6 +1568,10 @@ def run_olib_soc_kpi_sync(days_back: Optional[int] = None, only_missing: bool = 
         "blocks_ok": inner.get("blocks_ok") if inner else None,
         "blocks_failed": inner.get("blocks_failed") if inner else None,
         "kpi": inner.get("kpi") or hist_summary.get("kpi"),
+        # 逐 APP 明细的落库摘要要透出来：明明细表续写失败时，任务历史里要能看见
+        # （2026-10-31 前每日增量不写明细，这里原本一直是 None）
+        "app_detail": inner.get("app_detail") or hist_summary.get("app_detail"),
+        "app_offload": inner.get("app_offload") or hist_summary.get("app_offload"),
         "missing_days": inner.get("missing_days"),
         "warnings": (inner.get("warnings") or []) + (hist_summary.get("warnings") or []),
         "errors": (inner.get("errors") or []) + (hist_summary.get("errors") or []),
@@ -1537,6 +1644,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--days-back", type=int, default=None, help="--sync-kpi 的回看天数（默认配置 7）")
     ap.add_argument("--force", action="store_true", help="--sync-kpi 时强制重取窗口内所有天")
     ap.add_argument("--kpi-only", action="store_true", help="只跑看板用的 7 个块，跳过 top_video")
+    ap.add_argument("--details-only", action="store_true",
+                    help="只回填看板下钻明细（video/game 逐 APP，默认块=video,game），"
+                         "不写 daily_kpi / app_offload / Excel / 邮件")
     ap.add_argument("--no-excel", action="store_true", help="不写 Excel（只入库/打印摘要）")
     ap.add_argument("--no-persist", action="store_true", help="不落盘（只打印摘要）")
     ap.add_argument("--mail", action="store_true", help="强制发送邮件（需配置 mail 收件人）")
@@ -1564,6 +1674,22 @@ def main(argv: Optional[List[str]] = None) -> int:
         if sync.get("still_missing"):
             print("仍缺:", ",".join(sync["still_missing"]))
         return 0 if sync.get("status") in ("ok", "up_to_date", "partial") else 2
+
+    if args.details_only:
+        # 历史明细回填：默认只跑 video/game 两块（明细来源块），零 Excel / 邮件副作用
+        blocks = (args.blocks.split(",") if args.blocks else ["video", "game"])
+        summary = run_olib_soc_report(mode=args.mode, days=args.days, start=args.start,
+                                      end=args.end, blocks=blocks,
+                                      persist=not args.no_persist, send_mail=False,
+                                      progress=args.progress, kpi_only=True,
+                                      details_only=True, excel=False,
+                                      preview_rows=10 if args.full else 0)
+        detail = summary.get("app_detail") or {}
+        print(json.dumps({"status": summary.get("status"), "window": summary.get("window"),
+                          "app_detail": detail, "warnings": summary.get("warnings"),
+                          "errors": summary.get("errors")}, ensure_ascii=False, indent=1,
+                         default=str))
+        return 0 if summary.get("status") in ("ok", "partial") else 2
 
     summary = run_olib_soc_report(mode=args.mode, days=args.days, start=args.start, end=args.end,
                                   blocks=(args.blocks.split(",") if args.blocks else None),

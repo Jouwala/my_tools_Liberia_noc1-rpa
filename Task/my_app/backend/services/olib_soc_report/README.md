@@ -313,7 +313,8 @@ python -m backend.services.olib_soc_report.olib_soc_report_service --start 2026-
   （实测同一天的 APP 合计会算成 185 TB / 真实 140 TB）。
 * 只读接口 `GET /api/olib-soc-dashboard/app-offload?days=90&as_of=YYYY-MM-DD&top=40`，
   返回「最新一天」与「窗口累计」两套行 + 各自合计；`as_of` 不是真实日期直接 400（不静默回退）。
-  看板 `?page=vmaxCxoDashboard_90Days` 点「缓存服务器流量占比」卡片或其图表面板即弹出该表格。
+  看板 `?page=vmaxCxoDashboard_90Days` 点「缓存服务器流量占比」或「总流量」卡片/图表面板
+  即弹出该表格（2026-10-30 起总流量卡也走这份数据，见下一节）。
 * **历史回补**：这张表是新增的，库里已有的天数不会自动长出来，数仓只留约 90 天，越早跑越全。
   两条路：
   * 正式入口 `python -m backend.services.olib_soc_report.olib_soc_report_service --sync-kpi --days-back 90 --force`
@@ -326,6 +327,51 @@ python -m backend.services.olib_soc_report.olib_soc_report_service --start 2026-
   此后每日增量任务 `olib_soc_kpi_daily_sync` 会自动带上（挂在 KPI 落库之后）。
 * 注意 `GBase` 的 `decimal(65,0)` 经 pymysql 回来是 `Decimal`，**直接绑给 sqlite 会
   `ProgrammingError`**，落库前一律 `_to_float()` 转 float（`§13c` 离线用例专门盯这条）。
+
+**视频 / 游戏逐 APP 明细（看板下钻，2026-10-30 新增）**
+
+* 明细层整体在 **`olib_soc_app_detail.py`**（2026-10-30 从 `olib_soc_kpi_store` 迁出并扩成
+  三个 builder 共用一份载荷契约：`day` + `window_agg` 两套行 + TOP-N 之外的并进「其它」+
+  合计行，前端弹窗按列配置渲染 —— 再加一张下钻卡 = 一张明细表 + 一个 builder + 一份列集）。
+  `daily_app_offload` 的建表/写入/builder 也随迁到该模块，行为契约不变。
+* 取数路径与 offload 不同：`video` / `game` 块的 SQL **本来就按 appname 分组**，结果帧里
+  现成带着逐 APP 行，`persist_app_detail()` 直接从帧提取落库，**不增加任何数仓查询**；
+  只处理这次真正跑过的块（帧缺列/空帧不炸，pandas 的 NaN 落库前归一成 NULL）。
+* 两张新表：`daily_video_app(day, appname, traffic_tb, thr_mbps)` 与
+  `daily_game_app(day, appname, traffic_tb, ul_rtt_ms, dl_rtt_ms)`，主键 `(day, appname)`，
+  重跑覆盖。规模：每天各 3 个 APP（配置 `video_apps` / `game_apps` 清单），90 天各 270 行。
+* 只读接口 `GET /api/olib-soc-dashboard/video-apps` / `/game-apps`（与 app-offload 同构，
+  `as_of` 非法日期同样 400）。窗口视图口径与卡片周汇总一致：流量求和、速率/RTT 按流量加权；
+  video 的 `share_pct` 分母取 `daily_kpi.traffic_tb`（当日全网总流量），
+  三家合计 ≈「视频流量占比」卡片。
+* 前端下钻入口在 `vmax_cxo_dashboard_90days.html` 的 `DRILLS` 配置表（一处登记六张卡）：
+  总流量 + 缓存占比 → `/app-offload`；视频流量 / 视频速率 / 视频占比 → `/video-apps`；
+  游戏流量 → `/game-apps`。弹窗标题/口径说明/列集随卡走。
+* **续写（2026-10-31 修正，务必留意）**：每日任务 `olib_soc_kpi_daily_sync` 原先调用
+  `run_olib_soc_report(..., kpi_only=True)`，那条路径**只写 `daily_kpi`**，明细表永远不会
+  增长（只能靠 `--details-only` 手工补）。现在改成 `kpi_only=False` 走完整落库路径，
+  并按 `olib_soc_app_detail.gap_days()` 单独算一套「明细缺口」：窗口内 video/game
+  两张表**任一张**缺的天 + 最新 `kpi_sync.refresh_last_days` 天重取。语义与卡片层
+  严格对齐 —— `refresh_last=0` 时明细也不重取（保证「无缺口 = 零查询」）。
+  任务摘要新增 `detail_requested_days` / `app_detail` 两个字段，明细续写失败要能在
+  任务历史里看见。
+* **缓存占比口径（别混用）**：卡片 `cache_ratio_pct` = 缓存在 `cache_server_ips`
+  （默认 5 台 Facebook 缓存 IP）上的流量 / 总流量；offload 下钻里的 `local_pct` =
+  服务器所在国家为利比里亚（`sp_country_id=32`）的流量 /（本地+海外），覆盖两套缓存
+  集群，数值天然更高（实测 90 天窗口 44.95% vs 卡片 36.56%）。两者**不是同一个指标**，
+  弹窗里已写进口径提醒，不要拿它们互相对账。
+* **「最新一天」一律夹到昨天**（`_window_bounds`，与卡片层 `end = today - 1` 同一约定）：
+  当天分区仍在累积，白天点开不能看到半天数据，「数据截至」也不能跑到卡片前面。
+* **历史回填**：CLI 新增 `--details-only`（默认块 video,game）——只把结果帧落明细表，
+  不写 `daily_kpi` / `app_offload` / Excel / 邮件（部分块的结果若照常走 persist_daily_kpi，
+  会把 `blocks_ok` 从 7 覆盖成 2）。2026-10-30 首次回补 90 天：video/game 各 270 行，
+  对账 video 流量/速率误差 0.000%、share 0.061%、game 0.000%（见 `§13d` 离线用例）。
+  配置的 APP 清单（`video_apps`/`game_apps`）变更后重跑一次即可补齐新 APP 的历史：
+
+  ```bash
+  python backend/services/olib_soc_report/olib_soc_report_service.py \
+      --details-only --mode last_n_days --days 90
+  ```
 
 指标字典在 `olib_soc_kpi_store.METRICS`（10 个：4 个 CEO 主卡片 +
 3 个业务结构 + 3 个网络质量），字段含中英标题/单位/小数位/越大越好/周汇总方式，

@@ -12,9 +12,10 @@
     8. 空库/无表时的友好空态
     9. extract_daily_kpi：从各块结果帧抽取日粒度 KPI
    10. run_olib_soc_kpi_sync：只补缺的天、无缺口零查询、自愈、force 重取
-   11. 三个只读接口 /overview /status /days
+   11. 五个只读接口 /overview /status /days /app-offload /video-apps /game-apps
    12. 配置、任务注册、页面与前端接线
    13. 单位换算与库位置不变量
+   14. 视频 / 游戏逐 APP 明细下钻（明细层 olib_soc_app_detail）
 
 跑法：
     python tests/test_olib_soc_kpi_store.py             # 离线（默认）
@@ -36,6 +37,7 @@ except Exception:                                                        # noqa:
 
 import pandas as pd                                                      # noqa: E402
 
+from backend.services.olib_soc_report import olib_soc_app_detail as det              # noqa: E402
 from backend.services.olib_soc_report import olib_soc_kpi_store as kpi          # noqa: E402
 from backend.services.olib_soc_report import olib_soc_report_service as svc     # noqa: E402
 from backend.services.vmax_gbase import vmax_gbase_client as vgc                # noqa: E402
@@ -596,7 +598,8 @@ try:
     check("路由前缀/路径符合约定", dash.router.prefix == "/api/olib-soc-dashboard"
           and {r.path for r in dash.router.routes} == {
               "/api/olib-soc-dashboard/overview", "/api/olib-soc-dashboard/status",
-              "/api/olib-soc-dashboard/days", "/api/olib-soc-dashboard/app-offload"},
+              "/api/olib-soc-dashboard/days", "/api/olib-soc-dashboard/app-offload",
+              "/api/olib-soc-dashboard/video-apps", "/api/olib-soc-dashboard/game-apps"},
           str(sorted(r.path for r in dash.router.routes)))
     kpi.KPI_DB_PATH = Path(tempfile.mkdtemp(prefix="olib_kpi_e_")) / "nope.sqlite3"
     check("空库 /overview 不 500",
@@ -652,7 +655,8 @@ check("缺配置文件时用默认值（向后兼容）",
       svc.load_config(Path(tempfile.mkdtemp()) / "none.json")["kpi_sync"]["days_back"] == 7)
 svc_text = Path(svc.__file__).read_text(encoding="utf-8")
 check("CLI 参数齐备", all(x in svc_text for x in
-                          ("--sync-kpi", "--kpi-only", "--no-excel", "--days-back", "--force")))
+                          ("--sync-kpi", "--kpi-only", "--no-excel", "--days-back", "--force",
+                           "--details-only")))
 reg_text = (ROOT / "backend" / "task_registry.py").read_text(encoding="utf-8")
 check("任务 olib_soc_kpi_daily_sync 已注册",
       "olib_soc_kpi_daily_sync" in reg_text and "run_olib_soc_kpi_sync" in reg_text)
@@ -737,8 +741,10 @@ if page.exists():
     # --- 自动刷新（按项目外壳的统一协议） ---
     check("页面接软刷新协议（收到 myapp-refresh 原地重拉）",
           "myapp-refresh" in html and "paintStatic(); load();" in html.replace("\n", " "))
-    check("页面在外壳内不自起定时器（避免与外壳双跑/忽略关闭选择）",
-          "if(!embedded()) window.__rt=setInterval(load,REFRESH_MS)" in html)
+    # 2026-10-10 起自刷改为常开的 MyAppRefresh 共享协议（嵌入外壳时也兜底），
+    # 旧写法 if(!embedded()) window.__rt=setInterval 已删除 —— 断言跟着现状走。
+    check("页面接 MyAppRefresh 共享自刷协议（间隔与外壳 AR_PAGE_DEFAULTS 对齐）",
+          "MyAppRefresh.install({" in html and "defaultSec: 900" in html)
     check("页面读外壳的自动刷新间隔并在界面上显示",
           "myapp_auto_refresh_effective" in html and 'id="arLabel"' in html)
     check("中英文都补了自动刷新文案",
@@ -756,15 +762,38 @@ if page.exists():
     check("状态条不再 position:fixed（原来会盖住右下角卡片）",
           ".status{position:fixed" not in html.replace(" ", "")
           and ".status{margin:8pxauto" in html.replace(" ", ""))
+    # --- 卡片下钻（DRILLS 配置驱动，2026-10-30 泛化自「缓存占比」单卡实现） ---
+    check("页面登记 6 张可下钻卡片（总流量/缓存占比/视频三卡/游戏流量）",
+          all(x in html for x in ("traffic_gb:", "cache_ratio_pct:", "video_tb:",
+                                  "video_thr_kbps:", "video_share_pct:", "game_tb:")),
+          "DRILLS 配置缺卡")
+    check("页面引用三个下钻接口",
+          all(x in html for x in ("/app-offload", "/video-apps", "/game-apps")))
+    check("手型光标只给可下钻卡片（不给全部 [data-mid]）",
+          ".card.drill,.panel.drill{cursor:pointer}" in html.replace(" ", "")
+          and ".panel[data-mid]{cursor:pointer}" not in html.replace(" ", ""))
+    check("下钻弹窗的中英标题/说明/空态文案成对齐全",
+          all(html.count(x) == 2 for x in ("vTitle:", "gTitle:", "trTitle:", "dEmpty:")),
+          str({x: html.count(x) for x in ("vTitle:", "gTitle:", "trTitle:", "dEmpty:")}))
 app_text = (ROOT / "frontend" / "src" / "App.tsx").read_text(encoding="utf-8")
 check("React 页面已注册（lazy/PageKey/VALID_PAGES/META/菜单/switch）",
       app_text.count("vmaxCxoDashboard_90Days") >= 5,
       str(app_text.count("vmaxCxoDashboard_90Days")))
 # 外壳统一自动刷新：本页登记进「软刷新页」（原地重拉、不闪屏）并给出默认间隔
-_ar_line = next((ln for ln in app_text.splitlines()
-                 if "AR_SOFT_REFRESH_PAGES" in ln and "=" in ln), "")
+# AR_SOFT_REFRESH_PAGES 的声明在 App.tsx 里是多行数组，取声明行到收口的 ] 为整段再判
+_ar_block = ""
+_app_lines = app_text.splitlines()
+for _i, ln in enumerate(_app_lines):
+    if "AR_SOFT_REFRESH_PAGES" in ln and "=" in ln:
+        _block = [ln]
+        for _nxt in _app_lines[_i + 1:_i + 12]:
+            _block.append(_nxt)
+            if "]" in _nxt:
+                break
+        _ar_block = "\n".join(_block)
+        break
 check("已登记进外壳软刷新页清单（AR_SOFT_REFRESH_PAGES）",
-      "'vmaxCxoDashboard_90Days'" in _ar_line, _ar_line.strip())
+      "'vmaxCxoDashboard_90Days'" in _ar_block, _ar_block.strip()[:200])
 check("已给出该页默认自动刷新间隔（AR_PAGE_DEFAULTS）",
       "vmaxCxoDashboard_90Days: 900" in app_text)
 check("外壳把生效间隔公开给 legacy 页面（单一事实来源，页面不硬编码默认值）",
@@ -923,10 +952,10 @@ check("GBase 的 Decimal 转成 float（直接绑给 sqlite 会 ProgrammingError
                              for k in ("total_tb", "local_tb", "abroad_tb", "unknown_tb")))
 _db_off = Path(tempfile.mkdtemp(prefix="olib_off_")) / "o.sqlite3"
 check("明细按 (day, appname) 落库且重跑幂等",
-      kpi.upsert_app_offload(_got, path=_db_off) == 2
-      and kpi.upsert_app_offload(_got, path=_db_off) == 2
-      and kpi.app_offload_days(path=_db_off) == ["2026-10-19"])
-_ob = kpi.build_app_offload(days=90, path=_db_off)
+      det.upsert_app_offload(_got, path=_db_off) == 2
+      and det.upsert_app_offload(_got, path=_db_off) == 2
+      and det.detail_days(det.APP_OFFLOAD_TABLE, path=_db_off) == ["2026-10-19"])
+_ob = det.build_app_offload(days=90, path=_db_off)
 _orows = {r["appname"]: r for r in _ob["day"]["rows"]}
 check("本地占的分母剔除未识别 IP：48.219/(48.219+2.009)=96.0%",
       _orows["FACEBOOK_VIDEO"]["local_pct"] == 96.0, str(_orows["FACEBOOK_VIDEO"]))
@@ -941,12 +970,12 @@ _many = [{"day": "2026-10-19", "appname": "A%03d" % i, "total_tb": 100.0 - i,
           "local_tb": (100.0 - i) * 0.6, "abroad_tb": (100.0 - i) * 0.3,
           "unknown_tb": (100.0 - i) * 0.1} for i in range(45)]
 _db_roll = Path(tempfile.mkdtemp(prefix="olib_roll_")) / "r.sqlite3"
-kpi.upsert_app_offload(_many, path=_db_roll)
-_roll = kpi.build_app_offload(days=90, top=40, path=_db_roll)["day"]
+det.upsert_app_offload(_many, path=_db_roll)
+_roll = det.build_app_offload(days=90, top=40, path=_db_roll)["day"]
 check("只展示 TOP40，其余并进「其它」，四桶相加仍等于合计",
       len(_roll["rows"]) == 40 and _roll["others"] is not None
       and all(abs(sum(r[c] for r in _roll["rows"]) + _roll["others"][c] - _roll["totals"][c])
-              < 0.05 for c in kpi.APP_OFFLOAD_COLUMNS), str(_roll["totals"]))
+              < 0.05 for c in det.APP_OFFLOAD_COLUMNS), str(_roll["totals"]))
 _o_db = kpi.KPI_DB_PATH
 kpi.KPI_DB_PATH = _db_off
 try:
@@ -958,6 +987,139 @@ try:
           and _api["window_agg"]["totals"]["apps"] == 2, str(_api["window"]))
 finally:
     kpi.KPI_DB_PATH = _o_db
+
+# ==========================================================================
+section("13d. 视频 / 游戏逐 APP 明细下钻（视频三卡与游戏卡的数据源）")
+
+# video/game 块的 SQL 本来就按 appname 分组，结果帧里现成带着逐 APP 行：
+# extract 只做 clttime→ISO day 与列名映射，零额外数仓查询
+_vres = {"video": {"block": "video", "sheet": "Video", "status": "ok", "frame": pd.DataFrame({
+    "clttime": pd.to_datetime(["2026-10-19", "2026-10-19", "2026-10-20"]),
+    "appname": ["FACEBOOK_VIDEO", "TIKTOK", "FACEBOOK_VIDEO"],
+    "Total_traffic_TB": [50.0, 30.0, 60.0],
+    "Valid_video_download_throughput_Mbps": [10.0, 20.0, None]})}}
+_vrows = svc.extract_app_detail_rows(_vres, "video")
+check("video 块帧 → 逐 APP 明细行（clttime 归一 ISO，列名映射）",
+      len(_vrows) == 3 and _vrows[0] == {"day": "2026-10-19", "appname": "FACEBOOK_VIDEO",
+                                         "traffic_tb": 50.0, "thr_mbps": 10.0},
+      str(_vrows[:1]))
+check("空帧 / 没跑该块时提取为空（不炸）",
+      svc.extract_app_detail_rows({"video": {"frame": pd.DataFrame()}}, "video") == []
+      and svc.extract_app_detail_rows({}, "video") == [])
+_grows = svc.extract_app_detail_rows(
+    {"game": {"block": "game", "frame": pd.DataFrame({
+        "clttime": pd.to_datetime(["2026-10-19", "2026-10-19"]),
+        "appname": ["PUBG", "FREE_FIRE"],
+        "Total_traffic_TB": [2.0, 3.0],
+        "Avg_TCP_UL_RTT_ms": [80.0, None],
+        "Avg_TCP_DL_RTT_ms": [150.0, 160.0]})}}, "game")
+check("game 块帧提取带上/下行 RTT（缺失给 None）",
+      len(_grows) == 2 and _grows[1]["ul_rtt_ms"] is None and _grows[1]["dl_rtt_ms"] == 160.0,
+      str(_grows))
+
+_db_det = Path(tempfile.mkdtemp(prefix="olib_vd_")) / "d.sqlite3"
+kpi.upsert_days([_row("2026-10-19", traffic_tb=200.0), _row("2026-10-20", traffic_tb=100.0)],
+                path=_db_det)
+det.upsert_video_app(_vrows, path=_db_det)
+det.upsert_video_app(_vrows, path=_db_det)                       # 同一天重跑幂等
+det.upsert_game_app(_grows + [{"day": "2026-10-20", "appname": "PUBG",
+                               "traffic_tb": 4.0, "ul_rtt_ms": None, "dl_rtt_ms": None}],
+                    path=_db_det)
+_vb = det.build_video_apps(days=90, path=_db_det)
+check("video day 视图 = 最新一天（10-20 只有 FACEBOOK_VIDEO）",
+      _vb["as_of"] == "2026-10-20"
+      and [r["appname"] for r in _vb["day"]["rows"]] == ["FACEBOOK_VIDEO"], str(_vb["day"]))
+check("video share 与「视频流量占比」卡片同口径（60/100=60%）",
+      _vb["day"]["rows"][0]["share_pct"] == 60.0, str(_vb["day"]["rows"][0]))
+check("速率缺失给 None（kbps 不显示 0）",
+      _vb["day"]["rows"][0]["thr_kbps"] is None, str(_vb["day"]["rows"][0]))
+_win = {r["appname"]: r for r in _vb["window_agg"]["rows"]}
+check("video 窗口聚合：流量求和 + 速率按流量加权（只有 19 日有速率 → 10000kbps）",
+      close(_win["FACEBOOK_VIDEO"]["traffic_tb"], 110.0)
+      and _win["FACEBOOK_VIDEO"]["thr_kbps"] == 10000.0
+      and _win["TIKTOK"]["thr_kbps"] == 20000.0, str(_win))
+check("video 窗口 share 分母 = 有总流量的天之和（110/300=36.7%）",
+      _win["FACEBOOK_VIDEO"]["share_pct"] == 36.7, str(_win["FACEBOOK_VIDEO"]))
+check("video 合计行 = 卡片数值（140/300=46.7%，速率加权 12142.9kbps）",
+      close(_vb["window_agg"]["totals"]["traffic_tb"], 140.0)
+      and _vb["window_agg"]["totals"]["share_pct"] == 46.7
+      and _vb["window_agg"]["totals"]["thr_kbps"] == 12142.9,
+      str(_vb["window_agg"]["totals"]))
+_gb = det.build_game_apps(days=90, path=_db_det)
+check("game day 视图 RTT 全缺给 None（不显示 0）",
+      _gb["day"]["rows"][0]["ul_rtt_ms"] is None and _gb["day"]["rows"][0]["dl_rtt_ms"] is None,
+      str(_gb["day"]))
+_gwin = {r["appname"]: r for r in _gb["window_agg"]["rows"]}
+check("game 窗口 RTT 按流量加权（PUBG ul 只算有值的天 → 80ms）",
+      close(_gwin["PUBG"]["traffic_tb"], 6.0) and _gwin["PUBG"]["ul_rtt_ms"] == 80.0
+      and _gwin["PUBG"]["dl_rtt_ms"] == 150.0 and _gwin["FREE_FIRE"]["ul_rtt_ms"] is None,
+      str(_gwin))
+check("game 合计行 RTT 加权（dl=(150×6+160×3)/9=153.33）",
+      close(_gb["window_agg"]["totals"]["traffic_tb"], 9.0)
+      and _gb["window_agg"]["totals"]["dl_rtt_ms"] == 153.33,
+      str(_gb["window_agg"]["totals"]))
+_o_db3 = kpi.KPI_DB_PATH
+kpi.KPI_DB_PATH = _db_det
+try:
+    check("video-apps 接口 as_of 非法直接 400",
+          dash.get_video_apps(days=90, as_of="2026-13-99").status_code == 400)
+    _vapi = json.loads(dash.get_video_apps(days=90).body.decode("utf-8"))
+    check("video-apps 接口给两套行 + 合计",
+          _vapi["status"] == "ok" and _vapi["day"]["rows"] and _vapi["window_agg"]["totals"],
+          str(_vapi.get("message")))
+    _gapi = json.loads(dash.get_game_apps(days=90).body.decode("utf-8"))
+    check("game-apps 接口 ok", _gapi["status"] == "ok", str(_gapi.get("message")))
+    kpi.KPI_DB_PATH = Path(tempfile.mkdtemp(prefix="olib_vd_empty_")) / "nope.sqlite3"
+    check("空库 video-apps 给友好空态（不 500）",
+          json.loads(dash.get_video_apps(days=90).body.decode("utf-8"))["status"] == "empty")
+finally:
+    kpi.KPI_DB_PATH = _o_db3
+
+# 「只看已完成日」与卡片层同一约定：当天（仍在累积的半天分区）不进下钻
+# （放在接口检查之后：插入「今天」的行会改变上面 day 视图的新袖日）
+det.upsert_video_app([{"day": date.today().isoformat(), "appname": "TIKTOK",
+                       "traffic_tb": 1.0, "thr_mbps": 5.0}], path=_db_det)
+_vb_today = det.build_video_apps(days=90, path=_db_det)
+check("当天（未完成日）不进下钻：as_of 夹到昨天、day 视图无当天行",
+      _vb_today["as_of"] == (date.today() - timedelta(days=1)).isoformat()
+      and not [r for r in _vb_today["day"]["rows"] if r["appname"] == "TIKTOK"],
+      str(_vb_today["as_of"]))
+
+# persist_app_detail：只处理这次真正跑过的块；库路径跟随 svc.DATA_DIR（测试可隔离）
+_svc_dir = svc.DATA_DIR
+try:
+    svc.DATA_DIR = Path(tempfile.mkdtemp(prefix="olib_pd_"))
+    _pd = svc.persist_app_detail({"video": _vres["video"]}, "run_det")
+    check("persist_app_detail 只写跑过的块（video 写入 / game 跳过）",
+          _pd.get("video", {}).get("rows") == 3 and "game" not in _pd, str(_pd))
+    check("persist_app_detail 落的库能被 builder 读回",
+          det.build_video_apps(days=90, path=svc.kpi_db_path())["day"]["rows"], "读回失败")
+    check("没跑任何块时不写库（不碰明细表）", svc.persist_app_detail({}, "run_det") == {})
+finally:
+    svc.DATA_DIR = _svc_dir
+
+# 明细缺口自愈（2026-10-31）：每日增量不再走 kpi_only=True，明细要跟着 daily_kpi 一起补。
+# 守的是「明细表缺了某天 → 下次增量会把它捞回来」，否则下钻会永久缺这一天。
+_db_gap = Path(tempfile.mkdtemp(prefix="olib_gap_")) / "g.sqlite3"
+_gap_today = date(2026, 9, 20)
+det.upsert_video_app([{"day": "2026-09-15", "appname": "TIKTOK", "traffic_tb": 1.0}],
+                     path=_db_gap)
+det.upsert_game_app([{"day": "2026-09-15", "appname": "PUBG", "traffic_tb": 0.1}], path=_db_gap)
+_gaps = det.gap_days(7, path=_db_gap, today=_gap_today, refresh_last=1)
+check("明细缺口 = 窗口内两张表都没有的天 + 最新 1 天重取",
+      _gaps == ["2026-09-13", "2026-09-14", "2026-09-16", "2026-09-17", "2026-09-18",
+                "2026-09-19"], str(_gaps))
+check("明细缺口不含当天（未完成日不落库）",
+      (date(2026, 9, 20).isoformat()) not in _gaps, "当天被误算进缺口")
+# 只有一张表有那天也算缺口（历史遗留：daily_video_app 是后加的，game 可能先有）
+det.upsert_game_app([{"day": "2026-09-16", "appname": "PUBG", "traffic_tb": 0.1}], path=_db_gap)
+check("只一张明细表有那天 → 仍算缺口（两表必须都齐）",
+      "2026-09-16" in det.gap_days(7, path=_db_gap, today=_gap_today, refresh_last=0),
+      "单表覆盖被当成已齐")
+check("明细缺口表不存在时安全返回全窗口",
+      det.gap_days(3, path=_db_gap.with_name("none.sqlite3"), today=_gap_today,
+                   refresh_last=0) == ["2026-09-17", "2026-09-18", "2026-09-19"],
+      "空库未返回全窗口")
 
 # ==========================================================================
 if LIVE:
