@@ -294,7 +294,9 @@ def export_tt_rules() -> str:
 # 3. TT 推单规则（指派与派发）
 # ------------------------------------------------------------------ #
 
-# 推单规则表的行数远多于另外三张（141 条 / 28 种规则类型），全量平铺会稀释
+# 推单规则表的行数远多于另外三张（它是 config-center 全量规则，类型与条数随 eFlow 配置
+# 变化，当期实况看导出的 Rule_Type_Summary Sheet；2026-11-02 为 143 条 / 30 种类型），
+# 全量平铺会稀释
 # 检索命中率。所以只导出**与 TT 派单有关**的四类规则：
 #   ttDispatchRule      —— 直接派发（按告警码/网络制式把 TT 直接派给某组）
 #   ttPushOrderRule     —— 条件推单（满足条件自动推给指定组）
@@ -318,10 +320,16 @@ _PUSH_RULE_TYPE_TEXT = {
 
 
 def _parse_targets(raw: str) -> list[str]:
-    """目标处理人形如 `ZTE_NOC_FO(group), SOC-CEM(group)` → ['ZTE_NOC_FO', 'SOC-CEM']。"""
+    """目标处理人形如 `ZTE_NOC_FO(group), SOC-CEM(group)` → ['ZTE_NOC_FO', 'SOC-CEM']。
+
+    ⚠ 分隔符有两种：eFlow 导出列里多目标是**分号**分隔
+    （`ZTE_FE_FE(group); ZTE_NOC_FO(group)`，规则 201，2026-11-02 起才带上条件而生效），
+    只按逗号拆会把推送链的后续跳丢掉，知识文档里就只剩第一个组 ——
+    机器人据此回答「这单会派给谁」会漏掉 NOC_FO 那一跳。逗号分号一律当分隔符。
+    """
     out = []
     for seg in str(raw or '').split('>'):
-        for part in seg.split(','):
+        for part in seg.replace(';', ',').split(','):
             part = part.strip()
             if not part:
                 continue
@@ -396,6 +404,10 @@ def export_push_rules() -> str:
 
             lines.append(f'### 规则 {rid}：{name}')
             lines.append('')
+            # 身份行**再写一遍**：420 字符的分块会把标题和正文切开 —— 实测规则 201 的
+            # 标题落在上一块末尾（108 字符），正文单独成块且不含 ID 也不含规则名，
+            # 于是「规则 201 的目标处理组是什么」在索引里命不中，机器人答「资料里没有 201」。
+            lines.append(f'- 规则：{rid} {name}')
             head = f'- 状态：{status}'
             if pri:
                 head += f'；优先级：{pri}'

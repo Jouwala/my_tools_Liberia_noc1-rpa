@@ -37,10 +37,20 @@ python backend/services/eflow_rules/eflow_tt_rules_check_task.py   # 1000条TT�
 
 刷新后重新执行本目录 `build_kb.py` 再上传知识库，即可同步最新规则。
 
-## 四、规则变更风险提示（本次审计发现）
+## 四、规则变更风险提示（2026-11-02 复核；实况以 `eflow_push_rules.xlsx`／
+## Email Reports → eFlow TT 推单规则检查 页签为准，本段只是当时的快照）
 
-- 规则 201（Regular 断站到 FO）为 STOP：Regular 站断站(9970/9980/9990/9910/9920/9995)
-  目前无 FO 推单，仅 200（99933 电源类）推 3rd_Power —— 若现场需要处理 Regular 断站，需重新评估。
-- BO 线推单规则 154~158 的告警码清单较长，新增告警码时注意同步维护。
+- 2026-11-02 08:58~08:59（UTC）eFlow 改了 200/201：两条现在**都是 ACTIVE**，
+  条件也相同（`siteSubType=REGULAR`、`assetType in NORMAL,COOL`、
+  `alarmCode in 9910/9920/9970/9980/9990/9995`），只差 `reasonType`：
+  200 `in 'POWER'` → `3rd_Power`（转 IPT，不建 WO）；
+  201 `not in 'POWER'` → `ZTE_FE_FE → ZTE_NOC_FO`（建 WO，两跳链）。
+  201 不再是从前的 STOP，「Regular 断站无 FO 推单」这条旧结论已失效。
+- ⚠ 新出现的规则真空：200 的告警码里**去掉了 99933**（SITE DOWN DUE TO POWER OFF），
+  现在只有规则 203 还带 99933，而 203 要求 `siteSubType='ERA'`
+  → **REGULAR 站的 99933 在 FOAccept 阶段没有任何推单规则适用**。
+  该码近一年 20776 单，是量最大的一类；是否本意需向规则管理方确认。
+- BO 线推单规则 153~158 的告警码清单较长（均为 ACTIVE，触发步骤 BOAccept），
+  新增告警码时注意同步维护；154 还引用了本地取不到的 `alarmName` 字段。
 - Vmax 系列 GroupConfig(237/238/239) STOP，仅 236(FOProcess→SOC-CEM) ACTIVE，
   VMAX 的 TT BOAccept 环节走默认组 243(TT_BO_default_accept_group)。

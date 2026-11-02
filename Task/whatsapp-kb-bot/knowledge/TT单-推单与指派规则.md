@@ -15,6 +15,7 @@
 
 ### 规则 165：TT单直接派BO accept
 
+- 规则：165 TT单直接派BO accept
 - 状态：ACTIVE；优先级：2
 - 触发步骤：autoDispatch
 - 匹配条件：
@@ -55,6 +56,7 @@
 
 ### 规则 164：TT单直接派FO accept
 
+- 规则：164 TT单直接派FO accept
 - 状态：ACTIVE；优先级：3
 - 触发步骤：autoDispatch
 
@@ -62,6 +64,7 @@
 
 ### 规则 119：TT_push_confirm_to_close with wo
 
+- 规则：119 TT_push_confirm_to_close with wo
 - 状态：ACTIVE；优先级：1
 - 触发步骤：Confirm
 - 推送路径：Confirm,0>Closed
@@ -70,6 +73,7 @@
 
 ### 规则 153：TT自动推单给BO-RAN组
 
+- 规则：153 TT自动推单给BO-RAN组
 - 状态：ACTIVE；优先级：2
 - 触发步骤：BOAccept
 - 推送路径：BOAccept,4>BOProcess
@@ -94,6 +98,7 @@
 
 ### 规则 156：TT自动推单给BO-CS组
 
+- 规则：156 TT自动推单给BO-CS组
 - 状态：ACTIVE；优先级：2
 - 触发步骤：BOAccept
 - 推送路径：BOAccept,4>BOProcess
@@ -116,6 +121,7 @@
 
 ### 规则 157：TT自动推单给BO-PS组
 
+- 规则：157 TT自动推单给BO-PS组
 - 状态：ACTIVE；优先级：2
 - 触发步骤：BOAccept
 - 推送路径：BOAccept,4>BOProcess
@@ -135,6 +141,7 @@
 
 ### 规则 158：TT自动推单给BO-VAS_OCS组
 
+- 规则：158 TT自动推单给BO-VAS_OCS组
 - 状态：ACTIVE；优先级：2
 - 触发步骤：BOAccept
 - 推送路径：BOAccept,4>BOProcess
@@ -152,10 +159,11 @@
 
 ### 规则 162：能源告警推单给WO
 
+- 规则：162 能源告警推单给WO
 - 状态：STOP；优先级：2
 - 触发步骤：FOAccept
 - 推送路径：FOAccept,2>FOProcess,8>FOProcess
-- 目标处理组：ZTE_FE_FL
+- 目标处理组：ZTE_FE_FL、ZTE_FE_FE、ZTE_FE_MG、ZTE_NOC_FO
 - 匹配条件：
   - eflow_ticket_ticket_wo.alarmCode = '50017011' ()
   - eflow_ticket_ticket_wo.alarmCode = '50008008' ()
@@ -169,6 +177,7 @@
 
 ### 规则 155：TT自动推单给BO-IP_DWDM组
 
+- 规则：155 TT自动推单给BO-IP_DWDM组
 - 状态：ACTIVE；优先级：2
 - 触发步骤：BOAccept
 - 推送路径：BOAccept,4>BOProcess
@@ -182,6 +191,7 @@
 
 ### 规则 161：IP_DWDM告警推单给WO
 
+- 规则：161 IP_DWDM告警推单给WO
 - 状态：STOP；优先级：2
 - 触发步骤：FOAccept
 - 推送路径：FOAccept,2>FOProcess,8>FOProcess
@@ -195,28 +205,33 @@
 
 ### 规则 200：Regular电源故障推送TT到IPT
 
+- 规则：200 Regular电源故障推送TT到IPT
 - 状态：ACTIVE；优先级：2
 - 触发步骤：FOAccept
 - 推送路径：FOAccept,2>FOProcess,5>ThirdAccept
 - 目标处理组：3rd_Power
 - 匹配条件：
-  - eflow_ticket_ticket_asset.siteSubType = 'REGULAR' (string)
+  - eflow_ticket_ticket_asset.siteSubType = 'REGULAR' (enums)
   - eflow_ticket_ticket_asset.assetType in 'NORMAL, COOL' (string)
-  - eflow_ticket_ticket_wo.alarmCode = '99933' (string)
+  - eflow_ticket_ticket_wo.alarmCode in '9920, 9910, 9995, 9970, 9980, 9990' (string)
+  - eflow_ticket_ticket_wo.reasonType in 'POWER' (string)
 
 ### 规则 201：Regular断站故障手动到FO
 
-- 状态：STOP；优先级：2
+- 规则：201 Regular断站故障手动到FO
+- 状态：ACTIVE；优先级：2
 - 触发步骤：FOAccept
 - 推送路径：FOAccept,2>FOProcess,8>FOProcess
-- 目标处理组：ZTE_FE_FE
+- 目标处理组：ZTE_FE_FE、ZTE_NOC_FO
 - 匹配条件：
-  - eflow_ticket_ticket_asset.siteSubType = 'REGULAR' (string)
+  - eflow_ticket_ticket_asset.siteSubType = 'REGULAR' (enums)
   - eflow_ticket_ticket_asset.assetType in 'NORMAL, COOL' (string)
   - eflow_ticket_ticket_wo.alarmCode in '9970, 9980, 9990, 9910, 9920, 9995' (string)
+  - eflow_ticket_ticket_wo.reasonType not in 'POWER' (string)
 
 ### 规则 203：ERA断站推单到ZTE WO
 
+- 规则：203 ERA断站推单到ZTE WO
 - 状态：ACTIVE；优先级：2
 - 触发步骤：FOAccept
 - 推送路径：FOAccept,2>FOProcess,8>FOProcess
@@ -227,6 +242,7 @@
 
 ### 规则 253：P1_CSD_AUTO_WO
 
+- 规则：253 P1_CSD_AUTO_WO
 - 状态：ACTIVE；优先级：2
 - 触发步骤：FOAccept
 - 推送路径：FOAccept,2>FOProcess,8>FOProcess
@@ -237,15 +253,17 @@
 
 ### 规则 160：微波告警推单给WO
 
+- 规则：160 微波告警推单给WO
 - 状态：STOP；优先级：2
 - 触发步骤：FOAccept
 - 推送路径：FOAccept,2>FOProcess,8>FOProcess
-- 目标处理组：ZTE_FE_MG
+- 目标处理组：ZTE_FE_MG、ZTE_FE_FE、ZTE_FE_FL、ZTE_NOC_FO
 - 匹配条件：
   - eflow_ticket_ticket_wo.alarmCode = '761761' ()
 
 ### 规则 204：小区故障派ZTE WO
 
+- 规则：204 小区故障派ZTE WO
 - 状态：ACTIVE；优先级：2
 - 触发步骤：FOAccept
 - 推送路径：FOAccept,2>FOProcess,8>FOProcess
@@ -255,6 +273,7 @@
 
 ### 规则 240：Vmax-TT-order-push-rule
 
+- 规则：240 Vmax-TT-order-push-rule
 - 状态：ACTIVE；优先级：2
 - 触发步骤：FOAccept
 - 推送路径：FOAccept,2>FOProcess
@@ -264,6 +283,7 @@
 
 ### 规则 154：TT自动推单给BO-MW组
 
+- 规则：154 TT自动推单给BO-MW组
 - 状态：ACTIVE；优先级：3
 - 触发步骤：BOAccept
 - 推送路径：BOAccept,4>BOProcess
@@ -282,6 +302,7 @@
 
 ### 规则 252：TT_push_confirm_to_close without wo
 
+- 规则：252 TT_push_confirm_to_close without wo
 - 状态：ACTIVE；优先级：4
 - 触发步骤：Confirm
 - 推送路径：Confirm,0>Closed
@@ -292,66 +313,77 @@
 
 ### 规则 237：Vmax-TT-BO-Accept
 
+- 规则：237 Vmax-TT-BO-Accept
 - 状态：STOP；优先级：2
 - 触发步骤：GroupConfig_BOAccept
-- 目标处理组：ZTE_BO_PS
+- 目标处理组：ZTE_BO_PS、ZTE_BO_MW、ZTE_BO_IP-DWDM-OLT、ZTE_BO_CS、ZTE_BO_RAN、ZTE_BO_OCS-VAS
 
 ### 规则 238：Vmax-TT-BO-Process
 
+- 规则：238 Vmax-TT-BO-Process
 - 状态：STOP；优先级：2
 - 触发步骤：GroupConfig_BOProcess
-- 目标处理组：ZTE_BO_PS
+- 目标处理组：ZTE_BO_PS、ZTE_BO_MW、ZTE_BO_IP-DWDM-OLT、ZTE_BO_CS、ZTE_BO_RAN、ZTE_BO_OCS-VAS
 
 ### 规则 239：Vmax-TT-FO-Confirm
 
+- 规则：239 Vmax-TT-FO-Confirm
 - 状态：STOP；优先级：2
 - 触发步骤：GroupConfig_Confirm
 - 目标处理组：SOC-CEM
 
 ### 规则 242：TT_BO_accept
 
+- 规则：242 TT_BO_accept
 - 状态：ACTIVE；优先级：2
 - 触发步骤：GroupConfig_BOAccept
-- 目标处理组：ZTE_BO_manager
+- 目标处理组：ZTE_BO_manager、ZTE_BO_RAN、ZTE_BO_PS、ZTE_BO_TD、ZTE_BO_MW、ZTE_BO_OCS-VAS、ZTE_BO_IP-DWDM-OLT、ZTE_BO_CS
 
 ### 规则 85：TT_FO_process
 
+- 规则：85 TT_FO_process
 - 状态：ACTIVE；优先级：2
 - 触发步骤：GroupConfig_FOProcess
 - 目标处理组：ZTE_NOC_FO
 
 ### 规则 87：TT_BO_process
 
+- 规则：87 TT_BO_process
 - 状态：ACTIVE；优先级：2
 - 触发步骤：GroupConfig_BOProcess
-- 目标处理组：ZTE_BO_MW
+- 目标处理组：ZTE_BO_MW、ZTE_BO_CS、ZTE_BO_PS、ZTE_BO_IP-DWDM-OLT、ZTE_BO_RAN、ZTE_BO_OCS-VAS
 
 ### 规则 88：TT_confirm
 
+- 规则：88 TT_confirm
 - 状态：ACTIVE；优先级：2
 - 触发步骤：GroupConfig_Confirm
-- 目标处理组：ZTE_NOC_FO
+- 目标处理组：ZTE_NOC_FO、SOC-CEM
 
 ### 规则 89：TT_third_party_accept
 
+- 规则：89 TT_third_party_accept
 - 状态：ACTIVE；优先级：2
 - 触发步骤：GroupConfig_ThirdAccept
-- 目标处理组：3rd_Power
+- 目标处理组：3rd_Power、3rd_Fiber_HW、3rd_Fiber_NANOTECH、Orange、ORANGE_NOC
 
 ### 规则 90：TT_third_party_process
 
+- 规则：90 TT_third_party_process
 - 状态：ACTIVE；优先级：2
 - 触发步骤：GroupConfig_ThirdProcess
-- 目标处理组：3rd_Power
+- 目标处理组：3rd_Power、3rd_Fiber_HW、3rd_Fiber_NANOTECH、Orange、ORANGE_NOC
 
 ### 规则 236：Vmax-TT-FO-Process
 
+- 规则：236 Vmax-TT-FO-Process
 - 状态：ACTIVE；优先级：3
 - 触发步骤：GroupConfig_FOProcess
 - 目标处理组：SOC-CEM
 
 ### 规则 84：TT_FO_accept
 
+- 规则：84 TT_FO_accept
 - 状态：ACTIVE；优先级：3
 - 触发步骤：GroupConfig_FOAccept
 - 目标处理组：ZTE_NOC_FO
@@ -360,53 +392,62 @@
 
 ### 规则 103：wo_to_unique_employee
 
+- 规则：103 wo_to_unique_employee
 - 状态：ACTIVE；优先级：2
 - 触发步骤：GroupDefault_FOProcess
 
 ### 规则 123：TT_auto _choose_confirm_person
 
+- 规则：123 TT_auto _choose_confirm_person
 - 状态：ACTIVE；优先级：2
 - 触发步骤：GroupDefault_BOProcess
 - 目标处理组：ZTE_NOC_FO
 
 ### 规则 191：第三方提交关单
 
+- 规则：191 第三方提交关单
 - 状态：ACTIVE；优先级：2
 - 触发步骤：GroupDefault_ThirdProcess
 - 目标处理组：ZTE_NOC_FO
 
 ### 规则 193：第三方转回
 
+- 规则：193 第三方转回
 - 状态：ACTIVE；优先级：2
 - 触发步骤：GroupDefault_ThirdProcess
 - 目标处理组：ZTE_NOC_FO
 
 ### 规则 205：第三方拒绝回FO
 
+- 规则：205 第三方拒绝回FO
 - 状态：ACTIVE；优先级：2
 - 触发步骤：GroupDefault_ThirdAccept
 - 目标处理组：ZTE_NOC_FO
 
 ### 规则 210：FO处理提交确认默认审批人
 
+- 规则：210 FO处理提交确认默认审批人
 - 状态：ACTIVE；优先级：2
 - 触发步骤：GroupDefault_FOProcess
 - 目标处理组：ZTE_NOC_FO
 
 ### 规则 241：TT rejected to FO confirm
 
+- 规则：241 TT rejected to FO confirm
 - 状态：STOP；优先级：2
 - 触发步骤：GroupDefault_FOProcess
 - 目标处理组：ZTE_NOC_FO
 
 ### 规则 243：TT_BO_default_accept_group
 
+- 规则：243 TT_BO_default_accept_group
 - 状态：ACTIVE；优先级：2
 - 触发步骤：GroupDefault_Create
-- 目标处理组：ZTE_BO_manager
+- 目标处理组：ZTE_BO_manager、ZTE_BO_RAN、ZTE_BO_PS、ZTE_BO_TD、ZTE_BO_MW、ZTE_BO_OCS-VAS、ZTE_BO_IP-DWDM-OLT、ZTE_BO_CS
 
 ### 规则 182：default_FO_creat rule
 
+- 规则：182 default_FO_creat rule
 - 状态：ACTIVE；优先级：4
 - 触发步骤：GroupDefault_Create
 - 目标处理组：ZTE_NOC_FO
