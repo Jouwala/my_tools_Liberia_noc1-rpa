@@ -151,11 +151,15 @@ def ftp_sync_status():
 def get_ftp_config():
     """获取FTP配置（密码脱敏）"""
     from backend.services.ftp_sync import load_config
-    cfg = load_config()
-    # 密码脱敏：只显示前2位
+    try:
+        cfg = load_config()
+    except RuntimeError as e:
+        return {"success": False, "error": str(e)}
+    # 密码脱敏：只显示前2位，且绝不返回原值
     pwd = cfg.get("password", "")
     cfg["password_masked"] = pwd[:2] + "****" if len(pwd) > 2 else "****"
     cfg["has_password"] = bool(pwd)
+    cfg.pop("password", None)
     return cfg
 
 
@@ -172,7 +176,13 @@ def update_ftp_config(
 ):
     """更新同步配置（只更新传入的字段）"""
     from backend.services.ftp_sync import load_config, save_config
-    cfg = load_config()
+    try:
+        cfg = load_config()
+    except RuntimeError as e:
+        # 首次配置：环境变量缺失时允许从空配置起步，由本次传入值补齐
+        cfg = {"server": "", "port": 22, "username": "", "password": "",
+               "protocol": "sftp", "tt_remote_dir": "", "site_list_remote_dir": "",
+               "site_list_filename": "SiteList.csv"}
     if server is not None:
         cfg["server"] = server.strip()
     if port is not None:
@@ -194,6 +204,7 @@ def update_ftp_config(
         pwd = cfg.get("password", "")
         cfg["password_masked"] = pwd[:2] + "****" if len(pwd) > 2 else "****"
         cfg["has_password"] = bool(pwd)
+        cfg.pop("password", None)
         return {"success": True, "config": cfg}
     return {"success": False, "error": "保存配置失败"}
 

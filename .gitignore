@@ -355,6 +355,20 @@ Task/nginx_monitor.state
 *.tmpdel_*
 
 # ─────────────────────────────────────────────────────────────────────────────
+# P0-A 真凭据兜底（2026-11-02 新增，见 商用整改清单v2.md）
+# 背景：openclaw.json / openclaw_new.json 已被跟踪且含真实 Key（A1 另行脱钩）；
+# whatsapp-kb-bot 的 data/auth/creds.json 目前靠 `data/` 规则碰巧忽略，
+# 缺显式规则，一次改动就可能入库。这里补显式兜底。
+# 注意：忽略规则对已跟踪文件无效，需配合 `git rm --cached`（见 A2/A3）。
+# ─────────────────────────────────────────────────────────────────────────────
+**/auth/**/creds.json
+**/auth-notify/**/creds.json
+**/*.pem
+**/*.key
+openclaw.json
+Task/PS_CS_CORE_Scripts/openclaw_new.json
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Herdr + OMP 并行开发工作目录（2026-10-31 新增）
 #
 # 背景：`Herdr + OMP 多项目并行开发落地方案.md` 约定每个并行任务一个 Git Worktree

@@ -14,17 +14,42 @@ logger = logging.getLogger("ftp_sync")
 DB_DIR = Path(__file__).resolve().parent.parent.parent / "db"
 CONFIG_PATH = DB_DIR / "ftp_config.json"
 
-# 默认配置（原始SFTP设置）
-DEFAULT_CONFIG = {
-    "server": "10.201.47.62",
-    "port": 22,
-    "username": "ubuntu",
-    "password": "CloudStudio__123",
-    "protocol": "sftp",
-    "tt_remote_dir": "/home/ubuntu/reports/Last-2month-All-TTs",
-    "site_list_remote_dir": "/home/ubuntu/reports/SiteList",
-    "site_list_filename": "SiteList.csv",
-}
+# 默认配置（P0-A 脱钩：不再内置真实口令，一律读环境变量，缺失直接报错）
+# 所需环境变量：FTP_SYNC_SERVER / FTP_SYNC_PORT / FTP_SYNC_USER / FTP_SYNC_PASSWORD
+#   / FTP_SYNC_PROTOCOL / FTP_SYNC_TT_DIR / FTP_SYNC_SITE_DIR / FTP_SYNC_SITE_FILE
+def _env(name: str, default: str = "") -> str:
+    return os.environ.get(name, default)
+
+
+def _require_env(name: str) -> str:
+    val = os.environ.get(name, "").strip()
+    if not val:
+        raise RuntimeError(f"缺少必需的环境变量 {name}，拒绝使用默认凭据连接")
+    return val
+
+
+def _default_config() -> dict:
+    return {
+        "server": _env("FTP_SYNC_SERVER"),
+        "port": int(_env("FTP_SYNC_PORT", "22") or 22),
+        "username": _env("FTP_SYNC_USER"),
+        "password": _env("FTP_SYNC_PASSWORD"),
+        "protocol": _env("FTP_SYNC_PROTOCOL", "sftp"),
+        "tt_remote_dir": _env("FTP_SYNC_TT_DIR", "/home/ubuntu/reports/Last-2month-All-TTs"),
+        "site_list_remote_dir": _env("FTP_SYNC_SITE_DIR", "/home/ubuntu/reports/SiteList"),
+        "site_list_filename": _env("FTP_SYNC_SITE_FILE", "SiteList.csv"),
+    }
+
+
+def _validate_config(cfg: dict) -> None:
+    """缺失 server/username/password 直接报错，拒绝用空值连接。"""
+    for key, env_name in (("server", "FTP_SYNC_SERVER"), ("username", "FTP_SYNC_USER"),
+                          ("password", "FTP_SYNC_PASSWORD")):
+        if not str(cfg.get(key, "") or "").strip():
+            raise RuntimeError(f"缺少必需的环境变量 {env_name}，拒绝使用默认凭据连接")
+
+
+DEFAULT_CONFIG = _default_config()
 
 # 本地文件
 LOCAL_TT = DB_DIR / "Last-month-All-TTs.xlsx"
@@ -35,16 +60,21 @@ TT_PATTERNS = re.compile(r"Last.*TTs?", re.IGNORECASE)
 
 
 def load_config() -> dict:
-    """加载配置（优先读文件，不存在则用默认值）"""
+    """加载配置（优先读文件，不存在则用环境变量默认值）"""
     if CONFIG_PATH.exists():
         try:
             with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
                 saved = json.load(f)
             cfg = {**DEFAULT_CONFIG, **saved}
+            _validate_config(cfg)
             return cfg
+        except RuntimeError:
+            raise
         except Exception as e:
             logger.warning(f"读取配置失败，使用默认值: {e}")
-    return dict(DEFAULT_CONFIG)
+    cfg = dict(DEFAULT_CONFIG)
+    _validate_config(cfg)
+    return cfg
 
 
 def save_config(cfg: dict) -> bool:

@@ -86,7 +86,13 @@ def try_click(page, selectors, btn_name):
     return False
 
 
-def login_if_needed(page, username="admin", password="admin123"):
+def login_if_needed(page, username=None, password=None):
+    # P0-A 脱钩：凭据一律读环境变量，不再内置 admin/admin123。
+    # 所需：WAREHOUSE_ADMIN_USER（缺省 admin）/ WAREHOUSE_ADMIN_PASSWORD（缺省空即跳过自动登录）。
+    if username is None:
+        username = os.environ.get("WAREHOUSE_ADMIN_USER", "admin")
+    if password is None:
+        password = os.environ.get("WAREHOUSE_ADMIN_PASSWORD", "")
     print("[登录] 检查是否需要登录...")
 
     # 等页面先初步稳定
@@ -225,8 +231,8 @@ def capture_screenshot(p, url, output_path, scale_factor, headless):
 
     print(f"[调试] 页面标题: {page.title()}")
 
-    # 2. 登录
-    login_if_needed(page, username="admin", password="admin123")
+    # 2. 登录（凭据来自环境变量 WAREHOUSE_ADMIN_USER / WAREHOUSE_ADMIN_PASSWORD）
+    login_if_needed(page)
 
     # 3. 等待业务容器加载
     print("[调试] 等待 #details-body 元素...")

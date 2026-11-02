@@ -70,10 +70,17 @@ class UserManager:
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_user_id ON user_sessions (user_id)')
         
         # 创建默认管理员账户（如果不存在）
+        # P0-A 脱钩：初始口令来自环境变量 WAREHOUSE_ADMIN_PASSWORD，不再内置 admin123。
+        # 未设置时随机生成并打印一次，管理员首次登录后必须修改。
         cursor.execute('SELECT COUNT(*) FROM users WHERE role = "admin"')
         if cursor.fetchone()[0] == 0:
-            # 创建默认管理员账户：admin / admin123
-            default_password = self._hash_password('admin123')
+            import os as _os
+            _initial = _os.environ.get("WAREHOUSE_ADMIN_PASSWORD", "").strip()
+            if not _initial:
+                _initial = secrets.token_urlsafe(16)
+                print("[安全] 未设置 WAREHOUSE_ADMIN_PASSWORD，已随机生成初始管理员口令（仅本次显示），请登录后立即修改。")
+                print(f"[安全] 初始管理员口令: {_initial}")
+            default_password = self._hash_password(_initial)
             cursor.execute('''
                 INSERT INTO users (username, password_hash, email, full_name, role)
                 VALUES (?, ?, ?, ?, ?)
