@@ -20,12 +20,13 @@
  */
 
 import { spawnSync } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, realpathSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { dirname, join, relative } from 'node:path'
+import { dirname, join, relative, resolve } from 'node:path'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const HOOKS_DIR = '.githooks'
+const isWin = process.platform === 'win32'
 
 /** git 命令一律在**调用者当前目录**执行 —— 否则在 worktree 里跑本脚本时，
  *  会去查主仓库的状态，而 Git 实际找钩子的位置是当前工作树根目录。
@@ -54,6 +55,68 @@ function currentHooksPath() {
   return r.status === 0 ? r.stdout.trim() : ''
 }
 
+/**
+ * 检查 / 重建 AI 工具规则链接。
+ *
+ * 背景（2026-11-02）：规则真源移到了 `_agents\rules\`（可入库），Qoder 通过
+ * `.qoder\rules\` → `_agents\rules\` 的 **junction** 读到同一份文件。
+ * 但 `.qoder\` 整个目录被 `.gitignore:129` 挡住，**junction 不随仓库分发** ——
+ * 新克隆的机器上 `_agents\rules\*` 在、`.qoder\rules\` 不在，Qoder 静默读不到任何规则。
+ *
+ * 与 `core.hooksPath` 完全同一类问题：**「每台机器做一次」的动作，不做就静默失效**。
+ * 所以并进这个脚本，一次装齐。幂等：已经是正确链接就跳过。
+ */
+function agentRulesLink() {
+  const linkDir = join(ROOT, '.qoder', 'rules')
+  const targetDir = join(ROOT, '_agents', 'rules')
+
+  if (!existsSync(targetDir)) {
+    return { status: 'no-source', detail: `真源目录不存在：${targetDir}` }
+  }
+
+  // 用 fs.lstat 判断是不是链接（不用 existsSync —— 失效的链接也返回 false）
+  let isLink = false
+  try {
+    isLink = lstatSync(linkDir).isSymbolicLink()
+  } catch {
+    /* 不存在 */
+  }
+
+  if (isLink) {
+    let resolved = ''
+    try {
+      resolved = realpathSync(linkDir)
+    } catch {
+      return { status: 'broken', detail: `${linkDir} 是链接但目标不存在` }
+    }
+    const ok = resolve(resolved).toLowerCase() === resolve(targetDir).toLowerCase()
+    return ok
+      ? { status: 'ok', detail: `${linkDir} → ${targetDir}` }
+      : { status: 'wrong-target', detail: `${linkDir} → ${resolved}（应为 ${targetDir}）` }
+  }
+
+  return existsSync(linkDir)
+    ? { status: 'real-dir', detail: `${linkDir} 是实体目录（旧布局），需先备份再替换` }
+    : { status: 'missing', detail: `${linkDir} 不存在` }
+}
+
+/** 建 junction（Windows）。POSIX 上退化为 symlink。 */
+function createAgentRulesLink() {
+  const linkDir = join(ROOT, '.qoder', 'rules')
+  const targetDir = join(ROOT, '_agents', 'rules')
+
+  // `.qoder\` 本身也被 gitignore；建链接前确保父目录在
+  mkdirSync(join(ROOT, '.qoder'), { recursive: true })
+
+  const cmd = isWin ? 'cmd' : 'ln'
+  const args = isWin
+    ? ['/c', 'mklink', '/J', linkDir, targetDir] // /J = junction，不需要管理员权限
+    : ['-s', targetDir, linkDir]
+
+  const r = spawnSync(cmd, args, { encoding: 'utf8', shell: false })
+  return { ok: r.status === 0, out: `${r.stdout ?? ''}${r.stderr ?? ''}`.trim() }
+}
+
 function main() {
   const args = process.argv.slice(2)
   const mode = args.includes('--uninstall')
@@ -69,28 +132,36 @@ function main() {
   const current = currentHooksPath()
 
   if (mode === 'check') {
-    if (current !== HOOKS_DIR) {
-      console.log(
-        current
-          ? `✗ core.hooksPath = ${current}，不是 ${HOOKS_DIR} —— 守卫没有指向仓库内版本`
-          : '✗ core.hooksPath 未设置 —— 提交前守卫未启用'
-      )
-      console.log('  修复：node scripts/setup-git-hooks.mjs')
-      return 1
+    const link = agentRulesLink()
+    const hookOk = current === HOOKS_DIR && existsSync(hookFile)
+    if (hookOk) {
+      console.log(`✓ 提交前守卫已启用（core.hooksPath = ${HOOKS_DIR}）`)
+      console.log(`  钩子文件 = ${relative(root, hookFile)}`)
     }
-    if (!existsSync(hookFile)) {
-      console.log(`✗ core.hooksPath = ${HOOKS_DIR}，但当前工作树里没有 ${HOOKS_DIR}\\pre-commit`)
-      if (inWorkTree) {
-        console.log('  原因：core.hooksPath 是**相对路径**，Git 按「当前工作树根目录」解析，')
-        console.log('        worktree 的分支还没合入含 .githooks/ 的提交 → 钩子静默不执行。')
-        console.log('  处置：把 .githooks/ 合进该分支（或从 master 重新拉分支），即可自动生效。')
+    if (link.status === 'ok') console.log(`✓ 规则链接正常：${link.detail}`)
+    else console.log(`✗ 规则链接异常（${link.status}）：${link.detail}`)
+
+    if (hookOk && link.status === 'ok') return 0
+
+    if (!hookOk) {
+      if (current !== HOOKS_DIR) {
+        console.log(
+          current
+            ? `✗ core.hooksPath = ${current}，不是 ${HOOKS_DIR} —— 守卫没有指向仓库内版本`
+            : '✗ core.hooksPath 未设置 —— 提交前守卫未启用'
+        )
+      } else {
+        console.log(`✗ core.hooksPath = ${HOOKS_DIR}，但当前工作树里没有 ${HOOKS_DIR}\\pre-commit`)
+        if (inWorkTree) {
+          console.log('  原因：core.hooksPath 是**相对路径**，Git 按「当前工作树根目录」解析，')
+          console.log('        worktree 的分支还没合入含 .githooks/ 的提交 → 钩子静默不执行。')
+          console.log('  处置：把 .githooks/ 合进该分支（或从 master 重新拉分支），即可自动生效。')
+        }
+        console.log('  排查：git rev-parse --show-toplevel  # 看 Git 实际找钩子的位置')
       }
-      console.log('  排查：git rev-parse --show-toplevel  # 看 Git 实际找钩子的位置')
-      return 1
     }
-    console.log(`✓ 提交前守卫已启用（core.hooksPath = ${HOOKS_DIR}）`)
-    console.log(`  钩子文件 = ${relative(root, hookFile)}`)
-    return 0
+    console.log('  修复：node scripts/setup-git-hooks.mjs')
+    return 1
   }
 
   if (mode === 'uninstall') {
@@ -138,6 +209,34 @@ function main() {
   console.log('')
   console.log('  紧急绕过：git commit --no-verify')
   console.log('  CI 兜底  ：.github/workflows/docs-consistency.yml（push/PR 都跑）')
+
+  // ── 规则链接（qoder → _agents/rules）──
+  console.log('')
+  const before = agentRulesLink()
+  if (before.status === 'ok') {
+    console.log(`✓ 规则链接已存在：${before.detail}`)
+  } else if (before.status === 'real-dir') {
+    console.log(`⚠ ${before.detail}`)
+    console.log('  处置（会删掉实体目录，先确认里面没有独有的修改）：')
+    console.log('    Move-Item .qoder\\rules .qoder\\rules_bak')
+    console.log('    node scripts/setup-git-hooks.mjs')
+  } else if (before.status === 'wrong-target' || before.status === 'broken') {
+    console.log(`⚠ ${before.detail}，尝试重建…`)
+    const rm = spawnSync(isWin ? 'cmd' : 'rm', isWin ? ['/c', 'rmdir', join(ROOT, '.qoder', 'rules')] : ['-f', join(ROOT, '.qoder', 'rules')], { shell: false })
+    if (rm.status !== 0) console.log('  删除旧链接失败，请手工处理。')
+    else handleresult()
+  } else if (before.status === 'no-source') {
+    console.log(`⚠ ${before.detail} —— 跳过（仓库不完整？）`)
+  } else {
+    handleresult()
+  }
+
+  function handleresult() {
+    const r = createAgentRulesLink()
+    if (r.ok) console.log(`✓ 规则链接已建立：.qoder\\rules → _agents\\rules（junction，不随 git 分发）`)
+    else console.log(`✗ 建链接失败：${r.out || '(无输出)'}`)
+  }
+
   if (inWorkTree) {
     console.log('')
     console.log('  注：你在 worktree 里。core.hooksPath 是共享配置（写在主仓库的 .git/config），')
