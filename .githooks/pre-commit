@@ -116,7 +116,29 @@ fi
 
 if [ -f "$myapp_dir/frontend/scripts/check-i18n.mjs" ] && command -v node >/dev/null 2>&1; then
   (cd "$myapp_dir/frontend" && node scripts/check-i18n.mjs) || \
-    fail_with_hint "i18n 有漏键 / 间接引用键不在字典 / t() 错误签名。"
+    fail_with_hint "my_app i18n 有漏键 / 间接引用键不在字典 / t() 错误签名。"
+fi
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 门户 i18n 守卫（2026-10-31 新增）
+#
+# 为什么单独一道：门户的 t() 是 `DICTS[lang][k] ?? zh[k] ?? k`，缺 en 时**静默回落中文**
+# —— 不报错、不异常，只有切到英文才看得见；而门户的文案还有第二本字典（看板目录数据
+# zhDashboard / enDashboard），键名来自 initialDashboards.ts 的**数据值**，不在代码里，
+# 所以 my_app 那种「扫源码 t('字面量')」的查法对它完全无效。
+#
+# 实测（2026-10-31 审计）：门户此前**一个 i18n 守卫都没有**，攒下 40 处英文态露中文：
+# getCatKey 映射表漏 3 个短名分类（影响 10 条看板的分组标题与筛选条）、12 个部门、
+# 13 个负责人两本字典全缺、bp-report-79 缺 dash.* 的中英标题与描述。
+# 门户守卫查的是 my_app 查不了的东西：每条看板的 title/desc、每个分类/部门/负责人/标签
+# 在 en 侧有没有译文；以及「加了键、值还是中文」这种比缺键更隐蔽的形态。
+#
+# 判断逻辑复用 scripts/check-i18n.mjs —— 与手工跑 `npm run check:i18n` 同一份代码。
+# ─────────────────────────────────────────────────────────────────────────────
+
+if [ -f "$portal_dir/scripts/check-i18n.mjs" ] && command -v node >/dev/null 2>&1; then
+  (cd "$portal_dir" && node scripts/check-i18n.mjs) || \
+    fail_with_hint "门户 i18n 有漏键 / 看板目录数据缺英文 / en 侧值仍是中文。"
 fi
 
 exit 0

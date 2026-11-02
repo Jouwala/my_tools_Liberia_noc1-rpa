@@ -66,6 +66,10 @@ jobs:
         working-directory: liberia-noc_soc-数据看板统一门户
         run: node scripts/check-doc-consistency.mjs
 
+      - name: 跑 i18n 守卫（界面字典对称 + 看板目录数据英文齐全）
+        working-directory: liberia-noc_soc-数据看板统一门户
+        run: node scripts/check-i18n.mjs
+
       - name: 跑团队门户生成物一致性守卫
         working-directory: liberia-noc_soc-数据看板统一门户
         run: node scripts/check-team-scope.mjs

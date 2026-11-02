@@ -133,7 +133,7 @@ function main() {
   console.log(`  core.hooksPath = ${HOOKS_DIR}`)
   console.log(`  钩子文件       = ${relative(root, hookFile)}`)
   console.log('')
-  console.log('  守卫内容：门户整洁度 / 团队门户生成物一致性 / 门户文档一致性 /')
+  console.log('  守卫内容：门户整洁度 / 团队门户生成物一致性 / 门户文档一致性 / 门户 i18n')
   console.log('            my_app 文档一致性 / my_app i18n 漏键')
   console.log('')
   console.log('  紧急绕过：git commit --no-verify')
