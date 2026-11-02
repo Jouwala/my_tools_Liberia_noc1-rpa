@@ -125,6 +125,11 @@ git worktree add .agent-worktrees/comsal `
 
 如果任务需要基于最新开发分支，应先确认基线分支，再创建 Worktree。
 
+> **基线干净要求（2026-10-31 补）**：建 Worktree 前先在主工作区执行
+> `git status --porcelain` 确认无未提交修改（或明确记录基线 commit）。
+> 若主工作区是脏的，先储藏/提交再建，否则别人的在途变更会被卷进新分支
+> （违反 `D:\01_RPA\AGENTS.md` 第二节"改动前先看全域未提交变更"）。
+
 ### 4.3 查看与清理
 
 ```powershell
@@ -139,6 +144,25 @@ git branch -d agent/whatsapp-bot
 ```
 
 清理前确认该 Worktree 没有未提交修改。
+
+### 4.4 运行时隔离（2026-10-31 补：Worktree 只隔离工作目录，不隔离运行时）
+
+并行 Worktree 禁止触碰线上运行时，违者直接打回：
+
+- 禁止在 Worktree 内执行 `start.bat` / `stop.bat` / `*_ensure.bat`、
+  看门狗脚本与任何生产服务启停；禁止修改
+  `D:\01_RPA\nginx-1.28.0\conf\nginx.conf`（本机 .20 生效目录；
+  Y 盘那份是 .19 在用，见 `D:\01_RPA\AGENTS.md` 第四节第 6b 条），
+  禁止在错误目录执行 `nginx -s reload/quit`。
+- 后端验证必须使用**独立测试端口 + 独立测试库**，不得直连生产 PG、
+  不得连生产 VMAX 做写测试；新增 SELECT 先低峰单日试跑实测耗时，
+  与既有同步任务（任务 42 / 47、`olib_soc_*`）错开窗口，
+  并准备"数仓方反对新增查询"时的降级路线（合并进既有查询或配置开关关闭）。
+- 前端验证在 Worktree 内只做到 `tsc` + `npm run check:i18n`；
+  产物 `outDir` 指向 `D:/01_RPA/Task/_fe_dist`（线上服务目录，nginx 直接 alias），
+  Worktree 内**不得**执行覆盖式 `npm run build`。正式构建只在主工作区合入后做一次，
+  并按 `Task/my_app/AGENTS.md` 第三节第 5 条三步验证
+ （`index.html` 引用 hash、直连 7090 服务端内容、chunk 特征串）。
 
 ---
 
@@ -160,6 +184,10 @@ git branch -d agent/whatsapp-bot
 - WhatsApp Bot 项目
 - 根目录部署配置
 - 生产环境配置和凭据
+- VMAX 数仓 GBase 8a（库 `zxvmax`）上的任何写操作与对象创建：
+  仅允许 SELECT/SHOW/DESC，禁止 CREATE/DROP/ALTER（含临时表/视图）、
+  INSERT/UPDATE/DELETE 与改权限/参数/调度；需要数仓侧改动时停止编码并上报，
+  由用户找领导申请（真相源：`D:\01_RPA\AGENTS.md` 第四节第 8 条）
 
 **交付内容：**
 
@@ -184,12 +212,16 @@ git branch -d agent/whatsapp-bot
 - Portal 前端
 - Bot 服务
 - 全局部署文件
+- VMAX 数仓 GBase 8a（库 `zxvmax`）上的任何写操作与对象创建（同 Backend Agent）
 
 **约束：**
 
 - API 字段必须来自已确认的接口契约。
 - 不得自行猜测后端字段。
-- 修改公共路由、导航或 i18n 入口前，先登记文件锁。
+- 试点期**不得**修改公共路由、导航与全局 i18n（`App.tsx`、`i18n.tsx`、
+  `helpContent.ts`、`api.ts`）；确需改动时转交单一 Agent 统一修改，
+  并必须通过 `npm run check:i18n` 与 `npm run build`（`Task/my_app/AGENTS.md`
+  第三节第 1/1b/3 条）。
 
 ### 5.3 WhatsApp Bot Agent
 
@@ -207,6 +239,7 @@ git branch -d agent/whatsapp-bot
 - Comsal
 - 根目录部署脚本
 - 其他 RPA 项目
+- VMAX 数仓 GBase 8a（库 `zxvmax`）上的任何写操作与对象创建（同 Backend Agent）
 
 **交付内容：**
 
@@ -231,10 +264,13 @@ git branch -d agent/whatsapp-bot
 
 负责：
 
-- 检查变更是否越过项目边界
+- 检查变更是否越过项目边界（`git diff --name-only` 对任务 `范围`）
 - 检查接口契约是否一致
-- 执行测试和静态检查
-- 检查安全风险
+- 执行本仓库真实门禁（2026-10-31 补）：my_app 前端 `npm run check:i18n`、
+  `tsc`/`lint`、`npm run build`（合入主工作区后一次）；改表结构核对 alembic 方向；
+  帮助改动核对 `generate-help-doc.mjs` 是否重跑；`git status` 无探针残留
+- 检查安全风险（含 VMAX 数仓只读禁令：无 CREATE/DROP/ALTER/INSERT/UPDATE/DELETE，
+  无客户端断言绕过；Bot `.env`/`config.json` 等敏感值未入库）
 - 检查是否存在不必要的跨项目修改
 - 输出合并建议
 
@@ -247,6 +283,12 @@ QA Agent 不应在没有明确授权的情况下直接修复其他 Agent 的代�
 共享上下文分为三层，避免每个 Agent 读取整个仓库后自行理解。
 
 ### L1：全仓库上下文
+
+> **真相源规则（2026-10-31 补，与总纲第四节第 5 条一致）**：
+> 现状以各子系统 `docs/manual/` 与 `README.md` 为准，`Task/my_app/PROJECT_DOCS.md`
+> 是历史档案。下方 `docs/` 只做**索引指针**，不复制现状细节；
+> 项目边界等重大决策按总纲要求追加到现有 `architecture.md`（带日期小节，
+> 标注 `文件路径:行号`），不得另起第二个真相源。
 
 建议维护：
 
@@ -309,30 +351,34 @@ liberia-noc_soc-数据看板统一门户/docs/AGENTS.md
 任务说明至少包含：
 
 ```markdown
-# Task ID
+# 任务 ID
 
-## Objective
+## 目标
 要完成什么。
 
-## Scope
+## 范围
 允许修改的目录和文件。
 
-## Out of Scope
-明确禁止修改的内容。
+## 范围外（禁止）
+明确禁止修改的内容。默认包含：VMAX 数仓 GBase 8a（库 `zxvmax`）
+只允许 SELECT/SHOW/DESC，禁止 CREATE/DROP/ALTER（含临时表/视图）、
+INSERT/UPDATE/DELETE 与改权限/参数/调度；需要数仓侧改动时停止编码并上报，
+由用户找领导申请（`D:\01_RPA\AGENTS.md` 第四节第 8 条为真相源）；
+生产配置、凭据、nginx 配置、线上服务启停。
 
-## Dependencies
+## 依赖
 依赖哪些 API、模块或其他 Agent。
 
-## Acceptance Criteria
+## 验收标准
 如何判断任务完成。
 
-## Validation
+## 验证
 必须执行的测试。
 
-## Owner
+## 负责人
 唯一写入 Agent。
 
-## Integration Notes
+## 联调说明
 需要通知哪些项目或 Agent。
 ```
 
@@ -421,10 +467,17 @@ Task/whatsapp-kb-bot/
 ### 文件锁规则
 
 1. 任务开始前登记文件范围。
-2. 修改公共入口文件时，必须显式登记。
+2. 高冲突文件**串行化（2026-10-31 补）**：同一时间只允许一个任务触碰
+   `Task/my_app/frontend/src/App.tsx`、`Task/my_app/frontend/src/i18n.tsx`、
+   `Task/my_app/frontend/src/api.ts`、`backend/task_registry.py`、
+   `frontend/src/pages/helpContent.ts`；试点期 Frontend Agent 不得改公共路由与
+   全局 i18n，确需改动转交单一 Agent 统一改。
 3. 如果两个任务需要修改同一文件，拆成先后任务或由一个 Agent 统一修改。
 4. Agent 发现需要越界修改时，暂停并提出请求。
-5. 合并前检查实际变更文件是否符合任务范围。
+5. 合并前用机器门禁核对范围（2026-10-31 补）：`git diff --name-only` 必须全部
+   落在任务 `范围` 内，越界即打回；`git status --porcelain` 的 `??` 行必须为空
+   或全是本次要提交的真文件（探针只能落各子系统 `TMP\` 且收尾自清，
+   见 `D:\01_RPA\AGENTS.md` 第四节第 7 条）。
 
 特别注意以下高冲突文件：
 

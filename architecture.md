@@ -385,6 +385,44 @@ revert `tt-analyze.py:707-727`、把 `re.search(r'[一-龥]', out)` 那条检查
 **回滚路径。** `Get-ScheduledTask -TaskName 'WhatsAppKB_*' | Unregister-ScheduledTask -Confirm:$false`
 即回到「只有自启、无看门狗」的状态；心跳文件是纯增量产物，删除不影响机器人运行。
 
+### 2026-10-31：Herdr + OMP 多项目并行开发机制与 `Unified_Tools` 权威源
+
+**背景。** 单体仓库（顶层 `D:/01_RPA`）内多个应用与 RPA 项目需并行开发，
+`Herdr + OMP 多项目并行开发落地方案.md` 建立"一项目一 Agent、一任务一 Worktree、
+一文件一写入者、跨项目只共享契约"机制。同期查清两处遗留问题。
+
+**决策 1：并行开发基础设施。**
+1. 每个并行任务一个 Git Worktree（`.agent-worktrees/<任务>`）+ 独立分支
+   （`agent/<任务>`），建前主工作区必须 `git status` 干净；
+2. `.agent-worktrees/`、`.agent-work/` 为过程态、不入库（根 `.gitignore` 已覆盖）；
+3. 高冲突 5 文件（`App.tsx`、`i18n.tsx`、`api.ts`、`task_registry.py`、
+   `helpContent.ts`）串行化，试点期 Frontend 禁碰公共入口；
+4. Worktree 只隔离工作目录、不隔离运行时：禁跑生产服务启停、禁动两份 nginx 配置、
+   后端用独立测试端口+测试库、前端 Worktree 内不做覆盖式 `build`；
+5. 稳定契约收于 `docs/shared-contracts/`，项目边界指针收于
+   `docs/project-boundaries.md`（均不复制手册现状，不起第二个真相源）；
+6. VMAX 数仓 `zxvmax` 只读禁令进每个 Agent 的"默认禁止"（`AGENTS.md` 四.8 为真相源）。
+
+**决策 2：`Unified_Tools/` 为权威源，`Task/Unified_Tools/` 为历史副本。**
+2026-10-31 实测：跟踪集 `Unified_Tools/` 137 文件、`Task/Unified_Tools/` 90 文件，
+交集 79；仅根目录有 `parallel_orchestrator/` 全套（含 `runs/` 历史），
+仅 `Task/` 侧有 11 个 `scripts/data_report_*.html` 运行产物。
+结论：新引用一律走 `Unified_Tools/`；`Task/Unified_Tools/` 冻结、不新增引用，
+清理待另立任务（先不动，避免把别人的在途引用搞断）。
+
+**代价与注意。**
+1. Worktree 每个都要重装 `node_modules`/`.venv`，试点期 Worktree 数 ≤3；
+   纯文档/只读审查任务不用 Worktree。
+2. 门户新增忽略目录若影响 dev 刷新，门户 `.gitignore` 与
+   `vite.config.ts:242-267` 的 `watch.ignored` 两处须同步改。
+3. Bot 已跟踪的 `config.json`（`chatApiKey` 为空、`chatApiKeyEnv` 为键名引用，
+   2026-10-31 实测）保持"键名入库、键值不入库"；`config.json.tmpdel_*`、
+   `*.bak_*` 为过程产物，不入库。
+
+**回滚路径。** `git worktree remove` 删试点 Worktree 并删对应分支；
+`.agent-work/`、`docs/shared-contracts/`、`docs/project-boundaries.md`
+删文件即可（均未被其他代码引用）。
+
 ## 九、相关文档
 
 | 内容 | 去哪里 |
