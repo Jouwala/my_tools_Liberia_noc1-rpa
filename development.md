@@ -75,7 +75,88 @@ git log --oneline -20      # 看最近在做什么
 - [ ] `git status --porcelain` 复查：没有运行时产物（db/log/pid/缓存）混入
 - [ ] 没有提交任何敏感值（口令、Token、账号、IP 之外的内网主机名）
 - [ ] 改动涉及的文档已同步（见第三节第 6/7/8 条）
+- [ ] **`node scripts\agent-done-check.mjs` 通过**（见下面 A2，一条命令覆盖六道快守卫；改过前端/后端加 `--full`）
+- [ ] **文档一致性守卫通过**（见下面 A1）—— 本地钩子与 CI 都会跑，但**别靠它们兜底**，先自己跑一遍
 - [ ] **给「被测试直接调用的函数」加了外部副作用？** 见下面 A0。
+
+#### A2. Agent 完成自检（2026-11-02 新增）
+
+**为什么要有**：与 A1 同源 —— 「提醒 agent 做完了要跑测试」靠自觉就会失效。
+区别是 A1 那六道守卫已经挂在 pre-commit 上了，而**构建、静态检查、测试这三样一道门都没有**
+（pre-commit 刻意不塞，太慢会被 `--no-verify` 绕过）。
+
+```powershell
+cd D:\01_RPA
+
+node scripts\agent-done-check.mjs              # 快检：六道守卫 + 本次改动 .py 的 ruff E9/F821 + 生成物新鲜度
+node scripts\agent-done-check.mjs --full       # 另加 my_app build + pytest（相对基线）+ 门户 tsc --noEmit
+node scripts\agent-done-check.mjs --status     # 只看改动分布、指纹、基线
+node scripts\agent-done-check.mjs --update-baseline   # 记录当前 pytest 失败为基线（慎用，见下）
+```
+
+**两个刻意的设计**，都是为了避免守卫被绕开：
+
+1. **ruff 只查本次改动的 `.py`，不查 `backend/` 全量。** 2026-11-02 实测，工作区里躺着别人
+   在途改动引入的 `soc_trend_sync.py:130 F821 Optional` —— 全量检查会让**任何人**的自检都红，
+   与本轮改动无关。守卫只要开始误伤无关的人，就会被绕开。
+2. **pytest 用「相对基线」而不是「全绿」。** 同一时刻实测，本仓库 pytest 在无人改动时就有
+   4 条 FAILED + 1 条 ERROR。若要求全绿，同样谁跑谁红。基线记在 `TMP\agent-done-check\baseline.txt`
+   （已 gitignore，因机器而异），只对**新增**失败报警。
+
+> ⚠ `--update-baseline` 只在确认失败**不是本次引入**时才用。把本次的失败记进基线，
+> 等于自己给自己发免死金牌。E9 / F821 更不该进基线 —— 那是执行到那行必然崩的真缺陷。
+
+**Claude Code 已接入 Stop 钩子**（`.claude\settings.json` → `scripts\agent-done-check.mjs --hook`）：
+本轮改过文件但自检未通过时会**阻止收尾**。它靠**差分指纹**判断「这一轮到底有没有动文件」，
+而不是看工作区脏不脏 —— 本仓库工作区长期有别人在途的改动（实测 59 个文件），
+拿「脏」当信号会把所有闲聊和只读排查都误伤。约定全文见 `AGENTS.md` 第五节。
+
+#### A1. 文档一致性守卫（2026-10-31 新增）
+
+**为什么必须自己跑**：守卫有三道防线，但它们拦的是「提交」不是「写错」。
+写错了文档、代码也写完了，等到提交被拦再回头改，比自己先跑一遍慢得多；
+而且 `--no-verify` 能绕过本地钩子（CI 兜底，但反馈晚一轮）。
+
+```powershell
+# ① my_app（15 个用例：任务数 / 页面数 / iframe 页数 / worker 组数 / 队列保留期
+#    / 路由数 / 凭据分组数 / 组件数 / 文件体积 / 页面表与菜单一致 / 帮助条目齐全）
+cd D:\01_RPA\Task\my_app
+python tests\test_doc_consistency.py
+#    等价：cd D:\01_RPA\Task\my_app\frontend ; npm run check:docs
+
+# ② 门户（6 个用例：看板条数 / 组件数 / 任务数 / token 条数）
+cd "D:\01_RPA\liberia-noc_soc-数据看板统一门户"
+npm run check:docs
+
+# ③ my_app i18n 漏键（中英两份字典 + 间接引用键）
+cd D:\01_RPA\Task\my_app\frontend
+npm run check:i18n
+
+# ④ 门户 i18n（界面字典对称 + 看板目录数据的英文齐全）
+cd "D:\01_RPA\liberia-noc_soc-数据看板统一门户"
+npm run check:i18n
+#    与 ③ 不能互相代替：门户的文案有两本字典，第二本（zhDashboard/enDashboard）的
+#    键名来自 src\data\initialDashboards.ts 的数据值，不在代码里，③ 的「扫源码 t()」查不到。
+```
+
+**全部零第三方依赖、跨平台**（真相源用 AST 静态解析，不 import 业务模块）——
+所以 CI 里跑的就是同一份代码，不需要装任何依赖。
+
+**新克隆一台机器后先装钩子**（钩子文件在仓库里，随仓库分发）：
+
+```powershell
+cd D:\01_RPA
+node scripts\setup-git-hooks.mjs        # 把 core.hooksPath 指向 .githooks\
+node scripts\setup-git-hooks.mjs --check # 查状态
+```
+
+> **⚠️ worktree 里要注意**：`core.hooksPath` 是**相对路径**，Git 按「**当前工作树根目录**」
+> 解析。并行开发用的 worktree（`.agent-worktrees\<任务>`）若所在分支还没合入含
+> `.githooks\` 的提交，**钩子会静默不执行**（不报错，只是不拦）。在那个 worktree 里跑
+> `node scripts\setup-git-hooks.mjs --check` 可查；修复是把 `.githooks\` 合进该分支。
+
+CI 兜底：`.github\workflows\docs-consistency.yml`（push / PR 都跑，
+本地用 `--no-verify` 绕过的照样会红）。详见 `AGENTS.md` 第四节第 9 条。
 
 #### A0. 新增外部副作用时的必查项（2026-10-06 事故后加）
 
