@@ -7,7 +7,7 @@
 
 | 顺序 | 文件 | 作用 |
 | --- | --- | --- |
-| 1 | `AGENTS.md`（本文） | 工作区地图、工程原则与硬性约束 |
+| 1 | `AGENTS.md`（本文） | 工作区地图、工程原则、硬性约束、**自主执行契约（第五节）** |
 | 2 | `project-overview.md` | 整个工作区是干什么的 |
 | 3 | `architecture.md` | 三个主要系统如何连在一起 |
 | 4 | `TODO.md` | 当前在办的事 |
@@ -48,7 +48,7 @@
 > 十条通用纪律，适用于本工作区所有子系统。与第四节的「硬性约束」相抵时，**以第四节为准** —— 那些是本仓库已实测验证的具体事实，本节是方向。
 
 1. **架构与领域优先。** 计划阶段先明确业务目标、领域边界、模块职责、依赖方向与数据流，形成符合领域规律、面向长期维护且可持续演进的设计后再编码；不得以短期实现便利牺牲整体设计。设计必须完整，实现应当克制：不做推测性抽象，抽象延迟到**第二个真实用例**出现时才引入，单一场景直接实现。
-2. **追求优雅的代码模块。** 模块高内聚、低耦合，用精简且稳定的接口封装内部复杂度，让职责、命名、依赖和扩展方式清晰自然；代码按单一职责拆分。**新增/新建文件单个不超过 500 行**，接近上限时优先重构模块边界。存量超限文件（`backend\task_registry.py` 68KB、`frontend\src\i18n.tsx` 204KB、`frontend\src\App.tsx` 98KB）列入待重构清单，**不要求一次性拆分**，但改到它们时不得继续无度膨胀。
+2. **追求优雅的代码模块。** 模块高内聚、低耦合，用精简且稳定的接口封装内部复杂度，让职责、命名、依赖和扩展方式清晰自然；代码按单一职责拆分。**新增/新建文件单个不超过 500 行**，接近上限时优先重构模块边界。存量超限文件（`backend\task_registry.py` ≈109KB、`frontend\src\i18n.tsx` ≈587KB、`frontend\src\App.tsx` ≈121KB）列入待重构清单，**不要求一次性拆分**，但改到它们时不得继续无度膨胀。
 3. **保持边界与数据流清晰。** 协议模型（Pydantic `schemas\`）、领域模型、持久化模型（SQLAlchemy `models\`）与视图模型不得相互泄漏；数据必须在边界处完成校验和独立转换，避免跨层共享可变状态。
 4. **安全与隔离默认开启。** 所有功能按多租户、多用户场景设计，明确认证、授权与数据隔离边界（my_app 的角色与凭据体系见 `Task\my_app\docs\manual\05-security-and-credentials.md`）；遵循最小权限，任何外部输入均视为不可信，敏感信息不得进入代码、日志或响应（落地写法见第四节第 2 条）。
 5. **面向并发与故障设计。** 后端主动考虑幂等性、竞态、事务边界、超时、取消、重试、背压和资源释放；不得通过无边界重试、吞错或隐式共享状态掩盖问题。本工作区的 RPA 采集与 worker 任务尤其要显式处理「上游返回半截数据」与重复投递（投递前查重见 `Task\my_app\docs\manual\04-task-system.md`）。
@@ -63,10 +63,15 @@
 > - 通用：提交前 `git status --porcelain` 复查，没有运行时产物混入。
 > - **收尾自检（第四节第 7 条的机器可验证版本）**：`git status --porcelain` 里 `??` 行必须为空或全部是你本次要提交的真文件；出现 `_*.txt` / `*.bak_*` / `TMP/` 之类的行说明探针落了错误的地方。怀疑某个文件为何没被跟踪时问 `git check-ignore -v <路径>`，它会把命中的规则与所在文件行号打出来。
 > - my_app 前端：`cd Task\my_app\frontend` → `npm run check:i18n`（漏键守卫）→ `npm run build`（内含 `tsc`；产物必须落在 `Task\_fe_dist`，否则后端白屏）。
+> - **my_app 文档一致性**：`cd Task\my_app` → `python tests\test_doc_consistency.py`（15 个用例，核对手册与站内帮助里「从代码抄来的数字」：任务数 / 页面数 / iframe 页数 / worker 组数 / 队列保留期 / 路由数 / 凭据分组数 / 组件数 / 文件体积；**本地钩子与 CI 都会跑，文档与代码对不上会拦下提交**）。改动页面或任务后必须跑。详见 `Task\my_app\docs\manual\04-task-system.md`「文档一致性守卫」一节。
+> - **my_app 帮助内容改动后**：`cd Task\my_app\frontend` → `npm run docs`（重生成 `15-user-help*.md` 与 `public\manual.html`）。
 > - 门户前端：`cd liberia-noc_soc-数据看板统一门户` → `npm run lint`（`tsc --noEmit`）→ `npm run build`。
+> - **门户文档一致性**：`cd liberia-noc_soc-数据看板统一门户` → `npm run check:docs`（6 个用例，核对 README/docs 里的看板条数 / 组件数 / 任务数；**本地钩子与 CI 都会跑**）。详见门户 `docs\development.md`「文档一致性」一节。
+> - **门户 i18n**：`cd liberia-noc_soc-数据看板统一门户` → `npm run check:i18n`（已内置进 `npm run build`，不通过会**中断构建**；本地钩子与 CI 也跑）。门户文案有**两本字典**：界面 `zh/en` 与看板目录 `zhDashboard/enDashboard`，后者键名来自 `src\data\initialDashboards.ts` 的**数据值**，不在代码里 —— 所以「加一条看板忘了补英文」「改了分类/部门/负责人名称」「en 侧的值还是中文」这三类最常见的门户事故，my_app 那份只扫代码的守卫查不到，必须两道都跑。详见门户 `docs\development.md`「i18n 守卫」一节。
+> - **提交前守卫（新增机器必做一步）**：克隆后跑一次 `node scripts\setup-git-hooks.mjs`（或任一子项目里 `npm run setup:hooks`），把 `core.hooksPath` 指向仓库内的 `.githooks\`。钩子文件**随仓库分发**，不再只存在于某台机器的 `.git\hooks\` 里。详见本文件第四节第 9 条。
 > - 改表结构：`cd Task\my_app` → `alembic revision --autogenerate -m "<模块>-<变更>"` → `alembic upgrade head`（回退 `alembic downgrade base`；动态 eFlow 表不进 migration，见 `Task\my_app\docs\manual\03-data-layer.md`）。
 > - 存量数据搬迁/修复/回填：回填脚本随迁移版本一起提交，`upgrade head` 之后执行并核对行数。
-> - PowerShell 不支持 `&&`，多条命令用 `;` 分隔（`.qoder\rules\shell_safe.md`）。
+> - PowerShell 不支持 `&&`，多条命令用 `;` 分隔（细则见 `_agents\rules\shell_safe.md`，`.qoder\rules\` 是指向它的 junction）。
 
 ## 四、给 AI 的硬性约束
 
@@ -104,11 +109,124 @@
 
    - **先问：这个文件非落盘不可吗？** 绝大多数「想看看结果」不需要文件 —— 让命令直接输出 stdout，或用 Read/Grep 读原文件。**「写个 `_dump.txt` 再回头读它」是这两个仓库噪声的第一来源**：它把一次性的中间思考固化成了仓库里的长期资产。
    - **必须落盘时只有一个去处**：所在子系统的 `TMP\`（`Task\my_app\TMP\`、门户 `TMP\`、工作区根 `TMP\`），文件名带 `_` 前缀。这三处都已被忽略规则覆盖，带 `_` 前缀是为了让人一眼认出它不是产物。
-   - **收尾自清**：任务结束前删掉本次创建的一次性探针（`.qoder\rules\shell_safe.md` 第 2 条已要求，此前没有落实）。**可复用的诊断/审计脚本不删**，但必须留在 `TMP\` 里并在对应手册写一行用途 —— 否则下一个 agent 会重写一遍，仓库里就出现三份功能相同的 `_check_*.py`。
+   - **收尾自清**：任务结束前删掉本次创建的一次性探针（`_agents\rules\shell_safe.md` 第 2 条已要求，此前没有落实）。**可复用的诊断/审计脚本不删**，但必须留在 `TMP\` 里并在对应手册写一行用途 —— 否则下一个 agent 会重写一遍，仓库里就出现三份功能相同的 `_check_*.py`。
    - **手工快照继续允许**（第三节原则 9 的 `_bak_<日期>_<说明>` 是本项目既有习惯），但**2026-09-24 起快照一律不进版本库**：`.gitignore` 已覆盖 `*.bak`/`*.bak_*`/`*_bak_*`。也就是说快照是**本机磁盘上**的回滚手段，git 历史只保留正式改动。同一个源文件的快照只留最近 3 份，更早的自己清。
 8. **VMAX 数仓 GBase 8a（库 `zxvmax`）是生产环境：只能查询，不得在上面修改或创建任何东西。**（2026-10-31 与用户确认，硬性）覆盖所有直连该数仓的取数链路（`Task\my_app\backend\services\vmax_gbase\`、`olib_soc_report\`、`soc_trend\` 及任务 `42 olib_soc_vmax_report` / `olib_soc_kpi_daily_sync` / `47 soc_trend_sync` 等）。具体禁止：`CREATE` / `DROP` / `ALTER`（含临时表、视图、索引）、`INSERT` / `UPDATE` / `DELETE`、改权限 / 参数 / 调度、任何"顺手建张小表 / 回写一列"也不行。**需要数仓侧做任何修改或创建时：停止编码，明确告诉用户，由用户找领导申请**；获批后数仓操作由用户或其指定的人执行，我们的代码只保留只读接线。方案/设计阶段同样适用 —— **不得以"以后会在数仓建对象"为前提设计方案**。新增 SELECT 查询（如按新维度的下钻 SQL）不需要申请，但实施前必须评估查询负载：低峰先试跑单日实测耗时，与既有同步任务错开窗口，并准备好"数仓方反对新增查询"时的降级路线（合并进既有查询或配置开关关闭）。客户端层已有只读断言兜底（`vmax_gbase_client.py` 顶部注释：仅放行 SELECT/SHOW/DESC），**断言是防误操作，不是授权** —— 不要想办法绕过或放宽它。
 
-## 五、子系统深潜
+9. **改完代码必须让文档跟着改 —— 这件事现在有机器强制，不要靠自觉。**（2026-10-31 新增）
+
+   背景：「提醒 agent 记得改文档」**已经失效过 15 次**。2026-10-31 一次审计就抓到 9 处文档与代码对不上（任务数、页面数、worker 组数、队列保留天数、路由数、凭据分组数、组件数、文件体积……），而这些错**不影响任何运行时症状** —— 手册说的和界面对不上，两边看起来都自洽，肉眼极难发现。
+
+   现在有三道防线，**同一份代码、不规则分叉**：
+
+   | 层 | 位置 | 作用 |
+   | --- | --- | --- |
+   | 本地钩子 | `.githooks\pre-commit` | 提交前就拦（早发现） |
+   | CI | `.github\workflows\docs-consistency.yml` | push / PR 都跑（兜底，`--no-verify` 绕不过） |
+   | 手工 | `npm run check:docs`（两个子项目各一份） | 随时自查 |
+
+   具体要求：
+
+   - **新克隆一台机器后，先跑一次 `node scripts\setup-git-hooks.mjs`**（或任一子项目里 `npm run setup:hooks`）。它把 `core.hooksPath` 指向仓库内的 `.githooks\` —— 钩子文件**随仓库分发**，不再只存在于某台机器的 `.git\hooks\` 里。`core.hooksPath` 是本地配置（写在 `.git\config`，不入库），所以每台机器都要装一次。
+   - **⚠️ worktree 里的坑**：`core.hooksPath` 是**相对路径**，Git 按「**当前工作树根目录**」解析，不是主仓库根目录。所以并行开发用的 worktree（`.agent-worktrees\<任务>`）若所在分支还没合入含 `.githooks\` 的提交，**钩子会静默不执行** —— 不报错，只是没人拦。用 `node scripts\setup-git-hooks.mjs --check`（在那个 worktree 里跑）可查；修复办法是把 `.githooks\` 合进该分支。
+   - **守卫的真相源一律用 AST 静态解析**（`Task\my_app\tests\doc_truth.py`），**不 import 业务模块** —— 否则 `ctypes.wintypes` 在 Linux 上直接失败，且要求整套后端运行环境。改守卫时守住这条：守卫必须**零第三方依赖、跨平台**才能进 CI。
+   - **守卫取不到真相源时必须显式失败**，不能当成「不适用」跳过。2026-10-31 就在门户侧踩了这个坑：`myAppTaskCount()` 的正则只认 `"task_id": "..."`，而 `task_registry.py` 实际写的是 `dict(task_id="...")` → 匹配 0 条 → 两个检查走 `if (!n) return` **静默跳过**，守卫显示 PASS 却什么都没查。
+   - 守卫清单：门户整洁度 / 团队门户生成物一致性 / 门户文档一致性 / **门户 i18n** / my_app 文档一致性 / my_app i18n 漏键 —— 共六道。全部**零第三方依赖**（Node 内置模块 + Python 标准库），CI 不需要 `pip install` 或 `npm install`。
+
+## 五、AI 自主执行契约（2026-11-02 新增）
+
+> 适用范围：**所有 agent**（Claude Code / Cursor / Trae / Qoder / WorkBuddy…）。
+> 本节是「做到什么程度才算完成」的**唯一真相源** —— 各工具自己的规则文件（`.cursor/rules`、
+> `.qoder/rules` 等）只应**指向本节**，不得各自复制一套（第四节第 5 条：不要新增第二个真相源）。
+>
+> **规则真源布局（2026-11-02 起）**：本文件是规则**入口与总纲**；与具体工具无关的编码/命令细则
+> 集中在 `_agents\rules\`，布局说明见 `_agents\README.md`。`.qoder\rules\` 是指向该目录的 junction。
+> 改规则只改 `_agents\rules\` 或本文件，**不改链接路径**。
+
+背景与第四节第 9 条同源：那边是「改完代码要跟着改文档」，靠自觉失效了 15 次，最后用钩子 + CI 解决；
+这一节是「做完要真的跑过验证」，同样是靠自觉就会失效的问题。
+下面的约束因此分成两层：**人可读的判定标准** + **机器可验证的脚本**。凡两者冲突，以脚本为准。
+
+### 1. 自主执行
+
+被要求「完成并交付」时，**不要只给方案**：
+
+- 先看现状（代码、文档、`git status`），再动手；不要凭记忆断言「项目里应该没有这个」。
+- 制定计划后**立即开始实施**，不需要每步都确认。
+- 发现问题、Bug、遗漏就直接修 —— 包括顺着需求冒出来的关联改动（前后端一致性、i18n、文档）。
+- **不要在「分析完」「计划写完」「改了一部分」时收尾。** 完成一项接着下一项。
+
+### 2. 收尾标准（缺一不可）
+
+收尾前必须**实际跑过**下面与改动相关的项，并在最终回复里**贴出命令与结果**：
+
+```powershell
+# 任何改动（快，几秒）
+node scripts\agent-done-check.mjs
+
+# 改过前端源码 / 后端代码（慢，几分钟）
+node scripts\agent-done-check.mjs --full
+```
+
+脚本按改动路径自动决定还要跑什么（见 `scripts\lib\agent-checks.mjs`）。它的四个档位：
+
+| 档位 | 内容 | 何时用 |
+| --- | --- | --- |
+| 默认 | 六道快守卫（与 pre-commit 同一份代码）+ 本次改动的 `.py` 跑 ruff E9/F821 + 帮助文档生成物新鲜度 | 任何改动的**最低要求** |
+| `--full` | 再加 my_app `npm run build` + pytest（相对基线）+ 门户 `tsc --noEmit` | 改过前端/后端 |
+| `--status` | 只看改动分布、指纹、基线 | 排查 |
+| `--update-baseline` | 记录当前 pytest 失败为基线 | **只**在确认失败非本次引入时 |
+
+补充几条脚本覆盖不到的（按改动类型，见 `development.md` 第四节）：
+
+- 改了**页面/任务/数字类文档** → `cd Task\my_app && python tests\test_doc_consistency.py`
+- 改了**帮助内容源**（`helpContent.ts` / `helpTaskDocs.ts`）→ `npm run docs` 重生成
+- 改了**表结构** → `alembic upgrade head` 并核对回滚
+- 新增**外部副作用**（发信/投递/调外部 API）→ 按 `development.md` A0 用「地雷」证伪一次
+
+### 3. 唯一允许停下来的三种情况
+
+1. **需要人的授权或决定** —— 真实账号、生产库写操作、业务口径选择。
+2. **必须改动 VMAX 数仓** —— 第四节第 8 条：立即停止编码并上报，由用户找领导申请。
+3. **完成标准跑不通且自行判断解决不了** —— 必须说明卡点、已尝试的方案、需要什么。
+
+**停下来之前必须写进度**，否则视为任务失败：
+
+```
+.agent-work/tasks/active/<任务>.md
+```
+
+至少包含：目标 / 已完成 / 未完成 / 下一步 / 卡在哪 / 跳过验证的项及原因。
+
+### 4. 完成标准是「可执行」的，不是「声明」的
+
+Claude Code 侧已接 **Stop 钩子**：本轮改过文件但自检未通过时，会**阻止收尾**并要求继续。
+
+> ⚠ **钩子要装三份，而且不能只装根目录那份。** Claude Code 只读「session 启动目录」的
+> `.claude\settings.json`，**不向上继承**。所以三个常用启动目录各有一份（内容除路径外完全相同）：
+>
+> | session 启动于 | 钩子文件 |
+> | --- | --- |
+> | `D:\01_RPA` | `.claude\settings.json` → `${CLAUDE_PROJECT_DIR}/scripts/agent-done-check.mjs` |
+> | `Task\my_app` | `Task\my_app\.claude\settings.json` → `${CLAUDE_PROJECT_DIR}/../../scripts/...` |
+> | `liberia-noc_soc-数据看板统一门户` | 门户 `.claude\settings.json` → `${CLAUDE_PROJECT_DIR}/../scripts/...` |
+>
+> 脚本本身一份，装在仓库根 `scripts\`；三份 settings 只是三根接线。**新增常用启动目录时照着加一份。**
+> 另外：`Task\my_app\.claude\settings.local.json` 是既有的本机权限配置（已被全局 gitignore 排除），
+> 两者互不冲突 —— `settings.json` 存钩子（共享），`settings.local.json` 存本机允许清单（私有）。
+
+它靠**差分指纹**判断「这一轮到底有没有动文件」，而不是看工作区脏不脏 ——
+本仓库工作区长期有别人在途的改动（2026-11-02 实测 59 个文件），拿「脏」当信号会误伤所有闲聊与只读排查。
+指纹记录在 `TMP\agent-done-check\`（已 gitignore，不入库，因机器而异）。
+
+### 5. 绝对禁止
+
+- 用「已修改」冒充「已完成」。
+- 声称测试通过但拿不出命令与输出。
+- 为了让检查变绿而注释掉、跳过、放宽检查，或把本次引入的失败记进基线。
+- 在报告里把「未验证」写成「通过」—— 脚本会把未验证项单列出来，照抄即可。
+
+## 六、子系统深潜
 
 | 你要做什么 | 去哪读 |
 | --- | --- |
@@ -119,7 +237,28 @@
 | 新任务交付 | `Task\` 下对应目录 |
 | 整体视觉规则 | `DESIGN.md` |
 
-## 六、本工作区的 8 份体系文档
+## 七、规则细则（`_agents\rules\` 的展开）
+
+> 下面四份是**细则原文**，通过 `@` 导入内联到本文件 —— 目的是让所有读 `AGENTS.md` 的工具
+> （Claude Code / Qoder / Cursor / Trae…）拿到**同一份**规则，而不是只有 Qoder 通过
+> `.qoder\rules\` junction 看得到。**不要在这里重复内容**，改规则请改 `_agents\rules\` 下的源文件。
+>
+> 为什么不放进 `_agents\rules\` 让各工具自己去读：那里既不是 `CLAUDE.md` 也不是 `AGENTS.md`，
+> 更不在 `.claude\rules\` 下，没有任何工具会主动加载它。`@` 导入是唯一不依赖工具约定、
+> 也不依赖 junction 的办法。
+>
+> ⚠ `jcodemunch_first.md` **故意不导入**：它要求「代码探索优先用 jcodemunch MCP，不要用
+> Read/Grep/Glob/Bash」，而该 MCP 目前**只配在 Qoder**（`.qoder-cn\mcp.json`），Claude Code
+> 与 Cursor 都没配。无条件注入会让没有该工具的环境放弃代码探索 —— 详见
+> `_agents\README.md`「为什么不导入 `jcodemunch_first.md`」一节。
+
+@_agents/rules/shell_safe.md
+
+@_agents/rules/code_rules.md
+
+@_agents/rules/my_app.md
+
+## 八、本工作区的 8 份体系文档
 
 | # | 文件 | 内容 |
 | --- | --- | --- |
