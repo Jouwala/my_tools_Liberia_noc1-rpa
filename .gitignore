@@ -348,3 +348,21 @@ Task/nginx_monitor.state
 # `Task/whatsapp-kb-bot/.sync-backup-<时间戳>/` 由同步脚本在覆盖前整目录备份生成，
 # 属可重建的中间态，不入库。
 **/.sync-backup-*/
+
+# 工具删除暂存残留（2026-10-31 新增）
+# `Task/whatsapp-kb-bot/config.json.tmpdel_*` 由同步/清理工具在覆盖前生成，
+# 属可重建的过程态（此前误跟踪，已 `git rm --cached` 退出，磁盘文件保留）。
+*.tmpdel_*
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Herdr + OMP 并行开发工作目录（2026-10-31 新增）
+#
+# 背景：`Herdr + OMP 多项目并行开发落地方案.md` 约定每个并行任务一个 Git Worktree
+# （`.agent-worktrees/<任务>`）+ 一套任务说明（`.agent-work/tasks|contracts|…`）。
+# 这两处都是过程态（分支合入后 Worktree 即删、任务说明只在开发期有效），不是源码，
+# 按 AGENTS.md 第四节第 7 条不能入库。实测 `git check-ignore -v .agent-worktrees/foo`
+# 无命中，若不补规则，建 Worktree 当天 `git status` 就会多出一堆 `??` 噪声。
+# 忽略跟踪 ≠ 删除：Worktree 本体与任务说明留在磁盘上正常用，仅不进版本库。
+# ─────────────────────────────────────────────────────────────────────────────
+/.agent-worktrees/
+/.agent-work/
