@@ -202,6 +202,9 @@ const zh: Record<string, string> = {
   'card.last': '最近',
   'card.hide': '隐藏此看板（仅本机生效，不影响其他电脑）',
   'card.unhide': '恢复显示',
+  'card.dragAria': '拖动卡片调整位置',
+  'card.dragTitle': '按住拖动调整位置',
+  'card.dragSort': '拖动排序',
 
   'list.colFav': '收藏',
   'list.colName': '看板名称 / 业务属性',
@@ -765,6 +768,9 @@ const en: Record<string, string> = {
   'card.last': 'Last',
   'card.hide': 'Hide this dashboard (this computer only, does not affect others)',
   'card.unhide': 'Unhide',
+  'card.dragAria': 'Drag card to reorder',
+  'card.dragTitle': 'Hold and drag to reorder',
+  'card.dragSort': 'Drag to sort',
 
   'list.colFav': 'Fav',
   'list.colName': 'Dashboard / Business',
@@ -1161,6 +1167,11 @@ const zhDashboard: Record<string, string> = {
   'cat.field': '现场动力与备件仓储',
   'cat.auto': '自动化调度与数据集成',
   'cat.other': '其他',
+  // 以下三个是长分类的**短名变体**（新看板用的是短名）。不复用 cat.network / cat.ms /
+  // cat.field：那三个的 zh 值是长名，复用会把界面上的中文分组名一并改写 —— 业务数据原值不动。
+  'cat.networkPerf': '网络性能',
+  'cat.msOps': 'MS 运维管理',
+  'cat.spareWarehouse': '备件仓储',
 
   // 看板标题
   'dash.finebi-liberia-portal-main.title': 'Liberia Data Portal (FineBI 决策报表中心)',
@@ -1340,6 +1351,8 @@ const zhDashboard: Record<string, string> = {
       'dash.custom-ms-nur-only.desc': '基于 RAN UME 数据聚焦 MS 制式（2G/3G/4G/TDD）的 Network Unavailability Rate 分析，剥离非 MS 维度，按站点与区域给出停机损失时长与时长排名，与 MS SLA 看板口径对齐。',
       'dash.custom-ms-sla-only.title': 'MS SLA Only (MS SLA 专页)',
       'dash.custom-ms-sla-only.desc': '基于 MS Operation KPI 看板（page=ms_sla）的 SLA 部分独立直链页：聚焦 MS 制式（2G/3G/4G/TDD）的 SLA 达成、WO SLA 与合同 KPI，剥离 NUR/Network/Per-Site 维度，可收藏、可上大屏。',
+      'dash.bp-report-79.title': 'BP Cells Report',
+      'dash.bp-report-79.desc': 'umlaut 口径的 Bad Performance（劣化）小区统计。口径取「活跃用户最大的那个小时」的 PRB / DL 吞吐 / 活跃用户数三条件判定（>80% 且 <3Mbps 且 >2.5），经 Excel 明细逐小区标定一致；周 = 一周 4/7 天为 BP，月 = 一个月 3/4 个完整周为 BP。支持按日 / 周 / 月查看，每个数字都能下钻到小区明细（行数与展示值严格一致），并对照 Excel 真值展示上游口径差异；数据由 bp_report_sync 任务每天从 RAN_UME 增量更新，整页可导出 Excel。',
 // 标签
   'tag.FineBI': 'FineBI',
   'tag.主目录': 'Main Directory',
@@ -1555,6 +1568,18 @@ const zhDashboard: Record<string, string> = {
   'dept.SOC 业务体验中心': 'SOC 业务体验中心',
   'dept.SOC 首席分析师': 'SOC 首席分析师',
   'dept.项目总经理': '项目总经理',
+  'dept.总裁办 / 战略部': '总裁办 / 战略部',
+  'dept.网规网优部': '网规网优部',
+  'dept.FO 监控中心': 'FO 监控中心',
+  'dept.运维专家组': '运维专家组',
+  'dept.传输与 IP 网管部': '传输与 IP 网管部',
+  'dept.动力配套部': '动力配套部',
+  'dept.IP 核心网部': 'IP 核心网部',
+  'dept.应急保障中心': '应急保障中心',
+  'dept.供应链与备件中心': '供应链与备件中心',
+  'dept.综合运营部': '综合运营部',
+  'dept.数据仓库部': '数据仓库部',
+  'dept.FO 运维分析组': 'FO 运维分析组',
 
   // 负责人
   'owner.BI 管理团队': 'BI 管理团队',
@@ -1594,6 +1619,19 @@ const zhDashboard: Record<string, string> = {
   'owner.核心网规划师': '核心网规划师',
   'owner.SOC 首席分析师': 'SOC 首席分析师',
   'owner.项目总经理': '项目总经理',
+  'owner.高管助理': '高管助理',
+  'owner.GIS 工程师': 'GIS 工程师',
+  'owner.告警监控岗': '告警监控岗',
+  'owner.规则架构师': '规则架构师',
+  'owner.IP 传输工程师': 'IP 传输工程师',
+  'owner.动环工程师': '动环工程师',
+  'owner.网络专家': '网络专家',
+  'owner.事件总指挥': '事件总指挥',
+  'owner.仓库主管': '仓库主管',
+  'owner.运维经理': '运维经理',
+  'owner.数据处理员': '数据处理员',
+  'owner.数据分析员': '数据分析员',
+  'owner.运维分析师': '运维分析师',
 };
 
 const enDashboard: Record<string, string> = {
@@ -1606,6 +1644,9 @@ const enDashboard: Record<string, string> = {
   'cat.field': 'Field Power & Spare Parts',
   'cat.auto': 'Automation & Data Integration',
   'cat.other': 'Other',
+  'cat.networkPerf': 'Network Performance',
+  'cat.msOps': 'MS Operation Management',
+  'cat.spareWarehouse': 'Spare Parts & Warehouse',
 
   // 新增看板标签（2026-08-29 my_app 新页面）
   'tag.微波': 'Microwave',
@@ -1797,6 +1838,8 @@ const enDashboard: Record<string, string> = {
       'dash.custom-ms-nur-only.desc': 'Focused MS-technology (2G/3G/4G/TDD) Network Unavailability Rate analysis based on RAN UME data, isolating the MS dimension to rank downtime loss duration by site and region, aligned with MS SLA dashboard caliber.',
       'dash.custom-ms-sla-only.title': 'MS SLA Only',
       'dash.custom-ms-sla-only.desc': 'Standalone direct-link view of the SLA portion of the MS Operation KPI dashboard (page=ms_sla): focuses on MS-technology (2G/3G/4G/TDD) SLA achievement, WO SLA and contract KPIs, with NUR/Network/Per-Site dimensions stripped out; bookmarkable and big-screen ready.',
+      'dash.bp-report-79.title': 'BP Cells Report',
+      'dash.bp-report-79.desc': 'Bad Performance (degraded) cell counts on the umlaut methodology. The test takes the hour with the most active users and applies three conditions on PRB / DL throughput / active users (>80% and <3Mbps and >2.5), calibrated cell by cell against the Excel detail; weekly = BP on 4 of 7 days, monthly = BP on 3 of 4 complete weeks. Viewable by day / week / month, every figure drills down to the cell detail (row counts match the displayed values exactly), and gaps against upstream are shown next to the Excel ground truth. Refreshed daily from RAN_UME by the bp_report_sync task; the whole page exports to Excel.',
 // Tags
   'tag.FineBI': 'FineBI',
   'tag.主目录': 'Main Directory',
@@ -2012,6 +2055,18 @@ const enDashboard: Record<string, string> = {
   'dept.SOC 业务体验中心': 'SOC Service Experience Center',
   'dept.SOC 首席分析师': 'SOC Chief Analyst',
   'dept.项目总经理': 'Project General Manager',
+  'dept.总裁办 / 战略部': 'Executive Office / Strategy Dept',
+  'dept.网规网优部': 'Network Planning & Optimization Dept',
+  'dept.FO 监控中心': 'FO Monitoring Center',
+  'dept.运维专家组': 'Operation Expert Team',
+  'dept.传输与 IP 网管部': 'Transmission & IP Network Management Dept',
+  'dept.动力配套部': 'Power Support Dept',
+  'dept.IP 核心网部': 'IP Core Network Dept',
+  'dept.应急保障中心': 'Emergency Support Center',
+  'dept.供应链与备件中心': 'Supply Chain & Spare Parts Center',
+  'dept.综合运营部': 'Integrated Operation Dept',
+  'dept.数据仓库部': 'Data Warehouse Dept',
+  'dept.FO 运维分析组': 'FO Operation Analysis Team',
 
   // Owners
   'owner.BI 管理团队': 'BI Management Team',
@@ -2051,6 +2106,21 @@ const enDashboard: Record<string, string> = {
   'owner.核心网规划师': 'Core Network Planner',
   'owner.SOC 首席分析师': 'SOC Chief Analyst',
   'owner.项目总经理': 'Project General Manager',
+  'owner.高管助理': 'Executive Assistant',
+  'owner.GIS 工程师': 'GIS Engineer',
+  'owner.告警监控岗': 'Alarm Monitoring Duty',
+  'owner.规则架构师': 'Rules Architect',
+  'owner.IP 传输工程师': 'IP Transmission Engineer',
+  'owner.动环工程师': 'Power & Environment Engineer',
+  'owner.网络专家': 'Network Expert',
+  'owner.事件总指挥': 'Chief Incident Commander',
+  'owner.仓库主管': 'Warehouse Supervisor',
+  'owner.运维经理': 'Operation Manager',
+  'owner.数据处理员': 'Data Processing Officer',
+  // 不写成 'Data Analyst'：owner.数据分析师 已占用该值。reverseTranslateOwner 是
+  // **按值反查**（见本文件下方），两个键同值时英文态筛选会认错岗位，故此处保持唯一值。
+  'owner.数据分析员': 'Data Statistics Analyst',
+  'owner.运维分析师': 'Operation Analyst',
 };
 
 const DICTS_DASHBOARD: Record<Lang, Record<string, string>> = { zh: zhDashboard, en: enDashboard };
@@ -2082,6 +2152,11 @@ const getCatKey = (cat: string): string => {
     '网络性能与无线/核心网': 'network',
     '传输承载与业务时延': 'transport',
     '现场动力与备件仓储': 'field',
+    // 短名变体（2026-10-31 补）：漏了这三行时 getCatKey 原样返回中文，
+    // 于是 cat.* 里查不到键，英文态的分组标题与筛选条直接显示中文。
+    '网络性能': 'networkPerf',
+    'MS 运维管理': 'msOps',
+    '备件仓储': 'spareWarehouse',
     '自动化调度与数据集成': 'auto',
     '其他': 'other',
   };

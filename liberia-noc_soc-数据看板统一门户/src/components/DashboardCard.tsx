@@ -148,9 +148,9 @@ export const DashboardCard: React.FC<DashboardCardProps> = ({
       } ${isLayoutEditing ? 'layout-editing-card' : ''}`}
     >
       {isLayoutEditing && (
-        <div className="drag-handle" aria-label="拖动卡片调整位置" title="按住拖动调整位置">
+        <div className="drag-handle" aria-label={t('card.dragAria')} title={t('card.dragTitle')}>
           <GripVertical className="w-4 h-4" />
-          <span>拖动排序</span>
+          <span>{t('card.dragSort')}</span>
         </div>
       )}
       {/* Top row: Platform Badge & Pin / Star / Actions */}
