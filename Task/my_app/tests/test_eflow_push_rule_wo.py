@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
-"""推单规则「是否产生 WO」判定的回归测试（**纯离线**：不读数据库、不读 xlsx、不联网）。
+"""推单规则「是否产生 WO」判定与「规则 vs 实际」一致性分类的回归测试
+（**纯离线**：不读数据库、不读 xlsx、不联网）。
 
 背景（2026-10-23 业务方明确口径）
 --------------------------------
@@ -114,3 +115,48 @@ def test_empty_rule_does_not_build_wo():
 def test_only_fo_accept_does_not_build_wo():
     """路径只有 FOAccept 一段（无后续）→ 不建 WO。"""
     assert _rule_builds_wo({"target_handler": "", "push_path": "FOAccept"}) is False
+
+
+# ------------------------------------------------------------------ #
+# 一致性分类：多目标组（推送链）不能判成「派错组」
+# ------------------------------------------------------------------ #
+
+def _actual(person="fe_robot", group="ZTE_NOC_FO", wo=True, stages=("ZTE_NOC_FO",)):
+    return {
+        "wo_no": "WO202611020001" if wo else "",
+        "has_wo": wo,
+        "dispatch_person": person,
+        "dispatch_group": group,
+        "operator": "FE Robot",
+        "robot_handled": False,
+        "stage_blob": " ".join(stages),
+        "parsed": True,
+    }
+
+
+def test_multi_target_rule_reached_via_second_hop_is_correct():
+    """规则 201 的目标是 `ZTE_FE_FE; ZTE_NOC_FO` 两跳链，单子落在第二跳 NOC_FO 即一致。
+
+    2026-11-02 该规则才带上条件而生效，是第一条多目标 FOAccept 规则。
+    此前 `classify` 只取分号前的**第一个**组做「是否到达过」判断，
+    于是 19 张「有 WO、由链上第二跳 NOC_FO 接手」的正常单被判成 pushed_elsewhere。
+    """
+    from backend.services.eflow_rules.eflow_push_dispatch import classify
+
+    hit = {
+        "rule_id": "201", "built_wo": True,
+        "target_handler": "ZTE_FE_FE [ZTE_FE_FE]; ZTE_NOC_FO [ZTE_NOC_FO]",
+    }
+    assert classify(hit, _actual(), False) == ("correct", "both_wo")
+
+
+def test_target_reached_by_no_hop_is_still_mismatch():
+    """对照组：建了 WO 但链上没有任何一组出现过，仍是不一致（修复不能把漏判也放掉）。"""
+    from backend.services.eflow_rules.eflow_push_dispatch import classify
+
+    hit = {
+        "rule_id": "201", "built_wo": True,
+        "target_handler": "ZTE_FE_FE [ZTE_FE_FE]; ZTE_NOC_FO [ZTE_NOC_FO]",
+    }
+    actual = _actual(group="WH_MG", stages=("WH_MG",))
+    assert classify(hit, actual, False) == ("mismatch", "pushed_elsewhere")

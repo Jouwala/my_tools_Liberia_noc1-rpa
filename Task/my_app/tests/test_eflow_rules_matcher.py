@@ -94,6 +94,7 @@ def _tt_frame(**overrides) -> pd.DataFrame:
         'alarm_code': '9910', 'vip_site': 'No', 'hub_site': 'No',
         'site_type': 'NORMAL', 'site_information': 'REGULAR',
         'domain': 'RAN', 'down_site_count': '1', 'alarm_description': '',
+        'root_cause': 'POWER', 'ticket_severity': 'P2',
     }
     base.update(overrides)
     return pd.DataFrame([base])
@@ -114,6 +115,49 @@ def test_alarm_description_is_loaded():
     vf = M.build_value_frame(_tt_frame(alarm_description=desc))
     assert 'alarmDescription' in vf.columns, 'alarmDescription 没被加载，规则 272 永远无法命中'
     assert vf['alarmDescription'].iloc[0] == desc
+
+
+def test_reason_type_comes_from_root_cause_not_alarm_reason_type():
+    """规则里的 `reasonType` 对应 DB 列 `root_cause`，**不是** `alarm_reason_type`。
+
+    2026-11-02 eFlow 给推单规则 200/201 加了 `reasonType in/not in 'POWER'`。
+    本地 `alarm_reason_type` 只有 TRM / OTHER / 空（从来没有 POWER），按它接会让
+    规则 200 永不命中、201 全量命中 —— 整批「Regular 断站」被系统性判成该建 WO。
+    """
+    vf = M.build_value_frame(_tt_frame(root_cause='POWER', alarm_reason_type='TRM'))
+    assert 'reasonType' in vf.columns, 'reasonType 没被加载，规则 200/201 永远无法判定'
+    assert vf['reasonType'].iloc[0] == 'POWER'
+
+    vf_other = M.build_value_frame(_tt_frame(root_cause='Auto-recovery'))
+    assert vf_other['reasonType'].iloc[0] == 'AUTO-RECOVERY'
+
+    # 根因未填 → 空串（`not in 'POWER'` 成立），不能是 'nan'
+    vf_nan = M.build_value_frame(_tt_frame(root_cause=float('nan')))
+    assert vf_nan['reasonType'].iloc[0] == ''
+
+
+def test_ticket_severity_is_loaded():
+    """规则 253「P1_CSD_AUTO_WO」按 ticketSeverity='P1' 匹配，此前一直没有该字段。"""
+    vf = M.build_value_frame(_tt_frame(ticket_severity='p1'))
+    assert 'ticketSeverity' in vf.columns, 'ticketSeverity 没被加载，规则 253 永远无法判定'
+    assert vf['ticketSeverity'].iloc[0] == 'P1'
+
+
+def test_known_fields_cover_value_frame_columns():
+    """`eflow_push_rule_eval._KNOWN_FIELDS` 必须与 `build_value_frame` 的产出列一致。
+
+    两边分叉的后果是静默的：多写一个字段无害，**少写一个就把本可判定的规则降级成
+    undecidable** —— 与 2026-10-23 的 hubSite 事故同一大类，只是方向相反。
+    """
+    from backend.services.eflow_rules import eflow_push_rule_eval as EV
+
+    # 站点属性齐全时 build_value_frame 才会产出 siteSubType/assetType/downstreamSites 三列
+    df = _tt_frame(site_id='S1')
+    attrs = {'S1': {'siteSubType': 'REGULAR', 'assetType': 'NORMAL', 'downstreamSites': 3}}
+    produced = set(M.build_value_frame(df, attrs=attrs).columns)
+    assert EV._KNOWN_FIELDS == produced, (
+        f"仅在 _KNOWN_FIELDS: {sorted(EV._KNOWN_FIELDS - produced)}；"
+        f"仅在 build_value_frame: {sorted(produced - EV._KNOWN_FIELDS)}")
 
 
 # ------------------------------------------------------------------ #

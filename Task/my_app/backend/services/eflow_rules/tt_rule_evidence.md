@@ -48,8 +48,10 @@ AI 文本是"推断"，本模块是"事实"——页面把两者并列展示，�
    推单规则由 `eflow_Push_Rule_Collector._fmt_rows` 生成，是 `AND eflow_...alarmCode in '…' (string)`（**没有 `|`**）。
    `parse_conditions` 会跳过不含 `|` 的片段 → 表现为「所有推单规则都不命中」。
    解法是 `_parse_push_conditions()` 先补分隔符再复用 `parse_conditions`（求值语义一字不改）。
-2. **本地只有 5 个字段可评估**：`alarmCode / vipSite / siteSubType(assetType) / netWorkType / downSiteCount`
-   （见 `eflow_rules_matcher.build_value_frame`）。引用 `alarmName`、`category`、
+2. **本地可评估的字段以 `build_value_frame` 的产出列为准**：`alarmCode / vipSite / hubSite /
+   siteSubType(assetType) / netWorkType / downSiteCount / alarmDescription / downstreamSites /
+   reasonType / ticketSeverity`（后两个 2026-11-02 补，`reasonType` 的本地真身是
+   `eflow_tt.root_cause`，**不是** `alarm_reason_type`）。引用 `alarmName`、`category`、
    `previousOperationStep`、`alarmDurationTime` 等的规则**本地判不了**，单独计入
    `undecidable` 并在界面注明 —— **不能算作「未命中」**（实测 `TT自动推单给BO-MW组` 就引用 `alarmName`）。
 3. **`Confirm` 步骤的规则是兜底**：`TT_push_confirm_to_close`（ID 119，`netWorkType not in 'VMAX'`）

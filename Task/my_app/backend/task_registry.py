@@ -873,8 +873,8 @@ TASK_SPECS = [
     # 38. eFlow 推单/配置规则收集（每 3 天 23:59）：config-center 空 filter 全量规则导出 Excel
     dict(task_id="eflow_push_rules_collect", name="eFlow 推单规则收集", name_en="eFlow Push Rules Collect",
          loader=("backend.services.eflow_rules.eflow_Push_Rule_Collector", "run_eflow_push_rules"),
-         description="每 3 天 23:59 从 eFlow config-center 拉取全部规则（query filter=\"\"，推单/升级/分组/自动关闭等 28 种类型），逐条合并 detail，导出 backend/services/eflow_rules/eflow_push_rules.xlsx（Push_Rules + Rule_Type_Summary 两个 Sheet）",
-         description_en="Every 3 days at 23:59: pull all rules from eFlow config-center (query filter=\"\", 28 rule types incl. push/level/group/auto-close), merge detail per rule into backend/services/eflow_rules/eflow_push_rules.xlsx (sheets Push_Rules + Rule_Type_Summary)",
+         description="每 3 天 23:59 从 eFlow config-center 拉取全部规则（query filter=\"\"，推单/升级/分组/自动关闭等全部规则类型，实际条数与类型数以导出的 Rule_Type_Summary Sheet 为准），逐条合并 detail，导出 backend/services/eflow_rules/eflow_push_rules.xlsx（Push_Rules + Rule_Type_Summary 两个 Sheet）",
+         description_en="Every 3 days at 23:59: pull all rules from eFlow config-center (query filter=\"\", every rule type incl. push/level/group/auto-close; read the live counts from the exported Rule_Type_Summary sheet), merge detail per rule into backend/services/eflow_rules/eflow_push_rules.xlsx (sheets Push_Rules + Rule_Type_Summary)",
          default_cron="59 23 */3 * *", category="eflow"),
 
     # 37b. eFlow 推单规则批量检查（每周二 05:10）：2026-10-23 新增。

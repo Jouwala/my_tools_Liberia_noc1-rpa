@@ -52,6 +52,8 @@ def get_eflow_tt_data(limit: int = 1000) -> pd.DataFrame:
             project_name, template_name,
             vip_site, hub_site, site_type, site_class,
             down_site_count, site_information, alarm_description,
+            -- root_cause：规则里的 reasonType 的本地真身（2026-11-02，详见 build_value_frame）
+            root_cause,
             -- 下钻明细要字段（2026-10-23）：规则原始字段 + 建单/告警时间
             created_time, alarm_occur_time, alarm_clear_time
         FROM eflow_tt
@@ -282,6 +284,25 @@ def build_value_frame(tt_df: pd.DataFrame, attrs: dict | None = None) -> pd.Data
             tt_df['site_id'].astype(str)
             .map(lambda s: (attrs.get(str(s)) or {}).get('downstreamSites'))
         ).map(lambda v: '' if v is None else str(v))
+    # reasonType 2026-11-02 补：eFlow 当天给推单规则 200/201 加了
+    # `eflow_ticket_ticket_wo.reasonType in/not in 'POWER'`，用它把「Regular 断站」劈成
+    # 电源故障(推 IPT，不建 WO)与非电源(推 ZTE FO，建 WO)。
+    # ⚠ 名字对不上：规则里的 reasonType 对应本表的 `root_cause`（取值 POWER /
+    #   Auto-recovery / MW / RAN / Fiber…），**不是** `alarm_reason_type`
+    #   （取值只有 TRM / OTHER / 空，里面从来没有 POWER）。按后者接会得到
+    #   「200 永不命中、201 全部命中」的系统性误判。
+    # 根因在 FO 接单之后才由人填，所以未填的单按「非 POWER」处理（与 not in 的语义一致）。
+    vf['reasonType'] = (
+        tt_df['root_cause'].fillna('').astype(str).str.strip().str.upper()
+        if 'root_cause' in tt_df.columns else ''
+    )
+    # ticketSeverity 2026-11-02 补：规则 253「P1_CSD_AUTO_WO」按 `ticketSeverity = 'P1'`
+    # 匹配，本地 `ticket_severity` 早有此列（取值 P1..P4）却没被建成字段，
+    # 于是该规则从登记起就一直落在 undecidable、一张单都没判过。
+    vf['ticketSeverity'] = (
+        tt_df['ticket_severity'].fillna('').astype(str).str.strip().str.upper()
+        if 'ticket_severity' in tt_df.columns else ''
+    )
     return vf
 
 

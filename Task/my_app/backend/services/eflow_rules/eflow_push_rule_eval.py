@@ -75,13 +75,18 @@ def _prepare_rule(rec: Dict[str, str]) -> Optional[Dict[str, Any]]:
     }
 
 
-# `eflow_rules_matcher.build_value_frame` 实际产出的列（eflow_rules_matcher.py:229-285）。
+# `eflow_rules_matcher.build_value_frame` 实际产出的列（该函数负责把 DB 列名映射成规则字段名）。
 # 注意 siteSubType / assetType / downstreamSites 在某些站点查不到时会**为空值** ——
 # 那是「数据缺失导致条件不成立」，条件求值本身能跑，所以仍算已知字段，
 # 不进 unknown_fields；只有这里没列出的字段才算「本地无法判定」。
+# ⚠ 本表必须与 `build_value_frame` 的产出列一一对应，漏一个就会把一条**本可判定**的
+#   规则静默降级成 undecidable（tests/test_eflow_rules_matcher.py 有守卫）。
+#   reasonType / ticketSeverity 于 2026-11-02 补入：eFlow 当天给推单规则 200/201
+#   加了 reasonType 条件（本地真身是 `eflow_tt.root_cause`，不是 alarm_reason_type）。
 _KNOWN_FIELDS = {
     "alarmCode", "vipSite", "hubSite", "siteSubType", "assetType",
     "netWorkType", "downSiteCount", "alarmDescription", "downstreamSites",
+    "reasonType", "ticketSeverity",
 }
 
 
@@ -202,7 +207,11 @@ def evaluate_rules(rules: List[Dict[str, Any]], vf, records: Sequence[Dict[str, 
         for loc_i, rec in enumerate(records):
             sid = _s(rec.get("site_id"))
             site = (attrs or {}).get(sid) or {}
-            sig = _ticket_signature(rec, site.get("siteSubType") or rec.get("site_type"))
+            # 两侧都要过 `_s`：`site_type` 在 pandas 里缺失值是 NaN（float），
+            # 直接递给 `_ticket_signature` 会炸成 `'float' object has no attribute 'strip'`
+            # —— 2026-11-02 eFlow 给规则 200/201 加了 reasonType 条件后，这两条规则
+            # 第一次走进本循环，整个 eflow_push_rules_check 任务当场失败。
+            sig = _ticket_signature(rec, site.get("siteSubType") or _s(rec.get("site_type")))
             if not all(sig.get(k) for k in wants):
                 possible.iloc[loc_i] = False
         undecidable = undecidable | (possible & ~any_hit)

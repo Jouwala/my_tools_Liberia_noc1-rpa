@@ -118,6 +118,7 @@ def load_sample(limit: int = 1000) -> "Any":
         "       project_name, template_name, "
         "       vip_site, hub_site, site_type, site_class, "
         "       down_site_count, site_information, alarm_description, "
+        "       root_cause, "
         "       created_time, alarm_occur_time, alarm_clear_time, "
         "       current_handler, fo_accept_detail, fo_process_detail, create_detail, "
         "       bo_accept_detail, bo_process_detail, third_accept_detail, "

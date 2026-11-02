@@ -375,11 +375,18 @@ def _ticket_signature(t: Dict[str, Any], site_subtype: Optional[str]) -> Dict[st
     把它纳入会引入无法预期的假命中。告警语义只从 alarm_description /
     codename / alarm_name 取。
     """
-    sub = (site_subtype or "").strip().upper()
+    # site_subtype 由调用方直接从 DB 行取（eflow_rules_matcher.build_value_frame 与本模块
+    # 读 eflow_site 的那处），缺值时是 float NaN 而不是 None —— 必须先转字符串再比较，
+    # 否则 `.strip()` 当场抛（2026-11-02 eflow_push_rules_check 就是这么整轮失败的）。
+    sub = "" if site_subtype is None else str(site_subtype)
+    sub = "" if sub.strip().lower() in ("", "nan", "none", "nat") else sub.strip().upper()
     alarm_text = " ".join(str(t.get(k) or "") for k in
                           ("alarm_description", "codename", "alarm_name")).lower()
     domain = str(t.get("domain") or "").strip().upper()
-    reason = str(t.get("alarm_reason_type") or t.get("reason_type") or "").strip().upper()
+    # 根因取 root_cause（POWER / Auto-recovery / MW…）—— eFlow 规则里叫 reasonType；
+    # alarm_reason_type 是另一套取值（只有 TRM / OTHER / 空），留着兜底不影响本判据。
+    reason = str(t.get("root_cause") or t.get("alarm_reason_type")
+                 or t.get("reason_type") or "").strip().upper()
 
     sig: Dict[str, bool] = {}
     sig["REGULAR"] = sub in ("REGULAR", "NORMAL", "COOL") or _has_word(alarm_text, "regular")

@@ -4,12 +4,18 @@
 
 从 `eflow_push_rules_checker.py` 拆出（AGENTS.md 三.2：单文件不超过 500 行）。
 
-为什么需要它：规则 200（Regular电源故障推送TT到IPT）在最近 1000 条样本里有 340 张
-「规则说该建 WO、实际没建」。若不提供对照，使用者会以为这是**这次规则变更造成的**；
-而实测该条件的历史单里只有约 0.5% 建过 WO —— 这条规则长期就没生效过。页面据此在规则行上
-标注历史建 WO 率，让人一眼分清「历来如此」与「这次改坏的」。
+为什么需要它：样本里的单是**过去**派出去的，规则是**当下**的。规则一改，
+逐单判定就会大面积翻转，使用者很容易把「规则今天变了」误读成「现场派错了单」。
+页面据此在每条规则行上标注它的**历史建 WO 率**（同一条件筛出的历史单里真建过 WO 的比例）：
 
-统计口径：按规则的 `alarmCode` + `siteSubType` 条件筛历史单，看其中有 `wo_no` 的比例。
+  · 历史率≈0、当前大量 mismatch   → 这条规则长期就没生效过，不是这次改坏的
+  · 历史率高、当前大量 mismatch   → 这次变更确实改变了派单行为
+
+例：2026-10-23 该列第一次上线时，规则 200 的历史建 WO 率只有 0.5%（近 1.8 万单里建过 90 张），
+当场说明「推 IPT 不建 WO」才是历来实况，而不是有人漏建了 340 张 WO。
+
+统计口径：按规则的 `alarmCode` + `siteSubType` + `reasonType` 条件筛历史单，
+看其中有 `wo_no` 的比例。
 条件里**没有正向 alarmCode** 时不给比例（显示 `—`），不做近似猜测。
 """
 from __future__ import annotations
@@ -47,17 +53,11 @@ def _rule_history(per_rule: List[Dict[str, Any]], attrs: Dict[str, Dict[str, Any
                   window_days: int = 365) -> List[Dict[str, Any]]:
     """每条规则在**历史上**的实际生效情况（用于区分「本次新变化」与「历来如此」）。
 
-    为什么要算这个：规则 200（Regular电源故障推送TT到IPT）在最近 1000 条样本里
-    有 340 张单「规则说该建 WO、实际没建」。若不提供对照，使用者会以为这是
-    **这次规则变更造成的**；而实测全库 17576 张该条件的单里只有 90 张建过 WO ——
-    这条规则长期就没生效过。页面据此在规则行上标注「历史建 WO 率」，让人一眼分清：
-
-      · 历史建 WO 率 ≈ 0、当前大量 mismatch  → 规则本身有问题，不是这次改坏的
-      · 历史建 WO 率高、当前大量 mismatch    → 这次变更确实改变了派单行为
-
-    统计口径：按规则的告警码条件筛历史单，看其中有 wo_no 的比例。
-    **只在规则条件里含 alarmCode 时才算**（其它条件如站型无法在 SQL 里等价表达，
-    强行近似会给出错误的比例 —— 宁可显示 `—`）。窗口按 created_time 取最近 N 天。
+    动机见模块头。统计口径：按规则条件里的 `alarmCode`（正向）+ `siteSubType` +
+    `reasonType` 筛历史单，看其中有 `wo_no` 的比例；三者都能在 SQL 里等价表达，
+    所以算出来的是**这条规则自己的**历史率，不是同一告警码下所有规则的混合值。
+    **只在规则条件里含正向 alarmCode 时才算**；`not in` 是排除语义，不能用来圈样本。
+    窗口按 created_time 取最近 N 天。
     """
     import pandas as pd
     from backend.database import get_raw_connection
@@ -94,6 +94,17 @@ def _rule_history(per_rule: List[Dict[str, Any]], attrs: Dict[str, Dict[str, Any
                         "   WHERE UPPER(TRIM(COALESCE(sitesubtype, ''))) = ?)"
                     )
                     sub_params = (sub,)
+                # reasonType 过滤（本地列 root_cause）2026-11-02 补：
+                # 规则 200/201 的告警码与站型**完全相同**，只差 `reasonType in / not in 'POWER'`。
+                # 不加这一条，两条互补规则会显示同一个历史建 WO 率，
+                # 页面就失去了「历来如此 vs 这次改坏的」这个对照（实测 POWER 21.9% / 非 POWER 57.8%）。
+                r_sql, r_params = "", ()
+                r_op, r_vals = _rule_reason_cond(rid)
+                if r_vals:
+                    r_ph = ",".join("?" * len(r_vals))
+                    r_sql = (f"AND UPPER(TRIM(COALESCE(root_cause, ''))) "
+                             f"{'IN' if r_op == 'in' else 'NOT IN'} ({r_ph})")
+                    r_params = tuple(r_vals)
                 sql = (
                     "SELECT COUNT(*), "
                     "       SUM(CASE WHEN wo_no IS NOT NULL AND wo_no != '' THEN 1 ELSE 0 END) "
@@ -101,16 +112,19 @@ def _rule_history(per_rule: List[Dict[str, Any]], attrs: Dict[str, Dict[str, Any
                     f"WHERE alarm_code IN ({ph}) "
                     "  AND created_time >= ? "
                     f"  {sub_sql}"
+                    f"  {r_sql}"
                 )
                 with get_raw_connection() as conn:
                     cur = conn.cursor()
-                    cur.execute(sql, tuple(vals) + (since,) + sub_params)
+                    cur.execute(sql, tuple(vals) + (since,) + sub_params + r_params)
                     n, wo = cur.fetchone()
                 n = int(n or 0)
                 wo = int(wo or 0)
                 item["history"] = {
                     "window_days": window_days,
                     "alarm_codes": codes,
+                    "site_subtype": sub,
+                    "reason_type": f"{r_op}:{','.join(r_vals)}" if r_vals else "",
                     "total": n,
                     "with_wo": wo,
                     "wo_rate": round(wo / n, 4) if n else None,
@@ -119,6 +133,32 @@ def _rule_history(per_rule: List[Dict[str, Any]], attrs: Dict[str, Dict[str, Any
                 logger.debug("规则 %s 历史统计失败：%s", rid, e)
         out.append(item)
     return out
+
+
+def _rule_reason_cond(rule_id: str) -> tuple[str, list]:
+    """规则条件里的 `reasonType`（本地列 `root_cause`）→ ('in'|'notin', 值列表)。
+
+    用与求值同一个解析器（`tt_rule_evidence._parse_push_conditions`），
+    避免历史统计与规则判定两套口径 —— 本模块只处理**单值/多值枚举**，
+    解析不出正向条件时返回 ('', [])，宁可不加过滤也不给近似值。
+    """
+    from backend.services.eflow_rules import tt_rule_evidence as E
+
+    for rec in _load_rules():
+        if _s(rec.get("ID")) != rule_id:
+            continue
+        for c in E._parse_push_conditions(_s(rec.get("条件"))):
+            if c.get("field") != "reasonType":
+                continue
+            vals = sorted({v.strip().upper() for v in (c.get("values") or []) if _s(v)})
+            if not vals:
+                continue
+            if c.get("symbol") in ("=", "in"):
+                return "in", vals
+            if c.get("symbol") in ("notin", "!=", "<>"):
+                return "notin", vals
+        return "", []
+    return "", []
 
 
 def _rule_site_subtype(rule_id: str) -> str:

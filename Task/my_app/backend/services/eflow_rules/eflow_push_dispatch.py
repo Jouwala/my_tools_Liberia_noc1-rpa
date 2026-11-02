@@ -147,10 +147,14 @@ def classify(hit: Optional[Dict[str, Any]], actual: Dict[str, Any],
     rule_wo = bool(hit.get("built_wo"))
     has_wo = bool(actual.get("has_wo"))
 
-    # 目标处理组（`ZTE_NOC_FO [ZTE_NOC_FO]` → ZTE_NOC_FO）是否在流程里到达过。
-    # 只用于「建了 WO 但推给了别的组」这一种判断；**不能用来替代 wo_no**（见下）。
-    want = _s(hit.get("target_handler")).split("[")[0].strip()
-    reached = group_reached(want, actual) if want else False
+    # 目标处理组是否在流程里到达过。
+    # ⚠ 一条规则可以有**多个**目标组，写法是推送链的先后跳：
+    #   `ZTE_FE_FE [ZTE_FE_FE]; ZTE_NOC_FO [ZTE_NOC_FO]`（规则 201，2026-11-02 才带上条件而生效）。
+    #   只比第一个组会把「按规则走完全链、落在第二跳 NOC_FO」的单判成派错组
+    #   —— 实测 19 张。任一跳到达即视为一致。
+    targets = [t.split("[")[0].strip() for t in _s(hit.get("target_handler")).split(";")]
+    targets = [t for t in targets if t]
+    reached = any(group_reached(t, actual) for t in targets)
 
     if rule_wo and not has_wo:
         # 规则判定「应建 WO」但实际 `wo_no` 为空 → 确实不一致。
@@ -166,7 +170,7 @@ def classify(hit: Optional[Dict[str, Any]], actual: Dict[str, Any],
         #   只说明「路由到过该组」，不等于产生了现场工单。
         return "mismatch", "should_have_wo"
     if rule_wo and has_wo:
-        if not want:
+        if not targets:
             return "correct", "both_wo"
         if reached or actual.get("robot_handled"):
             return "correct", "both_wo"

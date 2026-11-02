@@ -411,10 +411,12 @@ def build_push_rule_evidence(tt_no: str) -> Dict[str, Any]:
       `build_rule_mask`，与级别规则**同一套求值代码**，只是换成推单规则表。
     * 排序：优先级升序 → 条件数多者优先 → ID 升序（与 `prepare_rules` 一致），
       取第一条为「实际生效」的推单规则，其余一并列出。
-    * 字段局限：本地 `eflow_tt` 只有 alarmCode / vipSite / siteSubType(assetType) /
-      netWorkType / downSiteCount 五个可评估字段；引用其他字段（category、
-      previousOperationStep、alarmDurationTime 等）的规则**无法在本地判定**，
-      单独计入 `undecidable` 并在界面上说明，不混进「未命中」。
+    * 字段局限：可评估字段以 `build_value_frame` 的产出列为准（本路径按
+      `c["field"] not in vf.columns` 动态判定，加字段不用改这里）；当前含
+      alarmCode / vipSite / hubSite / siteSubType / assetType / netWorkType /
+      downSiteCount / alarmDescription / downstreamSites / reasonType / ticketSeverity。
+      引用其他字段（category、previousOperationStep、alarmDurationTime、alarmName 等）
+      的规则**无法在本地判定**，单独计入 `undecidable` 并在界面上说明，不混进「未命中」。
 
     任何异常都不抛出：返回 available=False + error，由页面自行降级。
     """
