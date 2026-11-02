@@ -86,7 +86,7 @@ src\
  ├── i18n.tsx                # 中英双字典 + useI18n()
  ├── App.tsx                 # 状态管理与 localStorage 持久化
  ├── auth\                   # 鉴权上下文与分组
- ├── components\             # 21 个组件（见 component-api.md）
+ ├── components\             # 24 个组件（见 component-api.md）
  ├── data\initialDashboards.ts
  └── types\dashboard.ts
 server\                      # 门户后端（鉴权、用户库、鉴权开关）

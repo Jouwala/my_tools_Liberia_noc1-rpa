@@ -63,14 +63,90 @@ npm run clean      # 删除 dist / server.js
 
 | 机制 | 命令 | 作用 |
 | --- | --- | --- |
-| 提交前拦截 | `.git\hooks\pre-commit`（工作区根，随 git 生效） | 提交时自动跑 audit，探针/快照/日志入库就拦下 |
+| 提交前拦截 | `.githooks\pre-commit`（**仓库内**，随仓库分发） | 提交时自动跑 audit，探针/快照/日志入库就拦下 |
 | 手工体检 | `npm run check:clean` | 随时自查版本库有没有混入噪声文件 |
 | TMP 清理 | `npm run tmp:clean` / `npm run tmp:clean:apply` | 报告 / 真删 `TMP\` 里早于 7 天的积压（脚本加 `--days=N` 可调） |
+| CI 兜底 | `.github\workflows\docs-consistency.yml` | push / PR 都跑，`--no-verify` 绕不过 |
 
 判断逻辑全在 `scripts\check-cleanliness.mjs`，钩子与手工命令是同一份代码，不会分叉。它管**已跟踪文件**（不该入库却入了库的），`.gitignore` 管**未跟踪文件**（防止新增入库），两者互补。
 
 - 被钩子拦下但确实要提交：`git commit --no-verify`（先确认文件真的是源码）。
 - `_*` 前缀的真源码（如 `src\`、`server\` 下的下划线文件）在脚本里有豁免清单，新增类似文件时记得同步该清单。
+- **钩子怎么装**（新克隆的机器必做一次）：`npm run setup:hooks`。
+  钩子文件在仓库的 `.githooks\` 里，靠 `git config core.hooksPath .githooks` 启用；
+  `core.hooksPath` 是本地配置，所以每台机器装一次。
+  ⚠️ 它是**相对路径**，Git 按当前工作树根目录解析 —— worktree 里若所在分支
+  还没合入 `.githooks\`，钩子会**静默不执行**（不报错，只是不拦）。
+  用 `npm run setup:hooks -- --check` 可查。
+
+### 文档一致性（2026-10-31 起有机器守卫）
+
+门户 README 与 `docs\` 里的看板条数、组件数、任务数同样是**从代码抄来的数字**，
+过期了没有任何运行时症状能暴露 —— 两边看起来都自洽，肉眼极难发现。
+
+实测一次审计抓到 3 处：
+
+| 位置 | 文档写的 | 实际 |
+| --- | --- | --- |
+| `README.md` | 21 个 my_app 直链 + 19 个 FineBI 条目 | 53 + 2 + 1 = 56 条（`initialDashboards.ts`） |
+| `README.md` | my_app 后端 34 个定时任务 | 80 个（`TASK_SPECS`） |
+| `docs/project-overview.md` | 21 个组件 | 24 个（`src/components/**`） |
+
+| 机制 | 命令 | 作用 |
+| --- | --- | --- |
+| 提交前拦截 | `.githooks\pre-commit`（**仓库内**，随仓库分发） | 提交时自动跑，文档与代码不一致就拦下 |
+| 手工体检 | `npm run check:docs` | 随时自查 |
+| CI 兜底 | `.github\workflows\docs-consistency.yml` | push / PR 都跑，`--no-verify` 绕不过 |
+
+判断逻辑全在 `scripts\check-doc-consistency.mjs`，钩子与手工命令是同一份代码，不会分叉。
+6 个用例：README 看板条数 / README 任务数 / project-overview 组件数 /
+看板描述里的任务数 / 根 `component-api.md` 的门户组件数 /
+用户指南里的 token 看板条数（对 `portal-default.json`）。
+
+> **守卫取不到真相源时必须显式失败**（2026-10-31 踩过这个坑）：原
+> `myAppTaskCount()` 的正则只认 `"task_id": "..."`，而 `task_registry.py` 实际写的是
+> `dict(task_id="...")` → 匹配 0 条 → 两个检查走 `if (!n) return` **静默跳过**，
+> 守卫显示 PASS 却什么都没查。现在解析不到条数会直接抛错。
+
+> 与 my_app 的 `Task\my_app\tests\test_doc_consistency.py` 是**同一思路、同一套约定**
+> （纯 assert + 计数器，不依赖 pytest / 外部框架），两边的判定逻辑各写各的，
+> 但「文档数字 ↔ 代码真相源」这个原则一致。
+
+### i18n（2026-10-31 起有机器守卫）
+
+门户的文案有**两本字典**，这是守卫必须单独写一份的根本原因：
+
+| 字典 | 位置 | 取键方式 | 缺键的实际症状 |
+| --- | --- | --- | --- |
+| 界面文案 `zh` / `en` | `src\i18n.tsx` 顶部两段 | `t('key')`，实现是 `DICTS[lang][k] ?? zh[k] ?? k` | 缺 en → **英文界面显示中文**；缺 zh → **中文界面露出 key 原文** |
+| 看板目录 `zhDashboard` / `enDashboard` | 同文件后两段 | `translateDashboard` / `translateCategory` / `translateDept` / `translateOwner` / `translateTag`，实现是 `dict[key] ?? 原值` | 缺 en → **英文界面显示中文**；缺 zh → **无害**（原值本身就是中文） |
+
+第二本的键名来自 `src\data\initialDashboards.ts` 里的**数据值**（`dept.${department}`、
+`owner.${owner}`、`tag.${tag}`、`dash.<id>.title`，以及经 `getCatKey` 映射后的 `cat.<分类>`），
+**不在代码里**。所以 my_app 那份「扫源码 `t('字面量')`」的守卫对门户无效 ——
+新增一条看板忘了补英文、或把分类名从「MS 综合运维管理」简写成「MS 运维管理」，
+代码里一个 `t()` 都没变，旧守卫全绿。
+
+判断逻辑全在 `scripts\check-i18n.mjs`（零第三方依赖），与手工命令 `npm run check:i18n`
+是同一份代码；已内置进 `npm run build`，并挂进 `.githooks\pre-commit` 与 CI。九条规则里
+门户特有的三条：
+
+- **[6] 目录数据全覆盖**：逐条看板派生 `dash.<id>.title/desc`、`cat.*`、`dept.*`、`owner.*`、
+  `tag.*`，要求 **enDashboard** 存在。值本身是拉丁文时跳过 —— 回落原值即正确。
+- **[8] `getCatKey` 映射表**必须覆盖数据里出现的每个分类值。漏一行时该分类查不到键，
+  英文态的分组标题与筛选条直接显示中文（**实测就是这么漏了 3 个短名分类，影响 10 条看板**）。
+- **[9] en 侧的值不得还是中文**：「键加了、没翻译」比缺键更隐蔽 —— 字典看起来完整、
+  按对称性查也全绿，英文界面却是整段中文。唯一豁免是 `nav.langTip`（语言按钮要显示
+  它切换到的那个语言，en 侧刻意写「切换到中文」）。
+
+另有 [7] **反查唯一性**：`reverseTranslateCategory/Dept/Owner` 是**按值反查**的
+（`if (value === dept && key.startsWith('dept.'))`），所以 `cat.* / dept.* / owner.*`
+的 en 值必须互不相同，否则英文态的岗位筛选会认错人。给部门/负责人起译名时先想这条。
+
+> 2026-10-31 建这道守卫时，门户**还没有任何 i18n 检查**，攒下的英文态露中文共 40 处：
+> 3 个短名分类（10 条看板）、12 个部门、13 个负责人、`bp-report-79` 缺 `dash.*` 的
+> 标题与描述，外加 `DashboardCard.tsx` 两处硬编码中文（「拖动卡片调整位置」「拖动排序」）。
+> 已全部补齐，键数从 zh 427 / en 437 涨到 zh 457 / en 467。
 
 ### 团队门户（`v3/team_portal/`）的生成物一致性（2026-10-30 起有机器守卫）
 
@@ -80,8 +156,9 @@ npm run clean      # 删除 dist / server.js
 
 | 机制 | 命令 | 作用 |
 | --- | --- | --- |
-| 提交前拦截 | `.git\hooks\pre-commit`（工作区根，随 git 生效） | 提交时自动跑四项检查，不一致就拦下 |
+| 提交前拦截 | `.githooks\pre-commit`（**仓库内**，随仓库分发） | 提交时自动跑四项检查，不一致就拦下 |
 | 手工体检 | `npm run check:team-scope` | 随时自查生成物是否与上游一致 |
+| CI 兜底 | `.github\workflows\docs-consistency.yml` | push / PR 都跑 |
 
 四项检查（全在 `scripts/check-team-scope.mjs` 里串起来）：
 
@@ -196,12 +273,17 @@ var seq = ++qcDrillSeq;
 - [ ] `npm run dev` 后刷新页面，改动**实际可见**
 - [ ] `git status --porcelain` 复查：没有 `dist/`、`node_modules/`、`auth-data/`、`portal-default.json`、`*.log`、探针文件混入
 - [ ] `npm run check:clean` 通过（探针/快照/日志没被 git 跟踪；pre-commit 钩子也会自动拦）
+- [ ] `npm run check:docs` 通过（README/docs 里的看板数、组件数、任务数与代码一致；pre-commit 钩子也会自动拦）
 - [ ] 改过 `v3/olbrportal/` 或 `v3/team_portal/` 时：`npm run check:team-scope` 通过（生成物与上游一致）
+- [ ] **新克隆的机器**跑过一次 `npm run setup:hooks`（把 `core.hooksPath` 指向仓库内的 `.githooks\`；否则本地这三条守卫都不生效，只能靠 CI 兜底）
 
 ### 文案 / i18n
 
+- [ ] `npm run check:i18n` 通过（已内置进 `npm run build`，钩子与 CI 也会跑）
 - [ ] **中文界面**文案正确
 - [ ] **切到英文**，所有新文案正常显示，**没有出现 `xxx.yyy` 形式的 key 原文**
+- [ ] **切到英文**，看板的标题/描述/分类/部门/负责人**不是中文**（缺 `enDashboard` 键时的症状，
+      不会报错也不露 key，只有真人切过去才看得见）
 - [ ] 看板业务数据（名称/分类/部门）仍是原值，**没有被误翻译**
 
 ### 视觉

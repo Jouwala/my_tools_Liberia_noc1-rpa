@@ -20,7 +20,7 @@
 5. **中文注释。** 本项目注释、文档、提交信息全部中文。
 6. **数字绝不撒谎。** 取不到数据必须显示 `—`，**绝不显示 `0`**——统计里的 `0` 是"真的一个都没有"，与"没取到"必须能分辨，否则运维会误判成"已清空"。这条在 QC 面板是硬需求。
 7. **不要给整张数据卡加渐变。** QC 卡改版已明确去掉整卡渐变（"贴纸感"降低数据可信度），改为纯白/纯深底 + 细边框 + 柔和阴影。
-8. **改动前先备份。** 本项目既有习惯是给被改文件留时间戳快照（如 `index.html_bak_20260922_QC卡片改版前`）。改大文件（`App.tsx` 43KB、`i18n.tsx` 117KB、`MsPortal\index.html` 48KB）前先建备份。
+8. **改动前先备份。** 本项目既有习惯是给被改文件留时间戳快照（如 `index.html_bak_20260922_QC卡片改版前`）。改大文件（`App.tsx` ≈47KB、`i18n.tsx` ≈123KB、`MsPortal\index.html` ≈48KB）前先建备份。
 
 ## 三、不入库清单
 
@@ -45,12 +45,12 @@
 
 | 文件 | 作用 |
 | --- | --- |
-| `src\App.tsx`（43KB） | **状态中枢**：看板数组、分组、鉴权、视图模式、所有弹窗开关、localStorage 持久化 |
+| `src\App.tsx`（≈47KB） | **状态中枢**：看板数组、分组、鉴权、视图模式、所有弹窗开关、localStorage 持久化 |
 | `src\config.ts` | **环境单一真相源**：主机、API 前缀（`PORTAL_API`）、入口 URL；优先级 localStorage > `VITE_*` > 硬编码 |
-| `src\i18n.tsx`（117KB） | 中英双字典 + `useI18n()`；另有看板业务数据的独立翻译表 |
+| `src\i18n.tsx`（≈123KB） | 中英双字典 + `useI18n()`；另有看板业务数据的独立翻译表 |
 | `src\components\Navbar.tsx` | 顶栏，所有功能入口（桌面 + 移动两套） |
 | `src\components\DynamicIcon.tsx` | 按名字符串渲染 lucide 图标（找不到回退 `LayoutGrid`） |
-| `src\data\initialDashboards.ts`（44KB） | 初始看板数据 |
+| `src\data\initialDashboards.ts`（≈48KB） | 初始看板数据 |
 | `server\auth\` | **门户鉴权模块**（2026-09-25 由单文件 `auth.ts` 928 行拆分）：`types.ts` 类型与纯函数、`password.ts` scrypt、`store.ts` AuthStore、`guard.ts` **鉴权决策唯一入口**、`routes.ts` HTTP 分发、`index.ts` 对外出口 |
 | `server\authDb.ts` | 鉴权持久化（SQLite/JSON 双模），只依赖 `auth/types`（避免循环依赖） |
 | `server\authSwitch.ts` | 鉴权总开关（与 my_app 共享 `auth-switch.json`） |
