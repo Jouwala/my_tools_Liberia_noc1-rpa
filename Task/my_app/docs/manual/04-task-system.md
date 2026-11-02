@@ -1,6 +1,6 @@
 # 04 任务与调度系统
 
-my_app 的"心脏"。41 个定时任务负责全部数据采集与报表投递，页面上看到的数据新鲜度、失败告警、补跑行为都在这里定义。
+my_app 的"心脏"。80 个定时任务负责全部数据采集与报表投递，页面上看到的数据新鲜度、失败告警、补跑行为都在这里定义。
 
 > 另有两个**模块级说明文件**更贴近代码：`backend/WORKER.md`（worker 进程架构、容错、启停、环境变量）与 `backend/task_registry.md`（注册表字段与对外接口）。本章是归口叙述，改动这两处代码时请同步更新三份文档。
 
@@ -31,10 +31,10 @@ APScheduler 到点 (backend 进程内)
 | 组 | 任务数 | 约束原因 | 成员 task_id |
 | --- | --- | --- | --- |
 | `u` | 12 | RAN UME 单账号会话，必须串行（并发会被踢会话）。`bp_report_sync` 也读 RAN UME，且必须排在 `main_kpi_sync` 之后（否则读到昨天的 KPI） | `ran_ume_daily`, `main_kpi_sync`, `cell_availability_sync`, `network_kpi_sync`, `packet_loss_sync`, `packet_loss_email`, `battery_kpi_sync`, `ipran_kpi_sync`, `cm_data_sync`, `cells_kpi_sync`, `avail_recon_sync`, `bp_report_sync` |
-| `n` | 17 | eFlow API / config-center 同源会话（2026-09-27 由 17 项收窄，VMAX→`v`、SFTP→`s`、MW UME→`w`；2026-10-15 实时告警→`x`；2026-10-17 新增 `cnn_kpi_sync_5mins`，与 `cnn_kpi_sync` 共用 CNN UME 会话；2026-10-23 新增 3 个 `whatsapp_kb_sync_*`，跟在对应规则采集之后触发知识库同步） | `eflow_sync`, `eflow_sync_full`, `eflow_history_alarm`, `eflow_tt_rules_check`, `ms_sla_full`, `cnn_kpi_sync`, `cnn_kpi_sync_5mins`, `fw_kpi_sync`, `sp_online_sync`, `sp_material_sync`, `eflow_alarm_rules_collect`, `eflow_push_rules_collect`, `eflow_push_rules_check`, `whatsapp_kb_sync_alarm_rules`, `whatsapp_kb_sync_push_rules`, `whatsapp_kb_sync_tt_rules`, `ume_in_kpi_sync`, `ume_in_osg_report` |
+| `n` | 18 | eFlow API / config-center 同源会话（2026-09-27 由 17 项收窄，VMAX→`v`、SFTP→`s`、MW UME→`w`；2026-10-15 实时告警→`x`；2026-10-17 新增 `cnn_kpi_sync_5mins`，与 `cnn_kpi_sync` 共用 CNN UME 会话；2026-10-23 新增 3 个 `whatsapp_kb_sync_*`，跟在对应规则采集之后触发知识库同步；2026-10-29 新增 `eflow_push_rules_check`，与规则采集同会话故同组） | `eflow_sync`, `eflow_sync_full`, `eflow_history_alarm`, `eflow_tt_rules_check`, `ms_sla_full`, `cnn_kpi_sync`, `cnn_kpi_sync_5mins`, `fw_kpi_sync`, `sp_online_sync`, `sp_material_sync`, `eflow_alarm_rules_collect`, `eflow_push_rules_collect`, `eflow_push_rules_check`, `whatsapp_kb_sync_alarm_rules`, `whatsapp_kb_sync_push_rules`, `whatsapp_kb_sync_tt_rules`, `ume_in_kpi_sync`, `ume_in_osg_report` |
 | `s` | 1 | SP 备件 SFTP（独立 SFTP 服务器 + UNC 镜像库）。2026-09-27 从 `n` 拆出：它是 `n` 组最大单体负载（实测 347min/天）且是已知挂死源（SFTP channel 读挂死 5.5h 曾拖停整组） | `sp_data_sync` |
 | `w` | 2 | MW UME 微波网管（凭证分组 `mw_ume`），独立会话。2026-09-27 从 `n` 拆出：`mw_ume_kpi_sync_rt` 为 `*/15` 高频任务，此前每次排在 `sp_data_sync` 后，实测队列等待 964s（全场最久） | `mw_ume_kpi_sync`, `mw_ume_kpi_sync_rt` |
-| `v` | 3 | VMAX 门户（本机 8790 单会话代理）：三个任务共用同一个 VMAX 会话，必须彼此串行；2026-09-18 从 `n` 组拆出（原先排在 `sp_data_sync` 这类 1.5~2h 长任务后面，小时级采集滞后一个多小时） | `cxo_dashboard_cache_sync`, `vmax_cxo_daily_sync`, `vmax_multi_data_sync` |
+| `v` | 4 | VMAX 门户（本机 8790 单会话代理）：四个任务共用同一个 VMAX 会话，必须彼此串行；2026-09-18 从 `n` 组拆出（原先排在 `sp_data_sync` 这类 1.5~2h 长任务后面，小时级采集滞后一个多小时）；2026-10-31 新增 `soc_trend_sync`（直连 VMAX 数仓 GBase，与门户会话无交集但同属 VMAX 数据域，故同组串行） | `cxo_dashboard_cache_sync`, `vmax_cxo_daily_sync`, `vmax_multi_data_sync`, `soc_trend_sync` |
 | `m` | 38 | 内务轻任务：EWS 邮件会话 + 截图/WhatsApp 文件依赖 + VMAX 数仓 GBase 直连取数 | `site_outage_screenshot`, `whatsapp_send`, `whatsapp_send_ext`, `liberia_email_1h`, `liberia_email_8h`, `kpi_ms_contract`, `kpi_ms_wo_sla`, `kpi_sp_spareparts`, `kpi_sp_consumables`, `kpi_ran_availability`, `email_recovery`, `ipran_m6k_chart_email`, `ccn_free_rating_chart_email`, `battery_email`, `mailbox_cleanup`, `incident_overview_sync`, `auto_retry_failed`, `db_freshness_check`, `sp_report_generate`, `sp_email_details`, `sp_online_report_generate`, `sp_online_report_send`, `mttr_tt_sync`, `progress_sync`, `sp_whatsapp_report`, `sp_material_report`, `finebi_report_sync`, `log_cleanup`, `tmp_cleanup`, `olib_soc_kpi_daily_sync`, `olib_soc_vmax_report`, `tt_alarm_whatsapp_alert`, `ume_alarm_whatsapp_alert`, `sp_details_files_email`, `tt_mttr_report_generate`, `whatsapp_send_baileys`, `eflow_fiber_assign`, `eflow_5g_assign` |
 | `c` | 2 | CN EMS 独立会话，两个任务共享 `_pmcache`/`daily_raw.json`，同组保证互斥 | `ems_kpi_cache_sync`, `ems_kpi_daily` |
 | `x` | 1 | 实时告警专属组（2026-10-15 从 `n` 拆出）。要求告警滞后 ≤1 分钟，而 `n` 组是一条串行道，cron 改 `*/1` 也会被 `eflow_sync`（实测平均 192.5s）/`ms_sla_full`（最久 600.1s）挡住 —— 实测 856 次采样中 5.3% 等待 >60s、最差 853.9s | `eflow_active_alarm` |
@@ -98,6 +98,89 @@ APScheduler 到点 (backend 进程内)
 > ① `tests/test_worker_group_coverage.py`（不依赖 pytest，`python tests\test_worker_group_coverage.py` 即可跑，2026-09-18 实跑 PASS=5）—— 5 个用例：任务覆盖（缺项 + 幽灵 id）、同组不重复、三处组集合一致、共用 8790 会话的任务必须同组、前端任务帮助（`frontend/src/pages/helpTaskDocs.ts` 的 `TASK_DOCS`）与分组表一一对应且组名相同；任一项失配在跑测试时就失败。**跑它必须用 PATH 上的 `python`（系统 3.12）**，工作区的 `Scripts\python.exe` 与 `.venv\Scripts\python.exe` 都没装 apscheduler，用错解释器会报 `ModuleNotFoundError: apscheduler` 而“假失败”（看着像分组配错了）；
 > ② `worker.py::_expire_orphan_pending`（每 300s）—— pending 超过 `STALE_PENDING_SECONDS`（默认 6h）仍无人认领就置 failed 并补执行日志，释放被它占住的单飞名额，让下一次调度能正常入队（以前一条陈旧 pending 会把该任务**之后每一次**调度静默挡在门外）；
 > ③ `worker_watchdog.py::main()` 启动自检 —— 分组表与 `MY_APP_WORKER_GROUPS` 两侧任一漏改，看门狗启动时打 warning（只告警不退出）。
+
+## 文档一致性守卫（文档与代码对不上时，跑测试就失败）
+
+> **2026-10-31 新增。** 手册里的任务数、页面数、分组数、worker 组数、路由数、文件体积、
+> iframe 页数、队列保留期、凭据分组数这类**从代码抄来的数字**，一直在悄悄过期，且**不影响任何功能** ——
+> 没有运行时症状能暴露它们，只有人工逐个比对才发现。实测一次审计抓到 14 处：
+>
+> | 位置 | 文档写的 | 实际 |
+> | --- | --- | --- |
+> | `01-overview.md` | 41 个定时任务 / 23 个功能页 | 80 个任务 / 79 个页面 |
+> | `04-task-system.md` | 分组表 n=17 / v=3 | 18 / 4（漏登记 `soc_trend_sync`） |
+> | `04-task-system.md` | 全量任务清单表 | 漏了 `soc_trend_sync` 整行 |
+> | `13-operations.md` | worker × 5 组 | 10 组（u/n/s/w/v/m/c/x/g/p） |
+> | `13-operations.md` | 队列保留 3 天 | 默认 7 天（`TASK_LOG_RETENTION_DAYS`） |
+> | `90-appendix.md` | 25 处 `include_router` | 75 处 |
+> | `11-feature-guide.md` | 13 个 iframe 页 | 12 个 |
+> | `11-feature-guide.md` | 页面表编号重复（33 出现两次） | 编号连续到 79 |
+> | `helpContent.ts` | 队列保留 3 天 | 7 天（**与已改好的手册对不上**） |
+> | `helpContent.ts` | 页面清单 | 4 个已在侧边栏的页面（`ms_wo_sla` / `ms_contract_kpi` / `ran_cells_kpi` / `person`）**完全没有帮助条目** |
+> | `App.tsx` | 菜单 | `socTrendDashboard` 已进路由/i18n/刷新配置，却**没进 `DEFAULT_GROUPS`** —— 侧边栏没有它的位置 |
+> | `AGENTS.md` | `task_registry.py` 68KB | ≈109KB |
+> | `component-api.md` | `helpContent.ts` 171KB / 54 个页面 | ≈175KB / 62 个页面 |
+> | `05-security-and-credentials.md` | 18 个凭据分组 | 21 个（漏 `ume_alarm` / `gp_ran_control` / `gp_ran_master`） |
+>
+> 靠"提醒 agent 记得改文档"治不住（这正是本节存在的原因），必须让**跑测试就失败**。
+>
+> **守卫脚本**：`tests/test_doc_consistency.py`（不依赖 pytest，纯 assert + 计数器）。
+> ```
+> cd D:/01_RPA/Task/my_app
+> python tests/test_doc_consistency.py
+> ```
+> **零第三方依赖、跨平台**（任何有 Python 3.10+ 的机器都能跑，Linux / macOS 亦可）。
+> 真相源取法见 `tests/doc_truth.py`：用 **AST 静态解析源码**取 `TASK_SPECS` /
+> `GROUP_TASK_MAP` / 保留天数 / 路由数，**不 import 业务模块** ——
+> 早前版本直接 `from backend.task_registry import TASK_SPECS`，在 Linux 上会因
+> `ctypes.wintypes` 直接失败，且要求整套后端运行环境（apscheduler / sqlalchemy），
+> 那样就进不了 CI 了。
+>
+> **15 个用例**：
+> 1. 文档里的「N 个定时任务」= `TASK_SPECS` 条数（5 个文件逐个核对）；
+> 2. `04-task-system.md` 的全量任务清单表 = `TASK_SPECS` 的每个 `task_id`；
+> 3. 分组表里的每组任务数 = `GROUP_TASK_MAP` 的实际条数；
+> 4. 手册里的 worker 组数 = `GROUP_TASK_MAP` 的组数；
+> 5. 手册里的队列保留天数 = `TASK_LOG_RETENTION_DAYS` 默认值；
+> 6. `90-appendix.md` 的 `include_router` 处数 = `main.py` 实际处数；
+> 7. `11-feature-guide.md` 说的 iframe 页数 = `PAGE_LIST` 里 `iframe:true` 的数量；
+> 8. `11-feature-guide.md` 顶部页面表 = `App.tsx` 的菜单结构（key 集合、iframe 形态列双向核对）；
+> 9. `PAGE_LIST` 的每个页面都有中英双份 `PAGE_DOCS`；
+> 10. `PAGE_LIST` 与 `PAGE_META` 一致（只允许 `help` 自身与 iframe/门户页两类刻意差异）；
+> 11. 文档里的「N 个功能页 / N 个页面指南」= `PAGE_META` + `FINEBI_BOARDS` / `PAGE_LIST`；
+> 12. 站内帮助（`helpContent.ts`）里的「保留 N 天」= 代码默认值；
+> 13. `05-security-and-credentials.md` 的凭据分组数与分组 key 清单 = `credential_store.py` 实际条数；
+> 14. `component-api.md` 里的前端页面数 / 通用组件数 = 磁盘实际 `.tsx` 文件数；
+> 15. `AGENTS.md` 里标的关键文件体积与磁盘实际值相符（容差 ±25%）。
+>
+> **三道防线，同一份代码，不规则分叉**：
+>
+> | 层 | 位置 | 作用 |
+> | --- | --- | --- |
+> | 本地钩子 | `.githooks\pre-commit`（**仓库内**，随仓库分发） | 提交前就拦 |
+> | CI | `.github\workflows\docs-consistency.yml` | push / PR 都跑，`--no-verify` 绕不过 |
+> | 手工 | `npm run check:docs`（在 `frontend\` 下）或直接跑上面的 python | 随时自查 |
+>
+> **钩子怎么装**：新克隆一台机器后跑一次 `npm run setup:hooks`（在 `frontend\` 下）
+> 或 `node scripts\setup-git-hooks.mjs`（工作区根）。它把 `core.hooksPath` 指向仓库内的
+> `.githooks\` —— 钩子文件随仓库分发，不再只存在于某台机器的 `.git\hooks\` 里
+> （`core.hooksPath` 是本地配置，所以每台机器装一次）。
+>
+> ⚠️ **`core.hooksPath` 是相对路径，Git 按「当前工作树根目录」解析** ——
+> 并行开发用的 worktree（`.agent-worktrees\<任务>`）若所在分支还没合入含 `.githooks\`
+> 的提交，**钩子会静默不执行**（不报错，只是不拦）。在那个 worktree 里跑
+> `npm run setup:hooks -- --check` 可查；修复是把 `.githooks\` 合进该分支。
+>
+> **守卫取不到真相源时必须显式失败**，不能当成「不适用」跳过 —— 门户侧 2026-10-31
+> 踩过这个坑（正则失配 → 两个检查静默跳过 → 守卫显示 PASS 却什么都没查）。
+> `tests/doc_truth.py` 里解析不到内容会直接抛 `TruthSourceError`。
+>
+> **改动页面/任务时的配套动作**（漏了会被上面第 2、8、9、10 条抓住）：
+> | 改了什么 | 必须同步 |
+> | --- | --- |
+> | 新增/删除一个功能页 | `App.tsx` 的 `PAGE_META` + `DEFAULT_GROUPS` → `helpContent.ts` 的 `PAGE_LIST` / `NAV_KEY_MAP` / `CATEGORIES` / `PAGE_DOCS`（zh + en）→ `11-feature-guide.md` 页面表与章节 → 跑 `npm run docs` 重生成 `15-user-help*.md` 与 `manual.html` |
+> | 新增一个定时任务 | `task_registry.py::TASK_SPECS` → `worker_watchdog.py::GROUP_TASK_MAP` → `04-task-system.md` 清单表 → `helpTaskDocs.ts` → 跑 `npm run docs` |
+> | 改了任何"从代码抄来的数字" | 对应手册 + 站内帮助两处都要改（两边口径不同，最容易只改一处） |
 
 ## 任务健康告警（漏跑不再靠人肉发现）
 
@@ -223,6 +306,7 @@ APScheduler 到点 (backend 进程内)
 | `progress_sync` | Progress 宽表重建 | `50 7 * * *` | m |
 | `tt_mttr_report_generate` | TTs and MTTR 报表生成（供 EmailReports 页「TTs and MTTR」页签下载） | `20 7 * * *` | m |
 | `gp_ran_user_sync` | RAN 用户身份清单（VoLTE / N78 去重 **IMSI**，经 control1 两跳 SSH 到 Greenplum，取最近 7 个完整 UTC 日；实测 72.6s / 10.4 亿行扫描） | `20 13 * * *` | g |
+| `soc_trend_sync` | SOC 多维趋势同步（**直连 VMAX 数仓 GBase 只读**，拉流量/TCP/分业务类目的小时与天粒度聚合，落 `data/soc_trend/soc_trend.sqlite3`；**只允许 SELECT/SHOW/DESC，禁止在数仓建对象或回写**） | `40 * * * *` | v |
 
 ### WhatsApp 发送通道矩阵（2026-10-08）
 
@@ -900,7 +984,7 @@ USSD 的日表当时只剩 2026-08-25~27 三行，而月表里有完整的 6 个
 > `fresh_mailer` fixture（从磁盘再加载一份未打补丁的同源副本，
 > 并把 `_get_account` 换成地雷，因此仍然不碰网络）。
 >
-> **验证真实发信能力请手工跑探针**（`.qoder/rules` 的一次性探针约定），
+> **验证真实发信能力请手工跑探针**（`_agents/rules/shell_safe.md` 的一次性探针约定），
 > 不要在 pytest 里放开。回归锁见 `tests/test_tt_alarm_mail.py::TestNoRealMailFromTests`。
 
 **级别过滤口径**：以**实时查单行**的 `ticket_severity` 为准（镜像兜底）；留空语义见
@@ -1031,7 +1115,7 @@ worker 分组重启才生效（`backend/routers/task_configs.py`）。
 ## 看门狗与自愈
 
 - `backend_watchdog.py`：托管 uvicorn，端口探活，启动宽限 `STARTUP_GRACE=60s`，崩溃退避 `min(30, 2^n)`，**连崩 10 次降级为 `SLOW_RETRY_INTERVAL=300s` 慢速重试、不再退出**（`:52-57`、`_enter_slow_retry()` `:212-240`；2026-10-06 改，原为"连崩 10 次永久退出"，事故经过见 `13-operations.md` 的「后端静默停摆」）。
-- `worker_watchdog.py`：同参数托管 5 组 worker（u/n/v/m/c，:36-39）。子进程存活 <`CRASH_THRESHOLD=10s` 视为异常崩溃。⚠ **连崩 10 次仍是"摘除不再拉起"**（`:560-562`），与 backend 的降级语义不同。
+- `worker_watchdog.py`：同参数托管 **10 组** worker（u/n/s/w/v/m/c/x/g/p）。子进程存活 <`CRASH_THRESHOLD=10s` 视为异常崩溃。⚠ **连崩 10 次仍是"摘除不再拉起"**（`:560-562`），与 backend 的降级语义不同。
 - 心跳：`log/heartbeat_*.json`，15s 一次。启动脚本判定"心跳超过 3 分钟未更新即 hung"并强杀重拉（`start_hidden.ps1:63,154-158`）。
 
 ## 加一个任务的最小步骤

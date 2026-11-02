@@ -8,7 +8,7 @@
 
 | 项目 | 组件位置 | 数量 | 技术 |
 | --- | --- | --- | --- |
-| 统一门户 | `liberia-noc_soc-数据看板统一门户\src\components\` | 21 个 `.tsx` | React 19 + Tailwind v4 + lucide-react |
+| 统一门户 | `liberia-noc_soc-数据看板统一门户\src\components\` | 24 个 `.tsx` | React 19 + Tailwind v4 + lucide-react |
 | 门户页面级 | `...\src\App.tsx` | 状态中枢 | 非组件化，状态与持久化都在这 |
 | my_app 前端 | `Task\my_app\frontend\src\` | 见 my_app 索引 | React + Vite |
 | 门户静态页 | `...\MsPortal\` | `index.html` / `viewer.html` | 原生 HTML（复刻参考与查看器） |

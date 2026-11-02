@@ -2,7 +2,7 @@
 
 > 基准日期：2026-09-22　|　适用：`D:\01_RPA` 工作区根目录
 > **本文是入口导航**，不是功能大全。逐页说明书在：
-> - my_app：`Task\my_app\docs\manual\11-feature-guide.md`（23+ 页面）与 `15-user-help.md`（**一站式使用者帮助**，含 44 个任务工作流、25 个页面指南、FAQ；英文版 `15-user-help-en.md`）
+> - my_app：`Task\my_app\docs\manual\11-feature-guide.md`（79 个页面）与 `15-user-help.md`（**一站式使用者帮助**，含 80 个任务工作流、62 个页面指南、FAQ；英文版 `15-user-help-en.md`）
 > - 门户：`liberia-noc_soc-数据看板统一门户\README.md` 的「功能概览」
 
 ## 一、我该从哪进去

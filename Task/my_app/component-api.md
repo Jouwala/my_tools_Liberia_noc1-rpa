@@ -8,8 +8,8 @@
 
 | 端 | 位置 | 规模 |
 | --- | --- | --- |
-| **前端页面** | `frontend\src\pages\` | 60+ 个 `.tsx`（含 `*_bak_*` 备份） |
-| **前端通用组件** | `frontend\src\components\` | 8 个 `.tsx` + `cards\` 子目录（卡片统一入口） |
+| **前端页面** | `frontend\src\pages\` | 71 个 `.tsx`（不含 `_` 前缀的模板与 `*_bak_*` 备份） |
+| **前端通用组件** | `frontend\src\components\` | 27 个 `.tsx` + `cards\` 子目录（卡片统一入口） |
 | **前端基础设施** | `frontend\src\*.ts(x)` | `api.ts`、`theme.ts`、`i18n.tsx`、`TaskStatusContext.tsx`、`cache.ts`、`datetime.ts`、`useDataTimestamps.ts`、`helpMarkdown.ts` |
 | **后端服务** | `backend\services\` | 业务服务层（各数据源采集与计算） |
 | **后端路由** | `backend\routers\` | API 端点 |
@@ -185,8 +185,8 @@ import { CardBase, StatCard } from '../components/cards'
 
 | 文件 | 说明 |
 | --- | --- |
-| `helpContent.ts`（66KB） | 帮助内容源 |
-| `helpTaskDocs.ts`（95KB） | 44 个任务的工作流文档源 |
+| `helpContent.ts`（约 175KB） | 帮助内容源（62 个页面的中英双份 `PAGE_DOCS` + `PAGE_LIST` + `NAV_KEY_MAP` + `CATEGORIES`） |
+| `helpTaskDocs.ts`（167KB） | 80 个任务的工作流文档源（`TASK_DOCS`，含每条的 `group` 归属） |
 
 > **改这两个 TS 后必须跑 `cd frontend && node scripts\generate-help-doc.mjs` 重新生成 MD。不要手改 MD。**
 

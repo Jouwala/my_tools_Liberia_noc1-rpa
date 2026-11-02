@@ -5,11 +5,11 @@
 
 ## 一、这个项目是什么
 
-**my_app / Data Insight MVP** —— 利比里亚电信网络运维的**自研数据平台**，是整个工作区的数据底座。它负责把上游系统（UME、eFlow、CCN、PM、邮件、WhatsApp 等）的数据采集、入库、计算、展示，并提供 23+ 个功能页面与 40+ 个定时任务。
+**my_app / Data Insight MVP** —— 利比里亚电信网络运维的**自研数据平台**，是整个工作区的数据底座。它负责把上游系统（UME、eFlow、CCN、PM、邮件、WhatsApp 等）的数据采集、入库、计算、展示，并提供 79 个功能页面与 80 个定时任务。
 
 **技术栈**：后端 FastAPI + SQLAlchemy（SQLite / PostgreSQL 双模）+ Alembic + APScheduler；前端 React + Vite；任务由多组 worker 进程执行 + 看门狗守护。
 
-**权威文档**：`docs\manual\`（13 份手册，**现状以它为准**）。
+**权威文档**：`docs\manual\`（16 份手册，**现状以它为准**）。
 
 ## 二、新会话上手顺序
 
@@ -31,8 +31,12 @@
 ## 三、硬性约束（违反会直接出问题）
 
 1. **新增功能页必须三处同步**：`frontend\src\App.tsx` 的菜单数组 + `frontend\src\i18n.tsx` 中英**两处** + `docs\manual\11-feature-guide.md`。**漏一处，手册就和界面对不上**（`docs\manual\README.md` 维护约定第 1 条）。
-   - 已存在的功能页若**从未登记**，同样要补：`noc_analyst` / `fme_ranking` / `site_avail` / `repeat_site_down` 四个页面此前都缺 `11-feature-guide.md` 条目与站内帮助（2026-09-23 已补）。
+   - 已存在的功能页若**从未登记**，同样要补：`noc_analyst` / `fme_ranking` / `site_avail` / `repeat_site_down` 四个页面此前都缺 `11-feature-guide.md` 条目与站内帮助（2026-09-23 已补）；`ms_wo_sla` / `ms_contract_kpi` / `ran_cells_kpi` / `person` 四个页面已在侧边栏但**一直没有帮助条目**（2026-10-31 已补）。
    - 站内帮助另有三处要同步：`helpContent.ts` 的 **`PAGE_DOCS`（zh/en 两份）+ `PAGE_LIST` + `NAV_KEY_MAP`**，并加进 `CATEGORIES` 的某个分类。**只加 `PAGE_DOCS` 不会显示** —— 页面清单由 `PAGE_LIST` 驱动。
+   - **`socTrendDashboard` 曾在 `PAGE_META` / i18n / 刷新配置里都齐了，唯独没进 `DEFAULT_GROUPS`**（2026-10-31 已补）—— 页面能路由到，侧边栏却没有它的位置。**加了页面别忘了加进 `DEFAULT_GROUPS` 的某个组**。
+   - ⚠️ **这些约定现在有机器守卫了**：`tests\test_doc_consistency.py`（15 个用例，**零第三方依赖、跨平台**，真相源用 AST 静态解析）会核对「任务数 / 页面数 / iframe 页数 / worker 组数 / 队列保留期 / 路由数 / 凭据分组数 / 组件数 / 文件体积 / 页面表与菜单一致 / 帮助条目齐全」等**从代码抄来的数字**，不一致就跑测试失败，**本地钩子与 CI 都会拦下**。详见 `docs\manual\04-task-system.md`「文档一致性守卫」一节。**别再靠自觉** —— 靠自觉已经失效过 15 次。
+   - **门户那一侧也有同款守卫**：`liberia-noc_soc-数据看板统一门户\scripts\check-doc-consistency.mjs`（`npm run check:docs`，6 个用例，核对 README/docs 里的看板条数 / 组件数 / 任务数）。两边同一套约定、同一套哲学。
+   - **钩子怎么装**（新克隆的机器必做一次）：`cd frontend && npm run setup:hooks` —— 把 `core.hooksPath` 指向仓库内的 `.githooks\`（钩子文件随仓库分发，不再只存在于某台机器的 `.git\hooks\` 里）。详见根 `AGENTS.md` 第四节第 9 条。
 1b. **看板页"能下钻尽下钻"是硬要求**：页面上**每个数字都要可点**并落到对应明细，不允许只有汇总数字没有下钻路径。`noc_analyst` 是参考实现（四层：人 → 切片明细 → 站点 → 单 TT 告警链路，见 `docs\manual\11-feature-guide.md` 的 14b 节）。做下钻时三条铁律：
    - **下钻端点的 WHERE 必须与概览端点完全一致**（同一时间字段、同一精确匹配），否则"表格里的数字"与"下钻的行数"对不上，用户会当成 bug。**不要用 `LIKE` 做下钻、用 `=` 做概览**这类不一致写法。
    - **取样 `limit` 必须显著大于单页最大数据量**，且截断时要显式暴露（`meta.truncated` + 界面告警条）。默认值过小会**静默截断**，让下钻行数少于表格数字。
@@ -103,11 +107,11 @@
 
 | 文件 | 作用 |
 | --- | --- |
-| `backend\main.py`（25KB） | FastAPI 入口、路由挂载、生命周期 |
-| `backend\task_registry.py`（68KB） | **任务唯一登记处** `TASK_SPECS`（懒加载注册） |
+| `backend\main.py`（≈39KB） | FastAPI 入口、路由挂载、生命周期 |
+| `backend\task_registry.py`（≈109KB） | **任务唯一登记处** `TASK_SPECS`（懒加载注册） |
 | `backend\task_registry.md` | 任务注册表说明（字段、对外接口） |
-| `backend\worker.py`（28KB） | 独立任务执行 worker |
-| `backend\worker_watchdog.py`（32KB） | worker 看门狗（崩溃自动重拉） |
+| `backend\worker.py`（≈38KB） | 独立任务执行 worker |
+| `backend\worker_watchdog.py`（≈57KB） | worker 看门狗（崩溃自动重拉） |
 | `backend\backend_watchdog.py` | 后端看门狗 |
 | `backend\WORKER.md` | worker 架构、容错设计、启停 |
 | `backend\database.py`（17KB） | 数据访问层（`get_raw_connection` 等） |
@@ -116,8 +120,8 @@
 | `backend\routers\` | API 路由 |
 | `backend\models\`、`schemas\` | ORM 模型与 Pydantic schema |
 | `backend\.env`（不入库） | 运行配置，参照 `.env.example` |
-| `frontend\src\App.tsx`（98KB） | 前端主入口与路由/菜单 |
-| `frontend\src\i18n.tsx`（204KB） | 中英双字典 |
+| `frontend\src\App.tsx`（≈121KB） | 前端主入口与路由/菜单（`PAGE_META` 是页面清单真相源） |
+| `frontend\src\i18n.tsx`（≈587KB） | 中英双字典 |
 | `frontend\src\api.ts` | 前端 API 封装 |
 | `frontend\src\theme.ts`、`index.css` | 主题与样式 |
 | `frontend\src\pages\` | 各功能页（60+ 个 `.tsx`） |
@@ -177,8 +181,11 @@ uvicorn 后端 (:7038)
 - [ ] **ECharts 里没有写 `WH.xxx`**（canvas 解析不了 CSS 变量，必须用 `DARK/LIGHT` 实值）
 - [ ] 没有写死的十六进制颜色（DOM 层应走 `WH` 令牌）
 - [ ] 新任务：`TASK_SPECS` 已登记，且 `04-task-system.md` 已更新
+- [ ] **改了「从代码抄来的数字」（任务数/页面数/分组数/保留期/路由数）→ 手册与站内帮助两处都改了**
+- [ ] **`cd Task\my_app && python tests\test_doc_consistency.py` 通过**（15 个用例；本地钩子与 CI 也会跑）
+- [ ] **新克隆的机器**跑过一次 `cd frontend && npm run setup:hooks`（否则本地钩子不生效，只能靠 CI 兜底）
 - [ ] 前端产物目录仍是 `_fe_dist`，且已重新 `npm run build`
-- [ ] 帮助内容改动后已重跑 `generate-help-doc.mjs`
+- [ ] 帮助内容改动后已重跑 `npm run docs`（`generate-help-doc.mjs` + `generate-manual-html.mjs`）
 - [ ] 没有新增裸 `sqlite3.connect`
 - [ ] 没有把 `db\`、`log\`、`TMP\`、`auth_cache\`、`*.pid` 加进版本库
 - [ ] 没有写敏感值

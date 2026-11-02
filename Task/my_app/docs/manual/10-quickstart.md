@@ -59,7 +59,7 @@ MY_APP_WORKER_GROUPS=u,n,s,w,m,c,v,x,g,p
 
 | 场景 | 命令 | 行为 |
 | --- | --- | --- |
-| 日常手动启动 | `start.bat` | 清 `stopped.flag` → 调 `start_hidden.ps1` → 轮询 7038 就绪 → 校验 worker 看门狗 PID 文件（各组 worker 由它托管，当前 5 组）→ 打印访问地址（`start.bat:13,24,29-43,77-78`） |
+| 日常手动启动 | `start.bat` | 清 `stopped.flag` → 调 `start_hidden.ps1` → 轮询 7038 就绪 → 校验 worker 看门狗 PID 文件（各组 worker 由它托管，当前 10 组）→ 打印访问地址（`start.bat:13,24,29-43,77-78`） |
 | 静默启动（开机自启用） | `start_hidden.vbs` → `start_hidden.ps1 -Quiet` | 无窗口，尊重 `stopped.flag`（`start_hidden.ps1:125`） |
 | 5 分钟一次的保活 | `start_ensure.bat`（计划任务） | `-Quiet -Force`，端口被占也抢回来（`start_hidden.ps1:161`） |
 | 端口被非托管进程占用 | `start_hidden.ps1 -Force` | 先杀占 7038 的进程再启 |

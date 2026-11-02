@@ -1,6 +1,6 @@
 # my_app 使用帮助
 
-> 面向使用者的平台功能与操作指南。本文件由「使用帮助」页面同源生成（frontend/src/helpMarkdown.ts），内容依据 docs/manual/ 各章与 backend/task_registry.py 整理。生成日期：2026-10-31。
+> 面向使用者的平台功能与操作指南。本文件由「使用帮助」页面同源生成（frontend/src/helpMarkdown.ts），内容依据 docs/manual/ 各章与 backend/task_registry.py 整理。生成日期：2026-11-02。
 
 > 站内入口：侧边栏「使用帮助」，或直链 `http://<host>/myapp/?page=help`。
 
@@ -64,7 +64,7 @@
 
 **④ 执行** run_task() 调用真正的 service 函数（task_registry.py 里每条任务声明 func 或 loader=("模块路径","函数名") 懒加载）。业务函数抛异常即记为失败——不要在业务代码里吞异常。
 
-**⑤ 回写终态** _finish() 回写任务终态并写 task_execution_log 执行历史（队列与执行日志保留 3 天）。失败时经微信 + 邮件双通道通知。
+**⑤ 回写终态** _finish() 回写任务终态并写 task_execution_log 执行历史（队列与执行日志保留 7 天）。失败时经微信 + 邮件双通道通知。
 
 ### 3.2 Worker 分组：组内串行、组间并行
 
@@ -1491,11 +1491,11 @@
 - 默认 cron: `59 23 */3 * *`　|　worker 组: **n**
 - 工作流脚本: `services/eflow_rules/eflow_Push_Rule_Collector.py → run_eflow_push_rules`
 
-**功能**: 每 3 天 23:59 从 eFlow config-center 拉取全部规则（推单/升级/分组/自动关闭等 28 种类型），逐条合并 detail 后导出 eflow_push_rules.xlsx
+**功能**: 每 3 天 23:59 从 eFlow config-center 拉取全部规则（推单/升级/分组/自动关闭等全部规则类型，实际类型数随 eFlow 配置变化，以导出的 Rule_Type_Summary Sheet 为准），逐条合并 detail 后导出 eflow_push_rules.xlsx
 
 **工作流与数据流**:
 
-1. 每 3 天 23:59 以 query filter="" 拉 config-center 全部规则（28 种类型）
+1. 每 3 天 23:59 以 query filter="" 拉 config-center 全部规则（类型数随 eFlow 配置变化，见 Rule_Type_Summary Sheet）
 1. 逐条合并规则 detail
 1. 导出 backend/services/eflow_rules/eflow_push_rules.xlsx（Push_Rules + Rule_Type_Summary）
 
@@ -1675,7 +1675,7 @@
 | **失败通知** | 任务失败经微信 + 邮件双通道告警（services/weixin_notifier.py 支持 openclaw/wecom/serverchan/pushplus）。 |
 | **漏跑/停摆主动告警** | db_freshness_check 每小时算四类健康异常（未归组 / 超出周期无执行记录 / 队列滞留 / 上次成功后逾期无新成功），由 services/task_health_alert.py 按「新异常通知一次、恢复通知一次、持续超 24h 再提一次」推微信+邮件，不必等看板没数据了才人工发现（2026-09-18 上线）。 |
 | **进程自愈** | backend_watchdog / worker_watchdog 托管进程：端口探活、崩溃退避重拉（backend 连崩 10 次降级为每 5 分钟慢速重试、不再放弃；worker 仍是连崩 10 次摘除不再拉起）；心跳 log/heartbeat_*.json 超 3 分钟未更新判定 hung 强杀重拉。 |
-| **保留期** | task_queue 与 task_execution_log 保留 3 天（task_runner.py / worker.py 自动清理），无需手工。 |
+| **保留期** | task_queue 与 task_execution_log 保留 7 天（task_runner.py / worker.py 自动清理，可用环境变量 TASK_LOG_RETENTION_DAYS 调整），无需手工。 |
 
 ### 3.5 任务维护指南
 
@@ -1836,12 +1836,64 @@ MS Operation KPI 看板的「只保留 SLA」版：WOs SLA 区的工单 SLA 达�
 - 粒度三档「天 / 周 / 月」：天默认当月至今、周默认最近 12 周、月默认 2026-01 至今；切档会重置时间范围（横幅上有说明）
 - 单元格与数据点可点击下钻 TT 明细，并可导出 Excel
 
+#### ms_wo_sla（`ms_wo_sla`）
+
+MS WOs SLA 日报：工单 SLA 达成率的每日明细矩阵（Total / Within SLA / Achieve），与每天发的「MS WOs SLA 日报」邮件读同一份文件。
+
+- 数据源是 data/ms_sla/ZTE OLR MS WOs SLA Achievements Daily Report_<日期>.xlsx（任务 kpi_ms_wo_sla 每天落地），页面不做二次加工，解析口径见 backend/services/ms_kpi_report_service.py
+- 页面结构：总览卡片（月工单 / 达标 / 达成率 / 未达标指标）→ 5 个 TTR 指标卡 → 达成率日趋势（含各自目标线）→ 每日明细矩阵（与 Excel 版式一致）
+- 点矩阵列头可看该指标的趋势下钻弹窗
+- 页面可导出 Excel，与邮件附件版式一致
+
+#### ms_contract_kpi（`ms_contract_kpi`）
+
+MS Contract KPIs & WOs Achievement 自动化报表：合同 KPI（Operation / Network / PerSite 三层共 27 个）与 WO SLA 达成情况的完整报表页。
+
+- 数据源是 data/ms_sla/ZTE OLR MS Contract KPIs & WOs Achievement Auto-Reports.xlsx —— 任务 ms_sla_full（每天 05:00）就地更新的自动化报表工作簿本体
+- 结构：总览卡片 → 分类达标 → 27 个 KPI 卡（按 Operation / Network / PerSite 三个页签分类，点 KPI 卡看日趋势）→ 4 个页签（KPI 矩阵 / WO SLA 矩阵 / FineBI 规划 / 自动化报表清单，后两个支持搜索 + 筛选 + 分页）
+- FineBI 规划与自动化报表清单是**编制过程台账**而非运行指标，2026-09-27 起页面上不再显示入口（后端仍照常解析，数据接口保留）
+- 口径与 page=ms_wo_sla 同源：WO SLA 矩阵与那页逐字同构
+
 #### CXO 经营看板（`cxoDashboard`，iframe 页）
 
 Service / Network / Summary 三层经营看板（源自 VMAX 实时保障看板）。
 
 - iframe 页面内嵌一份完整数据快照：上游不可用时仍能完整渲染，代价是看到的可能不是最新数据
 - 要最新数据需重跑对应同步任务；凭据在「系统设置 → 凭据 → vmax_cxo」
+
+#### vmaxCxoDashboard（`vmaxCxoDashboard`，iframe 页）
+
+VMAX CXO 原版看板（15 分钟粒度经营大屏）：与 page=cxoDashboard 是两套完全独立的实现，互不影响。
+
+- 页面是 public/vmax_cxo_dashboard.html 的原版视觉复刻（iframe 壳），不是 React 组件
+- 数据来自 VMAX CXO 门户会话（凭据分组 vmax_cxo），同步任务 vmax_multi_data_sync
+- 改显示名要同时改 4 处：本页 i18n（zh/en）+ 该 HTML 的 <title> / #appTitle / 内联 I18N
+
+#### vmaxCxoDashboard_Daily（`vmaxCxoDashboard_Daily`，iframe 页）
+
+VMAX CXO 日粒度明细（Daily）：周一~周日 × 本周 / 前一周 / 前两周三条日粒度曲线。
+
+- 数据源是任务 vmax_cxo_daily_sync 落盘的 data/vmax_cxo_daily/daily.json（VMAX 无原生日粒度，日值由 1hour 明细本地聚合）
+- 上游小时明细仅保留约 8 天，早于保留地板的日期以灰空格子 + 悬浮说明呈现（不是故障）
+- 改显示名要同时改 4 处：本页 i18n（zh/en）+ public/vmax_cxo_dashboard_daily.html 的 <title> / #appTitle / 内联 I18N
+
+#### vmaxCxoDashboard_90Days（`vmaxCxoDashboard_90Days`，iframe 页）
+
+CXO Daily Dashboard（90 Days）：面向 CEO 的 90 天经营视角大屏。
+
+- 数据来自任务 olib_soc_vmax_report / olib_soc_kpi_daily_sync 落盘的 data/olib_soc_report/olib_soc_report.sqlite3 的 daily_kpi 表
+- 接口 /api/olib-soc-dashboard/overview（只读，日/周趋势 + 昨日卡片 + 90 天极值）
+- 顶部会在存在缺口日时提示「数据完整 x/y 天 · 缺 n 天」，对应明细行标「数据残缺」
+- 改显示名要同时改 6 处：本页 i18n（zh/en）+ public/vmax_cxo_dashboard_90days.html 的 <title> / #appTitle / 内联 I18N（zh+en）
+
+#### socTrendDashboard（`socTrendDashboard`，iframe 页）
+
+SOC 多维趋势组合看板：流量 / TCP / 分业务类目（流量、视频、网页、游戏、OTT 语音、OTT 视频）的小时与天粒度趋势，按区域 + SGW 网元下钻。
+
+- 数据由任务 soc_trend_sync 每小时 :40 直连 VMAX 数仓 GBase 只读拉取，落 data/soc_trend/soc_trend.sqlite3
+- 只存原始计数器，比率在读取侧现算（口径唯一维护点是 backend/services/soc_trend/soc_trend_metrics.py）
+- 「指标字典」弹窗展示告警与归因规则（与后端口径同源）
+- 页面是 public/soc_trend_dashboard.html（React 壳 pages/SocTrendDashboard.tsx）
 
 #### MW 微波拓扑（`mwUmeTopology`，iframe 页）
 
@@ -2014,6 +2066,17 @@ BP Cells Report：umlaut 口径的 Bad Performance 小区统计，支持按日/�
 - 2026-07-22~09-21 的四个指标已从上游补回，这些天的行数因而是「全网小区」而非「umlaut 报告过的小区」，BP 数与该期 Excel 原值相比低约 13~14%，占比分母口径也随之不同
 - 数据由 bp_report_sync 任务每天 06:20 从 RAN_UME 增量更新
 
+#### ran_cells_kpi（`ran_cells_kpi`）
+
+RAN 小区 KPI：按制式（2G/3G/4G）看小区的逐日可用率矩阵与月度达标情况。
+
+- 逐日矩阵是「指标为行、日期为列」的布局，页面只展示有数据的日期列
+- 制式筛选决定渲染哪几张表，阈值决定达标/未达标判定（默认 99.65%，与后端一致）
+- 页面级导出含 `Summary`（每制式一行：月均可用率 / 小区名册 / 有数据天数 / 小区总数 / 达标数 / 未达标数 / 两向占比）+ 每制式一张 `<制式>_Cells_KPI` 逐日矩阵
+- Sheet1 刻意叫 `Summary` 而不是 `<制式>_Cells_KPI`，否则会撞名被改写成 `Summary_2`，用户会看到两张像"汇总"的表
+- 百分比以数值写出（如 `99.65`）而非字符串 `99.65%`，Excel 里可直接计算
+- 下钻弹窗内另有导出按钮（导下钻明细），与页面级入口是两回事
+
 #### 丢包看板（`packet_loss`）
 
 LTE 丢包看板（RAN UME SDR / IPRAN IPPD）：最近 7 个完整自然日、小时粒度，当天没过完不展示。
@@ -2091,6 +2154,18 @@ GIS 地图的实时模式：当前活跃告警站点的地图分布（带红色�
 - 标题括号里的「已归因/总」与 Site Stats 同为**站数**单位：已归因 = 进入共享根因簇的站数；其余是孤立故障（上游没告警、没有同窗同伴，根因就是它自己）—— 点脚注可打开未归因**告警明细**（与点击 Alarm Stats 条目打开的是同一张项目默认明细表：站点/TT/优先级/告警时间/时长/超时），对地图逐点核验
 - 根因站可能落在高级筛选范围之外（标「范围外」）—— 断站原因往往在当前视野之外，属正常且有价值的输出
 - 「AI 解读」按钮：用自备 LLM Key 生成自然语言结论（Key 仅存本机浏览器）；AI 不可用时自动降级为本地规则结论并标注，不影响簇列表本身
+
+#### person（`person`）
+
+人员位置地图：现场人员的登记位置（地图针）+ 每个人员实际处理过工单的站点分布，以及按人员的 WO / TT 统计与未关闭 PMT 数。
+
+- 左右分栏：左 = 地图，右 = KPI 2×2 + 两张统计图；`?maponly=1` 只留地图单列
+- 点人员 → 选中并从右侧滑出下钻抽屉；点地图空白处或页面其他位置取消选中（抽屉里的搜索/翻页/切页签不会误关）
+- 人员针的常驻徽标两行：第一行姓名 + 电话，第二行「负责站点数 | 未关闭 WO 数 | 未关闭 PMT 数」
+- 电话原样显示（不脱敏）；部分人的号码上游入库时已打成 `231****7417`，后端按「人名一致 + 尾 4 位一致」从站点主数据唯一补回，补不回的按星号原样显示 —— 那是数据事实
+- 站点显色与 `?page=realtime_alarm` 完全对齐（同一套色值真相源与分档），两页看的是同一批站点、同一份快照
+- PMT 取不到时显示 `—` 而不是 0；各人徽标求和 ≠ 全量（口径见筛选条 ⓘ 说明）
+- 表格行与地图选中双向联动，仅有坐标的行可点；无坐标的人走「查看工单」按钮
 
 #### 事件总览（`incident_overview`，iframe 页）
 

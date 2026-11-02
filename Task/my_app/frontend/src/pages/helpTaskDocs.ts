@@ -1423,8 +1423,8 @@ export const TASK_DOCS: TaskDoc[] = [
     script: 'services/eflow_rules/eflow_Push_Rule_Collector.py → run_eflow_push_rules',
     zh: {
       name: 'eFlow 推单规则收集',
-      desc: '每 3 天 23:59 从 eFlow config-center 拉取全部规则（推单/升级/分组/自动关闭等 28 种类型），逐条合并 detail 后导出 eflow_push_rules.xlsx',
-      flow: ['每 3 天 23:59 以 query filter="" 拉 config-center 全部规则（28 种类型）', '逐条合并规则 detail', '导出 backend/services/eflow_rules/eflow_push_rules.xlsx（Push_Rules + Rule_Type_Summary）'],
+      desc: '每 3 天 23:59 从 eFlow config-center 拉取全部规则（推单/升级/分组/自动关闭等全部规则类型，实际类型数随 eFlow 配置变化，以导出的 Rule_Type_Summary Sheet 为准），逐条合并 detail 后导出 eflow_push_rules.xlsx',
+      flow: ['每 3 天 23:59 以 query filter="" 拉 config-center 全部规则（类型数随 eFlow 配置变化，见 Rule_Type_Summary Sheet）', '逐条合并规则 detail', '导出 backend/services/eflow_rules/eflow_push_rules.xlsx（Push_Rules + Rule_Type_Summary）'],
       maintain: [
         '低频任务（每 3 天），与告警规则收集同组同周期',
         '与 eflow_tt_rules_check 用的规则表同处 services/eflow_rules/，目录与文件名不要改名',
@@ -1432,8 +1432,8 @@ export const TASK_DOCS: TaskDoc[] = [
     },
     en: {
       name: 'eFlow Push Rules Collect',
-      desc: 'Every 3 days at 23:59 pull all rules from the eFlow config-center (28 types: push/escalation/grouping/auto-close...), merging detail per rule into eflow_push_rules.xlsx',
-      flow: ['Every 3 days at 23:59 query the config-center with filter="" for all rules (28 types)', 'Merge the detail of each rule', 'Export backend/services/eflow_rules/eflow_push_rules.xlsx (Push_Rules + Rule_Type_Summary)'],
+      desc: 'Every 3 days at 23:59 pull all rules from the eFlow config-center (every rule type — push/escalation/grouping/auto-close, etc.; the exact count follows eFlow config, read it from the exported Rule_Type_Summary sheet), merging detail per rule into eflow_push_rules.xlsx',
+      flow: ['Every 3 days at 23:59 query the config-center with filter="" for all rules (count of types follows eFlow config, see the Rule_Type_Summary sheet)', 'Merge the detail of each rule', 'Export backend/services/eflow_rules/eflow_push_rules.xlsx (Push_Rules + Rule_Type_Summary)'],
       maintain: [
         'Low-frequency (every 3 days), same group and cadence as the alarm-rules collector',
         'Lives in services/eflow_rules/ next to the rule sheet used by eflow_tt_rules_check — do not rename paths',

@@ -1,6 +1,6 @@
 # my_app User Help & Guide
 
-> User-facing platform features & operations guide. Generated from the same source as the in-app Help page (frontend/src/helpMarkdown.ts), compiled from docs/manual/ and backend/task_registry.py. Generated on 2026-10-31.
+> User-facing platform features & operations guide. Generated from the same source as the in-app Help page (frontend/src/helpMarkdown.ts), compiled from docs/manual/ and backend/task_registry.py. Generated on 2026-11-02.
 
 > In-app entry: the "Help" sidebar item, or `http://<host>/myapp/?page=help` directly.
 
@@ -1491,11 +1491,11 @@ Workflow & maintenance notes per task:
 - Default cron: `59 23 */3 * *`　|　worker group: **n**
 - Workflow script: `services/eflow_rules/eflow_Push_Rule_Collector.py → run_eflow_push_rules`
 
-**What it does**: Every 3 days at 23:59 pull all rules from the eFlow config-center (28 types: push/escalation/grouping/auto-close...), merging detail per rule into eflow_push_rules.xlsx
+**What it does**: Every 3 days at 23:59 pull all rules from the eFlow config-center (every rule type — push/escalation/grouping/auto-close, etc.; the exact count follows eFlow config, read it from the exported Rule_Type_Summary sheet), merging detail per rule into eflow_push_rules.xlsx
 
 **Workflow & data flow**:
 
-1. Every 3 days at 23:59 query the config-center with filter="" for all rules (28 types)
+1. Every 3 days at 23:59 query the config-center with filter="" for all rules (count of types follows eFlow config, see the Rule_Type_Summary sheet)
 1. Merge the detail of each rule
 1. Export backend/services/eflow_rules/eflow_push_rules.xlsx (Push_Rules + Rule_Type_Summary)
 
@@ -1836,12 +1836,64 @@ The "SLA only" cut of the MS Operation KPI Dashboard: the WOs SLA block with WO 
 - Three granularity tabs: day (default = current month to date), week (default = last 12 weeks) and month (default = January 2026 to date); switching a tab resets the time range (explained by the banner)
 - Click cells and data points to drill into TT details and export to Excel
 
+#### ms_wo_sla（`ms_wo_sla`）
+
+MS WOs SLA Daily Report: daily detail matrix of WO SLA attainment (Total / Within SLA / Achieve), reading the same file that the daily "MS WOs SLA Daily Report" email is built from.
+
+- Data source: data/ms_sla/ZTE OLR MS WOs SLA Achievements Daily Report_<date>.xlsx (landed daily by the kpi_ms_wo_sla task); the page does no further processing — see backend/services/ms_kpi_report_service.py for the parsing caliber
+- Layout: overview cards (monthly tickets / meeting SLA / attainment / failing metrics) -> 5 TTR metric cards -> daily attainment trend (with each target line) -> daily detail matrix (same layout as the Excel)
+- Click a matrix column header to open the trend drill-down for that metric
+- The page can be exported to Excel with the same layout as the emailed attachment
+
+#### ms_contract_kpi（`ms_contract_kpi`）
+
+MS Contract KPIs & WOs Achievement auto-reports: the full report page for contract KPIs (27 KPIs across Operation / Network / PerSite) and WO SLA attainment.
+
+- Data source: data/ms_sla/ZTE OLR MS Contract KPIs & WOs Achievement Auto-Reports.xlsx — the auto-report workbook itself, updated in place by the ms_sla_full task (daily at 05:00)
+- Layout: overview cards -> category attainment -> 27 KPI cards (grouped into Operation / Network / PerSite tabs; click a KPI card for its daily trend) -> 4 tabs (KPI matrix / WO SLA matrix / FineBI plan / auto-report inventory; the last two support search + filter + pagination)
+- The FineBI plan and auto-report inventory are *process ledgers*, not run metrics, so their entries were hidden on the page from 2026-09-27 (the backend still parses them and the data APIs remain)
+- Same source as page=ms_wo_sla: the WO SLA matrix is word-for-word identical to that page
+
 #### CXO Dashboard（`cxoDashboard`, iframe page）
 
 Service / Network / Summary three-tier executive dashboard (from the VMAX assurance board).
 
 - The iframe embeds a full data snapshot: it renders even when the upstream is down, but may not show the latest data
 - Re-run the sync task to refresh; credentials live in Settings → Credentials → vmax_cxo
+
+#### vmaxCxoDashboard（`vmaxCxoDashboard`, iframe page）
+
+VMAX CXO original board (15-minute granularity executive screen): a fully independent implementation from page=cxoDashboard — changing one does not affect the other.
+
+- A faithful visual replica of public/vmax_cxo_dashboard.html (an iframe shell), not a React component
+- Data comes from the VMAX CXO portal session (credential group vmax_cxo) via the sync task vmax_multi_data_sync
+- Renaming the display title requires editing 4 places at once: the i18n entries here (zh/en) plus the HTML <title> / #appTitle / inline I18N
+
+#### vmaxCxoDashboard_Daily（`vmaxCxoDashboard_Daily`, iframe page）
+
+VMAX CXO daily detail (Daily): three day-granularity curves for Monday~Sunday × this week / last week / two weeks ago.
+
+- Data comes from data/vmax_cxo_daily/daily.json written by the task vmax_cxo_daily_sync (VMAX has no native daily granularity — daily values are aggregated locally from the 1-hour detail)
+- Upstream hourly detail is kept for roughly 8 days only; dates older than that floor show as grey empty cells with a hover note (not a fault)
+- Renaming the display title requires editing 4 places at once: the i18n entries here (zh/en) plus public/vmax_cxo_dashboard_daily.html <title> / #appTitle / inline I18N
+
+#### vmaxCxoDashboard_90Days（`vmaxCxoDashboard_90Days`, iframe page）
+
+CXO Daily Dashboard (90 Days): a 90-day executive-view screen for the CEO.
+
+- Data comes from the daily_kpi table in data/olib_soc_report/olib_soc_report.sqlite3, written by the tasks olib_soc_vmax_report / olib_soc_kpi_daily_sync
+- Read-only endpoint /api/olib-soc-dashboard/overview (daily/weekly trends + yesterday card + 90-day extremes)
+- When gap days exist a banner shows "data complete x/y days · n missing"; the matching detail rows are flagged as incomplete
+- Renaming the display title requires editing 6 places at once: the i18n entries here (zh/en) plus public/vmax_cxo_dashboard_90days.html <title> / #appTitle / inline I18N (zh+en)
+
+#### socTrendDashboard（`socTrendDashboard`, iframe page）
+
+SOC multi-dimensional trend board: hourly and daily trends for traffic / TCP / per-service categories (traffic, video, web, gaming, OTT voice, OTT video), drillable by region and SGW network element.
+
+- Data is pulled hourly at :40 by the task soc_trend_sync, read-only from the VMAX GBase data warehouse, and stored in data/soc_trend/soc_trend.sqlite3
+- Only raw counters are stored — ratios are computed on the read side (backend/services/soc_trend/soc_trend_metrics.py is the single source of caliber)
+- The "Metric Dictionary" dialog shows the alarm and attribution rules (same source as the backend)
+- The page is public/soc_trend_dashboard.html (React shell: pages/SocTrendDashboard.tsx)
 
 #### MW UME Topology（`mwUmeTopology`, iframe page）
 
@@ -2014,6 +2066,17 @@ BP Cells Report: umlaut-caliber BP cell statistics, viewable by day/week/month a
 - For 2026-07-22~09-21 the four metrics have been backfilled from upstream, so those days now hold whole-network cells rather than only the cells umlaut reported; BP counts run about 13~14% below that period's original Excel values, and the share denominator follows the same caliber change
 - Data is incrementally refreshed from RAN_UME by the bp_report_sync task daily at 06:20
 
+#### ran_cells_kpi（`ran_cells_kpi`）
+
+RAN Cells KPI: per-technology (2G/3G/4G) daily availability matrices for cells, plus monthly compliance.
+
+- The daily matrix is laid out as "metrics as rows, dates as columns", and only dates that actually have data are shown
+- The technology filter decides which tables are rendered; the threshold decides the meeting/below verdict (99.65% by default, matching the backend)
+- The page-level export contains `Summary` (one row per technology: monthly average availability / cell roster / days with data / total cells / meeting / below / both ratios) plus one `<tech>_Cells_KPI` daily matrix per technology
+- Sheet1 is deliberately named `Summary` rather than `<tech>_Cells_KPI`: otherwise a name clash would rewrite it to `Summary_2` and users would see two sheets that both look like a summary
+- Percentages are written as numbers (e.g. `99.65`) rather than strings (`99.65%`) so they are directly computable in Excel
+- The drill-down modal has its own export button (detail rows) — that is separate from the page-level entry
+
 #### Packet Loss（`packet_loss`）
 
 LTE packet loss board (RAN UME SDR / IPRAN IPPD): last 7 complete calendar days at hourly granularity; the ongoing day is hidden.
@@ -2091,6 +2154,18 @@ Realtime mode of the GIS map: current active-alarm sites on the map (red "realti
 - The "attributed/total" counter in the title uses the same **site** unit as Site Stats: attributed = sites that share a root cause with peers; the rest are isolated failures (upstream healthy, no same-window peers — the site itself is its own cause) — click the footnote to open the unattributed **alarm details**, the same project-standard detail table as clicking an entry in Alarm Stats (site / TT / priority / alarm time / duration / overdue), and verify against the map
 - A root site may fall outside your filter scope (flagged "Out of scope") — outage causes often sit outside your current view; this is expected and is exactly the value of the analysis
 - The "AI Insights" button generates a natural-language conclusion using your own LLM key (stored only in your browser); when AI is unavailable it degrades to a local rule-based summary and is clearly marked — the cluster list itself is unaffected
+
+#### person（`person`）
+
+Person Location Map: the registered position of field staff (map pins) + the distribution of sites each person actually handled, with per-person WO / TT statistics and open PMT counts.
+
+- Two-column layout: map on the left, KPI 2x2 + two charts on the right; `?maponly=1` leaves the map alone
+- Click a person to select them and slide open the drill-down drawer from the right; clicking blank map area or anywhere outside cancels the selection (search / paging / tab switches inside the drawer do not close it accidentally)
+- The persistent pin badge has two lines: name + phone on the first, "sites handled | open WOs | open PMTs" on the second
+- Phone numbers are shown in full (not masked); some upstream records were already stored as `231****7417`, and the backend restores them uniquely by "same name + same last 4 digits" from the site master — the ones it cannot restore stay masked, which is a data fact
+- Site coloring is fully aligned with `?page=realtime_alarm` (same color source and same grading): both pages look at the same sites from the same snapshot
+- PMT shows — rather than 0 when unavailable; the per-person badge sum is not the full set (see the filter-bar info note for the caliber)
+- Table rows and map selection are two-way linked; only rows with coordinates are clickable, others use the "View tickets" button
 
 #### Incident Overview（`incident_overview`, iframe page）
 

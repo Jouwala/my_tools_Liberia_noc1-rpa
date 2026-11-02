@@ -9,7 +9,7 @@
 | `5432` | PostgreSQL 16 | 视 `listen_addresses` | 自启脚本用 `pg_ctl` 拉起 |
 | `8787`/`8790` | 实时代理（FMS / VMAX） | **仅 `127.0.0.1`** | backend 启动线程 |
 | `9269` | 网页问答服务（whatsapp-kb-bot） | **仅 `127.0.0.1`** | backend 按需拉起（`services/portal_qa_ctl.py`） |
-| 无端口 | worker × 5 组（u/n/v/m/c） | — | `worker_watchdog.py` |
+| 无端口 | worker × 10 组（u/n/s/w/v/m/c/x/g/p） | — | `worker_watchdog.py` |
 
 > ⚠️ **7038/7090 与 MTN_Comsal 项目共用**，两套不能同时运行（PROJECT_DOCS.md 局域网章节原文即如此）。端口被占时 `start_hidden.ps1` 会 FAIL 并提示先 `stop.bat` 或加 `-Force`（:166-168）。
 
@@ -38,7 +38,7 @@
 4. 命令行看进程与心跳：
 
 ```powershell
-# 五个关键进程是否都在
+# 关键进程是否都在（后端 + worker 看门狗 + 10 组 worker；心跳文件覆盖每个被托管进程）
 Get-CimInstance Win32_Process -Filter "Name='pythonw.exe' OR Name='python.exe'" |
   Select-Object ProcessId, CommandLine | Format-Table -Wrap
 
@@ -55,7 +55,7 @@ Get-ChildItem D:\01_RPA\Task\my_app\log\heartbeat_*.json |
 | --- | --- | --- |
 | `backend_runtime.log` | 后端业务日志 | **≈81 MB** |
 | `backend_watchdog.log` | 后端拉起/退避记录 | **≈41 MB** |
-| `worker_runtime*.log` | 任务执行主日志（**排障首选**）；每组 worker 一个文件：`_u`/`_n`/`_v`/`_m`/`_c` | 合计 ≈28 MB |
+| `worker_runtime*.log` | 任务执行主日志（**排障首选**）；每组 worker 一个文件：`_u`/`_n`/`_s`/`_w`/`_v`/`_m`/`_c`/`_x`/`_g`/`_p` | 合计 ≈28 MB |
 | `worker_watchdog.log` | worker 拉起记录 | |
 | `frontend_runtime.log` | 前端 preview 输出 | |
 | `*_console.log` / `*.log.err` | 各子进程 stdout/stderr（`start_hidden.ps1:80-83`） | |
@@ -2093,7 +2093,7 @@ shared `auth_cache` 里 admin 的 token 明明还有 14.6 小时有效期，却�
 | 目标 | 位置 | 安全性 |
 | --- | --- | --- |
 | 运行日志 | `log/*.log`（大文件先停服务再清，避免句柄占用） | 安全，历史问题就查不回来了 |
-| 队列与执行日志 | 主库 `task_queue`、`task_execution_log` | **系统自动保留 3 天**（`task_runner.py:764`、`worker.py:240`），无需手工 |
+| 队列与执行日志 | 主库 `task_queue`、`task_execution_log` | **系统自动保留 7 天**（`TASK_LOG_RETENTION_DAYS` 默认 7，2026-09-11 由 3 天放宽；`task_runner.py` / `worker.py` 清理），无需手工 |
 | 一次性调试产物 | `log/edge_cleanup*.txt`、`killlog*.txt`、`pidcheck.txt`、`identify.txt`、`backend/restart_dbg.log`、根目录 `send_test_v22.log` | 安全 |
 | 历史空库 | `data/app.db`、`data/my_app.db`（均 0 字节） | 安全 |
 | 旧构建目录 | `frontend/dist`、`dist2`、`dist3`（未被 `outDir` 使用） | 删前确认 nginx 没指向它们 |

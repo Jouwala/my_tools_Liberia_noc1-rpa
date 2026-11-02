@@ -1,42 +1,87 @@
 # 11 功能页使用手册
 
-按左侧菜单从上到下的顺序编号（菜单定义 `frontend/src/App.tsx:182-206`）。每个页面可用 `?page=<key>` 直接打开，例如 `http://localhost:7090/myapp/?page=battery`。
+按左侧菜单从上到下的顺序编号。**菜单真相源是 `frontend/src/App.tsx` 的 `DEFAULT_GROUPS`**（侧栏目录结构）；`PAGE_META` 是页面图标与 i18n 默认名的真相源；站内帮助的 `PAGE_LIST` 与之逐页对应。每个页面可用 `?page=<key>` 直接打开，例如 `http://localhost:7090/myapp/?page=battery`。
 
 **先记住两件事**
 
-- 有 **7 个页面是 iframe 壳**（下表标注「iframe」），真正界面在 `frontend/public/*.html` 里，React 只负责加载与注入语言。这类页面样式/交互和 React 页不一致，改了 React 代码不会影响它们。
+- 有 **12 个页面是 iframe 壳**（下表标注「iframe」），真正界面在 `frontend/public/*.html` 里，React 只负责加载与注入语言。这类页面样式/交互和 React 页不一致，改了 React 代码不会影响它们。
 - 只有「任务管理」有常驻轮询（60s 刷列表 + 30s 时基，`pages/DataSync.tsx:165,173`）。**看板 / 展示页**的"自动刷新"来自**顶栏全局设置**（可改 0/30/60/300/600/900/1800；生效值 = 用户选择 > 本页默认 > 300 秒。2026-10-29 用户定的每页策略：**实时告警相关 `realtime_alarm`/`alarm`/`alarmManagement` = 60 秒，其余看板页 = 300 秒**，详见 `02-architecture.md` 的「自动刷新」）；**配置 / 操作 / 工具类页面（如系统设置、上传、表浏览、IP 探测、eFlow 等）不参与自动刷新**（白名单 `AR_BOARD_PAGES`，生效间隔恒为 0，顶栏选择器禁用）。看板数据看起来不动，先看顶栏刷新间隔；全屏挂机时看板页即使选「关闭」也会按本页默认兜底刷新（详见 `myapp-refresh-protocol.js`）。
+
+> **本表由 `tests/test_doc_consistency.py` 校验**：行数、key 集合与形态列必须与
+> `App.tsx` 的 `DEFAULT_GROUPS` / `PAGE_META` 及 `helpContent.ts` 的 `PAGE_LIST` 一致。
+> 加页时改代码后同步改本表，守卫会当场抓出遗漏。
 
 | # | 菜单 | key | 形态 |
 | --- | --- | --- | --- |
-| 1 | 任务管理 / Task Manager | `sync` | React |
-| 2 | 任务报告文件 / Task Report Files | `email_reports` | React |
-| 3 | 实时告警看板 / Alarm Dashboard | `alarm` | React |
-| 4 | TT&WO 看板 | `ttwo` | React |
-| 4b | TT&WO 看板（v1·仅上半部分） | `v1_ttwo` | React（同组件切片） |
-| 4c | TT 看板 | `tt` | React（同组件切片，数据源 `eflow_tt`） |
-| 4d | WO 看板 | `wo` | React（同组件换数据源 `eflow_wo`） |
-| 5 | NUR 看板 | `nur` | React |
-| 6 | MS Operation KPI 看板 | `ms_sla` | React |
-| 7 | CXO 经营看板 | `cxoDashboard` | **iframe** |
-| 8 | MW 微波拓扑 | `mwUmeTopology` | **iframe** |
-| 9 | MW 微波实时 | `mwRealTime` | **iframe** |
-| 10 | GIS 地图 | `gis` | React |
-| 11 | 实时告警地图 | `realtime_alarm` | React（同组件另一模式） |
-| 11a | 人员位置地图 | `person` | React |
-| 12 | 告警管理看板 | `alarmManagement` | **iframe** |
-| 13 | 丢包看板 | `packet_loss` | React |
-| 14 | 电池看板 | `battery` | React |
-| 15 | IP 链路探测 | `ip_trace` | **iframe** |
-| 16 | 事件总览 | `incident_overview` | **iframe** |
-| 17 | 仓库看板 | `warehouse` | **iframe** |
-| 18 | 数据总览 | `overview` | React |
-| 19 | 表浏览器 | `tables` | React |
-| 20 | 数据上传 | `upload` | React |
-| 21 | 分析归档 | `archive` | React |
-| 22 | 分析仪表盘 | `dashboard` | React |
-| 23 | 系统设置 | `settings` | React（6 页签：凭据 / 邮件收件人 / 远程主机 / AI 模型 / WhatsApp 登录 / 任务配置） |
-| 24 | 门户一键登录 | `portalLogin` | React |
+| 1 | 任务管理 | `sync` | React |
+| 2 | 任务报告文件 | `email_reports` | React |
+| 3 | eFlow 知识库 | `eflow_qa` | React |
+| 4 | eFlow 全流程查询 | `eflow_flow` | React |
+| 5 | 实时告警看板 | `alarm` | React |
+| 6 | TT&WO 看板 | `ttwo` | React |
+| 7 | TT&WO 看板（v1·仅上半部分） | `v1_ttwo` | React（同组件切片） |
+| 8 | TT 看板 | `tt` | React（同组件切片，数据源 `eflow_tt`） |
+| 9 | WO 看板 | `wo` | React（同组件换数据源 `eflow_wo`） |
+| 10 | NUR 看板 | `nur` | React |
+| 11 | NUR 看板（仅 NUR） | `ms_nur_only` | React（同组件切片） |
+| 12 | MS Operation KPI 看板 | `ms_sla` | React |
+| 13 | MS KPI 看板（仅 SLA） | `ms_sla_only` | React（同组件切片） |
+| 14 | MS WOs SLA 日报 | `ms_wo_sla` | React |
+| 15 | MS Contract KPIs 自动化报表 | `ms_contract_kpi` | React |
+| 16 | 站点可用率看板 | `site_avail` | React |
+| 17 | 可用率多维矩阵 | `avail_ms` | React |
+| 18 | FLM 可用率 | `avail_flm` | React |
+| 19 | FME 工程师排名 | `fme_ranking` | React |
+| 20 | NOC 操作人分析 | `noc_analyst` | React |
+| 21 | 站点重复断站看板 | `repeat_site_down` | React |
+| 22 | CR 变更分析 | `cr_analysis` | React |
+| 23 | PM 执行分析 | `pm_analysis` | React |
+| 24 | RAN 小区 KPI | `ran_cells_kpi` | React |
+| 25 | CN KPI | `cn_kpi` | React |
+| 26 | CN KPI 5分钟 | `cn_kpi_5mins` | React |
+| 27 | 客户业务 KPI | `ume_in_kpi` | React |
+| 28 | CXO 经营看板 | `cxoDashboard` | **iframe** |
+| 29 | VMAX CXO 原版看板 | `vmaxCxoDashboard` | **iframe** |
+| 30 | VMAX CXO 日粒度明细 | `vmaxCxoDashboard_Daily` | **iframe** |
+| 31 | CXO Daily Dashboard（90 天经营视角） | `vmaxCxoDashboard_90Days` | **iframe** |
+| 32 | SOC 多维趋势看板 | `socTrendDashboard` | **iframe** |
+| 33 | UME iMonitor 大屏 | `imonitor` | **iframe** |
+| 34 | 告警管理看板 | `alarmManagement` | **iframe** |
+| 35 | 事件总览 | `incident_overview` | **iframe** |
+| 36 | MW 微波拓扑 | `mwUmeTopology` | **iframe** |
+| 37 | MW 微波实时 | `mwRealTime` | **iframe** |
+| 38 | GIS 地图 | `gis` | React |
+| 39 | 实时告警地图 | `realtime_alarm` | React（同组件另一模式） |
+| 40 | 人员位置地图 | `person` | React |
+| 41 | 丢包看板 | `packet_loss` | React |
+| 42 | 电池看板 | `battery` | React |
+| 43 | IP 链路探测 | `ip_trace` | **iframe** |
+| 44 | VMAX 用户查询 | `vmax_user_query` | React |
+| 45 | Speedtest 基准报告 | `bm_speedtest` | React |
+| 46 | Meta 基准报告 | `bm_meta` | React |
+| 47 | 数据总览 | `overview` | React |
+| 48 | 表浏览器 | `tables` | React |
+| 49 | 数据上传 | `upload` | React |
+| 50 | 分析归档 | `archive` | React |
+| 51 | 分析仪表盘 | `dashboard` | React |
+| 52 | 仓库看板 | `warehouse` | **iframe** |
+| 53 | 物料统计汇总 | `sp_material` | React |
+| 54 | SP 备件明细报表 | `sp_details` | React |
+| 55 | 备件入出库库存报表 | `sp_report` | React |
+| 56 | 耗材入出库库存报表 | `com_report` | React |
+| 57 | 仓库汇总报表 | `warehouse_summary` | React |
+| 58 | BP Cells Report | `bp_report` | React |
+| 59–74 | 原生看板（FineBI 迁移，共 16 个） | `finebi_<slug>` | React |
+| 75 | AP 行动计划 | `ap_center` | React |
+| 76 | 系统设置 | `settings` | React（6 页签：凭据 / 邮件收件人 / 远程主机 / AI 模型 / WhatsApp 登录 / 任务配置） |
+| 77 | 门户一键登录 | `portalLogin` | React |
+| 78 | 使用反馈 | `feedback` | React |
+| 79 | 使用帮助 | `help` | React（站内帮助页，与 `15-user-help.md` 同源生成） |
+
+> **`ap_center`（AP 行动计划）属于「工作流」目录**（`grp_workflow`，与 `DEFAULT_GROUPS` 一致），
+> 逐页说明见第 39 节。
+> 原生看板的 16 个 slug 见 `App.tsx` 的 `FINEBI_BOARDS`（与
+> `backend/services/native_catalog.py` 一一对应），逐页说明见第 29 节。
 
 ---
 
@@ -173,13 +218,38 @@
 - **`undecidable` 的范围不整批扩张**：引用 `alarmName` / `category` 等本地取不到字段的规则，用
   `tt_postmortem._rule_wants_keys` + `_ticket_signature` 从规则名/描述推断适用对象，只把「特征吻合且未被
   已知规则命中」的行标为 `undecidable`。推断不出特征的规则不计入（但会出现在 `missing_fields` 告警条里）。
-- **规则表的「历史建 WO 率」列**：`_rule_history()` 按规则的 `alarmCode` + `siteSubType` 条件，
-  统计近 365 天同条件单里实际有 `wo_no` 的比例。**这是区分「历来如此」与「这次规则变更导致的」的关键**：
-  实测规则 200（`Regular电源故障推送TT到IPT`）当前 340 张 `mismatch`，但历史建 WO 率仅 **0.5%**
-  （17619 单只建过 90 张）；规则 203 则为 99.8%。没有这一列，用户会误以为 340 张全是这次改坏的。
+- **规则表的「历史建 WO 率」列**：`_rule_history()` 按规则的 `alarmCode` + `siteSubType` + `reasonType`
+  条件，统计近 365 天同条件单里实际有 `wo_no` 的比例（`reasonType` 一栏 2026-11-02 补：
+  规则 200/201 的告警码与站型**完全相同**，只差 `reasonType in / not in 'POWER'`，不叠加这个条件
+  两条互补规则会显示同一个数，这一列就失去了区分力）。
+  **这是区分「历来如此」与「这次规则变更导致的」的关键**：
+  实测同码同站型下 `POWER` 历史建 WO 率 **21.9%**（3395 单建过 744 张）、非 `POWER` **57.8%**
+  （6063 单建过 3507 张），而规则 203（ERA 断站）为 99.8%。没有这一列，用户会误以为
+  当前的 159 张 `should_have_wo` 全是这次改坏的。
   - ⚠ 规则条件里没有正向 `alarmCode`（例如只有 `netWorkType`）时不给历史比例，显示 `—`（不猜）。
+  - ⚠ `ticketSeverity` 目前**没有**进历史过滤（规则 253 的历史率仍是该告警码全量的），
+    该规则当前 0 张生效命中，暂不影响结论；要精确化就在同处加一条 `ticket_severity` 过滤。
   - ⚠ 该查询的截止时间由 Python 算好再传参：`datetime('now','-N day')` **只有 SQLite 有**，PG 会报
     「函数 datetime 不存在」。`eflow_site` 的列名在 PG 下是小写（`site_id`），`"Site ID"` 会报字段不存在。
+- **2026-11-02 的规则变更与本地适配**（本轮实测，后续再改规则时按同样三条复查）：
+  08:56~08:59（UTC，本机时钟即 UTC）eFlow 重存了全部 `ttLevelRule`，并改了两条推单规则：
+  规则 200 的 `alarmCode` 从 **只有 99933** 换成 9910/9920/9970/9980/9990/9995，
+  200 与 201 都**新增 `reasonType` 条件**（200 `in 'POWER'`、201 `not in 'POWER'`），
+  201 由此从「无条件、不参与判定」变成一条生效规则，且是**第一条多目标组**的 FOAccept 规则
+  （`ZTE_FE_FE; ZTE_NOC_FO` 两跳链）。本地随之改了三处：
+  1. `build_value_frame` 补 `reasonType`（← `eflow_tt.root_cause`，**不是** `alarm_reason_type`，
+     后者只有 TRM/OTHER/空）与 `ticketSeverity`（← `ticket_severity`），`_KNOWN_FIELDS` 同步，
+     并有 `tests/test_eflow_rules_matcher.py::test_known_fields_cover_value_frame_columns` 钉住两边一致；
+  2. `eflow_push_dispatch.classify` 改为「目标组**任一跳**到达即一致」——
+     只比第一个组会把 19 张落在第二跳 `ZTE_NOC_FO` 的正常单判成 `pushed_elsewhere`；
+  3. `eflow_push_rule_eval` 里给 `_ticket_signature` 传站型时先过 `_s()`：`site_type` 缺失值是
+     float NaN，直接递进去整个任务 `AttributeError` 崩掉（2026-11-02 09:12 那次运行就是如此，
+     页面只能看到 10-28 的旧结果）。
+  ⚠ 变更带来的**规则真空**（不是本工具的判定问题）：99933「SITE DOWN DUE TO POWER OFF」被从
+  规则 200 的告警码里去掉，现在只有规则 203 还带它，而 203 要求 `siteSubType='ERA'`。
+  于是 **REGULAR 站的 99933 在 FOAccept 阶段没有任何推单规则适用** —— 本轮样本 596 条
+  `unmatched` 里有 353 条是它（NORMAL 272 + COOL 81）。该码近一年 20776 单，是量最大的一类。
+  这属于 eFlow 侧配置意图问题，需向规则管理方确认，本地改不了。
 - **两次运行对比**：每次运行在 `push_rules_snapshots/` 留一份快照（保留最近 10 份），页签底部可选任意两次对比。
   响应里把「判定变化」与「只在某一侧出现」（样本窗口移动）**分开给**，避免把新增样本误读成判定变化；
   同时比对两次的规则文件 mtime，规则改过时显式提示「变化很可能由此引起」。
@@ -1929,8 +1999,14 @@ ai.elapsed_sec           判定耗时（页面同时兼容 /tt-ai 的 elapsed_to
    （连接词后有 `|`），推单规则是 `AND eflow_...alarmCode in '…' (string)`（**没有 `|`**）。
    直接喂 `parse_conditions` 会得到空列表，表现为「所有推单规则都不命中」。
    `_parse_push_conditions()` 先补分隔符再复用同一解析器。
-2. **本地只有 5 个字段可评估**：`alarmCode / vipSite / siteSubType / netWorkType / downSiteCount`。
-   引用 `alarmName`（如 `TT自动推单给BO-MW组`）等字段的规则本地判不了，
+2. **本地可评估的字段由 `build_value_frame` 的产出列决定**（当前 11 个：`alarmCode / vipSite /
+   hubSite / siteSubType / assetType / netWorkType / downSiteCount / alarmDescription /
+   downstreamSites / reasonType / ticketSeverity`，清单见 `eflow_push_rule_eval._KNOWN_FIELDS`）。
+   `reasonType / ticketSeverity` 是 **2026-11-02 补**的：eFlow 当天给推单规则 200/201 加了
+   `reasonType` 条件、规则 253 从登记起就引用 `ticketSeverity`，此前这两条规则一直判不了。
+   ⚠ `reasonType` 的本地真身是 `eflow_tt.root_cause`（POWER / Auto-recovery / MW…），
+   **不是** `alarm_reason_type`（只有 TRM / OTHER / 空，从来没有 POWER）。
+   引用未接入字段（如 `alarmName`，见 `TT自动推单给BO-MW组`）的规则本地判不了，
    计入 `undecidable` 并在界面注明 —— **不能算「未命中」**。
 3. **`Confirm` 步骤的规则是兜底**：`TT_push_confirm_to_close`（ID 119）几乎命中所有 TT，
    但它不决定推 WO；只有 `FOAccept` 的规则才是推单决策（与
@@ -1939,9 +2015,11 @@ ai.elapsed_sec           判定耗时（页面同时兼容 /tt-ai 的 elapsed_to
 > 实测：`TT202609220128`（ERA 站，alarmCode 99933）命中 #203 `ERA断站推单到ZTE WO`，
 > 自动处理人是 `fe_robot`、目标处理人是 `ZTE_NOC_FO`；
 > `TT202609230017`（COOL 站）在 FOAccept **无**推单规则命中 → 不会自动推 WO。
-> 注意 `siteSubType` 取 `eflow_tt.site_type`，为空才回退 `site_information`
-> （见 `eflow_rules_matcher.build_value_frame`）—— 该单 `site_type=COOL`、`site_information=REGULAR`，
-> 所以按 `COOL` 判，`Regular断站故障手动到FO`（要求 `REGULAR`）不命中。
+> 注意 `siteSubType` 自 2026-10-23 起取 `eflow_site.sitesubtype`（按 `site_id` 关联，
+> 见上文「siteSubType / assetType 的取数」与 `eflow_rules_matcher.load_site_attrs`），
+> 查不到站点属性才回退 `eflow_tt.site_type`、
+> 再回退 `site_information`（见 `eflow_rules_matcher.build_value_frame`）。
+> 上面的 `COOL` 例子按此口径判，`Regular断站故障手动到FO`（要求 `REGULAR`）不命中。
 
 ## 14f. 这单指派给谁了 —— 指派归因（2026-09-23 新增）
 

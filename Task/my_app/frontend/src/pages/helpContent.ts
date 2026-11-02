@@ -20,11 +20,18 @@ export const PAGE_LIST: { key: string; iframe?: boolean }[] = [
   { key: 'ms_nur_only' },
   { key: 'ms_sla' },
   { key: 'ms_sla_only' },
+  { key: 'ms_wo_sla' },
+  { key: 'ms_contract_kpi' },
   { key: 'cxoDashboard', iframe: true },
+  { key: 'vmaxCxoDashboard', iframe: true },
+  { key: 'vmaxCxoDashboard_Daily', iframe: true },
+  { key: 'vmaxCxoDashboard_90Days', iframe: true },
+  { key: 'socTrendDashboard', iframe: true },
   { key: 'mwUmeTopology', iframe: true },
   { key: 'mwRealTime', iframe: true },
   { key: 'gis' },
   { key: 'realtime_alarm' },
+  { key: 'person' },
   { key: 'alarmManagement', iframe: true },
   { key: 'fme_ranking' },
   { key: 'site_avail' },
@@ -37,6 +44,7 @@ export const PAGE_LIST: { key: string; iframe?: boolean }[] = [
   { key: 'cr_analysis' },
   { key: 'pm_analysis' },
   { key: 'bp_report' },
+  { key: 'ran_cells_kpi' },
   { key: 'packet_loss' },
   { key: 'battery' },
   { key: 'ume_in_kpi' },
@@ -80,11 +88,18 @@ export const NAV_KEY_MAP: Record<string, string> = {
   ms_nur_only: 'nav.msNurOnly',
   ms_sla: 'nav.msSla',
   ms_sla_only: 'nav.msSlaOnly',
+  ms_wo_sla: 'nav.msWoSl',
+  ms_contract_kpi: 'nav.msContractKpi',
   cxoDashboard: 'nav.cxoDashboard',
+  vmaxCxoDashboard: 'nav.vmaxCxoDashboard',
+  vmaxCxoDashboard_Daily: 'nav.vmaxCxoDashboardDaily',
+  vmaxCxoDashboard_90Days: 'nav.vmaxCxoDashboard90Days',
+  socTrendDashboard: 'nav.socTrendDashboard',
   mwUmeTopology: 'nav.mwUmeTopology',
   mwRealTime: 'nav.mwRealTime',
   gis: 'nav.gis',
   realtime_alarm: 'nav.realtimeAlarm',
+  person: 'nav.person',
   alarmManagement: 'nav.alarmManagement',
   fme_ranking: 'nav.fmeRanking',
   site_avail: 'nav.siteAvail',
@@ -97,6 +112,7 @@ export const NAV_KEY_MAP: Record<string, string> = {
   cr_analysis: 'nav.crAnalysis',
   pm_analysis: 'nav.pmAnalysis',
   bp_report: 'nav.bpReport',
+  ran_cells_kpi: 'nav.ranCellsKpi',
   packet_loss: 'nav.packetLoss',
   battery: 'nav.battery',
   ume_in_kpi: 'nav.umeInKpi',
@@ -126,7 +142,7 @@ export const CATEGORIES: { id: string; pages: string[] }[] = [
   { id: 'tasks', pages: ['sync', 'email_reports', 'upload', 'tables', 'overview'] },
   {
     id: 'boards',
-    pages: ['alarm', 'ttwo', 'v1_ttwo', 'tt', 'wo', 'nur', 'ms_nur_only', 'ms_sla', 'ms_sla_only', 'cxoDashboard', 'mwUmeTopology', 'mwRealTime', 'alarmManagement', 'fme_ranking', 'site_avail', 'avail_ms', 'avail_flm', 'bm_speedtest', 'bm_meta', 'noc_analyst', 'repeat_site_down', 'cr_analysis', 'pm_analysis', 'bp_report', 'packet_loss', 'battery', 'ume_in_kpi', 'cn_kpi', 'cn_kpi_5mins', 'imonitor', 'gis', 'realtime_alarm', 'incident_overview', 'warehouse', 'sp_material', 'sp_details', 'sp_report', 'com_report', 'warehouse_summary'],
+    pages: ['alarm', 'ttwo', 'v1_ttwo', 'tt', 'wo', 'nur', 'ms_nur_only', 'ms_sla', 'ms_sla_only', 'ms_wo_sla', 'ms_contract_kpi', 'cxoDashboard', 'vmaxCxoDashboard', 'vmaxCxoDashboard_Daily', 'vmaxCxoDashboard_90Days', 'socTrendDashboard', 'mwUmeTopology', 'mwRealTime', 'alarmManagement', 'fme_ranking', 'site_avail', 'avail_ms', 'avail_flm', 'bm_speedtest', 'bm_meta', 'noc_analyst', 'repeat_site_down', 'cr_analysis', 'pm_analysis', 'bp_report', 'ran_cells_kpi', 'packet_loss', 'battery', 'ume_in_kpi', 'cn_kpi', 'cn_kpi_5mins', 'imonitor', 'gis', 'realtime_alarm', 'person', 'incident_overview', 'warehouse', 'sp_material', 'sp_details', 'sp_report', 'com_report', 'warehouse_summary'],
   },
   { id: 'analysis', pages: ['eflow_qa', 'eflow_flow', 'dashboard', 'archive', 'ip_trace', 'vmax_user_query'] },
   { id: 'workflow', pages: ['ap_center', 'feedback'] },
@@ -260,11 +276,63 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
     },
     ms_sla_only: {
       desc: 'MS Operation KPI 看板的「只保留 SLA」版：WOs SLA 区的工单 SLA 达成率（TTR / TTR_P1~P4 的 Total / Within SLA / Achieve + 趋势），不渲染 NUR、Network、Per-Site。',
-      usage: ['达成率 ≥95% 显示绿色、低于目标标红，与 page=ms_sla 同一口径', '粒度三档「天 / 周 / 月」：天默认当月至今、周默认最近 12 周、月默认 2026-01 至今；切档会重置时间范围（横幅上有说明）', '单元格与数据点可点击下钻 TT 明细，并可导出 Excel'],
+      usage: ['达成率 ≥95% 显示绿色、低于目标标红，与 page=ms_sla 同一口径', '粒度三档「天 / 周 / 月」：天默认当月至今、周默认最近 12 周、月默认 2026-01 至今；切档会重置时间范围（横幅上有说明）',         '单元格与数据点可点击下钻 TT 明细，并可导出 Excel'],
+    },
+    ms_wo_sla: {
+      desc: 'MS WOs SLA 日报：工单 SLA 达成率的每日明细矩阵（Total / Within SLA / Achieve），与每天发的「MS WOs SLA 日报」邮件读同一份文件。',
+      usage: [
+        '数据源是 data/ms_sla/ZTE OLR MS WOs SLA Achievements Daily Report_<日期>.xlsx（任务 kpi_ms_wo_sla 每天落地），页面不做二次加工，解析口径见 backend/services/ms_kpi_report_service.py',
+        '页面结构：总览卡片（月工单 / 达标 / 达成率 / 未达标指标）→ 5 个 TTR 指标卡 → 达成率日趋势（含各自目标线）→ 每日明细矩阵（与 Excel 版式一致）',
+        '点矩阵列头可看该指标的趋势下钻弹窗',
+        '页面可导出 Excel，与邮件附件版式一致',
+      ],
+    },
+    ms_contract_kpi: {
+      desc: 'MS Contract KPIs & WOs Achievement 自动化报表：合同 KPI（Operation / Network / PerSite 三层共 27 个）与 WO SLA 达成情况的完整报表页。',
+      usage: [
+        '数据源是 data/ms_sla/ZTE OLR MS Contract KPIs & WOs Achievement Auto-Reports.xlsx —— 任务 ms_sla_full（每天 05:00）就地更新的自动化报表工作簿本体',
+        '结构：总览卡片 → 分类达标 → 27 个 KPI 卡（按 Operation / Network / PerSite 三个页签分类，点 KPI 卡看日趋势）→ 4 个页签（KPI 矩阵 / WO SLA 矩阵 / FineBI 规划 / 自动化报表清单，后两个支持搜索 + 筛选 + 分页）',
+        'FineBI 规划与自动化报表清单是**编制过程台账**而非运行指标，2026-09-27 起页面上不再显示入口（后端仍照常解析，数据接口保留）',
+        '口径与 page=ms_wo_sla 同源：WO SLA 矩阵与那页逐字同构',
+      ],
     },
     cxoDashboard: {
       desc: 'Service / Network / Summary 三层经营看板（源自 VMAX 实时保障看板）。',
       usage: ['iframe 页面内嵌一份完整数据快照：上游不可用时仍能完整渲染，代价是看到的可能不是最新数据', '要最新数据需重跑对应同步任务；凭据在「系统设置 → 凭据 → vmax_cxo」'],
+    },
+    vmaxCxoDashboard: {
+      desc: 'VMAX CXO 原版看板（15 分钟粒度经营大屏）：与 page=cxoDashboard 是两套完全独立的实现，互不影响。',
+      usage: [
+        '页面是 public/vmax_cxo_dashboard.html 的原版视觉复刻（iframe 壳），不是 React 组件',
+        '数据来自 VMAX CXO 门户会话（凭据分组 vmax_cxo），同步任务 vmax_multi_data_sync',
+        '改显示名要同时改 4 处：本页 i18n（zh/en）+ 该 HTML 的 <title> / #appTitle / 内联 I18N',
+      ],
+    },
+    vmaxCxoDashboard_Daily: {
+      desc: 'VMAX CXO 日粒度明细（Daily）：周一~周日 × 本周 / 前一周 / 前两周三条日粒度曲线。',
+      usage: [
+        '数据源是任务 vmax_cxo_daily_sync 落盘的 data/vmax_cxo_daily/daily.json（VMAX 无原生日粒度，日值由 1hour 明细本地聚合）',
+        '上游小时明细仅保留约 8 天，早于保留地板的日期以灰空格子 + 悬浮说明呈现（不是故障）',
+        '改显示名要同时改 4 处：本页 i18n（zh/en）+ public/vmax_cxo_dashboard_daily.html 的 <title> / #appTitle / 内联 I18N',
+      ],
+    },
+    vmaxCxoDashboard_90Days: {
+      desc: 'CXO Daily Dashboard（90 Days）：面向 CEO 的 90 天经营视角大屏。',
+      usage: [
+        '数据来自任务 olib_soc_vmax_report / olib_soc_kpi_daily_sync 落盘的 data/olib_soc_report/olib_soc_report.sqlite3 的 daily_kpi 表',
+        '接口 /api/olib-soc-dashboard/overview（只读，日/周趋势 + 昨日卡片 + 90 天极值）',
+        '顶部会在存在缺口日时提示「数据完整 x/y 天 · 缺 n 天」，对应明细行标「数据残缺」',
+        '改显示名要同时改 6 处：本页 i18n（zh/en）+ public/vmax_cxo_dashboard_90days.html 的 <title> / #appTitle / 内联 I18N（zh+en）',
+      ],
+    },
+    socTrendDashboard: {
+      desc: 'SOC 多维趋势组合看板：流量 / TCP / 分业务类目（流量、视频、网页、游戏、OTT 语音、OTT 视频）的小时与天粒度趋势，按区域 + SGW 网元下钻。',
+      usage: [
+        '数据由任务 soc_trend_sync 每小时 :40 直连 VMAX 数仓 GBase 只读拉取，落 data/soc_trend/soc_trend.sqlite3',
+        '只存原始计数器，比率在读取侧现算（口径唯一维护点是 backend/services/soc_trend/soc_trend_metrics.py）',
+        '「指标字典」弹窗展示告警与归因规则（与后端口径同源）',
+        '页面是 public/soc_trend_dashboard.html（React 壳 pages/SocTrendDashboard.tsx）',
+      ],
     },
     mwUmeTopology: {
       desc: 'ZXMW 微波网络拓扑与带宽利用率 NOC 看板（日粒度）。',
@@ -295,6 +363,18 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
         '标题括号里的「已归因/总」与 Site Stats 同为**站数**单位：已归因 = 进入共享根因簇的站数；其余是孤立故障（上游没告警、没有同窗同伴，根因就是它自己）—— 点脚注可打开未归因**告警明细**（与点击 Alarm Stats 条目打开的是同一张项目默认明细表：站点/TT/优先级/告警时间/时长/超时），对地图逐点核验',
         '根因站可能落在高级筛选范围之外（标「范围外」）—— 断站原因往往在当前视野之外，属正常且有价值的输出',
         '「AI 解读」按钮：用自备 LLM Key 生成自然语言结论（Key 仅存本机浏览器）；AI 不可用时自动降级为本地规则结论并标注，不影响簇列表本身',
+      ],
+    },
+    person: {
+      desc: '人员位置地图：现场人员的登记位置（地图针）+ 每个人员实际处理过工单的站点分布，以及按人员的 WO / TT 统计与未关闭 PMT 数。',
+      usage: [
+        '左右分栏：左 = 地图，右 = KPI 2×2 + 两张统计图；`?maponly=1` 只留地图单列',
+        '点人员 → 选中并从右侧滑出下钻抽屉；点地图空白处或页面其他位置取消选中（抽屉里的搜索/翻页/切页签不会误关）',
+        '人员针的常驻徽标两行：第一行姓名 + 电话，第二行「负责站点数 | 未关闭 WO 数 | 未关闭 PMT 数」',
+        '电话原样显示（不脱敏）；部分人的号码上游入库时已打成 `231****7417`，后端按「人名一致 + 尾 4 位一致」从站点主数据唯一补回，补不回的按星号原样显示 —— 那是数据事实',
+        '站点显色与 `?page=realtime_alarm` 完全对齐（同一套色值真相源与分档），两页看的是同一批站点、同一份快照',
+        'PMT 取不到时显示 `—` 而不是 0；各人徽标求和 ≠ 全量（口径见筛选条 ⓘ 说明）',
+        '表格行与地图选中双向联动，仅有坐标的行可点；无坐标的人走「查看工单」按钮',
       ],
     },
     alarmManagement: {
@@ -531,6 +611,17 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
         '数据由 bp_report_sync 任务每天 06:20 从 RAN_UME 增量更新',
       ],
     },
+    ran_cells_kpi: {
+      desc: 'RAN 小区 KPI：按制式（2G/3G/4G）看小区的逐日可用率矩阵与月度达标情况。',
+      usage: [
+        '逐日矩阵是「指标为行、日期为列」的布局，页面只展示有数据的日期列',
+        '制式筛选决定渲染哪几张表，阈值决定达标/未达标判定（默认 99.65%，与后端一致）',
+        '页面级导出含 `Summary`（每制式一行：月均可用率 / 小区名册 / 有数据天数 / 小区总数 / 达标数 / 未达标数 / 两向占比）+ 每制式一张 `<制式>_Cells_KPI` 逐日矩阵',
+        'Sheet1 刻意叫 `Summary` 而不是 `<制式>_Cells_KPI`，否则会撞名被改写成 `Summary_2`，用户会看到两张像"汇总"的表',
+        '百分比以数值写出（如 `99.65`）而非字符串 `99.65%`，Excel 里可直接计算',
+        '下钻弹窗内另有导出按钮（导下钻明细），与页面级入口是两回事',
+      ],
+    },
     warehouse: {
       desc: '备件/耗材库存看板（Spare Management），与原工具看板完全一致。',
       usage: ['数据来自 sp_data_sync（每天 07:00 从 SFTP 拉取的 5 份备件报表）', '按仓库/备件类型查看库存与明细'],
@@ -707,11 +798,63 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
     },
     ms_sla_only: {
       desc: 'The "SLA only" cut of the MS Operation KPI Dashboard: the WOs SLA block with WO SLA attainment (TTR / TTR_P1~P4 Total / Within SLA / Achieve + trend), without NUR, Network or Per-Site.',
-      usage: ['Attainment ≥95% is green, below target is red — same scope as page=ms_sla', 'Three granularity tabs: day (default = current month to date), week (default = last 12 weeks) and month (default = January 2026 to date); switching a tab resets the time range (explained by the banner)', 'Click cells and data points to drill into TT details and export to Excel'],
+      usage: ['Attainment ≥95% is green, below target is red — same scope as page=ms_sla', 'Three granularity tabs: day (default = current month to date), week (default = last 12 weeks) and month (default = January 2026 to date); switching a tab resets the time range (explained by the banner)',         'Click cells and data points to drill into TT details and export to Excel'],
+    },
+    ms_wo_sla: {
+      desc: 'MS WOs SLA Daily Report: daily detail matrix of WO SLA attainment (Total / Within SLA / Achieve), reading the same file that the daily "MS WOs SLA Daily Report" email is built from.',
+      usage: [
+        'Data source: data/ms_sla/ZTE OLR MS WOs SLA Achievements Daily Report_<date>.xlsx (landed daily by the kpi_ms_wo_sla task); the page does no further processing — see backend/services/ms_kpi_report_service.py for the parsing caliber',
+        'Layout: overview cards (monthly tickets / meeting SLA / attainment / failing metrics) -> 5 TTR metric cards -> daily attainment trend (with each target line) -> daily detail matrix (same layout as the Excel)',
+        'Click a matrix column header to open the trend drill-down for that metric',
+        'The page can be exported to Excel with the same layout as the emailed attachment',
+      ],
+    },
+    ms_contract_kpi: {
+      desc: 'MS Contract KPIs & WOs Achievement auto-reports: the full report page for contract KPIs (27 KPIs across Operation / Network / PerSite) and WO SLA attainment.',
+      usage: [
+        'Data source: data/ms_sla/ZTE OLR MS Contract KPIs & WOs Achievement Auto-Reports.xlsx — the auto-report workbook itself, updated in place by the ms_sla_full task (daily at 05:00)',
+        'Layout: overview cards -> category attainment -> 27 KPI cards (grouped into Operation / Network / PerSite tabs; click a KPI card for its daily trend) -> 4 tabs (KPI matrix / WO SLA matrix / FineBI plan / auto-report inventory; the last two support search + filter + pagination)',
+        'The FineBI plan and auto-report inventory are *process ledgers*, not run metrics, so their entries were hidden on the page from 2026-09-27 (the backend still parses them and the data APIs remain)',
+        'Same source as page=ms_wo_sla: the WO SLA matrix is word-for-word identical to that page',
+      ],
     },
     cxoDashboard: {
       desc: 'Service / Network / Summary three-tier executive dashboard (from the VMAX assurance board).',
       usage: ['The iframe embeds a full data snapshot: it renders even when the upstream is down, but may not show the latest data', 'Re-run the sync task to refresh; credentials live in Settings → Credentials → vmax_cxo'],
+    },
+    vmaxCxoDashboard: {
+      desc: 'VMAX CXO original board (15-minute granularity executive screen): a fully independent implementation from page=cxoDashboard — changing one does not affect the other.',
+      usage: [
+        'A faithful visual replica of public/vmax_cxo_dashboard.html (an iframe shell), not a React component',
+        'Data comes from the VMAX CXO portal session (credential group vmax_cxo) via the sync task vmax_multi_data_sync',
+        'Renaming the display title requires editing 4 places at once: the i18n entries here (zh/en) plus the HTML <title> / #appTitle / inline I18N',
+      ],
+    },
+    vmaxCxoDashboard_Daily: {
+      desc: 'VMAX CXO daily detail (Daily): three day-granularity curves for Monday~Sunday × this week / last week / two weeks ago.',
+      usage: [
+        'Data comes from data/vmax_cxo_daily/daily.json written by the task vmax_cxo_daily_sync (VMAX has no native daily granularity — daily values are aggregated locally from the 1-hour detail)',
+        'Upstream hourly detail is kept for roughly 8 days only; dates older than that floor show as grey empty cells with a hover note (not a fault)',
+        'Renaming the display title requires editing 4 places at once: the i18n entries here (zh/en) plus public/vmax_cxo_dashboard_daily.html <title> / #appTitle / inline I18N',
+      ],
+    },
+    vmaxCxoDashboard_90Days: {
+      desc: 'CXO Daily Dashboard (90 Days): a 90-day executive-view screen for the CEO.',
+      usage: [
+        'Data comes from the daily_kpi table in data/olib_soc_report/olib_soc_report.sqlite3, written by the tasks olib_soc_vmax_report / olib_soc_kpi_daily_sync',
+        'Read-only endpoint /api/olib-soc-dashboard/overview (daily/weekly trends + yesterday card + 90-day extremes)',
+        'When gap days exist a banner shows "data complete x/y days · n missing"; the matching detail rows are flagged as incomplete',
+        'Renaming the display title requires editing 6 places at once: the i18n entries here (zh/en) plus public/vmax_cxo_dashboard_90days.html <title> / #appTitle / inline I18N (zh+en)',
+      ],
+    },
+    socTrendDashboard: {
+      desc: 'SOC multi-dimensional trend board: hourly and daily trends for traffic / TCP / per-service categories (traffic, video, web, gaming, OTT voice, OTT video), drillable by region and SGW network element.',
+      usage: [
+        'Data is pulled hourly at :40 by the task soc_trend_sync, read-only from the VMAX GBase data warehouse, and stored in data/soc_trend/soc_trend.sqlite3',
+        'Only raw counters are stored — ratios are computed on the read side (backend/services/soc_trend/soc_trend_metrics.py is the single source of caliber)',
+        'The "Metric Dictionary" dialog shows the alarm and attribution rules (same source as the backend)',
+        'The page is public/soc_trend_dashboard.html (React shell: pages/SocTrendDashboard.tsx)',
+      ],
     },
     mwUmeTopology: {
       desc: 'ZXMW microwave network topology & bandwidth utilization NOC board (daily granularity).',
@@ -742,6 +885,18 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
         'The "attributed/total" counter in the title uses the same **site** unit as Site Stats: attributed = sites that share a root cause with peers; the rest are isolated failures (upstream healthy, no same-window peers — the site itself is its own cause) — click the footnote to open the unattributed **alarm details**, the same project-standard detail table as clicking an entry in Alarm Stats (site / TT / priority / alarm time / duration / overdue), and verify against the map',
         'A root site may fall outside your filter scope (flagged "Out of scope") — outage causes often sit outside your current view; this is expected and is exactly the value of the analysis',
         'The "AI Insights" button generates a natural-language conclusion using your own LLM key (stored only in your browser); when AI is unavailable it degrades to a local rule-based summary and is clearly marked — the cluster list itself is unaffected',
+      ],
+    },
+    person: {
+      desc: 'Person Location Map: the registered position of field staff (map pins) + the distribution of sites each person actually handled, with per-person WO / TT statistics and open PMT counts.',
+      usage: [
+        'Two-column layout: map on the left, KPI 2x2 + two charts on the right; `?maponly=1` leaves the map alone',
+        'Click a person to select them and slide open the drill-down drawer from the right; clicking blank map area or anywhere outside cancels the selection (search / paging / tab switches inside the drawer do not close it accidentally)',
+        'The persistent pin badge has two lines: name + phone on the first, "sites handled | open WOs | open PMTs" on the second',
+        'Phone numbers are shown in full (not masked); some upstream records were already stored as `231****7417`, and the backend restores them uniquely by "same name + same last 4 digits" from the site master — the ones it cannot restore stay masked, which is a data fact',
+        'Site coloring is fully aligned with `?page=realtime_alarm` (same color source and same grading): both pages look at the same sites from the same snapshot',
+        'PMT shows — rather than 0 when unavailable; the per-person badge sum is not the full set (see the filter-bar info note for the caliber)',
+        'Table rows and map selection are two-way linked; only rows with coordinates are clickable, others use the "View tickets" button',
       ],
     },
     alarmManagement: {
@@ -979,6 +1134,17 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
         'Data is incrementally refreshed from RAN_UME by the bp_report_sync task daily at 06:20',
       ],
     },
+    ran_cells_kpi: {
+      desc: 'RAN Cells KPI: per-technology (2G/3G/4G) daily availability matrices for cells, plus monthly compliance.',
+      usage: [
+        'The daily matrix is laid out as "metrics as rows, dates as columns", and only dates that actually have data are shown',
+        'The technology filter decides which tables are rendered; the threshold decides the meeting/below verdict (99.65% by default, matching the backend)',
+        'The page-level export contains `Summary` (one row per technology: monthly average availability / cell roster / days with data / total cells / meeting / below / both ratios) plus one `<tech>_Cells_KPI` daily matrix per technology',
+        'Sheet1 is deliberately named `Summary` rather than `<tech>_Cells_KPI`: otherwise a name clash would rewrite it to `Summary_2` and users would see two sheets that both look like a summary',
+        'Percentages are written as numbers (e.g. `99.65`) rather than strings (`99.65%`) so they are directly computable in Excel',
+        'The drill-down modal has its own export button (detail rows) — that is separate from the page-level entry',
+      ],
+    },
     warehouse: {
       desc: 'Spare-parts / consumables inventory board (Spare Management), identical to the original tool.',
       usage: ['Data comes from sp_data_sync (5 spare-part reports pulled from SFTP daily at 07:00)', 'Browse inventory and details by warehouse / spare type'],
@@ -1182,7 +1348,7 @@ const OPS_ZH: OpsText = {
     { title: '② 入队', body: 'enqueue_task() 向主库 task_queue 写一行待执行记录。' },
     { title: '③ worker 认领', body: '对应分组的 worker 进程用 UPDATE…RETURNING 原子认领该行（backend/worker.py）。MY_APP_TASK_QUEUE=1 未设置时退化为调度器进程内线程执行。' },
     { title: '④ 执行', body: 'run_task() 调用真正的 service 函数（task_registry.py 里每条任务声明 func 或 loader=("模块路径","函数名") 懒加载）。业务函数抛异常即记为失败——不要在业务代码里吞异常。' },
-    { title: '⑤ 回写终态', body: '_finish() 回写任务终态并写 task_execution_log 执行历史（队列与执行日志保留 3 天）。失败时经微信 + 邮件双通道通知。' },
+    { title: '⑤ 回写终态', body: '_finish() 回写任务终态并写 task_execution_log 执行历史（队列与执行日志保留 7 天）。失败时经微信 + 邮件双通道通知。' },
   ],
   groupCols: ['组', '约束原因', '成员'],
   taskCols: { task: '任务', cron: '默认 cron', group: '组', script: '工作流脚本', flow: '工作流与数据流', maintain: '维护要点' },
@@ -1200,7 +1366,7 @@ const OPS_ZH: OpsText = {
     { name: '失败通知', body: '任务失败经微信 + 邮件双通道告警（services/weixin_notifier.py 支持 openclaw/wecom/serverchan/pushplus）。' },
     { name: '漏跑/停摆主动告警', body: 'db_freshness_check 每小时算四类健康异常（未归组 / 超出周期无执行记录 / 队列滞留 / 上次成功后逾期无新成功），由 services/task_health_alert.py 按「新异常通知一次、恢复通知一次、持续超 24h 再提一次」推微信+邮件，不必等看板没数据了才人工发现（2026-09-18 上线）。' },
     { name: '进程自愈', body: 'backend_watchdog / worker_watchdog 托管进程：端口探活、崩溃退避重拉（backend 连崩 10 次降级为每 5 分钟慢速重试、不再放弃；worker 仍是连崩 10 次摘除不再拉起）；心跳 log/heartbeat_*.json 超 3 分钟未更新判定 hung 强杀重拉。' },
-    { name: '保留期', body: 'task_queue 与 task_execution_log 保留 3 天（task_runner.py / worker.py 自动清理），无需手工。' },
+    { name: '保留期', body: 'task_queue 与 task_execution_log 保留 7 天（task_runner.py / worker.py 自动清理，可用环境变量 TASK_LOG_RETENTION_DAYS 调整），无需手工。' },
   ],
   maintain: [
     { title: '改排程（cron）', body: '「任务管理 → 排程」弹窗修改，写入主库 task_schedule_config 表，立即生效、重启不丢；无需改代码。' },
