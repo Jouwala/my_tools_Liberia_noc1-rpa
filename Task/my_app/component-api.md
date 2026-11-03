@@ -8,7 +8,7 @@
 
 | 端 | 位置 | 规模 |
 | --- | --- | --- |
-| **前端页面** | `frontend\src\pages\` | 72 个 `.tsx`（不含 `_` 前缀的模板与 `*_bak_*` 备份） |
+| **前端页面** | `frontend\src\pages\` | 73 个 `.tsx`（不含 `_` 前缀的模板与 `*_bak_*` 备份） |
 | **前端通用组件** | `frontend\src\components\` | 27 个 `.tsx` + `cards\` 子目录（卡片统一入口） |
 | **前端基础设施** | `frontend\src\*.ts(x)` | `api.ts`、`theme.ts`、`i18n.tsx`、`TaskStatusContext.tsx`、`cache.ts`、`datetime.ts`、`useDataTimestamps.ts`、`helpMarkdown.ts` |
 | **后端服务** | `backend\services\` | 业务服务层（各数据源采集与计算） |

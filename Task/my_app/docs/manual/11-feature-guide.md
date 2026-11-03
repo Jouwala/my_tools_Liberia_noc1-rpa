@@ -58,6 +58,7 @@
 | 43 | 电池看板 | `battery` | React |
 | 44 | IP 链路探测 | `ip_trace` | **iframe** |
 | 45 | VMAX 用户查询 | `vmax_user_query` | React |
+| 52 | IPT 站点电源查询 | `ipt_power` | React |
 | 46 | Speedtest 基准报告 | `bm_speedtest` | React |
 | 47 | Meta 基准报告 | `bm_meta` | React |
 | 48 | 数据总览 | `overview` | React |
@@ -1219,6 +1220,13 @@ LTE 丢包（RAN UME SDR/IPRAN IPPD），最近 **7 个完整自然日、小时�
   导出**完全复用页面既有 `useMemo`**（`sites`/`belowSites`/`withDataSites`/`avgOfTech`），不在导出里另算一套。
   subtitle 写全 8 项筛选：月份 / Supervisor / FME / 制式 / 视图 / 阈值 / 仅看有数据 / 搜索词 + 生成时间。
 
+- **数字悬浮说明（2026-11-03，`AGENTS.md` 三.3c）**：顶部 6 项统计（站点数 / 月均 / 有数据站点 / 未达标站点 / 本月工单 / 生成时间）各挂 `ExplainIcon`，表内四制式月均、最低值、未达标天、周列的列头挂 ⓘ，**数字本身**挂 `ExplainPopover`（该格：有值几天、其中几天未达标、最低值 / 最低日、日值原始读数）。
+  本页原先的口径提示是原生 `Tooltip title=`（`monthAvgTip` / `minTip` / `daysBelowTip` / `weekTip`），**不可复制、不受主题管**，已全部换成统一气泡并补厚文案；`minDayTip`（只印一个日期）随之删除，改由 `siteAvail.tip.min` 承担。
+  **两处必须在气泡里说清的口径**（都是实测，不是推测）：
+  ① 顶部「月均 / 有数据站点 / 未达标站点」是**前端按「搜索框过滤后」的站点集现算**（`SiteAvailability.tsx` 的 `avgOfTech` / `withDataSites` / `belowSites`），与后端全量 `summary.by_tech` 不是同一人群 —— 气泡明写「清空搜索框才是全网值」；
+  ② 「未达标天」与月均气泡里的未达标天数都走同一个 `belowDaysOf()`（阈值是前端输入框，改了即时重算），**刻意不用后端 `days_below`**，否则气泡会和列里的数字打架。
+- **口径不可比**：本页是**站点级** UME 原值（TDD 为服务时长折算），与 14k `ran_cells_kpi` 的**小区级**均值、14m/14n 的**站点-日加权**是三套不同口径，三者数字不可互相对账。
+
 ## 14j. FME 排名（`?page=fme_ranking`）
 
 按 FME（现场维护工程师）看可用率 / 工单量 / SLA 三类排名与前后三名榜单。
@@ -1280,6 +1288,17 @@ UME 侧 KPI 的采集结果：业务量、成功率、失败分因（系统侧 /
   **不要**改成 `AVG(Cell_Availability)` —— 那会把大区与小区权重拉平，`avail_recon_sync.py`
   顶部记录了 v1 因口径错误返工的经过。日/周/月三档直接复用表里重建任务算好的
   `Begin_Time` / `WK` / `Month` 列，页面与后端**都不自己推周号**。
+- **数字悬浮说明（2026-11-03，`AGENTS.md` 三.3c）**：三张矩阵的卡标题、四张 KPI 卡标题各挂
+  `MetricExplain::ExplainIcon`（讲这一列怎么算），矩阵每个可用率数字本身挂 `ExplainPopover`
+  （讲这一格：`分子 681 / 分母 717` + 分母是**站点-日**观测数、分子是这些观测的可用率累加、
+  因此是站点-日加权、环比、点击下钻）。此前这里只有一个 `Tooltip title=` 原生提示，
+  只给两个裸数字、不可复制也不受主题管 —— 已换成统一气泡（规则明确禁止 `title=`）。
+  **文案与 14n 的 FLM 页共用一份**：`frontend/src/pages/availSumRatio.ts` + i18n 的
+  `availSum.*` 命名空间（两页是同一个 `SUM(N)/SUM(D)` 口径，`avail_flm_service.py` 写明
+  「实现全部复用 avail_ms_service」，说明也不许各写一份变成两个真相源）。
+  分子/分母语义**实测确认**：日档 ALL 2G = 681/717，周档 W44 = 1363/1435 ≈ 日档 × 2
+  （该周只同步到 2 天），且 `availability === numerator/denominator` 逐位相等
+  → 分母按站点-日累加，不是「站点数」。
 - **接口**：`GET /api/avail-ms/options`（可选周期 + 数据截止）、`/matrix`（三张矩阵 + 环比）、
   `/trend`（三个维度各自的多序列趋势，页面曲线图）、
   `/drilldown`（`level=period` 时间明细/构成分解/近 30 期趋势；`level=tt` 工单明细），
@@ -1338,6 +1357,12 @@ UME 侧 KPI 的采集结果：业务量、成功率、失败分因（系统侧 /
   门面只有一层转发，14m 已验证的 `build_matrix` 一行未改（回归范围因此可控，
   对账断言见 `TMP/_probe_flm_service.py`：9 个区域×制式单元格与 `avail_ms` 逐位相同）。
   接口 `/api/avail-flm/options|matrix|trend|tt|drilldown`（`backend/routers/avail_flm.py`）。
+- **数字悬浮说明（2026-11-03）**：与 14m 同一套（`pages/availSumRatio.ts` + i18n `availSum.*`），
+  两张表的卡标题与三张区域 KPI 卡挂 ⓘ，矩阵每个数字挂气泡。区域卡的措辞**与 14m 的制式卡不同**，
+  故另起一键 `availSum.explainRegionKpi`：区域卡 = 该区域**全部制式、全部站点类型**合计的
+  `SUM(N)/SUM(D)`（`avail_flm_service.py` 的 `ms.cell(rows, prev, rk, None, None)`），
+  不是几个制式数字再平均；且本页**没有 ALL 行**，未匹配站点不在任何区域卡里。
+  实测：Montserrado 2G 单元格气泡 `分子 262 / 分母 268`，与 `/api/avail-ms/matrix` 同格逐位相同。
 - **两条与需求表不同的口径，均为 2026-09-28 与用户逐条确认**（要改回去之前先读这两条）：
   1. **站点类型不做范围限制**。需求表写「North East 只有 Regular/Cool.i」「South West 只有
      Regular/ERA」，但两个数据源都不支持这个"不存在"：站点主数据 `master_site_db` 里
@@ -5133,3 +5158,36 @@ VMAX 数仓 GBase（10.123.255.12:5258/zxvmax，只读）
 - 自测：`TMP\_soc_trend_smoke.py`（库/服务/路由函数级冒烟，只读本地库）；
   首轮回填日志 `TMP\_soc_trend_sync_backfill2.log`（hour 8 天 + day 90 天，91s）。
 - 手动补数：`cd Task\my_app && Scripts 下生产 Python312 跑 python -m backend.services.soc_trend.soc_trend_sync`。
+
+## 41. IPT 站点电源查询（`?page=ipt_power`，2026-11-03 新增）
+
+对接 **IPT Digital Platform**（RMS 能源监控平台，SaaS 外网），展示全网约 498 个站点的连接状态与关注站点的电源明细（电池 SOC/电压、负载、太阳能、发电机、油位）。
+
+### 41.1 数据链路
+
+- 采集任务 `ipt_power_collect`（m 组，`*/2 * * * *`）：每 2 分钟一次，① `POST /energy/sites/filter-map`（1 个请求）刷新全站清单与 online/offline 连接状态 → `ipt_power_sites`；② 按 `backend/services/ipt_data/watch_sites.json` 关注清单逐站拉 `/diagram` 电源全景 → `ipt_power_snapshots`（站间限速 0.3s，快照保留 2 天，2026-11-03 起）。
+- 认证为 **OIDC 隐式流**（`client_id=rubix-web`，`response_type=id_token token`），纯 requests 模拟 authorize → 登录表单 → 回调 fragment 取 access_token（TTL 1 小时，缓存 `auth_cache/` 自动续期）；上游拒绝 password grant（实测 `unauthorized_client`）。协议详情见 `backend/services/ipt_data/README.md`。
+- 页面只读本地库，不打扰上游；「立即刷新」按钮走 `POST /api/ipt-power/refresh` 实时直查平台并补一条快照（不在关注清单的站点也可用）。
+
+### 41.2 页面结构
+
+- 主表：站点清单 + 每站最新快照（SOC / 负载 / 太阳能 / 快照时间），⚡ 图标标记关注站点；「只看关注」开关过滤。
+- 详情：选中站点六张数字卡 + 近 6h/24h/72h/7d 趋势曲线（负载功率、太阳能功率左轴 W，电池 SOC 右轴 %）。
+- 采集状态横幅：任务未运行过或上一轮失败时黄色常驻告警（说「这次算错/没算」→ 常驻；口径解释 → `CalcChainNote` 默认收起）。
+
+### 41.3 注意事项
+
+- **`watch_sites.json` 不要配 `"*"`**：全站 498 站单轮 >2.5 分钟，2 分钟节拍做不完且外网压力大；推荐 ≤50 站。
+- `backend/services/ipt_data/url.txt` 含明文凭据，已被 `.gitignore`（`url*.txt` 规则）覆盖，不会入库。
+- `with-events` 接口返回网关设备密码/SNMP community，任何落库/日志输出前须脱敏（`diagram` 无此问题，入库用 `diagram`）。
+- 查询条件（关键字 / 时间范围 / 选中站点）写进 URL（`iptKw` / `iptHrs` / `iptSite`），刷新与分享链接可恢复。
+
+### 41.4 API（`backend/routers/ipt_power.py`）
+
+| 方法 | 路径 | 用途 |
+| --- | --- | --- |
+| GET | `/api/ipt-power/sites?keyword=&watch_only=` | 站点清单 + 最新快照摘要 |
+| GET | `/api/ipt-power/site/{site_id}?hours=` | 单站详情 + 历史序列 |
+| POST | `/api/ipt-power/refresh` | 实时直查平台并落快照（body: `{"query": "站名"}`） |
+| GET | `/api/ipt-power/status` | 采集运行状态 |
+| GET | `/api/ipt-power/watch` | 当前关注清单 |

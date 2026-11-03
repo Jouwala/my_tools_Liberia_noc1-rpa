@@ -193,3 +193,8 @@ _probe_file.txt
 # ⚠ 同目录 url.txt（已入库）是历史遗留，待另行清理，不在本规则覆盖范围内。
 /backend/services/vmax_cca/url*.txt
 !/backend/services/vmax_cca/url.txt
+
+# IPT 数仓平台（portal.iptdigitalplatform.com）抓包 —— 2026-11-02。
+# url.txt 含明文口令与有效 Bearer JWT，按 AGENTS.md 四.2 禁止入库；
+# 后续该目录写正式取数代码（.py）不受影响，仅拦抓包转储。
+/backend/services/ipt_data/url*.txt

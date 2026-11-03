@@ -1664,4 +1664,44 @@ export const TASK_DOCS: TaskDoc[] = [
       ],
     },
   },
+  {
+    id: 'ipt_power_collect', group: 'm', cron: '*/2 * * * *',
+    script: 'services/ipt_data/ipt_power_collector.py \u2192 run_ipt_power_collect',
+    zh: {
+      name: 'IPT 站点电源采集',
+      desc: '每 2 分钟从 IPT Digital Platform（RMS 能源监控平台，AWS 外网）采集：\u2460 filter-map 1 个请求刷全站（约 498 站）清单与连接状态；\u2461 按 watch_sites.json 关注清单逐站拉 diagram 电源全景入库。供「站点电源查询」页（?page=ipt_power）展示与画历史曲线',
+      flow: [
+        'OIDC 隐式流登录（client_id=rubix-web，模拟 authorize \u2192 登录表单 \u2192 回调 fragment 取 access_token，缓存 1 小时自动续期，见 services/ipt_data/README.md）',
+        'POST /energy/sites/filter-map 全量刷新 ipt_power_sites（连接状态 online/offline）',
+        '对关注清单每站 GET /energy/sites/<id>/diagram，压平成一行快照写入 ipt_power_snapshots（站间限速 0.3s）',
+        '清理 7 天前旧快照；运行结果写 ipt_power_meta.last_run',
+      ],
+      maintain: [
+        '\u26a0 采集范围由 backend/services/ipt_data/watch_sites.json 控制（数组，支持 "*" / 站点名 / 参考号 / site_id）——**不要配 "*"**：全站 498 站单轮约 2.5 分钟以上，2 分钟节拍做不完，且对外网平台压力过大；推荐 \u226450 站',
+        '凭据：环境变量 IPT_USERNAME / IPT_PASSWORD 优先，缺省读同目录 url.txt 头部「用户名：/密码：」两行；url.txt 含明文密码，已被 gitignore（url*.txt 规则）覆盖不会入库',
+        '密码模式（password grant）实测被拒（unauthorized_client），只有 rubix-web 允许授权码/隐式流 \u2192 登录走表单模拟；若登录页结构变化，任务会报「登录页结构变化」',
+        'watch 清单里匹配不到任何站点的项会在日志告警（不致命）；单站 diagram 失败只计 snap_failed 不阻断本轮',
+        '快照保留 2 天（RETENTION_DAYS，2026-11-03 调整：曲线只留 2 天控表体积），表按 (site_id, snap_time) 主键去重，重跑同一分钟不会重复',
+        '消费方：?page=ipt_power（站点电源查询页）；「立即刷新」按钮走 routers/ipt_power.py 的 /refresh 实时直查，与本任务共用登录缓存',
+      ],
+    },
+    en: {
+      name: 'IPT Site Power Collect',
+      desc: 'Every 2 minutes, collect from the IPT Digital Platform (RMS energy monitoring, external AWS SaaS): (1) one filter-map request refreshes the full site list (~498 sites) with connectivity; (2) per the watch_sites.json watch list, pull each site\u2019s diagram power panorama into the DB. Feeds the IPT Site Power page (?page=ipt_power)',
+      flow: [
+        'OIDC implicit-flow login (client_id=rubix-web; simulates authorize -> login form -> callback fragment to get the access_token, cached 1h with auto renewal; see services/ipt_data/README.md)',
+        'POST /energy/sites/filter-map refreshes ipt_power_sites (online/offline connectivity)',
+        'For each watched site, GET /energy/sites/<id>/diagram, flatten into one snapshot row in ipt_power_snapshots (0.3s throttle between sites)',
+        'Prune snapshots older than 7 days; write the run result to ipt_power_meta.last_run',
+      ],
+      maintain: [
+        'WARNING: the watch list is backend/services/ipt_data/watch_sites.json (array; "*" / site name / ref / site_id) — do NOT set "*": all 498 sites take >2.5 min per round, exceeding the 2-minute cadence and hammering the external platform; keep it \u226450 sites',
+        'Credentials: env IPT_USERNAME / IPT_PASSWORD take priority, otherwise the \u201cuser/password\u201d header lines of the local url.txt; url.txt contains a plaintext password — already gitignored via the url*.txt rule',
+        'The password grant is rejected upstream (unauthorized_client); only rubix-web allows code/implicit flows -> login is a form simulation; if the login page changes, the task reports a structure error',
+        'Watch entries matching no site log a warning (non-fatal); a single site\u2019s diagram failure only increments snap_failed and never aborts the round',
+        'Snapshots are kept 2 days (RETENTION_DAYS, adjusted 2026-11-03 to keep the table small); PK (site_id, snap_time) dedupes re-runs within the same minute',
+        'Consumer: ?page=ipt_power; its "Refresh now" button goes through routers/ipt_power.py /refresh (live query) and shares the login cache',
+      ],
+    },
+  },
 ]

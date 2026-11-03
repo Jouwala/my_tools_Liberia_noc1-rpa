@@ -496,7 +496,14 @@ GROUP_TASK_MAP = {
         # 卡死直到 300s 超时（whatsapp_send_ext / sp_email_details 等已四次踩坑，见上）。
         # 注：与 whatsapp_send（Playwright 0 3 * * *）默认并存而非互斥；Baileys 任务 cron
         # 错开为 0 4 * * *，但因 enabled=False 实际不会自动跑，由 sync 页面手动启用触发。
-        "whatsapp_send_baileys"),
+        "whatsapp_send_baileys,"
+        # ipt_power_collect 2026-11-03 注册：IPT Digital Platform（RMS 能源监控，AWS 外网）
+        # 站点电源采集（*/2）。归 m 组理由：外网独立会话（OIDC 隐式流表单模拟，token 缓存
+        # auth_cache/），与组内 EWS/WhatsApp/eFlow 会话零交集；只写自己的
+        # ipt_power_sites / ipt_power_snapshots / ipt_power_meta 三张表；单轮 3~10s，
+        # m 组已有每分钟的 ume_alarm 与 */5 的 tt_alarm 先例，可承载 */2。
+        # 新任务必须显式分组，否则无 worker 认领 → 队列 pending 卡死直到 300s 超时
+        "ipt_power_collect"),
     "c": (  # CN EMS (10.100.2.240) 独立会话：缓存同步与日聚合共享 _pmcache/daily_raw.json，
         # 同组串行保证互斥（ems_kpi_cache_sync 每15分钟 + ems_kpi_daily 每天00:20）
         "ems_kpi_cache_sync,ems_kpi_daily"),

@@ -54,6 +54,7 @@ export const PAGE_LIST: { key: string; iframe?: boolean }[] = [
   { key: 'imonitor', iframe: true },
   { key: 'ip_trace', iframe: true },
   { key: 'vmax_user_query' },
+  { key: 'ipt_power' },
   { key: 'incident_overview', iframe: true },
   { key: 'warehouse', iframe: true },
   { key: 'sp_material' },
@@ -123,6 +124,7 @@ export const NAV_KEY_MAP: Record<string, string> = {
   imonitor: 'nav.imonitor',
   ip_trace: 'nav.ipTrace',
   vmax_user_query: 'nav.vmaxUserQuery',
+  ipt_power: 'nav.iptPower',
   incident_overview: 'nav.incidentOverview',
   warehouse: 'nav.sp',
   sp_material: 'nav.spMaterial',
@@ -146,7 +148,7 @@ export const CATEGORIES: { id: string; pages: string[] }[] = [
     id: 'boards',
     pages: ['alarm', 'ttwo', 'v1_ttwo', 'tt', 'wo', 'nur', 'ms_nur_only', 'ms_sla', 'ms_sla_only', 'ms_wo_sla', 'ms_contract_kpi', 'cxoDashboard', 'vmaxCxoDashboard', 'vmaxCxoDashboard_Daily', 'vmaxCxoDashboard_90Days', 'socTrendDashboard', 'mwUmeTopology', 'mwRealTime', 'alarmManagement', 'fme_ranking', 'site_avail', 'avail_ms', 'avail_flm', 'avail_county', 'bm_speedtest', 'bm_meta', 'noc_analyst', 'repeat_site_down', 'cr_analysis', 'pm_analysis', 'bp_report', 'ran_cells_kpi', 'packet_loss', 'battery', 'ume_in_kpi', 'cn_kpi', 'cn_kpi_5mins', 'imonitor', 'gis', 'realtime_alarm', 'person', 'incident_overview', 'warehouse', 'sp_material', 'sp_details', 'sp_report', 'com_report', 'warehouse_summary'],
   },
-  { id: 'analysis', pages: ['eflow_qa', 'eflow_flow', 'dashboard', 'archive', 'ip_trace', 'vmax_user_query'] },
+  { id: 'analysis', pages: ['eflow_qa', 'eflow_flow', 'dashboard', 'archive', 'ip_trace', 'vmax_user_query', 'ipt_power'] },
   { id: 'workflow', pages: ['ap_center', 'feedback'] },
   { id: 'system', pages: ['settings', 'portalLogin'] },
 ]
@@ -436,6 +438,20 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
       desc: 'IP 链路探测：从服务器侧探测到目标站点的链路连通性与路径节点。',
       usage: ['输入目标开始探测，结果表格/地图实时刷新', '探测是可中断的长任务，卡住时可手动停止'],
     },
+    ipt_power: {
+      desc: '站点电源查询：对接 IPT Digital Platform（RMS 能源监控平台），看全网约 498 个站点的连接状态与关注站点的电源明细（电池 SOC/电压、负载、太阳能、发电机、油位）。采集任务 ipt_power_collect 每 2 分钟自动入库，本页只读库，不打扰上游平台。',
+      usage: [
+        '主表 = 全站清单 + 每站**最新一条**电源快照；「连接状态」来自平台的 filter-map（每 2 分钟刷新一次），online/offline 直接反映站点网关的可达性',
+        '⚡ 图标 = 关注站点：只有 watch_sites.json 清单内的站点才有电源快照与历史曲线（backend/services/ipt_data/watch_sites.json 维护，支持 "*" / 站点名 / 参考号 / site_id；**不建议配 "*"**——全站 498 站单轮采集不完）',
+        '「只看关注」开关过滤主表；搜索框匹配站点名 / 参考号 / 区域，回车或点放大镜触发',
+        '点行内「详情」进入单站视图：六张数字卡（SOC / 电池电压 / 充电状态 / 负载 / 太阳能 / 发电机）+ 近 N 小时趋势曲线（负载功率、太阳能功率、SOC 双轴），时间范围 6h/24h/72h/7d 可切',
+        '**「立即刷新」是实时直查平台**（绕开 2 分钟节拍），查完自动补一条快照并刷新曲线——不在关注清单的站点也能用它临时取数',
+        '曲线上「暂无数据」通常= 该站不在关注清单（无历史快照），点一次「立即刷新」即可开始积累',
+        '采集异常（任务未运行/上一轮失败）会在页面顶部出黄色横幅；快照默认保留 2 天，超期自动清理',
+        '「导出 Excel」出主表全列（含 SOC/负载/太阳能/快照时间）',
+        '搜索词、时间范围、选中站点都写进 URL（iptKw / iptHrs / iptSite），刷新或把链接发给同事后条件还在',
+      ],
+    },
     vmax_user_query: {
       desc: 'VMAX 投诉诊断：输入号码与时间窗，一次并发取回四路 Talon XDR（用户面 1300 / 信令 1100 / 视频 1301 / 无线 32），按四个维度打分、给出结论，并能下钻到分钟级证据链。页面存在的目的只有一个——用户来投诉（语音、OTT 语音视频、视频卡顿、游戏、上网慢）时，能回答「原因是什么」。',
       usage: [
@@ -501,7 +517,14 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
     },
     site_avail: {
       desc: '站点可用率看板：站点级可用率排名与达标情况。',
-      usage: ['点站点名下钻该站的可用率明细', '可用率按站点统计口径计算，与 FME 排名页同源'],
+      usage: [
+        '点站点名下钻该站的可用率明细',
+        '可用率按站点统计口径计算，与 FME 排名页同源',
+        '**每个数字都能悬浮看算法**（2026-11-03）：顶部六项统计与表内「月均 / 最低 / 未达标天 / 周」列头各有一个 ⓘ，数字本身悬浮列出这一格的构成（有值几天、其中几天低于阈值、最低值与最低日、日值是 UME 原始读数还是 TDD 折算）。原先只有原生 title 提示，不可复制，已换成统一气泡',
+        '**顶部三个数跟着搜索框变**：「月均 / 有数据站点 / 未达标站点」是按**搜索过滤后**的站点集现算的，不是后端全量汇总 —— 想看全网值请把搜索框清空。「站点数」斜杠前是过滤后的行数、斜杠后才是本月纳入统计的总数',
+        '阈值（默认 99.65%）是页面输入框，改了即时重算「未达标」结果，不重新查询；所以「未达标天」不是后端固定值',
+        '本页是**站点级**口径，与「小区可用率排名」（小区级）、「可用率多维矩阵」（站点-日加权）三套数字不可互相对账',
+      ],
     },
     avail_ms: {
       desc: 'MS Availability（可用率多维矩阵）：把全网可用率按「区域 / 制式 / 站点类型」三个维度呈现，日 / 周 / 月用页签切换粒度。数据来自本机派生库 avail_recon.sqlite3（任务 avail_recon_sync 每天 06:10 重建，口径为站点级加权可用率 SUM(分子)/SUM(分母)）。',
@@ -510,6 +533,7 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
         '曲线上的点也能点开下钻，打开的是**那个点自己的周期**（例如月档停在 2026-09 时点 2026-08 的点，弹窗就是 2026-08 的明细）',
         '区域那张曲线不含「未匹配主数据」（量级太低会把纵轴压扁），图下有一行说明，它的数据在表格末行',
         '点任意可用率数字下钻：弹窗内含近 30 期趋势、按日明细与「按调度组」的构成分解，第二个页签可看该组合相关的 TT 工单',
+        '**每个数字都能悬浮看算法**（2026-11-03）：三张矩阵的卡标题与四张 KPI 卡标题有 ⓘ，讲这一列怎么算（SUM(分子)/SUM(分母)、数据源是哪张表、ALL 卡含未匹配站点）；把鼠标停在矩阵的可用率数字上，气泡会列出**这一格**的分子与分母、分母的含义（本期「站点-日」观测数，每天每个有值站点计 1）、因此是站点-日加权而非各站简单平均、环比与下钻提示。气泡可复制；原先只有一个原生 title 提示（两个裸数字、不可复制），已换成统一组件',
         '阈值输入框（默认 99.65%）决定「未达标」判定：低于阈值显示为红色，会实时重算，不改变数字本身',
         '区域维度的 ALL 行含「未匹配主数据」的站点，因此 ALL 不等于三个区域相加；末行单列该桶，点它只能看可用率明细、不能下钻 TT（派生库里没有那批站点的名单）',
         '4G 的 NERA 属未映射调度组：计入制式 4G 总量，在站点类型维度单列「其它」，只出现在 2025-12 ~ 2026-01 的月份；此时页面会出现黄色口径提示条',
@@ -523,6 +547,7 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
         '曲线上的点也能点开下钻，打开的是**那个点自己的周期**；阈值虚线（默认 99.65%）与表格的红色判定同一个值',
         '点任意可用率数字下钻：弹窗内含近 30 期趋势、按日明细与「按调度组」的构成分解，第二个页签是该切片的全部 TT 工单',
         '三个区域各有一张 KPI 卡（该区域全部制式合计），点卡片同样能下钻',
+        '**每个数字都能悬浮看算法**（2026-11-03，与「可用率多维矩阵」同一套文案）：两张表的卡标题与三张区域 KPI 卡有 ⓘ，矩阵每个可用率数字悬浮列出该格的分子/分母、分母含义（本期「站点-日」观测数）、站点-日加权与环比。区域卡的措辞与多维矩阵的制式卡**不同**：区域卡是该区域全部制式、全部站点类型合计的 SUM(分子)/SUM(分母)，不是几个制式数字再平均，且本页没有 ALL 行、未匹配站点不在任何区域卡里',
         '站点类型不做范围限制：三个区域都会显示 Regular / Cooli / ERA 三列（列名用数据原值）。需求里写的「NE 只有 Regular/Cool.i」与两个数据源都不符（NE 有 123 个 ERA 站点、派生库里 NE 的 ERA 分母 6.5 万），硬留空反而会让人以为 NE 没有 ERA 站点',
         '末行「未匹配主数据」是远端站点名匹配失败的部分：它不在三个区域之内，也不画进曲线（量级大会压扁纵轴），单列出来只为对账，点它只能看可用率明细、不能下钻 TT',
         '页面级「影响可用率的 TT 列表」列出**本期全部工单**，不做「是否影响业务」的判定（判定字段与 site_outage 在本期数据上完全一致，取其一都会让口径看起来比实际精确）；每行给出 2G/3G/4G 断站数与 MTTR，由使用者自己判断相关性',
@@ -974,6 +999,20 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
       desc: 'IP trace: probe link connectivity and path nodes from the server side to a target site.',
       usage: ['Enter a target and start; the result table/map refreshes live', 'Tracing is a stoppable long task — stop it manually if it hangs'],
     },
+    ipt_power: {
+      desc: 'IPT Site Power: integrates the IPT Digital Platform (RMS energy monitoring) to show connectivity for all ~498 sites and power details (battery SOC/voltage, load, solar, generator, fuel) for watched sites. Collector task ipt_power_collect ingests every 2 minutes; this page only reads the local DB.',
+      usage: [
+        'Main table = all sites + each site\u2019s **latest** power snapshot; "Connectivity" comes from the platform\u2019s filter-map (refreshed every 2 min) and reflects gateway reachability',
+        '\u26a1 icon = watched site: only sites listed in watch_sites.json have power snapshots and history charts (maintained in backend/services/ipt_data/watch_sites.json; "*" / site name / ref / site_id; **do NOT set "*"** — 498 sites cannot finish in one round)',
+        '"Watched only" toggles the main table; the search box matches site name / ref / area (press Enter to search)',
+        'Click "Detail" on a row for the single-site view: six stat cards (SOC / battery voltage / charging state / load / solar / generator) + a trend chart (load power, solar power, SOC on dual axes) over 6h/24h/72h/7d',
+        '**"Refresh now" queries the platform live** (bypassing the 2-minute cadence) and appends a snapshot after the query — use it on any site, even ones outside the watch list',
+        'An empty chart usually means the site is not on the watch list (no history snapshots); one "Refresh now" starts accumulating them',
+        'A yellow banner appears at the top when the collector has never run or the last round failed; snapshots are kept for 2 days and pruned automatically',
+        '"Export Excel" exports the main table with SOC / load / solar / snapshot time',
+        'Search keyword, time range and selected site are persisted in the URL (iptKw / iptHrs / iptSite) so refresh and shared links restore the view',
+      ],
+    },
     vmax_user_query: {
       desc: 'VMAX complaint diagnosis: enter a subscriber number and time window to answer "why is this user complaining?". The page pulls four Talon XDR sources in one shot (user plane 1300 / signaling 1100 / video 1301 / RAN 32), scores the network on four dimensions, names a conclusion, and drills down to the minute-level evidence chain. Built for voice, OTT voice/video, video stall, gaming and slow-data complaints.',
       usage: [
@@ -1040,7 +1079,14 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
     },
     site_avail: {
       desc: 'Site availability board: per-site availability ranking and target compliance.',
-      usage: ['Click a site name to drill into its availability details', 'Availability uses the same per-site calculation as the FME ranking page'],
+      usage: [
+        'Click a site name to drill into its availability details',
+        'Availability uses the same per-site calculation as the FME ranking page',
+        '**Every figure explains itself on hover** (2026-11-03): the six headline statistics and the monthly-average / minimum / days-below / week column headers each carry a ⓘ, and hovering a number lists that cell - days with data, how many are below the threshold, the lowest value and its day, whether a daily value is a raw UME reading or a TDD conversion. A native title hint used to be the only aid and was not copyable, so it was replaced by the shared bubble',
+        '**The three headline numbers follow the search box**: monthly average / sites with data / sites below target are computed over the **filtered** site set, not the backend network-wide summary - clear the search box to get the whole-network value. In "Sites", the number before the slash is the filtered row count and the one after is the total in scope for the month',
+        'The threshold (default 99.65%) is a page input: changing it recomputes "below target" immediately without a new query, so days-below is not a fixed backend value',
+        'This page is a **site-level** measure and cannot be reconciled against the cell-level ranking (RanCellsKpi) or the site-day weighted matrix (MS Availability)',
+      ],
     },
     avail_ms: {
       desc: 'MS Availability (availability matrix): network availability presented across three dimensions — region / technology / site type — with day, week and month granularity on tabs. Data comes from the local derived database avail_recon.sqlite3 (rebuilt daily at 06:10 by the avail_recon_sync task; the measure is site-weighted availability, SUM(numerator)/SUM(denominator)).',
@@ -1049,6 +1095,7 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
         'Chart points are clickable too, and they open **that point\'s own period** (e.g. when the month tab sits on 2026-09, clicking the 2026-08 point opens 2026-08 detail)',
         'The region chart omits the "unmatched master data" line (its magnitude would flatten the y-axis); a note under the chart points to the last table row, where it is shown',
         'Click any availability figure to drill down: the dialog holds a 30-period trend, the daily detail and a breakdown by dispatch group; the second tab lists the related TT tickets for that combination',
+        '**Every figure explains itself on hover** (2026-11-03): the three matrix card titles and the four KPI card titles carry a ⓘ stating how that column is computed (SUM(numerator)/SUM(denominator), which table it comes from, that the ALL card includes unmatched sites); hovering an availability number in a matrix lists **that cell** — its numerator and denominator, what the denominator means (site-day observations in the period, one per site per day with data), that the ratio is therefore site-day weighted rather than a plain site average, the change and the drill hint. Bubbles are copyable; the previous native title hint showed two bare numbers and was neither copyable nor themed, so it was replaced by the shared component',
         'The threshold input (default 99.65%) drives the "below target" flag: values under it turn red and re-evaluate instantly — the figures themselves do not change',
         'The ALL row under Region includes sites not matched to master data, so ALL is not the sum of the three regions; that bucket gets its own last row — it can show availability detail but not TT tickets (the derived DB holds no site list for it)',
         '4G NERA is an unmapped dispatch group: counted in the 4G technology total, shown separately as "Other" under site type, and only present in the 2025-12 ~ 2026-01 months; a yellow note appears on the page then',
@@ -1062,6 +1109,7 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
         'Chart points are clickable and open **that point\'s own period**; the dashed threshold line (default 99.65%) is the same value that turns table figures red',
         'Click any availability figure to drill down: the dialog holds a 30-period trend, the daily detail and a breakdown by dispatch group; the second tab lists every TT ticket of that slice',
         'Each region also has a KPI card (all technologies combined) that can be clicked to drill down',
+        '**Every figure explains itself on hover** (2026-11-03, sharing the wording with the Availability Matrix): the two matrix card titles and the three region KPI cards carry a ⓘ, and hovering an availability number lists that cell numerator, denominator, what the denominator means (site-day observations) and the weighting. The region card wording differs from the per-technology card of the matrix: a region card is SUM(numerator)/SUM(denominator) over **all technologies and all site types** of that region, not a mean of the per-technology figures, and this page has no ALL row — unmatched sites sit in no region card',
         'Site type is not scope-restricted: all three regions show the three columns Regular / Cooli / ERA (raw data value). The "NE has only Regular/Cool.i" note in the requirement contradicts both data sources (NE has 123 ERA sites and an ERA denominator of 65k in the derived database), and leaving cells blank would wrongly suggest NE has no ERA sites',
         'The last row "unmatched master data" is the part whose remote site names failed to match: it is outside the three regions and is not plotted (its magnitude would flatten the y-axis); it is listed for reconciliation only and can show availability detail but not TT tickets',
         'The page-level "TTs affecting availability" list shows **every TT of the period** with no "impacted service" judgement (that field and site_outage agree on every row of this period, so using either would make the definition look more precise than it is); each row carries the 2G/3G/4G down-site counts and MTTR so you can judge relevance yourself',

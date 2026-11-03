@@ -143,6 +143,8 @@ from backend.routers import (
     pm_analysis,
     bm_speedtest,
     bm_meta,
+    # IPT 站点电源查询（IPT Digital Platform / RMS 能源监控，2026-11-03）
+    ipt_power,
 )
 # 任务配置文件注册表（Settings「任务配置」页签 → 配置文件管理）
 from backend.services import task_configs_registry  # noqa: F401  (注册副作用)
@@ -323,6 +325,8 @@ app.include_router(vmax_diagnosis.router)
 app.include_router(vmax_diagnosis_override.router)
 # 问题登记（用户反馈）：任何内网用户可提交问题，管理侧可筛选/处理/删除
 app.include_router(feedback.router)
+# IPT 站点电源查询：站点清单/最新快照/历史曲线/实时直查（采集任务 ipt_power_collect 每 2 分钟入库）
+app.include_router(ipt_power.router)
 # AP（Action Plan）：下发/确认/进度/凭证/提交审核/审核关闭。
 # 组织架构取 Escalation Matrix（services/ap_manager/org.py），
 # 权限：role=admin 或 ap_role=AP_MANAGER 才能创建下发。

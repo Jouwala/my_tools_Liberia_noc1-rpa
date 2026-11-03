@@ -10,7 +10,7 @@
 
 - [1. Platform Overview](#1-platform-overview)
 - [2. General Usage](#2-general-usage)
-- [3. Task Manager Deep Dive (80 tasks)](#3-task-manager-deep-dive)
+- [3. Task Manager Deep Dive (81 tasks)](#3-task-manager-deep-dive)
 - [4. Pages Guide](#4-pages-guide)
 - [5. Ops & Troubleshooting](#5-ops-troubleshooting)
 - [6. FAQ](#6-faq)
@@ -83,7 +83,7 @@ Built for the NOC scenario "boards every day, reports must go out": 41+ schedule
 
 > ⚠️ **New tasks MUST also be registered in `GROUP_TASK_MAP` in worker_watchdog.py** — declaring them only in TASK_SPECS leaves them pending forever. This accident happened four times (finebi_report_sync / whatsapp_send_ext / sp_email_details / the olib_soc and vmax_multi_data_sync tasks found on 2026-09-18).
 
-### 3.3 Full task catalog (80 tasks)
+### 3.3 Full task catalog (81 tasks)
 
 | Task | task_id | Default cron | Group | Workflow script |
 | --- | --- | --- | --- | --- |
@@ -167,6 +167,7 @@ Built for the NOC scenario "boards every day, reports must go out": 41+ schedule
 | TMP Directory Cleanup | `tmp_cleanup` | `47 3 * * *` | m | `services/tmp_cleanup.py → run_tmp_cleanup` |
 | TTs and MTTR Report Generate | `tt_mttr_report_generate` | `20 7 * * *` | m | `services/tt_mttr_report.py → run_tt_mttr_report` |
 | RAN User Identity Lists (VoLTE/N78) | `gp_ran_user_sync` | `20 13 * * *` | g | `services/gp_ran/gp_ran_sync.py → run_gp_ran_user_sync` |
+| IPT Site Power Collect | `ipt_power_collect` | `*/2 * * * *` | m | `services/ipt_data/ipt_power_collector.py → run_ipt_power_collect` |
 
 Workflow & maintenance notes per task:
 
@@ -1664,6 +1665,29 @@ Workflow & maintenance notes per task:
 - Moving datacenter: change GP_RAN_CONTROL_HOST / GP_RAN_MASTER_HOST / GP_RAN_DB only. The master IP is readable on control1 via cat /home/gpadmin/paas_hosts_master.cc
 - Chain diagnostics: python -m backend.services.gp_ran.gp_ran_check --check (prints both hops, sudo, psql, table and partitions)
 
+#### IPT Site Power Collect（`ipt_power_collect`）
+
+- Default cron: `*/2 * * * *`　|　worker group: **m**
+- Workflow script: `services/ipt_data/ipt_power_collector.py → run_ipt_power_collect`
+
+**What it does**: Every 2 minutes, collect from the IPT Digital Platform (RMS energy monitoring, external AWS SaaS): (1) one filter-map request refreshes the full site list (~498 sites) with connectivity; (2) per the watch_sites.json watch list, pull each site’s diagram power panorama into the DB. Feeds the IPT Site Power page (?page=ipt_power)
+
+**Workflow & data flow**:
+
+1. OIDC implicit-flow login (client_id=rubix-web; simulates authorize -> login form -> callback fragment to get the access_token, cached 1h with auto renewal; see services/ipt_data/README.md)
+1. POST /energy/sites/filter-map refreshes ipt_power_sites (online/offline connectivity)
+1. For each watched site, GET /energy/sites/<id>/diagram, flatten into one snapshot row in ipt_power_snapshots (0.3s throttle between sites)
+1. Prune snapshots older than 7 days; write the run result to ipt_power_meta.last_run
+
+**Maintenance**:
+
+- WARNING: the watch list is backend/services/ipt_data/watch_sites.json (array; "*" / site name / ref / site_id) — do NOT set "*": all 498 sites take >2.5 min per round, exceeding the 2-minute cadence and hammering the external platform; keep it ≤50 sites
+- Credentials: env IPT_USERNAME / IPT_PASSWORD take priority, otherwise the “user/password” header lines of the local url.txt; url.txt contains a plaintext password — already gitignored via the url*.txt rule
+- The password grant is rejected upstream (unauthorized_client); only rubix-web allows code/implicit flows -> login is a form simulation; if the login page changes, the task reports a structure error
+- Watch entries matching no site log a warning (non-fatal); a single site’s diagram failure only increments snap_failed and never aborts the round
+- Snapshots are kept 2 days (RETENTION_DAYS, adjusted 2026-11-03 to keep the table small); PK (site_id, snap_time) dedupes re-runs within the same minute
+- Consumer: ?page=ipt_power; its "Refresh now" button goes through routers/ipt_power.py /refresh (live query) and shares the login cache
+
 ### 3.4 Reliability mechanisms (timeout / retry / self-healing)
 
 | Mechanism | Description |
@@ -1931,6 +1955,10 @@ Site availability board: per-site availability ranking and target compliance.
 
 - Click a site name to drill into its availability details
 - Availability uses the same per-site calculation as the FME ranking page
+- **Every figure explains itself on hover** (2026-11-03): the six headline statistics and the monthly-average / minimum / days-below / week column headers each carry a ⓘ, and hovering a number lists that cell - days with data, how many are below the threshold, the lowest value and its day, whether a daily value is a raw UME reading or a TDD conversion. A native title hint used to be the only aid and was not copyable, so it was replaced by the shared bubble
+- **The three headline numbers follow the search box**: monthly average / sites with data / sites below target are computed over the **filtered** site set, not the backend network-wide summary - clear the search box to get the whole-network value. In "Sites", the number before the slash is the filtered row count and the one after is the total in scope for the month
+- The threshold (default 99.65%) is a page input: changing it recomputes "below target" immediately without a new query, so days-below is not a fixed backend value
+- This page is a **site-level** measure and cannot be reconciled against the cell-level ranking (RanCellsKpi) or the site-day weighted matrix (MS Availability)
 
 #### avail_ms（`avail_ms`）
 
@@ -1940,6 +1968,7 @@ MS Availability (availability matrix): network availability presented across thr
 - Chart points are clickable too, and they open **that point's own period** (e.g. when the month tab sits on 2026-09, clicking the 2026-08 point opens 2026-08 detail)
 - The region chart omits the "unmatched master data" line (its magnitude would flatten the y-axis); a note under the chart points to the last table row, where it is shown
 - Click any availability figure to drill down: the dialog holds a 30-period trend, the daily detail and a breakdown by dispatch group; the second tab lists the related TT tickets for that combination
+- **Every figure explains itself on hover** (2026-11-03): the three matrix card titles and the four KPI card titles carry a ⓘ stating how that column is computed (SUM(numerator)/SUM(denominator), which table it comes from, that the ALL card includes unmatched sites); hovering an availability number in a matrix lists **that cell** — its numerator and denominator, what the denominator means (site-day observations in the period, one per site per day with data), that the ratio is therefore site-day weighted rather than a plain site average, the change and the drill hint. Bubbles are copyable; the previous native title hint showed two bare numbers and was neither copyable nor themed, so it was replaced by the shared component
 - The threshold input (default 99.65%) drives the "below target" flag: values under it turn red and re-evaluate instantly — the figures themselves do not change
 - The ALL row under Region includes sites not matched to master data, so ALL is not the sum of the three regions; that bucket gets its own last row — it can show availability detail but not TT tickets (the derived DB holds no site list for it)
 - 4G NERA is an unmapped dispatch group: counted in the 4G technology total, shown separately as "Other" under site type, and only present in the 2025-12 ~ 2026-01 months; a yellow note appears on the page then
@@ -1953,6 +1982,7 @@ FLM availability: covers only the three FLM regions (Montserrado / North East / 
 - Chart points are clickable and open **that point's own period**; the dashed threshold line (default 99.65%) is the same value that turns table figures red
 - Click any availability figure to drill down: the dialog holds a 30-period trend, the daily detail and a breakdown by dispatch group; the second tab lists every TT ticket of that slice
 - Each region also has a KPI card (all technologies combined) that can be clicked to drill down
+- **Every figure explains itself on hover** (2026-11-03, sharing the wording with the Availability Matrix): the two matrix card titles and the three region KPI cards carry a ⓘ, and hovering an availability number lists that cell numerator, denominator, what the denominator means (site-day observations) and the weighting. The region card wording differs from the per-technology card of the matrix: a region card is SUM(numerator)/SUM(denominator) over **all technologies and all site types** of that region, not a mean of the per-technology figures, and this page has no ALL row — unmatched sites sit in no region card
 - Site type is not scope-restricted: all three regions show the three columns Regular / Cooli / ERA (raw data value). The "NE has only Regular/Cool.i" note in the requirement contradicts both data sources (NE has 123 ERA sites and an ERA denominator of 65k in the derived database), and leaving cells blank would wrongly suggest NE has no ERA sites
 - The last row "unmatched master data" is the part whose remote site names failed to match: it is outside the three regions and is not plotted (its magnitude would flatten the y-axis); it is listed for reconciliation only and can show availability detail but not TT tickets
 - The page-level "TTs affecting availability" list shows **every TT of the period** with no "impacted service" judgement (that field and site_outage agree on every row of this period, so using either would make the definition look more precise than it is); each row carries the 2G/3G/4G down-site counts and MTTR so you can judge relevance yourself
@@ -2312,6 +2342,20 @@ VMAX complaint diagnosis: enter a subscriber number and time window to answer "w
 - RAN (32) is queried by **IMSI, not MSISDN** — the RAN table's user-number column is entirely empty strings upstream. The IMSI is resolved from the 1300/1100 results first; if neither returns one, the radio dimension says "no IMSI mapping" instead of silently reporting 0 records
 - Results are read-only passthrough and nothing is persisted, but the number and current view are written into the URL — refreshing or sharing the link re-runs the same number
 - The link carries the number; check that the recipient is allowed to see that number before forwarding
+
+#### ipt_power（`ipt_power`）
+
+IPT Site Power: integrates the IPT Digital Platform (RMS energy monitoring) to show connectivity for all ~498 sites and power details (battery SOC/voltage, load, solar, generator, fuel) for watched sites. Collector task ipt_power_collect ingests every 2 minutes; this page only reads the local DB.
+
+- Main table = all sites + each site’s **latest** power snapshot; "Connectivity" comes from the platform’s filter-map (refreshed every 2 min) and reflects gateway reachability
+- ⚡ icon = watched site: only sites listed in watch_sites.json have power snapshots and history charts (maintained in backend/services/ipt_data/watch_sites.json; "*" / site name / ref / site_id; **do NOT set "*"** — 498 sites cannot finish in one round)
+- "Watched only" toggles the main table; the search box matches site name / ref / area (press Enter to search)
+- Click "Detail" on a row for the single-site view: six stat cards (SOC / battery voltage / charging state / load / solar / generator) + a trend chart (load power, solar power, SOC on dual axes) over 6h/24h/72h/7d
+- **"Refresh now" queries the platform live** (bypassing the 2-minute cadence) and appends a snapshot after the query — use it on any site, even ones outside the watch list
+- An empty chart usually means the site is not on the watch list (no history snapshots); one "Refresh now" starts accumulating them
+- A yellow banner appears at the top when the collector has never run or the last round failed; snapshots are kept for 2 days and pruned automatically
+- "Export Excel" exports the main table with SOC / load / solar / snapshot time
+- Search keyword, time range and selected site are persisted in the URL (iptKw / iptHrs / iptSite) so refresh and shared links restore the view
 
 ### 4.4 Workflow
 

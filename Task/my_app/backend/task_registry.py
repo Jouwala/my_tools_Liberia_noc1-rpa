@@ -1048,6 +1048,20 @@ TASK_SPECS = [
          description="每小时直连 VMAX 数仓 GBase 只读拉取流量/TCP/分业务类目（流量/视频/网页/游戏/OTT语音/OTT视频，按区域+SGW网元维度）的小时与天粒度聚合，落盘 data/soc_trend/soc_trend.sqlite3 供 SOC 多维趋势组合看板的双基线告警与三日对比",
          description_en="Hourly read-only GBase pulls of traffic/TCP/per-service categories (traffic/video/web/game/OTT voice/OTT video, by area + SGW NE) at hour and day granularity into data/soc_trend/soc_trend.sqlite3, feeding the SOC multi-dim trend dashboard (dual-baseline alarms, D/D-1/D-7 comparison)",
          default_cron="40 * * * *", category="olib_soc"),
+
+    # ipt_power_collect 2026-11-03 注册：IPT Digital Platform（RMS 能源监控平台，AWS 外网）
+    # 站点电源采集。每 2 分钟：① filter-map 1 个请求刷全站（~498 站）清单与连接状态；
+    # ② 按 services/ipt_data/watch_sites.json 关注清单逐站拉 diagram 电源全景入库
+    # （默认 2 个示例站，支持 "*" / 站点名 / 参考号 / site_id；全站 498 站单轮做不完，
+    #   不要配 "*"）。认证为 OIDC 隐式流表单模拟（见 services/ipt_data/README.md），
+    # access_token 缓存 1 小时自动续期。归 m 组理由：外网独立会话，与组内任务无冲突，
+    # 单轮 3~10s；m 组已有每分钟任务先例（ume_alarm_whatsapp_alert）。
+    # 消费方：?page=ipt_power（站点电源查询页）。
+    dict(task_id="ipt_power_collect", name="IPT 站点电源采集", name_en="IPT Site Power Collect",
+         loader=("backend.services.ipt_data.ipt_power_collector", "run_ipt_power_collect"),
+         description="每 2 分钟从 IPT Digital Platform（RMS 能源监控）采集站点连接状态（全站）与电源快照（关注清单，watch_sites.json），入库 ipt_power_sites / ipt_power_snapshots，供站点电源查询页展示与历史曲线",
+         description_en="Every 2 min, collect site connectivity (all sites) and power snapshots (watch list in watch_sites.json) from the IPT Digital Platform (RMS energy monitoring) into ipt_power_sites / ipt_power_snapshots, feeding the IPT Site Power page",
+         default_cron="*/2 * * * *", category="ipt_power"),
 ]
 
 # ========== 网关分组（按「获取数据的外部系统」归类，与 category 平行） ==========
@@ -1095,6 +1109,8 @@ CATEGORY_GATEWAY: dict[str, str] = {
     # RAN Greenplum（L_T216 信令明细）：与 GBase 8a 是**两套数仓**，
     # 走 control1 两跳 SSH + psql，不共用任何会话或凭据，故单列一个网关
     "gp_ran": "ran_greenplum",
+    # IPT Digital Platform（RMS 能源监控平台，AWS 外网 SaaS）：站点电源/能源数据
+    "ipt_power": "ipt_energy",
 }
 
 # 将 gateway 注入每个 spec，作为一级分组真相源（前端按此动态分组，不再硬编码 ROW_GROUPS）

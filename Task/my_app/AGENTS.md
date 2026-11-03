@@ -5,7 +5,7 @@
 
 ## 一、这个项目是什么
 
-**my_app / Data Insight MVP** —— 利比里亚电信网络运维的**自研数据平台**，是整个工作区的数据底座。它负责把上游系统（UME、eFlow、CCN、PM、邮件、WhatsApp 等）的数据采集、入库、计算、展示，并提供 80 个功能页面与 80 个定时任务。
+**my_app / Data Insight MVP** —— 利比里亚电信网络运维的**自研数据平台**，是整个工作区的数据底座。它负责把上游系统（UME、eFlow、CCN、PM、邮件、WhatsApp 等）的数据采集、入库、计算、展示，并提供 81 个功能页面与 81 个定时任务。
 
 **技术栈**：后端 FastAPI + SQLAlchemy（SQLite / PostgreSQL 双模）+ Alembic + APScheduler；前端 React + Vite；任务由多组 worker 进程执行 + 看门狗守护。
 
@@ -65,6 +65,18 @@
    - **唯一的例外是「异常」而不是「解释」**：口径缺陷、数据错误、站点匹配失败、截断告警这类**会让用户带着错数字看报表**的信息，必须**常驻可见**（走 `CalcChainNote` 的 `warning` 口或独立 `Alert type="warning|error"`）。判断标准一句话：**说「怎么算的」→ 收起；说「这次算错了/算不全」→ 常驻**。
    - **等价写法不再接受**：「页头一行小字一直挂着」「说明塞进 `Tooltip` 但文字超过一句」「`Alert closable` 让用户手动关」都不算满足本条。
    - **空态/错误态不受本条约束**：`Alert type="error"`（查询失败）、空态占位（`Empty`）该显示就显示 —— 收起来的是**口径解释**，不是**状态反馈**。
+3c. **⭐ 页面上的数字必须能悬浮看到「这个数怎么算」（全站硬要求，2026-11-03 如意定）**：3b 解决的是「这页整体怎么算」，本条解决的是「用户鼠标停在一个具体数字上，问你这个数怎么算出来的」。**两者并存，不得互相替代** —— 只有收起的 `CalcChainNote` 而数字本身问不到，等于没做。
+   - **两层载体，都在 `frontend\src\components\MetricExplain.tsx`**：
+     | 挂在哪 | 用什么 | 讲什么 |
+     | --- | --- | --- |
+     | 卡片标题 / 表格列头 / 下钻弹窗列头 | `ExplainIcon`（ⓘ 气泡） | **这一列 / 这一张卡**的算法：数据源表、指标项原名、粒度、加权方式、旁边那个灰字或箭头是什么含义 |
+     | 数字本身（表格单元格、汇总值） | `ExplainPopover`（包住节点，不加图标） | **这一格**的构成：参与平均的样本数、其中几个未达标、样本站点-日/记录数、区间、上一期与环比、点击去哪 |
+   - **参考实现**：`pages\AvailCounty.tsx`（列头 ⓘ + 每个可用率数字的气泡）与 `pages\availCounty\availCountyHelpers.tsx::cellExplainText()`（把接口 `cell_payload` 的字段拼成气泡文本）。文案键见 `i18n.tsx` 的 `availCounty.explainCol / explainKpi / explainSiteAvail / explainSiteDays / explainDaily / tip.*`。
+   - **气泡内容一律取接口既有字段，禁止在前端重算口径**：后端聚合层（如 `backend\services\avail_county_aggregate.py`）已经算好的分子分母/样本数/区间，前端只负责排版。重算会造出「气泡说的和表里的数对不上」这种新 bug。
+   - **口径文字必须从代码核实后再写**，不得照抄手册：本次就抓到手册与 `summary_by_tech()` 相反（手册写「全网汇总不是县等权平均」，实测 `/api/avail-county/matrix` 的 2G 值与 15 个县值的算术平均逐位相等）。写错口径比不写更糟 —— 用户会带着错的解释去汇报。
+   - **禁止**用 `title=` 原生提示（不可复制、样式不受主题管、移动端读不到）；`ExplainIcon` 已自带 `stopPropagation`，挂在可下钻的卡片上时点 ⓘ **不会**顺带打开下钻弹窗。
+   - **不适用**：`LegacyToolFrame` 的 iframe 页（FineBI/外部工具，数字不在我们 DOM 里）；纯列表页没有「算出来的数字」的不硬凑。
+   - **改造进度**：`D:\01_RPA\TODO.md` 的「数字悬浮说明铺开」条目（2026-11-03 起按族分批推进，`avail_county` 已完成）。
 4. **新增定时任务必须登记** `backend\task_registry.py` 的 `TASK_SPECS`，否则**根本不会被执行**；同时更新 `docs\manual\04-task-system.md` 的分组表。
 5. **前端构建产物目录必须是 `_fe_dist`**，否则后端找不到静态文件会白屏（`docs\manual\10-quickstart.md`）。改完前端源码须重新 `npm run build`；产物非 HMR，需刷新页面。
    **验证改动是否真的上线，要看产物而不是看时间戳**：`vite preview` 直接读 `_fe_dist`，但浏览器会缓存 `index.html`。三步确认：

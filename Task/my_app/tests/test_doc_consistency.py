@@ -427,6 +427,10 @@ def test_help_content_retention_days_matches_code():
 
     实测（2026-10-31）：13-operations.md 已改成 7 天，但 helpContent.ts 仍写 3 天 ——
     站内帮助与手册对同一件事给出两个数，用户无从判断哪个对。
+
+    2026-11-03 收窄匹配范围：只核对「队列/task_queue/执行日志」语境下的保留期，
+    不再匹配页面各自的数据表保留期（如 ipt_power_snapshots 快照保留 2 天）——
+    数据表保留期各有各的值，与队列保留期无关，混在一起会误伤。
     """
     default_days = 7
     m = re.search(
@@ -435,7 +439,9 @@ def test_help_content_retention_days_matches_code():
     if m:
         default_days = int(m.group(1))
     src = _read("frontend/src/pages/helpContent.ts")
-    hits = re.findall(r"保留 (\d+) 天", src)
+    hits = re.findall(
+        r"(?:队列|task_queue|task_execution_log|执行日志)[^\n]{0,40}保留 (\d+) 天", src)
+
     assert hits, "helpContent.ts 里找不到「保留 N 天」的表述（守卫本身失效了？）"
     for d in set(hits):
         assert int(d) == default_days, (
