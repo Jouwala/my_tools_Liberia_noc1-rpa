@@ -400,6 +400,13 @@
 
 ## 5. NUR 看板（`?page=nur`）
 
+> **数字悬浮说明（2026-11-03，AGENTS.md 三.3c）**：NUR 表、SLA 表的 Achieve 列与计数列共 3 处
+> `title={t('nur.clickDrill')}` 原生提示已换成 `MetricExplain::ExplainPopover`，`TT: n` 标签的
+> `Tooltip`（只报各制式小区数）一并换掉。**口径键复用 `msSla.explain.*`** —— 本页与 `ms_sla`
+> 跑的是同一个 `nur_calc.compute_overview`，文案各写一份必然分叉（两个真相源）。
+> 派生页 `?page=ms_nur_only`（`NurDashboard only="nur"`）自动同享。
+> 实机验证：`?page=nur` 悬浮 `210.14` 出「NUR = Σ(小区数×MTTR分钟)×60 ÷ (分母小区数×期间秒数)…」。
+
 网络不可用率（NUR）的日/周/月趋势与站点达标情况。口径见 `01-overview.md` 术语表。
 
 - 粒度切换 `daily|weekly|monthly`（`NurDashboard.tsx:29-30`）、日期区间、多维下拉（`GET /api/nur/options`，:421）。
@@ -482,7 +489,20 @@ MS 合同 KPI（Contract KPIs）与工单 SLA（WOs SLA）达成情况。
   而 DCR 类指标是「越小越好」（`ms_sla_report.py:157`），按这条判色会恒红 —— 颜色不代表达标。
   实测：悬浮 `210.14`（Global · 2026-11-03）出上述完整口径；`ms_sla_only` 是同组件切片，自动同享。
   按钮在顶部工具栏 Card 内（不受 `showNur`/`showSla` 条件包裹），导出内容则按切片收敛（只出 `WOs SLA` 与 `Value Scale`）。
+> **数字悬浮说明（2026-11-03，AGENTS.md 三.3c）覆盖 `ms_wo_sla` 与 `ms_contract_kpi` 两页**：
+> 改动落在**共用组件** `frontend/src/pages/MsKpiShared.tsx` 的 `MetricCard`（月值与「N/M 天达标」挂
+> `ExplainPopover`）与趋势弹窗（标题挂 `ExplainIcon`），所以一处改动两页同时生效。
+> 口径键 `msKpi.explain.monthValue / metDays / cell / trendStat`（中英各 4），内容全部从
+> `backend/services/ms_kpi_report_service.py` 与 `ms_sla_report.py` 核实：月值取工作簿 Month 行**原值**
+> （不做除法重算）；`met_days/矩阵日行数` 的分母**不是自然月天数**（缺档日不计）；
+> `min/max/avg` 只统计有值日行且 avg 是等权算术平均，**可以与月值不相等**；
+> **PerSite 类的目标 90% 是代码里写死的**（`_parse_kpi_matrix:397-408`，`target_source=persite_ratio`），
+> 不是报表给的目标 —— 这条直接写进气泡，因为它最容易被读成合同目标。
+> 实机验证：`?page=ms_contract_kpi` 悬浮指标卡数值出上述完整文案。
+> **待办**：两页各自的 6 张概览卡（`MsWoSLReport.tsx:153-204` / `MsContractKpiReport.tsx:408-445`）
+> 与站内帮助条目尚未接上，见 `D:\01_RPA\TODO.md`。
 - **KPI 区不再有外层「Contract KPIs」卡片**（2026-09-28 按需求去掉）：原先外层大卡 + 内层小卡两层描边叠加，去掉外层后语义不变、仅少一层容器。注意 `msSla.contractKpis` 这个 i18n 键**在 MS SLA 看板上已不再被引用**（`ms_contract_kpi` 报表页 `MsContractKpiReport.tsx` 是另一处独立引用，不要误删）。
+
 - **口径提示**：2026-08 起 NUR/SLA/WO 以 `nur_calc` 实时计算为准（`ms_sla_dashboard.py:13-14`），所以本页数字与 `data/ms_sla/ms_sla_dashboard.sqlite3` 里的快照**可能对不上**，以本页为准。
 
 ## 7. CXO 经营看板（`?page=cxoDashboard`）— iframe

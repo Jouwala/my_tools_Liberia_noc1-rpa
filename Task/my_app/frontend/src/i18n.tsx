@@ -2111,6 +2111,12 @@ const translations: Record<Locale, Record<string, string>> = {
     'msKpi.noData': '无数据',
     'msKpi.higherBetter': '越大越好',
     'msKpi.lowerBetter': '越小越好',
+    /* ms_wo_sla 与 ms_contract_kpi **共用**的数字悬浮口径说明（两页都走 ms_kpi_report_service，
+       同一套工作簿解析），所以文案只写一份，键放在 msKpi.* 下（AGENTS.md 三.3c） */
+    'msKpi.explain.monthValue': '大数字 = 该指标的**月值**，取自工作簿的 Month 行原值，页面与后端都不做除法重算。\n斜杠后是目标值，取该指标的目标行；**PerSite 类例外**：目标 90% 是代码里写死的（target_source=persite_ratio），不是报表给的目标。\n达标标签用后端的 met 字段，界面不重新判定。',
+    'msKpi.explain.metDays': 'N/M 天达标 = 该指标**日值达标的行数 / 矩阵里的日行数**。\n分母不是自然月天数 —— 缺档的日子不计数，所以「28/28」可能只覆盖 28 天而非整月。\n达标方向（越高越好 / 越低越好）与判定都由后端给出。',
+    'msKpi.explain.cell': '{{metric}} · {{day}}\n单元格是工作簿的**当日原值**；颜色取后端 met：达标绿、未达标红、没有目标值则不判定。',
+    'msKpi.explain.trendStat': 'min / max / avg 只统计**有值的日行**；avg 是这些行的等权算术平均（不按单量加权），\n所以它和卡上的「月值」（工作簿 Month 行）**可以不相等**。',
     'msKpi.daysMetSuffix': '天达标',
     'msKpi.persiteTarget': 'PerSite 按 90% 站点达标占比',
     'msKpi.trendTitle': '指标日趋势',
@@ -7473,6 +7479,10 @@ const translations: Record<Locale, Record<string, string>> = {
     'msKpi.noData': 'No data',
     'msKpi.higherBetter': 'higher is better',
     'msKpi.lowerBetter': 'lower is better',
+    'msKpi.explain.monthValue': 'The large number is the metric **monthly value**, taken raw from the Month row of the workbook - neither the page nor the backend recomputes a ratio.\nAfter the slash is the target, taken from the metric target row; **PerSite metrics are the exception**: the 90% target is hard-coded in the parser (target_source=persite_ratio), not a target from the report.\nThe met label comes from the backend met field; the page does not re-judge it.',
+    'msKpi.explain.metDays': 'N/M days met = rows where that metric met the target ÷ day rows in the matrix.\nThe denominator is not the number of days in the calendar month - days without data are not counted, so "28/28" may cover 28 synced days rather than the whole month.\nDirection (higher-is-better / lower-is-better) and the judgement both come from the backend.',
+    'msKpi.explain.cell': '{{metric}} · {{day}}\nThe cell is the raw workbook value for that day; colour follows the backend met: green met, red off-target, no judgement when there is no target.',
+    'msKpi.explain.trendStat': 'min / max / avg only cover day rows **with a value**; avg is the equal-weight arithmetic mean of those rows (not weighted by ticket volume),\nso it **can differ** from the monthly value on the card (the workbook Month row).',
     'msKpi.daysMetSuffix': ' days met',
     'msKpi.persiteTarget': 'PerSite uses the 90% site pass ratio',
     'msKpi.trendTitle': 'Daily trend',

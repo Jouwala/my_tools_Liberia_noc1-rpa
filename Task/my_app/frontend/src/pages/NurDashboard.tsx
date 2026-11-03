@@ -11,6 +11,9 @@ import { useI18n } from '../i18n'
 import { useTheme, WH, useIsMobile, darkTooltip, axisLabel, axisLine, splitLine } from '../theme'
 import DraggableClickModal from '../components/DraggableClickModal'
 import NurCalcChainNote, { type WarningDetail } from '../components/NurCalcChainNote'
+// 数字悬浮口径说明（AGENTS.md 三.3c）。口径键复用 msSla.explain.*：本页与 ms_sla
+// 跑的是**同一个** nur_calc.compute_overview，文案各写一份必然分叉（两个真相源）。
+import { ExplainPopover } from '../components/MetricExplain'
 
 const { RangePicker } = DatePicker
 const { Text } = Typography
@@ -211,18 +214,20 @@ function NurTable({ rows, onDrill }: {
         if (typeof v !== 'number') {
           return <span style={{ color: WH.textDim }}>-</span>
         }
-        // 点击单元格 → 下钻构成该数值的 TT 明细
+        // 点击下钻 TT 明细；悬浮出「这一格怎么算」（不再用原生 title= 提示）
         return (
-          <span
-            title={t('nur.clickDrill')}
-            onClick={e => onDrill?.(e, String(r.metric).replace('_NUR', ''), p)}
-            style={{
-              color: nurTextColor(v, maxVal), cursor: 'pointer',
-              textDecoration: 'underline dotted rgba(148,163,184,0.55)', textUnderlineOffset: 3,
-            }}
-          >
-            {fmtNur(v)}
-          </span>
+          <ExplainPopover placement="left"
+            text={[`${r.metric} · ${p}`, fmtNur(v), t('msSla.explain.nur')].join('\n')}>
+            <span
+              onClick={e => onDrill?.(e, String(r.metric).replace('_NUR', ''), p)}
+              style={{
+                color: nurTextColor(v, maxVal), cursor: 'pointer',
+                textDecoration: 'underline dotted rgba(148,163,184,0.55)', textUnderlineOffset: 3,
+              }}
+            >
+              {fmtNur(v)}
+            </span>
+          </ExplainPopover>
         )
       },
     })),
@@ -292,23 +297,27 @@ function SlaTable({ rows, onDrill }: {
         if (row.metric === 'Achieve') {
           const good = v >= 0.95
           return (
-            <span
-              title={t('nur.clickDrill')}
-              onClick={e => onDrill?.(e, row.severity, row._item, p)}
-              style={{ color: good ? '#51cf66' : '#ff6b6b', ...clickable }}
-            >
-              {fmtPct(v)}
-            </span>
+            <ExplainPopover placement="left"
+              text={[`${row.severity} · ${p}`, t('msSla.explain.wo'), t('msSla.explain.color')].join('\n')}>
+              <span
+                onClick={e => onDrill?.(e, row.severity, row._item, p)}
+                style={{ color: good ? '#51cf66' : '#ff6b6b', ...clickable }}
+              >
+                {fmtPct(v)}
+              </span>
+            </ExplainPopover>
           )
         }
         return (
-          <span
-            title={t('nur.clickDrill')}
-            onClick={e => onDrill?.(e, row.severity, row._item, p)}
-            style={{ color: WH.text, ...clickable }}
-          >
-            {v}
-          </span>
+          <ExplainPopover placement="left"
+            text={[`${row.severity} · ${p}`, t('msSla.explain.wo')].join('\n')}>
+            <span
+              onClick={e => onDrill?.(e, row.severity, row._item, p)}
+              style={{ color: WH.text, ...clickable }}
+            >
+              {v}
+            </span>
+          </ExplainPopover>
         )
       },
     })),
@@ -793,9 +802,10 @@ export default function NurDashboard({ only }: { only?: 'nur' | 'sla' } = {}) {
             {t('nur.refresh')}
           </Button>
           {data && (
-            <Tooltip title={`${t('nur.cellsByTech')}: ${TECHS.map(k => `${k}=${data.denominator_cells?.[k] ?? 0}`).join('  ')}`}>
+            <ExplainPopover placement="bottom"
+              text={`${t('nur.cellsByTech')}: ${TECHS.map(k => `${k}=${data.denominator_cells?.[k] ?? 0}`).join('  ')}\n${t('msSla.explain.nur')}`}>
               <Tag color="cyan">TT: {data.tt_total}</Tag>
-            </Tooltip>
+            </ExplainPopover>
           )}
           {exStatus && (
             <Tooltip title={`${t('nur.excludeCol')}: ${exStatus.column || '-'} | ${t('nur.excludeSrc')}: ${exStatus.source}`}>

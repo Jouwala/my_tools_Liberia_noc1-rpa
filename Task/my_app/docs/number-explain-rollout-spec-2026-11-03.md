@@ -51,7 +51,8 @@
 3. `5G_NUR` 后端算了但 `NUR_METRIC_MAP` 只映 4 键（`routers/ms_sla_dashboard.py:58-63`）→ 永久不显示。
 4. 本页 `TTR_P1..P4` 只是严重度分组，**无 4h/8h/16h/2Days 时限判定**；与 `ms_wo_sla` 的 `TTR_P1_4h` 同名不同口径，不可互引。
 5. `Total/Within SLA` 是整数条数，前端 `fmtNum().toFixed(2)` → 显示成 `12.00`（`:110-113`）。
-6. **MsWoSL 卡片颜色在前端重算达标**（`:180-183` 用 `month_achieve >= metrics[0].target`），后端已给 `met`（`ms_kpi_report_service.py:570`）；且 `num(null)=0`（`MsKpiShared.tsx:142-145`）会把「目标缺失」判成达标 → 违反三.3c，应改取 `met`。
+6. **MsWoSL 卡片颜色在前端重算达标**（`:180-183` 用 `month_achieve >= metrics[0].target`），后端已给 `met`（`ms_kpi_report_service.py:570`）却没用 → 违反三.3c，应改取 `met`。
+   **更正（2026-11-03 复查代码）**：本条原写「`num(null)=0` 会把目标缺失判成达标」**不成立** —— 该表达式带守卫 `month_achieve != null && target !== null && num(a) >= num(t)`，任一侧为空则整个条件为 false → 判 `WH.danger`（红）。真实缺陷是**反过来**的：「没有目标值」被涂成未达标的红色。修的时候按 `met === null` 不染色处理。
 7. `month_achieve ≠ month_within/month_total`（三者各取工作簿单元格，`:495-501`），页面并列展示，代码无法证明自洽。
 8. 达标方向靠 KPI 名关键字（`_LOWER_KEYWORDS:264-266`）；`TTR_P1_4h` 本期无数据 → 整列空。
 9. **PerSite 目标 90% 是代码硬编码**（`PERSITE_TARGET`，`_parse_kpi_matrix:397-408`）且不读工作簿目标行，而 `msKpi.doc.persite` 称「与生成端条件格式一致」—— 生成端 PerSite 是逐指标阈值占比（阈值 0.9965/0.97/0.98/0.95/0.02），**两种说法不等价**。

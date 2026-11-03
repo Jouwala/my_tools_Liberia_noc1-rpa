@@ -5206,6 +5206,14 @@ float NaN，直接递进去整个任务 <code>AttributeError</code> 崩掉（202
 </ul>
 <p><a id="ch-11-s9"></a></p>
 <h3>5. NUR 看板（<code>?page=nur</code>）</h3>
+<blockquote>
+<p><strong>数字悬浮说明（2026-11-03，AGENTS.md 三.3c）</strong>：NUR 表、SLA 表的 Achieve 列与计数列共 3 处
+<code>title={t('nur.clickDrill')}</code> 原生提示已换成 <code>MetricExplain::ExplainPopover</code>，<code>TT: n</code> 标签的
+<code>Tooltip</code>（只报各制式小区数）一并换掉。<strong>口径键复用 <code>msSla.explain.*</code></strong> —— 本页与 <code>ms_sla</code>
+跑的是同一个 <code>nur_calc.compute_overview</code>，文案各写一份必然分叉（两个真相源）。
+派生页 <code>?page=ms_nur_only</code>（<code>NurDashboard only=&quot;nur&quot;</code>）自动同享。
+实机验证：<code>?page=nur</code> 悬浮 <code>210.14</code> 出「NUR = Σ(小区数×MTTR分钟)×60 ÷ (分母小区数×期间秒数)…」。</p>
+</blockquote>
 <p>网络不可用率（NUR）的日/周/月趋势与站点达标情况。口径见 <code>01-overview.md</code> 术语表。</p>
 <ul>
 <li>
@@ -5331,8 +5339,28 @@ Network 取 <code>ms_sla_kpi</code> 快照原值不重算；PS_* = 阈值达标�
 而 DCR 类指标是「越小越好」（<code>ms_sla_report.py:157</code>），按这条判色会恒红 —— 颜色不代表达标。
 实测：悬浮 <code>210.14</code>（Global · 2026-11-03）出上述完整口径；<code>ms_sla_only</code> 是同组件切片，自动同享。
 按钮在顶部工具栏 Card 内（不受 <code>showNur</code>/<code>showSla</code> 条件包裹），导出内容则按切片收敛（只出 <code>WOs SLA</code> 与 <code>Value Scale</code>）。</li>
-<li><strong>KPI 区不再有外层「Contract KPIs」卡片</strong>（2026-09-28 按需求去掉）：原先外层大卡 + 内层小卡两层描边叠加，去掉外层后语义不变、仅少一层容器。注意 <code>msSla.contractKpis</code> 这个 i18n 键<strong>在 MS SLA 看板上已不再被引用</strong>（<code>ms_contract_kpi</code> 报表页 <code>MsContractKpiReport.tsx</code> 是另一处独立引用，不要误删）。</li>
-<li><strong>口径提示</strong>：2026-08 起 NUR/SLA/WO 以 <code>nur_calc</code> 实时计算为准（<code>ms_sla_dashboard.py:13-14</code>），所以本页数字与 <code>data/ms_sla/ms_sla_dashboard.sqlite3</code> 里的快照<strong>可能对不上</strong>，以本页为准。</li>
+</ul>
+<blockquote>
+<p><strong>数字悬浮说明（2026-11-03，AGENTS.md 三.3c）覆盖 <code>ms_wo_sla</code> 与 <code>ms_contract_kpi</code> 两页</strong>：
+改动落在<strong>共用组件</strong> <code>frontend/src/pages/MsKpiShared.tsx</code> 的 <code>MetricCard</code>（月值与「N/M 天达标」挂
+<code>ExplainPopover</code>）与趋势弹窗（标题挂 <code>ExplainIcon</code>），所以一处改动两页同时生效。
+口径键 <code>msKpi.explain.monthValue / metDays / cell / trendStat</code>（中英各 4），内容全部从
+<code>backend/services/ms_kpi_report_service.py</code> 与 <code>ms_sla_report.py</code> 核实：月值取工作簿 Month 行<strong>原值</strong>
+（不做除法重算）；<code>met_days/矩阵日行数</code> 的分母<strong>不是自然月天数</strong>（缺档日不计）；
+<code>min/max/avg</code> 只统计有值日行且 avg 是等权算术平均，<strong>可以与月值不相等</strong>；
+<strong>PerSite 类的目标 90% 是代码里写死的</strong>（<code>_parse_kpi_matrix:397-408</code>，<code>target_source=persite_ratio</code>），
+不是报表给的目标 —— 这条直接写进气泡，因为它最容易被读成合同目标。
+实机验证：<code>?page=ms_contract_kpi</code> 悬浮指标卡数值出上述完整文案。
+<strong>待办</strong>：两页各自的 6 张概览卡（<code>MsWoSLReport.tsx:153-204</code> / <code>MsContractKpiReport.tsx:408-445</code>）
+与站内帮助条目尚未接上，见 <code>D:\01_RPA\TODO.md</code>。</p>
+</blockquote>
+<ul>
+<li>
+<p><strong>KPI 区不再有外层「Contract KPIs」卡片</strong>（2026-09-28 按需求去掉）：原先外层大卡 + 内层小卡两层描边叠加，去掉外层后语义不变、仅少一层容器。注意 <code>msSla.contractKpis</code> 这个 i18n 键<strong>在 MS SLA 看板上已不再被引用</strong>（<code>ms_contract_kpi</code> 报表页 <code>MsContractKpiReport.tsx</code> 是另一处独立引用，不要误删）。</p>
+</li>
+<li>
+<p><strong>口径提示</strong>：2026-08 起 NUR/SLA/WO 以 <code>nur_calc</code> 实时计算为准（<code>ms_sla_dashboard.py:13-14</code>），所以本页数字与 <code>data/ms_sla/ms_sla_dashboard.sqlite3</code> 里的快照<strong>可能对不上</strong>，以本页为准。</p>
+</li>
 </ul>
 <p><a id="ch-11-s11"></a></p>
 <h3>7. CXO 经营看板（<code>?page=cxoDashboard</code>）— iframe</h3>

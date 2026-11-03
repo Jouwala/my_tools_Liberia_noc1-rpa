@@ -11,6 +11,9 @@ import { Empty, Segmented, Space, Tag, Typography } from 'antd'
 import ReactECharts from 'echarts-for-react'
 import { useTheme, WH, darkTooltip, axisLabel, axisLine, splitLine } from '../theme'
 import DraggableClickModal from '../components/DraggableClickModal'
+// 数字悬浮口径说明（AGENTS.md 三.3c）。ms_wo_sla 与 ms_contract_kpi 共用本文件，
+// 所以这里改一次两页同时生效；口径键也共用（见 i18n 的 msKpi.explain.*）。
+import { ExplainIcon, ExplainPopover } from '../components/MetricExplain'
 import { numLocale, useI18n } from '../i18n'
 
 const { Text } = Typography
@@ -347,9 +350,11 @@ function MetricCard(props: {
         {m.label}
       </div>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginBottom: 4 }}>
-        <span style={{ color, fontSize: compact ? 18 : 22, fontWeight: 700, lineHeight: 1.1 }}>
-          {fmtValue(m.month_value, m.format, loc)}
-        </span>
+        <ExplainPopover placement="left" text={t('msKpi.explain.monthValue')}>
+          <span style={{ color, fontSize: compact ? 18 : 22, fontWeight: 700, lineHeight: 1.1 }}>
+            {fmtValue(m.month_value, m.format, loc)}
+          </span>
+        </ExplainPopover>
         <span style={{ color: WH.textDim, fontSize: 11 }}>
           {`/ ${fmtValue(m.target, m.format, loc)}`}
         </span>
@@ -359,9 +364,11 @@ function MetricCard(props: {
           style={{ marginInlineEnd: 0 }}>
           {metLabel(m.met, t)}
         </Tag>
-        <Tag style={{ marginInlineEnd: 0 }}>
-          {`${m.met_days}/${matrix.rows.length}${t('msKpi.daysMetSuffix')}`}
-        </Tag>
+        <ExplainPopover placement="left" text={t('msKpi.explain.metDays')}>
+          <Tag style={{ marginInlineEnd: 0 }}>
+            {`${m.met_days}/${matrix.rows.length}${t('msKpi.daysMetSuffix')}`}
+          </Tag>
+        </ExplainPopover>
       </Space>
       {m.month_total !== null && m.month_total !== undefined && (
         <div style={{ color: WH.textDim, fontSize: 11, marginTop: 6 }}>
@@ -817,6 +824,7 @@ export function MetricTrendModal(props: {
       title={(
         <Space wrap>
           <span>{t('msKpi.trendTitle')}</span>
+          <ExplainIcon text={t('msKpi.explain.trendStat')} />
           <Tag color="cyan">{metric.label_full}</Tag>
           <Tag color={metric.met === true ? 'green' : metric.met === false ? 'red' : 'default'}>
             {metLabel(metric.met, t)}
