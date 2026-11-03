@@ -231,6 +231,7 @@ async function handleAuthRoute(store: AuthStore, req: IncomingMessage, res: Serv
      *   · 有身份但没有 team   → 403（未分配团队）→ 一律不放行
      *   · team 与请求的不一致 → 403（不是该团队成员）
      *   · 完全一致            → 200（放行）
+     *   · 管理员(role=admin)  → 200（放行任何团队门户，**内容仍按 URL 的团队过滤**）
      *
      * auth_request 只关心「2xx = 放行、401/403 = 拒绝」，
      * 故不必回传业务结论头；nginx 用 error_page 区分两种拒绝。
@@ -252,6 +253,27 @@ async function handleAuthRoute(store: AuthStore, req: IncomingMessage, res: Serv
       const user = token ? store.getUserByToken(token) : null;
       if (!user) {
         sendJson(res, 401, { detail: 'authentication required' });
+        return;
+      }
+      /* 管理员放行（2026-11-02 加）。
+       *
+       * 需求：管理员登录后要能进**任何一个**团队门户 —— 他的职责包含核对
+       * 「fo 团队到底能看到哪几项」「矩阵改对了没有」，若因为 admin 没有团队归属
+       * 就被 403 挡在门外，这个核对动作根本做不了（此前 admin 访问 /v3/fo_portal/
+       * 看到的就是 nginx 的「403 · 无团队权限」页）。
+       *
+       * 放行**不等于**越权：内容仍然按「URL 里的团队」过滤 ——
+       *   · 本端点只回答「能不能进这一页」，放行后浏览器才去取页面；
+       *   · 页面里每一项的可见性来自 GET /team-scope，那里对管理员返回的是
+       *     **完整的**矩阵，而 team-scope.js 的 ok() 仍然用 `indexOf(TEAM_ID)`
+       *     判定 —— TEAM_ID 取自 URL 前缀。于是管理员在 /v3/fo_portal/ 看到的是
+       *     fo 那一列，在 /v3/bo_portal/ 看到的是 bo 那一列，不多一项。
+       *
+       * ⚠️ 只认真实会话里的 role（token → 库），不认免登录占位身份 ——
+       *   占位身份走不到这里（它没有 Cookie，readSessionToken 拿不到 user，
+       *   在上一段就 401 了），所以免登录模式下仍然进不了团队门户，语义未变。 */
+      if (user.role === 'admin') {
+        sendJson(res, 200, { ok: true, team: wanted, username: user.username, via: 'admin' });
         return;
       }
       if (!user.team) {
@@ -435,9 +457,20 @@ async function handleAuthRoute(store: AuthStore, req: IncomingMessage, res: Serv
       const scopeStore = getTeamScopeStore();
       const matrix = scopeStore.load();
       const team = caller?.team ?? null;
+      /* 管理员发**完整矩阵**，其余人发按团队过滤后的那一份（2026-11-02 改）。
+       *
+       * 为什么管理员不按团队过滤：他没有 team（也不该被硬塞一个），而前端
+       * team-scope.js 的判据是 `list.indexOf(TEAM_ID) !== -1`，TEAM_ID 来自
+       * URL 前缀（/v3/fo_portal/ → fo）。完整矩阵里每一项都带着被勾选的团队列表，
+       * 天然包含当前 URL 的团队 → 管理员在哪个团队门户，看到的就正好是那个团队的
+       * 那一列。既不用给本接口加 ?team= 参数（多一份「客户端声称自己是哪个团队」
+       * 的可伪造输入），也不需要前端为管理员写特殊分支。
+       *
+       * ⚠️ 非管理员**仍然**只能拿到自己团队那一份 —— 别把「管理员放开」
+       *   写成「role 判错就放开」，那等于把团队隔离整个取消。 */
       sendJson(res, 200, {
         team,
-        matrix: filterMatrixByTeam(matrix, team),
+        matrix: caller?.role === 'admin' ? matrix : filterMatrixByTeam(matrix, team),
       });
       return;
     }
@@ -571,7 +604,8 @@ async function handleAuthRoute(store: AuthStore, req: IncomingMessage, res: Serv
         sendJson(res, 409, { detail: 'username already exists' });
         return;
       }
-      sendJson(res, 200, { user: store.createUser(username, password, role) });
+      // 建号时可直接归属团队（Add User 表单的 Team portal 列）；非法值由 store 归一为未指派
+      sendJson(res, 200, { user: store.createUser(username, password, role, body.team) });
       return;
     }
 

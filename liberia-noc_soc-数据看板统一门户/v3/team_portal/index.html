@@ -38,6 +38,10 @@
 <!-- 右下角网页问答助手（2026-10-27 加）。样式只用本页 --surface/--line/--t1 等令牌，
      深浅色随 <html class="dark"> 自动切换；脚本见 </body> 前。 -->
 <link rel="stylesheet" href="assets/qa-assistant.css">
+<!-- 团队门户可调布局 P1（2026-11-03 加）：区块拖序/显隐/高度 + QC 卡拖序。
+     只读态零样式（选择器全挂在 html[data-team-layout="edit"] 下）；
+     上游 /v3/olbrportal/ 不引本文件，行为一行不变。 -->
+<link rel="stylesheet" href="assets/team-layout.css">
 <!-- 主题/语言在首帧前落到 <html>，避免闪白。
    键名刻意用 olbr.* 而不是复用 msportal.* —— 两个页面各自记忆各自的选择
    （历史注：检索轨还在时本页也刻意不持久化搜索与筛选；轨已于 2026-10-16 整块移除，
@@ -576,5 +580,8 @@
      排最后：它只读写自己的 DOM，不依赖 olbr.js 的内部状态；靠 MutationObserver
      跟随 <html lang> 与登录门 #gate，不与 olbr.js 抢任何节点。 -->
 <script src="assets/qa-assistant.js"></script>
+<!-- 可调布局 P1（2026-11-03 加）：拖序/显隐/缩放 + localStorage/服务端持久化。
+     放在最后：等 SCOPE 就绪 + 首次 render 完成后再初始化（内部监听 scope-ready）。 -->
+<script src="assets/team-layout.js"></script>
 </body>
 </html>

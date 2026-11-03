@@ -1853,6 +1853,14 @@ location /v3/fo_portal/ {
 | 有身份、无团队归属 | 403 | 回 403 拒绝页 |
 | 团队与请求的不一致 | 403 | 回 403 拒绝页 |
 | 完全一致 | 200 | 放行 |
+| **`role=admin`** | **200** | 放行**任何**团队门户（2026-11-02 加） |
+
+**管理员例外（2026-11-02）**：管理员是平台的运维者，要能核对「fo 团队到底能看到
+哪几项」，因此 `role=admin` 一律放行。放行**不等于**越权 —— 页面里每一项的可见性
+来自 `GET /api/auth/team-scope`：管理员拿到的是**完整**矩阵，而前端 `team-scope.js`
+的判据始终是 `list.indexOf(TEAM_ID) !== -1`，`TEAM_ID` 取自 URL 前缀。所以管理员在
+`/v3/fo_portal/` 看到的就是 fo 那一列，在 `/v3/bo_portal/` 看到的就是 bo 那一列，
+一项都不多。普通账号仍然只拿得到自己团队那一份（隔离没有被放开）。
 
 ⚠️⚠️ **为什么用路径参数（`/team-gate/fo`）而不是查询参数（`?team=fo`）**
 —— 这是本机 2026-10-29 实测踩出来的坑，不是风格偏好：
@@ -2034,6 +2042,24 @@ OSS = 10 项，Auto Report = 10 份）；同会话 fetch `/v3/bo_portal/` → **
 
 **零改动约束仍然成立**：`v3/olbrportal/index.html` 一行未动
 （团队面板是 `olbr.js` 里的运行时渲染，不是页面内联）。
+
+### 九、`/uniplam/` 补齐 Add User 与列表直改（2026-11-02 追加）
+
+**起因**：`/uniplam/` 的页面配置面板里虽有团队下拉框，但 Add User 表单没有 Team portal 列，
+存量账号改团队必须点开每行的页面配置面板 —— 管理员反馈「新建时选不了，存量改起来麻烦」。
+而 `/myapp/` 的表格早有「Team portal」列（见上表），三处入口又不对齐了。
+
+本轮改动（只动 `/uniplam/` 的 React 面板 + 建号接口，其余两处不动）：
+
+| 文件 | 改动 |
+| --- | --- |
+| `src/components/UserManagementModal.tsx` | Add User 表单加团队下拉（`newTeam`，默认未指派）；用户列表加「团队门户」列，行内下拉直改即保存（`handleTeamChange` 走 `POST /users/profile` 的 `team` 字段）；表格包一层横向滚动，窄屏不挤坏 |
+| `server/auth/store.ts` | `createUser` 加 `team` 参数，非法值归一为未指派（不留脏数据） |
+| `server/auth/routes.ts` | `POST /users` 透传 `body.team` 给 `createUser` |
+| `src/i18n.tsx` | 加 `um.teamNoneShort`（未指派/Unassigned，列表下拉用短文案）与 `um.saving`（保存中…/Saving…），中英两份字典都已加 |
+
+行为：新建时选团队 = 建号即归属；存量行内改团队 = 改完即保存并同步页面配置面板的回显，
+非法值服务端归一为未指派；与页面配置面板改的是同一字段（`team`），无第二份真相源。
 
 
 ## 十、相关文档

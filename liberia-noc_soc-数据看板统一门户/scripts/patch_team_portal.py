@@ -239,9 +239,12 @@ H(
           return '<div class="qc-card"><span class="sk" style="width:56%"></span>' +
             '<span class="sk v"></span><span class="sk s"></span></div>';
         }).join('') + '</div>';""",
-    """        '<div class="qc-grid">' + (D.qc || []).filter(function (d) {
+    """        '<div class="qc-grid" data-n="' + (D.qc || []).filter(function (d) {
           /* 团队门户作用域：骨架也要按矩阵过滤，否则会出现「骨架摆六张、
-             数据到位只剩两张」的整块跳动（骨架与真卡必须 1:1 同构）。 */
+             数据到位只剩两张」的整块跳动（骨架与真卡必须 1:1 同构）。
+             data-n 让 CSS 按实际卡数铺满整行（P0-2）。 */
+          return !SCOPE || SCOPE.ok('qc', d.id);
+        }).length + '">' + (D.qc || []).filter(function (d) {
           return !SCOPE || SCOPE.ok('qc', d.id);
         }).map(function () {
           return '<div class="qc-card"><span class="sk" style="width:56%"></span>' +
@@ -275,6 +278,20 @@ H(
     }""",
 )
 
+H(
+    "qc-cards-n",
+    """      '</div><div class="qc-grid">' + cards + '</div>';""",
+    """      '</div><div class="qc-grid" data-n="' + (SCOPE ? DATA.QC_PRIMARY_ORDER.concat(DATA.QC_SECONDARY_ORDER).filter(function (id) { return SCOPE.ok('qc', id); }).length : DATA.QC_PRIMARY_ORDER.length + DATA.QC_SECONDARY_ORDER.length) + '">' + cards + '</div>';""",
+)
+
+H(
+    "views6-grid-n",
+    """      '<div class="band-h"><div class="band-txt"><div class="band-k">' + esc(t('v6.title')) + '</div></div></div>' +
+      '<div class="v6-grid">' + html + '</div>';""",
+    """      '<div class="band-h"><div class="band-txt"><div class="band-k">' + esc(t('v6.title')) + '</div></div></div>' +
+      '<div class="v6-grid" data-n="' + gids.length + '">' + html + '</div>';""",
+)
+
 # ==========================================================================
 # 3) Network Status / Network Benchmark（#kpi）：按组过滤
 # ==========================================================================
@@ -287,6 +304,10 @@ H(
     """  function renderKpi() {
     var box = $('#kpi');
     if (!box) return;
+    /* 登出后不再重画（2026-11-02 加）：KPI 是**异步**装载的（三路并行，见 loadKpi），
+       登出那一刻还在飞的回调会把 #kpi 重新解隐 —— 与 #band 同一类漏点，
+       详见 logout() 的注释。 */
+    if (state.signedOut) { box.hidden = true; return; }
     var k = state.kpi;
     /* 团队门户作用域（2026-10-29 加）：
        · KPI_GROUPS 有两组（rich = 总流量/活跃用户/视频速率，avail = 2G/3G/4G 可用率），
@@ -465,16 +486,30 @@ H(
     "qa-filter",
     """    var eflow = pick('page=eflow_qa');""",
     """    var eflow = pick('page=eflow_qa');
-    /* 团队门户作用域（2026-10-29 加）：Excel 的 Knowledge Q&A 域有三行 ——
+    /* 团队门户作用域（2026-10-29 加，2026-11-02 补 vmax）：Excel 的 Knowledge Q&A 域有四行 ——
        · TT/Alarm Analysis → eFlow 知识库（页签 eflow）
        · Knowledge O&A     → 本地知识问答（页签 rag）
+       · VMAX 用户查询      → VMAX 用户查询（页签 vmax，见下方 qa-filter-vmax 钩子）
        · Quick Q&A         → 右下角悬浮问答助手（不是页签，由 qa-assistant.js 判断）
-       这里只管前两个页签。 */
+       这里只管前两个页签；vmax 的兜底项定义在后面，提前置空会被覆盖，
+       故它的过滤在 return 前单独做（qa-filter-vmax 钩子）。 */
     if (SCOPE) {
       var qaAllow = SCOPE.qaTabs();
       if (qaAllow.indexOf('eflow') === -1) eflow = null;
       if (qaAllow.indexOf('rag') === -1) rag = null;
     }""",
+)
+
+H(
+    "qa-filter-vmax",
+    """    return [eflow && { key: 'eflow', item: eflow }, rag && { key: 'rag', item: rag },
+      vmax && { key: 'vmax', item: vmax }].filter(Boolean);""",
+    """    /* 团队门户作用域（2026-11-02 加）：VMAX 页签同样受矩阵控制 ——
+       未勾选的团队不显示。注意 vmax 可能是兜底项（目录里没有也存在），
+       故不能只靠目录有无，必须在这里显式过滤。 */
+    if (SCOPE && SCOPE.qaTabs().indexOf('vmax') === -1) vmax = null;
+    return [eflow && { key: 'eflow', item: eflow }, rag && { key: 'rag', item: rag },
+      vmax && { key: 'vmax', item: vmax }].filter(Boolean);""",
 )
 
 H(
@@ -617,7 +652,15 @@ H(
     """  function render() { renderBand(); renderKpi(); renderViews6(); renderL0(); renderEsc(); renderEmailSection(); renderQaSection(); renderOssSection(); renderFeedbackSection(); renderAux(); renderArchive(); applyI18n(); }""",
     """  /* ⚠️ renderComplaintSection() 是**团队门户专有**的（上游页面没有 #complaintSlot，
      那个函数找不到节点就直接返回）。放在 renderAux 之前，与 DOM 顺序一致。 */
-  function render() { renderBand(); renderKpi(); renderViews6(); renderL0(); renderEsc(); renderEmailSection(); renderQaSection(); renderOssSection(); renderFeedbackSection(); renderComplaintSection(); renderAux(); renderArchive(); applyI18n(); }""",
+  function render() {
+    /* 登出后不再重画（2026-11-02 加）—— 完整理由见 logout() 的「登出后还能看到
+       Daily Operation」那段注释。render() 有多个**异步**触发点（矩阵 scope-ready、
+       目录装载完成、切换语言），它们都不看登录态，会把 mainLocked(true) 藏起来的
+       区块重新解开。
+       ⚠️ 判据用 state.signedOut，**不能**用 !state.authOk：boot() 里这一次 render()
+         是同步跑的，那一刻 probe() 还没回来、authOk 天然是 false —— 用它会把首屏锁死。 */
+    if (state.signedOut) { mainLocked(true); return; }
+    renderBand(); renderKpi(); renderViews6(); renderL0(); renderEsc(); renderEmailSection(); renderQaSection(); renderOssSection(); renderFeedbackSection(); renderComplaintSection(); renderAux(); renderArchive(); applyI18n(); }""",
 )
 
 
@@ -682,6 +725,143 @@ H(
        照常挂着「Customer Complaint」。上面那段基线注释记的两次漏藏是同一个坑。 */
     ['#band', '#kpi', '#views6', '#l0Map', '#emailSlot', '#qaSlot', '#ossSlot', '#fbSlot', '#esc', '#complaintSlot', '#aux']""",
 )
+
+# ==========================================================================
+# 25) 登出后不再重画：给所有「异步到达的渲染」加一道锁（2026-11-02 加）
+# ==========================================================================
+# 真实故障（用户报）：
+#   「/v3/fo_portal/ 退出后有时候还能看到 Daily Operation」。
+#
+# 根因**不是**登出没清会话（它清了：localStorage token + HttpOnly Cookie 都清）。
+# 漏点在**渲染**这一侧：本页的渲染全是异步、分散的 ——
+#   · QC 两条轮询（全量一小时一档、alarm 五分钟一档）；
+#   · KPI 三路并行装载、目录装载；
+#   · 矩阵由 team-scope.js 异步取回后派发 olbr:scope-ready → render()；
+#   · 切回标签页时 visibilitychange → loadQc()/loadKpi()/loadQcAlarm()。
+# 这些回调里都写着 `box.hidden = false`（团队门户为了按矩阵收放，必须显式解隐，
+# 见上文 qc-cards / kpi-real-tail 两个钩子）。于是 logout() 里那次
+# mainLocked(true) 只把区块藏到「下一次渲染为止」—— 任何一次迟到的回调都会把它
+# 重新解隐。登出与这些回调谁先谁后取决于网络与定时器，所以表现为**偶发**。
+#
+# 修法：一个**登出标记** state.signedOut，在四个渲染入口 + 三个装载入口上锁。
+# 为什么不用 `!state.authOk`：boot() 里的 render() 是**同步**跑的，那一刻
+# probe() 还没回来、authOk 天然是 false —— 用它当锁会把首屏直接锁死。
+H(
+    "state-signedout",
+    """    user: null, authOk: false, booted: false, userMenuOpen: false, sysMenuOpen: false,""",
+    """    user: null, authOk: false, booted: false, userMenuOpen: false, sysMenuOpen: false,
+    /* 已登出（2026-11-02 加）：渲染/装载入口据此上锁，见 logout() 的注释。
+       ⚠️ 与 authOk 不是一回事：authOk 在 boot() 的同步 render() 那一刻还没被
+          probe 写回来，用它当锁会把首屏锁死；本标记**只由登出/会话失效置真**。 */
+    signedOut: false,""",
+)
+
+H(
+    "logout-lock",
+    """  function logout() {
+    fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' }).catch(function () {});""",
+    """  /* 登出（2026-11-02 补护栏）。
+     ————————————————————————————————————————————————————————————————
+     为什么这里要置 state.signedOut：本页的渲染是**异步、分散**的（QC 全量与 alarm
+     两条轮询、KPI 三路装载、目录装载、矩阵 scope-ready、切回标签页的
+     visibilitychange），每个回调都会把区块的 hidden 重新设成 false。所以
+     mainLocked(true) 只保证「这一刻藏起来」，任意一次迟到的回调都会让它重新出现 ——
+     用户看到的就是「退出后有时候还能看到 Daily Operation」。
+     置上标记后，render / renderCatalog / renderBand / renderKpi 四个渲染入口与
+     loadQc / loadQcAlarm / loadKpi 三个装载入口都会直接返回；标记在登录成功与
+     probe 认到身份时清掉，所以重新登录后一切照旧。
+     ⚠️ 别再往这里加「事后补一次 mainLocked(true)」之类的补丁 —— 那是与定时器赛跑。 */
+  function logout() {
+    state.signedOut = true;
+    fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' }).catch(function () {});""",
+)
+
+H(
+    "render-catalog-guard",
+    """  function renderCatalog() { renderViews6(); renderL0(true); renderEmailSection(); renderQaSection(); renderOssSection(); renderFeedbackSection(); renderAux(); renderArchive(); }""",
+    """  function renderCatalog() {
+    /* 登出后不再重画（2026-11-02 加）：loadCatalog() 是异步的，登出后它照样会
+       resolve 并走到这里，把 #views6 / #l0Map 等区块重新解隐。详见 logout() 的注释。 */
+    if (state.signedOut) { mainLocked(true); return; }
+    renderViews6(); renderL0(true); renderEmailSection(); renderQaSection(); renderOssSection(); renderFeedbackSection(); renderAux(); renderArchive(); }""",
+)
+
+H(
+    "render-band-guard",
+    """  function renderBand() {
+    var box = $('#band'), q = state.qc;""",
+    """  function renderBand() {
+    var box = $('#band'), q = state.qc;
+    /* 登出后不再重画（2026-11-02 加）。**这是用户报的「退出后还能看到 Daily Operation」
+       的直接漏点**：本函数末尾有一段 `box.hidden = false`（团队门户按矩阵收放必需），
+       而它由两条轮询与 visibilitychange 触发 —— 登出时还在飞的那一次回调会在
+       mainLocked(true) 之后把它重新解隐。
+       ⚠️ 置 hidden 而不只是 return：万一调用发生在 login() 之前（首屏同步渲染被
+          signedOut 挡住的情况不存在，但重登后残留的隐藏态要能自愈），这里成对处理。 */
+    if (state.signedOut) { if (box) box.hidden = true; return; }""",
+)
+
+H(
+    "loadqc-guard",
+    """  function loadQc(force) {
+    if (qcFullBusy) return;""",
+    """  function loadQc(force) {
+    /* 登出后不再取数（2026-11-02 加）：轮询没有停，但请求只会拿到 401、
+       并在回调里重画 #band（见 renderBand 的护栏）。这里直接短路，省掉无意义的往返。 */
+    if (state.signedOut) return;
+    if (qcFullBusy) return;""",
+)
+
+H(
+    "loadqcalarm-guard",
+    """  function loadQcAlarm() {
+    if (qcAlarmBusy) return;""",
+    """  function loadQcAlarm() {
+    /* 登出后不再取数（2026-11-02 加）：alarm 是五分钟一档的高频轮询，登出后
+       它是最先「迟到」的那一个 —— 见 renderBand 的护栏与 logout() 的注释。 */
+    if (state.signedOut) return;
+    if (qcAlarmBusy) return;""",
+)
+
+H(
+    "loadkpi-guard",
+    """  function loadKpi() {
+    if (kpiBusy) return;""",
+    """  function loadKpi() {
+    /* 登出后不再取数（2026-11-02 加）。 */
+    if (state.signedOut) return;
+    if (kpiBusy) return;""",
+)
+
+H(
+    "login-clear-signedout",
+    """        ss(TOKEN_KEY, d.token);
+        state.user = d.user; state.authOk = true;""",
+    """        ss(TOKEN_KEY, d.token);
+        /* 重新登录要把登出标记清掉（2026-11-02 加）：否则 renderBand / renderKpi
+           会一直短路，页面停在「登录成功但什么都不显示」的死状态。 */
+        state.signedOut = false;
+        state.user = d.user; state.authOk = true;""",
+)
+
+H(
+    "probe-clear-signedout",
+    """    return Promise.all([p1, p2]).then(function (a) {
+      state.user = a[1] || a[0] || null;
+      state.authOk = !!state.user;
+      renderWho();
+    });""",
+    """    return Promise.all([p1, p2]).then(function (a) {
+      state.user = a[1] || a[0] || null;
+      state.authOk = !!state.user;
+      /* 刷新页面后已有有效会话 → 清掉登出标记（2026-11-02 加）。
+         ⚠️ 只在**认到身份**时清：token 已失效时 authOk 为 false，标记保持为假即可，
+            由 renderGate() 兜住，不影响任何渲染。 */
+      if (state.authOk) state.signedOut = false;
+      renderWho();
+    });""",
+)
+
 
 def build(src_text: str) -> str:
     use_crlf = "\r\n" in src_text

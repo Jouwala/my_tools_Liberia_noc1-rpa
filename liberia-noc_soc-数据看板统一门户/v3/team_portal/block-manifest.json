@@ -57,7 +57,7 @@
       "sub": null,
       "probe": "SCOPE.qaTabs()",
       "title": "Knowledge Q&A 页签区",
-      "note": "页签级过滤：eflow / rag；右下角悬浮助手由 qa-assistant.js 按 assistant 判断。"
+      "note": "页签级过滤：eflow / rag / vmax；右下角悬浮助手由 qa-assistant.js 按 assistant 判断。"
     },
     {
       "id": "ossSlot",

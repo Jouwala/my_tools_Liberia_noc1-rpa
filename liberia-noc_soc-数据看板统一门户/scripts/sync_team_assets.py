@@ -140,6 +140,61 @@ CSS_TEAM_SUFFIX = """
 .oss-grid.is-single { grid-template-columns: minmax(0, 1fr); }
 .complaint-slot { margin-top: var(--s4); }
 .complaint-slot .oss-grid { margin-top: 0; }
+
+/* ============================================================================
+   团队门户弹性列数（P0-2）+ 对侧铺满（P0-3）+ 投诉下线（P0-1）
+   ----------------------------------------------------------------------------
+   背景：团队门户按矩阵过滤后，卡片数 < 上游满配 ——
+     · Daily Operation（#band）：FO 只剩 4 张卡，仍用 repeat(6) 会空两格；
+     · Domain Dashboard（#views6）：FO 只剩 FO View 1 列，仍用 repeat(3) 只占 1/3；
+     · .maprow / .qarow：对侧整块 hidden 时，剩下一侧仍只占半行。
+   修法：渲染侧给 data-n（见 patch_team_portal.py 的 qc-cards-n / views6-grid-n
+     钩子），CSS 侧按 data-n 展开；行级用 :has() 探对侧 hidden / :empty。
+   上游 olbr.css 没有 data-n / :has(hidden) 规则，故两边互不影响。 */
+
+/* Daily Operation：按实际卡数铺满整行（1~6）。特异性 (0,2,0) 高于基类 (0,1,0)。 */
+#band .qc-grid[data-n="1"] { grid-template-columns: minmax(0, 1fr); }
+#band .qc-grid[data-n="2"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+#band .qc-grid[data-n="3"] { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+#band .qc-grid[data-n="4"] { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+#band .qc-grid[data-n="5"] { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+#band .qc-grid[data-n="6"] { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+/* 窄屏不断裂：列数取 min(实际卡数, 断点列数)。 */
+@media (max-width: 1200px) {
+  #band .qc-grid[data-n="4"], #band .qc-grid[data-n="5"], #band .qc-grid[data-n="6"] { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 760px) {
+  #band .qc-grid[data-n="3"], #band .qc-grid[data-n="4"], #band .qc-grid[data-n="5"], #band .qc-grid[data-n="6"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* Domain Dashboard：按实际视图列数铺满整行（1~6）。 */
+#views6 .v6-grid[data-n="1"] { grid-template-columns: minmax(0, 1fr); }
+#views6 .v6-grid[data-n="2"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+#views6 .v6-grid[data-n="4"] { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+#views6 .v6-grid[data-n="5"] { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+#views6 .v6-grid[data-n="6"] { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+@media (max-width: 1400px) {
+  #views6 .v6-grid[data-n="4"], #views6 .v6-grid[data-n="5"], #views6 .v6-grid[data-n="6"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  #views6 .v6-grid[data-n="1"] { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* 对侧铺满：.maprow / .qarow 任一侧 hidden 或空时，另一侧占满整行。
+   :has() 在本项目已在用（见上游 .maprow:has(.map-slot:empty)），不引入新兼容风险。
+   [hidden] 走属性选择器 —— olbr.js 按矩阵收放时设的是 el.hidden = true。 */
+.maprow:has(> .map-slot[hidden]) { grid-template-columns: minmax(0, 1fr); }
+.maprow:has(> .qa-slot[hidden]) { grid-template-columns: minmax(0, 1fr); }
+.maprow:has(> .qa-slot:empty) { grid-template-columns: minmax(0, 1fr); }
+.qarow:has(> .email-slot[hidden]) { grid-template-columns: minmax(0, 1fr); }
+.qarow:has(> .email-slot:empty) { grid-template-columns: minmax(0, 1fr); }
+.qarow:has(> .qarow-col[hidden]) { grid-template-columns: minmax(0, 1fr); }
+/* qarow 右列内部：OSS 与反馈任一 hidden 时，另一块吃掉整列高度。 */
+.qarow-col:has(> .oss-slot[hidden]) > .fb-slot { flex: 1 1 auto; }
+.qarow-col:has(> .fb-slot[hidden]) > .oss-slot { flex: 1 1 auto; height: auto; min-height: var(--qarow-h); }
+
+/* Customer Complaint 下线（P0-1）：Knowledge Q&A 的 CCH 已覆盖，团队门户不再显示。
+   矩阵侧已置空（scope-map.json matrix.complaint.vmax = []），这里再加一道硬隐藏 ——
+   即使某份旧矩阵仍勾选，页面上也不会露出来（fail-closed 朝隐藏方向）。 */
+.complaint-slot { display: none !important; }
 """
 
 

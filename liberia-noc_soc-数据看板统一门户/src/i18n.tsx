@@ -516,7 +516,9 @@ const zh: Record<string, string> = {
   // —— 团队归属（2026-10-29 加）——
   'um.team': '团队门户',
   'um.teamNone': '不指派（登录后停在主门户）',
+  'um.teamNoneShort': '未指派',
   'um.teamHint': '指派后该账号登录会自动进入对应团队门户，且只能进入该门户',
+  'um.saving': '保存中…',
   'um.team.fo': 'ZTE FO Team',
   'um.team.bo': 'ZTE BO Team',
   'um.team.flm': 'ZTE FLM Team',
@@ -1087,7 +1089,9 @@ const en: Record<string, string> = {
   // —— 团队归属（2026-10-29 加）——
   'um.team': 'Team portal',
   'um.teamNone': 'Not assigned (stay on the main portal)',
+  'um.teamNoneShort': 'Unassigned',
   'um.teamHint': 'Once assigned, this account opens its team portal on login and can only enter that one',
+  'um.saving': 'Saving…',
   'um.team.fo': 'ZTE FO Team',
   'um.team.bo': 'ZTE BO Team',
   'um.team.flm': 'ZTE FLM Team',

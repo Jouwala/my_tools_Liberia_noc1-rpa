@@ -2960,7 +2960,7 @@ html.dark {
   padding: 24px; background: var(--scrim);
 }
 .um-modal {
-  width: 100%; max-width: min(1120px, 96vw); max-height: 88vh;
+  width: 100%; max-width: min(1120px, 96vw); max-height: 88vh; max-height: calc(100dvh - 48px);
   display: flex; flex-direction: column; overflow: hidden;
   background: var(--surface); border: 1px solid var(--line-2);
   border-radius: var(--r3); box-shadow: var(--sh-3);
@@ -2981,9 +2981,12 @@ html.dark {
 
 .um-body {
   flex: 1 1 auto; min-height: 0; overflow-y: auto;
+  overscroll-behavior: contain; scroll-padding-bottom: 12px;
   display: flex; flex-direction: column; gap: var(--s3); padding: var(--s3) 16px;
 }
-/* 底栏固定在滚动区之外：表体很长时「保存页面配置」不能跟着滚出视野 */
+/* 底栏固定在滚动区之外：表体很长时「保存页面配置」不能跟着滚出视野。
+   它是纵向 flex 的普通尾项（不是 fixed 覆盖层），内容滚到底正好停在它上面，
+   配 scroll-padding-bottom 让 scrollIntoView 别把控件贴着底栏停。 */
 .um-foot {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
   padding: 10px 16px; border-top: 1px solid var(--line-2);
@@ -3114,6 +3117,13 @@ html.dark {
 .um-add-row { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 12px; }
 .um-add-row input, .um-add-row select { padding: 7px 10px; font-size: var(--fs-md); }
 .um-add-row input { flex: 1 1 200px; }
+/* 角色/团队下拉 + 添加按钮：允许换行时收缩，不把行顶宽、不被输入框挤出可见区 */
+.um-add-row select { flex: 1 1 150px; }
+.um-add-row button { flex: 0 0 auto; }
+/* 弹窗体是纵向 flex + 内部滚动：各分区不参与挤压（flex-shrink 会把 Add User 压扁），
+   高度一律由内容决定，超出走 .um-body 的纵向滚动（问题 1/2/4：Add User 只露标题、
+   配置面板被截半、整窗占满视口，根因都是子项被 flex 压扁而不是滚动）。 */
+.um-body > * { flex: 0 0 auto; min-width: 0; }
 
 /* ---- 行内重置密码 ---- */
 .um-inline-row > td { background: var(--surface-2); }
@@ -3121,6 +3131,7 @@ html.dark {
 .um-inline input { flex: 1 1 220px; padding: 6px 9px; font-size: var(--fs-md); }
 
 /* ---- 页面配置面板（落地 + 可见范围）---- */
+.um-profile-row { scroll-margin-bottom: 12px; }
 .um-profile-row > td { padding: 0; background: var(--surface-2); }
 .um-profile { display: flex; flex-direction: column; gap: 10px; padding: var(--s3); }
 .um-profile-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: var(--t1); }
@@ -3225,3 +3236,58 @@ html.dark {
 .oss-grid.is-single { grid-template-columns: minmax(0, 1fr); }
 .complaint-slot { margin-top: var(--s4); }
 .complaint-slot .oss-grid { margin-top: 0; }
+
+/* ============================================================================
+   团队门户弹性列数（P0-2）+ 对侧铺满（P0-3）+ 投诉下线（P0-1）
+   ----------------------------------------------------------------------------
+   背景：团队门户按矩阵过滤后，卡片数 < 上游满配 ——
+     · Daily Operation（#band）：FO 只剩 4 张卡，仍用 repeat(6) 会空两格；
+     · Domain Dashboard（#views6）：FO 只剩 FO View 1 列，仍用 repeat(3) 只占 1/3；
+     · .maprow / .qarow：对侧整块 hidden 时，剩下一侧仍只占半行。
+   修法：渲染侧给 data-n（见 patch_team_portal.py 的 qc-cards-n / views6-grid-n
+     钩子），CSS 侧按 data-n 展开；行级用 :has() 探对侧 hidden / :empty。
+   上游 olbr.css 没有 data-n / :has(hidden) 规则，故两边互不影响。 */
+
+/* Daily Operation：按实际卡数铺满整行（1~6）。特异性 (0,2,0) 高于基类 (0,1,0)。 */
+#band .qc-grid[data-n="1"] { grid-template-columns: minmax(0, 1fr); }
+#band .qc-grid[data-n="2"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+#band .qc-grid[data-n="3"] { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+#band .qc-grid[data-n="4"] { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+#band .qc-grid[data-n="5"] { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+#band .qc-grid[data-n="6"] { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+/* 窄屏不断裂：列数取 min(实际卡数, 断点列数)。 */
+@media (max-width: 1200px) {
+  #band .qc-grid[data-n="4"], #band .qc-grid[data-n="5"], #band .qc-grid[data-n="6"] { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 760px) {
+  #band .qc-grid[data-n="3"], #band .qc-grid[data-n="4"], #band .qc-grid[data-n="5"], #band .qc-grid[data-n="6"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* Domain Dashboard：按实际视图列数铺满整行（1~6）。 */
+#views6 .v6-grid[data-n="1"] { grid-template-columns: minmax(0, 1fr); }
+#views6 .v6-grid[data-n="2"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+#views6 .v6-grid[data-n="4"] { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+#views6 .v6-grid[data-n="5"] { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+#views6 .v6-grid[data-n="6"] { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+@media (max-width: 1400px) {
+  #views6 .v6-grid[data-n="4"], #views6 .v6-grid[data-n="5"], #views6 .v6-grid[data-n="6"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  #views6 .v6-grid[data-n="1"] { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* 对侧铺满：.maprow / .qarow 任一侧 hidden 或空时，另一侧占满整行。
+   :has() 在本项目已在用（见上游 .maprow:has(.map-slot:empty)），不引入新兼容风险。
+   [hidden] 走属性选择器 —— olbr.js 按矩阵收放时设的是 el.hidden = true。 */
+.maprow:has(> .map-slot[hidden]) { grid-template-columns: minmax(0, 1fr); }
+.maprow:has(> .qa-slot[hidden]) { grid-template-columns: minmax(0, 1fr); }
+.maprow:has(> .qa-slot:empty) { grid-template-columns: minmax(0, 1fr); }
+.qarow:has(> .email-slot[hidden]) { grid-template-columns: minmax(0, 1fr); }
+.qarow:has(> .email-slot:empty) { grid-template-columns: minmax(0, 1fr); }
+.qarow:has(> .qarow-col[hidden]) { grid-template-columns: minmax(0, 1fr); }
+/* qarow 右列内部：OSS 与反馈任一 hidden 时，另一块吃掉整列高度。 */
+.qarow-col:has(> .oss-slot[hidden]) > .fb-slot { flex: 1 1 auto; }
+.qarow-col:has(> .fb-slot[hidden]) > .oss-slot { flex: 1 1 auto; height: auto; min-height: var(--qarow-h); }
+
+/* Customer Complaint 下线（P0-1）：Knowledge Q&A 的 CCH 已覆盖，团队门户不再显示。
+   矩阵侧已置空（scope-map.json matrix.complaint.vmax = []），这里再加一道硬隐藏 ——
+   即使某份旧矩阵仍勾选，页面上也不会露出来（fail-closed 朝隐藏方向）。 */
+.complaint-slot { display: none !important; }

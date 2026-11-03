@@ -249,6 +249,7 @@
   /* ========================================================== 问答页签 ==
      · eflow  = 「TT/Alarm Analysis」（eFlow 知识库）
      · rag    = 「Knowledge O&A」（本地知识问答）
+     · vmax   = 「VMAX 用户查询」（VMAX 用户查询页签，2026-11-02 加）
      · assistant = 「Quick Q&A」（右下角悬浮问答助手） */
   function qaTabs() {
     return subs('qa');

@@ -148,6 +148,10 @@
     lang: detectLang(),
     theme: detectTheme(),
     user: null, authOk: false, booted: false, userMenuOpen: false, sysMenuOpen: false,
+    /* 已登出（2026-11-02 加）：渲染/装载入口据此上锁，见 logout() 的注释。
+       ⚠️ 与 authOk 不是一回事：authOk 在 boot() 的同步 render() 那一刻还没被
+          probe 写回来，用它当锁会把首屏锁死；本标记**只由登出/会话失效置真**。 */
+    signedOut: false,
     /* 登录闸门的两态（2026-09-25 加）：
        · gateMode —— 'login' 登录 / 'request' 自助注册申请，与 /uniplam/ 的
          LoginView 同一套两态切换；
@@ -256,7 +260,7 @@
     um: {
       open: false, loading: false, users: [], requests: [], storage: null,
       portalGroups: null, portalGroupLabels: null, portalDashboards: null, portalGroupsErr: false,
-      nu: '', np: '', nr: 'viewer',
+      nu: '', np: '', nr: 'viewer', nt: '',
       resetId: '', resetPwd: '', approveRoles: {},
       profileId: '', pv: '', pc: '', restricted: false, groups: [], cards: [],
       /* team：团队门户归属（fo/bo/flm/smc/cxo），空 = 未指派。
@@ -973,14 +977,24 @@
 
   function renderBand() {
     var box = $('#band'), q = state.qc;
+    /* 登出后不再重画（2026-11-02 加）。**这是用户报的「退出后还能看到 Daily Operation」
+       的直接漏点**：本函数末尾有一段 `box.hidden = false`（团队门户按矩阵收放必需），
+       而它由两条轮询与 visibilitychange 触发 —— 登出时还在飞的那一次回调会在
+       mainLocked(true) 之后把它重新解隐。
+       ⚠️ 置 hidden 而不只是 return：万一调用发生在 login() 之前（首屏同步渲染被
+          signedOut 挡住的情况不存在，但重登后残留的隐藏态要能自愈），这里成对处理。 */
+    if (state.signedOut) { if (box) box.hidden = true; return; }
     var has = q.m && Object.keys(q.m).length;
     if (q.loading && !has) {
       box.innerHTML = '<div class="band-h"><span class="sk" style="width:84px;height:84px;border-radius:50%"></span>' +
         '<div class="band-txt" style="flex:1"><span class="sk" style="width:52%"></span>' +
         '<span class="sk s" style="width:72%"></span></div></div>' +
-        '<div class="qc-grid">' + (D.qc || []).filter(function (d) {
+        '<div class="qc-grid" data-n="' + (D.qc || []).filter(function (d) {
           /* 团队门户作用域：骨架也要按矩阵过滤，否则会出现「骨架摆六张、
-             数据到位只剩两张」的整块跳动（骨架与真卡必须 1:1 同构）。 */
+             数据到位只剩两张」的整块跳动（骨架与真卡必须 1:1 同构）。
+             data-n 让 CSS 按实际卡数铺满整行（P0-2）。 */
+          return !SCOPE || SCOPE.ok('qc', d.id);
+        }).length + '">' + (D.qc || []).filter(function (d) {
           return !SCOPE || SCOPE.ok('qc', d.id);
         }).map(function () {
           return '<div class="qc-card"><span class="sk" style="width:56%"></span>' +
@@ -1097,7 +1111,7 @@
         live +
         '<button type="button" class="gb" data-act="qc-reload" title="' + esc(t('qc.reload')) + '">' +
           ic('refresh') + esc(t('qc.reload')) + '</button>' +
-      '</div><div class="qc-grid">' + cards + '</div>';
+      '</div><div class="qc-grid" data-n="' + (SCOPE ? DATA.QC_PRIMARY_ORDER.concat(DATA.QC_SECONDARY_ORDER).filter(function (id) { return SCOPE.ok('qc', id); }).length : DATA.QC_PRIMARY_ORDER.length + DATA.QC_SECONDARY_ORDER.length) + '">' + cards + '</div>';
     wireRangeToggle(box);
   }
   /* 数据区间气泡的点击切换（2026-09-28 加，用户要求「改成点击切换」）。
@@ -2145,6 +2159,10 @@
   function renderKpi() {
     var box = $('#kpi');
     if (!box) return;
+    /* 登出后不再重画（2026-11-02 加）：KPI 是**异步**装载的（三路并行，见 loadKpi），
+       登出那一刻还在飞的回调会把 #kpi 重新解隐 —— 与 #band 同一类漏点，
+       详见 logout() 的注释。 */
+    if (state.signedOut) { box.hidden = true; return; }
     var k = state.kpi;
     /* 团队门户作用域（2026-10-29 加）：
        · KPI_GROUPS 有两组（rich = 总流量/活跃用户/视频速率，avail = 2G/3G/4G 可用率），
@@ -2730,7 +2748,7 @@
          去掉后 .band-txt 里只剩 .band-k 一行 —— 容器本身保留，
          它同时是 .band-h 的 flex 左侧项（右侧无内容，故不再需要占位）。 */
       '<div class="band-h"><div class="band-txt"><div class="band-k">' + esc(t('v6.title')) + '</div></div></div>' +
-      '<div class="v6-grid">' + html + '</div>';
+      '<div class="v6-grid" data-n="' + gids.length + '">' + html + '</div>';
   }
 
   /* 列内二级子分组页签条（2026-09-27 加）。
@@ -4721,10 +4739,13 @@
           高度和 Q&A 一样，再同一行」。
      两块的 DOM 目标：#qaSlot（左）、#ossSlot（右），见 index.html 的 .qarow。
 
-     数据来源：两项都是目录里的普通看板条目，**不写死** ——
+     数据来源：三项都是目录里的普通看板条目，**不写死** ——
      按 url 里的 page 值在目录里现查（与 mapItems 同一条口径）：
        · RAG   → 目录里 url 含 `192.168.100.27`（Open WebUI，**外域 https**）
        · eFlow → 目录里 url 含 `page=eflow_qa`
+       · VMAX 用户查询 → 目录里 url 含 `page=vmax_user_query`
+         （2026-11-02 加：目录里若还没有该条目，用内置兜底项补上，
+         保证页签一定出现；目录一旦配了该条目，兜底自动让位）。
      取不到条目（被人删了 / 权限看不到）时整个页签不渲染，不摆一个空壳。
      ⚠️ 2026-10-12：RAG 已由 `http://192.168.100.27:3000/` 改成 https。
         匹配串只写主机名 `192.168.100.27`，这样新旧两种形态都能命中 ——
@@ -4756,20 +4777,40 @@
               pick('192.168.100.27/') ||
               pick('192.168.100.27');
     var eflow = pick('page=eflow_qa');
-    /* 团队门户作用域（2026-10-29 加）：Excel 的 Knowledge Q&A 域有三行 ——
+    /* 团队门户作用域（2026-10-29 加，2026-11-02 补 vmax）：Excel 的 Knowledge Q&A 域有四行 ——
        · TT/Alarm Analysis → eFlow 知识库（页签 eflow）
        · Knowledge O&A     → 本地知识问答（页签 rag）
+       · VMAX 用户查询      → VMAX 用户查询（页签 vmax，见下方 qa-filter-vmax 钩子）
        · Quick Q&A         → 右下角悬浮问答助手（不是页签，由 qa-assistant.js 判断）
-       这里只管前两个页签。 */
+       这里只管前两个页签；vmax 的兜底项定义在后面，提前置空会被覆盖，
+       故它的过滤在 return 前单独做（qa-filter-vmax 钩子）。 */
     if (SCOPE) {
       var qaAllow = SCOPE.qaTabs();
       if (qaAllow.indexOf('eflow') === -1) eflow = null;
       if (qaAllow.indexOf('rag') === -1) rag = null;
     }
+    /* 2026-11-02 加：第三页签 VMAX 用户查询（my_app ?page=vmax_user_query）。
+       目录里若还没有该条目（内置 data.js 与服务端 catalog 都没配），用内置兜底项补上，
+       保证页签一定出现；目录一旦配了该条目（按 url 里的 page 值命中），兜底自动让位。
+       兜底写法与 mapItems 的标题回落同一口径：标题取 my_app 侧菜单同名，图标取 mobile。 */
+    var vmax = pick('page=vmax_user_query') || {
+      no: -9001, groups: ['Knowledge Q&A'],
+      titleZh: 'VMAX 用户查询', titleEn: 'VMAX User Query',
+      descZh: 'VMAX 用户信息查询：按号码查 IMSI / 终端等（与 my_app 侧菜单同名）。',
+      descEn: 'VMAX user info query by MSISDN: IMSI / terminal etc. (same as the my_app menu).',
+      platform: 'myapp', url: 'http://192.168.100.20/myapp/?page=vmax_user_query',
+      status: 'online', freq: '', clicks: 0, icon: 'mobile'
+    };
     /* ⚠️ 2026-10-12（用户要求「把 eflow 放到前面」）：顺序改为 **eFlow 在前、RAG 在后**。
        这个数组的顺序就是页签条的顺序，也是未指定 state.qaTab 时的默认选中项
-       （curQa 取 list[0]）—— 故这里的先后同时决定了「谁排第一」与「默认展示谁」。 */
-    return [eflow && { key: 'eflow', item: eflow }, rag && { key: 'rag', item: rag }].filter(Boolean);
+       （curQa 取 list[0]）—— 故这里的先后同时决定了「谁排第一」与「默认展示谁」。
+       2026-11-02：VMAX 用户查询排第三，不动前两者的顺序与默认选中。 */
+    /* 团队门户作用域（2026-11-02 加）：VMAX 页签同样受矩阵控制 ——
+       未勾选的团队不显示。注意 vmax 可能是兜底项（目录里没有也存在），
+       故不能只靠目录有无，必须在这里显式过滤。 */
+    if (SCOPE && SCOPE.qaTabs().indexOf('vmax') === -1) vmax = null;
+    return [eflow && { key: 'eflow', item: eflow }, rag && { key: 'rag', item: rag },
+      vmax && { key: 'vmax', item: vmax }].filter(Boolean);
   }
   /* 页签上显示的**短标签**（2026-10-12 改）：目录标题太长
      （"RAG Knowledge Q&A (本地知识问答 / Open WebUI)"），
@@ -4779,6 +4820,7 @@
   function qaTabLabel(tab) {
     if (tab.key === 'rag') return t('qa.tabRag');
     if (tab.key === 'eflow') return t('qa.tabEflow');
+    if (tab.key === 'vmax') return t('qa.tabVmaxUser');
     return titleOf(tab.item);
   }
   /* 页签的 title 全称：短名之外仍要让用户看得到完整标题（含说明），
@@ -4801,8 +4843,13 @@
       /* ⚠️ 2026-10-19：补 `embed=1`。my_app 自 2026-10-18 起只看 ?embed=1 /
          ?layout=bare 隐藏外壳（App.tsx readBareModule），不再认 ?page=；
          不补则 eFlow 页签的 iframe 里会连 Header 与侧栏一起显示出来。
-         与 mapItems / emailSrc 同一处理。 */
-      return '/myapp/' + q + '&embed=1' + (state.theme === 'dark' ? '&theme=dark' : '') + langQs();
+         与 mapItems / emailSrc 同一处理。
+         2026-11-02：目录 url 若已带 embed/lang（VMAX 用户查询的完整深链），不再重复补，
+         否则会出现 `&embed=1&embed=1`。 */
+      var sep = (q.indexOf('embed=') !== -1) ? '' : '&embed=1';
+      var thm = (state.theme === 'dark' && q.indexOf('theme=') === -1) ? '&theme=dark' : '';
+      var lng = (q.indexOf('lang=') !== -1) ? '' : langQs();
+      return '/myapp/' + q + sep + thm + lng;
     }
     /* RAG（外域）：无论目录里存的是什么旧地址（`http://192.168.100.27:3000/`、
        `https://192.168.100.27/`、`https://192.168.100.27:8443/`），这里**无条件
@@ -5200,7 +5247,15 @@
 
   /* ⚠️ renderComplaintSection() 是**团队门户专有**的（上游页面没有 #complaintSlot，
      那个函数找不到节点就直接返回）。放在 renderAux 之前，与 DOM 顺序一致。 */
-  function render() { renderBand(); renderKpi(); renderViews6(); renderL0(); renderEsc(); renderEmailSection(); renderQaSection(); renderOssSection(); renderFeedbackSection(); renderComplaintSection(); renderAux(); renderArchive(); applyI18n(); }
+  function render() {
+    /* 登出后不再重画（2026-11-02 加）—— 完整理由见 logout() 的「登出后还能看到
+       Daily Operation」那段注释。render() 有多个**异步**触发点（矩阵 scope-ready、
+       目录装载完成、切换语言），它们都不看登录态，会把 mainLocked(true) 藏起来的
+       区块重新解开。
+       ⚠️ 判据用 state.signedOut，**不能**用 !state.authOk：boot() 里这一次 render()
+         是同步跑的，那一刻 probe() 还没回来、authOk 天然是 false —— 用它会把首屏锁死。 */
+    if (state.signedOut) { mainLocked(true); return; }
+    renderBand(); renderKpi(); renderViews6(); renderL0(); renderEsc(); renderEmailSection(); renderQaSection(); renderOssSection(); renderFeedbackSection(); renderComplaintSection(); renderAux(); renderArchive(); applyI18n(); }
 
   /* 目录保存后的重绘：只画「看得懂目录改动」的那几块，且**不重新加载地图**。
      ⚠️ 不能图省事调 render()：MsPortal 当年就是这么把 4 个地图 iframe 全重建了一遍，
@@ -5212,7 +5267,11 @@
      v1：原先这里还调 renderViews()（L1 页签面板），面板已去掉，改成
      renderEmailSection() —— 报告文件挂在目录条目上（emailItem 查 url 里的 page=），
      所以目录一改它也要跟着重判一次权限与文案。 */
-  function renderCatalog() { renderViews6(); renderL0(true); renderEmailSection(); renderQaSection(); renderOssSection(); renderFeedbackSection(); renderAux(); renderArchive(); }
+  function renderCatalog() {
+    /* 登出后不再重画（2026-11-02 加）：loadCatalog() 是异步的，登出后它照样会
+       resolve 并走到这里，把 #views6 / #l0Map 等区块重新解隐。详见 logout() 的注释。 */
+    if (state.signedOut) { mainLocked(true); return; }
+    renderViews6(); renderL0(true); renderEmailSection(); renderQaSection(); renderOssSection(); renderFeedbackSection(); renderAux(); renderArchive(); }
 
   /* --------------------------------------------------------------- auth -- */
   /* 与 MsPortal 共用 PORTAL_TOKEN_KEY：新页面登录不会把 MsPortal 顶掉（同一份会话），
@@ -5238,6 +5297,10 @@
     return Promise.all([p1, p2]).then(function (a) {
       state.user = a[1] || a[0] || null;
       state.authOk = !!state.user;
+      /* 刷新页面后已有有效会话 → 清掉登出标记（2026-11-02 加）。
+         ⚠️ 只在**认到身份**时清：token 已失效时 authOk 为 false，标记保持为假即可，
+            由 renderGate() 兜住，不影响任何渲染。 */
+      if (state.authOk) state.signedOut = false;
       renderWho();
     });
   }
@@ -5408,6 +5471,9 @@
       return r.json().catch(function () { return {}; }).then(function (d) {
         if (!r.ok || !d.token || !d.user) { var e = new Error(d.detail || 'login failed'); e.code = r.status === 429 ? 'locked' : r.status === 401 ? 'bad' : 'net'; throw e; }
         ss(TOKEN_KEY, d.token);
+        /* 重新登录要把登出标记清掉（2026-11-02 加）：否则 renderBand / renderKpi
+           会一直短路，页面停在「登录成功但什么都不显示」的死状态。 */
+        state.signedOut = false;
         state.user = d.user; state.authOk = true;
         /* 登录成功把闸门收回 —— 它可能是被「用户管理」主动唤起的，
            不收的话 renderGate 会因为 gateOpen 仍然为真而继续显示。 */
@@ -5458,7 +5524,19 @@
       var e = new Error('network'); e.code = 'net'; throw e;
     });
   }
+  /* 登出（2026-11-02 补护栏）。
+     ————————————————————————————————————————————————————————————————
+     为什么这里要置 state.signedOut：本页的渲染是**异步、分散**的（QC 全量与 alarm
+     两条轮询、KPI 三路装载、目录装载、矩阵 scope-ready、切回标签页的
+     visibilitychange），每个回调都会把区块的 hidden 重新设成 false。所以
+     mainLocked(true) 只保证「这一刻藏起来」，任意一次迟到的回调都会让它重新出现 ——
+     用户看到的就是「退出后有时候还能看到 Daily Operation」。
+     置上标记后，render / renderCatalog / renderBand / renderKpi 四个渲染入口与
+     loadQc / loadQcAlarm / loadKpi 三个装载入口都会直接返回；标记在登录成功与
+     probe 认到身份时清掉，所以重新登录后一切照旧。
+     ⚠️ 别再往这里加「事后补一次 mainLocked(true)」之类的补丁 —— 那是与定时器赛跑。 */
   function logout() {
+    state.signedOut = true;
     fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' }).catch(function () {});
     var tk = tok();
     if (tk) fetch('/uniplam/api/auth/logout', {
@@ -5651,7 +5729,7 @@
     state.um.open = true;
     /* 每次打开都清掉上一轮的草稿与提示，避免「上次没保存的勾选」被当成现状 */
     state.um.error = ''; state.um.success = '';
-    state.um.nu = ''; state.um.np = ''; state.um.nr = 'viewer';
+    state.um.nu = ''; state.um.np = ''; state.um.nr = 'viewer'; state.um.nt = '';
     state.um.resetId = ''; state.um.resetPwd = '';
     state.um.approveRoles = {};
     state.um.profileId = '';
@@ -5680,8 +5758,22 @@
     state.um.error = '';
     state.um.success = '';
     renderUserMgmt();
-    var el = $('[data-um="landing-view"]');
-    if (el && el.scrollIntoView) el.scrollIntoView({ block: 'nearest' });
+    /* 展开后把整块配置滚进可视区：只调 .um-body 自己的 scrollTop，
+       不碰 window（弹窗是 fixed 居中，整页没有滚动条）。
+       block:'nearest' 语义太弱 —— 最下一行的配置块只露头、剩余全在可视区外，
+       必须按「配置块底部 vs 滚动区底部」补一段，保证底部行也能完整看到。 */
+    var body = $('#umBody');
+    var prof = body ? body.querySelector('.um-profile-row') : null;
+    if (body && prof) {
+      var bRect = body.getBoundingClientRect();
+      var pRect = prof.getBoundingClientRect();
+      if (pRect.bottom > bRect.bottom) body.scrollTop += (pRect.bottom - bRect.bottom + 12);
+      else {
+        var trig = body.querySelector('tr.is-open');
+        var tRect = trig ? trig.getBoundingClientRect() : pRect;
+        if (tRect.top < bRect.top) body.scrollTop -= (bRect.top - tRect.top + 12);
+      }
+    }
   }
 
   function umToggle(list, value) {
@@ -5780,6 +5872,13 @@
 
   function umAddFormHtml() {
     var busy = state.um.busy === 'add';
+    /* 团队下拉与角色下拉同行：选项来自 UM_TEAMS（与后端 TEAM_IDS 对齐），
+       空 = 未指派（服务端存 null，登录后停在主门户）。 */
+    var teamOpts = '<option value="">' + esc(t('um.teamNone')) + '</option>' +
+      UM_TEAMS.map(function (tm) {
+        return '<option value="' + tm.id + '"' + (state.um.nt === tm.id ? ' selected' : '') + '>' +
+          esc(t('um.team.' + tm.id)) + '</option>';
+      }).join('');
     return '<form class="um-box um-add" id="umAddForm">' +
       '<div class="um-box-head">' + ic('user-plus') + '<span>' + esc(t('um.addTitle')) + '</span></div>' +
       '<div class="um-add-row">' +
@@ -5788,6 +5887,9 @@
         '<select id="umNewRole">' +
           '<option value="viewer"' + (state.um.nr === 'viewer' ? ' selected' : '') + '>' + esc(t('um.roleViewer')) + '</option>' +
           '<option value="admin"' + (state.um.nr === 'admin' ? ' selected' : '') + '>' + esc(t('um.roleAdmin')) + '</option>' +
+        '</select>' +
+        '<select id="umNewTeam" aria-label="' + esc(t('um.team')) + '" title="' + esc(t('um.team')) + '">' +
+          teamOpts +
         '</select>' +
         '<button type="submit" class="gb um-primary" id="umAddBtn"' +
           (busy ? ' disabled' : '') + '>' + ic('plus') + esc(t('um.add')) + '</button>' +
@@ -5950,12 +6052,22 @@
     var body = $('#umBody');
     if (!body) return;
     var u = state.um;
+    /* 重绘会把 scrollTop 归零：底部行展开配置/勾选可见范围时整块跳回顶部，
+       看起来像「被底栏盖住」。先记住位置，重画后原样恢复
+       （umOpenProfile 随后还会按配置块底部再补一段，那是刻意的二次调整）。 */
+    var keepTop = body.scrollTop || 0;
 
     var html = '';
     if (u.success) html += '<div class="um-banner is-ok">' + ic('check-circle') + '<span>' + esc(u.success) + '</span></div>';
     if (u.error) html += '<div class="um-banner is-err">' + ic('warning') + '<span>' + esc(u.error) + '</span></div>';
     html += umStorageHtml() + umRequestsHtml() + umAddFormHtml() + umUsersHtml();
     body.innerHTML = html;
+    /* 重画后恢复滚动位置（见函数头 keepTop）：内容高度变了就按比例夹紧，
+       避免滚到空白处。 */
+    try {
+      var maxTop = body.scrollHeight - body.clientHeight;
+      body.scrollTop = Math.max(0, Math.min(keepTop, maxTop > 0 ? maxTop : 0));
+    } catch (e) { /* 滚动恢复失败不阻塞渲染 */ }
 
     /* 底部固定操作栏：只在页面配置面板展开时出现（与 uniplam 的布局一致） */
     var foot = $('#umFoot');
@@ -5981,10 +6093,10 @@
     if (password.length < 8) { umFlash('err', t('um.pwdTooShort')); return; }
     state.um.busy = 'add';
     renderUserMgmt();
-    umCall('/users', { method: 'POST', body: { username: username, password: password, role: state.um.nr } })
+    umCall('/users', { method: 'POST', body: { username: username, password: password, role: state.um.nr, team: state.um.nt || null } })
       .then(function (r) {
         if (!r.ok) { umFlash('err', umErrorText(r.status, r.data && r.data.detail)); return; }
-        state.um.nu = ''; state.um.np = ''; state.um.nr = 'viewer';
+        state.um.nu = ''; state.um.np = ''; state.um.nr = 'viewer'; state.um.nt = '';
         umFlash('ok', t('um.added'));
         return loadUserMgmt();
       })
@@ -6129,6 +6241,7 @@
       var el = e.target;
       var act = el.getAttribute && el.getAttribute('data-um');
       if (el.id === 'umNewRole') { state.um.nr = el.value; return; }
+      if (el.id === 'umNewTeam') { state.um.nt = el.value; return; }
       if (act === 'approve-role') { state.um.approveRoles[el.getAttribute('data-id')] = el.value; return; }
       if (act === 'landing-view') { state.um.pv = el.value; return; }
       if (act === 'landing-card') { state.um.pc = el.value; return; }
@@ -6199,6 +6312,9 @@
   }
   var qcFullBusy = false, qcAlarmBusy = false;
   function loadQc(force) {
+    /* 登出后不再取数（2026-11-02 加）：轮询没有停，但请求只会拿到 401、
+       并在回调里重画 #band（见 renderBand 的护栏）。这里直接短路，省掉无意义的往返。 */
+    if (state.signedOut) return;
     if (qcFullBusy) return;
     qcFullBusy = true;
     api('/api/portal-qc/summary' + (force ? '?refresh=1' : '')).then(function (d) {
@@ -6228,6 +6344,9 @@
      失败时把 alarm 置成 error 态而不是保留旧值 —— 宁可显示「不可用」，
      也不要让一小时前的告警数冒充实时值，这是这块面板最要紧的一格。 */
   function loadQcAlarm() {
+    /* 登出后不再取数（2026-11-02 加）：alarm 是五分钟一档的高频轮询，登出后
+       它是最先「迟到」的那一个 —— 见 renderBand 的护栏与 logout() 的注释。 */
+    if (state.signedOut) return;
     if (qcAlarmBusy) return;
     qcAlarmBusy = true;
     api('/api/portal-qc/summary?only=alarm').then(function (d) {
@@ -6267,6 +6386,8 @@
      切回前台时跟 QC 一起补一发（后台标签页定时器会被冻结，不补会看到昨天的数）。 */
   var kpiBusy = false;
   function loadKpi() {
+    /* 登出后不再取数（2026-11-02 加）。 */
+    if (state.signedOut) return;
     if (kpiBusy) return;
     kpiBusy = true;
     /* 三路并行（第四路见下方 meta），所以计数是 3。

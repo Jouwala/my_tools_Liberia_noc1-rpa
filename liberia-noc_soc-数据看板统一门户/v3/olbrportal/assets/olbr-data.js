@@ -579,6 +579,10 @@ window.OLBR_DATA = (function () {
          Open WebUI），不是显示名，改名不影响 qaItems() 的识别条件。
          全称仍挂 title/aria-label（见 olbr.js 的 qaTabTitle），悬停可见。 */
       'qa.tabEflow': 'TT/Alarm Analysis', 'qa.tabRag': 'O&A',
+      /* 2026-11-02 加：Knowledge Q&A 第三页签 VMAX 用户查询（my_app ?page=vmax_user_query）。
+         键名 tabVmaxUser 对应条目来源 page=vmax_user_query（与 tabEflow/tabRag 同一约定）。
+         2026-11-02 改名：页签短标签统一用 CCH（中英同值，不是笔误，别再"顺手改回"）。 */
+      'qa.tabVmaxUser': 'CCH',
       'aux.reports': 'Task report files', 'aux.tools': '本页相关',
       'aux.ms': '在 MsPortal 维护分组 / 看板 / 账号', 'aux.uni': '统一门户看板门户',
       'aux.more': '展开其余 {n} 项', 'aux.less': '收起',
@@ -1178,6 +1182,10 @@ window.OLBR_DATA = (function () {
          Open WebUI），不是显示名，改名不影响 qaItems() 的识别条件。
          全称仍挂 title/aria-label（见 olbr.js 的 qaTabTitle），悬停可见。 */
       'qa.tabEflow': 'TT/Alarm Analysis', 'qa.tabRag': 'O&A',
+      /* 2026-11-02 加：Knowledge Q&A 第三页签 VMAX 用户查询（与中文那份同源，
+         显示名与 my_app 侧 'nav.vmaxUserQuery' = VMAX User Query 对齐）。
+         2026-11-02 改名：页签短标签统一用 CCH（中英同值，不是笔误，别再"顺手改回"）。 */
+      'qa.tabVmaxUser': 'CCH',
       'aux.reports': 'Task report files', 'aux.tools': 'About this page',
       'aux.ms': 'Manage groups / dashboards / accounts in MsPortal', 'aux.uni': 'Unified dashboard portal',
       'aux.more': 'Show {n} more', 'aux.less': 'Show less',
@@ -1327,6 +1335,9 @@ window.OLBR_DATA = (function () {
     package: 'ph-package', wrench: 'ph-wrench', upload: 'ph-cloud-arrow-up', table: 'ph-table',
     archive: 'ph-archive', chat: 'ph-chat-circle-dots', book: 'ph-book-open-text', gear: 'ph-gear',
     dashboard: 'ph-squares-four', key: 'ph-lock-key', warning: 'ph-warning', briefcase: 'ph-briefcase',
+    /* 2026-11-02 加：Knowledge Q&A 第三页签 VMAX 用户查询的图标（my_app 侧用 MobileOutlined）。
+       类名在 MsPortal/assets/icons/phosphor.css 里核实过（.ph-device-mobile）。 */
+    mobile: 'ph-device-mobile',
     /* 缩放锁的两态图标（2026-10-22 加）。两个类名都在
        MsPortal/assets/icons/phosphor.css 里核实过（.ph-lock / .ph-lock-open）。 */
     lock: 'ph-lock', 'lock-open': 'ph-lock-open',

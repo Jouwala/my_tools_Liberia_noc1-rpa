@@ -1,0 +1,67 @@
+/* ============================================================================
+   team-layout.css —— 团队门户可调布局（P1 MVP）
+   ----------------------------------------------------------------------------
+   只在 <html data-team-layout="edit"> 编辑态下生效：
+     · 区块描边 + 拖动手柄 + 隐藏开关 + 右下角缩放柄
+     · 工具条（#teamLayoutBar）常驻右下角，编辑/完成/重置三颗按钮
+   只读态零样式（选择器全挂在 [data-team-layout="edit"] 下），
+   上游 /v3/olbrportal/ 不引本文件，行为一行不变。
+   ========================================================================== */
+
+/* 工具条：右下角浮动，不遮右下角问答助手（qaFab 在右下 24px，本条往上抬 76px）。 */
+#teamLayoutBar {
+  position: fixed; right: 16px; bottom: 76px; z-index: 55;
+  display: flex; gap: 6px; align-items: center;
+  padding: 6px 8px; border-radius: 999px;
+  background: var(--surface-2, #fff); border: 1px solid var(--line-2, #e5e7eb);
+  box-shadow: var(--sh-1, 0 4px 14px rgba(0,0,0,.12));
+  font-size: 12px;
+}
+#teamLayoutBar button {
+  border: 1px solid var(--line-2, #e5e7eb); background: transparent;
+  border-radius: 999px; padding: 3px 10px; font-size: 12px; cursor: pointer;
+  color: var(--t1, #111);
+}
+#teamLayoutBar button[aria-pressed="true"] {
+  background: var(--b-tint, #eff6ff); border-color: var(--b-line, #93c5fd);
+  color: var(--b-ink, #1d4ed8); font-weight: 700;
+}
+#teamLayoutBar button:disabled { opacity: .45; cursor: not-allowed; }
+
+/* 编辑态：可布局区块统一描边，提示"可拖"。 */
+html[data-team-layout="edit"] #main > section[data-tl],
+html[data-team-layout="edit"] #main > div[data-tl] {
+  outline: 1.5px dashed var(--b-line, #93c5fd);
+  outline-offset: 3px;
+  position: relative;
+}
+/* 拖动中 / 落点高亮。 */
+html[data-team-layout="edit"] [data-tl].is-tl-drag { opacity: .45; }
+html[data-team-layout="edit"] [data-tl].is-tl-before { box-shadow: 0 -3px 0 var(--b, #3b82f6); }
+html[data-team-layout="edit"] [data-tl].is-tl-after { box-shadow: 0 3px 0 var(--b, #3b82f6); }
+
+/* 区块左上角手柄：拖动排序 + 显隐开关。 */
+.tl-handle {
+  position: absolute; top: -12px; left: 8px; z-index: 6;
+  display: none; gap: 4px; align-items: center;
+  background: var(--surface-2, #fff); border: 1px solid var(--line-2, #e5e7eb);
+  border-radius: 999px; padding: 1px 6px; font-size: 11px; line-height: 18px;
+  box-shadow: var(--sh-1, 0 4px 14px rgba(0,0,0,.12));
+  user-select: none;
+}
+html[data-team-layout="edit"] .tl-handle { display: inline-flex; }
+.tl-handle .tl-grip { cursor: grab; }
+.tl-handle .tl-grip:active { cursor: grabbing; }
+.tl-handle button {
+  border: none; background: transparent; cursor: pointer;
+  font-size: 11px; padding: 0 4px; color: var(--t2, #555);
+}
+
+/* 编辑态允许纵向缩放：靠右下角手柄改 --tl-h（见 team-layout.js）。 */
+html[data-team-layout="edit"] #main > section[data-tl],
+html[data-team-layout="edit"] #main > div[data-tl] {
+  resize: vertical; overflow: auto; min-height: 80px;
+}
+/* 卡片级：QC 卡在编辑态可拖排序。 */
+html[data-team-layout="edit"] #band .qc-grid .qc-card { cursor: grab; }
+html[data-team-layout="edit"] #band .qc-grid .qc-card.is-tl-drag { opacity: .45; }

@@ -97,7 +97,8 @@
   "qa": {
     "assistant": {},
     "eflow": {},
-    "rag": {}
+    "rag": {},
+    "vmax": {}
   },
   "qc": {
     "alarm": {},

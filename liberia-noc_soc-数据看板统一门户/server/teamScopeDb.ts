@@ -263,6 +263,34 @@ export class TeamScopeStore {
       }[];
       if (rows.length && rows[0].matrix) {
         const parsed = JSON.parse(rows[0].matrix) as TeamScopeMatrix;
+        /* 2026-11-02 补：模板新增项（如 qa/vmax）要自动合进已播种的库矩阵。
+           之前 load() 原样返回库里那份 —— 库是首次启动时播种的快照，
+           此后 scope-map.json 加了新项，库里永远没有，运行时矩阵就缺项，
+           团队门户的页签被过滤掉（"明明配了五个团队都可见却不显示"）。
+           只补缺失的键、不覆盖已有值：管理员显式取消的空数组原样保留。 */
+        if (template) {
+          let changed = false;
+          for (const [dk, subs] of Object.entries(template.matrix)) {
+            if (!parsed[dk]) {
+              parsed[dk] = {};
+              changed = true;
+            }
+            for (const [sk, teams] of Object.entries(subs ?? {})) {
+              if (!(sk in (parsed[dk] ?? {}))) {
+                parsed[dk][sk] = [...(teams ?? [])];
+                changed = true;
+              }
+            }
+          }
+          if (changed) {
+            try {
+              this.save(parsed, 'system');
+              console.log('[team-scope-db] 已把模板新增项合并进团队可见性矩阵');
+            } catch {
+              /* 合并回写失败不阻塞：本次返回已是合并后的矩阵 */
+            }
+          }
+        }
         return parsed;
       }
     } catch (e) {

@@ -31,7 +31,7 @@ const RAW_DASHBOARDS: DashboardItem[] = [
     {
       id: 'custom-task-manager',
       title: 'Task Manager (任务管理 / 自动化调度总控)',
-      description: '调度全部 80 个自动化任务：ZTE eFlow API 同步、RAN/iPRAN/CNN UME KPI、电池、丢包、邮件日报与 WhatsApp 推送，支持手动触发、失败自动重试与 Cron 修改。',
+      description: '调度全部 81 个自动化任务：ZTE eFlow API 同步、RAN/iPRAN/CNN UME KPI、电池、丢包、邮件日报与 WhatsApp 推送，支持手动触发、失败自动重试与 Cron 修改。',
       platform: 'custom',
       url: `${MYAPP_BASE}sync`,
       category: '自动化调度与数据集成',

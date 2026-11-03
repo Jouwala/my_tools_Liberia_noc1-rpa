@@ -110,6 +110,7 @@
       "items": [
         { "key": "eflow",     "zh": "TT/Alarm 分析", "en": "TT/Alarm Analysis", "excel": "TT/Alarm Analysis" },
         { "key": "rag",       "zh": "知识问答",       "en": "Knowledge O&A",     "excel": "Knowledge O&A" },
+        { "key": "vmax",      "zh": "CCH", "en": "CCH",   "excel": "" },
         { "key": "assistant", "zh": "快速问答",       "en": "Quick Q&A",         "excel": "Quick Q&A" }
       ]
     },
@@ -221,6 +222,7 @@
     "qa": {
       "eflow":     ["fo", "bo", "flm", "smc"],
       "rag":       ["fo", "bo", "flm", "smc", "cxo"],
+      "vmax":      ["fo", "bo", "flm", "smc", "cxo"],
       "assistant": ["fo", "bo", "flm", "smc", "cxo"]
     },
     "report": {
@@ -248,7 +250,7 @@
       "dcserver":    ["fo", "bo", "smc"]
     },
     "complaint": {
-      "vmax": ["fo", "bo", "flm", "smc"]
+      "vmax": []
     },
     "escalation": {
       "esc": ["fo", "bo", "flm", "smc", "cxo"]

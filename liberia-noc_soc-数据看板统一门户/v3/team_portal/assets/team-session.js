@@ -134,6 +134,30 @@
     return inFlight;
   }
 
+  /* ------------------------------------------------------- bfcache 护栏 --
+     背景（2026-11-02 用户报「退出后有时候还能看到 Daily Operation」）：
+
+     浏览器「前进 / 后退」时可能直接从 **bfcache** 把整页 DOM 快照恢复出来 ——
+     那一刻页面脚本**一行都不跑**，恢复的是登出前那张已经填满数据的页面。
+     于是：在统一门户点了退出 → 按后退回到团队门户 → 内容原样还在。
+     这不是渲染逻辑的 bug，是 bfcache 的语义；页面自己唯一能介入的时机就是
+     pageshow（persisted = true 表示「从缓存恢复」）。
+
+     判定：
+       · localStorage 已经没有门户 token（本页或别的标签页登出过）→ 整页重载。
+         重载会走 nginx 的 auth_request：没有 Cookie 就落到 401 页，内容不可能再现；
+       · token 还在但可能已失效（服务端重启、或在别处登出导致 Cookie 已被清）
+         → 强制换一次会话（ensure(true)），换不到同样重载。
+
+     ⚠️ 只在 persisted 为真时动作：正常加载由 boot() 那条链路负责，不重复处理。
+     ⚠️ 不用 location.reload(true)：该参数早被废弃，且我们靠的是「服务端重新判定」，
+        不是绕过缓存。 */
+  window.addEventListener('pageshow', function (e) {
+    if (!e || !e.persisted) return;
+    if (!portalToken()) { location.reload(); return; }
+    ensure(true).then(function (r) { if (!r.ok) location.reload(); });
+  });
+
   /* ------------------------------------------------------------ 401 自愈 --
      retryOn401(fn, url)
      把 olbr.js 的 api() 包一层：收到 401 时，**换一次会话再重试一次**。

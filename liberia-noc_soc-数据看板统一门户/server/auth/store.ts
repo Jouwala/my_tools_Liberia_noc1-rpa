@@ -133,7 +133,7 @@ export class AuthStore {
     return user;
   }
 
-  createUser(username: string, password: string, role: Role): PublicUser {
+  createUser(username: string, password: string, role: Role, team?: unknown): PublicUser {
     this.ensureLoaded();
     const user: StoredUser = {
       id: newId(),
@@ -142,6 +142,8 @@ export class AuthStore {
       passwordHash: hashPassword(password),
       mustChangePassword: true,
       createdAt: new Date().toISOString(),
+      // 建号时直接归属团队：非法值视为未指派，不静默保留脏数据
+      team: team == null || team === '' ? null : (sanitizeTeam(team) ?? null),
     };
     this.users.push(user);
     this.persist();

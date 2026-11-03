@@ -21,14 +21,6 @@
       "cxo"
     ]
   },
-  "complaint": {
-    "vmax": [
-      "fo",
-      "bo",
-      "flm",
-      "smc"
-    ]
-  },
   "escalation": {
     "esc": [
       "fo",
@@ -150,6 +142,13 @@
       "smc"
     ],
     "rag": [
+      "fo",
+      "bo",
+      "flm",
+      "smc",
+      "cxo"
+    ],
+    "vmax": [
       "fo",
       "bo",
       "flm",

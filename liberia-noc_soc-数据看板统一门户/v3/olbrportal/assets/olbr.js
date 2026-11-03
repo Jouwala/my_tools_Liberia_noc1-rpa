@@ -239,7 +239,7 @@
     um: {
       open: false, loading: false, users: [], requests: [], storage: null,
       portalGroups: null, portalGroupLabels: null, portalDashboards: null, portalGroupsErr: false,
-      nu: '', np: '', nr: 'viewer',
+      nu: '', np: '', nr: 'viewer', nt: '',
       resetId: '', resetPwd: '', approveRoles: {},
       profileId: '', pv: '', pc: '', restricted: false, groups: [], cards: [],
       /* team：团队门户归属（fo/bo/flm/smc/cxo），空 = 未指派。
@@ -4607,10 +4607,13 @@
           高度和 Q&A 一样，再同一行」。
      两块的 DOM 目标：#qaSlot（左）、#ossSlot（右），见 index.html 的 .qarow。
 
-     数据来源：两项都是目录里的普通看板条目，**不写死** ——
+     数据来源：三项都是目录里的普通看板条目，**不写死** ——
      按 url 里的 page 值在目录里现查（与 mapItems 同一条口径）：
        · RAG   → 目录里 url 含 `192.168.100.27`（Open WebUI，**外域 https**）
        · eFlow → 目录里 url 含 `page=eflow_qa`
+       · VMAX 用户查询 → 目录里 url 含 `page=vmax_user_query`
+         （2026-11-02 加：目录里若还没有该条目，用内置兜底项补上，
+         保证页签一定出现；目录一旦配了该条目，兜底自动让位）。
      取不到条目（被人删了 / 权限看不到）时整个页签不渲染，不摆一个空壳。
      ⚠️ 2026-10-12：RAG 已由 `http://192.168.100.27:3000/` 改成 https。
         匹配串只写主机名 `192.168.100.27`，这样新旧两种形态都能命中 ——
@@ -4642,10 +4645,24 @@
               pick('192.168.100.27/') ||
               pick('192.168.100.27');
     var eflow = pick('page=eflow_qa');
+    /* 2026-11-02 加：第三页签 VMAX 用户查询（my_app ?page=vmax_user_query）。
+       目录里若还没有该条目（内置 data.js 与服务端 catalog 都没配），用内置兜底项补上，
+       保证页签一定出现；目录一旦配了该条目（按 url 里的 page 值命中），兜底自动让位。
+       兜底写法与 mapItems 的标题回落同一口径：标题取 my_app 侧菜单同名，图标取 mobile。 */
+    var vmax = pick('page=vmax_user_query') || {
+      no: -9001, groups: ['Knowledge Q&A'],
+      titleZh: 'VMAX 用户查询', titleEn: 'VMAX User Query',
+      descZh: 'VMAX 用户信息查询：按号码查 IMSI / 终端等（与 my_app 侧菜单同名）。',
+      descEn: 'VMAX user info query by MSISDN: IMSI / terminal etc. (same as the my_app menu).',
+      platform: 'myapp', url: 'http://192.168.100.20/myapp/?page=vmax_user_query',
+      status: 'online', freq: '', clicks: 0, icon: 'mobile'
+    };
     /* ⚠️ 2026-10-12（用户要求「把 eflow 放到前面」）：顺序改为 **eFlow 在前、RAG 在后**。
        这个数组的顺序就是页签条的顺序，也是未指定 state.qaTab 时的默认选中项
-       （curQa 取 list[0]）—— 故这里的先后同时决定了「谁排第一」与「默认展示谁」。 */
-    return [eflow && { key: 'eflow', item: eflow }, rag && { key: 'rag', item: rag }].filter(Boolean);
+       （curQa 取 list[0]）—— 故这里的先后同时决定了「谁排第一」与「默认展示谁」。
+       2026-11-02：VMAX 用户查询排第三，不动前两者的顺序与默认选中。 */
+    return [eflow && { key: 'eflow', item: eflow }, rag && { key: 'rag', item: rag },
+      vmax && { key: 'vmax', item: vmax }].filter(Boolean);
   }
   /* 页签上显示的**短标签**（2026-10-12 改）：目录标题太长
      （"RAG Knowledge Q&A (本地知识问答 / Open WebUI)"），
@@ -4655,6 +4672,7 @@
   function qaTabLabel(tab) {
     if (tab.key === 'rag') return t('qa.tabRag');
     if (tab.key === 'eflow') return t('qa.tabEflow');
+    if (tab.key === 'vmax') return t('qa.tabVmaxUser');
     return titleOf(tab.item);
   }
   /* 页签的 title 全称：短名之外仍要让用户看得到完整标题（含说明），
@@ -4677,8 +4695,13 @@
       /* ⚠️ 2026-10-19：补 `embed=1`。my_app 自 2026-10-18 起只看 ?embed=1 /
          ?layout=bare 隐藏外壳（App.tsx readBareModule），不再认 ?page=；
          不补则 eFlow 页签的 iframe 里会连 Header 与侧栏一起显示出来。
-         与 mapItems / emailSrc 同一处理。 */
-      return '/myapp/' + q + '&embed=1' + (state.theme === 'dark' ? '&theme=dark' : '') + langQs();
+         与 mapItems / emailSrc 同一处理。
+         2026-11-02：目录 url 若已带 embed/lang（VMAX 用户查询的完整深链），不再重复补，
+         否则会出现 `&embed=1&embed=1`。 */
+      var sep = (q.indexOf('embed=') !== -1) ? '' : '&embed=1';
+      var thm = (state.theme === 'dark' && q.indexOf('theme=') === -1) ? '&theme=dark' : '';
+      var lng = (q.indexOf('lang=') !== -1) ? '' : langQs();
+      return '/myapp/' + q + sep + thm + lng;
     }
     /* RAG（外域）：无论目录里存的是什么旧地址（`http://192.168.100.27:3000/`、
        `https://192.168.100.27/`、`https://192.168.100.27:8443/`），这里**无条件
@@ -5473,7 +5496,7 @@
     state.um.open = true;
     /* 每次打开都清掉上一轮的草稿与提示，避免「上次没保存的勾选」被当成现状 */
     state.um.error = ''; state.um.success = '';
-    state.um.nu = ''; state.um.np = ''; state.um.nr = 'viewer';
+    state.um.nu = ''; state.um.np = ''; state.um.nr = 'viewer'; state.um.nt = '';
     state.um.resetId = ''; state.um.resetPwd = '';
     state.um.approveRoles = {};
     state.um.profileId = '';
@@ -5502,8 +5525,22 @@
     state.um.error = '';
     state.um.success = '';
     renderUserMgmt();
-    var el = $('[data-um="landing-view"]');
-    if (el && el.scrollIntoView) el.scrollIntoView({ block: 'nearest' });
+    /* 展开后把整块配置滚进可视区：只调 .um-body 自己的 scrollTop，
+       不碰 window（弹窗是 fixed 居中，整页没有滚动条）。
+       block:'nearest' 语义太弱 —— 最下一行的配置块只露头、剩余全在可视区外，
+       必须按「配置块底部 vs 滚动区底部」补一段，保证底部行也能完整看到。 */
+    var body = $('#umBody');
+    var prof = body ? body.querySelector('.um-profile-row') : null;
+    if (body && prof) {
+      var bRect = body.getBoundingClientRect();
+      var pRect = prof.getBoundingClientRect();
+      if (pRect.bottom > bRect.bottom) body.scrollTop += (pRect.bottom - bRect.bottom + 12);
+      else {
+        var trig = body.querySelector('tr.is-open');
+        var tRect = trig ? trig.getBoundingClientRect() : pRect;
+        if (tRect.top < bRect.top) body.scrollTop -= (bRect.top - tRect.top + 12);
+      }
+    }
   }
 
   function umToggle(list, value) {
@@ -5602,6 +5639,13 @@
 
   function umAddFormHtml() {
     var busy = state.um.busy === 'add';
+    /* 团队下拉与角色下拉同行：选项来自 UM_TEAMS（与后端 TEAM_IDS 对齐），
+       空 = 未指派（服务端存 null，登录后停在主门户）。 */
+    var teamOpts = '<option value="">' + esc(t('um.teamNone')) + '</option>' +
+      UM_TEAMS.map(function (tm) {
+        return '<option value="' + tm.id + '"' + (state.um.nt === tm.id ? ' selected' : '') + '>' +
+          esc(t('um.team.' + tm.id)) + '</option>';
+      }).join('');
     return '<form class="um-box um-add" id="umAddForm">' +
       '<div class="um-box-head">' + ic('user-plus') + '<span>' + esc(t('um.addTitle')) + '</span></div>' +
       '<div class="um-add-row">' +
@@ -5610,6 +5654,9 @@
         '<select id="umNewRole">' +
           '<option value="viewer"' + (state.um.nr === 'viewer' ? ' selected' : '') + '>' + esc(t('um.roleViewer')) + '</option>' +
           '<option value="admin"' + (state.um.nr === 'admin' ? ' selected' : '') + '>' + esc(t('um.roleAdmin')) + '</option>' +
+        '</select>' +
+        '<select id="umNewTeam" aria-label="' + esc(t('um.team')) + '" title="' + esc(t('um.team')) + '">' +
+          teamOpts +
         '</select>' +
         '<button type="submit" class="gb um-primary" id="umAddBtn"' +
           (busy ? ' disabled' : '') + '>' + ic('plus') + esc(t('um.add')) + '</button>' +
@@ -5772,12 +5819,22 @@
     var body = $('#umBody');
     if (!body) return;
     var u = state.um;
+    /* 重绘会把 scrollTop 归零：底部行展开配置/勾选可见范围时整块跳回顶部，
+       看起来像「被底栏盖住」。先记住位置，重画后原样恢复
+       （umOpenProfile 随后还会按配置块底部再补一段，那是刻意的二次调整）。 */
+    var keepTop = body.scrollTop || 0;
 
     var html = '';
     if (u.success) html += '<div class="um-banner is-ok">' + ic('check-circle') + '<span>' + esc(u.success) + '</span></div>';
     if (u.error) html += '<div class="um-banner is-err">' + ic('warning') + '<span>' + esc(u.error) + '</span></div>';
     html += umStorageHtml() + umRequestsHtml() + umAddFormHtml() + umUsersHtml();
     body.innerHTML = html;
+    /* 重画后恢复滚动位置（见函数头 keepTop）：内容高度变了就按比例夹紧，
+       避免滚到空白处。 */
+    try {
+      var maxTop = body.scrollHeight - body.clientHeight;
+      body.scrollTop = Math.max(0, Math.min(keepTop, maxTop > 0 ? maxTop : 0));
+    } catch (e) { /* 滚动恢复失败不阻塞渲染 */ }
 
     /* 底部固定操作栏：只在页面配置面板展开时出现（与 uniplam 的布局一致） */
     var foot = $('#umFoot');
@@ -5803,10 +5860,10 @@
     if (password.length < 8) { umFlash('err', t('um.pwdTooShort')); return; }
     state.um.busy = 'add';
     renderUserMgmt();
-    umCall('/users', { method: 'POST', body: { username: username, password: password, role: state.um.nr } })
+    umCall('/users', { method: 'POST', body: { username: username, password: password, role: state.um.nr, team: state.um.nt || null } })
       .then(function (r) {
         if (!r.ok) { umFlash('err', umErrorText(r.status, r.data && r.data.detail)); return; }
-        state.um.nu = ''; state.um.np = ''; state.um.nr = 'viewer';
+        state.um.nu = ''; state.um.np = ''; state.um.nr = 'viewer'; state.um.nt = '';
         umFlash('ok', t('um.added'));
         return loadUserMgmt();
       })
@@ -5951,6 +6008,7 @@
       var el = e.target;
       var act = el.getAttribute && el.getAttribute('data-um');
       if (el.id === 'umNewRole') { state.um.nr = el.value; return; }
+      if (el.id === 'umNewTeam') { state.um.nt = el.value; return; }
       if (act === 'approve-role') { state.um.approveRoles[el.getAttribute('data-id')] = el.value; return; }
       if (act === 'landing-view') { state.um.pv = el.value; return; }
       if (act === 'landing-card') { state.um.pc = el.value; return; }

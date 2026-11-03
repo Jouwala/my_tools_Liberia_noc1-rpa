@@ -84,7 +84,45 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
   const [newUsername, setNewUsername] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [newRole, setNewRole] = useState<Role>('viewer');
+  const [newTeam, setNewTeam] = useState('');
   const [adding, setAdding] = useState(false);
+
+  // 存量账号行内改团队时的保存中标记（存 id，防重复提交）
+  const [savingTeamId, setSavingTeamId] = useState('');
+
+  /** 存量账号行内直改团队归属：改完即保存，无需再进页面配置面板 */
+  const handleTeamChange = async (target: AuthUser, teamValue: string) => {
+    if (savingTeamId === target.id) return;
+    const prev = target.team || '';
+    if (teamValue === prev) return;
+    setSavingTeamId(target.id);
+    setError('');
+    try {
+      const res = await apiFetch(`${PORTAL_API}/auth/users/profile`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: target.id, team: teamValue || null }),
+      });
+      const data = (await res.json().catch(() => null)) as {
+        user?: AuthUser;
+        detail?: string;
+      } | null;
+      if (!res.ok || !data?.user) {
+        setError(data?.detail || `HTTP ${res.status}`);
+        return;
+      }
+      const saved = data.user;
+      setUsers((prevList) => prevList.map((x) => (x.id === saved.id ? saved : x)));
+      // 同步页面配置面板里的回显，避免两处显示不一致
+      if (profileUserId === saved.id) setProfileTeam(saved.team || '');
+      setSuccess(t('um.pagesSaved', { name: target.username }));
+      setTimeout(() => setSuccess(''), 2000);
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setSavingTeamId('');
+    }
+  };
 
   // 行内重置密码
   const [resettingId, setResettingId] = useState('');
@@ -168,6 +206,8 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
       setNewUsername('');
       setNewPassword('');
       setNewRole('viewer');
+      setNewTeam('');
+      setSavingTeamId('');
       setResettingId('');
       setResetPwd('');
       setDecidingId('');
@@ -255,7 +295,13 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
       const res = await apiFetch(`${PORTAL_API}/auth/users`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: newUsername, password: newPassword, role: newRole }),
+        body: JSON.stringify({
+          username: newUsername,
+          password: newPassword,
+          role: newRole,
+          // 空 = 未指派（服务端存 null，登录后停在主门户）
+          team: newTeam || null,
+        }),
       });
       const data = (await res.json().catch(() => null)) as { detail?: string } | null;
       if (!res.ok) {
@@ -271,6 +317,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
       setNewUsername('');
       setNewPassword('');
       setNewRole('viewer');
+      setNewTeam('');
       setSuccess(t('um.added'));
       setTimeout(() => setSuccess(''), 2000);
       await loadUsers();
@@ -629,6 +676,20 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                 <option value="viewer">{t('um.roleViewer')}</option>
                 <option value="admin">{t('um.roleAdmin')}</option>
               </select>
+              <select
+                value={newTeam}
+                onChange={(e) => setNewTeam(e.target.value)}
+                className={`${inputClass} sm:w-48`}
+                title={t('um.team')}
+                data-new-team
+              >
+                <option value="">{t('um.teamNone')}</option>
+                {TEAM_IDS.map((tid) => (
+                  <option key={tid} value={tid}>
+                    {t(`um.team.${tid}`)}
+                  </option>
+                ))}
+              </select>
               <button
                 type="submit"
                 disabled={adding || !newUsername.trim() || !newPassword}
@@ -642,11 +703,13 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
 
           {/* User List */}
           <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden">
+            <div className="overflow-x-auto">
             <table className="w-full text-left text-xs sm:text-sm">
               <thead className="bg-slate-50 dark:bg-slate-800/60 text-slate-500 dark:text-slate-400">
                 <tr>
                   <th className="px-3 sm:px-4 py-2.5 font-semibold">{t('um.colUser')}</th>
                   <th className="px-3 sm:px-4 py-2.5 font-semibold">{t('um.colRole')}</th>
+                  <th className="px-3 sm:px-4 py-2.5 font-semibold">{t('um.team')}</th>
                   <th className="px-3 sm:px-4 py-2.5 font-semibold hidden sm:table-cell">
                     {t('um.colCreated')}
                   </th>
@@ -656,7 +719,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                 {loading && users.length === 0 ? (
                   <tr>
-                    <td colSpan={4} className="px-4 py-6 text-center text-slate-400">
+                    <td colSpan={5} className="px-4 py-6 text-center text-slate-400">
                       {t('um.loading')}
                     </td>
                   </tr>
@@ -687,6 +750,26 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                               {u.role === 'admin' && <ShieldCheck className="w-3 h-3" />}
                               {u.role === 'admin' ? t('um.roleAdmin') : t('um.roleViewer')}
                             </span>
+                          </td>
+                          <td className="px-3 sm:px-4 py-2.5">
+                            <select
+                              value={u.team || ''}
+                              onChange={(e) => void handleTeamChange(u, e.target.value)}
+                              disabled={savingTeamId === u.id}
+                              title={t('um.team')}
+                              data-team-row={u.id}
+                              className="px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-[11px] text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500 max-w-[140px] disabled:opacity-50"
+                            >
+                              <option value="">{t('um.teamNoneShort')}</option>
+                              {TEAM_IDS.map((tid) => (
+                                <option key={tid} value={tid}>
+                                  {t(`um.team.${tid}`)}
+                                </option>
+                              ))}
+                            </select>
+                            {savingTeamId === u.id && (
+                              <span className="ml-1 text-[10px] text-slate-400">{t('um.saving')}</span>
+                            )}
                           </td>
                           <td className="px-3 sm:px-4 py-2.5 hidden sm:table-cell text-slate-400 font-mono text-[11px]">
                             {u.createdAt.slice(0, 19).replace('T', ' ')}
@@ -738,7 +821,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                         </tr>
                         {resettingId === u.id && (
                           <tr className="bg-amber-50/50 dark:bg-amber-950/20">
-                            <td colSpan={4} className="px-3 sm:px-4 py-2.5">
+                            <td colSpan={5} className="px-3 sm:px-4 py-2.5">
                               <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
                                 <span className="text-xs text-slate-600 dark:text-slate-300 shrink-0">
                                   {t('um.resetHint', { name: u.username })}
@@ -764,7 +847,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                         )}
                         {profileUserId === u.id && (
                           <tr className="bg-teal-50/40 dark:bg-teal-950/20">
-                            <td colSpan={4} className="px-3 sm:px-4 py-3 space-y-3">
+                            <td colSpan={5} className="px-3 sm:px-4 py-3 space-y-3">
                               <div className="flex flex-wrap items-center gap-2">
                                 <LayoutGrid className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400 shrink-0" />
                                 <span className="text-xs font-semibold text-slate-700 dark:text-slate-200">
@@ -929,6 +1012,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                 )}
               </tbody>
             </table>
+            </div>
           </div>
         </div>
 
