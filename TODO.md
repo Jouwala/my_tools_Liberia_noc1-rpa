@@ -39,6 +39,51 @@
 
 ### P2 —— 体验与工程规范
 
+- [ ] **数字悬浮说明铺开（2026-11-03 立，规则见 `Task\my_app\AGENTS.md` 三.3c / 根 `AGENTS.md` 四.10b）。**
+      新约定：收起的 `CalcChainNote`（这页整体怎么算）之外，**每个数字还要能悬浮问到「这个数怎么算」**
+      （列头/标题用 `MetricExplain::ExplainIcon`，数字本身用 `ExplainPopover` 列出该格构成）。
+      **实测盘子**（`Task\my_app\frontend\src\pages\*.tsx`，72 个顶层文件，2026-11-03 数）：
+      iframe 页 11 个（`LegacyToolFrame`，数字不在我们 DOM 里 → **不适用**）；
+      非 iframe 61 个里已用 `CalcChainNote` 或 `MetricExplain` 的 14 个、两者都没用的 47 个；
+      **`ExplainPopover`（数字本身）全站只有 2 页有** —— `PacketLossDashboard`（自写气泡，5 处）与
+      `AvailCounty`（本次新接）。即「列头级」缺口约 47 页，「数字级」缺口约 59 页。
+      61 个文件里还含 `AvailTrend.tsx` / `MsKpiShared.tsx` / `SpReportBase.tsx` 这类**共用组件与基类**
+      （改一处覆盖多页，优先级应高于逐页铺）。
+      **已完成**：`avail_county`（三层：KPI 卡 ⓘ + 三制式列头 ⓘ + 每个可用率数字的该格构成气泡，
+      下钻弹窗列头一并加），提交 `f71ccccb`，实机中英两套文案与四层气泡均已验证。
+      **批① 可用率族已完成（未提交）**：`avail_ms` + `avail_flm` —— 矩阵每个数字的
+      `Tooltip title=` 原生提示换成 `ExplainPopover`（分子/分母 + 站点-日加权语义 + 环比），
+      三张矩阵卡标题、4 张制式卡、3 张区域卡、未匹配占比卡各挂 ⓘ；两页共用一份文案
+      `frontend/src/pages/availSumRatio.ts` + i18n `availSum.*`（同口径不许各写一份）。
+      分子/分母语义实测确认（日档 681/717、周档 1363/1435 ≈ ×2 → 分母是**站点-日**观测数）。
+      实机验证：`avail_ms` 气泡显示 `分子 681 / 分母 717`、`avail_flm` 显示 `分子 262 / 分母 268`，
+      与 `/api/avail-ms/matrix` 同格逐位相同。
+      **批④ 第一页已完成（未提交）**：`site_avail` —— 顶部 6 项统计与「月均 / 最低 / 未达标天 / 周」列头挂 ⓘ，
+      数字本身挂气泡；原生 `Tooltip title=` 全部换掉（`minDayTip` 删除），实测表头 12 个 ⓘ、顶部 6 个 ⓘ。
+      顺手在气泡里说清两处坑：顶部三个数是**按搜索过滤后的站点集现算**（非后端全量），
+      「未达标天」与月均气泡共用同一个 `belowDaysOf()`（阈值前端可调），刻意不用后端 `days_below` 以免打架。
+      **分批计划**（每批一个数据族，共用组件优先；每批都要 `npm run build` + 实机悬浮验证 + 手册/站内帮助同步）：
+      ① 可用率族 `AvailMs` / `AvailFlm` / 共用 `AvailTrend`（与已完成的 avail_county 同一套口径，最先做）；
+      ② MS SLA / NUR 族（`MsSlaDashboard` / `MsSlaOnly` / `MsNurOnly` / `NurDashboard` / `MsWoSLReport` / `MsContractKpiReport`）；
+      ③ TT/WO 族（`TTDashboard` / `WODashboard` / `TTWODashboard` / `V1TTWODashboard` / `EflowFlow` / `NocAnalyst` / `RepeatSiteDown`）；
+      ④ 告警与 RAN 族（`AlarmDashboard` / `SiteAvailability` / `RanCellsKpi` / `CnKpi` / `CnKpi5mins` / `UmeInKpi`）；
+      ⑤ 报表族（`Sp*Report` / `ComReport` / `BpReport` / `Warehouse*` / `CrChangeAnalysis` / `PmExecutionAnalysis`）；
+      ⑥ 其余（`BmSpeedtest` / `BmMeta` / `BatteryDashboard` / `FmeRanking` / `GISMap` / `Dashboard` / `Overview` 补数字级）。
+      **不做**：设置/凭据/上传/帮助/登录等无数字页（约 14 个，见上表 note=icon=pop=0 的 Settings 类）。
+      **实施规格已固化**：`Task\my_app\docs\number-explain-rollout-spec-2026-11-03.md`
+      —— ②③④⑤ 四批共 28 页的「数字清单 / 后端算法与 `文件:行号` 证据 / 已有说明 / 可疑点」全部写好，
+      后续会话照该文档实施即可，**不必重做调研**（四份调研实读后端代码，成本约 1700 万 token）。
+      该文档同时登记了调研顺手挖出的**实现级问题**（不是文案缺口）：前端重算违反三.3c 的 5 处
+      （CrChangeAnalysis 整块 KPI、WarehouseSummary 的 urgent、SpMaterialSummary 弹窗合计、
+      NocAnalyst 两张卡、MsWoSL 卡片颜色判达标）、`NocAnalyst._mismatch_of` 大小写不匹配导致
+      **豁免永不命中**（错位率偏高）、`ms_sla`/`nur` 的 DCR 列颜色方向错（越小越好却按 ≥0.95 判绿）、
+      `RepeatSiteDown` 整页标题硬编码英文无 i18n 键、`sp_dashboard._db_exists()` 在 PG 模式下
+      静默返回 0、手册 `11-feature-guide.md:392` 把 MTTR 的 43200 **分钟**写成秒。
+      这些改的是**数字本身**，属业务口径决定，已列在文档「可疑点」，**未擅自修改**。
+      **每条口径文字必须从后端聚合代码核实**，不得照抄手册 —— 本条立项时就抓到手册与
+      `avail_county_aggregate.summary_by_tech()` 相反（手册写「不是县等权平均」，实测逐位相等），
+      该错误已随 `f71ccccb` 更正。
+
 - [x] **`PersonMapView.tsx` 拆分收尾（2026-10-24 立，同日完成）。** 县标签（2026-10-23）与「默认站点」
       辖区模式（2026-10-24）两次迭代把它从 ~495 行推到 714 行。已完成拆分（714 → **489 行**，行为不变）：
       `personmap/useCountyTags.ts`（新，114 行：COUNTY_PALETTE / 填充透明度 / TRM·CAT 常量表 /

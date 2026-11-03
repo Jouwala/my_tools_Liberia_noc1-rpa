@@ -128,11 +128,39 @@ export function useAvailCountyDrill(params: {
     setModalTab(lv)
     if (!target) return
     // 站点逐日后 target.county 已变成 site_key：切回县级页签时用打开时的县取数
-    const tg = (lv === 'county_sites' || lv === 'tt')
-      ? { ...target, county: rootCounty || target.county }
-      : target
-    void loadDrill(lv, tg, drillValue)
-  }, [loadDrill, target, drillValue, rootCounty])
+    if (lv === 'county_sites' || lv === 'tt') {
+      const tg = { ...target, county: rootCounty || target.county }
+      void loadDrill(lv, tg, drillValue)
+      return
+    }
+    // 切到“逐日明细”时 target.county 必须是 site_key：
+    // 若用户还没在站点明细里点过站点（target.county 仍是县名），
+    // 直接拿县名查站点逐日必定 site_not_found（空表），故自动带上当前站点明细的第一行；
+    // 站点明细还没出来时则不发请求，只给一句引导，避免空表让人以为接口坏了。
+    if (lv === 'site_daily' && target.county === (rootCounty || target.county)) {
+      const first = (drill?.rows || [])[0] as SiteRow | undefined
+      if (first && (first as SiteRow).site_key) {
+        const tg: CellTarget = {
+          county: (first as SiteRow).site_key,
+          tech: target.tech,
+          label: `${(first as SiteRow).site_name}`,
+        }
+        setTarget(tg)
+        void loadDrill(lv, tg, drillValue)
+      } else {
+        setDrill({
+          meta: {
+            level: lv, period: gran, value: drillValue,
+            county: target.county, tech: target.tech,
+            total: 0, returned: 0, truncated: false, warnings: ['pick_site_first'],
+          },
+          rows: [],
+        })
+      }
+      return
+    }
+    void loadDrill(lv, target, drillValue)
+  }, [loadDrill, target, drillValue, rootCounty, drill, gran])
 
   return {
     open, anchor, target, drillValue, drill, drillLoading, modalTab,

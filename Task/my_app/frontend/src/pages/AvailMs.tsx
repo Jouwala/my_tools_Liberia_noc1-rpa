@@ -31,6 +31,11 @@ import DraggableClickModal from '../components/DraggableClickModal'
 // 与下钻弹窗里的单序列小图刻意不合并，原因见 AvailTrend.tsx 文件头
 import AvailTrend from './AvailTrend'
 import type { TrendSeries } from './AvailTrend'
+// 数字悬浮口径说明：与 avail_flm 共用同一套文案（两页是同一个 SUM(分子)/SUM(分母) 口径）
+import { ExplainIcon, ExplainPopover } from '../components/MetricExplain'
+import {
+  SUM_RATIO_COL_KEY, SUM_RATIO_KPI_KEY, SUM_RATIO_UNMATCHED_KEY, sumRatioCellText,
+} from './availSumRatio'
 import { exportReport } from '../utils/excelReport'
 import type { ReportSheetSpec } from '../utils/excelReport'
 import { getAvailMsDrilldown, getAvailMsMatrix, getAvailMsOptions, getAvailMsTrend } from '../api'
@@ -315,7 +320,7 @@ export default function AvailMs() {
     const color = cell.below ? WH.danger : WH.ok
     const delta = cell.delta_pp
     return (
-      <Tooltip title={`${t('availMs.colNum')} ${cell.numerator} / ${t('availMs.colDen')} ${cell.denominator}`}>
+      <ExplainPopover text={sumRatioCellText(cell, t)} placement="left">
         <span
           role="button"
           tabIndex={0}
@@ -330,7 +335,7 @@ export default function AvailMs() {
             </span>
           )}
         </span>
-      </Tooltip>
+      </ExplainPopover>
     )
   }, [openDrill, t])
 
@@ -384,7 +389,12 @@ export default function AvailMs() {
           return (
             <CardBase
               key={grp.dim}
-              title={t(DIM_TITLE_KEY[grp.dim])}
+              title={(
+                <span>
+                  {t(DIM_TITLE_KEY[grp.dim])}
+                  <span style={{ marginLeft: 4 }}><ExplainIcon text={t(SUM_RATIO_COL_KEY)} /></span>
+                </span>
+              )}
               extra={<Text type="secondary" style={{ fontSize: 12 }}>{t('availMs.clickHint')}</Text>}
             >
               {hasChart && (
@@ -434,7 +444,12 @@ export default function AvailMs() {
       return (
         <Col xs={12} sm={12} md={6} key={tk}>
           <StatCard
-            title={t('availMs.kpiTech', { tech: tk })}
+            title={(
+              <span>
+                {t('availMs.kpiTech', { tech: tk })}
+                <span style={{ marginLeft: 4 }}><ExplainIcon text={t(SUM_RATIO_KPI_KEY)} /></span>
+              </span>
+            )}
             value={v == null ? '—' : (v * 100).toFixed(2)}
             suffix={v == null ? '' : '%'}
             accentColor={v == null ? WH.textMuted : (below ? WH.danger : WH.ok)}
@@ -718,7 +733,12 @@ export default function AvailMs() {
           {statCards}
           <Col xs={12} sm={12} md={6}>
             <StatCard
-              title={t('availMs.unmatchedShare')}
+              title={(
+                <span>
+                  {t('availMs.unmatchedShare')}
+                  <span style={{ marginLeft: 4 }}><ExplainIcon text={t(SUM_RATIO_UNMATCHED_KEY)} /></span>
+                </span>
+              )}
               value={summary?.unmatched_share == null ? '—'
                 : (summary.unmatched_share * 100).toFixed(2)}
               suffix={summary?.unmatched_share == null ? '' : '%'}

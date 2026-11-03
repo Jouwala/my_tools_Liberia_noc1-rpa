@@ -12,6 +12,8 @@ import { formatDateTime } from '../datetime'
 import { useTheme, WH, WH_COLORS, useIsMobile, darkTooltip, axisLabel, axisLine, splitLine } from '../theme'
 import DraggableClickModal from '../components/DraggableClickModal'
 import NurCalcChainNote, { type WarningDetail } from '../components/NurCalcChainNote'
+// 数字级悬浮口径说明（AGENTS.md 三.3c）：每个数字都能问到「这个数怎么算」
+import { ExplainPopover } from '../components/MetricExplain'
 
 const { Text } = Typography
 const { RangePicker } = DatePicker
@@ -201,10 +203,12 @@ const WO_TREND_COLORS = ['#258cff', '#51cf66', '#ffd43b', '#ff6b6b']
 // ---------- 通用标量表：行=指标（可映射显示名），列=期间（降序，最新在左） ----------
 // colorBy: 'nur' 用按值大小渐变（蓝→黄→红，与 NurDashboard 一致）；'percent' 用达成率阈值（≥目标绿/否则红）；缺省 WH.text
 // onDrill 存在时数值单元格可点击 → 下钻 TT 明细（仅 NUR/SLA/Per-Site NUR 行使用）
-function ScalarTable({ rows, fmt, nameMap, colorBy, onDrill }: {
+function ScalarTable({ rows, fmt, nameMap, colorBy, onDrill, explain, colorNote }: {
   rows: ScalarRow[]; fmt: (v: number | null) => string; nameMap?: Record<string, string>
   colorBy?: 'nur' | 'percent'
   onDrill?: (e: React.MouseEvent, metric: string, period: string) => void
+  /** 这张表的口径（静态），悬浮在每个数字上；colorNote 只在「颜色会骗人」的表上传 */
+  explain?: string; colorNote?: string
 }) {
   const { t } = useI18n()
   const periods = useMemo(() => {
@@ -240,19 +244,22 @@ function ScalarTable({ rows, fmt, nameMap, colorBy, onDrill }: {
         if (v === null || v === undefined) {
           return <span style={{ color: WH.textDim }}>-</span>
         }
-        if (!onDrill) {
-          return <span style={{ color: cellColor(v) }}>{fmt(v)}</span>
-        }
-        // 点击单元格 → 下钻构成该数值的 TT 明细
-        return (
+        const shown = fmt(v)
+        const tip = [
+          t('msSla.tip.cell', { metric: nameMap?.[r.metric] || r.metric, period: p, shown }),
+          explain,
+          colorBy === 'percent' ? colorNote : '',
+        ].filter(Boolean).join('\n')
+        const cell = (
           <span
-            title={t('nur.clickDrill')}
-            onClick={e => onDrill(e, r.metric, p)}
-            style={{ color: cellColor(v), ...clickable }}
+            onClick={onDrill ? (e => onDrill(e, r.metric, p)) : undefined}
+            style={{ color: cellColor(v), ...(onDrill ? clickable : null) }}
           >
-            {fmt(v)}
+            {shown}
           </span>
         )
+        // 悬浮出「这一格怎么算」；点击仍是下钻（AGENTS.md 三.3c，不再用原生 title= 提示）
+        return <ExplainPopover text={tip} placement="left">{cell}</ExplainPopover>
       },
     })),
   ]
@@ -821,6 +828,7 @@ export default function MsSlaDashboard({ only }: { only?: 'nur' | 'sla' } = {}) 
             <Card size="small" style={cardStyle} styles={{ header: headStyle, body: { padding: 'var(--wh-space-sm)' } }}
               title={`KPI List NUR ${granLabel}`} extra={<Tag color="cyan" style={{ marginRight: 0 }}>{t('msSla.unit')}</Tag>}>
               <ScalarTable rows={data?.nur?.[gran] || []} fmt={fmtNur} nameMap={NUR_NAMES} colorBy="nur"
+                explain={t('msSla.explain.nur')}
                 onDrill={(e, m, p) => handleNurDrill(e, gran, NUR_TECH[m] || m, p)} />
             </Card>
             <Card size="small" style={cardStyle} styles={{ header: headStyle, body: { padding: 'var(--wh-space-xs)' } }}
@@ -842,7 +850,8 @@ export default function MsSlaDashboard({ only }: { only?: 'nur' | 'sla' } = {}) 
           <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 'var(--wh-space-md)' }}>
             <Card size="small" style={cardStyle} styles={{ header: headStyle, body: { padding: 'var(--wh-space-sm)' } }}
               title={`Network KPIs ${granLabel}`}>
-              <ScalarTable rows={data?.network?.[gran] || []} fmt={fmtPct} colorBy="percent" />
+              <ScalarTable rows={data?.network?.[gran] || []} fmt={fmtPct} colorBy="percent"
+                explain={t('msSla.explain.network')} colorNote={t('msSla.explain.color')} />
             </Card>
             <Card size="small" style={cardStyle} styles={{ header: headStyle, body: { padding: 'var(--wh-space-xs)' } }}
               title={`Network KPIs Trend ${granLabel}`}>
@@ -856,6 +865,7 @@ export default function MsSlaDashboard({ only }: { only?: 'nur' | 'sla' } = {}) 
             <Card size="small" style={cardStyle} styles={{ header: headStyle, body: { padding: 'var(--wh-space-sm)' } }}
               title={`Per-Site KPIs ${granLabel}`}>
               <ScalarTable rows={data?.persite?.[gran] || []} fmt={fmtPct} colorBy="percent"
+                explain={t('msSla.explain.persite')} colorNote={t('msSla.explain.color')}
                 onDrill={(e, m, p) => handlePersiteDrill(e, gran, m, p)} />
             </Card>
             <Card size="small" style={cardStyle} styles={{ header: headStyle, body: { padding: 'var(--wh-space-xs)' } }}

@@ -35,6 +35,11 @@ import DraggableClickModal from '../components/DraggableClickModal'
 // 曲线图组件与 avail_ms 页共用（多序列折线，点可下钻）
 import AvailTrend from './AvailTrend'
 import type { TrendSeries } from './AvailTrend'
+// 数字悬浮口径说明：与 avail_ms 共用同一套文案（两页是同一个 SUM(分子)/SUM(分母) 口径）
+import { ExplainIcon, ExplainPopover } from '../components/MetricExplain'
+import {
+  SUM_RATIO_COL_KEY, SUM_RATIO_REGION_KPI_KEY, sumRatioCellText,
+} from './availSumRatio'
 import { exportReport } from '../utils/excelReport'
 import type { ReportSheetSpec } from '../utils/excelReport'
 import {
@@ -354,7 +359,7 @@ export default function AvailFlm() {
     const color = cell.below ? WH.danger : WH.ok
     const delta = cell.delta_pp
     return (
-      <Tooltip title={`${t('availFlm.colNum')} ${cell.numerator} / ${t('availFlm.colDen')} ${cell.denominator}`}>
+      <ExplainPopover text={sumRatioCellText(cell, t)} placement="left">
         <span
           role="button"
           tabIndex={0}
@@ -369,7 +374,7 @@ export default function AvailFlm() {
             </span>
           )}
         </span>
-      </Tooltip>
+      </ExplainPopover>
     )
   }, [openDrill, t])
 
@@ -413,7 +418,12 @@ export default function AvailFlm() {
       return (
         <Col xs={12} sm={12} md={8} key={rk}>
           <StatCard
-            title={t('availFlm.kpiRegion', { region: rk })}
+            title={(
+              <span>
+                {t('availFlm.kpiRegion', { region: rk })}
+                <span style={{ marginLeft: 4 }}><ExplainIcon text={t(SUM_RATIO_REGION_KPI_KEY)} /></span>
+              </span>
+            )}
             value={v == null ? '—' : (v * 100).toFixed(2)}
             suffix={v == null ? '' : '%'}
             accentColor={v == null ? WH.textMuted : (below ? WH.danger : WH.ok)}
@@ -514,7 +524,12 @@ export default function AvailFlm() {
           const series = tr?.dims?.[dimKey] || []
           const hasChart = !!tr && (tr.categories?.length || 0) > 0 && series.length > 0
           return (
-            <CardBase key={grp.dim} title={t(DIM_TITLE_KEY[grp.dim])}
+            <CardBase key={grp.dim} title={(
+              <span>
+                {t(DIM_TITLE_KEY[grp.dim])}
+                <span style={{ marginLeft: 4 }}><ExplainIcon text={t(SUM_RATIO_COL_KEY)} /></span>
+              </span>
+            )}
               extra={<Text type="secondary" style={{ fontSize: 12 }}>{t('availFlm.clickHint')}</Text>}>
               {hasChart && (
                 <div style={{ marginBottom: 'var(--wh-space-sm)' }}>

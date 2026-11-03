@@ -15,6 +15,9 @@ import { getSiteAvailabilityFilters, getSiteAvailabilityOverview, getSiteAvailab
 import { useI18n } from '../i18n'
 import { useTheme, WH, darkTooltip } from '../theme'
 import DraggableClickModal from '../components/DraggableClickModal'
+// 数字悬浮口径说明（AGENTS.md 三.3c）：列头挂 ⓘ 讲这一列，数字本身挂气泡讲这一格。
+// 本页原先用原生 `title=` 提示，不可复制也不受主题管，已整体换掉。
+import { ExplainIcon, ExplainLabel, ExplainPopover } from '../components/MetricExplain'
 
 const { Text } = Typography
 
@@ -195,6 +198,11 @@ export default function SiteAvailability() {
   const thresholdCmp = useCallback((v: number | null | undefined) =>
     v != null && v < threshold, [threshold])
 
+  /** 该站点该制式本期「日值 < 阈值」的天数。阈值是前端输入框，改了要即时重算，
+   *  所以这里必须与「未达标天」列同一份算法，否则气泡会和列里的数字打架。 */
+  const belowDaysOf = useCallback((st: TechStat) =>
+    Object.values(st.daily).filter(v => v < threshold).length, [threshold])
+
   // 前端按当前制式重算未达标站点数（阈值可调，不必等后端）
   const belowSites = useMemo(() =>
     sites.filter(s => thresholdCmp(s.techs?.[tech]?.month_avg)).length,
@@ -227,11 +235,11 @@ export default function SiteAvailability() {
     return s === '' ? '—' : s
   }
 
-  // 单元格通用样式：低于阈值红、达标绿
-  const valCell = (v: number | null | undefined, digits = 3) => {
+  // 单元格通用样式：低于阈值红、达标绿；传了 explain 就再包一层「这一格怎么算」的气泡
+  const valCell = (v: number | null | undefined, digits = 3, explain = '') => {
     if (v == null || Number.isNaN(v)) return <Text type="secondary">-</Text>
     const bad = v < threshold
-    return (
+    const node = (
       <span style={{
         color: bad ? '#cf1322' : '#237804',
         background: bad ? 'rgba(207,19,34,0.10)' : 'rgba(35,120,4,0.08)',
@@ -240,6 +248,9 @@ export default function SiteAvailability() {
         fontVariantNumeric: 'tabular-nums',
       }}>{(v * 100).toFixed(digits)}%</span>
     )
+    return explain
+      ? <ExplainPopover text={explain} placement="left">{node}</ExplainPopover>
+      : node
   }
 
   // ---- 展开行：所选制式日值趋势图 ----
@@ -439,41 +450,87 @@ export default function SiteAvailability() {
     // 四制式月均（始终展示，便于横向对比）
     for (const tk of TECHS) {
       cols.push({
-        title: <Tooltip title={t('siteAvail.monthAvgTip', { v: TECH_LABEL[tk] })}>{t('siteAvail.monthAvg', { v: TECH_LABEL[tk] })}</Tooltip>,
+        title: (
+          <span>
+            {t('siteAvail.monthAvg', { v: TECH_LABEL[tk] })}
+            <span style={{ marginLeft: 4 }}>
+              <ExplainIcon text={t('siteAvail.monthAvgTip', { v: TECH_LABEL[tk] })} />
+            </span>
+          </span>
+        ),
         key: `avg_${tk}`, width: 108, align: 'right' as const,
         sorter: (a: SiteRow, b: SiteRow) => (a.techs?.[tk]?.month_avg ?? -1) - (b.techs?.[tk]?.month_avg ?? -1),
-        render: (_: any, s: SiteRow) => valCell(s.techs?.[tk]?.month_avg),
+        render: (_: any, s: SiteRow) => {
+          const st = s.techs?.[tk]
+          return valCell(st?.month_avg, 3, st ? t('siteAvail.tip.monthAvg', {
+            d: st.days_with_data, b: belowDaysOf(st), min: fmtPct(st.min),
+          }) : '')
+        },
       })
     }
     // 当前制式：最低值 / 未达标天
     cols.push({
-      title: <Tooltip title={t('siteAvail.minTip', { v: TECH_LABEL[tech] })}>{t('siteAvail.min', { v: TECH_LABEL[tech] })}</Tooltip>,
+      title: (
+        <span>
+          {t('siteAvail.min', { v: TECH_LABEL[tech] })}
+          <span style={{ marginLeft: 4 }}>
+            <ExplainIcon text={t('siteAvail.minTip', { v: TECH_LABEL[tech] })} />
+          </span>
+        </span>
+      ),
       key: 'min', width: 100, align: 'right' as const,
       sorter: (a: SiteRow, b: SiteRow) => (a.techs?.[tech]?.min ?? -1) - (b.techs?.[tech]?.min ?? -1),
       render: (_: any, s: SiteRow) => {
         const st = s.techs?.[tech]
         if (!st || st.min == null) return <Text type="secondary">-</Text>
-        return <Tooltip title={t('siteAvail.minDayTip', { v: st.min_day || '-' })}><span>{fmtPct(st.min)}</span></Tooltip>
+        return (
+          <ExplainPopover placement="left"
+            text={t('siteAvail.tip.min', { min: fmtPct(st.min), day: st.min_day || '-' })}>
+            <span>{fmtPct(st.min)}</span>
+          </ExplainPopover>
+        )
       },
     }, {
-      title: <Tooltip title={t('siteAvail.daysBelowTip', { v: thresholdPct.toFixed(2) })}>{t('siteAvail.daysBelow')}</Tooltip>,
+      title: (
+        <span>
+          {t('siteAvail.daysBelow')}
+          <span style={{ marginLeft: 4 }}>
+            <ExplainIcon text={t('siteAvail.daysBelowTip', { v: thresholdPct.toFixed(2) })} />
+          </span>
+        </span>
+      ),
       key: 'days_below', width: 90, align: 'right' as const,
       sorter: (a: SiteRow, b: SiteRow) => (a.techs?.[tech]?.days_below ?? 0) - (b.techs?.[tech]?.days_below ?? 0),
       render: (_: any, s: SiteRow) => {
         const st = s.techs?.[tech]
         if (!st || !st.days_with_data) return <Text type="secondary">-</Text>
         // 阈值前端可调：前端重算
-        const n = Object.values(st.daily).filter(v => v < threshold).length
-        return <Tag color={n > 0 ? 'red' : 'green'} style={{ marginInlineEnd: 0 }}>{n} / {st.days_with_data}{t('siteAvail.dayUnit')}</Tag>
+        const n = belowDaysOf(st)
+        return (
+          <ExplainPopover placement="left"
+            text={t('siteAvail.tip.daysBelow', { n, d: st.days_with_data, thr: thresholdPct.toFixed(2) })}>
+            <Tag color={n > 0 ? 'red' : 'green'} style={{ marginInlineEnd: 0 }}>{n} / {st.days_with_data}{t('siteAvail.dayUnit')}</Tag>
+          </ExplainPopover>
+        )
       },
     })
     // 时间维度动态列：按周（自然周，首尾周裁剪到本月）/ 按天
     if (viewMode === 'week') {
       for (const w of (overview?.meta.weeks || [])) {
         cols.push({
-          title: <Tooltip title={t('siteAvail.weekTip', { label: w.label, range: w.range })}>{w.label}<br /><Text type="secondary" style={{ fontSize: 11 }}>{w.range}</Text></Tooltip>,
+          title: (
+            <span>
+              {w.label}
+              <span style={{ marginLeft: 4 }}>
+                <ExplainIcon text={t('siteAvail.weekTip', { label: w.label, range: w.range })} />
+              </span>
+              <br />
+              <Text type="secondary" style={{ fontSize: 11 }}>{w.range}</Text>
+            </span>
+          ),
           key: `w_${w.key}`, width: 104, align: 'right' as const,
-          render: (_: any, s: SiteRow) => valCell(s.techs?.[tech]?.weekly?.[w.key]),
+          render: (_: any, s: SiteRow) => valCell(s.techs?.[tech]?.weekly?.[w.key], 3,
+            t('siteAvail.weekTip', { label: w.label, range: w.range })),
         })
       }
     } else {
@@ -482,7 +539,8 @@ export default function SiteAvailability() {
           title: d.slice(8), // 只显示“日”
           key: `d_${d}`, width: 84, align: 'right' as const,
           onHeaderCell: () => ({ title: d }),
-          render: (_: any, s: SiteRow) => valCell(s.techs?.[tech]?.daily?.[d]),
+          render: (_: any, s: SiteRow) => valCell(s.techs?.[tech]?.daily?.[d], 3,
+            t('siteAvail.tip.day', { day: d })),
         })
       }
     }
@@ -493,10 +551,13 @@ export default function SiteAvailability() {
       sorter: (a: SiteRow, b: SiteRow) => a.tickets.total - b.tickets.total,
       render: (_: any, s: SiteRow) => (
         <Space size={4}>
-          <span>
-            <Text strong style={{ fontVariantNumeric: 'tabular-nums' }}>{s.tickets.total}</Text>
-            {s.tickets.open > 0 && <Tag color="orange" style={{ marginLeft: 4, marginRight: 0 }}>{t('siteAvail.open')} {s.tickets.open}</Tag>}
-          </span>
+          <ExplainPopover placement="left"
+            text={t('siteAvail.tip.ticketCell', { t: s.tickets.total, o: s.tickets.open, c: s.tickets.closed })}>
+            <span>
+              <Text strong style={{ fontVariantNumeric: 'tabular-nums' }}>{s.tickets.total}</Text>
+              {s.tickets.open > 0 && <Tag color="orange" style={{ marginLeft: 4, marginRight: 0 }}>{t('siteAvail.open')} {s.tickets.open}</Tag>}
+            </span>
+          </ExplainPopover>
           <Button size="small" type="link" icon={<ProfileOutlined />}
             disabled={!s.tickets.total}
             onClick={(e) => openTickets(s, { x: e.clientX, y: e.clientY })} />
@@ -504,7 +565,7 @@ export default function SiteAvailability() {
       ),
     })
     return cols
-  }, [overview, tech, viewMode, threshold, thresholdPct, openTickets, valCell, t])
+  }, [overview, tech, viewMode, threshold, thresholdPct, openTickets, valCell, belowDaysOf, t])
 
   const scrollX = useMemo(() => {
     const dyn = viewMode === 'week'
@@ -578,17 +639,23 @@ export default function SiteAvailability() {
       {/* ==================== 汇总卡片 ==================== */}
       <Card size="small" styles={{ body: { padding: '10px 14px' } }}>
         <Space size={36} wrap>
-          <Statistic title={t('siteAvail.sites')} value={sites.length} suffix={`/ ${overview?.summary?.site_count ?? 0}`} />
-          <Statistic title={t('siteAvail.monthAvg', { v: TECH_LABEL[tech] })}
+          <Statistic title={<ExplainLabel label={t('siteAvail.sites')} text={t('siteAvail.explain.sites')} />}
+            value={sites.length} suffix={`/ ${overview?.summary?.site_count ?? 0}`} />
+          <Statistic title={<ExplainLabel label={t('siteAvail.monthAvg', { v: TECH_LABEL[tech] })}
+            text={t('siteAvail.explain.monthAvg')} />}
             value={avgOfTech == null ? '-' : (avgOfTech * 100).toFixed(3)}
             suffix={avgOfTech == null ? '' : '%'}
             valueStyle={{ color: thresholdCmp(avgOfTech) ? '#cf1322' : '#237804' }} />
-          <Statistic title={t('siteAvail.withData', { v: TECH_LABEL[tech] })} value={withDataSites} />
-          <Statistic title={t('siteAvail.below', { v: TECH_LABEL[tech] })} value={belowSites}
+          <Statistic title={<ExplainLabel label={t('siteAvail.withData', { v: TECH_LABEL[tech] })}
+            text={t('siteAvail.explain.withData')} />} value={withDataSites} />
+          <Statistic title={<ExplainLabel label={t('siteAvail.below', { v: TECH_LABEL[tech] })}
+            text={t('siteAvail.explain.below')} />} value={belowSites}
             valueStyle={{ color: belowSites > 0 ? '#cf1322' : '#237804' }} />
-          <Statistic title={t('siteAvail.monthTickets')} value={overview?.summary?.ticket_total ?? 0}
+          <Statistic title={<ExplainLabel label={t('siteAvail.monthTickets')}
+            text={t('siteAvail.explain.monthTickets')} />} value={overview?.summary?.ticket_total ?? 0}
             suffix={<span style={{ fontSize: 13, color: '#fa8c16' }}>{t('siteAvail.open')} {overview?.summary?.ticket_open ?? 0}</span>} />
-          <Statistic title={t('siteAvail.generatedAt')} value={overview?.meta?.generated_at || '-'}
+          <Statistic title={<ExplainLabel label={t('siteAvail.generatedAt')}
+            text={t('siteAvail.explain.generatedAt')} />} value={overview?.meta?.generated_at || '-'}
             valueStyle={{ fontSize: 14 }} />
         </Space>
       </Card>

@@ -71,6 +71,49 @@ function toNumber(v: unknown): number {
   return Number.isFinite(n) ? n : 0
 }
 
+// ---------------- 今日 vs 昨日波动 ----------------
+// 背景（2026-11-03 核查）：Data Subscribers 图上 Day0 末端"下沉"实为当日截断效应
+// ——不完整的今天对比完整的昨天会虚低。因此对比时把昨天截到今天最后一个点的
+// 同一时刻，两边都是"同时长窗口的均值"，才是同口径对比。
+/** 每日序列：[{t: 'HH:MM', v: 数值}]，v 为 null 表示该点无数据 */
+type DaySeries = { t: string; v: number | null }[]
+
+function collectDay(rows: CnWidget5['rows'], day: string): DaySeries {
+  const out: DaySeries = []
+  for (const r of rows) {
+    if (String(r[1]) !== day) continue
+    const v = r[2] === null || r[2] === undefined || r[2] === '' ? null : toNumber(r[2])
+    out.push({ t: String(r[0]), v })
+  }
+  return out
+}
+
+/**
+ * 今日 vs 昨日波动（%）：Day0 全部点均值 vs Day1 截到 Day0 最后时刻的均值。
+ * 返回 null 表示不可比（任一侧无数据，或昨日基数为 0 —— 后者如 Voice Traffic
+ * 历史贴地，比值无意义，同样不显示数字）。
+ */
+function compareDay0Day1(w: CnWidget5): { pct: number | null; last0: string } {
+  const d0 = collectDay(w.rows, 'Day0')
+  const d1 = collectDay(w.rows, 'Day1')
+  if (d0.length === 0 || d1.length === 0) return { pct: null, last0: '' }
+  const last0 = d0.reduce((m, x) => (x.t > m ? x.t : m), d0[0].t)
+  const mean = (xs: DaySeries) => {
+    const vals = xs.map((x) => x.v ?? 0)
+    return vals.reduce((s, v) => s + v, 0) / (vals.length || 1)
+  }
+  const m0 = mean(d0)
+  const m1 = mean(d1.filter((x) => x.t <= last0))
+  if (!Number.isFinite(m1) || m1 === 0 || !Number.isFinite(m0)) return { pct: null, last0 }
+  return { pct: ((m0 - m1) / m1) * 100, last0 }
+}
+
+/** 波动文案：±1 位小数；比值极端（如 Voice Traffic 昨日贴地）时封顶为 ±>999%，避免一长串数字 */
+function fmtVsPct(pct: number): string {
+  if (Math.abs(pct) >= 999.95) return `${pct > 0 ? '+' : '-'}>999%`
+  return `${pct > 0 ? '+' : ''}${pct.toFixed(1)}%`
+}
+
 /** 类目轴标签抽稀（一天 288 个 5 分钟点，不抽稀会糊成斜带） */
 function xAxisLabel(n: number) {
   return {
@@ -229,14 +272,44 @@ function WidgetCard({ w, height }: { w: CnWidget5; height: number }) {
     return buildDayOption(w, isDark)
   }, [w, isDark])
 
+  // 今日 vs 昨日同时刻波动（昨天截到今天最后一点的同一时刻，剔除当日截断影响）
+  const vs = useMemo(() => (w.empty || w.error ? null : compareDay0Day1(w)), [w])
+  // |波动|≤10% 视为正常（灰）；超出则以橙色提示——运维 KPI 涨跌无好坏，只标"偏离"
+  const vsColor = vs?.pct != null && Math.abs(vs.pct) > 10 ? 'orange' : 'default'
+
   return (
     <CardBase
       size="small"
-      style={{ height }}
-      bodyStyle={{ height: '100%', padding: 8, display: 'flex', flexDirection: 'column' }}
+      // ⚠ 卡片必须自己是 flex 列、body 用 flex:1 扣除卡头高度。
+      // 之前 body 写 height:'100%'：antd Card 是 block 布局，100% 参照卡片内容盒
+      // （不减 38px 卡头）→ body 溢出卡片底部 36px，卡片 overflow:hidden 把
+      // canvas 底部 28px 裁掉，X 轴时间标签正好落在裁切带里只剩上半截
+      //（2026-11-03 CDP 实测：card 320 / head 38 / body 318 / canvas bottom 超出 28px）。
+      style={{ height, display: 'flex', flexDirection: 'column' }}
+      bodyStyle={{
+        flex: 1,
+        minHeight: 0,
+        padding: 8,
+        display: 'flex',
+        flexDirection: 'column',
+        overflow: 'hidden',
+      }}
       title={<span style={{ fontSize: 13 }}>{w.title}</span>}
       extra={
         <Space size={4}>
+          {vs && (vs.pct != null ? (
+            <Tooltip title={t('cnkpi5.vsDay1Hint', { time: vs.last0 })}>
+              <Tag color={vsColor} style={{ marginInlineEnd: 0, fontSize: 11 }}>
+                {t('cnkpi5.vsDay1', { pct: fmtVsPct(vs.pct) })}
+              </Tag>
+            </Tooltip>
+          ) : (
+            <Tooltip title={t('cnkpi5.vsDay1Hint', { time: vs.last0 || '—' })}>
+              <Tag color="default" style={{ marginInlineEnd: 0, fontSize: 11 }}>
+                {t('cnkpi5.vsDay1NoBase')}
+              </Tag>
+            </Tooltip>
+          ))}
           {w.empty && <Tag color="default" style={{ marginInlineEnd: 0 }}>{t('cnkpi5.noGranularity')}</Tag>}
           {w.pct && <Tag color="cyan" style={{ marginInlineEnd: 0 }}>%</Tag>}
         </Space>

@@ -152,12 +152,36 @@ import CalcChainNote from '../components/CalcChainNote'
 - **例外是「异常」不是「解释」**：口径缺陷、数据错误、站点匹配失败、截断告警必须**常驻可见**（走组件的 `warning` 口，或独立的 `type="warning|error"` 告警条）。判断一句话：**说「怎么算的」→ 收起；说「这次算错了/算不全」→ 常驻**。
 - 参考实现：`pages/CnKpi5mins.tsx`（两条常驻说明合并成一条可展开说明）、`pages/NurDashboard.tsx`、`pages/MsSlaDashboard.tsx`。
 
+### 3.4c 数字悬浮说明：每个数字都能问到「这个数怎么算」（硬要求）
+
+3.4b 回答「这页整体怎么算」；用户把鼠标停在**一个具体数字**上时问的是「你这个数是怎么算出来的」，所以**两层都要有**，只有收起的说明块不算满足（`AGENTS.md` 三.3c）。
+
+```tsx
+import { ExplainIcon, ExplainPopover } from '../components/MetricExplain'
+
+// ① 卡片标题 / 表格列头 / 下钻弹窗列头 —— ⓘ 讲「这一列」的算法
+title={<>{t('xxx.col.avail')} <ExplainIcon text={t('xxx.explain.col', { metric: t(metricKeyOf(tech)) })} /></>}
+
+// ② 数字本身 —— 气泡讲「这一格」的构成（不加图标，包住原节点）
+<ExplainPopover text={cellExplainText(cell, thresholdPct, t)} placement="left">
+  <span onClick={drill}>{(cell.availability * 100).toFixed(2)}%</span>
+</ExplainPopover>
+```
+
+- **气泡内容一律取接口既有字段**（样本数、未达标数、区间、上一期、环比都是后端算好的），**禁止在前端重算** —— 重算会造出「气泡和表里的数对不上」。把拼装放在页面目录的 `xxxHelpers.tsx` 里（参考 `pages/availCounty/availCountyHelpers.tsx::cellExplainText()`），页面主体只负责接线。
+- **口径文字先从代码核实**。照抄手册会抄到错的：2026-11-03 给 `avail_county` 写说明时，手册写「全网汇总**不是**县等权平均」，而 `backend/services/avail_county_aggregate.py::summary_by_tech()` 是把各县县值取算术平均 —— 实测 `/api/avail-county/matrix` 的 `2G=0.9270144172370779` 与 15 个县值的平均**逐位相等**，手册写反了，已更正。
+- **不要用 `title=` 原生提示**：不可复制、不受主题管、移动端读不到。`ExplainIcon` / `ExplainPopover` 自带复制按钮与 `renderRich`（`**强调**` 会渲染，不会露星号）。
+- `ExplainIcon` 自带 `stopPropagation`：挂在**可下钻的卡片标题**上时点 ⓘ 不会顺带打开下钻弹窗（`ExplainCorner` 早就是这个行为）。
+- **不适用**：`LegacyToolFrame` 的 iframe 页（数字不在我们 DOM 里）；纯明细列表没有「算出来的数字」的不硬凑。
+- 参考实现：`pages/AvailCounty.tsx`（三层：KPI 卡 ⓘ + 列头 ⓘ + 每个数字的该格构成气泡）。
+
 ### 3.5 其他
 
 | 项 | 约定 |
 | --- | --- |
 | 文案 | `t('key')`，中英两处都加；**不写中文字面量**（详见 3.6） |
 | 口径说明 | `components/CalcChainNote`，**默认收起、点击展开**（详见 3.4b）；禁止常驻展开的说明条 |
+| 数字悬浮说明 | `components/MetricExplain` 的 `ExplainIcon`（列头/标题 ⓘ）+ `ExplainPopover`（数字本身），**与上一条并存**（详见 3.4c）；禁止 `title=` 原生提示 |
 | 文案强调 | 文案里写了 `**强调**` 就必须走 `utils/richText.tsx`：JSX 用 `renderRich()`，`title=` 属性/剪贴板用 `stripBold()`。直接 `{t('key')}` 会**把星号显示出来**（3.4b 的说明正文、图例备注最常踩） |
 | 时间 | 走 `frontend\src\datetime.ts` |
 | 间距/圆角 | `var(--wh-space-*)` / `var(--wh-radius-*)`，不写魔法数字 |

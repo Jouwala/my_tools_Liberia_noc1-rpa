@@ -111,6 +111,7 @@ export default function AvailCountyDrillModal(props: AvailCountyDrillModalProps)
           dataSource={(drill?.rows || []) as SiteRow[]}
           pagination={{ pageSize: 12, showSizeChanger: true }}
           scroll={{ x: 760 }}
+          locale={{ emptyText: <Empty description={t('common.noData')} /> }}
         />
       ) : modalTab === 'site_daily' ? (
         <Table
@@ -120,6 +121,7 @@ export default function AvailCountyDrillModal(props: AvailCountyDrillModalProps)
           dataSource={(drill?.rows || []) as SiteDailyRow[]}
           pagination={false}
           scroll={{ x: 560 }}
+          locale={{ emptyText: <Empty description={t('common.noData')} /> }}
         />
       ) : (
         <Table
