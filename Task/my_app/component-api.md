@@ -8,7 +8,7 @@
 
 | 端 | 位置 | 规模 |
 | --- | --- | --- |
-| **前端页面** | `frontend\src\pages\` | 71 个 `.tsx`（不含 `_` 前缀的模板与 `*_bak_*` 备份） |
+| **前端页面** | `frontend\src\pages\` | 72 个 `.tsx`（不含 `_` 前缀的模板与 `*_bak_*` 备份） |
 | **前端通用组件** | `frontend\src\components\` | 27 个 `.tsx` + `cards\` 子目录（卡片统一入口） |
 | **前端基础设施** | `frontend\src\*.ts(x)` | `api.ts`、`theme.ts`、`i18n.tsx`、`TaskStatusContext.tsx`、`cache.ts`、`datetime.ts`、`useDataTimestamps.ts`、`helpMarkdown.ts` |
 | **后端服务** | `backend\services\` | 业务服务层（各数据源采集与计算） |
@@ -67,6 +67,7 @@ import { CardBase, StatCard } from '../components/cards'
 
 | 组件 | 职责 |
 | --- | --- |
+| `CalcChainNote.tsx` | **口径说明条（默认收起，点标题展开）**。`title` + `sections[{title, lines}]` + `warning`（异常类信息常驻，不进收起区）。全站口径说明的统一载体 —— **禁止**再用常驻展开的 `Alert` 堆小字（AGENTS.md 三.3b） |
 | `DraggableClickModal.tsx` | 可拖拽的点击弹窗（7KB）。**注意**：门户也有同名问题的 QC 弹窗拖拽需求，两端可互相参照 |
 | `LegacyToolFrame.tsx` | 遗留工具页容器框架（iframe 包装旧工具） |
 | `MapWheelZoomOnClick.tsx` | 「点击后才启用地图滚轮缩放」的行为包装 —— 解决地图嵌在长页面里时滚轮被地图吃掉的问题 |
@@ -88,6 +89,7 @@ import { CardBase, StatCard } from '../components/cards'
 | `api.ts`（19KB） | **统一的 API 封装**。所有后端调用走这里，不要在各页面裸写 `fetch` |
 | `theme.ts` | 设计令牌与 `useTheme()`（`WH` / `DARK` / `LIGHT` / `WH_COLORS` / `LIGHT_COLORS`） |
 | `i18n.tsx`（204KB） | 中英双字典。新增文案**两处都要加** |
+| `utils/richText.tsx` | **文案里的 `**强调**` 渲染**：JSX 用 `renderRich()`（→ `<strong>`），HTML `title=`/剪贴板用 `stripBold()`（去标记）。直接 `{t('key')}` 会把星号显示出来 |
 | `TaskStatusContext.tsx` | 任务状态上下文（跨页面共享任务运行态） |
 | `cache.ts` | 前端缓存工具 |
 | `datetime.ts` | 时间处理（**时间戳格式化统一走这里**，避免各页面各写一套） |

@@ -28,6 +28,7 @@ import { DownloadOutlined, InfoCircleOutlined, ReloadOutlined } from '@ant-desig
 import dayjs from 'dayjs'
 import ReactECharts from 'echarts-for-react'
 import { CardBase } from '../components/cards'
+import CalcChainNote from '../components/CalcChainNote'
 import { exportReport, type ReportSheetSpec } from '../utils/excelReport'
 import { getCnKpi5minsOverview } from '../api'
 import { useI18n } from '../i18n'
@@ -425,25 +426,29 @@ export default function CnKpi5mins() {
         />
       )}
 
-      {/* 空态说明条：把「哪些卡片没有数据」一次讲清，避免被当成故障 */}
-      {(data?.meta?.empty ?? 0) > 0 && (
-        <Alert
-          type="info"
-          showIcon
-          style={{ marginBottom: 12 }}
-          message={t('cnkpi5.emptyBanner', { n: data?.meta?.empty ?? 0 })}
-          description={<Text style={{ fontSize: 12 }}>{t('cnkpi5.emptyWhy')}</Text>}
-        />
-      )}
-
-      {/* 混合粒度说明条：本页同时存在 5 分钟与 15 分钟两种粒度，必须显式告知，
-          否则 15 分钟组件的稀疏点会被误读成「数据缺失」。 */}
-      <Alert
-        type="info"
-        showIcon
+      {/* 口径说明：默认收起（AGENTS.md 三.3 全站约定「口径说明一律默认隐藏、点击展开」）。
+          原先两条 Alert 常驻占 4~6 行，只在第一次看不懂时有用；现合并成一条可展开的说明：
+           ① 粒度混用（5 分钟 / 15 分钟）—— 否则 15 分钟组件的稀疏点会被误读成「数据缺失」；
+           ② 空卡片原因 —— 避免被当成故障。
+          注意：真正的**口径异常/数据错误**仍要常驻（CalcChainNote 的 warning 口），不能藏进收起区。 */}
+      <CalcChainNote
+        title={t('cnkpi5.note.title')}
         style={{ marginBottom: 12 }}
-        message={t('cnkpi5.mixedGranularity')}
-        description={<Text style={{ fontSize: 12 }}>{t('cnkpi5.mixedGranularityHint')}</Text>}
+        sections={[
+          {
+            title: t('cnkpi5.note.sec.granularity'),
+            lines: [t('cnkpi5.mixedGranularity'), t('cnkpi5.mixedGranularityHint')],
+          },
+          ...((data?.meta?.empty ?? 0) > 0
+            ? [{
+                title: t('cnkpi5.note.sec.empty'),
+                lines: [
+                  t('cnkpi5.emptyBanner', { n: data?.meta?.empty ?? 0 }),
+                  t('cnkpi5.emptyWhy'),
+                ],
+              }]
+            : []),
+        ]}
       />
 
       {loading && !data ? (

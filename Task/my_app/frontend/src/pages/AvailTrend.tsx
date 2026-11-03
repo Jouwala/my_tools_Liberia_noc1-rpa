@@ -107,7 +107,10 @@ export default function AvailTrend({
         smooth: true,
         // 缺失期留空断开，不用 0 补 —— 取不到数据不得画成 0（AGENTS.md 第三节原则 6）
         connectNulls: false,
-        showSymbol: categories.length <= 20,
+        // 稀疏月份（如当月只同步了 1 天）即便 30 个类目也要亮出圆点，
+        // 否则单点无连线又无圆点，看起来就是「没有任何曲线」
+        showSymbol: categories.length <= 20
+          || s.values.filter((v) => v != null).length <= 10,
         symbolSize: 6,
         data: s.values.map(v => (v == null ? null : Number((v * 100).toFixed(3)))),
         // 折线本身也可点：否则用户必须正好命中那个 6px 的圆点才能下钻（点命中后

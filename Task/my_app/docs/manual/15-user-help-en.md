@@ -1961,6 +1961,21 @@ FLM availability: covers only the three FLM regions (Montserrado / North East / 
 - 4G NERA is an unmapped dispatch group: counted in the 4G technology total, but this page lists only the three site types, so the 4G row will exceed the sum of the three columns and a yellow note appears
 - Missing data renders as "—" (never 0); the "Data through" label at the top makes a stalled derived database obvious
 
+#### avail_county（`avail_county`）
+
+County-level availability: views the current month's availability by province_county (**county**, the 15 counties of Liberia) from the site master data eflow_site, with counties as rows and 2G / 3G / 4G availability as columns; day / week granularity on tabs. The data comes from the UME MS SLA **site-level daily tables** (2G = TCH in service rate, 3G = Cell Validity Rate, 4G = [FDD]Cell Availability); sites are linked to the master data by **site name** (site_id does not line up — measured overlap is only 0-15%).
+
+- **The measure differs from the Availability Matrix and FLM Availability pages**: those use SUM(numerator)/SUM(denominator), while this page averages the site-level ratios UME provides directly, so only a **site-weighted average** is possible (arithmetic mean of the days that have values per site, then an equal-weight mean across the sites of a county). A blue note at the top states this — the figures of the two sets of pages are not expected to match
+- Filters at the top: month (the day and week tabs each remember their own last selected period), day / week tabs, threshold (default 99.65%, decides which figures turn red), trend subject (a specific county or the whole network), refresh and export to Excel
+- The page opens on the **last day of the month that actually has data** (not the calendar last day): UME sync lags, so the current month may hold only one or two days of data; two labels ("Data through" and "N/M days synced this month") make that visible instead of leaving an empty page
+- The three KPI cards (whole-network 2G / 3G / 4G) show the availability of the current period and how many counties are off target; clicking a card drills down to the site detail of the whole network for that technology
+- The main table has 16 rows (15 counties plus a last row "Unmatched sites"): every cell shows the availability, the site count and the change against the previous period in percentage points. Click any availability figure to drill down; the dialog has three tabs — site detail / daily detail / related TT tickets
+- "Unmatched sites" are the sites in PG that cannot be matched to eflow_site (measured around 9%); they are listed on the last row for reconciliation only and **count towards no county**; an orange label on the page points this out
+- Drill-down chain: county × technology -> site detail (sorted by availability, worst first) -> click a site -> that site's daily detail (one column per technology); the third tab holds the TT tickets of that county (with down-site counts and root cause), where the county is derived by matching **site_id exactly** against eflow_site
+- Every point on the curve is clickable too and opens **that point's own period**; the curve follows the "trend subject" dropdown (county / whole network)
+- Out-of-range values (above 1.5) are discarded as dirty data; missing data renders as "—" (never 0)
+- Export to Excel writes the current page (summary + county matrix + trend, three sheets); the drill-down dialog can export its current tab on its own
+
 #### bm_speedtest（`bm_speedtest`）
 
 Speedtest Benchmark Report: puts the two operators (Orange and MTN) side by side using measured speed-test data, answering "who is faster / who has lower latency / by how much / is the gap widening or narrowing". Source: speedtest_data (imported from Speedtest.xlsx, 854 rows, 2025-07-16 ~ 2026-09-24, nationwide cellular median). Five blocks: overall competitiveness score -> key metric cards (download/upload/latency/jitter with mean and P50/P90) -> trend chart (switchable metric, adjustable moving-average window) -> daily head-to-head record -> monthly table and daily detail table.

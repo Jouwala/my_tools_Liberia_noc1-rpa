@@ -36,6 +36,7 @@ import { LayerToggleControl } from './gismap/LayerToggleControl'
 import { MapOverlayToggle } from './gismap/MapOverlayToggle'
 import { PersonnelLayer, PersonnelToggleButton } from './gismap/PersonnelLayer'
 import { exportAoaReport } from '../utils/excelReport'
+import { stripBold } from '../utils/richText'
 import DraggableClickModal from '../components/DraggableClickModal'
 import { fmtTs } from './gismap/helpers'
 
@@ -2511,10 +2512,10 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
             {/* 计数用**站数**（已归因/总）而不是簇数 —— 簇数与旁边 Site Stats 的
                 站数不是同一单位，曾被当成"两边对不上"（2026-10-21 用户反馈）。
                 簇有几组看列表行数即可，站数才需要与 Site Stats (N) 对拍。 */}
-            <span title={t('gis.rca.titleHint', {
+            <span title={stripBold(t('gis.rca.titleHint', {
               covered: rcaMeta?.covered_sites ?? 0, total: rcaMeta?.in_scope_sites ?? 0,
               n: rcaClusters.length,
-            })}>
+            }))}>
               {t('gis.rca.title')}
               {' '}({rcaMeta ? `${rcaMeta.covered_sites}/${rcaMeta.in_scope_sites}` : rcaClusters.length})
             </span>
@@ -2959,7 +2960,7 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
           <RegionRankingOverlay
             title={t('gis.rankTitle')}
             rows={regionRanking}
-            hint={t('gis.rankHint')}
+            hint={stripBold(t('gis.rankHint'))}
             emptyText={t('gis.rankEmpty')}
             maxRows={8}
             footnote={t('gis.rankFootnote', {

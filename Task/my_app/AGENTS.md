@@ -5,7 +5,7 @@
 
 ## 一、这个项目是什么
 
-**my_app / Data Insight MVP** —— 利比里亚电信网络运维的**自研数据平台**，是整个工作区的数据底座。它负责把上游系统（UME、eFlow、CCN、PM、邮件、WhatsApp 等）的数据采集、入库、计算、展示，并提供 79 个功能页面与 80 个定时任务。
+**my_app / Data Insight MVP** —— 利比里亚电信网络运维的**自研数据平台**，是整个工作区的数据底座。它负责把上游系统（UME、eFlow、CCN、PM、邮件、WhatsApp 等）的数据采集、入库、计算、展示，并提供 80 个功能页面与 80 个定时任务。
 
 **技术栈**：后端 FastAPI + SQLAlchemy（SQLite / PostgreSQL 双模）+ Alembic + APScheduler；前端 React + Vite；任务由多组 worker 进程执行 + 看门狗守护。
 
@@ -49,12 +49,22 @@
    | 卡片（含带图标卡） | `import { CardBase, StatCard } from '../components/cards'` | `import { Card } from 'antd'`、页面里写 `style={cardStyle}` |
    | 导出 Excel | `import { exportAoaReport, exportReport } from '../utils/excelReport'` | 裸 `xlsx`（`XLSX.utils.*` / `XLSX.writeFile`） |
    | 下钻弹窗 | `components/DraggableClickModal` | 各页自写弹窗骨架 |
+   | **口径说明 / 数据口径备注（多段）** | **`components/CalcChainNote`（默认收起，点标题展开）** | 常驻展开的 `Alert` 说明条；把口径塞进页头正文 |
+   | 单个指标的小注解（一句话） | `components/MetricExplain`（悬停 ⓘ） | 用气泡装多段说明（放不下、不可复制） |
    | 主题取色 | DOM 用 `WH`（`var(--wh-*)`）；ECharts 用 `useTheme()` + `DARK/LIGHT` **实值** | 在 ECharts 里写 `WH.xxx`（canvas 解析不了 CSS 变量）；写死十六进制 |
    | 文案 | `t('key')`，`i18n.tsx` **中英两处**都要加 | 界面里写中文字面量；`t(key, { defaultValue })` —— `t()` 第二参数是**插值参数**，不是 options 对象，键不存在时它会原样返回 key，界面直接显示 `xxx.yyy` |
+   | **文案里的 `**强调**`** | JSX 文本节点用 `renderRich(t('key'))`；HTML `title=` / 剪贴板用 `stripBold(t('key'))`（都在 `utils/richText.tsx`） | 直接 `{t('key')}` —— React 原样输出字符串，界面会**露出 `**` 星号本身**（口径说明、图例备注这类从文档搬来的长文案最容易中招） |
    | 时间格式 | `frontend\src\datetime.ts` | 各页各写一套 |
 
    > **卡片、Excel、弹窗的详细契约**见 `component-api.md` 第二节与 `docs\EXCEL_EXPORT_STANDARD.md`。
    > **国际化漏键有自动守卫**：`cd frontend && npm run check:i18n`（已内置进 `npm run build`，不通过会**中断构建**）。机制与踩坑案例见 `docs\manual\16-new-page-guide.md` 3.6。
+3b. **⭐ 口径说明默认隐藏，用户点击才展开（全站硬要求，2026-11-02 如意定）**：凡是解释「这个数字是怎么来的」的说明文字 —— 数据源、粒度、分子/分母、筛选作用范围、空卡片原因、上游模板缺档等 —— **一律默认收起**，只留一行标题 + 「展开/收起」入口；**禁止**用常驻展开的 `Alert` / 大段小字占据首屏。
+   - **载体统一用 `frontend\src\components\CalcChainNote.tsx`**（`title` + `sections[{title, lines}]`，内部已管好展开态、i18n 的 `calcNote.expand`/`calcNote.collapse`、主题色）。不要各页自己写 `useState` + `Alert` 折叠。
+   - **文案里的 `**强调**` 必须渲染出来**：口径说明多数是从手册/复盘搬来的长文案，天然带 Markdown 强调。`CalcChainNote` 与 `MetricExplain` 内部已走 `utils/richText.tsx` 的 `renderRich`；若自己往 `title=` 属性或剪贴板塞文案，用 `stripBold`。**直接 `{t('key')}` 会让界面显示 `**名称**` 这种星号**（2026-11-02 实测 `avail_county` 展开态即如此，全站同类文案 17 处）。
+   - **参考实现**：`pages/CnKpi5mins.tsx`（`?page=cn_kpi_5mins`，原两条常驻说明条合并成一条可展开的「数据口径说明」）、`pages/NurDashboard.tsx` 与 `components/NurCalcChainNote.tsx`、`pages/MsSlaDashboard.tsx`。
+   - **唯一的例外是「异常」而不是「解释」**：口径缺陷、数据错误、站点匹配失败、截断告警这类**会让用户带着错数字看报表**的信息，必须**常驻可见**（走 `CalcChainNote` 的 `warning` 口或独立 `Alert type="warning|error"`）。判断标准一句话：**说「怎么算的」→ 收起；说「这次算错了/算不全」→ 常驻**。
+   - **等价写法不再接受**：「页头一行小字一直挂着」「说明塞进 `Tooltip` 但文字超过一句」「`Alert closable` 让用户手动关」都不算满足本条。
+   - **空态/错误态不受本条约束**：`Alert type="error"`（查询失败）、空态占位（`Empty`）该显示就显示 —— 收起来的是**口径解释**，不是**状态反馈**。
 4. **新增定时任务必须登记** `backend\task_registry.py` 的 `TASK_SPECS`，否则**根本不会被执行**；同时更新 `docs\manual\04-task-system.md` 的分组表。
 5. **前端构建产物目录必须是 `_fe_dist`**，否则后端找不到静态文件会白屏（`docs\manual\10-quickstart.md`）。改完前端源码须重新 `npm run build`；产物非 HMR，需刷新页面。
    **验证改动是否真的上线，要看产物而不是看时间戳**：`vite preview` 直接读 `_fe_dist`，但浏览器会缓存 `index.html`。三步确认：

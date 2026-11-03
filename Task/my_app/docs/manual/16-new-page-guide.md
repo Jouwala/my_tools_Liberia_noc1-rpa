@@ -132,11 +132,33 @@ xAxis: { axisLabel: axisLabel(isDark), axisLine: axisLine(isDark) }
 
 以点击点为中心弹出、可拖动、点遮罩不关闭、Esc 关闭 —— 这套行为已统一，别自己再写。
 
+### 3.4b 口径说明：默认收起，用户点击才展开（硬要求）
+
+页面顶部解释「这个数字怎么来的」的文字（数据源、粒度、分子/分母、筛选作用范围、空卡片原因、上游模板缺档……）**一律默认收起**，只留一行标题 + 「展开/收起」。
+
+```tsx
+import CalcChainNote from '../components/CalcChainNote'
+
+<CalcChainNote
+  title={t('xxx.note.title')}          // 如「数据口径说明（点此展开）」
+  sections={[
+    { title: t('xxx.note.sec.granularity'), lines: [t('...'), t('...')] },
+  ]}
+/>
+```
+
+- **不要**用常驻展开的 `<Alert type="info">` 挂几行小字 —— 那会吃掉首屏 4~6 行，而它只在第一次看不懂时有用。
+- **不要**各页自己写 `useState` + 折叠，组件已经管好展开态、`calcNote.expand`/`calcNote.collapse` 文案、主题色。
+- **例外是「异常」不是「解释」**：口径缺陷、数据错误、站点匹配失败、截断告警必须**常驻可见**（走组件的 `warning` 口，或独立的 `type="warning|error"` 告警条）。判断一句话：**说「怎么算的」→ 收起；说「这次算错了/算不全」→ 常驻**。
+- 参考实现：`pages/CnKpi5mins.tsx`（两条常驻说明合并成一条可展开说明）、`pages/NurDashboard.tsx`、`pages/MsSlaDashboard.tsx`。
+
 ### 3.5 其他
 
 | 项 | 约定 |
 | --- | --- |
 | 文案 | `t('key')`，中英两处都加；**不写中文字面量**（详见 3.6） |
+| 口径说明 | `components/CalcChainNote`，**默认收起、点击展开**（详见 3.4b）；禁止常驻展开的说明条 |
+| 文案强调 | 文案里写了 `**强调**` 就必须走 `utils/richText.tsx`：JSX 用 `renderRich()`，`title=` 属性/剪贴板用 `stripBold()`。直接 `{t('key')}` 会**把星号显示出来**（3.4b 的说明正文、图例备注最常踩） |
 | 时间 | 走 `frontend\src\datetime.ts` |
 | 间距/圆角 | `var(--wh-space-*)` / `var(--wh-radius-*)`，不写魔法数字 |
 | 空值展示 | 统一 `-`，不要有的页 `-` 有的页 `N/A` |

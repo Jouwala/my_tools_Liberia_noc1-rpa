@@ -28,13 +28,14 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Alert, Button, Col, DatePicker, Empty, Row, Segmented, Select, Space, Table, Tag, Tooltip, Typography } from 'antd'
-import { DownloadOutlined, DownOutlined, InfoCircleOutlined, ReloadOutlined } from '@ant-design/icons'
+import { DownloadOutlined, ReloadOutlined } from '@ant-design/icons'
 import dayjs, { Dayjs } from 'dayjs'
 import ReactECharts from 'echarts-for-react'
 
 import { useI18n } from '../i18n'
 import { useTheme, axisLabel, axisLine, darkTooltip, splitLine, cardStyle, WH } from '../theme'
 import { CardBase, StatCard } from '../components/cards'
+import CalcChainNote from '../components/CalcChainNote'
 import DraggableClickModal from '../components/DraggableClickModal'
 import { exportAoaReport } from '../utils/excelReport'
 import { fmtWarning, fmtWarnings } from '../utils/warnCodes'
@@ -177,8 +178,7 @@ export default function BpReport() {
   const [meta, setMeta] = useState<MetaInfo>({})
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  /** 口径说明条默认**收起**（用户要求）—— 常驻会挤占首屏，收起后只留一行入口 */
-  const [caliberOpen, setCaliberOpen] = useState(false)
+  /** 口径说明条默认**收起**——展开态由 components/CalcChainNote 自己管，本页不再持有 state */
 
   /* ---- 下钻弹窗 ---- */
   const [open, setOpen] = useState(false)
@@ -726,31 +726,14 @@ export default function BpReport() {
         />
       )}
       {au && au.available && (
-        caliberOpen ? (
-          <Alert
-            type="info" showIcon banner closable
-            onClose={() => setCaliberOpen(false)}
-            message={<Space size={8}>
-              <span>{t('bp.banner.auOk')}</span>
-              <Button type="link" size="small" style={{ padding: 0 }}
-                onClick={() => setCaliberOpen(false)}>
-                {t('bp.banner.collapse')}
-              </Button>
-            </Space>}
-            description={t('bp.banner.auOkDesc', {
+        <CalcChainNote
+          title={t('bp.banner.auOk')}
+          sections={[{
+            lines: [t('bp.banner.auOkDesc', {
               thr: String(au.threshold ?? ''),
-              thr2: '80%', thr3: '3' })}
-          />
-        ) : (
-          <div>
-            <Button type="link" size="small" style={{ padding: 0 }}
-              icon={<InfoCircleOutlined />}
-              onClick={() => setCaliberOpen(true)}>
-              {t('bp.banner.auOk')}
-              <DownOutlined style={{ fontSize: 10, marginLeft: 4 }} />
-            </Button>
-          </div>
-        )
+              thr2: '80%', thr3: '3' })],
+          }]}
+        />
       )}
 
       {/* ② 筛选条 */}

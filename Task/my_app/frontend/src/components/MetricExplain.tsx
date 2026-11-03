@@ -6,6 +6,7 @@ import { Popover, Button } from 'antd'
 import { InfoCircleOutlined, CopyOutlined } from '@ant-design/icons'
 import { WH } from '../theme'
 import { useI18n } from '../i18n'
+import { renderRich, stripBold } from '../utils/richText'
 
 type Placement =
   | 'top' | 'bottom' | 'left' | 'right'
@@ -23,12 +24,14 @@ export const ExplainIcon = ({ text, size = '0.8125rem', placement = 'top' }: Exp
   const [copied, setCopied] = useState(false)
   const copy = useCallback(async () => {
     if (!text) return
+    // 复制的应是「能直接读的文字」，不是带 ** 的源码 —— 星号只服务于界面强调
+    const plain = stripBold(text)
     try {
       if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(text)
+        await navigator.clipboard.writeText(plain)
       } else {
         const ta = document.createElement('textarea')
-        ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0'
+        ta.value = plain; ta.style.position = 'fixed'; ta.style.opacity = '0'
         document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta)
       }
       setCopied(true); setTimeout(() => setCopied(false), 1500)
@@ -42,7 +45,7 @@ export const ExplainIcon = ({ text, size = '0.8125rem', placement = 'top' }: Exp
       mouseEnterDelay={0.1}
       content={
         <div style={{ maxWidth: 'min(80vw, 18.75rem)', fontSize: '0.75rem', lineHeight: 1.7 }}>
-          <div style={{ color: WH.textMuted, whiteSpace: 'pre-line' }}>{text}</div>
+          <div style={{ color: WH.textMuted, whiteSpace: 'pre-line' }}>{renderRich(text)}</div>
           <Button size="small" type="link" icon={<CopyOutlined />} onClick={copy}
             style={{ paddingLeft: 0, marginTop: 'var(--wh-space-sm)', height: 'auto', color: WH.teal }}>
             {copied ? t('explain.copied') : t('explain.copy')}

@@ -421,6 +421,33 @@ export function getAvailFlmDrilldown(params: Record<string, string | number>) {
   return api.get('/avail-flm/drilldown', { params })
 }
 
+// 县维度可用率（page=avail_county）：按 eflow_site.province_county（县）聚合，
+// 行=县、列=2G/3G/4G，日/周用页签切粒度。
+// 口径与 avail_ms / avail_flm **不同**（本页是站点级比率等权平均，不是 SUM(分子)/SUM(分母)），
+// 详见 backend/services/avail_county_service.py 顶部说明。
+export function getAvailCountyOptions() {
+  return api.get('/avail-county/options')
+}
+
+// params: period=day|week / month=YYYY-MM / value=周期值（空=该月最后一期）/ threshold=未达标比率
+export function getAvailCountyMatrix(params: {
+  period: string; month?: string; value?: string; threshold?: number
+}) {
+  return api.get('/avail-county/matrix', { params })
+}
+
+// 曲线：某县（或全网）三制式在本月内的走势；county 留空=全网
+export function getAvailCountyTrend(params: {
+  period: string; month?: string; value?: string; county?: string; threshold?: number
+}) {
+  return api.get('/avail-county/trend', { params })
+}
+
+// 下钻：level=county_sites（县内站点明细）/ site_daily（站点逐日）/ tt（该县 TT 工单）
+export function getAvailCountyDrilldown(params: Record<string, string | number>) {
+  return api.get('/avail-county/drilldown', { params })
+}
+
 // CN KPI 看板（原 my-finebi「CN KPI」看板原生重建）
 // 数据源：db_ps_cs_cn.sqlite3，经远端只读 SQL API（backend/config/remote_host.py）；
 // **不依赖 my-finebi 进程**。18 个组件的 SQL 与图表类型对齐 FineBI 原看板。

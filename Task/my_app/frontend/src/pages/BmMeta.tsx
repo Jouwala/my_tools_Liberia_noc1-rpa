@@ -34,6 +34,7 @@ import ReactECharts from 'echarts-for-react'
 import { useI18n } from '../i18n'
 import { WH, useTheme, cardStyle, axisLabel, axisLine, darkTooltip, splitLine } from '../theme'
 import { CardBase, StatCard } from '../components/cards'
+import CalcChainNote from '../components/CalcChainNote'
 import DraggableClickModal from '../components/DraggableClickModal'
 import { exportReport } from '../utils/excelReport'
 import type { CellValue } from '../utils/excelReport'
@@ -215,8 +216,7 @@ export default function BmMeta() {
   const [trend, setTrend] = useState<TrendPoint[]>([])
   const [trendLoading, setTrendLoading] = useState(false)
 
-  /* ---- 口径说明默认收起：这段是解释性文字，占屏高，首次进入不展开 ---- */
-  const [scopeOpen, setScopeOpen] = useState(false)
+  /* ---- 口径说明默认收起：展开态由 components/CalcChainNote 自己管，本页不再持有 state ---- */
 
   /* ---- 下钻弹窗 ---- */
   const [open, setOpen] = useState(false)
@@ -648,30 +648,14 @@ export default function BmMeta() {
   return (
     <div style={{ padding: 16 }}>
       {/* 口径提示：本表同时含两家 PK 与网络侧 KPI，两组含义不同，必须说清。
-          默认**收起**（只留一行标题可点），避免每次进页面先占掉一整屏；
-          内容仍然可查，点标题展开。 */}
-      <Alert
-        type="info"
-        showIcon
+          默认**收起**（AGENTS.md 三.3b），点标题展开；载体统一用 CalcChainNote，
+          不再各页自写 useState + Alert。 */}
+      <CalcChainNote
+        title={t('bmm.banner.title')}
         style={{ marginBottom: 12 }}
-        message={
-          <span
-            onClick={() => setScopeOpen(v => !v)}
-            style={{ cursor: 'pointer', userSelect: 'none' }}
-          >
-            {t('bmm.banner.title')}
-            <a style={{ marginLeft: 8, fontSize: 12 }}>
-              {scopeOpen ? t('bmm.banner.collapse') : t('bmm.banner.expand')}
-            </a>
-          </span>
-        }
-        description={scopeOpen ? (
-          <div style={{ fontSize: 12, lineHeight: 1.7 }}>
-            <div>{t('bmm.banner.pk')}</div>
-            <div>{t('bmm.banner.network')}</div>
-            <div>{t('bmm.banner.relative')}</div>
-          </div>
-        ) : null}
+        sections={[{
+          lines: [t('bmm.banner.pk'), t('bmm.banner.network'), t('bmm.banner.relative')],
+        }]}
       />
 
       {error && (

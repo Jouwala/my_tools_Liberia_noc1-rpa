@@ -45,6 +45,7 @@
 import type { CSSProperties } from 'react'
 import { WH } from '../../theme'
 import { ExplainIcon } from '../../components/MetricExplain'
+import { stripBold } from '../../utils/richText'
 
 /** 一行图例。dot = 站点圆点；line = MW 链路实线；dashed = 无 KPI 链路虚线 */
 export interface MapLegendRow {
@@ -214,13 +215,15 @@ function Row({ row }: { row: MapLegendRow }) {
       )}
     </>
   )
-  if (!clickable) return <div style={style} title={row.hint}>{content}</div>
+  /* hint 走的是原生 title 属性，不能放 <strong> 也不该带 ** 标记 —— 统一去标记 */
+  const hintText = stripBold(row.hint)
+  if (!clickable) return <div style={style} title={hintText}>{content}</div>
   return (
     <span
       role="switch"
       aria-checked={!row.hidden}
       aria-label={`${row.label} (${row.count})`}
-      title={row.hint}
+      title={hintText}
       tabIndex={0}
       onClick={row.onClick}
       onKeyDown={(e) => {

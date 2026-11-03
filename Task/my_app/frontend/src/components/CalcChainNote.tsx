@@ -15,6 +15,7 @@ import { Alert, Button, Space } from 'antd'
 import { DownOutlined, InfoCircleOutlined, UpOutlined } from '@ant-design/icons'
 import { WH } from '../theme'
 import { useI18n } from '../i18n'
+import { renderRich } from '../utils/richText'
 
 export interface CalcChainSection {
   /** 小节标题（如「口径」「分子」「分母」），可省略 */
@@ -76,7 +77,7 @@ export default function CalcChainNote({ title, sections, children, warning, styl
                 )}
                 {sec.lines.map((ln, j) => (
                   <div key={j} style={{ paddingLeft: 'var(--wh-space-sm)', whiteSpace: 'pre-line' }}>
-                    {ln}
+                    {renderRich(ln)}
                   </div>
                 ))}
               </div>

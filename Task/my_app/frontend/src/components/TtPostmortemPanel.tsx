@@ -48,6 +48,7 @@ import {
 import { exportTtPostmortemMd, getTtPostmortem } from '../api'
 import { useI18n } from '../i18n'
 import { evText, nodeTextFromZh, ownerTextFromZh, devTextFromZh } from '../utils/ttVocab'
+import { renderRich } from '../utils/richText'
 
 const { Text, Title } = Typography
 
@@ -903,7 +904,7 @@ export default function TtPostmortemPanel({ open, onClose }: { open: boolean; on
                     message={t('ttPm.unprovenAlert')}
                     description={
                       <Text style={{ fontSize: 12 }}>
-                        {t('ttPm.unprovenDesc')} <Text code>fe_robot</Text>
+                        {renderRich(t('ttPm.unprovenDesc'))} <Text code>fe_robot</Text>
                         {t('ttPm.unprovenDesc2')}<Text strong>{t('ttPm.unprovenDesc3')}</Text>。
                       </Text>
                     }

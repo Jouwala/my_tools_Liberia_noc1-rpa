@@ -31,52 +31,53 @@
 | 16 | 站点可用率看板 | `site_avail` | React |
 | 17 | 可用率多维矩阵 | `avail_ms` | React |
 | 18 | FLM 可用率 | `avail_flm` | React |
-| 19 | FME 工程师排名 | `fme_ranking` | React |
-| 20 | NOC 操作人分析 | `noc_analyst` | React |
-| 21 | 站点重复断站看板 | `repeat_site_down` | React |
-| 22 | CR 变更分析 | `cr_analysis` | React |
-| 23 | PM 执行分析 | `pm_analysis` | React |
-| 24 | RAN 小区 KPI | `ran_cells_kpi` | React |
-| 25 | CN KPI | `cn_kpi` | React |
-| 26 | CN KPI 5分钟 | `cn_kpi_5mins` | React |
-| 27 | 客户业务 KPI | `ume_in_kpi` | React |
-| 28 | CXO 经营看板 | `cxoDashboard` | **iframe** |
-| 29 | VMAX CXO 原版看板 | `vmaxCxoDashboard` | **iframe** |
-| 30 | VMAX CXO 日粒度明细 | `vmaxCxoDashboard_Daily` | **iframe** |
-| 31 | CXO Daily Dashboard（90 天经营视角） | `vmaxCxoDashboard_90Days` | **iframe** |
-| 32 | SOC 多维趋势看板 | `socTrendDashboard` | **iframe** |
-| 33 | UME iMonitor 大屏 | `imonitor` | **iframe** |
-| 34 | 告警管理看板 | `alarmManagement` | **iframe** |
-| 35 | 事件总览 | `incident_overview` | **iframe** |
-| 36 | MW 微波拓扑 | `mwUmeTopology` | **iframe** |
-| 37 | MW 微波实时 | `mwRealTime` | **iframe** |
-| 38 | GIS 地图 | `gis` | React |
-| 39 | 实时告警地图 | `realtime_alarm` | React（同组件另一模式） |
-| 40 | 人员位置地图 | `person` | React |
-| 41 | 丢包看板 | `packet_loss` | React |
-| 42 | 电池看板 | `battery` | React |
-| 43 | IP 链路探测 | `ip_trace` | **iframe** |
-| 44 | VMAX 用户查询 | `vmax_user_query` | React |
-| 45 | Speedtest 基准报告 | `bm_speedtest` | React |
-| 46 | Meta 基准报告 | `bm_meta` | React |
-| 47 | 数据总览 | `overview` | React |
-| 48 | 表浏览器 | `tables` | React |
-| 49 | 数据上传 | `upload` | React |
-| 50 | 分析归档 | `archive` | React |
-| 51 | 分析仪表盘 | `dashboard` | React |
-| 52 | 仓库看板 | `warehouse` | **iframe** |
-| 53 | 物料统计汇总 | `sp_material` | React |
-| 54 | SP 备件明细报表 | `sp_details` | React |
-| 55 | 备件入出库库存报表 | `sp_report` | React |
-| 56 | 耗材入出库库存报表 | `com_report` | React |
-| 57 | 仓库汇总报表 | `warehouse_summary` | React |
-| 58 | BP Cells Report | `bp_report` | React |
-| 59–74 | 原生看板（FineBI 迁移，共 16 个） | `finebi_<slug>` | React |
-| 75 | AP 行动计划 | `ap_center` | React |
-| 76 | 系统设置 | `settings` | React（6 页签：凭据 / 邮件收件人 / 远程主机 / AI 模型 / WhatsApp 登录 / 任务配置） |
-| 77 | 门户一键登录 | `portalLogin` | React |
-| 78 | 使用反馈 | `feedback` | React |
-| 79 | 使用帮助 | `help` | React（站内帮助页，与 `15-user-help.md` 同源生成） |
+| 19 | 县维度可用率 | `avail_county` | React |
+| 20 | FME 工程师排名 | `fme_ranking` | React |
+| 21 | NOC 操作人分析 | `noc_analyst` | React |
+| 22 | 站点重复断站看板 | `repeat_site_down` | React |
+| 23 | CR 变更分析 | `cr_analysis` | React |
+| 24 | PM 执行分析 | `pm_analysis` | React |
+| 25 | RAN 小区 KPI | `ran_cells_kpi` | React |
+| 26 | CN KPI | `cn_kpi` | React |
+| 27 | CN KPI 5分钟 | `cn_kpi_5mins` | React |
+| 28 | 客户业务 KPI | `ume_in_kpi` | React |
+| 29 | CXO 经营看板 | `cxoDashboard` | **iframe** |
+| 30 | VMAX CXO 原版看板 | `vmaxCxoDashboard` | **iframe** |
+| 31 | VMAX CXO 日粒度明细 | `vmaxCxoDashboard_Daily` | **iframe** |
+| 32 | CXO Daily Dashboard（90 天经营视角） | `vmaxCxoDashboard_90Days` | **iframe** |
+| 33 | SOC 多维趋势看板 | `socTrendDashboard` | **iframe** |
+| 34 | UME iMonitor 大屏 | `imonitor` | **iframe** |
+| 35 | 告警管理看板 | `alarmManagement` | **iframe** |
+| 36 | 事件总览 | `incident_overview` | **iframe** |
+| 37 | MW 微波拓扑 | `mwUmeTopology` | **iframe** |
+| 38 | MW 微波实时 | `mwRealTime` | **iframe** |
+| 39 | GIS 地图 | `gis` | React |
+| 40 | 实时告警地图 | `realtime_alarm` | React（同组件另一模式） |
+| 41 | 人员位置地图 | `person` | React |
+| 42 | 丢包看板 | `packet_loss` | React |
+| 43 | 电池看板 | `battery` | React |
+| 44 | IP 链路探测 | `ip_trace` | **iframe** |
+| 45 | VMAX 用户查询 | `vmax_user_query` | React |
+| 46 | Speedtest 基准报告 | `bm_speedtest` | React |
+| 47 | Meta 基准报告 | `bm_meta` | React |
+| 48 | 数据总览 | `overview` | React |
+| 49 | 表浏览器 | `tables` | React |
+| 50 | 数据上传 | `upload` | React |
+| 51 | 分析归档 | `archive` | React |
+| 52 | 分析仪表盘 | `dashboard` | React |
+| 53 | 仓库看板 | `warehouse` | **iframe** |
+| 54 | 物料统计汇总 | `sp_material` | React |
+| 55 | SP 备件明细报表 | `sp_details` | React |
+| 56 | 备件入出库库存报表 | `sp_report` | React |
+| 57 | 耗材入出库库存报表 | `com_report` | React |
+| 58 | 仓库汇总报表 | `warehouse_summary` | React |
+| 59 | BP Cells Report | `bp_report` | React |
+| 60–75 | 原生看板（FineBI 迁移，共 16 个） | `finebi_<slug>` | React |
+| 76 | AP 行动计划 | `ap_center` | React |
+| 77 | 系统设置 | `settings` | React（6 页签：凭据 / 邮件收件人 / 远程主机 / AI 模型 / WhatsApp 登录 / 任务配置） |
+| 78 | 门户一键登录 | `portalLogin` | React |
+| 79 | 使用反馈 | `feedback` | React |
+| 80 | 使用帮助 | `help` | React（站内帮助页，与 `15-user-help.md` 同源生成） |
 
 > **`ap_center`（AP 行动计划）属于「工作流」目录**（`grp_workflow`，与 `DEFAULT_GROUPS` 一致），
 > 逐页说明见第 39 节。
@@ -1412,6 +1413,66 @@ UME 侧 KPI 的采集结果：业务量、成功率、失败分因（系统侧 /
   幂等 —— 按 url 判重，重复跑不会长出新卡）、`_verify_portal_myapp_deeplink.py`（浏览器端验证：
   按目录现状找到该卡、点开后在查看器 iframe 里真的渲染出我方的 `?page=`）、
   `_verify_avail_ms_title.py`（标题三处暴露面回归）。
+
+## 14o. 县维度可用率（`?page=avail_county`）
+
+按 `eflow_site.province_county`（**县**，利比里亚 15 个县）看本月的可用率，
+**行 = 县、列 = 2G / 3G / 4G 可用率**，日 / 周用**页签**切粒度。
+
+- **数据源**：可用率取自本地 PG（`ms_sla` schema，只读）的 UME MS SLA **站点级日表**三张 ——
+  2G `Hourly_KPI_RPA_SITE_MS_SLA_GSM1day_SITE` 的 `TCH in service rate(%)`、
+  3G `..._UMTS1day_SITE` 的 `Cell Validity Rate(%)`、
+  4G `..._FDD1day_SITE` 的 `[FDD]Cell Availability[SDR_ITBBU]`；
+  站点主数据取主库 `eflow_site`（830 行，字段 `province_county` / `region` / `site_type` …）。
+  后端**分三层**（每层单一职责，见下）：
+  `backend/services/avail_county_data.py`（取数：PG 只读 + 缓存 + 周期边界）、
+  `backend/services/avail_county_aggregate.py`（**聚合口径的唯一真相源**，纯计算不碰 PG）、
+  `backend/services/avail_county_service.py`（对外接口编排）；
+  HTTP 层 `backend/routers/avail_county.py`，接口
+  `/api/avail-county/options|matrix|trend|drilldown`。
+- **站点关联按「站点名」而不是 `site_id`**：实测 PG 侧 `site_id` 与 `eflow_site.site_id`
+  **对不上**（2G 0% / 3G 15.6% / 4G 4.7% 重合），只有规范化后的名字能对上（命中约 90~91%）。
+  规范化 = 去首尾空白 + 连续空白折叠 + 转小写（SQL 与 Python 两处同义实现）。
+  `eflow_site` 里有 10 组同名站点（Palala / Totota / Suakoko …），**同名的县归属完全一致**，
+  故按名字 `GROUP BY` 去重（取 `MIN()`）—— 不去重会让这 10 个站点的可用率被重复计入。
+- **⚠️ 口径与 14m / 14n 不同，两页数字不可互相印证**（页面顶部「口径说明」写明，**默认收起、点标题展开**，2026-11-02 起）：
+  14m / 14n 是 `SUM(分子)/SUM(分母)`（重建库自带的可加分子分母）；
+  本页是 UME 直接给的**站点级比率**，没有可加的分子/分母，只能**站点等权平均** ——
+  先按站点在本期内有值日期取算术平均，再按县内**站点等权**平均。
+  全网汇总同样是「各县有值站点等权平均」，**不是**「县等权平均」。
+  这是本页与前两页数字天然对不上的唯一原因，不是 bug。
+- **2026-11-02 两处收尾**（如意反馈「页面还有类似问题」后实机核对）：① 「含未归属站点（PG 侧匹配不上站点主数据）」这个 Tag 把一句解释挤在标签里，现 Tag 只留短标签，解释挪进口径说明的第二小节「关于「未归属站点」一行」；② 展开态正文里 `**名称**`、`**站点等权平均**` 的 Markdown 星号**原样显示** —— 根因是全站把带 `**强调**` 的长文案直接 `{t('key')}` 渲染，已加 `utils/richText.tsx`（`renderRich` / `stripBold`），`CalcChainNote` 与 `MetricExplain` 内部接入，同类文案全站 17 个键一并修好。
+- **周口径复用既有实现**：`site_availability_service.month_weeks`（自然周、周一起算、
+  跨月裁剪），**不另起一套**周定义 —— 同仓库里出现两种周定义必然对不上。
+- **默认期 = 该月最后一个「有数据」的日子**，不是日历最后一天：
+  `avail_county_data.latest_day_with_data(month)` 实测查询三张表的 `MAX(Begin Time)`。
+  UME 同步有滞后（实测 2026-11 只有 11-01 一天、2026-06-18 才是最早数据），
+  若默认取日历最后一天，页面打开就是一片空白，用户会以为页面坏了而不是「还没同步」。
+  页面用「数据截至」与「本月 N/M 天有数据」两个标签把这件事显式说出来。
+- **未归属站点**：PG 里匹配不上 `eflow_site` 的那批（实测约 9%）单列成末行
+  `__UNMATCHED__`（「未归属站点」），**不计入任何一个县**（否则读者会以为「漏了数据」）。
+  页面有橙色标签提示。
+- **可用率有效域**：UME 给的是 0~1 的比率，**>1.5 视为脏值丢弃**；取不到数据显示 `—` 而不是 0。
+- **能下钻尽下钻**（AGENTS.md 第三节 1b），三层：
+  1. 三个全网 KPI 卡（2G / 3G / 4G）+ 主表 16 行（15 县 + 未归属行）的每个数字；
+  2. 曲线上每个点（打开的是**那个点自己那一期**）；
+  3. 弹窗内三页签：站点明细 →（点某个站点）→ 该站点的逐日明细；以及该县的 TT 工单。
+  弹窗用项目统一的 `DraggableClickModal`，明细行数超过 2000 时显示黄色截断提示
+  （`meta.truncated`），**绝不静默截断**。
+- **TT 按 `site_id` 精确匹配** `eflow_site` 取县归属（实测 2026-10 起 4001 条 TT **100% 命中**），
+  比按名字匹配可靠；TT 表没有制式字段，故工单明细**不按制式过滤**，只列出各制式断站数。
+  TT 下钻的选择器**既接受县名也接受站点 key**（从站点明细点进来时传的是站点 key）：
+  后端 `_resolve_site_ids` 先把选择器归一成站点 id 集合再查，
+  否则把站点 key 当县名去匹配 `province_county` 会一条都查不到（表现为空表）。
+- **前端**：`frontend/src/pages/AvailCounty.tsx`（页面主体：筛选、状态、取数编排）+
+  `frontend/src/pages/availCounty/`（`availCountyTypes.ts` 类型与常量、
+  `availCountyHelpers.tsx` 列定义与纯函数、`availCountyExport.ts` Excel 导出、
+  `AvailCountyDrillModal.tsx` 下钻弹窗）。
+  曲线组件复用 14m/14n 的 `frontend/src/pages/AvailTrend.tsx`（多序列 + 阈值线 + 点可下钻）；
+  卡片走 `components/cards`（`CardBase` / `StatCard`），导出走 `utils/excelReport.ts`。
+- **出口径的坑**：TT 侧与可用率侧的「县」是两套来源（TT 按 `site_id`、可用率按名字），
+  极端情况下同名的站点在两套来源里可能落在不同的县 —— 这是数据源本身的性质，
+  页面上的县归属以**该口径内自己的来源**为准。
 
 ## 14b. NOC 操作人分析（`?page=noc_analyst`）—— 四层全量下钻
 
@@ -3238,7 +3299,7 @@ created_time → last_create_time → last_schedule_time → last_accept_time
 
 把 umlaut 的 BP 报告搬进平台，并从 RAN_UME 增量更新。**本页最大的特点是「三个条件跨两个数据源、
 两种时间粒度」** —— Active User 走独立的小时粒度通道。
-顶部口径说明条**默认收起**（只留一行可点入口，点开展开完整说明），
+顶部口径说明条**默认收起**（只留一行可点入口，点开展开完整说明；2026-11-02 起载具统一为 `components/CalcChainNote`），
 但口径**不可用时**（`active_user.available=false`）改为常驻警告且**不允许收起** ——
 那种情况下所有判定都偏低、结论不可比，藏起来等于让用户自己猜口径。
 
@@ -3686,7 +3747,7 @@ Excel `BP Cells List` 的 `Cluster`/`Layer` 列有脏值（如数字 ID `'4593'`
 1. **综合竞争力评分** —— 两家各一个分数。这是**相对分**：每项指标领先方记 100，另一方按比例得分，
    再按 下载 35% / 上传 20% / 时延 30% / 抖动 15% 加权（权重写在 `caliber.SCORE_WEIGHTS`）。
    某项指标任一方缺数据时该指标不参与，权重分给其余指标并重新归一。
-   **它只回答「这两家谁更强、强多少」，不评价绝对水平**——页面上有常驻文字说明这一点。
+   **它只回答「这两家谁更强、强多少」，不评价绝对水平**——页面顶部「口径说明」写明这一点（**默认收起、点标题展开**，2026-11-02 起载具统一为 `components/CalcChainNote`）。
 2. **关键指标汇总卡** —— 四个指标各一张，给出两家均值与 P50/P90（P50/P90 由 `_PCT_SQL` 的四个
    百分位子查询并集算出）。谁领先会打标。
 3. **趋势对比图** —— 分段控件切四个指标，右侧下拉设滚动均值窗口（3/7/14/30 天）。
@@ -4207,7 +4268,12 @@ UME 只是自动同步的补充。**这个优先级是口径决定，不是性�
 
 ⚠ 这 3 个新模板 **`gr=900` 正常（190/190/1920 行，`15 minutes`），`gr=300` 仍为 0 行**，
 即上游给的是 15 分钟档、不是 5 分钟档。因此页面上这 3 张卡片的点约为其他图的 1/3，
-**属正常**；页头蓝条会显式提示，避免被误读成数据缺失。
+**属正常**；页头**口径说明（默认收起，点标题展开）**会显式提示，避免被误读成数据缺失。
+
+> **2026-11-02 改动（如意要求，全站约定）**：原先「混合粒度」与「哪些卡片为空」是**两条常驻展开的 `Alert`**（合计 4~6 行），
+> 现合并为一条 `components\CalcChainNote`「数据口径说明（点此展开）」，`sections` 为「① 粒度」「② 空卡片的原因」
+> （后者仅在 `meta.empty > 0` 时出现）。口径说明属"解释"→ 收起；查询失败、截断这类"异常"仍常驻
+> （`Alert type="error"` 未动）。约定原文见 `AGENTS.md` 三.3b。
 
 任务仍保留「0 行 → 跳过该表且不计失败」的兜底（与 `cnn_kpi_sync` 的「0 行即 raise」
 刻意不同），上游再调整档位时不会让任务每 15 分钟失败一次。

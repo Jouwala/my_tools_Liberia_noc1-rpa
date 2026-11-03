@@ -92,6 +92,7 @@ from backend.routers import (
     site_availability,
     avail_ms,
     avail_flm,
+    avail_county,
     ran_cells_kpi,
     bp_report,
     ume_in_kpi,
@@ -246,6 +247,9 @@ app.include_router(avail_ms.router)
 # FLM 可用率（page=avail_flm；同一派生库，改成「区域为行」的两张表 + 页面级 TT 列表，
 # 口径见 services/avail_flm_service.py 顶部说明）
 app.include_router(avail_flm.router)
+# 县维度可用率（page=avail_county；按 eflow_site.province_county 聚合，
+# 站点级日可用率读本地 PG 的 UME MS SLA 站点级日表，口径见 services/avail_county_service.py）
+app.include_router(avail_county.router)
 # RAN 2G/3G/4G Cells KPI 看板（小区级可用率，达标值 99.65%）
 app.include_router(ran_cells_kpi.router)
 # BP Report 劣化小区报告（page=bp_report；读本机派生库 data/bp_report.sqlite3，
