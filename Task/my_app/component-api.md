@@ -71,7 +71,7 @@ import { CardBase, StatCard } from '../components/cards'
 | `DraggableClickModal.tsx` | 可拖拽的点击弹窗（7KB）。**注意**：门户也有同名问题的 QC 弹窗拖拽需求，两端可互相参照 |
 | `LegacyToolFrame.tsx` | 遗留工具页容器框架（iframe 包装旧工具） |
 | `MapWheelZoomOnClick.tsx` | 「点击后才启用地图滚轮缩放」的行为包装 —— 解决地图嵌在长页面里时滚轮被地图吃掉的问题 |
-| `MetricExplain.tsx` | 指标口径解释（悬浮/展开说明这个数字怎么算出来的） |
+| `MetricExplain.tsx` | 指标口径解释（悬浮 ⓘ 气泡，带复制按钮）。四个导出：`ExplainPopover`（**底层**，把任意节点包成悬浮气泡，数字本身要用它）、`ExplainIcon`（ⓘ 图标，自带 `stopPropagation`，挂在可下钻的卡片标题上不会顺带开弹窗）、`ExplainCorner`（卡片右上角绝对定位）、`ExplainLabel`（文字 + 内联 ⓘ）。一句话级别的本指标说明用它；多段全局口径仍走 `CalcChainNote`（AGENTS.md 三.3b） |
 | `SearchableExportTable.tsx` | 可搜索 + 可导出的表格（导出遵循 `docs\EXCEL_EXPORT_STANDARD.md`） |
 | `StatCard.tsx` | 统计卡片（大数字 + 标题 + 副行） |
 

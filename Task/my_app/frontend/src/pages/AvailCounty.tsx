@@ -44,12 +44,13 @@ import { useI18n } from '../i18n'
 import { WH } from '../theme'
 import { CardBase, StatCard } from '../components/cards'
 import CalcChainNote from '../components/CalcChainNote'
+import { ExplainIcon } from '../components/MetricExplain'
 // 曲线组件与 avail_ms / avail_flm 共用（多序列折线 + 阈值线 + 点可下钻）
 import AvailTrend from './AvailTrend'
 import type { TrendSeries } from './AvailTrend'
 import {
-  buildCountyColumns, countyLabel, granLabelKey, isErrorWarn, siteColumns,
-  siteDailyColumns, ttColumns, warnKey,
+  buildCountyColumns, cellExplainText, countyLabel, granLabelKey, isErrorWarn, siteColumns,
+  siteDailyColumns, techMetricKey, ttColumns, warnKey,
 } from './availCounty/availCountyHelpers'
 import {
   exportAvailCountyDrill, exportAvailCountyPage,
@@ -58,7 +59,7 @@ import AvailCountyDrillModal from './availCounty/AvailCountyDrillModal'
 import { useAvailCountyData } from './availCounty/useAvailCountyData'
 import { useAvailCountyDrill } from './availCounty/useAvailCountyDrill'
 import {
-  CellTarget, Gran, GRANS, MatrixRow, TECHS,
+  Cell, CellTarget, Gran, GRANS, MatrixRow, TECHS,
 } from './availCounty/availCountyTypes'
 
 const { Text } = Typography
@@ -101,6 +102,19 @@ export default function AvailCounty() {
   const unmatchedText = t('availCounty.unmatched')
   const rowLabel = useCallback((c: string) => countyLabel(c, unmatchedText), [unmatchedText])
 
+  /* ---- 数字本身悬浮即出说明（2026-11-03 用户提的）----
+   * 列头 ⓘ = 这一列的算法（静态口径），单元格气泡 = 这一格自己的构成（几个站平均、
+   * 样本、区间、环比）。两者都只有一句到几行短说明；多段的全局口径仍在上方
+   * 默认收起的 CalcChainNote 里（AGENTS.md 三.3b：悬浮不能替代它）。 */
+  const colExplain = useCallback(
+    (tech: string) => t('availCounty.explainCol', { metric: t(techMetricKey(tech)) }),
+    [t],
+  )
+  const cellExplain = useCallback(
+    (cell: Cell) => cellExplainText(cell, thresholdPct, t),
+    [thresholdPct, t],
+  )
+
   /* ---- 数字卡：全网三制式的本期可用率（可点 -> 全网下钻） ---- */
   const statCards = useMemo(() => {
     const by = matrix?.summary?.by_tech || {}
@@ -111,7 +125,20 @@ export default function AvailCounty() {
       return (
         <Col xs={12} sm={8} key={tech}>
           <StatCard
-            title={t('availCounty.kpiTech', { tech })}
+            title={(
+              <span>
+                {t('availCounty.kpiTech', { tech })}
+                <span style={{ marginLeft: 4 }}>
+                  <ExplainIcon
+                    text={matrix ? t('availCounty.explainKpi', {
+                      metric: t(techMetricKey(tech)),
+                      n: cell?.counties_below ?? 0,
+                      total: cell?.counties_with_data ?? 0,
+                    }) : ''}
+                  />
+                </span>
+              </span>
+            )}
             value={v == null ? '—' : (v * 100).toFixed(2)}
             suffix={v == null ? '' : '%'}
             accentColor={v == null ? WH.textMuted : (below ? WH.danger : WH.ok)}
@@ -151,7 +178,8 @@ export default function AvailCounty() {
       threshold: t('availCounty.threshold'),
     },
     techLabels,
-  ), [matrix, drill, rowLabel, techLabels, t, unmatchedText])
+    { col: colExplain, cell: cellExplain },
+  ), [matrix, drill, rowLabel, techLabels, t, unmatchedText, colExplain, cellExplain])
 
   /* ---- 下钻列 ---- */
   const drillSiteCols = useMemo(() => siteColumns(
@@ -163,6 +191,12 @@ export default function AvailCounty() {
     },
     drill.openSiteDaily,
     thr,
+    {
+      avail: t('availCounty.explainSiteAvail', {
+        metric: t(techMetricKey(drill.target?.tech || '')),
+      }),
+      days: t('availCounty.explainSiteDays'),
+    },
   ), [drill, thr, t])
 
   const drillDailyCols = useMemo(() => siteDailyColumns(
@@ -170,6 +204,7 @@ export default function AvailCounty() {
     { day: t('availCounty.colDay'), avail: t('availCounty.colAvail') },
     techLabels,
     thr,
+    t('availCounty.explainDaily'),
   ), [t, techLabels, thr])
 
   /* 曲线提示：本页是站点等权平均，没有分子/分母 —— 后缀显示“当期有值站点数”，

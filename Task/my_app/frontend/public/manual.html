@@ -89,7 +89,7 @@ footer.colophon { text-align: center; color: var(--muted); font-size: 12px; marg
     <div class="logo">📘</div>
     <h1>my_app 项目手册</h1>
     <div class="sub">网络运维数据平台 · 设计手册 + 使用手册</div>
-    <div class="meta">基准日期 2026-08-27　|　适用版本 master 当前代码　|　HTML 合成生成 2026-11-02<br>含 13 章 · 137 个小节　|　打印本页（Ctrl+P）即可导出 PDF<br>英文版使用帮助另见仓库 docs/manual/15-user-help-en.md</div>
+    <div class="meta">基准日期 2026-08-27　|　适用版本 master 当前代码　|　HTML 合成生成 2026-11-03<br>含 13 章 · 137 个小节　|　打印本页（Ctrl+P）即可导出 PDF<br>英文版使用帮助另见仓库 docs/manual/15-user-help-en.md</div>
     <ul class="parts"><li><a href="#ch-00">前言 · 关于本手册</a></li><li><a href="#ch-01">设计篇 · 01 项目总览</a></li><li><a href="#ch-02">设计篇 · 02 架构设计</a></li><li><a href="#ch-03">设计篇 · 03 数据层设计</a></li><li><a href="#ch-04">设计篇 · 04 任务与调度系统</a></li><li><a href="#ch-05">设计篇 · 05 访问控制与凭据</a></li><li><a href="#ch-10">使用篇 · 10 快速上手</a></li><li><a href="#ch-11">使用篇 · 11 功能页使用手册</a></li><li><a href="#ch-12">使用篇 · 12 配置项与开关</a></li><li><a href="#ch-13">使用篇 · 13 运维手册</a></li><li><a href="#ch-14">使用篇 · 14 外部系统与数据流</a></li><li><a href="#ch-15">使用篇 · 使用帮助（一站式指南）</a></li><li><a href="#ch-90">附录 · 90 附录</a></li></ul>
   </section>
   <section class="toc-section">
@@ -6771,23 +6771,43 @@ FLM View 挪到了 MS View，两张卡的名字也被人改成了 <code>Availabi
 3G <code>..._UMTS1day_SITE</code> 的 <code>Cell Validity Rate(%)</code>、
 4G <code>..._FDD1day_SITE</code> 的 <code>[FDD]Cell Availability[SDR_ITBBU]</code>；
 站点主数据取主库 <code>eflow_site</code>（830 行，字段 <code>province_county</code> / <code>region</code> / <code>site_type</code> …）。
-后端 <code>backend/services/avail_county_service.py</code>，接口
-<code>/api/avail-county/options|matrix|trend|drilldown</code>（<code>backend/routers/avail_county.py</code>）。</li>
+后端<strong>分三层</strong>（每层单一职责，见下）：
+<code>backend/services/avail_county_data.py</code>（取数：PG 只读 + 缓存 + 周期边界）、
+<code>backend/services/avail_county_aggregate.py</code>（<strong>聚合口径的唯一真相源</strong>，纯计算不碰 PG）、
+<code>backend/services/avail_county_service.py</code>（对外接口编排）；
+HTTP 层 <code>backend/routers/avail_county.py</code>，接口
+<code>/api/avail-county/options|matrix|trend|drilldown</code>。</li>
 <li><strong>站点关联按「站点名」而不是 <code>site_id</code></strong>：实测 PG 侧 <code>site_id</code> 与 <code>eflow_site.site_id</code>
 <strong>对不上</strong>（2G 0% / 3G 15.6% / 4G 4.7% 重合），只有规范化后的名字能对上（命中约 90~91%）。
 规范化 = 去首尾空白 + 连续空白折叠 + 转小写（SQL 与 Python 两处同义实现）。
 <code>eflow_site</code> 里有 10 组同名站点（Palala / Totota / Suakoko …），<strong>同名的县归属完全一致</strong>，
 故按名字 <code>GROUP BY</code> 去重（取 <code>MIN()</code>）—— 不去重会让这 10 个站点的可用率被重复计入。</li>
-<li><strong>⚠️ 口径与 14m / 14n 不同，两页数字不可互相印证</strong>（页面顶部有蓝色说明条写明）：
+<li><strong>⚠️ 口径与 14m / 14n 不同，两页数字不可互相印证</strong>（页面顶部「口径说明」写明，<strong>默认收起、点标题展开</strong>，2026-11-02 起）：
 14m / 14n 是 <code>SUM(分子)/SUM(分母)</code>（重建库自带的可加分子分母）；
 本页是 UME 直接给的<strong>站点级比率</strong>，没有可加的分子/分母，只能<strong>站点等权平均</strong> ——
 先按站点在本期内有值日期取算术平均，再按县内<strong>站点等权</strong>平均。
-全网汇总同样是「各县有值站点等权平均」，<strong>不是</strong>「县等权平均」。
+<strong>全网汇总则是「县等权平均」</strong>（把 15 个县的县值再取一次算术平均，每个县一人一票，
+与县大小无关，且不含「未归属站点」那一行）—— 实测 2026-11-02：
+<code>api_summary(2G)=0.9270144</code> 与 15 个县值的算术平均<strong>逐位相等</strong>。
+（此处此前写作「不是县等权平均」，与代码相反，2026-11-03 按 <code>summary_by_tech</code> 实测更正；
+代价是站点多的县不会更有分量，换来的是「卡片数字 = 表里那一列的平均」，读者能自己核对。）
 这是本页与前两页数字天然对不上的唯一原因，不是 bug。</li>
+<li><strong>2026-11-03 数字可悬浮看算法</strong>（用户提「页面数字能否鼠标悬浮显示计算说明」后加）：
+三层说明各有载体，<strong>互不替代</strong> ——
+① 全局口径仍在默认收起的 <code>CalcChainNote</code> 里；
+② 三个 KPI 卡标题与主表 2G/3G/4G 列头各挂 <code>MetricExplain</code> 的 ⓘ（讲<strong>这一列</strong>怎么算，
+含该制式在 UME 里的指标项原名 <code>TCH in service rate(%)</code> / <code>Cell Validity Rate(%)</code> /
+<code>[FDD]Cell Availability[SDR_ITBBU]</code>，键 <code>availCounty.metric2G/3G/4G</code>，业务原值不翻译）；
+③ 主表每个可用率数字本身挂 <code>ExplainPopover</code>（讲<strong>这一格</strong>的构成：几个站等权平均、
+其中几个未达标、样本站点-日数、站点区间、上一期与环比、点数字下钻）。
+ⓘ 与气泡都带复制按钮；<code>ExplainIcon</code> 现在自带 <code>stopPropagation</code>，点 ⓘ 不会顺带打开下钻弹窗。
+文案键 <code>availCounty.explainCol / explainKpi / explainSiteAvail / explainSiteDays / explainDaily / tip.*</code>，取数在 <code>availCountyHelpers.tsx</code> 的 <code>cellExplainText()</code>
+（字段与后端 <code>cell_payload</code> 一一对应，不在前端重算口径）。</li>
+<li><strong>2026-11-02 两处收尾</strong>（如意反馈「页面还有类似问题」后实机核对）：① 「含未归属站点（PG 侧匹配不上站点主数据）」这个 Tag 把一句解释挤在标签里，现 Tag 只留短标签，解释挪进口径说明的第二小节「关于「未归属站点」一行」；② 展开态正文里 <code>**名称**</code>、<code>**站点等权平均**</code> 的 Markdown 星号<strong>原样显示</strong> —— 根因是全站把带 <code>**强调**</code> 的长文案直接 <code>{t('key')}</code> 渲染，已加 <code>utils/richText.tsx</code>（<code>renderRich</code> / <code>stripBold</code>），<code>CalcChainNote</code> 与 <code>MetricExplain</code> 内部接入，同类文案全站 17 个键一并修好。</li>
 <li><strong>周口径复用既有实现</strong>：<code>site_availability_service.month_weeks</code>（自然周、周一起算、
 跨月裁剪），<strong>不另起一套</strong>周定义 —— 同仓库里出现两种周定义必然对不上。</li>
 <li><strong>默认期 = 该月最后一个「有数据」的日子</strong>，不是日历最后一天：
-<code>_latest_day_with_data(month)</code> 实测查询三张表的 <code>MAX(Begin Time)</code>。
+<code>avail_county_data.latest_day_with_data(month)</code> 实测查询三张表的 <code>MAX(Begin Time)</code>。
 UME 同步有滞后（实测 2026-11 只有 11-01 一天、2026-06-18 才是最早数据），
 若默认取日历最后一天，页面打开就是一片空白，用户会以为页面坏了而不是「还没同步」。
 页面用「数据截至」与「本月 N/M 天有数据」两个标签把这件事显式说出来。</li>
@@ -6805,8 +6825,14 @@ UME 同步有滞后（实测 2026-11 只有 11-01 一天、2026-06-18 才是最�
 </ol>
 </li>
 <li><strong>TT 按 <code>site_id</code> 精确匹配</strong> <code>eflow_site</code> 取县归属（实测 2026-10 起 4001 条 TT <strong>100% 命中</strong>），
-比按名字匹配可靠；TT 表没有制式字段，故工单明细<strong>不按制式过滤</strong>，只列出各制式断站数。</li>
-<li><strong>前端</strong>：<code>frontend/src/pages/AvailCounty.tsx</code> + <code>frontend/src/pages/availCounty/</code>（类型与列定义）。
+比按名字匹配可靠；TT 表没有制式字段，故工单明细<strong>不按制式过滤</strong>，只列出各制式断站数。
+TT 下钻的选择器<strong>既接受县名也接受站点 key</strong>（从站点明细点进来时传的是站点 key）：
+后端 <code>_resolve_site_ids</code> 先把选择器归一成站点 id 集合再查，
+否则把站点 key 当县名去匹配 <code>province_county</code> 会一条都查不到（表现为空表）。</li>
+<li><strong>前端</strong>：<code>frontend/src/pages/AvailCounty.tsx</code>（页面主体：筛选、状态、取数编排）+
+<code>frontend/src/pages/availCounty/</code>（<code>availCountyTypes.ts</code> 类型与常量、
+<code>availCountyHelpers.tsx</code> 列定义与纯函数、<code>availCountyExport.ts</code> Excel 导出、
+<code>AvailCountyDrillModal.tsx</code> 下钻弹窗）。
 曲线组件复用 14m/14n 的 <code>frontend/src/pages/AvailTrend.tsx</code>（多序列 + 阈值线 + 点可下钻）；
 卡片走 <code>components/cards</code>（<code>CardBase</code> / <code>StatCard</code>），导出走 <code>utils/excelReport.ts</code>。</li>
 <li><strong>出口径的坑</strong>：TT 侧与可用率侧的「县」是两套来源（TT 按 <code>site_id</code>、可用率按名字），
@@ -9567,7 +9593,7 @@ Wait FLM Leader Approve 26.4% —— <strong>等待中的工单比已完成的�
 </blockquote>
 <p>把 umlaut 的 BP 报告搬进平台，并从 RAN_UME 增量更新。<strong>本页最大的特点是「三个条件跨两个数据源、
 两种时间粒度」</strong> —— Active User 走独立的小时粒度通道。
-顶部口径说明条<strong>默认收起</strong>（只留一行可点入口，点开展开完整说明），
+顶部口径说明条<strong>默认收起</strong>（只留一行可点入口，点开展开完整说明；2026-11-02 起载具统一为 <code>components/CalcChainNote</code>），
 但口径<strong>不可用时</strong>（<code>active_user.available=false</code>）改为常驻警告且<strong>不允许收起</strong> ——
 那种情况下所有判定都偏低、结论不可比，藏起来等于让用户自己猜口径。</p>
 <p><a id="ch-11-s138"></a></p>
@@ -10280,7 +10306,7 @@ Excel 的指标真值（<code>bp_cells</code>/<code>total_cells</code>/<code>bp_
 <li><strong>综合竞争力评分</strong> —— 两家各一个分数。这是<strong>相对分</strong>：每项指标领先方记 100，另一方按比例得分，
 再按 下载 35% / 上传 20% / 时延 30% / 抖动 15% 加权（权重写在 <code>caliber.SCORE_WEIGHTS</code>）。
 某项指标任一方缺数据时该指标不参与，权重分给其余指标并重新归一。
-<strong>它只回答「这两家谁更强、强多少」，不评价绝对水平</strong>——页面上有常驻文字说明这一点。</li>
+<strong>它只回答「这两家谁更强、强多少」，不评价绝对水平</strong>——页面顶部「口径说明」写明这一点（<strong>默认收起、点标题展开</strong>，2026-11-02 起载具统一为 <code>components/CalcChainNote</code>）。</li>
 <li><strong>关键指标汇总卡</strong> —— 四个指标各一张，给出两家均值与 P50/P90（P50/P90 由 <code>_PCT_SQL</code> 的四个
 百分位子查询并集算出）。谁领先会打标。</li>
 <li><strong>趋势对比图</strong> —— 分段控件切四个指标，右侧下拉设滚动均值窗口（3/7/14/30 天）。
@@ -11118,7 +11144,13 @@ UME 只是自动同步的补充。<strong>这个优先级是口径决定，不�
 </table>
 <p>⚠ 这 3 个新模板 <strong><code>gr=900</code> 正常（190/190/1920 行，<code>15 minutes</code>），<code>gr=300</code> 仍为 0 行</strong>，
 即上游给的是 15 分钟档、不是 5 分钟档。因此页面上这 3 张卡片的点约为其他图的 1/3，
-<strong>属正常</strong>；页头蓝条会显式提示，避免被误读成数据缺失。</p>
+<strong>属正常</strong>；页头**口径说明（默认收起，点标题展开）**会显式提示，避免被误读成数据缺失。</p>
+<blockquote>
+<p><strong>2026-11-02 改动（如意要求，全站约定）</strong>：原先「混合粒度」与「哪些卡片为空」是<strong>两条常驻展开的 <code>Alert</code></strong>（合计 4~6 行），
+现合并为一条 <code>components\CalcChainNote</code>「数据口径说明（点此展开）」，<code>sections</code> 为「① 粒度」「② 空卡片的原因」
+（后者仅在 <code>meta.empty &gt; 0</code> 时出现）。口径说明属&quot;解释&quot;→ 收起；查询失败、截断这类&quot;异常&quot;仍常驻
+（<code>Alert type=&quot;error&quot;</code> 未动）。约定原文见 <code>AGENTS.md</code> 三.3b。</p>
+</blockquote>
 <p>任务仍保留「0 行 → 跳过该表且不计失败」的兜底（与 <code>cnn_kpi_sync</code> 的「0 行即 raise」
 刻意不同），上游再调整档位时不会让任务每 15 分钟失败一次。
 <code>cn_kpi_5mins_service.UNAVAILABLE_TABLES</code> 机制保在该处，用于将来登记「已知无数据」的组件。</p>
@@ -15735,7 +15767,7 @@ shared <code>auth_cache</code> 里 admin 的 token 明明还有 14.6 小时有�
     <h2>使用帮助（一站式指南）</h2>
   </header>
   <blockquote>
-<p>面向使用者的平台功能与操作指南。本文件由「使用帮助」页面同源生成（frontend/src/helpMarkdown.ts），内容依据 docs/manual/ 各章与 backend/task_registry.py 整理。生成日期：2026-11-02。</p>
+<p>面向使用者的平台功能与操作指南。本文件由「使用帮助」页面同源生成（frontend/src/helpMarkdown.ts），内容依据 docs/manual/ 各章与 backend/task_registry.py 整理。生成日期：2026-11-03。</p>
 </blockquote>
 <blockquote>
 <p>站内入口：侧边栏「使用帮助」，或直链 <code>http://&lt;host&gt;/myapp/?page=help</code>。</p>
@@ -18292,10 +18324,11 @@ shared <code>auth_cache</code> 里 admin 的 token 明明还有 14.6 小时有�
 <h5>avail_county（<code>avail_county</code>）</h5>
 <p>县维度可用率：按站点主数据 eflow_site 的 province_county（<strong>县</strong>，利比里亚 15 个县）看本月可用率，行 = 县、列 = 2G / 3G / 4G 可用率，日 / 周用页签切粒度。数据来自 UME MS SLA <strong>站点级日表</strong>（2G=TCH in service rate、3G=Cell Validity Rate、4G=[FDD]Cell Availability），站点与主数据按<strong>站点名</strong>关联（site_id 对不上：实测重合率 0~15%）。</p>
 <ul>
-<li><strong>口径与「可用率多维矩阵」「FLM 可用率」不同</strong>：那两页是 SUM(分子)/SUM(分母)，本页是 UME 直接给的站点级比率，只能<strong>站点等权平均</strong>（先按站点在期内有值日期取算术平均，再按县内站点等权平均）。页面顶部有蓝色口径说明条，两页数字<strong>不可互相印证</strong></li>
+<li><strong>口径与「可用率多维矩阵」「FLM 可用率」不同</strong>：那两页是 SUM(分子)/SUM(分母)，本页是 UME 直接给的站点级比率，只能<strong>站点等权平均</strong>（先按站点在期内有值日期取算术平均，再按县内站点等权平均）。口径说明在顶部「口径说明」里，<strong>默认收起、点标题展开</strong>（2026-11-02 起），两页数字<strong>不可互相印证</strong></li>
 <li>顶部筛选：月份（日 / 周两个档位各自记住上一次选的期，互不干扰）、日 / 周页签、阈值（默认 99.65%，决定数字变红）、曲线的县（下拉选具体县或全网）、刷新、导出 Excel</li>
 <li>默认打开的是该月<strong>最后一个有数据的日子</strong>（不是日历最后一天）：UME 同步有滞后，当月可能只有 1~2 天有数据，页面用「数据截至」与「本月 N/M 天有数据」两个标签把这件事显式说出来</li>
 <li>三个 KPI 卡（全网 2G / 3G / 4G）显示本期全网可用率与「N/M 个县未达标」，点卡片可下钻到全网该制式的站点明细</li>
+<li><strong>数字都能悬浮看算法</strong>（2026-11-03 加）：三个 KPI 卡标题、主表 2G/3G/4G 列头、下钻弹窗的「可用率 / 有值天数 / 逐日」列头各有一个 ⓘ，讲<strong>这一列</strong>怎么算（含该制式在 UME 里的指标项原名 TCH in service rate / Cell Validity Rate / [FDD]Cell Availability）；主表里每个可用率数字本身悬浮会列出<strong>这一格</strong>的构成——几个有值站点等权平均、其中几个未达标、样本站点-日数、站点区间、上一期与环比。气泡带复制按钮，点 ⓘ 不会顺带打开下钻弹窗。全网卡是 15 个县值的算术平均（<strong>县等权</strong>，不含「未归属站点」行），所以它等于主表那一列的平均，不是站点加权</li>
 <li>主表 16 行（15 个县 + 末行「未归属站点」）：每格显示可用率、站点数与环比（百分点）。点任意可用率数字下钻，弹窗有三个页签——站点明细 / 逐日明细 / 相关 TT 工单</li>
 <li>「未归属站点」是 PG 里匹配不上 eflow_site 的那批站点（实测约 9%），单列在末行只为对账，<strong>不计入任何一个县</strong>；页面有橙色标签提示</li>
 <li>下钻链路：县 × 制式 → 站点明细（按可用率升序，最差的排前面）→ 点某个站点 → 该站点的逐日明细（2G/3G/4G 三列）；第三个页签是该县的 TT 工单（含断站数与根因），按 <strong>site_id 精确匹配</strong> eflow_site 取县归属</li>
@@ -19190,7 +19223,7 @@ shared <code>auth_cache</code> 里 admin 的 token 明明还有 14.6 小时有�
 <p><strong>保留在 PROJECT_DOCS.md 不动</strong>（属于历史决策与复盘，不是&quot;现状描述&quot;）：§2 迁移计划、§3 架构评估与 Django 论证、§4 FastAPI 架构优化方案、§5–§6 i18n 审计与复查、§8 IP Trace 集成方案、§10 迁移失败复盘、§11 优化建议。</p>
 
 </section>
-  <footer class="colophon">my_app 项目手册 · 由 frontend/scripts/generate-manual-html.mjs 从 docs/manual/*.md 同源生成于 2026-11-02 · 改 MD 后重跑该脚本并重新构建前端即可更新</footer>
+  <footer class="colophon">my_app 项目手册 · 由 frontend/scripts/generate-manual-html.mjs 从 docs/manual/*.md 同源生成于 2026-11-03 · 改 MD 后重跑该脚本并重新构建前端即可更新</footer>
 </div>
 </body>
 </html>
