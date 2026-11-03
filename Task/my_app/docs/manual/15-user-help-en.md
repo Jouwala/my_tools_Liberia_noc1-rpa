@@ -10,7 +10,7 @@
 
 - [1. Platform Overview](#1-platform-overview)
 - [2. General Usage](#2-general-usage)
-- [3. Task Manager Deep Dive (81 tasks)](#3-task-manager-deep-dive)
+- [3. Task Manager Deep Dive (82 tasks)](#3-task-manager-deep-dive)
 - [4. Pages Guide](#4-pages-guide)
 - [5. Ops & Troubleshooting](#5-ops-troubleshooting)
 - [6. FAQ](#6-faq)
@@ -83,7 +83,7 @@ Built for the NOC scenario "boards every day, reports must go out": 41+ schedule
 
 > ⚠️ **New tasks MUST also be registered in `GROUP_TASK_MAP` in worker_watchdog.py** — declaring them only in TASK_SPECS leaves them pending forever. This accident happened four times (finebi_report_sync / whatsapp_send_ext / sp_email_details / the olib_soc and vmax_multi_data_sync tasks found on 2026-09-18).
 
-### 3.3 Full task catalog (81 tasks)
+### 3.3 Full task catalog (82 tasks)
 
 | Task | task_id | Default cron | Group | Workflow script |
 | --- | --- | --- | --- | --- |
@@ -119,6 +119,7 @@ Built for the NOC scenario "boards every day, reports must go out": 41+ schedule
 | SpareParts Report Email | `kpi_sp_spareparts` | `45 9 * * *` | m | `services/kpi_email_report.py → run_sp_spareparts` |
 | Comsumables Report Email | `kpi_sp_consumables` | `50 9 * * *` | m | `services/kpi_email_report.py → run_sp_consumables` |
 | SP Report Generate | `sp_report_generate` | `15 5 * * *` | m | `services/kpi_email_report.py → run_sp_report_generate` |
+| SP Weekly Report (Monday → Sunday) | `sp_weekly_report` | `0 7 * * mon` | m | `services/kpi_email_report.py → run_sp_weekly_report` |
 | SP Spare Parts Details Report Email | `sp_email_details` | `5 7 * * *` | m | `services/kpi_email_report.py → run_sp_details_email` |
 | SP Spare Parts Details Files Email | `sp_details_files_email` | `5 10 * * *` | m | `services/kpi_email_report.py → run_sp_details_files_email` |
 | Comsumables&SpareParts Report Whatsapp | `sp_whatsapp_report` | `55 7 * * *` | m | `services/kpi_email_report.py → run_sp_whatsapp_report` |
@@ -780,6 +781,28 @@ Workflow & maintenance notes per task:
 **Maintenance**:
 
 - Upstream of 3 SP email tasks — its failure blanks all spare-part emails for the day
+
+#### SP Weekly Report (Monday → Sunday)（`sp_weekly_report`）
+
+- Default cron: `0 7 * * mon`　|　worker group: **m**
+- Workflow script: `services/kpi_email_report.py → run_sp_weekly_report`
+
+**What it does**: Every Monday 07:00 build the SP weekly report for the previous full natural week (last Monday 00:00 – Sunday 23:59) and email it; both the file name and the subject carry the period
+
+**Workflow & data flow**:
+
+1. Read the filtered inband / outband / inventory details under data/sp_email/data (produced by sp_report_generate at 05:15 daily)
+1. Filter by the period window: end = the last finished Sunday, start = end minus 6 days, so it is always Monday 00:00:00 – Sunday 23:59:59; a Monday run covers last Monday – last Sunday. Site name and site ID come from the WO/TT/PMT ticket (Related Ticket Title / Site Id)
+1. Build 8 sheets: Summary / Inventory / Inbound&Outbound Summary / Daily report (7 dynamic weekday+date columns) / Top 10 Consumed Spares / Replenishment / Details / Warehouse-info
+1. Save data/sp_weekly/SP Weekly Report <start> to <end>.xlsx and email it as an attachment
+
+**Maintenance**:
+
+- Always write day_of_week as mon / sun, never as a number: APScheduler maps 0 to Monday and 6 to Sunday, the opposite of Linux cron
+- The window is aligned to a natural week: --week-end must be a Sunday or it raises; never fall back to "yesterday minus 7 days", which drifts to Tuesday → Monday when re-run mid-week
+- Quantities display their unit (7PCS / 50Meter) but stay numeric underneath; a cell mixing units is text (4PCS+50Meter) and cannot be summed
+- The Replenishment sheet reuses gernarate_sp_report.build_replenishment on purpose; never re-implement the safety-stock rule
+- Recipients live under Settings → Email Recipients → sp_weekly_report, falling back to the SP shared list
 
 #### SP Spare Parts Details Report Email（`sp_email_details`）
 
@@ -1833,6 +1856,7 @@ The eflow_wo-sourced twin of the TT Dashboard: the layout matches page=tt block 
 Network Unavailability Rate (NUR) daily/weekly/monthly trends, multi-dimension analysis and site compliance.
 
 - Switch granularity and date range, filter by dimensions
+- **Every figure explains itself on hover** (2026-11-03, sharing the wording with the MS Operation KPI dashboard): hovering a number in the NUR and SLA tables first states how that table is computed (NUR = Σ(cells × MTTR minutes) × 60 ÷ (denominator cells × period seconds), displayed ×100000; only tickets with 0 < MTTR < 43200 minutes that are already cleared enter the sample; Global is the sum of numerators over the sum of cells, not the mean of the per-technology figures), then which metric and which period that cell is
 - Site dimensions can be narrowed by TRM type / Site category / Province-County / Region / Starlink migrated (attributes come from the site master, exact match; numerator and denominator share the same scope, so NUR still means this subset of sites)
 - Click numbers to drill into a detail table (in-column filters & sorting); export to Excel — the drill-down inherits every active filter
 
@@ -1870,6 +1894,7 @@ MS WOs SLA Daily Report: daily detail matrix of WO SLA attainment (Total / Withi
 - Data source: data/ms_sla/ZTE OLR MS WOs SLA Achievements Daily Report_<date>.xlsx (landed daily by the kpi_ms_wo_sla task); the page does no further processing — see backend/services/ms_kpi_report_service.py for the parsing caliber
 - Layout: overview cards (monthly tickets / meeting SLA / attainment / failing metrics) -> 5 TTR metric cards -> daily attainment trend (with each target line) -> daily detail matrix (same layout as the Excel)
 - Click a matrix column header to open the trend drill-down for that metric
+- **Every figure explains itself on hover** (2026-11-03): the overview cards, the monthly value and the "N/M days met" of each metric card, and the trend dialog can all be hovered. Three points that are most often misread - the monthly value is the **raw** Month row of the workbook (no division is recomputed); the denominator of "N/M days met" is the **number of day rows in the matrix**, not the days of the calendar month (undelivered days are not counted); and Total / Within SLA / Achieve in the overview are **three independent raw columns**, so Achieve is not necessarily Within ÷ Total
 - The page can be exported to Excel with the same layout as the emailed attachment
 
 #### ms_contract_kpi（`ms_contract_kpi`）
@@ -1880,6 +1905,7 @@ MS Contract KPIs & WOs Achievement auto-reports: the full report page for contra
 - Layout: overview cards -> category attainment -> 27 KPI cards (grouped into Operation / Network / PerSite tabs; click a KPI card for its daily trend) -> 4 tabs (KPI matrix / WO SLA matrix / FineBI plan / auto-report inventory; the last two support search + filter + pagination)
 - The FineBI plan and auto-report inventory are *process ledgers*, not run metrics, so their entries were hidden on the page from 2026-09-27 (the backend still parses them and the data APIs remain)
 - Same source as page=ms_wo_sla: the WO SLA matrix is word-for-word identical to that page
+- **Every figure explains itself on hover** (2026-11-03): the overview cards, the monthly value and days-met of the 27 KPI cards, and the trend dialog are all hoverable. Four points - the overview cards count **metrics**, and a metric whose backend met is null (no target) counts on **neither** side, so the figures can sum to less than the metric total; the monthly value is the raw workbook value; **the 90% target of PerSite metrics is hard-coded in the parser** (target_source=persite_ratio), not a target taken from the contract report; and the "worst" ranking is ordered by relative gap to target, so **metrics with no target or a target of 0 get gap 0 and never appear**
 
 #### CXO Dashboard（`cxoDashboard`, iframe page）
 

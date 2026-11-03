@@ -29,7 +29,7 @@ import { useI18n, numLocale } from '../i18n'
 import { useTheme, WH } from '../theme'
 import { exportReport, safeFileName, type CellValue } from '../utils/excelReport'
 import {
-  KpiMatrixTable, MetricCards, MetricTrendModal, RowDetailModal, StatCard,
+  KpiMatrixTable, MetricCards, MetricTrendModal, RowDetailModal, StatCard, overviewExplain,
   fmtValue, num, type Matrix, type Metric, type MsKpiSummary,
 } from './MsKpiShared'
 
@@ -566,7 +566,7 @@ export default function MsContractKpiReport() {
             {cards.map(c => (
               <Col key={c.key} xs={12} sm={8} lg={4}>
                 <StatCard label={c.label} value={c.value} hint={c.hint}
-                  color={c.color} emphasis={c.emphasis} />
+                  color={c.color} emphasis={c.emphasis} explain={overviewExplain(c.key, t)} />
               </Col>
             ))}
           </Row>
@@ -584,7 +584,7 @@ export default function MsContractKpiReport() {
             {catCards.map(c => (
               <Col key={c.key} xs={12} sm={8} lg={4}>
                 <StatCard label={c.label} value={c.value} hint={c.hint} color={c.color}
-                  emphasis={c.color === WH.warn} />
+                  emphasis={c.color === WH.warn} explain={overviewExplain(c.key, t)} />
               </Col>
             ))}
           </Row>

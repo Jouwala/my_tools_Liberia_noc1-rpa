@@ -17,7 +17,7 @@ import { useI18n, numLocale } from '../i18n'
 import { useTheme, WH, WH_COLORS, LIGHT_COLORS, darkTooltip, axisLabel, axisLine, splitLine } from '../theme'
 import { exportReport, safeFileName, type CellValue } from '../utils/excelReport'
 import {
-  KpiMatrixTable, MetricCards, MetricTrendModal, StatCard, fmtValue,
+  KpiMatrixTable, MetricCards, MetricTrendModal, StatCard, overviewExplain, fmtValue,
   num, type Matrix, type Metric, type MsKpiSummary,
 } from './MsKpiShared'
 
@@ -245,7 +245,7 @@ export default function MsWoSLReport() {
             {cards.map(c => (
               <Col key={c.key} xs={12} sm={8} lg={4}>
                 <StatCard label={c.label} value={c.value} hint={c.hint}
-                  color={c.color} emphasis={c.emphasis} />
+                  color={c.color} emphasis={c.emphasis} explain={overviewExplain(c.key, t)} />
               </Col>
             ))}
           </Row>

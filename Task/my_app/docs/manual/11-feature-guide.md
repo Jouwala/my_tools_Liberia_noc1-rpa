@@ -499,8 +499,13 @@ MS 合同 KPI（Contract KPIs）与工单 SLA（WOs SLA）达成情况。
 > **PerSite 类的目标 90% 是代码里写死的**（`_parse_kpi_matrix:397-408`，`target_source=persite_ratio`），
 > 不是报表给的目标 —— 这条直接写进气泡，因为它最容易被读成合同目标。
 > 实机验证：`?page=ms_contract_kpi` 悬浮指标卡数值出上述完整文案。
-> **待办**：两页各自的 6 张概览卡（`MsWoSLReport.tsx:153-204` / `MsContractKpiReport.tsx:408-445`）
-> 与站内帮助条目尚未接上，见 `D:\01_RPA\TODO.md`。
+> **两页各自的概览卡也已接上**（2026-11-03）：两页都用 `MsKpiShared` 导出的 `StatCard`，所以给 `StatCard`
+> 加一个 `explain` 入参、再用 `overviewExplain(c.key, t)` 按 key 映射，一处改动覆盖两页 11 张卡。
+> 四类语义对应四个键：`msKpi.explain.overviewCount`（指标个数，**met 为 null 的不计入任何一侧**，
+> 所以达标+未达标+无目标 可能小于指标总数）、`overviewDays`（= 矩阵日行数，**不是自然月天数**）、
+> `overviewRate`（Total / Within SLA / Achieve 是三列**各自的原值**，Achieve 不一定等于 Within ÷ Total）、
+> `worst`（按相对目标差距排序；**无目标或目标为 0 的 gap 记 0，永不进榜**）。
+> 实机验证：`?page=ms_contract_kpi` 概览卡 `27` / `15` / `3` 三个数字悬浮均出「这几张卡统计的是指标个数…」。**待办**：这三页（`nur` / `ms_wo_sla` / `ms_contract_kpi`）的**站内帮助条目**尚未补，见 `D:\01_RPA\TODO.md`。
 - **KPI 区不再有外层「Contract KPIs」卡片**（2026-09-28 按需求去掉）：原先外层大卡 + 内层小卡两层描边叠加，去掉外层后语义不变、仅少一层容器。注意 `msSla.contractKpis` 这个 i18n 键**在 MS SLA 看板上已不再被引用**（`ms_contract_kpi` 报表页 `MsContractKpiReport.tsx` 是另一处独立引用，不要误删）。
 
 - **口径提示**：2026-08 起 NUR/SLA/WO 以 `nur_calc` 实时计算为准（`ms_sla_dashboard.py:13-14`），所以本页数字与 `data/ms_sla/ms_sla_dashboard.sqlite3` 里的快照**可能对不上**，以本页为准。

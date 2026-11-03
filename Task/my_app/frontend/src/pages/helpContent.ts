@@ -268,7 +268,7 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
     },
     nur: {
       desc: '网络不可用率（NUR）的日/周/月趋势、多维分析与站点达标情况。',
-      usage: ['切换粒度与日期区间，多维下拉筛选', '站点维度可再按 TRM 类型 / 站点等级 / 省县 / 区域 / 星链近期迁移筛选（属性取自站点主数据，精确匹配；分子与分母同口径，NUR 仍表示这批站点的不可用率）', '点数字下钻明细表（支持列内筛选与排序），可一键导出 Excel；下钻自动继承当前全部筛选'],
+      usage: ['切换粒度与日期区间，多维下拉筛选', '**每个数字都能悬浮看算法**（2026-11-03，与 MS Operation KPI 看板共用同一套文案）：NUR 表与 SLA 表的每个数字悬浮会先说这张表怎么算（NUR = Σ(小区数×MTTR分钟)×60 ÷ (分母小区数×期间秒)，界面按 ×100000 显示；样本只计 0<MTTR<43200 分钟且已清除的单；Global 是分子相加÷小区数相加，不是几个制式数字的平均），再说这一格是哪个指标、哪一期', '站点维度可再按 TRM 类型 / 站点等级 / 省县 / 区域 / 星链近期迁移筛选（属性取自站点主数据，精确匹配；分子与分母同口径，NUR 仍表示这批站点的不可用率）', '点数字下钻明细表（支持列内筛选与排序），可一键导出 Excel；下钻自动继承当前全部筛选'],
     },
     ms_nur_only: {
       desc: 'NUR 看板的「只保留 NUR」版：内容与 page=nur 的 NUR 部分完全一致（NUR 日/周/月 的表格 + 趋势），不再渲染 SLA 三档，适合只看 NUR 的值班位或大屏。',
@@ -288,6 +288,7 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
         '数据源是 data/ms_sla/ZTE OLR MS WOs SLA Achievements Daily Report_<日期>.xlsx（任务 kpi_ms_wo_sla 每天落地），页面不做二次加工，解析口径见 backend/services/ms_kpi_report_service.py',
         '页面结构：总览卡片（月工单 / 达标 / 达成率 / 未达标指标）→ 5 个 TTR 指标卡 → 达成率日趋势（含各自目标线）→ 每日明细矩阵（与 Excel 版式一致）',
         '点矩阵列头可看该指标的趋势下钻弹窗',
+        '**每个数字都能悬浮看算法**（2026-11-03）：总览卡、指标卡的月值与「N/M 天达标」、趋势弹窗统计都可悬浮问「这个数怎么算」。要点三条 —— 月值取工作簿 Month 行**原值**（不做除法重算）；「N/M 天达标」的分母是**矩阵日行数**，不是自然月天数（缺档日不计）；总览里的 Total / Within SLA / Achieve 是三列**各自的原值**，所以 Achieve 不一定等于 Within ÷ Total',
         '页面可导出 Excel，与邮件附件版式一致',
       ],
     },
@@ -298,6 +299,7 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
         '结构：总览卡片 → 分类达标 → 27 个 KPI 卡（按 Operation / Network / PerSite 三个页签分类，点 KPI 卡看日趋势）→ 4 个页签（KPI 矩阵 / WO SLA 矩阵 / FineBI 规划 / 自动化报表清单，后两个支持搜索 + 筛选 + 分页）',
         'FineBI 规划与自动化报表清单是**编制过程台账**而非运行指标，2026-09-27 起页面上不再显示入口（后端仍照常解析，数据接口保留）',
         '口径与 page=ms_wo_sla 同源：WO SLA 矩阵与那页逐字同构',
+        '**每个数字都能悬浮看算法**（2026-11-03）：总览卡、27 个 KPI 卡的月值与「N/M 天达标」、趋势弹窗统计都可悬浮问。四条要点 —— 总览那几张卡统计的是**指标个数**，且 met 为 null（没有目标值）的不计入达标也不计入未达标，所以几个数相加可能小于指标总数；月值取工作簿原值；**PerSite 类的目标 90% 是代码里写死的**（target_source=persite_ratio），不是合同报表给的目标；「最差」榜按相对目标差距排序，**没有目标或目标为 0 的指标 gap 记 0，永远不会进榜**',
       ],
     },
     cxoDashboard: {
@@ -829,7 +831,7 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
     },
     nur: {
       desc: 'Network Unavailability Rate (NUR) daily/weekly/monthly trends, multi-dimension analysis and site compliance.',
-      usage: ['Switch granularity and date range, filter by dimensions', 'Site dimensions can be narrowed by TRM type / Site category / Province-County / Region / Starlink migrated (attributes come from the site master, exact match; numerator and denominator share the same scope, so NUR still means this subset of sites)', 'Click numbers to drill into a detail table (in-column filters & sorting); export to Excel — the drill-down inherits every active filter'],
+      usage: ['Switch granularity and date range, filter by dimensions', '**Every figure explains itself on hover** (2026-11-03, sharing the wording with the MS Operation KPI dashboard): hovering a number in the NUR and SLA tables first states how that table is computed (NUR = Σ(cells × MTTR minutes) × 60 ÷ (denominator cells × period seconds), displayed ×100000; only tickets with 0 < MTTR < 43200 minutes that are already cleared enter the sample; Global is the sum of numerators over the sum of cells, not the mean of the per-technology figures), then which metric and which period that cell is', 'Site dimensions can be narrowed by TRM type / Site category / Province-County / Region / Starlink migrated (attributes come from the site master, exact match; numerator and denominator share the same scope, so NUR still means this subset of sites)', 'Click numbers to drill into a detail table (in-column filters & sorting); export to Excel — the drill-down inherits every active filter'],
     },
     ms_nur_only: {
       desc: 'The "NUR only" cut of the NUR Dashboard: identical to the NUR half of page=nur (NUR daily/weekly/monthly tables + trends), with the three SLA blocks removed — handy for a NUR-only desk or wall screen.',
@@ -849,6 +851,7 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
         'Data source: data/ms_sla/ZTE OLR MS WOs SLA Achievements Daily Report_<date>.xlsx (landed daily by the kpi_ms_wo_sla task); the page does no further processing — see backend/services/ms_kpi_report_service.py for the parsing caliber',
         'Layout: overview cards (monthly tickets / meeting SLA / attainment / failing metrics) -> 5 TTR metric cards -> daily attainment trend (with each target line) -> daily detail matrix (same layout as the Excel)',
         'Click a matrix column header to open the trend drill-down for that metric',
+        '**Every figure explains itself on hover** (2026-11-03): the overview cards, the monthly value and the "N/M days met" of each metric card, and the trend dialog can all be hovered. Three points that are most often misread - the monthly value is the **raw** Month row of the workbook (no division is recomputed); the denominator of "N/M days met" is the **number of day rows in the matrix**, not the days of the calendar month (undelivered days are not counted); and Total / Within SLA / Achieve in the overview are **three independent raw columns**, so Achieve is not necessarily Within ÷ Total',
         'The page can be exported to Excel with the same layout as the emailed attachment',
       ],
     },
@@ -859,6 +862,7 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
         'Layout: overview cards -> category attainment -> 27 KPI cards (grouped into Operation / Network / PerSite tabs; click a KPI card for its daily trend) -> 4 tabs (KPI matrix / WO SLA matrix / FineBI plan / auto-report inventory; the last two support search + filter + pagination)',
         'The FineBI plan and auto-report inventory are *process ledgers*, not run metrics, so their entries were hidden on the page from 2026-09-27 (the backend still parses them and the data APIs remain)',
         'Same source as page=ms_wo_sla: the WO SLA matrix is word-for-word identical to that page',
+        '**Every figure explains itself on hover** (2026-11-03): the overview cards, the monthly value and days-met of the 27 KPI cards, and the trend dialog are all hoverable. Four points - the overview cards count **metrics**, and a metric whose backend met is null (no target) counts on **neither** side, so the figures can sum to less than the metric total; the monthly value is the raw workbook value; **the 90% target of PerSite metrics is hard-coded in the parser** (target_source=persite_ratio), not a target taken from the contract report; and the "worst" ranking is ordered by relative gap to target, so **metrics with no target or a target of 0 get gap 0 and never appear**',
       ],
     },
     cxoDashboard: {

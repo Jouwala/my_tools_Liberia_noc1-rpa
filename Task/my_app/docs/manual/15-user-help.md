@@ -10,7 +10,7 @@
 
 - [1. 平台简介](#1-平台简介)
 - [2. 通用操作](#2-通用操作)
-- [3. 任务管理详解（81 个任务）](#3-任务管理详解)
+- [3. 任务管理详解（82 个任务）](#3-任务管理详解)
 - [4. 页面指南](#4-页面指南)
 - [5. 运维与排障](#5-运维与排障)
 - [6. 常见问题](#6-常见问题)
@@ -83,7 +83,7 @@
 
 > ⚠️ **新增任务必须同时登记进 `worker_watchdog.py` 的 `GROUP_TASK_MAP`** —— 只写 `TASK_SPECS` 不分组 = 任务入队后永远 pending。这是本项目已发生过四次的事故模式（finebi_report_sync / whatsapp_send_ext / sp_email_details / 2026-09-18 的 olib_soc 与 vmax_multi_data_sync）。
 
-### 3.3 全量任务清单（81 个）
+### 3.3 全量任务清单（82 个）
 
 | 任务 | task_id | 默认 cron | 组 | 工作流脚本 |
 | --- | --- | --- | --- | --- |
@@ -119,6 +119,7 @@
 | SpareParts 备件报表邮件 | `kpi_sp_spareparts` | `45 9 * * *` | m | `services/kpi_email_report.py → run_sp_spareparts` |
 | Comsumables 耗材报表邮件 | `kpi_sp_consumables` | `50 9 * * *` | m | `services/kpi_email_report.py → run_sp_consumables` |
 | SP 备件报表生成 | `sp_report_generate` | `15 5 * * *` | m | `services/kpi_email_report.py → run_sp_report_generate` |
+| SP 备件周报（上周一→上周日） | `sp_weekly_report` | `0 7 * * mon` | m | `services/kpi_email_report.py → run_sp_weekly_report` |
 | SP 备件明细报表邮件 | `sp_email_details` | `5 7 * * *` | m | `services/kpi_email_report.py → run_sp_details_email` |
 | SP 备件明细分文件邮件 | `sp_details_files_email` | `5 10 * * *` | m | `services/kpi_email_report.py → run_sp_details_files_email` |
 | Comsumables&SpareParts Report Whatsapp | `sp_whatsapp_report` | `55 7 * * *` | m | `services/kpi_email_report.py → run_sp_whatsapp_report` |
@@ -780,6 +781,28 @@
 **维护要点**:
 
 - 是 3 个 SP 邮件任务的上游，失败会导致当天备件邮件整体缺报
+
+#### SP 备件周报（上周一→上周日）（`sp_weekly_report`）
+
+- 默认 cron: `0 7 * * mon`　|　worker 组: **m**
+- 工作流脚本: `services/kpi_email_report.py → run_sp_weekly_report`
+
+**功能**: 每周一 07:00 生成上一个完整自然周（上周一 00:00 → 上周日 23:59）的 SP 周报 xlsx 并邮件发送；文件名与邮件主题都带周期日期
+
+**工作流与数据流**:
+
+1. 读取 data/sp_email/data 下已过滤的 inband / outband / inventory 明细（sp_report_generate 每天 05:15 产出）
+1. 按周期窗口筛选：end = 最近一个已结束的周日，start = end-6 天 → 恒为「周一 00:00:00 ~ 周日 23:59:59」，周一跑即上周一~上周日；站点名与站点 ID 取工单（WO/TT/PMT）的 Related Ticket Title / Site Id
+1. 生成 8 个 sheet：Summary / Inventory / Inbound&Outbound Summary / Daily report（7 个日期列按真实星期+日期动态生成）/ Top 10 Consumed Spares / Replenishment / Details / Warehouse-info
+1. 落盘 data/sp_weekly/SP Weekly Report <start> to <end>.xlsx，并作为附件邮件发送
+
+**维护要点**:
+
+- day_of_week 一律写 mon / sun 这类名字，不要写数字：APScheduler 数字 0=周一、6=周日，与 Linux cron 相反
+- 周期按自然周对齐：--week-end 必须是周日，否则直接报错；不要改成「昨天往前 7 天」，周二补跑会变成周二~周一
+- 数量带单位显示（7PCS / 50Meter）但底层仍是数值；跨单位的格子是文本 4PCS+50Meter，那一格不能求和
+- Replenishment 的安全库存/告警等级直接复用 gernarate_sp_report.build_replenishment，禁止另写一套口径
+- 收件人在系统设置 → 邮件收件人 → sp_weekly_report 分组配置，默认回退 SP 共享名单
 
 #### SP 备件明细报表邮件（`sp_email_details`）
 
@@ -1833,6 +1856,7 @@ TT 看板的「WO 数据源」版：版式与 page=tt 逐块一致，只是数�
 网络不可用率（NUR）的日/周/月趋势、多维分析与站点达标情况。
 
 - 切换粒度与日期区间，多维下拉筛选
+- **每个数字都能悬浮看算法**（2026-11-03，与 MS Operation KPI 看板共用同一套文案）：NUR 表与 SLA 表的每个数字悬浮会先说这张表怎么算（NUR = Σ(小区数×MTTR分钟)×60 ÷ (分母小区数×期间秒)，界面按 ×100000 显示；样本只计 0<MTTR<43200 分钟且已清除的单；Global 是分子相加÷小区数相加，不是几个制式数字的平均），再说这一格是哪个指标、哪一期
 - 站点维度可再按 TRM 类型 / 站点等级 / 省县 / 区域 / 星链近期迁移筛选（属性取自站点主数据，精确匹配；分子与分母同口径，NUR 仍表示这批站点的不可用率）
 - 点数字下钻明细表（支持列内筛选与排序），可一键导出 Excel；下钻自动继承当前全部筛选
 
@@ -1870,6 +1894,7 @@ MS WOs SLA 日报：工单 SLA 达成率的每日明细矩阵（Total / Within S
 - 数据源是 data/ms_sla/ZTE OLR MS WOs SLA Achievements Daily Report_<日期>.xlsx（任务 kpi_ms_wo_sla 每天落地），页面不做二次加工，解析口径见 backend/services/ms_kpi_report_service.py
 - 页面结构：总览卡片（月工单 / 达标 / 达成率 / 未达标指标）→ 5 个 TTR 指标卡 → 达成率日趋势（含各自目标线）→ 每日明细矩阵（与 Excel 版式一致）
 - 点矩阵列头可看该指标的趋势下钻弹窗
+- **每个数字都能悬浮看算法**（2026-11-03）：总览卡、指标卡的月值与「N/M 天达标」、趋势弹窗统计都可悬浮问「这个数怎么算」。要点三条 —— 月值取工作簿 Month 行**原值**（不做除法重算）；「N/M 天达标」的分母是**矩阵日行数**，不是自然月天数（缺档日不计）；总览里的 Total / Within SLA / Achieve 是三列**各自的原值**，所以 Achieve 不一定等于 Within ÷ Total
 - 页面可导出 Excel，与邮件附件版式一致
 
 #### ms_contract_kpi（`ms_contract_kpi`）
@@ -1880,6 +1905,7 @@ MS Contract KPIs & WOs Achievement 自动化报表：合同 KPI（Operation / Ne
 - 结构：总览卡片 → 分类达标 → 27 个 KPI 卡（按 Operation / Network / PerSite 三个页签分类，点 KPI 卡看日趋势）→ 4 个页签（KPI 矩阵 / WO SLA 矩阵 / FineBI 规划 / 自动化报表清单，后两个支持搜索 + 筛选 + 分页）
 - FineBI 规划与自动化报表清单是**编制过程台账**而非运行指标，2026-09-27 起页面上不再显示入口（后端仍照常解析，数据接口保留）
 - 口径与 page=ms_wo_sla 同源：WO SLA 矩阵与那页逐字同构
+- **每个数字都能悬浮看算法**（2026-11-03）：总览卡、27 个 KPI 卡的月值与「N/M 天达标」、趋势弹窗统计都可悬浮问。四条要点 —— 总览那几张卡统计的是**指标个数**，且 met 为 null（没有目标值）的不计入达标也不计入未达标，所以几个数相加可能小于指标总数；月值取工作簿原值；**PerSite 类的目标 90% 是代码里写死的**（target_source=persite_ratio），不是合同报表给的目标；「最差」榜按相对目标差距排序，**没有目标或目标为 0 的指标 gap 记 0，永远不会进榜**
 
 #### CXO 经营看板（`cxoDashboard`，iframe 页）
 

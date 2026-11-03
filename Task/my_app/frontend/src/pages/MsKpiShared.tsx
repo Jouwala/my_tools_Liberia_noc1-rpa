@@ -172,6 +172,15 @@ export function directionText(m: { lower_is_better: boolean }, t: (k: string) =>
   return t(m.lower_is_better ? 'msKpi.lowerBetter' : 'msKpi.higherBetter')
 }
 
+/** 概览卡按 key 取口径：两页共 11 张卡的语义只有四类，映射一次比逐卡写文案更不容易分叉 */
+export function overviewExplain(key: string, t: (k: string) => string): string {
+  if (key === 'days') return t('msKpi.explain.overviewDays')
+  if (key === 'total' || key === 'within' || key === 'achieve')
+    return t('msKpi.explain.overviewRate')
+  if (key === 'worst') return t('msKpi.explain.worst')
+  return t('msKpi.explain.overviewCount')
+}
+
 export function StatCard(props: {
   label: string
   value: number | string
@@ -180,8 +189,10 @@ export function StatCard(props: {
   color?: string
   emphasis?: boolean
   onClick?: () => void
+  /** 这一张卡的口径（AGENTS.md 三.3c：数字本身要能悬浮问到怎么算） */
+  explain?: string
 }) {
-  const { label, value, unit, hint, color, emphasis, onClick } = props
+  const { label, value, unit, hint, color, emphasis, onClick, explain } = props
   return (
     <div
       onClick={onClick}
@@ -207,9 +218,11 @@ export function StatCard(props: {
         {label}
       </div>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
-        <span style={{ color: color || WH.teal, fontSize: 24, fontWeight: 700, lineHeight: 1.15 }}>
-          {value}
-        </span>
+        <ExplainPopover placement="bottom" text={explain || ''}>
+          <span style={{ color: color || WH.teal, fontSize: 24, fontWeight: 700, lineHeight: 1.15 }}>
+            {value}
+          </span>
+        </ExplainPopover>
         {unit && <span style={{ color: WH.textDim, fontSize: 12 }}>{unit}</span>}
       </div>
       {hint && (
