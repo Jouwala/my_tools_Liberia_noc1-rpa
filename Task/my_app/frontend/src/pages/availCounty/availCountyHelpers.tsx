@@ -53,12 +53,12 @@ export function cellColor(cell: Cell | undefined): string {
   return cell.below ? WH.danger : WH.ok
 }
 
-/** 环比箭头（百分点，正=变好） */
+/** 环比箭头（百分点，正=变好；pp 后缀避免被误读成“0.05%”） */
 export function deltaNode(delta: number | null | undefined) {
   if (delta == null) return null
   return (
     <span style={{ marginLeft: 4, fontSize: 11, color: delta < 0 ? WH.danger : WH.ok }}>
-      {delta < 0 ? '▼' : '▲'}{Math.abs(delta).toFixed(2)}
+      {delta < 0 ? '▼' : '▲'}{Math.abs(delta).toFixed(2)}pp
     </span>
   )
 }
@@ -98,6 +98,9 @@ export function buildCountyColumns(
       key: tech,
       align: 'right' as const,
       width: 158,
+      // 无数据行沉底（-1），避免“—”排在最前误导
+      sorter: (a: MatrixRow, b: MatrixRow) =>
+        (a.cells?.[tech]?.availability ?? -1) - (b.cells?.[tech]?.availability ?? -1),
       render: (_: unknown, r: MatrixRow) => {
         const cell = r.cells?.[tech]
         if (!cell || cell.availability == null) return <Text type="secondary">—</Text>
@@ -128,6 +131,7 @@ export function siteColumns(
     site: string; siteId: string; region: string; type: string; avail: string; days: string
   },
   onSite: (row: SiteRow) => void,
+  threshold = 0.9965,
 ): ColumnsType<SiteRow> {
   return [
     {
@@ -157,7 +161,7 @@ export function siteColumns(
       width: 110,
       sorter: (a: SiteRow, b: SiteRow) => a.availability - b.availability,
       render: (v: number) => (
-        <Text strong style={{ color: v < 0.9965 ? WH.danger : WH.ok }}>
+        <Text strong style={{ color: v < threshold ? WH.danger : WH.ok }}>
           {(v * 100).toFixed(2)}%
         </Text>
       ),
@@ -171,6 +175,7 @@ export function siteDailyColumns(
   techs: string[],
   labels: { day: string; avail: string },
   techLabels: Record<string, string>,
+  threshold = 0.9965,
 ): ColumnsType<SiteDailyRow> {
   return [
     { title: labels.day, dataIndex: 'day', width: 130 },
@@ -183,7 +188,7 @@ export function siteDailyColumns(
         const v = dailyValue(r, tech)
         if (v == null) return <Text type="secondary">—</Text>
         return (
-          <Text strong style={{ color: v < 0.9965 ? WH.danger : WH.ok }}>
+          <Text strong style={{ color: v < threshold ? WH.danger : WH.ok }}>
             {(v * 100).toFixed(2)}%
           </Text>
         )

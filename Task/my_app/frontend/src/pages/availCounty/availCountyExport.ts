@@ -75,7 +75,7 @@ export async function exportAvailCountyPage(
         return [pctValue(c?.availability) ?? '—', c?.sites ?? 0]
       }),
     ]),
-    numericCols: techs.flatMap((_, i) => [i + 2, i + 3]),
+    numericCols: techs.flatMap((_, i) => [2 + i * 2, 3 + i * 2]),
   }]
 
   if (trend && trend.categories?.length) {
@@ -160,7 +160,8 @@ export async function exportAvailCountyDrill(
         `${fmtCount(r.col_2g_down_site_count)}/${fmtCount(r.col_3g_down_site_count)}`
         + `/${fmtCount(r.col_4g_down_site_count)}`,
         r.root_cause]),
-      numericCols: [7],
+      // 断站数是 "a/b/c" 字符串，不是数字 —— 不能进 numericCols（否则 Excel 会按数字右对齐+千分位）
+      numericCols: [],
     })
   }
 

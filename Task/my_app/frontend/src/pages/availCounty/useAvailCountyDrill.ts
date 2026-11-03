@@ -63,6 +63,9 @@ export function useAvailCountyDrill(params: {
   const [open, setOpen] = useState(false)
   const [anchor, setAnchor] = useState<{ x: number; y: number } | null>(null)
   const [target, setTarget] = useState<CellTarget | null>(null)
+  /** 打开弹窗时的县（站点逐日后 target.county 会变成 site_key，
+   *  切回“站点明细/ TT”页签时仍要用这个县取数，否则县名对不上 site_key 会查出空表） */
+  const [rootCounty, setRootCounty] = useState('')
   const [drillValue, setDrillValue] = useState('')
   const [drill, setDrill] = useState<Drill | null>(null)
   const [drillLoading, setDrillLoading] = useState(false)
@@ -99,6 +102,7 @@ export function useAvailCountyDrill(params: {
     const v = value || matrixValue || reqValue || ''
     setDrillValue(v)
     setTarget(tg)
+    setRootCounty(tg.county)
     setAnchor(at || null)
     setDrill(null)
     setModalTab('county_sites')
@@ -122,8 +126,13 @@ export function useAvailCountyDrill(params: {
 
   const changeTab = useCallback((lv: DrillLevel) => {
     setModalTab(lv)
-    if (target) void loadDrill(lv, target, drillValue)
-  }, [loadDrill, target, drillValue])
+    if (!target) return
+    // 站点逐日后 target.county 已变成 site_key：切回县级页签时用打开时的县取数
+    const tg = (lv === 'county_sites' || lv === 'tt')
+      ? { ...target, county: rootCounty || target.county }
+      : target
+    void loadDrill(lv, tg, drillValue)
+  }, [loadDrill, target, drillValue, rootCounty])
 
   return {
     open, anchor, target, drillValue, drill, drillLoading, modalTab,

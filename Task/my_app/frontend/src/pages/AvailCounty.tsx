@@ -162,13 +162,22 @@ export default function AvailCounty() {
       avail: t('availCounty.colAvail'), days: t('availCounty.colDays'),
     },
     drill.openSiteDaily,
-  ), [drill, t])
+    thr,
+  ), [drill, thr, t])
 
   const drillDailyCols = useMemo(() => siteDailyColumns(
     [...TECHS],
     { day: t('availCounty.colDay'), avail: t('availCounty.colAvail') },
     techLabels,
-  ), [t, techLabels])
+    thr,
+  ), [t, techLabels, thr])
+
+  /* 曲线提示：本页是站点等权平均，没有分子/分母 —— 后缀显示“当期有值站点数”，
+   * 图下小字也要换口径，避免沿用 avail_ms 的 SUM(分子)/SUM(分母)说法误导 */
+  const trendFrac = useCallback((s: TrendSeries, i: number) => {
+    const n = s?.numerators?.[i] ?? 0
+    return ` (${t('availCounty.trendSites', { n })})`
+  }, [t])
 
   const drillTtCols = useMemo(() => ttColumns({
     ttNo: t('availCounty.colTtNo'), title: t('availCounty.colTitle'),
@@ -207,12 +216,19 @@ export default function AvailCounty() {
   }, [drill, thresholdPct, techLabels, t])
 
   /* ---- 页面渲染 ---- */
-  const techs = matrix?.meta.techs || [...TECHS]
   const monthOptions = (options?.months || []).map(m => ({ value: m, label: m }))
   const countyOptions = [
     { value: '', label: t('availCounty.allNetwork') },
     ...(options?.counties || []).map(c => ({ value: c.county, label: c.county })),
   ]
+  /* 周期选择器：选项 = 本月内全部期（曲线 categories 即全月期序列），
+   * 空 = 后端按“最后一期有数据”兜底；显示值回填 matrix 解析出的规范值，
+   * 避免选择器停在空选项上（AvailMs.tsx:183 同款做法） */
+  const valueOptions = useMemo(
+    () => (trend?.categories || []).map(v => ({ value: v, label: v })),
+    [trend],
+  )
+  const currentValue = reqValue || matrix?.meta.value || ''
 
   /** 警告码 -> 提示条。失败类用红色，口径类用黄色。 */
   const warnAlerts = (codes: string[], err?: string) => (
@@ -252,6 +268,18 @@ export default function AvailCounty() {
             size="small"
             style={{ marginBottom: 0 }}
             items={GRANS.map(g => ({ key: g, label: t(granLabelKey(g)) }))}
+          />
+          {/* 周期选择：选项=本月全部期，空=后端按“最后一期有数据”兜底；
+              显示值回填 matrix 解析出的规范值，避免停在空选项上 */}
+          <Select
+            style={{ width: 170 }}
+            value={currentValue || undefined}
+            onChange={v => setValueByGran(prev => ({ ...prev, [gran]: v }))}
+            options={valueOptions}
+            showSearch
+            optionFilterProp="label"
+            placeholder={t('availCounty.colPeriod')}
+            aria-label={t('availCounty.colPeriod')}
           />
           <InputNumber
             value={thresholdPct}
@@ -362,6 +390,8 @@ export default function AvailCounty() {
               onPoint={(k, v) => drill.openDrill(pointTarget(k, v), undefined, v)}
               emptyText={t('common.noData')}
               ariaText={t('availCounty.trendAria')}
+              fracFormatter={trendFrac}
+              footText={t('availCounty.trendFracHint')}
             />
           )}
         </div>

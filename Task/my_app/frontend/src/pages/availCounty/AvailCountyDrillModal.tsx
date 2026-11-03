@@ -72,7 +72,7 @@ export default function AvailCountyDrillModal(props: AvailCountyDrillModalProps)
       <Space wrap style={{ marginBottom: 'var(--wh-space-sm)' }}>
         <Tag color="blue">{t('availCounty.drillCount', { n: drill?.meta?.total ?? 0 })}</Tag>
         {drill?.meta?.truncated && (
-          <Tag color="orange">{t('availCounty.truncated')}</Tag>
+          <Tag color="orange">{t('availCounty.truncated', { n: drill?.meta?.returned ?? 0 })}</Tag>
         )}
         <Button
           size="small"

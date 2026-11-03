@@ -134,6 +134,17 @@ def build_matrix(month: str, period: str = "day", value: str = "",
     # 本月一共有几天有数据（页面提示用：让「本月只同步了 1 天」看得见）
     month_covered = agg.covered_days(loaded, TECHS, days_all)
 
+    # 口径类警告（黄色）：与失败类（红色）区分 —— 前端 warnKey/isErrorWarn 据此着色
+    if has_unmatched:
+        warnings.append("unmatched_sites")
+    if len(month_covered) < len(days_all):
+        warnings.append("limited_coverage")
+    if not covered or all(
+        (cur.get(t, {}).get(c, {}).get("availability") is None)
+        for t in TECHS for c in county_order
+    ):
+        warnings.append("no_data_for_period")
+
     return {
         "meta": {
             "month": month,

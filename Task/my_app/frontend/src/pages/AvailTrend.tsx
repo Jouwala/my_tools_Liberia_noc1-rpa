@@ -41,6 +41,11 @@ interface Props {
   /** 点某个数据点：回调维度取值 + 该点所在周期值 */
   onPoint?: (key: string, value: string) => void
   height?: number
+  /** 每个点的括号后缀（默认 `分子/分母`）；县维度页是站点等权平均、无分子分母，
+   *  传一个把后缀换成「N 个站点」的函数即可 */
+  fracFormatter?: (s: TrendSeries, i: number) => string
+  /** 图下那行小字（默认 common.trendFracHint）；口径不同的页自己传一句 */
+  footText?: string
   /** 无数据时的空态文案（各页自己传，避免共用组件里出现某页专有的键） */
   emptyText: string
   /** 图下口语义：电话里说的"这条线是什么" */
@@ -49,9 +54,17 @@ interface Props {
 
 export default function AvailTrend({
   categories, series, thresholdPct, labelOf, onPoint, height = 230, emptyText, ariaText,
+  fracFormatter, footText,
 }: Props) {
   const { t } = useI18n()
   const { isDark, palette, colors } = useTheme()
+
+  const foot = footText ?? t('common.trendFracHint')
+  const fracOf = (s: TrendSeries | undefined, i: number): string => {
+    if (fracFormatter) return fracFormatter(s as TrendSeries, i)
+    if (s == null) return ''
+    return ` (${s.numerators?.[i] ?? 0}/${s.denominators?.[i] ?? 0})`
+  }
 
   const option = useMemo(() => {
     const many = categories.length > 14
@@ -70,13 +83,13 @@ export default function AvailTrend({
           const rows = list.map((p: any) => {
             const s: TrendSeries | undefined = series[p.seriesIndex]
             const v = s?.values?.[i]
-            const frac = v == null ? '' : ` (${s?.numerators?.[i] ?? 0}/${s?.denominators?.[i] ?? 0})`
+            const frac = v == null ? '' : fracOf(s, i)
             const txt = v == null ? '—' : `${(v * 100).toFixed(2)}%${frac}`
             return `<div style="display:flex;gap:8px;align-items:center">${p.marker}`
               + `<span style="flex:1">${p.seriesName}</span><b>${txt}</b></div>`
           }).join('')
-          const foot = `<div style="opacity:.65;font-size:11px;margin-top:4px">${t('common.trendFracHint')}</div>`
-          return head + rows + foot
+          const footHtml = `<div style="opacity:.65;font-size:11px;margin-top:4px">${foot}</div>`
+          return head + rows + footHtml
         },
       },
       legend: {
@@ -134,7 +147,7 @@ export default function AvailTrend({
           : undefined,
       })),
     }
-  }, [categories, series, thresholdPct, labelOf, isDark, palette, colors, t])
+  }, [categories, series, thresholdPct, labelOf, isDark, palette, colors, foot, fracFormatter])
 
   if (!series.length || !categories.length) return <Empty description={emptyText} />
 
