@@ -1851,6 +1851,8 @@ MS contract KPIs and WO SLA attainment: NUR / Network KPI / Per-Site / WO SLA (m
 - Switching day/week/month resets the time range to that tab default (day = current month to date, week = last 12 weeks, month = last 9 calendar months); the banner states the active range
 - SLA attainment (TTR / TTR_P1~P4) is presented once, by the WOs SLA block as table + trend; there is no separate KPI List SLA card
 - Drill-down reuses the NUR detail table; numbers come from the live nur_calc calculation (driven by ms_sla_full every 6h) and may differ from historical snapshot files — trust this page
+- **Every figure explains itself on hover** (2026-11-03): hovering a number in the NUR / Network KPIs / Per-Site / WO SLA tables first states how that table is computed (NUR = Σ(cells × MTTR minutes) × 60 ÷ (denominator cells × period seconds), displayed ×100000; Network takes the raw snapshot value with no division; PS_* = rows meeting the threshold ÷ total rows, with PS_NUR_2G/3G using the site-NUR<350 site share instead; Achieve = Pass ÷ Total, and Total 0 gives no value rather than 0%), then the cell itself (metric · period · value). The ⓘ on the WOs SLA card title states that TTR_P1~P4 are only severity groupings with no 4h/8h/16h/2Days deadline test, so they cannot be reconciled with the identically named metrics on the MS WOs SLA Daily Report page
+- **Colour does not mean off-target**: DCR metrics (2G_DCR / 3G_DCR / 3G_DCR_HSDPA) are lower-is-better, but the page colours everything by "≥95% green", so those columns are permanently red - a known defect, stated in the bubble
 
 #### MS KPI Dashboard (SLA only)（`ms_sla_only`）
 
@@ -1859,6 +1861,7 @@ The "SLA only" cut of the MS Operation KPI Dashboard: the WOs SLA block with WO 
 - Attainment ≥95% is green, below target is red — same scope as page=ms_sla
 - Three granularity tabs: day (default = current month to date), week (default = last 12 weeks) and month (default = January 2026 to date); switching a tab resets the time range (explained by the banner)
 - Click cells and data points to drill into TT details and export to Excel
+- Total / Within SLA / Achieve each explain themselves on hover (same wording as page=ms_sla): Total = tickets of that period, Within SLA = tickets whose sla_status is Pass, Achieve = Pass ÷ Total (computed by the backend, only scaled here); when Total is 0, Achieve shows a dash rather than 0%
 
 #### ms_wo_sla（`ms_wo_sla`）
 

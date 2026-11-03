@@ -13,7 +13,7 @@ import { useTheme, WH, WH_COLORS, useIsMobile, darkTooltip, axisLabel, axisLine,
 import DraggableClickModal from '../components/DraggableClickModal'
 import NurCalcChainNote, { type WarningDetail } from '../components/NurCalcChainNote'
 // 数字级悬浮口径说明（AGENTS.md 三.3c）：每个数字都能问到「这个数怎么算」
-import { ExplainPopover } from '../components/MetricExplain'
+import { ExplainIcon, ExplainPopover } from '../components/MetricExplain'
 
 const { Text } = Typography
 const { RangePicker } = DatePicker
@@ -372,10 +372,15 @@ function ScalarTrendChart({ title, rows, percent, scale, nameMap, colors, onDril
 
 // ---------- WO SLA 表：行=TTR/TTR_P1..P4，列=期间 ×（Total/Within SLA/Achieve） ----------
 // 数值可点击下钻：severity（TTR→Total）+ item（total/pass/achieve）+ period 传给 /nur/detail
-function WoTable({ rows, t, onDrill }: {
+function WoTable({ rows, t, onDrill, explain, colorNote }: {
   rows: WoRow[]; t: (k: string) => string
   onDrill?: (e: React.MouseEvent, severity: string, item: string, period: string) => void
+  /** 这张表的口径（AGENTS.md 三.3c：每个数字都要能悬浮问到「这个数怎么算」） */
+  explain?: string; colorNote?: string
 }) {
+  /** WO 三列共用一条气泡：这一格是谁 · 哪一期，加上表级口径与「颜色会骗人」的提醒 */
+  const woTip = (metric: string, p: string) =>
+    [`${metric} · ${p}`, explain, colorNote].filter(Boolean).join('\n')
   const { periods, data } = useMemo(() => {
     const metrics = ['TTR', 'TTR_P1', 'TTR_P2', 'TTR_P3', 'TTR_P4']
     const byPeriod: Record<string, Record<string, WoRow>> = {}
@@ -414,42 +419,45 @@ function WoTable({ rows, t, onDrill }: {
         {
           title: t('msSla.total'), dataIndex: `${p}__total`, key: `${p}__total`, minWidth: 84, align: 'right' as const,
           render: (v: number | null, r: any) => (
-            <span
-              title={onDrill ? t('nur.clickDrill') : undefined}
-              onClick={onDrill && v !== null ? (e: React.MouseEvent) => onDrill(e, SLA_SEV[r.metric] || r.metric, 'total', p) : undefined}
-              style={{ color: v === null ? WH.textDim : WH.text, ...(onDrill && v !== null ? clickable : undefined) }}
-            >
-              {fmtNum(v)}
-            </span>
+            <ExplainPopover placement="left" text={woTip(r.metric, p)}>
+              <span
+                onClick={onDrill && v !== null ? (e: React.MouseEvent) => onDrill(e, SLA_SEV[r.metric] || r.metric, 'total', p) : undefined}
+                style={{ color: v === null ? WH.textDim : WH.text, ...(onDrill && v !== null ? clickable : undefined) }}
+              >
+                {fmtNum(v)}
+              </span>
+            </ExplainPopover>
           ),
         },
         {
           title: t('msSla.withinSla'), dataIndex: `${p}__within`, key: `${p}__within`, minWidth: 90, align: 'right' as const,
           render: (v: number | null, r: any) => (
-            <span
-              title={onDrill ? t('nur.clickDrill') : undefined}
-              onClick={onDrill && v !== null ? (e: React.MouseEvent) => onDrill(e, SLA_SEV[r.metric] || r.metric, 'pass', p) : undefined}
-              style={{ color: v === null ? WH.textDim : WH.text, ...(onDrill && v !== null ? clickable : undefined) }}
-            >
-              {fmtNum(v)}
-            </span>
+            <ExplainPopover placement="left" text={woTip(r.metric, p)}>
+              <span
+                onClick={onDrill && v !== null ? (e: React.MouseEvent) => onDrill(e, SLA_SEV[r.metric] || r.metric, 'pass', p) : undefined}
+                style={{ color: v === null ? WH.textDim : WH.text, ...(onDrill && v !== null ? clickable : undefined) }}
+              >
+                {fmtNum(v)}
+              </span>
+            </ExplainPopover>
           ),
         },
         {
           title: t('msSla.achieve'), dataIndex: `${p}__achieve`, key: `${p}__achieve`, minWidth: 88, align: 'right' as const,
           // Achieve 低于目标值标红（参考 Excel 条件格式语义）
           render: (v: number | null, r: any) => (
-            <span
-              title={onDrill ? t('nur.clickDrill') : undefined}
-              onClick={onDrill && v !== null ? (e: React.MouseEvent) => onDrill(e, SLA_SEV[r.metric] || r.metric, 'achieve', p) : undefined}
-              style={{
-                color: v === null ? WH.textDim : (v >= WO_ACHIEVE_TARGET ? '#51cf66' : '#ff6b6b'),
-                fontWeight: v !== null && v < WO_ACHIEVE_TARGET ? 600 : 'normal',
-                ...(onDrill && v !== null ? clickable : undefined),
-              }}
-            >
-              {fmtPct(v)}
-            </span>
+            <ExplainPopover placement="left" text={woTip(r.metric, p)}>
+              <span
+                onClick={onDrill && v !== null ? (e: React.MouseEvent) => onDrill(e, SLA_SEV[r.metric] || r.metric, 'achieve', p) : undefined}
+                style={{
+                  color: v === null ? WH.textDim : (v >= WO_ACHIEVE_TARGET ? '#51cf66' : '#ff6b6b'),
+                  fontWeight: v !== null && v < WO_ACHIEVE_TARGET ? 600 : 'normal',
+                  ...(onDrill && v !== null ? clickable : undefined),
+                }}
+              >
+                {fmtPct(v)}
+              </span>
+            </ExplainPopover>
           ),
         },
       ],
@@ -884,8 +892,14 @@ export default function MsSlaDashboard({ only }: { only?: 'nur' | 'sla' } = {}) 
               趋势图得以撑满整页宽度。 */}
           {showSla && (
           <Card size="small" style={cardStyle} styles={{ header: headStyle, body: { padding: 'var(--wh-space-md)' } }}
-            title={`${t('msSla.woSla')} · ${granLabel}`}>
+            title={(
+              <span>
+                {`${t('msSla.woSla')} · ${granLabel}`}
+                <span style={{ marginLeft: 4 }}><ExplainIcon text={t('msSla.explain.ttrSev')} /></span>
+              </span>
+            )}>
             <WoTable rows={data?.wo?.[gran] || []} t={t}
+              explain={t('msSla.explain.wo')} colorNote={t('msSla.explain.color')}
               onDrill={(e, sev, item, p) => handleSlaDrill(e, gran, sev, item, p)} />
           </Card>
           )}

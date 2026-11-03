@@ -471,6 +471,16 @@ MS 合同 KPI（Contract KPIs）与工单 SLA（WOs SLA）达成情况。
   `Value Scale` 各表量纲、`KPI List NUR`/`Network KPIs`/`Per-Site KPIs`、`WOs SLA` 多层合并表头）。
   导出当前粒度与时间范围下的全期值，筛选条件写进每个 sheet 的 `subtitle`；空块自动跳过。
   **派生页 `?page=ms_sla_only`（`MsSlaOnly.tsx`）自动获得该按钮** —— 它是 `<MsSlaDashboard only="sla" />` 的参数化复用，
+- **数字悬浮说明（2026-11-03，`AGENTS.md` 三.3c）**：`ScalarTable`（NUR / Network KPIs / Per-Site 三张表共用）
+  与 `WoTable`（Total / Within SLA / Achieve）各加 `explain` / `colorNote` 两个入参，每个数字挂 `ExplainPopover`；
+  WOs SLA 卡标题挂 `ExplainIcon`。原先三处 `title={t('nur.clickDrill')}` 原生提示已删除。
+  文案在 i18n 的 `msSla.explain.nur|network|persite|wo|color|ttrSev` + `msSla.tip.cell`（中英各 7 键），
+  口径全部从后端核实：NUR = `Σ(小区数×MTTR分钟)×60 ÷ (分母小区数×期间秒)`（`nur_calc.py:1036`，
+  样本仅 `0<MTTR<43200 分` 且已清除、小区数按**站名**匹配回落 site_id，Global 是分子和÷小区数和**不是**均值）；
+  Network 取 `ms_sla_kpi` 快照原值不重算；PS_* = 阈值达标行数÷总行数（`PS_NUR_2G/3G` 例外改用站点 NUR×1e5<350 的站点占比）。
+  **`colorNote` 把一个已知缺陷写进界面而不是藏起来**：前端只有 `WO_ACHIEVE_TARGET=0.95` 一个阈值，
+  而 DCR 类指标是「越小越好」（`ms_sla_report.py:157`），按这条判色会恒红 —— 颜色不代表达标。
+  实测：悬浮 `210.14`（Global · 2026-11-03）出上述完整口径；`ms_sla_only` 是同组件切片，自动同享。
   按钮在顶部工具栏 Card 内（不受 `showNur`/`showSla` 条件包裹），导出内容则按切片收敛（只出 `WOs SLA` 与 `Value Scale`）。
 - **KPI 区不再有外层「Contract KPIs」卡片**（2026-09-28 按需求去掉）：原先外层大卡 + 内层小卡两层描边叠加，去掉外层后语义不变、仅少一层容器。注意 `msSla.contractKpis` 这个 i18n 键**在 MS SLA 看板上已不再被引用**（`ms_contract_kpi` 报表页 `MsContractKpiReport.tsx` 是另一处独立引用，不要误删）。
 - **口径提示**：2026-08 起 NUR/SLA/WO 以 `nur_calc` 实时计算为准（`ms_sla_dashboard.py:13-14`），所以本页数字与 `data/ms_sla/ms_sla_dashboard.sqlite3` 里的快照**可能对不上**，以本页为准。

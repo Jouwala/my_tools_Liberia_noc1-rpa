@@ -1851,6 +1851,8 @@ MS 合同 KPI 与工单 SLA 达成情况：NUR / Network KPI / Per-Site / WO SLA
 - 切换天/周/月会重置时间范围为该档默认窗口（天=当月至今，周=最近 12 周，月=最近 9 个自然月），横幅上会写明当前区间
 - SLA 达成率（TTR / TTR_P1~P4）统一由 WOs SLA 区以「表格 + 趋势」呈现，不再另设 KPI List SLA 卡片
 - 下钻明细与 NUR 页一致；数字以 nur_calc 实时计算为准（ms_sla_full 每 6 小时驱动），可能与历史快照文件不一致——以本页为准
+- **每个数字都能悬浮看算法**（2026-11-03）：NUR / Network KPIs / Per-Site / WO SLA 四张表里，鼠标停在数字上会先写「哪张表怎么算」（NUR = Σ(小区数×MTTR分钟)×60 ÷ (分母小区数×期间秒)，界面按 ×100000 显示；Network 取快照原值不重算；PS_* = 阈值达标行数 ÷ 总行数，PS_NUR_2G/3G 例外改用站点 NUR<350 的站点占比；Achieve = Pass ÷ Total，Total 为 0 时无值不是 0%），再写这一格的「指标 · 期间 · 数值」。WOs SLA 卡标题的 ⓘ 说明 TTR_P1~P4 只是按严重度分组、没有 4h/8h/16h/2Days 时限判定，与「MS WOs SLA 日报」页的同名指标不可互相印证
+- **颜色不代表达标**：DCR 类指标（2G_DCR / 3G_DCR / 3G_DCR_HSDPA）是越小越好，而页面按「≥95% 判绿」统一着色，这几列会恒红 —— 已知缺陷，气泡里已写明，别把红色读成未达标
 
 #### MS KPI 看板（仅 SLA）（`ms_sla_only`）
 
@@ -1859,6 +1861,7 @@ MS Operation KPI 看板的「只保留 SLA」版：WOs SLA 区的工单 SLA 达�
 - 达成率 ≥95% 显示绿色、低于目标标红，与 page=ms_sla 同一口径
 - 粒度三档「天 / 周 / 月」：天默认当月至今、周默认最近 12 周、月默认 2026-01 至今；切档会重置时间范围（横幅上有说明）
 - 单元格与数据点可点击下钻 TT 明细，并可导出 Excel
+- Total / Within SLA / Achieve 每个数字都可悬浮看算法（与 page=ms_sla 同一套文案）：Total = 该期单数、Within SLA = sla_status 为 Pass 的单数、Achieve = Pass ÷ Total（后端算好，界面只 ×100 显示）；Total 为 0 时 Achieve 无值显示「-」，不是 0%
 
 #### ms_wo_sla（`ms_wo_sla`）
 

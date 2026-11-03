@@ -5319,7 +5319,17 @@ float NaN，直接递进去整个任务 <code>AttributeError</code> 崩掉（202
 <li><strong>页面级导出 Excel</strong>（2026-09-27 新增）：筛选条刷新按钮右侧，多 sheet（<code>Overview</code> 粒度/同步时间、
 <code>Value Scale</code> 各表量纲、<code>KPI List NUR</code>/<code>Network KPIs</code>/<code>Per-Site KPIs</code>、<code>WOs SLA</code> 多层合并表头）。
 导出当前粒度与时间范围下的全期值，筛选条件写进每个 sheet 的 <code>subtitle</code>；空块自动跳过。
-<strong>派生页 <code>?page=ms_sla_only</code>（<code>MsSlaOnly.tsx</code>）自动获得该按钮</strong> —— 它是 <code>&lt;MsSlaDashboard only=&quot;sla&quot; /&gt;</code> 的参数化复用，
+<strong>派生页 <code>?page=ms_sla_only</code>（<code>MsSlaOnly.tsx</code>）自动获得该按钮</strong> —— 它是 <code>&lt;MsSlaDashboard only=&quot;sla&quot; /&gt;</code> 的参数化复用，</li>
+<li><strong>数字悬浮说明（2026-11-03，<code>AGENTS.md</code> 三.3c）</strong>：<code>ScalarTable</code>（NUR / Network KPIs / Per-Site 三张表共用）
+与 <code>WoTable</code>（Total / Within SLA / Achieve）各加 <code>explain</code> / <code>colorNote</code> 两个入参，每个数字挂 <code>ExplainPopover</code>；
+WOs SLA 卡标题挂 <code>ExplainIcon</code>。原先三处 <code>title={t('nur.clickDrill')}</code> 原生提示已删除。
+文案在 i18n 的 <code>msSla.explain.nur|network|persite|wo|color|ttrSev</code> + <code>msSla.tip.cell</code>（中英各 7 键），
+口径全部从后端核实：NUR = <code>Σ(小区数×MTTR分钟)×60 ÷ (分母小区数×期间秒)</code>（<code>nur_calc.py:1036</code>，
+样本仅 <code>0&lt;MTTR&lt;43200 分</code> 且已清除、小区数按<strong>站名</strong>匹配回落 site_id，Global 是分子和÷小区数和<strong>不是</strong>均值）；
+Network 取 <code>ms_sla_kpi</code> 快照原值不重算；PS_* = 阈值达标行数÷总行数（<code>PS_NUR_2G/3G</code> 例外改用站点 NUR×1e5&lt;350 的站点占比）。
+<strong><code>colorNote</code> 把一个已知缺陷写进界面而不是藏起来</strong>：前端只有 <code>WO_ACHIEVE_TARGET=0.95</code> 一个阈值，
+而 DCR 类指标是「越小越好」（<code>ms_sla_report.py:157</code>），按这条判色会恒红 —— 颜色不代表达标。
+实测：悬浮 <code>210.14</code>（Global · 2026-11-03）出上述完整口径；<code>ms_sla_only</code> 是同组件切片，自动同享。
 按钮在顶部工具栏 Card 内（不受 <code>showNur</code>/<code>showSla</code> 条件包裹），导出内容则按切片收敛（只出 <code>WOs SLA</code> 与 <code>Value Scale</code>）。</li>
 <li><strong>KPI 区不再有外层「Contract KPIs」卡片</strong>（2026-09-28 按需求去掉）：原先外层大卡 + 内层小卡两层描边叠加，去掉外层后语义不变、仅少一层容器。注意 <code>msSla.contractKpis</code> 这个 i18n 键<strong>在 MS SLA 看板上已不再被引用</strong>（<code>ms_contract_kpi</code> 报表页 <code>MsContractKpiReport.tsx</code> 是另一处独立引用，不要误删）。</li>
 <li><strong>口径提示</strong>：2026-08 起 NUR/SLA/WO 以 <code>nur_calc</code> 实时计算为准（<code>ms_sla_dashboard.py:13-14</code>），所以本页数字与 <code>data/ms_sla/ms_sla_dashboard.sqlite3</code> 里的快照<strong>可能对不上</strong>，以本页为准。</li>
@@ -12398,7 +12408,7 @@ Top-N 的小时明细（SQL-B）——Web 类目全天 1810 个 APP，全存不�
 <p><a id="ch-11-s231"></a></p>
 <h4>41.1 数据链路</h4>
 <ul>
-<li>采集任务 <code>ipt_power_collect</code>（m 组，<code>*/2 * * * *</code>）：每 2 分钟一次，① <code>POST /energy/sites/filter-map</code>（1 个请求）刷新全站清单与 online/offline 连接状态 → <code>ipt_power_sites</code>；② 按 <code>backend/services/ipt_data/watch_sites.json</code> 关注清单逐站拉 <code>/diagram</code> 电源全景 → <code>ipt_power_snapshots</code>（站间限速 0.3s，快照保留 7 天）。</li>
+<li>采集任务 <code>ipt_power_collect</code>（m 组，<code>*/2 * * * *</code>）：每 2 分钟一次，① <code>POST /energy/sites/filter-map</code>（1 个请求）刷新全站清单与 online/offline 连接状态 → <code>ipt_power_sites</code>；② 按 <code>backend/services/ipt_data/watch_sites.json</code> 关注清单逐站拉 <code>/diagram</code> 电源全景 → <code>ipt_power_snapshots</code>（站间限速 0.3s，快照保留 2 天，2026-11-03 起）。</li>
 <li>认证为 <strong>OIDC 隐式流</strong>（<code>client_id=rubix-web</code>，<code>response_type=id_token token</code>），纯 requests 模拟 authorize → 登录表单 → 回调 fragment 取 access_token（TTL 1 小时，缓存 <code>auth_cache/</code> 自动续期）；上游拒绝 password grant（实测 <code>unauthorized_client</code>）。协议详情见 <code>backend/services/ipt_data/README.md</code>。</li>
 <li>页面只读本地库，不打扰上游；「立即刷新」按钮走 <code>POST /api/ipt-power/refresh</code> 实时直查平台并补一条快照（不在关注清单的站点也可用）。</li>
 </ul>
@@ -18113,7 +18123,7 @@ shared <code>auth_cache</code> 里 admin 的 token 明明还有 14.6 小时有�
 <li>凭据：环境变量 IPT_USERNAME / IPT_PASSWORD 优先，缺省读同目录 url.txt 头部「用户名：/密码：」两行；url.txt 含明文密码，已被 gitignore（url*.txt 规则）覆盖不会入库</li>
 <li>密码模式（password grant）实测被拒（unauthorized_client），只有 rubix-web 允许授权码/隐式流 → 登录走表单模拟；若登录页结构变化，任务会报「登录页结构变化」</li>
 <li>watch 清单里匹配不到任何站点的项会在日志告警（不致命）；单站 diagram 失败只计 snap_failed 不阻断本轮</li>
-<li>快照保留 7 天（RETENTION_DAYS），表按 (site_id, snap_time) 主键去重，重跑同一分钟不会重复</li>
+<li>快照保留 2 天（RETENTION_DAYS，2026-11-03 调整：曲线只留 2 天控表体积），表按 (site_id, snap_time) 主键去重，重跑同一分钟不会重复</li>
 <li>消费方：?page=ipt_power（站点电源查询页）；「立即刷新」按钮走 routers/ipt_power.py 的 /refresh 实时直查，与本任务共用登录缓存</li>
 </ul>
 <p><a id="ch-15-s88"></a></p>
@@ -18328,6 +18338,8 @@ shared <code>auth_cache</code> 里 admin 的 token 明明还有 14.6 小时有�
 <li>切换天/周/月会重置时间范围为该档默认窗口（天=当月至今，周=最近 12 周，月=最近 9 个自然月），横幅上会写明当前区间</li>
 <li>SLA 达成率（TTR / TTR_P1~P4）统一由 WOs SLA 区以「表格 + 趋势」呈现，不再另设 KPI List SLA 卡片</li>
 <li>下钻明细与 NUR 页一致；数字以 nur_calc 实时计算为准（ms_sla_full 每 6 小时驱动），可能与历史快照文件不一致——以本页为准</li>
+<li><strong>每个数字都能悬浮看算法</strong>（2026-11-03）：NUR / Network KPIs / Per-Site / WO SLA 四张表里，鼠标停在数字上会先写「哪张表怎么算」（NUR = Σ(小区数×MTTR分钟)×60 ÷ (分母小区数×期间秒)，界面按 ×100000 显示；Network 取快照原值不重算；PS_* = 阈值达标行数 ÷ 总行数，PS_NUR_2G/3G 例外改用站点 NUR&lt;350 的站点占比；Achieve = Pass ÷ Total，Total 为 0 时无值不是 0%），再写这一格的「指标 · 期间 · 数值」。WOs SLA 卡标题的 ⓘ 说明 TTR_P1~P4 只是按严重度分组、没有 4h/8h/16h/2Days 时限判定，与「MS WOs SLA 日报」页的同名指标不可互相印证</li>
+<li><strong>颜色不代表达标</strong>：DCR 类指标（2G_DCR / 3G_DCR / 3G_DCR_HSDPA）是越小越好，而页面按「≥95% 判绿」统一着色，这几列会恒红 —— 已知缺陷，气泡里已写明，别把红色读成未达标</li>
 </ul>
 <p><a id="ch-15-s107"></a></p>
 <h5>MS KPI 看板（仅 SLA）（<code>ms_sla_only</code>）</h5>
@@ -18336,6 +18348,7 @@ shared <code>auth_cache</code> 里 admin 的 token 明明还有 14.6 小时有�
 <li>达成率 ≥95% 显示绿色、低于目标标红，与 page=ms_sla 同一口径</li>
 <li>粒度三档「天 / 周 / 月」：天默认当月至今、周默认最近 12 周、月默认 2026-01 至今；切档会重置时间范围（横幅上有说明）</li>
 <li>单元格与数据点可点击下钻 TT 明细，并可导出 Excel</li>
+<li>Total / Within SLA / Achieve 每个数字都可悬浮看算法（与 page=ms_sla 同一套文案）：Total = 该期单数、Within SLA = sla_status 为 Pass 的单数、Achieve = Pass ÷ Total（后端算好，界面只 ×100 显示）；Total 为 0 时 Achieve 无值显示「-」，不是 0%</li>
 </ul>
 <p><a id="ch-15-s108"></a></p>
 <h5>ms_wo_sla（<code>ms_wo_sla</code>）</h5>
@@ -18829,7 +18842,7 @@ shared <code>auth_cache</code> 里 admin 的 token 明明还有 14.6 小时有�
 <li>点行内「详情」进入单站视图：六张数字卡（SOC / 电池电压 / 充电状态 / 负载 / 太阳能 / 发电机）+ 近 N 小时趋势曲线（负载功率、太阳能功率、SOC 双轴），时间范围 6h/24h/72h/7d 可切</li>
 <li><strong>「立即刷新」是实时直查平台</strong>（绕开 2 分钟节拍），查完自动补一条快照并刷新曲线——不在关注清单的站点也能用它临时取数</li>
 <li>曲线上「暂无数据」通常= 该站不在关注清单（无历史快照），点一次「立即刷新」即可开始积累</li>
-<li>采集异常（任务未运行/上一轮失败）会在页面顶部出黄色横幅；快照默认保留 7 天，超期自动清理</li>
+<li>采集异常（任务未运行/上一轮失败）会在页面顶部出黄色横幅；快照默认保留 2 天，超期自动清理</li>
 <li>「导出 Excel」出主表全列（含 SOC/负载/太阳能/快照时间）</li>
 <li>搜索词、时间范围、选中站点都写进 URL（iptKw / iptHrs / iptSite），刷新或把链接发给同事后条件还在</li>
 </ul>
