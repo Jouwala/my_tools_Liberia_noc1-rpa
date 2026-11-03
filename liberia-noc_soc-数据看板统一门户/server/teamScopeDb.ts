@@ -172,6 +172,77 @@ export function isMatrixEmpty(matrix: TeamScopeMatrix): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// 团队布局默认（可调布局 P1/P2，2026-11-03 加）
+// ---------------------------------------------------------------------------
+// 前端 team-layout.js 的本地布局（localStorage 主存）在「本机无值」时回落到
+// 服务端的团队默认（GET /api/auth/team-layout?team=xxx），管理员可显式
+// 「设为团队默认」（POST /api/auth/team-layout）。本段是该默认值的清洗与存取。
+//
+// 形状（与前端 blankLayout() / persistOrderInto() 严格对应）：
+//   { order: string[]; hidden: Record<string, boolean>;
+//     heights: Record<string, number>; qcOrder: string[] }
+//
+// 清洗原则（与 sanitizeMatrix 同一口径：认不得的一律丢弃，不抛异常）：
+//   · order 只保留布局块白名单里的 id（与前端 BLOCKS 一致），去重保序；
+//   · hidden 只保留白名单块的真值（truthy → true，其余丢弃）；
+//   · heights 只保留白名单块且 80~3000 的整数（与前端持久化阈值一致）；
+//   · qcOrder 只保留 1~64 字符的词字符/连字符（QC 卡 id 如 alarm/tt/wo…），
+//     最多 20 个，去重保序 —— 未知卡 id 直接丢弃（矩阵变了旧布局不带毒）。
+/** 布局块白名单（与 v3/team_portal/assets/team-layout.js 的 BLOCKS 一致） */
+export const TEAM_LAYOUT_BLOCKS: readonly string[] = [
+  'band', 'kpi', 'views6', 'maprow', 'qarow', 'esc', 'aux', 'arch',
+];
+
+/** 一份团队布局默认 */
+export interface TeamLayout {
+  order: string[];
+  hidden: Record<string, boolean>;
+  heights: Record<string, number>;
+  qcOrder: string[];
+}
+
+/** 空布局（前端 blankLayout() 的服务端镜像） */
+export function blankTeamLayout(): TeamLayout {
+  return { order: [], hidden: {}, heights: {}, qcOrder: [] };
+}
+
+export function sanitizeLayout(input: unknown): TeamLayout | null {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return null;
+  const src = input as Record<string, unknown>;
+  const allowed = new Set<string>(TEAM_LAYOUT_BLOCKS);
+  const order: string[] = [];
+  if (Array.isArray(src.order)) {
+    for (const v of src.order) {
+      const id = String(v ?? '').trim();
+      if (id && allowed.has(id) && !order.includes(id)) order.push(id);
+    }
+  }
+  const hidden: Record<string, boolean> = {};
+  if (src.hidden && typeof src.hidden === 'object' && !Array.isArray(src.hidden)) {
+    for (const [k, v] of Object.entries(src.hidden as Record<string, unknown>)) {
+      if (allowed.has(k) && v) hidden[k] = true;
+    }
+  }
+  const heights: Record<string, number> = {};
+  if (src.heights && typeof src.heights === 'object' && !Array.isArray(src.heights)) {
+    for (const [k, v] of Object.entries(src.heights as Record<string, unknown>)) {
+      if (!allowed.has(k)) continue;
+      const n = typeof v === 'number' ? Math.round(v) : parseInt(String(v ?? ''), 10);
+      if (Number.isFinite(n) && n >= 80 && n <= 3000) heights[k] = n;
+    }
+  }
+  const qcOrder: string[] = [];
+  if (Array.isArray(src.qcOrder)) {
+    for (const v of src.qcOrder) {
+      const id = String(v ?? '').trim();
+      if (id && /^[A-Za-z0-9_-]{1,64}$/.test(id) && !qcOrder.includes(id)) qcOrder.push(id);
+      if (qcOrder.length >= 20) break;
+    }
+  }
+  return { order, hidden, heights, qcOrder };
+}
+
+// ---------------------------------------------------------------------------
 // SQLite 存取
 // ---------------------------------------------------------------------------
 
@@ -222,6 +293,15 @@ export class TeamScopeStore {
       db.exec(`CREATE TABLE IF NOT EXISTS team_scope (
         id INTEGER PRIMARY KEY CHECK (id = 1),
         matrix TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        updated_by TEXT
+      )`);
+      /* 可调布局的团队默认值（P2，2026-11-03 加）：
+         一行一团队：team 主键，layout 存 sanitizeLayout 过的 JSON。
+         与 team_scope 同库 —— 备份/恢复一起走，不出现半配置。 */
+      db.exec(`CREATE TABLE IF NOT EXISTS team_layout (
+        team TEXT PRIMARY KEY,
+        layout TEXT NOT NULL,
         updated_at TEXT NOT NULL,
         updated_by TEXT
       )`);
@@ -355,6 +435,80 @@ export class TeamScopeStore {
     } catch (e) {
       console.error('[team-scope-db] 读取矩阵元信息失败：', e);
       return { updatedAt: null, updatedBy: null, editable: false };
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // 团队布局默认（P2，2026-11-03 加）：一行一团队，存清洗过的布局 JSON。
+  // -------------------------------------------------------------------------
+
+  /** 读某团队的布局默认；没有存过 → null（前端回落本地/默认，不算错）。 */
+  loadLayout(team: string): TeamLayout | null {
+    const db = this.getDb();
+    if (!db) return null;
+    try {
+      const rows = db
+        .prepare('SELECT layout FROM team_layout WHERE team = ?')
+        .all(team) as unknown as { layout: string }[];
+      if (!rows.length || !rows[0].layout) return null;
+      const parsed = JSON.parse(rows[0].layout) as unknown;
+      return sanitizeLayout(parsed);
+    } catch (e) {
+      console.error('[team-scope-db] 读取团队布局失败：', e);
+      return null;
+    }
+  }
+
+  /** 写某团队的布局默认（管理员显式“设为团队默认”时调用）。 */
+  saveLayout(team: string, layout: TeamLayout, byUsername: string): boolean {
+    const db = this.getDb();
+    if (!db) {
+      console.error('[team-scope-db] 无 SQLite，无法保存团队布局');
+      return false;
+    }
+    try {
+      db.exec('BEGIN IMMEDIATE');
+      try {
+        db.prepare(
+          `INSERT INTO team_layout (team, layout, updated_at, updated_by)
+           VALUES (?, ?, ?, ?)
+           ON CONFLICT(team) DO UPDATE SET
+             layout = excluded.layout,
+             updated_at = excluded.updated_at,
+             updated_by = excluded.updated_by`
+        ).run(team, JSON.stringify(layout), new Date().toISOString(), byUsername);
+        db.exec('COMMIT');
+        return true;
+      } catch (e) {
+        try {
+          db.exec('ROLLBACK');
+        } catch {
+          /* 回滚失败无补救 */
+        }
+        throw e;
+      }
+    } catch (e) {
+      console.error('[team-scope-db] 保存团队布局失败：', e);
+      return false;
+    }
+  }
+
+  /** 某团队布局默认的元信息（管理界面回显“谁什么时候设的默认”）。 */
+  layoutInfo(team: string): { updatedAt: string | null; updatedBy: string | null } {
+    const db = this.getDb();
+    if (!db) return { updatedAt: null, updatedBy: null };
+    try {
+      const rows = db
+        .prepare('SELECT updated_at, updated_by FROM team_layout WHERE team = ?')
+        .all(team) as unknown as { updated_at: string; updated_by: string | null }[];
+      if (!rows.length) return { updatedAt: null, updatedBy: null };
+      return {
+        updatedAt: rows[0].updated_at ?? null,
+        updatedBy: rows[0].updated_by ?? null,
+      };
+    } catch (e) {
+      console.error('[team-scope-db] 读取团队布局元信息失败：', e);
+      return { updatedAt: null, updatedBy: null };
     }
   }
 }

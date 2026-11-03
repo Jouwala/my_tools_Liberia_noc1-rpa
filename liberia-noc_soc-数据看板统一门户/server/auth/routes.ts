@@ -5,7 +5,7 @@ import type { Plugin } from 'vite';
 import { getAuthSwitch, setAuthEnabled } from '../authSwitch';
 import { AuthStore } from './store';
 import { resolveCaller, isRealAdmin, DEV_ADMIN, DEV_TOKEN } from './guard';
-import { TeamScopeStore, sanitizeMatrix, type TeamScopeMatrix } from '../teamScopeDb';
+import { TeamScopeStore, sanitizeMatrix, sanitizeLayout, type TeamScopeMatrix, type TeamLayout } from '../teamScopeDb';
 import type { SqliteModuleLike } from '../authDb';
 import {
   MIN_PASSWORD_LENGTH,
@@ -513,6 +513,78 @@ async function handleAuthRoute(store: AuthStore, req: IncomingMessage, res: Serv
         `[team-scope] 管理员 ${caller.username} 更新了团队可见性矩阵（${caller.username}）`
       );
       sendJson(res, 200, { ok: true, matrix: clean, info: scopeStore.info() });
+      return;
+    }
+
+    /* ------------------------------------------------------ 团队布局默认 --
+     * 可调布局 P2（2026-11-03 加）。两个端点：
+     *   GET  /team-layout[?team=fo | /fo] —— 读某团队的布局默认
+     *   POST /team-layout                 —— 保存某团队的布局默认（仅管理员）
+     *
+     * 语义：
+     *   · GET 需登录（与 /team-scope 同一闸门之后），任何登录用户可读任意团队
+     *     的默认 —— 布局只是区块顺序/显隐/高度，不含敏感数据；前端按 URL 的
+     *     团队取对应那一份，不存在越权；
+     *   · POST 仅管理员（与 /team-scope 一致），body 为 { team, layout }，
+     *     layout 先过 sanitizeLayout（认不得的块/卡 id 一律丢弃，不抛异常）；
+     *   · 无 SQLite 时 loadLayout 恒返回 null、saveLayout 恒返回 false ——
+     *     前端回落 localStorage，行为与“没设过团队默认”一致。 */
+    if (method === 'GET' && (url === '/team-layout' || url.startsWith('/team-layout/'))) {
+      const scopeStore = getTeamScopeStore();
+      let rawTeam: unknown = null;
+      if (url.startsWith('/team-layout/')) {
+        rawTeam = decodeURIComponent(url.slice('/team-layout/'.length).split('/')[0] ?? '');
+      } else {
+        try {
+          const q = String(req.url || '').split('?')[1] || '';
+          rawTeam = new URLSearchParams(q).get('team');
+        } catch {
+          rawTeam = null;
+        }
+      }
+      const team = sanitizeTeam(rawTeam);
+      if (!team) {
+        sendJson(res, 400, { detail: 'team is required (fo/bo/flm/smc/cxo)' });
+        return;
+      }
+      const layout = scopeStore.loadLayout(team);
+      sendJson(res, 200, {
+        team,
+        layout,
+        info: scopeStore.layoutInfo(team),
+      });
+      return;
+    }
+
+    if (method === 'POST' && url === '/team-layout') {
+      if (caller.role !== 'admin') {
+        sendJson(res, 403, { detail: 'admin role required' });
+        return;
+      }
+      let body: Record<string, unknown>;
+      try {
+        body = await readJsonBody(req);
+      } catch {
+        sendJson(res, 400, { detail: 'invalid JSON payload' });
+        return;
+      }
+      const team = sanitizeTeam(body.team);
+      if (!team) {
+        sendJson(res, 400, { detail: 'team is required (fo/bo/flm/smc/cxo)' });
+        return;
+      }
+      const clean: TeamLayout | null = sanitizeLayout(body.layout);
+      if (!clean) {
+        sendJson(res, 400, { detail: 'layout is required' });
+        return;
+      }
+      const scopeStore = getTeamScopeStore();
+      if (!scopeStore.saveLayout(team, clean, caller.username)) {
+        sendJson(res, 500, { detail: '保存团队布局失败（详见服务端日志）' });
+        return;
+      }
+      console.warn(`[team-layout] 管理员 ${caller.username} 更新了团队 ${team} 的布局默认`);
+      sendJson(res, 200, { ok: true, team, layout: clean, info: scopeStore.layoutInfo(team) });
       return;
     }
 

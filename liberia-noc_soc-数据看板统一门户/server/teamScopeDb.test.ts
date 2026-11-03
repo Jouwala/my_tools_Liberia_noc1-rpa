@@ -21,6 +21,9 @@ import {
   sanitizeMatrix,
   isMatrixEmpty,
   readScopeMapTemplate,
+  sanitizeLayout,
+  blankTeamLayout,
+  TEAM_LAYOUT_BLOCKS,
   type TeamScopeMatrix,
   type TeamScopeDoc,
 } from './teamScopeDb';
@@ -221,4 +224,40 @@ test('readScopeMapTemplate: 矩阵里的团队 id 都是五个已知团队之一
       }
     }
   }
+});
+
+// ---------------------------------------------------------------------------
+// sanitizeLayout —— 团队布局默认的清洗（P2，2026-11-03 加）
+// ---------------------------------------------------------------------------
+// 布局只是顺序/显隐/高度，不是权限数据；清洗口径是「认不得的丢弃」。
+
+test('sanitizeLayout: 非对象输入 → null（调用方回 400，不落库）', () => {
+  assert.equal(sanitizeLayout(null), null);
+  assert.equal(sanitizeLayout('x'), null);
+  assert.equal(sanitizeLayout([]), null);
+});
+
+test('sanitizeLayout: order 只保留白名单块，去重保序', () => {
+  const out = sanitizeLayout({ order: ['band', 'hacker', 'band', 'kpi', ''] });
+  assert.deepEqual(out!.order, ['band', 'kpi']);
+  assert.ok(out!.order.every((id) => (TEAM_LAYOUT_BLOCKS as readonly string[]).includes(id)));
+});
+
+test('sanitizeLayout: hidden 只保留白名单块的真值', () => {
+  const out = sanitizeLayout({ hidden: { band: true, hacker: true, kpi: 0, views6: 'x' } });
+  assert.deepEqual(out!.hidden, { band: true, views6: true });
+});
+
+test('sanitizeLayout: heights 只保留 80~3000 的整数', () => {
+  const out = sanitizeLayout({ heights: { band: 120, kpi: 10, esc: 9999, hacker: 200, aux: 'abc' } });
+  assert.deepEqual(out!.heights, { band: 120 });
+});
+
+test('sanitizeLayout: qcOrder 只保留合法卡 id（去重，上限 20）', () => {
+  const out = sanitizeLayout({ qcOrder: ['alarm', 'tt', 'alarm', 'a b', '', 'wo'] });
+  assert.deepEqual(out!.qcOrder, ['alarm', 'tt', 'wo']);
+});
+
+test('sanitizeLayout: 空对象 → 空布局（与 blankTeamLayout 同形）', () => {
+  assert.deepEqual(sanitizeLayout({}), blankTeamLayout());
 });

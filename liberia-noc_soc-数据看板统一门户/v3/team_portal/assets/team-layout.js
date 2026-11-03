@@ -50,11 +50,55 @@
   }
   function blankLayout() { return { order: [], hidden: {}, heights: {}, qcOrder: [] }; }
 
+  /* 团队默认的服务端地址：与 team-scope.js 同一规则（见其 scopeApiPaths）。
+     团队门户两种访问方式路径前缀不同，直连 vite 是 /api/auth，直经 nginx 是
+     /uniplam/api/auth —— 按页面前缀挑，取不到就两条都试。 */
+  function layoutApiPaths(team) {
+    var p = location.pathname || '';
+    var m = /^(.*?)\/v3\//.exec(p);
+    var prefix = m ? m[1] : '';
+    var paths = [];
+    var q = '?team=' + encodeURIComponent(team);
+    if (prefix) paths.push(prefix + '/api/auth/team-layout' + q);
+    paths.push('/uniplam/api/auth/team-layout' + q);
+    paths.push('/api/auth/team-layout' + q);
+    return paths;
+  }
+  function authHeaders() {
+    var tk = null;
+    try { tk = localStorage.getItem('liberia_noc_auth_v1'); } catch (e) { tk = null; }
+    var h = { Accept: 'application/json' };
+    if (tk) h.Authorization = 'Bearer ' + tk;
+    return h;
+  }
   function fetchServerDefault() {
-    return fetch('/uniplam/api/auth/team-layout?team=' + encodeURIComponent(TEAM), {
-      credentials: 'same-origin', headers: { Accept: 'application/json' }
-    }).then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; })
-      .then(function (d) { return (d && d.layout) || null; });
+    /* 逐条试候选路径：第一份 2xx 且带 layout 的即用；401/404/网络错就试下一条。
+       无 SQLite / 未登录 / 没存过默认 → 全部回 null，前端回落本地（不算错）。 */
+    var paths = layoutApiPaths(TEAM);
+    var i = 0;
+    function attempt() {
+      if (i >= paths.length) return Promise.resolve(null);
+      var url = paths[i++];
+      return fetch(url, { credentials: 'same-origin', headers: authHeaders() })
+        .then(function (r) { return r.ok ? r.json().catch(function () { return null; }) : null; })
+        .catch(function () { return null; })
+        .then(function (d) {
+          if (d && d.layout && typeof d.layout === 'object') return d.layout;
+          return attempt();
+        });
+    }
+    return attempt();
+  }
+  /* POST 地址与 GET 同源：优先当前页前缀，其次两条兜底（直连 dev 时第一条即中）。 */
+  function layoutPostPaths() {
+    var p = location.pathname || '';
+    var m = /^(.*?)\/v3\//.exec(p);
+    var prefix = m ? m[1] : '';
+    var paths = [];
+    if (prefix) paths.push(prefix + '/api/auth/team-layout');
+    paths.push('/uniplam/api/auth/team-layout');
+    paths.push('/api/auth/team-layout');
+    return paths;
   }
 
   /* ------------------------------------------------------------ 应用 ---- */
@@ -323,13 +367,25 @@
       var d = currentLayout();
       /* 把当前 DOM 顺序/显隐/高度一次性收敛进要保存的布局。 */
       persistOrderInto(d);
-      var tk = null;
-      try { tk = localStorage.getItem('liberia_noc_auth_v1'); } catch (e) { tk = null; }
-      fetch('/uniplam/api/auth/team-layout', {
-        method: 'POST', credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + (tk || '') },
-        body: JSON.stringify({ team: TEAM, layout: d })
-      }).then(function (r) { return r.json().catch(function () { return { ok: r.ok }; }); })
+      var posts = layoutPostPaths();
+      var pi = 0;
+      var body = JSON.stringify({ team: TEAM, layout: d });
+      var postHeaders = authHeaders();
+      postHeaders['Content-Type'] = 'application/json';
+      function postAttempt() {
+        if (pi >= posts.length) return Promise.resolve({ ok: false });
+        var u = posts[pi++];
+        return fetch(u, {
+          method: 'POST', credentials: 'same-origin',
+          headers: postHeaders,
+          body: body
+        }).then(function (r) {
+          /* 404 = 路径前缀不对 → 试下一条；401/403 = 鉴权问题 → 直接交回（重试无意义）。 */
+          if (r.status === 404) return postAttempt();
+          return r.json().catch(function () { return { ok: r.ok }; });
+        }).catch(function () { return postAttempt(); });
+      }
+      postAttempt()
         .then(function (j) {
           var btn = document.getElementById('tlSaveBtn');
           if (btn) {
