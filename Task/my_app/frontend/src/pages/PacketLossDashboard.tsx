@@ -4,13 +4,13 @@
 //   STATUS = 0~23 标志块（最近 3 天同整点丢包均 >0.5% 记 1）全 0 -> OK，否则 NOK
 //   FINAL_STATUS = STATUS=OK 强制 No Packet loss[<0.1]，否则按 Last 1 day Max PL 五级分类
 import { useEffect, useState, useMemo, useCallback } from 'react'
-import { Card, Row, Col, Tag, Spin, Alert, Empty, Table, Input, Button, Switch, Popover } from 'antd'
+import { Card, Row, Col, Tag, Spin, Alert, Empty, Table, Input, Button, Switch } from 'antd'
 import {
   AlertOutlined, WarningOutlined, EnvironmentOutlined,
   PieChartOutlined, BarChartOutlined, DashboardOutlined,
   DownloadOutlined, SearchOutlined, RightOutlined,
   ClockCircleOutlined, CheckCircleOutlined, DisconnectOutlined,
-  CopyOutlined, InfoCircleOutlined, ApartmentOutlined,
+  ApartmentOutlined,
 } from '@ant-design/icons'
 import ReactECharts from 'echarts-for-react'
 // 用自研的 LeafletMap（原生 leaflet）取代 react-leaflet —— 后者是 Hippocratic-2.1
@@ -24,6 +24,8 @@ import dayjs from 'dayjs'
 import api from '../api'
 import { cachedGet } from '../cache'
 import DraggableClickModal from '../components/DraggableClickModal'
+// 统一说明气泡（三.3c）：ExplainIcon 挂角上/标题，ExplainPopover 包住数字本身
+import { ExplainIcon, ExplainPopover } from '../components/MetricExplain'
 import { useI18n, numLocale } from '../i18n'
 import { WH, DARK, LIGHT, WH_COLORS, LIGHT_COLORS, useTheme, useIsMobile, darkTooltip, axisLabel, axisLine, splitLine, pageWrap, cardStyle } from '../theme'
 
@@ -75,7 +77,9 @@ const gwColor = (gw: string) => GW_COLORS[gw] || '#8c8c8c'
 
 const CHART_HEIGHT = 280
 
-const SectionTitle = ({ icon, title, sub }: { icon: React.ReactNode; title: string; sub?: string }) => (
+const SectionTitle = ({ icon, title, sub, explain }: {
+  icon: React.ReactNode; title: string; sub?: string; explain?: string
+}) => (
   <div style={{
     display: 'flex', alignItems: 'center', gap: 'var(--wh-space-sm)',
     margin: '1.375rem 0 0.875rem', padding: '0 0 0.625rem',
@@ -88,103 +92,39 @@ const SectionTitle = ({ icon, title, sub }: { icon: React.ReactNode; title: stri
       color: '#06222e', fontSize: '0.875rem',
     }}>{icon}</span>
     <span style={{ fontSize: '1rem', fontWeight: 700, color: WH.text, letterSpacing: '-0.3px' }}>{title}</span>
+    {explain ? <ExplainIcon text={explain} placement="bottom" /> : null}
     {sub && <span style={{ fontSize: '0.75rem', color: WH.textDim, marginLeft: 4 }}>{sub}</span>}
   </div>
 )
 
-// 通用「计算说明」悬停气泡（带复制）。供指标卡以外的地方（如头部 Affected Sites 标签）复用
-const MetricExplainPopover = ({ text, children, t }: { text: string; children: React.ReactNode; t: (key: string) => string }) => {
-  const [copied, setCopied] = useState(false)
-  const copy = useCallback(async () => {
-    try {
-      if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(text)
-      else {
-        const ta = document.createElement('textarea')
-        ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0'
-        document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta)
-      }
-      setCopied(true); setTimeout(() => setCopied(false), 1500)
-    } catch { /* ignore */ }
-  }, [text])
-  if (!text) return <>{children}</>
-  return (
-    <Popover trigger="hover" placement="bottom" mouseEnterDelay={0.1}
-      content={
-        <div style={{ maxWidth: '18.75rem', fontSize: '0.75rem', lineHeight: 1.7 }}>
-          <div style={{ color: WH.textMuted, whiteSpace: 'pre-line' }}>{text}</div>
-          <Button size="small" type="link" icon={<CopyOutlined />} onClick={copy}
-            style={{ paddingLeft: 0, marginTop: 'var(--wh-space-sm)', height: 'auto', color: WH.teal }}>
-            {copied ? t('pl.copied') : t('pl.copyExplain')}
-          </Button>
-        </div>
-      }>
-      {children}
-    </Popover>
-  )
-}
-
+/* 说明气泡统一走 components/MetricExplain（AGENTS.md 三.3/三.3c）：
+   此前这里有两份自写气泡（头部标签一份 + 卡片角上一份），复制按钮、主题色、
+   `**强调**` 渲染各自一套，改口径要同时记得两处。删掉后由 ExplainPopover / ExplainIcon 承担。 */
 const SummaryCard = ({ icon, value, label, color, onClick, explain, t }: {
-  icon: React.ReactNode; value: string | number; label: string; color: string; onClick: () => void; explain?: string; t: (key: string) => string
-}) => {
-  const [copied, setCopied] = useState(false)
-  const copyExplain = useCallback(async () => {
-    if (!explain) return
-    try {
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(explain)
-      } else {
-        const ta = document.createElement('textarea')
-        ta.value = explain
-        ta.style.position = 'fixed'
-        ta.style.opacity = '0'
-        document.body.appendChild(ta)
-        ta.select()
-        document.execCommand('copy')
-        document.body.removeChild(ta)
-      }
-      setCopied(true)
-      setTimeout(() => setCopied(false), 1500)
-    } catch { /* ignore */ }
-  }, [explain])
-
-  return (
-    <Card size="small" hoverable onClick={onClick} className="wh-card-interactive" style={{
-      ...cardStyle,
-      cursor: 'pointer', transition: 'all .2s', position: 'relative', overflow: 'hidden',
-    }}
-      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.border = WH.cardBorderHover }}
-      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.border = WH.cardBorder }}
-    >
-      <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 4, background: color, opacity: 0.9 }} />
-      {explain && (
-        <Popover
-          trigger="hover"
-          placement="top"
-          mouseEnterDelay={0.1}
-          content={
-            <div style={{ maxWidth: '17.5rem', fontSize: '0.75rem', lineHeight: 1.7 }}>
-              <div style={{ fontWeight: 700, color: WH.teal, marginBottom: 'var(--wh-space-xs)' }}>{label} · {t('pl.calcExplain')}</div>
-              <div style={{ color: WH.textMuted, whiteSpace: 'pre-line' }}>{explain}</div>
-              <Button size="small" type="link" icon={<CopyOutlined />} onClick={copyExplain}
-                style={{ paddingLeft: 0, marginTop: 'var(--wh-space-sm)', height: 'auto', color: WH.teal }}>
-                {copied ? t('pl.copied') : t('pl.copyExplain')}
-              </Button>
-            </div>
-          }
-        >
-          <span
-            onClick={e => e.stopPropagation()}
-            style={{ position: 'absolute', top: 6, right: 8, zIndex: 2, cursor: 'help', color: WH.textDim, fontSize: '0.8125rem' }}
-          >
-            <InfoCircleOutlined />
-          </span>
-        </Popover>
-      )}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div>
+  icon: React.ReactNode; value: string | number; label: string; color: string; onClick: () => void;
+  explain?: string; t: (key: string) => string
+}) => (
+  <Card size="small" hoverable onClick={onClick} className="wh-card-interactive" style={{
+    ...cardStyle,
+    cursor: 'pointer', transition: 'all .2s', position: 'relative', overflow: 'hidden',
+  }}
+    onMouseEnter={e => { (e.currentTarget as HTMLElement).style.border = WH.cardBorderHover }}
+    onMouseLeave={e => { (e.currentTarget as HTMLElement).style.border = WH.cardBorder }}
+  >
+    <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 4, background: color, opacity: 0.9 }} />
+    {explain && (
+      <span style={{ position: 'absolute', top: 6, right: 8, zIndex: 2 }}>
+        <ExplainIcon text={explain} placement="top" />
+      </span>
+    )}
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <div>
+        {/* 数字本身也问得到（三.3c）：角上的 ⓘ 讲这一项，鼠标停在大数字上同样出这段构成 */}
+        <ExplainPopover placement="bottom" text={explain || ''}>
           <div style={{ fontSize: '1.875rem', fontWeight: 800, color, lineHeight: 1.2, textShadow: `0 0 14px ${color}55` }}>{value}</div>
-          <div style={{ fontSize: '0.75rem', color: WH.textMuted, marginTop: 'var(--wh-space-xs)', fontWeight: 500 }}>{label}</div>
-        </div>
+        </ExplainPopover>
+        <div style={{ fontSize: '0.75rem', color: WH.textMuted, marginTop: 'var(--wh-space-xs)', fontWeight: 500 }}>{label}</div>
+      </div>
         <span style={{ fontSize: '2.375rem', opacity: 0.16, color }}>{icon}</span>
       </div>
       <div style={{ textAlign: 'right', fontSize: '0.625rem', color: WH.teal, fontWeight: 600, marginTop: 2, display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 2 }}>
@@ -192,7 +132,6 @@ const SummaryCard = ({ icon, value, label, color, onClick, explain, t }: {
       </div>
     </Card>
   )
-}
 
 const strSorter = (a: any, b: any, key: string) => String(a[key] ?? '').localeCompare(String(b[key] ?? ''))
 const getUniqueFilters = (data: any[], key: string) => {
@@ -520,15 +459,15 @@ export default function PacketLossDashboard() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--wh-space-sm)' }}>
             <DisconnectOutlined style={{ fontSize: '1.375rem', color: WH.teal }} />
             <span style={{ fontSize: '0.9375rem', fontWeight: 700, color: WH.text }}>{t('pl.status')}</span>
-            <MetricExplainPopover text={METRIC_EXPLAIN['Affected Sites']} t={t}>
+            <ExplainPopover text={METRIC_EXPLAIN['Affected Sites']} placement="bottom">
               <Tag color="error" style={{ borderRadius: 'var(--wh-radius-lg)', fontWeight: 600, cursor: 'pointer' }}
                 onClick={e => openDrilldown(e, 'all', 'Sites with Packet Loss')}>
                 {fmt(data.affected_sites)} {t('pl.affectedSites')}
               </Tag>
-            </MetricExplainPopover>
-            <MetricExplainPopover text={METRIC_EXPLAIN['Data Granularity']} t={t}>
+            </ExplainPopover>
+            <ExplainPopover text={METRIC_EXPLAIN['Data Granularity']} placement="bottom">
               <Tag color="cyan" style={{ borderRadius: 'var(--wh-radius-lg)', fontWeight: 600 }}>{t('pl.granularity')}</Tag>
-            </MetricExplainPopover>
+            </ExplainPopover>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--wh-space-md)', fontSize: '0.75rem', color: WH.textDim }}>
             <ClockCircleOutlined />
@@ -561,7 +500,8 @@ export default function PacketLossDashboard() {
       </Row>
 
       {/* 3. 状态分布 + 每日趋势 + 区域分布 */}
-      <SectionTitle icon={<BarChartOutlined />} title={t('pl.lossDistribution')} sub={t('pl.lossDistSub')} />
+      <SectionTitle icon={<BarChartOutlined />} title={t('pl.lossDistribution')} sub={t('pl.lossDistSub')}
+        explain={t('pl.explain.dist')} />
       <Row gutter={[12, 12]}>
         <Col xs={24} lg={7}>
           <Card size="small" title={<span style={{ fontSize: '0.8125rem', fontWeight: 600, color: WH.text }}>{t('pl.statusDist')}</span>} style={cardStyle}>
@@ -581,7 +521,8 @@ export default function PacketLossDashboard() {
       </Row>
 
       {/* 4. Top 站点（地图已移至右侧 1/3 列） */}
-      <SectionTitle icon={<PieChartOutlined />} title={t('pl.topSites')} sub={t('pl.topSitesSub')} />
+      <SectionTitle icon={<PieChartOutlined />} title={t('pl.topSites')} sub={t('pl.topSitesSub')}
+        explain={t('pl.explain.topSites')} />
       <Card size="small" title={<span style={{ fontSize: '0.8125rem', fontWeight: 600, color: WH.text }}>{t('pl.topSitesTitle')}</span>} style={cardStyle}>
         <ReactECharts option={topSitesOption} style={{ height: 520 }} />
       </Card>
@@ -704,7 +645,7 @@ export default function PacketLossDashboard() {
         open={drillOpen}
         anchor={drillAnchor}
         onClose={() => setDrillOpen(false)}
-        title={<span style={{ color: WH.text }}>{drillTitle} <Tag color="cyan" style={{ borderRadius: 10 }}>{t('pl.records', { n: filteredDrillData.length })}</Tag></span>}
+        title={<span style={{ color: WH.text }}>{drillTitle} <ExplainPopover placement="bottom" text={t('pl.tip.drillCount', { n: filteredDrillData.length, total: drillData.length })}><Tag color="cyan" style={{ borderRadius: 10 }}>{t('pl.records', { n: filteredDrillData.length })}</Tag></ExplainPopover></span>}
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 'var(--wh-space-sm)', marginBottom: '0.75rem' }}>
           <Input prefix={<SearchOutlined />} placeholder={t('pl.searchPlaceholder')} allowClear size="middle"

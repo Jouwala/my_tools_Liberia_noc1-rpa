@@ -1798,6 +1798,10 @@ Table Browser: browse any table without SQL, view column profiles, import & expo
 Database health-check page: how many tables exist, rows per table, Top10 by size.
 
 - Sort by the "Rows" column; the page is read-only — it only answers "is the data there and how big"
+- **Every number explains itself on hover** (2026-11-04): the four cards carry an ⓘ on the title and a bubble on the big number (`StatCard.explainText`), and the Top10 bars and the share pie gained ⓘ on their titles
+- Two calibers that the docs used to get wrong, corrected against `backend/routers/system.py:96-128`: **the table total does NOT exclude `_`-prefixed internal tables** (the old wording said it did), and **"core tables" is counted in the frontend** — the API never sends that field
+- The row total is **`SELECT COUNT(*)` executed per table and added up** (not a `reltuples` estimate) and includes internal and archive tables, while Top10 excludes `_`-prefixed tables, `analysis_archive` and `uploaded_files` and is sorted and sliced in the frontend — so the charts adding up to less than the header total is a caliber difference, not lost data
+- The project runs on PostgreSQL now: table names carry a schema prefix such as `app.`, so "does not start with _" is almost always true and **core tables equals total tables** (measured: both 115). The bubble says so explicitly so it is not read as a bug
 
 ### 4.2 Monitoring Boards
 
@@ -2056,6 +2060,9 @@ Speedtest Benchmark Report: puts the two operators (Orange and MTN) side by side
 - When the daily series exceeds 400 days the chart plots only the latest 400 and a yellow note appears; see the table below or export to Excel for the full series
 - Location / device / technology / aggregation each have only one effective value in the data (nationwide / cellular / median), so **those four dimensions have no filters** — that is intentional, not an omission
 - Missing data renders as "—" (never 0); all exports go through the "Export Excel" buttons in the header and on each card
+- **Every number explains itself on hover** (2026-11-04): the score card ⓘ gives the normalisation and weighting (speed: own divided by the larger, latency: the smaller divided by own, weights 0.35/0.20/0.30/0.15 hard-coded in the caliber), and the big numbers, part tags, win rates and P50/P90 all carry bubbles; **the percentiles are `PERCENTILE_CONT` interpolated inside the sample**, not a frequency count
+- The two figures most likely to be reconciled wrongly are stated in the bubbles: the mean is an **equal-weight average of rows, not weighted by test count**, and the header N rows is the **whole speedtest_data table** (a raw API field), not the count after this range filter
+- The Tests and Devices cards now show — when the range has no rows (previously a null-coalescing to 0, which turned not-measured into zero); the device total is **a device-day sum across rows**: one device on two days counts twice, so it is not a unique-device count
 
 #### bm_meta（`bm_meta`）
 
@@ -2070,6 +2077,10 @@ Meta Benchmark Report: based on meta_data (imported from Meta_20260923.xlsx, 612
 - BP and the DL/UL PRB utilization rates are stored as **decimal ratios** (e.g. 0.1956) and are converted to percentages for display (19.56%); win/loss and scoring use the raw ratios, so the display conversion does not affect results
 - Traffic (GB) and RRC user counts are shown with thousands separators; missing data renders as "—" (never 0)
 - Excel export has three sheets (summary / monthly / daily); the summary sheet groups the head-to-head and the network KPIs separately so they are not read as one thing
+- **Every number explains itself on hover** (2026-11-04): an ⓘ plus bubbles across the verdict, score, speed, range and network cards; the network cards dropped their **native title= attribute** (not copyable, outside the theme)
+- One reversed caliber was corrected: `bmm.hint.bp` used to say higher is better while the rule is `kind: lower` (BP is the share of bad-performance cells, so lower is better). Both dictionaries were fixed; the same text also appears under the trend chart and in export headers
+- The bubbles also state three ways this page differs from the Speedtest page: **the score is decided by speed alone** (`SCORE_WEIGHTS = {speed: 1.0}`, network KPIs do not take part), **paired days exclude ties from the denominator** (Speedtest keeps them), and `days` is the row count of the whole table in the range (one number for both operators) rather than each operator own days-with-data
+- The drill applies the 3000-row cap before filtering winners in Python (`bm_meta_service.py:419-423`): rows match the card while the range stays under the cap and fall short only beyond it, which the bubble states as such
 
 #### noc_analyst（`noc_analyst`）
 
@@ -2181,6 +2192,10 @@ LTE packet loss board (RAN UME SDR / IPRAN IPPD): last 7 complete calendar days 
 
 - Criteria match the Packet_Loss automation Excel report exactly; the Popover explains them
 - The switch controls whether OK sites are included; supports drill-down and topology overlay
+- **Every number explains itself on hover** (2026-11-04): the six status cards share one text between the ⓘ and the number bubble (the verdict is written in the collection layer as FinalStatus: STATUS≠OK with Last 1 day Max PL ≥5 / [1,5) / [0.5,1) / [0.1,0.5) = Critical/Major/Minor/Warning, and STATUS=OK is forced into No Packet loss); the header Affected Sites and granularity tags carry bubbles too
+- The three easiest misreadings are stated in the bubbles: **the status pie includes sites without coordinates, the region bars count non-OK sites only (Minor and Warning included), and the header Affected Sites is Critical + Major only** — three different sets that were never meant to reconcile
+- The daily-trend median **uses only readings above 0 for that day** (about 59% of hourly readings are 0, so a full median collapses to zero and stops being meaningful), while Top sites use a **per-site median that includes zeros** (otherwise "half a day fully down" and "fully down all day" both become 100 and the ranking loses its point) — the same word "median" for two calibers, each stated where it is used
+- This page used to carry two hand-written popovers (their own copy button, theme colours and emphasis rendering); both were deleted in favour of `components/MetricExplain`. The drill "N rows" bubble now states that it is the count after the search-box filter and that the API truncates at a cap
 
 #### Battery Dashboard（`battery`）
 
@@ -2376,6 +2391,9 @@ Analysis dashboard: pick a table to auto-generate multi-dimension charts and con
 
 - Pick a table → rename → generate → archive
 - With "linked filters" on, clicking a pie/bar applies it as a filter; click again to cancel
+- **Every chart carries an ⓘ saying how it is computed** (2026-11-04): pie = `value_counts().head(10)` (ranks 11+ are not in the denominator, so 100% is not "all rows of that column"); bar = `groupby().mean()` over the category then `head(15)` (a mean, not a sum, unweighted); line = `groupby().size()` per date then `tail(60)` (the axis counts rows, no metric is summed); radar = the **heuristic** quality score `100 − null_rate − min(issue_count × 10, 50)`, not a business compliance rate; heatmap = `crosstab().head(15)` row counts per combination
+- The single most important caveat sits in the header ⓘ: **every chart is computed over a sample of at most 10000 rows** (`SELECT * FROM table LIMIT 10000`, no ORDER BY, i.e. the first 10k rows in storage order, `routers/analysis.py:60`), while the "N rows" in the dropdown is a full-table `COUNT(*)` — on a big table the two cannot add up, and that is the sampling caliber, not lost data
+- "Linked filters" is **frontend highlighting only**: clicking does not refetch, so the figures stay whole-sample; and a 0 in the bar or heat charts has two possible sources, because the backend maps NaN to 0 (`analysis.py:280` / `:331`) — it can mean "genuinely zero" or "nothing numeric to average"
 
 #### Archive（`archive`）
 

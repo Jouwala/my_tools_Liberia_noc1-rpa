@@ -116,6 +116,19 @@ export default function Dashboard() {
     return tmpl.replace('{col}', col).replace('{col2}', col2)
   }
 
+  /** 图表类型的算法说明键：逐条字面量（拼串会被 check:i18n 读成 `dashboard.explain.` 而报缺键）。
+   *  文案对应的聚合式取自 backend/routers/analysis.py，改那边必须同步改这里。 */
+  const chartExplainKey = (type: string): string => {
+    switch (type) {
+      case 'pie': return 'dashboard.explain.pie'
+      case 'bar': return 'dashboard.explain.bar'
+      case 'line': return 'dashboard.explain.line'
+      case 'radar': return 'dashboard.explain.radar'
+      case 'heat': return 'dashboard.explain.heat'
+      default: return 'dashboard.explain.other'
+    }
+  }
+
   const renderChart = (chart: ChartData, idx: number) => {
     let option: any = {}
     const highlighted = isChartHighlighted(chart)
@@ -276,8 +289,8 @@ export default function Dashboard() {
           style={{ ...cardStyle, borderColor: highlighted ? WH.teal : WH.cardBorder, boxShadow: highlighted ? `0 0 1rem var(--wh-teal-27)` : cardStyle.boxShadow }}
           title={
             highlighted && linkedFilter
-              ? <span style={{ color: WH.teal, fontSize: '0.875rem', fontWeight: 600 }}>{displayTitle} <Tag color="cyan">{t('dashboard.filter')}: {linkedFilter.value}</Tag></span>
-              : <span style={{ fontSize: '0.875rem', fontWeight: 600, color: WH.text }}>{displayTitle}</span>
+              ? <span style={{ color: WH.teal, fontSize: '0.875rem', fontWeight: 600 }}>{displayTitle} <ExplainIcon text={t(chartExplainKey(chart.type))} size={13} /><Tag color="cyan">{t('dashboard.filter')}: {linkedFilter.value}</Tag></span>
+              : <span style={{ fontSize: '0.875rem', fontWeight: 600, color: WH.text }}>{displayTitle} <ExplainIcon text={t(chartExplainKey(chart.type))} size={13} /></span>
           }
         >
           <ReactECharts

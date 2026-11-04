@@ -735,6 +735,33 @@ ZXMW 微波网络拓扑与带宽利用率 NOC 看板（`MwUmeDashboard.tsx:4-8`�
 - 改抽屉天数（7→180）后，Y 轴上下界要随之小幅变化（跟随数据范围），但最大不超过 105、最低不低于 0。
 - 在 180 天且数据整体在 99.9~100 的站点上，应能**明显**看到日间抖动（折线有起伏），这是改动前的痛点。
 
+### 10a-4. 2/3/4G 页签的「业务量趋势」图（2026-11-04）
+
+**需求原话**：「点击站点下钻的时候 Site Drill-down 里面的 2/3/4G KPI 能不能添加业务量曲线」。
+
+**先说结论：数据本来就在接口里**，`_RAT_KPI_SPEC` 早就带着话务量与流量列（2G `TCH total traffic number(erl)`、3G `Cell Traffic Volume, CS(Erl)` + PS 上下行 GB、4G `DL/UL Traffic Volume (GBytes)` + IP 吞吐 + PRB），只是**默认画不出来**：`RatKpiTab` 的预选逻辑「比率类优先取满 3 条」，业务量必然落在预选外，用户不主动点「选择指标」就永远看不到 —— 所以体感是「没有这个功能」。
+
+**改法**（不是一个下拉凑合，而是拆成两张图）：
+
+| 图 | 内容 | 纵轴 |
+| --- | --- | --- |
+| `<rat> — 站点级日粒度 KPI` | `group=quality` 的比率列 | 共用一根 % 轴 |
+| `<rat> — 业务量趋势`（新增） | `group=volume` 的业务量列，**默认预选前 3 条** | **一种量纲一根轴** |
+
+- **为什么必须分图**：Erl（百级）、GB（十级）、Mbps、在线用户（千级）共用一根右轴时，小量纲的曲线被压成贴地直线；`buildVolumeOption`（`gismap/chartOptions.ts`）按 `unit` 去重分轴，第一根留左轴、其余依次右移 46px。
+- **为什么新接三列**（用户点名的补列范围）：2G 原先**只有话务 Erl、没有数据流量**，接入 `U31_ZTE_Traffic of DL/UL Data TBF (GByte)`；4G 接入 `Maximum Number of RRC Connection User`（在线用户数）。实测各 5000 行**非空率 100%**，且都是站点日表既有列，**不新增查询**。
+- **`is_rate` 与 `unit` 分工**（易踩坑，注释已写在 `_RAT_KPI_SPEC` 上方）：`is_rate` 只表示「关键比率，默认预选优先」；**是否换算成百分数看 `unit === '%'`**（前端 `isPct()`）。拥塞率、掉话率、PRB 利用率这 9 列 `unit` 也是 `%` 但 `is_rate=False`，改造前按原值画在右轴 —— `0.167` 顶着一个带 `(%)` 的列名，实际是 **16.67%**（实测 9 列全表最大值均 ≤1，确认是 0~1 入库）。本次一并纠正显示，**未改任何数值本身**。
+- **⚠ `days` 未透传是真 bug**：`_load_site_kpis()` 调 `_load_site_kpi_series(site_id, site_name)` 少传第三参，KPI 序列恒定 60 天。实测 `?days=30` 返回 `range.days=30` 而三个 series 的 `days` 仍是 60 —— 抽屉切档位只有可用率图跟着变，2/3/4G 的图和页签括号里的数字一直说谎。现已透传。
+- **⚠ 同站点多 ID 要按日折叠**：这些日表的列**全是 `text`**（不能 `SUM`/`CAST`，空串会直接报错），且一个站点挂在两套 BSC/RNC 下时上游**按 ID 各写一行**（实测 2G 表 `Gbarplay` 每天都返回 `1620`/`2049` 两行，139 天全中）。改为多取 4 倍行数、在 Python 里按自然日折叠：**业务量列相加**（站点总量），**比率列取均值**；折叠后 `LIMIT days` 才是按天截断（不折叠时这类站点的窗口会腰斩）。单行站点相加/均值即原值，**其余 ~500 个站点的读数不变**。
+  折叠正确性实测（`Gbarplay` 2026-11-03）：`32.4881 + 42.505 = 74.9931` Erl、`953.55 + 654.45 = 1608.0` min ✓。
+- **口径可见性**（AGENTS.md 三.3b/3c）：两张图标题各挂 `ExplainIcon`；日明细表**列头**挂 ⓘ（来源列全名 + 量纲 + 折叠口径），**每个数字**挂 `ExplainPopover`。气泡内容全部取接口既有字段（`label`/`unit`/`group`），前端不重算。`ChartBlock` 为此新增 `explain` 与 `extra` 两个可选属性。
+- **降级行为**：后端未重启到下发 `group`/`unit` 的版本时，所有列归入质量组、业务量图整块不渲染（不留空图框），与改造前一致。
+
+**验收**：`GET /api/gis/drilldown/4472?days=30` → 三个制式 `days=30`、每个 `daily` 的 day 唯一；`metrics` 里 `group=volume` 的列带 `unit`；`3620`（Gbarplay）2G `traffic_erl` 等于两行相加。界面 `?page=gis` 点站点 → 2G/3G/4G 页签各出现第二张「业务量趋势」图，默认 3 条曲线、左右两根轴各自带单位。
+- **可复用探针 `TMP/_verify_gis_series.py`（勿删）**：`python TMP/_verify_gis_series.py` 直接调 `_load_site_kpi_series()`，逐制式打印 `matched_by / days / day 是否唯一 / volume 列清单 / 末日各业务量值`，不依赖 HTTP 也不依赖前端构建 —— 改了 `_RAT_KPI_SPEC` 或折叠逻辑就跑一次（2026-11-04 实测 4472 与 3620 两站、7/30 两档全绿）。
+
+
+
 ### 10b. 边界蒙层：大区（Voronoi）与县界（真实行政边界）
 
 「边界」`Segmented` 提供**互斥的三选一**（`BoundaryMode = 'none' | 'region' | 'county'`）。两个蒙层语义不同，不可互相替代，同时开启会互相遮盖，故做成三选一而非两个开关：
@@ -1250,6 +1277,20 @@ PMT 取不到时显示 `—` 而不是 0（AGENTS.md 三.6），所以 `pmt_open
 
 LTE 丢包（RAN UME SDR/IPRAN IPPD），最近 **7 个完整自然日、小时粒度**，当天没过完不展示（`PacketLossDashboard.tsx:2-5`）。
 
+- **数字悬浮说明（2026-11-04，`AGENTS.md` 三.3c）+ 自写气泡清零**：本页原先有**两份各自实现的气泡**
+  （头部标签用的 `MetricExplainPopover:96-124` + 卡片角上内联的 `Popover:159-182`，各带一份复制按钮、主题色与强调渲染），
+  现已全部删除，统一走 `components/MetricExplain`（`ExplainIcon` 挂角、`ExplainPopover` 包住大数字）。
+  口径逐条从 `backend/routers/packet_loss_dashboard.py` 核实：六档判据落在采集层的 `FinalStatus`
+  （`STATUS≠OK` 且 `LastDayMaxPL` ≥5 / [1,5) / [0.5,1) / [0.1,0.5) = Critical/Major/Minor/Warning，
+  `STATUS=OK` 强制归一为 No Packet loss，`:490-500`），`total_sites = len(rows)`（`:136`）、
+  `affected_sites = Critical + Major`（`:241`）。
+  **三个集合不同、不该互相对账**这件事直接写进气泡：状态饼图含无坐标站点、区域柱图只统计非 OK（含 Minor/Warning）、
+  顶部 Affected Sites 只有 Critical+Major（`region_dist` 判据 `:129-134`）。
+  「中位数」在本页有**两种口径**，气泡各写各的：每日趋势取**当天 >0 的读数**中位（逐小时约 59% 为 0，
+  全量取中位会被压成 0，`:158-187`），Top 站点取**含 0 的每站点中位**（否则「半天全断」与「整天全断」同为 100，`:192-238`）。
+  下钻「共 N 行」气泡写明它是**搜索框筛过**的行数且接口按上限截断；饼图百分比由 ECharts 按当前显示扇区算，
+  用图例隐掉一档后与后端 `status_pie.pct`（分母恒为全量站点）不再相等 —— 这句也写进 ⓘ，避免用户拿两边对账。
+
 - 口径与 Excel 报告 `Packet_Loss_Status_Output Automation` **完全一致**：`STATUS` 是 0~23 的标志块，最近 3 天同整点丢包均 >0.5% 记 1，全 0 为 OK；`FINAL_STATUS` 在 OK 时强制 `No Packet loss[<0.1]`，否则按 Last 1 day Max PL 五级分类（:3-5）。
 - 操作：`Switch` 控制是否包含 OK 站点（`include_ok`，:249）、Popover 显示口径说明、下钻 `GET /api/packet-loss-dashboard/drilldown?status=&limit=800`（:273）、拓扑叠加复用 `GET /api/gis/topology`（:224，该端点 2026-09-25 起读 `kml_mw_links`；本页线宽加粗按 KML 线色判定，见 10c）。
 - 接口：`/api/packet-loss-dashboard/overview`、`/map-sites`、`/drilldown`。
@@ -1402,7 +1443,7 @@ UME 侧 KPI 的采集结果：业务量、成功率、失败分因（系统侧 /
 - **能下钻尽下钻**（AGENTS.md 第三节 1b）：矩阵里每个可用率数字、以及顶部 2G/3G/4G 汇总卡都可点，
   弹窗内含 ① 近 30 期趋势（含阈值虚线）② 按日明细 ③ 按调度组的构成分解 ④「相关 TT 工单」页签。
 - **三条必须显示的口径事实**（后端以警告码返回，页面映射成黄色提示条，键见 `i18n.tsx` 的 `availMs.warn.*`）：
-  1. **区域 ALL ≠ 三区域相加**：未匹配 `Master_Site_Database` 的站点落在 `FME_Region IS NULL`
+  1. **区域 ALL ≠ 各区域相加**：未匹配 `Master_Site_Database` 的站点落在 `FME_Region IS NULL`
      （实测约占总分母 2.3%），已计入 ALL，末行单列 `UNMATCHED` 便于对账。该桶**不能下钻 TT**
      —— 派生库里没有那批站点的名单。
   2. **`4G FDD NERA` 是脏值**（仅 2025-12-24 ~ 2026-01-27 有 140 行）：计入制式 4G 总量，
@@ -1438,14 +1479,14 @@ UME 侧 KPI 的采集结果：业务量、成功率、失败分因（系统侧 /
   故另起一键 `availSum.explainRegionKpi`：区域卡 = 该区域**全部制式、全部站点类型**合计的
   `SUM(N)/SUM(D)`（`avail_flm_service.py` 的 `ms.cell(rows, prev, rk, None, None)`），
   不是几个制式数字再平均；且本页**没有 ALL 行**，未匹配站点不在任何区域卡里。
-  实测：Montserrado 2G 单元格气泡 `分子 262 / 分母 268`，与 `/api/avail-ms/matrix` 同格逐位相同。
+  实测（旧三区口径下留存的记录）：Montserrado 2G 单元格气泡 `分子 262 / 分母 268`，与 `/api/avail-ms/matrix` 同格逐位相同。
 - **两条与需求表不同的口径，均为 2026-09-28 与用户逐条确认**（要改回去之前先读这两条）：
-  1. **站点类型不做范围限制**。需求表写「North East 只有 Regular/Cool.i」「South West 只有
+  1. **站点类型不做范围限制**。需求表曾写「某区域只有 Regular/Cool.i」「另一区域只有
      Regular/ERA」，但两个数据源都不支持这个"不存在"：站点主数据 `master_site_db` 里
-     NE 有 123 个 ERA 站点（SW 有 22 个 Cool.i），派生库里 NE 的 ERA 分母 6.5 万、
-     SW 的 Cool.i 分母 1.2 万，与 Regular 同一量级。那是**业务适用范围**（FLM 只盯这几类站），
-     不是缺数据 —— 硬留空会让用户在 NE 行看不到 ERA，而同一批数据在 14m 里明明显示 91%。
-     故三个区域都显示三列，单元格为 `—` 只代表"本期确实没数据"。
+     被指为"只有 Regular/Cooli"的那个区域实际有 123 个 ERA 站点（另一区域有 22 个 Cool.i），
+     派生库里它的 ERA 分母 6.5 万、另一区域的 Cool.i 分母 1.2 万，与 Regular 同一量级。
+     那是**业务适用范围**（FLM 只盯这几类站），不是缺数据 —— 硬留空会让用户在那一行看不到 ERA，
+     而同一批数据在 14m 里明明显示 91%。故每个区域都显示全部列，单元格为 `—` 只代表"本期确实没数据"。
   2. **TT 列表列本期全部工单，不做"是否影响业务"判定**。`eflow_tt` 的
      `whether_impacted_service` 与 `site_outage` 在本期数据上**完全一致**
      （Yes 3502 / 空 78 / No 62，全量 3642），取任一列当"影响可用率"的判据，
@@ -1457,10 +1498,10 @@ UME 侧 KPI 的采集结果：业务量、成功率、失败分因（系统侧 /
   `区域 × 站点类型`（配**站点类型**走势图）。曲线复用 14m 的组件
   `frontend/src/pages/AvailTrend.tsx`。两张表都是"区域行"，若上下都画区域线就是同一张图
   看两遍，所以第二张改画站点类型线。`/trend` 在**后端先按本页的行列收窄**
-  （区域只剩三个 FLM 区域、站点类型不含 `Other`），收窄规则与建表的行列同源，图和表不会各说各话。
+  （区域只保留派生库当期真实出现的区域、站点类型不含 `Other`），收窄规则与建表的行列同源，图和表不会各说各话。
 - **末行 `UNMATCHED` 与 14m 的差别**：本页没有 `ALL` 行，故 14m 那条
-  "ALL ≠ 三区域相加"的说明码在这里**由后端剔除**，换成 `flm_unmatched_last_row`
-  （未匹配桶不在三个区域之内、也不画进曲线，单列出来只为对账；它同样不能下钻 TT）。
+  "ALL ≠ 各区域相加"的说明码在这里**由后端剔除**，换成 `flm_unmatched_last_row`
+  （未匹配桶不属于任何区域、也不画进曲线，单列出来只为对账；它同样不能下钻 TT）。
 - **页面级 TT 列表**：`/api/avail-flm/tt` 复用 14m 的 `level=tt` 实现，支持区域筛选。
   实测条数与体积：日 113 条（66KB / 374ms）、周 852 条（491KB）、月 3635 条
   （返回上限 2000，触发 `tt_truncated`；`tt_fetch_capped` 是读库安全上限）。月档上兆的 JSON
@@ -2513,7 +2554,19 @@ TT 复盘抽屉（`TtPostmortemPanel.tsx:693-710`）的红字
 
 ## 18. 数据总览（`?page=overview`）
 
-库里有多少表、每张表多少行的**体检页**。`GET /api/db/info`（`Overview.tsx:24`），Top10 规模排名，「行数」列可排序（:151）。**没有其它按钮**——它只回答"数据在不在、大不大"。
+库里有多少表、每张表多少行的**体检页**。`GET /api/db/info`（`Overview.tsx:24`），Top10 规模排名，「行数」列可排序（:151）。
+
+- **数字悬浮说明（2026-11-04，`AGENTS.md` 三.3c）**：四张卡的大数字接 `StatCard.explainText`、Top10 柱图与占比饼图标题加 ⓘ。
+  **本批顺带更正两条被写错的口径**（原文案与 `backend/routers/system.py:96-128` 不符，照抄会把错的解释讲给用户）：
+  ① `overview.explain.totalTables` 原写「排除 `sqlite_%` 内部表**及以 `_` 开头的表**」—— 实际只排 `sqlite_%`（`dialect_helpers.py:76-80`），
+  `_` 前缀表**仍在总数里**；② `overview.explain.coreTables` 原写「排除分析/归档/内部表」—— 卡片只滤 `_` 前缀，
+  `analysis_archive` / `uploaded_files` 是 **Top10 那一步**才排除的（`Overview.tsx:40-43`）。
+  实况写进气泡：行数**逐表 `SELECT COUNT(*)` 实测**相加（不是 `pg_class.reltuples` 估计），
+  实跑 PG 时取 `current_schemas(false)` 的 **BASE TABLE**（视图不计）、表名带 `app.` 这类 schema 前缀，
+  于是「不以 `_` 开头」几乎恒为真 → **核心表数 = 表总数**（实测两边都是 115），
+  并说明「Top10 之和 < 页头总行数」是排除内部表与归档表的结果，不是丢数。
+  Top10 的**筛选、排序、截断都在前端**做（接口下发的 `tables` 不排序也不截断），「核心表数」同理是前端计数 ——
+  这两处属合法的客户端聚合（对已下发行的操作，不是重算后端口径），气泡按此写明来源。**没有其它按钮**——它只回答"数据在不在、大不大"。
 
 - **导出 Excel**（`exportTables`，2026-09-27 新增）：表格卡右上角导出按钮，导的是**全部核心表**
   （过滤掉 `_` 前缀的内部表，按行数倒序），不是页面上只显示 Top10 的那两张图。
@@ -2557,6 +2610,19 @@ TT 复盘抽屉（`TtPostmortemPanel.tsx:693-710`）的红字
 - **联动筛选开关**（:320）：开启后点饼图/柱图即设置筛选，再点取消（:84,:328）。
 - 接口：`GET /api/tables`（:37）、`POST /api/analysis`（:56 生成、:72 归档）。
 - 用 `components/MetricExplain` 展示指标口径，页头同步标签来自 `useDataTimestamps`。
+- **数字悬浮说明（2026-11-04，`AGENTS.md` 三.3c）**：每张图表卡的标题都挂了一个按 `chart.type` **逐条字面量**映射的 ⓘ
+  （`dashboard.explain.pie|bar|line|radar|heat|other`，拼串会被 `check:i18n` 读成 `dashboard.explain.` 而报缺键）。
+  五条聚合式全部回 `backend/routers/analysis.py` 核实（改那边必须同步改文案）：
+  饼 = `value_counts().head(10)`（`:237`，**第 11 名及以后不进分母**，所以扇区的 100% 不等于「该列全部行数」）；
+  柱 = 类别 `groupby().mean()` 后 `dropna().head(15)`（`:271`，是均值不是和、不加权）；
+  折线 = 日期 `groupby().size()` 后 `tail(60)`（`:300`，纵轴是**行数计数**）；
+  雷达 = `100 − 空值率 − min(问题数×10, 50)`、负数截 0（`:309-310`，`null_rate` 见 `services/profiler.py:58`）—— **启发式质量分，不是业务达标率**；
+  热力 = `crosstab(...).head(15)` 的组合行数（`:324-331`、`:354-361`）。
+  **本页最重要的一条**（原先只写在代码注释里，现已进页头 ⓘ）：所有图都算在**最多 10000 行的样本**上 ——
+  后端取数是 `SELECT * FROM 表 LIMIT 10000`（`analysis.py:60`，**无 ORDER BY**，即按存储顺序的前 1 万行），
+  而下拉框里的「N rows」来自 `/api/tables` 的全表 `COUNT(*)`（`tables.py:209-223`），两者对不上是样本口径不是丢数。
+  另外两处如实标注：柱图/热力的 **0 有两种来源**（后端把 NaN 落成 0，`analysis.py:280`、`:331`）；
+  「联动筛选」只是**前端本地高亮**，点完不重新取数（`linkedFilter`），数字仍是全样本口径。
 
 ## 23. 系统设置（`?page=settings`）
 
@@ -3998,6 +4064,24 @@ Excel `BP Cells List` 的 `Cluster`/`Layer` 列有脏值（如数字 ID `'4593'`
 领先多少 / 优势在扩大还是在缩小」。这是本平台第一个**纯竞对（两家对比）**视角的页面，
 其余页面都是单方内部指标。
 
+- **数字悬浮说明（2026-11-04，`AGENTS.md` 三.3c）**：评分卡、四张关键指标卡（含 P50/P90 灰字与胜率）、
+  测试/设备两张计数卡、逐日与月度表的列头与单元格、趋势卡标题、下钻计数标签全部接入
+  `ExplainPopover` / `ExplainLabel`（键 `bms.explain.*` + `bms.tip.*`，中英两份）；
+  原先两处 `Tooltip title=`（权重、胜场天数）已删。口径逐条回 `bm_speedtest_caliber.py` / `bm_speedtest_service.py` 核实：
+  均值是 `AVG(原始列)` 按品牌分组的**等权平均，不含测试次数加权**（`_AGG_SQL:78-95`）；
+  P50/P90 是 `PERCENTILE_CONT(0.5/0.9) WITHIN GROUP`，**样本内插值**、不是数频数（`_PCT_SQL:99-121`）；
+  评分归一 = 速率类「自家÷较大者」、时延类「较小者÷自家」，权重 0.35/0.20/0.30/0.15 写死在 `caliber:88`，
+  **任一方缺数据的指标对两家都整项剔除并把权重让给其余项**（`score_brands:163-203`，所以分母可能不是 1.0）；
+  胜率分母是**该指标**两家都有数据的天数（`_win_stats:223-234`，四个指标各一套），
+  而页头「配对 / 未配对」两个数**只按下载指标判定**（`:235-238`）—— 两者不等是判据不同，气泡把这句写明；
+  月度值 = **日均值的算术平均**（`_monthly:263-303` 复用逐日结果，不是重新平均原始行），
+  月度胜者是**拿月值现场比的**，不等于「该月赢的天数更多的一方」。
+- **两处显示层修正（同批，未改后端数字）**：① 测试次数 / 设备数两张卡原先是 `?? 0`，
+  区间内该品牌完全无记录时会显示「0」——现按 `days` 判空显示 `—`（AGENTS.md 第六节第 6 条）；
+  ② 「总数」类气泡不再讲「占总量 {total} 的比例你自己心算」这类在该卡上读成自己占自己的话。
+  ⚠ 设备数 `SUM(device_count)` 是**逐行累加的设备-日量级**（同一台设备跨天重复计数），
+  不等于独立设备数 —— 这句写在 ⓘ 里，避免被当成用户数使用。
+
 ### 31.1 数据与口径
 
 | 项 | 值 |
@@ -4094,6 +4178,26 @@ MTN 胜 206 天；上传 ORANGE 194 / MTN 224；时延 ORANGE 胜 299 天。
 
 基于 `meta_data` 表，同时回答两个问题：①「Orange 与 MTN 谁的速率更高、领先多少」；
 ②「同时段网络侧 BP / 下行吞吐 / 上下行 PRB 利用率 / 流量 / RRC 用户数是什么水平」。
+
+- **数字悬浮说明（2026-11-04，`AGENTS.md` 三.3c）**：结论卡（含「领先 N 分」与胜场链接）、两家评分、
+  速率均值卡、区间卡、六张网络侧卡、趋势卡标题、下钻计数标签接入 `ExplainPopover` / `ExplainLabel`
+  （键 `bmm.explain.*` + `bmm.tip.*`，中英两份）。**网络侧卡原先用原生 `title={t(metricHintKey(k))}` 讲口径，已删**
+  （原生提示不可复制、不受主题管，违反三.3c）。
+- ⚠ **本批更正一条写反的口径文案**：`bmm.hint.bp` 中英两份都写着「BP 比率，越大越好 / higher is better」，
+  而 `bm_meta_caliber.py:77` 的判据是 `kind: 'lower'` —— BP 是**劣化小区占比，越小越好**。
+  这段文字同时出现在网络卡的气泡、趋势图下方的常显说明（`BmMeta.tsx:899`）与导出表头（`:503`），
+  也就是说**此前用户在三个地方看到的解释是反的**。已按代码改正两处字典；这条不改任何数字，只改解释。
+- 气泡里写清本页与 §31 的三点口径差异（都是核实后的事实，不是复述手册）：
+  ① **评分只由速率一项决定** —— `SCORE_WEIGHTS = {speed: 1.0}`（caliber:92），强者恒 100、
+  弱者按 `较小÷较大×100`、完全相等两家各记 50（`score_brands:139-179`），**网络侧 KPI 完全不参与 PK**；
+  ② **配对天数把平局排除在分母之外**（`bm_meta_service.py:209-213`：`paired = o_wins + m_wins`），
+  与 Speedtest 页「平局仍留在分母」（`bm_speedtest_service.py:223-233`）**方向相反**，两页数字不可直接互比；
+  ③ `days` 是 `COUNT(*)` 的**整表区间行数（两家同一个数）**，不是该家自己的有数据天数（`_agg_sql:104-118`，无 GROUP BY），
+  AVG/MIN/MAX 自动跳过 NULL。比率类列（BP / PRB）后端已 `×100`（`_display`/`_ratio:75-79,95-99`），页面只补百分号。
+- ⚠ 一处**已登记的取数顺序问题**（未改，改了会动下钻行数）：下钻是 `rows[:lim]` 先截断、
+  再在 Python 里按胜者 `continue` 过滤（`bm_meta_service.py:412-423`），且 `metric` 参数只做校验不进 WHERE（`:402-403`）——
+  所以区间行数超过 3000 时，胜日下钻的行数会少于卡片数字；本表一天一行，日常区间远不到上限。
+  气泡按这一条如实写明（而不是宣称「行数必相等」）。是否收到 SQL 里改，属改数字的业务决定，已列进 TODO 等用户点头。
 
 ### 32.1 与 §31 Speedtest 基准报告的关系（**不要合并**）
 

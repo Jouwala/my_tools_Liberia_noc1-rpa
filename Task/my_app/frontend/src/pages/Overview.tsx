@@ -116,6 +116,7 @@ export default function Overview() {
           <StatCard
             title={<>{t('overview.totalTables')} <ExplainIcon text={t('overview.explain.totalTables')} /></>}
             value={info.total_tables}
+            explainText={t('overview.tip.totalTables', { n: info.total_tables })}
             prefix={<TableOutlined />}
             accentColor={isDark ? '#00d9ff' : '#0d9488'}
           />
@@ -124,6 +125,7 @@ export default function Overview() {
           <StatCard
             title={<>{t('overview.totalRows')} <ExplainIcon text={t('overview.explain.totalRows')} /></>}
             value={info.total_rows}
+            explainText={t('overview.tip.totalRows', { n: info.total_rows })}
             prefix={<FieldNumberOutlined />}
             accentColor={isDark ? '#258cff' : '#0e7490'}
           />
@@ -132,6 +134,10 @@ export default function Overview() {
           <StatCard
             title={<>{t('overview.coreTables')} <ExplainIcon text={t('overview.explain.coreTables')} /></>}
             value={info.tables.filter(t => !t.name.startsWith('_')).length}
+            explainText={t('overview.tip.coreTables', {
+              core: info.tables.filter(t => !t.name.startsWith('_')).length,
+              all: info.total_tables,
+            })}
             prefix={<DatabaseOutlined />}
             accentColor={isDark ? '#7c8ff0' : '#6366f1'}
           />
@@ -140,6 +146,7 @@ export default function Overview() {
           <StatCard
             title={<>{t('overview.status')}</>}
             value={t('overview.statusOk')}
+            explainText={t('overview.tip.status')}
             prefix={<CheckCircleOutlined />}
             accentColor={isDark ? '#0bc78c' : '#15803d'}
           />
@@ -148,12 +155,12 @@ export default function Overview() {
 
       <Row gutter={[16, 16]} style={{ marginTop: 'var(--wh-space-md)' }}>
         <Col xs={24} lg={14}>
-          <Card title={<span style={{ color: WH.text, fontWeight: 600 }}>{t('overview.rankTitle')}</span>} style={cardStyle}>
+          <Card title={<span style={{ color: WH.text, fontWeight: 600 }}>{t('overview.rankTitle')} <ExplainIcon text={t('overview.explain.rank')} /></span>} style={cardStyle}>
             <ReactECharts option={barOption} style={{ height: 'clamp(16rem, 30vw, 22rem)' }} />
           </Card>
         </Col>
         <Col xs={24} lg={10}>
-          <Card title={<span style={{ color: WH.text, fontWeight: 600 }}>{t('overview.distTitle')}</span>} style={cardStyle}>
+          <Card title={<span style={{ color: WH.text, fontWeight: 600 }}>{t('overview.distTitle')} <ExplainIcon text={t('overview.explain.dist')} /></span>} style={cardStyle}>
             <ReactECharts option={pieOption} style={{ height: 'clamp(16rem, 30vw, 22rem)' }} />
           </Card>
         </Col>

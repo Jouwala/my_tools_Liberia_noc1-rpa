@@ -263,10 +263,29 @@
 
 ---
 
-## ⑥ 其余页面（未调研，实施前先按本页模板自查）
+## ⑥ 其余页面（2026-11-04 机器盘点：53 个非 iframe 页 − 30 个已做 = 23 个待判）
 
-`BatteryDashboard` / `BmMeta` / `BmSpeedtest` / `Dashboard` / `FmeRanking` / `GISMap` / `Overview` / `PacketLossDashboard`（已有自写 `MetricExplainPopover` 5 处，建议迁到统一组件）/ `PersonMap` / `PmExecutionAnalysis` / `VmaxUserQuery` / `NativeBoard` / `DataSync` / `EmailReports` / `TableBrowser` / `ApCenter` / `IssueFeedback` / `ImonitorScreen` / `ArchiveList`。
+**盘点办法**（可复跑，别凭记忆数）：`App.tsx` 的 `VALID_PAGES` 65 个 key → 去掉 `helpContent.ts` 的
+`PAGE_LIST` 里 `iframe:true` 的 12 个 → 53 个自研页；再按「组件文件（含同名子目录）是否出现
+`<ExplainPopover` 或 `explainText=`」判定完成度。①—⑤ 覆盖 30 个 key 后，剩 23 个。
 
-**判定「不适用」并直接跳过**（无「算出来的数字」，硬凑违反三.3c）：
-`AIModelSettings`、`CredentialSettings`、`DataUpload`、`EmailRecipientsSettings`、`Help`、`IssueFeedback`(仅计数，可只给一句)、`PortalLogin`、`RemoteHostSettings`、`Settings`、`WhatsAppSettings`。
-`DataSync`/`TableBrowser`/`ApCenter` 的数字是「行/任务计数」，气泡只写「统计的是当前筛选后的行数，不是全表」即可，不要编造聚合口径。
+| 组 | key | 判定 | 备注 |
+| --- | --- | --- | --- |
+| **⑥a 看板/报告族（✅ 已完成并实机验证，2026-11-04）** | `bm_speedtest`、`bm_meta`、`packet_loss`、`dashboard`、`overview` | 已接入 | 详见下节两页与手册 §13/§18/§22/§31/§32 条目 |
+| **⑥a 剩余（⛔ 卡在业务决定，不能自动做）** | `battery`、`fme_ranking` | **等用户决定** | 两页的数字是**前端整块重算**的：`BatteryDashboard.tsx:224-297` 自己算 8 张 KPI 卡 + 五种分布 + 告警计数，而 `/api/battery-dashboard/all` 已下发 `kpi`（`battery_dashboard.py:292-307`）、`dist`（`:310-343`）、`alarm_summary`（`:348-350`）**整块未被使用**；`FmeRanking.tsx:227-244,778-809` 自己排序取名次，且 **`wo_rank` 方向相反**（后端 `fme_ranking_service.py:257-262` 按 `wo_total` 升序、#1=最少；前端 `:231-233,792` 降序标 #1，与表列 `wo_rank` 冲突）。按后端字段改 = **可能改变界面数字**（均值保留位数 1 位 vs 后端 2 位也差），属业务口径决定 → 已停手等点头，不在本轮擅改 |
+| **⑥b 工具/查询族（待做，数字多为「筛过的行数」）** | `sync`（`DataSync.tsx:680` 状态统计卡）、`tables`（4 张 `Statistic` + 字段画像）、`vmax_user_query`（7 张卡）、`eflow_qa`（`:511` 的 `total ?? 0` 取不到显示 0，需改 `—`）、`ap_center`（5 张卡 + 百分号）、`feedback`（2 张计数卡） | 规格待写 | 这些数字是行/任务计数，气泡只写「统计的是当前筛选后的行数，不是全表」，**不要编造聚合口径** |
+| **⑥c 地图族（⚠ 与并发会话冲突，排最后）** | `gis`、`realtime_alarm`、`person` | 待做 | 对方正在改 `GISMap.tsx` / `gismap/SiteDrilldownDrawer.tsx`（抽屉里新加电源状态），必须等其提交后再动，且提交走 hunk 过滤 |
+| **⑥d 判定不适用** | `settings`、`portalLogin`、`archive`、`help` | 无「算出来的数字」 | 硬凑违反三.3c；`upload` 只有 `quality_score`（`DataUpload.tsx:94`，来自接口 `profile_summary`）→ 若要覆盖只需一处 ⓘ，不算整页工程 |
+| **并发会话在改，本轮不动** | `email_reports`（13 张 `Statistic`）、`ipt_power`（13 张卡） | 登记 | 对方未提交；`warehouse` / `imonitor` / `cxoDashboard` / `vmaxCxoDashboard*` / `mwRealTime` / `mwUmeTopology` / `incident_overview` / `ip_trace` / `alarmManagement` / `socTrendDashboard` 是 iframe 壳，豁免 |
+
+`PacketLossDashboard` 此前是**自写气泡**（`MetricExplainPopover` + 卡内联 `Popover` 两份），2026-11-04 已删除并迁到
+`components/MetricExplain`，同时把数字级气泡补上。`WarehouseDashboard` 是
+`<iframe src=public/warehouse-dashboard.html>`，数字不在 React DOM 里（三.3c 豁免 iframe）。若仍要做，只能改 `frontend/public/warehouse-dashboard.html` 本体。
+
+**盘点口径的两处更正**（本节早期版本写的与实测不符，以本表为准）：
+① 早期把 `DataUpload` 判成「不适用」，实际它有一处算出来的数字 —— `profile_summary.quality_score`
+（`DataUpload.tsx:94`，来自接口，不是前端算的），只需一个 ⓘ 就合规，归进 ⑥d 的「轻覆盖」。
+② 早期把 `IssueFeedback` 写成「仅计数，可只给一句」后放进跳过名单 —— 实测它有 2 张 `Statistic`
+（总数 + 三状态计数，`IssueFeedback.tsx:371-385`），是接口/前端聚合出来的数字，归进 ⑥b。
+`DataSync` / `TableBrowser` / `ApCenter` 沿用早期结论：数字是「行/任务计数」，
+气泡只写「统计的是当前筛选后的行数，不是全表」即可，**不要编造聚合口径**。

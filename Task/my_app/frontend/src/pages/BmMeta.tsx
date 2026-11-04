@@ -34,6 +34,8 @@ import ReactECharts from 'echarts-for-react'
 import { useI18n } from '../i18n'
 import { WH, useTheme, cardStyle, axisLabel, axisLine, darkTooltip, splitLine } from '../theme'
 import { CardBase, StatCard } from '../components/cards'
+// 数字悬浮说明（AGENTS.md 三.3c）：ⓘ 讲这一项的算法，气泡讲这一格的构成（一律取接口既有字段）
+import { ExplainLabel, ExplainPopover } from '../components/MetricExplain'
 import CalcChainNote from '../components/CalcChainNote'
 import DraggableClickModal from '../components/DraggableClickModal'
 import { exportReport } from '../utils/excelReport'
@@ -133,6 +135,11 @@ function numGrouped(v: unknown, nd = 0): string {
   const n = Number(v)
   if (!Number.isFinite(n)) return '—'
   return n.toLocaleString('en-US', { minimumFractionDigits: nd, maximumFractionDigits: nd })
+}
+
+/** 计数类（天数 / 胜场）：取不到显示 —，不得当成 0（AGENTS.md 第六节第 6 条） */
+function bmmCount(v: number | null | undefined): string {
+  return v == null ? '—' : String(v)
 }
 
 /** 按后端给的 unit 决定展示形式：ratio 已是百分数、count/GB 带千分位、其余保留 2 位 */
@@ -704,7 +711,8 @@ export default function BmMeta() {
           align="stretch" + Col 撑高 + 卡片 width:100%：三者缺一不可，否则同排不等高。 */}
       <Row gutter={[12, 12]} align="stretch" style={{ marginBottom: 12 }}>
         <Col xs={24} lg={12} xl={8} style={{ display: 'flex' }}>
-          <CardBase title={t('bmm.card.verdict')} level={verdict?.brand ? 'ok' : 'default'}
+          <CardBase title={<ExplainLabel label={t('bmm.card.verdict')} text={t('bmm.explain.verdict')} />}
+            level={verdict?.brand ? 'ok' : 'default'}
             style={{ width: '100%' }}>
             {verdict?.brand ? (
               /* 结论卡：奖杯徽章 + 领先方 + 分差 + 胜场胜率（可下钻），
@@ -734,24 +742,38 @@ export default function BmMeta() {
                   }}>
                     {t(brandLabelKey(verdict.brand))}
                   </div>
-                  <Text type="secondary" style={{ fontSize: 12 }}>
-                    {t('bmm.verdict.lead', { n: num(verdict.diff, 1) })}
-                  </Text>
+                  <ExplainPopover placement="bottom" text={t('bmm.tip.lead', {
+                    n: num(verdict.diff, 1),
+                    o: num(scores?.ORANGE?.score, 1), m: num(scores?.MTN?.score, 1),
+                  })}>
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                      {t('bmm.verdict.lead', { n: num(verdict.diff, 1) })}
+                    </Text>
+                  </ExplainPopover>
                   {/* 赢在哪：胜场对比，数字可点下钻，与其它区块口径一致 */}
                   <div style={{ marginTop: 4, fontSize: 12 }}>
-                    <a
-                      onClick={(e) => void openDrill(
-                        { metric: 'speed', winner: verdict.brand as BrandKey },
-                        `${t(brandLabelKey(verdict.brand as BrandKey))} · ${t('bmm.drill.winDays')}`,
-                        e,
-                      )}
-                    >
-                      {t('bmm.verdict.winDays', {
-                        w: String(verdict.brand === 'ORANGE' ? wins?.orange_wins ?? 0 : wins?.mtn_wins ?? 0),
-                        d: String(wins?.paired_days ?? 0),
-                        r: num((verdict.brand === 'ORANGE' ? wins?.orange_win_rate : wins?.mtn_win_rate) ?? 0, 1),
-                      })}
-                    </a>
+                    <ExplainPopover placement="bottom" text={t('bmm.tip.verdictWins', {
+                      brand: t(brandLabelKey(verdict.brand)),
+                      w: bmmCount(verdict.brand === 'ORANGE' ? wins?.orange_wins : wins?.mtn_wins),
+                      d: bmmCount(wins?.paired_days),
+                      r: num(verdict.brand === 'ORANGE' ? wins?.orange_win_rate : wins?.mtn_win_rate, 1),
+                      ties: bmmCount(wins?.ties),
+                      total: bmmCount(wins?.total_days),
+                    })}>
+                      <a
+                        onClick={(e) => void openDrill(
+                          { metric: 'speed', winner: verdict.brand as BrandKey },
+                          `${t(brandLabelKey(verdict.brand as BrandKey))} · ${t('bmm.drill.winDays')}`,
+                          e,
+                        )}
+                      >
+                        {t('bmm.verdict.winDays', {
+                          w: bmmCount(verdict.brand === 'ORANGE' ? wins?.orange_wins : wins?.mtn_wins),
+                          d: bmmCount(wins?.paired_days),
+                          r: num(verdict.brand === 'ORANGE' ? wins?.orange_win_rate : wins?.mtn_win_rate, 1),
+                        })}
+                      </a>
+                    </ExplainPopover>
                   </div>
                 </Col>
               </Row>
@@ -763,7 +785,7 @@ export default function BmMeta() {
 
         {/* 综合评分（两家并排），窄列下由上下双栏改为紧凑纵排以免挤压 */}
         <Col xs={24} lg={12} xl={4} style={{ display: 'flex' }}>
-          <CardBase title={t('bmm.card.scores')} style={{ width: '100%' }}>
+          <CardBase title={<ExplainLabel label={t('bmm.card.scores')} text={t('bmm.explain.scores')} />} style={{ width: '100%' }}>
             <Row gutter={8} align="stretch" style={{ height: '100%' }}>
               {(['ORANGE', 'MTN'] as BrandKey[]).map(b => (
                 <Col span={12} key={b} style={{ display: 'flex' }}>
@@ -781,12 +803,21 @@ export default function BmMeta() {
                     <div style={{ color: brandColor(b, isDark), fontWeight: 600, fontSize: 12 }}>
                       {t(brandLabelKey(b))}
                     </div>
-                    <div style={{ fontSize: 26, fontWeight: 700, lineHeight: 1.2 }}>
-                      {num(scores?.[b]?.score, 1)}
-                    </div>
+                    <ExplainPopover placement="bottom" text={t('bmm.tip.score', {
+                      brand: t(brandLabelKey(b)),
+                      score: num(scores?.[b]?.score, 1),
+                      other: num(scores?.[b === 'ORANGE' ? 'MTN' : 'ORANGE']?.score, 1),
+                      v: fmtByUnit(summary?.[b]?.speed, 'Mbps'),
+                      otherV: fmtByUnit(summary?.[b === 'ORANGE' ? 'MTN' : 'ORANGE']?.speed, 'Mbps'),
+                      w: bmmCount(b === 'ORANGE' ? wins?.orange_wins : wins?.mtn_wins),
+                    })}>
+                      <div style={{ fontSize: 26, fontWeight: 700, lineHeight: 1.2 }}>
+                        {num(scores?.[b]?.score, 1)}
+                      </div>
+                    </ExplainPopover>
                     <Text type="secondary" style={{ fontSize: 11 }}>
                       {t('bmm.card.winDaysShort', {
-                        w: String(b === 'ORANGE' ? wins?.orange_wins ?? 0 : wins?.mtn_wins ?? 0),
+                        w: bmmCount(b === 'ORANGE' ? wins?.orange_wins : wins?.mtn_wins),
                       })}
                     </Text>
                   </div>
@@ -800,19 +831,29 @@ export default function BmMeta() {
         {(['ORANGE', 'MTN'] as BrandKey[]).map(b => {
           const s = summary?.[b]
           const isLeader = speedLeader === b
-          const winCount = b === 'ORANGE' ? wins?.orange_wins ?? 0 : wins?.mtn_wins ?? 0
+          const winCount = b === 'ORANGE' ? wins?.orange_wins : wins?.mtn_wins
           return (
             <Col xs={24} sm={12} md={12} xl={4} key={`avg-${b}`} style={{ display: 'flex' }}>
               <StatCard
-                title={`${t(brandLabelKey(b))} · ${t('bmm.metric.speed')}`}
+                title={<ExplainLabel
+                  label={`${t(brandLabelKey(b))} · ${t('bmm.metric.speed')}`}
+                  text={t('bmm.explain.speed')}
+                />}
                 value={num(s?.speed)}
                 suffix="Mbps"
                 accentColor={brandColor(b, isDark)}
                 iconBg={brandColor(b, isDark)}
                 style={{ width: '100%' }}
+                explainText={t('bmm.tip.speed', {
+                  brand: t(brandLabelKey(b)),
+                  v: fmtByUnit(s?.speed, 'Mbps'),
+                  days: bmmCount(s?.days),
+                  min: num(s?.speed_min, 1), max: num(s?.speed_max, 1),
+                  other: fmtByUnit(summary?.[b === 'ORANGE' ? 'MTN' : 'ORANGE']?.speed, 'Mbps'),
+                })}
                 subText={isLeader
-                  ? `${t('bmm.card.leaderTag')} · ${t('bmm.card.winDaysShort', { w: String(winCount) })}`
-                  : t('bmm.card.winDaysShort', { w: String(winCount) })}
+                  ? `${t('bmm.card.leaderTag')} · ${t('bmm.card.winDaysShort', { w: bmmCount(winCount) })}`
+                  : t('bmm.card.winDaysShort', { w: bmmCount(winCount) })}
                 onClick={(e) => void openDrill(
                   { metric: 'speed', winner: b },
                   `${t(brandLabelKey(b))} · ${t('bmm.drill.winDays')}`,
@@ -825,8 +866,18 @@ export default function BmMeta() {
         {(['ORANGE', 'MTN'] as BrandKey[]).map(b => (
           <Col xs={24} sm={12} md={12} xl={4} key={`range-${b}`} style={{ display: 'flex' }}>
             <StatCard
-              title={`${t('bmm.card.rangeLabel')} (${t(brandLabelKey(b))})`}
+              title={<ExplainLabel
+                label={`${t('bmm.card.rangeLabel')} (${t(brandLabelKey(b))})`}
+                text={t('bmm.explain.range')}
+              />}
               value={`${num(summary?.[b]?.speed_min, 1)} ~ ${num(summary?.[b]?.speed_max, 1)}`}
+              explainText={t('bmm.tip.range', {
+                brand: t(brandLabelKey(b)),
+                min: num(summary?.[b]?.speed_min, 1),
+                max: num(summary?.[b]?.speed_max, 1),
+                avg: fmtByUnit(summary?.[b]?.speed, 'Mbps'),
+                days: bmmCount(summary?.[b]?.days),
+              })}
               accentColor={brandColor(b, isDark)}
               iconBg={brandColor(b, isDark)}
               style={{ width: '100%' }}
@@ -843,7 +894,8 @@ export default function BmMeta() {
         <Row gutter={[12, 12]} align="stretch">
           {NETWORK_KEYS.map(k => {
             const u = data?.filters.metrics.find(x => x.key === k)?.unit || ''
-            const v = data?.summary.network?.[k]
+            const net = data?.summary.network
+            const v = net?.[k]
             return (
               <Col xs={12} sm={8} lg={4} key={k} style={{ display: 'flex' }}>
                 <div
@@ -853,12 +905,22 @@ export default function BmMeta() {
                     // 等高：用 flex 纵向排列并让数值块占满剩余高度，指标名换行时也齐平
                     display: 'flex', flexDirection: 'column',
                   }}
-                  title={t(metricHintKey(k))}
                 >
                   <Text type="secondary" style={{ fontSize: 12 }}>{t(metricLabelKey(k))}</Text>
-                  <div style={{ fontSize: 18, fontWeight: 600, marginTop: 'auto', paddingTop: 2 }}>
-                    {fmtByUnit(v, u)}
-                  </div>
+                  {/* 原先这段口径文字挂在原生 title= 上（不可复制、不受主题管），换成统一气泡 */}
+                  <ExplainPopover placement="bottom" text={t('bmm.tip.network', {
+                    metric: t(metricLabelKey(k)),
+                    hint: t(metricHintKey(k)),
+                    v: fmtByUnit(v, u),
+                    min: fmtByUnit(net?.[`${k}_min`], u),
+                    max: fmtByUnit(net?.[`${k}_max`], u),
+                    days: bmmCount(net?.days),
+                    ratio: u === 'ratio' ? t('bmm.tip.ratioNote') : '',
+                  })}>
+                    <div style={{ fontSize: 18, fontWeight: 600, marginTop: 'auto', paddingTop: 2 }}>
+                      {fmtByUnit(v, u)}
+                    </div>
+                  </ExplainPopover>
                 </div>
               </Col>
             )
@@ -868,7 +930,7 @@ export default function BmMeta() {
 
       {/* ④ 趋势图：切指标（两家 PK / 网络侧 KPI）与滚动均值窗口 */}
       <CardBase
-        title={t('bmm.card.trend')}
+        title={<ExplainLabel label={t('bmm.card.trend')} text={t('bmm.explain.trend', { n: maWindow })} />}
         style={{ marginBottom: 12 }}
         extra={
           <Space wrap size={8}>
@@ -960,9 +1022,19 @@ export default function BmMeta() {
         {drillMeta?.truncated ? (
           <Alert
             type="warning" showIcon style={{ marginBottom: 8 }}
-            message={t('bmm.drill.truncated', { n: String(drillMeta.limit) })}
+            message={t('bmm.drill.truncated', { n: String(drillMeta.limit ?? '—') })}
           />
         ) : null}
+        {/* 行数说明：接口下发 returned / limit / truncated，如实展示，不在前端猜「本该有几行」 */}
+        <ExplainPopover placement="bottom" text={t('bmm.tip.drillCount', {
+          n: drillRows.length,
+          returned: String(drillMeta?.returned ?? drillRows.length),
+          limit: String(drillMeta?.limit ?? '—'),
+          range: `${drillMeta?.start ?? '—'} ~ ${drillMeta?.end ?? '—'}`,
+          truncated: drillMeta?.truncated ? t('bmm.tip.drillTruncated') : t('bmm.tip.drillFull'),
+        })}>
+          <Tag color="blue" style={{ marginBottom: 8 }}>{t('bmm.drill.rows', { n: drillRows.length })}</Tag>
+        </ExplainPopover>
         <Table<DetailRow>
           size="small"
           rowKey={(r) => `${r.day}-${r.winner ?? 'tie'}`}

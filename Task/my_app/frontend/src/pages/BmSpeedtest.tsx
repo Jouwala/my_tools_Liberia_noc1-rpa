@@ -20,7 +20,7 @@
  * ========================================================================== */
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Alert, Button, Col, DatePicker, Empty, Row, Segmented, Select, Space, Table, Tag, Tooltip, Typography } from 'antd'
+import { Alert, Button, Col, DatePicker, Empty, Row, Segmented, Select, Space, Table, Tag, Typography } from 'antd'
 import { DownloadOutlined, ReloadOutlined } from '@ant-design/icons'
 import dayjs, { Dayjs } from 'dayjs'
 import ReactECharts from 'echarts-for-react'
@@ -28,6 +28,8 @@ import ReactECharts from 'echarts-for-react'
 import { useI18n } from '../i18n'
 import { WH, useTheme, cardStyle, axisLabel, axisLine, darkTooltip, splitLine } from '../theme'
 import { CardBase, StatCard } from '../components/cards'
+// 数字悬浮说明（AGENTS.md 三.3c）：ⓘ 讲这一项的算法，气泡讲这一格的构成（全部取接口既有字段）
+import { ExplainLabel, ExplainPopover } from '../components/MetricExplain'
 import OoklaLogo from '../components/OoklaLogo'
 import DraggableClickModal from '../components/DraggableClickModal'
 import { exportAoaReport } from '../utils/excelReport'
@@ -138,6 +140,16 @@ const METRIC_UNIT: Record<MetricKey, string> = {
 }
 const METRIC_KIND: Record<MetricKey, 'speed' | 'latency'> = {
   download: 'speed', upload: 'speed', latency: 'latency', jitter: 'latency',
+}
+/** 原始列名（写进气泡当出处用）：口径层 `bm_speedtest_caliber.py` 的 METRICS.col */
+const METRIC_COL: Record<MetricKey, string> = {
+  download: 'download_speed_mbps', upload: 'upload_speed_mbps',
+  latency: 'multi_server_latency', jitter: 'multi_server_jitter',
+}
+
+/** 千分位整数：测试次数这类大数直接读原始位数容易看错 */
+function numGrouped(v: number | null | undefined): string {
+  return v == null ? '—' : v.toLocaleString()
 }
 
 /** 指标 i18n 键：显式 switch，不拼字符串 —— 拼出来的键会被 check:i18n 拦下 */
@@ -458,24 +470,53 @@ export default function BmSpeedtest() {
 
   /* ---- 逐日对决表列 ---- */
   const dailyColumns = useMemo(() => {
-    const pairCol = (metric: MetricKey) => [
-      {
-        title: `${t('bms.brand.orange')} ${t(metricLabelKey(metric))}`, key: `o_${metric}`, width: 108,
-        render: (_: unknown, r: DayRow) => <Text>{num((r as any)[`orange_${metric}`], metric === 'latency' ? 1 : 2)}</Text>,
-      },
-      {
-        title: `${t('bms.brand.mtn')} ${t(metricLabelKey(metric))}`, key: `m_${metric}`, width: 108,
-        render: (_: unknown, r: DayRow) => <Text>{num((r as any)[`mtn_${metric}`], metric === 'latency' ? 1 : 2)}</Text>,
-      },
-      {
-        title: `${t(metricLabelKey(metric))} ${t('bms.col.winner')}`, key: `w_${metric}`, width: 96,
-        render: (_: unknown, r: DayRow) => {
-          const w = (r as any)[`winner_${metric}`] as BrandKey | null
-          if (!w) return <Text type="secondary">—</Text>
-          return <Tag color={w === 'ORANGE' ? 'orange' : 'cyan'}>{t(brandLabelKey(w))}</Tag>
+    const pairCol = (metric: MetricKey) => {
+      const nd = metric === 'latency' ? 1 : 2
+      const headText = t('bms.explain.dailyVal', {
+        metric: t(metricLabelKey(metric)),
+        kind: METRIC_KIND[metric] === 'speed' ? t('bms.tip.kindHigher') : t('bms.tip.kindLower'),
+      })
+      return [
+        {
+          title: <ExplainLabel label={`${t('bms.brand.orange')} ${t(metricLabelKey(metric))}`} text={headText} />,
+          key: `o_${metric}`, width: 108,
+          render: (_: unknown, r: DayRow) => (
+            <ExplainPopover placement="bottom" text={t('bms.tip.dailyVal', {
+              brand: t('bms.brand.orange'), metric: t(metricLabelKey(metric)),
+              day: r.day, v: num((r as any)[`orange_${metric}`], nd),
+              tests: (r as any).orange_tests ?? 0,
+            })}>
+              <Text>{num((r as any)[`orange_${metric}`], nd)}</Text>
+            </ExplainPopover>
+          ),
         },
-      },
-    ]
+        {
+          title: <ExplainLabel label={`${t('bms.brand.mtn')} ${t(metricLabelKey(metric))}`} text={headText} />,
+          key: `m_${metric}`, width: 108,
+          render: (_: unknown, r: DayRow) => (
+            <ExplainPopover placement="bottom" text={t('bms.tip.dailyVal', {
+              brand: t('bms.brand.mtn'), metric: t(metricLabelKey(metric)),
+              day: r.day, v: num((r as any)[`mtn_${metric}`], nd),
+              tests: (r as any).mtn_tests ?? 0,
+            })}>
+              <Text>{num((r as any)[`mtn_${metric}`], nd)}</Text>
+            </ExplainPopover>
+          ),
+        },
+        {
+          title: <ExplainLabel
+            label={`${t(metricLabelKey(metric))} ${t('bms.col.winner')}`}
+            text={t('bms.explain.dailyWinner', { metric: t(metricLabelKey(metric)) })}
+          />,
+          key: `w_${metric}`, width: 96,
+          render: (_: unknown, r: DayRow) => {
+            const w = (r as any)[`winner_${metric}`] as BrandKey | null
+            if (!w) return <Text type="secondary">—</Text>
+            return <Tag color={w === 'ORANGE' ? 'orange' : 'cyan'}>{t(brandLabelKey(w))}</Tag>
+          },
+        },
+      ]
+    }
     return [
       {
         title: t('bms.col.day'), dataIndex: 'day', width: 104, fixed: 'left' as const,
@@ -491,15 +532,20 @@ export default function BmSpeedtest() {
       },
       ...pairCol('download'), ...pairCol('upload'), ...pairCol('latency'), ...pairCol('jitter'),
       {
-        title: t('bms.col.tests'), key: 'tests', width: 150,
+        title: <ExplainLabel label={t('bms.col.tests')} text={t('bms.explain.dailyTests')} />,
+        key: 'tests', width: 150,
         render: (_: unknown, r: DayRow) => (
-          <Button type="link" size="small" style={{ padding: 0 }}
-            onClick={e => void openDrill({
-              title: `${r.day} · ${t('bms.col.tests')}`,
-              at: { x: e.clientX, y: e.clientY }, day: r.day,
-            })}>
-            {`${r.orange_tests} / ${r.mtn_tests}`}
-          </Button>
+          <ExplainPopover placement="bottom" text={t('bms.tip.dailyTests', {
+            day: r.day, o: r.orange_tests, m: r.mtn_tests,
+          })}>
+            <Button type="link" size="small" style={{ padding: 0 }}
+              onClick={e => void openDrill({
+                title: `${r.day} · ${t('bms.col.tests')}`,
+                at: { x: e.clientX, y: e.clientY }, day: r.day,
+              })}>
+              {`${r.orange_tests} / ${r.mtn_tests}`}
+            </Button>
+          </ExplainPopover>
         ),
       },
     ]
@@ -509,21 +555,52 @@ export default function BmSpeedtest() {
   const monthlyColumns = useMemo(() => {
     const cols: any[] = [
       { title: t('bms.col.month'), dataIndex: 'ym', width: 96, fixed: 'left' },
-      { title: t('bms.col.days'), dataIndex: 'days', width: 76 },
+      {
+        title: <ExplainLabel label={t('bms.col.days')} text={t('bms.explain.monthlyDays')} />,
+        dataIndex: 'days', width: 76,
+      },
     ]
     const metrics: MetricKey[] = ['download', 'upload', 'latency', 'jitter']
     for (const m of metrics) {
       const nd = m === 'latency' ? 1 : 2
       cols.push({
-        title: `${t('bms.brand.orange')} ${t(metricLabelKey(m))}`, key: `o_${m}`, width: 104,
-        render: (_: unknown, r: MonthRow) => num((r as any)[`orange_${m}`], nd),
+        title: <ExplainLabel
+          label={`${t('bms.brand.orange')} ${t(metricLabelKey(m))}`}
+          text={t('bms.explain.monthlyVal', { metric: t(metricLabelKey(m)), kind: METRIC_KIND[m] === 'speed' ? t('bms.tip.kindHigher') : t('bms.tip.kindLower') })}
+        />,
+        key: `o_${m}`, width: 104,
+        render: (_: unknown, r: MonthRow) => (
+          <ExplainPopover placement="bottom" text={t('bms.tip.monthlyVal', {
+            brand: t('bms.brand.orange'), metric: t(metricLabelKey(m)),
+            ym: r.ym, days: (r as any).days, v: num((r as any)[`orange_${m}`], nd),
+            tests: numGrouped((r as any).orange_tests),
+          })}>
+            {num((r as any)[`orange_${m}`], nd)}
+          </ExplainPopover>
+        ),
       })
       cols.push({
-        title: `${t('bms.brand.mtn')} ${t(metricLabelKey(m))}`, key: `m_${m}`, width: 104,
-        render: (_: unknown, r: MonthRow) => num((r as any)[`mtn_${m}`], nd),
+        title: <ExplainLabel
+          label={`${t('bms.brand.mtn')} ${t(metricLabelKey(m))}`}
+          text={t('bms.explain.monthlyVal', { metric: t(metricLabelKey(m)), kind: METRIC_KIND[m] === 'speed' ? t('bms.tip.kindHigher') : t('bms.tip.kindLower') })}
+        />,
+        key: `m_${m}`, width: 104,
+        render: (_: unknown, r: MonthRow) => (
+          <ExplainPopover placement="bottom" text={t('bms.tip.monthlyVal', {
+            brand: t('bms.brand.mtn'), metric: t(metricLabelKey(m)),
+            ym: r.ym, days: (r as any).days, v: num((r as any)[`mtn_${m}`], nd),
+            tests: numGrouped((r as any).mtn_tests),
+          })}>
+            {num((r as any)[`mtn_${m}`], nd)}
+          </ExplainPopover>
+        ),
       })
       cols.push({
-        title: `${t(metricLabelKey(m))} ${t('bms.col.winner')}`, key: `w_${m}`, width: 92,
+        title: <ExplainLabel
+          label={`${t(metricLabelKey(m))} ${t('bms.col.winner')}`}
+          text={t('bms.explain.monthlyWinner', { metric: t(metricLabelKey(m)) })}
+        />,
+        key: `w_${m}`, width: 92,
         render: (_: unknown, r: MonthRow) => {
           const w = (r as any)[`winner_${m}`] as BrandKey | null
           if (!w) return <Text type="secondary">—</Text>
@@ -605,13 +682,21 @@ export default function BmSpeedtest() {
         </Space>
         {data?.meta && (
           <div style={{ marginTop: 8 }}>
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              {t('bms.rangeHint', {
-                from: data.meta.data_min_date || '—',
-                to: data.meta.data_max_date || '—',
-                rows: data.meta.row_count,
-              })}
-            </Text>
+            <ExplainPopover placement="bottom" text={t('bms.tip.meta', {
+              rows: data.meta.row_count,
+              from: data.meta.data_min_date || '—',
+              to: data.meta.data_max_date || '—',
+              start: start?.format('YYYY-MM-DD') || '—',
+              end: end?.add(1, 'day').format('YYYY-MM-DD') || '—',
+            })}>
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                {t('bms.rangeHint', {
+                  from: data.meta.data_min_date || '—',
+                  to: data.meta.data_max_date || '—',
+                  rows: data.meta.row_count,
+                })}
+              </Text>
+            </ExplainPopover>
           </div>
         )}
       </CardBase>
@@ -635,7 +720,7 @@ export default function BmSpeedtest() {
 
       {/* ② 综合竞争力评分 —— 全页结论 */}
       {scores && (
-        <CardBase title={t('bms.score.title')} extra={
+        <CardBase title={<ExplainLabel label={t('bms.score.title')} text={t('bms.explain.score')} />} extra={
           <Text type="secondary" style={{ fontSize: 12 }}>{t('bms.score.hint')}</Text>
         }>
           <Row gutter={[12, 12]}>
@@ -651,14 +736,35 @@ export default function BmSpeedtest() {
                         {isWin && <Tag color="green">{t('bms.score.leading')}</Tag>}
                       </Space>
                       <Space align="baseline">
-                        <Text strong style={{ fontSize: 30 }}>{num(s.score, 1)}</Text>
+                        <ExplainPopover placement="bottom" text={t('bms.tip.score', {
+                          brand: t(brandLabelKey(b)),
+                          score: num(s.score, 1),
+                          other: num(scores[b === 'ORANGE' ? 'MTN' : 'ORANGE']?.score, 1),
+                          wD: Math.round((data?.score_weights?.download || 0) * 100),
+                          wU: Math.round((data?.score_weights?.upload || 0) * 100),
+                          wL: Math.round((data?.score_weights?.latency || 0) * 100),
+                          wJ: Math.round((data?.score_weights?.jitter || 0) * 100),
+                        })}>
+                          <Text strong style={{ fontSize: 30 }}>{num(s.score, 1)}</Text>
+                        </ExplainPopover>
                         <Text type="secondary">{t('bms.score.unit')}</Text>
                       </Space>
                       <Space wrap size={4}>
                         {(['download', 'upload', 'latency', 'jitter'] as MetricKey[]).map(m => (
-                          <Tooltip key={m} title={`${t(metricLabelKey(m))} · ${t('bms.score.weight')} ${Math.round((data?.score_weights?.[m] || 0) * 100)}%`}>
+                          <ExplainPopover key={m} placement="bottom" text={t(
+                            // 归一方向不同（速率÷较大者、时延÷自家），所以两套文案，不塞同一个占位符
+                            METRIC_KIND[m] === 'speed' ? 'bms.tip.scorePartSpeed' : 'bms.tip.scorePartLat',
+                            {
+                              brand: t(brandLabelKey(b)),
+                              metric: t(metricLabelKey(m)),
+                              part: num(s.parts?.[m], 0),
+                              weight: Math.round((data?.score_weights?.[m] || 0) * 100),
+                              v: num(summary?.[b]?.[m], METRIC_KIND[m] === 'latency' ? 1 : 2),
+                              unit: METRIC_UNIT[m],
+                              other: num(summary?.[b === 'ORANGE' ? 'MTN' : 'ORANGE']?.[m], METRIC_KIND[m] === 'latency' ? 1 : 2),
+                            })}>
                             <Tag>{`${t(metricLabelKey(m))} ${num(s.parts?.[m], 0)}`}</Tag>
-                          </Tooltip>
+                          </ExplainPopover>
                         ))}
                       </Space>
                     </Space>
@@ -669,14 +775,18 @@ export default function BmSpeedtest() {
           </Row>
           {verdict && (
             <div style={{ marginTop: 10 }}>
-              <Text>
-                {verdict.brand
-                  ? t('bms.score.verdict', {
-                      brand: t(brandLabelKey(verdict.brand)),
-                      diff: verdict.diff.toFixed(1),
-                    })
-                  : t('bms.score.tie')}
-              </Text>
+              <ExplainPopover placement="top" text={verdict.brand
+                ? t('bms.tip.verdict', { diff: verdict.diff.toFixed(1) })
+                : t('bms.tip.tie')}>
+                <Text>
+                  {verdict.brand
+                    ? t('bms.score.verdict', {
+                        brand: t(brandLabelKey(verdict.brand)),
+                        diff: verdict.diff.toFixed(1),
+                      })
+                    : t('bms.score.tie')}
+                </Text>
+              </ExplainPopover>
             </div>
           )}
         </CardBase>
@@ -707,28 +817,56 @@ export default function BmSpeedtest() {
                   <CardBase as="div" interactive={false}>
                     <Space direction="vertical" size={6} style={{ width: '100%' }}>
                       <Space>
-                        <Text strong>{t(metricLabelKey(m))}</Text>
+                        <ExplainLabel
+                          label={<Text strong>{t(metricLabelKey(m))}</Text>}
+                          text={t('bms.explain.kpi', {
+                            col: METRIC_COL[m], unit,
+                            kind: METRIC_KIND[m] === 'speed' ? t('bms.tip.kindHigher') : t('bms.tip.kindLower'),
+                          })}
+                        />
                         <Text type="secondary" style={{ fontSize: 12 }}>{unit}</Text>
-                        {leader && <Tag color={leader === 'ORANGE' ? 'orange' : 'cyan'}>
-                          {t('bms.kpi.lead', { brand: t(brandLabelKey(leader)) })}
-                        </Tag>}
+                        {leader && <ExplainPopover placement="bottom" text={t('bms.tip.lead', {
+                          brand: t(brandLabelKey(leader)),
+                          kind: METRIC_KIND[m] === 'speed' ? t('bms.tip.kindHigher') : t('bms.tip.kindLower'),
+                        })}>
+                          <Tag color={leader === 'ORANGE' ? 'orange' : 'cyan'}>
+                            {t('bms.kpi.lead', { brand: t(brandLabelKey(leader)) })}
+                          </Tag>
+                        </ExplainPopover>}
                       </Space>
                       {(['ORANGE', 'MTN'] as BrandKey[]).map(b => {
                         const v = b === 'ORANGE' ? o : mt
                         const isLead = leader === b
+                        const row = summary[b]
                         return (
                           <Space key={b} style={{ width: '100%', justifyContent: 'space-between' }}>
                             <Tag color={b === 'ORANGE' ? 'orange' : 'cyan'}>{t(brandLabelKey(b))}</Tag>
-                            <Button
-                              type="link" size="small" style={{ padding: 0, fontWeight: isLead ? 700 : 400 }}
-                              onClick={e => clickCard(m, b, { x: e.clientX, y: e.clientY })}
-                            >{num(v, nd)}</Button>
-                            <Text type="secondary" style={{ fontSize: 12 }}>
-                              {t('bms.kpi.p50p90', {
-                                p50: num(summary[b]?.pcts?.[m]?.p50, nd),
-                                p90: num(summary[b]?.pcts?.[m]?.p90, nd),
-                              })}
-                            </Text>
+                            <ExplainPopover placement="bottom" text={t('bms.tip.kpi', {
+                              brand: t(brandLabelKey(b)), metric: t(metricLabelKey(m)),
+                              v: num(v, nd), unit,
+                              days: row?.days ?? 0,
+                              from: fmt(row?.first_day), to: fmt(row?.last_day),
+                              min: num(row?.[`${m}_min`], nd), max: num(row?.[`${m}_max`], nd),
+                              tests: numGrouped(row?.tests),
+                            })}>
+                              <Button
+                                type="link" size="small" style={{ padding: 0, fontWeight: isLead ? 700 : 400 }}
+                                onClick={e => clickCard(m, b, { x: e.clientX, y: e.clientY })}
+                              >{num(v, nd)}</Button>
+                            </ExplainPopover>
+                            <ExplainPopover placement="bottom" text={t('bms.tip.p50p90', {
+                              brand: t(brandLabelKey(b)), metric: t(metricLabelKey(m)),
+                              p50: num(summary[b]?.pcts?.[m]?.p50, nd),
+                              p90: num(summary[b]?.pcts?.[m]?.p90, nd),
+                              days: row?.days ?? 0, unit,
+                            })}>
+                              <Text type="secondary" style={{ fontSize: 12 }}>
+                                {t('bms.kpi.p50p90', {
+                                  p50: num(summary[b]?.pcts?.[m]?.p50, nd),
+                                  p90: num(summary[b]?.pcts?.[m]?.p90, nd),
+                                })}
+                              </Text>
+                            </ExplainPopover>
                           </Space>
                         )
                       })}
@@ -753,7 +891,11 @@ export default function BmSpeedtest() {
                             const w = b === 'ORANGE' ? cell?.orange_wins : cell?.mtn_wins
                             const rate = b === 'ORANGE' ? cell?.orange_win_rate : cell?.mtn_win_rate
                             return (
-                              <Tooltip key={b} title={t('bms.kpi.winTip', { n: w ?? 0 })}>
+                              <ExplainPopover key={b} placement="bottom" text={t('bms.tip.winRate', {
+                                brand: t(brandLabelKey(b)), metric: t(metricLabelKey(m)),
+                                n: w == null ? '—' : w, rate: num(rate, 1),
+                                paired: cell?.paired_days ?? 0, ties: cell?.ties ?? 0,
+                              })}>
                                 <Button
                                   type="link" size="small" style={{ padding: 0, height: 'auto', fontSize: 12 }}
                                   onClick={e => void openDrill({
@@ -761,7 +903,7 @@ export default function BmSpeedtest() {
                                     at: { x: e.clientX, y: e.clientY }, metric: m, winner: b,
                                   })}
                                 >{`${t(brandLabelKey(b))} ${num(rate, 1)}%`}</Button>
-                              </Tooltip>
+                              </ExplainPopover>
                             )
                           })}
                         </Space>
@@ -776,17 +918,44 @@ export default function BmSpeedtest() {
         </CardBase>
       )}
 
-      {/* ④ 测试量与样本量对比（数据可信度） */}
+      {/* ④ 测试量与样本量对比（数据可信度）
+          两家都没有记录时后端补的是「空壳」（tests 落 0），所以这里用 days 判空：
+          区间内一行都没有 → 显示 —，避免把「没测」读成「测了 0 次」（AGENTS.md 第六节第 6 条）。 */}
       {summary && (
         <Row gutter={[12, 12]}>
           {(['ORANGE', 'MTN'] as BrandKey[]).map(b => (
             <Col xs={24} sm={12} lg={6} key={`t-${b}`}>
-              <StatCard title={`${t(brandLabelKey(b))} · ${t('bms.col.tests')}`} value={summary[b]?.tests ?? 0} />
+              <StatCard
+                title={<ExplainLabel
+                  label={`${t(brandLabelKey(b))} · ${t('bms.col.tests')}`}
+                  text={t('bms.explain.tests')}
+                />}
+                value={summary[b]?.days ? numGrouped(summary[b]?.tests) : '—'}
+                explainText={t('bms.tip.tests', {
+                  brand: t(brandLabelKey(b)),
+                  tests: numGrouped(summary[b]?.tests),
+                  samples: numGrouped(summary[b]?.samples),
+                  days: summary[b]?.days ?? 0,
+                  perDay: num(summary[b]?.tests_per_day, 1),
+                  from: fmt(summary[b]?.first_day), to: fmt(summary[b]?.last_day),
+                })}
+              />
             </Col>
           ))}
           {(['ORANGE', 'MTN'] as BrandKey[]).map(b => (
             <Col xs={24} sm={12} lg={6} key={`d-${b}`}>
-              <StatCard title={`${t(brandLabelKey(b))} · ${t('bms.col.devices')}`} value={summary[b]?.devices ?? 0} />
+              <StatCard
+                title={<ExplainLabel
+                  label={`${t(brandLabelKey(b))} · ${t('bms.col.devices')}`}
+                  text={t('bms.explain.devices')}
+                />}
+                value={summary[b]?.days ? numGrouped(summary[b]?.devices) : '—'}
+                explainText={t('bms.tip.devices', {
+                  devices: numGrouped(summary[b]?.devices),
+                  tests: numGrouped(summary[b]?.tests),
+                  days: summary[b]?.days ?? 0,
+                })}
+              />
             </Col>
           ))}
         </Row>
@@ -794,7 +963,7 @@ export default function BmSpeedtest() {
 
       {/* ⑤ 趋势图：指标切换（分段控件）+ 滚动均值窗口 */}
       <CardBase
-        title={t('bms.trend.title')}
+        title={<ExplainLabel label={t('bms.trend.title')} text={t('bms.explain.trend', { n: maWindow })} />}
         extra={
           <Space wrap>
             <Segmented
@@ -829,10 +998,14 @@ export default function BmSpeedtest() {
 
       {/* ⑥ 胜负统计汇总：四条指标各自的胜场数，均可点 */}
       {wins && (
-        <CardBase title={t('bms.wins.title')} extra={
-          <Text type="secondary" style={{ fontSize: 12 }}>
-            {t('bms.wins.hint', { paired: wins.paired_days, unpaired: wins.unpaired_days })}
-          </Text>
+        <CardBase title={<ExplainLabel label={t('bms.wins.title')} text={t('bms.explain.wins')} />} extra={
+          <ExplainPopover placement="bottom" text={t('bms.tip.winsHint', {
+            paired: wins.paired_days, unpaired: wins.unpaired_days, total: wins.total_days,
+          })}>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              {t('bms.wins.hint', { paired: wins.paired_days, unpaired: wins.unpaired_days })}
+            </Text>
+          </ExplainPopover>
         }>
           <Row gutter={[12, 12]}>
             {(['download', 'upload', 'latency', 'jitter'] as MetricKey[]).map(m => {
@@ -842,28 +1015,43 @@ export default function BmSpeedtest() {
                 <Col xs={24} sm={12} xl={6} key={m}>
                   <CardBase as="div" interactive={false}>
                     <Space direction="vertical" size={4} style={{ width: '100%' }}>
-                      <Text strong>{t(metricLabelKey(m))}</Text>
+                      <ExplainLabel
+                        label={<Text strong>{t(metricLabelKey(m))}</Text>}
+                        text={t('bms.explain.winMetric', {
+                          metric: t(metricLabelKey(m)), paired: c.paired_days, ties: c.ties,
+                          kind: METRIC_KIND[m] === 'speed' ? t('bms.tip.kindHigher') : t('bms.tip.kindLower'),
+                        })}
+                      />
                       <Space size={12} wrap>
                         {(['ORANGE', 'MTN'] as BrandKey[]).map(b => {
                           const n = b === 'ORANGE' ? c.orange_wins : c.mtn_wins
                           const rate = b === 'ORANGE' ? c.orange_win_rate : c.mtn_win_rate
                           return (
-                            <Button key={b} type="link" style={{ padding: 0, height: 'auto' }}
-                              onClick={e => void openDrill({
-                                title: `${t(brandLabelKey(b))} · ${t(metricLabelKey(m))} · ${t('bms.drill.winTitle')}`,
-                                at: { x: e.clientX, y: e.clientY }, metric: m, winner: b,
-                              })}>
-                              <Space direction="vertical" size={0} align="start">
-                                <Text style={{ fontSize: 12 }} type="secondary">{t(brandLabelKey(b))}</Text>
-                                <Text strong style={{ color: brandColor(b, isDark) }}>
-                                  {t('bms.wins.days', { n, rate: num(rate, 1) })}
-                                </Text>
-                              </Space>
-                            </Button>
+                            <ExplainPopover key={b} placement="bottom" text={t('bms.tip.winDays', {
+                              brand: t(brandLabelKey(b)), metric: t(metricLabelKey(m)),
+                              n, rate: num(rate, 1), paired: c.paired_days, ties: c.ties,
+                            })}>
+                              <Button type="link" style={{ padding: 0, height: 'auto' }}
+                                onClick={e => void openDrill({
+                                  title: `${t(brandLabelKey(b))} · ${t(metricLabelKey(m))} · ${t('bms.drill.winTitle')}`,
+                                  at: { x: e.clientX, y: e.clientY }, metric: m, winner: b,
+                                })}>
+                                <Space direction="vertical" size={0} align="start">
+                                  <Text style={{ fontSize: 12 }} type="secondary">{t(brandLabelKey(b))}</Text>
+                                  <Text strong style={{ color: brandColor(b, isDark) }}>
+                                    {t('bms.wins.days', { n, rate: num(rate, 1) })}
+                                  </Text>
+                                </Space>
+                              </Button>
+                            </ExplainPopover>
                           )
                         })}
                       </Space>
-                      {!!c.ties && <Text type="secondary" style={{ fontSize: 12 }}>{t('bms.wins.ties', { n: c.ties })}</Text>}
+                      {!!c.ties && (
+                        <ExplainPopover placement="bottom" text={t('bms.tip.ties', { n: c.ties, paired: c.paired_days })}>
+                          <Text type="secondary" style={{ fontSize: 12 }}>{t('bms.wins.ties', { n: c.ties })}</Text>
+                        </ExplainPopover>
+                      )}
                     </Space>
                   </CardBase>
                 </Col>
@@ -909,7 +1097,13 @@ export default function BmSpeedtest() {
       {/* ⑨ 下钻弹窗 */}
       <DraggableClickModal open={open} title={drillTitle} anchor={anchor} onClose={() => setOpen(false)}>
         <Space wrap style={{ marginBottom: 'var(--wh-space-sm)' }}>
-          <Tag color="blue">{t('bms.drill.count', { n: drillRows.length })}</Tag>
+          <ExplainPopover placement="bottom" text={t('bms.tip.drillCount', {
+            n: drillRows.length,
+            limit: (drillMeta as any)?.limit ?? 3000,
+            truncated: (drillMeta as any)?.truncated ? t('bms.tip.drillTruncated') : t('bms.tip.drillFull'),
+          })}>
+            <Tag color="blue">{t('bms.drill.count', { n: drillRows.length })}</Tag>
+          </ExplainPopover>
           {drillLoading && <Text type="secondary">{t('bms.loading')}</Text>}
           {!!(drillMeta as any)?.truncated && (
             <Tag color="orange">{t('bms.drill.truncated', { limit: (drillMeta as any)?.limit ?? 3000 })}</Tag>

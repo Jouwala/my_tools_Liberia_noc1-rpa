@@ -398,7 +398,11 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
     },
     packet_loss: {
       desc: 'LTE 丢包看板（RAN UME SDR / IPRAN IPPD）：最近 7 个完整自然日、小时粒度，当天没过完不展示。',
-      usage: ['口径与 Packet_Loss 自动化 Excel 报告完全一致；Popover 可查看口径说明', 'Switch 控制是否包含 OK 站点；支持下钻明细与拓扑叠加'],
+      usage: ['口径与 Packet_Loss 自动化 Excel 报告完全一致；Popover 可查看口径说明', 'Switch 控制是否包含 OK 站点；支持下钻明细与拓扑叠加',
+        '**每个数字都能悬浮看算法**（2026-11-04）：六张状态卡的 ⓘ 与数字气泡同源（判据在采集层落的 FinalStatus：STATUS≠OK 且 Last 1 day Max PL ≥5 / [1,5) / [0.5,1) / [0.1,0.5) 分别是 Critical/Major/Minor/Warning，STATUS=OK 强制归一为 No Packet loss），页头 Affected Sites / 粒度标签也挂了气泡',
+        '三处最容易核对不上的地方直接写进气泡：**状态饼图含无坐标站点、区域柱图只统计非 OK（含 Minor/Warning）、顶部 Affected Sites 只是 Critical + Major** —— 三个集合不同，数字不该互相对账',
+        '每日趋势的中位数**只取当天 >0 的读数**（逐小时丢包约 59% 是 0，全量取中位会被压成 0 失去意义）；而 Top 站点用的是**含 0 的每站点中位**（否则「半天全断」与「整天全断」同为 100，失去区分度）—— 同名「中位数」两种口径，气泡各写各的',
+        '本页原先有两份自写气泡（复制按钮、主题色、强调渲染各自一套），已删除并统一走 `components/MetricExplain`；下钻「共 N 行」气泡写明它是搜索框筛过的行数、接口按上限截断'],
     },
     battery: {
       desc: '站点电池健康度 / SOC / 充放电状态与告警明细。',
@@ -608,6 +612,9 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
         '逐日曲线超过 400 天时图上只画最近 400 天，页面会有黄色提示条，完整逐日数据看下方表格或导出 Excel',
         '数据里 location / device / 制式 / 聚合方式都只有一个有效取值（全国 / cellular / median），所以**这四个维度没有筛选器**，不是漏做',
         '取不到数据显示「—」而不是 0；导出统一走页面右上角与各卡片的「导出 Excel」',
+        '**每个数字都能悬浮看算法**（2026-11-04）：评分卡的 ⓘ 写明归一与加权公式（速率类 自家÷较大者、时延类 较小者÷自家，权重 0.35/0.20/0.30/0.15 写死在后端 caliber），大数字、单项分标签、胜率、P50/P90 全部挂气泡；**分位数是 `PERCENTILE_CONT` 在样本内插值**，不是数频数',
+        '两处最容易核对不上的地方写在气泡里：均值是**各行的等权平均，不按测试次数加权**；页头「共 N 行」是 **speedtest_data 全表行数**（接口原值），不是本区间过滤后的行数',
+        '「测试次数 / 设备数」两张卡改成区间无记录时显示 —（此前是 `?? 0`，会把没测显示成 0）；设备数是**逐行累加的设备-日量级**，同一台设备跨天会被重复计数，不等于独立设备数',
       ],
     },
     bm_meta: {
@@ -622,6 +629,10 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
         'BP 与上下行 PRB 利用率在库里是**小数比率**（如 0.1956），页面统一换算成百分数显示（19.56%）；胜负与评分用原始比率算，不受显示换算影响',
         '流量（GB）与 RRC 用户数带千分位显示；取不到数据显示「—」而不是 0',
         '导出 Excel 含三张 sheet（汇总 / 月度对比 / 逐日明细），汇总 sheet 里两家 PK 与网络侧 KPI 分组列示，避免被读成同一件事',
+        '**每个数字都能悬浮看算法**（2026-11-04）：结论/评分/速率/区间/网络侧六组数字全部接入 ⓘ 与气泡，网络卡的**原生 `title=` 已删**（不可复制、不受主题管）',
+        '一条被写反的口径已更正：BP 比率原先在 `bmm.hint.bp` 里写成「越大越好」，而 caliber 判据是 `kind: lower`（BP 是劣化小区占比，越小越好）中文与英文两份字典都已改，这条文字同时出现在趋势下方与导出表头',
+        '两张卡说明了本页与 Speedtest 页的三点不同：**评分只由速率一项决定**（`SCORE_WEIGHTS = {speed: 1.0}`，网络侧 KPI 不参与 PK）；**配对天数把平局排除在分母外**（Speedtest 页把平局留在分母）；`days` 是整表在区间内的行数（两家同一个数），不是该家自己的有数据天数',
+        '下钻「先按 3000 行上限取数、再在 Python 里筛胜者」（`bm_meta_service.py:419-423`）：区间行数不超过上限时行数与卡片相等，超过才会偏少，气泡按这一条如实写明',
       ],
     },
     repeat_site_down: {
@@ -732,7 +743,11 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
     },
     overview: {
       desc: '数据库体检页：库内有多少张表、每张表多少行、Top10 规模排名。',
-      usage: ['「行数」列可排序；页面只读——只回答「数据在不在、大不大」'],
+      usage: ['「行数」列可排序；页面只读——只回答「数据在不在、大不大」',
+        '**每个数字都能悬浮看算法**（2026-11-04）：四张卡的 ⓘ 讲算法、大数字挂气泡（`StatCard.explainText`），Top10 柱图与占比饼图标题也加了 ⓘ',
+        '两处口径此前被文档写错、已按 `backend/routers/system.py:96-128` 更正：**表总数并不排除 `_` 前缀的内部表**（旧文案说排除了）；**「核心表数」是前端数出来的**，接口不下发这个字段',
+        '「总行数」是**逐表 `SELECT COUNT(*)` 实测相加**（不是 `reltuples` 估计值），含内部表与归档表；而 Top10 排除 `_` 前缀 / `analysis_archive` / `uploaded_files`，且排序、截断都在前端做 —— 所以两张图相加必然小于页头总数，这是口径不同不是丢数',
+        '当前实跑 PG：表名带 `app.` 这类 schema 前缀，「不以 `_` 开头」的判据几乎恒为真，于是「核心表数 = 表总数」（实测两边都是 115），这句也写进了气泡，免得被当成 bug'],
     },
     tables: {
       desc: '表浏览器：不写 SQL 就能翻看任意表、看字段画像、导入导出，是最常用的兜底工具。',
@@ -748,7 +763,10 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
     },
     dashboard: {
       desc: '分析仪表盘：选一张表自动生成多维图表与结论，可归档保存。',
-      usage: ['选表 → 修改分析名称 → 生成分析 → 归档', '开启「联动筛选」后点饼图/柱图即设置筛选，再点取消'],
+      usage: ['选表 → 修改分析名称 → 生成分析 → 归档', '开启「联动筛选」后点饼图/柱图即设置筛选，再点取消',
+        '**每张图都有 ⓘ 讲它怎么算**（2026-11-04）：饼 = `value_counts().head(10)`（第 11 名及以后不进分母，所以 100% 不等于「该列全部行数」）；柱 = 按类别 `groupby().mean()` 后 `head(15)`（是均值不是和，且不加权）；折线 = 按日期 `groupby().size()` 后 `tail(60)`（纵轴是行数计数，不是任何指标的和）；雷达 = `100 − 空值率 − min(问题数×10, 50)` 的**启发式质量分**，不是业务达标率；热力 = `crosstab().head(15)` 的组合行数',
+        '最重要的一条写在页头 ⓘ 里：**所有图都算在最多 10000 行的样本上**（后端 `SELECT * FROM 表 LIMIT 10000`，无 ORDER BY，即按存储顺序取前 1 万行，`routers/analysis.py:60`）。下拉框里的「N rows」却是全表 `COUNT(*)` —— 大表上两者对不上是样本口径，不是丢数',
+        '「联动筛选」是**前端本地高亮**，点完不重新取数，看到的数字仍是全样本口径；柱图与热力的 0 有两种来源：后端把 NaN 落成 0（`analysis.py:280`/`:331`），所以 0 可能是「真 0」也可能是「没数值可算」'],
     },
     settings: {
       desc: '系统设置：凭据、邮件收件人、远程主机、AI 模型、WhatsApp 登录、任务配置六个页签。',
@@ -999,7 +1017,11 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
     },
     packet_loss: {
       desc: 'LTE packet loss board (RAN UME SDR / IPRAN IPPD): last 7 complete calendar days at hourly granularity; the ongoing day is hidden.',
-      usage: ['Criteria match the Packet_Loss automation Excel report exactly; the Popover explains them', 'The switch controls whether OK sites are included; supports drill-down and topology overlay'],
+      usage: ['Criteria match the Packet_Loss automation Excel report exactly; the Popover explains them', 'The switch controls whether OK sites are included; supports drill-down and topology overlay',
+        '**Every number explains itself on hover** (2026-11-04): the six status cards share one text between the ⓘ and the number bubble (the verdict is written in the collection layer as FinalStatus: STATUS≠OK with Last 1 day Max PL ≥5 / [1,5) / [0.5,1) / [0.1,0.5) = Critical/Major/Minor/Warning, and STATUS=OK is forced into No Packet loss); the header Affected Sites and granularity tags carry bubbles too',
+        'The three easiest misreadings are stated in the bubbles: **the status pie includes sites without coordinates, the region bars count non-OK sites only (Minor and Warning included), and the header Affected Sites is Critical + Major only** — three different sets that were never meant to reconcile',
+        'The daily-trend median **uses only readings above 0 for that day** (about 59% of hourly readings are 0, so a full median collapses to zero and stops being meaningful), while Top sites use a **per-site median that includes zeros** (otherwise "half a day fully down" and "fully down all day" both become 100 and the ranking loses its point) — the same word "median" for two calibers, each stated where it is used',
+        'This page used to carry two hand-written popovers (their own copy button, theme colours and emphasis rendering); both were deleted in favour of `components/MetricExplain`. The drill "N rows" bubble now states that it is the count after the search-box filter and that the API truncates at a cap'],
     },
     battery: {
       desc: 'Site battery health / SOC / charge-discharge status and alarm details.',
@@ -1210,6 +1232,9 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
         'When the daily series exceeds 400 days the chart plots only the latest 400 and a yellow note appears; see the table below or export to Excel for the full series',
         'Location / device / technology / aggregation each have only one effective value in the data (nationwide / cellular / median), so **those four dimensions have no filters** — that is intentional, not an omission',
         'Missing data renders as "—" (never 0); all exports go through the "Export Excel" buttons in the header and on each card',
+        '**Every number explains itself on hover** (2026-11-04): the score card ⓘ gives the normalisation and weighting (speed: own divided by the larger, latency: the smaller divided by own, weights 0.35/0.20/0.30/0.15 hard-coded in the caliber), and the big numbers, part tags, win rates and P50/P90 all carry bubbles; **the percentiles are `PERCENTILE_CONT` interpolated inside the sample**, not a frequency count',
+        'The two figures most likely to be reconciled wrongly are stated in the bubbles: the mean is an **equal-weight average of rows, not weighted by test count**, and the header N rows is the **whole speedtest_data table** (a raw API field), not the count after this range filter',
+        'The Tests and Devices cards now show — when the range has no rows (previously a null-coalescing to 0, which turned not-measured into zero); the device total is **a device-day sum across rows**: one device on two days counts twice, so it is not a unique-device count',
       ],
     },
     bm_meta: {
@@ -1224,6 +1249,10 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
         'BP and the DL/UL PRB utilization rates are stored as **decimal ratios** (e.g. 0.1956) and are converted to percentages for display (19.56%); win/loss and scoring use the raw ratios, so the display conversion does not affect results',
         'Traffic (GB) and RRC user counts are shown with thousands separators; missing data renders as "—" (never 0)',
         'Excel export has three sheets (summary / monthly / daily); the summary sheet groups the head-to-head and the network KPIs separately so they are not read as one thing',
+        '**Every number explains itself on hover** (2026-11-04): an ⓘ plus bubbles across the verdict, score, speed, range and network cards; the network cards dropped their **native title= attribute** (not copyable, outside the theme)',
+        'One reversed caliber was corrected: `bmm.hint.bp` used to say higher is better while the rule is `kind: lower` (BP is the share of bad-performance cells, so lower is better). Both dictionaries were fixed; the same text also appears under the trend chart and in export headers',
+        'The bubbles also state three ways this page differs from the Speedtest page: **the score is decided by speed alone** (`SCORE_WEIGHTS = {speed: 1.0}`, network KPIs do not take part), **paired days exclude ties from the denominator** (Speedtest keeps them), and `days` is the row count of the whole table in the range (one number for both operators) rather than each operator own days-with-data',
+        'The drill applies the 3000-row cap before filtering winners in Python (`bm_meta_service.py:419-423`): rows match the card while the range stays under the cap and fall short only beyond it, which the bubble states as such',
       ],
     },
     repeat_site_down: {
@@ -1334,7 +1363,11 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
     },
     overview: {
       desc: 'Database health-check page: how many tables exist, rows per table, Top10 by size.',
-      usage: ['Sort by the "Rows" column; the page is read-only — it only answers "is the data there and how big"'],
+      usage: ['Sort by the "Rows" column; the page is read-only — it only answers "is the data there and how big"',
+        '**Every number explains itself on hover** (2026-11-04): the four cards carry an ⓘ on the title and a bubble on the big number (`StatCard.explainText`), and the Top10 bars and the share pie gained ⓘ on their titles',
+        'Two calibers that the docs used to get wrong, corrected against `backend/routers/system.py:96-128`: **the table total does NOT exclude `_`-prefixed internal tables** (the old wording said it did), and **"core tables" is counted in the frontend** — the API never sends that field',
+        'The row total is **`SELECT COUNT(*)` executed per table and added up** (not a `reltuples` estimate) and includes internal and archive tables, while Top10 excludes `_`-prefixed tables, `analysis_archive` and `uploaded_files` and is sorted and sliced in the frontend — so the charts adding up to less than the header total is a caliber difference, not lost data',
+        'The project runs on PostgreSQL now: table names carry a schema prefix such as `app.`, so "does not start with _" is almost always true and **core tables equals total tables** (measured: both 115). The bubble says so explicitly so it is not read as a bug'],
     },
     tables: {
       desc: 'Table Browser: browse any table without SQL, view column profiles, import & export — the go-to fallback tool.',
@@ -1350,7 +1383,10 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
     },
     dashboard: {
       desc: 'Analysis dashboard: pick a table to auto-generate multi-dimension charts and conclusions, archiveable.',
-      usage: ['Pick a table → rename → generate → archive', 'With "linked filters" on, clicking a pie/bar applies it as a filter; click again to cancel'],
+      usage: ['Pick a table → rename → generate → archive', 'With "linked filters" on, clicking a pie/bar applies it as a filter; click again to cancel',
+        '**Every chart carries an ⓘ saying how it is computed** (2026-11-04): pie = `value_counts().head(10)` (ranks 11+ are not in the denominator, so 100% is not "all rows of that column"); bar = `groupby().mean()` over the category then `head(15)` (a mean, not a sum, unweighted); line = `groupby().size()` per date then `tail(60)` (the axis counts rows, no metric is summed); radar = the **heuristic** quality score `100 − null_rate − min(issue_count × 10, 50)`, not a business compliance rate; heatmap = `crosstab().head(15)` row counts per combination',
+        'The single most important caveat sits in the header ⓘ: **every chart is computed over a sample of at most 10000 rows** (`SELECT * FROM table LIMIT 10000`, no ORDER BY, i.e. the first 10k rows in storage order, `routers/analysis.py:60`), while the "N rows" in the dropdown is a full-table `COUNT(*)` — on a big table the two cannot add up, and that is the sampling caliber, not lost data',
+        '"Linked filters" is **frontend highlighting only**: clicking does not refetch, so the figures stay whole-sample; and a 0 in the bar or heat charts has two possible sources, because the backend maps NaN to 0 (`analysis.py:280` / `:331`) — it can mean "genuinely zero" or "nothing numeric to average"'],
     },
     settings: {
       desc: 'System settings: credentials, email recipients, remote host, AI model, WhatsApp login, and task configuration — six tabs.',

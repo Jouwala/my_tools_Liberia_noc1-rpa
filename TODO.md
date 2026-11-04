@@ -114,6 +114,30 @@
       `bp_report` 平均占比气泡出对照句式（该区间当前无数据，三项均为 `—`，正是「取不到显示 —、不当 0」）。
       **⑤ 族全部做完**；`warehouse_dashboard` 是 iframe 豁免。下一批 ⑥：`BmSpeedtest` / `BmMeta` /
       `BatteryDashboard` / `FmeRanking` / `GISMap` / `Dashboard` / `Overview` 补数字级。
+      **⑥ 先做机器盘点再动手**（`App.tsx` 的 `VALID_PAGES` 65 − `PAGE_LIST` 里 `iframe:true` 12 = 53 个自研页，
+      ①—⑤ 覆盖 30 个 key，剩 23 个），盘子与分组写进规格文档 ⑥ 一节，别再凭记忆数列。
+      **批⑥a 已完成五页（2026-11-04）**：`bm_speedtest`、`bm_meta`、`packet_loss`、`dashboard`、`overview`。
+      实机验证（内嵌浏览器悬浮）：`bm_speedtest` KPI 出「49 行等权平均 / 1,432 次 / min 16.34 max 987.25」、
+      评分出「100.0 vs 58.6 + 权重 35/20/30/15 + 相对分不是绝对水平」、胜率出「33/48 = 68.8%」、
+      月度格出「2026-08 该月 25 个日点的日均值再平均」；`bm_meta` 评分出「12.38 vs 14.04 → 88.2」（公式逐位对上）、
+      BP 卡出「9.56%，最小 4.42 / 最大 16.50，取自 323 行 + 比率后端已 ×100」、结论卡出「279/322 = 86.6% + 平局 1 天」；
+      `overview` 核心表数出「前端数出不以 _ 开头的表 / PG 下 = 表总数（实测 115 = 115）」；
+      `dashboard` 12 个 ⓘ、页头出「LIMIT 10000 样本口径」。
+      **顺带改掉三处「解释本身是错的」**（都不动数字）：
+      ① `bmm.hint.bp` 中英两份都写「BP 比率越大越好」，而 caliber 判据 `kind:'lower'` —— BP 是劣化小区占比，**越小越好**；
+      这段文字同时出现在网络卡、趋势下方与导出表头，此前用户在三个地方读到反的解释。
+      ② `overview.explain.totalTables` 写「排除 `_` 开头的表」—— 实际只排 `sqlite_%`，`_` 前缀仍在总数里；
+      `overview.explain.coreTables` 写「排除分析/归档表」—— 卡片只滤 `_` 前缀，那两个是 Top10 那一步才排除的。
+      ③ `PacketLossDashboard` 有两份**自写气泡**（`MetricExplainPopover` + 卡内联 `Popover`，各自一套复制按钮/主题/强调渲染），
+      已删除并统一走 `components/MetricExplain`。
+      另修两处显示层问题：`bm_speedtest` 的测试/设备卡原 `?? 0`（区间无记录时把「没测」显示成 0）改按 `days` 判空显示 `—`；
+      `BmMeta` 下钻 `String(drillMeta.limit)` 缺字段时显示 `undefined`，改 `?? '—'`。
+      **⑥a 还剩两页被业务决定卡住（本轮已停手，等用户点头）**：`battery` 的 8 张 KPI 卡 + 五种分布 + 告警计数
+      全是前端重算（`BatteryDashboard.tsx:224-297`），而接口 `/all` 已下发 `kpi`/`dist`/`alarm_summary` **整块未用**
+      （`battery_dashboard.py:292-350`）；`fme_ranking` 的卡片名次也是前端重排（`FmeRanking.tsx:227-244,778-809`），
+      且 **`wo_rank` 方向与后端相反**（后端 `fme_ranking_service.py:257-262` 升序、#1=工单最少；前端降序标 #1，
+      与表列 `wo_rank` 自相矛盾）。这两处「改用后端字段」会**改变界面显示的数字**（还含均值保留位数 1 位 vs 2 位），
+      属业务口径决定，按第五节第 3 条停下来问用户，不擅自统一。
       **分批计划**（每批一个数据族，共用组件优先；每批都要 `npm run build` + 实机悬浮验证 + 手册/站内帮助同步）：
       ① 可用率族 `AvailMs` / `AvailFlm` / 共用 `AvailTrend`（与已完成的 avail_county 同一套口径，最先做）；
       ② MS SLA / NUR 族（`MsSlaDashboard` / `MsSlaOnly` / `MsNurOnly` / `NurDashboard` / `MsWoSLReport` / `MsContractKpiReport`）；

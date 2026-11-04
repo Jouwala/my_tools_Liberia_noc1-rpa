@@ -48,7 +48,7 @@
 > 十条通用纪律，适用于本工作区所有子系统。与第四节的「硬性约束」相抵时，**以第四节为准** —— 那些是本仓库已实测验证的具体事实，本节是方向。
 
 1. **架构与领域优先。** 计划阶段先明确业务目标、领域边界、模块职责、依赖方向与数据流，形成符合领域规律、面向长期维护且可持续演进的设计后再编码；不得以短期实现便利牺牲整体设计。设计必须完整，实现应当克制：不做推测性抽象，抽象延迟到**第二个真实用例**出现时才引入，单一场景直接实现。
-2. **追求优雅的代码模块。** 模块高内聚、低耦合，用精简且稳定的接口封装内部复杂度，让职责、命名、依赖和扩展方式清晰自然；代码按单一职责拆分。**新增/新建文件单个不超过 500 行**，接近上限时优先重构模块边界。存量超限文件（`backend\task_registry.py` ≈109KB、`frontend\src\i18n.tsx` ≈587KB、`frontend\src\App.tsx` ≈121KB）列入待重构清单，**不要求一次性拆分**，但改到它们时不得继续无度膨胀。
+2. **追求优雅的代码模块。** 模块高内聚、低耦合，用精简且稳定的接口封装内部复杂度，让职责、命名、依赖和扩展方式清晰自然；代码按单一职责拆分。**新增/新建文件单个不超过 500 行**，接近上限时优先重构模块边界。存量超限文件（`backend\task_registry.py` ≈117KB、`frontend\src\i18n.tsx` ≈783KB、`frontend\src\App.tsx` ≈126KB）列入待重构清单，**不要求一次性拆分**，但改到它们时不得继续无度膨胀。
 3. **保持边界与数据流清晰。** 协议模型（Pydantic `schemas\`）、领域模型、持久化模型（SQLAlchemy `models\`）与视图模型不得相互泄漏；数据必须在边界处完成校验和独立转换，避免跨层共享可变状态。
 4. **安全与隔离默认开启。** 所有功能按多租户、多用户场景设计，明确认证、授权与数据隔离边界（my_app 的角色与凭据体系见 `Task\my_app\docs\manual\05-security-and-credentials.md`）；遵循最小权限，任何外部输入均视为不可信，敏感信息不得进入代码、日志或响应（落地写法见第四节第 2 条）。
 5. **面向并发与故障设计。** 后端主动考虑幂等性、竞态、事务边界、超时、取消、重试、背压和资源释放；不得通过无边界重试、吞错或隐式共享状态掩盖问题。本工作区的 RPA 采集与 worker 任务尤其要显式处理「上游返回半截数据」与重复投递（投递前查重见 `Task\my_app\docs\manual\04-task-system.md`）。
@@ -63,7 +63,7 @@
 > - 通用：提交前 `git status --porcelain` 复查，没有运行时产物混入。
 > - **收尾自检（第四节第 7 条的机器可验证版本）**：`git status --porcelain` 里 `??` 行必须为空或全部是你本次要提交的真文件；出现 `_*.txt` / `*.bak_*` / `TMP/` 之类的行说明探针落了错误的地方。怀疑某个文件为何没被跟踪时问 `git check-ignore -v <路径>`，它会把命中的规则与所在文件行号打出来。
 > - my_app 前端：`cd Task\my_app\frontend` → `npm run check:i18n`（漏键守卫）→ `npm run build`（内含 `tsc`；产物必须落在 `Task\_fe_dist`，否则后端白屏）。
-> - **my_app 文档一致性**：`cd Task\my_app` → `python tests\test_doc_consistency.py`（15 个用例，核对手册与站内帮助里「从代码抄来的数字」：任务数 / 页面数 / iframe 页数 / worker 组数 / 队列保留期 / 路由数 / 凭据分组数 / 组件数 / 文件体积；**本地钩子与 CI 都会跑，文档与代码对不上会拦下提交**）。改动页面或任务后必须跑。详见 `Task\my_app\docs\manual\04-task-system.md`「文档一致性守卫」一节。
+> - **my_app 文档一致性**：`cd Task\my_app` → `python tests\test_doc_consistency.py`（16 个用例，核对手册与站内帮助里「从代码抄来的数字」：任务数 / 页面数 / iframe 页数 / worker 组数 / 队列保留期 / 路由数 / 凭据分组数 / 组件数 / 文件体积，以及「每个页面都有按页刷新设置」；**本地钩子与 CI 都会跑，文档与代码对不上会拦下提交**）。改动页面或任务后必须跑。详见 `Task\my_app\docs\manual\04-task-system.md`「文档一致性守卫」一节。
 > - **my_app 帮助内容改动后**：`cd Task\my_app\frontend` → `npm run docs`（重生成 `15-user-help*.md` 与 `public\manual.html`）。
 > - 门户前端：`cd liberia-noc_soc-数据看板统一门户` → `npm run lint`（`tsc --noEmit`）→ `npm run build`。
 > - **门户文档一致性**：`cd liberia-noc_soc-数据看板统一门户` → `npm run check:docs`（6 个用例，核对 README/docs 里的看板条数 / 组件数 / 任务数；**本地钩子与 CI 都会跑**）。详见门户 `docs\development.md`「文档一致性」一节。

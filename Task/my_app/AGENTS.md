@@ -5,7 +5,7 @@
 
 ## 一、这个项目是什么
 
-**my_app / Data Insight MVP** —— 利比里亚电信网络运维的**自研数据平台**，是整个工作区的数据底座。它负责把上游系统（UME、eFlow、CCN、PM、邮件、WhatsApp 等）的数据采集、入库、计算、展示，并提供 81 个功能页面与 81 个定时任务。
+**my_app / Data Insight MVP** —— 利比里亚电信网络运维的**自研数据平台**，是整个工作区的数据底座。它负责把上游系统（UME、eFlow、CCN、PM、邮件、WhatsApp 等）的数据采集、入库、计算、展示，并提供 81 个功能页面与 82 个定时任务。
 
 **技术栈**：后端 FastAPI + SQLAlchemy（SQLite / PostgreSQL 双模）+ Alembic + APScheduler；前端 React + Vite；任务由多组 worker 进程执行 + 看门狗守护。
 
@@ -34,7 +34,7 @@
    - 已存在的功能页若**从未登记**，同样要补：`noc_analyst` / `fme_ranking` / `site_avail` / `repeat_site_down` 四个页面此前都缺 `11-feature-guide.md` 条目与站内帮助（2026-09-23 已补）；`ms_wo_sla` / `ms_contract_kpi` / `ran_cells_kpi` / `person` 四个页面已在侧边栏但**一直没有帮助条目**（2026-10-31 已补）。
    - 站内帮助另有三处要同步：`helpContent.ts` 的 **`PAGE_DOCS`（zh/en 两份）+ `PAGE_LIST` + `NAV_KEY_MAP`**，并加进 `CATEGORIES` 的某个分类。**只加 `PAGE_DOCS` 不会显示** —— 页面清单由 `PAGE_LIST` 驱动。
    - **`socTrendDashboard` 曾在 `PAGE_META` / i18n / 刷新配置里都齐了，唯独没进 `DEFAULT_GROUPS`**（2026-10-31 已补）—— 页面能路由到，侧边栏却没有它的位置。**加了页面别忘了加进 `DEFAULT_GROUPS` 的某个组**。
-   - ⚠️ **这些约定现在有机器守卫了**：`tests\test_doc_consistency.py`（15 个用例，**零第三方依赖、跨平台**，真相源用 AST 静态解析）会核对「任务数 / 页面数 / iframe 页数 / worker 组数 / 队列保留期 / 路由数 / 凭据分组数 / 组件数 / 文件体积 / 页面表与菜单一致 / 帮助条目齐全」等**从代码抄来的数字**，不一致就跑测试失败，**本地钩子与 CI 都会拦下**。详见 `docs\manual\04-task-system.md`「文档一致性守卫」一节。**别再靠自觉** —— 靠自觉已经失效过 15 次。
+   - ⚠️ **这些约定现在有机器守卫了**：`tests\test_doc_consistency.py`（16 个用例，**零第三方依赖、跨平台**，真相源用 AST 静态解析）会核对「任务数 / 页面数 / iframe 页数 / worker 组数 / 队列保留期 / 路由数 / 凭据分组数 / 组件数 / 文件体积 / 页面表与菜单一致 / 帮助条目齐全 / 每个页面都有按页刷新设置」等**从代码抄来的数字**，不一致就跑测试失败，**本地钩子与 CI 都会拦下**。详见 `docs\manual\04-task-system.md`「文档一致性守卫」一节。**别再靠自觉** —— 靠自觉已经失效过 15 次。
    - **门户那一侧也有同款守卫**：`liberia-noc_soc-数据看板统一门户\scripts\check-doc-consistency.mjs`（`npm run check:docs`，6 个用例，核对 README/docs 里的看板条数 / 组件数 / 任务数）。两边同一套约定、同一套哲学。
    - **钩子怎么装**（新克隆的机器必做一次）：`cd frontend && npm run setup:hooks` —— 把 `core.hooksPath` 指向仓库内的 `.githooks\`（钩子文件随仓库分发，不再只存在于某台机器的 `.git\hooks\` 里）。详见根 `AGENTS.md` 第四节第 9 条。
 1b. **看板页"能下钻尽下钻"是硬要求**：页面上**每个数字都要可点**并落到对应明细，不允许只有汇总数字没有下钻路径。`noc_analyst` 是参考实现（四层：人 → 切片明细 → 站点 → 单 TT 告警链路，见 `docs\manual\11-feature-guide.md` 的 14b 节）。做下钻时三条铁律：
@@ -143,7 +143,7 @@
 | `backend\models\`、`schemas\` | ORM 模型与 Pydantic schema |
 | `backend\.env`（不入库） | 运行配置，参照 `.env.example` |
 | `frontend\src\App.tsx`（≈121KB） | 前端主入口与路由/菜单（`PAGE_META` 是页面清单真相源） |
-| `frontend\src\i18n.tsx`（≈587KB） | 中英双字典 |
+| `frontend\src\i18n.tsx`（≈783KB） | 中英双字典 |
 | `frontend\src\api.ts` | 前端 API 封装 |
 | `frontend\src\theme.ts`、`index.css` | 主题与样式 |
 | `frontend\src\pages\` | 各功能页（60+ 个 `.tsx`） |
