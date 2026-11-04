@@ -29,6 +29,9 @@ import ReactECharts from 'echarts-for-react'
 import { useI18n } from '../i18n'
 import { WH, useTheme } from '../theme'
 import { CardBase, StatCard } from '../components/cards'
+// 数字悬浮口径说明（AGENTS.md 三.3c）。桶判据在后端（cr_analysis_service.py / cr_caliber.py），
+// 卡片取值是「当前所选类别的后端分类计数相加」—— 这点必须写在气泡里，否则会被当成接口 summary。
+import { ExplainLabel, ExplainPopover } from '../components/MetricExplain'
 import { exportAoaReport } from '../utils/excelReport'
 import { fmtWarnings } from '../utils/warnCodes'
 import { getCrAnalysisFilters, getCrAnalysisOverview, getCrAnalysisWorkflow } from '../api'
@@ -78,6 +81,9 @@ export default function CrChangeAnalysis() {
     const params: Record<string, string> = {}
     if (start) params.start = start.format('YYYY-MM-DD')
     if (end) params.end = end.format('YYYY-MM-DD')
+    // 类别筛选交给后端（SQL 层 IN，值走占位符）：概览的 summary、比率、类别表、
+    // 状态分布、月度与子类别因此在同一个集合上算，前端不再自己 Σ 与复制比率公式。
+    if (activeCats.length) params.categories = activeCats.join(',')
     // 概览与流程**并行**取：流程要全表扫一遍解析文本，串行会让页面白屏更久。
     // 流程失败不该拖垮整页 —— 它是增强信息，用 catch 单独降级：
     //   Promise.all 里任一失败会连带概览一起进 catch，故这里用 allSettled 的意图
@@ -95,7 +101,7 @@ export default function CrChangeAnalysis() {
       await wfPromise
       setLoading(false)
     }
-  }, [start, end])
+  }, [start, end, activeCats])
 
   /* 首次进页面：先拉筛选项拿到**全表实际时间范围**，再据此初始化窗口 ——
      顺序不能反，否则会先用「今天往前 N 天」查一次再被覆盖，白跑一次库。
@@ -121,13 +127,11 @@ export default function CrChangeAnalysis() {
 
   useEffect(() => { void load() }, [load])
 
-  const rows = useMemo(() => {
-    const all = ov?.rows || []
-    if (!activeCats.length) return all
-    return all.filter(r => activeCats.includes(r.category))
-  }, [ov, activeCats])
-
-  const summary = useMemo(() => summarize(rows), [rows])
+  // 后端已按 categories 收窄，这里不再二次过滤
+  const rows = useMemo(() => ov?.rows || [], [ov])
+  // 合计与比率直接取接口 summary（后端一份公式）；缺数据时退回同一结构的零值，
+  // 而不是在前端重算一遍（AGENTS.md 三.3c）。summarize([]) 只当零值壳用。
+  const summary = useMemo(() => ov?.summary ?? summarize([]), [ov])
   const C = useMemo(() => chartColors(isDark), [isDark])
 
   /* ---- 图表 option（纯函数在 crCharts.ts 里）---- */
@@ -165,7 +169,8 @@ export default function CrChangeAnalysis() {
   ), [flowSteps, isDark, C, t])
 
   /* ---- 下钻：两套弹窗的状态与取数在 crAnalysis/useCrDrills.ts ---- */
-  const win = useMemo(() => windowOf(start, end), [start, end])
+  // 已选类别一并进 win：概览与下钻都带同一个 categories，卡片数字与明细行数才是同一个集合
+  const win = useMemo(() => ({ ...windowOf(start, end), categories: activeCats.join(',') }), [start, end, activeCats])
   const statusDrill = useCrStatusDrill(win)
   const flowDrill = useCrFlowDrill(win)
   const openDrill = statusDrill.openDrill
@@ -206,17 +211,21 @@ export default function CrChangeAnalysis() {
 
   const warningText = fmtWarnings(ov?.meta?.warnings, t, '; ')
 
-  /** KPI 卡定义集中一处：键、取值、配色、下钻 metric 一眼对齐，避免 8 张卡手抄 8 遍 */
+  /** KPI 卡定义集中一处：键、取值、配色、下钻 metric 一眼对齐，避免 8 张卡手抄 8 遍。
+   *  取值直接来自接口 `summary`：页面把已选类别作为 `categories` 参数发给后端，
+   *  由它在**同一条 SQL** 里按类别收窄（`cr_caliber.base_where`，值走占位符），
+   *  概览 / 比率 / 类别表 / 状态分布 / 月度 / 子类别因此在同一个集合上，前端不再 Σ、也不再复制比率公式。
+   *  每个桶的判据也在后端（cr_analysis_service.py / cr_caliber.py），气泡只转述不重算。 */
   const kpis = useMemo(() => ([
-    { key: 'cr.col.total', value: summary.total, color: C.total, metric: 'total' as Metric },
-    { key: 'cr.col.planned', value: summary.planned, color: C.planned, metric: 'planned' as Metric },
-    { key: 'cr.col.executed', value: summary.executed, color: C.executed, metric: 'executed' as Metric },
-    { key: 'cr.col.unexecuted', value: summary.unexecuted, color: C.unexecuted, metric: 'unexecuted' as Metric },
-    { key: 'cr.col.onTime', value: summary.on_time, color: C.onTime, metric: 'on_time' as Metric },
-    { key: 'cr.col.delayed', value: summary.delayed, color: C.delayed, metric: 'delayed' as Metric },
-    { key: 'cr.col.closed', value: summary.closed, color: C.closed, metric: 'closed' as Metric },
-    { key: 'cr.col.open', value: summary.open, color: C.open, metric: 'open' as Metric },
-  ]), [summary, C])
+    { key: 'cr.col.total', value: summary.total, color: C.total, metric: 'total' as Metric, tip: t('cr.tip.total') },
+    { key: 'cr.col.planned', value: summary.planned, color: C.planned, metric: 'planned' as Metric, tip: t('cr.tip.planned') },
+    { key: 'cr.col.executed', value: summary.executed, color: C.executed, metric: 'executed' as Metric, tip: t('cr.tip.executed') },
+    { key: 'cr.col.unexecuted', value: summary.unexecuted, color: C.unexecuted, metric: 'unexecuted' as Metric, tip: t('cr.tip.unexecuted') },
+    { key: 'cr.col.onTime', value: summary.on_time, color: C.onTime, metric: 'on_time' as Metric, tip: t('cr.tip.onTime') },
+    { key: 'cr.col.delayed', value: summary.delayed, color: C.delayed, metric: 'delayed' as Metric, tip: t('cr.tip.delayed') },
+    { key: 'cr.col.closed', value: summary.closed, color: C.closed, metric: 'closed' as Metric, tip: t('cr.tip.closed') },
+    { key: 'cr.col.open', value: summary.open, color: C.open, metric: 'open' as Metric, tip: t('cr.tip.open') },
+  ]), [summary, C, t])
 
   /** 三个比率卡：每个都写明分母（分母为 0 时显示 '—'，不是 0） */
   const rateCards = useMemo(() => ([
@@ -224,16 +233,19 @@ export default function CrChangeAnalysis() {
       key: 'cr.kpi.completionRate', rate: summary.completion_rate,
       hint: t('cr.kpi.completionRateHint', { executed: summary.executed, planned: summary.planned }),
       metric: 'executed' as Metric,
+      tip: t('cr.tip.rateCompletion', { executed: summary.executed, planned: summary.planned }),
     },
     {
       key: 'cr.kpi.onTimeRate', rate: summary.on_time_rate,
       hint: t('cr.kpi.onTimeRateHint', { onTime: summary.on_time, executed: summary.executed }),
       metric: 'on_time' as Metric,
+      tip: t('cr.tip.rateOnTime', { onTime: summary.on_time, executed: summary.executed }),
     },
     {
       key: 'cr.kpi.closureRate', rate: summary.closure_rate,
       hint: t('cr.kpi.closureRateHint', { closed: summary.closed, total: summary.total }),
       metric: 'closed' as Metric,
+      tip: t('cr.tip.rateClosure', { closed: summary.closed, total: summary.total }),
     },
   ]), [summary, t])
 
@@ -288,7 +300,9 @@ export default function CrChangeAnalysis() {
         {kpis.map((k, i) => (
           <Col key={k.metric} xs={12} sm={8} lg={6} xl={3}>
             <StatCard
-              title={t(k.key)} value={k.value} accentColor={k.color}
+              title={<ExplainLabel label={t(k.key)} text={t('cr.explain.cards')} />}
+              value={k.value} accentColor={k.color}
+              explainText={`${k.tip}\n${t('cr.tip.sumOverCats', { n: summary.categories })}`}
               subText={i === 0 ? t('cr.kpi.categories', { n: summary.categories }) : undefined}
               onClick={e => void openDrill(k.metric, '', '', '', { x: e.clientX, y: e.clientY })}
             />
@@ -306,9 +320,11 @@ export default function CrChangeAnalysis() {
               onClick={e => void openDrill(c.metric, '', '', '', { x: e.clientX, y: e.clientY })}
             >
               <div style={{ fontSize: 13, color: WH.textMuted }}>{t(c.key)}</div>
-              <div style={{ fontSize: 28, fontWeight: 700, color: rateColor(c.rate), margin: '4px 0' }}>
-                {fmtRate(c.rate)}
-              </div>
+              <ExplainPopover placement="bottom" text={`${c.tip}\n${t('cr.tip.rateFrontend')}`}>
+                <div style={{ fontSize: 28, fontWeight: 700, color: rateColor(c.rate), margin: '4px 0', cursor: 'help' }}>
+                  {fmtRate(c.rate)}
+                </div>
+              </ExplainPopover>
               <Text type="secondary" style={{ fontSize: 12 }}>{c.hint}</Text>
             </CardBase>
           </Col>

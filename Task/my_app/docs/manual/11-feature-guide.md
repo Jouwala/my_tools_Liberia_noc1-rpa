@@ -291,6 +291,14 @@
 - **点任意数字弹出下钻表**（`DraggableClickModal`），历史口径走 `/history-drilldown?metric=&limit=500`，实时口径走 `/realtime-drilldown?dimension=&value=&limit=500`（:158-163）。下钻表可搜索。
 - **页面级导出 Excel**（2026-09-27 新增）：导出当前页显示的全部汇总维度。此前本页唯一的导出按钮在下钻弹窗内（导下钻明细行），页面上没有导出入口。
 - 与其他看板不同：这里的"实时"来自 `eflow_active_alarm`（2026-10-15 起每 1 分钟）写入的数据，**不是秒级推送**。
+- **数字悬浮说明补齐（2026-11-04，`AGENTS.md` 三.3c）**：本页 8 张卡与 3 张图标题的 `ExplainCorner` / `ExplainIcon` 早已存在（`alarm.explain.*`），**本次只补此前问不到的两处数字级**：
+  区域画像里「N 条告警 ↗」与各类型条数改为 `ExplainPopover`（键 `alarm.tip.regionAlarms` / `alarm.tip.typeCount`），「告警类型 Top」卡标题补 ⓘ（`alarm.explain.typeTop`）。
+  口径按 `routers/alarm_dashboard.py` 核实并写进气泡：区域三量判据各不相同 ——
+  告警数 = 逐行数（`:498-499`）、「MW」那一列是 `transmission_type == "MW"` 的行数（`:500-501`，⚠ 后端字段名叫 `region_mains_count`「市电」，判据却是微波传输，**命名与含义不一致属已知问题，未改**）、
+  站点数 = 该区域唯一 `site_id` 个数（`:504-509`）；**区域码不在 15 州清单（`COL_ORDER`）里的行不计入任何区域**（`:498` 的 `if rc in region_alarm_count`）。
+  类型 Top 的名称取 `alarm_title` 回落 `codename` 再回落 `--`（`:514`），后端取前 10、图上只画前 8（`:516` + 前端 `slice(0,8)`），
+  所以**前 8 条之和不等于告警总数** —— 这句直接写进 ⓘ，免得被当成对不上账。
+  「时长分布」的 ≥24h 落进标着 ">48" 的末桶这一坑，`alarm.explain.duration` 此前已写明，本次未重复。
 
 ## 4. TT&WO 看板（`?page=ttwo`）
 
@@ -318,6 +326,18 @@
   > **文案短名（2026-09-27 按业务要求）**：分区标题「TT 统计」→「统计」，维度标题「工单严重度」→「严重度」。界面上用新键 `ttwo.statistics` / `ttwo.severity`；旧键 `ttwo.ttStatistics` / `ttwo.ticketSeverity` 保留给 **Excel 导出**（导出的维度名与 sheet 标题仍写全名，脱离界面也能读懂）。渲染路径全站共用，所以 `ttwo` / `v1_ttwo` / `tt` / `wo` 四个页面同步改名。
   - 占比分母是该维度**自身**的合计（看单维度内部构成），不是 TT 总数。
   - 取不到值显示 `—` 而非 `0`（`fmt()` 本身对 null 返回 `'0'`，卡片里显式挡掉）。
+  - **数字本身可悬浮看构成**（2026-11-03，`AGENTS.md` 三.3c）：`renderStatCards()` 新增第 7 个入参 `cellNote`，
+    大数字与占比两个节点各包 `ExplainPopover`，气泡写明「这一格是多少 ÷ 本维度可见合计是多少、占比是**前端按本页返回值现算**（接口不下发 pct）、
+    当前筛选范围（时间窗 / 区域 / Owner / 高级过滤）、点下去下钻什么」。
+    严重度维度补一句「Unknown 不进本维度：空值、字面 `unknown` 与历史误拼 `unkonw` 一并剔除（`tt_wo_dashboard.py:120`），所以各档之和可能小于 TT 总数」；
+    SLA 维度补一句「只剔除 Unknown（含误拼），其余原值各自成一类」——
+    ⚠ 后端 `:151` 的注释写的是「Pass / Failed / Within SLA 之外的值不计入」，而代码 `_EXCLUDED_SLA_STATUSES` 只排除 unknown/unkonw，**注释与实现不一致**，界面按实现描述。
+  - **标题旁的三个汇总徽标**已从 `Tooltip title=` 换成 `ExplainPopover`（可复制、受主题管）：
+    除原有算法说明外，追加「来源字段是 `summary.tt_total` / `wo_total` / `wo_no_count`」与当前筛选范围；
+    `wo_no_count` 特别注明它是 **TT 行上**非空 `wo_no` 的去重数，与 `wo_total`（WO 表行数）不是一回事。
+    文案键 `ttwo.scope.*` / `ttwo.tip.statCard|severityNote|slaNote|*TotalDetail`（中英各一份）。
+    `?page=tt` / `?page=wo` / `?page=v1_ttwo` 是同一组件的切片，自动同享。
+    ⚠ 原 `ttwo.explain.ticketSeverity` / `ttwo.explain.sla` 硬写「TT 按 …」，而 `?page=wo` 用同一批键渲染 `eflow_wo` —— 已改成中性措辞（两页都成立），并写明 SLA 在两页取的都是 TT 侧的 `sla_status`（`eflow_wo` 没有该列，WO 页经 `tt_no` 关联 `eflow_tt` 取，`wo_dashboard_service.py:94-97`）。
 - **MTTR 趋势：柱 = TT 数量 + 线 = MTTR，左右双轴**（2026-09-27 改），并按 Ticket Severity 拆成 4 张图（P1/P2/P3/P4），**用页签切 日 / 周 / 月 三档粒度**。数据来自 `mttr_series[粒度][级别]`，每项三个字段语义必须分清：
   - `total` = 该桶该级别的**全部 TT 单数**（柱状图画的就是它），只要能定位到桶就计，**不论能否算出 MTTR**。所以柱子等于「那个时段那个级别有多少单」，与下钻行数对得上（实测 15 个抽样桶 × 3 粒度全部相等）。
   - `count` = 其中**真正计入 MTTR 均值**的单数（`0<dur<43200`）。`total - count` 的差额就是缺关单时间或时长越界的单；`total ≠ count` 时 tooltip 用 `ttwo.mttrSampleNote` 把差额说明白（实测全库差额仅 3 条：P3×2、P4×1，且这 3 条的 `alarm_occur_time` 为 NULL —— 落不到任何时间轴，属固有不可归属，非丢数）。
@@ -517,7 +537,7 @@ Service / Network / Summary / Healthscore 四视图经营看板（`CxoDashboard.
 - 壳：`LegacyToolFrame` 载入 `public/cxo_dashboard.html`。
 - **数据三层叠加**（2026-09-02 起）：
   1. HTML 内嵌快照（构建时冻结，保底渲染）；
-  2. **last-known-good 缓存**：worker 任务 `cxo_dashboard_cache_sync`（每 10 分钟，v 组）经本机 8790 VMAX 代理拉全量接口、**空值保留旧值**，落盘 `data/cxo_dashboard/last_known_good.json`，页面打开/每 5 分钟自动刷新时经 `GET /api/cxo-dashboard/cache` 应用；
+  2. **last-known-good 缓存**：worker 任务 `cxo_dashboard_cache_sync`（每 10 分钟，v 组）经本机 8790 VMAX 代理拉全量接口、**空值保留旧值**，落盘 `data/cxo_dashboard/last_known_good.json`，页面打开/开启自动刷新后到点时经 `GET /api/cxo-dashboard/cache` 应用；
   3. 实时拉取（经 `/api/realtime-proxy/cxo` 转发 8790 代理）成功则覆盖缓存。
   实时不可用时页面显示最近可用缓存数据（状态行 `offline · cached data`），Health 页 live 为空时回退缓存并在标题标注 `cached <时间>`。
 - 缓存任务详情见 `backend/services/cxo_dashboard_cache.md`；每次运行还向 `data/cxo_dashboard/history.jsonl` 追加一行 Summary KPI + Health 概要（积累趋势用）。
@@ -537,7 +557,7 @@ ZXMW 微波网络拓扑与带宽利用率 NOC 看板（`MwUmeDashboard.tsx:4-8`�
 
 与第 8 页同构的 15 分钟粒度实时版（`MwRealTimeDashboard.tsx`）。
 
-- 壳载入 `public/mw_real_time.html`；页面默认 900 秒自动刷新，且支持软刷新（不重载 iframe）。
+- 壳载入 `public/mw_real_time.html`；自动刷新默认关闭（顶栏按页开启，本页建议 900 秒），开启后支持软刷新（不重载 iframe）。
 - 数据来自 `GET /api/mw-ume/realtime`，底层表 `mw_ume_bw_ultilazation_rt` 由 `mw_ume_kpi_sync_rt` **每 15 分钟**（`*/15 * * * *`）写入：取最近 2 小时、`gr=900` 的 FINBI 数据，看板默认只展示**最新一个 15 分钟槽位**，滑杆可回看窗口内的历史槽位。
 - 与日粒度页的区别仅此而已：拓扑骨架、风险榜、抽屉、趋势图逻辑完全一致。
 
@@ -1283,6 +1303,15 @@ LTE 丢包（RAN UME SDR/IPRAN IPPD），最近 **7 个完整自然日、小时�
 - 制式筛选决定渲染哪几张表（`shownTechs`），阈值决定达标/未达标的判定。
 - **页面级导出**（2026-09-27 重写，位置未变）：`Summary`（每制式一行，即页面上那排 StatCard 展开：月均可用率 / 小区名册 / 有数据天数 / 小区总数 / 达标数 / 未达标数 / 两向占比）
   + 每制式一张 `<制式>_Cells_KPI` 逐日矩阵（7 个指标行 × 有数据的日期列，列头 `D-MMM-YYYY`，与页面明细表同布局同口径）。
+- **数字悬浮说明（2026-11-04，`AGENTS.md` 三.3c）**：月度汇总卡标题挂 `ExplainLabel`（ⓘ 讲算法）、大数字挂 `ExplainPopover`（讲这一格：几个有效日等权平均、小区-日观测数、名册大小、阈值、**实际数据源** `meta.source`）；
+  逐日矩阵 7 个指标行的行头各挂 ⓘ（键 `rck.explain.mTotal|mMeeting|mBelow|mBlank|mPctMeeting|mPctBelow|mAvailability`，**逐条字面量映射**，不拼串以免被 `check:i18n` 误读），
+  每个单元格挂气泡（`rck.tip.*`），并把原先的 `title={t('rck.drillHint')}` 原生提示删掉。口径全部从 `ran_cells_kpi_service.py` 核实：
+  2G 小区可用率 = 可用信道 ÷（可用 + 不可用）（`:260`，>1 截到 1），3G/4G = 服务时长 ÷ 86400（`:276`）；
+  逐日 `availability` = 当天**有值**小区可用率的算术平均（**小区等权**，`:394`）；
+  **月 `availability` = 各有效日 availability 的等权平均（日等权，不按小区数加权，`:400`）** —— 3 个小区的那天与 300 个小区的那天一样重，这句必须写在气泡里；
+  `blank` = 名册大小 − 当天有值数（`:386`），名册 = 当月该制式出现过的全部小区名并集（`:29-30`）；
+  `pct_*` 的分母是**当天有值小区数**，不含无数据小区（`:392`），所以大面积缺上报会让达标占比虚高。
+  另在气泡里固定说明：本页是**小区级**可用率，与 14i `site_avail` 的站点级 UME 原值不同口径，两处数字不可直接比。
 - **此前该按钮只导逐日矩阵，月度汇总 StatCard 完全没进去** —— 现在补齐。
 - Sheet1 刻意命名为 `Summary` 而**不是** `{制式}_Cells_KPI`：否则若某制式 label 恰好也叫 `Summary`，会被 `excelReport.uniqueSheetName()` 改写成 `Summary_2`（`utils/excelReport.ts:229-240`），用户会看到两张像"汇总"的表。
 - 百分比以**数值**写出（如 `99.65`）而非字符串 `99.65%`，Excel 里可直接计算。
@@ -1301,6 +1330,18 @@ UME 侧 KPI 的采集结果：业务量、成功率、失败分因（系统侧 /
   `Alerts`（仅非 info 级 `hardAlerts`）、`Analysis Notes`（仅 info 级 `infoAlerts`）。
   后 4 个 sheet 按 `length` 判空跳过。
 - subtitle 为 `数据日期 | 统计天数 | 数据窗口`，把天数筛选写进文件便于对账；取不到数据显示 `—`。
+- **数字悬浮说明（2026-11-04，`AGENTS.md` 三.3c）**：顶部 7 张概览卡（KPI 项数 / 服务数 / 总业务量 / 总失败 / 系统侧失败 / 用户侧失败 / 告警数）从原先的 `Tooltip title={t('uk.drillHint')}` 换成 `ExplainPopover`，
+  气泡讲这一格的真实构成；资源利用率行的「日均 / 峰值」文本也挂上气泡。口径全部从 `backend/services/ume_in/ume_in_kpi_service.py` 核实：
+  **每张 KPI 卡只聚合「最新一天」**（`latest_rows = by_day[days[-1]]`，`:1033-1052`；资源类同构 `:1089-1105`），
+  概览的 `total_attempts` 等是**把这些最新一天的值相加**（`:1243-1247`），**不是所选天数窗口的累计** ——
+  页面上方明明写着「统计天数 N」，不点这句就会被读成 N 天总量，所以这句话写死在气泡第一行（并带上 `meta.latest_day`）。
+  其余公式（`agg()`）：`success_rate = Σsuccess ÷ Σattempts`；无 success 列时 `success = max(attempts − Σ失败列, 0)`；
+  `system_fail_rate = Σ系统侧 ÷ Σattempts`；`user_fail_ratio = Σ用户侧 ÷ Σfailed`（分母是失败总数，不是请求数）；
+  `failed` 有失败列时 = 系统侧 + 用户侧，否则 = attempts − success。
+  **判色只看系统侧**：有失败列的 KPI 用 `system_fail_rate` 判、没有的用 `success_rate` 判，非 alarm 类恒记 info（`:1010-1016`）——
+  用户侧失败再多也不染红，只在 info 里提示，这一条必须写进气泡否则会被读成「用户侧没问题」。
+  阈值一律以接口 `meta.thresholds` 下发值为准（`SUCCESS_WARN=0.99 / SYS_FAIL_WARN=0.001 / RES_WARN=80` 只是默认，可被 `UME_IN_*` 环境变量覆盖）。
+  「告警数」= 前端从 `data.alerts` 里过滤 `level !== 'info'` 的**条数**（不是接口单独给的字段），气泡里同时给出接口下发总条数。
 - 页面上另有一个原有的「全量导出」按钮；下钻明细不在本次页面级导出范围内（弹窗内已有）。
 
 ## 14m. MS Availability（可用率多维矩阵，`?page=avail_ms`）
@@ -1550,6 +1591,35 @@ UME 侧 KPI 的采集结果：业务量、成功率、失败分因（系统侧 /
   极端情况下同名的站点在两套来源里可能落在不同的县 —— 这是数据源本身的性质，
   页面上的县归属以**该口径内自己的来源**为准。
 
+## 14p. 站点重复断站（`?page=repeat_site_down`）
+
+统计「一个月内哪些站点断过、而且不止一天」。此前本节缺失（页面只在第 2 节的页面索引表里占一行），2026-11-03 随数字悬浮说明铺开补写。
+
+- **数据源与判定**（`backend/services/repeat_site_down/repeat_site_down_service.py`）：`eflow_tt` LEFT JOIN `eflow_site`；
+  中断标记列由 `_detect_schema()` 在 `site_outage` / `whether_site_interruption_site_outage_or_not` / `site_interruption` 里探测第一个存在的列，
+  取值 **`LOWER(TRIM(...)) IN ('yes','y','1','true')`** 才算断站（:96）；关联键先按站点 ID，ID 侧缺失时按**小写去空格后的站名**，两边都配不上则 `ON 1=0`（:97-99）。
+- **时间窗口**：发生时间列按 `alarm_occur_time → created_time → last_modified_time` 取第一个存在的列（:39），
+  过滤 `>= start 00:00:00` 且 `< (end+1 天) 00:00` —— **右端排他**，所以结束那整天都算进来（:95-96）；
+  默认近 30 天由 `date.today()` 推（:63），而本机时钟即 UTC，**按北京时间想会差 8 小时**。
+- **四个汇总数**（`_aggregate()` :126-141）：
+  - `outage_events` = **行数**，一行 TT = 一次中断（同一站点同一天开三张单计三次），与 `meta.source_rows` 同值；
+  - `affected_sites` = 去重后的**站点键数**，键 = `site_id` 或 `_norm(site_name)`；站号站名都取不到的行合并成**一个** `__unknown__` 伪站点（:117）；
+    ⚠ 与告警看板的 `affected_sites`（纯 `site_id` 去重）**不是同一口径**，两页站点数不可直接对账；
+  - `repeat_sites` = `repeat_days > 1` 的站点数，`repeat_days` 是**有中断的自然日数**（`len(days)`），不要求连续；
+  - `peak_day` = 逐日序列里 `outage_count` 最大的一天；`daily` 已按日期升序，`max()` 取**首个**最大 → 并列时是**最早**的那天（:133-138）。
+- **被丢掉的行**：发生时间不是 `YYYY-MM-DD` 开头的行直接跳过并计入 `meta.malformed_time_rows`（:113-115）。
+  这属「这次算不全」，界面上**常驻**一条告警（`rsd.warn.malformed`），不藏进收起的口径条。
+- **筛选**：区域走 `eflow_site` 区域列**精确匹配**，因此 JOIN 不上站点的行会被排除；站名/ID 输入框是 **ILIKE 包含匹配**，
+  而下钻弹窗用 `site_id` **精确等值**（:167）—— 搜索词命中多个站点时，两处行数口径可以不同。
+- **数字悬浮说明（2026-11-03，`AGENTS.md` 三.3c）**：四张汇总卡的标题挂 `ExplainLabel`（ⓘ 讲这一项怎么算）、
+  大数字挂 `ExplainPopover`（讲这一格的构成：窗口、行数、被丢弃行数、峰值当天的站点数与逐日序列长度）；
+  排名表「中断次数 / 断站天数」两列列头挂 ⓘ、单元格数字挂气泡；下钻弹窗的 Events / Sites / Repeat days 三个标签同样可悬浮。
+  口径条从原先的 `Tooltip title={meta.counting_rule}`（原生提示、不可复制）迁到默认收起的 `CalcChainNote`，
+  四段：数据源与判定列 / 时间窗口 / 站点去重 / 计数规则（`counting_rule` 后端原文照抄）。
+  气泡数字全部取接口下发字段（`summary` / `daily` / `meta.schema`），前端不重算。
+  本页表头原本是一整排**硬编码英文**（`Site` / `Occurrences` / `Repeat days` / `View` …），本次一并补进 i18n 中英两套字典。
+- **前端**：`frontend/src/pages/RepeatSiteDown.tsx`；卡片走 `components/cards`（`CardBase` / `StatCard`），导出走 `utils/excelReport.ts` 的 `exportAoaReport`。
+
 ## 14b. NOC 操作人分析（`?page=noc_analyst`）—— 四层全量下钻
 
 > 2026-09-23 重做：此前只有一张排名表和 3 条不可点的样本，**做不到"能下钻尽下钻"**；
@@ -1601,6 +1671,29 @@ UME 侧 KPI 的采集结果：业务量、成功率、失败分因（系统侧 /
   导出走 `utils/excelReport` 的 `exportAoaReport`（导出的是**当前切片 + 当前搜索结果**）。
 - ECharts 用 `useTheme()` 的 `palette.sev.*` 实值——`palette` 上没有 `ok`/`danger`，
   那是 `WH` 令牌，canvas 解析不了 CSS 变量。
+- **数字悬浮说明（2026-11-03，`AGENTS.md` 三.3c）**：概览六张卡（NOC 人数 / 处理总数 / 根因错位率 /
+  平均处理时长 / SLA 通过率 / 红旗人数）标题挂 `ExplainLabel`（ⓘ）、大数字挂 `ExplainPopover`；
+  Top3 / Bottom3 卡片底部的数字条也可悬浮，给出该人的**错位单 ÷ 已填根因单**与 **Pass ÷ 计入分母**。
+  口径键 `noc.explainCard.*` / `noc.tip.*` / `noc.scope.*`（中英各一份），数字一律取接口 `meta` 与 `rows` 字段。
+  **三张卡的口径并不相同，气泡各自写清、不共用一句**（`tt_postmortem/__init__.py:3265-3277`）：
+  `avg_mismatch_pct` 与 `avg_duration_h` 是**各人均值的算术平均（每人一票）**，
+  而 `overall_sla_pass_rate_pct` 是**合并口径** ΣPass ÷ Σ(Pass+Failed)（按单量加权）——
+  所以「平均错位率 93.3%」与「SLA 通过率 99.2%」不能放在一起比较。
+  错位率的分母是 `with_root_cause`（**填了根因的单**），不是 `total`。
+  **把一个实现缺陷写进气泡而不是藏起来**：`_mismatch_of()` 把填报 `root_cause` 做了 `.upper()`，
+  而豁免元组 `("Auto-recovery","Uknown","Force Majeure","Planned work")` 是混合大小写（`:3060-3083`）——
+  **豁免永不命中**，自恢复 / 不可抗力 / 计划工作的单目前都被计进错位，错位率因此系统性偏高。
+  这改的是数字本身、属业务口径决定，**未擅自修改**，只在 ⓘ 里写明（另见 `docs/number-explain-rollout-spec-2026-11-03.md` ③ 可疑点）。
+  红旗判据（错位 ≥30% 或 平均处理 ≥12h 或 SLA Fail ≥50%）与「一人多因只计一人」也写进 ⓘ。
+  另：三张比率/时长卡在后端返回 `null` 时原先 `?? 0` 会显示成 `0%` / `0h`（读起来像「全都正常」），本次改为显示 `—`。
+- **「偏离总数」「缺失动作总数」两张卡改由后端下发合计（2026-11-04，用户批准"要动后端"）**：
+  原先前端对 `agg.deviation_stats` / `agg.missing_stats` 两个分组数组 `reduce` 求和，违反 AGENTS.md 三.3c。
+  现在 `build_noc_timeline_agg()` 直接下发 `deviation_total` / `missing_total`（`tt_postmortem/__init__.py:3880-3885`，
+  口径 = 各分组 `count` 相加，**与旧前端算法逐字一致，不改任何显示数字**），前端只排版；
+  字段缺失（旧缓存 / 未重启的后端）时界面显示 `—` 而不是 0。
+  ⚠ **配套把 `_TIMELINE_CACHE_VERSION` 从 6 提到 7**：落盘缓存的文件名带版本号，
+  不 bump 就会把「没有这两个字段的旧缓存」当新口径读出来（界面直接空）。
+  bump 之后每个已缓存月份**第一次打开要重算**（约 150 秒），之后仍是毫秒级 —— 这是既有行为，不是新故障。
 
 ### 14b-1. 时间归因区「时间都花哪了」（2026-09-23 新增）
 
@@ -2266,6 +2359,20 @@ WO 的 `current_handler` 是 `P:Kelvin Kollie`（只有姓名），
   `Rules`（规则明细：未选中节点时退化为全部节点并加一列节点名）、
   `Reached`（实际经过步骤时间轴）、`Alarms`（关联告警）。空块自动跳过（如无告警则不生成 `Alarms`）。
   走 `utils/excelReport` 的 `exportReport`（多 sheet），与 `noc_analyst` 的导出同构。
+- **数字悬浮说明（2026-11-03，`AGENTS.md` 三.3c）**：本页此前**既无 `CalcChainNote` 也无 `MetricExplain`**，只有 ECharts 节点 tooltip。现在——
+  - 「已走步骤」「流程规则」两张卡的数字包 `ExplainPopover`，标题挂 `ExplainLabel`（ⓘ）；节点规则卡头的「生效 N / 共 N」两个标签也可悬浮；
+    图上节点的 tooltip 追加一句挂载/生效的判据（`eflowFlow.explain.nodeRulesTooltip`）。
+  - 整页口径进默认收起的 `CalcChainNote`（`eflowFlow.calcNote.*`）四段：底图与连线 / 规则怎么挂到节点 / 实际路径怎么打点 / 读图须知。
+  - **写进气泡的三个真口径**（都从 `eflow_flow.py` 核实，不是照抄手册）：
+    ① `rules_total` = `SELECT ... FROM ocrule_details` **全表行数**，无 WHERE、无时间过滤，是当前快照（`_load_rules:250`、`rules_total=len(rules):647`）；
+    ② 「共 N 条」是**挂载去重后**的条数（按 规则名+类型+触发步骤 去重，且要求 `wo_type` 与节点归属一致，`:574-597`），同一条规则可挂多个节点、各节点分别计数，**把各节点相加会超过全库条数**；
+    ③ 「生效 N 条」= `status == "ACTIVE"` **严格大小写**（`:598`，`_s()` 只去首尾空格），上游写成 `Active` 会进总数但不进生效数。
+  - **两条易读错的写进「读图须知」**：规则表是当前快照，几个月前走完的单，图上用的是**今天**的规则；
+    「本单命中 N 条」只统计**当前所在节点**挂载的规则 + 建单定级规则（`:892-909`，按 规则名+节点 去重），**不是全过程命中数**。
+  - **顺手修的一处显示错**：「全程共 N 个步骤」原先用 `graph.nodes.length` 当分母，而 `reached_ids` 由 `_actual_path()` 生成时
+    `order` 只取 `_FLOW_NODES`（`:700` 附近），WO 泳道的 5 个节点（`wo_create/accept/process/confirm/closed`）**永远不会进已走步骤** ——
+    分母把 WO 节点算进去会让「4 / 16」这种读法永远追不上。现改为按 `stage !== 'wo'` 且 key 不以 `wo_` 开头过滤（`ttNodeCount`），
+    并在气泡里单列「WO 子流程另计：走过 N 个节点」。
 
 ## 14h. 承接方归属：ZTE 自维 vs IPT 第三方（2026-09-24 新增）
 
@@ -2628,6 +2735,27 @@ postMessage 的唯一用途。自愈循环上限 4 次（`MAX_AUTO_RELOGIN`）�
 页面包装 `SpReport.tsx` / `ComReport.tsx` → 共用 `SpReportBase.tsx`，
 后端 `backend/routers/sp_report.py` → `backend/services/sp_report_service.py`。
 
+- **数字悬浮说明（2026-11-04，`AGENTS.md` 三.3c）**：顶部八张卡（物料数 / 入库 / 出库 / 库存 / 差额 / 安全库存 / 补库 / 紧急补库）
+  标题挂 `ExplainIcon`、数字挂 `ExplainPopover`（该页自带的页面级 `StatCard` 加了 `explain` / `tip` 两个入参）；
+  分表卡的记录数、数量合计、「未关闭单」标签也挂气泡；工具条上数量与行数两枚标签从 `Tooltip title=` 换统一气泡。
+  口径从 `sp_report_service.py` 逐条核实并写进界面：前 7 张卡 = 汇总工作簿 `Summary-Current` 的 **Total 行逐列原值**
+  （`tot():586-591`，**列缺失或非数值时后端返回 0.0** —— 所以「0」可能是真 0 也可能是那一列没值，气泡明说这一点）；
+  `material_count = len(sd.rows)` 是**行数不是去重物料数**（`:599`）；
+  `urgent` = Alert Level 列等于 `Urgent Replenish` 的**行数**，单位是「物料条数」，与旁边几张 Qty 卡**不能相减比较**（`:593-596`）。
+- **⚠ 本批修掉一个把错数字显示出来的缺陷（用户 2026-11-04 批准）**：`_overlay_db_open_counts()` 的文档写明"只对备件生效，非备件直接跳过"，
+  但**代码里从来没有 kind 判断**，于是 `?page=com_report`（耗材）的 Inbound/Outbound「未关闭单」被**备件库表** `inband_details` / `outband_details` 覆盖。
+  实测修复前 `?kind=consumables` 返回 `Outbound open_count=15 / open_count_source="db"`（那 15 张全是备件的），
+  修复后加 `if normalize_kind(kind) != "spareparts": return`（`sp_report_service.py:815-821`），
+  离线对拍 `spareparts → Outbound 17 + source=db`、`consumables → Outbound 1 + 无 source（回到 Excel 快照口径）`，
+  `tests/test_sp_open_count_caliber.py` 19 项全过。**这是数字变化的改动，只有用户点头才动**；
+  气泡据此分两条写（`spRep.tip.openCountDb` 讲备件为什么跟 DB 走、`spRep.tip.openCountExcel` 讲耗材为什么留 Excel）。
+- `?page=sp_details`（SP 明细，`SpDetailsReport.tsx`）同批接入：八张卡的 ⓘ + 数字气泡。
+  口径从 `sp_details_service.py get_summary()` 核实：`total_records = Σ 各表行数`（跨表不去重）、
+  `distinct_materials` = Material No. 并集去重（**与上面那个同名"物料数"不同构**，一个是行一个是去重）、
+  `warehouses` 并集里**调拨表同时取原仓库 + 目标仓库两侧**所以偏大是设计如此、
+  `open_tickets = Σ 各表 open_count`（判据是 `"closed" not in status.lower()`，**全站第三套「未关闭」判据**，气泡写明不该与备件页/仓库看板互相对账）。
+  本页读 `*_source.xlsx`（**任何过滤之前**的快照），所以同名指标比 `sp_report` / `com_report` 系统性偏大 —— 这句写在卡片气泡里。
+
 数据源是任务 `sp_report_generate`（每天 05:15）产出的汇总工作簿
 `data/sp_email/<前缀> <时间戳>.xlsx`，与邮件/WhatsApp 发出去的是**同一份文件**，
 页面不做二次加工（口径说明由接口 `notes` 原样透传，见
@@ -2725,6 +2853,18 @@ Others / Inventory Lost / Repair 五种）或出现空白值，都会自动落�
   `backend/services/sp_report_service.py`，**不要**在页面层改口径。
 
 ## 26b. 仓库汇总报表（`?page=warehouse_summary`）—— 页签 = Excel 的两个 sheet（2026-09-29 新增）
+
+- **数字悬浮说明（2026-11-04，`AGENTS.md` 三.3c）**：六张 KPI 卡标题挂 `ExplainLabel`、数字走 `StatCard.explainText`。
+  口径从 `sp_report_service.py` 的 `_warehouse_summary()` / `_frequent_materials()` 核实：
+  仓库集合取 **Outbound ∪ Inventory 并集**，只在一边出现的仓库也出行、缺失侧计 0（否则 Total 与各仓之和对不上）；
+  月/周窗口的时间列**按 `OUTBOUND_TIME_COLUMNS` 优先级动态回落**，列名以接口 `period_starts.outbound_time_column` 为准（气泡不写死列名），
+  周从**周一起算**，窗口起点按本机时钟（即 UTC）算 —— 按北京时间想会差 8 小时；
+  时间解析不出来的行**不进窗口但仍计入总消耗**，所以「月 + 往月 ≠ 总数」是正常现象，这句直接写在 ⓘ 里。
+  ⚠ ~~`urgent`（需补货）这一张是前端在已下发的高频行上数的~~ → **已于 2026-11-04 改掉**（用户批准"要动后端"后选择直接取既有字段，不必新增）：
+  卡片现在读 `overview.urgent` —— 后端在 **Summary-Current 全表**上按 Alert Level 等值计数（`_summary_current_stats:609`）。
+  顺带更正本轮上一条调研式误判：`frequent_materials.rows` 是**全量**不是 Top N（`_frequent_materials:784-788` 注释写明
+  「top_n 仅作为展示提示，不能再用它截断 rows —— 否则分页只能翻到前 10 条」），所以旧的前端计数与 `overview.urgent` 数值相同（实测都是 62），
+  **这次改动没有改变任何显示数字**，只是把「前端 reduce」换成「接口字段」，符合 AGENTS.md 三.3c。
 
 版式对齐 `Task/WarehouseSummaryReport.xlsx`：**页签即该文件的两个 sheet**
 （`Spars Parts` / `Consumables`），每个页签内两段表。
@@ -2949,7 +3089,56 @@ tooltip 的「受影响站点」是**该区域内 site_id 去重数**（`:481-48
 - 段② 只显示 10 行翻不动页 → 后端 `frequent_materials.rows` 应为**全量**（不是 Top N）；
   若只见 10 行说明跑到旧代码，重启后端即可（2026-09-29 已改为全量返回）。
 
+## 26c. 备件物料统计汇总（`?page=sp_material`）—— WH/DOP 库存与消耗（2026-11-04 补写本节）
+
+页面在页面索引里占第 54 行已有一段时间，但**一直没有散文小节**（与 §14p 同样情况，2026-11-04 随数字悬浮说明铺开补写）。
+
+- 后端路由：`backend/routers/sp_material_summary.py` —— 只有 `/api/sp-material/summary`（8 列 + Total 行）
+  与 `/api/sp-material/detail`（单元格下钻）两个只读端点，**非法参数一律「200 + warnings」软失败**，不抛 5xx
+  （看板不能因为一个格子炸掉整页）。
+- 口径层：`backend/services/sp_material_summary_service.py` 顶部 docstring（`RCK_MATERIAL_SUMMARY_V1`）。
+  数据源是 `inventory_details`（APPEND 表，按 `update_date` 保留每日全量快照，所以能做「期初 vs 期末」）
+  与 `outband_details`（**全量刷新表**，所有行 `update_date` 相同，所以报修出库只能按 `Outbound Time` 过滤）。
+- **数字悬浮说明（2026-11-04，`AGENTS.md` 三.3c）**：每个数字挂 `ExplainPopover`（`spMat.tip.*`）、
+  「期初 / 当前」两组列头挂 `ExplainLabel`（`spMat.explainCol.*`），原先的 `Tooltip title={点击下钻}` 已删；
+  页面底部常驻的多段口径文字改为默认收起的 `CalcChainNote`（`spMat.docTitle`，三.3b），
+  但「以下分组出现消耗为负」那条**仍然常驻** —— 它是异常不是解释。
+  口径逐条从服务层核实后写进气泡，其中三条最容易读错：
+  ① **归组是 `Warehouse Id` 精确/前缀 *或* `Warehouse Name` 含关键词**（`_match_group:236-251`），
+  每组另带排除词（1st WH 排除名中含 `2nd floor` 的仓），全都不命中才进 Others —— 不是「只按仓库名匹配」；
+  ② **「报修出库」来自另一张表、且该表没有 Warehouse Id，归组只按名字**，窗口也和库存快照不同，
+  不能拿它去减库存列（一行 = 一个序列号、`Qty` 恒为 1，所以件数 = 行数）；
+  ③ **消耗 = 期初 − 当前，出现负数是合法的** —— 期间有入库/调拨回补时库存不降反升，口径不扣回补，
+  服务层另在 `warnings` 里点名。下钻明细走同一个 `_match_group`（`:705` / `:796`），
+  所以「格子里的数」与「下钻的行」在同一集合上（三.1b 第 1 条）。
+  「待修」（`Material Status = damage`）**不计进**期初/当前的「备件良品 + 耗材」合计，所以两列相加才等于整列。
+  单位提醒写在气泡里：这些都是 `SUM(Stock Qty)` 的**数量**，不是物料种类数。
+- **下钻弹窗底部的「合计」是前端即时聚合**（接口不下发这个数）：它只加**当前搜索框筛过的行**，
+  气泡里同时写明本次下钻返回的总行数，清空搜索框时两者相等。这是**合法的客户端聚合**
+  （对已下发行的求和，不是重算后端口径），因此不需要动后端 —— 见 `docs/number-explain-rollout-spec-2026-11-03.md` 的对应记录。
+
 ## 27. CR 变更分析（`?page=cr_analysis`）—— 按 change_category 看计划与完成（2026-09-25 新增）
+
+- **数字悬浮说明（2026-11-04，`AGENTS.md` 三.3c）**：八张计数卡与三张比率卡全部接入（`StatCard` 的 `explainText` + `ExplainPopover`）。
+  **⚠ 类别筛选原先是纯前端的（`summarize(rows)` 在 `activeCats` 过滤后的行上重加、接口全量 summary 被忽略，
+  比率公式也在 `crTypes.ts` 里复制了一份）→ 2026-11-04 收到后端**（用户批准"要动后端"）：
+  `cr_caliber.base_where(..., categories=...)` 支持 `TRIM(COALESCE(col,'')) IN (?,?,…)`（值走占位符，不拼 SQL），
+  `build_overview(start, end, categories)` 与 `build_drilldown(..., categories)` 共用它，
+  概览 / 三个比率 / 类别表 / 状态分布 / 月度 / 子类别**全部在同一个收窄集合上**；
+  下钻也带同一个 `categories`，保证「卡片数字 == 明细行数」（三.1b）。前端改为直接用 `ov.summary`，
+  `summarize` 只留作「无数据时的零值壳」。
+  **离线对拍确认数字未变**：选中两个类别时，后端 summary 与旧前端 Σ 逐项相等
+  （total 136 / planned 136 / executed 89 / unexecuted 47 / on_time 3 / delayed 86 / closed 96 / open 40，
+  比率 65.4 / 3.4 / 70.6 也逐字相同）。
+  ⚠ 生效前提：**重启 7038**（未重启时后端忽略 `categories`，界面会退回全量）。
+  另：`planned ≠ executed + unexecuted`（有 actual 无 planned 的行两边都不进 planned），气泡已写明。
+  八个桶的判据仍在后端（`SUM(CASE WHEN …)`，定义见 `cr_caliber.py`），ⓘ 逐条转述不重算：
+  `planned` = planned_start_time 非空、`executed` = actual_start_time 非空、`on_time` = 已执行且 `actual ≤ planned`
+  （**文本字典序比较**，依赖上游格式一致，代码注释自己承认这是假设）、`unexecuted` = 已排期而 actual 空、
+  `closed/canceled/open` = 归一后等值 / NOT IN。
+  ⚠ **`planned ≠ executed + unexecuted`**：有 actual 却无 planned 的单只进 executed 一侧，气泡写清。
+  三个比率**分母各不相同**（完成率÷已排期、按时率÷已执行、关闭率÷总量），横向比这三个百分数没有意义；
+  比率与 80/50 染色阈值都算在前端（`crTypes.ts:158-171`，注释自称业务约定），分母为 0 显示 `—` 不是 0%。
 
 数据源 `eflow_cr`（eFlow 同步的动态建表），回答一个问题：**各类变更计划排了多少、
 实际执行了多少、其中多少按时**。
@@ -3169,6 +3358,19 @@ detail 记录的是**已完成**的操作，语义上错开一格：
 数据源 `eflow_pm`（eFlow 同步的动态建表），回答一个问题：**各 PM 计划（预防性维护
 工单 PMT）执行到哪一步、多少超期、卡在谁那里**。
 
+- **数字悬浮说明（2026-11-04，`AGENTS.md` 三.3c）**：8 张计数卡与 3 张比率卡全部接入 ——
+  卡标题挂 `ExplainLabel`（ⓘ 讲该字段的 SQL 判据，键 `pm.explain.*`），数字本身走 `StatCard.explainText`
+  与 `ExplainPopover`（键 `pm.tip.count` / `pm.tip.rate`）。ⓘ 的键用**逐条字面量 switch** 映射，
+  不拼 `pm.explain. + metric` —— 拼串会被 `check:i18n` 读成键名 `pm.explain.` 而报「字典缺失」（三.1b 第 3 条）。
+  口径逐条从 `backend/services/pm_caliber.py` 与 `pm_analysis_service.py` 核实后写进界面：
+  `closed` = `UPPER(TRIM(status)) = 'CLOSED'`（动态建表的 eflow_pm 里 status 大小写两种写法都有，先归一再比）；
+  **`overdue` = `UPPER(TRIM(pmt_overdue)) = 'YES'` —— 直接采用源表自己的判定，页面不按计划日期/实际日期推算**，
+  源表没填这一列时该卡恒为 0、**不代表真的没有超期**，这句连同「上游新造的状态名会默认落进『未关闭』」一起写进 ⓘ；
+  `not_started` = `completed_items = 0`（该字段由明细行里已完成的条数累加）。
+  三个比率的分母都是 `COUNT(*) AS total`（`pm_analysis_service.py:108`），开工率 =（total − not_started）÷ total；
+  **比率一律由后端 `_rate` 算，分母为 0 返回 null → 界面显示 —，不是 0%**，前端不重算（三.3c 硬线）。
+  「总数」卡的气泡单独拆成 `pm.tip.countTotal`：原先 8 张卡共用一句「占总量 {total} 的比例你自己心算」，
+  在总数卡上会读成「自己占自己」，现改为写明它同时是下方关闭率与超期率的分母。
 - 后端路由：`backend/routers/pm_analysis.py`（**5 个**只读端点：filters / overview /
   drilldown / **workflow** / **workflow-drilldown**，后两个 2026-10-17 新增）
 - **口径层（唯一真相源）**：`backend/services/pm_caliber.py` —— 表名、时间字段、
@@ -3378,6 +3580,18 @@ created_time → last_create_time → last_schedule_time → last_accept_time
 顶部口径说明条**默认收起**（只留一行可点入口，点开展开完整说明；2026-11-02 起载具统一为 `components/CalcChainNote`），
 但口径**不可用时**（`active_user.available=false`）改为常驻警告且**不允许收起** ——
 那种情况下所有判定都偏低、结论不可比，藏起来等于让用户自己猜口径。
+
+- **数字悬浮说明（2026-11-04，`AGENTS.md` 三.3c）**：趋势明细表的「占比」列头挂 `ExplainLabel`、
+  每个占比单元格挂 `ExplainPopover`（`bp.tip.ratioCell`：该期 BP ÷ 全网 = 占比，并附该期明细行数与展示值的差额）；
+  三张数字卡「最新一期 BP 小区数」「期数」「平均 BP 占比」标题挂 ⓘ + 数字走 `StatCard.explainText`。
+  两条最容易读错的口径已核实并写进界面：
+  ① `bp_ratio` 是**汇总表里该期自己的存储列**，服务层直接 `SELECT … {ratio_col} AS bp_ratio`
+  （`backend/services/bp_report_service.py:185`），页面**不拿 bp_cells ÷ total_cells 再除一遍**；
+  ② **`avg_ratio` = `AVG({ratio_col})`**（`bp_report_service.py:212`）= **各期占比的算术平均（每期一票）**，
+  **不是** ΣBP ÷ Σ全网 —— 小区数很少的期与很多的期在这里一样重。气泡因此**把两个数并列给出来**
+  （等权平均 vs 区间合计口径），两者不等是口径不同、不是算错；这张卡点下去是**整个区间**的 BP 明细，不是最后一期。
+  「期数」= 所选区间在该粒度下**实际有数据的周期个数**（一行一周期），不是自然周期数 —— 切粒度后它会变。
+  气泡内容一律取接口既有字段（`bp_ratio` / `bp_cells` / `total_cells` / `detail_cells` / `detail_diff`），前端不重算。
 
 ### 口径（唯一真相源：`backend/services/bp_caliber.py`）
 
@@ -4109,6 +4323,15 @@ AND `Site ID != 'VMAX-DC'` AND `MTTR2 >= 0.25`。每张图两列：
 原 FineBI「CN KPI」看板（公开链接 iYiQ）的原生重建，18 个组件。
 **不依赖 my-finebi 进程**，只要求远端只读 SQL API（`192.168.100.19:8765`）可达。
 
+- **数字悬浮说明 + 整页口径条（2026-11-04，`AGENTS.md` 三.3b / 三.3c）**：本页此前**既没有 `CalcChainNote` 也没有任何 `MetricExplain`**。现在
+  ① 每张组件卡标题挂 ⓘ、页头「数据最新日期」那排单值卡数字挂 `ExplainPopover`；
+  ② 整页口径进默认收起的 `CalcChainNote`（键 `cnkpi.calc.*`：数据源与区间 / 分层取数 / 粒度是推断的）。
+  **气泡内容一律取接口既有字段，前端不重算**：`rows.length × columns.length`、`granularity`、`degraded`、`fallback_from`、
+  以及后端实际执行的 `sql` 原文（`ExplainPopover` 自带复制按钮，值班可以直接把 SQL 拷去核对）。
+  页头统计也讲清三件事：数据源是远端 `db_ps_cs_cn` HTTP API 而非本机库、`{{LO}}/{{HI}}` 占位符默认近 31 天（月粒度组件改近 13 个月）、
+  `failed` 只算**三级数据源全部失败**的组件（空态不算）。
+  单值 KPI 的气泡额外写明「取结果第一行第一列，且其 SQL 不带时间占位符 → 这个数不随起止日期变化」（`_apply_range` 对无占位符的 SQL 原样返回）。
+
 ### 33.1 数据源：两套彼此独立的流水线（**本节是本页的关键**）
 
 同一个 KPI 在 `db_ps_cs_cn.sqlite3` 里可能有两张同名不同源的表：
@@ -4311,6 +4534,17 @@ UME 只是自动同步的补充。**这个优先级是口径决定，不是性�
 ## 33b. CN KPI 5 分钟看板（`?page=cn_kpi_5mins`）—— Day0/Day1/Day7 叠画
 
 2026-10-17 新增。与 §33 的 CN KPI 看板**共用上游与凭据**，但粒度、窗口与数据表都不同。
+
+- **数字悬浮说明（2026-11-04，`AGENTS.md` 三.3c）**：本页的整页口径 `CalcChainNote` 早已存在（§33b 也是 3b 的参考实现），
+  **缺的是数字级** —— 现在每张组件卡标题挂 ⓘ（按 `w.id` 走**逐条字面量**映射 `cnkpi5.explain.vlr|voice|dataSub|4gTraffic|rg30|rg12|rg11|rg6|xgwLicense|xgwCpu|3gTraffic`，
+  不拼串以免被 `check:i18n` 读成 `cnkpi5.explain.`），「vs 昨日 ±%」标签、页头「N/N 个组件有数据」「elapsed_ms / cached」「failed」四枚标签全部改挂 `ExplainPopover`；
+  原先两处 `Tooltip title=` 已删。每条文案与 `WIDGETS` 里的 `value_expr` **逐条对过**（改 SQL 必须同步改这里）：
+  VLR / Voice / Data Subscribers / 4G·3G·RG 系列是 `SUM`（RG 系列额外 `"Measurement Object" = 30|12|11|6`，四张卡同表拆分互不重叠；字节列 `/1e9` 换算成 GB），
+  **xGW License 与 xGW CPU 是 `ROUND(AVG(...),2)` —— 百分比的算术平均，不是加权也不是峰值**；
+  这三个 xGW / 3G 组件上游只有 **15 分钟**档（`UNAVAILABLE_TABLES` 已清空为 `{}`，2026-10-19 起改为正常出数），
+  所以点位数约为其他组件的 1/3，**稀疏点不是缺数** —— 这一句同时写进气泡与口径条。
+  ⚠ 文件头注释与 §33b 早期描述里「这三个模板是空态卡」的说法**已过时**，以 `UNAVAILABLE_TABLES = {}` 为准。
+  「vs 昨日 ±%」在气泡里明说是**前端现算**（接口不下发 pct）：今天 00:00→此刻的均值 对比 昨天截到同一时刻的均值，±10% 阈值也写在前端。
 
 ### 33b.1 它是什么
 

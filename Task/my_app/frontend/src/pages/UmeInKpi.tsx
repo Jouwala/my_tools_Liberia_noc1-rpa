@@ -15,6 +15,8 @@ import { exportReport } from '../utils/excelReport'
 import type { ReportSheetSpec } from '../utils/excelReport'
 import DraggableClickModal from '../components/DraggableClickModal'
 import { SearchableExportTable } from '../components/SearchableExportTable'
+// 数字悬浮口径说明（AGENTS.md 三.3c）：概览卡与资源卡的数字此前只能看到「下钻提示」，看不到算法。
+import { ExplainPopover } from '../components/MetricExplain'
 
 const { Text, Title } = Typography
 
@@ -1715,24 +1717,35 @@ export default function UmeInKpi() {
     await exportReport(specs, `Customer_KPI_Page_${data.meta.latest_day ?? 'export'}`)
   }, [data, days, hardAlerts, infoAlerts, successKpis, resourceKpis, statusLabel, en, t])
 
-  /* ---------- 概览统计卡（每张都可下钻） ---------- */
+  /* ---------- 概览统计卡（每张都可下钻）----------
+   * 数字悬浮说明（AGENTS.md 三.3c）：本页所有卡片聚合的是**最新一天**（接口 day / meta.latest_day），
+   * 不是所选天数窗口的累计 —— 这句话必须写在气泡里，否则「近 7 天」的窗口标签会让人读成 7 天总量。
+   * 口径对过 backend/services/ume_in/ume_in_kpi_service.py 的 agg() 与 run 汇总段。 */
   const summaryCards = useMemo(() => {
     if (!data) return []
-    const mk = (metric: SummaryMetric, title: string, value: number | string, color: string) => ({
-      title, value, color,
+    const day = data.meta.latest_day || '—'
+    const mk = (metric: SummaryMetric, title: string, value: number | string, color: string, explain: string) => ({
+      title, value, color, explain,
       drill: { kind: 'summary' as const, metric, title } as DrillTarget,
     })
     return [
-      mk('kpis', t('uk.sum.kpi'), data.summary.kpi_count, WH.blue),
-      mk('services', t('uk.sum.service'), data.summary.service_count, WH.blue),
-      mk('attempts', t('uk.sum.attempts'), compact(data.summary.total_attempts), WH.text),
-      mk('failed', t('uk.sum.failed'), compact(data.summary.total_failed), WH.sev.Warning),
-      mk('system_failed', t('uk.sum.systemFailed'), num(data.summary.total_system_failed), WH.sev.Critical),
-      mk('user_failed', t('uk.sum.userFailed'), compact(data.summary.total_user_failed), WH.textMuted),
-      mk('alerts', t('uk.sum.alerts'), hardAlerts.length, hardAlerts.length ? WH.sev.Critical : WH.teal),
+      mk('kpis', t('uk.sum.kpi'), data.summary.kpi_count, WH.blue,
+        t('uk.explain.sumKpis', { n: data.summary.kpi_count })),
+      mk('services', t('uk.sum.service'), data.summary.service_count, WH.blue,
+        t('uk.explain.sumServices', { n: data.summary.service_count, day })),
+      mk('attempts', t('uk.sum.attempts'), compact(data.summary.total_attempts), WH.text,
+        t('uk.explain.sumAttempts', { v: compact(data.summary.total_attempts), day })),
+      mk('failed', t('uk.sum.failed'), compact(data.summary.total_failed), WH.sev.Warning,
+        t('uk.explain.sumFailed', { v: compact(data.summary.total_failed), day })),
+      mk('system_failed', t('uk.sum.systemFailed'), num(data.summary.total_system_failed), WH.sev.Critical,
+        t('uk.explain.sumSysFailed', { v: num(data.summary.total_system_failed), day })),
+      mk('user_failed', t('uk.sum.userFailed'), compact(data.summary.total_user_failed), WH.textMuted,
+        t('uk.explain.sumUserFailed', { v: compact(data.summary.total_user_failed), day })),
+      mk('alerts', t('uk.sum.alerts'), hardAlerts.length, hardAlerts.length ? WH.sev.Critical : WH.teal,
+        t('uk.explain.sumAlerts', { n: hardAlerts.length, all: data.alerts?.length ?? 0 })),
     ]
     // hardAlerts 由 data 派生，故 data 为依赖即可覆盖
-  }, [data, t])
+  }, [data, hardAlerts, t])
 
   return (
     <div style={{ background: WH.bg, borderRadius: 'var(--wh-radius-lg)', padding: 'var(--wh-space-xs)', minHeight: 'var(--wh-page-min-height)' }}>
@@ -1868,7 +1881,7 @@ export default function UmeInKpi() {
             {/* ---------- 概览统计（每张卡都可点击下钻到对应明细） ---------- */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 'var(--wh-space-sm)', marginBottom: 'var(--wh-space-md)' }}>
               {summaryCards.map((c, i) => (
-                <Tooltip key={i} title={t('uk.drillHint')}>
+                <ExplainPopover key={i} placement="bottom" text={`${c.explain}\n${t('uk.drillHint')}`}>
                   <span style={{ display: 'block' }}>
                     <Card
                       style={{ ...cardStyle, cursor: 'pointer' }}
@@ -1883,7 +1896,7 @@ export default function UmeInKpi() {
                       />
                     </Card>
                   </span>
-                </Tooltip>
+                </ExplainPopover>
               ))}
             </div>
 
@@ -2004,9 +2017,18 @@ export default function UmeInKpi() {
                       {locale === 'en' ? k.title_en : k.title_zh}
                     </Text>
                     <StatusBadge status={k.status} label={statusLabel(k.status)} isDark={isDark} />
-                    <Text style={{ color: WH.textDim, fontSize: 11 }}>
-                      {t('uk.res.avg')} {k.avg === null ? '—' : `${k.avg}%`} · {t('uk.res.top')} {k.top === null ? '—' : `${k.top}%`}
-                    </Text>
+                    <ExplainPopover placement="bottom" text={t('uk.explain.resAvgTop', {
+                      avg: k.avg === null ? '—' : `${k.avg}%`,
+                      top: k.top === null ? '—' : `${k.top}%`,
+                      day: k.day || data.meta.latest_day || '—',
+                      warn: String(thresholds?.res_warn ?? 80),
+                      crit: String(thresholds?.res_crit ?? 90),
+                      n: k.services.length,
+                    })}>
+                      <Text style={{ color: WH.textDim, fontSize: 11, cursor: 'help' }}>
+                        {t('uk.res.avg')} {k.avg === null ? '—' : `${k.avg}%`} · {t('uk.res.top')} {k.top === null ? '—' : `${k.top}%`}
+                      </Text>
+                    </ExplainPopover>
                   </Space>
                   <Table<ResSvcRow>
                     rowKey={s => `${k.key}-${s.service}`}

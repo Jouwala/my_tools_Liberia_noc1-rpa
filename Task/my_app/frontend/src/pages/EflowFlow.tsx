@@ -35,6 +35,10 @@ import ReactECharts from 'echarts-for-react'
 import { useI18n } from '../i18n'
 import { WH, useTheme, darkTooltip } from '../theme'
 import { CardBase, StatCard } from '../components/cards'
+// 数字悬浮口径说明（AGENTS.md 三.3c）：ⓘ 讲这一项怎么算，气泡讲这个数怎么来。
+// 本页此前只有 ECharts 节点 tooltip，卡片数字与规则计数问不到。
+import CalcChainNote from '../components/CalcChainNote'
+import { ExplainLabel, ExplainPopover } from '../components/MetricExplain'
 import api from '../api'
 import { formatDateTime as fmtDateTime } from '../datetime'
 import { exportReport, type ReportSheetSpec } from '../utils/excelReport'
@@ -219,6 +223,20 @@ export default function EflowFlow() {
     return s
   }, [data])
 
+  /** TT 主流程节点数（排除 WO 子流程泳道）。
+   *  「已走步骤」只统计主流程：后端 _actual_path 的 order 只取 _FLOW_NODES，
+   *  WO 节点走的是另一个 reached_ids（见 backend/services/eflow_flow.py:778）。
+   *  原写法用 graph.nodes.length 当分母，会把 5 个 WO 节点也计入「全程步骤」。 */
+  const ttNodeCount = useMemo(
+    () => (graph?.nodes || []).filter(n => n.stage !== 'wo' && !n.id.startsWith('wo_')).length,
+    [graph],
+  )
+  /** 挂载了规则的主流程节点数 —— 说明「流程规则」为什么不会全部铺满 */
+  const nodesWithRules = useMemo(
+    () => (graph?.nodes || []).filter(n => n.rule_count > 0).length,
+    [graph],
+  )
+
   /* ---- ECharts 流程图 ----
    * ⚠ 取色必须用 isDark 实值：WH.xxx 是 'var(--wh-*)'，canvas 解析不了。
    */
@@ -322,7 +340,9 @@ export default function EflowFlow() {
             : d._reached ? t('eflowFlow.nodeStatusReached')
               : t('eflowFlow.nodeStatusNotReached')
           return `<b>${d.name}</b><br/>${status}<br/>${t('eflowFlow.ruleCountShort')}: `
-            + `${d._activeCount} / ${d._ruleCount}`
+            + `${d._activeCount} / ${d._ruleCount}<br/>`
+            + `<span style="color:${isDark ? '#9aa6c8' : '#5b6478'};font-size:11px">`
+            + `${t('eflowFlow.explain.nodeRulesTooltip')}</span>`
         },
       },
       series: [{
@@ -659,21 +679,32 @@ export default function EflowFlow() {
             </Col>
             <Col xs={12} sm={8} lg={4}>
               <CardBase
-                title={t('eflowFlow.kpi.steps')}
+                title={<ExplainLabel label={t('eflowFlow.kpi.steps')} text={t('eflowFlow.explain.steps', { n: ttNodeCount })} />}
                 as="div"
                 interactive
                 onClick={() => setActiveNode('')}
               >
-                <Text strong style={{ fontSize: 22 }}>{data.reached_ids?.length || 0}</Text>
+                <ExplainPopover placement="bottom" text={t('eflowFlow.tip.steps', {
+                  reached: data.reached_ids?.length || 0,
+                  total: ttNodeCount,
+                  wo: data.wo_path?.reached_ids?.length || 0,
+                })}>
+                  <Text strong style={{ fontSize: 22 }}>{data.reached_ids?.length || 0}</Text>
+                </ExplainPopover>
                 <div style={{ fontSize: 11, color: WH.textDim, marginTop: 2 }}>
-                  {t('eflowFlow.kpi.stepsHint', { n: graph?.nodes.length || 0 })}
+                  {t('eflowFlow.kpi.stepsHint', { n: ttNodeCount })}
                 </div>
               </CardBase>
             </Col>
             <Col xs={12} sm={8} lg={4}>
-              <CardBase title={t('eflowFlow.kpi.rulesTotal')} as="div" interactive
+              <CardBase title={<ExplainLabel label={t('eflowFlow.kpi.rulesTotal')} text={t('eflowFlow.explain.rulesTotal', { nodes: nodesWithRules, total: graph?.nodes?.length || 0 })} />} as="div" interactive
                 onClick={() => setActiveNode(data.current || '')}>
-                <Text strong style={{ fontSize: 22 }}>{graph?.rules_total || 0}</Text>
+                <ExplainPopover placement="bottom" text={t('eflowFlow.tip.rules', {
+                  rules: graph?.rules_total || 0,
+                  hits: data.rule_hits?.length || 0,
+                })}>
+                  <Text strong style={{ fontSize: 22 }}>{graph?.rules_total || 0}</Text>
+                </ExplainPopover>
                 <div style={{ fontSize: 11, color: WH.textDim, marginTop: 2 }}>
                   {t('eflowFlow.kpi.rulesHint', { n: data.rule_hits?.length || 0 })}
                 </div>
@@ -707,8 +738,17 @@ export default function EflowFlow() {
           />
 
           {/* ⑦ 全流程图 */}
+          <CalcChainNote
+            title={t('eflowFlow.calcNote.title')}
+            sections={[
+              { title: t('eflowFlow.calcNote.secGraph'), lines: [t('eflowFlow.calcNote.graph1'), t('eflowFlow.calcNote.graph2')] },
+              { title: t('eflowFlow.calcNote.secAttach'), lines: [t('eflowFlow.calcNote.attach1'), t('eflowFlow.calcNote.attach2'), t('eflowFlow.calcNote.attach3')] },
+              { title: t('eflowFlow.calcNote.secReached'), lines: [t('eflowFlow.calcNote.reached1'), t('eflowFlow.calcNote.reached2'), t('eflowFlow.calcNote.reached3')] },
+              { title: t('eflowFlow.calcNote.secCaveat'), lines: [t('eflowFlow.calcNote.caveat1'), t('eflowFlow.calcNote.caveat2')] },
+            ]}
+          />
           <CardBase
-            title={t('eflowFlow.graph.title')}
+            title={<ExplainLabel label={t('eflowFlow.graph.title')} text={t('eflowFlow.explain.graph')} />}
             extra={
               <Space size={12} wrap>
                 <Text type="secondary" style={{ fontSize: 12 }}>
@@ -747,8 +787,18 @@ export default function EflowFlow() {
             extra={
               activeNodeObj && (
                 <Space size={8}>
-                  <Tag color="green">{t('eflowFlow.nodeRules.active', { n: activeNodeObj.active_rule_count })}</Tag>
-                  <Tag>{t('eflowFlow.nodeRules.total', { n: activeNodeObj.rule_count })}</Tag>
+                  <ExplainPopover placement="left" text={t('eflowFlow.tip.nodeActive', {
+                    active: activeNodeObj.active_rule_count,
+                    total: activeNodeObj.rule_count,
+                  })}>
+                    <Tag color="green">{t('eflowFlow.nodeRules.active', { n: activeNodeObj.active_rule_count })}</Tag>
+                  </ExplainPopover>
+                  <ExplainPopover placement="left" text={t('eflowFlow.tip.nodeTotal', {
+                    total: activeNodeObj.rule_count,
+                    rules: graph?.rules_total || 0,
+                  })}>
+                    <Tag>{t('eflowFlow.nodeRules.total', { n: activeNodeObj.rule_count })}</Tag>
+                  </ExplainPopover>
                   <Button size="small" type="link" onClick={() => setActiveNode('')}>
                     {t('eflowFlow.nodeRules.showAll')}
                   </Button>

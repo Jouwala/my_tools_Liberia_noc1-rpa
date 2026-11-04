@@ -11,6 +11,8 @@ import { getSpDetailsFilters, getSpDetailsRows, getSpDetailsSummary } from '../a
 import { useI18n, numLocale } from '../i18n'
 import { useTheme, WH } from '../theme'
 import DraggableClickModal from '../components/DraggableClickModal'
+// 数字悬浮口径说明（AGENTS.md 三.3c）。口径对过 backend/services/sp_details_service.py 的 get_summary()。
+import { ExplainIcon, ExplainPopover } from '../components/MetricExplain'
 import { exportReport, safeFileName, type CellValue } from '../utils/excelReport'
 
 const { Text } = Typography
@@ -174,8 +176,12 @@ function StatCard(props: {
   hint?: React.ReactNode
   color?: string
   emphasis?: boolean
+  /** 标题 ⓘ（这一项怎么算，AGENTS.md 三.3c） */
+  explain?: string
+  /** 数字本身的气泡（这一格的构成） */
+  tip?: string
 }) {
-  const { label, value, unit, hint, color, emphasis } = props
+  const { label, value, unit, hint, color, emphasis, explain, tip } = props
   return (
     <div
       /* 卡片皮肤交给 CSS 层（.wh-stat-card），与其余页面的 antd Card 统一走浅色档
@@ -191,11 +197,14 @@ function StatCard(props: {
     >
       <div style={{ color: WH.textMuted, fontSize: 12, marginBottom: 6, whiteSpace: 'nowrap' }}>
         {label}
+        {explain && <span style={{ marginLeft: 4 }}><ExplainIcon text={explain} /></span>}
       </div>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
-        <span style={{ color: color || WH.teal, fontSize: 24, fontWeight: 700, lineHeight: 1.15 }}>
-          {value}
-        </span>
+        <ExplainPopover placement="bottom" text={tip || ''}>
+          <span style={{ color: color || WH.teal, fontSize: 24, fontWeight: 700, lineHeight: 1.15 }}>
+            {value}
+          </span>
+        </ExplainPopover>
         {unit && <span style={{ color: WH.textDim, fontSize: 12 }}>{unit}</span>}
       </div>
       {hint && (
@@ -420,17 +429,40 @@ export default function SpDetailsReport() {
   // ---------- 卡片数据 ----------
   const ov = summary?.overview
   const cards = useMemo(() => ([
-    { key: 'records', label: t('spDet.card.records'), value: (ov?.total_records ?? 0).toLocaleString(loc), hint: `${ov?.sheet_count ?? 0} ${t('spDet.sheets')}` },
-    { key: 'stock', label: t('spDet.card.stockQty'), value: (ov?.stock_qty ?? 0).toLocaleString(loc), hint: t('spDet.hint.stock') },
-    { key: 'inbound', label: t('spDet.card.inboundQty'), value: (ov?.inbound_qty ?? 0).toLocaleString(loc), hint: t('spDet.hint.inbound') },
-    { key: 'outbound', label: t('spDet.card.outboundQty'), value: (ov?.outbound_qty ?? 0).toLocaleString(loc), hint: t('spDet.hint.outbound') },
-    { key: 'transfer', label: t('spDet.card.transferQty'), value: (ov?.transfer_qty ?? 0).toLocaleString(loc), hint: t('spDet.hint.transfer') },
-    { key: 'warehouses', label: t('spDet.card.warehouses'), value: ov?.warehouses ?? 0, hint: t('spDet.hint.warehouses') },
-    { key: 'materials', label: t('spDet.card.materials'), value: (ov?.distinct_materials ?? 0).toLocaleString(loc), hint: t('spDet.hint.materials') },
+    {
+      key: 'records', label: t('spDet.card.records'), value: (ov?.total_records ?? 0).toLocaleString(loc), hint: `${ov?.sheet_count ?? 0} ${t('spDet.sheets')}`,
+      explain: t('spDet.explain.records'), tip: t('spDet.tip.records', { n: ov?.total_records ?? 0, sheets: ov?.sheet_count ?? 0 }),
+    },
+    {
+      key: 'stock', label: t('spDet.card.stockQty'), value: (ov?.stock_qty ?? 0).toLocaleString(loc), hint: t('spDet.hint.stock'),
+      explain: t('spDet.explain.stockQty'), tip: t('spDet.tip.bySheetQty', { sheet: 'Inventory', col: 'Stock Qty', v: (ov?.stock_qty ?? 0).toLocaleString(loc) }),
+    },
+    {
+      key: 'inbound', label: t('spDet.card.inboundQty'), value: (ov?.inbound_qty ?? 0).toLocaleString(loc), hint: t('spDet.hint.inbound'),
+      explain: t('spDet.explain.inboundQty'), tip: t('spDet.tip.bySheetQty', { sheet: 'Inbound', col: 'Inbound Qty', v: (ov?.inbound_qty ?? 0).toLocaleString(loc) }),
+    },
+    {
+      key: 'outbound', label: t('spDet.card.outboundQty'), value: (ov?.outbound_qty ?? 0).toLocaleString(loc), hint: t('spDet.hint.outbound'),
+      explain: t('spDet.explain.outboundQty'), tip: t('spDet.tip.bySheetQty', { sheet: 'Outbound', col: 'Outbound Qty', v: (ov?.outbound_qty ?? 0).toLocaleString(loc) }),
+    },
+    {
+      key: 'transfer', label: t('spDet.card.transferQty'), value: (ov?.transfer_qty ?? 0).toLocaleString(loc), hint: t('spDet.hint.transfer'),
+      explain: t('spDet.explain.transferQty'), tip: t('spDet.tip.bySheetQty', { sheet: 'Transfer', col: 'Transfer Qty', v: (ov?.transfer_qty ?? 0).toLocaleString(loc) }),
+    },
+    {
+      key: 'warehouses', label: t('spDet.card.warehouses'), value: ov?.warehouses ?? 0, hint: t('spDet.hint.warehouses'),
+      // 调拨表同时取「原仓库 + 目标仓库」两侧，所以这个数比仓库清单上的个数大是应有的
+      explain: t('spDet.explain.warehouses'), tip: t('spDet.tip.warehouses', { n: ov?.warehouses ?? 0 }),
+    },
+    {
+      key: 'materials', label: t('spDet.card.materials'), value: (ov?.distinct_materials ?? 0).toLocaleString(loc), hint: t('spDet.hint.materials'),
+      explain: t('spDet.explain.materials'), tip: t('spDet.tip.materials', { n: ov?.distinct_materials ?? 0 }),
+    },
     {
       key: 'open', label: t('spDet.card.openTickets'), value: ov?.open_tickets ?? 0,
       hint: t('spDet.hint.openTickets'), color: (ov?.open_tickets ?? 0) > 0 ? WH.sev.Warning : WH.teal,
       emphasis: (ov?.open_tickets ?? 0) > 0,
+      explain: t('spDet.explain.openTickets'), tip: t('spDet.tip.openTickets', { n: ov?.open_tickets ?? 0 }),
     },
   ]), [ov, t, loc])
 
@@ -499,7 +531,7 @@ export default function SpDetailsReport() {
               <Col key={c.key} xs={12} sm={8} lg={6} xl={3}>
                 <StatCard
                   label={c.label} value={c.value} hint={c.hint}
-                  color={c.color} emphasis={c.emphasis}
+                  color={c.color} emphasis={c.emphasis} explain={c.explain} tip={c.tip}
                 />
               </Col>
             ))}

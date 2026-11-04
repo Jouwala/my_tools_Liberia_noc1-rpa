@@ -24,7 +24,7 @@ import DraggableClickModal from '../components/DraggableClickModal'
 // 统计数字卡片走项目统一卡片组件（AGENTS.md 第三节第 3 条：卡片必须用 components/cards，
 // 不要在页面里自造卡片样式）
 import { CardBase } from '../components/cards'
-import { ExplainIcon } from '../components/MetricExplain'
+import { ExplainIcon, ExplainPopover } from '../components/MetricExplain'
 import { WH, WH_COLORS, LIGHT_COLORS, DARK, LIGHT, useTheme, darkTooltip, axisLabel, axisLine, splitLine, cardStyle, controlCardStyle, pageWrap } from '../theme'
 
 const { RangePicker } = DatePicker
@@ -89,6 +89,8 @@ const SectionTitle = ({ icon, title, explain, summaries }: {
     value: number | null | undefined
     color: string
     explain?: string
+    /** 这一格数字自己的构成（筛选范围、来源字段）—— 与 explain（这一项怎么算）叠在同一个气泡里 */
+    detail?: string
     onClick?: (e: React.MouseEvent) => void
   }>
 }) => (
@@ -112,7 +114,9 @@ const SectionTitle = ({ icon, title, explain, summaries }: {
           // 徽标本体用 CardBase 的观感但做成行内胶囊：它是标题的一部分，不是一个区块，
           // 所以不上 CardBase（那会带来边框与内边距，把标题撑成两层）。可点击时给手型 +
           // 键盘焦点样式，保持与其他可下钻元素一致的可发现性。
-          <Tooltip key={sm.key} title={sm.explain || sm.label}>
+          // 悬浮用统一气泡（可复制、受主题管），不再用 antd Tooltip：
+          // AGENTS.md 三.3c 禁止把口径塞成提示属性，且数字本身要能问到构成。
+          <ExplainPopover key={sm.key} text={[sm.explain, sm.detail].filter(Boolean).join('\n')}>
             <button
               type="button"
               onClick={sm.onClick}
@@ -128,7 +132,7 @@ const SectionTitle = ({ icon, title, explain, summaries }: {
               <span style={{ fontSize: '0.75rem', fontWeight: 600, opacity: 0.85 }}>{sm.label}</span>
               <span style={{ fontSize: '1.125rem', fontWeight: 800 }}>{sm.value == null ? '—' : sm.value.toLocaleString()}</span>
             </button>
-          </Tooltip>
+          </ExplainPopover>
         ))}
       </div>
     )}
@@ -1237,6 +1241,17 @@ export default function TTWODashboard({ only, source }: { only?: TTWOOnly; sourc
     Unknown: isDark ? '#adb5bd' : '#64748b',
   }
   const autoPalette = cPalette
+  /** 当前筛选范围的可读串 —— 数字气泡用它回答「这个数是在什么范围里数出来的」。
+   *  只读页面既有的筛选状态，不重算任何聚合。 */
+  const scopeNote = useMemo(() => [
+    timePreset === 'all'
+      ? t('ttwo.scope.allTime')
+      : t('ttwo.scope.window', { start: timeRange?.start || '—', end: timeRange?.end || '—' }),
+    selectedRegion ? t('ttwo.scope.region', { v: selectedRegion }) : '',
+    selectedOwner ? t('ttwo.scope.owner', { v: selectedOwner }) : '',
+    activeFilterCount ? t('ttwo.scope.adv', { n: activeFilterCount }) : '',
+  ].filter(Boolean).join('\n'), [timePreset, timeRange, selectedRegion, selectedOwner, activeFilterCount, t])
+
   const autoColorCache: Record<string, string> = {}
   const getAutoColor = (key: string, idx: number) => {
     if (!autoColorCache[key]) autoColorCache[key] = autoPalette[idx % autoPalette.length]
@@ -1284,6 +1299,8 @@ export default function TTWODashboard({ only, source }: { only?: TTWOOnly; sourc
      * 顺序只影响**展示**，下钻维度与取值不变。
      */
     fixedOrder?: readonly string[],
+    /** 该维度特有的排除/归并规则，拼进每个数字的气泡（如 Unknown 不计入）。 */
+    cellNote?: string,
   ) => {
     const orderIdx = (k: string) => {
       if (!fixedOrder) return -1
@@ -1311,6 +1328,20 @@ export default function TTWODashboard({ only, source }: { only?: TTWOOnly; sourc
         {sorted.map(([k, v], idx) => {
           const color = colorOf(k, idx)
           const pct = total > 0 ? ((v as number) / total) * 100 : 0
+          // 数字本身的气泡：这一格是多少、占比的分母是谁、范围是什么、点开去哪。
+          // 占比接口不下发，由前端按本页返回值现算 —— 这句话必须写在气泡里，
+          // 否则用户会以为它和后端某个字段同源（AGENTS.md 三.3c）。
+          const cellText = [
+            t('ttwo.tip.statCard', {
+              label: labelOf(k),
+              n: v == null ? '—' : fmt(v as number),
+              total: fmt(total),
+              pct: pct.toFixed(1),
+            }),
+            cellNote,
+            scopeNote,
+            t('ttwo.tip.statCardDrill'),
+          ].filter(Boolean).join('\n')
           return (
             <Col xs={12} sm={8} md={6} lg={span} key={k}>
               <CardBase
@@ -1330,10 +1361,14 @@ export default function TTWODashboard({ only, source }: { only?: TTWOOnly; sourc
                     —— 它按级别各取一色，四个大数字颜色不一致，视觉上比实际权重更喧闹。
                     去掉颜色不等于丢掉区分度：左侧 4px 色条仍是每张卡的级别身份，
                     标题与占比本来就是统一的弱化色。SLA 状态等其他维度不受影响。 */}
-                <div style={{ fontSize: '1.5rem', fontWeight: 800, color: numberColor ?? WH.teal, lineHeight: 1.2 }}>
-                  {v == null ? '—' : fmt(v as number)}
-                </div>
-                <div style={{ fontSize: '0.6875rem', color: WH.textMuted, marginTop: 2 }}>{pct.toFixed(1)}%</div>
+                <ExplainPopover placement="top" text={cellText}>
+                  <div style={{ fontSize: '1.5rem', fontWeight: 800, color: numberColor ?? WH.teal, lineHeight: 1.2 }}>
+                    {v == null ? '—' : fmt(v as number)}
+                  </div>
+                </ExplainPopover>
+                <ExplainPopover placement="top" text={cellText}>
+                  <div style={{ fontSize: '0.6875rem', color: WH.textMuted, marginTop: 2 }}>{pct.toFixed(1)}%</div>
+                </ExplainPopover>
               </CardBase>
             </Col>
           )
@@ -1843,13 +1878,13 @@ export default function TTWODashboard({ only, source }: { only?: TTWOOnly; sourc
         title={t('ttwo.ttStatistics')}
         summaries={[
           ...(showTtTotalCard
-            ? [{ key: 'tt', label: t('ttwo.ttTotal'), value: data.summary.tt_total, color: '#258cff', explain: t('ttwo.explain.ttTotal'), onClick: (e: React.MouseEvent) => openDrilldown(e, 'all_tt') }]
+            ? [{ key: 'tt', label: t('ttwo.ttTotal'), value: data.summary.tt_total, color: '#258cff', explain: t('ttwo.explain.ttTotal'), detail: [t('ttwo.tip.ttTotalDetail'), scopeNote].filter(Boolean).join('\n'), onClick: (e: React.MouseEvent) => openDrilldown(e, 'all_tt') }]
             : []),
           ...(showWoSummaryCards && data.summary.wo_total > 0
-            ? [{ key: 'wo', label: t('ttwo.woTotal'), value: data.summary.wo_total, color: '#51cf66', explain: t('ttwo.explain.woTotal'), onClick: (e: React.MouseEvent) => openDrilldown(e, 'all_wo') }]
+            ? [{ key: 'wo', label: t('ttwo.woTotal'), value: data.summary.wo_total, color: '#51cf66', explain: t('ttwo.explain.woTotal'), detail: [t('ttwo.tip.woTotalDetail'), scopeNote].filter(Boolean).join('\n'), onClick: (e: React.MouseEvent) => openDrilldown(e, 'all_wo') }]
             : []),
           ...(showWoNoCard && data.summary.wo_total > 0
-            ? [{ key: 'woNo', label: t('ttwo.woNoUnique'), value: data.summary.wo_no_count, color: '#a99cff', explain: t('ttwo.explain.woNo'), onClick: (e: React.MouseEvent) => openDrilldown(e, 'all_wo') }]
+            ? [{ key: 'woNo', label: t('ttwo.woNoUnique'), value: data.summary.wo_no_count, color: '#a99cff', explain: t('ttwo.explain.woNo'), detail: [t('ttwo.tip.woNoDetail'), scopeNote].filter(Boolean).join('\n'), onClick: (e: React.MouseEvent) => openDrilldown(e, 'all_wo') }]
             : []),
         ]}
       />
@@ -1865,11 +1900,11 @@ export default function TTWODashboard({ only, source }: { only?: TTWOOnly; sourc
               按数量降序排会让 P4 跑到 P1 前面，看起来像是级别也随机。
               数字统一用项目默认色 WH.teal（2026-10-18）：四个级别各染一色时，
               大数字的色差比级别本身的权重更抢眼；级别身份继续由左色条承担。 */}
-          {renderStatCards(visibleStats(s.ticket_severity), (k, i) => ticketColor[k] || getAutoColor(k, i), 'ticket_severity', (k) => k, WH.teal, ['P1', 'P2', 'P3', 'P4'])}
+          {renderStatCards(visibleStats(s.ticket_severity), (k, i) => ticketColor[k] || getAutoColor(k, i), 'ticket_severity', (k) => k, WH.teal, ['P1', 'P2', 'P3', 'P4'], t('ttwo.tip.severityNote'))}
         </Col>
         <Col xs={24} lg={12}>
           <StatDimTitle label={t('ttwo.slaStatus')} explain={t('ttwo.explain.sla')} />
-          {renderStatCards(visibleStats(s.sla_status), (k, i) => slaColor[k] || getAutoColor(k, i), 'sla_status')}
+          {renderStatCards(visibleStats(s.sla_status), (k, i) => slaColor[k] || getAutoColor(k, i), 'sla_status', (k) => k, undefined, undefined, t('ttwo.tip.slaNote'))}
         </Col>
       </Row>
       <StatDimTitle label={t('ttwo.statusMilestone')} explain={t('ttwo.statusMilestoneExplain')} />

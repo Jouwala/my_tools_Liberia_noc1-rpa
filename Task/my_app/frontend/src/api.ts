@@ -76,7 +76,7 @@ export function getCrAnalysisFilters() {
   return api.get('/cr-analysis/filters')
 }
 
-export function getCrAnalysisOverview(params?: { start?: string; end?: string }) {
+export function getCrAnalysisOverview(params?: { start?: string; end?: string; categories?: string }) {
   return api.get('/cr-analysis/overview', { params })
 }
 

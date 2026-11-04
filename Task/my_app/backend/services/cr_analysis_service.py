@@ -94,10 +94,15 @@ def _empty_overview(start_ts: str, end_ts: str, warnings: list[str]) -> dict:
 # ---------------- 概览 ----------------
 
 
-def build_overview(start: str, end: str) -> dict:
-    """按 change_category 的计划 / 完成情况总览。"""
+def build_overview(start: str, end: str, categories: list[str] | None = None) -> dict:
+    """按 change_category 的计划 / 完成情况总览。
+
+    `categories` 非空时**在 SQL 层**收窄到这些类别（值走占位符），
+    于是 `summary`、各比率、类别表、状态分布、月度与子类别都是同一个集合上的数 ——
+    前端不再自己 Σ 分类计数、也不再自己复制比率公式（AGENTS.md 三.3c）。
+    """
     start_ts, end_ts = cal.normalize_window(start, end)
-    where, params = cal.base_where(start_ts, end_ts)
+    where, params = cal.base_where(start_ts, end_ts, categories=categories or ())
 
     # 一条 SQL 拿到每个类别的全部计数，避免 N 个类别打 N 次库
     agg_sql = f"""
@@ -238,7 +243,8 @@ def _merge_categories(raw_rows: list[dict]) -> list[dict]:
 
 def build_drilldown(start: str, end: str, metric: str, category: str = "",
                     sub_category: str = "", month: str = "", status: str = "",
-                    limit: int = MAX_DETAIL_ROWS) -> dict:
+                    limit: int = MAX_DETAIL_ROWS,
+                    categories: list[str] | None = None) -> dict:
     """下钻明细。
 
     metric 决定筛选哪一批（见 `cr_caliber.bucket_expr`），category /
@@ -267,7 +273,9 @@ def build_drilldown(start: str, end: str, metric: str, category: str = "",
             "rows": [], "columns": list(cal.DETAIL_COLUMNS),
         }
 
-    where, params = cal.base_where(start_ts, end_ts, category)
+    # categories 与概览用的是同一份 WHERE（AGENTS.md 三.1b：下钻与概览必须同集合），
+    # 否则「勾了类别后卡片显示 N、点进去却是全部类别的行数」。
+    where, params = cal.base_where(start_ts, end_ts, category, categories or ())
 
     if metric == "status":
         predicate, extra = cal.status_bucket_expr(status_key)

@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+from collections.abc import Sequence
 
 # 表名白名单：本模块只读这一张表（防注入的同时也表明数据边界）
 TABLE = "eflow_cr"
@@ -229,7 +230,8 @@ def normalize_window(start: str, end: str) -> tuple[str, str]:
     return f"{start[:10]} 00:00:00", f"{end[:10]} 23:59:59"
 
 
-def base_where(start_ts: str, end_ts: str, category: str = "") -> tuple[str, list]:
+def base_where(start_ts: str, end_ts: str, category: str = "",
+               categories: "Sequence[str] | None" = None) -> tuple[str, list]:
     """**唯一**的 WHERE 构造处 —— 概览与下钻都调它。
 
     返回 (sql_fragment, params)。fragment 不含前导 'WHERE'，便于调用方拼接。
@@ -242,4 +244,13 @@ def base_where(start_ts: str, end_ts: str, category: str = "") -> tuple[str, lis
         # 精确匹配（=），不是 LIKE —— 下钻与概览必须同一写法
         where.append(f"TRIM(COALESCE({CATEGORY_COL},'')) = ?")
         params.append(category)
+    if categories:
+        # 概览的「类别筛选」：与上面的单类别同用 TRIM(COALESCE(...)) 归一，保证
+        # 「卡片数字」与「点下去的下钻行数」是同一个集合。值一律走占位符，不拼进 SQL。
+        picked = [c for c in categories if c]
+        if picked:
+            where.append(
+                f"TRIM(COALESCE({CATEGORY_COL},'')) IN ({', '.join('?' for _ in picked)})"
+            )
+            params.extend(picked)
     return " AND ".join(where), params

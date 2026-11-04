@@ -195,7 +195,7 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
     },
     alarm: {
       desc: '全网当前活跃告警的综合视图：总量、级别、站点等多维统计与趋势。',
-      usage: ['点任意数字弹出可搜索的下钻明细表', '「实时」数据来自 eFlow 活动告警（eflow_active_alarm 每分钟同步），并非秒级推送'],
+      usage: ['点任意数字弹出可搜索的下钻明细表', '「实时」数据来自 eFlow 活动告警（eflow_active_alarm 每分钟同步），并非秒级推送', '**区域画像与各类型条数都能悬浮看算法**（2026-11-04）：「N 条告警 ↗」点开是「逐行数得到的条数 + 其中 transmission_type=MW 的行数 + 唯一 site_id 的站点数」，并写明区域码不在 15 州清单里的行不计入任何区域；「告警类型 Top」的 ⓘ 说明类型名取 alarm_title 回落 codename、后端取前 10 而图上只画前 8，**前 8 条之和不等于告警总数**'],
     },
     ttwo: {
       desc: '故障工单（TT）与工作单（WO）的处理量、时效、积压趋势分析。TT 统计的三个维度（工单严重度 / SLA 状态 / 工单状态）都用数字卡片，点卡片下钻；MTTR 趋势按 Ticket Severity（P1/P2/P3/P4）拆成 4 张图，每张图是「柱 = TT 数量 + 线 = MTTR」双轴，并用页签切 日 / 周 / 月 三档粒度。默认时间窗近 30 天。',
@@ -204,6 +204,8 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
         '「全部归属」可切 ZTE / 3rd：WO 编号非空 = ZTE（我方派单），为空 = 3rd（第三方处理）',
         '「高级过滤」按钮展开站点维度筛选（区域/省县/网络制式/站点类型/VIP/TRM/主管/FME/供电方式/供电厂商/站点等级），选项来自站点表',
         'TT 统计卡片上的占比，分母是**该维度自身**的合计（看这一个维度内部的构成），不是 TT 总数',
+        '**每个数字都能悬浮看算法**（2026-11-03）：严重度 / SLA 状态两组数字卡片里，鼠标停在大数字或占比上会给出「这一格是多少 ÷ 本维度可见合计、占比是**前端按本页返回值现算**（接口不下发 pct）、当前筛选范围（时间窗 / 区域 / Owner / 高级过滤）、点下去下钻哪些行」；标题旁的「TT 总数 / WO 总数 / WO 编号(唯一)」三个徽标同样可悬浮，并写明各自取自接口的 `summary.tt_total` / `wo_total` / `wo_no_count`。**WO 编号(唯一) 是 TT 行上非空 wo_no 的去重数**，与 WO 总数（WO 表行数）不是一回事，两个数对不上是正常现象',
+        'Unknown 不进严重度与 SLA 两个维度：空值、字面 unknown 与历史误拼 unkonw 都被后端剔除，所以各卡片之和可能**小于** TT 总数 —— 这不是丢数',
         'MTTR 趋势上方页签切 日/周/月：三档一次加载，切换即时；周上的 TT 数量就是该周 7 个日点的合并，可互相印证',
         '每张 MTTR 图是双轴：柱子是「该时段该级别的 TT 单数」（左轴），折线是「MTTR 分钟均值」（右轴）。某时段该级别没有单时柱和线都不画，不是 0（「没有单」与「MTTR 为 0」是两回事）',
         '柱高与线高不是同一量纲：柱子看「量」，折线看「快慢」。线的样本量少时均值会跳，悬停提示里会补一句「其中 N 单计入 MTTR」说明实际参与计算的有多少单',
@@ -217,6 +219,7 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
       usage: [
         '筛选条（含全部归属 ZTE/3rd 与高级过滤）、MTTR 日/周/月页签与双轴图、卡片下钻明细与导出与 TT&WO 看板完全同源（共用 /tt-wo-dashboard/overview 端点），用法一致、数字必然相同',
         '直链 http://<host>/myapp/?page=v1_ttwo；完整版见 page=ttwo',
+        '统计卡片数字与占比的悬浮说明、标题旁汇总徽标的算法气泡与 page=ttwo 同一套（同一组件的切片），文案完全一致',
       ],
     },
     tt: {
@@ -226,13 +229,15 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
         'MTTR 趋势每张图是双轴：柱子（中兴蓝 #0072BC）是「该时段该级别的 TT 单数」，折线（橙色）是「MTTR 分钟均值」。四张图的柱/线颜色固定不变 —— 级别由图本身（P1/P2/P3/P4 四张图）区分，颜色只用来分「量」与「时长」这两个量纲。某时段该级别没有单时柱和线都不画，不是 0',
         '筛选条（含全部归属 ZTE/3rd 与高级过滤）、卡片下钻明细、页面级 Excel 导出与 TT&WO 看板完全同源（共用 /tt-wo-dashboard/overview 端点），数字必然相同；导出文件名前缀为 TTWO_tt_',
         '直链 http://<host>/myapp/?page=tt；完整版见 page=ttwo，只看 WO 见 page=wo（版式与本页相同，数据源换成 eflow_wo）',
+        '统计卡片数字与占比、汇总徽标都可悬浮看这一格的构成与当前筛选范围（与 page=ttwo 同一套文案）；本页只有「TT 总数」一枚徽标，WO 相关徽标不下发',
       ],
     },
     wo: {
       desc: 'TT 看板的「WO 数据源」版：版式与 page=tt 逐块一致，只是数据来自 eflow_wo。汇总卡只留「WO 总数」→ 统计（严重度 / SLA 状态 / 状态）→ MTTR 趋势（P1/P2/P3/P4 × 日/周/月双轴图）。MTTR 趋势之下的下半部分（领域与根因分析、工单分析、站点信息）与 page=tt 一样不出。默认时间窗近 30 天。',
       usage: [
         '点统计卡片或 MTTR 图上的点，弹出可搜索的 WO 明细下钻表',
-        'SLA 状态取自关联的 TT（eflow_wo 没有该列，SLA 属 TT 侧概念）：按 wo.tt_no = tt.tt_no 关联，关联不上的计入 Unknown，所以各卡片之和 = WO 总数',
+        'SLA 状态取自关联的 TT（eflow_wo 没有该列，SLA 属 TT 侧概念）：按 wo.tt_no = tt.tt_no 关联。**关联不上的行计入 Unknown，而 Unknown 已从该维度剔除**，所以 SLA 各卡片之和可能**小于** WO 总数（原帮助写「之和 = WO 总数」与实现不符，2026-11-03 按代码更正）',
+        '统计卡片的大数字与占比都可悬浮看这一格的构成（分母、现算说明、当前筛选范围），与 page=ttwo 同一套文案；严重度维度两页取的是各自表上的 ticket_severity 同名列',
         'MTTR 用的是 WO 自己的 alarm_occur_time / alarm_clear_time，所以本页的 MTTR 是「WO 的周转时效」，与 page=tt 的 TT 时效是两个数',
         '汇总卡只留「WO 总数」一张：本页每行本身就是一个 WO，「WO 编号(唯一)」会与它一模一样；「TT 总数」算的是另一张表的行数，放在本页没有意义',
         'ZTE/3rd 归属下拉在本页不显示：该归属定义在「TT 的 wo_no」上，WO 表本身没有这个概念',
@@ -264,6 +269,10 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
         '「关联告警」表列出触发该 TT 的告警（realtime_alarm / history_alarm 的 tt_id 或 alarm_id 关联），含告警码、站点、网元、级别与发生时间',
         '判定口径与「NOC 操作人分析」「单 TT 复盘报告」同源：规则统一读 ocrule_details，因此不会出现「流程图说 A、复盘说 B」',
         '规则表由 eflow_push_rules_collect / eflow_alarm_rules_collect 定时采集（每 3 天 23:59），规则更新后流程图自动反映',
+        '**每个数字都能悬浮看算法**（2026-11-03）：「已走步骤」「流程规则」两张卡的数字、节点规则卡头的「生效 N / 共 N」两个标签都可悬浮；图上节点的气泡也补了一句挂载/生效判据。整页口径进默认收起的「eFlow 全流程图的统计口径」条',
+        '读这三个数要知道的三件事：① 「流程规则」= **ocrule_details 全表行数**，不带任何过滤，是当前快照，不是「本单走过的规则数」；② 节点上「共 N 条」是按（规则名+类型+触发步骤）**去重后的挂载数**，同一条规则可挂多个节点、各节点分别计，把各节点相加会超过全库条数；③ 「生效 N 条」要求 status **严格等于 ACTIVE**（区分大小写），上游写成 Active 会算进总数但不算进生效数',
+        '「已走步骤」只数 **TT 主流程节点**（告警发生与 TT 建单是无条件打点，所以起点就是 2 步），WO 现场子流程另有一条泳道、不计进这个数；「本单命中 N 条」只统计**当前所在节点**挂载的规则加上建单定级规则，不是全过程累计 —— 单子在流转，这个数字跟着当前步骤变',
+        '规则表是**当前快照**：一张在流程里走了几个月的单，图上用的是**今天**的规则，未必是它当时实际被哪条规则路由 —— 排查历史单的归因时要留意',
       ],
     },
     nur: {
@@ -346,7 +355,7 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
     },
     mwRealTime: {
       desc: '与微波拓扑同构的 15 分钟粒度实时版（拓扑骨架、风险榜、抽屉、趋势完全一致）。',
-      usage: ['默认只展示最新一个 15 分钟槽位，滑杆可回看最近 2 小时窗口', '页面默认 900 秒自动刷新，且支持「软刷新」（不重载 iframe、不闪屏）'],
+      usage: ['默认只展示最新一个 15 分钟槽位，滑杆可回看最近 2 小时窗口', '自动刷新默认关闭，可在顶栏按页开启（本页建议 900 秒）；开启后走「软刷新」（不重载 iframe、不闪屏）'],
     },
     gis: {
       desc: '站点地图：告警/工单在地图上的分布、拓扑线、区域面与多维筛选（历史/工单口径）。',
@@ -404,6 +413,9 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
         '「失败率构成」按归因堆叠显示各 KPI 的失败率；「成功率多日趋势」看逐日变化',
         '资源利用率以「日均」判定（≥80% 关注、≥90% 异常），峰值仅作参考——瞬时打满属正常尖峰',
         '「导出 Excel」输出 6 个 sheet：KPI 汇总 / 服务明细 / 失败分解 / 资源 / 趋势 / 告警',
+        '**概览七张卡与资源行的数字都能悬浮看算法**（2026-11-04）：最要紧的一句是**每张 KPI 卡只聚合「最新一天」**，概览里的总业务量 / 总失败 / 系统侧 / 用户侧是**把这些最新一天的值相加**，**不是所选天数窗口的累计** —— 上方写着「近 30 天」也别读成 30 天总量（气泡第一行就写这个数出自哪一天）。资源「日均 / 峰值」同样是最新一天各 SERVICE 行的平均与最大值',
+        '判色**只看系统侧**：有失败原因列的 KPI 用「系统侧失败 ÷ 请求数」判，没有的用成功率判，非告警类恒为 info。用户侧失败再多也不会染红，只在 info 里提示 —— 别把「没有红」读成「用户侧没问题」',
+        '阈值以接口下发为准（默认成功率 99%、系统侧失败率 0.1%、资源 80%，可用 UME_IN_* 环境变量覆盖）；「告警数」是前端从告警列表里剔掉 info 级后的条数',
       ],
     },
     cn_kpi: {
@@ -413,6 +425,9 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
         '卡片右上角橙色「月粒度」标签表示该点代表一个月，**不是某一天**；金色「已切源」表示原表停更、已改用自动同步的同名数据源',
         '页头橙色告警条会列出所有降级组件及成因，看到它请先确认是否有人需要重新跑一次网管导出',
         '「导出 Excel」输出各组件数据与执行口径（SQL），便于与网管侧对账',
+        '**每个数字都能悬浮看算法**（2026-11-04）：组件卡标题的 ⓘ 与页头「数据最新日期」那排数字的气泡都写明「图上的点是后端 SQL 返回原值，本页不做二次计算（不补点、不平滑、不换算单位）」，并列出**返回行数、实际粒度、是否降级（降级时给出原表名）、以及后端实际执行的那条 SQL 原文（可一键复制去核对）**',
+        '粒度是**由返回数据的日期间隔推断**的、不是写死的：月表那一级直接记为 month。所以看到 1~2 个点要先看气泡里的粒度行，别按「最近两天」读',
+        '页头统计点开的三件事：数据源是远端只读 HTTP API（不是本机库）、组件总数与耗时是否缓存命中、失败数**只算三级数据源全部报错的组件**（空态不算）',
       ],
     },
     cn_kpi_5mins: {
@@ -422,6 +437,9 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
         'Day7 依赖库里已攒下的历史：采集窗口只取「昨天 → 现在」，但写库是 upsert 且不清理，所以每个日子在其次日被采到后就永久留下 —— 库里攒够 8 天才画得出 Day7，不足时页头只列已有那几天并明说，需要更早的历史得做回补',
         '页面无需选日期：窗口固定为「今天 + 昨天 + 7 天前」，每 15 分钟随任务自动更新一次（可在顶栏设置自动刷新）',
         'xGW License / xGW CPU / 3G FDD 三张卡片的点是 15 分钟间隔（比其他图稀疏 3 倍），这是上游模板档位决定的，不是数据缺失；页头蓝条会提示',
+        '**每张组件卡的标题都能悬浮看这一格怎么算**（2026-11-04）：ⓘ 里按组件逐条写清聚合式 —— VLR / Voice / Data / 4G·3G·RG 系列是 **SUM**（RG-6/11/12/30 是同表按「Measurement Object」拆开，四张卡互不重叠；字节列已在 SQL 里 /1e9 换算成 GB），而 **xGW License 与 xGW CPU 是 AVG，即百分比的算术平均，不是加权也不是峰值**。三条线的日切与横轴都取 End Time（不是 Begin Time），窗口只有**今天 / 昨天 / 7 天前这三个日子**，不是连续 7 天',
+        '「vs 昨日 ±%」点开后先说明它是**前端**算的（接口不下发 pct）：今天 00:00→此刻的均值 对比 昨天截到同一时刻的均值，±10% 以内为灰、超出标橙；今天或昨天在该时段没有点、或昨天均值为 0 时直接不显示',
+        '页头的「N/N 个组件有数据」「耗时 / 缓存」「失败 N」三枚标签也都能悬浮：空态与失败都**不计入**「有数据」，失败只算查询报错的组件',
         '「导出 Excel」每个组件一张表，按时刻展开 Day0 / Day1 / Day7 列（只出该组件实际有数据的日子），便于对账',
       ],
     },
@@ -491,7 +509,9 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
       desc: 'NOC 操作人分析：基于 eflow_tt.last_processer 量化每位 NOC 的根因错位率、平均处理时长、夜班单占比与 SLA 通过率，并给出红旗告警。页面按「能下钻尽下钻」设计——从人一路下钻到 TT，再下钻到告警链路。',
       usage: [
         '口径：按告警发生时间（alarm_occur_time）归属月份，而非最后修改时间；夜班 = Accept 操作时间落在 22:00–06:00',
-        '错位率 = 错位单数 / 已填报根因单数；错位判定以 history_alarm.reason_type 为权威，与 NOC 填报的 root_cause 比对（典型为 POWER←TRM，即 NOC 填供电、系统指向传输）',
+        '错位率 = 错位单数 / 已填报根因单数（**分母不是全部单**，没填根因的人不进平均）；错位判定拿 NOC 填报的 root_cause 与系统侧原因比对，系统侧取 eflow_tt.alarm_reason_type，该列为空时退回按告警码查静态语义表（原帮助写「以 history_alarm.reason_type 为权威」与代码不符，2026-11-03 更正）',
+        '**概览六张卡与 Top3/Bottom3 卡片的数字都能悬浮看算法**（2026-11-03）：气泡里写清这一格是多少、分母是谁、月份窗口与扫描行数、承接方与姓名筛选范围。三张卡的口径**并不相同，不能放在一起比**：根因错位率与平均处理时长是**各人均值的算术平均（每人一票）**，而 SLA 通过率是**合并口径** ΣPass ÷ Σ(Pass+Failed)（按单量加权）；红旗人数则是命中任一阈值（错位 ≥30% 或 平均处理 ≥12h 或 SLA Fail ≥50%）的**人数**，一人多因只计一次',
+        '一个**已知实现缺陷**已写进界面而不是藏起来：错位判定本意豁免 Auto-recovery / Uknown / Force Majeure / Planned work，但豁免元组是混合大小写而填报值被 upper() 归一，**实际从未命中** —— 这几类单目前仍被计进错位，错位率因此系统性偏高。改它等于改业务口径，未擅自修改，待业务确认',
         '第 1 层下钻：概览数字卡、Top3/Bottom3 卡片、ECharts 柱状图、排名表每一列与红旗告警里的人名，全部可点',
         '第 2 层下钻：弹窗内按「全部 / 根因错位 / 夜班单 / SLA Fail / 慢单（≥12h）」五种切片切换，行数与该 NOC 的对应指标严格一致',
         '第 3 层下钻：切到「异常站点」页签按站点聚合（错位 / SLA Fail / 慢单 / 夜班），点站点名再看该站的全部 TT',
@@ -606,16 +626,23 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
     },
     repeat_site_down: {
       desc: '重复宕站看板：识别在统计窗口内反复宕站的站点，用于定位「修不好的站」。',
-      usage: ['按日粒度统计站点宕站次数，点数字下钻该日宕站明细', '数据来自 eflow_tt 与 eflow_site，与告警看板口径互补'],
+      usage: ['按日粒度统计站点宕站次数，点数字下钻该日宕站明细', '数据来自 eflow_tt 与 eflow_site，与告警看板口径互补',
+        '**每个数字都能悬浮看算法**（2026-11-03）：四张汇总卡的标题挂 ⓘ 讲这一项怎么算，大数字挂气泡讲这一格的构成（窗口、行数、被丢弃行数、峰值当天的站点数与逐日序列长度）；排名表「中断次数 / 断站天数」两列的列头与每个数字同样可悬浮；下钻弹窗里的 Events / Sites / Repeat days 三个标签也是。整页口径收在默认收起的「站点中断统计口径」条里',
+        '四个数的真实口径：**中断次数 = 一行 TT 计一次**（同一站点同一天开三张单计三次），**受影响站点**按「站点 ID 优先、缺失时用规范化站名」去重，站号站名都取不到的行合并成**一个** Unknown 站点，**重复断站** = 有中断的自然日数 > 1（**不要求连续**），**中断最多的一天**并列时取最早的那天',
+        '与告警看板的「受影响站点」**不是同一口径**：那边只按 site_id 去重，这边 ID 缺失时会回落到站名，两页的站点数不可直接对账',
+        '站名 / ID 输入框是**包含匹配**（ILIKE），而下钻弹窗用**精确等值**；选了区域时按站点表的区域列精确匹配，**关联不上站点表的行会被排除** —— 这时卡片数会比库里少',
+        '发生时间不是 YYYY-MM-DD 开头的行会被后端丢掉，页面顶部会**常驻**一条告警写明丢了几行（这属「算不全」，不藏进收起的说明里）'],
     },
     cr_analysis: {
       desc: 'CR 变更分析：既看「现在卡在哪」（状态分布、审批流程滞留），也看「过去做得怎样」（计划达成、按时、关闭率），回答「还有多少没走完、卡在哪一步、谁那边最慢」。',
       usage: [
         '数据来自 eflow_cr（eFlow 同步），默认区间取全表实际时间范围',
-        '最上面是 <b>Workflow 里程碑条</b>，顺序与 eFlow 的 Workflow History 完全一致：创建 → BO/FO 负责人审批 → 域技术总监审批 → 变更经理审批 → 开始实施 → 结果反馈 → 已关闭。每个节点显示「已完成」与「等待中」两个数，「等待中」最大的那个节点会标红为<b>瓶颈</b>，并显示最久已等待多少天',
+        '最上面是 **Workflow 里程碑条**，顺序与 eFlow 的 Workflow History 完全一致：创建 → BO/FO 负责人审批 → 域技术总监审批 → 变更经理审批 → 开始实施 → 结果反馈 → 已关闭。每个节点显示「已完成」与「等待中」两个数，「等待中」最大的那个节点会标红为**瓶颈**，并显示最久已等待多少天',
         '里程碑按流程节点归并：驳回到 BO/FO 的「Waiting for Update」并入 BO/FO 审批节点，不单独成环。若要看 7 个原始状态的精确分布，看下方「状态分布」环形图',
         '状态名是上游原值，不做翻译；「Waiting for Implement」表示审批已全部通过、正在等实施，不是「等待审批」',
         '四个核心计数：「已排期」= 有计划开始时间；「已执行」= 有实际开始时间；「未执行」= 排了期但没动；「按时/延期」= 实际开始早于 / 晚于计划开始',
+        '**每个数字都能悬浮看算法**（2026-11-04）：八个桶的判据都在后端 SQL（**「按时」是文本字典序比较**，依赖上游时间格式一致，代码注释自己承认这是假设）；⚠ **已排期 ≠ 已执行 + 未执行** —— 有实际开始却没计划开始的单只进「已执行」一侧',
+        '类别筛选已交给后端：勾了类别时页面把类别作为 `categories` 参数发给接口，由后端在**同一条 SQL** 里按类别收窄（值走占位符），概览、比率、类别表、状态分布、月度与子类别因此都出自**同一个集合**；前端不再自己相加、也不再复制比率公式（2026-11-04）。⚠ **三个比率分母各不相同**（÷已排期 / ÷已执行 / ÷总量），横向比这三个百分数没有意义；只有 80/50 的染色阈值在前端',
         '三个比率的分母写在数字下方：计划达成率 = 已执行 ÷ 已排期，按时执行率 = 按时 ÷ 已执行，关闭率 = 已关闭 ÷ 总量。分母为 0 时显示「—」而不是 0',
         '「审批流程与停留耗时」解析源表的步骤记录：到达数 = 走过该步的 CR 数；平均/最长停留 = 该步用了多久；当前滞留 = 还停在该步的 CR 数；最久已等待 = 其中等得最长的那张已等多少天。步骤按**实际流程顺序**（创建 → BO/FO 审批 → 域技术总监审批 → 变更经理审批 → 实施 → 结果反馈），不是源表列名字母序',
         '「当前滞留」的数字往往就是最该看的：某一步滞留多、等待久，说明该审批环节是瓶颈',
@@ -635,6 +662,8 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
         '在计划号筛选里只选 1 个计划号时，里程碑同步按该计划过滤；选多个时里程碑按全部计划统计（页面会给出提示），与下方表格小计可能不同',
         '页面上每个数字都可点：KPI 卡、比率卡、图表柱子、月度趋势、站点条形图、计划表格都能下钻到明细，明细行数与卡片数字严格一致',
         '下钻明细被截断时会显示黄色告警条，提示缩小时间范围——不要忽略它',
+        '**每个数字都能悬浮看算法**（2026-11-04）：8 张计数卡的标题 ⓘ 讲这个字段在 SQL 里的判据，数字气泡写明「本数 = 接口 summary 的该字段」以及它是后端在一条 SQL 里用 SUM(CASE WHEN …) 数出来的；3 张比率卡的气泡强调分母（关闭率、超期率都除以总量，开工率 =（总量 − 未开始）÷ 总量），并注明**分母为 0 时后端返回 null → 界面显示 —，不是 0%**',
+        '两处最容易被误读的口径写在 ⓘ 里：**「已超期」直接采用源表 pmt_overdue 自己的判定，页面不按计划日期/实际日期推算** —— 上游没填这一列时这里恒为 0，不代表真的没有超期；status 在动态建表的 eflow_pm 里有大小写两种写法，判据一律先 UPPER(TRIM(…)) 归一再比',
       ],
     },
     bp_report: {
@@ -654,6 +683,9 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
         '⚠️ 下钻明细里的 PRB 利用率 / DL 吞吐 / 活跃用户(忙时) / DL 流量 四列只有 2026-07-22 之后才有：BP Report.xlsx 本身只存日期/网元/小区/分区/频层，从不含这四个指标，只能从上游重新取；而上游对 2026-07-01~07-21 这 21 天没有留存（UME 侧同样只到 07-02 起），故该区间显示 — 且无法补',
         '2026-07-22~09-21 的四个指标已从上游补回，这些天的行数因而是「全网小区」而非「umlaut 报告过的小区」，BP 数与该期 Excel 原值相比低约 13~14%，占比分母口径也随之不同',
         '数据由 bp_report_sync 任务每天 06:20 从 RAN_UME 增量更新',
+        '**每个数字都能悬浮看算法**（2026-11-04）：「占比」列头的 ⓘ 说明它是汇总表里**该期自己的 bp_ratio 原值**（页面不拿 BP 数 ÷ 全网数再除一遍），每个占比单元格的气泡列出该期分子、分母与明细行数的差额；「最新一期 BP 小区数」「期数」「平均 BP 占比」三张卡标题挂 ⓘ、数字本身挂气泡',
+        '「平均 BP 占比」这张卡最容易读错，气泡把两个数一起给出对照：它 = **各期占比的算术平均（每期一票，AVG(bp_ratio)）**，**不是** ΣBP ÷ Σ全网；两者不等是口径不同，不是算错。小区数很少的期在这里与很大的期一样重',
+        '「期数」= 所选区间在该粒度下**实际有数据的周期个数**（一行一个周期），不是自然周期数；切粒度后这个数会变，先核对日期范围是否覆盖了有数据的周期',
       ],
     },
     ran_cells_kpi: {
@@ -665,6 +697,9 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
         'Sheet1 刻意叫 `Summary` 而不是 `<制式>_Cells_KPI`，否则会撞名被改写成 `Summary_2`，用户会看到两张像"汇总"的表',
         '百分比以数值写出（如 `99.65`）而非字符串 `99.65%`，Excel 里可直接计算',
         '下钻弹窗内另有导出按钮（导下钻明细），与页面级入口是两回事',
+        '**每个数字都能悬浮看算法**（2026-11-04）：月度汇总卡的 ⓘ 讲算法、数字气泡讲这一格（几个有效日等权平均、小区-日观测数、名册大小、阈值、**实际数据源** —— 读物化库还是现算原始库由接口 meta.source 说了算）；逐日矩阵 7 个指标各行头挂 ⓘ、每个数字挂气泡（达标多少、未达标多少、多少小区当天无数据）',
+        '两处最容易读错的地方已写进气泡：**月均是「各日可用率的算术平均」（日等权，不按当天小区数加权）** —— 只有 3 个小区的那天与有 300 个小区的那天一样重；**达标/未达标占比的分母是「当天有值小区数」，不含无数据小区** —— 大面积缺上报时这个比例会虚高',
+        '本页是**小区级**可用率（2G = 可用信道 ÷（可用+不可用），3G/4G = 服务时长 ÷ 86400），与「站点可用率」页的站点级 UME 原值**不是同一口径**，两处数字不可直接比',
       ],
     },
     warehouse: {
@@ -674,23 +709,26 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
     // ---- SP 备件 / 耗材报表家族（2026-09-29 一次性补齐，此前四个页面都漏登记） ----
     sp_material: {
       desc: '备件物料统计汇总：按专业域/物料看入库、出库与库存的汇总分布。',
-      usage: ['数据来自 sp_data_sync 拉取的备件报表', '点任意汇总数字可下钻到对应物料明细'],
+      usage: ['数据来自 sp_data_sync 拉取的备件报表', '点任意汇总数字可下钻到对应物料明细',
+        '**每个数字都能悬浮看算法**（2026-11-04）：列头 ⓘ 讲整组列的分桶规则（状态为 damage 的进「待修」，否则按 Material Type 含 spare / consum 分流；分组归属由仓库名精确或前缀匹配决定，未命中落 Others），单元格气泡给出这一格的构成（期初/当前快照原值、消耗 = 期初 − 当前、合计里含不含待修），并提醒**这些数都是 SUM(Stock Qty) 的数量，不是物料种类数**',
+        '两条容易踩的口径写在气泡里：**「报修出库」来自另一张表（出库明细）且统计窗口与库存快照不同，不能拿它去减库存列**；**消耗为负数是合法的** —— 期间有入库或调拨回补时库存不降反升，消耗口径只做「期初 − 当前」、不扣回补（出现负值时页面另有一条常驻提示点名具体分组）',
+        '下钻弹窗底部的「合计」是前端在**当前搜索框筛过的行**上即时求和（接口不下发这个合计），气泡里同时写明本次下钻返回的总行数 —— 清空搜索框时两者相等'],
     },
     sp_details: {
       desc: 'SP 备件明细报表：与邮件任务发出的合并工作簿是同一份文件，含 Inventory / Inbound / Outbound / Transfer 四张表。',
-      usage: ['分页 + 筛选 + 排序；「未关闭」= Status 不含 Closed 的行', '表格只展示常用列，点任意一行查看该表全部列', '导出为当前筛选结果（最多 5000 行）'],
+      usage: ['分页 + 筛选 + 排序；「未关闭」= Status 不含 Closed 的行', '表格只展示常用列，点任意一行查看该表全部列', '导出为当前筛选结果（最多 5000 行）', '**八张卡每个数字都能悬浮看算法**（2026-11-04）：记录数 = 各表**行数相加、跨表不去重**；「物料数」是 Material No. **并集去重**（与备件报表那张同名的「行数」不同构）；「仓库数」里调拨表同时取**原仓库 + 目标仓库**两侧，所以比实际存放点多是设计如此；「未关闭单」判据是 status 里不含 closed', '⚠ 本页读的是**任何过滤之前**的 *_source.xlsx 快照，而备件/耗材汇总页读过滤后的工作簿 —— 同一个同名指标本页系统性偏大，两页对不上是口径不同、不是丢数', '⚠ 全站「未关闭单」有三套判据（本页按行子串包含 / 备件报表按单号去重 + 全词表 / 仓库看板精确等值），三个页面上这个数不该互相对账'],
     },
     sp_report: {
       desc: '备件 Inbound & Outbound & Inventory 汇总报表：与邮件/WhatsApp 发出去的是同一份工作簿（每天 05:15 由 sp_report_generate 产出），含 Summary-Current / Summary-Changed / Inbound / Outbound / Inventory 五张表。',
-      usage: ['统计卡片看总量与补库告警，点告警卡即筛选', 'Summary-Changed 渲染成「天 × 仓库」矩阵', '「显示列」可按分表自定义并本地记住；行详情弹窗始终显示全列'],
+      usage: ['统计卡片看总量与补库告警，点告警卡即筛选', 'Summary-Changed 渲染成「天 × 仓库」矩阵', '「显示列」可按分表自定义并本地记住；行详情弹窗始终显示全列', '**每个数字都能悬浮看算法**（2026-11-04）：顶部七张数量卡的气泡写明「该值 = 汇总工作簿 Summary-Current 的 Total 行 · 某列原值」，并提醒**列缺失或不是数值时后端按 0.0 返回**（所以 0 可能是真 0，也可能那一列压根没值）；「物料数」是**行数不是去重物料号**；「紧急补库」是 Alert Level 等于 Urgent Replenish 的**行数**，单位与旁边的 Qty 卡不同、不能相减', '「未关闭单」气泡写明它**取自实时数据库**（与 MsPortal 的 SPMS 大数字同口径），因为工作簿是 05:55 的快照、DB 是 07:00 落的；其余统计仍按 Excel 快照，保证与邮件附件逐行一致'],
     },
     com_report: {
       desc: '耗材 Inbound & Outbound & Inventory 汇总报表：与备件页版式一致，只是数据源换成耗材工作簿。',
-      usage: ['口径与备件页完全相同，见页面底部「报表口径说明」', '页面与 Excel 数字不一致时先看口径说明，不要在页面层改口径'],
+      usage: ['口径与备件页完全相同，见页面底部「报表口径说明」', '页面与 Excel 数字不一致时先看口径说明，不要在页面层改口径', '**每个数字都能悬浮看算法**（2026-11-04，与备件页同一套文案）', '「未关闭单」这一项耗材页与备件页**来源不同**：实时库覆盖只针对备件，耗材的表由别的同步任务落库、不臆测表名，所以保留 Excel 快照口径（2026-11-04 修正，此前耗材被错误地覆盖成了**备件库表**的数字）'],
     },
     warehouse_summary: {
       desc: '仓库汇总报表：按仓库汇总报表（WarehouseSummaryReport.xlsx）复刻，页签对应该文件的两个 sheet——Spars Parts / Consumables。每个页签含两段：WH/DOP 库存与消耗汇总（当前库存 / 累计 / 本月 / 本周消耗），以及高频消耗物料（每页 10 行，可翻完全部物料）。',
-      usage: ['页签切换备件/耗材；两段表的每个数字都可点击下钻到明细', '高频物料按消耗量降序分页显示全部，Total 行是全量合计且不随翻页变化', '消耗口径是 Outbound Site Qty（站点出库），段②标题右侧有标签提示'],
+      usage: ['页签切换备件/耗材；两段表的每个数字都可点击下钻到明细', '高频物料按消耗量降序分页显示全部，Total 行是全量合计且不随翻页变化', '消耗口径是 Outbound Site Qty（站点出库），段②标题右侧有标签提示', '**六张 KPI 卡都能悬浮看算法**（2026-11-04）：仓库集合取 Outbound 与 Inventory 的**并集**，只在一边出现的仓库也出行、缺失侧计 0；月/周窗口的时间列按优先级**动态回落**（列名以接口下发为准，页面不猜），周从**周一**起算，窗口起点按本机时钟（即 UTC）算', '⚠ 时间解析不出来的行**不进月/周窗口但仍计入总消耗**，所以「本月 + 往月 ≠ 总消耗」是正常现象', '「需补货」取接口字段 `overview.urgent`（后端在 Summary-Current **全表**上按 Alert Level 等值计数），与备件报表顶部那张同名卡**同一字段同一口径**，两边应当相等；不等就是两份页面读到的工作簿不是同一次生成（看页头文件名与生成时刻）。2026-11-04 之前这张卡是前端在高频行上 reduce 出来的，已改'],
     },
     overview: {
       desc: '数据库体检页：库内有多少张表、每张表多少行、Top10 规模排名。',
@@ -758,7 +796,7 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
     },
     alarm: {
       desc: 'Combined view of all current active network alarms: totals, severity, site-level multi-dimension statistics and trends.',
-      usage: ['Click any number to open a searchable drill-down table', '"Realtime" data comes from eFlow active alarms (eflow_active_alarm synced every minute) — not second-level push'],
+      usage: ['Click any number to open a searchable drill-down table', '"Realtime" data comes from eFlow active alarms (eflow_active_alarm synced every minute) — not second-level push', '**Region profiles and per-type counts explain themselves on hover** (2026-11-04): "N alarms ↗" opens into "row-counted alarms + how many of them have transmission_type=MW + sites counted by distinct site_id", plus the note that rows whose region code is outside the 15-county list are not counted in any region; the "Top Alarm Types" ⓘ states the name comes from alarm_title falling back to codename, that the backend sends the top 10 while the chart draws 8, so **those 8 do not sum to the alarm total**'],
     },
     ttwo: {
       desc: 'Processing volume, timeliness and backlog trends of trouble tickets (TT) and work orders (WO). All three TT statistics dimensions (ticket severity / SLA status / ticket status) are number cards you can click to drill down; the MTTR trend is split into 4 charts by ticket severity (P1/P2/P3/P4), each a dual-axis chart with bars = TT count and line = MTTR, with tabs switching day / week / month granularity. The default window is the last 30 days.',
@@ -767,6 +805,8 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
         '"All owners" switches ZTE / 3rd: a non-empty WO number means ZTE (dispatched by us), empty means 3rd (handled by a third party)',
         'The "Advanced filters" button reveals site-level filters (region / province-county / network type / site type / VIP / TRM / supervisor / FME / power source / power vendor / site category), fed from the site table',
         'The percentage on a TT statistics card uses that dimension\'s own total as denominator (its internal composition), not the overall TT total',
+        '**Every number answers how it was computed on hover** (2026-11-03): hovering a severity / SLA card\'s big number or its share gives "this cell ÷ this dimension\'s visible total, the share is computed by the frontend from this page\'s payload (the API sends no pct field), the current scope (time window / region / owner / advanced filters) and what the click drills into". The summary badges next to the title (TT Total / WO Total / WO No. Unique) do the same and name their source fields `summary.tt_total` / `wo_total` / `wo_no_count`. **WO No. (Unique) is the count of distinct non-empty wo_no values on the TT rows**, not the WO row count — the two differing is normal',
+        'Unknown never enters the severity or SLA dimensions: empty values, the literal unknown and the historical misspelling unkonw are all dropped by the backend, so the cards can sum to **less** than the TT total — that is not lost data',
         'The tabs above the MTTR trend switch day/week/month: all three load at once, so switching is instant; the weekly TT count is exactly the merge of that week\'s seven daily points, so the two views cross-check each other',
         'Each MTTR chart has two axes: bars are the TT count of that severity in the period (left axis), the line is the mean MTTR in minutes (right axis). A period with no ticket of that severity draws neither — it is not 0 ("no ticket" and "MTTR is 0" are different things)',
         'Bar height and line height are different units: bars show volume, the line shows speed. A line based on few tickets jumps around, so the hover tooltip adds "(N in MTTR avg)" to say how many tickets actually went into the average',
@@ -780,6 +820,7 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
       usage: [
         'Filters (including the ZTE/3rd owner switch and advanced filters), the MTTR day/week/month tabs and dual-axis charts, card drill-down and Excel export are shared with the TT&WO Dashboard (same /tt-wo-dashboard/overview endpoint), so usage is identical and the numbers necessarily match',
         'Direct link http://<host>/myapp/?page=v1_ttwo; the full version is page=ttwo',
+        'The number hover explain on the statistics cards and the summary badges is the same set of wording as page=ttwo (same component, different slice)',
       ],
     },
     tt: {
@@ -789,13 +830,15 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
         'Each MTTR chart is dual-axis: bars (ZTE blue #0072BC) are the TT count of that severity in the period, the line (orange) is the mean MTTR in minutes. The bar/line colours are fixed across all four charts — the severity is identified by the chart itself (four separate P1/P2/P3/P4 charts), while the colours only distinguish the two measures (volume vs duration). A period with no ticket of that severity draws neither a bar nor a point — it is not 0',
         'Filters (including the ZTE/3rd owner switch and advanced filters), card drill-down and the page-level Excel export are shared with the TT&WO Dashboard (same /tt-wo-dashboard/overview endpoint), so the numbers necessarily match; the export filename is prefixed TTWO_tt_',
         'Direct link http://<host>/myapp/?page=tt; the full version is page=ttwo, WO only is page=wo (same layout, sourced from eflow_wo)',
+        'Statistics-card numbers, their shares and the summary badge are all hover-explainable with the same wording as page=ttwo; only the "TT Total" badge is issued on this page — the WO badges are not part of this slice',
       ],
     },
     wo: {
       desc: 'The eflow_wo-sourced twin of the TT Dashboard: the layout matches page=tt block for block, only the data comes from eflow_wo. Summary card (WO Total only) → Statistics (severity / SLA status / status) → MTTR trend (P1/P2/P3/P4 × day/week/month dual-axis charts). Everything below the MTTR trend (Domain & Root Cause, Work Order Analytics, Site Information) is omitted, exactly as on page=tt. The default window is the last 30 days.',
       usage: [
         'Click a statistics card or a point on an MTTR chart to open a searchable WO drill-down table',
-        'SLA status comes from the linked TT (eflow_wo has no such column — SLA is a TT-side concept): joined on wo.tt_no = tt.tt_no, and unmatched rows count as Unknown, so the cards still sum to the WO total',
+        'SLA status comes from the linked TT (eflow_wo has no such column — SLA is a TT-side concept): joined on wo.tt_no = tt.tt_no. **Unmatched rows fall into Unknown, and Unknown is dropped from this dimension**, so the SLA cards can sum to **less** than the WO total (the previous wording "the cards still sum to the WO total" contradicted the code; corrected 2026-11-03)',
+        'Statistics-card numbers and shares are hover-explainable with the same wording as page=ttwo; the severity dimension reads the same-named ticket_severity column of the source table on each page',
         'MTTR uses the WO\'s own alarm_occur_time / alarm_clear_time, so this page shows the WO turnaround time — a different number from the TT figure on page=tt',
         'Only the "WO Total" summary card remains: every row on this page is itself a WO, so "WO No. (Unique)" would print the same number twice, and "TT Total" counts rows of a different table and is meaningless here',
         'The ZTE/3rd owner switch is hidden on this page: that ownership is defined on the TT\'s wo_no, a concept the WO table does not have',
@@ -827,6 +870,10 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
         'The "Related alarms" table lists the alarms that raised this TT (linked via realtime_alarm / history_alarm tt_id or alarm_id), with alarm code, site, network element, severity and raised time',
         'Verdicts share one source with "NOC analyst" and the single-TT postmortem report: rules are all read from ocrule_details, so the flow diagram and the postmortem can never disagree',
         'The rule tables are collected by the eflow_push_rules_collect / eflow_alarm_rules_collect jobs (every 3 days at 23:59); the diagram reflects rule updates automatically',
+        '**Every number answers how it was computed on hover** (2026-11-03): the "Steps taken" and "Process rules" cards, the "N active / N total" tags on the node rule header, and the diagram\'s own node tooltip all expand into the rule; the page-level caliber now sits in a collapsed "How the eFlow graph is computed" note',
+        'Three things these counts require you to know: ① "Process rules" = **all rows of ocrule_details** with no WHERE and no time filter — it is today\'s snapshot, not the rules this ticket met; ② a node\'s "total" is the **deduped attachment count** by (name + type + trigger step), and one rule can attach to several nodes, so summing the nodes exceeds the table rows; ③ "active" requires status **exactly ACTIVE** (case sensitive), so an upstream value of Active counts in the total but not in the active figure',
+        '"Steps taken" only counts **TT main-flow nodes** (Alarm Raised and TT Created are marked unconditionally, so it starts at 2); the WO field sub-flow is a separate lane and is excluded. "Matched this ticket" covers only the rules on the **current node** plus the create-stage severity rules — it is not a journey total, and it moves as the ticket advances',
+        'The rule table is a **current snapshot**: for a ticket that has been in flow for months, the diagram shows **today\'s** rules, which may not be the ones that actually routed it — keep that in mind when using it to explain a historical ticket',
       ],
     },
     nur: {
@@ -909,7 +956,7 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
     },
     mwRealTime: {
       desc: '15-minute realtime variant of the microwave topology board (same skeleton, risk ranking, drawer and trends).',
-      usage: ['Shows only the latest 15-minute slot by default; the slider reviews the last 2 hours', 'Auto-refreshes every 900s with soft refresh (no iframe reload, no flicker)'],
+      usage: ['Shows only the latest 15-minute slot by default; the slider reviews the last 2 hours', 'Auto refresh is off by default; enable it per page in the header (suggested 900s for this page). When on, it uses soft refresh (no iframe reload, no flicker)'],
     },
     gis: {
       desc: 'Site map: alarm/ticket distribution, topology lines, region polygons and multi-dimension filters (history/ticket view).',
@@ -967,6 +1014,9 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
         '"Failure-rate composition" stacks each KPI\'s failure rate by attribution; "Success-rate trend" shows the daily movement',
         'Resource utilisation is judged on the daily average (≥80% warning, ≥90% critical); peaks are informational only — brief saturation is normal',
         '"Export Excel" writes 6 sheets: KPI summary / service detail / failure breakdown / resources / trend / alerts',
+        '**The seven overview cards and the resource lines explain themselves on hover** (2026-11-04): the most important sentence is that **every KPI card aggregates the latest day only**, so the overview totals (attempts / failed / system-side / user-side) are **those latest-day values added up — not the selected day window**. A header reading "last 30 days" does not make it a 30-day total; each bubble names the day the number came from. Resource "daily avg / peak" are likewise the mean and maximum of that latest day\'s SERVICE rows',
+        'Colouring follows the **system side only**: KPIs with reason columns are judged by system-side failures ÷ attempts, others by success rate, and non-alarm KPIs stay info. User-side failures never turn a card red — they only appear as an info note, so "nothing is red" does not mean "the user side is fine"',
+        'Thresholds come from the API (defaults: 99% success, 0.1% system-side failure, 80% resource; overridable via UME_IN_* variables). The alerts count is produced by the frontend dropping info-level rows from the alert list',
       ],
     },
     cn_kpi: {
@@ -976,6 +1026,9 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
         'An orange "Monthly" tag on a card means each point is one month, not one day; a gold "Switched" tag means the original table stalled and an auto-synced source of the same name is being used',
         'The orange banner in the page header lists every degraded widget and why — if you see it, check whether someone needs to re-run the NMS export',
         '"Export Excel" writes each widget\'s data plus the exact SQL used, so figures can be reconciled against the NMS side',
+        '**Every number answers how it was computed on hover** (2026-11-04): the card-title ⓘ and the header "latest data date" figures state that **each point is the raw value returned by the backend SQL and the page performs no secondary computation** (no gap filling, no smoothing, no unit conversion), then list rows returned, **actual granularity**, whether a downgrade happened (naming the original table) and **the SQL actually executed, copyable with one click**',
+        'Granularity is **inferred from the dates in the returned rows**, never hard-coded (only the monthly tier is recorded as month directly). So before reading 1–2 points as "the last two days", check the granularity line in the bubble',
+        'The header statistics expand into three facts on hover: the source is a remote read-only HTTP API (not a local database), the widget count and fetch time including whether the cache was hit, and the failure count covering **only widgets whose three source tiers all errored** (empty widgets do not count)',
       ],
     },
     cn_kpi_5mins: {
@@ -985,6 +1038,9 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
         'Day7 depends on history already sitting in the tables: the sync window only covers "yesterday -> now", but writes are upserts with no purge, so every day is kept permanently once it is collected the next day — Day7 needs 8 days of accumulated history, and when it is not there yet the header lists only the days that exist and says so. Older days require a backfill',
         'No date picking is needed: the window is fixed to today + yesterday + 7 days ago and refreshes every 15 minutes as the task runs (auto-refresh is available in the top bar)',
         'The xGW License / xGW CPU / 3G FDD cards have points every 15 minutes (3x sparser than the others) — that is the upstream template tier, not missing data; the blue banner in the header says so',
+        '**Every widget title explains how its values are computed on hover** (2026-11-04): the ⓘ spells out the aggregate per widget — VLR / Voice / Data / 4G·3G·RG use **SUM** (RG-6/11/12/30 split one table by "Measurement Object", so the four cards never overlap; byte columns are already /1e9 converted to GB in the SQL), while **xGW License and xGW CPU use AVG — an arithmetic mean of percentages, not traffic-weighted and not a peak**. Day bucketing and the x-axis both read End Time (not Begin Time), and the window holds only **today / yesterday / 7 days ago**, not a continuous week',
+        'The "vs yesterday ±%" tag opens with the admission that it is computed **by the frontend** (the API sends no pct): today\'s mean from 00:00 to now against yesterday\'s mean truncated to the same clock time, ±10% grey and beyond orange. It disappears entirely when either day has no point in that span, or yesterday\'s mean is 0',
+        'The header tags "N/N widgets with data", "elapsed / cache" and "N failed" are hover-explainable too: empty and failed widgets are both **excluded** from "with data", and the failure count covers query errors only',
         '"Export Excel" writes one sheet per widget, expanded as Day0 / Day1 / Day7 columns by time of day (only the days that widget actually has)',
       ],
     },
@@ -1055,7 +1111,9 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
       desc: 'NOC operator analysis: quantifies each NOC operator\'s root-cause mismatch rate, average handling time, night-ticket share and SLA pass rate from eflow_tt.last_processer, and raises red flags. Built around "drill down wherever possible" — from the person to the ticket, then to the alarm chain.',
       usage: [
         'Scope: tickets are attributed to a month by alarm occurrence time (alarm_occur_time), not last-modified time; night = Accept operation time between 22:00 and 06:00',
-        'Mismatch rate = mismatched tickets / tickets with a filed root cause. history_alarm.reason_type is authoritative and is compared against the NOC-filed root_cause (typically POWER←TRM: NOC filed power, the system says transmission)',
+        'Mismatch rate = mismatched tickets / tickets with a filed root cause (**the denominator is not all their tickets**, and operators who filed none are excluded from the average). The system side is read from eflow_tt.alarm_reason_type and, when that column is empty, falls back to a static alarm-code semantics table (the previous wording claimed history_alarm.reason_type was authoritative, which the code does not do; corrected 2026-11-03)',
+        '**The six summary cards and the Top3/Bottom3 numbers explain themselves on hover** (2026-11-03): each bubble gives the value, its denominator, the month window and scanned row count, and the active owner / name filters. The three rate cards **do not share one caliber, so do not compare them side by side**: mismatch rate and average handling time are **arithmetic means of the per-operator values (one vote each)**, while the SLA pass rate is a **pooled ratio** ΣPass ÷ Σ(Pass+Failed), weighted by ticket volume. Red-flag count is the number of **people** hitting any threshold (mismatch ≥30% or average handling ≥12h or SLA fail ≥50%), counted once each',
+        'A known implementation defect is stated in the interface rather than hidden: the mismatch check intends to exempt Auto-recovery / Uknown / Force Majeure / Planned work, but the exemption tuple is mixed case while the filed value is upper-cased, so **it never matches** — those tickets still count as mismatches and the mismatch rate is systematically inflated. Fixing it changes a business metric, so it was left for a business decision',
         'Layer 1: summary stat cards, Top3/Bottom3 cards, the ECharts bar chart, every column in the ranking table, and each operator named in the red-flag banner are all clickable',
         'Layer 2: the modal switches between five slices — All / Root-cause mismatch / Night / SLA failed / Slow (≥12h); row counts match that operator\'s metric exactly',
         'Layer 3: the "Abnormal sites" tab aggregates by site (mismatch / SLA fail / slow / night); click a site name to see all of its TTs',
@@ -1170,18 +1228,25 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
     },
     repeat_site_down: {
       desc: 'Repeat site-down board: identifies sites that go down repeatedly within the window — for finding "sites that never get fixed".',
-      usage: ['Counts site-downs per day; click a number to drill into that day\'s down sites', 'Data comes from eflow_tt and eflow_site, complementing the alarm board'],
+      usage: ['Counts site-downs per day; click a number to drill into that day\'s down sites', 'Data comes from eflow_tt and eflow_site, complementing the alarm board',
+        '**Every number answers how it was computed on hover** (2026-11-03): each of the four summary cards carries an ⓘ on the title (what the metric means) and a bubble on the big number (window, row count, dropped rows, that peak day\'s site count and series length); the "Occurrences" and "Down days" column headers and every cell in the ranking table behave the same, as do the Events / Sites / Repeat days tags in the drill-down. The page-level caliber sits in a collapsed "How site outages are counted" note',
+        'What the four numbers really are: **occurrences = one TT row counts once** (three tickets for the same site on the same day count three times); **affected sites** dedupe on site ID first and fall back to the normalised site name, and rows with neither collapse into **one** Unknown site; **repeat-down sites** = sites with more than one calendar day holding an outage (**consecutive not required**); the **peak day** takes the earliest day when several tie',
+        'Not the same caliber as the alarm board\'s "affected sites": that one dedupes on site_id only, whereas this page falls back to the site name, so the two site counts cannot be reconciled directly',
+        'The site box is an **ILIKE substring match** while the drill-down uses **exact equality**; picking a region matches the site table\'s region column exactly, so **rows that fail to join a site are excluded** — the cards can then read lower than the database',
+        'Rows whose occurrence time does not start with YYYY-MM-DD are dropped by the backend, and a **standing** warning at the top states how many (that is "incomplete", not an explanation, so it is never collapsed)'],
     },
     cr_analysis: {
       desc: 'CR Change Analysis: shows both where changes are stuck right now (status mix, workflow dwell) and how they performed historically (plan completion, on-time, closure), answering "how many are still open, at which step, and who is slowest".',
       usage: [
         'Data comes from eflow_cr (synced from eFlow); the default range covers the full data span',
-        'The top bar is the <b>Workflow milestones</b>, in exactly the order of eFlow\'s Workflow History: Create → BO/FO Head Approval → Domain TD Approval → CM Head Approval → Start to Implement → Result Feedback → Closed. Each node shows "Done" and "Waiting"; the node with the most CRs waiting is marked <b>Bottleneck</b> and shows how many days the slowest one has waited',
+        'The top bar is the **Workflow milestones**, in exactly the order of eFlow\'s Workflow History: Create → BO/FO Head Approval → Domain TD Approval → CM Head Approval → Start to Implement → Result Feedback → Closed. Each node shows "Done" and "Waiting"; the node with the most CRs waiting is marked **Bottleneck** and shows how many days the slowest one has waited',
         'Milestones group by workflow node: a CR sent back with "Waiting for Update" counts under BO/FO Head Approval rather than forming its own loop. For the exact spread over the 7 raw statuses, see the "Status Distribution" pie below',
         'Status names are upstream values and are not translated; "Waiting for Implement" means all approvals are done and implementation is pending — not "waiting for approval"',
         'Four core counts: "Planned" = has a planned start time; "Executed" = has an actual start time; "Not Executed" = planned but never started; "On Time / Delayed" = actual start before / after planned start',
+        '**Every number explains itself on hover** (2026-11-04): the eight buckets are decided in the backend SQL (**"on time" is a lexicographic text comparison**, which relies on upstream timestamps being formatted consistently — the code comment admits the assumption); ⚠ **Planned ≠ Executed + Not Executed** — a row with an actual start but no planned start lands only on the Executed side',
+        '⚠ Category filtering now happens on the server: when categories are selected the page sends them as a `categories` parameter and the backend narrows **inside the same SQL** (values are bound parameters), so the overview, the rates, the category table, the status mix and the monthly / sub-category blocks all come from **one and the same set**; the frontend no longer adds the counts or duplicates the rate formula (2026-11-04). ⚠ The **three rates have three different denominators** (÷ planned / ÷ executed / ÷ total), so comparing those percentages side by side is meaningless; only the 80/50 colour thresholds live in the frontend',
         'Each rate shows its denominator: Plan Completion Rate = executed ÷ planned, On-Time Rate = on time ÷ executed, Closure Rate = closed ÷ total. Shows "—" instead of 0 when the denominator is zero',
-        '"Approval Workflow & Dwell Time" parses the step records in the source table: Arrived = CRs that passed the step; Avg/Max Dwell = how long they took there; In Step = CRs still sitting there; Longest Wait = how long the slowest one has waited. Steps follow the <b>real flow order</b> (Created → BO/FO Head → Domain TD → CM Head → Implementation → Result Feedback), not the source column alphabetical order',
+        '"Approval Workflow & Dwell Time" parses the step records in the source table: Arrived = CRs that passed the step; Avg/Max Dwell = how long they took there; In Step = CRs still sitting there; Longest Wait = how long the slowest one has waited. Steps follow the **real flow order** (Created → BO/FO Head → Domain TD → CM Head → Implementation → Result Feedback), not the source column alphabetical order',
         'The "In Step" column is often the most useful signal: a step with many CRs waiting a long time is the bottleneck',
         'Every number is clickable: status cards, pie slices, KPI cards, rate cards, the category table, chart bars, workflow steps, the monthly trend and the sub-category table all drill into details, and the detail row count matches the card figure exactly',
         'A yellow banner appears when drill-down results are truncated — narrow the date range and retry rather than ignoring it',
@@ -1199,6 +1264,8 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
         'With exactly one plan number selected, milestones follow that plan; with several selected, milestones cover all plans (the page says so) and may differ from the plan table subtotal',
         'Every number is clickable: KPI cards, rate cards, chart bars, the monthly trend, the site bar chart and the plan table all drill into details, and the detail row count matches the card figure exactly',
         'A yellow banner appears when drill-down results are truncated — narrow the date range and retry rather than ignoring it',
+        '**Every number explains itself on hover** (2026-11-04): the ⓘ on each of the eight count cards states the SQL predicate behind that field, while the bubble on the number says "this figure = the matching field of the API summary" and that the backend counted it with SUM(CASE WHEN …) in a single query. The three rate cards\' bubbles name the denominator (closure and overdue both divide by the total; started rate = (total − not started) ÷ total) and note that **a zero denominator returns null from the backend → the UI shows —, never 0%**',
+        'The two easiest misreadings are in the ⓘ: **"Overdue" takes the source table\'s own pmt_overdue verdict as-is — the page never recomputes it from plan versus actual dates**, so when upstream leaves that column empty this card stays 0 even though orders may really be late; and because the dynamically created eflow_pm table holds both cases of status, every predicate normalises with UPPER(TRIM(…)) first',
       ],
     },
     bp_report: {
@@ -1218,6 +1285,9 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
         '⚠️ The four drill-down columns PRB utilization / DL throughput / Active users (busy hour) / DL traffic exist only from 2026-07-22 onward: BP Report.xlsx itself stores only date / NE / cell / cluster / layer and never carried these metrics, so they must be re-fetched upstream — and upstream retains nothing for the 21 days 2026-07-01~07-21 (UME likewise only goes back to 07-02), so that range shows — and cannot be filled',
         'For 2026-07-22~09-21 the four metrics have been backfilled from upstream, so those days now hold whole-network cells rather than only the cells umlaut reported; BP counts run about 13~14% below that period\'s original Excel values, and the share denominator follows the same caliber change',
         'Data is incrementally refreshed from RAN_UME by the bp_report_sync task daily at 06:20',
+        '**Every number explains itself on hover** (2026-11-04): the ⓘ on the "share" column header says it is **that period\'s own stored bp_ratio** (the page never re-divides BP by all cells), and each share cell carries a bubble with that period\'s numerator, denominator and the difference against its detail rows. The "BP cells (latest period)", "Periods" and "Average BP share" cards put an ⓘ on the title and a bubble on the number',
+        'The "Average BP share" card is the easiest to misread, so its bubble prints both figures side by side: it is the **arithmetic mean of the per-period shares (one vote per period, AVG(bp_ratio))**, **not** ΣBP ÷ Σall — the two disagreeing is a caliber difference, not a bug. A period with very few cells weighs exactly as much as one with many',
+        '"Periods" = how many periods in the selected range **actually have data** at this grain (one row per period), not the number of natural periods; it changes with the grain, so check the date range covers periods that have data',
       ],
     },
     ran_cells_kpi: {
@@ -1229,6 +1299,9 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
         'Sheet1 is deliberately named `Summary` rather than `<tech>_Cells_KPI`: otherwise a name clash would rewrite it to `Summary_2` and users would see two sheets that both look like a summary',
         'Percentages are written as numbers (e.g. `99.65`) rather than strings (`99.65%`) so they are directly computable in Excel',
         'The drill-down modal has its own export button (detail rows) — that is separate from the page-level entry',
+        '**Every number answers how it was computed on hover** (2026-11-04): the monthly card title carries an ⓘ for the algorithm while the number itself carries a bubble with the composition (how many valid days were averaged equally, cell-day observations, roster size, threshold, and the **actual data source** — whether the materialised daily table or a live computation, decided by the API meta.source). Each of the seven matrix rows has an ⓘ in its header and every cell a bubble (how many meeting, how many below, how many cells had no data that day)',
+        'The two easiest misreadings are stated in the bubbles: **the monthly figure is the arithmetic mean of the daily availabilities (one vote per day, not weighted by the number of cells that day)** — a day with 3 cells counts as much as a day with 300; and **the meeting / below shares divide by the cells that had a value that day, excluding cells without data** — so heavy upstream gaps inflate the meeting share',
+        'This page is **cell-level** availability (2G = available channels ÷ (available + unavailable), 3G/4G = service time ÷ 86400) and is **not the same caliber** as the site-level UME values on the site availability page — the two cannot be compared directly',
       ],
     },
     warehouse: {
@@ -1238,23 +1311,26 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
     // ---- SP spare-parts / consumables report family (added together 2026-09-29) ----
     sp_material: {
       desc: 'Spare-parts material summary: inbound, outbound and inventory rolled up by domain / material.',
-      usage: ['Data comes from the spare-part reports pulled by sp_data_sync', 'Click any summary figure to drill into the matching material details'],
+      usage: ['Data comes from the spare-part reports pulled by sp_data_sync', 'Click any summary figure to drill into the matching material details',
+        '**Every number explains itself on hover** (2026-11-04): the ⓘ on a column header states the bucketing for the whole group (status = damage goes to "needs repair", otherwise Material Type is matched on spare / consum; a row joins a group by exact or prefix warehouse-name match, misses fall into Others), while a cell bubble gives that cell\'s composition (the raw opening / current snapshot values, consumption = opening − current, whether the total includes damage) and reminds that **these are SUM(Stock Qty) quantities, not counts of distinct materials**',
+        'Two traps are spelled out in the bubbles: **"Repair Outbound" comes from a different table and a different window than the stock snapshots, so it must not be subtracted from a stock column**; and **a negative consumption is legitimate** — inbound or transfer back-fill can make stock rise, while the measure is only "opening − current" and never nets the replenishment (when it happens a standing notice names the groups)',
+        'The "Total" at the bottom of the drill-down modal is summed client-side over the **rows currently matching the search box** (the API does not send it); the bubble also states how many rows the drill returned, so the two agree once the search box is empty'],
     },
     sp_details: {
       desc: 'SP Details Report: the same merged workbook that the email task sends, with Inventory / Inbound / Outbound / Transfer sheets.',
-      usage: ['Paginate, filter and sort; "open" means Status does not contain Closed', 'Only common columns are shown — click any row for all columns of that sheet', 'Export covers the current filter (up to 5000 rows)'],
+      usage: ['Paginate, filter and sort; "open" means Status does not contain Closed', 'Only common columns are shown — click any row for all columns of that sheet', 'Export covers the current filter (up to 5000 rows)', '**All eight cards explain themselves on hover** (2026-11-04): records = row counts added across sheets with **no cross-sheet de-duplication**; "Materials" is Material No. **de-duplicated over the union** (structurally different from the same-named row count on the spare-parts report); "Warehouses" counts the transfer sheet\'s **original and target** names on both sides, so reading higher than the number of storage locations is by design; open tickets use the "status does not contain closed" test', '⚠ This page reads the *_source.xlsx snapshots taken **before any filtering**, while the summary pages read the filtered workbook — same-named metrics are systematically larger here, which is a caliber difference, not lost data', '⚠ The whole site has three definitions of "open" (this page: per-row substring match / spare-parts report: distinct document number + word list / warehouse board: exact equality), so the three figures are not meant to reconcile'],
     },
     sp_report: {
       desc: 'Spare Parts Inbound & Outbound & Inventory summary: the same workbook emailed / sent over WhatsApp (produced daily at 05:15 by sp_report_generate), with Summary-Current / Summary-Changed / Inbound / Outbound / Inventory sheets.',
-      usage: ['Stat cards show totals and replenishment alerts; clicking an alert card filters', 'Summary-Changed renders as a day × warehouse matrix', '"Columns" is configurable per sheet and remembered locally; the row-detail modal always shows every column'],
+      usage: ['Stat cards show totals and replenishment alerts; clicking an alert card filters', 'Summary-Changed renders as a day × warehouse matrix', '"Columns" is configurable per sheet and remembered locally; the row-detail modal always shows every column', '**Every number explains itself on hover** (2026-11-04): the seven quantity cards say "this value = the raw Total-row cell of Summary-Current · some column", and warn that **a missing or non-numeric column comes back as 0.0 from the backend** — so a 0 can be a real zero or an empty column; "Materials" is a **row count, not de-duplicated material numbers**; "Urgent" counts **rows** whose Alert Level equals Urgent Replenish, a different unit from its Qty neighbours — do not subtract one from the other', 'The "open documents" bubble states it comes from the **live database** (same caliber as the SPMS figure on the MsPortal QC panel), because the workbook is a 05:55 snapshot while the DB lands at 07:00; all other statistics stay on the Excel snapshot so the page matches the emailed attachment'],
     },
     com_report: {
       desc: 'Consumables Inbound & Outbound & Inventory summary: same layout as the spare-parts page, reading the consumables workbook instead.',
-      usage: ['Identical basis to the spare-parts page — see "Report basis" at the bottom', 'When the page and Excel disagree, read the basis notes first; never change the basis in the page layer'],
+      usage: ['Identical basis to the spare-parts page — see "Report basis" at the bottom', 'When the page and Excel disagree, read the basis notes first; never change the basis in the page layer', '**Every number explains itself on hover** (2026-11-04, same wording as the spare-parts page)', 'The "open documents" figure has a **different source** here than on the spare-parts page: the live-database override applies to spare parts only, and consumables tables are landed by another sync job whose names we do not guess, so this page keeps the Excel snapshot caliber (fixed 2026-11-04 — previously consumables were wrongly overridden with **spare-parts** numbers)'],
     },
     warehouse_summary: {
       desc: 'Warehouse Summary Report: mirrors WarehouseSummaryReport.xlsx — the tabs are its two sheets, Spars Parts / Consumables. Each tab has two sections: WH/DOP inventory & consumption (current inventory / total / this month / this week), and frequently used materials (10 rows per page, all materials reachable by paging).',
-      usage: ['Switch tabs for spare parts vs consumables; every figure in both sections drills down', 'Frequently used materials are paged by consumption descending, showing all of them; the Total row is the full-scope total and does not change when you page', 'Consumption basis is Outbound Site Qty (site outbound), shown as a tag next to the second section title'],
+      usage: ['Switch tabs for spare parts vs consumables; every figure in both sections drills down', 'Frequently used materials are paged by consumption descending, showing all of them; the Total row is the full-scope total and does not change when you page', 'Consumption basis is Outbound Site Qty (site outbound), shown as a tag next to the second section title', '**The six KPI cards explain themselves on hover** (2026-11-04): the warehouse set is the **union of Outbound and Inventory** — a warehouse on one side only still gets a row and the missing side counts 0; the month/week time column **falls back dynamically** by priority (the column name comes from the API, the page does not guess), weeks start on **Monday**, and window starts use the host clock (UTC)', '⚠ Rows whose time cannot be parsed are **excluded from the month/week windows but still counted in total consumption**, so "this month + previous months ≠ total" is expected', 'Needs restock reads the API field `overview.urgent` (the backend counts Alert Level matches over the **whole** Summary-Current sheet), i.e. the same field and caliber as the same-named card on the spare-parts report, so the two should agree; when they do not, the pages are reading different workbook runs (check the header file name and generation time). Before 2026-11-04 this card was reduced client-side over the frequent rows; that has been changed'],
     },
     overview: {
       desc: 'Database health-check page: how many tables exist, rows per table, Top10 by size.',
@@ -1324,12 +1400,12 @@ const COMMON_ZH: CommonText = {
     { title: '侧边栏导航', body: '侧边栏默认收起，点左上角 ☰ 按钮展开/收起；移动端以抽屉浮层从顶栏下方滑出。' },
     { title: '新标签页打开', body: '在左侧菜单项上右键 → 「在新标签页打开」，适合大屏/多屏分屏值守。' },
     { title: '直链访问', body: '任何页面都可用 ?page=<key> 直接打开，例如 /myapp/?page=battery，可收藏、可分享。' },
-    { title: '自动刷新', body: '顶栏下拉选择间隔（默认 5 分钟，可选 0/30s~30min）；正在输入、弹窗打开或标签页在后台时本轮自动跳过，不打断操作。仅「看板 / 展示页」参与自动刷新，配置与操作页（如系统设置、上传、表浏览、IP 探测）不刷新、选择器为禁用态；看板页全屏挂机时即使选「关闭」也会按本页默认间隔兜底刷新。' },
+    { title: '自动刷新', body: '默认关闭，且每个页面各自设置：顶栏「开启刷新」按钮 + 间隔下拉对任何页面都可用，开启时落到该页建议间隔（实时告警页 1 分钟、看板页 5 分钟、上游日更的报表 15 分钟、配置与操作页 30 分钟），可再用下拉调整为 0/30 秒~30 分钟；选择按页记忆在本机（localStorage），换页面互不影响。「停止刷新」随时关掉。正在输入、弹窗打开或标签页在后台时本轮自动跳过，不打断操作。' },
     { title: '主题与语言', body: '右上角切换深/浅色主题与中/英文界面，偏好自动保存在本机（localStorage）。' },
     { title: '数据新鲜度', body: '部分页面页头显示「最近同步」时间。看板数据由定时任务写入，各任务频率不同（实时告警每分钟、微波拓扑每天 05:15、丢包每天 06:30 等），完整清单见「任务管理详解」。' },
   ],
   faq: [
-    { q: '看板数据没有更新？', a: '① 先到「任务管理」查看对应任务的最近执行结果与失败聚合；② 检查顶栏「自动刷新」间隔是否被调成关闭；③ 注意部分数据本身低频同步：实时告警每分钟、微波拓扑每天 05:15、丢包每天 06:30、事件总览每小时第 20 分钟。仍不对可看「数据库数据新鲜度巡检」的执行日志，它会输出调用链与排查方向（含文件型数据源的落盘年龄）。' },
+    { q: '看板数据没有更新？', a: '① 先到「任务管理」查看对应任务的最近执行结果与失败聚合；② 检查顶栏「自动刷新」是否已开启（默认关闭，未开启时页面不会自动重载，可手动刷新或点「开启刷新」）；③ 注意部分数据本身低频同步：实时告警每分钟、微波拓扑每天 05:15、丢包每天 06:30、事件总览每小时第 20 分钟。仍不对可看「数据库数据新鲜度巡检」的执行日志，它会输出调用链与排查方向（含文件型数据源的落盘年龄）。' },
     { q: '页面数字与预期口径不一致？', a: '注意各页口径：电池看板默认只统计 24 小时内新鲜读数；MS SLA 看板以实时计算为准（可能与快照文件不一致）；丢包看板只展示最近 7 个完整自然日；CXO 看板内嵌快照，重跑同步任务才更新。' },
     { q: '任务长期停在 pending 不执行？', a: '多半是该任务未被归入任何 worker 组（GROUP_TASK_MAP），队列里永远无人认领——这是本项目已发生过四次的事故模式（finebi_report_sync、whatsapp_send_ext、sp_email_details，以及 2026-09-18 查出的 olib_soc 看板增量与 vmax_multi_data_sync）。新增任务必须在 worker_watchdog.py 的 GROUP_TASK_MAP 登记分组；陈旧 pending 占住的单飞名额 6 小时后会被 worker 自动过期释放。2026-09-18 起这类停摆不再靠人肉发现：db_freshness_check（每小时）会把未归组 / 无执行记录 / 队列滞留 / 成功逾期四类健康异常按翻转去重主动微信+邮件通知。' },
     { q: '任务反复 failed？', a: '到 log/worker_runtime*.log 找该 task_id 的堆栈（排障首选日志；每组 worker 一个文件，任务所属组见执行认领日志）。上游不可达 → 先到「系统设置 → 凭据」点「测试连接」；口令变了 → 更新凭据。auto_retry_failed 每 10 分钟自动重试（MAX_ATTEMPTS=2，超 24 小时放弃），无需手动反复点执行。' },
@@ -1372,12 +1448,12 @@ const COMMON_EN: CommonText = {
     { title: 'Sidebar navigation', body: 'The sidebar is collapsed by default — click the ☰ button (top-left) to expand/collapse; on mobile it slides out as a drawer under the header.' },
     { title: 'Open in a new tab', body: 'Right-click any menu item → "Open in new tab", handy for wall screens / multi-monitor duty.' },
     { title: 'Direct links', body: 'Every page can be opened with ?page=<key>, e.g. /myapp/?page=battery — bookmarkable and shareable.' },
-    { title: 'Auto refresh', body: 'Pick an interval in the header (default 5 minutes; 0/30s~30min available). While you are typing, a dialog is open, or the tab is in the background, the round is skipped to avoid interrupting you. Only dashboard/display pages auto-refresh; configuration and operation pages (settings, upload, table browser, IP trace, …) never refresh and their selector is disabled. A dashboard left in fullscreen keeps refreshing at its default interval even when the selector is set to Off.' },
+    { title: 'Auto refresh', body: 'Off by default, and every page has its own setting: the header "Start Refresh" button plus the interval dropdown work on any page. Starting it lands on that page\'s suggested interval (1 min for real-time alarm pages, 5 min for boards, 15 min for reports whose upstream syncs daily, 30 min for configuration and operation pages); the dropdown offers 0/30s~30min and the choice is remembered per page in localStorage, so pages never affect each other. "Stop Refresh" turns it off at any time. While you are typing, a dialog is open, or the tab is in the background, the round is skipped to avoid interrupting you.' },
     { title: 'Theme & language', body: 'Switch dark/light theme and Chinese/English in the top-right; preferences are remembered locally (localStorage).' },
     { title: 'Data freshness', body: 'Some pages show a "last synced" time in the header. Boards are fed by scheduled tasks with different frequencies (alarms every minute, microwave topology daily 05:15, packet loss daily 06:30...). See "Task Manager Deep Dive" for the full catalog.' },
   ],
   faq: [
-    { q: 'The board data is not updating?', a: '① Check the task\'s latest result and the failure summary in "Task Manager"; ② check whether the header "Auto refresh" was set to Off; ③ remember some data is inherently low-frequency: alarms every minute, microwave topology daily 05:15, packet loss daily 06:30, incident overview at minute 20 each hour. The "DB Data Freshness Check" task history also logs the call chain and direction when stale (including the on-disk age of file-based sources).' },
+    { q: 'The board data is not updating?', a: '① Check the task\'s latest result and the failure summary in "Task Manager"; ② check whether the header "Auto refresh" is enabled (it is off by default — the page will not reload on its own; refresh manually or click "Start Refresh"); ③ remember some data is inherently low-frequency: alarms every minute, microwave topology daily 05:15, packet loss daily 06:30, incident overview at minute 20 each hour. The "DB Data Freshness Check" task history also logs the call chain and direction when stale (including the on-disk age of file-based sources).' },
     { q: 'Numbers do not match the expected criteria?', a: 'Watch each page\'s definition: the battery board counts only readings ≤24h fresh by default; the MS SLA board follows the live calculation (snapshot files may differ); packet loss shows only the last 7 complete days; the CXO board embeds a snapshot refreshed only by re-running its sync task.' },
     { q: 'A task stays pending forever?', a: 'Most likely the task was never assigned to a worker group (GROUP_TASK_MAP) — nobody claims it from the queue. This accident happened four times in this project (finebi_report_sync, whatsapp_send_ext, sp_email_details, and on 2026-09-18 the olib_soc dashboard sync plus vmax_multi_data_sync). New tasks MUST be registered in GROUP_TASK_MAP in worker_watchdog.py; a stale pending row holding the single-flight slot is now auto-expired by the worker after 6 hours. Since 2026-09-18 such stalls no longer need a human to spot them: db_freshness_check (hourly) pushes the four health findings (ungrouped / no execution record / stuck queue / overdue since last success) through WeChat + email, deduplicated by state flips.' },
     { q: 'A task keeps failing?', a: 'Find the stack trace for the task_id in log/worker_runtime*.log (the first log to check; one file per worker group). Upstream unreachable → run "Test Connection" in Settings → Credentials; changed password → update credentials. auto_retry_failed retries every 10 min (MAX_ATTEMPTS=2, gives up after 24h) — no need to click Run repeatedly.' },

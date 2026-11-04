@@ -16,7 +16,7 @@ import api from '../api'
 import { cachedGet } from '../cache'
 import { useI18n, numLocale } from '../i18n'
 import DraggableClickModal from '../components/DraggableClickModal'
-import { ExplainCorner, ExplainIcon } from '../components/MetricExplain'
+import { ExplainCorner, ExplainIcon, ExplainPopover } from '../components/MetricExplain'
 import { WH, DARK, LIGHT, WH_COLORS, LIGHT_COLORS, useTheme, darkTooltip, axisLabel, axisLine, splitLine, pageWrap, cardStyle } from '../theme'
 
 const CHART_HEIGHT = 252
@@ -842,7 +842,7 @@ export default function AlarmDashboard() {
       <SectionTitle icon={<PieChartOutlined />} title={t('alarm.typeSection')} sub={t('alarm.typeSectionSub')} />
       <Row gutter={[12, 12]}>
         <Col xs={24} lg={14}>
-          <Card size="small" title={<span style={{ fontSize: '0.8125rem', fontWeight: 600, color: WH.text }}>{t('alarm.topTypes')}</span>} style={cardStyle}>
+          <Card size="small" title={<span style={{ fontSize: '0.8125rem', fontWeight: 600, color: WH.text }}>{t('alarm.topTypes')} <ExplainIcon text={t('alarm.explain.typeTop')} /></span>} style={cardStyle}>
             <div role="img" aria-label={`${t('alarm.topTypes')} ${t('alarm.chartSuffix')}`}><ReactECharts option={alarmTypeOption} style={{ height: CHART_HEIGHT + 40 }} onEvents={{ click: chartClick(p => ({ source: 'realtime', dimension: 'alarm_type', value: String(p.name), title: t('alarm.drillAlarmType', { v: p.name }) })) }} /></div>
           </Card>
         </Col>
@@ -897,10 +897,16 @@ export default function AlarmDashboard() {
                       <div style={{ fontWeight: 700, fontSize: '0.8125rem', color: WH.text, marginBottom: '0.375rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                         <Tag color="cyan" style={{ borderRadius: 'var(--wh-radius-sm)', marginRight: 'var(--wh-space-xs)', cursor: 'pointer' }}
                           onClick={(e) => openDrilldown(e, { source: 'realtime', dimension: 'region', value: region, title: t('alarm.drillRegion', { v: region }) })}>{region}</Tag>
-                        <span style={{ fontSize: '0.6875rem', color: WH.textDim, cursor: 'pointer' }}
-                          onClick={(e) => openDrilldown(e, { source: 'realtime', dimension: 'region', value: region, title: t('alarm.drillRegion', { v: region }) })}>
-                          {t('alarm.regionAlarms', { n: data.region_alarm_count[region] })}
-                        </span>
+                        <ExplainPopover placement="left" text={t('alarm.tip.regionAlarms', {
+                          n: data.region_alarm_count[region],
+                          mains: (data.region_mains_count || {})[region] ?? 0,
+                          sites: (data.region_sites_count || {})[region] ?? 0,
+                        })}>
+                          <span style={{ fontSize: '0.6875rem', color: WH.textDim, cursor: 'pointer' }}
+                            onClick={(e) => openDrilldown(e, { source: 'realtime', dimension: 'region', value: region, title: t('alarm.drillRegion', { v: region }) })}>
+                            {t('alarm.regionAlarms', { n: data.region_alarm_count[region] })}
+                          </span>
+                        </ExplainPopover>
                       </div>
                       {Object.entries(types).map(([type, count]: any, i: number) => (
                         <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.6875rem', padding: '0.125rem 0', color: WH.textMuted, cursor: 'pointer' }}
@@ -913,7 +919,9 @@ export default function AlarmDashboard() {
                               {type.length > 22 ? type.substring(0, 20) + '..' : type}
                             </span>
                           </Tooltip>
-                          <span style={{ fontWeight: 600, color: '#ff8787' }}>{count}</span>
+                          <ExplainPopover placement="left" text={t('alarm.tip.typeCount', { n: count, region })}>
+                            <span style={{ fontWeight: 600, color: '#ff8787' }}>{count}</span>
+                          </ExplainPopover>
                         </div>
                       ))}
                     </div>

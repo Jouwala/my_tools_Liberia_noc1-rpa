@@ -3756,7 +3756,10 @@ from pathlib import Path as _Path
 # 缓存目录：backend/data/tt_timeline_cache（运行时可重建，已随 backend/data 忽略）
 _TIMELINE_CACHE_DIR = _Path(__file__).resolve().parents[2] / "data" / "tt_timeline_cache"
 # 缓存版本号：聚合口径变更时必须 +1，否则旧缓存会被当成新口径数据读出
-_TIMELINE_CACHE_VERSION = 6
+# v7（2026-11-04）：新增 deviation_total / missing_total / over_threshold_total 三个合计字段。
+# 此前「偏离总数」「缺失动作总数」「超阈值单数」由前端对已下发的分组数组 reduce 求和，
+# 违反 AGENTS.md 三.3c（气泡与卡片数字一律取接口字段）；不在旧缓存里补，直接换版本号让整月重算。
+_TIMELINE_CACHE_VERSION = 7
 
 
 def _timeline_cache_path(month: str) -> _Path:
@@ -3881,6 +3884,10 @@ def _apply_owner_scope(result: Dict[str, Any], owner_scope: Optional[str]) -> Di
     out["no_wo_tickets"] = no_wo_rows
     out["deviation_stats"] = sorted(dev_counter.values(), key=lambda z: -z["count"])
     out["missing_stats"] = sorted(missing_counter.values(), key=lambda z: -z["count"])
+    # 两张合计卡改由后端下发（AGENTS.md 三.3c：前端不再对分组数组 reduce 求和）。
+    # 合计口径 = 各分组 count 相加，与原前端算法逐字一致，不引入新数字。
+    out["deviation_total"] = sum(z["count"] for z in out["deviation_stats"])
+    out["missing_total"] = sum(z["count"] for z in out["missing_stats"])
     out["noc_stats"] = noc_list
     out["wo_stats"] = {
         "dispatched": wo_dispatched,

@@ -45,6 +45,8 @@ import { WH, cardStyle, useTheme } from '../theme'
 import { PAGE_LIST, NAV_KEY_MAP, CATEGORIES, PAGE_DOCS, COMMON, OPS } from './helpContent'
 import { TASK_DOCS, WORKER_GROUP_INFO } from './helpTaskDocs'
 import { buildHelpMarkdown } from '../helpMarkdown'
+// 帮助文案里天然带 `**强调**`（口径说明从手册搬来），裸 `{u}` 会把星号显示出来（AGENTS.md 三.3）
+import { renderRich } from '../utils/richText'
 
 const { Text, Paragraph } = Typography
 
@@ -229,16 +231,16 @@ export default function Help() {
             return (
               <div style={{ display: 'flex', gap: 'var(--wh-space-lg)', flexWrap: 'wrap' }}>
                 <div style={{ flex: 1, minWidth: 280 }}>
-                  <Paragraph style={{ margin: '0 0 6px', fontSize: '0.8125rem' }}>{txt.desc}</Paragraph>
+                  <Paragraph style={{ margin: '0 0 6px', fontSize: '0.8125rem' }}>{renderRich(txt.desc)}</Paragraph>
                   <Text strong style={{ fontSize: 12, color: WH.teal }}>{ops.flowLabel}</Text>
                   <ul style={{ margin: '4px 0 0', paddingLeft: '1.1rem', fontSize: '0.8125rem', lineHeight: 1.8 }}>
-                    {txt.flow.map((f, i) => <li key={i}><Text type="secondary">{f}</Text></li>)}
+                    {txt.flow.map((f, i) => <li key={i}><Text type="secondary">{renderRich(f)}</Text></li>)}
                   </ul>
                 </div>
                 <div style={{ flex: 1, minWidth: 280 }}>
                   <Text strong style={{ fontSize: 12, color: WH.teal }}>{ops.maintainLabel}</Text>
                   <ul style={{ margin: '4px 0 0', paddingLeft: '1.1rem', fontSize: '0.8125rem', lineHeight: 1.8 }}>
-                    {txt.maintain.map((m, i) => <li key={i}><Text type="secondary">{m}</Text></li>)}
+                    {txt.maintain.map((m, i) => <li key={i}><Text type="secondary">{renderRich(m)}</Text></li>)}
                   </ul>
                 </div>
               </div>
@@ -342,7 +344,7 @@ export default function Help() {
         {ops.mechanisms.map(m => (
           <div key={m.name} style={{ display: 'flex', gap: 'var(--wh-space-sm)', alignItems: 'flex-start', padding: '4px 0' }}>
             <Tag color="geekblue" style={{ flexShrink: 0, marginInlineEnd: 0, minWidth: 96, textAlign: 'center' }}>{m.name}</Tag>
-            <Text type="secondary" style={{ fontSize: '0.8125rem', lineHeight: 1.7 }}>{m.body}</Text>
+            <Text type="secondary" style={{ fontSize: '0.8125rem', lineHeight: 1.7 }}>{renderRich(m.body)}</Text>
           </div>
         ))}
       </Card>
@@ -359,7 +361,7 @@ export default function Help() {
               <div>
                 <Text strong>{m.title}</Text>
                 <br />
-                <Text type="secondary" style={{ fontSize: '0.8125rem', lineHeight: 1.7 }}>{m.body}</Text>
+                <Text type="secondary" style={{ fontSize: '0.8125rem', lineHeight: 1.7 }}>{renderRich(m.body)}</Text>
               </div>
             </div>
           ))}
@@ -414,10 +416,10 @@ export default function Help() {
             )}
           </Space>
           <Paragraph style={{ margin: '4px 0 6px', fontSize: '0.8125rem', lineHeight: 1.7 }}>
-            <Text type="secondary">{doc.desc}</Text>
+            <Text type="secondary">{renderRich(doc.desc)}</Text>
           </Paragraph>
           <ul style={{ margin: 0, paddingLeft: '1.1rem', fontSize: '0.8125rem', lineHeight: 1.8 }}>
-            {doc.usage.map((u, i) => <li key={i}><Text type="secondary">{u}</Text></li>)}
+            {doc.usage.map((u, i) => <li key={i}><Text type="secondary">{renderRich(u)}</Text></li>)}
           </ul>
           <Button
             type="link"

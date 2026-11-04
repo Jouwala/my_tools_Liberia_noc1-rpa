@@ -41,7 +41,7 @@ import { CardBase, StatCard } from '../components/cards'
 | `CardBase` | `components\cards\CardBase.tsx` | **皮肤外壳**：任意内容（图表/表格/表单/列表）。支持 `level` 等级染色、`interactive` 悬停、`as="div"` 裸容器 |
 | `CardTitle` | `components\cards\CardBase.tsx` | 项目统一卡头文字排版（此前在 12 处各写一份内联 span） |
 | barrel | `components\cards\index.ts` | **唯一入口**，页面只从这里导入 |
-| `StatCard` | `components\StatCard.tsx` | 数字卡（标题+大数字+图标），经 barrel 转出 |
+| `StatCard` | `components\StatCard.tsx` | 数字卡（标题+大数字+图标），经 barrel 转出。`explainText`（2026-11-03 新增）= 悬浮在**大数字本身**上的计算说明，内部只包 `Statistic` 那一层、不包标题，所以标题里的 `ExplainIcon` 不会和外层气泡叠成两个（AGENTS.md 三.3c） |
 
 `CardBase` 关键 props：`title`（传**字符串**自动套统一排版；传 ReactNode 原样保留）、`extra`、`level`（`'default'|'ok'|'warn'|'crit'`）、`interactive`、`as`、`bodyStyle`。
 

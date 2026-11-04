@@ -77,6 +77,9 @@ import {
   evText, woStageLabelKey,
 } from '../utils/ttVocab'
 import { useTheme, WH, darkTooltip, axisLabel, axisLine, splitLine, pageWrap } from '../theme'
+// 数字悬浮口径说明（AGENTS.md 三.3c）：ⓘ 讲这一项怎么算，气泡讲这个数怎么来。
+// 本页原有的单元格 Tooltip 只覆盖错位率与 SLA 两列，六张概览卡与排名卡数字问不到。
+import { ExplainLabel, ExplainPopover } from '../components/MetricExplain'
 
 const { Text, Title } = Typography
 
@@ -118,6 +121,8 @@ type Report = {
     time_field?: string
     night_window?: string
     generated_at: string
+    /** 后端 meta.owner_filter：ZTE / IPT / ALL（承接方切片） */
+    owner_filter?: string
   }
   summary: {
     noc_count: number
@@ -282,6 +287,9 @@ type TimelineAgg = {
   bottleneck_rank: SegmentStat[]
   deviation_stats: DeviationStat[]
   missing_stats: MissingStat[]
+  /** 后端下发的合计（2026-11-04 起）。旧缓存或旧后端可能没有 → 界面显示 — 而不是 0。 */
+  deviation_total?: number | null
+  missing_total?: number | null
   wo_stats: {
     dispatched: number
     should_dispatch: number
@@ -2268,6 +2276,19 @@ export default function NocAnalyst() {
     [data],
   )
 
+  /** 概览六张卡共用的筛选范围串：数字气泡靠它回答「这个数是在哪个范围数出来的」。
+   *  字段全部来自接口 meta，前端不做任何推算。 */
+  const nocScope = useMemo(() => {
+    const m = data?.meta
+    if (!m) return ''
+    return [
+      t('noc.scope.month', { month: m.month || '—', field: m.time_field || 'alarm_occur_time' }),
+      t('noc.scope.scan', { scanned: m.scanned ?? 0, limit: m.limit ?? 0 }),
+      m.owner_filter ? t('noc.scope.owner', { v: m.owner_filter }) : '',
+      m.noc_filter ? t('noc.scope.filter', { v: m.noc_filter }) : '',
+    ].filter(Boolean).join('\n')
+  }, [data, t])
+
   // ========== Top3 / Bottom3 卡片 ==========
   const renderRankCard = (
     row: NocRow, rank: number, kind: 'mismatch' | 'sla', accent: string,
@@ -2311,30 +2332,39 @@ export default function NocAnalyst() {
             </div>
           </div>
         </Tooltip>
-        <div style={{
-          display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap',
-          marginTop: 'var(--wh-space-sm)', fontVariantNumeric: 'tabular-nums',
-          fontSize: '0.6875rem', color: WH.textMuted,
-        }}>
-          {(kind === 'mismatch'
-            ? [
-                { label: t('noc.th.mismatchPct'), value: fmtPct(row.mismatch_pct), color: accent },
-                { label: t('noc.th.total'), value: String(row.total) },
-                { label: t('noc.th.slaPass'), value: fmtPct(row.sla_pass_rate_pct) },
-              ]
-            : [
-                { label: t('noc.th.slaPass'), value: fmtPct(row.sla_pass_rate_pct), color: accent },
-                { label: t('noc.th.slaFail'), value: String(row.sla_fail), color: row.sla_fail ? WH.danger : undefined },
-                { label: t('noc.th.total'), value: String(row.total) },
-              ]
-          ).map((m, i) => (
-            <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-              {i > 0 && <span style={{ opacity: 0.45 }}>·</span>}
-              <span style={{ color: m.color || WH.textMuted, fontWeight: m.color ? 700 : 500 }}>{m.value}</span>
-              <span>{m.label}</span>
-            </span>
-          ))}
-        </div>
+        <ExplainPopover placement="top" text={t('noc.tip.rankCard', {
+          who: row.noc_name,
+          total: row.total,
+          rc: row.with_root_cause,
+          mis: row.mismatch_count,
+          pass: row.sla_pass,
+          slaTotal: row.sla_total,
+        })}>
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap',
+            marginTop: 'var(--wh-space-sm)', fontVariantNumeric: 'tabular-nums',
+            fontSize: '0.6875rem', color: WH.textMuted,
+          }}>
+            {(kind === 'mismatch'
+              ? [
+                  { label: t('noc.th.mismatchPct'), value: fmtPct(row.mismatch_pct), color: accent },
+                  { label: t('noc.th.total'), value: String(row.total) },
+                  { label: t('noc.th.slaPass'), value: fmtPct(row.sla_pass_rate_pct) },
+                ]
+              : [
+                  { label: t('noc.th.slaPass'), value: fmtPct(row.sla_pass_rate_pct), color: accent },
+                  { label: t('noc.th.slaFail'), value: String(row.sla_fail), color: row.sla_fail ? WH.danger : undefined },
+                  { label: t('noc.th.total'), value: String(row.total) },
+                ]
+            ).map((m, i) => (
+              <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                {i > 0 && <span style={{ opacity: 0.45 }}>·</span>}
+                <span style={{ color: m.color || WH.textMuted, fontWeight: m.color ? 700 : 500 }}>{m.value}</span>
+                <span>{m.label}</span>
+              </span>
+            ))}
+          </div>
+        </ExplainPopover>
         <div style={{
           textAlign: 'right', fontSize: '0.625rem', color: WH.teal, fontWeight: 600,
           marginTop: 6, display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 2,
@@ -2425,48 +2455,70 @@ export default function NocAnalyst() {
         <Spin spinning={loading}>
           {data && data.rows.length > 0 && (
             <>
-              {/* ====== 概览数字卡 ====== */}
+              {/* ====== 概览数字卡 ======
+                  六张卡的 ⓘ 讲算法，数字气泡讲这一格的构成与筛选范围（AGENTS.md 三.3c）。
+                  口径逐条对过 backend/services/tt_postmortem/__init__.py 的聚合段。 */}
               <Row gutter={[12, 12]}>
                 <Col xs={12} sm={8} lg={4}>
                   <StatCard
-                    title={t('noc.stat.nocCount')} value={data.summary.noc_count || 0}
+                    title={<ExplainLabel label={t('noc.stat.nocCount')} text={t('noc.explainCard.nocCount')} />}
+                    value={data.summary.noc_count || 0}
                     accentColor={WH.teal} prefix={<TrophyOutlined />}
+                    explainText={t('noc.tip.nocCount', { n: data.summary.noc_count ?? 0, scanned: data.meta?.scanned ?? 0 })}
                   />
                 </Col>
                 <Col xs={12} sm={8} lg={4}>
                   <StatCard
-                    title={t('noc.th.total')} value={data.summary.total_handled || 0}
+                    title={<ExplainLabel label={t('noc.th.total')} text={t('noc.explainCard.total')} />}
+                    value={data.summary.total_handled || 0}
                     accentColor={palette.blue} prefix={<ClockCircleOutlined />}
+                    explainText={t('noc.tip.total', { v: data.summary.total_handled ?? 0, people: data.summary.noc_count ?? 0 }) + '\n' + nocScope}
                   />
                 </Col>
                 <Col xs={12} sm={8} lg={4}>
                   <StatCard
-                    title={t('noc.th.mismatchPct')}
-                    value={data.summary.avg_mismatch_pct ?? 0}
-                    suffix="%" accentColor={(data.summary.avg_mismatch_pct ?? 0) >= 30 ? WH.danger : WH.ok}
+                    title={<ExplainLabel label={t('noc.th.mismatchPct')} text={t('noc.explainCard.avgMismatch')} />}
+                    value={data.summary.avg_mismatch_pct ?? '—'}
+                    suffix={data.summary.avg_mismatch_pct == null ? '' : '%'}
+                    accentColor={data.summary.avg_mismatch_pct == null ? WH.textMuted : (data.summary.avg_mismatch_pct >= 30 ? WH.danger : WH.ok)}
                     prefix={<WarningOutlined />}
+                    explainText={data.summary.avg_mismatch_pct == null
+                      ? t('noc.tip.noSample')
+                      : t('noc.tip.avgMismatch', { v: data.summary.avg_mismatch_pct }) + '\n' + nocScope}
                   />
                 </Col>
                 <Col xs={12} sm={8} lg={4}>
                   <StatCard
-                    title={t('noc.th.avgDur')}
-                    value={data.summary.avg_duration_h ?? 0}
-                    suffix="h" accentColor={(data.summary.avg_duration_h ?? 0) >= 12 ? WH.danger : WH.ok}
+                    title={<ExplainLabel label={t('noc.th.avgDur')} text={t('noc.explainCard.avgDur')} />}
+                    value={data.summary.avg_duration_h ?? '—'}
+                    suffix={data.summary.avg_duration_h == null ? '' : 'h'}
+                    accentColor={data.summary.avg_duration_h == null ? WH.textMuted : (data.summary.avg_duration_h >= 12 ? WH.danger : WH.ok)}
+                    explainText={data.summary.avg_duration_h == null
+                      ? t('noc.tip.noSample')
+                      : t('noc.tip.avgDur', { v: data.summary.avg_duration_h }) + '\n' + nocScope}
                   />
                 </Col>
                 <Col xs={12} sm={8} lg={4}>
                   <StatCard
-                    title={t('noc.th.slaPass')}
-                    value={data.summary.overall_sla_pass_rate_pct ?? 0}
-                    suffix="%" accentColor={(data.summary.overall_sla_pass_rate_pct ?? 0) >= 90 ? WH.ok : WH.sev.Major}
+                    title={<ExplainLabel label={t('noc.th.slaPass')} text={t('noc.explainCard.slaPass')} />}
+                    value={data.summary.overall_sla_pass_rate_pct ?? '—'}
+                    suffix={data.summary.overall_sla_pass_rate_pct == null ? '' : '%'}
+                    accentColor={data.summary.overall_sla_pass_rate_pct == null
+                      ? WH.textMuted
+                      : (data.summary.overall_sla_pass_rate_pct >= 90 ? WH.ok : WH.sev.Major)}
                     prefix={<SafetyOutlined />}
+                    explainText={data.summary.overall_sla_pass_rate_pct == null
+                      ? t('noc.tip.slaNoTotal')
+                      : t('noc.tip.slaPass', { v: data.summary.overall_sla_pass_rate_pct }) + '\n' + nocScope}
                   />
                 </Col>
                 <Col xs={12} sm={8} lg={4}>
                   <StatCard
-                    title={t('noc.stat.redFlag')} value={data.red_flags?.length || 0}
+                    title={<ExplainLabel label={t('noc.stat.redFlag')} text={t('noc.explainCard.redFlag')} />}
+                    value={data.red_flags?.length ?? 0}
                     accentColor={data.red_flags?.length ? WH.danger : WH.ok}
                     prefix={<FireOutlined />}
+                    explainText={t('noc.tip.redFlag', { n: data.red_flags?.length ?? 0 }) + '\n' + nocScope}
                   />
                 </Col>
               </Row>
@@ -2630,26 +2682,28 @@ export default function NocAnalyst() {
                         </Tooltip>
                       </Col>
                       <Col xs={12} sm={8} lg={4}>
-                        <Tooltip title={t('noc.aggCardDeviationSub')}>
+                        {/* 合计取接口字段 agg.deviation_total（后端算），不再在前端 reduce
+                            （AGENTS.md 三.3c）；缺字段时显示 — 而不是 0。 */}
+                        <ExplainPopover placement="top" text={t('noc.aggCardDeviationSub')}>
                           <CardBase interactive onClick={() => setAggDetailOpen(true)}>
                             <Text type="secondary" style={{ fontSize: '0.6875rem' }}>{t('noc.aggCardDeviation')}</Text>
                             <div style={{
                               font: '700 1.35rem/1.2 var(--wh-font-mono, monospace)', marginTop: 4, color: WH.danger,
                             }}>
-                              {(agg.deviation_stats || []).reduce((a, d) => a + d.count, 0).toLocaleString(nf)}
+                              {agg.deviation_total == null ? '—' : agg.deviation_total.toLocaleString(nf)}
                             </div>
                           </CardBase>
-                        </Tooltip>
+                        </ExplainPopover>
                       </Col>
                       <Col xs={12} sm={8} lg={4}>
-                        <Tooltip title={t('noc.aggCardMissingSub')}>
+                        <ExplainPopover placement="top" text={t('noc.aggCardMissingSub')}>
                           <CardBase interactive onClick={() => setAggDetailOpen(true)}>
                             <Text type="secondary" style={{ fontSize: '0.6875rem' }}>{t('noc.aggCardMissing')}</Text>
                             <div style={{ font: '700 1.35rem/1.2 var(--wh-font-mono, monospace)', color: WH.text, marginTop: 4 }}>
-                              {(agg.missing_stats || []).reduce((a, m) => a + m.count, 0).toLocaleString(nf)}
+                              {agg.missing_total == null ? '—' : agg.missing_total.toLocaleString(nf)}
                             </div>
                           </CardBase>
-                        </Tooltip>
+                        </ExplainPopover>
                       </Col>
                     </Row>
 

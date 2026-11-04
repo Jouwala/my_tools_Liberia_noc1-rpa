@@ -14,6 +14,10 @@ import { useI18n } from '../i18n'
 import { formatDateTime } from '../datetime'
 import { useTheme, WH } from '../theme'
 import DraggableClickModal from '../components/DraggableClickModal'
+// 口径说明默认收起（AGENTS.md 三.3b）+ 数字本身可悬浮（三.3c）。
+// 本页此前是一段常驻展开的 <ul> 说明占住表尾，已迁到 CalcChainNote。
+import CalcChainNote from '../components/CalcChainNote'
+import { ExplainLabel, ExplainPopover } from '../components/MetricExplain'
 import { exportReport, safeFileName, type CellValue, type HeaderCell } from '../utils/excelReport'
 
 const { Text } = Typography
@@ -237,12 +241,29 @@ export default function SpMaterialSummary() {
   )
 
   // 数字渲染（可下钻 / 负数告警色）
+  /** 这一格的构成。字段一律取接口下发的 SummaryRow，前端不重算口径
+   *  （AGENTS.md 三.3c）；后端算法见 services/sp_material_summary_service.py 的 _build_row()。 */
+  const cellTip = useCallback((row: SummaryRow, scope: Scope) => {
+    const num = (n: unknown) => Number(n ?? 0).toLocaleString()
+    const head = (() => {
+      if (scope.startsWith('anchor_')) return t('spMat.tip.anchor', { label: row.label, v: num(row[scope as keyof SummaryRow]) })
+      if (scope.startsWith('current_')) return t('spMat.tip.current', { label: row.label, v: num(row[scope as keyof SummaryRow]) })
+      if (scope === 'need_repair') return t('spMat.tip.needRepair', { label: row.label, v: num(row.need_repair) })
+      if (scope === 'repair_outbound') return t('spMat.tip.repairOutbound', { label: row.label, v: num(row.repair_outbound) })
+      return t('spMat.tip.consumption', {
+        label: row.label, v: num(row[scope as keyof SummaryRow]),
+        aTotal: num(row.anchor_total), cTotal: num(row.current_total),
+      })
+    })()
+    return [head, t('spMat.tip.unitIsRows'), t('spMat.tip.drill')].filter(Boolean).join('\n')
+  }, [t])
+
   const renderNum = useCallback((
     v: number, row: SummaryRow, scope: Scope,
   ) => {
     const val = Number(v ?? 0)
     return (
-      <Tooltip title={t('spMat.clickHint')}>
+      <ExplainPopover placement="top" text={cellTip(row, scope)}>
         <span
           onClick={(e) => openDrill(row.key, row.label, scope, e)}
           style={{
@@ -255,16 +276,20 @@ export default function SpMaterialSummary() {
         >
           {val}
         </span>
-      </Tooltip>
+      </ExplainPopover>
     )
-  }, [openDrill, t])
+  }, [openDrill, cellTip])
 
   // 消耗数字：可下钻（期初 vs 期末逐物料对比），负值用告警色
   const renderConsumption = useCallback((v: number, row: SummaryRow, scope: Scope) => {
     const val = Number(v ?? 0)
     const color = val < 0 ? WH.sev.Warning : (val ? WH.text : WH.textDim)
     return (
-      <Tooltip title={t('spMat.clickHint')}>
+      <ExplainPopover placement="top" text={[
+        cellTip(row, scope),
+        // 负数不是算错：期间有入库/调拨回补就会负 —— 这句必须常驻在这格的说明里
+        val < 0 ? t('spMat.tip.negative') : '',
+      ].filter(Boolean).join('\n')}>
         <span
           onClick={(e) => openDrill(row.key, row.label, scope, e)}
           style={{
@@ -277,9 +302,9 @@ export default function SpMaterialSummary() {
         >
           {val}
         </span>
-      </Tooltip>
+      </ExplainPopover>
     )
-  }, [openDrill, t])
+  }, [openDrill, cellTip])
 
   // ---- 导出 Excel ----
   // 采用项目统一格式 UNIFIED_EXCEL_V1（见 utils/excelReport.ts）：
@@ -361,7 +386,7 @@ export default function SpMaterialSummary() {
       },
     },
     {
-      title: anchorDate, key: 'anchor',
+      title: <ExplainLabel label={anchorDate} text={t('spMat.explainCol.anchor')} />, key: 'anchor',
       children: [
         {
           title: t(K_SPARE), dataIndex: 'anchor_spare_good', key: 'anchor_spare_good',
@@ -376,7 +401,7 @@ export default function SpMaterialSummary() {
       ],
     },
     {
-      title: t('spMat.currentDate'), key: 'current',
+      title: <ExplainLabel label={t('spMat.currentDate')} text={t('spMat.explainCol.current')} />, key: 'current',
       children: [
         {
           title: t(K_SPARE), dataIndex: 'current_spare_good', key: 'current_spare_good',
@@ -549,16 +574,13 @@ export default function SpMaterialSummary() {
           ) : (!loading && <Empty description={error ? t('spMat.loadFailed') : t('spMat.empty')} />)}
         </Spin>
 
-        {/* 口径说明 */}
-        <div style={{ marginTop: 16, color: WH.textMuted, fontSize: 12, lineHeight: 1.9 }}>
-          <div style={{ marginBottom: 4, color: WH.text }}>
-            <InfoCircleOutlined style={{ color: WH.teal, marginRight: 6 }} />
-            {t('spMat.docTitle')}
-          </div>
-          <ul style={{ margin: 0, paddingLeft: 20 }}>
-            {docLines.map((l, i) => <li key={i}>{l}</li>)}
-          </ul>
-        </div>
+        {/* 口径说明：默认收起，点标题展开（AGENTS.md 三.3b）。
+            真正的异常（缺快照 / 分组无数据 / 消耗为负）由接口 warnings 常驻显示，不在这里收。 */}
+        <CalcChainNote
+          style={{ marginTop: 16 }}
+          title={t('spMat.docTitle')}
+          sections={[{ lines: docLines }]}
+        />
       </Card>
 
       {/* ==================== 明细下钻弹窗 ==================== */}
@@ -571,15 +593,20 @@ export default function SpMaterialSummary() {
         width="94%"
       >
         <Space wrap style={{ marginBottom: 8 }}>
-          <Tag>{t('spMat.totalQty')}: {
-            (() => {
-              // 快照明细看 Stock Qty、消耗对比看 Consumption Qty、报修出库看 Outbound Qty
-              const key = ['Stock Qty', 'Consumption Qty', 'Outbound Qty']
-                .find(k => drillCols.includes(k))
-              if (!key) return 0
-              return filteredDrill.reduce((s, r) => s + Number(r[key] ?? 0), 0)
-            })()
-          }</Tag>
+          <ExplainPopover placement="bottom" text={t('spMat.tip.modalTotal', {
+            n: filteredDrill.length,
+            all: drillRows?.length ?? filteredDrill.length,
+          })}>
+            <Tag style={{ cursor: 'help' }}>{t('spMat.totalQty')}: {
+              (() => {
+                // 快照明细看 Stock Qty、消耗对比看 Consumption Qty、报修出库看 Outbound Qty
+                const key = ['Stock Qty', 'Consumption Qty', 'Outbound Qty']
+                  .find(k => drillCols.includes(k))
+                if (!key) return 0
+                return filteredDrill.reduce((s, r) => s + Number(r[key] ?? 0), 0)
+              })()
+            }</Tag>
+          </ExplainPopover>
           <Button
             size="small" icon={<DownloadOutlined />}
             onClick={() => {

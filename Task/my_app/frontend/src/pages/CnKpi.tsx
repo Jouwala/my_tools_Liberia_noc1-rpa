@@ -7,6 +7,10 @@ import ReactECharts from 'echarts-for-react'
 import { getCnKpiOverview } from '../api'
 import { useI18n } from '../i18n'
 import { formatDateTime } from '../datetime'
+// 数字悬浮口径说明（AGENTS.md 三.3c）+ 整页口径默认收起（三.3b，本页此前两者都没有）。
+// 气泡内容全部取接口既有字段（granularity / degraded / fallback_from / sql / rows），前端不重算。
+import CalcChainNote from '../components/CalcChainNote'
+import { ExplainLabel, ExplainPopover } from '../components/MetricExplain'
 import { WH, axisLabel, axisLine, cardStyle, darkTooltip, splitLine, useTheme } from '../theme'
 
 const { RangePicker } = DatePicker
@@ -46,6 +50,19 @@ interface CnWidget {
   fallback_from: string
   /** 实际数据的粒度：'day' | 'month' | '' */
   granularity: 'day' | 'month' | ''
+}
+
+/** 这个组件卡片「数怎么来」的说明，逐行拼自接口既有字段（不重算任何数字）。
+ *  分层取数与粒度推断的实现见 backend/services/cn_kpi_service.py（_detect_granularity / _fetch_widget）。 */
+function widgetExplainText(w: CnWidget, t: (k: string, p?: Record<string, string | number>) => string): string {
+  if (w.error) return ''
+  return [
+    t('cnkpi.tip.rows', { n: w.rows.length, cols: w.columns.length }),
+    w.granularity === 'month' ? t('cnkpi.tip.granMonth') : (w.granularity === 'day' ? t('cnkpi.tip.granDay') : ''),
+    w.degraded === 'monthly' ? t('cnkpi.tip.degradedMonthly', { from: w.fallback_from || '—' }) : '',
+    w.degraded === 'day_ume' ? t('cnkpi.tip.degradedDay', { from: w.fallback_from || '—' }) : '',
+    w.sql ? t('cnkpi.tip.sql', { sql: w.sql }) : '',
+  ].filter(Boolean).join('\n')
 }
 interface OverviewResp {
   meta: {
@@ -223,6 +240,7 @@ function buildPivotOption(w: CnWidget, isDark: boolean) {
  */
 function HeaderKpi({ w }: { w: CnWidget }) {
   const { isDark } = useTheme()
+  const { t } = useI18n()
   if (w.error) return <Text type="danger" style={{ fontSize: 12 }}>{w.error}</Text>
   const v = w.rows[0]?.[0]
   const n = Number(v)
@@ -230,9 +248,14 @@ function HeaderKpi({ w }: { w: CnWidget }) {
   return (
     <Space size={6} align="center">
       <Text type="secondary" style={{ fontSize: 12, whiteSpace: 'nowrap' }}>{w.title}</Text>
-      <Text strong style={{ fontSize: 16, color: isDark ? '#64ffda' : '#0d9488', whiteSpace: 'nowrap' }}>
-        {isNum && !Number.isInteger(n) ? n.toFixed(2) : String(v ?? '-')}
-      </Text>
+      <ExplainPopover placement="bottom" text={[
+        t('cnkpi.tip.headerKpi', { title: w.title, v: String(v ?? '—') }),
+        widgetExplainText(w, t),
+      ].filter(Boolean).join('\n')}>
+        <Text strong style={{ fontSize: 16, color: isDark ? '#64ffda' : '#0d9488', whiteSpace: 'nowrap', cursor: 'help' }}>
+          {isNum && !Number.isInteger(n) ? n.toFixed(2) : String(v ?? '—')}
+        </Text>
+      </ExplainPopover>
     </Space>
   )
 }
@@ -259,11 +282,18 @@ function WidgetCard({ w, height }: { w: CnWidget; height: number }) {
         ) : (
           <>
             <Text type="secondary" style={{ fontSize: 12 }}>{w.title}</Text>
-            <Statistic
-              value={isNum ? n : String(v ?? '-')}
-              precision={isNum ? undefined : 0}
-              valueStyle={{ fontSize: 22, fontWeight: 600, color: isDark ? '#64ffda' : '#0d9488' }}
-            />
+            <ExplainPopover placement="bottom" text={[
+              t('cnkpi.tip.headerKpi', { title: w.title, v: String(v ?? '—') }),
+              widgetExplainText(w, t),
+            ].filter(Boolean).join('\n')}>
+              <span style={{ cursor: 'help' }}>
+                <Statistic
+                  value={isNum ? n : String(v ?? '—')}
+                  precision={isNum ? undefined : 0}
+                  valueStyle={{ fontSize: 22, fontWeight: 600, color: isDark ? '#64ffda' : '#0d9488' }}
+                />
+              </span>
+            </ExplainPopover>
           </>
         )}
       </div>
@@ -275,7 +305,12 @@ function WidgetCard({ w, height }: { w: CnWidget; height: number }) {
       size="small"
       style={{ ...cardStyle, height }}
       styles={{ body: { height: '100%', padding: 8, display: 'flex', flexDirection: 'column' } }}
-      title={<span style={{ fontSize: 13 }}>{w.title}</span>}
+      title={(
+        <ExplainLabel
+          label={<span style={{ fontSize: 13 }}>{w.title}</span>}
+          text={[t('cnkpi.tip.cardBase'), widgetExplainText(w, t)].filter(Boolean).join('\n')}
+        />
+      )}
       extra={
         <Space size={4}>
           {/* 粒度/降级角标：月粒度数据必须显式标注，否则会被当成日值读。
@@ -434,15 +469,21 @@ export default function CnKpi() {
               {/* 数据最新日期跟着标题排在同一行右侧 */}
               {headerKpis.map((w) => <HeaderKpi key={w.id} w={w} />)}
               {data?.meta && (
-                <Tooltip title={`${data.meta.db} @ ${data.meta.host}`}>
-                  <Tag color="blue" icon={<InfoCircleOutlined />}>
+                <ExplainPopover placement="bottom" text={[
+                  t('cnkpi.tip.db', { db: data.meta.db, host: data.meta.host }),
+                  t('cnkpi.tip.elapsed', { n: data.meta.count, ms: data.meta.elapsed_ms, cached: data.meta.cached ? t('cnkpi.tip.cachedYes') : t('cnkpi.tip.cachedNo') }),
+                  data.meta.start ? t('cnkpi.tip.range', { start: data.meta.start, end: data.meta.end || '' }) : t('cnkpi.tip.rangeDefault'),
+                ].join('\n')}>
+                  <Tag color="blue" icon={<InfoCircleOutlined />} style={{ cursor: 'help' }}>
                     {t('cnkpi.widgets', { n: data.meta.count })} · {data.meta.elapsed_ms}ms
                     {data.meta.cached ? ` · ${t('cnkpi.cached')}` : ''}
                   </Tag>
-                </Tooltip>
+                </ExplainPopover>
               )}
               {data?.meta && data.meta.failed > 0 && (
-                <Tag color="error">{t('cnkpi.failed', { n: data.meta.failed })}</Tag>
+                <ExplainPopover placement="bottom" text={t('cnkpi.tip.failed', { n: data.meta.failed })}>
+                  <Tag color="error" style={{ cursor: 'help' }}>{t('cnkpi.failed', { n: data.meta.failed })}</Tag>
+                </ExplainPopover>
               )}
             </Space>
           </Col>
@@ -480,6 +521,17 @@ export default function CnKpi() {
           </div>
         )}
       </Card>
+
+      {/* 整页口径：默认收起，点标题展开（AGENTS.md 三.3b）。
+          降级与月粒度属「这次的数不是主表日值」，仍由下方常驻告警条与卡片角标说。 */}
+      <CalcChainNote
+        title={t('cnkpi.calc.title')}
+        sections={[
+          { title: t('cnkpi.calc.secSource'), lines: [t('cnkpi.calc.src1'), t('cnkpi.calc.src2')] },
+          { title: t('cnkpi.calc.secTier'), lines: [t('cnkpi.calc.tier1'), t('cnkpi.calc.tier2')] },
+          { title: t('cnkpi.calc.secGran'), lines: [t('cnkpi.calc.gran1'), t('cnkpi.calc.gran2')] },
+        ]}
+      />
 
       {err && (
         <Alert

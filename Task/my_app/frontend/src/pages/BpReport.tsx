@@ -35,6 +35,9 @@ import ReactECharts from 'echarts-for-react'
 import { useI18n } from '../i18n'
 import { useTheme, axisLabel, axisLine, darkTooltip, splitLine, cardStyle, WH } from '../theme'
 import { CardBase, StatCard } from '../components/cards'
+// 数字悬浮口径说明（AGENTS.md 三.3c）。整页口径此前已有 CalcChainNote 与常驻⑧口径卡，
+// 这里只补「数字本身问不到」那一层；数字全部取接口下发字段，前端不重算。
+import { ExplainLabel, ExplainPopover } from '../components/MetricExplain'
 import CalcChainNote from '../components/CalcChainNote'
 import DraggableClickModal from '../components/DraggableClickModal'
 import { exportAoaReport } from '../utils/excelReport'
@@ -540,8 +543,19 @@ export default function BpReport() {
           )
       ),
     },
-    { title: t('bp.col.ratio'), dataIndex: 'bp_ratio', align: 'right' as const,
-      render: (v: number | null) => fmtPct(v) },
+    {
+      title: <ExplainLabel label={t('bp.col.ratio')} text={t('bp.explain.ratioCol')} />,
+      dataIndex: 'bp_ratio', align: 'right' as const,
+      // 数字本身给这一期的分子分母（都是接口下发字段，前端不重算）
+      render: (v: number | null, r: TrendPoint) => (
+        <ExplainPopover placement="left" text={t('bp.tip.ratioCell', {
+          period: r.period, bp: fmt(r.bp_cells), total: fmt(r.total_cells), pct: fmtPct(v),
+          detail: fmt(r.detail_cells ?? 0), diff: fmt(r.detail_diff ?? 0),
+        })}>
+          <span style={{ cursor: 'help' }}>{fmtPct(v)}</span>
+        </ExplainPopover>
+      ),
+    },
     { title: t('bp.col.traffic'), dataIndex: 'traffic_tb', align: 'right' as const,
       render: (v: number | null) => fmtNum(v, 1) },
     // 明细行数「并排」展示，而不是替换展示值：
@@ -785,8 +799,14 @@ export default function BpReport() {
               title: `${t('bp.drill.bp')} · ${latest.period}`, clicked: latest.bp_cells },
             { x: e.clientX, y: e.clientY })}
             style={{ cursor: latest ? 'pointer' : 'default' }}>
-            <StatCard title={t('bp.kpi.latestBp')}
-              value={latestUndecided ? '—' : (latest?.bp_cells ?? '—')} />
+            <StatCard
+              title={<ExplainLabel label={t('bp.kpi.latestBp')} text={t('bp.explain.latestBp')} />}
+              value={latestUndecided ? '—' : (latest?.bp_cells ?? '—')}
+              explainText={latest ? t('bp.tip.latestBp', {
+                period: latest.period, bp: fmt(latest.bp_cells), total: fmt(latest.total_cells),
+                pct: fmtPct(latest.bp_ratio as number),
+              }) : ''}
+            />
             {latestUndecided ? (
               <Text type="secondary" style={{ fontSize: 11 }}>
                 {t('bp.kpi.pendingPeriod', { n: fmt(latest?.detail_cells) })}
@@ -806,7 +826,15 @@ export default function BpReport() {
             const el = document.getElementById('bp-trend-table')
             if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' })
           }} style={{ cursor: 'pointer' }}>
-            <StatCard title={t('bp.kpi.periods')} value={summary.periods ?? 0} />
+            <StatCard
+              title={<ExplainLabel label={t('bp.kpi.periods')} text={t('bp.explain.periods')} />}
+              value={summary.periods ?? 0}
+              explainText={t('bp.tip.periods', {
+                n: summary.periods ?? 0,
+                // 逐条字面量取词，不拼 key（check:i18n 会把拼串读成前缀键名）
+                grain: grain === 'week' ? t('bp.grain.week') : grain === 'month' ? t('bp.grain.month') : t('bp.grain.day'),
+              })}
+            />
           </div>
         </Col>
         <Col xs={24} sm={12} lg={6}>
@@ -818,7 +846,15 @@ export default function BpReport() {
               clicked: summary.bp_cells ?? null },
             { x: e.clientX, y: e.clientY })}
             style={{ cursor: 'pointer' }}>
-            <StatCard title={t('bp.kpi.avgRatio')} value={fmtPct(summary.avg_ratio as number)} />
+            <StatCard
+              title={<ExplainLabel label={t('bp.kpi.avgRatio')} text={t('bp.explain.avgRatio')} />}
+              value={fmtPct(summary.avg_ratio as number)}
+              explainText={t('bp.tip.avgRatio', {
+                v: fmtPct(summary.avg_ratio as number),
+                bp: fmt(summary.bp_cells), total: fmt(summary.total_cells),
+                pooled: summary.total_cells ? fmtPct((summary.bp_cells as number) / (summary.total_cells as number)) : '—',
+              })}
+            />
           </div>
         </Col>
         <Col xs={24} sm={12} lg={6}>

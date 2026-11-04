@@ -14,6 +14,9 @@ import {
 import { useI18n, numLocale } from '../i18n'
 import { useTheme, WH } from '../theme'
 import DraggableClickModal from '../components/DraggableClickModal'
+// 数字悬浮口径说明（AGENTS.md 三.3c）。sp_report 与 com_report 共用本文件，改一次两页同效。
+// 口径对过 backend/services/sp_report_service.py 的 _summary_current_stats() / _overlay_db_open_counts()。
+import { ExplainIcon, ExplainPopover } from '../components/MetricExplain'
 import ColumnPicker from '../components/ColumnPicker'
 import { exportReport, safeFileName, type CellValue } from '../utils/excelReport'
 
@@ -238,8 +241,12 @@ function StatCard(props: {
   hint?: React.ReactNode
   color?: string
   emphasis?: boolean
+  /** 标题 ⓘ（这一项怎么算） */
+  explain?: string
+  /** 数字本身的气泡（这一格的构成，AGENTS.md 三.3c） */
+  tip?: string
 }) {
-  const { label, value, unit, hint, color, emphasis } = props
+  const { label, value, unit, hint, color, emphasis, explain, tip } = props
   return (
     <div
       /* 卡片皮肤交给 CSS 层（.wh-stat-card），与其余页面的 antd Card 统一走浅色档
@@ -255,11 +262,14 @@ function StatCard(props: {
     >
       <div style={{ color: WH.textMuted, fontSize: 12, marginBottom: 6, whiteSpace: 'nowrap' }}>
         {label}
+        {explain && <span style={{ marginLeft: 4 }}><ExplainIcon text={explain} /></span>}
       </div>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
-        <span style={{ color: color || WH.teal, fontSize: 24, fontWeight: 700, lineHeight: 1.15 }}>
-          {value}
-        </span>
+        <ExplainPopover placement="bottom" text={tip || ''}>
+          <span style={{ color: color || WH.teal, fontSize: 24, fontWeight: 700, lineHeight: 1.15 }}>
+            {value}
+          </span>
+        </ExplainPopover>
         {unit && <span style={{ color: WH.textDim, fontSize: 12 }}>{unit}</span>}
       </div>
       {hint && (
@@ -532,28 +542,54 @@ export default function SpReportBase({ kind }: { kind: SpReportKind }) {
   const ov = summary?.overview
   const cards = useMemo(() => {
     if (!ov) return []
+    // 每张卡的 ⓘ 讲「这一项怎么算」，数字气泡讲「这个数出自哪一行/哪些行」。
+    // 共同的一层意思写在这里：前 7 张卡都是**汇总工作簿 Summary-Current 的 Total 行逐列取值**，
+    // 不是本页重新加的；列缺失或不是数值时后端按 0.0 返回（sp_report_service.py tot()）。
+    const totalRowTip = (col: string, v: string) =>
+      t('spRep.tip.fromTotalRow', { col, v, file: summary?.source.file || '—' })
     return [
-      { key: 'materials', label: t('spRep.card.materials'), value: (ov.material_count ?? 0).toLocaleString(loc), hint: t('spRep.hint.materials') },
-      { key: 'inbound', label: t('spRep.card.inbound'), value: (ov.inbound_qty ?? 0).toLocaleString(loc), hint: t('spRep.hint.inbound') },
-      { key: 'outbound', label: t('spRep.card.outbound'), value: (ov.outbound_qty ?? 0).toLocaleString(loc), hint: t('spRep.hint.outbound') },
-      { key: 'inventory', label: t('spRep.card.inventory'), value: (ov.inventory_qty ?? 0).toLocaleString(loc), hint: t('spRep.hint.inventory') },
+      {
+        key: 'materials', label: t('spRep.card.materials'), value: (ov.material_count ?? 0).toLocaleString(loc), hint: t('spRep.hint.materials'),
+        explain: t('spRep.explain.materials'), tip: t('spRep.tip.materials', { n: ov.material_count ?? 0 }),
+      },
+      {
+        key: 'inbound', label: t('spRep.card.inbound'), value: (ov.inbound_qty ?? 0).toLocaleString(loc), hint: t('spRep.hint.inbound'),
+        explain: t('spRep.explain.inbound'), tip: totalRowTip('Inbound Qty', (ov.inbound_qty ?? 0).toLocaleString(loc)),
+      },
+      {
+        key: 'outbound', label: t('spRep.card.outbound'), value: (ov.outbound_qty ?? 0).toLocaleString(loc), hint: t('spRep.hint.outbound'),
+        explain: t('spRep.explain.outbound'), tip: totalRowTip('Outbound Qty', (ov.outbound_qty ?? 0).toLocaleString(loc)),
+      },
+      {
+        key: 'inventory', label: t('spRep.card.inventory'), value: (ov.inventory_qty ?? 0).toLocaleString(loc), hint: t('spRep.hint.inventory'),
+        explain: t('spRep.explain.inventory'), tip: totalRowTip('Inventory Qty', (ov.inventory_qty ?? 0).toLocaleString(loc)),
+      },
       {
         key: 'difference',
         label: t('spRep.card.difference'),
         value: (ov.difference ?? 0).toLocaleString(loc),
         hint: t('spRep.hint.difference'),
         color: (ov.difference ?? 0) < 0 ? WH.sev.Critical : WH.teal,
+        explain: t('spRep.explain.difference'), tip: totalRowTip('Difference', (ov.difference ?? 0).toLocaleString(loc)),
       },
-      { key: 'safety', label: t('spRep.card.safetyStock'), value: (ov.safety_stock ?? 0).toLocaleString(loc, { maximumFractionDigits: 2 }), hint: t('spRep.hint.safetyStock') },
-      { key: 'replenish', label: t('spRep.card.replenishment'), value: (ov.replenishment_qty ?? 0).toLocaleString(loc), hint: t('spRep.hint.replenishment') },
+      {
+        key: 'safety', label: t('spRep.card.safetyStock'), value: (ov.safety_stock ?? 0).toLocaleString(loc, { maximumFractionDigits: 2 }), hint: t('spRep.hint.safetyStock'),
+        explain: t('spRep.explain.safetyStock'), tip: totalRowTip('Safety Stock', (ov.safety_stock ?? 0).toLocaleString(loc)),
+      },
+      {
+        key: 'replenish', label: t('spRep.card.replenishment'), value: (ov.replenishment_qty ?? 0).toLocaleString(loc), hint: t('spRep.hint.replenishment'),
+        explain: t('spRep.explain.replenishment'), tip: totalRowTip('Replenishment Qty', (ov.replenishment_qty ?? 0).toLocaleString(loc)),
+      },
       {
         key: 'urgent', label: t('spRep.card.urgent'), value: (ov.urgent ?? 0).toLocaleString(loc),
         hint: t('spRep.hint.urgent'),
         color: (ov.urgent ?? 0) > 0 ? WH.sev.Critical : WH.teal,
         emphasis: (ov.urgent ?? 0) > 0,
+        // 单位与旁边几张卡不同：这张数是**物料条数**（行数），不是数量
+        explain: t('spRep.explain.urgent'), tip: t('spRep.tip.urgent', { n: ov.urgent ?? 0 }),
       },
     ]
-  }, [ov, t, loc])
+  }, [ov, t, loc, summary])
 
   const drillEntries = useMemo(() => {
     if (!drill) return []
@@ -731,7 +767,7 @@ export default function SpReportBase({ kind }: { kind: SpReportKind }) {
             {cards.map(c => (
               <Col key={c.key} xs={12} sm={8} lg={6} xl={3}>
                 <StatCard label={c.label} value={c.value} hint={c.hint}
-                  color={c.color} emphasis={c.emphasis} />
+                  color={c.color} emphasis={c.emphasis} explain={c.explain} tip={c.tip} />
               </Col>
             ))}
           </Row>
@@ -816,13 +852,21 @@ export default function SpReportBase({ kind }: { kind: SpReportKind }) {
                       <span style={{ color: active ? WH.teal : WH.text, fontWeight: 600 }}>
                         {t(SHEET_LABEL_KEY[s.key] || s.key)}
                       </span>
-                      <Tag>{s.records.toLocaleString(loc)}</Tag>
+                      <ExplainPopover placement="bottom" text={t('spRep.tip.sheetRecords', {
+                        n: s.records.toLocaleString(loc), sheet: t(SHEET_LABEL_KEY[s.key] || s.key),
+                      })}>
+                        <Tag style={{ cursor: 'help' }}>{s.records.toLocaleString(loc)}</Tag>
+                      </ExplainPopover>
                     </div>
                     {s.qty_column ? (
                       <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginBottom: 6 }}>
-                        <span style={{ color: WH.teal, fontSize: 22, fontWeight: 700 }}>
-                          {s.qty_total.toLocaleString(loc, { maximumFractionDigits: 2 })}
-                        </span>
+                        <ExplainPopover placement="bottom" text={t('spRep.tip.sheetQty', {
+                          col: s.qty_column, v: s.qty_total.toLocaleString(loc, { maximumFractionDigits: 2 }),
+                        })}>
+                          <span style={{ color: WH.teal, fontSize: 22, fontWeight: 700, cursor: 'help' }}>
+                            {s.qty_total.toLocaleString(loc, { maximumFractionDigits: 2 })}
+                          </span>
+                        </ExplainPopover>
                         <span style={{ color: WH.textDim, fontSize: 12 }}>{s.qty_column}</span>
                       </div>
                     ) : (
@@ -832,7 +876,12 @@ export default function SpReportBase({ kind }: { kind: SpReportKind }) {
                     )}
                     <Space size={4} wrap style={{ marginBottom: 6 }}>
                       {s.open_count > 0 && (
-                        <Tag color="orange">{`${t('spRep.openCount')} ${s.open_count}`}</Tag>
+                        <ExplainPopover placement="bottom" text={t(
+                          s.open_count_source === 'db' ? 'spRep.tip.openCountDb' : 'spRep.tip.openCountExcel',
+                          { n: s.open_count, kind: summary?.kind_label_zh || '' },
+                        )}>
+                          <Tag color="orange" style={{ cursor: 'help' }}>{`${t('spRep.openCount')} ${s.open_count}`}</Tag>
+                        </ExplainPopover>
                       )}
                       {s.domains.slice(0, 3).map(d => (
                         <Tag key={d.value} style={{ marginInlineEnd: 0 }}>
@@ -924,18 +973,30 @@ export default function SpReportBase({ kind }: { kind: SpReportKind }) {
                 </Tag>
               )}
               {activeStat?.qty_column && (
-                <Tooltip title={t('spRep.qtyTip')}>
-                  <Tag color="cyan" style={{ marginInlineStart: 0 }}>
+                <ExplainPopover placement="bottom" text={[
+                  t('spRep.qtyTip'),
+                  t('spRep.tip.filteredQty', {
+                    col: activeStat.qty_column,
+                    filtered: (rowsResp?.filtered_qty_total ?? 0).toLocaleString(loc, { maximumFractionDigits: 2 }),
+                    all: activeStat.qty_total.toLocaleString(loc, { maximumFractionDigits: 2 }),
+                  }),
+                ].join('\n')}>
+                  <Tag color="cyan" style={{ marginInlineStart: 0, cursor: 'help' }}>
                     {`${activeStat.qty_column}: ${(rowsResp?.filtered_qty_total ?? 0).toLocaleString(loc, { maximumFractionDigits: 2 })}`
                       + (rowsResp && rowsResp.filtered_qty_total !== activeStat.qty_total
                         ? ` / ${activeStat.qty_total.toLocaleString(loc, { maximumFractionDigits: 2 })}` : '')}
                   </Tag>
-                </Tooltip>
+                </ExplainPopover>
               )}
-              <Tag>
-                {`${t('spRep.filteredRows')}: ${(rowsResp?.total ?? 0).toLocaleString(loc)}`
-                  + ` / ${(activeStat?.records ?? 0).toLocaleString(loc)}`}
-              </Tag>
+              <ExplainPopover placement="bottom" text={t('spRep.tip.filteredRows', {
+                filtered: (rowsResp?.total ?? 0).toLocaleString(loc),
+                records: (activeStat?.records ?? 0).toLocaleString(loc),
+              })}>
+                <Tag style={{ cursor: 'help' }}>
+                  {`${t('spRep.filteredRows')}: ${(rowsResp?.total ?? 0).toLocaleString(loc)}`
+                    + ` / ${(activeStat?.records ?? 0).toLocaleString(loc)}`}
+                </Tag>
+              </ExplainPopover>
             </Space>
 
             {rowsError && (

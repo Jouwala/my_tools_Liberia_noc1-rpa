@@ -7,6 +7,9 @@ import { getSpReportRows, getSpReportSummary, type SpReportKind } from '../api'
 import { useI18n, numLocale } from '../i18n'
 import { WH } from '../theme'
 import { CardBase, StatCard } from '../components/cards'
+// 数字悬浮口径说明（AGENTS.md 三.3c）。口径对过 backend/services/sp_report_service.py 的
+// _warehouse_summary() / _frequent_materials()（仓库集合取 Outbound ∪ Inventory，缺失侧计 0）。
+import { ExplainLabel } from '../components/MetricExplain'
 import DraggableClickModal from '../components/DraggableClickModal'
 import { exportReport, safeFileName, type CellValue } from '../utils/excelReport'
 
@@ -69,6 +72,9 @@ interface SummaryResp {
   source: { file: string; generated_at: string }
   warehouse_summary: WarehouseRow[]
   frequent_materials: FrequentBlock
+  /** Summary-Current 的 Total 行口径（后端算），本页「需补货」卡取它的 urgent ——
+   *  与备件报表顶部那张同名卡同一字段同一口径，不在前端重算（AGENTS.md 三.3c）。 */
+  overview?: { urgent?: number | null }
   period_starts: PeriodStarts
   notes: string[]
   warnings: string[]
@@ -121,6 +127,10 @@ interface KpiCard {
   /** 时间窗名称与起点（仅 month/week 有） */
   window?: string
   windowStart?: string
+  /** 标题 ⓘ：这一项怎么算（AGENTS.md 三.3c） */
+  explain?: string
+  /** 数字本身的气泡：这个数出自哪里 */
+  tip?: string
 }
 
 /** 下钻弹窗要查的明细（sheet + 后端 filters 的 JSON + 用于对账的数量口径） */
@@ -467,22 +477,32 @@ export default function WarehouseSummary() {
     }
     return [
       { key: 'inv', label: t('whSum.kpi.inventory'), value: totalRow?.current_inventory ?? null,
-        sheet: 'Inventory', filters: {} as Record<string, string>, expectedColumn: 'Stock Qty' },
+        sheet: 'Inventory', filters: {} as Record<string, string>, expectedColumn: 'Stock Qty',
+        explain: t('whSum.explain.inventory'), tip: t('whSum.tip.inventory', { v: totalRow?.current_inventory ?? '—' }) },
       { key: 'total', label: t('whSum.kpi.totalConsumption'), value: totalRow?.total_consumption ?? null,
-        sheet: 'Outbound', filters: {} as Record<string, string>, expectedColumn: 'Outbound Qty' },
+        sheet: 'Outbound', filters: {} as Record<string, string>, expectedColumn: 'Outbound Qty',
+        explain: t('whSum.explain.totalConsumption'), tip: t('whSum.tip.totalConsumption', { v: totalRow?.total_consumption ?? '—' }) },
       { key: 'month', label: t('whSum.kpi.monthConsumption'), value: totalRow?.month_consumption ?? null,
         sheet: 'Outbound', filters: winFilters('month'), expectedColumn: 'Outbound Qty',
-        window: t('whSum.window.month'), windowStart: starts?.month },
+        window: t('whSum.window.month'), windowStart: starts?.month,
+        explain: t('whSum.explain.monthConsumption'), tip: t('whSum.tip.windowConsumption', { v: totalRow?.month_consumption ?? '—', start: starts?.month || '—', label: t('whSum.window.month') }) },
       { key: 'week', label: t('whSum.kpi.weekConsumption'), value: totalRow?.week_consumption ?? null,
         sheet: 'Outbound', filters: winFilters('week'), expectedColumn: 'Outbound Qty',
-        window: t('whSum.window.week'), windowStart: starts?.week },
+        window: t('whSum.window.week'), windowStart: starts?.week,
+        explain: t('whSum.explain.weekConsumption'), tip: t('whSum.tip.windowConsumption', { v: totalRow?.week_consumption ?? '—', start: starts?.week || '—', label: t('whSum.window.week') }) },
       { key: 'materials', label: t('whSum.kpi.materials'), value: frequent?.material_count ?? null,
-        sheet: 'Summary-Current', filters: {} as Record<string, string> },
+        sheet: 'Summary-Current', filters: {} as Record<string, string>,
+        // 名字像「物料数」，实际是行数 —— 与 sp_details 那个真去重的同名指标不可比
+        explain: t('whSum.explain.materials'), tip: t('whSum.tip.materials', { n: frequent?.material_count ?? '—' }) },
       { key: 'urgent', label: t('whSum.kpi.urgent'),
-        value: (frequent?.rows ?? []).filter(r => r.alert_level === 'Urgent Replenish').length,
-        sheet: 'Summary-Current', filters: { 'Alert Level': 'Urgent Replenish' } as Record<string, string> },
+        // 取接口既有字段 overview.urgent（后端在全表上按 Alert Level 等值计数），
+        // 不再在前端 filter(frequent.rows).length —— 两者口径相同（frequent.rows 也是全量，
+        // top_n 只是「排在最前若干条」的展示提示，不参与截断），但重算违反 AGENTS.md 三.3c。
+        value: data?.overview?.urgent ?? null,
+        sheet: 'Summary-Current', filters: { 'Alert Level': 'Urgent Replenish' } as Record<string, string>,
+        explain: t('whSum.explain.urgent'), tip: t('whSum.tip.urgent', { n: data?.overview?.urgent ?? '—' }) },
     ]
-  }, [totalRow, frequent, t, data?.period_starts])
+  }, [totalRow, frequent, t, data?.period_starts, data?.overview?.urgent])
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--wh-space-md)' }}>
@@ -547,8 +567,9 @@ export default function WarehouseSummary() {
                 {/* 每张卡都可点下钻（AGENTS.md 三.1b「能下钻尽下钻」）：
                     无值时不可点 —— 点开只会是空弹窗，比不给点更糟 */}
                 <StatCard
-                  title={k.label}
+                  title={<ExplainLabel label={k.label} text={k.explain || ''} />}
                   value={k.value === null ? '—' : k.value}
+                  explainText={k.tip}
                   onClick={k.value === null ? undefined : (e) => openDrill({
                     title: k.label,
                     sheet: k.sheet,

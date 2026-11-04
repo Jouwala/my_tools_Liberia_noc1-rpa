@@ -13,6 +13,9 @@
 import { Col, Row, Typography } from 'antd'
 
 import { CardBase, StatCard } from '../../components/cards'
+// 数字悬浮口径说明（AGENTS.md 三.3c）：ⓘ 讲这一列的判据，气泡讲这一格的数与分母。
+// 判据全部在后端 pm_caliber.py（SQL 片段），本组件只转述不重算。
+import { ExplainLabel, ExplainPopover } from '../../components/MetricExplain'
 import { WH } from '../../theme'
 import { fmtRate, rateColor, rateColorDesc, rateLevel, rateLevelDesc, type Metric } from './pmTypes'
 import type { ChartColors } from './pmCharts'
@@ -40,6 +43,31 @@ export interface KpiCardsProps {
 }
 
 export default function PmKpiCards({ t, C, counts, plans, rates, onDrill }: KpiCardsProps) {
+  /** metric → 列头 ⓘ 的文案键。**逐条字面量**：拼串会被 check:i18n 读成 `pm.explain.` 而报缺键。 */
+  const explainKey = (metric: Metric): string => {
+    switch (metric) {
+      case 'total': return 'pm.explain.total'
+      case 'closed': return 'pm.explain.closed'
+      case 'open': return 'pm.explain.open'
+      case 'overdue': return 'pm.explain.overdue'
+      case 'on_time': return 'pm.explain.onTime'
+      case 'not_started': return 'pm.explain.notStarted'
+      case 'closed_overdue': return 'pm.explain.closedOverdue'
+      case 'open_overdue': return 'pm.explain.openOverdue'
+      default: return ''
+    }
+  }
+
+  /** 比率卡 ⓘ / 气泡键 */
+  const rateExplainKey = (metric: Metric): string => {
+    switch (metric) {
+      case 'closed': return 'pm.explain.rateClosure'
+      case 'overdue': return 'pm.explain.rateOverdue'
+      case 'not_started': return 'pm.explain.rateStart'
+      default: return ''
+    }
+  }
+
   /** 计数卡定义集中一处：键、取值、配色、下钻 metric 一眼对齐 */
   const kpis: { key: string; value: number; color: string; metric: Metric }[] = [
     { key: 'pm.col.total', value: counts.total, color: C.total, metric: 'total' },
@@ -82,7 +110,13 @@ export default function PmKpiCards({ t, C, counts, plans, rates, onDrill }: KpiC
         {kpis.map((k, i) => (
           <Col key={k.metric} xs={12} sm={8} lg={6} xl={3}>
             <StatCard
-              title={t(k.key)} value={k.value} accentColor={k.color}
+              title={<ExplainLabel label={t(k.key)} text={t(explainKey(k.metric))} />}
+              value={k.value} accentColor={k.color}
+              explainText={
+                k.metric === 'total'
+                  ? t('pm.tip.countTotal', { v: k.value })
+                  : t('pm.tip.count', { v: k.value, total: counts.total })
+              }
               subText={i === 0 ? t('pm.kpi.plans', { n: plans }) : undefined}
               onClick={e => onDrill(k.metric, { x: e.clientX, y: e.clientY })}
             />
@@ -99,13 +133,17 @@ export default function PmKpiCards({ t, C, counts, plans, rates, onDrill }: KpiC
               interactive
               onClick={e => onDrill(c.metric, { x: e.clientX, y: e.clientY })}
             >
-              <div style={{ fontSize: 13, color: WH.textMuted }}>{t(c.key)}</div>
-              <div style={{
-                fontSize: 28, fontWeight: 700, margin: '4px 0',
-                color: c.desc ? rateColorDesc(c.rate) : rateColor(c.rate),
-              }}>
-                {fmtRate(c.rate)}
+              <div style={{ fontSize: 13, color: WH.textMuted }}>
+                <ExplainLabel label={t(c.key)} text={t(rateExplainKey(c.metric))} />
               </div>
+              <ExplainPopover placement="bottom" text={t('pm.tip.rate', { rate: fmtRate(c.rate), hint: c.hint })}>
+                <div style={{
+                  fontSize: 28, fontWeight: 700, margin: '4px 0',
+                  color: c.desc ? rateColorDesc(c.rate) : rateColor(c.rate),
+                }}>
+                  {fmtRate(c.rate)}
+                </div>
+              </ExplainPopover>
               <Text type="secondary" style={{ fontSize: 12 }}>{c.hint}</Text>
             </CardBase>
           </Col>

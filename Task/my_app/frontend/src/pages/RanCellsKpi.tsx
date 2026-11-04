@@ -12,6 +12,9 @@ import { useI18n } from '../i18n'
 import { useTheme, WH } from '../theme'
 import StatCard from '../components/StatCard'
 import DraggableClickModal from '../components/DraggableClickModal'
+// 数字悬浮口径说明（AGENTS.md 三.3c）：行头 ⓘ 讲这一行怎么算，单元格气泡讲这一天这一格。
+// 口径对过 backend/services/ran_cells_kpi_service.py 的 compute_tech() 与 _read_tech_month()。
+import { ExplainIcon, ExplainLabel, ExplainPopover } from '../components/MetricExplain'
 
 const { Text } = Typography
 
@@ -119,6 +122,28 @@ const METRICS: Array<{
 const METRIC_LABEL_KEY = Object.fromEntries(
   METRICS.map(m => [m.key, m.labelKey]),
 ) as Record<keyof DayStat, string>
+
+/** 指标 → 行头 ⓘ 文案键；指标 → 单元格气泡文案键。
+ *  ⚠ **逐条写字面量**：`t('rck.explain.' + key)` 会被 check:i18n 读成键名 `rck.explain.`
+ *  而报「字典缺失」（AGENTS.md 第三节 1b）。 */
+const METRIC_EXPLAIN_KEY: Record<keyof DayStat, string> = {
+  total: 'rck.explain.mTotal',
+  meeting: 'rck.explain.mMeeting',
+  below: 'rck.explain.mBelow',
+  blank: 'rck.explain.mBlank',
+  pct_meeting: 'rck.explain.mPctMeeting',
+  pct_below: 'rck.explain.mPctBelow',
+  availability: 'rck.explain.mAvailability',
+}
+const METRIC_TIP_KEY: Record<keyof DayStat, string> = {
+  total: 'rck.tip.mTotal',
+  meeting: 'rck.tip.mMeeting',
+  below: 'rck.tip.mBelow',
+  blank: 'rck.tip.mBlank',
+  pct_meeting: 'rck.tip.mPctMeeting',
+  pct_below: 'rck.tip.mPctBelow',
+  availability: 'rck.tip.mAvailability',
+}
 
 /** 指标 → 下钻过滤范围（与后端 CELL_SCOPES 对齐） */
 const SCOPE_BY_METRIC: Record<keyof DayStat, 'all' | 'meeting' | 'below' | 'blank'> = {
@@ -392,6 +417,20 @@ export default function RanCellsKpi() {
     fontVariantNumeric: 'tabular-nums',
   }
 
+  /** 这一格（某制式 · 某日 · 某指标）的构成。字段全部取自接口 tb.days[day]，前端不重算。 */
+  const cellTip = (tb: TechBlock, day: string, m: keyof DayStat) => {
+    const s = tb.days?.[day]
+    if (!s) return ''
+    const thr = thresholdPct.toFixed(2)
+    const head = t(METRIC_TIP_KEY[m], {
+      day, tech: tb.label, thr,
+      v: fmtCell(s[m], m === 'pct_meeting' || m === 'pct_below' || m === 'availability' ? 'pct' : 'int'),
+      total: s.total, meeting: s.meeting, below: s.below, blank: s.blank,
+      roster: tb.roster_cells, days: tb.month.days_with_data,
+    })
+    return [head, t('rck.tip.cellDrill'), t('rck.tip.cellRange')].join('\n')
+  }
+
   return (
     <div style={{ padding: 'var(--wh-space-sm)' }}>
       {/* ---------- 工具栏 ---------- */}
@@ -496,12 +535,30 @@ export default function RanCellsKpi() {
         {shownTechs.map(tb => (
           <StatCard
             key={tb.tech}
-            title={`${tb.label} · ${t('rck.monthAvailability')}`}
-            value={tb.month.availability == null ? '-' : (tb.month.availability * 100).toFixed(2)}
+            title={(
+              <ExplainLabel
+                label={`${tb.label} · ${t('rck.monthAvailability')}`}
+                text={t('rck.explain.monthAvail', { tech: tb.label, desc: locale === 'en' ? (tb.desc_en || tb.desc) : tb.desc, thr: thresholdPct.toFixed(2) })}
+              />
+            )}
+            value={tb.month.availability == null ? '—' : (tb.month.availability * 100).toFixed(2)}
             suffix="%"
             accentColor={tb.month.availability != null && tb.month.availability >= threshold ? WH.teal : 'var(--wh-sev-major)'}
             subText={`${t('rck.roster')}: ${tb.roster_cells.toLocaleString('en-US')} · ${t('rck.daysWithData')}: ${tb.month.days_with_data}`}
             style={{ minWidth: 260, flex: '1 1 260px' }}
+            explainText={[
+              t('rck.tip.monthAvail', {
+                avail: tb.month.availability == null ? '—' : (tb.month.availability * 100).toFixed(2),
+                days: tb.month.days_with_data,
+                total: tb.month.total.toLocaleString('en-US'),
+                meeting: tb.month.meeting.toLocaleString('en-US'),
+                below: tb.month.below.toLocaleString('en-US'),
+                roster: tb.roster_cells.toLocaleString('en-US'),
+                thr: thresholdPct.toFixed(2),
+              }),
+              data?.meta?.source ? t('rck.tip.source', { source: data.meta.source }) : '',
+              t('rck.tip.cellRange'),
+            ].filter(Boolean).join('\n')}
             onClick={(e) => openDrill(e, tb, '', 'availability')}
           />
         ))}
@@ -548,7 +605,7 @@ export default function RanCellsKpi() {
                       style={{ background: m.highlight ? availBg : (ri % 2 ? mutedBg : undefined) }}
                     >
                       <td style={{ ...metricCell, background: m.highlight ? availBg : WH.cardBg }}>
-                        {t(m.labelKey)}
+                        <ExplainLabel label={t(m.labelKey)} text={t(METRIC_EXPLAIN_KEY[m.key], { thr: thresholdPct.toFixed(2) })} />
                       </td>
                       {activeDays.map(d => {
                         const v = tb.days?.[d]?.[m.key] as number | null | undefined
@@ -559,7 +616,6 @@ export default function RanCellsKpi() {
                           <td
                             key={d}
                             onClick={clickable ? (e) => openDrill(e, tb, d, m.key) : undefined}
-                            title={clickable ? t('rck.drillHint') : undefined}
                             style={{
                               ...numCell,
                               fontWeight: m.highlight ? 700 : 400,
@@ -567,7 +623,11 @@ export default function RanCellsKpi() {
                               cursor: clickable ? 'pointer' : 'default',
                             }}
                           >
-                            {fmtCell(v, m.fmt)}
+                            {/* 原生 title= 只能看不能复制、也不归主题管（AGENTS.md 三.3c 禁止），
+                                换成统一气泡：这一格的构成 + 点下去下钻什么 */}
+                            <ExplainPopover placement="top" text={clickable ? cellTip(tb, d, m.key) : t('rck.tip.cellNoData', { day: d, tech: tb.label })}>
+                              <span style={{ display: 'inline-block', minWidth: '3.5rem' }}>{fmtCell(v, m.fmt)}</span>
+                            </ExplainPopover>
                           </td>
                         )
                       })}

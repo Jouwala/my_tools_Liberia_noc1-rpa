@@ -813,6 +813,12 @@ def _overlay_db_open_counts(kind: str, sheets: List[Dict[str, Any]]) -> None:
     （inband_details / outband_details），耗材的表由别的同步任务落库，
     此处不臆测表名 —— 非备件直接跳过。
     """
+    # 本函数自己的文档写「只对备件生效，非备件直接跳过」，但 2026-11-04 之前**代码里没有 kind 判断**，
+    # 于是 ?page=com_report（耗材）的 Inbound/Outbound 也被覆盖成了**备件表**的行数
+    #（实测 consumables 的 Outbound open_count=15 全部来自 outband_details）。
+    # 耗材的两张表由别的同步任务落库，此处不臆测表名 —— 直接跳过，让它保留 Excel 快照口径。
+    if normalize_kind(kind) != "spareparts":
+        return
     sheet_kind = (sheets[0]["key"] if sheets else "")
     if not sheet_kind:
         return

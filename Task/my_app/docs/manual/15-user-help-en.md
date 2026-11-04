@@ -1,6 +1,6 @@
 # my_app User Help & Guide
 
-> User-facing platform features & operations guide. Generated from the same source as the in-app Help page (frontend/src/helpMarkdown.ts), compiled from docs/manual/ and backend/task_registry.py. Generated on 2026-11-03.
+> User-facing platform features & operations guide. Generated from the same source as the in-app Help page (frontend/src/helpMarkdown.ts), compiled from docs/manual/ and backend/task_registry.py. Generated on 2026-11-04.
 
 > In-app entry: the "Help" sidebar item, or `http://<host>/myapp/?page=help` directly.
 
@@ -10,7 +10,7 @@
 
 - [1. Platform Overview](#1-platform-overview)
 - [2. General Usage](#2-general-usage)
-- [3. Task Manager Deep Dive (82 tasks)](#3-task-manager-deep-dive)
+- [3. Task Manager Deep Dive (83 tasks)](#3-task-manager-deep-dive)
 - [4. Pages Guide](#4-pages-guide)
 - [5. Ops & Troubleshooting](#5-ops-troubleshooting)
 - [6. FAQ](#6-faq)
@@ -46,7 +46,7 @@ Built for the NOC scenario "boards every day, reports must go out": 41+ schedule
 | Sidebar navigation | The sidebar is collapsed by default — click the ☰ button (top-left) to expand/collapse; on mobile it slides out as a drawer under the header. |
 | Open in a new tab | Right-click any menu item → "Open in new tab", handy for wall screens / multi-monitor duty. |
 | Direct links | Every page can be opened with ?page=<key>, e.g. /myapp/?page=battery — bookmarkable and shareable. |
-| Auto refresh | Pick an interval in the header (default 5 minutes; 0/30s~30min available). While you are typing, a dialog is open, or the tab is in the background, the round is skipped to avoid interrupting you. Only dashboard/display pages auto-refresh; configuration and operation pages (settings, upload, table browser, IP trace, …) never refresh and their selector is disabled. A dashboard left in fullscreen keeps refreshing at its default interval even when the selector is set to Off. |
+| Auto refresh | Off by default, and every page has its own setting: the header "Start Refresh" button plus the interval dropdown work on any page. Starting it lands on that page's suggested interval (1 min for real-time alarm pages, 5 min for boards, 15 min for reports whose upstream syncs daily, 30 min for configuration and operation pages); the dropdown offers 0/30s~30min and the choice is remembered per page in localStorage, so pages never affect each other. "Stop Refresh" turns it off at any time. While you are typing, a dialog is open, or the tab is in the background, the round is skipped to avoid interrupting you. |
 | Theme & language | Switch dark/light theme and Chinese/English in the top-right; preferences are remembered locally (localStorage). |
 | Data freshness | Some pages show a "last synced" time in the header. Boards are fed by scheduled tasks with different frequencies (alarms every minute, microwave topology daily 05:15, packet loss daily 06:30...). See "Task Manager Deep Dive" for the full catalog. |
 
@@ -83,7 +83,7 @@ Built for the NOC scenario "boards every day, reports must go out": 41+ schedule
 
 > ⚠️ **New tasks MUST also be registered in `GROUP_TASK_MAP` in worker_watchdog.py** — declaring them only in TASK_SPECS leaves them pending forever. This accident happened four times (finebi_report_sync / whatsapp_send_ext / sp_email_details / the olib_soc and vmax_multi_data_sync tasks found on 2026-09-18).
 
-### 3.3 Full task catalog (82 tasks)
+### 3.3 Full task catalog (83 tasks)
 
 | Task | task_id | Default cron | Group | Workflow script |
 | --- | --- | --- | --- | --- |
@@ -1229,7 +1229,7 @@ Workflow & maintenance notes per task:
 
 **Maintenance**:
 
-- Shares the NMS session with the daily task — serialized in group n; the board auto-refreshes every 900s with soft refresh
+- Shares the NMS session with the daily task — serialized in group n; the board's auto refresh is off by default (enable per page in the header, suggested 900s) and uses soft refresh when on
 
 #### CN EMS KPI Cache Sync（`ems_kpi_cache_sync`）
 
@@ -1807,6 +1807,7 @@ Combined view of all current active network alarms: totals, severity, site-level
 
 - Click any number to open a searchable drill-down table
 - "Realtime" data comes from eFlow active alarms (eflow_active_alarm synced every minute) — not second-level push
+- **Region profiles and per-type counts explain themselves on hover** (2026-11-04): "N alarms ↗" opens into "row-counted alarms + how many of them have transmission_type=MW + sites counted by distinct site_id", plus the note that rows whose region code is outside the 15-county list are not counted in any region; the "Top Alarm Types" ⓘ states the name comes from alarm_title falling back to codename, that the backend sends the top 10 while the chart draws 8, so **those 8 do not sum to the alarm total**
 
 #### TT&WO Dashboard（`ttwo`）
 
@@ -1816,6 +1817,8 @@ Processing volume, timeliness and backlog trends of trouble tickets (TT) and wor
 - "All owners" switches ZTE / 3rd: a non-empty WO number means ZTE (dispatched by us), empty means 3rd (handled by a third party)
 - The "Advanced filters" button reveals site-level filters (region / province-county / network type / site type / VIP / TRM / supervisor / FME / power source / power vendor / site category), fed from the site table
 - The percentage on a TT statistics card uses that dimension's own total as denominator (its internal composition), not the overall TT total
+- **Every number answers how it was computed on hover** (2026-11-03): hovering a severity / SLA card's big number or its share gives "this cell ÷ this dimension's visible total, the share is computed by the frontend from this page's payload (the API sends no pct field), the current scope (time window / region / owner / advanced filters) and what the click drills into". The summary badges next to the title (TT Total / WO Total / WO No. Unique) do the same and name their source fields `summary.tt_total` / `wo_total` / `wo_no_count`. **WO No. (Unique) is the count of distinct non-empty wo_no values on the TT rows**, not the WO row count — the two differing is normal
+- Unknown never enters the severity or SLA dimensions: empty values, the literal unknown and the historical misspelling unkonw are all dropped by the backend, so the cards can sum to **less** than the TT total — that is not lost data
 - The tabs above the MTTR trend switch day/week/month: all three load at once, so switching is instant; the weekly TT count is exactly the merge of that week's seven daily points, so the two views cross-check each other
 - Each MTTR chart has two axes: bars are the TT count of that severity in the period (left axis), the line is the mean MTTR in minutes (right axis). A period with no ticket of that severity draws neither — it is not 0 ("no ticket" and "MTTR is 0" are different things)
 - Bar height and line height are different units: bars show volume, the line shows speed. A line based on few tickets jumps around, so the hover tooltip adds "(N in MTTR avg)" to say how many tickets actually went into the average
@@ -1829,6 +1832,7 @@ The "upper half only" cut of the TT&WO Dashboard: renders up to the MTTR Trend (
 
 - Filters (including the ZTE/3rd owner switch and advanced filters), the MTTR day/week/month tabs and dual-axis charts, card drill-down and Excel export are shared with the TT&WO Dashboard (same /tt-wo-dashboard/overview endpoint), so usage is identical and the numbers necessarily match
 - Direct link http://<host>/myapp/?page=v1_ttwo; the full version is page=ttwo
+- The number hover explain on the statistics cards and the summary badges is the same set of wording as page=ttwo (same component, different slice)
 
 #### TT Dashboard（`tt`）
 
@@ -1838,13 +1842,15 @@ The "TT only" cut of the TT&WO Dashboard (source table eflow_tt): summary card (
 - Each MTTR chart is dual-axis: bars (ZTE blue #0072BC) are the TT count of that severity in the period, the line (orange) is the mean MTTR in minutes. The bar/line colours are fixed across all four charts — the severity is identified by the chart itself (four separate P1/P2/P3/P4 charts), while the colours only distinguish the two measures (volume vs duration). A period with no ticket of that severity draws neither a bar nor a point — it is not 0
 - Filters (including the ZTE/3rd owner switch and advanced filters), card drill-down and the page-level Excel export are shared with the TT&WO Dashboard (same /tt-wo-dashboard/overview endpoint), so the numbers necessarily match; the export filename is prefixed TTWO_tt_
 - Direct link http://<host>/myapp/?page=tt; the full version is page=ttwo, WO only is page=wo (same layout, sourced from eflow_wo)
+- Statistics-card numbers, their shares and the summary badge are all hover-explainable with the same wording as page=ttwo; only the "TT Total" badge is issued on this page — the WO badges are not part of this slice
 
 #### WO Dashboard（`wo`）
 
 The eflow_wo-sourced twin of the TT Dashboard: the layout matches page=tt block for block, only the data comes from eflow_wo. Summary card (WO Total only) → Statistics (severity / SLA status / status) → MTTR trend (P1/P2/P3/P4 × day/week/month dual-axis charts). Everything below the MTTR trend (Domain & Root Cause, Work Order Analytics, Site Information) is omitted, exactly as on page=tt. The default window is the last 30 days.
 
 - Click a statistics card or a point on an MTTR chart to open a searchable WO drill-down table
-- SLA status comes from the linked TT (eflow_wo has no such column — SLA is a TT-side concept): joined on wo.tt_no = tt.tt_no, and unmatched rows count as Unknown, so the cards still sum to the WO total
+- SLA status comes from the linked TT (eflow_wo has no such column — SLA is a TT-side concept): joined on wo.tt_no = tt.tt_no. **Unmatched rows fall into Unknown, and Unknown is dropped from this dimension**, so the SLA cards can sum to **less** than the WO total (the previous wording "the cards still sum to the WO total" contradicted the code; corrected 2026-11-03)
+- Statistics-card numbers and shares are hover-explainable with the same wording as page=ttwo; the severity dimension reads the same-named ticket_severity column of the source table on each page
 - MTTR uses the WO's own alarm_occur_time / alarm_clear_time, so this page shows the WO turnaround time — a different number from the TT figure on page=tt
 - Only the "WO Total" summary card remains: every row on this page is itself a WO, so "WO No. (Unique)" would print the same number twice, and "TT Total" counts rows of a different table and is meaningless here
 - The ZTE/3rd owner switch is hidden on this page: that ownership is defined on the TT's wo_no, a concept the WO table does not have
@@ -1960,7 +1966,7 @@ ZXMW microwave network topology & bandwidth utilization NOC board (daily granula
 15-minute realtime variant of the microwave topology board (same skeleton, risk ranking, drawer and trends).
 
 - Shows only the latest 15-minute slot by default; the slider reviews the last 2 hours
-- Auto-refreshes every 900s with soft refresh (no iframe reload, no flicker)
+- Auto refresh is off by default; enable it per page in the header (suggested 900s for this page). When on, it uses soft refresh (no iframe reload, no flicker)
 
 #### Alarm Management（`alarmManagement`, iframe page）
 
@@ -2070,7 +2076,9 @@ Meta Benchmark Report: based on meta_data (imported from Meta_20260923.xlsx, 612
 NOC operator analysis: quantifies each NOC operator's root-cause mismatch rate, average handling time, night-ticket share and SLA pass rate from eflow_tt.last_processer, and raises red flags. Built around "drill down wherever possible" — from the person to the ticket, then to the alarm chain.
 
 - Scope: tickets are attributed to a month by alarm occurrence time (alarm_occur_time), not last-modified time; night = Accept operation time between 22:00 and 06:00
-- Mismatch rate = mismatched tickets / tickets with a filed root cause. history_alarm.reason_type is authoritative and is compared against the NOC-filed root_cause (typically POWER←TRM: NOC filed power, the system says transmission)
+- Mismatch rate = mismatched tickets / tickets with a filed root cause (**the denominator is not all their tickets**, and operators who filed none are excluded from the average). The system side is read from eflow_tt.alarm_reason_type and, when that column is empty, falls back to a static alarm-code semantics table (the previous wording claimed history_alarm.reason_type was authoritative, which the code does not do; corrected 2026-11-03)
+- **The six summary cards and the Top3/Bottom3 numbers explain themselves on hover** (2026-11-03): each bubble gives the value, its denominator, the month window and scanned row count, and the active owner / name filters. The three rate cards **do not share one caliber, so do not compare them side by side**: mismatch rate and average handling time are **arithmetic means of the per-operator values (one vote each)**, while the SLA pass rate is a **pooled ratio** ΣPass ÷ Σ(Pass+Failed), weighted by ticket volume. Red-flag count is the number of **people** hitting any threshold (mismatch ≥30% or average handling ≥12h or SLA fail ≥50%), counted once each
+- A known implementation defect is stated in the interface rather than hidden: the mismatch check intends to exempt Auto-recovery / Uknown / Force Majeure / Planned work, but the exemption tuple is mixed case while the filed value is upper-cased, so **it never matches** — those tickets still count as mismatches and the mismatch rate is systematically inflated. Fixing it changes a business metric, so it was left for a business decision
 - Layer 1: summary stat cards, Top3/Bottom3 cards, the ECharts bar chart, every column in the ranking table, and each operator named in the red-flag banner are all clickable
 - Layer 2: the modal switches between five slices — All / Root-cause mismatch / Night / SLA failed / Slow (≥12h); row counts match that operator's metric exactly
 - Layer 3: the "Abnormal sites" tab aggregates by site (mismatch / SLA fail / slow / night); click a site name to see all of its TTs
@@ -2092,18 +2100,25 @@ Repeat site-down board: identifies sites that go down repeatedly within the wind
 
 - Counts site-downs per day; click a number to drill into that day's down sites
 - Data comes from eflow_tt and eflow_site, complementing the alarm board
+- **Every number answers how it was computed on hover** (2026-11-03): each of the four summary cards carries an ⓘ on the title (what the metric means) and a bubble on the big number (window, row count, dropped rows, that peak day's site count and series length); the "Occurrences" and "Down days" column headers and every cell in the ranking table behave the same, as do the Events / Sites / Repeat days tags in the drill-down. The page-level caliber sits in a collapsed "How site outages are counted" note
+- What the four numbers really are: **occurrences = one TT row counts once** (three tickets for the same site on the same day count three times); **affected sites** dedupe on site ID first and fall back to the normalised site name, and rows with neither collapse into **one** Unknown site; **repeat-down sites** = sites with more than one calendar day holding an outage (**consecutive not required**); the **peak day** takes the earliest day when several tie
+- Not the same caliber as the alarm board's "affected sites": that one dedupes on site_id only, whereas this page falls back to the site name, so the two site counts cannot be reconciled directly
+- The site box is an **ILIKE substring match** while the drill-down uses **exact equality**; picking a region matches the site table's region column exactly, so **rows that fail to join a site are excluded** — the cards can then read lower than the database
+- Rows whose occurrence time does not start with YYYY-MM-DD are dropped by the backend, and a **standing** warning at the top states how many (that is "incomplete", not an explanation, so it is never collapsed)
 
 #### cr_analysis（`cr_analysis`）
 
 CR Change Analysis: shows both where changes are stuck right now (status mix, workflow dwell) and how they performed historically (plan completion, on-time, closure), answering "how many are still open, at which step, and who is slowest".
 
 - Data comes from eflow_cr (synced from eFlow); the default range covers the full data span
-- The top bar is the <b>Workflow milestones</b>, in exactly the order of eFlow's Workflow History: Create → BO/FO Head Approval → Domain TD Approval → CM Head Approval → Start to Implement → Result Feedback → Closed. Each node shows "Done" and "Waiting"; the node with the most CRs waiting is marked <b>Bottleneck</b> and shows how many days the slowest one has waited
+- The top bar is the **Workflow milestones**, in exactly the order of eFlow's Workflow History: Create → BO/FO Head Approval → Domain TD Approval → CM Head Approval → Start to Implement → Result Feedback → Closed. Each node shows "Done" and "Waiting"; the node with the most CRs waiting is marked **Bottleneck** and shows how many days the slowest one has waited
 - Milestones group by workflow node: a CR sent back with "Waiting for Update" counts under BO/FO Head Approval rather than forming its own loop. For the exact spread over the 7 raw statuses, see the "Status Distribution" pie below
 - Status names are upstream values and are not translated; "Waiting for Implement" means all approvals are done and implementation is pending — not "waiting for approval"
 - Four core counts: "Planned" = has a planned start time; "Executed" = has an actual start time; "Not Executed" = planned but never started; "On Time / Delayed" = actual start before / after planned start
+- **Every number explains itself on hover** (2026-11-04): the eight buckets are decided in the backend SQL (**"on time" is a lexicographic text comparison**, which relies on upstream timestamps being formatted consistently — the code comment admits the assumption); ⚠ **Planned ≠ Executed + Not Executed** — a row with an actual start but no planned start lands only on the Executed side
+- ⚠ Category filtering now happens on the server: when categories are selected the page sends them as a `categories` parameter and the backend narrows **inside the same SQL** (values are bound parameters), so the overview, the rates, the category table, the status mix and the monthly / sub-category blocks all come from **one and the same set**; the frontend no longer adds the counts or duplicates the rate formula (2026-11-04). ⚠ The **three rates have three different denominators** (÷ planned / ÷ executed / ÷ total), so comparing those percentages side by side is meaningless; only the 80/50 colour thresholds live in the frontend
 - Each rate shows its denominator: Plan Completion Rate = executed ÷ planned, On-Time Rate = on time ÷ executed, Closure Rate = closed ÷ total. Shows "—" instead of 0 when the denominator is zero
-- "Approval Workflow & Dwell Time" parses the step records in the source table: Arrived = CRs that passed the step; Avg/Max Dwell = how long they took there; In Step = CRs still sitting there; Longest Wait = how long the slowest one has waited. Steps follow the <b>real flow order</b> (Created → BO/FO Head → Domain TD → CM Head → Implementation → Result Feedback), not the source column alphabetical order
+- "Approval Workflow & Dwell Time" parses the step records in the source table: Arrived = CRs that passed the step; Avg/Max Dwell = how long they took there; In Step = CRs still sitting there; Longest Wait = how long the slowest one has waited. Steps follow the **real flow order** (Created → BO/FO Head → Domain TD → CM Head → Implementation → Result Feedback), not the source column alphabetical order
 - The "In Step" column is often the most useful signal: a step with many CRs waiting a long time is the bottleneck
 - Every number is clickable: status cards, pie slices, KPI cards, rate cards, the category table, chart bars, workflow steps, the monthly trend and the sub-category table all drill into details, and the detail row count matches the card figure exactly
 - A yellow banner appears when drill-down results are truncated — narrow the date range and retry rather than ignoring it
@@ -2121,6 +2136,8 @@ PM Execution Analysis: shows preventive-maintenance work orders (PMT) by PM plan
 - With exactly one plan number selected, milestones follow that plan; with several selected, milestones cover all plans (the page says so) and may differ from the plan table subtotal
 - Every number is clickable: KPI cards, rate cards, chart bars, the monthly trend, the site bar chart and the plan table all drill into details, and the detail row count matches the card figure exactly
 - A yellow banner appears when drill-down results are truncated — narrow the date range and retry rather than ignoring it
+- **Every number explains itself on hover** (2026-11-04): the ⓘ on each of the eight count cards states the SQL predicate behind that field, while the bubble on the number says "this figure = the matching field of the API summary" and that the backend counted it with SUM(CASE WHEN …) in a single query. The three rate cards' bubbles name the denominator (closure and overdue both divide by the total; started rate = (total − not started) ÷ total) and note that **a zero denominator returns null from the backend → the UI shows —, never 0%**
+- The two easiest misreadings are in the ⓘ: **"Overdue" takes the source table's own pmt_overdue verdict as-is — the page never recomputes it from plan versus actual dates**, so when upstream leaves that column empty this card stays 0 even though orders may really be late; and because the dynamically created eflow_pm table holds both cases of status, every predicate normalises with UPPER(TRIM(…)) first
 
 #### bp_report（`bp_report`）
 
@@ -2140,6 +2157,9 @@ BP Cells Report: umlaut-caliber BP cell statistics, viewable by day/week/month a
 - ⚠️ The four drill-down columns PRB utilization / DL throughput / Active users (busy hour) / DL traffic exist only from 2026-07-22 onward: BP Report.xlsx itself stores only date / NE / cell / cluster / layer and never carried these metrics, so they must be re-fetched upstream — and upstream retains nothing for the 21 days 2026-07-01~07-21 (UME likewise only goes back to 07-02), so that range shows — and cannot be filled
 - For 2026-07-22~09-21 the four metrics have been backfilled from upstream, so those days now hold whole-network cells rather than only the cells umlaut reported; BP counts run about 13~14% below that period's original Excel values, and the share denominator follows the same caliber change
 - Data is incrementally refreshed from RAN_UME by the bp_report_sync task daily at 06:20
+- **Every number explains itself on hover** (2026-11-04): the ⓘ on the "share" column header says it is **that period's own stored bp_ratio** (the page never re-divides BP by all cells), and each share cell carries a bubble with that period's numerator, denominator and the difference against its detail rows. The "BP cells (latest period)", "Periods" and "Average BP share" cards put an ⓘ on the title and a bubble on the number
+- The "Average BP share" card is the easiest to misread, so its bubble prints both figures side by side: it is the **arithmetic mean of the per-period shares (one vote per period, AVG(bp_ratio))**, **not** ΣBP ÷ Σall — the two disagreeing is a caliber difference, not a bug. A period with very few cells weighs exactly as much as one with many
+- "Periods" = how many periods in the selected range **actually have data** at this grain (one row per period), not the number of natural periods; it changes with the grain, so check the date range covers periods that have data
 
 #### ran_cells_kpi（`ran_cells_kpi`）
 
@@ -2151,6 +2171,9 @@ RAN Cells KPI: per-technology (2G/3G/4G) daily availability matrices for cells, 
 - Sheet1 is deliberately named `Summary` rather than `<tech>_Cells_KPI`: otherwise a name clash would rewrite it to `Summary_2` and users would see two sheets that both look like a summary
 - Percentages are written as numbers (e.g. `99.65`) rather than strings (`99.65%`) so they are directly computable in Excel
 - The drill-down modal has its own export button (detail rows) — that is separate from the page-level entry
+- **Every number answers how it was computed on hover** (2026-11-04): the monthly card title carries an ⓘ for the algorithm while the number itself carries a bubble with the composition (how many valid days were averaged equally, cell-day observations, roster size, threshold, and the **actual data source** — whether the materialised daily table or a live computation, decided by the API meta.source). Each of the seven matrix rows has an ⓘ in its header and every cell a bubble (how many meeting, how many below, how many cells had no data that day)
+- The two easiest misreadings are stated in the bubbles: **the monthly figure is the arithmetic mean of the daily availabilities (one vote per day, not weighted by the number of cells that day)** — a day with 3 cells counts as much as a day with 300; and **the meeting / below shares divide by the cells that had a value that day, excluding cells without data** — so heavy upstream gaps inflate the meeting share
+- This page is **cell-level** availability (2G = available channels ÷ (available + unavailable), 3G/4G = service time ÷ 86400) and is **not the same caliber** as the site-level UME values on the site availability page — the two cannot be compared directly
 
 #### Packet Loss（`packet_loss`）
 
@@ -2176,6 +2199,9 @@ Customer Service KPI dashboard: pulls Dong customer weekly service KPIs from the
 - "Failure-rate composition" stacks each KPI's failure rate by attribution; "Success-rate trend" shows the daily movement
 - Resource utilisation is judged on the daily average (≥80% warning, ≥90% critical); peaks are informational only — brief saturation is normal
 - "Export Excel" writes 6 sheets: KPI summary / service detail / failure breakdown / resources / trend / alerts
+- **The seven overview cards and the resource lines explain themselves on hover** (2026-11-04): the most important sentence is that **every KPI card aggregates the latest day only**, so the overview totals (attempts / failed / system-side / user-side) are **those latest-day values added up — not the selected day window**. A header reading "last 30 days" does not make it a 30-day total; each bubble names the day the number came from. Resource "daily avg / peak" are likewise the mean and maximum of that latest day's SERVICE rows
+- Colouring follows the **system side only**: KPIs with reason columns are judged by system-side failures ÷ attempts, others by success rate, and non-alarm KPIs stay info. User-side failures never turn a card red — they only appear as an info note, so "nothing is red" does not mean "the user side is fine"
+- Thresholds come from the API (defaults: 99% success, 0.1% system-side failure, 80% resource; overridable via UME_IN_* variables). The alerts count is produced by the frontend dropping info-level rows from the alert list
 
 #### cn_kpi（`cn_kpi`）
 
@@ -2185,6 +2211,9 @@ CN KPI dashboard: a native rebuild of the original FineBI "CN KPI" board, with 1
 - An orange "Monthly" tag on a card means each point is one month, not one day; a gold "Switched" tag means the original table stalled and an auto-synced source of the same name is being used
 - The orange banner in the page header lists every degraded widget and why — if you see it, check whether someone needs to re-run the NMS export
 - "Export Excel" writes each widget's data plus the exact SQL used, so figures can be reconciled against the NMS side
+- **Every number answers how it was computed on hover** (2026-11-04): the card-title ⓘ and the header "latest data date" figures state that **each point is the raw value returned by the backend SQL and the page performs no secondary computation** (no gap filling, no smoothing, no unit conversion), then list rows returned, **actual granularity**, whether a downgrade happened (naming the original table) and **the SQL actually executed, copyable with one click**
+- Granularity is **inferred from the dates in the returned rows**, never hard-coded (only the monthly tier is recorded as month directly). So before reading 1–2 points as "the last two days", check the granularity line in the bubble
+- The header statistics expand into three facts on hover: the source is a remote read-only HTTP API (not a local database), the widget count and fetch time including whether the cache was hit, and the failure count covering **only widgets whose three source tiers all errored** (empty widgets do not count)
 
 #### cn_kpi_5mins（`cn_kpi_5mins`）
 
@@ -2194,6 +2223,9 @@ CN KPI 5-minute dashboard: overlays today (Day0), yesterday (Day1) and 7 days ag
 - Day7 depends on history already sitting in the tables: the sync window only covers "yesterday -> now", but writes are upserts with no purge, so every day is kept permanently once it is collected the next day — Day7 needs 8 days of accumulated history, and when it is not there yet the header lists only the days that exist and says so. Older days require a backfill
 - No date picking is needed: the window is fixed to today + yesterday + 7 days ago and refreshes every 15 minutes as the task runs (auto-refresh is available in the top bar)
 - The xGW License / xGW CPU / 3G FDD cards have points every 15 minutes (3x sparser than the others) — that is the upstream template tier, not missing data; the blue banner in the header says so
+- **Every widget title explains how its values are computed on hover** (2026-11-04): the ⓘ spells out the aggregate per widget — VLR / Voice / Data / 4G·3G·RG use **SUM** (RG-6/11/12/30 split one table by "Measurement Object", so the four cards never overlap; byte columns are already /1e9 converted to GB in the SQL), while **xGW License and xGW CPU use AVG — an arithmetic mean of percentages, not traffic-weighted and not a peak**. Day bucketing and the x-axis both read End Time (not Begin Time), and the window holds only **today / yesterday / 7 days ago**, not a continuous week
+- The "vs yesterday ±%" tag opens with the admission that it is computed **by the frontend** (the API sends no pct): today's mean from 00:00 to now against yesterday's mean truncated to the same clock time, ±10% grey and beyond orange. It disappears entirely when either day has no point in that span, or yesterday's mean is 0
+- The header tags "N/N widgets with data", "elapsed / cache" and "N failed" are hover-explainable too: empty and failed widgets are both **excluded** from "with data", and the failure count covers query errors only
 - "Export Excel" writes one sheet per widget, expanded as Day0 / Day1 / Day7 columns by time of day (only the days that widget actually has)
 
 #### UME iMonitor Screen（`imonitor`, iframe page）
@@ -2261,6 +2293,9 @@ Spare-parts material summary: inbound, outbound and inventory rolled up by domai
 
 - Data comes from the spare-part reports pulled by sp_data_sync
 - Click any summary figure to drill into the matching material details
+- **Every number explains itself on hover** (2026-11-04): the ⓘ on a column header states the bucketing for the whole group (status = damage goes to "needs repair", otherwise Material Type is matched on spare / consum; a row joins a group by exact or prefix warehouse-name match, misses fall into Others), while a cell bubble gives that cell's composition (the raw opening / current snapshot values, consumption = opening − current, whether the total includes damage) and reminds that **these are SUM(Stock Qty) quantities, not counts of distinct materials**
+- Two traps are spelled out in the bubbles: **"Repair Outbound" comes from a different table and a different window than the stock snapshots, so it must not be subtracted from a stock column**; and **a negative consumption is legitimate** — inbound or transfer back-fill can make stock rise, while the measure is only "opening − current" and never nets the replenishment (when it happens a standing notice names the groups)
+- The "Total" at the bottom of the drill-down modal is summed client-side over the **rows currently matching the search box** (the API does not send it); the bubble also states how many rows the drill returned, so the two agree once the search box is empty
 
 #### sp_details（`sp_details`）
 
@@ -2269,6 +2304,9 @@ SP Details Report: the same merged workbook that the email task sends, with Inve
 - Paginate, filter and sort; "open" means Status does not contain Closed
 - Only common columns are shown — click any row for all columns of that sheet
 - Export covers the current filter (up to 5000 rows)
+- **All eight cards explain themselves on hover** (2026-11-04): records = row counts added across sheets with **no cross-sheet de-duplication**; "Materials" is Material No. **de-duplicated over the union** (structurally different from the same-named row count on the spare-parts report); "Warehouses" counts the transfer sheet's **original and target** names on both sides, so reading higher than the number of storage locations is by design; open tickets use the "status does not contain closed" test
+- ⚠ This page reads the *_source.xlsx snapshots taken **before any filtering**, while the summary pages read the filtered workbook — same-named metrics are systematically larger here, which is a caliber difference, not lost data
+- ⚠ The whole site has three definitions of "open" (this page: per-row substring match / spare-parts report: distinct document number + word list / warehouse board: exact equality), so the three figures are not meant to reconcile
 
 #### sp_report（`sp_report`）
 
@@ -2277,6 +2315,8 @@ Spare Parts Inbound & Outbound & Inventory summary: the same workbook emailed / 
 - Stat cards show totals and replenishment alerts; clicking an alert card filters
 - Summary-Changed renders as a day × warehouse matrix
 - "Columns" is configurable per sheet and remembered locally; the row-detail modal always shows every column
+- **Every number explains itself on hover** (2026-11-04): the seven quantity cards say "this value = the raw Total-row cell of Summary-Current · some column", and warn that **a missing or non-numeric column comes back as 0.0 from the backend** — so a 0 can be a real zero or an empty column; "Materials" is a **row count, not de-duplicated material numbers**; "Urgent" counts **rows** whose Alert Level equals Urgent Replenish, a different unit from its Qty neighbours — do not subtract one from the other
+- The "open documents" bubble states it comes from the **live database** (same caliber as the SPMS figure on the MsPortal QC panel), because the workbook is a 05:55 snapshot while the DB lands at 07:00; all other statistics stay on the Excel snapshot so the page matches the emailed attachment
 
 #### com_report（`com_report`）
 
@@ -2284,6 +2324,8 @@ Consumables Inbound & Outbound & Inventory summary: same layout as the spare-par
 
 - Identical basis to the spare-parts page — see "Report basis" at the bottom
 - When the page and Excel disagree, read the basis notes first; never change the basis in the page layer
+- **Every number explains itself on hover** (2026-11-04, same wording as the spare-parts page)
+- The "open documents" figure has a **different source** here than on the spare-parts page: the live-database override applies to spare parts only, and consumables tables are landed by another sync job whose names we do not guess, so this page keeps the Excel snapshot caliber (fixed 2026-11-04 — previously consumables were wrongly overridden with **spare-parts** numbers)
 
 #### warehouse_summary（`warehouse_summary`）
 
@@ -2292,6 +2334,9 @@ Warehouse Summary Report: mirrors WarehouseSummaryReport.xlsx — the tabs are i
 - Switch tabs for spare parts vs consumables; every figure in both sections drills down
 - Frequently used materials are paged by consumption descending, showing all of them; the Total row is the full-scope total and does not change when you page
 - Consumption basis is Outbound Site Qty (site outbound), shown as a tag next to the second section title
+- **The six KPI cards explain themselves on hover** (2026-11-04): the warehouse set is the **union of Outbound and Inventory** — a warehouse on one side only still gets a row and the missing side counts 0; the month/week time column **falls back dynamically** by priority (the column name comes from the API, the page does not guess), weeks start on **Monday**, and window starts use the host clock (UTC)
+- ⚠ Rows whose time cannot be parsed are **excluded from the month/week windows but still counted in total consumption**, so "this month + previous months ≠ total" is expected
+- Needs restock reads the API field `overview.urgent` (the backend counts Alert Level matches over the **whole** Summary-Current sheet), i.e. the same field and caliber as the same-named card on the spare-parts report, so the two should agree; when they do not, the pages are reading different workbook runs (check the header file name and generation time). Before 2026-11-04 this card was reduced client-side over the frequent rows; that has been changed
 
 ### 4.3 Analysis & Tools
 
@@ -2320,6 +2365,10 @@ eFlow process flow: enter an alarm (alarm ID / alarm code) or a TT number to dra
 - The "Related alarms" table lists the alarms that raised this TT (linked via realtime_alarm / history_alarm tt_id or alarm_id), with alarm code, site, network element, severity and raised time
 - Verdicts share one source with "NOC analyst" and the single-TT postmortem report: rules are all read from ocrule_details, so the flow diagram and the postmortem can never disagree
 - The rule tables are collected by the eflow_push_rules_collect / eflow_alarm_rules_collect jobs (every 3 days at 23:59); the diagram reflects rule updates automatically
+- **Every number answers how it was computed on hover** (2026-11-03): the "Steps taken" and "Process rules" cards, the "N active / N total" tags on the node rule header, and the diagram's own node tooltip all expand into the rule; the page-level caliber now sits in a collapsed "How the eFlow graph is computed" note
+- Three things these counts require you to know: ① "Process rules" = **all rows of ocrule_details** with no WHERE and no time filter — it is today's snapshot, not the rules this ticket met; ② a node's "total" is the **deduped attachment count** by (name + type + trigger step), and one rule can attach to several nodes, so summing the nodes exceeds the table rows; ③ "active" requires status **exactly ACTIVE** (case sensitive), so an upstream value of Active counts in the total but not in the active figure
+- "Steps taken" only counts **TT main-flow nodes** (Alarm Raised and TT Created are marked unconditionally, so it starts at 2); the WO field sub-flow is a separate lane and is excluded. "Matched this ticket" covers only the rules on the **current node** plus the create-stage severity rules — it is not a journey total, and it moves as the ticket advances
+- The rule table is a **current snapshot**: for a ticket that has been in flow for months, the diagram shows **today's** rules, which may not be the ones that actually routed it — keep that in mind when using it to explain a historical ticket
 
 #### Dashboard（`dashboard`）
 
@@ -2501,7 +2550,7 @@ Three config layers, highest first: environment variables (backend/.env, 203 key
 
 **The board data is not updating?**
 
-① Check the task's latest result and the failure summary in "Task Manager"; ② check whether the header "Auto refresh" was set to Off; ③ remember some data is inherently low-frequency: alarms every minute, microwave topology daily 05:15, packet loss daily 06:30, incident overview at minute 20 each hour. The "DB Data Freshness Check" task history also logs the call chain and direction when stale (including the on-disk age of file-based sources).
+① Check the task's latest result and the failure summary in "Task Manager"; ② check whether the header "Auto refresh" is enabled (it is off by default — the page will not reload on its own; refresh manually or click "Start Refresh"); ③ remember some data is inherently low-frequency: alarms every minute, microwave topology daily 05:15, packet loss daily 06:30, incident overview at minute 20 each hour. The "DB Data Freshness Check" task history also logs the call chain and direction when stale (including the on-disk age of file-based sources).
 
 **Numbers do not match the expected criteria?**
 

@@ -47,10 +47,15 @@ def filters():
 def overview(
     start: str = Query("", description="起始日期 YYYY-MM-DD，空则用默认窗口"),
     end: str = Query("", description="结束日期 YYYY-MM-DD，空则用默认窗口"),
+    categories: str = Query(
+        "", max_length=2000,
+        description="逗号分隔的 change_category 列表，空=全部。值走参数化占位符，不拼进 SQL",
+    ),
 ):
     """按 change_category 的计划 / 完成情况总览。"""
+    picked = [c.strip() for c in (categories or "").split(",") if c.strip()][:200]
     try:
-        return svc.build_overview(start, end)
+        return svc.build_overview(start, end, picked)
     except Exception as exc:  # noqa: BLE001
         logger.exception("[cr-analysis/overview] 失败: %s", exc)
         return svc._empty_overview(  # noqa: SLF001 - 与服务层共用同一份空壳结构
@@ -76,16 +81,22 @@ def drilldown(
     ),
     limit: int = Query(svc.MAX_DETAIL_ROWS, ge=1, le=svc.MAX_DETAIL_ROWS,
                        description="取样上限，截断时 meta.warnings 会显式说明"),
+    categories: str = Query(
+        "", max_length=2000,
+        description="逗号分隔的 change_category 列表；点卡片下钻时要把页面已选的类别一并传过来，"
+                    "否则「卡片显示筛过的数」与「明细行数」会对不上",
+    ),
 ):
     """下钻明细。
 
     ⚠️ metric / category / sub_category / month / status 的组合必须与点击
     来源的卡片维度完全一致，否则明细行数与卡片数字对不上（见服务层 docstring）。
     """
+    picked = [c.strip() for c in (categories or "").split(",") if c.strip()][:200]
     try:
         return svc.build_drilldown(start, end, metric=metric, category=category,
                                    sub_category=sub_category, month=month,
-                                   status=status, limit=limit)
+                                   status=status, limit=limit, categories=picked)
     except Exception as exc:  # noqa: BLE001
         logger.exception("[cr-analysis/drilldown] 失败: %s", exc)
         return {

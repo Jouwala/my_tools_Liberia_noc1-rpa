@@ -29,6 +29,9 @@ import dayjs from 'dayjs'
 import ReactECharts from 'echarts-for-react'
 import { CardBase } from '../components/cards'
 import CalcChainNote from '../components/CalcChainNote'
+// 数字悬浮口径说明（AGENTS.md 三.3c）：本页此前只有整页级 CalcChainNote，
+// 组件卡与页头统计的数字问不到。口径对过 services/cn_kpi_5mins_service.py 的 WIDGETS 与 _agg_sql。
+import { ExplainLabel, ExplainPopover } from '../components/MetricExplain'
 import { exportReport, type ReportSheetSpec } from '../utils/excelReport'
 import { getCnKpi5minsOverview } from '../api'
 import { useI18n } from '../i18n'
@@ -262,6 +265,27 @@ function buildDayOption(w: CnWidget5, isDark: boolean) {
   }
 }
 
+/** 组件 → 该卡「这个数怎么算」的文案键。
+ *  ⚠ **逐条写字面量**：`t('cnkpi5.explain.' + w.id)` 会被 check:i18n 读成键名
+ *  `cnkpi5.explain.` 而报「字典缺失」（AGENTS.md 第三节 1b）。
+ *  文字内容与 WIDGETS 里的 value_expr 逐条对过，改动 SQL 时必须同步改这里。 */
+function widgetExplainKey(id: string): string {
+  switch (id) {
+    case 'vlr': return 'cnkpi5.explain.vlr'
+    case 'voice': return 'cnkpi5.explain.voice'
+    case 'data_sub': return 'cnkpi5.explain.dataSub'
+    case '4g_traffic': return 'cnkpi5.explain.4gTraffic'
+    case 'rg30': return 'cnkpi5.explain.rg30'
+    case 'rg12': return 'cnkpi5.explain.rg12'
+    case 'rg11': return 'cnkpi5.explain.rg11'
+    case 'rg6': return 'cnkpi5.explain.rg6'
+    case 'xgw_license': return 'cnkpi5.explain.xgwLicense'
+    case 'xgw_cpu': return 'cnkpi5.explain.xgwCpu'
+    case '3g_traffic': return 'cnkpi5.explain.3gTraffic'
+    default: return ''
+  }
+}
+
 /** 单个组件卡片（图表 / 空态 / 错误三种状态） */
 function WidgetCard({ w, height }: { w: CnWidget5; height: number }) {
   const { isDark } = useTheme()
@@ -294,21 +318,30 @@ function WidgetCard({ w, height }: { w: CnWidget5; height: number }) {
         flexDirection: 'column',
         overflow: 'hidden',
       }}
-      title={<span style={{ fontSize: 13 }}>{w.title}</span>}
+      title={(
+        <ExplainLabel
+          label={<span style={{ fontSize: 13 }}>{w.title}</span>}
+          text={[
+            w.empty ? t('cnkpi5.explain.emptyCard', { reason: w.empty_reason || t('cnkpi5.noData') }) : '',
+            widgetExplainKey(w.id) ? t(widgetExplainKey(w.id)) : '',
+            t('cnkpi5.explain.common'),
+          ].filter(Boolean).join('\n')}
+        />
+      )}
       extra={
         <Space size={4}>
           {vs && (vs.pct != null ? (
-            <Tooltip title={t('cnkpi5.vsDay1Hint', { time: vs.last0 })}>
-              <Tag color={vsColor} style={{ marginInlineEnd: 0, fontSize: 11 }}>
+            <ExplainPopover placement="bottom" text={[t('cnkpi5.vsDay1Hint', { time: vs.last0 }), t('cnkpi5.tip.vsFrontend')].join('\n')}>
+              <Tag color={vsColor} style={{ marginInlineEnd: 0, fontSize: 11, cursor: 'help' }}>
                 {t('cnkpi5.vsDay1', { pct: fmtVsPct(vs.pct) })}
               </Tag>
-            </Tooltip>
+            </ExplainPopover>
           ) : (
-            <Tooltip title={t('cnkpi5.vsDay1Hint', { time: vs.last0 || '—' })}>
-              <Tag color="default" style={{ marginInlineEnd: 0, fontSize: 11 }}>
+            <ExplainPopover placement="bottom" text={[t('cnkpi5.vsDay1Hint', { time: vs.last0 || '—' }), t('cnkpi5.tip.vsNoBase')].join('\n')}>
+              <Tag color="default" style={{ marginInlineEnd: 0, fontSize: 11, cursor: 'help' }}>
                 {t('cnkpi5.vsDay1NoBase')}
               </Tag>
-            </Tooltip>
+            </ExplainPopover>
           ))}
           {w.empty && <Tag color="default" style={{ marginInlineEnd: 0 }}>{t('cnkpi5.noGranularity')}</Tag>}
           {w.pct && <Tag color="cyan" style={{ marginInlineEnd: 0 }}>%</Tag>}
@@ -444,17 +477,21 @@ export default function CnKpi5mins() {
         <Row align="middle" justify="space-between" gutter={[12, 8]}>
           <Col>
             <Space size={10} wrap>
-              <Tooltip title={t('cnkpi5.legendHint')}>
-                <Tag icon={<InfoCircleOutlined />} color="blue">
+              <ExplainPopover placement="bottom" text={[t('cnkpi5.legendHint'), t('cnkpi5.tip.summary', { ok: withData, total: widgets.length })].join('\n')}>
+                <Tag icon={<InfoCircleOutlined />} color="blue" style={{ cursor: 'help' }}>
                   {t('cnkpi5.summary', { ok: withData, total: widgets.length })}
                 </Tag>
-              </Tooltip>
+              </ExplainPopover>
               <Text type="secondary" style={{ fontSize: 12 }}>{t('cnkpi5.barHint')}</Text>
               {data?.meta && (
-                <Tag>{data.meta.elapsed_ms}ms{data.meta.cached ? ` · ${t('cnkpi.cached')}` : ''}</Tag>
+                <ExplainPopover placement="bottom" text={t('cnkpi5.tip.elapsed', { ms: data.meta.elapsed_ms, cached: data.meta.cached ? t('cnkpi5.tip.cachedYes') : t('cnkpi5.tip.cachedNo') })}>
+                  <Tag style={{ cursor: 'help' }}>{data.meta.elapsed_ms}ms{data.meta.cached ? ` · ${t('cnkpi.cached')}` : ''}</Tag>
+                </ExplainPopover>
               )}
               {data?.meta && data.meta.failed > 0 && (
-                <Tag color="error">{t('cnkpi.failed', { n: data.meta.failed })}</Tag>
+                <ExplainPopover placement="bottom" text={t('cnkpi5.tip.failed', { n: data.meta.failed })}>
+                  <Tag color="error" style={{ cursor: 'help' }}>{t('cnkpi.failed', { n: data.meta.failed })}</Tag>
+                </ExplainPopover>
               )}
               {/* 图例：按**实际取到的日子**渲染。Day7 要等库里攒够 8 天（或做过回补）
                   才会出现，缺的时候直接说明，而不是留着一条永远不出来的色块。 */}

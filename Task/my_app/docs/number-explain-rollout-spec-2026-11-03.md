@@ -63,6 +63,10 @@
 
 ## ③ TT / WO 族
 
+> **✅ 本批已于 2026-11-03 完成并实机验证**：`ttwo`（含 `tt` / `wo` / `v1_ttwo` 切片）、
+> `eflow_flow`、`noc_analyst`、`repeat_site_down` 四页。做法与下方「可疑点」的处置记录见各页提交，
+> 手册落笔在 `11-feature-guide.md` 第 4 节 / 14b / 14g / 新增的 14p 节。
+> 本批新查出的三处「注释/文案与实现不符」已补进下面的可疑点 15~17，**均未改数字**。
 > `TTDashboard` / `WODashboard` / `V1TTWODashboard` 都是 `TTWODashboard` 的切片（各自 `:19/:33/:21`），主体只讲一次。
 
 ### TTWODashboard（`?page=ttwo`）
@@ -98,10 +102,35 @@
 12. 概览 `noc_filter` 用 `LIKE %x%`（`:3091`），下钻用 `last_processer = ?` 精确（`:3377`）→ 模糊命中多人时两处行数口径可不同。
 13. 夜班只解析 `fo_accept_detail`，IPT/第三方单无该字段 → `night_pct` 对 IPT 恒 0。
 14. 红旗 `reasons` 中文串在后端拼死（`:3284-3288`），英文界面显示中文。
+15. **（本批核实）`_EXCLUDED_SLA_STATUSES` 上方的注释写「Pass / Failed / Within SLA 之外的值不计入统计」**（`tt_wo_dashboard.py:151`），
+    而代码只排除 `unknown` / `unkonw`（`:153`，`_stat_key` 走 casefold 等值）—— 注释与实现不一致。
+    界面气泡按**实现**描述（「只剔除 Unknown，其余原值各自成一类」）。要么改注释，要么把白名单真做成 Pass/Failed/Within SLA，**属业务口径决定**。
+16. **（本批核实）`eflow_flow` 的「全程共 N 个步骤」分母原先含 WO 泳道**：`reached_ids` 由 `_actual_path()` 生成，
+    其 `order` 只取 `_FLOW_NODES`（`eflow_flow.py:700` 附近），`_mark()` 对不在 order 里的 key 直接 return，
+    所以 `wo_create/accept/process/confirm/closed` 5 个节点**永远不会**进「已走步骤」；而前端原写 `graph.nodes.length` 当分母
+    （含这 5 个）。已按 `stage !== 'wo'` 过滤（`EflowFlow.tsx` 的 `ttNodeCount`）—— 这是**显示修正**，没动任何数字口径。
+17. **（本批核实）`noc_analyst` 站内帮助原写「错位判定以 `history_alarm.reason_type` 为权威」**，
+    实际 `_mismatch_of()` 读的是 `eflow_tt.alarm_reason_type`（`SELECT` 列表里只有 t 表列），该列为空才退回
+    `ALARM_CODE_SEMANTICS` 按告警码查静态语义表（`:3071-3077`）。帮助与手册已按代码更正。
+18. **（本批顺手修的两处显示违规，非口径）**：`noc_analyst` 三张比率/时长卡在后端返回 `null` 时 `?? 0` 会显示成 `0%` / `0h`
+    （读起来像「全都正常」），已改显示 `—`；`repeat_site_down` 四张汇总卡同理（`|| 0` → `dash()`），
+    并把该页一排硬编码英文表头/按钮补进 i18n 中英两套字典。
+19. **`StatCard` 新增 `explainText`（2026-11-03）**：只包 `Statistic` 那一层、不包标题，
+    所以标题里的 `ExplainIcon` 不会与外层气泡叠成两个同时弹出。后续批次的数字卡一律用它，不要再手搓数字节点。
 
 ---
 
 ## ④ 告警 / RAN / CN 族
+
+> **✅ 本批已于 2026-11-04 完成并实机验证**：`ran_cells_kpi`、`cn_kpi`、`cn_kpi_5mins`、`ume_in_kpi`、`alarm`（数字级补齐）。
+> 手册落笔在 `11-feature-guide.md` 第 3 节 / 14k / 14l / 33 / 33b。
+> ⚠ **本节有两处「重点可疑」是调研代理写错的，实施时回到代码核实后已更正**：
+> ① UmeInKpi 原写「summary.total_* 是整个 N 天窗口求和」——**不成立**。真实情况是每张 KPI 卡 `agg(latest_rows)` 只聚**最新一天**
+> （`ume_in_kpi_service.py:1033-1052`、资源 `:1089-1105`），概览只是把这些最新一天的值相加（`:1243-1247`），
+> 所以缺陷方向相反：**页头写着「近 30 天」但所有数都是最新一天**，界面按此写气泡。
+> ② RAN 的「Blank = roster − total」等逐条虽对，但 `alarm` 一节原写「市电柱」——后端字段名叫 `region_mains_count`，
+> 判据实际是 `transmission_type == "MW"`（微波传输，`alarm_dashboard.py:500-501`），**命名与含义不一致**，
+> 界面按判据描述并把该不一致登记为可疑点（见本节末 ④-3）。
 
 > 统一时区口径：后端 `date.today()/datetime.now()/SQLite date('now')` 都按本机时钟=UTC，无时区转换。
 
@@ -150,7 +179,48 @@
 
 ---
 
+### ④ 可疑点（本批实施时核实补录，均**未改数字**）
+1. **UmeInKpi「近 N 天」标签与数据不符**（方向与原调研相反）：卡与概览全部是**最新一天**，天数筛选只影响趋势图回看范围。
+   界面已在每个气泡第一行写明出自哪一天；要不要把窗口标签改掉（例如「统计天数」改成「趋势回看天数」）属产品决定。
+2. **UmeInKpi 判色只看系统侧**：用户侧失败再高也不染红（`agg()` 内 `status` 分支只在有失败列时用 `_sys_status(sys_rate)`）。
+   不是 bug（业务上用户侧失败属正常业务结果），但「全绿」容易被读成「全部正常」，气泡已明示。
+3. **`region_mains_count` 命名与判据不一致**：字段名说市电，判据是 `transmission_type == "MW"`（微波）。改字段名要动接口契约，未改。
+4. **`alarm_type_top` 后端取前 10、前端画前 8**（`alarm_dashboard.py:516` + `AlarmDashboard.tsx` `slice(0, 8)`）：
+   两处截断不一致，且都不等于总数。已在 ⓘ 写明，未统一。
+5. **`cn_kpi_5mins` 文件头注释与 §33b 早期描述仍写「xGW License / xGW CPU / 3G FDD 是空态卡」**，
+   实际 `UNAVAILABLE_TABLES = {}`（`:72`）且 2026-10-19 起切到 15 分钟档模板正常出数。手册 33b 已就地写明「以 `UNAVAILABLE_TABLES` 为准」，服务文件头注释属对方文档债。
+6. **`ran_cells_kpi` 的 `pct_*` 分母不含无数据小区**（`:392`），大面积缺上报时达标占比虚高；月值又是**日等权**（`:400`）。
+   两条都不是 bug，是口径，但都不写在界面上就会被误读，故写进气泡。
+
+---
+
 ## ⑤ 报表 / 仓库 / 分析族
+
+> **✅ 本批已完成（2026-11-04）**：`sp_report` + `com_report`（共用 `SpReportBase`）、`sp_details`、
+> `warehouse_summary`、`cr_analysis`、**`sp_material`**、**`bp_report`**、**`pm_analysis`** 全部接入并实机验证。
+> （下方「仍待做」的 `sp_material_summary` 弹窗合计一项也已按「前端即时聚合 + 气泡写明来源」处置完毕。）
+> **本批唯一一次改数字的修复（用户 2026-11-04 明确批准）**：`_overlay_db_open_counts()` 文档写"只对备件生效"、
+> 代码却**没有 kind 判断**，导致 `com_report` 的「未关闭单」被**备件库表**覆盖
+>（实测修复前 `?kind=consumables` 返回 `Outbound open_count=15 / source="db"`，那 15 张全是备件的）。
+> 已加 `if normalize_kind(kind) != "spareparts": return`，离线对拍 `spareparts 17+db / consumables 1 无 source`，
+> `tests/test_sp_open_count_caliber.py` 19 项全过。**线上 7038 未重启，重启由用户执行**（重启前页面仍是旧值）。
+> **2026-11-04 追加：用户批准「要动后端」后，两处前端重算已清掉，数字都没变**
+> 1. `warehouse_summary` 的「需补货」不再前端 `frequent.rows.filter().length`，改为直接取接口既有字段
+>   `overview.urgent`（后端 `sp_report_service.py:609` 在 Summary-Current **全表**上按 Alert Level 等值计数）。
+>   **不需要新增字段**，实测两条路径都等于 **62**。
+>   ⚠ 顺带更正本文件此前的误判：`frequent_materials.rows` 是**全量**不是 Top N
+>   （`_frequent_materials:784-788` 注释写明 top_n 只是展示提示、不能再拿它截断），所以旧写法的数值本就与全表一致。
+> 2. `noc_analyst` 时间归因的「偏离总数」「缺失动作总数」两张卡：`build_noc_timeline_agg()` 新增下发
+>   `deviation_total` / `missing_total`（`= Σ 各分组 count`，与旧前端算法逐字一致），前端改取字段、缺字段显示 `—` 不显示 0。
+>   配套把 `_TIMELINE_CACHE_VERSION` **6 → 7**（缓存文件名带版本，不 bump 会把「没有这两个字段的旧缓存」当新口径读出来）。
+>   ⚠ 生效前提：**重启 7038**（重启由用户执行）；每个已缓存月份第一次打开会重算约 150 秒。
+> 3. **`cr_analysis` 已于 2026-11-04 收到后端**：`cr_caliber.base_where` 新增 `categories`（`IN (?,?,…)`，值走占位符），
+>   `build_overview` / `build_drilldown` 共用它，前端直接用 `ov.summary`、比率不再在前端复制。
+>   离线对拍：选两类时后端 summary 与旧前端 Σ **逐项相等**（136/136/89/47/3/86/96/40，比率 65.4/3.4/70.6），**数字未变**。
+>   ⚠ 需重启 7038 才生效（未重启时后端忽略 `categories` → 界面退回全量）。
+>   **仍待做**：`sp_material_summary` 下钻弹窗的 `totalQty` —— 读代码后判定它**不必动后端**：
+>   它 sum 的是「弹窗搜索框筛过的子集」，后端没有这个集合，属于合法的前端即时聚合，
+>   按规则只需在气泡里写明「这是前端在当前搜索结果行上求和，接口不下发」（与 `spRep.tip.filteredQty` 同一处置）。
 
 ### SpReportBase（改一处覆盖 `sp_report` + `com_report` 两页）
 - 数字：8 张总览卡（`:533-556`）、5 张补库卡（`:748-753`）、分表卡（`:819-847`）、矩阵 `inbound_total/outbound_total`（`:579-582`）、标签头 `filtered_qty_total/qty_total`（`:929`）`total/records`（`:936`）。
@@ -166,9 +236,10 @@
 
 ### SpMaterialSummary
 - 数字：17 个可加列 ×（4/5 分组行 + Total 行）（`:380-464`）；下钻弹窗 `spMat.totalQty`（`:574-582`）。
-- 算法（`sp_material_summary_service.py`）：`inventory_details` 按快照日 `update_date IN (锚点/当前/月初/周初)` 一次 `GROUP BY` 聚合 `SUM(Stock Qty)`（`:306-325`），仓库名经 `ROW_GROUPS:126-157` 精确/前缀匹配归组，未命中落 Others；分桶 `:346-351`（`mstatus=='damage'`→damage；否则 mtype 含 `spare`→spare_good；含 `consum`→consumables）；消耗 = 期初−期末（三窗口各自减当前，`:581-615`）；`anchor_total = a_spare + a_cons`（**不含 damage**）；`repair_outbound` 来自另一张表另一段时间（`outband_details` 且 `Outbound Type='Repair Outbound'`，`:110-115`）；缺快照→回退「≤目标日最近快照」+warning（`:56-57`）；分组无数据→按 0 +warning（`:622-626`）；Others 全 0 隐藏（`:630`）；Total 含 Others（`:639-646`）。
+- 算法（`sp_material_summary_service.py`）：`inventory_details` 按快照日 `update_date IN (锚点/当前/月初/周初)` 一次 `GROUP BY` 聚合 `SUM(Stock Qty)`（`:306-325`），归组走 `_match_group:236-251` —— **`Warehouse Id` 精确/前缀 *或* `Warehouse Name` 含关键词**，逐组带 `name_none` 排除词（1st WH 排除 `2nd floor`），全不命中落 Others（本行早期只写「仓库名精确/前缀匹配」，实施时按代码更正，`ROW_GROUPS:126-157` 是规则表）；分桶 `:346-351`（`mstatus=='damage'`→damage；否则 mtype 含 `spare`→spare_good；含 `consum`→consumables）；消耗 = 期初−期末（三窗口各自减当前，`:581-615`）；`anchor_total = a_spare + a_cons`（**不含 damage**）；`repair_outbound` 来自另一张表另一段时间（`outband_details` 且 `Outbound Type='Repair Outbound'`，`:110-115`），该表**没有 Warehouse Id**，归组只按名字（`:402,876`）且一行 = 一个序列号（Qty 恒为 1）；缺快照→回退「≤目标日最近快照」+warning（`:56-57`）；分组无数据→按 0 +warning（`:622-626`）；Others 全 0 隐藏（`:630`）；Total 含 Others（`:639-646`）。
 - 已有：**常驻展开**口径条 `spMat.doc1-5`（`:467-470,552-561`）→ 按三.3b 应顺手迁 `CalcChainNote`。
 - 可疑：① 弹窗 `totalQty` 是前端对**筛过的子集** `reduce` 求和（`:574-582`）→ 违反三.3c，需后端下发字段；② `spare_good` 的 "good" 名不副实（只判 `!= 'damage'`，无 good 白名单，`:346-349`）；③ `anchor_total` 不含 damage 而 `total` 含 → 两数天然不等，气泡不写清会被当成对不上账；④ 消耗不做入库/调拨回补，负值合法并另有 warning 点名（`:648-659`）—— 按 3b 判断：解释→收起，异常→常驻。
+- **实施结果（2026-11-04）**：① 的结论改为「不必动后端」（合法客户端聚合，气泡写明筛过的行数与全量行数，见本文件 ⑤ 一节）；②③④ 三条全部写进 ⓘ / 气泡；常驻口径条已迁 `CalcChainNote`，「消耗为负」的 `Alert` 保持常驻。详见手册 §26c。
 
 ### WarehouseSummary
 - 数字：6 张 KPI 卡（`:459-485`）、段① 4 列 + Total 行（`:342-344,583-599`）、段② `consumption_qty/inventory_qty`（`:372-376`）、Total 行（`:640-654`）、标签（`:611-616`）。

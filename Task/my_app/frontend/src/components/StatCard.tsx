@@ -1,6 +1,7 @@
 import React, { ReactNode } from 'react'
 import { Statistic } from 'antd'
 import { WH } from '../theme'
+import { ExplainPopover } from './MetricExplain'
 
 interface StatCardProps {
   title: ReactNode
@@ -13,6 +14,10 @@ interface StatCardProps {
   style?: React.CSSProperties
   /** 可选：传入后卡片整体可点击（用于下钻等交互），并自动切换手型光标 */
   onClick?: (e: React.MouseEvent<HTMLDivElement>) => void
+  /** 可选：悬浮在**大数字本身**上时显示的计算说明（AGENTS.md 三.3c）。
+   *  与 title 里的 ExplainIcon 分工：ⓘ 讲「这一张卡怎么算」，这里讲「这个数怎么来的」。
+   *  只包数字、不包标题 —— 否则标题的 ⓘ 会和外层气泡同时炸开两个。 */
+  explainText?: string
 }
 
 export default function StatCard({
@@ -25,6 +30,7 @@ export default function StatCard({
   subText,
   style,
   onClick,
+  explainText,
 }: StatCardProps) {
   return (
     <div
@@ -40,16 +46,20 @@ export default function StatCard({
         <div style={{ fontSize: '0.8125rem', color: WH.textMuted, marginBottom: '0.25rem' }}>
           {title}
         </div>
-        <Statistic
-          value={value}
-          suffix={suffix}
-          valueStyle={{
-            color: accentColor,
-            fontWeight: 700,
-            fontSize: '1.625rem',
-            lineHeight: 1.2,
-          }}
-        />
+        <ExplainPopover text={explainText || ''} placement="bottom">
+          <span style={{ display: 'block' }}>
+            <Statistic
+              value={value}
+              suffix={suffix}
+              valueStyle={{
+                color: accentColor,
+                fontWeight: 700,
+                fontSize: '1.625rem',
+                lineHeight: 1.2,
+              }}
+            />
+          </span>
+        </ExplainPopover>
         {subText && (
           <div style={{ fontSize: '0.75rem', color: WH.textDim, marginTop: '0.25rem' }}>
             {subText}

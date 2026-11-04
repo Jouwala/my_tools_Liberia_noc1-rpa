@@ -62,6 +62,58 @@
       数字本身挂气泡；原生 `Tooltip title=` 全部换掉（`minDayTip` 删除），实测表头 12 个 ⓘ、顶部 6 个 ⓘ。
       顺手在气泡里说清两处坑：顶部三个数是**按搜索过滤后的站点集现算**（非后端全量），
       「未达标天」与月均气泡共用同一个 `belowDaysOf()`（阈值前端可调），刻意不用后端 `days_below` 以免打架。
+      **批② MS SLA / NUR 族已完成**：`ms_sla` + `ms_sla_only`（`c762c263`）、`nur` + `ms_nur_only`（`5d1225b7`）、
+      `ms_wo_sla` + `ms_contract_kpi`（`5d1225b7` 共用组件 + `403dd9e8` 两页各自概览卡）。
+      **批③ TT / WO 族已完成**：`ttwo`（含 `tt` / `wo` / `v1_ttwo` 切片，同一组件自动同享）、`eflow_flow`、
+      `noc_analyst`、`repeat_site_down`。要点：`renderStatCards()` 加第 7 个入参 `cellNote` 并把大数字与占比包
+      `ExplainPopover`；标题旁三个汇总徽标从 `Tooltip title=` 换成统一气泡；`StatCard` 新增 `explainText`
+      （只包数字、不包标题，避免与 ⓘ 叠两个气泡）；`eflow_flow` 从零说明补齐（ⓘ + 数字气泡 + `CalcChainNote` 四段 +
+      节点 tooltip 补判据）；`noc_analyst` 六张卡 + Top3/Bottom3 数字条补齐，并把「三人均值的算术平均 vs 合并口径」
+      的差异与 `_mismatch_of` 豁免永不命中**写进气泡而不是藏起来**；`repeat_site_down` 一排硬编码英文表头补进中英字典、
+      `counting_rule` 原生 Tooltip 迁 `CalcChainNote`、`malformed_time_rows` 改常驻告警。
+      实机验证（内嵌浏览器 `evaluate_script` 悬浮，7090 直连）：`repeat_site_down` 卡 3076 / 450 / 318 / 峰值 2026-10-15(186)
+      与单元格「132 次 / 9 个自然日」逐条对上；`eflow_flow` 搜 `TT202611030074` 出「4 / 11 步、规则 143 条、命中 33 条」；
+      `ttwo` P1 卡出「13 ÷ 3,683 = 0.4% + Unknown 剔除说明」；`noc_analyst` 出「93.3% 等权平均」「99.2% 合并口径」。
+      本批另核实三处「注释/帮助与实现不符」并登记在规格文档 ③ 可疑点 15~17（**未改数字**）。
+      **下一批（④）剩**：`ran_cells_kpi` / `cn_kpi` / `cn_kpi_5mins` / `ume_in_kpi` / `alarm`（ⓘ 已有，缺数字级）。
+      **批④ 告警 / RAN / CN 族已完成**：`ran_cells_kpi`（月度卡 ⓘ + 数字气泡含实际数据源；矩阵 7 行行头 ⓘ + 单元格气泡；
+      删掉 `title={t('rck.drillHint')}` 原生提示）、`cn_kpi`（此前**既无口径条也无任何 ⓘ**，现补组件卡 ⓘ + 页头单值卡气泡 +
+      四段 `CalcChainNote`；气泡直接把后端下发的 `sql` 原文给出来可复制核对）、
+      `cn_kpi_5mins`（11 个组件按 id 逐条字面量映射聚合式 SUM/AVG、RG 拆分、15 分钟档稀疏点；vs 昨日 ±% 明说**前端现算**；
+      页头三枚标签补齐）、`ume_in_kpi`（概览七卡从 `Tooltip title=` 换统一气泡 + 资源日均/峰值气泡）、
+      `alarm`（该页 8 卡 3 图的 ⓘ 早已存在，本次只补数字级：区域画像条数、各类型条数、类型 Top 卡标题 ⓘ）。
+      ⚠ **本批推翻了调研规格里两条「重点可疑」**：`ume_in_kpi` 不是「概览 = N 天窗口累计」，恰恰相反 ——
+      每张卡只聚**最新一天**（`agg(latest_rows)`），概览是把这些最新一天的值相加，而页面标签写着「近 30 天」；
+      `alarm` 的「市电柱」其实是 `transmission_type == "MW"`（字段名叫 `region_mains_count`，命名与判据不一致）。
+      两条都已按代码写进界面并登记在规格文档 ④ 可疑点 1~6（**均未改数字**）。
+      实机验证：`ran_cells_kpi` 月度卡出「3 个有效日等权平均 96.96% / 观测 9,882 / 名册 3,296 / 物化库 source」且单元格 3100+196=3296 自洽；
+      `cn_kpi` 组件气泡出「32 行 × 2 列 / 粒度日 / SQL 原文」；`cn_kpi_5mins` xGW License 出「AVG 非加权非峰值 + 15 分钟档」；
+      `ume_in_kpi` 出「最新一天 2026-11-03，不是窗口累计」；`alarm` 区域出「4 条 / MW 1 条 / 站点 3 个」。
+      **下一批（⑤）剩**：`SpReportBase`（一处覆盖 `sp_report` + `com_report`）、`SpDetailsReport`、`SpMaterialSummary`、
+      `WarehouseSummary`、`BpReport`、`CrChangeAnalysis`、`PmExecutionAnalysis`；`WarehouseDashboard` 是 iframe 豁免。
+      **批⑤ 已完成五页（2026-11-04）**：`sp_report` + `com_report`（一处覆盖两页）、`sp_details`、`warehouse_summary`、
+      `cr_analysis`。**并修掉一个显示错数字的缺陷**（用户批准）：`_overlay_db_open_counts` 文档写「只对备件生效」、
+      代码没有 kind 判断 → `com_report` 的「未关闭单」被**备件库表**覆盖（实测 `?kind=consumables` 的 Outbound=15 全是备件的）。
+      加 `if normalize_kind(kind) != "spareparts": return` 后离线对拍 `spareparts 17+source=db / consumables 1 回到 Excel`，
+      `tests/test_sp_open_count_caliber.py` 19 项全过；**线上 7038 未重启，重启由用户执行**。
+      两处「要后端补字段才合规」的前端重算**当时**保留原样、只在气泡直说，随后用户批准「要动后端」已全部清掉：
+      ① `warehouse_summary.urgent` 改取接口既有字段 `overview.urgent`（后端在 Summary-Current **全表**上按
+      Alert Level 等值计数，`sp_report_service.py:609`），实测两条路径都等于 **62**、数字未变；
+      ② `cr_analysis` 整块 KPI 收到后端 —— `cr_caliber.base_where(..., categories=…)` 用
+      `TRIM(COALESCE(col,'')) IN (?,?,…)`（值走占位符），`build_overview` / `build_drilldown` 共用同一谓词，
+      前端直接用 `ov.summary`、比率不再复制；离线对拍选两类时**逐项相等**（136/136/89/47/3/86/96/40，
+      比率 65.4/3.4/70.6）。同批 `noc_analyst` 两张卡也改为后端下发 `deviation_total` / `missing_total`
+      并把 `_TIMELINE_CACHE_VERSION` 6 → 7。⚠ **三处后端改动都要重启 7038 才生效，重启由用户执行。**
+      **批⑤ 收尾三页已完成（2026-11-04）**：`sp_material`（单元格气泡 + 列头 ⓘ，常驻口径条迁 `CalcChainNote`、
+      「消耗为负」告警保持常驻；下钻弹窗合计判定为**合法客户端聚合**不必动后端，气泡写明筛过的行数与全量行数）、
+      `bp_report`（占比列头 ⓘ + 每格气泡；重点讲清 `avg_ratio = AVG(bp_ratio)` 是**各期等权平均**、
+      不是 ΣBP ÷ Σ全网，气泡把两个数并列作对照）、`pm_analysis`（8 张计数卡 + 3 张比率卡全接，
+      「总数」卡单拆 `pm.tip.countTotal` 以免读成「自己占自己」；`pmt_overdue` **直接采用源表判定、页面不推算**
+      这条写进 ⓘ）。实机验证：`sp_material` 1st WH 期初 771 与「期初 − 当前」消耗构成对上；
+      `pm_analysis` 总数卡出「= 接口 summary 的 total = 2458」、超期 ⓘ 出 `UPPER(TRIM(pmt_overdue))='YES'`；
+      `bp_report` 平均占比气泡出对照句式（该区间当前无数据，三项均为 `—`，正是「取不到显示 —、不当 0」）。
+      **⑤ 族全部做完**；`warehouse_dashboard` 是 iframe 豁免。下一批 ⑥：`BmSpeedtest` / `BmMeta` /
+      `BatteryDashboard` / `FmeRanking` / `GISMap` / `Dashboard` / `Overview` 补数字级。
       **分批计划**（每批一个数据族，共用组件优先；每批都要 `npm run build` + 实机悬浮验证 + 手册/站内帮助同步）：
       ① 可用率族 `AvailMs` / `AvailFlm` / 共用 `AvailTrend`（与已完成的 avail_county 同一套口径，最先做）；
       ② MS SLA / NUR 族（`MsSlaDashboard` / `MsSlaOnly` / `MsNurOnly` / `NurDashboard` / `MsWoSLReport` / `MsContractKpiReport`）；

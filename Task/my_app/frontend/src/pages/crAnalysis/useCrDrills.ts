@@ -24,7 +24,9 @@ import type { DetailRow, Metric, StepDrillRow, StepKey } from './crTypes'
 
 type Pt = { x: number; y: number } | null
 /** 时间窗口：调用方负责格式化，hook 只管透传 */
-export type Window = { start: string; end: string }
+/** categories：页面已选的 change_category（逗号分隔）。下钻必须带上它，
+ *  否则「卡片显示筛过的数」与「明细行数」对不上（AGENTS.md 三.1b）。 */
+export type Window = { start: string; end: string; categories?: string }
 export type FlowKind = 'arrived' | 'current'
 
 const fmtWindow = (s: string | undefined, e: string | undefined): Window => ({
@@ -36,6 +38,7 @@ const dropEmpty = (w: Window): Record<string, string> => {
   const out: Record<string, string> = {}
   if (w.start) out.start = w.start
   if (w.end) out.end = w.end
+  if (w.categories) out.categories = w.categories
   return out
 }
 
