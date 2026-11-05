@@ -3806,7 +3806,14 @@ def _apply_owner_scope(result: Dict[str, Any], owner_scope: Optional[str]) -> Di
     （AGENTS.md 3.1b：概览数字必须等于下钻行数）。
     """
     if not owner_scope or owner_scope == "ALL":
-        return result
+        # 合计字段必须在**每条**返回路径都下发：前端「全部承接方」档刻意不带 owner 参数，
+        # 只会走到这里，缺字段会让两张合计卡显示 —（2026-11-05 实测 ALL 档无字段、
+        # 而 deviation_stats/missing_stats 求和分别为 299/135）。口径与下面切档分支逐字一致
+        # —— 合计 = 各分组 count 相加，与原前端 reduce 同式，不引入新数字。
+        out = dict(result)
+        out["deviation_total"] = sum((z.get("count") or 0) for z in (out.get("deviation_stats") or []))
+        out["missing_total"] = sum((z.get("count") or 0) for z in (out.get("missing_stats") or []))
+        return out
 
     tickets = [x for x in (result.get("tickets") or [])
                if (x.get("dispatch_owner") or "ZTE") == owner_scope]
