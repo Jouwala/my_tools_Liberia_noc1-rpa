@@ -270,6 +270,7 @@ def get_recent_failures(days: int = 3, limit: int = 200) -> dict:
     避免已恢复的历史故障（如 EWS 降级期失败）长期占据红色榜首误导排障。
     """
     clusters: dict[str, dict] = {}
+    scanned = 0
     try:
         with get_raw_connection(str(DB_PATH), timeout=30) as conn:
             _ensure_task_log_table(conn)
@@ -285,6 +286,7 @@ def get_recent_failures(days: int = 3, limit: int = 200) -> dict:
                ORDER BY started_at DESC LIMIT ?""",
                 (TEST_TASK_PREFIX, _cutoff, limit),
             ).fetchall()
+            scanned = len(rows)
             conn.close()
             for task_id, task_name, error, started_at in rows:
                 key = (error or "未知错误").split("\n")[0][:120]
@@ -333,7 +335,17 @@ def get_recent_failures(days: int = 3, limit: int = 200) -> dict:
         c["status"] = status
         items.append(c)
     items.sort(key=lambda x: (x["status"] != "active", x["status"] != "needs_attention", -x["count"]))
-    return {"days": days, "total_failures": sum(c["count"] for c in items), "clusters": items}
+    # scanned/truncated：SQL 只取最近 limit 条失败记录，取满即可能还有更久的没扫。
+    # 不显式暴露的话，「共 N 次失败」会在恰好 200 时被读成「这个窗口只有 200 次失败」
+    # （AGENTS.md 三.1b：截断必须让界面能说清）。
+    return {
+        "days": days,
+        "total_failures": sum(c["count"] for c in items),
+        "clusters": items,
+        "scanned": scanned,
+        "limit": limit,
+        "truncated": scanned >= limit,
+    }
 
 
 def get_task_history_by_task(task_id: str, limit: int = 200) -> list[dict]:

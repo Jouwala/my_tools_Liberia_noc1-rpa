@@ -25,6 +25,7 @@ import { Space, Statistic, Table, Tag, Typography } from 'antd'
 
 import { useI18n } from '../i18n'
 import { CardBase } from './cards'
+import { ExplainIcon, ExplainPopover } from './MetricExplain'
 import { WH } from '../theme'
 import { ms, THRESHOLDS, type VoiceResult } from '../pages/vmaxDiagnosisRules'
 
@@ -50,12 +51,25 @@ export default function VmaxVoiceCard({ voice }: { voice: VoiceResult }) {
     { key: 'qci1', label: 'QCI=1', value: voice.qci1 },
   ]
 
+  // 六个计数的悬浮说明（AGENTS.md 三.3c）。判据逐条从 pages/vmaxDiagnosisRules.ts 的
+  // analyzeVoice 核实；这一整卡数字都是前端算的，接口不下发，必须在文案里说清。
+  const cellTip = (k: string): string => {
+    switch (k) {
+      case 'sgs': return t('vmaxq.explain.vSgs')
+      case 'trig': return t('vmaxq.explain.vTrig')
+      case 'esr': return t('vmaxq.explain.vEsr')
+      case 'page': return t('vmaxq.explain.vPage')
+      case 'bad': return t('vmaxq.explain.vBad')
+      default: return t('vmaxq.explain.vQci1')
+    }
+  }
+
   return (
     <CardBase
       level={voice.badCount > 0 ? 'crit' : (slow || badRate) ? 'warn' : 'ok'}
       title={(
         <Space size={6}>
-          <span style={{ fontSize: '0.8125rem', fontWeight: 600 }}>{t('vmaxq.voice.card')}</span>
+          <span style={{ fontSize: '0.8125rem', fontWeight: 600 }}>{t('vmaxq.voice.card')} <ExplainIcon text={t('vmaxq.explain.voiceCard')} /></span>
           <Tag color={modeColor} style={{ marginInlineEnd: 0 }}>{modeText}</Tag>
           {slow && <Tag color="orange" style={{ marginInlineEnd: 0 }}>{t('vmaxq.voice.fallbackMs')} {ms(voice.fallbackMs || 0)}</Tag>}
         </Space>
@@ -74,14 +88,16 @@ export default function VmaxVoiceCard({ voice }: { voice: VoiceResult }) {
               borderRadius: 6,
               background: 'var(--wh-fill-secondary, rgba(127,127,127,0.08))',
             }}>
-              <div style={{ fontSize: 11, color: WH.textDim }}>{c.label}</div>
-              <Statistic
-                value={c.value}
-                valueStyle={{
-                  fontSize: '1.125rem', fontWeight: 700, lineHeight: 1.3,
-                  color: c.bad ? WH.danger : WH.text,
-                }}
-              />
+              <div style={{ fontSize: 11, color: WH.textDim }}>{c.label} <ExplainIcon text={cellTip(c.key)} size={10} /></div>
+              <ExplainPopover text={cellTip(c.key)}>
+                <Statistic
+                  value={c.value}
+                  valueStyle={{
+                    fontSize: '1.125rem', fontWeight: 700, lineHeight: 1.3,
+                    color: c.bad ? WH.danger : WH.text,
+                  }}
+                />
+              </ExplainPopover>
             </div>
           ))}
         </div>
@@ -93,15 +109,19 @@ export default function VmaxVoiceCard({ voice }: { voice: VoiceResult }) {
         <Space size={16} wrap>
           <Text style={{ fontSize: 12 }}>
             {t('vmaxq.voice.estLabel')}
-            <Text strong style={{ fontSize: 12, color: badRate ? WH.danger : WH.text }}>
-              {voice.successRate === null ? '—' : `${voice.successRate}%`}
-            </Text>
+            <ExplainPopover text={t('vmaxq.explain.vRate')}>
+              <Text strong style={{ fontSize: 12, color: badRate ? WH.danger : WH.text }}>
+                {voice.successRate === null ? '—' : `${voice.successRate}%`}
+              </Text>
+            </ExplainPopover>
           </Text>
           <Text style={{ fontSize: 12 }}>
             {t('vmaxq.voice.fallbackMsLabel')}
-            <Text strong style={{ fontSize: 12, color: slow ? WH.warn : WH.text }}>
-              {voice.fallbackMs === null ? '—' : ms(voice.fallbackMs)}
-            </Text>
+            <ExplainPopover text={t('vmaxq.explain.vFallback')}>
+              <Text strong style={{ fontSize: 12, color: slow ? WH.warn : WH.text }}>
+                {voice.fallbackMs === null ? '—' : ms(voice.fallbackMs)}
+              </Text>
+            </ExplainPopover>
           </Text>
         </Space>
 

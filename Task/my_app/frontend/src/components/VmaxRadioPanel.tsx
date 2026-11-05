@@ -37,6 +37,7 @@ import { useI18n } from '../i18n'
 import { renderI18n } from '../renderI18n'
 import { CardBase } from './cards'
 import StatCard from './StatCard'
+import { ExplainIcon, ExplainPopover } from './MetricExplain'
 import VmaxXdrRecordsPanel from './VmaxXdrRecordsPanel'
 import {
   axisLabel, axisLine, darkTooltip, splitLine, useTheme, WH,
@@ -283,34 +284,39 @@ export default function VmaxRadioPanel({
         gap: 'var(--wh-space-sm)',
       }}>
         <StatCard
-          title={t('vmaxq.radio.samples')}
+          title={<span>{t('vmaxq.radio.samples')} <ExplainIcon text={t('vmaxq.explain.rSamples')} /></span>}
           value={analysis.samples}
           accentColor={WH.teal}
+          explainText={t('vmaxq.explain.rSamples')}
           subText={analysis.rats.map((r) => `${r.name} ${r.n}`).join(' · ')}
         />
         <StatCard
-          title={t('vmaxq.radio.rsrpAvg')}
+          title={<span>{t('vmaxq.radio.rsrpAvg')} <ExplainIcon text={t('vmaxq.explain.rRsrpAvg')} /></span>}
           value={analysis.rsrpAvg}
           suffix={t('vmaxq.radio.unit.dbm')}
           accentColor={metricColor(analysis.rsrpAvg, [-110, -100])}
+          explainText={t('vmaxq.explain.rRsrpAvg')}
         />
         <StatCard
-          title={t('vmaxq.radio.rsrpP10')}
+          title={<span>{t('vmaxq.radio.rsrpP10')} <ExplainIcon text={t('vmaxq.explain.rRsrpP10')} /></span>}
           value={analysis.rsrpP10}
           suffix={t('vmaxq.radio.unit.dbm')}
           accentColor={metricColor(analysis.rsrpP10, [-110, -100])}
+          explainText={t('vmaxq.explain.rRsrpP10')}
           subText={t('vmaxq.radio.p10Hint')}
         />
         <StatCard
-          title={t('vmaxq.radio.sinrAvg')}
+          title={<span>{t('vmaxq.radio.sinrAvg')} <ExplainIcon text={t('vmaxq.explain.rSinrAvg')} /></span>}
           value={analysis.sinrAvg}
           suffix={t('vmaxq.radio.unit.db')}
           accentColor={metricColor(analysis.sinrAvg, [0, 5])}
+          explainText={t('vmaxq.explain.rSinrAvg')}
         />
         <StatCard
-          title={t('vmaxq.radio.cqiAvg')}
+          title={<span>{t('vmaxq.radio.cqiAvg')} <ExplainIcon text={t('vmaxq.explain.rCqiAvg')} /></span>}
           value={analysis.cqiAvg || '—'}
           accentColor={WH.indigo}
+          explainText={t('vmaxq.explain.rCqiAvg')}
         />
       </div>
 

@@ -40,6 +40,7 @@ import * as XLSX from 'xlsx'
 
 import api from '../api'
 import { useI18n } from '../i18n'
+import { ExplainIcon, ExplainPopover } from '../components/MetricExplain'
 import TtPostmortemPanel from '../components/TtPostmortemPanel'
 import WoClosePanel from '../components/WoClosePanel'
 import { useIsMobile, useTheme } from '../theme'
@@ -380,7 +381,11 @@ function TtRuleEvidence({ ev, t, isDark, isMobile, border, onOpenRule }: {
             </a>
           )}
           <Text type="secondary">
-            {rf.rules_count != null ? t('qa.tt.ruleCount', { n: rf.rules_count }) : ''}
+            {rf.rules_count != null && (
+              <ExplainPopover text={t('qa.explain.ruleCount', { n: rf.rules_count })}>
+                <span>{t('qa.tt.ruleCount', { n: rf.rules_count })}</span>
+              </ExplainPopover>
+            )}
             {rf.rules_updated_at ? ` · ${t('qa.tt.ruleUpdatedAt')} ${rf.rules_updated_at}` : ''}
             {rf.collected_at ? ` · ${t('qa.tt.ruleCollectedAt')} ${rf.collected_at}` : ''}
           </Text>
@@ -400,7 +405,13 @@ function TtRuleEvidence({ ev, t, isDark, isMobile, border, onOpenRule }: {
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 4 }}>
             <Text strong style={{ fontSize: 13 }}>{t('qa.tt.pushRule')}</Text>
             {prHit.length
-              ? <Tag color="blue">{t('qa.tt.pushRuleHit', { n: prHit.length })}</Tag>
+              ? (
+                <Tag color="blue">
+                  <ExplainPopover text={t('qa.explain.pushRuleHit', { n: prHit.length })}>
+                    <span>{t('qa.tt.pushRuleHit', { n: prHit.length })}</span>
+                  </ExplainPopover>
+                </Tag>
+              )
               : <Tag>{t('qa.tt.pushRuleNone')}</Tag>}
           </div>
           {prHit.slice(0, 3).map((r: any, i: number) => (
@@ -493,7 +504,7 @@ function dedupeTokens(tokens: string[]): string[] {
   return out
 }
 
-function HistoryTable({ h, t, isDark, isMobile }: { h: any; t: (k: string) => string; isDark: boolean; isMobile: boolean }) {
+function HistoryTable({ h, t, isDark, isMobile }: { h: any; t: (k: string, p?: Record<string, string | number>) => string; isDark: boolean; isMobile: boolean }) {
   const items = h?.items || []
   const columns = [
     { title: t('qa.ume.col.raised'), dataIndex: 'raised_time', width: 155, fixed: 'left' as const },
@@ -508,8 +519,12 @@ function HistoryTable({ h, t, isDark, isMobile }: { h: any; t: (k: string) => st
   return (
     <>
       <div style={{ marginBottom: 6, fontSize: 12, color: isDark ? '#aebbd4' : '#64748b' }}>
-        {h?.position} · {t('qa.ume.totalRows')} {h?.total ?? 0}
-        {items.length < (h?.total ?? 0) ? `（${t('qa.ume.totalRows')} ${items.length}）` : ''}
+        {h?.position} · <ExplainPopover text={t('qa.explain.umeHistoryTotal')}><span>{t('qa.ume.totalRows')} {h?.total ?? '—'}</span></ExplainPopover>
+        {items.length < (h?.total ?? 0) && (
+          <ExplainPopover text={t('qa.explain.umeHistoryShown', { n: items.length })}>
+            <span>{`（${t('qa.ume.totalRows')} ${items.length}）`}</span>
+          </ExplainPopover>
+        )}
       </div>
       {items.length === 0
         ? <Empty description={t('qa.ume.noHistory').replace('{days}', String(h?.days ?? 30))} style={{ margin: '12px 0' }} />
@@ -649,7 +664,7 @@ function RelAlarmTabs({ t, isDark, isMobile, border, rel }: {
 }
 
 function UmeAlarmView({ t, isDark, isMobile, border, umeKey, loading, error, data, onBack, onRetry }: {
-  t: (k: string) => string
+  t: (k: string, p?: Record<string, string | number>) => string
   isDark: boolean
   isMobile: boolean
   border: string
@@ -775,7 +790,7 @@ function UmeAlarmView({ t, isDark, isMobile, border, umeKey, loading, error, dat
         {!!(local && (local.cells || []).length) && (
           <div style={{ marginTop: 8 }}>
             <Text type="secondary" style={{ fontSize: 12 }}>
-              {t('qa.ume.local')} · {t('qa.ume.cells')}（{(local.cells || []).length}）
+              {t('qa.ume.local')} · <ExplainPopover text={t('qa.explain.cells', { n: (local.cells || []).length })}><span>{t('qa.ume.cells')}（{(local.cells || []).length}）</span></ExplainPopover>
             </Text>
             <div style={{ marginTop: 4 }}>
               {(local.cells || []).slice(0, 60).map((c: string) => (
@@ -1648,7 +1663,10 @@ export default function EflowQa() {
       {items && (
         <>
           <Text type="secondary" style={{ fontSize: 12 }}>
-            {items.length}{t('qa.docCount')}{rootDir ? ` · ${rootDir}` : ''}
+            <ExplainPopover text={t('qa.explain.docCount', { n: items.length })}>
+              <span>{items.length}{t('qa.docCount')}</span>
+            </ExplainPopover>
+            {rootDir ? ` · ${rootDir}` : ''}
           </Text>
           {/* 默认不展开：目录树只有 1~2 层，文件按 status tag 一眼可辨，
              全展开反而占满视口（11 docs · D:\01_RPA\Task\eflow_Q&A）。
@@ -1841,7 +1859,9 @@ export default function EflowQa() {
                       <div style={{ marginTop: 8, fontSize: 12, color: isDark ? '#aebbd4' : '#64748b' }}>
                         {ttAi.alarm_source && <Tag color="cyan" style={{ marginRight: 6 }}>{t('qa.tt.alarmSource')}: {ttAi.alarm_source}</Tag>}
                         {(ttAi.elapsed_total_sec ?? ttAi.elapsed_sec) != null && (
-                          <span>{t('qa.tt.progElapsed')}: {ttAi.elapsed_total_sec ?? ttAi.elapsed_sec}s</span>
+                          <ExplainPopover text={t('qa.explain.elapsed', { v: ttAi.elapsed_total_sec ?? ttAi.elapsed_sec })}>
+                            <span>{t('qa.tt.progElapsed')}: {ttAi.elapsed_total_sec ?? ttAi.elapsed_sec}s</span>
+                          </ExplainPopover>
                         )}
                       </div>
                     </div>
@@ -1980,7 +2000,7 @@ export default function EflowQa() {
                     ghost
                     items={ttReport.fields.map((sec: any) => ({
                       key: sec.section,
-                      label: <Text strong>{ttSectionLabel(sec.section, locale)} <Text type="secondary" style={{ fontSize: 12 }}>({sec.items.length})</Text></Text>,
+                      label: <Text strong>{ttSectionLabel(sec.section, locale)} <ExplainPopover text={t('qa.explain.sectionCount', { n: sec.items.length, sec: sec.section })}><Text type="secondary" style={{ fontSize: 12 }}>({sec.items.length})</Text></ExplainPopover></Text>,
                       children: (
                         <div style={{ fontSize: 13, lineHeight: 2 }}>
                           {sec.items.map((it: any) => (
@@ -2096,9 +2116,14 @@ export default function EflowQa() {
               const s = batchData.summary || {}
               const allRows: any[] = batchData.rows || []
               const shown = batchOnlyAdjust ? allRows.filter(r => r.level_status === 'adjust') : allRows
-              const stat = (label: string, value: number, color?: string) => (
+              const stat = (label: string, value: number, color?: string, explain?: string) => (
                 <Tag color={color} style={{ margin: 0, padding: '2px 10px', fontSize: 13 }}>
-                  {label} <b>{value}</b>
+                  {label}{' '}
+                  <b>
+                    {explain
+                      ? <ExplainPopover text={explain}><span>{value}</span></ExplainPopover>
+                      : value}
+                  </b>
                 </Tag>
               )
               const columns = [
@@ -2178,12 +2203,17 @@ export default function EflowQa() {
                     <Text strong style={{ fontSize: 13 }}>{t('qa.ttBatch.summary')}</Text>
                   </div>
                   <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 8 }}>
-                    {stat(t('qa.ttBatch.stat.input'), batchData.input?.valid ?? 0)}
-                    {stat(t('qa.ttBatch.stat.found'), s.found ?? 0, 'cyan')}
-                    {stat(t('qa.ttBatch.stat.miss'), s.not_found ?? 0, 'default')}
-                    {stat(t('qa.ttBatch.stat.ok'), s.level_ok ?? 0, 'green')}
-                    {stat(t('qa.ttBatch.stat.adjust'), s.level_adjust ?? 0, 'red')}
-                    {stat(t('qa.ttBatch.stat.unknown'), s.level_unknown ?? 0, 'orange')}
+                    {stat(t('qa.ttBatch.stat.input'), batchData.input?.valid ?? 0, undefined, t('qa.explain.bInput', {
+                      valid: batchData.input?.valid ?? 0,
+                      total: batchData.input?.total ?? 0,
+                      invalid: (batchData.input?.invalid || []).length,
+                      dup: (batchData.input?.duplicated || []).length,
+                    }))}
+                    {stat(t('qa.ttBatch.stat.found'), s.found ?? 0, 'cyan', t('qa.explain.bFound'))}
+                    {stat(t('qa.ttBatch.stat.miss'), s.not_found ?? 0, 'default', t('qa.explain.bMiss'))}
+                    {stat(t('qa.ttBatch.stat.ok'), s.level_ok ?? 0, 'green', t('qa.explain.bOk'))}
+                    {stat(t('qa.ttBatch.stat.adjust'), s.level_adjust ?? 0, 'red', t('qa.explain.bAdjust'))}
+                    {stat(t('qa.ttBatch.stat.unknown'), s.level_unknown ?? 0, 'orange', t('qa.explain.bUnknown'))}
                   </div>
                   {/* 表格工具条：筛选 + 行数 + 导出（导出的是当前表格内容） */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
@@ -2192,9 +2222,11 @@ export default function EflowQa() {
                         <span style={{ fontSize: 13 }}>{t('qa.ttBatch.onlyAdjust')}</span>
                       </Tooltip>
                     </Checkbox>
-                    <Text type="secondary" style={{ fontSize: 12 }}>
-                      {t('qa.ttBatch.tableCount', { n: shown.length, total: allRows.length })}
-                    </Text>
+                    <ExplainPopover text={t('qa.explain.bTableCount', { n: shown.length, total: allRows.length })}>
+                      <Text type="secondary" style={{ fontSize: 12 }}>
+                        {t('qa.ttBatch.tableCount', { n: shown.length, total: allRows.length })}
+                      </Text>
+                    </ExplainPopover>
                     <Space style={{ marginLeft: 'auto' }} wrap>
                       <Tooltip title={t('qa.ttBatch.exportTip')}>
                         <Button
@@ -2259,7 +2291,11 @@ export default function EflowQa() {
           <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
               <Text strong>
-                {searching ? t('qa.searching') : `${hits.length}${t('qa.results')}`}
+                {searching ? t('qa.searching') : (
+                  <ExplainPopover text={t('qa.explain.searchHits', { n: hits.length })}>
+                    <span>{`${hits.length}${t('qa.results')}`}</span>
+                  </ExplainPopover>
+                )}
               </Text>
               <Button size="small" onClick={() => { setHits(null); setSearched(false) }}>
                 {t('qa.backToResults')}

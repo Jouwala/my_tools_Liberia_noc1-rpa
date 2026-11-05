@@ -6,6 +6,7 @@ import * as XLSX from 'xlsx'
 import api from '../api'
 import { useI18n, numLocale } from '../i18n'
 import { cardStyle, controlCardStyle } from '../theme'
+import { ExplainIcon, ExplainPopover } from '../components/MetricExplain'
 // Data Agent 只读 NL2SQL 入口（探索性副驾，不参与定时报表/看板产出）。
 // 定位、护栏与风险清单见 docs/DATA_AGENT_EVALUATION.md。
 import DataAgentBar from '../components/DataAgentBar'
@@ -516,8 +517,12 @@ export default function TableBrowser() {
           </Col>
           {tableInfo && (
             <Col xs={24} lg={6}>
-              <Tag color="blue">{tableInfo.row_count.toLocaleString(numLocale(locale))} {t('common.rows')}</Tag>
-              <Tag color="green">{tableInfo.col_count} {t('common.cols')}</Tag>
+              <ExplainPopover text={t('table.explain.rowCount')}>
+                <Tag color="blue">{tableInfo.row_count.toLocaleString(numLocale(locale))} {t('common.rows')}</Tag>
+              </ExplainPopover>
+              <ExplainPopover text={t('table.explain.colCount')}>
+                <Tag color="green">{tableInfo.col_count} {t('common.cols')}</Tag>
+              </ExplainPopover>
             </Col>
           )}
           <Col xs={24} lg={tableInfo ? 6 : 12}>
@@ -548,7 +553,9 @@ export default function TableBrowser() {
                 {t('table.customizeCols')}
               </Button>
               {visibleCols && (
-                <Tag color="orange">{t('table.visibleColsTag', { n: shownCols.length, m: tableColumns.length })}</Tag>
+                <ExplainPopover text={t('table.explain.visibleCols', { n: shownCols.length, m: tableColumns.length })}>
+                  <Tag color="orange">{t('table.visibleColsTag', { n: shownCols.length, m: tableColumns.length })}</Tag>
+                </ExplainPopover>
               )}
             </Space>
           </Col>
@@ -713,9 +720,11 @@ export default function TableBrowser() {
             {importResult.tables?.map((tbl: any, i: number) => (
               <div key={i} style={{ marginBottom: 'var(--wh-space-xs)' }}>
                 <Tag color="blue">{tbl.table_name}</Tag>
-                <span style={{ color: '#888' }}>
-                  {tbl.row_count.toLocaleString(numLocale(locale))} {t('common.rows')} / {tbl.col_count} {t('common.cols')}
-                </span>
+                <ExplainPopover text={t('table.explain.importRows', { n: tbl.row_count, m: tbl.col_count })}>
+                  <span style={{ color: '#888' }}>
+                    {tbl.row_count.toLocaleString(numLocale(locale))} {t('common.rows')} / {tbl.col_count} {t('common.cols')}
+                  </span>
+                </ExplainPopover>
               </div>
             ))}
           </div>
@@ -754,8 +763,12 @@ export default function TableBrowser() {
           <div style={{ marginTop: 'var(--wh-space-md)', color: '#666', fontSize: '0.8125rem' }}>
             <div>{t('table.mwCurrent')}</div>
             <div style={{ marginTop: 'var(--wh-space-xs)' }}>
-              <Tag color="blue">{t('table.mwSites', { n: mwStatus.sites })}</Tag>
-              <Tag color="green">{t('table.mwLinks', { n: mwStatus.links })}</Tag>
+              <ExplainPopover text={t('table.explain.mwSites', { n: mwStatus.sites })}>
+                <Tag color="blue">{t('table.mwSites', { n: mwStatus.sites })}</Tag>
+              </ExplainPopover>
+              <ExplainPopover text={t('table.explain.mwLinks', { n: mwStatus.links })}>
+                <Tag color="green">{t('table.mwLinks', { n: mwStatus.links })}</Tag>
+              </ExplainPopover>
               {mwStatus.import_time && <Tag>{mwStatus.import_time}</Tag>}
             </div>
             {mwStatus.source_file && (
@@ -766,9 +779,17 @@ export default function TableBrowser() {
 
         {mwResult && (
           <div style={{ marginTop: 'var(--wh-space-md)' }}>
-            <Tag color="green">{t('table.mwSites', { n: mwResult.sites })}</Tag>
-            <Tag color="green">{t('table.mwLinks', { n: mwResult.links })}</Tag>
-            {mwResult.skipped > 0 && <Tag color="orange">skip {mwResult.skipped}</Tag>}
+            <ExplainPopover text={t('table.explain.mwWrittenSites', { n: mwResult.sites })}>
+              <Tag color="green">{t('table.mwSites', { n: mwResult.sites })}</Tag>
+            </ExplainPopover>
+            <ExplainPopover text={t('table.explain.mwWrittenLinks', { n: mwResult.links })}>
+              <Tag color="green">{t('table.mwLinks', { n: mwResult.links })}</Tag>
+            </ExplainPopover>
+            {mwResult.skipped > 0 && (
+              <ExplainPopover text={t('table.explain.mwSkipped', { n: mwResult.skipped })}>
+                <Tag color="orange">skip {mwResult.skipped}</Tag>
+              </ExplainPopover>
+            )}
             <div style={{ marginTop: 'var(--wh-space-xs)', color: '#888', fontSize: '0.8125rem' }}>
               {t('table.mwImportedHint')}
             </div>
@@ -802,7 +823,11 @@ export default function TableBrowser() {
                     pagination={{
                       ...pagination,
                       showSizeChanger: false,
-                      showTotal: (total) => t('table.totalRecords', { n: total }),
+                      showTotal: (total) => (
+                        <ExplainPopover text={t('table.explain.pageTotal', { n: total })}>
+                          <span>{t('table.totalRecords', { n: total })}</span>
+                        </ExplainPopover>
+                      ),
                       onChange: (p) => loadTableData(p),
                     }}
                   />
@@ -875,18 +900,44 @@ function ProfilePanel({ profile, onLoad }: { profile: ProfileResult; onLoad: () 
 
   return (
     <div>
+      {/* 画像是**采样**结果：后端 SQL 写死 `SELECT * LIMIT 10000` 且无 ORDER BY。
+          取满 1 万行时必须常驻说清，否则用户会把样本行数当成全表行数（AGENTS.md 四.10 的「异常常驻」）。 */}
+      {p.total_rows >= 10000 && (
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginBottom: 'var(--wh-space-md)' }}
+          message={t('table.profileSampled', { n: p.total_rows })}
+        />
+      )}
       <Row gutter={[16, 16]}>
         <Col xs={24} sm={12} lg={6}>
-          <Card style={cardStyle}><Statistic title={t('table.qualityScore')} value={p.quality_score} suffix={t('table.scoreUnit')} valueStyle={{ color: p.quality_score >= 80 ? '#52c41a' : '#faad14' }} /></Card>
+          <Card style={cardStyle}>
+            <ExplainPopover text={t('table.explain.quality')}>
+              <Statistic title={<span>{t('table.qualityScore')} <ExplainIcon text={t('table.explain.quality')} /></span>} value={p.quality_score} suffix={t('table.scoreUnit')} valueStyle={{ color: p.quality_score >= 80 ? '#52c41a' : '#faad14' }} />
+            </ExplainPopover>
+          </Card>
         </Col>
         <Col xs={24} sm={12} lg={6}>
-          <Card style={cardStyle}><Statistic title={t('table.totalRowsLabel')} value={p.total_rows} /></Card>
+          <Card style={cardStyle}>
+            <ExplainPopover text={t('table.explain.sampleRows', { n: p.total_rows })}>
+              <Statistic title={<span>{t('table.totalRowsLabel')} <ExplainIcon text={t('table.explain.sampleRows', { n: p.total_rows })} /></span>} value={p.total_rows} />
+            </ExplainPopover>
+          </Card>
         </Col>
         <Col xs={24} sm={12} lg={6}>
-          <Card style={cardStyle}><Statistic title={t('table.totalColsLabel')} value={p.total_cols} /></Card>
+          <Card style={cardStyle}>
+            <ExplainPopover text={t('table.explain.sampleCols', { n: p.total_cols })}>
+              <Statistic title={<span>{t('table.totalColsLabel')} <ExplainIcon text={t('table.explain.sampleCols', { n: p.total_cols })} /></span>} value={p.total_cols} />
+            </ExplainPopover>
+          </Card>
         </Col>
         <Col xs={24} sm={12} lg={6}>
-          <Card style={cardStyle}><Statistic title={t('table.qualityIssues')} value={p.issues_summary.length} valueStyle={{ color: p.issues_summary.length > 0 ? '#ff4d4f' : '#52c41a' }} /></Card>
+          <Card style={cardStyle}>
+            <ExplainPopover text={t('table.explain.issueListLen', { n: p.issues_summary.length })}>
+              <Statistic title={<span>{t('table.qualityIssues')} <ExplainIcon text={t('table.explain.issueListLen', { n: p.issues_summary.length })} /></span>} value={p.issues_summary.length} valueStyle={{ color: p.issues_summary.length > 0 ? '#ff4d4f' : '#52c41a' }} />
+            </ExplainPopover>
+          </Card>
         </Col>
       </Row>
 
@@ -924,9 +975,17 @@ function ProfilePanel({ profile, onLoad }: { profile: ProfileResult; onLoad: () 
                 columns={[
                   { title: t('table.fieldName'), dataIndex: 'name', key: 'name', minWidth: 120 },
                   { title: t('table.fieldType'), dataIndex: 'type_category', key: 'type_category', minWidth: 100, render: (v: string) => <Tag>{v}</Tag> },
-                  { title: t('table.nullRate'), dataIndex: 'null_rate', key: 'null_rate', minWidth: 120, render: (v: number) => <Progress percent={v} size="small" strokeColor={v > 50 ? '#ff4d4f' : v > 20 ? '#faad14' : '#52c41a'} /> },
-                  { title: t('table.uniqueCount'), dataIndex: 'unique_count', key: 'unique_count', minWidth: 90 },
-                  { title: t('table.issueCount'), dataIndex: 'issue_count', key: 'issue_count', minWidth: 90, render: (v: number) => v > 0 ? <Badge count={v} /> : '-' },
+                  { title: <span>{t('table.nullRate')} <ExplainIcon text={t('table.explain.colNullRate')} /></span>, dataIndex: 'null_rate', key: 'null_rate', minWidth: 120, render: (v: number, r: ProfileColumn) => (
+                    <ExplainPopover text={t('table.explain.cellNullRate', { name: r.name, pct: v, nulls: r.null_count, total: r.total })}>
+                      <span style={{ display: 'block' }}><Progress percent={v} size="small" strokeColor={v > 50 ? '#ff4d4f' : v > 20 ? '#faad14' : '#52c41a'} /></span>
+                    </ExplainPopover>
+                  ) },
+                  { title: <span>{t('table.uniqueCount')} <ExplainIcon text={t('table.explain.colUnique')} /></span>, dataIndex: 'unique_count', key: 'unique_count', minWidth: 90, render: (v: number, r: ProfileColumn) => (
+                    <ExplainPopover text={t('table.explain.cellUnique', { name: r.name, uniq: v, total: r.total })}><span>{v}</span></ExplainPopover>
+                  ) },
+                  { title: <span>{t('table.issueCount')} <ExplainIcon text={t('table.explain.colIssue')} /></span>, dataIndex: 'issue_count', key: 'issue_count', minWidth: 90, render: (v: number, r: ProfileColumn) => v > 0
+                    ? <ExplainPopover text={t('table.explain.cellIssue', { name: r.name, n: v })}><Badge count={v} /></ExplainPopover>
+                    : <ExplainPopover text={t('table.explain.cellIssueZero', { name: r.name })}><span>-</span></ExplainPopover> },
                   { title: t('table.candidateKey'), key: 'pk', minWidth: 90, render: (_: any, r: ProfileColumn) => r.is_candidate_key ? <Tag color="gold">{t('table.isKey')}</Tag> : '-' },
                 ]}
                 size="small"

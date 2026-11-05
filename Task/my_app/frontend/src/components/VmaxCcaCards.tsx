@@ -14,6 +14,7 @@ import { Button, Descriptions, Table, Tag, Typography } from 'antd'
 
 import { useI18n } from '../i18n'
 import { CardBase } from '../components/cards'
+import { ExplainPopover } from './MetricExplain'
 
 const { Text } = Typography
 
@@ -192,7 +193,9 @@ export default function VmaxCcaCards({
           {result.cells?.cells?.length ? (
             <>
               <div style={{ marginBottom: 8 }}>
-                <Tag color="blue">{t('vmaxq.cellCount', { n: result.cells.cells.length })}</Tag>
+                <ExplainPopover text={t('vmaxq.explain.ccaCells', { n: result.cells.cells.length })}>
+                  <Tag color="blue">{t('vmaxq.cellCount', { n: result.cells.cells.length })}</Tag>
+                </ExplainPopover>
                 <Text type="secondary" style={{ fontSize: 12 }}>{t('vmaxq.cellsHint')}</Text>
               </div>
               <Table
@@ -213,7 +216,9 @@ export default function VmaxCcaCards({
           {causes.length ? (
             <>
               <div style={{ marginBottom: 8 }}>
-                <Tag color="red">{t('vmaxq.causeCount', { n: causes.length })}</Tag>
+                <ExplainPopover text={t('vmaxq.explain.ccaCauses', { n: causes.length })}>
+                  <Tag color="red">{t('vmaxq.causeCount', { n: causes.length })}</Tag>
+                </ExplainPopover>
                 <Text type="secondary" style={{ fontSize: 12 }}>{t('vmaxq.causesHint')}</Text>
               </div>
               <Table

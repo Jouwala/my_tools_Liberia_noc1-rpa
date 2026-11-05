@@ -46,6 +46,7 @@ import { cachedGet, invalidateCache } from '../cache'
 import { speak, warmSpeech } from '../utils/speak'
 import { WH, cardStyle, controlCardStyle, pageWrap } from '../theme'
 import { firstLine, cronToHuman, CATEGORY_CONFIG } from './datasync/helpers'
+import { ExplainIcon, ExplainPopover } from '../components/MetricExplain'
 import { ScheduleEditor } from './datasync/ScheduleEditor'
 import { TaskHistoryModal } from './datasync/TaskHistoryModal'
 import { GlobalHistoryModal } from './datasync/GlobalHistoryModal'
@@ -677,6 +678,20 @@ export default function DataSync() {
     return counts
   }, [allTasks, runningMap, localRunning])
 
+  // 六张状态卡的悬浮说明（AGENTS.md 三.3c）：每个数字都能问到「这个数怎么归的」。
+  // 判定与筛选共用 classifyTaskStatus，所以气泡说的就是卡上数字的算法，不存在第二套口径。
+  const statusCardExplain = (key: TaskStatusKey): string => {
+    const perKey: Record<TaskStatusKey, string> = {
+      all: t('sync.explain.cardAll'),
+      running: t('sync.explain.cardRunning'),
+      success: t('sync.explain.cardSuccess'),
+      failed: t('sync.explain.cardFailed'),
+      disabled: t('sync.explain.cardDisabled'),
+      unknown: t('sync.explain.cardUnknown'),
+    }
+    return `${perKey[key]}\n${t('sync.explain.cardSum', { all: allTasks.length })}`
+  }
+
   // 状态统计卡配置：颜色 / 图标 / 文案 / 对应筛选值。
   // 「未记录」必须留一张卡：classifyTaskStatus 会产出该桶（任务已启用但库里没有执行记录），
   // 卡片缺了它，五张卡之和就小于「全部」，用户会当成统计错误（2026-10-08 实测 60+1+3≠70）。
@@ -1071,7 +1086,11 @@ export default function DataSync() {
                   {locale === 'zh' ? '上次：' : 'Last: '}
                   {formatDateTime(lastRun.started_at, { zone: true })}
                 </Text>
-                <Text style={{ color: WH.textDim }}>⏱ {(lastRun.elapsed_seconds ?? 0).toFixed(1)}s</Text>
+                <ExplainPopover text={t('sync.explain.elapsed', { id: task.task_id })}>
+                  <Text style={{ color: WH.textDim }}>
+                    {'⏱ '}{lastRun.elapsed_seconds == null ? '—' : `${lastRun.elapsed_seconds.toFixed(1)}s`}
+                  </Text>
+                </ExplainPopover>
                 {lastRun.error && (
                   <Tooltip title={lastRun.error_trace || lastRun.error}>
                     <Text
@@ -1184,6 +1203,8 @@ export default function DataSync() {
               </Popconfirm>
             </Space>
           </Tooltip>
+          {/* ⓘ 放在 Tooltip 外面：包在里面时悬浮会同时炸出「开关说明」与「数字口径」两层气泡 */}
+          <ExplainIcon text={t('sync.explain.toggleCount', { enabled: enabledCount, all: allTasks.length })} />
           <Button icon={<ReloadOutlined />} onClick={() => loadTasks(true)} loading={loading} style={{ color: WH.text, borderColor: 'var(--wh-subtle-border)', background: 'var(--wh-subtle-bg)' }}>
             {t('common.refresh')}
           </Button>
@@ -1354,7 +1375,9 @@ export default function DataSync() {
           display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap',
           marginTop: 'var(--wh-space-xs)', color: WH.textDim, fontSize: '0.6875rem',
         }}>
-          <span>{locale === 'zh' ? `${timeline.dated.length} 个任务` : `${timeline.dated.length} tasks`}</span>
+          <ExplainPopover text={t('sync.explain.timelineCount', { n: timeline.dated.length, all: allTasks.length })}>
+            <span>{locale === 'zh' ? `${timeline.dated.length} 个任务` : `${timeline.dated.length} tasks`}</span>
+          </ExplainPopover>
           <Space size={10} wrap>
             <span><i style={{ display: 'inline-block', width: '0.5rem', height: '0.5rem', borderRadius: '50%', background: WH.blue, marginRight: 4 }} />{locale === 'zh' ? '运行中' : 'Running'}</span>
             <span><i style={{ display: 'inline-block', width: '0.5rem', height: '0.5rem', borderRadius: '50%', background: WH.tlFail, marginRight: 4 }} />{locale === 'zh' ? '失败' : 'Failed'}</span>
@@ -1437,11 +1460,13 @@ export default function DataSync() {
                     </Tag>
                   )}
                 </div>
-                <div style={{ fontSize: '1.75rem', fontWeight: 700, color: WH.text, lineHeight: 1 }}>
-                  {count}
-                </div>
+                <ExplainPopover text={statusCardExplain(key)}>
+                  <div style={{ fontSize: '1.75rem', fontWeight: 700, color: WH.text, lineHeight: 1 }}>
+                    {count}
+                  </div>
+                </ExplainPopover>
                 <div style={{ marginTop: 'var(--wh-space-xs)', fontSize: '0.75rem', color: WH.textMuted }}>
-                  {statusLabel(key)}
+                  {statusLabel(key)} <ExplainIcon text={statusCardExplain(key)} />
                 </div>
               </div>
             )
@@ -1491,9 +1516,11 @@ export default function DataSync() {
             { value: 'status', label: locale === 'zh' ? '按状态' : 'By Status' },
           ]}
         />
-        <Text style={{ color: WH.textDim, fontSize: '0.75rem', marginLeft: 'auto' }}>
-          {locale === 'zh' ? `共 ${tasks.length} / ${allTasks.length} 个` : `${tasks.length} / ${allTasks.length}`}
-        </Text>
+        <ExplainPopover text={t('sync.explain.listCount', { shown: tasks.length, all: allTasks.length })}>
+          <Text style={{ color: WH.textDim, fontSize: '0.75rem', marginLeft: 'auto' }}>
+            {locale === 'zh' ? `共 ${tasks.length} / ${allTasks.length} 个` : `${tasks.length} / ${allTasks.length}`}
+          </Text>
+        </ExplainPopover>
       </div>
 
       {/* 失败任务汇总横幅：默认收缩成一行，点击标题展开失败明细（错误可直达历史） */}
@@ -1530,9 +1557,11 @@ export default function DataSync() {
                 cursor: 'pointer', userSelect: 'none', outline: 'none',
               }}
             >
-              <Text strong style={{ color: 'var(--wh-error-text)' }}>
-                {t('sync.failBanner', { count: failedTasks.length })}
-              </Text>
+              <ExplainPopover text={t('sync.explain.failBanner', { count: failedTasks.length })}>
+                <Text strong style={{ color: 'var(--wh-error-text)' }}>
+                  {t('sync.failBanner', { count: failedTasks.length })}
+                </Text>
+              </ExplainPopover>
               <Text style={{ color: 'var(--wh-error-text)', opacity: 0.72, fontSize: '0.75rem' }}>
                 {failBannerOpen ? t('sync.failBannerCollapse') : t('sync.failBannerExpand')}
               </Text>
@@ -1595,9 +1624,11 @@ export default function DataSync() {
               <Text style={{ fontSize: '0.875rem', fontWeight: 600, color: WH.text }}>
                 {gwLabel(group.key)}
               </Text>
-              <Text style={{ fontSize: '0.75rem', color: WH.textMuted, marginLeft: 'var(--wh-space-sm)' }}>
-                ({group.items.length})
-              </Text>
+              <ExplainPopover text={t('sync.explain.groupCount', { n: group.items.length })}>
+                <Text style={{ fontSize: '0.75rem', color: WH.textMuted, marginLeft: 'var(--wh-space-sm)' }}>
+                  ({group.items.length})
+                </Text>
+              </ExplainPopover>
             </div>
             <Row gutter={[{ xs: 8, sm: 12, md: 16 }, { xs: 8, sm: 12, md: 16 }]}>
               {group.items.map(t => renderTaskCard(t.task_id))}
@@ -1663,13 +1694,24 @@ export default function DataSync() {
             }))}
           />
           {failureAgg && (
-            <Text style={{ fontSize: '0.75rem', color: WH.textMuted }}>
-              {locale === 'zh'
-                ? `共 ${failureAgg.total_failures} 次失败 / ${failureAgg.clusters.length} 类根因`
-                : `${failureAgg.total_failures} failures / ${failureAgg.clusters.length} clusters`}
-            </Text>
+            <ExplainPopover text={t('sync.explain.aggTotal', { n: failureAgg.total_failures, k: failureAgg.clusters.length, days: failureAgg.days })}>
+              <Text style={{ fontSize: '0.75rem', color: WH.textMuted }}>
+                {locale === 'zh'
+                  ? `共 ${failureAgg.total_failures} 次失败 / ${failureAgg.clusters.length} 类根因`
+                  : `${failureAgg.total_failures} failures / ${failureAgg.clusters.length} clusters`}
+              </Text>
+            </ExplainPopover>
           )}
         </Space>
+        {/* 截断必须常驻可见：SQL 只取最近 200 条失败记录，取满时「共 N 次」其实是「至少 N 次」 */}
+        {failureAgg?.truncated && (
+          <Alert
+            type="warning"
+            showIcon
+            style={{ margin: 'var(--wh-space-sm) 0' }}
+            message={t('sync.aggTruncated', { scanned: failureAgg.scanned ?? failureAgg.limit ?? 200, days: failureAgg.days })}
+          />
+        )}
         <Spin spinning={aggLoading}>
           {failureAgg && failureAgg.clusters.length > 0 ? (
             <List
@@ -1685,7 +1727,11 @@ export default function DataSync() {
                       <Text style={{ color: 'var(--wh-error-text)', fontSize: '0.75rem', fontWeight: 600, wordBreak: 'break-word' }}>
                         {c.error_first_line}
                       </Text>
-                      <Tag color="red" style={{ flexShrink: 0 }}>×{c.count}</Tag>
+                      <Tag color="red" style={{ flexShrink: 0 }}>
+                        <ExplainPopover text={t('sync.explain.clusterCount', { n: c.count, first: c.error_first_line })}>
+                          <span>{`×${c.count}`}</span>
+                        </ExplainPopover>
+                      </Tag>
                     </div>
                     <div style={{ marginTop: 'var(--wh-space-xs)', display: 'flex', gap: 'var(--wh-space-xs)', flexWrap: 'wrap' }}>
                       {Object.entries(c.tasks).map(([tid, n]) => (
@@ -1694,7 +1740,7 @@ export default function DataSync() {
                           style={{ cursor: 'pointer', fontSize: '0.6875rem' }}
                           onClick={() => { setAggOpen(false); handleOpenHistory(tid) }}
                         >
-                          {tid} ×{n}
+                          {tid} <ExplainPopover text={t('sync.explain.taskFailCount', { tid, n })}><span>{`×${n}`}</span></ExplainPopover>
                         </Tag>
                       ))}
                     </div>

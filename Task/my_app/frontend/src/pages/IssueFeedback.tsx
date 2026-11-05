@@ -11,6 +11,7 @@ import {
 import api from '../api'
 import { useI18n } from '../i18n'
 import { WH, cardStyle } from '../theme'
+import { ExplainIcon, ExplainPopover } from '../components/MetricExplain'
 import { exportAoaReport } from '../utils/excelReport'
 
 // 与后端 routers/feedback.py 的枚举白名单保持一致
@@ -296,7 +297,10 @@ export default function IssueFeedback() {
                 <a key={a.stored}
                   href={`${API_BASE}/feedback/${r.id}/attachments/${encodeURIComponent(a.stored)}`}
                   target="_blank" rel="noreferrer">
-                  <PaperClipOutlined style={{ marginRight: 4 }} />{a.name}（{fmtSize(a.size)}）
+                  <PaperClipOutlined style={{ marginRight: 4 }} />{a.name}（
+                  <ExplainPopover text={t('fb.explain.attachSize', { bytes: a.size })}>
+                    <span>{fmtSize(a.size)}</span>
+                  </ExplainPopover>）
                 </a>
               ))}
             </Space>
@@ -366,21 +370,38 @@ export default function IssueFeedback() {
         </Space>
       </div>
 
-      {/* 统计卡 */}
+      {/* 统计卡 —— 四张都是**全表**计数（接口 /feedback/stats 无 WHERE），
+          与下方分页处的「筛选后 total」同屏不同口径，必须在气泡里点名（AGENTS.md 三.3c）。 */}
       {stats && (
         <Row gutter={[12, 12]} style={{ marginBottom: '0.75rem' }}>
           <Col xs={12} sm={6}>
             <Card size="small" style={cardStyle}>
-              <Statistic title={<span style={{ color: WH.textMuted }}>{t('fb.stat.total')}</span>}
-                value={stats.total} valueStyle={{ color: WH.teal }} />
+              <ExplainPopover text={t('fb.explain.statTotal')}>
+                <Statistic
+                  title={(
+                    <span style={{ color: WH.textMuted }}>
+                      {t('fb.stat.total')} <ExplainIcon text={t('fb.explain.statTotal')} />
+                    </span>
+                  )}
+                  value={stats.total} valueStyle={{ color: WH.teal }}
+                />
+              </ExplainPopover>
             </Card>
           </Col>
           {(['open', 'processing', 'resolved'] as Status[]).map(s => (
             <Col xs={12} sm={6} key={s}>
               <Card size="small" style={cardStyle}>
-                <Statistic title={<span style={{ color: WH.textMuted }}>{stLabel(s)}</span>}
-                  value={stats.by_status[s] || 0}
-                  valueStyle={{ color: s === 'open' ? '#fa541c' : s === 'processing' ? '#1677ff' : '#52c41a' }} />
+                <ExplainPopover text={t('fb.explain.statStatus', { k: s })}>
+                  <Statistic
+                    title={(
+                      <span style={{ color: WH.textMuted }}>
+                        {stLabel(s)} <ExplainIcon text={t('fb.explain.statStatus', { k: s })} />
+                      </span>
+                    )}
+                    value={stats.by_status[s] || 0}
+                    valueStyle={{ color: s === 'open' ? '#fa541c' : s === 'processing' ? '#1677ff' : '#52c41a' }}
+                  />
+                </ExplainPopover>
               </Card>
             </Col>
           ))}
@@ -418,7 +439,11 @@ export default function IssueFeedback() {
           scroll={{ x: 960 }}
           pagination={{
             current: page, pageSize, total, showSizeChanger: true,
-            showTotal: (n) => `${t('fb.totalPrefix')} ${n} ${t('fb.totalSuffix')}`,
+            showTotal: (n) => (
+              <ExplainPopover text={t('fb.explain.pageTotal', { n, size: pageSize })}>
+                <span>{`${t('fb.totalPrefix')} ${n} ${t('fb.totalSuffix')}`}</span>
+              </ExplainPopover>
+            ),
             onChange: (p, ps) => { setPage(p); setPageSize(ps); load(p, ps) },
           }}
         />

@@ -644,7 +644,10 @@ export function analyzeVoice(sources: SourceResult[]): VoiceResult {
     }
     if (procU.includes('PAGING')) {
       pagingCount += 1
-      if (isBad) badCount += 1
+      // 注意：badCount 只在下面那条通用判据里加一次。
+      // 这里原先还有一句 `if (isBad) badCount += 1`，同一条 PAGING 超时/失败行
+      // 会被计两遍（既进 PAGING 分支又进通用分支），把「超时/失败」卡片与
+      // 整卡告警等级一起抬高（2026-11-05 复扫时抓到并修掉）。
     }
     if (isBad) badCount += 1
     if (procU.includes('UE CONTEXT RELEASE')) releaseTimes.push(rowTime(r))

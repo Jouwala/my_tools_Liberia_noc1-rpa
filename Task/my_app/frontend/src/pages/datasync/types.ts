@@ -66,4 +66,10 @@ export interface FailureAgg {
   days: number
   total_failures: number
   clusters: FailureCluster[]
+  /** 本次实际扫到的失败记录数（SQL LIMIT 截断后的值，不是窗口内的真实总数） */
+  scanned?: number
+  /** 后端 SQL 的取数上限，当前为 200 */
+  limit?: number
+  /** scanned >= limit 即可能被截断：此时 total_failures 是「至少这么多」 */
+  truncated?: boolean
 }

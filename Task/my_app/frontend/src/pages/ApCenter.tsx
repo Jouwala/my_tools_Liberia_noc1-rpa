@@ -16,7 +16,7 @@
  * ========================================================================== */
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
-  Button, Col, DatePicker, Drawer, Form, Input, Modal, Progress, Row, Select,
+  Alert, Button, Col, DatePicker, Drawer, Form, Input, Modal, Progress, Row, Select,
   Space, Table, Tabs, Tag, Timeline, Tooltip, Upload, message,
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
@@ -28,6 +28,7 @@ import api from '../api'
 import { useI18n } from '../i18n'
 import { WH } from '../theme'
 import { CardBase, StatCard } from '../components/cards'
+import { ExplainIcon, ExplainPopover } from '../components/MetricExplain'
 
 type ApStatus =
   | 'DRAFT' | 'ASSIGNED' | 'ACKNOWLEDGED' | 'IN_PROGRESS'
@@ -126,6 +127,9 @@ export default function ApCenter() {
   const [keyword, setKeyword] = useState('')
   const [overdueOnly, setOverdueOnly] = useState(false)
   const [items, setItems] = useState<ApItem[]>([])
+  // 列表端点的 total（带筛选的 COUNT(*)）：与 items.length 不等时说明只取回了第 1 页 100 行，
+  // 必须显式告诉用户「表格里的行数 ≠ 满足条件的行数」（AGENTS.md 三.1b：截断不得静默）。
+  const [listTotal, setListTotal] = useState<number | null>(null)
   const [stats, setStats] = useState<ApStats | null>(null)
   const [loading, setLoading] = useState(false)
   const [detail, setDetail] = useState<ApItem | null>(null)
@@ -160,6 +164,7 @@ export default function ApCenter() {
         api.get('/ap/stats'),
       ])
       setItems(list.data.items || [])
+      setListTotal(typeof list.data.total === 'number' ? list.data.total : null)
       setStats(st.data)
     } catch (e: any) {
       message.error(e?.response?.data?.detail || t('ap.loadFailed'))
@@ -303,8 +308,13 @@ export default function ApCenter() {
       ),
     },
     {
-      title: t('ap.col.progress'), dataIndex: 'progress', width: 130,
-      render: (v: number) => <Progress percent={Number(v) || 0} size="small" />,
+      title: <span>{t('ap.col.progress')} <ExplainIcon text={t('ap.explain.progress')} /></span>,
+      dataIndex: 'progress', width: 130,
+      render: (v: number, row: any) => (
+        <ExplainPopover text={t('ap.explain.progressCell', { v: Number(v) || 0, id: row?.id ?? '' })}>
+          <span style={{ display: 'block' }}><Progress percent={Number(v) || 0} size="small" /></span>
+        </ExplainPopover>
+      ),
     },
     {
       title: t('ap.col.owner'), dataIndex: 'owner_username', width: 140, ellipsis: true,
@@ -337,40 +347,49 @@ export default function ApCenter() {
     ...(meta?.user.can_manage ? [{ key: 'all', label: t('ap.tab.all') }] : []),
   ]
 
+  // 四张卡共用同一句「统计范围写死 mine」的提醒，拼在每个口径后面
+  // （三.3c：同一口径只写一份，别四张卡各抄一遍）
+  const statScopeNote = t('ap.explain.cardOpenScope')
+  const apCardExplain = (key: string) => `${t(key)}\n${statScopeNote}`
+
   return (
     <div style={{ padding: '0.25rem' }}>
       <Row gutter={[12, 12]}>
         <Col xs={12} md={6}>
           <StatCard
-            title={t('ap.stat.open')}
-            value={stats?.open ?? 0}
+            title={<span>{t('ap.stat.open')} <ExplainIcon text={apCardExplain('ap.explain.cardOpen')} /></span>}
+            value={stats?.open ?? '—'}
             accentColor="var(--wh-teal)"
             subText={t('ap.stat.openHint')}
+            explainText={apCardExplain('ap.explain.cardOpen')}
             onClick={() => { setOverdueOnly(false); setStatus(undefined) }}
           />
         </Col>
         <Col xs={12} md={6}>
           <StatCard
-            title={t('ap.stat.inProgress')}
-            value={stats?.in_progress ?? 0}
+            title={<span>{t('ap.stat.inProgress')} <ExplainIcon text={apCardExplain('ap.explain.cardInProgress')} /></span>}
+            value={stats?.in_progress ?? '—'}
             accentColor="#7b5cd6"
+            explainText={apCardExplain('ap.explain.cardInProgress')}
             onClick={() => { setOverdueOnly(false); setStatus('IN_PROGRESS') }}
           />
         </Col>
         <Col xs={12} md={6}>
           <StatCard
-            title={t('ap.stat.pendingReview')}
-            value={stats?.pending_review ?? 0}
+            title={<span>{t('ap.stat.pendingReview')} <ExplainIcon text={apCardExplain('ap.explain.cardPendingReview')} /></span>}
+            value={stats?.pending_review ?? '—'}
             accentColor="#d98324"
+            explainText={apCardExplain('ap.explain.cardPendingReview')}
             onClick={() => { setOverdueOnly(false); setStatus('PENDING_REVIEW') }}
           />
         </Col>
         <Col xs={12} md={6}>
           <StatCard
-            title={t('ap.stat.overdue')}
-            value={stats?.overdue ?? 0}
+            title={<span>{t('ap.stat.overdue')} <ExplainIcon text={apCardExplain('ap.explain.cardOverdue')} /></span>}
+            value={stats?.overdue ?? '—'}
             accentColor="#c0392b"
             subText={t('ap.stat.overdueHint')}
+            explainText={apCardExplain('ap.explain.cardOverdue')}
             onClick={() => { setStatus(undefined); setOverdueOnly(true) }}
           />
         </Col>
@@ -416,7 +435,16 @@ export default function ApCenter() {
             key: x.key,
             label: x.label,
             children: (
-              <Table<ApItem>
+              <>
+                {listTotal != null && items.length > 0 && items.length < listTotal && (
+                  <Alert
+                    type="warning"
+                    showIcon
+                    style={{ marginBottom: 'var(--wh-space-sm)' }}
+                    message={t('ap.listTruncated', { shown: items.length, total: listTotal })}
+                  />
+                )}
+                <Table<ApItem>
                 rowKey="id"
                 size="small"
                 loading={loading}
@@ -426,6 +454,7 @@ export default function ApCenter() {
                 pagination={{ pageSize: 20, showSizeChanger: false }}
                 locale={{ emptyText: t('ap.empty') }}
               />
+              </>
             ),
           }))}
         />
@@ -545,8 +574,12 @@ export default function ApCenter() {
             )}
 
             <div>
-              <div style={{ fontWeight: 600, marginBottom: 4 }}>{t('ap.col.progress')}</div>
-              <Progress percent={Number(detail.progress) || 0} />
+              <div style={{ fontWeight: 600, marginBottom: 4 }}>
+                {t('ap.col.progress')} <ExplainIcon text={t('ap.explain.progress')} />
+              </div>
+              <ExplainPopover text={t('ap.explain.progressCell', { v: Number(detail.progress) || 0, id: detail.id })}>
+                <div><Progress percent={Number(detail.progress) || 0} /></div>
+              </ExplainPopover>
             </div>
 
             {detail.reject_reason && (
@@ -624,7 +657,10 @@ export default function ApCenter() {
               <Space direction="vertical" size={4} style={{ width: '100%' }}>
                 {(detail.attachments || []).map((a) => (
                   <a key={a.stored} href={`/api/ap/${detail.id}/attachments/${a.stored}`} target="_blank" rel="noreferrer">
-                    {a.name} ({Math.round((a.size || 0) / 1024)} KB)
+                    {a.name} (
+                    <ExplainPopover text={t('ap.explain.attachSize', { bytes: a.size ?? 0 })}>
+                      <span>{Math.round((a.size || 0) / 1024)} KB</span>
+                    </ExplainPopover>)
                   </a>
                 ))}
                 {(detail.allowed || []).includes('attach') && (
@@ -659,7 +695,14 @@ export default function ApCenter() {
                     children: (
                       <div>
                         <span style={{ color: WH.textMuted }}>{u.created_at} · {u.username}</span>
-                        <span style={{ marginLeft: 8 }}>{u.progress}%</span>
+                        <span style={{ marginLeft: 8 }}>
+                          {/* 更新记录没带 progress 时显示 —（原来会渲染成孤零零一个「%」） */}
+                          {u.progress == null ? '—' : (
+                            <ExplainPopover text={t('ap.explain.updateProgress', { v: u.progress, at: u.created_at ?? '' })}>
+                              <span>{u.progress}%</span>
+                            </ExplainPopover>
+                          )}
+                        </span>
                         {u.note && <div>{u.note}</div>}
                       </div>
                     ),

@@ -328,6 +328,50 @@
 - **复扫脚本口径**（写死在这，防下次又用错）：页 key 走 `App.tsx` 的 `VALID_PAGES` 去掉 `PAGE_LIST` 的 `iframe:true`；
   组件文件从 `App.tsx` 渲染 switch 的 `case 'x': return <Comp` 反查；子目录只算该组件自己 import 的那些
   （按目录名前缀模糊匹配会把无关子目录并进来，我第一次就扫出了假的「53/53 全做」）。
+  **闭包要跨到 `frontend/src/components/`**，但把三个「定义处」排除掉（`MetricExplain.tsx` / `StatCard.tsx` /
+  `cards/CardBase.tsx` —— 它们自己渲染气泡是给调用方用的，不算某页的覆盖）。
+  只算 `pages/` 会把 `vmax_user_query` 误判成没做（它的八张卡全在 `components/Vmax*.tsx` 里）。
+  2026-11-05 终态：**53 个自研页扫到 46**，剩 7 个 = ⑥d 判不适用四页（`settings`/`portalLogin`/`archive`/`help`）
+  + 并发会话的 `email_reports`/`ipt_power` + `dashboard`（tooltip 例外，实际已做）。
+
+### ⑥b / ⑥c / ⑥d 完成（2026-11-05）
+
+**这一节做完，「数字悬浮说明铺开」整条就到尾了。** 判据不变：组件文件（含它自己 import 的 `pages/` 子目录）里
+出现 `<ExplainPopover` 或 `explainText=`。
+
+| 页 | 覆盖了什么 | 关键口径（都从代码核实，不是抄手册） |
+| --- | --- | --- |
+| `sync` | 六张状态卡数字 + 卡标题 ⓘ、统一开关的 x/N、列表「共 N / M」、失败横幅 N、分组数、时间轴任务数、卡上耗时、「失败聚合」的总次数/簇数/×计数、两个历史弹窗的计数 | 状态归桶用 `classifyTaskStatus`（进行中看**前端轮询** `/tasks/running`，成功/失败只看**最新一条**执行记录）；开关的 N 与状态卡的 N 判定不同（后者看 `masterTasks`）；`/tasks/failures` 的 SQL 有 `LIMIT 200` 硬截断 |
+| `tables` | 页头行数/列数 Tag、列显隐计数、分页「共 N 条」、导入结果行列数、微波站点/链路/跳过、画像四张卡 + 明细表空值率/唯一值/问题数 | 页头行数 = 全表 `COUNT(*)`；分页 N = **带搜索**的 COUNT(*) 且搜索只覆盖**前 200 列**；画像整块是 `SELECT * LIMIT 10000`（无 ORDER BY，非随机）的**采样**，取满时常驻告警 |
+| `eflow_qa` | UME 历史「命中 N」与实际取回数、规则条数、推单命中数、同站小区数、文档目录条目数、折叠区各节条数、检索命中数、耗时、批量核查六枚汇总 + 表格行数 | 历史查询按「同站点 ± 2 分钟」、`size=30`，所以 total 常大于表格行数；六枚汇总全取接口 `summary`/`input`；同站小区标签只画前 60 个 |
+| `ap_center` | 四张状态卡（数字 + 标题 ⓘ）、进度条（列表/详情/更新记录）、附件 KB | **四张卡的 scope 被 `ap.py:288` 写死 mine，切 Tab 不改卡片**；`overdue` 是独立 COUNT(*)（due_at < 服务器 `_now()` 且状态仍在 OPEN_STATUSES）；`progress` 后端 `max(0,min(100,…))` 夹紧，0% 分不清"没提交过"与"填了 0" |
+| `feedback` | 四张统计卡、分页总数、附件大小 | `/feedback/stats` 是**全表** COUNT(*)、端点不读登录态；分页 total 是**带筛选**的 —— 同屏两个口径，气泡里点名 |
+| `person` | 四张 KPI 卡 + 表格未清除/未关闭/已关闭/TT 四列的列头与单元格 | `coverage` 有 FE 口径与全表口径**两套**，KPI 用 FE 那对；未清除 = `alarm_clear_time` 为空 **且** 状态未关闭（≠ 未关闭）；逐人数字后端算、前端只求和；TT 是**带 tt_no 的行数**不去重 |
+| `upload` | 行数/列数/质量分/问题数/耗时 + 历史表两个列头 | 质量分分母按**每列 5 项**写死而单列最多触发 4 项 → 下限 20；问题清单接口只下发 `[:10]`，多于 10 条时常驻说明差额 |
+| `vmax_user_query` | 四维评分四张卡、语音六计数 + 成功率 + 回落耗时、OTT 五计数 + baseline、游戏头标 + 四列、无线五张卡、CCA 两个计数、流量总量/分类流量/占比 | 这些统计**全部是前端 `vmaxDiagnosisRules.ts` 算的**（接口不下发分数），按 battery 的先例**如实标注**；各源有分页上限（1300=1200/1100=800/32=600/1301=200），`truncated` 用 `*` 标出 |
+
+**⑥d 判定不适用（最终口径，别再回来逐页讨论）**：`settings`、`portalLogin`、`archive`、`help` 四页没有
+「算出来的数字」（表单 / 凭据列表 / 归档清单 / 帮助文本），硬凑口径说明违反三.3c「纯列表页没有算出来的数字的不硬凑」。
+`email_reports`、`ipt_power` 由并发会话在改（`EmailReports.tsx` / `IptPowerQuery.tsx` 当时都在人家的未提交清单里），
+不在本批范围内 —— 若要覆盖，按同一判据补即可（`email_reports` 是 13 张 `Statistic`、`ipt_power` 是 13 张卡）。
+
+### ⑥b 顺手修掉的三处「显示层的错」
+
+1. **`/tasks/failures` 的静默截断**：SQL `LIMIT 200`，取满时界面照样写「共 200 次失败」，用户会当成窗口内真实总数
+   （实测近 7 天与近 14 天都恰好 200 —— 说明早就截断了）。后端补 `scanned` / `limit` / `truncated` 三字段，
+   前端在取满时常驻一条告警写「至少 N 次」。**没有改任何统计判据。**
+2. **`analyzeVoice` 的 `badCount` 重复计数**：PAGING 且 TIMEOUT/FAILURE 的行既进 PAGING 分支又进通用分支，
+   被加两遍（`vmaxDiagnosisRules.ts`）。已删掉分支内那一句，只保留通用计数 —— 这一条**会改变界面上「超时/失败」的数字**（变小、变准），
+   属于计数缺陷而不是口径选择；旧截图对不上时以本页新值为准。
+3. **`ap_center` 两处「取不到装成 0」**：四张卡的 `?? 0` 改成 `?? '—'`（stats 尚未返回时）；更新记录里
+   `progress` 为空时原样渲染成一个孤零零的「%」，改为 `—`。另加一条**常驻**截断提示：列表接口只取第 1 页 100 行，
+   满足条件的行数更多时表格上方会显示（`list.data.total` 与 `items.length` 比较）。
+
+**待办（下一轮）**：`upload`（需真实上传一个文件才能触发气泡）、`vmax_user_query`（需真实号码打上游）、
+`sync` 的「失败聚合」截断告警与 `eflow_qa` 的批量核查六枚汇总 —— 这四处的实机悬浮还没跑过，
+目前只有 `tsc` + `npm run build` + 代码走查证据。`noc_analyst` 的 ALL 档合计与 `/tasks/failures` 新字段
+都要 **7038 重启**才生效（重启由用户执行）。
+
 
 ### 二次复盘（2026-11-05）：盘子实测与两条更正
 

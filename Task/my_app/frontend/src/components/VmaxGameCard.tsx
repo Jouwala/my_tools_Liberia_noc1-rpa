@@ -26,6 +26,7 @@ import { Collapse, Empty, Space, Table, Tag, Typography } from 'antd'
 import { renderI18nList } from '../renderI18n'
 import { useI18n } from '../i18n'
 import { CardBase } from './cards'
+import { ExplainIcon, ExplainPopover } from './MetricExplain'
 import { WH } from '../theme'
 import { GAME_KEYWORDS, pct, type GameResult } from '../pages/vmaxDiagnosisRules'
 
@@ -67,7 +68,11 @@ export default function VmaxGameCard({ game }: { game: GameResult }) {
       title={t('vmaxq.game.card')}
       extra={(
         <Text type="secondary" style={{ fontSize: 11 }}>
-          {has ? t('vmaxq.game.found', { n: game.totalSessions }) : t('vmaxq.game.none')}
+          {has ? (
+            <ExplainPopover text={t('vmaxq.explain.gameFound', { n: game.totalSessions })}>
+              <span>{t('vmaxq.game.found', { n: game.totalSessions })}</span>
+            </ExplainPopover>
+          ) : t('vmaxq.game.none')}
         </Text>
       )}
     >
@@ -93,13 +98,21 @@ export default function VmaxGameCard({ game }: { game: GameResult }) {
                   </Space>
                 ),
               },
-              { title: t('vmaxq.game.traffic'), dataIndex: 'records', width: 90, align: 'right' as const,
-                render: (v: number) => t('vmaxq.game.times', { n: v }) },
-              { title: t('vmaxq.game.avgRtt'), dataIndex: 'avgRtt', width: 100, align: 'right' as const,
+              { title: <span>{t('vmaxq.game.traffic')} <ExplainIcon text={t('vmaxq.explain.gameRecords')} size={10} /></span>, dataIndex: 'records', width: 90, align: 'right' as const,
+                render: (v: number) => (
+                  <ExplainPopover text={t('vmaxq.explain.gameRecords')}>
+                    <span>{t('vmaxq.game.times', { n: v })}</span>
+                  </ExplainPopover>
+                ) },
+              { title: <span>{t('vmaxq.game.avgRtt')} <ExplainIcon text={t('vmaxq.explain.gameRtt')} size={10} /></span>, dataIndex: 'avgRtt', width: 100, align: 'right' as const,
+                render: (v: number) => (
+                  <ExplainPopover text={t('vmaxq.explain.gameRtt')}>
+                    <span>{v > 0 ? `${v} ms` : '—'}</span>
+                  </ExplainPopover>
+                ) },
+              { title: <span>{t('vmaxq.game.jitter')} <ExplainIcon text={t('vmaxq.explain.gameJitter')} size={10} /></span>, dataIndex: 'jitter', width: 90, align: 'right' as const,
                 render: (v: number) => (v > 0 ? `${v} ms` : '—') },
-              { title: t('vmaxq.game.jitter'), dataIndex: 'jitter', width: 90, align: 'right' as const,
-                render: (v: number) => (v > 0 ? `${v} ms` : '—') },
-              { title: t('vmaxq.game.retrans'), dataIndex: 'retransRate', width: 92, align: 'right' as const,
+              { title: <span>{t('vmaxq.game.retrans')} <ExplainIcon text={t('vmaxq.explain.gameRetrans')} size={10} /></span>, dataIndex: 'retransRate', width: 92, align: 'right' as const,
                 render: (v: number) => (v > 0 ? pct(v) : '—') },
             ]}
             dataSource={game.hits}

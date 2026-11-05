@@ -153,6 +153,12 @@ export default function MsWoSLReport() {
   const cards = useMemo(() => {
     if (!ov || !matrix) return []
     const belowMetrics = matrix.metrics.filter(m => m.met === false)
+    // 接口用 `null` 表示「本月没有 Month 行」，而 `num(null)` 会把它变成 0 ——
+    // 那样「取不到」就在卡上装成「0 张单」，违反 AGENTS.md 三.6（取不到显示 —）。
+    // 同页的兄弟报表（ms_contract_kpi）早就把 unknown_count 单独列卡，这里沿用同一取向：
+    // 「没有数据」的指标既不算达标也不算未达标，必须在界面上说清，不能靠 0 冒充「全部达标」。
+    const dash = (v: number | null | undefined) => (v === null || v === undefined ? '—' : num(v).toLocaleString(loc))
+    const unknownCount = ov.unknown_count ?? 0
     return [
       {
         key: 'days',
@@ -163,13 +169,13 @@ export default function MsWoSLReport() {
       {
         key: 'total',
         label: t('msKpi.card.woTotal'),
-        value: num(ov.month_total).toLocaleString(loc),
+        value: dash(ov.month_total),
         hint: t('msKpi.hint.woTotal'),
       },
       {
         key: 'within',
         label: t('msKpi.card.woWithin'),
-        value: num(ov.month_within).toLocaleString(loc),
+        value: dash(ov.month_within),
         hint: t('msKpi.hint.woWithin'),
       },
       {
@@ -177,18 +183,23 @@ export default function MsWoSLReport() {
         label: t('msKpi.card.woAchieve'),
         value: fmtValue(ov.month_achieve, 'percent', loc),
         hint: `${t('msKpi.target')}: ${fmtValue(matrix.metrics[0]?.target, 'percent', loc)}`,
-        color: ov.month_achieve !== null && ov.month_achieve !== undefined
-          && matrix.metrics[0]?.target !== null
-          && num(ov.month_achieve) >= num(matrix.metrics[0]?.target)
-          ? WH.ok : WH.danger,
+        // 没有月值时卡片是 `—`，涂成红色等于宣称「未达标」—— 只有真拿到值才判色。
+        color: ov.month_achieve === null || ov.month_achieve === undefined
+          ? WH.textMuted
+          : (matrix.metrics[0]?.target !== null
+            && num(ov.month_achieve) >= num(matrix.metrics[0]?.target) ? WH.ok : WH.danger),
         emphasis: true,
       },
       {
         key: 'met',
         label: t('msKpi.card.metMetrics'),
         value: `${ov.met_count ?? 0}/${ov.metric_count ?? matrix.metrics.length}`,
-        hint: t('msKpi.hint.metMetrics'),
-        color: (ov.met_count ?? 0) === (ov.metric_count ?? matrix.metrics.length) ? WH.ok : WH.warn,
+        hint: unknownCount > 0
+          ? t('msKpi.hint.metWithUnknown', { n: unknownCount })
+          : t('msKpi.hint.metMetrics'),
+        color: unknownCount > 0 && unknownCount === matrix.metrics.length
+          ? WH.textMuted
+          : (ov.met_count ?? 0) === (ov.metric_count ?? matrix.metrics.length) ? WH.ok : WH.warn,
       },
       {
         key: 'below',
@@ -196,8 +207,8 @@ export default function MsWoSLReport() {
         value: String(ov.below_count ?? 0),
         hint: belowMetrics.length
           ? belowMetrics.map(m => m.label).join('、')
-          : t('msKpi.hint.allMet'),
-        color: (ov.below_count ?? 0) > 0 ? WH.danger : WH.ok,
+          : (unknownCount > 0 ? t('msKpi.hint.noneBelowButUnknown', { n: unknownCount }) : t('msKpi.hint.allMet')),
+        color: (ov.below_count ?? 0) > 0 ? WH.danger : (unknownCount > 0 ? WH.textMuted : WH.ok),
         emphasis: (ov.below_count ?? 0) > 0,
       },
     ]

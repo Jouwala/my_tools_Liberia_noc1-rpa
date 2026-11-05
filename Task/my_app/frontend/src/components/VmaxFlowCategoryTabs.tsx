@@ -28,6 +28,7 @@ import { useMemo, useState } from 'react'
 import { Descriptions, Segmented, Space, Table, Tag, Tooltip, Typography } from 'antd'
 
 import { useI18n } from '../i18n'
+import { ExplainIcon, ExplainPopover } from './MetricExplain'
 
 const { Text } = Typography
 
@@ -181,9 +182,9 @@ export default function VmaxFlowCategoryTabs({
       align: 'right' as const, render: (v: string) => fmt(v) },
     { title: t('vmaxq.flow.dlTraffic'), dataIndex: 'dl_traffic', width: 100,
       align: 'right' as const, render: (v: string) => fmt(v) },
-    { title: t('vmaxq.flow.totalTraffic'), dataIndex: 'total_traffic', width: 110,
+    { title: <span>{t('vmaxq.flow.totalTraffic')} <ExplainIcon text={t('vmaxq.explain.flowCatTraffic')} size={10} /></span>, dataIndex: 'total_traffic', width: 110,
       align: 'right' as const, render: (v: string) => fmt(v) },
-    { title: t('vmaxq.flow.ratio'), dataIndex: 'ratio', width: 80, align: 'right' as const,
+    { title: <span>{t('vmaxq.flow.ratio')} <ExplainIcon text={t('vmaxq.explain.flowRatio')} size={10} /></span>, dataIndex: 'ratio', width: 80, align: 'right' as const,
       render: (v: string) => fmt(v) },
   ]
 
@@ -235,8 +236,8 @@ export default function VmaxFlowCategoryTabs({
       ) : (
         <>
           <Descriptions size="small" bordered column={1} items={[{
-            key: 'total', label: t('vmaxq.flowTotal'),
-            children: <Text strong>{fmt(flow?.total_flux)}</Text>,
+            key: 'total', label: <span>{t('vmaxq.flowTotal')} <ExplainIcon text={t('vmaxq.explain.flowTotal')} /></span>,
+            children: <ExplainPopover text={t('vmaxq.explain.flowTotal')}><Text strong>{fmt(flow?.total_flux)}</Text></ExplainPopover>,
           }]} />
 
           {current.kpis.length > 0 && (

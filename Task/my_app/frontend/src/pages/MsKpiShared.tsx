@@ -14,6 +14,7 @@ import DraggableClickModal from '../components/DraggableClickModal'
 // 数字悬浮口径说明（AGENTS.md 三.3c）。ms_wo_sla 与 ms_contract_kpi 共用本文件，
 // 所以这里改一次两页同时生效；口径键也共用（见 i18n 的 msKpi.explain.*）。
 import { ExplainIcon, ExplainPopover } from '../components/MetricExplain'
+import { renderRich } from '../utils/richText'
 import { numLocale, useI18n } from '../i18n'
 
 const { Text } = Typography
@@ -226,7 +227,11 @@ export function StatCard(props: {
         {unit && <span style={{ color: WH.textDim, fontSize: 12 }}>{unit}</span>}
       </div>
       {hint && (
-        <div style={{ color: WH.textDim, fontSize: 11, marginTop: 6, lineHeight: 1.5 }}>{hint}</div>
+        <div style={{ color: WH.textDim, fontSize: 11, marginTop: 6, lineHeight: 1.5 }}>
+          {/* hint 是字符串时走统一富文本渲染，否则文案里的 **强调** 会裸成星号
+              （AGENTS.md 三.3 的文案行；此前该组件直接把字符串塞进 JSX） */}
+          {typeof hint === 'string' ? renderRich(hint) : hint}
+        </div>
       )}
     </div>
   )

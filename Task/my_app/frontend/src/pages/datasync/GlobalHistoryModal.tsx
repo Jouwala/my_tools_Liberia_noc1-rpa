@@ -12,6 +12,7 @@ import {
 import api from '../../api'
 import { WH } from '../../theme'
 import { formatDateTime } from '../../datetime'
+import { ExplainPopover } from '../../components/MetricExplain'
 import { useI18n } from '../../i18n'
 import type { TaskInfo, RunRecord } from './types'
 
@@ -259,9 +260,11 @@ export function GlobalHistoryModal({
           onChange={e => setFilterKeyword(e.target.value)}
           style={{ width: 'min(100%, 12.5rem)', background: 'var(--wh-input-bg)', color: WH.text, borderColor: 'var(--wh-input-border)' }}
         />
-        <Text style={{ color: WH.textDim, fontSize: '0.75rem', marginLeft: 'auto' }}>
-          {t('sync.ghTotal').replace('{n}', String(total))}
-        </Text>
+        <ExplainPopover text={t('sync.explain.ghTotal', { n: total })}>
+          <Text style={{ color: WH.textDim, fontSize: '0.75rem', marginLeft: 'auto' }}>
+            {t('sync.ghTotal').replace('{n}', String(total))}
+          </Text>
+        </ExplainPopover>
       </div>
 
       <div className="wh-table-responsive">

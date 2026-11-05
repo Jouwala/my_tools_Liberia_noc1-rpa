@@ -25,6 +25,7 @@ import { Alert, Empty, Space, Statistic, Table, Tag, Typography } from 'antd'
 import { renderI18n, renderI18nList } from '../renderI18n'
 import { useI18n } from '../i18n'
 import { CardBase } from './cards'
+import { ExplainIcon, ExplainPopover } from './MetricExplain'
 import { WH } from '../theme'
 import { durText, pct, THRESHOLDS, type I18nText, type OttResult } from '../pages/vmaxDiagnosisRules'
 
@@ -36,6 +37,17 @@ export default function VmaxOttCard({ ott }: { ott: OttResult }) {
   const badRtt = ott.avgDlRtt > 150
   const badJitter = ott.jitter > 60
   const badRetrans = ott.retransRate > THRESHOLDS.retrans
+
+  // 五项指标的悬浮说明（判据从 pages/vmaxDiagnosisRules.ts 的 analyzeOtt 核实）
+  const ottTip = (k: string): string => {
+    switch (k) {
+      case 'n': return t('vmaxq.explain.ottSessions')
+      case 'dur': return t('vmaxq.explain.ottDuration')
+      case 'rtt': return t('vmaxq.explain.ottRtt')
+      case 'jit': return t('vmaxq.explain.ottJitter')
+      default: return t('vmaxq.explain.ottRetrans')
+    }
+  }
 
   // value 允许 I18nText：时长这类「带单位」的值单位本身是文案（中文「204 分 6 秒」
   // vs 英文 "204 min 6 s"），不能在规则层拼成字符串。
@@ -50,11 +62,13 @@ export default function VmaxOttCard({ ott }: { ott: OttResult }) {
   return (
     <CardBase
       level={ott.totalSessions === 0 ? 'default' : (badRtt || badJitter || badRetrans) ? 'warn' : 'ok'}
-      title={t('vmaxq.ott.card')}
+      title={<span>{t('vmaxq.ott.card')} <ExplainIcon text={t('vmaxq.explain.ottCard')} /></span>}
       extra={!!ott.baselineRtt && (
-        <Tag style={{ marginInlineEnd: 0 }}>
-          baseline {ott.baselineRtt} ms
-        </Tag>
+        <ExplainPopover text={t('vmaxq.explain.ottBaseline', { v: ott.baselineRtt })}>
+          <Tag style={{ marginInlineEnd: 0 }}>
+            baseline {ott.baselineRtt} ms
+          </Tag>
+        </ExplainPopover>
       )}
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--wh-space-sm)' }}>
@@ -85,15 +99,17 @@ export default function VmaxOttCard({ ott }: { ott: OttResult }) {
                   padding: '6px 10px', borderRadius: 6,
                   background: 'var(--wh-fill-secondary, rgba(127,127,127,0.08))',
                 }}>
-                  <div style={{ fontSize: 11, color: WH.textDim }}>{s.label}</div>
-                  <Statistic
-                    value={typeof s.value === 'string' ? s.value : renderI18n(t, s.value)}
+                  <div style={{ fontSize: 11, color: WH.textDim }}>{s.label} <ExplainIcon text={ottTip(s.key)} size={10} /></div>
+                  <ExplainPopover text={ottTip(s.key)}>
+                    <Statistic
+                      value={typeof s.value === 'string' ? s.value : renderI18n(t, s.value)}
                     suffix={<span style={{ fontSize: 11 }}>{s.suffix}</span>}
                     valueStyle={{
                       fontSize: '1.125rem', fontWeight: 700, lineHeight: 1.3,
                       color: s.bad ? WH.danger : WH.text,
                     }}
                   />
+                  </ExplainPopover>
                 </div>
               ))}
             </div>

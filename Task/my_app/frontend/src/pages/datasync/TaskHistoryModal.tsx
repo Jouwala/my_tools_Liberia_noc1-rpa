@@ -10,7 +10,9 @@ import {
 import api from '../../api'
 import { WH } from '../../theme'
 import { formatDateTime } from '../../datetime'
+import { ExplainIcon, ExplainPopover } from '../../components/MetricExplain'
 import type { TaskDetail, RunRecord } from './types'
+import { useI18n } from '../../i18n'
 
 const { Text } = Typography
 
@@ -22,8 +24,12 @@ export function TaskHistoryModal({
   locale: 'zh' | 'en'
   onClose: () => void
 }) {
+  const { t } = useI18n()
   const [runs, setRuns] = useState<RunRecord[]>([])
-  const [stats, setStats] = useState<{ success_rate: number | null; avg_elapsed: number | null; max_elapsed: number | null; total_runs: number } | null>(null)
+  const [stats, setStats] = useState<{
+    success_rate: number | null; avg_elapsed: number | null; max_elapsed: number | null;
+    total_runs: number; success_runs?: number; failed_runs?: number
+  } | null>(null)
   const [visible, setVisible] = useState(20)
 
   useEffect(() => {
@@ -106,21 +112,29 @@ export function TaskHistoryModal({
     >
       {stats && stats.total_runs > 0 && (
         <div style={{ display: 'flex', gap: 'var(--wh-space-md)', marginBottom: 'var(--wh-space-sm)', flexWrap: 'wrap' }}>
-          <Text style={{ fontSize: '0.75rem', color: WH.textMuted }}>
-            {locale === 'zh' ? '总运行' : 'Total'}: <b style={{ color: WH.text }}>{stats.total_runs}</b>
-          </Text>
-          <Text style={{ fontSize: '0.75rem', color: WH.textMuted }}>
-            {locale === 'zh' ? '成功率' : 'Success'}:{' '}
-            <b style={{ color: stats.success_rate != null && stats.success_rate >= 0.8 ? '#52c41a' : '#ff6b6b' }}>
-              {stats.success_rate != null ? `${(stats.success_rate * 100).toFixed(1)}%` : '-'}
-            </b>
-          </Text>
-          <Text style={{ fontSize: '0.75rem', color: WH.textMuted }}>
-            {locale === 'zh' ? '平均耗时' : 'Avg'}: <b style={{ color: WH.text }}>{stats.avg_elapsed != null ? `${stats.avg_elapsed}s` : '-'}</b>
-          </Text>
-          <Text style={{ fontSize: '0.75rem', color: WH.textMuted }}>
-            {locale === 'zh' ? '最大耗时' : 'Max'}: <b style={{ color: WH.text }}>{stats.max_elapsed != null ? `${stats.max_elapsed}s` : '-'}</b>
-          </Text>
+          <ExplainPopover text={t('sync.explain.thTotal', { n: stats.total_runs, ok: stats.success_runs ?? 0, bad: stats.failed_runs ?? 0 })}>
+            <Text style={{ fontSize: '0.75rem', color: WH.textMuted }}>
+              {locale === 'zh' ? '总运行' : 'Total'}: <b style={{ color: WH.text }}>{stats.total_runs}</b>
+            </Text>
+          </ExplainPopover>
+          <ExplainPopover text={t('sync.explain.thSuccess', { rate: stats.success_rate == null ? '-' : `${(stats.success_rate * 100).toFixed(1)}%` })}>
+            <Text style={{ fontSize: '0.75rem', color: WH.textMuted }}>
+              {locale === 'zh' ? '成功率' : 'Success'}:{' '}
+              <b style={{ color: stats.success_rate != null && stats.success_rate >= 0.8 ? '#52c41a' : '#ff6b6b' }}>
+                {stats.success_rate != null ? `${(stats.success_rate * 100).toFixed(1)}%` : '-'}
+              </b>
+            </Text>
+          </ExplainPopover>
+          <ExplainPopover text={t('sync.explain.thAvg', { v: stats.avg_elapsed == null ? '-' : `${stats.avg_elapsed}s` })}>
+            <Text style={{ fontSize: '0.75rem', color: WH.textMuted }}>
+              {locale === 'zh' ? '平均耗时' : 'Avg'}: <b style={{ color: WH.text }}>{stats.avg_elapsed != null ? `${stats.avg_elapsed}s` : '-'}</b>
+            </Text>
+          </ExplainPopover>
+          <ExplainPopover text={t('sync.explain.thMax', { v: stats.max_elapsed == null ? '-' : `${stats.max_elapsed}s` })}>
+            <Text style={{ fontSize: '0.75rem', color: WH.textMuted }}>
+              {locale === 'zh' ? '最大耗时' : 'Max'}: <b style={{ color: WH.text }}>{stats.max_elapsed != null ? `${stats.max_elapsed}s` : '-'}</b>
+            </Text>
+          </ExplainPopover>
         </div>
       )}
       {runs.length > 0 ? (
@@ -215,6 +229,9 @@ export function TaskHistoryModal({
             <Button size="small" onClick={() => setVisible(v => v + 20)} style={{ color: WH.text }}>
               {locale === 'zh' ? `加载更多（已显示 ${visible}/${runs.length}）` : `Load More (${visible}/${runs.length})`}
             </Button>
+            <div style={{ marginTop: 4 }}>
+              <ExplainIcon text={t('sync.explain.thShown', { shown: visible, fetched: runs.length })} />
+            </div>
           </div>
         )}
         <div style={{ textAlign: 'right', marginTop: 'var(--wh-space-sm)' }}>

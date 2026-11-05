@@ -1794,6 +1794,7 @@ Central control room for all scheduled sync/collection tasks: view status & sche
 - Edit cron in the "Schedule" dialog (persisted in task_schedule_config, survives restarts)
 - The "Master switch" enables or disables all tasks at once; tasks you stopped manually are skipped (their cards are tagged "Manually stopped") — enable those individually to restart them
 - "Global History" searches runs across tasks; voice announcement on completion toggles here
+- **Every number on the six status cards, the switch counter, group counts, the failure banner and the failure summary explains itself on hover** (2026-11-05): each task falls into exactly one bucket under a shared judgement (running comes from the frontend poll of /tasks/running, success/failed look only at the **latest** run record, not the window total), so the five status cards sum to "All"; in the master-switch x/N the denominator is every task row the API returns (**including exempt and manually stopped ones**), deliberately a different scope from what the switch itself checks; the failure summary is hard-capped — the endpoint SQL fetches only the newest 200 failure rows, and when that cap is hit a persistent banner makes clear the "N failures" means **at least** N
 
 #### Task Report Files（`email_reports`）
 
@@ -1810,6 +1811,7 @@ Drag-and-drop Excel/CSV ingestion with a data-quality score.
 
 - Drop a file to upload; check the issue/conclusion panels before trusting the data
 - The history list can be refreshed manually
+- **Rows, columns, quality score, issue count and elapsed time all answer "how was this computed" on hover** (2026-11-05): quality score = 100 − (issues ÷ checks) × 100 with checks hard-coded at **5 per column** while a column can trigger at most 4 (outlier / null rate / constant / skewed), so the floor is 20, rounded to 1 decimal; null rate >50% is an error and >20% a warning (mutually exclusive); the number in "Quality Issues (N)" is the length of the backend issues_summary array but the API **sends only the first 10** entries, and when there are more a persistent line above the list states the gap (not sent, not lost)
 
 #### Table Browser（`tables`）
 
@@ -1818,6 +1820,7 @@ Table Browser: browse any table without SQL, view column profiles, import & expo
 - Pick a table → paginate & search (debounced); export xlsx / CSV
 - Column visibility can be saved as view templates — save one when you always look at the same columns
 - The "Profile" tab shows per-column statistics; Excel/CSV import supported
+- **The header row/column tags, the pagination total and the four Profile cards all explain themselves on hover** (2026-11-05): the header row count is a whole-table `SELECT COUNT(*)` unaffected by the search box below; the pagination total is COUNT(*) **with the search applied**, and search runs a LIKE over every column but **only the first 200 columns** (wider tables are cut off), so "0 rows found" does not mean the data is missing; the whole Profile tab is a **sample** — the backend SQL is hard-coded to `LIMIT 10000` with no ORDER BY (not random), a banner stays visible when the cap is hit, and quality score = 100 − (issues ÷ columns×5) × 100, which floors at 20 because a column can trigger at most 4 checks
 
 #### Overview（`overview`）
 
@@ -2326,6 +2329,7 @@ Person Location Map: the registered position of field staff (map pins) + the dis
 - Site coloring is fully aligned with `?page=realtime_alarm` (same color source and same grading): both pages look at the same sites from the same snapshot
 - PMT shows — rather than 0 when unavailable; the per-person badge sum is not the full set (see the filter-bar info note for the caliber)
 - Table rows and map selection are two-way linked; only rows with coordinates are clickable, others use the "View tickets" button
+- **The four KPI cards and the four numeric table columns all explain themselves on hover** (2026-11-05): the People card takes both numbers from the API coverage **FE scope** (staff with person.isfe=Yes, and of those those with valid coordinates) and deliberately not from with_coords / total_all (map pins and table rows, which include non-FE staff); the Uncleared / Unclosed / Total cards **sum the API per-person fields over the rows currently in the table** — each person value comes from one backend scan (uncleared = alarm_clear_time empty **and** status not closed, a different concept from "unclosed tickets"); the Sites card shows a dash until a person is selected (the API never publishes a de-duplicated all-staff site count); the TT column counts **WO rows carrying a tt_no**, per row, not distinct TT numbers
 
 #### Incident Overview（`incident_overview`, iframe page）
 
@@ -2404,6 +2408,7 @@ eFlow TT rule knowledge base: full-text search over rule/case documents, with bu
 - Rule source & owners also lists the push order rule (TT Push Order Rule, triggerStep=FO Accept): Rule Name / Rule Type / Rule Trigger Step / Push Order Path / *Auto Operator / Target Handler — i.e. whether the TT is auto-pushed to a WO, to whom, and which operator acts automatically (source: eflow_push_rules.xlsx, downloadable)
 - TT batch check: upload an xlsx/csv/txt list of TT numbers or paste them to judge each ticket severity (OK / needs adjustment / undetermined) and export to Excel
 - The batch check supports a "download template → fill in → upload" loop: download the templated xlsx, fill in the numbers and upload the same file back
+- **Every count on this page answers "how is this computed" on hover** (2026-11-05): the UME history "N matched" reads API history.total (UME totalcount), while this lookup queries **the same site ± 2 minutes around the alarm time and returns at most 30 rows per call**, so the table usually holds fewer rows than N (a dash when unavailable, never a fake 0); all six batch-check chips read the API summary / input fields (the endpoint also returns invalid, duplicated and truncated, which this page does not display); the rule count comes from the backend reading eflow_TT_rules.xlsx; same-site cell counts and search hits are frontend array lengths, and the cell tags render **at most 60**
 
 #### eflow_flow（`eflow_flow`）
 
@@ -2476,6 +2481,7 @@ VMAX complaint diagnosis: enter a subscriber number and time window to answer "w
 - RAN (32) is queried by **IMSI, not MSISDN** — the RAN table's user-number column is entirely empty strings upstream. The IMSI is resolved from the 1300/1100 results first; if neither returns one, the radio dimension says "no IMSI mapping" instead of silently reporting 0 records
 - Results are read-only passthrough and nothing is persisted, but the number and current view are written into the URL — refreshing or sharing the link re-runs the same number
 - The link carries the number; check that the recipient is allowed to see that number before forwarding
+- **The four dimension scores and every figure on the voice / OTT / game / radio cards explain themselves on hover** (2026-11-05): these statistics are **computed in the frontend from the rules file** (the API sends neither scores nor counters); their input is exactly the row sets listed under "Source coverage", each source is paged with a cap (1300=1200 rows, 1100=800, 32=600, 1301=200) and a trailing `*` means the API flagged truncated, i.e. **rows were left unfetched** so every number is a sample; the voice "timeout/failure" counter used to add a PAGING row twice (PAGING branch plus the generic one) — fixed on 2026-11-05, so older screenshots show a larger value; the number in the game card header is named sessions in the code but is actually the **sum of xDR rows**, not a session count
 
 #### ipt_power（`ipt_power`）
 
@@ -2506,6 +2512,7 @@ Action Plan (AP) workbench: turn problems, risks or management requirements into
 - "WhatsApp groups" defaults to lbr_assistant (test group); separate multiple groups with commas. Email goes to the owner and reviewer using the addresses in the Escalation Matrix
 - Overdue is a computed attribute: it never changes the task status, it only marks the row/detail in red and is counted on its own stat card
 - Every status transition is validated server-side; duplicate submissions or unauthorized actions are rejected instead of corrupting data
+- **All four stat cards, the progress bars and attachment sizes explain themselves on hover** (2026-11-05): ⚠ the four cards are hard-scoped to **mine** by the backend (owner_username or created_by equals the current account), so **switching the tabs above does not change the card numbers** — only the list follows the tab; "Open" sums DRAFT/ASSIGNED/ACKNOWLEDGED/IN_PROGRESS/PENDING_REVIEW/REJECTED (COMPLETED and CANCELLED excluded) while "Overdue" is a **separate** COUNT(*) (due_at before the server clock and still open), not a re-filter of "Open"; progress % comes straight from the API progress field (clamped 0-100 on submit) and 0% cannot distinguish "never submitted" from "someone typed 0"; the list **fetches only page 1 with 100 rows**, and a persistent banner appears when more rows match
 
 #### feedback（`feedback`）
 
@@ -2514,6 +2521,7 @@ Issue report (user feedback): any intranet user can submit a system problem or i
 - Reporter, contact, type, priority, page, title and description are required; up to 5 attachments, 10MB each
 - The list supports keyword search, status/type/priority filters and Excel export
 - Statuses: open -> processing -> resolved / rejected
+- **The four stat cards and the pagination total use two different scopes, spelled out on hover** (2026-11-05): the cards read the **whole-table** COUNT(*) from /feedback/stats (no filters, and the endpoint does not read the login session), while the "N records" under the list is COUNT(*) **with the current filters** — the two not matching is expected; when a status has no row in the table the API omits that key and the page renders 0, which means "there really are none", not "could not fetch"
 
 ### 4.5 System
 

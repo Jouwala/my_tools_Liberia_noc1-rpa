@@ -170,6 +170,7 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
         '「WhatsApp 群组」默认 lbr_assistant（测试群），多个群用英文逗号分隔；邮件按组织架构里的邮箱发给执行人与审核人',
         '逾期是计算属性：不改任务状态，只在列表与详情上标红「逾期」，统计卡单独计数',
         '所有状态转换都由后端校验；重复提交、越权操作会直接报错，不会产生脏数据',
+        '**四张统计卡、进度与附件大小都能悬浮看口径**（2026-11-05）：⚠ 四张卡的统计范围被后端写死为 **mine**（owner_username 或 created_by 是当前账号），**切上方页签不会改卡片数字**，只有下面的列表跟着页签变；「未关闭」= DRAFT/ASSIGNED/ACKNOWLEDGED/IN_PROGRESS/PENDING_REVIEW/REJECTED 六种状态相加（不含 COMPLETED 与 CANCELLED），「已逾期」是**独立** COUNT(*)（due_at 早于服务器当前时间且仍未关闭），不是从「未关闭」里再筛；进度 % 取接口 progress 原值（提交时后端夹到 0-100），显示 0% 分不清「从没提交过进度」与「有人填了 0」；列表**只取回第 1 页 100 行**，满足条件的行数更多时表格上方会常驻提示',
       ],
     },
     feedback: {
@@ -178,11 +179,13 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
         '提交时反馈人、联系方式、类型、优先级、关联页面、标题、描述均为必填；附件最多 5 个、单个不超过 10MB',
         '列表支持关键词搜索与状态/类型/优先级筛选，可导出 Excel',
         '处理状态：open（待处理）→ processing（处理中）→ resolved（已解决）/ rejected（不处理）',
+        '**四张统计卡与分页「共 N 条」是两个口径，气泡里写明了**（2026-11-05）：卡片取 /feedback/stats 的**全表** COUNT(*)（不带任何筛选、也不限提交人——该端点不读登录态），分页的 N 是**带当前筛选条件**的 COUNT(*)，两者对不上是正常现象；库里没有某个状态时接口不返回那个键、前端补 0，这个 0 表示「真没有」而不是「取不到」',
       ],
     },
     sync: {
       desc: '全站控制中心：查看所有定时同步/采集任务的状态与排程，手动执行、停止、启停、修改 cron 排程，查看执行历史与按天失败聚合。详见本页「任务管理详解」。',
-      usage: ['数据没更新时第一个打开这里：点统计卡即筛选，用「失败聚合」排查昨天夜里哪些任务挂了', '单任务「排程」弹窗修改 cron（写入 task_schedule_config，持久化，重启不丢）', '「统一开关」一键启用/禁用全部任务；**你手动关掉的任务会被跳过**，卡片上标「手动停止」，要重开请单独点它的开关', '「全局历史」跨任务检索执行记录；任务完成后语音播报可在本页开关'],
+      usage: ['数据没更新时第一个打开这里：点统计卡即筛选，用「失败聚合」排查昨天夜里哪些任务挂了', '单任务「排程」弹窗修改 cron（写入 task_schedule_config，持久化，重启不丢）', '「统一开关」一键启用/禁用全部任务；**你手动关掉的任务会被跳过**，卡片上标「手动停止」，要重开请单独点它的开关', '「全局历史」跨任务检索执行记录；任务完成后语音播报可在本页开关',
+        '**六张状态卡、开关计数、分组数、失败横幅与「失败聚合」的数字都能悬浮问怎么算**（2026-11-05）：状态卡按同一判定给每个任务归一桶（进行中看前端轮询的 /tasks/running，成功/失败只看**最新一条**执行记录，不是窗口内累计），所以五张卡之和等于「全部」；「统一开关」的 x/N 里分母是接口返回的全部任务行数（**含豁免与手动停止的**），与开关本身的判定刻意不同口径；「失败聚合」有硬截断 —— 接口 SQL 只取最近 200 条失败记录，取满时页面常驻提示，此时「共 N 次失败」是**至少** N 次'],
     },
     email_reports: {
       desc: '汇总四类任务产物并供下载：邮件发送的最新报告附件、FineBI FTP 报表、eFlow 规则检查结果、TTs and MTTR 月粒度报表。eFlow 页签底部列出**从 eFlow 获取的全部规则表**（TT 级别矫正规则 / 告警关联规则 / 推单·配置规则）与本次检查产物（级别矫正表 / 匹配报告）。',
@@ -255,6 +258,7 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
         '「规则来源与责任人」另给推单规则（TT Push Order Rule，触发步骤 FO Accept）：Rule Name / Rule Type / Rule Trigger Step / Push Order Path / *Auto Operator / Target Handler，说明这单会不会自动推 WO、推给谁、谁自动处理（来源 eflow_push_rules.xlsx，可下载）',
         'TT 批量核查：上传 xlsx/csv/txt 单号清单或直接粘贴，逐单判定工单级别是否正常（正常/需调整/无法判定），可导出 Excel',
         'TT 批量核查支持「下载模板 → 填写 → 上传核查」闭环：点「下载模板」得到带表头的 xlsx，填好单号后把同一个文件传回来即可',
+        '**页面各处的计数都能悬浮问怎么算**（2026-11-05）：UME 历史告警的「命中 N」取接口 history.total（UME 的 totalcount），而这一项按**同站点 + 告警发生时刻 ±2 分钟**查询、**单次最多回传 30 条**，所以表格行数常常少于 N（取不到时显示 —，不冒充 0）；批量核查的六枚汇总全部取接口 summary / input 字段（有效单号旁接口还有 invalid、duplicated、truncated 三个数，页面上没显示）；规则条数来自后端读 eflow_TT_rules.xlsx；同站小区数与检索命中数是前端取数组长度，其中小区标签**最多只画 60 个**',
       ],
     },
     eflow_flow: {
@@ -394,6 +398,7 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
         '站点显色与 `?page=realtime_alarm` 完全对齐（同一套色值真相源与分档），两页看的是同一批站点、同一份快照',
         'PMT 取不到时显示 `—` 而不是 0；各人徽标求和 ≠ 全量（口径见筛选条 ⓘ 说明）',
         '表格行与地图选中双向联动，仅有坐标的行可点；无坐标的人走「查看工单」按钮',
+        '**四张 KPI 卡与表格四个人数列都能悬浮看算法**（2026-11-05）：People 卡的分子分母都取接口 coverage 的 **FE 口径**（person.isfe=Yes 的人数 / 其中有有效坐标的人数），刻意不用 with_coords / total_all 那一对全表值（那是地图针数与表行数，含不属于 FE 的人）；未清除 / 未关闭 / 总数三张卡是**把当前表格里每个人的接口字段相加**，逐人的数由后端一次扫描算出（未清除 = alarm_clear_time 为空**且**状态未关闭，与「未关闭工单」是两个概念）；站点卡未选中个人时刻意显示 —（全量人员涉及站点的去重数接口没下发）；TT 列是**带 tt_no 的工单行数**，按行计、不是去重单号',
       ],
     },
     alarmManagement: {
@@ -512,6 +517,7 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
         '本页**完整支持中英双语**：切右上角语言即可。后端给的每个名称（数据源名、KPI 名、应用分类）都同时带翻译键和中文兜底，单位（万 / K）与标点（：/ (n)）也按语言走',
         '结果只读透传不落库，但号码与当前视角会写进地址栏，刷新或分享链接会按同一号码重查',
         '链接里带号码，转发前确认接收方可以看这个号码',
+        '**四维评分与语音 / OTT / 游戏 / 无线各卡的每个数字都能悬浮看算法**（2026-11-05）：这些统计都是**前端按规则文件算的**（接口不下发分数与计数），输入就是「数据源命中」列出的行集；各源有分页上限（1300=1200 行 / 1100=800 / 32=600 / 1301=200），标签末尾的 `*` 表示接口返回 truncated=true，即**还有行没取回**，此时所有数字只是样本口径；语音卡的「超时/失败」原有一处缺陷 —— PAGING 的超时行会被重复计两遍，2026-11-05 已修正（同一时点的旧截图里那个数偏大）；游戏卡头标那个数在代码里叫 sessions，实际是**话单行数之和**，不是会话条数',
       ],
     },
     incident_overview: {
@@ -764,11 +770,13 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
     },
     tables: {
       desc: '表浏览器：不写 SQL 就能翻看任意表、看字段画像、导入导出，是最常用的兜底工具。',
-      usage: ['表下拉选表 → 分页浏览，关键字搜索防抖；导出 xlsx / CSV', '列显隐可保存为视图模板（同一张表常看固定几列时先存模板）', '「画像」页签查看字段级统计；支持 Excel/CSV 导入'],
+      usage: ['表下拉选表 → 分页浏览，关键字搜索防抖；导出 xlsx / CSV', '列显隐可保存为视图模板（同一张表常看固定几列时先存模板）', '「画像」页签查看字段级统计；支持 Excel/CSV 导入',
+        '**页头行列数、分页「共 N 条」与画像四张卡都可悬浮看口径**（2026-11-05）：页头行数是 `SELECT COUNT(*)` 的**全表**数，不受下面搜索影响；分页的 N 是**带搜索条件**的 COUNT(*)，而搜索是全列 LIKE 且**最多只看前 200 列**（宽表超出部分不参与匹配），所以「搜出 0 行」不等于数据不存在；「画像」整块是**采样**结果 —— 后端 SQL 写死 `LIMIT 10000` 且无 ORDER BY（不是随机抽样），取满 1 万行时页面常驻提示；质量分 = 100 −（问题数 ÷ 列数×5）× 100，单列最多触发 4 项，因此分数下限是 20'],
     },
     upload: {
       desc: '拖拽 Excel/CSV 入库，并给出数据质量评分。',
-      usage: ['拖文件到上传区即可；上传后先看「问题面板 / 结论面板」再决定用不用这批数据', '历史列表可手动刷新'],
+      usage: ['拖文件到上传区即可；上传后先看「问题面板 / 结论面板」再决定用不用这批数据', '历史列表可手动刷新',
+        '**上传结果里的行数 / 列数 / 质量分 / 问题数 / 耗时都能悬浮看算法**（2026-11-05）：质量分 = 100 −（问题数 ÷ 检查项数）× 100，检查项按**每列 5 项**写死而单列最多触发 4 项（离群值 / 空值率 / 单一值列 / 分布倾斜），所以分数下限 20、保留 1 位小数；空值率 >50% 记严重、>20% 记警告（互斥）；「质量问题 (N)」的 N 是后端 issues_summary 的长度，但接口**只下发前 10 条**，多于 10 条时清单上方会常驻说明差额（差额是没下发，不是丢了）'],
     },
     archive: {
       desc: '分析归档：历史分析结果的检索、详情查看与删除，与分析仪表盘配套。',
@@ -802,6 +810,7 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
         '"WhatsApp groups" defaults to lbr_assistant (test group); separate multiple groups with commas. Email goes to the owner and reviewer using the addresses in the Escalation Matrix',
         'Overdue is a computed attribute: it never changes the task status, it only marks the row/detail in red and is counted on its own stat card',
         'Every status transition is validated server-side; duplicate submissions or unauthorized actions are rejected instead of corrupting data',
+        '**All four stat cards, the progress bars and attachment sizes explain themselves on hover** (2026-11-05): ⚠ the four cards are hard-scoped to **mine** by the backend (owner_username or created_by equals the current account), so **switching the tabs above does not change the card numbers** — only the list follows the tab; "Open" sums DRAFT/ASSIGNED/ACKNOWLEDGED/IN_PROGRESS/PENDING_REVIEW/REJECTED (COMPLETED and CANCELLED excluded) while "Overdue" is a **separate** COUNT(*) (due_at before the server clock and still open), not a re-filter of "Open"; progress % comes straight from the API progress field (clamped 0-100 on submit) and 0% cannot distinguish "never submitted" from "someone typed 0"; the list **fetches only page 1 with 100 rows**, and a persistent banner appears when more rows match',
       ],
     },
     feedback: {
@@ -810,11 +819,13 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
         'Reporter, contact, type, priority, page, title and description are required; up to 5 attachments, 10MB each',
         'The list supports keyword search, status/type/priority filters and Excel export',
         'Statuses: open -> processing -> resolved / rejected',
+        '**The four stat cards and the pagination total use two different scopes, spelled out on hover** (2026-11-05): the cards read the **whole-table** COUNT(*) from /feedback/stats (no filters, and the endpoint does not read the login session), while the "N records" under the list is COUNT(*) **with the current filters** — the two not matching is expected; when a status has no row in the table the API omits that key and the page renders 0, which means "there really are none", not "could not fetch"',
       ],
     },
     sync: {
       desc: 'Central control room for all scheduled sync/collection tasks: view status & schedules, run/stop/enable/disable, edit cron schedules, inspect run history and daily failure summary. See the "Task Manager Deep Dive" section on this page.',
-      usage: ['First stop when data looks stale: click a stat card to filter, use the failure summary to see which tasks failed overnight', 'Edit cron in the "Schedule" dialog (persisted in task_schedule_config, survives restarts)', 'The "Master switch" enables or disables all tasks at once; tasks you stopped manually are skipped (their cards are tagged "Manually stopped") — enable those individually to restart them', '"Global History" searches runs across tasks; voice announcement on completion toggles here'],
+      usage: ['First stop when data looks stale: click a stat card to filter, use the failure summary to see which tasks failed overnight', 'Edit cron in the "Schedule" dialog (persisted in task_schedule_config, survives restarts)', 'The "Master switch" enables or disables all tasks at once; tasks you stopped manually are skipped (their cards are tagged "Manually stopped") — enable those individually to restart them', '"Global History" searches runs across tasks; voice announcement on completion toggles here',
+        '**Every number on the six status cards, the switch counter, group counts, the failure banner and the failure summary explains itself on hover** (2026-11-05): each task falls into exactly one bucket under a shared judgement (running comes from the frontend poll of /tasks/running, success/failed look only at the **latest** run record, not the window total), so the five status cards sum to "All"; in the master-switch x/N the denominator is every task row the API returns (**including exempt and manually stopped ones**), deliberately a different scope from what the switch itself checks; the failure summary is hard-capped — the endpoint SQL fetches only the newest 200 failure rows, and when that cap is hit a persistent banner makes clear the "N failures" means **at least** N'],
     },
     email_reports: {
       desc: 'Collects four kinds of task artifacts for download: latest email report attachments, FineBI FTP reports, eFlow rule check results, and the TTs and MTTR monthly workbook. The bottom of the eFlow tab lists **every rule sheet collected from eFlow** (TT severity rules / alarm correlation rules / push & config rules) plus this run\'s outputs (severity correction sheet / matching report).',
@@ -887,6 +898,7 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
         'Rule source & owners also lists the push order rule (TT Push Order Rule, triggerStep=FO Accept): Rule Name / Rule Type / Rule Trigger Step / Push Order Path / *Auto Operator / Target Handler — i.e. whether the TT is auto-pushed to a WO, to whom, and which operator acts automatically (source: eflow_push_rules.xlsx, downloadable)',
         'TT batch check: upload an xlsx/csv/txt list of TT numbers or paste them to judge each ticket severity (OK / needs adjustment / undetermined) and export to Excel',
         'The batch check supports a "download template → fill in → upload" loop: download the templated xlsx, fill in the numbers and upload the same file back',
+        '**Every count on this page answers "how is this computed" on hover** (2026-11-05): the UME history "N matched" reads API history.total (UME totalcount), while this lookup queries **the same site ± 2 minutes around the alarm time and returns at most 30 rows per call**, so the table usually holds fewer rows than N (a dash when unavailable, never a fake 0); all six batch-check chips read the API summary / input fields (the endpoint also returns invalid, duplicated and truncated, which this page does not display); the rule count comes from the backend reading eflow_TT_rules.xlsx; same-site cell counts and search hits are frontend array lengths, and the cell tags render **at most 60**',
       ],
     },
     eflow_flow: {
@@ -1026,6 +1038,7 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
         'Site coloring is fully aligned with `?page=realtime_alarm` (same color source and same grading): both pages look at the same sites from the same snapshot',
         'PMT shows — rather than 0 when unavailable; the per-person badge sum is not the full set (see the filter-bar info note for the caliber)',
         'Table rows and map selection are two-way linked; only rows with coordinates are clickable, others use the "View tickets" button',
+        '**The four KPI cards and the four numeric table columns all explain themselves on hover** (2026-11-05): the People card takes both numbers from the API coverage **FE scope** (staff with person.isfe=Yes, and of those those with valid coordinates) and deliberately not from with_coords / total_all (map pins and table rows, which include non-FE staff); the Uncleared / Unclosed / Total cards **sum the API per-person fields over the rows currently in the table** — each person value comes from one backend scan (uncleared = alarm_clear_time empty **and** status not closed, a different concept from "unclosed tickets"); the Sites card shows a dash until a person is selected (the API never publishes a de-duplicated all-staff site count); the TT column counts **WO rows carrying a tt_no**, per row, not distinct TT numbers',
       ],
     },
     alarmManagement: {
@@ -1145,6 +1158,7 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
         'RAN (32) is queried by **IMSI, not MSISDN** — the RAN table\'s user-number column is entirely empty strings upstream. The IMSI is resolved from the 1300/1100 results first; if neither returns one, the radio dimension says "no IMSI mapping" instead of silently reporting 0 records',
         'Results are read-only passthrough and nothing is persisted, but the number and current view are written into the URL — refreshing or sharing the link re-runs the same number',
         'The link carries the number; check that the recipient is allowed to see that number before forwarding',
+        '**The four dimension scores and every figure on the voice / OTT / game / radio cards explain themselves on hover** (2026-11-05): these statistics are **computed in the frontend from the rules file** (the API sends neither scores nor counters); their input is exactly the row sets listed under "Source coverage", each source is paged with a cap (1300=1200 rows, 1100=800, 32=600, 1301=200) and a trailing `*` means the API flagged truncated, i.e. **rows were left unfetched** so every number is a sample; the voice "timeout/failure" counter used to add a PAGING row twice (PAGING branch plus the generic one) — fixed on 2026-11-05, so older screenshots show a larger value; the number in the game card header is named sessions in the code but is actually the **sum of xDR rows**, not a session count',
       ],
     },
     incident_overview: {
@@ -1397,11 +1411,13 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
     },
     tables: {
       desc: 'Table Browser: browse any table without SQL, view column profiles, import & export — the go-to fallback tool.',
-      usage: ['Pick a table → paginate & search (debounced); export xlsx / CSV', 'Column visibility can be saved as view templates — save one when you always look at the same columns', 'The "Profile" tab shows per-column statistics; Excel/CSV import supported'],
+      usage: ['Pick a table → paginate & search (debounced); export xlsx / CSV', 'Column visibility can be saved as view templates — save one when you always look at the same columns', 'The "Profile" tab shows per-column statistics; Excel/CSV import supported',
+        '**The header row/column tags, the pagination total and the four Profile cards all explain themselves on hover** (2026-11-05): the header row count is a whole-table `SELECT COUNT(*)` unaffected by the search box below; the pagination total is COUNT(*) **with the search applied**, and search runs a LIKE over every column but **only the first 200 columns** (wider tables are cut off), so "0 rows found" does not mean the data is missing; the whole Profile tab is a **sample** — the backend SQL is hard-coded to `LIMIT 10000` with no ORDER BY (not random), a banner stays visible when the cap is hit, and quality score = 100 − (issues ÷ columns×5) × 100, which floors at 20 because a column can trigger at most 4 checks'],
     },
     upload: {
       desc: 'Drag-and-drop Excel/CSV ingestion with a data-quality score.',
-      usage: ['Drop a file to upload; check the issue/conclusion panels before trusting the data', 'The history list can be refreshed manually'],
+      usage: ['Drop a file to upload; check the issue/conclusion panels before trusting the data', 'The history list can be refreshed manually',
+        '**Rows, columns, quality score, issue count and elapsed time all answer "how was this computed" on hover** (2026-11-05): quality score = 100 − (issues ÷ checks) × 100 with checks hard-coded at **5 per column** while a column can trigger at most 4 (outlier / null rate / constant / skewed), so the floor is 20, rounded to 1 decimal; null rate >50% is an error and >20% a warning (mutually exclusive); the number in "Quality Issues (N)" is the length of the backend issues_summary array but the API **sends only the first 10** entries, and when there are more a persistent line above the list states the gap (not sent, not lost)'],
     },
     archive: {
       desc: 'Analysis archive: search, view and delete past analysis results; pairs with the Dashboard.',

@@ -36,6 +36,7 @@ import {
 import { useI18n } from '../i18n'
 import { CardBase } from './cards'
 import StatCard from './StatCard'
+import { ExplainIcon, ExplainPopover } from './MetricExplain'
 import { renderI18n, renderI18nList } from '../renderI18n'
 import DraggableClickModal from './DraggableClickModal'
 import { WH } from '../theme'
@@ -111,6 +112,18 @@ export default function VmaxDiagnosisCard({
   const totalRows = sources.reduce((a, s) => a + (s.rows?.length || 0), 0)
   const failed = sources.filter((s) => !s.ok)
   const anyData = totalRows > 0
+
+  // 四维评分的悬浮说明（AGENTS.md 三.3c）。判据逐条从 pages/vmaxDiagnosisRules.ts 核实后写成，
+  // 并明说是「前端按规则文件算的」—— 接口不下发分数，这一点对用户理解数字必须诚实。
+  const scoreExplain = (key: ScoreKey): string => {
+    const perKey: Record<ScoreKey, string> = {
+      availability: t('vmaxq.diag.explain.availability'),
+      latency: t('vmaxq.diag.explain.latency'),
+      transport: t('vmaxq.diag.explain.transport'),
+      radio: t('vmaxq.diag.explain.radio'),
+    }
+    return `${perKey[key]}\n${t('vmaxq.diag.explain.common')}`
+  }
 
   const openDetail = (s: DimensionScore, e: React.MouseEvent<HTMLElement>) => {
     setAnchor({ x: e.clientX, y: e.clientY })
@@ -242,6 +255,7 @@ export default function VmaxDiagnosisCard({
                 title={(
                   <Space size={4}>
                     <span>{t(`vmaxq.diag.score.${s.key}`)}</span>
+                    <ExplainIcon text={scoreExplain(s.key)} />
                     {verdict?.focus === s.key && (
                       <Tag color="orange" style={{ marginInlineEnd: 0, fontSize: 10, lineHeight: '15px' }}>
                         ●
@@ -252,9 +266,14 @@ export default function VmaxDiagnosisCard({
                 value={s.score === null ? '—' : s.score}
                 suffix={s.score === null ? undefined : '/100'}
                 accentColor={accent}
+                explainText={scoreExplain(s.key)}
                 subText={
                   s.score === null
-                    ? <span title={t('vmaxq.diag.noDataHint')}>{t('vmaxq.diag.score.na')}</span>
+                    ? (
+                      <span>
+                        {t('vmaxq.diag.score.na')} <ExplainIcon text={t('vmaxq.diag.noDataHint')} />
+                      </span>
+                    )
                     : (s.sub
                       ? renderI18n(t, s.sub)
                       : t(`vmaxq.diag.level${s.score >= 80 ? 'Good' : s.score >= 50 ? 'Warn' : 'Bad'}`))
@@ -278,7 +297,11 @@ export default function VmaxDiagnosisCard({
           items={[
             {
               key: 'src',
-              label: t('vmaxq.diag.sources'),
+              label: (
+                <span>
+                  {t('vmaxq.diag.sources')} <ExplainIcon text={t('vmaxq.diag.explain.sources', { n: totalRows })} />
+                </span>
+              ),
               children: (
                 <Space size={4} wrap>
                   {sources.map((s) => (
@@ -291,7 +314,11 @@ export default function VmaxDiagnosisCard({
                             英文该是半角「: 」—— 由 vmaxq.diag.srcTag 模板承载，
                             不能在这里硬编码冒号。 */}
                         {s.ok
-                          ? t('vmaxq.diag.srcTag', { src: sourceLabel(t, s), n: s.rows.length })
+                          ? (
+                            <ExplainPopover text={t('vmaxq.diag.explain.srcRows', { src: sourceLabel(t, s), n: s.rows.length, trunc: s.truncated ? 1 : 0 })}>
+                              <span>{t('vmaxq.diag.srcTag', { src: sourceLabel(t, s), n: s.rows.length })}</span>
+                            </ExplainPopover>
+                          )
                           : t('vmaxq.diag.srcTagFail', { src: sourceLabel(t, s) })}
                         {s.truncated ? ' *' : ''}
                       </Tag>
