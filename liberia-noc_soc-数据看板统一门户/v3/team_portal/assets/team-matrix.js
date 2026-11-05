@@ -13,12 +13,21 @@
   window.OLBR_TEAM_MATRIX = {
   "bf": {
     "meta": [
+      "bo",
       "smc",
       "cxo"
     ],
     "speed": [
+      "bo",
       "smc",
       "cxo"
+    ]
+  },
+  "cch": {
+    "cch": [
+      "fo",
+      "bo",
+      "smc"
     ]
   },
   "escalation": {
@@ -42,10 +51,12 @@
   "kpi": {
     "avail": [
       "fo",
-      "bo",
       "flm",
       "smc",
       "cxo"
+    ],
+    "cxort": [
+      "bo"
     ],
     "rich": [
       "fo",
@@ -147,13 +158,6 @@
       "flm",
       "smc",
       "cxo"
-    ],
-    "vmax": [
-      "fo",
-      "bo",
-      "flm",
-      "smc",
-      "cxo"
     ]
   },
   "qc": {
@@ -232,7 +236,6 @@
       "bo"
     ],
     "CXO View": [
-      "bo",
       "cxo"
     ],
     "FLM View": [

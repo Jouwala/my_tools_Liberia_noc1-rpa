@@ -261,3 +261,20 @@ test('sanitizeLayout: qcOrder 只保留合法卡 id（去重，上限 20）', ()
 test('sanitizeLayout: 空对象 → 空布局（与 blankTeamLayout 同形）', () => {
   assert.deepEqual(sanitizeLayout({}), blankTeamLayout());
 });
+
+test('sanitizeLayout: 内部条目顺序按长度/个数清洗（2026-11-04 加）', () => {
+  const out = sanitizeLayout({
+    v6Order: ['FO View', 'BO View', 'FO View'],
+    v6ItemOrder: { 'FO View': ['12', '7', '12'] },
+    kpiGroupOrder: ['rich', 'avail', 'hacker', 'rich'],
+    kpiItemOrder: { rich: ['/myapp/?page=x#Total Traffic', '/myapp/?page=x#Total Traffic'] },
+    ossOrder: ['https://oss.example/a', 'https://oss.example/a'],
+    auxOrder: { 'Knowledge QA': ['https://kb.example/1'] },
+  });
+  assert.deepEqual(out!.v6Order, ['FO View', 'BO View']);
+  assert.deepEqual(out!.v6ItemOrder, { 'FO View': ['12', '7'] });
+  assert.deepEqual(out!.kpiGroupOrder, ['rich', 'avail', 'hacker']);
+  assert.equal(out!.kpiItemOrder.rich.length, 1);
+  assert.deepEqual(out!.ossOrder, ['https://oss.example/a']);
+  assert.deepEqual(out!.auxOrder, { 'Knowledge QA': ['https://kb.example/1'] });
+});

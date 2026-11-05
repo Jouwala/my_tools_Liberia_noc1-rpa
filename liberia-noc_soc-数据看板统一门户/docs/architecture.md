@@ -2069,6 +2069,145 @@ OSS = 10 项，Auto Report = 10 份）；同会话 fetch `/v3/bo_portal/` → **
 前端 `team-layout.js` 按“本地 `localStorage` → 服务端默认 → 空布局”回落；
 无 SQLite / 未登录 / 没存过默认时回 null，行为与“没设过默认”一致。
 
+### 十一、团队门户「同页登录」（2026-11-04 追加）
+
+**起因（用户原话）**：「用户访问直接在这个页面登录就行，为什么要取其他地方登录呢。」
+—— 此前访问 `https://192.168.100.20/v3/bo_portal/` 得到的是一张
+「401 · 未登录 / 请先登录统一门户」的拦截页，用户必须先跳到 `/uniplam/` 登录，
+再自己回来。
+
+**根因**：五个团队 location 的 `auth_request` 闸门在**内容下发前**就判定身份。
+未登录 → 401 → nginx 按 `error_page 401` 回一段**内联** HTML（只有一个去 `/uniplam/` 的外链）。
+而团队门户页面**自己**就有完整登录表单（`olbr.js` 的 `renderGate()`）——
+闸门在页面送达前就拦了，那个表单**根本到不了浏览器**。
+
+**解法**：把那个「到不了的表单」独立成一张静态页 `v3/team-login.html`，
+由 nginx 的 `error_page 401` **内部重定向**到它（地址栏不变，用户仍停在 `/v3/bo_portal/`）。
+
+```nginx
+location /v3/bo_portal/ {
+    alias         ".../v3/team_portal/";
+    auth_request /uniplam/api/auth/team-gate/bo;
+    error_page   401 = /v3/team-login.html;   # 未登录 → 同页登录
+    error_page   403 = @team_forbidden;        # 已登录但不是该团队
+}
+location = /v3/team-login.html {
+    alias        ".../v3/team-login.html";
+    default_type text/html;
+    add_header   Cache-Control "no-store" always;
+}
+location = /v3/team-login.js { ... }
+```
+
+⚠️ **访问控制一分未松。** 闸门原样保留（fail-closed），团队内容从未在未登录时下发过；
+本页只解决「**在哪登录**」，不承担访问控制。它**不带** `auth_request`
+（必须未登录时也能取到，这正是它存在的意义），且**不含任何敏感信息** —— 只有一张空表单。
+
+⚠️ **登录接口与账号体系没有第二份。** `v3/team-login.js` 调的是
+`POST /uniplam/api/auth/login` —— 与门户页**同一个**接口、**同一套**账号、
+**同一个** `auth-data/portal-auth.db`。成功时服务端种下 `olbr_token` Cookie（HttpOnly），
+脚本把它同时写进 `localStorage['liberia_noc_auth_v1']`（前端判「登没登录」用），
+然后 `location.reload()` → 重走 `auth_request` → 这次放行。
+
+⚠️ **登录页与 `team-gate.js` 是两件事，不要合。** `team-gate.js` 是**注入到上游
+`/v3/olbrportal/` 首页**的（nginx `sub_filter`），职责是「登录成功后跳到本团队门户」；
+本页的职责是「在这里登录」。两者生命周期与触发条件都不同。
+
+⚠️ **团队 id → 门户名的映射在四处各有一份字面量**（纯静态脚本不能 import 后端模块）：
+后端 `server/auth/types.ts` 的 `TEAM_PORTAL_PATHS`（唯一真相源）、
+`v3/team-gate.js` 的 `TEAM_PORTAL`、`v3/team-login.js` 的 `TEAM_NAMES`、
+`src/auth/AuthContext.tsx` 的 `TEAM_PORTAL_PATHS`。**改一处必须改其余各处。**
+
+#### 实测（2026-11-04，本机独立 nginx 实例 9477 + 隔离后端 9271）
+
+| 场景 | 期望 | 实测 |
+| --- | --- | --- |
+| 未登录访问 `/v3/bo_portal/` | 200 + 登录页，**不含**团队内容 | ✅ 7626 B，含 `team-login.js`，无 `olbr-data.js` |
+| 带 bo 身份访问 `/v3/bo_portal/` | 200 + 团队门户 | ✅ 41976 B，含 `olbr-data.js` + `team-scope.js` |
+| 带 bo 身份访问 `/v3/fo_portal/` | 403（跨团队隔离） | ✅ 403 拒绝页 |
+| 经 nginx 登录后拿 Cookie 复访 | 200 + 团队门户 | ✅ |
+| 浏览器实测：页内登录 → 强制改密 → 重新登录 | 停在 `/v3/bo_portal/`，最终进入团队门户 | ✅ 地址栏全程不变 |
+| 浏览器实测：bo 身份访问 `/v3/fo_portal/` | 403 | ✅ |
+
+> 验证用的测试账号（`tmp_verify_bo` / `verify_bo` / `verify_fo`）**已从
+> `auth-data/portal-auth.db` 删除** —— 留一个已知口令的账号在生产库是事故，不是遗留。
+
+
+## 九之十八、2026-11-05 团队门户 Domain Dashboard：卡内条目改「flex 行流」（消掉右侧大片空白）
+
+**起因（用户原话）**：「RAN 一行，放不下折两行，目前看一行还排不满，右边有大量空白，
+你有什么好的方案吗。检查其他团队门户，Domain Dashboard 也要一样的，
+团队门户页面保持一致。fo/bo/flm/smc/cxo」
+
+**根因。** 原规则（2026-11-03 加）是：
+
+```css
+#views6 .v6-grid[data-n="1"] .v6-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+}
+```
+
+CSS Grid 的**轨道数按整张列表的宽度一次性算死**（1484px 宽 → 5 条 ~289px 轨道），
+与「某个专业域有几条」**无关**。于是：
+
+| 专业域 | 条数 | 实际占用 | 右侧空白 |
+| --- | --- | --- | --- |
+| RAN | 5 | 1~5 号轨道，排满一行 | 0 |
+| IP | 5 | 1~5 号轨道 | 0 |
+| MW | 2 | 只有 1~2 号轨道 | **3 条空轨道 ≈ 870px** |
+| CN | 4 | 1~4 号轨道 | 1 条 ≈ 290px |
+| OCS | 2 | 只有 1~2 号轨道 | **≈ 870px** |
+
+`auto-fit` 只在**整张网格**都没有内容的轨道上塌陷 —— RAN 占满了 5 条轨道，
+所以轨道永远不会塌，MW / OCS 右侧就永远空着。**这不是「排不满」，是「轨道被别的组占了」。**
+
+**解法：flex 行流 + `flex-grow`。**
+
+```css
+#views6 .v6-grid[data-n] .v6-list {
+  display: flex; flex-flow: row wrap; gap: calc(4px * var(--v6-k)); align-content: start;
+}
+#views6 .v6-grid[data-n] .v6-seg-h,
+#views6 .v6-grid[data-n] .v6-empty { flex: 0 0 100%; }
+#views6 .v6-grid[data-n] .v6-row { flex: 1 1 280px; min-width: 0; }
+#views6 .v6-grid[data-n] .v6-more { flex: 0 0 auto; align-self: center; }
+```
+
+flex 的行是**按内容断行**的，每行独立分配剩余空间：
+
+- 段头 / 空态 `flex-basis: 100%` → 各自独占整行，且每个专业域从新行开始；
+- 条目 `flex: 1 1 280px` → 同一行内**条数少的那一组也会被拉伸吃满整行**：
+  MW 两条各占半行（实测 736px + 736px），零右侧空白；
+  RAN 五条自然排满一行，放不下折第二行 —— 正是用户要的「RAN 放一行，不够就两行」；
+- 展开按钮 `0 0 auto` → 作为普通流内项跟在末尾，不独占整行。
+
+**为什么对所有 `data-n` 生效（不再只限单列）。** 用户要求五个团队门户「页面保持一致」。
+fo / bo / cxo 是单列，flm 是双列（每列 ~739px），smc 没有 Domain Dashboard
+（`scope-map.json` 里没勾任何视图列 → `viewGroups()` 返回 `[]` → `#views6` 整块隐藏）。
+半宽列里条目按 280px 基准排，一行放 2 条并拉伸吃满 —— 之前是一条一条竖着堆、右侧空半列。
+
+**上游 `/v3/olbrportal/` 一行未改。** 这条规则在 `CSS_TEAM_SUFFIX` 里，
+只作用于 `v3/team_portal/assets/olbr.css`（生成物）。上游主门户六列窄卡，
+本来就是竖排设计（实测 `flex-direction: column`），不适用。
+
+⚠️ **DOM 结构不变** —— 段头与条目仍是 `.v6-list` 的直接子元素。
+`team-layout.js` 的拖拽排序按「`.v6-list > .v6-row`」取键与重排，
+一旦为了分组建包装层就会取不到键、排序失效。故用 CSS 解决，不动 JS。
+
+**实测（2026-11-05，本机 `https://localhost/v3/*_portal/`）**
+
+| 门户 | 视图列数 | 改前 | 改后 |
+| --- | --- | --- | --- |
+| bo | 1（BO View 分 RAN/IP/MW/CN/OCS） | MW 2 条占 291px×2，右侧空 ~870px | MW 2 条各 736px，右侧 0 |
+| fo | 1（FO View 平铺 4 条） | 4 条 × 291px，右侧空 ~290px | 4 条 × 365px，右侧 0 |
+| cxo | 1（CXO View 平铺 4 条） | 同上 | 4 条 × 365px，右侧 0 |
+| flm | 2（FLM View / SP View） | 2 条竖排，右侧空半列 | 每列 2 条 × 359px，右侧 0 |
+| smc | — | 无此块（`viewGroups()` 为空 → 整块隐藏） | 同前 |
+
+**验证。** `node scripts/check-team-scope.mjs` 全绿（生成物与上游一致）；
+`npm run lint` 通过；`node scripts/check-doc-consistency.mjs` PASS=6 FAIL=0；
+`node scripts/agent-done-check.mjs --full` 全绿。
 
 ## 十、相关文档
 

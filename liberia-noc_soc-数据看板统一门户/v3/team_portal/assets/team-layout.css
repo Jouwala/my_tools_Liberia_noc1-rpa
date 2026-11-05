@@ -1,67 +1,131 @@
 /* ============================================================================
-   team-layout.css —— 团队门户可调布局（P1 MVP）
+   team-layout.css —— 团队门户可调布局（P1 MVP，2026-11-03 加；2026-11-04 重做）
    ----------------------------------------------------------------------------
    只在 <html data-team-layout="edit"> 编辑态下生效：
-     · 区块描边 + 拖动手柄 + 隐藏开关 + 右下角缩放柄
-     · 工具条（#teamLayoutBar）常驻右下角，编辑/完成/重置三颗按钮
+     · 区块描边 + 区块工具条（拖动排序 / 隐藏开关 / 高度手柄提示）
+     · 组件内部条目拖序（QC 卡 / KPI 组与卡 / 视图列与行 / OSS 卡 / 辅助链接）
+     · 入口在头像下拉菜单（#userMenuPanel 里的 #tlEditBtn/#tlSaveBtn/#tlResetBtn），
+       复用 .mp-user-action 样式，本文件不再另起悬浮条
    只读态零样式（选择器全挂在 [data-team-layout="edit"] 下），
    上游 /v3/olbrportal/ 不引本文件，行为一行不变。
+
+   2026-11-04 重做（用户反馈「隐藏按钮被遮挡、里面拖不动、页面全乱」）：
+     · 遮挡根因：手柄是**流内**子节点，落在 .maprow / .qarow / .aux 这类
+       display:grid 容器里 → 它就是第 3 个 grid item，整行被撑成三列，
+       页面全乱；同时又压住相邻区块的内容（"显隐" 按钮被盖住）。
+       新版：手柄改 absolute（脱流，不占栅格位）+ 区块顶部预留 38px 空带
+       （内容下移，手柄落在空带里不压任何东西）+ 区块自建层叠上下文
+       （isolation）+ 悬停提 z-index，手柄 z-index 拉到 60。
+     · 拖不动根因有三个，全部已修：
+       ① 旧版只给 #band .qc-grid 接了拖拽，其余容器无 handlers；
+       ② #main 的 MutationObserver 每次重排都改 DOM → 拖到一半节点被移走，
+          浏览器直接取消拖拽（改成幂等重排 + 拖拽期间停手）；
+       ③ 嵌套容器（.qc-group 套 .qc-group-b、.v6 套 .v6-list）互相抢
+          dataTransfer，内层抢走 drop（改成「最近的容器优先」）。
+     · <a> 卡拖完照常触发 click 跳走 → 拖后 350ms 内压制 click（捕获阶段）。
    ========================================================================== */
 
-/* 工具条：右下角浮动，不遮右下角问答助手（qaFab 在右下 24px，本条往上抬 76px）。 */
-#teamLayoutBar {
-  position: fixed; right: 16px; bottom: 76px; z-index: 55;
-  display: flex; gap: 6px; align-items: center;
-  padding: 6px 8px; border-radius: 999px;
-  background: var(--surface-2, #fff); border: 1px solid var(--line-2, #e5e7eb);
-  box-shadow: var(--sh-1, 0 4px 14px rgba(0,0,0,.12));
-  font-size: 12px;
-}
-#teamLayoutBar button {
-  border: 1px solid var(--line-2, #e5e7eb); background: transparent;
-  border-radius: 999px; padding: 3px 10px; font-size: 12px; cursor: pointer;
-  color: var(--t1, #111);
-}
-#teamLayoutBar button[aria-pressed="true"] {
-  background: var(--b-tint, #eff6ff); border-color: var(--b-line, #93c5fd);
-  color: var(--b-ink, #1d4ed8); font-weight: 700;
-}
-#teamLayoutBar button:disabled { opacity: .45; cursor: not-allowed; }
+/* 编辑态：可布局区块统一描边，提示“可拖”。
+   2026-11-04：区块全程 overflow:visible（不再开原生 resize），手柄永不被裁。
+   区块自建层叠上下文 + 悬停提 z-index，保证手柄盖过相邻区块。
 
-/* 编辑态：可布局区块统一描边，提示"可拖"。 */
+   ⚠️ **padding-top 预留工具条带**（2026-11-04 用户报「编辑模式下页面全乱」）：
+   手柄浮在区块右上角，若不预留空间，它就会压住区块自己的标题与内容
+   （「显隐」按钮被隔壁区块盖住是同一个问题的两面）。
+   这里给每个可布局区块在顶部留出一条 38px 的空带，手柄正好落在这条带里：
+     · 区块内容整体下移，不与手柄重叠 → 不再遮挡；
+     · 带子是空的，不压任何内容 → 不必给每个标题单独写 padding-right
+       （那种写法在标题结构一变就失效，且曾把 .v6-h 撑成 230px 的空白）。
+   只在编辑态生效；只读态 padding-top 一律恢复原样。 */
 html[data-team-layout="edit"] #main > section[data-tl],
 html[data-team-layout="edit"] #main > div[data-tl] {
   outline: 1.5px dashed var(--b-line, #93c5fd);
   outline-offset: 3px;
   position: relative;
+  isolation: isolate;
+  z-index: 0;
+  scroll-margin-top: 8px;
+  min-height: 80px;
+  padding-top: 44px;
+  /* 刻意不用 resize/overflow:auto：原生 resize 要求 overflow 非 visible，
+     一开就会建滚动裁剪语境，手柄一律被裁（旧版遮挡的根因①）。高度改走
+     手柄上的 ↕ 拖柄（team-layout.js wireSizeGrip），JS 写 minHeight。 */
+  overflow: visible;
 }
-/* 拖动中 / 落点高亮。 */
+html[data-team-layout="edit"] #main > section[data-tl]:hover,
+html[data-team-layout="edit"] #main > div[data-tl]:hover,
+html[data-team-layout="edit"] #main > section[data-tl]:focus-within,
+html[data-team-layout="edit"] #main > div[data-tl]:focus-within {
+  z-index: 5;
+}
+/* 拖动中 / 落点高亮（区块级：上下分界线；条目级：左右或上下，见后）。 */
 html[data-team-layout="edit"] [data-tl].is-tl-drag { opacity: .45; }
 html[data-team-layout="edit"] [data-tl].is-tl-before { box-shadow: 0 -3px 0 var(--b, #3b82f6); }
 html[data-team-layout="edit"] [data-tl].is-tl-after { box-shadow: 0 3px 0 var(--b, #3b82f6); }
 
-/* 区块左上角手柄：拖动排序 + 显隐开关。 */
+/* 区块工具条：绝对定位浮在块内右上角。
+   为什么必须 absolute（不能是流内子节点）：.maprow / .qarow / .aux 都是
+   display:grid —— 流内子节点就是第 3 个 grid item，整行被撑成三列，
+   页面全乱（2026-11-04 用户报「编辑模式下页面全乱」的根因①）。
+   为什么不用 sticky：sticky 仍是流内元素（照样占栅格位），且需要滚动容器
+   才有意义；这里改为绝对定位 —— 脱流、不占位、不被裁、位置可预期。
+   为什么不用旧的 top:-12px 探出块外：探出块外会被编辑态的 overflow 裁掉，
+   且压到相邻区块上（根因②）。现在收在块内右上角 + z-index 60 + 悬停提层。 */
 .tl-handle {
-  position: absolute; top: -12px; left: 8px; z-index: 6;
-  display: none; gap: 4px; align-items: center;
+  position: absolute; top: 8px; right: 8px; left: auto; z-index: 60;
+  display: none; gap: 6px; align-items: center;
   background: var(--surface-2, #fff); border: 1px solid var(--line-2, #e5e7eb);
-  border-radius: 999px; padding: 1px 6px; font-size: 11px; line-height: 18px;
-  box-shadow: var(--sh-1, 0 4px 14px rgba(0,0,0,.12));
-  user-select: none;
+  border-radius: 999px; padding: 3px 6px 3px 8px; font-size: 11px; line-height: 20px;
+  box-shadow: var(--sh-1, 0 4px 14px rgba(0,0,0,.18));
+  user-select: none; white-space: nowrap;
+  max-width: calc(100% - 16px);
 }
 html[data-team-layout="edit"] .tl-handle { display: inline-flex; }
-.tl-handle .tl-grip { cursor: grab; }
+/* ⚠️ 旧版曾给每个区块标题写 padding-right:230px 给手柄让位 —— 已删除。
+   手柄改成绝对定位 + 区块顶部预留 38px 空带后，标题不再需要让位；
+   留着反而会在标题结构不同的区块上凭空多出 230px 空白（页面看起来更乱）。 */
+.tl-handle .tl-grip { cursor: grab; font-size: 13px; letter-spacing: 1px; padding: 0 2px; }
 .tl-handle .tl-grip:active { cursor: grabbing; }
+.tl-handle .tl-name {
+  max-width: 110px; overflow: hidden; text-overflow: ellipsis;
+  color: var(--t3, #888); font-family: var(--mono, ui-monospace, Consolas, monospace);
+}
 .tl-handle button {
-  border: none; background: transparent; cursor: pointer;
-  font-size: 11px; padding: 0 4px; color: var(--t2, #555);
+  border: 1px solid var(--line-2, #e5e7eb); background: var(--surface, #f8fafc);
+  border-radius: 999px; cursor: pointer;
+  font-size: 11px; padding: 1px 10px; color: var(--t1, #333); line-height: 20px;
+}
+.tl-handle button:hover { border-color: var(--b-line, #93c5fd); color: var(--b-ink, #1d4ed8); }
+.tl-handle button[aria-pressed="true"] {
+  background: var(--b, #3b82f6); border-color: var(--b, #3b82f6); color: #fff;
+}
+/* 高度拖柄 ↕：mousedown 后纵向拖改 minHeight（见 wireSizeGrip）。
+   单独的可拖命中区，区别于排序抓手 ⠿ 与显隐按钮。 */
+.tl-handle .tl-size {
+  cursor: ns-resize; font-size: 13px; padding: 0 4px; color: var(--t2, #666);
+  border: 1px dashed var(--line-2, #e5e7eb); border-radius: 6px; line-height: 20px;
+  touch-action: none;
+}
+.tl-handle .tl-size:hover { border-color: var(--b-line, #93c5fd); color: var(--b-ink, #1d4ed8); }
+
+/* 被用户隐藏的区块在编辑态给一个占位提示（否则藏完就找不回来，只能靠“重置”）。 */
+html[data-team-layout="edit"] [data-tl][data-tl-off] {
+  display: block !important; min-height: 56px;
+  outline-style: dotted; opacity: .75;
+}
+html[data-team-layout="edit"] [data-tl][data-tl-off] > :not(.tl-handle) {
+  opacity: .35; filter: grayscale(.4); pointer-events: none;
 }
 
-/* 编辑态允许纵向缩放：靠右下角手柄改 --tl-h（见 team-layout.js）。 */
-html[data-team-layout="edit"] #main > section[data-tl],
-html[data-team-layout="edit"] #main > div[data-tl] {
-  resize: vertical; overflow: auto; min-height: 80px;
-}
-/* 卡片级：QC 卡在编辑态可拖排序。 */
-html[data-team-layout="edit"] #band .qc-grid .qc-card { cursor: grab; }
-html[data-team-layout="edit"] #band .qc-grid .qc-card.is-tl-drag { opacity: .45; }
+/* 组件内部可拖条目：统一抓手光标 + 拖动态。data-tl-sort 由 JS 挂在容器上。
+   默认给横向（x）；纵向容器（.v6-list / .aux-g ul）由 JS 挂 data-tl-axis="y"。 */
+html[data-team-layout="edit"] [data-tl-sort] [draggable="true"] { cursor: grab; }
+html[data-team-layout="edit"] [data-tl-sort] .is-tl-drag { opacity: .45; }
+html[data-team-layout="edit"] [data-tl-sort] .is-tl-before-x { box-shadow: -3px 0 0 var(--b, #3b82f6); }
+html[data-team-layout="edit"] [data-tl-sort] .is-tl-after-x { box-shadow: 3px 0 0 var(--b, #3b82f6); }
+html[data-team-layout="edit"] [data-tl-sort] .is-tl-before-y { box-shadow: 0 -3px 0 var(--b, #3b82f6); }
+html[data-team-layout="edit"] [data-tl-sort] .is-tl-after-y { box-shadow: 0 3px 0 var(--b, #3b82f6); }
+/* 拖动时禁掉链接跳转的高亮干扰：a 卡片在拖动中不响应 hover 跳动。
+   真正的“拖后不跳走”由 JS 在捕获阶段压制 click（DnD 拖完 click 照常触发），
+   这里只管视觉。 */
+html[data-team-layout="edit"] [data-tl-sort].is-tl-sorting a { pointer-events: none; }

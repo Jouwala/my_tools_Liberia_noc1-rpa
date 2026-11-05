@@ -180,7 +180,10 @@ export function isMatrixEmpty(matrix: TeamScopeMatrix): boolean {
 //
 // 形状（与前端 blankLayout() / persistOrderInto() 严格对应）：
 //   { order: string[]; hidden: Record<string, boolean>;
-//     heights: Record<string, number>; qcOrder: string[] }
+//     heights: Record<string, number>; qcOrder: string[];
+//     v6Order: string[]; v6ItemOrder: Record<string, string[]>;
+//     kpiGroupOrder: string[]; kpiItemOrder: Record<string, string[]>;
+//     ossOrder: string[]; auxOrder: Record<string, string[]> }
 //
 // 清洗原则（与 sanitizeMatrix 同一口径：认不得的一律丢弃，不抛异常）：
 //   · order 只保留布局块白名单里的 id（与前端 BLOCKS 一致），去重保序；
@@ -188,6 +191,8 @@ export function isMatrixEmpty(matrix: TeamScopeMatrix): boolean {
 //   · heights 只保留白名单块且 80~3000 的整数（与前端持久化阈值一致）；
 //   · qcOrder 只保留 1~64 字符的词字符/连字符（QC 卡 id 如 alarm/tt/wo…），
 //     最多 20 个，去重保序 —— 未知卡 id 直接丢弃（矩阵变了旧布局不带毒）。
+//   · 内部条目顺序（2026-11-04 加）：v6 列名含空格、href 含符号，不限字符集，
+//     只限长度与个数；分组字典键同样只限长度（v6/aux 200、kpi 组 64）。
 /** 布局块白名单（与 v3/team_portal/assets/team-layout.js 的 BLOCKS 一致） */
 export const TEAM_LAYOUT_BLOCKS: readonly string[] = [
   'band', 'kpi', 'views6', 'maprow', 'qarow', 'esc', 'aux', 'arch',
@@ -199,11 +204,51 @@ export interface TeamLayout {
   hidden: Record<string, boolean>;
   heights: Record<string, number>;
   qcOrder: string[];
+  v6Order: string[];
+  v6ItemOrder: Record<string, string[]>;
+  kpiGroupOrder: string[];
+  kpiItemOrder: Record<string, string[]>;
+  ossOrder: string[];
+  auxOrder: Record<string, string[]>;
 }
 
 /** 空布局（前端 blankLayout() 的服务端镜像） */
 export function blankTeamLayout(): TeamLayout {
-  return { order: [], hidden: {}, heights: {}, qcOrder: [] };
+  return {
+    order: [], hidden: {}, heights: {}, qcOrder: [],
+    v6Order: [], v6ItemOrder: {}, kpiGroupOrder: [], kpiItemOrder: {},
+    ossOrder: [], auxOrder: {},
+  };
+}
+
+/* 字符串数组清洗：去重保序 + 长度/个数上限（布局只是顺序，不是权限，认不得的丢弃）。 */
+function cleanStrList(raw: unknown, maxItems: number, maxLen: number, pattern: RegExp): string[] {
+  const out: string[] = [];
+  if (!Array.isArray(raw)) return out;
+  for (const v of raw) {
+    const id = String(v ?? '').trim();
+    if (!id || id.length > maxLen || !pattern.test(id) || out.includes(id)) continue;
+    out.push(id);
+    if (out.length >= maxItems) break;
+  }
+  return out;
+}
+
+/* 分组字典清洗：键走 keyPattern，值走 cleanStrList（每组上限 itemMax 条）。 */
+function cleanStrDict(
+  raw: unknown, maxGroups: number, keyPattern: RegExp, itemMax: number, itemLen: number, itemPattern: RegExp
+): Record<string, string[]> {
+  const out: Record<string, string[]> = {};
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return out;
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (Object.keys(out).length >= maxGroups) break;
+    const key = String(k ?? '').trim();
+    if (!key || key.length > 200 || !keyPattern.test(key)) continue;
+    const list = cleanStrList(v, itemMax, itemLen, itemPattern);
+    /* 空数组也保留：与 sanitizeMatrix 的“显式清空”同语义，界面可回显。 */
+    out[key] = list;
+  }
+  return out;
 }
 
 export function sanitizeLayout(input: unknown): TeamLayout | null {
@@ -239,7 +284,18 @@ export function sanitizeLayout(input: unknown): TeamLayout | null {
       if (qcOrder.length >= 20) break;
     }
   }
-  return { order, hidden, heights, qcOrder };
+  /* 内部条目顺序（2026-11-04 加，用户反馈“里面拖不动”后补全）：
+     · v6Order / ossOrder：无特殊字符集限制（视图名含空格、href 含符号），只限长度与个数；
+     · kpiItemOrder 的键是指纹（href#卡名），值同理；
+     · auxOrder 按 .aux-g[data-key] 分组。
+     布局只是顺序/显隐/高度，不是权限数据，认不得的丢弃、不抛异常。 */
+  const v6Order = cleanStrList(src.v6Order, 20, 200, /^[\s\S]{1,200}$/);
+  const kpiGroupOrder = cleanStrList(src.kpiGroupOrder, 20, 64, /^[A-Za-z0-9_-]{1,64}$/);
+  const ossOrder = cleanStrList(src.ossOrder, 60, 500, /^[\s\S]{1,500}$/);
+  const v6ItemOrder = cleanStrDict(src.v6ItemOrder, 20, /^[\s\S]{1,200}$/, 200, 200, /^[\s\S]{1,200}$/);
+  const kpiItemOrder = cleanStrDict(src.kpiItemOrder, 20, /^[A-Za-z0-9_-]{1,64}$/, 60, 300, /^[\s\S]{1,300}$/);
+  const auxOrder = cleanStrDict(src.auxOrder, 20, /^[\s\S]{1,200}$/, 500, 500, /^[\s\S]{1,500}$/);
+  return { order, hidden, heights, qcOrder, v6Order, v6ItemOrder, kpiGroupOrder, kpiItemOrder, ossOrder, auxOrder };
 }
 
 // ---------------------------------------------------------------------------

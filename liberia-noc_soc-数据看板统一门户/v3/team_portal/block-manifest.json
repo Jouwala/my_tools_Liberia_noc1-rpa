@@ -57,7 +57,7 @@
       "sub": null,
       "probe": "SCOPE.qaTabs()",
       "title": "Knowledge Q&A 页签区",
-      "note": "页签级过滤：eflow / rag / vmax；右下角悬浮助手由 qa-assistant.js 按 assistant 判断。"
+      "note": "页签级过滤：eflow / rag。⚠️ 2026-11-04 起第三页签 CCH 已拆成独立面板 #cchSlot（见 cch 域），这里不再有 vmax；右下角悬浮助手由 qa-assistant.js 按 assistant 判断。"
     },
     {
       "id": "ossSlot",
@@ -86,12 +86,13 @@
       "title": "Escalation Matrix 升级机制"
     },
     {
-      "id": "fbSlot",
-      "selector": "#fbSlot",
-      "dom": "feedback",
+      "id": "cchSlot",
+      "selector": "#cchSlot",
+      "dom": "cch",
       "sub": null,
-      "probe": "SCOPE.hasFeedback()",
-      "title": "User Feedback 用户反馈"
+      "probe": "SCOPE.hasCch()",
+      "title": "CCH 独立面板（VMAX 用户查询）",
+      "note": "2026-11-04 加：从 Knowledge Q&A 第三页签拆出，占原 User Feedback 的槽位（.qarow 右列上半）。矩阵 cch 域勾了 fo / bo / smc；上游 olbr 主门户 SCOPE 为 null、恒显示。⚠️ User Feedback 已移到顶栏头像下拉（见 user-menu 块），不再占页面区块，故原 fbSlot 块删除。"
     },
     {
       "id": "complaintSlot",
@@ -151,9 +152,9 @@
       "selector": "#userMenu",
       "dom": null,
       "always": true,
-      "children": ["#userMenuPanel", "#sysMenu", "#sysMenuPanel"],
+      "children": ["#userMenuPanel", "#fbMenuLink", "#sysMenu", "#sysMenuPanel"],
       "title": "顶栏用户菜单",
-      "reason": "用户菜单（头像 / 系统管理 / 用户管理 / 退出）是**当前登录者自己的**操作入口，与「这个团队能看到哪些业务内容」正交 —— 它按登录者的角色显隐，不按团队。子面板（用户菜单面板 / 系统管理折叠区 / 系统管理面板）都是这一个菜单的内部结构，故登记为它的 children。"
+      "reason": "用户菜单（头像 / User Feedback / 系统管理 / 用户管理 / 退出）是**当前登录者自己的**操作入口，与「这个团队能看到什么」正交 —— 它按登录者的角色显隐，不按团队。子面板（用户菜单面板 / 反馈菜单项 / 系统管理折叠区 / 系统管理面板）都是这一个菜单的内部结构，故登记为它的 children。⚠️ 2026-11-04：User Feedback 从页面区块收进这里（#fbMenuLink），对所有登录用户可见，scope-map.json 的 feedback 域随之退役（仅保留以接住 Excel 那一行）。"
     },
     {
       "id": "qa-assistant",

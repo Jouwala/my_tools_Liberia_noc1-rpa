@@ -118,9 +118,13 @@ H(
      必须重画一次，否则页面停在「矩阵未就绪 → 什么都不显示」的状态。
      ⚠️ 事件名带 'olbr' 前缀，避免与页面上的其它事件撞名。
      ⚠️ SCOPE 为 null（上游页面）时这个监听器**不注册** ——
-       上游那份 index.html 不引 team-scope.js，永远不会有这个事件。 */
+       上游那份 index.html 不引 team-scope.js，永远不会有这个事件。
+     ⚠️ 2026-11-04 加 loadCxort()：矩阵未就绪时 loadKpi 的第 4 路
+       （CXO RealTime Dashboard）被 wantCxortGroup() fail-closed 跳过，
+       bo 门户首屏这一路要等矩阵到位才补发；只 render() 不取数的话，
+       卡片会一直是「—」直到下一个 5 分钟刻度。 */
   if (SCOPE) {
-    document.addEventListener('olbr:scope-ready', function () { render(); });
+    document.addEventListener('olbr:scope-ready', function () { render(); loadCxort(); });
   }
   function boot() {
     applyI18n();""",
@@ -300,36 +304,39 @@ H(
     """  function renderKpi() {
     var box = $('#kpi');
     if (!box) return;
-    var k = state.kpi;""",
+    var k = state.kpi;
+    /* teamOnly 卡组（2026-11-04 加）：DATA.KPI_GROUPS 里带 teamOnly 的组
+       （当前只有 cxort = CXO RealTime Dashboard，bo 团队门户专用）不进
+       上游主门户 —— 上游没有团队矩阵，无从判断哪个团队该看，直接不渲染。
+       团队门户那份（v3/team_portal/，由 scripts/patch_team_portal.py 生成）
+       会把这一行换成按矩阵 kpi.cxort 过滤的版本，见该脚本的 kpi-scope-vars 钩子。
+       取数侧同样按它 gating（wantCxortGroup / loadKpi 第 4 路）。 */
+    var kpiGroups = DATA.KPI_GROUPS.filter(function (g) { return !g.teamOnly; });""",
     """  function renderKpi() {
     var box = $('#kpi');
     if (!box) return;
-    /* 登出后不再重画（2026-11-02 加）：KPI 是**异步**装载的（三路并行，见 loadKpi），
+    /* 登出后不再重画（2026-11-02 加）：KPI 是**异步**装载的（多路并行，见 loadKpi），
        登出那一刻还在飞的回调会把 #kpi 重新解隐 —— 与 #band 同一类漏点，
        详见 logout() 的注释。 */
     if (state.signedOut) { box.hidden = true; return; }
     var k = state.kpi;
     /* 团队门户作用域（2026-10-29 加）：
-       · KPI_GROUPS 有两组（rich = 总流量/活跃用户/视频速率，avail = 2G/3G/4G 可用率），
-         对应 Excel 的 Network Status 域两行，按组 id 过滤。
-       · BF_GROUPS 有两组（speed = Ookla，meta = Meta），对应 Network Benchmark 域两行。
-       判据见 assets/team-scope.js（矩阵来自《新看板设计.xlsx》）。
-       ⚠️ 过滤的是**组**，不是组内的卡：Excel 的勾选粒度就是「这一类要不要」，
+       · KPI_GROUPS 现在是**三组**：rich / avail / cxort（后者 teamOnly，
+         2026-11-04 加，bo 专用 —— Daily Availability KPI 换成 CXO RealTime
+         Dashboard，矩阵 kpi.cxort 只勾了 bo；avail 那行同步去掉了 bo）。
+         一律按矩阵 kpi 域的子键过滤，缺键 = 不显示（无默认全显兜底）。
+       · BF_GROUPS 有两组（speed = Ookla，meta = Meta），对应 Network Benchmark 域两行
+         （2026-11-04 起矩阵把 bo 也勾上了）。
+       ⚠️ 过滤的是**组**，不是组内的卡：勾选粒度就是「这一类要不要」，
          组内几张卡是这个数据源不可分割的一部分（少一张就与组头说的口径不符）。
        ⚠️ 这两个变量必须算在**骨架分支之前** —— 骨架与真卡用的是同一份清单，
          否则会出现「骨架摆两组、真卡只出一组」的错位。 */
     var kpiGroups = SCOPE ? DATA.KPI_GROUPS.filter(function (g) {
       return SCOPE.ok('kpi', g.id);
-    }) : DATA.KPI_GROUPS;
+    }) : DATA.KPI_GROUPS.filter(function (g) { return !g.teamOnly; });
     var bfGroups = SCOPE ? DATA.BF_GROUPS.filter(function (g) {
       return SCOPE.ok('bf', g.id);
     }) : DATA.BF_GROUPS;""",
-)
-
-H(
-    "kpi-skeleton-groups",
-    """      var skTop = DATA.KPI_GROUPS.map(function (g) {""",
-    """      var skTop = kpiGroups.map(function (g) {""",
 )
 
 H(
@@ -368,12 +375,6 @@ H(
       }
       return;
     }""",
-)
-
-H(
-    "kpi-real-groups",
-    """    var top = DATA.KPI_GROUPS.map(function (g) {""",
-    """    var top = kpiGroups.map(function (g) {""",
 )
 
 H(
@@ -442,6 +443,89 @@ H(
     gids.forEach(function (gid) {""",
 )
 
+# ⚠️ 2026-11-05（用户要求「bo 门户的 BO View 不要跳过 RAN/IP/MW/CN/OCS 页签」）：
+#   这里原先有一个 v6-bo-flat 钩子，对 SCOPE.teamId === 'bo' 直接跳过 v6SubBar()，
+#   把 BO View 摊平成「每条报告一行」—— 页签与按专业域分段全丢了。
+#   **该钩子已删除**（不保留兼容层，见 AGENTS.md 第三节第 10 条「删除优于兼容」）：
+#   bo 门户回到与其它团队门户一致的行为 —— 有子分组页签、「全部」视图按专业域分段。
+#   随之要一起修的是「分段默认折叠」：上游 v6SegHtml 的语义是
+#   「state.v6SubFold[sid] === true 才展开」（默认折叠，2026-10-12 用户要求），
+#   折叠态下用户只看得到 5 个段头（RAN/IP/MW/CN/OCS + 计数）、看不到任何报告，
+#   「按组按行展示」等于没实现。故 bo 侧改为**默认展开**，见下面两个钩子。
+#
+#   bo 侧「RAN 放一行、不够就两行」由 CSS 侧现成的一条规则兜住：
+#   sync_team_assets.py 追加的 `#views6 .v6-grid[data-n] .v6-list`
+#   （**flex 行流**，段头 flex-basis:100% 独占整行，条目 flex:1 1 280px 自动横排折行）
+#   —— 2026-11-05 之前那条是 auto-fit 网格且只挂在 data-n="1" 上，轨道数按整张列表宽度
+#   一次算死，MW 只有 2 条也占着 5 条轨道的位置，右侧留下约 870px 空白
+#   （2026-11-05 用户报「一行还排不满，右边有大量空白」）。现在改成 flex 行流后，
+#   同一行内条数少的那一组也会被拉伸吃满整行（MW 两条各占半行），零右侧空白。
+H(
+    "v6-seg-open-bo",
+    """    var open = state.v6SubFold[sid] === true;   // 默认折叠""",
+    """    /* 团队门户 bo（2026-11-05 加）：BO View 的专业域分段**默认展开** ——
+       用户要求「BO View 里的报告按组按行展示：RAN 放一行，不够就两行」。
+       折叠态下用户只看得到 5 个段头（RAN/IP/MW/CN/OCS + 计数）、一条报告都看不到，
+       等于没实现。
+       ⚠️ 折叠状态键仍复用 state.v6SubFold，但 bo 侧语义与上游**相反**：
+         上游 = 「=== true 才展开」（默认折叠）；
+         bo  = 「=== false 才折叠」（默认展开）。
+         两处必须成对改：这里的判定 + 点击时的翻转（v6-seg-toggle-bo 钩子），
+         只改一处会出现「点一下没反应」。
+       ⚠️ 判据 SCOPE.teamId === 'bo'：BO View 这一列本来就只有 bo 有
+         （view 矩阵），上游主门户（/v3/olbrportal/，SCOPE 为 null）
+         与其它团队门户一行未改。 */
+    var open = (SCOPE && SCOPE.teamId === 'bo')
+      ? state.v6SubFold[sid] !== false
+      : state.v6SubFold[sid] === true;   // 默认折叠""",
+)
+
+H(
+    "v6-seg-toggle-bo",
+    """        state.v6SubFold[ssid] = state.v6SubFold[ssid] !== true;""",
+    """        /* 团队门户 bo（2026-11-05 加）：与 v6SegHtml 的 bo 侧语义对齐 ——
+           bo 侧「false = 折叠、其余 = 展开」，故翻转是「当前展开就置 false、
+           当前折叠就置 true」。上游那套「!== true」在默认展开下第一次点击
+           算出来还是 true（看着没反应），不能照抄。
+           ⚠️ SCOPE 为 null（上游）或非 bo 团队时行为与改动前完全一致。 */
+        state.v6SubFold[ssid] = (SCOPE && SCOPE.teamId === 'bo')
+          ? (state.v6SubFold[ssid] === false ? true : false)
+          : state.v6SubFold[ssid] !== true;""",
+)
+
+H(
+    "views6-limit-show",
+    """      var open = !!state.v6Open[gid];
+      var show = open || ed ? list : list.slice(0, V6_LIMIT);""",
+    """      var open = !!state.v6Open[gid];
+      /* 团队门户单列自适应首屏条数（2026-11-03 加）：V6_LIMIT=2 是按三列窄卡定的，
+         一行只摆一条；单列卡独占整行时一行可摆 4~6 条，仍只切 2 条会空出半行。
+         按容器宽度估算首行可摆条数（320px/条，与 CSS 的 minmax(280px,1fr)+缝对应，
+         至少 2 条），展开按钮计剩余数。窗口缩放后下次渲染重新估算。 */
+      var v6Lim = V6_LIMIT;
+      if (SCOPE && !ed && !open && !sub.grouped && gids.length === 1 && list.length > V6_LIMIT) {
+        var v6W = (box && box.clientWidth) || window.innerWidth || 1280;
+        v6Lim = Math.min(list.length, Math.max(V6_LIMIT, Math.floor(v6W / 320)));
+      }
+      var show = open || ed ? list : list.slice(0, v6Lim);""",
+)
+
+H(
+    "views6-limit-more",
+    """      if (!ed && !sub.grouped && list.length > V6_LIMIT) {
+        body += '<button type="button" class="v6-more" data-act="v6-toggle" data-gid="' + esc(gid) +
+          '" aria-expanded="' + (open ? 'true' : 'false') + '">' +
+          '<i class="ph ph-' + (open ? 'caret-up' : 'caret-down') + '" aria-hidden="true"></i>' +
+          '<span>' + esc(open ? t('v6.less') : tf('v6.more', { n: list.length - V6_LIMIT })) + '</span></button>';
+      }""",
+    """      if (!ed && !sub.grouped && list.length > v6Lim) {
+        body += '<button type="button" class="v6-more" data-act="v6-toggle" data-gid="' + esc(gid) +
+          '" aria-expanded="' + (open ? 'true' : 'false') + '">' +
+          '<i class="ph ph-' + (open ? 'caret-up' : 'caret-down') + '" aria-hidden="true"></i>' +
+          '<span>' + esc(open ? t('v6.less') : tf('v6.more', { n: list.length - v6Lim })) + '</span></button>';
+      }""",
+)
+
 # ==========================================================================
 # 5) GIS MAP（#l0Map）：按矩阵过滤地图页签
 # ==========================================================================
@@ -486,30 +570,19 @@ H(
     "qa-filter",
     """    var eflow = pick('page=eflow_qa');""",
     """    var eflow = pick('page=eflow_qa');
-    /* 团队门户作用域（2026-10-29 加，2026-11-02 补 vmax）：Excel 的 Knowledge Q&A 域有四行 ——
+    /* 团队门户作用域（2026-10-29 加，2026-11-04 改）：Excel 的 Knowledge Q&A 域剩三行 ——
        · TT/Alarm Analysis → eFlow 知识库（页签 eflow）
        · Knowledge O&A     → 本地知识问答（页签 rag）
-       · VMAX 用户查询      → VMAX 用户查询（页签 vmax，见下方 qa-filter-vmax 钩子）
        · Quick Q&A         → 右下角悬浮问答助手（不是页签，由 qa-assistant.js 判断）
-       这里只管前两个页签；vmax 的兜底项定义在后面，提前置空会被覆盖，
-       故它的过滤在 return 前单独做（qa-filter-vmax 钩子）。 */
+       ⚠️ 原第四行 VMAX 用户查询（页签 vmax，短名 CCH）已于 2026-11-04 拆成独立
+         面板 #cchSlot，由 cch 域的 cch-scope 钩子控制，不再在这里过滤。
+       ⚠️ 服务端库矩阵里可能仍残留 qa/vmax（合并逻辑只补不删），
+         qaItems() 已不消费它，qaTabs() 多返回一项也无副作用。 */
     if (SCOPE) {
       var qaAllow = SCOPE.qaTabs();
       if (qaAllow.indexOf('eflow') === -1) eflow = null;
       if (qaAllow.indexOf('rag') === -1) rag = null;
     }""",
-)
-
-H(
-    "qa-filter-vmax",
-    """    return [eflow && { key: 'eflow', item: eflow }, rag && { key: 'rag', item: rag },
-      vmax && { key: 'vmax', item: vmax }].filter(Boolean);""",
-    """    /* 团队门户作用域（2026-11-02 加）：VMAX 页签同样受矩阵控制 ——
-       未勾选的团队不显示。注意 vmax 可能是兜底项（目录里没有也存在），
-       故不能只靠目录有无，必须在这里显式过滤。 */
-    if (SCOPE && SCOPE.qaTabs().indexOf('vmax') === -1) vmax = null;
-    return [eflow && { key: 'eflow', item: eflow }, rag && { key: 'rag', item: rag },
-      vmax && { key: 'vmax', item: vmax }].filter(Boolean);""",
 )
 
 H(
@@ -581,19 +654,31 @@ H(
 )
 
 # ==========================================================================
-# 9) User Feedback（#fbSlot）
+# 9) CCH 独立面板（#cchSlot）
 # ==========================================================================
 H(
-    "fb-scope",
-    """  function renderFeedbackSection() {
-    var el = $('#fbSlot'); if (!el) return;
-    if (fbLang !== state.lang || !el.querySelector('#fbHost')) {""",
-    """  function renderFeedbackSection() {
-    var el = $('#fbSlot'); if (!el) return;
-    /* 团队门户作用域（2026-10-29 加）：Excel 的 User Feedback 域未勾时整块消失。 */
-    if (SCOPE && !SCOPE.hasFeedback()) { el.innerHTML = ''; el.hidden = true; return; }
-    if (SCOPE) { el.hidden = false; }
-    if (fbLang !== state.lang || !el.querySelector('#fbHost')) {""",
+    "cch-scope",
+    """  function renderCchSection() {
+    var el = $('#cchSlot'); if (!el) return;""",
+    """  function renderCchSection() {
+    var el = $('#cchSlot'); if (!el) return;
+    /* 团队门户作用域（2026-11-04 加）：CCH 独立面板受 cch 域控制 ——
+       只有 fo / bo / smc 勾了（用户要求「CCH 在 olbr / smc / fo / bo 显示」里的
+       后三个；olbr 是上游主门户，不引 team-scope.js、SCOPE 为 null，恒显示）。
+       flm / cxo 未勾 → 整块消失，且它们也没有 Knowledge Q&A 里的 CCH 页签了。
+       ⚠️ 兜底：服务端 teamScopeDb.getTemplate() 把 scope-map.json 缓存一次，
+         新增的 cch 域要等 dev 重启才会由 load() 合并进库矩阵。重启之前矩阵里
+         根本没有这个域，直接问 ok('cch','cch') 会对所有团队返回 false
+         （fail-closed）= CCH 一个团队都看不到。故此时按静态白名单判，
+         重启合并后自动切回矩阵（管理员仍可在界面里改）。
+       ⚠️ hidden 成对管理：mainLocked(false) 会把区块的 hidden 设成 false。 */
+    if (SCOPE) {
+      var allow = SCOPE.hasDomain('cch')
+        ? SCOPE.hasCch()
+        : (['fo', 'bo', 'smc'].indexOf(SCOPE.teamId) !== -1);
+      if (!allow) { el.innerHTML = ''; el.hidden = true; return; }
+      el.hidden = false;
+    }""",
 )
 
 # ==========================================================================
@@ -649,7 +734,7 @@ H(
 
 H(
     "render-complaint",
-    """  function render() { renderBand(); renderKpi(); renderViews6(); renderL0(); renderEsc(); renderEmailSection(); renderQaSection(); renderOssSection(); renderFeedbackSection(); renderAux(); renderArchive(); applyI18n(); }""",
+    """  function render() { renderBand(); renderKpi(); renderViews6(); renderL0(); renderEsc(); renderEmailSection(); renderQaSection(); renderOssSection(); renderCchSection(); renderAux(); renderArchive(); applyI18n(); }""",
     """  /* ⚠️ renderComplaintSection() 是**团队门户专有**的（上游页面没有 #complaintSlot，
      那个函数找不到节点就直接返回）。放在 renderAux 之前，与 DOM 顺序一致。 */
   function render() {
@@ -660,7 +745,7 @@ H(
        ⚠️ 判据用 state.signedOut，**不能**用 !state.authOk：boot() 里这一次 render()
          是同步跑的，那一刻 probe() 还没回来、authOk 天然是 false —— 用它会把首屏锁死。 */
     if (state.signedOut) { mainLocked(true); return; }
-    renderBand(); renderKpi(); renderViews6(); renderL0(); renderEsc(); renderEmailSection(); renderQaSection(); renderOssSection(); renderFeedbackSection(); renderComplaintSection(); renderAux(); renderArchive(); applyI18n(); }""",
+    renderBand(); renderKpi(); renderViews6(); renderL0(); renderEsc(); renderEmailSection(); renderQaSection(); renderOssSection(); renderCchSection(); renderComplaintSection(); renderAux(); renderArchive(); applyI18n(); }""",
 )
 
 
@@ -716,14 +801,14 @@ H(
 H(
     "mainlocked-complaint",
     """  function mainLocked(on) {
-    ['#band', '#kpi', '#views6', '#l0Map', '#emailSlot', '#qaSlot', '#ossSlot', '#fbSlot', '#esc', '#aux']""",
+    ['#band', '#kpi', '#views6', '#l0Map', '#emailSlot', '#qaSlot', '#cchSlot', '#ossSlot', '#esc', '#aux']""",
     """  function mainLocked(on) {
     /* 团队门户专有补丁（2026-10-30）：清单里补 '#complaintSlot'。
        上游 /v3/olbrportal/ 没有 Customer Complaint 这一整块，基线那行不需要它；
        团队副本里 #complaintSlot 是 #main 的子区块（index.html 的 .complaint-slot），
        不写进这份清单，登出后 renderGate() → mainLocked(true) 就藏不掉它 —— 登录框下面
        照常挂着「Customer Complaint」。上面那段基线注释记的两次漏藏是同一个坑。 */
-    ['#band', '#kpi', '#views6', '#l0Map', '#emailSlot', '#qaSlot', '#ossSlot', '#fbSlot', '#esc', '#complaintSlot', '#aux']""",
+    ['#band', '#kpi', '#views6', '#l0Map', '#emailSlot', '#qaSlot', '#cchSlot', '#ossSlot', '#esc', '#complaintSlot', '#aux']""",
 )
 
 # ==========================================================================
@@ -778,12 +863,12 @@ H(
 
 H(
     "render-catalog-guard",
-    """  function renderCatalog() { renderViews6(); renderL0(true); renderEmailSection(); renderQaSection(); renderOssSection(); renderFeedbackSection(); renderAux(); renderArchive(); }""",
+    """  function renderCatalog() { renderViews6(); renderL0(true); renderEmailSection(); renderQaSection(); renderOssSection(); renderCchSection(); renderAux(); renderArchive(); }""",
     """  function renderCatalog() {
     /* 登出后不再重画（2026-11-02 加）：loadCatalog() 是异步的，登出后它照样会
        resolve 并走到这里，把 #views6 / #l0Map 等区块重新解隐。详见 logout() 的注释。 */
     if (state.signedOut) { mainLocked(true); return; }
-    renderViews6(); renderL0(true); renderEmailSection(); renderQaSection(); renderOssSection(); renderFeedbackSection(); renderAux(); renderArchive(); }""",
+    renderViews6(); renderL0(true); renderEmailSection(); renderQaSection(); renderOssSection(); renderCchSection(); renderAux(); renderArchive(); }""",
 )
 
 H(

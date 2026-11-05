@@ -505,11 +505,24 @@ main { flex: 1; padding-block: var(--s5) var(--s4); display: flex; flex-directio
       不用事后 .aux::before { display:none } 压制：B5 规则里两个 :not(#gate)
       合计 2 个 ID 级特异性，(0,1,1) 的单类选择器赢不了它（2026-10-12 实测无效）。
       #aux 自带 border-top 作分界，这条线对它是纯叠加；#arch 同理。 */
+/* ⚠️ 2026-11-05（用户「组件之间的间隔要整体一致，不能出现到处不一样的」）：
+   选择器由 `section + section` 扩到 `:is(section, div) + :is(section, div)`。
+   根因：.maprow 与 .qarow 是 **<div>**（不是 <section>），而原选择器写死 section，
+   于是「视图入口 ↔ 地图行」「地图行 ↔ 报告行」这两个边界**拿不到分隔线**，
+   只有 band→kpi、kpi→views6 这两处有线 —— 同一条分隔线，有的边界有、有的没有，
+   视觉上就成了「有的区块之间断、有的连着」，与「整体一致」直接冲突。
+   现在五个边界（band→kpi / kpi→views6 / views6→maprow / maprow→qarow / qarow→esc）
+   全部有线，节奏一致。
+   ⚠️ ::before 是 absolute（脱流），**不会**成为 .maprow / .qarow 的第 3 个 grid item ——
+      这正是 v3 相对 v2 改成 absolute 的原因，也是这两块能安全带 ::before 的前提。
+      （v2 那份仍是流内 + margin-bottom，两边的写法不要混起来。）
+   ⚠️ #aux / #arch 仍排除：它们自带 border-top 作分界，且是水平 grid 容器，
+      ::before 若进去会成为第 1 个栅格项、把区块挤成两列（2026-10-12 实测过的坑）。 */
 @media (min-width: 1024px) {
-  main > section:not(#gate):not(#aux):not(#arch) + section:not(#gate):not(#aux):not(#arch) {
+  main > :is(section, div):not(#gate):not(#aux):not(#arch) + :is(section, div):not(#gate):not(#aux):not(#arch) {
     position: relative;
   }
-  main > section:not(#gate):not(#aux):not(#arch) + section:not(#gate):not(#aux):not(#arch)::before {
+  main > :is(section, div):not(#gate):not(#aux):not(#arch) + :is(section, div):not(#gate):not(#aux):not(#arch)::before {
     content: "";
     position: absolute;
     left: 0;
@@ -523,6 +536,27 @@ main { flex: 1; padding-block: var(--s5) var(--s4); display: flex; flex-directio
       transparent 100%);
     pointer-events: none;
   }
+}
+
+/* ⚠️ 2026-11-05 补（五个团队门户「登录后逐页量 DOM」实测查出的最后一处不一致）：
+   团队门户按可见性矩阵隐藏区块时，.maprow / .qarow 这两个 **div 行容器**里的
+   section 面板可能全部被 hidden —— cxo 就是这种情况：report / oss / cch 三项
+   都没勾，#emailSlot / #ossSlot / #cchSlot 全隐藏 —— 但行容器自己仍是
+   display:grid 的 #main 直接子项，高度塌成 0 却**仍参与 flex 布局**。
+   flex 的 gap 只跳过 display:none 的子项，不跳过「高度为 0 但仍在布局里」的
+   子项：空行前后各留 16px，于是 maprow→esc 实测 32px，而其它所有边界都是
+   16px。这就是「组件间隔到处不一样」的最后一个残留点。
+   解法：行里一个可见面板都没有时整行 display:none，让这两份 gap 都不生成。
+   :has() 判据与 olbr.js / team-layout.js 的隐藏方式严格对齐：矩阵隐藏用
+   [hidden]，用户级显隐用 [data-tl-off]；两条都不带的 section 才算「有内容」。
+   ⚠️ 上游 /v3/olbrportal/ 恒显示全部面板，这条规则永不触发，上游行为一行不变；
+      刻意放在上游是因为团队那份 olbr.css 由 scripts/sync_team_assets.py 生成，
+      不建第二份真相源。改完必须重跑同步脚本。
+   ⚠️ 不支持 :has() 的旧浏览器会忽略整条规则 → 退回 32px（无害降级），
+      绝不会把有内容的行误藏。 */
+main > .maprow:not(:has(section:not([hidden]):not([data-tl-off]))),
+main > .qarow:not(:has(section:not([hidden]):not([data-tl-off]))) {
+  display: none;
 }
 
 /* ============================================================================
@@ -953,7 +987,14 @@ main { flex: 1; padding-block: var(--s5) var(--s4); display: flex; flex-directio
    色值不新造：--qc-accent* 全部由本页令牌（照抄 --mp-*）合成。 */
 .band {
   display: flex; flex-direction: column; gap: var(--s4);
-  padding: var(--s5);
+  /* ⚠️ 2026-11-05（用户「组件之间的间隔要整体一致」续做：水平对齐）：
+     原为 var(--s5)=20px，是三类顶层区块里唯一的一档 —— .panel 与 .esc-bar
+     都是 16px。窄屏 @media(max-width:640px) 里本来写的也是 16px，
+     等于同一组件桌面/窄屏两档内边距，本身就是分叉。
+     统一到 var(--s4)=16px 后，#band / #kpi / #views6 的内容左边缘与
+     地图、Q&A、Auto Report、CCH、OSS、升级机制全部重合。
+     垂直方向不受影响：标题→内容的 16px 由 .band 的 gap 给，与 padding 无关。 */
+  padding: var(--s4);
   background: var(--surface);
   border: 1px solid var(--line-2);
   border-radius: var(--r3);
@@ -988,6 +1029,23 @@ main { flex: 1; padding-block: var(--s5) var(--s4); display: flex; flex-directio
    挂没挂提示是**结构事实**，让样式跟着它走，将来谁加/撤 title 都自动对齐，
    不会出现「有提示但没光标」或「没提示却有光标」。 */
 .band-k[title] { cursor: help; }
+/* ⚠️ 2026-11-05：给 band 系列补上与 .p-hd / .esc-bar 同款的标题装饰条。
+   修前三类区块的标题墨迹（CDP 1600px 实测，卡片 left 25.6）分三档：
+     .band  20px padding、无装饰条            → 46.6
+     .panel 16px padding + 3px 条 + 8px gap   → 53.6
+     .esc   16px padding + 3px 条 + 12px gap  → 57.6
+   统一口径：卡片内边距 16px；标题前一律「3px 装饰条 + 8px 间隔」。
+   于是所有区块的「内容左边缘 / 装饰条左边缘 / 标题墨迹」各自对齐。
+   用绝对定位而不是 inline-block：.band-k 有时是 <button class="band-range-btn">
+   （inline-flex + gap:4px），伪元素若参与 flex 流会被 4px gap 带偏。
+   位置相对 .band-k 自身垂直居中，不受 .band-txt 里后续 .band-n/.band-when 行数影响。 */
+.band-k { position: relative; }
+/* 特异性要高于 .band-range-btn 的 `padding: 0`（那条在后面写了、会盖掉单类选择器）。 */
+.band-txt > .band-k { padding-left: 11px; }  /* 3px 条 + 8px 间隔 */
+.band-k::before {
+  content: ""; position: absolute; left: 0; top: 50%; transform: translateY(-50%);
+  width: 3px; height: 15px; border-radius: 2px; background: var(--grad);
+}
 .band-n { margin-top: 6px; font-size: var(--fs-lg); color: var(--t2); }
 .band-n em { font: 700 var(--fs-md)/var(--lh-solid) var(--mono); font-style: normal; color: var(--t1); font-variant-numeric: tabular-nums; }
 /* 数据区间行（2026-09-28 加）：标题下方一句「Data range 08-30 ~ 09-28」。
@@ -1267,6 +1325,13 @@ main { flex: 1; padding-block: var(--s5) var(--s4); display: flex; flex-directio
 .qc-group[data-grp="bp"]    { --n: 1; }
 .qc-group[data-grp="rich"]  { --n: 3; }
 .qc-group[data-grp="avail"] { --n: 3; }
+/* cxort 组（2026-11-04 加，bo 专用，4 张卡）：**故意不按「跨列数=卡数」**。
+   bo 的 Network Status 行是 rich(3) + cxort(4) = 7 > 6 列 —— cxort 若 span 4
+   会换到第二行、留 2 个尾空列（比 benchmark 行那 1 个空列更明显）。
+   span 6 = 独占第二行整行，四张卡等宽铺满，没有空洞。
+   （要改回「跨 4 列」：删掉这条即可，data-n="4" 的列规则已备好。） */
+.qc-group[data-grp="cxort"] { --n: 6; }
+.qc-group-b[data-n="4"] { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 
 /* 断点。1200px：整行由 6 列收成 3 列 —— 组不再横跨多列，
    改为"一组一整行"，否则 3 张卡挤在 1/3 行宽里会扁得读不了。 */
@@ -1278,10 +1343,13 @@ main { flex: 1; padding-block: var(--s5) var(--s4); display: flex; flex-directio
   /* ⚠️ 1 张的组（BP）**保持 1 列但不拉伸**：它在宽屏上本来只占 1 列，
      到这一档突然变成整行宽会很突兀。限制最大宽度，与 2 列组的一张卡等宽。 */
   .qc-group-b[data-n="1"] { grid-template-columns: minmax(0, 50%); }
+  /* cxort 组 4 张（2026-11-04）：整行宽下 4 列仍然放得下。 */
+  .qc-group-b[data-n="4"] { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }
 @media (max-width: 760px) {
   /* 手机：组内一律单列，卡片纵向堆叠 —— 并排两张在这个宽度上已是挤压。 */
-  .qc-group-b[data-n="1"], .qc-group-b[data-n="2"], .qc-group-b[data-n="3"] {
+  .qc-group-b[data-n="1"], .qc-group-b[data-n="2"], .qc-group-b[data-n="3"],
+  .qc-group-b[data-n="4"] {
     grid-template-columns: minmax(0, 1fr);
   }
   /* 单列时"左细缝"要改成"上细缝"，否则分隔线跑到左边、上下两卡粘在一起。 */
@@ -1486,6 +1554,19 @@ main { flex: 1; padding-block: var(--s5) var(--s4); display: flex; flex-directio
      所以底色仍用 .qc-card 的 var(--surface-2) 纯色，靠边框 + 内发光分层。
      渐变只保留在「迷你走势的面积」上 —— 那是图表元素，不是卡片底。 */
 .qc-card--rich { align-items: stretch; text-align: left; padding-bottom: 9px; }
+/* CXO RealTime 实时卡（2026-11-04 加，bo 团队门户专用组 cxort）。
+   三段式（标题 / 大数字 / 时间戳），与 rich 同族（左对齐、同色令牌），
+   但没有 chips / 走势 / 三格页脚 —— 实时快照没有这些可画（见 olbr.js
+   cxortCardHtml 的注释）。纵向居中：连体卡组内四张等高，短卡吊在顶上
+   会显得这一组"没做完"；居中后上下留白对称，一眼是刻意的排版。 */
+.qc-card--rt {
+  align-items: stretch; text-align: left;
+  padding: 10px 12px 9px;
+  justify-content: center; gap: 2px;
+}
+.qc-card--rt .qc-val { margin-top: 4px; }
+.qc-card--rt .qc-asof { margin-top: 3px; }
+.qc-card--rt.is-na .qc-val span { color: var(--t3); }
 
 /* ============================================================================
    Benchmark 行（Network Benchmark View，2026-10-01 加）
@@ -2035,7 +2116,7 @@ main { flex: 1; padding-block: var(--s5) var(--s4); display: flex; flex-directio
 .qa-slot { display: flex; flex-direction: column; min-width: 0; }
 
 /* ============================================================================
-   报告文件 + OSS 门户登录 / 使用反馈（2026-10-21 调整，v3 专有）
+   报告文件 + CCH / OSS 门户登录（2026-10-21 调整、2026-11-04 再调整，v3 专有）
    ----------------------------------------------------------------------------
    2026-10-21（用户要求）：
      ① 「Auto Report 组件和 Knowledge Q&A 组件互换位置」——
@@ -2044,17 +2125,41 @@ main { flex: 1; padding-block: var(--s5) var(--s4); display: flex; flex-directio
      ② 「OSS Portal Login 的高度减少一半，卡片每行 6 个」——
         --oss-h = --qarow-h / 2，卡片网格由 3 列改 6 列（格宽正好减半）。
      ③ 「剩下的高度展示 /myapp/?page=feedback 的内容」——
-        下排右列 .qarow-col 纵向 flex：上 #ossSlot 固定 --oss-h，
-        下 #fbSlot 吃掉剩余全部高度，内嵌 my_app 的使用反馈页。
+        下排右列 .qarow-col 纵向 flex，剩下的高度给使用反馈面板。
+
+   ⚠️ 2026-11-04（用户要求「User Feedback 和 OSS Portal Login 位置互换」＋
+     「CCH 单独拆出来放到 User Feedback 的位置」＋「User Feedback 收进头像下拉」）：
+     右列仍是两块上下叠放，但**内容与顺序都变了**：
+       上 #cchSlot —— CCH（内嵌 my_app 的 /myapp/?page=vmax_user_query，flex:1）
+       下 #ossSlot —— OSS Portal Login（卡片网格，固定 --oss-h）
+     使用反馈不再占页面区块（顶栏 #fbMenuLink 一条链接）。
+     注意：.oss-slot 的 flex:0 0 var(--oss-h) 与 DOM 顺序无关，
+     「位置互换」只改 index.html 里两个 <section> 的先后，不动这里的高度规则。
 
    ⚠️ 高度只有一个真相源：--qarow-h（本行总高）。
-   --oss-h 用 calc(var(--qarow-h) / 2) 派生，改主档时 OSS 与反馈区自动按比例分，
-   不会出现「OSS 还是老高度、反馈区空一块」的漂移。
+   --oss-h 用 calc(var(--qarow-h) / 2) 派生，改主档时 OSS 与 CCH 自动按比例分，
+   不会出现「OSS 还是老高度、上面空一块」的漂移。
    ⚠️ 2026-10-15 之前这里记过「本行与地图等高」的约定，那条现在只对
    **--qarow-h** 成立（它仍与 --maprow-h 同值 860px）；OSS 那一格已按
    2026-10-21 的要求减半，两者不再是同一口径。 */
 .qarow {
-  display: grid; gap: var(--s4); margin-top: var(--s4);
+  display: grid; gap: var(--s4);
+  /* ⚠️ 2026-11-05（用户反馈「Auto Report 和地图之间的空白明显比其他的多一点」）：
+     **删掉 margin-top: var(--s4)**。
+     根因：#main 是 flex 列容器且**已经**有 gap: var(--s4)（=16px），
+       相邻区块之间的间距由 main 的 gap 统一给（band→kpi、kpi→views6、
+       views6→maprow、maprow→qarow、qarow→esc 实测全是 16px）。
+       .qarow 自己又带一个 margin-top: var(--s4)，两者**叠加**成 32px，
+       于是唯独「地图行 ↔ Auto Report 行」这一处比别处宽一倍 ——
+       这正是用户看到的「空白明显比其他的多一点」。
+     为什么之前没人发现：#main 的 gap 是 2026-10-11「设计打磨 B5」加的，
+       而 .qarow 的 margin-top 来自更早的版本（那时 main 还是普通块级流，
+       没有 gap，必须靠 margin-top 把行距撑出来）。加 gap 时没回头清掉旧 margin，
+       于是两个机制并存、间距悄悄翻倍。
+     修法：删 margin-top，间距**只由 main 的 gap 说了算**（唯一真相源）。
+       不要改 main 的 gap —— 那是全页六个区块共用的节奏，动它会波及所有区块。
+     ⚠️ v2/olbrportal/assets/olbr.css 的同一条规则有同样问题（结构一致），
+       已一并处理，见那里的同类注释。 */
   grid-template-columns: repeat(2, minmax(0, 1fr));
   --qarow-h: 860px;
   /* OSS 门户登录高度 = 本行高度的一半（2026-10-21 用户要求） */
@@ -2076,9 +2181,9 @@ main { flex: 1; padding-block: var(--s5) var(--s4); display: flex; flex-directio
    280px 是 2026-10-12 从 573px 主档按比例（≈0.49）推来的，主档回到 860 后该比例
    不再成立；420px 与 .maprow 的取舍一致（手机屏放不下，只求"能滚"）。 */
 @media (max-width: 640px) { .qarow { --qarow-h: 420px; } }
-/* 下排右列：OSS 门户登录（上）+ 使用反馈（下）上下叠放。
-   纵向 flex + gap：#ossSlot 固定 --oss-h，#fbSlot 用 flex:1 吃掉剩余高度，
-   所以「OSS 减半」与「反馈区补齐」是一个动作的两个必然结果，不会各自漂移。 */
+/* 下排右列：CCH（上）+ OSS 门户登录（下）上下叠放（2026-11-04 对调）。
+   纵向 flex + gap：#ossSlot 固定 --oss-h，#cchSlot 用 flex:1 吃掉剩余高度，
+   所以「OSS 减半」与「CCH 补齐」是一个动作的两个必然结果，不会各自漂移。 */
 .qarow-col {
   display: flex; flex-direction: column; gap: var(--s4);
   min-width: 0; min-height: 0;
@@ -2086,7 +2191,8 @@ main { flex: 1; padding-block: var(--s5) var(--s4); display: flex; flex-directio
 .qarow-col > .oss-slot { flex: 0 0 var(--oss-h); height: var(--oss-h); min-height: 0; }
 /* ↑ OSS 面板本身**整体**占 --oss-h（= 本行高度的一半），含标题栏与内边距。
    内部 .oss-grid 用 flex:1 吃掉标题栏之外剩下的高度（见下），行数不够时滚动。 */
-.qarow-col > .fb-slot { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.qarow-col > .cch-slot { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+/* ↑ CCH 是内嵌 iframe，容器走纵向 flex 让 .canvas 吃掉标题栏之外的全部高度。 */
 /* OSS 槽位：不是内嵌 iframe，而是一列展开的链接。
    让它也走纵向 flex，内容从顶部排；.canvas 之外的单列清单直接撑满。 */
 .oss-slot { display: flex; flex-direction: column; min-width: 0; }
@@ -2113,7 +2219,11 @@ main { flex: 1; padding-block: var(--s5) var(--s4); display: flex; flex-directio
   /* 高度：吃掉 OSS 面板里标题栏之外的全部空间（父 .oss-slot 已定死 --oss-h）。
      ⚠️ 不再写死 --qarow-h —— 2026-10-21 起 OSS 只占本行高度的一半。 */
   flex: 1 1 auto; height: auto; min-height: 0; max-height: none; overflow: auto;
-  margin-top: var(--s3); border: 1px solid var(--line); border-radius: var(--r2);
+  /* ⚠️ 2026-11-05：margin-top 已删除（间距统一，见上面 .p-head 那段注释）。
+     原来这里有 margin-top: var(--s3)=12px，与 .p-head 的 margin-bottom 叠加成 24px，
+     使 OSS 面板「标题 ↔ 卡片网格」的白比 .band 系列的 16px 宽一档。
+     间距现在**只由 .p-head 的 margin-bottom 给**。 */
+  border: 1px solid var(--line); border-radius: var(--r2);
   background: var(--surface);
   /* 每行 6 个，等宽平分（2026-10-21：原 3 列，格宽减半）。
      minmax(0,1fr) 而非 1fr：1fr 的最小尺寸是 auto，
@@ -2175,7 +2285,24 @@ main { flex: 1; padding-block: var(--s5) var(--s4); display: flex; flex-directio
   background: var(--surface); border: 1px solid var(--line-2); border-radius: var(--r3);
   padding: var(--s4); box-shadow: var(--sh-1); min-width: 0;
 }
-.p-head { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap; padding-bottom: 10px; margin-bottom: var(--s3); border-bottom: 1px solid var(--line); }
+/* ⚠️ 2026-11-05（用户「组件之间的间隔要整体一致，不能出现到处不一样的」）：
+   标题块与它下面内容之间的距离，**只由这一条 margin-bottom 给**。
+   原来这里是 var(--s3)=12px，而下面第一块内容（.canvas / .oss-grid）**自己也带
+   margin-top: var(--s3)=12px** —— 两段叠加成 24px。
+   同页面上三种「标题与内容之间的白」于是分成三档：
+     · .band 系列（#band / #kpi / #views6）：16px（.band 的 gap: var(--s4)）
+     · .panel 系列（地图 / Q&A / Auto Report / CCH / OSS）：24px
+     · .esc（升级机制）：13px（.esc-bar 没有 margin-bottom，只靠 .esc-scroll 的 12px）
+   同一份页面里「标题下面留多少白」在 16 / 24 / 13 之间跳，
+   这正是用户说的「间隔到处不一样」。
+   修法：把这条改成 var(--s4)=16px，**并删掉内容块自己的 margin-top**
+   （.canvas / .oss-slot .oss-grid）—— 一处给、别处不再补，两条路径合成一条。
+   为什么选 16px：#main 的 gap 就是 var(--s4)，.band 的 gap 也是 var(--s4)，
+   16px 是本页「区块之间」既有的口径，标题与内容同属一个组件内部，
+   取同一档最省事、也最不容易再漂。
+   ⚠️ 团队门户那份（v3/team_portal/assets/olbr.css）由 scripts/sync_team_assets.py
+     从本文件生成，改完必须重跑同步脚本，两边才不会分叉。 */
+.p-head { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap; padding-bottom: 10px; margin-bottom: var(--s4); border-bottom: 1px solid var(--line); }
 .p-hd { display: flex; align-items: baseline; gap: 8px; min-width: 0; flex: 1 1 auto; }
 .p-hd::before { content: ""; flex: none; width: 3px; height: 15px; border-radius: 2px; background: var(--grad); transform: translateY(1px); }
 .panel[data-tier="0"] .p-hd::before { background: var(--hi); }
@@ -2355,7 +2482,11 @@ html.dark .tab[aria-selected="true"] { background: var(--b-tint2); }
 }
 .p-t-edit:hover { color: var(--b-ink); }
 .canvas {
-  position: relative; flex: 1; min-height: 460px; margin-top: var(--s3);
+  position: relative; flex: 1; min-height: 460px;
+  /* ⚠️ 2026-11-05：margin-top 已删除（间距统一，见上面 .p-head 那段注释）。
+     原来这里有 margin-top: var(--s3)=12px，与 .p-head 的 margin-bottom 叠加成 24px，
+     使「标题 ↔ 内容」的白比 .band 系列的 16px 宽一档。间距现在**只由 .p-head 给**，
+     组件内部不再有两处各补一段。 */
   border: 1px solid var(--line); border-radius: var(--r2); overflow: hidden;
   background: var(--surface);
 }
@@ -2378,7 +2509,11 @@ html.dark .tab[aria-selected="true"] { background: var(--b-tint2); }
 
 /* 升级机制：折叠值班带 */
 .esc { background: var(--surface); border: 1px solid var(--line-2); border-radius: var(--r3); box-shadow: var(--sh-1); overflow: hidden; }
-.esc-bar { display: flex; align-items: center; gap: var(--s3); padding: 11px var(--s4); flex-wrap: wrap; }
+/* ⚠️ 2026-11-05：gap 由 var(--s3)=12px 收到 8px，与 .p-hd 的 `gap: 8px` 同档。
+   原「3px 装饰条 + 12px」比所有面板的「3px 条 + 8px」多 4px，
+   升级机制标题因此比面板标题右移 4px（实测 57.6 vs 53.6）。
+   .esc-lv 靠 margin-left:auto 顶到右侧，不受这 4px 影响。 */
+.esc-bar { display: flex; align-items: center; gap: 8px; padding: 11px var(--s4); flex-wrap: wrap; }
 .esc-bar::before { content: ""; width: 3px; height: 15px; border-radius: 2px; background: var(--grad); flex: none; }
 .esc-t { font-size: var(--fs-lg); line-height: var(--lh-tight); font-weight: 700; }
 .esc-s { font-size: var(--fs-xs); color: var(--t3); }
@@ -2387,7 +2522,11 @@ html.dark .tab[aria-selected="true"] { background: var(--b-tint2); }
 .lvchip b { color: var(--t1); }
 .lvchip[data-now="1"] { border-color: var(--b-line); background: var(--b-tint); color: var(--b-ink); }
 .esc-body { padding: 0 var(--s4) var(--s4); border-top: 1px solid var(--line); }
-.esc-scroll { max-height: 62vh; overflow: auto; margin-top: var(--s3); border: 1px solid var(--line); border-radius: var(--r2); }
+/* ⚠️ 2026-11-05：margin-top 由 var(--s3)=12px 改为 var(--s4)=16px（间距统一）。
+   升级机制这条是 .p-head 之外的另一种标题形态（.esc-bar，没有 margin-bottom），
+   原先「标题 ↔ 表格」的白只有 12px（实测 13px），比 .band 系列的 16px 窄一档。
+   改成 16px 后，全页「标题 ↔ 内容」只剩 16px 一档。 */
+.esc-scroll { max-height: 62vh; overflow: auto; margin-top: var(--s4); border: 1px solid var(--line); border-radius: var(--r2); }
 
 /* 三张表口径对齐（2026-09-30）：
    本文件里有三处表格 —— 升级机制 table.grid、用户管理 .um-table、下钻弹窗 .qc-table

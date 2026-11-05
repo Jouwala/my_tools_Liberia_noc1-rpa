@@ -21,6 +21,9 @@
     "meta": {},
     "speed": {}
   },
+  "cch": {
+    "cch": {}
+  },
   "complaint": {
     "vmax": {}
   },
@@ -32,6 +35,7 @@
   },
   "kpi": {
     "avail": {},
+    "cxort": {},
     "rich": {}
   },
   "map": {
@@ -97,8 +101,7 @@
   "qa": {
     "assistant": {},
     "eflow": {},
-    "rag": {},
-    "vmax": {}
+    "rag": {}
   },
   "qc": {
     "alarm": {},

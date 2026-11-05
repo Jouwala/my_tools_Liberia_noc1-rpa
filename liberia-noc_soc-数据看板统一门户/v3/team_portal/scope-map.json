@@ -60,8 +60,10 @@
       "portalAnchor": "kpi",
       "items": [
         { "key": "rich",  "zh": "CXO View（用户/流量/带宽）", "en": "CXO View (User/Traffic/Throughput)", "excel": "CXO View( User/Traffic/Throughput)" },
-        { "key": "avail", "zh": "可用率（2G/3G/4G）", "en": "Availability (2G/3G/4G)", "excel": "Availability(2G/3G/4G)" }
-      ]
+        { "key": "avail", "zh": "可用率（2G/3G/4G）", "en": "Availability (2G/3G/4G)", "excel": "Availability(2G/3G/4G)" },
+        { "key": "cxort", "zh": "CXO RealTime Dashboard", "en": "CXO RealTime Dashboard", "excel": "" }
+      ],
+      "_comment_kpi": "2026-11-04（用户要求，仅 bo）：Daily Availability KPI（avail）换成 CXO RealTime Dashboard（cxort）—— bo 的 avail 移除、cxort 只给 bo；数据来自 my_app /api/vmax-cxo-dashboard/summary（VMAX 原版大屏 last-known-good 缓存），下钻 /myapp/?page=vmaxCxoDashboard。cxort 不在 Excel 内容清单里（excel 留空占位，不参与对账）。上游 /v3/olbrportal/ 不渲染 teamOnly 组（olbr-data.js KPI_GROUPS 里该组带 teamOnly: true）。"
     },
     {
       "key": "bf",
@@ -110,8 +112,19 @@
       "items": [
         { "key": "eflow",     "zh": "TT/Alarm 分析", "en": "TT/Alarm Analysis", "excel": "TT/Alarm Analysis" },
         { "key": "rag",       "zh": "知识问答",       "en": "Knowledge O&A",     "excel": "Knowledge O&A" },
-        { "key": "vmax",      "zh": "CCH", "en": "CCH",   "excel": "" },
         { "key": "assistant", "zh": "快速问答",       "en": "Quick Q&A",         "excel": "Quick Q&A" }
+      ]
+    },
+    {
+      "key": "cch",
+      "zh": "CCH",
+      "en": "CCH",
+      "excelDomain": "CCH",
+      "portalAnchor": "cchSlot",
+      "domainOnly": true,
+      "_comment": "2026-11-04 加：CCH 从 Knowledge Q&A 的第三页签拆成独立面板 #cchSlot（占原 User Feedback 的槽位）。Excel 内容清单里没有独立这一行（它原先是 Knowledge Q&A 域的 VMAX 用户查询），故 domainOnly + excelDomain 只作占位、不与 Excel 对账。可见团队按用户要求为 fo / bo / smc 三个：上游 /v3/olbrportal/ 不读矩阵、恒显示 CCH；flm / cxo 既没有 CCH 页签也没有独立面板。⚠️ 服务端库矩阵里若已有旧的 qa/vmax 键，合并逻辑只补不删、会残留，但没有任何渲染点再消费它，无害。",
+      "items": [
+        { "key": "cch", "zh": "CCH（VMAX 用户查询）", "en": "CCH (VMAX User Query)", "excel": "" }
       ]
     },
     {
@@ -182,6 +195,7 @@
       "excelDomain": "User Feedback",
       "portalAnchor": "fbSlot",
       "domainOnly": true,
+      "_comment": "⚠️ 2026-11-04 起**退役**：User Feedback 已从页面区块（#fbSlot）收进顶栏头像下拉的一条菜单项（#fbMenuLink），对所有登录用户可见、与团队可见性正交，不再受矩阵控制。本域与下面的 matrix.feedback 仅保留用来接住 Excel 里那一行（否则 --import-excel 会报 orphan），不要再拿它当页面块的开关。portalAnchor 保留历史值 fbSlot，该 DOM 已删除。",
       "items": [
         { "key": "fb", "zh": "使用反馈", "en": "Usage feedback", "excel": "" }
       ]
@@ -200,14 +214,15 @@
     },
     "kpi": {
       "rich":  ["fo", "bo", "smc", "cxo"],
-      "avail": ["fo", "bo", "flm", "smc", "cxo"]
+      "avail": ["fo", "flm", "smc", "cxo"],
+      "cxort": ["bo"]
     },
     "bf": {
-      "speed": ["smc", "cxo"],
-      "meta":  ["smc", "cxo"]
+      "speed": ["bo", "smc", "cxo"],
+      "meta":  ["bo", "smc", "cxo"]
     },
     "view": {
-      "CXO View": ["bo", "cxo"],
+      "CXO View": ["cxo"],
       "MS View":  [],
       "SP View":  ["flm"],
       "FLM View": ["flm"],
@@ -222,8 +237,10 @@
     "qa": {
       "eflow":     ["fo", "bo", "flm", "smc"],
       "rag":       ["fo", "bo", "flm", "smc", "cxo"],
-      "vmax":      ["fo", "bo", "flm", "smc", "cxo"],
       "assistant": ["fo", "bo", "flm", "smc", "cxo"]
+    },
+    "cch": {
+      "cch": ["fo", "bo", "smc"]
     },
     "report": {
       "liberia_8h":      ["fo", "flm"],

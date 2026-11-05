@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- ==========================================================================
+     team-login.html —— 团队门户的**同页登录页**（2026-11-04 加）
+     ==========================================================================
+     为什么有这一页（背景是用户反馈「为什么要去其他地方登录」）：
+       五个团队门户的 nginx location 都带 `auth_request /uniplam/api/auth/team-gate/<team>`，
+       **内容下发前**就判定身份：未登录 → 401。此前 401 回的是一段内联 HTML，
+       只有一个「去登录」外链（指向 /uniplam/）—— 用户被赶去另一个页面登录。
+       但团队门户页面**自己**就有完整的登录表单（olbr.js 的 renderGate()），
+       闸门在页面送达前就拦了，那个表单根本到不了浏览器。
+
+     这一页就是那个「到不了的表单」的独立版本：
+       · nginx 的 `error_page 401 /v3/team-login.html;` 内部重定向到本页，
+         浏览器地址栏**仍是**原来的 /v3/<team>_portal/（内部重定向不改地址栏）；
+       · 表单 POST /uniplam/api/auth/login —— 与门户页同一个接口、同一套账号；
+       · 登录成功 → 服务端种下 olbr_token Cookie（HttpOnly, Path=/）
+         → location.reload() → 重新走 auth_request → 这次放行；
+       · 团队内容**始终**没有在未登录时下发过 —— 服务端闸门原样保留，
+         这一页只是把「去哪登录」换成「在这里登录」。
+
+     ⚠️ 为什么做成**独立静态页**而不是继续内联在 nginx.conf 里：
+       nginx.conf 在 .gitignore 外但只是运行时依赖，而这一页有表单逻辑、
+       错误映射、多语言与改密流程 —— 内联在配置里没法维护、没法 review。
+       故放在仓库里（与 v3/team-gate.js 同一层），由 nginx 用 alias 直发。
+
+     ⚠️ 本页**不**带 auth_request：它必须在未登录时也能取到
+       （这正是它存在的意义）。它不含任何敏感信息 —— 只有一张空表单。
+       真正的访问控制在服务端 /team-gate，两者不重复。
+
+     本页由 team-login.js 驱动（文案/逻辑分离，与门户既有做法一致）。
+     ========================================================================== -->
+<title>团队门户 · 登录</title>
+<style>
+  :root {
+    --bg: #0b0f17;
+    --panel: #131a26;
+    --panel2: #1c2534;
+    --line: #2b3547;
+    --t1: #e6edf6;
+    --t2: #9fb0c8;
+    --t3: #7d8da5;
+    --b: #4d9fff;
+    --err: #ff7b72;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; min-height: 100vh;
+    display: flex; align-items: center; justify-content: center;
+    padding: 24px 16px;
+    background: radial-gradient(1200px 600px at 50% -10%, #16233a 0%, var(--bg) 60%);
+    color: var(--t1);
+    font: 15px/1.75 system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+  }
+  .card {
+    width: 100%; max-width: 420px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 30px 28px 24px;
+    box-shadow: 0 18px 50px rgba(0, 0, 0, .45);
+  }
+  .brand {
+    display: flex; align-items: center; gap: 9px;
+    font-size: 12px; letter-spacing: .14em; color: var(--t3);
+    text-transform: uppercase; margin-bottom: 14px;
+  }
+  .brand .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--b); }
+  h1 { font-size: 19px; margin: 0 0 6px; font-weight: 650; }
+  .sub { margin: 0 0 20px; color: var(--t2); font-size: 13.5px; }
+  .team {
+    display: inline-block; margin: 0 0 18px; padding: 3px 10px;
+    border: 1px solid var(--line); border-radius: 999px;
+    background: var(--panel2); color: var(--t2); font-size: 12.5px;
+  }
+  .fld { display: block; margin: 0 0 14px; }
+  .fld > span { display: block; margin-bottom: 6px; font-size: 12.5px; color: var(--t2); }
+  .fld input {
+    width: 100%; padding: 10px 12px;
+    background: #0e141f; color: var(--t1);
+    border: 1px solid var(--line); border-radius: 8px;
+    font: inherit; outline: none;
+  }
+  .fld input:focus { border-color: var(--b); }
+  .err {
+    margin: 0 0 14px; padding: 9px 12px;
+    background: rgba(255, 123, 114, .1);
+    border: 1px solid rgba(255, 123, 114, .4);
+    border-radius: 8px; color: var(--err); font-size: 13px;
+  }
+  .ok {
+    margin: 0 0 14px; padding: 9px 12px;
+    background: rgba(77, 159, 255, .1);
+    border: 1px solid rgba(77, 159, 255, .35);
+    border-radius: 8px; color: var(--b); font-size: 13px;
+  }
+  .btn {
+    width: 100%; padding: 11px 16px;
+    border-radius: 8px; border: 1px solid var(--line);
+    background: var(--panel2); color: var(--t1);
+    font: inherit; font-weight: 600; cursor: pointer;
+  }
+  .btn:hover { border-color: #3c4a63; }
+  .btn.primary { background: var(--b); border-color: var(--b); color: #06101f; }
+  .btn.primary:hover { background: #62adff; }
+  .btn:disabled { opacity: .6; cursor: default; }
+  .alt {
+    margin-top: 18px; padding-top: 16px;
+    border-top: 1px solid var(--line);
+    display: flex; justify-content: space-between; gap: 12px;
+    font-size: 13px;
+  }
+  .alt a { color: var(--t2); text-decoration: none; }
+  .alt a:hover { color: var(--t1); text-decoration: underline; }
+  .foot { margin-top: 16px; color: var(--t3); font-size: 12px; text-align: center; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="brand"><span class="dot"></span><span>OLR MS · Team Portal</span></div>
+    <h1 id="ttl">团队门户 · 登录</h1>
+    <p class="sub" id="sub">团队门户需要登录后访问。请使用统一门户的账号登录。</p>
+    <div class="team hidden" id="teamTag"></div>
+
+    <form id="lf" novalidate>
+      <label class="fld">
+        <span id="lblUser">用户名</span>
+        <input id="lu" autocomplete="username" autocapitalize="off" spellcheck="false" required>
+      </label>
+      <label class="fld">
+        <span id="lblPass">密码</span>
+        <input id="lp" type="password" autocomplete="current-password" required>
+      </label>
+      <div class="err hidden" id="err"></div>
+      <div class="ok hidden" id="ok"></div>
+      <button class="btn primary" type="submit" id="lgo">登录</button>
+    </form>
+
+    <!-- 首次登录强制改密：登录成功但 mustChangePassword 为真时换到这个表单。
+         改密接口与统一门户同一个（POST /uniplam/api/auth/change-password）。 -->
+    <form id="pf" class="hidden" novalidate>
+      <label class="fld">
+        <span id="lblNew">新密码（至少 8 位）</span>
+        <input id="np" type="password" autocomplete="new-password" required>
+      </label>
+      <label class="fld">
+        <span id="lblConfirm">再次输入新密码</span>
+        <input id="np2" type="password" autocomplete="new-password" required>
+      </label>
+      <div class="err hidden" id="perr"></div>
+      <button class="btn primary" type="submit" id="pgo">提交新密码</button>
+    </form>
+
+    <div class="alt">
+      <a id="lnkReq" href="/uniplam/">没有账号？申请一个</a>
+      <a id="lnkHome" href="/uniplam/">返回统一门户</a>
+    </div>
+    <div class="foot" id="foot"></div>
+  </div>
+
+<script src="/v3/team-login.js"></script>
+</body>
+</html>

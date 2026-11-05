@@ -224,6 +224,21 @@
               <span class="mp-user-id-editing" id="userMenuEditing" hidden data-i18n="mast.editing">编辑中</span>
             </div>
           </div>
+          <!-- User Feedback（2026-11-04 加，用户要求「User Feedback 调整为一个功能
+               放到头像里面的下拉里面」）：
+               原本是 .qarow 右列下半的一整块内嵌 iframe（#fbSlot），现收成下拉里的
+               一条链接，点击在**新标签页**打开 /myapp/?page=feedback 的完整页
+               （不带 embed=1 —— 新标签页要保留 my_app 自己的 Header/侧栏）。
+               ⚠️ href 不写死：语言与主题要跟随门户，由 olbr.js 的 applyI18n()
+                  每次重算写入（见 feedbackHref()）；这里只给一份无脚本时的兜底值。
+               ⚠️ 未登录时整个 #userMenu 由 renderWho() 设为 hidden，故这里无需再判登录态。
+               ⚠️ data-i18n 只能挂在 <span> 上：applyI18n 会写 textContent，
+                  挂在 <a> 上会把 <i> 图标一起冲掉。 -->
+          <a class="btn-ghost mp-user-action" id="fbMenuLink" role="menuitem"
+             href="/myapp/?page=feedback" target="_blank" rel="noopener noreferrer"
+             data-i18n-attr="title:fb.menuTip">
+            <i class="ph ph-chat-centered-text" aria-hidden="true"></i><span data-i18n="fb.title">使用反馈</span>
+          </a>
           <button type="button" class="btn-ghost mp-user-action" id="editBtn" hidden aria-pressed="false"
                   data-i18n-attr="title:edit.tipOn" role="menuitem">
             <i class="ph ph-pencil-simple" aria-hidden="true"></i><span>编辑分组</span>
@@ -326,25 +341,29 @@
     <section class="panel qa-slot" id="qaSlot"></section>
   </div>
 
-  <!-- ===================== 报告文件 + OSS 门户登录 / 使用反馈 =====================
-       2026-10-21（用户要求）：
-         · OSS Portal Login 的高度减少一半；
-         · 里面的卡片每行 6 个（卡片格宽减半）；
-         · 剩下的高度展示 https://localhost/myapp/?page=feedback 的内容。
-       于是下排右列拆成两块上下叠放：
-         上 #ossSlot —— OSS Portal Login（卡片网格，高度 = --oss-h）
-         下 #fbSlot  —— 使用反馈（内嵌 my_app 的 /myapp/?page=feedback）
-       右列容器 .qarow-col 用纵向 flex：#ossSlot 固定 --oss-h，
-       #fbSlot 吃掉剩下的全部高度（flex:1），两者之间留 --s4 间距。
-       高度只有一个真相源：--qarow-h 减 --oss-h 即反馈区的高度，
-       所以「OSS 高度减半」只改一个变量，反馈区自动补齐。 -->
+  <!-- ===================== 报告文件 + CCH / OSS 门户登录 =====================
+       ⚠️ 2026-11-04（用户要求「User Feedback 和 OSS Portal Login 的位置互换」＋
+         「Knowledge Q&A 里面的 CCH 单独拆出来放到 User Feedback 的位置」＋
+         「User Feedback 调整为一个功能放到头像里面的下拉里面」）：
+         原布局（2026-10-21 起）是右列「上 #ossSlot / 下 #fbSlot」。本次三件事一起做：
+           · User Feedback 不再占页面区块，收进顶栏头像下拉（#fbMenuLink）；
+           · 两块位置对调后由 CCH 接手 User Feedback 的槽位 ——
+             上 #cchSlot —— CCH（原 Knowledge Q&A 第三页签，内嵌 my_app 的
+                             /myapp/?page=vmax_user_query，flex:1 吃掉剩余高度）
+             下 #ossSlot —— OSS Portal Login（卡片网格，高度 = --oss-h）
+         即 OSS 从上半挪到下半，上半那块大空间给 CCH。
+       高度只有一个真相源：--qarow-h 减 --oss-h 即 CCH 的高度，
+       所以「OSS 高度减半」只改一个变量，CCH 自动补齐。
+       ⚠️ CCH 的可见范围由团队矩阵 cch 域控制（olbr 主门户恒显示）：
+         上游 /v3/olbrportal/ 不引 team-scope.js、SCOPE 为 null，故不过滤；
+         五个团队门户的副本由 scripts/patch_team_portal.py 补上判据。 -->
   <div class="qarow">
     <!-- ⚠️ .panel 必须挂在这个容器**自己**身上（与上面 #qaSlot 同理）：
          renderEmailSection 写进来的 emailSectionHtml() 内部没有 .panel 元素。 -->
     <section class="panel email-slot" id="emailSlot"></section>
     <div class="qarow-col">
+      <section class="panel cch-slot" id="cchSlot"></section>
       <section class="panel oss-slot" id="ossSlot"></section>
-      <section class="panel fb-slot" id="fbSlot"></section>
     </div>
   </div>
 

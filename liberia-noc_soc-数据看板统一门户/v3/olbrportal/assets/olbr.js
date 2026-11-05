@@ -161,7 +161,7 @@
        Benchmark 行两组卡的数**分开存**。它们来自两个接口、两份数据
        （一份是测试库、一份是 Excel 导入的快照），混在一份 state 里
        任一边失败都会把另一边的卡擦成 —。 */
-    kpi: { loading: true, err: '', at: '', avail: null, olib: null, speed: null, meta: null },
+    kpi: { loading: true, err: '', at: '', avail: null, olib: null, speed: null, meta: null, cxort: null },
     /* v1 新增：六个视图入口卡里「展开其余 N 项」的开合态。
        与 auxOpen 同一套语义（键 = 视图分组 id），但**分开存** ——
        上面的 L2 辅助区与这里的入口卡是两处独立的 UI，
@@ -1505,6 +1505,47 @@
        要恢复就把 '<span class="qc-spark-cap">…</span>' 加回来。 */
     return '<span class="qc-spark-wrap" title="' + esc(tip) + '">' + svg + '</span>';
   }
+  /* ---- CXO RealTime Dashboard 四张实时卡（2026-11-04 加，bo 团队门户专用）----
+     数据源：/api/vmax-cxo-dashboard/summary（VMAX CXO 原版大屏 last-known-good
+     缓存的只读裁剪，summary.overview["131".."134"]，字段 showName/kpiValue/unit）。
+     下钻：整卡 <a> → /myapp/?page=vmaxCxoDashboard（原版视觉复刻页）。
+
+     与 rich/avail 两组的三点刻意差异：
+     ① 数值**不做任何变换**：接口给的是已格式化字符串（"203.24"），单位
+        （"(K)"、"(TB)"、""）原样拼在数值后 —— 原版大屏上写什么这里就是什么。
+     ② 没有 chips / spark / 三格页脚：这四张是实时快照，没有 WoW/MoM，
+        也没有 90 天极值 —— 造一个"今日最小值"是编数据。
+     ③ 卡名**不读接口 showName**：zh/en 由 KPI_CXO_RT 表给（接口只有英文，
+        中文界面读它会满屏英文）。 */
+  function cxortEntry(id) {
+    var o = (state.kpi.cxort && state.kpi.cxort.overview) || null;
+    return o ? (o[id] || null) : null;
+  }
+  function cxortCardHtml(spec, e) {
+    var name = state.lang === 'en' ? spec.en : spec.zh;
+    var val = (e && e.kpiValue != null && String(e.kpiValue) !== '') ? String(e.kpiValue) : '—';
+    var unit = (e && e.unit) ? String(e.unit) : '';
+    /* 时间戳：缓存写入时间（updated_at，ISO）只取 HH:MM ——
+       写整串会与同排 rich 卡的 as of 长度失衡。取不到时留「—」。 */
+    var stamp = (state.kpi.cxort && state.kpi.cxort.updated_at) || '';
+    var hm = '';
+    if (stamp) {
+      var m = /(\d{2}:\d{2})(?::\d{2})?$/.exec(stamp.slice(11));
+      hm = m ? m[1] : '';
+    }
+    var na = val === '—';
+    var tip = tf('kpi.tipName', { n: name, u: unit || '—' }) + '\n' + t('kpi.tipCxort');
+    /* 整卡可点（<a> 而非 div + onclick）：与 kpiRichHtml 同一条理由
+       （中键/右键/键盘 Enter 全套行为 + 读屏语义），见那里的大段注释。 */
+    return '<a class="qc-card qc-card--rt qc-card--open' + (na ? ' is-na' : '') + '" href="' +
+      esc('/myapp/?page=' + encodeURIComponent(spec.page) + langQs()) + '" target="_blank" ' +
+      'rel="noopener nofollow" title="' +
+      esc(tf('kpi.openTip', { n: name, b: t('kpi.boardCxort') }) + '\n\n' + tip) + '">' +
+      '<div class="qc-ttl"><b title="' + esc(name) + '">' + esc(name) + '</b><i>' + esc(unit) + '</i></div>' +
+      '<div class="qc-val"><span>' + esc(val) + '</span><em>' + esc(unit) + '</em></div>' +
+      '<div class="qc-asof">' + esc(tf('kpi.rtAsOf', { d: hm || '—' })) + '</div>' +
+    '</a>';
+  }
   /* ==================================================================== v1 ==
      Benchmark 行的两张走势图（2026-10-01 加，用户要求「卡片能跟 Network Status
      Overview 里的卡片一样添加图」）
@@ -2109,6 +2150,13 @@
     var box = $('#kpi');
     if (!box) return;
     var k = state.kpi;
+    /* teamOnly 卡组（2026-11-04 加）：DATA.KPI_GROUPS 里带 teamOnly 的组
+       （当前只有 cxort = CXO RealTime Dashboard，bo 团队门户专用）不进
+       上游主门户 —— 上游没有团队矩阵，无从判断哪个团队该看，直接不渲染。
+       团队门户那份（v3/team_portal/，由 scripts/patch_team_portal.py 生成）
+       会把这一行换成按矩阵 kpi.cxort 过滤的版本，见该脚本的 kpi-scope-vars 钩子。
+       取数侧同样按它 gating（wantCxortGroup / loadKpi 第 4 路）。 */
+    var kpiGroups = DATA.KPI_GROUPS.filter(function (g) { return !g.teamOnly; });
     var hasR = !!(k.olib && k.olib.cards && k.olib.cards.length);
     var hasA = !!(k.avail && k.avail.rows && k.avail.rows.length);
     var hasS = !!(k.speed && k.speed.summary);
@@ -2216,8 +2264,22 @@
         '</div>';
       };
       /* 上排两组：富卡片（KPI_RICH）+ 可用率（KPI_AVAIL_ROWS）。 */
-      var skTop = DATA.KPI_GROUPS.map(function (g) {
-        return qcGroupHtml(g, g.items.map(g.id === 'rich' ? skRich : skAvail).join(''));
+      /* 上排两组：富卡片（KPI_RICH）+ 可用率（KPI_AVAIL_ROWS）。
+         2026-11-04：cxort 组（teamOnly，上游已被滤掉，团队门户按矩阵进出）
+         的骨架卡只有 标题/数值/时间戳 三段 —— 它没有走势与页脚三格，
+         复用 skAvail 会让骨架比真卡高 77px，数据到位时整排上跳。
+         分发链与真卡那条 richKinds 同构：按组 id 派发，不写 if 链。 */
+      var skCxort = function () {
+        return '<div class="qc-card qc-card--rt">' +
+          '<div class="qc-ttl"><span class="sk" style="height:19px;width:56%"></span></div>' +
+          '<div class="qc-val"><span class="sk" style="height:25px;width:62%"></span></div>' +
+          '<div class="qc-asof"><span class="sk" style="height:14px;width:40%"></span></div>' +
+        '</div>';
+      };
+      var skTop = kpiGroups.map(function (g) {
+        return qcGroupHtml(g, g.items.map(
+          g.id === 'cxort' ? skCxort
+            : (g.id === 'rich' ? skRich : skAvail)).join(''));
       }).join('');
       /* Benchmark 行的骨架屏（2026-10-01 加；2026-10-07 起是连体组）。
          它**必须**在这里就画出来：这一行是四路请求里最慢的一路
@@ -2247,9 +2309,13 @@
         （引用 KPI_RICH / KPI_AVAIL_ROWS 本身），所以表里增删卡这里自动跟。 */
     var richKinds = {
       rich: function (spec) { return kpiRichHtml(spec, olibCard(spec.id)); },
-      avail: function (spec) { return availRichHtml(spec, availRow(spec.group)); }
+      avail: function (spec) { return availRichHtml(spec, availRow(spec.group)); },
+      /* 2026-11-04 加：CXO RealTime Dashboard 组（bo 专用，上游被 teamOnly
+         滤掉、不会走到这一支；团队门户按矩阵渲染）。数据取 state.kpi.cxort
+         （loadKpi 第 4 路 / loadCxort 5 分钟档），单位由接口给、卡上原样拼。 */
+      cxort: function (spec) { return cxortCardHtml(spec, cxortEntry(spec.id)); }
     };
-    var top = DATA.KPI_GROUPS.map(function (g) {
+    var top = kpiGroups.map(function (g) {
       return qcGroupHtml(g, qcGroupCards(g, richKinds[g.id]));
     }).join('');
     /* 顶栏时间戳取 olib 的写入时间（富卡片的主数据源）。
@@ -4366,123 +4432,94 @@
      结论），所以切页签只动 hidden，不动内容。 */
   var emailLang = null;      /* 报告文件骨架上次渲染时用的语言 */
   var qaLang = null;         /* 知识问答骨架上次渲染时用的语言（2026-10-12 加） */
-  var fbLang = null;         /* 使用反馈骨架上次渲染时用的语言（2026-10-21 加） */
+  var cchLang = null;        /* CCH 骨架上次渲染时用的语言（2026-11-04 加） */
 
   /* ==================================================================== v3
-     使用反馈面板（2026-10-21 加，用户要求「OSS Portal Login 减少一半高度后，
-     剩下的高度展示 /myapp/?page=feedback 的内容」）
-
-     它是**第三个内嵌 my_app 的面板**，与 Auto Report（email）、Knowledge Q&A（qa）
-     同一套机制，故写法照搬 ensureEmail 那套：
-       ① 未登录不建 iframe（内层会渲染 my_app 自己的登录引导，比空着好看）；
-       ② 主题：my_app 只在启动时读一次 localStorage['myapp-theme']（theme.ts 的
-          detectMode），所以切主题必须「先写键、再重设 src」；
-       ③ 骨架只在「首次 / 切语言 / 被门禁清空」时重建 —— 重建 iframe 等于重下整页。
-
-     ⚠️ 权限：使用反馈**不按目录条目判权限**（canSee）。
-     理由：这条页是 my_app 内置的工单台，任何内网用户都能提交反馈
-     （backend/routers/feedback.py 的 POST 明确「内网开放提交」），
-     目录里那条 custom-issue-feedback 只是入口之一，不是准入条件。
-     若照抄 emailAllowed()，目录里那条条目被删/看不到时整个面板就空了 ——
-     而面板要展示的是**使用反馈功能**，不是目录条目。
-     真正的登录要求由 my_app 侧的 authGate 兜住（会话失效时内层自己出登录引导）。 */
-  function feedbackSrc() {
-    /* ⚠️ embed=1 必须带：2026-10-18 起 my_app 只看 ?embed=1 / ?layout=bare 隐藏外壳
-       （App.tsx readBareModule），不补则 iframe 里会连 Header 与侧栏一起显示。
-       与 mapItems / emailSrc / qaSrc 同一处理。
-       ⚠️ theme 参数**显式给全**（dark / light 都带）：my_app 的 theme.ts 判定链是
-       「URL 参数 → localStorage → 系统偏好」，只给 dark 会让浅色态落回
-       localStorage（可能是旧的 dark）。用 URL 参数还有个好处：它**不写回**
-       localStorage（theme.ts 的注释明确这一点），不会改掉用户的全局偏好。 */
+     User Feedback → 头像下拉的一条链接（2026-11-04 改）
+     ----------------------------------------------------------------------------
+     原本这里是「第三个内嵌 my_app 的面板」（#fbSlot + #fbFrame + ensureFeedback
+     那一整套 iframe 保活 / 登录提示 / 主题同步）。用户要求把它收成头像下拉里的
+     一个功能入口（#fbMenuLink，新标签页打开），故整块 iframe 机制删除：
+       · 不再有 #fbSlot / #fbHost / #fbFrame / fbNote / clearFbNote / syncFbBoot /
+         ensureFeedback / renderFeedbackSection；
+       · 只留下 feedbackHref()，由 applyI18n() 写进下拉 <a> 的 href。
+     ⚠️ 新标签页打开的是**完整页**，不能带 embed=1（那是给 iframe 去外壳用的），
+       否则反馈页连 Header / 侧栏都看不到。
+     ⚠️ theme 参数显式给全（dark / light 都带）：my_app 的 theme.ts 判定链是
+       「URL 参数 → localStorage → 系统偏好」，且 URL 参数不写回 localStorage，
+       不会改掉用户直开 /myapp/ 时的全局偏好。
+     ⚠️ 权限口径不变：使用反馈**不按目录条目判权限**（canSee）——
+       任何内网用户都能提交（feedback.py 的 POST 内网开放提交），
+       真正的登录要求由 my_app 侧 authGate 兜住。 */
+  function feedbackHref() {
     return '/myapp/?page=feedback' + langQs() +
-      '&embed=1&theme=' + (state.theme === 'dark' ? 'dark' : 'light');
+      '&theme=' + (state.theme === 'dark' ? 'dark' : 'light');
   }
-  function feedbackSectionHtml() {
+
+  /* ==================================================================== v3
+     CCH 独立面板（2026-11-04 加，用户要求「Knowledge Q&A 里面的 CCH 单独拆出来
+     放到 User Feedback 的位置」）
+     ----------------------------------------------------------------------------
+     CCH 原本是 Knowledge Q&A 的第三个页签（qaItems() 里的 vmax，短标签取
+     qa.tabVmaxUser = 'CCH'），指向 my_app 的 /myapp/?page=vmax_user_query。
+     现在它脱离页签条、独占 .qarow 右列上半（原 User Feedback 的槽位）：
+       · qaItems() 只剩 eFlow / O&A 两个页签，state.qaTab 里残留的 'vmax'
+         由 curQa() 的 list[0] 兜底自然回落，不用清 localStorage；
+       · 目录匹配与内置兜底项从原 vmax 页签整段搬过来，仍是「目录有就用目录、
+         没有就用兜底」，不另建第二份真相源；
+       · 内嵌 src 复用 qaSrc() 的 my_app 分支（自动补 embed=1 / lang / theme），
+         与 eFlow 页签完全同一套处理。
+     ⚠️ 可见范围：上游 /v3/olbrportal/ 恒显示；五个团队门户由
+       scripts/patch_team_portal.py 在 renderCchSection() 开头补 SCOPE.hasCch()
+       判据（矩阵 cch 域，勾了 fo / bo / smc）。本文件里**不能**直接写 SCOPE ——
+       上游不引 team-scope.js，那个变量只在团队副本里由补丁声明。 */
+  function cchItem() {
+    var all = allowed();
+    var hit = all.filter(function (x) {
+      return String(x.url || '').indexOf('page=vmax_user_query') !== -1;
+    })[0] || null;
+    if (hit) return hit;
+    /* 目录里还没有该条目时的内置兜底（与 2026-11-02 加的 vmax 页签同源）：
+       标题取 my_app 侧菜单同名，图标取 mobile。目录一旦配了，兜底自动让位。 */
+    return {
+      no: -9001, groups: ['Knowledge Q&A'],
+      titleZh: 'VMAX 用户查询', titleEn: 'VMAX User Query',
+      descZh: 'VMAX 用户信息查询：按号码查 IMSI / 终端等（与 my_app 侧菜单同名）。',
+      descEn: 'VMAX user info query by MSISDN: IMSI / terminal etc. (same as the my_app menu).',
+      platform: 'myapp', url: 'http://192.168.100.20/myapp/?page=vmax_user_query',
+      status: 'online', freq: '', clicks: 0, icon: 'mobile'
+    };
+  }
+  function cchSrc() { return qaSrc({ key: 'vmax', item: cchItem() }); }
+  /* 「打开」按钮给完整页（不带 embed=1）。与 QA 页签的 qaOpen 口径略不同：
+     那里直接给目录 url，这里统一走同源相对路径，换机房 / 换域名不用跟着改。 */
+  function cchOpenHref() { return '/myapp/?page=vmax_user_query' + langQs(); }
+  function cchSectionHtml() {
     return '<div class="p-head"><span class="p-hd"><span class="p-t t-orange">' +
-        esc(t('fb.title')) + '</span></span>' +
+        esc(t('cch.title')) + '</span></span>' +
       '<div class="map-tools">' +
-        '<button type="button" class="gb gb--t" data-act="fb-reload" title="' + esc(t('map.reload')) + '">' +
+        '<button type="button" class="gb gb--t" data-act="cch-reload" title="' + esc(t('map.reload')) + '">' +
         '<i class="ph ph-arrow-clockwise" aria-hidden="true"></i><span>' + esc(t('map.reload')) + '</span></button>' +
-        '<a class="gb gb--t" id="fbOpen" href="' + esc(feedbackSrc()) + '" target="_blank" rel="noopener noreferrer"' +
+        '<a class="gb gb--t" id="cchOpen" href="' + esc(cchOpenHref()) + '" target="_blank" rel="noopener noreferrer"' +
         ' title="' + esc(t('map.open')) + '"><i class="ph ph-arrow-square-out" aria-hidden="true"></i><span>' +
         esc(t('map.open')) + '</span></a></div></div>' +
-      '<div class="canvas" id="fbHost">' +
-      '<div class="embed-boot" id="fbBoot"><i class="embed-ring" aria-hidden="true"></i>' +
-      '<span>' + esc(t('map.load')) + '</span></div></div>';
+      '<div class="canvas">' +
+        '<iframe id="cchFrame" title="' + esc(t('cch.title')) + '" src="' + esc(cchSrc()) + '"></iframe>' +
+      '</div>';
   }
-  function fbNote(msg) {
-    var host = $('#fbHost'); if (!host) return;
-    var el = $('#fbNote');
-    if (!el) {
-      el = document.createElement('div');
-      el.id = 'fbNote'; el.className = 'embed-boot';
-      host.appendChild(el);
+  function renderCchSection() {
+    var el = $('#cchSlot'); if (!el) return;
+    /* 只在「首次 / 切语言 / 骨架被清空」时重建 —— 重建 iframe 等于重下整页。
+       其余情况（尤其切主题）只把 iframe 的 src 与「打开」链接就地校正，
+       因为 qaSrc() 的 my_app 分支在 dark 时会多带一个 &theme=dark。 */
+    if (cchLang !== state.lang || !el.querySelector('#cchFrame')) {
+      el.innerHTML = cchSectionHtml();
+      cchLang = state.lang;
+      return;
     }
-    el.innerHTML = '<i class="ph ph-shield-warning" aria-hidden="true"></i><span>' + esc(msg) + '</span>';
-    var boot = $('#fbBoot'); if (boot) boot.hidden = true;
-  }
-  /* ⚠️ 2026-10-21 修「已登录却显示 Sign in to view the user feedback」：
-     fbNote 只负责**贴**提示，收提示必须有对称的 clear，否则提示一旦贴上就永久留在
-     #fbHost 里。这不是理论上才会遇上：boot() 里 render() 是**同步**跑的，而
-     probe()（探 /api/auth/me、/uniplam/api/auth/me）是异步 fetch —— render() 执行时
-     state.authOk 还是初始的 false，于是先走一次 fbNote；等 probe 回来 authOk 变 true、
-     start() → renderCatalog() → renderFeedbackSection() 时，骨架因「fbLang 未变且
-     #fbHost 已存在」而**不重建**，只剩 ensureFeedback() 建 iframe —— 那句提示没人摘。
-     而 .embed-boot 是 position:absolute; inset:0; z-index:3，正好整块盖在 iframe 上，
-     于是登录了也照样看见「请登录」。
-     ensureEmail() 里有同一个 clearEmailNote()（4428 行），本块是照搬它时漏掉的。 */
-  function clearFbNote() {
-    var el = $('#fbNote');
-    if (el && el.parentNode) el.parentNode.removeChild(el);
-  }
-  function syncFbBoot() {
-    var boot = $('#fbBoot'); if (!boot) return;
-    var f = $('#fbFrame');
-    boot.hidden = !!(f && f.getAttribute('src') && f.dataset.loaded === '1');
-  }
-  function ensureFeedback() {
-    var host = $('#fbHost'); if (!host) return;
-    if (!state.authOk) { fbNote(t('fb.needLogin')); return; }
-    /* 已登录（或会话恢复成功）必须把上一次贴在 #fbHost 里的提示摘掉，否则它会盖住
-       iframe —— 与 ensureEmail() 里 clearEmailNote() 的位置对齐（登录判定之后、
-       建 iframe 之前）。详见 clearFbNote 上方的说明。 */
-    clearFbNote();
-
-    var f = $('#fbFrame');
-    if (!f) {
-      f = document.createElement('iframe');
-      f.id = 'fbFrame';
-      f.setAttribute('title', t('fb.title'));
-      f.addEventListener('load', function () {
-        if (!f.getAttribute('src')) return;
-        f.dataset.loaded = '1';
-        syncFbBoot();
-      });
-      host.appendChild(f);
-    }
-    var want = state.theme === 'dark' ? 'dark' : 'light';
-    var wantLang = langVal();
-    if (!f.getAttribute('src') || f.dataset.theme !== want || f.dataset.lang !== wantLang) {
-      /* ⚠️ 这里**不**写 localStorage['myapp-theme']（与 ensureEmail 不同）：
-         主题改由 URL 参数 ?theme= 传给 my_app（theme.ts 的判定链里 URL 参数最前，
-         且明确不写回 localStorage）。写 localStorage 会改掉用户的**全局**偏好 ——
-         一次在门户里切主题就把直开 /myapp/ 的外观也改了，这正是 theme.ts 注释里
-         要避免的跨应用副作用。 */
-      f.dataset.theme = want;
-      f.dataset.lang = wantLang;
-      delete f.dataset.loaded;
-      f.setAttribute('src', feedbackSrc());
-    }
-    var open = $('#fbOpen'); if (open) open.href = feedbackSrc();
-    syncFbBoot();
-  }
-  function renderFeedbackSection() {
-    var el = $('#fbSlot'); if (!el) return;
-    if (fbLang !== state.lang || !el.querySelector('#fbHost')) {
-      el.innerHTML = feedbackSectionHtml();
-      fbLang = state.lang;
-    }
-    ensureFeedback();
+    var f = $('#cchFrame');
+    if (f && f.getAttribute('src') !== cchSrc()) f.setAttribute('src', cchSrc());
+    var open = $('#cchOpen'); if (open) open.href = cchOpenHref();
   }
 
   /* 这条看板在**服务端全局目录里没有**（实测：服务端 49 条、内置 51 条，缺的 17 条里
@@ -4645,24 +4682,14 @@
               pick('192.168.100.27/') ||
               pick('192.168.100.27');
     var eflow = pick('page=eflow_qa');
-    /* 2026-11-02 加：第三页签 VMAX 用户查询（my_app ?page=vmax_user_query）。
-       目录里若还没有该条目（内置 data.js 与服务端 catalog 都没配），用内置兜底项补上，
-       保证页签一定出现；目录一旦配了该条目（按 url 里的 page 值命中），兜底自动让位。
-       兜底写法与 mapItems 的标题回落同一口径：标题取 my_app 侧菜单同名，图标取 mobile。 */
-    var vmax = pick('page=vmax_user_query') || {
-      no: -9001, groups: ['Knowledge Q&A'],
-      titleZh: 'VMAX 用户查询', titleEn: 'VMAX User Query',
-      descZh: 'VMAX 用户信息查询：按号码查 IMSI / 终端等（与 my_app 侧菜单同名）。',
-      descEn: 'VMAX user info query by MSISDN: IMSI / terminal etc. (same as the my_app menu).',
-      platform: 'myapp', url: 'http://192.168.100.20/myapp/?page=vmax_user_query',
-      status: 'online', freq: '', clicks: 0, icon: 'mobile'
-    };
-    /* ⚠️ 2026-10-12（用户要求「把 eflow 放到前面」）：顺序改为 **eFlow 在前、RAG 在后**。
+    /* ⚠️ 2026-11-04（用户要求「Knowledge Q&A 里面的 CCH 单独拆出来」）：
+       原第三页签 VMAX 用户查询（短标签 CCH）已搬到独立面板 #cchSlot，
+       目录匹配与内置兜底项整段迁到 cchItem()，此处不再定义 vmax。
+       ⚠️ 2026-10-12（用户要求「把 eflow 放到前面」）：顺序仍是 **eFlow 在前、RAG 在后**。
        这个数组的顺序就是页签条的顺序，也是未指定 state.qaTab 时的默认选中项
        （curQa 取 list[0]）—— 故这里的先后同时决定了「谁排第一」与「默认展示谁」。
-       2026-11-02：VMAX 用户查询排第三，不动前两者的顺序与默认选中。 */
-    return [eflow && { key: 'eflow', item: eflow }, rag && { key: 'rag', item: rag },
-      vmax && { key: 'vmax', item: vmax }].filter(Boolean);
+       localStorage 里若存着旧的 'vmax'，curQa() 会自然回落到 list[0]，无需清理。 */
+    return [eflow && { key: 'eflow', item: eflow }, rag && { key: 'rag', item: rag }].filter(Boolean);
   }
   /* 页签上显示的**短标签**（2026-10-12 改）：目录标题太长
      （"RAG Knowledge Q&A (本地知识问答 / Open WebUI)"），
@@ -4672,7 +4699,6 @@
   function qaTabLabel(tab) {
     if (tab.key === 'rag') return t('qa.tabRag');
     if (tab.key === 'eflow') return t('qa.tabEflow');
-    if (tab.key === 'vmax') return t('qa.tabVmaxUser');
     return titleOf(tab.item);
   }
   /* 页签的 title 全称：短名之外仍要让用户看得到完整标题（含说明），
@@ -5050,7 +5076,7 @@
     box.innerHTML = html;
   }
 
-  function render() { renderBand(); renderKpi(); renderViews6(); renderL0(); renderEsc(); renderEmailSection(); renderQaSection(); renderOssSection(); renderFeedbackSection(); renderAux(); renderArchive(); applyI18n(); }
+  function render() { renderBand(); renderKpi(); renderViews6(); renderL0(); renderEsc(); renderEmailSection(); renderQaSection(); renderOssSection(); renderCchSection(); renderAux(); renderArchive(); applyI18n(); }
 
   /* 目录保存后的重绘：只画「看得懂目录改动」的那几块，且**不重新加载地图**。
      ⚠️ 不能图省事调 render()：MsPortal 当年就是这么把 4 个地图 iframe 全重建了一遍，
@@ -5062,7 +5088,7 @@
      v1：原先这里还调 renderViews()（L1 页签面板），面板已去掉，改成
      renderEmailSection() —— 报告文件挂在目录条目上（emailItem 查 url 里的 page=），
      所以目录一改它也要跟着重判一次权限与文案。 */
-  function renderCatalog() { renderViews6(); renderL0(true); renderEmailSection(); renderQaSection(); renderOssSection(); renderFeedbackSection(); renderAux(); renderArchive(); }
+  function renderCatalog() { renderViews6(); renderL0(true); renderEmailSection(); renderQaSection(); renderOssSection(); renderCchSection(); renderAux(); renderArchive(); }
 
   /* --------------------------------------------------------------- auth -- */
   /* 与 MsPortal 共用 PORTAL_TOKEN_KEY：新页面登录不会把 MsPortal 顶掉（同一份会话），
@@ -5237,11 +5263,11 @@
      没被加进来 —— 后果是没登录时这三块**照样显示**在登录框下面（数字还是空的
      「—」，但边框、标题、六张入口卡都在），比整块留白更像坏了。
      现在按 main 里的实际区块补全；#emailSlot 是内嵌 iframe，同样必须一起藏。
-     ⚠️ 2026-10-21：补 #fbSlot（使用反馈面板，2026-10-21 新加的那块）。加面板时漏了
-     这一行，未登录时它是唯一不被藏的区块 —— 与本注释开头记的那次 v1 遗漏同源，
-     以后每新增一块 main 里的区块都要回来看一眼这个数组。 */
+     ⚠️ 2026-11-04：#fbSlot（使用反馈面板）已删除，改由顶栏头像下拉的
+       #fbMenuLink 承载；右列上半换成 #cchSlot，清单同步改名。
+       以后每新增一块 main 里的区块都要回来看一眼这个数组。 */
   function mainLocked(on) {
-    ['#band', '#kpi', '#views6', '#l0Map', '#emailSlot', '#qaSlot', '#ossSlot', '#fbSlot', '#esc', '#aux']
+    ['#band', '#kpi', '#views6', '#l0Map', '#emailSlot', '#qaSlot', '#cchSlot', '#ossSlot', '#esc', '#aux']
       .forEach(function (s) { var e = $(s); if (e) e.hidden = on; });
   }
   function login(u, p) {
@@ -6135,6 +6161,35 @@
      已经绰绰有余，不再单开一个更快的循环 —— 白跑只会给上游加压。
      切回前台时跟 QC 一起补一发（后台标签页定时器会被冻结，不补会看到昨天的数）。 */
   var kpiBusy = false;
+  /* 本页要不要取/显示 CXO RealTime Dashboard 组（2026-11-04 加）。
+     判据走 window.OLBR_SCOPE（team-scope.js 注入；团队门户才有）——
+     上游主门户没有这个全局，恒 false；团队门户按矩阵 kpi.cxort（当前只有 bo 勾）。
+     ⚠️ 不读本文件里的 SCOPE 变量：那是团队版生成物里由 patch 脚本注入的声明，
+     上游源文件根本没有这个符号 —— 直接引用会在上游页面上 ReferenceError。
+     矩阵未就绪时 ok() fail-closed 返回 false，首屏这路自动跳过；
+     矩阵到位后由 patch 脚本 scope-refresh 钩子补调 loadCxort()。 */
+  function wantCxortGroup() {
+    var s = window.OLBR_SCOPE;
+    return !!(s && s.ok && s.ok('kpi', 'cxort'));
+  }
+  /* CXO RealTime Dashboard 的 5 分钟一档刷新（2026-11-04 加）。
+     挂在 qcLoopAlarm 那一档（:00:30）而不是全量 QC 那一档（每小时）：
+     数据是 15 分钟粒度缓存，小时级刷新会让人看着"实时卡"猜"这是几点的数"。
+     自带 busy 防重入（与 kpiBusy 同一模式），失败静默 —— 保留上一次的值，
+     卡上时间戳还停在旧时间，本身就是"数据没有更新"的诚实信号。 */
+  var cxortBusy = false;
+  function loadCxort() {
+    if (cxortBusy) return;
+    if (!wantCxortGroup()) return;
+    cxortBusy = true;
+    api('/api/vmax-cxo-dashboard/summary').then(function (d) {
+      cxortBusy = false;
+      if (d && d.status === 'ok' && d.summary && d.summary.overview) {
+        state.kpi.cxort = { overview: d.summary.overview, updated_at: d.updated_at || '' };
+        renderKpi();
+      }
+    }).catch(function () { cxortBusy = false; });
+  }
   function loadKpi() {
     if (kpiBusy) return;
     kpiBusy = true;
@@ -6144,8 +6199,11 @@
        页面看上去只是"一直停在骨架屏"，不报任何错。
        ⚠️ 2026-10-22 由 4 改 3：Benchmark 行那两路已收进 loadBenchRow
        （它们要先探数据末日再定窗口，摊平成两路会把 done() 数错），
-       那一整行现在算**一路**，自己 settle 之后才调这里的 done()。 */
-    var left = 3;
+       那一整行现在算**一路**，自己 settle 之后才调这里的 done()。
+       ⚠️ 2026-11-04 由 3 改 4：加了 cxort（CXO RealTime Dashboard）一路。
+       它按 wantCxortGroup() gating —— 不该显示的页面**也要立刻 done()**，
+       否则计数悬空、整块停在骨架屏（正是上面警告的那种无报错假死）。 */
+    var left = 4;
     function done() { if (--left === 0) { kpiBusy = false; state.kpi.loading = false; renderKpi(); } }
     /* 富卡片的主数据源。它自己带 status/error。
        失败时**不清空** state.kpi.olib：把上一次的数字擦成 —，
@@ -6174,6 +6232,20 @@
       };
       done();
     }).catch(function () { done(); });
+    /* ---- 第 4 路（2026-11-04 加）：CXO RealTime Dashboard 的实时 KPI -----------
+       数据是 15 分钟粒度缓存（上游一天动 96 次），与这一档的小时级刷新
+       不匹配 —— 它在 loadKpi 里只做**首屏一发**（且仅当本页要显示这一组），
+       后续 5 分钟一档的滚动刷新走 loadCxort（挂在 qcLoopAlarm 那一档）。
+       不该显示的页面立即 done()，不空转计数。失败也只 done() 不报错：
+       这一组没有「带级报错」的位置，卡上 '—' 就是全部反馈（与 avail 路同档）。 */
+    if (wantCxortGroup()) {
+      api('/api/vmax-cxo-dashboard/summary').then(function (d) {
+        if (d && d.status === 'ok' && d.summary && d.summary.overview) {
+          state.kpi.cxort = { overview: d.summary.overview, updated_at: d.updated_at || '' };
+        }
+        done();
+      }).catch(function () { done(); });
+    } else { done(); }
     /* Benchmark 行整行取数（2026-10-22 抽出；设计说明见下面 loadBenchRow）。
        这一行**故意不是两个平级的 then**：它的窗口要先探两个源的 data_max_date
        才能定下来（benchWindow），天然是"先探、后取"的两段式。
@@ -7569,6 +7641,9 @@
        要恢复「显示环境名」见 olbr.js.bak_20260928_柱状图与顶栏调整前。 */
     var src = D.meta || {};
     $('#footSrc').textContent = tf('foot.src', { n: (D.stats && D.stats.total) || ITEMS.length, d: src.generated || '' });
+    /* 头像下拉里的 User Feedback 链接（2026-11-04 加）：语言 / 主题要跟随门户，
+       href 不能写死在 HTML 里。只改 href、不动 textContent —— 文案由 [data-i18n] 统一写。 */
+    var fbl = $('#fbMenuLink'); if (fbl) fbl.setAttribute('href', feedbackHref());
     /* 编辑按钮的文案 / 提示是动态写的（语言一换要跟着换），所以也归这里出口 */
     syncEditBtn();
     /* 用户管理弹窗整块是 JS 画的，语言换了不重绘就会留着上一门语言 */
@@ -7590,8 +7665,9 @@
        只能靠 ensureEmail 里的「上次主题 ≠ 本次」判据重设 src。
        v1：报告文件常驻（不再是"切到那个页签才渲染"），所以这里无条件调一次。 */
     renderEmailSection();
-    /* 使用反馈面板同理（2026-10-21 加）：同样是内嵌 my_app、切主题必须重设 src。 */
-    renderFeedbackSection();
+    /* CCH 面板同理（2026-11-04 改）：同样是内嵌 my_app，切主题由
+       renderCchSection() 就地校正 iframe 的 src（qaSrc 在 dark 时多带 &theme=dark）。 */
+    renderCchSection();
   }
   function setLang(v) { state.lang = v; ss('olbr.lang', v); render(); }
   function toast(msg) {
@@ -7806,12 +7882,13 @@
         else renderEmailSection();
       }
     });
-    /* 使用反馈面板的「刷新」（2026-10-21 加）：与 email-reload 完全同一套做法。 */
-    $('#fbSlot').addEventListener('click', function (e) {
-      if (e.target.closest('[data-act="fb-reload"]')) {
-        var ff = $('#fbFrame');
-        if (ff && ff.getAttribute('src')) { delete ff.dataset.loaded; syncFbBoot(); ff.src = feedbackSrc(); }
-        else renderFeedbackSection();
+    /* CCH 独立面板的「刷新」（2026-11-04 加）：与 qa-reload 同一套做法 ——
+       先清 src 再赋同值，避免浏览器对「src 未变」的赋值不做重载。 */
+    $('#cchSlot').addEventListener('click', function (e) {
+      if (e.target.closest('[data-act="cch-reload"]')) {
+        var cf = $('#cchFrame');
+        if (cf) { cf.setAttribute('src', 'about:blank'); cf.setAttribute('src', cchSrc()); }
+        else renderCchSection();
       }
     });
     /* v2（2026-10-12）：知识问答栏的页签切换（RAG / eFlow）。
@@ -8032,13 +8109,13 @@
          的时间轴（:06:30），而这一档的刻度是 :00:30。不补的话刚进来时「告警最近」
          可能是一小时前的旧时间，要等下一个 5 分钟刻度才被刷新。 */
       window.setTimeout(loadQcAlarm, 0);
-      window.setTimeout(function () { loadQcAlarm(); qcLoopAlarm(); },
+      window.setTimeout(function () { loadQcAlarm(); loadCxort(); qcLoopAlarm(); },
         qcNextDelay(DATA.QC_ALARM_MIN, DATA.QC_ALARM_OFFSET));
     })();
     /* 切回前台补一发全量：后台标签页的定时器会被降频甚至冻结，不补的话回到页面看到的
        可能是几小时前的数字 —— 比「延迟刷新」更容易被误读成故障。 */
     document.addEventListener('visibilitychange', function () {
-      if (!document.hidden) { loadQc(); loadQcAlarm(); loadKpi(); }
+      if (!document.hidden) { loadQc(); loadQcAlarm(); loadKpi(); loadCxort(); }
     });
   }
   function start() {

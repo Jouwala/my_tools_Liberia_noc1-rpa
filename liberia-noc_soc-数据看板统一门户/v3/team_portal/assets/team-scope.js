@@ -213,6 +213,18 @@
     return out;
   }
 
+  /* 运行时矩阵里**有没有这个域**（2026-11-04 加）。
+     ⚠️ 不能读导出的 SCOPE.matrix：那是对象创建时对初始静态矩阵的**值拷贝**，
+        fetchRuntimeMatrix() 里 `MATRIX = d.matrix` 重新赋值后它不会跟着变。
+        这个闭包函数读的才是当前生效的 MATRIX。
+     用途：服务端 teamScopeDb.getTemplate() 把 scope-map.json 缓存了一次，
+       新增域（如 cch）要等 dev 服务重启、由 load() 的「模板新增项合并」补进库。
+       在重启之前，运行时矩阵里没有该域 —— 调用点据此走静态白名单兜底，
+       免得「代码已经上线但 CCH 一个团队都看不到」。 */
+  function hasDomain(key) {
+    return Object.prototype.hasOwnProperty.call(MATRIX || {}, key);
+  }
+
   /* ============================================================ OSS 槽位 ==
      目录条目 → OSS 槽位。url 含任一片段即归入该槽位。 */
   function ossSlotOf(item) {
@@ -247,10 +259,13 @@
   }
 
   /* ========================================================== 问答页签 ==
-     · eflow  = 「TT/Alarm Analysis」（eFlow 知识库）
-     · rag    = 「Knowledge O&A」（本地知识问答）
-     · vmax   = 「VMAX 用户查询」（VMAX 用户查询页签，2026-11-02 加）
-     · assistant = 「Quick Q&A」（右下角悬浮问答助手） */
+     2026-11-04 改：CCH（原 vmax / VMAX 用户查询）已从页签拆成独立面板 #cchSlot，
+     改由 cch 域控制（见下面 hasCch）。这里只剩三项：
+       · eflow  = 「TT/Alarm Analysis」（eFlow 知识库）
+       · rag    = 「Knowledge O&A」（本地知识问答）
+       · assistant = 「Quick Q&A」（右下角悬浮问答助手）
+     ⚠️ 服务端库矩阵里可能还残留旧的 qa/vmax 键（合并逻辑只补不删），
+        qaItems() 已不再消费它，多返回一项也无副作用。 */
   function qaTabs() {
     return subs('qa');
   }
@@ -264,6 +279,16 @@
   /* ============================================================ 其它单值域 == */
   function hasComplaint() { return ok('complaint', 'vmax'); }
   function hasEscalation() { return ok('escalation', 'esc'); }
+  /* CCH 独立面板（2026-11-04 加）：矩阵 cch 域，勾了 fo / bo / smc。
+     ⚠️ 上游 /v3/olbrportal/ 不引本文件 → SCOPE 为 null → 团队版 olbr.js 里那段
+        `if (SCOPE && ...)` 判据短路，主门户**恒显示** CCH —— 正是用户要求的
+        「CCH 在 olbr / smc / fo / bo 显示」里的 olbr。
+     ⚠️ 服务端库矩阵首次遇到新域时，teamScopeDb.load() 的「模板新增项合并」
+        会自动把它补进去（只补缺失键、不覆盖管理员已有勾选），无需手工改库。 */
+  function hasCch() { return ok('cch', 'cch'); }
+  /* ⚠️ 已退役（2026-11-04）：#fbSlot 页面块删除，User Feedback 收进顶栏头像
+     下拉的 #fbMenuLink，对所有登录用户可见、与团队可见性正交，不再受矩阵控制。
+     保留这个函数只为兼容可能存在的旧调用，勿在新代码里引用。 */
   function hasFeedback() { return ok('feedback', 'fb'); }
 
   /* ================================================================ 导出 == */
@@ -274,6 +299,7 @@
     matrix: MATRIX,
     ok: ok,
     subs: subs,
+    hasDomain: hasDomain,
     ossSlotOf: ossSlotOf,
     ossSlots: ossSlots,
     viewGroups: viewGroups,
@@ -282,6 +308,7 @@
     reportIds: reportIds,
     hasComplaint: hasComplaint,
     hasEscalation: hasEscalation,
+    hasCch: hasCch,
     hasFeedback: hasFeedback,
     /**
      * 取回运行时矩阵后重画整页。

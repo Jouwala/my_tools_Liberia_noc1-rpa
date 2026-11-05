@@ -58,6 +58,7 @@
 | `src\pages\_TemplatePage.tsx` | **新页面接入模板**（照抄即可）；下划线前缀文件是真源码，**不得被忽略规则吞掉** |
 | `MsPortal\index.html`（48KB） | 早期复刻版单页（QC 面板等大量内联实现） |
 | `v3\team_portal\` | **五个团队门户共用的静态根**（2026-10-29 新增）：`/v3/{fo,bo,flm,smc,cxo}_portal/` 五个 URL 由 nginx 五个 `location ... alias` 指向它。可见性矩阵的**真相源是 `v3\team_portal\scope-map.json`**（仓库内），由 `scripts\gen_team_matrix.py` 生成成 `assets\team-matrix.js`；运行时由 `assets\team-scope.js` 向 `/uniplam/api/auth/team-scope` 取**数据库**里的矩阵（管理员可在门户界面直接勾选）；`assets\olbr.js` 由 `scripts\patch_team_portal.py` 从上游 `v3\olbrportal\assets\olbr.js` 打钩子生成（**上游那份一行未改**）；其余共享资产由 `scripts\sync_team_assets.py` 同步。⚠️ **这些生成物都在版本库里**（nginx 直接 alias，不经构建），改上游后必须重跑对应脚本；`npm run check:team-scope` 会替你查（已挂 pre-commit） |
+| `v3\team-login.html` + `v3\team-login.js` | **团队门户「同页登录」**（2026-11-04 新增）：nginx 五个团队 location 的 `error_page 401` 内部重定向到这里，用户**在 `/v3/<team>_portal/` 原址**填账号密码即可，不用跳去 `/uniplam/`。走的是**同一个** `POST /uniplam/api/auth/login`、**同一套**账号、**同一个** `auth-data/portal-auth.db`。⚠️ **访问控制一分未松** —— 闸门 `auth_request` 原样保留（fail-closed），本页只解决「在哪登录」，且**不带** `auth_request`、**不含任何敏感信息**（只有一张空表单）。⚠️ 团队 id → 门户名的映射在**四处**各有一份字面量（后端 `server/auth/types.ts` 的 `TEAM_PORTAL_PATHS` 是唯一真相源，另有 `v3/team-gate.js`、`v3/team-login.js`、`src/auth/AuthContext.tsx`）—— **改一处必须改其余各处** |
 | `vite.config.ts` | 构建配置（含 `base`、代理、门户后端挂载） |
 
 ## 五、改代码前的检查清单

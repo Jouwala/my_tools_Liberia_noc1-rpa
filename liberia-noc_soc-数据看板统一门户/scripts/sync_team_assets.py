@@ -110,7 +110,7 @@ CSS_TEAM_SUFFIX = """
    没有改写任何既有规则。
 
    ⚠️ 表体用 .canvas 的滚动语义：Auto Report 这块在 .qarow 左列，
-     高度与右列的「OSS + 反馈」合计等高（--qarow-h），行数多时表体内滚动，
+     高度与右列的「CCH + OSS」合计等高（--qarow-h），行数多时表体内滚动，
      不把整页撑长。 */
 .tr-table {
   width: 100%; border-collapse: collapse; font-size: var(--fs-sm);
@@ -138,8 +138,13 @@ CSS_TEAM_SUFFIX = """
 .tr-dl:hover { text-decoration: underline; }
 /* 客户投诉：只有一张卡片时铺满整行，不必占 6 列里的一格 */
 .oss-grid.is-single { grid-template-columns: minmax(0, 1fr); }
-.complaint-slot { margin-top: var(--s4); }
-.complaint-slot .oss-grid { margin-top: 0; }
+/* ⚠️ 2026-11-05：原 `.complaint-slot { margin-top: var(--s4) }` 已删除。
+   根因与上游 .qarow 的 margin-top 是**同一个**：#complaintSlot 是 #main 的直接子项，
+   而 #main 已经是 flex 列容器且有 gap: var(--s4)=16px —— 两者叠加成 32px，
+   这一处会比其它区块间距宽一倍。
+   上游那份 /v3/olbrportal/ 没有 .complaint-slot（那边没有这块元素），
+   所以这条 margin-top 纯属多余，删掉即两处口径一致。
+   间距**只由 #main 的 gap 说了算**，别在子项上再补 margin-top。 */
 
 /* ============================================================================
    团队门户弹性列数（P0-2）+ 对侧铺满（P0-3）+ 投诉下线（P0-1）
@@ -166,13 +171,67 @@ CSS_TEAM_SUFFIX = """
 @media (max-width: 760px) {
   #band .qc-grid[data-n="3"], #band .qc-grid[data-n="4"], #band .qc-grid[data-n="5"], #band .qc-grid[data-n="6"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+/* 卡内同步拉满（2026-11-03 加）：外层按 data-n 铺满后，卡内趋势图也要跟上。
+   根因：.qc-card 是纵向 flex + align-items:center，.qc-spark-wrap 作为 flex 子项
+   按内容收缩（svg 百分比宽按 viewBox 内在 300px 定，卡变宽图不变），两侧留白。
+   修法：wrap 拉伸到整卡宽，svg 的 width:100% 才真正吃满。只作用于带 data-n 的
+   团队门户网格，上游无 data-n 不受影响。 */
+#band .qc-grid[data-n] .qc-card > .qc-spark-wrap { align-self: stretch; width: 100%; }
+#band .qc-grid[data-n] .qc-card > .qc-spark-wrap .qc-spark,
+#band .qc-grid[data-n] .qc-card > .qc-spark-wrap .qc-spark svg { width: 100%; }
+/* 1~2 张独占整行时图太扁：加高，避免宽卡配细条（3 张以上维持 26px 不动）。 */
+#band .qc-grid[data-n="2"] .qc-spark,
+#band .qc-grid[data-n="2"] .qc-spark svg { height: 34px; }
+#band .qc-grid[data-n="1"] .qc-spark,
+#band .qc-grid[data-n="1"] .qc-spark svg { height: 40px; }
+
+/* Network Status 单组铺满（2026-11-03 加）：FLM 只勾了 avail 一组（3 张卡），
+   按基类 repeat(6) + 组 span 3 只占半行，右侧留白。单组时整组跨满整行，
+   组内 3 张卡自动拉伸吃满（.qc-group-b[data-n="3"] 本来就是 3 列）。
+   :has/:only-child 上游已在用（.maprow 那组），不引入新兼容风险。
+   骨架与真卡同构，自动生效。 */
+#kpi .qc-grid:has(> .qc-group:only-child) { grid-template-columns: minmax(0, 1fr); }
+#kpi .qc-grid > .qc-group:only-child { grid-column: 1 / -1; }
 
 /* Domain Dashboard：按实际视图列数铺满整行（1~6）。 */
 #views6 .v6-grid[data-n="1"] { grid-template-columns: minmax(0, 1fr); }
 #views6 .v6-grid[data-n="2"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+#views6 .v6-grid[data-n="3"] { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 #views6 .v6-grid[data-n="4"] { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 #views6 .v6-grid[data-n="5"] { grid-template-columns: repeat(5, minmax(0, 1fr)); }
 #views6 .v6-grid[data-n="6"] { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+/* 卡内条目：横向排满整行，放不下自动折行（2026-11-05 改，全团队统一）。
+   背景与根因：
+     · 2026-11-03 之前的做法是「单列独占整行时，卡内 .v6-list 改 auto-fit 网格」。
+       那个做法**只在 data-n="1" 生效**，而且 auto-fit 的轨道数由**整张列表的宽度**
+       一次性决定，与「某个专业域有几条」无关 —— 5 条的 RAN 铺满 5 条轨道后，
+       MW 只有 2 条却仍只占 1~2 号轨道，右侧留下三条空轨道（约 870px 空白）。
+       2026-11-05 用户报「一行还排不满，右边有大量空白」，即由此而来。
+     · 现在改成 **flex 行流**：条目按 DOM 顺序左右排，排满自动换行；
+       flex-grow 让**同一行里条数少的那一组也把整行吃满** —— MW 两条各占半行
+       （实测 736px + 736px，右侧零空白），条数多的一组（RAN 5 条）自然排满一行、
+       放不下折第二行，正是用户要的「RAN 放一行，不够就两行」。
+   为什么对**所有** data-n 生效（不再只限单列）：
+     · 五个团队门户的 Domain Dashboard 要**看起来一致**（2026-11-05 用户要求）：
+       fo / bo / cxo 是单列（BO View 另有 RAN/IP/MW/CN/OCS 分段），
+       flm 是双列、smc 没有这一块。
+     · 半宽列（741px）里条目按 280px 基准排，一行放 2 条并拉伸吃满，
+       不再是一条一条竖着堆、右侧空半列。
+   段头（.v6-seg-h）/ 空态：flex-basis 100% → 各自独占整行，不参与横向排布。
+   展开按钮（.v6-more）：0 0 auto → 作为普通流内项跟在末尾，不独占整行。
+   ⚠️ DOM 结构不变（段头与条目仍是 .v6-list 的直接子元素）——
+       team-layout.js 的拖拽排序按「.v6-list > .v6-row」取键与重排，
+       一旦加包装层就会取不到键、排序失效。 */
+#views6 .v6-grid[data-n] .v6-list {
+  display: flex;
+  flex-flow: row wrap;
+  gap: calc(4px * var(--v6-k));
+  align-content: start;
+}
+#views6 .v6-grid[data-n] .v6-seg-h,
+#views6 .v6-grid[data-n] .v6-empty { flex: 0 0 100%; }
+#views6 .v6-grid[data-n] .v6-row { flex: 1 1 280px; min-width: 0; }
+#views6 .v6-grid[data-n] .v6-more { flex: 0 0 auto; align-self: center; }
 @media (max-width: 1400px) {
   #views6 .v6-grid[data-n="4"], #views6 .v6-grid[data-n="5"], #views6 .v6-grid[data-n="6"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   #views6 .v6-grid[data-n="1"] { grid-template-columns: minmax(0, 1fr); }
@@ -180,21 +239,108 @@ CSS_TEAM_SUFFIX = """
 
 /* 对侧铺满：.maprow / .qarow 任一侧 hidden 或空时，另一侧占满整行。
    :has() 在本项目已在用（见上游 .maprow:has(.map-slot:empty)），不引入新兼容风险。
-   [hidden] 走属性选择器 —— olbr.js 按矩阵收放时设的是 el.hidden = true。 */
+   [hidden] 走属性选择器 —— olbr.js 按矩阵收放时设的是 el.hidden = true。
+   [data-tl-off] 是布局隐藏的同语义标记（见 team-layout.js applyLayout），
+   用户藏掉一侧后另一侧同样拉满。 */
 .maprow:has(> .map-slot[hidden]) { grid-template-columns: minmax(0, 1fr); }
+.maprow:has(> .map-slot[data-tl-off]) { grid-template-columns: minmax(0, 1fr); }
 .maprow:has(> .qa-slot[hidden]) { grid-template-columns: minmax(0, 1fr); }
+.maprow:has(> .qa-slot[data-tl-off]) { grid-template-columns: minmax(0, 1fr); }
 .maprow:has(> .qa-slot:empty) { grid-template-columns: minmax(0, 1fr); }
 .qarow:has(> .email-slot[hidden]) { grid-template-columns: minmax(0, 1fr); }
+.qarow:has(> .email-slot[data-tl-off]) { grid-template-columns: minmax(0, 1fr); }
 .qarow:has(> .email-slot:empty) { grid-template-columns: minmax(0, 1fr); }
 .qarow:has(> .qarow-col[hidden]) { grid-template-columns: minmax(0, 1fr); }
-/* qarow 右列内部：OSS 与反馈任一 hidden 时，另一块吃掉整列高度。 */
-.qarow-col:has(> .oss-slot[hidden]) > .fb-slot { flex: 1 1 auto; }
-.qarow-col:has(> .fb-slot[hidden]) > .oss-slot { flex: 1 1 auto; height: auto; min-height: var(--qarow-h); }
+.qarow:has(> .qarow-col[data-tl-off]) { grid-template-columns: minmax(0, 1fr); }
+/* qarow 右列内部（2026-11-04 改）：CCH 与 OSS 任一 hidden 时，另一块吃掉整列高度。
+   ⚠️ 选择器从 .fb-slot 改为 .cch-slot —— User Feedback 面板已移进头像下拉，
+     右列上半现在是 CCH（独立面板），下半是 OSS Portal Login。 */
+.qarow-col:has(> .oss-slot[hidden]) > .cch-slot { flex: 1 1 auto; }
+.qarow-col:has(> .oss-slot[data-tl-off]) > .cch-slot { flex: 1 1 auto; }
+.qarow-col:has(> .cch-slot[hidden]) > .oss-slot { flex: 1 1 auto; height: auto; min-height: var(--qarow-h); }
+.qarow-col:has(> .cch-slot[data-tl-off]) > .oss-slot { flex: 1 1 auto; height: auto; min-height: var(--qarow-h); }
 
-/* Customer Complaint 下线（P0-1）：Knowledge Q&A 的 CCH 已覆盖，团队门户不再显示。
+/* Customer Complaint 下线（P0-1）：CCH（VMAX 用户查询，2026-11-04 起为独立面板）已覆盖，团队门户不再显示。
    矩阵侧已置空（scope-map.json matrix.complaint.vmax = []），这里再加一道硬隐藏 ——
    即使某份旧矩阵仍勾选，页面上也不会露出来（fail-closed 朝隐藏方向）。 */
 .complaint-slot { display: none !important; }
+
+/* ============================================================================
+   CCH 与 OSS Portal Login 并排一行 + CCH「加载不出来」修复（2026-11-05）
+   ----------------------------------------------------------------------------
+   适用范围：本行左列 Auto Report 整块被隐藏的团队门户（当前就是 smc —— 它在
+   report 域一行都没勾，renderEmailSection() 直接 el.hidden = true）。
+   fo / bo / flm 左列还在，仍保持上游那份「上 CCH / 下 OSS」的上下叠放。
+
+   ① 为什么原来「CCH 加载不出来」：
+      .qarow 只剩 .qarow-col 一个 grid item 时，这一行**没有确定高度**：
+        · .oss-slot 是 flex:0 0 var(--oss-h)（430px）；
+        · .cch-slot 是 flex:1 1 auto，可分配的剩余高度为 0；
+        · .qarow .canvas { min-height:0 } 又把 .canvas 的 460px 下限压掉，
+          而 iframe 是 position:absolute（不参与流式高度）→ .canvas 归零。
+      无头浏览器实测（1600px 宽）：cchSlot 91px / cchCanvas 2px / iframe 0px，
+      但 nginx 访问日志里 /myapp/?page=vmax_user_query&embed=1&lang=en 是 304 ——
+      iframe 其实已经加载，只是**容器 0 高**看不见，看起来像「没加载出来」。
+      所以修法不是改 iframe 地址或重试，而是给这一行一个确定高度。
+
+   ② 用户要求「放一行，CCH 在左边」：右列改横向 flex，两块各占一半。
+      .qarow-col 显式 height: var(--qarow-h)（沿用本行唯一高度真相源，
+      宽屏 860px / 窄屏 420px 自动跟 .qarow 的断点走），
+      flex 子项被 align-items:stretch 拉满后 .canvas 才有真实高度。
+      ⚠️ 必须同时把 .oss-slot 的 flex-basis / height 从 --oss-h 改回 auto：
+        纵向布局里它是「固定高度」，横向布局里 430px 会变成「固定宽度」。
+
+   ③ 隐藏态：三种隐藏写法都要认（矩阵 hidden / 布局编辑器 data-tl-off /
+      渲染后 :empty），与上面「对侧铺满」那组保持同一口径。
+      只剩一块时让它独占整行，否则并排规则会留下半行空白。 */
+/* ⚠️ 末尾那个 :has() 不能省：cxo 团队的 cch / oss 两域都没勾，两块同时 hidden。
+   若照样给它 860px 固定高度，页面上会多出一整行空白（改版前是 0 高、自动消失）。
+   故只有「两块里至少还有一块可见」时才撑起这一行。 */
+.qarow:has(> .email-slot:is([hidden], [data-tl-off], :empty))
+  > .qarow-col:has(> :is(.cch-slot, .oss-slot):not([hidden]):not([data-tl-off])) {
+  flex-direction: row;
+  align-items: stretch;
+  height: var(--qarow-h);
+}
+.qarow:has(> .email-slot:is([hidden], [data-tl-off], :empty)) > .qarow-col > .cch-slot {
+  flex: 1 1 0; min-width: 0;
+}
+.qarow:has(> .email-slot:is([hidden], [data-tl-off], :empty)) > .qarow-col > .oss-slot {
+  flex: 1 1 0; width: auto; height: auto; min-height: 0;
+}
+/* 并排后右栏只有半行宽，原来 6 列每格不足 110px，卡片名会被挤成一行一个字。
+   降到 3 列；行数多时仍沿用 .oss-grid 自带的 overflow:auto，不把面板撑长。 */
+.qarow:has(> .email-slot:is([hidden], [data-tl-off], :empty)) .oss-slot .oss-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+/* 只剩一块时独占整行（覆盖上面的 flex:1 1 0 与「对侧铺满」旧规则）。 */
+.qarow:has(> .email-slot:is([hidden], [data-tl-off], :empty))
+  > .qarow-col:has(> .oss-slot:is([hidden], [data-tl-off])) > .cch-slot,
+.qarow:has(> .email-slot:is([hidden], [data-tl-off], :empty))
+  > .qarow-col:has(> .cch-slot:is([hidden], [data-tl-off])) > .oss-slot {
+  flex: 1 1 auto;
+  min-height: var(--qarow-h);
+}
+/* 窄屏：并排会把两块同时压到 400px 以下，退回上下叠放。
+   这里仍要留确定高度（min-height + .cch-slot 的 min-height），
+   否则窄屏又会重现 ① 的「iframe 0 高」。 */
+@media (max-width: 900px) {
+  .qarow:has(> .email-slot:is([hidden], [data-tl-off], :empty))
+    > .qarow-col:has(> :is(.cch-slot, .oss-slot):not([hidden]):not([data-tl-off])) {
+    flex-direction: column;
+    height: auto;
+    min-height: var(--qarow-h);
+  }
+  .qarow:has(> .email-slot:is([hidden], [data-tl-off], :empty)) > .qarow-col > .cch-slot {
+    flex: 1 1 auto; min-height: 320px;
+  }
+  .qarow:has(> .email-slot:is([hidden], [data-tl-off], :empty)) > .qarow-col > .oss-slot {
+    flex: 0 0 var(--oss-h); height: var(--oss-h);
+  }
+  .qarow:has(> .email-slot:is([hidden], [data-tl-off], :empty)) .oss-slot .oss-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
 """
 
 

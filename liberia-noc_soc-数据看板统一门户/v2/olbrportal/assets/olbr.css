@@ -2034,7 +2034,16 @@ main { flex: 1; padding-block: var(--s5) var(--s4); display: flex; flex-directio
    高度，改成跟 GIS Map 一样」。上一条 2026-10-13 的「不等高」是过渡状态，
    本次按用户明确要求收回到等高；两个变量仍各自独立（保留「只调整其中一行」的能力）。 */
 .qarow {
-  display: grid; gap: var(--s4); margin-top: var(--s4);
+  display: grid; gap: var(--s4);
+  /* ⚠️ 2026-11-05（用户反馈「Auto Report 和地图之间的空白明显比其他的多一点」）：
+     **删掉 margin-top: var(--s4)** —— 与 v3/olbrportal/assets/olbr.css 同源同修。
+     根因：#main 是 flex 列容器且**已经**有 gap: var(--s4)（=16px），
+       相邻区块之间的间距由 main 的 gap 统一给；
+       .qarow 自己又带一个 margin-top: var(--s4)，两者**叠加**成 32px，
+       于是唯独「地图行 ↔ Auto Report 行」这一处比别处宽一倍。
+     .qarow 的 margin-top 来自 main 还是普通块级流的年代（那时没有 gap），
+       2026-10-11 给 main 加 gap 时没回头清掉旧 margin，两个机制并存导致间距翻倍。
+     修法：间距只由 main 的 gap 说了算（唯一真相源）。 */
   grid-template-columns: repeat(2, minmax(0, 1fr));
   --qarow-h: 860px;
 }

@@ -327,6 +327,18 @@ window.OLBR_DATA = (function () {
       'kpi.openTip': '打开链接「{n}」（{b}）',
       'kpi.boardRich': 'CXO 90 天经营看板',
       'kpi.boardAvail': 'Daily Availability KPI',
+      /* ---- CXO RealTime Dashboard 组（2026-11-04 加，bo 专用）----------------
+         组名与目标看板同名：my_app 侧那页叫 VMAX CXO Dashboard（原版视觉复刻），
+         用户在本轮需求里对它的称呼是「CXO RealTime Dashboard」，中英同值。
+         ⚠️ 不是笔误，别「顺手」改成两套名字 —— 同一功能两处两个名，
+         搜索/对照都会落空。 */
+      'kpi.boardCxort': 'CXO RealTime Dashboard',
+      /* 卡上时间戳前缀：{d} = 缓存写入时间（HH:MM）。 */
+      'kpi.rtAsOf': '实时 · {d}',
+      /* 组级 tooltip（组头与卡片共用）：说清三件事 —— 是实时的、
+         刷新节奏、点卡去哪。不说「详细数据」：原版大屏与本卡同源同口径
+         （同一份 last-known-good 缓存），但大屏是整屏、这里是四张卡。 */
+      'kpi.tipCxort': '来源：VMAX CXO 原版实时大屏（15 分钟粒度缓存，门户每 5 分钟取一次）。\n点卡片打开完整大屏。',
       /* ---- 连体卡组的组头（2026-10-07 加）----------------------------------
          同组的卡都去同一个 my_app 页面。此前这件事只写在每张卡 tooltip 的最后
          一行，不悬停就看不见；组头把它变成**看得见的结构**：左边是组名
@@ -559,11 +571,15 @@ window.OLBR_DATA = (function () {
       'v6.subAria': '按专业域筛选本视图',
       'v6.subEmptyTip': '该专业域下暂无看板',
       'aux.qa': 'Knowledge Q&A', 'aux.friends': 'OSS Portal Login', 'aux.admin': 'System Management',
-      /* 2026-10-21 加：使用反馈面板的标题。
-         面板内嵌 my_app 的 /myapp/?page=feedback（IssueFeedback 页）。
+      /* 2026-10-21 加、2026-11-04 改：User Feedback 的文案。
+         原先是使用反馈**面板**的标题（内嵌 /myapp/?page=feedback）；现在面板已删，
+         fb.title 变成顶栏头像下拉里那条菜单项的名字，menuTip 是它的 title 提示。
          标题取 my_app 侧菜单里的同一个说法（i18n.tsx 'nav.feedback' = 使用反馈），
-         免得同一功能在两处有两个名字。 */
+         免得同一功能在两处有两个名字。
+         ⚠️ fb.needLogin 是旧 iframe 面板的登录提示，已无消费方，保留只为兼容
+            可能存在的旧缓存字典；不要在新代码里引用。 */
       'fb.title': '使用反馈',
+      'fb.menuTip': '提交使用反馈（在新标签页打开）',
       'fb.needLogin': '登录后显示使用反馈',
       /* 2026-10-14 删除 'qa.credTip'：门户 RAG 改走 8443 使用入口后
          （Open WebUI 自动以 NOC 身份进入、免密码），页签上的「登录凭据」提示
@@ -579,10 +595,10 @@ window.OLBR_DATA = (function () {
          Open WebUI），不是显示名，改名不影响 qaItems() 的识别条件。
          全称仍挂 title/aria-label（见 olbr.js 的 qaTabTitle），悬停可见。 */
       'qa.tabEflow': 'TT/Alarm Analysis', 'qa.tabRag': 'O&A',
-      /* 2026-11-02 加：Knowledge Q&A 第三页签 VMAX 用户查询（my_app ?page=vmax_user_query）。
-         键名 tabVmaxUser 对应条目来源 page=vmax_user_query（与 tabEflow/tabRag 同一约定）。
-         2026-11-02 改名：页签短标签统一用 CCH（中英同值，不是笔误，别再"顺手改回"）。 */
-      'qa.tabVmaxUser': 'CCH',
+      /* 2026-11-04 改：原 qa.tabVmaxUser（CCH 页签短标签）随「CCH 从 Knowledge Q&A
+         拆成独立面板」一并搬到 cch.title —— 它现在是**面板标题**，不再是页签短名。
+         CCH 中英同值（不是笔误，别再"顺手改回"）。 */
+      'cch.title': 'CCH',
       'aux.reports': 'Task report files', 'aux.tools': '本页相关',
       'aux.ms': '在 MsPortal 维护分组 / 看板 / 账号', 'aux.uni': '统一门户看板门户',
       'aux.more': '展开其余 {n} 项', 'aux.less': '收起',
@@ -965,6 +981,12 @@ window.OLBR_DATA = (function () {
       'kpi.openTip': 'Open link for "{n}" ({b})',
       'kpi.boardRich': 'CXO 90-day business board',
       'kpi.boardAvail': 'Daily Availability KPI',
+      /* ---- CXO RealTime Dashboard group (added 2026-11-04, bo-only) ------------
+         Same value in both dictionaries on purpose (the user's own name for the
+         target board). See the zh block. */
+      'kpi.boardCxort': 'CXO RealTime Dashboard',
+      'kpi.rtAsOf': 'Realtime · {d}',
+      'kpi.tipCxort': 'Source: VMAX CXO original realtime dashboard (15-minute granularity cache; the portal refetches every 5 minutes).\nClick a card to open the full dashboard.',
       /* Group-header strings (added 2026-10-07). See the zh block for the full
          rationale; {b} = target board name, {n} = number of cards in the group.
          Deliberately says "opens this board", never "detailed version of these
@@ -1170,9 +1192,12 @@ window.OLBR_DATA = (function () {
       'v6.subAria': 'Filter this view by technology domain',
       'v6.subEmptyTip': 'No dashboard under this domain yet',
       'aux.qa': 'Knowledge Q&A', 'aux.friends': 'OSS Portal Login', 'aux.admin': 'System Management',
-      /* 2026-10-21：使用反馈面板的标题（与中文那份同源，
-         说法与 my_app 侧 'nav.feedback' = User Feedback 对齐）。 */
+      /* 2026-10-21 加、2026-11-04 改：User Feedback 的文案（与中文那份同源，
+         说法与 my_app 侧 'nav.feedback' = User Feedback 对齐）。
+         面板已删，现在是顶栏头像下拉里的菜单项名 + title 提示。
+         ⚠️ fb.needLogin 是旧 iframe 面板的登录提示，已无消费方，勿在新代码里引用。 */
       'fb.title': 'User Feedback',
+      'fb.menuTip': 'Submit feedback (opens in a new tab)',
       'fb.needLogin': 'Sign in to view the user feedback',
       /* 2026-10-14 删除 'qa.credTip'（'Login credentials'），与 zh 同因。 */
       /* ⚠️ 2026-10-31（用户要求）：「eflow KB 页签名字改为 TT/Alarm Analysis；
@@ -1182,10 +1207,9 @@ window.OLBR_DATA = (function () {
          Open WebUI），不是显示名，改名不影响 qaItems() 的识别条件。
          全称仍挂 title/aria-label（见 olbr.js 的 qaTabTitle），悬停可见。 */
       'qa.tabEflow': 'TT/Alarm Analysis', 'qa.tabRag': 'O&A',
-      /* 2026-11-02 加：Knowledge Q&A 第三页签 VMAX 用户查询（与中文那份同源，
-         显示名与 my_app 侧 'nav.vmaxUserQuery' = VMAX User Query 对齐）。
-         2026-11-02 改名：页签短标签统一用 CCH（中英同值，不是笔误，别再"顺手改回"）。 */
-      'qa.tabVmaxUser': 'CCH',
+      /* 2026-11-04 改：原 qa.tabVmaxUser（CCH 页签短标签）随「CCH 从 Knowledge Q&A
+         拆成独立面板」一并搬到 cch.title（与中文那份同源，中英同值 CCH）。 */
+      'cch.title': 'CCH',
       'aux.reports': 'Task report files', 'aux.tools': 'About this page',
       'aux.ms': 'Manage groups / dashboards / accounts in MsPortal', 'aux.uni': 'Unified dashboard portal',
       'aux.more': 'Show {n} more', 'aux.less': 'Show less',
@@ -1335,7 +1359,9 @@ window.OLBR_DATA = (function () {
     package: 'ph-package', wrench: 'ph-wrench', upload: 'ph-cloud-arrow-up', table: 'ph-table',
     archive: 'ph-archive', chat: 'ph-chat-circle-dots', book: 'ph-book-open-text', gear: 'ph-gear',
     dashboard: 'ph-squares-four', key: 'ph-lock-key', warning: 'ph-warning', briefcase: 'ph-briefcase',
-    /* 2026-11-02 加：Knowledge Q&A 第三页签 VMAX 用户查询的图标（my_app 侧用 MobileOutlined）。
+    /* 2026-11-02 加、2026-11-04 改：CCH（VMAX 用户查询）条目的图标
+       （my_app 侧用 MobileOutlined）。原先服务 Knowledge Q&A 第三页签，
+       现在服务拆出来的独立 CCH 面板的目录/兜底条目。
        类名在 MsPortal/assets/icons/phosphor.css 里核实过（.ph-device-mobile）。 */
     mobile: 'ph-device-mobile',
     /* 缩放锁的两态图标（2026-10-22 加）。两个类名都在
@@ -1665,6 +1691,29 @@ window.OLBR_DATA = (function () {
     { key: '3G', group: '3G ALL', page: 'avail_ms' },
     { key: '4G', group: 'FDD ALL', page: 'avail_ms' }
   ];
+  /* ---- CXO RealTime Dashboard 四张实时卡（2026-11-04 加，bo 团队门户专用）----
+     背景：用户要求 bo 门户 Network Status 里的「Daily Availability KPI」组
+     换成「CXO RealTime Dashboard 的内容和下钻」。数据源是 my_app
+     /api/vmax-cxo-dashboard/summary（VMAX CXO 原版大屏 last-known-good 缓存
+     的只读裁剪），下钻目标是 /myapp/?page=vmaxCxoDashboard（原版视觉复刻页）。
+
+     id 必须与接口 summary.overview 的键完全一致（131/132/133/134，见
+     my_app backend/routers/vmax_cxo_dashboard.py 的 get_vmax_cxo_summary），
+     写错同样静默变成「—」卡。
+     ⚠️ zh 是门户自带的卡名（接口 showName 只有英文 "User"/"Traffic"/…）：
+        中文界面用 zh，英文界面直接用 en —— 不读接口 showName，
+        免得同一张卡中英文两套名字（接口那套本来就是短英文）。
+     ⚠️ 单位**不在这里写死**：接口每张卡自带 unit（"(K)"、"(TB)"、空串），
+        渲染时拼在数值后面（cxortCardHtml），与原版大屏逐字一致 ——
+        这里写死一份立刻与上游缓存分叉。
+     ⚠️ 没有 digits/div：接口给的是**已格式化的字符串**（"203.24"），
+        不做任何数值变换，原样展示 —— 这是它与 rich/avail 两组最大的差异。 */
+  var KPI_CXO_RT = [
+    { id: '131', zh: '用户',           en: 'User',            page: 'vmaxCxoDashboard' },
+    { id: '132', zh: '流量',           en: 'Traffic',         page: 'vmaxCxoDashboard' },
+    { id: '133', zh: 'TCP 上行 RTT',   en: 'TCP Uplink RTT',  page: 'vmaxCxoDashboard' },
+    { id: '134', zh: 'TCP 下行 RTT',   en: 'TCP Downlink RTT', page: 'vmaxCxoDashboard' }
+  ];
   /* ---- Network Status Overview 行的两个「连体卡组」（2026-10-07 加）--------
       这行的三张富卡（KPI_RICH）与三张可用率卡（KPI_AVAIL_ROWS）各自的成员
       都指向**同一个 my_app 页面**。此前这件事只写在每张卡 tooltip 的最后一行
@@ -1685,7 +1734,12 @@ window.OLBR_DATA = (function () {
       「CXO 90 天经营看板」）—— 两处各写一份立刻分叉。 */
   var KPI_GROUPS = [
     { id: 'rich',  name: 'kpi.boardRich',  page: 'vmaxCxoDashboard_90Days', items: KPI_RICH },
-    { id: 'avail', name: 'kpi.boardAvail', page: 'avail_ms',                items: KPI_AVAIL_ROWS }
+    { id: 'avail', name: 'kpi.boardAvail', page: 'avail_ms',                items: KPI_AVAIL_ROWS },
+    /* 2026-11-04 加：CXO RealTime Dashboard 组（bo 专用）。
+       ⚠️ teamOnly: true —— 上游主门户（/v3/olbrportal/）不渲染这一组：
+          renderKpi 对 KPI_GROUPS 先滤掉 teamOnly，loadKpi/loadCxort 也据此
+          不取数（上游一行不多、bo 门户按矩阵 kpi.cxort 显示）。 */
+    { id: 'cxort', name: 'kpi.boardCxort', page: 'vmaxCxoDashboard', items: KPI_CXO_RT, teamOnly: true }
   ];
   /* ---- Benchmark（竞对速率）三张卡：ORANGE vs MTN 关键指标对比 ----------
      数据源 /api/bm-speedtest/overview?start=&end=，即 my_app
