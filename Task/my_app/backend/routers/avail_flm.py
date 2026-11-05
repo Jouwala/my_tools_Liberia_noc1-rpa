@@ -22,7 +22,7 @@
 
     GET /api/avail-flm/tt
         ?period=&value=          周期（空=最新）
-        &region=ALL|Montserrado|North East|South West   空=全部区域
+        &region=ALL|<区域名>            空=全部区域（区域名以 /matrix 的 meta.regions 为准）
         &site_type=Regular|Cooli|ERA                    空=全部站点类型
         -> {meta{total,returned,truncated,unassigned,start,end,warnings}, rows[]}
            页面级 TT 列表与下钻页签共用这个端点（口径见 service 顶部第 2 条）
@@ -72,7 +72,7 @@ def matrix(
         logger.exception("[avail-flm/matrix] 失败 period=%s value=%s: %s", p, value, e)
         return {
             "meta": {"period": p, "value": value, "prev_value": "", "data_through": "",
-                     "threshold": threshold, "regions": list(svc.FLM_REGIONS),
+                     "threshold": threshold, "regions": [],
                      "generated_at": "", "elapsed_ms": 0, "warnings": ["matrix_failed"],
                      "unknown_cell_groups": [], "error": str(e)},
             "summary": {"by_region": {}, "by_tech": {}, "all_regions": None,
@@ -104,7 +104,7 @@ def trend(
 def tt(
     period: str = Query("day", description="周期粒度 day|week|month"),
     value: str = Query("", description="周期值；空=库里最新一期"),
-    region: str = Query("", description="空/ALL=全部区域，或 Montserrado|North East|South West"),
+    region: str = Query("", description="空/ALL=全部区域，或任意区域名（以 /matrix 的 meta.regions 为准）"),
     site_type: str = Query("", description="Regular|Cooli|ERA，空=全部"),
 ):
     p = _period(period)

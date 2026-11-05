@@ -18,6 +18,7 @@ from backend.database import get_raw_connection
 from backend.dialect_helpers import (
     list_table_names, table_columns, safe_pragma, write_df, ensure_table_indexes,
 )
+from backend.services.county_normalize import normalize_admin_columns
 
 # 配置
 DB_DIR = Path(__file__).resolve().parent.parent.parent / "db"
@@ -121,6 +122,14 @@ def load_excel_to_db(excel_path: Path, table_prefix: str, conn: sqlite3.Connecti
         df['_source_file'] = excel_path.name
         df['_source_sheet'] = sheet_name
         df['_import_time'] = pd.Timestamp.now().isoformat()
+
+        # 县名归一化：源表人工维护，「Province/County」列实测带笔误
+        # （'Monsteraddo' / 'Rivercess' / 'River cess'，2026-11-03 版 7 行）。
+        # 在**写库前**收敛到 15 个标准县名，脏值不再入库；改动会打 WARNING 留痕。
+        fixed = normalize_admin_columns(df)
+        for col, audit in fixed.items():
+            print(f"    县名归一化 {col}: "
+                  + "; ".join(f"{raw!r}->{norm!r}×{n}" for raw, norm, n in audit))
 
         print(f"    行数: {len(df)}, 列数: {len(df.columns)}")
 

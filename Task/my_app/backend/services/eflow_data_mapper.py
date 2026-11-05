@@ -33,7 +33,7 @@ from datetime import datetime, timezone, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import pandas as pd
 import ftplib
-from backend.database import get_raw_connection
+from backend.database import DB_MODE, get_raw_connection
 from backend.dialect_helpers import list_table_names
 
 
@@ -515,6 +515,211 @@ def _fetch_cr_pipeline(start_ms, end_ms, tmp_dir):
     return ("eFlow CR", rows)
 
 
+# ==============================================================================
+# CR 直查管道（2026-11-03 新增）—— 替代上游已损坏的异步导出
+# ==============================================================================
+# 为什么换（事故溯源）：
+#   eFlow 的 CR 异步导出（/api/eflow-asset/v1/export/async/eflow-cr）自
+#   **2026-09-14** 起每个任务都是 status=failed、rate 卡在 20%，从不产出文件。
+#   于是 `_wait_export_ready` 轮询 8×15s=120s 全部落空 → 返回空 ftp 路径 →
+#   `_download_export_zip` 拿空路径去下载 → `HTTP/1.1 500` → 整条 CR 管道抛错。
+#   而 CR 又不在 sync_from_eflow_api.REQUIRED_API_KEYS 里，失败只打一行
+#   INFO「跳过 eflow_cr」、任务仍 success=True —— 结果 eflow_cr 冻结在
+#   2026-09-14 的快照，门户 QC 面板「未关闭变更单 (CR)」显示 86 近 7 周不变
+#   （实测：86 条里 36 条上游已 Closed、1 条已归档，另 30 条新在途单库里根本没有）。
+#
+# 怎么改：改走 CR 的**列表接口** base/list（实测可用，323 条 2 页拉完）。
+#   字段沿用原来导出用的那一套（CR_FIELDS + 16 个非 Detail 字段），过滤器仍是
+#   CR_STATUS_FILTER，唯一区别是不再依赖"生成 Excel 再下载"。
+#   ⚠ `*Detail` 明细列（CreateDetail / ClosedDetail 等 20 个流程历史长文本）
+#   **请求就会 400**（实测 57 字段全量 → 400，去掉 Detail 后 200），所以新写入的
+#   CR 这些列为空；存量 CR 的历史明细仍留在表里不被覆盖（upsert 只碰本次带上的列）。
+#
+# 两个刻意的设计：
+#   1. **不带时间过滤**（忽略 start_ms/end_ms）。CR 体量小（全量 300 余条，2 个请求），
+#      全量直查才能自愈：停更 7 周期间大量 CR 的 lastModifiedTime 早已落在 delta 窗口
+#      之外，带窗口过滤会永远补不回来。TT/WO 那种上万条的表才需要窗口。
+#   2. 状态从**代码**翻回**显示名**（WaitL5Approve → CM Head Approval）。库、门户、
+#      cr_caliber 的口径（OPEN = 非 Closed/Canceled；里程碑按 "CM HEAD APPROVAL"
+#      这类大写名匹配）全都建立在显示名上，直接写代码会让所有单被判成"未知状态"。
+#      映射由「库内 9/14 快照 × 上游当前代码」交叉比对反推，已验证 6/6 一致。
+#
+# 想切回旧的导出管道：环境变量 EFLOW_CR_SOURCE=export。
+CR_LIST_FIELDS = CR_FIELDS + (
+    ",description,triggerForChange,changeCategory,subCategory,vendor,predictedChangeImpact"
+    ",affectedSite,downtimeRequired,alarmSuppressedObject,implementerContactNumber"
+    ",requesterUserName,requesterCompany,requesterContactNumber,requesterEmail"
+    ",operatingCircleOrSubCenter,operatingDivisionOrDistrictOrThana"
+)
+
+#: 上游状态代码 → 库内显示名。**已核实的 6 项**（交叉比对：每项 N/N 一致）：
+#:   WaitL2Approve→Domain TD Approval(9/9)  WaitL3Approve→BO/FO Head Approval(4/4)
+#:   WaitL5Approve→CM Head Approval(25/25)  WaitImplement→Waiting for Implement(10/10)
+#:   WaitUpdate→Waiting for Update(1/1)     Closed→Closed
+#: 其余为按同族命名的兜底（Liberia 流程未出现，或仅出现在已关闭单里）。
+CR_STATUS_DISPLAY = {
+    "closed": "Closed",
+    "canceled": "Canceled",
+    "cancelled": "Canceled",
+    "draft": "Draft",
+    "waitimplement": "Waiting for Implement",
+    "implementing": "Implementing",
+    "waitupdate": "Waiting for Update",
+    "phaseupdate": "Phase Update",
+    "waitl2approve": "Domain TD Approval",
+    "waitl3approve": "BO/FO Head Approval",
+    "waitl5approve": "CM Head Approval",
+}
+#: 已告警过的未知状态代码（每出现一个新代码只 warning 一次，避免每小时刷日志）
+_CR_UNMAPPED_STATUS_SEEN: set = set()
+
+#: 需要毫秒时间戳转文本的 API 字段（库内这些都是 'YYYY-MM-DD HH:MM:SS' 文本）
+CR_LIST_MS_FIELDS = (
+    "createTime", "plannedStartTime", "plannedEndTime",
+    "actualImplementationStartTime", "actualImplementationEndTime",
+    "downtimeStart", "downtimeEnd", "rollbackStartTime", "rollbackEndTime",
+    "closeTime", "lastModifiedTime",
+)
+
+#: API 字段名 → 导出 Excel 表头名。**必须逐字对齐历史表头**：下游
+#: _sync_generic 用 _clean_column_name 把表头转 snake_case，现有的
+#: change_request_id / request_registration_time / ne_node_name 这些列名就是这么来的，
+#: 表头写错会凭空多出一列（如 "Ne Node Name" → ne_node_name 还好，写成别的就分叉）。
+CR_LIST_HEADER_MAP = {
+    "woNum": "Change Request Id",
+    "status": "Status",
+    "changeType": "Change Type",
+    "displayName": "CR Title",
+    "description": "Post Analysis",
+    "triggerForChange": "Trigger For Change",
+    "changeCategory": "Change Category",
+    "subCategory": "Sub Category",
+    "creator": "Creator",
+    "createTime": "Request Registration Time",
+    "candidateOperator": "Current Handler",
+    "implementer": "Implementer",
+    "implementerContactNumber": "Implementer Contact Number",
+    "implementResult": "Implement Result",
+    "ipRelatedActivity": "IP Related Activity",
+    "mopMaker": "MOP Maker",
+    "mopChecker": "MOP Checker",
+    "plannedStartTime": "Planned Start Time",
+    "plannedEndTime": "Planned End Time",
+    "actualImplementationStartTime": "Actual Start Time",
+    "actualImplementationEndTime": "Actual End Time",
+    "downtimeStart": "Plan Downtime Start Time",
+    "downtimeEnd": "Plan Downtime End Time",
+    "rollbackStartTime": "Rollback Start Time",
+    "rollbackEndTime": "Rollback End Time",
+    "closeTime": "Closed Time",
+    "vendor": "Vender",
+    "predictedChangeImpact": "Predicted Change Impact",
+    "affectedSite": "Ne/Node Name",
+    "downtimeRequired": "Downtime Required",
+    "alarmSuppressedObject": "Downtime Affected Domain",
+    "lastModifiedTime": "Last Modified Time",
+    "operatingCircleOrSubCenter": "Operating Circle/Sub-Center",
+    "operatingDivisionOrDistrictOrThana": "Operating Division/District/Thana",
+    "requesterUserName": "Requester User Name",
+    "requesterWorkGroupName": "Requester Work Group Name",
+    "requesterCompany": "Requester Company",
+    "requesterContactNumber": "Requester Contact Number",
+    "requesterEmail": "Email Address",
+}
+
+#: CR 全量直查的分页大小（323 条 → 2 个请求；不要调太大，上游 list 有自己的上限）
+CR_LIST_PAGE_SIZE = 200
+
+
+def _cr_status_display(code):
+    """上游状态代码 → 库内显示名（未知代码保留原值并只告警一次）。"""
+    raw = "" if code is None else str(code).strip()
+    if not raw:
+        return raw
+    name = CR_STATUS_DISPLAY.get(raw.lower())
+    if name:
+        return name
+    m = re.fullmatch(r"WaitL(\d+)Approve", raw, re.IGNORECASE)
+    name = f"Waiting for Approval (L{m.group(1)})" if m else raw
+    if raw not in _CR_UNMAPPED_STATUS_SEEN:
+        _CR_UNMAPPED_STATUS_SEEN.add(raw)
+        logger.warning(f"CR 出现未映射的状态代码 {raw!r}，暂按 {name!r} 入库（请补 CR_STATUS_DISPLAY）")
+    return name
+
+
+def _cr_ms_to_text(val):
+    """毫秒时间戳 → 'YYYY-MM-DD HH:MM:SS'（与既有文本列同格式，字典序即时间序）。
+
+    ⚠ 显式按 **UTC** 转换，不用 ``datetime.fromtimestamp(ts)``：后者跟随**进程本地
+    时区**，而后端进程（生成 generated_at 那套）与 worker 进程时区可能不一致
+    （实测接口返回 +08:00，机器与 shell 是 UTC）。跟着本地时区走会让整批时间字段
+    平白偏移 8 小时，进而毁掉「近 30 天」这类窗口统计。
+    旧数据口径已核对：CR2026080500003 库内 2026-08-05 17:23:45 = 上游
+    createTime 1785950625715 的 UTC 时间，逐字相同 → UTC 是正确口径。
+    """
+    if val is None or val == "" or val == 0:
+        return None
+    try:
+        ts = float(val) / 1000.0
+        if ts <= 0:
+            return None
+        return datetime.fromtimestamp(ts, timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    except (TypeError, ValueError, OSError, OverflowError):
+        return str(val)
+
+
+def _fetch_cr_via_list(start_ms=None, end_ms=None):
+    """CR 直查管道：base/list 全量分页，返回 ("eFlow CR", rows)。
+
+    行结构刻意做成**导出表头为键**的 dict —— 这样下游 `_sync_generic` 完全不用改，
+    入库结果与旧导出管道逐列一致（列名、时间格式、状态显示名都对得上）。
+    """
+    payload_base = {
+        "customInfo": {"pageType": "allTicket"},
+        "field": CR_LIST_FIELDS,
+        # 不拼 time filter：CR 要全量才能自愈（见上方说明第 1 点）
+        "filter": CR_STATUS_FILTER,
+        "order": "lastModifiedTime desc",
+        "length": CR_LIST_PAGE_SIZE,
+    }
+    raw_rows = fetch_paginated_data(CR_API_PATH, payload_base, CR_REFERER, "CR")
+    if not raw_rows:
+        # 上游返回空 = 异常（正常时刻必然有数百条在途+历史单），交给上层判失败，
+        # 不要静默返回 0 行 —— 那正是 2026-09-14 静默停更 7 周的成因。
+        raise RuntimeError("CR 列表接口返回 0 行（上游异常或账号可见范围失权）")
+
+    rows, seen = [], set()
+    for item in raw_rows:
+        if not isinstance(item, dict):
+            continue
+        key = str(item.get("woNum") or "").strip()
+        if not key or key in seen:      # 上游分页边界可能重复，按主键去重保首现
+            continue
+        seen.add(key)
+
+        row = {}
+        for api_field, header in CR_LIST_HEADER_MAP.items():
+            val = item.get(api_field)
+            if api_field in CR_LIST_MS_FIELDS:
+                val = _cr_ms_to_text(val)
+            elif api_field == "status":
+                val = _cr_status_display(val)
+            row[header] = val
+        rows.append(row)
+
+    logger.info(f"CR 直查完成: {len(rows)} 条（上游 total={len(raw_rows)}）")
+    return ("eFlow CR", rows)
+
+
+def _fetch_cr_dispatch(start_ms, end_ms, tmp_dir):
+    """CR 管道入口：默认走直查，EFLOW_CR_SOURCE=export 时回退旧异步导出。"""
+    source = (os.environ.get("EFLOW_CR_SOURCE") or "list").strip().lower()
+    if source == "export":
+        logger.info("CR 管道：使用旧异步导出（EFLOW_CR_SOURCE=export）")
+        return _fetch_cr_pipeline(start_ms, end_ms, tmp_dir)
+    return _fetch_cr_via_list(start_ms, end_ms)
+
+
 def _fetch_pm_pipeline(start_ms, end_ms, tmp_dir):
     pm_filter = TIME_FILTER_TEMPLATE.format(status_filter=PM_STATUS_FILTER, start_ms=start_ms, end_ms=end_ms)
 
@@ -621,15 +826,29 @@ def _table_name(sheet_name):
 
 def save_to_sqlite(sheets_data):
     """
-    将数据保存到 SQLite 数据库。
-    
+    将数据保存到 SQLite 数据库（`data/eflow/eflow.sqlite3`，报告中间库）。
+
+    ⚠️ PG 模式下**明确跳过**（返回 None），原因有两条：
+      1. 该库映射到 PG 的 `eflow` schema，而 PG 迁移后主库已是 `app` schema，
+         `eflow` schema 自 2026-08-06 起无任何写入方（本次审计实测）——它是
+         sqlite 时代的中间产物，继续写只会制造两份不同步的同名表。
+      2. 本函数用 `if_exists="replace"` 整表重建。在 PG 下若误把目标改到
+         `app` schema，会 DROP 掉主库的 `eflow_tt`（4 万行 delta 表）并用
+         当前快照重建，是一次真实的数据事故。宁可不写。
+    报告生成已改为直接使用入参数据（见 `write_excel_from_sqlite`），本函数在
+    PG 模式下即便被调用也不再是报告的前置条件。
+
     Args:
         sheets_data: 可以是 dict{sheet_name: rows} 或 list[(sheet_name, rows), ...]
-    
+
     Returns:
-        db_path: SQLite 文件路径
+        db_path: SQLite 文件路径（PG 模式下为 None）
     """
     import pandas as pd
+
+    if DB_MODE == "pg":
+        logger.info("[SKIP] save_to_sqlite: PG 模式跳过 eflow 中间库写入（主库 app schema 已由同步任务落库）")
+        return None
 
     start_time = time.time()
     db_path = os.path.join(DATA_DIR, "eflow.sqlite3")
@@ -659,56 +878,100 @@ def save_to_sqlite(sheets_data):
         return db_path
 
 
-def write_excel_from_sqlite(sheets_data):
-    """
-    从 SQLite 读取数据并生成格式化 Excel 报告。
-    
-    Args:
-        sheets_data: 可以是 dict{sheet_name: rows} 或 list[(sheet_name, rows), ...]
-    
-    Returns:
-        output_file: Excel 文件路径
+def _read_sheet_df(conn, table):
+    """按表名读取整表 DataFrame（双模）。
+
+    2026-11-03：PG 模式下**不能**把原生 psycopg2 连接交给 pandas —— pandas 3.x
+    对非 SQLAlchemy 的 DBAPI2 连接会退化成 `SQLiteDatabase` fallback，任何
+    建表/查存在性都会拼 `SELECT ... FROM sqlite_master`，PG 直接报
+    `关系 "sqlite_master" 不存在`（本函数的 Excel 报告因此自 PG 迁移起一直失败）。
+    这里改为用原生 cursor 取列名 + 行，再交给 pandas 构造，绕开该 fallback。
     """
     import pandas as pd
 
+    if isinstance(conn, sqlite3.Connection):
+        return pd.read_sql_query(f'SELECT * FROM "{table}"', conn)
+    cur = conn.execute(f'SELECT * FROM "{table}"')
+    cols = [d[0] for d in (cur.description or [])]
+    rows = cur.fetchall() if cur.description else []
+    if not cols:
+        return pd.DataFrame()
+    return pd.DataFrame(rows, columns=cols)
+
+
+def write_excel_from_sqlite(sheets_data):
+    """
+    生成格式化 Excel 报告。
+
+    数据来源优先级（2026-11-03 调整）：
+      1. **入参里真实的行数据**（dict{sheet: rows} 且 rows 非空）—— 直接写，
+         不再往返数据库。原实现「先写库再从库读回」纯属冗余，且读过的是
+         `eflow` schema 的旧快照（PG 迁移后该 schema 已停更，见下方说明）。
+      2. 仅当某 sheet 的 rows 为空时，才回退到库表读取（表名 = sheet 名转下划线）。
+
+    Args:
+        sheets_data: 可以是 dict{sheet_name: rows} 或 list[(sheet_name, rows), ...]
+
+    Returns:
+        output_file: Excel 文件路径
+    """
     start_time = time.time()
-    db_path = os.path.join(DATA_DIR, "eflow.sqlite3")
-    with get_raw_connection(db_path) as conn:
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_file = os.path.join(DATA_DIR, f"eflow_{timestamp}.xlsx")
 
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_file = os.path.join(DATA_DIR, f"eflow_{timestamp}.xlsx")
+    seq = 1
+    while os.path.exists(output_file):
+        output_file = os.path.join(DATA_DIR, f"eflow_{timestamp}_{seq}.xlsx")
+        seq += 1
 
-        seq = 1
-        while os.path.exists(output_file):
-            output_file = os.path.join(DATA_DIR, f"eflow_{timestamp}_{seq}.xlsx")
-            seq += 1
+    items = list(sheets_data.items()) if isinstance(sheets_data, dict) else list(sheets_data)
+    # 2026-11-03：PG 模式下中间库 eflow.sqlite3 已不再写入（save_to_sqlite 直接跳过），
+    # 且其映射的 eflow schema 旧表已归档到 eflow_archive，故禁用回退读库 ——
+    # 否则某个 sheet 无数据时会去查不存在的表而抛错。
+    need_db = DB_MODE != "pg" and any(
+        not (isinstance(rows, list) and rows) for _, rows in items
+    )
+    conn = get_raw_connection(os.path.join(DATA_DIR, "eflow.sqlite3")) if need_db else None
 
-        items = sheets_data.items() if isinstance(sheets_data, dict) else sheets_data
+    written = 0
+    try:
         with pd.ExcelWriter(output_file, engine="xlsxwriter") as writer:
-            for entry in items:
-                sheet_name, _ = entry if isinstance(entry, tuple) else (entry[0], entry[1])
+            for sheet_name, rows in items:
                 t0 = time.time()
-                table = _table_name(sheet_name)
-                df = pd.read_sql_query(f'SELECT * FROM "{table}"', conn)
+                if isinstance(rows, list) and rows:
+                    df = pd.DataFrame(rows)
+                elif conn is not None:
+                    df = _read_sheet_df(conn, _table_name(sheet_name))
+                else:
+                    df = pd.DataFrame()
                 if df.empty:
                     logger.warning(f"[SKIP] {sheet_name}: no data")
                     continue
                 _write_sheet(writer, df, sheet_name)
+                written += 1
                 logger.info(f"Excel {sheet_name}: {len(df)} rows, {len(df.columns)} columns ({time.time() - t0:.2f}s)")
+    finally:
+        if conn is not None:
+            conn.close()
 
-        conn.close()
-        logger.info(f"Excel saved: {output_file} (total {time.time() - start_time:.2f}s)")
+    if written == 0:
+        raise ValueError(
+            "Excel 报告无任何可写数据（sheets=%s）"
+            % [name for name, _ in items]
+        )
 
-        # 删除旧 Excel 文件，只保留最新
-        for old_file in glob.glob(os.path.join(DATA_DIR, "eflow_*.xlsx")):
-            if os.path.abspath(old_file) != os.path.abspath(output_file):
-                try:
-                    os.remove(old_file)
-                    logger.info(f"[CLEAN] Deleted old file: {os.path.basename(old_file)}")
-                except OSError:
-                    logger.warning(f"[WARN] Cannot delete (in use): {os.path.basename(old_file)}")
+    logger.info(f"Excel saved: {output_file} (total {time.time() - start_time:.2f}s)")
 
-        return output_file
+    # 删除旧 Excel 文件，只保留最新
+    for old_file in glob.glob(os.path.join(DATA_DIR, "eflow_*.xlsx")):
+        if os.path.abspath(old_file) != os.path.abspath(output_file):
+            try:
+                os.remove(old_file)
+                logger.info(f"[CLEAN] Deleted old file: {os.path.basename(old_file)}")
+            except OSError:
+                logger.warning(f"[WARN] Cannot delete (in use): {os.path.basename(old_file)}")
+
+    return output_file
 
 
 def cleanup_old_export_files(output_dir=None):
@@ -1463,9 +1726,10 @@ def generate_hourly_report_with_images(data: dict, send_email: bool = None) -> d
     try:
         ExcelDataProcessor, EmailSender = _import_excel_processor()
     except Exception as e:
-        import traceback
-        logger.error(f"无法导入 mail_126.ExcelDataProcessor: {e}")
-        traceback.print_exc()
+        # 2026-11-04：改用 logger.exception —— traceback.print_exc() 会写 stderr，
+        # 父进程管道断开时它自己抛 OSError(Errno 22)，把「导入失败」升级成任务失败。
+        # logging 的 handleError 会吞掉输出异常，不会影响控制流。
+        logger.exception(f"无法导入 mail_126.ExcelDataProcessor: {e}")
         return {"success": False, "error": str(e)}
 
     # 转换 data dict 为 sheets_data 列表格式
@@ -1603,9 +1867,8 @@ def generate_hourly_report_with_images(data: dict, send_email: bool = None) -> d
             logger.info(f"   用时: {time.time() - step_start:.2f}s")
 
     except Exception as e:
-        import traceback
-        logger.error(f"报告生成失败: {e}")
-        traceback.print_exc()
+        # 同上：reportlab/图片生成等失败只应记日志，不应因写 stderr 失败而抛 Errno 22
+        logger.exception(f"报告生成失败: {e}")
         result["success"] = False
         result["error"] = str(e)
 
@@ -1841,7 +2104,7 @@ def fetch_all_data(tmp_dir: str = None, days_back: int | None = None) -> dict:
         pipelines = [
             ("tt", _tt),
             ("wo", _wo),
-            ("cr", lambda: _fetch_cr_pipeline(start_ms, end_ms, tmp_dir)),
+            ("cr", lambda: _fetch_cr_dispatch(start_ms, end_ms, tmp_dir)),
             ("pm", lambda: _fetch_pm_pipeline(start_ms, end_ms, tmp_dir)),
             ("site", lambda: _fetch_site_pipeline(tmp_dir)),
             ("person", lambda: _fetch_person_pipeline(tmp_dir)),
@@ -1861,9 +2124,11 @@ def fetch_all_data(tmp_dir: str = None, days_back: int | None = None) -> dict:
                     results[sheet_name] = rows
                     logger.info(f"{key} completed: {len(rows)} rows")
                 except Exception as e:
-                    logger.error(f"{key} pipeline failed: {e}")
-                    import traceback
-                    traceback.print_exc()
+                    # 2026-11-04：这里原为 traceback.print_exc()（无 try 保护），
+                    # 是 Errno 22 升级成任务级失败的唯一直达路径（2026-11-03 事故）：
+                    # 管道读端随 watchdog 消失后，print_exc 自身抛 OSError，从
+                    # fetch_all_data 逸出到 sync_from_eflow_api 的 except。
+                    logger.exception(f"{key} pipeline failed: {e}")
 
         elapsed = time.time() - start_time
         total_rows = sum(len(v) for v in results.values())

@@ -417,26 +417,24 @@ function t(k){ var s=(I18N[LOCALE]&&I18N[LOCALE][k])||I18N.zh[k]||k; return s; }
 
 var API='/api/olib-soc-dashboard/overview?days=90';
 /* ==================== 自动刷新（按项目外壳的统一协议） ====================
- * 项目要求：自动刷新由 App 外壳统一驱动（顶栏可选间隔，默认 5 分钟，持久化在
- * localStorage['myapp_auto_refresh_sec']）。支持软刷新协议的页面——本页已在
- * App.tsx 的 AR_SOFT_REFRESH_PAGES 里登记——会收到 postMessage({__type:'myapp-refresh'})
+ * 项目要求：自动刷新由 App 外壳统一驱动 —— 2026-11-03 起**默认关闭**，用户在
+ * 顶栏按页开启（「开启刷新」按钮落到本页建议间隔，选择持久化在 localStorage
+ * ['myapp_auto_refresh_pages']）。支持软刷新协议的页面——本页已在 App.tsx 的
+ * AR_SOFT_REFRESH_PAGES 里登记——会收到 postMessage({__type:'myapp-refresh'})
  * 后「原地」重拉数据：不重载文档、不闪屏、不打断大屏/全屏，也不重置粒度和滚动位置。
- * 因此本页在外壳内**不自己起定时器**（避免与外壳双跑、也避免忽略用户「关闭自动刷新」的选择），
- * 只有直接被单独打开（不在 iframe 里）时才用下面的 5 分钟兜底自刷。 */
-var REFRESH_MS=300000;
-function embedded(){ try{ return !!(window.parent&&window.parent!==window) }catch(e){ return true } }
-/* 生效间隔由外壳写入（用户选择 > 本页默认 > 全局默认）；读不到就退回外壳全局默认 300s。
-   本页默认 900s（数据每天 06:20 才增量一次）见 App.tsx 的 AR_PAGE_DEFAULTS。 */
+ * 本页自己不起定时器（避免与外壳双跑）；兜底定时器由文件底部的 MyAppRefresh.install
+ * 统一负责，同样遵循「未开启（含全屏）不刷新」。 */
+/* 生效间隔由外壳写入（用户按页选择，未开启=0）；读不到视为关闭。
+   开启时的建议间隔 900s（数据每天 06:20 才增量一次）见 App.tsx 的 AR_PAGE_DEFAULTS。 */
 function shellRefreshSec(){
   try{
     var raw=localStorage.getItem('myapp_auto_refresh_effective');
-    if(raw==null)raw=localStorage.getItem('myapp_auto_refresh_sec');
-    if(raw==null)return null;
-    var v=parseInt(raw,10); return isNaN(v)?null:v;
-  }catch(e){ return null }
+    if(raw==null)return 0;
+    var v=parseInt(raw,10); return isNaN(v)?0:v;
+  }catch(e){ return 0 }
 }
 function arText(){
-  var sec=shellRefreshSec(), inShell=embedded(), s=(sec!=null)?sec:(inShell?300:REFRESH_MS/1000);
+  var s=shellRefreshSec();
   if(s===0) return t('arOff');
   var human=(s>=60)?(Math.round(s/60)+(LOCALE==='en'?' min':' 分钟')):(s+(LOCALE==='en'?' s':' 秒'));
   var next='';
@@ -970,13 +968,13 @@ try{ var g=localStorage.getItem('vmax-90d-gran'); if(g==='day'||g==='week'){GRAN
 paintStatic();
 if(window.echarts){
   load();
-  /* 自刷新安全网（2026-10-10 新增）：统一走 MyAppRefresh 共享协议。
+  /* 自刷新安全网（2026-10-10 新增；2026-11-03 默认关闭）：统一走 MyAppRefresh 共享协议。
    * 此前仅在「非嵌入」时自刷，嵌入外壳时完全依赖父页广播 —— 全屏/后台广播被挡则
-   * 长时间不刷新。现改为常开兜底 + 广播提前触发；非看板页不启用。
-   * 间隔取「生效间隔」（0=关闭；看板全屏时忽略关闭按本页默认兜底）。 */
+   * 长时间不刷新。现改为常开兜底 + 广播提前触发；未开启本页刷新的用户不排兜底定时器。
+   * 2026-11-03 起自动刷新默认关闭（用户在 my_app 顶栏按页开启），无 900s 默认兜底、
+   * 全屏也不忽略关闭 —— 未开启时（含全屏）一律不刷。 */
   try{
     MyAppRefresh.install({
-      defaultSec: 900,   // 与 App.tsx AR_PAGE_DEFAULTS.vmaxCxoDashboard_90Days 对齐
       onRefresh: function(){ paintStatic(); load(); },
     });
   }catch(e){}

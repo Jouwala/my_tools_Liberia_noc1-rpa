@@ -50,6 +50,7 @@ from openpyxl.styles import Font, PatternFill, Alignment
 from openpyxl.formatting.rule import CellIsRule, FormulaRule, Rule
 from openpyxl.styles.differential import DifferentialStyle
 from openpyxl.utils import get_column_letter
+from backend.database import DB_PATH as APP_DB_PATH
 from backend.database import get_raw_connection
 from backend.dialect_helpers import upsert
 
@@ -437,15 +438,29 @@ def _write_merged_to_db(df: pd.DataFrame) -> int:
         return len(records)
 
 
-# ========== 站点信息关联（eflow.sqlite3 site 表，向量化匹配） ==========
+# ========== 站点信息关联（主库 app.eflow_site，向量化匹配） ==========
+#: 2026-11-03 修复：原实现读 `data/eflow/eflow.sqlite3`，PG 模式下映射到 `eflow` schema
+#: 的 `site` 表 —— 该表自 2026-08-06 起停更（808 行），比主库 `app.eflow_site`
+#: （830 行、每小时刷新）少 22 个新站，站点属性和归属变更也一律不生效。
+#: 丢包报告因此长期在用三个月前的站点快照做关联。现改读主库实时表。
+_SITE_SQL = (
+    'SELECT site_id AS "Site ID", site_name AS "Site Name", region AS "Region", '
+    'province_county AS "Province", district AS "District", '
+    'latitude AS "Latitude", longitude AS "Longitude", '
+    'trm_type AS "TRM Type", network_type AS "Network Type", power_vendor AS "Vendor" '
+    'FROM eflow_site'
+)
+
+
 def _load_site_info() -> pd.DataFrame:
-    with get_raw_connection(str(EFLOW_DB_PATH), timeout=60) as conn:
+    with get_raw_connection(str(APP_DB_PATH), timeout=60) as conn:
         try:
-            site = pd.read_sql_query(
-                'SELECT "Site ID", "Site Name", "Region", "Province", "District", '
-                '"Latitude", "Longitude", "TRM Type", "Network Type", "Vendor" FROM site', conn)
+            cur = conn.execute(_SITE_SQL)
+            cols = [d[0] for d in (cur.description or [])]
+            rows = cur.fetchall() if cur.description else []
         finally:
             conn.close()
+        site = pd.DataFrame(rows, columns=cols)
         site = site.rename(columns={
             "Site ID": "Site_Code", "Site Name": "Site_Name", "TRM Type": "gateway",
             "Network Type": "network_type",

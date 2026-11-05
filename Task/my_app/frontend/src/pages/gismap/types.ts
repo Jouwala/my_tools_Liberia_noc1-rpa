@@ -1,4 +1,4 @@
-﻿// GISMap 页面类型定义
+// GISMap 页面类型定义
 
 export interface Site {
   site_id: string
@@ -54,10 +54,24 @@ export interface MwHistoryPoint {
 export interface RatKpiSeries {
   matched_by?: 'site_id' | 'site_name' | null
   site_name?: string | null
-  metrics: { key: string; label: string; is_rate: boolean | null }[]
+  metrics: RatKpiMetric[]
   daily: (Record<string, any> & { day: string })[]
   days: number
   error?: string
+}
+
+/**
+ * 站点级 KPI 指标列的元数据（后端 `_RAT_KPI_SPEC` 下发）。
+ * unit 是显示契约：'%' 换算成百分数，其余（Erl / GB / Mbps / users / min）按原始量纲。
+ * group 缺失 = 后端还没升级到下发这两字段的版本，此时全部按 quality 处理，
+ * 业务量那张图退化成「暂无数据」，原有的 KPI 图与下拉行为不变。
+ */
+export interface RatKpiMetric {
+  key: string
+  label: string
+  is_rate: boolean | null
+  group?: 'quality' | 'volume'
+  unit?: string | null
 }
 
 /**
@@ -103,8 +117,30 @@ export interface DrilldownAnalytics {
   warnings?: string[]
 }
 
+/* IPT 电源状态（下钻抽屉 Basic Info 用，2026-11-03 新增）。
+   后端 gis.py::_lookup_site_power 组装：连接状态来自 ipt_power_sites（采集任务
+   每 2 分钟全站刷新），SOC/电压/负载等来自最新快照（只有 watch 清单内的站点才有，
+   未采到时字段为 null，前端显示 — 不显示 0）。按站点名匹配，未匹配 / IPT 表
+   未建时后端直接返回 null。字段与 ?page=ipt_power 的 /api/ipt-power/sites 对齐。 */
+export interface SitePowerStatus {
+  ipt_site_id?: string | null
+  ipt_name?: string | null
+  internal_reference?: string | null
+  connectivity?: string | null
+  connectivity_updated?: string | null
+  snap_time?: string | null
+  battery_soc?: number | null
+  battery_voltage?: number | null
+  battery_charging_state?: string | null
+  load_power?: number | null
+  solar_power?: number | null
+  generator_on?: number | null
+}
+
 export interface DrilldownData {
   site_info: Record<string, any>
+  /** IPT 电源状态：未匹配 / 后端未升级（旧返回体无此字段）时为 undefined/null，显示 — */
+  power?: SitePowerStatus | null
   tt_list: any[]
   tt_count: number
   wo_list: any[]

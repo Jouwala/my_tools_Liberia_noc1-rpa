@@ -1,9 +1,10 @@
 import { useMemo, useState } from 'react'
-import { Card, Row, Col, Drawer, Descriptions, Tag, Statistic, Tabs, Spin, Table, Collapse, Tooltip, Alert } from 'antd'
+import { Card, Row, Col, Drawer, Descriptions, Tag, Statistic, Tabs, Spin, Table, Collapse, Tooltip, Alert, Space } from 'antd'
 import { AlertOutlined, ThunderboltOutlined, BarChartOutlined } from '@ant-design/icons'
 import { useI18n } from '../../i18n'
 import { WH, cardStyle, useTheme } from '../../theme'
 import { SearchableExportTable } from '../../components/SearchableExportTable'
+import { ExplainIcon } from '../../components/MetricExplain'
 import type { DrilldownData, DrilldownAnalytics } from './types'
 import { SITE_COLORS } from './types'
 import { filterBySearch, exportToExcel, buildAlarmColumns, buildAlarmExportColumns, buildTTColumns, buildWOColumns } from './helpers'
@@ -42,6 +43,26 @@ interface SiteDrilldownDrawerProps {
 const RANGE_OPTIONS = [7, 30, 60, 90, 180]
 const DEFAULT_RANGE_DAYS = 7
 const DEFAULT_THRESHOLD = 0.9965 // 与 SiteAvailability 页面 / 后端一致
+
+/* 电源状态里的一枚「标签 值」小单元（仅 Basic Info 的电源行使用）。
+   不抽公共组件：单场景直接实现（AGENTS 三.1，第二个用例出现再抽象）。
+   数值一律来自后端 power 字段，这里只做排版，不算口径（AGENTS 三.3c）。 */
+function PowerChip({ label, value }: { label: string; value: string }) {
+  return (
+    <span style={{ fontSize: 12, whiteSpace: 'nowrap' }}>
+      <span style={{ color: WH.textMuted }}>{label} </span>
+      <span style={{ color: WH.text }}>{value}</span>
+    </span>
+  )
+}
+
+/* 数值格式化（与 ?page=ipt_power 的展示口径一致：SOC ×100 取整，功率取整 W，电压 1 位小数） */
+const fmtChip = {
+  soc: (v: number | null | undefined) => (v == null ? '—' : `${(Number(v) * 100).toFixed(0)}%`),
+  volt: (v: number | null | undefined) => (v == null ? '—' : `${Number(v).toFixed(1)} V`),
+  watt: (v: number | null | undefined) => (v == null ? '—' : `${Number(v).toFixed(0)} W`),
+  text: (v: string | null | undefined) => (v == null || String(v).trim() === '' ? '—' : String(v)),
+}
 
 // 站点下钻抽屉：基本信息 + 统计卡片 + 各 Tab 图表
 // （明细表格已移除，仅 Realtime Alarm 页签因无法出图而保留表格）
@@ -300,6 +321,42 @@ export function SiteDrilldownDrawer({
                     .filter(v => v != null && String(v).trim() !== '')
                     .join(' / ') || '—'}
                 </span>
+              </Descriptions.Item>
+              {/* IPT 电源状态（2026-11-03 新增，?page=ipt_power 同源数据）：
+                  连接状态 Tag + 最新快照摘要（SOC/电压/负载/太阳能/发电机/快照时间）。
+                  · 站点名匹配不到 IPT 站、或旧后端未返回 power 时显示 —（不显示 0）；
+                  · 口径说明挂在标签 ⓘ（ExplainIcon）上，默认不占版面（AGENTS 三.3b/3c）；
+                  · 只有 watch 清单内的站点才有快照，SOC 等为 null 时该枚显示 —。 */}
+              <Descriptions.Item
+                span={2}
+                label={(
+                  <span style={{ color: WH.textMuted, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                    {t('gis.drilldown.powerStatus')}
+                    <ExplainIcon text={t('gis.drilldown.powerExplain')} />
+                  </span>
+                )}
+              >
+                {drilldown.power ? (
+                  <Space size={[10, 4]} wrap>
+                    {drilldown.power.connectivity === 'online'
+                      ? <Tag color="green" style={{ marginRight: 0 }}>online</Tag>
+                      : <Tag color="red" style={{ marginRight: 0 }}>{fmtChip.text(drilldown.power.connectivity)}</Tag>}
+                    <PowerChip label="SOC" value={fmtChip.soc(drilldown.power.battery_soc)} />
+                    <PowerChip label={t('ipt.card.battV')} value={fmtChip.volt(drilldown.power.battery_voltage)} />
+                    <PowerChip label={t('ipt.card.charging')} value={fmtChip.text(drilldown.power.battery_charging_state)} />
+                    <PowerChip label={t('ipt.col.load')} value={fmtChip.watt(drilldown.power.load_power)} />
+                    <PowerChip label={t('ipt.col.solar')} value={fmtChip.watt(drilldown.power.solar_power)} />
+                    <PowerChip
+                      label={t('ipt.card.generator')}
+                      value={drilldown.power.generator_on == null
+                        ? '—'
+                        : (drilldown.power.generator_on ? t('ipt.genOn') : t('ipt.genOff'))}
+                    />
+                    <PowerChip label={t('ipt.col.snapTime')} value={fmtChip.text(drilldown.power.snap_time)} />
+                  </Space>
+                ) : (
+                  <span style={{ color: WH.textMuted }}>—</span>
+                )}
               </Descriptions.Item>
             </Descriptions>
           </Card>

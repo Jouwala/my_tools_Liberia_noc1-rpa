@@ -113,6 +113,15 @@ def _default_sp() -> Tuple[List[str], List[str]]:
     return _read_unc_dir(_SP_EMAIL_UNC)
 
 
+def _default_sp_weekly() -> Tuple[List[str], List[str]]:
+    """SP 周报默认收件人 = SP 报表共享名单（与 kpi_sp_spareparts 同源）。
+
+    周报受众与备件报表一致（备件组 + NOC），故直接复用远程 UNC 名单；
+    用户在 Settings → 邮件收件人 保存过即以页面值为准。
+    """
+    return _default_sp()
+
+
 def _default_sp_details() -> Tuple[List[str], List[str]]:
     from backend.services.kpi_email_report import _SP_DETAILS_DEFAULT_TO, _SP_DETAILS_DEFAULT_CC
     return _parse_addrs(_SP_DETAILS_DEFAULT_TO), _parse_addrs(_SP_DETAILS_DEFAULT_CC)
@@ -233,6 +242,13 @@ EMAIL_RECIPIENT_GROUPS = [
         "name": "SP 在线未关闭单报表邮件",
         "name_en": "SP Online Open Tickets Report Email",
         "default_loader": _default_sp,
+    },
+    {
+        # 2026-11-03 新增：SP 周报（周日早上生成并发送）
+        "key": "sp_weekly_report",
+        "name": "SP 备件周报邮件（周日 → 周六）",
+        "name_en": "SP Weekly Report Email (Sunday → Saturday)",
+        "default_loader": _default_sp_weekly,
     },
     {
         "key": "sp_material_report",

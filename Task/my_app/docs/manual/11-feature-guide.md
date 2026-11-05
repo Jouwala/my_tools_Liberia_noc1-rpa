@@ -5,7 +5,7 @@
 **先记住两件事**
 
 - 有 **12 个页面是 iframe 壳**（下表标注「iframe」），真正界面在 `frontend/public/*.html` 里，React 只负责加载与注入语言。这类页面样式/交互和 React 页不一致，改了 React 代码不会影响它们。
-- 只有「任务管理」有常驻轮询（60s 刷列表 + 30s 时基，`pages/DataSync.tsx:165,173`）。**看板 / 展示页**的"自动刷新"来自**顶栏全局设置**（可改 0/30/60/300/600/900/1800；生效值 = 用户选择 > 本页默认 > 300 秒。2026-10-29 用户定的每页策略：**实时告警相关 `realtime_alarm`/`alarm`/`alarmManagement` = 60 秒，其余看板页 = 300 秒**，详见 `02-architecture.md` 的「自动刷新」）；**配置 / 操作 / 工具类页面（如系统设置、上传、表浏览、IP 探测、eFlow 等）不参与自动刷新**（白名单 `AR_BOARD_PAGES`，生效间隔恒为 0，顶栏选择器禁用）。看板数据看起来不动，先看顶栏刷新间隔；全屏挂机时看板页即使选「关闭」也会按本页默认兜底刷新（详见 `myapp-refresh-protocol.js`）。
+- 只有「任务管理」有常驻轮询（60s 刷列表 + 30s 时基，`pages/DataSync.tsx:165,173`）。所有页面的"自动刷新"都来自**顶栏**（⭐ **默认关闭、每个页面各自设置并记忆**：「开启刷新 / 停止刷新」按钮 + 间隔下拉对**每一个页面**都可用，开启时落到本页建议间隔，间隔可调 0/30/60/300/600/900/1800，选择存在 `localStorage['myapp_auto_refresh_pages']`；建议间隔逐页登记在 `App.tsx` 的 `AR_PAGE_DEFAULTS`，按数据更新频率取 60（实时告警）/ 300（看板主力）/ 900（上游日更报表）/ 1800（配置与操作页）四档，详见 `02-architecture.md` 的「自动刷新」与 `16-new-page-guide.md` 3.4d）。**2026-11-04 起不再有「只有看板页参与刷新」的白名单** —— 配置 / 操作 / 工具类页面（系统设置、上传、表浏览、IP 探测、eFlow 等）同样能按页开启，只是建议间隔给得最松。看板数据看起来不动，先看顶栏是否已开启自动刷新 —— 未开启（含全屏挂机）不会自动刷新，需要时点「开启刷新」或手动刷新（详见 `myapp-refresh-protocol.js`）。
 
 > **本表由 `tests/test_doc_consistency.py` 校验**：行数、key 集合与形态列必须与
 > `App.tsx` 的 `DEFAULT_GROUPS` / `PAGE_META` 及 `helpContent.ts` 的 `PAGE_LIST` 一致。
@@ -635,12 +635,15 @@ ZXMW 微波网络拓扑与带宽利用率 NOC 看板（`MwUmeDashboard.tsx:4-8`�
 | History（历史告警 / TT / WO 三合一） | 关 | 用户点击 History 图层 Tag 自行打开（2026-09-28 合并，见上） |
 | 边界蒙层 | 县界 | 2026-09-28 起**取消三选一**，恒为县界 |
 
+- **筛选开始时自动解除 normal 隐藏（2026-11-03 修复「筛选站点后地图上看不到」）**：用户按站名/高级筛选缩小范围后，「normal 太多会淹没告警站」的前提不再成立 —— 筛选本身已完成缩小。实测筛选 `lofa bridge`：命中 1 站（`Total Sites: 1/874`），该站 `rt_alarm_count=0` 归类 normal → `On Map: 0/1`，一个点都不画，用户以为筛选坏了（还误以为是被人员图层抢了显示）。修法：`activeFilterCount` 从 0 → 正的**那一刻**自动把 `normal` 从 `hiddenLegends` 移除（`GISMap.tsx` 的 `hadAnyFilterRef` effect，只在「从无到有」转换时触发 —— 筛选 1→2 不反复推翻用户手动重新隐藏的操作；清除筛选后**不**自动恢复隐藏，保持「用户最后一次选择」语义）。回归实测（Playwright）：默认视图仍只画 91 个告警+VIP 站（2026-09-25 约定不回归）；筛选后 `On Map: 1/1`；清除筛选后 874 站全画（normal 保持显示）。
+- **视野中心跟随筛选范围（同日配套）**：`center` 由「恒为全量 sites 重心」改为「跟随 `criteriaSites`（筛选无命中时回落全量重心）」。原先筛选后即使站点画出来也可能贴边难辨 —— Lofa Bridge 在西北角 Grand Cape Mount，全量重心视野下贴边。刻意跟 `criteriaSites`（数据范围筛选）而非 `filteredSites`（还受图层/图例影响），与统计卡口径原则一致：关图层/图例不该让视野跳走，只有「关心哪些站」变了才重新定视野。
 - **默认实际绘制 88 站**（38 实时告警 + 50 VIP）＋ 844 条链路，而非全量 827 站。
 - 两套控制机制并存，别混淆：**图层 Tag** 控 `activeLayers`（全量模式：RealTime / History；实时模式：RealTime / TT / WO），**图例点击**控 `hiddenLegends`（normal/VIP）。`normal` 走的是后者，初值 `new Set(['normal'])`，所以图例上它以删除线+「已隐藏」呈现，用户**点一下即可恢复**——这是刻意的，比完全移除该项更好发现。图例已移入地图左下角浮层（见 10a），但这个能力没变。
 - **⚠️ 图层开关不只是配色**：`getSiteCategory` + `filteredSites` 会据 `activeLayers` 与 `hiddenLegends` 把该类别站点从地图上**过滤掉**。地图站点变少是「只显示实时告警」的预期效果，不是漏画。
 - 实时告警地图（`?page=realtime_alarm`）仍是 `rt_alarm + tt + wo`（**2026-09-28 的图层合并不适用于它**，原因见上方「图层合并」小节）：那里的 TT/WO 由告警的 `tt_id` 派生，属于告警的关联信息，不算「用户额外打开的图层」。`normal` 的隐藏初值也**不影响它** —— 该页的 `filteredSites` 分支只认 `rt_alarm_overdue`/`rt_alarm_ontime`/`tt`/`wo`/`vip`，不含 `normal`。
 - 图层开关状态不做持久化（存在组件 `activeLayers` / `hiddenLegends` 里），刷新页面即回到上述默认值。
 - **点站点 → 右侧抽屉**（组件 `pages/gismap/SiteDrilldownDrawer.tsx`）四个页签，可搜索、可导 Excel。
+- **抽屉 Basic Info 含 IPT 电源状态**（2026-11-03 新增）：`/api/gis/drilldown/{site_id}` 与 `/api/gis/realtime/drilldown/{site_id}` 返回体新增 `power` 字段（`gis.py::_lookup_site_power`），按**站点名**关联 `ipt_power_sites` + 最新 `ipt_power_snapshots`，与 `?page=ipt_power` 完全同源。站名归一化匹配（忽略大小写 / 多余空格 / `\xa0` 不可见空格；实测 874 个 GIS 站中 419 站能对上；拼写不同的**不做**模糊匹配，宁可显示 `—` 也不接错站）。前端在 Basic Info 里占一整行（`SiteDrilldownDrawer.tsx`，`span=2`）：连接状态 Tag + SOC/电压/负载/太阳能/发电机/快照时间，口径说明挂标签 ⓘ（`gis.drilldown.powerExplain`）。未匹配 / IPT 表未建 / 旧后端无该字段时显示 `—`；快照只有 watch 清单（`backend/services/ipt_data/watch_sites.json`）内的站点才有，缺失字段显示 `—` 不显示 0。
 - **导出站点清单**（`exportSites`，2026-09-27 新增）：卡片里的导出按钮（**图例已迁到地图上，按钮仍在卡片**），导的是**地图上当前可见的站点**
   （`filteredSites`）—— 与图例开关、图层、高级筛选后的那批点**口径完全一致**，而不是后端返回的全量 `sites`。
   列含站点/区域/县/制式/经纬度/TT·WO·告警数/VIP·Hub/TRM/FME，副标题写明「可见数/总数」与筛选条件数。
@@ -769,7 +772,7 @@ ZXMW 微波网络拓扑与带宽利用率 NOC 看板（`MwUmeDashboard.tsx:4-8`�
 | 模式 | 数据来源 | 性质 |
 | --- | --- | --- |
 | 不显示 | — | 只留站点，背景最干净 |
-| **大区** | `GET /api/gis/region-boundaries`（`gis.py:1584`） | 由 827 个站点坐标 **Voronoi 推算**的 3 个大区（Montserrado / North East / South West） |
+| **大区** | `GET /api/gis/region-boundaries`（`gis.py:1584`） | 由站点坐标 **Voronoi 推算**的大区，**区域集合与站点数都跟随 `master_site_db.region`**（2026-11-04 实测：North 468 / South 406；不再写死老的三区） |
 | **县界** | `GET /api/gis/county-boundaries`（`gis.py:1624`） | 利比里亚 **15 个县的真实行政边界**（GeoJSON 静态资源） |
 
 **县界实现要点（2026-09-25 新增）：**
@@ -1211,7 +1214,7 @@ PMT 取不到时显示 `—` 而不是 0（AGENTS.md 三.6），所以 `pmt_open
 - `GET /api/gis/personnel/{name_key}/work-orders` —— WO 下钻明细（复用既有端点）
 - `GET /api/gis/personnel/{name_key}/pmt` —— PMT 下钻明细（2026-10-21 新增，**无 days 参数**；返回 `pmt_list` / `pmt_count` / `meta{available,truncated,overdue_count}`。排序为逾期优先 → 任务窗口结束时间升序，且**先排序再截断**，否则 limit 生效时留下的恰好是扫描顺序的前 N 条，会把最该看的逾期单切掉）
 
-**自动刷新 = 原地静默重拉，不重挂载**（2026-10-29）：本页登记在 `App.tsx` 的 `AR_INPLACE_REFRESH_PAGES`，顶栏到点时外壳派发 `document` 事件 `myapp-refresh`，`PersonMap` 监听后调 `load(true)` 只重拉 `/personnel/stats`。间隔走每页默认 **300 秒**（用户当时反馈的「刷新太快」其实是**每 5 分钟一次的整页重建**：地图销毁重建 + flyTo 回全国视角 + 图层重画，在门户 iframe 里表现为闪白 —— 改成原地刷新后画面不动，只有数字更新）。静默路径三条硬约束，缺一就变成"假静默"：不清 `loading`（否则 `<Spin>` 遮罩盖住地图）、不清错误条、**失败时保留上一次的数据**（拿不到新数据不该把整张图清空）。手动「Refresh」按钮仍走非静默路径（要看到转圈），故 `onClick={() => load()}` **必须包一层** —— 写成 `onClick={load}` 会把 `MouseEvent` 当成 `silent` 传进去（事件对象恒真），实测由 tsc 拦下。
+**自动刷新 = 原地静默重拉，不重挂载**（2026-10-29）：本页登记在 `App.tsx` 的 `AR_INPLACE_REFRESH_PAGES`，顶栏到点时外壳派发 `document` 事件 `myapp-refresh`，`PersonMap` 监听后调 `load(true)` 只重拉 `/personnel/stats`。2026-11-03 起自动刷新默认关闭；开启后间隔走本页建议 **300 秒**（用户当时反馈的「刷新太快」其实是**每 5 分钟一次的整页重建**：地图销毁重建 + flyTo 回全国视角 + 图层重画，在门户 iframe 里表现为闪白 —— 改成原地刷新后画面不动，只有数字更新）。静默路径三条硬约束，缺一就变成"假静默"：不清 `loading`（否则 `<Spin>` 遮罩盖住地图）、不清错误条、**失败时保留上一次的数据**（拿不到新数据不该把整张图清空）。手动「Refresh」按钮仍走非静默路径（要看到转圈），故 `onClick={() => load()}` **必须包一层** —— 写成 `onClick={load}` 会把 `MouseEvent` 当成 `silent` 传进去（事件对象恒真），实测由 tsc 拦下。
 浏览器实测（派发一次 `myapp-refresh`）：`/personnel/stats` 请求数 1 → 2、`.leaflet-container` **仍是同一个 DOM 节点**（未重挂载）、无遮罩（地图中心命中 `span.gis-county-tag__name`）、无错误条。
 
 **必须如实呈现的已知限制**（页面顶部横幅已写明）：
@@ -1496,9 +1499,14 @@ UME 侧 KPI 的采集结果：业务量、成功率、失败分因（系统侧 /
 
 ## 14n. FLM 可用率（`?page=avail_flm`）
 
-同一张需求表的另一组视图：**行是三个 FLM 区域（Montserrado / North East / South West），
-列分别是制式与站点类型**，另加一张**页面级「影响可用率的 TT 列表」**（需求表 SN4）。
+同一张需求表的另一组视图：**行是各区域，列分别是制式与站点类型**，另加一张**页面级「影响可用率的 TT 列表」**（需求表 SN4）。
 日 / 周 / 月用页签切粒度，与 14m 一致。
+
+> **区域集合不写死在代码或文档里**（2026-11-04 改造）：行、KPI 卡、趋势线都由派生库当期真实出现的区域决定，
+> 源头是站点主数据 `master_site_db.region`。业务口径 2026-11 起为 **North / South 两个区**，
+> 此前的老三区（Montserrado / North East / South West）已停用、`master_site_db` 里不再存在这些值。
+> 主数据再换口径时页面自动跟随，**不需要改代码也不用改本文档的区域名**；要固定排序设
+> 环境变量 `AVAIL_REGION_ORDER="North,South"`（只是排序提示，不是白名单）。
 
 - **数据源与口径**：与 14m **同源同实现** —— 同一个派生库 `data/avail_recon.sqlite3`、
   同一套 `SUM(分子)/SUM(分母)` 加权口径。后端 `backend/services/avail_flm_service.py`
@@ -2820,8 +2828,8 @@ postMessage 的唯一用途。自愈循环上限 4 次（`MAX_AUTO_RELOGIN`）�
 
 ### 其它注意
 
-- 自动刷新：本页登记在 `AR_SOFT_REFRESH_PAGES`，顶栏到点时外壳广播 `myapp-refresh`、
-  由页面在 iframe 内原地重载（跨端口 iframe 重挂载会整页闪白）。
+- 自动刷新：本页登记在 `AR_SOFT_REFRESH_PAGES`，顶栏开启后到点时外壳广播 `myapp-refresh`、
+  由页面在 iframe 内原地重载（跨端口 iframe 重挂载会整页闪白）。默认关闭（2026-11-03 起）。
 - 端口号有**三处**必须一致：页面 `PORTAL_PORT` / `PROXY_PREFIXES['ume_in']` / nginx conf。
   `tests/test_imonitor_screen.py` 会离线核对这三处。
 - Cookie 按**主机**共享、不分端口，所以门户 Cookie 名带端口后缀（`Z-AUTH-CODE-28808` 等）。
@@ -5560,41 +5568,66 @@ VMAX 数仓 GBase（10.123.255.12:5258/zxvmax，只读）
 - 后端：`backend/services/soc_trend/`（store/sync/service/metrics 四模块，均 <500 行）、
   `backend/routers/soc_trend.py`、`main.py` include、`task_registry.py` 任务 47（cron `40 * * * *`）。
 - 前端：`public/soc_trend_dashboard.{html,css,js}` + `pages/SocTrendDashboard.tsx`；
-  `App.tsx`（PageKey/VALID_PAGES/AR_BOARD_PAGES/AR_SOFT_REFRESH_PAGES/PAGE_META/路由）、
+  `App.tsx`（PageKey/VALID_PAGES/AR_PAGE_DEFAULTS/AR_SOFT_REFRESH_PAGES/PAGE_META/路由）、
   `i18n.tsx` 中英两处、`backend/data/ui_menu_layout.json`（grp_monitor，侧栏全局共享）。
 - 自测：`TMP\_soc_trend_smoke.py`（库/服务/路由函数级冒烟，只读本地库）；
   首轮回填日志 `TMP\_soc_trend_sync_backfill2.log`（hour 8 天 + day 90 天，91s）。
 - 手动补数：`cd Task\my_app && Scripts 下生产 Python312 跑 python -m backend.services.soc_trend.soc_trend_sync`。
 
-## 41. IPT 站点电源查询（`?page=ipt_power`，2026-11-03 新增）
+## 41. IPT 站点电源查询（`?page=ipt_power`，2026-11-03 新增；2026-11-04 两次改造：全站分片轮采 → 全站 2 分钟 KPI + 明细分层；2026-11-05 电源详情改为弹窗）
 
-对接 **IPT Digital Platform**（RMS 能源监控平台，SaaS 外网），展示全网约 498 个站点的连接状态与关注站点的电源明细（电池 SOC/电压、负载、太阳能、发电机、油位）。
+对接 **IPT Digital Platform**（RMS 能源监控平台，SaaS 外网），展示全网约 500 个站点的连接状态与电源数据（电池 SOC/电压、负载、太阳能、柴油、油机、活动告警）。
+页面布局（2026-11-04，11-05 微调）：左侧 **3/5 站点地图**（Leaflet + 自托管 PMTiles 底图，与 GIS 地图同源，点击圆点弹出电源详情弹窗）、右侧 **2/5 站点清单表**；页面下半屏不再常驻详情卡，口径说明（`CalcChainNote`，默认收起）上移到数字卡之前。
 
-### 41.1 数据链路
+### 41.1 数据链路（两层并发采集）
 
-- 采集任务 `ipt_power_collect`（m 组，`*/2 * * * *`）：每 2 分钟一次，① `POST /energy/sites/filter-map`（1 个请求）刷新全站清单与 online/offline 连接状态 → `ipt_power_sites`；② 按 `backend/services/ipt_data/watch_sites.json` 关注清单逐站拉 `/diagram` 电源全景 → `ipt_power_snapshots`（站间限速 0.3s，快照保留 2 天，2026-11-03 起）。
-- 认证为 **OIDC 隐式流**（`client_id=rubix-web`，`response_type=id_token token`），纯 requests 模拟 authorize → 登录表单 → 回调 fragment 取 access_token（TTL 1 小时，缓存 `auth_cache/` 自动续期）；上游拒绝 password grant（实测 `unauthorized_client`）。协议详情见 `backend/services/ipt_data/README.md`。
-- 页面只读本地库，不打扰上游；「立即刷新」按钮走 `POST /api/ipt-power/refresh` 实时直查平台并补一条快照（不在关注清单的站点也可用）。
+- 采集任务 `ipt_power_collect`（m 组，`*/2 * * * *`），**上游没有任何批量电源接口**（逐一核对过抓包全部端点：filter-map 只有 id/name/坐标/连接状态/criticality；`events/recent` 只返回最近新发生的事件而非活动告警快照），电源数值只能逐站请求。2026-11-04 实测（32 线程）：`/popup`（约 1.5KB）501 站 60.1s、0 错误；`/diagram`（约 5KB）200 站 73.8s、外推 501 站约 185s 且出现超时。据此分两层：
+  - **KPI 层（full_kpi）**：并发拉全站 `/popup`（现行 8 线程，按 `ipt_power_meta.kpi_cursor` 环形轮转）→ **全站每 2 分钟一条快照**（负载/电池电压/SOC/太阳能/柴油/油机开关 + site.events 活动告警）；
+  - **明细层（full_shard）**：`/diagram` 完整明细按 `ipt_power_meta.shard_cursor` 环形游标分片轮采（3 线程，单轮计划不超过 60 站），约 10-12 轮 / 20-25 分钟覆盖全站；**关注站（`sites`）每轮必采 diagram**。明细池先起、与 popup 池**同时跑**（否则会被 popup 预算饿死，2026-11-04 首轮实测踩坑）。
+  - 整轮 **100s 硬上限**（`KPI_ROUND_HARD_DEADLINE_S`，任务入口起算，含登录 / filter-map / 回填），到时放弃未完成站点并记日志，保证 2 分钟节拍不漂移；popup 失败下轮自然重试，diagram 失败由游标下轮补上。
+  - 合成落库：全站每轮各写**一条**快照（popup KPI 为底，有 diagram 的站覆盖明细列，`source` 记 `popup`/`diagram`）；popup 行 `raw` 不落 JSON（控表体积：501 站 x 720 轮/天，全存约 1.8GB/天），diagram 精简明细另存 `ipt_power_site_detail`（每站最新一条）。
+  - 收尾：清理 2 天前旧快照，写 `ipt_power_meta.last_run`（含 `kpi_ok/kpi_failed/detail_ok/detail_failed/shard`）与下一轮起点 `shard_cursor`。
+- 认证为 **OIDC 隐式流**（`client_id=rubix-web`，`response_type=id_token token`），纯 requests 模拟 authorize → 登录表单 → 回调 fragment 取 access_token（TTL 1 小时，缓存 `auth_cache/` 自动续期）；上游拒绝 password grant（实测 `unauthorized_client`）。并发采集每线程 fork 一个独立 `requests.Session` 客户端（Session 非线程安全），token 复用主客户端避免重登风暴。协议详情见 `backend/services/ipt_data/README.md`。
+- 页面只读本地库，不打扰上游；「立即刷新」按钮走 `POST /api/ipt-power/refresh` 实时直查平台并补一条快照与明细（任意站点可用，不受轮采节拍限制）。
 
 ### 41.2 页面结构
 
-- 主表：站点清单 + 每站最新快照（SOC / 负载 / 太阳能 / 快照时间），⚡ 图标标记关注站点；「只看关注」开关过滤。
-- 详情：选中站点六张数字卡 + 近 6h/24h/72h/7d 趋势曲线（负载功率、太阳能功率左轴 W，电池 SOC 右轴 %）。
-- 采集状态横幅：任务未运行过或上一轮失败时黄色常驻告警（说「这次算错/没算」→ 常驻；口径解释 → `CalcChainNote` 默认收起）。
+- **左 3/5 站点地图**：Leaflet 地图 + 全站圆点（绿=在线正常，橙=有活动告警，红=离线；关注站圆点稍大）。**单击圆点直接打开「电源详情」弹窗**；原先叠加的 Leaflet 小 Popup 已移除（两层浮层互相遮挡），其站点身份信息挪到弹窗顶部信息条。
+- **右 2/5 站点清单表**：站点名（⚡=关注站）/ 参考号 / 连接状态 / SOC / 负载 kW / 太阳能 kW / 柴油 L / 告警数（悬停看告警名）/ 快照时间 / 操作；「只看关注」开关过滤。点行内「详情」与点地图圆点走同一个弹窗。
+- **电源详情弹窗（2026-11-05）**：参照 `?page=mwRealTime` 的 KPI 弹窗形态——遮罩 + `min(1100px, 94vw)` 宽面板、顶部约 6vh 居中、标题栏带站点名/参考号/「立即刷新」/×、内容区可滚动（`max-height:88vh`）。走项目统一组件 `DraggableClickModal`（Portal 挂 body、可拖动、Esc/× 关闭），本页显式开了 `maskClosable` 与 `placement="top"` 两个可选参数。**`iptSite` URL 参数即弹窗开关**：点开写入、关闭清除，带该参数的深链刷新后直接弹出对应站点。原先的「电源详情」常驻卡片已从页面下半屏删除，地图高度相应加大。
+- 弹窗内容：顶部紧凑站点属性条（参考号/区域/Cluster/优先级/供电配置/连接状态/快照时间）+ 六张数字卡（SOC / 电池电压 / 充电状态 / 负载 / 太阳能 / 发电机）+ **设备明细卡**（发电机：名称/状态与保持时长/运行模式/额定容量/R-S-T 相电压相电流；电池组：名称/容量 Ah/系统电压/电量/今日电压 Min-Max/温度；油箱：油位/容量/比例/更新时间；市电与整流器：主源开关（AC Off 判定）/主源功率/整流电流/市电电压）+ 活动告警标签列表 + 近 6h/24h/72h/7d 趋势曲线（负载、太阳能左轴 W，SOC 右轴 %）。数据加载中显示 Spin，换站失败不再残留上一站内容。
+- 采集状态横幅：任务未运行过或上一轮失败时黄色常驻告警（说「这次算错/没算」→ 常驻；口径解释 → `CalcChainNote` 默认收起，现放在页面数字卡之前，不随弹窗关闭而消失）。
 
 ### 41.3 注意事项
 
-- **`watch_sites.json` 不要配 `"*"`**：全站 498 站单轮 >2.5 分钟，2 分钟节拍做不完且外网压力大；推荐 ≤50 站。
-- `backend/services/ipt_data/url.txt` 含明文凭据，已被 `.gitignore`（`url*.txt` 规则）覆盖，不会入库。
-- `with-events` 接口返回网关设备密码/SNMP community，任何落库/日志输出前须脱敏（`diagram` 无此问题，入库用 `diagram`）。
+- **`watch_sites.json` 是对象**：`sites` = 关注站（站名 / 参考号 / site_id，每轮必采 diagram，当前 3 个：`Jahtondo Town` / `Brewerville 4` / `Zwedru 4`）；`full_kpi = {"enabled": true, "workers": 8, "budget_s": 80}` 全站 popup 层；`full_shard = {"enabled": true, "max_sites": 60, "budget_s": 70}` diagram 明细分片。**不要在 `sites` 里配 `"*"`**（旧语义 = 单轮全采 500 站 diagram，实测外推约 185s 必然超时并冲击外网平台）。
+- **太阳能口径**：`solarSets[].solarPower` 与 `rectifiers[].solarPower` 上游是同一份镜像值（对 3945 条历史快照逐条核对），取 max 避免重复累加，多组太阳能先求和；无太阳能设备的站 `solar_available=0` 显示「-」；有设备的站**夜间（利比里亚 GMT，约 18:30 至次日 06:30）为 0 W 属正常**，白天常见 6-14 kW。
+- **凭据泄漏修复（2026-11-04）**：此前快照 `raw` 列存全量 `diagram` JSON 且被 `/api/ipt-power/site/{id}` 原样下发，其中 `fuelTanks[].device` 带控制器明文 username/password；现 `raw` 只存 `slim_diagram()` 精简结果（剥除 device/凭据），API 不再下发 raw。`with-events` 接口同样含设备凭据，落库/日志前必须脱敏。
+- **改采集器代码后必须重启 m 组 worker**：`task_registry.py` 用 `safe_import` 懒加载；执行 `python restart_workers.py --groups m --reason "重载 ipt_power_collector"`（m 组队列有 running/pending 时脚本会拒绝；确要立即重启可用 `--force`，被中断的 running 行会在新 worker 启动时被 `_recover_stale_running` 标 failed，采集本身幂等可中断）。**只改 `watch_sites.json` 不用重启**（每轮重读，下一轮生效）。**改 routers/ipt_power.py 则要重启 7038 后端**（杀 uvicorn 子进程即可，backend_watchdog 自动拉起新代码，21:49 实测）。
+- **弹性（2026-11-04 晚高峰 + 11-05 上午两次复盘后加固）**：① 池内客户端单请求超时 **20s**（`POOL_REQ_TIMEOUT_S`）——11-05 顺序探测出现过 17s 仍成功，12s 会把「慢但会成功」的请求误杀，且客户端提前放弃后服务端仍在算，连接越堆越慢形成超时风暴；② popup 失败站在硬上限内**补采一轮**；③ **popup 环形游标**（`ipt_power_meta.kpi_cursor`）：硬上限到时只完成列表前一段，若每轮都从 `sorted(site_id)` 开头重来，尾部站永远拿不到新快照（11-05 实测 1 小时内 62 站无快照），现下轮从断点续采；④ **低成功率熔断**（`DEGRADED_RATIO=0.25`）：单轮 popup 成功率 <25% 即计入退避（`last_run.degraded=true`），不再每 2 分钟打满 100s 却拿不到数据；⑤ **熔断退避**：上游故障（filter-map 连续 500 / 读超时，或上述低成功率）按连续失败次数指数退避 5/10/20 分钟（封顶 30，状态存 `ipt_power_meta.failure_backoff`），退避期整轮静默跳过（success=true，不触发微信/邮件告警轰炸），任一轮成功自动清零；页面新鲜度看 `last_run.time`，超过 5 分钟即上游异常或退避中。
+- `GET /energy/sites/<id>/devices/<device_id>/attributes/values` 实测返回 `[]`，**不是**电源数据来源。
 - 查询条件（关键字 / 时间范围 / 选中站点）写进 URL（`iptKw` / `iptHrs` / `iptSite`），刷新与分享链接可恢复。
 
 ### 41.4 API（`backend/routers/ipt_power.py`）
 
 | 方法 | 路径 | 用途 |
 | --- | --- | --- |
-| GET | `/api/ipt-power/sites?keyword=&watch_only=` | 站点清单 + 最新快照摘要 |
-| GET | `/api/ipt-power/site/{site_id}?hours=` | 单站详情 + 历史序列 |
-| POST | `/api/ipt-power/refresh` | 实时直查平台并落快照（body: `{"query": "站名"}`） |
-| GET | `/api/ipt-power/status` | 采集运行状态 |
+| GET | `/api/ipt-power/sites?keyword=&watch_only=` | 站点清单 + 最新快照摘要（LEFT JOIN 各站 MAX(snap_time)，含告警/柴油/太阳能口径列） |
+| GET | `/api/ipt-power/site/{site_id}?hours=` | 单站详情 + 最新 diagram 明细（`ipt_power_site_detail`）+ 历史序列；**不再下发 raw** |
+| POST | `/api/ipt-power/refresh` | 实时直查平台并落快照 + 明细（body: `{"query": "站名"}`） |
+| GET | `/api/ipt-power/status` | 采集运行状态（`ipt_power_meta.last_run`） |
 | GET | `/api/ipt-power/watch` | 当前关注清单 |
+
+### 41.5 故障复盘一：10th Street 无数据（2026-11-04 下午）
+
+- 现象：`?page=ipt_power` 除 3 个关注站外全部显示「无数据」，但上游 `10th Street`（site_id `20c271a93a764d5f9a83486234389d67`）实测有 `loadPower=4577W` / `batteryVoltage=53.6V` / `SOC=100%`。
+- 排查：`filter-map` 只刷连接状态；线上库（**PG 模式**，`MY_APP_DB_MODE=pg`）501 站只有 3 站有快照且属性列全 NULL → 采集范围问题（注意 `db/app.db` SQLite 是旧数据，必须按 `.env` 的 DB 模式查库）。
+- 处置：实现全站分片轮采 + `/sites` 分页回填；20:07:33 复查 501/501 站点各有快照、`internal_reference` 缺值 0。
+
+### 41.6 故障复盘二：Solar 列全 0 与全站 2 分钟分辨率（2026-11-04 晚）
+
+- **Solar 全 0**：逐条核对 3945 条历史快照，存储列与原始 JSON 完全一致，**不是采集 bug**——非零太阳能只出现在白天（最后一条 18:28:37 当地），19:44 后进入夜间全站自然为 0；历史上白天常见 6-14 kW（Jahtondo Town 峰值 14123W）。真正的问题是「无太阳能设备的站也显示 0」，已加 `solar_available` 口径（无设备显示「-」），并在口径说明里写清夜间 0 W 属正常。
+- **全站 2 分钟分辨率**：确认上游无批量接口后实测并发吞吐（见 41.1），popup 层全站每轮必采 + diagram 明细分层，另修复两个实现坑：① 并发下 `requests.Session` 必须每线程独立实例；② diagram 池必须与 popup 池同时跑（串行会被饿死，首轮实测 popup 占满 82s 导致分片 0 站）。
+- 首轮验证（21:11:28，watch-first 版本）：`kpi_ok=500/501`、关注站 diagram 3/3、耗时 82.3s；双池并发后 22:05~22:11 稳定在 359~405/501（12+8 并发），11-05 上午退化见下条。
+- **晚高峰上游退化与熔断（21:21~21:46）**：21:25/21:27 两轮 popup 掉到 124/289（25s 读超时成批出现，顺序探测却健康）→ 21:36 起 filter-map 本身连续 HTTP 500（顺序探测同样 500，判定平台侧故障，非我方并发所致——此前被误杀 worker 的约 460 个在途请求可能压垮过它）。处置：池内 12s 短超时 + popup 补采 + 熔断退避（见 41.3），退避后每 2 分钟节拍只发 1 个轻量请求查 meta，不再敲打故障中的上游；上游恢复后自动回到全量采集。
+- **11-05 上午：并发自压垮 + 尾部站漏采（09:49~09:59）**：连续 4 轮 popup 仅 0/216/40/7，且 `success=true` 不退避（旧逻辑只认 filter-map 失败）。对照实验：09:57:49~09:59:05 采集退避静默期间顺序探测 6 次全部 0.9~4.3s 正常，采集轮次运行期则批量 12s 读超时 → 判定**自身 12+8=20 并发把上游拖垮**，12s 超时误杀慢请求形成超时风暴；同时发现固定 `sorted(site_id)` 顺序 + 100s 截断导致 1 小时内 62 站完全没有快照。处置：降为 popup 8 + diagram 3（合计 11 并发）、超时放宽 20s、`kpi_cursor` 环形续采、成功率 <25% 计入退避（见 41.3）。设计取舍已明确：上游无法长期承受全站 2 分钟逐站轮询，以单轮覆盖率换稳定，等效每站 2~6 分钟，页面新鲜度告警如实反映。

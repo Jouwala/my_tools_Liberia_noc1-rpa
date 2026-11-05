@@ -6282,13 +6282,12 @@ Respond in English.`;
      * 常使 document.hidden=true → 全屏挂机时定时器被停、且父外壳广播也因同样原因
      * 可能被挡 → 页面长时间不刷新。
      * 现交由协议统一处理：父外壳广播 → 立即原地重拉；广播被挡 → 按「生效间隔」自调度
-     * 兜底；本页不可见且非全屏时才跳过本轮（不再永久停表）。非看板页不启用；看板页
-     * 全屏时忽略「关闭」按本页默认兜底。 */
+     * 兜底；本页不可见且非全屏时才跳过本轮（不再永久停表）。未开启本页刷新的用户不排兜底定时器。
+     * 2026-11-03 起自动刷新默认关闭（顶栏按页开启），无 300s 默认兜底、全屏也不忽略关闭。 */
     let _arHandle = null;
     function startAutoRefresh() {
         try {
             _arHandle = MyAppRefresh.install({
-                defaultSec: 300,   // 与 App.tsx AR_PAGE_DEFAULT_SEC 对齐
                 onRefresh: function(){ loadData(); },
             });
         } catch (e) { console.warn('auto refresh install failed', e); }

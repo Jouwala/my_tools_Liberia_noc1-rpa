@@ -249,6 +249,34 @@ def write_df(df, table, engine_override=None, if_exists="append", index=False):
     return len(df)
 
 
+def df_to_sql(df, table, conn, if_exists="replace", index=False, chunksize=None):
+    """DataFrame 写表：接受**原生连接**（sqlite3 或 _PsycopgRaw），双模安全。
+
+    为什么需要它（2026-11-03 事故）：pandas 3.x 对「非 SQLAlchemy 的 DBAPI2 连接」
+    会退化成 `SQLiteDatabase` fallback —— `if_exists` 为 replace/append 时会先拼
+    `SELECT ... FROM sqlite_master WHERE ...` 判断表是否存在，PG 直接抛
+    `关系 "sqlite_master" 不存在`。eflow 同步的 Excel 报告因此自 PG 迁移起**每轮
+    静默失败**，而任务始终 success=True。
+
+    本函数把「原生连接」这一入口收敛掉：
+      - sqlite3 连接 → 保持原有 `df.to_sql(conn)` 行为，零行为变化；
+      - 其它（PG）→ 改用全局 SQLAlchemy engine + 由 `current_schema()` 推断的
+        schema 限定写入。调用方传入的连接已把目标 schema 置顶 search_path
+        （见 database._pg_raw_connection），所以 current_schema() 就是目标库。
+
+    返回写入行数。
+    """
+    if isinstance(conn, sqlite3.Connection):
+        df.to_sql(table, conn, if_exists=if_exists, index=index, chunksize=chunksize)
+        return len(df)
+
+    cur = conn.execute("SELECT current_schema()")
+    row = cur.fetchone()
+    schema = row[0] if row else None
+    df.to_sql(table, engine, schema=schema, if_exists=if_exists, index=index, chunksize=chunksize)
+    return len(df)
+
+
 # ============ 导入类操作的索引约定（单一事实来源） ============
 # 凡是「Excel/CSV → 建表」的入口（init_db 初始化、表浏览器导入、上传建表）
 # 都调用 ensure_table_indexes()，避免各处各写一份清单导致索引漂移。

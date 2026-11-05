@@ -3265,13 +3265,13 @@ window.addEventListener('load', function(){
 applyTheme(APP_THEME);
 syncRightToggle();
 window.addEventListener('load', function(){ loadData(false); });
-/* 自刷新安全网（2026-10-10 新增）：统一走 MyAppRefresh 共享协议。
+/* 自刷新安全网（2026-10-10 新增；2026-11-03 默认关闭）：统一走 MyAppRefresh 共享协议。
  * 父外壳广播 myapp-refresh → 立即原地重拉；广播被挡（全屏 Kiosk / 后台）时本页
- * 按「生效间隔」自行兜底，大屏挂机永不静默。非看板页（如设置）不启用。
- * 详见 myapp-refresh-protocol.js 顶部说明。 */
+ * 按「生效间隔」自行兜底。2026-11-04 起所有页面一视同仁，未开启本页刷新的用户不排兜底定时器。
+ * 2026-11-03 起自动刷新默认关闭（用户在 my_app 顶栏按页开启），本页不再有 900s
+ * 默认兜底 —— 未开启时（含全屏）一律不刷。详见 myapp-refresh-protocol.js 顶部说明。 */
 try {
   MyAppRefresh.install({
-    defaultSec: 900,   // 与 App.tsx AR_PAGE_DEFAULTS.mwUmeTopology 对齐
     onRefresh: function(){ autoRefreshData(); },
   });
 } catch(e){}

@@ -77,6 +77,12 @@ SRC_DB = "db.sqlite3"
 MASTER_DB = "olbr_ms_master_database.sqlite3"
 MASTER_TABLE = "Master_Site_Database_"
 
+# 站点主数据来源：local = 本机 master_site_db（my_app 真源，导入器负责列名映射）
+#                 remote = 远端 olbr_ms_master_database.Master_Site_Database_（历史口径）
+#                 auto  = 先本机，本机读不到再回落远端
+# 默认 local：区域维度必须与本机主数据同源，否则「矩阵按老区、TT 按新区」会再次分叉。
+REGION_SOURCE = "local"
+
 # (Tech 标签, 源表, 可用率列, 站点名列)
 TECHS: List[Tuple[str, str, str, str]] = [
     ("2G", "2G_Main_Kpi_Site_Daily", "306004:TCH in service rate(%)", "SITE Name"),
@@ -107,6 +113,9 @@ apply_config_overrides(
         "src_db": ("SRC_DB", str, "AVAIL_RECON_SRC_DB"),
         "master_db": ("MASTER_DB", str, None),
         "master_table": ("MASTER_TABLE", str, None),
+        "region_source": ("REGION_SOURCE",
+                          lambda v: str(v or "local").strip().lower(),
+                          "AVAIL_RECON_REGION_SOURCE"),
         "query_timeout": ("QUERY_TIMEOUT", lambda v: max(30, int(v)), None),
     },
     log_name="avail_recon",
@@ -129,6 +138,97 @@ def _q(db: str, sql: str, limit: int = 200000,
 
 def _sql_str(s: Any) -> str:
     return "'" + str(s or "").replace("'", "''") + "'"
+
+
+# 站点主数据的列名在不同来源里大小写/命名不一：本机 PG 是 region/site_name，
+# 远端 SQLite 是 Region/Site_Name，历史 Excel 换过列位也换过列名。
+# 按候选名做**大小写不敏感**匹配；匹配不到就报错并列出真实列名，绝不静默用错列。
+_REGION_COLS = ("region", "fme_region", "region_name", "area", "zone", "cluster")
+_SITE_NAME_COLS = ("site_name", "sitename", "site name", "site", "name", "site_id")
+
+
+def _pick_col(cols: List[str], candidates: Tuple[str, ...], what: str,
+              table: str) -> str:
+    """按候选名挑列（大小写不敏感），挑不到就带着真实列名抛错。"""
+    lower = {str(c).strip().lower(): c for c in cols}
+    for cand in candidates:
+        if cand in lower:
+            return lower[cand]
+    raise AvailReconError(
+        f"{table} 找不到{what}列：候选={list(candidates)} 实际列={list(cols)}")
+
+
+def _group_by_region(rows) -> Dict[str, List[str]]:
+    """[(站点名, Region), ...] -> {Region: [站点名, ...]}，空 Region 丢弃。"""
+    out: Dict[str, List[str]] = {}
+    for r in rows:
+        if len(r) < 2:
+            continue
+        name, region = r[0], r[1]
+        key = str(region or "").strip()
+        if not key:
+            continue
+        out.setdefault(key, []).append(str(name or "").strip())
+    return out
+
+
+def _regions_from_local() -> Dict[str, List[str]]:
+    """本机 master_site_db（my_app 真源；PG / SQLite 双模都能走）。"""
+    from backend.database import get_raw_connection
+
+    table = "master_site_db"
+    with get_raw_connection(timeout=60) as conn:
+        # 先探列名（WHERE 1=0 两种方言都成立），再按真实列名取数
+        probe = conn.execute(f"SELECT * FROM {table} WHERE 1=0")
+        cols = [d[0] for d in (probe.description or [])]
+        if not cols:
+            raise AvailReconError(f"{table} 不存在或为空")
+        rcol = _pick_col(cols, _REGION_COLS, "Region", table)
+        ncol = _pick_col(cols, _SITE_NAME_COLS, "站点名", table)
+        rows = conn.execute(f'SELECT "{ncol}", "{rcol}" FROM {table}').fetchall()
+    return _group_by_region(rows)
+
+
+def _regions_from_remote() -> Dict[str, List[str]]:
+    """远端 olbr_ms_master_database.Master_Site_Database_（历史口径，仅作兜底）。"""
+    rows = _q(MASTER_DB, f'SELECT "Site_Name","Region" FROM "{MASTER_TABLE}"',
+              limit=50000)
+    return _group_by_region(rows)
+
+
+def _load_site_regions() -> Tuple[Dict[str, List[str]], str]:
+    """站点 -> Region 映射，返回 (映射, 实际来源)。
+
+    为什么不再固定读远端主库：本机 `master_site_db` 由导入器按**列名**写入 Excel
+    当前列，是页面其它维度（TT 列表、站点类型）已经在用的真源；而远端
+    `olbr_ms_master_database` 是另一条人工维护的链路。两边一旦异步，就会出现
+    「矩阵按老区、TT 按新区」的分叉（2026-11-04 实测：矩阵仍 Montserrado/North East/
+    South West，TT 已是 North/South，下钻恒空）。区域维度只能有一个真源。
+
+    `REGION_SOURCE` = local(默认) / remote / auto。local 失败时按 auto 语义回落远端，
+    但**来源会写进返回结果**，让日志和任务结果能看出本次用的是哪一份。
+    """
+    src = (REGION_SOURCE or "local").strip().lower()
+    order: List[str] = []
+    if src != "remote":
+        order.append("local")
+    if src != "local":
+        order.append("remote")
+    if not order:                      # 配了非法值：按 local 优先 + 远端兜底处理
+        order = ["local", "remote"]
+
+    errors: List[str] = []
+    for name in order:
+        try:
+            rs = _regions_from_local() if name == "local" else _regions_from_remote()
+            if rs:
+                if name == "remote" and "local" in order:
+                    logger.warning("[avail_recon] 本机主数据不可用，回落到远端主库")
+                return rs, name
+            errors.append(f"{name}=空")
+        except Exception as e:  # noqa: BLE001 — 逐个来源试，最后统一报错
+            errors.append(f"{name}={e}")
+    raise AvailReconError("站点主数据读取失败（" + "; ".join(errors) + "）")
 
 
 def site_type(grp: Any) -> str:
@@ -161,18 +261,13 @@ def build(target: Path = OUT_DB, progress=None) -> Dict[str, Any]:
     say = progress or (lambda m: logger.info("%s", m))
 
     # 1) 站点 -> Region（主数据）
-    say(f"[1/4] 读取站点主数据 {MASTER_DB}.{MASTER_TABLE} ...")
-    ms = _q(MASTER_DB, f'SELECT "Site_Name","Region" FROM "{MASTER_TABLE}"',
-            limit=50000)
-    reg_sites: Dict[str, List[str]] = {}
-    for name, region in ms:
-        key = (region or "").strip()
-        if not key:
-            continue
-        reg_sites.setdefault(key, []).append((name or "").strip())
+    say(f"[1/4] 读取站点主数据（region_source={REGION_SOURCE}）...")
+    reg_sites, region_source_used = _load_site_regions()
     if not reg_sites:
         raise AvailReconError("站点主数据为空，拒绝重建（否则会把整表写成空）")
-    say(f"      主数据 {len(ms)} 行 -> {len(reg_sites)} 个 Region："
+    total_sites = sum(len(v) for v in reg_sites.values())
+    say(f"      来源={region_source_used}，{total_sites} 个站点 -> "
+        f"{len(reg_sites)} 个 Region："
         + ", ".join(f"{k}={len(v)}" for k, v in sorted(reg_sites.items())))
 
     known_up = {(s or "").strip().upper() for v in reg_sites.values() for s in v}
@@ -263,6 +358,8 @@ def build(target: Path = OUT_DB, progress=None) -> Dict[str, Any]:
         "max_date": max_d,
         "path": str(target),
         "elapsed_seconds": elapsed,
+        "region_source": region_source_used,
+        "regions": sorted(reg_sites),
     }
 
 

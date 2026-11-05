@@ -10,20 +10,25 @@
 
     avail_ms（?page=avail_ms）           本页（?page=avail_flm）
     -----------------------------       -----------------------------
-    行=ALL/3 区域/UNMATCHED × 列=制式    行=3 区域（+未匹配） × 列=制式
-    行=制式 × 列=站点类型                行=3 区域（+未匹配） × 列=站点类型
+    行=ALL/各区域/UNMATCHED × 列=制式    行=各区域（+未匹配） × 列=制式
+    行=制式 × 列=站点类型                行=各区域（+未匹配） × 列=站点类型
     行=站点类型 × 列=制式                （无）
     TT 只在单元格下钻里                   另有一张页面级 TT 列表
+
+**区域不写死**：行与图线的区域集合 = 派生库当期真实出现的区域（`_flm_regions`）。
+主数据换口径时（如 2026-11 由 Montserrado/North East/South West 变为 North/South），
+页面自动跟着变，不需要改代码；顺序需要固定时用环境变量 `AVAIL_REGION_ORDER`。
 
 =========================== 两条已确认的口径 ===========================
 （2026-09-28 与用户逐条确认，改动前请看这两条的来由，别再"照需求表改回去"）
 
-1. **站点类型不做范围限制。** 需求表写「North East 只有 Regular/Cool.i」「South West 只有
+1. **站点类型不做范围限制。** 需求表曾写「某区域只有 Regular/Cool.i」「另一区域只有
    Regular/ERA」，但两个数据源都不支持这个"不存在"：站点主数据 `master_site_db` 里
-   NE 有 123 个 ERA 站点（SW 有 22 个 Cool.i），派生库里 NE 的 ERA 分母 6.5 万、
-   SW 的 Cool.i 分母 1.2 万，与 Regular 同一量级。所以那是**业务适用范围**而非缺数据，
-   硬留空会让用户在 NE 行看不到 ERA —— 而同一批数据在 avail_ms 里是显示 98% 的。
-   结论：三个区域都显示三个站点类型，单元格为空只代表"本期确实没数据"。
+   被指为"只有 Regular/Cooli"的那个区域实际有 123 个 ERA 站点（另一个区域有 22 个 Cool.i），
+   派生库里它的 ERA 分母 6.5 万、另一区域的 Cool.i 分母 1.2 万，与 Regular 同一量级。
+   所以那是**业务适用范围**而非缺数据，硬留空会让用户在那一行看不到 ERA ——
+   而同一批数据在 avail_ms 里是显示 98% 的。
+   结论：每个区域都显示全部站点类型，单元格为空只代表"本期确实没数据"。
 
 2. **TT 列表列本期全部工单，不做"是否影响业务"判定。** `eflow_tt` 有
    `whether_impacted_service` 与 `site_outage` 两列，本期数据上两者完全一致
@@ -51,16 +56,28 @@ from backend.services import avail_ms_service as ms
 
 logger = logging.getLogger("avail_flm")
 
-# 三个 FLM 区域。取 avail_ms 的固定顺序（Montserrado → North East → South West），
-# 这两个常量必须同源：需求表里的区域就是这三个，顺序也一致。
+# 区域列表**不写死**：由派生库当期真实出现的区域决定（见 `_flm_regions`）。
+# 需要在页面上固定顺序时用环境变量 `AVAIL_REGION_ORDER="区域A,区域B"`；留空 = 字母序。
+# 历史教训（2026-11-04）：这里曾把 ("Montserrado","North East","South West") 当**白名单**
+# 过滤，主数据换成 North/South 后整页被筛成空表（矩阵有数、TT 有数、曲线全空）。
+# 区域只认数据，代码里不再出现任何区域名。
 FLM_REGIONS: Tuple[str, ...] = ms.PREFERRED_REGIONS
+
+
+def _flm_regions(rows: Sequence[ms.Row]) -> List[str]:
+    """本页要展示的区域 = 本期数据里真实出现的区域（数据驱动）。
+
+    顺序：`AVAIL_REGION_ORDER` 里列到的排前面，其余按字母序（见 `ms.regions_in`）。
+    新区域（如以后的 Central / South East）会自动出现在页面上，不会被静默吞掉。
+    """
+    return ms.regions_in(rows)
 
 # 区域×站点类型表的列：只画需求表列的三种（不含 avail_ms 的 `Other`）。
 # `4G FDD NERA` 仍计入制式 4G 的总量（它在派生库里就是 4G 的一部分），
 # 只是在本页不单列成列 —— 该时间窗内 4G 行 ≠ 三列相加，由 other_site_type_present 说明码提示。
 FLM_SITE_TYPES: Tuple[str, ...] = ("Regular", "Cooli", "ERA")
 
-# 行标签：三个区域 + 未匹配主数据桶（末行，便于对账；它不是区域，故不参与"区域"语义）
+# 行标签：各区域 + 未匹配主数据桶（末行，便于对账；它不是区域，故不参与"区域"语义）
 ROW_UNMATCHED = ms.REGION_UNMATCHED
 
 
@@ -78,10 +95,15 @@ def _rows_of(period: str, value: str) -> Tuple[List[ms.Row], List[ms.Row], str, 
     return rows, prev_rows, value, all_rows
 
 
-def _row_keys(rows: Sequence[ms.Row]) -> List[str]:
-    """行顺序：三个 FLM 区域恒在（本期没数据就整行 `—`，表形不随数据跳变），
-    末行补未匹配主数据桶（有才补）。"""
-    keys: List[str] = list(FLM_REGIONS)
+def _row_keys(rows: Sequence[ms.Row],
+              regions: Optional[Sequence[str]] = None) -> List[str]:
+    """行 = 本期真实出现的区域（顺序见 `_flm_regions`），末行补未匹配主数据桶（有才补）。
+
+    区域由数据决定，某个区本期没数据它就不出现，下期有数据又自动回来 ——
+    表形跟着主数据走，不需要改代码（2026-11-04 之前是"三个固定区域恒在、没数据整行空"，
+    主数据一换口径就整页错位，故改成本条）。
+    """
+    keys: List[str] = list(regions if regions is not None else _flm_regions(rows))
     if ms.has_unmatched(rows):
         keys.append(ROW_UNMATCHED)
     return keys
@@ -94,6 +116,8 @@ def build_matrix(period: str = "day", value: str = "",
     if period not in ms.PERIODS:
         period = "day"
     rows, prev_rows, value, _all = _rows_of(period, value)
+    regions = _flm_regions(rows)
+    row_keys = _row_keys(rows, regions)
 
     groups = [
         {
@@ -102,7 +126,7 @@ def build_matrix(period: str = "day", value: str = "",
             "rows": [{"key": rk,
                       "cells": {tk: ms.cell(rows, prev_rows, rk, tk, None, threshold)
                                 for tk in ms.TECHS}}
-                     for rk in _row_keys(rows)],
+                     for rk in row_keys],
         },
         {
             "dim": "region_site_type",
@@ -110,22 +134,27 @@ def build_matrix(period: str = "day", value: str = "",
             "rows": [{"key": rk,
                       "cells": {st: ms.cell(rows, prev_rows, rk, None, st, threshold)
                                 for st in FLM_SITE_TYPES}}
-                     for rk in _row_keys(rows)],
+                     for rk in row_keys],
         },
     ]
 
     # 区域 KPI 卡：该区域**全部制式合计**的可用率（不带制式/站点类型切片）
     by_region = {rk: ms.cell(rows, prev_rows, rk, None, None, threshold)
-                 for rk in FLM_REGIONS}
-    # 全部三个区域合计（口径上等于 avail_ms 的 ALL 减掉未匹配桶）——
+                 for rk in regions}
+    # 全部区域合计（口径上等于 avail_ms 的 ALL 减掉未匹配桶）——
     # 页面上不做成卡片，但导出与对账要用，故一并给出
     total = ms.cell(rows, prev_rows, ms.REGION_ALL, None, None, threshold)
 
-    # 本页没有 ALL 行，avail_ms 那条「ALL ≠ 三区域相加」的说明码在这里不适用；
+    # 本页没有 ALL 行，avail_ms 那条「ALL ≠ 各区域相加」的说明码在这里不适用；
     # 换成"未匹配站点单列末行"的说明，避免把上一页的文案搬过来造成误读。
     warnings = [w for w in ms.warnings_for(rows) if w != "region_all_includes_unmatched"]
     if ms.has_unmatched(rows):
         warnings.insert(0, "flm_unmatched_last_row")
+    # 派生库区域与站点主数据区域对不上：本页区域行会直接跟着派生库走，
+    # 而 TT 列表跟着主数据走 —— 必须显式告警，否则下钻会静默筛空。
+    consistency = ms.region_consistency(rows)
+    if consistency.get("ok") is False:
+        warnings.insert(0, "region_source_mismatch")
 
     return {
         "meta": {
@@ -134,14 +163,15 @@ def build_matrix(period: str = "day", value: str = "",
             "prev_value": ms.previous_value(period, value),
             "data_through": max((r.day for r in _all), default=""),
             "threshold": threshold,
-            "regions": list(FLM_REGIONS),
+            "regions": regions,
             "generated_at": datetime.now().isoformat(timespec="seconds"),
             "elapsed_ms": round((time.time() - t0) * 1000, 1),
             "warnings": warnings,
             "unknown_cell_groups": ms.unknown_cell_groups(rows),
+            "region_consistency": consistency,
         },
         "summary": {
-            "by_region": {rk: by_region[rk] for rk in FLM_REGIONS},
+            "by_region": {rk: by_region[rk] for rk in regions},
             "by_tech": {tk: ms.cell(rows, prev_rows, ms.REGION_ALL, tk, None, threshold)
                         for tk in ms.TECHS},
             "all_regions": total,
@@ -173,7 +203,10 @@ def build_trends(period: str = "day", value: str = "", points: int = 0,
         "meta": meta,
         "categories": data.get("categories", []),
         "dims": {
-            "region": [s for s in dims.get("region", []) if s.get("key") in FLM_REGIONS],
+            # 区域：除了 ALL 与未匹配桶，其余全部原样保留（区域由数据决定，
+            # 新区域自动出现在图里，不靠白名单）。
+            "region": [s for s in dims.get("region", [])
+                       if s.get("key") not in (ms.REGION_ALL, ms.REGION_UNMATCHED)],
             "site_type": [s for s in dims.get("site_type", [])
                           if s.get("key") in FLM_SITE_TYPES],
         },
@@ -210,13 +243,13 @@ def get_drilldown(level: str = "period", period: str = "day", value: str = "",
 
 
 def normalize_region(region: str) -> str:
-    """区域入参归一：空=ALL；三个 FLM 区域与 UNMATCHED 之外的区域名不允许（本页不展示）。"""
+    """区域入参归一：空 = ALL；其余**原样透传**（区域集合由数据决定，不再对白名单校验）。
+
+    原来会把不认识的值吞成 ALL，看起来"友好"，实际掩盖了调用方传错区域的事实 ——
+    主数据换口径那阵子，传新区域名会被静默改成 ALL，用户以为筛了其实没筛。
+    """
     r = (region or "").strip()
-    if not r or r == ms.REGION_ALL:
-        return ms.REGION_ALL
-    if r in FLM_REGIONS or r == ROW_UNMATCHED:
-        return r
-    return ms.REGION_ALL
+    return r or ms.REGION_ALL
 
 
 def normalize_site_type(site_type: str) -> str:

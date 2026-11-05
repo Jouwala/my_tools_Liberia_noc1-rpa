@@ -504,6 +504,7 @@ if(window.echarts){
     var s = document.getElementById('status');
     if (s && s.textContent === t('st.loading')) setStatus(t('st.fail', {msg: 'timeout (15s) — API 无响应或脚本异常'}), false);
   }, 15000);
-  try{MyAppRefresh.install({defaultSec:600,onRefresh:function(){loadAll();}});}catch(e){}
+  /* 2026-11-03 起自动刷新默认关闭（用户在 my_app 顶栏按页开启），无 600s 默认兜底 */
+  try{MyAppRefresh.install({onRefresh:function(){loadAll();}});}catch(e){}
 }else{setStatus(t('st.noecharts'),false)}
 })();

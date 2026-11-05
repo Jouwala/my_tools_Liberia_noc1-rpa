@@ -37,6 +37,8 @@ import {
   axisLabel, axisLine, splitLine, darkTooltip, WH_COLORS, LIGHT_COLORS,
 } from '../theme'
 import { CardBase, StatCard } from '../components/cards'
+import { ExplainIcon, ExplainPopover } from '../components/MetricExplain'
+import { peopleCardExplain, personCellExplain, siteCardExplain, sumCardExplain } from './personmap/personExplain'
 import { exportAoaReport } from '../utils/excelReport'
 import { MapContainer } from '../components/LeafletMap'
 import { PersonMapView } from './personmap/PersonMapView'
@@ -296,6 +298,13 @@ export default function PersonMap() {
     }
   }, [rows, stats, selectedKey, sites])
 
+  /* 卡标题的 ⓘ 与数字本身的气泡共用同一份说明（AGENTS.md 三.3c 的两层载体，
+     与 fme_ranking 同一取向）：文案只排接口已有字段，前端不重算口径。 */
+  const explainPeople = peopleCardExplain(stats, t, WINDOW_DAYS)
+  const explainUncleared = sumCardExplain('uncleared', kpi.uncleared, rows.length, stats, t, WINDOW_DAYS)
+  const explainOpen = sumCardExplain('open', kpi.open, rows.length, stats, t, WINDOW_DAYS)
+  const explainSites = siteCardExplain(selectedPerson?.name ?? null, kpi.siteCount, kpi.alarmSites, t)
+
   /* ---------- 图表 ---------- */
   const cTextMuted = isDark ? '#aebbd4' : '#3f5468'
   const cPalette = isDark ? WH_COLORS : LIGHT_COLORS
@@ -407,21 +416,38 @@ export default function PersonMap() {
       render: (v: string[]) => (v && v.length ? v.join(', ') : '—'),
     },
     {
-      title: t('person.colUncleared'), dataIndex: 'uncleared', key: 'uncleared', width: 110,
+      title: <span>{t('person.colUncleared')} <ExplainIcon text={t('person.explain.colUncleared')} /></span>,
+      dataIndex: 'uncleared', key: 'uncleared', width: 110,
       sorter: (a: PersonRow, b: PersonRow) => a.uncleared - b.uncleared,
-      render: (v: number) => <span style={{ color: v > 0 ? WH.sev.Critical : undefined, fontWeight: v > 0 ? 700 : 400 }}>{v}</span>,
+      render: (v: number, r: PersonRow) => (
+        <ExplainPopover text={personCellExplain('uncleared', r, t, WINDOW_DAYS)}>
+          <span style={{ color: v > 0 ? WH.sev.Critical : undefined, fontWeight: v > 0 ? 700 : 400 }}>{v}</span>
+        </ExplainPopover>
+      ),
     },
     {
-      title: t('person.colOpenWo'), dataIndex: 'open', key: 'open', width: 110,
+      title: <span>{t('person.colOpenWo')} <ExplainIcon text={t('person.explain.colOpen', { days: WINDOW_DAYS })} /></span>,
+      dataIndex: 'open', key: 'open', width: 110,
       sorter: (a: PersonRow, b: PersonRow) => a.open - b.open,
+      render: (v: number, r: PersonRow) => (
+        <ExplainPopover text={personCellExplain('open', r, t, WINDOW_DAYS)}>{v}</ExplainPopover>
+      ),
     },
     {
-      title: t('person.colClosedWo'), dataIndex: 'closed', key: 'closed', width: 110,
+      title: <span>{t('person.colClosedWo')} <ExplainIcon text={t('person.explain.colClosed', { days: WINDOW_DAYS })} /></span>,
+      dataIndex: 'closed', key: 'closed', width: 110,
       sorter: (a: PersonRow, b: PersonRow) => a.closed - b.closed,
+      render: (v: number, r: PersonRow) => (
+        <ExplainPopover text={personCellExplain('closed', r, t, WINDOW_DAYS)}>{v}</ExplainPopover>
+      ),
     },
     {
-      title: t('person.colTt'), dataIndex: 'tt_total', key: 'tt_total', width: 90,
+      title: <span>{t('person.colTt')} <ExplainIcon text={t('person.explain.colTt')} /></span>,
+      dataIndex: 'tt_total', key: 'tt_total', width: 90,
       sorter: (a: PersonRow, b: PersonRow) => a.tt_total - b.tt_total,
+      render: (v: number, r: PersonRow) => (
+        <ExplainPopover text={personCellExplain('tt_total', r, t, WINDOW_DAYS)}>{v}</ExplainPopover>
+      ),
     },
     {
       title: t('person.colAction'), key: 'action', width: 130,
@@ -624,35 +650,38 @@ export default function PersonMap() {
           <Row gutter={[8, 8]}>
             <Col span={12}>
               <StatCard
-                title={t('person.kpiPeople')}
+                title={<span>{t('person.kpiPeople')} <ExplainIcon text={explainPeople} /></span>}
                 value={kpi.peopleWithCoords}
                 suffix={`/ ${kpi.totalAll}`}
                 accentColor={WH.teal}
                 prefix={<TeamOutlined />}
                 subText={t('person.kpiPeopleSub')}
+                explainText={explainPeople}
               />
             </Col>
             <Col span={12}>
               <StatCard
-                title={t('person.kpiUncleared')}
+                title={<span>{t('person.kpiUncleared')} <ExplainIcon text={explainUncleared} /></span>}
                 value={kpi.uncleared}
                 accentColor={WH.sev.Critical}
                 prefix={<WarningOutlined />}
                 subText={t('person.kpiUnclearedSub')}
+                explainText={explainUncleared}
               />
             </Col>
             <Col span={12}>
               <StatCard
-                title={t('person.kpiOpen')}
+                title={<span>{t('person.kpiOpen')} <ExplainIcon text={explainOpen} /></span>}
                 value={kpi.open}
                 accentColor={WH.blue}
                 prefix={<FileDoneOutlined />}
                 subText={t('person.kpiOpenSub', { total: kpi.total })}
+                explainText={explainOpen}
               />
             </Col>
             <Col span={12}>
               <StatCard
-                title={t('person.kpiSites')}
+                title={<span>{t('person.kpiSites')} <ExplainIcon text={explainSites} /></span>}
                 value={selectedKey ? (kpi.siteCount ?? '—') : '—'}
                 accentColor={WH.indigo}
                 prefix={<EnvironmentOutlined />}
@@ -661,6 +690,7 @@ export default function PersonMap() {
                     ? t('person.kpiSitesSub', { alarm: kpi.alarmSites ?? 0 })
                     : t('person.kpiSitesHint')
                 }
+                explainText={explainSites}
               />
             </Col>
           </Row>

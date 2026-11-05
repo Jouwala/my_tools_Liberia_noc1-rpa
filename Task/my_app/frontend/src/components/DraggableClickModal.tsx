@@ -2,7 +2,8 @@
 // 通用下钻弹窗组件：
 //  - 以"点击位置"为中心弹出（点击点落在弹窗中心，越界自动 clamp 到视口内）
 //  - 按住标题栏可自由拖动（限制在视口内）
-//  - 仅通过右上角 × 与 Esc 关闭，点遮罩不关闭（避免误触）
+//  - 默认仅通过右上角 × 与 Esc 关闭，点遮罩不关闭（避免误触）；
+//    需要「点遮罩关闭」的页面可显式传 maskClosable（如 ipt_power 的电源详情弹窗）
 // 行为与 Warehouse 看板的明细弹窗保持一致。
 //
 // 【必须用 Portal 挂到 body】——踩过的坑，别再删：
@@ -27,6 +28,14 @@ export interface DraggableClickModalProps {
   maxWidth?: number | string
   /** 暗色主题（Warehouse 深空蓝风格）；缺省跟随全局主题 */
   dark?: boolean
+  /** 标题栏右侧扩展区（放 meta 文本 / 刷新 / 导出等动作）。
+   * 落在这一区域内的鼠标按下不会触发拖动，避免按钮点不动。 */
+  headerExtra?: React.ReactNode
+  /** 点遮罩是否关闭。默认 false（既有页面一律「点遮罩不关」，避免误触）。 */
+  maskClosable?: boolean
+  /** center（默认）= 以点击点（或视口中心）居中；
+   *  top = 水平居中、顶部约 6vh（mwRealTime KPI 弹窗的观感）。 */
+  placement?: 'center' | 'top'
   children?: React.ReactNode
 }
 
@@ -38,6 +47,9 @@ const DraggableClickModal: React.FC<DraggableClickModalProps> = ({
   width = '92%',
   maxWidth = '87.5rem',
   dark: darkProp,
+  headerExtra,
+  maskClosable = false,
+  placement = 'center',
   children,
 }) => {
   const { isDark } = useTheme()
@@ -83,7 +95,10 @@ const DraggableClickModal: React.FC<DraggableClickModalProps> = ({
   /* 头栏永远占位，不允许被 flex 压缩：内容再长也只让 body 滚动 */
   flex: 0 0 auto;
 }
-.dcm-title { font-size: 0.9375rem; font-weight: 600; color: #1f1f1f; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dcm-title { font-size: 0.9375rem; font-weight: 600; color: #1f1f1f; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  flex: 1 1 auto; min-width: 0; }
+/* 标题栏动作区：与拖动区分离，按钮/下拉可正常点击 */
+.dcm-extra { display: flex; align-items: center; gap: var(--wh-space-sm); flex: 0 0 auto; cursor: default; }
 .dcm-close {
   border: none; background: transparent; cursor: pointer;
   font-size: 1.25rem; line-height: 1; color: #999; padding: 0 var(--wh-space-xs);
@@ -113,6 +128,7 @@ const DraggableClickModal: React.FC<DraggableClickModalProps> = ({
   border-bottom: 1px solid rgba(0, 217, 255,0.22);
 }
 .dcm-modal.dcm-dark .dcm-title { color: #f5f7ff; }
+.dcm-modal.dcm-dark .dcm-extra { color: #aebbd4; }
 .dcm-modal.dcm-dark .dcm-close { color: #aebbd4; }
 .dcm-modal.dcm-dark .dcm-close:hover { color: #ff5c6c; }
 .dcm-modal.dcm-dark .dcm-body { background: transparent; }
@@ -133,17 +149,25 @@ const DraggableClickModal: React.FC<DraggableClickModalProps> = ({
     document.head.appendChild(style)
   }, [])
 
-  // 打开时定位：以点击点为中心，越界 clamp 到视口
+  // 打开时定位：默认以点击点为中心；placement='top' 时水平居中、顶部约 6vh
+  // （mwRealTime 的 KPI 弹窗就是这个位置），越界一律 clamp 到视口内。
   useLayoutEffect(() => {
     if (!open || !modalRef.current) return
     const el = modalRef.current
     const w = el.offsetWidth
     const h = el.offsetHeight
-    const cx = anchor ? anchor.x : window.innerWidth / 2
-    const cy = anchor ? anchor.y : window.innerHeight / 2
     const pad = 8
-    let left = cx - w / 2
-    let top = cy - h / 2
+    let left: number
+    let top: number
+    if (placement === 'top') {
+      left = (window.innerWidth - w) / 2
+      top = window.innerHeight * 0.06
+    } else {
+      const cx = anchor ? anchor.x : window.innerWidth / 2
+      const cy = anchor ? anchor.y : window.innerHeight / 2
+      left = cx - w / 2
+      top = cy - h / 2
+    }
     // Math.max(pad, ...) 兜底：当 h 仍大于视口（极端小窗）时，宁可从顶部开始也把
     // 标题栏留在屏幕内，剩余内容由 .dcm-body 内部滚动，不让整个弹窗被推到屏幕外。
     left = Math.max(pad, Math.min(left, window.innerWidth - w - pad))
@@ -151,7 +175,7 @@ const DraggableClickModal: React.FC<DraggableClickModalProps> = ({
     el.style.left = `${left}px`
     el.style.top = `${top}px`
     el.style.transform = 'none'
-  }, [open, anchor])
+  }, [open, anchor, placement])
 
   // 视口尺寸变化时重新 clamp（否则窗口缩小后弹窗会停在屏幕外）
   useEffect(() => {
@@ -162,14 +186,18 @@ const DraggableClickModal: React.FC<DraggableClickModalProps> = ({
       const w = el.offsetWidth
       const h = el.offsetHeight
       const pad = 8
-      const left = parseFloat(el.style.left || '0')
-      const top = parseFloat(el.style.top || '0')
+      const left = placement === 'top'
+        ? (window.innerWidth - w) / 2
+        : parseFloat(el.style.left || '0')
+      const top = placement === 'top'
+        ? window.innerHeight * 0.06
+        : parseFloat(el.style.top || '0')
       el.style.left = `${Math.max(pad, Math.min(left, window.innerWidth - w - pad))}px`
       el.style.top = `${Math.max(pad, Math.min(top, window.innerHeight - h - pad))}px`
     }
     window.addEventListener('resize', onResize)
     return () => window.removeEventListener('resize', onResize)
-  }, [open])
+  }, [open, placement])
 
   const onMouseMove = useCallback((e: MouseEvent) => {
     if (!drag.current.active || !modalRef.current) return
@@ -197,8 +225,10 @@ const DraggableClickModal: React.FC<DraggableClickModalProps> = ({
     if (!el) return
     const header = el.querySelector('.dcm-header') as HTMLElement | null
     if (!header || !header.contains(e.target as Node)) return
-    const closeBtn = el.querySelector('.dcm-close')
-    if (closeBtn && closeBtn.contains(e.target as Node)) return
+    const noDrag = el.querySelectorAll('.dcm-close, .dcm-extra')
+    for (const node of Array.from(noDrag)) {
+      if (node.contains(e.target as Node)) return
+    }
     drag.current.active = true
     const rect = el.getBoundingClientRect()
     drag.current.dx = e.clientX - rect.left
@@ -225,7 +255,10 @@ const DraggableClickModal: React.FC<DraggableClickModalProps> = ({
   if (!open) return null
 
   return createPortal(
-    <div className="dcm-overlay">
+    <div
+      className="dcm-overlay"
+      onClick={e => { if (maskClosable && e.target === e.currentTarget) onClose() }}
+    >
       <div
         ref={modalRef}
         className={`dcm-modal${dark ? ' dcm-dark' : ''}`}
@@ -234,6 +267,7 @@ const DraggableClickModal: React.FC<DraggableClickModalProps> = ({
       >
         <div className="dcm-header">
           <div className="dcm-title">{title}</div>
+          {headerExtra && <div className="dcm-extra">{headerExtra}</div>}
           <button className="dcm-close" onClick={onClose} aria-label="Close">×</button>
         </div>
         <div className="dcm-body">{children}</div>

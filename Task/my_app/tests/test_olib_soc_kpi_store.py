@@ -754,8 +754,10 @@ if page.exists():
           "myapp-refresh" in html and "paintStatic(); load();" in html.replace("\n", " "))
     # 2026-10-10 起自刷改为常开的 MyAppRefresh 共享协议（嵌入外壳时也兜底），
     # 旧写法 if(!embedded()) window.__rt=setInterval 已删除 —— 断言跟着现状走。
-    check("页面接 MyAppRefresh 共享自刷协议（间隔与外壳 AR_PAGE_DEFAULTS 对齐）",
-          "MyAppRefresh.install({" in html and "defaultSec: 900" in html)
+    # 2026-11-03 起自动刷新默认关闭：协议不再有 defaultSec 兜底（间隔完全由
+    # 外壳按页写入），页面自带间隔反而违背「用户决定是否刷新」。
+    check("页面接 MyAppRefresh 共享自刷协议（无自带间隔，随外壳按页选择）",
+          "MyAppRefresh.install({" in html and "defaultSec" not in html)
     check("页面读外壳的自动刷新间隔并在界面上显示",
           "myapp_auto_refresh_effective" in html and 'id="arLabel"' in html)
     check("中英文都补了自动刷新文案",

@@ -79,6 +79,10 @@ class RotatingLogWriter:
         self._fh = None
         self._path = None
         self._size = 0
+        # 2026-11-04：读端/写端主动关闭标记。close() 之后 pump 线程的迟到写入
+        # 必须直接丢弃 —— 旧实现 close() 会把 _fh 置 None，下一次 write 又
+        # _open_initial() 重新打开文件，等于「关闭」没生效。
+        self._closed = False
         self.base.parent.mkdir(parents=True, exist_ok=True)
         self._open_initial()
 
@@ -143,7 +147,7 @@ class RotatingLogWriter:
         return self._path
 
     def write(self, chunk: bytes) -> None:
-        if not chunk:
+        if not chunk or self._closed:
             return
         with self._lock:
             if self._fh is None:
@@ -156,6 +160,7 @@ class RotatingLogWriter:
 
     def close(self):
         with self._lock:
+            self._closed = True
             self._flush_and_close()
 
 
@@ -208,6 +213,20 @@ def _pump_loop(proc, writer: RotatingLogWriter, name: str) -> None:
         except Exception:
             pass
         writer.close()
+        # 2026-11-04：泵线程结束（EOF 或异常）时子进程若仍存活，说明读端已关闭而
+        # 子进程还会继续写 stdout —— Windows 下这就是 OSError: [Errno 22]
+        # Invalid argument 的成因（2026-11-03 eflow_sync 事故）。这里只做留痕：
+        # 真正的兜底是 worker 侧的「父进程消失即自退」守卫。
+        try:
+            still_alive = proc.poll() is None
+        except Exception:
+            still_alive = False
+        if still_alive:
+            logger.error(
+                "[log_writer] %s: 日志读端已关闭但子进程仍存活 (pid=%s)，"
+                "其后续 stdout/stderr 写入将失败（应由子进程的父进程存活守卫自退）",
+                name, getattr(proc, "pid", "?"),
+            )
 
 
 def resolve_free_path(base_path, max_bytes: int = None) -> Path:

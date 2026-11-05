@@ -33,10 +33,13 @@ Base：`https://backend.iptdigitalplatform.com/api/v0.1/assets/clients/<client_r
 | 接口 | 用途 |
 | --- | --- |
 | `GET /sites?query=<站名>` | 站点模糊搜索，返回概要（id/name/参考号/cluster/坐标/优先级/连接状态） |
-| `GET /sites/<site_id>/diagram` | **电源全景**：loads / batterySets / generators / grids / gridBackups / rectifiers / fuelTanks / fuelTankClusters / solarSets / environment |
+| `GET /sites?query=&page=N&pageSize=100` | 分页列全站完整属性（服务端 pageSize 上限 100），用于回填站点表 |
+| `GET /sites/<site_id>/diagram` | **电源全景（明细层，~5KB）**：loads / batterySets / generators / grids / gridBackups / rectifiers / fuelTanks / fuelTankClusters / solarSets / environment |
+| `GET /sites/<site_id>/popup` | **站点弹窗摘要（KPI 层，~1.5KB）**：site 属性 + site.events 活动告警 + 精简 diagram（loadPower / batteryVoltage / SOC / solarPower / fuelTankLevel / generatorOn）。501 站并发 32 线程实测 60.1s、0 错误 |
+| `POST /events/recent`（body `{"duration": 60}`） | 全站近 N 分钟「新发生」事件（1 个请求）。⚠ 只含最近发生，**不含**长期未清除的活动告警；活动告警以 `/popup` 的 site.events 为准 |
 | `GET /sites/<site_id>/with-events` | 站点+设备详情（网关、SIM、SNMP 等；含设备凭据字段，注意脱敏） |
 | `GET /sites/<site_id>/devices/<device_id>/attributes/values` | 单设备属性（实测该站点返回 `[]`，数据主要在 diagram） |
-| `POST /sites/filter-map` | 全站过滤地图（body 为空过滤器组合） |
+| `POST /sites/filter-map` | 全站过滤地图（body 为空过滤器组合；**不含任何电源数值**） |
 
 `client_ref` 默认 `9eda5e46b0294eb589881ee74f8940da`（Orange Liberia 租户，抓包确认）。
 
@@ -60,3 +63,83 @@ python ipt_energy_client.py "Jahtondo Town" --json # 归一化 JSON
 - `with-events` 响应含网关设备密码/SNMP community 等敏感字段，任何落库/日志输出前须脱敏。
 - 外网 API 需直连（客户端已设 `trust_env=False`，规避本机 http_proxy 干扰）。
 - 会话同源：`rubix-web` 单账号多端登录不互踢（隐式流无服务端会话绑定限制，实测多次登录均有效）。
+
+## 五、采集架构：全站 2 分钟分辨率（2026-11-04 重设计）
+
+`filter-map` 只返回 `id / name / 坐标 / connectivity / criticality`，**不含任何电源数值**；
+上游也**没有批量电源接口**（逐一核对过抓包里的全部端点，含 `events/recent`——它只有
+最近新发生的事件，不是活动告警快照）。因此电源数值只能逐站请求，全站 2 分钟分辨率
+靠**并发逐站拉取**实现（2026-11-04 实测）：
+
+| 层 | 接口 | 实测吞吐（32 线程） | 节奏 |
+| --- | --- | --- | --- |
+| KPI 层 | `/popup`（~1.5KB） | 501 站 60.1s、0 错误 | **每轮全采** → 全站每 2 分钟一条快照 |
+| 明细层 | `/diagram`（~5KB） | 200 站 73.8s、外推 501 站 ~185s 且有超时 | 分片轮采 ≤60 站/轮（3 线程）→ 约 20 分钟覆盖全站 |
+
+两池**并发同时跑**，整轮受 100s 硬上限（`KPI_ROUND_HARD_DEADLINE_S`，
+任务入口起算）约束，到时放弃未完成站点，保证 2 分钟节拍不漂移；未采到的站
+下轮补上（popup 在硬上限内**补采一轮**，diagram 游标接着走）。
+
+**并发调优（2026-11-04 ~ 11-05 实测）**：最初 32 + 16 线程在上游健康时能跑满
+501 站/60s，但持续 2 分钟节拍下会把上游拖出批量读超时（21:58 轮 113/501）；
+降到 12 + 8 后当晚恢复到 359~405/501，**11-05 上午又退化到 0~40/501**。
+空闲期顺序探测 0.9~4.3s、采集期批量 12s 超时，确认是**自身并发把上游压垮**：
+高并发下每个慢请求被客户端提前放弃，服务端却仍在计算，连接越堆越慢形成
+超时风暴。现行配置为 **popup 8 线程 + diagram 3 线程（合计 11 并发）+
+每线程 0.3s 间隔**，以单轮覆盖率换上游稳定；漏采站由 `kpi_cursor` 环形游标
+下轮续采，配合 `shard_cursor` 明细游标，全站最终都能轮到。
+
+**弹性与脱敏（2026-11-04 晚高峰 / 11-05 上午两次复盘后加固）**：
+
+- **池内超时 20s**（`POOL_REQ_TIMEOUT_S`）：11-05 顺序探测出现过 17s 仍成功，
+  12s 会把「慢但会成功」的请求误杀，且提前放弃的请求仍占用服务端 → 放宽到
+  20s，减少超时风暴；真正卡死的站仍由硬上限 + 补采兜底。
+- **popup 环形游标**（`ipt_power_meta.kpi_cursor`）：每轮从上次断点轮转任务顺序，
+  避免硬上限截断时 `sorted(site_id)` 列表尾部的站永远拿不到新快照（11-05 实测
+  1 小时内 62 站无快照）。
+- **低成功率熔断**（`DEGRADED_RATIO=0.25`）：一轮 popup 成功率低于 25% 即视为
+  上游被压垮/故障，计入退避（`last_run.degraded=true`），不再每 2 分钟打满
+  100s 却拿不到数据。
+- **熔断退避**：上游故障（filter-map 连续 500 / 读超时，或上述低成功率）时，
+  按连续失败次数指数退避（5/10/20... 分钟，封顶 30 分钟，`BACKOFF_*` 常量，
+  状态存 `ipt_power_meta.failure_backoff`），退避期内整轮**静默跳过**
+  （success=true，不触发失败通知轰炸）；任一轮成功即清零。
+- 页面数据新鲜度由 `/api/ipt-power/status` 的 `last_run.time` 判断，
+  超过 5 分钟即说明上游异常或退避中。
+
+`watch_sites.json`（对象形态）：
+
+```json
+{
+  "sites": ["Jahtondo Town", "Brewerville 4", "Zwedru 4"],
+  "full_kpi":   { "enabled": true, "workers": 8, "budget_s": 80 },
+  "full_shard": { "enabled": true, "max_sites": 60, "budget_s": 70 }
+}
+```
+
+- `sites`：关注站，**每轮必采 diagram 完整明细**（2 分钟明细分辨率）。
+- `full_kpi`：全站 popup KPI 层；关闭则退回「只有分片轮采」的旧行为。
+- `full_shard`：diagram 明细分片轮采。站点按 `site_id` 排序，
+  用 `ipt_power_meta.shard_cursor` 做环形游标，每轮从游标处计划最多 60 站，
+  下一轮接着采。明细字段（油机相电压/电池容量/油箱容量/主源状态）以每站
+  **最新一条 diagram** 为准（`ipt_power_site_detail`），页面「立即刷新」可实时补齐。
+- 站点属性由 `GET /sites?query=&page=N&pageSize=100` 分页（约 6 个请求）**一次性回填**
+  `ipt_power_sites`，之后只在出现缺值且距上次回填 >1h 时重跑。
+- ⚠ **不要在 `sites` 里配 `"*"`**：旧语义是单轮全采 500 站 diagram（>10 分钟），会超时并冲击外网平台。
+  修改 `ipt_power_collector.py` 后需重启 m 组 worker：
+  `python restart_workers.py --groups m --reason "重载 ipt_power_collector"`；
+  只改 `watch_sites.json` 不用重启（每轮重读）。
+
+存储与脱敏：
+
+- `ipt_power_snapshots`：全站每轮一条（501 站 × 720 轮/天）。popup 行 `raw=NULL`
+  控表体积（全存约 1.8GB/天），diagram 行补全明细列；保留 2 天自动清理。
+  新增列：`source / alarm_count / alarm_names / solar_available / fuel_capacity / main_source_on`。
+- `ipt_power_site_detail`：每站最新一条 diagram 精简明细（`slim_diagram()` 已剥除
+  设备凭据）。⚠ 2026-11-04 前 raw 存全量 diagram 且被 `/api/ipt-power/site/{id}`
+  原样下发，其中 `fuelTanks[].device` 带控制器明文口令，属凭据泄漏，已修复
+  （raw 改存 slim、API 不再下发 raw）。
+- 太阳能取值口径：`solarSets[].solarPower` 与 `rectifiers[].solarPower` 上游是同一份
+  镜像值（对 3945 条历史快照逐条核对），取 max 避免重复累加，多组太阳能先求和；
+  `solar_available=0` 表示站点无太阳能设备（页面显示 `-`），有设备时夜间
+  （利比里亚 GMT，约 18:30~06:30）为 0 W 属正常。

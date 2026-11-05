@@ -77,6 +77,12 @@
    - **禁止**用 `title=` 原生提示（不可复制、样式不受主题管、移动端读不到）；`ExplainIcon` 已自带 `stopPropagation`，挂在可下钻的卡片上时点 ⓘ **不会**顺带打开下钻弹窗。
    - **不适用**：`LegacyToolFrame` 的 iframe 页（FineBI/外部工具，数字不在我们 DOM 里）；纯列表页没有「算出来的数字」的不硬凑。
    - **改造进度**：`D:\01_RPA\TODO.md` 的「数字悬浮说明铺开」条目（2026-11-03 起按族分批推进，`avail_county` 已完成）。
+3d. **⭐ 每个页面都要有自己的「按页刷新设置」（全站硬要求，2026-11-04 如意定）**：顶栏的「停止/开启刷新」按钮 + 间隔下拉对**每一个页面**都必须可用，选择按页持久化（`localStorage['myapp_auto_refresh_pages']`，一张 `{page: 秒}` 表，**默认关闭**）—— 刷不刷由用户自己决定，但**每页都得能决定**。**禁止**再引入「只有某类页面参与刷新」的白名单或把控件按页禁用：2026-11-03 那版 `AR_BOARD_PAGES` 白名单就是这么被否掉的（配置 / 操作 / 工具页的控件是禁用态，用户想刷也刷不了，而且每加一个页面都要回来改名单）。
+   - **新增页面必须做两件事**：
+     1. 在 `frontend\src\App.tsx` 的 `AR_PAGE_DEFAULTS` 登记该页的**建议间隔**（点「开启刷新」时落到的值，必须是 `AR_OPTIONS` 里的档位）。取档按该页**数据更新频率**：`60` 实时告警 / `300` 看板主力（上游多为 15 分钟级）/ `900` 上游日更或低频报表 / `1800` 配置、操作、工具类页面。
+     2. 若整页重挂载代价大（表单、长任务、地图、上传中、iframe 大屏），把该页登记进 `AR_INPLACE_REFRESH_PAGES`（React 页：页面自己监听 `document` 上的 `myapp-refresh` 事件静默重取数，画面不重建）或 `AR_SOFT_REFRESH_PAGES` + `frontend\public\myapp-refresh-protocol.js`（iframe / legacy 页：靠 `postMessage` 在文档内原地重载）。不登记的页走默认的重挂载兜底，同样能刷新，只是会闪一下。
+   - **有机器守卫**：`tests\test_doc_consistency.py::test_every_page_has_refresh_setting` 核对 `PAGE_META` 里每个自研页面都在 `AR_PAGE_DEFAULTS` 登记了合法档位，并要求 App.tsx 里**不得**再出现 `AR_BOARD_PAGES`、`disabled={!arIsBoard` 这类按页禁用。**加了页面忘了登记，本地钩子与 CI 都会拦下。**（`finebi_*` 原生看板由 `FINEBI_BOARDS` 动态注入，统一落全局建议 `AR_PAGE_DEFAULT_SEC`，不在逐页登记要求内。）
+   - 细则与实现位置见 `docs\manual\16-new-page-guide.md` 3.4d、`docs\manual\02-architecture.md` 的「自动刷新」。
 4. **新增定时任务必须登记** `backend\task_registry.py` 的 `TASK_SPECS`，否则**根本不会被执行**；同时更新 `docs\manual\04-task-system.md` 的分组表。
 5. **前端构建产物目录必须是 `_fe_dist`**，否则后端找不到静态文件会白屏（`docs\manual\10-quickstart.md`）。改完前端源码须重新 `npm run build`；产物非 HMR，需刷新页面。
    **验证改动是否真的上线，要看产物而不是看时间戳**：`vite preview` 直接读 `_fe_dist`，但浏览器会缓存 `index.html`。三步确认：
@@ -203,8 +209,9 @@ uvicorn 后端 (:7038)
 - [ ] **ECharts 里没有写 `WH.xxx`**（canvas 解析不了 CSS 变量，必须用 `DARK/LIGHT` 实值）
 - [ ] 没有写死的十六进制颜色（DOM 层应走 `WH` 令牌）
 - [ ] 新任务：`TASK_SPECS` 已登记，且 `04-task-system.md` 已更新
+- [ ] **新页面：`App.tsx` 的 `AR_PAGE_DEFAULTS` 已登记该页建议刷新间隔**（三.3d；重挂载代价大的页还要进 `AR_INPLACE_REFRESH_PAGES` / `AR_SOFT_REFRESH_PAGES`）
 - [ ] **改了「从代码抄来的数字」（任务数/页面数/分组数/保留期/路由数）→ 手册与站内帮助两处都改了**
-- [ ] **`cd Task\my_app && python tests\test_doc_consistency.py` 通过**（15 个用例；本地钩子与 CI 也会跑）
+- [ ] **`cd Task\my_app && python tests\test_doc_consistency.py` 通过**（16 个用例；本地钩子与 CI 也会跑）
 - [ ] **新克隆的机器**跑过一次 `cd frontend && npm run setup:hooks`（否则本地钩子不生效，只能靠 CI 兜底）
 - [ ] 前端产物目录仍是 `_fe_dist`，且已重新 `npm run build`
 - [ ] 帮助内容改动后已重跑 `npm run docs`（`generate-help-doc.mjs` + `generate-manual-html.mjs`）

@@ -131,7 +131,7 @@ my_app 没有自己的账号体系，登录靠回调门户校验。这组键决�
 | 端口与代理 | `vite.config.ts:9-11`（dev）、`:27-41`（preview） | 改端口要同步 `start.bat`、防火墙 |
 | 构建输出 | `vite.config.ts:49` | **绝对路径，指向 my_app 之外**（见 `02-architecture.md` 的已知约束） |
 | 语言 | `localStorage['app-locale']` | 界面右上切换 |
-| 侧栏折叠 / 自动刷新间隔 | `localStorage['myapp_sider_collapsed']`、`localStorage['myapp_auto_refresh_sec']` | 存在浏览器，换电脑要重设 |
+| 侧栏折叠 / 自动刷新（按页） | `localStorage['myapp_sider_collapsed']`、`localStorage['myapp_auto_refresh_pages']`（`{page: 秒}`，0=关闭，缺省=关闭；旧版全局键 `myapp_auto_refresh_sec` 已废弃并由外壳清除） | 存在浏览器，换电脑要重设 |
 
 ## 五、Python 依赖
 

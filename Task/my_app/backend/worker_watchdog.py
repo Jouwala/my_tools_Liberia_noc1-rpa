@@ -20,6 +20,7 @@ import sys
 import time
 import json
 import signal
+import atexit
 import ctypes
 import ctypes.wintypes  # noqa: F401  _SECURITY_ATTRIBUTES 需要 DWORD/BOOL
 import logging
@@ -412,6 +413,12 @@ GROUP_TASK_MAP = {
         # sp_online_report_generate/send 2026-09-02 补录：SP 在线未关闭单报表
         # 生成（06:00）+ 邮件/WhatsApp 发送（06:20），新任务显式分组防 pending 卡死
         "sp_online_report_generate,sp_online_report_send,"
+        # sp_weekly_report 2026-11-03 注册：SP 备件周报（周日 06:40，生成 xlsx + 邮件）。
+        # 只读本地 data/sp_email/data 明细、写 data/sp_weekly，不占任何上游会话；
+        # 归 m 组是因为它与 kpi_sp_* / sp_report_generate 走同一条 EWS 邮件通道，
+        # 组内串行可避免多封邮件同时握手。⚠ 新任务漏登记本表 → 队列 pending
+        # 无人认领直到 300s 超时（本组已踩过多次，见 sp_email_details 注释）。
+        "sp_weekly_report,"
         # mttr_tt_sync / progress_sync 2026-09-21 注册：MTTR/TT 与 Progress 宽表重建。
         # 数据源 Eflow_TT_FB / Eflow_WO_FB 由 n 组的 eflow_sync（每小时 :22）写，
         # 但本任务只用远端**只读** API + 写本机 data/*.sqlite3，不占任何业务会话；
@@ -498,12 +505,25 @@ GROUP_TASK_MAP = {
         # 错开为 0 4 * * *，但因 enabled=False 实际不会自动跑，由 sync 页面手动启用触发。
         "whatsapp_send_baileys,"
         # ipt_power_collect 2026-11-03 注册：IPT Digital Platform（RMS 能源监控，AWS 外网）
-        # 站点电源采集（*/2）。归 m 组理由：外网独立会话（OIDC 隐式流表单模拟，token 缓存
+        # 站点电源采集（*/2）。2026-11-04 起两层并发：全站 popup KPI（现行 8 线程，
+        # 按 kpi_cursor 环形轮转）+ diagram 明细分片轮采（3 线程），受 100s 硬上限兜底。
+        # 11-05 复盘：32+16 / 12+8 并发持续 2min 节拍会把上游拖出批量读超时，
+        # 现降为 8+3 并加低成功率熔断退避（详见 services/ipt_data/README.md）。
+        # 归 m 组理由：外网独立会话（OIDC 隐式流表单模拟，token 缓存
         # auth_cache/），与组内 EWS/WhatsApp/eFlow 会话零交集；只写自己的
-        # ipt_power_sites / ipt_power_snapshots / ipt_power_meta 三张表；单轮 3~10s，
-        # m 组已有每分钟的 ume_alarm 与 */5 的 tt_alarm 先例，可承载 */2。
+        # ipt_power_sites / ipt_power_snapshots / ipt_power_site_detail /
+        # ipt_power_meta 四张表；m 组已有每分钟的 ume_alarm 与 */5 的 tt_alarm 先例。
         # 新任务必须显式分组，否则无 worker 认领 → 队列 pending 卡死直到 300s 超时
-        "ipt_power_collect"),
+        "ipt_power_collect,"
+        # eflow_site_update 2026-11-03 注册：CMDB 主数据（ZTE OLR MS Master Site Database）
+        # → eflow / master_site_db 差异比对，Email Reports →「站点同步」页签的一键执行按钮
+        # 也走本任务。归 m 组理由：只读本地文件（my_app/db 下最新源 xlsx、backup 两份基线、
+        # eflow.sqlite3 的 person 表），只写 data/eflow/cmdb_site_update/modify 下自己的产物，
+        # **不占任何上游会话**、不写任何数据库（服务层显式 --pg none --cmdb none）；
+        # 单轮 20~60s（876 行 × 43 列着色），与 sp_weekly_report / tt_mttr_report_generate
+        # 同型（只读本地文件 + 产出 xlsx），属内务轻任务。
+        # 新任务必须显式分组，否则无 worker 认领 → 队列 pending 卡死直到 300s 超时
+        "eflow_site_update"),
     "c": (  # CN EMS (10.100.2.240) 独立会话：缓存同步与日聚合共享 _pmcache/daily_raw.json，
         # 同组串行保证互斥（ems_kpi_cache_sync 每15分钟 + ems_kpi_daily 每天00:20）
         "ems_kpi_cache_sync,ems_kpi_daily"),
@@ -579,6 +599,7 @@ logger = logging.getLogger("worker_watchdog")
 
 _shutdown = False
 _children = {}          # group -> Popen
+_writers = {}           # group -> RotatingLogWriter（退出时需关闭，读端才算真正释放）
 _spawn_time = {}        # group -> spawn 时间戳
 _crashes = {}           # group -> 连续崩溃计数
 _backoff = {}           # group -> 当前退避秒数
@@ -657,15 +678,150 @@ def _another_watchdog_running() -> bool:
         return False
 
 
+def _group_pid_file(group: str) -> Path:
+    """某组 worker 的 PID 文件（worker 自己写入，是识别「同组遗留进程」的唯一可靠标识）。
+
+    分组是通过环境变量 MY_APP_WORKER_TASKS 下发的，命令行里不含组名，
+    因此不能靠命令行匹配组；PID 文件名与 _spawn_worker 下发的 MY_APP_WORKER_PID 一致。
+    """
+    g = str(group or "").strip()
+    if not g or g == "default":
+        return BACKEND_DIR / "worker.pid"
+    safe = "".join(ch for ch in g if ch.isalnum() or ch in "-_") or "default"
+    return BACKEND_DIR / f"worker_{safe}.pid"
+
+
+def _is_pid_alive(pid) -> bool:
+    """进程是否仍存活（Windows 用 OpenProcess + 退出码；POSIX 用 kill 0）。"""
+    try:
+        pid = int(pid)
+        if pid <= 0:
+            return False
+    except (TypeError, ValueError):
+        return False
+    if pid == os.getpid():
+        return False
+    if sys.platform == "win32":
+        try:
+            from ctypes import wintypes  # ctypes.wintypes 不是 import ctypes 的子属性，必须显式导入
+            kernel32 = ctypes.windll.kernel32
+            kernel32.OpenProcess.restype = ctypes.c_void_p
+            kernel32.OpenProcess.argtypes = [ctypes.c_uint32, ctypes.c_int, ctypes.c_uint32]
+            h = kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+            if not h:
+                return False
+            try:
+                kernel32.GetExitCodeProcess.restype = ctypes.c_int
+                kernel32.GetExitCodeProcess.argtypes = [
+                    ctypes.c_void_p, ctypes.POINTER(wintypes.DWORD)]
+                ec = wintypes.DWORD()
+                if kernel32.GetExitCodeProcess(h, ctypes.byref(ec)):
+                    return ec.value == 259  # STILL_ACTIVE
+                return True
+            finally:
+                kernel32.CloseHandle(h)
+        except Exception:
+            return False
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+
+
+def _proc_command_line(pid: int):
+    """读进程命令行（仅 Windows，用于杀前确认目标确实是 worker）。
+
+    没有任何跨平台原生手段能拿到命令行；这里用 PowerShell/CIM，超时 5s，
+    失败返回 None。**只在新启动时发现同组遗留 PID 的极少场景调用**，开销可接受。
+    """
+    if sys.platform != "win32":
+        return None
+    try:
+        creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        out = subprocess.run(
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command",
+             f"(Get-CimInstance Win32_Process -Filter 'ProcessId={int(pid)}').CommandLine"],
+            capture_output=True, text=True, timeout=5, creationflags=creationflags,
+        )
+        line = (out.stdout or "").strip()
+        return line or None
+    except Exception:
+        return None
+
+
+def _kill_stale_group_workers(group: str, wait_s: float = 3.0) -> None:
+    """拉起新 worker 前，终止同组遗留的旧 worker（2026-11-04 新增）。
+
+    背景：watchdog 崩溃/被强杀后旧 worker 不会自动回收（无父子联动），下一次
+    watchdog 启动就出现同组双进程抢同一张 task_queue —— 2026-11-03 实测 n 组
+    pid=61920（旧）与 pid=60372（新）并存，9 次 eflow_sync 失败全部落在 61920
+    （它写已断开的 stdout 管道 → Errno 22）。
+
+    防误杀三道校验：
+      1) pid 不等于本进程，且不在当前 watchdog 的正常子进程集合里；
+      2) 该 pid 仍存活；
+      3) 命令行确含 ``backend.worker``（PID 可能被系统复用给无关进程）。
+    读不到命令行时**放弃杀**：孤儿 worker 自身的父进程存活守卫会在 5s 内退出，
+    宁可慢一点，也不能误杀无关进程。
+    """
+    pf = _group_pid_file(group)
+    try:
+        if not pf.exists():
+            return
+        pid = int(pf.read_text(encoding="utf-8").strip() or 0)
+    except (OSError, ValueError):
+        return
+    if pid <= 0 or pid == os.getpid():
+        return
+    live_child_pids = {p.pid for p in _children.values() if p is not None}
+    if pid in live_child_pids:
+        return
+    if not _is_pid_alive(pid):
+        return
+    cmd = _proc_command_line(pid)
+    if not cmd or "backend.worker" not in cmd:
+        logger.warning(
+            f"worker[{group}] PID 文件指向存活进程 pid={pid}，但无法确认它是 backend.worker"
+            f"（cmdline={'读取失败' if not cmd else '不匹配'}），为避免误杀不做处理；"
+            f"若它确为孤儿，其父进程存活守卫会自动退出"
+        )
+        return
+    logger.warning(f"worker[{group}] 发现同组遗留进程 pid={pid}（上次 watchdog 退出未回收），先终止再拉起")
+    try:
+        os.kill(pid, signal.SIGTERM)  # Windows 下等价 TerminateProcess
+    except Exception as e:
+        logger.warning(f"worker[{group}] 终止遗留进程 pid={pid} 失败: {e}")
+        return
+    deadline = time.time() + wait_s
+    while time.time() < deadline and _is_pid_alive(pid):
+        time.sleep(0.2)
+    if _is_pid_alive(pid):
+        logger.warning(f"worker[{group}] 遗留进程 pid={pid} 在 {wait_s}s 内未退出（可能卡在内核调用）")
+    else:
+        logger.info(f"worker[{group}] 遗留进程 pid={pid} 已退出")
+
+
 def _spawn_worker(group: str):
     """拉起一组 worker 子进程，stdout/stderr 重定向到【本组专属】日志文件（追加）。
     分组 worker 带 MY_APP_WORKER_TASKS（仅认领本组任务）与独立 PID 文件。"""
+    # 先清理同组遗留进程，避免双 worker 抢同一队列（2026-11-04 新增，见函数文档）
+    try:
+        _kill_stale_group_workers(group)
+    except Exception as e:
+        logger.warning(f"worker[{group}] 清理同组遗留进程时异常（继续拉起）: {e}")
     creationflags = 0
     if sys.platform == "win32":
         creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     log_path = worker_log_path(group)
     log_path.parent.mkdir(parents=True, exist_ok=True)
     env = os.environ.copy()
+    # 供 worker 侧判断「自己由哪个 watchdog 拉起」：父进程消失即自退（孤儿守卫），
+    # 同时让 worker 的落盘日志按组命名（log/worker_<group>_<date>.log）。
+    env["MY_APP_WORKER_GROUP"] = group
+    env["MY_APP_WORKER_WATCHDOG_PID"] = str(os.getpid())
     # 关键：worker 日志流是 charmap（Windows 非 tty 文件默认），中文日志会 UnicodeEncodeError
     # 导致截图等链路被静默打断。强制 UTF-8（与 backend/main.py 的 reconfigure 一致）。
     env["PYTHONUTF8"] = "1"
@@ -705,7 +861,7 @@ def _spawn_worker(group: str):
         stderr=subprocess.STDOUT,
         creationflags=creationflags,
     )
-    attach_rotating_output(proc, log_path, name=f"worker-{group}")
+    _writers[group] = attach_rotating_output(proc, log_path, name=f"worker-{group}")
     _children[group] = proc
     _spawn_time[group] = time.time()
     _exit_marked.discard(group)
@@ -718,7 +874,12 @@ def _spawn_worker(group: str):
 
 
 def _terminate_child():
-    """终止所有 worker 子进程（按组）。"""
+    """终止所有 worker 子进程（按组），并关闭日志泵的写端。
+
+    调用点：正常退出（main 的 finally）、收到退出信号、以及 atexit 兜底。
+    Windows 的 taskkill /F 无法被拦截 —— 那条路径由 worker 侧的父进程存活守卫覆盖：
+    watchdog 消失后 worker 5s 内自退，不再写已断开的 stdout 管道（Errno 22 的来源）。
+    """
     for group, proc in list(_children.items()):
         try:
             if proc.poll() is None:
@@ -730,6 +891,18 @@ def _terminate_child():
         except Exception as e:
             logger.warning(f"终止 worker[{group}] 子进程失败: {e}")
     _children.clear()
+    # 子进程已退出 → 管道 EOF 后泵线程会自己收尾；这里显式 close 是为了让
+    # 「读端已关闭」这件事有确定的状态（writer 进入 closed 后 pump 的 write 直接丢弃，
+    # 不会因为 _fh=None 而重新打开文件）。
+    for group, writer in list(_writers.items()):
+        try:
+            writer.close()
+        except Exception as e:
+            logger.warning(f"关闭 worker[{group}] 日志写端失败: {e}")
+    _writers.clear()
+
+
+atexit.register(_terminate_child)
 
 
 def _mark_exit(group: str, exit_code, lived: float) -> None:

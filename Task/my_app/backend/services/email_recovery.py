@@ -603,6 +603,11 @@ _TASK_DISPATCH = {
     # 且邮箱降级后无法补发。
     "sp_details_files_email": ("backend.services.kpi_email_report", "run_sp_details_files_email"),
     "sp_online_report_send": ("backend.services.kpi_email_report", "run_sp_online_report"),
+    # 2026-11-03 新增：SP 备件周报（周日 06:40）。入口同样经 _run_script 调
+    # owa_mail_report，故被 email_task_coverage 自动推导进 EMAIL_TASK_IDS；
+    # 不在此登记会让 EWS 降级后的周报永久漏发（周报一周只有一次机会，
+    # 漏了就等下一周），且会命中 _UNDISPATCHED_EMAIL_TASKS 自检告警。
+    "sp_weekly_report": ("backend.services.kpi_email_report", "run_sp_weekly_report"),
     "sp_material_report": ("backend.services.kpi_email_report", "run_sp_material_stock_consumption"),
     "packet_loss_email": ("backend.services.kpi_email_report", "run_packet_loss_email"),
     "ccn_free_rating_chart_email": (

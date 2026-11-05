@@ -21,8 +21,26 @@ import { useI18n } from '../i18n'
  * 外壳在 embed/bare 模式（`?page=` 直链 / `?embed=1`，见 App.tsx 的 shellHidden）
  * 会把 Header 整个不渲染、并把 Content 自己的 margin/padding 置 0，此时再减一遍
  * 「外壳留白」就会在页面底部留下一条 108px 的空白（实测 2544×1297 视口下 iframe
- * 只有 1189 高）。改为 `height:100%` 直接铺满父级 Content 的内容盒：正常模式下
+ * 只有 1189 高）。改为铺满父级 Content 的内容盒：正常模式下
  * Content 已经把 Header/margin/padding 都扣掉了，实测同样是 1189，两种模式都对。
+ *
+ * ⚠️⚠️ 2026-11-04 修：**iframe 不能再用 `height:100%`**（用户报「地图不显示」）。
+ * 根因是 CSS 百分比高度只能相对**有确定高度**的祖先解析，而这一层链路不满足：
+ *   App.tsx 的 <Content id="main-content"> 在**非 embed 模式**（shellHidden=false）
+ *   没有设 height（只有 shellHidden 时才是 '100%'），它的高度来自 antd Layout
+ *   的 flex 分配 —— 对百分比高度来说等于「不确定」。
+ *   于是 wrapper 的 `height:100%` 退化成 auto（实测 wrapper 确实拿到 1158px，
+ *   但那是它作为 flex item 被拉伸的结果，不是它自己算出来的确定高度），
+ *   iframe 的 `height:100%` 再退化成 auto → 落到 **HTML 默认的 150px**。
+ *   表现：整页只剩一条 150px 高的 iframe 缝，地图（Leaflet）被压成 0 高，
+ *   用户看到的正是「少了张地图」。embed 模式（?embed=1&mwembed=1）之所以正常，
+ *   正是因为 .wh-embed-mode 那条链（index.css:346）给每一层都定了确定高度。
+ *
+ * 修法（**不**去动 App.tsx 的 Content，那会牵动所有页面）：
+ * 让 wrapper 变成 flex 列容器、iframe 用 `flex:1 1 auto` + `minHeight:0` 撑开它。
+ * flex 的分配发生在「父有确定高度」之后，不依赖百分比解析，两种模式都对。
+ * 实测：修复前 iframe 高 150px（= HTML 默认值），修复后 1158px，
+ * 内层 Leaflet 容器 956px、#topo-wrap 959px，地图完整渲染。
  */
 const FILL_PARENT = '100%'
 
@@ -86,6 +104,11 @@ export default function LegacyToolFrame({ file, title }: Props) {
         height: FILL_PARENT,
         minHeight: 0,
         flex: '1 1 auto',
+        // 2026-11-04 修：wrapper 必须是 flex 列容器，iframe 才能靠 flex:1 撑开。
+        // 详见文件头「高度策略」那段：iframe 用 height:100% 会因百分比高度无法解析
+        // 而塌成 HTML 默认的 150px（地图整块消失）。flex 分配不依赖百分比，两种模式都对。
+        display: 'flex',
+        flexDirection: 'column',
         borderRadius: 'var(--wh-radius-md)',
         overflow: 'hidden',
         background: 'var(--wh-page-bg)',
@@ -118,7 +141,14 @@ export default function LegacyToolFrame({ file, title }: Props) {
         allowFullScreen
         style={{
           width: '100%',
-          height: '100%',
+          // 2026-11-04 修：改成 flex 撑开，不再用 height:'100%'。
+          // 百分比高度在「祖先没有确定高度」时会退化成 auto → HTML 默认 150px，
+          // 整页只剩一条缝、内层地图消失。flex:1 由父的确定高度直接分配，不依赖百分比。
+          // minHeight:0 必给：否则 iframe 的默认 150px 会成为 flex item 的最小尺寸，
+          // 内容更高时反而把 wrapper 撑破（与 PersonMap.tsx 同一坑，见其注释）。
+          flex: '1 1 auto',
+          minHeight: 0,
+          height: 'auto',
           border: 'none',
           display: 'block',
         }}

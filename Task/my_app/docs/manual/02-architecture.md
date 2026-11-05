@@ -57,17 +57,17 @@ schemas/   预留，实际为空
 - `gis` 与 `realtime_alarm` 复用同一组件：`<GISMap/>` 与 `<GISMap mode="realtime"/>`（`App.tsx:286-289`）。
 - 共享组件只有 4 个：`DraggableClickModal`（下钻弹窗）、`LegacyToolFrame`（iframe 壳）、`MetricExplain`（指标口径说明）、`SearchableExportTable`（可搜索导出表）。
 
-**自动刷新**（`App.tsx` 顶部「自动刷新（大屏 / NOC 值班场景）」注释块与 `performAutoRefresh`）：顶栏统一控制，间隔存 `localStorage['myapp_auto_refresh_sec']`，可选 `[0,30,60,300,600,900,1800]` 秒。生效值 = **用户选择 > 本页默认 `AR_PAGE_DEFAULTS` > 全局默认 300 秒**。2026-10-29 用户定的每页策略：**实时告警相关（`realtime_alarm` / `alarm` / `alarmManagement`）= 60 秒，其余看板页 = 300 秒**（`mwRealTime` 虽名「实时」仍维持 900 —— 它的数据 15 分钟才同步一次，提到 60s 只会多打 15 倍查询而画面不变）。⚠ 顶栏一旦手动选择，`arOverride` 会**全局**盖过每页默认（含 60s 那几页），要回到按页策略需清掉 `myapp_auto_refresh_sec`。
+**自动刷新**（`App.tsx` 顶部「自动刷新（大屏 / NOC 值班场景）」注释块与 `performAutoRefresh`）：⭐ **默认关闭 + 每个页面各自设置**（2026-11-03 用户定「默认是关闭刷新的」；2026-11-04 用户定「参考 noc_analyst 里的刷新配置，给每个页面做设置，并作为项目要求」）—— 顶栏「停止刷新 / 开启刷新」按钮 + 间隔下拉对**所有页面**都可用；选择持久化在 `localStorage['myapp_auto_refresh_pages']`（一张 `{page: 秒}` 表，0=关闭、未登记=关闭）。「开启刷新」落到**本页建议间隔**（`AR_PAGE_DEFAULTS` > 全局建议 `AR_PAGE_DEFAULT_SEC`=300 秒），可用下拉调整为 `[0,30,60,300,600,900,1800]` 秒。`AR_PAGE_DEFAULTS` 现为**逐页必填**：`PAGE_META` 里每个自研页面都要登记一个档位，取值按该页数据更新频率分四档 —— 60 秒（实时告警 `realtime_alarm`/`alarm`/`alarmManagement`，2026-10-29 用户策略）、300 秒（看板主力，上游多为 15 分钟级同步）、900 秒（上游日更或低频报表：微波拓扑 / 丢包 / 竞对 / 物资报表 / 90 天经营看板）、1800 秒（配置、操作、工具类页面）；`mwRealTime` 虽名「实时」仍取 900 —— 它的数据 15 分钟才同步一次，提到 60s 只会多打 15 倍查询而画面不变。漏登记由 `tests/test_doc_consistency.py::test_every_page_has_refresh_setting` 拦下（本地钩子 + CI）。旧版全局单值键 `myapp_auto_refresh_sec` 与逐页键 `_ar_page_*` 已废弃，外壳挂载时清除（防直开 legacy 页缓存旧协议脚本读到残留值继续自刷）。
 
-- **白名单制**：只有「看板 / 展示页」参与自动刷新（`AR_BOARD_PAGES`）；配置、操作、工具类页面（如 `settings` / `upload` / `tables` / `ip_trace` / `eflow_*` 等）的生效间隔恒为 0，**完全不刷新**，顶栏选择器对它们禁用。
+- **所有页面一视同仁**（2026-11-04 改造）：~~白名单制~~ 已删除（原 `AR_BOARD_PAGES`）。此前配置 / 操作 / 工具类页面（`settings` / `upload` / `tables` / `ip_trace` / `eflow_*` 等）的生效间隔恒为 0 且顶栏控件禁用，用户想刷也刷不了，与「由用户决定是否刷新」自相矛盾；现在这些页同样能按页开启，建议间隔给最松的 1800 秒。副作用防护不靠禁用，靠 `arInteractionInProgress()`（正在输入 / 弹层打开 / 标签页后台时跳过硬重挂载那一轮）。
 - **三条刷新路径**（2026-10-29 由两条拆成三条）：
   1. **iframe / legacy 页软刷新**（`AR_SOFT_REFRESH_PAGES`）：外壳广播 `postMessage({__type:'myapp-refresh'})`，文档内原地重拉；
   2. **同文档 React 页原地刷新**（`AR_INPLACE_REFRESH_PAGES`，目前只有 `person`）：外壳 `document.dispatchEvent(new CustomEvent('myapp-refresh'))`，页面自己静默重拉数据；
-  3. **硬重挂载**（其余看板页）：`key={refreshTick}` 变化 → 整页重挂载。
-  前两条无副作用，**在 `arInteractionInProgress()` 拦截之前发出**，故全屏 / 后台 / 弹层打开时照刷；只有第 3 条受「用户正忙」与 `document.fullscreenElement` 拦截。
-  ⚠ `person` 走第 2 条的原因：它的间隔本来就是 300s，用户反馈「刷新太快」实际指的是**每 5 分钟一次的整页重建** —— Leaflet 地图销毁重建、flyTo 回全国视角、图层与县名标签全部重画，在门户 iframe 里就是一下闪白。页面侧的 `load(silent)` 因此**不清 loading、不清 error、失败时保留旧数据**（详见 `PersonMap.tsx` 取数处注释）。新页加入 `AR_INPLACE_REFRESH_PAGES` 前必须确认它的取数能在不清 loading 的前提下重跑。
-- **生效间隔**通过 `localStorage['myapp_auto_refresh_effective']` 公开给 legacy 页，并写 `localStorage['myapp_auto_refresh_is_board']`（`'1'/'0'`）标记本页是否看板。
-- **legacy 页自刷新安全网**：7 个 iframe 看板页 + 2 个 React 内嵌页统一引入 `public/myapp-refresh-protocol.js`（`MyAppRefresh.install`）—— 父外壳广播即「提前触发」原地重拉，广播被挡时按生效间隔自调度兜底；非看板页不启用；看板页全屏时忽略「关闭」按本页默认兜底。`alarm-management.html` 有自身 live 模式，仅补广播入口。
+  3. **硬重挂载**（其余页面）：`key={refreshTick}` 变化 → 整页重挂载。
+  前两条无副作用，**在 `arInteractionInProgress()` 拦截之前发出**，故全屏 / 后台 / 弹层打开时照刷；只有第 3 条受「用户正忙」与 `document.fullscreenElement` 拦截。三条路径都只在**用户已开启本页自动刷新**时才会发生。
+  ⚠ `person` 走第 2 条的原因：它的建议间隔是 300s，用户当年反馈「刷新太快」实际指的是**每 5 分钟一次的整页重建** —— Leaflet 地图销毁重建、flyTo 回全国视角、图层与县名标签全部重画，在门户 iframe 里就是一下闪白。页面侧的 `load(silent)` 因此**不清 loading、不清 error、失败时保留旧数据**（详见 `PersonMap.tsx` 取数处注释）。新页加入 `AR_INPLACE_REFRESH_PAGES` 前必须确认它的取数能在不清 loading 的前提下重跑。
+- **生效间隔**通过 `localStorage['myapp_auto_refresh_effective']` 公开给 legacy 页（未开启=0）。旧版同时公开的「本页是否看板」标记 `myapp_auto_refresh_is_board` 随白名单一起删除，外壳挂载时清掉残留值（缓存了旧协议脚本的直开页会读它，残留 `'0'` 会让本页拒绝自刷）。
+- **legacy 页自刷新安全网**：7 个 iframe 看板页 + 2 个 React 内嵌页统一引入 `public/myapp-refresh-protocol.js`（`MyAppRefresh.install`）—— 父外壳广播即「提前触发」原地重拉，广播被挡时按生效间隔自调度兜底。2026-11-03 起随默认关闭改造：协议**不再有 defaultSec 兜底、不再「全屏忽略关闭」**，未开启（含全屏挂机）一律不刷；2026-11-04 起**不再区分看板与非看板**，只看用户是否为本页开启了刷新。`alarm-management.html` 有自身 live 模式，仅补广播入口。
 
 这与下面两个 Context 无关。
 

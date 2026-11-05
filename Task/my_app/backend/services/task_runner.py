@@ -708,6 +708,11 @@ def run_task(task_id: str, trigger: str = "manual") -> dict:
                             biz_msg = "; ".join(str(e) for e in errs)
                 if biz_msg:
                     result["error"] = str(biz_msg)
+            # 2026-11-04：任务函数**自行捕获**异常时可能把栈写进返回值（如
+            # sync_from_eflow_api 的 result["error_trace"]）。旧实现只透传 error，
+            # 导致 task_execution_log.error_trace 永远是 NULL（本次排查全程无栈可看）。
+            if func_result.get("error_trace"):
+                result["error_trace"] = str(func_result["error_trace"])
         else:
             result["success"] = True
             result["result"] = {"message": str(func_result)}

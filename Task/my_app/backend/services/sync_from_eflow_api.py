@@ -16,6 +16,7 @@ import re
 import time
 import sqlite3
 import logging
+import traceback
 import pandas as pd
 from pathlib import Path
 from datetime import datetime
@@ -28,9 +29,11 @@ from backend.services.reconcile_helper import delete_not_in_keys
 logger = logging.getLogger("eflow_sync")
 
 #: 同步**必需**的 API 数据键：缺失即视为任务失败（2026-10-09）。
-#: 只列 TT/WO —— 它们是工单看板/报表的核心，且历史上正是它们静默失败被掩盖。
-#: CR/PM/Site/Person 允许缺失（上游时段性无数据不算故障），故不列入。
-REQUIRED_API_KEYS = {"eFlow TT", "eFlow WO"}
+#: 先列 TT/WO —— 它们是工单看板/报表的核心，且历史上正是它们静默失败被掩盖。
+#: CR 于 **2026-11-03** 补入：它是门户 QC 面板「未关闭变更单」的唯一数据源，
+#: 却因为不在此集合里，导出管道连挂 7 周（每轮都失败）都没人发现 —— 面板上那个
+#: 恒定的 86 就是这么来的。CM/PM/Site/Person 仍允许缺失（上游时段性无数据不算故障）。
+REQUIRED_API_KEYS = {"eFlow TT", "eFlow WO", "eFlow CR"}
 
 #: 「必需表返回 0 行」同样视为**故障**，而非「上游这一时段没数据」。
 #: 为什么需要（2026-10-15 实测事故）：eFlow 的 `base/list` 接口在**账号工单
@@ -43,6 +46,71 @@ REQUIRED_API_KEYS = {"eFlow TT", "eFlow WO"}
 #: 因此「0 行」在正常运行时不可能出现 —— 它只可能意味着上游异常或账号失权。
 #: 只对在途类表启用这个判据；CR/PM/Site/Person 不在此列（它们可能真的暂时为空）。
 REQUIRED_NONEMPTY_KEYS = {"eFlow TT", "eFlow WO"}
+
+#: 停更守卫（2026-11-03 新增）：同步跑完后，逐表看 `_sync_time` 距今多久。
+#: 为什么还要这一层：前面的 REQUIRED_* 只能挡住「本次没拿到数据」，挡不住
+#: 「本次拿到了但写进去的还是旧值」或「某条管道压根没跑」。CR 那次事故正是
+#: 后者 —— 管道每轮都抛错、库里 7 周没变，而任务始终 success=True。
+#: 判据是"表里最新一行的 _sync_time" —— 只要这一列不推进，就说明该表在僵着，
+#: 不依赖任何一条管道的实现细节。阈值 EFLOW_STALE_GUARD_HOURS（默认 6h，
+#: delta 每小时跑一轮，6h = 连挂 6 轮才报；设 0 可关闭）。
+_STALE_GUARD_TABLES = ("eflow_tt", "eflow_wo", "eflow_cr", "eflow_pm", "eflow_site", "person")
+_STALE_GUARD_HOURS_DEFAULT = 6.0
+
+
+def _stale_guard_hours() -> float:
+    try:
+        return float(os.environ.get("EFLOW_STALE_GUARD_HOURS", "") or _STALE_GUARD_HOURS_DEFAULT)
+    except (TypeError, ValueError):
+        return _STALE_GUARD_HOURS_DEFAULT
+
+
+def _parse_sync_time(val):
+    """把 _sync_time（ISO 文本或 datetime）解析成 naive datetime；解析不了返回 None。"""
+    if val is None or val == "":
+        return None
+    if isinstance(val, datetime):
+        return val.replace(tzinfo=None) if val.tzinfo else val
+    try:
+        return datetime.fromisoformat(str(val).strip().replace("Z", "+00:00")).replace(tzinfo=None)
+    except ValueError:
+        try:
+            return datetime.strptime(str(val).strip()[:19], "%Y-%m-%d %H:%M:%S")
+        except ValueError:
+            return None
+
+
+def _check_table_freshness(dst_conn, result: dict) -> None:
+    """停更守卫：把陈旧的表记进 result["errors"]（不抛异常，不阻断同步）。"""
+    threshold = _stale_guard_hours()
+    if threshold <= 0:
+        return
+    now = datetime.now()
+    for table in _STALE_GUARD_TABLES:
+        try:
+            cur = dst_conn.cursor()
+            cur.execute(f"SELECT MAX(_sync_time) FROM {table}")   # noqa: S608 - 表名为常量白名单
+            row = cur.fetchone()
+            cur.close()
+        except Exception as e:
+            # 表不存在/列不存在不算停更，但要留痕（首次部署到新库时会走到）
+            logger.warning(f"停更守卫: 读取 {table}._sync_time 失败: {e}")
+            continue
+
+        latest = _parse_sync_time(row[0] if row else None)
+        if latest is None:
+            msg = f"停更守卫: {table} 的 _sync_time 为空 —— 从未成功写入过数据"
+            logger.error(msg)
+            result["errors"].append(msg)
+            continue
+
+        age_hours = (now - latest).total_seconds() / 3600.0
+        if age_hours > threshold:
+            msg = (f"停更守卫: {table} 最近一次成功同步在 {latest:%Y-%m-%d %H:%M}，"
+                   f"已 {age_hours:.1f} 小时未推进（阈值 {threshold:g}h）—— 数据是陈旧的")
+            logger.error(msg)
+            result["errors"].append(msg)
+
 
 # 路径配置
 BACKEND_DIR = Path(__file__).resolve().parent.parent.parent
@@ -656,6 +724,9 @@ def sync_from_eflow_api(mode: str = "delta") -> dict:
             # 更新 _metadata 表
             _update_metadata(dst_conn)
 
+            # 停更守卫：用「表里 _sync_time 是否推进」兜底，挡住"任务成功但数据没动"
+            _check_table_freshness(dst_conn, result)
+
             dst_conn.close()
             result["success"] = len(result["errors"]) == 0
 
@@ -674,13 +745,19 @@ def sync_from_eflow_api(mode: str = "delta") -> dict:
                     report_data = all_data
 
             # 生成 Excel 报告（不上传 eflow_*.xlsx 到 FTP，仅本地保存）
+            # 2026-11-03：save_sqlite=False —— report_data 本身就是刚从主库读出的全量数据，
+            # 再走一次 save_to_sqlite（if_exists=replace 整表重建）纯属冗余；且该路径在
+            # PG 模式下曾因 pandas 的 SQLite fallback 查 sqlite_master 而**每轮失败**，
+            # 导致 Excel 报告自 PG 迁移后从未产出。现在直接由数据生成，不再经中间库。
             try:
                 try:
                     from backend.services.eflow_api_client import generate_excel_report
                 except ImportError:
                     logging.getLogger(__name__).warning("[SILENT-EXCEPT] sync_from_eflow_api: exception swallowed", exc_info=True)
                     from services.eflow_api_client import generate_excel_report
-                report_result = generate_excel_report(data=report_data, save_excel=False, upload_ftp=False)
+                report_result = generate_excel_report(
+                    data=report_data, save_sqlite=False, save_excel=True, upload_ftp=False
+                )
                 if report_result.get("excel_path"):
                     logger.info(f"Excel 报告已生成: {report_result['excel_path']}")
                 result["excel_path"] = report_result.get("excel_path")
@@ -747,7 +824,12 @@ def sync_from_eflow_api(mode: str = "delta") -> dict:
 
     except Exception as e:
         err_msg = f"同步异常: {e}"
-        logger.error(err_msg)
+        # 2026-11-04：改为 logger.exception 并把栈写进 result["error_trace"]，
+        # 由 task_runner 落到 task_execution_log.error_trace（该列此前一直是 NULL）。
+        # 旧写法只有 logger.error，日志里没有栈；现场只能靠复现猜。
+        logger.exception(err_msg)
+        tb_text = traceback.format_exc()
+        result["error_trace"] = tb_text
         result["errors"].append(err_msg)
 
     elapsed = time.time() - start_time
@@ -771,14 +853,66 @@ def _cleanup_old_tables(conn: sqlite3.Connection):
     conn.commit()
 
 
+#: 需要**精确**行数的表：本任务自己写入的 6 张核心表（量级可控）。
+#: 其余表改用 pg_class.reltuples 估算 —— 2026-10-30 那次 7265s 长跑就是
+#: 逐张 COUNT(*) 造成：连接内 109~119 张表，其中 Metro_ring_me_15mins 196 万行、
+#: packet_loss_data 142 万行、battery_reading 117 万行，每张都要全表扫一遍。
+_METADATA_EXACT_TABLES = ("eflow_tt", "eflow_wo", "eflow_cr", "eflow_pm", "eflow_site", "person")
+
+
+def _pg_estimated_row_counts(conn):
+    """PG：返回 {表名: 估算行数}（来自 pg_class.reltuples）。
+
+    ⚠️ reltuples 是 **ANALYZE/VACUUM 之后的统计估算值，不是精确值**，
+    仅供 _metadata 展示；从不被 analyze 的表可能返回 -1，此时置 None，
+    由调用方回退到精确 COUNT(*)（这类通常是新建小表，成本低）。
+    查询失败返回 None，调用方整体回退精确计数。
+    """
+    counts = {}
+    try:
+        rows = conn.execute(
+            "SELECT c.relname, c.reltuples FROM pg_class c "
+            "JOIN pg_namespace n ON n.oid = c.relnamespace "
+            "WHERE n.nspname = ANY(current_schemas(false)) "
+            "AND c.relkind IN ('r', 'p', 'm')"
+        ).fetchall()
+        for name, est in rows:
+            try:
+                val = int(est)
+            except (TypeError, ValueError):
+                val = -1
+            counts[name] = val if val >= 0 else None
+    except Exception as e:
+        logger.warning(f"读取 pg_class.reltuples 失败，本轮回退为精确计数: {e}")
+        return None
+    return counts
+
+
 def _update_metadata(conn: sqlite3.Connection):
-    """更新 _metadata 元数据表"""
+    """更新 _metadata 元数据表。
+
+    2026-11-04 提速（双模兼容，不新增裸 sqlite3.connect）：
+    - PG：核心 eFlow 表精确计数，其余表用 reltuples 估算（见 _pg_estimated_row_counts）；
+      reltuples 缺失/-1 的表回退精确计数；reltuples 查询失败则整轮回退精确计数。
+    - SQLite：本地库精确计数很快，保持全量精确（语义与旧版一致）。
+    """
     try:
         tables = [t for t in list_table_names(conn) if t != '_metadata']
+        is_sqlite = isinstance(conn, sqlite3.Connection)
+        estimates = None if is_sqlite else _pg_estimated_row_counts(conn)
 
         metadata_rows = []
+        exact_count = 0
+        estimate_count = 0
         for table_name in tables:
-            row_count = conn.execute(f'SELECT COUNT(*) FROM "{table_name}"').fetchone()[0]
+            row_count = None
+            if estimates is not None and table_name not in _METADATA_EXACT_TABLES:
+                row_count = estimates.get(table_name)
+                if row_count is not None:
+                    estimate_count += 1
+            if row_count is None:
+                row_count = conn.execute(f'SELECT COUNT(*) FROM "{table_name}"').fetchone()[0]
+                exact_count += 1
             col_names = table_columns(conn, table_name)
             col_count = len(col_names)
             # TODO-PHASE3-SCHEMA: 仅取列名（类型信息在双模下成本较高，元数据仅作展示用途）
@@ -796,7 +930,10 @@ def _update_metadata(conn: sqlite3.Connection):
             # pg 模式下需改为 eflow 引擎（engine_override）才能写入正确 schema
             write_df(meta_df, '_metadata', if_exists='replace')
             conn.commit()
-            logger.info(f"_metadata 更新: {len(metadata_rows)} 条记录")
+            logger.info(
+                f"_metadata 更新: {len(metadata_rows)} 条记录"
+                f"（精确 {exact_count} 张 / 估算 {estimate_count} 张）"
+            )
     except Exception as e:
         logger.warning(f"_metadata 更新失败: {e}")
 

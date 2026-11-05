@@ -133,6 +133,41 @@ IDENTITY_COL_CANDIDATES = ["NE", "ME", "Managed Element", "SERVICE", "Measuremen
 # 复合主键候选（按用户要求：Begin Time / ME / Measure Object / Counter；仅取实际存在的列）
 IPRAN_PK_CANDIDATES = ["Begin Time", "ME", "Measure Object", "Counter"]
 
+# ---------------------------------------------------------------------------
+# 本机镜像开关（2026-11-04，如意确认「IP RAN 切到本机读」）
+#
+# 本机 PG 的 ipran_ume schema 原本**没有任何同步任务**：DB_PATH 指向的
+# data/ipran_ume/ipran_ume_kpi.sqlite3 是 0 字节（从未写过），而
+# get_raw_connection() 在 MY_APP_DB_MODE=pg 下会把它透明重定向到 .20:5432
+# 的 ipran_ume schema。原 save_data_to_db_or_api() 只在「远端 API 写入失败」
+# 时才走这条兜底路径，远端一旦稳定，本机就再无写入 —— 2026-11-03 07:00
+# 最后一次兜底后冻结，而远端每小时继续前进，遂落后 15.5 小时。
+#
+# 这与 FW 域 fw_kpi_services.WRITE_LOCAL_MIRROR 是同一类事故（那边 2026-11-03
+# 已修）。这里沿用已验证的做法：远端成功后**主动镜像一份到本机**，镜像失败
+# 只告警、不影响任务成败；置 0 可恢复旧行为。
+# ---------------------------------------------------------------------------
+WRITE_LOCAL_MIRROR = os.environ.get(
+    "IPRAN_KPI_WRITE_LOCAL", "1").strip().lower() not in ("0", "false", "no", "off")
+
+# 镜像时水位向前重叠的小时数：UME 偶有回补历史时间点，留一点重叠避免漏写
+MIRROR_OVERLAP_HOURS = int(os.environ.get("IPRAN_KPI_MIRROR_OVERLAP_HOURS", "2"))
+
+# 远端 DbWriter 是否走增量裁剪（2026-11-05，默认开启；置 0 可一键回退到全量）。
+#
+# 背景：采集每轮给的是 3 天全量窗口，Metro_ring_me_15mins 单表 34~38 万行，
+# 且每轮只比上轮多 3450 行（1 小时）。本机镜像 mirror_rows_to_local 早已按水位
+# 裁剪到 ~1.3 万行，但远端 save_data_to_db_or_api 一直把 **全量** POST 给
+# 192.168.100.19:8765 的 5.2GB SQLite（WAL 189MB）——单表写入常 >900s，
+# 客户端 timed out 后 3 次重试 + 兜底再写本地，单任务被拖 40~50 分钟，
+# 每小时调度一次必然堆死队列。近 5 天 ipran_kpi_sync 39 次失败即源于此。
+#
+# 裁剪水位取本机 PG ipran_ume 镜像的 MAX("Begin Time")：镜像只在**远端写入成功后**
+# 才更新，故水位永远不超前远端；再留 MIRROR_OVERLAP_HOURS 重叠 + upsert 幂等，
+# 远端最终数据与全量写入逐行等价。水位取不到 / 表不存在一律退化为全量，绝不漏数。
+IPRAN_REMOTE_INCREMENTAL = os.environ.get(
+    "IPRAN_KPI_REMOTE_INCREMENTAL", "1").strip().lower() not in ("0", "false", "no", "off")
+
 GR_RENAME = {
     "900": "15mins",
     "3600": "1hour",
@@ -930,6 +965,144 @@ def sanitize_table_name(name: str) -> str:
     return name.replace(" ", "_").replace("-", "_")
 
 
+def _norm_begin_time(v) -> str:
+    """把两种上游时间格式归一成 ``YYYY-MM-DD HH:MM:SS`` 便于字符串比较。
+
+    UME 导出里 Metro_ring 用 ``2026-11-03T17:00:00+00:00``，其余表用
+    ``2026-11-03 17:00:00``；直接拿原始字符串比水位会因 'T' > ' ' 而错判。
+    """
+    s = str(v or "").strip()
+    return s[:19].replace("T", " ") if len(s) >= 19 else s
+
+
+def _rows_since_watermark(table_name: str, headers: list, rows: list,
+                          overlap_hours: int = None) -> tuple[list, str]:
+    """按本机 PG 镜像水位裁剪待写远端的行，返回 (裁剪后的行, 水位说明)。
+
+    与 mirror_rows_to_local 同一套判据（MAX("Begin Time") - overlap_hours），
+    保证「远端写什么 / 本机镜像什么」口径一致。任何异常都退化为全量，
+    宁可多写也不能漏数 —— upsert 幂等，多写不产生重复。
+    """
+    if overlap_hours is None:
+        overlap_hours = MIRROR_OVERLAP_HOURS
+    if "Begin Time" not in headers:
+        return rows, "no Begin Time column"
+    try:
+        with get_raw_connection(DB_PATH, logical_name="ipran_ume", timeout=30.0) as conn:
+            cur = conn.cursor()
+            cur.execute(f'SELECT MAX("Begin Time") FROM "{table_name}"')
+            found = cur.fetchone()
+            water = _norm_begin_time(found[0] if found else None)
+        if not water:
+            return rows, "empty local mirror (full send)"
+        dt = datetime.strptime(water[:19], "%Y-%m-%d %H:%M:%S")
+        cutoff = (dt - timedelta(hours=overlap_hours)).strftime("%Y-%m-%d %H:%M:%S")
+        bi = headers.index("Begin Time")
+        picked = [r for r in rows
+                  if _norm_begin_time(r[bi] if bi < len(r) else "") >= cutoff]
+        return picked, f"watermark={water} cutoff={cutoff}"
+    except Exception as e:  # noqa: BLE001 - 水位不可用就全量，绝不因优化漏数
+        logger.warning("[DB][API] %s 水位不可用，远端退化为全量写入: %s",
+                       table_name, e)
+        return rows, f"watermark unavailable ({e}) -> full send"
+
+
+def mirror_rows_to_local(table_name: str, headers: list, rows: list,
+                         overlap_hours: int = None,
+                         apply_watermark: bool = True) -> int:
+    """把 IP RAN 的行**增量镜像**到本机 PG 的 ``ipran_ume`` schema。
+
+    为什么必须增量
+    --------------
+    采集每轮给的是 3 天全量窗口（单表 30~40 万行），而本机大表已有 195 万行。
+    全量 upsert 代价高，且历史事故里「每轮 DROP + CREATE UNIQUE INDEX +
+    dedupe_rows」曾在 195 万行表上跑 25.9 小时（见 dialect_helpers.py 注释）。
+    这里先取本机 ``MAX("Begin Time")`` 作水位（唯一索引首列，毫秒级），只写
+    「水位 - overlap_hours」之后的行：每轮通常几千行，且 upsert 幂等，重叠
+    窗口里的重复行不会产生重复数据。
+
+    表 / 唯一索引只用 IF NOT EXISTS 创建，**绝不 DROP 重建、绝不 dedupe**。
+    ``apply_watermark=False`` 用于一次性回填：调用方给的 rows 本来就是「缺口
+    范围」，且按 rowid 分批时业务时间未必单调，再用「边写边前进的水位」过滤
+    会漏掉后面的批次。正常采集镜像保持 True。
+
+    rows 为空时返回 0，不建表。
+    """
+    if not headers or not rows:
+        return 0
+    if overlap_hours is None:
+        overlap_hours = MIRROR_OVERLAP_HOURS
+
+    pk_cols = [c for c in IPRAN_PK_CANDIDATES if c in headers]
+    if not pk_cols:
+        pk_cols = detect_key_cols(headers)
+
+    def _q(col):
+        return f'"{col.replace(chr(34), chr(34) + chr(34))}"'
+
+    with get_raw_connection(DB_PATH, logical_name="ipran_ume", timeout=30.0) as conn:
+        cur = conn.cursor()
+        cols_decl = ", ".join(f"{_q(h)} TEXT" for h in headers)
+        cur.execute(f'CREATE TABLE IF NOT EXISTS "{table_name}" ({cols_decl})')
+        exist_cols = set(table_columns(conn, table_name))
+        for h in headers:
+            if h not in exist_cols:
+                cur.execute(f'ALTER TABLE "{table_name}" ADD COLUMN {_q(h)} TEXT')
+
+        if pk_cols:
+            pk_q = ", ".join(_q(k) for k in pk_cols)
+            # IF NOT EXISTS：现有 6 张表都已有同名唯一索引，直接跳过。
+            # 注意不能沿用兜底路径的 DROP + CREATE（大表重建索引代价极高）。
+            cur.execute(
+                f'CREATE UNIQUE INDEX IF NOT EXISTS "u_{table_name}" '
+                f'ON "{table_name}" ({pk_q})'
+            )
+
+        # 水位：MAX 走唯一索引的反向扫描，不做全表聚合
+        cutoff = ""
+        if apply_watermark and "Begin Time" in headers:
+            try:
+                cur.execute(f'SELECT MAX("Begin Time") FROM "{table_name}"')
+                row = cur.fetchone()
+                water = _norm_begin_time(row[0] if row else None)
+                if water:
+                    dt = datetime.strptime(water[:19], "%Y-%m-%d %H:%M:%S")
+                    cutoff = (dt - timedelta(hours=overlap_hours)).strftime(
+                        "%Y-%m-%d %H:%M:%S")
+            except Exception as e:  # noqa: BLE001 - 水位取不到就退化为全量，不阻断镜像
+                logger.warning("[MIRROR] %s 取本机水位失败，退化为全量: %s",
+                               table_name, e)
+                cutoff = ""
+
+        bt_idx = headers.index("Begin Time") if "Begin Time" in headers else -1
+        picked = rows
+        if cutoff and bt_idx >= 0:
+            picked = [r for r in rows
+                      if _norm_begin_time(r[bt_idx] if bt_idx < len(r) else "")
+                      >= cutoff]
+        if not picked:
+            return 0
+
+        records = []
+        for row in picked:
+            r = list(row)
+            if len(r) < len(headers):
+                r = r + [None] * (len(headers) - len(r))
+            records.append({h: (str(v) if v is not None else None)
+                            for h, v in zip(headers, r[:len(headers)])})
+
+        if pk_cols:
+            upsert(conn, table_name, records, conflict_cols=list(pk_cols))
+        else:
+            cols_str = ", ".join(_q(h) for h in headers)
+            placeholders = ", ".join(["?"] * len(headers))
+            cur.executemany(
+                f'INSERT INTO "{table_name}" ({cols_str}) VALUES ({placeholders})',
+                [[r[h] for h in headers] for r in records])
+        conn.commit()
+        return len(records)
+
+
 def save_data_to_db_or_api(table_name: str, headers: list, data: list, api_failures: list = None) -> int:
     """增量写入：优先远程写服务（db_writer_api，upsert 模式，保留历史），
     失败则兜底写本地 SQLite（同样按复合主键 upsert，保留历史）。
@@ -946,7 +1119,21 @@ def save_data_to_db_or_api(table_name: str, headers: list, data: list, api_failu
     # 1. API 客户端优先机制（远程写服务：upsert = INSERT OR REPLACE，保留历史）
     if _db_writer is not None:
         try:
-            str_data = [[str(v) if v is not None else None for v in row] for row in data]
+            # 2026-11-05：远端与本机镜像统一走水位增量。此前只有镜像裁剪，远端每轮
+            # 把 3 天全量（34~38 万行）POST 给 5.2GB 的远端库，单表常 >900s 超时。
+            # IPRAN_KPI_REMOTE_INCREMENTAL=0 可一键回退到旧的全量行为。
+            send_rows, why = (data, "incremental disabled")
+            if IPRAN_REMOTE_INCREMENTAL:
+                send_rows, why = _rows_since_watermark(table_name, headers, data)
+                if len(send_rows) != len(data):
+                    logger.info("[DB][API] %s: 增量裁剪 %d -> %d 行 (%s)",
+                                table_name, len(data), len(send_rows), why)
+            if not send_rows:
+                logger.info("[DB][API] %s: 水位之后无新行，跳过远端写入 (%s)",
+                            table_name, why)
+                return 0
+            str_data = [[str(v) if v is not None else None for v in row]
+                        for row in send_rows]
             res = _db_writer.write_data(
                 db=DB_NAME,
                 table=table_name,
@@ -957,6 +1144,15 @@ def save_data_to_db_or_api(table_name: str, headers: list, data: list, api_failu
             )
             rows_written = res.get("rows_written", 0)
             logger.info(f"[DB][API] {table_name}: Written {rows_written} rows (pk={pk_cols})")
+            # 远端成功 ≠ 本机有数据：看板要读本机 PG，必须主动镜像一份。
+            # 镜像失败只告警，不影响任务成败（远端仍是权威库）。
+            if WRITE_LOCAL_MIRROR:
+                try:
+                    n = mirror_rows_to_local(table_name, headers, data)
+                    logger.info(f"[DB][MIRROR] {table_name}: {n} rows -> local PG")
+                except Exception as me:  # noqa: BLE001
+                    logger.warning("[DB][MIRROR] %s: 本机镜像失败（不影响任务）: %s",
+                                   table_name, me)
             return rows_written
         except Exception as e:
             logger.error(f"[DB][API] {table_name}: API write failed ({e}), falling back to local SQLite")

@@ -47,6 +47,11 @@ Copy-Item _TemplatePage.tsx YourPage.tsx
 
 > 这是 `docs\manual\README.md`「手册维护约定」第 1 条，也是 `AGENTS.md` 硬性约束第 1 条。
 
+> ⚠ 除了这三处登记，新页面还有三项**页面级硬要求**：口径说明默认收起（3.4b）、每个数字可悬浮问算法（3.4c）、
+> **按页刷新设置必须在 `App.tsx` 的 `AR_PAGE_DEFAULTS` 登记建议间隔**（3.4d）。
+> 三项里只有 3.4d 有机器守卫（`tests/test_doc_consistency.py::test_every_page_has_refresh_setting`，
+> 本地钩子与 CI 都会拦下），漏登记**构建得过不去**，别等 CI 红了再回来补。
+
 ### 第 4 步：构建并验证
 
 ```powershell
@@ -174,6 +179,50 @@ title={<>{t('xxx.col.avail')} <ExplainIcon text={t('xxx.explain.col', { metric: 
 - `ExplainIcon` 自带 `stopPropagation`：挂在**可下钻的卡片标题**上时点 ⓘ 不会顺带打开下钻弹窗（`ExplainCorner` 早就是这个行为）。
 - **不适用**：`LegacyToolFrame` 的 iframe 页（数字不在我们 DOM 里）；纯明细列表没有「算出来的数字」的不硬凑。
 - 参考实现：`pages/AvailCounty.tsx`（三层：KPI 卡 ⓘ + 列头 ⓘ + 每个数字的该格构成气泡）。
+
+### 3.4d 按页刷新设置：每个页面都要能自己决定刷不刷（硬要求）
+
+顶栏的「停止刷新 / 开启刷新」+ 间隔下拉是**外壳级**能力（`App.tsx` 的 `performAutoRefresh`），
+对每一个页面都可用、选择按页记忆在 `localStorage['myapp_auto_refresh_pages']`、**默认关闭**。
+新页面**天然继承**，不需要写任何刷新代码 —— 但**必须登记两件事**，否则守卫直接拦下提交
+（`AGENTS.md` 三.3d，规则 2026-11-04 由用户定：「参考 noc_analyst 里的刷新配置，给每个页面做设置」）。
+
+**① 在 `App.tsx` 的 `AR_PAGE_DEFAULTS` 登记本页的建议间隔**（用户点「开启刷新」时落到的值）：
+
+```tsx
+const AR_PAGE_DEFAULTS: Partial<Record<PageKey, number>> = {
+  // 档位只能取 AR_OPTIONS = [0, 30, 60, 300, 600, 900, 1800]
+  my_new_board: 300,   // 上游 15 分钟同步 → 看板主力档
+}
+```
+
+| 档 | 用在什么页 | 例子 |
+| --- | --- | --- |
+| `60` | 实时告警链路 | `realtime_alarm` / `alarm` / `alarmManagement` |
+| `300` | 看板主力（上游多为 15 分钟级同步） | `noc_analyst` / `avail_county` / `ttwo` / `cn_kpi_5mins` |
+| `900` | 上游日更或低频报表 | `mwUmeTopology`（每天 05:15）/ `packet_loss`（每天 06:30）/ `vmaxCxoDashboard_90Days`（每天 02:20）/ 物资与竞对报表 |
+| `1800` | 配置、操作、工具类页面（本身不产数据） | `settings` / `upload` / `tables` / `ip_trace` / `eflow_qa` |
+
+> 选档看的是**数据更新频率**，不是页面名字：`mwRealTime` 带「实时」二字但数据 15 分钟才同步一次，
+> 所以是 900 而不是 60 —— 给 60 只会多打 15 倍查询而画面不变。
+
+**② 重挂载代价大的页面，选一条无副作用的刷新路径登记**（不登记也能刷，只是整页重建会闪）：
+
+| 页面形态 | 登记到哪 | 页面侧要做什么 |
+| --- | --- | --- |
+| 同文档内的 React 页（地图 / 长表单 / 图表重建慢） | `AR_INPLACE_REFRESH_PAGES` | 监听 `document` 上的 `myapp-refresh` 事件，用**不清 loading、不清 error、失败保留旧数据**的方式静默重取数（参考 `pages/PersonMap.tsx`） |
+| iframe / legacy 静态页（`frontend/public/*.html`） | `AR_SOFT_REFRESH_PAGES` + 引入 `public/myapp-refresh-protocol.js` 调 `MyAppRefresh.install({ onRefresh })` | `onRefresh` 里原地重拉数据，不重载文档（参考 `public/warehouse-dashboard.html`） |
+| 其余普通页 | 不用登记 | 走 `key={refreshTick}` 硬重挂载，`useEffect` 重新取数 |
+
+**不要做的事**：不要为某类页面再加「不参与刷新」的白名单或把顶栏控件按页禁用。
+2026-11-03 那版 `AR_BOARD_PAGES` 白名单已被用户否掉并删除 —— 它让配置 / 操作页的控件变成禁用态，
+用户想刷也刷不了，而且每加一个页面都要回来改名单。**打断用户的风险由
+`arInteractionInProgress()` 兜（正在输入 / 弹层打开 / 标签页后台时跳过硬重挂载那一轮），不由禁用控件兜。**
+
+**机器守卫**：`tests/test_doc_consistency.py::test_every_page_has_refresh_setting` 核对
+`PAGE_META` 里每个自研页面都在 `AR_PAGE_DEFAULTS` 登记了合法档位，且 `App.tsx` 里不得再出现
+`AR_BOARD_PAGES` 或 `disabled={!arIsBoard` 这类按页禁用。`finebi_*` 原生看板由 `FINEBI_BOARDS`
+动态注入，统一落全局建议 `AR_PAGE_DEFAULT_SEC`，不在逐页登记要求内。
 
 ### 3.5 其他
 

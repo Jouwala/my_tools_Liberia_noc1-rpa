@@ -5,7 +5,7 @@
 // 2) 数据口径来自后端聚合接口（全量 GROUP BY），不使用受 LIMIT 截断的明细列表；
 // 3) 注意：当前 echarts 版本下不能传 lazyUpdate，否则图会空白（见 MsSlaDashboard 注释）。
 import { darkTooltip, axisLabel, axisLine, splitLine, WH_COLORS } from '../../theme'
-import type { NameValue, MwHistoryPoint, RatKpiSeries } from './types'
+import type { NameValue, MwHistoryPoint, RatKpiMetric, RatKpiSeries } from './types'
 import type { TFn } from './types'
 
 /** 图表统一配色（跟随主题的调色板取自 WH_COLORS，保证与全站一致） */
@@ -35,6 +35,15 @@ const fmtPct = (v: number | null | undefined, digits = 2) =>
 
 /** 空数据统一占位（避免画出一张空白坐标轴） */
 export const hasData = (rows?: unknown[] | null): boolean => !!rows && rows.length > 0
+
+/**
+ * 该 KPI 列在图上是否按百分数显示 —— 看 unit（后端下发的量纲），不看 is_rate。
+ * **why**：is_rate 只表示「关键比率，默认预选优先」，而拥塞率/掉话率/PRB 利用率这 9 列
+ * 同样是 0~1 存储、is_rate 却是 False，过去被画成 0.167 而不是 16.67%（列名带 (%) 更误导）。
+ * unit 缺失说明后端还没下发量纲，退回旧的 is_rate 判断，保持改造前的行为。
+ */
+export const isPct = (m: { unit?: string | null; is_rate?: boolean | null }): boolean =>
+  m.unit ? m.unit === '%' : !!m.is_rate
 
 // ==================== 1. 站点可用率趋势（多制式折线 + 阈值线） ====================
 
@@ -356,20 +365,20 @@ export const buildRatKpiOption = (
   const daily = series.daily || []
   const days = daily.map(d => String(d.day).slice(5))
   const metrics = (series.metrics || []).filter(m => selectedKeys.includes(m.key))
-  const rateMetrics = metrics.filter(m => m.is_rate)
-  const absMetrics = metrics.filter(m => !m.is_rate)
+  const rateMetrics = metrics.filter(isPct)
+  const absMetrics = metrics.filter(m => !isPct(m))
   const useDual = rateMetrics.length > 0 && absMetrics.length > 0
 
   // 比率类在库里以 0~1 存储，图上统一换算成百分数显示
-  const value = (d: Record<string, any>, m: { key: string; is_rate: boolean | null }) => {
+  const value = (d: Record<string, any>, m: RatKpiMetric) => {
     const v = d[m.key]
     if (v == null) return null
     const n = Number(v)
     if (Number.isNaN(n)) return null
-    return m.is_rate ? +(n * 100).toFixed(4) : n
+    return isPct(m) ? +(n * 100).toFixed(4) : n
   }
 
-  const mk = (m: { key: string; label: string; is_rate: boolean | null }, i: number, axis: number) => ({
+  const mk = (m: RatKpiMetric, i: number, axis: number) => ({
     name: m.label,
     type: 'line' as const,
     yAxisIndex: axis,
@@ -427,5 +436,91 @@ export const buildRatKpiOption = (
 /** 比率类指标换算后的百分数格式，供 tooltip / 卡片展示复用 */
 export const fmtRate = (v: number | null | undefined, digits = 2) =>
   v == null || Number.isNaN(Number(v)) ? '-' : `${(Number(v) * 100).toFixed(digits)}%`
+
+// ==================== 6. 业务量趋势（按量纲分轴） ====================
+
+/**
+ * 业务量列的图例名：剥掉上游列名尾部的计数器/模板编号（_901415_2_gv4.bsc-M、-new）再补量纲。
+ * 只动图例显示 —— 日明细表与悬浮气泡仍用完整原列名，保证口径能追到具体的列。
+ */
+export const volumeSeriesName = (m: RatKpiMetric): string => {
+  const base = String(m.label || m.key)
+    .replace(/_\d{4,}_[0-9A-Za-z._-]+$/, '')
+    .replace(/-new$/, '')
+    .trim()
+  return m.unit ? `${base} (${m.unit})` : base
+}
+
+/**
+ * 业务量趋势：**一种量纲一根纵轴**。
+ * 话务量(Erl，百级)、流量(GB，十级)、吞吐(Mbps)、在线用户(千级) 共用一根轴时，小量纲的曲线
+ * 会被压成贴地直线，所以按 unit 分轴：首个单位留在左轴，其余依次往右偏移。
+ * 数值一律取后端已折叠到「站点·自然日」的结果，前端不再计算
+ * （同站点挂多套 BSC/RNC 的情形已在接口里按业务量相加）。
+ */
+export const buildVolumeOption = (
+  series: RatKpiSeries,
+  selectedKeys: string[],
+  opts: { isDark: boolean; t: TFn },
+) => {
+  const { isDark, t } = opts
+  const daily = series.daily || []
+  const days = daily.map(d => String(d.day).slice(5))
+  const metrics = (series.metrics || []).filter(m => selectedKeys.includes(m.key))
+  if (!metrics.length) return null
+
+  const units = Array.from(new Set(metrics.map(m => m.unit || '')))
+  const multiAxis = units.length > 1
+
+  const mk = (m: RatKpiMetric, i: number) => ({
+    name: volumeSeriesName(m),
+    type: 'line' as const,
+    yAxisIndex: units.indexOf(m.unit || ''),
+    smooth: false,
+    symbol: 'circle',
+    symbolSize: days.length > 30 ? 3 : 5,
+    connectNulls: true,
+    data: daily.map(d => {
+      const v = d[m.key]
+      if (v == null) return null
+      const n = Number(v)
+      return Number.isNaN(n) ? null : n
+    }),
+    lineStyle: { width: 2, color: PALETTE[i % PALETTE.length] },
+    itemStyle: { color: PALETTE[i % PALETTE.length] },
+  })
+
+  const yAxis = units.map((unit, i) => ({
+    type: 'value',
+    scale: true,
+    name: unit || t('gis.chart.valueAxis'),
+    nameTextStyle: axisLabel(isDark),
+    position: i === 0 ? 'left' : 'right',
+    offset: i > 0 ? (i - 1) * 46 : 0,
+    axisLabel: axisLabel(isDark),
+    splitLine: i === 0 ? splitLine(isDark) : { show: false },
+  }))
+
+  return {
+    backgroundColor: 'transparent',
+    tooltip: { trigger: 'axis', ...darkTooltip(isDark) },
+    legend: { type: 'scroll', textStyle: axisLabel(isDark), top: 0, itemWidth: 14, itemHeight: 8 },
+    grid: {
+      left: 56,
+      // 每多一根右轴往外让开 46px，否则轴名与刻度互相压字
+      right: multiAxis ? 72 + (units.length - 2) * 46 : 24,
+      top: 40,
+      bottom: days.length > 20 ? 46 : 30,
+    },
+    xAxis: {
+      type: 'category', data: days,
+      axisLabel: { ...axisLabel(isDark), rotate: days.length > 20 ? 45 : 0, fontSize: 10 },
+      axisLine: axisLine(isDark),
+    },
+    yAxis,
+    dataZoom: days.length > 30 ? [{ type: 'inside' }] : undefined,
+    series: metrics.map(mk),
+  }
+}
 
 export { fmtPct, semanticColor, PALETTE }

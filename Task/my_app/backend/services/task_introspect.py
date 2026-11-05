@@ -275,8 +275,8 @@ def _auto_call_chain(func, _depth=0, _seen=None):
     return out[:15]
 TASK_IO: dict[str, list[str]] = {
     # 1-2. eFlow 同步
-    "eflow_sync": ["DB: app.db (db/app.db, 主)", "DB: eflow.sqlite3 (data/eflow/, 报告生成副产品)", "API: eFlow (10.100.20.8)", "远程DB: db.sqlite3 (via db_writer API, Eflow_TT_FB/Eflow_WO_FB)", "远程FTP: tt_reports 上传 (FTP_REMOTE_DIR, 默认 /Python)"],
-    "eflow_sync_full": ["DB: app.db (db/app.db, 主)", "DB: eflow.sqlite3 (data/eflow/, 报告生成副产品)", "API: eFlow (10.100.20.8)", "远程DB: db.sqlite3 (via db_writer API, Eflow_TT_FB/Eflow_WO_FB)", "远程FTP: tt_reports 上传 (FTP_REMOTE_DIR, 默认 /Python)"],
+    "eflow_sync": ["DB: app.db (db/app.db, 主)", "本地文件: data/eflow/eflow_<时间戳>.xlsx (Excel 报告，PG 模式不再经 eflow 中间库)", "API: eFlow (10.100.20.8)", "远程DB: db.sqlite3 (via db_writer API, Eflow_TT_FB/Eflow_WO_FB)", "远程FTP: tt_reports 上传 (FTP_REMOTE_DIR, 默认 /Python)"],
+    "eflow_sync_full": ["DB: app.db (db/app.db, 主)", "本地文件: data/eflow/eflow_<时间戳>.xlsx (Excel 报告，PG 模式不再经 eflow 中间库)", "API: eFlow (10.100.20.8)", "远程DB: db.sqlite3 (via db_writer API, Eflow_TT_FB/Eflow_WO_FB)", "远程FTP: tt_reports 上传 (FTP_REMOTE_DIR, 默认 /Python)"],
     # 3. RAN UME 日报
     "ran_ume_daily": ["远程DB: ran_kpi_daily_202606.sqlite3 (DB Orange, via API)", "本地DB: ran_kpi_daily.sqlite3 (Availability 读)", "远程FTP: /01_RPA/LBR_Tools/KPI/RAN/ORANGE"],
     # 4. Site Outage 截图

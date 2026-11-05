@@ -48,6 +48,7 @@ EWS 发送邮件（owa_mail_report.py）
 |------|------|
 | `gernarate_sp_report.py` | 主脚本（源自远程 `gernarate_sp_report.py`，已按 my_app 大量改造）。配置：`DATA_DIR=my_app\data\sp_email\data`、`OUT_DIR=my_app\data\sp_email`；相对路径下载统一解析到 DATA_DIR（不依赖进程 cwd）。在 `load_data()` 之后新增明细预处理（剔除 / 状态过滤 / Material Name·Type 同步），详见下方「明细预处理流水线」 |
 | `generate_sp_online_report.py` | 生成 SP 在线未关闭单表格（Inbound / Outbound 的 PNG + XLSX）到 `data\sp_email\sp_online`，图片复用本目录 `_render_summary_image` 渲染样式，Excel 复用 `style_excel` 样式 |
+| `generate_sp_weekly_report.py` | **SP 周报生成器（2026-11-03 新增）**：按「完整自然周（周一→周日）」窗口产出 `data\sp_weekly\SP Weekly Report <start> to <end>.xlsx`（8 个 sheet），见下方「SP 周报」 |
 | `requirements.txt` | 依赖：pandas / numpy / paramiko / openpyxl / Pillow（系统 Python3.12 已具备） |
 
 ## 明细预处理流水线（gernarate_sp_report.py main）
@@ -328,11 +329,49 @@ Inventory / Transfer 两份行数不变（原始即无 Canceled）。
 运行：`python generate_sp_online_report.py`（依赖同目录 `gernarate_sp_report`；输出文件被占用时自动加 `_1` 后缀）。
 注意：当前 inband_details.xlsx 导出全部为 Closed，Inbound.png 仅含表头属预期；上游导出含未关闭单后会自动带出。
 
-## 任务配置（backend/task_registry.py）
+## SP 周报（generate_sp_weekly_report.py）
 
+生成器的「周期」是硬口径，不能由调用方随意改：
+
+- **一个完整自然周：周一 00:00:00 → 周日 23:59:59**。默认 `end` = **最近一个已结束的周日**，
+  任务每周一 07:00 跑 → 窗口就是「上周一 ~ 上周日」，一天不落。
+  周期与执行日无关（周二/周三手动补跑仍是同一个周）；`--week-end` 仅供补发，**必须是周日**，否则直接报错。
+  ⚠ 不要退回「昨天往前 7 天」：周二跑会变成「周二 ~ 周一」。
+- 窗口过滤只用 `Inbound Time` / `Outbound Time`（这两列即与 WO/TT/PMT 关联工单的实际操作时间）。
+- 站点名/ID：`Related Ticket Title` 的 `[站点名]` + `Related Ticket Site Id`；标题无方括号时
+  用本地 `eflow_site`（Site ID → Site Name）反查；多站点工单（逗号分隔）保留完整 ID，站名写 `(multiple sites)`。
+- 库存是**生成时刻快照**，不是周末结存（上游 inventory 明细本身不带历史快照）。
+- 落盘是**先写临时文件再 `os.replace` 原子替换**（沿用 `gernarate_sp_report._save_detail_xlsx` 手法）：
+  目标正被 Excel/WPS 打开时短暂重试（4 次 × 2s）后仍占用，则报「请关闭该文件后重跑」的可操作错误，
+  不再直接 PermissionError 崩任务（2026-11-03 16:54/16:55 两次任务失败即此原因，已修复）。
+  读取上游明细时同时屏蔽 openpyxl「no default style」无害告警，保持任务结果尾部干净。
+
+| sheet | 内容 |
+|-------|------|
+| `Summary` | 周期、Inbound/Outbound/库存合计、物料数/站点数/工单数、按 Domain 拆解、口径说明 |
+| `Inventory` | Domain × 仓库（Monrovia-WH1 / WH2 / Gbarnga / Kweaken / Bomi）+ Total，另附 OwnerShip 拆分 |
+| `Inbound&Outbound Summary` | Domain × (入库 + 各仓出库 + 出库合计)，**每格带单位**（单单位 `7PCS`，跨单位 `4PCS+50Meter`） |
+| `Daily report` | 一行一条出库；7 个日期列**按真实星期+日期动态生成**；日期格按本行物料单位显示（`75Meter`）；带 Site Name / Site ID / Ticket Type / Ticket No. / Outbound Type / Unit |
+| `Top 10 Consumed Spares` | 期间出库 Top10 + 当前库存，**两列都带单位**（`250Meter` / `370Meter`）+ Unit 列 |
+| `Replenishment` | 安全库存/补库量/告警等级，**直接复用** `gernarate_sp_report.build_replenishment` |
+| `Details` | 期间入库/出库原始行，供透视与核对 |
+| `Warehouse-info` | 仓库映射唯一来源（仓库 Id / 明细名 / 报表短名） |
+
+与旧手工模板（`data/sp_report/SP Weekly report Template.xlsx`）的差异，都是**修缺陷**不是换口径：
+
+1. 模板 `Inbound&outbound Summary` 的 `G5:G11` 是 `=SUM(Cn:Gn)`（含自身 → 循环引用恒 0）→ 这里直接写数值；
+2. 模板数量混写 `2PCS / 50m / 40KG` 文本无法求和 → 这里**显示带单位但底层是数字**（数字格式 `#,##0.##"PCS"`）：
+   看到的和模板一样（`7PCS`），SUM / 排序 / 画图照常；只有一格里混了多种单位时才是文本（`4PCS+50Meter`，跨单位本来就无法求和，与模板同款）；
+3. 模板 `Daily report` 表头写死 `Sunday / Monday / 9/10 / … / Saturday`（星期与日期错位）→ 这里 7 列全部动态生成；
+4. 模板仓库映射在 Sheet1 与 Warehouse-info 存两份 → 这里只有 Warehouse-info 一份；
+5. 模板 Orange WH 的 1st Floor / 2nd floor / Big / Big Container / Small 五个物理分区在明细里**没有对应字段**
+   （明细只有 `Location Name` 如 `A301`），故改为按真实仓库列展开，不臆造分区。
+
+## 任务配置（backend/task_registry.py）
 | 任务 ID | cron | 说明 |
 |---------|------|------|
 | `sp_report_generate` | `15 5 * * *` | 每天 05:15 从 SFTP 下载数据并生成报表到 data/sp_email |
+| `sp_weekly_report` | `0 7 * * mon` | **每周一 07:00 生成上一个自然周（周一→周日）周报并发邮件**；文件名/主题带周期日期。⚠ day_of_week 一律写 `mon`/`sun` 这类名字，不要写数字（APScheduler 数字 0=周一、6=周日，与 Linux cron 相反） |
 | `sp_online_report_generate` | `0 6 * * *` | 每天 06:00 生成 sp_online 未关闭单报表（PNG+XLSX）：Inbound 读明细 xlsx，**Outbound 读库表 `sp_outbound`** |
 | `sp_online_report_send` | `20 6 * * *` | 每天 06:20 发送 sp_online 未关闭单报表：邮件（PNG 内嵌 + XLSX 附件）+ WhatsApp 群 |
 | `kpi_sp_spareparts` | `45 5 * * *` | 05:45 发送 SpareParts 报表邮件（附件取本地 sp_email 最新总表） |

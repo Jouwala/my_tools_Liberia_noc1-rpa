@@ -8,7 +8,13 @@
      （带 __RequestVerificationToken + ReturnUrl）-> 302 回调 fragment 取 access_token。
   2. 业务：GET /api/v0.1/assets/clients/{cid}/energy/sites?query=<站名> 搜站点，
      GET .../sites/<site_id>/diagram 取电源全景（负载/电池/发电机/市电/整流器/
-     油箱/太阳能/环境），GET .../sites/<site_id>/with-events 取站点与设备详情。
+     油箱/太阳能/环境），GET .../sites/<site_id>/popup 取轻量 KPI 摘要 + 活动告警，
+     GET .../sites/<site_id>/with-events 取站点与设备详情。
+  3. 全站 2 分钟分辨率（2026-11-04 实测）：filter-map 不含任何电源数值，
+     也没有批量电源接口；只有逐站查。/diagram 约 5KB、并发 32 线程实测
+     200 站 73.8s（外推 501 站 ~185s，且出现超时），无法塞进 2 分钟节拍；
+     /popup 约 1.5KB、并发 32 线程实测 501 站 60.1s、0 错误，故以 /popup
+     作全站 2 分钟 KPI 层，/diagram 留给分片轮采的明细层。
 
 凭据来源（优先级）：环境变量 IPT_USERNAME / IPT_PASSWORD > 同目录 url.txt 中
 「用户名：xxx」「密码：xxx」两行。凭据不落代码、不写日志。
@@ -213,15 +219,315 @@ class IptEnergyClient:
         raise IptEnergyError("POST filter-map 重登后仍 401")
 
     def find_sites(self, query):
-        """按站名模糊搜索，返回站点概要列表。"""
+        """按站名模糊搜索，返回站点概要列表（含完整站点属性）。"""
         return self._get("/sites", params={"query": query}) or []
+
+    def list_sites(self, page=1, page_size=100):
+        """分页列全站（含 internalReference / flatOrganization / cluster /
+        priority / configuration 等 filter-map 不提供的属性）。
+
+        实测：GET /energy/sites?query=&page=<n>&pageSize=<n>，服务端 pageSize
+        上限 100、默认 20；page 从 1 起。约 6 页可覆盖全部 ~500 站。
+        """
+        return self._get("/sites", params={"query": "", "page": page,
+                                           "pageSize": page_size}) or []
 
     def get_site_with_events(self, site_id):
         return self._get("/sites/%s/with-events" % site_id)
 
+    def _post(self, path, body):
+        """业务 POST（带 Bearer + 401 自动重登一次），与 _get 对称。"""
+        url = (BACKEND_HOST + "/api/v0.1/assets/clients/" + self.client_ref
+               + "/energy" + path)
+        for attempt in (1, 2):
+            r = self._session.post(
+                url, json=body, timeout=self.timeout,
+                headers={"Authorization": "Bearer " + self.token(),
+                         "Accept": "application/json, text/plain, */*",
+                         "Content-Type": "application/json",
+                         "Origin": "https://portal.iptdigitalplatform.com",
+                         "Referer": "https://portal.iptdigitalplatform.com/",
+                         "User-Agent": _UA})
+            if r.status_code == 401 and attempt == 1:
+                self._token = None
+                try:
+                    os.remove(self.token_cache)
+                except OSError:
+                    pass
+                continue
+            if r.status_code != 200:
+                raise IptEnergyError("POST %s -> HTTP %s: %s"
+                                     % (path, r.status_code, r.text[:200]))
+            return r.json()
+        raise IptEnergyError("POST %s 重登后仍 401" % path)
+
     def get_site_diagram(self, site_id):
-        """电源全景：负载/电池组/发电机/市电/整流器/油箱/太阳能/环境。"""
+        """电源全景（明细层）：负载/电池组/发电机/市电/整流器/油箱/太阳能/环境。"""
         return self._get("/sites/%s/diagram" % site_id)
+
+    def get_site_popup(self, site_id):
+        """站点弹窗摘要（KPI 层）：site 属性 + 活动告警 + 精简 diagram。
+
+        实测 ~1.5KB，只有 diagram 的 1/3；含 loadPower / batteryVoltage /
+        batteryStateOfCharge / solarPower / fuelTankLevel / generatorOn 与
+        site.events（Mains Fail、Engine standby 等活动告警）。
+        501 站并发 32 线程实测 60.1s、0 错误，是全站 2 分钟分辨率的数据源。
+        """
+        return self._get("/sites/%s/popup" % site_id)
+
+    def get_recent_events(self, duration=60):
+        """全站近 N 分钟「新发生」事件（1 个请求，bulk）。
+
+        注意：只含最近发生的事件，**不含**长期未清除的活动告警；
+        站点「N Active Alarms」应以 get_site_popup() 的 site.events 为准。
+        """
+        return self._post("/events/recent", {"duration": duration})
+
+    # ---------- 并发采集支持 ----------
+    def token_info(self):
+        """返回当前有效 token dict，供 fork_for_thread() 复用。"""
+        self.token()  # 确保已登录/已刷新
+        return dict(self._token) if self._token else None
+
+    def fork_for_thread(self, token_info=None, timeout: float = None):
+        """为每个工作线程派生一个独立 requests.Session 的客户端。
+
+        requests.Session **非线程安全**（连接池/ CookieJar 共享会串包），
+        并发逐站采集必须每线程一个实例；token 复用主客户端的，避免 32 个
+        线程同时触发 OIDC 重登把登录端点打爆。
+        timeout：可覆盖单请求超时（线程池里用更短超时，避免个别站点
+        25s 卡顿吃掉整轮预算——2026-11-04 晚高峰实测）。
+        """
+        child = IptEnergyClient(
+            username=self.username, password=self.password,
+            client_ref=self.client_ref, token_cache=self.token_cache,
+            timeout=timeout or self.timeout)
+        child._token = dict(token_info) if token_info else self.token_info()
+        return child
+
+    # ---------- popup / diagram 归一化（全站 2 分钟 KPI 层 + 明细层共用） ----------
+    _SLIM_EVENT_KEYS = ("id", "name", "criticality", "category", "isDismissed")
+
+    @staticmethod
+    def _num(v):
+        """上游数值字段 → float/int，其余（None/字符串/布尔）一律 None。"""
+        return v if isinstance(v, (int, float)) and not isinstance(v, bool) else None
+
+    @staticmethod
+    def solar_values(d):
+        """汇总站点太阳能 → (power_W, current_A, available)。
+
+        - available：solarSets 有配置 = 1，无 = 0（页面据此显示 0 W 或「-」，
+          解决「无太阳能设备的站也显示 0」的歧义）。
+        - solarSets[].solarPower 与 rectifiers[].solarPower 上游是同一份镜像值
+          （2026-11-04 对 3945 条历史快照逐条核对：非零值一一相等），取 max
+          避免重复累加；多组太阳能时先对 solarSets 求和再与 rectifier 镜像取大者。
+          夜间（利比里亚 GMT，约 18:30 后日出前）太阳能为 0 属正常物理现象，
+          历史数据白天常见 6~14 kW。
+        """
+        def collect(key, field):
+            out = []
+            for item in d.get(key) or []:
+                v = IptEnergyClient._num(item.get(field))
+                if v is not None:
+                    out.append(v)
+            return out
+        ss, rs = collect("solarSets", "solarPower"), collect("rectifiers", "solarPower")
+        power = max([sum(ss)] + rs) if (ss or rs) else None
+        sc = collect("solarSets", "solarCurrent")
+        rc = collect("rectifiers", "solarCurrent")
+        current = max([sum(sc)] + rc) if (sc or rc) else None
+        available = 1 if d.get("solarSets") else 0
+        return power, current, available
+
+    @staticmethod
+    def slim_diagram(d):
+        """diagram → 精简 dict（保留展示字段，剥掉 device 对象与凭据）。
+
+        ⚠ 原始 diagram 的 fuelTanks[].device（及 with-events 的 devices[]）带
+        控制器明文 username/password，入库/下发前端前必须剥掉——此前 raw 列
+        存全量 JSON 并被 /site/{id} 原样返回，属于凭据泄漏，2026-11-04 修复。
+        """
+        keep = {
+            "loads": ["loadCurrent", "loadPower", "loadFrequency"],
+            "batterySets": ["name", "totalCapacity", "status", "chargingState",
+                            "batteryVoltage", "batteryCurrent", "batteryPower",
+                            "batteryStateOfCharge", "batteryAutonomy",
+                            "batteryTemperature1", "batteryTemperature2",
+                            "batteryMinVoltageToday", "batteryMaxVoltageToday"],
+            "generators": ["name", "capacity", "generatorOn", "generatorOnChanged",
+                           "changedGeneratorOn", "generatorFuelRate",
+                           "generatorLoadRatio", "generatorOperatingMode",
+                           "generatorVoltagePhase1", "generatorVoltagePhase2",
+                           "generatorVoltagePhase3", "generatorCurrentPhase1",
+                           "generatorCurrentPhase2", "generatorCurrentPhase3"],
+            "rectifiers": ["name", "capacity", "rectifierCurrent", "mainSourceOn",
+                           "mainSourceCurrent", "mainSourcePower", "solarPower",
+                           "solarCurrent", "solarVoltage", "loadPower", "loadRatio",
+                           "batteryChargingState", "mainSourceVoltagePhase1",
+                           "mainSourceVoltagePhase2", "mainSourceVoltagePhase3",
+                           "rectifierTotalInputCurrent"],
+            "fuelTanks": ["name", "capacity", "fuelLevel", "fuelRatio",
+                          "fuelTankLevel", "fuelTankRatio", "fuelLevelLastUpdated"],
+            "gridBackups": ["name", "gridOn", "gridVoltagePhase1", "gridVoltagePhase2",
+                            "gridVoltagePhase3", "gridCurrentPhase1",
+                            "gridCurrentPhase2", "gridCurrentPhase3"],
+            "grids": ["name", "gridOn", "gridVoltagePhase1", "gridVoltagePhase2",
+                      "gridVoltagePhase3", "gridCurrentPhase1", "gridCurrentPhase2",
+                      "gridCurrentPhase3"],
+            "solarSets": ["name", "capacity", "solarOn", "solarVoltage", "solarPower",
+                          "solarCurrent", "solarLoadRatio", "pvcModulesTotal",
+                          "pvcModulesOkay", "pvcModulesFailed"],
+        }
+        out = {}
+        for sec, keys in keep.items():
+            items = d.get(sec) or []
+            if not items:
+                continue
+            slim_items = []
+            for it in items:
+                item = {k: it.get(k) for k in keys if it.get(k) is not None}
+                if it.get("events"):
+                    item["events"] = [
+                        {k: e.get(k) for k in IptEnergyClient._SLIM_EVENT_KEYS
+                         if e.get(k) is not None}
+                        for e in it["events"]]
+                slim_items.append(item)
+            out[sec] = slim_items
+        env = d.get("environment") or {}
+        env_slim = {k: env.get(k) for k in ("indoorTemperature", "outdoorTemperature",
+                                            "cabinetDoorOpenAlarm")
+                    if env.get(k) is not None}
+        if env_slim:
+            out["environment"] = env_slim
+        core = d.get("coreSiteConnectors") or {}
+        if core.get("mainSourceOn") is not None:
+            out["coreSiteConnectors"] = {"mainSourceOn": core.get("mainSourceOn")}
+        return out
+
+    @staticmethod
+    def normalize_popup(popup):
+        """popup → 快照字段 dict（全站 2 分钟 KPI 层）。
+
+        popup.diagram 是 diagram 的精简子集：无 loads/environment/mainSourceOn，
+        fuelTanks 只有 fuelTankLevel，grids/solarSets 只有 deviceId；site.events
+        是站点级活动告警（Mains Fail / Engine standby 等）。
+        """
+        p = popup or {}
+        site = p.get("site") or {}
+        d = p.get("diagram") or {}
+        n = IptEnergyClient._num
+
+        def first(key):
+            lst = d.get(key) or []
+            return lst[0] if isinstance(lst, list) and lst else {}
+
+        r, b, g = first("rectifiers"), first("batterySets"), first("generators")
+        t, gr = first("fuelTanks"), first("grids")
+        solar_power, solar_current, solar_available = IptEnergyClient.solar_values(d)
+        alarms = [{"name": e.get("name"), "criticality": e.get("criticality"),
+                   "created": e.get("created")}
+                  for e in site.get("events") or [] if e.get("name")]
+        soc_r, soc_b = n(r.get("batteryStateOfCharge")), n(b.get("batteryStateOfCharge"))
+        return {
+            "load_current": None,   # popup 无负载电流，明细层补
+            "load_power": n(r.get("loadPower")),
+            "battery_voltage": n(r.get("batteryVoltage")) or n(b.get("batteryVoltage")),
+            "battery_current": None,
+            "battery_power": None,
+            "battery_soc": soc_r if soc_r is not None else soc_b,
+            "battery_charging_state": None,
+            "battery_temp1": None,
+            "generator_on": None if g.get("generatorOn") is None
+                            else int(bool(g.get("generatorOn"))),
+            "solar_power": solar_power,
+            "solar_current": solar_current,
+            "solar_available": solar_available,
+            "fuel_level": (n(t.get("fuelTankLevel")) if t.get("fuelTankLevel") is not None
+                           else n(t.get("fuelLevel"))),
+            "fuel_ratio": None,
+            "grid_on": None if gr.get("gridOn") is None else int(bool(gr.get("gridOn"))),
+            "main_source_on": None,
+            "fuel_capacity": None,
+            "alarm_count": len(alarms),
+            "alarm_names": alarms,
+            "source": "popup",
+        }
+
+    @staticmethod
+    def normalize_diagram_full(d):
+        """diagram → 快照字段 dict（明细层，含 popup 缺失的全部字段）。"""
+        n = IptEnergyClient._num
+
+        def first(key):
+            lst = d.get(key) or []
+            return lst[0] if isinstance(lst, list) and lst else {}
+
+        load = first("loads")
+        batt = first("batterySets")
+        gen = first("generators")
+        solar = first("solarSets")
+        tank = first("fuelTanks")
+        grid = first("grids")
+        rect = first("rectifiers")
+        solar_power, solar_current, solar_available = IptEnergyClient.solar_values(d)
+        alarms = []
+        for sec in ("batterySets", "generators", "rectifiers", "fuelTanks",
+                    "solarSets", "grids", "gridBackups"):
+            for it in d.get(sec) or []:
+                for e in it.get("events") or []:
+                    if e.get("name") and not e.get("isDismissed"):
+                        alarms.append({"name": e.get("name"),
+                                       "criticality": e.get("criticality"),
+                                       "category": e.get("category")})
+        return {
+            "load_current": n(load.get("loadCurrent")),
+            "load_power": n(load.get("loadPower")),
+            "battery_voltage": n(batt.get("batteryVoltage")),
+            "battery_current": n(batt.get("batteryCurrent")),
+            "battery_power": n(batt.get("batteryPower")),
+            "battery_soc": n(batt.get("batteryStateOfCharge")),
+            "battery_charging_state": batt.get("chargingState"),
+            "battery_temp1": n(batt.get("batteryTemperature1")),
+            "battery_temp2": n(batt.get("batteryTemperature2")),
+            "battery_name": batt.get("name"),
+            "battery_capacity": n(batt.get("totalCapacity")),
+            "battery_min_v_today": n(batt.get("batteryMinVoltageToday")),
+            "battery_max_v_today": n(batt.get("batteryMaxVoltageToday")),
+            "generator_on": None if gen.get("generatorOn") is None
+                            else int(bool(gen.get("generatorOn"))),
+            "generator_name": gen.get("name"),
+            "generator_capacity": n(gen.get("capacity")),
+            "generator_mode": gen.get("generatorOperatingMode"),
+            "generator_changed": gen.get("generatorOnChanged"),
+            "gen_v1": n(gen.get("generatorVoltagePhase1")),
+            "gen_v2": n(gen.get("generatorVoltagePhase2")),
+            "gen_v3": n(gen.get("generatorVoltagePhase3")),
+            "gen_a1": n(gen.get("generatorCurrentPhase1")),
+            "gen_a2": n(gen.get("generatorCurrentPhase2")),
+            "gen_a3": n(gen.get("generatorCurrentPhase3")),
+            "solar_power": solar_power,
+            "solar_current": solar_current,
+            "solar_available": solar_available,
+            "solar_voltage": n(solar.get("solarVoltage")),
+            "solar_load_ratio": n(solar.get("solarLoadRatio")),
+            "pvc_okay": n(solar.get("pvcModulesOkay")),
+            "pvc_total": n(solar.get("pvcModulesTotal")),
+            "pvc_failed": n(solar.get("pvcModulesFailed")),
+            "fuel_level": n(tank.get("fuelLevel")),
+            "fuel_ratio": n(tank.get("fuelRatio")),
+            "fuel_capacity": n(tank.get("capacity")),
+            "grid_on": None if grid.get("gridOn") is None else int(bool(grid.get("gridOn"))),
+            "grid_v1": n(grid.get("gridVoltagePhase1")),
+            "grid_a1": n(grid.get("gridCurrentPhase1")),
+            "main_source_on": None if rect.get("mainSourceOn") is None
+                              else int(bool(rect.get("mainSourceOn"))),
+            "main_source_power": n(rect.get("mainSourcePower")),
+            "rectifier_current": n(rect.get("rectifierCurrent")),
+            "alarm_count": len(alarms),
+            "alarm_names": alarms,
+            "source": "diagram",
+        }
 
     def get_site_power(self, query):
         """一站式：站名 -> (站点概要, 电源信息归一化 dict)。多命中取第一个。"""

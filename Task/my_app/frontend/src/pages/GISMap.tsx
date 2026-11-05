@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo, useCallback, Fragment } from 'react'
+import { useEffect, useState, useMemo, useCallback, useRef, Fragment } from 'react'
 import { cachedGet } from '../cache'
 import { Card, Row, Col, Select, Spin, Tag, Space, Badge, DatePicker, Segmented, Button, Input, Table, Alert } from 'antd'
 import { DownloadOutlined, FilterOutlined, SearchOutlined, RobotOutlined } from '@ant-design/icons'
@@ -1136,12 +1136,26 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
   // 记忆化：避免每次渲染都生成新数组导致 MapController 反复 setView（会重置用户的平移/缩放）
   // ⚠️ 必须声明在 countyLabels 之前：该 memo 的投影 latitude 用 center[0]，
   // 而 useMemo 工厂在渲染期同步执行，「先用后声明」会直接 TDZ ReferenceError。
-  const center = useMemo<[number, number]>(() => {    if (sites.length === 0) return LB_CENTER
+  /* 视野中心跟随**筛选后的数据范围**（2026-11-03，修「筛选站点后地图上看不到」的第二层）。
+
+     原先 center 恒为全量 sites 的重心 —— 筛选后即使站点画出来了，也可能落在
+     视野边缘之外（实测 Lofa Bridge 在西北角 Grand Cape Mount，全国重心视野下
+     贴边难辨）。筛选是「我只关心这些站」的表达，视野应当跟着对准它们。
+
+     ⚠️ 刻意跟 criteriaSites（数据范围筛选）而不是 filteredSites（还受图层开关/
+        图例隐藏影响）：与统计卡的口径原则一致（见 criteriaSites 的注释）——
+        用户关一个图层/隐藏一类图例不该让视野跳走，那会被读成「数据变了」；
+        只有「我关心哪些站」变了（高级筛选/站名/region），才重新定视野。
+     criteriaSites 为空（筛选无命中）时回落全量重心 —— 无命中时视野不乱跳，
+        与「Total Sites: 0」的空结果是同一种可预期状态。 */
+  const center = useMemo<[number, number]>(() => {
+    const src = criteriaSites.length > 0 ? criteriaSites : sites
+    if (src.length === 0) return LB_CENTER
     return [
-      sites.reduce((s, p) => s + p.lat, 0) / sites.length,
-      sites.reduce((s, p) => s + p.lng, 0) / sites.length,
+      src.reduce((s, p) => s + p.lat, 0) / src.length,
+      src.reduce((s, p) => s + p.lng, 0) / src.length,
     ]
-  }, [sites])
+  }, [criteriaSites, sites])
 
   /* 县名标注的**避让后锚点**（2026-10-14 用户要求「Label 重叠需要动态避让」）。
 
@@ -1519,6 +1533,39 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
     // 用户会以为「清除」没清干净
     setSiteNameQuery('')
   }
+
+  /* ===== 筛选开始时解除 normal 的默认隐藏（2026-11-03，修「筛选站点后地图上看不到」）=====
+
+     根因：normal（无实时告警且非 VIP 的常规站，实测 739/827）默认隐藏
+     （见 hiddenLegends 初值的注释 —— 全画会淹没告警站）。但用户一旦做了
+     站名/高级筛选，「缩小范围」这个动作本身就完成了 normal 隐藏想做的事，
+     此时再隐藏 normal 只会剩一个空地图 —— 实测筛选 "lofa bridge"：
+     命中 1 站（Total Sites: 1/874），该站 rt_alarm=0 → 归类 normal →
+     On Map: 0/1，一个点都不画，用户以为筛选坏了。
+
+     修法：activeFilterCount 从 0 → 正的**那一刻**自动把 normal 从
+     hiddenLegends 里移除。三条刻意的设计：
+       · 只在「从无到有」的转换时移除：用户在筛选态手动点图例重新隐藏
+         normal 是有效操作，不会被后续筛选变化（1→2）反复推翻；
+       · 清除筛选后**不**自动恢复默认隐藏：保持「用户最后一次选择」语义，
+         想回默认点一下图例即可，避免清除筛选时视野/图例再跳一次；
+       · 走 setHiddenLegends 而非渲染期派生值：图例的删除线状态、
+         filteredSites 的可见性、visiblePersonNames 的人员反推三处
+         读的是同一个状态，保证「图例说隐藏 ⇔ 地图真不画」不会分叉。
+     （对 realtime 模式同样生效：该页 normal 同为兜底档，同理由成立。） */
+  const hadAnyFilterRef = useRef(false)
+  useEffect(() => {
+    const has = activeFilterCount > 0
+    if (has && !hadAnyFilterRef.current) {
+      setHiddenLegends(prev => {
+        if (!prev.has('normal')) return prev
+        const next = new Set(prev)
+        next.delete('normal')
+        return next
+      })
+    }
+    hadAnyFilterRef.current = has
+  }, [activeFilterCount])
 
   /* ---- 图例计数：两组用**不同模型**（2026-10-17 用户澄清后定稿）----
 
@@ -2674,7 +2721,35 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
              同一判断在本卡片与下方包裹处各出现一次，抽出来保证两处口径一致
              （改模式名时只改一处）。 */}
       <Card
-        styles={{ body: { padding: 0, position: 'relative', height: '100%' } }}
+        /* ⚠️ 2026-11-05（修「?page=gis 地图整块空白，embed 模式却正常」）：
+           **body 的 height 从 '100%' 改为 flex 撑满（flex:1 + minHeight:0 + height:auto）**。
+
+           根因（实测，非猜测）：
+             ① 本卡片是 `display:flex; flexDirection:column`，其父级是 rootStyle
+                （也是 flex 列容器）。卡片自己写的是 `flex: 1` —— 即 flex-basis:0%，
+                高度由 flex 布局分配而来。
+             ② 按 CSS 规范，**flex-basis:0% + flex-grow 撑开的高度对子元素而言是
+                「高度不确定」（indefinite）**：后代用百分比高度（height:100%）
+                去解析时无法得到确定值，退回 auto。
+             ③ body 的 height:'100%' 于是解析不出来 → body 高度塌成 0；
+                再往下 MapContainer 的 height:'100%' 也塌成 0 → Leaflet 容器 0px，
+                地图整块不可见（页面上表现为「一大块白」）。
+
+           为什么 embed 模式正常：`?embed=1` 时 App.tsx 给 <Content> 写了
+           `height: '100%'`，且 `.wh-embed-mode` 根节点是 `height: 100vh`（确定高度），
+           整条百分比链一路都有确定值可解析，于是地图正常。
+           —— 同一个页面、两种模式表现不同，正是这条「不确定高度」的典型症状。
+
+           为什么 realtime_alarm 页没这问题：那张卡不在 rootStyle 的直接 flex 列下，
+           而是在 rowStyle（flex **row** + align-items:stretch）里，高度由 stretch
+           给的是确定值，百分比能解析。本卡片在 'all' 模式下是纵向排布，踩中此坑。
+
+           修法（与 LegacyToolFrame / ImonitorScreen 同一套思路）：
+             **body 作为卡片的 flex 子项用 flex:1 撑满（配 minHeight:0），
+             而不是用百分比高度**；再用 position:relative + 绝对定位让
+             MapContainer 精确铺满 body（body 已有 position:relative）。
+             这样高度完全由 flex 布局算出，不依赖任何百分比解析。 */
+        styles={{ body: { padding: 0, position: 'relative', flex: '1 1 0%', minHeight: 0, height: 'auto' } }}
         style={{
           ...cardStyle, overflow: 'hidden', flex: 1,
           minHeight: 0,
@@ -2689,7 +2764,10 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
           <MapContainer
             center={center}
             zoom={zoomLevel}
-            style={{ height: '100%', width: '100%', background: 'var(--wh-page-bg)' }}
+            /* 绝对定位铺满 body（body 已是 position:relative）。
+               不能写 height:'100%' —— 百分比高度在上游那层塌成 0 时同样归零，
+               绝对定位则由 body 的**确定**尺寸（flex 算出来的）直接给出。 */
+            style={{ position: 'absolute', inset: 0, width: 'auto', height: 'auto', background: 'var(--wh-page-bg)' }}
           >
             <PmtilesLayer
               url={BASEMAP_PMTILES_URL}

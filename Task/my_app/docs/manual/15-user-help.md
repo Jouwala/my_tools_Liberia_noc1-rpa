@@ -99,6 +99,7 @@
 | DC server 告警 WhatsApp 推送 | `ume_alarm_whatsapp_alert` | `* * * * *` | m | `services/ume_alarm_whatsapp_service.py → run_ume_alarm_whatsapp` |
 | Fiber Break 告警自动派单 | `eflow_fiber_assign` | `3-59/5 * * * *` | m | `services/eflow_fiber/fiber_assign_service.py → run_fiber_assign` |
 | 5G 站点告警自动派单 | `eflow_5g_assign` | `8-59/5 * * * *` | m | `services/eflow_5g/g5_assign_service.py → run_5g_assign` |
+| CMDB 站点同步比对 | `eflow_site_update` | `0 7 * * *` | m | `services/eflow_site_update_task.py → run_eflow_site_update` |
 | eFlow 实时告警同步 | `eflow_active_alarm` | `*/1 * * * *` | x | `services/eflow_api_client.py → fetch_and_save_active_alarm` |
 | eFlow 历史告警同步 | `eflow_history_alarm` | `0 */3 * * *` | n | `services/eflow_api_client.py → fetch_and_save_history_alarm` |
 | eFlow TT 规则收集与匹配检查 | `eflow_tt_rules_check` | `20 4 * * *` | n | `services/eflow_rules/eflow_tt_rules_check_task.py → run_eflow_tt_rules_check` |
@@ -421,6 +422,26 @@
 - eFlow 侧 ttstatus 非 0 不阻断派单：照派但只用最小预算，失败后通报人工去 eFlow 修站点绑定
 - eFlow 派单时灵时不灵，故内置重试，且以回查到 ttid 才判成功（不信接口的 status:true）
 - 告警上游已有 ttid 时直接跳过：eFlow 自己的派单规则会先建 TT，不跳过就会重复建单
+
+#### CMDB 站点同步比对（`eflow_site_update`）
+
+- 默认 cron: `0 7 * * *`　|　worker 组: **m**
+- 工作流脚本: `services/eflow_site_update_task.py → run_eflow_site_update`
+
+**功能**: 比对 CMDB 主数据（my_app/db 下最新的 ZTE OLR MS Master Site Database）与 eflow 基线、PG master_site_db 基线，生成带 A/M/D 标记与着色的差异文件（eflow_site_update.xlsx / master_site_db .xlsx / 导入副本 / 同步报告）。只生成文件供人工审查，不写入 eflow 与 PostgreSQL
+
+**工作流与数据流**:
+
+1. 扫描 my_app/db 下最新的 CMDB 主数据源
+1. 与 eflow 基线、PG master_site_db 基线逐字段比对
+1. 生成带 A/M/D 标记与着色的差异文件（eflow_site_update.xlsx / master_site_db .xlsx / 导入副本 / 同步报告）
+1. 供 Email Reports →「站点同步」页签下载与人工审查
+
+**维护要点**:
+
+- 只生成待审查文件，绝不写库：服务层显式传 --pg none --cmdb none，审查通过后由人工导入
+- 每日 07:00 兜底跑一次；关掉自动调度不影响页面按钮（任务 enabled 为 True 时手动触发仍可用）
+- 也可由「任务管理」页手动触发一次
 
 #### eFlow 实时告警同步（`eflow_active_alarm`）
 
@@ -1693,23 +1714,28 @@
 - 默认 cron: `*/2 * * * *`　|　worker 组: **m**
 - 工作流脚本: `services/ipt_data/ipt_power_collector.py → run_ipt_power_collect`
 
-**功能**: 每 2 分钟从 IPT Digital Platform（RMS 能源监控平台，AWS 外网）采集：① filter-map 1 个请求刷全站（约 498 站）清单与连接状态；② 按 watch_sites.json 关注清单逐站拉 diagram 电源全景入库。供「站点电源查询」页（?page=ipt_power）展示与画历史曲线
+**功能**: 每 2 分钟从 IPT Digital Platform（RMS 能源监控平台，AWS 外网）采集：① filter-map 1 个请求刷全站（约 500 站）连接状态（该接口不含电源数值）；② /sites 分页一次性回填参考号/区域等站点属性；③ full_kpi 并发拉全站 popup 轻量 KPI（8 线程；上游健康时 32 线程实测 501 站 60s）→ **全站每 2 分钟一条快照**；④ full_shard 并发拉 diagram 完整明细分片轮采（3 线程，≤60 站/轮，约 20 分钟覆盖全站，关注站每轮必采）。供「站点电源查询」页展示与画历史曲线
 
 **工作流与数据流**:
 
 1. OIDC 隐式流登录（client_id=rubix-web，模拟 authorize → 登录表单 → 回调 fragment 取 access_token，缓存 1 小时自动续期，见 services/ipt_data/README.md）
-1. POST /energy/sites/filter-map 全量刷新 ipt_power_sites（连接状态 online/offline）
-1. 对关注清单每站 GET /energy/sites/<id>/diagram，压平成一行快照写入 ipt_power_snapshots（站间限速 0.3s）
-1. 清理 7 天前旧快照；运行结果写 ipt_power_meta.last_run
+1. POST /energy/sites/filter-map 全量刷新 ipt_power_sites（连接状态 online/offline；不含电源数值）
+1. GET /energy/sites?query=&page=N&pageSize=100 分页回填 internal_reference / organization / cluster / priority / configuration（约 6 个请求，仅在有缺值且距上次 >1h 时执行）
+1. diagram 明细池先起（后台）：关注站（watch_sites.json 的 sites）+ shard_cursor 环形游标分片站，3 线程并发
+1. popup KPI 池前台跑：全站每站 GET /popup（8 线程，按 kpi_cursor 环形轮转，硬上限截断的站下轮续采），与 diagram 池同时进行；两池受整轮 100s 硬上限约束
+1. 弹性（11-05 复盘）：池内单请求 20s 超时（12s 会误杀「慢但会成功」的请求并形成超时风暴）+ popup 失败站在硬上限内补采一轮 + 单轮 popup 成功率 <25% 视为上游被压垮并计入退避；退避按连续失败 5/10/20 分钟（封顶 30），退避期整轮静默跳过、不发失败通知，任一轮成功自动清零
+1. 合成落库：全站每轮各写一条快照（popup KPI 为底、有 diagram 的站覆盖明细列，source 记 popup/diagram；popup 行 raw 不落 JSON 控表体积，diagram 明细另存 ipt_power_site_detail 每站最新一条，已剥设备凭据）
+1. 清理 2 天前旧快照；运行结果写 ipt_power_meta.last_run，下一轮起点写 ipt_power_meta.shard_cursor
 
 **维护要点**:
 
-- ⚠ 采集范围由 backend/services/ipt_data/watch_sites.json 控制（数组，支持 "*" / 站点名 / 参考号 / site_id）——**不要配 "*"**：全站 498 站单轮约 2.5 分钟以上，2 分钟节拍做不完，且对外网平台压力过大；推荐 ≤50 站
+- ⚠ 采集范围由 backend/services/ipt_data/watch_sites.json 控制：sites = 关注站（站名 / 参考号 / site_id，每轮必采 diagram）；full_kpi = {"enabled": true, "workers": 8, "budget_s": 80} 全站 popup 层；full_shard = {"enabled": true, "max_sites": 60, "budget_s": 70} diagram 明细分片。**不要配 "*"**（旧语义 = 单轮全采 500 站 diagram，实测外推 ~185s 必然超时）
+- 上游无批量电源接口（filter-map 无数值、events/recent 只有最近事件）；2 分钟全站分辨率 = 并发逐站拉 popup（2026-11-04 32 线程实测 60.1s / 0 错误）；11-05 复盘确认持续高并发会把上游拖出批量超时，现降为 8 线程 + kpi_cursor 环形游标续采，以单轮覆盖率换稳定，等效每站 2~6 分钟
 - 凭据：环境变量 IPT_USERNAME / IPT_PASSWORD 优先，缺省读同目录 url.txt 头部「用户名：/密码：」两行；url.txt 含明文密码，已被 gitignore（url*.txt 规则）覆盖不会入库
 - 密码模式（password grant）实测被拒（unauthorized_client），只有 rubix-web 允许授权码/隐式流 → 登录走表单模拟；若登录页结构变化，任务会报「登录页结构变化」
-- watch 清单里匹配不到任何站点的项会在日志告警（不致命）；单站 diagram 失败只计 snap_failed 不阻断本轮
-- 快照保留 2 天（RETENTION_DAYS，2026-11-03 调整：曲线只留 2 天控表体积），表按 (site_id, snap_time) 主键去重，重跑同一分钟不会重复
-- 消费方：?page=ipt_power（站点电源查询页）；「立即刷新」按钮走 routers/ipt_power.py 的 /refresh 实时直查，与本任务共用登录缓存
+- 单站失败只计数不阻断本轮（popup 失败下轮自然重试，diagram 失败由游标下一轮补）；改采集器代码后需重启 m 组 worker，只改 watch_sites.json 不用重启
+- 快照保留 2 天（RETENTION_DAYS），表按 (site_id, snap_time) 主键去重；太阳能口径：solarSets 与 rectifiers 的 solarPower 是同一份镜像值取 max，无太阳能设备 solar_available=0 显示「-」，夜间 0 W 属正常
+- 消费方：?page=ipt_power（站点电源查询页，左 3/5 地图 + 右 2/5 清单表）；「立即刷新」按钮走 routers/ipt_power.py 的 /refresh 实时直查，与本任务共用登录缓存
 
 ### 3.4 可靠性机制（超时 / 重试 / 自愈）
 
@@ -2011,25 +2037,25 @@ MS Availability（可用率多维矩阵）：把全网可用率按「区域 / �
 - 曲线上的点也能点开下钻，打开的是**那个点自己的周期**（例如月档停在 2026-09 时点 2026-08 的点，弹窗就是 2026-08 的明细）
 - 区域那张曲线不含「未匹配主数据」（量级太低会把纵轴压扁），图下有一行说明，它的数据在表格末行
 - 点任意可用率数字下钻：弹窗内含近 30 期趋势、按日明细与「按调度组」的构成分解，第二个页签可看该组合相关的 TT 工单
-- **每个数字都能悬浮看算法**（2026-11-03）：三张矩阵的卡标题与四张 KPI 卡标题有 ⓘ，讲这一列怎么算（SUM(分子)/SUM(分母)、数据源是哪张表、ALL 卡含未匹配站点）；把鼠标停在矩阵的可用率数字上，气泡会列出**这一格**的分子与分母、分母的含义（本期「站点-日」观测数，每天每个有值站点计 1）、因此是站点-日加权而非各站简单平均、环比与下钻提示。气泡可复制；原先只有一个原生 title 提示（两个裸数字、不可复制），已换成统一组件
+- **每个数字都能悬浮看算法**（2026-11-03）：三张矩阵的卡标题与各 KPI 卡标题有 ⓘ，讲这一列怎么算（SUM(分子)/SUM(分母)、数据源是哪张表、ALL 卡含未匹配站点）；把鼠标停在矩阵的可用率数字上，气泡会列出**这一格**的分子与分母、分母的含义（本期「站点-日」观测数，每天每个有值站点计 1）、因此是站点-日加权而非各站简单平均、环比与下钻提示。气泡可复制；原先只有一个原生 title 提示（两个裸数字、不可复制），已换成统一组件
 - 阈值输入框（默认 99.65%）决定「未达标」判定：低于阈值显示为红色，会实时重算，不改变数字本身
-- 区域维度的 ALL 行含「未匹配主数据」的站点，因此 ALL 不等于三个区域相加；末行单列该桶，点它只能看可用率明细、不能下钻 TT（派生库里没有那批站点的名单）
+- 区域维度的 ALL 行含「未匹配主数据」的站点，因此 ALL 不等于各区域相加；末行单列该桶，点它只能看可用率明细、不能下钻 TT（派生库里没有那批站点的名单）
 - 4G 的 NERA 属未映射调度组：计入制式 4G 总量，在站点类型维度单列「其它」，只出现在 2025-12 ~ 2026-01 的月份；此时页面会出现黄色口径提示条
 - 取不到数据显示「—」而不是 0；页面顶部显示「数据截至」，派生库停更时能一眼看出来
 
 #### avail_flm（`avail_flm`）
 
-FLM 可用率：只看三个 FLM 区域（Montserrado / North East / South West）的可用率，行是区域、列分别是制式（2G/3G/4G）与站点类型（Regular / Cooli / ERA，列名用数据原值，需求表写作 Cool.i）；日 / 周 / 月用页签切换粒度。数据与「可用率多维矩阵」同源（本机派生库 avail_recon.sqlite3，口径 SUM(分子)/SUM(分母)），另外把「影响可用率的 TT 列表」直接列在页面上。
+FLM 可用率：行是区域、列分别是制式（2G/3G/4G）与站点类型（Regular / Cooli / ERA，列名用数据原值，需求表写作 Cool.i）；日 / 周 / 月用页签切换粒度。区域不是写死的，取自站点主数据（master_site_db）的 region 列 —— 主数据里有哪些区域，页面就展示哪些区域，改名或新增区域都不用改代码。数据与「可用率多维矩阵」同源（本机派生库 avail_recon.sqlite3，口径 SUM(分子)/SUM(分母)），另外把「影响可用率的 TT 列表」直接列在页面上。
 
-- 两张表上方各有一条曲线：上面那条是三个区域的可用率走势（一个区域一条线），下面那条是三种站点类型的走势；日 30 期 / 周 12 期 / 月 12 期，随页签变化
+- 两张表上方各有一条曲线：上面那条是各区域的可用率走势（一个区域一条线），下面那条是三种站点类型的走势；日 30 期 / 周 12 期 / 月 12 期，随页签变化
 - 曲线上的点也能点开下钻，打开的是**那个点自己的周期**；阈值虚线（默认 99.65%）与表格的红色判定同一个值
 - 点任意可用率数字下钻：弹窗内含近 30 期趋势、按日明细与「按调度组」的构成分解，第二个页签是该切片的全部 TT 工单
-- 三个区域各有一张 KPI 卡（该区域全部制式合计），点卡片同样能下钻
+- 每个区域各有一张 KPI 卡（该区域全部制式合计），点卡片同样能下钻
 - **每个数字都能悬浮看算法**（2026-11-03，与「可用率多维矩阵」同一套文案）：两张表的卡标题与三张区域 KPI 卡有 ⓘ，矩阵每个可用率数字悬浮列出该格的分子/分母、分母含义（本期「站点-日」观测数）、站点-日加权与环比。区域卡的措辞与多维矩阵的制式卡**不同**：区域卡是该区域全部制式、全部站点类型合计的 SUM(分子)/SUM(分母)，不是几个制式数字再平均，且本页没有 ALL 行、未匹配站点不在任何区域卡里
-- 站点类型不做范围限制：三个区域都会显示 Regular / Cooli / ERA 三列（列名用数据原值）。需求里写的「NE 只有 Regular/Cool.i」与两个数据源都不符（NE 有 123 个 ERA 站点、派生库里 NE 的 ERA 分母 6.5 万），硬留空反而会让人以为 NE 没有 ERA 站点
-- 末行「未匹配主数据」是远端站点名匹配失败的部分：它不在三个区域之内，也不画进曲线（量级大会压扁纵轴），单列出来只为对账，点它只能看可用率明细、不能下钻 TT
+- 站点类型不做范围限制：每个区域都会显示 Regular / Cooli / ERA 三列（列名用数据原值）。需求里写的「某区域只有 Regular/Cool.i」与两个数据源都不符（该区域有 123 个 ERA 站点、派生库里它的 ERA 分母 6.5 万），硬留空反而会让人以为该区域没有 ERA 站点
+- 末行「未匹配主数据」是站点名匹配失败的部分：它不属于任何区域，也不画进曲线（量级大会压扁纵轴），单列出来只为对账，点它只能看可用率明细、不能下钻 TT
 - 页面级「影响可用率的 TT 列表」列出**本期全部工单**，不做「是否影响业务」的判定（判定字段与 site_outage 在本期数据上完全一致，取其一都会让口径看起来比实际精确）；每行给出 2G/3G/4G 断站数与 MTTR，由使用者自己判断相关性
-- TT 列表可按区域筛选（全部 / 三个区域）；月档工单数可达 3600+ 条，超过展示上限时页面会显示黄色提示，只有明细条数受影响、可用率数字不受影响
+- TT 列表可按区域筛选（全部 / 各区域）；月档工单数可达 3600+ 条，超过展示上限时页面会显示黄色提示，只有明细条数受影响、可用率数字不受影响
 - 点工单号可反查该工单所属「区域 × 站点类型」的可用率与同期全部工单
 - 4G 的 NERA 属未映射调度组：计入制式 4G 总量，但本页站点类型列只有三种，此时 4G 行会大于三列相加，页面会出现黄色口径提示条
 - 取不到数据显示「—」而不是 0；页面顶部显示「数据截至」，派生库停更时能一眼看出来
@@ -2270,9 +2296,13 @@ UME iMonitor 大屏（guard-imonitor-iui，screen_id=1）：把 UME 门户（172
 - 「高级筛选」面板第一格是「站点名称」输入框：按名称片段模糊匹配（不区分大小写），其余是区域/等级/站型/FME 等下拉；
 - 筛选后统计同步变化：站点总数与 ERA/COOL/NORMAL 分档、地图图例、县块颜色与县名标注、右上角「MAINTENANCE ALERTS」区域排名条都按筛选后的站点重新统计，不再显示全量数字；
 - 点站点打开右侧抽屉，四个页签明细可搜索、可导出 Excel
+- 抽屉「基本信息」含 **电源状态**（与 ?page=ipt_power 同源）：连接状态每 2 分钟刷新全站，SOC / 电压 / 负载等取最新快照（每轮全站采集 popup KPI，上游承压时按环形游标轮转续采，等效每站 2~6 分钟）；站点名匹配不到 IPT 站时显示 —；口径见标签 ⓘ 说明
 - 「链路利用率」开关（默认开）：把 MW 微波实时页同一 15 分钟槽位的链路利用率叠加到地图链路线上，按 4 级着色（>80% 紧急 / ≥70% 重要 / ≥60% 次要 / <60% 正常），线越粗表示利用率越高
 - 点链路线可看该链路的最高/发送/接收利用率与匹配到的 MW 站点；显示「无 KPI 数据」的链路表示未匹配到实时指标（保持 KML 原线色），不是 0%
 - 叠加口径见图例下方说明：844 条 KML 链路中约 360 条能匹配到实时指标，其余仍在 MW 微波实时页查看
+- 「2G KPI / 3G KPI / 4G KPI」页签各有**两张图**：网络质量（可用率、接通率、切换成功率等比率，共用一根 % 轴）与**业务量趋势**（话务 Erl、数据流量 GB、吞吐 Mbps、4G 在线用户数、中断分钟 —— **一种量纲一根轴**）。两张图各带自己的指标多选，业务量默认已画出 3 条，不必再去下拉里找
+- 业务量与抽屉顶部「统计范围」联动（2026-11-04 起）。此前 KPI 序列固定 60 天，切 7/30/90/180 档位不跟着变，已修
+- 同一站点挂在多套 BSC/RNC 下时，上游按 ID 各写一行：接口按自然日把**业务量相加**成站点总量、**比率取均值**。图标题 ⓘ、日明细的列头与每个数字都可悬浮看口径，内容取自接口字段，前端不重算
 
 #### 实时告警地图（`realtime_alarm`）
 
@@ -2448,16 +2478,17 @@ VMAX 投诉诊断：输入号码与时间窗，一次并发取回四路 Talon XD
 
 #### ipt_power（`ipt_power`）
 
-站点电源查询：对接 IPT Digital Platform（RMS 能源监控平台），看全网约 498 个站点的连接状态与关注站点的电源明细（电池 SOC/电压、负载、太阳能、发电机、油位）。采集任务 ipt_power_collect 每 2 分钟自动入库，本页只读库，不打扰上游平台。
+站点电源查询：对接 IPT Digital Platform（RMS 能源监控平台），看全网约 500 个站点的连接状态与电源数据（电池 SOC/电压、负载、太阳能、柴油、油机、活动告警）。采集任务 ipt_power_collect 每 2 分钟自动入库——每轮并发拉全站 popup 轻量 KPI（上游承压时按 kpi_cursor 轮转续采，等效每站 2~6 分钟），diagram 完整明细分片轮采，本页只读库不打扰上游平台。
 
+- 页面布局：左侧 **3/5 站点地图**（Leaflet + 自托管 PMTiles 底图，与 GIS 地图同源），**点击站点圆点直接弹出「电源详情」弹窗**；右侧 **2/5 站点清单表**，点行内「详情」同样弹出
+- 地图圆点颜色：绿=在线正常，橙=有活动告警（悬停表格「告警」列可看告警名），红=离线
 - 主表 = 全站清单 + 每站**最新一条**电源快照；「连接状态」来自平台的 filter-map（每 2 分钟刷新一次），online/offline 直接反映站点网关的可达性
-- ⚡ 图标 = 关注站点：只有 watch_sites.json 清单内的站点才有电源快照与历史曲线（backend/services/ipt_data/watch_sites.json 维护，支持 "*" / 站点名 / 参考号 / site_id；**不建议配 "*"**——全站 498 站单轮采集不完）
-- 「只看关注」开关过滤主表；搜索框匹配站点名 / 参考号 / 区域，回车或点放大镜触发
-- 点行内「详情」进入单站视图：六张数字卡（SOC / 电池电压 / 充电状态 / 负载 / 太阳能 / 发电机）+ 近 N 小时趋势曲线（负载功率、太阳能功率、SOC 双轴），时间范围 6h/24h/72h/7d 可切
-- **「立即刷新」是实时直查平台**（绕开 2 分钟节拍），查完自动补一条快照并刷新曲线——不在关注清单的站点也能用它临时取数
-- 曲线上「暂无数据」通常= 该站不在关注清单（无历史快照），点一次「立即刷新」即可开始积累
+- ⚡ 图标 = 关注站点：watch_sites.json 的 sites 内站点每轮必采 diagram 完整明细；其余站点的明细由 full_shard 分片轮采覆盖（约 20 分钟一轮），KPI 快照（SOC/负载/太阳能/柴油/告警）每轮全站尽力采集，上游承压时由 kpi_cursor 环形续采（等效每站 2~6 分钟）。配置在 backend/services/ipt_data/watch_sites.json，**不要在 sites 里配 "*"**
+- 单站详情是**居中宽弹窗**（参照 MW 微波实时的 KPI 弹窗：遮罩 + 标题栏 + 可滚动内容区），标题栏带「立即刷新」与 ×，Esc / 点遮罩 / × 均可关闭；弹窗顶部有站点属性条（参考号/区域/Cluster/优先级/供电配置/连接状态/快照时间），下面依次是六张数字卡 + **设备明细卡**（发电机 R/S/T 相电压相电流与运行模式 / 电池组容量与今日电压 / 油箱油位 / 主源状态）+ 活动告警列表 + 近 N 小时趋势曲线，时间范围 6h/24h/72h/7d 可切
+- **「立即刷新」是实时直查平台**（绕开 2 分钟节拍与分片轮次），查完自动补一条快照与明细——任何站点都能用它立即取数
+- 太阳能口径：无太阳能设备的站显示「-」；有设备的站**夜间（当地约 18:30~06:30）为 0 W 属正常**，白天常见 6~14 kW
 - 采集异常（任务未运行/上一轮失败）会在页面顶部出黄色横幅；快照默认保留 2 天，超期自动清理
-- 「导出 Excel」出主表全列（含 SOC/负载/太阳能/快照时间）
+- 「导出 Excel」出主表全列（含 SOC/负载/太阳能/柴油/告警数/快照时间）
 - 搜索词、时间范围、选中站点都写进 URL（iptKw / iptHrs / iptSite），刷新或把链接发给同事后条件还在
 
 ### 4.4 工作流

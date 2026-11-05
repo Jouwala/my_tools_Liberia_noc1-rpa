@@ -520,6 +520,63 @@ def test_file_sizes_in_agents_md_are_approximately_right():
         )
 
 
+def _app_ar_defaults() -> dict:
+    """从 App.tsx 取每页的建议刷新间隔 AR_PAGE_DEFAULTS = { page: 秒 }。"""
+    src = _read("frontend/src/App.tsx")
+    i = src.index("const AR_PAGE_DEFAULTS")
+    seg = src[i:src.index("\n}", i)]
+    return {k: int(v) for k, v in re.findall(r"([a-zA-Z0-9_]+):\s*(\d+)", seg)}
+
+
+def _app_ar_options() -> set:
+    """App.tsx 里可选的刷新间隔档位 AR_OPTIONS = [...]。"""
+    src = _read("frontend/src/App.tsx")
+    m = re.search(r"const AR_OPTIONS\s*=\s*\[([^\]]*)\]", src)
+    assert m, "App.tsx 里找不到 AR_OPTIONS 数组"
+    return {int(x) for x in re.findall(r"\d+", m.group(1))}
+
+
+def test_every_page_has_refresh_setting():
+    """每个页面都要有「按页刷新设置」—— 2026-11-04 用户定的项目硬要求。
+
+    规则原文见 AGENTS.md 三.3d 与 docs/manual/16-new-page-guide.md 3.4d：
+    顶栏的停止/开启刷新 + 间隔下拉对**所有页面**可用，选择按页记忆，默认关闭；
+    每页在 AR_PAGE_DEFAULTS 里登记一个建议间隔（点「开启刷新」时落到的值）。
+
+    守三件事，任何一条破了都说明「新增页面没做刷新设置」或「有人又把白名单加回来了」：
+      1. PAGE_META 里的每个自研页面都在 AR_PAGE_DEFAULTS 登记了建议间隔
+         （`finebi_*` 原生看板由 FINEBI_BOARDS 动态注入，落全局建议 AR_PAGE_DEFAULT_SEC，
+         不在本条要求内）；
+      2. 建议间隔必须是 AR_OPTIONS 里的档位 —— 否则点「开启」后下拉显示不出该值；
+      3. 不得再出现「按页禁用刷新控件」的白名单：AR_BOARD_PAGES 已删除，
+         控件上也不得挂 `disabled={!arIsBoard` 这类条件。
+    """
+    src = _read("frontend/src/App.tsx")
+    pages = _app_page_meta_keys()
+    defaults = _app_ar_defaults()
+    options = _app_ar_options()
+
+    assert pages, "App.tsx 的 PAGE_META 解析出 0 个页面（取法失效了，修取法而不是放行）"
+
+    own = {p for p in pages if not re.fullmatch(r"finebi_\w+", p)}
+    missing = sorted(own - set(defaults))
+    assert not missing, (
+        f"这些页面没在 App.tsx 的 AR_PAGE_DEFAULTS 里登记建议刷新间隔（新增页面必须做按页刷新设置，"
+        f"见 AGENTS.md 三.3d）: {missing}"
+    )
+    unknown = sorted(set(defaults) - own)
+    assert not unknown, f"AR_PAGE_DEFAULTS 里有不属于 PAGE_META 的页面键（页面已改名或删除？）: {unknown}"
+
+    bad = sorted(f"{k}={v}" for k, v in defaults.items() if v not in options)
+    assert not bad, f"建议间隔必须是 AR_OPTIONS {sorted(options)} 里的档位，这些不是: {bad}"
+
+    assert "const AR_BOARD_PAGES" not in src, (
+        "App.tsx 里又出现了刷新白名单 AR_BOARD_PAGES —— 2026-11-04 起所有页面一视同仁，"
+        "不得再按页禁用刷新控件"
+    )
+    assert "disabled={!arIsBoard" not in src, "顶栏刷新控件不得按页禁用"
+
+
 CHECKS = [
     test_task_count_in_docs_matches_registry,
     test_task_list_table_covers_every_registered_task,
@@ -536,6 +593,7 @@ CHECKS = [
     test_credential_group_count_in_security_doc,
     test_component_counts_in_component_api,
     test_file_sizes_in_agents_md_are_approximately_right,
+    test_every_page_has_refresh_setting,
 ]
 
 

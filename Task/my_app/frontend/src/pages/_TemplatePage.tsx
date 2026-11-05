@@ -9,6 +9,14 @@
  *      - `frontend/src/App.tsx` 菜单数组
  *      - `frontend/src/i18n.tsx` 的 zh 与 en **两处**字典
  *      - `docs/manual/11-feature-guide.md` 按导航顺序加一节
+ *   4. 按页刷新设置（2026-11-04 起是项目硬要求，有守卫会拦下提交）：
+ *      - `frontend/src/App.tsx` 的 `AR_PAGE_DEFAULTS` 登记本页建议间隔，档位取 `AR_OPTIONS`
+ *        （60 实时告警 / 300 看板主力 / 900 上游日更 / 1800 配置与操作页）
+ *      - 顶栏「停止/开启刷新」对所有页面都可用且默认关闭，页面本身不用写刷新代码；
+ *        只有整页重挂载代价大（地图 / 长表单 / iframe 大屏）才需要额外登记
+ *        `AR_INPLACE_REFRESH_PAGES` 或 `AR_SOFT_REFRESH_PAGES`，细则见
+ *        `docs/manual/16-new-page-guide.md` 3.4d
+ *      - 守卫：`python tests/test_doc_consistency.py`（test_every_page_has_refresh_setting）
  *
  * 本文件演示了「项目统一」的全部要素，每处都标了为什么：
  *   ✅ 卡片一律用 components/cards（不 import antd 的 Card）

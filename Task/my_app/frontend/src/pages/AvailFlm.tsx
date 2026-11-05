@@ -2,21 +2,23 @@
  * FLM 可用率（?page=avail_flm）
  * ----------------------------------------------------------------------------
  * 需求（图片：呈现内容 × 呈现形式 的表）：
- *   SN1 区域 × 制式        三个区域（Montserrado / North East / South West）× 2G/3G/4G
- *   SN2 区域 × 站点类型    三个区域 × Regular/Cool.i/ERA
+ *   SN1 区域 × 制式        各区域 × 2G/3G/4G
+ *   SN2 区域 × 站点类型    各区域 × Regular/Cool.i/ERA
+ *     区域集合**由数据决定**（后端 meta.regions，源头是 master_site_db.region），
+ *     代码里不写死任何区域名 —— 主数据换口径时页面自动跟随，不需要改这里。
  *   SN4 影响可用率的 TT 列表
  * 日 / 周 / 月 用页签切粒度（与 ?page=avail_ms 一致）。
  *
  * 数据源：后端 /api/avail-flm/*（读本机派生库 data/avail_recon.sqlite3，TT 读 eflow_tt）。
  * 口径与 avail_ms **同源同实现**（后端复用 avail_ms_service 的聚合），差别只在行列表头：
- *   avail_ms 行=ALL/三区域/UNMATCHED × 列=制式、制式×站点类型、站点类型×制式（三张表）
- *   本页     行=三个 FLM 区域（+未匹配末行）× 列=制式 / 站点类型（两张表）+ 页面级 TT 列表
+ *   avail_ms 行=ALL/各区域/UNMATCHED × 列=制式、制式×站点类型、站点类型×制式（三张表）
+ *   本页     行=各区域（+未匹配末行）× 列=制式 / 站点类型（两张表）+ 页面级 TT 列表
  *
  * 两条已与用户确认的口径（2026-09-28，改前先看 backend/services/avail_flm_service.py 顶部）：
- *   ① 站点类型**不做范围限制**：需求表写的「NE 只有 Regular/Cool.i」与两个数据源都不符
- *      （站点主数据 NE 有 123 个 ERA 站点、派生库 NE 的 ERA 分母 6.5 万），故三个区域都显示三列；
+ *   ① 站点类型**不做范围限制**：需求表里「某区域只有 Regular/Cool.i」的说法与两个数据源都不符
+ *      （站点主数据里该区域有 123 个 ERA 站点、派生库里它的 ERA 分母 6.5 万），故各区域都显示三列；
  *   ② TT 列表列**本期全部工单**，不做「是否影响业务」判定（那会让含糊的定义看起来精确）。
- * 本页没有 ALL 行，故不适用 avail_ms 的「ALL ≠ 三区域相加」提示，改为「未匹配单列末行」。
+ * 本页没有 ALL 行，故不适用 avail_ms 的「ALL ≠ 各区域相加」提示，改为「未匹配单列末行」。
  * ========================================================================== */
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
@@ -149,6 +151,7 @@ const fmtNum = (v: number | string | null | undefined) => (v == null ? '—' : S
 function warnKey(code: string): string | null {
   switch (code) {
     case 'flm_unmatched_last_row': return 'availFlm.warn.unmatchedLastRow'
+    case 'region_source_mismatch': return 'availFlm.warn.regionSourceMismatch'
     case 'other_site_type_present': return 'availFlm.warn.otherSiteType'
     case 'unknown_cell_group': return 'availFlm.warn.unknownCellGroup'
     case 'no_data_for_period': return 'availFlm.warn.noDataForPeriod'
@@ -409,8 +412,8 @@ export default function AvailFlm() {
   /* ---- 区域 KPI 卡（每个区域一张，可点下钻） ---- */
   const statCards = useMemo(() => {
     const by = matrix?.summary?.by_region || {}
-    const regions = matrix?.meta?.regions?.length ? matrix.meta.regions
-      : options?.latest ? ['Montserrado', 'North East', 'South West'] : []
+    // 区域列表只认接口返回（后端按数据里的真实区域生成），前端不再写死区域名
+    const regions = matrix?.meta?.regions?.length ? matrix.meta.regions : []
     return regions.map(rk => {
       const cell = by[rk]
       const v = cell?.availability ?? null
@@ -435,7 +438,7 @@ export default function AvailFlm() {
         </Col>
       )
     })
-  }, [matrix, options, thr, t, openDrill])
+  }, [matrix, thr, t, openDrill])
 
   /* ---- 页面级 TT 列表 ---- */
   const ttColumns: ColumnsType<TtRow> = useMemo(() => ([
@@ -518,7 +521,7 @@ export default function AvailFlm() {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--wh-space-sm)' }}>
         {mx.groups.map(grp => {
-          // 区域维度的趋势线只画三个 FLM 区域（后端已收窄，这里不再过滤）；
+          // 区域维度的趋势线只画本期真实出现的区域（后端已收窄，这里不再过滤）；
           // 站点类型维度的线同理只含 Regular/Cooli/ERA
           const dimKey = grp.dim === 'region_tech' ? 'region' : 'site_type'
           const series = tr?.dims?.[dimKey] || []

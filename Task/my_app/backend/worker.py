@@ -27,6 +27,7 @@ import signal
 import sqlite3
 import sys
 import os
+import threading
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -48,6 +49,248 @@ except (TypeError, ValueError):
     POLL_INTERVAL = 2
 
 PID_FILE = Path(os.environ.get("MY_APP_WORKER_PID", str(Path(__file__).parent / "worker.pid")))
+
+# ---------------------------------------------------------------
+# 日志落盘 + 孤儿 worker 自退（2026-11-04 新增）
+#
+# 背景（2026-11-03 eflow_sync 连续失败的根因）：
+# watchdog 用 Popen(stdout=PIPE, stderr=STDOUT) 拉起 worker，再由 **watchdog 进程内**
+# 的 daemon 泵线程把子进程输出写进日志文件（backend/log_writer.py）。watchdog 一死，
+# 管道读端随之消失；仍存活的孤儿 worker 再写 stdout/stderr 就得到
+# `OSError: [Errno 22] Invalid argument`，并因 traceback.print_exc 未受保护而升级成
+# 任务失败（`同步异常: [Errno 22] Invalid argument`）。当日实测：旧 worker_pid=61920
+# 在 watchdog 重启后未被杀掉，与新 worker 同组抢同一张 task_queue。
+#
+# 两道防线：
+# 1) 本进程直接写「按组按日」的日志文件，不再依赖 stdout 管道（管道只作镜像）；
+# 2) 由 watchdog 拉起时（注入 MY_APP_WORKER_WATCHDOG_PID / MY_APP_WORKER_GROUP），
+#    周期检查父进程是否仍在；父进程消失立即退出，不再抢队列、不再写断管道。
+#    手动 `python -m backend.worker` 调试时父进程是终端/命令行，不启用守卫。
+# ---------------------------------------------------------------
+LOG_DIR = Path(__file__).resolve().parent.parent / "log"
+_WORKER_GROUP = (os.environ.get("MY_APP_WORKER_GROUP") or "default").strip() or "default"
+_WATCHDOG_PID = os.environ.get("MY_APP_WORKER_WATCHDOG_PID", "").strip()
+_PARENT_GUARD_INTERVAL = 5.0   # 秒；远小于一次调度周期，孤儿最多存活一轮
+# 守卫状态：enabled / expected_pid / self_ticks（Windows 进程创建时间，用于识别 PID 复用）
+_PARENT_GUARD_STATE = {"enabled": False, "expected": None, "self_ticks": None}
+
+
+class _TolerantTextStream:
+    """stdout/stderr 容错包装：管道读端消失时静默丢弃，不让裸 print 打断任务。
+
+    2026-11-05 修复（承接 2026-11-04 的两道防线的第 3 道）：
+    watchdog 用 ``Popen(stdout=PIPE, stderr=STDOUT)`` 拉起 worker，父进程退出或
+    泵线程关闭读端后，子进程再写 stdout/stderr 会在 Windows 上抛
+    ``OSError: [Errno 22] Invalid argument``。11-04 的修复让 **worker 自身**的
+    logging 改走独占文件句柄，但业务模块里的裸 ``print()`` 仍直接打在管道上：
+      - battary_kpi_fetch_socket.log()          -> print(...)，battery_kpi_sync 抛 Errno 22
+      - db_writer_client._request()/write_data  -> print(...)，ipran/cnn 写入抛 Errno 22
+      - eflow_sync                             -> 同步异常: [Errno 22] Invalid argument
+    近 5 天共 20+ 次失败源于此，且错误文本伪装成网络/数据库故障，极易误判。
+
+    worker 已有 _DailyFileHandler 独立落盘，控制台输出只是镜像，丢几行不影响排障；
+    因此这里把写异常吞掉（logging 的 handleError 也是同一哲学），绝不让日志拖垮业务。
+    手动调试（stdout 是 tty）时不包装，行为完全不变。
+    """
+
+    def __init__(self, inner):
+        self._inner = inner
+
+    def write(self, s):
+        try:
+            return self._inner.write(s)
+        except (OSError, ValueError):
+            # 模拟成功写入，避免 print() 内部据此再次抛错
+            return len(s) if isinstance(s, str) else 0
+
+    def flush(self):
+        try:
+            return self._inner.flush()
+        except (OSError, ValueError):
+            return None
+
+    def __getattr__(self, name):
+        # isatty / fileno / reconfigure / buffer / encoding 等一律转发给底层流
+        return getattr(self._inner, name)
+
+
+class _DailyFileHandler(logging.FileHandler):
+    """按「组 + 日期」命名的日志文件，跨零点自动切换。
+
+    为什么不用 TimedRotatingFileHandler：它的命名是 ``base.log.YYYY-MM-DD``，
+    与运维约定的 ``worker_<group>_<date>.log`` 不一致；而 worker 可能长驻数日，
+    只用启动时日期命名会把后几天的日志写进旧文件，排障时按日期找会漏。
+    """
+
+    def __init__(self, log_dir: Path, group: str):
+        self._log_dir = Path(log_dir)
+        self._group = group
+        self._date = datetime.now().strftime("%Y%m%d")
+        super().__init__(str(self._path()), encoding="utf-8", delay=False)
+
+    def _path(self) -> Path:
+        return self._log_dir / f"worker_{self._group}_{self._date}.log"
+
+    def emit(self, record):
+        # 切换文件本身的失败不能影响正常日志（emit 内异常由 logging 内部吞掉）
+        try:
+            today = datetime.now().strftime("%Y%m%d")
+            if today != self._date:
+                self._date = today
+                self._flush_and_close_stream()
+                self.baseFilename = str(self._path())
+                self.stream = self._open()
+        except Exception:
+            pass
+        super().emit(record)
+
+    def _flush_and_close_stream(self):
+        try:
+            if self.stream is not None:
+                self.stream.flush()
+                self.stream.close()
+        except Exception:
+            pass
+        self.stream = None
+
+
+def _setup_worker_logging():
+    """info 级日志：文件（按组按日，UTF-8）+ stderr 镜像（供 watchdog 泵写 worker_runtime）。
+
+    文件句柄由本进程独占，watchdog 死亡不影响它；stderr 写失败由 logging 的
+    handleError 内部吞掉，不会像裸 print/write 那样抛出 Errno 22。
+    """
+    fmt = logging.Formatter("%(asctime)s [%(name)s] %(levelname)s %(message)s")
+    handlers = []
+    try:
+        LOG_DIR.mkdir(parents=True, exist_ok=True)
+        fh = _DailyFileHandler(LOG_DIR, _WORKER_GROUP)
+        fh.setFormatter(fmt)
+        handlers.append(fh)
+    except Exception as e:  # 文件日志不可用时不阻塞启动，stderr 镜像仍工作
+        sys.stderr.write(f"worker 文件日志初始化失败（降级为仅控制台）: {e}\n")
+    sh = logging.StreamHandler(sys.stderr)
+    sh.setFormatter(fmt)
+    handlers.append(sh)
+    logging.basicConfig(level=logging.INFO, handlers=handlers, force=True)
+
+
+def _win_proc_info(pid):
+    """Windows：返回 (进程创建时间FILETIME, 是否仍存活)；查询失败返回 None。
+
+    创建时间用于识别 **PID 复用**：父进程死后其 PID 可能被系统分给新进程，
+    此时 open 父 PID 仍成功，但新进程的创建时间一定晚于本 worker —— 据此判定孤儿。
+    """
+    if sys.platform != "win32":
+        return None
+    try:
+        import ctypes
+        from ctypes import wintypes
+        k32 = ctypes.windll.kernel32
+        k32.OpenProcess.restype = ctypes.c_void_p
+        k32.OpenProcess.argtypes = [ctypes.c_uint32, ctypes.c_int, ctypes.c_uint32]
+        h = k32.OpenProcess(0x1000, False, int(pid))  # PROCESS_QUERY_LIMITED_INFORMATION
+        if not h:
+            return None
+        try:
+            k32.GetProcessTimes.argtypes = [ctypes.c_void_p,
+                                            ctypes.POINTER(wintypes.FILETIME),
+                                            ctypes.POINTER(wintypes.FILETIME),
+                                            ctypes.POINTER(wintypes.FILETIME),
+                                            ctypes.POINTER(wintypes.FILETIME)]
+            creation, exit_t, kernel_t, user_t = (
+                wintypes.FILETIME(), wintypes.FILETIME(),
+                wintypes.FILETIME(), wintypes.FILETIME(),
+            )
+            if not k32.GetProcessTimes(h, ctypes.byref(creation), ctypes.byref(exit_t),
+                                       ctypes.byref(kernel_t), ctypes.byref(user_t)):
+                return None
+            ec = wintypes.DWORD()
+            k32.GetExitCodeProcess.restype = ctypes.c_int
+            k32.GetExitCodeProcess.argtypes = [ctypes.c_void_p,
+                                               ctypes.POINTER(wintypes.DWORD)]
+            alive = bool(k32.GetExitCodeProcess(h, ctypes.byref(ec))) and ec.value == 259
+            return (creation.dwHighDateTime << 32) | creation.dwLowDateTime, alive
+        finally:
+            try:
+                k32.CloseHandle(h)
+            except Exception:
+                pass
+    except Exception:
+        return None
+
+
+def _parent_alive() -> bool:
+    """父进程（watchdog）是否仍存活。仅在守卫启用时被调用。"""
+    st = _PARENT_GUARD_STATE
+    ppid = os.getppid()
+    if ppid <= 0:
+        return False
+    expected = st["expected"]
+    if expected and ppid != expected:
+        # 父进程变了：本进程已被系统重新挂到别的父进程（孤儿）
+        return False
+    if sys.platform == "win32":
+        info = _win_proc_info(ppid)
+        if info is None:
+            return False                      # 父进程已不存在
+        ticks, alive = info
+        if not alive:
+            return False                      # 已终止未回收的僵尸
+        if st["self_ticks"] and ticks > st["self_ticks"]:
+            return False                      # PID 被复用
+        return True
+    try:
+        os.kill(ppid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+
+
+def _die_as_orphan():
+    """判定为孤儿：刷日志后硬退出（不能回队列、不能再写断管道）。"""
+    logger.critical(
+        f"父进程 watchdog(pid={_PARENT_GUARD_STATE['expected']}) 已消失，"
+        f"本 worker (group={_WORKER_GROUP}, pid={os.getpid()}) 判定为孤儿，立即退出"
+    )
+    for h in logging.getLogger().handlers:
+        try:
+            h.flush()
+        except Exception:
+            pass
+    os._exit(3)
+
+
+def _start_parent_guard():
+    """由 watchdog 托管时启用父进程存活守卫（后台线程，避免长任务阻塞检测）。"""
+    if not _WATCHDOG_PID:
+        logger.info("未由 watchdog 托管（无 MY_APP_WORKER_WATCHDOG_PID），跳过父进程存活守卫")
+        return
+    try:
+        expected = int(_WATCHDOG_PID)
+    except ValueError:
+        logger.warning(f"MY_APP_WORKER_WATCHDOG_PID 非法（{_WATCHDOG_PID!r}），跳过父进程存活守卫")
+        return
+    self_ticks = None
+    if sys.platform == "win32":
+        info = _win_proc_info(os.getpid())
+        self_ticks = info[0] if info else None
+    _PARENT_GUARD_STATE.update(enabled=True, expected=expected, self_ticks=self_ticks)
+
+    def _loop():
+        while True:
+            try:
+                if not _parent_alive():
+                    _die_as_orphan()
+            except Exception as e:  # 检查本身出错不误杀，留给下一轮
+                logger.warning(f"父进程存活检查异常（忽略本轮）: {e}")
+            time.sleep(_PARENT_GUARD_INTERVAL)
+
+    threading.Thread(target=_loop, name="worker-parent-guard", daemon=True).start()
+    logger.info(f"父进程存活守卫已启用: watchdog_pid={expected}, 间隔={_PARENT_GUARD_INTERVAL}s")
+
 
 # 多 worker 分流：MY_APP_WORKER_TASKS=task1,task2,...（逗号分隔）时，本 worker
 # 只认领清单内的任务；未设置 = 全量认领（与旧行为一致）。
@@ -583,10 +826,17 @@ def main():
         sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     except Exception:
         pass
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s [%(name)s] %(levelname)s %(message)s",
-    )
+    # 2026-11-05：第 3 道防线 —— 业务模块的裸 print 也走容错流。
+    # 必须在 reconfigure 之后（包装类靠 __getattr__ 转发 reconfigure/isatty），
+    # 也要在 _setup_worker_logging 之前（让 StreamHandler 拿到包装后的 stderr）。
+    if not sys.stdout.isatty():
+        sys.stdout = _TolerantTextStream(sys.stdout)
+        sys.stderr = _TolerantTextStream(sys.stderr)
+    # 日志：文件（按组按日，UTF-8，进程独占句柄）+ stderr 镜像。
+    # 文件句柄不依赖 watchdog 的 pipe 泵，watchdog 死亡后日志仍能落盘。
+    _setup_worker_logging()
+    # 由 watchdog 托管时启用孤儿自退守卫（手动单跑不启用，父进程为终端）
+    _start_parent_guard()
     signal.signal(signal.SIGINT, _request_shutdown)
     signal.signal(signal.SIGTERM, _request_shutdown)
 
@@ -622,6 +872,9 @@ def main():
     last_recover_ts = time.time()
     try:
         while not _shutdown:
+            # 主循环每轮也检查一次父进程；长任务执行期间由守护线程覆盖。
+            if _PARENT_GUARD_STATE["enabled"] and not _parent_alive():
+                _die_as_orphan()
             # 周期性回收滞留的 running/pending 队列记录（不只启动时），避免陈旧记录长期
             # 滞留导致 running 状态卡死、手动触发被拒。每 300s 一次，开销极低。
             # 注：陈旧 pending 的过期只放在周期分支、不放在启动时 —— 启动瞬间

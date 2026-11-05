@@ -44,7 +44,7 @@ from ftplib import FTP, error_perm
 
 import pandas as pd
 from backend.database import get_raw_connection
-from backend.dialect_helpers import list_table_names, table_columns
+from backend.dialect_helpers import df_to_sql, list_table_names, table_columns
 
 try:
     sys.stdout.reconfigure(encoding='utf-8')
@@ -986,9 +986,9 @@ def sync_excel_to_db(excel_file_path: str, db_table: str, db_path: str,
 
             if not table_exists:
                 # 表不存在，直接创建并插入
-                # TODO-PHASE3-SCHEMA: ran_ume 独立库，pg 模式需 engine_override 指向该库；
-                # sqlite 模式保持原有 df.to_sql 行为不变。
-                excel_df.to_sql(db_table, conn, if_exists='replace', index=False)
+                # 2026-11-03：改用 df_to_sql —— 原生 psycopg2 连接直接喂 pandas 的
+                # to_sql 会在 PG 下拼 sqlite_master 而报错（见 dialect_helpers.df_to_sql）。
+                df_to_sql(excel_df, db_table, conn, if_exists='replace', index=False)
                 print(f"  表 {db_table} 不存在，已创建并插入 {len(excel_df)} 条记录")
                 return len(excel_df)
 
@@ -1035,9 +1035,8 @@ def sync_excel_to_db(excel_file_path: str, db_table: str, db_path: str,
             # 将 Excel 数据写入临时表
             temp_table = f"_temp_{db_table}"
             cursor.execute(f'DROP TABLE IF EXISTS "{temp_table}"')
-            # TODO-PHASE3-SCHEMA: ran_ume 独立库，pg 模式需 engine_override 指向该库；
-            # sqlite 模式保持原有 df.to_sql 行为不变。
-            excel_df.to_sql(temp_table, conn, if_exists='replace', index=False)
+            # 2026-11-03：同 df_to_sql 迁移（PG 下 pandas 原生连接会查 sqlite_master）
+            df_to_sql(excel_df, temp_table, conn, if_exists='replace', index=False)
 
             # 用 SQL LEFT JOIN 按主键去重，仅插入新行
             pk_conditions = " AND ".join(

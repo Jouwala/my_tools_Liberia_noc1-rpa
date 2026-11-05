@@ -328,3 +328,24 @@
 - **复扫脚本口径**（写死在这，防下次又用错）：页 key 走 `App.tsx` 的 `VALID_PAGES` 去掉 `PAGE_LIST` 的 `iframe:true`；
   组件文件从 `App.tsx` 渲染 switch 的 `case 'x': return <Comp` 反查；子目录只算该组件自己 import 的那些
   （按目录名前缀模糊匹配会把无关子目录并进来，我第一次就扫出了假的「53/53 全做」）。
+
+### 二次复盘（2026-11-05）：盘子实测与两条更正
+
+复扫脚本已固化成 `Task\my_app\TMP\_ne_scan.py`（纯标准库，沿 `pages/` 内的相对 import 做闭包，只认 `pages/` 里的实现，
+`components/` 里的 props 定义不算覆盖）—— 下次直接跑它，别再手搓 grep。
+
+- **实测**：65 个路由页 − 12 个 iframe = 53 个自研页；扫到数字级气泡 **38 个**。其中 `gis` / `realtime_alarm`
+  两页的命中**全部来自对方未提交**的 `pages/gismap/RatKpiTab.tsx`（`git show HEAD:…` 里 `ExplainPopover` 计数为 0），
+  所以**归到自己名下的达标 = 37**。`dashboard` 按脚本判据扫不出来（数字在 ECharts canvas 里），
+  实际口径文字在 `Dashboard.tsx:150-155` 的 tooltip 末行映射 + i18n `dashboard.tip.*` 六条（中英齐全），属**已做的例外**。
+- **仍未动 14 页**：⑥b 六页（`sync` `tables` `vmax_user_query` `eflow_qa` `ap_center` `feedback`）、⑥c 的 `person`、
+  ⑥d 判不适用四页（`settings` `portalLogin` `archive` `help`）、`upload` 一处轻覆盖、并发会话的 `email_reports` / `ipt_power`。
+  旁证：i18n 里 `sync.explain` / `tables.explain` / `vq.explain` / `eflowQa.explain` / `ap.explain` / `feedback.explain` /
+  `person.explain` / `iptPower.*` / `upload.explain` **全部 0 命中** —— ⑥b 整批连文案键都还没起。
+- **更正①**：上一版 TODO 写「② 批 `avail_ms`/`avail_flm` 的一行悬浮说明仍留在工作区没提交」**不成立**。
+  HEAD 里两页各 3 处 `ExplainPopover`、`pages/availSumRatio.ts` 已入库；工作区那几行是对方在改区域口径
+  （新增 `region_source_mismatch` 告警码、删掉写死的三个区域名），与铺开无关。
+- **更正②**：`dashboard` 的 tooltip 末行**仍未实机触发**，且此刻也触发不了 —— 本机 7038 没在监听
+  （`backend_watchdog` 10:42 起崩溃重拉循环，子进程存活 60~103s 但端口不 bind，经 nginx 实测 `/api/health` = 502，
+  10:41 日志有 PG `port 5432 timeout`，事后 `pg_isready` 又正常）。等后端恢复后第一件事是核这六条 tooltip 与那三处后端改动。
+

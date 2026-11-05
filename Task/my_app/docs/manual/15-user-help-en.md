@@ -99,6 +99,7 @@ Built for the NOC scenario "boards every day, reports must go out": 41+ schedule
 | DC Server Alarm WhatsApp Push | `ume_alarm_whatsapp_alert` | `* * * * *` | m | `services/ume_alarm_whatsapp_service.py → run_ume_alarm_whatsapp` |
 | Fiber Break Alarm Auto Assign | `eflow_fiber_assign` | `3-59/5 * * * *` | m | `services/eflow_fiber/fiber_assign_service.py → run_fiber_assign` |
 | 5G Site Alarm Auto Assign | `eflow_5g_assign` | `8-59/5 * * * *` | m | `services/eflow_5g/g5_assign_service.py → run_5g_assign` |
+| CMDB Site Sync Diff | `eflow_site_update` | `0 7 * * *` | m | `services/eflow_site_update_task.py → run_eflow_site_update` |
 | eFlow Realtime Alarm Sync | `eflow_active_alarm` | `*/1 * * * *` | x | `services/eflow_api_client.py → fetch_and_save_active_alarm` |
 | eFlow History Alarm Sync | `eflow_history_alarm` | `0 */3 * * *` | n | `services/eflow_api_client.py → fetch_and_save_history_alarm` |
 | eFlow TT Rules Collect & Match Check | `eflow_tt_rules_check` | `20 4 * * *` | n | `services/eflow_rules/eflow_tt_rules_check_task.py → run_eflow_tt_rules_check` |
@@ -421,6 +422,26 @@ Workflow & maintenance notes per task:
 - A non-zero eFlow ttstatus does not block assignment: it is still attempted but with a minimal retry budget, and on failure a notice asks a human to fix the site binding in eFlow
 - eFlow assign is intermittent, so it retries internally, and success is judged only by re-querying ttid (the API status:true is not trusted)
 - Skip alarms that already carry an upstream ttid: eFlow own assign rules create some TTs first, and skipping avoids duplicate TTs
+
+#### CMDB Site Sync Diff（`eflow_site_update`）
+
+- Default cron: `0 7 * * *`　|　worker group: **m**
+- Workflow script: `services/eflow_site_update_task.py → run_eflow_site_update`
+
+**What it does**: Diffs the CMDB master data (newest ZTE OLR MS Master Site Database under my_app/db) against the eflow baseline and the PG master_site_db baseline, producing colour-coded A/M/D workbooks (eflow_site_update.xlsx / master_site_db .xlsx / import copies / sync report). Generates review files only - never writes to eflow or PostgreSQL
+
+**Workflow & data flow**:
+
+1. Scan the newest CMDB master source under my_app/db
+1. Diff it field by field against the eflow baseline and the PG master_site_db baseline
+1. Produce colour-coded A/M/D workbooks (eflow_site_update.xlsx / master_site_db .xlsx / import copies / sync report)
+1. Downloadable from the Email Reports "Site Sync" tab for manual review
+
+**Maintenance**:
+
+- Review files only, never writes: the service explicitly passes --pg none --cmdb none; import is done manually after review
+- Runs once daily at 07:00 as a fallback; disabling the schedule does not affect the page button (manual trigger stays available while the task is enabled)
+- Can also be triggered manually from the Task Management page
 
 #### eFlow Realtime Alarm Sync（`eflow_active_alarm`）
 
@@ -1693,23 +1714,28 @@ Workflow & maintenance notes per task:
 - Default cron: `*/2 * * * *`　|　worker group: **m**
 - Workflow script: `services/ipt_data/ipt_power_collector.py → run_ipt_power_collect`
 
-**What it does**: Every 2 minutes, collect from the IPT Digital Platform (RMS energy monitoring, external AWS SaaS): (1) one filter-map request refreshes the full site list (~498 sites) with connectivity; (2) per the watch_sites.json watch list, pull each site’s diagram power panorama into the DB. Feeds the IPT Site Power page (?page=ipt_power)
+**What it does**: Every 2 minutes, collect from the IPT Digital Platform (RMS energy monitoring, external AWS SaaS): (1) one filter-map request refreshes all ~500 sites’ connectivity (no power values in that response); (2) paged /sites backfills site attributes once; (3) full_kpi concurrently fetches the lightweight popup KPI for every site (8 threads; 32 threads measured 501 sites in 60s when the upstream is healthy) so every site gets a snapshot every 2 min; (4) full_shard rotates the full diagram detail in shards (3 threads, ≤60 sites per round, all sites in ~20 min, watch sites every round). Feeds the IPT Site Power page (?page=ipt_power)
 
 **Workflow & data flow**:
 
 1. OIDC implicit-flow login (client_id=rubix-web; simulates authorize -> login form -> callback fragment to get the access_token, cached 1h with auto renewal; see services/ipt_data/README.md)
-1. POST /energy/sites/filter-map refreshes ipt_power_sites (online/offline connectivity)
-1. For each watched site, GET /energy/sites/<id>/diagram, flatten into one snapshot row in ipt_power_snapshots (0.3s throttle between sites)
-1. Prune snapshots older than 7 days; write the run result to ipt_power_meta.last_run
+1. POST /energy/sites/filter-map refreshes ipt_power_sites (online/offline connectivity; no power values)
+1. GET /energy/sites?query=&page=N&pageSize=100 backfills internal_reference / organization / cluster / priority / configuration (~6 requests, only when values are missing and the last run was >1h ago)
+1. The diagram pool starts first (background): watch sites (sites in watch_sites.json) + the shard_cursor ring-cursor shard, 3 threads
+1. The popup KPI pool runs in the foreground: GET /popup for every site (8 threads, rotated via the kpi_cursor ring cursor so sites dropped at the hard deadline resume next round) concurrently with the diagram pool; both pools are bounded by the 100s round hard deadline
+1. Resilience (11-05 review): pooled requests use a 20s per-request timeout (12s killed slow-but-valid requests and caused a timeout storm) + one bounded retry pass for failed popups; a round with <25% popup success is treated as an overloaded upstream and counts toward the circuit breaker; backoff is exponential (5/10/20 min, capped 30 min) and silently skips whole rounds without failure notifications, auto-clearing on the first successful round
+1. Write one snapshot row per site per round (popup KPI as the base, sites with a diagram get the detail columns; source marks popup/diagram; popup rows store no raw JSON to control volume, diagram detail is kept per site in ipt_power_site_detail with device credentials stripped)
+1. Prune snapshots older than 2 days; write the run result to ipt_power_meta.last_run and the next start position to ipt_power_meta.shard_cursor
 
 **Maintenance**:
 
-- WARNING: the watch list is backend/services/ipt_data/watch_sites.json (array; "*" / site name / ref / site_id) — do NOT set "*": all 498 sites take >2.5 min per round, exceeding the 2-minute cadence and hammering the external platform; keep it ≤50 sites
+- WARNING: scope is set by backend/services/ipt_data/watch_sites.json — sites = watch sites (name / ref / site_id, full diagram every round); full_kpi = {"enabled": true, "workers": 8, "budget_s": 80} all-site popup tier; full_shard = {"enabled": true, "max_sites": 60, "budget_s": 70} diagram detail rotation. Do NOT set "*" (legacy meaning = all 500 diagrams in one round, extrapolated ~185s, guaranteed timeout)
+- The upstream has no bulk power endpoint (filter-map has no values, events/recent only recent events); 2-min full-site resolution = concurrent per-site popup polling (2026-11-04: 32 threads, 501 sites in 60.1s / 0 errors); the 11-05 review showed sustained high concurrency drives the upstream into bulk timeouts, so it now runs at 8 threads with the kpi_cursor rotation, trading per-round coverage for stability (~2-6 min per site)
 - Credentials: env IPT_USERNAME / IPT_PASSWORD take priority, otherwise the “user/password” header lines of the local url.txt; url.txt contains a plaintext password — already gitignored via the url*.txt rule
 - The password grant is rejected upstream (unauthorized_client); only rubix-web allows code/implicit flows -> login is a form simulation; if the login page changes, the task reports a structure error
-- Watch entries matching no site log a warning (non-fatal); a single site’s diagram failure only increments snap_failed and never aborts the round
-- Snapshots are kept 2 days (RETENTION_DAYS, adjusted 2026-11-03 to keep the table small); PK (site_id, snap_time) dedupes re-runs within the same minute
-- Consumer: ?page=ipt_power; its "Refresh now" button goes through routers/ipt_power.py /refresh (live query) and shares the login cache
+- A single-site failure only increments counters and never aborts the round (popup retries next round naturally, diagram sites are retried by the cursor); restart the m-group worker after collector code changes, watch_sites.json changes need no restart
+- Snapshots are kept 2 days (RETENTION_DAYS); PK (site_id, snap_time) dedupes re-runs; solar caliber: solarSets and rectifiers solarPower are the same mirrored value (max is taken), sites without solar have solar_available=0 and show "-", 0 W at night is normal
+- Consumer: ?page=ipt_power (map on the left 3/5, site table on the right 2/5); its "Refresh now" button goes through routers/ipt_power.py /refresh (live query) and shares the login cache
 
 ### 3.4 Reliability mechanisms (timeout / retry / self-healing)
 
@@ -2013,23 +2039,23 @@ MS Availability (availability matrix): network availability presented across thr
 - Click any availability figure to drill down: the dialog holds a 30-period trend, the daily detail and a breakdown by dispatch group; the second tab lists the related TT tickets for that combination
 - **Every figure explains itself on hover** (2026-11-03): the three matrix card titles and the four KPI card titles carry a ⓘ stating how that column is computed (SUM(numerator)/SUM(denominator), which table it comes from, that the ALL card includes unmatched sites); hovering an availability number in a matrix lists **that cell** — its numerator and denominator, what the denominator means (site-day observations in the period, one per site per day with data), that the ratio is therefore site-day weighted rather than a plain site average, the change and the drill hint. Bubbles are copyable; the previous native title hint showed two bare numbers and was neither copyable nor themed, so it was replaced by the shared component
 - The threshold input (default 99.65%) drives the "below target" flag: values under it turn red and re-evaluate instantly — the figures themselves do not change
-- The ALL row under Region includes sites not matched to master data, so ALL is not the sum of the three regions; that bucket gets its own last row — it can show availability detail but not TT tickets (the derived DB holds no site list for it)
+- The ALL row under Region includes sites not matched to master data, so ALL is not the sum of the regions; that bucket gets its own last row — it can show availability detail but not TT tickets (the derived DB holds no site list for it)
 - 4G NERA is an unmapped dispatch group: counted in the 4G technology total, shown separately as "Other" under site type, and only present in the 2025-12 ~ 2026-01 months; a yellow note appears on the page then
 - Missing data renders as "—" (never 0); the "Data through" label at the top makes a stalled derived database obvious
 
 #### avail_flm（`avail_flm`）
 
-FLM availability: covers only the three FLM regions (Montserrado / North East / South West), with regions as rows and technology (2G/3G/4G) and site type (Regular / Cooli / ERA; the column keeps the raw data value, the requirement writes Cool.i) as columns; day / week / month granularity on tabs. The data is the same source as the Availability Matrix (local derived database avail_recon.sqlite3, measure SUM(numerator)/SUM(denominator)), and the "TTs affecting availability" list is shown right on the page.
+FLM availability: regions as rows, technology (2G/3G/4G) and site type (Regular / Cooli / ERA; the column keeps the raw data value, the requirement writes Cool.i) as columns; day / week / month granularity on tabs. The region list is NOT hard-coded: it comes from the region column of the site master data (master_site_db), so whatever regions the master data holds are the ones shown — renames and new regions need no code change. The data is the same source as the Availability Matrix (local derived database avail_recon.sqlite3, measure SUM(numerator)/SUM(denominator)), and the "TTs affecting availability" list is shown right on the page.
 
-- Each table has a trend chart above it: the upper one tracks the three regions (one line per region), the lower one the three site types; 30 periods for day, 12 for week, 12 for month, following the active tab
+- Each table has a trend chart above it: the upper one tracks the regions (one line per region), the lower one the three site types; 30 periods for day, 12 for week, 12 for month, following the active tab
 - Chart points are clickable and open **that point's own period**; the dashed threshold line (default 99.65%) is the same value that turns table figures red
 - Click any availability figure to drill down: the dialog holds a 30-period trend, the daily detail and a breakdown by dispatch group; the second tab lists every TT ticket of that slice
 - Each region also has a KPI card (all technologies combined) that can be clicked to drill down
-- **Every figure explains itself on hover** (2026-11-03, sharing the wording with the Availability Matrix): the two matrix card titles and the three region KPI cards carry a ⓘ, and hovering an availability number lists that cell numerator, denominator, what the denominator means (site-day observations) and the weighting. The region card wording differs from the per-technology card of the matrix: a region card is SUM(numerator)/SUM(denominator) over **all technologies and all site types** of that region, not a mean of the per-technology figures, and this page has no ALL row — unmatched sites sit in no region card
-- Site type is not scope-restricted: all three regions show the three columns Regular / Cooli / ERA (raw data value). The "NE has only Regular/Cool.i" note in the requirement contradicts both data sources (NE has 123 ERA sites and an ERA denominator of 65k in the derived database), and leaving cells blank would wrongly suggest NE has no ERA sites
-- The last row "unmatched master data" is the part whose remote site names failed to match: it is outside the three regions and is not plotted (its magnitude would flatten the y-axis); it is listed for reconciliation only and can show availability detail but not TT tickets
+- **Every figure explains itself on hover** (2026-11-03, sharing the wording with the Availability Matrix): the two matrix card titles and every region KPI card carry a ⓘ, and hovering an availability number lists that cell numerator, denominator, what the denominator means (site-day observations) and the weighting. The region card wording differs from the per-technology card of the matrix: a region card is SUM(numerator)/SUM(denominator) over **all technologies and all site types** of that region, not a mean of the per-technology figures, and this page has no ALL row — unmatched sites sit in no region card
+- Site type is not scope-restricted: every region shows all of its site-type columns (Regular / Cooli / ERA, raw data value). The requirement note claiming that one region carries only Regular/Cool.i contradicted both data sources (that region had 123 ERA sites and an ERA denominator of 65k in the derived database), so leaving cells blank would wrongly suggest the region has no ERA sites
+- The last row "unmatched master data" is the part whose site names failed to match: it belongs to no region and is not plotted (its magnitude would flatten the y-axis); it is listed for reconciliation only and can show availability detail but not TT tickets
 - The page-level "TTs affecting availability" list shows **every TT of the period** with no "impacted service" judgement (that field and site_outage agree on every row of this period, so using either would make the definition look more precise than it is); each row carries the 2G/3G/4G down-site counts and MTTR so you can judge relevance yourself
-- The TT list can be filtered by region (all / the three regions); a month can hold 3600+ tickets, and a yellow note appears when the display limit is hit — only the detail row count is affected, never the availability figures
+- The TT list can be filtered by region (all / any region); a month can hold 3600+ tickets, and a yellow note appears when the display limit is hit — only the detail row count is affected, never the availability figures
 - Click a ticket number to look up the availability of its region × site type together with all tickets of that slice
 - 4G NERA is an unmapped dispatch group: counted in the 4G technology total, but this page lists only the three site types, so the 4G row will exceed the sum of the three columns and a yellow note appears
 - Missing data renders as "—" (never 0); the "Data through" label at the top makes a stalled derived database obvious
@@ -2270,9 +2296,13 @@ Site map: alarm/ticket distribution, topology lines, region polygons and multi-d
 - The first cell of the "Advanced Filter" panel is a "Site Name" input: fuzzy match on a name fragment (case-insensitive); the rest are dropdowns for region/grade/form/FME etc.
 - Statistics follow the filter: site total and the ERA/COOL/NORMAL grades, the map legend, the county block colors and county labels, and the "MAINTENANCE ALERTS" county ranking panel are all recomputed from the filtered sites instead of showing the full-set numbers;
 - Click a site to open the right drawer: four tabs, searchable, exportable to Excel
+- The drawer "Basic Info" includes **power status** (same source as ?page=ipt_power): connectivity refreshes for all sites every 2 minutes; SOC / voltage / load etc. come from the latest snapshot (all-site popup KPI collection each round; under upstream stress a ring cursor rotates coverage, ~2-6 min per site); shows — when the site name does not match any IPT site; see the ⓘ note on the label for details
 - The "Link Utilization" switch (on by default) overlays MW microwave link utilization from the same 15-min slot as the MW Realtime page, colored on a 4-level scale (>80% critical / ≥70% major / ≥60% minor / <60% healthy); thicker lines mean higher utilization
 - Click a link to see its max/Tx/Rx utilization and the matched MW sites; a link showing "No KPI data" means it could not be matched to realtime metrics (it keeps its original KML color) — that is not 0%
 - The overlay scope is explained below the legend: about 360 of the 844 KML links match realtime metrics; the rest are still viewable on the MW Realtime page
+- Each of the "2G KPI / 3G KPI / 4G KPI" tabs now shows **two charts**: network quality (availability, setup and handover success rates — ratios sharing one % axis) and **traffic volume trend** (CS traffic in Erl, data volume in GB, throughput in Mbps, 4G RRC users, outage minutes — **one y-axis per unit**). Each chart has its own metric picker, and the volume chart already plots 3 series by default instead of hiding them in a dropdown
+- The volume chart follows the drawer's "Statistics range" (since 2026-11-04). Before that the KPI series was fixed at 60 days and ignored the 7/30/90/180 switch — now fixed
+- When a site sits under several BSC/RNC the upstream writes one row per ID per day: the API folds them by calendar day, **summing traffic** into the site total and **averaging ratios**. The ⓘ on each chart title, the table column headers and every number in the daily table are hover-explainable, and the text comes from API fields — nothing is recalculated in the browser
 
 #### Realtime Alarm Map（`realtime_alarm`）
 
@@ -2449,14 +2479,15 @@ VMAX complaint diagnosis: enter a subscriber number and time window to answer "w
 
 #### ipt_power（`ipt_power`）
 
-IPT Site Power: integrates the IPT Digital Platform (RMS energy monitoring) to show connectivity for all ~498 sites and power details (battery SOC/voltage, load, solar, generator, fuel) for watched sites. Collector task ipt_power_collect ingests every 2 minutes; this page only reads the local DB.
+IPT Site Power: integrates the IPT Digital Platform (RMS energy monitoring) to show connectivity and power details (battery SOC/voltage, load, solar, generator, fuel) for all ~500 sites. Collector task ipt_power_collect ingests every 2 minutes; this page only reads the local DB.
 
+- Layout: left **3/5 site map** (Leaflet + self-hosted PMTiles basemap), right **2/5 site table**; **click a map dot or the row "Detail" button to open the power-detail popup**
 - Main table = all sites + each site’s **latest** power snapshot; "Connectivity" comes from the platform’s filter-map (refreshed every 2 min) and reflects gateway reachability
-- ⚡ icon = watched site: only sites listed in watch_sites.json have power snapshots and history charts (maintained in backend/services/ipt_data/watch_sites.json; "*" / site name / ref / site_id; **do NOT set "*"** — 498 sites cannot finish in one round)
+- ⚡ icon = watch site: sites in watch_sites.json get full diagram detail every round; all other sites are covered by the full_shard sharded rotation (~20 min for full detail); all sites get a KPI snapshot each round, with the kpi_cursor ring cursor resuming coverage under upstream stress (~2-6 min per site). Config: backend/services/ipt_data/watch_sites.json; **do NOT set "*" in sites** (500 sites in one round times out)
 - "Watched only" toggles the main table; the search box matches site name / ref / area (press Enter to search)
-- Click "Detail" on a row for the single-site view: six stat cards (SOC / battery voltage / charging state / load / solar / generator) + a trend chart (load power, solar power, SOC on dual axes) over 6h/24h/72h/7d
-- **"Refresh now" queries the platform live** (bypassing the 2-minute cadence) and appends a snapshot after the query — use it on any site, even ones outside the watch list
-- An empty chart usually means the site is not on the watch list (no history snapshots); one "Refresh now" starts accumulating them
+- Single-site detail is a **wide centered popup** (same pattern as the MW Realtime KPI modal: dimmed mask + title bar + scrollable body). The title bar has "Refresh now" and ×; close with Esc, a mask click, or ×. Inside: a compact site-info strip (ref / area / cluster / priority / configuration / connectivity / snapshot time), six stat cards (SOC / battery voltage / charging state / load / solar / generator), device detail cards (generator / battery set / fuel tank / mains + rectifier), active alarms, and a trend chart (load, solar on the left W axis, SOC on the right % axis) over 6h/24h/72h/7d
+- **"Refresh now" queries the platform live** (bypassing both the 2-minute cadence and the shard rotation) and appends a snapshot after the query — works on any site immediately
+- An empty chart usually means the site has not had its turn in the shard rotation yet (all sites get covered within ~20-25 min of enabling it); one "Refresh now" starts accumulating snapshots immediately
 - A yellow banner appears at the top when the collector has never run or the last round failed; snapshots are kept for 2 days and pruned automatically
 - "Export Excel" exports the main table with SOC / load / solar / snapshot time
 - Search keyword, time range and selected site are persisted in the URL (iptKw / iptHrs / iptSite) so refresh and shared links restore the view

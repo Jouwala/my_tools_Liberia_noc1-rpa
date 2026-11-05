@@ -24,6 +24,18 @@ pivot（FineBI 的「颜色/分区」维度）
     任务写入的镜像源的源头；远端 inventory.db 长期被锁，实测 SELECT 1 也要 42s
     才报 database is locked）。详见 _gen_native_catalog.py 的说明。
 
+    IP RAN 族（ipran_hq / ipran_4region / metro_ring / fw_daily，26 个组件）自
+    2026-11-04 起改读**本机 PG 的 ipran_ume schema**：采集本来就跑在本机，
+    远端 SQLite 只是给其它 BI 用的副本。开关 NATIVE_BOARD_IPRAN_SOURCE=remote
+    可一键回退到远端。详见 IPRAN_SOURCE 处的说明。
+
+    其余三个历史库（db.sqlite3 / db_ps_cs_cn.sqlite3 / fw_db.sqlite，共 93 个组件）
+    的采集脚本当年只写远端，本机没留下完整副本（RAN 那个停在 2026-06、PS_CS
+    只有 17/40 张表、PG fw 只有 1/2 台设备）。自 2026-11-04 起改读
+    **本机镜像库**（data/native_board_mirror/*.sqlite3），由
+    native_board_mirror_sync 按 rowid 水位增量同步，看板请求 100% 本地。
+    开关 NATIVE_BOARD_MIRROR=0 可一键全部回退到远端。
+
 时间窗口（新增）
     `?start=YYYY-MM-DD&end=YYYY-MM-DD` 可自定义起止日期。
     实现方式：**不改写原 SQL**（187 条 SQL 形态各异，正则改写必然出错），
@@ -75,6 +87,11 @@ QUERY_TIMEOUT = 90
 # 需要立即看最新数据时走 ?force=1（前端「刷新」按钮），不依赖 TTL。
 CACHE_TTL = int(os.environ.get("NATIVE_BOARD_CACHE_TTL", 6 * 3600))
 
+# 失败结果的短 TTL（秒）。整页有组件取数失败时，结果里只有空壳；若按 6 小时
+# 缓存，一次远端抖动就会被固化成「秒开但空白」（2026-11-04 历史区间回落时
+# 实测踩到）。失败结果只在内存留 60s、不落盘，且后台刷新失败不覆盖已有好缓存。
+FAILURE_CACHE_TTL = int(os.environ.get("NATIVE_BOARD_FAILURE_TTL", "60"))
+
 # 磁盘缓存目录：后端被看门狗重启后内存缓存会丢，磁盘缓存让重启后依然秒开
 CACHE_DIR = Path(os.environ.get(
     "NATIVE_BOARD_CACHE_DIR",
@@ -92,6 +109,52 @@ MAX_WORKERS = 6
 
 # 单组件返回行数上限（明细表格用；FineBI 原版也做了截断）
 DEFAULT_LIMIT = 5000
+
+# ----------------------------------------------------------------------
+# 「全历史大表」的时间条件下推（2026-11-04，如意确认）
+#
+# metro_ring 的 8 条趋势 SQL 是 FineBI 原口径「无时间过滤 = 全历史」，WHERE
+# 只按 ME / Measure Object 过滤；而源表唯一索引首列是 "Begin Time"，条件用不上
+# → 195 万行全表扫描 → 单组件超过 QUERY_TIMEOUT(90s)，8 条分两批共 180s，
+# 整页只剩 KPI 卡片有值（实测 8/10 failed，页面空白）。
+#
+# 这里在**取数层**把时间下限下推进 WHERE：不动自动生成的 native_catalog.py
+# （文件头明确「请勿手改」），也不改看板定义里的口径字符串，让 SQLite 走
+# "Begin Time" 索引范围扫描。实测 8/8 成功、总 41s、4949 行。
+#
+# 无窗口时默认回看 PUSH_DOWN_DAYS 天；用户显式选了区间时下推用户区间，并跳过
+# _apply_window 的二次子查询包装（否则内层的默认 7 天会把历史区间裁空）。
+#
+# date('now', ...) 是 SQLite 方言；切到本机 PG 时由 _to_pg_sql() 换成
+# to_char(current_date - interval 'N days', 'YYYY-MM-DD')，两种库共用同一份目录。
+# ----------------------------------------------------------------------
+PUSH_DOWN_TABLES = ("Metro_ring_me_15mins",)
+PUSH_DOWN_DAYS = int(os.environ.get("NATIVE_BOARD_PUSHDOWN_DAYS", "7"))
+
+# ----------------------------------------------------------------------
+# IP RAN 族 → 本机 PG（2026-11-04，如意确认）
+#
+# 采集任务 ipran_kpi_sync 跑在本机，远端 .19:8765 的 SQLite 只是给其它 BI 用的
+# 副本。但这 4 个看板（ipran_hq / ipran_4region / metro_ring / fw_daily，26 个
+# 组件）原先全在读远端，且 metro_ring 的 8 条「全历史」SQL 在远端经常 90s 超时。
+# 本机 PG 的 ipran_ume schema 是同一份数据，实测等价聚合 3.2s（下推后 0.1s）。
+#
+# ⚠ 前置修复：本机 PG 原本只在「远端写失败兜底」时被动更新，已落后 15.5 小时。
+#   ipran_ume_kpi_service.WRITE_LOCAL_MIRROR 现已改为远端成功后主动镜像，
+#   并用 backfill_ipran_pg.py 补齐历史缺口。切换前务必确认 PG 水位已追平。
+#
+# 回退：NATIVE_BOARD_IPRAN_SOURCE=remote 即恢复全部读远端（无需改代码/重启目录）。
+#
+# ⚠ 历史空洞：PG 是「兜底快照」拼出来的，实测 Metro_ring 按月只有 2026-08 /
+#   10 / 11，**整月缺 2026-09**（远端同期 82 万行）。默认近 7 天不受影响；
+#   用户显式选到 PG 没有的区间时，NATIVE_BOARD_IPRAN_FALLBACK=1（默认）会
+#   逐表探测后精确回落到远端权威库，避免静默出空白。置 0 则严格只读本机。
+# ----------------------------------------------------------------------
+IPRAN_SOURCE = os.environ.get("NATIVE_BOARD_IPRAN_SOURCE", "pg").strip().lower()
+IPRAN_PG_SCHEMA = os.environ.get("NATIVE_BOARD_IPRAN_SCHEMA", "ipran_ume")
+IPRAN_HISTORY_FALLBACK = os.environ.get(
+    "NATIVE_BOARD_IPRAN_FALLBACK", "1").strip().lower() not in ("0", "false", "no", "off")
+LOCAL_IPRAN_PG = "__local_ipran_pg__"
 
 # 本机库标识（native_catalog 用它标记「走本机 app.db，不发远端」）
 LOCAL_APP_DB = "__local_app_db__"
@@ -113,6 +176,18 @@ LOCAL_SQLITE_FILES: Dict[str, Path] = {
     "__local_mttr_tt__": Path(__file__).resolve().parents[2] / "data" / "mttr_tt.sqlite3",
     "__local_progress__": Path(__file__).resolve().parents[2] / "data" / "progress.sqlite3",
 }
+
+# 三个历史远端库 -> 本机镜像（看板请求不再跨机；后台增量同步保持新鲜）。
+# 只有看板 SQL 实际引用的 33 张表会被镜像，未引用的不动。
+# 注意：镜像文件由 native_board_mirror_sync 单独写入，看板始终以 mode=ro 打开。
+MIRROR_ENABLED = os.environ.get(
+    "NATIVE_BOARD_MIRROR", "1").strip().lower() not in ("0", "false", "no", "off")
+if MIRROR_ENABLED:
+    from backend.services import native_board_mirror_sync as _mirror_sync
+
+    for _remote_db in _mirror_sync.REMOTE_DBS:
+        LOCAL_SQLITE_FILES[_mirror_sync.mirror_alias(_remote_db)] = \
+            _mirror_sync.mirror_path(_remote_db)
 
 # 显式禁用代理：内网地址绝不能被 HTTP_PROXY 劫持（沿用 query_engine 的做法）
 _OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
@@ -229,7 +304,164 @@ def _query_remote(sql: str, db: str, limit: int) -> Dict[str, Any]:
             f"无法连接远端数据源 {url}：{getattr(e, 'reason', e)}") from e
 
 
+# ----------------------------------------------------------------------
+# 本机 PG 通道（仅 IP RAN 族）
+# ----------------------------------------------------------------------
+# PG 里这 3 列是 TEXT（采集侧按「全部 TEXT」建表），而看板 SQL 直接 SUM/ROUND，
+# PG 会报「函数 sum(text) 不存在」「round(text, integer) 不存在」。只给「参数
+# 恰好是一个带引号数值列」的聚合加 ::numeric；MAX(substr(...)) / MAX(REPLACE(...))
+# 这类日期表达式不匹配，保持 text 原样。
+_PG_NUMERIC_COLS = {
+    "Counter Value",
+    "Send Traffic Rate(Mbps)",
+    "Receive Traffic Rate(Mbps)",
+}
+_AGG_BARE_COL_RE = re.compile(
+    r'\b(SUM|AVG|MIN|MAX)\s*\(\s*"([^"]+)"\s*\)', re.IGNORECASE)
+_SQLITE_DATE_NOW_RE = re.compile(
+    r"date\(\s*'now'\s*,\s*'-(\d+)\s+days'\s*\)", re.IGNORECASE)
+
+
+def _to_pg_sql(sql: str) -> str:
+    """SQLite → PG 最小方言适配，只作用于 IP RAN 这 26 条结构规整的 SQL。
+
+    1. SUM/AVG/MIN/MAX(数值列) → 聚合参数 ::numeric（内层变 numeric 后，
+       外层 ROUND(x, 2) 自然命中 round(numeric, integer)，无需改 ROUND）。
+    2. date('now','-N days') → to_char(current_date - interval 'N days',
+       'YYYY-MM-DD')；PG 上 text 列与 timestamp 比较会报操作符不存在，
+       故必须产出 **字符串**。
+    其余 substr / REPLACE / GROUP BY / ORDER BY / 双引号标识符 PG 原生支持。
+    实测可用 psql 复核，见 .workbuddy/memory/2026-11-04.md。
+    """
+    def _cast(m: "re.Match[str]") -> str:
+        fn, col = m.group(1), m.group(2)
+        if col not in _PG_NUMERIC_COLS:
+            return m.group(0)
+        return f'{fn}(("{col}")::numeric)'
+
+    out = _AGG_BARE_COL_RE.sub(_cast, sql)
+    return _SQLITE_DATE_NOW_RE.sub(
+        lambda m: (f"to_char(current_date - interval '{m.group(1)} days', "
+                   "'YYYY-MM-DD')"),
+        out)
+
+
+def _json_scalar(v: Any) -> Any:
+    """把 PG 专有标量转成 JSON 可直接序列化的等价物（与远端返回保持一致）。"""
+    from decimal import Decimal
+    if isinstance(v, Decimal):
+        return float(v)
+    if isinstance(v, datetime):
+        return v.isoformat(sep=" ")
+    if isinstance(v, date):
+        return v.isoformat()
+    if isinstance(v, (bytes, bytearray, memoryview)):
+        return bytes(v).decode("utf-8", "replace")
+    return v
+
+
+def _query_pg(sql: str, limit: int) -> Dict[str, Any]:
+    """本机 PG 只读查询：search_path 指向 ipran_ume，目录里的裸表名直接命中。
+
+    与 _query_remote 返回同构（success / columns / rows / count / truncated /
+    elapsed_ms），所以 _fetch_widget 完全不用感知数据源。
+    """
+    import psycopg2
+    from backend.database import PG_DATABASE_URL
+
+    sql = _guard(sql)
+    sql = _to_pg_sql(sql)
+    if not PG_DATABASE_URL:
+        raise RuntimeError("本机 PG 未配置 DATABASE_URL（检查 backend/.env）")
+
+    t0 = time.time()
+    conn = psycopg2.connect(
+        PG_DATABASE_URL, connect_timeout=10,
+        options=(f"-c search_path={IPRAN_PG_SCHEMA} "
+                 "-c statement_timeout=60000"))
+    try:
+        conn.set_session(readonly=True, autocommit=True)
+        cur = conn.cursor()
+        cur.execute(sql)
+        cols = [d[0] for d in (cur.description or [])]
+        # PG 的 numeric 会解成 Decimal，而远端 SQLite 给的是 float。统一成
+        # JSON 原生标量：否则 _disk_save 的 json.dump 会抛
+        # "Object of type Decimal is not JSON serializable"，整页磁盘缓存静默
+        # 丢失（2026-11-04 切换当天实测踩到，日志只有一条 WARNING）。
+        rows = [[_json_scalar(v) for v in r] for r in cur.fetchmany(limit)]
+        return {
+            "success": True,
+            "columns": cols,
+            "rows": rows,
+            "count": len(rows),
+            "truncated": len(rows) >= limit,
+            "elapsed_ms": round((time.time() - t0) * 1000, 1),
+        }
+    finally:
+        conn.close()
+
+
+# ----------------------------------------------------------------------
+# PG 历史空洞探测（只在用户显式选了历史区间时才跑）
+# ----------------------------------------------------------------------
+_PG_FROM_RE = re.compile(r'\bFROM\s+"([^"]+)"', re.IGNORECASE)
+_PG_RANGE_CACHE: Dict[Tuple[str, str, str], bool] = {}
+_PG_RANGE_LOCK = threading.Lock()
+
+
+def _pg_table_of(sql: str) -> str:
+    m = _PG_FROM_RE.search(sql or "")
+    return m.group(1) if m else ""
+
+
+def _pg_range_has_data(table: str, start: str, end: str) -> bool:
+    """PG 该表在 [start, end] 区间是否有数据（EXISTS 半扫描，唯一索引，毫秒级）。
+
+    探测失败/提不到表名一律返回 True —— 宁可让本机返回空，也不轻易把
+    默认路径退回远端。结果按 (表, 区间) 缓存，整页 26 个组件只探测一次。
+    """
+    if not table:
+        return True
+    try:
+        e_next = (datetime.strptime(end, "%Y-%m-%d") + timedelta(days=1)
+                  ).strftime("%Y-%m-%d")
+    except ValueError:
+        return True
+    key = (table, start, e_next)
+    with _PG_RANGE_LOCK:
+        if key in _PG_RANGE_CACHE:
+            return _PG_RANGE_CACHE[key]
+
+    ok = True
+    try:
+        import psycopg2
+        from backend.database import PG_DATABASE_URL
+        conn = psycopg2.connect(
+            PG_DATABASE_URL, connect_timeout=5,
+            options=(f"-c search_path={IPRAN_PG_SCHEMA} "
+                     "-c statement_timeout=15000"))
+        try:
+            conn.set_session(readonly=True, autocommit=True)
+            cur = conn.cursor()
+            cur.execute(
+                f'SELECT 1 FROM "{table}" '
+                f'WHERE "Begin Time" >= %s AND "Begin Time" < %s LIMIT 1',
+                (start, e_next))
+            ok = cur.fetchone() is not None
+        finally:
+            conn.close()
+    except Exception as e:  # noqa: BLE001
+        logger.warning("PG 区间探测失败 %s %s..%s，按有数据处理: %s",
+                       table, start, end, e)
+        ok = True
+    with _PG_RANGE_LOCK:
+        _PG_RANGE_CACHE[key] = ok
+    return ok
+
+
 def query(sql: str, db: str, limit: int = DEFAULT_LIMIT) -> Dict[str, Any]:
+    if db == LOCAL_IPRAN_PG:
+        return _query_pg(sql, limit)
     if db == LOCAL_APP_DB:
         return _query_local(sql, limit)
     if db in LOCAL_SQLITE_FILES:
@@ -324,6 +556,44 @@ def _apply_window(sql: str, date_field: str, start: str, end: str,
     )
 
 
+def _pushdown_time_window(sql: str, start: str,
+                          end: str) -> Tuple[str, bool]:
+    """把时间条件下推进 SQL 的 WHERE；返回 (新 SQL, 是否下推)。
+
+    仅命中 PUSH_DOWN_TABLES 里的大表、且原 SQL 的 WHERE 里没有 "Begin Time"
+    条件时生效，其余 187 个组件一行不动。start/end 已在路由层校验过格式。
+    """
+    if not sql or "WHERE" not in sql:
+        return sql, False
+    if not any('FROM "' + t + '"' in sql for t in PUSH_DOWN_TABLES):
+        return sql, False
+    head, _, tail = sql.partition("WHERE")
+    # 只看 WHERE 与 GROUP/ORDER/HAVING/LIMIT 之间的过滤条件：这些 SQL 的
+    # GROUP BY / ORDER BY 里本来就写着 "Begin Time"，把整段 tail 拿来判会
+    # 误以为「已有时间条件」而跳过下推（2026-11-04 实测踩过）。
+    where_part = re.split(r"\b(?:GROUP\s+BY|ORDER\s+BY|HAVING|LIMIT)\b",
+                          tail, maxsplit=1, flags=re.I)[0]
+    if '"Begin Time"' in where_part:
+        return sql, False
+    if start and end:
+        s = start.replace("'", "''")
+        e = end.replace("'", "''")
+        # 上界用「次日 00:00」开区间，而不是 'YYYY-MM-DD 23:59:59'：
+        # Metro_ring 的 "Begin Time" 是 ISO 带 T（2026-11-04T00:00:00+00:00），
+        # 字符串比较下 'T'(0x54) > ' '(0x20)，<= '... 23:59:59' 会把当天整天
+        # 滤掉（PG 与 SQLite 皆然）。开区间对两种格式都成立，且仍能走索引范围扫描。
+        try:
+            e_next = (datetime.strptime(e, "%Y-%m-%d") + timedelta(days=1)
+                      ).strftime("%Y-%m-%d")
+            upper = f'"Begin Time" < \'{e_next}\''
+        except ValueError:
+            upper = f'"Begin Time" <= \'{e} 23:59:59\''
+        cond = f'"Begin Time" >= \'{s}\' AND ' + upper
+    else:
+        cond = f'"Begin Time" >= date(\'now\',\'-{PUSH_DOWN_DAYS} days\')'
+    return head + "WHERE " + cond + " AND " + tail, True
+
+
 # ----------------------------------------------------------------------
 # 逻辑库别名（目录里写的库名 → 实际要读的库）
 # ----------------------------------------------------------------------
@@ -344,6 +614,18 @@ DB_ALIASES: Dict[str, str] = {
     "progress.sqlite3": "__local_progress__",
 }
 
+# IP RAN 族整族切本机 PG（4 个看板 / 26 个组件）。放在别名层而不是改目录，
+# 保持 native_catalog.py「自动生成、请勿手改」的约束，且 remote 开关可秒回退。
+if IPRAN_SOURCE == "pg":
+    DB_ALIASES["ipran_ume_kpi.sqlite3"] = LOCAL_IPRAN_PG
+
+# 其余 3 个历史库整族切本机镜像（9 个看板 / 93 个组件）。
+# 与 IP RAN 一样放在别名层：native_catalog.py 是自动生成文件，不能手改。
+# NATIVE_BOARD_MIRROR=0 时不加别名 -> 全部恢复走远端。
+if MIRROR_ENABLED:
+    for _remote_db in _mirror_sync.REMOTE_DBS:
+        DB_ALIASES[_remote_db] = _mirror_sync.mirror_alias(_remote_db)
+
 
 def resolve_db(db: str) -> str:
     """把目录里的逻辑库名解析成实际要读的库（含本机派生库别名）。"""
@@ -356,7 +638,8 @@ def resolve_db(db: str) -> str:
 def _fetch_widget(w: Dict[str, Any],
                   start: str = "", end: str = "") -> Dict[str, Any]:
     """取单个组件数据；失败只标记该组件，不拖垮整页。"""
-    db = resolve_db(w.get("db", ""))
+    raw_db = w.get("db", "")
+    db = resolve_db(raw_db)
     out: Dict[str, Any] = {
         "id": w["id"],
         "title": w["title"],
@@ -370,6 +653,8 @@ def _fetch_widget(w: Dict[str, Any],
         "date_field": "",
         "windowed": False,
         "grain": "",
+        "pushed": False,
+        "fallback_remote": False,
     }
     if w["chart"] == "text":
         out["title_text"] = w.get("title_text", "")
@@ -377,9 +662,23 @@ def _fetch_widget(w: Dict[str, Any],
         return out
 
     limit = w.get("limit") or DEFAULT_LIMIT
-    sql = w["sql"]
+    sql, pushed = _pushdown_time_window(w["sql"], start, end)
+    out["pushed"] = pushed
+
+    # 只在本机 PG 模式下、用户显式选了区间、且 PG 该表该区间确实没数据时，
+    # 才回落到远端权威库（补 PG 的历史空洞）。默认近 7 天完全不走远端。
+    fallback_remote = bool(
+        IPRAN_HISTORY_FALLBACK and db == LOCAL_IPRAN_PG and start and end
+        and not _pg_range_has_data(_pg_table_of(sql), start, end))
+    out["fallback_remote"] = fallback_remote
+
+    def run(q: str) -> Dict[str, Any]:
+        # 回落时用的是**未做 PG 方言转换**的原 SQL（_to_pg_sql 只在 _query_pg 内），
+        # 正好是远端 SQLite 可执行的形式。
+        return _query_remote(q, raw_db, limit) if fallback_remote else query(q, db, limit)
+
     try:
-        res = query(sql, db, limit)
+        res = run(sql)
         if not res.get("success", True):
             raise RuntimeError(res.get("error") or "远端返回 success=false")
         cols = list(res.get("columns") or [])
@@ -389,11 +688,16 @@ def _fetch_widget(w: Dict[str, Any],
         # KPI 卡片不参与（MAX(...)/聚合单值，套窗口会变 0 行）。
         field = detect_date_field(cols, rows)
         out["date_field"] = field
-        if start and end and field and w["chart"] in _WINDOWABLE_CHARTS:
+        # 已下推过时间条件的组件不再二次包装子查询：内层会带着默认窗口，
+        # 把用户选的历史区间裁空（而且白白多跑一次大查询）。
+        if pushed:
+            out["windowed"] = bool(start and end)
+            out["grain"] = "day" if start and end else ""
+        elif start and end and field and w["chart"] in _WINDOWABLE_CHARTS:
             idx = cols.index(field) if field in cols else 0
             month_grain = _is_month_field(cols, rows, idx)
             wrapped = _apply_window(sql, field, start, end, month_grain)
-            res2 = query(wrapped, db, limit)
+            res2 = run(wrapped)
             if not res2.get("success", True):
                 raise RuntimeError(res2.get("error") or "窗口查询失败")
             cols = list(res2.get("columns") or [])
@@ -514,6 +818,10 @@ def _get_cached(key: str) -> Optional[Dict[str, Any]]:
     return None
 
 
+def _is_failed(data: Dict[str, Any]) -> bool:
+    return bool((data.get("meta") or {}).get("failed"))
+
+
 def _schedule_refresh(slug: str, start: str, end: str) -> None:
     """SWR：先把旧数据给用户，再后台回源，用户不为「过期」买单。"""
     key = _cache_key(slug, start, end)
@@ -525,8 +833,15 @@ def _schedule_refresh(slug: str, start: str, end: str) -> None:
     def _job() -> None:
         try:
             data = _build_board(get_board(slug), slug, start, end)
+            if _is_failed(data):
+                # 已有好数据就别用失败结果覆盖它；等下一次访问再重试
+                old = _get_cached(key)
+                if old is not None and not _is_failed(old["data"]):
+                    logger.warning("后台刷新有组件失败，保留旧的好缓存 slug=%s", slug)
+                    return
             _mem_put(key, {"at": time.time(), "data": data})
-            _disk_save(key, data)
+            if not _is_failed(data):
+                _disk_save(key, data)
             logger.info("后台刷新完成 slug=%s window=%s..%s", slug, start, end)
         except Exception:  # noqa: BLE001
             logger.warning("后台刷新失败 slug=%s", slug, exc_info=True)
@@ -553,6 +868,7 @@ def _build_board(board: Dict[str, Any], slug: str, start: str,
             "name": board["name"],
             "category": board["category"],
             "host": get_api_base_url(),
+            "ipran_source": IPRAN_SOURCE,
             "count": len(results),
             "failed": failed,
             "elapsed_ms": round((time.time() - t0) * 1000, 1),
@@ -577,13 +893,23 @@ def get_board_data(slug: str, start: str = "", end: str = "",
     （stale-while-revalidate）；完全没有缓存时才让用户等冷取数。
     force=True 绕过缓存立即回源（前端「刷新」与 Excel 导出走这条）。
     """
+    # 首次有看板请求时拉起镜像同步守护（惰性，避免离线脚本/工具进程也起线程）。
+    # initial_delay=0：后端刚重启时立刻补一次增量，别让用户看几小时前的镜像。
+    if MIRROR_ENABLED:
+        try:
+            _mirror_sync.start_mirror_daemon(initial_delay=0)
+        except Exception as e:  # noqa: BLE001 - 同步失败不能挡住看板
+            logger.warning("本机镜像守护启动失败（看板仍读现有镜像）: %r", e)
+
     board = get_board(slug)
     key = _cache_key(slug, start, end)
     if not force:
         ent = _get_cached(key)
         if ent is not None:
             age = max(0.0, time.time() - ent["at"])
-            stale = age >= CACHE_TTL
+            # 失败结果只留 60s，避免一次抖动固化成 6 小时空白
+            ttl = FAILURE_CACHE_TTL if _is_failed(ent["data"]) else CACHE_TTL
+            stale = age >= ttl
             if stale:
                 _schedule_refresh(slug, start, end)
             data = dict(ent["data"])
@@ -593,20 +919,21 @@ def get_board_data(slug: str, start: str = "", end: str = "",
                 "stale": stale,
                 "cache_age_s": round(age, 1),
                 "cache_source": ent["source"],
-                "cache_ttl_s": CACHE_TTL,
+                "cache_ttl_s": ttl,
             }
             return data
 
     data = _build_board(board, slug, start, end)
     _mem_put(key, {"at": time.time(), "data": data})
-    _disk_save(key, data)
+    if not _is_failed(data):
+        _disk_save(key, data)
     out = dict(data)
     out["meta"] = {
         **data["meta"],
         "stale": False,
         "cache_age_s": 0.0,
         "cache_source": "remote",
-        "cache_ttl_s": CACHE_TTL,
+        "cache_ttl_s": (FAILURE_CACHE_TTL if _is_failed(data) else CACHE_TTL),
     }
     return out
 

@@ -578,6 +578,25 @@ TASK_SPECS = [
          description_en="Download spare-part data from SFTP and generate Comsumables & SpareParts Inbound&Outbound&Inventory reports into local data/sp_email",
          default_cron="15 5 * * *", category="kpi_email"),
 
+    # 19b-2. SP 备件周报（每周日 06:40，2026-11-03 新增，用户指定口径）
+    #        周期：**周日 → 周六**共 7 天，周日早上生成刚结束那一周的报告。
+    #        数据：直接读 data/sp_email/data 下已过滤的 inband/outband/inventory 明细
+    #        （sp_report_generate 每天 05:15 产出），不再二次走 SFTP。
+    #        文件名自带周期：SP Weekly Report <start> to <end>.xlsx（落 data/sp_weekly）。
+    #        收件人：Settings → 邮件收件人 → sp_weekly_report（默认回退 SP 共享名单）。
+    #        ⚠ day_of_week **写 `mon` 这类名字，不要写数字**：APScheduler 的数字
+    #        0=周一、6=周日（与 Vixie cron 的 0=周日相反），写 6 会静默变成周一、写 0 也会串。
+    #        时间 07:00（如意 2026-11-03 指定「每周一早上 7 点」）：周期按自然周对齐，
+    #        end = 最近一个已结束的周日 → 周一跑就是「上周一 ~ 上周日」7 个完整天。
+    #        ⚠ 不要改成「昨天往前 7 天」：周二补跑会变成「周二 ~ 周一」，如意已指出该问题。
+    #        与 07:05 的 sp_email_details 同组串行：周报先跑完再走明细。
+    dict(task_id="sp_weekly_report", name="SP 备件周报（上周一→上周日）",
+         name_en="SP Weekly Report (Monday → Sunday)",
+         loader=("backend.services.kpi_email_report", "run_sp_weekly_report"),
+         description="每周一 07:00 生成「上一个完整自然周（上周一 00:00 → 上周日 23:59）」的 SP 周报：Inventory / Inbound&Outbound Summary / Daily report（7 个日期列按真实星期+日期动态生成）/ Top 10 Consumed Spares / Replenishment / Details / Warehouse-info，数量带单位，文件名与邮件主题均带周期日期，并邮件发送（主送/抄送可在 Settings → 邮件收件人 的 sp_weekly_report 分组配置）。周期按自然周对齐，其它日子手动补跑取到的仍是同一个周",
+         description_en="Every Monday 07:00: build the SP weekly report for the previous full natural week (last Monday 00:00 → Sunday 23:59) with Inventory / Inbound&Outbound Summary / Daily report (7 dynamic weekday+date columns) / Top 10 Consumed Spares / Replenishment / Details / Warehouse-info, quantities carry their unit, name the file and the mail subject after the period, and email it (recipients configurable under Settings → Email Recipients, group sp_weekly_report). The window is aligned to a natural week, so a manual re-run on another weekday still covers the same Monday → Sunday",
+         default_cron="0 7 * * mon", category="kpi_email"),
+
     # 19c. SP 备件明细报表（每天 07:00）：4 份明细合并为一个带时间戳的 Excel，邮件 + WhatsApp 群
     dict(task_id="sp_email_details", name="SP 备件明细报表邮件", name_en="SP Spare Parts Details Report Email",
          loader=("backend.services.kpi_email_report", "run_sp_details_email"),
@@ -1049,19 +1068,37 @@ TASK_SPECS = [
          description_en="Hourly read-only GBase pulls of traffic/TCP/per-service categories (traffic/video/web/game/OTT voice/OTT video, by area + SGW NE) at hour and day granularity into data/soc_trend/soc_trend.sqlite3, feeding the SOC multi-dim trend dashboard (dual-baseline alarms, D/D-1/D-7 comparison)",
          default_cron="40 * * * *", category="olib_soc"),
 
-    # ipt_power_collect 2026-11-03 注册：IPT Digital Platform（RMS 能源监控平台，AWS 外网）
-    # 站点电源采集。每 2 分钟：① filter-map 1 个请求刷全站（~498 站）清单与连接状态；
-    # ② 按 services/ipt_data/watch_sites.json 关注清单逐站拉 diagram 电源全景入库
-    # （默认 2 个示例站，支持 "*" / 站点名 / 参考号 / site_id；全站 498 站单轮做不完，
-    #   不要配 "*"）。认证为 OIDC 隐式流表单模拟（见 services/ipt_data/README.md），
-    # access_token 缓存 1 小时自动续期。归 m 组理由：外网独立会话，与组内任务无冲突，
-    # 单轮 3~10s；m 组已有每分钟任务先例（ume_alarm_whatsapp_alert）。
+    # ipt_power_collect 2026-11-03 注册 / 2026-11-04 改全站 2 分钟分辨率（两层并发）：
+    # IPT Digital Platform（RMS 能源监控平台，AWS 外网）站点电源采集。每 2 分钟：
+    # ① filter-map 1 个请求刷全站（~500 站）清单与连接状态（该接口不含电源数值）；
+    # ② /sites 分页一次性回填参考号/区域/集群/优先级/配置；
+    # ③ full_kpi 并发拉全站 popup 轻量 KPI（现行 8 线程；上游健康时 32 线程实测 501 站 60.1s/0 错误）
+    #    → 全站每 2 分钟一条快照（上游无批量电源接口，只能逐站拉）；
+    # ④ full_shard 并发拉 diagram 完整明细（3 线程，≤60 站/轮），
+    #    shard_cursor 环形游标约 20 分钟覆盖全站；与 popup 池同时跑（先起后台池），
+    #    整轮 100s 硬上限兜底，2 分钟节拍不漂移。实测 501 站 diagram 全采 ~185s
+    #    （且有超时），故明细分层只能分片轮采。
+    # ⚠ sites 里不要配 "*"（旧语义 = 单轮全采 500 站，必然超时）。细节见
+    # services/ipt_data/README.md。认证为 OIDC 隐式流表单模拟，token 缓存 1h 自动续期。
+    # 归 m 组理由：外网独立会话，与组内任务无冲突；单轮约 80s < 2 分钟节拍。
     # 消费方：?page=ipt_power（站点电源查询页）。
     dict(task_id="ipt_power_collect", name="IPT 站点电源采集", name_en="IPT Site Power Collect",
          loader=("backend.services.ipt_data.ipt_power_collector", "run_ipt_power_collect"),
-         description="每 2 分钟从 IPT Digital Platform（RMS 能源监控）采集站点连接状态（全站）与电源快照（关注清单，watch_sites.json），入库 ipt_power_sites / ipt_power_snapshots，供站点电源查询页展示与历史曲线",
-         description_en="Every 2 min, collect site connectivity (all sites) and power snapshots (watch list in watch_sites.json) from the IPT Digital Platform (RMS energy monitoring) into ipt_power_sites / ipt_power_snapshots, feeding the IPT Site Power page",
+         description="每 2 分钟从 IPT Digital Platform（RMS 能源监控）刷新全站连接状态与站点属性；full_kpi 并发拉全站 popup 轻量 KPI（501 站实测 60s）→ 全站每 2 分钟一条快照；full_shard 并发拉 diagram 完整明细分片轮采（约 20 分钟覆盖 500 站，关注站每轮必采），入库 ipt_power_sites / ipt_power_snapshots / ipt_power_site_detail；池内 20s 超时+失败补采+popup 环形游标防漏站+低成功率熔断，上游故障指数退避静默跳过",
+         description_en="Every 2 min, refresh all-site connectivity and site attributes from the IPT Digital Platform; full_kpi concurrently fetches the lightweight popup KPI for every site (501 sites in 60s measured) so every site gets a snapshot every 2 min; full_shard rotates the full diagram detail in shards (~20 min for all ~500 sites, watch sites every round) into ipt_power_sites / ipt_power_snapshots / ipt_power_site_detail; pooled 20s timeout + bounded retry + popup ring cursor + degraded-ratio circuit breaker, exponential backoff with silent skip on upstream outage",
          default_cron="*/2 * * * *", category="ipt_power"),
+
+    # eflow_site_update 2026-11-03 注册：CMDB 主数据（ZTE OLR MS Master Site Database）
+    # 与 eflow 现网 / PG master_site_db 的差异比对，为 Email Reports →「站点同步」页签
+    # 的一键执行按钮提供后端入口（也可由「任务管理」页手动触发）。
+    # **只生成待审查文件，绝不写库**：服务层显式传 --pg none --cmdb none，
+    # 审查通过后由人工导入 —— 这是业务定下的铁律，别在这条链路上加写库参数。
+    # 每日 07:00 兜底跑一次；关掉自动调度不影响页面按钮（enabled 为 True 时手动触发才可用）。
+    dict(task_id="eflow_site_update", name="CMDB 站点同步比对", name_en="CMDB Site Sync Diff",
+         loader=("backend.services.eflow_site_update_task", "run_eflow_site_update"),
+         description="比对 CMDB 主数据（my_app/db 下最新的 ZTE OLR MS Master Site Database）与 eflow 基线、PG master_site_db 基线，生成带 A/M/D 标记与着色的差异文件（eflow_site_update.xlsx / master_site_db .xlsx / 导入副本 / 同步报告）。只生成文件供人工审查，不写入 eflow 与 PostgreSQL",
+         description_en="Diff the CMDB master data (newest ZTE OLR MS Master Site Database under my_app/db) against the eflow baseline and the PG master_site_db baseline, producing colour-coded A/M/D workbooks (eflow_site_update.xlsx / master_site_db .xlsx / import copies / sync report). Generates review files only - never writes to eflow or PostgreSQL",
+         default_cron="0 7 * * *", category="eflow"),
 ]
 
 # ========== 网关分组（按「获取数据的外部系统」归类，与 category 平行） ==========

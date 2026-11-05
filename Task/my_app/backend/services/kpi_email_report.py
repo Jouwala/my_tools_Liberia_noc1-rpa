@@ -70,6 +70,13 @@ _SP_LOCAL_DATA = MY_APP_DIR / "data" / "sp_email"
 from backend.config.remote_host import get_remote_host
 _SP_EMAIL_UNC = rf"\\{get_remote_host()}\e\01_RPA\LBR_Tools\SP\sp_report\email"
 _SP_GEN_SCRIPT = Path(__file__).resolve().parent / "sp_report_gen" / "gernarate_sp_report.py"
+# SP 周报（任务 sp_weekly_report，2026-11-03 新增）：每周一 07:00 生成「上一个完整
+# 自然周（上周一→上周日）」的周报 xlsx 并邮件发送。周期按自然周对齐（end = 最近一个
+# 已结束的周日），其它日子手动补跑取到的仍是同一个周。生成器独立于每日总表脚本，直接读
+# data/sp_email/data 下已过滤的 inband/outband/inventory 明细，避免二次走 SFTP。
+# 产物：data/sp_weekly/SP Weekly Report <start> to <end>.xlsx
+_SP_WEEKLY_GEN_SCRIPT = Path(__file__).resolve().parent / "sp_report_gen" / "generate_sp_weekly_report.py"
+_SP_WEEKLY_DIR = MY_APP_DIR / "data" / "sp_weekly"
 # SP 备件明细：data/sp_email/data 下 4 份明细 xlsx 合并为一个工作簿（sheet:
 # Inventory/Inbound/Outbound/Transfer）整包发送，主题与附件名携带时间戳
 _SP_DETAILS_DATA = MY_APP_DIR / "data" / "sp_email" / "data"
@@ -452,6 +459,121 @@ def run_sp_report_generate(to: str = None, cc: str = None) -> dict:
 
     tail = "\n".join(out.strip().splitlines()[-15:])
     return {"success": True, "message": f"报表生成成功 ({elapsed:.1f}s)", "detail": tail}
+
+
+def run_sp_weekly_report(to: str = None, cc: str = None, week_end: str = None) -> dict:
+    """SP 周报生成 + 邮件发送（每周一 07:00 跑，覆盖上一个完整自然周 周一→周日）。
+
+    两步：
+      1) 子进程调用 ``sp_report_gen/generate_sp_weekly_report.py`` 生成 xlsx
+         （输出目录 data/sp_weekly，文件名自带周期日期）；
+      2) 用 ``owa_mail_report.py`` 把该 xlsx 作为附件发出，主题同为
+         ``SP Weekly Report <start> to <end>``。
+
+    收件人走 Settings → 邮件收件人 的 ``sp_weekly_report`` 分组；未配置时回退
+    SP 报表共享名单（``_SP_EMAIL_UNC`` 下的 ss_email.txt / cc_email.txt）。
+
+    ``week_end`` 仅供测试/补发指定周期（YYYY-MM-DD，**必须是周日**）；日常留空，
+    由生成器自动取「最近一个已结束的周日」作为结束日 —— 周期恒为完整自然周
+    （周一 00:00:00 → 周日 23:59:59），周一 07:00 跑即「上周一 → 上周日」。
+    """
+    from backend.services.email_recipient_store import get_email_recipients
+
+    script = _SP_WEEKLY_GEN_SCRIPT
+    if not script.is_file():
+        return {"success": False, "error": f"周报生成脚本不存在: {script}"}
+
+    cmd = [sys.executable, str(script)]
+    if week_end:
+        cmd += ["--week-end", week_end]
+
+    t0 = time.time()
+    try:
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=900,
+            creationflags=_SUBPROCESS_FLAGS,
+        )
+    except subprocess.TimeoutExpired:
+        return {"success": False, "error": "周报生成超时(>900s)，明细文件过大或磁盘异常"}
+    except Exception as e:
+        return {"success": False, "error": f"周报生成启动失败: {e}"}
+
+    out = (proc.stdout or "") + (proc.stderr or "")
+    if proc.returncode != 0:
+        return {"success": False, "error": f"周报生成失败 returncode={proc.returncode}\n{out[-2000:]}"}
+
+    # 生成器最后一行是 JSON 摘要；前面可能有 openpyxl 的 warning，故倒着找
+    info = None
+    for line in reversed(out.strip().splitlines()):
+        line = line.strip()
+        if line.startswith("{") and line.endswith("}"):
+            try:
+                import json as _json
+                info = _json.loads(line)
+                break
+            except Exception:
+                continue
+    if not info or not info.get("success") or not Path(info.get("path", "")).is_file():
+        return {"success": False, "error": f"周报生成未产出有效文件\n{out[-2000:]}"}
+
+    xlsx = Path(info["path"])
+    start, end = info.get("period_start", ""), info.get("period_end", "")
+    subject = f"SP Weekly Report {start} to {end}"
+
+    def _weekday(s: str) -> str:
+        """周期恒为自然周（周一→周日），星期必须按实际日期算，不能写死 Sunday/Saturday。"""
+        try:
+            from datetime import datetime as _dt
+            return _dt.strptime(s, "%Y-%m-%d").strftime("%A")
+        except Exception:
+            return ""
+
+    to_arg, cc_arg = get_email_recipients("sp_weekly_report", to, cc)
+    if not to_arg:
+        return {"success": False, "error": "未配置收件人（Settings → 邮件收件人 → SP Weekly Report）"}
+
+    body = "\n".join([
+        f"Dear All,",
+        "",
+        f"Please find attached the SP Weekly Report for the previous full week: "
+        f"{start} ({_weekday(start)}) to {end} ({_weekday(end)}).",
+        "",
+        f"Inbound Qty (week)    : {info.get('inbound', 0):,.0f}",
+        f"Outbound Qty (week)   : {info.get('outbound', 0):,.0f}",
+        f"Inventory Qty (live)  : {info.get('inventory', 0):,.0f}",
+        f"Materials moved       : {info.get('materials', 0)}",
+        f"Sites involved        : {info.get('sites', 0)}",
+        f"Tickets involved      : {info.get('tickets', 0)}",
+        "",
+        "Sheets: Summary / Inventory / Inbound&Outbound Summary / Daily report / "
+        f"Top 10 Consumed Spares / Replenishment / Details / Warehouse-info",
+        "",
+        "Best regards,",
+        "SP Automation",
+    ])
+    body_file = Path(tempfile.mkdtemp(prefix="sp_weekly_")) / "body.txt"
+    body_file.write_text(body, encoding="utf-8")
+
+    res = _run_script(
+        data_dir=_SP_WEEKLY_DIR,
+        name_filter="SP Weekly Report",
+        to=to_arg,
+        cc=cc_arg,
+        excel=xlsx,
+        body_file=body_file,
+        subject=subject,
+    )
+    res.setdefault("message", "")
+    res["file"] = str(xlsx)
+    res["period"] = f"{start} ~ {end}"
+    if res.get("success"):
+        res["message"] = f"{subject} 已发送（{time.time() - t0:.1f}s，{xlsx.name}）"
+    return res
 
 
 def run_sp_spareparts(to: str = None, cc: str = None) -> dict:

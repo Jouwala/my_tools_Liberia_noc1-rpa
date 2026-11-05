@@ -24,13 +24,13 @@
 
 三个维度与需求图片一一对应（都是同一张 (制式 × 站点类型) 表的切法）：
 
-    区域    ：ALL / Montserrado / North East / South West / UNMATCHED
+    区域    ：ALL / <各区域，由本机 master_site_db.region 决定> / UNMATCHED
     制式    ：2G（Regular/Cooli/ERA）、3G（Regular/Cooli）、4G（Regular/ERA）
     站点类型：Regular（2G/3G/4G）、Cooli（2G/3G）、ERA（2G/4G）
 
 =========================== 三条必须保留的口径事实 ===========================
 
-1. **区域 ALL ≠ 三区域相加。** 远端站点名匹配不上 `Master_Site_Database` 的站点落在
+1. **区域 ALL ≠ 各区域相加。** 远端站点名匹配不上 `Master_Site_Database` 的站点落在
    `FME_Region IS NULL`，本模块把它单列为 `UNMATCHED` 行，但它**计入 ALL**
    （实测约占总分母 2.3%）。矩阵接口因此在有未匹配数据时返回
    `region_all_includes_unmatched` 警告码，页面必须显示说明。
@@ -61,6 +61,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import re
 import sqlite3
 import time
@@ -88,8 +89,33 @@ SITE_TYPES = ("Regular", "Cooli", "ERA", "Other")
 REGION_ALL = "ALL"
 REGION_UNMATCHED = "UNMATCHED"  # FME_Region 为空 = 远端站点主数据没匹配上的桶
 
-# 区域展示顺序：先固定的三区域，其余（含新出现的区域）按字母序追加，不被静默吞掉
-PREFERRED_REGIONS = ("Montserrado", "North East", "South West")
+
+def _region_order_from_env() -> Tuple[str, ...]:
+    """区域展示顺序（可选）。**代码里绝不写死区域名。**
+
+    历史教训（2026-11-04）：这里曾写死 ("Montserrado","North East","South West")，
+    主数据换成 North/South 后，`avail_flm_service` 用 `in PREFERRED_REGIONS` 当白名单
+    过滤，整页直接筛成空表 —— 而矩阵又因为另一条链路读老库仍在显示三个老区，
+    于是"矩阵有数、TT 为空"。区域从今往后只认数据本身。
+
+    需要固定顺序时用环境变量 `AVAIL_REGION_ORDER="区域A,区域B"`（或写进
+    settings/env），改配置不动代码；留空 = 按字母序，新出现的区域自动排进来。
+    """
+    raw = (os.environ.get("AVAIL_REGION_ORDER") or "").strip()
+    return tuple(x.strip() for x in raw.split(",") if x.strip())
+
+
+def region_order() -> Tuple[str, ...]:
+    """当前生效的区域展示顺序（**每次现读**，改环境变量无需重启进程）。
+
+    `PREFERRED_REGIONS` 只是 import 时的快照，给外部引用用；内部逻辑一律走本函数，
+    否则配置改了要等下次重启才生效 —— 那就不叫"自动适配"了。
+    """
+    return _region_order_from_env()
+
+
+# import 时的快照（仅供外部引用；内部请用 region_order()）
+PREFERRED_REGIONS: Tuple[str, ...] = region_order()
 
 # Cell_Group（重建时按调度组生成）-> (制式, 站点类型)
 # 新增调度组时这里必须补映射；没补的组会被计入制式总量但从站点类型列里缺席，
@@ -307,10 +333,11 @@ def _cell(rows: Sequence[Row], prev_rows: Sequence[Row], region: str,
 
 
 def _regions_in(rows: Sequence[Row]) -> List[str]:
-    """本期真实出现的区域（不含空值）：固定顺序在前，其余字母序。"""
+    """本期真实出现的区域（不含空值）：配置顺序在前，其余字母序。"""
     found = {r.region for r in rows if r.region}
-    ordered = [x for x in PREFERRED_REGIONS if x in found]
-    return ordered + sorted(found - set(PREFERRED_REGIONS))
+    order = region_order()
+    ordered = [x for x in order if x in found]
+    return ordered + sorted(found - set(order))
 
 
 def _has_unmatched(rows: Sequence[Row]) -> bool:
@@ -329,6 +356,36 @@ def _unmatched_share(rows: Sequence[Row]) -> Optional[float]:
 def _unknown_cell_groups(rows: Sequence[Row]) -> List[str]:
     """出现过的、未登记进 CELL_GROUP_MAP 的调度组（新脏值自动暴露）。"""
     return sorted({r.cell_group for r in rows if r.cell_group and r.cell_group not in CELL_GROUP_MAP})
+
+
+def region_consistency(rows: Sequence[Row]) -> Dict[str, Any]:
+    """派生库的 Region 集合 vs 站点主数据的 Region 集合（页面自检，防静默过期）。
+
+    这是"自动适配"的安全网。区域维度现在只认数据，但如果**派生库还没重建**、
+    或主数据又换了口径，页面就会拿旧区域去展示、下钻又用新区域 —— 用户看到的
+    是"格子有数、点进去是空"。与其让这种分叉静默存在，不如显式报警。
+
+    `ok` 三态：True 一致 / False 分叉 / None 主数据读不到（无法判定）。
+    """
+    derived = {r.region for r in rows if r.region}
+    try:
+        master = {v.get("region") for v in _load_site_meta().values() if v.get("region")}
+    except Exception as e:  # noqa: BLE001 — 自检失败不该阻断页面
+        logger.warning("[avail-ms] region 一致性自检失败: %s", e)
+        return {"ok": None, "derived_regions": sorted(derived), "master_regions": [],
+                "only_in_master": [], "only_in_derived": []}
+    if not master:
+        return {"ok": None, "derived_regions": sorted(derived), "master_regions": [],
+                "only_in_master": [], "only_in_derived": []}
+    only_master = sorted(master - derived)     # 主数据有、派生库无 -> 派生库待重建
+    only_derived = sorted(derived - master)    # 派生库有、主数据已无 -> 主数据改过
+    return {
+        "ok": not only_master and not only_derived,
+        "derived_regions": sorted(derived),
+        "master_regions": sorted(master),
+        "only_in_master": only_master,
+        "only_in_derived": only_derived,
+    }
 
 
 def _warnings_for(rows: Sequence[Row]) -> List[str]:
@@ -422,6 +479,12 @@ def build_matrix(period: str = "day", value: str = "",
                  for st in SITE_TYPES],
     })
 
+    consistency = region_consistency(rows)
+    warns = _warnings_for(rows)
+    if consistency.get("ok") is False:
+        # 派生库与站点主数据的区域集合对不上：页面显式提示，别让下钻静默筛空
+        warns = warns + ["region_source_mismatch"]
+
     return {
         "meta": {
             "period": period,
@@ -431,8 +494,9 @@ def build_matrix(period: str = "day", value: str = "",
             "threshold": threshold,
             "generated_at": datetime.now().isoformat(timespec="seconds"),
             "elapsed_ms": round((time.time() - t0) * 1000, 1),
-            "warnings": _warnings_for(rows),
+            "warnings": warns,
             "unknown_cell_groups": _unknown_cell_groups(rows),
+            "region_consistency": consistency,
         },
         "summary": {
             "by_tech": {tk: _cell(rows, prev_rows, REGION_ALL, tk, None, threshold)["availability"]
@@ -457,7 +521,7 @@ TREND_DIMS = ("region", "tech", "site_type")
 def _trend_order(dim: str, present: set) -> List[str]:
     """曲线顺序与矩阵行顺序保持一致（固定维度在前，其余字母序），避免"图与表不一样顺"。"""
     if dim == "region":
-        head = [REGION_ALL, *PREFERRED_REGIONS]
+        head = [REGION_ALL, *region_order()]
     elif dim == "tech":
         head = list(TECHS)
     else:
@@ -901,3 +965,11 @@ def site_types_in(rows: Sequence[Row]) -> List[str]:
     """本期出现过的站点类型（按 SITE_TYPES 的固定顺序）。"""
     found = {CELL_GROUP_MAP.get(r.cell_group, ("", ""))[1] for r in rows}
     return [st for st in SITE_TYPES if st in found]
+
+
+def regions_in(rows: Sequence[Row]) -> List[str]:
+    """本期出现过的区域（`AVAIL_REGION_ORDER` 指定的排在前面，其余字母序）。
+
+    区域列表的唯一来源。页面/图表都从这里取，**不要在别处再写区域名常量**。
+    """
+    return _regions_in(rows)

@@ -55,7 +55,14 @@ FORBIDDEN_KEYWORDS = (
     # ---- DDL ----
     "drop", "alter", "create", "truncate", "rename",
     # ---- 权限 / 事务 / 会话 ----
-    "grant", "revoke", "commit", "rollback", "savepoint", "begin", "end",
+    #
+    # ⚠️ 这里**刻意不含 "end"**：`CASE ... END` 是**合法的只读表达式**，
+    # 模型做条件聚合（COUNT(CASE WHEN severity='Critical' THEN 1 END)）时
+    # 必然出现。把 END 当事务控制关键字拦掉，这类 SQL 会 100% 失败
+    # （2026-11-04 实测：一条正常的 COUNT 查询被拒成「包含被禁止的关键字：END」）。
+    # 真正的风险是「**多出来的** END」（显式事务块），用配对计数判定，见
+    # _has_unpaired_end()。
+    "grant", "revoke", "commit", "rollback", "savepoint", "begin",
     "vacuum", "analyze", "reindex", "cluster", "checkpoint", "discard",
     # ---- 数据搬运 / 执行 ----
     "copy", "call", "do", "execute", "prepare", "listen", "notify", "load",
@@ -68,6 +75,21 @@ _FORBIDDEN_RE = re.compile(
     r"\b(" + "|".join(re.escape(k) for k in FORBIDDEN_KEYWORDS) + r")\b",
     re.IGNORECASE,
 )
+
+_CASE_RE = re.compile(r"\bcase\b", re.IGNORECASE)
+_END_RE = re.compile(r"\bend\b", re.IGNORECASE)
+
+
+def _has_unpaired_end(body: str) -> bool:
+    """SQL 里是否出现了「**配不上 CASE 的 END**」。
+
+    `CASE ... END` 是合法的只读表达式，不能一律拦；而 PG 的显式事务块
+    `BEGIN; ... END;` 里的 END 才是要拦的东西。两者在 SQL 文本上长得一样，
+    只能靠配对计数区分：END 的个数多于 CASE 的个数 ⇒ 存在裸 END。
+
+    调用方必须传**已剥离字面量**的正文（字符串里的 'end' 不算数）。
+    """
+    return len(_END_RE.findall(body)) > len(_CASE_RE.findall(body))
 
 # 语句必须以这些开头（大小写不敏感），且允许前置的括号（如 (SELECT ...) UNION ...）
 _ALLOWED_STARTS = ("select", "with")
@@ -85,6 +107,49 @@ _CTE_RE = re.compile(
     r"(?:\bwith\b|,)\s*(" + _IDENT_PAT + r")\s+as\s*\(",
     re.IGNORECASE,
 )
+
+#: 内部带 FROM 子句的 SQL 函数 —— 它们后面的 FROM **不是表引用**。
+#:
+#: ⚠️ 2026-11-04 实测故障：模型写 `EXTRACT(epoch FROM now() - INTERVAL '7 days')`
+#: 时，_TABLE_REF_RE 只认「FROM <标识符>」，于是把 `now` 当成表名，
+#: 护栏报「表不存在或不可访问：now」，整条查询直接失败。
+_FUNC_WITH_FROM = ("extract", "substring", "trim", "overlay", "position")
+
+
+def _mask_func_from_calls(text: str) -> str:
+    """把「函数调用里带 FROM 的部分」整段遮蔽掉。
+
+    EXTRACT(epoch FROM now() - INTERVAL '7 days')、SUBSTRING(x FROM 1 FOR 2)
+    这类写法里的 FROM 是**函数语法**，不是表引用。不遮蔽的话，
+    表名提取会把 now 当成表，护栏误杀（2026-11-04 实测）。
+
+    遮蔽方式是换成等长空格 —— 保留所有字符位置，不影响其它正则的偏移。
+    """
+    out = text
+    for fn in _FUNC_WITH_FROM:
+        pattern = re.compile(r"\b" + fn + r"\s*\(", re.IGNORECASE)
+        while True:
+            m = pattern.search(out)
+            if not m:
+                break
+            depth = 0
+            i = m.end() - 1
+            end = -1
+            while i < len(out):
+                ch = out[i]
+                if ch == "(":
+                    depth += 1
+                elif ch == ")":
+                    depth -= 1
+                    if depth == 0:
+                        end = i
+                        break
+                i += 1
+            if end < 0:
+                # 括号没闭合（不该发生），保守起见不再遮蔽这一处
+                break
+            out = out[:m.start()] + (" " * (end - m.start() + 1)) + out[end + 1:]
+    return out
 
 # 返回行数上限（2026-10-05 调整 200 → 50000）
 #
@@ -192,7 +257,7 @@ def extract_tables(sql: str) -> List[str]:
     因为项目约定走 search_path（`backend/database.py:320`），
     显式 schema 前缀会绕过「先看 app、再看 eflow」的既有语义，正是 2.2 节陷阱的来源。
     """
-    stripped = _strip_literals(sql)
+    stripped = _mask_func_from_calls(_strip_literals(sql))
     ctes = {_normalize_ident(m.group(1)).lower() for m in _CTE_RE.finditer(stripped)}
     tables: List[str] = []
     seen = set()
@@ -218,7 +283,9 @@ def validate_sql(sql: str, allowed_tables: List[str]) -> Tuple[str, List[str]]:
         raise SqlGuardError("SQL 不能为空")
 
     # ---- 多语句阻断：剥离字面量后，不允许残留 ';'（末尾单个分号容许） ----
-    stripped = _strip_literals(sql)
+    # 顺便把「函数里带 FROM 的部分」遮蔽 —— EXTRACT(epoch FROM now()) 里的
+    # FROM 不是表引用（见 _mask_func_from_calls）。
+    stripped = _mask_func_from_calls(_strip_literals(sql))
     body = stripped.strip()
     if body.endswith(";"):
         body = body[:-1]
@@ -234,6 +301,10 @@ def validate_sql(sql: str, allowed_tables: List[str]) -> Tuple[str, List[str]]:
     hit = _FORBIDDEN_RE.search(body)
     if hit:
         raise SqlGuardError(f"查询包含被禁止的关键字：{hit.group(1).upper()}（仅允许只读查询）")
+
+    # ---- 裸 END（配不上 CASE 的 END）= 显式事务块，拦掉 ----
+    if _has_unpaired_end(body):
+        raise SqlGuardError("查询包含被禁止的关键字：END（仅允许只读查询）")
 
     # ---- 显式 schema 前缀阻断 ----
     for m in _TABLE_REF_RE.finditer(body):
@@ -252,7 +323,20 @@ def validate_sql(sql: str, allowed_tables: List[str]) -> Tuple[str, List[str]]:
     if unknown:
         raise SqlGuardError(f"表不存在或不可访问：{', '.join(unknown)}")
 
-    return body.strip(), referenced
+    # ⚠️ **返回原始 SQL，不是上面那个被 _strip_literals 净化过的 body。**
+    #
+    # `body` 只用于**判定**（判定必须在剥离字面量的代码上做，否则
+    # `SELECT 'a; DROP TABLE t'` 会被误杀）。但它把字符串字面量**替换成了空格** ——
+    # 若把它返回出去，`'Wood camp'`、`'30 days'`、`'YYYY-MM-DD'` 全部消失，
+    # 执行时必然报「语法错误 在 "AND" 附近的」。
+    #
+    # 这是 2026-11-03 实测到的既有 bug：模型生成的 SQL **完全正确**，
+    # 被这一处返回语句搞坏，前端 DataAgentBar 的 NL2SQL 因此一直不可用
+    # （凡是带字符串条件的查询都会挂）。
+    original = sql.strip()
+    if original.endswith(";"):
+        original = original[:-1].rstrip()
+    return original, referenced
 
 
 def enforce_limit(sql: str, limit: int = DEFAULT_LIMIT) -> str:

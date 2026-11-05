@@ -19,6 +19,9 @@ from pydantic import BaseModel
 from backend.database import get_raw_connection, DB_PATH, DB_MODE
 from backend.dialect_helpers import list_table_names, table_columns
 from backend.routers.gis_geometry import compute_region_boundaries, load_county_boundaries
+# IPT 电源表名复用采集服务的常量（表结构真相源在 services/ipt_data/ipt_power_collector.py，
+# 惰性建表由它统一管理；这里只做只读查询，不建表）
+from backend.services.ipt_data.ipt_power_collector import SITES_TABLE, SNAP_TABLE
 
 logger = logging.getLogger(__name__)
 
@@ -1282,45 +1285,59 @@ def get_sites(
 #   2G/3G 的 SITE ID / NodeB ID 是另一套编号（BSC/NodeB 域），
 #        与主数据 site_id 不同源，必须回退到「站点名规范化匹配」才能命中。
 # 站点名前缀差异（4G 的 'eNodeB Name' 缺行政前缀）由 norm_site_name 消解。
+# 指标元组：(key, 原列名, is_rate, group, unit)
+#   group   —— quality=网络质量比率 / volume=业务量。抽屉把 volume 单独画一张图，
+#              因为 Erl(百级) / GB(十级) / Mbps(十级) / users(千级) 挤在同一根轴上，
+#              小量纲的曲线会被压成贴地直线。
+#   unit    —— 原始量纲，前端按它决定纵轴与是否换算百分数（unit='%' → 图上 ×100）。
+#   is_rate —— **只**表示「关键比率，默认预选优先」。历史语义保留：SDCCH/TCH 拥塞与
+#              掉话率、PRB 利用率这 9 列 unit 也是 '%'，但 is_rate 是 False，
+#              所以它们过去按原值画在右轴（0.167 而非 16.67%）。换算看 unit，别看这里。
+# volume 组内的排序就是业务量图默认预选的顺序（取前 3 条）。
 _RAT_KPI_SPEC = [
     # (RAT, 表名, ID 列, 名称列, 指标列清单)
     ("2G", "ms_sla_Hourly_KPI_RPA_SITE_MS_SLA_GSM1day_SITE", "SITE ID", "SITE Name", [
-        ("tch_service_rate", "TCH in service rate(%)", True),
-        ("tch_congestion", "TCH in congestion rate(include handover)(%)", False),
-        ("sdcch_congestion", "SDCCH in congestion rate(%)", False),
-        ("tch_drop", "TCH in call drop rate(include handover)(%)", False),
-        ("sdcch_drop", "SDCCH channel in call drop rate(%)", False),
-        ("cssr", "OCI_2G_CSSR_CS(%)", True),
-        ("ho_in", "Handover in success rate(%)", True),
-        ("ho_out", "Handover out success rate(%)", True),
-        ("traffic_erl", "TCH total traffic number(erl)", None),
-        ("outage_min", "2G outage(min)", None),
+        ("tch_service_rate", "TCH in service rate(%)", True, "quality", "%"),
+        ("tch_congestion", "TCH in congestion rate(include handover)(%)", False, "quality", "%"),
+        ("sdcch_congestion", "SDCCH in congestion rate(%)", False, "quality", "%"),
+        ("tch_drop", "TCH in call drop rate(include handover)(%)", False, "quality", "%"),
+        ("sdcch_drop", "SDCCH channel in call drop rate(%)", False, "quality", "%"),
+        ("cssr", "OCI_2G_CSSR_CS(%)", True, "quality", "%"),
+        ("ho_in", "Handover in success rate(%)", True, "quality", "%"),
+        ("ho_out", "Handover out success rate(%)", True, "quality", "%"),
+        ("traffic_erl", "TCH total traffic number(erl)", None, "volume", "Erl"),
+        ("gprs_dl_gb", "U31_ZTE_Traffic of Downlink Data TBF (GByte)_901415_2_gv4.bsc-M",
+         None, "volume", "GB"),
+        ("gprs_ul_gb", "U31_ZTE_Traffic of Uplink Data TBF (GByte)_900241_2_gv4.bsc-MO",
+         None, "volume", "GB"),
+        ("outage_min", "2G outage(min)", None, "volume", "min"),
     ]),
     ("3G", "ms_sla_Hourly_KPI_RPA_SITE_MS_SLA_UMTS1day_SITE", "NodeB ID", "NodeB Name", [
-        ("cell_validity", "Cell Validity Rate(%)", True),
-        ("cs_setup", "U31_3G Call Setup Success Rate - CS_901593_2_UROP.RNC-MO", True),
-        ("rrc_setup", "Ratio of successful RRC connection establishment(%)", True),
-        ("cs_rab_setup", "Ratio of successful CS RAB establishment(%)", True),
-        ("ps_rab_setup", "Ratio of successful PS RAB establishment(%)", True),
-        ("cs_drop", "Ratio of CS Call Drop(%)", False),
-        ("ps_drop", "Ratio of PS Call Drop(%)", False),
-        ("traffic_erl", "Cell Traffic Volume, CS(Erl)", None),
-        ("ps_dl_gb", "U31_Cell DL Traffic Volume, PS(GB)_901411_2_UROP.RNC-MO", None),
-        ("ps_ul_gb", "U31_Cell UL Traffic Volume, PS(GB)_901410_2_UROP.RNC-MO", None),
+        ("cell_validity", "Cell Validity Rate(%)", True, "quality", "%"),
+        ("cs_setup", "U31_3G Call Setup Success Rate - CS_901593_2_UROP.RNC-MO", True, "quality", "%"),
+        ("rrc_setup", "Ratio of successful RRC connection establishment(%)", True, "quality", "%"),
+        ("cs_rab_setup", "Ratio of successful CS RAB establishment(%)", True, "quality", "%"),
+        ("ps_rab_setup", "Ratio of successful PS RAB establishment(%)", True, "quality", "%"),
+        ("cs_drop", "Ratio of CS Call Drop(%)", False, "quality", "%"),
+        ("ps_drop", "Ratio of PS Call Drop(%)", False, "quality", "%"),
+        ("ps_dl_gb", "U31_Cell DL Traffic Volume, PS(GB)_901411_2_UROP.RNC-MO", None, "volume", "GB"),
+        ("ps_ul_gb", "U31_Cell UL Traffic Volume, PS(GB)_901410_2_UROP.RNC-MO", None, "volume", "GB"),
+        ("traffic_erl", "Cell Traffic Volume, CS(Erl)", None, "volume", "Erl"),
     ]),
     ("4G", "ms_sla_Hourly_KPI_RPA_SITE_MS_SLA_FDD1day_SITE", "eNodeBId", "eNodeB Name", [
-        ("cell_availability", "[FDD]Cell Availability[SDR_ITBBU]", True),
-        ("call_setup", "[FDD]Call Setup Success Rate[SDR_ITBBU]", True),
-        ("rrc_setup", "[FDD]RRC Establishment Success Rate[SDR_ITBBU]", True),
-        ("erab_setup", "[FDD]E-RAB Setup Success Rate[SDR_ITBBU]", True),
-        ("erab_drop", "[FDD]E-RAB Drop Rate[SDR_ITBBU]", False),
-        ("ho_success", "[FDD]Intra-RAT HO Success Rate[SDR_ITBBU]", True),
-        ("dl_prb", "[FDD]DL PRB Utilization Rate[SDR_ITBBU]", False),
-        ("ul_prb", "[FDD]UL PRB Utilization Rate[SDR_ITBBU]", False),
-        ("dl_gb", "[FDD]DL Traffic Volume (GBytes)-new", None),
-        ("ul_gb", "[FDD]UL Traffic Volume (GBytes)-new", None),
-        ("dl_throughput", "[FDD]DL IP Throughput(Mbps)[SDR_ITBBU]", None),
-        ("ul_throughput", "[FDD]UL IP Throughput(Mbps)[SDR_ITBBU]", None),
+        ("cell_availability", "[FDD]Cell Availability[SDR_ITBBU]", True, "quality", "%"),
+        ("call_setup", "[FDD]Call Setup Success Rate[SDR_ITBBU]", True, "quality", "%"),
+        ("rrc_setup", "[FDD]RRC Establishment Success Rate[SDR_ITBBU]", True, "quality", "%"),
+        ("erab_setup", "[FDD]E-RAB Setup Success Rate[SDR_ITBBU]", True, "quality", "%"),
+        ("erab_drop", "[FDD]E-RAB Drop Rate[SDR_ITBBU]", False, "quality", "%"),
+        ("ho_success", "[FDD]Intra-RAT HO Success Rate[SDR_ITBBU]", True, "quality", "%"),
+        ("dl_prb", "[FDD]DL PRB Utilization Rate[SDR_ITBBU]", False, "quality", "%"),
+        ("ul_prb", "[FDD]UL PRB Utilization Rate[SDR_ITBBU]", False, "quality", "%"),
+        ("dl_gb", "[FDD]DL Traffic Volume (GBytes)-new", None, "volume", "GB"),
+        ("ul_gb", "[FDD]UL Traffic Volume (GBytes)-new", None, "volume", "GB"),
+        ("max_rrc_users", "Maximum Number of RRC Connection User", None, "volume", "users"),
+        ("dl_throughput", "[FDD]DL IP Throughput(Mbps)[SDR_ITBBU]", None, "volume", "Mbps"),
+        ("ul_throughput", "[FDD]UL IP Throughput(Mbps)[SDR_ITBBU]", None, "volume", "Mbps"),
     ]),
 ]
 
@@ -1392,7 +1409,7 @@ def _load_one_rat_series(conn, available, rat, declared, id_col, name_col, metri
         if id_col not in cols or name_col not in cols:
             entry["error"] = "关键列缺失"
             return entry
-        avail = [(k, c, r) for (k, c, r) in metrics if c in cols]
+        avail = [(k, c, r, g, u) for (k, c, r, g, u) in metrics if c in cols]
         if not avail:
             entry["error"] = "指标列全缺失"
             return entry
@@ -1419,29 +1436,49 @@ def _load_one_rat_series(conn, available, rat, declared, id_col, name_col, metri
 
         entry["matched_by"] = matched_by
         entry["site_name"] = str(target_name)
-        entry["metrics"] = [{"key": k, "label": c, "is_rate": r} for k, c, r in avail]
+        entry["metrics"] = [{"key": k, "label": c, "is_rate": r, "group": g, "unit": u}
+                            for k, c, r, g, u in avail]
 
-        sel = ", ".join(f'"{c}"' for _, c, _ in avail)
+        sel = ", ".join(f'"{c}"' for _, c, _, _, _ in avail)
         day_sql = _day_expr('"Begin Time"')
+        # 同一天可能有多行：站点挂在两套 BSC/RNC 下时上游按 ID 各写一行
+        # （实测 2G 表 Gbarplay 每天都返回 1620/2049 两行，139 天全中）。
+        # 这些表的列全是 text，不能在 SQL 里 SUM/CAST（空串会让 cast 直接报错），
+        # 所以多取几行、在 Python 里按日折叠：业务量列相加（同站点多侧的流量才是
+        # 站点总量），比率列取均值（单行站点均值即原值，其余站点读数不变）。
+        # 必须折叠而不是直接取行：LIMIT 按行截断会让这类站点的天数腰斩。
         rows = conn.execute(
             f'SELECT {day_sql} AS day, {sel} FROM "{table}" '
             f'WHERE "{name_col}" = ? AND "Begin Time" IS NOT NULL '
             f'ORDER BY "Begin Time" DESC LIMIT ?',
-            (target_name, max(1, int(days)))).fetchall()
+            (target_name, max(1, int(days)) * 4)).fetchall()
 
-        daily = []
-        for r in reversed(rows):
+        by_day = {}  # day -> [[各指标逐行的数值或 None], ...]，顺序同 avail
+        for r in rows:
             day = str(r[0])[:10] if r[0] else None
             if not day:
                 continue
-            item = {"day": day}
-            for idx, (k, _c, _r) in enumerate(avail, start=1):
-                v = r[idx]
+            bucket = by_day.setdefault(day, [[] for _ in avail])
+            for idx in range(len(avail)):
+                v = r[idx + 1]
                 try:
-                    item[k] = None if v is None else float(v)
+                    bucket[idx].append(None if v is None or not str(v).strip() else float(v))
                 except (TypeError, ValueError):
+                    bucket[idx].append(None)
+
+        daily = []
+        for day in sorted(by_day, reverse=True)[:max(1, int(days))]:
+            item = {"day": day}
+            for (k, _c, _r, group, _u), values in zip(avail, by_day[day]):
+                nums = [v for v in values if v is not None]
+                if not nums:
                     item[k] = None
+                elif group == "volume":
+                    item[k] = round(sum(nums), 4)
+                else:
+                    item[k] = round(sum(nums) / len(nums), 6)
             daily.append(item)
+        daily.reverse()  # 图表按时间正序
         entry["daily"] = daily
         entry["days"] = len(daily)
     except Exception as exc:
@@ -1606,7 +1643,9 @@ def _load_site_kpis(site_id: str, site_detail: dict, days: int = 60) -> dict:
         logger.warning("[gis/kpi] microwave failed site=%s: %s", sid, exc)
         result["warnings"].append("mw_util_unavailable")
 
-    result["kpi_series"] = _load_site_kpi_series(site_id, site_name)
+    # days 必须透传：此前漏传导致 2/3/4G 页签恒定返回 60 天，抽屉上选 7/30/90/180
+    # 只有可用率图跟着变，KPI 曲线和页签括号里的天数一直是 60（与 range.days 自相矛盾）。
+    result["kpi_series"] = _load_site_kpi_series(site_id, site_name, days)
     return result
 
 
@@ -1828,6 +1867,77 @@ def _alarm_analytics(conn, S, site_id, start=None, end=None):
 
 
 
+def _norm_ipt_site_key(v) -> str:
+    """站点名归一化（GIS ↔ IPT 电源匹配用）。
+
+    两套站点表是不同来源：master_site_db.site_name 与 ipt_power_sites.name。
+    2026-11-03 实测 498 个 IPT 站里 420 个能直接对上，剩余差异大多是
+    不可见空格（\\xa0，如 '9th\\xa0Street' / 'Kanweaken\\xa0'）与连续空格，
+    归一化（\\xa0→空格、压缩空白、去首尾、casefold）即可对上；
+    真正的命名拼写差异（如 'Jahtondo Town' vs 'Jah Tondo Town'）不强行模糊匹配，
+    宁可显示 — 也不接错站（电源状态接错站比不显示更糟）。"""
+    s = str(v or '')
+    s = re.sub(r'[\s\u00a0]+', ' ', s).strip().casefold()
+    return s
+
+
+def _lookup_site_power(conn, site_name) -> Optional[dict]:
+    """按站点名查 IPT 电源状态（下钻抽屉 Basic Info 用，2026-11-03 新增）。
+
+    数据与 ?page=ipt_power 完全同源：
+      - 连接状态来自 ipt_power_sites（采集任务 ipt_power_collect 每 2 分钟全站刷新）；
+      - SOC/电压/负载等来自 ipt_power_snapshots 最新一条快照（只有 watch 清单内的
+        站点才有快照，未采到时对应字段为 None，前端显示 —，不显示 0）。
+    返回 dict（匹配到）或 None（没匹配到 / 表还没建 / 查询失败 —— 电源是附加信息，
+    任何失败都不能影响下钻主数据，故此处显式吞错并留日志）。
+    """
+    if not site_name or not str(site_name).strip():
+        return None
+    try:
+        cur = conn.execute(
+            f"SELECT s.site_id, s.name, s.internal_reference, s.connectivity,"
+            f" s.connectivity_updated,"
+            f" k.snap_time, k.load_power, k.battery_voltage, k.battery_soc,"
+            f" k.battery_charging_state, k.solar_power, k.generator_on"
+            f" FROM {SITES_TABLE} s"
+            f" LEFT JOIN {SNAP_TABLE} k ON k.site_id = s.site_id"
+            f" AND k.snap_time = (SELECT MAX(w.snap_time) FROM {SNAP_TABLE} w"
+            f"                    WHERE w.site_id = s.site_id)")
+        rows = _dict_rows(cur)
+    except Exception:
+        # IPT 电源表可能尚未创建（采集任务从未跑过）；与 _alarm_analytics his 同款兜底
+        logger.warning(
+            "[SILENT-EXCEPT] _lookup_site_power（IPT 电源表不存在或查询失败，电源状态降级为空）",
+            exc_info=True)
+        return None
+
+    key = _norm_ipt_site_key(site_name)
+    by_name: Dict[str, dict] = {}
+    by_compact: Dict[str, dict] = {}
+    for r in rows:
+        k = _norm_ipt_site_key(r.get("name"))
+        if k:
+            by_name.setdefault(k, r)
+            by_compact.setdefault(k.replace(' ', ''), r)
+    row = by_name.get(key) or by_compact.get(key.replace(' ', ''))
+    if not row:
+        return None
+    return {
+        "ipt_site_id": row.get("site_id"),
+        "ipt_name": row.get("name"),
+        "internal_reference": row.get("internal_reference"),
+        "connectivity": row.get("connectivity"),
+        "connectivity_updated": row.get("connectivity_updated"),
+        "snap_time": row.get("snap_time"),
+        "battery_soc": row.get("battery_soc"),
+        "battery_voltage": row.get("battery_voltage"),
+        "battery_charging_state": row.get("battery_charging_state"),
+        "load_power": row.get("load_power"),
+        "solar_power": row.get("solar_power"),
+        "generator_on": row.get("generator_on"),
+    }
+
+
 @router.get("/drilldown/{site_id}/analytics")
 def get_site_drilldown_analytics(
     site_id: str,
@@ -1929,10 +2039,15 @@ def get_site_drilldown(
         his_alarm_list = _fetch_alarm_list(conn, S, "has_history_alarm", "history_alarm", site_id,
                                            win_start, win_end_excl)
 
+        # IPT 电源状态（2026-11-03 新增，Basic Info 展示）：
+        # 连接状态/最新快照，按站点名匹配；失败或未匹配返回 None，不影响主数据
+        power_info = _lookup_site_power(conn, site_detail.get("site_name"))
+
         conn.close()
 
         return {
             "site_info": site_detail,
+            "power": power_info,
             "tt_list": tt_list,
             "tt_count": len(tt_list),
             "wo_list": wo_list,
@@ -2625,9 +2740,14 @@ def get_realtime_drilldown(site_id: str):
         # 实时告警列表
         rt_alarm_list = _fetch_alarm_list(conn, S, "has_realtime_alarm", "realtime_alarm", site_id)
 
+        # IPT 电源状态（2026-11-03 新增）：与 /drilldown/{site_id} 同款，保证实时模式
+        # 下钻的 Basic Info 也有电源行（同一抽屉组件，缺了会一边有一边显示 —）
+        power_info = _lookup_site_power(conn, site_detail.get("site_name"))
+
         conn.close()
         return {
             "site_info": site_detail,
+            "power": power_info,
             "tt_list": tt_list, "tt_count": len(tt_list),
             "wo_list": wo_list, "wo_count": len(wo_list),
             "rt_alarm_list": rt_alarm_list, "rt_alarm_count": len(rt_alarm_list),

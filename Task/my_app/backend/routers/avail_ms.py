@@ -23,7 +23,7 @@ my_app 自持派生库 `data/avail_recon.sqlite3`（由任务 avail_recon_sync �
     GET /api/avail-ms/drilldown
         ?level=period|tt         下钻类型
         &period=&value=          当前单元格所在周期
-        &region=ALL|Montserrado|North East|South West|UNMATCHED
+        &region=ALL|<区域名>|UNMATCHED    区域名以 /matrix 的 meta.regions 为准
         &tech=2G|3G|4G           可空（空=全部制式）
         &site_type=Regular|Cooli|ERA|Other   可空（空=全部站点类型）
         -> level=period：{series 按日明细, breakdown 按调度组分解, history 近30期}

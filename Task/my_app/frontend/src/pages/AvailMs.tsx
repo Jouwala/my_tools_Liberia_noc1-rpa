@@ -9,7 +9,7 @@
  *       数据，因此**所有数字都可下钻**（单元格 -> 时间明细 + 构成分解 + 趋势 -> TT 工单）。
  *
  * 三条必须显示给用户的口径说明（后端用警告码返回，这里映射成文案，见 warnKey）：
- *   ① 区域 ALL 含未匹配主数据的站点，因此 ALL ≠ 三区域相加
+ *   ① 区域 ALL 含未匹配主数据的站点，因此 ALL ≠ 各区域相加
  *   ② 4G 的 NERA 脏值在站点类型维度单列 Other
  *   ③ TT 工单按站点主数据分类、且不按制式过滤（TT 表没有制式字段）
  * ========================================================================== */
@@ -134,6 +134,7 @@ const fmtNum = (v: number | null | undefined) => (v == null ? '—' : String(v))
 function warnKey(code: string): string | null {
   switch (code) {
     case 'region_all_includes_unmatched': return 'availMs.warn.regionAllIncludesUnmatched'
+    case 'region_source_mismatch': return 'availMs.warn.regionSourceMismatch'
     case 'other_site_type_present': return 'availMs.warn.otherSiteType'
     case 'unknown_cell_group': return 'availMs.warn.unknownCellGroup'
     case 'no_data_for_period': return 'availMs.warn.noDataForPeriod'

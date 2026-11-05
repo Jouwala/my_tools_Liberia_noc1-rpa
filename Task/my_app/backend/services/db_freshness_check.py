@@ -193,6 +193,19 @@ FILE_CHECKS = [
          service="backend/services/incident_overview_sync.py::run_incident_overview_sync",
          read_path="FineBI FTP schedule/TT_WO/<日期>/<HHMM>/通用结果/incident_overview.xlsx → 版本化文件 + current.json 指针",
          consumer="事件总览页 backend/services/incident_overview_service.py::resolve_excel_path（取 mtime 最新的版本化文件）"),
+
+    # 事故背景（2026-11-03）：eflow_sync 每轮都「成功」，但 Excel 报告自 PG 迁移起
+    # 从未产出（pandas 对原生 psycopg2 连接走 SQLite fallback → 查 sqlite_master 报错），
+    # 该错误只写进 result_json 的 excel_upload_error，任务依旧 success=True。
+    # 把产物文件年龄纳入巡检后，「报告没生成」本身就是可见事实。
+    dict(label="eFlow 全量数据 Excel 报告",
+         path=str(MY_APP_DIR / "data" / "eflow"),
+         pattern="eflow_*.xlsx",
+         granularity="intraday", max_age_hours=6.0,
+         task_id="eflow_sync", task_cron="22 * * * *",
+         service="backend/services/sync_from_eflow_api.py::synchronize（调用 eflow_api_client.generate_excel_report）",
+         read_path="主库 app.eflow_tt/eflow_site 全量 → data/eflow/eflow_<时间戳>.xlsx（同目录只保留最新一份）",
+         consumer="人工下载 / 报表留档；由 backend/services/eflow_data_mapper.py::write_excel_from_sqlite 生成"),
 ]
 
 # ============================================================

@@ -16,6 +16,7 @@ import { Card, Empty, Tooltip } from 'antd'
 import { InfoCircleOutlined } from '@ant-design/icons'
 import { WH, cardStyle } from '../../theme'
 import { useI18n } from '../../i18n'
+import { ExplainIcon } from '../../components/MetricExplain'
 
 interface ChartBlockProps {
   title: string
@@ -24,6 +25,8 @@ interface ChartBlockProps {
   height?: number
   /** 是否展示「口径为全量、非采样」提示 */
   fullScope?: boolean
+  /** 挂在标题后的 ⓘ 气泡（AGENTS.md 三.3c：标题要能问「这一张图怎么算」） */
+  explain?: string
   extra?: React.ReactNode
 }
 
@@ -31,7 +34,7 @@ interface ChartBlockProps {
    包了 Suspense + 等高占位块：加载中不会把下方内容顶动。 */
 const ReactECharts = lazy(() => import('echarts-for-react'))
 
-export function ChartBlock({ title, option, height = 240, fullScope, extra }: ChartBlockProps) {
+export function ChartBlock({ title, option, height = 240, fullScope, explain, extra }: ChartBlockProps) {
   const { t } = useI18n()
   const hasOption = option != null
   return (
@@ -45,6 +48,11 @@ export function ChartBlock({ title, option, height = 240, fullScope, extra }: Ch
             <Tooltip title={t('gis.chart.fullScopeTip')}>
               <InfoCircleOutlined style={{ marginLeft: 6, color: WH.textMuted, fontSize: 12 }} />
             </Tooltip>
+          )}
+          {explain && (
+            <span style={{ marginLeft: 6 }}>
+              <ExplainIcon text={explain} size="0.75rem" />
+            </span>
           )}
         </span>
       }

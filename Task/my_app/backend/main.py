@@ -145,6 +145,15 @@ from backend.routers import (
     bm_meta,
     # IPT 站点电源查询（IPT Digital Platform / RMS 能源监控，2026-11-03）
     ipt_power,
+    # 站点属性查询（VIP / 站点类型 / 枢纽站；eflow_site + master_site_db + vip_site_list，
+    # 供 whatsapp-kb-bot 的 query_site_attribute 工具调用 —— 见 routers/site_attribute.py）
+    site_attribute,
+    # 机器人数据域查询（电源 / 历史告警 / WO / 站点可用率 + 数据集目录，
+    # 供 whatsapp-kb-bot 的群机器人与网页助手调用 —— 见 routers/bot_data.py）
+    bot_data,
+    # CMDB 站点同步比对（Email Reports →「站点同步」页签）：只读摘要 + 文件下载，
+    # 执行走 /api/tasks/eflow_site_update/run
+    cmdb_site_update,
 )
 # 任务配置文件注册表（Settings「任务配置」页签 → 配置文件管理）
 from backend.services import task_configs_registry  # noqa: F401  (注册副作用)
@@ -264,6 +273,13 @@ app.include_router(ume_in_screen.router)
 app.include_router(realtime_proxy.router)
 # 门户问答助手（v3 /olbrportal 右下角挂件 → 本机 whatsapp-kb-bot 的 9269 问答服务）
 app.include_router(portal_qa.router)
+# 站点属性查询（VIP / 站点类型 / 是否枢纽站）。
+# 2026-11-03：机器人曾把「VIP 站」当成 assetType 的取值从规则文档反推，
+# 结论与依据双错。站点实体属性在这里可查，机器人不必再从语料硬编。
+app.include_router(site_attribute.router)
+# 2026-11-03：机器人只查得到 5 类业务数据，电源/历史告警/WO 这类高频问法无工具可用，
+# 模型只能从规则文档硬编。这里把四个高频数据域做成精确查询接口。
+app.include_router(bot_data.router)
 # 全局设置（远程主机等，供「系统设置」页面读写）
 app.include_router(settings.router)
 # RAN CM 流程/网元配置（Settings「任务配置」页签 -> 网元配置）
@@ -381,6 +397,12 @@ app.include_router(bm_meta.router)
 # 定位、护栏与风险清单见 docs/DATA_AGENT_EVALUATION.md。
 # 所有 SQL 经 services/sql_guard.py 白名单校验；本路由不含任何写接口。
 app.include_router(data_agent.router)
+
+# CMDB 站点同步比对（Email Reports →「站点同步」页签）：
+# 只提供「上次运行摘要 + 产出文件下载」两个只读接口；执行复用任务接口
+# POST /api/tasks/eflow_site_update/run，把队列、禁用态校验、执行历史都交给 task_runner。
+# 任务本体见 services/eflow_site_update_task.py（只生成文件，绝不写库）。
+app.include_router(cmdb_site_update.router)
 
 
 # ========== 统一门户鉴权中间件 ==========
@@ -656,19 +678,34 @@ async def startup_event():
     # 127.0.0.1:9267，单机部署没问题；一旦 my_app 与门户分机部署而忘了设这个变量，
     # 表现为"门户登录成功、跳进 my_app 却反复被要求登录"——病因藏得很深。
     # 这里在启动时主动探一次，把配置问题直接打到启动日志里（不影响启动）。
-    try:
-        from backend.services import portal_auth as _pa
-        _reason = await _pa.probe_portal_reachable()
-        if _reason is None:
-            print(f"[startup] 门户回调地址可达: {_pa.UNIPLAM_ME_URL}")
-        else:
-            print(
-                f"[startup] ⚠ 门户回调地址不可达: {_pa.UNIPLAM_ME_URL} ({_reason})\n"
-                f"          若门户不在本机，请设置 UNIPLAM_ME_URL 指向门户所在机器，"
-                f"否则用户从门户跳转进来会一直停在未登录状态。"
-            )
-    except Exception as _e:
-        print(f"[startup] 门户回调可达性自检异常（不影响启动）: {_e}")
+    #
+    # 2026-11-05 修复：原实现在 startup 里 `await` 一次对外 HTTP 探测。uvicorn 必须等
+    # lifespan 返回才 bind 端口；门户 9267 不可达 / 系统繁忙时探测迟迟不返回，7038
+    # 就长时间不监听，被 backend_watchdog 的 STARTUP_GRACE(60s) 判成「启动挂死」
+    # 反复 kill + 重拉（2026-11-05 10:42~10:49 实测连续 6 次，日志里只有
+    # "Waiting for application startup." 没有 "Application startup complete."），
+    # 期间在跑的任务全被标记「Worker 进程已失效」。
+    # 自检只是一条日志提示，不该挡住服务起来 —— 移到后台线程，startup 立即返回。
+    import threading
+
+    def _probe_portal_bg():
+        try:
+            import asyncio as _asyncio
+            from backend.services import portal_auth as _pa
+            _reason = _asyncio.run(_pa.probe_portal_reachable())
+            if _reason is None:
+                print(f"[startup] 门户回调地址可达: {_pa.UNIPLAM_ME_URL}", flush=True)
+            else:
+                print(
+                    f"[startup] ⚠ 门户回调地址不可达: {_pa.UNIPLAM_ME_URL} ({_reason})\n"
+                    f"          若门户不在本机，请设置 UNIPLAM_ME_URL 指向门户所在机器，"
+                    f"否则用户从门户跳转进来会一直停在未登录状态。",
+                    flush=True,
+                )
+        except Exception as _e:
+            print(f"[startup] 门户回调可达性自检异常（不影响启动）: {_e}", flush=True)
+
+    threading.Thread(target=_probe_portal_bg, name="portal-probe", daemon=True).start()
 
     # 自动拉起实时代理（8787 FMS / 8790 VMAX），让 CXO / Alarm 看板打开即有实时数据。
     # 用线程异步执行，不阻塞 startup；代理以 DETACHED 方式运行，backend 重启不会误杀。

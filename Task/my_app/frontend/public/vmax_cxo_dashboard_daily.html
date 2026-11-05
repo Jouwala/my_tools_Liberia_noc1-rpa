@@ -538,11 +538,10 @@ applyLocale(LOCALE);
 updateCarouselBtn();
 if(window.echarts){
   load();
-  /* 自动刷新（2026-10-10 重构）：统一走 MyAppRefresh 共享协议。
-   * 此前是固定 refreshMs 自轮询、且父外壳广播会另起一条定时器（双跑）；
-   * 现统一为：广播 → 立即原地重拉；广播被挡 → 按「生效间隔」自调度兜底。
-   * 本页数据每天才增量一次，默认间隔沿用 refreshMs。非看板页不启用。 */
-  try{ MyAppRefresh.install({ defaultSec: Math.round(refreshMs/1000), onRefresh: function(){ load(); } }); }catch(e){}
+  /* 自动刷新（2026-10-10 重构；2026-11-03 默认关闭）：统一走 MyAppRefresh 共享协议。
+   * 广播 → 立即原地重拉；广播被挡 → 按用户在顶栏开启的「生效间隔」自调度兜底。
+   * 自动刷新默认关闭（顶栏按页开启），本页不再有 refreshMs 默认兜底。 */
+  try{ MyAppRefresh.install({ onRefresh: function(){ load(); } }); }catch(e){}
 }else{setStatus(t('status.noecharts'),false)}
 })();
 </script>

@@ -49,9 +49,11 @@ def test_react_page_is_registered_everywhere():
 def test_registered_in_soft_refresh_pages():
     """跨端口 iframe 不能靠外壳重挂载刷新（会整页闪白），必须走软刷新协议。"""
     app = APP.read_text(encoding="utf-8")
-    line = next((ln for ln in app.splitlines()
-                 if "AR_SOFT_REFRESH_PAGES" in ln and "=" in ln), "")
-    assert "'imonitor'" in line, line
+    # AR_SOFT_REFRESH_PAGES 是多行数组：取声明到闭括号的整块再断言
+    # （此前只看声明所在单行，数组折行后必挂）。
+    m = re.search(r"const AR_SOFT_REFRESH_PAGES[^=]*=\s*\[(.*?)\]", app, re.S)
+    assert m, "App.tsx 里找不到 AR_SOFT_REFRESH_PAGES 数组"
+    assert "'imonitor'" in m.group(1), m.group(1)
     assert "'myapp-refresh'" in _page_text()
 
 

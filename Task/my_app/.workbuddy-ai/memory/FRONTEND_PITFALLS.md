@@ -22,6 +22,7 @@
   高度超过视口后 clamp 公式算出负数，弹窗上下同时被裁。
 - 另外 `.dcm-overlay` **不要用 `display:flex` 居中**：modal 是 flex item 时会被
   `align-items:center` 预置偏移，JS 写的 `top` 叠加其上。
+- **可选参数（2026-11-05 新增，默认行为不变）**：`headerExtra`（标题栏右侧放 meta/刷新/导出，区域内 mousedown 不触发拖动）、`maskClosable`（默认 false，老页面仍「点遮罩不关」；要关的页面显式开）、`placement: 'center'|'top'`（`'top'` = 水平居中 + 顶部 6vh，复刻 mwRealTime KPI 弹窗观感）。参考 `pages/IptPowerQuery.tsx`：详情卡改弹窗、`iptSite` URL 参数当开关（关闭清参、深链自动弹）。
 - `components/SearchableExportTable.tsx`：搜索框 + 导出按钮 + 分页表格，注释写明「供下钻/明细类抽屉复用」；已支持透传 `onRow`，整行可点即用它做下钻。
 - 参考实现：`pages/UmeInKpi.tsx`（全页下钻，最完整）、`pages/gismap/SiteDrilldownDrawer.tsx`、`pages/RanCellsKpi.tsx`。
 

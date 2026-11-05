@@ -4,6 +4,7 @@ import { InboxOutlined, FileExcelOutlined, CheckCircleOutlined, WarningOutlined 
 import ReactECharts from 'echarts-for-react'
 import api from '../api'
 import { useI18n, numLocale } from '../i18n'
+import { ExplainIcon, ExplainPopover } from '../components/MetricExplain'
 
 const { Dragger } = Upload
 
@@ -79,7 +80,7 @@ export default function DataUpload() {
         <div>
           <Card
             title={<span><CheckCircleOutlined style={{ color: '#52c41a' }} /> {t('upload.resultTitle')} - {result.filename}</span>}
-            extra={<Tag color="blue">{t('upload.elapsed')} {result.elapsed_seconds}s</Tag>}
+            extra={<ExplainPopover text={t('upload.explain.elapsed')}><Tag color="blue">{t('upload.elapsed')} {result.elapsed_seconds}s</Tag></ExplainPopover>}
             style={{ marginBottom: 'var(--wh-space-md)' }}
           >
             {result.tables.map((tbl, i) => (
@@ -89,11 +90,17 @@ export default function DataUpload() {
                 title={<span><FileExcelOutlined /> {tbl.sheet_name} → {tbl.table_name}</span>}
                 extra={
                   <span>
-                    <Tag color="blue">{tbl.row_count.toLocaleString(numLocale(locale))} {t('common.rows')}</Tag>
-                    <Tag color="green">{tbl.col_count} {t('common.cols')}</Tag>
-                    <Tag color={tbl.profile_summary.quality_score >= 80 ? 'green' : 'orange'}>
-                      {t('upload.quality')} {t('upload.qualityScore', { n: tbl.profile_summary.quality_score })}
-                    </Tag>
+                    <ExplainPopover text={t('upload.explain.rows')}>
+                      <Tag color="blue">{tbl.row_count.toLocaleString(numLocale(locale))} {t('common.rows')}</Tag>
+                    </ExplainPopover>
+                    <ExplainPopover text={t('upload.explain.cols')}>
+                      <Tag color="green">{tbl.col_count} {t('common.cols')}</Tag>
+                    </ExplainPopover>
+                    <ExplainPopover text={t('upload.explain.quality')}>
+                      <Tag color={tbl.profile_summary.quality_score >= 80 ? 'green' : 'orange'}>
+                        {t('upload.quality')} {t('upload.qualityScore', { n: tbl.profile_summary.quality_score })}
+                      </Tag>
+                    </ExplainPopover>
                   </span>
                 }
                 style={{ marginBottom: 'var(--wh-space-sm)' }}
@@ -102,21 +109,37 @@ export default function DataUpload() {
                   items={[
                     {
                       key: 'issues',
-                      label: <span><WarningOutlined /> {t('upload.qualityIssues', { n: tbl.profile_summary.issue_count })}</span>,
+                      label: (
+                        <span>
+                          <WarningOutlined /> {t('upload.qualityIssues', { n: tbl.profile_summary.issue_count })}
+                          <span style={{ marginLeft: 4 }}><ExplainIcon text={t('upload.explain.issues')} /></span>
+                        </span>
+                      ),
                       children: tbl.profile_summary.issues.length > 0 ? (
-                        <List
-                          size="small"
-                          dataSource={tbl.profile_summary.issues}
-                          renderItem={(item: any) => (
-                            <List.Item>
-                              <Tag color={item.severity === 'error' ? 'red' : item.severity === 'warning' ? 'orange' : 'blue'}>
-                                {item.severity}
-                              </Tag>
-                              <Tag>{item.column}</Tag>
-                              {item.description}
-                            </List.Item>
+                        <div>
+                          {/* 接口按 issues[:10] 下发，条数多时清单短于括号里的总数 —— 截断必须常驻可见 */}
+                          {tbl.profile_summary.issue_count > tbl.profile_summary.issues.length && (
+                            <div style={{ color: 'var(--wh-warning, #fa8c16)', fontSize: '0.75rem', marginBottom: 'var(--wh-space-sm)' }}>
+                              {t('upload.issuesTruncated', {
+                                shown: tbl.profile_summary.issues.length,
+                                total: tbl.profile_summary.issue_count,
+                              })}
+                            </div>
                           )}
-                        />
+                          <List
+                            size="small"
+                            dataSource={tbl.profile_summary.issues}
+                            renderItem={(item: any) => (
+                              <List.Item>
+                                <Tag color={item.severity === 'error' ? 'red' : item.severity === 'warning' ? 'orange' : 'blue'}>
+                                  {item.severity}
+                                </Tag>
+                                <Tag>{item.column}</Tag>
+                                {item.description}
+                              </List.Item>
+                            )}
+                          />
+                        </div>
                       ) : <div style={{ color: '#52c41a' }}>{t('upload.noIssues')}</div>,
                     },
                     {
@@ -148,8 +171,8 @@ export default function DataUpload() {
             columns={[
               { title: t('upload.fileName'), dataIndex: 'original_name', key: 'original_name' },
               { title: t('upload.tableName'), dataIndex: 'table_name', key: 'table_name', render: (v: string) => <Tag color="blue">{v}</Tag> },
-              { title: t('upload.rowCount'), dataIndex: 'row_count', key: 'row_count' },
-              { title: t('upload.colCount'), dataIndex: 'col_count', key: 'col_count' },
+              { title: <span>{t('upload.rowCount')} <ExplainIcon text={t('upload.explain.rows')} /></span>, dataIndex: 'row_count', key: 'row_count' },
+              { title: <span>{t('upload.colCount')} <ExplainIcon text={t('upload.explain.cols')} /></span>, dataIndex: 'col_count', key: 'col_count' },
               { title: t('upload.uploadTime'), dataIndex: 'uploaded_at', key: 'uploaded_at' },
             ]}
             size="small"

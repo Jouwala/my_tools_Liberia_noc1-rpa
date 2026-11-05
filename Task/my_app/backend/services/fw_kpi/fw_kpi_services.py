@@ -123,6 +123,13 @@ API_WRITE_BATCH = 5000  # 每批 POST 行数
 # my_app 根目录（.../Task/my_app）
 MY_APP_DIR = os.path.dirname(os.path.dirname(os.path.dirname(SCRIPT_DIR)))
 CHART_OUTPUT_DIR = os.path.join(MY_APP_DIR, "TMP", "fw_charts")
+
+#: 远端写入成功后是否**同时**镜像一份到本地库（默认开）。
+#: 2026-11-03 审计发现：`FW Daily KPI` 看板（native_catalog 的 fw_out/fw_in 组件）
+#: 读的是本地 `fw` schema 的 device_whole_throughput；而原逻辑只在远端**失败**时
+#: 才写本地，远端一直正常 → 本地表自 2026-08-04 起再无更新，看板图表停摆 3 个月。
+#: 置 0 可关闭镜像（恢复旧行为）。
+WRITE_LOCAL_MIRROR = os.environ.get("FW_KPI_WRITE_LOCAL", "1").strip().lower() not in ("0", "false", "no", "off")
 EMAIL_REPORTS_DIR = os.path.join(MY_APP_DIR, "email_reports")
 
 # 邮件名单（远程共享目录）
@@ -828,6 +835,13 @@ def run():
 
         try:
             inserted = write_to_remote_db(rows, device_id)
+            # 远端成功 ≠ 本地可以有数据：看板读的是本地 fw schema（见 WRITE_LOCAL_MIRROR 注释）。
+            # 镜像失败只告警，不影响任务成败（远端才是权威库）。
+            if WRITE_LOCAL_MIRROR:
+                try:
+                    write_to_local_db(rows, device_id)
+                except Exception as exc:  # noqa: BLE001 - 镜像失败不应让任务失败
+                    print(f"[LOCAL] 设备 {device_id} 本地镜像写入失败（不影响任务）: {exc}")
         except Exception as exc:
             api_ok = False
             print(f"[API] 设备 {device_id} 远程写入失败，降级写入本地 SQLite: {exc}")

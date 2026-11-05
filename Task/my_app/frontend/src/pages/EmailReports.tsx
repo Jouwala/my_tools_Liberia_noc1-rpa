@@ -94,6 +94,40 @@ interface EflowFile {
   kind?: 'rule' | 'report'
   label?: string
 }
+
+// 后端 /api/cmdb-site-update/summary 返回结构（任务 eflow_site_update）
+interface SiteSyncCounts { A: number; M: number; D: number; unchanged: number }
+interface SiteSyncFile {
+  name: string
+  rel_path: string
+  size: number
+  mtime: string
+  mtime_ts: number
+}
+interface SiteSyncDegradedFile {
+  formal: string
+  actual: string
+  rel_path: string
+}
+interface SiteSyncSummary {
+  success?: boolean
+  error?: string
+  degraded?: boolean
+  degraded_files?: SiteSyncDegradedFile[]
+  started_at?: string
+  finished_at?: string
+  elapsed_seconds?: number
+  source_file?: string | null
+  source_mtime?: string | null
+  cmdb_unique_sites?: number | null
+  duplicate_id_count?: number | null
+  duplicate_ids?: string[]
+  eflow?: SiteSyncCounts | null
+  master?: SiteSyncCounts | null
+  files?: SiteSyncFile[]
+  note?: string
+}
+
 interface EflowBreakdownRow {
   priority: number | null
   rule_id: number | null
@@ -783,6 +817,13 @@ export default function EmailReports() {
     }
   }, [t])
 
+  // ===== CMDB 站点同步页签的状态（2026-11-03 新增）=====
+  // 后端只做两件事：读 last_run_summary.json + 列 modify 目录文件；执行走统一任务接口。
+  const [siteSyncSummary, setSiteSyncSummary] = useState<SiteSyncSummary | null>(null)
+  const [siteSyncFiles, setSiteSyncFiles] = useState<SiteSyncFile[]>([])
+  const [siteSyncLoading, setSiteSyncLoading] = useState(false)
+  const [siteSyncRunning, setSiteSyncRunning] = useState(false)
+
   // ===== eFlow TT Push Rules Check 页签的状态（2026-10-23 新增）=====
   // 与上面 eflow_tt_rules_check 的下钻是**两套独立状态**：两个页签的数据源是两份
   // 不同的 xlsx，共用一套 state 会让「切页签后弹窗里还是上一个页签的内容」。
@@ -890,6 +931,54 @@ export default function EmailReports() {
       setPushLoading(false)
     }
   }, [t])
+
+  // ===== CMDB 站点同步：读上次运行摘要 + 一键触发 =====
+  const loadSiteUpdate = useCallback(async () => {
+    setSiteSyncLoading(true)
+    try {
+      const res = await api.get('/cmdb-site-update/summary')
+      setSiteSyncSummary((res.data?.last_run || null) as SiteSyncSummary | null)
+      setSiteSyncFiles((res.data?.files || []) as SiteSyncFile[])
+    } catch {
+      message.error(t('emailReports.siteUpdateLoadFail'))
+    } finally {
+      setSiteSyncLoading(false)
+    }
+  }, [t])
+
+  /**
+   * 一键执行 CMDB 站点同步比对。
+   *
+   * 与 runTaskNow 的差别：本任务要跑 20~60 秒，而且**真正的失败原因只会出现在任务
+   * 执行结果里**（/run 只回 accepted）—— 典型是目标 xlsx 正被 Excel / WPS / 预览
+   * 面板占用，脚本预检直接退出码 2。所以提交成功后延时两次拉摘要，让错误能显示在
+   * 页面上，而不是只在控制台日志里。
+   */
+  const runSiteUpdate = useCallback(async () => {
+    setSiteSyncRunning(true)
+    try {
+      const res = await api.post('/tasks/eflow_site_update/run')
+      if (!res.data?.accepted) {
+        const err = String(res.data?.error || '')
+        message.error(err
+          ? `${t('emailReports.siteUpdateRunFail')}：${err}`
+          : t('emailReports.siteUpdateRunFail'))
+        setSiteSyncRunning(false)
+        return
+      }
+      message.success(t('emailReports.siteUpdateRunOk'))
+    } catch {
+      message.error(t('emailReports.siteUpdateRunFail'))
+      setSiteSyncRunning(false)
+      return
+    }
+    // 10s 首刷（多数情况已出结果并解除按钮 loading），30s 再补一次兜底
+    window.setTimeout(async () => {
+      await loadSiteUpdate()
+      setSiteSyncRunning(false)
+    }, 10000)
+    window.setTimeout(() => { void loadSiteUpdate() }, 30000)
+  }, [loadSiteUpdate, t])
 
   /**
    * 打开推单检查的下钻弹窗。metric 与页面数字一一对应（见后端
@@ -1049,6 +1138,7 @@ export default function EmailReports() {
   useEffect(() => { loadFinebi() }, [loadFinebi])
   useEffect(() => { loadEflowCheck() }, [loadEflowCheck])
   useEffect(() => { loadPushCheck() }, [loadPushCheck])
+  useEffect(() => { loadSiteUpdate() }, [loadSiteUpdate])
   useEffect(() => () => {
     if (mttrTimer.current) clearTimeout(mttrTimer.current)
   }, [])
@@ -2541,6 +2631,150 @@ export default function EmailReports() {
                       scroll={{ x: 'max-content' }}
                       locale={{ emptyText: <Empty description={t('emailReports.mttrEmpty')} image={Empty.PRESENTED_IMAGE_SIMPLE} /> }}
                     />
+                  </div>
+                </>
+              ),
+            },
+            {
+              key: 'site_update',
+              label: t('emailReports.tabSiteUpdate'),
+              children: (
+                <>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', gap: 'var(--wh-space-sm)', marginBottom: '0.75rem' }}>
+                    <Text type="secondary" style={{ maxWidth: '60rem' }}>{t('emailReports.siteUpdateHint')}</Text>
+                    <Space wrap>
+                      <Button
+                        size="small"
+                        type="primary"
+                        icon={<ThunderboltOutlined />}
+                        onClick={() => void runSiteUpdate()}
+                        loading={siteSyncRunning}
+                      >
+                        {siteSyncRunning ? t('emailReports.siteUpdateRunning') : t('emailReports.siteUpdateRun')}
+                      </Button>
+                      <Button size="small" icon={<ReloadOutlined />} onClick={() => void loadSiteUpdate()} loading={siteSyncLoading}>
+                        {t('emailReports.refresh')}
+                      </Button>
+                    </Space>
+                  </div>
+
+                  {/* 失败原因必须显式呈现：目标 xlsx 被 Excel / WPS / 预览面板占用时，
+                      /tasks/{id}/run 依然返回 accepted=true，错误只落在任务执行结果里。 */}
+                  {siteSyncSummary?.success === false && (
+                    <Alert
+                      type="error"
+                      showIcon
+                      style={{ marginBottom: '0.75rem' }}
+                      message={t('emailReports.siteUpdateRunFail')}
+                      description={(
+                        <>
+                          <div>{siteSyncSummary.error || 'unknown error'}</div>
+                          {String(siteSyncSummary.error || '').includes('占用') && (
+                            <div style={{ marginTop: 4 }}>{t('emailReports.siteUpdateLocked')}</div>
+                          )}
+                        </>
+                      )}
+                    />
+                  )}
+
+                  {/* 文件被 WPS / 预览面板占用时脚本会降级另存：正式文件名仍是旧版，
+                      必须把本次真实副本显式列出来，避免误下载旧文件。 */}
+                  {siteSyncSummary?.degraded && (
+                    <Alert
+                      type="warning"
+                      showIcon
+                      style={{ marginBottom: '0.75rem' }}
+                      message={t('emailReports.siteUpdateDegraded')}
+                      description={(siteSyncSummary.degraded_files || []).map(f => (
+                        <div key={f.rel_path}>
+                          {f.formal} → <a href={`/api/cmdb-site-update/download?path=${encodeURIComponent(f.rel_path)}`} download>{f.actual}</a>
+                        </div>
+                      ))}
+                    />
+                  )}
+
+                  {siteSyncSummary?.success ? (
+                    <>
+                      <Row gutter={[16, 16]} style={{ marginBottom: '0.5rem' }}>
+                        {([
+                          ['eflowA', `${t('emailReports.siteUpdateEflowLabel')} A`, siteSyncSummary.eflow?.A ?? 0, '#389e0d'],
+                          ['eflowM', `${t('emailReports.siteUpdateEflowLabel')} M`, siteSyncSummary.eflow?.M ?? 0, '#d46b08'],
+                          ['eflowD', `${t('emailReports.siteUpdateEflowLabel')} D`, siteSyncSummary.eflow?.D ?? 0, '#cf1322'],
+                          ['masterA', `${t('emailReports.siteUpdateMasterLabel')} A`, siteSyncSummary.master?.A ?? 0, '#389e0d'],
+                          ['masterM', `${t('emailReports.siteUpdateMasterLabel')} M`, siteSyncSummary.master?.M ?? 0, '#d46b08'],
+                          ['masterD', `${t('emailReports.siteUpdateMasterLabel')} D`, siteSyncSummary.master?.D ?? 0, '#cf1322'],
+                        ] as [string, string, number, string][]).map(([k, label, value, color]) => (
+                          <Col xs={12} sm={8} md={4} key={k}>
+                            <Statistic title={label} value={value} valueStyle={value ? { color } : undefined} />
+                          </Col>
+                        ))}
+                      </Row>
+                      <div style={{ marginBottom: '0.75rem' }}>
+                        <Text type="secondary">
+                          {t('emailReports.siteUpdateSource')}：{siteSyncSummary.source_file || '—'}
+                          {siteSyncSummary.source_mtime ? `（${siteSyncSummary.source_mtime}）` : ''}
+                          {siteSyncSummary.cmdb_unique_sites != null ? ` · CMDB ${siteSyncSummary.cmdb_unique_sites} 站` : ''}
+                          {siteSyncSummary.duplicate_id_count
+                            ? ` · 重复 ID ${siteSyncSummary.duplicate_id_count}（${(siteSyncSummary.duplicate_ids || []).join(' / ')}）`
+                            : ''}
+                          {siteSyncSummary.elapsed_seconds != null ? ` · ${t('emailReports.siteUpdateElapsed')} ${siteSyncSummary.elapsed_seconds}s` : ''}
+                          {siteSyncSummary.started_at ? ` · ${t('emailReports.siteUpdateLastRun')} ${siteSyncSummary.started_at}` : ''}
+                        </Text>
+                      </div>
+                    </>
+                  ) : (
+                    <div style={{ marginBottom: '0.75rem' }}>
+                      <Text type="secondary">{t('emailReports.siteUpdateNeverRun')}</Text>
+                    </div>
+                  )}
+
+                  <Text strong style={{ display: 'block', marginBottom: '0.5rem' }}>{t('emailReports.siteUpdateFiles')}</Text>
+                  <div className="wh-table-responsive">
+                    <Table
+                      size="small"
+                      rowKey="rel_path"
+                      loading={siteSyncLoading}
+                      dataSource={siteSyncFiles}
+                      pagination={false}
+                      scroll={{ x: 'max-content' }}
+                      locale={{ emptyText: <Empty description={t('emailReports.empty')} image={Empty.PRESENTED_IMAGE_SIMPLE} /> }}
+                      columns={[
+                        {
+                          title: t('emailReports.siteUpdateColPath'),
+                          dataIndex: 'rel_path',
+                          render: (v: string) => (
+                            <a href={`/api/cmdb-site-update/download?path=${encodeURIComponent(v)}`} download>{v}</a>
+                          ),
+                        },
+                        {
+                          title: t('emailReports.siteUpdateColSize'),
+                          dataIndex: 'size',
+                          width: 100,
+                          render: (v: number) => formatSize(v),
+                        },
+                        {
+                          title: t('emailReports.siteUpdateColTime'),
+                          dataIndex: 'mtime',
+                          width: 180,
+                        },
+                        {
+                          title: t('emailReports.siteUpdateColAction'),
+                          key: 'action',
+                          width: 90,
+                          render: (_: unknown, row: SiteSyncFile) => (
+                            <a
+                              href={`/api/cmdb-site-update/download?path=${encodeURIComponent(row.rel_path)}`}
+                              download
+                            >
+                              {t('emailReports.siteUpdateDownload')}
+                            </a>
+                          ),
+                        },
+                      ] as any}
+                    />
+                  </div>
+                  <div style={{ marginTop: '0.5rem' }}>
+                    <Text type="secondary">{t('emailReports.siteUpdateNote')}</Text>
                   </div>
                 </>
               ),

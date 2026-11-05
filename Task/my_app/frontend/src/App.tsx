@@ -14,6 +14,8 @@ import {
   TeamOutlined,
   TranslationOutlined,
   SyncOutlined,
+  PauseOutlined,
+  CaretRightOutlined,
   AlertOutlined,
   DisconnectOutlined,
   ThunderboltOutlined,
@@ -132,7 +134,7 @@ const IptPowerQuery = lazy(() => import('./pages/IptPowerQuery'))
 const SiteAvailability = lazy(() => import('./pages/SiteAvailability'))
 // 可用率多维矩阵：区域/制式/站点类型 × 日/周/月（读本机派生库 avail_recon.sqlite3）
 const AvailMs = lazy(() => import('./pages/AvailMs'))
-// FLM 可用率：只看三个 FLM 区域，区域×制式 / 区域×站点类型两张矩阵 + 影响可用率的 TT 列表
+// FLM 可用率：按区域拆分（区域集合跟随 master_site_db），区域×制式 / 区域×站点类型两张矩阵 + 影响可用率的 TT 列表
 const AvailFlm = lazy(() => import('./pages/AvailFlm'))
 // 县维度可用率：行=县（eflow_site.province_county）、列=2G/3G/4G，日/周页签
 const AvailCounty = lazy(() => import('./pages/AvailCounty'))
@@ -214,57 +216,84 @@ const VALID_PAGES: PageKey[] = ['overview', 'tables', 'upload', 'dashboard', 'al
  * （输入中 / 弹层打开 / 标签页后台）与全屏拦截的只有**硬重挂载**这条有副作用的兜底
  * 路径，它才会丢焦点、退全屏。
  *
- * 用户可在顶栏选择间隔（持久化 localStorage）；未显式选择时所有页面默认
- * 开启、每 5 分钟（AR_PAGE_DEFAULT_SEC）。 */
-const AR_STORAGE_KEY = 'myapp_auto_refresh_sec'
-/** 当前「生效」间隔（用户选择 > 本页默认 > 全局默认），供 legacy 页面显示用 */
+ * ⭐ 默认关闭 + 每页独立设置（2026-11-04 用户定：「参考 noc_analyst 里的刷新配置，
+ * 给每个页面做设置；并作为项目要求，后面新增的页面也要如此」）：
+ * 顶栏的「停止/开启刷新」按钮 + 间隔下拉对**每一个页面**都可用，选择按页持久化
+ * （localStorage 的 AR_PAGES_KEY，一张 {page: 秒} 表，0=关闭，未登记=关闭）。
+ * 开启时落到本页的建议间隔（AR_PAGE_DEFAULTS），未登记的页（仅动态注入的 finebi_*
+ * 原生看板）落到全局建议 AR_PAGE_DEFAULT_SEC。
+ *
+ * 本条**取代 2026-11-03 的看板白名单**（原 AR_BOARD_PAGES，已删）：白名单把配置 /
+ * 操作 / 工具类页面的控件禁用，用户想刷也刷不了，而且每加一个页面都要回来改名单 ——
+ * 与「用户决定是否刷新」自相矛盾。改成「所有页面一视同仁 + 默认关闭」后，是否刷新
+ * 完全由用户在顶栏决定，**新增页面自动获得该设置，无需维护任何名单**。
+ * 重挂载会打断正在进行的输入 / 弹窗，那条路径已由 arInteractionInProgress() 拦下；
+ * 代价大的页（长任务、上传、抓包）应登记进 AR_INPLACE_REFRESH_PAGES 走原地刷新。
+ *
+ * 「每个页面都有刷新设置」现在是**项目硬要求**，有机器守卫：
+ *   · 规则原文见 AGENTS.md 三.3d 与 docs/manual/16-new-page-guide.md 3.4d；
+ *   · 守卫见 tests/test_doc_consistency.py「每个页面都要有按页刷新设置」——
+ *     PAGE_META 里新增页面却没在 AR_PAGE_DEFAULTS 登记建议间隔，本地钩子与 CI 都会拦下。
+ *
+ * ⚠ 未开启的页面（含全屏挂机）一律不刷新：旧版「全屏挂机忽略关闭、按本页默认兜底」
+ * 的策略已随默认关闭一起移除（myapp-refresh-protocol.js 同步删掉）—— 默认已是关闭，
+ * 全屏再擅自刷新恰恰违背「用户决定」。 */
+/** 按页的刷新选择表：{ [pageKey]: 秒 }，0=显式关闭，未登记=关闭（默认） */
+const AR_PAGES_KEY = 'myapp_auto_refresh_pages'
+/** 已废弃的旧版全局间隔键（单值）。残留值会被缓存了旧版协议脚本的直开 legacy 页
+ *  当兜底间隔读走，挂载时清掉（见 AppContent 里的 removeItem）。 */
+const AR_LEGACY_KEY = 'myapp_auto_refresh_sec'
+/** 更早方案的逐页键前缀（`_ar_page_<page>`），已被 AR_PAGES_KEY 取代，挂载时清掉 */
+const AR_PAGE_KEY = '_ar_page_'
+/** 当前「生效」间隔（用户按页选择；未选=0），供 legacy 页面显示用 */
 const AR_EFFECTIVE_KEY = 'myapp_auto_refresh_effective'
-/** 本页是否属于「看板/展示页」白名单（'1'/'0'），供 legacy 页判断是否启用自刷新安全网 */
-const AR_IS_BOARD_KEY = 'myapp_auto_refresh_is_board'
 const AR_OPTIONS = [0, 30, 60, 300, 600, 900, 1800]
-const AR_PAGE_DEFAULT_SEC = 300 // 看板页默认间隔（秒）
+/** 开启自动刷新时的全局建议间隔（秒）。仅用于动态注入的 finebi_* 原生看板等
+ *  未在 AR_PAGE_DEFAULTS 里登记的页面；自研页面必须在下面逐页登记。 */
+const AR_PAGE_DEFAULT_SEC = 300
 /**
- * 自动刷新白名单：**只有**看板 / 展示类页面参与自动刷新，其余页面（配置、操作、
- * 工具类，如 settings / upload / tables / ip_trace / eflow_* 等）一律不刷新。
+ * 每页的「建议间隔」= 点顶栏「开启刷新」时落到的值（用户之后可用下拉改，改完按页记忆）。
  *
- * 背景（2026-10-10）：此前 `arEffective = arOverride ?? AR_PAGE_DEFAULTS[page] ?? 300`
- * —— 未登记的页面一律按 300s 刷新，于是「设置」这类纯配置页也会定时重挂载，既无意义
- * 又可能打断正在编辑的表单。改为白名单制：不在名单内的页面 arEffective 恒为 0。
- *
- * 名单按菜单组划定（见 DEFAULT_GROUPS）：
- *   · grp_monitor 全部（监控看板）
- *   · grp_network 的看板（mwUmeTopology/mwRealTime/gis/realtime_alarm/person/
- *     packet_loss/battery/bm_speedtest/bm_meta；ip_trace 是一次性抓包会话，排除）
- *   · grp_finebi 全部（原生报表看板）
- *   · grp_analysis 的报表看板（overview/dashboard/warehouse/warehouse_summary/
- *     sp_material/sp_report/com_report/bp_report；tables/upload/archive/sp_details 排除）
+ * 2026-11-04 起这是**每个页面都必须登记**的项目要求（原「只有看板页参与刷新」的白名单
+ * AR_BOARD_PAGES 已删 —— 白名单把配置/操作页的控件禁用，用户想刷也刷不了）。
+ * 取值按**数据更新频率**分四档，不是随手写的数：
+ *   · 60 —— 实时告警链路（用户 2026-10-29 定的策略：实时告警相关 = 1 分钟）。
+ *   · 300 —— 看板主力档。上游同步多为 15 分钟一次，刷得更快画面也不会变。
+ *   · 900 —— 上游日更或低频的看板（微波拓扑每天 05:15、丢包每天 06:30、
+ *     90 天经营看板由 olib_soc_kpi_daily_sync 每天 02:20 增量入库、竞对/频谱/物资报表同理）。
+ *     ⚠ mwRealTime 虽带「实时」二字但数据每 15 分钟才同步一次，给 60 只会多打 15 倍查询。
+ *   · 1800 —— 配置 / 操作 / 工具类页面（本身不产数据，开启刷新只为「别人改了配置后
+ *     看一眼」；且这类页多有表单与长任务，重挂载代价最大，所以建议值放最松）。
+ * 实时性档位以各任务的排程为准，清单见 docs/manual/04-task-system.md。
  */
-const AR_BOARD_PAGES: PageKey[] = [
-  // grp_monitor
-  'alarm', 'ttwo', 'v1_ttwo', 'tt', 'wo', 'nur', 'ms_nur_only', 'ms_sla', 'ms_sla_only',
-  'ms_wo_sla', 'ms_contract_kpi', 'site_avail', 'avail_ms', 'avail_flm', 'avail_county', 'fme_ranking',
-  'noc_analyst', 'repeat_site_down', 'cr_analysis', 'pm_analysis', 'ran_cells_kpi',
-  'cn_kpi', 'cn_kpi_5mins', 'ume_in_kpi', 'cxoDashboard', 'vmaxCxoDashboard', 'vmaxCxoDashboard_Daily',
-  'socTrendDashboard',
-  'vmaxCxoDashboard_90Days', 'imonitor', 'alarmManagement', 'incident_overview',
-  // grp_network（看板子集；ip_trace 排除）
-  'mwUmeTopology', 'mwRealTime', 'gis', 'realtime_alarm', 'packet_loss', 'battery', 'person',
-  'bm_speedtest', 'bm_meta',
-  // grp_analysis（报表看板子集）
-  'overview', 'dashboard', 'warehouse', 'warehouse_summary', 'sp_material', 'sp_report',
-  'com_report', 'bp_report',
-]
-// 按页面覆盖的默认间隔：实时看板数据每 15 分钟同步一次，刷新过快无意义；
-// 90 天经营看板的数据由 olib_soc_kpi_daily_sync 每天 02:20 增量入库（一天只变一次），
-// 15 分钟足够及时反映最新完成日，也避免无谓查询。
-// 2026-10-29 用户定策略：**实时告警相关 = 1 分钟，其余看板页 = 5 分钟**
-// （全局默认 AR_PAGE_DEFAULT_SEC=300 已经是 5 分钟，这里只需列出 1 分钟的那几个）。
-// 范围按用户勾选：realtime_alarm + alarm + alarmManagement。
-// ⚠ mwRealTime 虽带「实时」二字但**不给 60s** —— 它的数据每 15 分钟才同步一次，
-//   提到 1 分钟只会多打 15 倍查询而画面不变，故维持上面的 900。
 const AR_PAGE_DEFAULTS: Partial<Record<PageKey, number>> = {
-  mwRealTime: 900, mwUmeTopology: 900, vmaxCxoDashboard_90Days: 900,
+  // —— 60 秒：实时告警 ——
   realtime_alarm: 60, alarm: 60, alarmManagement: 60,
+
+  // —— 300 秒：看板主力（上游多为 15 分钟级同步）——
+  ttwo: 300, v1_ttwo: 300, tt: 300, wo: 300,
+  nur: 300, ms_sla: 300, ms_nur_only: 300, ms_sla_only: 300, ms_wo_sla: 300, ms_contract_kpi: 300,
+  site_avail: 300, avail_ms: 300, avail_flm: 300, avail_county: 300, fme_ranking: 300,
+  noc_analyst: 300, repeat_site_down: 300,
+  cn_kpi: 300, cn_kpi_5mins: 300, ume_in_kpi: 300,
+  cxoDashboard: 300, vmaxCxoDashboard: 300, vmaxCxoDashboard_Daily: 300,
+  imonitor: 300, incident_overview: 300,
+  gis: 300, person: 300, battery: 300,
+  overview: 300, dashboard: 300,
+
+  // —— 900 秒：上游日更 / 低频看板与报表 ——
+  mwUmeTopology: 900, mwRealTime: 900, vmaxCxoDashboard_90Days: 900, socTrendDashboard: 900,
+  cr_analysis: 900, pm_analysis: 900, ran_cells_kpi: 900,
+  bm_speedtest: 900, bm_meta: 900, bp_report: 900, packet_loss: 900,
+  warehouse: 900, warehouse_summary: 900, sp_material: 900, sp_details: 900,
+  sp_report: 900, com_report: 900, email_reports: 900,
+
+  // —— 1800 秒：配置 / 操作 / 工具类页面 ——
+  // sync（任务管理）自带 60s 列表轮询与 30s 时基，顶栏刷新只是兜底，故给最松的一档。
+  sync: 1800, eflow_qa: 1800, eflow_flow: 1800,
+  vmax_user_query: 1800, ipt_power: 1800, ip_trace: 1800,
+  tables: 1800, upload: 1800, archive: 1800,
+  settings: 1800, portalLogin: 1800, feedback: 1800, ap_center: 1800, help: 1800,
 }
 /** 原地刷新（不重挂载）的 React 看板页。
  *  这些页到点**只重拉数据**：外壳 `document.dispatchEvent('myapp-refresh')`，页面自己
@@ -351,13 +380,22 @@ const VMAX_DARK_TOKEN = {
   colorFillQuaternary: 'rgba(37, 140, 255, 0.06)',
 } as const
 
-function arReadOverride(): number | null {
+/** 读按页刷新选择表（AR_PAGES_KEY）。值非法（非数字 / 不在 0∪AR_OPTIONS 里）的条目
+ *  直接丢弃 —— localStorage 是共享的可变区域，宁可回退到「默认关闭」也不带病运行。 */
+function arReadPages(): Partial<Record<PageKey, number>> {
   try {
-    const raw = localStorage.getItem(AR_STORAGE_KEY)
-    if (raw == null) return null
-    const v = parseInt(raw, 10)
-    return AR_OPTIONS.includes(v) ? v : null
-  } catch { return null }
+    const raw = localStorage.getItem(AR_PAGES_KEY)
+    if (!raw) return {}
+    const obj: unknown = JSON.parse(raw)
+    if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return {}
+    const out: Partial<Record<PageKey, number>> = {}
+    for (const [k, v] of Object.entries(obj as Record<string, unknown>)) {
+      if (typeof v === 'number' && (v === 0 || AR_OPTIONS.includes(v))) {
+        out[k as PageKey] = v
+      }
+    }
+    return out
+  } catch { return {} }
 }
 
 /** 是否处于「不应打扰」状态：用户正在输入 / 弹层打开 / 标签页在后台 */
@@ -972,16 +1010,14 @@ function AppContent() {
   }, [drawerOpen, closeSider])
 
   // ===== 自动刷新：状态 + 定时器（详见文件顶部说明） =====
-  // 用户显式选择（含 0=关闭）持久化；null 表示未选择，所有页面默认 5 分钟
-  const [arOverride, setArOverride] = useState<number | null>(arReadOverride)
+  // 按页的刷新选择（0=显式关闭；未登记=关闭）。默认全关（2026-11-03 用户定）。
+  const [arPages, setArPages] = useState<Partial<Record<PageKey, number>>>(arReadPages)
   const [refreshTick, setRefreshTick] = useState(0)
   const [arSpin, setArSpin] = useState(false)
   const arSpinTimer = useRef<number | null>(null)
-  // 白名单制：只有看板/展示页参与自动刷新；其余页（配置、操作、工具类）恒为 0（不刷新）。
-  const arIsBoard = AR_BOARD_PAGES.includes(currentPage)
-  const arEffective = arIsBoard
-    ? (arOverride ?? AR_PAGE_DEFAULTS[currentPage] ?? AR_PAGE_DEFAULT_SEC)
-    : 0
+  // 生效值 = 用户按页选择 ?? 0。所有页面一视同仁（2026-11-04 去掉看板白名单）：
+  // 默认关闭，任何页都能由用户在顶栏开启，没有「本页默认/全局默认」兜底。
+  const arEffective = arPages[currentPage] ?? 0
 
   const performAutoRefresh = useCallback(() => {
     // 软刷新广播：向所有 iframe 发协议，支持者（mw_ume_topology.html / mw_real_time.html
@@ -1027,22 +1063,48 @@ function AppContent() {
   }, [arEffective, performAutoRefresh])
 
   // 把「当前生效的刷新间隔」公开给 legacy 页面（自刷新页要在界面上如实显示倒计时口径，
-  // 不能各自硬编码一份默认值 —— 有效值来自 用户选择 > 本页默认 > 全局默认）。
-  // 同时公开「本页是否看板」：非看板页 arEffective 恒为 0，legacy 页据此不启用自刷新
-  // 安全网（且「全屏忽略关闭」的例外只对看板页生效 —— 见 AR_IS_BOARD_KEY 注释）。
+  // 不能各自硬编码一份默认值 —— 有效值只可能来自用户在顶栏的按页选择，未开启=0）。
   useEffect(() => {
     try {
       localStorage.setItem(AR_EFFECTIVE_KEY, String(arEffective))
-      localStorage.setItem(AR_IS_BOARD_KEY, arIsBoard ? '1' : '0')
     } catch { /* noop */ }
-  }, [arEffective, arIsBoard])
+  }, [arEffective])
+
+  // 一次性清理旧版自动刷新的 localStorage 残留（2026-11-03 默认关闭改造 +
+  // 2026-11-04 取消看板白名单）：
+  //  · AR_LEGACY_KEY（旧全局单值间隔）—— 新协议已不读它，但**可能缓存了旧版
+  //    myapp-refresh-protocol.js 的直开 legacy 页**会把它的值当兜底间隔继续自刷，
+  //    必须物理清掉才能让「默认关闭」在那些页也成立；
+  //  · AR_PAGE_KEY 前缀的逐页键（更早的方案，同样已被 AR_PAGES_KEY 取代）；
+  //  · myapp_auto_refresh_is_board（白名单时代公开给 legacy 页的「本页是否看板」标记，
+  //    现在所有页面一视同仁，残留的 '0' 会让缓存了旧协议脚本的页拒绝自刷新）。
+  useEffect(() => {
+    try {
+      localStorage.removeItem(AR_LEGACY_KEY)
+      localStorage.removeItem('myapp_auto_refresh_is_board')
+      Object.keys(localStorage)
+        .filter(k => k.startsWith(AR_PAGE_KEY))
+        .forEach(k => localStorage.removeItem(k))
+    } catch { /* noop */ }
+  }, [])
 
   useEffect(() => () => { if (arSpinTimer.current) window.clearTimeout(arSpinTimer.current) }, [])
 
-  const changeAutoRefresh = useCallback((v: number) => {
-    setArOverride(v)
-    try { localStorage.setItem(AR_STORAGE_KEY, String(v)) } catch { /* noop */ }
+  /** 写入单页的刷新选择（0=关闭）并持久化到 AR_PAGES_KEY。 */
+  const setArPageSec = useCallback((page: PageKey, v: number) => {
+    setArPages(prev => {
+      const next = { ...prev, [page]: v }
+      try { localStorage.setItem(AR_PAGES_KEY, JSON.stringify(next)) } catch { /* noop */ }
+      return next
+    })
   }, [])
+  /** 顶栏「停止刷新 / 开启刷新」：开启时落到本页建议间隔
+   *  （AR_PAGE_DEFAULTS > 全局建议 AR_PAGE_DEFAULT_SEC），用户可再用下拉微调。
+   *  对每一个页面都生效 —— 2026-11-04 起不再有「此页不参与刷新」的禁用态。 */
+  const toggleAutoRefresh = useCallback(() => {
+    if (arEffective > 0) setArPageSec(currentPage, 0)
+    else setArPageSec(currentPage, AR_PAGE_DEFAULTS[currentPage] ?? AR_PAGE_DEFAULT_SEC)
+  }, [arEffective, currentPage, setArPageSec])
   const arLabel = useCallback((sec: number) =>
     sec <= 0 ? t('ar.off') : sec < 60 ? `${sec} ${t('ar.sec')}` : `${sec / 60} ${t('ar.min')}`
   , [t])
@@ -2120,17 +2182,30 @@ function AppContent() {
 
             {/* 右上角操作区：自动刷新 + 主题切换 + 语言切换 */}
             <div style={{ position: 'relative', zIndex: 2, display: 'flex', alignItems: 'center', gap: 'var(--wh-space-sm)' }}>
-              <Tooltip title={!arIsBoard ? t('ar.na') : arEffective > 0 ? t('ar.every', { v: arLabel(arEffective) }) : t('ar.tip')}>
-                {/* 大屏/NOC 场景的自动刷新开关；移动端隐藏（大屏均为桌面端） */}
+              {/* 自动刷新（默认关闭，每个页面各自设置并记忆）：
+                  「停止/开启」按钮 + 间隔下拉，对**所有页面**可用（2026-11-04 起
+                  取消看板白名单，配置/操作/工具页同样能按页开启）。
+                  移动端隐藏（大屏均为桌面端）。 */}
+              <Tooltip title={arEffective > 0 ? t('ar.stop') : t('ar.start')}>
+                <Button
+                  className="wh-hide-mobile"
+                  size="small"
+                  aria-label={arEffective > 0 ? t('ar.stop') : t('ar.start')}
+                  onClick={toggleAutoRefresh}
+                  icon={arEffective > 0 ? <PauseOutlined /> : <CaretRightOutlined />}
+                  style={{ color: arEffective > 0 ? WH.teal : undefined }}
+                >
+                  {arEffective > 0 ? t('ar.stop') : t('ar.start')}
+                </Button>
+              </Tooltip>
+              <Tooltip title={arEffective > 0 ? t('ar.every', { v: arLabel(arEffective) }) : t('ar.tip')}>
                 <Select
                   // 开启自动刷新时用强化描边做状态提示（玻璃底由 CSS 统一给）
-                  // 非看板页（配置/操作/工具类）不参与自动刷新：禁用并显示「关闭」
-                  className={arIsBoard && arEffective > 0 ? 'wh-hide-mobile wh-select-active' : 'wh-hide-mobile'}
+                  className={arEffective > 0 ? 'wh-hide-mobile wh-select-active' : 'wh-hide-mobile'}
                   size="small"
                   aria-label={t('ar.label')}
-                  disabled={!arIsBoard}
                   value={arEffective}
-                  onChange={changeAutoRefresh}
+                  onChange={(v: number) => setArPageSec(currentPage, v)}
                   popupMatchSelectWidth={false}
                   suffixIcon={<SyncOutlined spin={arSpin} style={{ color: WH.teal }} />}
                   options={AR_OPTIONS.map(v => ({ value: v, label: arLabel(v) }))}

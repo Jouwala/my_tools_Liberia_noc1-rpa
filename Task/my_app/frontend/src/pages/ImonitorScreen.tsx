@@ -193,7 +193,13 @@ export default function ImonitorScreen() {
   }, [])
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, gap: 'var(--wh-space-xs)' }}>
+    // ⚠️ 2026-11-04 修：`height:'100%'` 在**非 embed 模式**下无法解析 ——
+    // 外层 <Content id="main-content"> 没有确定高度（见 App.tsx），百分比高度退化成
+    // auto，本 div 于是塌成「内容高度」（实测 178.5px = 工具条 + iframe 的 150px 默认高）。
+    // 改成 `flex:1 1 0%`：本 div 变成 App.tsx 那个 flex 列 Content 的 flex item，
+    // 由父级把可用高度直接分配给它，不依赖百分比解析。
+    // embed 模式（?embed=1，门户内嵌）也成立 —— 那条链每一层都有确定高度。
+    <div style={{ display: 'flex', flexDirection: 'column', flex: '1 1 0%', minHeight: 0, gap: 'var(--wh-space-xs)' }}>
       {/* 工具条：大屏本身没有「重新登录」入口（会话过期后 SPA 会自己跳登录页，
           但用户可能想主动刷新会话），这里补上；同时给出「在新窗口打开门户」的出口。 */}
       <div
@@ -246,9 +252,14 @@ export default function ImonitorScreen() {
         ref={wrapRef}
         style={{
           position: 'relative',
-          flex: 1,
+          // 2026-11-04 修：wrapper 改成 flex 列容器 + 明确的 flex 基准，
+          // 让里面那个 iframe 能靠 flex:1 撑开（iframe 的 height:'100%' 同样
+          // 会因百分比无法解析而塌成 150px 默认高，见文件头 LegacyToolFrame 的同款说明）。
+          flex: '1 1 0%',
           minHeight: 0,
           width: '100%',
+          display: 'flex',
+          flexDirection: 'column',
           borderRadius: 'var(--wh-radius-md)',
           overflow: 'hidden',
           background: 'var(--wh-page-bg)',
@@ -310,7 +321,9 @@ export default function ImonitorScreen() {
            * （与父页面跨源，故 iframe 无法自行摘掉 sandbox。）
            */
           sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads allow-modals"
-          style={{ width: '100%', height: '100%', border: 'none', display: 'block' }}
+          // 2026-11-04 修：height:'100%' → flex 撑开（百分比高度在非 embed 模式下
+          // 无法解析，会塌成 HTML 默认的 150px，大屏就只剩一条缝）。
+          style={{ width: '100%', flex: '1 1 auto', minHeight: 0, height: 'auto', border: 'none', display: 'block' }}
         />
       </div>
     </div>
