@@ -1,6 +1,6 @@
 # my_app User Help & Guide
 
-> User-facing platform features & operations guide. Generated from the same source as the in-app Help page (frontend/src/helpMarkdown.ts), compiled from docs/manual/ and backend/task_registry.py. Generated on 2026-11-04.
+> User-facing platform features & operations guide. Generated from the same source as the in-app Help page (frontend/src/helpMarkdown.ts), compiled from docs/manual/ and backend/task_registry.py. Generated on 2026-11-05.
 
 > In-app entry: the "Help" sidebar item, or `http://<host>/myapp/?page=help` directly.
 
@@ -1987,6 +1987,10 @@ FME ranking board: site availability, work-order volume and SLA achievement per 
 - Two bar charts show availability for the "Top 5" and the "Bottom 5": horizontal bars are ordered by rank from top to bottom and print the availability value at the end of each bar. Each chart scales to its own real value range instead of a fixed 0–100, otherwise bars would all look the same length when the whole group sits above 99%
 - The WO count (blue line) and SLA achievement (orange dashed line) appear only when values actually differ inside that group; when the whole group is identical the series is omitted rather than drawn as a flat line that reads like a trend
 - Click any bar to drill into that FME's site details; the drill-down modal can also switch to the WO dimension
+- **Every number explains itself on hover** (2026-11-05): the six summary stat cards and the three rank column headers carry notes; the null-coalescing to 0 was removed — a missing value now shows —, because "a real zero" and "the API sent nothing" mean different things on this page
+- Caliber essentials: **SLA achievement = (Pass + Within SLA) ÷ (Pass + Failed)**, and records whose `sla_status` is empty or another value enter **neither side** — so the denominator is not "every order of the month"; the y in the `x/y` line under the card is the real denominator. The WO window is "first of month ≤ t < first of next month", the time column is detected from the schema, and attribution prefers `site_id` with a **normalised site name** fallback (whitespace collapsed, lower-cased), so **changing the month moves these figures as a batch — they are not cumulative**
+- **All ranks now come from the backend** (corrected 2026-11-05): availability descending (ties broken first by SLA rate, then by name), `wo_rank` **ascending with #1 = fewest WOs**, and `sla_rank` descending with FMEs under 5 samples excluded. The cards used to mark #1 by the highest WO count, the opposite of the column on the same page — two different "number ones" on one screen. So the "Top 3 by WO count" cards now show late badges such as #41/#42/#43; they are not "first place"
+- The "open" figure is one of **three** definitions of open on the platform (this page tests the row status field, the spare-parts report de-duplicates by document number with a word list, the warehouse board compares exactly), so the three are not meant to reconcile
 
 #### site_avail（`site_avail`）
 
@@ -2217,6 +2221,10 @@ Customer Service KPI dashboard: pulls Dong customer weekly service KPIs from the
 - **The seven overview cards and the resource lines explain themselves on hover** (2026-11-04): the most important sentence is that **every KPI card aggregates the latest day only**, so the overview totals (attempts / failed / system-side / user-side) are **those latest-day values added up — not the selected day window**. A header reading "last 30 days" does not make it a 30-day total; each bubble names the day the number came from. Resource "daily avg / peak" are likewise the mean and maximum of that latest day's SERVICE rows
 - Colouring follows the **system side only**: KPIs with reason columns are judged by system-side failures ÷ attempts, others by success rate, and non-alarm KPIs stay info. User-side failures never turn a card red — they only appear as an info note, so "nothing is red" does not mean "the user side is fine"
 - Thresholds come from the API (defaults: 99% success, 0.1% system-side failure, 80% resource; overridable via UME_IN_* variables). The alerts count is produced by the frontend dropping info-level rows from the alert list
+- **Every number explains itself on hover** (2026-11-05): the eight KPI cards share one text between the corner ⓘ and the big number (hovering the number works too); the three alarm badges and the four distribution chart titles gained their own notes
+- Those eight cards **are** computed in the frontend, deliberately and with approval: the API `kpi` block is the **unfiltered total**, while the six on-page filters require the cards to react instantly. Reconciled value by value on 2026-11-05 and written into the bubbles: fresh count / fresh rate / discharging / SOC-critical / degraded / stale and all five distributions are **identical bucket by bucket**, and the averages differ only in precision (frontend 1 decimal, API 2). **Only "batteries" and "sites" are two different semantics** — with "fresh only" on the cards show 352 / 48 while the API total is 1532 / 208. A mismatch normally means a filter is active, not that the data is wrong
+- Two "same name, different source" traps are stated in the distribution ⓘ: **the SOC bucket boundaries are hard-coded in the frontend (20 / 50 / 80) and do not follow the configurable `soc_critical`** (the two "20%" on this page come from different places — only the card moves when the setting changes), and **health buckets follow the thresholds while their label text is hard-coded** (`80-90%` / `90-95%`), so changing a threshold makes the labels wrong — trust the ⓘ wording
+- The three alarm badges count alarms over the **filtered site set**, while the API also returns an `alarm_summary` that never follows the filters; the alarm list is capped at 2000 rows, so once the cap is hit these counts are low
 
 #### cn_kpi（`cn_kpi`）
 

@@ -27,7 +27,7 @@ import api from '../api'
 import { useI18n } from '../i18n'
 import { formatDateTime } from '../datetime'
 import { WH, useTheme, darkTooltip, axisLabel, axisLine, splitLine, cardStyle, controlCardStyle, pageWrap } from '../theme'
-import { ExplainIcon } from '../components/MetricExplain'
+import { ExplainIcon, ExplainPopover } from '../components/MetricExplain'
 
 const SEV_COLORS: Record<string, string> = {
   Critical: '#ff4757',
@@ -104,10 +104,13 @@ const KpiCard = ({ value, label, sub, color, icon, hint }: {
     )}
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
       <div style={{ minWidth: 0 }}>
-        <div style={{
-          fontSize: '1.625rem', fontWeight: 800, color, lineHeight: 1.2,
-          textShadow: `0 0 14px ${color}55`, whiteSpace: 'nowrap',
-        }}>{value}</div>
+        {/* 大数字本身也问得到（三.3c）：角上的 ⓘ 与数字气泡同一份文案，不再多一层图标 */}
+        <ExplainPopover placement="bottom" text={hint || ''}>
+          <div style={{
+            fontSize: '1.625rem', fontWeight: 800, color, lineHeight: 1.2,
+            textShadow: `0 0 14px ${color}55`, whiteSpace: 'nowrap',
+          }}>{value}</div>
+        </ExplainPopover>
         <div style={{ fontSize: '0.75rem', color: WH.textMuted, marginTop: 'var(--wh-space-xs)', fontWeight: 500 }}>{label}</div>
         {sub && <div style={{ fontSize: '0.6875rem', color: WH.textDim, marginTop: '0.125rem' }}>{sub}</div>}
       </div>
@@ -188,6 +191,13 @@ export default function BatteryDashboard() {
 
   const batteries: Battery[] = data?.batteries || []
   const thresholds = data?.meta?.thresholds || {}
+
+  // AGENTS.md 三.3c 的「禁止前端重算」在本页留了一个**经用户确认的例外**（2026-11-05 对拍后定）：
+  // 接口 /api/battery-dashboard/all 的 kpi 是**不带筛选的全量值**（实测 total 1532 / sites 208），
+  // 而页内六个筛选器要求卡片即时联动，所以这八张卡继续在前端算（对拍结论：除总数与站点数外，
+  // 其余六项与五种分布两边逐值相等，均值只差小数位数）。每张卡的气泡都追加同一句说明，
+  // 免得用户把「卡上 352、接口 1532」当成 bug。
+  const withCalcNote = (key: string): string => `${t(key)}\n${t('batt.clientCalcNote')}`
 
   const categoryOptions = useMemo(
     () => Array.from(new Set(batteries.map(b => b.category))).map(c => ({ label: c, value: c })),
@@ -637,7 +647,9 @@ export default function BatteryDashboard() {
             {`${t('batt.freshDef')}: ≤${thresholds.fresh_hours}${t('batt.unitH')} · ${t('batt.staleDef')}: >${thresholds.stale_days}${t('batt.unitD')}`}
           </Tag>
           {Object.entries(alarmCounts).map(([sev, n]) => (
-            <Tag key={sev} color={SEV_COLORS[sev]} style={{ border: 'none', fontWeight: 600 }}>{sev}: {n as number}</Tag>
+            <ExplainPopover key={sev} placement="bottom" text={t('batt.tip.alarmBadges')}>
+              <Tag color={SEV_COLORS[sev]} style={{ border: 'none', fontWeight: 600 }}>{sev}: {n as number}</Tag>
+            </ExplainPopover>
           ))}
           <span style={{ flex: 1 }} />
           <Button size="small" icon={<ReloadOutlined />} onClick={load}
@@ -652,42 +664,42 @@ export default function BatteryDashboard() {
         <Col xs={12} sm={8} lg={6} xxl={3}>
           <KpiCard value={view.total} label={t('batt.kpiBatteries')} color={WH.teal}
             icon={<ThunderboltOutlined />} sub={`${view.sites} ${t('batt.sitesUnit')}`}
-            hint={t('batt.hintBatteries')} />
+            hint={withCalcNote('batt.hintBatteries')} />
         </Col>
         <Col xs={12} sm={8} lg={6} xxl={3}>
           <KpiCard value={view.sites} label={t('batt.kpiSites')} color={WH.blue}
-            icon={<EnvironmentOutlined />} hint={t('batt.hintSites')} />
+            icon={<EnvironmentOutlined />} hint={withCalcNote('batt.hintSites')} />
         </Col>
         <Col xs={12} sm={8} lg={6} xxl={3}>
           <KpiCard value={`${view.freshRate}%`} label={t('batt.kpiFreshRate')}
             color={view.freshRate >= 80 ? '#51cf66' : view.freshRate >= 50 ? '#ffd43b' : '#ff922b'}
             icon={<ClockCircleOutlined />} sub={`${view.freshCount}/${view.baseTotal}`}
-            hint={t('batt.hintFreshRate')} />
+            hint={withCalcNote('batt.hintFreshRate')} />
         </Col>
         <Col xs={12} sm={8} lg={6} xxl={3}>
           <KpiCard value={view.avgSoc == null ? '--' : `${view.avgSoc}%`} label={t('batt.kpiAvgSoc')}
             color={(view.avgSoc ?? 100) < 50 ? '#ff922b' : '#ffd43b'}
-            icon={<DashboardOutlined />} hint={t('batt.hintAvgSoc')} />
+            icon={<DashboardOutlined />} hint={withCalcNote('batt.hintAvgSoc')} />
         </Col>
         <Col xs={12} sm={8} lg={6} xxl={3}>
           <KpiCard value={view.avgHealth == null ? '--' : `${view.avgHealth}%`} label={t('batt.kpiAvgHealth')}
             color="#51cf66" icon={<HeartOutlined />}
-            sub={`${t('batt.degraded')}: ${view.degraded}`} hint={t('batt.hintAvgHealth')} />
+            sub={`${t('batt.degraded')}: ${view.degraded}`} hint={withCalcNote('batt.hintAvgHealth')} />
         </Col>
         <Col xs={12} sm={8} lg={6} xxl={3}>
           <KpiCard value={view.discharging} label={t('batt.kpiDischarging')} color="#ff922b"
             icon={<PoweroffOutlined />} sub={`${view.dischargingSites} ${t('batt.sitesUnit')}`}
-            hint={t('batt.hintDischarging')} />
+            hint={withCalcNote('batt.hintDischarging')} />
         </Col>
         <Col xs={12} sm={8} lg={6} xxl={3}>
           <KpiCard value={view.critical} label={t('batt.kpiCriticalSoc')} color="#ff4757"
             icon={<AlertOutlined />} sub={`${view.criticalSites} ${t('batt.sitesUnit')}`}
-            hint={t('batt.hintCriticalSoc')} />
+            hint={withCalcNote('batt.hintCriticalSoc')} />
         </Col>
         <Col xs={12} sm={8} lg={6} xxl={3}>
           <KpiCard value={view.stale} label={t('batt.kpiStale')} color="#7c8ff0"
             icon={<DatabaseOutlined />} sub={`${view.staleSites} ${t('batt.sitesUnit')}`}
-            hint={t('batt.hintStale')} />
+            hint={withCalcNote('batt.hintStale')} />
         </Col>
       </Row>
 
@@ -696,28 +708,28 @@ export default function BatteryDashboard() {
       <Row gutter={[12, 12]}>
         <Col xs={24} md={12} xl={8}>
           <Card size="small" style={cardStyle}
-            title={<span style={{ color: WH.text, fontSize: '0.8125rem' }}>{t('batt.socDist')}</span>}
+            title={<span style={{ color: WH.text, fontSize: '0.8125rem' }}>{t('batt.socDist')} <ExplainIcon text={t('batt.explain.socDist')} size={13} /></span>}
             extra={<span style={{ fontSize: '0.6875rem', color: WH.textDim }}>{freshOnly ? t('batt.freshSubset') : t('batt.allData')}</span>}>
             <ReactECharts option={pieOption(view.socDist, SOC_COLORS)} style={{ height: CHART_H }} notMerge />
           </Card>
         </Col>
         <Col xs={24} md={12} xl={8}>
           <Card size="small" style={cardStyle}
-            title={<span style={{ color: WH.text, fontSize: '0.8125rem' }}>{t('batt.statusDist')}</span>}
+            title={<span style={{ color: WH.text, fontSize: '0.8125rem' }}>{t('batt.statusDist')} <ExplainIcon text={t('batt.explain.statusDist')} size={13} /></span>}
             extra={<span style={{ fontSize: '0.6875rem', color: WH.textDim }}>{t('batt.statusHint')}</span>}>
             <ReactECharts option={pieOption(view.statusDist, STATUS_COLORS)} style={{ height: CHART_H }} notMerge />
           </Card>
         </Col>
         <Col xs={24} md={12} xl={8}>
           <Card size="small" style={cardStyle}
-            title={<span style={{ color: WH.text, fontSize: '0.8125rem' }}>{t('batt.freshnessDist')}</span>}
+            title={<span style={{ color: WH.text, fontSize: '0.8125rem' }}>{t('batt.freshnessDist')} <ExplainIcon text={t('batt.explain.freshDist')} size={13} /></span>}
             extra={<span style={{ fontSize: '0.6875rem', color: WH.textDim }}>{t('batt.freshnessHint')}</span>}>
             <ReactECharts option={pieOption(view.freshDist, FRESH_COLORS)} style={{ height: CHART_H }} notMerge />
           </Card>
         </Col>
         <Col xs={24} xl={12}>
           <Card size="small" style={cardStyle}
-            title={<span style={{ color: WH.text, fontSize: '0.8125rem' }}>{t('batt.healthDist')}</span>}
+            title={<span style={{ color: WH.text, fontSize: '0.8125rem' }}>{t('batt.healthDist')} <ExplainIcon text={t('batt.explain.healthDist')} size={13} /></span>}
             extra={
               <Segmented className="wh-seg" size="small" value={healthMode} onChange={v => setHealthMode(v as any)}
                 options={[{ label: t('batt.byGrade'), value: 'bucket' }, { label: t('batt.histogram'), value: 'hist' }]} />

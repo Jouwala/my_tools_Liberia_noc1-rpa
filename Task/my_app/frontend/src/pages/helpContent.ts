@@ -420,6 +420,10 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
         '**概览七张卡与资源行的数字都能悬浮看算法**（2026-11-04）：最要紧的一句是**每张 KPI 卡只聚合「最新一天」**，概览里的总业务量 / 总失败 / 系统侧 / 用户侧是**把这些最新一天的值相加**，**不是所选天数窗口的累计** —— 上方写着「近 30 天」也别读成 30 天总量（气泡第一行就写这个数出自哪一天）。资源「日均 / 峰值」同样是最新一天各 SERVICE 行的平均与最大值',
         '判色**只看系统侧**：有失败原因列的 KPI 用「系统侧失败 ÷ 请求数」判，没有的用成功率判，非告警类恒为 info。用户侧失败再多也不会染红，只在 info 里提示 —— 别把「没有红」读成「用户侧没问题」',
         '阈值以接口下发为准（默认成功率 99%、系统侧失败率 0.1%、资源 80%，可用 UME_IN_* 环境变量覆盖）；「告警数」是前端从告警列表里剔掉 info 级后的条数',
+        '**每个数字都能悬浮看算法**（2026-11-05）：八张 KPI 卡的角标 ⓘ 与大数字共用一份文案（鼠标停在数字上也问得到）；三枚告警徽标、四张分布图标题也各挂了说明',
+        '这八张卡**确实是前端算的**，而且是刻意保留的（已与用户确认）：接口 `/api/battery-dashboard/all` 的 `kpi` 是**不带任何筛选的全量值**，而页内六个筛选器要求卡片即时联动。2026-11-05 逐值对拍写进气泡：`新鲜数 / 新鲜率 / 放电中 / SOC 危急 / 劣化 / 过期` 与五种分布两边**逐桶相等**，均值只差小数位数（前端 1 位、接口 2 位）；**只有「电池数」与「站点数」是两套语义** —— 仅新鲜开着时卡上 352 / 48，接口全量是 1532 / 208。不等通常是筛选正在生效，不是数据错',
+        '两处「同名不同源」写在分布图的 ⓘ 里：**SOC 分桶边界写死在前端（20 / 50 / 80），不跟可配阈值 `soc_critical` 联动**（同一页两个「20%」来源不同，改配置只有卡片跟着变）；**健康度分桶跟阈值走、但桶标签文字写死**（`80-90%` / `90-95%`），改了阈值标签就会与区间不符，以 ⓘ 里的判据为准',
+        '三枚告警徽标数的是「筛选后站点集合」上的告警条数，接口另有不随筛选变化的 `alarm_summary`；告警列表有 2000 条上限，命中时这里的计数偏小',
       ],
     },
     cn_kpi: {
@@ -539,6 +543,10 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
         '两张条形图分别看可用率「Top5」与「尾部 5 个」：横向条形按名次自上而下排列，条端直接标出可用率数值；柱子用组内真实值域（而非固定 0~100），否则同一组都在 99% 以上时柱子会一样长、看不出差异',
         '条形图里的 WO 数量（蓝线）与 SLA 达成率（橙虚线）只在**该组内确实存在差异**时才出现；若全组数值相同则不画，避免一条贴地直线占满图例被误读成趋势',
         '点条形图的任一条可下钻到该 FME 的站点明细；下钻弹窗内还可切换到 WO 维度',
+        '**每个数字都能悬浮看算法**（2026-11-05）：六张概览统计卡与三个名次列头都挂了说明；同时修掉 `|| 0` —— 取不到显示 `—`，因为「真 0」与「接口没数据」在这一页含义不同',
+        '口径要点：**SLA 达成率 = (Pass + Within SLA) ÷ (Pass + Failed)**，`sla_status` 为空或其它值的记录两边都不进分母 —— 所以分母不是「本月全部工单」，卡上那行 `x/y` 的 y 才是真分母；工单时间窗是「月初 ≤ t < 次月初」左闭右开、时间字段由后端自动识别，归属优先 `site_id`、缺失时退回规范化站名（折叠空白 + 小写），**换个月份这些数会整批变，不是累计**',
+        '**名次一律用后端 rank**（2026-11-05 修）：可用率降序（并列时先比 SLA 达成率、再比名字）、`wo_rank` **升序、#1 = 名下工单最少**、`sla_rank` 降序且分母不足 5 条的 FME 不参与名次。此前卡片按工单数降序标 #1，与同页表列方向相反，等于一页上两个「第 1 名」—— 现在「WO 最多前三名」那三张卡的徽章是 #41/#42/#43 这类靠后名次，别读成排名第一',
+        '「未关闭」是全站三套判据之一（本页按行状态字段判），与备件报表（按单号去重 + 全词表）、仓库看板（精确等值）的同名指标不可互相对账',
       ],
     },
     site_avail: {
@@ -1039,6 +1047,10 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
         '**The seven overview cards and the resource lines explain themselves on hover** (2026-11-04): the most important sentence is that **every KPI card aggregates the latest day only**, so the overview totals (attempts / failed / system-side / user-side) are **those latest-day values added up — not the selected day window**. A header reading "last 30 days" does not make it a 30-day total; each bubble names the day the number came from. Resource "daily avg / peak" are likewise the mean and maximum of that latest day\'s SERVICE rows',
         'Colouring follows the **system side only**: KPIs with reason columns are judged by system-side failures ÷ attempts, others by success rate, and non-alarm KPIs stay info. User-side failures never turn a card red — they only appear as an info note, so "nothing is red" does not mean "the user side is fine"',
         'Thresholds come from the API (defaults: 99% success, 0.1% system-side failure, 80% resource; overridable via UME_IN_* variables). The alerts count is produced by the frontend dropping info-level rows from the alert list',
+        '**Every number explains itself on hover** (2026-11-05): the eight KPI cards share one text between the corner ⓘ and the big number (hovering the number works too); the three alarm badges and the four distribution chart titles gained their own notes',
+        'Those eight cards **are** computed in the frontend, deliberately and with approval: the API `kpi` block is the **unfiltered total**, while the six on-page filters require the cards to react instantly. Reconciled value by value on 2026-11-05 and written into the bubbles: fresh count / fresh rate / discharging / SOC-critical / degraded / stale and all five distributions are **identical bucket by bucket**, and the averages differ only in precision (frontend 1 decimal, API 2). **Only "batteries" and "sites" are two different semantics** — with "fresh only" on the cards show 352 / 48 while the API total is 1532 / 208. A mismatch normally means a filter is active, not that the data is wrong',
+        'Two "same name, different source" traps are stated in the distribution ⓘ: **the SOC bucket boundaries are hard-coded in the frontend (20 / 50 / 80) and do not follow the configurable `soc_critical`** (the two "20%" on this page come from different places — only the card moves when the setting changes), and **health buckets follow the thresholds while their label text is hard-coded** (`80-90%` / `90-95%`), so changing a threshold makes the labels wrong — trust the ⓘ wording',
+        'The three alarm badges count alarms over the **filtered site set**, while the API also returns an `alarm_summary` that never follows the filters; the alarm list is capped at 2000 rows, so once the cap is hit these counts are low',
       ],
     },
     cn_kpi: {
@@ -1159,6 +1171,10 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
         'Two bar charts show availability for the "Top 5" and the "Bottom 5": horizontal bars are ordered by rank from top to bottom and print the availability value at the end of each bar. Each chart scales to its own real value range instead of a fixed 0–100, otherwise bars would all look the same length when the whole group sits above 99%',
         'The WO count (blue line) and SLA achievement (orange dashed line) appear only when values actually differ inside that group; when the whole group is identical the series is omitted rather than drawn as a flat line that reads like a trend',
         'Click any bar to drill into that FME\'s site details; the drill-down modal can also switch to the WO dimension',
+        '**Every number explains itself on hover** (2026-11-05): the six summary stat cards and the three rank column headers carry notes; the null-coalescing to 0 was removed — a missing value now shows —, because "a real zero" and "the API sent nothing" mean different things on this page',
+        'Caliber essentials: **SLA achievement = (Pass + Within SLA) ÷ (Pass + Failed)**, and records whose `sla_status` is empty or another value enter **neither side** — so the denominator is not "every order of the month"; the y in the `x/y` line under the card is the real denominator. The WO window is "first of month ≤ t < first of next month", the time column is detected from the schema, and attribution prefers `site_id` with a **normalised site name** fallback (whitespace collapsed, lower-cased), so **changing the month moves these figures as a batch — they are not cumulative**',
+        '**All ranks now come from the backend** (corrected 2026-11-05): availability descending (ties broken first by SLA rate, then by name), `wo_rank` **ascending with #1 = fewest WOs**, and `sla_rank` descending with FMEs under 5 samples excluded. The cards used to mark #1 by the highest WO count, the opposite of the column on the same page — two different "number ones" on one screen. So the "Top 3 by WO count" cards now show late badges such as #41/#42/#43; they are not "first place"',
+        'The "open" figure is one of **three** definitions of open on the platform (this page tests the row status field, the spare-parts report de-duplicates by document number with a word list, the warehouse board compares exactly), so the three are not meant to reconcile',
       ],
     },
     site_avail: {

@@ -16,7 +16,7 @@ import {
 import { useI18n, numLocale } from '../i18n'
 import DraggableClickModal from '../components/DraggableClickModal'
 import { CardBase } from '../components/cards'
-import { ExplainCorner } from '../components/MetricExplain'
+import { ExplainCorner, ExplainLabel } from '../components/MetricExplain'
 import { useTheme, WH, darkTooltip, axisLabel, axisLine, splitLine, cardStyle, pageWrap } from '../theme'
 
 const { Text } = Typography
@@ -52,6 +52,8 @@ type DrillColumn = { key: string; zh: string; en: string }
 const TECHS = [{ value: 'G', label: '2G' }, { value: 'U', label: '3G' }, { value: 'L', label: '4G' }, { value: 'Tdd', label: 'TDD' }]
 
 const fmt = (value: unknown) => value == null || value === '' ? '-' : String(value)
+/** 接口取不到时显示 —，不显示 0（AGENTS.md 第六节第 6 条） */
+const dash = (v: unknown): string | number => (v == null ? '—' : (v as number))
 
 // ============ olbrportal 风格卡片 ============
 // 参考 /olbrportal/ 的 .card：左侧渐变竖条 + 图标徽标 + 标题 + 描述 + meta 行 + hover 高亮，
@@ -223,23 +225,32 @@ export default function FmeRanking() {
   const slaColor = useCallback((row: { sla_rate: number | null }) => row.sla_rate == null ? WH.textDim : row.sla_rate < 0.9 ? WH.danger : WH.ok, [])
 
   // ========== 前/后三名 ==========
-  // 可用率口径：剔除无可用率数据的 FME 后再取前后三名（无数据不参与排名）
+  // 三张榜的名次**一律用后端下发的 rank 字段**（availability_rank / wo_rank / sla_rank），
+  // 前端不再按数值重排：后端可用率并列时还有「SLA 高者在前、再按名字」两级决胜
+  // （`services/fme_data/fme_ranking_service.py:255-271`），前端只按数值排会与之对不上，
+  // 结果是「卡片第 3 名」和「表里 rank=3」不是同一个人。2026-11-05 统一以 rank 为准。
   const availRanked = useMemo(
     () => (data?.rows || []).filter(r => r.availability != null)
-      .slice().sort((a, b) => (b.availability as number) - (a.availability as number)),
+      .slice().sort((a, b) => a.availability_rank - b.availability_rank),
     [data])
+  // 工单榜：**名次一律用后端下发的 wo_rank**（#1 = 名下工单最少）。
+  // 此前前端按 wo_total 降序自己排（`slice(0,3)` = 工单最多的人），与同页表列 `wo_rank` 方向相反，
+  // 用户看到「卡片 #1」和「表里 rank=1」是两个人。2026-11-05 确认以表列/后端为准，前端不再重排。
   const woRanked = useMemo(
-    () => (data?.rows || []).slice().sort((a, b) => b.wo_total - a.wo_total || a.fme_name.localeCompare(b.fme_name)),
+    () => (data?.rows || []).filter(r => r.wo_rank != null)
+      .slice().sort((a, b) => (a.wo_rank as number) - (b.wo_rank as number) || a.fme_name.localeCompare(b.fme_name)),
     [data])
-  // SLA 口径：后端已做小样本保护（sla_ranked=false 的不参与名次），前端只取入了榜的
+  // SLA 口径：后端已做小样本保护（sla_ranked=false 的不参与名次），这里只取有 sla_rank 的行
   const slaRanked = useMemo(
-    () => (data?.rows || []).filter(r => r.sla_ranked && r.sla_rate != null)
-      .slice().sort((a, b) => (b.sla_rate as number) - (a.sla_rate as number) || a.fme_name.localeCompare(b.fme_name)),
+    () => (data?.rows || []).filter(r => r.sla_ranked && r.sla_rank != null)
+      .slice().sort((a, b) => (a.sla_rank as number) - (b.sla_rank as number)),
     [data])
   const topAvail = useMemo(() => availRanked.slice(0, 3), [availRanked])
   const bottomAvail = useMemo(() => availRanked.slice(-3).reverse(), [availRanked])
-  const topWo = useMemo(() => woRanked.slice(0, 3), [woRanked])
-  const bottomWo = useMemo(() => woRanked.slice(-3).reverse(), [woRanked])
+  // 榜的「头/尾」两组都从升序的 rank 榜上切：**名次徽章一律用后端 rank 原值**，不是 1/2/3 的序号。
+  // 所以 `topWo`（WO 最多前三名）取的是升序榜的末尾三名，徽章自然是 #41/#42/#43 这类靠后的名次。
+  const topWo = useMemo(() => woRanked.slice(-3).reverse(), [woRanked])
+  const bottomWo = useMemo(() => woRanked.slice(0, 3), [woRanked])
   const topSla = useMemo(() => slaRanked.slice(0, 3), [slaRanked])
   const bottomSla = useMemo(() => slaRanked.slice(-3).reverse(), [slaRanked])
 
@@ -455,28 +466,28 @@ export default function FmeRanking() {
     ) => {
       for (const [k, v] of kpi) boardRows.push([group, rank, row.fme_name, row.supervisors.join(', '), k, v, hint])
     }
-    topAvail.forEach((row, i) => pushBoard(t('fme.topAvail'), row, i + 1, t('fme.topAvailSub'), [
+    topAvail.forEach((row) => pushBoard(t('fme.topAvail'), row, row.availability_rank, t('fme.topAvailSub'), [
       [t('fme.col.availability'), fmtPct(row.availability)],
       [t('fme.col.slaRate'), fmtSla(row)],
       [t('fme.stat.sites'), row.site_count],
       [t('fme.col.below'), row.sites_below_threshold],
       [t('fme.col.wo'), row.wo_total],
     ]))
-    bottomAvail.forEach((row, i) => pushBoard(t('fme.bottomAvail'), row, availRanked.length - i, t('fme.bottomAvailSub'), [
+    bottomAvail.forEach((row) => pushBoard(t('fme.bottomAvail'), row, row.availability_rank, t('fme.bottomAvailSub'), [
       [t('fme.col.availability'), fmtPct(row.availability)],
       [t('fme.col.slaRate'), fmtSla(row)],
       [t('fme.stat.sites'), row.site_count],
       [t('fme.col.below'), row.sites_below_threshold],
       [t('fme.col.wo'), row.wo_total],
     ]))
-    topWo.forEach((row, i) => pushBoard(t('fme.topWo'), row, i + 1, t('fme.topWoSub'), [
+    topWo.forEach((row) => pushBoard(t('fme.topWo'), row, row.wo_rank, t('fme.topWoSub'), [
       [t('fme.col.wo'), row.wo_total],
       [t('fme.col.open'), row.wo_open],
       [t('fme.col.slaRate'), fmtSla(row)],
       [t('fme.col.availability'), fmtPct(row.availability)],
       [t('fme.stat.sites'), row.site_count],
     ]))
-    bottomWo.forEach((row, i) => pushBoard(t('fme.bottomWo'), row, woRanked.length - i, t('fme.bottomWoSub'), [
+    bottomWo.forEach((row) => pushBoard(t('fme.bottomWo'), row, row.wo_rank, t('fme.bottomWoSub'), [
       [t('fme.col.wo'), row.wo_total],
       [t('fme.col.open'), row.wo_open],
       [t('fme.col.slaRate'), fmtSla(row)],
@@ -484,14 +495,14 @@ export default function FmeRanking() {
       [t('fme.stat.sites'), row.site_count],
     ]))
     // SLA 榜单：样本量不足的 FME 后端已排除（slaRanked），与页面卡片同一批数据
-    topSla.forEach((row, i) => pushBoard(t('fme.topSla'), row, i + 1, t('fme.topSlaSub'), [
+    topSla.forEach((row) => pushBoard(t('fme.topSla'), row, row.sla_rank ?? 0, t('fme.topSlaSub'), [
       [t('fme.col.slaRate'), fmtSla(row)],
       [t('fme.col.slaPass'), `${row.sla_pass}/${row.sla_total}`],
       [t('fme.col.availability'), fmtPct(row.availability)],
       [t('fme.col.wo'), row.wo_total],
       [t('fme.stat.sites'), row.site_count],
     ]))
-    bottomSla.forEach((row, i) => pushBoard(t('fme.bottomSla'), row, slaRanked.length - i, t('fme.bottomSlaSub'), [
+    bottomSla.forEach((row) => pushBoard(t('fme.bottomSla'), row, row.sla_rank ?? 0, t('fme.bottomSlaSub'), [
       [t('fme.col.slaRate'), fmtSla(row)],
       [t('fme.col.slaPass'), `${row.sla_pass}/${row.sla_total}`],
       [t('fme.col.availability'), fmtPct(row.availability)],
@@ -726,7 +737,7 @@ export default function FmeRanking() {
   )
 
   const columns = [
-    { title: t('fme.col.rank'), dataIndex: 'availability_rank', width: 72, sorter: (a: FmeRow, b: FmeRow) => a.availability_rank - b.availability_rank, render: (v: number) => v <= 3 ? <Tag color={v === 1 ? 'gold' : v === 2 ? 'blue' : 'purple'} icon={<TrophyOutlined />}>{v}</Tag> : v },
+    { title: <ExplainLabel label={t('fme.col.rank')} text={t('fme.tip.rank.avail')} />, dataIndex: 'availability_rank', width: 72, sorter: (a: FmeRow, b: FmeRow) => a.availability_rank - b.availability_rank, render: (v: number) => v <= 3 ? <Tag color={v === 1 ? 'gold' : v === 2 ? 'blue' : 'purple'} icon={<TrophyOutlined />}>{v}</Tag> : v },
     { title: t('fme.col.fme'), dataIndex: 'fme_name', fixed: 'left' as const, width: 190, sorter: (a: FmeRow, b: FmeRow) => a.fme_name.localeCompare(b.fme_name), render: (v: string, row: FmeRow) => <Tooltip title={t('fme.drillCellHint')}><a onClick={e => openFmeDrilldown(e, row.fme_name, 'sites')} style={{ fontWeight: 600 }}>{fmt(v)}</a></Tooltip> },
     { title: t('fme.col.supervisor'), dataIndex: 'supervisors', width: 150, render: (v: string[]) => fmt(v?.join(', ')) },
     { title: t('fme.col.sites'), dataIndex: 'site_count', width: 95, sorter: (a: FmeRow, b: FmeRow) => a.site_count - b.site_count, render: (v: number, row: FmeRow) => <Tooltip title={t('fme.drillCellHint')}><a onClick={e => openFmeDrilldown(e, row.fme_name, 'sites')}>{v}</a></Tooltip> },
@@ -736,11 +747,11 @@ export default function FmeRanking() {
     { title: t('fme.col.slaRate'), dataIndex: 'sla_rate', width: 125, sorter: (a: FmeRow, b: FmeRow) => (a.sla_rate ?? -1) - (b.sla_rate ?? -1), render: (v: number | null, row: FmeRow) => <Tooltip title={t('fme.drillCellHint')}><a onClick={e => openFmeDrilldown(e, row.fme_name, 'wo')}><span style={{ color: slaColor(row), fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{fmtSla(row)}</span></a></Tooltip> },
     { title: t('fme.col.slaPass'), dataIndex: 'sla_pass', width: 110, sorter: (a: FmeRow, b: FmeRow) => a.sla_pass - b.sla_pass, render: (v: number, row: FmeRow) => <Tooltip title={t('fme.drillCellHint')}><a onClick={e => openFmeDrilldown(e, row.fme_name, 'wo')}><span style={{ fontVariantNumeric: 'tabular-nums' }}>{v}/{row.sla_total}</span></a></Tooltip> },
     { title: t('fme.col.slaFail'), dataIndex: 'sla_fail', width: 105, sorter: (a: FmeRow, b: FmeRow) => a.sla_fail - b.sla_fail, render: (v: number, row: FmeRow) => v ? <Tooltip title={t('fme.drillCellHint')}><a onClick={e => openFmeDrilldown(e, row.fme_name, 'wo')}><Tag color="red">{v}</Tag></a></Tooltip> : 0 },
-    { title: t('fme.col.slaRank'), dataIndex: 'sla_rank', width: 110, sorter: (a: FmeRow, b: FmeRow) => (a.sla_rank ?? 0) - (b.sla_rank ?? 0), render: (v: number | null) => v == null ? <Tooltip title={t('fme.slaRankSmallSample')}><Text type="secondary">-</Text></Tooltip> : <Tag color="orange">{v}</Tag> },
+    { title: <ExplainLabel label={t('fme.col.slaRank')} text={t('fme.tip.rank.sla')} />, dataIndex: 'sla_rank', width: 110, sorter: (a: FmeRow, b: FmeRow) => (a.sla_rank ?? 0) - (b.sla_rank ?? 0), render: (v: number | null) => v == null ? <Tooltip title={t('fme.slaRankSmallSample')}><Text type="secondary">-</Text></Tooltip> : <Tag color="orange">{v}</Tag> },
     { title: t('fme.col.wo'), dataIndex: 'wo_total', width: 100, sorter: (a: FmeRow, b: FmeRow) => a.wo_total - b.wo_total, render: (v: number, row: FmeRow) => <Tooltip title={t('fme.drillCellHint')}><a onClick={e => openFmeDrilldown(e, row.fme_name, 'wo')}><Text strong>{v.toLocaleString(numLocale(locale))}</Text></a></Tooltip> },
     { title: t('fme.col.open'), dataIndex: 'wo_open', width: 95, render: (v: number, row: FmeRow) => v ? <Tooltip title={t('fme.drillCellHint')}><a onClick={e => openFmeDrilldown(e, row.fme_name, 'wo')}><Tag color="red">{v}</Tag></a></Tooltip> : 0 },
     { title: t('fme.col.closed'), dataIndex: 'wo_closed', width: 95 },
-    { title: t('fme.col.woRank'), dataIndex: 'wo_rank', width: 100, sorter: (a: FmeRow, b: FmeRow) => a.wo_rank - b.wo_rank, render: (v: number) => <Tag color="cyan">{v}</Tag> },
+    { title: <ExplainLabel label={t('fme.col.woRank')} text={t('fme.tip.rank.wo')} />, dataIndex: 'wo_rank', width: 100, sorter: (a: FmeRow, b: FmeRow) => a.wo_rank - b.wo_rank, render: (v: number) => <Tag color="cyan">{v}</Tag> },
   ]
 
   return <div style={pageWrap}>
@@ -775,8 +786,8 @@ export default function FmeRanking() {
             </Col>
           </Row>
           <Row gutter={[12, 12]} align="stretch">
-            {topAvail.map((row, i) => renderCard(row, i + 1, 'avail', 'top', [WH.sev.Warning, WH.blue, WH.indigo][i] || WH.teal, <TrophyOutlined />, t('fme.explain.topAvail'), 4))}
-            {bottomAvail.map((row, i) => renderCard(row, availRanked.length - i, 'avail', 'bottom', WH.sev.Critical, <ArrowDownOutlined />, t('fme.explain.bottomAvail'), 4, i === 0))}
+            {topAvail.map((row, i) => renderCard(row, row.availability_rank, 'avail', 'top', [WH.sev.Warning, WH.blue, WH.indigo][i] || WH.teal, <TrophyOutlined />, t('fme.explain.topAvail'), 4))}
+            {bottomAvail.map((row, i) => renderCard(row, row.availability_rank, 'avail', 'bottom', WH.sev.Critical, <ArrowDownOutlined />, t('fme.explain.bottomAvail'), 4, i === 0))}
           </Row>
 
           {/* WO：一行 6 张 */}
@@ -789,8 +800,11 @@ export default function FmeRanking() {
             </Col>
           </Row>
           <Row gutter={[12, 12]} align="stretch">
-            {topWo.map((row, i) => renderCard(row, i + 1, 'wo', 'top', WH.sev.Major, <ArrowUpOutlined />, t('fme.explain.topWo'), 4))}
-            {bottomWo.map((row, i) => renderCard(row, woRanked.length - i, 'wo', 'bottom', WH.ok, <ArrowDownOutlined />, t('fme.explain.bottomWo'), 4, i === 0))}
+            {/* 徽章上的名次 = 后端 wo_rank 原值（与表列 `WO 名次` 同一个数），不再是 i+1。
+                「最多前三名」取的是升序榜的末尾三名，所以它们的名次是 #N、#N-1… —— 这是真实名次，
+                不是把「最少」那头的 1/2/3 反过来贴上去。 */}
+            {topWo.map((row, i) => renderCard(row, row.wo_rank, 'wo', 'top', WH.sev.Major, <ArrowUpOutlined />, t('fme.explain.topWo'), 4))}
+            {bottomWo.map((row, i) => renderCard(row, row.wo_rank, 'wo', 'bottom', WH.ok, <ArrowDownOutlined />, t('fme.explain.bottomWo'), 4, i === 0))}
           </Row>
 
           {/* SLA 达成率：一行 6 张（小样本 FME 已由后端排除，不参与名次） */}
@@ -805,8 +819,8 @@ export default function FmeRanking() {
                 </Col>
               </Row>
               <Row gutter={[12, 12]} align="stretch">
-                {topSla.map((row, i) => renderCard(row, i + 1, 'sla', 'top', WH.ok, <SafetyOutlined />, t('fme.explain.topSla'), 4))}
-                {bottomSla.map((row, i) => renderCard(row, slaRanked.length - i, 'sla', 'bottom', WH.sev.Critical, <ClockCircleOutlined />, t('fme.explain.bottomSla'), 4, i === 0))}
+                {topSla.map((row, i) => renderCard(row, row.sla_rank ?? 0, 'sla', 'top', WH.ok, <SafetyOutlined />, t('fme.explain.topSla'), 4))}
+                {bottomSla.map((row, i) => renderCard(row, row.sla_rank ?? 0, 'sla', 'bottom', WH.sev.Critical, <ClockCircleOutlined />, t('fme.explain.bottomSla'), 4, i === 0))}
               </Row>
             </>
           )}
@@ -814,16 +828,16 @@ export default function FmeRanking() {
       )}
 
       <Row gutter={[12, 12]}>
-        <Col xs={12} sm={8} lg={4}><Card style={cardStyle}><Statistic title={t('fme.stat.fme')} value={data?.summary.fme_count || 0} /></Card></Col>
-        <Col xs={12} sm={8} lg={4}><Card style={cardStyle}><Statistic title={t('fme.stat.sites')} value={data?.summary.site_count || 0} /></Card></Col>
-        <Col xs={12} sm={8} lg={4}><Card style={cardStyle}><Statistic title={t('fme.stat.wo')} value={data?.summary.wo_total || 0} valueStyle={{ color: palette.blue }} /></Card></Col>
-        <Col xs={12} sm={8} lg={4}><Card style={cardStyle}><Statistic title={t('fme.stat.open')} value={data?.summary.wo_open || 0} valueStyle={{ color: data?.summary.wo_open ? WH.danger : WH.ok }} /></Card></Col>
+        <Col xs={12} sm={8} lg={4}><Card style={cardStyle}><Statistic title={<ExplainLabel label={t('fme.stat.fme')} text={t('fme.tip.fmeCount')} />} value={dash(data?.summary.fme_count)} /></Card></Col>
+        <Col xs={12} sm={8} lg={4}><Card style={cardStyle}><Statistic title={<ExplainLabel label={t('fme.stat.sites')} text={t('fme.tip.siteCount')} />} value={dash(data?.summary.site_count)} /></Card></Col>
+        <Col xs={12} sm={8} lg={4}><Card style={cardStyle}><Statistic title={<ExplainLabel label={t('fme.stat.wo')} text={t('fme.tip.woTotal')} />} value={dash(data?.summary.wo_total)} valueStyle={{ color: palette.blue }} /></Card></Col>
+        <Col xs={12} sm={8} lg={4}><Card style={cardStyle}><Statistic title={<ExplainLabel label={t('fme.stat.open')} text={t('fme.tip.woOpen')} />} value={dash(data?.summary.wo_open)} valueStyle={{ color: data?.summary.wo_open ? WH.danger : WH.ok }} /></Card></Col>
         {/* SLA 达成率总览：分子/分母放在 suffix 里说明口径 */}
         <Col xs={12} sm={8} lg={4}>
           <Card style={cardStyle}>
             <Statistic
-              title={t('fme.stat.sla')}
-              value={data?.summary.sla_rate == null ? '-' : +(data.summary.sla_rate * 100).toFixed(1)}
+              title={<ExplainLabel label={t('fme.stat.sla')} text={t('fme.tip.slaRate')} />}
+              value={data?.summary.sla_rate == null ? '—' : +(data.summary.sla_rate * 100).toFixed(1)}
               suffix={data?.summary.sla_rate == null ? '' : '%'}
               valueStyle={{ color: (data?.summary.sla_rate ?? 1) < 0.9 ? WH.danger : WH.ok }}
             />
@@ -834,7 +848,7 @@ export default function FmeRanking() {
             )}
           </Card>
         </Col>
-        <Col xs={12} sm={8} lg={4}><Card style={cardStyle}><Statistic title={t('fme.stat.slaFail')} value={data?.summary.sla_fail || 0} valueStyle={{ color: data?.summary.sla_fail ? WH.danger : WH.ok }} /></Card></Col>
+        <Col xs={12} sm={8} lg={4}><Card style={cardStyle}><Statistic title={<ExplainLabel label={t('fme.stat.slaFail')} text={t('fme.tip.slaFail')} />} value={dash(data?.summary.sla_fail)} valueStyle={{ color: data?.summary.sla_fail ? WH.danger : WH.ok }} /></Card></Col>
       </Row>
 
       {/* ====== 可用率条形图：Top5 与尾部 5 个 ======

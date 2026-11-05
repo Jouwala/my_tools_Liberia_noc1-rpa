@@ -272,7 +272,7 @@
 | 组 | key | 判定 | 备注 |
 | --- | --- | --- | --- |
 | **⑥a 看板/报告族（✅ 已完成并实机验证，2026-11-04）** | `bm_speedtest`、`bm_meta`、`packet_loss`、`dashboard`、`overview` | 已接入 | 详见下节两页与手册 §13/§18/§22/§31/§32 条目 |
-| **⑥a 剩余（⛔ 卡在业务决定，不能自动做）** | `battery`、`fme_ranking` | **等用户决定** | 两页的数字是**前端整块重算**的：`BatteryDashboard.tsx:224-297` 自己算 8 张 KPI 卡 + 五种分布 + 告警计数，而 `/api/battery-dashboard/all` 已下发 `kpi`（`battery_dashboard.py:292-307`）、`dist`（`:310-343`）、`alarm_summary`（`:348-350`）**整块未被使用**；`FmeRanking.tsx:227-244,778-809` 自己排序取名次，且 **`wo_rank` 方向相反**（后端 `fme_ranking_service.py:257-262` 按 `wo_total` 升序、#1=最少；前端 `:231-233,792` 降序标 #1，与表列 `wo_rank` 冲突）。按后端字段改 = **可能改变界面数字**（均值保留位数 1 位 vs 后端 2 位也差），属业务口径决定 → 已停手等点头，不在本轮擅改 |
+| **⑥a 剩余（✅ 2026-11-05 已按用户拍定完成）** | `battery`、`fme_ranking` | 已接入 | 两页的「前端重算」都由用户当场拍定，见下方「⑥a 收尾两条决定」 |
 | **⑥b 工具/查询族（待做，数字多为「筛过的行数」）** | `sync`（`DataSync.tsx:680` 状态统计卡）、`tables`（4 张 `Statistic` + 字段画像）、`vmax_user_query`（7 张卡）、`eflow_qa`（`:511` 的 `total ?? 0` 取不到显示 0，需改 `—`）、`ap_center`（5 张卡 + 百分号）、`feedback`（2 张计数卡） | 规格待写 | 这些数字是行/任务计数，气泡只写「统计的是当前筛选后的行数，不是全表」，**不要编造聚合口径** |
 | **⑥c 地图族（⚠ 与并发会话冲突，排最后）** | `gis`、`realtime_alarm`、`person` | 待做 | 对方正在改 `GISMap.tsx` / `gismap/SiteDrilldownDrawer.tsx`（抽屉里新加电源状态），必须等其提交后再动，且提交走 hunk 过滤 |
 | **⑥d 判定不适用** | `settings`、`portalLogin`、`archive`、`help` | 无「算出来的数字」 | 硬凑违反三.3c；`upload` 只有 `quality_score`（`DataUpload.tsx:94`，来自接口 `profile_summary`）→ 若要覆盖只需一处 ⓘ，不算整页工程 |
@@ -289,3 +289,26 @@
 （总数 + 三状态计数，`IssueFeedback.tsx:371-385`），是接口/前端聚合出来的数字，归进 ⑥b。
 `DataSync` / `TableBrowser` / `ApCenter` 沿用早期结论：数字是「行/任务计数」，
 气泡只写「统计的是当前筛选后的行数，不是全表」即可，**不要编造聚合口径**。
+
+### ⑥a 收尾两条决定（2026-11-05，用户对 battery / fme_ranking 拍定）
+
+**① battery —— 保留前端重算，但在气泡里如实标注（经离线对拍后定）**
+- 先跑 `TMP/_battery_recon.py`（读 `/api/battery-dashboard/all` 的 1532 行，按 `BatteryDashboard.tsx:224-297`
+  的同一套逻辑重算）逐值对拍：**`fresh` `fresh_rate` `discharging` `critical` `degraded` `stale` `stale_sites`
+  与五种分布逐桶相等**，`avg_soc` / `avg_health` 只差小数位数（前端 1 位、接口 2 位）。
+- **只有两处是两套语义**：卡上「电池数」在仅新鲜开着时是 352（= 新鲜子集），接口 `total_batteries` 是 1532（全量）；
+  「站点数」48 对 208 同理。所以「改成取接口字段」真正的代价不是数字微调，而是**卡片不再响应页内六个筛选器**
+  （接口那份 kpi 不带筛选）。用户据此选了「保留前端重算 + 气泡标注」。
+- 落地：八张卡的 hint 统一追加 `batt.clientCalcNote`（含对拍数字），大数字包 `ExplainPopover`，
+  四张分布图标题与三枚告警徽标各挂说明。
+- ⚠ 顺带登记两处**口径不同源**（写在分布图 ⓘ 里，未改代码）：SOC 分桶边界硬编码 20/50/80
+  （`:240-242`）不跟 `meta.soc_critical` 联动；健康度分桶跟阈值走而**标签文字写死** `80-90%` / `90-95%`。
+  真正修它 = 改分桶口径 = 改图上的数，属下一轮决定。
+
+**② fme_ranking —— 名次一律用后端 rank（「以表列为准」）**
+- 原矛盾：卡片按 `wo_total` **降序**标 #1（工单最多的人被叫作第 1 名），同页表列 `wo_rank` 按**升序**（#1 = 最少），
+  一页上两个「第 1 名」互指相反的人；可用率榜与 SLA 榜也是前端自己排、少了后端「并列时先比 SLA 再比名字」的决胜。
+- 落地：`availRanked` / `woRanked` / `slaRanked` 改成按 `availability_rank` / `wo_rank` / `sla_rank` 升序取，
+  卡片徽章与**导出的名次列**都直接用后端字段；「WO 最多前三名」= 升序榜末尾三名，徽章因此显示 #41/#42/#43 这类
+  靠后名次 —— `fme.explain.topWo` 补了这句话，避免被读成「排名第一」。
+- 同时修 `|| 0`：六张概览统计卡取不到显示 `—`（`dash()`），因为这一页「真 0」与「接口没数据」含义不同。
