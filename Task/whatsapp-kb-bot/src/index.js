@@ -11,6 +11,7 @@ import { myAppDir, RULE_SOURCE_FILES } from './myAppPaths.js';
 import { CONFIG, describeConfig, ROOT, loadRuntimeConfig } from './config.js';
 import { loadIndex } from './rag.js';
 import { loadLookupsOnce } from './tools.js';
+import { ensureSiteList } from './sitelist.js';
 import { routeAnswer } from './answer.js';
 import { healthCheck, warmup, loadedModels } from './ollama.js';
 import { validateProvider, providerInfo, pingProvider } from './llm.js';
@@ -183,7 +184,22 @@ async function main() {
   }
   console.log();
 
-  // 4. 索引
+  // 4. 站名清单（用于校验抽出来的站名是否真实存在）
+  //
+  // 必须在收消息**之前**预热：站名抽取是同步的，清单没就绪时校验会放行，
+  // 于是「最近7天全网有多少条 Critical 级别的告警」里的 Critical 会被当站名。
+  try {
+    const set = await ensureSiteList();
+    if (set) {
+      console.log(`✓ 站名清单就绪：${set.size} 个站名（多表并集）`);
+    } else {
+      console.log('! 站名清单拉取失败 —— 站名抽取暂不做存在性校验（不影响启动）');
+    }
+  } catch (err) {
+    console.log(`! 站名清单拉取失败（不影响启动）：${err.message}`);
+  }
+
+  // 5. 索引
   const index = loadIndex();
   console.log(
     `✓ 索引就绪：${index.meta.chunks} 块 / ${index.meta.files} 个文件` +

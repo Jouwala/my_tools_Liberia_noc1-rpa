@@ -77,6 +77,7 @@ import { statSync } from 'node:fs';
 
 import { CONFIG, RUNTIME_CONFIG, FALLBACK_CONFIG } from './config.js';
 import { loadIndex } from './rag.js';
+import { ensureSiteList } from './sitelist.js';
 import { routeAnswer, describeRoute } from './answer.js';
 import { loadLookupsOnce } from './tools.js';
 import { validateProvider, providerInfo } from './llm.js';
@@ -493,6 +494,20 @@ async function main() {
     console.log(`✓ 索引就绪：${idx.meta.chunks} 块 / ${idx.meta.files} 个文件`);
   } catch (e) {
     console.error(`✗ 索引不可用（${e.message}）—— 提问会失败，请先跑 npm run ingest`);
+  }
+
+  // 站名清单（用于校验抽出来的站名是否真实存在）。
+  // 必须在 listen 之前预热：站名抽取是同步的，清单没就绪时校验会放行，
+  // 于是「最近7天全网有多少条 Critical 级别的告警」里的 Critical 会被当站名。
+  try {
+    const set = await ensureSiteList();
+    if (set) {
+      console.log(`✓ 站名清单就绪：${set.size} 个站名（多表并集）`);
+    } else {
+      console.warn('! 站名清单拉取失败 —— 站名抽取暂不做存在性校验');
+    }
+  } catch (e) {
+    console.warn(`! 站名清单拉取失败（不影响启动）：${e.message}`);
   }
 
   server.listen(PORT, HOST, () => {

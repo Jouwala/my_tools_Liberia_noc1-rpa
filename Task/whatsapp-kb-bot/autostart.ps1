@@ -1,4 +1,5 @@
-# Autostart + watchdog for the WhatsApp knowledge-base bot (src/index.js).
+# Autostart + watchdog for the WhatsApp knowledge-base bot (src/index.js) and
+# the web Q&A assistant (src/http-server.js on :9269).
 #
 # IMPORTANT: keep this file pure ASCII.
 # PowerShell 5.1 reads a UTF-8-without-BOM script as GBK, so any non-ASCII
@@ -15,6 +16,14 @@
 # claimed they shared data/auth; that was fixed and the comment corrected on
 # 2026-10-06. Do not "fix" this by stopping one of them.)
 #
+# This script ALSO supervises the web Q&A assistant (src/http-server.js on :9269),
+# the HTTP wrapper behind the portal's bottom-right help widget. It reuses the
+# same routeAnswer() as the group bot, so it is the same answer engine exposed
+# over HTTP. Both daemons are kept alive here so a reboot brings both up, and
+# the 5-minute watchdog restarts either one if it dies. The web assistant has
+# no heartbeat JSON (liveness is a TCP probe on 127.0.0.1:9269), so it is judged
+# differently from the bot, which trusts data\bot_heartbeat.json.
+#
 # Usage:
 #   .\autostart.ps1              # start if not running (idempotent)
 #   .\autostart.ps1 -Watch       # same, but stays quiet unless it acts
@@ -29,11 +38,27 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+# PowerShell 5.1 Start-Process copies the parent env block into a case-insensitive
+# dictionary; if the host has the same variable under two casings (HTTPS_PROXY +
+# https_proxy - common when a proxy is injected into the shell) it throws
+# "Item has already been added" and the launch fails. Drop the lowercase proxy
+# duplicates here: the real config comes from .env via --env-file-if-exists.
+foreach ($k in @('http_proxy', 'https_proxy', 'all_proxy', 'no_proxy')) {
+  if (Test-Path "env:$k") { Remove-Item -Path "env:$k" -ErrorAction SilentlyContinue }
+}
+
 $dir     = Split-Path -Parent $MyInvocation.MyCommand.Path
 $pidFile = Join-Path $dir 'bot.pid'
 $logDir  = Join-Path $dir 'data\logs'
 $hbFile  = Join-Path $dir 'data\bot_heartbeat.json'
 $log     = Join-Path $logDir ("bot-" + (Get-Date -Format 'yyyy-MM-dd') + '.log')
+
+# Web Q&A assistant (:9269). Same watchdog pattern as the bot: a pid file plus a
+# log. Health is a TCP probe, not a heartbeat file (see Test-HttpServerHealthy).
+$httpPidFile = Join-Path $dir 'http-server.pid'
+$httpLog     = Join-Path $logDir ("http-server-" + (Get-Date -Format 'yyyy-MM-dd') + '.log')
+$httpErrLog  = Join-Path $logDir ("http-server-" + (Get-Date -Format 'yyyy-MM-dd') + '.err.log')
+$httpPort    = 9269
 
 # Heartbeat older than this counts as dead. The bot refreshes every 30s, so
 # this leaves ~10x headroom for a slow tick while still noticing a real hang.
@@ -60,6 +85,107 @@ function Find-BotProcess {
     return $p
   }
   return $null
+}
+
+# Same anchoring idea as Find-BotProcess, but for the web Q&A assistant.
+function Find-HttpServerProcess {
+  $procs = @(Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue)
+  foreach ($p in $procs) {
+    $cl = $p.CommandLine
+    if (-not $cl) { continue }
+    if ($cl -match 'dsh-subprocess|powershell\.exe|-Command\s') { continue }
+    # Must be: node [--flags] <path>\src\http-server.js
+    if ($cl -notmatch 'src[\\/]http-server\.js(\s|$|")') { continue }
+    return $p
+  }
+  return $null
+}
+
+# Delete a pid file via .NET instead of Remove-Item.
+# In some environments Remove-Item is wrapped by a "safe delete" hook that
+# forwards the file to the Recycle Bin; when the Recycle Bin is unavailable the
+# hook THROWS, which used to abort the whole -Stop / start sequence halfway
+# (observed 2026-11-04: bot.pid delete failed and the bot never restarted).
+function Remove-PidFile {
+  param([string]$Path)
+  try {
+    if ($Path -and [System.IO.File]::Exists($Path)) {
+      [System.IO.File]::Delete($Path)
+    }
+  } catch { }
+}
+
+# Liveness for the web assistant: a process whose command line is exactly our
+# http-server.js AND the port is actually accepting connections. We use a raw
+# TCP probe instead of GET /health because /health triggers an Ollama model-list
+# call whose timeout balloons to 10s+ when Ollama is down - that would make the
+# watchdog think the assistant is dead and thrash it. TCP-open is the right
+# level: it answers the only question that matters to the portal ("can I reach
+# :9269?").
+function Test-HttpServerHealthy {
+  param([int]$Port = $httpPort)
+  $proc = Find-HttpServerProcess
+  if (-not $proc) { return $false }
+  $tcp = $null
+  try {
+    $tcp = New-Object System.Net.Sockets.TcpClient
+    $iar = $tcp.BeginConnect('127.0.0.1', $Port, $null, $null)
+    if ($iar.AsyncWaitHandle.WaitOne(3000, $false) -and $tcp.Connected) {
+      return $true
+    }
+    return $false
+  } catch {
+    return $false
+  } finally {
+    if ($tcp) { try { $tcp.Close() } catch { } }
+  }
+}
+
+# Launch the web assistant detached and hidden, mirroring the bot launch below.
+# stdout/stderr go to dated files because the process has no internal logger.
+function Start-HttpServer {
+  if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir | Out-Null }
+  $proc = Start-Process -FilePath 'node' `
+    -ArgumentList '--env-file-if-exists=.env','src/http-server.js' `
+    -WorkingDirectory $dir -WindowStyle Hidden -PassThru `
+    -RedirectStandardOutput $httpLog -RedirectStandardError $httpErrLog
+  $proc.Id | Set-Content -Path $httpPidFile
+  return $proc
+}
+
+# Idempotent: start only if not already healthy; restart if alive-but-not-serving.
+function Ensure-HttpServer {
+  $existing = Find-HttpServerProcess
+  $healthy  = Test-HttpServerHealthy
+  if ($existing -and $healthy) {
+    $existing.ProcessId | Set-Content -Path $httpPidFile
+    if (-not $Watch) {
+      Write-Host "whatsapp-kb http-server already running and healthy (pid $($existing.ProcessId))"
+    }
+    return
+  }
+  if ($existing -and -not $healthy) {
+    $ageSec = if ($existing.CreationDate) { ([datetime]::Now - $existing.CreationDate).TotalSeconds } else { 999 }
+    if ($ageSec -lt 30) {
+      if (-not $Watch) { Write-Host "whatsapp-kb http-server pid $($existing.ProcessId) still starting (${ageSec}s old) - leaving it alone" }
+      return
+    }
+    Write-Host "whatsapp-kb http-server pid $($existing.ProcessId) alive but NOT healthy - restarting"
+    Stop-BotProcess -TargetPid $existing.ProcessId
+  }
+  Remove-PidFile -Path $httpPidFile
+  $p = Start-HttpServer
+  # Brief wait for the listener to bind.
+  $ok = $false
+  for ($i = 0; $i -lt 15; $i++) {
+    Start-Sleep -Seconds 1
+    if (Test-HttpServerHealthy) { $ok = $true; break }
+  }
+  if ($ok) {
+    Write-Host "whatsapp-kb http-server started and listening (pid $($p.Id))"
+  } else {
+    Write-Host "whatsapp-kb http-server started (pid $($p.Id)) but not listening on :$httpPort within 15s. Check $httpLog"
+  }
 }
 
 function Get-Heartbeat {
@@ -143,6 +269,12 @@ function Show-Status {
   }
   Write-Host "healthy           : $(Test-Healthy)"
   if (Test-Deaf) { Write-DeafWarning }
+
+  # Web Q&A assistant (:9269)
+  $hp = Find-HttpServerProcess
+  $hh = Test-HttpServerHealthy
+  Write-Host "http-server proc  : $(if ($hp) { 'running (pid ' + $hp.ProcessId + ')' } else { 'NOT running' })"
+  Write-Host "http-server healthy: $hh (port $httpPort)"
 }
 
 if ($Status) { Show-Status; exit 0 }
@@ -176,9 +308,35 @@ function Stop-BotProcess {
 }
 
 if ($Stop) {
+  # Order matters: stop the http-server FIRST, then the group bot.
+  # 2026-11-04 fix: the old code did "exit 0" when the bot was not running,
+  # which skipped the whole http-server stop block below. Result: -Stop said
+  # "not running" while :9269 kept serving the OLD datadomains.js, so the web
+  # assistant and the group bot behaved differently after a code change.
+  $hp = Find-HttpServerProcess
+  if ($hp) {
+    Write-Host "stopping whatsapp-kb http-server (pid $($hp.ProcessId)) ..."
+    Stop-BotProcess -TargetPid $hp.ProcessId
+    $hleft = Find-HttpServerProcess
+    if ($hleft) { Write-Host "  warning: http-server pid $($hleft.ProcessId) is still running" }
+    else { Write-Host "whatsapp-kb http-server stopped" }
+  } else {
+    Write-Host "whatsapp-kb http-server is not running"
+  }
+  Remove-PidFile -Path $httpPidFile
+
   $p = Find-BotProcess
   if (-not $p) {
-    if (Test-Path $pidFile) { Remove-Item $pidFile -Force }
+    Remove-PidFile -Path $pidFile
+    # Mark the heartbeat disconnected so a later -Watch does not mistake the
+    # leftover file for a live bot.
+    try {
+      $hb = Get-Heartbeat
+      if ($hb) {
+        $hb.connected = $false
+        $hb | ConvertTo-Json | Set-Content -Path $hbFile -Encoding UTF8
+      }
+    } catch { }
     Write-Host "whatsapp-kb-bot is not running"
     exit 0
   }
@@ -192,7 +350,7 @@ if ($Stop) {
     Write-Host "whatsapp-kb-bot stopped"
   }
 
-  if (Test-Path $pidFile) { Remove-Item $pidFile -Force }
+  Remove-PidFile -Path $pidFile
   # Mark the heartbeat disconnected so a later -Watch does not mistake the
   # leftover file for a live bot.
   try {
@@ -285,6 +443,10 @@ function Reset-OfflineAlertState {
 
 # --- start / watchdog path -------------------------------------------------
 
+# Keep the web Q&A assistant alive FIRST, independent of the bot below. This runs
+# on every tick (boot + 5-min watchdog), so a reboot or a crash both self-heal.
+Ensure-HttpServer
+
 # Trust the heartbeat, not just the process list: a process can be alive but
 # disconnected (e.g. sitting in a reconnect loop after a logout), in which case
 # Q&A silently goes nowhere and a restart is the right move.
@@ -323,7 +485,7 @@ if ($existing -and -not $healthy) {
   }
 }
 
-if (Test-Path $pidFile) { Remove-Item $pidFile -Force }
+Remove-PidFile -Path $pidFile
 if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir | Out-Null }
 
 # Launch detached and hidden. The project dir must be the working directory

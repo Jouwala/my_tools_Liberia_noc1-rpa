@@ -459,6 +459,59 @@ console.log('\n[3j] 日期/号码不得被当成告警码（2026-10-28 群里实
 
 /* --------------------------- 模型输出解析 --------------------------- */
 
+console.log('\n[3k] 站点属性意图 → query_site_attribute（2026-11-03：VIP 判定答错）');
+{
+  // 背景：问「站点 lofa bridge 是 VIP 站点吗」，机器人答「是 VIP 站点，
+  // 依据 assetType 为 vipSite」—— 结论错、依据错、来源错。
+  // 根因是知识库里没有站点实体数据，模型从规则反推了属性。
+  // 这里锁住「属性问题必须走数据通道，不能进知识库」这条分流。
+
+  const attr = (q) => {
+    const r = parseByRule(q, NOW);
+    return r && r.tool === 'query_site_attribute' ? r.args.site : null;
+  };
+
+  check(attr('站点lofa bridge是VIP站点吗') === 'lofa bridge',
+    '「站点lofa bridge是VIP站点吗」→ 属性通道 + 站名 lofa bridge',
+    JSON.stringify(parseByRule('站点lofa bridge是VIP站点吗', NOW)));
+  check(attr('站点 lofa bridge 是 VIP 站点吗') === 'lofa bridge',
+    '带空格的问法同样命中',
+    JSON.stringify(parseByRule('站点 lofa bridge 是 VIP 站点吗', NOW)));
+  check(attr('lofa bridge 是VIP站点吗') === 'lofa bridge',
+    '无「站点」引导词的问法也命中',
+    JSON.stringify(parseByRule('lofa bridge 是VIP站点吗', NOW)));
+  check(attr('Wood Camp 是什么站点类型') === 'Wood Camp', '问站点类型 → 属性通道');
+  check(attr('Wood Camp 是不是枢纽站') === 'Wood Camp', '问枢纽站 → 属性通道');
+  check(attr('Wood Camp 影响多少用户') === 'Wood Camp',
+    '问影响用户数 → 属性通道（不被 COUNT_INTENT 的「多少」抢走）');
+  check(attr('is lofa bridge a VIP site') === 'lofa bridge', '英文问法 → 属性通道');
+
+  // ⚠️ 不能误伤：属性词不是站名。
+  // 若把站名抽成 "VIP"，整个站点会查成另一个站 —— 查错站比不查更糟。
+  const a1 = parseByRule('lofa bridge 是 VIP 站点吗', NOW);
+  check(a1 && a1.args.site !== 'VIP', '站名不能被抽成属性词「VIP」',
+    JSON.stringify(a1));
+  const a2 = parseByRule('lofa bridge 是 VIP 站点吗', NOW);
+  check(a2 && a2.args.site !== '点吗', '站名不能被抽成疑问语气词「点吗」',
+    JSON.stringify(a2));
+
+  // ⚠️ 不能误伤：规则题 vs 属性题。
+  // 「VIP 站点是什么级别」问的是**类别规则**，不是某个站的属性。
+  // 期望：要么弃权交模型层（null），要么走查表通道 —— 但**绝不能**走属性通道。
+  const ruleQ = parseByRule('VIP 站点是什么级别', NOW);
+  check(!ruleQ || ruleQ.tool !== 'query_site_attribute',
+    '「VIP 站点是什么级别」不是属性题（不该走属性通道）',
+    JSON.stringify(ruleQ));
+
+  // ⚠️ 不能误伤：告警通道与属性通道是不同的事实。
+  const alm = parseByRule('站点 Wood Camp 有告警吗', NOW);
+  check(alm && alm.tool === 'query_site_alarms', '「有告警吗」仍走告警通道',
+    JSON.stringify(alm));
+  const alm2 = parseByRule('Palm Bay check if this site is up or not', NOW);
+  check(alm2 && alm2.tool === 'query_site_alarms', '英文「is it up」仍走告警通道',
+    JSON.stringify(alm2));
+}
+
 console.log('\n[4] 模型工具调用的解析（宽容但不能乱认）');
 {
   check(parseToolCall('{"tool":"query_tickets","args":{"severity":"P1"}}')?.tool === 'query_tickets', '标准 JSON');

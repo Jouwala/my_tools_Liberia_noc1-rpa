@@ -96,6 +96,11 @@ export function describeRoute(r) {
     // 「通道=知识库（bge-m3…）」—— 排障时会被引到错误的通道上。
     return `通道=站点告警（eFlow 实时活动告警${ms}）${via}${tool}`;
   }
+  if (r.channel === 'siteattr') {
+    // 站点属性通道（2026-11-03 新增）：站点主数据，与站点告警是不同的事实。
+    const src = r.stats?.source === 'http' ? 'my_app HTTP（PG 实时）' : '本地站点库副本';
+    return `通道=站点属性（${src}${ms}）${via}${tool}`;
+  }
   if (r.channel === 'vmaxcca') {
     return `通道=VMAX CCA（my_app HTTP 实时${ms}）${via}${tool}`;
   }

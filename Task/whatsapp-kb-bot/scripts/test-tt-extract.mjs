@@ -110,7 +110,16 @@ console.log('\n[5] 路由分流：单号问题走工单通道，其余走知识�
   };
 
   check((await probe('TT202609150073')) === 'tt', 'TT 单号 → tt 通道');
-  check((await probe('WO202609220055')) === 'tt', 'WO 单号 → tt 通道');
+  // ⚠️ 2026-11-03：WO 单号**不再**走 tt 通道，改走 query_wo（数据域通道）。
+  // 理由：WO 是**工作单**、TT 是**告警工单**，两张表不同 —— 拿 WO 号去查
+  // eflow_tt 本就查不到记录；而 query_wo 返回 WO 独有的富字段
+  // （状态 / SLA / 根因 / 影响站点 / 电池与发电机维护记录）。
+  // 这里断言「不再进 tt 通道」而不是「恰好是 datadomain」—— 后者会把这条
+  // 纯路由测试变成依赖 my_app 在线的网络测试。
+  {
+    const woCh = await probe('WO202609220055');
+    check(woCh !== 'tt', 'WO 单号 → 不再走 tt 通道（改走 WO 数据域）', `channel=${woCh}`);
+  }
   // 非单号问题**不得**被误判进工单通道。离线环境下知识库通道会因为
   // 嵌入/模型不可达而抛错、onRoute 来不及触发（channel=undefined），
   // 所以这里断言的是「不是 tt」，而不是「恰好是 kb」——

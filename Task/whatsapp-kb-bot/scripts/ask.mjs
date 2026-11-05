@@ -10,6 +10,7 @@
 import { CONFIG } from '../src/config.js';
 import { loadIndex } from '../src/rag.js';
 import { routeAnswer, describeRoute } from '../src/answer.js';
+import { ensureSiteList } from '../src/sitelist.js';
 import { validateProvider, providerInfo } from '../src/llm.js';
 
 const argv = process.argv.slice(2);
@@ -31,6 +32,10 @@ if (!v.ok) {
 const info = providerInfo();
 const index = loadIndex();
 console.log(`索引：${index.meta.chunks} 块 / ${index.meta.files} 文件`);
+// 站名清单预热：站名抽取是同步的，清单没就绪时校验会放行，
+// 于是 "Critical" 这类英文大写词会被当成站名。
+const siteSet = await ensureSiteList();
+console.log(`站名清单：${siteSet ? siteSet.size : 0} 个${siteSet ? '' : '（拉取失败，本次不做站名校验）'}`);
 console.log(`对话模型：[${info.provider}] ${info.model}\n`);
 console.log(`问：${question}\n`);
 

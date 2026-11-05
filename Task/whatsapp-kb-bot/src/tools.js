@@ -35,6 +35,10 @@ import { chat } from './llm.js';
 import { answer as ragAnswer, withWebHint } from './rag.js';
 import { extractTtNos, analyzeTickets, lookupLevelByRule } from './tt.js';
 import { querySiteAlarms } from './sitealarms.js';
+import { querySiteAttribute, renderSiteAttribute } from './siteattr.js';
+import { queryDataDomain, renderDataDomain, fetchDatasets } from './datadomains.js';
+import { queryData, renderDataQuery, NL2SQL_HINT } from './dataquery.js';
+import { isKnownSite } from './sitelist.js';
 import { parseVmaxCcaIntent, runVmaxCca } from './vmaxcca.js';
 import { parseWarehouseIntent, runWarehouseQuery, isWarehouseKnowledgeQuestion } from './warehousetool.js';
 import {
@@ -118,6 +122,20 @@ const TOOL_SPEC = [
     args: '{"site":"Palm Bay"}',
   },
   {
+    name: 'query_site_attribute',
+    desc:
+      '查**站点的静态属性**：是不是 VIP 站点、站点类型（NORMAL/COOL/ERA）、' +
+      '站点子类型（ERA/REGULAR）、是不是枢纽站、区域/省份、影响用户数、维护负责人等。' +
+      '用于「站点 lofa bridge 是 VIP 站点吗」「XX 站是什么类型」「XX 是枢纽站吗」' +
+      '「XX 站归哪个区域」这类**问站点本身属性**的问题。参数是站点名。' +
+      '**站点属性是数据，不在知识库里** —— 知识库只有规则（能说「VIP 站会被定成几级」），' +
+      '**没有一个站点的属性**。所以这类问题**必须**用本工具查，' +
+      '**绝不要**用 search_knowledge 答 —— 检索只会命中字段词面，' +
+      '然后从规则里硬编一个结论（2026-11-03 实测：答「是 VIP 站，依据 assetType 为 vipSite」，' +
+      '结论与依据双错，而该站实际 vipsite=No）。',
+    args: '{"site":"Lofa Bridge"}',
+  },
+  {
     name: 'query_vmax_cca',
     desc:
       '按**手机号码**查 VMAX CCA 投诉系统的 XDR 用户信息：MSISDN/IMSI/IMEI/机型/流量/' +
@@ -170,6 +188,77 @@ const TOOL_SPEC = [
     args: '{"kind":"overview","keyword":"物料编码或名称 或 空","ticket_no":"SPIB... 或 SPOB... 或 空"}',
   },
   {
+    name: 'query_power',
+    desc:
+      '查**站点的供电状态**：市电/柴发/太阳能/蓄电池的实时读数（负载电流、负载功率、' +
+      '电池电压与电量 SOC、充电状态、发电机是否在用、燃油比例）。' +
+      '用于「XX 站电源状态怎么样」「XX 站电量还剩多少」「XX 站发电机启动了吗」' +
+      '「power status of XX」这类**问供电**的问题。参数是站点名。' +
+      '**不要**用 query_site_alarms 答这类问题 —— 那是告警状态，不是供电读数。',
+    args: '{"site":"Wood Camp"}',
+  },
+  {
+    name: 'query_alarm_history',
+    desc:
+      '查**站点的历史告警**：告警码、告警名称、级别、发生时间、是否已清除、关联 TT、' +
+      '受影响站点数。用于「XX 站最近有什么告警」「XX 站上周的告警记录」' +
+      '「historical alarms of XX」这类问**过去发生过什么**的问题。' +
+      '参数是站点名 + 回看天数（days）。' +
+      '**与 query_site_alarms 的区别**：那个查的是**现在**的活动告警，' +
+      '这个查的是**历史上**发生过的告警（history_alarm 表，1.9 万行）。' +
+      '问「最近/历史」用这个，问「现在有没有」用那个。',
+    args: '{"site":"Wood Camp","days":7}',
+  },
+  {
+    name: 'query_wo',
+    desc:
+      '查**WO 工单**明细：WO 号、关联 TT、状态、级别、标题、创建/更新时间、SLA 状态与剩余、' +
+      '当前处理人、影响站点数、根因与诊断结论。用于「XX 站有几个 WO」' +
+      '「XX 站未闭环的工单有哪些」「WO202610120018 什么状态」' +
+      '「work orders of XX」。参数是站点名，或 WO 单号。' +
+      '**与 query_tickets 的区别**：query_tickets 是工单**数量**统计（按日期区间），' +
+      'query_wo 是 WO **明细**（含状态/SLA/根因）。问「有几个/多少单」用前者，' +
+      '问「有哪些/什么状态」用后者。' +
+      'status 可选，用于按状态过滤；注意库里**没有 Open 这个值**，' +
+      '「未闭环/未关闭」要传 "!Closed"（排除语义），「已关闭」传 "Closed"，' +
+      '「待确认」传 "Wait For Confirm"，「待接单」传 "Waiting for Accept"。',
+    args: '{"site":"Wood Camp","wo_no":"","status":"!Closed"}',
+  },
+  {
+    name: 'query_site_availability',
+    desc:
+      '查**站点可用率**（2G/3G/4G/5G 各制式分别统计，含逐日明细）。' +
+      '用于「XX 站这个月可用率多少」「XX 站 10 月的 4G 可用率」' +
+      '「site availability of XX」这类问题。参数是站点名 + 月份（month，空=当月）。',
+    args: '{"site":"Wood Camp","month":"2026-10"}',
+  },
+  {
+    name: 'query_task_stats',
+    desc:
+      '查 **my_app 任务管理（task manager）的执行统计**：注册任务总数、最近一次执行的' +
+      '**成功 / 失败 / 运行中 / 已停用 / 未记录**计数、当前失败任务明细与失败根因聚类。' +
+      '口径与 my_app 前端「数据同步」任务管理页**完全一致**。' +
+      '用于「task manager 有多少任务成功多少失败」「哪些任务执行失败了」' +
+      '「任务失败原因是什么」这类问题。' +
+      '⚠️ 问的是 **my_app 自己的任务**（数据同步/报表/KPI 同步等定时任务）时必须用它，' +
+      '**不要**用 query_data —— NL2SQL 会把 "my_app" 当成要过滤的字面量，' +
+      '生成 `task_name ILIKE \'%my_app%\'` 从而命中 0 行（2026-11-04 实测故障）。',
+    args: '{"task_id":"","days":7,"limit":20}',
+  },
+  {
+    name: 'query_data',
+    desc:
+      '通用**数据库查询**（NL2SQL）：把自然语言问题翻译成只读 SQL 去查生产库。' +
+      '仅在**专用工具都不适用**时使用 —— 专用工具覆盖站点属性、电源、历史告警、WO、' +
+      '站点可用率、TT 统计与单号分析、实时告警、告警码规则、库存、用户投诉、任务管理。' +
+      '问题涉及**其他数据**（KPI、丢包、传输光路、电池、拓扑、任务队列、工单根因分布等）' +
+      '才用它。参数就是原始问题。' +
+      '⚠️ **my_app 自己的定时任务**（task manager / 任务成功失败）要用 query_task_stats，' +
+      '别用这里 —— NL2SQL 会把 "my_app" 当成字面量过滤，命中 0 行。' +
+      '**它慢（十秒级）**，所以能用专用工具就优先用专用工具。',
+    args: '{"question":"原始问题"}',
+  },
+  {
     name: 'search_knowledge',
     desc:
       '检索知识库文档。用于「流程怎么走」「为什么没有级别」这类**叙述性静态知识**问题，' +
@@ -200,9 +289,18 @@ const ROUTER_PROMPT =
   'automatically / 自动建 TT）→ 用 lookup_eflow_rule，parts=tt。\n' +
   '· 出现告警码，且问**级别 / 定级 / 几级**；或只问「P1 是什么级别」「P1 规则」→ 用 lookup_level_rule。\n' +
   '· 有告警码且问含义/压缩/级别时，**一律不要**用 search_knowledge —— 那是查表题，不是叙述题。\n' +
-  '· 问某个**站点当前有没有告警 / 是不是 up / 什么告警 / down 没 down** → 用 query_site_alarms；' +
-  '把站点名填进 site。**这类问题绝不要用 query_tickets** —— query_tickets 是工单数量，' +
-  '按站名匹配工单会得到 0，而 0 张工单**不等于**没有告警，那会答错。\n' +
+'· 问某个**站点当前有没有告警 / 是不是 up / 什么告警 / down 没 down** → 用 query_site_alarms；' +
+    '把站点名填进 site。**这类问题绝不要用 query_tickets** —— query_tickets 是工单数量，' +
+    '按站名匹配工单会得到 0，而 0 张工单**不等于**没有告警，那会答错。\n' +
+  '· 问某个**站点的静态属性**（是不是 VIP 站 / 站点类型 / 是不是枢纽站 / 影响用户数 / ' +
+    '归属区域）→ 用 query_site_attribute，把站点名填进 site。' +
+    '**站点属性是数据，不在知识库里** —— 知识库只有规则（能说「VIP 站会被定成几级」），' +
+    '**没有一个站点的属性**。所以这类问题**必须**用本工具，' +
+    '**绝不要**用 search_knowledge 答（2026-11-03 实测：检索命中「级别规则」文档，' +
+    '然后从规则里硬编出「是 VIP 站，依据 assetType 为 vipSite」，结论与依据双错，' +
+    '而该站实际 vipsite=No）。\n' +
+  '· 「VIP 站点**是什么级别**」这类问的是**规则**（不是某个站的属性）→ 用 lookup_level_rule；' +
+    '只有「XX 站是不是 VIP」这种**点名了具体站**的才用 query_site_attribute。\n' +
   '· 出现 TEL / MSISDN + **手机号码**（利比里亚号：231 开头 12 位，或 773777115 这类本地号）' +
     '→ 用 query_vmax_cca，号码填 msisdn（本地号原样填，执行层自动补 231），截止时间填 time。' +
     '手机号**不是**告警码，不要用 lookup_alarm_code。\n' +
@@ -211,9 +309,43 @@ const ROUTER_PROMPT =
     '点名物料时填 keyword 且 kind=material；其余（只说「库房怎么样」）kind=overview。\n' +
     '· 库房问题**一律不要**用 search_knowledge —— 库存数量与单据状态是实时数据，' +
     '语料里没有，检索只会给出「资料里没有实际库房数据」。\n' +
-  '· 其余「流程 / 为什么 / 怎么走 / 定义」这类**叙述性静态知识** → 用 search_knowledge。\n' +
+  '· 问某个**站点的供电状态**（电源 / 电量 / 蓄电池 / 发电机 / 燃油 / 市电 / 太阳能，' +
+    '或 power status / battery / generator / fuel / grid）→ 用 query_power，把站点名填进 site。' +
+    '**不要**用 query_site_alarms —— 那是告警状态，不是供电读数。\n' +
+  '· 问某个站点**历史上**有过哪些告警（含「最近 / 历史 / 过去 / 上周 / 记录」，' +
+    '或 historical / recent / past alarms）→ 用 query_alarm_history，' +
+    '站点名填 site，回看天数填 days（问「最近 30 天」就填 30，没说就填 7）。\n' +
+  '· **区分**：「XX 站现在有没有告警」→ query_site_alarms（实时活动告警）；' +
+    '「XX 站最近有什么告警」→ query_alarm_history（history_alarm 历史记录）。' +
+    '这是**两张不同的表**，别混用。\n' +
+  '· 问 **WO 工单明细**（有哪些 WO / WO 什么状态 / 未闭环的工单 / work order，' +
+    '或给出 WO 开头单号）→ 用 query_wo。站点名填 site，WO 单号填 wo_no。\n' +
+  '· **区分**：问「有几个 / 多少单」（数量统计）→ query_tickets；' +
+    '问「有哪些 / 什么状态 / SLA / 根因」（明细）→ query_wo。两者口径不同。\n' +
+'· 问**站点可用率**（可用率 / 在线率 / 掉线率 / availability / uptime）' +
+    '→ 用 query_site_availability，站点名填 site，月份填 month' +
+    '（问「10 月」就填 2026-10，没说就留空=当月）。\n' +
+  '· 问 **my_app 任务管理 / task manager**（多少任务成功多少失败、哪些任务失败了、' +
+    '定时任务执行情况、任务失败原因，或 task manager / scheduled task / 定时任务）' +
+    '→ 用 **query_task_stats**（口径与 my_app 任务管理页一致）。\n' +
+    '  ⚠️ 这类问题**绝对不要**用 query_data —— NL2SQL 会把 "my_app" 当成要过滤的' +
+    '字面量，生成 `task_name ILIKE \'%my_app%\'`，而任务名是中文的，' +
+    '必然命中 0 行（2026-11-04 实测故障：库里 83 个任务，答案却是「没有匹配到任何记录」）。\n' +
+  '· ⚠️ **没有点名站点**时（问「全网」「所有站」「整个网络」，或通篇没出现站名）' +
+    '→ **不要**用 query_power / query_alarm_history / query_wo / query_site_availability ' +
+    '（它们必须带站名，没站名就查不到东西，只能瞎编）。' +
+    '这种**跨站统计**（如「最近 7 天全网有多少条 Critical 告警」）→ 用 query_data，' +
+    '把原问题原样填进 question。\n' +
+    '· 其余「流程 / 为什么 / 怎么走 / 定义」这类**叙述性静态知识** → 用 search_knowledge。\n' +
+  '· 问的是**数据事实**（要数字 / 要列表 / 要统计），但上面所有专用工具都不适用时 ' +
+    '（如 KPI、丢包率、传输光路、电池、拓扑、工单根因分布、任务队列等）→ 用 query_data，' +
+    '把原始问题原样填进 question。\n' +
+  '· **区分**：「XX 的流程是怎么走的」= 叙述知识 → search_knowledge；' +
+    '「XX 有多少张单 / 哪些站掉线」= 数据事实 → 专用工具或 query_data。' +
+    '**绝不要**用 search_knowledge 答数据事实类问题 —— 语料里没有这些数字，' +
+    '检索只会得到「资料里没有」，而库里明明有。\n' +
   '· 注意区分：「P1 是什么」= lookup_level_rule；「今天有几个 P1」= query_tickets。\n' +
-  '· 拿不准且**没有**告警码 → 用 search_knowledge。\n' +
+  '· 拿不准、且问的是**叙述性知识** → 用 search_knowledge；问的是**数据事实** → 用 query_data。\n' +
   '· 提问里若点名了**具体站点**（如「Wood camp 这个站」「Qcell R.I.A 有几个单」），' +
   '把站点名原样填进 site；没点名就留空字符串。\n' +
   '· 提问里若带了**告警类型限定词**（Fiber / 光纤 / 光缆 / Microwave / Power / ' +
@@ -584,6 +716,155 @@ export function parseLookupIntent(q, lookups) {
  *
  * @returns {{tool:string, args:object}|null}
  */
+/* --------------------- 站点属性意图（query_site_attribute） --------------------- */
+
+/**
+ * 「某站点**是什么属性**」的问法特征。
+ *
+ * ## 为什么必须单独识别
+ *
+ * 2026-11-03 实测故障：问「站点 lofa bridge 是 VIP 站点吗」，机器人答
+ * 「是 VIP 站点，依据 assetType 为 vipSite」——结论错、依据错、来源错。
+ * 根因是**知识库里没有站点实体数据**，只有规则；模型于是从规则反推站点属性，
+ * 还把 `assetType`（取值只有 NORMAL/COOL/ERA）和 `vipSite`（独立字段）
+ * 揉成了一个根本不存在的值。
+ *
+ * 站点属性是**数据**（在 eflow_site / master_site_db 里），不是**知识**
+ * （在 knowledge/ 里）。所以这类问题必须走数据通道，不能进 RAG。
+ *
+ * ## 收得窄的三个理由
+ *
+ *   ① 必须出现**站点属性词**（VIP / 站点类型 / 枢纽站 …），光有站名不算 ——
+ *      否则「Wood camp 昨天有几单」会被误拐到属性通道。
+ *   ② 必须**同时**能抽出站名 —— 抽不出就弃权交模型层（宁可走模型，不要瞎猜站名）。
+ *   ③ 必须**排除**告警语义（「现在有没有告警 / 是不是 up」）——那是
+ *      query_site_alarms 的地盘，与属性查询是不同的事实（见 src/sitealarms.js）。
+ *
+ * ⚠️ 与 COUNT_INTENT 的关系：「是 VIP 站点吗」里有「吗」但**没有**数量词，
+ * 所以不会被统计通道抢走；但反过来，属性通道也**不能**收「有几单」。
+ */
+const SITE_ATTR_INTENT =
+  /(VIP\s*站点|VIP\s*站|是不是\s*VIP|是\s*VIP|vip\s*site|站点类型|站点\s*类型|site\s*type|什么类型|枢纽站|hub\s*site|是不是\s*枢纽|站点属性|site\s*attribute|影响.{0,4}用户|用户.{0,4}影响|受影响用户|用户数|victims|站点子类型|站点优先级|归属区域|属于哪个区域|属于哪個区域|site\s+priority)/i;
+
+/* ---------------- 数据域意图（电源 / 历史告警 / WO / 可用率） ---------------- */
+
+/**
+ * 强电源词 —— 描述的是**供电这件事本身**。
+ *
+ * ⚠️ 与「站点告警」通道的边界：问「XX 站是不是 down 了」是问**实时告警状态**，
+ * 问「XX 站电源什么状态」是问**供电读数**。两者都可能是事实，但数据源不同
+ * （实时活动告警 vs ipt_power_snapshots），答错比不答更糟，所以按词面分清。
+ */
+const POWER_INTENT =
+  /(电源|供电|电量|蓄电池|蓄电|发电机|燃油|柴油|市电|太阳能|power\s*status|power\s*supply|battery|generator|diesel|fuel|grid|solar|ups)/i;
+
+/** 告警语义词 —— 用于把「实时告警」与「历史告警」分开。 */
+const ALARM_WORD = /(告警|报警|alarm)/i;
+
+/** 工单/单据语义词 —— 出现它就说明问的是单据，不是站点状态。 */
+const TICKET_WORD = /(TT\d|WO\d|工单|单据|ticket|work\s*order)/i;
+
+/**
+ * 历史性词 —— 「过去发生过什么」与「现在怎么样」的分界。
+ *
+ * ⚠️ 必须成对使用：**告警词 + 历史词**才算历史告警。
+ * 「XX 站现在有没有告警」不含历史词 → 走实时告警通道（query_site_alarms）；
+ * 「XX 站最近有什么告警」含历史词 → 走 history_alarm（query_alarm_history）。
+ * 两份数据是**不同的表**，不能互相顶替（见 src/sitealarms.js）。
+ */
+const HISTORY_WORD =
+  /(历史|最近|过去|上周|上个?月|近[一1]?周|近[一1]?个?月|过去几|过往|记录|history|historical|recent|past|last\s+(week|month|day|\d+))/i;
+
+/** WO（工作单）语义词。TT 与 WO 是两类单据，走不同通道。 */
+const WO_WORD =
+  /(\bWO\b|WO\d{8,}|work\s*order|工作单|维修单|工单明细|未闭环|未关闭|待确认|待处理)/i;
+
+/** 可用率语义词。 */
+const AVAILABILITY_INTENT =
+  /(可用率|可用性|在线率|掉线率|availability|uptime|site\s*availability)/i;
+
+/**
+ * my_app **自身定时任务**（任务管理 / task manager）语义词。
+ *
+ * ⚠️ 这条通道必须**排在统计（COUNT_INTENT）之前**（2026-11-04 实测故障）：
+ * 「my_app 的 task manager 现在有多少任务成功多少失败」里有「多少」，
+ * COUNT_INTENT 必然命中 → 统计通道会去查**工单表**答「0 单」，
+ * 而用户问的是定时任务，一条工单都不是 —— **答错而不报错**。
+ *
+ * 另一层风险：万一漏到模型层选了 query_data，NL2SQL 会把 "my_app" 当成
+ * 要过滤的字面量（`task_name ILIKE '%my_app%'`），而任务名是中文的
+ * （「eFlow 数据同步」…），必然命中 0 行 → 机器人答「没有匹配到任何记录」。
+ * 库里明明有 83 个任务。规则层直接拦下来最稳。
+ */
+const TASK_MGR_INTENT =
+  /(task\s*manager|任务管理|定时任务|调度任务|计划任务|scheduled\s*task|cron\s*task|任务队列|task\s*queue)/i;
+
+/** 从问法里抽「回看多少天」。支持 天/周/月 三种写法。 */
+function parseLookbackDays(q) {
+  const m = String(q).match(/(\d+)\s*(天|日|周|个?月|月)/);
+  if (!m) return 0;
+  const n = Number(m[1]);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  const unit = m[2];
+  if (/周/.test(unit)) return Math.min(n * 7, 365);
+  if (/月/.test(unit)) return Math.min(n * 30, 365);
+  return Math.min(n, 365);
+}
+
+/** 从问法里抽「哪个月」。支持 2026-10 / 10月 / 去年10月 几种形态。 */
+function parseMonth(q) {
+  const ym = String(q).match(/(20\d{2})\s*[-/年]\s*(\d{1,2})\s*月?/);
+  if (ym) {
+    const mm = String(Number(ym[2])).padStart(2, '0');
+    if (Number(ym[2]) >= 1 && Number(ym[2]) <= 12) return `${ym[1]}-${mm}`;
+  }
+  const now = new Date();
+  const my = String(q).match(/(\d{1,2})\s*月/);
+  if (my) {
+    const mm = Number(my[1]);
+    if (mm >= 1 && mm <= 12) {
+      const year = /去年/.test(q) ? now.getFullYear() - 1
+        : (/前年/.test(q) ? now.getFullYear() - 2 : now.getFullYear());
+      return `${year}-${String(mm).padStart(2, '0')}`;
+    }
+  }
+  return '';
+}
+
+/**
+ * 解析 WO 工单的状态语义。
+ *
+ * ⚠️ **库里没有 "Open" 这个状态值**。eflow_wo.status 的实际取值（生产库 12 种）：
+ *   Closed(11234) / Wait For Confirm(4231) / Waiting for Accept(216) /
+ *   Waiting for Process(10) / Waiting for Leave Site(8) / Waiting for Arrive Site(5) …
+ * 运维口径的「未闭环 / 未关闭」= **排除 Closed**，由后端用 `!Closed` 表达；
+ * 若按字面去匹配 "Open"，一条都查不出来。
+ *
+ * 返回值：
+ *   `!Closed`             排除语义（未闭环 / 未关闭 / 处理中 / 进行中）
+ *   `Closed`              已闭环 / 已关闭
+ *   `Wait For Confirm`    待确认
+ *   `Waiting for Accept`  待接单 / 待受理
+ *   `''`                  未指定状态（不过滤）
+ */
+function parseWoStatus(q) {
+  const s = String(q || '');
+  // ⚠️ 排除语义必须**先判**，否则 "unclosed" 会被后面的 "closed" 规则命中。
+  if (/(未闭环|未关闭|未完成|还没(处理|闭环|关)|还在处理|处理中|进行中|在途|未完工|pending|unclosed|not\s*closed|open)/i.test(s)) {
+    return '!Closed';
+  }
+  if (/(已闭环|已关闭|已完成|已完工|关闭的|closed)/i.test(s)) {
+    return 'Closed';
+  }
+  if (/(待确认|等待确认|wait\s*for\s*confirm)/i.test(s)) {
+    return 'Wait For Confirm';
+  }
+  if (/(待接单|待受理|待处理|waiting\s*for\s*accept)/i.test(s)) {
+    return 'Waiting for Accept';
+  }
+  return '';
+}
+
 /* --------------------- 站点告警意图（query_site_alarms） --------------------- */
 
 /**
@@ -612,6 +893,14 @@ const SITE_STOPWORDS = new Set([
   'up', 'down', 'have', 'has', 'is', 'the', 'for', 'form', 'from', 'and', 'or', 'not',
   'no', 'yes', 'created', 'create', 'why', 'what', 'which', 'any', 'there', 'this',
   'that', 'status', 'now', 'current', 'eflow', 'and', 'of', 'in', 'on', 'to',
+  // 站点**属性词**不是站名 —— 2026-11-03 修：
+  // 「lofa bridge 是 VIP 站点吗」里 extractSiteName 抽到了 "VIP"
+  // （它是「大写开头」的词，命中纯英文专名规则），于是整个站点查成了
+  // 一个叫 "VIP" 的站 —— 查错站比不查更糟。
+  // 这些词描述的是**要问的属性**，不是**要问的站**。
+  'vip', 'hub', 'type', 'attribute', 'attributes', 'priority', 'victims',
+  'user', 'users', 'subscriber', 'subscribers', 'region', 'county', 'province',
+  'affected', 'impact',
   // 疑问词/助动词不是站名 —— 2026-10-28 实测：「How will Alarm Code 200201001 be
   // compressed…」被抽成站名「How」，整题拐进站点告警通道，答了一句「How 现在没有告警」。
   'how', 'will', 'would', 'be', 'was', 'were', 'are', 'do', 'does', 'did', 'can',
@@ -663,14 +952,133 @@ function extractSiteName(q) {
     .map((w) => w.trim())
     .filter((w) => {
       const head = w.split(/\s+/)[0].toLowerCase();
-      return !SITE_STOPWORDS.has(head) && w.replace(/[^A-Za-z0-9]/g, '').length >= 3;
+      if (SITE_STOPWORDS.has(head)) return false;
+      if (w.replace(/[^A-Za-z0-9]/g, '').length < 3) return false;
+      // ⚠️ 站名清单校验：把「明显不是站名」的英文大写词剔掉。
+      // 典型误判：「最近7天全网有多少条 **Critical** 级别的告警」里的 Critical
+      // 是告警级别，不是站名 —— 拿它去查库必然查空，然后机器人编一句
+      // 「查到了 Critical，但历史告警没有记录」（假答案）。
+      //
+      // 判定是**宽松**的（见 sitelist.isKnownSite）：清单未就绪时返回 null，
+      // 此时**不拦截**（绝不能因为清单拉不到就把所有站名都毙掉）。
+      return isKnownSite(w) !== false;
     });
   // 仅当**恰好一个**候选时采用（多个说明歧义 → 弃权交模型层，宁可不猜）
   if (cands.length === 1) return cands[0];
 
   // ③ 中文站点：`XX站` / 「站点 XX」——仅当 XX 是 ≥2 个汉字时。
+  //
+  // ⚠️ 必须排除**疑问语气词**结尾的候选（2026-11-03 修）：
+  // 「lofa bridge 是 VIP 站点吗」里 `站点?` 的「点」是可选的，
+  // 于是 `站点?\s*([一-龥]{2,10})` 回溯成「站」+「点吗」，
+  // 把「点吗」当成了站名。问句里的「吗/吧/呢」不是站名的一部分。
+  // 命中这种候选时**弃权**（返回 ''）交模型层，而不是拿一个假站名去查库 ——
+  // 查错站比不查更糟。
   const zh = s.match(/([一-龥]{2,10})\s*站(?:点)?/) || s.match(/站点?\s*([一-龥]{2,10})/);
-  if (zh) return zh[1];
+  if (zh) {
+    const cand = zh[1];
+    // 末尾是疑问/语气词 → 弃权（"点吗"、"吗呢" 这类）
+    if (!/[吗吧呢啊呀嘛噢喔]$/.test(cand)) return cand;
+    return '';
+  }
+
+  return '';
+}
+
+/**
+ * 从**站点属性问句**里抽站名（属性通道专用兜底）。
+ *
+ * ## 为什么需要它
+ *
+ * :func:`extractSiteName` 的规则 ② 只认「首字母大写」的英文专名
+ * （Palm Bay / Wood Camp），因为全小写词组无法与普通句词可靠区分。
+ * 但站点属性问句有个**天然优势**：属性词（VIP / 枢纽站 / 站点类型…）
+ * 把站名的位置框住了 —— 「**lofa bridge** 是 VIP 站点吗」里，
+ * 属性词之前的那段就是站名。
+ *
+ * 所以这里用「属性词前的英文词组」来定位，比全局猜专名可靠得多。
+ *
+ * 2026-11-03 实测：「lofa bridge 是 VIP 站点吗」若走通用抽取，
+ * 规则 ② 抽不到（小写）、规则 ③ 抽到「点吗」——两次都错。
+ *
+ * ## 为什么仍然要「抽不到就弃权」
+ *
+ * 站名抽错比抽不到更糟：抽错会查到**别的站**去，
+ * 然后自信地报出那个站的属性。宁可弃权交模型层。
+ */
+function extractSiteNameForAttr(q) {
+  const s = String(q || '');
+
+  // ① 「站名 + 属性词」：lofa bridge 是 VIP 站点吗 / Wood Camp 是不是枢纽站
+  //    属性词之前的英文词组（1~4 词）即为站名。
+  //
+  //    ⚠️ 两个细节都是实测踩出来的（2026-11-03）：
+  //    ① 连接词与属性词之间必须允许空格：「是 VIP 站点」中间有空格，
+  //       用 `(?:是|…)` 直接紧跟属性词会整条失配。
+  //    ② 站名词组必须**非贪婪** `+?` —— 贪婪时会把属性词前的词也吞进来
+  //       （"lofa bridge" 后面已经跟了空格，再贪婪就匹配不到了）。
+  const before = s.match(
+    /([A-Za-z][A-Za-z0-9'\-]*(?:\s+[A-Za-z0-9'\-]+){0,3}?)\s+(?:是|算|属于|算不算|是不是|as\s+an?\s+|is\s+(?:a\s+|an\s+)?)\s*(VIP|vip|枢纽|hub|站点类型|站点属性)/i
+  );
+  if (before) {
+    const words = before[1].trim().split(/\s+/);
+    const keep = [];
+    for (const w of words) {
+      const lw = w.toLowerCase();
+      if (SITE_STOPWORDS.has(lw)) break;
+      keep.push(w);
+      if (keep.length >= 4) break;
+    }
+    if (keep.length) {
+      const name = keep.join(' ');
+      // 必须**真的像个站名**：含大写，或含至少两个词（避免把单个普通词当站名）
+      if (name.length >= 3 && (/\s/.test(name) || /[A-Z]/.test(name))) {
+        return name;
+      }
+    }
+  }
+
+  // ② 「属性词 + 站名」：是 VIP 站点 lofa bridge 吗 / is VIP site lofa bridge
+  const after = s.match(
+    /(?:VIP|vip)\s*(?:站点|站|site)\s+([A-Za-z][A-Za-z0-9'\-]*(?:\s+[A-Za-z0-9'\-]+){0,3})/i
+  );
+  if (after) {
+    const words = after[1].trim().split(/\s+/);
+    const keep = [];
+    for (const w of words) {
+      if (SITE_STOPWORDS.has(w.toLowerCase())) break;
+      keep.push(w);
+      if (keep.length >= 4) break;
+    }
+    if (keep.length) {
+      const name = keep.join(' ');
+      if (name.length >= 3 && (/\s/.test(name) || /[A-Z]/.test(name))) {
+        return name;
+      }
+    }
+  }
+
+  // ③ 英文问法：「is lofa bridge a VIP site」/「is lofa bridge a hub site」。
+  //    与 ① 同理，只是连接词与冠词顺序不同（is + a + VIP site）。
+  //    站名在 "is" 之后、属性词之前。
+  const enBefore = s.match(
+    /\b(?:is|was)\s+(?:a\s+|an\s+|the\s+)?([A-Za-z][A-Za-z0-9'\-]*(?:\s+[A-Za-z0-9'\-]+){0,3}?)\s+(?:a\s+|an\s+|the\s+)?(VIP|vip|hub)\b/i
+  );
+  if (enBefore) {
+    const words = enBefore[1].trim().split(/\s+/);
+    const keep = [];
+    for (const w of words) {
+      if (SITE_STOPWORDS.has(w.toLowerCase())) break;
+      keep.push(w);
+      if (keep.length >= 4) break;
+    }
+    if (keep.length) {
+      const name = keep.join(' ');
+      if (name.length >= 3 && (/\s/.test(name) || /[A-Z]/.test(name))) {
+        return name;
+      }
+    }
+  }
 
   return '';
 }
@@ -679,6 +1087,15 @@ export function parseByRule(question, now = new Date()) {
   const q = String(question || '').trim();
 
   // ① 单号优先：TT/WO 单号是强信号，且这条通道最成熟。
+  //
+  // ⚠️ **WO 单号必须先于 TT 判定**（2026-11-03）：extractTtNos 会把
+  // `WO202610120018` 也当成单号，于是「WO202610120018 什么状态」被送进
+  // analyze_ticket 去查 TT 表 —— 但 WO 是**工作单**、TT 是**告警工单**，
+  // 两张表不同，查错表答出来的字段全是错的。
+  const woNoEarly = (q.match(/WO\d{8,}/i) || [])[0];
+  if (woNoEarly) {
+    return { tool: 'query_wo', args: { site: '', wo_no: woNoEarly.toUpperCase() } };
+  }
   const ttNos = extractTtNos(q);
   if (ttNos.length) return { tool: 'analyze_ticket', args: { tt_no: ttNos[0] } };
 
@@ -708,6 +1125,122 @@ export function parseByRule(question, now = new Date()) {
   // 与「某站现在有没有告警」。①.5 复用同一结果，不重复解析（名称反查要扫码表）。
   const hasCountWordEarly = COUNT_INTENT.test(q);
   const lookupIntentEarly = hasCountWordEarly ? null : parseLookupIntent(q);
+
+  // ①.1 站点**属性**意图：问「这个站是不是 VIP / 什么类型 / 是不是枢纽站」。
+  //
+  // 必须排在**站点告警通道之前**（①.2）：「lofa bridge 是 VIP 站点吗」里
+  // 「站点」两个字会让 SITE_ALARM_INTENT 命中（它认「站点」以外的 up/down 语义，
+  // 但英文问法「is lofa bridge a VIP site up?」之类会撞上），而且
+  // 属性与告警是**不同的事实** —— 属性通道查站点主数据，告警通道查实时活动告警。
+  //
+  // 也必须排在**查表（①.5）与统计（②）之前**：
+  //   · 「VIP 站点是什么级别」是**规则题**（lookup_level_rule），不是属性题 ——
+  //     判据是句子里有没有**具体站名**：有站名 = 问这个站的属性；
+  //     没站名 = 问 VIP 站这个**类别**的规则。这两者的答案来源完全不同。
+  //   · 「XX 站影响多少用户」含「多少」会被 COUNT_INTENT 抢走 —— 但那是
+  //     **属性字段**（victims），不是工单数量，所以属性通道要先接。
+  //
+  // 站名抽不出就**弃权**（返回 null 继续往下），不猜站名 —— 猜错会查到别的站去，
+  // 那比「没答」更糟（2026-10-24 的教训：宁可弃权交给模型层，也不要硬猜）。
+  if (SITE_ATTR_INTENT.test(q) && !lookupIntentEarly) {
+    // 先用通用抽取；结果**可疑**（抽不到，或抽到的是「点吗」这类疑问语气词）
+    // 时，再用属性问句专用的兜底抽取（见 extractSiteNameForAttr）。
+    //
+    // ⚠️ 通用抽取在属性问句里有个坑：「lofa bridge 是 VIP 站点吗」的中文规则
+    // `站点?\s*([一-龥]{2,10})` 会回溯成「站」+「点吗」，抽出假站名「点吗」。
+    // 所以这里用**同一套判定**（末尾是疑问语气词 → 不可信）再筛一遍。
+    const suspect = (n) => !n || /[吗吧呢啊呀嘛噢喔]$/.test(n);
+    let attrSite = extractSiteName(q);
+    if (suspect(attrSite)) attrSite = extractSiteNameForAttr(q);
+    if (attrSite && !suspect(attrSite)) {
+      // 排除「VIP 站点是什么级别」这类规则题：句子里出现级别词就交给查表通道。
+      const levelWord = /(级别|等级|定级|几级|priority\s*level|P\d\s*规则)/i.test(q);
+      if (!levelWord) {
+        return { tool: 'query_site_attribute', args: { site: attrSite } };
+      }
+    }
+  }
+
+  // ①.4 my_app 自身定时任务（task manager）—— **必须排在统计（②）之前**。
+  //
+  // 「my_app 的 task manager 现在有多少任务成功多少失败」里的「多少」会让
+  // COUNT_INTENT 命中，统计通道会去查**工单表**答「0 单」—— 而用户问的是
+  // 定时任务，一条工单都不是，**答错而不报错**（2026-11-04 实测）。
+  //
+  // 排在 ①.5（数据域意图）之后也可以，但必须在 ② 之前。
+  if (TASK_MGR_INTENT.test(q)) {
+    // 失败根因聚类默认回看 7 天；问「最近 N 天」就用 N。
+    const days = parseLookbackDays(q) || 7;
+    return { tool: 'query_task_stats', args: { task_id: '', days, limit: 20 } };
+  }
+
+  // ①.5 数据域意图：电源 / 历史告警 / WO / 可用率。
+  //
+  // ⚠️ **四个的顺序不能随便换**，每一条都有被前面通道抢走的风险：
+  //
+  //   ① 历史告警 —— 必须排在**实时告警（①.2）之前**。两者都含「告警」词，
+  //     靠「历史性词」区分：「XX 站最近有什么告警」→ history_alarm（1.9 万行）；
+  //     「XX 站现在有没有告警」→ eFlow 实时活动告警。是**两张不同的表**。
+  //
+  //   ② 电源 —— 必须排在**实时告警之前**。「XX 站是不是 down 了」问的是告警状态；
+  //     「XX 站电源什么状态 / 电量还剩多少」问的是供电读数（ipt_power_snapshots）。
+  //     电源问法常夹带 down/告警类词（SITE_ALARM_INTENT 认这些），晚判就被抢走。
+  //
+  //   ③ WO —— 必须排在**统计（②）之前**。「XX 站有几个 WO」含「几个」会被
+  //     COUNT_INTENT 接走去查工单表，WO 表与 TT 表口径不同，答出来的数不对。
+  //
+  //   ④ 可用率 —— 含「率」但不是工单数量，不会被统计抢；放最后兜底。
+  //
+  // 抽不到站名一律**弃权**（返回 null 继续往下），交给模型层按工具说明路由 ——
+  // 猜站名会查到别的站去，那比不答更糟（2026-10-24 的教训）。
+  {
+    const hasAlarm = ALARM_WORD.test(q);
+    const hasTicket = TICKET_WORD.test(q);
+
+    // ① 历史告警
+    if (hasAlarm && HISTORY_WORD.test(q) && !/TT\d|WO\d/i.test(q)) {
+      const s = extractSiteName(q);
+      if (s && !/[吗吧呢啊呀嘛噢喔]$/.test(s)) {
+        const days = parseLookbackDays(q) || 7;
+        return { tool: 'query_alarm_history', args: { site: s, days } };
+      }
+    }
+
+    // ② 电源
+    //
+    // ⚠️ 必须**排除含告警语义**的问法：「Wood Camp 电源告警是什么」问的是
+    // 告警（哪类告警与电源有关），不是供电读数。把它送进电源通道会答成
+    // 「市电正常、电池 87%」，答非所问。
+    if (POWER_INTENT.test(q) && !hasTicket && !hasAlarm) {
+      const s = extractSiteName(q);
+      if (s && !/[吗吧呢啊呀嘛噢喔]$/.test(s)) {
+        return { tool: 'query_power', args: { site: s } };
+      }
+    }
+
+    // ③ WO
+    if (WO_WORD.test(q)) {
+      const woNo = (q.match(/WO\d{8,}/i) || [])[0];
+      const s = extractSiteName(q);
+      if (woNo) {
+        return { tool: 'query_wo', args: { site: '', wo_no: woNo.toUpperCase() } };
+      }
+      if (s && !/[吗吧呢啊呀嘛噢喔]$/.test(s)) {
+        // 「未闭环的工单」这类问法**必须**带上状态过滤，否则会连 47 条 Closed
+        // 工单一起返回，用户问的「未闭环」根本没被满足。
+        const st = parseWoStatus(q);
+        return { tool: 'query_wo', args: st ? { site: s, status: st } : { site: s } };
+      }
+    }
+
+    // ④ 可用率
+    if (AVAILABILITY_INTENT.test(q) && !hasTicket) {
+      const s = extractSiteName(q);
+      if (s && !/[吗吧呢啊呀嘛噢喔]$/.test(s)) {
+        return { tool: 'query_site_availability', args: { site: s, month: parseMonth(q) } };
+      }
+    }
+  }
 
   // ①.2 站点告警意图：出现**告警状态词**时，优先走 query_site_alarms。
   // 必须在统计判断**和查表判断**之前 —— 否则
@@ -984,6 +1517,191 @@ export async function runTool(call, index, lang, opts = {}) {
       channel: 'sitealarm',
       stats: { ...(r.stats || {}), totalMs: Date.now() - t0 },
       routeArgs: { site },
+    };
+  }
+
+  if (call.tool === 'query_site_attribute') {
+    // 站点属性是**数据**（站点主数据），必须在脚本/接口层渲染，不经 LLM ——
+    // 与查表工具同一纪律：结论原样给，不让模型改写。
+    const site = String(call.args?.site || '').trim();
+    const r = await querySiteAttribute(site, { lang });
+    if (!r.ok) {
+      // 查不到**如实说查不了**，绝不用知识库规则拼一个结论。
+      // 2026-11-03 的教训：宁可回一句「暂时查不到」，也不要编一个
+      // 看起来很专业的「是 VIP 站，依据 assetType 为 vipSite」。
+      return {
+        answered: false,
+        channel: 'siteattr',
+        text:
+          lang === 'en'
+            ? `I couldn't look up the attributes of "${site}": ${r.error}. Please try again later.`
+            : `暂时查不到「${site}」的站点属性：${r.error}。稍后再试试～`,
+        stats: { totalMs: Date.now() - t0 },
+        routeArgs: { site },
+      };
+    }
+    return {
+      answered: true,
+      channel: 'siteattr',
+      text: renderSiteAttribute(r.data, lang, !!r.degraded),
+      // ⚠️ source 必须来自**数据源**（r.data.source），不是 degraded 标志 ——
+      // degraded=false 也可能是本地副本（HTTP 没配时），反过来 degraded=true
+      // 一定不是 HTTP。少了它，日志会把实时查询说成「本地副本」（2026-11-03 实测）。
+      stats: {
+        ...(r.stats || {}),
+        totalMs: Date.now() - t0,
+        degraded: !!r.degraded,
+        source: r.data?.source || (r.degraded ? 'sqlite' : 'http'),
+      },
+      routeArgs: { site },
+    };
+  }
+
+  if (call.tool === 'query_task_stats') {
+    // ⚠️ 这个域**不能**并入上面那段「站点级数据域」分支。
+    //
+    // 那段分支有个兜底：缺站名就改走 NL2SQL（因为跨站统计只有 NL2SQL 做得）。
+    // 而 task-stats 问的是 **my_app 自己的定时任务**，压根没有站名 ——
+    // 一旦并进去，模型漏填 task_id 就会被兜底甩进 NL2SQL，
+    // 回到 2026-11-04 那个「my_app 被当成字面量过滤 → 0 行」的老坑。
+    // 所以单独成支：固定口径、秒级、与任务管理页一致。
+    const args = call.args || {};
+    const params = {
+      task_id: String(args.task_id || '').trim(),
+      days: Number(args.days) > 0 ? Number(args.days) : 7,
+      limit: Number(args.limit) > 0 ? Number(args.limit) : 20,
+    };
+    const r = await queryDataDomain('task-stats', params);
+    if (!r.ok) {
+      return {
+        answered: false,
+        channel: 'datadomain',
+        text:
+          lang === 'en'
+            ? `I couldn't retrieve the task stats${r.error ? `: ${r.error}` : ''}. Please try again later.`
+            : `暂时查不到任务执行统计${r.error ? `：${r.error}` : ''}。稍后再试试～`,
+        stats: { totalMs: Date.now() - t0 },
+        routeArgs: { domain: 'task-stats' },
+      };
+    }
+    return {
+      answered: true,
+      channel: 'datadomain',
+      text: renderDataDomain('task-stats', r.data, lang),
+      stats: {
+        ...(r.stats || {}),
+        totalMs: Date.now() - t0,
+        degraded: false,
+        source: r.data?.source || 'http',
+      },
+      routeArgs: { domain: 'task-stats', ...params },
+    };
+  }
+
+  if (call.tool === 'query_power' || call.tool === 'query_alarm_history'
+      || call.tool === 'query_wo' || call.tool === 'query_site_availability') {
+    // 数据域查询是**数据**（生产库实时值），在接口层渲染，不经 LLM ——
+    // 与 query_site_attribute 同一纪律：结论原样给，不让模型改写数字。
+    const domain = {
+      query_power: 'power',
+      query_alarm_history: 'alarm-history',
+      query_wo: 'wo',
+      query_site_availability: 'site-availability',
+    }[call.tool];
+    const args = call.args || {};
+    const site = String(args.site || '').trim();
+    const woNo = String(args.wo_no || '').trim();
+
+    // ⚠️ 兜底：站点级数据域工具**必须有站名**。
+    //
+    // 「最近7天全网有多少条 Critical 级别的告警」这类**跨站统计**题，模型
+    // 经常误选 query_alarm_history 却漏掉 site 参数 —— 查空之后模型自己编了
+    // 一句「查到了 Critical，但历史告警没有记录」，那是**假答案**（库里明明有
+    // 近两万的告警行）。跨站聚合只有 NL2SQL 做得，所以缺站名时直接改走它。
+    if (!site && !woNo) {
+      const q0 = String(opts.question || call.args?.question || '').trim();
+      const fb = await queryData(q0);
+      if (!fb.ok) {
+        return {
+          answered: false,
+          channel: 'dataquery',
+          text:
+            lang === 'en'
+              ? `I couldn't query the database${fb.error ? `: ${fb.error}` : ''}. Please try again later.`
+              : `查库没成功${fb.error ? `：${fb.error}` : ''}。稍后再试试～`,
+          stats: { totalMs: Date.now() - t0 },
+          routeArgs: { question: q0, domain: 'nl2sql-fallback' },
+        };
+      }
+      return {
+        answered: true,
+        channel: 'dataquery',
+        text: renderDataQuery(fb.data, lang, fb.via),
+        stats: {
+          ...(fb.stats || {}),
+          totalMs: Date.now() - t0,
+          degraded: false,
+          source: fb.via || 'nl2sql',
+        },
+        routeArgs: { question: q0, via: fb.via, domain: 'nl2sql-fallback' },
+      };
+    }
+
+    const r = await queryDataDomain(domain, args);
+    if (!r.ok) {
+      return {
+        answered: false,
+        channel: 'datadomain',
+        text:
+          lang === 'en'
+            ? `I couldn't retrieve that data${r.error ? `: ${r.error}` : ''}. Please try again later.`
+            : `暂时查不到这个数据${r.error ? `：${r.error}` : ''}。稍后再试试～`,
+        stats: { totalMs: Date.now() - t0 },
+        routeArgs: { site, domain },
+      };
+    }
+    return {
+      answered: true,
+      channel: 'datadomain',
+      text: renderDataDomain(domain, r.data, lang, site),
+      stats: {
+        ...(r.stats || {}),
+        totalMs: Date.now() - t0,
+        degraded: false,
+        source: r.data?.source || 'http',
+      },
+      routeArgs: { site, domain },
+    };
+  }
+
+  if (call.tool === 'query_data') {
+    // NL2SQL 长尾兜底。结果同样在接口层渲染（结果行 + 实际执行的 SQL），
+    // 不让模型改写数字 —— 原始结果与 SQL 一起给，用户能自己核对。
+    const question = String(call.args?.question || '').trim();
+    const r = await queryData(question);
+    if (!r.ok) {
+      return {
+        answered: false,
+        channel: 'dataquery',
+        text:
+          lang === 'en'
+            ? `I couldn't query the database${r.error ? `: ${r.error}` : ''}. Please try again later.`
+            : `查库没成功${r.error ? `：${r.error}` : ''}。稍后再试试～`,
+        stats: { totalMs: Date.now() - t0 },
+        routeArgs: { question },
+      };
+    }
+    return {
+      answered: true,
+      channel: 'dataquery',
+      text: renderDataQuery(r.data, lang, r.via),
+      stats: {
+        ...(r.stats || {}),
+        totalMs: Date.now() - t0,
+        degraded: false,
+        source: r.via || 'nl2sql',
+      },
+      routeArgs: { question, via: r.via },
     };
   }
 
