@@ -312,3 +312,19 @@
   卡片徽章与**导出的名次列**都直接用后端字段；「WO 最多前三名」= 升序榜末尾三名，徽章因此显示 #41/#42/#43 这类
   靠后名次 —— `fme.explain.topWo` 补了这句话，避免被读成「排名第一」。
 - 同时修 `|| 0`：六张概览统计卡取不到显示 `—`（`dash()`），因为这一页「真 0」与「接口没数据」含义不同。
+
+### 复盘补做（2026-11-05）：⑥a 的 fme / dashboard 数字级当时是漏的
+
+用「组件文件 + 其 import 的子目录里是否出现 `<ExplainPopover` / `explainText=`」复扫时，
+`fme_ranking` 与 `dashboard` 两页计数为 **0** —— 上一轮我只给它们加了卡标题/列头 ⓘ（那是三.3c 的**第一层**），
+却在 TODO 与提交信息里写了「⑥a 全部做完」。判据写错一次就会误报一次完成，因此记进本文件：
+
+- **fme_ranking**：六张概览卡的 `Statistic` 整体包 `ExplainPopover`（与列头 ⓘ 同一份 `fme.tip.*`），
+  18 张榜单卡的**每个数值**包 `ExplainPopover`（与卡角 `ExplainCorner` 同一份 `fme.explain.*`）。实机已验。
+- **dashboard**：图内数字在 ECharts canvas 里，React 气泡包不住 → 与 `eflow_flow` 同一处置，
+  把口径压成短句接进 **tooltip 末行**（`dashboard.tip.pie|bar|line|radar|heat|other`）。
+  ⚠ 这条**只有编译与构建证据，tooltip 末行未实机触发**（隐藏视口里没能生成一张图）——
+  下轮打开任一分析结果时核一眼 tooltip 末行，别把它当已验证。
+- **复扫脚本口径**（写死在这，防下次又用错）：页 key 走 `App.tsx` 的 `VALID_PAGES` 去掉 `PAGE_LIST` 的 `iframe:true`；
+  组件文件从 `App.tsx` 渲染 switch 的 `case 'x': return <Comp` 反查；子目录只算该组件自己 import 的那些
+  （按目录名前缀模糊匹配会把无关子目录并进来，我第一次就扫出了假的「53/53 全做」）。

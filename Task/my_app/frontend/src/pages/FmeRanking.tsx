@@ -16,7 +16,7 @@ import {
 import { useI18n, numLocale } from '../i18n'
 import DraggableClickModal from '../components/DraggableClickModal'
 import { CardBase } from '../components/cards'
-import { ExplainCorner, ExplainLabel } from '../components/MetricExplain'
+import { ExplainCorner, ExplainLabel, ExplainPopover } from '../components/MetricExplain'
 import { useTheme, WH, darkTooltip, axisLabel, axisLine, splitLine, cardStyle, pageWrap } from '../theme'
 
 const { Text } = Typography
@@ -124,7 +124,10 @@ const OlbrCard = ({ rank, rankColor, icon, title, sub, metrics, onClick, explain
       {metrics.map((m, i) => (
         <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
           {i > 0 && <span style={{ opacity: 0.45 }}>·</span>}
-          <span style={{ color: m.color || WH.textMuted, fontWeight: m.color ? 700 : 500 }}>{m.value}</span>
+          {/* 数字本身也问得到（AGENTS.md 三.3c）：角上的 ⓘ 讲这张榜，停在数值上出同一段口径 */}
+          <ExplainPopover placement="top" text={explain || ''}>
+            <span style={{ color: m.color || WH.textMuted, fontWeight: m.color ? 700 : 500 }}>{m.value}</span>
+          </ExplainPopover>
           <span>{m.label}</span>
         </span>
       ))}
@@ -828,19 +831,21 @@ export default function FmeRanking() {
       )}
 
       <Row gutter={[12, 12]}>
-        <Col xs={12} sm={8} lg={4}><Card style={cardStyle}><Statistic title={<ExplainLabel label={t('fme.stat.fme')} text={t('fme.tip.fmeCount')} />} value={dash(data?.summary.fme_count)} /></Card></Col>
-        <Col xs={12} sm={8} lg={4}><Card style={cardStyle}><Statistic title={<ExplainLabel label={t('fme.stat.sites')} text={t('fme.tip.siteCount')} />} value={dash(data?.summary.site_count)} /></Card></Col>
-        <Col xs={12} sm={8} lg={4}><Card style={cardStyle}><Statistic title={<ExplainLabel label={t('fme.stat.wo')} text={t('fme.tip.woTotal')} />} value={dash(data?.summary.wo_total)} valueStyle={{ color: palette.blue }} /></Card></Col>
-        <Col xs={12} sm={8} lg={4}><Card style={cardStyle}><Statistic title={<ExplainLabel label={t('fme.stat.open')} text={t('fme.tip.woOpen')} />} value={dash(data?.summary.wo_open)} valueStyle={{ color: data?.summary.wo_open ? WH.danger : WH.ok }} /></Card></Col>
+        <Col xs={12} sm={8} lg={4}><Card style={cardStyle}><ExplainPopover placement="top" text={t('fme.tip.fmeCount')}><Statistic title={<ExplainLabel label={t('fme.stat.fme')} text={t('fme.tip.fmeCount')} />} value={dash(data?.summary.fme_count)} /></ExplainPopover></Card></Col>
+        <Col xs={12} sm={8} lg={4}><Card style={cardStyle}><ExplainPopover placement="top" text={t('fme.tip.siteCount')}><Statistic title={<ExplainLabel label={t('fme.stat.sites')} text={t('fme.tip.siteCount')} />} value={dash(data?.summary.site_count)} /></ExplainPopover></Card></Col>
+        <Col xs={12} sm={8} lg={4}><Card style={cardStyle}><ExplainPopover placement="top" text={t('fme.tip.woTotal')}><Statistic title={<ExplainLabel label={t('fme.stat.wo')} text={t('fme.tip.woTotal')} />} value={dash(data?.summary.wo_total)} valueStyle={{ color: palette.blue }} /></ExplainPopover></Card></Col>
+        <Col xs={12} sm={8} lg={4}><Card style={cardStyle}><ExplainPopover placement="top" text={t('fme.tip.woOpen')}><Statistic title={<ExplainLabel label={t('fme.stat.open')} text={t('fme.tip.woOpen')} />} value={dash(data?.summary.wo_open)} valueStyle={{ color: data?.summary.wo_open ? WH.danger : WH.ok }} /></ExplainPopover></Card></Col>
         {/* SLA 达成率总览：分子/分母放在 suffix 里说明口径 */}
         <Col xs={12} sm={8} lg={4}>
           <Card style={cardStyle}>
-            <Statistic
-              title={<ExplainLabel label={t('fme.stat.sla')} text={t('fme.tip.slaRate')} />}
-              value={data?.summary.sla_rate == null ? '—' : +(data.summary.sla_rate * 100).toFixed(1)}
-              suffix={data?.summary.sla_rate == null ? '' : '%'}
-              valueStyle={{ color: (data?.summary.sla_rate ?? 1) < 0.9 ? WH.danger : WH.ok }}
-            />
+            <ExplainPopover placement="top" text={t('fme.tip.slaRate')}>
+              <Statistic
+                title={<ExplainLabel label={t('fme.stat.sla')} text={t('fme.tip.slaRate')} />}
+                value={data?.summary.sla_rate == null ? '—' : +(data.summary.sla_rate * 100).toFixed(1)}
+                suffix={data?.summary.sla_rate == null ? '' : '%'}
+                valueStyle={{ color: (data?.summary.sla_rate ?? 1) < 0.9 ? WH.danger : WH.ok }}
+              />
+            </ExplainPopover>
             {!!data?.summary.sla_total && (
               <Text type="secondary" style={{ fontSize: '0.6875rem' }}>
                 {t('fme.stat.slaDetail', { pass: data.summary.sla_pass, total: data.summary.sla_total })}
@@ -848,7 +853,7 @@ export default function FmeRanking() {
             )}
           </Card>
         </Col>
-        <Col xs={12} sm={8} lg={4}><Card style={cardStyle}><Statistic title={<ExplainLabel label={t('fme.stat.slaFail')} text={t('fme.tip.slaFail')} />} value={dash(data?.summary.sla_fail)} valueStyle={{ color: data?.summary.sla_fail ? WH.danger : WH.ok }} /></Card></Col>
+        <Col xs={12} sm={8} lg={4}><Card style={cardStyle}><ExplainPopover placement="top" text={t('fme.tip.slaFail')}><Statistic title={<ExplainLabel label={t('fme.stat.slaFail')} text={t('fme.tip.slaFail')} />} value={dash(data?.summary.sla_fail)} valueStyle={{ color: data?.summary.sla_fail ? WH.danger : WH.ok }} /></ExplainPopover></Card></Col>
       </Row>
 
       {/* ====== 可用率条形图：Top5 与尾部 5 个 ======

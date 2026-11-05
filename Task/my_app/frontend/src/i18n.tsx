@@ -3281,6 +3281,13 @@ const translations: Record<Locale, Record<string, string>> = {
     'dashboard.explain.radar': '雷达 = 每个数值列的质量分 `score = 100 − 空值率 − min(问题数 × 10, 50)`，负数截为 0（`analysis.py:309-310`）。\n空值率 = 样本内 `isna / 行数 × 100`（`services/profiler.py:58`）；问题数来自字段画像的 issues_summary。\n刻度上限 100 是前端写死的；这是一把**启发式尺子**，不是业务达标率。',
     'dashboard.explain.heat': '热力图 = `pd.crosstab(类别列, SLA/状态列).head(15)`（`analysis.py:324-331`、`:354-361`）：格子里是**该组合的行数计数**，只画前 15 个类别。\n⚠ 空组合后端落成 0（`else 0`），色阶上限由前端 `Math.max(...)` 现算，不代表全表最大值。',
     'dashboard.explain.other': '这张图的数值同样算在**最多 10000 行的样本**上（`SELECT * FROM 表 LIMIT 10000`，无排序），与下拉框显示的全表行数不是同一个分母。',
+    // 图内数字在 canvas 里包不住气泡，口径改挂到 ECharts tooltip 末行（短句，逐条字面量键）
+    'dashboard.tip.pie': '计数与百分比都算在 ≤10000 行样本上；百分比的分母是图上这 10 个取值之和',
+    'dashboard.tip.bar': '柱子是该类别的**均值**（不是和、不加权）；NaN 记为 0；样本 ≤10000 行',
+    'dashboard.tip.line': '纵轴是该日期的**行数计数**（不是任何指标的和/均值）；样本 ≤10000 行',
+    'dashboard.tip.radar': '质量分 = 100 − 空值率 − min(问题数×10, 50)；启发式，上限 100 前端写死',
+    'dashboard.tip.heat': '格子是**该组合的行数计数**（样本 ≤10000 行）；空组合记 0',
+    'dashboard.tip.other': '数值算在 ≤10000 行样本上（后端取数无排序，非全表）',
 
     // 仓库看板（SP 备件）
     'sp.lastSync': '最近同步',
@@ -9028,6 +9035,13 @@ const translations: Record<Locale, Record<string, string>> = {
     'dashboard.explain.radar': 'Radar = a quality score per numeric column: `score = 100 − null_rate − min(issue_count × 10, 50)`, floored at 0 (`analysis.py:309-310`).\nnull_rate = `isna / rows × 100` inside the sample (`services/profiler.py:58`); issue_count comes from the column profile issues_summary.\nThe axis maximum of 100 is hard-coded in the frontend; this is a **heuristic ruler**, not a business compliance rate.',
     'dashboard.explain.heat': 'Heatmap = `pd.crosstab(category_column, SLA/status_column).head(15)` (`analysis.py:324-331` and `:354-361`): each cell is a **row count for that combination**, drawing only the first 15 categories.\n⚠ Empty combinations are stored as 0 by the backend (`else 0`), and the colour scale maximum is computed by the frontend with `Math.max(...)`, so it is not the maximum of the whole table.',
     'dashboard.explain.other': 'The figures in this chart are also computed over **a sample of at most 10000 rows** (`SELECT * FROM table LIMIT 10000`, unsorted), which is not the same denominator as the full-table row count shown in the dropdown.',
+    // Numbers inside canvas cannot carry a React bubble, so the caliber rides on the ECharts tooltip footer (short lines, literal keys)
+    'dashboard.tip.pie': 'Counts and percentages come from the ≤10000-row sample; the percentage denominator is the sum of these 10 values only',
+    'dashboard.tip.bar': 'Bars are the **mean** per category (not a sum, unweighted); NaN becomes 0; sample ≤10000 rows',
+    'dashboard.tip.line': 'The axis is a **row count per date** (not a sum or mean of any metric); sample ≤10000 rows',
+    'dashboard.tip.radar': 'Quality score = 100 − null_rate − min(issue_count × 10, 50); heuristic, with the 100 ceiling hard-coded in the frontend',
+    'dashboard.tip.heat': 'Each cell is a **row count for that combination** (sample ≤10000 rows); empty combinations are stored as 0',
+    'dashboard.tip.other': 'Figures are computed over a sample of at most 10000 rows (the backend query is unsorted, so it is not the whole table)',
 
     // Warehouse Dashboard (SP spare parts)
     'sp.lastSync': 'Last sync',

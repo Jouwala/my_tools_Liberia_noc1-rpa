@@ -143,6 +143,20 @@ export default function Dashboard() {
     const cGridSoft = isDark ? 'rgba(0, 217, 255,0.1)' : 'rgba(13,148,136,0.18)'
     const cSplit = isDark ? ['rgba(0, 217, 255,0.03)', 'rgba(0, 217, 255,0.06)'] : ['rgba(13,148,136,0.04)', 'rgba(13,148,136,0.08)']
 
+    // ECharts 是 canvas，图里的数字不能包 ExplainPopover；退一步把口径接进 tooltip 末行
+    // （与 eflow_flow 的处置同一取向）。键逐条字面量，拼串会被 check:i18n 拦下。
+    const caliberKey = (type: string): string => {
+      switch (type) {
+        case 'pie': return 'dashboard.tip.pie'
+        case 'bar': return 'dashboard.tip.bar'
+        case 'line': return 'dashboard.tip.line'
+        case 'radar': return 'dashboard.tip.radar'
+        case 'heat': return 'dashboard.tip.heat'
+        default: return 'dashboard.tip.other'
+      }
+    }
+    const CAL = `<br/><span style="opacity:.65">${t(caliberKey(chart.type))}</span>`
+    const dim = (name: string, value: unknown): string => `${name}: ${String(value)}${CAL}`
     const onEvents: Record<string, Function> = {}
     if (chart.type === 'pie' || chart.type === 'bar') {
       onEvents['click'] = (params: any) => handleChartClick(chart, params)
@@ -153,7 +167,7 @@ export default function Dashboard() {
         option = {
           backgroundColor: 'transparent',
           title: { text: displayTitle, left: 'center', textStyle: { fontSize: 14, color: cText } },
-          tooltip: { ...darkTooltip(isDark), trigger: 'item', formatter: '{b}: {c} ({d}%)' },
+          tooltip: { ...darkTooltip(isDark), trigger: 'item', formatter: (pp: any) => dim(String(pp.name), `${pp.value} (${pp.percent}%)`) },
           legend: { bottom: 0, type: 'scroll', textStyle: { color: cTextMuted } },
           series: [{
             type: 'pie',
@@ -170,7 +184,7 @@ export default function Dashboard() {
         option = {
           backgroundColor: 'transparent',
           title: { text: displayTitle, left: 'center', textStyle: { fontSize: 14, color: cText } },
-          tooltip: { ...darkTooltip(isDark), trigger: 'axis' },
+          tooltip: { ...darkTooltip(isDark), trigger: 'axis', formatter: (ps: any) => { const a = Array.isArray(ps) ? ps : [ps]; const head = a[0]?.axisValue ?? ''; return (head ? `${head}<br/>` : '') + a.map((x: any) => `${x.seriesName}: ${x.value}`).join('<br/>') + CAL } },
           xAxis: {
             type: 'category',
             data: chart.data.map((d: any) => d.name),
@@ -190,7 +204,7 @@ export default function Dashboard() {
         option = {
           backgroundColor: 'transparent',
           title: { text: displayTitle, left: 'center', textStyle: { fontSize: 14, color: cText } },
-          tooltip: { ...darkTooltip(isDark), trigger: 'axis' },
+          tooltip: { ...darkTooltip(isDark), trigger: 'axis', formatter: (ps: any) => { const a = Array.isArray(ps) ? ps : [ps]; const head = a[0]?.axisValue ?? ''; return (head ? `${head}<br/>` : '') + a.map((x: any) => `${x.seriesName}: ${x.value}`).join('<br/>') + CAL } },
           xAxis: {
             type: 'category',
             data: chart.data.map((d: any) => d.date),
@@ -215,7 +229,7 @@ export default function Dashboard() {
         option = {
           backgroundColor: 'transparent',
           title: { text: displayTitle, left: 'center', textStyle: { fontSize: 14, color: cText } },
-          tooltip: { ...darkTooltip(isDark) },
+          tooltip: { ...darkTooltip(isDark), formatter: (ps: any) => { const a = Array.isArray(ps) ? ps : [ps]; return a.map((x: any) => `${x.name}: ${x.value}`).join('<br/>') + CAL } },
           radar: {
             indicator: chart.data.map((d: any) => ({ name: d.name, max: 100 })),
             radius: '60%',
@@ -241,7 +255,7 @@ export default function Dashboard() {
           tooltip: {
             ...darkTooltip(isDark),
             position: 'top',
-            formatter: (p: any) => `${yLabels[p.data[1]]} × ${xLabels[p.data[0]]}: ${p.data[2]}`,
+            formatter: (p: any) => `${yLabels[p.data[1]]} × ${xLabels[p.data[0]]}: ${p.data[2]}${CAL}`,
           },
           xAxis: {
             type: 'category',

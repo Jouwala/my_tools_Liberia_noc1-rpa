@@ -154,6 +154,15 @@
       FME 首列 ⓘ 出「可用率降序 + 两级决胜 + 卡片徽章自 2026-11-05 起用后端 rank」，
       且榜单卡徽章与表列 rank 逐一相同（#1 moses / #25 Prince K. Wilson 等）。
       **⑥a 之后只剩 ⑥b（工具/查询族 6 个 key）、⑥c（地图族 3 个 key，与并发会话冲突）、⑥d（判定不适用登记）。**
+      **⚠ 复盘更正（2026-11-05 同日）**：上面「⑥a 十页全部做完」当时**说过头了** —— 用同一条 grep 复扫发现
+      `fme_ranking` 与 `dashboard` 两页只做了卡标题/列头的 ⓘ，**数字级气泡一处都没有**（`ExplainPopover` 计数 = 0）。已补：
+      fme 六张概览卡整体包气泡、18 张榜单卡的每个数值包气泡（实机验证：工单总数卡出「月初 ≤ t < 次月初 +
+      `detect_wo_schema` + site_id 优先、缺失退回规范化站名」，榜单卡 99.978% 出「本月该制式站点可用率算术平均」）；
+      dashboard 的数字在 ECharts canvas 里包不住 React 气泡，改为把口径接进 **tooltip 末行**
+      （`dashboard.tip.pie|bar|line|radar|heat|other` 六条短句，与 eflow_flow 同一处置）—— 这条**只过了类型检查与构建、
+      页面无控制台报错，tooltip 末行没能在实机触发**（隐藏视口里跑不出一张图），下个会话打开任一分析结果时顺手核一眼。
+      教训：**「做完」的判据是扫出来的，不是印象** —— 复扫 `<ExplainPopover` / `explainText=` 才算数，
+      别拿「我改过这页」当覆盖证明。
       **分批计划**（每批一个数据族，共用组件优先；每批都要 `npm run build` + 实机悬浮验证 + 手册/站内帮助同步）：
       ① 可用率族 `AvailMs` / `AvailFlm` / 共用 `AvailTrend`（与已完成的 avail_county 同一套口径，最先做）；
       ② MS SLA / NUR 族（`MsSlaDashboard` / `MsSlaOnly` / `MsNurOnly` / `NurDashboard` / `MsWoSLReport` / `MsContractKpiReport`）；
