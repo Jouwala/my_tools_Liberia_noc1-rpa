@@ -2,12 +2,11 @@
 # 本文件是生产 nginx 配置的【参考副本】，不是生效文件。
 # 生效文件（本机 .20）: D:\01_RPA\nginx-1.28.0\conf\nginx.conf
 # 生效文件（.19 那台） : \\192.168.100.19\e\01_RPA\nginx-1.28.0\conf\nginx.conf
-# 快照：2026-10-03  |  来源 32367 B  |  编码 UTF-8
+# 快照：2026-11-04  |  来源 57696 B  |  编码 UTF-8
 # 改完生效配置并 reload 成功后，请把改动同步回本副本（两份一起改）。
 # 重载须先 cd 进 nginx 目录，否则信号发给已死的 pid 且不报错。
 # 详见同目录 README.md 与 docs\新机器部署清单.md。
 # =============================================================================
-
 
 #user  nobody;
 worker_processes  1;
@@ -67,7 +66,29 @@ http {
     #keepalive_timeout  0;
     keepalive_timeout  65;
 
-    #gzip  on;
+    # ---- 2026-10-29 首屏提速：开启 gzip ----
+    # 背景：实测 ?page=realtime_alarm 首屏 41 个请求共 2.29MB，其中后端 API 的 JSON
+    # （/gis/topology 307KB、/gis/county-boundaries 372KB）是**裸传**的 —— 上游
+    # uvicorn 不压缩，静态资源那部分则是 Vite preview 自己在压。浏览器实测
+    # topology 单请求 2588ms（curl 直连同样 URL 只要 46ms），差的就是这 300KB 的
+    # 传输 + HTTP/1.1 排队。开 gzip 后 JSON 通常能压到 1/5 左右。
+    #
+    # ⚠ gzip_proxied any：默认是 off，即**只压缩非代理请求**，反代到 7038/7138
+    # 的响应一律不压 —— 不加这条，本配置的收益为零（这是最容易踩的坑）。
+    # ⚠ 不压图片 / pmtiles 等已是二进制的资源（默认也不压），只按 MIME 白名单来。
+    gzip              on;
+    gzip_comp_level   5;
+    gzip_min_length   1024;
+    gzip_proxied      any;
+    gzip_vary         on;
+    # ⚠ 必须带 text/javascript：Vite/Node 现代服务器对 .js 发的是这个类型，
+    #   只写 application/javascript（老写法）会导致 **chunk 一个都压不到** ——
+    #   实测 echarts chunk 传输 378KB 未压缩，就是漏了它。
+    gzip_types        text/plain text/css text/xml text/javascript
+                      application/javascript application/x-javascript
+                      application/json application/xml
+                      application/rss+xml application/vnd.ms-fontobject
+                      image/svg+xml font/ttf font/opentype;
 
     # -------------------------------------------------------------------------
     # 所有服务收在 80 端口，按「路径」区分：根=导航总览，各服务走子路径
@@ -126,8 +147,16 @@ http {
     server {
         listen       80;
         # ---- B2：同一 location 清单同时服务 443，避免维护两份 ----
+        # ---- 2026-10-29 首屏提速：443 开 HTTP/2 ----
+        # 背景：首屏 41 个请求（8 个 JS chunk + 若干 API）全部走 HTTP/1.1，浏览器对
+        # 单主机最多 6 条并发，其余排队；实测 /gis/topology 浏览器里 2588ms、
+        # curl 直连 46ms，差的就是排队。HTTP/2 多路复用后一条连接并发所有请求。
+        # 前提：./nginx.exe -V 已确认 --with-http_v2_module（1.28.0 官方 Windows 包自带）。
+        # 回退：把这两行的 http2 去掉、nginx -s reload 即可，浏览器会自动回落 HTTP/1.1。
         listen       443 ssl;
         listen       [::]:443 ssl;
+        # 1.25.1+ 起 `listen ... http2` 写法已废弃（会打 warn），改用独立指令
+        http2        on;
         ssl_certificate     D:/01_RPA/nginx-1.28.0/certs/portal.crt;
         ssl_certificate_key D:/01_RPA/nginx-1.28.0/certs/portal.key;
         ssl_protocols       TLSv1.2 TLSv1.3;
@@ -185,6 +214,14 @@ http {
         # olbrportal 是 MsPortal 的只读展示版（独立目录、共用 data.js/access.js），
         # 与上面 /MsPortal 那条同性质，只多这一条 301，不动任何既有 location。
         location = /olbrportal { return 301 /olbrportal/; }
+        # v3 团队门户（2026-10-29）：无尾斜杠时 301 到带斜杠的入口，
+        # 否则会落到根导航页或 404。五个门户各一条（路径不同，无法用一条正则合并 ——
+        # nginx 的 location = 只做精确匹配）。
+        location = /v3/fo_portal  { return 301 /v3/fo_portal/; }
+        location = /v3/bo_portal  { return 301 /v3/bo_portal/; }
+        location = /v3/flm_portal { return 301 /v3/flm_portal/; }
+        location = /v3/smc_portal { return 301 /v3/smc_portal/; }
+        location = /v3/cxo_portal { return 301 /v3/cxo_portal/; }
 
         # ---- Webroot → FineBI：http://localhost/webroot/ ----
         location /webroot/ {
@@ -217,6 +254,36 @@ http {
             proxy_set_header   Connection        "upgrade";
             proxy_read_timeout 3600s;
             proxy_send_timeout 3600s;
+        }
+
+        # ---- 2026-10-29 首屏提速：带 hash 的构建产物走长缓存 ----
+        # 背景：vite preview 对所有响应发 `Cache-Control: no-cache`，于是每次进页面
+        # 浏览器都要对 8 个 chunk（约 1.4MB）逐个发条件请求、等 304 —— 二次访问
+        # 也要付一轮 RTT。这些文件名都带内容 hash（index-C3sGebGf.js），内容变了
+        # 文件名就变，因此可以安全地缓存一年。
+        #
+        # ⚠ 只覆盖 /myapp/assets/ 下的 js/css/字体/图片，**不动 index.html**：
+        #   入口 HTML 必须保持 no-cache，否则重新构建后浏览器还拿旧 HTML、
+        #   引用已被 prune 掉的旧 chunk，直接白屏。
+        # ⚠ 用 proxy_ignore_headers 而不是 add_header：add_header 不会替换上游已
+        #   存在的同名头（会变成两个 Cache-Control），必须先让 nginx 忽略上游的。
+        location ~ ^/myapp/assets/.+\.(js|css|woff2?|ttf|otf|svg|png|jpe?g|gif|webp)$ {
+            proxy_pass         http://127.0.0.1:7090;
+            proxy_http_version 1.1;
+            proxy_set_header   Host              $host;
+            proxy_set_header   X-Real-IP         $remote_addr;
+            proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+            proxy_set_header   X-Forwarded-Proto $scheme;
+            # ⚠ proxy_ignore_headers **不会**从响应里摘掉上游的头（它只影响 nginx
+            #   自己是否理会上游的缓存指令），实测上游的 no-cache 照样下发、和
+            #   add_header 的那条并存成两个 Cache-Control。真正要替换就得用
+            #   proxy_hide_header 先隐藏，再 add_header。
+            proxy_ignore_headers Cache-Control Expires Set-Cookie;
+            proxy_hide_header   Cache-Control;
+            proxy_hide_header   Expires;
+            # 只用 add_header、不叠加 expires 指令：两者同时用也会下发两条。
+            add_header        Cache-Control "public, max-age=31536000, immutable";
+            add_header        Vary "Accept-Encoding";
         }
 
         # =====================================================================
@@ -460,6 +527,272 @@ http {
             alias              "D:/01_RPA/liberia-noc_soc-数据看板统一门户/v2/olbrportal/";
             index              index.html index.htm;
             add_header         Cache-Control "no-cache, no-store, must-revalidate";
+        }
+
+        # ---- v3/olbrportal：v2 那页的 v3 改版：http://localhost/v3/olbrportal/ ----
+        # 2026-10-16 新增，纯追加：/olbrportal/、/v1/olbrportal/、/v2/olbrportal/ 与
+        # MsPortal 各块一行未改；v3 是从 v2 目录**整目录复制**出来的并列副本（已排除
+        # *.bak_* 快照），改 v3 的界面只改 v3/olbrportal/，不影响 v2。
+        # 目录深度与 /v1/ /v2/ 同理保持「前缀目录 /olbrportal/」：
+        #   index.html 引本页资产用相对路径 assets/olbr.js（复制后自动指向 v3 自己的），
+        #   olbr.js 引 MsPortal 用绝对路径 /MsPortal/...（与深度无关），两种都成立。
+        # 后端 /api/portal-catalog、/api/portal-qc/*、/uniplam/api/auth/* 同源共用，
+        # 所以各版本看到的是同一份目录、同一份数据（与 v1/v2 一致，刻意如此）。
+        location /v3/olbrportal/ {
+            alias              "D:/01_RPA/liberia-noc_soc-数据看板统一门户/v3/olbrportal/";
+            index              index.html index.htm;
+            add_header         Cache-Control "no-cache, no-store, must-revalidate";
+
+            # ---- 2026-10-29 团队自动跳转（服务端 302）----
+            # 需求：账号被配置为 fo 用户后，登录 /v3/olbrportal/ 自动跳到 /v3/fo_portal/，
+            #       bo/flm/smc/cxo 同理。
+            #
+            # 为什么在**服务端**做而不是只靠页面 JS：
+            #   · 服务端跳转发生在**内容发出之前** —— 用户不会先看到完整门户再被跳走；
+            #   · 不依赖 JS（禁用脚本、缓存异常时依然正确）；
+            #   · 页面内的 JS 跳转（v3/team_portal/assets/team-auth.js）是**第二道**，
+            #     负责「刚登录完、Cookie 还没种下」那一瞬的即时跳转。两者互补。
+            #
+            # 判定依据是**回源问服务端**「这个会话现在属于哪个团队」，不是读 Cookie：
+            #   Cookie 里放的是会话 token，团队归属是**库里的属性**，管理员随时能改。
+            #   若把团队 id 也写进 Cookie，管理员改了归属而用户旧 Cookie 还在时，
+            #   nginx 会按**过期**的团队 id 放行 —— 那正是权限事故。
+            #   故 auth_request 回源到 /uniplam/api/auth/team-landing，
+            #   由它查库得出**当前**归属，用响应头 X-Team-Landing 回传。
+            #
+            # auth_request_set 取响应头：值形如 /v3/fo_portal/；无团队归属时该头**不存在**，
+            # 此时 $team_landing 为空 → 不跳转、正常放行（保持主门户原行为）。
+            #
+            # ⚠️ auth_request 子请求只带**原始请求的 Cookie**（nginx 会自动带上），
+            #   所以浏览器必须持有 olbr_token Cookie —— 那是登录接口种下的（HttpOnly）。
+            #   没登录时子请求返回 401，nginx 把 $team_landing 置空 → 不跳转、正常放行。
+            #   刻意如此：**不因为「没登录」而拦住主门户** —— 主门户本身是公开入口，
+            #   登录与否由页面自己的登录门处理。团队门户才是受保护的那一侧。
+            #
+            # ⚠️⚠️ **相位陷阱（本机实测，2026-10-29）—— 这段写法为什么长这样**
+            #   nginx 的指令分属不同相位：
+            #     · `if` / `return`  → **rewrite 相位**（最早）
+            #     · `auth_request`   → **preaccess 相位**（靠后）
+            #   故在同一个 location 里写
+            #       auth_request ...; auth_request_set $v ...; if ($v) { return 302 $v; }
+            #   是**无效的**：`if` 在 rewrite 相位就返回了 302，auth_request 根本没跑，
+            #   $v 永远是空 → 实测得到 200 而不是 302。
+            #   （本机用 TMP 下的独立 nginx 实例实测确认：探针 A/C 全返回 200。）
+            #
+            #   正确写法（本机实测通过）：**location 里不写 return**，让请求走完
+            #   完整相位链；用 `error_page` 把上游的 403 导向 named location，
+            #   在 named location 里 return 302（content 相位，$v 已就位）。
+            #   实测：探针 G → 302（Location 正确），探针 I → 403。
+            auth_request      /uniplam/api/auth/team-landing;
+            auth_request_set  $team_landing $upstream_http_x_team_landing;
+            # 403 = 上游说「有团队归属，去那边」；用响应头里的路径跳转。
+            # 200 = 无团队归属 → 不跳转，正常放行（不设 error_page 即可）。
+            error_page        403 = @team_landing_redirect;
+
+            # ---- 2026-10-29 注入「登录后即时跳转」脚本 ----
+            # 上面那套 auth_request 只在**打开页面时**判定 —— 而「首次登录」这条路
+            #   走不到它：用户打开本页时还没有 olbr_token Cookie → nginx 放行（主门户
+            #   是公开入口）→ 用户在页面上填账号密码 → 页面**早已加载完毕**，
+            #   nginx 那次请求早就结束了。nginx 无法拦截页面里发出的登录请求。
+            # 所以「登录成功后自动跳到团队门户」必须在**浏览器里**做：
+            #   本脚本包住 window.fetch，盯住 POST /uniplam/api/auth/login 的响应，
+            #   响应体里带 user.team → location.replace('/v3/<team>_portal/')。
+            #
+            # ⚠️ **用 sub_filter 注入，不改磁盘上的 v3/olbrportal/index.html** ——
+            #   上游那一页是别人的页面，一行都不许改。sub_filter 在**响应下发时**
+            #   把一行 <script> 塞进 </head> 前，磁盘上的文件一个字节都没动。
+            #   （ngx_http_sub_filter_module 已确认编译进本机 nginx：--with-http_sub_module）
+            #
+            # 注入点选 </head> 是因为它在 olbr.js（</body> 前的 <script>）**之前**，
+            #   这样脚本能赶在 olbr.js 发登录请求之前把 fetch 包起来。
+            # ⚠️ 不写 sub_filter_types：text/html 本身就是默认值，写出来 nginx 会
+            #   报 "duplicate MIME type text/html" 警告（无功能影响，但日志噪声）。
+            sub_filter_once  on;
+            sub_filter '</head>' '<script src="/v3/team-gate.js"></script></head>';
+        }
+
+        # ---- 团队跳转闸门脚本（2026-10-29）----
+        # 由上面的 sub_filter 注入到 /v3/olbrportal/ 的首页里，负责「登录成功后
+        # 自动跳到本团队门户」。放在 v3/ 根目录（**不在** v3/olbrportal/ 里 ——
+        # 那一页不许改；也不在 v3/team_portal/ 里 —— 那五个 location 带
+        # auth_request 闸门，未登录时连脚本都取不到，而闸门页恰恰要引导去登录）。
+        # 本 location **不加** auth_request：它是公开静态脚本，不含任何敏感信息；
+        #   真正的访问控制在服务端 /team-gate 上，与本脚本无关（两者不重复）。
+        location = /v3/team-gate.js {
+            alias              "D:/01_RPA/liberia-noc_soc-数据看板统一门户/v3/team-gate.js";
+            add_header         Cache-Control "no-cache, no-store, must-revalidate";
+        }
+
+        # /v3/olbrportal/ 的团队跳转落点（named location）。
+        # 必须在 named location 里 return —— content 相位，$team_landing 才已就位
+        # （原因见上面那条「相位陷阱」的说明）。
+        # ⚠️ 若上游返回 200（无团队归属），根本不会进这里，location 正常放行。
+        #
+        # 兜底判空（**必要**）：error_page 403 = @named 会把该 location 里**任何** 403
+        # 都导向这里（包括静态文件权限不足那种「与团队无关的 403」）。那种情况下
+        # $team_landing 是空的，直接 `return 302 $team_landing` 会得到一个
+        # **Location 为空的畸形 302**（本机实测：探针 J 确实回了空 Location）。
+        # 故这里先判空：没有目标就退回到「不跳转、正常报错」。
+        location @team_landing_redirect {
+            if ($team_landing) {
+                return 302 $team_landing;
+            }
+            return 403 "team landing target missing";
+        }
+
+        # ---- v3 团队门户（2026-10-29 新增，纯追加）：五个 URL 共用同一套资产 ----
+        # /v3/fo_portal/ /v3/bo_portal/ /v3/flm_portal/ /v3/smc_portal/ /v3/cxo_portal/
+        # 每一个只显示《新看板设计.xlsx》里该团队打勾的那几行内容（可见性矩阵由
+        # scripts/gen_team_matrix.py 从 Excel 生成成 v3/team_portal/assets/team-matrix.js，
+        # 运行时由 assets/team-scope.js 按 URL 前缀判定当前团队）。
+        #
+        # 为什么要**五个 location alias 到同一个目录**而不是五份副本：
+        #   同一套 HTML/CSS/JS 只维护一份，五个门户之间的差异全在
+        #   team-matrix.js 那张矩阵里。复制五份就是五份真相源，改一次要同步五次。
+        #   团队判定靠 URL 前缀（team-scope.js 的 detectTeam），所以同一个目录
+        #   服务五个 URL 没有任何冲突。
+        #
+        # ⚠️ 目录深度必须与 /v3/olbrportal/ 一致（同样的理由见上面那条）：
+        #   index.html 引本页资产用相对路径 assets/xxx.js（自动指向 v3/team_portal/），
+        #   olbr.js 引 MsPortal 用绝对路径 /MsPortal/...（与深度无关），两种都成立。
+        # ⚠️ 与上游 /v3/olbrportal/ **完全隔离**：那边不引 team-matrix.js /
+        #   team-scope.js / team-panels.js，window.OLBR_SCOPE 为 null，
+        #   olbr.js 里每个 if (SCOPE && ...) 都短路 —— 上游那页行为一行未变。
+        # 后端 /api/portal-catalog、/api/portal-qc/*、/api/email-reports/*、
+        # /uniplam/api/auth/* 同源共用，所以各门户看到的是同一份目录、同一份数据。
+        #
+        # ---- 2026-10-29 团队门户的访问控制（auth_request）----
+        # 五个门户的内容按团队划分，若不设门禁，**任何人改一下 URL 就能看到别的团队**。
+        # 这里用 auth_request 在**内容发给浏览器之前**做服务端判定：
+        #   auth_request /uniplam/api/auth/team-gate?team=fo;
+        # 端点按 ?team= 判定「当前会话是否属于该团队」，返回 200/401/403。
+        #   200 → 放行；401 → 未登录（回 401，前端引导登录）；403 → 团队不对/未分配（回 403）。
+        #
+        # 身份从哪来：登录接口种下的 **olbr_token Cookie**（HttpOnly）。
+        #   为什么需要 Cookie 副本：门户会话 token 历来只存 localStorage，
+        #   而浏览器**直接访问 URL** 不会带 localStorage 里的东西 ——
+        #   没有 Cookie，nginx 就看不到身份；等页面 JS 跑到再判定，内容早已发到客户端，
+        #   那不是访问控制。详见 server/auth/types.ts 的 SESSION_COOKIE_NAME 一节。
+        #
+        # ⚠️ **fail-closed**：未登录（401）与未分配团队/团队不对（403）都**不放行**。
+        #   没有团队身份就没有资格看某个团队的内容 —— 这条不能为了「好调试」而放松。
+        #   免登录旁路模式下（开发）同样不放行：占位身份不属于任何团队。
+        #
+        # ⚠️ 五条 location 的 team 参数各不相同，故无法用一条正则 location 合并 ——
+        #   auth_request 的 URI 带的是**当前 location 的变量**，用正则可以合并，
+        #   但那样 alias 的路径拼接会变复杂（正则 location 必须用 root 而非 alias
+        #   配合 captures）。这里宁可写五份 —— 每一份都短且对称，好读好改。
+        #
+        # ---- 2026-11-04：401 = 同页登录（不再是「去 /uniplam/ 登录」）----
+        # 用户反馈「用户访问直接在这个页面登录就行，为什么要取其他地方登录呢」。
+        # 故 error_page 401 直接指向 /v3/team-login.html —— **内部重定向**，
+        #   浏览器地址栏**保持** /v3/<team>_portal/，页面上直接是登录表单。
+        # 登录成功 → 服务端种下 olbr_token Cookie → reload → 闸门放行。
+        #
+        # ⚠️⚠️ `error_page 401 = /v3/team-login.html;` 与
+        #   `error_page 401 = @team_unauthorized;` 两种写法**只能选一种**：
+        #   同时写同一个状态码的两个 error_page 是**非法配置**（nginx 报
+        #   "duplicate value"），`-t` 会直接失败。选 URI 的好处是登录页在
+        #   仓库里（可维护、可 review），而不是内联在配置里。
+        #
+        # ⚠️⚠️ 登录页那个 location **绝不能**加 auth_request（否则死循环：
+        #   取登录页也要 401 → 又 error_page 到登录页 → nginx 报
+        #   "rewrite or internal redirection cycle" → 500）。
+        location /v3/fo_portal/ {
+            alias              "D:/01_RPA/liberia-noc_soc-数据看板统一门户/v3/team_portal/";
+            index              index.html index.htm;
+            add_header         Cache-Control "no-cache, no-store, must-revalidate";
+            auth_request      /uniplam/api/auth/team-gate/fo;
+            error_page        401 = /v3/team-login.html;
+            error_page        403 = @team_forbidden;
+        }
+        location /v3/bo_portal/ {
+            alias              "D:/01_RPA/liberia-noc_soc-数据看板统一门户/v3/team_portal/";
+            index              index.html index.htm;
+            add_header         Cache-Control "no-cache, no-store, must-revalidate";
+            auth_request      /uniplam/api/auth/team-gate/bo;
+            error_page        401 = /v3/team-login.html;
+            error_page        403 = @team_forbidden;
+        }
+        location /v3/flm_portal/ {
+            alias              "D:/01_RPA/liberia-noc_soc-数据看板统一门户/v3/team_portal/";
+            index              index.html index.htm;
+            add_header         Cache-Control "no-cache, no-store, must-revalidate";
+            auth_request      /uniplam/api/auth/team-gate/flm;
+            error_page        401 = /v3/team-login.html;
+            error_page        403 = @team_forbidden;
+        }
+        location /v3/smc_portal/ {
+            alias              "D:/01_RPA/liberia-noc_soc-数据看板统一门户/v3/team_portal/";
+            index              index.html index.htm;
+            add_header         Cache-Control "no-cache, no-store, must-revalidate";
+            auth_request      /uniplam/api/auth/team-gate/smc;
+            error_page        401 = /v3/team-login.html;
+            error_page        403 = @team_forbidden;
+        }
+        location /v3/cxo_portal/ {
+            alias              "D:/01_RPA/liberia-noc_soc-数据看板统一门户/v3/team_portal/";
+            index              index.html index.htm;
+            add_header         Cache-Control "no-cache, no-store, must-revalidate";
+            auth_request      /uniplam/api/auth/team-gate/cxo;
+            error_page        401 = /v3/team-login.html;
+            error_page        403 = @team_forbidden;
+        }
+
+        # ---- 团队门户的拒绝页（2026-10-29）----
+        # 为什么要专门做页面而不是回裸 403：
+        #   用户是在浏览器里点链接进来的，看到 nginx 默认的 403 页面只会以为
+        #   「网站坏了」。给一页可读的中文/英文说明 + 一个「去登录」的出口，
+        #   他才知道是权限问题。
+        # ⚠️ 这两个 location 必须放在 server 块里（named location），且
+        #   **不能**有 alias 指向团队门户目录 —— 否则用户能从拒绝页读到团队内容。
+        #   这里只回一段内联 HTML，不引用任何团队资产。
+        #
+        # ---- 2026-11-04：401 改成「同页登录」----
+        # 用户反馈：「/v3/bo_portal/ 用户访问直接在这个页面登录就行，
+        #   为什么要取其他地方登录呢。」—— 此前 401 回的是一张只有
+        #   「去登录」外链（/uniplam/）的页面，把用户赶去另一个站点。
+        # 现在 401 内部重定向到 v3/team-login.html —— **地址栏不变**
+        #   （仍是 /v3/<team>_portal/），页面上直接就是登录表单。
+        #   登录成功 → 服务端种下 olbr_token Cookie → reload → 闸门放行。
+        #
+        # ⚠️⚠️ 为什么用「内部重定向」而不是 named location + return：
+        #   named location 里只能 return 一段**内联**字符串（nginx 不在
+        #   named location 里做文件重定向），而登录页有表单逻辑、多语言、
+        #   改密流程 —— 内联在配置里没法维护、没法 review。
+        #   error_page 指向一个 URI 则是**内部重定向**：nginx 自己去取那个文件，
+        #   浏览器只看到一个 200，地址栏保持原样。
+        #
+        # ⚠️⚠️ **绝对不能**给 /v3/team-login.html 那个 location 加 auth_request：
+        #   它存在的意义就是给**未登录**的人取。加了闸门 → 取它也要 401
+        #   → 又 error_page 到它 → **死循环**（nginx 会报 "rewrite or internal
+        #   redirection cycle"，最终 500）。
+        #   访问控制仍在服务端 /team-gate —— 团队内容从未在未登录时下发过，
+        #   这一页只是一张**空表单**，不含任何敏感信息。
+        location = /v3/team-login.html {
+            alias              "D:/01_RPA/liberia-noc_soc-数据看板统一门户/v3/team-login.html";
+            default_type      text/html;
+            add_header         Cache-Control "no-store" always;
+        }
+        # 登录页的驱动脚本（同上：公开静态脚本，不带闸门）
+        location = /v3/team-login.js {
+            alias              "D:/01_RPA/liberia-noc_soc-数据看板统一门户/v3/team-login.js";
+            default_type      application/javascript;
+            add_header         Cache-Control "no-store" always;
+        }
+        location @team_unauthorized {
+            # 兼容旧写法保留（2026-11-04 起五个 location 已直接指向
+            # /v3/team-login.html，本 named location 不再被引用）。
+            # 留着的理由：@team_landing_redirect 那条链路上若将来有别处
+            # 复用 401，这里仍是一个不含团队内容的兜底页。
+            default_type text/html;
+            add_header Cache-Control "no-store" always;
+            error_page 401 = /v3/team-login.html;
+        }
+        location @team_forbidden {
+            default_type text/html;
+            add_header Cache-Control "no-store" always;
+            return 403 '<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>403 · 无团队权限</title><style>body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#0b0f17;color:#e6edf6;font:15px/1.8 system-ui,-apple-system,"Segoe UI",sans-serif}.box{max-width:520px;padding:32px;text-align:center}h1{font-size:20px;margin:0 0 12px}p{color:#9fb0c8;margin:0 0 20px}a{display:inline-block;padding:9px 22px;border-radius:8px;background:#1c2534;color:#e6edf6;text-decoration:none;border:1px solid #33415a}</style></head><body><div class="box"><h1>403 · 无团队权限</h1><p>你的账号未分配团队，或不属于该团队。团队门户只对本团队成员开放。</p><a href="/uniplam/">返回统一门户</a></div></body></html>';
         }
 
         # ---- my-finebi：http://localhost/my-finebi/ ----

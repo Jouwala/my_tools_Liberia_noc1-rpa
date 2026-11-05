@@ -400,3 +400,16 @@ Task/PS_CS_CORE_Scripts/openclaw_new.json
 /.agnes/
 /.zcode/
 /.trae/documents/
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 运行产物显式忽略（2026-11-04 补）
+# 只挡产物本身，不整目录忽略：outputs/ 与 desktop_shortcuts/ 下都有已入库的源码
+# （ume_screen_caps/data.json、make_desktop_shortcuts.ps1），整目录挡会把真源码一起吞掉。
+# ─────────────────────────────────────────────────────────────────────────────
+# county 名称归一等一次性回填任务落的备份与对账 JSON，以及导出的对比 PNG
+Task/my_app/outputs/*.json
+Task/my_app/outputs/*.png
+# 改前整目录快照，本机回滚用（AGENTS.md 四.7：快照不进版本库）
+Task/my_app/backup/
+# Windows 桌面快捷方式：里面是本机绝对路径，换台机器就是错的
+**/*.url

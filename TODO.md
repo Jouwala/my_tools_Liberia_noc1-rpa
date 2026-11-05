@@ -40,6 +40,14 @@
 ### P2 —— 体验与工程规范
 
 - [ ] **数字悬浮说明铺开（2026-11-03 立，规则见 `Task\my_app\AGENTS.md` 三.3c / 根 `AGENTS.md` 四.10b）。**
+      **实现已全部铺开完毕（2026-11-05，①—⑥d 全批）**：53 个自研页里 51 页有数字级气泡或已判定豁免，
+      仅剩并发会话手里的 `email_reports` / `ipt_power` 两页未动。**残留两件**：
+      ① 四处实机悬浮还没触发过（`upload` 要真实上传文件、`vmax_user_query` 要真实号码打上游、
+      `sync` 的「失败聚合」截断告警、`eflow_qa` 批量核查六枚汇总），现只有 tsc + build + 代码走查证据；
+      ② `tt_postmortem`（ALL 档合计）与 `/tasks/failures`（scanned/limit/truncated）两处后端改动**要重启 7038** 才生效，
+      重启由用户执行。已实机验证的六页：`sync` / `tables` / `feedback` / `ap_center` / `person` / `eflow_qa`。
+      本轮顺手修掉三处显示层缺陷（详见规格文档「⑥b 顺手修掉的三处」）：失败聚合的静默截断、
+      `analyzeVoice` 的 badCount 重复计数（**会改变界面上「超时/失败」的数字**）、`ap_center` 的 `?? 0` 与空 progress。
       新约定：收起的 `CalcChainNote`（这页整体怎么算）之外，**每个数字还要能悬浮问到「这个数怎么算」**
       （列头/标题用 `MetricExplain::ExplainIcon`，数字本身用 `ExplainPopover` 列出该格构成）。
       **实测盘子**（`Task\my_app\frontend\src\pages\*.tsx`，72 个顶层文件，2026-11-03 数）：
@@ -163,6 +171,31 @@
       页面无控制台报错，tooltip 末行没能在实机触发**（隐藏视口里跑不出一张图），下个会话打开任一分析结果时顺手核一眼。
       教训：**「做完」的判据是扫出来的，不是印象** —— 复扫 `<ExplainPopover` / `explainText=` 才算数，
       别拿「我改过这页」当覆盖证明。
+      **2026-11-05 二次复盘**（复扫脚本 `Task\my_app\TMP\_ne_scan.py`，沿 `pages/` 内的 import 做闭包，可复跑）：
+      53 个非 iframe 页里 38 个扫到数字级气泡 —— 其中 `gis` / `realtime_alarm` 的命中**全部来自对方未提交**的
+      `pages/gismap/RatKpiTab.tsx`（HEAD 里计数为 0），故**我自己已提交的达标 = 37**；`dashboard` 按脚本判据扫不出
+      （数字在 ECharts canvas 里，走 tooltip 末行），`Dashboard.tsx:150-155` + i18n `dashboard.tip.*` 中英六条**确认在 HEAD**。
+      **仍未动 14 页**：⑥b 六页（`sync` `tables` `vmax_user_query` `eflow_qa` `ap_center` `feedback`，
+      i18n 里对应的 `*.explain` 键**一个都不存在** → 整批没开工）、⑥c 的 `person`、⑥d 判不适用的
+      `settings` `portalLogin` `archive` `help`、`upload` 的一处轻覆盖，以及并发会话手里的 `email_reports` / `ipt_power`。
+      **两处更正**：① 上轮写的「② 批 `avail_ms`/`avail_flm` 一行悬浮说明还留在工作区没提交」**不成立** ——
+      HEAD 里两页各 3 处 `ExplainPopover`、`pages/availSumRatio.ts` 已入库，工作区那几行是**对方**在改区域口径
+      （新增 `region_source_mismatch` 告警码、去掉写死的三个区域名），不是我的尾巴；② `manual.html` 按约定继续不提。
+      **线上验证此刻做不了**：本机 7038 **没有监听**（`backend_watchdog` 自 10:42 起进入崩溃重拉循环，
+      崩溃计数 1→5、退避 2→30s，子进程存活 60~103s 但端口始终不 bind），经本机 nginx 实测 `/api/health` = **502**，
+      `backend_runtime` 10:41 有 `connection to server at "192.168.100.20", port 5432 failed: timeout expired`
+      （事后 `pg_isready` 打 127.0.0.1 与 .20 都 accepting）。所以「三处后端改动是否已随 7038 重启生效」要等后端起来再核。
+      守卫 `python tests\test_doc_consistency.py` **PASS=16 FAIL=0**。
+      **⚠ 后端起来后立即实测，抓到 ⑤ 批自己引入的一处回归（未修，等用户点头）**：
+      `noc_analyst` 两张合计卡默认档显示 `—`。根因在 `backend/services/tt_postmortem/__init__.py` ——
+      `deviation_total` / `missing_total` 只在 `_apply_owner_scope()` 的**切档分支**里赋值（`:3889-3890`），
+      主计算路径的 `result` 与缓存文件都没有这两个键；而前端默认 `ownerFilter==='ALL'` 时**故意不带 `owner` 参数**
+      （`NocAnalyst.tsx:772/826/852/886`），于是走 `_apply_owner_scope(result, None)` 的原样返回分支。
+      实测同一分钟：`?owner=ZTE` 返回 `215 / 124`，不带 owner 返回**无字段**，而 ALL 档 `deviation_stats` 求和是
+      **299**、`missing_stats` 求和 **135** —— 数字后端早就有，只是没在 ALL 路径下发。
+      修法：把两行合计从切档分支提到**每条返回路径都执行**的收尾（合计=各分组 `count` 相加，与切档分支同口径，
+      不改任何业务判据，也**不必升缓存版本**，旧缓存里 `deviation_stats`/`missing_stats` 齐全）。
+      改完需重启 7038（由用户执行）。
       **分批计划**（每批一个数据族，共用组件优先；每批都要 `npm run build` + 实机悬浮验证 + 手册/站内帮助同步）：
       ① 可用率族 `AvailMs` / `AvailFlm` / 共用 `AvailTrend`（与已完成的 avail_county 同一套口径，最先做）；
       ② MS SLA / NUR 族（`MsSlaDashboard` / `MsSlaOnly` / `MsNurOnly` / `NurDashboard` / `MsWoSLReport` / `MsContractKpiReport`）；
