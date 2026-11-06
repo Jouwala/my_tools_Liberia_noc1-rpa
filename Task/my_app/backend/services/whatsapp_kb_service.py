@@ -26,6 +26,7 @@ from __future__ import annotations
 import logging
 import os
 import subprocess
+import tempfile
 import time
 from typing import Any, Dict
 
@@ -61,26 +62,59 @@ def sync_knowledge_base(force: bool = False) -> Dict[str, Any]:
     node = os.environ.get("NODE_EXE") or "node"
     cmd = [node, script] + (["--force"] if force else [])
     t0 = time.time()
+    # 输出必须落**临时文件**而不是管道（2026-11-06 修复 4 小时挂死）。
+    #
+    # 原因：sync-kb.mjs 内部会用 stdio:'inherit' 把 stdout 原样传给自己的孙进程
+    # （npm.cmd → ingest.js、powershell.exe → autostart.ps1 → Start-Process 起的
+    # 常驻 bot）。孙进程继承了 Python 这个 capture_output 管道的**写端**，
+    # 于是 python 侧 communicate() 永远等不到 EOF：
+    #   · timeout 只在「读管道」时检查，管道不 EOF → 超时判定被架空；
+    #   · 直接子进程其实早已退出（11-06 04:44:08 索引就重建好了），
+    #     但父进程一直卡在读管道上，直到 4 小时后被 worker 看门狗当孤儿回收。
+    # 实测：timeout=6s 被拖成 45.1s；生产上 11-04 那次 elapsed=6324s
+    # （同步超时已判定，但清理阶段仍多等了 1h38m）。
+    #
+    # 改用文件承接输出后，subprocess 只等「直接子进程退出」，不再等管道 EOF，
+    # timeout 恢复正常语义（实测 0.4s 返回）。文件句柄被孙进程继承也无妨 ——
+    # 文件没有 EOF 语义。
+    #
+    # 保持默认二进制 w+b，不要加 encoding= —— 二进制模式下它直接抛
+    # ValueError；字节→文本的解码统一交给 _read_text（utf-8 + replace）。
+    out_f = tempfile.NamedTemporaryFile(prefix="whatsapp_kb_sync_", suffix=".out", delete=False)
+    err_f = tempfile.NamedTemporaryFile(prefix="whatsapp_kb_sync_", suffix=".err", delete=False)
     try:
-        proc = subprocess.run(
-            cmd,
-            cwd=root,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=_SYNC_TIMEOUT_SEC,
-        )
-    except subprocess.TimeoutExpired:
-        msg = f"同步超时（>{_SYNC_TIMEOUT_SEC}s）"
-        logger.error("whatsapp 知识库同步失败 —— %s", msg)
-        return {"success": False, "error": msg, "elapsed_sec": round(time.time() - t0, 1)}
-    except OSError as e:
-        logger.error("whatsapp 知识库同步启动失败 —— %s", e)
-        return {"success": False, "error": f"启动失败：{e}"}
+        try:
+            proc = subprocess.run(
+                cmd,
+                cwd=root,
+                stdout=out_f,
+                stderr=err_f,
+                stdin=subprocess.DEVNULL,
+                timeout=_SYNC_TIMEOUT_SEC,
+            )
+        except subprocess.TimeoutExpired:
+            msg = f"同步超时（>{_SYNC_TIMEOUT_SEC}s）"
+            logger.error("whatsapp 知识库同步失败 —— %s", msg)
+            return {"success": False, "error": msg, "elapsed_sec": round(time.time() - t0, 1)}
+        except OSError as e:
+            logger.error("whatsapp 知识库同步启动失败 —— %s", e)
+            return {"success": False, "error": f"启动失败：{e}"}
 
-    elapsed = round(time.time() - t0, 1)
-    tail = _tail(proc.stdout, proc.stderr)
+        elapsed = round(time.time() - t0, 1)
+        stdout_text = _read_text(out_f.name)
+        stderr_text = _read_text(err_f.name)
+    finally:
+        for f in (out_f, err_f):
+            try:
+                f.close()
+            except OSError:
+                pass
+            try:
+                os.unlink(f.name)
+            except OSError:
+                pass
+
+    tail = _tail(stdout_text, stderr_text)
     if proc.returncode != 0:
         logger.error("whatsapp 知识库同步失败（exit=%s）：%s", proc.returncode, tail)
         return {
@@ -90,7 +124,7 @@ def sync_knowledge_base(force: bool = False) -> Dict[str, Any]:
             "elapsed_sec": elapsed,
         }
 
-    skipped = "未变化，跳过" in proc.stdout
+    skipped = "未变化，跳过" in stdout_text
     logger.info("whatsapp 知识库同步完成（%s，%.1fs）", "无变化" if skipped else "已重建", elapsed)
     return {
         "success": True,
@@ -98,6 +132,15 @@ def sync_knowledge_base(force: bool = False) -> Dict[str, Any]:
         "output_tail": tail,
         "elapsed_sec": elapsed,
     }
+
+
+def _read_text(path: str) -> str:
+    """读回临时输出文件；读不到就返回空串（不能因为读日志失败而让整个同步失败）。"""
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            return f.read()
+    except OSError:
+        return ""
 
 
 def _tail(stdout: str, stderr: str, lines: int = 12) -> str:
