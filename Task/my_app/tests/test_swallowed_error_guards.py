@@ -10,6 +10,7 @@ IndexError，却被 `except` 吞成 `{"total_failures": 0, "clusters": []}`，�
 本文件把同形状的其余几处逐个钉住 —— **每一条都做过反向验证**（把修复改回旧写法
 必须让用例失败），否则守卫等于没有。
 """
+import json
 import sys
 import unittest.mock as mk
 from pathlib import Path
@@ -177,3 +178,105 @@ class TestAstCacheDoesNotPoisonOnFailure:
         first = ti._parse_file(p)
         assert first is not None
         assert ti._AST_CACHE.get(p) is first, "成功结果未被缓存（会重复解析）"
+
+
+class TestDbWriterFailureRecovery:
+    def test_upsert_timeout_is_not_blindly_retried(self):
+        from backend.services.db_writer_client import DbWriterClient
+        client = DbWriterClient(host="127.0.0.1")
+        with mk.patch.object(client, "_request", return_value={"rows_written": 1}) as req:
+            client.write_data(
+                "db", "t", ["Begin Time"], [["2026-11-05 10:00:00"]],
+                mode="upsert", pk_columns=["Begin Time"],
+            )
+        assert req.call_args.kwargs["max_retries"] == 1
+
+    def test_latest_value_uses_remote_read_endpoint(self):
+        from backend.services.db_writer_client import DbWriterClient
+        client = DbWriterClient(host="127.0.0.1")
+        with mk.patch.object(
+            client, "_request",
+            return_value={"rows": [["2026-11-05T10:00:00+00:00"]]},
+        ) as req:
+            value = client.get_latest_value("db", "t", "Begin Time")
+        assert value == "2026-11-05T10:00:00+00:00"
+        assert req.call_args.args[:2] == ("POST", "/api/read")
+        assert req.call_args.kwargs["max_retries"] == 1
+        payload = json.loads(req.call_args.kwargs["data"].decode("utf-8"))
+        # 线上 /api/read 自己给列名加引号：客户端再包一层会变成 ""Begin Time""，
+        # 实测报 `near "Time": syntax error`（2026-11-05 打线上复现）。
+        assert payload["columns"] == ["Begin Time"], payload
+        assert payload["order_by"] == '"Begin Time" DESC', payload
+
+    def test_ipran_watermark_comes_from_remote_not_local_fallback(self, monkeypatch):
+        from backend.services import ipran_ume_kpi_service as svc
+
+        class Remote:
+            @staticmethod
+            def get_latest_value(db, table, column):
+                assert (db, table, column) == (svc.DB_NAME, "sample", "Begin Time")
+                return "2026-11-05T10:00:00+00:00"
+
+        monkeypatch.setattr(svc, "_db_writer", Remote())
+        monkeypatch.setattr(
+            svc, "get_raw_connection",
+            mk.Mock(side_effect=AssertionError("远端裁剪不得读取本地兜底水位")),
+        )
+        headers = ["Begin Time", "ME"]
+        rows = [
+            ["2026-11-05 07:59:59", "old"],
+            ["2026-11-05T08:00:00+00:00", "edge"],
+            ["2026-11-05 09:00:00", "new"],
+        ]
+        picked, why = svc._rows_since_watermark(
+            "sample", headers, rows, overlap_hours=2)
+        assert [row[1] for row in picked] == ["edge", "new"]
+        assert "remote watermark" in why
+
+
+class TestFwLocalMirrorFailureVisibility:
+    def test_integer_columns_are_upgraded_only_when_needed(self):
+        from backend.services.fw_kpi import fw_kpi_services as svc
+
+        class Cursor:
+            def __init__(self):
+                self.sql = []
+
+            def execute(self, sql, params=None):
+                self.sql.append((sql, params))
+
+            def fetchall(self):
+                return [("in_bps", "integer"), ("out_bps", "bigint")]
+
+        class Conn:
+            def __init__(self):
+                self.cur = Cursor()
+
+            def cursor(self):
+                return self.cur
+
+        conn = Conn()
+        svc._ensure_throughput_bigint(conn)
+        alter = [sql for sql, _ in conn.cur.sql if sql.startswith("ALTER TABLE")]
+        assert len(alter) == 1 and "in_bps TYPE BIGINT" in alter[0]
+
+    def test_mirror_failure_marks_task_failed(self, monkeypatch):
+        from backend.services.fw_kpi import fw_kpi_services as svc
+        monkeypatch.setattr(svc, "DEVICE_IDS", ["device"])
+        monkeypatch.setattr(svc, "ENABLE_CHART_EMAIL", False)
+        monkeypatch.setattr(svc, "Session", lambda: object())
+        monkeypatch.setattr(svc, "login", lambda session: None)
+        monkeypatch.setattr(svc, "fetch_throughput_html", lambda *args: "html")
+        monkeypatch.setattr(
+            svc, "parse_throughput",
+            lambda *args: [("2026-11-05 10:00:00", "10:00", 3_000_000_000, 4_000_000_000)],
+        )
+        monkeypatch.setattr(svc, "write_to_remote_db", lambda rows, device: 1)
+        monkeypatch.setattr(
+            svc, "write_to_local_db",
+            mk.Mock(side_effect=OverflowError("整数超出范围")),
+        )
+        result = svc.run()
+        assert result["success"] is False
+        assert result["local_mirror_ok"] is False
+        assert "整数超出范围" in result["error"]

@@ -164,6 +164,33 @@ SQLite 分支是 `INSERT OR REPLACE`，**不要冲突目标也照样工作**—�
 > 那份**真文件**的唯一生产者，且 `.19` 那台机器可能在 sqlite 模式下跑。
 > 所以本次只修「串 schema」，不删双写 —— 删它是跨模式、跨主机的契约变更，需另行评估。
 
+### 看板读端的查询侧索引（`ipran_ume`，2026-11-05）
+
+采集侧给这 6 张 15 分钟表建的唯一索引是 `("Begin Time", "ME", "Measure Object"[, "Counter"])`
+—— 前导列是业务时间，对 upsert 幂等正好，但**看板 SQL 的等值条件用不上前导列**：
+`WHERE "ME"=? AND "Measure Object"=? AND "Begin Time" 区间` 只能顺着时间范围把整段索引项
+走完再丢掉 99.9%（`Metro_ring_me_15mins` 31 天 ≈ 340 万条 + 同量级回表）。
+默认窗口 11-05 从 7 天放到 31 天后，`finebi_metro_ring` 整页冷取因此涨到 9~21s，
+且成本**随窗口线性**放大（5 天 1.2s / 31 天约 10s）。
+
+补法是加一条以等值列打头的索引，用 `backend/scripts/ensure_ipran_perf_indexes.py`
+（幂等可重跑，细节与实测表见同目录 `ensure_ipran_perf_indexes.md`）：
+
+- 5 张表建 `("ME", "Measure Object", "Begin Time")`；
+  `Gbarnga_Buchanna_RIA_Kakata_me_15mins` 只建 `("ME", "Begin Time")` ——
+  ipran_4region 的 8 个组件是区域聚合、不指定端口，多给一列只是白付体积与写放大。
+- **用 `CREATE INDEX CONCURRENTLY`**：采集每小时在 upsert 这些表，普通 `CREATE INDEX`
+  的 SHARE 锁会挡住写入。代价是中途失败会留下 INVALID 索引，脚本每次回查
+  `pg_index.indisvalid`，非空就退出码 1 并给出 `DROP INDEX CONCURRENTLY` 清理语句。
+- 实测：`Metro_ring_me_15mins` 代表查询 7714ms → **29ms**，整页 9~21s → **0.32s**；
+  建索引 42.3s、新增约 329 MB。
+
+**三条规矩**：① 这类索引**不进 Alembic**（表本身就是采集运行时建的，
+`grep -rl ipran_ume alembic/versions/` 为空），新机器/重建库后跑一次脚本；
+② **别删那个唯一索引**，`mirror_rows_to_local` 的 `ON CONFLICT` 靠它保证幂等；
+③ 给 `PUSH_DOWN_TABLES` 加表时，脚本的 `PLAN` 要按新表**真实谓词**加一条，
+否则又退回全区间扫。
+
 ### 已知遗留：`ms_sla_sync` 索引创建失败的降级路径
 
 `ms_sla_sync.py:308-327` 把「清重复行 + 建唯一索引」整段包在 `try` 里，

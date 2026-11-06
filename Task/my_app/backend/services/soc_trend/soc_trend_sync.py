@@ -30,7 +30,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, timedelta
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 if __package__ in (None, ""):                                            # 直接 python 跑本文件时
     sys.path.insert(0, str(Path(__file__).resolve().parents[3]))

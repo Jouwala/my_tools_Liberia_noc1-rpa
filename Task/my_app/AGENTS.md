@@ -34,7 +34,7 @@
    - 已存在的功能页若**从未登记**，同样要补：`noc_analyst` / `fme_ranking` / `site_avail` / `repeat_site_down` 四个页面此前都缺 `11-feature-guide.md` 条目与站内帮助（2026-09-23 已补）；`ms_wo_sla` / `ms_contract_kpi` / `ran_cells_kpi` / `person` 四个页面已在侧边栏但**一直没有帮助条目**（2026-10-31 已补）。
    - 站内帮助另有三处要同步：`helpContent.ts` 的 **`PAGE_DOCS`（zh/en 两份）+ `PAGE_LIST` + `NAV_KEY_MAP`**，并加进 `CATEGORIES` 的某个分类。**只加 `PAGE_DOCS` 不会显示** —— 页面清单由 `PAGE_LIST` 驱动。
    - **`socTrendDashboard` 曾在 `PAGE_META` / i18n / 刷新配置里都齐了，唯独没进 `DEFAULT_GROUPS`**（2026-10-31 已补）—— 页面能路由到，侧边栏却没有它的位置。**加了页面别忘了加进 `DEFAULT_GROUPS` 的某个组**。
-   - ⚠️ **这些约定现在有机器守卫了**：`tests\test_doc_consistency.py`（16 个用例，**零第三方依赖、跨平台**，真相源用 AST 静态解析）会核对「任务数 / 页面数 / iframe 页数 / worker 组数 / 队列保留期 / 路由数 / 凭据分组数 / 组件数 / 文件体积 / 页面表与菜单一致 / 帮助条目齐全 / 每个页面都有按页刷新设置」等**从代码抄来的数字**，不一致就跑测试失败，**本地钩子与 CI 都会拦下**。详见 `docs\manual\04-task-system.md`「文档一致性守卫」一节。**别再靠自觉** —— 靠自觉已经失效过 15 次。
+   - ⚠️ **这些约定现在有机器守卫了**：`tests\test_doc_consistency.py`（17 个用例，**零第三方依赖、跨平台**，真相源用 AST 静态解析）会核对「任务数 / 页面数 / iframe 页数 / worker 组数 / 队列保留期 / 路由数 / 凭据分组数 / 组件数 / 文件体积 / 页面表与菜单一致 / 帮助条目齐全 / 每个页面都有按页刷新设置 / 看板下推的每张表都有本机 PG 巡检且窗口同档」等**从代码抄来的数字**，不一致就跑测试失败，**本地钩子与 CI 都会拦下**。详见 `docs\manual\04-task-system.md`「文档一致性守卫」一节。**别再靠自觉** —— 靠自觉已经失效过 15 次。
    - **门户那一侧也有同款守卫**：`liberia-noc_soc-数据看板统一门户\scripts\check-doc-consistency.mjs`（`npm run check:docs`，6 个用例，核对 README/docs 里的看板条数 / 组件数 / 任务数）。两边同一套约定、同一套哲学。
    - **钩子怎么装**（新克隆的机器必做一次）：`cd frontend && npm run setup:hooks` —— 把 `core.hooksPath` 指向仓库内的 `.githooks\`（钩子文件随仓库分发，不再只存在于某台机器的 `.git\hooks\` 里）。详见根 `AGENTS.md` 第四节第 9 条。
 1b. **看板页"能下钻尽下钻"是硬要求**：页面上**每个数字都要可点**并落到对应明细，不允许只有汇总数字没有下钻路径。`noc_analyst` 是参考实现（四层：人 → 切片明细 → 站点 → 单 TT 告警链路，见 `docs\manual\11-feature-guide.md` 的 14b 节）。做下钻时三条铁律：
@@ -211,7 +211,7 @@ uvicorn 后端 (:7038)
 - [ ] 新任务：`TASK_SPECS` 已登记，且 `04-task-system.md` 已更新
 - [ ] **新页面：`App.tsx` 的 `AR_PAGE_DEFAULTS` 已登记该页建议刷新间隔**（三.3d；重挂载代价大的页还要进 `AR_INPLACE_REFRESH_PAGES` / `AR_SOFT_REFRESH_PAGES`）
 - [ ] **改了「从代码抄来的数字」（任务数/页面数/分组数/保留期/路由数）→ 手册与站内帮助两处都改了**
-- [ ] **`cd Task\my_app && python tests\test_doc_consistency.py` 通过**（16 个用例；本地钩子与 CI 也会跑）
+- [ ] **`cd Task\my_app && python tests\test_doc_consistency.py` 通过**（17 个用例；本地钩子与 CI 也会跑）
 - [ ] **新克隆的机器**跑过一次 `cd frontend && npm run setup:hooks`（否则本地钩子不生效，只能靠 CI 兜底）
 - [ ] 前端产物目录仍是 `_fe_dist`，且已重新 `npm run build`
 - [ ] 帮助内容改动后已重跑 `npm run docs`（`generate-help-doc.mjs` + `generate-manual-html.mjs`）

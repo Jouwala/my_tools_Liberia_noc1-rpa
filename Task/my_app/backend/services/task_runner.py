@@ -706,6 +706,8 @@ def run_task(task_id: str, trigger: str = "manual") -> dict:
                         errs = [e for e in errs if e]
                         if errs:
                             biz_msg = "; ".join(str(e) for e in errs)
+                if not biz_msg:
+                    biz_msg = func_result.get("skipped")
                 if biz_msg:
                     result["error"] = str(biz_msg)
             # 2026-11-04：任务函数**自行捕获**异常时可能把栈写进返回值（如

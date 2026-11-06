@@ -16,6 +16,14 @@
     py -3.12 -m backend.scripts.backfill_ipran_pg
     py -3.12 -m backend.scripts.backfill_ipran_pg --since 2026-11-01
 
+两种模式（差别在是否按本机水位裁行，见 backfill_table 的注释）
+    不传 --since —— **追水位**：从「本机水位前一天」读，只写水位-2h 之后的行，
+      用于日常把落后几个小时的本机库追平。
+    传 --since  —— **补历史空洞**：从指定日期整段重写，不按水位裁行。
+      本机镜像只追头部水位（``mirror_rows_to_local``），中间断过的日子**永远不会
+      自动长回来**，只能靠这个模式补。例如 2026-11-05 补 10 月那段：
+      ``--since 2026-10-05 --tables Metro_ring_me_15mins``
+
 幂等：写入走 ``ON CONFLICT DO UPDATE``，重复执行不会产生重复行。
 """
 from __future__ import annotations
@@ -95,8 +103,15 @@ def backfill_table(table: str, since_arg: str, batch: int,
     # 固定 cutoff（回填开始时算一次，不随写入推进）：只写「水位 - 2h」之后的
     # 缺口行。固定而非动态，是因为按 rowid 分批时业务时间未必单调，边写边
     # 抬高水位会把后面的批次误裁掉。留 2h 重叠以覆盖 UME 的少量历史回补。
+    #
+    # ⚠ 显式传 --since 补**历史空洞**时必须关掉这个过滤。否则 cutoff 仍按
+    #   「当前水位 - 2h」算，比水位老的行被整段裁掉 —— 本机 PG 的 ipran_ume
+    #   缺 2026-10-05~10-26（远端权威库齐全），照旧写法执行
+    #   `--since 2026-10-05` 只会写进最近 2 小时，历史洞一个字节也补不上
+    #   （2026-11-05 排查「IP RAN 看板默认窗口改 31 天」时抓到）。
+    #   不传 --since 的追水位行为保持不变。
     cutoff = ""
-    if water:
+    if water and not since_arg:
         try:
             cutoff = (datetime.strptime(water[:19], "%Y-%m-%d %H:%M:%S")
                       - timedelta(hours=2)).strftime("%Y-%m-%d %H:%M:%S")
@@ -134,6 +149,7 @@ def backfill_table(table: str, since_arg: str, batch: int,
 
     return {
         "table": table, "water_before": water, "since": since,
+        "cutoff": cutoff or "（历史回填模式，不按水位裁）",
         "remote_max": rmax, "fetched": total_fetch,
         "written": total_write, "pages": pages,
         "water_after": pg_max(table) if not dry_run else water,

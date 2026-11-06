@@ -536,19 +536,19 @@ export const TASK_DOCS: TaskDoc[] = [
     },
   },
   {
-    id: 'ipran_kpi_sync', group: 'u', cron: '0 8 * * *',
+    id: 'ipran_kpi_sync', group: 'u', cron: '0 * * * *',
     script: 'services/ipran_ume_kpi_service.py → run_ipran_kpi_sync',
     zh: {
       name: 'iPRAN UME KPI 同步',
       desc: 'iPRAN UME M6000 路由器 KPI 同步（HQ M6K-FW 等），导出 Excel 并导入 SQLite + FTP 上传',
       flow: ['登录 iPRAN UME 查 M6000 路由器 KPI', '导出 Excel、写 data/ipran_ume/ipran_ume_kpi.sqlite3、FTP 上传'],
-      maintain: ['产出同时供 ipran_m6k_chart_email（06:45）出图；u 组内排在 08:00'],
+      maintain: ['产出同时供 ipran_m6k_chart_email（06:45）出图，邮件读到的是最近一轮已完成的小时同步；每小时全量拉取是本意（2026-11-06 与用户确认，代码默认值已按此对齐）'],
     },
     en: {
       name: 'iPRAN UME KPI Sync',
       desc: 'iPRAN UME M6000 router KPI sync (HQ M6K-FW etc.), export Excel + SQLite import + FTP upload',
       flow: ['Log into iPRAN UME, query M6000 router KPIs', 'Export Excel, write data/ipran_ume/ipran_ume_kpi.sqlite3, FTP upload'],
-      maintain: ['Output also feeds ipran_m6k_chart_email (06:45); runs at 08:00 within group u'],
+      maintain: ['Output also feeds ipran_m6k_chart_email (06:45), which reads whichever hourly round finished last; the hourly full pull is the intended cadence (confirmed with the user 2026-11-06, code default now matches)'],
     },
   },
   {
@@ -882,13 +882,13 @@ export const TASK_DOCS: TaskDoc[] = [
       name: 'IP RAN M6K-FW 图表邮件',
       desc: '从 ipran_ume_kpi.sqlite3 查询 HQ_M6K_FW_bnctp_15mins，按 ME+SmartGroup 生成 3 张利用率折线图并发送',
       flow: ['查询 ipran_ume_kpi.sqlite3 的 HQ_M6K_FW_bnctp_15mins 表', '按 ME+SmartGroup 生成 3 张利用率折线图', '发送图表邮件'],
-      maintain: ['依赖前一天 08:00 ipran_kpi_sync 的数据；u 组任务失败时本邮件会出空图或失败'],
+      maintain: ['依赖 ipran_kpi_sync 最近一轮（每小时）的数据；u 组任务失败时本邮件会出空图或失败'],
     },
     en: {
       name: 'IP RAN M6K-FW Chart Email',
       desc: 'Query HQ_M6K_FW_bnctp_15mins from ipran_ume_kpi.sqlite3, generate 3 utilization line charts by ME+SmartGroup and email them',
       flow: ['Query HQ_M6K_FW_bnctp_15mins in ipran_ume_kpi.sqlite3', 'Generate 3 utilization line charts by ME+SmartGroup', 'Send the chart email'],
-      maintain: ['Depends on the previous day\'s 08:00 ipran_kpi_sync; empty charts or failure follow u-group sync failures'],
+      maintain: ['Depends on the latest hourly ipran_kpi_sync round; empty charts or failure follow u-group sync failures'],
     },
   },
   {

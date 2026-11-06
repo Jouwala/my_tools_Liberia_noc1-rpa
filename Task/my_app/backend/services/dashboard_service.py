@@ -123,13 +123,31 @@ DEFAULT_LIMIT = 5000
 # "Begin Time" 索引范围扫描。实测 8/8 成功、总 41s、4949 行。
 #
 # 无窗口时默认回看 PUSH_DOWN_DAYS 天；用户显式选了区间时下推用户区间，并跳过
-# _apply_window 的二次子查询包装（否则内层的默认 7 天会把历史区间裁空）。
+# _apply_window 的二次子查询包装（否则内层的默认窗口会把历史区间裁空）。
 #
 # date('now', ...) 是 SQLite 方言；切到本机 PG 时由 _to_pg_sql() 换成
 # to_char(current_date - interval 'N days', 'YYYY-MM-DD')，两种库共用同一份目录。
+#
+# 2026-11-05（如意定「IP RAN 页面看 31 天」）两点扩量：
+#   ① 白名单从 Metro_ring 一张扩到 IP RAN 全部 6 张 15 分钟表 —— 原来只有
+#      metro_ring 受下推保护，另外 3 个看板（ipran_hq / ipran_4region）走的是
+#      「无窗口 = 全历史」，取回的是 FineBI 原口径的全部累积行（单页 1.9 万行 /
+#      1.0MB），页面默认既慢又和 metro_ring 不同口径。
+#   ② 默认回看 7 天 → 31 天，四个页面的默认窗口统一成「近一个月」。
+#      前提是本机 PG 的 ipran_ume 得真有 31 天：当时实测近 31 天只有 10 天有数
+#      （镜像只追头部水位，中间断的日子不会自己长回来），已用
+#      `backend/scripts/backfill_ipran_pg.py --since 2026-10-05` 补齐；
+#      以后再断日子，用同一条命令补，别改这里。
 # ----------------------------------------------------------------------
-PUSH_DOWN_TABLES = ("Metro_ring_me_15mins",)
-PUSH_DOWN_DAYS = int(os.environ.get("NATIVE_BOARD_PUSHDOWN_DAYS", "7"))
+PUSH_DOWN_TABLES = (
+    "Metro_ring_me_15mins",
+    "Gbarnga_Buchanna_RIA_Kakata_me_15mins",
+    "Banjor_ELWA_me_15mins",
+    "IPCORE_HQ_ODC_bnctp_15mins",
+    "OLT_bnctp_15mins",
+    "HQ_M6K_FW_bnctp_15mins",
+)
+PUSH_DOWN_DAYS = int(os.environ.get("NATIVE_BOARD_PUSHDOWN_DAYS", "31"))
 
 # ----------------------------------------------------------------------
 # IP RAN 族 → 本机 PG（2026-11-04，如意确认）
@@ -595,6 +613,74 @@ def _pushdown_time_window(sql: str, start: str,
 
 
 # ----------------------------------------------------------------------
+# 长窗口按小时聚合（2026-11-05，如意定：「大于 7 天按小时」）
+#
+# 为什么：15 分钟粒度 × 31 天 = 约 3000 点/条线。`NativeBoard` 只在点数 >120 时
+# 开 ECharts 的 LTTB 抽样，页面没有 dataZoom 滑块 —— 一屏塞 3000 点只能看出一片
+# 毛边，「这个口子上午最高冲到多少」反而读不出来。
+#
+# 做法：窗口 > 7 天时，把**已经下推好时间条件**的查询再包一层，按小时取峰值：
+#   - 取 MAX 不取 AVG：与同族 `fw_daily` 既有的小时口径一致
+#     （`ROUND(MAX("out_bps")/1e6,2)`），均值会把尖峰抹平，而这类曲线就是用来盯
+#     尖峰的；上限 = 每小时 4 个 15 分钟点里的最大值，不会造出更高的数。
+#   - 只作用于**命中时间下推**的趋势组件（= IP RAN 那 6 张 15 分钟 KPI 表）。
+#     其余 13 个看板、月粒度看板、`fw_daily` 的两条全历史趋势一行不动。
+#   - 形态不符（SELECT 首列别名不是 `t`，或 pivot 不是 `t/s/value` 三列）就返回
+#     空串、保持原粒度 —— 不做任何猜测性改写。
+#   - 阈值 `NATIVE_BOARD_HOUR_GRAIN_ABOVE_DAYS` 可调；选 ≤7 天即回到 15 分钟原始粒度。
+# 界面侧：被改成小时粒度的卡片会挂 ⓘ（`ExplainIcon`，取 widget.time_grain），
+# 按仓库硬要求「这页怎么算的」要能问到，但不占首屏（根 AGENTS.md 四.10 / 四.10b）。
+# ----------------------------------------------------------------------
+HOUR_GRAIN_ABOVE_DAYS = int(os.environ.get("NATIVE_BOARD_HOUR_GRAIN_ABOVE_DAYS", "7"))
+_SELECT_LIST_RE = re.compile(r"^\s*SELECT\s+(.*?)\s+FROM\s", re.IGNORECASE | re.DOTALL)
+_ALIAS_RE = re.compile(r"AS\s+(\"[^\"]+\"|[A-Za-z_][A-Za-z_0-9]*)\s*(?=,|$)", re.IGNORECASE)
+
+
+def _select_aliases(sql: str) -> List[str]:
+    """取 SELECT 列表的输出列别名（顺序 = 结果列顺序）；解析不出就返回 []。"""
+    m = _SELECT_LIST_RE.match(sql or "")
+    if not m:
+        return []
+    return [a.strip().strip('"') for a in _ALIAS_RE.findall(m.group(1))]
+
+
+def _hourly_needed(start: str, end: str) -> bool:
+    """窗口长到该按小时看了吗（无窗口时按默认下推天数判）。"""
+    if start and end:
+        try:
+            days = (date.fromisoformat(end) - date.fromisoformat(start)).days + 1
+        except ValueError:
+            return False
+    else:
+        days = PUSH_DOWN_DAYS
+    return days > HOUR_GRAIN_ABOVE_DAYS
+
+
+def _hourly_grain_sql(sql: str, pivot: bool) -> str:
+    """把查询包成「按小时取峰值」；返回空串 = 形态不符，不改写。
+
+    内层的 `t` 已是 `YYYY-MM-DD HH:MM`（metro_ring 那条 SQL 自带 REPLACE(...,'T',' ')），
+    所以取前 13 位再补 `:00` 就是小时刻度，两种库、两种时间文本形态都成立。
+    """
+    aliases = _select_aliases(sql)
+    if len(aliases) < 2 or aliases[0] != "t":
+        return ""
+    hour_col = "substr(\"t\",1,13) || ':00' AS \"t\""
+    if pivot:
+        if len(aliases) != 3 or aliases[1] != "s":
+            return ""
+        val = aliases[2].replace('"', '""')
+        cols = f'{hour_col}, "s", ROUND(MAX("{val}"),2) AS "{val}"'
+        group = "1, 2"
+    else:
+        vals = [a.replace('"', '""') for a in aliases[1:]]
+        cols = hour_col + ", " + ", ".join(
+            f'ROUND(MAX("{v}"),2) AS "{v}"' for v in vals)
+        group = "1"
+    return f"SELECT {cols} FROM (\n{_guard(sql)}\n) GROUP BY {group} ORDER BY 1"
+
+
+# ----------------------------------------------------------------------
 # 逻辑库别名（目录里写的库名 → 实际要读的库）
 # ----------------------------------------------------------------------
 # 为什么要有这一层：`native_catalog.py` 是**自动生成**的
@@ -655,6 +741,9 @@ def _fetch_widget(w: Dict[str, Any],
         "grain": "",
         "pushed": False,
         "fallback_remote": False,
+        # 时间粒度：'' = 各组件原口径；'hour' = 窗口 >7 天时改按小时取峰值
+        # （见 _hourly_grain_sql；前端据此挂 ⓘ 说明，不重算）
+        "time_grain": "",
     }
     if w["chart"] == "text":
         out["title_text"] = w.get("title_text", "")
@@ -671,6 +760,15 @@ def _fetch_widget(w: Dict[str, Any],
         IPRAN_HISTORY_FALLBACK and db == LOCAL_IPRAN_PG and start and end
         and not _pg_range_has_data(_pg_table_of(sql), start, end))
     out["fallback_remote"] = fallback_remote
+
+    # 窗口 >7 天：把已下推时间的趋势查询改按小时取峰值（见 _hourly_grain_sql）。
+    # 放在 fallback_remote 判定之后：回落远端时用的也是这条包过小时的 SQL ——
+    # substr / || / GROUP BY 序号在 SQLite 与 PG 上语义一致，两边出数相同。
+    if pushed and w["chart"] in _WINDOWABLE_CHARTS and _hourly_needed(start, end):
+        hourly_sql = _hourly_grain_sql(sql, bool(w.get("pivot")))
+        if hourly_sql:
+            sql = hourly_sql
+            out["time_grain"] = "hour"
 
     def run(q: str) -> Dict[str, Any]:
         # 回落时用的是**未做 PG 方言转换**的原 SQL（_to_pg_sql 只在 _query_pg 内），
@@ -852,6 +950,73 @@ def _schedule_refresh(slug: str, start: str, end: str) -> None:
     _refresh_pool.submit(_job)
 
 
+# ----------------------------------------------------------------------
+# 「这一页近 N 天有几天真有数」—— 缺档可见化（2026-11-05，如意定）
+#
+# 为什么需要：本机 PG 的 ipran_ume 增量镜像**只追头部水位**
+# （`ipran_ume_kpi_service.mirror_rows_to_local`），中间断掉的日子永远不会自己
+# 长回来；而缺一个日子在折线图上只是「一段没有线」，和「流量真的是 0」长得
+# 一模一样 —— 用户会拿着这个错觉去汇报。按仓库硬要求（根 AGENTS.md 第四节
+# 第 10 条：**解释怎么算的可以收起，算错了/算不全必须常驻可见**），把缺档算成
+# 结构化字段交给前端常驻告警，而不是塞 `title=` 或收进说明条。
+#
+# 成本：零额外查询 —— 直接用已经取回的行里那一列日期算。
+# 范围：只有参与时间下推（pushed=True）且识别出日期列的组件参与统计。它们是
+# 15 分钟粒度持续上报的 KPI 表，某台设备一整天一行没有 = 断档；月粒度看板、
+# 明细表、`fw_daily` 那两条不带 WHERE 的全历史趋势不参与，避免误报。
+# 「今天」不参与判定（还没过完，按天判必然缺）。
+# ----------------------------------------------------------------------
+def _coverage_from_widgets(results: List[Dict[str, Any]], start: str,
+                           end: str) -> Dict[str, Any]:
+    """用本页已取回的行算出「期望天数 / 实有天数 / 缺哪几天」。
+
+    返回 {} 表示该页不参与此判定（没有下推组件），前端据此不显示告警。
+    """
+    pushed = [w for w in results if w.get("pushed") and w.get("date_field")]
+    if not pushed:
+        return {}
+
+    today = date.today()
+    try:
+        win_start = date.fromisoformat(start) if start else (
+            today - timedelta(days=PUSH_DOWN_DAYS))
+        win_end = date.fromisoformat(end) if end else today
+    except ValueError:          # 理论上到不了：路由层已校验过格式
+        return {}
+    win_end = min(win_end, today)
+    last_full = min(win_end, today - timedelta(days=1))
+    if last_full < win_start:
+        expected: List[date] = []
+    else:
+        expected = [win_start + timedelta(days=i)
+                    for i in range((last_full - win_start).days + 1)]
+
+    present = set()
+    for w in pushed:
+        cols = w.get("columns") or []
+        field = w["date_field"]
+        if field not in cols:
+            continue
+        idx = cols.index(field)
+        for r in (w.get("rows") or []):
+            if idx < len(r):
+                d = _norm_date(r[idx])
+                if d:
+                    present.add(d)
+
+    missing = [d.isoformat() for d in expected if d.isoformat() not in present]
+    if not expected:
+        return {}
+    return {
+        "window_start": win_start.isoformat(),
+        "window_end": win_end.isoformat(),
+        "expected_days": len(expected),
+        "present_days": len(expected) - len(missing),
+        "missing_days": missing[:60],
+        "missing_count": len(missing),
+    }
+
+
 def _build_board(board: Dict[str, Any], slug: str, start: str,
                  end: str) -> Dict[str, Any]:
     """真正取数：并发拉取整页组件（唯一会走远端的路径）。"""
@@ -877,6 +1042,9 @@ def _build_board(board: Dict[str, Any], slug: str, start: str,
             "end": end,
             # 本页是否支持时间窗口（取决于能否识别出日期列）
             "window_supported": has_window,
+            # 缺档可见化：{expected_days, present_days, missing_days[...]}，
+            # 非下推页为 {}（见 _coverage_from_widgets）
+            "coverage": _coverage_from_widgets(results, start, end),
             "dbs": sorted({w["db"] for w in results if w["db"]}),
             "fetched_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         },
@@ -1226,7 +1394,6 @@ def validate_window(start: str, end: str) -> Tuple[str, str]:
     return ds.isoformat(), de.isoformat()
 
 
-def default_window() -> Tuple[str, str]:
-    """默认时间窗口：近 31 天（与多数看板的 SQL 口径一致）。"""
-    today = date.today()
-    return (today - timedelta(days=31)).isoformat(), today.isoformat()
+# （这里原有 `def default_window()` 返回“近 31 天”，全仓无调用方，2026-11-05 删除。）
+# 看板「不选窗口时看几天」的唯一真相源是文件顶部的 PUSH_DOWN_DAYS，
+# 别再加第二个默认窗口函数 —— 两个数不一样时没人知道该信谁（AGENTS.md 四.5）。

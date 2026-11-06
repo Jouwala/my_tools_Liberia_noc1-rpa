@@ -5,8 +5,8 @@
   1. 周期必须落在「周日 → 周六」：生成器内部会拒绝非周日的窗口；
   2. 默认窗口 = 最近一个**已结束**的周日，且长度 7 天；
   3. 工单站点解析：`[站点名]` 优先、标题前导站号要剥掉、站点名与原因不得重复；
-  4. 落盘：tmp + os.replace 原子替换（守卫 2026-11-03 目标被 Excel 占用导致
-     PermissionError 的失败），锁死时必须给可操作报错并清理临时文件。
+  4. 落盘：tmp + os.replace 原子替换；目标被 Excel 持续占用时按项目规则
+     改用 ``_序号`` 文件名，不再让周报任务失败。
 """
 from __future__ import annotations
 
@@ -238,8 +238,8 @@ def test_parse_falls_back_to_outbound_type_when_no_ticket():
 
 # ---------------------------------------------------------------- 落盘
 # 2026-11-03 16:54~16:55 两次任务失败：目标 xlsx 被人用 Excel 打开时
-# wb.save(path) 直接 PermissionError[Errno 13]。这里守卫 _save_workbook 的
-# 三个行为：原子替换成功无残留 / 瞬态锁重试后成功 / 锁死时给可操作报错并清 tmp。
+# wb.save(path) 直接 PermissionError[Errno 13]。这里守卫原子替换、瞬态锁重试，
+# 以及持续占用时改用 _序号 文件并清 tmp。
 def _tiny_wb():
     from openpyxl import Workbook
 
@@ -275,18 +275,21 @@ def test_save_workbook_retries_then_succeeds_when_lock_released(tmp_path, monkey
     assert path.is_file() and state["n"] == 2, "第一次撞锁后必须重试而不是直接失败"
 
 
-def test_save_workbook_gives_actionable_error_when_target_stays_locked(tmp_path, monkeypatch):
+def test_save_workbook_uses_numbered_file_when_target_stays_locked(tmp_path, monkeypatch):
     path = tmp_path / "rep.xlsx"
+    real_replace = wk.os.replace
     calls = []
 
-    def busy(src, dst):
+    def busy_original(src, dst):
         calls.append(dst)
-        raise PermissionError(13, "Permission denied")
+        if Path(dst) == path:
+            raise PermissionError(13, "Permission denied")
+        return real_replace(src, dst)
 
-    monkeypatch.setattr(wk.os, "replace", busy)
+    monkeypatch.setattr(wk.os, "replace", busy_original)
     monkeypatch.setattr(wk.time, "sleep", lambda s: None)
-    with pytest.raises(PermissionError, match="Excel"):
-        wk._save_workbook(_tiny_wb(), path, attempts=3, wait_seconds=0)
-    assert not path.exists()
-    assert list(tmp_path.iterdir()) == [], "失败后必须清理临时文件"
-    assert len(calls) == 3, "重试次数必须用满才报错"
+    saved = wk._save_workbook(_tiny_wb(), path, attempts=3, wait_seconds=0)
+    assert saved == tmp_path / "rep_1.xlsx"
+    assert saved.is_file()
+    assert list(tmp_path.iterdir()) == [saved], "成功后不得清理或覆盖备用文件"
+    assert len(calls) == 4, "原名重试用满后必须自动尝试 _1 文件"

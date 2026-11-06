@@ -200,6 +200,25 @@ SELECT * FROM ( <原 SQL> ) WHERE substr("<日期列>",1,10) BETWEEN '...' AND '
   识别不到则 `window_supported=false`，前端自动禁用控件（而不是静默返回错数）。
 - 支持**日粒度与月粒度**（月粒度取前 7 位比较，覆盖 CN KPI 月度看板的 `2026-04`）。
 - **KPI 卡片不参与窗口**：其 SQL 多为 `MAX(...)` 聚合单值，套窗口会变 0 行。
+- **IP RAN 族默认即「近 31 天」**（2026-11-05，如意定）。FineBI 原口径是
+  「无时间过滤 = 全历史」，现在 6 张 15 分钟 IP RAN 表的趋势 SQL 会在**取数层**
+  被下推 `"Begin Time" >= date('now','-31 days')`（`dashboard_service.py` 的
+  `PUSH_DOWN_TABLES` / `PUSH_DOWN_DAYS`，档位可用环境变量
+  `NATIVE_BOARD_PUSHDOWN_DAYS` 改，不用动代码）。各看板的 `TIme` 卡片与
+  `fw_daily` 的两条 `device_whole_throughput` 趋势本来不带 WHERE，
+  **不参与下推**，仍是全历史口径。
+  前提是数据真的在：本机 PG 的 `ipran_ume` 镜像只追头部水位，中间断过的日子
+  **不会自己长回来**，要用 `python -m backend.scripts.backfill_ipran_pg
+  --since YYYY-MM-DD`（历史回填模式）补，别改这里的档期。
+- **窗口超过一周时按小时取峰值**（2026-11-05，如意定「大于 7 天按小时」）。
+  31 天 × 15 分钟 ≈ 3000 点/条线，本页没有 dataZoom 滑块，一屏只能看出一片毛边，
+  尖峰读数反而更难。所以命中时间下推的趋势组件在窗口 > `HOUR_GRAIN_ABOVE_DAYS`
+  （默认 7，环境变量 `NATIVE_BOARD_HOUR_GRAIN_ABOVE_DAYS`）时，会被再包一层
+  `substr("t",1,13) || ':00'` + `GROUP BY` 小时，**取 MAX 不取 AVG**（均值会把尖峰
+  抹平，与 `fw_daily` 既有的小时口径一致；小时值 = 该小时 4 个点里的最大值，
+  不会造出更高的数）。pivot 组件按「小时 × 序列」分组。窗口收到一周内自动回到
+  15 分钟原始粒度；被改粒度的卡片右上角挂 ⓘ（`widget.time_grain == 'hour'` 才出现），
+  口径在前端只做展示、不重算。
 
 ### 5.2 Excel 导出
 

@@ -1159,6 +1159,26 @@ def run_db_freshness_check() -> dict:
     for check in APP_DB_CHECKS:
         _check_app_db_table(check, now, results, stale_items)
 
+    # ---------- 本机 PG schema 检查（水位 + 近 N 天逐日覆盖）----------
+    # 2026-11-05 新增。补的是这类盲区：**看板真正读的库不在任何巡检清单里**，
+    # 而判据本身只问「最新 Begin Time 够不够新」，看不见「中间断了 20 天」。
+    # IP RAN 四个看板 11-04 起改读本机 PG 的 ipran_ume schema，采集侧
+    # mirror_rows_to_local 只追头部水位 → 中间断的日子永远不会自己长回来；
+    # REMOTE_CHECKS 查的是远端库水位（远端一直新，所以一直绿），
+    # LOCAL_CHECKS 里那条「ipran 本地回退库」指的是 pg 模式下早就不写的 sqlite 文件。
+    # 11-05 把默认窗口改 31 天时才实测出「近 31 天本机只有 10 天有数」。
+    # 清单与判据见 backend/services/pg_schema_freshness.py（同目录有 .md 说明）。
+    # 新增下推表忘了配巡检会被 tests/test_doc_consistency.py 拦下。
+    try:
+        from backend.services import pg_schema_freshness
+        pg_schema_freshness.check_all(now, results, stale_items)
+    except Exception as e:  # noqa: BLE001 - 新手段自身故障不拖垮既有巡检
+        logger.warning("[FreshnessCheck] 本机 PG 巡检未执行: %r", e)
+        stale_items.append(dict(db="pg_schema", table="*",
+                                reason=f"本机 PG 巡检模块不可用: {e}",
+                                guidance=["python -m backend.services.pg_schema_freshness 复现",
+                                          "确认 backend/.env 的 DATABASE_URL 可用"]))
+
     # 汇总本地库各任务 max 日期（供远程滞后对照）
     for r in results:
         if r.get("scope") == "local" and r.get("latest"):

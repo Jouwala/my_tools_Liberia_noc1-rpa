@@ -1,0 +1,10 @@
+# ensure_ipran_perf_indexes.py 运行依赖
+# 只连本机 PostgreSQL 做 DDL 与计时查询，Python >= 3.10（用 dict[...] 内建泛型标注）。
+#
+#   psycopg2     —— CREATE INDEX CONCURRENTLY / ANALYZE / 计时查询
+#   python-dotenv —— 间接依赖：backend/database.py 读 backend/.env 的 DATABASE_URL
+#
+# 前提：backend/.env 里 MY_APP_DB_MODE=pg（脚本开头会校验，非 pg 直接退出码 2）。
+# 这两个包已在 Task/my_app/requirements.txt 里，正常部署的机器无需另装。
+psycopg2>=2.9
+python-dotenv>=1.0

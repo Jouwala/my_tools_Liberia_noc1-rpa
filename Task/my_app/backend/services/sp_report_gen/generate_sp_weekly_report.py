@@ -785,18 +785,8 @@ def sheet_warehouse(wb: Workbook, inb: pd.DataFrame, outb: pd.DataFrame) -> None
 # ==============================================================================
 # 主流程
 # ==============================================================================
-def _save_workbook(wb: Workbook, path: Path, attempts: int = 4, wait_seconds: float = 2.0) -> None:
-    """工作簿落盘：先写临时文件再 os.replace 原子替换，目标被占用时短暂重试。
-
-    报表一出来常被人用 Excel/WPS 直接打开查看，此时 `wb.save(path)` 会在目标
-    文件上撞 PermissionError[Errno 13]（2026-11-03 16:54~16:55 sp_weekly_report
-    连续两次任务失败即此原因：16:53 刚生成的报表被人开着，重跑在 save 时被拒）。
-    手法沿用日报脚本 gernarate_sp_report._save_detail_xlsx 的「tmp + os.replace」；
-    replace 仍被占用时重试数次（覆盖杀毒扫描/预览句柄这类秒级瞬态锁），最终失败
-    给出可操作的中文报错而不是裸 Errno 13 —— Excel 开着不放时重试救不了，只能
-    请用户关文件后重跑（任务系统另有 auto_retry 兜底）。临时名不带 .xlsx 后缀，
-    即使进程被杀残留，也不会被邮件步骤按 *.xlsx 挑选时误认。
-    """
+def _save_workbook(wb: Workbook, path: Path, attempts: int = 4, wait_seconds: float = 2.0) -> Path:
+    """原子写报表；目标持续被 Excel/WPS 占用时改用 ``_序号`` 文件名。"""
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + ".tmp")
     try:
@@ -804,18 +794,23 @@ def _save_workbook(wb: Workbook, path: Path, attempts: int = 4, wait_seconds: fl
         for attempt in range(1, attempts + 1):
             try:
                 os.replace(tmp, path)
-                return
+                return path
             except PermissionError:
-                if attempt >= attempts:
-                    raise
-                time.sleep(wait_seconds)
-    except PermissionError as exc:
-        raise PermissionError(
-            f"保存失败：目标文件被占用（很可能有人正用 Excel/WPS 打开着它），"
-            f"已重试 {attempts} 次仍无法写入。请关闭该文件后重跑任务: {path}"
-        ) from exc
+                if attempt < attempts:
+                    time.sleep(wait_seconds)
+        for idx in range(1, 100):
+            candidate = path.with_name(f"{path.stem}_{idx}{path.suffix}")
+            if candidate.exists():
+                continue
+            try:
+                os.replace(tmp, candidate)
+                print(f"[WARN] 原报表被占用，改存: {candidate.name}")
+                return candidate
+            except PermissionError:
+                continue
+        raise PermissionError(f"保存失败：原文件及 99 个备用文件名均不可用: {path}")
     finally:
-        if tmp.exists():  # 成功替换后 tmp 已不存在；失败时清理残留
+        if tmp.exists():
             try:
                 tmp.unlink()
             except OSError:
@@ -902,7 +897,7 @@ def build(out_dir: Path, week_end: date, days: int = 7) -> Dict[str, Any]:
     sheet_warehouse(wb, inb, outb)
 
     path = out_dir / f"SP Weekly Report {start:%Y-%m-%d} to {week_end:%Y-%m-%d}.xlsx"
-    _save_workbook(wb, path)
+    path = _save_workbook(wb, path)
 
     return {
         "success": True,

@@ -27,6 +27,8 @@
     group_task_map()    -> dict[str, list[str]]  worker 组 -> 任务 id 列表
     task_retention_days() -> int|None  队列日志保留天数（代码默认值）
     router_count()      -> int         main.py 里 include_router 的处数
+    pushdown_scope()    -> (list[str], int)  看板时间下推的表清单 + 默认回看天数
+    pg_freshness_scope()-> list[(list[str], int)]  本机 PG 巡检清单配的表与回看天数
 """
 
 from __future__ import annotations
@@ -171,3 +173,71 @@ def router_count() -> int:
     """`backend/main.py` 里 include_router 的处数。"""
     src = (MYAPP_ROOT / "backend" / "main.py").read_text(encoding="utf-8", errors="replace")
     return len(re.findall(r"include_router", src))
+
+
+def pushdown_scope() -> tuple[list[str], int]:
+    """看板取数层的时间下推范围：`(表清单, 默认回看天数)`。
+
+    真相源 `backend/services/dashboard_service.py`：
+      - `PUSH_DOWN_TABLES` —— 字面量 tuple，命中它的组件才会被下推时间条件；
+      - `os.environ.get("NATIVE_BOARD_PUSHDOWN_DAYS", "31")` 的默认值 ——
+        看板「不选窗口时默认看几天」。
+    两个都取不到就显式报错，不静默返回空。
+    """
+    rel = "backend/services/dashboard_service.py"
+    tree = _parse(rel)
+    node = _assigned_node(tree, "PUSH_DOWN_TABLES")
+    try:
+        raw = ast.literal_eval(node)
+    except (ValueError, SyntaxError) as e:
+        raise TruthSourceError(f"PUSH_DOWN_TABLES 不是字面量，取不到表清单：{e}") from e
+    tables = [str(x) for x in raw]
+    if not tables:
+        raise TruthSourceError("PUSH_DOWN_TABLES 解析出 0 张表（取法失效了，修取法而不是放行）")
+    src = (MYAPP_ROOT / rel).read_text(encoding="utf-8", errors="replace")
+    m = re.search(r'NATIVE_BOARD_PUSHDOWN_DAYS"\s*,\s*"(\d+)"', src)
+    if not m:
+        raise TruthSourceError(
+            "dashboard_service.py 里找不到 NATIVE_BOARD_PUSHDOWN_DAYS 的默认值 "
+            "—— 守卫与代码脱节了"
+        )
+    return tables, int(m.group(1))
+
+
+def pg_freshness_scope() -> list[tuple[list[str], int]]:
+    """本机 PG 巡检清单里每条配了什么：`[(表清单, lookback_days), ...]`。
+
+    真相源 `backend/services/pg_schema_freshness.py` 的 `PG_SCHEMA_CHECKS`。
+    条目写成 `dict(tables=(...), lookback_days=31, ...)` —— 是 **Call 不是字面量
+    dict**，所以 literal_eval 整个清单会失败，改成遍历关键字参数
+    （与 `task_ids()` 处理 `TASK_SPECS` 的办法一致）。
+    """
+    tree = _parse("backend/services/pg_schema_freshness.py")
+    value = _assigned_node(tree, "PG_SCHEMA_CHECKS")
+    if not isinstance(value, (ast.List, ast.Tuple)):
+        raise TruthSourceError(
+            f"PG_SCHEMA_CHECKS 不是列表字面量（实际是 {type(value).__name__}）"
+        )
+    out: list[tuple[list[str], int]] = []
+    for elt in value.elts:
+        if not isinstance(elt, ast.Call):
+            raise TruthSourceError("PG_SCHEMA_CHECKS 有条目不是 dict(...) 调用，取法需更新")
+        tables: list[str] | None = None
+        lookback = 0
+        for kw in elt.keywords:
+            if kw.arg == "tables":
+                try:
+                    tables = [str(x) for x in ast.literal_eval(kw.value)]
+                except (ValueError, SyntaxError) as e:
+                    raise TruthSourceError(f"tables 不是字面量序列：{e}") from e
+            elif kw.arg == "lookback_days" and isinstance(kw.value, ast.Constant):
+                lookback = int(kw.value.value)
+        if not tables:
+            raise TruthSourceError(
+                "PG_SCHEMA_CHECKS 有条目取不到 tables —— 守卫与代码脱节了"
+            )
+        out.append((tables, lookback))
+    if not out:
+        raise TruthSourceError("PG_SCHEMA_CHECKS 解析出 0 条清单（取法失效了，修取法而不是放行）")
+    return out
+

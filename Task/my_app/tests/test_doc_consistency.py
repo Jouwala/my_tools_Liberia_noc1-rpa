@@ -577,6 +577,59 @@ def test_every_page_has_refresh_setting():
     assert "disabled={!arIsBoard" not in src, "顶栏刷新控件不得按页禁用"
 
 
+def test_pg_freshness_covers_pushdown_tables():
+    """看板时间下推涉及的每张表，都必须同时被本机 PG 巡检覆盖。
+
+    背景（2026-11-05 复盘，这一条就是那次事故沉淀下来的）：
+    IP RAN 四个看板自 11-04 起改读本机 PG 的 `ipran_ume` schema，而采集侧的
+    `mirror_rows_to_local` **只追头部水位** —— 中间断掉的日子永远不会自己长回来。
+    11-05 把默认窗口从 7 天改成 31 天时实测发现「近 31 天本机只有 10 天有数、
+    远端 32 天齐全」，而这件事**当时没有任何巡检能查到**：
+      - `db_freshness_check.REMOTE_CHECKS` 查的是远端库水位（远端一直新 → 永远绿）；
+      - `LOCAL_CHECKS` 里那条「ipran 本地回退库」指的是 pg 模式下早就不写的 sqlite 文件；
+      - 判据本身只问「最新 Begin Time 够不够新」，天生看不见「中间少了 20 天」。
+    补齐手段见 `backend/services/pg_schema_freshness.md`。
+
+    守三件事：
+      1. `PUSH_DOWN_TABLES` 里每张表都在 `PG_SCHEMA_CHECKS[].tables` 里 ——
+         给看板加了下推表却忘了配巡检，提交就会被拦下；
+      2. 巡检的回看天数 = 看板默认窗口天数 —— 页面看 31 天而巡检只查 7 天等于没查；
+      3. 缺档必须在页面上**常驻**可见（后端算 `meta.coverage`、前端渲染告警），
+         按仓库 UI 硬要求「算错了 / 算不全必须常驻可见」（根 AGENTS.md 四.10），
+         不许让「库里没数」在折线图上伪装成「流量真的是 0」。
+    """
+    from doc_truth import pg_freshness_scope, pushdown_scope
+
+    tables, days = pushdown_scope()
+    scopes = pg_freshness_scope()
+
+    checked = {t for ts, _lb in scopes for t in ts}
+    uncovered = sorted(set(tables) - checked)
+    assert not uncovered, (
+        f"这些表被看板取数层按时间下推（会决定页面默认看几天），却不在 "
+        f"backend/services/pg_schema_freshness.py 的 PG_SCHEMA_CHECKS 里，"
+        f"于是本机库断档没人知道: {uncovered}"
+    )
+
+    mismatched = [lb for _ts, lb in scopes if lb and lb != days]
+    assert not mismatched, (
+        f"看板默认窗口是 PUSH_DOWN_DAYS={days} 天，但本机 PG 巡检的 lookback_days "
+        f"配成了 {sorted(set(mismatched))} —— 窗口和巡检范围必须同档，否则页面看到的"
+        f"那段正是巡检没查的那段"
+    )
+
+    backend_src = _read("backend/services/dashboard_service.py")
+    assert '"coverage": _coverage_from_widgets' in backend_src, (
+        "dashboard_service 不再输出 meta.coverage —— 缺档就不再可见了，"
+        "见 backend/services/pg_schema_freshness.md"
+    )
+    fe_src = _read("frontend/src/pages/NativeBoard.tsx")
+    assert "nb.coverageTitle" in fe_src and 'type="warning"' in fe_src, (
+        "NativeBoard 必须有缺档的常驻告警（type=\"warning\" + nb.coverageTitle）；"
+        "解释怎么算的可以收起，算不全必须常驻可见（根 AGENTS.md 四.10）"
+    )
+
+
 CHECKS = [
     test_task_count_in_docs_matches_registry,
     test_task_list_table_covers_every_registered_task,
@@ -594,6 +647,7 @@ CHECKS = [
     test_component_counts_in_component_api,
     test_file_sizes_in_agents_md_are_approximately_right,
     test_every_page_has_refresh_setting,
+    test_pg_freshness_covers_pushdown_tables,
 ]
 
 

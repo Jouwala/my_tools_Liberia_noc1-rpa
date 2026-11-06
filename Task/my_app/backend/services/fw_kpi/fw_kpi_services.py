@@ -542,6 +542,24 @@ def _open_db():
             raise
 
 
+def _ensure_throughput_bigint(conn):
+    """PG 旧表的 int32 列原地升级为 bigint；SQLite 的 INTEGER 本身即 64 位。"""
+    if isinstance(conn, sqlite3.Connection):
+        return
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT column_name, data_type FROM information_schema.columns "
+        "WHERE table_name=? AND table_schema=ANY(current_schemas(false)) "
+        "AND column_name IN ('in_bps','out_bps')",
+        (TABLE_NAME,),
+    )
+    types = {name: data_type for name, data_type in cur.fetchall()}
+    for column in ("in_bps", "out_bps"):
+        if types.get(column) in ("smallint", "integer"):
+            cur.execute(
+                f'ALTER TABLE "{TABLE_NAME}" ALTER COLUMN {column} TYPE BIGINT')
+
+
 def write_to_local_db(rows, device_id):
     """降级方案：将吞吐数据写入本地 SQLite，按 (device_id, time_full) 去重替换。
 
@@ -556,10 +574,11 @@ def write_to_local_db(rows, device_id):
                 '  device_id   TEXT NOT NULL,'
                 '  time_full   TEXT NOT NULL,'
                 '  time_label  TEXT,'
-                '  in_bps      INTEGER,'
-                '  out_bps     INTEGER,'
+                '  in_bps      BIGINT,'
+                '  out_bps     BIGINT,'
                 '  PRIMARY KEY (device_id, time_full))'
             )
+        _ensure_throughput_bigint(conn)
         cur.execute(
             f'CREATE INDEX IF NOT EXISTS idx_{TABLE_NAME}_time ON "{TABLE_NAME}"(time_full)'
         )
@@ -569,7 +588,7 @@ def write_to_local_db(rows, device_id):
         cur.execute(f'DROP TABLE IF EXISTS "{temp}"')
         cur.execute(
             f'CREATE TABLE "{temp}" ('
-            '  device_id TEXT, time_full TEXT, time_label TEXT, in_bps INTEGER, out_bps INTEGER)'
+            '  device_id TEXT, time_full TEXT, time_label TEXT, in_bps BIGINT, out_bps BIGINT)'
         )
         batch = []
         for time_full, time_label, in_bps, out_bps in rows:
@@ -821,6 +840,7 @@ def run():
     device_rows = {}
     total_inserted = 0
     api_ok = True
+    mirror_errors = []
     for device_id in DEVICE_IDS:
         print(f"[MAIN] ---- 设备 {device_id} 开始处理 ----")
         try:
@@ -835,13 +855,14 @@ def run():
 
         try:
             inserted = write_to_remote_db(rows, device_id)
-            # 远端成功 ≠ 本地可以有数据：看板读的是本地 fw schema（见 WRITE_LOCAL_MIRROR 注释）。
-            # 镜像失败只告警，不影响任务成败（远端才是权威库）。
+            # 看板读本地 fw schema；镜像失败必须让任务失败，不能远端成功就假绿。
             if WRITE_LOCAL_MIRROR:
                 try:
                     write_to_local_db(rows, device_id)
-                except Exception as exc:  # noqa: BLE001 - 镜像失败不应让任务失败
-                    print(f"[LOCAL] 设备 {device_id} 本地镜像写入失败（不影响任务）: {exc}")
+                except Exception as exc:  # noqa: BLE001
+                    msg = f"设备 {device_id} 本地镜像写入失败: {exc}"
+                    mirror_errors.append(msg)
+                    print(f"[LOCAL] {msg}")
         except Exception as exc:
             api_ok = False
             print(f"[API] 设备 {device_id} 远程写入失败，降级写入本地 SQLite: {exc}")
@@ -876,19 +897,25 @@ def run():
     # 数据同步本身已完成，故在 error 里同时说明，避免误判成"数据没同步"。
     email_failed = bool(email_result) and not email_result.get("success")
     result = {
-        "success": not email_failed,
+        "success": not email_failed and not mirror_errors,
         "rows_written": total_inserted,
         "remote_api": api_ok,
+        "local_mirror_ok": not mirror_errors,
         "devices": list(device_rows.keys()),
         "email": email_result,
         "elapsed_seconds": round(elapsed, 2),
     }
+    errors = []
+    if mirror_errors:
+        errors.append("本地镜像失败（看板数据可能未更新）: " + "; ".join(mirror_errors))
     if email_failed:
         reason = (email_result.get("error") or email_result.get("message")
                   or str(email_result))
-        result["error"] = (f"邮件发送失败（数据已同步 {total_inserted} 条，"
-                           f"remote_api={api_ok}）: {str(reason)[:800]}")
+        errors.append(f"邮件发送失败（数据已同步 {total_inserted} 条，"
+                      f"remote_api={api_ok}）: {str(reason)[:800]}")
         print(f"[MAIN] 邮件失败，任务判定为失败: {str(reason)[:200]}")
+    if errors:
+        result["error"] = "\n".join(errors)
     return result
 
 

@@ -516,12 +516,16 @@ TASK_SPECS = [
          description_en="Pull 5 spare-part reports from SFTP (Inbound/Outbound/Inventory/OC Rule/Transfer) into app.db, then mirror into FineBI WareHouseDashBoard inventory.db",
          default_cron="10 * * * *", category="sp"),
 
-    # 13. iPRAN UME KPI 同步（每天凌晨8点）
+    # 13. iPRAN UME KPI 同步（每小时整点）
+    # 2026-11-06 与用户确认：**每小时全量拉取是本意**（每轮从 UME 取 3 天窗口），
+    # 此前生效值靠 task_schedule_config 里的 `0 * * * *` 覆盖，代码默认仍写着每天
+    # 08:00 —— 新部署会静默退化成日更。默认值改成与意图一致；本机的库内覆盖行
+    # 保持不动（与默认值已相等，注册期的「默认≠生效」WARNING 从此不再对本任务报）。
     dict(task_id="ipran_kpi_sync", name="iPRAN UME KPI 同步", name_en="iPRAN UME KPI Sync",
          loader=("backend.services.ipran_ume_kpi_service", "run_ipran_kpi_sync"),
          description="iPRAN UME M6000 路由器 KPI 同步（HQ M6K-FW 等），导出 Excel 并导入 SQLite + FTP 上传",
          description_en="iPRAN UME M6000 router KPI sync (HQ M6K-FW etc.), export Excel and import to SQLite + FTP upload",
-         default_cron="0 8 * * *", category="ipran_kpi"),
+         default_cron="0 * * * *", category="ipran_kpi"),
 
     # 14. Liberia 站点宕 1 小时报告邮件（每小时第 15 分钟）
     #     时序约束：数据是 eflow_sync(每小时 :00，实测 ~6min 完成) 产出的

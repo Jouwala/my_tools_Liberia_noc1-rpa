@@ -136,7 +136,7 @@ APScheduler 到点 (backend 进程内)
 > `ctypes.wintypes` 直接失败，且要求整套后端运行环境（apscheduler / sqlalchemy），
 > 那样就进不了 CI 了。
 >
-> **16 个用例**：
+> **17 个用例**：
 > 1. 文档里的「N 个定时任务」= `TASK_SPECS` 条数（5 个文件逐个核对）；
 > 2. `04-task-system.md` 的全量任务清单表 = `TASK_SPECS` 的每个 `task_id`；
 > 3. 分组表里的每组任务数 = `GROUP_TASK_MAP` 的实际条数；
@@ -153,6 +153,7 @@ APScheduler 到点 (backend 进程内)
 > 14. `component-api.md` 里的前端页面数 / 通用组件数 = 磁盘实际 `.tsx` 文件数；
 > 15. `AGENTS.md` 里标的关键文件体积与磁盘实际值相符（容差 ±25%）；
 > 16. **每个页面都有按页刷新设置**（2026-11-04 新增的项目硬要求）：`PAGE_META` 里每个自研页面都必须在 `App.tsx` 的 `AR_PAGE_DEFAULTS` 登记建议间隔、间隔必须是 `AR_OPTIONS` 档位，且不得再出现按页禁用刷新控件的白名单（细则见 `AGENTS.md` 三.3d 与 `16-new-page-guide.md` 3.4d）。
+> 17. **看板下推的每张表都要有本机 PG 巡检，且回看天数与看板默认窗口同档**（2026-11-05 新增）：`dashboard_service.PUSH_DOWN_TABLES` ⊆ `pg_schema_freshness.PG_SCHEMA_CHECKS[].tables`、`lookback_days` == `PUSH_DOWN_DAYS`，并且 `dashboard_service` 仍在输出 `meta.coverage`、`NativeBoard` 仍常驻渲染缺档告警。背景：IP RAN 看板 11-04 改读本机 PG，而镜像只追头部水位，「近 31 天只有 10 天有数」这种洞当时**任何巡检都查不到**（远端一直绿、判据只问最新时间），见 `backend/services/pg_schema_freshness.md`。
 >
 > **三道防线，同一份代码，不规则分叉**：
 >
@@ -244,7 +245,7 @@ APScheduler 到点 (backend 进程内)
 | `cnn_kpi_sync` | CNN UME KPI 同步 | `0 6 * * *` | n |
 | `cnn_kpi_sync_5mins` | CNN UME KPI 5分钟同步（窗口昨天 00:00→现在，写 `5mins_*` 新表；**混合粒度**：5 个模板 5 分钟 + 3 个模板走上游 15 分钟档模板；0 行跳过不计失败） | `*/15 * * * *` | n |
 | `sp_data_sync` | SP 备件数据同步 | `10 * * * *` | s |
-| `ipran_kpi_sync` | iPRAN UME KPI 同步 | `0 8 * * *` | u |
+| `ipran_kpi_sync` | iPRAN UME KPI 同步（**每小时全量拉取 3 天窗口是本意**，2026-11-06 与用户确认；写入侧按远端水位增量裁剪） | `0 * * * *` | u |
 | `liberia_email_1h` | Liberia 宕站 1小时报告邮件 | `15 * * * *` | m |
 | `liberia_email_8h` | Liberia 宕站 8小时报告邮件 | `20 */8 * * *` | m |
 | `kpi_ms_contract` | MS Contract KPIs 日报邮件 | `30 5 * * *` | m |

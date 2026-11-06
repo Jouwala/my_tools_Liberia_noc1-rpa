@@ -37,6 +37,18 @@
 本地库以只读方式打开（`mode=ro`），只记录最新日期供对照，不判定滞后
 （本地库只在远程失败时才写入，无固定新鲜度要求）。
 
+> ⚠ 上面那条 `data/ipran_ume/ipran_ume_kpi.sqlite3` 在 `MY_APP_DB_MODE=pg` 下
+> **已经不再写入**（`get_raw_connection` 把它透明重定向到本机 PG 的 `ipran_ume`
+> schema），所以它绿不代表看板有数。看板真正读的库由下面这节负责。
+
+### 本机 PG schema（2026-11-05 新增，`pg_schema_freshness`）
+
+补的是「**看板真正读的库不在任何巡检清单里**」+「判据只问最新时间够不够新，
+看不见中间断了 20 天」这两层盲区。查本机 PG 每张表的**水位**与**近 31 天逐日
+覆盖**，缺失日再拿远端权威库对照，把「镜像洞（能 backfill 补）」和「采集断档
+（补不了）」分开说。清单、判据与实测成本见
+[pg_schema_freshness.md](pg_schema_freshness.md)。
+
 ### 任务执行健康检查（2026-08-12 新增）
 
 补齐“任务注册但从未执行”盲区（曾因 worker 分组清单漏配导致 `db_freshness_check`、

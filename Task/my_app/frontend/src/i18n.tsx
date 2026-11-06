@@ -5258,6 +5258,18 @@ const translations: Record<Locale, Record<string, string>> = {
     'nb.last90': '近 90 天',
     'nb.thisYear': '今年',
     'nb.noWindow': '该看板无日期维度，时间窗口不可用',
+    // 缺档常驻告警（2026-11-05，如意定）：本机库断了日子时，图上「没有线」和
+    // 「流量真的是 0」长得一样，必须说清楚 —— 异常常驻可见，不许收进说明条
+    // （根 AGENTS.md 第四节第 10 条）。数字全部来自后端 meta.coverage，前端不重算。
+    'nb.coverageTitle': '数据缺档：窗口内 {expected} 个整天里只有 {present} 天有记录（缺 {missing} 天）',
+    'nb.coverageBody': '{days} 这些天本机库里一条记录都没有。**图上断掉的那一段不是设备真的没有流量**，是本机库断档：采集每小时只回看 3 天，镜像只追最新时间点，中间断掉的日子不会自己补回来。补完之后这里的曲线会自动接上。',
+    'nb.coverageMore': '等共 {n} 天',
+    'nb.coverageFix': '补齐命令（点右侧图标可复制）：{cmd}',
+    // 小时粒度口径（2026-11-05，如意定「大于 7 天按小时」）：卡片右上角的 ⓘ 气泡，
+    // 悬停才出、可复制 —— 解释类文字不占首屏（根 AGENTS.md 四.10 / 四.10b）。
+    // 阈值与聚合方式都在后端 dashboard_service（HOUR_GRAIN_ABOVE_DAYS / _hourly_grain_sql），
+    // 前端只按 widget.time_grain 决定要不要挂这个气泡，不自己判窗口长度。
+    'nb.hourGrainTip': '窗口超过一周时，这条曲线按**小时**绘制：每小时取该小时内 4 个 15 分钟点的**峰值**（不做平均，尖峰不会被抹平，与 FW 看板的小时口径一致）。把窗口收到一周以内即回到 15 分钟原始粒度。数据源：本机 PG ipran_ume 的 15 分钟 KPI 表。',
     // 页签粒度（MTTR 看板：同一指标按 日/周/月 三档粒度分页签，2026-09-27）
     'nb.granDay': '日',
     'nb.granWeek': '周',
@@ -11179,6 +11191,17 @@ const translations: Record<Locale, Record<string, string>> = {
     'nb.last90': 'Last 90 days',
     'nb.thisYear': 'This year',
     'nb.noWindow': 'No date dimension — time range unavailable',
+    // Persistent data-gap alert (added 2026-11-05): a missing day in the local store
+    // looks exactly like "traffic really was 0". Anomalies stay visible — see the
+    // rules doc. All numbers come from backend meta.coverage; never recompute here.
+    'nb.coverageTitle': 'Data gap: only {present} of {expected} full days in this window have records ({missing} missing)',
+    'nb.coverageBody': 'The local store holds no record at all on {days}. **The break in the line is not "the device really carried zero traffic"** — it is a store gap: the collector only looks back 3 days per run and the mirror only appends at the head, so missed days never heal themselves. The line reconnects once the gap is backfilled.',
+    'nb.coverageMore': 'and {n} days in total',
+    'nb.coverageFix': 'Backfill command (click the icon to copy): {cmd}',
+    // Hourly-grain ⓘ bubble (2026-11-05): threshold and aggregation live in the backend
+    // (dashboard_service HOUR_GRAIN_ABOVE_DAYS / _hourly_grain_sql); the card only reads
+    // widget.time_grain, it never re-derives the caliber. Hidden until hover, copyable.
+    'nb.hourGrainTip': 'Windows longer than a week draw this curve **hourly**: each hour shows the **peak** of its four 15-minute points (never an average, so spikes stay visible — the same hourly convention as the FW board). Narrow the window to a week or less to get the raw 15-minute series. Source: local PostgreSQL schema ipran_ume, 15-minute KPI tables.',
     // Granularity tabs (MTTR board: one metric split into day/week/month tabs, 2026-09-27)
     'nb.granDay': 'Daily',
     'nb.granWeek': 'Weekly',

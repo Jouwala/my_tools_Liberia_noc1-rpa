@@ -119,6 +119,17 @@ def test_business_failure_dict_writes_error(tmp_db):
     assert bool(row[1])
 
 
+def test_business_failure_uses_skipped_when_error_is_missing(tmp_db):
+    def skipped_fail():
+        return {"success": False, "skipped": "filter-map 失败：上游读取超时"}
+
+    tr.register_task("__t_skipped__", "跳过原因任务", skipped_fail, category="general")
+    res = tr.run_task("__t_skipped__", trigger="manual")
+
+    assert res["success"] is False
+    assert res["error"] == "filter-map 失败：上游读取超时"
+
+
 def test_success_writes_no_error(tmp_db):
     def ok():
         return {"success": True, "message": "done"}

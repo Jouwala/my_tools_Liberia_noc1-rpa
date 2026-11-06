@@ -1,0 +1,9 @@
+# pg_schema_freshness.py 运行依赖
+# 核心逻辑只发 SELECT，判定部分只用 Python 标准库（datetime / logging / typing）。
+#
+# 取数经 backend.database 与既有只读客户端，因此与生产模式绑定：
+#   - MY_APP_DB_MODE=pg（生产）：需要 psycopg2 与 python-dotenv（backend/database.py 依赖）
+#   - sqlite 模式：本机 PG 那一路直接记 read_error 并跳过，不装依赖也不会崩
+# 远端缺失日对照走 backend/services/remote_readonly.py（标准库 urllib，无额外依赖）
+psycopg2>=2.9
+python-dotenv>=1.0

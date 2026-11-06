@@ -13,6 +13,8 @@ import { exportNativeBoard, getNativeBoard } from '../api'
 import { cachedGet, invalidateCache } from '../cache'
 import { useI18n } from '../i18n'
 import { WH_COLORS, LIGHT_COLORS, axisLabel, axisLine, cardStyle, darkTooltip, splitLine, useTheme } from '../theme'
+import { renderRich } from '../utils/richText'
+import { ExplainIcon } from '../components/MetricExplain'
 
 const { Text } = Typography
 const { RangePicker } = DatePicker
@@ -57,6 +59,9 @@ interface NBWidget {
   date_field: string
   windowed: boolean
   grain?: 'day' | 'month' | ''
+  // 后端给的**时间粒度**标记：'' = 组件原口径，'hour' = 窗口 >7 天时按小时取峰值。
+  // 卡片上的 ⓘ 只读这个字段说话，前端不自己判窗口长度（口径在后端，见 _hourly_grain_sql）。
+  time_grain?: string
   title_text?: string
 }
 
@@ -73,6 +78,16 @@ interface NBResp {
     start: string
     end: string
     window_supported: boolean
+    // 缺档可见化（2026-11-05）：参与时间下推的页才有；重启前写入的旧缓存条目没这个字段，
+    // 所以声明成可选，缺失 = 不显示告警。
+    coverage?: {
+      window_start: string
+      window_end: string
+      expected_days: number
+      present_days: number
+      missing_days: string[]
+      missing_count: number
+    }
     dbs: string[]
     fetched_at: string
   }
@@ -366,6 +381,9 @@ function WidgetCard({ w, height, colors }: {
         <Space size={4}>
           {w.pct && <Tag color="cyan" style={{ marginInlineEnd: 0 }}>%</Tag>}
           {w.windowed && <Tag color="blue" style={{ marginInlineEnd: 0 }}>{t('nb.windowed')}</Tag>}
+          {/* 小时粒度的口径走 ⓘ 气泡（默认不占首屏，悬停才出，可复制）——
+              按仓库硬要求：解释「这张卡怎么算」用 MetricExplain，不塞 title= */}
+          {w.time_grain === 'hour' && <ExplainIcon text={t('nb.hourGrainTip')} size={13} placement="bottomRight" />}
         </Space>
       }
     >
@@ -546,6 +564,15 @@ export default function NativeBoard({ slug }: { slug: string }) {
   const chartWidgets = widgets.filter((w) => w.chart === 'line' || w.chart === 'bar')
   const chartHeight = 320
   const tableHeight = 420
+  // 缺档常驻告警（2026-11-05，如意定）：本机库断了日子时，图上「没有线」和
+  // 「流量真的是 0」长得一样，必须显式说清楚 —— 异常常驻可见，不收进说明条
+  // （根 AGENTS.md 第四节第 10 条）。数据由后端 meta.coverage 给，前端不重算口径。
+  const cov = data?.meta?.coverage
+  const covMissing = !!cov && cov.missing_count > 0
+  // 命令本身是代码不是文案，不进字典（避免出现「补齐命令：python…」整句被复制）
+  const covFixCmd = covMissing
+    ? `python -m backend.scripts.backfill_ipran_pg --since ${cov!.missing_days[0]} --tables <table>`
+    : ''
 
   /* 页签分组（layout.tabs）：按 id 后缀把图表拆到各粒度页签。
      非页签看板走原路径（tabs 为空 → tabChartWidgets 即 chartWidgets）。 */
@@ -651,6 +678,34 @@ export default function NativeBoard({ slug }: { slug: string }) {
             </Space>
           }
           style={{ marginBottom: 12 }}
+        />
+      )}
+
+      {covMissing && (
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message={t('nb.coverageTitle', {
+            expected: cov!.expected_days,
+            present: cov!.present_days,
+            missing: cov!.missing_count,
+          })}
+          description={
+            <Space direction="vertical" size={4}>
+              <Text style={{ fontSize: 12 }}>
+                {renderRich(t('nb.coverageBody', {
+                  days: cov!.missing_days.slice(0, 12).join('、')
+                    + (cov!.missing_count > 12
+                      ? ` ${t('nb.coverageMore', { n: cov!.missing_count })}`
+                      : ''),
+                }))}
+              </Text>
+              <Text type="secondary" copyable={{ text: covFixCmd }} style={{ fontSize: 12, fontFamily: 'monospace' }}>
+                {t('nb.coverageFix', { cmd: covFixCmd })}
+              </Text>
+            </Space>
+          }
         />
       )}
 

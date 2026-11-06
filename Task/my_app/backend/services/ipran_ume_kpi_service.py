@@ -162,8 +162,8 @@ MIRROR_OVERLAP_HOURS = int(os.environ.get("IPRAN_KPI_MIRROR_OVERLAP_HOURS", "2")
 # 客户端 timed out 后 3 次重试 + 兜底再写本地，单任务被拖 40~50 分钟，
 # 每小时调度一次必然堆死队列。近 5 天 ipran_kpi_sync 39 次失败即源于此。
 #
-# 裁剪水位取本机 PG ipran_ume 镜像的 MAX("Begin Time")：镜像只在**远端写入成功后**
-# 才更新，故水位永远不超前远端；再留 MIRROR_OVERLAP_HOURS 重叠 + upsert 幂等，
+# 裁剪水位直接取远端权威库的 MAX("Begin Time")。本机 PG 在远端失败后也会兜底
+# 写入，不能代表远端进度；再留 MIRROR_OVERLAP_HOURS 重叠 + upsert 幂等，
 # 远端最终数据与全量写入逐行等价。水位取不到 / 表不存在一律退化为全量，绝不漏数。
 IPRAN_REMOTE_INCREMENTAL = os.environ.get(
     "IPRAN_KPI_REMOTE_INCREMENTAL", "1").strip().lower() not in ("0", "false", "no", "off")
@@ -977,34 +977,30 @@ def _norm_begin_time(v) -> str:
 
 def _rows_since_watermark(table_name: str, headers: list, rows: list,
                           overlap_hours: int = None) -> tuple[list, str]:
-    """按本机 PG 镜像水位裁剪待写远端的行，返回 (裁剪后的行, 水位说明)。
+    """按**远端权威库**水位裁剪待写行；读取失败一律全量，upsert 保证幂等。
 
-    与 mirror_rows_to_local 同一套判据（MAX("Begin Time") - overlap_hours），
-    保证「远端写什么 / 本机镜像什么」口径一致。任何异常都退化为全量，
-    宁可多写也不能漏数 —— upsert 幂等，多写不产生重复。
+    不能复用本机 PG 水位：远端失败后的本地兜底也会推进本机水位，若据此裁剪，
+    下一轮会跳过远端真正缺失的行。
     """
     if overlap_hours is None:
         overlap_hours = MIRROR_OVERLAP_HOURS
     if "Begin Time" not in headers:
         return rows, "no Begin Time column"
     try:
-        with get_raw_connection(DB_PATH, logical_name="ipran_ume", timeout=30.0) as conn:
-            cur = conn.cursor()
-            cur.execute(f'SELECT MAX("Begin Time") FROM "{table_name}"')
-            found = cur.fetchone()
-            water = _norm_begin_time(found[0] if found else None)
+        water = _norm_begin_time(
+            _db_writer.get_latest_value(DB_NAME, table_name, "Begin Time"))
         if not water:
-            return rows, "empty local mirror (full send)"
+            return rows, "empty remote table (full send)"
         dt = datetime.strptime(water[:19], "%Y-%m-%d %H:%M:%S")
         cutoff = (dt - timedelta(hours=overlap_hours)).strftime("%Y-%m-%d %H:%M:%S")
         bi = headers.index("Begin Time")
         picked = [r for r in rows
                   if _norm_begin_time(r[bi] if bi < len(r) else "") >= cutoff]
-        return picked, f"watermark={water} cutoff={cutoff}"
+        return picked, f"remote watermark={water} cutoff={cutoff}"
     except Exception as e:  # noqa: BLE001 - 水位不可用就全量，绝不因优化漏数
-        logger.warning("[DB][API] %s 水位不可用，远端退化为全量写入: %s",
+        logger.warning("[DB][API] %s 远端水位不可用，退化为全量写入: %s",
                        table_name, e)
-        return rows, f"watermark unavailable ({e}) -> full send"
+        return rows, f"remote watermark unavailable ({e}) -> full send"
 
 
 def mirror_rows_to_local(table_name: str, headers: list, rows: list,
@@ -1119,8 +1115,10 @@ def save_data_to_db_or_api(table_name: str, headers: list, data: list, api_failu
     # 1. API 客户端优先机制（远程写服务：upsert = INSERT OR REPLACE，保留历史）
     if _db_writer is not None:
         try:
-            # 2026-11-05：远端与本机镜像统一走水位增量。此前只有镜像裁剪，远端每轮
-            # 把 3 天全量（34~38 万行）POST 给 5.2GB 的远端库，单表常 >900s 超时。
+            # 2026-11-05：远端与本机镜像统一走水位增量。此前只有镜像裁剪，远端每小时
+            # 重发 3 天全量共 373,278 行（Metro_ring 一张就 327,750 行），实测同形状
+            # 单请求 36s、超时后旧客户端又盲重试 3 次把同批数据重复入队，串行挤爆
+            # 全局写锁 -> 稳定顶穿 900s。裁剪后同轮只发 5,750 行（1.5%）。
             # IPRAN_KPI_REMOTE_INCREMENTAL=0 可一键回退到旧的全量行为。
             send_rows, why = (data, "incremental disabled")
             if IPRAN_REMOTE_INCREMENTAL:
@@ -1293,10 +1291,15 @@ def _run_single_kpi_pipeline(client: UmeSessionClient, task: dict, api_failures:
         if queryid:
             try:
                 del_url = f"{client.base_url}{HISTORY_POLL_PATH}?queryid={queryid}"
-                # 默认启用 TLS 证书校验（安全）；仅当 UME 使用自签证书时
-                # 才设置环境变量 UME_TLS_VERIFY=false 显式关闭。
-                _verify = os.environ.get("UME_TLS_VERIFY", "true").lower() not in ("0", "false", "no", "off")
-                rr = client.session.delete(del_url, headers=client.session.headers, timeout=20, verify=_verify)
+                # TLS 校验开关必须与登录/取数**同一个入口**（backend/security_tls.tls_verify），
+                # 原来这里自己读 env 且默认 true，而 backend/.env 并没有配 UME_TLS_VERIFY，
+                # 于是和 `self.session.verify = tls_verify("ume")`（默认 False，兼容自签证书）分叉：
+                # 2026-11-05 实测当天 232 次「释放查询」**全部** CERTIFICATE_VERIFY_FAILED，
+                # UME 服务端的查询槽只能等它约 1h 自然回收 —— 任务注册表里那套
+                # 「Repeated query 退避 30 次 × 120s」就是在为这个兜底。
+                rr = client.session.delete(
+                    del_url, headers=client.session.headers,
+                    timeout=20, verify=tls_verify("ume"))
                 logger.info(f"[KPI][{task['key']}] 释放查询 {queryid} -> {rr.status_code}")
             except Exception as e:
                 logger.warning(f"[KPI][{task['key']}] 释放查询 {queryid} 失败: {e}")
