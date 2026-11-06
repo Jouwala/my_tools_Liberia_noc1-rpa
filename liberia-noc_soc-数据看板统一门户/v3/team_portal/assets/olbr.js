@@ -1556,45 +1556,202 @@
        要恢复就把 '<span class="qc-spark-cap">…</span>' 加回来。 */
     return '<span class="qc-spark-wrap" title="' + esc(tip) + '">' + svg + '</span>';
   }
-  /* ---- CXO RealTime Dashboard 四张实时卡（2026-11-04 加，bo 团队门户专用）----
-     数据源：/api/vmax-cxo-dashboard/summary（VMAX CXO 原版大屏 last-known-good
-     缓存的只读裁剪，summary.overview["131".."134"]，字段 showName/kpiValue/unit）。
+  /* ---- CXO RealTime Dashboard 三张实时卡（2026-11-05 改版）------------------
+     数据源（两路，缺一不可）：
+       ① /api/vmax-cxo-dashboard/summary → summary.trends["91"/"92"/"93"]
+          每条序列含 day-0（今日，进行中）/ day-1（昨日）/ day-7（上周），
+          每条 96 个 15 分钟点（xData 是时刻标签，yData 是数值字符串）。
+          今日那串尾部是空串（还没到的时间点）。
+       ② /api/vmax-cxo-daily/grid → weeks[].days[]，每天一个**规范聚合值**
+          （91 累加 GB / 92 峰值 K / 93 均值 Mbps，与 my_app vmax-cxo-daily
+          的 KPI_SPECS 同口径），供页脚 Max/Avg/Min 用。
      下钻：整卡 <a> → /myapp/?page=vmaxCxoDashboard（原版视觉复刻页）。
 
-     与 rich/avail 两组的三点刻意差异：
-     ① 数值**不做任何变换**：接口给的是已格式化字符串（"203.24"），单位
-        （"(K)"、"(TB)"、""）原样拼在数值后 —— 原版大屏上写什么这里就是什么。
-     ② 没有 chips / spark / 三格页脚：这四张是实时快照，没有 WoW/MoM，
-        也没有 90 天极值 —— 造一个"今日最小值"是编数据。
-     ③ 卡名**不读接口 showName**：zh/en 由 KPI_CXO_RT 表给（接口只有英文，
-        中文界面读它会满屏英文）。 */
-  function cxortEntry(id) {
-    var o = (state.kpi.cxort && state.kpi.cxort.overview) || null;
-    return o ? (o[id] || null) : null;
+     ⚠️ 2026-11-05 改版（用户要求「指标要跟 CXO 90-day business board 一样，
+        卡片显示的内容也尽量一致」）：
+       ① 三个指标换成 90 天看板那三个（见 olbr-data.js 的 KPI_CXO_RT），
+          名字/单位/精度**继承** KPI_RICH，不再自造；
+       ② 卡片结构与 90 天看板那张富卡**逐段对齐**：
+          .qc-ttl / .qc-val / .qc-asof / .qc-chips / .qc-spark / .qc-ext。
+          所以外层挂的是 .qc-card--rich（不再有 .qc-card--rt）。
+
+     ---- 口径（写在这里是因为它决定了三个数各自怎么算）----------------------
+       大数字 = **当日累计值**（今天到此刻为止），与 90 天看板那三张的
+       「当日聚合」口径一致（91 累加 / 92 取最大 / 93 取平均）：
+         · 91 总流量：sum(今日 15 分钟点) ÷ 1024 → TB
+         · 92 活跃用户：max(今日 15 分钟点) → K
+         · 93 视频速率：avg(今日 15 分钟点) → Mbps
+       ⚠️ 92 取 max、93 取 avg **不是**随手选的：与 my_app vmax-cxo-daily
+         的 KPI_SPECS 逐条一致（91 sum / 92 max / 93 avg）——同一份数据在
+         日粒度页与 15 分钟页必须聚合成同一个数，否则两个页面会互相矛盾。
+
+       对比徽章 = **同一时刻**的昨日 / 上周：只取 day-1 / day-7 的**前 k 个点**
+       （k = 今日已有点数，即同一个钟点），再按同一口径聚合。
+       ⚠️ 刻意**不**拿今日累计去比昨日**整日**累计 —— 今日还没过完，
+         那样比必然显示大幅下跌，是拿未完成的数骗人。
+
+       迷你走势 = 当日**累计曲线**（每个点画的是「到该时刻为止的累计值」），
+       所以线的末端 = 大数字，两个数天然对得上；画原始 15 分钟点会得到一条
+       上下起伏的曲线，与旁边的大数字毫无关系。
+       ⚠️ 累计曲线对 91 是单调上升的（累加），对 92 是阶梯上升（取最大），
+         对 93 是趋稳的（取平均）—— 这正是各自口径的形状，不是画错了。
+
+       页脚 Max/Avg/Min = **完整日**（不含今天这个进行中的半天）的历史极值，
+       窗口 = grid 接口能给出的全部完整日（当前 17 天左右）。 */
+  function cxortTrendOf(id) {
+    var tr = (state.kpi.cxort && state.kpi.cxort.trends) || null;
+    return tr ? (tr[id] || null) : null;
   }
-  function cxortCardHtml(spec, e) {
-    var name = state.lang === 'en' ? spec.en : spec.zh;
-    var val = (e && e.kpiValue != null && String(e.kpiValue) !== '') ? String(e.kpiValue) : '—';
-    var unit = (e && e.unit) ? String(e.unit) : '';
-    /* 时间戳：缓存写入时间（updated_at，ISO）只取 HH:MM ——
-       写整串会与同排 rich 卡的 as of 长度失衡。取不到时留「—」。 */
-    var stamp = (state.kpi.cxort && state.kpi.cxort.updated_at) || '';
-    var hm = '';
-    if (stamp) {
-      var m = /(\d{2}:\d{2})(?::\d{2})?$/.exec(stamp.slice(11));
-      hm = m ? m[1] : '';
+  /* 一条 15 分钟序列 → 数值数组（空串/非法值 → null，不当 0）。 */
+  function cxortNums(arr) {
+    var out = [];
+    for (var i = 0; i < (arr || []).length; i++) {
+      var v = arr[i];
+      if (v === '' || v == null) { out.push(null); continue; }
+      var n = Number(v);
+      out.push(isNaN(n) ? null : n);
     }
-    var na = val === '—';
+    return out;
+  }
+  /* 取名字匹配的序列（day-0 / day-1 / day-7）。 */
+  function cxortRaw(tr, name) {
+    var list = (tr && tr.yData) || [];
+    for (var i = 0; i < list.length; i++) {
+      if (list[i] && list[i].name === name) return cxortNums(list[i].yData);
+    }
+    return [];
+  }
+  /* 今日**连续有效**的点数（从 00:00 起，撞到空串即止）。 */
+  function cxortLead(nums) {
+    var n = 0;
+    for (var i = 0; i < (nums || []).length; i++) {
+      if (nums[i] == null) break;
+      n++;
+    }
+    return n;
+  }
+  /* 前 k 个点按指定口径聚合：sum（累加）/ max（峰值）/ avg（均值）。 */
+  function cxortAgg(vals, k, mode) {
+    var s = 0, c = 0, mx = null;
+    for (var i = 0; i < k; i++) {
+      var v = vals[i];
+      if (v == null) continue;
+      s += v; c++;
+      if (mx == null || v > mx) mx = v;
+    }
+    if (!c) return null;
+    if (mode === 'sum') return s;
+    if (mode === 'max') return mx;
+    return s / c;
+  }
+  /* 累计曲线：每个点画的是「到该时刻为止的累计值」，末点 = 大数字。 */
+  function cxortRunning(vals, k, mode) {
+    var out = [], s = 0, c = 0, mx = null;
+    for (var i = 0; i < k; i++) {
+      var v = vals[i];
+      if (v == null) continue;
+      s += v; c++;
+      if (mx == null || v > mx) mx = v;
+      out.push(mode === 'sum' ? s : (mode === 'max' ? mx : s / c));
+    }
+    return out;
+  }
+  /* grid 接口里的**完整日**历史（今天这个进行中的半天不算）。 */
+  function cxortDaily(id) {
+    var g = (state.kpi.cxort && state.kpi.cxort.grid) || null;
+    var out = [];
+    var weeks = (g && g.weeks) || [];
+    weeks.forEach(function (w) {
+      (w.days || []).forEach(function (d) {
+        if (!d || d.state !== 'ok') return;      /* partial / future 都排除 */
+        var v = d.values ? d.values[id] : null;
+        if (v == null || v === '' || isNaN(Number(v))) return;
+        out.push({ date: d.date, v: Number(v) });
+      });
+    });
+    out.sort(function (a, b) { return a.date < b.date ? -1 : (a.date > b.date ? 1 : 0); });
+    return out;
+  }
+  function cxortCardHtml(spec) {
+    /* 名字 / 单位 / 精度**继承** 90 天看板那组（KPI_RICH_BY_ID），
+       只有单位换算与下钻页由实时表自己给（见 olbr-data.js 的 KPI_CXO_RT）。 */
+    var base = DATA.KPI_RICH_BY_ID[spec.base] || null;
+    var name = base
+      ? (state.lang === 'en' ? (base.label_en || base.en) : base.zh)
+      : spec.id;
+    var unit = base ? base.unit : '';
+    var digits = base ? base.digits : 2;
+    var div = spec.div || 1;
+
+    var tr = cxortTrendOf(spec.trend);
+    var d0 = cxortRaw(tr, 'day-0');
+    var k = cxortLead(d0);
+    var now = k ? cxortAgg(d0, k, spec.agg) : null;
+    /* 对比基准：昨日 / 上周的**前 k 个点**（同一个钟点），同一口径聚合。 */
+    var yest = k ? cxortAgg(cxortRaw(tr, 'day-1'), k, spec.agg) : null;
+    var week = k ? cxortAgg(cxortRaw(tr, 'day-7'), k, spec.agg) : null;
+    var pct = function (cur, base2) {
+      if (cur == null || base2 == null || !isFinite(base2) || base2 === 0) return null;
+      return (cur - base2) / Math.abs(base2) * 100;
+    };
+
+    var fmt = function (v) {
+      if (v == null || isNaN(v)) return '—';
+      return kpiNum(v / div, digits);
+    };
+    var na = now == null;
+    /* 数据截至时刻：取今日最后一个有效点的时间标签（xData 与 yData 同下标）。
+       ⚠️ 不用缓存写入时间（updated_at）—— 那是「缓存什么时候落的盘」，
+       不是「数据到几点」；两者差几分钟，写错了用户会以为数字比实际新。 */
+    var asOf = '';
+    if (tr && tr.xData && k > 0) asOf = tr.xData[k - 1] || '';
+
+    /* 页脚：完整日的 Max / Avg / Min。
+       ⚠️ hMax / hMin 的类型写成显式对象而不是从 null 起（TS 会把 null 收窄成
+       never，后面 hMax.v 就报错）。这里给个空对象占位，取不到时 v 为 null。 */
+    var hist = cxortDaily(spec.id);
+    var hMax = { date: '', v: null }, hMin = { date: '', v: null }, hSum = 0;
+    hist.forEach(function (h) {
+      if (hMax.v == null || h.v > hMax.v) hMax = h;
+      if (hMin.v == null || h.v < hMin.v) hMin = h;
+      hSum += h.v;
+    });
+    var hAvg = hist.length ? hSum / hist.length : null;
+
     var tip = tf('kpi.tipName', { n: name, u: unit || '—' }) + '\n' + t('kpi.tipCxort');
+    if (yest != null) {
+      tip += '\n' + tf('kpi.rtTipBase', { k: t('kpi.rtVsYest'), v: fmt(yest), u: unit });
+    }
+    if (week != null) {
+      tip += '\n' + tf('kpi.rtTipBase', { k: t('kpi.rtVsWeek'), v: fmt(week), u: unit });
+    }
+    if (hist.length) {
+      tip += '\n' + tf('kpi.rtTipFoot', { n: String(hist.length) });
+    }
     /* 整卡可点（<a> 而非 div + onclick）：与 kpiRichHtml 同一条理由
        （中键/右键/键盘 Enter 全套行为 + 读屏语义），见那里的大段注释。 */
-    return '<a class="qc-card qc-card--rt qc-card--open' + (na ? ' is-na' : '') + '" href="' +
+    return '<a class="qc-card qc-card--rich qc-card--open' + (na ? ' is-na' : '') + '" href="' +
       esc('/myapp/?page=' + encodeURIComponent(spec.page) + langQs()) + '" target="_blank" ' +
       'rel="noopener nofollow" title="' +
       esc(tf('kpi.openTip', { n: name, b: t('kpi.boardCxort') }) + '\n\n' + tip) + '">' +
       '<div class="qc-ttl"><b title="' + esc(name) + '">' + esc(name) + '</b><i>' + esc(unit) + '</i></div>' +
-      '<div class="qc-val"><span>' + esc(val) + '</span><em>' + esc(unit) + '</em></div>' +
-      '<div class="qc-asof">' + esc(tf('kpi.rtAsOf', { d: hm || '—' })) + '</div>' +
+      '<div class="qc-val"><span>' + esc(fmt(now)) + '</span><em>' + esc(unit) + '</em></div>' +
+      '<div class="qc-asof">' +
+        esc(tf('kpi.rtAsOfFmt', { d: asOf || '—', n: String(k || 0) })) + '</div>' +
+      '<div class="qc-chips">' +
+        kpiChip(t('kpi.rtVsYest'), pct(now, yest), 'up') +
+        kpiChip(t('kpi.rtVsWeek'), pct(now, week), 'up') +
+      '</div>' +
+      kpiSpark(cxortRunning(d0, k, spec.agg)) +
+      '<div class="qc-ext">' +
+        '<div class="hi"><span>' + esc(t('kpi.max')) + '</span><b>' +
+          esc(fmt(hMax.v)) + '</b><span>' + esc(hMax.date || '—') + '</span></div>' +
+        '<div><span>' + esc(t('kpi.avg')) + '</span><b>' +
+          esc(fmt(hAvg)) + '</b><span>' +
+          esc(t('kpi.rtDays').replace('{n}', String(hist.length || '—'))) + '</span></div>' +
+        '<div class="lo"><span>' + esc(t('kpi.min')) + '</span><b>' +
+          esc(fmt(hMin.v)) + '</b><span>' + esc(hMin.date || '—') + '</span></div>' +
+      '</div>' +
     '</a>';
   }
   /* ==================================================================== v1 ==
@@ -2295,9 +2452,10 @@
           skFoot() +
         '</div>';
       };
-      /* 可用率卡与富卡同构（2026-10-01 起两者逐行对齐），所以骨架也同一套，
-         只在数据段少一条 —— 真卡里两者就是同样的分段。 */
-      var skAvail = skRich;
+      /* 可用率卡与富卡同构（2026-10-01 起两者逐行对齐），所以骨架也同一套 ——
+         真卡里两者就是同样的分段。
+         ⚠️ 2026-11-05：cxort 组（实时卡）也改成与富卡同构，故 skAvail 这个
+         别名已无人引用，**直接删掉**（不留兼容层）—— 三组统一走 skRich。 */
       /* Benchmark 行的骨架卡。
          ⚠️ 光"有 5 条灰条"是不够的：真卡的内部是一条**有固定高度的链**
          （标题 21 + 数据行 41~74 + 走势 43 + 页脚 51 + 内边距 19 = 220px），
@@ -2329,22 +2487,13 @@
         '</div>';
       };
       /* 上排两组：富卡片（KPI_RICH）+ 可用率（KPI_AVAIL_ROWS）。 */
-      /* 上排两组：富卡片（KPI_RICH）+ 可用率（KPI_AVAIL_ROWS）。
-         2026-11-04：cxort 组（teamOnly，上游已被滤掉，团队门户按矩阵进出）
-         的骨架卡只有 标题/数值/时间戳 三段 —— 它没有走势与页脚三格，
-         复用 skAvail 会让骨架比真卡高 77px，数据到位时整排上跳。
-         分发链与真卡那条 richKinds 同构：按组 id 派发，不写 if 链。 */
-      var skCxort = function () {
-        return '<div class="qc-card qc-card--rt">' +
-          '<div class="qc-ttl"><span class="sk" style="height:19px;width:56%"></span></div>' +
-          '<div class="qc-val"><span class="sk" style="height:25px;width:62%"></span></div>' +
-          '<div class="qc-asof"><span class="sk" style="height:14px;width:40%"></span></div>' +
-        '</div>';
-      };
+      /* 上排三组：富卡片（KPI_RICH）+ 可用率（KPI_AVAIL_ROWS）+ 实时卡（KPI_CXO_RT）。
+         2026-11-05：cxort 组的真卡已改成与 rich 卡**同构**（.qc-card--rich，
+         同样有走势与三格页脚），所以骨架直接复用 skRich ——
+         此前 cxort 是三段式短卡，复用 skAvail 会让骨架比真卡高 77px，
+         数据到位时整排上跳。现在三组骨架与真卡逐段一致。 */
       var skTop = kpiGroups.map(function (g) {
-        return qcGroupHtml(g, g.items.map(
-          g.id === 'cxort' ? skCxort
-            : (g.id === 'rich' ? skRich : skAvail)).join(''));
+        return qcGroupHtml(g, g.items.map(skRich).join(''));
       }).join('');
       /* Benchmark 行的骨架屏（2026-10-01 加；2026-10-07 起是连体组）。
          它**必须**在这里就画出来：这一行是四路请求里最慢的一路
@@ -2387,8 +2536,10 @@
       avail: function (spec) { return availRichHtml(spec, availRow(spec.group)); },
       /* 2026-11-04 加：CXO RealTime Dashboard 组（bo 专用，上游被 teamOnly
          滤掉、不会走到这一支；团队门户按矩阵渲染）。数据取 state.kpi.cxort
-         （loadKpi 第 4 路 / loadCxort 5 分钟档），单位由接口给、卡上原样拼。 */
-      cxort: function (spec) { return cxortCardHtml(spec, cxortEntry(spec.id)); }
+         （loadKpi 第 4 路 / loadCxort 5 分钟档）。
+         ⚠️ 2026-11-05 改版：不再传第二个参数 —— 实时卡的数据全部在
+         state.kpi.cxort 里（trends + grid），由 cxortCardHtml 自己去取。 */
+      cxort: function (spec) { return cxortCardHtml(spec); }
     };
     var top = kpiGroups.map(function (g) {
       return qcGroupHtml(g, qcGroupCards(g, richKinds[g.id]));
@@ -6457,17 +6608,37 @@
      自带 busy 防重入（与 kpiBusy 同一模式），失败静默 —— 保留上一次的值，
      卡上时间戳还停在旧时间，本身就是"数据没有更新"的诚实信号。 */
   var cxortBusy = false;
+  /* 取 CXO RealTime Dashboard 的两路数据并写入 state.kpi.cxort。
+     **不负责重绘**（渲染由调用方决定：loadKpi 走统一的 done()，loadCxort 自己重绘）。
+     两路并行、各自 catch：② 是日粒度数据，上游哪天没跑就可能取不到，
+     不能让它把 ① 的实时数一起拖成空。
+     ⚠️ 失败**不清空**已有值（同 olib 路）：接口抖一下不该让卡片从有数字
+     变成「—」。保留旧值 + 旧时间戳，本身就是「数据没有更新」的诚实信号。 */
+  function fetchCxort() {
+    var p1 = api('/api/vmax-cxo-dashboard/summary').then(function (d) {
+      if (d && d.status === 'ok' && d.summary && d.summary.trends) {
+        state.kpi.cxort = Object.assign({}, state.kpi.cxort || {}, {
+          trends: d.summary.trends,
+          overview: d.summary.overview || (state.kpi.cxort || {}).overview || null,
+          updated_at: d.updated_at || ''
+        });
+      }
+    }).catch(function () {});
+    var p2 = api('/api/vmax-cxo-daily/grid').then(function (d) {
+      if (d && d.status === 'ok' && d.weeks) {
+        state.kpi.cxort = Object.assign({}, state.kpi.cxort || {}, { grid: d });
+      }
+    }).catch(function () {});
+    return Promise.all([p1, p2]);
+  }
   function loadCxort() {
     if (cxortBusy) return;
     if (!wantCxortGroup()) return;
     cxortBusy = true;
-    api('/api/vmax-cxo-dashboard/summary').then(function (d) {
+    fetchCxort().then(function () {
       cxortBusy = false;
-      if (d && d.status === 'ok' && d.summary && d.summary.overview) {
-        state.kpi.cxort = { overview: d.summary.overview, updated_at: d.updated_at || '' };
-        renderKpi();
-      }
-    }).catch(function () { cxortBusy = false; });
+      renderKpi();
+    });
   }
   function loadKpi() {
     /* 登出后不再取数（2026-11-02 加）。 */
@@ -6518,14 +6689,12 @@
        不匹配 —— 它在 loadKpi 里只做**首屏一发**（且仅当本页要显示这一组），
        后续 5 分钟一档的滚动刷新走 loadCxort（挂在 qcLoopAlarm 那一档）。
        不该显示的页面立即 done()，不空转计数。失败也只 done() 不报错：
-       这一组没有「带级报错」的位置，卡上 '—' 就是全部反馈（与 avail 路同档）。 */
+       这一组没有「带级报错」的位置，卡上 '—' 就是全部反馈（与 avail 路同档）。
+       ⚠️ 2026-11-05 改版：取数逻辑抽到 fetchCxort()（两路：summary 的 15 分钟
+         序列 + daily grid 的完整日聚合），首屏与 5 分钟滚动刷新共用同一份代码，
+         免得两处各写一遍、日后口径走偏。 */
     if (wantCxortGroup()) {
-      api('/api/vmax-cxo-dashboard/summary').then(function (d) {
-        if (d && d.status === 'ok' && d.summary && d.summary.overview) {
-          state.kpi.cxort = { overview: d.summary.overview, updated_at: d.updated_at || '' };
-        }
-        done();
-      }).catch(function () { done(); });
+      fetchCxort().then(done).catch(done);
     } else { done(); }
     /* Benchmark 行整行取数（2026-10-22 抽出；设计说明见下面 loadBenchRow）。
        这一行**故意不是两个平级的 then**：它的窗口要先探两个源的 data_max_date

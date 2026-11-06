@@ -333,12 +333,39 @@ window.OLBR_DATA = (function () {
          ⚠️ 不是笔误，别「顺手」改成两套名字 —— 同一功能两处两个名，
          搜索/对照都会落空。 */
       'kpi.boardCxort': 'CXO RealTime Dashboard',
-      /* 卡上时间戳前缀：{d} = 缓存写入时间（HH:MM）。 */
+      /* 卡上时间戳前缀：{d} = 数据截至时刻（HH:MM）。
+         ⚠️ 2026-11-05 起这里的 {d} 是**实时源的最后一个数据点时刻**
+         （缓存 updated_at 的 HH:MM），不再是「缓存写入时间」——
+         两者在正常情况下只差几分钟，但缓存写入时间并不等于数据截止时刻，
+         标错会让用户以为数字比实际新。 */
       'kpi.rtAsOf': '实时 · {d}',
+      /* 2026-11-05 加：两个对比徽章的文案。
+         ⚠️ 刻意**不叫**「同比/环比」：实时卡比的是**同一时刻**的昨天与上周，
+         不是两个完整周期（今天还没过完，比完整日会失真）。
+         {k} 占位符由 JS 传入，标点跟着语言走。 */
+      'kpi.rtVsYest': '对比昨日同时',
+      'kpi.rtVsWeek': '对比上周同时',
+      /* 2026-11-05 加：tooltip 里写明每个对比基准是多少。
+         {k} = 基准名（对比昨日同时 / 对比上周同时）、{v} = 基准值、{u} = 单位。
+         ⚠️ 只给百分比不说基准值的话，读者无法判断是不是跟一个异常时刻比出来的。 */
+      'kpi.rtTipBase': '{k}基准值：{v} {u}（同一钟点）',
+      /* 2026-11-05 加：口径行的补充说明（asof 行之后、徽章之前）。
+         {d} = 数据截至时刻，{n} = 当日已累计的采样点数（每点 15 分钟）。 */
+      'kpi.rtAsOfFmt': '实时 · {d}（当日已累计 {n} 个 15 分钟点）',
+      /* 2026-11-05 加：页脚「近 N 天」的口径脚注。
+         与 90 天看板的 kpi.days 同义（近 {n} 天），只是把「哪些天」写清楚：
+         完整日（不含今天这个进行中的半天）。 */
+      'kpi.rtDays': '近 {n} 个完整日',
+      /* 2026-11-05 加：tooltip 里点明页脚三格（最高/平均/最低）的口径。
+         {n} = 参与统计的完整日天数。与大数字（当日截至此刻的累计值）不是
+         同一个时间窗 —— 不写清楚，读者会以为页脚是「今天到目前为止」的极值。 */
+      'kpi.rtTipFoot': '页脚最高/平均/最低取自近 {n} 个**完整日**（不含今天这个进行中的半天）。',
       /* 组级 tooltip（组头与卡片共用）：说清三件事 —— 是实时的、
          刷新节奏、点卡去哪。不说「详细数据」：原版大屏与本卡同源同口径
-         （同一份 last-known-good 缓存），但大屏是整屏、这里是四张卡。 */
-      'kpi.tipCxort': '来源：VMAX CXO 原版实时大屏（15 分钟粒度缓存，门户每 5 分钟取一次）。\n点卡片打开完整大屏。',
+         （同一份 last-known-good 缓存），但大屏是整屏、这里是一组卡。
+         ⚠️ 2026-11-05 起补一句「三个指标与 90 天经营看板一致」——
+         用户明确要求指标对齐，这句话让读卡的人不必翻手册就知道口径来源。 */
+      'kpi.tipCxort': '来源：VMAX CXO 原版实时大屏（15 分钟粒度缓存，门户每 5 分钟取一次）。\n三个指标与 CXO 90 天经营看板一致（总流量 / 活跃用户 / 视频下载速率）。\n大数字为当日累计值，对比徽章为同一时刻的昨日与上周。\n点卡片打开完整大屏。',
       /* ---- 连体卡组的组头（2026-10-07 加）----------------------------------
          同组的卡都去同一个 my_app 页面。此前这件事只写在每张卡 tooltip 的最后
          一行，不悬停就看不见；组头把它变成**看得见的结构**：左边是组名
@@ -986,7 +1013,27 @@ window.OLBR_DATA = (function () {
          target board). See the zh block. */
       'kpi.boardCxort': 'CXO RealTime Dashboard',
       'kpi.rtAsOf': 'Realtime · {d}',
-      'kpi.tipCxort': 'Source: VMAX CXO original realtime dashboard (15-minute granularity cache; the portal refetches every 5 minutes).\nClick a card to open the full dashboard.',
+      /* Added 2026-11-05: the two comparison-chip labels.
+         Deliberately NOT "WoW/MoM": the realtime card compares the SAME clock
+         time yesterday / last week, not two complete periods (today is still
+         running, so comparing full days would misrepresent it). */
+      'kpi.rtVsYest': 'vs yesterday, same time',
+      'kpi.rtVsWeek': 'vs last week, same time',
+      /* Added 2026-11-05: tooltip lines stating each comparison base value.
+         {k} = base label, {v} = base value, {u} = unit. */
+      'kpi.rtTipBase': '{k} base: {v} {u} (same clock time)',
+      /* Added 2026-11-05: the as-of line.
+         {d} = data cut-off time (HH:MM), {n} = number of 15-minute samples
+         accumulated so far today. */
+      'kpi.rtAsOfFmt': 'Realtime · {d} ({n} 15-minute samples so far today)',
+      /* Added 2026-11-05: the footer's window label — complete days only
+         (today, being half-finished, is excluded). */
+      'kpi.rtDays': 'Last {n} complete days',
+      /* Added 2026-11-05: explains the footer's caliber.
+         {n} = number of complete days in the window. The footer window is NOT
+         the same as the big number's window (today up to now) — say so. */
+      'kpi.rtTipFoot': 'Footer max/avg/min come from the last {n} complete days (today, being half-finished, is excluded).',
+      'kpi.tipCxort': 'Source: VMAX CXO original realtime dashboard (15-minute granularity cache; the portal refetches every 5 minutes).\nThe same three indicators as the CXO 90-day business board (Total Traffic / Active Users / Video Throughput).\nThe big number is the value accumulated so far today; the chips compare the same clock time yesterday and last week.\nClick a card to open the full dashboard.',
       /* Group-header strings (added 2026-10-07). See the zh block for the full
          rationale; {b} = target board name, {n} = number of cards in the group.
          Deliberately says "opens this board", never "detailed version of these
@@ -1691,29 +1738,44 @@ window.OLBR_DATA = (function () {
     { key: '3G', group: '3G ALL', page: 'avail_ms' },
     { key: '4G', group: 'FDD ALL', page: 'avail_ms' }
   ];
-  /* ---- CXO RealTime Dashboard 四张实时卡（2026-11-04 加，bo 团队门户专用）----
+  /* ---- CXO RealTime Dashboard 三张实时卡（2026-11-04 加，bo 团队门户专用；
+         2026-11-05 改版）----------------------------------------------------
      背景：用户要求 bo 门户 Network Status 里的「Daily Availability KPI」组
      换成「CXO RealTime Dashboard 的内容和下钻」。数据源是 my_app
      /api/vmax-cxo-dashboard/summary（VMAX CXO 原版大屏 last-known-good 缓存
      的只读裁剪），下钻目标是 /myapp/?page=vmaxCxoDashboard（原版视觉复刻页）。
 
-     id 必须与接口 summary.overview 的键完全一致（131/132/133/134，见
-     my_app backend/routers/vmax_cxo_dashboard.py 的 get_vmax_cxo_summary），
-     写错同样静默变成「—」卡。
-     ⚠️ zh 是门户自带的卡名（接口 showName 只有英文 "User"/"Traffic"/…）：
-        中文界面用 zh，英文界面直接用 en —— 不读接口 showName，
-        免得同一张卡中英文两套名字（接口那套本来就是短英文）。
-     ⚠️ 单位**不在这里写死**：接口每张卡自带 unit（"(K)"、"(TB)"、空串），
-        渲染时拼在数值后面（cxortCardHtml），与原版大屏逐字一致 ——
-        这里写死一份立刻与上游缓存分叉。
-     ⚠️ 没有 digits/div：接口给的是**已格式化的字符串**（"203.24"），
-        不做任何数值变换，原样展示 —— 这是它与 rich/avail 两组最大的差异。 */
+     ⚠️ 2026-11-05 改版（用户原话）：
+       「CXO RealTime Dashboard 的指标要跟 CXO 90-day business board 一样，
+         卡片显示的内容也尽量一致」
+       —— 即①三个指标换成 90 天看板那三个（总流量 / 活跃用户 / 视频下载速率），
+         ②卡片结构也与其对齐（标题+单位 / 大数字 / 口径行 / 两个对比徽章 /
+         迷你走势 / Max-Avg-Min 三格页脚）。
+       所以下面**不再自造指标**，而是引用 KPI_RICH 的条目：
+         base  —— 指向 KPI_RICH 的哪一条（名字 / 单位 / 精度 / 英文显示名全部继承，
+                   从构造上保证与 90 天看板**逐项一致**，不会两处各写一份漂移）；
+         trend —— 实时大屏缓存里的序列号（91 总流量 / 92 活跃用户 / 93 视频速率）；
+         agg   —— 实时源的聚合口径，与 my_app vmax-cxo-daily 的 KPI_SPECS 一致
+                   （91 累加 / 92 取最大 / 93 取平均）；
+         div   —— 单位换算。90 天看板那边 93 的源单位是 kbps（÷1000），
+                   而实时源 93 本来就是 Mbps（不换算）—— 故这一项**必须**覆盖，
+                   其余两项与 KPI_RICH 相同（91 GB→TB 的 ÷1024、92 不换算）。
+         page  —— 下钻去实时大屏页，不是 90 天看板页。
+
+     ⚠️ 原来这里是四张 overview 卡（131 用户 / 132 流量 / 133 上行 RTT /
+       134 下行 RTT），已按用户要求整体替换 —— 那四个指标不在 90 天看板上，
+       与「指标要一样」直接冲突。**不保留兼容层**（AGENTS.md 第三节第 10 条）。 */
   var KPI_CXO_RT = [
-    { id: '131', zh: '用户',           en: 'User',            page: 'vmaxCxoDashboard' },
-    { id: '132', zh: '流量',           en: 'Traffic',         page: 'vmaxCxoDashboard' },
-    { id: '133', zh: 'TCP 上行 RTT',   en: 'TCP Uplink RTT',  page: 'vmaxCxoDashboard' },
-    { id: '134', zh: 'TCP 下行 RTT',   en: 'TCP Downlink RTT', page: 'vmaxCxoDashboard' }
+    { id: '91', trend: '91', base: 'traffic_gb',     agg: 'sum', div: 1024, page: 'vmaxCxoDashboard' },
+    { id: '92', trend: '92', base: 'active_user_k',  agg: 'max', div: 1,    page: 'vmaxCxoDashboard' },
+    { id: '93', trend: '93', base: 'video_thr_kbps', agg: 'avg', div: 1,    page: 'vmaxCxoDashboard' }
   ];
+  /* KPI_RICH 的反查表：上面三张实时卡靠 id 继承 90 天看板那一组的
+     名字 / 单位 / 精度 / 英文显示名。**刻意做成一张表**而不是在渲染函数里
+     按下标取 KPI_RICH[0..2] —— 下标会因上面那张表重排而**静默**换错指标
+     （用户看不出卡片标题变了，只看到数字对不上）。 */
+  var KPI_RICH_BY_ID = {};
+  KPI_RICH.forEach(function (m) { KPI_RICH_BY_ID[m.id] = m; });
   /* ---- Network Status Overview 行的两个「连体卡组」（2026-10-07 加）--------
       这行的三张富卡（KPI_RICH）与三张可用率卡（KPI_AVAIL_ROWS）各自的成员
       都指向**同一个 my_app 页面**。此前这件事只写在每张卡 tooltip 的最后一行
@@ -2001,7 +2063,8 @@ window.OLBR_DATA = (function () {
     QC_TREND_METRICS: QC_TREND_METRICS, QC_SUB_KEY: QC_SUB_KEY, QC_LV_KEY: QC_LV_KEY,
     QC_FULL_MIN: QC_FULL_MIN, QC_FULL_OFFSET: QC_FULL_OFFSET,
     QC_ALARM_MIN: QC_ALARM_MIN, QC_ALARM_OFFSET: QC_ALARM_OFFSET,
-    KPI_RICH: KPI_RICH, KPI_AVAIL_ROWS: KPI_AVAIL_ROWS, KPI_GROUPS: KPI_GROUPS,
+    KPI_RICH: KPI_RICH, KPI_RICH_BY_ID: KPI_RICH_BY_ID,
+    KPI_AVAIL_ROWS: KPI_AVAIL_ROWS, KPI_GROUPS: KPI_GROUPS,
     KPI_SPEED: KPI_SPEED, SPEED_ROW_LABEL: SPEED_ROW_LABEL, BENCH_BRANDS: BENCH_BRANDS,
     KPI_META: KPI_META, KPI_META_BP: KPI_META_BP, BF_GROUPS: BF_GROUPS,
     OOKLA_LOGO: OOKLA_LOGO, META_LOGO: META_LOGO

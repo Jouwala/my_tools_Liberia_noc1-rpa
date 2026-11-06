@@ -1325,13 +1325,16 @@ main > .qarow:not(:has(section:not([hidden]):not([data-tl-off]))) {
 .qc-group[data-grp="bp"]    { --n: 1; }
 .qc-group[data-grp="rich"]  { --n: 3; }
 .qc-group[data-grp="avail"] { --n: 3; }
-/* cxort 组（2026-11-04 加，bo 专用，4 张卡）：**故意不按「跨列数=卡数」**。
-   bo 的 Network Status 行是 rich(3) + cxort(4) = 7 > 6 列 —— cxort 若 span 4
-   会换到第二行、留 2 个尾空列（比 benchmark 行那 1 个空列更明显）。
-   span 6 = 独占第二行整行，四张卡等宽铺满，没有空洞。
-   （要改回「跨 4 列」：删掉这条即可，data-n="4" 的列规则已备好。） */
-.qc-group[data-grp="cxort"] { --n: 6; }
-.qc-group-b[data-n="4"] { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+/* cxort 组（2026-11-04 加，bo 专用；2026-11-05 改版）：**三张卡**，
+   与 rich 组一样各占 3 列 —— 这样 bo 的 Network Status 行是
+   「CXO 90 天经营看板（3）+ CXO RealTime Dashboard（3）= 6 列」**一行放下**。
+   ⚠️ 2026-11-05 之前这里是 4 张卡、--n: 6（独占第二行整行），
+      那是「指标还没与 90 天看板对齐」时的形态：4 个指标（用户/Traffic/RTT）、
+      短卡（无走势无页脚）。改版后卡数与结构都与 rich 组一致，
+      故 --n 回到 3，两组同处一行。
+   ⚠️ 组内列数由 data-n（JS 按 g.items.length 给）决定，
+      .qc-group-b[data-n="3"] 已有规则，这里不需要额外声明。 */
+.qc-group[data-grp="cxort"] { --n: 3; }
 
 /* 断点。1200px：整行由 6 列收成 3 列 —— 组不再横跨多列，
    改为"一组一整行"，否则 3 张卡挤在 1/3 行宽里会扁得读不了。 */
@@ -1343,13 +1346,10 @@ main > .qarow:not(:has(section:not([hidden]):not([data-tl-off]))) {
   /* ⚠️ 1 张的组（BP）**保持 1 列但不拉伸**：它在宽屏上本来只占 1 列，
      到这一档突然变成整行宽会很突兀。限制最大宽度，与 2 列组的一张卡等宽。 */
   .qc-group-b[data-n="1"] { grid-template-columns: minmax(0, 50%); }
-  /* cxort 组 4 张（2026-11-04）：整行宽下 4 列仍然放得下。 */
-  .qc-group-b[data-n="4"] { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }
 @media (max-width: 760px) {
   /* 手机：组内一律单列，卡片纵向堆叠 —— 并排两张在这个宽度上已是挤压。 */
-  .qc-group-b[data-n="1"], .qc-group-b[data-n="2"], .qc-group-b[data-n="3"],
-  .qc-group-b[data-n="4"] {
+  .qc-group-b[data-n="1"], .qc-group-b[data-n="2"], .qc-group-b[data-n="3"] {
     grid-template-columns: minmax(0, 1fr);
   }
   /* 单列时"左细缝"要改成"上细缝"，否则分隔线跑到左边、上下两卡粘在一起。 */
@@ -1554,19 +1554,12 @@ main > .qarow:not(:has(section:not([hidden]):not([data-tl-off]))) {
      所以底色仍用 .qc-card 的 var(--surface-2) 纯色，靠边框 + 内发光分层。
      渐变只保留在「迷你走势的面积」上 —— 那是图表元素，不是卡片底。 */
 .qc-card--rich { align-items: stretch; text-align: left; padding-bottom: 9px; }
-/* CXO RealTime 实时卡（2026-11-04 加，bo 团队门户专用组 cxort）。
-   三段式（标题 / 大数字 / 时间戳），与 rich 同族（左对齐、同色令牌），
-   但没有 chips / 走势 / 三格页脚 —— 实时快照没有这些可画（见 olbr.js
-   cxortCardHtml 的注释）。纵向居中：连体卡组内四张等高，短卡吊在顶上
-   会显得这一组"没做完"；居中后上下留白对称，一眼是刻意的排版。 */
-.qc-card--rt {
-  align-items: stretch; text-align: left;
-  padding: 10px 12px 9px;
-  justify-content: center; gap: 2px;
-}
-.qc-card--rt .qc-val { margin-top: 4px; }
-.qc-card--rt .qc-asof { margin-top: 3px; }
-.qc-card--rt.is-na .qc-val span { color: var(--t3); }
+/* ⚠️ 2026-11-05：原 .qc-card--rt（CXO RealTime 的三段式短卡样式）**已删除**。
+   实时卡改成与 90 天看板那张富卡**同构**（标题+单位 / 大数字 / 口径行 /
+   两个对比徽章 / 迷你走势 / Max-Avg-Min 三格页脚），外层挂 .qc-card--rich，
+   与同排的 rich 组用同一套样式 —— 同一个类装两种排版意图会立刻分叉。
+   （删除优于兼容：AGENTS.md 第三节第 10 条。上游 /v3/olbrportal/ 不渲染这一组，
+   那边的样式本来也用不上。） */
 
 /* ============================================================================
    Benchmark 行（Network Benchmark View，2026-10-01 加）
