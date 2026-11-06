@@ -2488,6 +2488,19 @@ VMAX complaint diagnosis: enter a subscriber number and time window to answer "w
 - The link carries the number; check that the recipient is allowed to see that number before forwarding
 - **The four dimension scores and every figure on the voice / OTT / game / radio cards explain themselves on hover** (2026-11-05): these statistics are **computed in the frontend from the rules file** (the API sends neither scores nor counters); their input is exactly the row sets listed under "Source coverage", each source is paged with a cap (1300=1200 rows, 1100=800, 32=600, 1301=200) and a trailing `*` means the API flagged truncated, i.e. **rows were left unfetched** so every number is a sample; the voice "timeout/failure" counter used to add a PAGING row twice (PAGING branch plus the generic one) — fixed on 2026-11-05, so older screenshots show a larger value; the number in the game card header is named sessions in the code but is actually the **sum of xDR rows**, not a session count
 
+#### vmax_user_cca（`vmax_user_cca`）
+
+VMAX Intelligent Diagnosis Workspace: complaint-driven single-page narrative — conclusion first, then follow the evidence. Zone 1 fault overview (one line + four scores), Zone 2 fault analysis (terminal→RAN→transport→core→OTT chain + five-part explainable metrics), Zone 3 root cause & recommendations (CCA corroboration + template suggestions + evidence library).
+
+- Use the full number with the 231 prefix (e.g. 231777777322), digits only; the local 9-digit format is not matched upstream
+- Complaint type defaults to "All", switching only re-weights and reorders — it never hides cross-module evidence
+- Chain node status takes the worst of its metrics: no data shows "no data to judge", never "normal"
+- Every metric answers five parts: why it matters / what was observed / when it occurred / possible impact / what needs verification
+- Raw XDR / remote radio records / TCP load only when "View evidence" is clicked
+- The verdict comes from deterministic rules (buildVerdict); CCA is correlation evidence only
+- The number is stored under ccaMsisdn and does not interfere with the legacy page
+- Fully bilingual
+
 #### ipt_power（`ipt_power`）
 
 IPT Site Power: integrates the IPT Digital Platform (RMS energy monitoring) to show connectivity and power details (battery SOC/voltage, load, solar, generator, fuel) for all ~500 sites. Collector task ipt_power_collect ingests every 2 minutes; this page only reads the local DB.
