@@ -1918,8 +1918,8 @@ current_cron = saved_cron if saved_cron else default_cron   # ← 数据库赢
 > ⚠ 本节的条数与示例值都是**从库里读出来的快照**，任务管理页每改一次就会变。
 > 引用前先跑一次下面的复核命令，不要拿本文的数字当现状。
 
-**复核命令**：`cd Task\my_app ; python TMP\_check_schedule_override.py`（只读，打印上表三行 + 全部错配 task_id 与条数）。
-`TMP/_verify_schedule_override_warn.py` 是 2026-10-31 那次审计的一次性探针，**本机已不存在**，它当时报的「6/6、19 条错配」也随之过期 —— 现在以 `_check_schedule_override.py` 的读数为准。
+**复核命令**：`cd Task\my_app ; python tools\check_schedule_override.py`（**已入库**，只读，打印上表三行 + 全部错配 task_id 与条数）。
+2026-10-31 那次审计用的 `TMP/_verify_schedule_override_warn.py` 是一次性探针、本机已不存在，它报的「6/6、19 条错配」也随之过期 —— 现在以 `tools/check_schedule_override.py` 的读数为准。**不要**把手册里这些数字当现状，它们是某次读数。
 
 **处置**：① **不改用户已配置的值**（`eflow_active_alarm` 2026-10-04 那轮读到的生效值是 `*/5`、经确认保留；现在库里与代码默认都是 `*/1 * * * *`，即每分钟一次 —— 实时告警看板需要该粒度，且它走 `ensure_login()` 共享会话，当时**实测当日 eFlow 真实登录 0 次**，不构成登录风暴）；② 在注册期对"代码默认值 ≠ 生效值"打
 **WARNING**（`task_runner.py:330-346`），让"以为改了其实没生效"当场可见。
