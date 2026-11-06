@@ -131,7 +131,9 @@ DEFAULT_ICON = "dashboard"
 # 2026-10-19 加 `person`：v3 门户（/v3/olbrportal/）的 GIS Map 栏新增 "Person" 页签，
 # 内嵌 my_app 的 ?page=person（人员位置地图）。不加这一项时，编辑态改它的页签名
 # 会被下面的 `continue` **静默丢弃**（既不入库也不报错），用户会以为改名没生效。
-TAB_PAGES = {"gis", "mwRealTime", "person", "realtime_alarm", "packet_loss", "__head"}
+# 2026-11-06 加 `ipt_power`：同一栏的 "IPT Power" 页签（IPT 站点电源查询），
+# page 值与前端 PageKey 一致，故带下划线。同样必须登记，否则编辑态改名被丢弃。
+TAB_PAGES = {"gis", "mwRealTime", "person", "ipt_power", "realtime_alarm", "packet_loss", "__head"}
 # 标题/副标题比页签名长（MsPortal 现在是 "Central Liberia Regional Topology" 31 字符），
 # 单独放宽上限；页签名仍用 MAX_TAB_LABEL_LEN（页签栏窄，长了会撑破版式）。
 MAX_HEAD_LABEL_LEN = 64

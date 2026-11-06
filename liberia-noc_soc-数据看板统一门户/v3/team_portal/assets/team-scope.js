@@ -253,7 +253,8 @@
   }
 
   /* ============================================================ 地图页签 ==
-     Excel 的 GIS MAP 域 → DATA.MAP_TABS 的 page（gis / person / mwRealTime）。 */
+     Excel 的 GIS MAP 域 → DATA.MAP_TABS 的 page
+     （gis / person / mwRealTime / ipt_power，2026-11-06 加最后一项）。 */
   function mapPages() {
     return subs('map');
   }

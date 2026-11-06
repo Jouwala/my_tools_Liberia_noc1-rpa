@@ -143,6 +143,9 @@ window.OLBR_DATA = (function () {
       /* 2026-10-19 加：内嵌 my_app 的 ?page=person（人员位置地图）。
          用户给的页签名就是英文 "Person"，中英两份**照写同一串**（同 map.gis 的约定）。 */
       'map.person': 'Person',
+      /* 2026-11-06 加：内嵌 my_app 的 ?page=ipt_power（IPT 站点电源查询）。
+         与 Person / Alarm / MW 同一约定：英文短名，中英两份照写同一串。 */
+      'map.iptPower': 'IPT Power',
       /* 2026-09-28 按用户要求把按钮文案改成 "Open Link"（原来中英分别是
          「新窗口打开」/ "Open in new tab"）。用户给的是英文串，
          两份字典都照写（与 qc.sub.* 那次改名同一条约定：用户点名的写法不翻译）。
@@ -859,6 +862,8 @@ window.OLBR_DATA = (function () {
       'map.gis': 'Alarm', 'map.mw': 'MW', 'map.alarm': 'Live alarms', 'map.loss': 'Packet loss',
       /* 2026-10-19 加，与中文那份同值（用户点名的英文串，不翻译）。 */
       'map.person': 'Person',
+      /* 2026-11-06 加，与中文那份同值（IPT Power 页签）。 */
+      'map.iptPower': 'IPT Power',
       /* 2026-09-28：改为用户点名的 "Open Link"（原为 "Open in new tab"）。
          中文那份同值 —— 用户要的就是这一串英文。 */
       'map.open': 'Open Link', 'map.reload': 'Reload', 'map.load': 'Loading…',
@@ -1476,10 +1481,18 @@ window.OLBR_DATA = (function () {
      名字就是 "Person"。顺序即创建顺序：Alarm → Person → MW。
      ⚠️ 后端 TAB_PAGES（my_app backend/routers/portal_catalog.py）同步加了 'person'，
      否则编辑态里改名会被静默丢弃。 */
+  /* 2026-11-06：再加 ?page=ipt_power（IPT 站点电源查询）。用户要求「照 person
+     等的方式」加一个页签，故这里仍是唯一真相源，page 值必须与 my_app 的
+     PageKey 完全一致（ipt_power，带下划线）—— 它既是 iframe src 的 ?page=，
+     也是团队门户作用域矩阵的 key、后端 TAB_PAGES 白名单的项。
+     ⚠️ 该页在 my_app 里是「筛选条 + 4 张数字卡 + 左地图 / 右站点清单」的完整业务页。
+        但门户里只展示地图（2026-11-06 用户原话：「能只显示 Site map 吗，不要上面的
+        统计卡片」），故走 MAP_TAB_CSS 给它一份定制剥离样式，而不是照搬纯画布那份。 */
   var MAP_TABS = [
     { page: 'gis', key: 'map.gis', icon: 'map' },
     { page: 'person', key: 'map.person', icon: 'users' },
-    { page: 'mwRealTime', key: 'map.mw', icon: 'broadcast' }
+    { page: 'mwRealTime', key: 'map.mw', icon: 'broadcast' },
+    { page: 'ipt_power', key: 'map.iptPower', icon: 'battery' }
   ];
   /* 保留伪页签 key：本栏标题/副标题不是地图页签，但与页签共用同一份
      catalog.tabLabels 存储和改名浮层（2026-09-23 加）。__ 前缀与上面的 OTHER 同一约定，
@@ -1640,6 +1653,49 @@ window.OLBR_DATA = (function () {
        这也是为什么不能给 .ant-card-body 加一个统一位移。 */
     '.gis-legend-overlay{transform:none!important}'
   ].join('');
+
+  /* ---------------------------------------------------------------------
+     按页定制的 iframe 剥离样式（2026-11-06 加；同日按用户要求定为纯地图形态）
+     ---------------------------------------------------------------------
+     MAP_STRIP_CSS 是 gis / person / mwRealTime 三个纯地图页共用的：它把
+     main#main-content 根容器里不含 .leaflet-container 的直接子节点整块
+     display:none，留下那张地图卡并拉到 100% 高。
+
+     ipt_power 第一版登记为「整页型」、完全不注入剥离样式，理由是它是完整业务页。
+     用户随后要求「只显示 Site map，不要上面的统计卡片」，即回到纯地图形态：
+       · 筛选条 / 采集状态告警 / 口径说明 / 4 张 KPI 数字卡  → 隐藏
+       · 右侧「站点清单与最新电源快照」那一列                → 隐藏
+       · 只留标题为 "Site map" 的地图卡，铺满整个 iframe
+     故这里改成「基础剥离样式 + 三条 ipt_power 专属补丁」，而不是另写一份完整
+     CSS：基础部分继续随 MAP_STRIP_CSS 演进，两份不会漂移。
+     ⚠️ 键名必须与 MAP_TABS 的 page 一致；未登记的页默认只用 MAP_STRIP_CSS。
+     ⚠️ 这份 CSS 只注入门户的 iframe document，直开 /myapp/?page=ipt_power
+        仍是完整业务页，一点不受影响（也不必重新 build my_app）。
+     ⚠️ 详情抽屉是 antd portal 到 body 的，不在 #main-content 下，点圆点仍可下钻。 */
+  var IPT_MAP_ONLY_EXTRA_CSS = [
+    /* 右侧表格列（不含地图的 .ant-col）整列隐藏；地图列独占整行宽。
+       :has 必须挂在 .ant-col 上 —— 表格列与地图列是同一 .ant-row 的兄弟。 */
+    'main#main-content .ant-col:not(:has(.leaflet-container)){display:none!important}',
+    'main#main-content .ant-col:has(.leaflet-container){width:100%!important;max-width:100%!important;flex:0 0 100%!important;padding:0!important}',
+    /* antd Row 的 gutter={[12,12]} 会给 Row 负 margin、给 Col 左右 padding；
+       只剩一列时这 6px 会在地图四周留白边，铺满形态下归零。 */
+    'main#main-content > div > .ant-row:has(.leaflet-container){margin:0!important;height:100%!important}',
+    /* MAP_STRIP_CSS 为纯画布页隐藏了卡片头（gis 的地图卡本就没有标题栏）。
+       Site map 这张卡的头里有标题 + 三色图例，是用户点名要保留的那张卡，
+       故恢复显示；同时把卡片改成列式 flex，让 body 吃掉剩余高度，
+       否则 head 与 height:100% 的 body 会叠出 38px 溢出。 */
+    'main#main-content .ant-card:has(.leaflet-container){display:flex!important;flex-direction:column!important}',
+    'main#main-content .ant-card:has(.leaflet-container) > .ant-card-head{display:flex!important;flex:0 0 auto!important}',
+    'main#main-content .ant-card:has(.leaflet-container) > .ant-card-body{flex:1 1 auto!important;height:auto!important;min-height:0!important;overflow:hidden!important}',
+    /* 不依赖「百分比高度能否解析」：相对已定位的 body 直接铺满四个边。
+       MAP_STRIP_CSS 已给该 body 加了 position:relative。 */
+    'main#main-content .ant-card-body:has(.leaflet-container) > .leaflet-container{position:absolute!important;inset:0!important;height:100%!important;width:100%!important}'
+  ].join('');
+
+  /** page → 该页 iframe 应注入的完整 CSS。缺省（未登记）用 MAP_STRIP_CSS。 */
+  var MAP_TAB_CSS = {
+    'ipt_power': MAP_STRIP_CSS + IPT_MAP_ONLY_EXTRA_CSS
+  };
 
   /* ----------------------------------------------------- qc thresholds -- */
   // QC 指标阈值表。与 MsPortal 的 Quality Control 逐字对应（同一个数字在两个门户上
@@ -2058,6 +2114,7 @@ window.OLBR_DATA = (function () {
     T0: T0, T1: T1, T2: T2, AUX_ROWS: AUX_ROWS, OTHER: OTHER, ARCHIVE: ARCHIVE, AUX_TITLES: AUX_TITLES,
     MAP_TABS: MAP_TABS, RENAME_HEAD: RENAME_HEAD, RENAME_KEYS: RENAME_KEYS,
     EMAIL_PAGE: EMAIL_PAGE, EMAIL_TAB: EMAIL_TAB, MAP_STRIP_CSS: MAP_STRIP_CSS,
+    MAP_TAB_CSS: MAP_TAB_CSS,
     QC_TARGETS: QC_TARGETS, QC_LEVEL_ABS: QC_LEVEL_ABS,
     QC_PRIMARY_ORDER: QC_PRIMARY_ORDER, QC_SECONDARY_ORDER: QC_SECONDARY_ORDER,
     QC_TREND_METRICS: QC_TREND_METRICS, QC_SUB_KEY: QC_SUB_KEY, QC_LV_KEY: QC_LV_KEY,

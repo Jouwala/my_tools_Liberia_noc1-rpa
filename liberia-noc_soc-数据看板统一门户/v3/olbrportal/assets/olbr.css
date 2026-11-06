@@ -2442,7 +2442,16 @@ main > .qarow:not(:has(section:not([hidden]):not([data-tl-off]))) {
    若无差别改成 1 1 0，其他面板的标题会被压成 0 宽（1fr 弹簧没人与它配对时会一直缩）。 */
 #l0Map .p-head { flex-wrap: nowrap; }
 #l0Map .p-head > .p-hd { flex: 1 1 0; }
-.map-tabs { display: flex; align-items: center; justify-content: center; gap: var(--s2); flex: none; }
+/* 2026-11-06：地图栏从三页签变四页签（新增 IPT Power）。原来 `flex:none` 固定
+   成内容宽，多一个页签就多约 95px；虽然 nowrap 后两侧弹簧先被压，极窄视口下
+   仍可能把右侧三颗工具按钮挤出标题条。改为「可收缩 + 段内横向滚动」：
+   宽屏时两侧弹簧照旧分剩余空间、页签段不收缩，视觉与原来完全一致；只有容器
+   连页签都放不下时它才收缩并可左右滚动，工具按钮始终可见。
+   ⚠️ justify-content 必须从 center 改成 flex-start：段宽等于内容宽时两者视觉
+      无差别，但 overflow-x:auto 容器若仍 center，收缩后左半段会滚不到（flex 经典坑）。
+   ⚠️ 别改回 flex:none —— 那条与「四页签」组合正是本次要防的溢出。 */
+.map-tabs { display: flex; align-items: center; justify-content: flex-start; gap: var(--s2); flex: 0 1 auto; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.map-tabs::-webkit-scrollbar { display: none; }
 /* 工具按钮段：吃掉剩余空间并把自己的内容推到右端。
    margin-left:auto 在这里是**必要的** —— 页签只有两个时 .p-hd 的 1fr 弹簧
    已经把它推到中间，若本段不带 auto，两颗按钮会紧贴在页签右侧而不是卡片右缘。 */

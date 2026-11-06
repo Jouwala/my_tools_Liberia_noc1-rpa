@@ -100,7 +100,8 @@
       "items": [
         { "key": "gis",        "zh": "告警地图", "en": "Alarm Map",   "excel": "Alarm MAP" },
         { "key": "person",     "zh": "人员地图", "en": "Person Map",  "excel": "Person MAP" },
-        { "key": "mwRealTime", "zh": "微波实时", "en": "MW Map",      "excel": "MW MAP" }
+        { "key": "mwRealTime", "zh": "微波实时", "en": "MW Map",      "excel": "MW MAP" },
+        { "key": "ipt_power",  "zh": "IPT 电源", "en": "IPT Power",   "excel": "IPT Power" }
       ]
     },
     {
@@ -232,7 +233,8 @@
     "map": {
       "gis":        ["fo", "flm", "smc", "cxo"],
       "person":     ["fo", "flm", "smc", "cxo"],
-      "mwRealTime": ["fo", "bo", "flm", "smc", "cxo"]
+      "mwRealTime": ["fo", "bo", "flm", "smc", "cxo"],
+      "ipt_power":  ["fo", "flm", "smc", "cxo"]
     },
     "qa": {
       "eflow":     ["fo", "bo", "flm", "smc"],

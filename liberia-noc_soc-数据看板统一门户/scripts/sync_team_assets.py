@@ -200,38 +200,55 @@ CSS_TEAM_SUFFIX = """
 #views6 .v6-grid[data-n="4"] { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 #views6 .v6-grid[data-n="5"] { grid-template-columns: repeat(5, minmax(0, 1fr)); }
 #views6 .v6-grid[data-n="6"] { grid-template-columns: repeat(6, minmax(0, 1fr)); }
-/* 卡内条目：横向排满整行，放不下自动折行（2026-11-05 改，全团队统一）。
-   背景与根因：
-     · 2026-11-03 之前的做法是「单列独占整行时，卡内 .v6-list 改 auto-fit 网格」。
-       那个做法**只在 data-n="1" 生效**，而且 auto-fit 的轨道数由**整张列表的宽度**
-       一次性决定，与「某个专业域有几条」无关 —— 5 条的 RAN 铺满 5 条轨道后，
-       MW 只有 2 条却仍只占 1~2 号轨道，右侧留下三条空轨道（约 870px 空白）。
-       2026-11-05 用户报「一行还排不满，右边有大量空白」，即由此而来。
-     · 现在改成 **flex 行流**：条目按 DOM 顺序左右排，排满自动换行；
-       flex-grow 让**同一行里条数少的那一组也把整行吃满** —— MW 两条各占半行
-       （实测 736px + 736px，右侧零空白），条数多的一组（RAN 5 条）自然排满一行、
-       放不下折第二行，正是用户要的「RAN 放一行，不够就两行」。
-   为什么对**所有** data-n 生效（不再只限单列）：
-     · 五个团队门户的 Domain Dashboard 要**看起来一致**（2026-11-05 用户要求）：
-       fo / bo / cxo 是单列（BO View 另有 RAN/IP/MW/CN/OCS 分段），
-       flm 是双列、smc 没有这一块。
-     · 半宽列（741px）里条目按 280px 基准排，一行放 2 条并拉伸吃满，
-       不再是一条一条竖着堆、右侧空半列。
-   段头（.v6-seg-h）/ 空态：flex-basis 100% → 各自独占整行，不参与横向排布。
-   展开按钮（.v6-more）：0 0 auto → 作为普通流内项跟在末尾，不独占整行。
+/* 卡内条目：**固定 5 列轨道，逐行对齐**（2026-11-06 改，用户要「5 个一行 + 不同组列对齐」）。
+   演变与根因（这段改过三次，别退回前两版）：
+     · 2026-11-03 版：只在 data-n="1" 时把 .v6-list 改 auto-fit 网格。
+       轨道数由整张列表宽度一次性决定，与「某个专业域有几条」无关 ——
+       5 条的 RAN 铺满 5 条轨道后，MW 只有 2 条仍只占 1~2 号轨道，
+       右侧留下三条空轨道（约 870px 空白）。
+     · 2026-11-05 版：改 flex 行流 + flex:1 1 280px + flex-grow 拉伸。
+       消掉了右侧空白，但**代价是列宽不再固定** —— 段内条数少的那一行
+       （MW 2 条 → 各 736px）与条数多的那一行（RAN 5 条 → 各 288px）
+       宽度不同，跨段看过去左右边界一格都不齐。用户 2026-11-06 报的
+       「按照 5 个一行，不同的组要列对齐」就是这一版的问题。
+     · 本版（grid）：整张列表共用一个 5 列轨道模板，所有段的条目都落在
+       同一套列边界上 —— 第 N 条恒在第 N 格，跨段垂直对齐；段头跨满整行。
+       某段最后一行不足 5 条时**保留空格**（不再拉伸），这是列对齐的必然代价。
+   为什么单列（data-n="1"）才是 5 列：
+     · BO 视图列宽约 1520px（1600 视口），5 列每列 ~296px，与原先 280px 基准相当；
+     · 半宽列（flm 双列，单列约 740px）放 5 列会挤成 ~140px，
+       标题全被 ellipsis 截掉 —— 故多列布局退到 2 列，语义不变（组内仍逐行对齐）。
+   为什么**不再按 data-n 分档**：5 列是「单列卡独占整行」这一种情形的解，
+     data-n 只用来区分单列/多列两种宽度档，不再是 1~6 的等比数组。
+   默认的 .v6-list 是 flex column（上游三列窄卡），本组规则只作用于带 data-n 的团队门户网格。
+   段头（.v6-seg-h）/ 空态 / 展开按钮：grid-column 1/-1 → 跨满整行，不占轨道。
    ⚠️ DOM 结构不变（段头与条目仍是 .v6-list 的直接子元素）——
        team-layout.js 的拖拽排序按「.v6-list > .v6-row」取键与重排，
        一旦加包装层就会取不到键、排序失效。 */
 #views6 .v6-grid[data-n] .v6-list {
-  display: flex;
-  flex-flow: row wrap;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: calc(4px * var(--v6-k));
   align-content: start;
 }
+/* 多列布局（flm 双列等）：半宽列放 5 列太挤，退到 2 列。 */
+#views6 .v6-grid[data-n]:not([data-n="1"]) .v6-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 #views6 .v6-grid[data-n] .v6-seg-h,
-#views6 .v6-grid[data-n] .v6-empty { flex: 0 0 100%; }
-#views6 .v6-grid[data-n] .v6-row { flex: 1 1 280px; min-width: 0; }
-#views6 .v6-grid[data-n] .v6-more { flex: 0 0 auto; align-self: center; }
+#views6 .v6-grid[data-n] .v6-empty,
+#views6 .v6-grid[data-n] .v6-more { grid-column: 1 / -1; }
+/* 段头与上一段末行之间：grid gap 已给 4px，段头自带的 margin-top 归零，
+   避免间距变成 7px 又和别处不一致（段间靠 .v6-seg-h 的上边框 + gap 区分即可）。 */
+#views6 .v6-grid[data-n] .v6-seg-h { margin-top: 0; }
+#views6 .v6-grid[data-n] .v6-row { min-width: 0; }
+#views6 .v6-grid[data-n] .v6-more { justify-self: start; }
+/* 编辑态：条目里有标题/链接两个输入框，296px 太窄，退回单列；编辑结束自动恢复。 */
+#views6 .v6-grid[data-n] .v6-list:has(> .v6-row.is-ed) { grid-template-columns: minmax(0, 1fr); }
+@media (max-width: 1200px) {
+  #views6 .v6-grid[data-n] .v6-list { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 780px) {
+  #views6 .v6-grid[data-n] .v6-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 @media (max-width: 1400px) {
   #views6 .v6-grid[data-n="4"], #views6 .v6-grid[data-n="5"], #views6 .v6-grid[data-n="6"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   #views6 .v6-grid[data-n="1"] { grid-template-columns: minmax(0, 1fr); }
@@ -259,6 +276,44 @@ CSS_TEAM_SUFFIX = """
 .qarow-col:has(> .oss-slot[data-tl-off]) > .cch-slot { flex: 1 1 auto; }
 .qarow-col:has(> .cch-slot[hidden]) > .oss-slot { flex: 1 1 auto; height: auto; min-height: var(--qarow-h); }
 .qarow-col:has(> .cch-slot[data-tl-off]) > .oss-slot { flex: 1 1 auto; height: auto; min-height: var(--qarow-h); }
+
+/* ----------------------------------------------------------------------------
+   右列全空：Auto Report 独占整行 + 高度随内容（2026-11-06 加，用户要求）
+   ----------------------------------------------------------------------------
+   现象（/v3/flm_portal/ 实测）：团队矩阵把 cch 与 oss 两域对这个团队都关了，
+   #cchSlot / #ossSlot 双双 hidden，但 .qarow 仍按 2 列栅格排版 ——
+   Auto Report 被挤在左半栏（759px / 行宽 1534px），右半栏一片空；
+   同时 .canvas 还锁着 min-height: var(--qarow-h)=860px，表体只有几行，
+   下面拖出几百像素的白。用户要求：「右边没有组件就直接占一行，
+   并且高度根据内容自适应」。
+
+   判据与上面「对侧铺满」同族、同口径：右列里**没有任何一个未被矩阵/布局隐藏的
+   section** 就算全空，[hidden]（矩阵）与 [data-tl-off]（布局编辑器隐藏）都认；
+   再加上「.qarow-col 整个不存在」的兜底 —— 那种页面同样只有左列。
+   ⚠️ 只看 section：右列将来若加非 section 的装饰元素（分隔线之类），
+     不该因为它被判成「有右列」；真要参与判断再单独补，别放宽这里。
+
+   ① 空列本身 display:none —— 只改栅格列数不够：它仍是第 2 个 grid item，
+      会白占一整行高度并再吃一个 gap（与 2026-11-05 修「空行双 gap」同一个坑）。
+   ② 栅格收成 1 列，Auto Report 满宽。
+   ③ canvas 的 860px 下限归零、flex 不放大，高度回到表格本身。
+      只在这一种形态下放开：有右列时仍要靠 --qarow-h 与右列合计等高（正常态）。
+      上游 /v3/olbrportal/ 框里永远有 OSS，且它那份 olbr.css 没有本段，行为不变。
+      ⚠️ 团队门户的 Auto Report 是 team-panels.js 渲染的 DOM 表（可自动量高）；
+        上游那份是内嵌 iframe（height:100% 需要确定高度），所以这条不能上移到上游。
+   ④ 加载态：骨架 .embed-boot 是 absolute inset:0、自身不贡献高度，数据没到时
+      内容高度为 0 —— 给一个温和下限，避免面板从 0 起跳、数据到位再突然长高。 */
+.qarow > .qarow-col:not(:has(> section:not([hidden]):not([data-tl-off]))) { display: none; }
+.qarow:not(:has(> .qarow-col > section:not([hidden]):not([data-tl-off]))) {
+  grid-template-columns: minmax(0, 1fr);
+}
+.qarow:not(:has(> .qarow-col > section:not([hidden]):not([data-tl-off]))) > .email-slot .canvas {
+  min-height: 0;
+  /* 父高度是 auto，flex:1 本来就等于自然高度；写成 0 0 auto 表明「别放大」 */
+  flex: 0 0 auto;
+}
+.qarow:not(:has(> .qarow-col > section:not([hidden]):not([data-tl-off])))
+  > .email-slot .canvas:has(> .embed-boot:not([hidden])) { min-height: 180px; }
 
 /* Customer Complaint 下线（P0-1）：CCH（VMAX 用户查询，2026-11-04 起为独立面板）已覆盖，团队门户不再显示。
    矩阵侧已置空（scope-map.json matrix.complaint.vmax = []），这里再加一道硬隐藏 ——

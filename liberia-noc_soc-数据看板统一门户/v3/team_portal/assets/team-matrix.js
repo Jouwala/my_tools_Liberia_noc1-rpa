@@ -72,6 +72,12 @@
       "smc",
       "cxo"
     ],
+    "ipt_power": [
+      "fo",
+      "flm",
+      "smc",
+      "cxo"
+    ],
     "mwRealTime": [
       "fo",
       "bo",

@@ -40,6 +40,7 @@
   },
   "map": {
     "gis": {},
+    "ipt_power": {},
     "mwRealTime": {},
     "person": {}
   },

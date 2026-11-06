@@ -192,9 +192,10 @@
        它只由"用户当场做了归档这个动作"打开（dropItemFromGroup 与分组浮层的 setGroups），
        刷新即丢。为什么不能用"本会话渲染过归档区"当判据，见 renderArchive() 的注释。 */
     recall: false,
-    /* 当前选中的地图页签（gis / person / mwRealTime）。跨会话记住上次看的那一页。
+    /* 当前选中的地图页签（gis / person / mwRealTime / ipt_power）。跨会话记住上次看的那一页。
        2026-09-29：本栏恢复成两个页签后它重新有了消费方（curMap / mapHeadHtml /
-       mapClick）；2026-10-19 起三页签（多一个 person）。
+       mapClick）；2026-10-19 起三页签（多一个 person），2026-11-06 起四页签
+       （多一个 ipt_power）。
        默认 'gis' 与 DATA.MAP_TABS 的第一项一致。 */
     mapTab: ls('olbr.maptab', 'gis'),
     /* 知识问答栏当前选中的页签（'rag' / 'eflow'，2026-10-12 加）。
@@ -2971,10 +2972,13 @@
 
   /* ⚠️ 2026-09-29（用户要求「GIS Map 添加并只显示 /myapp/?page=mwRealTime 的地图组件，
      reload 和 openlink 放到最右边」，随后澄清「GIS Map 和 mwRealTime 都要显示」）：
-     本栏**内嵌** my_app 的地图页（iframe），当前**三个页签**：
+     本栏**内嵌** my_app 的地图页（iframe），当前**四个页签**：
        · gis         —— 「Alarm」（GIS 页）
        · person      —— 「Person」（人员位置地图，2026-10-19 按用户要求加在 Alarm 之后）
        · mwRealTime  —— 「MW」（微波实时）
+       · ipt_power   —— 「IPT Power」（2026-11-06 加）：只显示 Site map 地图卡，
+                         筛选条 / KPI 数字卡 / 右侧站点清单由剥离样式隐藏
+                         （见 olbr-data.js 的 MAP_TAB_CSS；直开 /myapp/ 仍是完整业务页）
      概念上分两层，读代码时别搞混：
        · 屏幕上方那行标题叫 **GIS Map** —— 那是**栏标题**，来自 map.title
          （headTitleText()，可改名，也可被 catalog.tabLabels.__head 覆盖）；
@@ -7273,7 +7277,11 @@
        内层页自己落在 zoom 7.5 装下全境，门户不再自动放大。
        该页不暴露 fitAllSites，走 zoomOnce 那条路 —— 本项为 false 时 zoomOnce
        对它早退，即"打开即所见"。 */
-    person: false
+    person: false,
+    /* 2026-11-06 加 ipt_power（"IPT Power" 页签）：纯地图形态后仍沿用内层页
+       自己的 zoom 8 取景，门户不做任何自动放大（同 Alarm / MW / Person）。
+       未登记的页默认也是不放大，这里显式列出便于对照。 */
+    ipt_power: false
   };
   /* 打开后自动**缩小一级**的页（2026-10-12 加，2026-10-13 清空）。
      与 MAP_ZOOM_IN_BY_PAGE 是两个方向、互斥使用：同一页不会既放大又缩小。
@@ -7306,6 +7314,16 @@
       var m = /[?&]page=([^&#]+)/.exec(src);
       return m ? decodeURIComponent(m[1]) : null;
     } catch (e) { return null; }
+  }
+  /* 2026-11-06：取该 iframe 应注入的剥离 CSS。
+     src 带 ?page= 的只有最外层 #mapFrame；内层嵌套 iframe（MW 三层）不带，
+     framePage 返回 null，落回默认的 MAP_STRIP_CSS（与历史行为一致）。
+     见 olbr-data.js 的 MAP_TAB_CSS：未登记的页同样只用 MAP_STRIP_CSS。 */
+  function frameCss(f) {
+    var pg = framePage(f);
+    var m = DATA.MAP_TAB_CSS;
+    if (pg && m && Object.prototype.hasOwnProperty.call(m, pg)) return m[pg];
+    return DATA.MAP_STRIP_CSS;
   }
 
   /* 默认比内层页自己的取景再近一级（2026-09-22 用户：「跟手动点一次加号一个效果」）。
@@ -7582,6 +7600,9 @@
         /* 只拦**纯滚轮**。按住 Ctrl/⌘ 的滚轮是浏览器/触控板的"缩放页面"手势，
            拦下来会让手势失效且没有任何替代，故放行（交给内层页自己的行为）。 */
         if (ev.ctrlKey || ev.metaKey) return;
+        /* 2026-11-06：ipt_power 已改成纯地图形态（整屏除卡片头外都是画布），
+           四个页签重新统一走旧口径：滚轮一律交给外层门户。原先为「整页型页签」
+           加的 overMap 分支已移除 —— 现在没有表格/卡片需要内部滚动了。 */
         /* 把滚动还给**最外层门户窗口**（内层滚不动，见 outerScrollWindow 的说明）。
            deltaMode：0=像素（Chrome 鼠标/触控板），1=行，2=页。 */
         var dy = ev.deltaMode === 1 ? ev.deltaY * 16 : ev.deltaMode === 2 ? ev.deltaY * 100 : ev.deltaY;
@@ -7729,7 +7750,12 @@
       if (!d || !d.head) return;
       var s = d.getElementById('olbrStrip');
       if (!s) { s = d.createElement('style'); s.id = 'olbrStrip'; d.head.appendChild(s); }
-      if (s.textContent !== DATA.MAP_STRIP_CSS) s.textContent = DATA.MAP_STRIP_CSS;
+      /* 2026-11-06：默认注入 MAP_STRIP_CSS；MAP_TAB_CSS 里登记了专属样式的页
+         （当前只有 ipt_power）改用那一份。见 olbr-data.js 里 MAP_TAB_CSS 的注释。
+         内层嵌套 iframe 的 src 不带 ?page=，framePage 返回 null，落回默认值
+         （MW 三层嵌套不受影响）。 */
+      var css = frameCss(f);
+      if (s.textContent !== css) s.textContent = css;
       /* 记下这份 document 属于哪个 iframe（2026-10-19，为 zoomOnce 按页取开关）。
          document.defaultView.frameElement 在**同源**时可用，与本函数其余部分的前提一致；
          跨域时下面整段已被 catch 静默跳过。内层嵌套的 iframe 同样会被记录，无害。 */

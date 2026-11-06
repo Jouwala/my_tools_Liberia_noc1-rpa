@@ -2209,6 +2209,75 @@ fo / bo / cxo 是单列，flm 是双列（每列 ~739px），smc 没有 Domain D
 `npm run lint` 通过；`node scripts/check-doc-consistency.mjs` PASS=6 FAIL=0；
 `node scripts/agent-done-check.mjs --full` 全绿。
 
+
+## 九之十九、2026-11-06 Domain Dashboard：卡内条目改「固定 5 列网格」（跨组列对齐）
+
+**起因（用户原话）**：「https://localhost/v3/bo_portal/ 页面的 Domain Dashboard，
+按照 5 个一行，不同的组要列对齐」。
+
+**根因 —— 上一版（九之十八）的 flex 行流消掉了空白，但代价是列宽不稳定。**
+`flex: 1 1 280px` + `flex-grow` 是**逐行**分配剩余空间的：同一段里条数不同、
+不同段之间条数不同，每行的条目宽度就不同 ——
+
+| 段 | 条数 | 11-05 版实际宽度 |
+| --- | --- | --- |
+| RAN | 4~5 | 每条 ~288px |
+| MW | 2 | 每条 **736px** |
+| OCS | 1 | 每条 **1474px**（独占整行） |
+
+于是每段的左边界都从 0 开始、但**第二列开始一格都不齐**；跨段竖着看像被揉过。
+用户要的「列对齐」正是在说这件事：不是「填满」，而是「第 N 条永远在第 N 格」。
+
+**解法：整张 `.v6-list` 共用一个 5 列轨道模板（grid）。**
+
+```css
+#views6 .v6-grid[data-n] .v6-list {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: calc(4px * var(--v6-k));
+  align-content: start;
+}
+/* 多列布局（flm 双列，单列约 740px）放 5 列会挤成 ~140px，退到 2 列 */
+#views6 .v6-grid[data-n]:not([data-n="1"]) .v6-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+/* 段头 / 空态 / 展开按钮跨满整行，不占轨道 */
+#views6 .v6-grid[data-n] .v6-seg-h,
+#views6 .v6-grid[data-n] .v6-empty,
+#views6 .v6-grid[data-n] .v6-more { grid-column: 1 / -1; }
+#views6 .v6-grid[data-n] .v6-seg-h { margin-top: 0; }   /* 间距只由 grid gap 给 */
+#views6 .v6-grid[data-n] .v6-row { min-width: 0; }
+/* 编辑态：条目里有标题/链接两个输入框，296px 太窄，退回单列，编辑完自动恢复 */
+#views6 .v6-grid[data-n] .v6-list:has(> .v6-row.is-ed) { grid-template-columns: minmax(0, 1fr); }
+```
+
+关键点：
+
+- **轨道数是常量 5，与「这段有几条」无关** —— 段内第 N 条恒落在第 N 格，
+  跨段自然对齐。这是 `auto-fit`（轨道数按内容算）与 `flex`（宽度按行分配）
+  都给不了的语义。
+- `data-n` 不再是 1~6 的等比数组，只用来区分**单列 / 多列**两个宽度档。
+- 窄屏断点：≤1200px 降 3 列，≤780px 降 2 列（写在 `CSS_TEAM_SUFFIX` 里，
+  不影响上游 `/v3/olbrportal/`）。
+- **代价（已知且接受）**：某段最后一行不足 5 条时保留空格，不再拉伸填满 ——
+  列对齐与「填满」在几何上互斥，用户这次明确选了列对齐。
+
+**实测（2026-11-06，bo 门户，1600px 视口，`TMP/_e2e_v6_cols.py`）**
+
+```
+dataN=1  listW=1497.8
+display=grid
+cols=291.75px 291.766px 291.766px 291.766px 291.766px   gap=6px
+列左边界（全部段落一致）：51.1 / 348.8 / 646.6 / 944.4 / 1242.1
+最大行条数 = 5（RAN 4、IP 5、MW 2、CN 4、OCS 1 全部落在同一套列上）
+```
+
+截图：`TMP/_v6_cols_bo.png`。
+
+⚠️ **DOM 结构仍然不变**（段头与条目都是 `.v6-list` 的直接子元素）——
+`team-layout.js` 的拖拽排序按「`.v6-list > .v6-row`」取键，加包装层会让排序失效。
+
+**验证。** `python scripts/sync_team_assets.py` → `--check` 一致；
+`npm run check:team-scope` 4/4 全绿；`npm run check:docs` PASS=6 FAIL=0。
+
 ## 十、相关文档
 
 | 内容 | 去哪里 |
