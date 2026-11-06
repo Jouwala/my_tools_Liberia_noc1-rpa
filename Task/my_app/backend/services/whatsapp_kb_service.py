@@ -36,6 +36,44 @@ logger = logging.getLogger(__name__)
 # 留足余量。超时表明显出了问题，不应该无限等待。
 _SYNC_TIMEOUT_SEC = int(os.environ.get("WHATSAPP_KB_SYNC_TIMEOUT", "420"))
 
+# 临时输出文件的前缀与保留时长（见 _prune_stale_temp）。
+_TEMP_PREFIX = "whatsapp_kb_sync_"
+_TEMP_KEEP_SEC = 3600
+
+
+def _prune_stale_temp() -> None:
+    """尽力清掉以前几轮同步留下的临时输出文件。
+
+    ## 为什么会有残留（2026-11-06 实测）
+
+    stdout/stderr 落的是 `NamedTemporaryFile(delete=False)`，本该在 finally 里 os.unlink。
+    但文件句柄会被**孙进程继承**：`scripts/sync-kb.mjs` 用 `spawnSync(..., {stdio:'inherit'})`
+    起 npm / powershell，而 autostart.ps1 里的 `Start-Process -RedirectStandardOutput ...`
+    会以 `bInheritHandles=TRUE` 启动常驻的 bot / http-server —— 常驻进程不退出，
+    Windows 就不允许删除这些文件。实测一次真实全量同步后，`%TEMP%` 里会留下
+    2 个 `whatsapp_kb_sync_*` 文件，要等下一次同步重启这些进程后才解锁。
+
+    所以每轮同步**结束**时（此时上一轮常驻进程已被 stage 3 重启掉、句柄已释放）
+    清掉 1 小时前的旧文件；本轮自己的文件刚创建，不会被误删，并发跑同步也不会动别人的。
+    开头也清一次，兜住「上一轮是在别的进程里跑完的」这种情况。
+    """
+    cutoff = time.time() - _TEMP_KEEP_SEC
+    try:
+        base = tempfile.gettempdir()
+        names = os.listdir(base)
+    except OSError:
+        return
+    for name in names:
+        if not name.startswith(_TEMP_PREFIX):
+            continue
+        path = os.path.join(base, name)
+        try:
+            if os.path.getmtime(path) >= cutoff:
+                continue
+            os.unlink(path)
+        except OSError:
+            pass  # 仍被常驻进程占着 / 已被别人清掉 —— 都不影响本轮同步
+
 
 def _bot_root() -> str:
     """whatsapp-kb-bot 根目录；与任务仓库布局一致（`Task/my_app` 与 `Task/whatsapp-kb-bot` 并排）。
@@ -52,6 +90,7 @@ def _bot_root() -> str:
 
 def sync_knowledge_base(force: bool = False) -> Dict[str, Any]:
     """触发知识库同步，返回结果摘要（**不抛异常**）。"""
+    _prune_stale_temp()  # 顺手清掉上一轮被常驻进程占住、现在已解锁的临时输出
     root = _bot_root()
     script = os.path.join(root, "scripts", "sync-kb.mjs")
     if not os.path.isfile(script):
@@ -103,6 +142,8 @@ def sync_knowledge_base(force: bool = False) -> Dict[str, Any]:
         elapsed = round(time.time() - t0, 1)
         stdout_text = _read_text(out_f.name)
         stderr_text = _read_text(err_f.name)
+        # 到此 stage 3 已把上一轮常驻进程重启掉，它们占着的旧临时文件已解锁 —— 顺手清掉。
+        _prune_stale_temp()
     finally:
         for f in (out_f, err_f):
             try:
