@@ -3,8 +3,13 @@
 //  - 以"点击位置"为中心弹出（点击点落在弹窗中心，越界自动 clamp 到视口内）
 //  - 按住标题栏可自由拖动（限制在视口内）
 //  - 默认仅通过右上角 × 与 Esc 关闭，点遮罩不关闭（避免误触）；
-//    需要「点遮罩关闭」的页面可显式传 maskClosable（如 ipt_power 的电源详情弹窗）
+//    需要「点遮罩关闭」的页面可显式传 maskClosable
 // 行为与 Warehouse 看板的明细弹窗保持一致。
+//
+// 「点图上的东西 → 右侧通高面板」不适用本组件：本窗永远跟着点击锚点走（居中或置顶），
+// 做不出贴右、通高、滑入。那种形态用 antd Drawer，现成先例三处
+// `pages/gismap/SiteDrilldownDrawer.tsx`、`pages/personmap/PersonDrilldownDrawer.tsx`、
+// `pages/IptPowerQuery.tsx`，宽度统一 min(95vw, 45rem)。
 //
 // 【必须用 Portal 挂到 body】——踩过的坑，别再删：
 // 本组件可能被渲染在任意卡片内部（如 VmaxDiagnosisCard 的评分卡下钻）。

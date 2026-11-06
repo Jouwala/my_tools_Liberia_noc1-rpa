@@ -11,17 +11,22 @@
  *        覆盖全站）→ ipt_power_snapshots 明细列 + ipt_power_site_detail 每站最新明细。
  *   2. 页面布局（2026-11-04）：左侧 3/5 为站点地图（Leaflet + 自托管 PMTiles 底图，
  *      与 GISMap 同一套组件）；右侧 2/5 为站点清单表。
- *   3. 详情/曲线（2026-11-05 改为弹窗，参照 ?page=mwRealTime 的 KPI 弹窗）：
- *      点地图圆点或行内「详情」→ 宽弹窗（遮罩 + 标题栏「立即刷新」/关闭 + 可滚动内容区），
- *      不再占页面下半屏。读单站快照序列（/api/ipt-power/site/{id}），含每站最新 diagram
+ *      2026-11-06 地图加**县底色**图层（按该县有 SOC 快照站点的平均 SOC 分五档，
+ *      开关在地图卡标题右侧）：计算在 ./iptPower/countySoc.ts，绘制在
+ *      ./iptPower/CountySocLayer.tsx，圆点抬到 iptSitePane(650) 保证仍可点。
+ *   3. 详情/曲线（2026-11-05 改为居中弹窗；2026-11-06 按用户要求改成**右侧通高抽屉**，
+ *      形态对齐 ?page=mwRealTime 点链路的链路详情抽屉与 ?page=gis 的 SiteDrilldownDrawer）：
+ *      点地图圆点或行内「详情」→ 从右侧滑入的抽屉（宽 min(95vw, 45rem) + 遮罩 +
+ *      标题栏「立即刷新」/× + 内容区自身滚动），压住右列清单表，左列地图仍然可见。
+ *      读单站快照序列（/api/ipt-power/site/{id}），含每站最新 diagram
  *      明细（发电机 R/S-T 相电压相电流/电池组容量与今日电压/油箱容量/主源状态）；
  *      「立即刷新」为实时直查 portal（/api/ipt-power/refresh），不依赖 2 分钟节拍。
  * 查询条件（keyword / hours / site）走 urlState，跨卸载恢复（AGENTS.md 约定）；
- * iptSite 同时也是「弹窗是否打开」的真相源——带该参数的深链会直接弹出对应站点详情。
+ * iptSite 同时也是「抽屉是否打开」的真相源——带该参数的深链会直接弹出对应站点详情。
  * ========================================================================== */
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Alert, Button, Col, Empty, Input, Row, Select, Space, Spin, Table, Tag, Typography } from 'antd'
+import { Alert, Button, Col, Drawer, Empty, Input, Row, Select, Space, Spin, Switch, Table, Tag, Typography } from 'antd'
 import { DownloadOutlined, ReloadOutlined, ThunderboltOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import ReactECharts from 'echarts-for-react'
@@ -33,13 +38,16 @@ import {
 } from '../theme'
 import { CardBase, StatCard } from '../components/cards'
 import CalcChainNote from '../components/CalcChainNote'
-import DraggableClickModal from '../components/DraggableClickModal'
+import { CountySocLayer } from './iptPower/CountySocLayer'
+import {
+  SOC_BAND_COLOR, SOC_BAND_ORDER, aggregateCountySoc, bandLabelKey,
+} from './iptPower/countySoc'
 import { exportAoaReport } from '../utils/excelReport'
 import { readParam, writeParams } from '../urlState'
 import {
   iptPowerRefresh, iptPowerSiteDetail, iptPowerSites, iptPowerStatus,
 } from '../api'
-import { MapContainer, CircleMarker } from '../components/LeafletMap'
+import { MapContainer, CircleMarker, Pane } from '../components/LeafletMap'
 import { PmtilesLayer } from './gismap/PmtilesLayer'
 import { BASEMAP_PMTILES_URL, BASEMAP_MAX_ZOOM } from './gismap/basemap'
 
@@ -100,6 +108,32 @@ const HOURS_OPTIONS = [6, 24, 72, 168]
 /** 利比里亚国土中心（与 GISMap 的 LB_CENTER 同源：bbox 3.9,-11.7 ~ 8.75,-7.3） */
 const LB_CENTER: [number, number] = [6.325, -9.5]
 
+/**
+ * 详情抽屉宽度：`min(95vw, 45rem)`，与 GIS 下钻抽屉 `SiteDrilldownDrawer.tsx:265`
+ * 同一表达式、同一根字号 → **两页像素级同宽**（桌面 810px）。
+ *
+ * ⚠ 「和 MW 微波实时对齐」只是**公式与位置**对齐，不是像素对齐：站内根字号是
+ *   `html{font-size:clamp(14px,.55vw+12.2px,18px)}`（`index.css:680`），桌面取 18px
+ *   → 45rem = 810px；`public/mw_real_time.html` 那份 legacy HTML 没设 html 字号，
+ *   同一公式按默认 16px 算 = 720px。（该文件 :187 的注释写「45rem = 720px，与 GIS
+ *   抽屉保持一致」，只对了前半句 —— GIS 那侧实际是 810px。）
+ *
+ * ⚠ 遮挡实测（headless Chrome 截图量得）：1920 宽屏地图卡右缘 ≈1109px、抽屉左缘
+ *   = 1110px → **正好贴边，一像素不盖地图**；1600 宽屏地图卡右缘 ≈925px、抽屉左缘
+ *   ≈790px → 盖掉地图右缘约 135px（抽屉比那一列表格宽出一截）。
+ *   地图主体与刚点中的圆点始终可见 —— 这正是「像 MW 那样显示在右边」而不是挡正中。
+ *   （`personmap/PersonDrilldownDrawer.tsx:42` 刻意用 24rem，因为那页要求一像素不挡
+ *   地图；本页地图在左列，45rem 不冲突，所以跟 GIS 那一档。）
+ *
+ * **为什么是 antd Drawer 而不是项目统一的 `components/DraggableClickModal`**
+ * （AGENTS.md 三.3 的下钻弹窗入口）：用户 2026-11-06 指定的参考实现就是 MW 页点链路
+ * 后的**右侧通高抽屉**，而 DraggableClickModal 跟着点击锚点走（居中/置顶），
+ * 做不出「贴右、通高、滑入」。先例同样是照参考页做抽屉的
+ * `pages/personmap/PersonDrilldownDrawer.tsx:8`。抽屉本体是 antd 组件而不是自造骨架，
+ * 所以并没有「各页写一套弹窗」。
+ */
+const DRAWER_WIDTH = 'min(95vw, 45rem)' as any
+
 /** 详情小卡的键值行 */
 function KV({ k, v }: { k: string; v: React.ReactNode }) {
   return (
@@ -122,6 +156,9 @@ export default function IptPowerQuery() {
     return HOURS_OPTIONS.includes(v) ? v : 24
   })
   const [watchOnly, setWatchOnly] = useState(false)
+  /* 县底色图层开关：默认开（用户 2026-11-06 要的就是这个效果）。
+     刻意不写进 URL —— 与 GIS 页同一约定：图层状态不持久化，刷新回默认。 */
+  const [showCountyBg, setShowCountyBg] = useState(true)
   const [siteId, setSiteId] = useState(() => readParam('iptSite'))
 
   useEffect(() => { writeParams({ iptKw: keyword, iptSite: siteId, iptHrs: String(hours) }) },
@@ -170,7 +207,7 @@ export default function IptPowerQuery() {
       setDetailInfo(r.data?.detail || null)
       setHistory(r.data?.history || [])
     } catch (e: any) {
-      // 换站失败时不要留着上一个站的详情，否则弹窗里会出现「标题 A、内容 B」
+      // 换站失败时不要留着上一个站的详情，否则抽屉里会出现「标题 A、内容 B」
       setDetailSite(null)
       setDetailInfo(null)
       setHistory([])
@@ -180,7 +217,7 @@ export default function IptPowerQuery() {
     }
   }, [hours])
 
-  /* ---- 弹窗开关：iptSite 是唯一真相源（关闭即清 URL 参数） ---- */
+  /* ---- 抽屉开关：iptSite 是唯一真相源（关闭即清 URL 参数） ---- */
   const openDetail = useCallback((sid: string) => {
     setRefreshMsg('')
     setSiteId(sid)
@@ -229,6 +266,11 @@ export default function IptPowerQuery() {
   }, [isDark])
 
   const mapSites = useMemo(() => rows.filter(r => r.lat != null && r.lon != null), [rows])
+
+  /* 县底色 = 该县**有 SOC 快照的站点**的算术平均，输入就是地图上这批点（mapSites），
+     所以搜索词一改底色跟着改；「只看关注」只过滤表格、不动地图，因此也不动底色。
+     口径全文见下方 CalcChainNote 的第 4 段。 */
+  const countySoc = useMemo(() => aggregateCountySoc(mapSites), [mapSites])
 
   /** 油机/状态保持时长（如「Turned Off since 5 hours」） */
   const sinceLabel = useCallback((iso?: string | null) => {
@@ -347,8 +389,10 @@ export default function IptPowerQuery() {
   const rect = detailInfo?.detail?.rectifiers?.[0]
   const grid = detailInfo?.detail?.grids?.[0]
   const latestAlarms: AlarmInfo[] = (detailSite as any)?.alarm_names || []
-  /* 详情改为弹窗后，页面下半屏不再被详情卡占着，地图可以吃掉这部分高度。
-     仍是 clamp 兜底：小窗不低于 440px，大窗封顶 820px，避免超高屏拉出巨型地图。 */
+  /* 详情搬进浮层（2026-11-05 居中弹窗 → 2026-11-06 右侧抽屉）后，页面下半屏不再被
+     详情卡占着，地图可以吃掉这部分高度。仍是 clamp 兜底：小窗不低于 440px，大窗封顶
+     820px，避免超高屏拉出巨型地图。抽屉打开时压住的是右列表格那一列：1920 宽屏正好
+     贴边、不盖地图，1600 宽实测盖掉地图右缘约 135px（细节见 DRAWER_WIDTH 注释）。 */
   const mapCardHeight = 'clamp(440px, calc(100vh - 280px), 820px)'
 
   return (
@@ -405,6 +449,7 @@ export default function IptPowerQuery() {
           { title: t('ipt.note.source'), lines: [t('ipt.note.sourceBody')] },
           { title: t('ipt.note.watch'), lines: [t('ipt.note.watchBody')] },
           { title: t('ipt.note.retention'), lines: [t('ipt.note.retentionBody')] },
+          { title: t('ipt.note.county'), lines: [t('ipt.note.countyBody')] },
         ]}
       />
 
@@ -432,7 +477,7 @@ export default function IptPowerQuery() {
         </Col>
       </Row>
 
-      {/* ⑤ 左 3/5 站点地图（点击圆点开详情弹窗） + 右 2/5 站点清单表 */}
+      {/* ⑤ 左 3/5 站点地图（点击圆点开右侧详情抽屉） + 右 2/5 站点清单表 */}
       <Row gutter={[12, 12]}>
         <Col xs={24} xl={14} style={{ minWidth: 0 }}>
           <CardBase
@@ -449,6 +494,20 @@ export default function IptPowerQuery() {
                 <Space size={4}><span style={{ width: 8, height: 8, borderRadius: '50%',
                   background: markerColor({ connectivity: 'offline', alarm_count: 0 } as SiteRow),
                   display: 'inline-block' }} /><Text type="secondary">{t('ipt.map.legend.offline')}</Text></Space>
+                {/* 县底色：开关 + 五档图例（方角色块，和圆点图例区分开）。
+                    关掉图层时只留开关，避免卡片头被撑到三行。 */}
+                <Space size={6} wrap>
+                  <Switch size="small" checked={showCountyBg} onChange={setShowCountyBg}
+                    aria-label={t('ipt.county.layer')} />
+                  <Text type="secondary">{t('ipt.county.layer')}</Text>
+                  {showCountyBg && SOC_BAND_ORDER.map(b => (
+                    <Space key={b} size={4}>
+                      <span style={{ width: 10, height: 10, borderRadius: 2,
+                        background: SOC_BAND_COLOR[b], display: 'inline-block' }} />
+                      <Text type="secondary">{t(bandLabelKey(b))}</Text>
+                    </Space>
+                  ))}
+                </Space>
               </Space>
             }
           >
@@ -458,12 +517,21 @@ export default function IptPowerQuery() {
               style={{ height: mapCardHeight, width: '100%', background: 'var(--wh-page-bg)' }}
             >
               <PmtilesLayer url={BASEMAP_PMTILES_URL} isDark={isDark} maxZoom={BASEMAP_MAX_ZOOM} />
+              {/* 站点圆点专用 pane（照 GISMap.tsx:2808 同一做法）：县底色是**可 hover 的
+                  整面多边形**，和圆点同在默认 overlayPane(400) 时，命中只靠「谁后加入谁在上」
+                  —— 那是 DOM 顺序，不保证。抬到 650 后，圆点在县块之上是层级决定的，
+                  点圆点开抽屉不会被县块截走。（取 650 = 与 Leaflet tooltipPane 同档、
+                  低于 popupPane 700，与 GIS 页同一档。） */}
+              <Pane name="iptSitePane" style={{ zIndex: 650 }} />
+              {showCountyBg && <CountySocLayer stats={countySoc} isDark={isDark} />}
               {mapSites.map(r => (
-                /* 单击圆点直接开「电源详情」弹窗（与 mwRealTime 点 KPI 卡开弹窗一致）。
+                /* 单击圆点直接开「电源详情」抽屉（与 mwRealTime 点链路开右侧抽屉一致）——
+                   抽屉贴右通高，左列地图不被挡，刚点中的那个圆点仍看得见。
                    原先叠加的 Leaflet 小 Popup 已移除：两层浮层会互相遮挡；
-                   小 Popup 里的站点属性改为弹窗顶部的紧凑信息条承载。 */
+                   小 Popup 里的站点属性改为抽屉顶部的紧凑信息条承载。 */
                 <CircleMarker
                   key={r.site_id}
+                  pane="iptSitePane"
                   center={[r.lat, r.lon]}
                   radius={r.watched ? 7 : 5}
                   fillColor={markerColor(r)}
@@ -492,33 +560,30 @@ export default function IptPowerQuery() {
         </Col>
       </Row>
 
-      {/* ⑥ 电源详情弹窗（参照 ?page=mwRealTime 的 KPI 弹窗）：
-          遮罩 + 宽面板 + 标题栏（站点名 / 参考号 / 立即刷新 / ×）+ 可滚动内容区；
+      {/* ⑥ 电源详情抽屉（形态照 ?page=mwRealTime 点链路的右侧抽屉）：
+          右侧通高滑入 + 遮罩 + 标题栏（站点名 / 立即刷新 / ×）+ 内容区自身滚动；
           open 由 URL 参数 iptSite 决定，关闭即清参数（带该参数的深链仍会直接弹出）；
-          内容沿用原来的六张数字卡 + 设备明细卡 + 活动告警 + 近 N 小时曲线。 */}
-      <DraggableClickModal
+          内容沿用原来的六张数字卡 + 设备明细卡 + 活动告警 + 近 N 小时曲线。
+          ⚠ 栅格按抽屉那一栏重排：数字卡一行 3 张、设备卡一行 2 张 —— 原来的
+          lg=4 / lg=6 是照 1100px 宽弹窗排的，在 810px 抽屉里会变成一行 6 格 / 4 格，
+          每格只剩 120~200px，数字卡标题被挤成竖排。断点是**视口**的而不是容器的，
+          所以这里不写 lg 档。
+          ⚠ 参考号 / 连接状态更新从标题栏搬进内容区的站点属性条：抽屉 header 塞不下
+          「标题 + meta + 按钮」三段（站点名长时会把「立即刷新」挤没），信息一条没少。 */}
+      <Drawer
+        placement="right"
+        width={DRAWER_WIDTH}
         open={Boolean(siteId)}
+        onClose={closeDetail}
         title={t('ipt.detailTitle', {
           name: detailSite?.name || rows.find(r => r.site_id === siteId)?.name || siteId,
         })}
-        headerExtra={(
-          <Space size={8}>
-            <Text type="secondary" style={{ fontSize: 12, whiteSpace: 'nowrap' }}>
-              {t('ipt.refLabel')}: {fmt(detailSite?.internal_reference)}
-              {detailSite?.connectivity_updated
-                ? ` · ${t('ipt.connUpdated')}: ${detailSite.connectivity_updated}` : ''}
-            </Text>
-            <Button size="small" icon={<ReloadOutlined />}
-              disabled={!detailSite} onClick={() => void doRefresh()} loading={refreshing}>
-              {t('ipt.refreshNow')}
-            </Button>
-          </Space>
+        extra={(
+          <Button size="small" icon={<ReloadOutlined />}
+            disabled={!detailSite} onClick={() => void doRefresh()} loading={refreshing}>
+            {t('ipt.refreshNow')}
+          </Button>
         )}
-        onClose={closeDetail}
-        width="min(1100px, 94vw)"
-        maxWidth="1100px"
-        placement="top"
-        maskClosable
       >
         {refreshMsg && <Alert type="error" showIcon message={refreshMsg}
           style={{ marginBottom: 'var(--wh-space-sm)' }} closable />}
@@ -546,26 +611,32 @@ export default function IptPowerQuery() {
                   {fmt(detailSite.connectivity)}
                 </Tag></span>
               <span><Text type="secondary">{t('ipt.col.snapTime')}: </Text><Text strong>{fmt(detailSite.snap_time)}</Text></span>
+              {/* 原弹窗标题栏上的「连接状态更新」：抽屉 header 只留标题 + 刷新按钮，
+                  meta 统一收到这条属性栏里（信息不减，header 不换行） */}
+              {detailSite.connectivity_updated && (
+                <span><Text type="secondary">{t('ipt.connUpdated')}: </Text>
+                  <Text strong>{fmt(detailSite.connectivity_updated)}</Text></span>
+              )}
             </div>
 
             <Row gutter={[12, 12]} style={{ marginTop: 'var(--wh-space-sm)' }}>
-              <Col xs={12} sm={8} lg={4}>
+              <Col xs={12} sm={8}>
                 <StatCard title="SOC" value={latest?.battery_soc == null ? '-' : `${(Number(latest.battery_soc) * 100).toFixed(0)}%`} />
               </Col>
-              <Col xs={12} sm={8} lg={4}>
+              <Col xs={12} sm={8}>
                 <StatCard title={t('ipt.card.battV')} value={latest?.battery_voltage == null ? '-' : `${fmtNum(latest.battery_voltage)} V`} />
               </Col>
-              <Col xs={12} sm={8} lg={4}>
+              <Col xs={12} sm={8}>
                 <StatCard title={t('ipt.card.charging')} value={fmt(latest?.battery_charging_state)} />
               </Col>
-              <Col xs={12} sm={8} lg={4}>
+              <Col xs={12} sm={8}>
                 <StatCard title={t('ipt.card.load')} value={latest?.load_power == null ? '-' : fmtKw(latest.load_power)} />
               </Col>
-              <Col xs={12} sm={8} lg={4}>
+              <Col xs={12} sm={8}>
                 <StatCard title={t('ipt.card.solar')}
                   value={detailSite.solar_available === 0 ? '-' : (latest?.solar_power == null ? '-' : fmtKw(latest.solar_power))} />
               </Col>
-              <Col xs={12} sm={8} lg={4}>
+              <Col xs={12} sm={8}>
                 <StatCard title={t('ipt.card.generator')} value={latest == null
                   ? '-' : (latest.generator_on ? t('ipt.genOn') : t('ipt.genOff'))} />
               </Col>
@@ -574,7 +645,7 @@ export default function IptPowerQuery() {
             {/* 设备明细（来源 ipt_power_site_detail 的 slim diagram；popup KPI 层无这些字段） */}
             {detailInfo?.detail ? (
               <Row gutter={[12, 12]} style={{ marginTop: 'var(--wh-space-sm)' }}>
-                <Col xs={24} md={12} lg={6}>
+                <Col xs={24} md={12}>
                   <CardBase title={t('ipt.gen.card')} as="div" bodyStyle={{ padding: 12 }}>
                     <KV k={t('ipt.col.name')} v={fmt(gen?.name)} />
                     <KV k={t('ipt.gen.state')} v={gen?.generatorOn == null ? '-'
@@ -587,7 +658,7 @@ export default function IptPowerQuery() {
                         v={`${fmtNum(gen?.generatorCurrentPhase1, 1)} / ${fmtNum(gen?.generatorCurrentPhase2, 1)} / ${fmtNum(gen?.generatorCurrentPhase3, 1)} A`} />
                   </CardBase>
                 </Col>
-                <Col xs={24} md={12} lg={6}>
+                <Col xs={24} md={12}>
                   <CardBase title={t('ipt.batt.card')} as="div" bodyStyle={{ padding: 12 }}>
                     <KV k={t('ipt.col.name')} v={fmt(batt?.name)} />
                     <KV k={t('ipt.batt.capacity')} v={batt?.totalCapacity == null ? '-' : `${fmtNum(batt.totalCapacity, 0)} Ah`} />
@@ -599,7 +670,7 @@ export default function IptPowerQuery() {
                         v={`${fmt(batt?.batteryTemperature1)} / ${fmt(batt?.batteryTemperature2)} ℃`} />
                   </CardBase>
                 </Col>
-                <Col xs={24} md={12} lg={6}>
+                <Col xs={24} md={12}>
                   <CardBase title={t('ipt.fuel.card')} as="div" bodyStyle={{ padding: 12 }}>
                     <KV k={t('ipt.col.name')} v={fmt(tank?.name)} />
                     <KV k={t('ipt.fuel.level')} v={tank?.fuelLevel == null ? '-'
@@ -608,7 +679,7 @@ export default function IptPowerQuery() {
                     <KV k={t('ipt.fuel.updated')} v={fmt((tank?.fuelLevelLastUpdated || '').toString().replace('T', ' ').slice(0, 19))} />
                   </CardBase>
                 </Col>
-                <Col xs={24} md={12} lg={6}>
+                <Col xs={24} md={12}>
                   <CardBase title={t('ipt.ac.card')} as="div" bodyStyle={{ padding: 12 }}>
                     <KV k={t('ipt.ac.main')} v={rect?.mainSourceOn == null ? '-'
                       : (rect.mainSourceOn ? <Tag color="green">{t('ipt.ac.on')}</Tag>
@@ -643,10 +714,10 @@ export default function IptPowerQuery() {
               : <Empty description={t('ipt.noHistory')} style={{ margin: '24px 0' }} />}
           </Spin>
         )}
-      </DraggableClickModal>
+      </Drawer>
     </div>
   )
 }
 
-/* cardStyle 引用保留（避免 lint 未使用告警的写法）：表格行内不套卡，详情弹窗内的小卡由 CardBase 承载 */
+/* cardStyle 引用保留（避免 lint 未使用告警的写法）：表格行内不套卡，详情抽屉内的小卡由 CardBase 承载 */
 void cardStyle
