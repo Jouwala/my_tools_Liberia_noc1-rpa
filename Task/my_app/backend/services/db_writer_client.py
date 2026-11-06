@@ -136,9 +136,33 @@ class DbWriterClient:
         data = json.dumps(payload, ensure_ascii=False, default=str).encode('utf-8')
         print(f"[DbWriter] 写入 {db}/{table}: {len(rows)} 行, mode={mode}")
 
-        result = self._request("POST", "/api/write", data=data)
+        # upsert 超时时服务端可能已提交；盲重试只会再次排队执行同一批写入。
+        result = self._request(
+            "POST", "/api/write", data=data,
+            max_retries=1 if mode == "upsert" else MAX_RETRIES,
+        )
         print(f"[DbWriter] 完成: {result.get('rows_written', 0)} 行已写入")
         return result
+
+    def get_latest_value(self, db: str, table: str, column: str):
+        """读取远端表某列的最大值；表不存在或读取失败时上抛，由调用方全量兜底。
+
+        ``columns`` 必须传**裸列名**：线上服务的 /api/read 会自己给列名加引号，
+        传 ``"Begin Time"`` 会变成 ``""Begin Time""`` 触发 SQL 语法错误
+        （同坑已在 db_freshness_check.py 的 ``_api_window_max`` 记录过）。
+        ``order_by`` 走原样拼接，与 where 同一套约定，所以要自己加引号。
+        """
+        payload = {
+            "db": db,
+            "table": table,
+            "columns": [column],
+            "order_by": f'"{column.replace(chr(34), chr(34) + chr(34))}" DESC',
+            "limit": 1,
+        }
+        data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        result = self._request("POST", "/api/read", data=data, max_retries=1)
+        rows = result.get("rows") or []
+        return rows[0][0] if rows and rows[0] else None
 
     def upload_excel(self, db: str, table: str, excel_path: str,
                      table_type: str = "Group",
