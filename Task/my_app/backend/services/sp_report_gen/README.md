@@ -6,6 +6,9 @@
 ## 数据流
 
 ```
+Step 0 refresh_material_master()：先调 sp_material_sync.run_sp_material_sync() 从 eFlow 拉**全量**
+   │  物料主数据写 app.sp_material —— 报表里 Material Name 的唯一来源，失败只告警并沿用库中现有表
+   ▼
 SFTP 10.100.20.11 /home/ubuntu/sp（备件原始数据，上游每小时产一份）
    │  sftp_download()（paramiko）—— 按「目录名 + 固定文件名」取**最新**一份：
    │    sp/inbound/<yyyymmdd>/<yyyymmddHHMMSSfff>/inbound.xlsx
@@ -21,7 +24,7 @@ SFTP 10.100.20.11 /home/ubuntu/sp（备件原始数据，上游每小时产一�
 my_app\data\sp_email\data\          ← 原始数据（本地统一叫 *_details.xlsx）
    │  Step 1.5 snapshot_raw_details()：原样复制一份 *_details_source.xlsx（未过滤）
    │    → 供 sp_email_details 合并 SP Details Report（2026-09-22 起）
-   │  明细预处理（剔除单据 → 出库状态 → Canceled → Material Name/Type 同步，均写回同一批 xlsx）
+   │  明细预处理（剔除单据 → 出库状态 → Canceled → Material Name/Type 按主数据归一，均写回同一批 xlsx）
    ▼
 my_app\data\sp_email\data\          ← 处理后明细（下游 sp_online / sp_email_details 同口径）
    │  generate_report()（再按仓库 / Material Type 过滤）
@@ -46,7 +49,8 @@ EWS 发送邮件（owa_mail_report.py）
 
 | 文件 | 说明 |
 |------|------|
-| `gernarate_sp_report.py` | 主脚本（源自远程 `gernarate_sp_report.py`，已按 my_app 大量改造）。配置：`DATA_DIR=my_app\data\sp_email\data`、`OUT_DIR=my_app\data\sp_email`；相对路径下载统一解析到 DATA_DIR（不依赖进程 cwd）。在 `load_data()` 之后新增明细预处理（剔除 / 状态过滤 / Material Name·Type 同步），详见下方「明细预处理流水线」 |
+| `gernarate_sp_report.py` | 主脚本（源自远程 `gernarate_sp_report.py`，已按 my_app 大量改造）。配置：`DATA_DIR=my_app\data\sp_email\data`、`OUT_DIR=my_app\data\sp_email`；相对路径下载统一解析到 DATA_DIR（不依赖进程 cwd）。Step 0 刷新物料主数据，`load_data()` 之后是明细预处理（剔除 / 状态过滤 / Material Name·Type 归一），详见下方「明细预处理流水线」 |
+| `../sp_material_name.py` | **Material Name 的唯一口径**（`backend\services\sp_material_name.py`）：`load_material_maps()` 读物料主数据 + `normalize_dataframe()` / `normalize_rows()` 按 `Material No.` 覆盖名字。除本目录外还被 `get_sp_table.py`（明细落库）使用，两条链路的改名口径不会分叉。实现细节与踩坑见该文件同目录的 `sp_material_name.md` |
 | `generate_sp_online_report.py` | 生成 SP 在线未关闭单表格（Inbound / Outbound 的 PNG + XLSX）到 `data\sp_email\sp_online`，图片复用本目录 `_render_summary_image` 渲染样式，Excel 复用 `style_excel` 样式 |
 | `generate_sp_weekly_report.py` | **SP 周报生成器（2026-11-03 新增）**：按「完整自然周（周一→周日）」窗口产出 `data\sp_weekly\SP Weekly Report <start> to <end>.xlsx`（8 个 sheet），见下方「SP 周报」 |
 | `requirements.txt` | 依赖：pandas / numpy / paramiko / openpyxl / Pillow（系统 Python3.12 已具备） |
@@ -61,12 +65,13 @@ EWS 发送邮件（owa_mail_report.py）
 
 | 步骤 | 函数 | 作用 | 写回 |
 |------|------|------|------|
+| Step 0 | `refresh_material_master()` | 调 `sp_material_sync.run_sp_material_sync()` 从 eFlow 拉**全量**物料主数据写 `sp_material`，随后 `load_material_maps(force_refresh=True)` 作废进程内缓存。失败只打 `[MatSync][WARN]` 并沿用库里现有表，不中断报表 | ✅ `sp_material` |
 | Step 1.5 | `snapshot_raw_details()` | 下载后、任何过滤之前把 5 份明细原样复制成 `*_details_source.xlsx`（固定名，每次覆盖）；复制失败只告警，下游回退读过滤后的明细 | ➕ 新文件 |
 | Step 2.1 | `apply_exclude_to_details()` | 按 `data\sp_email\data\in&out_exclude.xlsx`（sheet `3_剔除单据Serial明细`）剔除指定单据行，分入库/出库两组 | ✅ |
 | Step 2.2 | `apply_status_filters()` | 入库 **与** 出库明细剔除 `Status='WaitingForUpdate'`（`DETAIL_DROP_STATUS`；入库侧 2026-10-31 加，此前只剔除出库）。⚠️ 这是**共享明细**过滤，影响 SpareParts/Consumables 报表、`com_report` / `sp_report` / `warehouse_summary` 页面与 `sp_online` 的 Inbound 支路；SP Online 报表的 Outbound 支路已于 2026-09-30 改读库表，**不再受它影响**，故不必改动此处 | ✅ |
 | Step 2.3 | `apply_operation_result_filter()` | 入库/出库明细剔除 `Operation Result Status='Canceled'`（`OP_RESULT_DROP_STATUS`） | ✅ |
 | Step 2.4 | `apply_operation_result_filter_to_file()` | 转仓明细（transfer / transfer_return）剔除 `Operation Result Status='Canceled'` | ✅ |
-| Step 2.5 | `apply_inventory_fields()` | 覆盖明细的 **Material Name**（取数据库表 `sp_material`，回退 inventory）与 **Material Type**（取 inventory） | ✅ |
+| Step 2.5 | `apply_material_master_fields()` | **五份**明细（inbound / outbound / inventory / transfer / transfer_return）**加**对应的 5 份 `*_source.xlsx` 快照，Material Name 一律按 `Material No.` 取 `sp_material` 的最新名（主数据不可用时回退 inventory），Material Type 仍取 inventory。快照**只改名不动行** | ✅ |
 | Step 4 | `preprocess()` | 排除仓库 `Liberia Monrovia material warehouse` | ❌ 仅报表 |
 | 生成时 | `generate_report()` | 仅保留 `Material Type='SpareParts'`（或 `Consumables`） | ❌ 仅报表 |
 
@@ -86,30 +91,46 @@ EWS 发送邮件（owa_mail_report.py）
 - 物料号**前导零**：明细是文本 `033030100337`，排除表被 Excel 存成数字 `33030100337`，统一用 `_norm_excl_value()` 归一（纯数字串转最简 int 形式），否则大面积不命中。
 - 写回统一走 `_save_detail_xlsx()`（tmp + `os.replace` 原子替换）；写回失败只告警，内存数据仍是处理过的，报表照常生成。
 
-### Material Name / Domain 数据来源：数据库表 `sp_material`
+### Material Name / Domain 数据来源：物料主数据 `sp_material`
 
-`load_material_maps_from_db()`（经 `get_material_maps()` 进程内缓存，一次运行只读一次库）
-按 materialNo 建 `{materialNo: materialName}` / `{materialNo: materialType}`，
-并按 materialName 建 `{materialName: domain}`（2026-09-19 起，Summary-Current 的 Domain 列用）：
+**唯一实现**在 `backend\services\sp_material_name.py`（`load_material_maps()` 读表、
+`normalize_dataframe()` / `normalize_rows()` 覆盖），本目录与 `get_sp_table.py` 共用同一份，
+不在两处各写一套口径。按 materialNo 建 `{materialNo: materialName}` /
+`{materialNo: materialType}`，并按 materialName 建 `{materialName: domain}`
+（2026-09-19 起，Summary-Current 的 Domain 列用）。
 
 | 来源 | 说明 |
 |------|------|
-| **PG**（优先） | 连接串取环境变量 `DATABASE_URL`，缺失则读 `backend\.env`；表位置自动定位（优先 `app` schema），即 `app.sp_material` |
-| sqlite（回退） | `db\app.db` 的 `sp_material` |
-| inventory（再回退） | 上面都拿不到时，用 `inventory_details.xlsx` 的 Material No.→Material Name；Domain 同样回退 inventory 明细 |
+| **`get_raw_connection()`** | 双模：`MY_APP_DB_MODE=pg` 走 PG（search_path 首位是 `app`，即 `app.sp_material`），`sqlite` 走 `db\app.db`。列名从 `table_columns()` 取表定义的原样大小写并加引号，**不能省引号**（PG 会把不加引号的标识符折叠成小写） |
+| inventory（回退） | 主数据不可用时，`apply_material_master_fields()` 用 `inventory_details.xlsx` 的 Material No.→Material Name；Domain 同样回退 inventory 明细 |
 
-- `sp_material` 由任务 `sp_material_sync`（每天 04:55）从 eFlow SP 接口拉全量写入，字段含 `materialNo / materialName / materialType / domain`，当前 922 行。
-- 表里没有 `domain` 列时只丢 domain 映射（打印「无 domain 列」），不影响 Name/Type（2026-09-19 防旧表结构）。
+- `sp_material` 由任务 `sp_material_sync` 从 eFlow SP 接口拉全量写入，字段含
+  `materialNo / materialName / materialType / domain`，2026-11-06 实测 979 行（2026-09 建档时 922 行）。
+- **为什么要专门归一名字**：明细里的 Material Name 是**单据导出那一刻**的快照名，物料改名后
+  历史单据不回写。2026-11-06 实测：主数据当天 08:20~08:37 把 `Chassis (NR9000TR)|` 等 3 个物料
+  改名去掉结尾 `|`，而当天 05:15 生成的报表还是旧名，`Summary-Current` 242 行里裂出 **4 组**
+  同物料两行（入库 / 出库 / 库存被拆开，补库建议按半截数量算）。
+- 因此加了两件事：**Step 0 生成前刷新主数据**（当天 05:15 之前的改名都能吃到），
+  以及**覆盖范围从 inb/outb 扩到五份明细 + 五份原始快照**（库存侧留旧名照样会裂行；
+  快照归一则让 SP Details 页、07:05 合并邮件、10:05 分文件邮件与落库看板同口径）。
+- `|` **不是脏字符**：979 条主数据里 510 条名字本身含 `|`（如 `DTB_B|Digital Trunk Board|`），
+  只能整串取主数据的值，禁止写「去掉结尾 `|`」这类字符清洗。
+- 表里没有 `domain` 列时只丢 domain 映射，不影响 Name/Type（2026-09-19 防旧表结构）。
 - 覆盖率对比：用 `sp_material` 时明细**未命中 0 行**（inband/outband 全量命中）；只用 inventory（约 320 条）时分别有 339 / 406 行取不到名称。
-- 表缺失 / 连不上只会打印 `[MatSync][WARN]` 并回退，**不会中断**报表生成。
-- Material Type 目前仍取 inventory（同物料多值取首个）；`sp_material` 也有 `materialType`，如需切换可复用同一函数。
+- 表缺失 / 连不上只会打印 `[MatSync] ... 保持原样（主数据不可用）` 并回退，**不会中断**报表生成。
+- Material Type 目前仍取 inventory（同物料多值取首个）：**两张报表按 Material Type 拆分
+  SpareParts / Consumables，换源会移动行数**，所以不跟着 Name 一起换；`sp_material` 也有
+  `materialType`，确需切换时要单独核对两张报表的行数迁移。
 
 ### 报表口径 vs SP Details Report
 
 `sp_email_details`（05:55）合并 **5 份** `*_details_source.xlsx` 原始快照
-（inventory / inband / outband / transfer / transfer_return），**不经过任何过滤** ——
+（inventory / inband / outband / transfer / transfer_return），**行不经过任何过滤** ——
 含 `Operation Result Status=Canceled`、入库/出库 `Status=WaitingForUpdate` 与
-`in&out_exclude.xlsx` 手工剔除名单里的行，与 SFTP 上游逐行一致。
+`in&out_exclude.xlsx` 手工剔除名单里的行，行数与 SFTP 上游逐行一致。
+唯一例外是 `Material Name` 这一列：Step 2.5 会把快照里这一列也按物料主数据改名
+（只改值、不动行），所以本页与总表、与 `?page=sp_details`、与 10:05 的分文件邮件附件
+都是**当前名**，不再出现同一物料新旧两种写法。
 2026-09-22 起生效（此前合并的是 Step 2.x 处理过的 `*_details.xlsx`）。
 `*_source.xlsx` 缺失时逐份回退到过滤后的明细，并在任务 message / 页面 warnings 里注明。
 
@@ -153,7 +174,7 @@ Inventory / Transfer 两份行数不变（原始即无 Canceled）。
 
 | # | 列 | 口径 |
 |---|----|------|
-| 1 | Material Name | 主键，来自 Inventory / Inbound / Outbound 的并集 |
+| 1 | Material Name | 主键，来自 Inventory / Inbound / Outbound 的并集；**三份都已按 `Material No.` 归一到物料主数据 `sp_material` 的最新名**（2026-11-06 起，含 inventory —— 少一份就会裂行） |
 | 2 | **Domain** | **取自数据库表 `sp_material` 的 `domain` 列（按 materialName 映射，2026-09-19 起）**；库里取不到回退 Inventory 明细的 `Domain`；同一物料多行时取第一个非空；`Total` 行留空 |
 | 3 | Inbound Qty | 入库数量合计 |
 | 4 | Outbound Qty | 出库数量合计 |
@@ -223,6 +244,12 @@ Inventory / Transfer 两份行数不变（原始即无 Canceled）。
 - 生成结束后由 `_cleanup_old_reports()`（`main()` Step 10）按「前缀 + 仓库名」分组，每组只留最新一份
   xlsx / png，其余删除。**它删的是 `OUT_DIR`（`data/sp_email`）下的正式产物**，不含仓库报表以外的文件。
 - **改这个脚本不用重启 worker**：`sp_report_generate` 任务用 subprocess 调本脚本，每次都是新进程读最新代码。
+- 离线验归一（不碰生产文件）：`python TMP\_matname_sandbox_test.py` —— 把五份明细与五份原始快照拷进
+  `TMP\_matname_sandbox\` 后跑 `apply_material_master_fields()`，断言「与主数据不一致 = 0、
+  十份文件行数一律不变、Material Type 分布不变」。改归一逻辑后先跑它，再动生产任务。
+- 另有一组静态守卫 `tests\test_sp_material_name.py`（21 项，不连库）：钉死物料号前导零归一、
+  未命中保留原值不清空、`|` 不允许字符清洗、生成器不得自带第二套主数据查询、
+  Step 0 刷新必须在下载之前、归一范围必须覆盖五份明细 + 五份快照。
 
 ### 报表内过滤条件说明行（2026-09-16 起）
 
@@ -231,10 +258,13 @@ Inventory / Transfer 两份行数不变（原始即无 Canceled）。
 
 | sheet | 说明行内容 |
 |-------|-----------|
-| Inbound | `Material Type = <类型>` + `Warehouse Name ≠ 'Liberia Monrovia material warehouse'` + `Excluded orders: in&out_exclude.xlsx [sheet 3: excluded order serial details]` + `Operation Result Status ≠ 'Canceled'` + `Status ≠ 'WaitingForUpdate'` |
+| Inbound | `Material Type = <类型>` + `Warehouse Name ≠ 'Liberia Monrovia material warehouse'` + `Excluded orders: in&out_exclude.xlsx [sheet 3: excluded order serial details]` + `Operation Result Status ≠ 'Canceled'` + `Status ≠ 'WaitingForUpdate'` + `Material Name = latest name from the material master (sp_material) resolved by Material No.` |
 | Outbound | 同 Inbound（两支说明行逐字一致，2026-10-31 起入库侧也剔除 `Status ≠ 'WaitingForUpdate'`） |
-| Inventory | `Material Type = <类型>` + `Warehouse Name ≠ 'Liberia Monrovia material warehouse'` |
-| Summary-Current / Summary-Changed | `Material Type = <类型>` + 排除仓库 + `same exclusions as the Inbound / Outbound / Inventory sheets` + `Status ≠ 'WaitingForUpdate'`（后一条 2026-10-31 起显式写出：页面的「口径说明」面板取的就是 Summary-Current 这几行说明，只写「same exclusions」页面上看不到入库/出库剔除条件） |
+| Inventory | `Material Type = <类型>` + `Warehouse Name ≠ 'Liberia Monrovia material warehouse'` + 同一条 `Material Name = ...` |
+| Summary-Current / Summary-Changed | `Material Type = <类型>` + 排除仓库 + `same exclusions as the Inbound / Outbound / Inventory sheets` + `Status ≠ 'WaitingForUpdate'`（后一条 2026-10-31 起显式写出：页面的「口径说明」面板取的就是 Summary-Current 这几行说明，只写「same exclusions」页面上看不到入库/出库剔除条件）+ 同一条 `Material Name = ...` |
+
+> `Material Name = ...` 这半句是 2026-11-06 加的，**并到既有说明行的末尾而不是另起一行**：
+> 说明区的行数与 `sp_report_service.SHEET_CONFIG[...]["header_row"]` 是硬绑的，多一行整张表就串行。
 
 分仓报表在说明行里额外带 `Warehouse Name = '<仓库名>'`。
 

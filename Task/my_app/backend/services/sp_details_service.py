@@ -82,6 +82,8 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
+from backend.services.sp_material_name import normalize_rows
+
 logger = logging.getLogger(__name__)
 
 # .../Task/my_app
@@ -325,6 +327,14 @@ def _read_sheet(ws) -> SheetData:
         if len(row) < len(columns):
             row.extend([None] * (len(columns) - len(row)))
         rows.append(row)
+    # Material Name 一律按 Material No. 取物料主数据的最新名（命中才改，未命中保留原值，
+    # 行数与其余各列一律不动）。生成端 Step 2.5 已把 *_source.xlsx 归一过，这里补的是
+    # **时点**：合并工作簿是 07:05 生成的，物料在那之后改名时页面要跟着变，否则
+    # SP Details 页与备件/耗材汇总页（15:07 之后重新生成的那份）会出现同一物料两种写法。
+    _mat = normalize_rows(columns, rows)
+    if _mat.get("changed"):
+        logger.info("[sp_details] %s: Material Name 按主数据覆盖 %d 行（未命中 %d 行保留原值）",
+                    ws.title, _mat["changed"], _mat["missing"])
     return SheetData(ws.title, columns, rows)
 
 

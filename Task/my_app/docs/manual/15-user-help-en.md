@@ -659,7 +659,7 @@ Workflow & maintenance notes per task:
 
 1. Log into the spare-parts SFTP (credential group sftp_sp)
 1. Fetch the 5 reports
-1. Clean and write into the main DB for the warehouse board and SP reports
+1. Clean and write into the main DB for the warehouse board and SP reports; before writing, Material Name is resolved by Material No. from the sp_material master (latest name), so a renamed material no longer shows up in two spellings on the board
 1. After all tables are stored, mirror into the FineBI inventory.db (UNC path; full replace for normal tables, append-only for Inventory)
 1. Finally prune Inventory snapshots older than the retention window (same policy for app.db and the mirror, default 180 days)
 
@@ -791,12 +791,14 @@ Workflow & maintenance notes per task:
 - Default cron: `15 5 * * *`　|　worker group: **m**
 - Workflow script: `services/kpi_email_report.py → run_sp_report_generate`
 
-**What it does**: Download spare-part data from SFTP and generate Comsumables & SpareParts Inbound&Outbound&Inventory reports into data/sp_email
+**What it does**: Refresh the sp_material master from eFlow first, then download spare-part data from SFTP and generate Comsumables & SpareParts Inbound&Outbound&Inventory reports into data/sp_email; Material Name in details and raw snapshots is resolved by Material No. from the master (latest name)
 
 **Workflow & data flow**:
 
-1. Log into SFTP and download raw spare data
-1. Generate the Comsumables & SpareParts Inbound&Outbound&Inventory reports
+1. Step 0: call sp_material_sync to pull the full material master from eFlow into sp_material (on failure only warn and keep the existing table)
+1. Log into SFTP, download raw spare data and keep an unfiltered *_source.xlsx snapshot
+1. Exclude list → status filter → Canceled filter → **Material Name resolved from the master** (5 details + 5 snapshots, names only, no row changes)
+1. Generate the Comsumables & SpareParts Inbound&Outbound&Inventory reports (incl. Summary-Current replenishment)
 1. Save to data/sp_email for the 09:45/09:50 email tasks and the 07:05 details email
 
 **Maintenance**:
@@ -2364,6 +2366,8 @@ SP Details Report: the same merged workbook that the email task sends, with Inve
 - **All eight cards explain themselves on hover** (2026-11-04): records = row counts added across sheets with **no cross-sheet de-duplication**; "Materials" is Material No. **de-duplicated over the union** (structurally different from the same-named row count on the spare-parts report); "Warehouses" counts the transfer sheet's **original and target** names on both sides, so reading higher than the number of storage locations is by design; open tickets use the "status does not contain closed" test
 - ⚠ This page reads the *_source.xlsx snapshots taken **before any filtering**, while the summary pages read the filtered workbook — same-named metrics are systematically larger here, which is a caliber difference, not lost data
 - ⚠ The whole site has three definitions of "open" (this page: per-row substring match / spare-parts report: distinct document number + word list / warehouse board: exact equality), so the three figures are not meant to reconcile
+- Material Name here is also resolved from the sp_material master (values only, no row changes, since 2026-11-06), so this page, the spare/consumables summary pages, the 07:05 merged email and the 10:05 per-file attachments all show the same name; row counts still match SFTP upstream line for line
+- This page resolves the master **at read time** (the merged workbook itself is still the 07:05 snapshot): a rename after 07:05 shows up here the same day, while the spare/consumables summary pages wait for the next day’s report to be regenerated — because their Summary-Current aggregates by material name, so a live rename would put two spellings on one page; this page has no name-keyed aggregate, so it cannot
 
 #### sp_report（`sp_report`）
 
@@ -2374,6 +2378,7 @@ Spare Parts Inbound & Outbound & Inventory summary: the same workbook emailed / 
 - "Columns" is configurable per sheet and remembered locally; the row-detail modal always shows every column
 - **Every number explains itself on hover** (2026-11-04): the seven quantity cards say "this value = the raw Total-row cell of Summary-Current · some column", and warn that **a missing or non-numeric column comes back as 0.0 from the backend** — so a 0 can be a real zero or an empty column; "Materials" is a **row count, not de-duplicated material numbers**; "Urgent" counts **rows** whose Alert Level equals Urgent Replenish, a different unit from its Qty neighbours — do not subtract one from the other
 - The "open documents" bubble states it comes from the **live database** (same caliber as the SPMS figure on the MsPortal QC panel), because the workbook is a 05:55 snapshot while the DB lands at 07:00; all other statistics stay on the Excel snapshot so the page matches the emailed attachment
+- **Material Name comes from the sp_material master (latest name)**, effective 2026-11-06: in the upstream detail this column is the name captured when the document was exported, and eFlow renames never rewrite history, so one material splits into two Summary-Current rows with inbound/outbound/inventory broken apart. Step 0 refreshes the master from eFlow and Step 2.5 overwrites the five details plus the five raw snapshots by Material No. (implementation: backend/services/sp_material_name.py). Consequence: a rename after 05:15 lands in the next day’s report — the page reads that same report, so a single page never shows two spellings.
 
 #### com_report（`com_report`）
 

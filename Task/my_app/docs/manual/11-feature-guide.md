@@ -2863,11 +2863,24 @@ postMessage 的唯一用途。自愈循环上限 4 次（`MAX_AUTO_RELOGIN`）�
   `warehouses` 并集里**调拨表同时取原仓库 + 目标仓库两侧**所以偏大是设计如此、
   `open_tickets = Σ 各表 open_count`（判据是 `"closed" not in status.lower()`，**全站第三套「未关闭」判据**，气泡写明不该与备件页/仓库看板互相对账）。
   本页读 `*_source.xlsx`（**任何过滤之前**的快照），所以同名指标比 `sp_report` / `com_report` 系统性偏大 —— 这句写在卡片气泡里。
+  快照的 `Material Name` 同样按物料主数据 `sp_material` 归一（**只改值、不动行**，2026-11-06 起），
+  所以本页与备件页、与 07:05 合并邮件、与 10:05 分文件邮件附件看到的是同一个名字。
+  本页是**读取时**再解析一次主数据（`sp_details_service.py` 调 `sp_material_name.normalize_rows`，
+  工作簿本身仍是 07:05 那份快照）：07:05 之后的改名这里当天就跟上，而备件/耗材汇总页要等次日报表 ——
+  那两页的 `Summary-Current` 按物料名聚合，实时改名会让同一页出现两套写法；本页没有按名聚合的汇总，所以不会。
 
 数据源是任务 `sp_report_generate`（每天 05:15）产出的汇总工作簿
 `data/sp_email/<前缀> <时间戳>.xlsx`，与邮件/WhatsApp 发出去的是**同一份文件**，
 页面不做二次加工（口径说明由接口 `notes` 原样透传，见
 `backend/services/sp_report_service.py` 顶部 docstring）。
+
+> **`Material Name` 一律是物料主数据 `sp_material` 的最新名（2026-11-06 起）**。上游明细里这一列
+> 是**单据导出那一刻**的快照名，物料改名后历史单据不回写，于是同一物料会在 `Summary-Current`
+> 里裂成两行、入库/出库/库存被拆开（当天实测 4 组、86 行受影响）。生成端 Step 0 先从 eFlow 刷新
+> 主数据，Step 2.5 再按 `Material No.` 覆盖五份明细与五份原始快照
+> （实现 `backend/services/sp_material_name.py`，落库链路 `get_sp_table.py` 共用同一份）。
+> 代价：当天 05:15 之后发生的改名，要等次日报表才跟上 —— 页面读的就是这份报表，
+> 所以**不会出现明细已是新名、汇总还是旧名**这种同页两套写法。
 
 工作簿五张 sheet：`Summary-Current`（汇总）/ `Summary-Changed`（每日矩阵）/
 `Inbound` / `Outbound` / `Inventory`。前两张走 `/summary`，其余三张走

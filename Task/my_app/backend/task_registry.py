@@ -512,8 +512,8 @@ TASK_SPECS = [
     #     若日后 QC 的 TT/WO/CR/PMT 出现「跟着 SP 一起变慢」，先怀疑这里占用了 n 组 worker。
     dict(task_id="sp_data_sync", name="SP 备件数据同步", name_en="SP Spare Data Sync",
          loader=("backend.services.get_sp_table", "run_sp_data_sync"),
-         description="从 SFTP 拉取 5 份备件报表（Inbound/Outbound/Inventory/OC Rule/Transfer）写入 app.db，并镜像写入 FineBI WareHouseDashBoard inventory.db",
-         description_en="Pull 5 spare-part reports from SFTP (Inbound/Outbound/Inventory/OC Rule/Transfer) into app.db, then mirror into FineBI WareHouseDashBoard inventory.db",
+         description="从 SFTP 拉取 5 份备件报表（Inbound/Outbound/Inventory/OC Rule/Transfer）写入 app.db，并镜像写入 FineBI WareHouseDashBoard inventory.db；落库前 Material Name 一律按 Material No. 取物料主数据 sp_material 的最新名",
+         description_en="Pull 5 spare-part reports from SFTP (Inbound/Outbound/Inventory/OC Rule/Transfer) into app.db, then mirror into FineBI WareHouseDashBoard inventory.db; before writing, Material Name is resolved by Material No. from the sp_material master (latest name)",
          default_cron="10 * * * *", category="sp"),
 
     # 13. iPRAN UME KPI 同步（每小时整点）
@@ -578,8 +578,8 @@ TASK_SPECS = [
     # 19b. SP 备件报表生成（每天 05:15，先于 05:45/06:40 两个邮件任务）
     dict(task_id="sp_report_generate", name="SP 备件报表生成", name_en="SP Report Generate",
          loader=("backend.services.kpi_email_report", "run_sp_report_generate"),
-         description="从 SFTP 下载备件数据，生成 Comsumables & SpareParts Inbound&Outbound&Inventory 报表到本地 data/sp_email",
-         description_en="Download spare-part data from SFTP and generate Comsumables & SpareParts Inbound&Outbound&Inventory reports into local data/sp_email",
+         description="先从 eFlow 刷新物料主数据 sp_material，再从 SFTP 下载备件数据生成 Comsumables & SpareParts Inbound&Outbound&Inventory 报表到本地 data/sp_email；五份明细与五份原始快照的 Material Name 一律按 Material No. 取主数据最新名（Summary-Current 才不会把同一物料裂成两行）",
+         description_en="Refresh the sp_material master from eFlow first, then download spare-part data from SFTP and generate Comsumables & SpareParts Inbound&Outbound&Inventory reports into local data/sp_email; Material Name in all 5 details and 5 raw snapshots is resolved by Material No. from the master (latest name), so Summary-Current no longer splits one material into two rows",
          default_cron="15 5 * * *", category="kpi_email"),
 
     # 19b-2. SP 备件周报（每周日 06:40，2026-11-03 新增，用户指定口径）

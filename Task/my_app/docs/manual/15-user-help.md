@@ -659,7 +659,7 @@
 
 1. 登录备件 SFTP（凭据分组 sftp_sp）
 1. 拉取 Inbound/Outbound/Inventory/OC Rule/Transfer 5 份报表
-1. 清洗后写主库，供仓库看板与 SP 报表使用
+1. 清洗后写主库，供仓库看板与 SP 报表使用；写库前 Material Name 按 Material No. 取物料主数据 sp_material 的最新名（物料改名后看板不会出现新旧两种写法）
 1. 全部落库后镜像写入 FineBI inventory.db（UNC 路径；普通表整表替换、Inventory 只追加新行）
 1. 最后按保留期清理 Inventory 历史快照（app.db 与镜像库同口径，默认 180 天）
 
@@ -791,12 +791,14 @@
 - 默认 cron: `15 5 * * *`　|　worker 组: **m**
 - 工作流脚本: `services/kpi_email_report.py → run_sp_report_generate`
 
-**功能**: 从 SFTP 下载备件数据，生成 Comsumables & SpareParts Inbound&Outbound&Inventory 报表到本地 data/sp_email
+**功能**: 先从 eFlow 刷新物料主数据 sp_material，再从 SFTP 下载备件数据，生成 Comsumables & SpareParts Inbound&Outbound&Inventory 报表到本地 data/sp_email；明细与原始快照的 Material Name 一律按 Material No. 取主数据最新名
 
 **工作流与数据流**:
 
-1. 登录 SFTP 下载备件原始数据
-1. 生成 Comsumables & SpareParts Inbound&Outbound&Inventory 报表
+1. Step 0：调 sp_material_sync 从 eFlow 拉全量物料主数据写 sp_material（失败只告警，沿用库里现有表）
+1. 登录 SFTP 下载备件原始数据，并留一份未过滤的 *_source.xlsx 原始快照
+1. 剔除名单 → 状态过滤 → Canceled 过滤 → **Material Name 按主数据归一**（五份明细 + 五份快照，只改名不动行）
+1. 生成 Comsumables & SpareParts Inbound&Outbound&Inventory 报表（含 Summary-Current 补库建议）
 1. 落盘 data/sp_email 供 09:45/09:50 两个邮件任务与 07:05 明细邮件使用
 
 **维护要点**:
@@ -2364,6 +2366,8 @@ SP 备件明细报表：与邮件任务发出的合并工作簿是同一份文�
 - **八张卡每个数字都能悬浮看算法**（2026-11-04）：记录数 = 各表**行数相加、跨表不去重**；「物料数」是 Material No. **并集去重**（与备件报表那张同名的「行数」不同构）；「仓库数」里调拨表同时取**原仓库 + 目标仓库**两侧，所以比实际存放点多是设计如此；「未关闭单」判据是 status 里不含 closed
 - ⚠ 本页读的是**任何过滤之前**的 *_source.xlsx 快照，而备件/耗材汇总页读过滤后的工作簿 —— 同一个同名指标本页系统性偏大，两页对不上是口径不同、不是丢数
 - ⚠ 全站「未关闭单」有三套判据（本页按行子串包含 / 备件报表按单号去重 + 全词表 / 仓库看板精确等值），三个页面上这个数不该互相对账
+- 本页的 `Material Name` 同样按物料主数据 `sp_material` 归一（**只改值、不动行**，2026-11-06 起），所以与备件/耗材汇总页、与 07:05 合并邮件、与 10:05 分文件邮件附件看到的是同一个名字；行数仍与 SFTP 上游逐行一致
+- 本页是**读取时**实时解析主数据（合并工作簿本身仍是 07:05 那份快照）：物料在 07:05 之后改名，这里当天就跟上，而备件/耗材汇总页要等次日报表重新生成 —— 因为那两页的 `Summary-Current` 是按物料名聚合的，实时改名会让同一页出现两套写法，本页没有按名聚合的汇总，所以不会
 
 #### sp_report（`sp_report`）
 
@@ -2374,6 +2378,7 @@ SP 备件明细报表：与邮件任务发出的合并工作簿是同一份文�
 - 「显示列」可按分表自定义并本地记住；行详情弹窗始终显示全列
 - **每个数字都能悬浮看算法**（2026-11-04）：顶部七张数量卡的气泡写明「该值 = 汇总工作簿 Summary-Current 的 Total 行 · 某列原值」，并提醒**列缺失或不是数值时后端按 0.0 返回**（所以 0 可能是真 0，也可能那一列压根没值）；「物料数」是**行数不是去重物料号**；「紧急补库」是 Alert Level 等于 Urgent Replenish 的**行数**，单位与旁边的 Qty 卡不同、不能相减
 - 「未关闭单」气泡写明它**取自实时数据库**（与 MsPortal 的 SPMS 大数字同口径），因为工作簿是 05:55 的快照、DB 是 07:00 落的；其余统计仍按 Excel 快照，保证与邮件附件逐行一致
+- **`Material Name` 取物料主数据 `sp_material` 的最新名**（2026-11-06 起）：上游明细里这一列是**单据导出那一刻**的快照名，物料在 eFlow 改名后历史单据不回写，同一物料会在 Summary-Current 里裂成两行、入库/出库/库存被拆开；生成端 Step 0 先从 eFlow 刷新主数据，Step 2.5 再按 `Material No.` 覆盖五份明细与五份原始快照（实现 `backend/services/sp_material_name.py`）。代价：当天 05:15 之后发生的改名次日才进报表 —— 页面读的就是这份报表，所以同页不会出现两套名字
 
 #### com_report（`com_report`）
 

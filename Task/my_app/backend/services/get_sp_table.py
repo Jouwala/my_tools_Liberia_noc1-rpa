@@ -30,6 +30,7 @@ import paramiko
 import pandas as pd
 from backend.database import get_raw_connection
 from backend.dialect_helpers import list_table_names, table_columns, write_df
+from backend.services.sp_material_name import normalize_dataframe
 import sqlite3
 
 
@@ -478,6 +479,13 @@ def _write_table(conn, table_name: str, df: pd.DataFrame, sink: dict | None = No
     df['update_time'] = update_time
     df['update_date'] = update_date
     df = normalize_fields(df)
+    # Material Name 一律取物料主数据的最新名：上游明细里这一列是**单据导出那一刻**的快照名，
+    # 物料在 eFlow 改名后历史单据不回写，直接落库会让看板（仓库看板 iframe / 原生看板 /
+    # SP 物料汇总）同时出现同一个物料的新旧两种写法。主数据查不到的行保留原值。
+    _mat = normalize_dataframe(df, label=table_name)
+    if _mat.get('changed'):
+        print(f"[MatName] {table_name}: Material Name 按主数据覆盖 {_mat['changed']} 行"
+              f"（未命中 {_mat['missing']} 行保留原值）")
 
     if table_name in APPEND_TABLES and _table_exists(conn, table_name):
         # 增量去重：保留历史累计

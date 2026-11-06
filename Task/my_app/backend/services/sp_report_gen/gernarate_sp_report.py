@@ -4,9 +4,11 @@ Download data from SFTP, then generate Comsumables & SpareParts
 Inbound&Outbound&Inventory Excel files with Summary images.
 
 Pipeline:
-  sftp_download() → load_data() → apply_exclude_to_details()（按 in&out_exclude.xlsx
-  剔除指定单据行并写回明细）→ apply_status_filters()（入库/出库均剔除 Status=WaitingForUpdate）
-  → apply_inventory_fields()（用 inventory 的 Material Name / Material Type 覆盖明细并写回）
+  refresh_material_master() → sftp_download() → load_data()
+  → apply_exclude_to_details()（按 in&out_exclude.xlsx 剔除指定单据行并写回明细）
+  → apply_status_filters()（入库/出库均剔除 Status=WaitingForUpdate）
+  → apply_material_master_fields()（五份明细的 Material Name 按 Material No. 取物料主数据
+    sp_material 的最新名字、Material Type 取 inventory，逐份写回）
   → preprocess() → build_lookup() → fill_missing()
   → generate_report() (Excel + Summary PNG image)
 """
@@ -47,6 +49,11 @@ _APP_ROOT = _SCRIPT_DIR.parent.parent.parent
 for _sys_path_entry in (str(_APP_ROOT), str(_APP_ROOT / 'backend' / 'services')):
     if _sys_path_entry not in sys.path:
         sys.path.insert(0, _sys_path_entry)
+
+# 物料主数据（Material Name 的唯一口径）抽到 backend/services/sp_material_name.py，
+# 报表生成器与后端服务（落库 / 邮件合并 / SP Details 页）共用同一份解析，不在各处重写。
+from backend.services.sp_material_name import (  # noqa: E402
+    load_material_maps, normalize_dataframe, norm_key)
 
 # 报表数据统一存放 my_app/data/sp_email（原始下载数据在 data/ 子目录）
 DATA_DIR = str(_APP_ROOT / 'data' / 'sp_email' / 'data')
@@ -546,24 +553,9 @@ _EXCLUDE_SPECS = [
 ]
 
 
-def _norm_excl_value(v):
-    """归一化单个匹配值：去空格；数字统一成最简形式（1.0 -> 1，4.50 -> 4.5）。
-
-    明细里物料号常带前导零（033030100337），排除表里被 Excel 存成数字（33030100337），
-    故纯数字串必须统一成 int 形式再比较，否则大面积不命中。
-    """
-    if v is None:
-        return ''
-    s = str(v).strip()
-    if s == '' or s.lower() in ('nan', 'none', 'nat'):
-        return ''
-    try:
-        f = float(s)
-    except ValueError:
-        return s
-    if f == int(f):
-        return str(int(f))
-    return ('%.6f' % f).rstrip('0').rstrip('.')
+# 归一化匹配值（去空格 + 纯数字转最简形式，1.0 -> 1 / 033030100337 -> 33030100337）
+# 语义与物料主数据解析共用同一个函数，见 sp_material_name.norm_key 的说明。
+_norm_excl_value = norm_key
 
 
 def load_exclude_rules(path=EXCLUDE_FILE):
@@ -875,129 +867,35 @@ def apply_operation_result_filter_to_file(path, label):
 
 
 # ==============================================================================
-# material fields sync - Material Name 取数据库表 sp_material，Material Type 取 inventory
+# material fields sync - Material Name 取物料主数据 sp_material，Material Type 取 inventory
 # ==============================================================================
-# 物料主数据表 sp_material：由任务 sp_material_sync（每天 04:55）从 eFlow SP 接口
-# 拉全量写入，字段 materialNo / materialName / materialType（PG 模式在 app schema）。
-MATERIAL_TABLE = os.environ.get("SP_MATERIAL_TABLE", "sp_material")
-
-_PROJECT_ROOT = Path(__file__).resolve().parents[3]      # my_app 根目录
-
-
-def _read_database_url():
-    """取 PG 连接串：环境变量 DATABASE_URL > backend/.env。取不到返回 None（回退 sqlite）。"""
-    url = (os.environ.get("DATABASE_URL") or "").strip()
-    if url:
-        return url
-    env_file = _PROJECT_ROOT / 'backend' / '.env'
-    try:
-        for line in env_file.read_text(encoding='utf-8').splitlines():
-            if line.strip().startswith('DATABASE_URL='):
-                return line.split('=', 1)[1].strip().strip('"').strip("'")
-    except Exception as e:
-        print(f'[MatSync][WARN] 读取 backend/.env 失败({e})')
-    return None
+# 主数据表 sp_material 由任务 sp_material_sync 从 eFlow SP 接口拉全量写入
+# （每天 04:55 + 本报表生成前各一次），字段 materialNo / materialName /
+# materialType / domain（PG 模式在 app schema）。
+# 读表与覆盖的实现见 backend/services/sp_material_name.py：报表生成器、明细落库、
+# SP Details 页与邮件合并共用那一处，口径不会分叉。
 
 
-def load_material_maps_from_db():
-    """从数据库表 sp_material 读 {materialNo: materialName}、{materialNo: materialType}
-    与 {materialName: domain}（2026-09-19 起，Summary-Current 的 Domain 列用）。
+def refresh_material_master():
+    """生成前先把物料主数据拉一遍，让「最新名字」真的是最新时刻的值。
 
-    PG（DATABASE_URL / backend/.env）优先，失败回退 sqlite db/app.db；
-    都不可用或表不存在时返回 ({}, {}, {})，由调用方回退到 inventory。
-    domain 列缺失时只丢 domain 映射，不影响 Name/Type（2026-09-19 防旧表无该列）。
+    sp_material_sync 的 04:55 快照早于当天白天的改名 —— 2026-11-06 实测：物料 08:20~08:37
+    改名去掉结尾 `|`，而 05:15 生成的报表仍是旧名，Summary-Current 同一物料裂成两行。
+    拉取失败（eFlow 不可用 / 返回半截 / 写库异常）只告警并沿用库中现有的表：
+    报表不能因为主数据刷新失败而中断，用昨天的名字至少与昨天一致。
     """
-    def _pack(rows):
-        name_lut, type_lut, domain_lut = {}, {}, {}
-        for no, nm, tp, dm in rows:
-            k = _norm_excl_value(no)
-            if not k:
-                continue
-            if nm and str(nm).strip() and str(nm).strip().lower() not in ('nan', 'none'):
-                name_lut.setdefault(k, str(nm).strip())
-            if tp and str(tp).strip() and str(tp).strip().lower() not in ('nan', 'none'):
-                type_lut.setdefault(k, str(tp).strip())
-            # domain 按 materialName 建映射（同一名称多值时取首个非空）
-            nk = _norm_excl_value(nm)
-            if nk and dm and str(dm).strip() and str(dm).strip().lower() not in ('nan', 'none'):
-                domain_lut.setdefault(nk, str(dm).strip())
-        return name_lut, type_lut, domain_lut
-
-    # 1) PostgreSQL
-    url = _read_database_url()
-    if url and url.startswith('postgres'):
-        try:
-            import psycopg2
-            conn = psycopg2.connect(url)
-            try:
-                cur = conn.cursor()
-                cur.execute(
-                    "SELECT table_schema FROM information_schema.tables "
-                    "WHERE table_name=%s ORDER BY CASE WHEN table_schema='app' THEN 0 ELSE 1 END LIMIT 1",
-                    (MATERIAL_TABLE,))
-                row = cur.fetchone()
-                if not row:
-                    print(f'[MatSync][WARN] PG 中不存在表 {MATERIAL_TABLE}，回退 inventory')
-                else:
-                    schema = row[0]
-                    cur.execute(
-                        "SELECT column_name FROM information_schema.columns "
-                        "WHERE table_schema=%s AND table_name=%s",
-                        (schema, MATERIAL_TABLE))
-                    has_domain = any(r[0].lower() == 'domain' for r in cur.fetchall())
-                    sel = ('"materialNo", "materialName", "materialType"'
-                           + (', "domain"' if has_domain else ''))
-                    cur.execute(f'SELECT {sel} FROM "{schema}"."{MATERIAL_TABLE}" ORDER BY "materialNo"')
-                    rows = [(*r, None) if len(r) == 3 else r for r in cur.fetchall()]
-                    lut = _pack(rows)
-                    print(f'[MatSync] 读取 sp_material(PG {schema}.{MATERIAL_TABLE}): '
-                          f'Name {len(lut[0])} 条, Type {len(lut[1])} 条, Domain {len(lut[2])} 条'
-                          + ('' if has_domain else '（无 domain 列）'))
-                    return lut
-            finally:
-                conn.close()
-        except Exception as e:
-            print(f'[MatSync][WARN] 读取 PG sp_material 失败({e})，回退 sqlite/inventory')
-
-    # 2) SQLite（db/app.db）
-    db_file = _PROJECT_ROOT / 'db' / 'app.db'
-    if db_file.is_file():
-        try:
-            import sqlite3
-            conn = sqlite3.connect(str(db_file))
-            try:
-                cols = {r[1].lower() for r in conn.execute(f'PRAGMA table_info({MATERIAL_TABLE})')}
-                if not cols:
-                    print(f'[MatSync][WARN] sqlite 中无表 {MATERIAL_TABLE}，回退 inventory')
-                    return {}, {}, {}
-                sel = ('materialNo, materialName, materialType'
-                       + (', domain' if 'domain' in cols else ''))
-                cur = conn.execute(f'SELECT {sel} FROM {MATERIAL_TABLE} ORDER BY materialNo')
-                rows = [(*r, None) if len(r) == 3 else r for r in cur.fetchall()]
-                lut = _pack(rows)
-                if lut[0] or lut[1]:
-                    print(f'[MatSync] 读取 sp_material(sqlite): Name {len(lut[0])} 条, '
-                          f'Type {len(lut[1])} 条, Domain {len(lut[2])} 条'
-                          + ('' if 'domain' in cols else '（无 domain 列）'))
-                    return lut
-                print(f'[MatSync][WARN] sqlite 中无 {MATERIAL_TABLE} 数据，回退 inventory')
-            finally:
-                conn.close()
-        except Exception as e:
-            print(f'[MatSync][WARN] 读取 sqlite sp_material 失败({e})，回退 inventory')
-    return {}, {}, {}
-
-
-# 进程内缓存：同一次报表运行里多个 sheet 都要用 domain 映射，只读一次库
-_MATERIAL_MAPS_CACHE = None
-
-
-def get_material_maps():
-    """load_material_maps_from_db() 的进程内缓存版（返回 (name_lut, type_lut, domain_lut)）。"""
-    global _MATERIAL_MAPS_CACHE
-    if _MATERIAL_MAPS_CACHE is None:
-        _MATERIAL_MAPS_CACHE = load_material_maps_from_db()
-    return _MATERIAL_MAPS_CACHE
+    try:
+        from backend.services.sp_material_sync import run_sp_material_sync
+        res = run_sp_material_sync()
+    except Exception as e:
+        print(f'[MatSync][WARN] 生成前刷新主数据失败（{e}），沿用库中现有 sp_material')
+        return
+    if res.get('success'):
+        print(f'[MatSync] 生成前刷新主数据: 写入 {res.get("rows")} 行 / {res.get("elapsed_seconds")}s')
+    else:
+        print(f'[MatSync][WARN] 生成前刷新未成功（{res.get("errors")}），沿用库中现有 sp_material')
+    # 表已被本轮改写，缓存必须作废，否则后面拿到的还是改名前的映射
+    load_material_maps(force_refresh=True)
 
 
 def build_material_maps(inv):
@@ -1043,68 +941,84 @@ def build_material_maps(inv):
     return name_lut, type_lut
 
 
-def _overlay_column(df, keys, col, lut):
-    """用 lut 覆盖 df[col]，返回 (变更数, 未命中数)。"""
-    if col not in df.columns:
-        df[col] = ''
-    new_vals, changed, missing = [], 0, 0
-    for k, old in zip(keys, df[col]):
-        v = lut.get(k, '')
-        if v:
-            old_s = '' if old is None or (isinstance(old, float) and pd.isna(old)) else str(old).strip()
-            if old_s != v:
-                changed += 1
-            new_vals.append(v)
-        else:
-            missing += 1
-            new_vals.append(old)
-    df[col] = new_vals
-    return changed, missing
+def _mat_sync_report(label, st):
+    """打印一次覆盖结果，返回本次改动的 Material Name 行数。"""
+    if st.get('skipped'):
+        print(f'[MatSync] {label}: 保持原样（{st["skipped"]}）')
+        return 0
+    if st['changed'] == 0:
+        print(f'[MatSync] {label}: 无需替换（{st["rows"]} 行，'
+              f'未命中 {st["missing"]} 行保留原值）')
+        return 0
+    print(f'[MatSync] {label}: Material Name 替换 {st["changed"]} 行'
+          f'（未命中 {st["missing"]} 行保留原值）, Material Type 替换 {st["type_changed"]} 行')
+    return st['changed']
 
 
-def apply_inventory_fields(inb, outb, inv):
-    """剔除/状态过滤后执行：覆盖两份明细的 Material Name / Material Type，并写回保存。
+def _normalize_detail_file(path, label, name_lut):
+    """不在内存帧里的明细（转仓两份）：读入 → 按主数据覆盖 Material Name → 写回。"""
+    if not os.path.exists(path):
+        print(f'[MatSync][WARN] {label}: 文件不存在，跳过（{path}）')
+        return 0
+    try:
+        df = pd.read_excel(path)
+    except Exception as e:
+        print(f'[MatSync][WARN] {label}: 读取失败，跳过（{e}）')
+        return 0
+    st = normalize_dataframe(df, name_lut=name_lut, label=label)
+    changed = _mat_sync_report(label, st)
+    if changed and not _save_detail_xlsx(df, path):
+        print(f'[MatSync][WARN] {label}: 写回失败，下游任务将使用未同步的旧文件')
+    return changed
 
-    - Material Name：优先取数据库表 `sp_material`（物料主数据），取不到时回退 inventory
-    - Material Type：取 inventory（同物料多值取首个）
-    命中才替换，未命中保留原值。返回 (inb, outb, stats)。
+
+def apply_material_master_fields(inb, outb, inv):
+    """剔除/状态过滤后执行：五份明细的 Material Name 一律按 Material No. 取物料主数据最新名。
+
+    - Material Name：取数据库表 `sp_material`（物料主数据，Step 0 已刷新），主数据不可用时
+      回退 inventory 的 Material No.→Material Name
+    - 覆盖范围含 inventory：`Summary-Current` 以 Material Name 为主键，库存侧留旧名会让
+      同一物料裂成两行，入库/出库/库存被拆开、补库建议按半截数量算
+      （2026-11-06 实测：当天 4 组裂行，86 行明细受影响）
+    - Material Type：仍取 inventory（同物料多值取首个）—— 两张报表按 Material Type 拆分
+      SpareParts / Consumables，换源会移动行数，不在这次口径内
+    - `*_details_source.xlsx` 原始快照同样只归一 Material Name（**不动任何行**）：
+      SP Details Report 的合并工作簿、逐封明细邮件与 page=sp_details 的回退读取都来自
+      这份快照，在源头归一才能让这三处与总表同口径，不必在各自的发信/读表代码里各写一遍
+    命中才替换，未命中保留原值。返回 (inb, outb, inv, stats)。
     """
-    db_name, _db_type, _db_domain = get_material_maps()
+    db_name, _db_type, _db_domain = load_material_maps()
     inv_name, inv_type = build_material_maps(inv)
-    if db_name:
-        name_lut, name_src = db_name, f'sp_material(DB)'
-    else:
-        name_lut, name_src = inv_name, 'inventory(回退)'
-    type_lut = inv_type
+    name_lut = db_name or inv_name
+    name_src = 'sp_material(DB)' if db_name else 'inventory(回退)'
     print(f'[MatSync] Material Name 来源={name_src}（{len(name_lut)} 条）, '
-          f'Material Type 来源=inventory（{len(type_lut)} 条）')
-    if not name_lut and not type_lut:
-        return inb, outb, {}
+          f'Material Type 来源=inventory（{len(inv_type)} 条）')
+    if not name_lut:
+        return inb, outb, inv, {}
 
     stats = {}
-    for name, path, df in (('inbound', INB_PATH, inb), ('outbound', OUTB_PATH, outb)):
-        if df is None or df.empty or 'Material No.' not in df.columns:
-            continue
-        keys = df['Material No.'].map(_norm_excl_value)
-        df = df.copy()
-        parts, changed_total = [], 0
-        for col, lut in (('Material Name', name_lut), ('Material Type', type_lut)):
-            if not lut:
-                continue
-            changed, missing = _overlay_column(df, keys, col, lut)
-            changed_total += changed
-            parts.append(f'{col} 替换 {changed} 行（未命中 {missing} 行保留原值）')
-        if changed_total == 0:
-            print(f'[MatSync] {name}: 无需替换')
-            continue
-        print(f'[MatSync] {name}: ' + '; '.join(parts))
-        _save_detail_xlsx(df, path)
-        stats[name] = changed_total
-        if name == 'inbound':
-            inb = df
-        else:
-            outb = df
-    return inb, outb, stats
+    for label, path, df in (('inbound', INB_PATH, inb), ('outbound', OUTB_PATH, outb),
+                            ('inventory', INV_PATH, inv)):
+        st = normalize_dataframe(df, name_lut=name_lut,
+                                 type_col='Material Type', type_lut=inv_type, label=label)
+        changed = _mat_sync_report(label, st)
+        if changed:
+            _save_detail_xlsx(df, path)
+            stats[label] = changed
+
+    # 转仓两份不参与主报表统计，只进 SP Details Report（邮件附件 + ?page=sp_details）
+    for label, path in (('transfer', TRANSFER_PATH), ('transfer_return', TRANSFER_RETURN_PATH)):
+        changed = _normalize_detail_file(path, label, name_lut)
+        if changed:
+            stats[label] = changed
+
+    # 原始快照：只改 Material Name，行数与行内容一律不动（含 Canceled / 剔除名单行）
+    for path in DETAIL_PATHS:
+        label = Path(path).stem.replace('_details', '') + '_source'
+        changed = _normalize_detail_file(raw_source_path(path), label, name_lut)
+        if changed:
+            stats[label] = changed
+    return inb, outb, inv, stats
 
 
 # ==============================================================================
@@ -1254,7 +1168,7 @@ def build_summary(inb_df, outb_df, inv_df):
             if k and dm is not None and not (isinstance(dm, float) and pd.isna(dm)) \
                     and str(dm).strip():
                 inv_domain.setdefault(k, str(dm).strip())
-    db_domain = get_material_maps()[2]
+    db_domain = load_material_maps()[2]
     merged['Domain'] = [db_domain.get(k) or inv_domain.get(k, '')
                         for k in merged['Material Name'].map(_norm_excl_value)]
 
@@ -2227,6 +2141,10 @@ def _build_filter_note(kind, material_type, warehouse_name=''):
         # 页面的「口径说明」面板取的是 Summary-Current 的说明行（见 sp_report_service
         # 的 notes），所以入库/出库都剔除的这条单独写出，不让它只藏在「same exclusions」里。
         parts.append(f"Status \u2260 '{DETAIL_DROP_STATUS[0]}'")
+    # 追加而不新增行：说明区的行数变了要同步 sp_report_service.SHEET_CONFIG 的 header_row，
+    # 否则整张表串行。Material Name 的来源每个 sheet 都一样，所以并到同一行末尾。
+    parts.append('Material Name = latest name from the material master (sp_material) '
+                 'resolved by Material No.')
     return 'Filters:  ' + '  |  '.join(parts)
 
 
@@ -2399,6 +2317,9 @@ def main():
     t0 = datetime.now()
     timestamp_str = datetime.now().strftime('%Y-%m-%d %H-%M-%S')
 
+    # Step 0: 刷新物料主数据（Material Name 的唯一来源），失败只告警、沿用库中现有表
+    refresh_material_master()
+
     # Step 1: SFTP download
     sftp_download()
 
@@ -2423,8 +2344,9 @@ def main():
     _opres_transfer = apply_operation_result_filter_to_file(TRANSFER_PATH, 'transfer')
     _opres_transfer_ret = apply_operation_result_filter_to_file(TRANSFER_RETURN_PATH, 'transfer_return')
 
-    # Step 2.5: 用 inventory 的 Material Name / Material Type 覆盖两份明细同名字段，并写回保存
-    inb, outb, _matname_stats = apply_inventory_fields(inb, outb, inv)
+    # Step 2.5: 五份明细（含 *_source 原始快照，只改名不动行）的 Material Name
+    #           按 Material No. 取物料主数据最新名，并写回保存
+    inb, outb, inv, _matname_stats = apply_material_master_fields(inb, outb, inv)
 
     # Step 3: Filter inbound and outbound types  —— 2026-09-08 停用（保留 ②仓库 与 ③Material Type）
     # inb, outb = filter_data(inb, outb)
@@ -2482,8 +2404,8 @@ def main():
         print(f'[Status] 汇总: inbound 剔除 WaitingForUpdate {_status_stats.get("inbound", 0)} 行, '
               f'outbound 剔除 WaitingForUpdate {_status_stats.get("outbound", 0)} 行')
     if _matname_stats:
-        print(f'[MatSync] 汇总: inbound 覆盖 {_matname_stats.get("inbound", 0)} 行, '
-              f'outbound 覆盖 {_matname_stats.get("outbound", 0)} 行')
+        print('[MatSync] 汇总: Material Name 按主数据覆盖 ' + ', '.join(
+            f'{k} {v} 行' for k, v in _matname_stats.items()))
     if _opres_stats or _opres_transfer or _opres_transfer_ret:
         print(f'[OpResult] 汇总: inbound 剔除 {_opres_stats.get("inbound", 0)} 行, '
               f'outbound 剔除 {_opres_stats.get("outbound", 0)} 行, '

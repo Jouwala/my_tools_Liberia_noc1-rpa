@@ -1,0 +1,10 @@
+# sp_material_name.py 运行依赖
+# 核心逻辑仅用标准库（logging / os / threading / time / typing）
+#
+# normalize_dataframe() 需要 pandas（调用方都以 pandas DataFrame 传明细，后端与报表
+# 子进程都已具备）；读物料主数据走 backend.database.get_raw_connection，因此：
+#   - MY_APP_DB_MODE=pg（生产）：需要 psycopg2 与 python-dotenv（backend/database.py 依赖）
+#   - sqlite 模式（默认/开发）：仅标准库 + pandas
+psycopg2>=2.9
+python-dotenv>=1.0
+pandas>=2.0
