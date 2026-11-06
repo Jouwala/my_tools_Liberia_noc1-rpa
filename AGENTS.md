@@ -63,7 +63,7 @@
 > - 通用：提交前 `git status --porcelain` 复查，没有运行时产物混入。
 > - **收尾自检（第四节第 7 条的机器可验证版本）**：`git status --porcelain` 里 `??` 行必须为空或全部是你本次要提交的真文件；出现 `_*.txt` / `*.bak_*` / `TMP/` 之类的行说明探针落了错误的地方。怀疑某个文件为何没被跟踪时问 `git check-ignore -v <路径>`，它会把命中的规则与所在文件行号打出来。
 > - my_app 前端：`cd Task\my_app\frontend` → `npm run check:i18n`（漏键守卫）→ `npm run build`（内含 `tsc`；产物必须落在 `Task\_fe_dist`，否则后端白屏）。
-> - **my_app 文档一致性**：`cd Task\my_app` → `python tests\test_doc_consistency.py`（16 个用例，核对手册与站内帮助里「从代码抄来的数字」：任务数 / 页面数 / iframe 页数 / worker 组数 / 队列保留期 / 路由数 / 凭据分组数 / 组件数 / 文件体积，以及「每个页面都有按页刷新设置」；**本地钩子与 CI 都会跑，文档与代码对不上会拦下提交**）。改动页面或任务后必须跑。详见 `Task\my_app\docs\manual\04-task-system.md`「文档一致性守卫」一节。
+> - **my_app 文档一致性**：`cd Task\my_app` → `python tests\test_doc_consistency.py`（17 个用例，核对手册与站内帮助里「从代码抄来的数字」：任务数 / 页面数 / iframe 页数 / worker 组数 / 队列保留期 / 路由数 / 凭据分组数 / 组件数 / 文件体积，以及「每个页面都有按页刷新设置」「看板下推的每张表都有本机 PG 巡检且窗口同档」；**本地钩子与 CI 都会跑，文档与代码对不上会拦下提交**）。改动页面或任务后必须跑。详见 `Task\my_app\docs\manual\04-task-system.md`「文档一致性守卫」一节。
 > - **my_app 帮助内容改动后**：`cd Task\my_app\frontend` → `npm run docs`（重生成 `15-user-help*.md` 与 `public\manual.html`）。
 > - 门户前端：`cd liberia-noc_soc-数据看板统一门户` → `npm run lint`（`tsc --noEmit`）→ `npm run build`。
 > - **门户文档一致性**：`cd liberia-noc_soc-数据看板统一门户` → `npm run check:docs`（6 个用例，核对 README/docs 里的看板条数 / 组件数 / 任务数；**本地钩子与 CI 都会跑**）。详见门户 `docs\development.md`「文档一致性」一节。
