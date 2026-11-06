@@ -1,6 +1,6 @@
 # my_app User Help & Guide
 
-> User-facing platform features & operations guide. Generated from the same source as the in-app Help page (frontend/src/helpMarkdown.ts), compiled from docs/manual/ and backend/task_registry.py. Generated on 2026-11-05.
+> User-facing platform features & operations guide. Generated from the same source as the in-app Help page (frontend/src/helpMarkdown.ts), compiled from docs/manual/ and backend/task_registry.py. Generated on 2026-11-06.
 
 > In-app entry: the "Help" sidebar item, or `http://<host>/myapp/?page=help` directly.
 
@@ -112,7 +112,7 @@ Built for the NOC scenario "boards every day, reports must go out": 41+ schedule
 | CNN UME KPI Sync | `cnn_kpi_sync` | `0 6 * * *` | n | `services/ccn_ume_kpi_service.py → run_cnn_kpi_sync` |
 | CNN UME KPI 5-Min Sync | `cnn_kpi_sync_5mins` | `*/15 * * * *` | n | `services/cnn_ume_kpi_5mins_service.py → run_cnn_kpi_sync_5mins` |
 | SP Spare Data Sync | `sp_data_sync` | `10 * * * *` | s | `services/get_sp_table.py → run_sp_data_sync` |
-| iPRAN UME KPI Sync | `ipran_kpi_sync` | `0 8 * * *` | u | `services/ipran_ume_kpi_service.py → run_ipran_kpi_sync` |
+| iPRAN UME KPI Sync | `ipran_kpi_sync` | `0 * * * *` | u | `services/ipran_ume_kpi_service.py → run_ipran_kpi_sync` |
 | Liberia Site-Down 1H Report Email | `liberia_email_1h` | `15 * * * *` | m | `services/liberia_email_report.py → run_1h_report` |
 | Liberia Site-Down 8H Report Email | `liberia_email_8h` | `20 */8 * * *` | m | `services/liberia_email_report.py → run_8h_report` |
 | MS Contract KPIs Daily Report Email | `kpi_ms_contract` | `30 5 * * *` | m | `services/kpi_email_report.py → run_ms_contract_kpi` |
@@ -674,7 +674,7 @@ Workflow & maintenance notes per task:
 
 #### iPRAN UME KPI Sync（`ipran_kpi_sync`）
 
-- Default cron: `0 8 * * *`　|　worker group: **u**
+- Default cron: `0 * * * *`　|　worker group: **u**
 - Workflow script: `services/ipran_ume_kpi_service.py → run_ipran_kpi_sync`
 
 **What it does**: iPRAN UME M6000 router KPI sync (HQ M6K-FW etc.), export Excel + SQLite import + FTP upload
@@ -686,7 +686,7 @@ Workflow & maintenance notes per task:
 
 **Maintenance**:
 
-- Output also feeds ipran_m6k_chart_email (06:45); runs at 08:00 within group u
+- Output also feeds ipran_m6k_chart_email (06:45), which reads whichever hourly round finished last; the hourly full pull is the intended cadence (confirmed with the user 2026-11-06, code default now matches)
 
 #### Liberia Site-Down 1H Report Email（`liberia_email_1h`）
 
@@ -991,7 +991,7 @@ Workflow & maintenance notes per task:
 
 **Maintenance**:
 
-- Depends on the previous day's 08:00 ipran_kpi_sync; empty charts or failure follow u-group sync failures
+- Depends on the latest hourly ipran_kpi_sync round; empty charts or failure follow u-group sync failures
 
 #### CNN Free Rating Chart Email（`ccn_free_rating_chart_email`）
 

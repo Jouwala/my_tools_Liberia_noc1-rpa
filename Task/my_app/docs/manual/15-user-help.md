@@ -1,6 +1,6 @@
 # my_app 使用帮助
 
-> 面向使用者的平台功能与操作指南。本文件由「使用帮助」页面同源生成（frontend/src/helpMarkdown.ts），内容依据 docs/manual/ 各章与 backend/task_registry.py 整理。生成日期：2026-11-05。
+> 面向使用者的平台功能与操作指南。本文件由「使用帮助」页面同源生成（frontend/src/helpMarkdown.ts），内容依据 docs/manual/ 各章与 backend/task_registry.py 整理。生成日期：2026-11-06。
 
 > 站内入口：侧边栏「使用帮助」，或直链 `http://<host>/myapp/?page=help`。
 
@@ -112,7 +112,7 @@
 | CNN UME KPI 同步 | `cnn_kpi_sync` | `0 6 * * *` | n | `services/ccn_ume_kpi_service.py → run_cnn_kpi_sync` |
 | CNN UME KPI 5分钟同步 | `cnn_kpi_sync_5mins` | `*/15 * * * *` | n | `services/cnn_ume_kpi_5mins_service.py → run_cnn_kpi_sync_5mins` |
 | SP 备件数据同步 | `sp_data_sync` | `10 * * * *` | s | `services/get_sp_table.py → run_sp_data_sync` |
-| iPRAN UME KPI 同步 | `ipran_kpi_sync` | `0 8 * * *` | u | `services/ipran_ume_kpi_service.py → run_ipran_kpi_sync` |
+| iPRAN UME KPI 同步 | `ipran_kpi_sync` | `0 * * * *` | u | `services/ipran_ume_kpi_service.py → run_ipran_kpi_sync` |
 | Liberia 宕站 1小时报告邮件 | `liberia_email_1h` | `15 * * * *` | m | `services/liberia_email_report.py → run_1h_report` |
 | Liberia 宕站 8小时报告邮件 | `liberia_email_8h` | `20 */8 * * *` | m | `services/liberia_email_report.py → run_8h_report` |
 | MS Contract KPIs 日报邮件 | `kpi_ms_contract` | `30 5 * * *` | m | `services/kpi_email_report.py → run_ms_contract_kpi` |
@@ -674,7 +674,7 @@
 
 #### iPRAN UME KPI 同步（`ipran_kpi_sync`）
 
-- 默认 cron: `0 8 * * *`　|　worker 组: **u**
+- 默认 cron: `0 * * * *`　|　worker 组: **u**
 - 工作流脚本: `services/ipran_ume_kpi_service.py → run_ipran_kpi_sync`
 
 **功能**: iPRAN UME M6000 路由器 KPI 同步（HQ M6K-FW 等），导出 Excel 并导入 SQLite + FTP 上传
@@ -686,7 +686,7 @@
 
 **维护要点**:
 
-- 产出同时供 ipran_m6k_chart_email（06:45）出图；u 组内排在 08:00
+- 产出同时供 ipran_m6k_chart_email（06:45）出图，邮件读到的是最近一轮已完成的小时同步；每小时全量拉取是本意（2026-11-06 与用户确认，代码默认值已按此对齐）
 
 #### Liberia 宕站 1小时报告邮件（`liberia_email_1h`）
 
@@ -991,7 +991,7 @@
 
 **维护要点**:
 
-- 依赖前一天 08:00 ipran_kpi_sync 的数据；u 组任务失败时本邮件会出空图或失败
+- 依赖 ipran_kpi_sync 最近一轮（每小时）的数据；u 组任务失败时本邮件会出空图或失败
 
 #### CNN Free Rating 图表邮件（`ccn_free_rating_chart_email`）
 

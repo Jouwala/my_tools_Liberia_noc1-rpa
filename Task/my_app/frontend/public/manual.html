@@ -89,7 +89,7 @@ footer.colophon { text-align: center; color: var(--muted); font-size: 12px; marg
     <div class="logo">📘</div>
     <h1>my_app 项目手册</h1>
     <div class="sub">网络运维数据平台 · 设计手册 + 使用手册</div>
-    <div class="meta">基准日期 2026-08-27　|　适用版本 master 当前代码　|　HTML 合成生成 2026-11-05<br>含 13 章 · 140 个小节　|　打印本页（Ctrl+P）即可导出 PDF<br>英文版使用帮助另见仓库 docs/manual/15-user-help-en.md</div>
+    <div class="meta">基准日期 2026-08-27　|　适用版本 master 当前代码　|　HTML 合成生成 2026-11-06<br>含 13 章 · 140 个小节　|　打印本页（Ctrl+P）即可导出 PDF<br>英文版使用帮助另见仓库 docs/manual/15-user-help-en.md</div>
     <ul class="parts"><li><a href="#ch-00">前言 · 关于本手册</a></li><li><a href="#ch-01">设计篇 · 01 项目总览</a></li><li><a href="#ch-02">设计篇 · 02 架构设计</a></li><li><a href="#ch-03">设计篇 · 03 数据层设计</a></li><li><a href="#ch-04">设计篇 · 04 任务与调度系统</a></li><li><a href="#ch-05">设计篇 · 05 访问控制与凭据</a></li><li><a href="#ch-10">使用篇 · 10 快速上手</a></li><li><a href="#ch-11">使用篇 · 11 功能页使用手册</a></li><li><a href="#ch-12">使用篇 · 12 配置项与开关</a></li><li><a href="#ch-13">使用篇 · 13 运维手册</a></li><li><a href="#ch-14">使用篇 · 14 外部系统与数据流</a></li><li><a href="#ch-15">使用篇 · 使用帮助（一站式指南）</a></li><li><a href="#ch-90">附录 · 90 附录</a></li></ul>
   </section>
   <section class="toc-section">
@@ -1335,8 +1335,8 @@ python tests/test_doc_consistency.py
 </tr>
 <tr>
 <td><code>ipran_kpi_sync</code></td>
-<td>iPRAN UME KPI 同步</td>
-<td><code>0 8 * * *</code></td>
+<td>iPRAN UME KPI 同步（<strong>每小时全量拉取 3 天窗口是本意</strong>，2026-11-06 与用户确认；写入侧按远端水位增量裁剪）</td>
+<td><code>0 * * * *</code></td>
 <td>u</td>
 </tr>
 <tr>
@@ -15853,48 +15853,50 @@ HKCU\...\Run      → start_hidden.vbs → start_hidden.ps1 -Quiet
 saved_cron, saved_enabled = _load_schedule_config(task_id)
 current_cron = saved_cron if saved_cron else default_cron   # ← 数据库赢
 </code></pre>
-<p><code>task_schedule_config</code> 有 <strong>51 条</strong>记录，其中 <strong>19 条与代码 <code>default_cron</code>
-不同</strong>（在任务管理页改过）。这意味着<strong>改 <code>task_registry.py</code> 的默认值对已存在
-的任务完全无效，且不留任何痕迹</strong>。</p>
+<p><code>task_schedule_config</code> 有 <strong>73 条</strong>记录，其中 <strong>20 条与代码 <code>default_cron</code>
+不同</strong>（2026-11-06 实测，在任务管理页改过）。这意味着<strong>改 <code>task_registry.py</code>
+的默认值对已存在的任务完全无效，且不留任何痕迹</strong>。</p>
 <p>实测踩到的坑：<code>sp_online_sync</code> 代码已改为 <code>35 */6 * * *</code>，但数据库仍是
 <code>35 * * * *</code>，<strong>实际仍按小时跑</strong>（见上文&quot;缺陷 3&quot;的更正）。</p>
-<p>高频覆盖示例（2026-10-04 实测）：</p>
+<p>覆盖与对齐情况（2026-11-06 实测；复核命令见本节末）：</p>
 <table>
 <thead>
 <tr>
 <th>任务</th>
 <th>代码默认</th>
 <th><strong>实际生效</strong></th>
-<th>频率</th>
+<th>状态</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><code>eflow_active_alarm</code></td>
-<td><code>*/30 * * * *</code></td>
-<td><strong><code>*/5 * * * *</code></strong></td>
-<td>288 次/天</td>
-</tr>
-<tr>
 <td><code>sp_online_sync</code></td>
 <td><code>35 */6 * * *</code></td>
 <td><code>35 * * * *</code></td>
-<td>24 次/天</td>
+<td><strong>错配</strong>，库里压着代码，实际每小时</td>
 </tr>
 <tr>
 <td><code>ipran_kpi_sync</code></td>
-<td><code>0 8 * * *</code></td>
 <td><code>0 * * * *</code></td>
-<td>24 次/天</td>
+<td><code>0 * * * *</code></td>
+<td>已对齐：每小时全量拉取是本意（2026-11-06 与用户确认），默认值此前写着每天 08:00 属于反向坑，新部署会静默日更</td>
+</tr>
+<tr>
+<td><code>eflow_active_alarm</code></td>
+<td><code>*/1 * * * *</code></td>
+<td><code>*/1 * * * *</code></td>
+<td>已对齐（2026-10-04 那版记录写的是默认 <code>*/30</code> / 生效 <code>*/5</code>，两边都已变）</td>
 </tr>
 </tbody>
 </table>
-<p><strong>处置</strong>：① <strong>不改用户已配置的值</strong>（<code>eflow_active_alarm</code> 的 <code>*/5</code> 经确认保留，
-实时告警看板需要该粒度；且它走 <code>ensure_login()</code> 共享会话，<strong>实测今日 eFlow
-真实登录 0 次</strong>，不构成登录风暴）；② 在注册期对&quot;代码默认值 ≠ 生效值&quot;打
+<blockquote>
+<p>⚠ 本节的条数与示例值都是<strong>从库里读出来的快照</strong>，任务管理页每改一次就会变。
+引用前先跑一次下面的复核命令，不要拿本文的数字当现状。</p>
+</blockquote>
+<p><strong>复核命令</strong>：<code>cd Task\my_app ; python TMP\_check_schedule_override.py</code>（只读，打印上表三行 + 全部错配 task_id 与条数）。
+<code>TMP/_verify_schedule_override_warn.py</code> 是 2026-10-31 那次审计的一次性探针，<strong>本机已不存在</strong>，它当时报的「6/6、19 条错配」也随之过期 —— 现在以 <code>_check_schedule_override.py</code> 的读数为准。</p>
+<p><strong>处置</strong>：① <strong>不改用户已配置的值</strong>（<code>eflow_active_alarm</code> 2026-10-04 那轮读到的生效值是 <code>*/5</code>、经确认保留；现在库里与代码默认都是 <code>*/1 * * * *</code>，即每分钟一次 —— 实时告警看板需要该粒度，且它走 <code>ensure_login()</code> 共享会话，当时<strong>实测当日 eFlow 真实登录 0 次</strong>，不构成登录风暴）；② 在注册期对&quot;代码默认值 ≠ 生效值&quot;打
 <strong>WARNING</strong>（<code>task_runner.py:330-346</code>），让&quot;以为改了其实没生效&quot;当场可见。</p>
-<p><strong>离线验证</strong>：<code>python TMP/_verify_schedule_override_warn.py</code>
-→ <code>ALL_SCHEDULE_OVERRIDE_WARN_CHECKS_PASSED</code>（6/6，并列出全部 19 条错配）。</p>
 <blockquote>
 <p><strong>想改生效 cron 的正确做法</strong>：用任务管理页（<code>PUT /api/tasks/{id}/schedule</code>，
 <code>backend/routers/tasks.py:175</code>），或删掉该任务的 <code>task_schedule_config</code> 行
@@ -16433,7 +16435,7 @@ shared <code>auth_cache</code> 里 admin 的 token 明明还有 14.6 小时有�
     <h2>使用帮助（一站式指南）</h2>
   </header>
   <blockquote>
-<p>面向使用者的平台功能与操作指南。本文件由「使用帮助」页面同源生成（frontend/src/helpMarkdown.ts），内容依据 docs/manual/ 各章与 backend/task_registry.py 整理。生成日期：2026-11-05。</p>
+<p>面向使用者的平台功能与操作指南。本文件由「使用帮助」页面同源生成（frontend/src/helpMarkdown.ts），内容依据 docs/manual/ 各章与 backend/task_registry.py 整理。生成日期：2026-11-06。</p>
 </blockquote>
 <blockquote>
 <p>站内入口：侧边栏「使用帮助」，或直链 <code>http://&lt;host&gt;/myapp/?page=help</code>。</p>
@@ -16761,7 +16763,7 @@ shared <code>auth_cache</code> 里 admin 的 token 明明还有 14.6 小时有�
 <tr>
 <td>iPRAN UME KPI 同步</td>
 <td><code>ipran_kpi_sync</code></td>
-<td><code>0 8 * * *</code></td>
+<td><code>0 * * * *</code></td>
 <td>u</td>
 <td><code>services/ipran_ume_kpi_service.py → run_ipran_kpi_sync</code></td>
 </tr>
@@ -17669,7 +17671,7 @@ shared <code>auth_cache</code> 里 admin 的 token 明明还有 14.6 小时有�
 <p><a id="ch-15-s32"></a></p>
 <h5>iPRAN UME KPI 同步（<code>ipran_kpi_sync</code>）</h5>
 <ul>
-<li>默认 cron: <code>0 8 * * *</code>　|　worker 组: <strong>u</strong></li>
+<li>默认 cron: <code>0 * * * *</code>　|　worker 组: <strong>u</strong></li>
 <li>工作流脚本: <code>services/ipran_ume_kpi_service.py → run_ipran_kpi_sync</code></li>
 </ul>
 <p><strong>功能</strong>: iPRAN UME M6000 路由器 KPI 同步（HQ M6K-FW 等），导出 Excel 并导入 SQLite + FTP 上传</p>
@@ -17680,7 +17682,7 @@ shared <code>auth_cache</code> 里 admin 的 token 明明还有 14.6 小时有�
 </ol>
 <p><strong>维护要点</strong>:</p>
 <ul>
-<li>产出同时供 ipran_m6k_chart_email（06:45）出图；u 组内排在 08:00</li>
+<li>产出同时供 ipran_m6k_chart_email（06:45）出图，邮件读到的是最近一轮已完成的小时同步；每小时全量拉取是本意（2026-11-06 与用户确认，代码默认值已按此对齐）</li>
 </ul>
 <p><a id="ch-15-s33"></a></p>
 <h5>Liberia 宕站 1小时报告邮件（<code>liberia_email_1h</code>）</h5>
@@ -17985,7 +17987,7 @@ shared <code>auth_cache</code> 里 admin 的 token 明明还有 14.6 小时有�
 </ol>
 <p><strong>维护要点</strong>:</p>
 <ul>
-<li>依赖前一天 08:00 ipran_kpi_sync 的数据；u 组任务失败时本邮件会出空图或失败</li>
+<li>依赖 ipran_kpi_sync 最近一轮（每小时）的数据；u 组任务失败时本邮件会出空图或失败</li>
 </ul>
 <p><a id="ch-15-s50"></a></p>
 <h5>CNN Free Rating 图表邮件（<code>ccn_free_rating_chart_email</code>）</h5>
@@ -20094,7 +20096,7 @@ shared <code>auth_cache</code> 里 admin 的 token 明明还有 14.6 小时有�
 <p><strong>保留在 PROJECT_DOCS.md 不动</strong>（属于历史决策与复盘，不是&quot;现状描述&quot;）：§2 迁移计划、§3 架构评估与 Django 论证、§4 FastAPI 架构优化方案、§5–§6 i18n 审计与复查、§8 IP Trace 集成方案、§10 迁移失败复盘、§11 优化建议。</p>
 
 </section>
-  <footer class="colophon">my_app 项目手册 · 由 frontend/scripts/generate-manual-html.mjs 从 docs/manual/*.md 同源生成于 2026-11-05 · 改 MD 后重跑该脚本并重新构建前端即可更新</footer>
+  <footer class="colophon">my_app 项目手册 · 由 frontend/scripts/generate-manual-html.mjs 从 docs/manual/*.md 同源生成于 2026-11-06 · 改 MD 后重跑该脚本并重新构建前端即可更新</footer>
 </div>
 </body>
 </html>
