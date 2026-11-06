@@ -20,7 +20,7 @@ sync_team_assets.py —— 把上游 v3/olbrportal/ 的共享资产同步到 v3/
 同步规则（逐文件）
 ------------------
   · **纯共享**（同一份字节）：直接复制。
-      olbr-data.js / masthead.css / qa-assistant.css / _local-credentials.js / logo-*.png
+      olbr-data.js / masthead.css / qa-assistant.css / logo-*.png
 
   · **需要打补丁**：以上游为基线 + 固定的一组补丁。
       olbr.js         —— 由 patch_team_portal.py 负责（它另有 --check）
@@ -78,7 +78,9 @@ PLAIN_SHARED = [
     "olbr-data.js",
     "masthead.css",
     "qa-assistant.css",
-    "_local-credentials.js",
+    # _local-credentials.js 刻意不在列：它被门户 .gitignore 的 `_*` 规则覆盖、从未入库，
+    # 列进来等于要求「干净检出必须有一个 git 里没有的文件」，CI 因此永远红（2026-11-06）。
+    # 它本身也已在 2026-10-14 停用，olbr.js 里加载它的 qaCredHtml()/loadQaCred() 整条删除。
     "logo-olr-ms-116.png",
     "logo-olr-ms-174.png",
     "logo-qa-badge-112.png",

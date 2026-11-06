@@ -174,7 +174,7 @@ python scripts/check_scope_coverage.py        作用域覆盖度对账（上游�
 | 你改了什么 | 要重跑什么 |
 | --- | --- |
 | 上游 `olbr.js` | `python scripts/patch_team_portal.py` |
-| 上游 `olbr-data.js` / `masthead.css` / `qa-assistant.*` / logo / `_local-credentials.js` | `python scripts/sync_team_assets.py` |
+| 上游 `olbr-data.js` / `masthead.css` / `qa-assistant.*` / logo | `python scripts/sync_team_assets.py` |
 | `v3/team_portal/scope-map.json`（矩阵或映射） | `python scripts/gen_team_matrix.py` |
 | 上游新增了内容容器 | 先在 `v3/team_portal/block-manifest.json` 登记，再跑上面的脚本 |
 

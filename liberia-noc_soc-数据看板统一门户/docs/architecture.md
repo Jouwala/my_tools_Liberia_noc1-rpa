@@ -1728,7 +1728,7 @@ url 片段映射、当前生效的矩阵。Excel 降级为**一个编辑器**：
 
   | 资产 | 处置 |
   | --- | --- |
-  | `olbr-data.js` / `masthead.css` / `qa-assistant.css` / `_local-credentials.js` / `logo-*.png` | 逐字节复制 |
+  | `olbr-data.js` / `masthead.css` / `qa-assistant.css` / `logo-*.png` | 逐字节复制 |
   | `olbr.css` | 上游 + 团队门户专有样式（纯新增，不改写既有规则） |
   | `qa-assistant.js` | 上游 + Quick Q&A 的作用域判据 |
   | `olbr.js` | 由 `patch_team_portal.py` 负责（它另有 `--check`） |
