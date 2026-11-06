@@ -100,6 +100,13 @@ function describeNoToken(t: (k: string) => string, isLocal: boolean) {
   return isLocal ? t('user.localNoToken') : t('user.noPortalToken')
 }
 
+/** 用户ID（工号）被别的账号占用时后端回 409 + 机器码 staff_id_taken，
+ *  建号 / 改资料 / 审批三条链路都要把它翻成人话，别直接摆在界面上。 */
+function contactErrorText(e: any, t: (k: string) => string): string {
+  const detail = e?.detail || e?.message
+  return detail === 'staff_id_taken' ? t('user.staffIdTaken') : (detail || t('user.opFailed'))
+}
+
 /* ==================== 改密弹窗 ==================== */
 function ChangePasswordModal({
   open,
@@ -281,6 +288,10 @@ function UserManagementModal({
   const [newName, setNewName] = useState('')
   const [newPwd, setNewPwd] = useState('')
   const [newRole, setNewRole] = useState<'admin' | 'viewer'>('viewer')
+  // 建号时一并录入的联系资料（选填），与 /uniplam/、/v3/olbrportal/ 的表单同一套字段
+  const [newStaffId, setNewStaffId] = useState('')
+  const [newPhone, setNewPhone] = useState('')
+  const [newEmail, setNewEmail] = useState('')
   const [adding, setAdding] = useState(false)
 
   // 改他人密码
@@ -296,6 +307,10 @@ function UserManagementModal({
   // 团队门户归属：'' = 未指派。与 landing/白名单是**独立**的一维：
   // 白名单管「看得到哪些看板」，team 管「进哪个门户」。
   const [team, setTeam] = useState<string>('')
+  // 联系资料在「权限配置」面板里一并编辑：服务端是增量 patch，预填当前值再整包提交是安全的
+  const [profileStaffId, setProfileStaffId] = useState('')
+  const [profilePhone, setProfilePhone] = useState('')
+  const [profileEmail, setProfileEmail] = useState('')
   const [savingProfile, setSavingProfile] = useState(false)
 
   const [approveRoles, setApproveRoles] = useState<Record<string, 'admin' | 'viewer'>>({})
@@ -327,12 +342,15 @@ function UserManagementModal({
     if (newPwd.length < 8) { message.error(t('user.pwdTooShort')); return }
     setAdding(true)
     try {
-      await portalCreateUser(newName.trim(), newPwd, newRole)
+      await portalCreateUser(newName.trim(), newPwd, newRole, {
+        staffId: newStaffId, phone: newPhone, email: newEmail,
+      })
       message.success(t('user.userAdded'))
       setNewName(''); setNewPwd(''); setNewRole('viewer')
+      setNewStaffId(''); setNewPhone(''); setNewEmail('')
       await load()
     } catch (e: any) {
-      message.error(e?.detail || e?.message || t('user.opFailed'))
+      message.error(contactErrorText(e, t))
     } finally {
       setAdding(false)
     }
@@ -365,6 +383,9 @@ function UserManagementModal({
     setGroups(u.allowedGroups ?? [])
     setCards(u.allowedCards ?? [])
     setTeam(u.team ?? '')
+    setProfileStaffId(u.staffId ?? '')
+    setProfilePhone(u.phone ?? '')
+    setProfileEmail(u.email ?? '')
   }
 
   const saveProfile = async () => {
@@ -376,12 +397,16 @@ function UserManagementModal({
         allowedCards: cards.length ? cards : null,
         // team：空字符串 = 未指派（传 null 清除）；有值 = 指派到该团队。
         team: (team || null) as TeamId | null,
+        // 空串 = 清除该字段（服务端清洗后删除），存量账号也能在这里补录
+        staffId: profileStaffId,
+        phone: profilePhone,
+        email: profileEmail,
       })
       message.success(t('user.profileSaved'))
       setProfileId('')
       await load()
     } catch (e: any) {
-      message.error(e?.detail || e?.message || t('user.opFailed'))
+      message.error(contactErrorText(e, t))
     } finally {
       setSavingProfile(false)
     }
@@ -395,7 +420,8 @@ function UserManagementModal({
       message.success(t('user.opOk'))
       await load()
     } catch (e: any) {
-      message.error(e?.detail || e?.message || t('user.opFailed'))
+      // 申请提交后、审批前可能有别的账号占用了同一个用户ID → 409
+      message.error(contactErrorText(e, t))
     } finally {
       setDecidingId('')
     }
@@ -440,6 +466,8 @@ function UserManagementModal({
                 <thead>
                   <tr style={{ textAlign: 'left' }}>
                     <th style={{ padding: '0.4rem', borderBottom: cellBorder }}>{t('user.username')}</th>
+                    <th style={{ padding: '0.4rem', borderBottom: cellBorder }}>{t('user.colStaffId')}</th>
+                    <th style={{ padding: '0.4rem', borderBottom: cellBorder }}>{t('user.colContact')}</th>
                     <th style={{ padding: '0.4rem', borderBottom: cellBorder }}>{t('user.role')}</th>
                     <th style={{ padding: '0.4rem', borderBottom: cellBorder }}>{t('user.mustChange')}</th>
                     <th style={{ padding: '0.4rem', borderBottom: cellBorder }}>{t('user.landing')}</th>
@@ -451,6 +479,17 @@ function UserManagementModal({
                   {users.map((u) => (
                     <tr key={u.id}>
                       <td style={{ padding: '0.4rem', borderBottom: cellBorder }}>{u.username}</td>
+                      <td style={{ padding: '0.4rem', borderBottom: cellBorder, fontFamily: 'monospace', fontSize: '0.72rem' }}>
+                        {u.staffId || '—'}
+                      </td>
+                      <td style={{ padding: '0.4rem', borderBottom: cellBorder, fontSize: '0.72rem', color: 'var(--wh-text-muted)', maxWidth: '10rem' }}>
+                        {u.phone || u.email ? (
+                          <div style={{ display: 'flex', flexDirection: 'column' }}>
+                            {u.phone && <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{u.phone}</span>}
+                            {u.email && <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{u.email}</span>}
+                          </div>
+                        ) : '—'}
+                      </td>
                       <td style={{ padding: '0.4rem', borderBottom: cellBorder }}>
                         <Tag color={u.role === 'admin' ? 'violet' : 'default'}>
                           {u.role === 'admin' ? t('user.roleAdmin') : t('user.roleViewer')}
@@ -567,6 +606,32 @@ function UserManagementModal({
                   })),
                 ]}
               />
+              {/* ---- 联系资料（2026-11-06 加）----
+                  与 /uniplam/、/v3/olbrportal/ 的管理面板同一套字段；
+                  空串 = 清除该字段，服务端按增量 patch 处理，不会动到白名单与团队。 */}
+              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                <Input
+                  style={{ width: '10rem' }}
+                  maxLength={32}
+                  placeholder={t('user.staffIdPh')}
+                  value={profileStaffId}
+                  onChange={(e) => setProfileStaffId(e.target.value)}
+                />
+                <Input
+                  style={{ width: '10rem' }}
+                  maxLength={32}
+                  placeholder={t('user.phonePh')}
+                  value={profilePhone}
+                  onChange={(e) => setProfilePhone(e.target.value)}
+                />
+                <Input
+                  style={{ width: '14rem' }}
+                  maxLength={128}
+                  placeholder={t('user.emailPh')}
+                  value={profileEmail}
+                  onChange={(e) => setProfileEmail(e.target.value)}
+                />
+              </div>
               <div style={{ fontSize: '0.75rem', color: 'var(--wh-text-muted)' }}>
                 {t('user.teamHint')}
               </div>
@@ -602,6 +667,28 @@ function UserManagementModal({
                 { value: 'admin', label: t('user.roleAdmin') },
               ]}
             />
+            {/* 联系资料选填；与另外两个入口的 Add User 表单同字段 */}
+            <Input
+              style={{ width: '9rem' }}
+              maxLength={32}
+              placeholder={t('user.staffIdPh')}
+              value={newStaffId}
+              onChange={(e) => setNewStaffId(e.target.value)}
+            />
+            <Input
+              style={{ width: '9rem' }}
+              maxLength={32}
+              placeholder={t('user.phonePh')}
+              value={newPhone}
+              onChange={(e) => setNewPhone(e.target.value)}
+            />
+            <Input
+              style={{ width: '12rem' }}
+              maxLength={128}
+              placeholder={t('user.emailPh')}
+              value={newEmail}
+              onChange={(e) => setNewEmail(e.target.value)}
+            />
             <Button type="primary" size="small" icon={<PlusOutlined />} loading={adding} onClick={() => void addUser()}>
               {t('user.addUser')}
             </Button>
@@ -617,7 +704,15 @@ function UserManagementModal({
             ) : (
               requests.map((r) => (
                 <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.4rem', borderBottom: cellBorder, flexWrap: 'wrap' }}>
-                  <span style={{ fontWeight: 500, minWidth: '8rem' }}>{r.username}</span>
+                  <span style={{ fontWeight: 500, minWidth: '8rem' }}>
+                    {r.username}
+                    {/* 申请时填的用户ID / 电话 / 邮箱：老申请没有这些字段，故整块可省 */}
+                    {(r.staffId || r.phone || r.email) && (
+                      <span style={{ display: 'block', fontWeight: 400, fontSize: '0.68rem', color: 'var(--wh-text-muted)' }}>
+                        {[r.staffId, r.phone, r.email].filter(Boolean).join(' · ')}
+                      </span>
+                    )}
+                  </span>
                   <span style={{ fontSize: '0.72rem', color: 'var(--wh-text-muted)' }}>
                     {r.note || '—'}
                   </span>

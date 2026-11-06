@@ -582,6 +582,23 @@ const zh: Record<string, string> = {
   'ar.approved': '已批准 {name}：申请时设置的密码即刻生效，其首次登录需修改密码',
   'ar.rejected': '已驳回 {name} 的账号申请',
   'ar.notFound': '申请不存在或已被处理',
+
+  // —— 联系资料（用户ID / 电话 / 邮箱，2026-11-06 加）——
+  'contact.staffId': '用户ID',
+  'contact.staffIdPh': '用户ID／工号（选填）',
+  'contact.phone': '电话',
+  'contact.phonePh': '电话（选填）',
+  'contact.email': '邮箱',
+  'contact.emailPh': '邮箱（选填）',
+  'contact.optionalTip': '以下资料选填，审批通过后会随账号保存，便于管理员核对与联系',
+  'um.colStaffId': '用户ID',
+  'um.colContact': '联系方式',
+  'um.contactEdit': '编辑资料',
+  'um.contactSave': '保存资料',
+  'um.contactSaved': '已保存 {name} 的联系资料',
+  'um.contactCancel': '取消',
+  'um.staffIdTaken': '该用户ID已被其它账号使用',
+  'ar.staffIdTaken': '该用户ID已被使用，请更换或联系管理员',
 };
 
 const en: Record<string, string> = {
@@ -1155,6 +1172,23 @@ const en: Record<string, string> = {
   'ar.approved': 'Approved {name}: the password set at sign-up is now active (password change required at first login)',
   'ar.rejected': 'Rejected the account request from {name}',
   'ar.notFound': 'Request not found or already handled',
+
+  // Contact fields (user ID / phone / email, added 2026-11-06)
+  'contact.staffId': 'User ID',
+  'contact.staffIdPh': 'User ID / employee no. (optional)',
+  'contact.phone': 'Phone',
+  'contact.phonePh': 'Phone (optional)',
+  'contact.email': 'Email',
+  'contact.emailPh': 'Email (optional)',
+  'contact.optionalTip': 'Optional. Saved with the account once approved, so the admin can verify and contact you.',
+  'um.colStaffId': 'User ID',
+  'um.colContact': 'Contact',
+  'um.contactEdit': 'Edit contact',
+  'um.contactSave': 'Save contact',
+  'um.contactSaved': 'Contact info saved for {name}',
+  'um.contactCancel': 'Cancel',
+  'um.staffIdTaken': 'This user ID is already used by another account',
+  'ar.staffIdTaken': 'This user ID is already in use. Pick another one or contact the admin.',
 };
 
 // ============================================================================

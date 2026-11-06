@@ -15,6 +15,8 @@ import {
   sanitizeLanding,
   sanitizeNames,
   sanitizeTeam,
+  sanitizeContact,
+  normalizeStaffId,
   type PageProfilePatch,
   type PublicRequest,
   type PublicUser,
@@ -23,6 +25,7 @@ import {
   type Role,
   type Session,
   type StoredUser,
+  type UserContact,
 } from './types';
 
 // ============================================================================
@@ -133,8 +136,47 @@ export class AuthStore {
     return user;
   }
 
-  createUser(username: string, password: string, role: Role, team?: unknown): PublicUser {
+  /**
+   * 工号唯一性校验（2026-11-06 加）：同一工号不能同时挂在两个账号或两条待审申请上。
+   * 只做应用层校验，不建数据库唯一索引 —— JSON 兜底后端与历史数据都要走同一套口径，
+   * 而且存量账号该字段为空，建索引也挡不住「空值」以外的边界。
+   * 冲突抛 'staff_id_taken'，由 routes.ts 映射成 409。
+   */
+  private assertStaffIdAvailable(
+    staffId: string | undefined,
+    opts: { excludeUserId?: string; excludeRequestId?: string } = {}
+  ): void {
+    const key = normalizeStaffId(staffId);
+    if (!key) return;
+    if (
+      this.users.some(
+        (u) => u.id !== opts.excludeUserId && normalizeStaffId(u.staffId) === key
+      )
+    ) {
+      throw new Error('staff_id_taken');
+    }
+    if (
+      this.requests.some(
+        (r) =>
+          r.id !== opts.excludeRequestId &&
+          r.status === 'pending' &&
+          normalizeStaffId(r.staffId) === key
+      )
+    ) {
+      throw new Error('staff_id_taken');
+    }
+  }
+
+  createUser(
+    username: string,
+    password: string,
+    role: Role,
+    team?: unknown,
+    contact?: unknown
+  ): PublicUser {
     this.ensureLoaded();
+    const clean = sanitizeContact(contact);
+    this.assertStaffIdAvailable(clean.staffId);
     const user: StoredUser = {
       id: newId(),
       username: username.trim().toLowerCase(),
@@ -144,6 +186,7 @@ export class AuthStore {
       createdAt: new Date().toISOString(),
       // 建号时直接归属团队：非法值视为未指派，不静默保留脏数据
       team: team == null || team === '' ? null : (sanitizeTeam(team) ?? null),
+      ...clean,
     };
     this.users.push(user);
     this.persist();
@@ -194,6 +237,26 @@ setProfile(id: string, patch: PageProfilePatch): PublicUser | null {
   if (patch.team !== undefined) {
     user.team = patch.team === null ? null : (sanitizeTeam(patch.team) ?? null);
   }
+  /* 联系资料（2026-11-06）：缺省 = 不改；null / 空串 = 清除。
+     先在临时对象里算完再校验再落值 —— 工号冲突时不能把内存里的 user 改一半。 */
+  const contactKeys: (keyof UserContact)[] = ['staffId', 'phone', 'email'];
+  const nextContact: UserContact = {};
+  for (const key of contactKeys) {
+    const raw = patch[key];
+    if (raw === undefined) continue;
+    nextContact[key] =
+      raw === null ? undefined : sanitizeContact({ [key]: raw })[key];
+  }
+  if (Object.keys(nextContact).length > 0) {
+    const finalStaffId =
+      'staffId' in nextContact ? nextContact.staffId : user.staffId;
+    this.assertStaffIdAvailable(finalStaffId, { excludeUserId: id });
+    for (const key of contactKeys) {
+      if (!(key in nextContact)) continue;
+      if (nextContact[key]) user[key] = nextContact[key];
+      else delete user[key];
+    }
+  }
   this.persist();
   return toPublic(user);
 }
@@ -241,7 +304,8 @@ setProfile(id: string, patch: PageProfilePatch): PublicUser | null {
     username: string,
     password: string,
     note: string,
-    ip: string
+    ip: string,
+    contact?: unknown
   ): PublicRequest {
     this.ensureLoaded();
     const name = username.trim().toLowerCase();
@@ -256,6 +320,9 @@ setProfile(id: string, patch: PageProfilePatch): PublicUser | null {
     if (pending.filter((r) => r.ip === ip).length >= MAX_PENDING_PER_IP) {
       throw new Error('too_many_requests');
     }
+    // 申请人填的联系资料（可选）；工号冲突按 409 回给前端
+    const clean = sanitizeContact(contact);
+    this.assertStaffIdAvailable(clean.staffId);
     const record: RegistrationRequest = {
       id: newId(),
       username: name,
@@ -264,6 +331,7 @@ setProfile(id: string, patch: PageProfilePatch): PublicUser | null {
       status: 'pending',
       createdAt: new Date().toISOString(),
       ip,
+      ...clean,
     };
     this.requests.push(record);
     this.persistRequests();
@@ -282,7 +350,8 @@ setProfile(id: string, patch: PageProfilePatch): PublicUser | null {
     return this.requests.filter((r) => r.status === 'pending').length;
   }
 
-  /** 批准：用申请时暂存的密码哈希直接建号（管理员全程看不到明文密码） */
+  /** 批准：用申请时暂存的密码哈希直接建号（管理员全程看不到明文密码）。
+      联系资料随申请一起带到账号上 —— 这是「申请时填了却不生效」的旧断点。 */
   approveRegistrationRequest(
     id: string,
     role: Role,
@@ -292,6 +361,10 @@ setProfile(id: string, patch: PageProfilePatch): PublicUser | null {
     const record = this.requests.find((r) => r.id === id && r.status === 'pending');
     if (!record) return null;
     if (this.users.some((u) => u.username === record.username)) return null;
+    const clean = sanitizeContact(record);
+    // 申请提交后、审批前可能有别的账号占用了同一工号，故这里再校验一次；
+    // 排除本条申请自身，否则永远和自己冲突。
+    this.assertStaffIdAvailable(clean.staffId, { excludeRequestId: record.id });
     const user: StoredUser = {
       id: newId(),
       username: record.username,
@@ -299,6 +372,7 @@ setProfile(id: string, patch: PageProfilePatch): PublicUser | null {
       passwordHash: record.passwordHash,
       mustChangePassword: true,
       createdAt: new Date().toISOString(),
+      ...clean,
     };
     this.users.push(user);
     record.status = 'approved';

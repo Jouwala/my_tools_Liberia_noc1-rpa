@@ -80,7 +80,25 @@ export interface LandingTarget {
   cardId?: string;
 }
 
-export interface StoredUser {
+/**
+ * 账号联系资料（2026-11-06 加）：业务工号 / 电话 / 邮箱。
+ *  - 三个字段一律**可选**：存量账号、管理员手工建号、老版本静态壳提交时都可能没有，
+ *    缺省不能影响任何既有行为（老库加列也是可空，见 authDb.migrateSchema）。
+ *  - staffId 是**业务标识**（工号），与系统内部主键 StoredUser.id 完全无关，
+ *    不参与登录、不做会话凭证；登录名始终是 username。
+ *  - 申请时填入 → 审批时复制到账号 → 用户管理列表展示；管理员可事后补录/修改。
+ */
+export interface UserContact {
+  /** 业务工号 / 用户ID（应用层做唯一校验，见 store.assertStaffIdAvailable） */
+  staffId?: string;
+  phone?: string;
+  email?: string;
+}
+
+/** 联系资料字段的长度上限（前后端、JSON 与 SQLite 两侧共用同一套口径） */
+export const CONTACT_MAX_LENGTH = { staffId: 32, phone: 32, email: 128 } as const;
+
+export interface StoredUser extends UserContact {
   id: string;
   username: string;
   role: Role;
@@ -112,6 +130,10 @@ export interface PageProfilePatch {
   allowedCards?: string[] | null;
   /** 团队归属：缺省 = 不改；null = 清除指派；非法值 = 视为未指派（不静默保留旧值） */
   team?: TeamId | null;
+  /** 联系资料：缺省 = 不改；null / 空串 = 清除该字段 */
+  staffId?: string | null;
+  phone?: string | null;
+  email?: string | null;
 }
 
 // ============================================================================
@@ -122,7 +144,7 @@ export interface PageProfilePatch {
 // ============================================================================
 export type RequestStatus = 'pending' | 'approved' | 'rejected';
 
-export interface RegistrationRequest {
+export interface RegistrationRequest extends UserContact {
   id: string;
   username: string;
   passwordHash: string;
@@ -169,6 +191,38 @@ export function sanitizeNames(input: unknown): string[] {
   return out;
 }
 
+/** 工号唯一性比较用的归一化：大小写不敏感、忽略首尾空白 */
+export function normalizeStaffId(input: unknown): string {
+  return String(input ?? '').trim().toLowerCase();
+}
+
+/** 清洗单个联系资料字段：去控制字符、trim、限长；空值统一成 undefined（不存空串） */
+function cleanContactField(input: unknown, max: number): string | undefined {
+  const value = String(input ?? '')
+    .replace(/[\u0000-\u001f\u007f]/g, '')
+    .trim()
+    .slice(0, max);
+  return value || undefined;
+}
+
+/**
+ * 从任意载荷里抽出联系资料（只认 staffId / phone / email 三个键）。
+ * 与 sanitizeNames 同口径：只清洗与限长，不强行校验格式 —— 内网工号可能含中文或
+ * 连字符、电话可能带分机备注；邮箱格式由前端 type="email" 提示，服务端不因此拒收。
+ */
+export function sanitizeContact(input: unknown): UserContact {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return {};
+  const raw = input as Record<string, unknown>;
+  const out: UserContact = {};
+  const staffId = cleanContactField(raw.staffId, CONTACT_MAX_LENGTH.staffId);
+  const phone = cleanContactField(raw.phone, CONTACT_MAX_LENGTH.phone);
+  const email = cleanContactField(raw.email, CONTACT_MAX_LENGTH.email);
+  if (staffId) out.staffId = staffId;
+  if (phone) out.phone = phone;
+  if (email) out.email = email;
+  return out;
+}
+
 /** 落地目标清洗：视图名必须合法、cardId 限长；全空视为「不设置」 */
 export function sanitizeLanding(input: unknown): LandingTarget | undefined {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return undefined;
@@ -195,6 +249,10 @@ export function toPublic(user: StoredUser): PublicUser {
     allowedCards: user.allowedCards ?? null,
     // 团队归属：null = 未指派（不跳转，且不放行任何团队门户）
     team: user.team ?? null,
+    // 联系资料：老账号是 undefined，序列化时键自动省略，前端按可选字段处理
+    staffId: user.staffId,
+    phone: user.phone,
+    email: user.email,
   };
 }
 

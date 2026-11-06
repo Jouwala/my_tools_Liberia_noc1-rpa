@@ -26,6 +26,11 @@ import {
   type TeamId,
 } from './types';
 
+/** 工号唯一性冲突：store 抛 Error('staff_id_taken')，各端点统一映射成 409 */
+function isStaffIdTaken(e: unknown): boolean {
+  return String((e as Error)?.message) === 'staff_id_taken';
+}
+
 // ============================================================================
 // 门户鉴权 HTTP 路由（挂在 vite 服务上的 /api/auth 中间件）
 // ----------------------------------------------------------------------------
@@ -171,12 +176,13 @@ async function handleAuthRoute(store: AuthStore, req: IncomingMessage, res: Serv
       const password = String(body.password || '');
       const note = String(body.note || '');
       try {
-        const record = store.createRegistrationRequest(username, password, note, ip);
+        // 联系资料（staffId/phone/email）整包交给 store 清洗：老版本静态壳不传也能正常提交
+        const record = store.createRegistrationRequest(username, password, note, ip, body);
         sendJson(res, 200, { request: record });
       } catch (e) {
         const reason = String((e as Error)?.message);
         const status =
-          reason === 'username_taken' || reason === 'request_pending'
+          reason === 'username_taken' || reason === 'request_pending' || reason === 'staff_id_taken'
             ? 409
             : reason === 'too_many_requests'
               ? 429
@@ -627,7 +633,17 @@ async function handleAuthRoute(store: AuthStore, req: IncomingMessage, res: Serv
       const body = await readJsonBody(req);
       const id = String(body.id || '');
       const role: Role = body.role === 'admin' ? 'admin' : 'viewer';
-      const result = store.approveRegistrationRequest(id, role, caller.username);
+      let result: ReturnType<AuthStore['approveRegistrationRequest']>;
+      try {
+        result = store.approveRegistrationRequest(id, role, caller.username);
+      } catch (e) {
+        // 申请提交后、审批前若有别的账号占用了同一工号，给管理员一个明确的 409
+        if (isStaffIdTaken(e)) {
+          sendJson(res, 409, { detail: 'staff_id_taken' });
+          return;
+        }
+        throw e;
+      }
       if (!result) {
         sendJson(res, 404, { detail: 'request not found, already handled, or username taken' });
         return;
@@ -677,7 +693,16 @@ async function handleAuthRoute(store: AuthStore, req: IncomingMessage, res: Serv
         return;
       }
       // 建号时可直接归属团队（Add User 表单的 Team portal 列）；非法值由 store 归一为未指派
-      sendJson(res, 200, { user: store.createUser(username, password, role, body.team) });
+      // 第五个参数把整包 body 交给 store 抽取并清洗联系资料（老前端不传 = 全空）
+      try {
+        sendJson(res, 200, { user: store.createUser(username, password, role, body.team, body) });
+      } catch (e) {
+        if (isStaffIdTaken(e)) {
+          sendJson(res, 409, { detail: 'staff_id_taken' });
+          return;
+        }
+        throw e;
+      }
       return;
     }
 
@@ -741,7 +766,20 @@ async function handleAuthRoute(store: AuthStore, req: IncomingMessage, res: Serv
       if ('team' in body) {
         patch.team = body.team === null ? null : (sanitizeTeam(body.team) ?? null);
       }
-      const updated = store.setProfile(id, patch);
+      /* 联系资料：缺省 = 不改；null / 空串 = 清除。清洗与唯一性校验都在 store.setProfile。 */
+      if ('staffId' in body) patch.staffId = body.staffId === null ? null : String(body.staffId ?? '');
+      if ('phone' in body) patch.phone = body.phone === null ? null : String(body.phone ?? '');
+      if ('email' in body) patch.email = body.email === null ? null : String(body.email ?? '');
+      let updated: ReturnType<AuthStore['setProfile']>;
+      try {
+        updated = store.setProfile(id, patch);
+      } catch (e) {
+        if (isStaffIdTaken(e)) {
+          sendJson(res, 409, { detail: 'staff_id_taken' });
+          return;
+        }
+        throw e;
+      }
       if (!updated) {
         sendJson(res, 404, { detail: 'user not found' });
         return;

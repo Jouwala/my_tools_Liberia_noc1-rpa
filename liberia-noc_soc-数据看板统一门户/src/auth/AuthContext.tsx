@@ -57,6 +57,10 @@ export interface AuthUser {
   allowedCards?: string[] | null;
   /** 团队归属；null = 未指派（不跳转，且不放行任何团队门户） */
   team?: TeamId | null;
+  /** 联系资料（2026-11-06 加）：申请时填写、审批时带入账号，管理员可补录 */
+  staffId?: string;
+  phone?: string;
+  email?: string;
 }
 
 export type AuthStatus = 'loading' | 'anon' | 'authed';
