@@ -1907,7 +1907,7 @@ current_cron = saved_cron if saved_cron else default_cron   # ← 数据库赢
 实测踩到的坑：`sp_online_sync` 代码已改为 `35 */6 * * *`，但数据库仍是
 `35 * * * *`，**实际仍按小时跑**（见上文"缺陷 3"的更正）。
 
-覆盖与对齐情况（2026-11-06 实测；`python TMP/_check_three_crons.py` 可复现）：
+覆盖与对齐情况（2026-11-06 实测；复核命令见本节末）：
 
 | 任务 | 代码默认 | **实际生效** | 状态 |
 | --- | --- | --- | --- |
@@ -1916,15 +1916,13 @@ current_cron = saved_cron if saved_cron else default_cron   # ← 数据库赢
 | `eflow_active_alarm` | `*/1 * * * *` | `*/1 * * * *` | 已对齐（2026-10-04 那版记录写的是默认 `*/30` / 生效 `*/5`，两边都已变） |
 
 > ⚠ 本节的条数与示例值都是**从库里读出来的快照**，任务管理页每改一次就会变。
-> 引用前先跑一次上面那条命令，不要拿本文的数字当现状。
+> 引用前先跑一次下面的复核命令，不要拿本文的数字当现状。
 
-**处置**：① **不改用户已配置的值**（`eflow_active_alarm` 的 `*/5` 经确认保留，
-实时告警看板需要该粒度；且它走 `ensure_login()` 共享会话，**实测今日 eFlow
-真实登录 0 次**，不构成登录风暴）；② 在注册期对"代码默认值 ≠ 生效值"打
+**复核命令**：`cd Task\my_app ; python TMP\_check_schedule_override.py`（只读，打印上表三行 + 全部错配 task_id 与条数）。
+`TMP/_verify_schedule_override_warn.py` 是 2026-10-31 那次审计的一次性探针，**本机已不存在**，它当时报的「6/6、19 条错配」也随之过期 —— 现在以 `_check_schedule_override.py` 的读数为准。
+
+**处置**：① **不改用户已配置的值**（`eflow_active_alarm` 2026-10-04 那轮读到的生效值是 `*/5`、经确认保留；现在库里与代码默认都是 `*/1 * * * *`，即每分钟一次 —— 实时告警看板需要该粒度，且它走 `ensure_login()` 共享会话，当时**实测当日 eFlow 真实登录 0 次**，不构成登录风暴）；② 在注册期对"代码默认值 ≠ 生效值"打
 **WARNING**（`task_runner.py:330-346`），让"以为改了其实没生效"当场可见。
-
-**离线验证**：`python TMP/_verify_schedule_override_warn.py`
-→ `ALL_SCHEDULE_OVERRIDE_WARN_CHECKS_PASSED`（6/6，并列出全部 19 条错配）。
 
 > **想改生效 cron 的正确做法**：用任务管理页（`PUT /api/tasks/{id}/schedule`，
 > `backend/routers/tasks.py:175`），或删掉该任务的 `task_schedule_config` 行
