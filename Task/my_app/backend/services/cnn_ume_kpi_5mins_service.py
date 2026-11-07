@@ -92,6 +92,12 @@ TABLE_PREFIX = "5mins_"
 MAX_PARALLEL_WORKERS = int(os.environ.get("CNN_KPI_5MINS_PARALLEL_WORKERS",
                                           os.environ.get("CNN_KPI_PARALLEL_WORKERS", "8")))
 
+# 2026-11-07 A：写库仅对「连接建立阶段」失败重试（10061 等），最多 3 次尝试、
+# 退避 2s/4s。getresponse 阶段的 10054 / timed out / HTTP 500 仍立即上抛，
+# 由 auto_retry 重投补数据 —— 保留 8d5d5786「upsert 不盲重试」的约束。
+# 取证见 outputs/cnn_kpi_sync_5mins_失败复盘_2026-11-07.md；设 0 可关闭。
+DB_WRITE_CONNECT_RETRIES = int(os.environ.get("CNN5M_DB_CONNECT_RETRIES", "3"))
+
 # 查询窗口的天数偏移：1 = 从「昨天 00:00」起（Day1 需要完整昨天）。
 # ⚠ 别为了页面上的 Day7（7 天前）把它改成 7 —— Day7 靠 upsert 逐日累积即可，
 # 详见模块头「Day7 不是靠加宽本窗口取得的」。
@@ -329,6 +335,7 @@ def import_to_database_5mins(export_results: dict) -> dict:
                 rows=str_data,
                 mode="upsert",
                 pk_columns=key_cols,
+                connect_stage_retries=DB_WRITE_CONNECT_RETRIES,
             )
         except Exception as e:
             raise Exception(f"[CNN5M][DB][API] {table_name}: 写入失败: {e}")

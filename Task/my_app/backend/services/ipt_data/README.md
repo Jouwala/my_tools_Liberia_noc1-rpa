@@ -64,21 +64,24 @@ python ipt_energy_client.py "Jahtondo Town" --json # 归一化 JSON
 - 外网 API 需直连（客户端已设 `trust_env=False`，规避本机 http_proxy 干扰）。
 - 会话同源：`rubix-web` 单账号多端登录不互踢（隐式流无服务端会话绑定限制，实测多次登录均有效）。
 
-## 五、采集架构：全站 2 分钟分辨率（2026-11-04 重设计）
+## 五、采集架构：全站 5 分钟分辨率（2026-11-04 重设计 / 2026-11-06 降频）
 
 `filter-map` 只返回 `id / name / 坐标 / connectivity / criticality`，**不含任何电源数值**；
 上游也**没有批量电源接口**（逐一核对过抓包里的全部端点，含 `events/recent`——它只有
-最近新发生的事件，不是活动告警快照）。因此电源数值只能逐站请求，全站 2 分钟分辨率
+最近新发生的事件，不是活动告警快照）。因此电源数值只能逐站请求，全站 5 分钟分辨率
 靠**并发逐站拉取**实现（2026-11-04 实测）：
 
 | 层 | 接口 | 实测吞吐（32 线程） | 节奏 |
 | --- | --- | --- | --- |
-| KPI 层 | `/popup`（~1.5KB） | 501 站 60.1s、0 错误 | **每轮全采** → 全站每 2 分钟一条快照 |
+| KPI 层 | `/popup`（~1.5KB） | 501 站 60.1s、0 错误 | **每轮全采** → 全站每 5 分钟一条快照 |
 | 明细层 | `/diagram`（~5KB） | 200 站 73.8s、外推 501 站 ~185s 且有超时 | 分片轮采 ≤60 站/轮（3 线程）→ 约 20 分钟覆盖全站 |
 
-两池**并发同时跑**，整轮受 100s 硬上限（`KPI_ROUND_HARD_DEADLINE_S`，
-任务入口起算）约束，到时放弃未完成站点，保证 2 分钟节拍不漂移；未采到的站
-下轮补上（popup 在硬上限内**补采一轮**，diagram 游标接着走）。
+两池**并发同时跑**，整轮受 **240s** 硬上限（`KPI_ROUND_HARD_DEADLINE_S`，
+任务入口起算）约束，到时放弃未完成站点，保证 5 分钟节拍不漂移（`*/5`
+周期 300s，留 60s 给落库与下一轮）；未采到的站下轮补上（popup 在硬上限内
+**补采一轮**，diagram 游标接着走）。`_drain` 跑完即止，放宽上限**不会让
+正常轮变慢，也不增加一个请求的瞬时压力**；它只让上游偶发变慢的轮次
+不再把尾部站提前放弃。
 
 **并发调优（2026-11-04 ~ 11-05 实测）**：最初 32 + 16 线程在上游健康时能跑满
 501 站/60s，但持续 2 分钟节拍下会把上游拖出批量读超时（21:58 轮 113/501）；
@@ -98,26 +101,51 @@ python ipt_energy_client.py "Jahtondo Town" --json # 归一化 JSON
   避免硬上限截断时 `sorted(site_id)` 列表尾部的站永远拿不到新快照（11-05 实测
   1 小时内 62 站无快照）。
 - **低成功率熔断**（`DEGRADED_RATIO=0.25`）：一轮 popup 成功率低于 25% 即视为
-  上游被压垮/故障，计入退避（`last_run.degraded=true`），不再每 2 分钟打满
-  100s 却拿不到数据。
+  上游被压垮/故障，计入退避（`last_run.degraded=true`），不再每 5 分钟打满
+  240s 却拿不到数据。
 - **熔断退避**：上游故障（filter-map 连续 500 / 读超时，或上述低成功率）时，
   按连续失败次数指数退避（5/10/20... 分钟，封顶 30 分钟，`BACKOFF_*` 常量，
   状态存 `ipt_power_meta.failure_backoff`），退避期内整轮**静默跳过**
   （success=true，不触发失败通知轰炸）；任一轮成功即清零。
 - 页面数据新鲜度由 `/api/ipt-power/status` 的 `last_run.time` 判断，
-  超过 5 分钟即说明上游异常或退避中。
+  超过 10 分钟即说明上游异常或退避中。
+
+**2026-11-06 降频、单点加固与放宽硬上限（A+B+C+D）**：复盘见
+`outputs/ipt_power_collect_失败复盘_2026-11-06.md`。原 `*/2` 节拍下单轮
+100s 硬上限几乎占满周期、上游只有约 20s 喘息，近 3 天 81.4% 轮次撞硬
+上限截断、popup 覆盖率中位数仅 84.1%，19 次任务失败里 17 次都是
+`filter-map` 单点读超时后整轮判失败。四项改动：
+
+- **A 降频**：`default_cron` 与运行时 `task_schedule_config` 同改 `*/5`，
+  请求压力 -60%，上游喘息窗口 20s→200s。
+- **D 补完 A（22:20）**：改后发现 A 只做了一半 —— 周期放到 300s，
+  但 2 分钟时代定的 100s 硬上限没跟着调，空出的 200s 全被浪费。
+  改后 10 轮仍有 7 轮撞截断（21:27=333/501、21:46=327/501），
+  尽管 21:56 起已连续 3 轮 501/501。`KPI_ROUND_HARD_DEADLINE_S`
+  `100→240`，留 60s 给下一轮；`full_kpi.budget_s` 同步 80→200
+  （**注意：该字段目前在 collector 中未被读取**，只是配置与文档口径一致，
+  实际约束一律由 `hard_deadline` 给出）。不改并发、不改单请求超时。
+  安全性：`max_instances=1` 保证轮次不重叠，`STALE_RUNNING_SECONDS=1800s`
+  不会把 240s 长轮误判成僵尸。
+- **B 告警语义**：瞬时上游抖动不再判任务失败；只有连续 3 轮「连上轮站点
+  清单都拿不到、整轮完全无法采集」才告警。数据陈旧仍由
+  `db_freshness_check` 的「IPT 站点电源快照」20 分钟巡检兜底。
+- **C 单点加固**：`IptEnergyClient.filter_map` 对超时 / 408 / 5xx 做 1 次
+  短重试（第 2 次 12s 超时，401 重登不占次数）；仍失败时 collector 用
+  上一轮 `ipt_power_sites` 清单降级继续采，本轮跳过站点表刷新与属性回填，
+  `last_run.stale_sites` 留痕。**一个请求不再毁掉整轮快照。**
 
 `watch_sites.json`（对象形态）：
 
 ```json
 {
   "sites": ["Jahtondo Town", "Brewerville 4", "Zwedru 4"],
-  "full_kpi":   { "enabled": true, "workers": 8, "budget_s": 80 },
+  "full_kpi":   { "enabled": true, "workers": 8, "budget_s": 200 },
   "full_shard": { "enabled": true, "max_sites": 60, "budget_s": 70 }
 }
 ```
 
-- `sites`：关注站，**每轮必采 diagram 完整明细**（2 分钟明细分辨率）。
+- `sites`：关注站，**每轮必采 diagram 完整明细**（5 分钟明细分辨率）。
 - `full_kpi`：全站 popup KPI 层；关闭则退回「只有分片轮采」的旧行为。
 - `full_shard`：diagram 明细分片轮采。站点按 `site_id` 排序，
   用 `ipt_power_meta.shard_cursor` 做环形游标，每轮从游标处计划最多 60 站，
@@ -132,8 +160,8 @@ python ipt_energy_client.py "Jahtondo Town" --json # 归一化 JSON
 
 存储与脱敏：
 
-- `ipt_power_snapshots`：全站每轮一条（501 站 × 720 轮/天）。popup 行 `raw=NULL`
-  控表体积（全存约 1.8GB/天），diagram 行补全明细列；保留 2 天自动清理。
+- `ipt_power_snapshots`：全站每轮一条（501 站 × 288 轮/天，5 分钟节拍）。popup 行 `raw=NULL`
+  控表体积，diagram 行补全明细列；保留 2 天自动清理。
   新增列：`source / alarm_count / alarm_names / solar_available / fuel_capacity / main_source_on`。
 - `ipt_power_site_detail`：每站最新一条 diagram 精简明细（`slim_diagram()` 已剥除
   设备凭据）。⚠ 2026-11-04 前 raw 存全量 diagram 且被 `/api/ipt-power/site/{id}`

@@ -1093,7 +1093,7 @@ export default api
 
 // ========== IPT 站点电源（IPT Digital Platform / RMS 能源监控）==========
 // 新增于 2026-11-03；对应后端 routers/ipt_power.py
-// 数据链路：任务 ipt_power_collect 每 2 分钟采集入库 → 本组接口读库；
+// 数据链路：任务 ipt_power_collect 每 5 分钟采集入库 → 本组接口读库；
 // refresh 接口为实时直查 portal 并补一条快照（不依赖任务节拍）。
 
 export function iptPowerSites(params?: { keyword?: string; watch_only?: boolean; limit?: number }) {

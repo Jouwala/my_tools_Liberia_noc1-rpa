@@ -3430,13 +3430,18 @@ html.dark {
 #kpi .qc-grid:has(> .qc-group:only-child) { grid-template-columns: minmax(0, 1fr); }
 #kpi .qc-grid > .qc-group:only-child { grid-column: 1 / -1; }
 
-/* Domain Dashboard：按实际视图列数铺满整行（1~6）。 */
-#views6 .v6-grid[data-n="1"] { grid-template-columns: minmax(0, 1fr); }
-#views6 .v6-grid[data-n="2"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-#views6 .v6-grid[data-n="3"] { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-#views6 .v6-grid[data-n="4"] { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-#views6 .v6-grid[data-n="5"] { grid-template-columns: repeat(5, minmax(0, 1fr)); }
-#views6 .v6-grid[data-n="6"] { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+/* Domain Dashboard：视图卡一律「独占整行」（2026-11-06 改）。
+   ⚠️ 2026-11-06（用户要求「flm 的 Domain Dashboard 内容格式参考 bo」）：
+     原先按 data-n 把卡并排铺满（data-n=2 → 两列 ~740px）。flm 正好两列
+     （FLM View + SP View），半宽卡里放不下 bo 那套 5 列轨道（每格 ~140px，
+     标题全被 ellipsis 截掉），只能退到 2 列 —— 于是「格式」与 bo 对不上：
+     bo 是一张全宽卡 + 5 个一行跨组列对齐 + 全部条目展开，flm 是两张半宽卡、
+     2 列、每卡只露 2 条再挂一个「Show N more」。
+     故改成：无论 data-n 几，视图卡都上下堆叠、每张独占整行，卡内统一 5 列。
+     当前五个团队里只有 flm 是多列，fo/bo/cxo 本来就单列，行为一像素不变。
+   data-n 仍由 patch_team_portal.py 的 views6-grid-n 钩子写入，保留给
+   「视图列数量」相关逻辑（如 JS 侧的全展开判据），不再用来分宽度档。 */
+#views6 .v6-grid[data-n] { grid-template-columns: minmax(0, 1fr); }
 /* 卡内条目：**固定 5 列轨道，逐行对齐**（2026-11-06 改，用户要「5 个一行 + 不同组列对齐」）。
    演变与根因（这段改过三次，别退回前两版）：
      · 2026-11-03 版：只在 data-n="1" 时把 .v6-list 改 auto-fit 网格。
@@ -3451,12 +3456,10 @@ html.dark {
      · 本版（grid）：整张列表共用一个 5 列轨道模板，所有段的条目都落在
        同一套列边界上 —— 第 N 条恒在第 N 格，跨段垂直对齐；段头跨满整行。
        某段最后一行不足 5 条时**保留空格**（不再拉伸），这是列对齐的必然代价。
-   为什么单列（data-n="1"）才是 5 列：
-     · BO 视图列宽约 1520px（1600 视口），5 列每列 ~296px，与原先 280px 基准相当；
-     · 半宽列（flm 双列，单列约 740px）放 5 列会挤成 ~140px，
-       标题全被 ellipsis 截掉 —— 故多列布局退到 2 列，语义不变（组内仍逐行对齐）。
-   为什么**不再按 data-n 分档**：5 列是「单列卡独占整行」这一种情形的解，
-     data-n 只用来区分单列/多列两种宽度档，不再是 1~6 的等比数组。
+   为什么全宽卡能放 5 列：1600 视口下卡宽约 1520px，5 列每列 ~296px，
+     与原先 280px 基准相当；更窄的视口由下面两条媒体查询降级（1200→3、780→2）。
+   ⚠️ 2026-11-06 起 5 列对**所有 data-n** 生效 —— 多列团队已改成上下堆叠全宽卡，
+     旧版「data-n:not(1) 退 2 列」的降级规则已删除，别再加回来。
    默认的 .v6-list 是 flex column（上游三列窄卡），本组规则只作用于带 data-n 的团队门户网格。
    段头（.v6-seg-h）/ 空态 / 展开按钮：grid-column 1/-1 → 跨满整行，不占轨道。
    ⚠️ DOM 结构不变（段头与条目仍是 .v6-list 的直接子元素）——
@@ -3468,8 +3471,6 @@ html.dark {
   gap: calc(4px * var(--v6-k));
   align-content: start;
 }
-/* 多列布局（flm 双列等）：半宽列放 5 列太挤，退到 2 列。 */
-#views6 .v6-grid[data-n]:not([data-n="1"]) .v6-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 #views6 .v6-grid[data-n] .v6-seg-h,
 #views6 .v6-grid[data-n] .v6-empty,
 #views6 .v6-grid[data-n] .v6-more { grid-column: 1 / -1; }
@@ -3486,10 +3487,8 @@ html.dark {
 @media (max-width: 780px) {
   #views6 .v6-grid[data-n] .v6-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
-@media (max-width: 1400px) {
-  #views6 .v6-grid[data-n="4"], #views6 .v6-grid[data-n="5"], #views6 .v6-grid[data-n="6"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  #views6 .v6-grid[data-n="1"] { grid-template-columns: minmax(0, 1fr); }
-}
+/* ⚠️ 2026-11-06：原「1400px 以下把 data-n=4/5/6 折成两列」那条已删除 ——
+   视图卡现在一律独占整行，再按 data-n 分档会与上面那条规则互相打脸。 */
 
 /* 对侧铺满：.maprow / .qarow 任一侧 hidden 或空时，另一侧占满整行。
    :has() 在本项目已在用（见上游 .maprow:has(.map-slot:empty)），不引入新兼容风险。
@@ -3551,6 +3550,31 @@ html.dark {
 }
 .qarow:not(:has(> .qarow-col > section:not([hidden]):not([data-tl-off])))
   > .email-slot .canvas:has(> .embed-boot:not([hidden])) { min-height: 180px; }
+
+/* ----------------------------------------------------------------------------
+   右列只有 OSS（flm）：两列都按内容量高（2026-11-06 加）
+   ----------------------------------------------------------------------------
+   OSS 对 flm 开权限后，.qarow 从「右列全空 → 满宽」回到两列栅格：
+   左 Auto Report 半宽、右列 CCH 仍 hidden 只剩 OSS。此时两条旧规则会把整行
+   重新钉在 860px：
+     · 上游 .qarow > section.email-slot .canvas { min-height: var(--qarow-h) }
+     · 本文件 .qarow-col:has(> .cch-slot[hidden]) > .oss-slot { min-height: var(--qarow-h) }
+   内容只有几行时又拖出几百像素白，与今早「高度根据内容自适应」的诉求冲突。
+   判据三条同时成立（精确命中 flm，不波及别人）：
+     ① 左列 Auto Report 可见（排除 smc / cxo）；
+     ② 右列 CCH 被矩阵或布局隐藏（排除 fo / bo）；
+     ③ 右列 OSS 可见（排除 cxo）。
+   .qarow 是 grid，两个子项默认 stretch → 仍自动等高，高度取两侧内容的较大者。
+   ⚠️ 上游 /v3/olbrportal/ 恒有 CCH，② 不成立，行为一像素不变。
+   ⚠️⚠️ 连续 :has() 之间**绝对不能换行**：换行空白会被解析成「后代组合符」，
+      选择器从「.qarow 同时满足三条」变成「.qarow 的后代里再找 :has(B) 的后代…」，
+      CSS 能解析、JS 的 matches() 也测不出来（手写一行版是 true），但永远不命中。
+      本项目其它多行选择器之所以没问题，是因为换行后紧跟 `>` 组合符（空白被吸收）。
+      故下面三条一律写成一行，别为了「好看」拆行 —— 拆了就是静默失效。 */
+.qarow:has(> .email-slot:not([hidden]):not([data-tl-off])):has(> .qarow-col > .cch-slot:is([hidden], [data-tl-off])):has(> .qarow-col > .oss-slot:not([hidden]):not([data-tl-off])) > .email-slot .canvas { min-height: 0; flex: 0 0 auto; }
+.qarow:has(> .email-slot:not([hidden]):not([data-tl-off])):has(> .qarow-col > .cch-slot:is([hidden], [data-tl-off])):has(> .qarow-col > .oss-slot:not([hidden]):not([data-tl-off])) > .qarow-col > .oss-slot { min-height: 0; height: auto; flex: 1 1 auto; }
+/* 与「右列全空」同口径的加载态兜底：骨架是 absolute inset:0、自身零高。 */
+.qarow:has(> .email-slot:not([hidden]):not([data-tl-off])):has(> .qarow-col > .cch-slot:is([hidden], [data-tl-off])):has(> .qarow-col > .oss-slot:not([hidden]):not([data-tl-off])) > .email-slot .canvas:has(> .embed-boot:not([hidden])) { min-height: 180px; }
 
 /* Customer Complaint 下线（P0-1）：CCH（VMAX 用户查询，2026-11-04 起为独立面板）已覆盖，团队门户不再显示。
    矩阵侧已置空（scope-map.json matrix.complaint.vmax = []），这里再加一道硬隐藏 ——

@@ -817,6 +817,21 @@ class Handler(BaseHTTPRequestHandler):
         body = (q.get("body") or [""])[0]
         client_cookie = (q.get("cookie") or [""])[0]
 
+        # 透传调用方的 X-* 头（2026-11-06 与 VMAX 代理对齐）。
+        # 背景：本代理与 tools/realtime_proxy_vmax.py 是同一套骨架，两者都**重建**
+        # 请求头。VMAX 侧因为丢了 `X-Content-Type: application/x-vmax-s-rsa-encrypted`
+        # 导致 report_query 被上游当明文解析、返回 200 但字段全空，
+        # 使 vmax_multi_data 静默零产出 34 天（详见该文件的修复注释）。
+        # FMS 这条链路当前不依赖自定义头，但同一个坑没必要留第二次机会：
+        # 调用方显式带上的 X-* 一律透传，代理不该替它决定丢掉什么。
+        # Host / Cookie / Content-Length 由本代理自己掌握，不透传。
+        _X_SKIP = ("x-forwarded-for", "x-forwarded-host", "x-forwarded-proto", "x-real-ip")
+        _fwd_x = {}
+        for _n, _v in self.headers.items():
+            _low = _n.lower()
+            if _low.startswith("x-") and _low not in _X_SKIP:
+                _fwd_x[_n] = _v
+
         def build_headers():
             headers = {
                 "Accept": "application/json, text/plain, */*",
@@ -829,6 +844,8 @@ class Handler(BaseHTTPRequestHandler):
                 headers["Cookie"] = ck
             if method in ("POST", "PUT", "PATCH"):
                 headers["Content-Type"] = "application/json; charset=utf-8"
+            for _n, _v in _fwd_x.items():
+                headers.setdefault(_n, _v)
             return headers
 
         data = body.encode("utf-8") if body else None

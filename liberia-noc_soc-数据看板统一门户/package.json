@@ -6,7 +6,7 @@
   "scripts": {
     "predev": "node scripts/start-wa-service.mjs",
     "dev": "vite --port=9267 --host=0.0.0.0",
-    "build": "node scripts/check-i18n.mjs && vite build",
+    "build": "node scripts/check-i18n.mjs && node scripts/check-v3-team-i18n.mjs && vite build",
     "prestart": "npm run build",
     "start": "tsx server/index.ts",
     "prepreview": "node scripts/start-wa-service.mjs",
@@ -20,6 +20,7 @@
     "check:clean": "node scripts/check-cleanliness.mjs audit",
     "check:docs": "node scripts/check-doc-consistency.mjs",
     "check:i18n": "node scripts/check-i18n.mjs",
+    "check:v3-i18n": "node scripts/check-v3-team-i18n.mjs",
     "//setup:hooks": "把 Git 提交前守卫指向仓库内的 .githooks/（core.hooksPath）。钩子文件随仓库分发 —— 换机器/克隆后跑一次即可生效。详见根 AGENTS.md「提交前守卫」。",
     "setup:hooks": "node ../scripts/setup-git-hooks.mjs",
     "tmp:clean": "node scripts/check-cleanliness.mjs clean",

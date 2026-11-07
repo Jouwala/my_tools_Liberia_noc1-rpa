@@ -60,8 +60,10 @@ export default function VmaxCcaCards({
   result, onOpenKpi, onOpenCause,
 }: {
   result: CcaResult
-  onOpenKpi: (cell: CellRecord) => void
-  onOpenCause: (item: CauseItem) => void
+  /** 2026-11-07 加 MouseEvent：弹窗锚定点击位置（DraggableClickModal.anchor），
+   * 页面与证据抽屉共用同一签名。 */
+  onOpenKpi: (cell: CellRecord, e: React.MouseEvent<HTMLElement>) => void
+  onOpenCause: (item: CauseItem, e: React.MouseEvent<HTMLElement>) => void
 }) {
   const { t } = useI18n()
 
@@ -140,7 +142,7 @@ export default function VmaxCcaCards({
       render: (_: unknown, r: CellRecord) => covCell(coverageOf(cellKpiKey(r)).rsrq, -10, -20) },
     { title: 'KPI', key: 'kpi', width: 90,
       render: (_: unknown, r: CellRecord) => (
-        <Button type="link" size="small" onClick={() => onOpenKpi(r)}>
+        <Button type="link" size="small" onClick={(e) => onOpenKpi(r, e)}>
           {t('vmaxq.kpi')}
         </Button>
       ) },
@@ -159,7 +161,7 @@ export default function VmaxCcaCards({
       render: (v: string) => fmt(v) },
     { title: t('vmaxq.cause.detail'), key: 'act', width: 80,
       render: (_: unknown, r: CauseItem) => (
-        <Button type="link" size="small" onClick={() => onOpenCause(r)}>
+        <Button type="link" size="small" onClick={(e) => onOpenCause(r, e)}>
           {t('vmaxq.cause.detail')}
         </Button>
       ) },

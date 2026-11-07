@@ -7,7 +7,7 @@
   "full_kpi": {
     "enabled": true,
     "workers": 8,
-    "budget_s": 80
+    "budget_s": 200
   },
   "full_shard": {
     "enabled": true,

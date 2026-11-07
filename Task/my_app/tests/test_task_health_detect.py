@@ -23,6 +23,10 @@ sys.path.insert(0, str(ROOT))
 from backend.services.db_freshness_check import (  # noqa: E402
     _cron_next_and_interval,
     _silent_task_candidates,
+    _result_output_count,
+    _dependency_source,
+    _dependency_guidance,
+    _is_dependency_failure,
 )
 
 
@@ -121,6 +125,63 @@ def test_inflight_task_exempt_from_silent():
     assert "ms_sla_full" in got2, "缺省不豁免，保持向后兼容"
 
 
+# ==========================================================
+# 「成功但零产出」判据（2026-11-06 新增）
+# ==========================================================
+# 背景：vmax_multi_data_sync 连续 34 天 rows=0 却 success=1，
+# 而当时四个维度都不覆盖它（有记录、有分组、无滞留、每小时都成功）。
+# 这些用例锁住「明确是 0」与「没有自报条数」必须区分 —— 否则任务一旦改了
+# 字段名，检查会变成永久误报。
+def test_output_count_distinguishes_zero_from_absent():
+    """0 要能取到（判空用），但字段缺失/JSON 坏/布尔值必须返回 None。"""
+    assert _result_output_count('{"rows": 0}', ("rows",)) == 0
+    assert _result_output_count('{"rows": 102}', ("rows",)) == 102
+    # 没有登记字段 → None（不能当成 0，否则改字段名就永久误报）
+    assert _result_output_count('{"other": 5}', ("rows",)) is None
+    # 非 JSON → None
+    assert _result_output_count("not-json", ("rows",)) is None
+    # 布尔不是条数
+    assert _result_output_count('{"rows": true}', ("rows",)) is None
+    # 负数不算产出（防御异常值），但仍返回数值本身
+    assert _result_output_count('{"rows": -1}', ("rows",)) == -1
+
+
+def test_output_count_takes_max_of_keys():
+    """多个键取最大：有的任务 rows 不含 skipped，total_rows 才是全量。"""
+    assert _result_output_count('{"rows": 0, "total_rows": 7}', ("rows", "total_rows")) == 7
+    assert _result_output_count('{"rows": 5}', ("rows", "total_rows")) == 5
+
+
+def test_dependency_source_splits_dbwriter_ews_network():
+    """依赖类失败必须能分辨是 DbWriter / EWS / 通用网络 —— 现场近 5 天全是 DbWriter。"""
+    cases = [
+        ("[DbWriter] 请求失败: http://192.168.100.19:8765/api/write -> timed out", "db_writer"),
+        ("[API写入失败] Metro_ring: [DbWriter] 请求失败: 8765/api/write", "db_writer"),
+        ("RateLimitError: Max timeout reached", "ews"),
+        ("Unable to connect to the remote server", "ews"),
+        ("HTTPSConnectionPool(...): Read timed out.", "network"),
+        ("10061 Connection refused", "network"),
+    ]
+    for err, want in cases:
+        got = _dependency_source(err)
+        assert got == want, f"{err[:50]!r} 应为 {want}，实际 {got}"
+        assert _is_dependency_failure(err), f"{err[:50]!r} 应判为依赖类失败"
+
+
+def test_dependency_guidance_points_at_real_source():
+    """guidance 必须指向真实故障源：DbWriter 故障不能让人去查 Exchange 密码。"""
+    g = "\n".join(_dependency_guidance(["[DbWriter] 8765 fail"]))
+    assert "DbWriter" in g and "8765" in g, f"DbWriter 故障的指引没指向 db_writer：\n{g}"
+    assert "Exchange" not in g, f"DbWriter 故障却让人去查 Exchange 密码：\n{g}"
+
+    g2 = "\n".join(_dependency_guidance(["RateLimitError: Max timeout reached"]))
+    assert "EWS" in g2, f"EWS 故障的指引没指向 EWS：\n{g2}"
+
+    # 混合故障源时两类指引都要出现（不能只报第一类）
+    g3 = "\n".join(_dependency_guidance(["[DbWriter] fail", "Read timed out"]))
+    assert "DbWriter" in g3 and "网络" in g3, f"混合故障源指引缺项：\n{g3}"
+
+
 CHECKS = [
     test_cron_interval_actually_computed,
     test_bad_cron_returns_none_without_raising,
@@ -128,6 +189,10 @@ CHECKS = [
     test_unknown_cron_still_reported,
     test_never_run_lowfreq_task_exempt_until_due,
     test_inflight_task_exempt_from_silent,
+    test_output_count_distinguishes_zero_from_absent,
+    test_output_count_takes_max_of_keys,
+    test_dependency_source_splits_dbwriter_ews_network,
+    test_dependency_guidance_points_at_real_source,
 ]
 
 

@@ -771,8 +771,16 @@ def fetch_report_kpis(report_part: str, begin: Any = None, end: Any = None,
     client = kwargs.pop("client", None) or get_client()
     result = client.query_kpis_range(report_part, begin, end, granularity=granularity,
                                      dims=dims, kpis=kpis, **kwargs)
-    if not result.get("fields") and result.get("errors"):
-        raise VmaxReportError("report_query 返回错误: %s" % result["errors"][0])
+    # ⚠ 2026-11-06 修订：空结果**不能**当成功。
+    # 旧判据是「有 fields 且有 errors 才 raise」，上游「什么都没返回、但也没报错」
+    # 时直接返回 records=[]，调用方无从分辨「真没数据」与「取数链路坏了」。
+    # 现在空结果一律 raise（与 vmax_multi_data_service.py:167-171 同一判据）。
+    if not result.get("fields"):
+        if result.get("errors"):
+            raise VmaxReportError("report_query 返回错误: %s" % result["errors"][0])
+        raise VmaxReportError(
+            "report_query 返回空结果（无字段、无数据、无报错）—— "
+            "上游报表接口可能已变更或无权限")
     window = result.get("window") or {}
     return {"report_part": report_part,
             "window": [window.get("begin", ""), window.get("end", "")],

@@ -5,10 +5,14 @@
  * 2026-11-07 新建，与旧页 VmaxUserQuery（?page=vmax_user_query）**并存**：
  * 旧页保持「按数据源分视图」的查询工具形态，本页是投诉驱动的单页叙事：
  *
- *   区域 1 故障概览   —— 用户到底出了什么问题（一句话 + 四维分）
- *   区域 2 故障分析   —— 问题在哪层（terminal→ran→transport→core→ott 链路）
- *                        + 五段可解释指标 + 专卡 + 流量 + 时间线
- *   区域 3 根因与建议  —— 根因候选（CCA 关联证据）+ 模板建议 + 证据库
+ *   区域 1 故障概览   —— VmaxDiagnosisCard 整卡入位（2026-11-07 P1-5 收编：
+ *                        此前页面自渲染一份简化结论 + 下方再放整卡，同一
+ *                        结论/四维分出现两遍；现在只留整卡一份，四维分带
+ *                        MetricExplain 悬浮、数据源行带截断说明、覆写与
+ *                        导出都在卡头 —— 导出此前是 () => undefined 死按钮）
+ *   区域 2 故障分析   —— 链路 + 五段可解释指标 + 专卡 + 流量 + 时间线
+ *   区域 3 根因与建议  —— 根因候选（CCA 关联证据，失败常驻红条）+ 建议
+ *                        + 证据库（抽屉）
  *
  * 设计原则（用户 2026-11-07）：
  *   - 系统先给答案，用户沿证据深入（原始 XDR / 无线原始 / TCP 只在点证据时加载）
@@ -27,29 +31,26 @@ import { MobileOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icon
 import { useI18n } from '../i18n'
 import { CardBase } from '../components/cards'
 import VmaxComplaintTabs from '../components/VmaxComplaintTabs'
-import VmaxCcaCards, { type CauseItem, type CellRecord } from '../components/VmaxCcaCards'
-import DraggableClickModal from '../components/DraggableClickModal'
-import { Table, Descriptions, Tag } from 'antd'
 import {
   disabledRangeProps, PAGE_RETENTION_HOURS, clampRange,
 } from './vmaxWindow'
 import { VmaxWindowContext } from './vmaxWindowContext'
 import { CCA_NS, useVmaxDiagnosis } from './useVmaxDiagnosis'
 import { buildWorkspaceCorrelation } from '../lib/vmaxWorkspaceRules'
-import VmaxWorkspaceOverview from '../components/vmax/VmaxWorkspaceOverview'
+import { buildCellCrossCheck } from '../lib/vmaxCellCrossCheck'
+import {
+  exportVmaxDiagnosisExcel, exportVmaxPrintPdf,
+} from '../lib/vmaxWorkspaceExport'
 import VmaxWorkspaceAnalysis from '../components/vmax/VmaxWorkspaceAnalysis'
 import VmaxWorkspaceVerdict from '../components/vmax/VmaxWorkspaceVerdict'
-import VmaxEvidenceDrawer, { type EvidenceKind } from '../components/vmax/VmaxEvidenceDrawer'
+import VmaxEvidenceDrawer from '../components/vmax/VmaxEvidenceDrawer'
+import type { EvidenceKind } from '../lib/vmaxWorkspaceRules'
 import VmaxDiagnosisCard from '../components/VmaxDiagnosisCard'
 import VmaxOverrideModal from '../components/VmaxOverrideModal'
 import { renderI18n } from '../renderI18n'
 
 const { Text } = Typography
 const { RangePicker } = DatePicker
-
-type KpiItem = { code: string; name: string; value: unknown }
-
-const fmt = (v: unknown) => (v == null || v === '' || v === '--' ? '—' : String(v))
 
 export default function VmaxUserCca() {
   const { t } = useI18n()
@@ -59,13 +60,6 @@ export default function VmaxUserCca() {
     kind: null, open: false,
   })
   const openDrawer = (kind: EvidenceKind) => setDrawer({ kind, open: true })
-
-  const [kpiOpen, setKpiOpen] = useState(false)
-  const [kpiCell, setKpiCell] = useState<CellRecord | null>(null)
-  const [kpiItems, setKpiItems] = useState<KpiItem[]>([])
-  const [kpiAnchor, setKpiAnchor] = useState<{ x: number; y: number } | null>(null)
-  const [causeOpen, setCauseOpen] = useState(false)
-  const [causeItem, setCauseItem] = useState<CauseItem | null>(null)
 
   const ws = useMemo(() => buildWorkspaceCorrelation({
     payload: d.diag,
@@ -86,11 +80,34 @@ export default function VmaxUserCca() {
     retentionHours: PAGE_RETENTION_HOURS, query: d.query,
   }
 
-  const kpiColumns = [
-    { title: t('vmaxq.kpiName'), dataIndex: 'name', ellipsis: true },
-    { title: t('vmaxq.kpiValue'), dataIndex: 'value', width: 110, align: 'right' as const, render: fmt },
-    { title: t('vmaxq.kpiCode'), dataIndex: 'code', width: 150, ellipsis: true },
-  ]
+  /* 导出（P0-1）：诊断卡卡头的 Excel/PDF 按钮，与旧页同一套工单摘要，
+   * 另多两张工作台表（链路状态 / 根因排行）。
+   * P3-2b：再附一张「小区交叉验证」（判据：CCA 指向小区 vs 用户实际驻留），
+   * 与区域 2 卡片同一份纯函数结果，点击导出时才算（不新增取数/不占渲染）。 */
+  const exportExcel = () => {
+    if (!d.diag || !d.verdict) return
+    void exportVmaxDiagnosisExcel({
+      msisdn: d.query?.msisdn || d.msisdn,
+      win: d.diag.window,
+      complaint: d.complaint,
+      verdict: d.verdict,
+      override: d.override,
+      scores: d.scores,
+      sources: d.diag.sources,
+      timeline: d.timeline,
+      voice: d.voice,
+      flowXdr: d.flowXdr,
+      chain: ws.chain,
+      rankedCauses: ws.rankedCauses,
+      crossCheck: buildCellCrossCheck({ radio: d.radio, cca: d.result }),
+    }, t)
+  }
+
+  /* 空态按钮跳证据：DiagnosisCard 的「查看连接过程/无线质量」接到证据抽屉，
+   * 不让用户点到无响应的按钮。 */
+  const gotoEvidence = (v: 'flow' | 'connect' | 'radio') => {
+    openDrawer(v === 'connect' ? 'xdr' : v === 'radio' ? 'radio' : 'flow')
+  }
 
   return (
     <VmaxWindowContext.Provider value={ctxValue}>
@@ -145,12 +162,24 @@ export default function VmaxUserCca() {
         />
       )}
 
-      <VmaxWorkspaceOverview
-        verdict={d.verdict}
+      {/* ---------- 区域 1 · 故障概览（VmaxDiagnosisCard 整卡：结论 + 覆写 +
+                     四维评分悬浮说明 + 数据源/截断 + 导出） ---------- */}
+      <VmaxDiagnosisCard
+        payload={d.diag}
         scores={d.scores}
+        verdict={d.verdict}
+        complaint={d.complaint}
         loading={d.diagLoading}
+        error={d.diagError}
+        overrides={d.override}
+        onOverride={() => d.setOverrideOpen(true)}
+        onExportExcel={exportExcel}
+        onExportPdf={exportVmaxPrintPdf}
+        onRefresh={d.refresh}
+        onGotoView={gotoEvidence}
       />
 
+      {/* ---------- 区域 2 · 故障分析 ---------- */}
       <VmaxWorkspaceAnalysis
         metrics={ws.metrics}
         chain={ws.chain}
@@ -167,41 +196,19 @@ export default function VmaxUserCca() {
         onOpenEvidence={openDrawer}
       />
 
+      {/* ---------- 区域 3 · 根因与建议（CCA 失败常驻红条，区别于「无根因」） ----------
+          P3-1：四源串行 ≈21s，取数期间区域 3 显示「取数 x/4 源」进度而不是
+          「暂无根因候选」——半份数据不先下判断。 */}
       <VmaxWorkspaceVerdict
         rankedCauses={ws.rankedCauses}
         recommendations={ws.recommendations}
+        ccaError={d.error}
+        ccaLoading={d.loading}
+        diagLoading={d.diagLoading}
+        diagLoaded={d.loadedKeys.length}
+        diagTotal={d.diagTotal}
         onOpenEvidence={openDrawer}
       />
-
-      <VmaxDiagnosisCard
-        payload={d.diag}
-        scores={d.scores}
-        verdict={d.verdict}
-        complaint={d.complaint}
-        loading={d.diagLoading}
-        error={d.diagError}
-        overrides={d.override}
-        onOverride={() => d.setOverrideOpen(true)}
-        onExportExcel={() => undefined}
-        onExportPdf={() => undefined}
-        onRefresh={d.refresh}
-      />
-
-      {!!d.error && (
-        <Alert type="error" showIcon message={d.error}
-          action={<Button size="small" icon={<ReloadOutlined />} onClick={d.refresh}>{t('vmaxq.retry')}</Button>} />
-      )}
-      {!d.loading && !d.error && d.result?.found && (
-        <VmaxCcaCards
-          result={d.result}
-          onOpenKpi={(cell) => {
-            setKpiCell(cell)
-            setKpiItems(d.result?.cells?.cell_kpi?.[String(cell.cell)] || [])
-            setKpiOpen(true)
-          }}
-          onOpenCause={(item) => { setCauseItem(item); setCauseOpen(true) }}
-        />
-      )}
 
       <VmaxEvidenceDrawer
         kind={drawer.kind}
@@ -212,6 +219,7 @@ export default function VmaxUserCca() {
         radio={d.radio}
         diagLoading={d.diagLoading}
         flowXdr={d.flowXdr}
+        cca={d.result}
       />
 
       <VmaxOverrideModal
@@ -223,74 +231,8 @@ export default function VmaxUserCca() {
         onSubmit={(v, r) => void d.submitOverride(v, r)}
         onRevoke={() => void d.revokeOverride()}
       />
-
-      <DraggableClickModal
-        open={kpiOpen}
-        title={`${t('vmaxq.kpiTitle')} · ${kpiCell?.cellname || kpiCell?.cellkey || ''}`}
-        anchor={kpiAnchor}
-        onClose={() => setKpiOpen(false)}
-      >
-        {kpiItems.length ? (
-          <Table
-            rowKey={(r) => r.code}
-            columns={kpiColumns}
-            dataSource={kpiItems}
-            pagination={{ pageSize: 12 }}
-            size="small"
-            scroll={{ x: 460 }}
-          />
-        ) : (
-          <Text type="secondary">{t('vmaxq.noKpi')}</Text>
-        )}
-      </DraggableClickModal>
-
-      <DraggableClickModal
-        open={causeOpen}
-        title={causeItem?.rule_name || t('vmaxq.causesCard')}
-        onClose={() => setCauseOpen(false)}
-      >
-        {causeItem && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12, minWidth: 380 }}>
-            <Descriptions size="small" bordered column={1} items={[
-              { key: 'conf', label: t('vmaxq.cause.confidence'),
-                children: <Tag color={causeItem.confidence >= 90 ? 'red' : 'orange'}>{causeItem.confidence}%</Tag> },
-              { key: 'obj', label: t('vmaxq.cause.object'),
-                children: `${causeItem.object_name}（${causeItem.object_type}）` },
-              { key: 'area', label: t('vmaxq.cause.area'),
-                children: [causeItem.province, causeItem.city, causeItem.vendor].filter(Boolean).join(' / ') || '—' },
-              { key: 'poor', label: t('vmaxq.cause.poortime'),
-                children: fmt(causeItem.poortime) },
-            ]} />
-            <div>
-              <Text strong>{t('vmaxq.cause.description')}</Text>
-              <div style={{ marginTop: 4, whiteSpace: 'pre-wrap' }}>{causeItem.description}</div>
-            </div>
-            {causeItem.solution && (
-              <div>
-                <Text strong>{t('vmaxq.cause.solution')}</Text>
-                <div style={{ marginTop: 4, whiteSpace: 'pre-wrap' }}>{causeItem.solution}</div>
-              </div>
-            )}
-            {!!causeItem.app_info.length && (
-              <div>
-                <Text strong>{t('vmaxq.cause.timeline')}</Text>
-                <Table
-                  style={{ marginTop: 4 }}
-                  rowKey={(r) => r.clttime + r.judge}
-                  columns={[
-                    { title: t('vmaxq.cause.time'), dataIndex: 'clttime', width: 140 },
-                    { title: t('vmaxq.cause.judge'), dataIndex: 'judge' },
-                  ]}
-                  dataSource={causeItem.app_info}
-                  pagination={false}
-                  size="small"
-                />
-              </div>
-            )}
-          </div>
-        )}
-      </DraggableClickModal>
     </div>
     </VmaxWindowContext.Provider>
   )
 }
+

@@ -57,6 +57,27 @@ DEFAULT_TIMEOUT = 900  # 秒（大数据写入可能较慢）
 MAX_RETRIES = 3
 RETRY_BACKOFF = 2  # 指数退避基数
 
+# 2026-11-07 A：区分「连接建立阶段失败」与「请求已发出但没拿到响应」。
+#   - connect() 阶段（[WinError 10061] 主动拒绝 / 10065 无路由 / 10051 网络不可达）：
+#     服务端根本没收到请求，upsert 幂等，重试不会写错数据。
+#   - getresponse() 阶段的 [WinError 10054]、读超时 "timed out"、HTTP 500：
+#     服务端可能已经提交（2026-11-07 06:46 的 10054 堆栈就停在
+#     http.client.getresponse()），沿用 8d5d5786「upsert 不盲重试」的约束，
+#     交给 auto_retry 重投，不在本层重试。
+_CONNECT_STAGE_ERR_MARKERS = (
+    "10061", "10065", "10051", "10064",
+    "ConnectionRefusedError", "actively refused",
+    "目标计算机积极拒绝",
+)
+CONNECT_STAGE_ONLY = "connect_stage_only"
+
+
+def _is_connect_stage_error(exc: BaseException) -> bool:
+    """仅当失败发生在 TCP 连接建立阶段（服务端未收到请求）时返回 True。"""
+    text = str(exc)
+    return (isinstance(exc, ConnectionRefusedError)
+            or any(marker in text for marker in _CONNECT_STAGE_ERR_MARKERS))
+
 
 class DbWriterClient:
     """远程 SQLite 写入客户端。"""
@@ -69,8 +90,15 @@ class DbWriterClient:
 
     def _request(self, method: str, path: str, data: bytes = None,
                  content_type: str = "application/json",
-                 max_retries: int = MAX_RETRIES) -> dict:
-        """发送 HTTP 请求（带重试）。"""
+                 max_retries: int = MAX_RETRIES,
+                 retry_policy: str = None) -> dict:
+        """发送 HTTP 请求（带重试）。
+
+        ``retry_policy=CONNECT_STAGE_ONLY`` 时只对连接建立阶段的失败重试；
+        请求已发出但未拿到响应的错误（10054 / timed out / 5xx）立即上抛，
+        避免在 upsert 场景下重复排队执行同一批写入（见 8d5d5786）。
+        默认 ``None`` 保持原有行为，其它调用方不受影响。
+        """
         url = f"{self.base_url}{path}"
         last_error = None
 
@@ -87,11 +115,16 @@ class DbWriterClient:
                 logging.getLogger(__name__).warning("[SILENT-EXCEPT] _request: exception swallowed", exc_info=True)
                 body = e.read().decode('utf-8', errors='replace')
                 last_error = f"HTTP {e.code}: {body[:500]}"
-                if e.code < 500:
-                    break  # 4xx 不重试
+                # 4xx 一律不重试；connect_stage_only 策略下连 5xx 也不重试
+                # （服务端已经响应，说明请求已送达，可能已提交）。
+                if e.code < 500 or retry_policy == CONNECT_STAGE_ONLY:
+                    break
             except Exception as e:
                 logging.getLogger(__name__).warning("[SILENT-EXCEPT] _request: exception swallowed", exc_info=True)
                 last_error = str(e)
+                if (retry_policy == CONNECT_STAGE_ONLY
+                        and not _is_connect_stage_error(e)):
+                    break
 
             if attempt < max_retries:
                 wait = RETRY_BACKOFF ** attempt
@@ -106,7 +139,8 @@ class DbWriterClient:
 
     def write_data(self, db: str, table: str, columns: list, rows: list,
                    mode: str = "upsert", pk_columns: list = None,
-                   table_type: str = "Group") -> dict:
+                   table_type: str = "Group",
+                   connect_stage_retries: int = 0) -> dict:
         """
         写入数据到远程数据库。
 
@@ -118,6 +152,9 @@ class DbWriterClient:
             mode: "upsert"（INSERT OR REPLACE）或 "dedup_insert"（按主键去重插入）
             pk_columns: 主键列（upsert 模式必须）
             table_type: 表类型（Cells/Sites/Group/NW），用于自动检测主键
+            connect_stage_retries: 0（默认）= 保持 8d5d5786 的行为；>0 时
+                仅对连接建立阶段的失败重试这么多次，其它错误立即上抛。
+                由调用方显式开启，不影响其它 upsert 调用方。
 
         返回：
             {"success": True, "rows_written": N, ...}
@@ -137,10 +174,20 @@ class DbWriterClient:
         print(f"[DbWriter] 写入 {db}/{table}: {len(rows)} 行, mode={mode}")
 
         # upsert 超时时服务端可能已提交；盲重试只会再次排队执行同一批写入。
-        result = self._request(
-            "POST", "/api/write", data=data,
-            max_retries=1 if mode == "upsert" else MAX_RETRIES,
-        )
+        # （8d5d5786，2026-11-06：默认对 upsert 不重试。）
+        if connect_stage_retries > 0:
+            # 2026-11-07 A：调用方显式开启时，只对「服务端未收到请求」的
+            # 连接建立阶段失败重试；10054 / timed out / 5xx 仍立即上抛。
+            result = self._request(
+                "POST", "/api/write", data=data,
+                max_retries=connect_stage_retries,
+                retry_policy=CONNECT_STAGE_ONLY,
+            )
+        else:
+            result = self._request(
+                "POST", "/api/write", data=data,
+                max_retries=1 if mode == "upsert" else MAX_RETRIES,
+            )
         print(f"[DbWriter] 完成: {result.get('rows_written', 0)} 行已写入")
         return result
 

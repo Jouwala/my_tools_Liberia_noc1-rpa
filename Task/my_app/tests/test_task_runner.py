@@ -304,3 +304,56 @@ def test_all_registered_tasks_have_worker_group():
 
     for _fn in _COVERAGE_CHECKS:
         _fn()
+
+
+def test_schedule_task_uses_wide_misfire_grace():
+    """调度触发必须给足宽限，否则调度器一卡顿整次触发就被静默丢弃。
+
+    2026-11-06 修复回归：APScheduler 3.11.3 的 job 默认值实测是
+    `misfire_grace_time=1`（1 秒）。2026-11-05 10:38:45~10:51:01
+    `eflow_active_alarm`（cron `* * * * *`、独占 x 组、无组内争抢）
+    连续 11 分钟没有任何入队记录 —— 上一轮 finished_at=10:39:26，
+    既不是单飞拦下也不是 worker 忙，就是分钟级触发被成片丢掉；
+    同期机器上跑着 ipt_power_collect(6min)/auto_retry_failed(21min) 等重负载，
+    调度器主循环被拖慢超过 1 秒是必然的。
+    """
+    assert tr.MISFIRE_GRACE_SECONDS >= 60, (
+        f"宽限 {tr.MISFIRE_GRACE_SECONDS}s 对分钟级任务太紧，会重现触发丢失")
+
+    def _noop():
+        return {"success": True}
+
+    tr.register_task("__t_misfire__", "宽限验证", _noop, category="general")
+    tr.schedule_task("__t_misfire__", "* * * * *")
+    sched = tr.get_scheduler()
+    job = sched.get_job("task___t_misfire__")
+    try:
+        assert job is not None, "调度任务未建成"
+        assert job.misfire_grace_time == tr.MISFIRE_GRACE_SECONDS, (
+            f"落地宽限 {job.misfire_grace_time} != 配置 {tr.MISFIRE_GRACE_SECONDS}")
+        # coalesce=True：积压的多次错失只补跑一次，不连跑 N 次
+        assert job.coalesce is True
+        # max_instances=1：与单飞保护一致，绝不并发同一任务
+        assert job.max_instances == 1
+    finally:
+        try:
+            sched.remove_job("task___t_misfire__")
+        except Exception:  # noqa: BLE001
+            pass
+        tr._task_registry.pop("__t_misfire__", None)
+
+
+def test_scheduler_has_missed_listener():
+    """「触发被丢弃」必须留痕：APScheduler 默认不写我们的日志。
+
+    2026-11-05 那次 12 分钟空窗事后在巡检和任务日志里都看不出痕迹
+    （没失败、也没「无执行记录」，因为 24h 维度太粗），只能人工比对时间轴。
+
+    APScheduler 3.x 的 `_listeners` 元素是 `(callback, mask)`。
+    """
+    from apscheduler.events import EVENT_JOB_MISSED
+
+    sched = tr.get_scheduler()
+    listeners = sched._listeners or []
+    has = any((mask & EVENT_JOB_MISSED) for (_cb, mask) in listeners)
+    assert has, f"未注册 EVENT_JOB_MISSED 监听，丢弃触发会静默：{listeners}"

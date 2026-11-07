@@ -4,6 +4,16 @@
 把 `data/eflow/cmdb_site_update/build_cmdb_site_update_v2.py` 包装成一个可被
 task_runner 调度、也可由 Email Reports 页签按钮一键触发的手动任务。
 
+**四步流水线**（与 `run_site_update.bat` 完全一致，顺序不可颠倒）：
+1. `build_cmdb_site_update_v2.py` —— 生成 xlsx（审查全量 + 导入副本 + 报告）
+2. `gen_change_summary.py` —— 变更汇总 md（从 xlsx 取数）
+3. `gen_change_mail.py` —— 邮件正文 txt（从 xlsx 取数）
+4. `check_requirements.py` —— 按《其他要求》10 条规则自检，落校验报告 txt
+
+第 2-4 步是**派生**的：只跑第 1 步会让汇总/邮件/校验报告停留在旧数据上（bat 曾
+只调第 1 步，导致 xlsx 是新的而 md/txt 是几天前的）。派生步骤失败只记录在
+`derived` / `derived_failed` 里，不会把整次运行判为失败。
+
 **铁律：本任务只生成文件，绝不写数据库。**
 命令行里显式传 `--pg none --cmdb none`，不依赖脚本自身的默认值 —— 即使有人把
 脚本默认值改成写库，这里也不会跟着写。审查通过后由人工执行导入。
@@ -109,6 +119,57 @@ def _list_outputs() -> list[dict]:
         })
     items.sort(key=lambda x: x["mtime_ts"], reverse=True)
     return items
+
+
+# 派生步骤：全部从第 1 步写出的 xlsx 取数，必须在 build 成功后才跑。
+# 只跑 build 会让「变更汇总.md / 邮件正文.txt / 校验报告.txt」停在旧数据上——
+# 这正是 run_site_update.bat 曾经踩过的坑，页面按钮走同一条流水线。
+_DERIVED_STEPS = (
+    ("summary", "gen_change_summary.py"),
+    ("mail", "gen_change_mail.py"),
+    # check_requirements：0=全部通过，1=有规则不通过（数据问题，不是脚本故障），2=文件缺失
+    ("check", "check_requirements.py"),
+)
+_DERIVED_TIMEOUT = 300
+
+
+def _run_derived(env: dict, creationflags: int) -> list[dict]:
+    """依次跑汇总 / 邮件 / 校验。任一步失败都只做记录，不改变主任务成功状态。"""
+    results: list[dict] = []
+    for step, name in _DERIVED_STEPS:
+        path = WORK_DIR / name
+        if not path.is_file():
+            results.append({"step": step, "ok": False, "error": f"脚本不存在：{name}"})
+            continue
+        cmd = [sys.executable, "-X", "utf8", str(path)]
+        try:
+            proc = subprocess.run(  # noqa: S603 - 参数固定，无 shell
+                cmd, cwd=str(WORK_DIR), capture_output=True, text=True,
+                encoding="utf-8", errors="replace", timeout=_DERIVED_TIMEOUT,
+                env=env, creationflags=creationflags,
+            )
+            code = proc.returncode
+            out = proc.stdout or ""
+            ok = code == 0 or (step == "check" and code == 1)
+            item = {
+                "step": step,
+                "ok": ok,
+                "returncode": code,
+            }
+            if step == "check":
+                m = re.findall(r">>>\s*(.+?):\s*(\d+)/10 通过", out)
+                item["passed"] = code == 0
+                item["rules"] = {k: int(v) for k, v in m}
+            if not ok:
+                item["error"] = f"退出码 {code}"
+                item["tail"] = out[-800:]
+                item["stderr_tail"] = (proc.stderr or "")[-500:]
+            results.append(item)
+        except subprocess.TimeoutExpired:
+            results.append({"step": step, "ok": False, "error": f"超时（>{_DERIVED_TIMEOUT}s）"})
+        except Exception as exc:  # noqa: BLE001 - 派生步骤失败不能拖垮主任务
+            results.append({"step": step, "ok": False, "error": f"{type(exc).__name__}: {exc}"})
+    return results
 
 
 def _parse_stdout(text: str) -> dict:
@@ -250,20 +311,26 @@ def run_eflow_site_update(timeout: int = _DEFAULT_TIMEOUT) -> dict:
                         "actual": actual,
                         "rel_path": actual,
                     })
+            # 派生步骤要在 files 列表之前跑：这样汇总/邮件/校验报告也带上最新时间戳
+            derived = _run_derived(env, creationflags)
+            derived_failed = [d["step"] for d in derived if not d.get("ok")]
             payload = {
                 "success": True,
                 "started_at": started_at,
                 "finished_at": _now(),
-                "elapsed_seconds": elapsed,
+                "elapsed_seconds": round(time.perf_counter() - started, 2),
                 "note": "仅生成待审查文件，未写入任何数据库",
                 "degraded": degraded,
                 "degraded_files": degraded_files,
+                "derived": derived,
+                "derived_failed": derived_failed,
                 **parsed,
                 "files": _list_outputs(),
                 "stdout_tail": tail,
             }
-            logger.info("CMDB 站点同步完成（%.1fs）：eflow %s / master %s",
-                        elapsed, parsed.get("eflow"), parsed.get("master"))
+            logger.info("CMDB 站点同步完成（%.1fs）：eflow %s / master %s / 派生 %s",
+                        elapsed, parsed.get("eflow"), parsed.get("master"),
+                        "全部成功" if not derived_failed else f"失败 {derived_failed}")
             _write_summary(payload)
             return payload
 

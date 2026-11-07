@@ -4,7 +4,10 @@
  *
  * 2026-11-07 新建。这一层**只做视图层的解释与关联**，不碰出结论逻辑：
  *   - vmaxDiagnosisRules.ts 的 buildVerdict / scoreAll 是唯一结论来源，本文件
- *     禁止复制阈值，禁止篡改 verdict（单测里断言 verdict 文本不变）；
+ *     禁止复制阈值（ottRttBad/ottJitterBad 等一律引 THRESHOLDS），禁止篡改
+ *     verdict —— 现在**真的有单测**守这两条：src/lib/__tests__/
+ *     vmaxWorkspaceRules.test.ts（此前头注释声称有单测、实际基建为零，
+ *     2026-11-07 补齐 vitest，`npm test` 跑）；
  *   - CCA（vmax-cca-query）不参与 verdict（sources 只有 1300/1100/32/1301），
  *     这里只把它的 causes/failures 当作**关联证据**叠层；
  *   - 文案一律 I18nText（tx），渲染层 renderI18n 翻译，禁止中文字面量。
@@ -47,8 +50,20 @@ export type EvidenceRef = {
   sourceLabel: string
 }
 
+/** 证据抽屉的面板类型 —— 从 EvidenceRef 派生，抽屉/指标行/页面共用一份 */
+export type EvidenceKind = EvidenceRef['kind']
+
 export type ChainNode = 'terminal' | 'ran' | 'transport' | 'core' | 'ott'
 export const CHAIN_ORDER: ChainNode[] = ['terminal', 'ran', 'transport', 'core', 'ott']
+
+/** 链路节点 → i18n key（Analysis / Verdict / 导出共用，勿在组件里各写一份） */
+export const CHAIN_NODE_KEY: Record<ChainNode, string> = {
+  terminal: 'vmaxq.ws.chain.terminal',
+  ran: 'vmaxq.ws.chain.ran',
+  transport: 'vmaxq.ws.chain.transport',
+  core: 'vmaxq.ws.chain.core',
+  ott: 'vmaxq.ws.chain.ott',
+}
 
 export type Level = 'ok' | 'warn' | 'bad' | 'unknown'
 
@@ -249,7 +264,9 @@ function buildMetrics(input: Input): ExplainMetric[] {
   {
     const has = !!ott && ott.totalSessions > 0
     const worse = has && ott !== null
-      && (ott.avgDlRtt > 150 || ott.jitter > 60 || ott.retransRate > THRESHOLDS.retrans)
+      && (ott.avgDlRtt > THRESHOLDS.ottRttBad
+        || ott.jitter > THRESHOLDS.ottJitterBad
+        || ott.retransRate > THRESHOLDS.retrans)
     out.push({
       id: 'm-ott', node: 'ott',
       titleKey: 'vmaxq.ws.metric.ott.title',
@@ -366,20 +383,58 @@ function buildLinks(input: Input, chain: ChainStatus[]): CrossModuleLink[] {
  * 排行：CCA causes 按维度异常对齐排序（只加分，不改结论字）
  * ------------------------------------------------------------------------ */
 
-function alignOf(cause: CauseItem, scores: DimensionScore[]): ScoreKey[] {
-  const blob = `${cause.rule_name} ${cause.object_type} ${cause.object_name}`.toUpperCase()
-  const aligned: ScoreKey[] = []
-  if (blob.includes('ACCESS') || blob.includes('CELL') || blob.includes('RSRP') || blob.includes('RADIO') || blob.includes('SIGNAL')) aligned.push('radio')
-  if (blob.includes('RETRAN') || blob.includes('LOSS') || blob.includes('TRANSPORT') || blob.includes('PACKET')) aligned.push('transport')
-  if (blob.includes('DELAY') || blob.includes('LATEN') || blob.includes('TIMEOUT') || blob.includes('RTT')) aligned.push('latency')
-  if (blob.includes('SLC') || blob.includes('FAIL') || blob.includes('AVAIL') || blob.includes('CONNECT')) aligned.push('availability')
-  if (!aligned.length) aligned.push('availability')
-  void scores
-  return aligned
+/* CCA 规则 → 诊断维度 的对齐表（2026-11-07 P2-8 重构）。
+ *
+ * 旧版 alignOf 把规则名+object 名拼成大写串做 includes，且「一个都没命中
+ * 也兜底 availability」——后果有二：object_type 恒为 CELL(4G) 之类，导致
+ * 每条小区级根因都被对齐到 radio；没对齐上的也假挂 availability，
+ * crossSupport 永不为 0，排行被噪声污染。现改三级：
+ *   1. CCA_RULE_ALIGN_EXACT —— 已确证规则名的精确映射（键为大写规范化后
+ *      的规则名）。新规则确证后在此登记，登记时注明来源与日期；
+ *   2. CCA_RULE_KEYWORDS —— 未登记规则的保守关键词（只搜规则名，不搜
+ *      object 名），只留语义无歧义的 token，逐条写明对应理由；
+ *   3. 两级都没命中 → 空数组：诚实显示「无维度对齐」，crossSupport 为 0，
+ *      排序只剩 CCA 自身 confidence。 */
+const CCA_RULE_ALIGN_EXACT: Record<string, ScoreKey[]> = {
+  // 唯一确证样例：backend/services/vmax_cca/README.md「根因」接口样例（2026-11-07）
+  'DOWNLINK WEAK COVERAGE(CELL)': ['radio'],
+}
+
+const CCA_RULE_KEYWORDS: { token: string; dim: ScoreKey }[] = [
+  // 无线侧：覆盖/信号类词只可能出自 RAN 侧规则
+  { token: 'WEAK COVERAGE', dim: 'radio' },
+  { token: 'RSRP', dim: 'radio' },
+  { token: 'SINR', dim: 'radio' },
+  { token: 'RADIO', dim: 'radio' },
+  { token: 'SIGNAL', dim: 'radio' },
+  // 传输质量：重传/丢包类（泛词 PACKET 单独出现不定性，只认 RETRAN / LOSS）
+  { token: 'RETRAN', dim: 'transport' },
+  { token: 'LOSS', dim: 'transport' },
+  { token: 'TRANSPORT', dim: 'transport' },
+  // 时延类
+  { token: 'DELAY', dim: 'latency' },
+  { token: 'LATENCY', dim: 'latency' },
+  { token: 'TIMEOUT', dim: 'latency' },
+  { token: 'RTT', dim: 'latency' },
+  // 接入/会话成功类（FAILURE 已由 FAIL 覆盖；CONNECT/ACCESS 歧义大，不收）
+  { token: 'SLC', dim: 'availability' },
+  { token: 'FAIL', dim: 'availability' },
+  { token: 'AVAIL', dim: 'availability' },
+]
+
+function alignOf(cause: CauseItem): ScoreKey[] {
+  const rule = String(cause.rule_name || '').trim().toUpperCase()
+  const exact = CCA_RULE_ALIGN_EXACT[rule]
+  if (exact) return exact
+  const dims: ScoreKey[] = []
+  for (const { token, dim } of CCA_RULE_KEYWORDS) {
+    if (rule.includes(token) && !dims.includes(dim)) dims.push(dim)
+  }
+  return dims
 }
 
 function crossSupportOf(cause: CauseItem, scores: DimensionScore[]): number {
-  const aligned = alignOf(cause, scores)
+  const aligned = alignOf(cause)
   let support = 0
   for (const k of aligned) {
     const s = scoreOf(scores, k)
@@ -395,7 +450,7 @@ function buildRankedCauses(input: Input): RankedCause[] {
       id: `c-${i}`,
       label: c.rule_name || c.object_name || '—',
       confidence: c.confidence || 0,
-      aligned: alignOf(c, input.scores),
+      aligned: alignOf(c),
       crossSupport: crossSupportOf(c, input.scores),
       cause: c,
       failures: [] as string[],

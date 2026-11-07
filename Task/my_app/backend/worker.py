@@ -461,6 +461,25 @@ def _pid_alive(pid) -> bool:
         return True
 
 
+def _reclaim_guard(worker_pid):
+    """回收 UPDATE 的**归属守卫**：只回收「仍是 running 且执行者未变」的那一行。
+
+    ⚠ 2026-11-06 修复重复失败日志：
+    `_recover_stale_running()` 被**每一个** worker 进程并发调用（启动时 +
+    每 300s 周期，见本文件 :851/:883-889），10 个分组进程 = 10 个并发执行者。
+    它们读到的是**同一批**残留 running 行（SELECT 不按归属过滤），
+    而此前几处 UPDATE 也只按 `id` 回写 —— 于是 N 个进程同时把同一行改成
+    failed、同时补写一条失败日志（`task_execution_log` 里同一事件出现 N 行）。
+    实测近 5 天：真实事件 112 条 vs 日志行 118 行（放大 5.4%），全表 144 vs 150。
+
+    加上归属守卫后，只有**第一个** UPDATE 命中（rowcount=1），其余 rowcount=0
+    → 只有命中者才补写日志。`worker_pid` 为 NULL 的旧记录单独用 `IS NULL` 匹配。
+    """
+    if worker_pid is None:
+        return " AND status = 'running' AND worker_pid IS NULL", ()
+    return " AND status = 'running' AND worker_pid = ?", (worker_pid,)
+
+
 def _recover_stale_running():
     """回收 Worker 异常退出残留的 running 记录（启动时 + 运行中每 300s 周期执行）。
 
@@ -554,12 +573,14 @@ def _recover_stale_running():
                                     err = (f"任务超过 {TASK_MAX_RUNNING_SECONDS // 3600}h 未完成"
                                            f"（执行者 pid={_pid_int} 不在 Worker 注册表，"
                                            f"仅回收队列名额、不强杀进程）")
-                                    conn.execute(
+                                    _g, _gp = _reclaim_guard(worker_pid)
+                                    _wrote = conn.execute(
                                         "UPDATE task_queue SET status = 'failed', finished_at = ?, "
-                                        "error = ? WHERE id = ?",
-                                        (now_iso, err, qid),
-                                    )
-                                    recovered.append((task_id, trigger_type, started_at, False, err))
+                                        "error = ? WHERE id = ?" + _g,
+                                        (now_iso, err, qid) + _gp,
+                                    ).rowcount
+                                    if _wrote:
+                                        recovered.append((task_id, trigger_type, started_at, False, err))
                             continue
                         pid_dead = True  # 进程已死，或 PID 被非 python 进程复用
                     else:
@@ -574,23 +595,27 @@ def _recover_stale_running():
                     (task_id, started_at),
                 ).fetchone()
                 if already_done:
-                    conn.execute(
-                        "UPDATE task_queue SET status = 'done', finished_at = ? WHERE id = ?",
-                        (now_iso, qid),
-                    )
-                    recovered.append((task_id, trigger_type, started_at, True, ""))
+                    _g, _gp = _reclaim_guard(worker_pid)
+                    _wrote = conn.execute(
+                        "UPDATE task_queue SET status = 'done', finished_at = ? WHERE id = ?" + _g,
+                        (now_iso, qid) + _gp,
+                    ).rowcount
+                    if _wrote:
+                        recovered.append((task_id, trigger_type, started_at, True, ""))
                 elif stopping and pid_dead:
                     # 人为停机打断（stop.bat 写了标记）→ 重新入队，不判失败。
                     # 置回 pending 并清空 running 相关字段（started_at/worker_pid），
                     # 让新 worker 像对待一条普通待执行记录那样重新认领。
                     # 注意：这里只处理 pid_dead（进程确实已退出）。too_old 兜底
                     # （无 pid 无法核对，pid_dead 为 False）不走此分支，保持保守判失败。
-                    conn.execute(
+                    _g, _gp = _reclaim_guard(worker_pid)
+                    _wrote = conn.execute(
                         "UPDATE task_queue SET status = 'pending', started_at = NULL, "
-                        "worker_pid = NULL WHERE id = ?",
-                        (qid,),
-                    )
-                    requeued.append((task_id, trigger_type, started_at))
+                        "worker_pid = NULL WHERE id = ?" + _g,
+                        (qid,) + _gp,
+                    ).rowcount
+                    if _wrote:
+                        requeued.append((task_id, trigger_type, started_at))
                 else:
                     # 2026-09-30 修复措辞：旧文案一律写"Worker 进程中断"，但 pid 存活、
                     # 只是被新 worker 判定为"不属于已知 worker"时，进程其实**没中断**
@@ -603,12 +628,14 @@ def _recover_stale_running():
                         f"已回收队列名额"
                     )
                     err = f"{_reason}（启动/周期自动回收）"
-                    conn.execute(
+                    _g, _gp = _reclaim_guard(worker_pid)
+                    _wrote = conn.execute(
                         "UPDATE task_queue SET status = 'failed', finished_at = ?, "
-                        "error = ? WHERE id = ?",
-                        (now_iso, err, qid),
-                    )
-                    recovered.append((task_id, trigger_type, started_at, False, err))
+                        "error = ? WHERE id = ?" + _g,
+                        (now_iso, err, qid) + _gp,
+                    ).rowcount
+                    if _wrote:
+                        recovered.append((task_id, trigger_type, started_at, False, err))
             conn.commit()
             conn.close()
         for task_id, trigger_type, started_at, marked_done, err_text in recovered:

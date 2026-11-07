@@ -149,7 +149,9 @@ from backend.services.eflow_assign.eflow_site import (  # noqa: E402,F401
     _only_digit_suffix_diff,
     _pick,
     _vowel_swap_only,
+    numeric_site_id,
     resolve_site,
+    site_name_candidates,
     site_name_from_me,
 )
 

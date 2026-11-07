@@ -302,7 +302,15 @@ GROUP_TASK_MAP = {
         # 归 u 组的理由同 avail_recon_sync：源表正是同组 main_kpi_sync(04:00) 写的，
         # 同组串行 + 排队先后即可保证「先写后读」。本任务不新建 UME PM 模板
         # （templateid 必须服务端已存在，不可臆造），只复用已物化的那张表。
-        "bp_report_sync"),
+        "bp_report_sync,"
+        # ran_element_management_sync 2026-11-07 注册：RAN UME(10.100.28.27:28001)
+        # RNM「网元管理」表格 /api/res/v1/ranmes 每日 23:00 全量落 PG app schema。
+        # 归 u 组的硬理由：它走 auth_manager.get_auth + credential_store 的 zte_ume，
+        # 与 ran_ume_daily / cm_data_sync 共用**同一台 UME、同一个账号、同一份
+        # auth_cache 会话**，并发登录会互踢；同组串行也顺带避免与 02:00 的
+        # ran_ume_daily 抢会话。cron 23:00 与 u 组其它任务错峰，单轮实测 <1s。
+        # ⚠ 新任务漏登记本表 → 队列 pending 无人认领直到 300s 超时（本组已踩过多次）。
+        "ran_element_management_sync"),
     "n": (  # eFlow API / config-center 同源会话组（2026-09-27 收窄：s/w 两组已拆出）
         # 【2026-09-27 拆组背景】本组原先 17 项，实测近 24h 单 worker 串行占用：
         #   sp_data_sync 347min + eflow_sync 236min + eflow_active_alarm 103min = 686min/天，
@@ -505,8 +513,9 @@ GROUP_TASK_MAP = {
         # 错开为 0 4 * * *，但因 enabled=False 实际不会自动跑，由 sync 页面手动启用触发。
         "whatsapp_send_baileys,"
         # ipt_power_collect 2026-11-03 注册：IPT Digital Platform（RMS 能源监控，AWS 外网）
-        # 站点电源采集（*/2）。2026-11-04 起两层并发：全站 popup KPI（现行 8 线程，
-        # 按 kpi_cursor 环形轮转）+ diagram 明细分片轮采（3 线程），受 100s 硬上限兜底。
+        # 站点电源采集（2026-11-06 起 */5）。两层并发：全站 popup KPI（现行 8 线程，
+        # 按 kpi_cursor 环形轮转）+ diagram 明细分片轮采（3 线程），
+        # 受 240s 硬上限兜底（2026-11-06 D 由 100s 放宽，周期 300s 留 60s）。
         # 11-05 复盘：32+16 / 12+8 并发持续 2min 节拍会把上游拖出批量读超时，
         # 现降为 8+3 并加低成功率熔断退避（详见 services/ipt_data/README.md）。
         # 归 m 组理由：外网独立会话（OIDC 隐式流表单模拟，token 缓存

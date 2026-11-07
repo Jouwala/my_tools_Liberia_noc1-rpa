@@ -96,51 +96,61 @@
     "dcserver": [
       "fo",
       "bo",
+      "flm",
       "smc"
     ],
     "eflow": [
       "fo",
       "bo",
+      "flm",
       "smc"
     ],
     "fwumc": [
       "fo",
       "bo",
+      "flm",
       "smc"
     ],
     "imonitor": [
       "fo",
       "bo",
+      "flm",
       "smc"
     ],
     "ipran": [
       "fo",
       "bo",
+      "flm",
       "smc"
     ],
     "mw": [
       "fo",
       "bo",
+      "flm",
       "smc"
     ],
     "nmsccn": [
       "fo",
       "bo",
+      "flm",
       "smc"
     ],
     "portalLogin": [
       "fo",
       "bo",
+      "flm",
       "smc"
     ],
     "rais": [
       "fo",
       "bo",
+      "flm",
       "smc"
     ],
     "vmaxcxo": [
       "fo",
       "bo",
+      "flm",
       "smc"
     ]
   },

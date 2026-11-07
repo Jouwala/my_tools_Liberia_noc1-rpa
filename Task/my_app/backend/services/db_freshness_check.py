@@ -170,6 +170,24 @@ DERIVED_CHECKS = [
          task_id="progress_sync", task_cron="50 7 * * *",
          service="backend/services/progress_sync.py::run_progress_sync",
          write_path="远端只读 API（TT LEFT JOIN WO）→ 原子替换本机 data/progress.sqlite3"),
+
+    # 事故背景（2026-11-06，本清单就是补这个盲区）：
+    #   `vmax_multi_data_sync` 自 2026-10-03 21:45 起**连续 34 天零产出**：
+    #   上游 report_query 缺 X-Content-Type 头 → 返回 200 但 fields/data 全空，
+    #   服务层旧判据「有 fields 且有 errors 才 raise」把它当成功，
+    #   于是每轮 status=ok / rows=0、DB 里 success=1，产物 JSON 每小时覆盖写
+    #   又把「陈旧」洗成「刚刚更新」。当时它**不在任何新鲜度清单里**，巡检零覆盖，
+    #   用户是打开页面发现没数才反过来查的。
+    #   本项按 kpi_rows.fetched_at（同步时刻，不是业务时间）判「最近一次取数是否真落了行」，
+    #   任务红绿与「表里有没有新数据」从此分开可见。
+    dict(label="VMAX 多报表指标采集",
+         path=str(MY_APP_DIR / "data" / "vmax_multi_data" / "vmax_multi_data.sqlite3"),
+         table="kpi_rows", column="fetched_at",
+         granularity="intraday", max_age_hours=3.0,
+         task_id="vmax_multi_data_sync", task_cron="45 * * * *",
+         service="backend/services/vmax_multi_data/vmax_multi_data_service.py::run_vmax_multi_data_sync",
+         write_path="8790 VMAX 代理 → vreport server/report_query（RSA 加密参数）"
+                    "→ 原子写本机 data/vmax_multi_data/vmax_multi_data.sqlite3（kpi_rows 明细 + sync_runs 运行记录）"),
 ]
 
 # ============================================================
@@ -260,6 +278,27 @@ APP_DB_CHECKS = [
          task_id="eflow_sync", task_cron="22 * * * *",
          service="backend/services/sync_from_eflow_api.py::sync_from_eflow_api（delta）",
          write_path="eFlow 导出管道 → 本机主库 eflow_wo（增量 upsert 累积）"),
+
+    # IPT 站点电源快照（2026-11-06 新增）。
+    # ⚠ 补这个是因为 ipt_power_collector.py 的熔断退避分支注释写着
+    #   「success=True，不触发失败通知，**页面新鲜度告警（>5 分钟）自然覆盖此状态**」
+    #   —— 但那条告警**从来不存在**：前端只认 success=false，全仓没有任何代码读
+    #   `last_snapshot`，i18n 里也没有相关文案，巡检也没覆盖这张表。
+    #   于是「上游故障 → 指数退避静默跳过 → 页面数字停在几小时前」这条路
+    #   全程没有任何信号。实测近 5 天有 8 段 >10 分钟的快照缺口，最长 24.1 分钟。
+    # 判据用 `created_at`（本机写入时刻，不是上游 snap_time）：要回答的是
+    #   「我们最近一次成功落快照是什么时候」，与上游数据自身的时间无关。
+    # 窗口 20 分钟：任务 cron 2026-11-06 起为 */5（每 5 分钟一轮、常规 ~95s，
+    #   2026-11-06 D 起最坏 240s 硬上限），
+    #   实测正常缺口远小于 10 分钟；20 分钟 = 连丢约 4 轮，确定是停摆而非抖动。
+    #   ⚠ ipt_power_collect 的瞬时上游抖动现由 filter-map 短重试 + 上轮清单降级
+    #   吸收、不再判任务失败（2026-11-06 B+C）；这条巡检是「真停摆」的信号，别删。
+    dict(label="IPT 站点电源快照", table="ipt_power_snapshots", column="created_at",
+         granularity="intraday", max_age_hours=0.33,
+         task_id="ipt_power_collect", task_cron="*/2 * * * *",
+         service="backend/services/ipt_data/ipt_power_collector.py::run_ipt_power_collect",
+         write_path="IPT Digital Platform（AWS）popup KPI 并发拉全站 → 本机主库 "
+                    "ipt_power_snapshots（全站每轮一条；上游故障时指数退避静默跳过整轮）"),
 ]
 
 # 任务执行健康检查参数（2026-08-12 新增，2026-08-13 收紧）：
@@ -297,17 +336,38 @@ apply_config_overrides(
     log_name="db_freshness",
 )
 
-# 「外部依赖不可用」类失败特征（EWS / 邮件网关 + 通用网络不可达）。
+# 「外部依赖不可用」类失败特征（EWS / 邮件网关、DbWriter 落库 API、通用网络不可达）。
 # 用于把"依赖故障导致的逾期"与"任务真停摆"分开：前者汇总成一条告警，后者逐条告警。
 # 见 _is_dependency_failure()。
-_DEPENDENCY_FAIL_KEYS = (
-    # EWS / 邮件网关
+#
+# ⚠ 2026-11-06 补 `_DEP_WRITER_KEYS`：现场近 5 天的依赖类失败**全部**是
+#   `[DbWriter] 请求失败: http://192.168.100.19:8765/api/write`
+#   （main_kpi_sync / cnn_kpi_sync / cnn_kpi_sync_5mins / ipran_kpi_sync），
+#   而旧 key 列表里既没有 `[DbWriter]` 也没有 `8765`，只有泛化的 ConnectionError
+#   之类 —— 于是同一类故障一部分被判成依赖类、一部分被判成「真停摆」，
+#   而且即便判对了，guidance 还固定写「看 EWS 状态通知 / 核对 Exchange 密码」，
+#   把人往完全无关的方向指（真实原因在 .19 的 db_writer 服务）。
+_DEP_WRITER_KEYS = (
+    "[DbWriter]", "DbWriter", ":8765", "db_writer",
+)
+_DEP_EWS_KEYS = (
     "RateLimitError", "UnauthorizedError", "Invalid credentials", "HTTP 401",
     "back off", "ServerBusy", "ErrorServerBusy", "exchmail",
     "Unable to connect to the remote server",
+)
+_DEPENDENCY_FAIL_KEYS = (
+    # EWS / 邮件网关
+    *_DEP_EWS_KEYS,
+    # DbWriter 落库 API（.19:8765）
+    *_DEP_WRITER_KEYS,
     # 通用网络不可达
     "TransportError", "ReadTimeout", "ConnectTimeout", "ConnectionError",
     "ConnectionReset", "RemoteDisconnected",
+    # requests/urllib3 的人类可读写法是 "Read timed out."（带空格），
+    # 与 urllib 的 "ReadTimeout" 不是同一个串 —— 2026-11-06 现场
+    # ipt_power_collect 的 `HTTPSConnectionPool(...): Read timed out.`
+    # 就因为只登记了后者而漏判成「非依赖」，被当成任务真停摆逐条告警。
+    "timed out", "TimeoutError",
     "10054", "10060", "10061",
 )
 
@@ -658,7 +718,7 @@ def _silent_task_candidates(registry, exec_latest: dict, disabled_ids, cutoff: s
 
 
 def _is_dependency_failure(error: str) -> bool:
-    """失败原因是否属于「外部依赖不可用」（EWS/邮件网关、通用网络不可达）。
+    """失败原因是否属于「外部依赖不可用」（EWS/邮件网关、DbWriter、通用网络不可达）。
 
     这类失败不是任务停摆，而是依赖故障：任务在正常重试、task_runner 的失败告警
     也已覆盖。区分出来的目的是**把 N 个任务汇总成一条告警**，而不是（原实现）
@@ -669,11 +729,191 @@ def _is_dependency_failure(error: str) -> bool:
     return any(k in blob for k in _DEPENDENCY_FAIL_KEYS)
 
 
+def _dependency_source(error: str) -> str:
+    """把「依赖类失败」细分到**具体是哪个依赖**，供 guidance 精准指路。
+
+    为什么必须细分（2026-11-06）：原先 guidance 是写死的一份 EWS 文案，
+    而现场近 5 天的依赖类失败**全是** `[DbWriter] ...:8765` 落库 API 不可用 ——
+    照那份文案去核对 Exchange 密码，方向完全错了，真凶在 .19 的 db_writer 服务。
+    返回 'db_writer' / 'ews' / 'network'。
+    """
+    blob = str(error or "")
+    if any(k in blob for k in _DEP_WRITER_KEYS):
+        return "db_writer"
+    if any(k in blob for k in _DEP_EWS_KEYS):
+        return "ews"
+    return "network"
+
+
+# 各依赖源的处置步骤（按 fault source 拼装，不再给一份万能 EWS 文案）
+_DEP_SOURCE_META = {
+    "db_writer": (
+        "DbWriter 落库 API 不可用（.19:8765）",
+        ["在本机确认端口是否可达：Test-NetConnection 192.168.100.19 -Port 8765",
+         "到 .19 上查 db_writer 服务是否在跑、C 盘是否写满（**该机器的操作必须由人在 .19 上执行**）",
+         "该 API 只负责落库、不影响任务自身取数：恢复后重跑这些任务即可回补数据"],
+    ),
+    "ews": (
+        "EWS / 邮件网关不可用",
+        ["看 email_recovery 的 EWS 状态通知：故障分 server_down / auth_error / cred_mismatch",
+         "auth_error / cred_mismatch **不会自行恢复**，需到「设置 → Exchange/OWA Mailbox」核对账号密码是否被锁/改",
+         "server_down 只能等 Orange 侧恢复；恢复后 email_recovery 当轮即补发时效内的失败邮件"],
+    ),
+    "network": (
+        "通用网络不可达（超时/拒连）",
+        ["确认本机到上游的连通性与代理设置（本机 .20 出网走 nginx/代理）",
+         "看上游系统是否维护窗口；恢复后任务下一轮自动重取",
+         "若长期不通，评估该任务是否需要改为可容忍短时中断的增量策略"],
+    ),
+}
+
+
+def _dependency_guidance(errors) -> list:
+    """按本轮实际出现的故障源拼装处置建议（按 db_writer > ews > network 排序）。"""
+    sources = []
+    for e in (errors or []):
+        s = _dependency_source(e)
+        if s not in sources:
+            sources.append(s)
+    order = {"db_writer": 0, "ews": 1, "network": 2}
+    sources.sort(key=lambda s: order.get(s, 9))
+    lines = []
+    idx = 1
+    for s in sources:
+        label, steps = _DEP_SOURCE_META[s]
+        lines.append(f"{idx}. 【{label}】")
+        for st in steps:
+            lines.append(f"   - {st}")
+        idx += 1
+    if not lines:
+        lines = ["1. 检查上游依赖服务可用性；恢复后重跑这些任务回补数据"]
+    return lines
+
+
+
+# ============================================================
+# 「任务成功但产出为空」检测（2026-11-06 新增，补第 5 个维度）
+# ============================================================
+# 为什么需要（事故背景）：
+#   `vmax_multi_data_sync` 从 2026-10-03 21:45 起**连续 34 天零产出**：
+#   上游 report_query 返回 200 但 fields/data 全空，服务层旧判据把它当成功，
+#   于是每轮 status=ok / rows=0、DB 里 success=1。而当时的四个维度全都不覆盖它：
+#     group_missing  有分组、worker 也认领了     → 不报
+#     silent         每小时都有执行记录           → 不报
+#     stuck          队列里没有滞留               → 不报
+#     overdue        每小时都 success=1，「成功逾期」永远不成立 → 不报
+#   于是「跑了、绿了、什么都没产出」这件事在任何地方都不可见。
+#   DERIVED_CHECKS 里已补 vmax 的**数据层**新鲜度；这里补**任务层**，
+#   两者角度不同（数据层看产物表，任务层看 result_json 自报的条数），
+#   数据层要求结论表可读，任务层不依赖落库位置 —— 换存储时任务层仍然有效。
+#
+# 只登记「产出为 0 一定是坏了」的任务，并且要求**连续 N 次**成功都是 0 才报，
+# 避免「某个小时上游确实没数据」这种正常空窗误报。键名取自各任务 result_json
+# 实测字段（2026-11-06 用近 48h 成功率样本核对过）。
+EMPTY_OUTPUT_CHECKS = [
+    dict(task_id="vmax_multi_data_sync",    keys=("rows",),            label="VMAX 多报表指标采集"),
+    dict(task_id="mttr_tt_sync",            keys=("rows",),            label="MTTR/TT 宽表"),
+    dict(task_id="progress_sync",           keys=("rows",),            label="Progress 宽表"),
+    dict(task_id="ipran_kpi_sync",          keys=("total_rows",),      label="IPRAN KPI"),
+    dict(task_id="fw_kpi_sync",             keys=("rows_written",),    label="防火墙 KPI"),
+    dict(task_id="main_kpi_sync",           keys=("imported_rows",),   label="主 KPI"),
+    dict(task_id="packet_loss_sync",        keys=("rows",),            label="丢包率"),
+    dict(task_id="sp_online_sync",          keys=("rows",),            label="SP 在线单"),
+    dict(task_id="sp_material_sync",        keys=("rows",),            label="SP 备件"),
+    dict(task_id="olib_soc_kpi_daily_sync", keys=("rows",),            label="OLIB SOC KPI"),
+    dict(task_id="pg_to_sqlite_sync",       keys=("total_rows",),      label="PG→SQLite 同步"),
+    dict(task_id="vmax_cxo_daily_sync",     keys=("rows_written",),    label="VMAX CXO 日缓存"),
+]
+
+# 连续多少次成功执行都报 0 条才判「零产出」（默认 2：一次空窗不算，两次就是坏了）
+EMPTY_OUTPUT_CONSECUTIVE = 2
+
+
+def _result_output_count(result_json, keys) -> "int | None":
+    """从 task_execution_log.result_json 里取产出条数。
+
+    返回 None 表示**这个结果没有自报条数**（不能据此判空 —— 未登记/字段改名都属此类，
+    必须与「明确是 0」区分开，否则一次字段改名就会把检查变成永久误报）。
+    多个键取最大值：有的任务同时给 rows 与 total，其中一个可能不含 skipped。
+    """
+    try:
+        import json as _json
+        d = _json.loads(result_json) if isinstance(result_json, str) else result_json
+    except Exception:  # noqa: BLE001
+        return None
+    if not isinstance(d, dict):
+        return None
+    vals = []
+    for k in keys:
+        v = d.get(k)
+        if isinstance(v, bool):
+            continue
+        if isinstance(v, (int, float)):
+            vals.append(v)
+    if not vals:
+        return None
+    return int(max(vals))
+
+
+def _empty_output_candidates(disabled_ids, lookback_hours: float,
+                             consecutive: int = EMPTY_OUTPUT_CONSECUTIVE) -> list:
+    """最近 `consecutive` 次**成功**执行都自报产出为 0 的任务。
+
+    返回 [dict(task_id, label, latest, detail)]。只读，不起任务。
+    表不存在 / 查询失败一律返回 []（由调用方已有的「历史库不可用」维度兜住），
+    这里再抛异常会让整个巡检 success=False，属于放大故障面。
+    """
+    if not EMPTY_OUTPUT_CHECKS:
+        return []
+    want = [c for c in EMPTY_OUTPUT_CHECKS if c["task_id"] not in (disabled_ids or set())]
+    if not want:
+        return []
+    try:
+        _ensure_my_app_importable()
+        from backend.database import get_raw_connection, DB_PATH as _APP_DB
+    except Exception:  # noqa: BLE001
+        return []
+    ids = [c["task_id"] for c in want]
+    cut = (datetime.now() - timedelta(hours=lookback_hours)).isoformat()
+    marks = ",".join("?" for _ in ids)
+    sql = ("SELECT task_id, started_at, result_json FROM app.task_execution_log "
+           f"WHERE success = 1 AND task_id IN ({marks}) AND started_at >= ? "
+           "ORDER BY started_at DESC")
+    try:
+        with get_raw_connection(str(_APP_DB), timeout=30) as conn:
+            rows = conn.execute(sql, tuple(ids) + (cut,)).fetchall()
+    except Exception:  # noqa: BLE001
+        return []
+    by_task: dict = {}
+    for tid, started_at, rj in rows:
+        by_task.setdefault(tid, []).append((started_at, rj))
+    meta = {c["task_id"]: c for c in want}
+    found = []
+    for tid, runs in by_task.items():
+        cfg = meta[tid]
+        recent = runs[:max(1, consecutive)]
+        counts = [_result_output_count(rj, cfg["keys"]) for _, rj in recent]
+        # 全部必须「明确是 0」才报；任何一次 None（未自报）或 >0 都不报
+        if len(recent) < max(1, consecutive):
+            continue
+        if any(c is None or c > 0 for c in counts):
+            continue
+        keys_txt = "/".join(cfg["keys"])
+        found.append(dict(
+            task_id=tid, label=cfg["label"], latest=str(recent[0][0])[:19],
+            keys=cfg["keys"],
+            detail=(f"最近 {len(recent)} 次成功执行产出均为 0 条"
+                    f"（字段 {keys_txt}），最后一次 {str(recent[0][0])[:19]}")))
+    found.sort(key=lambda x: x["task_id"])
+    return found
+
+
+
 def _check_task_execution_health(now: datetime, results: list, stale_items: list):
-    """任务执行健康检查（4 个维度，均为只读查询）。
+    """任务执行健康检查（5 个维度，均为只读查询）。
     返回 (ok, issues, findings)：ok=False 表示检查手段本身不可用（影响 success）；
-    findings = {group_missing/silent/stuck/overdue/overdue_dependency: [...]}，供
-    task_health_alert 做翻转去重告警（stuck 为 dict，带队列 id 与滞留时长）。
+    findings = {group_missing/silent/stuck/overdue/overdue_dependency/empty_output: [...]}，
+    供 task_health_alert 做翻转去重告警（stuck / empty_output 为 dict 列表）。
     """
     registry, groups, specs, err = _task_group_coverage()
     if err or registry is None:
@@ -683,7 +923,7 @@ def _check_task_execution_health(now: datetime, results: list, stale_items: list
         return False, 1, {}
     issues = 0
     findings: dict = {"group_missing": [], "silent": [], "stuck": [],
-                      "overdue": [], "overdue_dependency": []}
+                      "overdue": [], "overdue_dependency": [], "empty_output": []}
 
     # 1) 注册表 vs worker 分组清单覆盖（新增任务只注册未加分组 → 永远无人认领）
     missing = [t for t in registry if t not in groups]
@@ -740,6 +980,28 @@ def _check_task_execution_health(now: datetime, results: list, stale_items: list
                 "1. pending: 任务可能不在任何 worker 分组清单（见分组覆盖检查）或 worker 未启动",
                 "2. running 超 30min: 大概率 worker 已崩溃（僵尸记录），worker 周期回收会自动补写失败并交 auto_retry 重试；也可手动重跑",
                 "3. 确认所有分组 worker（见 worker_watchdog.GROUP_TASK_MAP，当前 u/n/v/m/c）均在运行: worker_watchdog.log",
+            ]))
+
+    # 5) 成功但零产出：任务绿着、每小时都在跑，但 result_json 自报 0 条。
+    #    这是 vmax_multi_data 连续 34 天零产出没被发现的**直接原因**（见上方说明）。
+    #    必须在 silent/overdue 之后判定：那两个维度管「没跑」「没成功」，
+    #    本维度只管「跑了也成功了，但等于没干活」。
+    empty_output = _empty_output_candidates(disabled_ids, TASK_HEALTH_LOOKBACK_HOURS)
+    findings["empty_output"] = list(empty_output)
+    if empty_output:
+        issues += 1
+        lines = "\n".join(f"    {e['label']}（{e['task_id']}）: {e['detail']}"
+                          for e in empty_output[:10])
+        stale_items.append(dict(
+            db="task_health", table="task_execution_log(result_json)",
+            reason=(f"{len(empty_output)} 个任务**执行成功但持续零产出**"
+                    f"（success=1，result 自报 0 条 —— 任务页全绿，产物是空的）:\n{lines}"),
+            guidance=[
+                "1. 先看任务 result_json 里的错误/降级字段（errors / warnings / status）："
+                "很多上游失败会返回 200 而把错误藏在响应体里，任务函数若不校验就会当成功",
+                "2. 查该任务的产物表/文件最新时间：`db_freshness_check` 的派生表项会独立报出数据层陈旧",
+                "3. 核对上游接口是否变更/权限是否失效（典型：报表改名、加密头缺失、会话过期）",
+                "4. 若是「上游确实没数据」，确认后把该任务从 EMPTY_OUTPUT_CHECKS 移除或调高连续次数",
             ]))
 
     # 4) 成功逾期：上次成功之后按 cron 应再产出的周期已过一个完整周期下限，
@@ -799,11 +1061,10 @@ def _check_task_execution_health(now: datetime, results: list, stale_items: list
             reason=(f"{len(overdue_dependency)} 个任务因**外部依赖不可用**而逾期"
                     f"（任务在正常重试，非停摆；逐条失败告警由 task_runner 发出）: {_shown}\n"
                     f"    最近失败示例: {_sample}"),
-            guidance=[
-                "1. 看 email_recovery 的 EWS 状态通知：依赖故障分 server_down / auth_error / cred_mismatch",
-                "2. auth_error / cred_mismatch **不会自行恢复**，需到「设置 → Exchange/OWA Mailbox」核对账号密码是否被锁/改",
-                "3. server_down 只能等 Orange 侧恢复；恢复后 email_recovery 当轮即补发时效内的失败邮件",
-            ]))
+            # 2026-11-06：guidance 改为按**实际故障源**分流。原先固定是 EWS 文案，
+            # 而现场失败全是 [DbWriter]:8765，会把人指向完全无关的 Exchange 密码核对。
+            guidance=_dependency_guidance(
+                [d.get("last_error", "") for d in overdue_dependency])))
     if overdue:
         issues += 1
         stale_items.append(dict(

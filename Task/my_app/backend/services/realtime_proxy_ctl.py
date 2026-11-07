@@ -18,6 +18,7 @@ import time
 import socket
 import logging
 import subprocess
+import threading
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -135,6 +136,20 @@ def _port_alive(port: int) -> bool:
         s.close()
 
 
+# 每个端口一把锁，保证「检查端口 → 拉起」这一段是原子的（见 ensure_proxy 注释）
+_ENSURE_LOCKS: dict = {}
+_ENSURE_LOCKS_GUARD = threading.Lock()
+
+
+def _ensure_lock_for(port: int) -> "threading.Lock":
+    with _ENSURE_LOCKS_GUARD:
+        lock = _ENSURE_LOCKS.get(port)
+        if lock is None:
+            lock = threading.Lock()
+            _ENSURE_LOCKS[port] = lock
+        return lock
+
+
 def _proxy_healthy(port: int) -> bool:
     try:
         import urllib.request
@@ -179,7 +194,26 @@ def _kill_port(port: int):
 
 
 def ensure_proxy(cfg: dict, timeout: int = 25) -> dict:
-    """确保某个代理就绪：已健康则复用；端口被僵死进程占则清理后重拉；否则拉起。"""
+    """确保某个代理就绪：已健康则复用；端口被僵死进程占则清理后重拉；否则拉起。
+
+    ⚠ 2026-11-06 加锁：原先本函数**没有任何并发保护**，而它会被两个入口并发调用
+    （前端「启用实时刷新」→ POST /api/realtime-proxy/start → ensure_all()，
+    以及任何直接调 ensure_proxy 的代码）。两个线程可能同时走到
+    「端口不在 → Popen 拉起」这段，于是**同一个端口上起了两个代理进程**。
+    实测（2026-11-06）8790 上就是 PID 87632 与 9660 两个进程同父同秒启动、
+    netstat 里两条 LISTENING 同一端口 —— Windows 上 SO_REUSEADDR 允许两个
+    socket 绑同一端口，内核会把连接**不确定地**分给其中之一，
+    于是「同一个代理一会儿新代码一会儿旧代码」，排障时极难看出真相。
+    锁的粒度是**每个端口一把**，不同端口互不阻塞。
+    """
+    port = cfg["port"]
+    label = cfg["label"]
+    lock = _ensure_lock_for(port)
+    with lock:
+        return _ensure_proxy_locked(cfg, timeout)
+
+
+def _ensure_proxy_locked(cfg: dict, timeout: int) -> dict:
     port = cfg["port"]
     label = cfg["label"]
     if _port_alive(port) and _proxy_healthy(port):

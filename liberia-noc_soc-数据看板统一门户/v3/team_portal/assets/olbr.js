@@ -2850,11 +2850,19 @@
       /* 团队门户单列自适应首屏条数（2026-11-03 加）：V6_LIMIT=2 是按三列窄卡定的，
          一行只摆一条；单列卡独占整行时一行可摆 4~6 条，仍只切 2 条会空出半行。
          按容器宽度估算首行可摆条数（320px/条，与 CSS 的 minmax(280px,1fr)+缝对应，
-         至少 2 条），展开按钮计剩余数。窗口缩放后下次渲染重新估算。 */
+         至少 2 条），展开按钮计剩余数。窗口缩放后下次渲染重新估算。
+         ⚠️ 2026-11-06（用户要求「flm 的 Domain Dashboard 内容格式参考 bo」）：
+           多列团队（当前只有 flm = FLM View + SP View）的视图卡已由 CSS 改成
+           上下堆叠、每张独占整行，与 bo 的 BO View 分段视图一样把整列条目
+           全部平铺 —— 不再折叠成「Show N more」。故 gids.length > 1 时
+           v6Lim 直接取全量；单列团队仍按宽度估算，一行未改。
+           配套在 sync_team_assets.py 的 CSS_TEAM_SUFFIX（.v6-grid[data-n] 一律单列）。 */
       var v6Lim = V6_LIMIT;
-      if (SCOPE && !ed && !open && !sub.grouped && gids.length === 1 && list.length > V6_LIMIT) {
+      if (SCOPE && !ed && !open && !sub.grouped && list.length > V6_LIMIT) {
         var v6W = (box && box.clientWidth) || window.innerWidth || 1280;
-        v6Lim = Math.min(list.length, Math.max(V6_LIMIT, Math.floor(v6W / 320)));
+        v6Lim = gids.length > 1
+          ? list.length
+          : Math.min(list.length, Math.max(V6_LIMIT, Math.floor(v6W / 320)));
       }
       var show = open || ed ? list : list.slice(0, v6Lim);
       /* 2026-10-12：选中「全部」且该分组有子分组时，sub.grouped 是一段

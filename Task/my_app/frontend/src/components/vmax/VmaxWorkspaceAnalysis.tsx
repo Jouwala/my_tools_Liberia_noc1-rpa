@@ -13,11 +13,12 @@ import { Collapse, Space, Tag, Typography } from 'antd'
 
 import { useI18n } from '../../i18n'
 import { CardBase } from '../cards'
-import type { ChainStatus, ExplainMetric, Level } from '../../lib/vmaxWorkspaceRules'
+import { CHAIN_NODE_KEY, type ChainStatus, type EvidenceKind, type ExplainMetric, type Level } from '../../lib/vmaxWorkspaceRules'
 import type { ComplaintKey, DimensionScore, GameResult, OttResult, RadioAnalysis, TimelineRow, VoiceResult } from '../../pages/vmaxDiagnosisRules'
 import type { CcaResult } from '../VmaxCcaCards'
 import type { FlowData } from '../VmaxFlowCategoryTabs'
 import ExplainableMetric from './ExplainableMetric'
+import VmaxCrossCheck from './VmaxCrossCheck'
 import VmaxVoiceCard from '../VmaxVoiceCard'
 import VmaxOttCard from '../VmaxOttCard'
 import VmaxGameCard from '../VmaxGameCard'
@@ -26,14 +27,6 @@ import VmaxEvidenceTimeline from '../VmaxEvidenceTimeline'
 
 const { Text } = Typography
 
-const NODE_KEY: Record<string, string> = {
-  terminal: 'vmaxq.ws.chain.terminal',
-  ran: 'vmaxq.ws.chain.ran',
-  transport: 'vmaxq.ws.chain.transport',
-  core: 'vmaxq.ws.chain.core',
-  ott: 'vmaxq.ws.chain.ott',
-}
-
 const LEVEL_TAG: Record<Level, string> = {
   ok: 'green', warn: 'orange', bad: 'red', unknown: 'default',
 }
@@ -41,6 +34,7 @@ const LEVEL_TAG: Record<Level, string> = {
 export default function VmaxWorkspaceAnalysis({
   metrics, chain, complaint,
   voice, ott, game, timeline, flowXdr,
+  radio, cca,
   loading,
   onOpenEvidence,
 }: {
@@ -56,7 +50,7 @@ export default function VmaxWorkspaceAnalysis({
   scores: DimensionScore[]
   cca: CcaResult | null
   loading: boolean
-  onOpenEvidence: (kind: 'xdr' | 'records' | 'radio' | 'flow' | 'cca') => void
+  onOpenEvidence: (kind: EvidenceKind) => void
 }) {
   const { t } = useI18n()
 
@@ -72,14 +66,14 @@ export default function VmaxWorkspaceAnalysis({
             <Space key={c.node} size={6} align="center">
               {i > 0 && <Text type="secondary">→</Text>}
               <Tag color={LEVEL_TAG[c.level]} style={{ marginInlineEnd: 0, padding: '2px 10px' }}>
-                {t(NODE_KEY[c.node])}
+                {t(CHAIN_NODE_KEY[c.node])}
               </Tag>
             </Space>
           ))}
         </Space>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--wh-space-sm)', marginTop: 8 }}>
           {metrics.map((m) => (
-            <ExplainableMetric key={m.id} metric={m} />
+            <ExplainableMetric key={m.id} metric={m} onOpenEvidence={onOpenEvidence} />
           ))}
         </div>
       </CardBase>
@@ -87,6 +81,11 @@ export default function VmaxWorkspaceAnalysis({
       {voice && primaryCard === 'voice' && <VmaxVoiceCard voice={voice} />}
       {ott && primaryCard === 'ott' && <VmaxOttCard ott={ott} />}
       {game && primaryCard === 'game' && <VmaxGameCard game={game} />}
+
+      {/* 小区交叉验证（P3-2）：用户实际驻留小区（RAN 32）× CCA 根因/驻留小区。
+          放在按投诉类型置顶的专卡之后、流量/时间线之前 —— 回答「问题落在哪个
+          小区」的定位判据应先于原始明细。规则见 lib/vmaxCellCrossCheck.ts。 */}
+      <VmaxCrossCheck radio={radio} cca={cca} onOpenEvidence={onOpenEvidence} />
 
       <CardBase title={t('vmaxq.flowCard')}>
         <VmaxFlowCategoryTabs flow={flowXdr} />
@@ -106,7 +105,6 @@ export default function VmaxWorkspaceAnalysis({
           ...(game && primaryCard !== 'game' ? [{ key: 'game', label: t('vmaxq.game.card'), children: <VmaxGameCard game={game} /> }] : []),
         ]} />
       </CardBase>
-      <span style={{ display: 'none' }} onClick={() => onOpenEvidence('xdr')} />
     </div>
   )
 }

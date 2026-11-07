@@ -442,12 +442,25 @@ def ensure_login(force=False):
         return False
 
 
-def fetch(target_url, method="GET", body=None):
+def fetch(target_url, method="GET", body=None, extra_headers=None):
     """向 TARGET_HOST 发请求，带上 CSRF 头；返回 (status, resp)。
 
     超时按端点分档（见 _UPSTREAM_TIMEOUT / _UPSTREAM_TIMEOUT_HEAVY 处的注释）：
     history 批量明细给宽，其余看板接口保持比调用方更短，避免代理先超时引发
     调用方重试、把流量翻倍压到已经很慢的上游。
+
+    ⚠ 2026-11-06 修复 **RSA 加密查询被上游拒收**：
+    VMAX RDK 的 DataSourceService 对命中 encryptUrlPatterns 的 URL，
+    要求请求带 `X-Content-Type: application/x-vmax-s-rsa-encrypted`，
+    服务端据此把 body 里的 {"param":{"encryptedStr":...}} 解开。
+    缺这个头时服务端不解密，直接按明文读 param.condition → 报
+    "Cannot read property \"times\" from undefined"，且 HTTP 仍是 200
+    （错误藏在 result 字符串里），于是调用方看到「200 但一个字段都没有」。
+
+    本代理原先**重建**请求（只补 Origin/Referer/CSRF/Content-Type），
+    把调用方的 X-* 头全丢了 —— 正是这条被丢掉的头。
+    现在按 extra_headers 透传调用方的 X-* 头（Host/Cookie/Content-Length
+    等由本代理自己掌握，不透传）。
     """
     timeout = _UPSTREAM_TIMEOUT
     if any(h in target_url for h in _HEAVY_PATH_HINTS):
@@ -463,6 +476,9 @@ def fetch(target_url, method="GET", body=None):
         req.add_header("forgerydefense", CSRF)
     if body is not None:
         req.add_header("Content-Type", "application/json")
+    # 透传调用方的 X-* 头（RSA 加密查询靠 X-Content-Type 让服务端解密）
+    for _name, _value in (extra_headers or {}).items():
+        req.add_header(_name, _value)
     resp = _OPENER.open(req, timeout=timeout)
     return resp.getcode(), resp
 
@@ -531,6 +547,15 @@ class Handler(BaseHTTPRequestHandler):
         if ln:
             body = self.rfile.read(ln).decode("utf-8", "ignore")
 
+        # 收集调用方的 X-* 头透传给上游（RSA 加密查询靠 X-Content-Type 解密，
+        # 见 fetch() 的注释）。Host/Cookie/Content-Length 由本代理自己掌握，不透传。
+        _X_SKIP = ("x-forwarded-for", "x-forwarded-host", "x-forwarded-proto", "x-real-ip")
+        fwd_headers = {}
+        for _n, _v in self.headers.items():
+            _low = _n.lower()
+            if _low.startswith("x-") and _low not in _X_SKIP:
+                fwd_headers[_n] = _v
+
         # status/payload 必须**先绑定**：下面的 except 分支（网络异常）拿不到
         # HTTP 状态码，而循环末尾与失败分支都要用它们。2026-10-04 修复
         # UnboundLocalError（之前 except Exception 路径从未给 status 赋值，
@@ -540,7 +565,8 @@ class Handler(BaseHTTPRequestHandler):
 
         for _ in range(2):
             try:
-                status, resp = fetch(target, method, body if method == "POST" else None)
+                status, resp = fetch(target, method, body if method == "POST" else None,
+                                     extra_headers=fwd_headers)
                 payload = resp.read()
                 if status == 200:
                     self.send_response(200)

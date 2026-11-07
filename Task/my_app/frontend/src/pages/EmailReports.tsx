@@ -109,11 +109,21 @@ interface SiteSyncDegradedFile {
   actual: string
   rel_path: string
 }
+interface SiteSyncDerivedStep {
+  step: string
+  ok?: boolean
+  returncode?: number
+  passed?: boolean
+  error?: string
+  rules?: Record<string, number>
+}
 interface SiteSyncSummary {
   success?: boolean
   error?: string
   degraded?: boolean
   degraded_files?: SiteSyncDegradedFile[]
+  derived?: SiteSyncDerivedStep[]
+  derived_failed?: string[]
   started_at?: string
   finished_at?: string
   elapsed_seconds?: number
@@ -2690,6 +2700,36 @@ export default function EmailReports() {
                           {f.formal} → <a href={`/api/cmdb-site-update/download?path=${encodeURIComponent(f.rel_path)}`} download>{f.actual}</a>
                         </div>
                       ))}
+                    />
+                  )}
+
+                  {/* 派生步骤（汇总 / 邮件 / 校验报告）失败只影响派生文件，
+                      xlsx 本身是好的，所以用 warning 而不是 error。 */}
+                  {siteSyncSummary?.success && (siteSyncSummary.derived_failed || []).length > 0 && (
+                    <Alert
+                      type="warning"
+                      showIcon
+                      style={{ marginBottom: '0.75rem' }}
+                      message={t('emailReports.siteUpdateDerivedFail')}
+                      description={(siteSyncSummary.derived || [])
+                        .filter(d => !d.ok)
+                        .map(d => (
+                          <div key={d.step}>{d.step}：{d.error || 'failed'}</div>
+                        ))}
+                    />
+                  )}
+
+                  {siteSyncSummary?.success && (siteSyncSummary.derived || []).some(d => d.step === 'check' && d.ok && d.passed === false) && (
+                    <Alert
+                      type="warning"
+                      showIcon
+                      style={{ marginBottom: '0.75rem' }}
+                      message={t('emailReports.siteUpdateCheckFail')}
+                      description={(siteSyncSummary.derived || [])
+                        .filter(d => d.step === 'check' && d.rules)
+                        .flatMap(d => Object.entries(d.rules || {}).map(([k, v]) => (
+                          <div key={k}>{k}：{v}/10</div>
+                        )))}
                     />
                   )}
 

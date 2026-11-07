@@ -30,6 +30,7 @@
 import difflib
 import logging
 import json
+import re
 from typing import Any, Dict, List, Optional, Tuple
 
 from backend.services import eflow_api_client as api
@@ -120,6 +121,81 @@ def _pick(alarm: Dict[str, Any], *keys: str) -> str:
         if v and v not in ("--", "-", "empty", "None"):
             return v
     return ""
+
+
+# 站点名占位符 —— 与 `assign_engine._SITE_PLACEHOLDERS` 同义（那边管关联判定，
+# 这边管站点解析；两处各留一份常量是因为它们分属不同模块且互不 import）。
+_SITE_PLACEHOLDERS = ("--", "-", "empty", "none", "null")
+
+# UUID 形态的 ME 名（实测 `mename` 常是 `6784c258-…`）—— 绝不能当站点名候选。
+_UUID_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE)
+
+
+def _is_placeholder(name: str) -> bool:
+    """占位符 / UUID 形态的值不能作为站点名候选。"""
+    if not name:
+        return True
+    low = name.strip().lower()
+    if low in _SITE_PLACEHOLDERS:
+        return True
+    return bool(_UUID_RE.match(name.strip()))
+
+
+def numeric_site_id(raw: str) -> str:
+    """从告警的 `site` 字段里取出**数字站号**。
+
+    ⚠ 为什么需要这个（2026-11-06 实测，fiber 4758 告警）：
+    `site` 字段的实际形态远不止「纯数字」一种。现场拉的 6 条活跃 fiber 告警全是
+
+        `4474_Quiwor_NE2(10.16.7.26)`
+        `6120HS_Peter_luogan_town_UPE80`
+        `6784c258-…`（UUID 形态）
+
+    这类复合串里**前缀就是权威站号**（`4474`）。旧实现只认 `site.isdigit()`
+    （`resolve_site` 第 271 行），于是这批告警的站号被整个丢掉，
+    只能退到 `mename`（实测是 UUID）→ 解析全失败 → 派单成功率只有 1.8%~18.2%。
+
+    站号**必须取前导数字**而不是「按站名反查」：实测 cmdb 里 `DryBean` 有两条
+    （`Dry Bean` / `Dry Bean 2`），按名查会取到 3491，而前导站号是 4491 ——
+    站号才是权威，站名会歧义。
+    """
+    txt = str(_val(raw) or "").strip()
+    if not txt:
+        return ""
+    if txt.isdigit():
+        return txt
+    # 复合形态：取第一个下划线前的部分，要求是纯数字
+    head = txt.split("_", 1)[0].strip()
+    return head if head.isdigit() else ""
+
+
+def site_name_candidates(raw: str) -> List[str]:
+    """从告警的 `site` 字段里取出**站点名候选**（不含数字站号本身）。
+
+    两种形态分别处理：
+      * 前导是站号 —— `4474_Quiwor_NE2(10.16.7.26)` → `Quiwor`
+        （去掉前导站号段与尾段设备信息）；
+      * 前导不是站号 —— `6120HS_Peter_luogan_town_UPE80` → `Peter luogan town`
+        （与 `site_name_from_me` 同义：去掉首段机型与尾段设备号）。
+
+    仍按「站点名以 cmdb 为准」的原则，这里只提供候选，由 `index.lookup` 裁决。
+    """
+    txt = str(_val(raw) or "").strip()
+    if not txt or txt.isdigit():
+        return []
+    parts = [p for p in txt.split("_") if p]
+    if not parts:
+        return []
+    if parts[0].isdigit():
+        # 有前导站号：先去掉站号段，再去掉尾段设备信息
+        rest = parts[1:]
+        inner = rest[:-1] if len(rest) >= 2 else rest
+    else:
+        # 无前导站号：按 ME 名解析（去掉首段机型 + 尾段设备号）
+        inner = parts[1:-1] if len(parts) >= 3 else []
+    name = " ".join(inner).strip()
+    return [name] if name and not _is_placeholder(name) else []
 
 
 class SiteIndex:
@@ -261,14 +337,21 @@ def resolve_site(alarm: Dict[str, Any], index: SiteIndex,
       3. 否则从 ME 名解析站点名（`x_<SiteName>_UPEyy` 取中间段）再去 cmdb 查。
     解析不出时返回 ("", "")，调用方应跳过该告警（不派没有站点的单）。
 
+    ⚠ 2026-11-06 修订：`site` 字段的形态比「纯数字」多得多 ——
+    现场 fiber 4758 告警的 `site` 实际是 `4474_Quiwor_NE2(10.16.7.26)` 这种
+    「站号_站点名_设备」的复合串，`mename` 又常是 UUID。旧实现只认
+    `site.isdigit()`，这批告警的**站号被整个丢掉**，派单成功率只有 1.8%~18.2%。
+    现在 `site` 的**前导数字站号**与**站点名候选**都进解析链（见
+    `numeric_site_id` / `site_name_candidates`）。
+
     `trace` 传入 dict 时会被填入解析过程（`matched_by` / `score` / `query` /
     `tried`），供调用方写日志与结果 —— 近似匹配必须留痕给人复核。
     """
-    site_id = _pick(alarm, "site_id", "site")
+    site_raw = _pick(alarm, "site_id", "site")
     site_name = _pick(alarm, "site_name", "sitename")
 
     # `site` 在原始 API 里可能既是数字 ID 也可能是 ME 名 —— 只有纯数字才算 ID
-    numeric_id = site_id if site_id.isdigit() else ""
+    numeric_id = site_raw if site_raw.isdigit() else ""
 
     # 1) 已是数字 ID + 站点名
     if numeric_id and site_name:
@@ -276,14 +359,40 @@ def resolve_site(alarm: Dict[str, Any], index: SiteIndex,
             trace.update({"matched_by": "alarm_fields", "score": 1.0, "query": site_name})
         return numeric_id, site_name
 
+    # 1b) 复合形态 `site`（`<站号>_<站名>_<设备>`）里的前导站号 —— **站号优先于站名**。
+    #
+    #     为什么必须站号优先：cmdb 里同名站点有多条（实测 `Dry Bean` 有 id=3491 与
+    #     id=4491 两条）。告警给的是 `4491_DryBean_NE1(10.16.1.184)` ——
+    #     按名查会命中 3491（**派到隔壁站点**），按站号查才是 4491（正确的）。
+    #     「宁可漏派，不可错派」—— 错派比不派更难收拾。
+    #
+    #     站号在 cmdb 里查不到时**不**直接返回，继续按站名试（下方第 2 档）。
+    site_numeric = numeric_site_id(site_raw)
+    if site_numeric and site_numeric != numeric_id:
+        index.load()
+        for hits in index._by_name.values():
+            for h in hits:
+                if h["id"] == site_numeric:
+                    if trace is not None:
+                        trace.update({"matched_by": "site_field_id",
+                                      "score": 1.0, "query": site_raw})
+                    return h["id"], h["name"]
+
     # 2) 站点名 → cmdb 查 ID
     candidates: List[str] = []
-    if site_name:
+    if site_name and not _is_placeholder(site_name):
         candidates.append(site_name)
-    me_name = _pick(alarm, "mename", "me_name", "site")
+    # 2b) `site` 复合形态里的站点名段（`4474_Quiwor_NE2(...)` → `Quiwor`）
+    candidates.extend(site_name_candidates(site_raw))
+    me_name = _pick(alarm, "mename", "me_name")
     derived = site_name_from_me(me_name)
-    if derived and derived not in candidates:
+    if derived and not _is_placeholder(derived) and derived not in candidates:
         candidates.append(derived)
+    # 2c) `site` 就是一个纯站名时（`Tokadeh` / `Botota` —— 无下划线、无站号），
+    #     `site_name_candidates` 取不到名（它按 ME 名分段解析），这里兜底整串试一次。
+    if site_raw and "_" not in site_raw and not site_raw.isdigit() \
+            and not _is_placeholder(site_raw) and site_raw not in candidates:
+        candidates.append(site_raw)
     if trace is not None:
         trace["tried"] = list(candidates)
 
@@ -304,5 +413,12 @@ def resolve_site(alarm: Dict[str, Any], index: SiteIndex,
                 if h["id"] == numeric_id:
                     return h["id"], h["name"]
         return numeric_id, numeric_id
+
+    # 4) 复合形态的站号在 cmdb 里也没有 → 用站号本身兜底（派单 payload 需要站点标识，
+    #    且站号是告警给出的确定信息；比返回空让调用方跳过更有用）
+    if site_numeric:
+        if trace is not None:
+            trace.update({"matched_by": "site_field_id", "score": 1.0, "query": site_raw})
+        return site_numeric, site_numeric
 
     return "", ""

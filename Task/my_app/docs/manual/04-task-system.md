@@ -1,6 +1,6 @@
 # 04 任务与调度系统
 
-my_app 的"心脏"。83 个定时任务负责全部数据采集与报表投递，页面上看到的数据新鲜度、失败告警、补跑行为都在这里定义。
+my_app 的"心脏"。84 个定时任务负责全部数据采集与报表投递，页面上看到的数据新鲜度、失败告警、补跑行为都在这里定义。
 
 > 另有两个**模块级说明文件**更贴近代码：`backend/WORKER.md`（worker 进程架构、容错、启停、环境变量）与 `backend/task_registry.md`（注册表字段与对外接口）。本章是归口叙述，改动这两处代码时请同步更新三份文档。
 
@@ -16,7 +16,7 @@ APScheduler 到点 (backend 进程内)
 
 关键点：
 
-- **注册是代码注册表，不是配置文件**。41 条声明集中在 `backend/task_registry.py:72-403` 的 `TASK_SPECS`，启动时 `register_all_tasks()`（:405-429）逐条登记，采用懒加载包装（:58-64）——每条二选一给 `func`（需要特殊包装）或 `loader`（`("module.path","func_name")` 元组）。
+- **注册是代码注册表，不是配置文件**。84 条声明集中在 `backend/task_registry.py:179` 起的 `TASK_SPECS`，启动时 `register_all_tasks()`（:1232）逐条登记，采用懒加载包装——每条二选一给 `func`（需要特殊包装）或 `loader`（`("module.path","func_name")` 元组）。
 - **cron 可以被库里覆盖**：默认值写在 `default_cron`，实际排程读 `task_schedule_config` 表（`task_runner.py:232-440`），所以在"任务管理"页改排程会立即生效且重启不丢。
   - ⚠️ **库里有值时它永远优先**（`task_runner.py:521` `current_cron = saved_cron if saved_cron else default_cron`）。因此**只改 `task_registry.py` 的 `default_cron` 对已存在的任务完全无效，且不留痕迹** —— 2026-10-04 改 `sp_online_sync`、2026-10-11 改三个 WhatsApp 发送任务时都踩过（以为改了、实际仍按库里的旧值跑）。要改生效值：用任务管理页、或 `POST /api/tasks/{id}/schedule`、或删掉该任务的 `task_schedule_config` 行让它回落到代码默认。
   - 下表列的是 **`default_cron`（代码默认值）**，**不是**当前生效值。二者可能不同（2026-10-11 巡检：22 个任务存在 code≠库 的覆盖）。核对三方一致性用 `TMP/_check_task_cron_drift.py`。
@@ -30,7 +30,7 @@ APScheduler 到点 (backend 进程内)
 
 | 组 | 任务数 | 约束原因 | 成员 task_id |
 | --- | --- | --- | --- |
-| `u` | 12 | RAN UME 单账号会话，必须串行（并发会被踢会话）。`bp_report_sync` 也读 RAN UME，且必须排在 `main_kpi_sync` 之后（否则读到昨天的 KPI） | `ran_ume_daily`, `main_kpi_sync`, `cell_availability_sync`, `network_kpi_sync`, `packet_loss_sync`, `packet_loss_email`, `battery_kpi_sync`, `ipran_kpi_sync`, `cm_data_sync`, `cells_kpi_sync`, `avail_recon_sync`, `bp_report_sync` |
+| `u` | 13 | RAN UME 单账号会话，必须串行（并发会被踢会话）。`bp_report_sync` 也读 RAN UME，且必须排在 `main_kpi_sync` 之后（否则读到昨天的 KPI）；2026-11-07 新增 `ran_element_management_sync`（23:00 拉 RNM 网元管理表格落 PG），同走 `zte_ume` 凭据与 `auth_cache` 会话，故必须归本组串行，与 02:00 的 `ran_ume_daily` 错峰 | `ran_ume_daily`, `main_kpi_sync`, `cell_availability_sync`, `network_kpi_sync`, `packet_loss_sync`, `packet_loss_email`, `battery_kpi_sync`, `ipran_kpi_sync`, `cm_data_sync`, `cells_kpi_sync`, `avail_recon_sync`, `bp_report_sync`, `ran_element_management_sync` |
 | `n` | 18 | eFlow API / config-center 同源会话（2026-09-27 由 17 项收窄，VMAX→`v`、SFTP→`s`、MW UME→`w`；2026-10-15 实时告警→`x`；2026-10-17 新增 `cnn_kpi_sync_5mins`，与 `cnn_kpi_sync` 共用 CNN UME 会话；2026-10-23 新增 3 个 `whatsapp_kb_sync_*`，跟在对应规则采集之后触发知识库同步；2026-10-29 新增 `eflow_push_rules_check`，与规则采集同会话故同组） | `eflow_sync`, `eflow_sync_full`, `eflow_history_alarm`, `eflow_tt_rules_check`, `ms_sla_full`, `cnn_kpi_sync`, `cnn_kpi_sync_5mins`, `fw_kpi_sync`, `sp_online_sync`, `sp_material_sync`, `eflow_alarm_rules_collect`, `eflow_push_rules_collect`, `eflow_push_rules_check`, `whatsapp_kb_sync_alarm_rules`, `whatsapp_kb_sync_push_rules`, `whatsapp_kb_sync_tt_rules`, `ume_in_kpi_sync`, `ume_in_osg_report` |
 | `s` | 1 | SP 备件 SFTP（独立 SFTP 服务器 + UNC 镜像库）。2026-09-27 从 `n` 拆出：它是 `n` 组最大单体负载（实测 347min/天）且是已知挂死源（SFTP channel 读挂死 5.5h 曾拖停整组） | `sp_data_sync` |
 | `w` | 2 | MW UME 微波网管（凭证分组 `mw_ume`），独立会话。2026-09-27 从 `n` 拆出：`mw_ume_kpi_sync_rt` 为 `*/15` 高频任务，此前每次排在 `sp_data_sync` 后，实测队列等待 964s（全场最久） | `mw_ume_kpi_sync`, `mw_ume_kpi_sync_rt` |
@@ -186,7 +186,7 @@ APScheduler 到点 (backend 进程内)
 
 ## 任务健康告警（漏跑不再靠人肉发现）
 
-`db_freshness_check`（每小时 `15 * * * *`）除了查数据滞后，还算五类**任务执行健康异常**：
+`db_freshness_check`（每小时 `15 * * * *`）除了查数据滞后，还算六类**任务执行健康异常**（5 个检测维度 + 1 个 `overdue` 的子分类）：
 
 | kind | 判据 | 备注 |
 | --- | --- | --- |
@@ -194,7 +194,8 @@ APScheduler 到点 (backend 进程内)
 | `silent` | 注册任务在回看窗口（`TASK_HEALTH_LOOKBACK_HOURS`，默认 24h）内**完全没有执行记录** | 按 cron 收紧：调度间隔大于窗口的低频任务（如 `59 23 */3 * *`）未到下一期不报；cron 解析不出来则宁可多报 |
 | `stuck` | `task_queue` 滞留 pending>`10min` / running>`30min` | running 超时由 worker 周期回收补写失败 |
 | `overdue` | 上次成功后按 cron 过一个完整周期（+grace）仍无新的成功 | 与 `silent` 互补：小时级任务中断 3 小时，`silent` 因当天有记录而不报 |
-| `overdue_dependency` | `overdue` 的**子集**：最新一次失败是「外部依赖不可用」（EWS 401 / 连接失败 / 子进程超时）而非任务自身停摆 | 2026-09-18 新增。`overdue` 仍保留该任务（用于算 `status` 与 STALE 清单），本类只把告警**聚合成一条**并改文案，见下 |
+| `overdue_dependency` | `overdue` 的**子集**：最新一次失败是「外部依赖不可用」（EWS / DbWriter 落库 API / 网络超时）而非任务自身停摆 | 2026-09-18 新增。`overdue` 仍保留该任务（用于算 `status` 与 STALE 清单），本类只把告警**聚合成一条**并改文案，见下。2026-11-06 起还会按**实际故障源**（DbWriter/EWS/网络）给不同处置指引 |
+| `empty_output` | 最近 `EMPTY_OUTPUT_CONSECUTIVE`（默认 2）次**成功**执行，`result_json` 自报产出都是 0 条（按 `EMPTY_OUTPUT_CHECKS` 登记的任务与字段） | 2026-11-06 新增。补「跑了、绿了、什么都没产出」这一类：前面四类全都覆盖不到（有记录、有分组、无滞留、每小时都成功）。起因是 `vmax_multi_data_sync` 连续 34 天 `rows=0` 却每轮 `success=1`。判据必须能区分「明确是 0」与「没有自报条数」，否则任务改字段名会变成永久误报 |
 
 2026-09-18 之前这些结果**只进日志没人看**（本次停摆两天是用户先发现的），故新增 `backend/services/task_health_alert.py` 把 findings 推到人前：
 
@@ -204,6 +205,7 @@ APScheduler 到点 (backend 进程内)
 - **通道**：微信 `weixin_notifier.send_weixin_message` + 邮件 `email_notifier.send_status_email`（复用 task_runner 的同两套凭据）；
 - **降噪**：`overdue` 只收「近 24h 连尝试都没有」的真停摆；「跑了但一直失败」由 `task_runner` 的失败告警通道负责，不重复刷两条；
 - **再降噪（2026-09-18 晚，`overdue_dependency`）**：`overdue` 中「最新失败是外部依赖不可用」的任务（EWS 401 / 连接失败 / 子进程超时）另归一类，**聚合成一条**告警并给出依赖侧（凭据/网络）修复指引。理由：一次 EWS 故障会连带十几个报表任务各自"逾期"，逐条推送等于刷屏，而真正要看的只有"EWS 挂了"这一条；
+  2026-11-06 补：这条路原先 guidance 是**写死的一份 EWS 文案**，而现场近 5 天的依赖类失败**全是** `[DbWriter] 请求失败: http://192.168.100.19:8765/...`（`main_kpi_sync` / `cnn_kpi_sync` / `cnn_kpi_sync_5mins` / `ipran_kpi_sync`），照那份文案会让人去核对 Exchange 账号密码 —— 方向完全错了。现在 `_dependency_source()` 把失败细分为 `db_writer` / `ews` / `network`，guidance 按实际出现的故障源拼装；同时把 `[DbWriter]` 一并纳入依赖类特征（原先连 `[DbWriter] ... timed out` 都没被判为依赖类，被当成「任务真停摆」逐条告警）；
 - **静音**：`TASK_HEALTH_ALERT_ENABLED=0`（维护窗口用）；
 - 告警本身**不影响巡检结论**（异常置 `success=False` 会让巡检被 auto_retry 反复重跑），通知失败只记 warning。
 
@@ -225,7 +227,7 @@ APScheduler 到点 (backend 进程内)
 
 ## 全量任务清单（默认 cron）
 
-下表与 `GROUP_TASK_MAP` 逐一对应（task_id 覆盖与组名由 `tests/test_worker_group_coverage.py` 校验，其中组名校验针对前端帮助；本表本身无守卫，新增任务后请手工补行）。
+下表与 `GROUP_TASK_MAP` 逐一对应（task_id 覆盖由 `tests/test_doc_consistency.py::test_task_list_table_covers_every_registered_task` 校验，组名由 `tests/test_worker_group_coverage.py` 针对前端帮助校验；新增任务后请补行，漏行现在会被守卫拦下）。
 
 | task_id | 名称 | 默认 cron | 组 |
 | --- | --- | --- | --- |
@@ -312,6 +314,7 @@ APScheduler 到点 (backend 进程内)
 | `tt_mttr_report_generate` | TTs and MTTR 报表生成（供 EmailReports 页「TTs and MTTR」页签下载） | `20 7 * * *` | m |
 | `gp_ran_user_sync` | RAN 用户身份清单（VoLTE / N78 去重 **IMSI**，经 control1 两跳 SSH 到 Greenplum，取最近 7 个完整 UTC 日；实测 72.6s / 10.4 亿行扫描） | `20 13 * * *` | g |
 | `soc_trend_sync` | SOC 多维趋势同步（**直连 VMAX 数仓 GBase 只读**，拉流量/TCP/分业务类目的小时与天粒度聚合，落 `data/soc_trend/soc_trend.sqlite3`；**只允许 SELECT/SHOW/DESC，禁止在数仓建对象或回写**） | `40 * * * *` | v |
+| `ran_element_management_sync` | RAN 网元管理表同步（RNM `/api/res/v1/ranmes` 全量 934 行 / 15 字段 → PG `app.ran_element_management` 当前全量 + `app.ran_element_management_daily` 每日快照 + `app.ran_element_management_sync_log`；行数 <100 视为上游残片判失败，不覆盖已有数据） | `0 23 * * *` | u |
 
 ### WhatsApp 发送通道矩阵（2026-10-08）
 
@@ -1110,7 +1113,7 @@ worker 分组重启才生效（`backend/routers/task_configs.py`）。
 | 失败自动重试 | `AUTO_RETRY_ENABLED=1`、`MAX_ATTEMPTS=2`、`COOLDOWN_MIN=15`、`SCAN_WINDOW_HOURS=24`、`MAX_PER_RUN=3` | `services/auto_retry.py:75-82` |
 | 漏跑补投 | `MISS_GRACE_MIN=15`、`MISS_MIN_INTERVAL_MIN=30`（时效窗口内完全没有执行记录才补投） | 同上 |
 | 邮件类不参与补投 | 由 EWS 恢复补发机制 `email_recovery` 负责，默认排除 | `task_registry.py:320` |
-| 失败通知 | 微信 + 邮件双通道 | `task_runner.py:52-62` |
+| 失败通知 | 微信 + 邮件双通道；**2026-11-07 起加延迟语义（C）**：能被 auto_retry 重投的任务，自上次成功以来的连续失败次数 < `FAILURE_ALERT_DEFER_STREAK`（默认 2）时只记日志不发通知（等 5 分钟重投自愈），达阈值 / 不可重投任务 / 失败记录落库异常才立即告警；开关 `FAILURE_ALERT_DEFER=0` 恢复旧「失败即告警」。取证：`outputs/cnn_kpi_sync_5mins_失败复盘_2026-11-07.md`（远端 watchdog 强杀窗口内 auto_retry 均自愈成功，旧逻辑却每天发 1~3 封失败告警） | `task_runner.py`（`_should_defer_failure_alert` / `_consecutive_failures`） |
 | 漏跑/停摆通知 | 每小时巡检后按 `kind:task_id` 翻转去重推送（24h 重提） | `services/task_health_alert.py` |
 | 保留期 | 队列与执行日志保留 **7 天**（`TASK_LOG_RETENTION_DAYS` 可调，默认 7；2026-09-11 由 3 天放宽） | `task_runner.py:880-893`、`worker.py:479-484` |
 | 低频任务「最近运行」兜底 | 月/周级任务的执行记录会被上面 7 天保留期清掉，任务列表因而显示 **No Record / 未记录**（`sync.statUnknown`）。修法：在 `TASK_SPECS` 给该任务加 `recent_runs_provider=(模块路径, 函数名)`，`task_stats._fetch_latest_runs()` 在**日志表无该任务记录时**才调用提供者，从任务自己的产物库补回最近几次运行（唯一主源仍是 `task_execution_log`）。参考 `olib_soc_vmax_report` → `olib_soc_report_service.recent_runs_for_task` | `services/task_stats.py`（`register_recent_runs_provider`）、`task_registry.py`（`register_all_tasks`）、`backend/services/olib_soc_report/README.md` §12 |

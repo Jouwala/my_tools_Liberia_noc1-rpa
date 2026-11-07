@@ -1,6 +1,6 @@
 # my_app User Help & Guide
 
-> User-facing platform features & operations guide. Generated from the same source as the in-app Help page (frontend/src/helpMarkdown.ts), compiled from docs/manual/ and backend/task_registry.py. Generated on 2026-11-06.
+> User-facing platform features & operations guide. Generated from the same source as the in-app Help page (frontend/src/helpMarkdown.ts), compiled from docs/manual/ and backend/task_registry.py. Generated on 2026-11-07.
 
 > In-app entry: the "Help" sidebar item, or `http://<host>/myapp/?page=help` directly.
 
@@ -10,7 +10,7 @@
 
 - [1. Platform Overview](#1-platform-overview)
 - [2. General Usage](#2-general-usage)
-- [3. Task Manager Deep Dive (83 tasks)](#3-task-manager-deep-dive)
+- [3. Task Manager Deep Dive (84 tasks)](#3-task-manager-deep-dive)
 - [4. Pages Guide](#4-pages-guide)
 - [5. Ops & Troubleshooting](#5-ops-troubleshooting)
 - [6. FAQ](#6-faq)
@@ -70,7 +70,7 @@ Built for the NOC scenario "boards every day, reports must go out": 41+ schedule
 
 | Group | Why grouped |
 | --- | --- |
-| **u** | RAN UME single-account session; tasks run serially (parallel runs kick the session) |
+| **u** | RAN UME single-account session; tasks run serially (parallel runs kick the session). Added 2026-11-07: ran_element_management_sync at 23:00 (RNM element table into PG), sharing the zte_ume session with ran_ume_daily at 02:00 |
 | **n** | NMS / eFlow API / remote systems: independent but conservatively grouped |
 | **v** | VMAX portal (local 8790 single-session proxy): the three tasks share one session and must serialize; split out of group n on 2026-09-18 so long tasks no longer block them |
 | **m** | Housekeeping tasks: EWS mail session + screenshot/WhatsApp file dependencies |
@@ -83,7 +83,7 @@ Built for the NOC scenario "boards every day, reports must go out": 41+ schedule
 
 > ⚠️ **New tasks MUST also be registered in `GROUP_TASK_MAP` in worker_watchdog.py** — declaring them only in TASK_SPECS leaves them pending forever. This accident happened four times (finebi_report_sync / whatsapp_send_ext / sp_email_details / the olib_soc and vmax_multi_data_sync tasks found on 2026-09-18).
 
-### 3.3 Full task catalog (83 tasks)
+### 3.3 Full task catalog (84 tasks)
 
 | Task | task_id | Default cron | Group | Workflow script |
 | --- | --- | --- | --- | --- |
@@ -169,7 +169,8 @@ Built for the NOC scenario "boards every day, reports must go out": 41+ schedule
 | TMP Directory Cleanup | `tmp_cleanup` | `47 3 * * *` | m | `services/tmp_cleanup.py → run_tmp_cleanup` |
 | TTs and MTTR Report Generate | `tt_mttr_report_generate` | `20 7 * * *` | m | `services/tt_mttr_report.py → run_tt_mttr_report` |
 | RAN User Identity Lists (VoLTE/N78) | `gp_ran_user_sync` | `20 13 * * *` | g | `services/gp_ran/gp_ran_sync.py → run_gp_ran_user_sync` |
-| IPT Site Power Collect | `ipt_power_collect` | `*/2 * * * *` | m | `services/ipt_data/ipt_power_collector.py → run_ipt_power_collect` |
+| IPT Site Power Collect | `ipt_power_collect` | `*/5 * * * *` | m | `services/ipt_data/ipt_power_collector.py → run_ipt_power_collect` |
+| RAN Element Management Sync | `ran_element_management_sync` | `0 23 * * *` | u | `services/RANElementManagement/ran_element_management_service.py → run_ran_element_management_sync` |
 
 Workflow & maintenance notes per task:
 
@@ -1713,10 +1714,10 @@ Workflow & maintenance notes per task:
 
 #### IPT Site Power Collect（`ipt_power_collect`）
 
-- Default cron: `*/2 * * * *`　|　worker group: **m**
+- Default cron: `*/5 * * * *`　|　worker group: **m**
 - Workflow script: `services/ipt_data/ipt_power_collector.py → run_ipt_power_collect`
 
-**What it does**: Every 2 minutes, collect from the IPT Digital Platform (RMS energy monitoring, external AWS SaaS): (1) one filter-map request refreshes all ~500 sites’ connectivity (no power values in that response); (2) paged /sites backfills site attributes once; (3) full_kpi concurrently fetches the lightweight popup KPI for every site (8 threads; 32 threads measured 501 sites in 60s when the upstream is healthy) so every site gets a snapshot every 2 min; (4) full_shard rotates the full diagram detail in shards (3 threads, ≤60 sites per round, all sites in ~20 min, watch sites every round). Feeds the IPT Site Power page (?page=ipt_power)
+**What it does**: Every 5 minutes, collect from the IPT Digital Platform (RMS energy monitoring, external AWS SaaS): (1) one filter-map request refreshes all ~500 sites’ connectivity (no power values in that response); (2) paged /sites backfills site attributes once; (3) full_kpi concurrently fetches the lightweight popup KPI for every site (8 threads; 32 threads measured 501 sites in 60s when the upstream is healthy) so every site gets a snapshot every 5 min; (4) full_shard rotates the full diagram detail in shards (3 threads, ≤60 sites per round, all sites in ~20 min, watch sites every round). Feeds the IPT Site Power page (?page=ipt_power)
 
 **Workflow & data flow**:
 
@@ -1724,20 +1725,43 @@ Workflow & maintenance notes per task:
 1. POST /energy/sites/filter-map refreshes ipt_power_sites (online/offline connectivity; no power values)
 1. GET /energy/sites?query=&page=N&pageSize=100 backfills internal_reference / organization / cluster / priority / configuration (~6 requests, only when values are missing and the last run was >1h ago)
 1. The diagram pool starts first (background): watch sites (sites in watch_sites.json) + the shard_cursor ring-cursor shard, 3 threads
-1. The popup KPI pool runs in the foreground: GET /popup for every site (8 threads, rotated via the kpi_cursor ring cursor so sites dropped at the hard deadline resume next round) concurrently with the diagram pool; both pools are bounded by the 100s round hard deadline
+1. The popup KPI pool runs in the foreground: GET /popup for every site (8 threads, rotated via the kpi_cursor ring cursor so sites dropped at the hard deadline resume next round) concurrently with the diagram pool; both pools are bounded by the 240s round hard deadline (raised from 100s on 2026-11-06 to use the 200s freed by the */5 cadence; 300s period leaves 60s, no extra request pressure)
 1. Resilience (11-05 review): pooled requests use a 20s per-request timeout (12s killed slow-but-valid requests and caused a timeout storm) + one bounded retry pass for failed popups; a round with <25% popup success is treated as an overloaded upstream and counts toward the circuit breaker; backoff is exponential (5/10/20 min, capped 30 min) and silently skips whole rounds without failure notifications, auto-clearing on the first successful round
 1. Write one snapshot row per site per round (popup KPI as the base, sites with a diagram get the detail columns; source marks popup/diagram; popup rows store no raw JSON to control volume, diagram detail is kept per site in ipt_power_site_detail with device credentials stripped)
 1. Prune snapshots older than 2 days; write the run result to ipt_power_meta.last_run and the next start position to ipt_power_meta.shard_cursor
 
 **Maintenance**:
 
-- WARNING: scope is set by backend/services/ipt_data/watch_sites.json — sites = watch sites (name / ref / site_id, full diagram every round); full_kpi = {"enabled": true, "workers": 8, "budget_s": 80} all-site popup tier; full_shard = {"enabled": true, "max_sites": 60, "budget_s": 70} diagram detail rotation. Do NOT set "*" (legacy meaning = all 500 diagrams in one round, extrapolated ~185s, guaranteed timeout)
+- WARNING: scope is set by backend/services/ipt_data/watch_sites.json — sites = watch sites (name / ref / site_id, full diagram every round); full_kpi = {"enabled": true, "workers": 8, "budget_s": 200} all-site popup tier; full_shard = {"enabled": true, "max_sites": 60, "budget_s": 70} diagram detail rotation. Do NOT set "*" (legacy meaning = all 500 diagrams in one round, extrapolated ~185s, guaranteed timeout)
 - The upstream has no bulk power endpoint (filter-map has no values, events/recent only recent events); 2-min full-site resolution = concurrent per-site popup polling (2026-11-04: 32 threads, 501 sites in 60.1s / 0 errors); the 11-05 review showed sustained high concurrency drives the upstream into bulk timeouts, so it now runs at 8 threads with the kpi_cursor rotation, trading per-round coverage for stability (~2-6 min per site)
 - Credentials: env IPT_USERNAME / IPT_PASSWORD take priority, otherwise the “user/password” header lines of the local url.txt; url.txt contains a plaintext password — already gitignored via the url*.txt rule
 - The password grant is rejected upstream (unauthorized_client); only rubix-web allows code/implicit flows -> login is a form simulation; if the login page changes, the task reports a structure error
 - A single-site failure only increments counters and never aborts the round (popup retries next round naturally, diagram sites are retried by the cursor); restart the m-group worker after collector code changes, watch_sites.json changes need no restart
 - Snapshots are kept 2 days (RETENTION_DAYS); PK (site_id, snap_time) dedupes re-runs; solar caliber: solarSets and rectifiers solarPower are the same mirrored value (max is taken), sites without solar have solar_available=0 and show "-", 0 W at night is normal
 - Consumer: ?page=ipt_power (map on the left 3/5, site table on the right 2/5); its "Refresh now" button goes through routers/ipt_power.py /refresh (live query) and shares the login cache
+
+#### RAN Element Management Sync（`ran_element_management_sync`）
+
+- Default cron: `0 23 * * *`　|　worker group: **u**
+- Workflow script: `services/RANElementManagement/ran_element_management_service.py → run_ran_element_management_sync`
+
+**What it does**: Every day at 23:00, pull the full network-element list from GET /api/res/v1/ranmes - the single data endpoint behind the RNM Element Management table on RAN UME (10.100.28.27:28001) - measured 934 rows / 15 fields (ITBBU 812, SDR 111, MRNC 10, MEC 1), and store it in the PostgreSQL app schema: a current full table, a daily snapshot and a sync log
+
+**Workflow & data flow**:
+
+1. Source of truth is the browser capture at backend/services/RANElementManagement/url.txt: of 1080 cURL lines only line 852, /api/res/v1/ranmes?queryDn=model:subnetwork&operation=operation.rem.rnm.tools&includeAttr=..., is the real table endpoint; everything else is portal assets, login/refresh calls and WebSockets
+1. Auth uses the project-standard auth_manager.get_auth(HOST, PORT, user, pwd, probe=...) with the zte_ume credential group. The probe must hit this business endpoint (not the login homepage) so an expired shared auth_cache session is detected and re-login happens automatically; the captured Z-AUTH-CODE-28001 / forgerydefense cookies expire and are never hardcoded
+1. Parse the 200 JSON array and normalise 15 fields (nbiIdDn is a list and gets joined; connectionState / virtualizationId become integers), keeping the original row in raw_json
+1. Fewer than RAN_EM_MIN_ROWS rows (default 100) fails the run without any write, so a partial upstream response cannot overwrite the good 934-row snapshot; 401/403 triggers one forced re-login and retry
+1. PG writes run inside an explicit BEGIN/COMMIT/ROLLBACK transaction: delete today snapshot then bulk-insert into app.ran_element_management_daily (PK snapshot_date + ne_id, re-runs are idempotent), upsert by ne_id into app.ran_element_management and delete rows whose fetched_at is not this run, then log to app.ran_element_management_sync_log
+
+**Maintenance**:
+
+- WARNING: it belongs to group u because it shares the same UME host, the same zte_ume account and the same auth_cache session with ran_ume_daily / cm_data_sync - concurrent logins kick each other. 23:00 is off-peak for the group and a measured run takes under 1s. A new task MUST also be registered in GROUP_TASK_MAP (worker_watchdog.py), otherwise the queue row stays pending until it times out
+- WARNING: call only /api/res/v1/ranmes. The capture also contains 10 /api/rncmoaction/v1/rnc/<uuid> detail calls whose responses carry ommFtpPasswd / ommFtpUser / ommSecretKeyId device credentials; they are not visible table columns and must not be stored
+- get_raw_connection() is autocommit on PG and its cursor rewrites ? to %s, so the transaction must be an explicit BEGIN/COMMIT; on failure the whole batch rolls back with no half-written table
+- The schema is created idempotently by DDL inside the service (CREATE TABLE IF NOT EXISTS) - no Alembic migration needed. When changing the FIELDS mapping, update the DDL and indexes too
+- Troubleshooting order: check status / error in app.ran_element_management_sync_log first, then the task execution log; a sudden drop in rows usually means the minimum-row guard rejected a partial response; for session issues test the zte_ume credential in Settings -> Credentials
 
 ### 3.4 Reliability mechanisms (timeout / retry / self-healing)
 
@@ -1748,7 +1772,7 @@ Workflow & maintenance notes per task:
 | **Missed-run backfill** | Tasks that should have fired but have no execution record at all are backfilled once (MISS_GRACE_MIN=15; email tasks excluded — handled by EWS recovery). |
 | **Stale pending expiry** | A pending row unclaimed for over 6 hours (typical cause: the task was never registered in a worker group) is marked failed with an execution-log entry, freeing the single-flight slot it held — otherwise one stale row would block every later trigger of that task. |
 | **Failure notification** | Failures notify via WeChat + email (services/weixin_notifier.py supports openclaw/wecom/serverchan/pushplus). |
-| **Missed-run / stall alert** | db_freshness_check computes four health findings hourly (ungrouped / no execution record within the cron-scaled window / stuck queue / overdue since last success); services/task_health_alert.py pushes them to WeChat + email, notifying once per new anomaly and once on recovery, re-raising after 24h (added 2026-09-18). |
+| **Missed-run / stall alert** | db_freshness_check computes five health findings hourly (ungrouped / no execution record within the cron-scaled window / stuck queue / overdue since last success / succeeded but produced zero output); services/task_health_alert.py pushes them to WeChat + email, notifying once per new anomaly and once on recovery, re-raising after 24h (added 2026-09-18; the “succeeded but zero output” finding was added 2026-11-06 after vmax_multi_data_sync reported success every run while yielding 0 rows for 34 consecutive days, which the original four findings could not catch). |
 | **Process self-healing** | backend_watchdog / worker_watchdog supervise processes: port probing, crash backoff (backend degrades to a 5-minute slow retry after 10 consecutive crashes instead of giving up; worker is still removed after 10); heartbeats in log/heartbeat_*.json stale >3 min → force kill & restart. |
 | **Retention** | task_queue & task_execution_log are kept 3 days (auto-cleaned), no manual work. |
 
@@ -2490,7 +2514,7 @@ VMAX complaint diagnosis: enter a subscriber number and time window to answer "w
 
 #### vmax_user_cca（`vmax_user_cca`）
 
-VMAX Intelligent Diagnosis Workspace: complaint-driven single-page narrative — conclusion first, then follow the evidence. Zone 1 fault overview (one line + four scores), Zone 2 fault analysis (terminal→RAN→transport→core→OTT chain + five-part explainable metrics), Zone 3 root cause & recommendations (CCA corroboration + template suggestions + evidence library).
+VMAX Intelligent Diagnosis Workspace: complaint-driven single-page narrative — conclusion first, then follow the evidence. Zone 1 diagnosis card (verdict + four scores with hover caliber notes + source row counts with truncation marks + Excel/PDF export + manual override), Zone 2 fault analysis (terminal→RAN→transport→core→OTT chain + explainable metrics: observation inline, rationale behind the ⓘ icon, each row links to the evidence drawer), Zone 3 root cause & recommendations (CCA corroboration + template suggestions + evidence library; a failed CCA query shows a persistent red banner, never mistaken for "no causes").
 
 - Use the full number with the 231 prefix (e.g. 231777777322), digits only; the local 9-digit format is not matched upstream
 - Complaint type defaults to "All", switching only re-weights and reorders — it never hides cross-module evidence
@@ -2642,7 +2666,7 @@ Watch each page's definition: the battery board counts only readings ≤24h fres
 
 **A task stays pending forever?**
 
-Most likely the task was never assigned to a worker group (GROUP_TASK_MAP) — nobody claims it from the queue. This accident happened four times in this project (finebi_report_sync, whatsapp_send_ext, sp_email_details, and on 2026-09-18 the olib_soc dashboard sync plus vmax_multi_data_sync). New tasks MUST be registered in GROUP_TASK_MAP in worker_watchdog.py; a stale pending row holding the single-flight slot is now auto-expired by the worker after 6 hours. Since 2026-09-18 such stalls no longer need a human to spot them: db_freshness_check (hourly) pushes the four health findings (ungrouped / no execution record / stuck queue / overdue since last success) through WeChat + email, deduplicated by state flips.
+Most likely the task was never assigned to a worker group (GROUP_TASK_MAP) — nobody claims it from the queue. This accident happened four times in this project (finebi_report_sync, whatsapp_send_ext, sp_email_details, and on 2026-09-18 the olib_soc dashboard sync plus vmax_multi_data_sync). New tasks MUST be registered in GROUP_TASK_MAP in worker_watchdog.py; a stale pending row holding the single-flight slot is now auto-expired by the worker after 6 hours. Since 2026-09-18 such stalls no longer need a human to spot them: db_freshness_check (hourly) pushes the five health findings (ungrouped / no execution record / stuck queue / overdue since last success / succeeded but zero output) through WeChat + email, deduplicated by state flips.
 
 **A task keeps failing?**
 

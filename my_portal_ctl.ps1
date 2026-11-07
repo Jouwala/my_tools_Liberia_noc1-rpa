@@ -558,8 +558,13 @@ function Invoke-StartBot {
     # there was nothing on screen to confirm the bot. So always finish this step
     # with an explicit, current heartbeat reading.
     $ps = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-    & $ps -NoProfile -ExecutionPolicy Bypass -File (Join-Path $BotDir 'autostart.ps1') 2>&1 |
-        ForEach-Object { Write-Host "  $_" }
+    # Deliberately NOT piped through `2>&1 | ForEach-Object`. A pipeline makes
+    # PowerShell wait for EOF, but the detached bot node process inherits the
+    # pipe's write handle: the child PowerShell exits while the pipe stays open,
+    # so the controller hangs right after "started and connected" and never
+    # reaches Write-BotHeartbeat or the closing prompt. A plain native `&` call
+    # returns as soon as the child process exits. (2026-11-06)
+    & $ps -NoProfile -ExecutionPolicy Bypass -File (Join-Path $BotDir 'autostart.ps1')
     Write-BotHeartbeat
 }
 
@@ -601,8 +606,8 @@ function Invoke-StopBot {
         return
     }
     $ps = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-    & $ps -NoProfile -ExecutionPolicy Bypass -File (Join-Path $BotDir 'autostart.ps1') -Stop 2>&1 |
-        ForEach-Object { Write-Host "  $_" }
+    # Same no-pipeline rule as Invoke-StartBot (see the explanation there).
+    & $ps -NoProfile -ExecutionPolicy Bypass -File (Join-Path $BotDir 'autostart.ps1') -Stop
 }
 
 function Invoke-StartAll {

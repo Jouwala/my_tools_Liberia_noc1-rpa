@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""IPT 站点电源信息采集服务（定时 2 分钟，task_id=ipt_power_collect）。
+"""IPT 站点电源信息采集服务（定时 5 分钟，task_id=ipt_power_collect）。
 
 数据源：IPT Digital Platform（RMS 能源监控平台，AWS 外网）
   - `POST /energy/sites/filter-map`：1 个请求拉全站（~500 站）清单与连接状态
@@ -11,26 +11,27 @@
     油箱容量/太阳能组件/环境），popup 不含这些字段
   - `GET  /energy/sites?query=&page=&pageSize=100`：分页列全站完整属性（回填站点表）
 
-全站 2 分钟分辨率（2026-11-04 重设计，实测依据）：
+全站 5 分钟分辨率（2026-11-04 重设计 / 2026-11-06 降频，实测依据）：
   上游没有任何批量电源接口（filter-map 无数值、events/recent 只有最近事件），
   唯一路径是逐站请求。实测并发 32 线程：
-    - popup：501 站 60.1s、0 错误 → **每轮全采**，全站每 2 分钟一条 KPI 快照；
-    - diagram：200 站 73.8s、外推 501 站 ~185s 且出现超时 → 无法进 2 分钟节拍，
+    - popup：501 站 60.1s、0 错误 → **每轮全采**，全站每 5 分钟一条 KPI 快照；
+    - diagram：200 站 73.8s、外推 501 站 ~185s 且出现超时 → 即使 240s 硬上限
+      放得下，也会挤占全站 popup 的时间并放大上游压力，
       **保持环形游标分片轮采**（单轮 ≤60 站、16 线程 ~15s），约 20 分钟覆盖全站，
       明细（油机相电压/电池容量等）以「最新一条 diagram」为准，
       页面「立即刷新」可随时对单站实时拉 diagram 补齐。
 
 采集范围由同目录 watch_sites.json 控制：
-  - `sites`：关注站，每轮必采 diagram（保持完整明细的 2 分钟分辨率）；
+  - `sites`：关注站，每轮必采 diagram（保持完整明细的 5 分钟分辨率）；
     **不要配 `"*"`**（旧语义 = 单轮全采 500 站 diagram，必然超时）。
-  - `full_kpi`：`{"enabled": true, "workers": 32, "budget_s": 80}` —— 全站 popup
+  - `full_kpi`：`{"enabled": true, "workers": 8, "budget_s": 200}` —— 全站 popup
     KPI 层（关闭则退回只有分片轮采的旧行为）。
   - `full_shard`：`{"enabled": true, "max_sites": 60, "budget_s": 70}` —— diagram
     明细分片轮采；站点按 site_id 排序，ipt_power_meta.shard_cursor 环形游标。
 
 存储：主库（sqlite/pg 双模由 backend.database.DB_MODE 决定）：
   - ipt_power_sites        站点清单 + 连接状态（每轮全量刷新，属性由 /sites 分页回填）
-  - ipt_power_snapshots    电源快照（**全站 2 分钟一条**；popup 行只填 KPI 列、
+  - ipt_power_snapshots    电源快照（**全站 5 分钟一条**；popup 行只填 KPI 列、
                            raw 为 NULL 控表体积，diagram 行补全明细列并写 raw）
   - ipt_power_site_detail  每站最新一条 diagram 精简明细（JSON，已剥除设备凭据，
                            2026-11-04 前 raw 存全量 diagram 且被 /site/{id} 原样下发，
@@ -63,12 +64,18 @@ DETAIL_TABLE = "ipt_power_site_detail"
 META_TABLE = "ipt_power_meta"
 RETENTION_DAYS = 2           # 快照保留期（超出即删，2026-11-03 如意定：曲线只留 2 天，控表体积）
 
-# ---- 全站 popup KPI 层（2026-11-04：全站 2 分钟分辨率）----
+# ---- 全站 popup KPI 层（2026-11-04：全站 5 分钟分辨率，2026-11-06 降频）----
 KPI_DEFAULT_WORKERS = 8      # 2026-11-05 复盘：12+8=20 并发把上游拖垮（顺序探测
                              # 空闲期 0.9~4.3s，采集期批量 12s 超时、0~40/501），
                              # 降为 popup 8 + diagram 3 = 11 并发上限
-KPI_DEFAULT_BUDGET_S = 80.0  # popup 预算；round 硬上限兜底
-KPI_ROUND_HARD_DEADLINE_S = 100.0  # 整轮硬上限（任务入口起算，含 filter-map/回填/明细层）
+KPI_DEFAULT_BUDGET_S = 200.0  # 兼容字段：_drain 统一用 hard_deadline，本值当前
+                              # 不参与运行逻辑；与 watch_sites.json 保持口径一致
+KPI_ROUND_HARD_DEADLINE_S = 240.0  # 整轮硬上限（任务入口起算，含 filter-map/回填/明细层）。
+# 2026-11-06 D：cron 由 */2 改 */5 后空出 200s，但 2 分钟时代定的 100s 上限
+# 没跟着调，改后 10 轮里 7 轮仍撞截断、尾部 30~170 站被砍（21:27=333/501、
+# 21:46=327/501）。放至 240s 留 60s 给落库与下一轮；_drain 跑完即止不会白等，
+# 也不增加任何瞬时 rps。max_instances=1 保证轮次不重叠，
+# STALE_RUNNING_SECONDS=1800s 不会把 240s 的长轮误判成僵尸。
 POOL_REQ_TIMEOUT_S = 20.0   # 池内单请求超时。2026-11-05 顺序探测曾出现 17s 仍成功，
                             # 12s 会把「慢但会成功」的请求误杀；且客户端提前放弃后
                             # 服务端仍在算，连接越堆越慢，形成超时风暴 → 放宽到 20s
@@ -77,15 +84,19 @@ POOL_REQ_INTERVAL_S = 0.3   # 每工作线程两次请求之间的间隔（降�
 KPI_CURSOR_KEY = "kpi_cursor"   # popup 环形游标：硬上限截断时下轮从断点续采
 DEGRADED_RATIO = 0.25       # 一轮 popup 成功率低于此值视为「上游被压垮/故障」
 BACKOFF_META_KEY = "failure_backoff"
-BACKOFF_BASE_S = 300.0      # 首次失败退避 5 分钟（跳过约 2 个 2min 节拍）
+BACKOFF_BASE_S = 300.0      # 首次失败退避 5 分钟（5 分钟节拍下约跳 1 轮）
 BACKOFF_MAX_S = 1800.0      # 指数退避封顶 30 分钟
+# 2026-11-06 B：上游瞬时抖动 != 任务失败。只有连续 N 轮「连上轮站点清单都
+# 拿不到、整轮完全无法采集」才判失败并告警；前 N-1 轮记 success + skipped，
+# 数据陈旧由 db_freshness_check 的「IPT 站点电源快照」20 分钟巡检兜底。
+UPSTREAM_FAIL_ALERT_STREAK = 3
 
 # ---- diagram 明细分片轮采 ----
 SHARD_REQUEST_INTERVAL = 0.0     # 并发拉取，不再逐站 sleep
 SHARD_DEFAULT_MAX_SITES = 60     # 单轮分片站数上限（16 线程实测 ~15s）
 SHARD_DEFAULT_BUDGET_S = 70.0    # 分片时间预算（秒）
 SHARD_WORKERS = 3                # diagram 分片并发（2026-11-05 与 popup 8 合计 11 并发；
-                                 # 63 站 × ~2s / 3 线程 ≈ 42s，仍在 100s 硬上限内）
+                                 # 63 站 × ~2s / 3 线程 ≈ 42s，仍在 240s 硬上限内）
 SHARD_CURSOR_KEY = "shard_cursor"             # ipt_power_meta 中的环形游标
 META_BACKFILL_KEY = "site_meta_backfill_at"   # 站点属性回填时间戳
 META_BACKFILL_COOLDOWN_S = 3600               # 回填冷却（防每轮重复拉 6 页）
@@ -267,6 +278,20 @@ def _meta_set(cur, key: str, value: str) -> None:
     cur.execute(f"DELETE FROM {META_TABLE} WHERE key = ?", (key,))
     cur.execute(f"INSERT INTO {META_TABLE} (key, value) VALUES (?, ?)",
                 (key, str(value)))
+
+
+def _load_sites_from_db(cur) -> List[Dict[str, Any]]:
+    """filter-map 失败时的降级清单：用上一轮 ipt_power_sites 继续采集。
+
+    只提供采集必需的 id / name / 连接状态 / reference，**不写回站点表**
+    （旧清单的 connectivity 不能冒充本轮刷新结果）。2026-11-06 C：一次外网
+    抖动不再让整轮 ~500 站快照全部作废。
+    """
+    cur.execute(f"SELECT site_id, name, connectivity, internal_reference"
+                f" FROM {SITES_TABLE}")
+    rows = cur.fetchall() or []
+    return [{"id": r[0], "name": r[1], "connectivity": r[2],
+             "internalReference": r[3]} for r in rows if r[0]]
 
 
 def _backfill_site_meta(cur, client) -> int:
@@ -498,7 +523,8 @@ def _make_pool(client: "IptEnergyClient", jobs, workers: int):
 def _drain(ex, futs, total: int, label: str, deadline: float = None):
     """按 deadline 收割线程池结果 → (out: {key: result}, failed: [(key, err)])。
 
-    到时未完成的站点直接放弃（cancel_futures），保证整轮不超 2 分钟节拍；
+    到时未完成的站点直接放弃（cancel_futures），保证整轮不超
+    KPI_ROUND_HARD_DEADLINE_S（240s）预算；
     被放弃的请求线程最多再跑一个 HTTP 超时就自然结束。
     """
     out: Dict[Any, Any] = {}
@@ -547,7 +573,7 @@ def _backoff_record_failure(cur, err: str) -> Dict[str, Any]:
     """上游失败指数退避：连续失败 1/2/3... 次 → 退避 5/10/20... 分钟（封顶 30）。
 
     目的：上游平台故障（如 2026-11-04 21:36 filter-map 连续 HTTP 500）时，
-    不再按 2 分钟节拍持续敲打故障中的上游、也不再每轮发失败通知。
+    不再按 5 分钟节拍持续敲打故障中的上游、也不再每轮发失败通知。
     """
     b = _backoff_load(cur) or {}
     streak = int(b.get("streak", 0)) + 1
@@ -578,7 +604,7 @@ def run_ipt_power_collect(watch: List[str] = None) -> Dict[str, Any]:
     ① filter-map 刷全站状态 → ② 按需回填站点属性 →
     ③ full_kpi：并发拉全站 popup（~501 站 60s，失败有界补采一轮）→
     ④ full_shard：环形游标并发拉 diagram 明细（≤60 站 ~15s，关注站每轮必采）
-    → ⑤ 合成快照落库（全站每轮一条，全站 2 分钟分辨率）→
+    → ⑤ 合成快照落库（全站每轮一条，全站 5 分钟分辨率）→
     ⑥ 清理过期快照 + 写 last_run / shard_cursor。
     """
     started = time.time()
@@ -587,14 +613,25 @@ def run_ipt_power_collect(watch: List[str] = None) -> Dict[str, Any]:
                                "kpi_ok": 0, "kpi_failed": 0,
                                "detail_ok": 0, "detail_failed": 0,
                                "watch_count": 0, "meta_backfilled": 0,
-                               "shard": None, "skipped": None}
+                               "shard": None, "skipped": None,
+                               "stale_sites": 0, "upstream_unavailable": False}
     watch = load_watch() if watch is None else watch
     kpi_cfg = load_kpi_config()
     shard_cfg = load_shard_config()
     hard_deadline = started + KPI_ROUND_HARD_DEADLINE_S
 
     # ⓪ 熔断退避：上游故障时按指数退避静默跳过整轮（success=True，
-    #    不触发失败通知），页面新鲜度告警（>5 分钟）自然覆盖此状态。
+    #    不触发失败通知）。
+    #
+    #    ⚠ 2026-11-06 更正：这里原先写「页面新鲜度告警（>5 分钟）自然覆盖此状态」
+    #    —— 但那条告警**从来不存在**：前端只认 success=false，全仓没有任何代码
+    #    读 `last_snapshot`，i18n 里也没有相关文案，巡检也没覆盖快照表。
+    #    也就是说「上游故障 → 静默跳过 → 页面数字停在几小时前」全程无信号，
+    #    实测近 5 天有 8 段 >10 分钟的快照缺口（最长 24.1 分钟）。
+    #    现在的真实覆盖来自巡检：db_freshness_check 的 APP_DB_CHECKS 里有一项
+    #    「IPT 站点电源快照」（ipt_power_snapshots.created_at，窗口 20 分钟），
+    #    退避期间它会按表陈旧报出来 —— 所以这里的静默跳过不再是盲区。
+    #    改本段逻辑时不要动那条巡检项，两者是一套。
     conn = get_raw_connection()
     try:
         cur = conn.cursor()
@@ -612,28 +649,45 @@ def run_ipt_power_collect(watch: List[str] = None) -> Dict[str, Any]:
         try:
             client = IptEnergyClient()
         except IptEnergyError as e:
+            # 凭据缺失是本地配置错误，不是上游抖动，必须立即告警（不抑制）。
             _backoff_record_failure(cur, "登录: %s" % e)
             conn.commit()
             summary["skipped"] = str(e)
             logger.warning("[ipt_power] 跳过采集：%s", e)
             return summary
 
+        # ① filter-map 单点（client 层已含 1 次短重试）：仍失败 → 用上轮站点
+        #    清单降级继续采，不再整轮 return（2026-11-06 B+C）。
+        sites: List[Dict[str, Any]] = []
         try:
-            sites = client.filter_map()
+            sites = client.filter_map() or []
         except Exception as e:
-            _backoff_record_failure(cur, "filter-map: %s" % e)
+            logger.warning("[ipt_power] filter-map 失败，改用上轮站点清单继续采集：%s", e)
+        stale_sites = False
+        if not sites:
+            sites = _load_sites_from_db(cur)
+            if sites:
+                stale_sites = True
+                logger.warning("[ipt_power] 降级清单 %d 站，本轮跳过站点表刷新", len(sites))
+        if not sites:
+            # 连上轮清单都没有（首次部署 / 表被清），才是真正无法采集。
+            # 前 N-1 次静默（success=True + skipped），第 N 次起才判失败告警。
+            state = _backoff_record_failure(cur, "filter-map 与降级清单均不可用")
             conn.commit()
-            summary["skipped"] = "filter-map 失败：%s" % e
+            streak = int(state.get("streak", 1))
+            summary["upstream_unavailable"] = True
+            summary["skipped"] = ("上游不可用且无历史站点清单（连续第 %d 次；"
+                                  "数据陈旧由 20 分钟巡检兜底）" % streak)
+            summary["success"] = streak < UPSTREAM_FAIL_ALERT_STREAK
             logger.warning("[ipt_power] %s", summary["skipped"])
             return summary
-        if not sites:
-            _backoff_record_failure(cur, "filter-map 返回空")
-            conn.commit()
-            summary["skipped"] = "filter-map 返回空"
-            return summary
 
-        summary["sites_updated"] = _upsert_sites(cur, sites)
-        summary["meta_backfilled"] = _backfill_site_meta(cur, client)
+        if stale_sites:
+            summary["stale_sites"] = len(sites)
+        else:
+            summary["sites_updated"] = _upsert_sites(cur, sites)
+            # 上游抖动时不再打 6 页 /sites 属性回填，避免额外加压。
+            summary["meta_backfilled"] = _backfill_site_meta(cur, client)
         priority_ids = _resolve_watch(watch, sites)
         priority_set = set(priority_ids)
         all_ids = sorted(s["id"] for s in sites if s.get("id"))
@@ -754,7 +808,7 @@ def run_ipt_power_collect(watch: List[str] = None) -> Dict[str, Any]:
 
         # ⑤ 低成功率熔断：filter-map 成功但 popup 几乎全超时（2026-11-05
         #    09:49~09:55 连续 4 轮 0/216/40/7）说明上游已被拖垮，此时继续
-        #    每 2 分钟打满 100s 只会雪上加霜且拿不到数据 → 计入退避，
+        #    每 5 分钟打满 240s 只会雪上加霜且拿不到数据 → 计入退避，
         #    让上游喘息 5/10/20 分钟（指数，封顶 30），成功即自动清零。
         degraded = bool(all_ids and kpi_cfg["enabled"] and
                         summary["kpi_ok"] < DEGRADED_RATIO * len(all_ids))
@@ -768,6 +822,7 @@ def run_ipt_power_collect(watch: List[str] = None) -> Dict[str, Any]:
             "detail_ok": summary["detail_ok"], "detail_failed": summary["detail_failed"],
             "watch": summary["watch_count"], "degraded": degraded,
             "meta_backfilled": summary["meta_backfilled"],
+            "stale_sites": summary["stale_sites"],
             "shard": summary["shard"],
             "duration_s": round(time.time() - started, 1),
         }, ensure_ascii=False))

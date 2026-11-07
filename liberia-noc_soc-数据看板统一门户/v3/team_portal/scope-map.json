@@ -204,6 +204,7 @@
   ],
 
   "_comment_matrix": "当前生效的可见性矩阵：{ 域键: { 子键: [有勾的团队 id, ...] } }。矩阵缺项 = 不显示（没有「默认全显」兜底）。可用 `python scripts/gen_team_matrix.py --import-excel` 从 Excel 重新导入本段。",
+  "_comment_matrix_flm": "2026-11-06（用户要求「flm 的 Auto Report 宽度减半，剩下空间放 OSS Portal Login」）：OSS 十个入口对 flm 全开，与 fo/bo/smc 一致。OSS 一旦可见，.qarow 右列就不再是「全空」——今天早上加的「右列全空 → Auto Report 满宽 + 高度随内容」CSS 判据自动不再匹配 flm，.qarow 回归两列栅格（左 Auto Report 半宽 / 右 OSS 独占整列高度），布局规则一行不用改。⚠️ 注释键只能放在 matrix 段**外**，放进去会被 validate_matrix 当成子键（字符串被逐字符遍历、报未知团队）。",
   "matrix": {
     "qc": {
       "alarm": ["fo", "bo", "flm", "smc"],
@@ -257,16 +258,16 @@
       "ms_contract":     ["fo", "flm"]
     },
     "oss": {
-      "portalLogin": ["fo", "bo", "smc"],
-      "nmsccn":      ["fo", "bo", "smc"],
-      "ipran":       ["fo", "bo", "smc"],
-      "mw":          ["fo", "bo", "smc"],
-      "fwumc":       ["fo", "bo", "smc"],
-      "vmaxcxo":     ["fo", "bo", "smc"],
-      "imonitor":    ["fo", "bo", "smc"],
-      "eflow":       ["fo", "bo", "smc"],
-      "rais":        ["fo", "bo", "smc"],
-      "dcserver":    ["fo", "bo", "smc"]
+      "portalLogin": ["fo", "bo", "flm", "smc"],
+      "nmsccn":      ["fo", "bo", "flm", "smc"],
+      "ipran":       ["fo", "bo", "flm", "smc"],
+      "mw":          ["fo", "bo", "flm", "smc"],
+      "fwumc":       ["fo", "bo", "flm", "smc"],
+      "vmaxcxo":     ["fo", "bo", "flm", "smc"],
+      "imonitor":    ["fo", "bo", "flm", "smc"],
+      "eflow":       ["fo", "bo", "flm", "smc"],
+      "rais":        ["fo", "bo", "flm", "smc"],
+      "dcserver":    ["fo", "bo", "flm", "smc"]
     },
     "complaint": {
       "vmax": []

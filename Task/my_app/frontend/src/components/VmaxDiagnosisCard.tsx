@@ -53,6 +53,12 @@ export type OverrideInfo = {
   reason: string
   username: string
   created_at: string
+  /**
+   * P3-3：提交覆写时随记录存档的完整诊断快照（JSON 字符串，按
+   * `lib/vmaxVerdictSnapshot.ts` 的结构解析）。老记录没有这一列 → null/undefined，
+   * 一律视为「当时未存档」，读取端按缺失处理，不报错。
+   */
+  verdict_snapshot?: string | null
 }
 
 /* ---- 分数 → 语义色：与全站 wh-card-lv-* 同一套阈值语义 ---- */

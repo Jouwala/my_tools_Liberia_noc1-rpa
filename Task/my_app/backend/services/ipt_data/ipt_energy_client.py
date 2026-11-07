@@ -10,11 +10,12 @@
      GET .../sites/<site_id>/diagram 取电源全景（负载/电池/发电机/市电/整流器/
      油箱/太阳能/环境），GET .../sites/<site_id>/popup 取轻量 KPI 摘要 + 活动告警，
      GET .../sites/<site_id>/with-events 取站点与设备详情。
-  3. 全站 2 分钟分辨率（2026-11-04 实测）：filter-map 不含任何电源数值，
-     也没有批量电源接口；只有逐站查。/diagram 约 5KB、并发 32 线程实测
-     200 站 73.8s（外推 501 站 ~185s，且出现超时），无法塞进 2 分钟节拍；
-     /popup 约 1.5KB、并发 32 线程实测 501 站 60.1s、0 错误，故以 /popup
-     作全站 2 分钟 KPI 层，/diagram 留给分片轮采的明细层。
+  3. 全站 5 分钟分辨率（2026-11-04 实测 / 2026-11-06 降频）：filter-map
+     不含任何电源数值，也没有批量电源接口；只有逐站查。/diagram 约 5KB、
+     并发 32 线程实测 200 站 73.8s（外推 501 站 ~185s，且出现超时），
+     即使放宽到 240s 硬上限也会挤占全站 popup 时间；/popup 约 1.5KB、
+     并发 32 线程实测 501 站 60.1s、0 错误，故以 /popup 作全站 5 分钟
+     KPI 层，/diagram 留给分片。
 
 凭据来源（优先级）：环境变量 IPT_USERNAME / IPT_PASSWORD > 同目录 url.txt 中
 「用户名：xxx」「密码：xxx」两行。凭据不落代码、不写日志。
@@ -26,6 +27,7 @@
 """
 import base64
 import json
+import logging
 import os
 import re
 import sys
@@ -33,6 +35,8 @@ import time
 import urllib.parse
 
 import requests
+
+logger = logging.getLogger(__name__)
 
 AUTH_HOST = "https://login.iptdigitalplatform.com"
 BACKEND_HOST = "https://backend.iptdigitalplatform.com"
@@ -42,6 +46,12 @@ OIDC_RESPONSE_TYPE = "id_token token"  # 隐式流，无 code 无 PKCE
 OIDC_SCOPE = "openid rubix-api email profile"
 DEFAULT_CLIENT_REF = "9eda5e46b0294eb589881ee74f8940da"  # 客户（Orange Liberia）租户 id，抓包确认
 TOKEN_TTL_MARGIN = 120  # 过期前 120s 视为失效
+
+# filter-map 是整轮采集唯一的单点请求：历史上 19 次任务失败里 17 次都是它
+# 读超时 / 408 / 500 后整轮直接判失败（2026-11-06 复盘）。这里只对上游瞬时
+# 抖动做 1 次短重试，第 2 次用更短超时，避免把 240s 硬上限吃光。
+FILTER_MAP_RETRY_GAP_S = 2.0
+FILTER_MAP_RETRY_TIMEOUT_S = 12
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _TOKEN_CACHE = os.path.join(_HERE, "auth_cache", "ipt_token.json")
@@ -192,8 +202,14 @@ class IptEnergyClient:
         raise IptEnergyError("GET %s 重登后仍 401" % path)
 
     # ---------- 对外接口 ----------
-    def filter_map(self, body=None):
-        """全站清单 + 连接状态（1 个请求，~498 站；filter-map POST）。"""
+    def filter_map(self, body=None, attempts: int = 2):
+        """全站清单 + 连接状态（1 个请求，~500 站；filter-map POST）。
+
+        2026-11-06：这是整轮采集唯一的单点请求，历史上 19 次任务失败里 17 次
+        都是它读超时 / 408 / 500 后整轮直接判失败。现在对「上游瞬时抖动」做
+        1 次短重试（第 2 次 12s 超时），只对超时 / 408 / 5xx 重试；其它 4xx
+        不重试；401 仍按原逻辑重登一次，且不消耗重试次数。
+        """
         url = (BACKEND_HOST + "/api/v0.1/assets/clients/" + self.client_ref
                + "/energy/sites/filter-map")
         body = body or {"favoriteFilterId": None, "flatOrganizationIds": [],
@@ -201,22 +217,51 @@ class IptEnergyClient:
                         "sitePriorityIds": [], "connectivities": [],
                         "eventCriticalities": [], "eventNames": [],
                         "eventCategories": [], "sitesType": None}
-        for attempt in (1, 2):
-            r = self._session.post(
-                url, json=body, timeout=self.timeout,
-                headers={"Authorization": "Bearer " + self.token(),
-                         "Accept": "application/json, text/plain, */*",
-                         "Content-Type": "application/json",
-                         "Origin": "https://portal.iptdigitalplatform.com",
-                         "Referer": "https://portal.iptdigitalplatform.com/",
-                         "User-Agent": _UA})
-            if r.status_code == 401 and attempt == 1:
+        attempts = max(1, int(attempts))
+        relogin_used = False
+        attempt = 0
+        while attempt < attempts:
+            attempt += 1
+            req_timeout = (self.timeout if attempt == 1
+                           else min(self.timeout, FILTER_MAP_RETRY_TIMEOUT_S))
+            try:
+                r = self._session.post(
+                    url, json=body, timeout=req_timeout,
+                    headers={"Authorization": "Bearer " + self.token(),
+                             "Accept": "application/json, text/plain, */*",
+                             "Content-Type": "application/json",
+                             "Origin": "https://portal.iptdigitalplatform.com",
+                             "Referer": "https://portal.iptdigitalplatform.com/",
+                             "User-Agent": _UA})
+            except requests.exceptions.RequestException as e:
+                if attempt < attempts:
+                    logger.warning("filter-map 第 %d 次请求异常，%.0fs 后重试：%s",
+                                   attempt, FILTER_MAP_RETRY_GAP_S, e)
+                    time.sleep(FILTER_MAP_RETRY_GAP_S)
+                    continue
+                raise
+            if r.status_code == 401 and not relogin_used:
+                relogin_used = True
+                attempt -= 1          # 401 重登不消耗重试次数
                 self._token = None
+                try:
+                    os.remove(self.token_cache)
+                except OSError:
+                    pass
                 continue
+            if r.status_code == 408 or r.status_code >= 500:
+                if attempt < attempts:
+                    logger.warning("filter-map 第 %d 次 HTTP %s，%.0fs 后重试",
+                                   attempt, r.status_code, FILTER_MAP_RETRY_GAP_S)
+                    time.sleep(FILTER_MAP_RETRY_GAP_S)
+                    continue
+                raise IptEnergyError("POST filter-map -> HTTP %s: %s" % (
+                    r.status_code, r.text[:200]))
             if r.status_code != 200:
-                raise IptEnergyError("POST filter-map -> HTTP %s: %s" % (r.status_code, r.text[:200]))
+                raise IptEnergyError("POST filter-map -> HTTP %s: %s" % (
+                    r.status_code, r.text[:200]))
             return r.json()
-        raise IptEnergyError("POST filter-map 重登后仍 401")
+        raise IptEnergyError("POST filter-map 重登/重试后仍失败")
 
     def find_sites(self, query):
         """按站名模糊搜索，返回站点概要列表（含完整站点属性）。"""
@@ -271,7 +316,7 @@ class IptEnergyClient:
         实测 ~1.5KB，只有 diagram 的 1/3；含 loadPower / batteryVoltage /
         batteryStateOfCharge / solarPower / fuelTankLevel / generatorOn 与
         site.events（Mains Fail、Engine standby 等活动告警）。
-        501 站并发 32 线程实测 60.1s、0 错误，是全站 2 分钟分辨率的数据源。
+        501 站并发 32 线程实测 60.1s、0 错误，是全站 5 分钟分辨率的数据源。
         """
         return self._get("/sites/%s/popup" % site_id)
 
@@ -305,7 +350,7 @@ class IptEnergyClient:
         child._token = dict(token_info) if token_info else self.token_info()
         return child
 
-    # ---------- popup / diagram 归一化（全站 2 分钟 KPI 层 + 明细层共用） ----------
+    # ---------- popup / diagram 归一化（全站 5 分钟 KPI 层 + 明细层共用） ----------
     _SLIM_EVENT_KEYS = ("id", "name", "criticality", "category", "isDismissed")
 
     @staticmethod
@@ -407,7 +452,7 @@ class IptEnergyClient:
 
     @staticmethod
     def normalize_popup(popup):
-        """popup → 快照字段 dict（全站 2 分钟 KPI 层）。
+        """popup → 快照字段 dict（全站 5 分钟 KPI 层）。
 
         popup.diagram 是 diagram 的精简子集：无 loads/environment/mainSourceOn，
         fuelTanks 只有 fuelTankLevel，grids/solarSets 只有 deviceId；site.events
