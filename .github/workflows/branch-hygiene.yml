@@ -1,0 +1,30 @@
+# 分支卫生守卫 — docs/git-workflow.md 第 3、4 节的机器落地
+name: branch-hygiene
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+
+# 同一 PR 的新 push 取消旧运行
+concurrency:
+  group: branch-hygiene-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  hygiene:
+    name: branch-hygiene（文件数与提交前缀）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 跑分支卫生守卫
+        env:
+          GITHUB_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          GITHUB_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: node scripts/check-branch-hygiene.mjs

@@ -1,0 +1,32 @@
+# CODEOWNERS —— 多 Agent 并行开发时按业务模块指派 Owner
+# 语法：<路径> <owner...>
+# Owner 暂用仓库管理员 @Jouwala 占位，接入具体 Agent/人员后替换。
+# 本文件被分支保护 Require review from Code Owners 引用，新增模块同步在此加一行。
+
+# 根治理
+/.github/                          @Jouwala
+/.githooks/                         @Jouwala
+/scripts/                           @Jouwala
+/docs/git-workflow.md               @Jouwala
+
+# my_app（Data Insight MVP）
+/Task/my_app/backend/               @Jouwala
+/Task/my_app/frontend/              @Jouwala
+/Task/my_app/docs/manual/          @Jouwala
+/Task/my_app/tests/                @Jouwala
+
+# 统一门户
+/liberia-noc_soc-数据看板统一门户/  @Jouwala
+
+# eflow / ipt / RAN / VMAX / GIS 分支与目录
+/Task/eflow_Q&A/                   @Jouwala
+/Task/ipt_*/                       @Jouwala
+/backend/services/vmax_cca/        @Jouwala
+/backend/services/vmax_multi_data/ @Jouwala
+
+# WhatsApp Bot / 工具
+/whats*/                           @Jouwala
+/Task/whatsapp-kb-bot/             @Jouwala
+
+# 兜底
+*                                 @Jouwala
