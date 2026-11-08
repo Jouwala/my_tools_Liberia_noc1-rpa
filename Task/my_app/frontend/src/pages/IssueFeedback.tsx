@@ -8,10 +8,11 @@ import {
   BugOutlined, CheckCircleOutlined, DeleteOutlined, DownloadOutlined, EditOutlined,
   PaperClipOutlined, PlusOutlined, ReloadOutlined, SearchOutlined,
 } from '@ant-design/icons'
-import api from '../api'
+import api, { getAuthMe, getBootRole } from '../api'
 import { useI18n } from '../i18n'
 import { WH, cardStyle } from '../theme'
 import { ExplainIcon, ExplainPopover } from '../components/MetricExplain'
+import CalcChainNote from '../components/CalcChainNote'
 import { exportAoaReport } from '../utils/excelReport'
 
 // 与后端 routers/feedback.py 的枚举白名单保持一致
@@ -78,8 +79,33 @@ function fmtSize(n: number): string {
   return `${n}B`
 }
 
+/**
+ * 当前角色：'admin' 才能处理（改状态/填处理结论）与删除反馈记录。
+ *
+ * 角色取**启动引导期快照** `getBootRole()`（main.tsx 在 React 渲染前跑完
+ * bootstrapAuth，故首帧即可用，管理员不会先看到"没有操作列"再闪出来）。
+ * 快照拿不到时（引导失败）补一次 /auth/me；仍取不到就按 viewer 处理 —— 与
+ * App.tsx 的「非 admin 隐藏目录」同一套 fail-closed 口径。
+ */
+function useRole(): 'admin' | 'viewer' {
+  const [role, setRole] = useState<'admin' | 'viewer'>(() => (getBootRole() === 'admin' ? 'admin' : 'viewer'))
+  useEffect(() => {
+    if (getBootRole()) return
+    let alive = true
+    getAuthMe()
+      .then((r) => {
+        const r2 = r?.data?.user?.role
+        if (alive && r2) setRole(r2 === 'admin' ? 'admin' : 'viewer')
+      })
+      .catch(() => { /* 未登录：按 viewer 处理 */ })
+    return () => { alive = false }
+  }, [])
+  return role
+}
+
 export default function IssueFeedback() {
   const { t } = useI18n()
+  const isAdmin = useRole() === 'admin'
 
   const catLabel = useCallback((v: Category) => t(`fb.cat.${v}`), [t])
   const priLabel = useCallback((v: Priority) => t(`fb.pri.${v}`), [t])
@@ -239,49 +265,56 @@ export default function IssueFeedback() {
     }
   }
 
-  const columns: ColumnsType<IssueItem> = useMemo(() => [
-    { title: '#', dataIndex: 'id', width: 60 },
-    {
-      title: t('fb.col.title'), dataIndex: 'title', ellipsis: true,
-      render: (v: string, r) => (
-        <Tooltip title={r.description.length > 120 ? r.description : undefined}>
-          <span style={{ color: WH.text }}>{v}</span>
-        </Tooltip>
-      ),
-    },
-    {
-      title: t('fb.col.category'), dataIndex: 'category', width: 100,
-      render: (v: Category) => <Tag color={CATEGORY_COLORS[v]}>{catLabel(v)}</Tag>,
-    },
-    {
-      title: t('fb.col.priority'), dataIndex: 'priority', width: 90,
-      render: (v: Priority) => <Tag color={PRIORITY_COLORS[v]}>{priLabel(v)}</Tag>,
-    },
-    {
-      title: t('fb.col.status'), dataIndex: 'status', width: 100,
-      render: (v: Status) => <Tag color={STATUS_COLORS[v]}>{stLabel(v)}</Tag>,
-    },
-    { title: t('fb.col.reporter'), dataIndex: 'reporter', width: 110, ellipsis: true },
-    {
-      title: t('fb.col.handler'), dataIndex: 'handler', width: 100, ellipsis: true,
-      render: (v?: string | null) => v || <span style={{ color: WH.textMuted }}>-</span>,
-    },
-    { title: t('fb.col.created'), dataIndex: 'created_at', width: 150 },
-    {
-      title: t('fb.col.actions'), key: 'actions', width: 130, fixed: 'right',
-      render: (_, r) => (
-        <Space size={4}>
-          <Button size="small" icon={<EditOutlined />} onClick={() => openHandle(r)}>
-            {t('fb.handle')}
-          </Button>
-          <Popconfirm title={t('fb.deleteConfirm')} onConfirm={() => remove(r.id)} okText={t('fb.ok')} cancelText={t('fb.cancel')}>
-            <Button size="small" danger icon={<DeleteOutlined />} />
-          </Popconfirm>
-        </Space>
-      ),
-    },
+  const columns: ColumnsType<IssueItem> = useMemo(() => {
+    const cols: ColumnsType<IssueItem> = [
+      { title: '#', dataIndex: 'id', width: 60 },
+      {
+        title: t('fb.col.title'), dataIndex: 'title', ellipsis: true,
+        render: (v: string, r) => (
+          <Tooltip title={r.description.length > 120 ? r.description : undefined}>
+            <span style={{ color: WH.text }}>{v}</span>
+          </Tooltip>
+        ),
+      },
+      {
+        title: t('fb.col.category'), dataIndex: 'category', width: 100,
+        render: (v: Category) => <Tag color={CATEGORY_COLORS[v]}>{catLabel(v)}</Tag>,
+      },
+      {
+        title: t('fb.col.priority'), dataIndex: 'priority', width: 90,
+        render: (v: Priority) => <Tag color={PRIORITY_COLORS[v]}>{priLabel(v)}</Tag>,
+      },
+      {
+        title: t('fb.col.status'), dataIndex: 'status', width: 100,
+        render: (v: Status) => <Tag color={STATUS_COLORS[v]}>{stLabel(v)}</Tag>,
+      },
+      { title: t('fb.col.reporter'), dataIndex: 'reporter', width: 110, ellipsis: true },
+      {
+        title: t('fb.col.handler'), dataIndex: 'handler', width: 100, ellipsis: true,
+        render: (v?: string | null) => v || <span style={{ color: WH.textMuted }}>-</span>,
+      },
+      { title: t('fb.col.created'), dataIndex: 'created_at', width: 150 },
+    ]
+    // 操作列（改状态 / 删除）仅管理员可见：后端同样只放行 admin，前端不画按钮，
+    // 免得普通用户点下去吃一个 403。
+    if (isAdmin) {
+      cols.push({
+        title: t('fb.col.actions'), key: 'actions', width: 130, fixed: 'right',
+        render: (_, r) => (
+          <Space size={4}>
+            <Button size="small" icon={<EditOutlined />} onClick={() => openHandle(r)}>
+              {t('fb.handle')}
+            </Button>
+            <Popconfirm title={t('fb.deleteConfirm')} onConfirm={() => remove(r.id)} okText={t('fb.ok')} cancelText={t('fb.cancel')}>
+              <Button size="small" danger icon={<DeleteOutlined />} />
+            </Popconfirm>
+          </Space>
+        ),
+      })
+    }
+    return cols
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  ], [t, catLabel, priLabel, stLabel, page, pageSize])
+  }, [t, catLabel, priLabel, stLabel, page, pageSize, isAdmin])
 
   const expandable = useMemo(() => ({
     expandedRowRender: (r: IssueItem) => (
@@ -349,6 +382,16 @@ export default function IssueFeedback() {
 
   return (
     <div style={{ padding: 'var(--wh-space-sm) var(--wh-space-xs)' }}>
+      {/* 可见范围说明（仅普通用户）：默认收起，点标题展开。
+          「只能看到自己的」是权限口径，按 AGENTS.md 三.3b 收进 CalcChainNote，
+          不做常驻说明条占首屏。 */}
+      {!isAdmin && (
+        <CalcChainNote
+          title={t('fb.scope.title')}
+          sections={[{ lines: [t('fb.scope.myOnly'), t('fb.scope.adminOnly')] }]}
+          style={{ marginBottom: 'var(--wh-space-sm)' }}
+        />
+      )}
       {/* 工具条：页面标题由 App 全局 Header 渲染（菜单名「使用反馈」），页内不再重复 */}
       <div style={{
         display: 'flex', flexWrap: 'wrap', alignItems: 'center',
@@ -436,7 +479,7 @@ export default function IssueFeedback() {
         <Table<IssueItem>
           rowKey="id" size="small" loading={loading}
           columns={columns} dataSource={items} expandable={expandable}
-          scroll={{ x: 960 }}
+          scroll={{ x: isAdmin ? 960 : 830 }}
           pagination={{
             current: page, pageSize, total, showSizeChanger: true,
             showTotal: (n) => (
