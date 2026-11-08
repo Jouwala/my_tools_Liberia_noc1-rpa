@@ -118,14 +118,14 @@
     },
     {
       "key": "cch",
-      "zh": "CCH",
-      "en": "CCH",
+      "zh": "客户投诉查询",
+      "en": "Customer Complaint Query",
       "excelDomain": "CCH",
       "portalAnchor": "cchSlot",
       "domainOnly": true,
-      "_comment": "2026-11-04 加：CCH 从 Knowledge Q&A 的第三页签拆成独立面板 #cchSlot（占原 User Feedback 的槽位）。Excel 内容清单里没有独立这一行（它原先是 Knowledge Q&A 域的 VMAX 用户查询），故 domainOnly + excelDomain 只作占位、不与 Excel 对账。可见团队按用户要求为 fo / bo / smc 三个：上游 /v3/olbrportal/ 不读矩阵、恒显示 CCH；flm / cxo 既没有 CCH 页签也没有独立面板。⚠️ 服务端库矩阵里若已有旧的 qa/vmax 键，合并逻辑只补不删、会残留，但没有任何渲染点再消费它，无害。",
+      "_comment": "2026-11-04 加：CCH 从 Knowledge Q&A 的第三页签拆成独立面板 #cchSlot（占原 User Feedback 的槽位）。Excel 内容清单里没有独立这一行（它原先是 Knowledge Q&A 域的 VMAX 用户查询），故 domainOnly + excelDomain 只作占位、不与 Excel 对账；excelDomain 仍写 'CCH' 是对账占位、不是界面文案，别跟着改。可见团队按用户要求为 fo / bo / smc 三个：上游 /v3/olbrportal/ 不读矩阵、恒显示；flm / cxo 既没有该页签也没有独立面板。⚠️ 2026-11-08 用户要求不再用 CCH 缩写，面板与管理界面显示名改为「客户投诉查询 / Customer Complaint Query」；域键 cch、子键 cch、槽位 cchSlot、excelDomain 占位一律不变。为避免与已下线的 complaint 域中文撞名，complaint 域显示名加了「（已下线）」后缀。⚠️ 服务端 teamScopeDb.getTemplate() 缓存模板，显示名需重启 dev(9267) 才在管理界面生效。⚠️ 服务端库矩阵里若已有旧的 qa/vmax 键，合并逻辑只补不删、会残留，但没有任何渲染点再消费它，无害。",
       "items": [
-        { "key": "cch", "zh": "CCH（VMAX 用户查询）", "en": "CCH (VMAX User Query)", "excel": "" }
+        { "key": "cch", "zh": "客户投诉查询（VMAX 用户查询）", "en": "Customer Complaint Query (VMAX User Query)", "excel": "" }
       ]
     },
     {
@@ -169,11 +169,12 @@
     },
     {
       "key": "complaint",
-      "zh": "客户投诉查询",
-      "en": "Customer Complaint",
+      "zh": "客户投诉查询（已下线）",
+      "en": "Customer Complaint (legacy)",
       "excelDomain": "Customer complaint",
       "portalAnchor": "complaintSlot",
       "domainOnly": true,
+      "_comment": "2026-11-08 加注：本块（#complaintSlot）已按 P0-1 下线、矩阵置空且 CSS 硬隐藏，指向的 my_app 页面与 cch 域是同一个 /myapp/?page=vmax_user_query。cch 域显示名改为「客户投诉查询」后两者中文会撞名，故这里加「（已下线）/ (legacy)」后缀消歧 —— 只改显示名，域键 / 子键 / excelDomain / 矩阵均不动，运行时零影响。",
       "items": [
         { "key": "vmax", "zh": "VMAX 用户查询（投诉系统）", "en": "VMAX User Query (complaint system)", "excel": "" }
       ]

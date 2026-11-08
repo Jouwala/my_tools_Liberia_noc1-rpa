@@ -19,9 +19,10 @@
 import { describe, expect, it } from 'vitest'
 
 import {
-  buildVerdict, scoreAll, THRESHOLDS,
+  analyzeAccess, analyzeOttText, analyzeRadio, buildVerdict, classifyFailCause,
+  scoreAll, THRESHOLDS,
   type DimensionScore, type GameResult, type OttResult,
-  type SourceResult, type VoiceResult,
+  type SourceResult, type VoiceResult, type XdrRow,
 } from '../../pages/vmaxDiagnosisRules'
 import {
   buildWorkspaceCorrelation, CHAIN_ORDER,
@@ -180,5 +181,134 @@ describe('buildWorkspaceCorrelation', () => {
     }))
     // 90 分但无对齐的 Mystery 排在 1.0 支持度 ×100+90 的 weak coverage 之后
     expect(ws.rankedCauses[0]?.label).toContain('weak coverage')
+  })
+})
+
+/* ---------------------------------------------------------------------------
+ * 5. P0-1 账务分型：强关键词才判 billing，数字码拒绝不等于欠费
+ * ------------------------------------------------------------------------ */
+describe('classifyFailCause / analyzeAccess（P0-1）', () => {
+  it('强账务关键词 → billing；EPS 数字码措辞 → attach_reject（不判账务）', () => {
+    expect(classifyFailCause('Insufficient balance, service stopped')).toBe('billing')
+    expect(classifyFailCause('OCS credit control failed')).toBe('billing')
+    expect(classifyFailCause('EMM cause 111: UE in use')).toBe('attach_reject')
+    expect(classifyFailCause('DIAMETER_DATA_SUBSCRIBER_NOT_AVAILABLE')).toBe('attach_reject')
+    // Gy Diameter 结果码（RFC 4006）：4012 余额不足 → billing；4010 服务拒绝 → attach
+    expect(classifyFailCause('Result-Code: 4012')).toBe('billing')
+    expect(classifyFailCause('Result-Code: 4010')).toBe('attach_reject')
+    expect(classifyFailCause('ESM cause 12: ESM unknown APN')).toBe('attach_reject')
+    expect(classifyFailCause('S1-U Path Failure')).toBe('transport_fail')
+    expect(classifyFailCause('')).toBe('unknown')
+  })
+
+  it('1100 失败行带账务原因 → verdict 置顶为账务结论', () => {
+    const sources = emptySources()
+    sources.find((s) => s.key === '1100')!.rows = [
+      { procedure_status: 'Failure', fail_cause: 'Insufficient balance', procedure_type: 'ATTACH' },
+      { procedure_status: 'Failure', fail_cause: 'Insufficient balance', procedure_type: 'ATTACH' },
+    ] as XdrRow[]
+    const access = analyzeAccess(sources)
+    expect(access.byCategory.billing).toBe(2)
+    const v = buildVerdict('slow', nullScores(), noneVoice(), ottResult(), emptyGame(), sources)
+    expect(v.headline.key).toBe('vmaxq.vd.headline.billing')
+    expect(v.focus).toBe('availability')
+    expect(v.hypotheses[0]?.id).toBe('h-billing')
+    expect(v.hypotheses[0]?.owner).toBe('billing')
+  })
+
+  it('只有数字码拒绝（无强关键词）→ 不判账务，假设表显式列待补账务', () => {
+    const sources = emptySources()
+    sources.find((s) => s.key === '1100')!.rows = [
+      { procedure_status: 'Failure', fail_cause: 'EMM cause 111: UE in use', procedure_type: 'ATTACH' },
+    ] as XdrRow[]
+    const v = buildVerdict('slow', nullScores(), noneVoice(), ottResult(), emptyGame(), sources)
+    expect(v.headline.key).not.toBe('vmaxq.vd.headline.billing')
+    expect(v.hypotheses[0]?.id).toBe('h-attach')
+    expect(v.hypotheses[0]?.missing.some((m) => m.key === 'vmaxq.vd.hyp.missing.billing')).toBe(true)
+  })
+})
+
+/* ---------------------------------------------------------------------------
+ * 6. P0-2 OTT 文本：WhatsApp 发消息的 TCP 层判据
+ * ------------------------------------------------------------------------ */
+describe('analyzeOttText（P0-2）', () => {
+  const wa = (over: Partial<XdrRow> = {}): XdrRow => ({
+    app_content_name: 'WHATSAPP', protocol: 'TCP', duration: 5000,
+    ul_traffic: 10, dl_traffic: 10, $first_resp_delay: 4000, ...over,
+  })
+
+  it('无 WhatsApp 行 → no_rows（不硬判发送失败）', () => {
+    expect(analyzeOttText(emptySources()).stage).toBe('no_rows')
+  })
+
+  it('有行但零流量 → no_traffic；首包慢且流量小 → handshake_slow', () => {
+    const mk = (rows: XdrRow[]) => {
+      const s = emptySources()
+      s.find((x) => x.key === '1300')!.rows = rows
+      return analyzeOttText(s)
+    }
+    expect(mk([wa({ ul_traffic: 0, dl_traffic: 0 })]).stage).toBe('no_traffic')
+    expect(mk([wa({ ul_traffic: 100, dl_traffic: 100, $first_resp_delay: 9000 })]).stage).toBe('handshake_slow')
+    expect(mk([wa({ ul_traffic: 5000, dl_traffic: 5000, $first_resp_delay: 100 })]).stage).toBe('bidirectional')
+  })
+
+  it('OTT 投诉 + 文本通道异常 → ottTextBad 结论（不是 ottNone）', () => {
+    const sources = emptySources()
+    sources.find((s) => s.key === '1300')!.rows = [wa({ ul_traffic: 0, dl_traffic: 0 })]
+    const v = buildVerdict('ott', nullScores(), noneVoice(),
+      ottResult({ totalSessions: 0, sessions: [] }), emptyGame(), sources)
+    expect(v.headline.key).toBe('vmaxq.vd.headline.ottTextBad')
+    expect(v.reproduced).toBe(true)
+  })
+})
+
+/* ---------------------------------------------------------------------------
+ * 7. P0-3 无线分型：弱覆盖内部区分切换不及时 / 断站嫌疑 / 真弱覆盖
+ * ------------------------------------------------------------------------ */
+describe('analyzeRadio 无线分型（P0-3）', () => {
+  const ran = (rows: XdrRow[]) => {
+    const s = emptySources()
+    s.find((x) => x.key === '32')!.rows = rows
+    return analyzeRadio(s)!
+  }
+  const row = (over: Partial<XdrRow> = {}, i = 0): XdrRow => ({
+    cell: 'CellA', serving_rsrp: -90, ulsinr: 10, cqi: 10,
+    btime: `2026-11-07 08:${String(i).padStart(2, '0')}:00`, ...over,
+  })
+
+  it('serving 弱 + 邻区好 → handover_late_suspect', () => {
+    const rows = Array.from({ length: 10 }, (_, i) => row({ serving_rsrp: -120, neighbor_rsrp: -85 }, i))
+    const r = ran(rows)
+    expect(r.mode).toBe('handover_late_suspect')
+    expect(r.neighborSamples).toBe(10)
+    expect(r.neighborGapDb).toBeGreaterThanOrEqual(10)
+  })
+
+  it('serving 弱 + 无邻区 → weak_coverage（结论只到弱覆盖）', () => {
+    const rows = Array.from({ length: 10 }, (_, i) => row({ serving_rsrp: -120 }, i))
+    const r = ran(rows)
+    expect(r.mode).toBe('weak_coverage')
+    expect(r.neighborSamples).toBe(0)
+  })
+
+  it('阶跃消失 → site_outage_suspect', () => {
+    const rows = [
+      ...Array.from({ length: 5 }, (_, i) => row({ serving_rsrp: -90 }, i)),
+      ...Array.from({ length: 5 }, (_, i) => row({ serving_rsrp: -122 }, i + 10)),
+    ]
+    const r = ran(rows)
+    expect(r.abruptDrop).toBe(true)
+    expect(r.mode).toBe('site_outage_suspect')
+  })
+
+  it('渐变弱（中间有过渡值）→ 不是断站', () => {
+    const rows = [
+      ...Array.from({ length: 3 }, (_, i) => row({ serving_rsrp: -90 }, i)),
+      ...Array.from({ length: 3 }, (_, i) => row({ serving_rsrp: -105 }, i + 5)),
+      ...Array.from({ length: 3 }, (_, i) => row({ serving_rsrp: -118 }, i + 10)),
+    ]
+    const r = ran(rows)
+    expect(r.abruptDrop).toBe(false)
+    expect(r.mode).toBe('weak_coverage')
   })
 })

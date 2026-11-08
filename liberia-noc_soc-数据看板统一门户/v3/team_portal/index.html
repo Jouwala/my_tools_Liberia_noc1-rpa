@@ -348,6 +348,8 @@
   </div>
 
   <!-- ===================== 报告文件 + CCH / OSS 门户登录 =====================
+       ⚠️ 2026-11-08 起这块面板的**显示名**是「客户投诉查询 / Customer Complaint Query」；
+         下文与代码里的 CCH 一律指内部标识 cch（域键 / 槽位 / 类名），不是界面文案。
        ⚠️ 2026-11-04（用户要求「User Feedback 和 OSS Portal Login 的位置互换」＋
          「Knowledge Q&A 里面的 CCH 单独拆出来放到 User Feedback 的位置」＋
          「User Feedback 调整为一个功能放到头像里面的下拉里面」）：
@@ -358,8 +360,17 @@
                              /myapp/?page=vmax_user_query，flex:1 吃掉剩余高度）
              下 #ossSlot —— OSS Portal Login（卡片网格，高度 = --oss-h）
          即 OSS 从上半挪到下半，上半那块大空间给 CCH。
-       高度只有一个真相源：--qarow-h 减 --oss-h 即 CCH 的高度，
-       所以「OSS 高度减半」只改一个变量，CCH 自动补齐。
+       ⚠️ 2026-11-08（用户要求「Auto Report 和 Customer Complaint Query 的高度保持一致，
+         OSS Portal Login 占满一行」）：
+         原来的上下叠放里 CCH 拿 --qarow-h 减 --oss-h 的一半，右列因此比左列矮一大截。
+         现在三块都可见时（当前即 fo / bo）改成：
+           · 第一行 = Auto Report | CCH —— 两块同一真相源的下限 --qarow-h，
+             栅格默认 stretch，谁内容更长谁更高，另一块被拉伸跟上；
+           · 第二行 = OSS Portal Login —— grid-column: 1 / -1 跨满整行，
+             高度改为随内容（整行宽度下卡片两行就够，钉 --oss-h 反而拖出空白）。
+         实现全在 scripts/sync_team_assets.py 追加的 CSS 里：.qarow-col 用
+         display:contents 摊平，DOM 结构一行未改（仍是 #cchSlot 在前 / #ossSlot 在后），
+         team-layout.js 的拖拽排序与 olbr.js 的按 id 取节点照旧。
        ⚠️ CCH 的可见范围由团队矩阵 cch 域控制（fo / bo / smc 三个团队，
          flm / cxo 不显示；上游 olbr 主门户恒显示）。判据由
          scripts/patch_team_portal.py 的 cch-scope 钩子插进 olbr.js。
@@ -371,7 +382,8 @@
          两块并排、CCH 在左；同时给这一行确定高度 —— 否则 .cch-slot 的
          flex:1 没有可分配高度、.canvas 被压成 0，iframe 其实已经加载却看不见。
          DOM 结构一行未改（仍是 #cchSlot 在前 / #ossSlot 在后），
-         fo / bo / flm 与上游主门户的上下叠放布局保持不变。 -->
+         flm 与上游主门户的上下叠放布局保持不变
+         （fo / bo 已在 2026-11-08 改成「Auto Report | CCH」一行 + OSS 整行）。 -->
   <div class="qarow">
     <!-- ⚠️ .panel 必须挂在这个容器**自己**身上（与上面 #qaSlot 同理）：
          renderEmailSection 写进来的 emailSectionHtml() 内部没有 .panel 元素。 -->

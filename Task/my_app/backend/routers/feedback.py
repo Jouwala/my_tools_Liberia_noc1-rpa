@@ -2,7 +2,7 @@
 """
 feedback.py - 问题登记（用户反馈）API
 =====================================
-供前端「问题登记」页面使用，任何内网用户都可提交问题反馈：
+供前端「问题登记」页面使用，任何**已登录**用户都可提交问题反馈：
 - POST   /api/feedback          提交问题（multipart/form-data：反馈人/联系方式/类型/优先级/关联页面/标题/描述
                                 全部必填；附件选填，≤5 个、单个 ≤10MB，拒收可执行/脚本类）
 - GET    /api/feedback          列表（支持 status/type/priority/keyword 筛选 + 分页）
@@ -15,6 +15,18 @@ feedback.py - 问题登记（用户反馈）API
 写法与 task_runner._ensure_queue_table 一致）；附件落盘 db/attachments/fb_<id>/，
 元数据 JSON 存 issue_reports.attachments 列，落盘范式与 upload.py 的 db/uploads 一致。
 与 settings / email_recipients 路由风格一致：内网本地访问不做额外鉴权。
+
+## 权限模型（2026-11-08 补）
+**登录即可提交，看自己的；处理与删除是管理员专属。**
+
+- 提交人身份记在 `issue_reports.submitter` 列（登录账号名），**不依赖用户手填的
+  「反馈人」**——那是自由文本，会被写成昵称/工号，不能当身份用。
+- 列表与统计卡对**非管理员**按 `submitter = 当前账号` 过滤：普通用户只看得到自己提交的，
+  也读不到别人的联系方式邮箱与附件。
+- `PUT /{id}`（改状态/处理人/备注）、`DELETE /{id}`（删记录）、以及**下载他人反馈的附件**
+  一律要求 `role=admin`，否则 403。
+- 判定只看会话角色（门户 role），判定入口统一在 `_actor()`；本机回环与免登录开发模式
+  按 admin 放行（与全站 `portal_auth.current_user` 一致）。
 """
 import json
 import logging
@@ -33,6 +45,7 @@ from pydantic import BaseModel, Field
 
 from backend.database import DB_PATH, get_raw_connection
 from backend.dialect_helpers import table_columns
+from backend.services import portal_auth
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +82,43 @@ def _is_en(request: Request) -> bool:
     return (request.headers.get("accept-language") or "").lower().startswith("en")
 
 
+def _actor(request: Request) -> dict:
+    """当前会话身份：{username, role, is_admin}。
+
+    全局中间件 `require_session_middleware` 已保证 /api/feedback 必须带有效会话；
+    本机回环（内部脚本/看门狗）与免登录开发模式由 `portal_auth.current_user`
+    给出 admin 占位身份，与全站其它接口一致。
+    """
+    user = portal_auth.current_user(request) or {}
+    role = str(user.get("role") or "viewer").strip().lower()
+    return {
+        "username": str(user.get("username") or "").strip(),
+        "role": role,
+        "is_admin": role == "admin",
+    }
+
+
+def _require_admin(request: Request, zh: str, en: str, action: str) -> None:
+    """管理类操作（改状态 / 删除 / 看他人附件）仅 admin 可用，否则 403。"""
+    actor = _actor(request)
+    if actor["is_admin"]:
+        return
+    logger.info(
+        "[FEEDBACK] 非管理员尝试 %s 被拒: user=%s role=%s", action, actor["username"], actor["role"]
+    )
+    raise HTTPException(status_code=403, detail=en if _is_en(request) else zh)
+
+
+def _visibility_filter(actor: dict) -> tuple[str, list]:
+    """记录可见范围：非管理员只看自己提交的（submitter = 当前账号）。
+
+    返回 (SQL 条件片段, 参数)；管理员不加条件（看全量）。空串表示无条件。
+    """
+    if actor["is_admin"]:
+        return "", []
+    return "submitter = ?", [actor["username"]]
+
+
 def _ensure_table(conn) -> None:
     """惰性建表 + 索引（sqlite / pg 双模，范式同 task_runner._ensure_queue_table）。"""
     if isinstance(conn, sqlite3.Connection):
@@ -77,6 +127,7 @@ def _ensure_table(conn) -> None:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 reporter TEXT NOT NULL,
                 contact TEXT,
+                submitter TEXT,
                 category TEXT NOT NULL DEFAULT 'other',
                 priority TEXT NOT NULL DEFAULT 'medium',
                 page TEXT,
@@ -97,6 +148,7 @@ def _ensure_table(conn) -> None:
                 id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
                 reporter TEXT NOT NULL,
                 contact TEXT,
+                submitter TEXT,
                 category TEXT NOT NULL DEFAULT 'other',
                 priority TEXT NOT NULL DEFAULT 'medium',
                 page TEXT,
@@ -111,9 +163,9 @@ def _ensure_table(conn) -> None:
             )
         """)
     # 幂等迁移：早期版本无 handler/resolution 列（处理人/处理备注）、
-    # 无 attachments 列（附件元数据 JSON）
+    # 无 attachments 列（附件元数据 JSON）、无 submitter 列（提交账号，权限过滤用）
     cols = table_columns(conn, TABLE)
-    for col in ("handler", "resolution", "attachments"):
+    for col in ("handler", "resolution", "attachments", "submitter"):
         if col not in cols:
             conn.execute(f"ALTER TABLE {TABLE} ADD COLUMN {col} TEXT")
             conn.commit()
@@ -246,6 +298,7 @@ def create_feedback(
     """提交问题登记（multipart/form-data）。全字段必填；附件选填。同步 def 走线程池，
     避免附件读写阻塞事件循环。"""
     en = _is_en(request)
+    actor = _actor(request)
     values = {"reporter": reporter, "contact": contact, "category": category,
               "priority": priority, "page": page, "title": title, "description": description}
     missing = [k for k in REQUIRED_FIELDS if not (values.get(k) or "").strip()]
@@ -264,10 +317,10 @@ def create_feedback(
     with get_raw_connection() as conn:
         _ensure_table(conn)
         insert_sql = (
-            f"INSERT INTO {TABLE} (reporter, contact, category, priority, page, title, description, status, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, 'open', ?, ?)"
+            f"INSERT INTO {TABLE} (reporter, contact, submitter, category, priority, page, title, description, status, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?)"
         )
-        params = (reporter.strip(), contact.strip(), category, priority, page.strip(),
+        params = (reporter.strip(), contact.strip(), actor["username"], category, priority, page.strip(),
                   title.strip(), description.strip(), now, now)
         if isinstance(conn, sqlite3.Connection):
             conn.execute(insert_sql, params)
@@ -304,8 +357,16 @@ def list_feedback(
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
 ):
-    """列表查询：可按状态/类型/优先级筛选，keyword 模糊匹配标题/描述/登记人；倒序分页。"""
+    """列表查询：可按状态/类型/优先级筛选，keyword 模糊匹配标题/描述/登记人；倒序分页。
+
+    非管理员只看得到**自己提交**的记录（submitter = 当前账号）。
+    """
+    actor = _actor(request)
     where, params = [], []
+    scope_sql, scope_params = _visibility_filter(actor)
+    if scope_sql:
+        where.append(scope_sql)
+        params.extend(scope_params)
     if status:
         where.append("status = ?")
         params.append(status)
@@ -332,14 +393,23 @@ def list_feedback(
 
 @router.get("/stats")
 def feedback_stats(request: Request):
-    """状态/类型/优先级聚合计数（页面统计卡）。"""
+    """状态/类型/优先级聚合计数（页面统计卡）。非管理员只统计自己提交的。"""
+    actor = _actor(request)
+    where, params = [], []
+    scope_sql, scope_params = _visibility_filter(actor)
+    if scope_sql:
+        where.append(scope_sql)
+        params.extend(scope_params)
+    where_sql = ("WHERE " + " AND ".join(where)) if where else ""
     with get_raw_connection() as conn:
         _ensure_table(conn)
         def group(col):
-            rows = conn.execute(f"SELECT {col}, COUNT(*) FROM {TABLE} GROUP BY {col}").fetchall()
+            rows = conn.execute(
+                f"SELECT {col}, COUNT(*) FROM {TABLE} {where_sql} GROUP BY {col}", params
+            ).fetchall()
             return {r[0]: r[1] for r in rows}
         return {
-            "total": conn.execute(f"SELECT COUNT(*) FROM {TABLE}").fetchone()[0],
+            "total": conn.execute(f"SELECT COUNT(*) FROM {TABLE} {where_sql}", params).fetchone()[0],
             "by_status": group("status"),
             "by_category": group("category"),
             "by_priority": group("priority"),
@@ -355,13 +425,24 @@ def _get_or_404(conn, fid: int, en: bool):
 
 @router.get("/{fid}/attachments/{stored}")
 def download_attachment(fid: int, stored: str, request: Request):
-    """下载/预览附件。stored 必须与登记元数据精确匹配（uuid 前缀生成名），天然防路径穿越。"""
+    """下载/预览附件。stored 必须与登记元数据精确匹配（uuid 前缀生成名），天然防路径穿越。
+
+    非管理员只能下载**自己提交**的记录的附件（别人的附件可能带个人信息）。
+    """
     en = _is_en(request)
     if "/" in stored or "\\" in stored or ".." in stored:
         raise HTTPException(status_code=400, detail="非法文件名" if en else "非法文件名")
     with get_raw_connection() as conn:
         _ensure_table(conn)
         row = _get_or_404(conn, fid, en)
+        actor = _actor(request)
+        if not actor["is_admin"] and str(row["submitter"] or "") != actor["username"]:
+            _require_admin(
+                request,
+                "无权查看该附件：普通用户只能下载自己提交的反馈附件",
+                "You are not allowed to download this attachment: ordinary users can only download attachments of their own submissions",
+                "下载他人反馈附件",
+            )
     meta = next((a for a in _parse_attachments(row["attachments"]) if a.get("stored") == stored), None)
     if meta is None:
         raise HTTPException(status_code=404, detail="Attachment not found" if en else "附件不存在")
@@ -377,8 +458,14 @@ def download_attachment(fid: int, stored: str, request: Request):
 
 @router.put("/{fid}")
 def update_feedback(fid: int, body: FeedbackUpdate, request: Request):
-    """更新处理状态/处理人/处理备注（至少传一个字段）。"""
+    """更新处理状态/处理人/处理备注（至少传一个字段）。**仅管理员**。"""
     en = _is_en(request)
+    _require_admin(
+        request,
+        "无权处理该反馈：修改状态与处理备注仅管理员可用",
+        "You are not allowed to manage this issue: updating status and resolution is available to administrators only",
+        "更新反馈状态",
+    )
     if body.status is not None and body.status not in STATUSES:
         raise HTTPException(status_code=400, detail="Invalid status" if en else f"未知状态: {body.status}")
     updates, params = [], []
@@ -408,8 +495,14 @@ def update_feedback(fid: int, body: FeedbackUpdate, request: Request):
 
 @router.delete("/{fid}")
 def delete_feedback(fid: int, request: Request):
-    """删除登记记录（连同附件目录）。"""
+    """删除登记记录（连同附件目录）。**仅管理员**。"""
     en = _is_en(request)
+    _require_admin(
+        request,
+        "无权删除该反馈：删除记录仅管理员可用",
+        "You are not allowed to delete this issue: deleting feedback records is available to administrators only",
+        "删除反馈记录",
+    )
     with get_raw_connection() as conn:
         _ensure_table(conn)
         _get_or_404(conn, fid, en)

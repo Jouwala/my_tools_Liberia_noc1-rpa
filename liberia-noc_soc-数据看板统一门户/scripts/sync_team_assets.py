@@ -422,6 +422,38 @@ CSS_TEAM_SUFFIX = """
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+
+/* ============================================================================
+   Auto Report 与 CCH 等高一行、OSS Portal Login 独占下一行（2026-11-08 加）
+   ----------------------------------------------------------------------------
+   现象（/v3/bo_portal/ 与 /v3/fo_portal/ 实测，1600px 视口）：
+     · 左列 Auto Report：.canvas 下限 --qarow-h（860px）→ 面板 951px
+     · 右列 .qarow-col：上 CCH（flex:1）/ 下 OSS（flex:0 0 --oss-h=430px）
+       → CCH 只分到 505px、OSS 430px
+   同一行里 Auto Report 与 CCH 差 446px。用户要求（2026-11-08）：
+     「Auto Report 和 Customer Complaint Query 的高度保持一致，
+       OSS Portal Login 占满一行」。
+
+   做法（纯 CSS，DOM 与 index.html 一行未改）：
+     ① .qarow-col 用 display:contents —— 它自己不再占栅格格位，
+        #cchSlot / #ossSlot 直接成为 .qarow 的网格项（DOM 顺序不变）。
+     ② 自动排布的结果：第一行 = Auto Report | CCH（栅格默认 stretch → 两块等高），
+        OSS 落到第二行，用 grid-column: 1 / -1 跨满整行。
+     ③ CCH 的 .canvas 拿到与 Auto Report **同源**的下限 --qarow-h ——
+        两块高度同一真相源、同一起步值；谁内容更长谁更高，另一块被栅格拉伸跟上。
+     ④ OSS 改成高度随内容（不再钉死 --oss-h）：整行宽度下 6 列排两行就够，
+        钉 430px 会在卡片下面拖出两百多像素空白。
+
+   ⚠️ 命中范围：只对「Auto Report、CCH、OSS 三块都可见」的这一行生效 ——
+     当前即 fo / bo（矩阵里这三域都勾了）。flm（CCH 关）、smc（Auto Report 关）
+     仍走各自的旧规则，cxo 只剩 OSS 一块、整行自动收起，均一像素不变。
+   ⚠️ 判据与本文件上面「对侧铺满」那组同口径：矩阵 hidden、布局编辑器
+     data-tl-off 两种隐藏都认，渲染后 :empty 也认。
+   ⚠️ 连续 :has() 之间**不能换行**：换行空白会被解析成后代组合符，
+     选择器永不命中（同上面那几条 :has() 的约束）。 */
+.qarow:has(> .email-slot:not([hidden]):not([data-tl-off]):not(:empty)):has(> .qarow-col > .cch-slot:not([hidden]):not([data-tl-off]):not(:empty)):has(> .qarow-col > .oss-slot:not([hidden]):not([data-tl-off]):not(:empty)) > .qarow-col { display: contents; }
+.qarow:has(> .email-slot:not([hidden]):not([data-tl-off]):not(:empty)):has(> .qarow-col > .cch-slot:not([hidden]):not([data-tl-off]):not(:empty)):has(> .qarow-col > .oss-slot:not([hidden]):not([data-tl-off]):not(:empty)) > .qarow-col > .cch-slot .canvas { min-height: var(--qarow-h); }
+.qarow:has(> .email-slot:not([hidden]):not([data-tl-off]):not(:empty)):has(> .qarow-col > .cch-slot:not([hidden]):not([data-tl-off]):not(:empty)):has(> .qarow-col > .oss-slot:not([hidden]):not([data-tl-off]):not(:empty)) > .qarow-col > .oss-slot { grid-column: 1 / -1; height: auto; min-height: 0; }
 """
 
 

@@ -8,16 +8,17 @@
  * **地图上此刻画出来的那批站点**同源。IPT 页的站点集合受搜索词影响，后端算好的
  * 全量平均会和画面打架；而这里吃的就是 `iptPowerSites` 已经返回的 501 行，零额外请求。
  *
- * 档位阈值不是拍的：2026-11-06 实测 15 县的县均值落在 59.3%（Grand Kru）~ 84.5%
- * （Grand Bassa），站级 SOC 的 p25=61% / p50=82%。取 80 / 70 / 60 三刀把 15 县切成
- * 7 / 6 / 1 / 1，既能拉开颜色又不会让大半地图同色。
+ * 档位阈值：2026-11-06 首版按实测分布取 80 / 70 / 60 三刀（15 县均值落在 59.3%
+ * Grand Kru ~ 84.5% Grand Bassa，站级 SOC p25=61% / p50=82%）。**2026-11-08 如意要求
+ * 合并中间两档**，只留 80 / 60 两刀：≥80% good、60~80% fair、<60% critical，
+ * 原 `poor`（60~70% 橙）档取消 —— 用户口径里 60~80% 是同一档「关注」，不再细分。
  *
  * ⚠ 色值必须是**十六进制实值**：它们喂给 Leaflet 的 SVG `fillColor`，
  *   canvas/SVG 解析不了 `var(--wh-*)`（AGENTS.md 三.3 主题取色）。
- *   五色沿用 GIS 页 `COUNTY_BAND_COLORS` 的同一组红橙黄绿灰，跨页观感一致。
+ *   四色沿用 GIS 页 `COUNTY_BAND_COLORS` 的同一组红黄绿灰，跨页观感一致。
  */
-/** 五档：四档 SOC + 一档「样本不足不参与分档」 */
-export type SocBand = 'good' | 'fair' | 'poor' | 'critical' | 'few'
+/** 四档：三档 SOC + 一档「样本不足不参与分档」 */
+export type SocBand = 'good' | 'fair' | 'critical' | 'few'
 
 /** 参与分档所需的最少有快照站数：少于这个数，平均值会被单站噪声拉飞，直接归灰档 */
 export const MIN_SOC_SAMPLES = 3
@@ -88,25 +89,23 @@ export function aggregateCountySoc(
   return out
 }
 
-/** 分档：先判样本充足性，再按阈值落档 */
+/** 分档：先判样本充足性，再按阈值落档（2026-11-08 起只有 80 / 60 两刀） */
 export function socBand(avg: number | null, samples: number): SocBand {
   if (avg == null || samples < MIN_SOC_SAMPLES) return 'few'
   if (avg >= 0.80) return 'good'
-  if (avg >= 0.70) return 'fair'
-  if (avg >= 0.60) return 'poor'
+  if (avg >= 0.60) return 'fair'
   return 'critical'
 }
 
 export const SOC_BAND_COLOR: Record<SocBand, string> = {
   good: '#52c41a',       // ≥80%
-  fair: '#f6cf00',       // 70~80%
-  poor: '#ff922b',       // 60~70%
+  fair: '#f6cf00',       // 60~80%
   critical: '#ff4d4f',   // <60%
   few: '#9aa5b5',        // 样本不足，不参与分档
 }
 
 /** 图例顺序（自上而下 = 由好到差，最后一格是「样本不足」） */
-export const SOC_BAND_ORDER: SocBand[] = ['good', 'fair', 'poor', 'critical', 'few']
+export const SOC_BAND_ORDER: SocBand[] = ['good', 'fair', 'critical', 'few']
 
 /**
  * 档位 → 文案键。刻意用 switch 返回**字面量键**而不是 `'ipt.band.' + band`：
@@ -117,7 +116,6 @@ export function bandLabelKey(band: SocBand): string {
   switch (band) {
     case 'good': return 'ipt.band.good'
     case 'fair': return 'ipt.band.fair'
-    case 'poor': return 'ipt.band.poor'
     case 'critical': return 'ipt.band.critical'
     case 'few': return 'ipt.band.few'
     default: return 'ipt.band.few'

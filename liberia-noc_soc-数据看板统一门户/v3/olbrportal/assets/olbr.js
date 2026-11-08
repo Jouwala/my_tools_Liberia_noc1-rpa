@@ -3104,9 +3104,9 @@
   function mapHeadHtml() {
     var ed = canEdit();
     var maps = mapItems();
-    /* ⚠️ 结构要点：.p-head 的**直接子元素必须是三个**（.p-hd / .map-tabs / .map-tools），
-       页签才能靠左右两条等宽弹簧居中。写成 .p-hd 包住后两者是错的 ——
-       那样 .p-head 只有一颗子元素，弹簧无从谈起（实测页签偏左 236px）。
+    /* ⚠️ 结构要点：.p-head 的**直接子元素必须是三个**（.p-hd / .map-tabs / .map-tools）。
+       2026-11-08 起地图栏页签按用户要求**靠左**，工具按钮仍贴最右；写成 .p-hd
+       包住后两者是错的 —— 那样 .p-head 只有一颗子元素，右侧弹簧无从谈起。
        所以标题那颗 <span class="p-hd"> 在这里**单独闭合**，不要跨到页签。 */
     return '<div class="p-head"><span class="p-hd">' +
       (ed
@@ -3117,18 +3117,18 @@
          （2026-09-28 用户要求）。headSubText() 保留给改名浮层读，
          恢复方式就是在这里加回一颗 <span>。 */
       '</span>' +
-      /* 2026-09-29 用户要求「两个页签居中显示」。原来的结构是：
-           标题 ──── .map-tabs（页签+按钮，margin-left:auto 整体贴右）
-         页签因此在**按钮旁边**、跟着一起贴右，看着偏右而不是居中。
-         现在拆成**三段**（左标题 / 中页签 / 右按钮），各用一条 flex 规则定位：
-           · .p-hd       flex:1 1 0 + min-width:0 —— 弹簧①，标题超长自己省略
-           · .map-tabs   flex:none —— 内容宽，被两侧弹簧顶到正中
-           · .map-tools  flex:1 1 0 + margin-left:auto —— 弹簧②，内容自己贴右
-         居中原理见 olbr.css 的 .map-tabs 段：左右两条弹簧等长，页签自然落正中。
-         这样不用绝对定位，页签也不会盖住标题或按钮（长标题时标题自己省略）。
-         ⚠️ 之前那种「margin-left:auto 让整块贴右」的写法与居中互斥，已去掉；
-         贴右改由 .map-tools 自己的 margin-left:auto 负责（实测最后一颗按钮右缘
-         仍等于标题条右缘）。 */
+      /* 2026-09-29 拆成**三段**（左标题 / 页签 / 右按钮），当时要求页签居中；
+         2026-11-08 用户改口「GIS Map 的页签靠左边，不要居中」，同日又追加
+         「Knowledge Q&A 的页签也靠左，参考 GIS Map」。CSS 侧把 #l0Map 与
+         #qaSlot 的 .p-hd 从 flex:1 1 0（左侧弹簧）改成 flex:0 1 auto（内容宽），
+         两栏页签都紧跟标题落在左部。**本函数结构不用改**，仍是三颗直接子元素：
+           · .p-hd       #l0Map / #qaSlot 下 flex:0 1 auto；其它面板仍是全局 1 1 auto
+           · .map-tabs   flex:0 1 auto —— 内容宽，可收缩 + 段内横向滚动
+           · .map-tools  flex:1 1 0 + margin-left:auto —— 唯一弹簧，内容贴右
+         ⚠️ 只有这两栏靠左：其它面板共用 .map-tabs/.tabs 但不在两个 ID 下，
+            全局 .p-hd 的弹簧仍在，页签继续居中。
+         ⚠️ 别给 .map-tabs 加 margin-left:auto：会与 .map-tools 抢剩余空间，
+            工具按钮就贴不住右缘。细节见 olbr.css 的地图栏标题条注释。 */
       '<div class="map-tabs">' +
       /* 页签条：只在真的有 2 个以上页签时输出 —— 只剩一页时它是纯装饰，
          点它没有任何状态可切，反而让人以为还有别的地图可看。 */
@@ -3141,7 +3141,7 @@
           }).join('') + '</div>'
         : '') +
       '</div>' +
-      /* 工具按钮独立成 .map-tools：与页签分开，才能让页签真正居中而按钮仍贴右。
+      /* 工具按钮独立成 .map-tools：与页签分开，页签才能独立定位（现为靠左）而按钮仍贴右。
          2026-09-29 用户要求「reload 和 openlink 放到最右边」——这条继续成立。 */
       /* 整段由 mapToolsHtml() 产出（2026-10-22）：缩放锁切换时要就地替换这一段，
          留在 inline 会变成两份、改一处走样。 */
@@ -4794,7 +4794,7 @@
   }
 
   /* ==================================================================== v2
-     知识问答（RAG / eFlow 两页签）+ OSS 门户登录（2026-10-12 加）
+     知识问答（eFlow / RAG / Master Site 三页签，2026-11-08 加最后一个）+ OSS 门户登录（2026-10-12 加）
      ----------------------------------------------------------------------------
      用户要求：
        · 「Knowledge Q&A 里面的 RAG Knowledge Q&A 和 eFlow Knowledge Base
@@ -4824,11 +4824,42 @@
         `.27` 的 NOC 入口。**判断依据是"NOC 入口在哪"，不是固定端口号** ——
         同上条原则：务必确认目标端口是 NOC 而非 admin，切勿按端口号想当然。
         反代详见门户 `docs/architecture.md` 九之十三。 */
+  /* ================================================================== 2026-11-08
+     Knowledge Q&A 第三个页签「Master Site」（用户要求）
+     ----------------------------------------------------------------------------
+     内容是 my_app 的数据浏览页 /myapp/?page=tables，默认落在 master_site_db
+     （站点主数据表）；页内自带的表名下拉就是「也可以选择其他表格」的入口。
+     门户只负责通过 ?table= 把默认表传进去，**不做第二份表格选择器** ——
+     门户一份 + 页内一份必然不同步，且页内那份还能连带刷新列模板 / 行数徽章。
+     ⚠️ my_app 侧对应改动：TableBrowser.tsx 用 urlState 的 readParam/writeParams
+        认这个参数并把用户切换的表写回地址栏（刷新 iframe 也回到同一张表）。
+
+     与 CCH 的 cchItem() 同属「页面固定功能」：不是目录条目渲染出来的，
+     所以用一个合成条目喂给 qaItems()/qaSrc() 的既有管线，不往目录里塞一条假看板。
+     ⚠️ url 用**同源相对路径**：qaSrc 的 my_app 分支会统一补 embed=1 / lang / theme，
+        与 emailSrc / mapSrc 同一理由 —— 换机房、换域名都不用跟着改。
+     ⚠️ 团队门户：scripts/patch_team_portal.py 的 qa-filter 钩子按矩阵
+        qa/master_site 判据决定要不要显示。矩阵目前没有这一项，故五个团队门户
+        仍是原来的两个页签，主门户（SCOPE 为 null）恒显示本页签。 */
+  var QA_MASTER_SITE_TABLE = 'master_site_db';
+  function masterSiteItem() {
+    return {
+      no: -9002, groups: ['Knowledge Q&A'],
+      titleZh: 'Master Site（站点主数据）', titleEn: 'Master Site (site master data)',
+      descZh: '站点主数据浏览：默认 master_site_db，页内可切换其它数据表。',
+      descEn: 'Site master data browser: master_site_db by default; switch tables inside the page.',
+      platform: 'myapp', url: '/myapp/?page=tables&table=' + QA_MASTER_SITE_TABLE,
+      status: 'online', freq: '', clicks: 0, icon: 'table'
+    };
+  }
   function qaItems() {
     var all = allowed();
     var pick = function (needle) {
       return all.filter(function (x) { return String(x.url || '').indexOf(needle) !== -1; })[0] || null;
     };
+    /* 先算好 Master Site，团队版的 qa-filter 钩子（插在下面 eflow 行之后）会按矩阵
+       把它置 null；变量必须声明在钩子之前，否则钩子的赋值会被后面的 var 覆盖。 */
+    var masterSite = masterSiteItem();
     /* RAG 条目的**识别条件**。历史上有三种 url 形态，必须都能认得出来，
        否则条目被 filter(Boolean) 滤掉、整个 RAG 页签消失（2026-10-24 踩过：
        改地址时只改了下面 qaSrc 的归一目标，漏改这里，导致 RAG 页签不见）：
@@ -4848,7 +4879,12 @@
        这个数组的顺序就是页签条的顺序，也是未指定 state.qaTab 时的默认选中项
        （curQa 取 list[0]）—— 故这里的先后同时决定了「谁排第一」与「默认展示谁」。
        localStorage 里若存着旧的 'vmax'，curQa() 会自然回落到 list[0]，无需清理。 */
-    return [eflow && { key: 'eflow', item: eflow }, rag && { key: 'rag', item: rag }].filter(Boolean);
+    /* 2026-11-08：追加第三页签 master_site（Master Site）。数组顺序即页签条顺序，
+       也决定未指定 state.qaTab 时的默认选中项 —— 这里**加在末尾**，默认仍是 eFlow，
+       不改动用户既有的默认浏览习惯；localStorage 里的旧 qaTab 值也不受影响。 */
+    return [eflow && { key: 'eflow', item: eflow },
+            rag && { key: 'rag', item: rag },
+            masterSite && { key: 'master_site', item: masterSite }].filter(Boolean);
   }
   /* 页签上显示的**短标签**（2026-10-12 改）：目录标题太长
      （"RAG Knowledge Q&A (本地知识问答 / Open WebUI)"），
@@ -4858,6 +4894,9 @@
   function qaTabLabel(tab) {
     if (tab.key === 'rag') return t('qa.tabRag');
     if (tab.key === 'eflow') return t('qa.tabEflow');
+    /* 2026-11-08：第三页签短名。用户指定的页签名就是 "Master Site"，
+       中英同值（与 qa.tabRag = 'O&A' 同一处理），不是漏翻译。 */
+    if (tab.key === 'master_site') return t('qa.tabMasterSite');
     return titleOf(tab.item);
   }
   /* 页签的 title 全称：短名之外仍要让用户看得到完整标题（含说明），
@@ -4942,6 +4981,14 @@
             ic(x.item.icon) + esc(qaTabLabel(x)) + '</button>';
         }).join('') + '</div>'
       : '';
+    /* ⚠️ 2026-11-08：本栏页签**靠左**（用户先要求 GIS Map 靠左，随后要求
+       「Knowledge Q&A 的页签也靠左，参考 GIS Map」）。它和地图栏共用
+       .p-hd / .map-tabs / .map-tools 三段式，靠左由 CSS 的
+       `#qaSlot .p-head > .p-hd { flex:0 1 auto }` 提供，与地图栏那条并列；
+       `.p-head` 同样加 flex-wrap:nowrap，避免三段在边界宽度上换行。
+       这里只负责输出三颗直接子元素，**不要**在这里写 inline flex 样式。
+       选中态底色（用户截图的青绿实色 + 白字）由全局
+       .tab[aria-selected="true"] 统一给，两栏一致。 */
     return '<div class="p-head"><span class="p-hd"><span class="p-t t-orange">' +
         esc(t('aux.qa')) + '</span></span>' +
       '<div class="map-tabs">' + tabs + '</div>' +
@@ -8210,10 +8257,13 @@
         else renderCchSection();
       }
     });
-    /* v2（2026-10-12）：知识问答栏的页签切换（RAG / eFlow）。
-       切页签只换 iframe 的 src（不整块重画）—— 页签条与标题不变，
-       重画会让整块闪一下、也会丢掉另一页已加载的文档。
-       ⚠️ 与地图页签同一取舍：不同 page 是不同的内层页，必须换 src。 */
+    /* v3（2026-11-08）：知识问答栏的页签切换（eFlow / RAG / Master Site）。
+       页签选中态与右上「打开」按钮的 href 都要跟着变，所以就地重画整块，
+       qaSectionHtml() 会用新的 curQa() 直接生成带正确 src 的 iframe。
+       ⚠️ 不要再在重画前先给旧 iframe setAttribute('src', ...)：旧版这么写会
+          让同一个内嵌页连开两份（第一份随即被 innerHTML 冲掉 → net::ERR_ABORTED），
+          门户同屏已有多路 my_app iframe，多打一份请求只会加重后端排队。
+       与地图页签同一取舍：不同 page 是不同的内层页，必须换 src。 */
     $('#qaSlot').addEventListener('click', function (e) {
       /* 刷新按钮（2026-10-12 加）：重载当前页签的 iframe。
          必须在下面判页签之前处理 —— 刷新按钮没有 data-qa，先判页签会直接 return。
@@ -8223,10 +8273,22 @@
         var c2 = curQa();
         var cf = $('#qaFrame');
         if (cf && c2) {
-          /* ⚠️ 先清空 src 再赋同值：部分浏览器对"src 未变"的赋值不做重载。
-             与 email-reload 的"重设 src"同一目的，这里更保险一步。 */
+          /* ⚠️ 2026-11-08：优先按 iframe **当前地址**重载，而不是按条目重算 qaSrc()。
+             Master Site 页内切换表格会用 replaceState 把 ?table= 写进 iframe 自己的
+             地址栏（TableBrowser 的 urlState），而父元素的 src 属性不会跟着变；
+             重算 qaSrc() 会把它冲回默认的 master_site_db —— 用户刚选的表白丢。
+             · 同源 /myapp/ 页：读 contentWindow.location.href（replaceState 后的真值）；
+             · 外域 RAG：读 location 会抛 SecurityError，回落 src 属性 / qaSrc()；
+             · 语言 / 主题切换时 renderQaSection() 已重画骨架并校过 src，无过期风险。
+             先清空 src 再赋值：部分浏览器对"src 未变"的赋值不做重载。 */
+          var src = '';
+          try {
+            var href = cf.contentWindow && cf.contentWindow.location && cf.contentWindow.location.href;
+            if (href && href.indexOf('about:blank') === -1) src = href;
+          } catch (e) { src = ''; }
+          if (!src) src = cf.getAttribute('src') || qaSrc(c2);
           cf.setAttribute('src', 'about:blank');
-          cf.setAttribute('src', qaSrc(c2));
+          cf.setAttribute('src', src);
         } else {
           renderQaSection();
         }
@@ -8239,11 +8301,9 @@
       if (key === state.qaTab) return;              /* 点当前页签：不白刷一次 */
       state.qaTab = key;
       ss('olbr.qatab', state.qaTab);
-      var cur = curQa();
-      var f = $('#qaFrame');
-      if (f && cur) f.setAttribute('src', qaSrc(cur));
-      /* 页签选中态与右上「打开」按钮的 href 都要跟着更新，故就地重画整块 ——
-         这块没有需要保命的东西（iframe 换 src 本来就重载），重画代价可忽略。 */
+      /* 重画整块：页签选中态、iframe title、右上「打开」按钮的 href 一次到位。
+         新 iframe 的 src 由 qaSectionHtml() → qaSrc(curQa()) 直接算出，
+         不需要（也不应该）先给将被丢弃的旧 iframe 单独赋一次 src。 */
       var el = $('#qaSlot');
       if (el) el.innerHTML = qaSectionHtml();
     });

@@ -35,6 +35,28 @@
 
 > ⚠️ **本机身份（username=`local`）下这四项不可用。** 后端对回环访问直接放行且给占位身份（`portal_auth.py:_local_session`），**不签发门户 token**，所以前端拿不到调用门户账号接口的凭据。界面照实显示 `local` 并加「本机」徽章，菜单项会提示原因 —— 这不是功能坏了，从局域网地址真实登录后即可使用。
 
+### 按角色的可见范围：用户反馈（2026-11-08）
+
+`/api/feedback/*` 是目前唯一一组**按会话角色分权**的业务接口（其余 `/api/*` 只判「有没有会话」）。
+反馈里带联系方式邮箱与附件，任意登录用户都能读到别人的记录不合适，故按提交人收敛：
+
+| 操作 | 普通用户（role ≠ admin） | 管理员（role = admin） |
+| --- | --- | --- |
+| `POST /api/feedback` 提交 | 允许（记 `submitter` = 登录账号） | 允许 |
+| `GET /api/feedback` 列表 | 仅自己提交的 | 全量 |
+| `GET /api/feedback/stats` 统计卡 | 仅自己提交的 | 全量 |
+| `GET /api/feedback/{id}/attachments/{stored}` | 仅自己提交的记录的附件 | 全部 |
+| `PUT /api/feedback/{id}` 改状态 / 处理人 / 备注 | **403** | 允许 |
+| `DELETE /api/feedback/{id}` 删记录 | **403** | 允许 |
+
+- **提交人身份记在 `issue_reports.submitter` 列**（登录账号名），与表单里手填的「反馈人」分开 ——
+  后者是自由文本（可能被写成昵称 / 工号），不能当身份用。
+- **判定只看门户会话角色**，入口统一在 `backend/routers/feedback.py::_actor()` 与 `_require_admin()`；
+  前端同步收敛（普通用户不渲染「处理 / 删除」按钮），但**前端隐藏不算鉴权**，后端 403 才是真防线。
+- 该表**不在 alembic 管辖内**（运行时惰性建表），加列走 `feedback.py::_ensure_table()` 的幂等
+  `ALTER TABLE`，老库首次访问自动补列。
+- 历史记录（本次改动之前提交的无 `submitter` 行）只有管理员看得到，属预期。
+
 ## 唯一的接口防护：`require_protected`
 
 `backend/security.py` 的 `client_is_local()`：

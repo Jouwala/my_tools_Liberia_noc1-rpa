@@ -44,6 +44,8 @@ const verdict = (): Verdict => ({
   confidence: 'high',
   reproduced: false,
   focus: 'voice',
+  hypotheses: [],
+  missingEvidence: [],
 })
 
 const voice = (): VoiceResult => ({

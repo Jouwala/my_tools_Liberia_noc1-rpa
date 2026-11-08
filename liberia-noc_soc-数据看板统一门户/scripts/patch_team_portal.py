@@ -585,11 +585,17 @@ H(
        ⚠️ 原第四行 VMAX 用户查询（页签 vmax，短名 CCH）已于 2026-11-04 拆成独立
          面板 #cchSlot，由 cch 域的 cch-scope 钩子控制，不再在这里过滤。
        ⚠️ 服务端库矩阵里可能仍残留 qa/vmax（合并逻辑只补不删），
-         qaItems() 已不消费它，qaTabs() 多返回一项也无副作用。 */
+         qaItems() 已不消费它，qaTabs() 多返回一项也无副作用。
+       ⚠️ 2026-11-08：上游新增第三个页签 master_site（Master Site，站点主数据表）。
+         用户只要求主门户 /v3/olbrportal/ 加，团队门户按矩阵走 —— 矩阵的 qa 域
+         目前没有 master_site 这一项，故这里默认把它置 null，五个团队门户
+         仍是原来的两个页签。将来若要把这个页签开放给某些团队，在矩阵里
+         勾 qa/master_site 即可，本判据会自动放行，无需再改代码。 */
     if (SCOPE) {
       var qaAllow = SCOPE.qaTabs();
       if (qaAllow.indexOf('eflow') === -1) eflow = null;
       if (qaAllow.indexOf('rag') === -1) rag = null;
+      if (qaAllow.indexOf('master_site') === -1) masterSite = null;
     }""",
 )
 

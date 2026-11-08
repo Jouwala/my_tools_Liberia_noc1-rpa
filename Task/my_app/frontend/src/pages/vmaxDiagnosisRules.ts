@@ -13,11 +13,15 @@
  *   与后端 `vmax_diag_rules.json` 两处，改动必须同步（后端只做透传，
  *   真正生效的是这里）。这一点写在文档里，避免日后漂移。
  *
- * 【判据来源，全部为实测可用字段】（2026-10-31 现网 645 条样本回放）
- *   1100 会话/信令面：interface / procedure_type / procedure_status / request_cause
+ * 【判据来源，全部为实测可用字段】（2026-10-31 现网 645 条样本回放；
+ *   2026-11-08 列头探查 get_xdrheader_info 复核并修正 1100 列名）
+ *   1100 会话/信令面：后端已归一为 procedure_type / procedure_status /
+ *        request_cause / fail_cause / interface（分表真实列名带 $ 前缀，
+ *        见 backend vmax_diagnosis.py _norm_1100_row）
  *   1300 用户面       ：$first_resp_delay / $tcp_resp_delay / ul|dl_avg_rtt /
  *                       retrans_pkt / disorder_pkt / duration / service / subservice
- *   32   RAN          ：serving_rsrp / ulsinr / cqi（按 IMSI 查，见方案 §5.1）
+ *   32   RAN          ：serving_rsrp / serving_rsrq / ulsinr / cqi / neighbor_rsrp /
+ *                       neighbor_rsrq（按 IMSI 查，见方案 §5.1）
  *
  * 【三条不许越界的红线】（写进帮助文档，也在页面上明说）
  *   1. XDR 里**没有 SIP / RTP**（实测 protocol ∈ {SIP,RTP} 命中 0）
@@ -154,6 +158,13 @@ export const THRESHOLDS = {
   scoreGood: 80,
   /** 评分分档：< 此值算异常 */
   scoreBad: 50,
+  /** 邻区 RSRP「够好」线（dBm）：邻区 ≥ 此值而 serving 弱 → 优先怀疑切换参数，
+   *  而不是真弱覆盖（2026-11-08 P0-3） */
+  neighborGood: -100,
+  /** serving 与最佳邻区的差值（dB）：≥ 此值才算「有好邻区却没切走」 */
+  neighborGap: 10,
+  /** OTT 文本消息：双向流量低于此值（KB）视为「长连接空闲」，不能据此判发送失败 */
+  ottTextIdleKb: 50,
 } as const
 
 /* ---------------------------------------------------------------------------
@@ -379,6 +390,124 @@ export function scoreAvailability(sources: SourceResult[]): DimensionScore {
     detail: { total, success, timeout, failure, pathFail, failRate: +failRate.toFixed(2) },
     evidence,
   }
+}
+
+/* ---------------------------------------------------------------------------
+ * 五半、接入失败原因分型（2026-11-08 P0-1：账务 / EPS 拒绝 / 核心网拒绝）
+ * ---------------------------------------------------------------------------
+ * 背景：1100 源已取 `fail_cause`（backend vmax_diagnosis.py COLS_1100），
+ * 但旧逻辑从未用它 —— 所有接入失败都只计入 failRate，结论只能写
+ * 「连接失败为主因」，分不清「欠费被拒」和「网络真坏」。
+ *
+ * 分型原则（保守，避免误判）：
+ *  - billing（账务/订阅）：**只认强关键词**。EPS reject 的数字码（3/6/7/8/11/12/
+ *    22/95/111/112 等）语义是「未授权/拒绝」，不等于欠费，单凭数字码**不判账务**，
+ *    只归 attach_reject，并由结论页显式写「未查账务，不能排除欠费」。
+ *  - 数字码只作 attach_reject 的弱信号（核心网/订阅层拒绝），不直接指向账务。
+ * ------------------------------------------------------------------------ */
+
+export type FailCauseCategory =
+  | 'billing' | 'attach_reject' | 'core_reject' | 'radio_fail' | 'transport_fail' | 'unknown'
+
+/** 强账务关键词：命中才判 billing；数字码不进这里（见上文注释） */
+const BILLING_KEYWORDS = [
+  'INSUFFICIENT BALANCE', 'INSUFFICIENT CREDIT', 'CREDIT CONTROL', 'CREDIT LIMIT',
+  'CHARGING', 'OCS', 'GY INTERFACE', 'DATA QUOTA', 'QUOTA EXCEEDED', 'QUOTA EXHAUST',
+  'OVERDUE', 'ARREARS', 'UNPAID', 'BALANCE', 'DATA PACKAGE', 'PACKAGE EXHAUST',
+  'SUBSCRIBER BARRED', 'UE BARRED', 'BARRED DUE', 'SERVICE STOPPED DUE',
+]
+
+/** EPS/ESM 拒绝类（未授权 / APN / 拥塞 / 语音承载等）—— 订阅层或核心网层拒绝 */
+const ATTACH_REJECT_TOKENS = [
+  'EMM CAUSE', 'ESM CAUSE', 'EPS REJECT', 'ATTACH REJECT', 'SERVICE REJECT',
+  'NOT AUTHORIZED', 'NOT SUBSCRIBED', 'UNKNOWN APN', 'CONGESTION',
+  'SINGLE VOICE', 'UE IN USE', 'UE NOT RESPONDING', 'PROTOCOL ERROR',
+  // S6a/HSS 的 Diameter 订阅类拒绝（2026-11-08 列头探查：fact_pscp_s6a 的
+  // cause_name）—— 订阅/漫游类，**不是账务**，归 attach_reject 并显式待补账务。
+  'SUBSCRIBER NOT AVAILABLE', 'USER UNKNOWN', 'ROAMING NOT ALLOWED',
+  'DIAMETER_DATA', 'DIAMETER_USER', 'DIAMETER_ROAMING', 'DIAMETER_UNABLE',
+]
+
+/** 无线侧失败（接入网） */
+const RADIO_FAIL_TOKENS = [
+  'RADIO LINK FAILURE', 'RLF', 'OUT OF SERVICE', 'NO CELL', 'CELL BARRED',
+  'RACH', 'PREAMBLE', 'UL SYNCHRONIZATION', 'DL SYNCHRONIZATION',
+]
+
+/** 传输/承载侧失败 */
+const TRANSPORT_FAIL_TOKENS = [
+  'S1-U', 'S1AP', 'PATH FAILURE', 'BEARER', 'TRANSPORT', 'GTP',
+]
+
+/** fail_cause / request_cause 文本 → 原因类别（纯函数，可单测） */
+export function classifyFailCause(text: string): FailCauseCategory {
+  const t = strU(text)
+  if (!t) return 'unknown'
+  // Gy Diameter Credit-Control 结果码（RFC 4006，用户 2026-11-08 提供）：
+  // 4012 = CREDIT_LIMIT_REACHED（余额不足）→ billing；
+  // 4010 = SERVICE_REJECTED（服务被拒，账户/业务限制均可）→ attach_reject。
+  // 注：本部署 Talon XDR 未采 Gy 表（2026-11-08 探查），此映射为数据接入后即用。
+  if (/\b4012\b/.test(t)) return 'billing'
+  if (/\b4010\b/.test(t)) return 'attach_reject'
+  if (BILLING_KEYWORDS.some((k) => t.includes(k))) return 'billing'
+  if (ATTACH_REJECT_TOKENS.some((k) => t.includes(k))) return 'attach_reject'
+  if (RADIO_FAIL_TOKENS.some((k) => t.includes(k))) return 'radio_fail'
+  if (TRANSPORT_FAIL_TOKENS.some((k) => t.includes(k))) return 'transport_fail'
+  // 核心网拒绝的其它显式措辞（reject/failure + 核心网接口）
+  if (t.includes('REJECT') && (t.includes('MME') || t.includes('SGW') || t.includes('PGW') || t.includes('HSS'))) {
+    return 'core_reject'
+  }
+  return 'unknown'
+}
+
+/** 1100 接入过程的原因分型结果（供 verdict 的账务优先分支与假设排序用） */
+export type AccessAnalysis = {
+  total: number
+  bad: number
+  /** 按类别计数（只统计失败行，成功行不进） */
+  byCategory: Record<FailCauseCategory, number>
+  /** billing 命中的原文样例（最多 3 条，原文展示便于工单核对） */
+  billingExamples: string[]
+  /** attach_reject 命中的原文样例（最多 3 条） */
+  attachExamples: string[]
+  evidence: I18nText[]
+}
+
+/** 1100 的 fail_cause / request_cause 分型 —— 欠费等常规原因的第一道筛子 */
+export function analyzeAccess(sources: SourceResult[]): AccessAnalysis {
+  const rows = rowsOf(sources, '1100')
+  const byCategory: Record<FailCauseCategory, number> = {
+    billing: 0, attach_reject: 0, core_reject: 0, radio_fail: 0, transport_fail: 0, unknown: 0,
+  }
+  const billingExamples: string[] = []
+  const attachExamples: string[] = []
+  let bad = 0
+  for (const r of rows) {
+    const st = strU(r.procedure_status)
+    if (st === 'SUCCESS') continue
+    if (!st) continue
+    bad += 1
+    const texts = [str(r.fail_cause), str(r.request_cause)].filter(Boolean)
+    // 一行取最强的类别（billing 优先于其它，避免被附带的 S1-U 文本淹没）
+    let best: FailCauseCategory = 'unknown'
+    for (const text of texts) {
+      const c = classifyFailCause(text)
+      if (c === 'billing') { best = 'billing'; break }
+      if (best === 'unknown' && c !== 'unknown') best = c
+    }
+    byCategory[best] += 1
+    const raw = texts.join(' / ')
+    if (best === 'billing' && billingExamples.length < 3 && raw) billingExamples.push(raw)
+    if (best === 'attach_reject' && attachExamples.length < 3 && raw) attachExamples.push(raw)
+  }
+  const evidence: I18nText[] = []
+  if (byCategory.billing) {
+    evidence.push(tx('vmaxq.vd.ev.accessBilling', { n: byCategory.billing, ex: billingExamples[0] || '' }))
+  }
+  if (byCategory.attach_reject) {
+    evidence.push(tx('vmaxq.vd.ev.accessAttach', { n: byCategory.attach_reject, ex: attachExamples[0] || '' }))
+  }
+  return { total: rows.length, bad, byCategory, billingExamples, attachExamples, evidence }
 }
 
 /**
@@ -828,6 +957,71 @@ export function analyzeOtt(sources: SourceResult[]): OttResult {
 }
 
 /* ---------------------------------------------------------------------------
+ * 八半、OTT 文本消息（WhatsApp 发消息，2026-11-08 P0-2）
+ * ---------------------------------------------------------------------------
+ * 与 analyzeOtt（通话）的区别：WhatsApp 发文本是**短连接**——DNS 解析 →
+ * TCP 建连 → TLS → 双向小包确认。它在 1300 里表现为小流量、短时长的
+ * WhatsApp 行。XDR 里**没有 DNS 结果、没有 TLS 结果、没有应用层 ack**，
+ * 所以这里只能判到「TCP 层之前/附近」，判不到「消息已送达」——
+ * 结论必须把这个边界写出来，不能硬下「发送失败」。
+ * DNS 专表 fact_5gsa_psup_dns 已在上游表清单里（vmax_xdr_client.py），
+ * 补 DNS 判据是 P1（需要新增一源取数）。
+ * ------------------------------------------------------------------------ */
+
+export type OttTextStage =
+  | 'unknown' | 'no_rows' | 'no_traffic' | 'handshake_slow' | 'small_idle' | 'bidirectional'
+
+export type OttTextResult = {
+  rows: number
+  /** WhatsApp 行的双向流量合计（KB，上游单位即 KB） */
+  trafficKb: number
+  ulKb: number
+  dlKb: number
+  /** 首包时延最大值（ms），无则 0 */
+  firstRespMax: number
+  stage: OttTextStage
+  evidence: I18nText[]
+}
+
+const isWhatsAppRow = (r: XdrRow): boolean => {
+  const blob = `${strU(r.app_content_name)} ${strU(r.subservice)} ${strU(r.protocol)} ${strU(r.service)}`
+  return blob.includes('WHATSAPP') || blob.includes('WHATSAPP_')
+}
+
+/** WhatsApp 文本消息的 TCP 层判据（诚实边界：判不到 DNS/TLS/ack） */
+export function analyzeOttText(sources: SourceResult[]): OttTextResult {
+  const rows = rowsOf(sources, '1300')
+  const wa = rows.filter(isWhatsAppRow)
+  if (!wa.length) {
+    return {
+      rows: 0, trafficKb: 0, ulKb: 0, dlKb: 0, firstRespMax: 0, stage: 'no_rows',
+      evidence: [tx('vmaxq.vd.ev.ottTextNone')],
+    }
+  }
+  let ulKb = 0, dlKb = 0, firstRespMax = 0
+  for (const r of wa) {
+    ulKb += num(r.ul_traffic)
+    dlKb += num(r.dl_traffic)
+    const fr = num(r.$first_resp_delay) || num(r.$first_req_delay)
+    if (fr > firstRespMax) firstRespMax = fr
+  }
+  const trafficKb = ulKb + dlKb
+  let stage: OttTextStage
+  if (trafficKb <= 0) stage = 'no_traffic'
+  else if (firstRespMax > THRESHOLDS.firstRespP90 && trafficKb < 1024) stage = 'handshake_slow'
+  else if (trafficKb < THRESHOLDS.ottTextIdleKb) stage = 'small_idle'
+  else stage = 'bidirectional'
+
+  const evidence: I18nText[] = [tx('vmaxq.vd.ev.ottTextRows', { n: wa.length, kb: Math.round(trafficKb) })]
+  if (stage === 'no_traffic') evidence.push(tx('vmaxq.vd.ev.ottTextNoTraffic'))
+  if (stage === 'handshake_slow') evidence.push(tx('vmaxq.vd.ev.ottTextSlow', { v: ms(firstRespMax) }))
+  if (stage === 'small_idle') evidence.push(tx('vmaxq.vd.ev.ottTextIdle'))
+  if (stage === 'bidirectional') evidence.push(tx('vmaxq.vd.ev.ottTextOk', { ul: Math.round(ulKb), dl: Math.round(dlKb) }))
+  evidence.push(tx('vmaxq.vd.ev.ottTextBoundary'))
+  return { rows: wa.length, trafficKb: Math.round(trafficKb), ulKb: Math.round(ulKb), dlKb: Math.round(dlKb), firstRespMax: Math.round(firstRespMax), stage, evidence }
+}
+
+/* ---------------------------------------------------------------------------
  * 九、游戏识别（方案 §4.3）—— 三档规则，关键词外置
  * ------------------------------------------------------------------------ */
 
@@ -966,6 +1160,16 @@ export type RadioCell = {
   level: 'ok' | 'warn' | 'bad'
 }
 
+/**
+ * 无线分型（2026-11-08 P0-3）：弱覆盖内部再细分。
+ *  - weak_coverage：serving 弱且邻区也弱/无邻区 —— 真覆盖问题
+ *  - handover_late_suspect：serving 弱但有好邻区却没切走 —— 参数/切换问题
+ *  - site_outage_suspect：阶跃消失（非渐变）—— 疑似断站，需告警侧核实
+ *  - interference：RSRP 够但 SINR 差 —— 干扰
+ *  - ok / unknown：正常 / 无数据
+ */
+export type RadioMode = 'weak_coverage' | 'handover_late_suspect' | 'site_outage_suspect' | 'interference' | 'ok' | 'unknown'
+
 /** 分钟桶里的无线趋势点 */
 export type RadioBucket = {
   minute: string
@@ -995,6 +1199,17 @@ export type RadioAnalysis = {
   basis: I18nText[]
   /** 结论严重度 */
   level: 'ok' | 'warn' | 'bad'
+  /** ---- P0-3 无线分型（新增字段；旧调用方不读也不受影响） ---- */
+  /** 无线分型：弱覆盖内部再细分（切换不及时 / 断站嫌疑 / 干扰） */
+  mode: RadioMode
+  /** 最佳邻区 RSRP 的 P10（dBm）；无邻区采样时为 0 */
+  neighborRsrpP10: number
+  /** 邻区采样条数 */
+  neighborSamples: number
+  /** 最佳邻区 − serving P10 的差值（dB）；无邻区时为 0 */
+  neighborGapDb: number
+  /** 是否阶跃消失（前段正常、后段突降且不恢复）—— 断站嫌疑的形态证据 */
+  abruptDrop: boolean
 }
 
 /**
@@ -1015,6 +1230,7 @@ export function analyzeRadio(sources: SourceResult[]): RadioAnalysis | null {
     samples: 0, rsrpAvg: 0, rsrpP10: 0, sinrAvg: 0, sinrP10: 0, cqiAvg: 0,
     rats: [], buckets: [], cells: [], worstCell: '',
     headline, basis, level: 'warn',
+    mode: 'unknown', neighborRsrpP10: 0, neighborSamples: 0, neighborGapDb: 0, abruptDrop: false,
   })
 
   if (!rows.length) {
@@ -1117,16 +1333,71 @@ export function analyzeRadio(sources: SourceResult[]): RadioAnalysis | null {
     basis.push(tx('vmaxq.radio.basis.sinr', { p10: sinrP10, avg: sinrAvg }))
   }
 
+  // ---- P0-3 邻区：UEMR 有 neighbor_* 列（docs/VMAX_DIAGNOSIS_REDESIGN.md:108），
+  // 后缀未确证，故按前缀通用提取，不写死某一个后缀 ----
+  const neighborAll: number[] = []
+  for (const r of rows) {
+    for (const k of Object.keys(r)) {
+      const lk = k.toLowerCase()
+      if ((lk.startsWith('neighbor_') || lk.startsWith('neigh_') || lk.startsWith('target_'))
+        && lk.includes('rsrp')) {
+        const v = num(r[k])
+        if (v < 0) neighborAll.push(v)
+      }
+    }
+  }
+  const neighborRsrpP10 = neighborAll.length ? percentile(neighborAll, 0.1) : 0
+  const neighborGapDb = neighborAll.length && rsrpAll.length
+    ? Math.round((neighborRsrpP10 - rsrpP10) * 10) / 10 : 0
+
+  // ---- P0-3 阶跃消失：分钟均值从 ≥-95 突降到 ≤-115 且之后不恢复 ----
+  // 渐变弱（覆盖边缘来回走）不会命中：中间桶会先出现过渡值。
+  let abruptDrop = false
+  {
+    const vals = buckets.map((b) => b.rsrpAvg).filter((v) => v !== 0)
+    for (let i = 1; i < vals.length; i += 1) {
+      if (vals[i - 1] >= -95 && vals[i] <= THRESHOLDS.rsrp - 5
+        && vals.slice(i).every((v) => v < -100)) {
+        abruptDrop = true
+        break
+      }
+    }
+  }
+
   const weak = rsrpAll.length && rsrpP10 < THRESHOLDS.rsrp
   const noisy = sinrAll.length && sinrP10 < THRESHOLDS.sinr
-  if (weak) {
+  const hasGoodNeighbor = neighborAll.length > 0
+    && neighborRsrpP10 >= THRESHOLDS.neighborGood && neighborGapDb >= THRESHOLDS.neighborGap
+
+  let mode: RadioMode = 'ok'
+  if (weak && abruptDrop) {
+    mode = 'site_outage_suspect'
+    level = 'bad'
+    headline = tx('vmaxq.radio.headline.siteSuspect', { v: rsrpP10 })
+    basis.push(tx('vmaxq.radio.basis.siteSuspect'))
+  } else if (weak && hasGoodNeighbor) {
+    mode = 'handover_late_suspect'
+    level = 'bad'
+    headline = tx('vmaxq.radio.headline.handover', { v: rsrpP10, nb: neighborRsrpP10 })
+    basis.push(tx('vmaxq.radio.basis.handover', { gap: neighborGapDb }))
+  } else if (weak) {
+    mode = 'weak_coverage'
     level = 'bad'
     headline = tx('vmaxq.radio.headline.weak', { v: rsrpP10 })
+    if (!neighborAll.length) basis.push(tx('vmaxq.radio.basis.noNeighbor'))
   } else if (noisy) {
+    mode = 'interference'
     level = 'warn'
     headline = tx('vmaxq.radio.headline.noisy', { v: sinrP10 })
   } else {
     headline = tx('vmaxq.radio.headline.ok')
+  }
+  if (neighborAll.length) {
+    basis.push(tx('vmaxq.radio.basis.neighbor', { p10: neighborRsrpP10, n: neighborAll.length }))
+  }
+  if (abruptDrop && mode !== 'site_outage_suspect') {
+    basis.push(tx('vmaxq.radio.basis.abrupt'))
+    if (level === 'ok') level = 'warn'
   }
 
   // 只在"确实存在明显更差的小区"时才点名，避免大窗口里正常波动也报小区
@@ -1155,6 +1426,7 @@ export function analyzeRadio(sources: SourceResult[]): RadioAnalysis | null {
     rats, buckets, cells,
     worstCell: worst?.cell || '',
     headline, basis, level,
+    mode, neighborRsrpP10, neighborSamples: neighborAll.length, neighborGapDb, abruptDrop,
   }
 }
 
@@ -1304,6 +1576,119 @@ export function buildTimeline(sources: SourceResult[]): TimelineRow[] {
  * 十一、结论生成（方案 §4.8：确定性规则，不用 LLM）
  * ------------------------------------------------------------------------ */
 
+/* ---------------------------------------------------------------------------
+ * 十一半、假设排序（2026-11-08 P0-4：从「单结论」到「假设-证据-反证」）
+ * ---------------------------------------------------------------------------
+ * buildVerdict 仍是唯一结论来源（对外契约不变），这里新增的是**并列的假设表**：
+ * 每条假设带支持证据 / 反证 / 待补证据 / 责任方，按证据强度排序。
+ * 规则仍是确定性的（方案 §4.8），不用 LLM；置信度只由证据数与反证决定，
+ * 不写死映射。缺失证据显式列出 —— 「未查账务」不能默认无问题。
+ * ------------------------------------------------------------------------ */
+
+export type HypothesisOwner = 'billing' | 'ran' | 'core' | 'transport' | 'app' | 'terminal'
+
+export type Hypothesis = {
+  id: string
+  /** 假设标签 i18n key（vmaxq.vd.hyp.*） */
+  labelKey: string
+  /** 0-100 证据强度（支持证据数与反证共同决定） */
+  confidence: number
+  support: I18nText[]
+  refute: I18nText[]
+  /** 待补证据（缺失即显式列出，不沉默） */
+  missing: I18nText[]
+  owner: HypothesisOwner
+}
+
+/** 假设排序：账务（强指纹）> 接入拒绝 > 无线分型 > 传输/时延 > OTT 文本 */
+export function buildHypotheses(input: {
+  access: AccessAnalysis
+  ottText: OttTextResult
+  radio: RadioAnalysis | null
+  scores: DimensionScore[]
+}): Hypothesis[] {
+  const out: Hypothesis[] = []
+  const { access, ottText, radio, scores } = input
+  const scoreOf = (k: ScoreKey) => scores.find((s) => s.key === k)?.score ?? null
+  const bad = (k: ScoreKey) => {
+    const s = scoreOf(k)
+    return s !== null && s < THRESHOLDS.scoreBad
+  }
+
+  // 账务/订阅：强关键词命中即置顶
+  if (access.byCategory.billing > 0) {
+    out.push({
+      id: 'h-billing', labelKey: 'vmaxq.vd.hyp.billing',
+      confidence: Math.min(95, 60 + access.byCategory.billing * 10),
+      support: [tx('vmaxq.vd.ev.accessBilling', { n: access.byCategory.billing, ex: access.billingExamples[0] || '' })],
+      refute: [],
+      missing: [tx('vmaxq.vd.hyp.missing.billing')],
+      owner: 'billing',
+    })
+  } else if (access.byCategory.attach_reject > 0) {
+    out.push({
+      id: 'h-attach', labelKey: 'vmaxq.vd.hyp.attach',
+      confidence: Math.min(80, 45 + access.byCategory.attach_reject * 8),
+      support: [tx('vmaxq.vd.ev.accessAttach', { n: access.byCategory.attach_reject, ex: access.attachExamples[0] || '' })],
+      refute: [],
+      // 数字码拒绝不等于欠费：账务未查必须显式列出
+      missing: [tx('vmaxq.vd.hyp.missing.billing')],
+      owner: 'core',
+    })
+  }
+
+  // 无线分型
+  if (radio && radio.mode !== 'ok' && radio.mode !== 'unknown') {
+    const labelKey = radio.mode === 'handover_late_suspect' ? 'vmaxq.vd.hyp.handover'
+      : radio.mode === 'site_outage_suspect' ? 'vmaxq.vd.hyp.site'
+      : radio.mode === 'interference' ? 'vmaxq.vd.hyp.interference'
+      : 'vmaxq.vd.hyp.weak'
+    const missing: I18nText[] = []
+    if (radio.mode === 'handover_late_suspect') missing.push(tx('vmaxq.vd.hyp.missing.handoverEvent'))
+    if (radio.mode === 'site_outage_suspect') missing.push(tx('vmaxq.vd.hyp.missing.siteAlarm'))
+    if (!radio.neighborSamples) missing.push(tx('vmaxq.vd.hyp.missing.neighbor'))
+    if (radio.mode === 'weak_coverage') missing.push(tx('vmaxq.vd.hyp.missing.baseline'))
+    out.push({
+      id: 'h-radio', labelKey,
+      confidence: radio.mode === 'site_outage_suspect' ? 55
+        : radio.mode === 'handover_late_suspect' ? 70 : 65,
+      support: radio.basis.slice(0, 3),
+      refute: [],
+      missing,
+      owner: 'ran',
+    })
+  }
+
+  // 传输 / 时延（症状层，置后）
+  if (bad('transport')) {
+    out.push({
+      id: 'h-transport', labelKey: 'vmaxq.vd.hyp.transport', confidence: 55,
+      support: scores.find((s) => s.key === 'transport')?.evidence || [],
+      refute: [], missing: [tx('vmaxq.vd.hyp.missing.baseline')], owner: 'transport',
+    })
+  }
+  if (bad('latency')) {
+    out.push({
+      id: 'h-latency', labelKey: 'vmaxq.vd.hyp.latency', confidence: 50,
+      support: scores.find((s) => s.key === 'latency')?.evidence || [],
+      refute: [], missing: [tx('vmaxq.vd.hyp.missing.dns')], owner: 'app',
+    })
+  }
+
+  // OTT 文本（WhatsApp 发消息）
+  if (ottText.stage === 'handshake_slow' || ottText.stage === 'no_traffic') {
+    out.push({
+      id: 'h-otttext', labelKey: 'vmaxq.vd.hyp.ottText', confidence: 60,
+      support: ottText.evidence.slice(0, 2),
+      refute: [],
+      missing: [tx('vmaxq.vd.hyp.missing.dns'), tx('vmaxq.vd.hyp.missing.appAck')],
+      owner: 'app',
+    })
+  }
+
+  return out.sort((a, b) => b.confidence - a.confidence)
+}
+
 export type Verdict = {
   /** 一句话结论 */
   headline: I18nText
@@ -1317,6 +1702,10 @@ export type Verdict = {
   reproduced: boolean
   /** 触发结论的分项（用于把对应评分卡高亮） */
   focus: ScoreKey | 'voice' | 'ott' | 'game' | 'none'
+  /** P0-4 假设排序（新增；旧调用方不读） */
+  hypotheses: Hypothesis[]
+  /** P0-4 待补证据汇总（新增；旧调用方不读） */
+  missingEvidence: I18nText[]
 }
 
 /**
@@ -1325,14 +1714,14 @@ export type Verdict = {
  * 顺序很重要：**先看该投诉类型专属的那条判据链**，再回落到四维评分。
  * 这样「语音投诉」不会因为用户同时看了 300MB 视频而被判成「上网慢」。
  */
-export function buildVerdict(
+function buildVerdictCore(
   complaint: ComplaintKey,
   scores: DimensionScore[],
   voice: VoiceResult,
   ott: OttResult,
   game: GameResult,
   sources: SourceResult[],
-): Verdict {
+): Omit<Verdict, 'hypotheses' | 'missingEvidence'> {
   const by = (k: ScoreKey) => scores.find((s) => s.key === k)?.score ?? null
   const av = by('availability'), la = by('latency'), tr = by('transport'), ra = by('radio')
 
@@ -1342,6 +1731,21 @@ export function buildVerdict(
   const radioWhy: I18nText = radioSrc?.error
     ? tx('vmaxq.vd.ev.radioSrcError', { msg: radioSrc.error })
     : tx(radioSrc?.ok ? 'vmaxq.vd.ev.radioNoRecord' : 'vmaxq.vd.radioNotQueried')
+
+  // ---- P0-1 账务优先（排除法第一步）：强关键词命中直接定账务，
+  // 不再让欠费用户的大量回溯去查核心网/无线。数字码拒绝不走这里（见 classifyFailCause）。
+  const access = analyzeAccess(sources)
+  if (access.byCategory.billing > 0) {
+    return {
+      headline: tx('vmaxq.vd.headline.billing', { n: access.byCategory.billing }),
+      basis: [
+        tx('vmaxq.vd.ev.accessBilling', { n: access.byCategory.billing, ex: access.billingExamples[0] || '' }),
+        tx('vmaxq.vd.basis.billingNotChecked'),
+      ],
+      suggestion: tx('vmaxq.vd.sugg.billing'),
+      confidence: 'high', reproduced: true, focus: 'availability',
+    }
+  }
 
   switch (complaint) {
     case 'voice': {
@@ -1387,6 +1791,16 @@ export function buildVerdict(
     }
 
     case 'ott': {
+      // P0-2：无通话但 WhatsApp 文本通道异常（发消息投诉）—— 不能用 ottNone 概括
+      const ottText = analyzeOttText(sources)
+      if (!ott.totalSessions && (ottText.stage === 'handshake_slow' || ottText.stage === 'no_traffic')) {
+        return {
+          headline: tx('vmaxq.vd.headline.ottTextBad', { st: ottText.stage }),
+          basis: ottText.evidence,
+          suggestion: tx('vmaxq.vd.sugg.ottText'),
+          confidence: 'mid', reproduced: true, focus: 'ott',
+        }
+      }
       if (!ott.totalSessions) {
         return {
           headline: tx('vmaxq.vd.headline.ottNone'),
@@ -1562,6 +1976,26 @@ export function buildVerdict(
           confidence: 'high', reproduced: true, focus: 'latency',
         }
       }
+      // P0-3 无线分型：弱覆盖内部先分「切换不及时 / 断站嫌疑」，再回落通用 radioBad
+      {
+        const radioNow = analyzeRadio(sources)
+        if (radioNow && radioNow.mode === 'handover_late_suspect') {
+          return {
+            headline: tx('vmaxq.vd.headline.radioHandover', { v: radioNow.rsrpP10, nb: radioNow.neighborRsrpP10 }),
+            basis: radioNow.basis,
+            suggestion: tx('vmaxq.vd.sugg.radioHandover'),
+            confidence: 'mid', reproduced: true, focus: 'radio',
+          }
+        }
+        if (radioNow && radioNow.mode === 'site_outage_suspect') {
+          return {
+            headline: tx('vmaxq.vd.headline.radioSiteSuspect', { v: radioNow.rsrpP10 }),
+            basis: [...radioNow.basis, tx('vmaxq.vd.basis.radioSiteAlarm')],
+            suggestion: tx('vmaxq.vd.sugg.radioSite'),
+            confidence: 'mid', reproduced: true, focus: 'radio',
+          }
+        }
+      }
       if (ra !== null && ra < THRESHOLDS.scoreBad) {
         return {
           headline: tx('vmaxq.vd.headline.radioBad'),
@@ -1604,3 +2038,33 @@ export const toApiTime = (d: Dayjs): string => d.format('YYYY-MM-DD HH:mm:ss')
 
 export const rangeLabel = (start: Dayjs, end: Dayjs): string =>
   `${start.format('YYYY-MM-DD HH:mm')} ~ ${end.format('HH:mm')}`
+
+/* ---------------------------------------------------------------------------
+ * buildVerdict（对外契约，P0-4）：核心结论 + 假设排序并列挂载。
+ * 核心结论的判定顺序不变（buildVerdictCore），假设表只作并列解释，
+ * 不篡改 headline —— 与 vmaxWorkspaceRules 「不改 verdict」纪律一致。
+ * ------------------------------------------------------------------------ */
+export function buildVerdict(
+  complaint: ComplaintKey,
+  scores: DimensionScore[],
+  voice: VoiceResult,
+  ott: OttResult,
+  game: GameResult,
+  sources: SourceResult[],
+): Verdict {
+  const core = buildVerdictCore(complaint, scores, voice, ott, game, sources)
+  const hypotheses = buildHypotheses({
+    access: analyzeAccess(sources),
+    ottText: analyzeOttText(sources),
+    radio: analyzeRadio(sources),
+    scores,
+  })
+  const seen = new Set<string>()
+  const missingEvidence: I18nText[] = []
+  for (const h of hypotheses) {
+    for (const m of h.missing) {
+      if (!seen.has(m.key)) { seen.add(m.key); missingEvidence.push(m) }
+    }
+  }
+  return { ...core, hypotheses, missingEvidence }
+}

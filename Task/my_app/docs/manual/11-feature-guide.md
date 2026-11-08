@@ -5430,6 +5430,16 @@ VMAX 其余页面都是只读透传，本节是**唯一落库**的页签，原�
 - 删除登记记录时连同附件目录一起清理（`shutil.rmtree`）；登记中途落盘失败会回滚整条记录，
   不留无附件元数据的残缺行。
 - 附件写入按 1MB 分块限量（`_save_attachments`），不信任 multipart 声明的大小——那可以被伪造。
+- **权限（2026-11-08 补）**：**登录即可提交、看自己的；处理与删除是管理员专属。**
+  - 提交时把登录账号写进 `issue_reports.submitter` 列（新增列，老库由 `_ensure_table()`
+    幂等 `ALTER TABLE` 自动补），与表单里手填的「反馈人」分开 —— 后者是自由文本，不能当身份。
+  - 列表与统计卡对**非管理员**按 `submitter = 当前账号` 过滤：普通用户读不到别人的联系方式邮箱与附件。
+  - `PUT /{id}`（改状态 / 处理人 / 备注）、`DELETE /{id}`、下载**他人**记录的附件 → 一律 403。
+  - 判定入口在 `backend\routers\feedback.py::_actor()` / `_require_admin()`（只看门户会话角色）；
+    前端同步收敛：`IssueFeedback.tsx` 用启动引导期的角色快照（`getBootRole()`）判断，
+    非管理员不渲染「处理 / 删除」操作列，并在页首挂一条**默认收起**的 `CalcChainNote`
+    说明可见范围（AGENTS.md 三.3b）。**前端隐藏只是体验，真正的防线是后端 403。**
+  - 完整口径见 `docs\manual\05-security-and-credentials.md`「按角色的可见范围：用户反馈」。
 
 ## 39. AP 行动计划（`?page=ap_center`，2026-10-30 新增）
 

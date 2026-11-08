@@ -7,6 +7,7 @@ import {
   Empty,
   Input,
   message,
+  Modal,
   Space,
   Spin,
   Table,
@@ -21,17 +22,23 @@ import {
 } from 'antd'
 import {
   BookOutlined,
+  CheckOutlined,
   ClearOutlined,
+  DownOutlined,
   DownloadOutlined,
+  EyeInvisibleOutlined,
+  EyeOutlined,
   FileExcelOutlined,
   FileSearchOutlined,
   FileTextOutlined,
   FolderOutlined,
   MenuOutlined,
+  OrderedListOutlined,
   ReloadOutlined,
   ScissorOutlined,
   SearchOutlined,
   ThunderboltOutlined,
+  UpOutlined,
   UploadOutlined,
 } from '@ant-design/icons'
 import ReactMarkdown from 'react-markdown'
@@ -865,6 +872,10 @@ function UmeAlarmView({ t, isDark, isMobile, border, umeKey, loading, error, dat
  * 放模块级以获得稳定引用（组件内定义会导致每次渲染生成新数组）。 */
 const TOOL_BLOCKS_VERSION = 1
 const TOOL_BLOCKS_KEY = `eflowqa.toolBlocks.v${TOOL_BLOCKS_VERSION}`
+// 显示/隐藏是**个人本机偏好**，单独存一份 key 列表，不塞进 toolOrder：
+// 顺序数组必须始终是 6 个键（服务端 /api/ui/tool-order 的 _normalize_order 校验
+// 「恰好 6 项」），混进隐藏状态会让「保存为默认顺序」直接 400。
+const TOOL_BLOCKS_HIDDEN_KEY = `eflowqa.toolBlocks.hidden.v${TOOL_BLOCKS_VERSION}`
 const DEFAULT_TOOL_BLOCKS: string[] = [
   'knowledge-search',       // 知识库检索
   'tt-quick-analysis',      // TT 快速分析
@@ -873,6 +884,15 @@ const DEFAULT_TOOL_BLOCKS: string[] = [
   'tt-postmortem',          // TT 复盘
   'ran-ume-alarm-analysis', // RAN UME 告警分析
 ]
+/** 顺序编辑面板里各块显示名（复用既有文案键，避免再造一套翻译）。 */
+const TOOL_BLOCK_LABEL_KEYS: Record<string, string> = {
+  'knowledge-search': 'qa.search',
+  'tt-quick-analysis': 'qa.tt.label',
+  'tt-batch-check': 'qa.ttBatch.label',
+  'wo-close': 'qa.woClose.label',
+  'tt-postmortem': 'ttPm.section',
+  'ran-ume-alarm-analysis': 'qa.ume.label',
+}
 
 export default function EflowQa() {
   const { t, locale } = useI18n()
@@ -1305,6 +1325,33 @@ export default function EflowQa() {
   // 是否允许改全局默认（非本机只读，按钮不渲染）——由 GET 的 editable 决定
   const [toolOrderEditable, setToolOrderEditable] = useState(false)
   const [savingToolOrder, setSavingToolOrder] = useState(false)
+  // 明确的「编辑顺序」入口（2026-11-08）：原先只有每块标题左侧一个 12px 灰色 ⋮⋮，
+  // 桌面端几乎看不见，用户以为「顺序按钮没了」。点按钮进入编辑态后每块显示 ↑/↓，
+  // 窄屏没有左栏，改为弹出顺序面板；两种入口共用同一份 toolOrder / 持久化。
+  const [orderEditMode, setOrderEditMode] = useState(false)
+  const [mobileOrderOpen, setMobileOrderOpen] = useState(false)
+  // 显示/隐藏（2026-11-08）：编辑态里每个条目的眼睛按钮切换，只存本机 localStorage。
+  // 隐藏的块在编辑态仍以半透明显示（否则找不回来），退出编辑态才真正不渲染。
+  const [hiddenBlocks, setHiddenBlocks] = useState<string[]>(() => {
+    try {
+      const raw = localStorage.getItem(TOOL_BLOCKS_HIDDEN_KEY)
+      const arr = raw ? JSON.parse(raw) : null
+      if (Array.isArray(arr)) return arr.filter((k: unknown): k is string =>
+        typeof k === 'string' && DEFAULT_TOOL_BLOCKS.includes(k))
+    } catch { /* noop */ }
+    return []
+  })
+  const toggleBlockVisible = useCallback((key: string) => {
+    setHiddenBlocks(prev => {
+      const next = prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]
+      try { localStorage.setItem(TOOL_BLOCKS_HIDDEN_KEY, JSON.stringify(next)) } catch { /* noop */ }
+      return next
+    })
+  }, [])
+  // 编辑态显示全部（含已隐藏，便于恢复）；非编辑态只渲染可见块。
+  const visibleToolKeys = orderEditMode
+    ? toolOrder
+    : toolOrder.filter(k => !hiddenBlocks.includes(k))
   // 旧字段（HTML5 dnd 时期）已废弃，删除以免 TS 报 unused
   const persistToolOrder = useCallback((next: string[]) => {
     setToolOrder(next)
@@ -1403,6 +1450,22 @@ export default function EflowQa() {
     })
   }, [persistToolOrder])
 
+  /** 上移/下移一格（顺序编辑按钮用）；与拖拽共用同一份持久化。 */
+  const moveBlockBy = useCallback((key: string, delta: -1 | 1) => {
+    setToolOrder(prev => {
+      const i = prev.indexOf(key)
+      const j = i + delta
+      if (i < 0 || j < 0 || j >= prev.length) return prev
+      const next = [...prev]
+      next[i] = prev[j]
+      next[j] = prev[i]
+      persistToolOrder(next)
+      return next
+    })
+  }, [persistToolOrder])
+
+  const blockLabel = useCallback((key: string) => t(TOOL_BLOCK_LABEL_KEYS[key] || key), [t])
+
   // 拖动期：仅在 mousemove / mouseup / Escape 上做最小工作。
   useEffect(() => {
     if (!dragging) return
@@ -1462,6 +1525,39 @@ export default function EflowQa() {
         }}
       >⋮⋮</span>
     )
+    const isHidden = hiddenBlocks.includes(key)
+    // 编辑态：每块标题行右侧给出「显示/隐藏 + ↑/↓」（桌面）。
+    // 图标表示当前状态（睁眼=显示中 / 闭眼=已隐藏），title 说明点击后的动作。
+    const orderBtns = orderEditMode ? (
+      <span style={{ marginLeft: 'auto', display: 'inline-flex', flexShrink: 0, gap: 2, alignItems: 'center' }}>
+        {isHidden && (
+          <Tag color="default" style={{ fontSize: 10, lineHeight: '16px', margin: 0, padding: '0 3px' }}>
+            {t('qa.toolOrder.hiddenTag')}
+          </Tag>
+        )}
+        <Button
+          type="text" size="small"
+          icon={isHidden ? <EyeInvisibleOutlined /> : <EyeOutlined />}
+          title={isHidden ? t('qa.toolOrder.show') : t('qa.toolOrder.hide')}
+          onClick={() => toggleBlockVisible(key)}
+          style={{ width: 22, height: 22, minWidth: 22, padding: 0, fontSize: 11 }}
+        />
+        <Button
+          type="text" size="small" icon={<UpOutlined />}
+          title={t('qa.toolOrder.moveUp')}
+          disabled={toolOrder.indexOf(key) === 0}
+          onClick={() => moveBlockBy(key, -1)}
+          style={{ width: 22, height: 22, minWidth: 22, padding: 0, fontSize: 11 }}
+        />
+        <Button
+          type="text" size="small" icon={<DownOutlined />}
+          title={t('qa.toolOrder.moveDown')}
+          disabled={toolOrder.indexOf(key) === toolOrder.length - 1}
+          onClick={() => moveBlockBy(key, 1)}
+          style={{ width: 22, height: 22, minWidth: 22, padding: 0, fontSize: 11 }}
+        />
+      </span>
+    ) : null
     // 落位线：贴近 block 顶部的 1.5px 极细线，颜色用主题里的青色系——
     // 让人感觉"像多了一条分隔线"而不是"出现了一个新东西"
     const dropLine = isOver ? (
@@ -1473,9 +1569,11 @@ export default function EflowQa() {
         ref={setRef}
         data-tool-block={key}
         style={{
-          // 拖动期间**完全不动**该 block 的视觉 —— 不透明度 1、无 outline、
-          // 无 padding 变化。落位后由 React diff 自然重排，用户感觉"它只是
-          // 换了个位置"，不会有"被拽着走"的违和感
+          // 已隐藏的块只在编辑态出现（便于恢复），半透明标出；非编辑态由
+          // visibleToolKeys 过滤，根本不渲染。
+          opacity: orderEditMode && isHidden ? 0.5 : 1,
+          // 拖动期间**完全不动**该 block 的视觉 —— 无 outline、无 padding 变化。
+          // 落位后由 React diff 自然重排，用户感觉"它只是换了个位置"。
         }}
       >
         {dropLine}
@@ -1490,6 +1588,7 @@ export default function EflowQa() {
               {handle}
               <SearchOutlined style={{ color: '#1677ff' }} />
               <Text strong style={{ fontSize: 13 }}>{t('qa.search')}</Text>
+              {orderBtns}
             </div>
             <Input.Search
               placeholder={t('qa.searchPlaceholder')}
@@ -1508,6 +1607,7 @@ export default function EflowQa() {
               {handle}
               <ThunderboltOutlined style={{ color: '#faad14' }} />
               <Text strong style={{ fontSize: 13 }}>{t('qa.tt.label')}</Text>
+              {orderBtns}
             </div>
             <Input.Search
               placeholder={t('qa.tt.placeholder')}
@@ -1526,6 +1626,7 @@ export default function EflowQa() {
               {handle}
               <ThunderboltOutlined style={{ color: '#722ed1' }} />
               <Text strong style={{ fontSize: 13 }}>{t('qa.ttBatch.label')}</Text>
+              {orderBtns}
             </div>
             <Upload accept=".xlsx,.xls,.csv,.txt" showUploadList={false} beforeUpload={onBatchFile}>
               <Button block icon={<UploadOutlined />}>{t('qa.ttBatch.upload')}</Button>
@@ -1559,6 +1660,7 @@ export default function EflowQa() {
               {handle}
               <ScissorOutlined style={{ color: '#B5121B' }} />
               <Text strong style={{ fontSize: 13 }}>{t('qa.woClose.label')}</Text>
+              {orderBtns}
             </div>
             <Button
               block
@@ -1576,6 +1678,7 @@ export default function EflowQa() {
               {handle}
               <FileSearchOutlined style={{ color: '#eb2f96' }} />
               <Text strong style={{ fontSize: 13 }}>{t('ttPm.section')}</Text>
+              {orderBtns}
             </div>
             <Button
               block
@@ -1593,6 +1696,7 @@ export default function EflowQa() {
               {handle}
               <ThunderboltOutlined style={{ color: '#13c2c2' }} />
               <Text strong style={{ fontSize: 13 }}>{t('qa.ume.label')}</Text>
+              {orderBtns}
             </div>
             <Input.Search
               placeholder={t('qa.ume.placeholder')}
@@ -1611,19 +1715,46 @@ export default function EflowQa() {
 
   const searchBlock = (
     <>
+      {/* 明确的「编辑顺序」入口：原先只有每块左侧 12px 灰色 ⋮⋮，桌面端太隐蔽，
+          用户反馈「顺序按钮没有了」。编辑态下每块标题右侧出现「显示/隐藏 + ↑/↓」，
+          窄屏没有左栏，改由底部 mobileOrderOpen 面板编辑。 */}
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+        <Button
+          block
+          size="small"
+          icon={orderEditMode ? <CheckOutlined /> : <OrderedListOutlined />}
+          type={orderEditMode ? 'primary' : 'default'}
+          onClick={() => setOrderEditMode(v => !v)}
+        >
+          {orderEditMode ? t('qa.toolOrder.editDone') : t('qa.toolOrder.edit')}
+        </Button>
+      </div>
+      {orderEditMode && (
+        <div style={{ fontSize: 11, lineHeight: 1.5, marginBottom: 8, color: isDark ? '#aebbd4' : '#64748b' }}>
+          <div>{t('qa.toolOrder.editTip')}</div>
+          <div>{t('qa.toolOrder.hiddenHint')}</div>
+        </div>
+      )}
       {/* 第二版去装饰：不在工具区顶部画横幅、不改整体 cursor、不在被拖
           block 上画 outline。唯一反馈是手柄 cursor 变 grabbing + 目标
           block 顶上一条 1.5px 落位线。 */}
       <div data-tool-container>
-        {toolOrder.map((key, i) => (
+        {/* 编辑态显示全部 6 块（含已隐藏的，半透明），退出编辑态才按 hiddenBlocks 过滤；
+            分隔线以"可见列表"为基准，避免隐藏后尾部多出一条空线。 */}
+        {visibleToolKeys.map((key, i) => (
           <div key={key}>
             {renderToolBlock(key)}
-            {i < toolOrder.length - 1 && (
+            {i < visibleToolKeys.length - 1 && (
               <div style={{ borderTop: isDark ? '1px solid rgba(0, 217, 255,0.15)' : '1px solid #e5eef5', margin: '2px 0' }} />
             )}
           </div>
         ))}
       </div>
+      {!orderEditMode && hiddenBlocks.length > 0 && (
+        <div style={{ fontSize: 11, color: isDark ? '#aebbd4' : '#64748b', marginTop: 6 }}>
+          {t('qa.toolOrder.hiddenCount', { n: hiddenBlocks.length })}
+        </div>
+      )}
       {/* 顺序与面板：每块右上角加了 ⋮⋮ 拖把。
           - 恢复默认顺序：放弃个人顺序，跟随服务端全局默认（无服务端配置则内置默认）
           - 保存为默认顺序：把当前顺序写为全局默认（仅本机可见/可改），成功后清掉个人顺序
@@ -1731,48 +1862,64 @@ export default function EflowQa() {
           flexDirection: 'column',
           gap: 8,
         }}>
-          <Input.Search
-            placeholder={t('qa.searchPlaceholder')}
-            enterButton={<SearchOutlined />}
-            value={query}
-            onChange={e => setQuery(e.target.value)}
-            onSearch={v => { doSearch(v); setTreeOpen(false) }}
-            allowClear
-          />
+          {!hiddenBlocks.includes('knowledge-search') && (
+            <Input.Search
+              placeholder={t('qa.searchPlaceholder')}
+              enterButton={<SearchOutlined />}
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              onSearch={v => { doSearch(v); setTreeOpen(false) }}
+              allowClear
+            />
+          )}
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             <Button icon={<MenuOutlined />} onClick={() => setTreeOpen(true)} style={{ flexShrink: 0 }}>
               {t('qa.catalog')}
             </Button>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <Input.Search
-                placeholder={t('qa.tt.placeholder')}
-                enterButton={<ThunderboltOutlined />}
-                value={ttNo}
-                onChange={e => setTtNo(e.target.value)}
-                onSearch={runTt}
-                allowClear
-              />
+            {!hiddenBlocks.includes('tt-quick-analysis') && (
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <Input.Search
+                  placeholder={t('qa.tt.placeholder')}
+                  enterButton={<ThunderboltOutlined />}
+                  value={ttNo}
+                  onChange={e => setTtNo(e.target.value)}
+                  onSearch={runTt}
+                  allowClear
+                />
+              </div>
+            )}
+          </div>
+          {!hiddenBlocks.includes('ran-ume-alarm-analysis') && (
+            <Input.Search
+              placeholder={t('qa.ume.placeholder')}
+              enterButton={<ThunderboltOutlined style={{ color: '#13c2c2' }} />}
+              value={umeKey}
+              onChange={e => setUmeKey(e.target.value)}
+              onSearch={runUme}
+              allowClear
+            />
+          )}
+          {!hiddenBlocks.includes('tt-batch-check') && (
+            <div style={{ display: 'flex', gap: 8 }}>
+              <Upload accept=".xlsx,.xls,.csv,.txt" showUploadList={false} beforeUpload={onBatchFile} style={{ flex: 1 }}>
+                <Button icon={<UploadOutlined />} block>{t('qa.ttBatch.upload')}</Button>
+              </Upload>
+              <Button
+                icon={<ThunderboltOutlined style={{ color: '#722ed1' }} />}
+                onClick={() => { setTtBatchView(true); setTtView(false); setUmeView(false) }}
+              >
+                {t('qa.ttBatch.paste')}
+              </Button>
             </div>
-          </div>
-          <Input.Search
-            placeholder={t('qa.ume.placeholder')}
-            enterButton={<ThunderboltOutlined style={{ color: '#13c2c2' }} />}
-            value={umeKey}
-            onChange={e => setUmeKey(e.target.value)}
-            onSearch={runUme}
-            allowClear
-          />
-          <div style={{ display: 'flex', gap: 8 }}>
-            <Upload accept=".xlsx,.xls,.csv,.txt" showUploadList={false} beforeUpload={onBatchFile} style={{ flex: 1 }}>
-              <Button icon={<UploadOutlined />} block>{t('qa.ttBatch.upload')}</Button>
-            </Upload>
-            <Button
-              icon={<ThunderboltOutlined style={{ color: '#722ed1' }} />}
-              onClick={() => { setTtBatchView(true); setTtView(false); setUmeView(false) }}
-            >
-              {t('qa.ttBatch.paste')}
-            </Button>
-          </div>
+          )}
+          {/* 窄屏没有左栏（searchBlock 不渲染），顺序编辑走底部弹层面板 */}
+          <Button
+            block
+            icon={<OrderedListOutlined />}
+            onClick={() => setMobileOrderOpen(true)}
+          >
+            {t('qa.toolOrder.edit')}
+          </Button>
         </div>
       )}
 
@@ -2374,6 +2521,67 @@ export default function EflowQa() {
           {treeBlock}
         </Drawer>
       )}
+
+      {/* 窄屏编辑面板：列出 6 个工具块 + 显示/隐藏 + ↑/↓，与桌面共用同一份 toolOrder / hiddenBlocks。 */}
+      <Modal
+        title={t('qa.toolOrder.editTitle')}
+        open={mobileOrderOpen}
+        onCancel={() => setMobileOrderOpen(false)}
+        width={360}
+        style={{ maxWidth: '92vw' }}
+        footer={
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+            {toolOrderEditable && (
+              <Button loading={savingToolOrder} onClick={saveAsDefaultToolOrder}>
+                {t('qa.toolOrder.saveDefault')}
+              </Button>
+            )}
+            <Button type="primary" onClick={() => setMobileOrderOpen(false)}>{t('qa.toolOrder.editDone')}</Button>
+          </div>
+        }
+      >
+        <div style={{ fontSize: 12, lineHeight: 1.6, marginBottom: 10, color: isDark ? '#aebbd4' : '#64748b' }}>
+          <div>{t('qa.toolOrder.mobileHint')}</div>
+          <div>{t('qa.toolOrder.hiddenHint')}</div>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {toolOrder.map((key, i) => {
+            const isHidden = hiddenBlocks.includes(key)
+            return (
+              <div key={key} style={{
+                display: 'flex', alignItems: 'center', gap: 4,
+                padding: '6px 8px', border, borderRadius: 8,
+                opacity: isHidden ? 0.55 : 1,
+              }}>
+                <Button
+                  type="text" size="small"
+                  icon={isHidden ? <EyeInvisibleOutlined /> : <EyeOutlined />}
+                  title={isHidden ? t('qa.toolOrder.show') : t('qa.toolOrder.hide')}
+                  onClick={() => toggleBlockVisible(key)}
+                />
+                <span style={{
+                  fontSize: 13, flex: 1, minWidth: 0,
+                  textDecoration: isHidden ? 'line-through' : 'none',
+                }}>
+                  {blockLabel(key)}{isHidden ? ` · ${t('qa.toolOrder.hiddenTag')}` : ''}
+                </span>
+                <Button
+                  type="text" size="small" icon={<UpOutlined />}
+                  title={t('qa.toolOrder.moveUp')}
+                  disabled={i === 0}
+                  onClick={() => moveBlockBy(key, -1)}
+                />
+                <Button
+                  type="text" size="small" icon={<DownOutlined />}
+                  title={t('qa.toolOrder.moveDown')}
+                  disabled={i === toolOrder.length - 1}
+                  onClick={() => moveBlockBy(key, 1)}
+                />
+              </div>
+            )
+          })}
+        </div>
+      </Modal>
     </div>
   )
 }

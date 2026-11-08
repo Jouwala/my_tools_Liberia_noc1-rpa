@@ -11,9 +11,9 @@
  *        覆盖全站）→ ipt_power_snapshots 明细列 + ipt_power_site_detail 每站最新明细。
  *   2. 页面布局（2026-11-04）：左侧 3/5 为站点地图（Leaflet + 自托管 PMTiles 底图，
  *      与 GISMap 同一套组件）；右侧 2/5 为站点清单表。
- *      2026-11-06 地图加**县底色**图层（按该县有 SOC 快照站点的平均 SOC 分五档，
- *      开关在地图卡标题右侧）：计算在 ./iptPower/countySoc.ts，绘制在
- *      ./iptPower/CountySocLayer.tsx，圆点抬到 iptSitePane(650) 保证仍可点。
+ *      2026-11-06 地图加**县底色**图层（按该县有 SOC 快照站点的平均 SOC 分档，
+ *      开关在地图卡标题右侧，2026-11-08 起**默认关**）：计算在 ./iptPower/countySoc.ts，
+ *      绘制在 ./iptPower/CountySocLayer.tsx，圆点抬到 iptSitePane(650) 保证仍可点。
  *   3. 详情/曲线（2026-11-05 改为居中弹窗；2026-11-06 按用户要求改成**右侧通高抽屉**，
  *      形态对齐 ?page=mwRealTime 点链路的链路详情抽屉与 ?page=gis 的 SiteDrilldownDrawer）：
  *      点地图圆点或行内「详情」→ 从右侧滑入的抽屉（宽 min(95vw, 45rem) + 遮罩 +
@@ -156,9 +156,9 @@ export default function IptPowerQuery() {
     return HOURS_OPTIONS.includes(v) ? v : 24
   })
   const [watchOnly, setWatchOnly] = useState(false)
-  /* 县底色图层开关：默认开（用户 2026-11-06 要的就是这个效果）。
+  /* 县底色图层开关：**默认关**（2026-11-08 如意要求；首版 2026-11-06 是默认开）。
      刻意不写进 URL —— 与 GIS 页同一约定：图层状态不持久化，刷新回默认。 */
-  const [showCountyBg, setShowCountyBg] = useState(true)
+  const [showCountyBg, setShowCountyBg] = useState(false)
   const [siteId, setSiteId] = useState(() => readParam('iptSite'))
 
   useEffect(() => { writeParams({ iptKw: keyword, iptSite: siteId, iptHrs: String(hours) }) },
@@ -494,8 +494,8 @@ export default function IptPowerQuery() {
                 <Space size={4}><span style={{ width: 8, height: 8, borderRadius: '50%',
                   background: markerColor({ connectivity: 'offline', alarm_count: 0 } as SiteRow),
                   display: 'inline-block' }} /><Text type="secondary">{t('ipt.map.legend.offline')}</Text></Space>
-                {/* 县底色：开关 + 五档图例（方角色块，和圆点图例区分开）。
-                    关掉图层时只留开关，避免卡片头被撑到三行。 */}
+                {/* 县底色：开关 + 四档图例（方角色块，和圆点图例区分开）。
+                    默认关，关掉时只留开关，避免卡片头被撑到三行。 */}
                 <Space size={6} wrap>
                   <Switch size="small" checked={showCountyBg} onChange={setShowCountyBg}
                     aria-label={t('ipt.county.layer')} />

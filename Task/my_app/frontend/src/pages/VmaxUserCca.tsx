@@ -207,6 +207,7 @@ export default function VmaxUserCca() {
         diagLoading={d.diagLoading}
         diagLoaded={d.loadedKeys.length}
         diagTotal={d.diagTotal}
+        hypotheses={d.verdict?.hypotheses}
         onOpenEvidence={openDrawer}
       />
 

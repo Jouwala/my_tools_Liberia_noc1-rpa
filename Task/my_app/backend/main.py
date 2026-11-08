@@ -458,12 +458,35 @@ def _new_request_id() -> str:
     return uuid.uuid4().hex[:12]
 
 
+def _jsonable_errors(errors: list) -> list:
+    """把 pydantic 的 errors 结构洗成可 JSON 序列化的形式。
+
+    `exc.errors()` 里带**原始输入**（bytes / UploadFile / 异常对象等），直接回传
+    会让 JSONResponse 在序列化时抛 TypeError —— 结果不是 422 而是 **500**（前端看到
+    「服务器内部错误」，完全看不出是自己请求体格式错了）。实测：给
+    `PUT /api/feedback/{id}` 发 form 编码而不是 JSON，就触发这条。
+    """
+    out = []
+    for e in errors:
+        item = {}
+        for k, v in e.items():
+            if k == "input":
+                item[k] = v if isinstance(v, (str, int, float, bool, type(None))) else f"<{type(v).__name__}>"
+            elif k == "ctx":
+                item[k] = {ck: (cv if isinstance(cv, (str, int, float, bool, type(None))) else str(cv))
+                           for ck, cv in (v or {}).items()}
+            else:
+                item[k] = v
+        out.append(item)
+    return out
+
+
 @app.exception_handler(RequestValidationError)
 async def _validation_exception_handler(request: Request, exc: RequestValidationError):
     """请求参数校验失败：保持 FastAPI 默认 422 + errors 结构（前端已依赖）。"""
     return JSONResponse(
         status_code=422,
-        content={"detail": exc.errors(), "request_id": _new_request_id()},
+        content={"detail": _jsonable_errors(exc.errors()), "request_id": _new_request_id()},
     )
 
 

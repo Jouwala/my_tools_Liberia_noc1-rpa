@@ -89,7 +89,7 @@ footer.colophon { text-align: center; color: var(--muted); font-size: 12px; marg
     <div class="logo">📘</div>
     <h1>my_app 项目手册</h1>
     <div class="sub">网络运维数据平台 · 设计手册 + 使用手册</div>
-    <div class="meta">基准日期 2026-08-27　|　适用版本 master 当前代码　|　HTML 合成生成 2026-11-07<br>含 13 章 · 140 个小节　|　打印本页（Ctrl+P）即可导出 PDF<br>英文版使用帮助另见仓库 docs/manual/15-user-help-en.md</div>
+    <div class="meta">基准日期 2026-08-27　|　适用版本 master 当前代码　|　HTML 合成生成 2026-11-08<br>含 13 章 · 140 个小节　|　打印本页（Ctrl+P）即可导出 PDF<br>英文版使用帮助另见仓库 docs/manual/15-user-help-en.md</div>
     <ul class="parts"><li><a href="#ch-00">前言 · 关于本手册</a></li><li><a href="#ch-01">设计篇 · 01 项目总览</a></li><li><a href="#ch-02">设计篇 · 02 架构设计</a></li><li><a href="#ch-03">设计篇 · 03 数据层设计</a></li><li><a href="#ch-04">设计篇 · 04 任务与调度系统</a></li><li><a href="#ch-05">设计篇 · 05 访问控制与凭据</a></li><li><a href="#ch-10">使用篇 · 10 快速上手</a></li><li><a href="#ch-11">使用篇 · 11 功能页使用手册</a></li><li><a href="#ch-12">使用篇 · 12 配置项与开关</a></li><li><a href="#ch-13">使用篇 · 13 运维手册</a></li><li><a href="#ch-14">使用篇 · 14 外部系统与数据流</a></li><li><a href="#ch-15">使用篇 · 使用帮助（一站式指南）</a></li><li><a href="#ch-90">附录 · 90 附录</a></li></ul>
   </section>
   <section class="toc-section">
@@ -16502,7 +16502,7 @@ shared <code>auth_cache</code> 里 admin 的 token 明明还有 14.6 小时有�
     <h2>使用帮助（一站式指南）</h2>
   </header>
   <blockquote>
-<p>面向使用者的平台功能与操作指南。本文件由「使用帮助」页面同源生成（frontend/src/helpMarkdown.ts），内容依据 docs/manual/ 各章与 backend/task_registry.py 整理。生成日期：2026-11-07。</p>
+<p>面向使用者的平台功能与操作指南。本文件由「使用帮助」页面同源生成（frontend/src/helpMarkdown.ts），内容依据 docs/manual/ 各章与 backend/task_registry.py 整理。生成日期：2026-11-08。</p>
 </blockquote>
 <blockquote>
 <p>站内入口：侧边栏「使用帮助」，或直链 <code>http://&lt;host&gt;/myapp/?page=help</code>。</p>
@@ -19640,6 +19640,8 @@ shared <code>auth_cache</code> 里 admin 的 token 明明还有 14.6 小时有�
 <li>每个指标回答五段：为什么重要 / 观测到什么 / 何时发生 / 可能影响 / 需要验证</li>
 <li>原始 XDR / 无线原始 / TCP 只在点「查看证据」时加载，点前无明细请求</li>
 <li>结论由确定性规则生成（buildVerdict），CCA 只作关联证据，不参与结论</li>
+<li><strong>根因假设排序（2026-11-08）</strong>：结论之下区域 3 顶部有一张假设表，按证据强度排序（账务/订阅 &gt; 接入拒绝 &gt; 无线分型 &gt; 传输/时延 &gt; OTT 文本），每行带支持证据、待补证据与建议排查方；「待补证据」是显式列出的<strong>未查项</strong>（如账务未查、邻区缺失、DNS 未查），不是沉默跳过</li>
+<li>欠费等常规原因走 1100 的 <code>fail_cause</code> 分型（强关键词才判账务，EPS 数字码拒绝不等于欠费）；WhatsApp 发消息走 OTT 文本判据（只到 TCP 层，DNS/TLS/送达 ack 不在 XDR 内）；弱覆盖内部再分「切换不及时（有好邻区未切）/ 断站嫌疑（阶跃消失）/ 真弱覆盖 / 干扰」，邻区取 UEMR 的 <code>neighbor_*</code> 列</li>
 <li><strong>取数是一源一源返回的</strong>：先到的是用户面话单（1300，最慢约 12s），无线侧（32）最后；区域 2 会边取边补，区域 3 在四源到齐前显示「取数 x/4」而<strong>不下结论</strong>——半份数据先给「没问题」是投诉场景里最危险的误读</li>
 <li>区域 2 的<strong>小区交叉验证</strong>回答「问题是不是落在这个小区」：对比 CCA 根因/驻留的小区与 32 的实际驻留小区，判定一致 / 不一致 / 无法判定；<strong>不一致本身是有价值的排障线索</strong>（需核对时间窗与制式），无法判定会常驻写明原因，不会写成「正常」</li>
 <li>人工覆写会连同<strong>当时的完整诊断快照</strong>一起存档（结论、四维分、各源状态；不含原始话单与号码明文），在覆写弹窗里默认收起、点开可审计，导出工单里也会带一行摘要</li>
@@ -20216,7 +20218,7 @@ shared <code>auth_cache</code> 里 admin 的 token 明明还有 14.6 小时有�
 <p><strong>保留在 PROJECT_DOCS.md 不动</strong>（属于历史决策与复盘，不是&quot;现状描述&quot;）：§2 迁移计划、§3 架构评估与 Django 论证、§4 FastAPI 架构优化方案、§5–§6 i18n 审计与复查、§8 IP Trace 集成方案、§10 迁移失败复盘、§11 优化建议。</p>
 
 </section>
-  <footer class="colophon">my_app 项目手册 · 由 frontend/scripts/generate-manual-html.mjs 从 docs/manual/*.md 同源生成于 2026-11-07 · 改 MD 后重跑该脚本并重新构建前端即可更新</footer>
+  <footer class="colophon">my_app 项目手册 · 由 frontend/scripts/generate-manual-html.mjs 从 docs/manual/*.md 同源生成于 2026-11-08 · 改 MD 后重跑该脚本并重新构建前端即可更新</footer>
 </div>
 </body>
 </html>

@@ -355,4 +355,74 @@ records=0）。取数时把 `end` 往后挪 1 分钟避开边界（`vmax_flow_fr
 再往后的记录对「每应用总量」的贡献递减，而上游单次查询 1 万级记录要几十秒，
 不能无限翻页。实测忙时号码 6 小时窗共 1558 条 —— 一次基本取完。
 
+---
+
+# 列头探查确证（2026-11-08，`get_xdrheader_info` 实测）
+
+诊断根因分型（账务/切换/断站）需要确切列名，一次性探针实测结果（探针已自清，
+以下为结论存档）：
+
+## 1. `fact_lte_uemr`（32/UEMR）49 列 —— 邻区列已确证
+
+邻区五列：`neighbor_cell_number / neighbor_cell_pci / neighbor_freq /
+neighbor_rsrp / neighbor_rsrq`（单值=最佳邻区）；另有 `serving_rsrq`、
+`enbid`、`pci`、`measid`。`vmax_diagnosis.py` 的 `COLS_RAN` 已按此收敛，
+前端 `analyzeRadio` 按 `neighbor_` 前缀通用提取。
+
+## 2. 1100 三表真实列名（带 `$` 前缀）—— 旧 COLS_1100 全部落空
+
+- `fact_pscp_s1mme`（50 列）：`$procedure_type/procedure_type_name`、
+  `$procedure_status/procedure_status_name`、`$request_cause_specific`、
+  `request_cause_specific_name`、`$causetype`、`$failure_cause_specific`、
+  `failure_cause_specific_name`、`$interface/interface_name`、`cell/cell_id/site_id`、`apn`
+- `fact_pscp_s6a`（39 列，HSS）：`$cause/cause_name`、`$hss_id/$hss_address`、
+  `origin_host/destination_host` —— **无余额/配额列**（OCS/Gy 不在 XDR 清单）
+- `fact_pscp_sgs`（41 列）：`$sgs_cause/sgs_cause_name` + 过程名/状态列
+- `fact_pscp_s11`（38 列）：`$request_cause/$failure_cause` + `apn`
+
+⚠️ **旧 `COLS_1100` 写的 `procedure_status/fail_cause/request_cause/interface`
+在列头里不存在**，`query_table` 交集（`vmax_xdr_client.py:477-480`）静默丢掉，
+实查 1100 只返回 `[start_time, cell, imsi]` 3 列：可用性评分恒 100、语音
+CSFB 恒 `none`、账务分型永不触发。已修复：`COLS_1100` 改真实列名，
+`vmax_diagnosis.py::_norm_1100_row` 做别名归一（前端契约不变），
+`_src_1100` 另合并 S6a 失败行与 SGs 行（单表失败不阻断）。
+
+## 3. 账务信号在 XDR 信令里的边界
+
+- **能拿到**：S6a 的 Diameter 失败原因（HSS 订阅/漫游类，如
+  `DIAMETER_DATA_SUBSCRIBER_NOT_AVAILABLE`）、S1-MME 的 EMM/ESM 拒绝原因——
+  属「订阅层拒绝」，**不等于欠费**，前端归 `attach_reject` 并显式待补账务；
+- **拿不到**：OCS 余额/配额/Gy 信用控制——1100 表清单
+  （s1mme/s11/s6a/sgs/gn）无计费表，任何一张都没有余额类列。
+  真账务状态仍需 HSS/OCS 侧接口（P1 未定）。
+
+### Gy Diameter Credit-Control 在本部署的可用性（2026-11-08 探查）
+
+协议层用户指出欠费真凭据在 PGW↔OCS 的 Gy Diameter（CCR/CCA-I/U/T），
+关键 AVP：`Result-Code=4012`（余额不足，RFC 4006）、`4010`（服务拒绝）、
+`Final-Unit-Indication`、`Granted-Service-Unit`、`Rating-Group`。
+探查结论：**本部署 Talon XDR 未采 Gy**——
+① 1100 的 `get_tabinfo` 只有 s1mme/s11/s6a/sgs/gn 五张表；
+② 候选 serviceType（1000~10000 步进及 35~100）批量探 `get_tabinfo`，
+全部无效，仅 35/36 是 NR 无线变体（`fact_nr_uemr` 等），无 Gy/CCR 服务。
+且欠费真号实查 24h：S6a/S11/SGS 三表**零记录**（Diameter 采集面基本未开通，
+只有 S1-MME 在采）。
+⚠️ 欠费不一定在 CCR-I 就被拒：可能先拿到额度，在后续 CCR-U/CCA-U 才出现
+4012/Final-Unit——将来接入 Gy 后判据必须按「整会话序列」而非单条 CCA。
+前端已预置映射：`classifyFailCause` 对独立词 `4012→billing`、`4010→attach_reject`
+（`vmaxDiagnosisRules.ts`），数据到了不用改代码。
+接入路径三选一：① 问运营商 Gy XDR 采集是否可开通；② OCS 侧联调接口；
+③ PGW/OCS CDR 离线文件。
+
+## 4. 其它已确认可用的列（供 P1 用）
+
+- `fact_5gsa_psup_dns`（87 列）：`domain_name / $r_code / result / resp_delay`
+  —— WhatsApp 文本通道的 DNS 判据可接（诊断 P1）。
+- `ods_lte_xdr_uu_cmcc`（53 列）：`procedure_type(_name) / $procedure_status /
+  $target_enbid / $target_cellid / $msg_flag / keyword*_info` —— 切换事件可接。
+- `ods_lte_xdr_x2_cmcc`（43 列）：`source/target_cellid, scell/dcell,
+  request/failure_cause_*_name` —— HO 成功/失败可接。
+- `fact_5gsa_psup_flow`（89 列）与 `fact_5gsa_psup_video`（90 列）列名与现行
+  `COLS_1300/COLS_1301` 一致（实查交集 25 列正确），无需改。
+
 

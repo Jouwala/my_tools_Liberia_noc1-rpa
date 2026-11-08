@@ -160,8 +160,9 @@ python ipt_energy_client.py "Jahtondo Town" --json # 归一化 JSON
 
 存储与脱敏：
 
-- `ipt_power_snapshots`：全站每轮一条（501 站 × 288 轮/天，5 分钟节拍）。popup 行 `raw=NULL`
-  控表体积，diagram 行补全明细列；保留 2 天自动清理。
+- `ipt_power_snapshots`：全站每轮一条（513 站 × 288 轮/天，5 分钟节拍）。popup 行 `raw=NULL`
+  控表体积，diagram 行补全明细列；**保留 7 天**自动清理（`RETENTION_DAYS`，2026-11-08 由 2 天放宽，
+  让页面 72h / 7d 两档时间窗真的有数据；此前 2 天保留期下这两档永远只能画出 2 天曲线）。
   新增列：`source / alarm_count / alarm_names / solar_available / fuel_capacity / main_source_on`。
 - `ipt_power_site_detail`：每站最新一条 diagram 精简明细（`slim_diagram()` 已剥除
   设备凭据）。⚠ 2026-11-04 前 raw 存全量 diagram 且被 `/api/ipt-power/site/{id}`
