@@ -172,16 +172,52 @@ class VmaxDiagnosis:
         "ul_avg_rtt", "dl_avg_rtt",
         "ul_throughput_max", "dl_throughput_max", "qci",
     ]
+    # ⚠ 2026-11-08 列头探查（get_xdrheader_info 实测）：
+    # 分表真实列名带 $ 前缀（如 $procedure_status / $causetype），旧 COLS_1100
+    # 写的 procedure_status / fail_cause / request_cause / interface 在列头里
+    # **不存在**，query_table 的交集裁列（vmax_xdr_client.py:477-480）会静默
+    # 丢掉它们——实查 1100 只返回 [start_time, cell, imsi] 3 列，1100 的可用性
+    # 评分/语音 CSFB/账务分型此前全部在空字段上运行（评分恒 100、语音恒 none）。
+    # 现改为真实列名，_src_1100 再做别名归一（前端契约不变）。
     COLS_1100 = [
-        "imsi", "procedure_start_time", "start_time",
-        "interface", "procedure_type", "procedure_status",
-        "request_cause", "fail_cause",
-        "cellname", "cell", "cellid",
+        "imsi", "start_time", "apn",
+        "$interface", "interface_name",
+        "$procedure_type", "procedure_type_name",
+        "$procedure_status", "procedure_status_name",
+        "$request_cause_specific", "request_cause_specific_name",
+        "request_cause_group_name",
+        "$causetype", "$failure_cause_specific", "failure_cause_specific_name",
+        "failure_cause_group_name",
+        "cell", "cell_id", "site_id",
+    ]
+    # S6a（HSS 签名）：账务/订阅类信号的 XDR 出处。字段无余额/配额（OCS/Gy
+    # 不在 XDR 表清单里），只有 Diameter 失败原因 $cause/cause_name + HSS 地址。
+    COLS_1100_S6A = [
+        "imsi", "start_time",
+        "$interface", "interface_name",
+        "$procedure_type", "procedure_type_name",
+        "$procedure_status", "procedure_status_name",
+        "$cause", "cause_name",
+    ]
+    # SGs（语音回落）：analyzeVoice 的 SGs 分支挂在 fact_pscp_sgs 上，
+    # 只查 s1mme 时该分支恒为 0 —— 同批合并进来。
+    COLS_1100_SGS = [
+        "imsi", "start_time", "msisdn",
+        "$interface", "interface_name",
+        "$procedure_type", "procedure_type_name",
+        "$procedure_status", "procedure_status_name",
+        "$sgs_cause", "sgs_cause_name",
+        "cell", "cell_id",
     ]
     COLS_1301 = ["start_time", "vmos", "resolution", "result"]
     COLS_RAN = [
-        "btime", "serving_rsrp", "ulsinr", "cqi",
+        "btime", "serving_rsrp", "serving_rsrq", "ulsinr", "cqi",
         "cell", "cellname", "cell_name", "rat_name", "phr",
+        # 2026-11-08 列头探查确证（fact_lte_uemr，49 列）：邻区五列 + serving_rsrq。
+        # 前端 analyzeRadio 按 neighbor_ 前缀通用提取，此处按确证名收敛。
+        "neighbor_rsrp", "neighbor_rsrq", "neighbor_cell_number",
+        "neighbor_cell_pci", "neighbor_freq",
+        "enbid", "pci", "measid",
     ]
 
     def _src_1300(self, msisdn: str, start: str, end: str) -> Dict[str, Any]:
@@ -194,12 +230,66 @@ class VmaxDiagnosis:
                 "label": "用户面话单 (1300)", "rows": rows,
                 "truncated": truncated}
 
+    @staticmethod
+    def _norm_1100_row(r: Dict[str, Any]) -> Dict[str, Any]:
+        """分表真实列名 → 前端契约字段名（2026-11-08 列头探查后新增）。
+
+        前端 vmaxDiagnosisRules.ts 读 procedure_status / procedure_type /
+        request_cause / fail_cause / interface / cellname / cell / cellid，
+        分表列头里是 $procedure_status / procedure_type_name /
+        request_cause_specific_name / failure_cause_specific_name /
+        interface_name / cell。这里只做别名归一，不改前端判据。
+        取值优先级：显示名（文本，判据按文本匹配）→ ID 列原文。
+        """
+        def pick(*keys: str) -> str:
+            for k in keys:
+                v = r.get(k)
+                if v not in (None, "", "-"):
+                    return str(v)
+            return ""
+        out = dict(r)
+        out["procedure_status"] = pick("procedure_status_name", "$procedure_status")
+        out["procedure_type"] = pick("procedure_type_name", "$procedure_type")
+        out["request_cause"] = pick("request_cause_specific_name",
+                                     "$request_cause_specific", "sgs_cause_name", "$sgs_cause")
+        out["fail_cause"] = pick("failure_cause_specific_name",
+                                  "$failure_cause_specific", "$causetype",
+                                  "cause_name", "$cause")
+        out["interface"] = pick("interface_name", "$interface")
+        out["cellname"] = pick("cellname", "cell")
+        out["cellid"] = pick("cell_id", "cellid")
+        return out
+
     def _src_1100(self, msisdn: str, start: str, end: str) -> Dict[str, Any]:
+        """1100 = S1-MME 主表 + S6a 失败行 + SGs 行（2026-11-08）。
+
+        - 主表 fact_pscp_s1mme：接入过程与 EMM/ESM 拒绝原因；
+        - S6a fact_pscp_s6a：**只合并失败行**（HSS Diameter 拒绝是订阅/账务类
+          信号；成功行不进，避免改动可用性分母口径）；
+        - SGs fact_pscp_sgs：语音回落（analyzeVoice 的 SGs 分支挂在这张表，
+          只查主表时恒为 0）；
+        三表各自独立取数，单表失败只记日志不阻断（与其它源同纪律）。
+        """
         rows, truncated = self._page_through(
             msisdn, "1100", "fact_pscp_s1mme", start, end, MAX_PAGES_1100,
             columns=self.COLS_1100)
+        merged = [self._norm_1100_row(r) for r in rows]
+        for table, cols, only_fail in (
+                ("fact_pscp_s6a", self.COLS_1100_S6A, True),
+                ("fact_pscp_sgs", self.COLS_1100_SGS, False)):
+            try:
+                extra, _ = self._page_through(
+                    msisdn, "1100", table, start, end, 2, columns=cols)
+            except Exception as exc:  # noqa: BLE001 - 单表失败不阻断主源
+                logger.warning("[vmax_diag] 1100 辅表 %s 取数失败（忽略）: %s", table, exc)
+                continue
+            for r in extra:
+                n = self._norm_1100_row(r)
+                if only_fail and str(n.get("procedure_status", "")).upper() == "SUCCESS":
+                    continue
+                merged.append(n)
         return {"key": "1100", "label_key": "vmaxq.diag.src.1100",
-                "label": "会话/信令面 (1100)", "rows": rows,
+                "label": "会话/信令面 (1100)", "rows": merged,
                 "truncated": truncated}
 
     def _src_1301(self, msisdn: str, start: str, end: str) -> Dict[str, Any]:

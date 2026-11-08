@@ -1,6 +1,6 @@
 # my_app User Help & Guide
 
-> User-facing platform features & operations guide. Generated from the same source as the in-app Help page (frontend/src/helpMarkdown.ts), compiled from docs/manual/ and backend/task_registry.py. Generated on 2026-11-07.
+> User-facing platform features & operations guide. Generated from the same source as the in-app Help page (frontend/src/helpMarkdown.ts), compiled from docs/manual/ and backend/task_registry.py. Generated on 2026-11-08.
 
 > In-app entry: the "Help" sidebar item, or `http://<host>/myapp/?page=help` directly.
 
@@ -2522,6 +2522,8 @@ VMAX Intelligent Diagnosis Workspace: complaint-driven single-page narrative —
 - Every metric answers five parts: why it matters / what was observed / when it occurred / possible impact / what needs verification
 - Raw XDR / remote radio records / TCP load only when "View evidence" is clicked
 - The verdict comes from deterministic rules (buildVerdict); CCA is correlation evidence only
+- **Root-cause hypothesis ranking (2026-11-08)**: below the verdict, zone 3 opens with a hypothesis table ordered by evidence strength (billing/subscription > access rejection > radio classification > transport/latency > OTT text), each row carrying supporting evidence, missing evidence and a suggested owner; "missing evidence" lists the unchecked items explicitly (billing not checked, no neighbor samples, DNS not checked), never silently skipped
+- Common causes such as arrears are classified from 1100 `fail_cause` (billing is only judged on strong keywords; a numeric EPS reject code does not equal arrears); WhatsApp messaging uses the OTT text judge (TCP layer only — DNS/TLS/delivery ack are not in XDR); weak coverage is further split into late handover (a good neighbor exists but was never camped on) / suspected site outage (step-shaped disappearance) / true weak coverage / interference, using the UEMR `neighbor_*` columns
 - The number is stored under ccaMsisdn and does not interfere with the legacy page
 - Fully bilingual
 

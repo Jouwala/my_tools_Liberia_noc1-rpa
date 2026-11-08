@@ -19,16 +19,29 @@ import { CardBase } from '../cards'
 import type { CauseItem } from '../VmaxCcaCards'
 import type { EvidenceKind, RankedCause, Recommendation } from '../../lib/vmaxWorkspaceRules'
 import { CHAIN_NODE_KEY } from '../../lib/vmaxWorkspaceRules'
+import type { Hypothesis, HypothesisOwner } from '../../pages/vmaxDiagnosisRules'
 import VmaxCauseDetailModal from './VmaxCauseDetailModal'
 
 const { Text } = Typography
 
+/** 假设责任方 → i18n key（与 chain 节点复用同一语义，不另造词） */
+const HYP_OWNER_KEY: Record<HypothesisOwner, string> = {
+  billing: 'vmaxq.ws.hyp.ownerBilling',
+  ran: 'vmaxq.ws.hyp.ownerRan',
+  core: 'vmaxq.ws.hyp.ownerCore',
+  transport: 'vmaxq.ws.hyp.ownerTransport',
+  app: 'vmaxq.ws.hyp.ownerApp',
+  terminal: 'vmaxq.ws.hyp.ownerTerminal',
+}
+
 export default function VmaxWorkspaceVerdict({
   rankedCauses, recommendations, ccaError, ccaLoading,
-  diagLoading, diagLoaded, diagTotal, onOpenEvidence,
+  diagLoading, diagLoaded, diagTotal, onOpenEvidence, hypotheses,
 }: {
   rankedCauses: RankedCause[]
   recommendations: Recommendation[]
+  /** P0-4 假设排序（来自 verdict.hypotheses；为空时只显示 CCA 排行） */
+  hypotheses?: Hypothesis[]
   /** CCA 根因查询失败原因（空 = 成功）。失败时常驻红条，区别于「无根因」 */
   ccaError?: string
   /** CCA 根因查询进行中 */
@@ -69,8 +82,37 @@ export default function VmaxWorkspaceVerdict({
       ) : null
     ) },
   ]
+  const hypColumns = [
+    { title: t('vmaxq.ws.hyp.title'), dataIndex: 'labelKey', ellipsis: true,
+      render: (v: string) => t(v) },
+    { title: t('vmaxq.ws.hyp.confidence'), dataIndex: 'confidence', width: 110,
+      render: (v: number) => `${v}%` },
+    { title: t('vmaxq.ws.hyp.owner'), dataIndex: 'owner', width: 120,
+      render: (v: HypothesisOwner) => t(HYP_OWNER_KEY[v]) },
+    { title: t('vmaxq.ws.hyp.support'), dataIndex: 'support', ellipsis: true,
+      render: (v: Hypothesis['support']) => (
+        <span>{v.map((e, i) => <span key={i}>{renderI18n(t, e)}{i < v.length - 1 ? '；' : ''}</span>)}</span>
+      ) },
+    { title: t('vmaxq.ws.hyp.missing'), dataIndex: 'missing', ellipsis: true,
+      render: (v: Hypothesis['missing']) => (
+        <span>{v.map((e, i) => <span key={i}>{renderI18n(t, e)}{i < v.length - 1 ? '；' : ''}</span>)}</span>
+      ) },
+  ]
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--wh-space-md)' }}>
+      {/* P0-4 假设排序：规则引擎的根因假设（与 CCA 排行并列，不互相篡改） */}
+      {hypotheses && hypotheses.length > 0 && (
+        <CardBase title={t('vmaxq.ws.hyp.title')}>
+          <Table
+            size="small"
+            rowKey="id"
+            columns={hypColumns}
+            dataSource={hypotheses}
+            pagination={false}
+            scroll={{ x: 700 }}
+          />
+        </CardBase>
+      )}
       <CardBase title={t('vmaxq.ws.zone3.title')}>
         {/* CCA 查询失败：常驻可见（不是口径解释，是「这次没算出来」） */}
         {!!ccaError && (
