@@ -113,8 +113,8 @@ Merge（Squash and merge，保留模块前缀）→ 删除分支 → GitHub 翻�
 | Enforcement | `active` |
 | Target | `~DEFAULT_BRANCH`（即 `refs/heads/master`，**不是 all branches**） |
 | 规则 | `deletion` · `non_fast_forward` · `required_linear_history` · `pull_request` · `required_status_checks` |
-| PR 要求 | required_approving_review_count = 1 · dismiss_stale_reviews_on_push = true · required_review_thread_resolution = true · require_code_owner_review = **false（待第二阶段）** |
-| 状态检查 | `my_app 文档一致性` · `门户文档一致性`（strict：合并前必须基于最新 master） |
+| PR 要求 | required_approving_review_count = 1 · dismiss_stale_reviews_on_push = true · required_review_thread_resolution = true · require_code_owner_review = true |
+| 状态检查 | `my_app 文档一致性` · `门户文档一致性` · `branch-hygiene（文件数与提交前缀）`（strict：合并前必须基于最新 master） |
 | Bypass | RepositoryRole admin，`bypass_mode = pull_request`（**仅对 PR 生效**） |
 | Classic protection | **未启用**（`GET /branches/master/protection` 返回 404）。两套同时开会叠加，出问题无法判断来源 |
 
@@ -138,16 +138,24 @@ gh api repos/Jouwala/my_tools_Liberia_noc1-rpa/rulesets/26797641
 ⚠ `GET /branches/master` 返回的 `"protected": false` **不代表没保护** —— 那个字段只反映
 Classic protection，Ruleset 不改它。判据一律用上面两个接口。
 
-### 4.3 第二阶段（治理 PR 合进 master 之后再做）
+### 4.3 第二阶段（**已于 2026-11-08 13:04 完成**）
 
-下面两项目前**故意没开**，因为它们在 `master` 上还不存在，提前开会让 PR 永久 pending：
+`branch-hygiene.yml` 与 `CODEOWNERS` 随 PR #2 进入 master 后，补齐了这两项：
 
-1. 把 `branch-hygiene（文件数与提交前缀）` 加进 required status checks
-   （`.github/workflows/branch-hygiene.yml` 目前只在功能分支上）。
-2. 打开 `require_code_owner_review`（`CODEOWNERS` 目前只在功能分支上）。
+1. `branch-hygiene（文件数与提交前缀）` 已加进 required status checks（现在共 3 条）。
+2. `require_code_owner_review` 已打开（CODEOWNERS 全量映射 `@Jouwala`）。
 
-补法：`gh api -X PUT repos/Jouwala/my_tools_Liberia_noc1-rpa/rulesets/26797641 --input <json>`，
-或页面里勾。改完按 4.2 回读。
+回读证据（当日实测）：
+
+```
+POST/PUT rulesets/26797641 → updated_at 2026-11-08T13:04:48Z
+require_code_owner_review = true
+required_status_checks = [my_app 文档一致性, 门户文档一致性, branch-hygiene（文件数与提交前缀）]
+```
+
+⚠ **给旧分支的提醒**：`branch-hygiene` 成为 required 之后，凡是**没 rebase 到含该 workflow 的
+master 的分支**（如本地遗留的 `agent/*`、`claude/*`），开 PR 会**永久 pending** —— 因为
+`pull_request` 事件用的是 head 分支里的 workflow 文件。解法是先 rebase/merge 最新 master。
 
 ### 4.4 已知限制
 
@@ -166,20 +174,29 @@ Classic protection，Ruleset 不改它。判据一律用上面两个接口。
 
 本次两分支的处置见第 6 节（不建议硬拆 eaf3e573 —— 先验证它内部各域改动是否有实质缺陷，没缺陷则整体合回并记录边界）。
 
-## 6. 本次行动序列（两分支的落地顺序）
+## 6. 本次行动序列（**已于 2026-11-08 全部执行完毕**）
 
-> 状态：**已确认不直接合并**。以下为 recommended 序列，按序执行。
+> 结果：两个栈叠分支已全部并入 master，栈已拆平；后续所有开发按第 2、3 节单模块流程走。
 
-| 步骤 | 动作 | 命令 / 位置 | 证据 |
-| --- | --- | --- | --- |
-| ① | 先保存工作区：34 个未提交文件提交或 stash | `git status --porcelain` 复查；`git stash push -m "wip-..."` 或分批 commit | 脏文件清单归档 |
-| ② | 开 `feat/vmax-cca-diagnosis-workspace` → master PR | PR 标题 `feat(vmax): VMAX 智能诊断工作台 + 在途修复汇总`，在 Description 里显式声明 eaf3e573 跨域 | PR 说明影响面 + branch-hygiene 绿 |
-| ③ | Review + CI 绿后合入 master，删除分支 | GitHub Web | master 含 `c178426e` 22 文件 VMAX 核心 + eaf3e573 汇总 |
-| ④ | rebase `feat/feedback-permission-scope` | `git checkout feat/feedback-permission-scope && git rebase master`（仅 1 提交，预期干净） | rebase 后 diff 应仅 5-7 文件 |
-| ⑤ | 开 `feat/feedback-permission-scope` → master PR | 标题 `fix(myapp): 用户反馈权限范围` | diff 仅 feedback 组 |
-| ⑥ | Review + 合入 master，删除分支 | GitHub Web | — |
-| ⑦ | 开启分支保护（第 4 节）+ 本文件合入 master | PR `docs(git): Git 工作流治理` | 所有后续 PR 自动走红线 |
+| 步骤 | 动作 | 实际结果 |
+| --- | --- | --- |
+| ① | 保存工作区 34 个未提交文件 | ✅ 拆成 8 个模块化提交（38 文件），见 `012f325c` 之前那一串 |
+| ② | 开 `feat/vmax-cca-diagnosis-workspace` → master 的 PR | ✅ [PR #1](https://github.com/Jouwala/my_tools_Liberia_noc1-rpa/pull/1)（120 文件，Description 显式声明 `eaf3e573` 跨域） |
+| ③ | 合并（squash）+ 删分支 | ✅ 2026-11-08 13:01，`fc19eaf0` |
+| ④ | rebase `feat/feedback-permission-scope` | ✅ 用 `git rebase --onto origin/master eaf3e573`（**不是**普通 rebase —— 普通 rebase 会重放已被 squash 吞掉的 17 个提交，全线冲突） |
+| ⑤ | 开收尾 PR | ✅ [PR #2](https://github.com/Jouwala/my_tools_Liberia_noc1-rpa/pull/2)（44 文件，10 个单模块提交） |
+| ⑥ | 合并 + 删分支 | ✅ 2026-11-08 13:03，`fbde800f` |
+| ⑦ | 开规则集两阶段 | ✅ 12:48 第一阶段、13:04 第二阶段（见第 4 节） |
 
-**合并形态**：本仓库是 squash-merge 友好（每个功能独立 squash，diff 清晰）；除 stack PR 例外，禁止 merge commit 混入多功能。
+**实测踩到的坑（写给下次）**：squash 合并之后再 rebase 栈叠分支，**不能**用
+`git rebase origin/master` —— 新 master 的 squash 提交已包含 `eaf3e573` 的全部内容，
+但 git 不认识这层等价关系，会把 17 个旧提交逐个重放，导致 19 个文件全线冲突。
+正确写法是指定旧基：
 
-**审查拆分判断**：`eaf3e573` 若审查发现某个域（比如 IPT 或 Portal）有高风险改动，先 cherry-pick 那域到独立 PR 修复，再合整体；不要因此拖住 VMAX 合并 —— VMAX 所属文件（22 个）是干净的，可以先合 VMAX 子集。
+```powershell
+git rebase --onto origin/master eaf3e573 feat/feedback-permission-scope
+# 只重放 eaf3e573 之后的 10 个提交，实测零冲突
+git push --force-with-lease origin feat/feedback-permission-scope
+```
+
+**合并形态**：squash only（仓库已强制）；除 stack PR 例外，禁止 merge commit 混入多功能。
