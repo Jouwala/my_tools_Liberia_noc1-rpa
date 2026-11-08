@@ -100,18 +100,60 @@ Merge（Squash and merge，保留模块前缀）→ 删除分支 → GitHub 翻�
 | 必查 | diff 是否只含单一模块；`AGENTS.md` 约定（任务登记 / 三处同步 / i18n）是否齐；测试证据是否存在 |
 | 阻断 | 超 50 文件无拆分理由；`feat(workspace)` 汇总提交；`eaf3e573` 式跨域打包；文档与代码对不上（CI 红即自动阻断） |
 
-## 4. 分支保护（GitHub 侧，需仓库管理员在 Web 开启）
+## 4. 分支保护（GitHub 侧，**已于 2026-11-08 生效**）
 
-仓库 `Settings → Branches → Add rule`（gh CLI 未登录时无法本地执行）对 `master` 配置：
+### 4.1 已落地的实际配置（真相源，改动前先核对这里）
 
-1. **Branch name pattern**：`master`
-2. ☑ **Require a pull request before merging** —  Required approvals 1（Owner + Reviewer；禁止自批）、Dismiss stale reviews、Require review from Code Owners
-3. ☑ **Require status checks to pass** — `docs-consistency`（`my_app 文档一致性` + `门户文档一致性`）、`branch-hygiene`（见 `.github/workflows/branch-hygiene.yml`）
-4. ☑ **Require branches to be up to date before merging**
-5. ☑ **Block force pushes** ☑ **Block deletions** ☑ **Do not allow bypassing the above**
-6. **Users with bypass**：仅仓库管理员在紧急维护时开启，合并后立即关闭
+用 **Ruleset**（不是 Classic —— Classic 能力更弱，且无法做「仅对 PR 生效」的旁路）。
 
-辅助：`Settings → General` 关闭 Direct push（同上规则即阻止）；`Settings → Actions` 要求 PR approval for forks。
+| 项 | 值 |
+| --- | --- |
+| Ruleset 名称 / id | `protect-master` / `26797641` |
+| 页面 | `Settings → Rules → Rulesets → protect-master`（https://github.com/Jouwala/my_tools_Liberia_noc1-rpa/rules/26797641） |
+| Enforcement | `active` |
+| Target | `~DEFAULT_BRANCH`（即 `refs/heads/master`，**不是 all branches**） |
+| 规则 | `deletion` · `non_fast_forward` · `required_linear_history` · `pull_request` · `required_status_checks` |
+| PR 要求 | required_approving_review_count = 1 · dismiss_stale_reviews_on_push = true · required_review_thread_resolution = true · require_code_owner_review = **false（待第二阶段）** |
+| 状态检查 | `my_app 文档一致性` · `门户文档一致性`（strict：合并前必须基于最新 master） |
+| Bypass | RepositoryRole admin，`bypass_mode = pull_request`（**仅对 PR 生效**） |
+| Classic protection | **未启用**（`GET /branches/master/protection` 返回 404）。两套同时开会叠加，出问题无法判断来源 |
+
+仓库合并方式已同步收敛（`Settings → General → Pull Requests`）：
+`allow_squash_merge=true`、`allow_merge_commit=false`、`allow_rebase_merge=false`、
+`delete_branch_on_merge=true`、`allow_auto_merge=true`。
+
+> **为什么 bypass 要设成 `pull_request`**：仓库只有 1 个维护者，GitHub 不允许自批。
+> `pull_request` 模式让 Owner **必须开 PR、但可以自己点合并**；直接 `push master` 依旧被拒。
+> 这解决了「1 人 + 要求 1 批准 = 永久合不了」的死锁，同时不牺牲「禁止直推」。
+
+### 4.2 验证方法（不要只看 Active 徽章）
+
+```powershell
+# ① master 上实际生效的规则（[] 表示没生效）
+gh api repos/Jouwala/my_tools_Liberia_noc1-rpa/rules/branches/master
+# ② ruleset 的完整配置
+gh api repos/Jouwala/my_tools_Liberia_noc1-rpa/rulesets/26797641
+```
+
+⚠ `GET /branches/master` 返回的 `"protected": false` **不代表没保护** —— 那个字段只反映
+Classic protection，Ruleset 不改它。判据一律用上面两个接口。
+
+### 4.3 第二阶段（治理 PR 合进 master 之后再做）
+
+下面两项目前**故意没开**，因为它们在 `master` 上还不存在，提前开会让 PR 永久 pending：
+
+1. 把 `branch-hygiene（文件数与提交前缀）` 加进 required status checks
+   （`.github/workflows/branch-hygiene.yml` 目前只在功能分支上）。
+2. 打开 `require_code_owner_review`（`CODEOWNERS` 目前只在功能分支上）。
+
+补法：`gh api -X PUT repos/Jouwala/my_tools_Liberia_noc1-rpa/rulesets/26797641 --input <json>`，
+或页面里勾。改完按 4.2 回读。
+
+### 4.4 已知限制
+
+- 规则只管**之后**的 push，不追溯已存在的 `master` 历史提交。
+- 功能分支不受此规则影响，`git push origin feat/xxx` 照常。
+- 失败提示形如 `GH006: Protected branch update failed` —— 看到它就说明规则在工作。
 
 ## 5. 历史大提交拆分指南（`eaf3e573` 式）
 
