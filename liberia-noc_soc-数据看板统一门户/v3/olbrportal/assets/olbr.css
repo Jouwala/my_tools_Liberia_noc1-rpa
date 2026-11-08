@@ -127,6 +127,23 @@
   --grad: linear-gradient(135deg, #0e7490, #0891b2);   /* 卡片左侧竖条 */
   --hover: rgba(14, 165, 233, .08);
 
+  /* ---- 页签选中态（2026-11-08 用户两次拍板）------------------------------
+     · 第一次：「选中要显示颜色，建议浅蓝背景」；
+     · 第二次（最终）：「选中态浅蓝底使用截图这个颜色，字体用白色」。
+       #40cdc8 是从用户给的截图（青绿 "Query" 按钮）逐像素取的主色
+       （141×54 的图里占 5851 px），白字取 #ffffff —— 按图 1:1 还原，
+       不再自行改浅或压深。
+     ⚠️ 已知可读性取舍：白字压 #40cdc8 只有 1.95:1，低于 WCAG AA 4.5:1。
+        这是用户看过「浅蓝底 + 深青字（4.62:1）」方案后**明确指定**的观感优先
+        选择，不是疏漏，与 --title 那条「用户拍板品牌色优先」同类。
+        日后若要补可读性，最小改动是把 --tab-sel 换成同色相压深版
+        （#177a77 + 白字 ≈ 5.14:1），不必动任何选择器。
+     ⚠️ 深浅两套只在这里和 html.dark 重定义；--tab-sel-line 是同色相稍深一档，
+        只给 .v6-sub / .subv 的 1px 边框用，.tab 本身不描边（见下方规则）。 */
+  --tab-sel: #40cdc8;
+  --tab-sel-ink: #ffffff;
+  --tab-sel-line: #35b3ae;
+
   --hi: #a55a09;           /* OLR 橙（浅色下压深到 AA）：只给 L0 */
   --hi-line: rgba(180, 105, 20, .40);
   --hi-tint: rgba(196, 120, 24, .10);
@@ -149,6 +166,23 @@
   --ok: #0a6a52;  --ok-tint: rgba(10, 106, 82, .09);
   --warn: #7c5e07; --warn-tint: rgba(124, 94, 7, .09);
   --crit: #a2202f; --crit-tint: rgba(162, 32, 47, .08);
+
+  /* ---- Daily Operation 分档的「关注 / Watch」黄（2026-11-08 用户要求）----
+     用户反馈：Watch 那档看着是暖棕、跟标题橙一个色系，「要正常的黄色」。
+     成因不在图例本身，而在它取的 --warn：浅色档为了让全站那些**文字**消费者
+     （.st-beta / .gb.on / .gp-n / .lrow em / .um-warn …）在白底上过 AA，
+     把黄压到了 #7c5e07（对比度 5.78:1，色相 45°、明度 26%）—— 读起来就是棕。
+     ⚠️ 所以**不能**直接改 --warn：那会让上面那一排小字变成白底亮黄、彻底读不清。
+     这里只给 QC 分档单开一支，沿用本文件既有的 ink + 面色约定（同 --b/--b-ink）：
+       · --qc-warn     ：正常黄，喂图例色点与柱体的**填充**（用户点名要看的那两处）
+       · --qc-warn-ink ：同色相压深，喂柱体描边、色点内圈与卡片**大数字**。
+                         数字是 36px/600 的大字档，#a88600 在卡底 #f2fbfd 上
+                         实测 3.29:1，过 AA 大字阈；亮黄直接写数字只有 1.44:1。
+     深色档两者同值（#f6cf00 在深底上本来就够亮），故深色观感一个字不变。
+     三个消费方必须都走这一支：图例 / 柱子 / 数字一旦各取各的色，就会重演
+     2026-10-28 那次「图例画的是 A、柱子是 B」的问题（见 .qc-lvlegend 段说明）。 */
+  --qc-warn: #f6cf00;
+  --qc-warn-ink: #a88600;
 
   /* ---- Benchmark 行两条走势线的颜色（2026-10-01 加）------------------------
      这一排的卡片里画**两条**线（Orange / MTN），上面那排的单线卡用的是
@@ -315,6 +349,12 @@ html.dark {
   --b-on: #04122b;
   --grad: linear-gradient(135deg, #1da7ff, #00d9ff);
   --hover: rgba(37, 140, 255, .10);
+  /* 页签选中态深色档：用户指定「就用截图的颜色 + 白字」，深色模式也不改色，
+     否则同一个页签在两套主题下两种颜色、与截图对不上。
+     值与 :root 的 --tab-sel* 一一对应，改色时两处一起改。 */
+  --tab-sel: #40cdc8;
+  --tab-sel-ink: #ffffff;
+  --tab-sel-line: #35b3ae;
 
   --hi: #ff9d1c;
   --hi-line: rgba(255, 157, 28, .45);
@@ -326,6 +366,10 @@ html.dark {
   --ok: #0bc78c;  --ok-tint: rgba(11, 199, 140, .13);
   --warn: #f6cf00; --warn-tint: rgba(246, 207, 0, .13);
   --crit: #ff5c6c; --crit-tint: rgba(255, 92, 108, .13);
+  /* QC 分档「关注」黄深色档：与 --warn 同值，且 ink = 面色 ——
+     深底上亮黄本身就可读，不需要浅色档那套压深，观感与改动前完全一致。 */
+  --qc-warn: #f6cf00;
+  --qc-warn-ink: #f6cf00;
 
   /* Benchmark 行两条走势线的深色档（2026-10-01 加，与浅色档同一条说明）。
      ⚠️ MTN 在这里**必须从黑翻成浅灰**：深底上画黑线等于没画。
@@ -865,7 +909,10 @@ main > .qarow:not(:has(section:not([hidden]):not([data-tl-off]))) {
   transition: border-color .14s, background .14s, color .14s;
 }
 .v6-sub:hover { border-color: var(--b-line); color: var(--b-ink); }
-.v6-sub[aria-pressed="true"] { background: var(--b-tint); border-color: var(--b-line); color: var(--b-ink); }
+/* 2026-11-08：BO View 卡头那排 RAN/IP/MW/CN/OCS 子页签也是「页签」，
+   选中态与 .tab 用同一组令牌（截图青绿实色 + 白字），全站选中色只此一套。
+   ⚠️ 这几颗是 10px 小胶囊，白字在实色上比原来的深青字更清楚。 */
+.v6-sub[aria-pressed="true"] { background: var(--tab-sel); border-color: var(--tab-sel-line); color: var(--tab-sel-ink); }
 .v6-sub:focus-visible { outline: 2px solid var(--b); outline-offset: 2px; }
 .v6-sub small {
   font: 500 10px/var(--lh-solid) var(--mono);   /* 同上：固定值，不乘 k */
@@ -1122,10 +1169,11 @@ main > .qarow:not(:has(section:not([hidden]):not([data-tl-off]))) {
 
 /* 分档图例（2026-10-28 加，用户反馈「柱状图的颜色没有按图例要求显示对应的颜色」）。
    放在 Daily Operation 标题行、心跳左侧。
-   ⚠️ 色点颜色必须与**上色的令牌**同一个来源：数字走 --qc-tier、柱子走 --ok/--warn/--crit。
+   ⚠️ 色点颜色必须与**上色的令牌**同一个来源：数字走 --qc-tier、柱子走 .sp-* 那三条。
    两者是**各自拿自己的值**判档（2026-10-28「数字和柱状图各自按照数字大小」），
    但用的是同一把尺子 —— 统一阈值 5 / 20（用户「不要按照不同标准」），
-   三档的色值也始终是同一组令牌。这里同样直接取 --ok/--warn/--crit ——
+   三档的色值也始终取自同一组令牌：OK / Critical 取 --ok / --crit，
+   Watch 取 --qc-warn（2026-11-08 起，见 :root 那段；数字用它的 ink 变体）。
    若这里另写一套色值，就会重演「图例画的是 A、柱子是 B」那个问题本身。
    字号取 --fs-2xs（与卡内小字同档）；「分档图例」四个字用 --t3 压轻，
    避免与分区标题（--title 橙、18px）抢视线 —— 它是注释，不是标题。
@@ -1138,7 +1186,11 @@ main > .qarow:not(:has(section:not([hidden]):not([data-tl-off]))) {
    因为「红色」这两个字在浅色底上几乎不可读，而色块能直接对上柱子。 */
 .qc-lvlegend-i > i { flex: none; width: 8px; height: 8px; border-radius: 2px; background: var(--t3); }
 .qc-lvlegend-i.k-ok > i   { background: var(--ok); }
-.qc-lvlegend-i.k-warn > i { background: var(--warn); }
+/* Watch 走 QC 专用的正常黄（--qc-warn），不再取被全站文字压深过的 --warn。
+   内圈 1px 用同色相的 ink：亮黄在浅色卡底上只有 1.44:1，没有这圈描边色点会发虚；
+   深色档 ink = 面色，这圈自然消失。用 inset box-shadow 而不是 border ——
+   色点是 8×8 的硬尺寸，border 会把黄色面挤到 6×6，与旁边 OK / Critical 不齐。 */
+.qc-lvlegend-i.k-warn > i { background: var(--qc-warn); box-shadow: inset 0 0 0 1px var(--qc-warn-ink); }
 .qc-lvlegend-i.k-crit > i { background: var(--crit); }
 @media (max-width: 760px) { .qc-lvlegend { width: 100%; } }
 
@@ -1477,7 +1529,13 @@ main > .qarow:not(:has(section:not([hidden]):not([data-tl-off]))) {
    与卡片中央那个大数字无关 —— 同一张卡同时出现「红字 + 绿柱」是正常的，
    因为前者是「当前积压」（存量），后者是「这段时间每小时新增」（流量），两回事。 */
 .qc-spark .sp-bar.sp-ok   { fill: var(--ok);   stroke: var(--ok); }
-.qc-spark .sp-bar.sp-warn { fill: var(--warn); stroke: var(--warn); }
+/* Watch 柱：填充正常黄、描边同色相压深（见 :root 的 --qc-warn 段）。
+   描边在浅色档提到 1px：0.4px 的边抗锯齿后几乎不存在，撑不住亮黄柱体；
+   路径带 vector-effect="non-scaling-stroke"（qcBarsSvg 写的），不会被横向拉粗。
+   深色档 ink = 面色，描边与填充同色，故那 1px 只在外沿多铺 0.3px 同色 ——
+   为了连这点差异都不引入，宽度只在浅色档抬。 */
+.qc-spark .sp-bar.sp-warn { fill: var(--qc-warn); stroke: var(--qc-warn-ink); }
+html:not(.dark) .qc-spark .sp-bar.sp-warn { stroke-width: 1; }
 .qc-spark .sp-bar.sp-crit { fill: var(--crit); stroke: var(--crit); }
 /* 2026-10-28 改（用户反馈「柱状图的颜色没有按图例要求显示对应的颜色」）：
    分档的**判定**换成了每个指标自己的阈值（QC_TARGETS，见 olbr.js 的 qcCardHtml），
@@ -1485,9 +1543,13 @@ main > .qarow:not(:has(section:not([hidden]):not([data-tl-off]))) {
    ⚠️ 本段的**色值**也跟着换了：2026-10-23 写死的 #006400 / #FFD700 / #FF0000
    是纯绝对色，既不跟浅/深两套主题走，也与全站状态色（--ok/--warn/--crit）不是一套 ——
    同一屏里「可用率卡的达标绿」与「QC 卡的正常绿」会是两个不同的绿。
-   现在三档直接取令牌，与 v0 徽章、MsPortal 徽章、页面其它状态色**完全同色**：
-     浅色：--ok #0a6a52 / --warn #7c5e07 / --crit #a2202f
-     深色：--ok #0bc78c / --warn #f6cf00 / --crit #ff5c6c
+   现在 OK / Critical 两档直接取令牌，与 v0 徽章、MsPortal 徽章、页面其它状态色**完全同色**：
+     浅色：--ok #0a6a52 / --crit #a2202f
+     深色：--ok #0bc78c / --crit #ff5c6c
+   ⚠️ 2026-11-08：Watch 档**不再**取 --warn，改取 QC 专用的 --qc-warn / --qc-warn-ink
+   （用户「Watch 要正常的黄色」）。浅色档 --warn 被压到 #7c5e07 是为了全站那些文字
+   消费者过 AA，借它来画色块就读成棕色；单开一支后图例 / 柱子 / 数字三处仍同源同色，
+   只是数字用压深的 ink。完整取舍见 :root 的 --qc-warn 段。
    ⚠️ 仍然刻意**不动 --qc-accent**：那个变量还喂着卡片边框、内发光与 hover 光晕
    （见上面 .qc-card 与 .qc-card:hover），整卡换色不在需求里 —— 用户点名的只有
    「数字和下面的柱状图」两处 —— 现在这两处**分开判档**，各自拿各自的值去比：
@@ -1498,7 +1560,9 @@ main > .qarow:not(:has(section:not([hidden]):not([data-tl-off]))) {
    .qc-lv-*（v1 起已不渲染，见上）无继承关系 —— 复用那套会连边框一起染色。
    未分档（数字取不到 / 接口失败）时不命中任何一条，数字回到品牌色原状。 */
 .qc-card.is-tier-ok   { --qc-tier: var(--ok); }
-.qc-card.is-tier-warn { --qc-tier: var(--warn); }
+/* 数字是文字，取 ink 而不是亮黄面色：36px/600 属 AA 大字档（阈值 3:1），
+   #a88600 在卡底 #f2fbfd 上 3.29:1 过阈，#f6cf00 只有 1.44:1 会读不清。 */
+.qc-card.is-tier-warn { --qc-tier: var(--qc-warn-ink); }
 .qc-card.is-tier-crit { --qc-tier: var(--crit); }
 .qc-card.is-tier-ok .qc-num,
 .qc-card.is-tier-warn .qc-num,
@@ -2399,62 +2463,82 @@ main > .qarow:not(:has(section:not([hidden]):not([data-tl-off]))) {
 
 /* 地图 */
 .map { display: flex; flex-direction: column; }
-/* ═══ 地图栏标题条：三段式布局（2026-09-29）═══════════════════════════════════
-   用户当天先要求「reload 和 openlink 放到最右边」，随后又要求「两个页签居中显示」。
-   两条合起来 = 标题条必须分成**三段**，各段独立定位：
+/* ═══ 标题条：三段式布局（2026-09-29；GIS Map / Knowledge Q&A 共用）═══════════
+   2026-09-29：用户先要求「reload 和 openlink 放到最右边」，随后要求「两个页签居中显示」，
+   于是标题条分成**三段**。2026-11-08 用户先改口「GIS Map 的页签靠左边，不要居中」，
+   随后又要求「Knowledge Q&A 的页签也靠左，参考 GIS Map」—— 现在**两栏都靠左**：
+   各自把 .p-hd 从 flex:1 1 0（左侧弹簧）改成 flex:0 1 auto（内容宽），页签紧跟
+   标题落在左部；工具按钮仍贴最右。全局 .p-hd / .map-tabs / .map-tools 一律不动，
+   其它面板继续靠弹簧居中。
 
      ┌──────────────┬──────────────────────┬────────────────────┐
-     │ .p-hd 标题   │ .map-tabs 页签（居中）│ .map-tools 按钮（贴右）│
+     │ .p-hd 标题   │ .map-tabs 页签（靠左）│ .map-tools 按钮（贴右）│
      └──────────────┴──────────────────────┴────────────────────┘
-         flex:1 1 0        flex:none           flex:1 1 0 + justify-end
+        flex:0 1 auto      flex:0 1 auto      flex:1 1 0 + justify-end
 
-   居中的做法：左右两段都设 flex:1 1 0（等宽、可压缩）并加 min-width:0，
-   页签段 flex:none 固定成内容宽 —— 两侧弹簧等长，页签自然落在正中。
-   ⚠️ 用 flex 弹簧而不是绝对定位（position:absolute; left:50%; transform:translateX(-50%)）：
+   靠左的做法（当前）：#l0Map 的 .p-hd 只占内容宽（flex:0 1 auto），页签段
+   紧随其后落在标题条左部；只有右侧 .map-tools 是弹簧（flex:1 1 0 +
+   margin-left:auto），吃掉剩余空间并把工具按钮推到最右缘。
+   历史做法（2026-09-29 ~ 2026-11-08）：左右两段都设 flex:1 1 0（等宽弹簧），
+   页签段 flex:none 固定成内容宽 —— 两侧弹簧等长，页签落在正中。
+   ⚠️ 用 flex 三段式而不是绝对定位（position:absolute; left:50%; transform:translateX(-50%)）：
       绝对定位会让页签脱离文档流，长标题时标题会**压到页签下面**（页签盖住文字）。
-      弹簧方案里三段互相避让，标题超长时自己省略（.p-t 带 ellipsis），互不重叠。
+      三段式里各段互相避让，标题超长时自己省略（.p-t 带 ellipsis），互不重叠。
 
    ⚠️ 历史坑（别改回去）：曾经靠 `.map-tabs { margin-left:auto }` 让「页签+按钮」
-      整块贴右。居中和它是**互斥**的 —— 两者同时存在，页签会停在中偏右。
+      整块贴右；靠左同样不能这么写 —— 它会和 .map-tools 的 auto 抢剩余空间，
+      工具按钮就贴不住右缘。
       现在 .map-tabs 上**没有** margin-left:auto，贴右由 .map-tools 自己的
       margin-left:auto + justify-content:flex-end 负责（双保险：前者管块的位置，
-      后者管块内两颗按钮的顺序）。
+      后者管块内几颗按钮的顺序）。
 
-   ⚠️ 换行必须关掉（nowrap），这是居中能否成立的**前提**，不是可选项。
+   ⚠️ 换行必须关掉（nowrap），这是三段式能否成立的**前提**，不是可选项。
       全局 .p-head 是 flex-wrap: wrap（olbr.css:1213）。三段各自带 gap（12px），
       实测三段"自然内容宽 + 2 条 gap" = 772px，而容器正好 771px —— **差 1px**
       就触发 wrap，于是三段各占一行（实测不同 top 数 = 3），弹簧彻底失效。
       注意这里"1px 之差"不是巧合必然：wrap 的判定发生在**收缩之前**，
       所以只要内容总宽 ≥ 容器宽就一定换行，永远不会走到"靠 flex-shrink 让
-      1fr 弹簧吸收差额"那条路。改成 nowrap 后，两个 1fr 弹簧才会真正去分
-      "容器宽 − 页签宽"，页签也就落在正中。
+      1fr 弹簧吸收差额"那条路。改成 nowrap 后，右侧弹簧才会真正去分
+      "容器宽 − 标题宽 − 页签宽"，页签也就稳稳落在左部。
       ⚠️ 别用"给 .p-head 加宽"或"减 gap"来绕：那只是把 1px 之争挪到别的宽度
       档位上，换个视口宽度又会翻。nowrap 才是从机制上消除这个判定。
 
    ⚠️ 窄屏退让：nowrap 之后三段永不换行，极窄视口下靠 .p-hd 的 min-width:0
       让标题先被压到 0（省略号），再把余量给按钮 —— 按钮**始终可见**，
       这是刻意的取舍（按钮是操作入口，标题被压缩可接受）。 */
-/* ⚠️ 只改地图栏（#l0Map），不动全局 .p-head（olbr.css:1213）：
+/* ⚠️ 只改有页签的这两栏（#l0Map / #qaSlot），不动全局 .p-head：
    全局那条被报告文件栏等**没有页签**的面板共用，那些面板"标题吃余量 +
    按钮自然贴右"就够了，不需要三段式，给它们加 nowrap 只会让窄屏更挤。
-   这里用 #l0Map 前缀把作用域钉死在地图栏。
-   ⚠️ .p-hd 也只改地图栏这一条：全局 .p-hd（olbr.css:1214）是 flex:1 1 auto，
-   若无差别改成 1 1 0，其他面板的标题会被压成 0 宽（1fr 弹簧没人与它配对时会一直缩）。 */
-#l0Map .p-head { flex-wrap: nowrap; }
-#l0Map .p-head > .p-hd { flex: 1 1 0; }
+   这里用两个 ID 前缀把作用域钉死在 GIS Map 与 Knowledge Q&A 两栏。
+   ⚠️ .p-hd 也只在**这两栏**覆写：全局 .p-hd 仍是 flex:1 1 auto，
+   千万别动它 —— 其它面板靠这颗弹簧与 .map-tools 配对把页签留在中间；
+   一旦全局改成 0 1 auto，那些面板的页签会跟着跑到左边。 */
+#l0Map .p-head, #qaSlot .p-head { flex-wrap: nowrap; }
+/* 2026-11-08：从 flex:1 1 0（左侧弹簧，把页签顶到正中）改成 flex:0 1 auto
+   （只占标题内容宽）→ 页签紧跟标题、靠左。shrink 仍为 1 且全局 .p-hd 带
+   min-width:0，长标题照样先被压成省略号，不会把工具按钮挤出标题条。
+   同日追加需求「Knowledge Q&A 页签也靠左，参考 GIS Map」，故把 #qaSlot 并列进来：
+   QA 栏的 .p-head 由 qaSectionHtml() 直接写进 #qaSlot，结构与地图栏同为
+   .p-hd / .map-tabs / .map-tools 三颗直接子元素，两栏可以共用同一条规则。
+   ⚠️ 别把这条并进全局 .p-hd：其它面板靠 1 1 auto 吃余量。
+   ⚠️ nowrap 那条同样要并列 #qaSlot —— 三段式的前提是三段不换行，
+      只给地图栏加会让 QA 栏在边界宽度上掉成三行、弹簧彻底失效。 */
+#l0Map .p-head > .p-hd, #qaSlot .p-head > .p-hd { flex: 0 1 auto; }
 /* 2026-11-06：地图栏从三页签变四页签（新增 IPT Power）。原来 `flex:none` 固定
-   成内容宽，多一个页签就多约 95px；虽然 nowrap 后两侧弹簧先被压，极窄视口下
+   成内容宽，多一个页签就多约 95px；虽然 nowrap 后右侧弹簧先被压，极窄视口下
    仍可能把右侧三颗工具按钮挤出标题条。改为「可收缩 + 段内横向滚动」：
-   宽屏时两侧弹簧照旧分剩余空间、页签段不收缩，视觉与原来完全一致；只有容器
-   连页签都放不下时它才收缩并可左右滚动，工具按钮始终可见。
-   ⚠️ justify-content 必须从 center 改成 flex-start：段宽等于内容宽时两者视觉
+   宽屏时页签段保持内容宽、剩余空间全归右侧弹簧；只有容器连页签都放不下
+   时它才收缩并可左右滚动，工具按钮始终可见。
+   ⚠️ justify-content 必须保持 flex-start：段宽等于内容宽时与 center 视觉
       无差别，但 overflow-x:auto 容器若仍 center，收缩后左半段会滚不到（flex 经典坑）。
+      GIS Map / Knowledge Q&A 两栏页签改靠左后这条更没有理由动。
    ⚠️ 别改回 flex:none —— 那条与「四页签」组合正是本次要防的溢出。 */
 .map-tabs { display: flex; align-items: center; justify-content: flex-start; gap: var(--s2); flex: 0 1 auto; min-width: 0; overflow-x: auto; scrollbar-width: none; }
 .map-tabs::-webkit-scrollbar { display: none; }
 /* 工具按钮段：吃掉剩余空间并把自己的内容推到右端。
-   margin-left:auto 在这里是**必要的** —— 页签只有两个时 .p-hd 的 1fr 弹簧
-   已经把它推到中间，若本段不带 auto，两颗按钮会紧贴在页签右侧而不是卡片右缘。 */
+   margin-left:auto 在这里是**必要的** —— GIS Map / Knowledge Q&A 两栏页签改靠左后
+   左侧已无弹簧（其它面板仍有），若本段不带 auto，按钮会紧贴在页签右侧
+   而不是卡片右缘（居中时期同理）。 */
 .map-tools { display: flex; align-items: center; justify-content: flex-end; gap: var(--s2); flex: 1 1 0; min-width: 0; margin-left: auto; }
 /* 缩放锁的两态（2026-10-22 加）。
    · 锁定（默认）= 普通 .gb：中性色，和刷新 / Open Link 同一档，不抢眼 ——
@@ -2469,12 +2553,22 @@ main > .qarow:not(:has(section:not([hidden]):not([data-tl-off]))) {
 .tab { height: 26px; padding: 0 10px; border-radius: 4px; font-size: var(--fs-sm); font-weight: 600; color: var(--t2); display: inline-flex; align-items: center; gap: 6px; }
 .tab i { font-size: 14px; }   /* 图标字号：单独一档，与 --icon-* 都不等，仅此处使用 */
 .tab:hover { color: var(--b-ink); }
-.tab[aria-selected="true"] { background: var(--surface); color: var(--b-ink); box-shadow: 0 1px 2px rgba(0, 0, 0, .12); }
-html.dark .tab[aria-selected="true"] { background: var(--b-tint2); }
+/* 2026-11-08（最终版）：选中页签用用户截图的**实心青绿 + 白字**，全局 .tab 生效 ——
+   GIS Map 与 Knowledge Q&A 两处页签条共用这组类，所以两处同时变。
+   ⚠️ 不给 .tab 加 border：它是固定 26px 高，加 border 会顶成 28px，
+      相邻页签跟着错位；这里只用一层很轻的外投影，色块保持纯色（与截图一致，
+      无内描边）。圆角 6px 对齐截图的胶囊感。
+   ⚠️ 白字是用户指定值，选中态 hover 必须守住，不能变回 --b-ink。 */
+.tab[aria-selected="true"] {
+  background: var(--tab-sel); color: var(--tab-sel-ink); border-radius: 6px;
+  box-shadow: 0 1px 2px rgba(15, 90, 100, .18);
+}
+.tab[aria-selected="true"]:hover { color: var(--tab-sel-ink); }
 /* 编辑模式下点地图页签是「改名」而不是「切地图」，必须给出可见暗示，
    否则用户会以为页签坏了（点了不切地图）。虚线描边 + 铅笔图标即为该暗示。 */
 .tabs.is-renaming .tab { outline: 1px dashed var(--b-line, rgba(13, 148, 136, .45)); outline-offset: -1px; }
-.tabs.is-renaming .tab:hover { color: var(--b-ink); }
+/* 2026-11-08：排除选中项，否则编辑态 hover 时白字会被这条盖成深青字 */
+.tabs.is-renaming .tab:not([aria-selected="true"]):hover { color: var(--b-ink); }
 .maptab-pen { opacity: .65; font-size: var(--fs-xs) !important; }  /* 图标字号 */
 /* 面板标题在编辑态变成可点按钮（改的是这一栏的标题/副标题，与页签改名同一入口） */
 .p-t-edit {
@@ -2638,7 +2732,10 @@ table.grid a:hover { text-decoration: underline; }
   transition: border-color .14s, background .14s, color .14s;
 }
 .subv:hover { border-color: var(--b-line); color: var(--b-ink); }
-.subv[aria-pressed="true"] { background: var(--b-tint); border-color: var(--b-line); color: var(--b-ink); }
+/* 2026-11-08：子分组页签（编辑态/管理浮层）跟随同一套选中色
+   （截图青绿实色 + 白字）。
+   ⚠️ 下面 .subv.is-drop.is-on 是拖拽落点提示，语义不同，刻意保留 --b-tint。 */
+.subv[aria-pressed="true"] { background: var(--tab-sel); border-color: var(--tab-sel-line); color: var(--tab-sel-ink); }
 .subv small { font: 500 var(--fs-2xs)/var(--lh-solid) var(--mono); opacity: .8; font-variant-numeric: tabular-nums; }
 
 /* ---------------------------------------------------------- 编辑态 -- */

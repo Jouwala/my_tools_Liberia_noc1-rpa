@@ -91,8 +91,8 @@
       "dom": "cch",
       "sub": null,
       "probe": "SCOPE.hasCch()",
-      "title": "CCH 独立面板（VMAX 用户查询）",
-      "note": "2026-11-04 加：从 Knowledge Q&A 第三页签拆出，占原 User Feedback 的槽位（.qarow 右列上半）。矩阵 cch 域勾了 fo / bo / smc；上游 olbr 主门户 SCOPE 为 null、恒显示。⚠️ User Feedback 已移到顶栏头像下拉（见 user-menu 块），不再占页面区块，故原 fbSlot 块删除。"
+      "title": "客户投诉查询 / Customer Complaint Query（独立面板，内部标识 cch）",
+      "note": "2026-11-04 加：从 Knowledge Q&A 第三页签拆出，占原 User Feedback 的槽位（.qarow 右列上半）。矩阵 cch 域勾了 fo / bo / smc；上游 olbr 主门户 SCOPE 为 null、恒显示。⚠️ User Feedback 已移到顶栏头像下拉（见 user-menu 块），不再占页面区块，故原 fbSlot 块删除。⚠️ 2026-11-08 显示名由 CCH 改为「客户投诉查询 / Customer Complaint Query」；id / selector / dom / probe 等内部标识一律不变。"
     },
     {
       "id": "complaintSlot",

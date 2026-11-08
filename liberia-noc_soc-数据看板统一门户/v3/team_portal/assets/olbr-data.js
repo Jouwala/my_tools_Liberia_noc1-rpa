@@ -625,10 +625,16 @@ window.OLBR_DATA = (function () {
          Open WebUI），不是显示名，改名不影响 qaItems() 的识别条件。
          全称仍挂 title/aria-label（见 olbr.js 的 qaTabTitle），悬停可见。 */
       'qa.tabEflow': 'TT/Alarm Analysis', 'qa.tabRag': 'O&A',
-      /* 2026-11-04 改：原 qa.tabVmaxUser（CCH 页签短标签）随「CCH 从 Knowledge Q&A
-         拆成独立面板」一并搬到 cch.title —— 它现在是**面板标题**，不再是页签短名。
-         CCH 中英同值（不是笔误，别再"顺手改回"）。 */
-      'cch.title': 'CCH',
+      /* 2026-11-08 加：Knowledge Q&A 第三页签「Master Site」的短名。
+         用户指定的页签名就是这个写法，中英同值（与 tabRag = 'O&A' 同一处理），
+         不是漏翻译；全称（含"默认 master_site_db"说明）挂 title/aria-label。 */
+      'qa.tabMasterSite': 'Master Site',
+      /* 2026-11-08 改：面板显示名由内部缩写 CCH 换成业务名「客户投诉查询」
+         （英文 Customer Complaint Query）。⚠️ 只换显示名 —— 字典键 cch.title、
+         矩阵域键 cch、槽位 #cchSlot、函数 cchItem() 等内部标识一律不动。
+         历史：2026-11-04 从 Knowledge Q&A 第三页签（qa.tabVmaxUser = 'CCH'）
+         拆成独立面板时搬到这里，当时中英同值 'CCH'。 */
+      'cch.title': '客户投诉查询',
       'aux.reports': 'Task report files', 'aux.tools': '本页相关',
       'aux.ms': '在 MsPortal 维护分组 / 看板 / 账号', 'aux.uni': '统一门户看板门户',
       'aux.more': '展开其余 {n} 项', 'aux.less': '收起',
@@ -1280,9 +1286,12 @@ window.OLBR_DATA = (function () {
          Open WebUI），不是显示名，改名不影响 qaItems() 的识别条件。
          全称仍挂 title/aria-label（见 olbr.js 的 qaTabTitle），悬停可见。 */
       'qa.tabEflow': 'TT/Alarm Analysis', 'qa.tabRag': 'O&A',
-      /* 2026-11-04 改：原 qa.tabVmaxUser（CCH 页签短标签）随「CCH 从 Knowledge Q&A
-         拆成独立面板」一并搬到 cch.title（与中文那份同源，中英同值 CCH）。 */
-      'cch.title': 'CCH',
+      /* 2026-11-08 加：与 zh 字典同步（说明见中文那份）。用户指定的页签名就是
+         'Master Site'，英文界面也不翻译，保持两本字典同值。 */
+      'qa.tabMasterSite': 'Master Site',
+      /* 2026-11-08 改：与 zh 字典同步换成业务名（说明见中文那份），
+         英文界面不得回落中文；内部标识 cch 保持不变。 */
+      'cch.title': 'Customer Complaint Query',
       'aux.reports': 'Task report files', 'aux.tools': 'About this page',
       'aux.ms': 'Manage groups / dashboards / accounts in MsPortal', 'aux.uni': 'Unified dashboard portal',
       'aux.more': 'Show {n} more', 'aux.less': 'Show less',
