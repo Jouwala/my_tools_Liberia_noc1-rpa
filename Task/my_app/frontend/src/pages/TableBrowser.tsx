@@ -11,6 +11,7 @@ import { ExplainIcon, ExplainPopover } from '../components/MetricExplain'
 // 定位、护栏与风险清单见 docs/DATA_AGENT_EVALUATION.md。
 import DataAgentBar from '../components/DataAgentBar'
 import ExcludeListUpload from '../components/ExcludeListUpload'
+import { readParam, writeParams } from '../urlState'
 
 interface TableInfo {
   name: string
@@ -86,7 +87,13 @@ export default function TableBrowser() {
   const [tableData, setTableData] = useState<any[]>([])
   const [tableColumns, setTableColumns] = useState<any[]>([])
   const [pagination, setPagination] = useState({ current: 1, pageSize: 20, total: 0 })
-  const [loading, setLoading] = useState(false)
+  /* 首屏是「先取表清单 → 再取表数据」两级请求，两者都算 loading。
+     2026-11-08：统一门户 Knowledge Q&A 的 Master Site 页签把本页内嵌进 iframe 时，
+     门户同屏还有地图/报告/工具等多路 my_app iframe，/api/tables 会被后端排队十几秒；
+     旧版 loading 初值 false，这段等待期 antd 会把「该表暂无数据」当成事实显示出来
+     （取不到 ≠ 0，见 AGENTS.md 三.6），容易误判成功能坏了。初值改为 true，
+     由 loadTableData 首屏结束时复位；表清单失败 / 空清单时兜底复位，不会永远转圈。 */
+  const [loading, setLoading] = useState(true)
   const [profileData, setProfileData] = useState<ProfileResult | null>(null)
   const [profileLoading, setProfileLoading] = useState(false)
   const [searchText, setSearchText] = useState('')
@@ -108,15 +115,35 @@ export default function TableBrowser() {
 
   useEffect(() => { searchTextRef.current = searchText }, [searchText])
 
+  /* 2026-11-08：支持 ?table=<表名> 深链。
+     统一门户 /v3/olbrportal/ 的 Knowledge Q&A「Master Site」页签用它把默认表
+     定在 master_site_db（表清单里的第一张是 kml_mw_links，不能直接当默认值）。
+     ⚠️ 只在首屏加载表清单时读一次，且指定表名必须在清单里，否则回落到第一张 ——
+        防止拼错 / 无权访问的表名让页面停在一个空壳 Select 上。
+     页内 Select 仍是「也可以选择其他表格」的入口，不受这个初值影响。 */
   useEffect(() => {
     api.get('/tables').then(res => {
       const tbls = res.data.tables.filter((t: TableInfo) => !t.name.startsWith('_'))
       setTables(tbls)
       if (tbls.length > 0) {
-        setSelectedTable(tbls[0].name)
+        const wanted = readParam('table')
+        setSelectedTable(tbls.some((tb: TableInfo) => tb.name === wanted) ? wanted : tbls[0].name)
+      } else {
+        setLoading(false)                 // 一张表都没有：没有后续取数来复位 loading
       }
     })
+    .catch(() => { setLoading(false) })  // 表清单拉不到：别让转圈无限期挂着
   }, [])
+
+  /* 选中的表写回地址栏（urlState.ts：URL 是页面状态的唯一真相源，一律 replaceState）。
+     这样 iframe 里点门户的「刷新」、或把链接发给同事，都还能回到用户刚选的那张表；
+     也保证从无参数进入 /myapp/?page=tables 时，地址栏与所见一致。
+     ⚠️ writeParams 每次重读 location 再合并写，不会覆盖 App.tsx 维护的 ?page= /
+        ?embed= / ?lang= / ?theme= 等参数（见 urlState.ts 的两条纪律）。 */
+  useEffect(() => {
+    if (!selectedTable) return
+    writeParams({ table: selectedTable })
+  }, [selectedTable])
 
   useEffect(() => {
     if (!selectedTable) return
@@ -814,11 +841,15 @@ export default function TableBrowser() {
                     rowKey={stableRowKey}
                     /* 空表必须说清楚「是空的」而不是留一片白（2026-10-23 用户报
                        「credentials 是空的」，实际是表体空白 + 分页条「共 0 条」，
-                       分不清加载失败与确实无数据）。locale.emptyText 会按当前语言取文案。 */
+                       分不清加载失败与确实无数据）。locale.emptyText 会按当前语言取文案。
+                       ⚠️ 但「还在取数」不是「确实无数据」：首屏两级请求期间显示加载中，
+                       别在 iframe 被后端排队时抢先宣布表是空的（2026-11-08 门户实测）。 */
                     locale={{
-                      emptyText: searchText
-                        ? t('table.emptyTableFiltered', { kw: searchText })
-                        : t('table.emptyTable'),
+                      emptyText: loading
+                        ? t('common.loading')
+                        : searchText
+                          ? t('table.emptyTableFiltered', { kw: searchText })
+                          : t('table.emptyTable'),
                     }}
                     pagination={{
                       ...pagination,
