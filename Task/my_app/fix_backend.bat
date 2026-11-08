@@ -199,11 +199,11 @@ type "%BASE%log\_fix_routecheck.txt" >> "%REPORT%"
 echo.
 echo ============================================================
 echo   Done. Look for "ROUTE_CHECK: PASS" above.
-echo   PASS -> reload the KPI page; the numbers are clickable and
+echo   PASS -^> reload the KPI page; the numbers are clickable and
 echo           the drill-down shows site / NE / band columns.
-echo   WARN -> routes are up but an older code revision is
+echo   WARN -^> routes are up but an older code revision is
 echo           serving; run stop.bat then start.bat.
-echo   FAIL -> send log\fix_backend_result.txt back for analysis.
+echo   FAIL -^> send log\fix_backend_result.txt back for analysis.
 echo ============================================================
 echo.
 goto finish
