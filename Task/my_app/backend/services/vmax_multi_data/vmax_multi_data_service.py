@@ -155,8 +155,20 @@ def fetch_report(report: Dict[str, Any], cfg: Dict[str, Any],
         page_size=page_size,
         chunk_days=report.get("chunk_days") or cfg.get("chunk_days"),
         filters=report.get("filters") or [], progress=progress)
-    if not res["fields"] and res.get("errors"):
-        raise vrc.VmaxReportError("%s 取数失败: %s" % (part, res["errors"][0]))
+    # ⚠ 2026-11-06 修订：空结果**不能**当成功。
+    #
+    # 旧判据是「有 fields 且有 errors 才 raise」—— 上游「什么都没返回、但也没报错」
+    # 时直接当成功返回 records=[]，于是任务报 status=ok / success=1，
+    # 而产物一行数据都没有。实测 2026-10-03 21:45 之后连续 610 次运行全部 rows=0
+    # （连续 34 天零产出），而巡检（db_freshness_check）对该任务零覆盖，
+    # 产物 JSON 每小时覆盖写又把「陈旧」洗成了「刚刚更新」—— 无人发现。
+    #
+    # 现在空结果按取数失败处理：进 errors 列表 → status=partial → 任务判失败 → 进告警。
+    if not res["fields"]:
+        if res.get("errors"):
+            raise vrc.VmaxReportError("%s 取数失败: %s" % (part, res["errors"][0]))
+        raise vrc.VmaxReportError(
+            "%s 取数返回空结果（无字段、无数据、无报错）—— 上游报表接口可能已变更或无权限" % part)
     records = res["records"]
     if res.get("truncated"):
         logger.warning("[vmax_multi_data] %s 单分片行数达到 top_n=%d，可能被截断，"
@@ -338,16 +350,24 @@ def run_vmax_multi_data_sync(reports: Optional[Iterable[str]] = None,
             r["top_n"] = int(top_n)
         if chunk_days:
             r["chunk_days"] = int(chunk_days)
+    # ⚠ 2026-11-06 修订：下面三个早退分支原先都**没有** success 键，
+    # 而 task_runner 对缺该键的结果默认按 success=True 处理 →
+    # 「配置里没启用报表」「VMAX 不可达」这两种**根本没取到数**的情况
+    # 在任务日志里显示为成功（DB 里 success=1），又是一次静默失败。
+    # 现在显式给出 success，让它在执行日志里显性可见。
     if not cfg.get("enabled", True):
-        return {"status": "disabled", "reports": [], "rows": 0, "elapsed_seconds": 0}
+        return {"status": "disabled", "success": False,
+                "reports": [], "rows": 0, "elapsed_seconds": 0,
+                "error": "配置里该任务未启用（vmax_multi_data_config.json enabled=false）"}
     if not targets:
-        return {"status": "no_report", "reports": [], "rows": 0,
+        return {"status": "no_report", "success": False, "reports": [], "rows": 0,
                 "error": "配置里没有启用的报表（vmax_multi_data_config.json）"}
 
     client = vrc.VmaxReportClient(transport=cfg.get("transport"))
     health = client.healthy()
     if not health.get("ready"):
-        return {"status": "unavailable", "transport": health.get("transport"),
+        return {"status": "unavailable", "success": False,
+                "transport": health.get("transport"),
                 "error": "VMAX 不可达: %s" % (health.get("detail"),),
                 "reports": [], "rows": 0, "elapsed_seconds": round(time.time() - started, 2)}
 
@@ -392,9 +412,14 @@ def run_vmax_multi_data_sync(reports: Optional[Iterable[str]] = None,
                 entry["remote_error"] = remote["error"]
                 errors.append("%s 远程写入失败: %s" % (result["key"], remote["error"]))
         if write_runs:
+            # 2026-11-06：零产出不再记成 "ok" —— 否则 sync_runs 里 2332 条 ok
+            # 绝大部分是 rows=0，「本次无数据」这个语义在运行记录里完全丢失
+            # （实测 610 次 rows=0 全被记成 ok，无从查询）。
+            run_status = ("partial" if entry.get("remote_error")
+                          else ("empty" if len(result["records"]) == 0 else "ok"))
             persist_run(result["report_part"], result["key"], result["granularity"],
                         result["window"], len(result["records"]),
-                        "ok" if not entry.get("remote_error") else "partial",
+                        run_status,
                         entry.get("remote_error", ""), started_at, result["fetched_at"])
         if include_records:
             entry["headers"] = result["headers"]
@@ -402,11 +427,24 @@ def run_vmax_multi_data_sync(reports: Optional[Iterable[str]] = None,
             entry["records"] = result["records"]
         results.append(entry)
 
-    summary = {"status": "ok" if not errors else "partial",
+    # ⚠ 2026-11-06：`status="ok"` 之前只看 `errors` 空不空，**不看 rows**——
+    # 「跑了但一行没取到」会被记成成功（34 天零产出却 121/121 次报 ok 就是这么来的）。
+    # 现在 rows==0 单独记为 "empty"，让「执行了但产出为空」在运行记录里可查。
+    if errors:
+        status = "partial"
+    elif total_rows == 0:
+        status = "empty"
+    else:
+        status = "ok"
+    summary = {"status": status,
                "transport": health.get("transport"),
                "reports": results, "rows": total_rows,
                "errors": errors[:10],
                "elapsed_seconds": round(time.time() - started, 2)}
+    # 「跑完但零产出」必须让任务判失败，否则又是一次静默失败。
+    summary["success"] = bool(total_rows > 0 and not errors)
+    if status == "empty":
+        summary["error"] = "取数完成但 0 行（上游报表返回空结果）"
     print("[vmax_multi_data] %s reports=%d rows=%d elapsed=%ss errors=%s"
           % (summary["status"], len(results), total_rows, summary["elapsed_seconds"], errors[:3]))
     return summary

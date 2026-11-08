@@ -58,6 +58,7 @@
 | 43 | 电池看板 | `battery` | React |
 | 44 | IP 链路探测 | `ip_trace` | **iframe** |
 | 45 | VMAX 用户查询 | `vmax_user_query` | React |
+| 45b | CCA | `vmax_user_cca` | React |
 | 52 | IPT 站点电源查询 | `ipt_power` | React |
 | 46 | Speedtest 基准报告 | `bm_speedtest` | React |
 | 47 | Meta 基准报告 | `bm_meta` | React |
@@ -5594,11 +5595,11 @@ VMAX 数仓 GBase（10.123.255.12:5258/zxvmax，只读）
 
 ### 41.1 数据链路（两层并发采集）
 
-- 采集任务 `ipt_power_collect`（m 组，`*/2 * * * *`），**上游没有任何批量电源接口**（逐一核对过抓包全部端点：filter-map 只有 id/name/坐标/连接状态/criticality；`events/recent` 只返回最近新发生的事件而非活动告警快照），电源数值只能逐站请求。2026-11-04 实测（32 线程）：`/popup`（约 1.5KB）501 站 60.1s、0 错误；`/diagram`（约 5KB）200 站 73.8s、外推 501 站约 185s 且出现超时。据此分两层：
-  - **KPI 层（full_kpi）**：并发拉全站 `/popup`（现行 8 线程，按 `ipt_power_meta.kpi_cursor` 环形轮转）→ **全站每 2 分钟一条快照**（负载/电池电压/SOC/太阳能/柴油/油机开关 + site.events 活动告警）；
-  - **明细层（full_shard）**：`/diagram` 完整明细按 `ipt_power_meta.shard_cursor` 环形游标分片轮采（3 线程，单轮计划不超过 60 站），约 10-12 轮 / 20-25 分钟覆盖全站；**关注站（`sites`）每轮必采 diagram**。明细池先起、与 popup 池**同时跑**（否则会被 popup 预算饿死，2026-11-04 首轮实测踩坑）。
-  - 整轮 **100s 硬上限**（`KPI_ROUND_HARD_DEADLINE_S`，任务入口起算，含登录 / filter-map / 回填），到时放弃未完成站点并记日志，保证 2 分钟节拍不漂移；popup 失败下轮自然重试，diagram 失败由游标下轮补上。
-  - 合成落库：全站每轮各写**一条**快照（popup KPI 为底，有 diagram 的站覆盖明细列，`source` 记 `popup`/`diagram`）；popup 行 `raw` 不落 JSON（控表体积：501 站 x 720 轮/天，全存约 1.8GB/天），diagram 精简明细另存 `ipt_power_site_detail`（每站最新一条）。
+- 采集任务 `ipt_power_collect`（m 组，`*/5 * * * *`，2026-11-06 由 2 分钟降频），**上游没有任何批量电源接口**（逐一核对过抓包全部端点：filter-map 只有 id/name/坐标/连接状态/criticality；`events/recent` 只返回最近新发生的事件而非活动告警快照），电源数值只能逐站请求。2026-11-04 实测（32 线程）：`/popup`（约 1.5KB）501 站 60.1s、0 错误；`/diagram`（约 5KB）200 站 73.8s、外推 501 站约 185s 且出现超时。据此分两层：
+  - **KPI 层（full_kpi）**：并发拉全站 `/popup`（现行 8 线程，按 `ipt_power_meta.kpi_cursor` 环形轮转）→ **全站每 5 分钟一条快照**（负载/电池电压/SOC/太阳能/柴油/油机开关 + site.events 活动告警）；
+  - **明细层（full_shard）**：`/diagram` 完整明细按 `ipt_power_meta.shard_cursor` 环形游标分片轮采（3 线程，单轮计划不超过 60 站），约 9 轮 / 45 分钟覆盖全站（5 分钟节拍）；**关注站（`sites`）每轮必采 diagram**。明细池先起、与 popup 池**同时跑**（否则会被 popup 预算饿死，2026-11-04 首轮实测踩坑）。
+  - 整轮 **240s 硬上限**（`KPI_ROUND_HARD_DEADLINE_S`，任务入口起算，含登录 / filter-map / 回填；2026-11-06 D 由 100s 放宽），到时放弃未完成站点并记日志，保证 5 分钟节拍不漂移（`*/5` 周期 300s，留 60s 给落库与下一轮）；popup 失败下轮自然重试，diagram 失败由游标下轮补上。`_drain` 跑完即止，放宽上限**不让正常轮变慢、也不增加瞬时 rps**，只是不再把上游偶发变慢轮次的尾部站提前砍掉。
+  - 合成落库：全站每轮各写**一条**快照（popup KPI 为底，有 diagram 的站覆盖明细列，`source` 记 `popup`/`diagram`）；popup 行 `raw` 不落 JSON（控表体积：501 站 x 288 轮/天，按 5 分钟节拍），diagram 精简明细另存 `ipt_power_site_detail`（每站最新一条）。
   - 收尾：清理 2 天前旧快照，写 `ipt_power_meta.last_run`（含 `kpi_ok/kpi_failed/detail_ok/detail_failed/shard`）与下一轮起点 `shard_cursor`。
 - 认证为 **OIDC 隐式流**（`client_id=rubix-web`，`response_type=id_token token`），纯 requests 模拟 authorize → 登录表单 → 回调 fragment 取 access_token（TTL 1 小时，缓存 `auth_cache/` 自动续期）；上游拒绝 password grant（实测 `unauthorized_client`）。并发采集每线程 fork 一个独立 `requests.Session` 客户端（Session 非线程安全），token 复用主客户端避免重登风暴。协议详情见 `backend/services/ipt_data/README.md`。
 - 页面只读本地库，不打扰上游；「立即刷新」按钮走 `POST /api/ipt-power/refresh` 实时直查平台并补一条快照与明细（任意站点可用，不受轮采节拍限制）。
@@ -5623,11 +5624,11 @@ VMAX 数仓 GBase（10.123.255.12:5258/zxvmax，只读）
 
 ### 41.3 注意事项
 
-- **`watch_sites.json` 是对象**：`sites` = 关注站（站名 / 参考号 / site_id，每轮必采 diagram，当前 3 个：`Jahtondo Town` / `Brewerville 4` / `Zwedru 4`）；`full_kpi = {"enabled": true, "workers": 8, "budget_s": 80}` 全站 popup 层；`full_shard = {"enabled": true, "max_sites": 60, "budget_s": 70}` diagram 明细分片。**不要在 `sites` 里配 `"*"`**（旧语义 = 单轮全采 500 站 diagram，实测外推约 185s 必然超时并冲击外网平台）。
+- **`watch_sites.json` 是对象**：`sites` = 关注站（站名 / 参考号 / site_id，每轮必采 diagram，当前 3 个：`Jahtondo Town` / `Brewerville 4` / `Zwedru 4`）；`full_kpi = {"enabled": true, "workers": 8, "budget_s": 200}` 全站 popup 层；`full_shard = {"enabled": true, "max_sites": 60, "budget_s": 70}` diagram 明细分片。**不要在 `sites` 里配 `"*"`**（旧语义 = 单轮全采 500 站 diagram，实测外推约 185s 必然超时并冲击外网平台）。
 - **太阳能口径**：`solarSets[].solarPower` 与 `rectifiers[].solarPower` 上游是同一份镜像值（对 3945 条历史快照逐条核对），取 max 避免重复累加，多组太阳能先求和；无太阳能设备的站 `solar_available=0` 显示「-」；有设备的站**夜间（利比里亚 GMT，约 18:30 至次日 06:30）为 0 W 属正常**，白天常见 6-14 kW。
 - **凭据泄漏修复（2026-11-04）**：此前快照 `raw` 列存全量 `diagram` JSON 且被 `/api/ipt-power/site/{id}` 原样下发，其中 `fuelTanks[].device` 带控制器明文 username/password；现 `raw` 只存 `slim_diagram()` 精简结果（剥除 device/凭据），API 不再下发 raw。`with-events` 接口同样含设备凭据，落库/日志前必须脱敏。
 - **改采集器代码后必须重启 m 组 worker**：`task_registry.py` 用 `safe_import` 懒加载；执行 `python restart_workers.py --groups m --reason "重载 ipt_power_collector"`（m 组队列有 running/pending 时脚本会拒绝；确要立即重启可用 `--force`，被中断的 running 行会在新 worker 启动时被 `_recover_stale_running` 标 failed，采集本身幂等可中断）。**只改 `watch_sites.json` 不用重启**（每轮重读，下一轮生效）。**改 routers/ipt_power.py 则要重启 7038 后端**（杀 uvicorn 子进程即可，backend_watchdog 自动拉起新代码，21:49 实测）。
-- **弹性（2026-11-04 晚高峰 + 11-05 上午两次复盘后加固）**：① 池内客户端单请求超时 **20s**（`POOL_REQ_TIMEOUT_S`）——11-05 顺序探测出现过 17s 仍成功，12s 会把「慢但会成功」的请求误杀，且客户端提前放弃后服务端仍在算，连接越堆越慢形成超时风暴；② popup 失败站在硬上限内**补采一轮**；③ **popup 环形游标**（`ipt_power_meta.kpi_cursor`）：硬上限到时只完成列表前一段，若每轮都从 `sorted(site_id)` 开头重来，尾部站永远拿不到新快照（11-05 实测 1 小时内 62 站无快照），现下轮从断点续采；④ **低成功率熔断**（`DEGRADED_RATIO=0.25`）：单轮 popup 成功率 <25% 即计入退避（`last_run.degraded=true`），不再每 2 分钟打满 100s 却拿不到数据；⑤ **熔断退避**：上游故障（filter-map 连续 500 / 读超时，或上述低成功率）按连续失败次数指数退避 5/10/20 分钟（封顶 30，状态存 `ipt_power_meta.failure_backoff`），退避期整轮静默跳过（success=true，不触发微信/邮件告警轰炸），任一轮成功自动清零；页面新鲜度看 `last_run.time`，超过 5 分钟即上游异常或退避中。
+- **弹性（2026-11-04 晚高峰 + 11-05 上午两次复盘后加固）**：① 池内客户端单请求超时 **20s**（`POOL_REQ_TIMEOUT_S`）——11-05 顺序探测出现过 17s 仍成功，12s 会把「慢但会成功」的请求误杀，且客户端提前放弃后服务端仍在算，连接越堆越慢形成超时风暴；② popup 失败站在硬上限内**补采一轮**；③ **popup 环形游标**（`ipt_power_meta.kpi_cursor`）：硬上限到时只完成列表前一段，若每轮都从 `sorted(site_id)` 开头重来，尾部站永远拿不到新快照（11-05 实测 1 小时内 62 站无快照），现下轮从断点续采；④ **低成功率熔断**（`DEGRADED_RATIO=0.25`）：单轮 popup 成功率 <25% 即计入退避（`last_run.degraded=true`），不再每 5 分钟打满 240s 却拿不到数据；⑤ **熔断退避**：上游故障（filter-map 连续 500 / 读超时，或上述低成功率）按连续失败次数指数退避 5/10/20 分钟（封顶 30，状态存 `ipt_power_meta.failure_backoff`），退避期整轮静默跳过（success=true，不触发微信/邮件告警轰炸），任一轮成功自动清零；页面新鲜度看 `last_run.time`，超过 10 分钟即上游异常或退避中。
 - `GET /energy/sites/<id>/devices/<device_id>/attributes/values` 实测返回 `[]`，**不是**电源数据来源。
 - 查询条件（关键字 / 时间范围 / 选中站点）写进 URL（`iptKw` / `iptHrs` / `iptSite`），刷新与分享链接可恢复。
 - 自测：`TMP\_ipt_hit_test.py`（headless Chrome + CDP，**留用**）—— 列各 Leaflet pane 的图层数、
@@ -5658,3 +5659,12 @@ VMAX 数仓 GBase（10.123.255.12:5258/zxvmax，只读）
 - 首轮验证（21:11:28，watch-first 版本）：`kpi_ok=500/501`、关注站 diagram 3/3、耗时 82.3s；双池并发后 22:05~22:11 稳定在 359~405/501（12+8 并发），11-05 上午退化见下条。
 - **晚高峰上游退化与熔断（21:21~21:46）**：21:25/21:27 两轮 popup 掉到 124/289（25s 读超时成批出现，顺序探测却健康）→ 21:36 起 filter-map 本身连续 HTTP 500（顺序探测同样 500，判定平台侧故障，非我方并发所致——此前被误杀 worker 的约 460 个在途请求可能压垮过它）。处置：池内 12s 短超时 + popup 补采 + 熔断退避（见 41.3），退避后每 2 分钟节拍只发 1 个轻量请求查 meta，不再敲打故障中的上游；上游恢复后自动回到全量采集。
 - **11-05 上午：并发自压垮 + 尾部站漏采（09:49~09:59）**：连续 4 轮 popup 仅 0/216/40/7，且 `success=true` 不退避（旧逻辑只认 filter-map 失败）。对照实验：09:57:49~09:59:05 采集退避静默期间顺序探测 6 次全部 0.9~4.3s 正常，采集轮次运行期则批量 12s 读超时 → 判定**自身 12+8=20 并发把上游拖垮**，12s 超时误杀慢请求形成超时风暴；同时发现固定 `sorted(site_id)` 顺序 + 100s 截断导致 1 小时内 62 站完全没有快照。处置：降为 popup 8 + diagram 3（合计 11 并发）、超时放宽 20s、`kpi_cursor` 环形续采、成功率 <25% 计入退避（见 41.3）。设计取舍已明确：上游无法长期承受全站 2 分钟逐站轮询，以单轮覆盖率换稳定，等效每站 2~6 分钟，页面新鲜度告警如实反映。
+
+### 41.7 故障复盘三：降频 5 分钟 + 单点加固 + 放宽硬上限（2026-11-06）
+
+- **现象**：11-03~11-06 共 19 次任务失败告警，其中 17 次同一个根因：`filter-map` 单点读超时 / HTTP 408 / 500 后整轮直接 return、判 `success=False`。近 3 天 1236 轮中 **81.4% 撞 100s 硬上限截断**，popup 覆盖率中位数仅 84.1%；`*/2` 节拍下单轮 100s 几乎占满周期，上游只有约 20s 喘息，慢请求被客户端放弃而服务端仍在算，连接堆积后把下一轮首请求拖超时——**自己压垮自己**。完整证据见 `outputs/ipt_power_collect_失败复盘_2026-11-06.md`。
+- **A 降频**：`default_cron` 与运行时 `task_schedule_config` 同改 `*/5`，请求压力 -60%、上游喘息窗口 20s→200s；**当时 100s 硬上限未同步调整，成为 D 的遗留问题**。
+- **B 告警语义**：瞬时上游抖动不再等于任务失败；只有连续 3 轮「连上轮站点清单都拿不到、整轮完全无法采集」才告警，数据陈旧由 `db_freshness_check` 的「IPT 站点电源快照」20 分钟巡检兜底。
+- **C 单点加固**：`IptEnergyClient.filter_map` 对超时 / 408 / 5xx 做 1 次短重试（第 2 次 12s 超时，401 重登不占次数）；仍失败时 collector 用上一轮 `ipt_power_sites` 清单降级继续采，本轮跳过站点表刷新与属性回填，`last_run.stale_sites` 留痕。
+- **D 补完 A（22:20）**：改后 21:25~22:08 共 10 轮实测：覆盖率中位数 84.1%→**94.1%**、21:56/22:01/22:06 **连续 3 轮 501/501**，filter-map 失败/降级/失败告警全部归零；但仍有 **7/10 轮撞 100s 硬上限**（21:27=333/501、21:46=327/501）。根因是周期放到 300s 后空出的 200s 完全没用——`KPI_ROUND_HARD_DEADLINE_S` `100→240`，`full_kpi.budget_s` 同步 `80→200`（⚠ 该字段当前在 collector 中**未被读取**，实际约束一律由 `hard_deadline` 给出，改它只是配置与文档口径一致）。不改并发、不改单请求超时、不增加任何瞬时压力；`max_instances=1` 保证轮次不重叠，`STALE_RUNNING_SECONDS=1800s` 不会把 240s 长轮误判成僵尸。另已排除两条看似更好的路：上游批量电源接口经抓包全量核对确认不存在；`ipt_power_sites` 实测 495 online / 6 offline，给离线站降频最多省 6 个请求。
+- **判据（改后 24 小时看）**：硬上限截断率、popup 覆盖率中位数、`filter-map` 超时次数、失败告警数。不要再单独调线程数（32→8 已边际递减）。若 D 后仍 <95% 覆盖率，再评估「滚动窗口」（每轮采 1/3 站 + 游标轮转，请求量约 -54%，代价是单站新鲜度 5→15 分钟）。

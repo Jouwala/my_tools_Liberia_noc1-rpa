@@ -166,9 +166,22 @@ def alarm_site_keys(alarm: Dict[str, Any]) -> Set[str]:
     for cand in (s(val(alarm.get("site_id"))), s(val(alarm.get("site")))):
         if cand.isdigit():
             keys.add("id:" + cand)
+        else:
+            # 2026-11-06 新增：`site` 可能是 `4474_Quiwor_NE2(10.16.7.26)` 这种
+            # 「站号_站名_设备」复合串 —— 前导数字就是站号。旧实现只认纯数字，
+            # 于是这批 fiber 告警**一条 id 键都没有**，与 99933 类告警永远比不相交
+            # → 「同站已有 99933 就不派单」静默失效（会重复派单）。
+            nid = client.numeric_site_id(cand)
+            if nid:
+                keys.add("id:" + nid)
 
     for cand in (s(val(alarm.get("site_name"))), s(val(alarm.get("sitename")))):
         if cand and cand.lower() not in _SITE_PLACEHOLDERS and not is_uuid(cand):
+            keys.add("name:" + cand.lower())
+
+    # `site` 复合形态里的站点名段（`4474_Quiwor_NE2(...)` → `Quiwor`）
+    for cand in client.site_name_candidates(s(val(alarm.get("site")))):
+        if cand.lower() not in _SITE_PLACEHOLDERS and not is_uuid(cand):
             keys.add("name:" + cand.lower())
 
     me = s(val(alarm.get("mename")) or val(alarm.get("site")))

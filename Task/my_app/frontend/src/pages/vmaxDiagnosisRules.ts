@@ -145,6 +145,11 @@ export const THRESHOLDS = {
   csfbFallback: 2000,
   /** OTT 通话最短判定时长（s） */
   ottMinDuration: 10,
+  /** OTT 通话体验偏差线：平均下行 RTT（ms）——buildVerdict 与工作台 m-ott 共用，
+   * 此前两处各写一份 150/60（2026-11-07 收敛为唯一出处） */
+  ottRttBad: 150,
+  /** OTT 通话体验偏差线：RTT 抖动（ms） */
+  ottJitterBad: 60,
   /** 评分分档：>= 此值算正常 */
   scoreGood: 80,
   /** 评分分档：< 此值算异常 */
@@ -1392,8 +1397,8 @@ export function buildVerdict(
           focus: 'ott',
         }
       }
-      const badRtt = ott.avgDlRtt > 150
-      const badJitter = ott.jitter > 60
+      const badRtt = ott.avgDlRtt > THRESHOLDS.ottRttBad
+      const badJitter = ott.jitter > THRESHOLDS.ottJitterBad
       const badRetrans = ott.retransRate > THRESHOLDS.retrans
       const worse = badRtt || badJitter || badRetrans
       return {

@@ -269,7 +269,22 @@
       'um.rejectConfirm': '确定驳回 {name} 的账号申请吗？',
       'um.approved': '已批准 {name}：申请时设置的密码即刻生效，其首次登录需修改密码',
       'um.rejected': '已驳回 {name} 的账号申请',
-      'um.notFound': '申请不存在或已被处理'
+      'um.notFound': '申请不存在或已被处理',
+      /* 联系资料（2026-11-06 加）：手工建号、行内编辑、申请列表共用这一套字段，
+         与 /uniplam/ 的 UserManagementModal 同一口径；老数据缺字段一律显示「—」。 */
+      'contact.staffId': '用户ID',
+      'contact.staffIdPh': '用户ID／工号（选填）',
+      'contact.phone': '电话',
+      'contact.phonePh': '电话（选填）',
+      'contact.email': '邮箱',
+      'contact.emailPh': '邮箱（选填）',
+      'um.colStaffId': '用户ID',
+      'um.colContact': '联系方式',
+      'um.contactEdit': '编辑资料',
+      'um.contactSave': '保存资料',
+      'um.contactSaved': '已保存 {name} 的联系资料',
+      'um.contactCancel': '取消',
+      'um.staffIdTaken': '该用户ID已被其它账号使用'
     },
     en: {
       'tagline': 'Smarter Operations · Higher Efficiency · Better Network',
@@ -481,7 +496,21 @@
       'um.rejectConfirm': 'Reject the account request from {name}?',
       'um.approved': 'Approved {name}: the password they chose is now active, change required at first login',
       'um.rejected': 'Rejected the account request from {name}',
-      'um.notFound': 'Request not found or already handled'
+      'um.notFound': 'Request not found or already handled',
+      /* 联系资料（2026-11-06 加）：与 zh 一一对应，手工建号、行内编辑、申请列表共用 */
+      'contact.staffId': 'User ID',
+      'contact.staffIdPh': 'User ID / employee no. (optional)',
+      'contact.phone': 'Phone',
+      'contact.phonePh': 'Phone (optional)',
+      'contact.email': 'Email',
+      'contact.emailPh': 'Email (optional)',
+      'um.colStaffId': 'User ID',
+      'um.colContact': 'Contact',
+      'um.contactEdit': 'Edit contact',
+      'um.contactSave': 'Save contact',
+      'um.contactSaved': 'Contact info saved for {name}',
+      'um.contactCancel': 'Cancel',
+      'um.staffIdTaken': 'This user ID is already used by another account'
     }
   };
 
@@ -525,7 +554,8 @@
     refresh: 'ph-arrows-clockwise',
     /* 用户管理弹窗用的几个（MsPortal 那边是内联 svg，本页统一走 phosphor 字体图标） */
     plus: 'ph-plus', check: 'ph-check', 'check-circle': 'ph-check-circle', trash: 'ph-trash',
-    'user-plus': 'ph-user-plus', 'user-check': 'ph-user-check', 'user-x': 'ph-user-x'
+    'user-plus': 'ph-user-plus', 'user-check': 'ph-user-check', 'user-x': 'ph-user-x',
+    pencil: 'ph-pencil-simple'                 /* 行内「编辑资料」按钮 */
   };
   function ic(name) { return '<i class="ph ' + (PH[name] || PH.dashboard) + '" aria-hidden="true"></i>'; }
 
@@ -632,7 +662,11 @@
       open: false, loading: false, users: [], requests: [], storage: null,
       portalGroups: null, portalGroupLabels: null, portalDashboards: null, portalGroupsErr: false,
       nu: '', np: '', nr: 'viewer',
+      /* 手工建号时一并录入的联系资料（选填） */
+      nsi: '', nph: '', nem: '',
       resetId: '', resetPwd: '', approveRoles: {},
+      /* 行内编辑联系资料（2026-11-06 加）：contactId 为空 = 面板收起 */
+      contactId: '', csi: '', cph: '', cem: '',
       profileId: '', pv: '', pc: '', restricted: false, groups: [], cards: [],
       saving: false, busy: '', error: '', success: ''
     },
@@ -2453,6 +2487,9 @@
   /** 服务端错误文案 → 当前语言的可读提示（认不出的原因原样透出，便于排查） */
   function umErrorText(status, detail) {
     var d = String(detail || '');
+    /* 用户ID（工号）被别的账号占用：建号 / 行内改资料 / 审批 都会回这个 detail，
+       必须排在 409 的通用「用户名已存在」之前，否则管理员只看到不相干的旧文案。 */
+    if (d === 'staff_id_taken') return t('um.staffIdTaken');
     if (d === 'cannot delete yourself') return t('um.selfDelete');
     if (d === 'cannot delete the last admin') return t('um.lastAdmin');
     if (status === 409) return t('um.duplicate');
@@ -2580,8 +2617,10 @@
     /* 每次打开都清掉上一轮的草稿与提示，避免「上次没保存的勾选」被当成现状 */
     state.um.error = ''; state.um.success = '';
     state.um.nu = ''; state.um.np = ''; state.um.nr = 'viewer';
+    state.um.nsi = ''; state.um.nph = ''; state.um.nem = '';
     state.um.resetId = ''; state.um.resetPwd = '';
     state.um.approveRoles = {};
+    state.um.contactId = ''; state.um.csi = ''; state.um.cph = ''; state.um.cem = '';
     state.um.profileId = '';
     state.um.saving = false;
     state.um.busy = '';
@@ -2661,8 +2700,13 @@
     var rows = list.length
       ? list.map(function (r) {
           var role = state.um.approveRoles[r.id] || 'viewer';
+          /* 申请时留的电话 / 邮箱：有才显示，用「·」连成一行小字挂在用户名下方；
+             老申请没有这几个键，filter(Boolean) 顺手把空的 / undefined / 0 都滤掉。 */
+          var contactLine = [r.phone, r.email].filter(Boolean).join(' · ');
           return '<tr>' +
-            '<td class="um-strong">' + esc(r.username) + '</td>' +
+            '<td class="um-strong">' + esc(r.username) +
+              (contactLine ? '<div class="um-dim"><small>' + esc(contactLine) + '</small></div>' : '') + '</td>' +
+            '<td class="um-dim um-mono">' + esc(r.staffId || '—') + '</td>' +
             '<td class="um-dim um-ellipsis" title="' + esc(r.note || '') + '">' + esc(r.note || '—') + '</td>' +
             '<td class="um-dim um-mono">' + esc(String(r.createdAt || '').slice(0, 19).replace('T', ' ')) + '</td>' +
             '<td class="um-dim um-mono">' + esc(r.ip || '') + '</td>' +
@@ -2677,7 +2721,7 @@
                 (state.um.busy === 'decide' ? ' disabled' : '') + '>' + ic('user-x') + esc(t('um.reject')) + '</button>' +
             '</span></td></tr>';
         }).join('')
-      : '<tr><td colspan="5" class="um-empty">' + esc(t('um.pendingEmpty')) + '</td></tr>';
+      : '<tr><td colspan="6" class="um-empty">' + esc(t('um.pendingEmpty')) + '</td></tr>';
 
     return '<div class="um-box um-box-warn">' +
       '<div class="um-box-head">' + ic('clock') + '<span>' + esc(t('um.pendingTitle')) + '</span>' +
@@ -2686,6 +2730,7 @@
       '<div class="um-scroll"><table class="um-table">' +
         '<thead><tr>' +
           '<th>' + esc(t('um.colApplicant')) + '</th>' +
+          '<th>' + esc(t('um.colStaffId')) + '</th>' +
           '<th>' + esc(t('um.colNote')) + '</th>' +
           '<th>' + esc(t('um.colTime')) + '</th>' +
           '<th>' + esc(t('um.colIp')) + '</th>' +
@@ -2707,6 +2752,15 @@
         '</select>' +
         '<button type="submit" class="gb um-primary" id="umAddBtn"' +
           (busy ? ' disabled' : '') + '>' + ic('plus') + esc(t('um.add')) + '</button>' +
+      '</div>' +
+      /* 联系资料（选填）单独一行，复用 .um-add-row 的 flex 布局，不新增样式 */
+      '<div class="um-add-row">' +
+        '<input type="text" id="umNewStaffId" maxlength="32" autocomplete="off" placeholder="' +
+          esc(t('contact.staffIdPh')) + '" aria-label="' + esc(t('contact.staffId')) + '" value="' + esc(state.um.nsi) + '">' +
+        '<input type="tel" id="umNewPhone" maxlength="32" autocomplete="off" placeholder="' +
+          esc(t('contact.phonePh')) + '" aria-label="' + esc(t('contact.phone')) + '" value="' + esc(state.um.nph) + '">' +
+        '<input type="email" id="umNewEmail" maxlength="128" autocomplete="off" placeholder="' +
+          esc(t('contact.emailPh')) + '" aria-label="' + esc(t('contact.email')) + '" value="' + esc(state.um.nem) + '">' +
       '</div></form>';
   }
 
@@ -2732,7 +2786,7 @@
           esc(c.group) + ' · ' + esc(c.label) + '</option>';
       }).join('');
 
-    return '<tr class="um-profile-row"><td colspan="4">' +
+    return '<tr class="um-profile-row"><td colspan="6">' +
       '<div class="um-profile">' +
         '<div class="um-profile-head">' + ic('dashboard') +
           '<b>' + esc(tf('um.pagesTitle', { name: u.username })) + '</b>' +
@@ -2787,7 +2841,8 @@
   }
 
   /* 账号表。两张表（待审批 / 账号）tr 结构相似，排查时需要一个明确锚点区分，
-     所以外层带 data-um="users-table"。 */
+     所以外层带 data-um="users-table"。
+     2026-11-06：用户列后加「用户ID」「联系方式」两列，三条展开行 colspan 同步改为 6。 */
   function umUsersHtml() {
     var u = state.um;
     if (u.loading && !u.users.length) {
@@ -2801,14 +2856,25 @@
       var lastAdmin = x.role === 'admin' && admins <= 1;
       var blocked = isSelf || lastAdmin;
       var open = u.profileId === x.id;
+      /* 联系方式：电话 / 邮箱各占一行小字，老账号缺字段（undefined/0 都算没有）时整格显示「—」 */
+      var contactHtml = (x.phone || x.email)
+        ? '<div class="um-dim">' +
+            (x.phone ? '<div><small>' + esc(x.phone) + '</small></div>' : '') +
+            (x.email ? '<div><small>' + esc(x.email) + '</small></div>' : '') +
+          '</div>'
+        : '<span class="um-dim">—</span>';
       var out = '<tr' + (open ? ' class="is-open"' : '') + '>' +
         '<td class="um-strong">' + esc(x.username) +
           (isSelf ? '<span class="um-self">' + esc(t('um.self')) + '</span>' : '') + '</td>' +
+        '<td class="um-dim um-mono">' + esc(x.staffId || '—') + '</td>' +
+        '<td>' + contactHtml + '</td>' +
         '<td><span class="um-role' + (x.role === 'admin' ? ' is-admin' : '') + '">' +
           (x.role === 'admin' ? ic('shield') : '') +
           esc(x.role === 'admin' ? t('um.roleAdmin') : t('um.roleViewer')) + '</span></td>' +
         '<td class="um-dim um-mono">' + esc(String(x.createdAt || '').slice(0, 19).replace('T', ' ')) + '</td>' +
         '<td class="um-right"><span class="um-row-actions">' +
+          '<button type="button" class="um-icon-btn' + (u.contactId === x.id ? ' is-on' : '') + '" data-um="contact" data-id="' + esc(x.id) + '"' +
+            ' title="' + esc(t('um.contactEdit')) + '" aria-label="' + esc(t('um.contactEdit')) + '">' + ic('pencil') + '</button>' +
           '<button type="button" class="um-icon-btn' + (umHasProfile(x) ? ' is-on' : '') + '" data-um="profile" data-id="' + esc(x.id) + '"' +
             ' title="' + esc(t('um.pages')) + '" aria-label="' + esc(t('um.pages')) + '">' + ic('dashboard') + '</button>' +
           '<button type="button" class="um-icon-btn" data-um="reset" data-id="' + esc(x.id) + '"' +
@@ -2819,8 +2885,24 @@
             ' aria-label="' + esc(t('um.delete')) + '">' + ic('trash') + '</button>' +
         '</span></td></tr>';
 
+      /* 行内编辑联系资料：三个输入框 + 保存 / 取消，照抄重置密码行的展开与事件委托模式 */
+      if (u.contactId === x.id) {
+        out += '<tr class="um-inline-row"><td colspan="6"><div class="um-inline">' +
+          '<span class="um-dim">' + esc(t('um.contactEdit')) + ' · ' + esc(x.username) + '</span>' +
+          '<input type="text" data-um="contact-staff" maxlength="32" autocomplete="off" placeholder="' +
+            esc(t('contact.staffIdPh')) + '" aria-label="' + esc(t('contact.staffId')) + '" value="' + esc(u.csi) + '">' +
+          '<input type="tel" data-um="contact-phone" maxlength="32" autocomplete="off" placeholder="' +
+            esc(t('contact.phonePh')) + '" aria-label="' + esc(t('contact.phone')) + '" value="' + esc(u.cph) + '">' +
+          '<input type="email" data-um="contact-email" maxlength="128" autocomplete="off" placeholder="' +
+            esc(t('contact.emailPh')) + '" aria-label="' + esc(t('contact.email')) + '" value="' + esc(u.cem) + '">' +
+          '<button type="button" class="gb um-primary" data-um="contact-save" data-id="' + esc(x.id) + '"' +
+            (u.busy === 'contact' ? ' disabled' : '') + '>' + ic('check') + esc(t('um.contactSave')) + '</button>' +
+          '<button type="button" class="gb" data-um="contact-cancel">' + esc(t('um.contactCancel')) + '</button>' +
+        '</div></td></tr>';
+      }
+
       if (u.resetId === x.id) {
-        out += '<tr class="um-inline-row"><td colspan="4"><div class="um-inline">' +
+        out += '<tr class="um-inline-row"><td colspan="6"><div class="um-inline">' +
           '<span class="um-dim">' + esc(tf('um.resetHint', { name: x.username })) + '</span>' +
           '<input type="password" data-um="reset-pwd" autocomplete="new-password" placeholder="' +
             esc(t('um.passwordPh')) + '" value="' + esc(u.resetPwd) + '">' +
@@ -2835,11 +2917,13 @@
     return '<div class="um-box" data-um="users-table"><div class="um-scroll"><table class="um-table">' +
       '<thead><tr>' +
         '<th>' + esc(t('um.colUser')) + '</th>' +
+        '<th>' + esc(t('um.colStaffId')) + '</th>' +
+        '<th>' + esc(t('um.colContact')) + '</th>' +
         '<th>' + esc(t('um.colRole')) + '</th>' +
         '<th>' + esc(t('um.colCreated')) + '</th>' +
         '<th class="um-right">' + esc(t('um.colActions')) + '</th>' +
       '</tr></thead><tbody>' +
-      (rows || '<tr><td colspan="4" class="um-empty">' + esc(t('um.empty')) + '</td></tr>') +
+      (rows || '<tr><td colspan="6" class="um-empty">' + esc(t('um.empty')) + '</td></tr>') +
       '</tbody></table></div></div>';
   }
 
@@ -2879,10 +2963,15 @@
     if (password.length < 8) { umFlash('err', t('um.pwdTooShort')); return; }
     state.um.busy = 'add';
     renderUserMgmt();
-    umCall('/users', { method: 'POST', body: { username: username, password: password, role: state.um.nr } })
+    /* 三个联系资料一律选填，空串交给服务端清洗；userID 冲突由 umErrorText 翻成可读提示 */
+    umCall('/users', { method: 'POST', body: {
+      username: username, password: password, role: state.um.nr,
+      staffId: String(state.um.nsi || ''), phone: String(state.um.nph || ''), email: String(state.um.nem || '')
+    } })
       .then(function (r) {
         if (!r.ok) { umFlash('err', umErrorText(r.status, r.data && r.data.detail)); return; }
         state.um.nu = ''; state.um.np = ''; state.um.nr = 'viewer';
+        state.um.nsi = ''; state.um.nph = ''; state.um.nem = '';
         umFlash('ok', t('um.added'));
         return loadUserMgmt();
       })
@@ -2919,6 +3008,37 @@
       })
       .catch(function (e) { umFlash('err', String(e)); })
       .then(function () { state.um.busy = ''; renderUserMgmt(); });
+  }
+
+  /** 行内保存联系资料（2026-11-06 加）：只 patch 三个可选字段，空串 = 清除
+      （服务端清洗后删除）。body 不传 landing / 白名单 / 团队，避免动到页面配置那一维；
+      成功后以服务端返回的 user 就地更新列表，不整表重拉。 */
+  function umSaveContact(id) {
+    if (state.um.busy === 'contact') return;
+    var target = state.um.users.filter(function (x) { return x.id === id; })[0];
+    if (!target) return;
+    state.um.busy = 'contact';
+    renderUserMgmt();
+    umCall('/users/profile', {
+      method: 'POST',
+      body: {
+        id: id,
+        staffId: String(state.um.csi || ''),
+        phone: String(state.um.cph || ''),
+        email: String(state.um.cem || '')
+      }
+    }).then(function (r) {
+      if (!r.ok || !r.data.user) { umFlash('err', umErrorText(r.status, r.data && r.data.detail)); return; }
+      var saved = r.data.user;
+      state.um.users = state.um.users.map(function (x) { return x.id === saved.id ? saved : x; });
+      state.um.contactId = '';
+      umFlash('ok', tf('um.contactSaved', { name: target.username }));
+    }).catch(function (e) {
+      umFlash('err', String(e));
+    }).then(function () {
+      state.um.busy = '';
+      renderUserMgmt();
+    });
   }
 
   function umDecide(id, action) {
@@ -3017,8 +3137,15 @@
       var el = e.target;
       var act = el.getAttribute && el.getAttribute('data-um');
       if (act === 'reset-pwd') { state.um.resetPwd = el.value; syncUmResetBtn(); return; }
+      /* 行内编辑联系资料：同样只写回 state，不重绘（重绘会打断输入） */
+      if (act === 'contact-staff') { state.um.csi = el.value; return; }
+      if (act === 'contact-phone') { state.um.cph = el.value; return; }
+      if (act === 'contact-email') { state.um.cem = el.value; return; }
       if (el.id === 'umNewUser') { state.um.nu = el.value; return; }
       if (el.id === 'umNewPass') { state.um.np = el.value; return; }
+      if (el.id === 'umNewStaffId') { state.um.nsi = el.value; return; }
+      if (el.id === 'umNewPhone') { state.um.nph = el.value; return; }
+      if (el.id === 'umNewEmail') { state.um.nem = el.value; return; }
     });
     mask.addEventListener('change', function (e) {
       var el = e.target;
@@ -3046,6 +3173,25 @@
         state.um.cards = umToggle(state.um.cards, el.getAttribute('data-val'));
         renderUserMgmt(); return;
       }
+      /* 行内编辑联系资料：再点一次收起；展开时用服务端返回的账号数据回填三个输入框 */
+      if (act === 'contact') {
+        if (state.um.contactId === id) {
+          state.um.contactId = '';
+        } else {
+          var cu = state.um.users.filter(function (x) { return x.id === id; })[0];
+          state.um.contactId = id;
+          state.um.csi = cu && cu.staffId ? cu.staffId : '';
+          state.um.cph = cu && cu.phone ? cu.phone : '';
+          state.um.cem = cu && cu.email ? cu.email : '';
+          state.um.error = '';
+        }
+        renderUserMgmt();
+        var cinp = $('[data-um="contact-staff"]');
+        if (cinp) cinp.focus();
+        return;
+      }
+      if (act === 'contact-save') { umSaveContact(id); return; }
+      if (act === 'contact-cancel') { state.um.contactId = ''; renderUserMgmt(); return; }
       if (act === 'profile') {
         if (state.um.profileId === id) { state.um.profileId = ''; renderUserMgmt(); }
         else {

@@ -51,6 +51,12 @@ $dir     = Split-Path -Parent $MyInvocation.MyCommand.Path
 $pidFile = Join-Path $dir 'bot.pid'
 $logDir  = Join-Path $dir 'data\logs'
 $hbFile  = Join-Path $dir 'data\bot_heartbeat.json'
+# The bot writes its own business log to $log, so the process-level stdout /
+# stderr must go to SEPARATE files. Reusing $log would make two processes fight
+# over one file, and Start-Process refuses to redirect stdout+stderr to the
+# same path.
+$botOutLog  = Join-Path $logDir ("bot-stdout-" + (Get-Date -Format 'yyyy-MM-dd') + '.log')
+$botErrLog  = Join-Path $logDir ("bot-stderr-" + (Get-Date -Format 'yyyy-MM-dd') + '.log')
 $log     = Join-Path $logDir ("bot-" + (Get-Date -Format 'yyyy-MM-dd') + '.log')
 
 # Web Q&A assistant (:9269). Same watchdog pattern as the bot: a pid file plus a
@@ -490,9 +496,15 @@ if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir | Out
 
 # Launch detached and hidden. The project dir must be the working directory
 # because .env and the relative paths in config.json are resolved from it.
+# Redirect BOTH streams. Without this the detached bot node process inherits
+# the parent PowerShell's stdout pipe; when this script is invoked through a
+# pipeline (e.g. my_portal_ctl.ps1), that pipe never reaches EOF and the caller
+# hangs forever even though this script already exited. The http-server launch
+# above has done this all along - the bot simply missed it. (2026-11-06)
 $proc = Start-Process -FilePath 'node' `
   -ArgumentList '--env-file-if-exists=.env','src/index.js' `
-  -WorkingDirectory $dir -WindowStyle Hidden -PassThru
+  -WorkingDirectory $dir -WindowStyle Hidden -PassThru `
+  -RedirectStandardOutput $botOutLog -RedirectStandardError $botErrLog
 $proc.Id | Set-Content -Path $pidFile
 
 # Wait for the Baileys handshake. The bot writes data\bot_heartbeat.json with

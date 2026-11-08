@@ -425,6 +425,26 @@
       if (rs !== reset) rs.textContent = en ? 'Reset layout' : '重置布局';
       else reset.textContent = en ? 'Reset layout' : '重置布局';
     }
+    paintHandles();
+  }
+  /* ⚠️ 2026-11-06：编辑态区块手柄原先是硬编码中文（"拖动排序 / 显隐 /
+     显示 / 隐藏 / 拖动调整高度"），英文界面下漏中文；而且手柄只在
+     ensureHandles() 里创建一次，语言切换后不会自己变。
+     olbr.js 的 applyI18n() 会写 html[lang]，本文件末尾的 MutationObserver
+     已经监听它并调 paintMenuText() —— 把手柄重绘挂在同一出口即可。 */
+  function handleText() {
+    return langIsEn()
+      ? { grip: 'Drag to reorder', hide: 'Show / hide', hideBtn: 'Hide', size: 'Drag to resize height' }
+      : { grip: '拖动排序', hide: '显示 / 隐藏', hideBtn: '显隐', size: '拖动调整高度' };
+  }
+  function paintHandles() {
+    var s = handleText();
+    [].forEach.call(document.querySelectorAll('.tl-handle'), function (h) {
+      var grip = h.querySelector('.tl-grip'); if (grip) grip.title = s.grip;
+      var hide = h.querySelector('[data-tl-hide]');
+      if (hide) { hide.title = s.hide; hide.textContent = s.hideBtn; }
+      var size = h.querySelector('.tl-size'); if (size) size.title = s.size;
+    });
   }
   function closeViaOlbr() {
     /* olbr.js 的菜单开合态记在它闭包里的 state.userMenuOpen，直接改 DOM 会
@@ -500,10 +520,11 @@
       el.setAttribute('data-tl', id);
       var h = document.createElement('div');
       h.className = 'tl-handle';
-      h.innerHTML = '<span class="tl-grip" title="拖动排序">⠿</span>' +
+      var ht = handleText();
+      h.innerHTML = '<span class="tl-grip" title="' + ht.grip + '">⠿</span>' +
         '<span class="tl-name">' + id + '</span>' +
-        '<button type="button" data-tl-hide="' + id + '" title="显示 / 隐藏">显隐</button>' +
-        '<span class="tl-size" title="拖动调整高度">↕</span>';
+        '<button type="button" data-tl-hide="' + id + '" title="' + ht.hide + '">' + ht.hideBtn + '</button>' +
+        '<span class="tl-size" title="' + ht.size + '">↕</span>';
       /* ⚠️ 手柄必须**绝对定位**，不能当普通流内子节点：
          .maprow / .qarow / .aux 都是 display:grid，手柄若留在流里，
          它就是栅格的第 3 个 grid item —— 整行被撑成三列，页面全乱

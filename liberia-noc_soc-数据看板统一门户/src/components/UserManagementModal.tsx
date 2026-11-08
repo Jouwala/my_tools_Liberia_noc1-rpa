@@ -14,6 +14,7 @@ import {
   UserX,
   LayoutGrid,
   Database,
+  Pencil,
 } from 'lucide-react';
 import { useI18n } from '../i18n';
 import { PORTAL_API } from '../config';
@@ -32,6 +33,10 @@ interface AccessRequest {
   ip: string;
   decidedAt?: string;
   decidedBy?: string;
+  /** 申请时填写的联系资料（老申请没有这些字段） */
+  staffId?: string;
+  phone?: string;
+  email?: string;
 }
 
 /** GET /auth/storage 返回：账号、密码哈希与看板权限的实际落盘位置和备份情况 */
@@ -85,6 +90,10 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
   const [newPassword, setNewPassword] = useState('');
   const [newRole, setNewRole] = useState<Role>('viewer');
   const [newTeam, setNewTeam] = useState('');
+  // 手工建号时一并录入的联系资料（选填，事后可在行内编辑）
+  const [newStaffId, setNewStaffId] = useState('');
+  const [newPhone, setNewPhone] = useState('');
+  const [newEmail, setNewEmail] = useState('');
   const [adding, setAdding] = useState(false);
 
   // 存量账号行内改团队时的保存中标记（存 id，防重复提交）
@@ -127,6 +136,63 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
   // 行内重置密码
   const [resettingId, setResettingId] = useState('');
   const [resetPwd, setResetPwd] = useState('');
+
+  /* 行内编辑联系资料（2026-11-06 加）。存量账号这些字段为空，管理员可随时补录；
+     保存走 /auth/users/profile 的增量 patch，不会动到页面配置与团队归属。 */
+  const [contactUserId, setContactUserId] = useState('');
+  const [contactStaffId, setContactStaffId] = useState('');
+  const [contactPhone, setContactPhone] = useState('');
+  const [contactEmail, setContactEmail] = useState('');
+  const [savingContact, setSavingContact] = useState(false);
+
+  const openContact = (u: AuthUser) => {
+    const next = contactUserId === u.id ? '' : u.id;
+    setContactUserId(next);
+    setContactStaffId(u.staffId || '');
+    setContactPhone(u.phone || '');
+    setContactEmail(u.email || '');
+    setError('');
+  };
+
+  const saveContact = async (u: AuthUser) => {
+    if (savingContact) return;
+    setSavingContact(true);
+    setError('');
+    try {
+      const res = await apiFetch(`${PORTAL_API}/auth/users/profile`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        // 空串 = 清除该字段（服务端清洗后删除），不会误改其它维度
+        body: JSON.stringify({
+          id: u.id,
+          staffId: contactStaffId,
+          phone: contactPhone,
+          email: contactEmail,
+        }),
+      });
+      const data = (await res.json().catch(() => null)) as {
+        user?: AuthUser;
+        detail?: string;
+      } | null;
+      if (!res.ok || !data?.user) {
+        setError(
+          data?.detail === 'staff_id_taken'
+            ? t('um.staffIdTaken')
+            : data?.detail || `HTTP ${res.status}`
+        );
+        return;
+      }
+      const saved = data.user;
+      setUsers((prev) => prev.map((x) => (x.id === saved.id ? saved : x)));
+      setContactUserId('');
+      setSuccess(t('um.contactSaved', { name: u.username }));
+      setTimeout(() => setSuccess(''), 2000);
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setSavingContact(false);
+    }
+  };
 
   // 待审批的账号申请
   const [requests, setRequests] = useState<AccessRequest[]>([]);
@@ -207,10 +273,18 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
       setNewPassword('');
       setNewRole('viewer');
       setNewTeam('');
+      setNewStaffId('');
+      setNewPhone('');
+      setNewEmail('');
       setSavingTeamId('');
       setResettingId('');
       setResetPwd('');
       setDecidingId('');
+      setContactUserId('');
+      setContactStaffId('');
+      setContactPhone('');
+      setContactEmail('');
+      setSavingContact(false);
       setProfileUserId('');
       setSavingProfile(false);
     }
@@ -265,7 +339,11 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
         body: JSON.stringify({ id: target.id, role: approveRoles[target.id] || 'viewer' }),
       });
       const data = (await res.json().catch(() => null)) as { detail?: string } | null;
-      return { ok: res.ok, detail: data?.detail };
+      // 审批时也要看懂「工号被别的账号占用了」这个 409，别让管理员只看到原始机器码
+      return {
+        ok: res.ok,
+        detail: data?.detail === 'staff_id_taken' ? t('ar.staffIdTaken') : data?.detail,
+      };
     });
 
   const reject = (target: AccessRequest) =>
@@ -301,13 +379,18 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
           role: newRole,
           // 空 = 未指派（服务端存 null，登录后停在主门户）
           team: newTeam || null,
+          staffId: newStaffId,
+          phone: newPhone,
+          email: newEmail,
         }),
       });
       const data = (await res.json().catch(() => null)) as { detail?: string } | null;
       if (!res.ok) {
         setError(
           res.status === 409
-            ? t('um.duplicate')
+            ? data?.detail === 'staff_id_taken'
+              ? t('um.staffIdTaken')
+              : t('um.duplicate')
             : res.status === 400
               ? t('um.invalidInput')
               : data?.detail || `HTTP ${res.status}`
@@ -318,6 +401,9 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
       setNewPassword('');
       setNewRole('viewer');
       setNewTeam('');
+      setNewStaffId('');
+      setNewPhone('');
+      setNewEmail('');
       setSuccess(t('um.added'));
       setTimeout(() => setSuccess(''), 2000);
       await loadUsers();
@@ -574,6 +660,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                   <thead className="bg-slate-50 dark:bg-slate-800/60 text-slate-500 dark:text-slate-400">
                     <tr>
                       <th className="px-3 sm:px-4 py-2 font-semibold">{t('ar.colApplicant')}</th>
+                      <th className="px-3 sm:px-4 py-2 font-semibold">{t('um.colStaffId')}</th>
                       <th className="px-3 sm:px-4 py-2 font-semibold">{t('ar.colNote')}</th>
                       <th className="px-3 sm:px-4 py-2 font-semibold hidden sm:table-cell">
                         {t('ar.colTime')}
@@ -591,6 +678,14 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                       <tr key={r.id} className="text-slate-700 dark:text-slate-300">
                         <td className="px-3 sm:px-4 py-2 font-medium whitespace-nowrap">
                           {r.username}
+                          {(r.phone || r.email) && (
+                            <span className="block max-w-[180px] truncate text-[10px] font-normal text-slate-400 dark:text-slate-500">
+                              {[r.phone, r.email].filter(Boolean).join(' · ')}
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-3 sm:px-4 py-2 font-mono text-[11px] text-slate-600 dark:text-slate-300 whitespace-nowrap">
+                          {r.staffId || '—'}
                         </td>
                         <td className="px-3 sm:px-4 py-2 text-slate-500 dark:text-slate-400 max-w-[220px] truncate">
                           {r.note || '—'}
@@ -699,6 +794,36 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                 {t('um.add')}
               </button>
             </div>
+            {/* 手工建号时一并录入联系资料（选填），与自助申请表单保持同一套字段 */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              <input
+                type="text"
+                value={newStaffId}
+                onChange={(e) => setNewStaffId(e.target.value)}
+                placeholder={t('contact.staffIdPh')}
+                maxLength={32}
+                aria-label={t('contact.staffId')}
+                className={inputClass}
+              />
+              <input
+                type="tel"
+                value={newPhone}
+                onChange={(e) => setNewPhone(e.target.value)}
+                placeholder={t('contact.phonePh')}
+                maxLength={32}
+                aria-label={t('contact.phone')}
+                className={inputClass}
+              />
+              <input
+                type="email"
+                value={newEmail}
+                onChange={(e) => setNewEmail(e.target.value)}
+                placeholder={t('contact.emailPh')}
+                maxLength={128}
+                aria-label={t('contact.email')}
+                className={inputClass}
+              />
+            </div>
           </form>
 
           {/* User List */}
@@ -708,8 +833,12 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
               <thead className="bg-slate-50 dark:bg-slate-800/60 text-slate-500 dark:text-slate-400">
                 <tr>
                   <th className="px-3 sm:px-4 py-2.5 font-semibold">{t('um.colUser')}</th>
+                  <th className="px-3 sm:px-4 py-2.5 font-semibold">{t('um.colStaffId')}</th>
                   <th className="px-3 sm:px-4 py-2.5 font-semibold">{t('um.colRole')}</th>
                   <th className="px-3 sm:px-4 py-2.5 font-semibold">{t('um.team')}</th>
+                  <th className="px-3 sm:px-4 py-2.5 font-semibold hidden md:table-cell">
+                    {t('um.colContact')}
+                  </th>
                   <th className="px-3 sm:px-4 py-2.5 font-semibold hidden sm:table-cell">
                     {t('um.colCreated')}
                   </th>
@@ -719,7 +848,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                 {loading && users.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="px-4 py-6 text-center text-slate-400">
+                    <td colSpan={7} className="px-4 py-6 text-center text-slate-400">
                       {t('um.loading')}
                     </td>
                   </tr>
@@ -738,6 +867,9 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                                 {t('um.self')}
                               </span>
                             )}
+                          </td>
+                          <td className="px-3 sm:px-4 py-2.5 font-mono text-[11px] text-slate-600 dark:text-slate-300 whitespace-nowrap">
+                            {u.staffId || '—'}
                           </td>
                           <td className="px-3 sm:px-4 py-2.5">
                             <span
@@ -771,11 +903,33 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                               <span className="ml-1 text-[10px] text-slate-400">{t('um.saving')}</span>
                             )}
                           </td>
+                          <td className="px-3 sm:px-4 py-2.5 hidden md:table-cell">
+                            {u.phone || u.email ? (
+                              <div className="max-w-[150px] text-[11px] leading-tight text-slate-500 dark:text-slate-400">
+                                {u.phone && <div className="truncate">{u.phone}</div>}
+                                {u.email && <div className="truncate">{u.email}</div>}
+                              </div>
+                            ) : (
+                              <span className="text-slate-400">—</span>
+                            )}
+                          </td>
                           <td className="px-3 sm:px-4 py-2.5 hidden sm:table-cell text-slate-400 font-mono text-[11px]">
                             {u.createdAt.slice(0, 19).replace('T', ' ')}
                           </td>
                           <td className="px-3 sm:px-4 py-2.5">
                             <div className="flex items-center justify-end gap-1">
+                              <button
+                                onClick={() => openContact(u)}
+                                className={`p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors ${
+                                  contactUserId === u.id
+                                    ? 'text-teal-600 dark:text-teal-400'
+                                    : 'text-slate-500 hover:text-teal-600 dark:hover:text-teal-400'
+                                }`}
+                                title={t('um.contactEdit')}
+                                data-contact-button
+                              >
+                                <Pencil className="w-3.5 h-3.5" />
+                              </button>
                               <button
                                 onClick={() =>
                                   profileUserId === u.id ? setProfileUserId('') : openProfile(u)
@@ -819,9 +973,61 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                             </div>
                           </td>
                         </tr>
+                        {contactUserId === u.id && (
+                          <tr className="bg-slate-50/70 dark:bg-slate-800/40">
+                            <td colSpan={7} className="px-3 sm:px-4 py-2.5">
+                              <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                                <span className="shrink-0 text-xs text-slate-600 dark:text-slate-300">
+                                  {t('um.contactEdit')} · {u.username}
+                                </span>
+                                <input
+                                  type="text"
+                                  value={contactStaffId}
+                                  onChange={(e) => setContactStaffId(e.target.value)}
+                                  placeholder={t('contact.staffIdPh')}
+                                  maxLength={32}
+                                  aria-label={t('contact.staffId')}
+                                  className={`${inputClass} flex-1 min-w-0 py-1.5 text-xs`}
+                                />
+                                <input
+                                  type="tel"
+                                  value={contactPhone}
+                                  onChange={(e) => setContactPhone(e.target.value)}
+                                  placeholder={t('contact.phonePh')}
+                                  maxLength={32}
+                                  aria-label={t('contact.phone')}
+                                  className={`${inputClass} flex-1 min-w-0 py-1.5 text-xs`}
+                                />
+                                <input
+                                  type="email"
+                                  value={contactEmail}
+                                  onChange={(e) => setContactEmail(e.target.value)}
+                                  placeholder={t('contact.emailPh')}
+                                  maxLength={128}
+                                  aria-label={t('contact.email')}
+                                  className={`${inputClass} flex-1 min-w-0 py-1.5 text-xs`}
+                                />
+                                <button
+                                  onClick={() => void saveContact(u)}
+                                  disabled={savingContact}
+                                  className="px-3 py-2 text-xs font-medium text-white bg-teal-600 hover:bg-teal-500 disabled:opacity-50 rounded-lg transition-colors flex items-center justify-center gap-1.5"
+                                >
+                                  <Check className="w-3.5 h-3.5" />
+                                  {t('um.contactSave')}
+                                </button>
+                                <button
+                                  onClick={() => setContactUserId('')}
+                                  className="px-3 py-2 text-xs font-medium text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"
+                                >
+                                  {t('um.contactCancel')}
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
                         {resettingId === u.id && (
                           <tr className="bg-amber-50/50 dark:bg-amber-950/20">
-                            <td colSpan={5} className="px-3 sm:px-4 py-2.5">
+                            <td colSpan={7} className="px-3 sm:px-4 py-2.5">
                               <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
                                 <span className="text-xs text-slate-600 dark:text-slate-300 shrink-0">
                                   {t('um.resetHint', { name: u.username })}
@@ -847,7 +1053,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                         )}
                         {profileUserId === u.id && (
                           <tr className="bg-teal-50/40 dark:bg-teal-950/20">
-                            <td colSpan={5} className="px-3 sm:px-4 py-3 space-y-3">
+                            <td colSpan={7} className="px-3 sm:px-4 py-3 space-y-3">
                               <div className="flex flex-wrap items-center gap-2">
                                 <LayoutGrid className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400 shrink-0" />
                                 <span className="text-xs font-semibold text-slate-700 dark:text-slate-200">

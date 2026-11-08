@@ -130,6 +130,8 @@ const EflowQa = lazy(() => import('./pages/EflowQa'))
 const EflowFlow = lazy(() => import('./pages/EflowFlow'))
 // VMAX 用户信息查询（CCA 投诉系统按号码查 IMSI/终端，2026-10-24）
 const VmaxUserQuery = lazy(() => import('./pages/VmaxUserQuery'))
+// VMAX 智能诊断工作台（Intelligent Diagnosis Workspace，2026-11-07）：投诉驱动单页叙事，与旧查询页并存
+const VmaxUserCca = lazy(() => import('./pages/VmaxUserCca'))
 const IptPowerQuery = lazy(() => import('./pages/IptPowerQuery'))
 const SiteAvailability = lazy(() => import('./pages/SiteAvailability'))
 // 可用率多维矩阵：区域/制式/站点类型 × 日/周/月（读本机派生库 avail_recon.sqlite3）
@@ -196,9 +198,9 @@ const FINEBI_PAGE_TO_SLUG: Record<string, string> = Object.fromEntries(
   FINEBI_BOARDS.map((b) => [`finebi_${b.slug}`, b.slug]),
 )
 
-type PageKey = 'overview' | 'tables' | 'upload' | 'dashboard' | 'alarm' | 'ttwo' | 'v1_ttwo' | 'tt' | 'wo' | 'gis' | 'realtime_alarm' | 'packet_loss' | 'archive' | 'sync' | 'warehouse' | 'sp_material' | 'sp_details' | 'sp_report' | 'com_report' | 'warehouse_summary' | 'ms_wo_sla' | 'ms_contract_kpi' | 'battery' | 'person' | 'settings' | 'ip_trace' | 'incident_overview' | 'nur' | 'ms_sla' | 'ms_nur_only' | 'ms_sla_only' | 'alarmManagement' | 'cxoDashboard' | 'vmaxCxoDashboard' | 'vmaxCxoDashboard_Daily' | 'vmaxCxoDashboard_90Days' | 'socTrendDashboard' | 'imonitor' | 'email_reports' | 'mwUmeTopology' | 'mwRealTime' | 'portalLogin' | 'eflow_qa' | 'eflow_flow' | 'site_avail' | 'avail_ms' | 'avail_flm' | 'avail_county' | 'fme_ranking' | 'noc_analyst' | 'repeat_site_down' | 'cr_analysis' | 'pm_analysis' | 'ran_cells_kpi' | 'bm_speedtest' | 'bm_meta' | 'bp_report' | 'cn_kpi' | 'cn_kpi_5mins' | 'ume_in_kpi' | 'vmax_user_query' | 'ipt_power' | 'feedback' | 'ap_center' | 'help' | `finebi_${string}`
+type PageKey = 'overview' | 'tables' | 'upload' | 'dashboard' | 'alarm' | 'ttwo' | 'v1_ttwo' | 'tt' | 'wo' | 'gis' | 'realtime_alarm' | 'packet_loss' | 'archive' | 'sync' | 'warehouse' | 'sp_material' | 'sp_details' | 'sp_report' | 'com_report' | 'warehouse_summary' | 'ms_wo_sla' | 'ms_contract_kpi' | 'battery' | 'person' | 'settings' | 'ip_trace' | 'incident_overview' | 'nur' | 'ms_sla' | 'ms_nur_only' | 'ms_sla_only' | 'alarmManagement' | 'cxoDashboard' | 'vmaxCxoDashboard' | 'vmaxCxoDashboard_Daily' | 'vmaxCxoDashboard_90Days' | 'socTrendDashboard' | 'imonitor' | 'email_reports' | 'mwUmeTopology' | 'mwRealTime' | 'portalLogin' | 'eflow_qa' | 'eflow_flow' | 'site_avail' | 'avail_ms' | 'avail_flm' | 'avail_county' | 'fme_ranking' | 'noc_analyst' | 'repeat_site_down' | 'cr_analysis' | 'pm_analysis' | 'ran_cells_kpi' | 'bm_speedtest' | 'bm_meta' | 'bp_report' | 'cn_kpi' | 'cn_kpi_5mins' | 'ume_in_kpi' | 'vmax_user_query' | 'vmax_user_cca' | 'ipt_power' | 'feedback' | 'ap_center' | 'help' | `finebi_${string}`
 
-const VALID_PAGES: PageKey[] = ['overview', 'tables', 'upload', 'dashboard', 'alarm', 'ttwo', 'v1_ttwo', 'tt', 'wo', 'gis', 'realtime_alarm', 'packet_loss', 'archive', 'sync', 'warehouse', 'sp_material', 'sp_details', 'sp_report', 'com_report', 'warehouse_summary', 'ms_wo_sla', 'ms_contract_kpi', 'battery', 'person', 'settings', 'ip_trace', 'incident_overview', 'nur', 'ms_sla','ms_nur_only', 'ms_sla_only', 'alarmManagement', 'cxoDashboard', 'vmaxCxoDashboard', 'vmaxCxoDashboard_Daily', 'vmaxCxoDashboard_90Days', 'socTrendDashboard', 'imonitor', 'email_reports', 'mwUmeTopology', 'mwRealTime', 'portalLogin', 'eflow_qa', 'eflow_flow', 'site_avail', 'avail_ms', 'avail_flm', 'avail_county', 'fme_ranking', 'noc_analyst', 'repeat_site_down', 'cr_analysis', 'pm_analysis', 'ran_cells_kpi', 'bm_speedtest', 'bm_meta', 'bp_report', 'cn_kpi', 'cn_kpi_5mins', 'ume_in_kpi', 'vmax_user_query', 'ipt_power', 'feedback', 'ap_center', 'help', ...FINEBI_BOARDS.map((b) => `finebi_${b.slug}` as PageKey)]
+const VALID_PAGES: PageKey[] = ['overview', 'tables', 'upload', 'dashboard', 'alarm', 'ttwo', 'v1_ttwo', 'tt', 'wo', 'gis', 'realtime_alarm', 'packet_loss', 'archive', 'sync', 'warehouse', 'sp_material', 'sp_details', 'sp_report', 'com_report', 'warehouse_summary', 'ms_wo_sla', 'ms_contract_kpi', 'battery', 'person', 'settings', 'ip_trace', 'incident_overview', 'nur', 'ms_sla','ms_nur_only', 'ms_sla_only', 'alarmManagement', 'cxoDashboard', 'vmaxCxoDashboard', 'vmaxCxoDashboard_Daily', 'vmaxCxoDashboard_90Days', 'socTrendDashboard', 'imonitor', 'email_reports', 'mwUmeTopology', 'mwRealTime', 'portalLogin', 'eflow_qa', 'eflow_flow', 'site_avail', 'avail_ms', 'avail_flm', 'avail_county', 'fme_ranking', 'noc_analyst', 'repeat_site_down', 'cr_analysis', 'pm_analysis', 'ran_cells_kpi', 'bm_speedtest', 'bm_meta', 'bp_report', 'cn_kpi', 'cn_kpi_5mins', 'ume_in_kpi', 'vmax_user_query', 'vmax_user_cca', 'ipt_power', 'feedback', 'ap_center', 'help', ...FINEBI_BOARDS.map((b) => `finebi_${b.slug}` as PageKey)]
 
 /* ==================== 自动刷新（大屏 / NOC 值班场景） ====================
  * 背景：各页面此前只在挂载时拉取一次数据（legacy iframe 页面同样只在 onload
@@ -291,7 +293,7 @@ const AR_PAGE_DEFAULTS: Partial<Record<PageKey, number>> = {
   // —— 1800 秒：配置 / 操作 / 工具类页面 ——
   // sync（任务管理）自带 60s 列表轮询与 30s 时基，顶栏刷新只是兜底，故给最松的一档。
   sync: 1800, eflow_qa: 1800, eflow_flow: 1800,
-  vmax_user_query: 1800, ipt_power: 1800, ip_trace: 1800,
+  vmax_user_query: 1800, vmax_user_cca: 1800, ipt_power: 1800, ip_trace: 1800,
   tables: 1800, upload: 1800, archive: 1800,
   settings: 1800, portalLogin: 1800, feedback: 1800, ap_center: 1800, help: 1800,
 }
@@ -519,6 +521,7 @@ const PAGE_META: Record<PageKey, { icon: ReactNode; labelKey: string }> = {
   cn_kpi_5mins: { icon: <FieldTimeOutlined />, labelKey: 'nav.cnKpi5mins' },
   ume_in_kpi: { icon: <DotChartOutlined />, labelKey: 'nav.umeInKpi' },
   vmax_user_query: { icon: <MobileOutlined />, labelKey: 'nav.vmaxUserQuery' },
+  vmax_user_cca: { icon: <MobileOutlined />, labelKey: 'nav.vmaxUserCca' },
   ipt_power: { icon: <ThunderboltOutlined />, labelKey: 'nav.iptPower' },
   cxoDashboard: { icon: <PieChartOutlined />, labelKey: 'nav.cxoDashboard' },
   vmaxCxoDashboard: { icon: <DashboardOutlined />, labelKey: 'nav.vmaxCxoDashboard' },
@@ -572,7 +575,7 @@ const DEFAULT_GROUPS: { key: string; labelKey: string; items: PageKey[] }[] = [
   {
     key: 'grp_network',
     labelKey: 'nav.grp.network',
-    items: ['mwUmeTopology', 'mwRealTime', 'gis', 'realtime_alarm', 'person', 'packet_loss', 'battery', 'ip_trace', 'vmax_user_query', 'ipt_power', 'bm_speedtest', 'bm_meta'],
+    items: ['mwUmeTopology', 'mwRealTime', 'gis', 'realtime_alarm', 'person', 'packet_loss', 'battery', 'ip_trace', 'vmax_user_query', 'vmax_user_cca', 'ipt_power', 'bm_speedtest', 'bm_meta'],
   },
   {
     key: 'grp_analysis',
@@ -1579,6 +1582,8 @@ function AppContent() {
         return <EflowFlow />
       case 'vmax_user_query':
         return <VmaxUserQuery />
+      case 'vmax_user_cca':
+        return <VmaxUserCca />
       case 'ipt_power':
         return <IptPowerQuery />
       case 'nur':

@@ -28,12 +28,12 @@ window.OLBR_DATA = (function () {
   // 带标点的整句一律走 {占位符} 模板，标点跟着语言走（中文全角、英文半角）。
   var S = {
     zh: {
-      /* 2026-09-28（用户要求）：原「更智能的运维 · 更高的效率 · 更好的网络」，
-         换成用户点名的「Ultimate Services · Leading Ecosystem」。
-         ⚠️ 两份字典写**同一串英文**：用户给的是英文口号，它不是"待翻译的文案"，
-         而是品牌标语本身 —— 与 qc.sub.* / map.open 那几次同一条约定
-         （用户点名的写法不翻译）。所以中文环境下也照显英文，不要改成中文。 */
-      'tagline': 'Ultimate Services · Leading Ecosystem',
+      /* 2026-11-07（用户选定「方向二 · 品牌对仗」）：标语换成中英成对的对仗句 ——
+         zh「智能运维 · 洞察无限」/ en「Intelligent Operations · Infinite Visibility」。
+         取代 2026-09-28 的「Ultimate Services · Leading Ecosystem」：那时用户给的是
+         英文口号、约定两份字典同显英文不翻译；本次用户明确批准中英各一句，
+         故恢复 zh/en 各写各的，保留「X · Y」对仗节奏以贴合品牌语气。 */
+      'tagline': '智能运维 · 洞察无限',
       'mast.admin': '管理门户', 'mast.uni': '统一门户', 'mast.logout': '退出',
       'skip': '跳到主内容',
       /* 2026-10-16：检索轨整块移除，'search.ph' / 'rail.*' / 'count.*' 三组键
@@ -639,8 +639,10 @@ window.OLBR_DATA = (function () {
       'foot.src': '目录：{n} 个看板 · 生成于 {d}',
       'st.online': '在线', 'st.beta': '试用',
       'pf.myapp': '自研 my_app', 'pf.finebi': 'FineBI', 'pf.external': '外部系统',
-      'gate.title': '登录统一门户', 'gate.sub': '与 /uniplam/、/MsPortal/ 共用同一套账号与权限。',
-      'gate.user': '用户名', 'gate.pass': '密码', 'gate.go': '登录', 'gate.busy': '登录中…',
+      /* 2026-11-07（方向二）：登录门文案改为价值导向 —— 副标题不再暴露 /uniplam/、/MsPortal/
+         内部路径，CTA 从「登录」改为「立即进入平台」。gate.title 为登录/申请两形态共用。 */
+      'gate.title': '欢迎进入智能运维', 'gate.sub': '利比里亚网络的脉搏，尽在一个平台。',
+      'gate.user': '用户名', 'gate.pass': '密码', 'gate.go': '立即进入平台', 'gate.busy': '登录中…',
       'gate.bad': '用户名或密码错误', 'gate.locked': '尝试次数过多，稍后再试',
       'gate.net': '无法连接认证服务', 'gate.cancel': '取消',
       'gate.hintNoPortal': '本页现在是免登录身份。管理用户需要统一门户账号 —— 登录，或申请一个。',
@@ -662,6 +664,17 @@ window.OLBR_DATA = (function () {
       'ar.pendingDup': '该用户名已有待审批的申请，请勿重复提交',
       'ar.tooMany': '待审批申请过多或提交过于频繁，请稍后再试',
       'ar.networkError': '无法连接鉴权服务，请检查网络后重试',
+      /* 联系资料（2026-11-06 加）：游客自助申请与管理员手工建号共用同一套选填字段，
+         键名前缀 contact.* 与 /uniplam/ 的 src/i18n.tsx 逐条对齐，别另起一套口径。
+         用户ID 冲突时申请表单用 ar.staffIdTaken，管理端一律用 um.staffIdTaken。 */
+      'ar.staffIdTaken': '该用户ID已被使用，请更换或联系管理员',
+      'contact.staffId': '用户ID',
+      'contact.staffIdPh': '用户ID／工号（选填）',
+      'contact.phone': '电话',
+      'contact.phonePh': '电话（选填）',
+      'contact.email': '邮箱',
+      'contact.emailPh': '邮箱（选填）',
+      'contact.optionalTip': '以下资料选填，审批通过后会随账号保存，便于管理员核对与联系',
       'dr.title': '明细', 'dr.rows': '{n} 条', 'dr.page': '{p} / {q}',
       'dr.load': '正在读取明细…', 'dr.empty': '没有匹配的记录', 'dr.err': '明细读取失败：{e}',
       'dr.none': '暂无数据', 'dr.qPh': '过滤明细…',
@@ -717,6 +730,14 @@ window.OLBR_DATA = (function () {
       'um.colRole': '角色',
       'um.colCreated': '创建时间',
       'um.colActions': '操作',
+      /* 联系资料列头与行内编辑（2026-11-06 加），与 /uniplam/ 同一套口径。 */
+      'um.colStaffId': '用户ID',
+      'um.colContact': '联系方式',
+      'um.contactEdit': '编辑资料',
+      'um.contactSave': '保存资料',
+      'um.contactSaved': '已保存 {name} 的联系资料',
+      'um.contactCancel': '取消',
+      'um.staffIdTaken': '该用户ID已被其它账号使用',
       'um.loading': '加载中…',
       'um.empty': '暂无账号',
       'um.self': '我',
@@ -786,8 +807,8 @@ window.OLBR_DATA = (function () {
       'um.notFound': '申请不存在或已被处理'
     },
     en: {
-      /* 2026-09-28：与 zh 同值 —— 品牌标语不翻译，见 zh 处的说明。 */
-      'tagline': 'Ultimate Services · Leading Ecosystem',
+      /* 2026-11-07：与 zh 成对的对仗句（方向二），见 zh 处说明。 */
+      'tagline': 'Intelligent Operations · Infinite Visibility',
       'mast.admin': 'Admin portal', 'mast.uni': 'Unified portal', 'mast.logout': 'Sign out',
       'skip': 'Skip to main content',
       /* 2026-10-16: search-rail removed; its 'search.ph' / 'rail.*' / 'count.*'
@@ -1271,9 +1292,9 @@ window.OLBR_DATA = (function () {
       'foot.src': 'Catalog: {n} dashboards · built {d}',
       'st.online': 'online', 'st.beta': 'beta',
       'pf.myapp': 'my_app', 'pf.finebi': 'FineBI', 'pf.external': 'external',
-      'gate.title': 'Sign in to the unified portal',
-      'gate.sub': 'Same account and permissions as /uniplam/ and /MsPortal/.',
-      'gate.user': 'Username', 'gate.pass': 'Password', 'gate.go': 'Sign in', 'gate.busy': 'Signing in…',
+      'gate.title': 'Welcome to intelligent O&M',
+      'gate.sub': 'The pulse of Liberia\'s network — on one platform.',
+      'gate.user': 'Username', 'gate.pass': 'Password', 'gate.go': 'Enter the Platform', 'gate.busy': 'Signing in…',
       'gate.bad': 'Wrong username or password', 'gate.locked': 'Too many attempts, try later',
       'gate.net': 'Cannot reach the auth service', 'gate.cancel': 'Cancel',
       'gate.hintNoPortal': 'This page is currently on the no-sign-in identity. Managing users needs a unified-portal account — sign in, or request one.',
@@ -1294,6 +1315,16 @@ window.OLBR_DATA = (function () {
       'ar.pendingDup': 'A request for that username is already pending',
       'ar.tooMany': 'Too many pending requests, please try again later',
       'ar.networkError': 'Cannot reach the auth service, please check your network',
+      /* Contact fields (added 2026-11-06): shared optional fields for the self-service
+         request form and the admin add-user form. Keys mirror src/i18n.tsx one-for-one. */
+      'ar.staffIdTaken': 'This user ID is already in use. Pick another one or contact the admin.',
+      'contact.staffId': 'User ID',
+      'contact.staffIdPh': 'User ID / employee no. (optional)',
+      'contact.phone': 'Phone',
+      'contact.phonePh': 'Phone (optional)',
+      'contact.email': 'Email',
+      'contact.emailPh': 'Email (optional)',
+      'contact.optionalTip': 'Optional. Saved with the account once approved, so the admin can verify and contact you.',
       'dr.title': 'Details', 'dr.rows': '{n} rows', 'dr.page': '{p} / {q}',
       'dr.load': 'Loading details…', 'dr.empty': 'No matching record', 'dr.err': 'Detail failed: {e}',
       'dr.none': 'No data', 'dr.qPh': 'Filter rows…',
@@ -1334,6 +1365,13 @@ window.OLBR_DATA = (function () {
       'um.colRole': 'Role',
       'um.colCreated': 'Created',
       'um.colActions': 'Actions',
+      'um.colStaffId': 'User ID',
+      'um.colContact': 'Contact',
+      'um.contactEdit': 'Edit contact',
+      'um.contactSave': 'Save contact',
+      'um.contactSaved': 'Contact info saved for {name}',
+      'um.contactCancel': 'Cancel',
+      'um.staffIdTaken': 'This user ID is already used by another account',
       'um.loading': 'Loading…',
       'um.empty': 'No accounts yet',
       'um.self': 'You',
@@ -1424,7 +1462,9 @@ window.OLBR_DATA = (function () {
     refresh: 'ph-arrows-clockwise',
     /* 用户管理弹窗用的几个（MsPortal 那边是内联 svg，本页统一走 phosphor 字体图标） */
     plus: 'ph-plus', check: 'ph-check', 'check-circle': 'ph-check-circle', trash: 'ph-trash',
-    'user-plus': 'ph-user-plus', 'user-check': 'ph-user-check', 'user-x': 'ph-user-x'
+    'user-plus': 'ph-user-plus', 'user-check': 'ph-user-check', 'user-x': 'ph-user-x',
+    /* 行内「编辑资料」按钮（2026-11-06 加），类名在 MsPortal/assets/icons/phosphor.css 核实过。 */
+    pencil: 'ph-pencil'
   };
 
   /* ------------------------------------------------------------ layout -- */

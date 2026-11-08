@@ -742,3 +742,111 @@ def test_fiber_config_group_window_field():
     # 非法值 → 回退默认
     out = cfg.parse_config({"group_window_minutes": "abc"}, {})
     assert out["group_window_minutes"] == cfg.DEFAULT_GROUP_WINDOW_MINUTES
+
+
+# ==========================================================
+# success / status 判据（2026-11-06 新增）
+# ==========================================================
+# 背景：旧判据只有 `success = not errors`，而 errors 只收硬异常。
+# 站点解析失败 / 建单失败只累加 failed 计数，于是线上出现
+#   due=517 assigned=28 failed=479 errors=[]  →  DB 里 success=1
+# 任务全绿但 92.6% 的告警没派出去。这组用例把新判据钉住。
+def _outcome(**patch):
+    """构造一份完整的 out 计数，调用被测函数并返回结果。"""
+    svc = _reload_service()
+    base = {
+        "errors": [], "due": 0, "assigned": 0, "merged": 0, "failed": 0,
+        "skipped": 0, "fail_reasons": [], "status": None, "success": False,
+        "message": "",
+    }
+    base.update(patch)
+    return svc.apply_outcome(base)
+
+
+def test_outcome_no_alarm_is_ok():
+    r = _outcome()
+    assert r["status"] == "ok" and r["success"] is True
+
+
+def test_outcome_all_waiting_is_not_failure():
+    """全部在等待窗口内（due=0）不算失败 —— 有意不派，不是异常。"""
+    r = _outcome(waiting=5)
+    assert r["status"] == "ok" and r["success"] is True
+
+
+def test_outcome_all_expired_is_not_failure():
+    r = _outcome(expired=4)
+    assert r["status"] == "ok" and r["success"] is True
+
+
+def test_outcome_all_assigned_is_ok():
+    r = _outcome(due=3, assigned=3)
+    assert r["status"] == "ok" and r["success"] is True
+
+
+def test_outcome_merged_still_counts_as_handled():
+    """合并派单（并入组长 TT）也是有效结果，不能算失败。"""
+    r = _outcome(due=4, assigned=1, merged=3)
+    assert r["status"] == "ok" and r["success"] is True
+
+
+def test_outcome_sporadic_failure_is_partial():
+    """零星几条站点缺档（数据待补）→ partial，且 success 仍为 True。
+
+    success=True 才会走 task_runner 的「降级告警」通道（warnings），
+    不会被当成任务失败反复重试/告警。
+    """
+    r = _outcome(due=100, assigned=98, failed=2,
+                 fail_reasons=["A1: 站点解析失败"])
+    assert r["status"] == "partial"
+    assert r["success"] is True
+
+
+def test_outcome_total_failure_is_failed():
+    """本轮该派的全都派不出去 → failed，并且把失败原因带进 error。"""
+    r = _outcome(due=2, failed=2,
+                 fail_reasons=["A1: 站点解析失败", "A2: 建单失败"])
+    assert r["status"] == "failed"
+    assert r["success"] is False
+    assert "全部未能派单" in r["error"]
+    assert "A1: 站点解析失败" in r["error"]
+
+
+def test_outcome_high_failure_ratio_is_failed():
+    """线上现场复现：due=517 assigned=28 failed=479（92.6%）。
+
+    旧代码这里 success=True（DB 里 success=1），新判据必须判 failed，
+    否则「大面积派单失败」又变回静默失败。
+    """
+    r = _outcome(due=517, assigned=28, failed=479,
+                 fail_reasons=["ALM1: 站点解析失败"])
+    assert r["status"] == "failed"
+    assert r["success"] is False
+    assert "失败率过高" in r["error"]
+    assert "92.6%" in r["error"]
+
+
+def test_outcome_hard_error_is_failed():
+    r = _outcome(due=1, errors=["拉取实时告警失败: Timeout"])
+    assert r["status"] == "failed"
+    assert r["success"] is False
+    assert "Timeout" in r["error"]
+
+
+def test_outcome_ratio_threshold_boundary():
+    """恰好等于阈值（50%）判失败；略低于阈值判 partial。"""
+    at = _outcome(due=2, assigned=1, failed=1)
+    assert at["status"] == "failed"
+    below = _outcome(due=5, assigned=3, failed=2)   # 40%
+    assert below["status"] == "partial"
+    assert below["success"] is True
+
+
+def test_outcome_fail_reasons_are_capped():
+    """fail_reasons 只取前 FAIL_REASON_CAP 条，避免 result_json 膨胀。"""
+    svc = _reload_service()
+    many = [f"A{i}: 站点解析失败" for i in range(20)]
+    r = _outcome(due=20, failed=20, fail_reasons=many)
+    # 计数用的是全部 failed，但拼进 error 的明细被截断
+    assert r["failed"] == 20
+    assert r["error"].count("站点解析失败") == svc.FAIL_REASON_CAP

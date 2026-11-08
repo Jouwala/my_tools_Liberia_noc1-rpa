@@ -232,7 +232,7 @@
   /* 服务端目录只拉一次：它是全局的，不会因为本机操作而变化（口径同 portal.js）。
      401 / 接口未注册（my_app 的 SPA 兜底会把未知 /api/xxx 回成 HTML）都当作
      「没有服务端目录」，继续用本机兜底 / 内置，绝不因为拉取失败而空列表。 */
-  function loadCatalog() {
+  function loadCatalog(onDone) {
     fetch('/api/portal-catalog', { credentials: 'same-origin', headers: { Accept: 'application/json' } })
       .then(function (r) {
         var ct = (r.headers.get('Content-Type') || '').toLowerCase();
@@ -260,7 +260,8 @@
       .catch(function () {
         var local = readCatalogLS();
         if (local && applyCatalog(local)) reloadCatalog();
-      });
+      })
+      .then(function () { if (onDone) onDone(); });
   }
 
   var PLAT_LABEL = {
@@ -726,8 +727,15 @@
        不渲染清单也不加载报告。 */
     if (!init || groupsOf(init).indexOf(GID) === -1 || !allowed(init)) init = LIST[0] || null;
     if (!init) {
-      var want = findItem(startNo);
-      if (want) { showDenied(want); } else { elCurTitle.textContent = '(no dashboards)'; }
+      /* 内置目录与入口 gid 脱节（典型：服务端把看板移进 Archived，而内置 data.js
+         没有 Archived 组）时旧实现 showDenied + return，跳过了 loadCatalog，页面
+         永久停在「无权查看」。先对齐服务端目录（reloadCatalog 会按 startNo 重新
+         定位），对齐后仍选不出才按原口径拒绝。 */
+      loadCatalog(function () {
+        if (current) return;
+        var want = findItem(startNo);
+        if (want) { showDenied(want); } else { elCurTitle.textContent = '(no dashboards)'; }
+      });
       return;
     }
     select(init, false);

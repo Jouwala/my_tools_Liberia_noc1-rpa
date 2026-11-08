@@ -1,5 +1,5 @@
 /* ==================== 任务清单详解数据（供 Help 页「任务管理详解」使用） ====================
- * 内容依据 backend/task_registry.py 的 TASK_SPECS（60 条声明）、
+ * 内容依据 backend/task_registry.py 的 TASK_SPECS（84 条声明）、
  * backend/worker_watchdog.py 的 GROUP_TASK_MAP（worker 分组 u/n/s/w/v/m/c/x/g/p）以及
  * docs/manual/04-task-system.md、14-integrations.md、03-data-layer.md 整理。
  * 改动后端任务注册表时请同步更新本文件（字段：cron / group / script / flow / maintain）。
@@ -32,8 +32,8 @@ export interface TaskDoc {
 
 export const WORKER_GROUP_INFO: Record<string, { zh: string; en: string }> = {
   u: {
-    zh: 'RAN UME 单账号会话，组内必须串行（并发会被踢会话）',
-    en: 'RAN UME single-account session; tasks run serially (parallel runs kick the session)',
+    zh: 'RAN UME 单账号会话，组内必须串行（并发会被踢会话）；2026-11-07 新增 23:00 的 ran_element_management_sync（RNM 网元管理表格落 PG），与 02:00 的 ran_ume_daily 共用 zte_ume 会话',
+    en: 'RAN UME single-account session; tasks run serially (parallel runs kick the session). Added 2026-11-07: ran_element_management_sync at 23:00 (RNM element table into PG), sharing the zte_ume session with ran_ume_daily at 02:00',
   },
   n: {
     zh: '网管 / eFlow API / 远程系统：彼此独立但保守同组',
@@ -1721,24 +1721,25 @@ export const TASK_DOCS: TaskDoc[] = [
     },
   },
   {
-    id: 'ipt_power_collect', group: 'm', cron: '*/2 * * * *',
+    id: 'ipt_power_collect', group: 'm', cron: '*/5 * * * *',
     script: 'services/ipt_data/ipt_power_collector.py \u2192 run_ipt_power_collect',
     zh: {
       name: 'IPT 站点电源采集',
-      desc: '每 2 分钟从 IPT Digital Platform（RMS 能源监控平台，AWS 外网）采集：\u2460 filter-map 1 个请求刷全站（约 500 站）连接状态（该接口不含电源数值）；\u2461 /sites 分页一次性回填参考号/区域等站点属性；\u2462 full_kpi 并发拉全站 popup 轻量 KPI（8 线程；上游健康时 32 线程实测 501 站 60s）→ **全站每 2 分钟一条快照**；\u2463 full_shard 并发拉 diagram 完整明细分片轮采（3 线程，≤60 站/轮，约 20 分钟覆盖全站，关注站每轮必采）。供「站点电源查询」页展示与画历史曲线',
+      desc: '每 5 分钟从 IPT Digital Platform（RMS 能源监控平台，AWS 外网）采集：\u2460 filter-map 1 个请求刷全站（约 500 站）连接状态（该接口不含电源数值）；\u2461 /sites 分页一次性回填参考号/区域等站点属性；\u2462 full_kpi 并发拉全站 popup 轻量 KPI（8 线程；上游健康时 32 线程实测 501 站 60s）→ **全站每 5 分钟一条快照**；\u2463 full_shard 并发拉 diagram 完整明细分片轮采（3 线程，≤60 站/轮，约 20 分钟覆盖全站，关注站每轮必采）。供「站点电源查询」页展示与画历史曲线',
       flow: [
         'OIDC 隐式流登录（client_id=rubix-web，模拟 authorize \u2192 登录表单 \u2192 回调 fragment 取 access_token，缓存 1 小时自动续期，见 services/ipt_data/README.md）',
         'POST /energy/sites/filter-map 全量刷新 ipt_power_sites（连接状态 online/offline；不含电源数值）',
         'GET /energy/sites?query=&page=N&pageSize=100 分页回填 internal_reference / organization / cluster / priority / configuration（约 6 个请求，仅在有缺值且距上次 >1h 时执行）',
         'diagram 明细池先起（后台）：关注站（watch_sites.json 的 sites）+ shard_cursor 环形游标分片站，3 线程并发',
-        'popup KPI 池前台跑：全站每站 GET /popup（8 线程，按 kpi_cursor 环形轮转，硬上限截断的站下轮续采），与 diagram 池同时进行；两池受整轮 100s 硬上限约束',
+        'popup KPI 池前台跑：全站每站 GET /popup（8 线程，按 kpi_cursor 环形轮转，硬上限截断的站下轮续采），与 diagram 池同时进行；两池受整轮 240s 硬上限约束（2026-11-06 D 由 100s 放宽，*/5 周期 300s 留 60s；跑完即止，不增加瞬时压力）',
+        '弹性（11-06 复盘）：cron */2 → */5 留出上游喘息窗口；整轮硬上限 100→240s 把空出的 200s 用起来，慢轮不再提前放弃尾部站；filter-map 增加 1 次短重试与「上轮站点清单」降级，瞬时抖动不再整轮判失败；连续 3 轮完全无法采集才告警，数据陈旧由 20 分钟巡检兜底',
         '弹性（11-05 复盘）：池内单请求 20s 超时（12s 会误杀「慢但会成功」的请求并形成超时风暴）+ popup 失败站在硬上限内补采一轮 + 单轮 popup 成功率 <25% 视为上游被压垮并计入退避；退避按连续失败 5/10/20 分钟（封顶 30），退避期整轮静默跳过、不发失败通知，任一轮成功自动清零',
         '合成落库：全站每轮各写一条快照（popup KPI 为底、有 diagram 的站覆盖明细列，source 记 popup/diagram；popup 行 raw 不落 JSON 控表体积，diagram 明细另存 ipt_power_site_detail 每站最新一条，已剥设备凭据）',
         '清理 2 天前旧快照；运行结果写 ipt_power_meta.last_run，下一轮起点写 ipt_power_meta.shard_cursor',
       ],
       maintain: [
-        '\u26a0 采集范围由 backend/services/ipt_data/watch_sites.json 控制：sites = 关注站（站名 / 参考号 / site_id，每轮必采 diagram）；full_kpi = {"enabled": true, "workers": 8, "budget_s": 80} 全站 popup 层；full_shard = {"enabled": true, "max_sites": 60, "budget_s": 70} diagram 明细分片。**不要配 "*"**（旧语义 = 单轮全采 500 站 diagram，实测外推 ~185s 必然超时）',
-        '上游无批量电源接口（filter-map 无数值、events/recent 只有最近事件）；2 分钟全站分辨率 = 并发逐站拉 popup（2026-11-04 32 线程实测 60.1s / 0 错误）；11-05 复盘确认持续高并发会把上游拖出批量超时，现降为 8 线程 + kpi_cursor 环形游标续采，以单轮覆盖率换稳定，等效每站 2~6 分钟',
+        '\u26a0 采集范围由 backend/services/ipt_data/watch_sites.json 控制：sites = 关注站（站名 / 参考号 / site_id，每轮必采 diagram）；full_kpi = {"enabled": true, "workers": 8, "budget_s": 200} 全站 popup 层；full_shard = {"enabled": true, "max_sites": 60, "budget_s": 70} diagram 明细分片。**不要配 "*"**（旧语义 = 单轮全采 500 站 diagram，实测外推 ~185s 必然超时）',
+        '上游无批量电源接口（filter-map 无数值、events/recent 只有最近事件）；5 分钟全站分辨率 = 并发逐站拉 popup（2026-11-06 由 2 分钟降频，上游瞬时抖动不再判任务失败）（2026-11-04 32 线程实测 60.1s / 0 错误）；11-05 复盘确认持续高并发会把上游拖出批量超时，现降为 8 线程 + kpi_cursor 环形游标续采，以单轮覆盖率换稳定，等效每站 5~15 分钟',
         '凭据：环境变量 IPT_USERNAME / IPT_PASSWORD 优先，缺省读同目录 url.txt 头部「用户名：/密码：」两行；url.txt 含明文密码，已被 gitignore（url*.txt 规则）覆盖不会入库',
         '密码模式（password grant）实测被拒（unauthorized_client），只有 rubix-web 允许授权码/隐式流 \u2192 登录走表单模拟；若登录页结构变化，任务会报「登录页结构变化」',
         '单站失败只计数不阻断本轮（popup 失败下轮自然重试，diagram 失败由游标下一轮补）；改采集器代码后需重启 m 组 worker，只改 watch_sites.json 不用重启',
@@ -1748,25 +1749,65 @@ export const TASK_DOCS: TaskDoc[] = [
     },
     en: {
       name: 'IPT Site Power Collect',
-      desc: 'Every 2 minutes, collect from the IPT Digital Platform (RMS energy monitoring, external AWS SaaS): (1) one filter-map request refreshes all ~500 sites\u2019 connectivity (no power values in that response); (2) paged /sites backfills site attributes once; (3) full_kpi concurrently fetches the lightweight popup KPI for every site (8 threads; 32 threads measured 501 sites in 60s when the upstream is healthy) so every site gets a snapshot every 2 min; (4) full_shard rotates the full diagram detail in shards (3 threads, \u226460 sites per round, all sites in ~20 min, watch sites every round). Feeds the IPT Site Power page (?page=ipt_power)',
+      desc: 'Every 5 minutes, collect from the IPT Digital Platform (RMS energy monitoring, external AWS SaaS): (1) one filter-map request refreshes all ~500 sites\u2019 connectivity (no power values in that response); (2) paged /sites backfills site attributes once; (3) full_kpi concurrently fetches the lightweight popup KPI for every site (8 threads; 32 threads measured 501 sites in 60s when the upstream is healthy) so every site gets a snapshot every 5 min; (4) full_shard rotates the full diagram detail in shards (3 threads, \u226460 sites per round, all sites in ~20 min, watch sites every round). Feeds the IPT Site Power page (?page=ipt_power)',
       flow: [
         'OIDC implicit-flow login (client_id=rubix-web; simulates authorize -> login form -> callback fragment to get the access_token, cached 1h with auto renewal; see services/ipt_data/README.md)',
         'POST /energy/sites/filter-map refreshes ipt_power_sites (online/offline connectivity; no power values)',
         'GET /energy/sites?query=&page=N&pageSize=100 backfills internal_reference / organization / cluster / priority / configuration (~6 requests, only when values are missing and the last run was >1h ago)',
         'The diagram pool starts first (background): watch sites (sites in watch_sites.json) + the shard_cursor ring-cursor shard, 3 threads',
-        'The popup KPI pool runs in the foreground: GET /popup for every site (8 threads, rotated via the kpi_cursor ring cursor so sites dropped at the hard deadline resume next round) concurrently with the diagram pool; both pools are bounded by the 100s round hard deadline',
+        'The popup KPI pool runs in the foreground: GET /popup for every site (8 threads, rotated via the kpi_cursor ring cursor so sites dropped at the hard deadline resume next round) concurrently with the diagram pool; both pools are bounded by the 240s round hard deadline (raised from 100s on 2026-11-06 to use the 200s freed by the */5 cadence; 300s period leaves 60s, no extra request pressure)',
         'Resilience (11-05 review): pooled requests use a 20s per-request timeout (12s killed slow-but-valid requests and caused a timeout storm) + one bounded retry pass for failed popups; a round with <25% popup success is treated as an overloaded upstream and counts toward the circuit breaker; backoff is exponential (5/10/20 min, capped 30 min) and silently skips whole rounds without failure notifications, auto-clearing on the first successful round',
         'Write one snapshot row per site per round (popup KPI as the base, sites with a diagram get the detail columns; source marks popup/diagram; popup rows store no raw JSON to control volume, diagram detail is kept per site in ipt_power_site_detail with device credentials stripped)',
         'Prune snapshots older than 2 days; write the run result to ipt_power_meta.last_run and the next start position to ipt_power_meta.shard_cursor',
       ],
       maintain: [
-        'WARNING: scope is set by backend/services/ipt_data/watch_sites.json — sites = watch sites (name / ref / site_id, full diagram every round); full_kpi = {"enabled": true, "workers": 8, "budget_s": 80} all-site popup tier; full_shard = {"enabled": true, "max_sites": 60, "budget_s": 70} diagram detail rotation. Do NOT set "*" (legacy meaning = all 500 diagrams in one round, extrapolated ~185s, guaranteed timeout)',
+        'WARNING: scope is set by backend/services/ipt_data/watch_sites.json — sites = watch sites (name / ref / site_id, full diagram every round); full_kpi = {"enabled": true, "workers": 8, "budget_s": 200} all-site popup tier; full_shard = {"enabled": true, "max_sites": 60, "budget_s": 70} diagram detail rotation. Do NOT set "*" (legacy meaning = all 500 diagrams in one round, extrapolated ~185s, guaranteed timeout)',
         'The upstream has no bulk power endpoint (filter-map has no values, events/recent only recent events); 2-min full-site resolution = concurrent per-site popup polling (2026-11-04: 32 threads, 501 sites in 60.1s / 0 errors); the 11-05 review showed sustained high concurrency drives the upstream into bulk timeouts, so it now runs at 8 threads with the kpi_cursor rotation, trading per-round coverage for stability (~2-6 min per site)',
         'Credentials: env IPT_USERNAME / IPT_PASSWORD take priority, otherwise the \u201cuser/password\u201d header lines of the local url.txt; url.txt contains a plaintext password — already gitignored via the url*.txt rule',
         'The password grant is rejected upstream (unauthorized_client); only rubix-web allows code/implicit flows -> login is a form simulation; if the login page changes, the task reports a structure error',
         'A single-site failure only increments counters and never aborts the round (popup retries next round naturally, diagram sites are retried by the cursor); restart the m-group worker after collector code changes, watch_sites.json changes need no restart',
         'Snapshots are kept 2 days (RETENTION_DAYS); PK (site_id, snap_time) dedupes re-runs; solar caliber: solarSets and rectifiers solarPower are the same mirrored value (max is taken), sites without solar have solar_available=0 and show "-", 0 W at night is normal',
         'Consumer: ?page=ipt_power (map on the left 3/5, site table on the right 2/5); its "Refresh now" button goes through routers/ipt_power.py /refresh (live query) and shares the login cache',
+      ],
+    },
+  },
+  {
+    id: 'ran_element_management_sync', group: 'u', cron: '0 23 * * *',
+    script: 'services/RANElementManagement/ran_element_management_service.py \u2192 run_ran_element_management_sync',
+    zh: {
+      name: 'RAN 网元管理表同步',
+      desc: '每天 23:00 从 RAN UME（10.100.28.27:28001）RNM「网元管理」表格所用的唯一数据接口 GET /api/res/v1/ranmes 拉全量网元清单（实测 934 行 / 15 字段：ITBBU 812、SDR 111、MRNC 10、MEC 1），写入 PostgreSQL 的 app schema：当前全量表 + 每日快照 + 同步日志',
+      flow: [
+        '取数口径来自 backend/services/RANElementManagement/url.txt 的浏览器抓包：1080 行 cURL 里只有第 852 行这条 /api/res/v1/ranmes?queryDn=model:subnetwork&operation=operation.rem.rnm.tools&includeAttr=... 是真正的表格数据接口，其余都是门户静态资源 / 登录刷新 / WebSocket',
+        '鉴权走项目统一的 auth_manager.get_auth(HOST, PORT, user, pwd, probe=...) + credential_store 的 zte_ume 凭据组；probe 必须打本业务接口（不是登录首页），共享 auth_cache 会话失效才会被识别并自动重登；不硬编码抓包里的 Z-AUTH-CODE-28001 / forgerydefense 等会过期的 Cookie',
+        '拿到 200 后解析 JSON 数组，按 15 个字段归一（nbiIdDn 是数组需 join，connectionState / virtualizationId 转整数），每行另存原始 raw_json',
+        '低于 RAN_EM_MIN_ROWS（默认 100 行）直接判失败且不写库 —— 防止上游只返回残片时把 934 行的好数据覆盖掉；401/403 触发一次强制重登后重试',
+        'PG 写入在显式 BEGIN/COMMIT/ROLLBACK 事务内完成：先删当日快照再整批插入 app.ran_element_management_daily（主键 snapshot_date + ne_id，同日重跑幂等），再按 ne_id upsert 进 app.ran_element_management 当前全量表并删除 fetched_at 不等于本轮的陈旧行，最后写 app.ran_element_management_sync_log',
+      ],
+      maintain: [
+        '⚠ 归 u 组的硬理由：与 ran_ume_daily / cm_data_sync 共用同一台 UME、同一个 zte_ume 账号、同一份 auth_cache 会话，并发登录会互踢；23:00 与组内其它任务错峰，单轮实测 <1s。新增任务必须同时在 worker_watchdog.py 的 GROUP_TASK_MAP 登记，否则队列 pending 无人认领直到超时',
+        '⚠ 只取 /api/res/v1/ranmes 这一个接口。抓包里另有 10 个 /api/rncmoaction/v1/rnc/<uuid> 详情请求，响应含 ommFtpPasswd / ommFtpUser / ommSecretKeyId 等设备凭据，既不是表格可见列也不应入库',
+        'PG 的 get_raw_connection() 是 autocommit 且游标会把 ? 转成 %s，所以事务必须显式 BEGIN/COMMIT；失败时整批 ROLLBACK，不会留下半张表',
+        '表结构由服务内 DDL 幂等创建（CREATE TABLE IF NOT EXISTS），无需 Alembic 迁移；改字段映射 FIELDS 时要同步改 DDL 与索引',
+        '排障顺序：先看 app.ran_element_management_sync_log 的 status / error，再看任务执行日志；rows 突然变少查是否被执行日志里的行数下限拦住；会话问题去「系统设置 → 凭据」测 zte_ume',
+      ],
+    },
+    en: {
+      name: 'RAN Element Management Sync',
+      desc: 'Every day at 23:00, pull the full network-element list from GET /api/res/v1/ranmes - the single data endpoint behind the RNM Element Management table on RAN UME (10.100.28.27:28001) - measured 934 rows / 15 fields (ITBBU 812, SDR 111, MRNC 10, MEC 1), and store it in the PostgreSQL app schema: a current full table, a daily snapshot and a sync log',
+      flow: [
+        'Source of truth is the browser capture at backend/services/RANElementManagement/url.txt: of 1080 cURL lines only line 852, /api/res/v1/ranmes?queryDn=model:subnetwork&operation=operation.rem.rnm.tools&includeAttr=..., is the real table endpoint; everything else is portal assets, login/refresh calls and WebSockets',
+        'Auth uses the project-standard auth_manager.get_auth(HOST, PORT, user, pwd, probe=...) with the zte_ume credential group. The probe must hit this business endpoint (not the login homepage) so an expired shared auth_cache session is detected and re-login happens automatically; the captured Z-AUTH-CODE-28001 / forgerydefense cookies expire and are never hardcoded',
+        'Parse the 200 JSON array and normalise 15 fields (nbiIdDn is a list and gets joined; connectionState / virtualizationId become integers), keeping the original row in raw_json',
+        'Fewer than RAN_EM_MIN_ROWS rows (default 100) fails the run without any write, so a partial upstream response cannot overwrite the good 934-row snapshot; 401/403 triggers one forced re-login and retry',
+        'PG writes run inside an explicit BEGIN/COMMIT/ROLLBACK transaction: delete today snapshot then bulk-insert into app.ran_element_management_daily (PK snapshot_date + ne_id, re-runs are idempotent), upsert by ne_id into app.ran_element_management and delete rows whose fetched_at is not this run, then log to app.ran_element_management_sync_log',
+      ],
+      maintain: [
+        'WARNING: it belongs to group u because it shares the same UME host, the same zte_ume account and the same auth_cache session with ran_ume_daily / cm_data_sync - concurrent logins kick each other. 23:00 is off-peak for the group and a measured run takes under 1s. A new task MUST also be registered in GROUP_TASK_MAP (worker_watchdog.py), otherwise the queue row stays pending until it times out',
+        'WARNING: call only /api/res/v1/ranmes. The capture also contains 10 /api/rncmoaction/v1/rnc/<uuid> detail calls whose responses carry ommFtpPasswd / ommFtpUser / ommSecretKeyId device credentials; they are not visible table columns and must not be stored',
+        'get_raw_connection() is autocommit on PG and its cursor rewrites ? to %s, so the transaction must be an explicit BEGIN/COMMIT; on failure the whole batch rolls back with no half-written table',
+        'The schema is created idempotently by DDL inside the service (CREATE TABLE IF NOT EXISTS) - no Alembic migration needed. When changing the FIELDS mapping, update the DDL and indexes too',
+        'Troubleshooting order: check status / error in app.ran_element_management_sync_log first, then the task execution log; a sudden drop in rows usually means the minimum-row guard rejected a partial response; for session issues test the zte_ume credential in Settings -> Credentials',
       ],
     },
   },

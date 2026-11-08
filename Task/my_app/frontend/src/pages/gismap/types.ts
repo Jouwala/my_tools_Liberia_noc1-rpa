@@ -119,7 +119,7 @@ export interface DrilldownAnalytics {
 
 /* IPT 电源状态（下钻抽屉 Basic Info 用，2026-11-03 新增）。
    后端 gis.py::_lookup_site_power 组装：连接状态来自 ipt_power_sites（采集任务
-   每 2 分钟全站刷新），SOC/电压/负载等来自最新快照（只有 watch 清单内的站点才有，
+   每 5 分钟全站刷新），SOC/电压/负载等来自最新快照（只有 watch 清单内的站点才有，
    未采到时字段为 null，前端显示 — 不显示 0）。按站点名匹配，未匹配 / IPT 表
    未建时后端直接返回 null。字段与 ?page=ipt_power 的 /api/ipt-power/sites 对齐。 */
 export interface SitePowerStatus {

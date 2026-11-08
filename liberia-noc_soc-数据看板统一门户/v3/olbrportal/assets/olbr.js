@@ -241,8 +241,12 @@
       open: false, loading: false, users: [], requests: [], storage: null,
       portalGroups: null, portalGroupLabels: null, portalDashboards: null, portalGroupsErr: false,
       nu: '', np: '', nr: 'viewer', nt: '',
+      /* 新增用户表单的三个联系资料选填值（2026-11-06 加）。 */
+      nStaffId: '', nPhone: '', nEmail: '',
       resetId: '', resetPwd: '', approveRoles: {},
       profileId: '', pv: '', pc: '', restricted: false, groups: [], cards: [],
+      /* 行内编辑联系资料：contactId 是正在编辑的账号 id，c* 是三个输入框的草稿。 */
+      contactId: '', cStaffId: '', cPhone: '', cEmail: '',
       /* team：团队门户归属（fo/bo/flm/smc/cxo），空 = 未指派。
          与 landing/白名单是**独立**的一维：白名单管「看得到哪些看板」，
          team 管「进哪个门户」。 */
@@ -5381,6 +5385,12 @@
         '<label class="fld"><span>' + esc(t('ar.passwordPh')) + '</span><input id="rp" type="password" autocomplete="new-password" required></label>' +
         '<label class="fld"><span>' + esc(t('ar.confirmPh')) + '</span><input id="rp2" type="password" autocomplete="new-password" required></label>' +
         '<label class="fld"><span>' + esc(t('ar.notePh')) + '</span><input id="rn"></label>' +
+        /* 联系资料（选填）：审批通过后随账号一起保存，管理员在「用户管理」里可见。
+           与 /uniplam/ 的 LoginView 同一套字段，标签 / 占位 / aria-label 全走 contact.* 字典。 */
+        '<div class="gate-hint">' + esc(t('contact.optionalTip')) + '</div>' +
+        '<label class="fld"><span>' + esc(t('contact.staffId')) + '</span><input id="rs" type="text" maxlength="32" autocomplete="off" placeholder="' + esc(t('contact.staffIdPh')) + '" aria-label="' + esc(t('contact.staffId')) + '"></label>' +
+        '<label class="fld"><span>' + esc(t('contact.phone')) + '</span><input id="rph" type="tel" maxlength="32" autocomplete="off" placeholder="' + esc(t('contact.phonePh')) + '" aria-label="' + esc(t('contact.phone')) + '"></label>' +
+        '<label class="fld"><span>' + esc(t('contact.email')) + '</span><input id="rem" type="email" maxlength="128" autocomplete="off" placeholder="' + esc(t('contact.emailPh')) + '" aria-label="' + esc(t('contact.email')) + '"></label>' +
         '<div class="gate-err" id="re" hidden></div><div class="gate-ok" id="ro" hidden></div>' +
         '<div class="gate-ft"><button class="btn" type="button" id="gback">' + esc(t('ar.backToLogin')) + '</button>' +
         '<button class="btn primary" type="submit" id="rgo">' + esc(t('ar.submit')) + '</button></div></form>';
@@ -5450,11 +5460,13 @@
      公开接口、不需要 token，提交后进「待审批申请」队列，等管理员批准。
      错误码是后端约定的 detail 字符串（server/auth.ts 的 POST /register-request 那一支），
      照 LoginView 的映射逐条翻，不要自己另立一套口径 —— 同一件事在两页必须说一样的话。 */
-  function register(u, p, note) {
+  /* 2026-11-06：联系资料三个选填字段一并提交（与 /uniplam/ 的 LoginView 同一套 body）；
+     未填 / 申请时不带这些值时传空串，后端按可选字段处理。 */
+  function register(u, p, note, staffId, phone, email) {
     return fetch('/uniplam/api/auth/register-request', {
       method: 'POST', credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-      body: JSON.stringify({ username: u, password: p, note: note })
+      body: JSON.stringify({ username: u, password: p, note: note, staffId: staffId, phone: phone, email: email })
     }).then(function (r) {
       return r.json().catch(function () { return {}; }).then(function (d) {
         if (r.ok) return true;
@@ -5469,15 +5481,18 @@
            格式类错误合并到 invalidInput 一条 —— 后端对用户名/密码规则的说法
            （invalid_username / password_too_short / invalid JSON payload）对用户
            没有区别，逐条翻译只会多出三个几乎同义的键。
+           2026-11-06 新增 staff_id_taken（用户ID 被别的账号占用）→ staffIdTaken，
+           提交处理里拼成 ar.staffIdTaken，别把机器码摆给申请人看。
            最后那个 'server' 分支是**有意的兜底**：认不出的 detail 就原样显示后端
            的话（err.message），不冒充网络故障。'net' 从此只留给真正的 fetch 失败。 */
         e.code = detail === 'username_taken' ? 'duplicate'
           : detail === 'request_pending' ? 'pendingDup'
-            : detail === 'too_many_requests' ? 'tooMany'
-              : detail === 'invalid_username' ? 'invalidInput'
-                : detail === 'password_too_short' ? 'invalidInput'
-                  : detail === 'invalid JSON payload' ? 'invalidInput'
-                    : 'server';
+            : detail === 'staff_id_taken' ? 'staffIdTaken'
+              : detail === 'too_many_requests' ? 'tooMany'
+                : detail === 'invalid_username' ? 'invalidInput'
+                  : detail === 'password_too_short' ? 'invalidInput'
+                    : detail === 'invalid JSON payload' ? 'invalidInput'
+                      : 'server';
         throw e;
       });
     }, function () {
@@ -5540,6 +5555,10 @@
   /** 服务端错误文案 → 当前语言的可读提示（认不出的原因原样透出，便于排查） */
   function umErrorText(status, detail) {
     var d = String(detail || '');
+    /* 2026-11-06：用户ID 冲突（409 + staff_id_taken）统一翻成可读文案。
+       建号 / 审批 / 行内改资料都经这一处，别把机器码摆给管理员。
+       必须排在下面 status === 409 → duplicate 之前，否则会被吞掉。 */
+    if (d === 'staff_id_taken') return t('um.staffIdTaken');
     if (d === 'cannot delete yourself') return t('um.selfDelete');
     if (d === 'cannot delete the last admin') return t('um.lastAdmin');
     if (status === 409) return t('um.duplicate');
@@ -5678,9 +5697,11 @@
     /* 每次打开都清掉上一轮的草稿与提示，避免「上次没保存的勾选」被当成现状 */
     state.um.error = ''; state.um.success = '';
     state.um.nu = ''; state.um.np = ''; state.um.nr = 'viewer'; state.um.nt = '';
+    state.um.nStaffId = ''; state.um.nPhone = ''; state.um.nEmail = '';
     state.um.resetId = ''; state.um.resetPwd = '';
     state.um.approveRoles = {};
     state.um.profileId = '';
+    state.um.contactId = ''; state.um.cStaffId = ''; state.um.cPhone = ''; state.um.cEmail = '';
     state.um.saving = false;
     state.um.busy = '';
     mask.hidden = false;
@@ -5785,8 +5806,13 @@
     var rows = list.length
       ? list.map(function (r) {
           var role = state.um.approveRoles[r.id] || 'viewer';
+          /* 申请人单元格：用户名下方用一行小字显示电话 / 邮箱（有才显示，用 · 连接）；
+             用户ID 单独一列。老申请没有这些字段时一律显示 —，不能露 undefined。 */
+          var reqContact = [r.phone, r.email].filter(Boolean).join(' · ');
           return '<tr>' +
-            '<td class="um-strong">' + esc(r.username) + '</td>' +
+            '<td class="um-strong">' + esc(r.username) +
+              (reqContact ? '<div><small class="um-dim">' + esc(reqContact) + '</small></div>' : '') + '</td>' +
+            '<td class="um-dim um-mono">' + esc(r.staffId || '—') + '</td>' +
             '<td class="um-dim um-ellipsis" title="' + esc(r.note || '') + '">' + esc(r.note || '—') + '</td>' +
             '<td class="um-dim um-mono">' + esc(String(r.createdAt || '').slice(0, 19).replace('T', ' ')) + '</td>' +
             '<td class="um-dim um-mono">' + esc(r.ip || '') + '</td>' +
@@ -5801,7 +5827,7 @@
                 (state.um.busy === 'decide' ? ' disabled' : '') + '>' + ic('user-x') + esc(t('um.reject')) + '</button>' +
             '</span></td></tr>';
         }).join('')
-      : '<tr><td colspan="5" class="um-empty">' + esc(t('um.pendingEmpty')) + '</td></tr>';
+      : '<tr><td colspan="6" class="um-empty">' + esc(t('um.pendingEmpty')) + '</td></tr>';
 
     return '<div class="um-box um-box-warn">' +
       '<div class="um-box-head">' + ic('clock') + '<span>' + esc(t('um.pendingTitle')) + '</span>' +
@@ -5810,6 +5836,7 @@
       '<div class="um-scroll"><table class="um-table">' +
         '<thead><tr>' +
           '<th>' + esc(t('um.colApplicant')) + '</th>' +
+          '<th>' + esc(t('um.colStaffId')) + '</th>' +
           '<th>' + esc(t('um.colNote')) + '</th>' +
           '<th>' + esc(t('um.colTime')) + '</th>' +
           '<th>' + esc(t('um.colIp')) + '</th>' +
@@ -5841,6 +5868,16 @@
         '</select>' +
         '<button type="submit" class="gb um-primary" id="umAddBtn"' +
           (busy ? ' disabled' : '') + '>' + ic('plus') + esc(t('um.add')) + '</button>' +
+      '</div>' +
+      /* 手工建号时一并录入联系资料（选填），与自助申请表单同一套字段。
+         另起一行，靠 .um-add-row 的 flex-wrap 自然换行，不动原有那一行的排布。 */
+      '<div class="um-add-row">' +
+        '<input type="text" id="umNewStaffId" maxlength="32" autocomplete="off" placeholder="' +
+          esc(t('contact.staffIdPh')) + '" aria-label="' + esc(t('contact.staffId')) + '" value="' + esc(state.um.nStaffId) + '">' +
+        '<input type="tel" id="umNewPhone" maxlength="32" autocomplete="off" placeholder="' +
+          esc(t('contact.phonePh')) + '" aria-label="' + esc(t('contact.phone')) + '" value="' + esc(state.um.nPhone) + '">' +
+        '<input type="email" id="umNewEmail" maxlength="128" autocomplete="off" placeholder="' +
+          esc(t('contact.emailPh')) + '" aria-label="' + esc(t('contact.email')) + '" value="' + esc(state.um.nEmail) + '">' +
       '</div></form>';
   }
 
@@ -5866,7 +5903,7 @@
           esc(c.group) + ' · ' + esc(c.label) + '</option>';
       }).join('');
 
-    return '<tr class="um-profile-row"><td colspan="4">' +
+    return '<tr class="um-profile-row"><td colspan="6">' +
       '<div class="um-profile">' +
         '<div class="um-profile-head">' + ic('dashboard') +
           '<b>' + esc(tf('um.pagesTitle', { name: u.username })) + '</b>' +
@@ -5953,14 +5990,21 @@
       var lastAdmin = x.role === 'admin' && admins <= 1;
       var blocked = isSelf || lastAdmin;
       var open = u.profileId === x.id;
+      /* 联系方式两行小字：电话 / 邮箱各自一行，都没有显示 —（老账号缺字段）。 */
+      var contactLines = [x.phone, x.email].filter(Boolean)
+        .map(function (v) { return '<div><small>' + esc(v) + '</small></div>'; }).join('');
       var out = '<tr' + (open ? ' class="is-open"' : '') + '>' +
         '<td class="um-strong">' + esc(x.username) +
           (isSelf ? '<span class="um-self">' + esc(t('um.self')) + '</span>' : '') + '</td>' +
+        '<td class="um-dim um-mono">' + esc(x.staffId || '—') + '</td>' +
+        '<td class="um-dim">' + (contactLines || '—') + '</td>' +
         '<td><span class="um-role' + (x.role === 'admin' ? ' is-admin' : '') + '">' +
           (x.role === 'admin' ? ic('shield') : '') +
           esc(x.role === 'admin' ? t('um.roleAdmin') : t('um.roleViewer')) + '</span></td>' +
         '<td class="um-dim um-mono">' + esc(String(x.createdAt || '').slice(0, 19).replace('T', ' ')) + '</td>' +
         '<td class="um-right"><span class="um-row-actions">' +
+          '<button type="button" class="um-icon-btn' + (u.contactId === x.id ? ' is-on' : '') + '" data-um="contact" data-id="' + esc(x.id) + '"' +
+            ' title="' + esc(t('um.contactEdit')) + '" aria-label="' + esc(t('um.contactEdit')) + '">' + ic('pencil') + '</button>' +
           '<button type="button" class="um-icon-btn' + (umHasProfile(x) ? ' is-on' : '') + '" data-um="profile" data-id="' + esc(x.id) + '"' +
             ' title="' + esc(t('um.pages')) + '" aria-label="' + esc(t('um.pages')) + '">' + ic('dashboard') + '</button>' +
           '<button type="button" class="um-icon-btn" data-um="reset" data-id="' + esc(x.id) + '"' +
@@ -5972,12 +6016,29 @@
         '</span></td></tr>';
 
       if (u.resetId === x.id) {
-        out += '<tr class="um-inline-row"><td colspan="4"><div class="um-inline">' +
+        out += '<tr class="um-inline-row"><td colspan="6"><div class="um-inline">' +
           '<span class="um-dim">' + esc(tf('um.resetHint', { name: x.username })) + '</span>' +
           '<input type="password" data-um="reset-pwd" autocomplete="new-password" placeholder="' +
             esc(t('um.passwordPh')) + '" value="' + esc(u.resetPwd) + '">' +
           '<button type="button" class="gb um-primary" data-um="reset-confirm" data-id="' + esc(x.id) + '"' +
             (u.busy === 'reset' || !u.resetPwd ? ' disabled' : '') + '>' + ic('check') + esc(t('um.resetConfirm')) + '</button>' +
+        '</div></td></tr>';
+      }
+      /* 行内编辑联系资料：照重置密码行的展开模式，三个输入框 + 保存 / 取消。
+         输入值全部取自 state.um.c*，重绘不会丢草稿；保存只提交联系资料四项。 */
+      if (u.contactId === x.id) {
+        out += '<tr class="um-inline-row"><td colspan="6"><div class="um-inline">' +
+          '<span class="um-dim">' + esc(t('um.contactEdit')) + ' · ' + esc(x.username) + '</span>' +
+          '<input type="text" data-um="contact-staffId" maxlength="32" autocomplete="off" placeholder="' +
+            esc(t('contact.staffIdPh')) + '" aria-label="' + esc(t('contact.staffId')) + '" value="' + esc(u.cStaffId) + '">' +
+          '<input type="tel" data-um="contact-phone" maxlength="32" autocomplete="off" placeholder="' +
+            esc(t('contact.phonePh')) + '" aria-label="' + esc(t('contact.phone')) + '" value="' + esc(u.cPhone) + '">' +
+          '<input type="email" data-um="contact-email" maxlength="128" autocomplete="off" placeholder="' +
+            esc(t('contact.emailPh')) + '" aria-label="' + esc(t('contact.email')) + '" value="' + esc(u.cEmail) + '">' +
+          '<button type="button" class="gb um-primary" data-um="contact-save" data-id="' + esc(x.id) + '"' +
+            (u.busy === 'contact' ? ' disabled' : '') + '>' + ic('check') + esc(t('um.contactSave')) + '</button>' +
+          '<button type="button" class="gb" data-um="contact-cancel" data-id="' + esc(x.id) + '">' +
+            esc(t('um.contactCancel')) + '</button>' +
         '</div></td></tr>';
       }
       if (open) out += umProfileHtml(x);
@@ -5987,11 +6048,13 @@
     return '<div class="um-box" data-um="users-table"><div class="um-scroll"><table class="um-table">' +
       '<thead><tr>' +
         '<th>' + esc(t('um.colUser')) + '</th>' +
+        '<th>' + esc(t('um.colStaffId')) + '</th>' +
+        '<th>' + esc(t('um.colContact')) + '</th>' +
         '<th>' + esc(t('um.colRole')) + '</th>' +
         '<th>' + esc(t('um.colCreated')) + '</th>' +
         '<th class="um-right">' + esc(t('um.colActions')) + '</th>' +
       '</tr></thead><tbody>' +
-      (rows || '<tr><td colspan="4" class="um-empty">' + esc(t('um.empty')) + '</td></tr>') +
+      (rows || '<tr><td colspan="6" class="um-empty">' + esc(t('um.empty')) + '</td></tr>') +
       '</tbody></table></div></div>';
   }
 
@@ -6041,10 +6104,15 @@
     if (password.length < 8) { umFlash('err', t('um.pwdTooShort')); return; }
     state.um.busy = 'add';
     renderUserMgmt();
-    umCall('/users', { method: 'POST', body: { username: username, password: password, role: state.um.nr, team: state.um.nt || null } })
+    umCall('/users', { method: 'POST', body: {
+      username: username, password: password, role: state.um.nr, team: state.um.nt || null,
+      /* 联系资料选填：空串交给后端按可选字段清洗，不填就不落库。 */
+      staffId: String(state.um.nStaffId || ''), phone: String(state.um.nPhone || ''), email: String(state.um.nEmail || '')
+    } })
       .then(function (r) {
         if (!r.ok) { umFlash('err', umErrorText(r.status, r.data && r.data.detail)); return; }
         state.um.nu = ''; state.um.np = ''; state.um.nr = 'viewer'; state.um.nt = '';
+        state.um.nStaffId = ''; state.um.nPhone = ''; state.um.nEmail = '';
         umFlash('ok', t('um.added'));
         return loadUserMgmt();
       })
@@ -6081,6 +6149,37 @@
       })
       .catch(function (e) { umFlash('err', String(e)); })
       .then(function () { state.um.busy = ''; renderUserMgmt(); });
+  }
+
+  /* 行内编辑联系资料（2026-11-06 加）。存量账号这些字段为空，管理员可随时补录；
+     保存走 /users/profile 的增量 patch，body 只传联系资料四项 —— 不会动到页面配置
+     （landing / 白名单）与团队归属。空串 = 清除该字段，与 umSaveProfile 互不干扰。 */
+  function umSaveContact(id) {
+    if (state.um.busy === 'contact') return;
+    var target = state.um.users.filter(function (x) { return x.id === id; })[0];
+    if (!target) return;
+    state.um.busy = 'contact';
+    renderUserMgmt();
+    umCall('/users/profile', {
+      method: 'POST',
+      body: {
+        id: id,
+        staffId: String(state.um.cStaffId || ''),
+        phone: String(state.um.cPhone || ''),
+        email: String(state.um.cEmail || '')
+      }
+    }).then(function (r) {
+      if (!r.ok || !r.data.user) { umFlash('err', umErrorText(r.status, r.data && r.data.detail)); return; }
+      var saved = r.data.user;
+      state.um.users = state.um.users.map(function (x) { return x.id === saved.id ? saved : x; });
+      state.um.contactId = '';
+      umFlash('ok', tf('um.contactSaved', { name: target.username }));
+    }).catch(function (e) {
+      umFlash('err', String(e));
+    }).then(function () {
+      state.um.busy = '';
+      renderUserMgmt();
+    });
   }
 
   function umDecide(id, action) {
@@ -6182,8 +6281,15 @@
       var el = e.target;
       var act = el.getAttribute && el.getAttribute('data-um');
       if (act === 'reset-pwd') { state.um.resetPwd = el.value; syncUmResetBtn(); return; }
+      /* 联系资料输入框一律「只写 state、不重绘」，与 reset-pwd 同理：重绘会打断输入。 */
+      if (act === 'contact-staffId') { state.um.cStaffId = el.value; return; }
+      if (act === 'contact-phone') { state.um.cPhone = el.value; return; }
+      if (act === 'contact-email') { state.um.cEmail = el.value; return; }
       if (el.id === 'umNewUser') { state.um.nu = el.value; return; }
       if (el.id === 'umNewPass') { state.um.np = el.value; return; }
+      if (el.id === 'umNewStaffId') { state.um.nStaffId = el.value; return; }
+      if (el.id === 'umNewPhone') { state.um.nPhone = el.value; return; }
+      if (el.id === 'umNewEmail') { state.um.nEmail = el.value; return; }
     });
     mask.addEventListener('change', function (e) {
       var el = e.target;
@@ -6231,6 +6337,24 @@
         return;
       }
       if (act === 'reset-confirm') { umResetPassword(id); return; }
+      /* 行内编辑联系资料：照 reset 行的开合模式，展开时用账号现值回填三个输入框。 */
+      if (act === 'contact') {
+        var opening = state.um.contactId !== id;
+        state.um.contactId = opening ? id : '';
+        var cu = state.um.users.filter(function (x) { return x.id === id; })[0];
+        state.um.cStaffId = cu ? (cu.staffId || '') : '';
+        state.um.cPhone = cu ? (cu.phone || '') : '';
+        state.um.cEmail = cu ? (cu.email || '') : '';
+        state.um.error = '';
+        renderUserMgmt();
+        if (opening) {
+          var cinp = $('[data-um="contact-staffId"]');
+          if (cinp) cinp.focus();
+        }
+        return;
+      }
+      if (act === 'contact-save') { umSaveContact(id); return; }
+      if (act === 'contact-cancel') { state.um.contactId = ''; renderUserMgmt(); return; }
       if (act === 'delete') { umDeleteUser(id); return; }
       if (act === 'approve') { umDecide(id, 'approve'); return; }
       if (act === 'reject') { umDecide(id, 'reject'); return; }
@@ -8237,13 +8361,18 @@
         if (rp.length < 8) { re.textContent = t('ar.pwdTooShort'); re.hidden = false; return; }
         if (rp !== rp2) { re.textContent = t('ar.pwdMismatch'); re.hidden = false; return; }
         rgo.disabled = true; rgo.textContent = t('ar.submitting');
-        register($('#ru').value.trim(), rp, $('#rn').value).then(function () {
+        register($('#ru').value.trim(), rp, $('#rn').value,
+          $('#rs').value, $('#rph').value, $('#rem').value).then(function () {
           ro.textContent = t('ar.ok'); ro.hidden = false;
           $('#ru').value = ''; $('#rp').value = ''; $('#rp2').value = ''; $('#rn').value = '';
+          /* 三个联系资料输入框一并清空，避免提交成功后残留旧值被下一次申请误带上去。 */
+          $('#rs').value = ''; $('#rph').value = ''; $('#rem').value = '';
         }).catch(function (x) {
           /* register() 给的 code 里 'net' 要翻成 ar.networkError，其余（duplicate /
-             pendingDup / tooMany / invalidInput）与键名同名，直接拼。别漏了这一支，
-             否则网络故障会显示成裸 key「ar.net」。
+             pendingDup / staffIdTaken / tooMany / invalidInput）与键名同名，直接拼。
+             别漏了这一支，否则网络故障会显示成裸 key「ar.net」。
+             staffIdTaken 是 2026-11-06 新增的一档：用户ID 被别的账号占用 →
+             ar.staffIdTaken，别把 staff_id_taken 这个机器码摆给申请人看。
              'server' 是 register() 的兜底档：后端返回了认不出的 detail。这一档**不能**
              显示成 networkError（那正是 2026-09-30 那次误报的成因），也不能显示成
              裸 key「ar.server」—— 直接把 x.message（后端原文或 "HTTP <status>"）摆出来，

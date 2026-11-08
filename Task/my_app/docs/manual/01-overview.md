@@ -10,8 +10,8 @@ my_app 是一个**单机的网络运维数据平台**：把 eFlow、各制式网
 
 **它做什么**
 
-- **83 个定时任务**驱动数据采集与报表投递（`backend/task_registry.py:179` 起的 `TASK_SPECS`）。
-- **81 个功能页**在一个 SPA 里，中英文可切换（真相源：`frontend/src/App.tsx` 的 `PAGE_META`（65 个，含 `help` 自身）+ `FINEBI_BOARDS`（16 个原生看板）；帮助页的 `frontend/src/pages/helpContent.ts` 的 `PAGE_LIST`（64 个，不含 `help` 自身）与之一一对应）。
+- **84 个定时任务**驱动数据采集与报表投递（`backend/task_registry.py:179` 起的 `TASK_SPECS`）。
+- **82 个功能页**在一个 SPA 里，中英文可切换（真相源：`frontend/src/App.tsx` 的 `PAGE_META`（66 个，含 `help` 自身）+ `FINEBI_BOARDS`（16 个原生看板）；帮助页的 `frontend/src/pages/helpContent.ts` 的 `PAGE_LIST`（66 个，不含 `help` 自身）与之一一对应）。
 - 数据可**下钻**：看板上点指标弹出明细（TT&WO / 告警 / 丢包 / NUR / MS SLA / GIS 均为该模式）。
 - 提供**通用表能力**：任意表浏览、字段画像、Excel/CSV 导入导出、视图模板（TableBrowser）。
 - **自动补漏**：失败任务自动重试、漏跑任务自动补投（`backend/services/auto_retry.py:75-82`）。

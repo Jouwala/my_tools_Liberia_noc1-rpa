@@ -278,6 +278,79 @@ def build_manual_message(alarm: Dict[str, Any], reason: str,
     return engine.render_manual_message(CTX, alarm, reason, hint_lines=hint_lines)
 
 
+# 任务 result 里最多保留多少条失败原因（避免 result_json 膨胀；
+# 全量明细在状态表 last_error 里，这里只给排障看前几条）
+FAIL_REASON_CAP = 5
+
+# 失败率阈值：失败条数 / due 达到该比例即判本轮「失败」（而不只是 partial）。
+# 取 0.5 的理由：现场那次是 479/517 = 92.6%，必须判失败；
+# 而零星几条站点缺档（如 Tokadeh 不在 cmdb）属于数据待补，判 partial 即可。
+FAIL_RATIO_FAIL = 0.5
+
+
+def apply_outcome(out: Dict[str, Any]) -> Dict[str, Any]:
+    """按本轮计数决定 out 的 status / success / error（三态）。
+
+    ⚠ 2026-11-06 修订根因（近 5 天现场实测）：
+    旧判据只有一句 `success = not errors`，而 errors 只收「拉告警失败 /
+    解析用户组失败 / WhatsApp 投递失败」这类**硬异常**；站点解析失败与
+    建单失败只累加 failed 计数 + 写 warnings，于是出现：
+        due=517  assigned=28  failed=479  errors=[]  →  DB 里 success=1
+    任务在 Task Manager 里全绿，实际 92.6% 的光纤告警没派出去，
+    只有微信群在响 —— 典型的「显性失败改成了静默失败」。
+
+    三态规则（依次判定）：
+      errors 非空                       → failed（有硬异常，如拉不到数据）
+      due>0 且 handled==0 且 failed>0   → failed（本轮该派的全都派不出去）
+      failed/due >= FAIL_RATIO_FAIL     → failed（大面积失败，如现场 92.6%）
+      failed>0 但未达阈值               → partial（success 仍 True，靠 warnings
+                                          走 task_runner 的「降级告警」通道）
+      其余                              → ok
+
+    handled 只算真正产生了结果的：assigned（建出 TT）+ merged（并入组长 TT）。
+    skipped / waiting / expired 是**有意不派**，不算失败、也不计入 handled，
+    所以「全部在等待窗口内」不会被误判为失败。
+
+    不会造成通知刷屏：weixin_notifier / email_notifier 都有
+    `COOLDOWN_SECONDS = 30*60` 的按 task_id 冷却（见两处 :65 / :31），
+    即使本任务每 5 分钟跑一次，失败通知最多 30 分钟一条。
+
+    抽成独立函数是为了**可单测**：原先进程内联在 run_fiber_assign 尾部，
+    要验证它就得真跑一轮（dry_run=False 会真建 TT），没法写测试。
+    """
+    handled = out["assigned"] + out["merged"]
+    due = out["due"]
+    if out["errors"]:
+        out["status"] = "failed"
+        out["success"] = False
+        if not out.get("error"):
+            out["error"] = "；".join(str(e) for e in out["errors"] if e)
+        return out
+    if due > 0 and handled == 0 and out["failed"] > 0:
+        out["status"] = "failed"
+        out["success"] = False
+        detail = "；".join((out.get("fail_reasons") or [])[:FAIL_REASON_CAP])
+        out["error"] = (f"本轮 {due} 条待派告警全部未能派单"
+                        f"（失败 {out['failed']} 条）"
+                        + (f"：{detail}" if detail else ""))
+        return out
+    if due > 0 and (out["failed"] / due) >= FAIL_RATIO_FAIL:
+        out["status"] = "failed"
+        out["success"] = False
+        detail = "；".join((out.get("fail_reasons") or [])[:FAIL_REASON_CAP])
+        out["error"] = (f"本轮派单失败率过高：{out['failed']}/{due}"
+                        f"（{out['failed'] / due:.1%}），成功 {out['assigned']} 单"
+                        + (f"：{detail}" if detail else ""))
+        return out
+    if out["failed"] > 0:
+        out["status"] = "partial"
+        out["success"] = True
+        return out
+    out["status"] = "ok"
+    out["success"] = True
+    return out
+
+
 def _verify_tt(alarm_key: str, alarm: Dict[str, Any], index: client.SiteIndex,
                max_tries: int = 3) -> str:
     """派单后回查该告警的 ttid，确认 TT 真的建出来。
@@ -318,6 +391,12 @@ def run_fiber_assign() -> Dict[str, Any]:
         "correlation_codes": sorted(CTX.correlation_codes),
         "groups": list(CTX.groups), "group_fallback": GROUPS_FALLBACK,
         "samples": [], "errors": [], "warnings": [], "elapsed_seconds": 0,
+        # 本轮失败原因明细（站点解析失败 / 建单失败各追加一条，最多留 FAIL_REASON_CAP 条）。
+        # 2026-11-06 新增：原先失败原因只进 warnings（且仅 first_sight）与状态表，
+        # 任务级 result 里拿不到「为什么这轮一条都没派成」，排障只能翻状态表。
+        "fail_reasons": [],
+        # 三态结论：ok / partial / failed（见文末 success 判据注释）
+        "status": None,
     }
 
     def _finish() -> Dict[str, Any]:
@@ -347,6 +426,8 @@ def run_fiber_assign() -> Dict[str, Any]:
         all_alarms = client.fetch_active_alarms()
     except Exception as e:  # noqa: BLE001
         out["errors"].append(f"拉取实时告警失败: {type(e).__name__}: {e}")
+        out["status"] = "failed"
+        out["error"] = out["errors"][-1]
         logger.exception("[Fiber] 拉取实时告警失败")
         return _finish()
     out["fetched"] = len(all_alarms)
@@ -356,6 +437,7 @@ def run_fiber_assign() -> Dict[str, Any]:
     out["fiber_alarms"] = len(fiber_alarms)
     if not fiber_alarms:
         out["success"] = True
+        out["status"] = "ok"
         out["message"] = "无 fiber 告警"
         return _finish()
 
@@ -604,6 +686,8 @@ def run_fiber_assign() -> Dict[str, Any]:
                 reason_en = ("site resolution failed — no numeric site ID matched in cmdb"
                              f"{tried_txt}")
                 out["failed"] += 1
+                if len(out["fail_reasons"]) < FAIL_REASON_CAP:
+                    out["fail_reasons"].append(f"{akey}: {reason}")
                 base.update({"assign_status": "N", "last_error": reason})
                 store.upsert_record(conn, base)
                 if first_sight:
@@ -682,14 +766,16 @@ def run_fiber_assign() -> Dict[str, Any]:
                 out["failed"] += 1
                 reason = last_err
                 reason_en = last_err
+                # ttstatus 可疑 = eFlow 侧 ME 未关联站点（数据问题，不是 payload 问题）。
                 if status_suspect:
-                    # ttstatus 可疑 = eFlow 侧 ME 未关联站点（数据问题，不是 payload 问题）。
                     # 代码改不动它，只能让人去 eFlow 修 —— 故写清原因并通报一次。
                     reason = (f"eFlow 侧 ttstatus={tt_status}（ME 未关联站点），"
                               f"已尝试派单但未建出 TT：{last_err}")
                     reason_en = (f"eFlow ttstatus={tt_status} "
                                  f"(ME not bound to a site); assign was attempted "
                                  f"but no TT was created: {last_err}")
+                if len(out["fail_reasons"]) < FAIL_REASON_CAP:
+                    out["fail_reasons"].append(f"{akey}: {reason}")
                 base.update({"assign_status": "N", "last_error": reason})
                 store.upsert_record(conn, base)
                 if first_sight:
@@ -779,7 +865,7 @@ def run_fiber_assign() -> Dict[str, Any]:
                 elif rep.get("timed_out"):
                     out["warnings"].append("WhatsApp 通报未在超时内获确认（不判失败，请人工核对群消息）")
 
-        out["success"] = not out["errors"]
+        apply_outcome(out)
         out["message"] = (f"演练" if CTX.dry_run else f"派单 {out['assigned']} 单") + \
                          f"，跳过 {out['skipped']}，失败 {out['failed']}"
         return _finish()

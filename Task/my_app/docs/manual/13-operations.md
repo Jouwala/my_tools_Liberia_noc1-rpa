@@ -117,6 +117,7 @@ Select-String -Path log\backend_runtime_*.log -Pattern '任务开始执行|任�
 | 任务漏跑但没人发现 | `db_freshness_check` 执行历史里搜 `[TASK-HEALTH]`；告警去重状态 `TMP/task_health_alert_state.json` | 2026-09-18 起漏跑（无执行记录/队列滞留/成功逾期/未归组）会微信+邮件主动通知，新异常与恢复各通知一次、持续超 24h 重提；维护窗口静音用 `TASK_HEALTH_ALERT_ENABLED=0` |
 | **WhatsApp 告警静默发不出去**（任务却报成功） | ① `whatsapp-kb-bot\data\notify_heartbeat.json` 的 `at` 是否超过 5 分钟或 `connected=false`；②（发图）`backend\services\data\ext_liveness.json` 的 `last_seen_at` 是否超过 5 分钟 | 见下方专节「P1 告警推送通道」与「扩展在线检查」 |
 | 任务反复 failed | `worker_runtime*.log` 找该 task_id 堆栈（分组日志，可按任务所属组直接定位） | 上游不可达→先跑"系统设置→凭据→测试连接"；口令变了→更新凭据 |
+| 任务失败了但**没收到**失败告警 | `worker_runtime*.log` 搜 `failure_alert_deferred`；`task_execution_log` 里该任务自上次成功以来是不是首次失败 | 2026-11-07 起这是**设计行为**：可被 auto_retry 重投的任务首次失败只记日志，5 分钟后重投成功就完全不告警；连续 2 次失败（`FAILURE_ALERT_DEFER_STREAK`）、不可重投任务（邮件类等）、或失败记录落库异常时才立即告警。真停摆另有 `task_health_alert` 巡检兜底。要恢复旧的「失败即告警」设 `FAILURE_ALERT_DEFER=0`。背景：`.19` DbWriter watchdog 强杀重启窗口内（约 40s~2min）写库任务必失败但 auto_retry 均能自愈，旧逻辑每天为此发 1~3 封无效告警 |
 | 任务卡在"执行中"很久 | 是否真在跑：看 worker 进程 PID 是否存活 | 无需手工干预：`STALE_RUNNING_SECONDS=30min` + PID 核对会自动回收僵尸（`worker.py:78,82,302`） |
 | 邮件没发出去 | `email_recovery`（每 20 分钟）日志 | EWS 恢复后会自动补发；确认收件人配置未被重置 |
 | PG 连不上 / 启动 WARN | `start_hidden.ps1:137` 的 PG 探活结果 | 管理员运行 `stop.bat all` 再 `start.bat`；仍不行手工 `pg_ctl start` |

@@ -1,6 +1,6 @@
 # my_app 使用帮助
 
-> 面向使用者的平台功能与操作指南。本文件由「使用帮助」页面同源生成（frontend/src/helpMarkdown.ts），内容依据 docs/manual/ 各章与 backend/task_registry.py 整理。生成日期：2026-11-06。
+> 面向使用者的平台功能与操作指南。本文件由「使用帮助」页面同源生成（frontend/src/helpMarkdown.ts），内容依据 docs/manual/ 各章与 backend/task_registry.py 整理。生成日期：2026-11-07。
 
 > 站内入口：侧边栏「使用帮助」，或直链 `http://<host>/myapp/?page=help`。
 
@@ -10,7 +10,7 @@
 
 - [1. 平台简介](#1-平台简介)
 - [2. 通用操作](#2-通用操作)
-- [3. 任务管理详解（83 个任务）](#3-任务管理详解)
+- [3. 任务管理详解（84 个任务）](#3-任务管理详解)
 - [4. 页面指南](#4-页面指南)
 - [5. 运维与排障](#5-运维与排障)
 - [6. 常见问题](#6-常见问题)
@@ -70,7 +70,7 @@
 
 | 组 | 约束原因 |
 | --- | --- |
-| **u** | RAN UME 单账号会话，组内必须串行（并发会被踢会话） |
+| **u** | RAN UME 单账号会话，组内必须串行（并发会被踢会话）；2026-11-07 新增 23:00 的 ran_element_management_sync（RNM 网元管理表格落 PG），与 02:00 的 ran_ume_daily 共用 zte_ume 会话 |
 | **n** | 网管 / eFlow API / 远程系统：彼此独立但保守同组 |
 | **v** | VMAX 门户（本机 8790 单会话代理）：三个任务共用同一会话必须串行；2026-09-18 从 n 组拆出，不再被 1.5~2h 长任务堵住 |
 | **m** | 内务轻任务：EWS 邮件会话 + 截图/WhatsApp 文件依赖 |
@@ -83,7 +83,7 @@
 
 > ⚠️ **新增任务必须同时登记进 `worker_watchdog.py` 的 `GROUP_TASK_MAP`** —— 只写 `TASK_SPECS` 不分组 = 任务入队后永远 pending。这是本项目已发生过四次的事故模式（finebi_report_sync / whatsapp_send_ext / sp_email_details / 2026-09-18 的 olib_soc 与 vmax_multi_data_sync）。
 
-### 3.3 全量任务清单（83 个）
+### 3.3 全量任务清单（84 个）
 
 | 任务 | task_id | 默认 cron | 组 | 工作流脚本 |
 | --- | --- | --- | --- | --- |
@@ -169,7 +169,8 @@
 | TMP 目录清理 | `tmp_cleanup` | `47 3 * * *` | m | `services/tmp_cleanup.py → run_tmp_cleanup` |
 | TTs and MTTR 报表生成 | `tt_mttr_report_generate` | `20 7 * * *` | m | `services/tt_mttr_report.py → run_tt_mttr_report` |
 | RAN 用户身份清单（VoLTE/N78） | `gp_ran_user_sync` | `20 13 * * *` | g | `services/gp_ran/gp_ran_sync.py → run_gp_ran_user_sync` |
-| IPT 站点电源采集 | `ipt_power_collect` | `*/2 * * * *` | m | `services/ipt_data/ipt_power_collector.py → run_ipt_power_collect` |
+| IPT 站点电源采集 | `ipt_power_collect` | `*/5 * * * *` | m | `services/ipt_data/ipt_power_collector.py → run_ipt_power_collect` |
+| RAN 网元管理表同步 | `ran_element_management_sync` | `0 23 * * *` | u | `services/RANElementManagement/ran_element_management_service.py → run_ran_element_management_sync` |
 
 每个任务的工作流与维护要点：
 
@@ -1713,10 +1714,10 @@
 
 #### IPT 站点电源采集（`ipt_power_collect`）
 
-- 默认 cron: `*/2 * * * *`　|　worker 组: **m**
+- 默认 cron: `*/5 * * * *`　|　worker 组: **m**
 - 工作流脚本: `services/ipt_data/ipt_power_collector.py → run_ipt_power_collect`
 
-**功能**: 每 2 分钟从 IPT Digital Platform（RMS 能源监控平台，AWS 外网）采集：① filter-map 1 个请求刷全站（约 500 站）连接状态（该接口不含电源数值）；② /sites 分页一次性回填参考号/区域等站点属性；③ full_kpi 并发拉全站 popup 轻量 KPI（8 线程；上游健康时 32 线程实测 501 站 60s）→ **全站每 2 分钟一条快照**；④ full_shard 并发拉 diagram 完整明细分片轮采（3 线程，≤60 站/轮，约 20 分钟覆盖全站，关注站每轮必采）。供「站点电源查询」页展示与画历史曲线
+**功能**: 每 5 分钟从 IPT Digital Platform（RMS 能源监控平台，AWS 外网）采集：① filter-map 1 个请求刷全站（约 500 站）连接状态（该接口不含电源数值）；② /sites 分页一次性回填参考号/区域等站点属性；③ full_kpi 并发拉全站 popup 轻量 KPI（8 线程；上游健康时 32 线程实测 501 站 60s）→ **全站每 5 分钟一条快照**；④ full_shard 并发拉 diagram 完整明细分片轮采（3 线程，≤60 站/轮，约 20 分钟覆盖全站，关注站每轮必采）。供「站点电源查询」页展示与画历史曲线
 
 **工作流与数据流**:
 
@@ -1724,20 +1725,44 @@
 1. POST /energy/sites/filter-map 全量刷新 ipt_power_sites（连接状态 online/offline；不含电源数值）
 1. GET /energy/sites?query=&page=N&pageSize=100 分页回填 internal_reference / organization / cluster / priority / configuration（约 6 个请求，仅在有缺值且距上次 >1h 时执行）
 1. diagram 明细池先起（后台）：关注站（watch_sites.json 的 sites）+ shard_cursor 环形游标分片站，3 线程并发
-1. popup KPI 池前台跑：全站每站 GET /popup（8 线程，按 kpi_cursor 环形轮转，硬上限截断的站下轮续采），与 diagram 池同时进行；两池受整轮 100s 硬上限约束
+1. popup KPI 池前台跑：全站每站 GET /popup（8 线程，按 kpi_cursor 环形轮转，硬上限截断的站下轮续采），与 diagram 池同时进行；两池受整轮 240s 硬上限约束（2026-11-06 D 由 100s 放宽，*/5 周期 300s 留 60s；跑完即止，不增加瞬时压力）
+1. 弹性（11-06 复盘）：cron */2 → */5 留出上游喘息窗口；整轮硬上限 100→240s 把空出的 200s 用起来，慢轮不再提前放弃尾部站；filter-map 增加 1 次短重试与「上轮站点清单」降级，瞬时抖动不再整轮判失败；连续 3 轮完全无法采集才告警，数据陈旧由 20 分钟巡检兜底
 1. 弹性（11-05 复盘）：池内单请求 20s 超时（12s 会误杀「慢但会成功」的请求并形成超时风暴）+ popup 失败站在硬上限内补采一轮 + 单轮 popup 成功率 <25% 视为上游被压垮并计入退避；退避按连续失败 5/10/20 分钟（封顶 30），退避期整轮静默跳过、不发失败通知，任一轮成功自动清零
 1. 合成落库：全站每轮各写一条快照（popup KPI 为底、有 diagram 的站覆盖明细列，source 记 popup/diagram；popup 行 raw 不落 JSON 控表体积，diagram 明细另存 ipt_power_site_detail 每站最新一条，已剥设备凭据）
 1. 清理 2 天前旧快照；运行结果写 ipt_power_meta.last_run，下一轮起点写 ipt_power_meta.shard_cursor
 
 **维护要点**:
 
-- ⚠ 采集范围由 backend/services/ipt_data/watch_sites.json 控制：sites = 关注站（站名 / 参考号 / site_id，每轮必采 diagram）；full_kpi = {"enabled": true, "workers": 8, "budget_s": 80} 全站 popup 层；full_shard = {"enabled": true, "max_sites": 60, "budget_s": 70} diagram 明细分片。**不要配 "*"**（旧语义 = 单轮全采 500 站 diagram，实测外推 ~185s 必然超时）
-- 上游无批量电源接口（filter-map 无数值、events/recent 只有最近事件）；2 分钟全站分辨率 = 并发逐站拉 popup（2026-11-04 32 线程实测 60.1s / 0 错误）；11-05 复盘确认持续高并发会把上游拖出批量超时，现降为 8 线程 + kpi_cursor 环形游标续采，以单轮覆盖率换稳定，等效每站 2~6 分钟
+- ⚠ 采集范围由 backend/services/ipt_data/watch_sites.json 控制：sites = 关注站（站名 / 参考号 / site_id，每轮必采 diagram）；full_kpi = {"enabled": true, "workers": 8, "budget_s": 200} 全站 popup 层；full_shard = {"enabled": true, "max_sites": 60, "budget_s": 70} diagram 明细分片。**不要配 "*"**（旧语义 = 单轮全采 500 站 diagram，实测外推 ~185s 必然超时）
+- 上游无批量电源接口（filter-map 无数值、events/recent 只有最近事件）；5 分钟全站分辨率 = 并发逐站拉 popup（2026-11-06 由 2 分钟降频，上游瞬时抖动不再判任务失败）（2026-11-04 32 线程实测 60.1s / 0 错误）；11-05 复盘确认持续高并发会把上游拖出批量超时，现降为 8 线程 + kpi_cursor 环形游标续采，以单轮覆盖率换稳定，等效每站 5~15 分钟
 - 凭据：环境变量 IPT_USERNAME / IPT_PASSWORD 优先，缺省读同目录 url.txt 头部「用户名：/密码：」两行；url.txt 含明文密码，已被 gitignore（url*.txt 规则）覆盖不会入库
 - 密码模式（password grant）实测被拒（unauthorized_client），只有 rubix-web 允许授权码/隐式流 → 登录走表单模拟；若登录页结构变化，任务会报「登录页结构变化」
 - 单站失败只计数不阻断本轮（popup 失败下轮自然重试，diagram 失败由游标下一轮补）；改采集器代码后需重启 m 组 worker，只改 watch_sites.json 不用重启
 - 快照保留 2 天（RETENTION_DAYS），表按 (site_id, snap_time) 主键去重；太阳能口径：solarSets 与 rectifiers 的 solarPower 是同一份镜像值取 max，无太阳能设备 solar_available=0 显示「-」，夜间 0 W 属正常
 - 消费方：?page=ipt_power（站点电源查询页，左 3/5 地图 + 右 2/5 清单表）；「立即刷新」按钮走 routers/ipt_power.py 的 /refresh 实时直查，与本任务共用登录缓存
+
+#### RAN 网元管理表同步（`ran_element_management_sync`）
+
+- 默认 cron: `0 23 * * *`　|　worker 组: **u**
+- 工作流脚本: `services/RANElementManagement/ran_element_management_service.py → run_ran_element_management_sync`
+
+**功能**: 每天 23:00 从 RAN UME（10.100.28.27:28001）RNM「网元管理」表格所用的唯一数据接口 GET /api/res/v1/ranmes 拉全量网元清单（实测 934 行 / 15 字段：ITBBU 812、SDR 111、MRNC 10、MEC 1），写入 PostgreSQL 的 app schema：当前全量表 + 每日快照 + 同步日志
+
+**工作流与数据流**:
+
+1. 取数口径来自 backend/services/RANElementManagement/url.txt 的浏览器抓包：1080 行 cURL 里只有第 852 行这条 /api/res/v1/ranmes?queryDn=model:subnetwork&operation=operation.rem.rnm.tools&includeAttr=... 是真正的表格数据接口，其余都是门户静态资源 / 登录刷新 / WebSocket
+1. 鉴权走项目统一的 auth_manager.get_auth(HOST, PORT, user, pwd, probe=...) + credential_store 的 zte_ume 凭据组；probe 必须打本业务接口（不是登录首页），共享 auth_cache 会话失效才会被识别并自动重登；不硬编码抓包里的 Z-AUTH-CODE-28001 / forgerydefense 等会过期的 Cookie
+1. 拿到 200 后解析 JSON 数组，按 15 个字段归一（nbiIdDn 是数组需 join，connectionState / virtualizationId 转整数），每行另存原始 raw_json
+1. 低于 RAN_EM_MIN_ROWS（默认 100 行）直接判失败且不写库 —— 防止上游只返回残片时把 934 行的好数据覆盖掉；401/403 触发一次强制重登后重试
+1. PG 写入在显式 BEGIN/COMMIT/ROLLBACK 事务内完成：先删当日快照再整批插入 app.ran_element_management_daily（主键 snapshot_date + ne_id，同日重跑幂等），再按 ne_id upsert 进 app.ran_element_management 当前全量表并删除 fetched_at 不等于本轮的陈旧行，最后写 app.ran_element_management_sync_log
+
+**维护要点**:
+
+- ⚠ 归 u 组的硬理由：与 ran_ume_daily / cm_data_sync 共用同一台 UME、同一个 zte_ume 账号、同一份 auth_cache 会话，并发登录会互踢；23:00 与组内其它任务错峰，单轮实测 <1s。新增任务必须同时在 worker_watchdog.py 的 GROUP_TASK_MAP 登记，否则队列 pending 无人认领直到超时
+- ⚠ 只取 /api/res/v1/ranmes 这一个接口。抓包里另有 10 个 /api/rncmoaction/v1/rnc/<uuid> 详情请求，响应含 ommFtpPasswd / ommFtpUser / ommSecretKeyId 等设备凭据，既不是表格可见列也不应入库
+- PG 的 get_raw_connection() 是 autocommit 且游标会把 ? 转成 %s，所以事务必须显式 BEGIN/COMMIT；失败时整批 ROLLBACK，不会留下半张表
+- 表结构由服务内 DDL 幂等创建（CREATE TABLE IF NOT EXISTS），无需 Alembic 迁移；改字段映射 FIELDS 时要同步改 DDL 与索引
+- 排障顺序：先看 app.ran_element_management_sync_log 的 status / error，再看任务执行日志；rows 突然变少查是否被执行日志里的行数下限拦住；会话问题去「系统设置 → 凭据」测 zte_ume
 
 ### 3.4 可靠性机制（超时 / 重试 / 自愈）
 
@@ -1748,7 +1773,7 @@
 | **漏跑补投** | 时效窗口内应触发却完全没有执行记录的任务自动补投一次（MISS_GRACE_MIN=15 宽限；邮件类默认排除，由 EWS 补发机制负责）。 |
 | **陈旧 pending 过期** | pending 超 6 小时无人认领（典型原因：漏登记 worker 分组）会被置 failed 并补写执行日志，释放被它占住的单飞名额，让下一次调度能正常入队（否则一条陈旧记录会挡住该任务之后的每一次调度）。 |
 | **失败通知** | 任务失败经微信 + 邮件双通道告警（services/weixin_notifier.py 支持 openclaw/wecom/serverchan/pushplus）。 |
-| **漏跑/停摆主动告警** | db_freshness_check 每小时算四类健康异常（未归组 / 超出周期无执行记录 / 队列滞留 / 上次成功后逾期无新成功），由 services/task_health_alert.py 按「新异常通知一次、恢复通知一次、持续超 24h 再提一次」推微信+邮件，不必等看板没数据了才人工发现（2026-09-18 上线）。 |
+| **漏跑/停摆主动告警** | db_freshness_check 每小时算五类健康异常（未归组 / 超出周期无执行记录 / 队列滞留 / 上次成功后逾期无新成功 / 执行成功但持续零产出），由 services/task_health_alert.py 按「新异常通知一次、恢复通知一次、持续超 24h 再提一次」推微信+邮件，不必等看板没数据了才人工发现（2026-09-18 上线；「成功但零产出」2026-11-06 补，起因是 vmax_multi_data_sync 连续 34 天 rows=0 却每轮 success=1，旧四类全都覆盖不到）。 |
 | **进程自愈** | backend_watchdog / worker_watchdog 托管进程：端口探活、崩溃退避重拉（backend 连崩 10 次降级为每 5 分钟慢速重试、不再放弃；worker 仍是连崩 10 次摘除不再拉起）；心跳 log/heartbeat_*.json 超 3 分钟未更新判定 hung 强杀重拉。 |
 | **保留期** | task_queue 与 task_execution_log 保留 7 天（task_runner.py / worker.py 自动清理，可用环境变量 TASK_LOG_RETENTION_DAYS 调整），无需手工。 |
 
@@ -2301,7 +2326,7 @@ UME iMonitor 大屏（guard-imonitor-iui，screen_id=1）：把 UME 门户（172
 - 「高级筛选」面板第一格是「站点名称」输入框：按名称片段模糊匹配（不区分大小写），其余是区域/等级/站型/FME 等下拉；
 - 筛选后统计同步变化：站点总数与 ERA/COOL/NORMAL 分档、地图图例、县块颜色与县名标注、右上角「MAINTENANCE ALERTS」区域排名条都按筛选后的站点重新统计，不再显示全量数字；
 - 点站点打开右侧抽屉，四个页签明细可搜索、可导出 Excel
-- 抽屉「基本信息」含 **电源状态**（与 ?page=ipt_power 同源）：连接状态每 2 分钟刷新全站，SOC / 电压 / 负载等取最新快照（每轮全站采集 popup KPI，上游承压时按环形游标轮转续采，等效每站 2~6 分钟）；站点名匹配不到 IPT 站时显示 —；口径见标签 ⓘ 说明
+- 抽屉「基本信息」含 **电源状态**（与 ?page=ipt_power 同源）：连接状态每 5 分钟刷新全站，SOC / 电压 / 负载等取最新快照（每轮全站采集 popup KPI，上游承压时按环形游标轮转续采，等效每站 5~15 分钟）；站点名匹配不到 IPT 站时显示 —；口径见标签 ⓘ 说明
 - 「链路利用率」开关（默认开）：把 MW 微波实时页同一 15 分钟槽位的链路利用率叠加到地图链路线上，按 4 级着色（>80% 紧急 / ≥70% 重要 / ≥60% 次要 / <60% 正常），线越粗表示利用率越高
 - 点链路线可看该链路的最高/发送/接收利用率与匹配到的 MW 站点；显示「无 KPI 数据」的链路表示未匹配到实时指标（保持 KML 原线色），不是 0%
 - 叠加口径见图例下方说明：844 条 KML 链路中约 360 条能匹配到实时指标，其余仍在 MW 微波实时页查看
@@ -2487,17 +2512,33 @@ VMAX 投诉诊断：输入号码与时间窗，一次并发取回四路 Talon XD
 - 链接里带号码，转发前确认接收方可以看这个号码
 - **四维评分与语音 / OTT / 游戏 / 无线各卡的每个数字都能悬浮看算法**（2026-11-05）：这些统计都是**前端按规则文件算的**（接口不下发分数与计数），输入就是「数据源命中」列出的行集；各源有分页上限（1300=1200 行 / 1100=800 / 32=600 / 1301=200），标签末尾的 `*` 表示接口返回 truncated=true，即**还有行没取回**，此时所有数字只是样本口径；语音卡的「超时/失败」原有一处缺陷 —— PAGING 的超时行会被重复计两遍，2026-11-05 已修正（同一时点的旧截图里那个数偏大）；游戏卡头标那个数在代码里叫 sessions，实际是**话单行数之和**，不是会话条数
 
+#### vmax_user_cca（`vmax_user_cca`）
+
+VMAX 智能诊断工作台（Intelligent Diagnosis Workspace）：投诉驱动的单页叙事——先给结论，再沿证据深入。区域 1 诊断结论卡（结论 + 四维分悬浮口径说明 + 数据源行数与截断标记 + 导出 Excel/PDF + 人工覆写）、区域 2 故障分析（terminal→RAN→传输→核心网→OTT 链路 + 可解释指标：观测常驻、解释收进 ⓘ，每行可直达证据抽屉 + 小区交叉验证：CCA 指向的小区 vs 32 实际驻留小区）、区域 3 根因与处理建议（CCA 关联证据 + 模板建议 + 证据库；CCA 查询失败常驻红条，不与「无根因」混淆）。四个源**逐源返回**：链路与指标随源到达逐步补齐，结论要等四源到齐才出。
+
+- 必须用 231 开头的完整号码（如 231777777322），纯数字；本地 9 位格式上游查不到
+- 投诉类型默认「全部投诉」，切换只换判据权重、不重取数；具体类型只重排/强调、不隐藏跨模块证据
+- 链路条状态取五段指标的最差值：无数据写「无数据可判」，绝不写「正常」
+- 每个指标回答五段：为什么重要 / 观测到什么 / 何时发生 / 可能影响 / 需要验证
+- 原始 XDR / 无线原始 / TCP 只在点「查看证据」时加载，点前无明细请求
+- 结论由确定性规则生成（buildVerdict），CCA 只作关联证据，不参与结论
+- **取数是一源一源返回的**：先到的是用户面话单（1300，最慢约 12s），无线侧（32）最后；区域 2 会边取边补，区域 3 在四源到齐前显示「取数 x/4」而**不下结论**——半份数据先给「没问题」是投诉场景里最危险的误读
+- 区域 2 的**小区交叉验证**回答「问题是不是落在这个小区」：对比 CCA 根因/驻留的小区与 32 的实际驻留小区，判定一致 / 不一致 / 无法判定；**不一致本身是有价值的排障线索**（需核对时间窗与制式），无法判定会常驻写明原因，不会写成「正常」
+- 人工覆写会连同**当时的完整诊断快照**一起存档（结论、四维分、各源状态；不含原始话单与号码明文），在覆写弹窗里默认收起、点开可审计，导出工单里也会带一行摘要
+- 号码写在 ccaMsisdn 参数，与旧查询页 msisdn 互不干扰
+- 完整支持中英双语
+
 #### ipt_power（`ipt_power`）
 
-站点电源查询：对接 IPT Digital Platform（RMS 能源监控平台），看全网约 500 个站点的连接状态与电源数据（电池 SOC/电压、负载、太阳能、柴油、油机、活动告警）。采集任务 ipt_power_collect 每 2 分钟自动入库——每轮并发拉全站 popup 轻量 KPI（上游承压时按 kpi_cursor 轮转续采，等效每站 2~6 分钟），diagram 完整明细分片轮采，本页只读库不打扰上游平台。
+站点电源查询：对接 IPT Digital Platform（RMS 能源监控平台），看全网约 500 个站点的连接状态与电源数据（电池 SOC/电压、负载、太阳能、柴油、油机、活动告警）。采集任务 ipt_power_collect 每 5 分钟自动入库——每轮并发拉全站 popup 轻量 KPI（上游承压时按 kpi_cursor 轮转续采，等效每站 5~15 分钟），diagram 完整明细分片轮采，本页只读库不打扰上游平台。
 
 - 页面布局：左侧 **3/5 站点地图**（Leaflet + 自托管 PMTiles 底图，与 GIS 地图同源），**点击站点圆点从右侧滑出「电源详情」抽屉**；右侧 **2/5 站点清单表**，点行内「详情」打开同一个抽屉。抽屉只压住表格那一列，地图与刚点中的站点仍在眼前
 - 地图圆点颜色：绿=在线正常，橙=有活动告警（悬停表格「告警」列可看告警名），红=离线
 - 地图可按**县**铺底色（默认开，卡片头「县底色」开关可关）：颜色 = 该县「有 SOC 快照的站点」的平均 SOC，≥80% 绿 / 70~80% 黄 / 60~70% 橙 / <60% 红，参与平均不足 3 站归灰不分档；鼠标停在县块上看该县平均 SOC 与样本数，完整口径见「数据口径说明」第 4 段
-- 主表 = 全站清单 + 每站**最新一条**电源快照；「连接状态」来自平台的 filter-map（每 2 分钟刷新一次），online/offline 直接反映站点网关的可达性
-- ⚡ 图标 = 关注站点：watch_sites.json 的 sites 内站点每轮必采 diagram 完整明细；其余站点的明细由 full_shard 分片轮采覆盖（约 20 分钟一轮），KPI 快照（SOC/负载/太阳能/柴油/告警）每轮全站尽力采集，上游承压时由 kpi_cursor 环形续采（等效每站 2~6 分钟）。配置在 backend/services/ipt_data/watch_sites.json，**不要在 sites 里配 "*"**
+- 主表 = 全站清单 + 每站**最新一条**电源快照；「连接状态」来自平台的 filter-map（每 5 分钟刷新一次），online/offline 直接反映站点网关的可达性
+- ⚡ 图标 = 关注站点：watch_sites.json 的 sites 内站点每轮必采 diagram 完整明细；其余站点的明细由 full_shard 分片轮采覆盖（约 20 分钟一轮），KPI 快照（SOC/负载/太阳能/柴油/告警）每轮全站尽力采集，上游承压时由 kpi_cursor 环形续采（等效每站 5~15 分钟）。配置在 backend/services/ipt_data/watch_sites.json，**不要在 sites 里配 "*"**
 - 单站详情是**右侧通高抽屉**（形态同 MW 微波实时点链路、GIS 地图点站点：贴右滑入 + 遮罩 + 与 GIS 抽屉同宽、桌面约 810px + 内容区自己滚动），标题栏带「立即刷新」与 ×，Esc / 点遮罩 / × 均可关闭；抽屉顶部有站点属性条（参考号/区域/Cluster/优先级/供电配置/连接状态/快照时间/连接状态更新），下面依次是六张数字卡（一行 3 张）+ **设备明细卡**（一行 2 张：发电机 R/S/T 相电压相电流与运行模式 / 电池组容量与今日电压 / 油箱油位 / 主源状态）+ 活动告警列表 + 近 N 小时趋势曲线，时间范围 6h/24h/72h/7d 可切
-- **「立即刷新」是实时直查平台**（绕开 2 分钟节拍与分片轮次），查完自动补一条快照与明细——任何站点都能用它立即取数
+- **「立即刷新」是实时直查平台**（绕开 5 分钟节拍与分片轮次），查完自动补一条快照与明细——任何站点都能用它立即取数
 - 太阳能口径：无太阳能设备的站显示「-」；有设备的站**夜间（当地约 18:30~06:30）为 0 W 属正常**，白天常见 6~14 kW
 - 采集异常（任务未运行/上一轮失败）会在页面顶部出黄色横幅；快照默认保留 2 天，超期自动清理
 - 「导出 Excel」出主表全列（含 SOC/负载/太阳能/柴油/告警数/快照时间）
@@ -2628,7 +2669,7 @@ AP（Action Plan，行动计划）工作台：把问题、风险或管理要求�
 
 **任务长期停在 pending 不执行？**
 
-多半是该任务未被归入任何 worker 组（GROUP_TASK_MAP），队列里永远无人认领——这是本项目已发生过四次的事故模式（finebi_report_sync、whatsapp_send_ext、sp_email_details，以及 2026-09-18 查出的 olib_soc 看板增量与 vmax_multi_data_sync）。新增任务必须在 worker_watchdog.py 的 GROUP_TASK_MAP 登记分组；陈旧 pending 占住的单飞名额 6 小时后会被 worker 自动过期释放。2026-09-18 起这类停摆不再靠人肉发现：db_freshness_check（每小时）会把未归组 / 无执行记录 / 队列滞留 / 成功逾期四类健康异常按翻转去重主动微信+邮件通知。
+多半是该任务未被归入任何 worker 组（GROUP_TASK_MAP），队列里永远无人认领——这是本项目已发生过四次的事故模式（finebi_report_sync、whatsapp_send_ext、sp_email_details，以及 2026-09-18 查出的 olib_soc 看板增量与 vmax_multi_data_sync）。新增任务必须在 worker_watchdog.py 的 GROUP_TASK_MAP 登记分组；陈旧 pending 占住的单飞名额 6 小时后会被 worker 自动过期释放。2026-09-18 起这类停摆不再靠人肉发现：db_freshness_check（每小时）会把未归组 / 无执行记录 / 队列滞留 / 成功逾期 / 成功但零产出五类健康异常按翻转去重主动微信+邮件通知。
 
 **任务反复 failed？**
 

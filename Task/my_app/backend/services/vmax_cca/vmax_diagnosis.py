@@ -40,16 +40,24 @@ Merged XDR / XDR Records —— **按数据源切的，不是按问题切的**�
 
 ## 并发与开销
 
-四个源**并行**取（ThreadPoolExecutor）。实测单源耗时：1300 三页 ~12s、
-1100 ~6s、32 单表 0.3~1.7s。串行要 20s+，并行压到 12s 左右，
-瓶颈是 1300（上游分页上限 200 条）。
+四个源**串行**取（ThreadPoolExecutor max_workers=1）。实测单源耗时：1300 三页
+~12s、1100 ~6s、32 单表 0.3~1.7s。串行总耗时 ≈21s，瓶颈是 1300（上游分页上限
+200 条）。**并发度必须保持 1** —— 上游对同账号并发连接卡得很死，多开线程会让
+多个源整批失败（见 `iter_sources()` 里 `_run_one` 的注释）。
+
+## 渐进渲染（2026-11-07 P3-1）
+
+`iter_sources()` 逐源产出事件，两条消费路径共用它、口径只有一份：
+  - `fetch_all()`：一次排空再组装 —— 老接口 `GET /api/vmax-diagnosis` 用；
+  - SSE 端点 `GET /api/vmax-diagnosis/stream`：每跑完一个源推一帧，前端先渲染
+    1300 出来的分析，32 到了再补无线侧（失败时前端回退到老接口，行为不变）。
 """
 from __future__ import annotations
 
 import logging
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +79,15 @@ MAX_PAGES_RAN = 3
 
 # 单源整体超时（秒）。超过就算该源失败，不拖累其它源。
 SOURCE_TIMEOUT = 90
+
+# ---------------------------------------------------------------------------
+# 渐进渲染事件名（2026-11-07 P3-1）
+# ---------------------------------------------------------------------------
+# `iter_sources()` 逐源产出事件，SSE 端点（routers/vmax_diagnosis.py）
+# 直接把事件名当 SSE 的 `event:` 字段，前端按事件增量渲染。
+# 不引入枚举类，保持「事件名就是协议」这一层可读性。
+SOURCE_EVENT = "source"     # data: 单个源的取数结果（与 fetch_all 里的一项同形）
+DONE_EVENT = "done"         # data: {window, imsi}，四个源都跑完才发
 
 # 两个时间格式：5gsa 域按毫秒边界切分区（必须带 .000），RAN 域同样
 FMT_MS = "%Y-%m-%d %H:%M:%S.000"
@@ -240,16 +257,48 @@ class VmaxDiagnosis:
     # ------------------------------------------------------------------
     # 对外
     # ------------------------------------------------------------------
-    def fetch_all(self, msisdn: str, start: str, end: str) -> Dict[str, Any]:
-        """并行取四个源。start/end 为 "YYYY-MM-DD HH:MM:SS"。
+    def _run_one(self, pool, key: str, fn, *args) -> Dict[str, Any]:
+        """在**复用**的单线程池里跑一个源，把超时/异常收敛成「该源失败」。
 
-        返回：
-            {window, imsi, sources: [{key,label,ok,rows,error,truncated}]}
+        为什么还要线程池（2026-11-07 P3-1）：
+          `fut.result(timeout=SOURCE_TIMEOUT)` 是唯一能挡住上游挂死的办法
+          （requests 自身超时在部分网络抖动下不生效）。池 max_workers=1 且
+          整轮（1 个号码）复用：上一个源即使超时被放弃，它也仍占着这条线程，
+          后续源排队 —— 保证对上游的**并发度恒为 1**（模块头纪律：上游同账号
+          并发一超，多个源会整批失败，比串行还慢）。
 
-        ⚠ `msisdn` 是**必填**（2026-10-31 修 P0）。历史版本签名里没有它，
-        四个源都按空号码查，于是「永远 0 条」被当成「用户没数据」。
-        这里显式拒绝空号码，宁可 500 也不要静默返回全空 —— 静默的全空
-        比报错危险得多：用户会据此在投诉工单里写「该时段无业务」。
+        key 必须显式传进来 —— 早期版本靠 `fn._src_key` 反射，绑定方法上没有
+        这个属性，失败时 key 变成 "?"，前端按 key 取行就取不到（实测踩过）。
+        """
+        try:
+            fut = pool.submit(fn, *args)
+            out = fut.result(timeout=SOURCE_TIMEOUT)
+            out.setdefault("ok", True)
+            out["key"] = key
+            out["label"] = out.get("label") or _LABELS.get(key, key)
+            return out
+        except Exception as exc:                       # noqa: BLE001
+            logger.warning("[vmax_diag] 源 %s 取数失败: %s", key, exc)
+            return {"key": key, "label": _LABELS.get(key, key), "ok": False,
+                    "rows": [], "truncated": False, "error": _humanize(exc)}
+
+    def iter_sources(self, msisdn: str, start: str, end: str) -> Iterator[Tuple[str, Dict[str, Any]]]:
+        """**逐源**产出 `(event, payload)` 的生成器（2026-11-07 P3-1）。
+
+        事件序列（与 SSE 端点一一对应，见 routers/vmax_diagnosis.py）：
+
+            ("source", {key,label,ok,rows,truncated,error})   × 4
+            ("done",   {window, imsi})
+
+        顺序固定 1300 → 1100 → 1301 → 32：32 依赖 1300/1100 解析出的 IMSI，
+        必须最后（模块头纪律 2）。单源失败/超时只影响该源。
+
+        为什么要有生成器：四个源串行总共 ≈21s（1300 约 12s 是瓶颈）。旧接口
+        等 21s 才一次性返回，用户全程白屏；流式端点每跑完一个源就推一帧，
+        前端能先渲染 1300 出来的分析，32 到了再补无线侧。
+
+        ⚠ 与 fetch_all 共用本方法 —— 渐进渲染与一次性返回**同一套取数口径**，
+        不要另写一份。
         """
         if not str(msisdn or "").strip():
             raise ValueError("fetch_all 需要真实号码（msisdn 不能为空）")
@@ -259,59 +308,55 @@ class VmaxDiagnosis:
         et = _shift_end(datetime.strptime(end, FMT_SEC))
         s_ms, e_ms = _to_ms(st), _to_ms(et)
 
-        def _wrap(key: str, fn, *args) -> Dict[str, Any]:
-            """包一层：任何异常都变成「该源失败」，key 必须显式传进来 ——
-            早期版本靠 `fn._src_key` 反射，绑定方法上没有这个属性，
-            失败时 key 变成 "?"，前端按 key 取行就取不到（实测踩过）。"""
-            try:
-                out = fn(*args)
-                out.setdefault("ok", True)
-                out["key"] = key
-                out["label"] = out.get("label") or _LABELS.get(key, key)
-                return out
-            except Exception as exc:                   # noqa: BLE001
-                logger.warning("[vmax_diag] 源 %s 取数失败: %s", key, exc)
-                return {"key": key, "label": _LABELS.get(key, key), "ok": False,
-                        "rows": [], "truncated": False, "error": _humanize(exc)}
-
         results: Dict[str, Dict[str, Any]] = {}
-        # 第一波：1300 + 1100 + 1301 并行（这三个都不依赖 IMSI）
-        #
-        # ⚠ 并发度必须是 1，不是 3（2026-10-31 实测踩过）：
-        #   VmaxXdrClient 复用**同一个** CCA 门户会话，上游对同账号并发连接
-        #   卡得很死（"The maximum number of connections for the user is reached"）。
-        #   三个线程同时打上游 → 三个源全挂，比串行还慢。
-        #   用 max_workers=1 + 把四个源都放进同一个池：顺序执行，但**每个源
-        #   各自捕获异常**（这就是并行版想要的「单源失败不整页失败」），
-        #   总耗时 ≈ 各源之和（实测 1300 12s + 1100 6s + 32 2s + 1301 1s ≈ 21s），
-        #   前端那边有独立的 loading 态，20s 可接受。
-        #   真要提速只能给上游多开账号 —— 属运维动作，不在本模块职责内。
-        tasks = [("1300", self._src_1300, (msisdn, s_ms, e_ms)),
-                 ("1100", self._src_1100, (msisdn, s_ms, e_ms)),
-                 ("1301", self._src_1301, (msisdn, s_ms, e_ms))]
-        with ThreadPoolExecutor(max_workers=1) as pool:
-            futs = {pool.submit(_wrap, key, fn, *args): key
-                    for key, fn, args in tasks}
-            for fut in as_completed(futs, timeout=SOURCE_TIMEOUT):
-                key = futs[fut]
-                try:
-                    results[key] = fut.result()
-                except Exception as exc:               # noqa: BLE001
-                    results[key] = {"key": key, "label": _LABELS.get(key, key),
-                                    "ok": False, "rows": [], "truncated": False,
-                                    "error": _humanize(exc)}
+        pool = ThreadPoolExecutor(max_workers=1)
+        try:
+            for key, fn, args in (("1300", self._src_1300, (msisdn, s_ms, e_ms)),
+                                  ("1100", self._src_1100, (msisdn, s_ms, e_ms)),
+                                  ("1301", self._src_1301, (msisdn, s_ms, e_ms))):
+                out = self._run_one(pool, key, fn, *args)
+                results[key] = out
+                yield SOURCE_EVENT, out
 
-        imsi = self._pick_imsi(results.get("1300", {}).get("rows") or [],
-                               results.get("1100", {}).get("rows") or [])
+            imsi = self._pick_imsi(results.get("1300", {}).get("rows") or [],
+                                   results.get("1100", {}).get("rows") or [])
+            out = self._run_one(pool, "32", self._src_ran,
+                                msisdn, s_ms, e_ms, imsi or None)
+            results["32"] = out
+            yield SOURCE_EVENT, out
 
-        # 第二波：RAN 需要 IMSI，必须串在 1300/1100 之后（拿不到 IMSI 就查不到）
-        with ThreadPoolExecutor(max_workers=1) as pool:
-            fut = pool.submit(_wrap, "32", self._src_ran, msisdn, s_ms, e_ms, imsi or None)
-            try:
-                results["32"] = fut.result(timeout=SOURCE_TIMEOUT)
-            except Exception as exc:                   # noqa: BLE001
-                results["32"] = {"key": "32", "label": _LABELS["32"], "ok": False,
-                                 "rows": [], "truncated": False, "error": _humanize(exc)}
+            yield DONE_EVENT, {"window": {"start": start, "end": end},
+                               "imsi": imsi}
+        finally:
+            # wait=False：调用方中途放弃（浏览器断开/前端取消）时不要卡在
+            # 一个可能挂住的上游线程上；已提交的那一个仍会跑完，但不会
+            # 再把新的源排进队列（生成器已结束）。
+            pool.shutdown(wait=False)
+
+    def fetch_all(self, msisdn: str, start: str, end: str) -> Dict[str, Any]:
+        """一次性取四个源。start/end 为 "YYYY-MM-DD HH:MM:SS"。
+
+        返回：
+            {window, imsi, sources: [{key,label,ok,rows,error,truncated}]}
+
+        实现：把 `iter_sources()` 一次排空再按固定顺序组装（P3-1 重构，
+        2026-11-07）。行为与原实现等价：单源失败不整页失败、定序
+        [1300, 1100, 32, 1301]、每项补 error/truncated 默认值。
+
+        ⚠ `msisdn` 是**必填**（2026-10-31 修 P0）。历史版本签名里没有它，
+        四个源都按空号码查，于是「永远 0 条」被当成「用户没数据」。
+        这里显式拒绝空号码，宁可 500 也不要静默返回全空 —— 静默的全空
+        比报错危险得多：用户会据此在投诉工单里写「该时段无业务」。
+        """
+        results: Dict[str, Dict[str, Any]] = {}
+        window = {"start": start, "end": end}
+        imsi = ""
+        for event, data in self.iter_sources(msisdn, start, end):
+            if event == SOURCE_EVENT:
+                results[data["key"]] = data
+            elif event == DONE_EVENT:
+                window = data.get("window") or window
+                imsi = data.get("imsi") or ""
 
         # 定序返回（前端按 key 取行，顺序只影响「已查数据源」那一行的观感）
         order = ["1300", "1100", "32", "1301"]
@@ -320,11 +365,7 @@ class VmaxDiagnosis:
             s.setdefault("error", "")
             s.setdefault("truncated", False)
 
-        return {
-            "window": {"start": start, "end": end},
-            "imsi": imsi,
-            "sources": sources,
-        }
+        return {"window": window, "imsi": imsi, "sources": sources}
 
 
 _LABELS = {

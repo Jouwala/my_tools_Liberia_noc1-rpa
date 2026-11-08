@@ -1728,7 +1728,7 @@ url 片段映射、当前生效的矩阵。Excel 降级为**一个编辑器**：
 
   | 资产 | 处置 |
   | --- | --- |
-  | `olbr-data.js` / `masthead.css` / `qa-assistant.css` / `_local-credentials.js` / `logo-*.png` | 逐字节复制 |
+  | `olbr-data.js` / `masthead.css` / `qa-assistant.css` / `logo-*.png` | 逐字节复制 |
   | `olbr.css` | 上游 + 团队门户专有样式（纯新增，不改写既有规则） |
   | `qa-assistant.js` | 上游 + Quick Q&A 的作用域判据 |
   | `olbr.js` | 由 `patch_team_portal.py` 负责（它另有 `--check`） |
@@ -2277,6 +2277,45 @@ cols=291.75px 291.766px 291.766px 291.766px 291.766px   gap=6px
 
 **验证。** `python scripts/sync_team_assets.py` → `--check` 一致；
 `npm run check:team-scope` 4/4 全绿；`npm run check:docs` PASS=6 FAIL=0。
+
+## 用户ID 与账号联系资料（2026-11-06 追加）
+
+**起因（用户原话）**：「用户管理里面列数比较少……能增加一列用户ID吗，用户申请的时候可以输入ID，
+和电话、邮箱等信息」。
+
+三个字段统一叫「联系资料」：`staffId`（**业务**用户ID／工号）、`phone`、`email`。
+`staffId` 与系统内部主键 `StoredUser.id` 无关，**不参与登录、不做会话凭证**，
+登录名始终是 `username`；三字段一律可选，存量账号与老版本静态壳提交时不带也能正常工作。
+
+**完整链路**：申请时填写 → 落 `registration_requests` → 管理员审批时**复制到新建账号**
+→ 三个管理入口展示／补录。审批时复制这一步是旧断点（申请填了却不生效），必须保留。
+
+| 层 | 文件 | 改动 |
+| --- | --- | --- |
+| 类型 | `server/auth/types.ts` | `UserContact`（三个可选字段）被 `StoredUser` / `RegistrationRequest` 继承；`PublicUser` / `PublicRequest` 对外暴露；`sanitizeContact()` 清洗去控制字符 + trim + 限长（32/32/128）；`normalizeStaffId()` 大小写不敏感比较 |
+| 存储 | `server/auth/store.ts` | `assertStaffIdAvailable()` 应用层唯一性校验（账号与待审申请两侧都查，冲突抛 `staff_id_taken`）；建号 / 提交申请 / 改资料 / 审批四处接入；审批时再校验一次并排除申请自身 |
+| 接口 | `server/auth/routes.ts` | `/users`、`/register-request`、`/users/profile`、`/register-requests/approve` 接收并回传字段；`staff_id_taken` 统一映射 **409** |
+| 持久化 | `server/authDb.ts` | `users` 与 `registration_requests` 各加 3 个可空 TEXT 列；`migrateSchema()` 逐表 `PRAGMA table_info` 幂等补列（**老库必须补**，否则 INSERT 整批失败，症状是「保存后刷新又变回去」）；读时 `NULL` = 字段不出现 |
+| 申请表单 | `src/components/LoginView.tsx`；`v3/olbrportal/assets/olbr.js` 等静态壳 | 加三个选填输入框，409 显示人话而非机器码 |
+| 管理面板 | `src/components/UserManagementModal.tsx`（`/uniplam/`）；`MsPortal/assets/portal.js`、`olbrportal/assets/olbr.js`、`v3/olbrportal/assets/olbr.js`、`v3/team_portal/assets/olbr.js` | 用户列表加「用户ID」「联系方式」两列；Add User 表单加三字段；存量账号行内编辑／补录；待审申请列表展示申请人填的资料 |
+| 第三入口 | `Task/my_app/frontend/src/api.ts`、`components/PortalUserMenu.tsx`、`i18n.tsx` | `PortalContact` 类型；建号与 profile patch 带三字段；列表加两列、权限面板可编辑、待审申请行展示；中英两份字典 |
+
+⚠️ **三处管理入口必须同步维护**（见上文「五、管理界面（三个入口都支持）」）——
+2026-10-29 团队归属那次就是「只改了 React 那套」翻的车。本次 `/myapp/` 侧是收尾补齐，
+不是独立功能。另：`v3/team_portal/assets/olbr.js` 是 `scripts/patch_team_portal.py`
+从上游生成的，改上游后必须重跑生成脚本。
+
+**验证（2026-11-06）**：门户侧 `npm run lint` / `npm run build` / `npm test`（71 项）
+/ `npm run check:i18n` / `npm run check:v3-i18n` / `npm run check:docs`（6 项）全绿；
+my_app 侧 `tsc --noEmit` / `check:i18n` / vite build 全绿。`check:team-scope` 的四个 Python
+子检查逐个直接执行 4/4 通过（受限 shell 里 Node `spawnSync` 起不了子进程，
+`npm run` 包装层才报「找不到 python」，属环境限制）；`check:clean` 同理报 git EBUSY，
+但 `git status` 核对版本库未发现被误跟踪的探针/快照文件。
+
+另用临时数据目录做过端到端验证：JSON / SQLite **双后端**下「申请 → 审批 → 资料带出 /
+工号唯一性冲突 / 清空字段 / 重开实例回读」全部通过；用 2026-09 的旧 schema 建库后启动，
+`users` 与 `registration_requests` 各自动补 3 列、写入带资料账号回读一致 ——
+「保存后刷新又变回去」这个老坑已排除。
 
 ## 十、相关文档
 

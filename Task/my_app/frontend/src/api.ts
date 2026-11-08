@@ -813,7 +813,17 @@ async function portalFetch<T = any>(path: string, init: RequestInit = {}): Promi
   return data as T
 }
 
-export interface PortalUser {
+/** 账号联系资料（2026-11-06 门户侧新增）：业务用户ID / 电话 / 邮箱。
+ *  三个字段一律**可选**：存量账号、管理员手工建号、老版本静态壳提交时都可能没有。
+ *  链路是「申请时填写 → 审批时带入账号 → 三个管理入口查看/补录」；
+ *  staffId 是业务工号，与系统内部主键 id 无关，不参与登录。 */
+export interface PortalContact {
+  staffId?: string
+  phone?: string
+  email?: string
+}
+
+export interface PortalUser extends PortalContact {
   id: string
   username: string
   role: 'admin' | 'viewer'
@@ -853,7 +863,7 @@ export const TEAM_PORTAL_PATHS: Record<TeamId, string> = {
   cxo: '/v3/cxo_portal/',
 }
 
-export interface PortalRegRequest {
+export interface PortalRegRequest extends PortalContact {
   id: string
   username: string
   note?: string
@@ -881,11 +891,16 @@ export function portalListUsers() {
   return portalFetch<{ users: PortalUser[] }>('/auth/users')
 }
 
-/** 用户管理：新建用户（需 admin） */
-export function portalCreateUser(username: string, password: string, role: 'admin' | 'viewer') {
+/** 用户管理：新建用户（需 admin）。contact 选填：老后端/老前端不传即全空，不影响既有行为。 */
+export function portalCreateUser(
+  username: string,
+  password: string,
+  role: 'admin' | 'viewer',
+  contact?: PortalContact,
+) {
   return portalFetch<{ user: PortalUser }>('/auth/users', {
     method: 'POST',
-    body: JSON.stringify({ username, password, role }),
+    body: JSON.stringify({ username, password, role, ...(contact || {}) }),
   })
 }
 
@@ -905,7 +920,7 @@ export function portalResetPassword(id: string, newPassword: string) {
   })
 }
 
-/** 用户管理：改落地页 / 看板分组 / 看板权限（需 admin；传 null 表示清除） */
+/** 用户管理：改落地页 / 看板分组 / 看板权限 / 联系资料（需 admin；传 null 表示清除） */
 export function portalSetUserProfile(
   id: string,
   patch: {
@@ -914,6 +929,11 @@ export function portalSetUserProfile(
     allowedCards?: string[] | null
     /** 团队门户归属：null = 清除指派；非法值 = 视为未指派（不静默保留旧值） */
     team?: TeamId | null
+    /** 联系资料（2026-11-06）：缺省 = 不改；空串 / null = 清除该字段。
+        服务端按增量 patch 处理，工号重复会回 409 staff_id_taken。 */
+    staffId?: string | null
+    phone?: string | null
+    email?: string | null
   },
 ) {
   return portalFetch<{ user: PortalUser }>('/auth/users/profile', {
@@ -1073,7 +1093,7 @@ export default api
 
 // ========== IPT 站点电源（IPT Digital Platform / RMS 能源监控）==========
 // 新增于 2026-11-03；对应后端 routers/ipt_power.py
-// 数据链路：任务 ipt_power_collect 每 2 分钟采集入库 → 本组接口读库；
+// 数据链路：任务 ipt_power_collect 每 5 分钟采集入库 → 本组接口读库；
 // refresh 接口为实时直查 portal 并补一条快照（不依赖任务节拍）。
 
 export function iptPowerSites(params?: { keyword?: string; watch_only?: boolean; limit?: number }) {

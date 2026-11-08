@@ -41,7 +41,8 @@ import {
 } from 'antd'
 import { MobileOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons'
 
-import { renderI18n, renderI18nList } from '../renderI18n'
+import { renderI18n } from '../renderI18n'
+import { exportVmaxDiagnosisExcel, exportVmaxPrintPdf } from '../lib/vmaxWorkspaceExport'
 import { useI18n } from '../i18n'
 import { CardBase } from '../components/cards'
 import DraggableClickModal from '../components/DraggableClickModal'
@@ -60,7 +61,6 @@ import VmaxGameCard from '../components/VmaxGameCard'
 import VmaxOverrideModal from '../components/VmaxOverrideModal'
 import { vmaxCcaQuery, vmaxDiagnosis, vmaxFlowXdr } from '../api'
 import { readParam, writeParams } from '../urlState'
-import { exportReport } from '../utils/excelReport'
 import {
   clampRange, disabledRangeProps, PAGE_RETENTION_HOURS, rangeToParams, readInitialRange,
   type VmaxRange,
@@ -320,137 +320,26 @@ export default function VmaxUserQuery() {
 
   /* ======================================================================
    * 导出：Excel（贴工单）/ PDF（走浏览器打印）
+   * 2026-11-07 抽到 lib/vmaxWorkspaceExport.ts —— 与新工作台共用同一份
+   * 工单摘要；本页不传 chain/rankedCauses，导出内容与旧版一致（4 张表）。
    * ==================================================================== */
   const exportExcel = useCallback(async () => {
     if (!diag || !verdict) return
-    const win = diag.window
-    const cc = t(`vmaxq.complaint.${complaint}`)
-    const masked = query ? `****${query.msisdn.slice(-4)}` : ''
-
-    // 导出文件是给外国同事/工单系统看的，标签与值区**都跟随当前界面语言**。
-    // （早期版本把结论句/证据句写成中文字面量，注释里还留着「保持中文」的说法，
-    //  那是当时的将就；现在规则层已全部改为 i18n key，译文即等于界面语言。）
-    const verdictRows: (string | number)[][] = [
-      ['MSISDN', masked],
-      [t('vmaxq.diag.window'), `${win.start} ~ ${win.end}`],
-      [t('vmaxq.print.complaint'), cc],
-      [t('vmaxq.diag.verdictAuto'), renderI18n(t, verdict.headline)],
-      [t('vmaxq.diag.confidence'), t(`vmaxq.diag.confidence.${verdict.confidence}`)],
-      [verdict.reproduced ? t('vmaxq.diag.reproduced') : t('vmaxq.diag.notReproduced'), ''],
-      [t('vmaxq.diag.verdictManual'), override?.verdict_manual || '—'],
-      [t('vmaxq.override.reason'), override?.reason || '—'],
-      [t('vmaxq.diag.overridden'), override
-        ? `${override.username} @ ${override.created_at.replace('T', ' ').slice(0, 16)}`
-        : '—'],
-      [t('vmaxq.print.generated'), new Date().toLocaleString()],
-      ['—', '—'],
-      [t('vmaxq.diag.basis'), renderI18nList(t, verdict.basis).join(' | ')],
-      [t('vmaxq.diag.suggestion'), renderI18n(t, verdict.suggestion)],
-      ['—', '—'],
-      [t('vmaxq.diag.score.availability'), scores.find((s) => s.key === 'availability')?.score ?? 'N/A'],
-      [t('vmaxq.diag.score.latency'), scores.find((s) => s.key === 'latency')?.score ?? 'N/A'],
-      [t('vmaxq.diag.score.transport'), scores.find((s) => s.key === 'transport')?.score ?? 'N/A'],
-      [t('vmaxq.diag.score.radio'), scores.find((s) => s.key === 'radio')?.score ?? 'N/A'],
-      ['—', '—'],
-      ...diag.sources.map((s) => [
-        sourceLabel(t, s),
-        s.ok
-          ? t('vmaxq.diag.sourceOk', { n: s.rows.length }) + (s.truncated ? ' *' : '')
-          // 导出表里就是「原因: 说明」，不需要「数据源（原因）」那种括号包裹，
-          // 所以不复用 vmaxq.diag.failItem，直接拼一个不带括号的版本。
-          : `${t('vmaxq.diag.sourceFail')}: ${s.error || ''}`.trim(),
-      ] as (string | number)[]),
-    ]
-
-    const tlHeader = [
-      t('vmaxq.print.tl.minute'), t('vmaxq.print.tl.traffic'), t('vmaxq.print.tl.latency'),
-      t('vmaxq.print.tl.transport'), t('vmaxq.print.tl.radio'), t('vmaxq.print.tl.voice'),
-      t('vmaxq.print.tl.verdict'),
-    ]
-    const tlRows = timeline.map((r) => [
-      r.minute.slice(11),
-      renderI18n(t, r.traffic.text), renderI18n(t, r.latency.text),
-      renderI18n(t, r.transport.text), renderI18n(t, r.radio.text),
-      renderI18n(t, r.voice.text), renderI18n(t, r.judge),
-    ])
-
-    // 表头也要走 i18n：这几个数组原来是硬编码英文，中文界面下导出反而全英文。
-    const voiceHeader = [
-      t('vmaxq.print.col.time'), t('vmaxq.print.col.iface'), t('vmaxq.print.col.proc'),
-      t('vmaxq.print.col.cause'), t('vmaxq.print.col.result'), t('vmaxq.print.col.cell'),
-    ]
-    const voiceRows = (voice?.steps || []).map((s) => [
-      s.time, s.iface, s.proc, s.cause, s.status, s.cell,
-    ])
-
-    const appHeader = [
-      t('vmaxq.print.col.app'), t('vmaxq.print.col.category'), t('vmaxq.print.col.ul'),
-      t('vmaxq.print.col.dl'), t('vmaxq.print.col.total'), t('vmaxq.print.col.share'),
-    ]
-    const appRows = (flowXdr?.apps || []).map((a) => [
-      a.app_name, a.category_label, a.ul_traffic, a.dl_traffic, a.total_traffic, a.ratio,
-    ])
-
-    const dash = ['—', '—', '—', '—', '—', '—']
-    await exportReport([
-      {
-        name: t('vmaxq.diag.card'),
-        title: t('vmaxq.diag.expVerdictTitle'),
-        subtitle: t('vmaxq.diag.expVerdictSub', {
-          msisdn: masked, window: `${win.start} ~ ${win.end}`, complaint: cc,
-        }),
-        header: [t('vmaxq.diag.expItem'), t('vmaxq.diag.expValue')],
-        rows: verdictRows,
-        columnWidths: [24, 80],
-      },
-      {
-        name: t('vmaxq.tl.card'),
-        title: t('vmaxq.diag.expTimelineTitle'),
-        subtitle: `${win.start} ~ ${win.end}`,
-        header: tlHeader,
-        rows: tlRows,
-        columnWidths: [8, 16, 16, 14, 22, 20, 28],
-      },
-      {
-        name: t('vmaxq.voice.card'),
-        title: t('vmaxq.diag.expVoiceTitle'),
-        subtitle: voice
-          ? t('vmaxq.diag.expVoiceSub', {
-            mode: t(`vmaxq.voice.mode.${voice.mode}`),
-            sgs: voice.sgsCount, csfb: voice.csfbTrigger,
-            rate: voice.successRate ?? 'N/A',
-          })
-          : '',
-        header: voiceHeader,
-        rows: voiceRows.length ? voiceRows : [dash],
-        columnWidths: [22, 12, 30, 28, 12, 24],
-      },
-      {
-        name: t('vmaxq.flow.cat.all'),
-        title: t('vmaxq.diag.expAppTitle'),
-        subtitle: t('vmaxq.diag.expAppSub', {
-          total: flowXdr?.total_flux || '—', records: flowXdr?.records || 0,
-        }),
-        header: appHeader,
-        rows: appRows.length ? appRows : [dash],
-        columnWidths: [30, 16, 12, 12, 12, 10],
-      },
-    ], `vmax_diagnosis_${query?.msisdn || ''}_${win.start.slice(0, 10)}.xlsx`)
+    await exportVmaxDiagnosisExcel({
+      msisdn: query?.msisdn || '',
+      win: diag.window,
+      complaint,
+      verdict,
+      override,
+      scores,
+      sources: diag.sources,
+      timeline,
+      voice,
+      flowXdr,
+    }, t)
   }, [diag, verdict, complaint, override, scores, timeline, voice, flowXdr, query, t])
 
-  const exportPdf = useCallback(() => {
-    // 不引第三方 PDF 库（前端体积 + 中文字体问题）：
-    // 加一个 body class 让 @media print 只留结论/评分/时间线/证据，然后走打印对话框。
-    document.body.classList.add('vmax-print-mode')
-    const cleanup = () => {
-      document.body.classList.remove('vmax-print-mode')
-      window.removeEventListener('afterprint', cleanup)
-    }
-    window.addEventListener('afterprint', cleanup)
-    window.print()
-    // 某些浏览器不触发 afterprint（或被用户取消），兜底 1 秒后清掉
-    window.setTimeout(cleanup, 1500)
-  }, [])
+  const exportPdf = exportVmaxPrintPdf
 
   /* ---- 覆写提交 ---- */
   const submitOverride = useCallback(async (v: string, reason: string) => {
@@ -464,7 +353,7 @@ export default function VmaxUserQuery() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           msisdn: query.msisdn, start, end,
-          verdict_auto: verdict?.headline || '',
+          verdict_auto: verdict ? renderI18n(t, verdict.headline) : '',
           verdict_manual: v, reason,
         }),
       })
@@ -476,7 +365,7 @@ export default function VmaxUserQuery() {
     } finally {
       setOverrideSaving(false)
     }
-  }, [query, verdict])
+  }, [query, verdict, t])   // t：verdict_auto 要渲染成字符串（P3-3 修 422）
 
   const revokeOverride = useCallback(async () => {
     if (!override) return

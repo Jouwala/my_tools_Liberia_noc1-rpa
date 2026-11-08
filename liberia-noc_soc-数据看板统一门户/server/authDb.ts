@@ -183,6 +183,10 @@ interface UserRow {
   allowed_cards: string | null;
   /** 团队归属（2026-10-29 加）：NULL = 未指派。老库可能没有这一列，读时按缺列处理。 */
   team?: string | null;
+  /** 联系资料（2026-11-06 加）：老库没有这三列，故一律可选，读时按缺列处理。 */
+  staff_id?: string | null;
+  phone?: string | null;
+  email?: string | null;
 }
 
 interface RequestRow {
@@ -195,6 +199,10 @@ interface RequestRow {
   ip: string;
   decided_at: string | null;
   decided_by: string | null;
+  /** 申请人填写的联系资料（2026-11-06 加）；老库可能没有这三列。 */
+  staff_id?: string | null;
+  phone?: string | null;
+  email?: string | null;
 }
 
 const SCHEMA_STATEMENTS = [
@@ -208,7 +216,10 @@ const SCHEMA_STATEMENTS = [
       landing TEXT,
       allowed_groups TEXT,
       allowed_cards TEXT,
-      team TEXT
+      team TEXT,
+      staff_id TEXT,
+      phone TEXT,
+      email TEXT
     )`,
   `CREATE TABLE IF NOT EXISTS registration_requests (
       id TEXT PRIMARY KEY,
@@ -219,7 +230,10 @@ const SCHEMA_STATEMENTS = [
       created_at TEXT NOT NULL,
       ip TEXT NOT NULL DEFAULT '',
       decided_at TEXT,
-      decided_by TEXT
+      decided_by TEXT,
+      staff_id TEXT,
+      phone TEXT,
+      email TEXT
     )`,
   `CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)`,
 ];
@@ -252,31 +266,38 @@ class SqlitePersistence implements AuthPersistence {
   }
 
   /**
-   * 补齐后加的列（2026-10-29：users.team —— 账号归属团队）。
+   * 补齐后加的列（2026-10-29：users.team；2026-11-06：两张表的联系资料 3 列）。
    *
    * 为什么不能只靠 CREATE TABLE IF NOT EXISTS：
    *   那条语句对**已存在的表**是空操作。本机 auth-data/portal-auth.db 早在
-   *   2026-09 就建好了，users 表里没有 team 列 —— 只改 SCHEMA_STATEMENTS
-   *   的话，新库有 team、老库没有，于是 saveUsers 的 INSERT 会因
-   *   "table users has no column named team" 而整批写入失败，
-   *   症状是「改了团队归属，保存后刷新又变回去」，且**只在老库上复现**。
+   *   2026-09 就建好了，只改 SCHEMA_STATEMENTS 的话，新库有新列、老库没有，
+   *   saveUsers / saveRequests 的 INSERT 会因 "table ... has no column named ..."
+   *   整批写入失败 —— 症状是「保存后刷新又变回去」，且**只在老库上复现**。
+   *   team 列当初就是这么翻的车，故新增列一律走下面的幂等补列。
    *
-   * 做法：查 PRAGMA table_info(users)，缺哪列补哪列（ADD COLUMN 是幂等的，
-   *   重复执行不报错 —— 故这里可以放心每次启动都跑一遍）。
+   * 做法：逐表查 PRAGMA table_info，缺哪列补哪列（ADD COLUMN 对已存在列会报错，
+   *   故先判存在；每次启动都跑一遍是安全的）。
    * ⚠️ SQLite 的 ALTER TABLE ADD COLUMN 不支持带默认值以外的约束，
-   *   所以这里只加可空列、不加 NOT NULL（历史行自然是 NULL = 未指派）。
+   *   所以只加可空 TEXT 列、不加 NOT NULL（历史行自然是 NULL = 未填）。
    */
   private migrateSchema(): void {
-    const columns = this.db.prepare('PRAGMA table_info(users)').all() as unknown as {
-      name: string;
-    }[];
-    const names = new Set(columns.map((c) => c.name));
-    if (!names.has('team')) {
-      try {
-        this.db.exec('ALTER TABLE users ADD COLUMN team TEXT');
-        console.warn('[auth-db] 已为 users 表补加 team 列（团队归属，2026-10-29）');
-      } catch (e) {
-        console.error('[auth-db] 补加 users.team 列失败：', e);
+    const additions: Record<string, string[]> = {
+      users: ['team', 'staff_id', 'phone', 'email'],
+      registration_requests: ['staff_id', 'phone', 'email'],
+    };
+    for (const [table, wanted] of Object.entries(additions)) {
+      const columns = this.db.prepare(`PRAGMA table_info(${table})`).all() as unknown as {
+        name: string;
+      }[];
+      const names = new Set(columns.map((c) => c.name));
+      for (const column of wanted) {
+        if (names.has(column)) continue;
+        try {
+          this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} TEXT`);
+          console.warn(`[auth-db] 已为 ${table} 表补加 ${column} 列（幂等迁移）`);
+        } catch (e) {
+          console.error(`[auth-db] 补加 ${table}.${column} 列失败：`, e);
+        }
       }
     }
   }
@@ -368,6 +389,10 @@ class SqlitePersistence implements AuthPersistence {
       // team：NULL/空 = 未指派；认不得的值一律当成未指派（脏数据不该把人塞进某个团队）
       const team = sanitizeTeam(row.team);
       if (team) user.team = team;
+      // 联系资料：老库缺列时字段不出现，与存量账号语义一致（undefined = 未填）
+      if (row.staff_id) user.staffId = row.staff_id;
+      if (row.phone) user.phone = row.phone;
+      if (row.email) user.email = row.email;
       return user;
     });
 
@@ -385,6 +410,9 @@ class SqlitePersistence implements AuthPersistence {
       };
       if (row.decided_at) record.decidedAt = row.decided_at;
       if (row.decided_by) record.decidedBy = row.decided_by;
+      if (row.staff_id) record.staffId = row.staff_id;
+      if (row.phone) record.phone = row.phone;
+      if (row.email) record.email = row.email;
       return record;
     });
 
@@ -394,8 +422,8 @@ class SqlitePersistence implements AuthPersistence {
   saveUsers(users: StoredUser[]): void {
     this.transact(() => {
       const upsert = this.db.prepare(
-        `INSERT INTO users (id, username, role, password_hash, must_change_password, created_at, landing, allowed_groups, allowed_cards, team)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO users (id, username, role, password_hash, must_change_password, created_at, landing, allowed_groups, allowed_cards, team, staff_id, phone, email)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            username = excluded.username,
            role = excluded.role,
@@ -405,7 +433,10 @@ class SqlitePersistence implements AuthPersistence {
            landing = excluded.landing,
            allowed_groups = excluded.allowed_groups,
            allowed_cards = excluded.allowed_cards,
-           team = excluded.team`
+           team = excluded.team,
+           staff_id = excluded.staff_id,
+           phone = excluded.phone,
+           email = excluded.email`
       );
       const keep = new Set<string>();
       for (const u of users) {
@@ -421,7 +452,11 @@ class SqlitePersistence implements AuthPersistence {
           Array.isArray(u.allowedGroups) ? JSON.stringify(u.allowedGroups) : null,
           Array.isArray(u.allowedCards) ? JSON.stringify(u.allowedCards) : null,
           // team：存的是团队 id；未指派存 NULL（= 不限制跳转）
-          u.team ?? null
+          u.team ?? null,
+          // 联系资料：未填存 NULL（不存空串，读时字段就不出现）
+          u.staffId ?? null,
+          u.phone ?? null,
+          u.email ?? null
         );
       }
       const del = this.db.prepare('DELETE FROM users WHERE id = ?');
@@ -436,8 +471,8 @@ class SqlitePersistence implements AuthPersistence {
   saveRequests(requests: RegistrationRequest[]): void {
     this.transact(() => {
       const upsert = this.db.prepare(
-        `INSERT INTO registration_requests (id, username, password_hash, note, status, created_at, ip, decided_at, decided_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO registration_requests (id, username, password_hash, note, status, created_at, ip, decided_at, decided_by, staff_id, phone, email)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            username = excluded.username,
            password_hash = excluded.password_hash,
@@ -446,7 +481,10 @@ class SqlitePersistence implements AuthPersistence {
            created_at = excluded.created_at,
            ip = excluded.ip,
            decided_at = excluded.decided_at,
-           decided_by = excluded.decided_by`
+           decided_by = excluded.decided_by,
+           staff_id = excluded.staff_id,
+           phone = excluded.phone,
+           email = excluded.email`
       );
       const keep = new Set<string>();
       for (const r of requests) {
@@ -460,7 +498,10 @@ class SqlitePersistence implements AuthPersistence {
           r.createdAt,
           r.ip,
           r.decidedAt ?? null,
-          r.decidedBy ?? null
+          r.decidedBy ?? null,
+          r.staffId ?? null,
+          r.phone ?? null,
+          r.email ?? null
         );
       }
       const del = this.db.prepare('DELETE FROM registration_requests WHERE id = ?');

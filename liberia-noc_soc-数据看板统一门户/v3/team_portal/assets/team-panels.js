@@ -39,6 +39,8 @@
       colSize: '大小',
       colTime: '生成时间',
       colDownload: '下载',
+      refresh: '刷新报告列表',
+      loading: '正在加载报告…',
       needLogin: '登录后显示报告文件',
       loadFailed: '报告列表加载失败',
       empty: '暂无报告',
@@ -55,6 +57,8 @@
       colSize: 'Size',
       colTime: 'Generated',
       colDownload: 'Download',
+      refresh: 'Refresh report list',
+      loading: 'Loading reports…',
       needLogin: 'Sign in to view the report files',
       loadFailed: 'Failed to load report list',
       empty: 'No report yet',
@@ -64,6 +68,8 @@
       complaintNote: 'This block maps to the VMAX user query page (complaint system).'
     }
   };
+  /* ⚠️ 与 olbr.js 的 state.lang / detectLang() 同源：setLang() 会先写
+     localStorage 'olbr.lang' 再 render()，所以这里读到的永远是最新选择。 */
   function lang() {
     var v = null;
     try { v = localStorage.getItem('olbr.lang'); } catch (e) { /* 隐私模式 */ }
@@ -74,6 +80,23 @@
   function t(k) {
     var d = I18N[lang()] || I18N.zh;
     return d[k] != null ? d[k] : (I18N.zh[k] != null ? I18N.zh[k] : k);
+  }
+  /* ---------------------------------------------------- 报告接口的语言头 --
+     ⚠️ 2026-11-06（用户报「Auto Report 里 Report Type 没做好国际化」）根因：
+       Report Type 列的 task_name / label **不是前端文案**，是 my_app 后端
+       /api/email-reports/latest 返回的字段。那个接口的 _req_lang() 只读
+       **Accept-Language 请求头**（`startswith('en')` → en，其余 zh），
+       不读 `?lang=`（实测带 ?lang=en 返回的仍是中文）。
+       浏览器裸 fetch 自动带的 Accept-Language 是**浏览器系统语言**，
+       与门户里用户点 EN / 中文 选的语言无关 —— 于是英文界面下这一列
+       整列中文（"电池 KPI 邮件 / Site Down 8H 报告"），而表头是英文。
+
+       修法：显式把门户当前语言写进请求头，让后端按语言返回已经维护好的
+       zh/en 报告名（_SOURCES 的 label/label_en、TASK_SPECS 的 name/name_en）。
+       ⚠️ **不要在前端再造一份报告名译文表**：后端 _SOURCES 是唯一真相源，
+       新增报告源时只改后端一处；前端再存一份必然漂移，且要对账 13 个键。 */
+  function reportHeaders() {
+    return { Accept: 'application/json', 'Accept-Language': lang() === 'en' ? 'en' : 'zh' };
   }
   function esc(s) {
     return String(s == null ? '' : s)
@@ -104,7 +127,9 @@
 
      数据源：/api/email-reports/latest?limit=1（与 my_app 同一接口、同源，
      登录态由 Cookie 携带，故受门户登录门保护 —— 与上游那块的行为一致）。 */
-  var reportState = { rows: [], loading: false, err: '', loaded: false };
+  /* lang 记录**这批 rows 是用哪门语言取回来的**。报告名由后端按语言返回，
+     所以语言一换旧数据就作废，必须重拉（见 render() 里的 shellLang 判据）。 */
+  var reportState = { rows: [], loading: false, err: '', loaded: false, lang: null };
 
   function downloadUrl(sourceId, name) {
     return '/api/email-reports/download/' + encodeURIComponent(sourceId) + '/' + encodeURIComponent(name);
@@ -112,33 +137,33 @@
 
   function loadReports(force) {
     if (reportState.loading) return;
-    if (reportState.loaded && !force) { renderReportsTable(); return; }
+    var wantLang = lang();
+    if (reportState.loaded && !force && reportState.lang === wantLang) { renderReportsTable(); return; }
     reportState.loading = true;
     reportState.err = '';
+    reportState.lang = wantLang;
     /* 2026-10-30：走**会话自愈**的取数通道，与 olbr.js 的 api() 同一套。
        为什么必须这样：本文件是团队门户**专有**资产，自带一个裸 fetch ——
        它不走 olbr.js 的 api()，故拿不到「401 → 换会话 → 重试」的自愈。
        实测 /api/email-reports/latest 在远端无会话时回 401，症状是
        Auto Report 表整块显示「加载失败」—— 与本次修复的 QC 红点是同一个病根。
        ⚠️ window.OLBR_SESSION 不存在时（理论上不会：本文件只在团队门户里被引，
-         而 team-session.js 与它同在 assets/）退回裸 fetch，行为与改动前一致。 */
+         而 team-session.js 与它同在 assets/）退回裸 fetch，行为与改动前一致。
+       2026-11-06：两条分支合并成一个 fetchJson，确保「带 Accept-Language」这条
+       规则只有一处、401 重试时也不会丢头。 */
+    function fetchJson(u) {
+      return fetch(u, { credentials: 'same-origin', headers: reportHeaders() })
+        .then(function (r) {
+          if (!r.ok) throw new Error('HTTP ' + r.status);
+          return r.json();
+        });
+    }
     var SESSION = window.OLBR_SESSION || null;
-    var doFetch = SESSION
-      ? SESSION.retryOn401(function (u) {
-          return fetch(u, { credentials: 'same-origin', headers: { Accept: 'application/json' } })
-            .then(function (r) {
-              if (!r.ok) throw new Error('HTTP ' + r.status);
-              return r.json();
-            });
-        })
-      : function (u) {
-          return fetch(u, { credentials: 'same-origin', headers: { Accept: 'application/json' } })
-            .then(function (r) {
-              if (!r.ok) throw new Error('HTTP ' + r.status);
-              return r.json();
-            });
-        };
+    var doFetch = SESSION ? SESSION.retryOn401(fetchJson) : fetchJson;
     doFetch('/api/email-reports/latest?limit=1').then(function (d) {
+      /* 请求在途时用户切了语言 → 这份是旧语言的数据，直接丢弃；
+         末尾的收尾逻辑会按新语言重拉一次。 */
+      if (lang() !== wantLang) return;
       var allow = SCOPE.reportIds();
       var rows = [];
       (d && d.reports ? d.reports : []).forEach(function (src) {
@@ -161,16 +186,28 @@
       reportState.err = String((e && e.message) || e);
     }).then(function () {
       reportState.loading = false;
+      /* 语言在请求途中变了：这次结果已作废，立刻按当前语言重拉。
+         loadReports(true) 会把 reportState.lang 更新成新语言，故不会循环。 */
+      if (lang() !== reportState.lang) {
+        reportState.loaded = false;
+        reportState.rows = [];
+        reportState.err = '';
+        loadReports(true);
+        return;
+      }
       renderReportsTable();
     });
   }
 
   function reportRowsHtml() {
     if (reportState.err) {
-      return '<tr><td colspan="6" class="tr-empty">' + esc(t('loadFailed')) + '</td></tr>';
+      return '<tr><td colspan="5" class="tr-empty">' + esc(t('loadFailed')) + '</td></tr>';
     }
+    /* 还没取到数据（首屏 / 切语言重拉中）时表体留空，
+       由骨架里的 .embed-boot 显示「正在加载报告…」，不要抢先显示「暂无报告」。 */
+    if (!reportState.loaded || reportState.loading) return '';
     if (!reportState.rows.length) {
-      return '<tr><td colspan="6" class="tr-empty">' + esc(t('empty')) + '</td></tr>';
+      return '<tr><td colspan="5" class="tr-empty">' + esc(t('empty')) + '</td></tr>';
     }
     return reportState.rows.map(function (r) {
       return '<tr>' +
@@ -192,7 +229,9 @@
     var cnt = document.getElementById('teamReportCount');
     if (cnt) cnt.textContent = String(reportState.rows.length);
     var boot = document.getElementById('teamReportBoot');
-    if (boot) boot.hidden = true;
+    /* 取数中 / 尚未取到（含切语言后作废重拉）时保留加载提示，
+       加载完成或出错才收起。原先是无条件 hidden=true，切语言时会闪一下空表。 */
+    if (boot) boot.hidden = !(reportState.loading || !reportState.loaded) || !!reportState.err;
   }
 
   /* 面板外壳。结构与上游的 emailSectionHtml() 同款（.p-head + .canvas），
@@ -201,7 +240,7 @@
     return '<div class="p-head"><span class="p-hd"><span class="p-t t-orange">' +
         esc(t('reportsTitle')) + '</span></span>' +
       '<div class="map-tools"><span class="cnt" id="teamReportCount">0</span>' +
-      '<button type="button" class="gb gb--t" id="teamReportReload" title="' + esc(t('colDownload')) + '">' +
+      '<button type="button" class="gb gb--t" id="teamReportReload" title="' + esc(t('refresh')) + '">' +
         '<i class="ph ph-arrow-clockwise" aria-hidden="true"></i></button></div></div>' +
       '<div class="canvas" id="teamReportHost">' +
         '<table class="tr-table"><thead><tr>' +
@@ -212,16 +251,31 @@
           '<th>' + esc(t('colDownload')) + '</th>' +
         '</tr></thead><tbody id="teamReportBody"></tbody></table>' +
         '<div class="embed-boot" id="teamReportBoot"><i class="embed-ring" aria-hidden="true"></i>' +
-        '<span>' + esc(t('colDownload')) + '</span></div>' +
+        '<span>' + esc(t('loading')) + '</span></div>' +
       '</div>';
   }
 
+  /* ⚠️ 2026-11-06（同一个 bug 的第二半）：外壳的表头 / 提示是**一次性生成的
+     静态 HTML**，原判据只看「#teamReportHost 在不在」。点 EN/中文 后 olbr.js 的
+     render() 会再次调用本函数，外壳却原地不动 —— 实测 en→zh 后表头仍是
+     "Report Type"、下载列仍是 "Download"，只有投诉面板跟着变（它每次重建）。
+     现在按 shellLang 判据：语言变了就重建外壳，并作废属于旧语言的 rows 重拉。 */
+  var shellLang = null;
   function render(el) {
     if (!el) return;
-    if (!el.querySelector('#teamReportHost')) {
+    var L = lang();
+    var changed = (shellLang !== L);
+    if (!el.querySelector('#teamReportHost') || changed) {
       el.innerHTML = reportsShellHtml();
+      shellLang = L;
       var btn = document.getElementById('teamReportReload');
       if (btn) btn.addEventListener('click', function () { loadReports(true); });
+    }
+    if (changed) {
+      /* 报告名由后端按语言返回，旧 rows 属于上一门语言，不能留着显示。 */
+      reportState.loaded = false;
+      reportState.rows = [];
+      reportState.err = '';
     }
     loadReports(false);
     renderReportsTable();

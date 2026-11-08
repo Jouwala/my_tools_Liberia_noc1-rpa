@@ -582,6 +582,23 @@ const zh: Record<string, string> = {
   'ar.approved': '已批准 {name}：申请时设置的密码即刻生效，其首次登录需修改密码',
   'ar.rejected': '已驳回 {name} 的账号申请',
   'ar.notFound': '申请不存在或已被处理',
+
+  // —— 联系资料（用户ID / 电话 / 邮箱，2026-11-06 加）——
+  'contact.staffId': '用户ID',
+  'contact.staffIdPh': '用户ID／工号（选填）',
+  'contact.phone': '电话',
+  'contact.phonePh': '电话（选填）',
+  'contact.email': '邮箱',
+  'contact.emailPh': '邮箱（选填）',
+  'contact.optionalTip': '以下资料选填，审批通过后会随账号保存，便于管理员核对与联系',
+  'um.colStaffId': '用户ID',
+  'um.colContact': '联系方式',
+  'um.contactEdit': '编辑资料',
+  'um.contactSave': '保存资料',
+  'um.contactSaved': '已保存 {name} 的联系资料',
+  'um.contactCancel': '取消',
+  'um.staffIdTaken': '该用户ID已被其它账号使用',
+  'ar.staffIdTaken': '该用户ID已被使用，请更换或联系管理员',
 };
 
 const en: Record<string, string> = {
@@ -1155,6 +1172,23 @@ const en: Record<string, string> = {
   'ar.approved': 'Approved {name}: the password set at sign-up is now active (password change required at first login)',
   'ar.rejected': 'Rejected the account request from {name}',
   'ar.notFound': 'Request not found or already handled',
+
+  // Contact fields (user ID / phone / email, added 2026-11-06)
+  'contact.staffId': 'User ID',
+  'contact.staffIdPh': 'User ID / employee no. (optional)',
+  'contact.phone': 'Phone',
+  'contact.phonePh': 'Phone (optional)',
+  'contact.email': 'Email',
+  'contact.emailPh': 'Email (optional)',
+  'contact.optionalTip': 'Optional. Saved with the account once approved, so the admin can verify and contact you.',
+  'um.colStaffId': 'User ID',
+  'um.colContact': 'Contact',
+  'um.contactEdit': 'Edit contact',
+  'um.contactSave': 'Save contact',
+  'um.contactSaved': 'Contact info saved for {name}',
+  'um.contactCancel': 'Cancel',
+  'um.staffIdTaken': 'This user ID is already used by another account',
+  'ar.staffIdTaken': 'This user ID is already in use. Pick another one or contact the admin.',
 };
 
 // ============================================================================
@@ -1230,7 +1264,7 @@ const zhDashboard: Record<string, string> = {
   // 看板描述
   'dash.finebi-liberia-portal-main.desc': '帆软 FineBI 决策报表平台，含 MS、FO、FLM、BO、SOC 五大目录与日常/周度/月度 KPI 分析，是 NOC/SOC 报表的统一出口。',
   'dash.custom-datainsight-mvp-main.desc': '自研通信网络运维与自动化任务调度系统（Task\\my_app），集成告警、工单、NUR、MS SLA、电池、丢包、GIS 与 eFlow 任务总控，共 20 个功能页面。',
-  'dash.custom-task-manager.desc': '调度全部 34 个自动化任务：ZTE eFlow API 同步、RAN/iPRAN/CNN UME KPI、电池、丢包、邮件日报与 WhatsApp 推送，支持手动触发、失败自动重试与 Cron 修改。',
+  'dash.custom-task-manager.desc': '调度全部 84 个自动化任务：ZTE eFlow API 同步、RAN/iPRAN/CNN UME KPI、电池、丢包、邮件日报与 WhatsApp 推送，支持手动触发、失败自动重试与 Cron 修改。',
   'dash.custom-alarm-dashboard.desc': '基于 eFlow FM 数据呈现全网实时发生与未消除的关键网元故障，支持告警分级（Critical/Major/Warning/Info）、分类统计与下钻明细。',
   'dash.custom-tt-wo-dashboard.desc': 'Trouble Ticket (TT) 与 Work Order (WO) 工单生命周期闭环追踪、SLA 处理时效与分区完成率，全部组件支持下钻表格、列筛选排序与 Excel 导出。',
   'dash.custom-nur-dashboard.desc': 'Network Unavailability Rate 深度分析，基于 RAN UME 数据按站点、区域与故障根因统计停机损失时长，与 MS SLA 看板口径对齐。',
@@ -1717,7 +1751,7 @@ const enDashboard: Record<string, string> = {
   // Dashboard descriptions
   'dash.finebi-liberia-portal-main.desc': 'FanRuan FineBI decision report platform, covering MS, FO, FLM, BO, SOC five directories and daily/weekly/monthly KPI analysis, the unified outlet for NOC/SOC reports.',
   'dash.custom-datainsight-mvp-main.desc': 'In-house communication network O&M and automation scheduling system (Task\\my_app), integrating alarms, tickets, NUR, MS SLA, battery, packet loss, GIS and eFlow task control, totaling 20 functional pages.',
-  'dash.custom-task-manager.desc': 'Schedules all 34 automation tasks: ZTE eFlow API sync, RAN/iPRAN/CNN UME KPI, battery, packet loss, email reports and WhatsApp push, supports manual trigger, auto-retry on failure and Cron modification.',
+  'dash.custom-task-manager.desc': 'Schedules all 84 automation tasks: ZTE eFlow API sync, RAN/iPRAN/CNN UME KPI, battery, packet loss, email reports and WhatsApp push, supports manual trigger, auto-retry on failure and Cron modification.',
   'dash.custom-alarm-dashboard.desc': 'Displays real-time critical network element faults across the network based on eFlow FM data, supports alarm grading (Critical/Major/Warning/Info), classification statistics and drill-down details.',
   'dash.custom-tt-wo-dashboard.desc': 'Trouble Ticket (TT) and Work Order (WO) lifecycle closed-loop tracking, SLA processing timeliness and regional completion rate, all components support drill-down tables, column filtering/sorting and Excel export.',
   'dash.custom-nur-dashboard.desc': 'Network Unavailability Rate in-depth analysis, based on RAN UME data to calculate downtime loss duration by site, region and fault root cause, aligned with MS SLA dashboard caliber.',

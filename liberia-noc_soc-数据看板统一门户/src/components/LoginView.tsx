@@ -15,6 +15,10 @@ import { PORTAL_API } from '../config';
 import { useAuth } from '../auth/AuthContext';
 import { PasswordInput } from './PasswordInput';
 
+/** 申请表单里三个联系资料输入框共用同一套样式 */
+const reqFieldClass =
+  'w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-teal-500';
+
 export const LoginView: React.FC = () => {
   const { t, lang, setLang } = useI18n();
   const { login } = useAuth();
@@ -29,6 +33,10 @@ export const LoginView: React.FC = () => {
   const [reqPwd, setReqPwd] = useState('');
   const [reqPwd2, setReqPwd2] = useState('');
   const [reqNote, setReqNote] = useState('');
+  // 申请时填写的联系资料（选填）：审批通过后会带到账号上，管理员在用户管理里可见
+  const [reqStaffId, setReqStaffId] = useState('');
+  const [reqPhone, setReqPhone] = useState('');
+  const [reqEmail, setReqEmail] = useState('');
   const [reqError, setReqError] = useState('');
   const [reqOk, setReqOk] = useState('');
   const [reqSubmitting, setReqSubmitting] = useState(false);
@@ -81,7 +89,14 @@ export const LoginView: React.FC = () => {
       const res = await fetch(`${PORTAL_API}/auth/register-request`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: reqUser, password: reqPwd, note: reqNote }),
+        body: JSON.stringify({
+          username: reqUser,
+          password: reqPwd,
+          note: reqNote,
+          staffId: reqStaffId,
+          phone: reqPhone,
+          email: reqEmail,
+        }),
       });
       const data = (await res.json().catch(() => null)) as { detail?: string } | null;
       if (!res.ok) {
@@ -98,7 +113,9 @@ export const LoginView: React.FC = () => {
             ? t('ar.duplicate')
             : detail === 'request_pending'
               ? t('ar.pendingDup')
-              : detail === 'too_many_requests'
+              : detail === 'staff_id_taken'
+                ? t('ar.staffIdTaken')
+                : detail === 'too_many_requests'
                 ? t('ar.tooMany')
                 : detail === 'invalid_username' ||
                     detail === 'password_too_short' ||
@@ -115,6 +132,9 @@ export const LoginView: React.FC = () => {
       setReqPwd('');
       setReqPwd2('');
       setReqNote('');
+      setReqStaffId('');
+      setReqPhone('');
+      setReqEmail('');
     } catch (err) {
       setReqError(t('ar.networkError'));
     } finally {
@@ -257,6 +277,54 @@ export const LoginView: React.FC = () => {
                 required
                 toggleId="req-pwd2"
                 className="w-full pl-9 pr-10 py-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-teal-500"
+              />
+            </div>
+          </div>
+
+          {/* 联系资料（选填）：审批通过后随账号一起保存，管理员在「用户管理」里可见 */}
+          <div className="border-t border-slate-100 dark:border-slate-800 pt-3 space-y-2">
+            <p className="text-[11px] text-slate-400 dark:text-slate-500">
+              {t('contact.optionalTip')}
+            </p>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300 mb-1">
+                  {t('contact.staffId')}
+                </label>
+                <input
+                  type="text"
+                  value={reqStaffId}
+                  onChange={(e) => setReqStaffId(e.target.value)}
+                  placeholder={t('contact.staffIdPh')}
+                  maxLength={32}
+                  className={reqFieldClass}
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300 mb-1">
+                  {t('contact.phone')}
+                </label>
+                <input
+                  type="tel"
+                  value={reqPhone}
+                  onChange={(e) => setReqPhone(e.target.value)}
+                  placeholder={t('contact.phonePh')}
+                  maxLength={32}
+                  className={reqFieldClass}
+                />
+              </div>
+            </div>
+            <div>
+              <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300 mb-1">
+                {t('contact.email')}
+              </label>
+              <input
+                type="email"
+                value={reqEmail}
+                onChange={(e) => setReqEmail(e.target.value)}
+                placeholder={t('contact.emailPh')}
+                maxLength={128}
+                className={reqFieldClass}
               />
             </div>
           </div>

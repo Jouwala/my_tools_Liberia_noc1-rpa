@@ -70,6 +70,69 @@ except Exception:  # noqa: BLE001
 BACKEND_DIR = Path(__file__).resolve().parent.parent.parent
 DB_PATH = BACKEND_DIR / "db" / "app.db"
 
+# ========== 失败告警延迟（2026-11-07 C） ==========
+# 背景：auto_retry 会在失败后几分钟重投且成功率很高，但旧逻辑在第一次失败时
+# 就立刻发微信+邮件，重试成功又不发恢复通知 → 运维每天收到「已经自愈」的告警。
+# 规则：**能被 auto_retry 重投的任务**，自上次成功以来的连续失败次数未达阈值时
+# 静默（只记日志），达到阈值（默认 2，即 auto_retry 也没救回来）才告警；
+# 不能重投的任务（邮件类 / 显式排除）仍立即告警。
+# 取证见 outputs/cnn_kpi_sync_5mins_失败复盘_2026-11-07.md。
+# 关闭：FAILURE_ALERT_DEFER=0；调阈值：FAILURE_ALERT_DEFER_STREAK=N。
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(os.environ.get(name, str(default)))
+    except (TypeError, ValueError):
+        return default
+
+
+FAILURE_ALERT_DEFER_ENABLED = os.environ.get("FAILURE_ALERT_DEFER", "1") != "0"
+FAILURE_ALERT_DEFER_STREAK = max(1, _env_int("FAILURE_ALERT_DEFER_STREAK", 2))
+
+
+def _consecutive_failures(task_id: str) -> int:
+    """自上次成功以来的连续失败次数（含本次；_save_task_result 已先落库）。
+
+    查不到时返回阈值本身 → 保守走「立即告警」，绝不因为统计失败而吞掉告警。
+    """
+    try:
+        with get_raw_connection(str(DB_PATH), timeout=30) as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) FROM task_execution_log "
+                " WHERE task_id = ? AND id > COALESCE("
+                "   (SELECT MAX(id) FROM task_execution_log "
+                "    WHERE task_id = ? AND success = 1), 0)",
+                (task_id, task_id),
+            ).fetchone()
+            return int(row[0]) if row else 1
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"[{task_id}] 连续失败次数查询失败，保守立即告警: {e}")
+        return FAILURE_ALERT_DEFER_STREAK
+
+
+def _should_defer_failure_alert(task_id: str, error: str | None) -> tuple[bool, str]:
+    """返回 (是否延迟告警, 原因)。判定失败一律返回 False（立即告警）。"""
+    if not FAILURE_ALERT_DEFER_ENABLED:
+        return False, "延迟告警已关闭"
+    try:
+        # 延迟导入，避免与 auto_retry 的反向 import 形成循环。
+        from backend.services.auto_retry import _is_excluded_from_retry
+        if _is_excluded_from_retry(task_id, error):
+            return False, "该任务不在 auto_retry 覆盖范围，无自愈兜底"
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"[{task_id}] auto_retry 资格判定失败，保守立即告警: {e}")
+        return False, "资格判定失败"
+    streak = _consecutive_failures(task_id)
+    # _save_task_result 已在通知前落库，真失败时 streak 至少为 1。
+    # 出现 0 说明本次失败没进执行记录（落库异常），此时绝不静默。
+    if streak <= 0:
+        return False, "本次失败未进入执行记录（落库异常），保守立即告警"
+    if streak < FAILURE_ALERT_DEFER_STREAK:
+        return True, (f"连续第 {streak}/{FAILURE_ALERT_DEFER_STREAK} 次失败，"
+                      "等待 auto_retry 自愈（数据缺口由重投与巡检兜底）")
+    return False, (f"连续 {streak} 次失败（≥{FAILURE_ALERT_DEFER_STREAK}），"
+                   "auto_retry 未能恢复")
+
+
 # ========== 任务注册表 ==========
 _task_registry: dict[str, dict] = {}
 _task_history: list[dict] = []
@@ -83,12 +146,58 @@ _active_lock = threading.Lock()
 # 全局调度器
 _scheduler: Optional[BackgroundScheduler] = None
 
+# ============================================================
+# 调度触发的宽限时间（2026-11-06 新增，修「整段任务没被调度」）
+# ============================================================
+# APScheduler 3.11.3 的 job 默认值实测为
+#     {'misfire_grace_time': 1, 'coalesce': True, 'max_instances': 1}
+# 即**只给 1 秒宽限**：调度器主循环只要比计划时刻晚 1 秒以上，这一次触发就被
+# **静默丢弃**（日志里仅一行 "Run time of job ... was missed by ..."）。
+#
+# 现场证据（2026-11-05）：`eflow_active_alarm`（cron `* * * * *`，独占 x 组、
+# 无组内争抢）在 10:38:45~10:51:01 连续 **11 分钟没有任何入队记录**，
+# 同期其它任务正常入队；队列里该任务上一轮的 finished_at=10:39:26，
+# 所以既不是单飞拦下、也不是 worker 忙 —— 是分钟级触发被成片丢掉。
+# 那段时间机器上同时有 ipt_power_collect（6 分钟）、auto_retry_failed（21 分钟）
+# 等重负载，调度器主循环被拖慢超过 1 秒是必然发生的。
+#
+# 现在显式给 300 秒宽限：调度器短暂卡顿不再丢触发；coalesce=True 保证积压的
+# 多次错失只补跑**一次**（不会连跑 N 次形成风暴），max_instances 仍为 1。
+# 对月度任务而言晚 5 分钟也无实质影响。
+MISFIRE_GRACE_SECONDS = 300
+
+
+def _on_job_missed(event) -> None:
+    """记录「触发被丢弃」事件 —— 原先这件事完全静默。
+
+    APScheduler 只把 missed 事件丢给监听器，不写我们的日志；而 2026-11-05 那次
+    12 分钟空窗，事后在巡检与任务日志里都看不出任何痕迹（既没有失败、也没有
+    「无执行记录」告警，因为 24h 维度太粗）。这里补一行 warning + 结构化字段，
+    下次再出现「压根没调度」时能从日志直接指认，而不是靠人工比对时间轴。
+    """
+    try:
+        job = getattr(event, "job", None)
+        logger.warning(
+            "调度触发被丢弃（misfire）",
+            extra={"task_id": getattr(job, "id", "?"),
+                   "event": "schedule_misfire",
+                   "scheduled_run_time": str(getattr(event, "scheduled_run_time", ""))},
+        )
+    except Exception:  # noqa: BLE001 - 监听器绝不能反过来把调度器搞崩
+        pass
+
 
 def get_scheduler() -> BackgroundScheduler:
     """获取或创建全局调度器"""
     global _scheduler
     if _scheduler is None:
         _scheduler = BackgroundScheduler()
+        # 见 MISFIRE_GRACE_SECONDS / _on_job_missed 的说明
+        try:
+            from apscheduler.events import EVENT_JOB_MISSED
+            _scheduler.add_listener(_on_job_missed, EVENT_JOB_MISSED)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("注册调度 missed 事件监听失败（不影响调度）: %s", e)
     return _scheduler
 
 
@@ -751,27 +860,37 @@ def run_task(task_id: str, trigger: str = "manual") -> dict:
         logger.debug("测试任务跳过通知", extra={"task_id": task_id})
         return result
 
-    # 任务失败时推送微信通知（OpenClaw 通道）。通知失败不影响任务结果记录。
+    # 任务失败通知（微信 + 126 邮箱）。通知失败不影响任务结果记录。
     if not result["success"]:
-        try:
-            notify_task_failure(
-                task_id, task["name"],
-                result.get("error") or "未知错误",
-                result.get("error_trace"),
+        # 2026-11-07 C：能被 auto_retry 重投的任务，首次失败先静默一轮。
+        # 系统 5 分钟后自愈成功就不再打扰运维；连续失败达阈值才真发告警。
+        defer, why = _should_defer_failure_alert(task_id, result.get("error"))
+        if defer:
+            logger.warning(
+                "[%s] 失败告警延迟：%s（本次不发微信/邮件）", task_id, why,
+                extra={"task_id": task_id, "event": "failure_alert_deferred",
+                       "error": (result.get("error") or "")[:300]},
             )
-        except Exception as e:  # noqa: BLE001
-            logger.warning(f"[{task_id}] 微信失败通知异常: {e}")
+        else:
+            logger.info("[%s] 失败告警判定：%s", task_id, why)
+            try:
+                notify_task_failure(
+                    task_id, task["name"],
+                    result.get("error") or "未知错误",
+                    result.get("error_trace"),
+                )
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"[{task_id}] 微信失败通知异常: {e}")
 
-        # 任务失败时发送 126 邮箱告警邮件给 xin83min@126.com。
-        # 通知失败不影响任务结果记录。
-        try:
-            notify_task_failure_email(
-                task_id, task["name"],
-                result.get("error") or "未知错误",
-                result.get("error_trace"),
-            )
-        except Exception as e:  # noqa: BLE001
-            logger.warning(f"[{task_id}] 邮箱失败通知异常: {e}")
+            # 任务失败时发送 126 邮箱告警邮件给 xin83min@126.com。
+            try:
+                notify_task_failure_email(
+                    task_id, task["name"],
+                    result.get("error") or "未知错误",
+                    result.get("error_trace"),
+                )
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"[{task_id}] 邮箱失败通知异常: {e}")
 
     # 2026-09-27 新增：**降级告警**——任务本身 success=True，但任务函数在 result 里
     # 报告了 warnings（典型场景：sp_data_sync 的 app.db 落库成功、镜像写 FineBI
@@ -1229,6 +1348,13 @@ def schedule_task(task_id: str, cron_expr: str = None):
         args=[task_id, "scheduled"],
         id=job_id,
         replace_existing=True,
+        # 见 MISFIRE_GRACE_SECONDS 的说明：默认只用 1 秒宽限，调度器稍一卡顿
+        # 整次触发就被丢掉（2026-11-05 eflow_active_alarm 连丢 11 分钟即此）。
+        misfire_grace_time=MISFIRE_GRACE_SECONDS,
+        # coalesce=True：积压的多次错失只补跑一次，不连跑 N 次
+        coalesce=True,
+        # max_instances=1：与单飞保护一致，绝不并发同一任务
+        max_instances=1,
     )
 
     task["current_cron"] = cron

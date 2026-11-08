@@ -1072,25 +1072,32 @@ TASK_SPECS = [
          description_en="Hourly read-only GBase pulls of traffic/TCP/per-service categories (traffic/video/web/game/OTT voice/OTT video, by area + SGW NE) at hour and day granularity into data/soc_trend/soc_trend.sqlite3, feeding the SOC multi-dim trend dashboard (dual-baseline alarms, D/D-1/D-7 comparison)",
          default_cron="40 * * * *", category="olib_soc"),
 
-    # ipt_power_collect 2026-11-03 注册 / 2026-11-04 改全站 2 分钟分辨率（两层并发）：
-    # IPT Digital Platform（RMS 能源监控平台，AWS 外网）站点电源采集。每 2 分钟：
+    # ipt_power_collect 2026-11-03 注册 / 2026-11-04 两层并发 /
+    # 2026-11-06 降频为 5 分钟（原 2 分钟节拍把上游压出批量超时，复盘见
+    # outputs/ipt_power_collect_失败复盘_2026-11-06.md）：
+    # IPT Digital Platform（RMS 能源监控平台，AWS 外网）站点电源采集。每 5 分钟：
     # ① filter-map 1 个请求刷全站（~500 站）清单与连接状态（该接口不含电源数值）；
     # ② /sites 分页一次性回填参考号/区域/集群/优先级/配置；
     # ③ full_kpi 并发拉全站 popup 轻量 KPI（现行 8 线程；上游健康时 32 线程实测 501 站 60.1s/0 错误）
-    #    → 全站每 2 分钟一条快照（上游无批量电源接口，只能逐站拉）；
+    #    → 全站每 5 分钟一条快照（上游无批量电源接口，只能逐站拉）；
     # ④ full_shard 并发拉 diagram 完整明细（3 线程，≤60 站/轮），
     #    shard_cursor 环形游标约 20 分钟覆盖全站；与 popup 池同时跑（先起后台池），
-    #    整轮 100s 硬上限兜底，2 分钟节拍不漂移。实测 501 站 diagram 全采 ~185s
+    #    整轮 240s 硬上限兜底（2026-11-06 D，留 60s 给 300s 周期），节拍不漂移。
+    #    实测 501 站 diagram 全采 ~185s
     #    （且有超时），故明细分层只能分片轮采。
     # ⚠ sites 里不要配 "*"（旧语义 = 单轮全采 500 站，必然超时）。细节见
     # services/ipt_data/README.md。认证为 OIDC 隐式流表单模拟，token 缓存 1h 自动续期。
-    # 归 m 组理由：外网独立会话，与组内任务无冲突；单轮约 80s < 2 分钟节拍。
+    # 归 m 组理由：外网独立会话，与组内任务无冲突；单轮常规 ~95s、最坏 240s < 5 分钟节拍。
+    # 2026-11-06 B+C：filter-map 短重试 + 上轮站点清单降级；瞬时上游抖动不判任务失败，
+    # 连续 3 轮完全无法采集才告警，数据陈旧由 20 分钟巡检兜底。
+    # 2026-11-06 D：硬上限 100→240s，把降频空出的 200s 真正用起来，
+    # 慢轮不再提前放弃尾部站；并发/单请求超时均未改，不增加瞬时压力。
     # 消费方：?page=ipt_power（站点电源查询页）。
     dict(task_id="ipt_power_collect", name="IPT 站点电源采集", name_en="IPT Site Power Collect",
          loader=("backend.services.ipt_data.ipt_power_collector", "run_ipt_power_collect"),
-         description="每 2 分钟从 IPT Digital Platform（RMS 能源监控）刷新全站连接状态与站点属性；full_kpi 并发拉全站 popup 轻量 KPI（501 站实测 60s）→ 全站每 2 分钟一条快照；full_shard 并发拉 diagram 完整明细分片轮采（约 20 分钟覆盖 500 站，关注站每轮必采），入库 ipt_power_sites / ipt_power_snapshots / ipt_power_site_detail；池内 20s 超时+失败补采+popup 环形游标防漏站+低成功率熔断，上游故障指数退避静默跳过",
-         description_en="Every 2 min, refresh all-site connectivity and site attributes from the IPT Digital Platform; full_kpi concurrently fetches the lightweight popup KPI for every site (501 sites in 60s measured) so every site gets a snapshot every 2 min; full_shard rotates the full diagram detail in shards (~20 min for all ~500 sites, watch sites every round) into ipt_power_sites / ipt_power_snapshots / ipt_power_site_detail; pooled 20s timeout + bounded retry + popup ring cursor + degraded-ratio circuit breaker, exponential backoff with silent skip on upstream outage",
-         default_cron="*/2 * * * *", category="ipt_power"),
+         description="每 5 分钟从 IPT Digital Platform（RMS 能源监控）刷新全站连接状态与站点属性；full_kpi 并发拉全站 popup 轻量 KPI（501 站实测 60s）→ 全站每 5 分钟一条快照；full_shard 并发拉 diagram 完整明细分片轮采（约 20 分钟覆盖 500 站，关注站每轮必采），入库 ipt_power_sites / ipt_power_snapshots / ipt_power_site_detail；池内 20s 超时+失败补采+popup 环形游标防漏站+低成功率熔断，上游故障指数退避静默跳过；filter-map 短重试+上轮清单降级，瞬时抖动不判失败",
+         description_en="Every 5 min, refresh all-site connectivity and site attributes from the IPT Digital Platform; full_kpi concurrently fetches the lightweight popup KPI for every site (501 sites in 60s measured) so every site gets a snapshot every 5 min; full_shard rotates the full diagram detail in shards (~20 min for all ~500 sites, watch sites every round) into ipt_power_sites / ipt_power_snapshots / ipt_power_site_detail; pooled 20s timeout + bounded retry + popup ring cursor + degraded-ratio circuit breaker, exponential backoff with silent skip on upstream outage; short filter-map retry + last-round site-list fallback, transient upstream jitter no longer counts as task failure",
+         default_cron="*/5 * * * *", category="ipt_power"),
 
     # eflow_site_update 2026-11-03 注册：CMDB 主数据（ZTE OLR MS Master Site Database）
     # 与 eflow 现网 / PG master_site_db 的差异比对，为 Email Reports →「站点同步」页签
@@ -1103,6 +1110,23 @@ TASK_SPECS = [
          description="比对 CMDB 主数据（my_app/db 下最新的 ZTE OLR MS Master Site Database）与 eflow 基线、PG master_site_db 基线，生成带 A/M/D 标记与着色的差异文件（eflow_site_update.xlsx / master_site_db .xlsx / 导入副本 / 同步报告）。只生成文件供人工审查，不写入 eflow 与 PostgreSQL",
          description_en="Diff the CMDB master data (newest ZTE OLR MS Master Site Database under my_app/db) against the eflow baseline and the PG master_site_db baseline, producing colour-coded A/M/D workbooks (eflow_site_update.xlsx / master_site_db .xlsx / import copies / sync report). Generates review files only - never writes to eflow or PostgreSQL",
          default_cron="0 7 * * *", category="eflow"),
+
+    # 84. RAN 网元管理表同步（每天 23:00）2026-11-07 注册
+    #     数据源：RAN UME(10.100.28.27:28001) 的 RNM「网元管理」表格接口
+    #     /api/res/v1/ranmes（抓包见 services/RANElementManagement/url.txt，
+    #     1080 行 cURL 里只有这一条是取数接口，其余都是 portal 静态资源）。
+    #     认证不照抄抓包里的会话 Cookie（会过期）：走 auth_manager.get_auth(probe=...)
+    #     + credential_store 的 zte_ume 组，与 u 组其它 RAN UME 任务共享会话。
+    #     落 PG app schema 三张表：当前全量 / 每日快照历史 / 同步日志。
+    #     ⚠ 归 u 组的硬理由：同一台 UME、同一个 zte_ume 账号会话，并发登录会互踢；
+    #       漏登记本表会导致队列 pending 无人认领直到 300s 超时（本组已踩过多次）。
+    dict(task_id="ran_element_management_sync", name="RAN 网元管理表同步",
+         name_en="RAN Element Management Sync",
+         loader=("backend.services.RANElementManagement.ran_element_management_service",
+                 "run_ran_element_management_sync"),
+         description="每天 23:00 从 RAN UME(10.100.28.27:28001) 的 RNM 网元管理接口 /api/res/v1/ranmes 拉取全量网元表格（实测 934 行 / 15 字段，ITBBU/SDR/MRNC/MEC），写入 PostgreSQL 的 app.ran_element_management（当前全量，按 ne_id upsert）、app.ran_element_management_daily（每日快照，按 snapshot_date+ne_id 幂等）与 app.ran_element_management_sync_log；低于 100 行视为上游残片直接判失败，不覆盖已有数据",
+         description_en="Daily at 23:00, pull the full RAN element table from the RNM /api/res/v1/ranmes endpoint on RAN UME (10.100.28.27:28001) - 934 rows / 15 fields measured, covering ITBBU/SDR/MRNC/MEC - and store it in PostgreSQL: app.ran_element_management (current snapshot, upsert by ne_id), app.ran_element_management_daily (idempotent daily history keyed by snapshot_date+ne_id) and app.ran_element_management_sync_log. Fewer than 100 rows is treated as a partial upstream response and fails the task instead of overwriting good data",
+         default_cron="0 23 * * *", category="ran_ume"),
 ]
 
 # ========== 网关分组（按「获取数据的外部系统」归类，与 category 平行） ==========

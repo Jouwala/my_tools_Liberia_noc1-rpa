@@ -151,6 +151,9 @@
   /* ---------------------------------------------------------------- 渲染 -- */
   function applyI18n() {
     document.documentElement.lang = LANG === 'en' ? 'en' : 'zh-CN';
+    /* ⚠️ 2026-11-06：<title> 原先是写死的中文，英文态下浏览器标签仍显示中文。
+       页面内所有可见文案都有 id 并走 T，唯独标签漏了这一处。 */
+    document.title = T.title;
     $('ttl').textContent = T.title;
     $('sub').textContent = T.sub;
     $('lblUser').textContent = T.user;

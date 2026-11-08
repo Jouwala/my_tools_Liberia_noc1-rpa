@@ -26,12 +26,120 @@ import { Alert, Button, Descriptions, Input, Modal, Space, Typography } from 'an
 
 import { useI18n } from '../i18n'
 import { WH } from '../theme'
+import CalcChainNote, { type CalcChainSection } from './CalcChainNote'
 import type { OverrideInfo } from './VmaxDiagnosisCard'
+import { parseVerdictSnapshot, type VerdictSnapshot } from '../lib/vmaxVerdictSnapshot'
+import { renderI18n, renderI18nList } from '../renderI18n'
 
 const { TextArea } = Input
 const { Text } = Typography
 
 const MIN_REASON = 10
+
+type TFn = (key: string, params?: Record<string, string | number>) => string
+
+/**
+ * 把已存档快照整理成可展开的小节（P3-3）。
+ *
+ * 只做**排版**：所有值都取自快照本身，不重新计算任何指标 ——
+ * 否则会出现「弹窗里的分与页面上的分不一致」这种新的不可审计。
+ */
+function snapshotSections(snap: VerdictSnapshot, t: TFn): CalcChainSection[] {
+  const line = (label: string, value: string | number) =>
+    t('vmaxq.override.snapshotLine', { label, value })
+  const sections: CalcChainSection[] = []
+
+  // ① 上下文：存档时间 / 投诉类型 / 窗口 / IMSI（快照里没有号码明文）
+  const ctx: string[] = [
+    line(t('vmaxq.print.generated'), snap.generated_at.replace('T', ' ').slice(0, 19)),
+    line(t('vmaxq.print.complaint'), t(`vmaxq.complaint.${snap.complaint}`)),
+    line(t('vmaxq.diag.window'), `${snap.window.start} ~ ${snap.window.end}`),
+  ]
+  if (snap.imsi) ctx.push(`IMSI ${snap.imsi}`)
+  sections.push({ lines: ctx })
+
+  // ② 结论（快照里的 headline 是 {key, params}，按当前语言渲染）
+  if (snap.verdict) {
+    sections.push({
+      title: t('vmaxq.diag.verdictAuto'),
+      lines: [
+        renderI18n(t, snap.verdict.headline),
+        line(t('vmaxq.diag.confidence'), t(`vmaxq.diag.confidence.${snap.verdict.confidence}`)),
+        t(snap.verdict.reproduced ? 'vmaxq.diag.reproduced' : 'vmaxq.diag.notReproduced'),
+      ],
+    })
+    if (snap.verdict.basis.length) {
+      sections.push({
+        title: t('vmaxq.diag.basis'),
+        lines: renderI18nList(t, snap.verdict.basis),
+      })
+    }
+  }
+
+  // ③ 四维评分（null 显示 —：无数据 ≠ 0 分）
+  if (snap.scores.length) {
+    sections.push({
+      lines: snap.scores.map((s) =>
+        line(t(`vmaxq.diag.score.${s.key}`), s.score === null ? '—' : `${s.score}/100`)),
+    })
+  }
+
+  // ④ 数据源状态：条数 / 失败原因 / 是否截断
+  if (snap.sources.length) {
+    sections.push({
+      title: t('vmaxq.diag.sources'),
+      lines: snap.sources.map((s) => {
+        const name = s.label_key ? t(s.label_key) : s.label
+        const text = s.ok
+          ? t('vmaxq.diag.srcTag', { src: name, n: s.rows })
+          : t('vmaxq.diag.failItem', { src: name, why: s.error || t('vmaxq.diag.sourceFail') })
+        return text + (s.truncated ? ' *' : '')
+      }),
+    })
+  }
+
+  // ⑤ 关键指标（语音 / OTT / 游戏）—— 与卡片同一批判定数字
+  if (snap.voice) {
+    const v = snap.voice
+    sections.push({
+      title: t('vmaxq.voice.card'),
+      lines: [[
+        line(t('vmaxq.voice.mode'), t(`vmaxq.voice.mode.${v.mode}`)),
+        line(t('vmaxq.voice.sgs'), v.sgsCount),
+        line(t('vmaxq.voice.csfbTrigger'), v.csfbTrigger),
+        line(t('vmaxq.voice.esr'), v.esrCount),
+        line(t('vmaxq.voice.page'), v.pagingCount),
+        line(t('vmaxq.voice.timeout'), v.badCount),
+        line(t('vmaxq.voice.est'), v.successRate === null ? '—' : `${v.successRate}%`),
+        line(t('vmaxq.voice.fallbackMs'), v.fallbackMs === null ? '—' : `${v.fallbackMs}ms`),
+      ].join(' · ')],
+    })
+  }
+  if (snap.ott) {
+    const o = snap.ott
+    sections.push({
+      title: t('vmaxq.ott.card'),
+      lines: [[
+        line(t('vmaxq.ott.sessions'), o.totalSessions),
+        line(t('vmaxq.ott.duration'), `${o.totalDurationS}s`),
+        line(t('vmaxq.ott.rtt'), `${o.avgDlRtt}ms`),
+        line(t('vmaxq.ott.jitter'), `${o.jitter}ms`),
+        line(t('vmaxq.ott.retrans'), `${o.retransRate}%`),
+      ].join(' · ')],
+    })
+  }
+  if (snap.game) {
+    const g = snap.game
+    sections.push({
+      title: t('vmaxq.game.card'),
+      lines: [g.hits.length
+        ? `${t('vmaxq.game.found', { n: g.totalSessions })} · `
+          + g.hits.map((h) => `${h.app}(${h.records})`).join(t('vmaxq.listSep'))
+        : t('vmaxq.game.none')],
+    })
+  }
+  return sections
+}
 
 export default function VmaxOverrideModal({
   open,
@@ -56,6 +164,8 @@ export default function VmaxOverrideModal({
   const [verdict, setVerdict] = useState('')
   const [reason, setReason] = useState('')
   const [err, setErr] = useState('')
+  // P3-3：编辑已有覆写时，把提交当时存档的诊断快照解析出来（老记录没有 → null）
+  const snapshot = parseVerdictSnapshot(existing?.verdict_snapshot)
 
   // 每次打开都用最新值重置：残留上一次的输入比清空更危险（会误提交别人的结论）
   useEffect(() => {
@@ -113,6 +223,16 @@ export default function VmaxOverrideModal({
             children: <Text>{autoVerdict || '—'}</Text>,
           }]}
         />
+
+        {/* ---------- 已存档诊断快照（P3-3，可审计） ----------
+            默认收起（AGENTS.md 三.3b），只有确实存过快照才出现；
+            老记录（迁移前提交）没有快照 → 不显示，不冒充「没关系」。 */}
+        {snapshot && (
+          <CalcChainNote
+            title={t('vmaxq.override.snapshot')}
+            sections={snapshotSections(snapshot, t)}
+          />
+        )}
 
         <div>
           <div style={{ marginBottom: 4 }}>
