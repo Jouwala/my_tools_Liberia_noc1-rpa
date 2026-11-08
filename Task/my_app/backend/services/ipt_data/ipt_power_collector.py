@@ -62,7 +62,12 @@ SITES_TABLE = "ipt_power_sites"
 SNAP_TABLE = "ipt_power_snapshots"
 DETAIL_TABLE = "ipt_power_site_detail"
 META_TABLE = "ipt_power_meta"
-RETENTION_DAYS = 2           # 快照保留期（超出即删，2026-11-03 如意定：曲线只留 2 天，控表体积）
+RETENTION_DAYS = 7           # 快照保留期（超出即删）。2026-11-03 原定 2 天控表体积，
+                             # 2026-11-08 如意要求改 7 天：页面时间窗本就有 168h(7d) 档、
+                             # 接口 hours 上限 192h，2 天保留期让 72h/7d 两档永远只能看到
+                             # 2 天曲线。当天实测 513 站 × 288 轮/天，2 天 = 33.7 万行 /
+                             # 555MB（含索引），线性外推 7 天约 103 万行 / 1.9GB；
+                             # popup 行 raw=NULL 仍是控体积的关键（当前仅 4.5 万行有 raw）。
 
 # ---- 全站 popup KPI 层（2026-11-04：全站 5 分钟分辨率，2026-11-06 降频）----
 KPI_DEFAULT_WORKERS = 8      # 2026-11-05 复盘：12+8=20 并发把上游拖垮（顺序探测
@@ -425,8 +430,8 @@ def _write_snapshot(cur, site_id: str, snap_time: str, connectivity,
                     diag_raw=None) -> None:
     """一轮一条快照：popup KPI 为底、diagram 明细字段覆盖（都有时 source=diagram）。
 
-    popup 行 raw 写 NULL（KPI 列已含全部数值，raw 留空控制 2 天保留期内的表体积：
-    501 站 × 720 轮/天，raw 全存约 1.8GB/天）；diagram 行 raw 存 slim 明细 JSON。
+    popup 行 raw 写 NULL（KPI 列已含全部数值，raw 留空控制 7 天保留期内的表体积：
+    513 站 × 288 轮/天，raw 全存会让表体积涨一个量级）；diagram 行 raw 存 slim 明细 JSON。
     """
     base = dict(popup_kpi or {})
     if diag_kpi:
