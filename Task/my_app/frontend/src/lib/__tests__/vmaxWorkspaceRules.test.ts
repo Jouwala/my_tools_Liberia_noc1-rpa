@@ -19,7 +19,8 @@
 import { describe, expect, it } from 'vitest'
 
 import {
-  analyzeAccess, analyzeOttText, analyzeRadio, buildVerdict, classifyFailCause,
+  analyzeAccess, analyzeDataBlock, analyzeOttText, analyzeRadio, analyzeRateCeiling,
+  analyzeTerminal, buildVerdict, classifyFailCause,
   scoreAll, THRESHOLDS,
   type DimensionScore, type GameResult, type OttResult,
   type SourceResult, type VoiceResult, type XdrRow,
@@ -216,6 +217,11 @@ describe('classifyFailCause / analyzeAccess（P0-1）', () => {
     expect(v.hypotheses[0]?.owner).toBe('billing')
   })
 
+  it('无任何失败时 missingEvidence 仍恒带「账务未查」（不沉默）', () => {
+    const v = buildVerdict('all', nullScores(), noneVoice(), ottResult(), emptyGame(), emptySources())
+    expect(v.missingEvidence.some((m) => m.key === 'vmaxq.vd.hyp.missing.billing')).toBe(true)
+  })
+
   it('只有数字码拒绝（无强关键词）→ 不判账务，假设表显式列待补账务', () => {
     const sources = emptySources()
     sources.find((s) => s.key === '1100')!.rows = [
@@ -301,6 +307,24 @@ describe('analyzeRadio 无线分型（P0-3）', () => {
     expect(r.mode).toBe('site_outage_suspect')
   })
 
+  it('TA/位置/站点距离：远弱覆盖与近弱覆盖走不同依据', () => {
+    const farRows = Array.from({ length: 10 }, (_, i) => row({
+      serving_rsrp: -120, ta_ts: 4500, mrlat: 6.3, mrlon: -10.8, neighbor_cell_number: 0,
+    }, i))
+    const far = ran(farRows)
+    expect(far.taMedianM).toBe(4500)
+    expect(far.posLat).toBeCloseTo(6.3)
+    expect(far.neighborCountMedian).toBe(0)
+    expect(far.basis.some((b) => b.key === 'vmaxq.radio.basis.farWeak')).toBe(true)
+    expect(far.basis.some((b) => b.key === 'vmaxq.radio.basis.isolated')).toBe(true)
+
+    const nearRows = Array.from({ length: 10 }, (_, i) => row({
+      serving_rsrp: -120, ta_ts: 500, mrlat: 6.3, mrlon: -10.8, neighbor_cell_number: 3,
+    }, i))
+    const near = ran(nearRows)
+    expect(near.basis.some((b) => b.key === 'vmaxq.radio.basis.nearWeak')).toBe(true)
+  })
+
   it('渐变弱（中间有过渡值）→ 不是断站', () => {
     const rows = [
       ...Array.from({ length: 3 }, (_, i) => row({ serving_rsrp: -90 }, i)),
@@ -310,5 +334,70 @@ describe('analyzeRadio 无线分型（P0-3）', () => {
     const r = ran(rows)
     expect(r.abruptDrop).toBe(false)
     expect(r.mode).toBe('weak_coverage')
+  })
+})
+
+/* ---------------------------------------------------------------------------
+ * 8. 终端画像 + 限速推断（2026-11-08）
+ * ------------------------------------------------------------------------ */
+describe('analyzeTerminal / analyzeRateCeiling（2026-11-08）', () => {
+  it('终端画像取 imei/机型/制式/APN 与主 QCI', () => {
+    const sources = emptySources()
+    sources.find((s) => s.key === '1300')!.rows = [
+      { imei: '861234567890123', ue_model: 'XIAOMI 25019PNF3C', rat_name: '(4G)EUTRAN', apn: 'orangelbr', qci: '9' },
+      { imei: '861234567890123', ue_model: 'XIAOMI 25019PNF3C', rat_name: '(4G)EUTRAN', apn: 'orangelbr', qci: '9' },
+    ] as XdrRow[]
+    const p = analyzeTerminal(sources)
+    expect(p.imei).toBe('861234567890123')
+    expect(p.model).toContain('XIAOMI')
+    expect(p.rat).toContain('EUTRAN')
+    expect(p.apn).toBe('orangelbr')
+    expect(p.qciMain).toBe('9')
+  })
+
+  it('数据阻断嫌疑：附着成功+有尝试无流量才成立；只是没用数据不成立', () => {
+    const mk = (trafficKb: number, slow: number) => {
+      const sources = emptySources()
+      sources.find((s) => s.key === '1100')!.rows = Array.from({ length: 10 }, () => ({
+        procedure_status: 'Success',
+      })) as XdrRow[]
+      sources.find((s) => s.key === '1300')!.rows = Array.from({ length: 10 }, (_, i) => ({
+        ul_traffic: i < slow ? 0 : trafficKb, dl_traffic: i < slow ? 0 : trafficKb,
+        $first_resp_delay: i < slow ? 9000 : 100, qci: '9',
+      })) as XdrRow[]
+      return analyzeDataBlock(sources)
+    }
+    expect(mk(5000, 0).suspect).toBe(false)   // 流量在走 → 反证
+    expect(mk(0, 2).suspect).toBe(false)      // 只有 2 条尝试 → 不够
+    expect(mk(0, 5).suspect).toBe(true)       // 5 条尝试 + 零流量 + 附着成功
+    const v = buildVerdict('slow', nullScores(), noneVoice(), ottResult(), emptyGame(), (() => {
+      const sources = emptySources()
+      sources.find((s) => s.key === '1100')!.rows = Array.from({ length: 10 }, () => ({
+        procedure_status: 'Success',
+      })) as XdrRow[]
+      sources.find((s) => s.key === '1300')!.rows = Array.from({ length: 10 }, () => ({
+        ul_traffic: 0, dl_traffic: 0, $first_resp_delay: 9000, qci: '9',
+      })) as XdrRow[]
+      return sources
+    })())
+    expect(v.hypotheses.some((h) => h.id === 'h-datablock')).toBe(true)
+  })
+
+  it('限速推断：样本不足显式不可推断；样本够则给 P90 天花板', () => {
+    const mk = (n: number, kb: number) => {
+      const sources = emptySources()
+      sources.find((s) => s.key === '1300')!.rows = Array.from({ length: n }, () => ({
+        qci: '9', dl_throughput_max: 5000, ul_throughput_max: 1000,
+        ul_traffic: kb, dl_traffic: kb,
+      })) as XdrRow[]
+      return analyzeRateCeiling(sources)
+    }
+    const few = mk(5, 100)
+    expect(few.rows[0]?.inferable).toBe(false)
+    expect(few.evidence.some((e) => e.key === 'vmaxq.vd.ev.rateInsufficient')).toBe(true)
+    const many = mk(40, 1000)
+    expect(many.rows[0]?.inferable).toBe(true)
+    expect(many.rows[0]?.dlP90Kbps).toBe(5000)
+    expect(many.rows[0]?.ulP90Kbps).toBe(1000)
   })
 })

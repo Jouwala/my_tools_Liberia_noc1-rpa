@@ -1,6 +1,6 @@
 # my_app User Help & Guide
 
-> User-facing platform features & operations guide. Generated from the same source as the in-app Help page (frontend/src/helpMarkdown.ts), compiled from docs/manual/ and backend/task_registry.py. Generated on 2026-11-08.
+> User-facing platform features & operations guide. Generated from the same source as the in-app Help page (frontend/src/helpMarkdown.ts), compiled from docs/manual/ and backend/task_registry.py. Generated on 2026-11-09.
 
 > In-app entry: the "Help" sidebar item, or `http://<host>/myapp/?page=help` directly.
 
@@ -798,7 +798,7 @@ Workflow & maintenance notes per task:
 
 1. Step 0: call sp_material_sync to pull the full material master from eFlow into sp_material (on failure only warn and keep the existing table)
 1. Log into SFTP, download raw spare data and keep an unfiltered *_source.xlsx snapshot
-1. Exclude list → status filter → Canceled filter → **Material Name resolved from the master** (5 details + 5 snapshots, names only, no row changes)
+1. Exclude list → status filter → Canceled/Terminated filter (Operation Result Status) → **Material Name resolved from the master** (5 details + 5 snapshots, names only, no row changes)
 1. Generate the Comsumables & SpareParts Inbound&Outbound&Inventory reports (incl. Summary-Current replenishment)
 1. Save to data/sp_email for the 09:45/09:50 email tasks and the 07:05 details email
 
@@ -2524,6 +2524,7 @@ VMAX Intelligent Diagnosis Workspace: complaint-driven single-page narrative —
 - The verdict comes from deterministic rules (buildVerdict); CCA is correlation evidence only
 - **Root-cause hypothesis ranking (2026-11-08)**: below the verdict, zone 3 opens with a hypothesis table ordered by evidence strength (billing/subscription > access rejection > radio classification > transport/latency > OTT text), each row carrying supporting evidence, missing evidence and a suggested owner; "missing evidence" lists the unchecked items explicitly (billing not checked, no neighbor samples, DNS not checked), never silently skipped
 - Common causes such as arrears are classified from 1100 `fail_cause` (billing is only judged on strong keywords; a numeric EPS reject code does not equal arrears); WhatsApp messaging uses the OTT text judge (TCP layer only — DNS/TLS/delivery ack are not in XDR); weak coverage is further split into late handover (a good neighbor exists but was never camped on) / suspected site outage (step-shaped disappearance) / true weak coverage / interference, using the UEMR `neighbor_*` columns
+- Zone 2 also has a **terminal profile card** (IMEI/model/RAT/APN/main QCI — identity only, it cannot prove carrier aggregation/MIMO capability) and a **rate-ceiling inference card** (the observed ceiling of 1300 `throughput_max`; when samples are insufficient it says so explicitly — Gx/Gy authorised bandwidth is not collected in this deployment, so no direct value is readable)
 - The number is stored under ccaMsisdn and does not interfere with the legacy page
 - Fully bilingual
 

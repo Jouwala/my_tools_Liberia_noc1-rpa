@@ -28,6 +28,11 @@
   * 99933 站名对不上 → 见上，按「无关联」继续；
   * eFlow 侧 `ttstatus` 非 0（ME 未关联站点）→ **仍然尝试派单**，只是收缩重试预算，
     失败后通报人工（2026-10-27 业务要求：不能被 eFlow 侧数据问题挡住）。
+    **2026-11-08 补充（根治当日 118 次任务失败）**：失败且已通报人工
+    （状态 N + send_status=Y）后，只要 ttstatus 仍可疑，后续轮次**缓派**
+    （计 `pending_manual`，属「有意不派」不算失败），不再每 5 分钟对同一批
+    未绑定站点的 ME 空试派单接口；ttstatus 每轮实时重取，eFlow 侧修好绑定
+    （转 0）即自动恢复派单。判定唯一真相源：`assign_engine.is_manual_pending`。
 
 **站点解析（关键，实测教训）**：Fiber（TRM/IPRAN）告警的 `site` 是 ME 名
 （如 `6120HA_zardun_UPE128`）、`sitename` 为 `--`，eFlow 的 TT 引擎无法据此
@@ -158,6 +163,11 @@ def upstream_tt(alarm: Dict[str, Any]) -> str:
 def is_already_handled(prev_status: str, dry_run: bool) -> bool:
     """状态表命中「已处理」的判定。"""
     return engine.is_already_handled(prev_status, dry_run)
+
+
+def is_manual_pending(prev_status: str, send_status: str, status_suspect: bool) -> bool:
+    """「已知派不出 + 已通报人工 + ttstatus 仍可疑」→ 本轮缓派（2026-11-08）。"""
+    return engine.is_manual_pending(prev_status, send_status, status_suspect)
 
 
 def is_clean_ttstatus(ttstatus: Any) -> bool:
@@ -308,8 +318,9 @@ def apply_outcome(out: Dict[str, Any]) -> Dict[str, Any]:
       其余                              → ok
 
     handled 只算真正产生了结果的：assigned（建出 TT）+ merged（并入组长 TT）。
-    skipped / waiting / expired 是**有意不派**，不算失败、也不计入 handled，
-    所以「全部在等待窗口内」不会被误判为失败。
+    skipped / waiting / expired / pending_manual 是**有意不派**，不算失败、
+    也不计入 handled，所以「全部在等待窗口内」「全部在等人工修 ME 绑定」
+    都不会被误判为失败（pending_manual 见 `engine.is_manual_pending`，2026-11-08）。
 
     不会造成通知刷屏：weixin_notifier / email_notifier 都有
     `COOLDOWN_SECONDS = 30*60` 的按 task_id 冷却（见两处 :65 / :31），
@@ -382,6 +393,9 @@ def run_fiber_assign() -> Dict[str, Any]:
         "correlation_undetermined": 0, "correlation_undetermined_samples": [],
         # eFlow 侧 ttstatus 非 0（ME 未关联站点）的条数 —— 不再阻断，只收缩重试预算
         "suspect_ttstatus": 0, "suspect_ttstatus_samples": [],
+        # 已知派不出 + 已通报人工 + ttstatus 仍可疑 → 本轮缓派（2026-11-08）。
+        # 属「有意不派」：不计 due / failed，eFlow 修好绑定后自动恢复派单。
+        "pending_manual": 0, "pending_manual_samples": [],
         # 自动派不了（站点解析失败 / ttstatus 异常）→ 群里通报「需人工处理」的计数
         "manual_notified": 0,
         # 同一次光纤中断合并派单：被组长的 TT 覆盖、未单独建单的告警条数
@@ -403,13 +417,13 @@ def run_fiber_assign() -> Dict[str, Any]:
         out["elapsed_seconds"] = round(time.time() - started, 2)
         logger.info("[Fiber] 完成 dry_run=%s fetched=%s fiber=%s due=%s waiting=%s expired=%s "
                     "assigned=%s skipped=%s failed=%s notified=%s stale_notified=%s "
-                    "corr_undet=%s suspect_ttstatus=%s merged=%s 用时%.2fs",
+                    "corr_undet=%s suspect_ttstatus=%s pending_manual=%s merged=%s 用时%.2fs",
                     CTX.dry_run, out["fetched"], out["fiber_alarms"], out["due"],
                     out["waiting"], out["expired"],
                     out["assigned"], out["skipped"], out["failed"], out["notified"],
                     out.get("stale_notified", 0),
                     out["correlation_undetermined"], out["suspect_ttstatus"],
-                    out.get("merged", 0),
+                    out.get("pending_manual", 0), out.get("merged", 0),
                     out["elapsed_seconds"])
         # 超窗明细单独打一行：原来只有计数（expired=4），排障时看不出是哪几条、
         # 存续多久 —— 2026-10-28 查 Alarm 1764190014919 就卡在这里。
@@ -602,6 +616,30 @@ def run_fiber_assign() -> Dict[str, Any]:
                         f"{akey} eFlow 侧 ttstatus={tt_status}（ME 可能未关联站点），仍尝试派单")
                 logger.warning("[Fiber] %s ttstatus=%s（ME 未关联站点），不阻断、仍尝试派单",
                                akey, tt_status)
+
+            # ---------- 已知派不出 + 已通报人工 → 本轮缓派（2026-11-08 根治） ----------
+            # 上一轮真试过且失败（N）、群里已确认通报过人工（send_status=Y）、
+            # 本轮实时拉到的 ttstatus 仍可疑 → 不再空试派单接口。
+            # 背景：这类告警（ME 未在 eFlow 绑定站点）接口回 succeed 却永远建不出
+            # TT，旧实现每 5 分钟重试一遍，本轮 due 全是它们时整轮判 failed ——
+            # 2026-11-08 因此出现 118 次任务失败（没有新故障，只是同一批绑定没修）。
+            # 缓派属「有意不派」（同 skipped/waiting），不计 due/failed；
+            # ttstatus 每轮实时重取，eFlow 修好绑定（转 0）即自动恢复派单。
+            # 判定唯一真相源：engine.is_manual_pending（首次见到的告警不受影响，
+            # 仍按 2026-10-27 业务要求先试一次、失败再通报）。
+            if engine.is_manual_pending(prev, engine.s(rec.get("send_status")),
+                                        status_suspect):
+                out["pending_manual"] += 1
+                if len(out["pending_manual_samples"]) < SAMPLE_LIMIT:
+                    out["pending_manual_samples"].append(
+                        {"alarm_key": akey, "ttstatus": tt_status,
+                         "last_error": engine.s(rec.get("last_error"))[:200]})
+                # 只刷新 last_seen_time 等基础字段：upsert 先读旧行合并，
+                # N / last_error / send_status 原样保留（见 fiber_store.upsert_record）
+                store.upsert_record(conn, base)
+                logger.info("[Fiber] %s 已知派不出且已通报人工（ttstatus=%s），本轮缓派；"
+                            "eFlow 修好 ME 绑定后自动恢复派单", akey, tt_status)
+                continue
 
             # 关联判定：同站同窗口已有 99933 → 跳过。
             # ⚠ 站点名对不上（fiber 的 ME 站名 vs 99933 的 cmdb 站名写法不同）时
@@ -867,7 +905,8 @@ def run_fiber_assign() -> Dict[str, Any]:
 
         apply_outcome(out)
         out["message"] = (f"演练" if CTX.dry_run else f"派单 {out['assigned']} 单") + \
-                         f"，跳过 {out['skipped']}，失败 {out['failed']}"
+                         f"，跳过 {out['skipped']}，失败 {out['failed']}" + \
+                         (f"，缓派待人工 {out['pending_manual']}" if out["pending_manual"] else "")
         return _finish()
     finally:
         try:

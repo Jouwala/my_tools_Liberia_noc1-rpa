@@ -790,13 +790,23 @@ def apply_status_filters(inb, outb):
 
 
 # ==============================================================================
-# operation result filter - 剔除 Operation Result Status='Canceled' 的明细行
+# operation result filter - 剔除 Operation Result Status='Canceled'/'Terminated' 的明细行
 # ==============================================================================
 # 2026-09-16 用户指定：入库 / 出库 / 转仓明细里 Operation Result Status='Canceled'
 # 的都是已作废单据，不参与 SP Details Report，也不进 Inbound&Outbound&Inventory 报表。
+# 2026-11-09 用户补：'Terminated'（已终止）同样剔除。实测 2026-11-09 当天
+# inbound Terminated 83 行、outbound Terminated 14 行，此前未过滤，混进了
+# SpareParts/Consumables Inbound&Outbound&Inventory 报表（这些行 Status=Closed，
+# Status 过滤抓不到）。
 # inventory_management 没有该列，不受影响。
+# outbound 的 'WaitingForReturn' 仍保留：是已出库、等回仓的在途态，不是作废。
 OP_RESULT_COL = 'Operation Result Status'
-OP_RESULT_DROP_STATUS = ('Canceled',)
+OP_RESULT_DROP_STATUS = ('Canceled', 'Terminated')
+
+
+def _op_result_label(statuses=OP_RESULT_DROP_STATUS):
+    """把剔除状态拼成日志/说明用标签，如 Canceled/Terminated。"""
+    return '/'.join(statuses)
 
 
 def drop_operation_result_canceled(df, statuses=OP_RESULT_DROP_STATUS):
@@ -812,24 +822,25 @@ def drop_operation_result_canceled(df, statuses=OP_RESULT_DROP_STATUS):
 
 
 def apply_operation_result_filter(inb, outb):
-    """入库 / 出库明细剔除 Operation Result Status='Canceled' 并写回。返回 (inb, outb, stats)。"""
+    """入库 / 出库明细剔除 Operation Result Status 命中状态并写回。返回 (inb, outb, stats)。"""
+    label = _op_result_label()
     new_inb, n_in = drop_operation_result_canceled(inb)
     if n_in:
-        print(f'[OpResult] inbound: 剔除 Operation Result Status=Canceled {n_in} 行，'
+        print(f'[OpResult] inbound: 剔除 Operation Result Status={label} {n_in} 行，'
               f'{len(inb)} -> {len(new_inb)} 行')
         if not _save_detail_xlsx(new_inb, INB_PATH):
             print('[OpResult][WARN] inbound: 写回失败，下游任务将使用未过滤的旧文件')
     else:
-        print('[OpResult] inbound: 无 Canceled 行，保持原样')
+        print(f'[OpResult] inbound: 无 {label} 行，保持原样')
 
     new_outb, n_out = drop_operation_result_canceled(outb)
     if n_out:
-        print(f'[OpResult] outbound: 剔除 Operation Result Status=Canceled {n_out} 行，'
+        print(f'[OpResult] outbound: 剔除 Operation Result Status={label} {n_out} 行，'
               f'{len(outb)} -> {len(new_outb)} 行')
         if not _save_detail_xlsx(new_outb, OUTB_PATH):
             print('[OpResult][WARN] outbound: 写回失败，下游任务将使用未过滤的旧文件')
     else:
-        print('[OpResult] outbound: 无 Canceled 行，保持原样')
+        print(f'[OpResult] outbound: 无 {label} 行，保持原样')
 
     stats = {}
     if n_in:
@@ -840,7 +851,7 @@ def apply_operation_result_filter(inb, outb):
 
 
 def apply_operation_result_filter_to_file(path, label):
-    """对只用于 SP Details Report 的转仓明细文件就地过滤 Canceled 行并写回。
+    """对只用于 SP Details Report 的转仓明细文件就地过滤作废行并写回。
 
     文件缺失 / 无该列时只打印说明并返回 0，不影响主流程。
     """
@@ -857,9 +868,9 @@ def apply_operation_result_filter_to_file(path, label):
         return 0
     new_df, n = drop_operation_result_canceled(df)
     if n == 0:
-        print(f'[OpResult] {label}: 无 Canceled 行，保持原样')
+        print(f'[OpResult] {label}: 无 {_op_result_label()} 行，保持原样')
         return 0
-    print(f'[OpResult] {label}: 剔除 Operation Result Status=Canceled {n} 行，'
+    print(f'[OpResult] {label}: 剔除 Operation Result Status={_op_result_label()} {n} 行，'
           f'{len(df)} -> {len(new_df)} 行')
     if not _save_detail_xlsx(new_df, path):
         print(f'[OpResult][WARN] {label}: 写回失败，下游任务将使用未过滤的旧文件')
@@ -1012,7 +1023,7 @@ def apply_material_master_fields(inb, outb, inv):
         if changed:
             stats[label] = changed
 
-    # 原始快照：只改 Material Name，行数与行内容一律不动（含 Canceled / 剔除名单行）
+    # 原始快照：只改 Material Name，行数与行内容一律不动（含 Canceled/Terminated / 剔除名单行）
     for path in DETAIL_PATHS:
         label = Path(path).stem.replace('_details', '') + '_source'
         changed = _normalize_detail_file(raw_source_path(path), label, name_lut)
@@ -2134,7 +2145,8 @@ def _build_filter_note(kind, material_type, warehouse_name=''):
     parts.append(f"Warehouse Name \u2260 '{EXCLUDE_WAREHOUSE}'")
     if kind in ('inbound', 'outbound'):
         parts.append('Excluded orders: in&out_exclude.xlsx [sheet 3: excluded order serial details]')
-        parts.append(f"Operation Result Status \u2260 '{OP_RESULT_DROP_STATUS[0]}'")
+        op_vals = ', '.join(f"'{s}'" for s in OP_RESULT_DROP_STATUS)
+        parts.append(f'Operation Result Status \u2260 {op_vals}')
         parts.append(f"Status \u2260 '{DETAIL_DROP_STATUS[0]}'")
     if kind == 'summary':
         parts.append('same exclusions as the Inbound / Outbound / Inventory sheets')
@@ -2337,10 +2349,10 @@ def main():
     # Step 2.2: 入库/出库明细剔除 Status='WaitingForUpdate'，并写回保存
     inb, outb, _status_stats = apply_status_filters(inb, outb)
 
-    # Step 2.3: 入库/出库明细剔除 Operation Result Status='Canceled'，并写回保存
+    # Step 2.3: 入库/出库明细剔除 Operation Result Status='Canceled'/'Terminated'，并写回保存
     inb, outb, _opres_stats = apply_operation_result_filter(inb, outb)
 
-    # Step 2.4: 转仓明细（只进 SP Details Report）同样剔除 Canceled 行，并写回保存
+    # Step 2.4: 转仓明细（只进 SP Details Report）同样剔除作废行，并写回保存
     _opres_transfer = apply_operation_result_filter_to_file(TRANSFER_PATH, 'transfer')
     _opres_transfer_ret = apply_operation_result_filter_to_file(TRANSFER_RETURN_PATH, 'transfer_return')
 

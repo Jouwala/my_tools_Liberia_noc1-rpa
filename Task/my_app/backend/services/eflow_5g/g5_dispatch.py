@@ -18,6 +18,9 @@
 2. 上游已有 TT（`ttid` 非空）→ 跳过（eFlow 自己的规则先建了单，不重复建）；
 3. 存续时长 < `min_age_minutes`（默认 15）→ **等待**（等下轮），不是跳过；
 4. 存续时长 > `window_minutes`（默认 180）→ **过期**，不派；
+4b. 已知派不出 + 已通报人工 + ttstatus 仍可疑 → **缓派**（`pending_manual`，
+    2026-11-08 与 Fiber 同口径；eFlow 修好 ME 绑定后自动恢复，见
+    `engine.is_manual_pending`）；
 5. 同站同窗口已有 99933 → 跳过（关联判定命中）；
 6. 关联判定**无法完成** → 按「无关联」继续派单并留痕（不因名字对不上就长期漏派）；
 7. 站点解析失败 → 记 `N` + 群里通报「需人工处理」（`send_status` 抑制重复）；
@@ -28,7 +31,7 @@
 ## 返回值
 
 `process_alarm` 返回一个 dict，形如
-`{"action": "assign"|"dry_run"|"merged"|"skip"|"wait"|"expired"|"fail",
+`{"action": "assign"|"dry_run"|"merged"|"skip"|"wait"|"expired"|"pending_manual"|"fail",
   "assigned": bool, "tt_no": str, "cells": [...], ...}`，
 供主循环统一计数与渲染。
 """
@@ -51,6 +54,8 @@ ACTION_MERGED = "merged"
 ACTION_SKIP = "skip"
 ACTION_WAIT = "wait"
 ACTION_EXPIRED = "expired"
+# 已知派不出 + 已通报人工 + ttstatus 仍可疑 → 缓派（2026-11-08，与 Fiber 同口径）
+ACTION_PENDING_MANUAL = "pending_manual"
 ACTION_FAIL = "fail"
 
 
@@ -146,6 +151,20 @@ def process_alarm(alarm: Dict[str, Any],
                               f"（ME 可能未关联站点），仍尝试派单")
         logger.warning("[5G] %s ttstatus=%s（ME 未关联站点），不阻断、仍尝试派单",
                        akey, tt_status)
+
+    # ④b 已知派不出 + 已通报人工 + ttstatus 仍可疑 → 本轮缓派（2026-11-08，与 Fiber 同口径）。
+    # 这类告警派单接口回 succeed 却永远建不出 TT；旧实现每 5 分钟空试一遍，
+    # 本轮 due 全是它们时整轮判 failed（Fiber 侧 2026-11-08 实测 118 次失败）。
+    # 缓派不计 due/failed；ttstatus 每轮实时重取，eFlow 修好绑定即自动恢复。
+    if engine.is_manual_pending(prev, engine.s(rec.get("send_status")), status_suspect):
+        store.upsert_record(conn, base)  # 合并写：只刷 last_seen_time，保留 N/send_status
+        out["action"] = ACTION_PENDING_MANUAL
+        out["ttstatus"] = tt_status
+        out["sample"] = {"alarm_key": akey, "action": "pending_manual",
+                         "ttstatus": tt_status}
+        logger.info("[5G] %s 已知派不出且已通报人工（ttstatus=%s），本轮缓派；"
+                    "eFlow 修好 ME 绑定后自动恢复派单", akey, tt_status)
+        return out
 
     # ⑤ 关联判定：同站同窗口已有 99933 → 跳过
     # ⚠ `due` 的口径：**通过了全部前置判定、进入派单阶段**的告警条数

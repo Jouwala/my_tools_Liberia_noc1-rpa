@@ -270,13 +270,48 @@ def is_already_handled(prev_status: str, dry_run: bool) -> bool:
     return prev_status == "Y" or (prev_status == "D" and bool(dry_run))
 
 
+def is_manual_pending(prev_status: str, send_status: str, status_suspect: bool) -> bool:
+    """「已知派不出 + 已通报人工 + eFlow 侧仍未修好」→ 本轮缓派（2026-11-08 根治）。
+
+    ## 背景（2026-11-08 实测 118 次任务失败的根因）
+
+    `ttstatus` 可疑（ME 未在 eFlow 绑定站点）的告警，派单接口回 succeed 却
+    **永远建不出 TT**（2026-10-27 实测）。首次失败后已按业务要求往群里通报过
+    一次「需人工处理」（`send_status='Y'`）。但 `N` 不算「已处理」
+    （`is_already_handled` 只挡 Y/D），于是**每 5 分钟都对同一条数据问题空试
+    一遍**：白烧派单接口 + 回查，且当本轮 due 全是这类告警时整轮判 failed
+    —— 任务管理器里一片红，实际没有任何新故障，只是同一批 ME 绑定没修。
+
+    ## 判定（三个条件缺一不可）
+
+    * `prev_status == 'N'` —— 上一轮真试过且失败了（首次见到的告警**必须试**，
+      2026-10-27 业务要求「不能被 eFlow 侧数据问题挡住」）；
+    * `send_status == 'Y'` —— 群里已确认通报过人工（没通报过的不能缓，
+      否则变成静默漏派）；
+    * `status_suspect` —— **本轮实时拉到的** ttstatus 仍可疑。
+
+    ## 自动恢复（不需要人工干预本任务）
+
+    ttstatus 每轮从 eFlow 实时重取：一旦有人在 eFlow 把 ME 绑到站点
+    （ttstatus 转 0），`status_suspect=False` → 本判定返回 False →
+    自动恢复正常派单。这正是群通报里承诺的
+    「Once the binding is fixed, this task retries automatically」。
+
+    缓派是**有意不派**（同 skipped/waiting/expired），不计 failed、不进 due，
+    结果里单独计 `pending_manual` 桶留痕，排障时一眼可见「几条在等人工修绑定」。
+    """
+    return prev_status == "N" and send_status == "Y" and bool(status_suspect)
+
+
 def is_clean_ttstatus(ttstatus: Any) -> bool:
     """eFlow 侧 `ttstatus` 是否处于「正常可派」状态（`0` = UnAssigned；字段缺失按正常）。
 
     ⚠ **这是提示信号，不是阻断条件**（2026-10-27 业务要求：不能被 eFlow 侧
     「ME 未绑定站点」挡住，该试还得试）。它只用来：
       1. 把本轮派单尝试预算收窄（见 `assign_attempt_budget`），避免每轮白烧 70s；
-      2. 失败时把原因写成「ME 未关联站点」，并通报人工去 eFlow 修绑定。
+      2. 失败时把原因写成「ME 未关联站点」，并通报人工去 eFlow 修绑定；
+      3. 失败**且已通报人工后**，若 ttstatus 仍可疑则后续轮次缓派
+         （见 `is_manual_pending`，2026-11-08），修好后自动恢复。
 
     实测教训（2026-10-27 切生产首轮就撞上）：全库 6669 条告警里 `ttstatus=2`
     只有 5 条，共同特征是 **`site` 是 ME 名、`sitename` 为 `--`/None** ——
