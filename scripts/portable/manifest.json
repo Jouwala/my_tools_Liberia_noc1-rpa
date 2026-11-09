@@ -1,0 +1,123 @@
+{
+  "_comment": "01_olbr_portal 便携副本的保留/排除清单。只保留门户、WhatsApp bot、门户问答助手挂件、my_app 四样及其运行时。build_olbr_portable.ps1 读本文件。",
+  "_exclude_semantics": "exclude_root 只匹配 subtree 根下一级（robocopy /XD 传绝对路径）；exclude_any 匹配任意层级（传裸名）。Windows 大小写不敏感，裸名 Scripts 会误伤 frontend/scripts（帮助文档生成器与 i18n 守卫），故 venv 目录一律放 exclude_root。node_modules 一律放 exclude_any，由 runtime_node_modules 阶段单独精确拷贝。",
+  "keep_subtrees": [
+    {
+      "src": "liberia-noc_soc-数据看板统一门户",
+      "dst": "liberia-noc_soc-数据看板统一门户",
+      "why": "统一门户（含 v3 问答助手挂件、静态壳、server、scripts/whatsapp_analysis）",
+      "exclude_root": ["log", "TMP", ".git", "auth-data"],
+      "exclude_any": ["node_modules", "_quarantine_*", "_bak_*", "__pycache__", ".pytest_cache"],
+      "exclude_files": ["portal-default.json", "*.bak", "*.bak_*", "*.log", "*.tsbuildinfo", ".env", ".env.*"]
+    },
+    {
+      "src": "Task/my_app",
+      "dst": "Task/my_app",
+      "why": "my_app 后端+前端源码、手册、迁移、测试",
+      "exclude_root": ["db", "Lib", "Scripts", "include", "libs", ".venv", "log", "TMP", "backup",
+                       ".claude", ".workbuddy", ".workbuddy-ai", ".trae", ".idea", ".screenshots", "Include"],
+      "exclude_any": [
+        "node_modules", "auth_cache", "__pycache__", ".pytest_cache", ".ruff_cache",
+        "_myapp_trash_*", "_quarantine_*", "_bak_*", "dist", "dist2",
+        "_pmcache", "native_board_cache", "portal_profiles"
+      ],
+      "exclude_files": [
+        "*.pyc", "*.pid", "*.bak", "*.bak_*", "*.log", "*.log.err", "*.tsbuildinfo",
+        "pyvenv.cfg", ".env", "*.local.json", "auth_info.json",
+        "*-wal", "*-shm", ".fuse_hidden*", "instance.lock"
+      ]
+    },
+    {
+      "src": "Task/whatsapp-kb-bot",
+      "dst": "Task/whatsapp-kb-bot",
+      "why": "WhatsApp 群知识库机器人（Baileys）+ 9269 http-server（问答助手后端）",
+      "exclude_root": ["TMP"],
+      "exclude_any": ["node_modules", "__pycache__", "_bak_*"],
+      "exclude_files": ["*.bak", "*.bak_*", "*.tmpdel_*", "*.pid", "*.pyc"]
+    },
+    {
+      "src": "Task/_fe_dist",
+      "dst": "Task/_fe_dist",
+      "why": "my_app 前端构建产物（nginx/preview 直接读它，非 HMR）",
+      "exclude_root": [],
+      "exclude_any": [],
+      "exclude_files": []
+    }
+  ],
+  "extra_copies": [
+    {
+      "src": "Task/my_app/db",
+      "dst": "Task/my_app/db",
+      "why": "只带上传件/附件/主站点库 xlsx。app.db(2.58G) 与 4 份 1.58G 备份在 pg 模式下不被读，排除；instance.lock 由 main.py:550 启动时自建。",
+      "exclude_root": [],
+      "exclude_any": [],
+      "exclude_files": ["app.db", "app.db-shm", "app.db-wal", "app.db.bak_*", "my_app.db", "eflow.sqlite3", "lbr_ms_sla_kpi.sqlite3", ".fuse_hidden*", "instance.lock"]
+    }
+  ],
+  "keep_root_files": ["AGENTS.md"],
+  "keep_task_children": ["my_app", "whatsapp-kb-bot", "_fe_dist"],
+  "runtime_node_modules": [
+    {
+      "src": "liberia-noc_soc-数据看板统一门户/node_modules",
+      "dst": "liberia-noc_soc-数据看板统一门户/node_modules",
+      "why": "门户 React19+Vite 依赖"
+    },
+    {
+      "src": "Task/my_app/frontend/node_modules",
+      "dst": "Task/my_app/frontend/node_modules",
+      "why": "my_app 前端依赖（vite preview 需要）"
+    },
+    {
+      "src": "Task/whatsapp-kb-bot/node_modules",
+      "dst": "Task/whatsapp-kb-bot/node_modules",
+      "why": "Baileys bot 依赖"
+    },
+    {
+      "src": "liberia-noc_soc-数据看板统一门户/scripts/whatsapp_analysis/node_modules",
+      "dst": "liberia-noc_soc-数据看板统一门户/scripts/whatsapp_analysis/node_modules",
+      "why": "门户 9268 分析服务依赖（门户 start.bat 会自启）",
+      "optional": true
+    }
+  ],
+  "nginx_from_main": {
+    "src": "nginx-1.28.0",
+    "dst": "nginx-1.28.0",
+    "keep_dirs": ["html"],
+    "keep_files": ["nginx.exe"],
+    "why": "nginx 二进制 + 地图瓦片；conf 由 write_nginx_conf.ps1 按副本真实根路径生成，启停用副本自己的 start.bat/stop.bat"
+  },
+  "bundled_runtimes": [
+    {
+      "src": "C:/Users/ZTEEMS/AppData/Local/Programs/Python/Python312",
+      "dst": "runtime/python312",
+      "why": "后端真实解释器 3.12.10（含 fastapi/uvicorn/psycopg2/sqlalchemy/alembic/apscheduler）。Task/my_app/Scripts 是 FMS 代理的 3.13 venv，无后端依赖，不能用。",
+      "exclude_root": ["Doc", "include", "libs", "share", "tcl"],
+      "exclude_any": ["__pycache__", "test", "tests", "idlelib"],
+      "exclude_files": ["*.pyc", "NEWS.txt"]
+    },
+    {
+      "src": "C:/Program Files/nodejs",
+      "dst": "runtime/node",
+      "why": "Node v24.16.0，满足 bot(>=20) 与 whatsapp_analysis(>=23.4)",
+      "exclude_root": [],
+      "exclude_any": ["docs", "html", "man", "test"],
+      "exclude_files": ["*.md"]
+    },
+    {
+      "src": "C:/Program Files/PostgreSQL/16",
+      "dst": "runtime/postgresql16",
+      "why": "便携 PG 实例，灌入 myapp 全量快照后离线供数。只取 bin/lib/share，绝不拷生产 data 目录。",
+      "only_dirs": ["bin", "lib", "share"],
+      "exclude_root": [],
+      "exclude_any": [],
+      "exclude_files": []
+    }
+  ],
+  "quarantine_name": "_quarantine_20261109",
+  "credentials_to_handle": [
+    "Task/my_app/backend/.env：明文 PG 口令 → 副本改指本机便携 PG，口令另生成",
+    "门户 auth-data/：加盐密码哈希 → 副本用 PORTAL_AUTH_DATA_DIR 隔离，首次运行自建",
+    "Task/whatsapp-kb-bot/data/auth/：WhatsApp 登录凭据 → 随副本分发即交出登录态，需用户确认",
+    "Task/whatsapp-kb-bot/certs/ 与 nginx certs/portal.key：私钥"
+  ]
+}
