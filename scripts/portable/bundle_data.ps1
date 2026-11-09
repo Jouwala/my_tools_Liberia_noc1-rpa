@@ -34,6 +34,17 @@ param(
 
 $ErrorActionPreference = 'Stop'
 try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch { }
+
+# PowerShell 5.1 的 Start-Process 在进程环境里同时存在「同名不同大小写」的键时
+# 会抛 "Item has already been added"（典型：终端注入了 HTTP_PROXY 与 http_proxy），
+# 恢复阶段拉起便携 PG 会整条失败。只在本进程规范化：保留大写键，删全小写重复键。
+$dupEnv = [Environment]::GetEnvironmentVariables('Process')
+foreach ($k in @($dupEnv.Keys)) {
+    if ($k -ceq $k.ToLowerInvariant() -and $dupEnv.ContainsKey($k.ToUpperInvariant())) {
+        [Environment]::SetEnvironmentVariable($k, $null, 'Process')
+    }
+}
+
 if (-not $SourceEnv) { $SourceEnv = Join-Path $MainRepo 'Task\my_app\backend\.env' }
 if (-not $DumpFile) { $DumpFile = Join-Path $CopyRoot 'TMP\myapp_snapshot.dump' }
 $sw = [System.Diagnostics.Stopwatch]::StartNew()
@@ -85,22 +96,36 @@ function Invoke-Dump {
     Write-Step ("源库：{0}:{1}/{2}（连接串含口令，不打印）" -f $srcHost, $srcPort, $srcDb)
     if ($DryRun) { Write-Step "<干跑> pg_dump -Fc -> $DumpFile"; return }
     try {
+        # native stderr 在 PS 5.1 会变成 ErrorRecord，pg_dump 的一条告警就可能中断导出
+        $prevEapDump = $ErrorActionPreference
+        $ErrorActionPreference = 'Continue'
         # PGPASSWORD 只在本进程生存期内有效，子进程继承后即可连接；绝不写进磁盘
         $env:PGPASSWORD = $srcPass
         & $pgDump -Fc -h $srcHost -p $srcPort -U $srcUser -d $srcDb -f $DumpFile 2>&1 |
             ForEach-Object { Write-Host "  $_" }
         if ($LASTEXITCODE -ne 0) { throw "pg_dump 失败（exit=$LASTEXITCODE）" }
+        # 生产库是多 schema 架构，靠 **role 级** search_path 定位 app.eflow_tt 等表。
+        # pg_dump 只导 database 级对象，不含 cluster 级的 ALTER ROLE ... SET search_path；
+        # 副本 initdb 出来的 role 默认 "$user",public，恢复后 backend 仍会找不到表。
+        # 因此把源库 search_path 记到 sidecar，restore 时补回。
+        $srcSearchPath = & (Join-Path $PgBin 'psql.exe') -w -h $srcHost -p $srcPort `
+            -U $srcUser -d $srcDb -tAc 'SHOW search_path' 2>$null
     } finally {
         Remove-Item Env:\PGPASSWORD -ErrorAction SilentlyContinue
         [void]$srcPass
+        $ErrorActionPreference = $prevEapDump
     }
     $size = (Get-Item -LiteralPath $DumpFile).Length / 1MB
     Write-Ok ("快照已导出：{0}（{1:N1} MB）" -f $DumpFile, $size)
+    $sp = "$srcSearchPath".Trim()
+    if (-not $sp) { $sp = 'app, eflow, lte_pl, battery, ms_sla, fw, ipran_ume, ran_ume, public' }
+    [System.IO.File]::WriteAllText("$DumpFile.searchpath", $sp, (New-Object System.Text.UTF8Encoding $false))
+    Write-Ok ("已记录源库 search_path：{0}" -f $sp)
 }
 
 function Invoke-Restore {
     Write-Step '=== 阶段 restore：灌入副本便携 PG ==='
-    if (-not (Test-Path -LiteralPath $DumpFile)) { throw "找不到快照：$DumpFile（先跑 -Stage dump）" }
+    if (-not $DryRun -and -not (Test-Path -LiteralPath $DumpFile)) { throw "找不到快照：$DumpFile（先跑 -Stage dump）" }
     if (-not (Test-Path -LiteralPath $CopyRoot)) { throw "副本根目录不存在：$CopyRoot" }
     $bin = Join-Path $CopyRoot 'runtime\postgresql16\bin'
     $pgData = Join-Path $CopyRoot 'runtime\pgdata'
@@ -126,24 +151,59 @@ function Invoke-Restore {
         Write-Step ('<干跑> pg_ctl start / createdb / pg_restore（目标 127.0.0.1:{0}/{1}）' -f $TgtPort, $TgtDb)
         return
     }
-    & $pgCtl -D $pgData status 2>&1 | Out-Null
-    if ($LASTEXITCODE -ne 0) {
-        & $pgCtl -D $pgData -l $pgLog -o "-p $TgtPort -h 127.0.0.1" start 2>&1 | ForEach-Object { Write-Host "  $_" }
-        if ($LASTEXITCODE -ne 0) { throw "pg_ctl start 失败，见 $pgLog" }
-    }
-    $exists = & $psql -h 127.0.0.1 -p $TgtPort -U $TgtUser -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='$TgtDb'" 2>$null
-    if (-not $exists) {
-        & $createdb -h 127.0.0.1 -p $TgtPort -U $TgtUser $TgtDb 2>&1 | ForEach-Object { Write-Host "  $_" }
-    }
-    # --no-owner / --no-privileges：生产侧的 role 在副本不存在，否则恢复会一路报错
-    & $pgRestore --clean --if-exists --no-owner --no-privileges `
-        -h 127.0.0.1 -p $TgtPort -U $TgtUser -d $TgtDb $DumpFile 2>&1 |
-        ForEach-Object { Write-Host "  $_" }
-    if ($LASTEXITCODE -ne 0) {
-        Write-Warn2 "pg_restore 返回 exit=$LASTEXITCODE（--clean 下对象不存在会产生无害报错，请核对下方行数）"
-    }
-    $tables = & $psql -h 127.0.0.1 -p $TgtPort -U $TgtUser -d $TgtDb -tAc "SELECT count(*) FROM information_schema.tables WHERE table_schema='public'" 2>$null
-    Write-Ok ("恢复完成：public schema 共 {0} 张表" -f ($tables.Trim()))
+    # native exe 的 stderr 在 PS 5.1 会变成 ErrorRecord，配合 Stop 会中断整段恢复，
+    # 故这一段临时降级（throw 仍然有效）。
+    $prevEap = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        & $pgCtl -D $pgData status 2>&1 | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            # 不能用 `& pg_ctl start 2>&1 | ...`：拉起的 postgres.exe 继承 PowerShell
+            # 管道写句柄，管道永不 EOF，脚本会永久挂住（start_all.ps1 已踩过同款坑）。
+            $ctlOut = Join-Path $CopyRoot 'TMP\portable-pg_ctl-restore.out'
+            $ctlErr = Join-Path $CopyRoot 'TMP\portable-pg_ctl-restore.err'
+            $ctlArg = '-D "{0}" -l "{1}" -o "-p {2} -h 127.0.0.1" start' -f $pgData, $pgLog, $TgtPort
+            $pgProc = Start-Process -FilePath $pgCtl -ArgumentList $ctlArg -PassThru `
+                -WindowStyle Hidden -RedirectStandardOutput $ctlOut -RedirectStandardError $ctlErr
+            if (-not $pgProc) { throw "pg_ctl start 未能启动，见 $ctlErr" }
+        }
+        # 端口 LISTEN != 可连接，轮询 SELECT 1 到真正 ready
+        $ready = $false
+        for ($i = 0; $i -lt 60; $i++) {
+            $probe = & $psql -w -h 127.0.0.1 -p $TgtPort -U $TgtUser -d postgres -tAc 'SELECT 1' 2>$null
+            if ($LASTEXITCODE -eq 0 -and "$probe".Trim() -eq '1') { $ready = $true; break }
+            Start-Sleep -Milliseconds 500
+        }
+        if (-not $ready) { throw "便携 PG 未在 30s 内进入可连接状态，见 $pgLog" }
+
+        $exists = & $psql -w -h 127.0.0.1 -p $TgtPort -U $TgtUser -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='$TgtDb'" 2>$null
+        if (-not $exists) {
+            & $createdb -h 127.0.0.1 -p $TgtPort -U $TgtUser $TgtDb 2>&1 | ForEach-Object { Write-Host "  $_" }
+        }
+        # --no-owner / --no-privileges：生产侧的 role 在副本不存在，否则恢复会一路报错
+        & $pgRestore --clean --if-exists --no-owner --no-privileges `
+            -h 127.0.0.1 -p $TgtPort -U $TgtUser -d $TgtDb $DumpFile 2>&1 |
+            ForEach-Object { Write-Host "  $_" }
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warn2 "pg_restore 返回 exit=$LASTEXITCODE（--clean 下对象不存在会产生无害报错，请核对下方行数）"
+        }
+
+        # 补回 role 级 search_path：pg_dump 不含 cluster 级 role 配置，缺了它
+        # backend 会连得上库却找不到 app.eflow_tt / eflow.*，页面仍报 500/503。
+        $spFile = "$DumpFile.searchpath"
+        $sp = ''
+        if (Test-Path -LiteralPath $spFile) { $sp = ([System.IO.File]::ReadAllText($spFile)).Trim() }
+        if (-not $sp) { $sp = 'app, eflow, lte_pl, battery, ms_sla, fw, ipran_ume, ran_ume, public' }
+        & $psql -w -h 127.0.0.1 -p $TgtPort -U $TgtUser -d postgres -tAc "ALTER ROLE $TgtUser SET search_path = $sp" 2>&1 |
+            ForEach-Object { Write-Host "  $_" }
+        Write-Ok ("已设置副本 role search_path = {0}" -f $sp)
+
+        # 生产库业务表分散在多个 schema，只数 public 会恒为 0、误导验收
+        $tables = & $psql -w -h 127.0.0.1 -p $TgtPort -U $TgtUser -d $TgtDb -tAc "SELECT count(*) FROM pg_tables WHERE schemaname NOT IN ('pg_catalog','information_schema')" 2>$null
+        $bySchema = & $psql -w -h 127.0.0.1 -p $TgtPort -U $TgtUser -d $TgtDb -tAc "SELECT schemaname || ':' || count(*) FROM pg_tables WHERE schemaname NOT IN ('pg_catalog','information_schema') GROUP BY schemaname ORDER BY 1" 2>$null
+        Write-Ok ("恢复完成：业务表共 {0} 张" -f ("$tables".Trim()))
+        Write-Step ("分 schema：{0}" -f (($bySchema -join '  ').Trim()))
+    } finally { $ErrorActionPreference = $prevEap }
 }
 
 if ($Stage -in @('all', 'dump')) { Invoke-Dump }
