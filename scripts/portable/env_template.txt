@@ -15,6 +15,8 @@
 # 默认值与生产一致，方便对照。在**生产机器本机**试跑副本时必须整体改到别的端口，
 # 否则会抢生产的 7038/7090/9267/80/5432。改端口只需改这里，nginx 配置会自动跟着变。
 NGINX_HTTP_PORT=80
+# 副本同时监听 443，保留 https://localhost/ 入口（自签证书，浏览器会提示不信任，属预期）
+NGINX_HTTPS_PORT=443
 MY_APP_BE_PORT=7038
 MY_APP_FE_PORT=7090
 PORTAL_PORT=9267

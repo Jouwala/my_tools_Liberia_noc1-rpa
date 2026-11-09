@@ -82,7 +82,7 @@
   "nginx_from_main": {
     "src": "nginx-1.28.0",
     "dst": "nginx-1.28.0",
-    "keep_dirs": ["html"],
+    "keep_dirs": ["html", "certs"],
     "keep_files": ["nginx.exe"],
     "why": "nginx 二进制 + 地图瓦片；conf 由 write_nginx_conf.ps1 按副本真实根路径生成，启停用副本自己的 start.bat/stop.bat"
   },

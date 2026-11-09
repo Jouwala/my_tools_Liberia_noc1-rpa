@@ -1,12 +1,14 @@
 # =============================================================================
 # nginx.conf.template —— 离线副本专用（由 write_nginx_conf.ps1 在启动时展开）
 # -----------------------------------------------------------------------------
-# 占位符：{{ROOT}} {{HTTP_PORT}} {{BE_PORT}} {{FE_PORT}} {{PORTAL_PORT}}
+# 占位符：{{ROOT}} {{HTTP_PORT}} {{HTTPS_PORT}} {{BE_PORT}} {{FE_PORT}} {{PORTAL_PORT}}
 #   {{ROOT}} 是副本根目录的绝对路径（正斜杠、无尾斜杠），启动时按实际盘符填入，
 #   所以这份配置**与盘符无关**，拷到 E:\ 或 C:\Users\xxx\ 都能跑。
 #
 # 与主仓库 D:\01_RPA\nginx-1.28.0\conf\nginx.conf 的差异（刻意删掉的）：
-#   · 443 / ssl_certificate / 强制 https 跳转 —— 副本不带证书，纯 HTTP
+#   · 80 -> 443 强制跳转 —— 副本改用 80/443 双监听同一份 location 清单。
+#     2026-11-09 用户明确要求保留 https://localhost/ 入口，故随副本带自签证书；
+#     不做强制跳转是因为自签证书在目标机需手动信任，保留 http 便于排障。
 #   · /webroot/（FineBI 26738）、/my-finebi/、/api/dashboards|data/sources|finebi/（7138）
 #   · /app/（3000）、/api/realtime-proxy/fms（8787）
 #   · /ollama/（11434）、/openclaw/（18789）
@@ -61,6 +63,16 @@ http {
     server {
         listen       {{HTTP_PORT}};
         listen       [::]:{{HTTP_PORT}};
+        # 同一 location 清单同时服务 443，避免维护两份（与主仓库 nginx.conf 同思路）。
+        listen       {{HTTPS_PORT}} ssl;
+        listen       [::]:{{HTTPS_PORT}} ssl;
+        http2        on;
+        ssl_certificate     {{ROOT}}/nginx-1.28.0/certs/portal.crt;
+        ssl_certificate_key {{ROOT}}/nginx-1.28.0/certs/portal.key;
+        ssl_protocols       TLSv1.2 TLSv1.3;
+        ssl_ciphers         HIGH:!aNULL:!MD5;
+        ssl_session_cache   shared:SSL:10m;
+        ssl_session_timeout 10m;
         server_name  localhost;
 
         client_max_body_size 1024m;
