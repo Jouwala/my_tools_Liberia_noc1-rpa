@@ -26,6 +26,18 @@ param(
 
 $ErrorActionPreference = 'Stop'
 try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch { }
+
+# PowerShell 5.1 的 Start-Process 在进程环境里同时存在「同名不同大小写」的键时
+# 会抛 "Item has already been added"（典型：终端注入了 HTTP_PROXY 和 http_proxy），
+# 导致 backend / frontend / portal / pg_ctl 全部起不来。只在本进程规范化：
+# 保留大写键，删掉全小写的重复键；不写系统/用户环境，大写代理照常生效。
+$dupEnv = [Environment]::GetEnvironmentVariables('Process')
+foreach ($k in @($dupEnv.Keys)) {
+    if ($k -ceq $k.ToLowerInvariant() -and $dupEnv.ContainsKey($k.ToUpperInvariant())) {
+        [Environment]::SetEnvironmentVariable($k, $null, 'Process')
+    }
+}
+
 $sw = [System.Diagnostics.Stopwatch]::StartNew()
 
 # 本脚本位于 <Root>\scripts\，故根 = 上一级
@@ -102,6 +114,7 @@ function Set-Cfg {
 }
 
 $HttpPort = [int](Get-Cfg 'NGINX_HTTP_PORT' '80')
+$HttpsPort = [int](Get-Cfg 'NGINX_HTTPS_PORT' '443')
 $BePort = [int](Get-Cfg 'MY_APP_BE_PORT' '7038')
 $FePort = [int](Get-Cfg 'MY_APP_FE_PORT' '7090')
 $PortalPort = [int](Get-Cfg 'PORTAL_PORT' '9267')
@@ -271,15 +284,37 @@ if (-not (Test-Path -LiteralPath $pgCtl)) {
     $pgLog = Join-Path $TmpDir 'portable-pg.log'
     & $pgCtl -D $PgData status 2>&1 | Out-Null
     if ($LASTEXITCODE -ne 0) {
-        & $pgCtl -D $PgData -l $pgLog -o "-p $PgPort -h 127.0.0.1" start 2>&1 |
-            ForEach-Object { Write-Host "  $_" }
+        # 不能用 `& pg_ctl ... 2>&1 | ForEach-Object`：pg_ctl 拉起的 postgres.exe
+        # 会继承 PowerShell 管道的写句柄，管道永远等不到 EOF，脚本会永久卡在 1/6
+        # （PG 其实早已 ready）。改成输出重定向到文件 + 不等待子进程树。
+        $pgCtlOut = Join-Path $TmpDir 'portable-pg_ctl.out'
+        $pgCtlErr = Join-Path $TmpDir 'portable-pg_ctl.err'
+        $pgCtlArg = '-D "{0}" -l "{1}" -o "-p {2} -h 127.0.0.1" start' -f $PgData, $pgLog, $PgPort
+        $pgProc = Start-Process -FilePath $pgCtl -ArgumentList $pgCtlArg -PassThru `
+            -WindowStyle Hidden -RedirectStandardOutput $pgCtlOut -RedirectStandardError $pgCtlErr
+        if (-not $pgProc) { throw "pg_ctl start 未能启动，见 $pgCtlErr" }
     }
-    if (-not (Wait-Port $PgPort 30)) { throw "便携 PG 未在 30s 内监听 $PgPort，见 $pgLog" }
-    $dbExists = & $psql -h 127.0.0.1 -p $PgPort -U $PgUser -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='$PgDb'" 2>$null
-    if (-not $dbExists) {
-        $createdb = Join-Path $PgBin 'createdb.exe'
-        & $createdb -h 127.0.0.1 -p $PgPort -U $PgUser $PgDb 2>&1 | ForEach-Object { Write-Host "  $_" }
-    }
+    if (-not (Wait-Port $PgPort 30)) { throw "便携 PG 未在 30s 内监听 $PgPort，见 $pgLog / TMP\portable-pg_ctl.err" }
+    # 端口 LISTEN != 可连接：PG 恢复阶段会拒绝普通连接并回
+    # "the database system is starting up"，必须轮询到 SELECT 1 真正成功。
+    # 同时 PS 5.1 会把 native stderr 变成 ErrorRecord，配合 Stop 会中断整个启动器，
+    # 所以这几步只是探测/建库，临时降级为 Continue。
+    $prevEap = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $pgReady = $false
+        for ($i = 0; $i -lt 60; $i++) {
+            $probe = & $psql -w -h 127.0.0.1 -p $PgPort -U $PgUser -d postgres -tAc 'SELECT 1' 2>$null
+            if ($LASTEXITCODE -eq 0 -and "$probe".Trim() -eq '1') { $pgReady = $true; break }
+            Start-Sleep -Milliseconds 500
+        }
+        if (-not $pgReady) { throw "便携 PG 未在 30s 内进入可连接状态，见 $pgLog" }
+        $dbExists = & $psql -w -h 127.0.0.1 -p $PgPort -U $PgUser -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='$PgDb'" 2>$null
+        if (-not $dbExists) {
+            $createdb = Join-Path $PgBin 'createdb.exe'
+            & $createdb -h 127.0.0.1 -p $PgPort -U $PgUser $PgDb 2>&1 | ForEach-Object { Write-Host "  $_" }
+        }
+    } finally { $ErrorActionPreference = $prevEap }
     Write-Ok "便携 PG 就绪 127.0.0.1:$PgPort / $PgDb"
     Write-Step '若数据库为空，请另跑 scripts\bundle_data.ps1 灌入快照'
 } else {
@@ -347,8 +382,14 @@ if ($startNginx) {
     elseif ($DryRun) { Write-Step '<干跑> 跳过 nginx 启动' }
     elseif (-not (Test-Path -LiteralPath $NginxExe)) { Write-Err2 "缺 $NginxExe" }
     else {
-        # Windows nginx 自带 daemon 化，-p 指到副本自己的目录才能正确解析 logs/conf
-        & $NginxExe -p "$NginxDir\" -c 'conf/nginx.conf' 2>&1 | ForEach-Object { Write-Host "  $_" }
+        # Windows nginx 自带 daemon 化，-p 指到副本自己的目录才能正确解析 logs/conf。
+        # 同样不能用管道捕获输出：master/worker 常驻并继承管道句柄会把启动器挂死。
+        $nginxOut = Join-Path $TmpDir 'portable-nginx.out'
+        $nginxErr = Join-Path $TmpDir 'portable-nginx.err'
+        $nginxArg = '-p "{0}" -c "conf/nginx.conf"' -f $NginxDir.TrimEnd('\')
+        $nginxProc = Start-Process -FilePath $NginxExe -ArgumentList $nginxArg -PassThru `
+            -WindowStyle Hidden -RedirectStandardOutput $nginxOut -RedirectStandardError $nginxErr
+        if (-not $nginxProc) { Write-Err2 "nginx 未能启动，见 $nginxErr" }
         $nginxPidFile = Join-Path $NginxDir 'logs\nginx.pid'
         if (Wait-Port $HttpPort 15) {
             if (Test-Path -LiteralPath $nginxPidFile) {
@@ -373,11 +414,14 @@ foreach ($k in $ports.Keys) {
         -ForegroundColor $(if ($up) { 'Green' } else { 'Yellow' })
 }
 Write-Host ''
-Write-Host '  入口（HTTP，副本无证书）：' -ForegroundColor White
-Write-Host ('    http://localhost:{0}/                 根导航' -f $HttpPort)
-Write-Host ('    http://localhost:{0}/myapp/           Data Insight MVP' -f $HttpPort)
-Write-Host ('    http://localhost:{0}/uniplam/         统一门户' -f $HttpPort)
-Write-Host ('    http://localhost:{0}/v3/olbrportal/  问答助手挂件' -f $HttpPort)
+$httpsBase = if ($HttpsPort -eq 443) { 'https://localhost' } else { "https://localhost:$HttpsPort" }
+$httpBase = if ($HttpPort -eq 80) { 'http://localhost' } else { "http://localhost:$HttpPort" }
+Write-Host '  入口（HTTPS 自签证书，浏览器告警属正常；HTTP 同样可用）：' -ForegroundColor White
+Write-Host ("    {0}/                 根导航" -f $httpsBase)
+Write-Host ("    {0}/myapp/           Data Insight MVP" -f $httpsBase)
+Write-Host ("    {0}/uniplam/         统一门户" -f $httpsBase)
+Write-Host ("    {0}/v3/olbrportal/  问答助手挂件" -f $httpsBase)
+Write-Host ("    {0}/                 HTTP 备用" -f $httpBase)
 Write-Host ''
 Write-Host '  停止：双击副本根目录 stop.bat（只停本副本进程）' -ForegroundColor DarkGray
 $sw.Stop()
