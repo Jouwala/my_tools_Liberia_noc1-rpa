@@ -14,8 +14,8 @@
     nodemodules 精确拷贝各子项目 node_modules
     runtimes    自带 Python312 / Node / PostgreSQL16(bin,lib,share)
     nginx       拷 nginx.exe 与地图瓦片 html\
-    config      生成副本侧 .env / 启动脚本 / nginx conf（见 portable\ 模板）
-    data        由 portable\bundle_data.ps1 单独负责（pg_dump + initdb + restore）
+    config      铺 .env / 启停薄壳 / nginx 模板 / 根导航页 / scripts\start_all.ps1 等（见 portable\ 模板）
+    data        不在此脚本内：bundle_data.ps1 铺到副本 scripts\ 后单独跑（pg_dump + initdb + restore）
 
   用法：
     powershell -NoProfile -File scripts\build_olbr_portable.ps1 -Stage source -DryRun
@@ -90,8 +90,8 @@ function Invoke-Quarantine {
     $qRoot = Join-Path $CopyRoot $qName
     $keepRoot = @(
         'liberia-noc_soc-数据看板统一门户', 'Task', 'nginx-1.28.0', 'runtime',
-        'scripts', 'start.bat', 'stop.bat', 'write_nginx_conf.ps1', '部署说明.md',
-        'AGENTS.md', $qName, 'TMP'
+        'scripts', 'start.bat', 'stop.bat', 'write_nginx_conf.ps1', 'nginx.conf.template',
+        '部署说明.md', '.env', 'AGENTS.md', $qName, 'TMP'
     )
     # Task 下只保留三样
     $keepTask = @($manifest.keep_task_children)
@@ -229,7 +229,9 @@ function Invoke-Nginx {
 function Invoke-Config {
     Write-Log '=== 阶段 config：铺启动脚本与配置模板 ===' 'Cyan'
     $tpl = Join-Path $PSScriptRoot 'portable'
-    $files = @('start.bat', 'stop.bat', 'write_nginx_conf.ps1', 'nginx.conf.template', '部署说明.md')
+    # 根目录模板：start.bat / stop.bat 只是薄壳，真正逻辑在 scripts\start_all.ps1
+    $files = @('start.bat', 'stop.bat', 'write_nginx_conf.ps1',
+               'nginx.conf.template', '部署说明.md')
     foreach ($f in $files) {
         $s = Join-Path $tpl $f
         if (-not (Test-Path -LiteralPath $s)) { Write-Log "  [待写] 模板缺失: $f" 'DarkYellow'; continue }
@@ -237,16 +239,39 @@ function Invoke-Config {
         if (-not $DryRun) { Copy-Item -LiteralPath $s -Destination $d -Force }
         Write-Log "  [模板] $f" 'Green'
     }
+
+    # 根的 .env 只在首次生成：使用者改过端口/密钥后，重跑 config 不得覆盖
+    $envDst = Join-Path $CopyRoot '.env'
+    $envTpl = Join-Path $tpl 'env_template.txt'
+    if (Test-Path -LiteralPath $envTpl) {
+        if (Test-Path -LiteralPath $envDst) { Write-Log '  [保留] .env 已存在，未覆盖' 'DarkYellow' }
+        else {
+            if (-not $DryRun) { Copy-Item -LiteralPath $envTpl -Destination $envDst -Force }
+            Write-Log '  [配置] .env（由 env_template.txt 生成）' 'Green'
+        }
+    } else { Write-Log '  [待写] 模板缺失: env_template.txt' 'DarkYellow' }
+
+    # 根导航页铺到 nginx 的 html\ 下（nginx.conf 的 location / 用 root html）
+    $indexTpl = Join-Path $tpl 'nginx_index.html'
+    $htmlDir = Join-Path $CopyRoot 'nginx-1.28.0\html'
+    if (Test-Path -LiteralPath $indexTpl) {
+        if (-not (Test-Path -LiteralPath $htmlDir)) {
+            if (-not $DryRun) { New-Item -ItemType Directory -Path $htmlDir -Force | Out-Null }
+        }
+        if (-not $DryRun) { Copy-Item -LiteralPath $indexTpl -Destination (Join-Path $htmlDir 'index.html') -Force }
+        Write-Log '  [导航页] nginx-1.28.0\html\index.html' 'Green'
+    } else { Write-Log '  [待写] 模板缺失: nginx_index.html' 'DarkYellow' }
+
+    # 副本 scripts\：start.bat / stop.bat 只调这里的 start_all.ps1 / stop_all.ps1
     $scriptsDst = Join-Path $CopyRoot 'scripts'
     if (-not $DryRun) {
         if (-not (Test-Path -LiteralPath $scriptsDst)) { New-Item -ItemType Directory -Path $scriptsDst -Force | Out-Null }
     }
-    foreach ($f in @('bundle_data.ps1', 'env_template.txt')) {
+    foreach ($f in @('start_all.ps1', 'stop_all.ps1', 'bundle_data.ps1', 'env_template.txt')) {
         $s = Join-Path $tpl $f
-        if (Test-Path -LiteralPath $s) {
-            if (-not $DryRun) { Copy-Item -LiteralPath $s -Destination (Join-Path $scriptsDst $f) -Force }
-            Write-Log "  [脚本] scripts\$f" 'Green'
-        }
+        if (-not (Test-Path -LiteralPath $s)) { Write-Log "  [待写] 脚本缺失: scripts\$f" 'DarkYellow'; continue }
+        if (-not $DryRun) { Copy-Item -LiteralPath $s -Destination (Join-Path $scriptsDst $f) -Force }
+        Write-Log "  [脚本] scripts\$f" 'Green'
     }
 }
 

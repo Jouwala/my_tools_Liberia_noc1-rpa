@@ -1,0 +1,302 @@
+# =============================================================================
+# nginx.conf.template —— 离线副本专用（由 write_nginx_conf.ps1 在启动时展开）
+# -----------------------------------------------------------------------------
+# 占位符：{{ROOT}} {{HTTP_PORT}} {{BE_PORT}} {{FE_PORT}} {{PORTAL_PORT}}
+#   {{ROOT}} 是副本根目录的绝对路径（正斜杠、无尾斜杠），启动时按实际盘符填入，
+#   所以这份配置**与盘符无关**，拷到 E:\ 或 C:\Users\xxx\ 都能跑。
+#
+# 与主仓库 D:\01_RPA\nginx-1.28.0\conf\nginx.conf 的差异（刻意删掉的）：
+#   · 443 / ssl_certificate / 强制 https 跳转 —— 副本不带证书，纯 HTTP
+#   · /webroot/（FineBI 26738）、/my-finebi/、/api/dashboards|data/sources|finebi/（7138）
+#   · /app/（3000）、/api/realtime-proxy/fms（8787）
+#   · /ollama/（11434）、/openclaw/（18789）
+#   · eFlow 门户反代（/help/ /uportal/ /iui/ /framework/ /api/oauth2/ → 10.100.20.8:28001）
+#     以及 /api/ 里按 Referer 分流的那段 if —— 副本没有 eFlow 上游，留着只会 502
+#   · include portal_ports.conf（8081-8088 + 9443 那套独立端口反代）
+#   · /digital-ops-platform.html（指向 eFlow 注入页）
+#
+# 保留的都是四样东西自身需要的：
+#   /            根导航页（副本专用，只列四个入口）
+#   /uniplam/    统一门户 Express（{{PORTAL_PORT}}）
+#   /myapp/      my_app 前端 vite preview（{{FE_PORT}}），不剥前缀（base=/myapp/）
+#   /api/        my_app 后端 FastAPI（{{BE_PORT}}），含 /api/portal-qa/*（问答助手）
+#   /MsPortal/   v3 页面依赖它的 assets 与 viewer.html（相对路径 ../../MsPortal/）
+#   /v3/olbrportal/  门户问答助手挂件所在页 + 团队自动跳转
+#   /v3/<team>_portal/  五个团队门户（共用 v3/team_portal/ 一套资产）
+#   /tiles/      离线地图瓦片 liberia.pmtiles（29.4MB，必须随副本带）
+# =============================================================================
+
+worker_processes  1;
+
+events {
+    worker_connections  1024;
+}
+
+http {
+    include       mime.types;
+    default_type  application/octet-stream;
+
+    log_format  timed  '$remote_addr - $remote_user [$time_local] "$request" '
+                       '$status $body_bytes_sent "$http_referer" "$http_user_agent" '
+                       'rt=$request_time urt=$upstream_response_time';
+    access_log  logs/access.log  timed;
+    error_log   logs/error.log   warn;
+
+    sendfile        on;
+    keepalive_timeout  65;
+
+    # gzip_proxied any 是关键：默认 off 时反代到后端的 JSON 一律不压，收益为零
+    gzip              on;
+    gzip_comp_level   5;
+    gzip_min_length   1024;
+    gzip_proxied      any;
+    gzip_vary         on;
+    # 必须带 text/javascript：Vite/Node 对 .js 发的是这个类型，漏了则 chunk 一个都压不到
+    gzip_types        text/plain text/css text/xml text/javascript
+                      application/javascript application/x-javascript
+                      application/json application/xml
+                      application/rss+xml application/vnd.ms-fontobject
+                      image/svg+xml font/ttf font/opentype;
+
+    server {
+        listen       {{HTTP_PORT}};
+        listen       [::]:{{HTTP_PORT}};
+        server_name  localhost;
+
+        client_max_body_size 1024m;
+
+        # B5 安全整改：禁止下载备份/归档/源码映射（alias 目录无扩展名白名单）
+        location ~* (_bak_|_bak\.|\.bak$|\.bak_|\.fixed$|\.archived$|\.qcbak$|\.old$|\.map$|\.orig$) {
+            deny all;
+            return 404;
+        }
+
+        # 根路径 = 副本导航页（只列保留的四样）
+        location / {
+            root   html;
+            index  index.html index.htm;
+        }
+
+        # 无尾斜杠 301，否则会落到根导航页或 404
+        location = /myapp      { return 301 /myapp/; }
+        location = /uniplam    { return 301 /uniplam/; }
+        location = /MsPortal   { return 301 /MsPortal/; }
+        location = /olbrportal { return 301 /olbrportal/; }
+        location = /v3/fo_portal  { return 301 /v3/fo_portal/; }
+        location = /v3/bo_portal  { return 301 /v3/bo_portal/; }
+        location = /v3/flm_portal { return 301 /v3/flm_portal/; }
+        location = /v3/smc_portal { return 301 /v3/smc_portal/; }
+        location = /v3/cxo_portal { return 301 /v3/cxo_portal/; }
+
+        # ---- my_app 前端 ----
+        # proxy_pass 末尾**不要**加斜杠 = 不剥 /myapp 前缀；vite base 已是 /myapp/，
+        # 剥前缀会让 vite 把 / 重定向回 /myapp/ 造成死循环。
+        location /myapp/ {
+            proxy_pass         http://127.0.0.1:{{FE_PORT}};
+            proxy_http_version 1.1;
+            proxy_set_header   Host              $host;
+            proxy_set_header   X-Real-IP         $remote_addr;
+            proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+            proxy_set_header   X-Forwarded-Proto $scheme;
+            proxy_set_header   Upgrade           $http_upgrade;
+            proxy_set_header   Connection        "upgrade";
+            proxy_read_timeout 3600s;
+            proxy_send_timeout 3600s;
+        }
+
+        # 带 hash 的构建产物走长缓存；index.html 不在其列（必须 no-cache，否则重新构建后白屏）
+        location ~ ^/myapp/assets/.+\.(js|css|woff2?|ttf|otf|svg|png|jpe?g|gif|webp)$ {
+            proxy_pass         http://127.0.0.1:{{FE_PORT}};
+            proxy_http_version 1.1;
+            proxy_set_header   Host              $host;
+            proxy_set_header   X-Real-IP         $remote_addr;
+            proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+            proxy_set_header   X-Forwarded-Proto $scheme;
+            # proxy_ignore_headers 不摘上游的头，必须先 hide 再 add，否则下发两条 Cache-Control
+            proxy_ignore_headers Cache-Control Expires Set-Cookie;
+            proxy_hide_header   Cache-Control;
+            proxy_hide_header   Expires;
+            add_header        Cache-Control "public, max-age=31536000, immutable";
+            add_header        Vary "Accept-Encoding";
+        }
+
+        # ---- my_app 后端 API（含问答助手 /api/portal-qa/*）----
+        # 主仓库这里有一段「按 Referer 分流到 eFlow 上游」的 if，副本没有 eFlow，已删。
+        location /api/ {
+            proxy_pass         http://127.0.0.1:{{BE_PORT}};
+            proxy_http_version 1.1;
+            proxy_set_header   Host              $host;
+            proxy_set_header   X-Real-IP         $remote_addr;
+            proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+            proxy_set_header   X-Forwarded-Proto $scheme;
+            proxy_set_header   Upgrade           $http_upgrade;
+            proxy_set_header   Connection        "upgrade";
+            proxy_connect_timeout 5s;
+            proxy_read_timeout 300s;
+            proxy_send_timeout 300s;
+            # 问答助手是逐 token 流式输出，必须关缓冲
+            proxy_buffering    off;
+        }
+
+        # ---- 统一门户（Express，base=/uniplam/，不剥前缀）----
+        location /uniplam/ {
+            proxy_pass         http://127.0.0.1:{{PORTAL_PORT}};
+            proxy_http_version 1.1;
+            proxy_set_header   Host              $host;
+            proxy_set_header   X-Real-IP         $remote_addr;
+            proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+            proxy_set_header   X-Forwarded-Proto $scheme;
+            proxy_set_header   Upgrade           $http_upgrade;
+            proxy_set_header   Connection        "upgrade";
+            proxy_read_timeout 3600s;
+            proxy_send_timeout 3600s;
+        }
+
+        # ---- 门户静态壳（手写源码，nginx 直接 alias 发，不经构建）----
+        # v3/olbrportal/index.html 用 ../../MsPortal/assets/ 引资产，olbr.js 用
+        # /MsPortal/viewer.html 开查看器 —— 所以 MsPortal 必须一起保留。
+        location /MsPortal/ {
+            alias              "{{ROOT}}/liberia-noc_soc-数据看板统一门户/MsPortal/";
+            index              index.html index.htm;
+            add_header         Cache-Control "no-cache, no-store, must-revalidate";
+        }
+        location /olbrportal/ {
+            alias              "{{ROOT}}/liberia-noc_soc-数据看板统一门户/olbrportal/";
+            index              index.html index.htm;
+            add_header         Cache-Control "no-cache, no-store, must-revalidate";
+        }
+        location /v1/olbrportal/ {
+            alias              "{{ROOT}}/liberia-noc_soc-数据看板统一门户/v1/olbrportal/";
+            index              index.html index.htm;
+            add_header         Cache-Control "no-cache, no-store, must-revalidate";
+        }
+        location /v2/olbrportal/ {
+            alias              "{{ROOT}}/liberia-noc_soc-数据看板统一门户/v2/olbrportal/";
+            index              index.html index.htm;
+            add_header         Cache-Control "no-cache, no-store, must-revalidate";
+        }
+
+        # ---- v3：门户问答助手挂件所在页 ----
+        # 目录深度必须保持「前缀目录 /olbrportal/」，olbr.js 里的 ../MsPortal/ 相对路径才成立。
+        location /v3/olbrportal/ {
+            alias              "{{ROOT}}/liberia-noc_soc-数据看板统一门户/v3/olbrportal/";
+            index              index.html index.htm;
+            add_header         Cache-Control "no-cache, no-store, must-revalidate";
+
+            # 团队自动跳转（服务端 302）。
+            # ⚠ 相位陷阱：location 里**不能**写 `if ($team_landing) { return 302 ...; }` ——
+            #   if 在 rewrite 相位就返回了，auth_request（preaccess 相位）根本没跑，
+            #   $team_landing 永远为空 → 实测得到 200 而不是 302。
+            #   正确写法是 error_page 把上游 403 导向 named location，在那里 return（content 相位）。
+            auth_request      /uniplam/api/auth/team-landing;
+            auth_request_set  $team_landing $upstream_http_x_team_landing;
+            error_page        403 = @team_landing_redirect;
+
+            # 登录后即时跳转脚本：用 sub_filter 在响应下发时注入，磁盘上的 index.html 一字节不动。
+            # ⚠ 不写 sub_filter_types：text/html 是默认值，写出来会报 duplicate MIME type 警告。
+            sub_filter_once  on;
+            sub_filter '</head>' '<script src="/v3/team-gate.js"></script></head>';
+        }
+
+        # 公开静态脚本，**不加** auth_request（未登录时也要能取到，否则闸门页无法引导登录）
+        location = /v3/team-gate.js {
+            alias              "{{ROOT}}/liberia-noc_soc-数据看板统一门户/v3/team-gate.js";
+            add_header         Cache-Control "no-cache, no-store, must-revalidate";
+        }
+
+        # 兜底判空必要：error_page 403 = @named 会把该 location 里**任何** 403 都导进来
+        # （含静态文件权限不足那种与团队无关的 403），此时 $team_landing 为空，
+        # 直接 return 302 会得到 Location 为空的畸形响应。
+        location @team_landing_redirect {
+            if ($team_landing) {
+                return 302 $team_landing;
+            }
+            return 403 "team landing target missing";
+        }
+
+        # ---- 五个团队门户共用 v3/team_portal/ 一套资产，差异全在 team-matrix.js ----
+        # ⚠ 若删掉这五个 location，上面那条 sub_filter 也必须一起删 ——
+        #   否则 team-gate.js 会把用户跳到不存在的 /v3/fo_portal/。
+        location /v3/fo_portal/ {
+            alias              "{{ROOT}}/liberia-noc_soc-数据看板统一门户/v3/team_portal/";
+            index              index.html index.htm;
+            add_header         Cache-Control "no-cache, no-store, must-revalidate";
+            auth_request      /uniplam/api/auth/team-gate/fo;
+            error_page        401 = /v3/team-login.html;
+            error_page        403 = @team_forbidden;
+        }
+        location /v3/bo_portal/ {
+            alias              "{{ROOT}}/liberia-noc_soc-数据看板统一门户/v3/team_portal/";
+            index              index.html index.htm;
+            add_header         Cache-Control "no-cache, no-store, must-revalidate";
+            auth_request      /uniplam/api/auth/team-gate/bo;
+            error_page        401 = /v3/team-login.html;
+            error_page        403 = @team_forbidden;
+        }
+        location /v3/flm_portal/ {
+            alias              "{{ROOT}}/liberia-noc_soc-数据看板统一门户/v3/team_portal/";
+            index              index.html index.htm;
+            add_header         Cache-Control "no-cache, no-store, must-revalidate";
+            auth_request      /uniplam/api/auth/team-gate/flm;
+            error_page        401 = /v3/team-login.html;
+            error_page        403 = @team_forbidden;
+        }
+        location /v3/smc_portal/ {
+            alias              "{{ROOT}}/liberia-noc_soc-数据看板统一门户/v3/team_portal/";
+            index              index.html index.htm;
+            add_header         Cache-Control "no-cache, no-store, must-revalidate";
+            auth_request      /uniplam/api/auth/team-gate/smc;
+            error_page        401 = /v3/team-login.html;
+            error_page        403 = @team_forbidden;
+        }
+        location /v3/cxo_portal/ {
+            alias              "{{ROOT}}/liberia-noc_soc-数据看板统一门户/v3/team_portal/";
+            index              index.html index.htm;
+            add_header         Cache-Control "no-cache, no-store, must-revalidate";
+            auth_request      /uniplam/api/auth/team-gate/cxo;
+            error_page        401 = /v3/team-login.html;
+            error_page        403 = @team_forbidden;
+        }
+
+        # ⚠⚠ 登录页**绝不能**加 auth_request：它存在的意义就是给未登录的人取，
+        #   加了闸门 → 取它也 401 → 又 error_page 到它 → rewrite or internal redirection cycle → 500。
+        #   401 用内部重定向（error_page 指向 URI）而不是 named location + return：
+        #   地址栏保持 /v3/<team>_portal/ 不变，页面上直接是登录表单。
+        location = /v3/team-login.html {
+            alias              "{{ROOT}}/liberia-noc_soc-数据看板统一门户/v3/team-login.html";
+            default_type      text/html;
+            add_header         Cache-Control "no-store" always;
+        }
+        location = /v3/team-login.js {
+            alias              "{{ROOT}}/liberia-noc_soc-数据看板统一门户/v3/team-login.js";
+            default_type      application/javascript;
+            add_header         Cache-Control "no-store" always;
+        }
+        location @team_forbidden {
+            default_type text/html;
+            add_header Cache-Control "no-store" always;
+            return 403 '<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>403 · 无团队权限</title><style>body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#0b0f17;color:#e6edf6;font:15px/1.8 system-ui,-apple-system,"Segoe UI",sans-serif}.box{max-width:520px;padding:32px;text-align:center}h1{font-size:20px;margin:0 0 12px}p{color:#9fb0c8;margin:0 0 20px}a{display:inline-block;padding:9px 22px;border-radius:8px;background:#1c2534;color:#e6edf6;text-decoration:none;border:1px solid #33415a}</style></head><body><div class="box"><h1>403 · 无团队权限</h1><p>你的账号未分配团队，或不属于该团队。团队门户只对本团队成员开放。</p><a href="/uniplam/">返回统一门户</a></div></body></html>';
+        }
+
+        # ---- 离线地图瓦片 ----
+        # ⚠ 必须用 ^~：上面那条 B5 正则会拦下 liberia_bak_*.pmtiles 之类文件名，
+        #   现象是「地图全白」很难联想到安全规则；^~ 命中后不再尝试正则。
+        # ⚠ alias 末尾与 location 的 /tiles/ 都必须带斜杠。
+        location ^~ /tiles/ {
+            alias      "{{ROOT}}/nginx-1.28.0/html/tiles/";
+            add_header Accept-Ranges bytes always;
+            add_header Access-Control-Allow-Origin "*" always;
+            add_header Access-Control-Expose-Headers "Content-Range, Content-Length, Accept-Ranges" always;
+            types { }
+            default_type application/octet-stream;
+            # expires 不接受 immutable 参数（会 emerg）；与 add_header Cache-Control 同用会下发两条头
+            expires    30d;
+            access_log off;
+        }
+
+        error_page   500 502 503 504  /50x.html;
+        location = /50x.html {
+            root   html;
+        }
+    }
+}
