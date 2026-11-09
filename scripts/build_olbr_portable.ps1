@@ -338,6 +338,23 @@ function Invoke-Config {
         if (-not $DryRun) { Copy-Item -LiteralPath $s -Destination (Join-Path $scriptsDst $f) -Force }
         Write-Log "  [脚本] scripts\$f" 'Green'
     }
+
+    # 副本 my_portal\：一排可双击的入口（纯 %~dp0 相对路径，换盘符仍有效）。
+    # 与桌面「my_portal」不是一回事：那套 .lnk 写死 D:\01_RPA 且管的是生产实例。
+    $lnkSrc = Join-Path $tpl 'my_portal'
+    $lnkDst = Join-Path $CopyRoot 'my_portal'
+    if (Test-Path -LiteralPath $lnkSrc) {
+        $linkFiles = @(Get-ChildItem -LiteralPath $lnkSrc -File)
+        if (-not $DryRun) {
+            if (-not (Test-Path -LiteralPath $lnkDst)) {
+                New-Item -ItemType Directory -Path $lnkDst -Force | Out-Null
+            }
+            foreach ($lf in $linkFiles) {
+                Copy-Item -LiteralPath $lf.FullName -Destination (Join-Path $lnkDst $lf.Name) -Force
+            }
+        }
+        Write-Log "  [入口夹] my_portal\（$($linkFiles.Count) 个文件）" 'Green'
+    } else { Write-Log '  [待写] 模板缺失: my_portal\' 'DarkYellow' }
 }
 
 # ---------------------------------------------------------------------- main
