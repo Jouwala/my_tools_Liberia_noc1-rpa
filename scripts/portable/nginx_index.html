@@ -22,12 +22,6 @@
   .card p { margin:0; color:#9fb0c8; font-size:13px; }
   .path { display:inline-block; margin-top:10px; font:12px/1.4 ui-monospace,Consolas,monospace;
           color:#6ea8fe; background:#0e1420; padding:3px 8px; border-radius:6px; }
-  h3.sec { font-size:13px; letter-spacing:.08em; text-transform:uppercase; color:#7d8ea8;
-           margin:36px 0 14px; font-weight:600; }
-  .teams { display:flex; flex-wrap:wrap; gap:10px; }
-  .teams a { padding:8px 16px; border-radius:8px; background:#131a26; border:1px solid #26314a;
-             color:#e6edf6; text-decoration:none; font-size:13px; }
-  .teams a:hover { border-color:#4a6fa5; }
   .note { margin-top:36px; padding:16px 20px; border-radius:10px; background:#101725;
           border:1px solid #22304a; color:#9fb0c8; font-size:13px; }
   .note b { color:#e6edf6; font-weight:600; }
@@ -40,45 +34,24 @@
 <body>
 <div class="wrap">
   <h1>OLBR 离线副本</h1>
-  <p class="sub">自带运行时的可换机部署包 · 仅保留统一门户 / WhatsApp bot / 门户问答助手 / my_app 四样</p>
+  <p class="sub">自带运行时的可换机部署包 · 三个页面入口：my_app / 统一门户 / OLBR 看板</p>
 
   <div class="grid">
+    <a class="card" href="/myapp/">
+      <h2>my_app 数据平台</h2>
+      <p>Data Insight MVP：网络运维数据看板、任务调度与报表。副本默认关闭调度器。</p>
+      <span class="path">/myapp/</span>
+    </a>
     <a class="card" href="/uniplam/">
       <h2>统一门户</h2>
       <p>Liberia NOC/SOC 数据看板统一门户：看板目录、团队与权限管理。</p>
       <span class="path">/uniplam/</span>
     </a>
     <a class="card" href="/v3/olbrportal/">
-      <h2>门户看板 v3 · 含问答助手</h2>
+      <h2>OLBR 门户看板</h2>
       <p>当前版看板页，右下角「问答助手」挂件即在此页。登录后按团队自动跳转。</p>
       <span class="path">/v3/olbrportal/</span>
     </a>
-    <a class="card" href="/myapp/">
-      <h2>my_app 数据平台</h2>
-      <p>Data Insight MVP：网络运维数据看板、任务调度与报表。副本默认关闭调度器。</p>
-      <span class="path">/myapp/</span>
-    </a>
-    <a class="card" href="/MsPortal/">
-      <h2>MsPortal 工具平台</h2>
-      <p>ZTE OLR MS Management Platform。v3 看板页依赖它的静态资产与查看器。</p>
-      <span class="path">/MsPortal/</span>
-    </a>
-  </div>
-
-  <h3 class="sec">团队门户</h3>
-  <div class="teams">
-    <a href="/v3/fo_portal/">FO</a>
-    <a href="/v3/bo_portal/">BO</a>
-    <a href="/v3/flm_portal/">FLM</a>
-    <a href="/v3/smc_portal/">SMC</a>
-    <a href="/v3/cxo_portal/">CXO</a>
-  </div>
-
-  <h3 class="sec">历史版本（同一份目录与数据）</h3>
-  <div class="teams">
-    <a href="/olbrportal/">olbrportal</a>
-    <a href="/v1/olbrportal/">v1</a>
-    <a href="/v2/olbrportal/">v2</a>
   </div>
 
   <div class="note">
@@ -87,6 +60,7 @@
       <li>数据是<b>打包时的快照</b>，不会自动更新；副本默认 <code>MY_APP_DISABLE_SCHEDULER=1</code>，不跑采集任务、不发 WhatsApp/邮件告警。</li>
       <li>问答助手依赖外部大模型服务。地址在 <code>Task\whatsapp-kb-bot\.env</code> 里配（<code>CHAT_BASE_URL</code> / <code>OLLAMA_URL</code>）；连不上时会明确报「模型服务不可达」，不会静默编造回答。</li>
       <li>WhatsApp bot 默认<b>不启动</b>登录态进程，避免用打包时的会话在别的机器上重复投递消息。需要时按 <code>部署说明.md</code> 单独启动并重新扫码登录。</li>
+      <li>首页只列这三张卡，但 nginx 路由仍保留团队门户与历史版本（如 <code>/v3/fo_portal/</code>），需要时直接输 URL 即可。<code>MsPortal</code> 静态资产也随包提供，供 OLBR 看板页加载，不再单列入口。</li>
       <li>全部服务只绑回环，对外由本机 nginx 统一反代。停止请跑根目录 <code>stop.bat</code>。</li>
     </ul>
   </div>
