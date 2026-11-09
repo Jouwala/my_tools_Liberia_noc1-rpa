@@ -10,7 +10,8 @@
 
   阶段（可单独跑，便于逐步验证）：
     quarantine  把副本里不在保留清单的目录移入 _quarantine_<日期>\（可逆）
-    source      同步四样源码子树（robocopy /E，绝不 /MIR）
+    source      同步四样源码子树（robocopy /E，绝不 /MIR —— 只增不删）
+    prune       清掉旧全量拷贝残留的 AI 元数据/缓存/日志（规则见 manifest.prune）
     nodemodules 精确拷贝各子项目 node_modules
     runtimes    自带 Python312 / Node / PostgreSQL16(bin,lib,share)
     nginx       拷 nginx.exe 与地图瓦片 html\
@@ -26,7 +27,7 @@
 param(
     [string]$MainRepo = 'D:\01_RPA',
     [string]$CopyRoot = 'D:\01_olbr_portal',
-    [ValidateSet('all', 'quarantine', 'source', 'nodemodules', 'runtimes', 'nginx', 'config')]
+    [ValidateSet('all', 'quarantine', 'source', 'prune', 'nodemodules', 'runtimes', 'nginx', 'config')]
     [string]$Stage = 'all',
     [switch]$DryRun,
     [switch]$SkipQuarantineCheck
@@ -171,6 +172,70 @@ function Invoke-Source {
     }
 }
 
+# --------------------------------------------------------------------- prune
+# robocopy /E 只增不删：从 10-16 全量旧拷贝升级时，排除规则只挡住「别再复制」，
+# 已经躺在副本里的 .workbuddy-ai / __pycache__ / 日志不会自己消失。本阶段按
+# manifest.prune 幂等清理；跳过 node_modules/runtime（依赖本体），protect_rel
+# 里的 .env / portal-default.json 是 config 阶段生成的运行时配置，绝不删。
+function Invoke-Prune {
+    Write-Log '=== 阶段 prune：清掉旧全量拷贝残留（robocopy /E 只增不删） ===' 'Cyan'
+    $p = $manifest.prune
+    if (-not $p) { Write-Log '  [跳过] manifest 未配置 prune' 'DarkYellow'; return }
+
+    $protect = @{}
+    foreach ($r in $p.protect_rel) { $protect[$r.Replace('\', '/')] = $true }
+
+    $removed = 0
+    $bytes = [long]0
+    foreach ($sr in $p.scan_roots) {
+        $base = Join-Path $CopyRoot ($sr -replace '/', '\')
+        if (-not (Test-Path -LiteralPath $base)) { continue }
+        $stack = New-Object System.Collections.Stack
+        $stack.Push($base)
+        while ($stack.Count -gt 0) {
+            $cur = [string]$stack.Pop()
+            try { $entries = @(Get-ChildItem -LiteralPath $cur -Force -ErrorAction Stop) }
+            catch { Write-Log "  [跳过不可读] $cur" 'DarkYellow'; continue }
+            foreach ($e in $entries) {
+                if ($e.Attributes -band [IO.FileAttributes]::ReparsePoint) { continue }
+                $rel = $e.FullName.Substring($CopyRoot.Length).TrimStart([char[]]@('\', '/')).Replace('\', '/')
+                if ($protect.ContainsKey($rel)) { continue }
+
+                if ($e.PSIsContainer) {
+                    if ($p.skip_dirs -contains $e.Name) { continue }
+                    if ($p.prune_dirs -contains $e.Name) {
+                        $sz = (Get-ChildItem -LiteralPath $e.FullName -Recurse -Force -File -ErrorAction SilentlyContinue |
+                               Measure-Object -Property Length -Sum).Sum
+                        if (-not $sz) { $sz = 0 }
+                        if ($DryRun) {
+                            Write-Log ("  <干跑删目录> {0}  ({1:N2} MB)" -f $rel, ($sz / 1MB)) 'Cyan'
+                        } else {
+                            Remove-Item -LiteralPath $e.FullName -Recurse -Force -ErrorAction Stop
+                            Write-Log ("  [删目录] {0}  ({1:N2} MB)" -f $rel, ($sz / 1MB)) 'Green'
+                        }
+                        $removed++
+                        $bytes += [long]$sz
+                        continue
+                    }
+                    $stack.Push($e.FullName)
+                } else {
+                    $hit = $false
+                    foreach ($pat in $p.prune_files) {
+                        if ($e.Name -like $pat) { $hit = $true; break }
+                    }
+                    if ($hit) {
+                        if ($DryRun) { Write-Log "  <干跑删文件> $rel" 'Cyan' }
+                        else { Remove-Item -LiteralPath $e.FullName -Force -ErrorAction Stop }
+                        $removed++
+                        $bytes += [long]$e.Length
+                    }
+                }
+            }
+        }
+    }
+    Write-Log ("  清理 {0} 项 / {1:N2} MB{2}" -f $removed, ($bytes / 1MB), $(if ($DryRun) { ' <干跑，未改动>' } else { '' })) 'Green'
+}
+
 # --------------------------------------------------------------- nodemodules
 function Invoke-NodeModules {
     Write-Log '=== 阶段 nodemodules：精确拷贝各子项目依赖 ===' 'Cyan'
@@ -282,12 +347,13 @@ Write-Log "阶段   = $Stage   干跑 = $DryRun"
 Write-Log "日志   = $logFile"
 if (-not (Test-Path -LiteralPath $CopyRoot)) { throw "副本根目录不存在: $CopyRoot" }
 
-$stages = if ($Stage -eq 'all') { @('quarantine', 'source', 'nodemodules', 'runtimes', 'nginx', 'config') } else { @($Stage) }
+$stages = if ($Stage -eq 'all') { @('quarantine', 'source', 'prune', 'nodemodules', 'runtimes', 'nginx', 'config') } else { @($Stage) }
 $sw = [System.Diagnostics.Stopwatch]::StartNew()
 foreach ($s in $stages) {
     switch ($s) {
         'quarantine' { Invoke-Quarantine }
         'source' { Invoke-Source }
+        'prune' { Invoke-Prune }
         'nodemodules' { Invoke-NodeModules }
         'runtimes' { Invoke-Runtimes }
         'nginx' { Invoke-Nginx }

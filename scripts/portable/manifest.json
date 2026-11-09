@@ -113,6 +113,14 @@
       "exclude_files": []
     }
   ],
+  "prune": {
+    "_why": "source 阶段用 robocopy /E（只增不删），2026-10-16 全量旧拷贝里的 AI 元数据、缓存、日志不会自动消失。-Stage prune 按本段规则幂等清理，可单独重跑；绝不扫 node_modules / runtime，protect_rel 里的运行时配置一律跳过。",
+    "scan_roots": ["liberia-noc_soc-数据看板统一门户", "Task/my_app", "Task/whatsapp-kb-bot", "nginx-1.28.0"],
+    "skip_dirs": ["node_modules", "runtime", "certs", "html"],
+    "prune_dirs": [".workbuddy-ai", ".workbuddy", ".claude", ".qoder", ".trae", ".cursor", ".idea", ".vscode", ".git", ".screenshots", "__pycache__", ".pytest_cache", ".ruff_cache", "auth_cache", "portal_profiles", "session_bak", "log", "TMP", "outputs", "email_reports", "backup"],
+    "prune_files": ["*.pyc", "*.pyo", "*.pid", "*.tsbuildinfo", "*.log", "*.err.log", "*.log.err", "*.bak", "auth_info.json", "instance.lock", "pyvenv.cfg"],
+    "protect_rel": [".env", "Task/my_app/backend/.env", "Task/whatsapp-kb-bot/.env", "liberia-noc_soc-数据看板统一门户/.env", "liberia-noc_soc-数据看板统一门户/portal-default.json"]
+  },
   "quarantine_name": "_quarantine_20261109",
   "credentials_to_handle": [
     "Task/my_app/backend/.env：明文 PG 口令 → 副本改指本机便携 PG，口令另生成",
