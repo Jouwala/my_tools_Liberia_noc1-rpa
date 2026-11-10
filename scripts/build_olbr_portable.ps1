@@ -30,7 +30,8 @@ param(
     [ValidateSet('all', 'quarantine', 'source', 'prune', 'nodemodules', 'runtimes', 'nginx', 'config')]
     [string]$Stage = 'all',
     [switch]$DryRun,
-    [switch]$SkipQuarantineCheck
+    [switch]$SkipQuarantineCheck,
+    [switch]$SkipPathFix
 )
 
 $ErrorActionPreference = 'Stop'
@@ -169,6 +170,43 @@ function Invoke-Source {
             if (-not $DryRun) { Copy-Item -LiteralPath $src -Destination (Join-Path $CopyRoot $f) -Force }
             Write-Log "  [根文件] $f" 'Green'
         }
+    }
+}
+
+# ------------------------------------------------------------- post-sync fixups
+# The source stage copies Task/my_app and the portal subtree verbatim, so two
+# scripts that were hand-fixed for the isolated copy get reverted to D:\01_RPA
+# paths on every sync:
+#     Task\my_app\monitor_fixes\nginx_monitor.ps1  (NginxExe/NginxDir/Port/Log/State)
+#     <portal>\rotate_nginx_logs.ps1                ($Prefix)
+#
+# That is harmless while the copy is idle, but at cutover the nginx watchdog
+# would probe D:\01_RPA\nginx-1.28.0\nginx.exe (port 80) instead of the copy's
+# own instance and could spawn a second nginx fighting for the port.
+#
+# Running it automatically here means "sync the source" is always a complete
+# operation -- no separate manual step to remember.
+function Invoke-PathFix {
+    if ($SkipPathFix) {
+        Write-Log '  [跳过] -SkipPathFix 已指定' 'DarkYellow'
+        return
+    }
+    if ($DryRun) {
+        Write-Log '  <干跑> 未执行 post_sync_fix_paths.ps1' 'Cyan'
+        return
+    }
+    $fixer = Join-Path $CopyRoot 'scripts\post_sync_fix_paths.ps1'
+    if (-not (Test-Path -LiteralPath $fixer)) {
+        Write-Log '  [跳过] 副本里没有 scripts\post_sync_fix_paths.ps1（先跑一次 -Stage config）' 'DarkYellow'
+        return
+    }
+    Write-Log '  [修路径] post_sync_fix_paths.ps1（把副本本地路径写回）' 'Cyan'
+    # Never let the fixup abort the sync: a failure here must not leave the copy
+    # half-updated. The script itself is idempotent, so it is safe to re-run.
+    & powershell -NoProfile -ExecutionPolicy Bypass -File $fixer -CopyRoot $CopyRoot 2>&1 |
+        ForEach-Object { Write-Log "    $_" 'DarkGray' }
+    if ($LASTEXITCODE -ne 0) {
+        Write-Log "  [警告] post_sync_fix_paths.ps1 退出码 $LASTEXITCODE —— 请手工核对副本的 nginx 路径" 'Yellow'
     }
 }
 
@@ -332,7 +370,7 @@ function Invoke-Config {
     if (-not $DryRun) {
         if (-not (Test-Path -LiteralPath $scriptsDst)) { New-Item -ItemType Directory -Path $scriptsDst -Force | Out-Null }
     }
-    foreach ($f in @('start_all.ps1', 'stop_all.ps1', 'bundle_data.ps1', 'env_template.txt')) {
+    foreach ($f in @('start_all.ps1', 'stop_all.ps1', 'bundle_data.ps1', 'env_template.txt', 'post_sync_fix_paths.ps1')) {
         $s = Join-Path $tpl $f
         if (-not (Test-Path -LiteralPath $s)) { Write-Log "  [待写] 脚本缺失: scripts\$f" 'DarkYellow'; continue }
         if (-not $DryRun) { Copy-Item -LiteralPath $s -Destination (Join-Path $scriptsDst $f) -Force }
@@ -376,6 +414,12 @@ foreach ($s in $stages) {
         'nginx' { Invoke-Nginx }
         'config' { Invoke-Config }
     }
+}
+# The path fixup runs after every stage that can overwrite the copy-local paths.
+# Only 'source' copies those two files; 'config' re-deploys the fixer itself.
+if ($stages -contains 'source' -or $stages -contains 'config') {
+    Write-Log '=== 收尾：把副本本地路径写回 ===' 'Cyan'
+    Invoke-PathFix
 }
 $sw.Stop()
 Write-Log ("完成阶段 {0}，耗时 {1:N1} 秒{2}" -f ($stages -join ','), $sw.Elapsed.TotalSeconds, $(if ($DryRun) { '（干跑，未改动）' } else { '' })) 'Cyan'
