@@ -28,14 +28,12 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { CONFIG } from './config.js';
+import { resolvePython } from './pythonPath.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SCRIPT = path.join(HERE, '..', 'scripts', 'eflow-rule-lookup.py');
 
-const PYTHON =
-  process.env.EFLOW_RULE_PYTHON ||
-  process.env.TT_PYTHON ||
-  'C:/Users/ZTEEMS/AppData/Local/Programs/Python/Python312/python.exe';
+const PYTHON = resolvePython(['EFLOW_RULE_PYTHON', 'TT_PYTHON']);
 
 function enabled() {
   return CONFIG.eflowRuleLookup !== false;

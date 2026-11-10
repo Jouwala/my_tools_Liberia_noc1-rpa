@@ -26,6 +26,28 @@ import { fileURLToPath } from 'node:url';
 const HERE = dirname(fileURLToPath(import.meta.url)); // <bot>/src
 export const BOT_ROOT = resolve(HERE, '..');
 
+/** 仓库根：src -> whatsapp-kb-bot -> Task -> 仓库根 */
+export const REPO_ROOT = resolve(HERE, '..', '..', '..');
+
+/**
+ * 本仓库是不是「便携副本」（根目录有 ISOLATED_COPY.flag）。
+ *
+ * 便携副本（D:\01_olbr_portal）必须**完全自包含**：它有自己的 my_app、
+ * 自己的 app.db、自己的 runtime。若副本在找不到自己的 my_app 时回落到
+ * D:/01_RPA/Task/my_app，就会读到**生产库的工单数据** —— 数据串库，
+ * 而且是静默的（查询能返回结果，只是结果是生产的）。
+ *
+ * 所以副本里禁用一切「指向仓库之外」的候选；找不到就返回 null。
+ * 主仓库没有这个 flag，行为与收口前完全一致。
+ */
+function isIsolatedCopy() {
+  try {
+    return existsSync(join(REPO_ROOT, 'ISOLATED_COPY.flag'));
+  } catch {
+    return false;
+  }
+}
+
 /**
  * 规则源文件（相对 my_app 根）。
  * 与 `scripts/export-tt-knowledge.py` 读取的是同一批 —— 加新导出源要两处一起改。
@@ -45,9 +67,15 @@ export function myAppDir() {
   const candidates = [
     process.env.MY_APP_DIR,
     resolve(BOT_ROOT, '..', 'my_app'), // 仓库内并排布局
-    'D:/01_RPA/Task/my_app',           // 本机 .20
-    'Y:/Task/my_app',                  // 历史部署（.19 的 E 盘映射）
   ].filter(Boolean);
+  // 指向仓库之外的候选（历史部署的盘符）。便携副本下必须禁用 ——
+  // 见 isIsolatedCopy() 的说明：落到生产库是静默的数据串库。
+  if (!isIsolatedCopy()) {
+    candidates.push(
+      'D:/01_RPA/Task/my_app', // 本机 .20
+      'Y:/Task/my_app',        // 历史部署（.19 的 E 盘映射）
+    );
+  }
   cached = candidates.find((c) => {
     try {
       return existsSync(c) && existsSync(join(c, 'backend', 'services', 'eflow_rules'));

@@ -43,13 +43,28 @@ try:
     import my_app_paths
     MY_APP_DIR = my_app_paths.find_my_app_dir()
 except Exception:
-    MY_APP_DIR = os.environ.get('MY_APP_DIR', r'D:/01_RPA/Task/my_app')
+    # my_app_paths 不可用时（例如它自己 import 失败），只认环境变量；
+    # 不给硬编码的盘符兜底 —— 那是生产路径，落到它会静默读到生产库。
+    # 便携副本必须完全自包含，见 my_app_paths._is_isolated_copy()。
+    MY_APP_DIR = os.environ.get('MY_APP_DIR') or ''
+
+# 解释器候选：my_app 的 venv 优先（它带 pandas + sqlalchemy），
+# 其次用共享解析器的候选表（便携副本会命中它自带的 runtime/python312，
+# 该 runtime 实测含 pandas 3.0.3 / sqlalchemy 2.0.51，与本机 venv 同版本）。
+# 候选表来源见 scripts/python_path.py —— 不要在这里另抄一份。
+try:
+    import python_path
+    _BASE_CANDIDATES = python_path.candidates()
+except Exception:
+    _BASE_CANDIDATES = [
+        r'C:\Users\ZTEEMS\AppData\Local\Programs\Python\Python312\python.exe',
+        r'C:\Python312\python.exe',
+        r'C:\Python314\python.exe',
+    ]
 
 _CANDIDATES = [
     os.path.join(MY_APP_DIR, '.venv', 'Scripts', 'python.exe'),
-    r'C:\Users\ZTEEMS\AppData\Local\Programs\Python\Python312\python.exe',
-    r'C:\Python312\python.exe',
-    r'C:\Python314\python.exe',
+    *_BASE_CANDIDATES,
 ]
 _PROBE = ('import importlib.util as u, sys;'
           'sys.exit(0 if all(u.find_spec(m) for m in ("pandas","sqlalchemy")) else 1)')

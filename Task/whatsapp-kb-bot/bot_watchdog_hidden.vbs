@@ -13,10 +13,10 @@
 ' 一直没有起来，直到人工发现。它与 notify.js 使用**不同的凭据目录**
 ' （data/auth vs data/auth-notify），两者应当同时在跑，不是二选一。
 '
-' 相关：
-'   - 巡检脚本：D:\01_RPA\Task\whatsapp-kb-bot\autostart.ps1
-'   - 机器人进程：D:\01_RPA\Task\whatsapp-kb-bot\src\index.js
-'   - 心跳文件：D:\01_RPA\Task\whatsapp-kb-bot\data\bot_heartbeat.json
+' 相关（路径均由本脚本位置推导，见下方 dir）：
+'   - 巡检脚本：<bot>\autostart.ps1
+'   - 机器人进程：<bot>\src\index.js
+'   - 心跳文件：<bot>\data\bot_heartbeat.json
 '     （看门狗据它判断「活着且已连接」，而不是靠扫命令行）
 
 Set ws = CreateObject("WScript.Shell")

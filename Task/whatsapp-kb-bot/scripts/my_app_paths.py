@@ -53,13 +53,37 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 # <whatsapp-kb-bot>/scripts -> <whatsapp-kb-bot> -> Task -> 与 my_app 同级
 _SIBLING = os.path.abspath(os.path.join(_HERE, '..', '..', 'my_app'))
 
+# 仓库根：scripts -> whatsapp-kb-bot -> Task -> 仓库根
+_REPO_ROOT = os.path.abspath(os.path.join(_HERE, '..', '..', '..'))
+
+
+def _is_isolated_copy() -> bool:
+    """本仓库是不是「便携副本」（根目录有 ISOLATED_COPY.flag）。
+
+    便携副本（D:\\01_olbr_portal）必须**完全自包含**：它有自己的 my_app、
+    自己的 app.db、自己的 runtime。若副本在找不到自己的 my_app 时回落到
+    D:/01_RPA/Task/my_app，就会读到**生产库的工单数据** —— 数据串库，
+    而且是静默的（查询能返回结果，只是结果是生产的）。
+
+    所以副本里禁用一切「指向仓库之外」的候选；找不到就明确报错。
+    主仓库没有这个 flag，行为与收口前完全一致。
+    """
+    return os.path.isfile(os.path.join(_REPO_ROOT, 'ISOLATED_COPY.flag'))
+
+
 _CANDIDATES = (
     os.environ.get('MY_APP_DIR'),   # 1. 显式指定
     _SIBLING,                       # 2. 与本仓库并排（与盘符无关）
-    r'Y:/Task/my_app',              # 3. 历史部署（.19 的 E 盘映射）
-    r'D:/01_RPA/Task/my_app',       # 3. 本机 .20
-    r'C:/01_RPA/Task/my_app',
 )
+
+# 指向仓库之外的候选（历史部署的盘符）。便携副本下必须禁用 ——
+# 见 _is_isolated_copy() 的说明：落到生产库是静默的数据串库。
+if not _is_isolated_copy():
+    _CANDIDATES += (
+        r'Y:/Task/my_app',              # 3. 历史部署（.19 的 E 盘映射）
+        r'D:/01_RPA/Task/my_app',       # 3. 本机 .20
+        r'C:/01_RPA/Task/my_app',
+    )
 
 
 def _is_usable(root: str | None) -> bool:
@@ -82,15 +106,27 @@ def find_my_app_dir() -> str:
             return norm
 
     missing = _REQUIRED[0]
+    hint = (
+        '解决办法（任选其一）：\n'
+        '  1. 设置环境变量 MY_APP_DIR 指向 my_app 根目录，例如：\n'
+        f'       set MY_APP_DIR={_SIBLING}\n'
+        '  2. 把 my_app 放到与本项目同级的位置（即 <工作区>/Task/my_app）。\n'
+    )
+    if _is_isolated_copy():
+        # 副本不提供「指向仓库之外」的候选 —— 落到生产库是静默的数据串库。
+        hint = (
+            '解决办法（任选其一）：\n'
+            '  1. 设置环境变量 MY_APP_DIR 指向 my_app 根目录，例如：\n'
+            f'       set MY_APP_DIR={_SIBLING}\n'
+            '  2. 把 my_app 放到与本项目同级的位置（即 <工作区>/Task/my_app）。\n'
+            '（便携副本不会回落到仓库之外的路径 —— 那里是生产环境的数据。）\n'
+        )
     raise FileNotFoundError(
         '找不到 my_app 目录（TT 分析需要它下面的规则表与工单库）。\n'
         '已尝试以下位置，均不可用：\n'
         + ''.join(f'  · {p}\n' for p in tried)
         + f'\n每个位置都要求存在：{missing}\n'
-        '解决办法（任选其一）：\n'
-        '  1. 设置环境变量 MY_APP_DIR 指向 my_app 根目录，例如：\n'
-        f'       set MY_APP_DIR={_SIBLING}\n'
-        '  2. 把 my_app 放到与本项目同级的位置（即 <工作区>/Task/my_app）。\n'
+        + hint
     )
 
 

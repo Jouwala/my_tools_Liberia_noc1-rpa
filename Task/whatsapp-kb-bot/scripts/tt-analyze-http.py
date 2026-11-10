@@ -50,6 +50,10 @@ from urllib.parse import parse_qs, urlparse
 HERE = Path(__file__).resolve().parent
 ANALYZE = HERE / 'tt-analyze.py'
 
+# 解释器解析与 src/pythonPath.js 同规则（便携副本优先用自带 runtime）。
+sys.path.insert(0, str(HERE))
+from python_path import resolve_python  # noqa: E402
+
 # ── 索引缓存放本地盘，不放 Y 盘 ────────────────────────────────────────────
 # tt-analyze.py 默认把单号索引写在 <项目>/data/tt-index.json，而 Y: 是网络盘
 # （实测解析成 \\192.168.100.20\01_rpa\...）。索引 1.3MB，从网络盘读写虽不算慢，
@@ -66,7 +70,7 @@ INDEX_CACHE = _INDEX_DIR / 'tt-index.json'
 INDEX_TTL = '86400'
 
 # 与 src/tt.js 同一个解释器约定（可用 TT_PYTHON 覆盖）。
-DEFAULT_PYTHON = r'C:/Users/ZTEEMS/AppData/Local/Programs/Python/Python312/python.exe'
+DEFAULT_PYTHON = resolve_python()
 
 # 单号白名单：只允许字母数字与 - _，防命令注入（subprocess 用列表传参，这里再加一层）
 TT_RE = re.compile(r'^[A-Z0-9_\-]{4,64}$')
