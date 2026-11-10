@@ -22,7 +22,8 @@ import { useI18n } from '../i18n'
  * 1) **同源**：浏览器要带着门户会话 Cookie 才能打开大屏，而 Cookie 只能由门户
  *    自己种下。myapp(80) 与门户(172.17.208.1:28808) 不同源，既种不了也读不了。
  *    因此走仓库既有的「门户独立端口反代」方案：nginx 8088 → 上游（见
- *    nginx/portal_ume_in_8088.conf），iframe 指向 `//<host>:8088/...`，
+ *    nginx/portal_ume_in_8088.conf），iframe 指向 `https://<host>:8088/...`
+ *    （8088 已在 nginx 开启 TLS，见 portalBase() 的说明），
  *    于是「打开大屏」与「登录门户」变成同源，Cookie 天然可用。
  * 2) **自动登录**：反代在登录页注入 `/api/portals/inject.js?system=ume_in`
  *    （backend/services/portal_login_service.build_inject_js），自动填账号密码并点
@@ -49,6 +50,13 @@ import { useI18n } from '../i18n'
  * 自动刷新：本页注册在 App.tsx 的 AR_SOFT_REFRESH_PAGES 里 —— 到点时外壳广播
  * `myapp-refresh` 而不是重挂载本组件（重挂载会整页闪白），由本组件在 iframe 内
  * 原地重载大屏（见下方 onMessage）。
+ *
+ * 语言贯通（2026-11-10）：门户 ?lang=en → MsPortal/viewer.js::embedSrc() 给本页带
+ * ?lang=en → 本页把它拼进 8088 iframe 的 URL → nginx 8088 的 sub_filter 在
+ * Angular bundle（defer）之前写同源 localStorage['language-option']。
+ * 上游 scripts.*.js::getLanguage() 只认这个键或浏览器语言，中文浏览器下默认输出
+ * 「2026年11月10日 08:49:26」；不把 lang 送到第三层，英文门户里大屏时钟仍是中文。
+ * 详见 nginx/portal_ume_in_8088.conf 与 conf/portal_ports.conf 的注释。
  * =============================================================================
  */
 
@@ -72,39 +80,62 @@ const RELOGIN_SETTLE_MS = 3000
 const MAX_AUTO_RELOGIN = 4
 
 /**
- * 反代基址：跟随访问者打开 myapp 用的主机名。
- * 不能写死 127.0.0.1 —— 远程同事访问 `http://192.168.100.20/myapp/` 时，
+ * 反代基址：跟随访问者打开 myapp 用的主机名，协议**固定 https**。
+ *
+ * 不能写死 127.0.0.1 —— 远程同事访问 `https://192.168.100.20/myapp/` 时，
  * 127.0.0.1:8088 指的是**他自己**那台机器，必然打不开。
  * （与 PROXY_PREFIXES 里 `//{HOST}:8088` 的 `{HOST}` 是同一个口径。）
+ *
+ * ⚠️ 2026-11-09 修「localhost sent an invalid response」：
+ *   原来写的是 `${window.location.protocol}//...`（跟随宿主页协议）。B2 整改后
+ *   80 口强制 301 到 443，宿主页恒为 https，于是 iframe 指向 https://<host>:8088 ——
+ *   而 nginx/portal_ports.conf 里 8088 当时是**明文 HTTP**，TLS 握手收到明文响应，
+ *   Chrome 报 ERR_SSL_PROTOCOL_ERROR（错误页文案正是「…sent an invalid response」）。
+ *   现在 8081-8088 已在 nginx 侧统一改成 `listen ... ssl`（共用 443 的自签证书），
+ *   所以这里必须固定 https：
+ *     · 若改回 http:// —— https 页面嵌 http iframe 会被混合内容拦截，只有
+ *       localhost/127.0.0.1 例外，经 192.168.100.20 访问的同事依旧白屏；
+ *     · 若继续跟随 location.protocol —— 万一有人关掉 80→443 跳转或用 dev server
+ *       以 http 打开 myapp，又会拼出 http://<host>:8088 撞上 TLS-only 端口。
+ *   端口协议由 nginx 配置决定，不随宿主页协议变化，故这里写死才是正确口径。
+ *   改动 nginx 端口协议时必须同步改这里。
  */
 function portalBase(): string {
-  return `${window.location.protocol}//${window.location.hostname}:${PORTAL_PORT}`
+  return `https://${window.location.hostname}:${PORTAL_PORT}`
 }
 
+/** 语言参数口径：my_app / MsPortal 用 zh|en，上游门户用 zh-CN|en-US（由反代注入脚本换算） */
+type Lang = 'zh' | 'en'
+function langQs(lang: Lang): string { return `&lang=${lang}` }
+
 /** 大屏 URL（cacheBust 用来强制 iframe 重新拉取，避免 SPA 导航复用旧文档） */
-function screenUrl(cacheBust: number): string {
-  return `${portalBase()}${SCREEN_PATH}?_=${cacheBust}${SCREEN_HASH}`
+function screenUrl(cacheBust: number, lang: Lang): string {
+  return `${portalBase()}${SCREEN_PATH}?_=${cacheBust}${langQs(lang)}${SCREEN_HASH}`
 }
 
 /**
  * 门户登录入口（同源反代）。redirect_uri 指到大屏根路径：登录成功后门户会落到
  * 大屏 SPA，本页收到 postMessage 后再把它拉回 screen_id=1 的深链。
+ * 带 lang 是为了让反代在登录页（同样被 sub_filter 注入）就先写好语言键。
  */
-function portalLoginUrl(): string {
+function portalLoginUrl(lang: Lang): string {
   const q = new URLSearchParams({
     scope: 'user.login',
     response_type: 'code',
     redirect_uri: SCREEN_PATH,
+    lang,
   })
   return `${portalBase()}/api/oauth2/v1/authorize?${q.toString()}`
 }
 
 export default function ImonitorScreen() {
-  const { t } = useI18n()
+  const { t, locale } = useI18n()
+  /** 门户语言：带进 8088 iframe URL，让上游大屏与 my_app 外壳同语言 */
+  const lang: Lang = locale === 'en' ? 'en' : 'zh'
   const frameRef = useRef<HTMLIFrameElement>(null)
   const wrapRef = useRef<HTMLDivElement>(null)
   // 首次 src 在挂载时定死：每次挂载换一个戳，保证切页面回来时重新拉取
-  const [src, setSrc] = useState<string>(() => screenUrl(Date.now()))
+  const [src, setSrc] = useState<string>(() => screenUrl(Date.now(), lang))
   const [loading, setLoading] = useState(true)
   const [fullscreen, setFullscreen] = useState(false)
   /** 登录流程进行中：期间不要被自动刷新的「重指」打断 */
@@ -118,15 +149,15 @@ export default function ImonitorScreen() {
   const reloadScreen = useCallback(() => {
     loggingIn.current = false
     setLoading(true)
-    setSrc(screenUrl(Date.now()))
-  }, [])
+    setSrc(screenUrl(Date.now(), lang))
+  }, [lang])
 
   /** 强制重新登录：直接打开门户登录页，注入脚本会自动填表并提交 */
   const relogin = useCallback(() => {
     loggingIn.current = true
     setLoading(true)
-    setSrc(portalLoginUrl())
-  }, [])
+    setSrc(portalLoginUrl(lang))
+  }, [lang])
 
   /** 用户手动操作：重新武装自动重登次数（否则重试上限用完后手动刷新也救不回来） */
   const manualReload = useCallback(() => {
@@ -165,7 +196,7 @@ export default function ImonitorScreen() {
       if (d.__type === 'myapp-refresh') {
         if (loggingIn.current) return
         setLoading(true)
-        setSrc(screenUrl(Date.now()))
+        setSrc(screenUrl(Date.now(), lang))
       }
     }
     window.addEventListener('message', onMessage)
@@ -173,7 +204,16 @@ export default function ImonitorScreen() {
       window.removeEventListener('message', onMessage)
       if (resetTimer.current !== null) window.clearTimeout(resetTimer.current)
     }
-  }, [reloadScreen])
+  }, [reloadScreen, lang])
+
+  /** 顶栏切换中/英时重指 8088 iframe：让反代把新的 language-option 写进同源
+      storage，否则上游大屏会一直沿用上次的语言直到用户手动刷新。 */
+  const lastLang = useRef<Lang>(lang)
+  useEffect(() => {
+    if (lastLang.current === lang) return
+    lastLang.current = lang
+    reloadScreen()
+  }, [lang, reloadScreen])
 
   // 元素级全屏状态跟随浏览器（用户按 Esc 退出时按钮要跟着回到「进入全屏」）
   useEffect(() => {
@@ -233,7 +273,7 @@ export default function ImonitorScreen() {
             <Button
               size="small"
               icon={<ExportOutlined />}
-              onClick={() => window.open(`${portalBase()}${SCREEN_PATH}${SCREEN_HASH}`, '_blank', 'noopener=no')}
+              onClick={() => window.open(`${portalBase()}${SCREEN_PATH}?lang=${lang}${SCREEN_HASH}`, '_blank', 'noopener=no')}
             >
               {t('imonitor.open')}
             </Button>

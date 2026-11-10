@@ -1796,8 +1796,15 @@ def list_portals() -> list:
 # 门户页面与 my_app 同源 → 可在登录页里注入本脚本完成自动填表，
 # 于是「在哪台电脑点登录，就在哪台电脑的浏览器里登录」，Cookie 落在访问者本机。
 # 只有已在 nginx 配好反代的门户才出现在该表里，否则前端降级为服务器登录。
-# 值是 proxy_base 模板："" = 与 my_app 同源（80 口）；"//{HOST}:<port>" = 独立端口
+# 值是 proxy_base 模板："" = 与 my_app 同源（443）；"//{HOST}:<port>" = 独立端口
 # （前端把 {HOST} 替换为 location.hostname）。
+# ⚠️ 2026-11-09：这些独立端口（8081-8088）已在 nginx 侧统一开启 TLS
+#    （conf/portal_ports.conf 的 `listen 808x ssl`，共用 443 的自签证书）。
+#    主站 80 强制 301 到 443，故协议相对写法 `//{HOST}:808x` 在页面上恒解析成
+#    https —— 与 TLS 端口一致。前端 PortalLogin.tsx 会显式补 `https:`，
+#    避免将来以 http 打开 myapp 时拼出 http://<host>:808x 撞上 TLS-only 端口
+#    （那会回 ERR_SSL_PROTOCOL_ERROR，Chrome 显示「…sent an invalid response」）。
+#    改端口协议必须同时改 nginx、本表与 ImonitorScreen.tsx 的 portalBase()。
 #
 # ⚠️ 为什么 eFlow 走 80 口原生路径而其他门户分端口（实测结论，见 TMP/cdp_verify_portal_proxy_login.py）：
 #    1) 门户前端按页面 URL 的「上下文」拼接 localStorage 键名（CSRF token 存 csrftoken），
