@@ -1,6 +1,7 @@
 {
   "_comment": "01_olbr_portal 便携副本的保留/排除清单。只保留门户、WhatsApp bot、门户问答助手挂件、my_app 四样及其运行时。build_olbr_portable.ps1 读本文件。",
-  "_exclude_semantics": "exclude_root 只匹配 subtree 根下一级（robocopy /XD 传绝对路径）；exclude_any 匹配任意层级（传裸名）。Windows 大小写不敏感，裸名 Scripts 会误伤 frontend/scripts（帮助文档生成器与 i18n 守卫），故 venv 目录一律放 exclude_root。node_modules 一律放 exclude_any，由 runtime_node_modules 阶段单独精确拷贝。",
+  "_exclude_semantics": "exclude_root 只匹配 subtree 根下一级（robocopy /XD 传绝对路径）；exclude_any 匹配任意层级（传裸名）。Windows 大小写不敏感，裸名 Scripts 会误伤 frontend/scripts（帮助文档生成器与 i18n 守卫），故 venv 目录一律放 exclude_root。node_modules 一律放 exclude_any，由 runtime_node_modules 阶段单独精确拷贝。exclude_files 按**文件名**匹配（robocopy /XF 不按路径匹配），所以 6 个大 SQLite 用精确文件名排除，见 Task/my_app 的 _big_sqlite_note。",
+  "_big_sqlite_note": "6 个大 SQLite（合计约 1.8 GB）被生产定时任务**持续写入** —— 实测 bp_report.sqlite3 两分钟涨 11 MB。对正在写入的 SQLite 做文件级拷贝会产出撕裂副本（主文件与 -wal 不一致），因此 source 阶段一律跳过它们。副本里保留旧版本，切换前需用 bundle_data.ps1 或停服后统一取快照。",
   "keep_subtrees": [
     {
       "src": "liberia-noc_soc-数据看板统一门户",
@@ -24,7 +25,9 @@
       "exclude_files": [
         "*.pyc", "*.pid", "*.bak", "*.bak_*", "*.log", "*.log.err", "*.tsbuildinfo",
         "pyvenv.cfg", ".env", "*.local.json", "auth_info.json",
-        "*-wal", "*-shm", ".fuse_hidden*", "instance.lock"
+        "*-wal", "*-shm", ".fuse_hidden*", "instance.lock",
+        "ran_kpi_avalability_1day.sqlite3", "db_sqlite3.sqlite3", "bp_report.sqlite3",
+        "olib_soc_report.sqlite3", "vmax_multi_data.sqlite3", "soc_trend.sqlite3"
       ]
     },
     {

@@ -1,0 +1,76 @@
+#!/bin/sh
+# ─────────────────────────────────────────────────────────────────────────────
+# 合并后自动同步到便携副本（入库版）
+#
+# 为什么有这个钩子（2026-11-10）：
+#   便携副本 D:\01_olbr_portal 的源码是从本仓库**同步**过去的。以前每次同步
+#   都要人记住两件事：
+#     1. 跑 scripts\build_olbr_portable.ps1 -Stage source
+#     2. 紧接着跑副本里的 scripts\post_sync_fix_paths.ps1
+#   第 2 步经常被忘掉 —— 而它不是可有可无的：source 阶段是逐字节拷贝，会把
+#   副本里两处「本地路径」冲回 D:\01_RPA：
+#       Task\my_app\monitor_fixes\nginx_monitor.ps1  (NginxExe/NginxDir/Port/Log/State)
+#       <门户>\rotate_nginx_logs.ps1                   ($Prefix)
+#   副本闲置时这不致命，但切换生产时 nginx watchdog 会去探测旧目录的
+#   nginx.exe（80 口），可能起出第二个实例抢端口。
+#
+#   现在：-Stage source 末尾会自动跑修路径（build_olbr_portable.ps1 里的
+#   Invoke-PathFix），本钩子则负责「合并完就提醒/触发同步」这一层。
+#
+# 本钩子**绝不碰生产**：
+#   · 副本根不存在            -> 直接跳过
+#   · 副本没有 ISOLATED_COPY.flag -> 直接跳过（说明那是生产目录或未隔离的副本）
+#   · 环境变量 OLBR_AUTO_SYNC=0 -> 直接跳过
+#   · 任何一步失败只告警，不阻断合并（post-merge 失败不会回滚合并）
+#
+# 行为分级：
+#   默认          打印提示 + 询问式提示（不自动同步），避免每次合并都搬 100+ MB
+#   OLBR_AUTO_SYNC=1   合并后自动跑 -Stage source（含自动修路径）
+#
+# 用法：
+#   git config --local core.hooksPath .githooks    # 一次性（已有 setup 脚本）
+#   OLBR_AUTO_SYNC=1 git pull                        # 本次自动同步
+# ---------------------------------------------------------------------------
+
+repo_root="$(git rev-parse --show-toplevel)"
+copy_root="${OLBR_COPY_ROOT:-D:\\01_olbr_portal}"
+build_script="$repo_root/scripts/build_olbr_portable.ps1"
+
+# ── 守卫 1：显式关闭 ──────────────────────────────────────────────────────────
+if [ "${OLBR_AUTO_SYNC}" = "0" ]; then
+  exit 0
+fi
+
+# ── 守卫 2：副本根必须存在 ────────────────────────────────────────────────────
+if [ ! -d "$copy_root" ]; then
+  exit 0
+fi
+
+# ── 守卫 3：必须是隔离副本（生产目录没有这个标记）──────────────────────────────
+if [ ! -f "$copy_root/ISOLATED_COPY.flag" ]; then
+  exit 0
+fi
+
+# ── 守卫 4：构建脚本必须在 ────────────────────────────────────────────────────
+if [ ! -f "$build_script" ]; then
+  exit 0
+fi
+
+if [ "${OLBR_AUTO_SYNC}" = "1" ]; then
+  echo "[post-merge] 自动同步到便携副本：$copy_root"
+  # -Stage source 末尾会自动跑 post_sync_fix_paths.ps1 把副本本地路径写回。
+  # 失败只告警 —— 合并已经完成了，不该因为同步失败而让使用者以为合并没生效。
+  powershell -NoProfile -ExecutionPolicy Bypass -File "$build_script" \
+    -Stage source -CopyRoot "$copy_root" 2>&1 | sed 's/^/[post-merge] /'
+  rc=$?
+  if [ $rc -ne 0 ]; then
+    echo "[post-merge] 同步失败（退出码 $rc），副本可能处于半更新状态，请手工核对。" >&2
+  fi
+else
+  echo "[post-merge] 便携副本存在于 $copy_root。"
+  echo "[post-merge] 如需同步本次改动，执行："
+  echo "[post-merge]   powershell -NoProfile -File \"$build_script\" -Stage source"
+  echo "[post-merge] 该命令末尾会自动把副本的本地路径写回，无需再单独跑补丁脚本。"
+fi
+
+exit 0
