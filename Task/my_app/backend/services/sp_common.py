@@ -34,7 +34,7 @@
   行算 1 张单。这是本模块与旧实现**行为不同**的地方 —— 旧实现数行。
 
 > ⚠️ `sp_details` 页面（读 `SP Details Report *.xlsx`）自 2026-09-22 起读原始快照，
-> 含 `Operation Result Status=Canceled` 与 `WaitingForUpdate` 的行；本模块的
+> 含 `Operation Result Status=Canceled/Terminated` 与 `WaitingForUpdate` 的行；本模块的
 > `IGNORED_WORDS` 会剔除后者。若该页要保留「原始快照原样呈现」的语义，
 > 调用方需显式传入 ``ignore_statuses=()``，不要改这里 —— 这里是**默认**
 > 口径，不是唯一入口。

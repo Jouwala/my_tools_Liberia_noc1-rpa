@@ -653,13 +653,13 @@ export const TASK_DOCS: TaskDoc[] = [
     zh: {
       name: 'SP 备件报表生成',
       desc: '先从 eFlow 刷新物料主数据 sp_material，再从 SFTP 下载备件数据，生成 Comsumables & SpareParts Inbound&Outbound&Inventory 报表到本地 data/sp_email；明细与原始快照的 Material Name 一律按 Material No. 取主数据最新名',
-      flow: ['Step 0：调 sp_material_sync 从 eFlow 拉全量物料主数据写 sp_material（失败只告警，沿用库里现有表）', '登录 SFTP 下载备件原始数据，并留一份未过滤的 *_source.xlsx 原始快照', '剔除名单 → 状态过滤 → Canceled 过滤 → **Material Name 按主数据归一**（五份明细 + 五份快照，只改名不动行）', '生成 Comsumables & SpareParts Inbound&Outbound&Inventory 报表（含 Summary-Current 补库建议）', '落盘 data/sp_email 供 09:45/09:50 两个邮件任务与 07:05 明细邮件使用'],
+      flow: ['Step 0：调 sp_material_sync 从 eFlow 拉全量物料主数据写 sp_material（失败只告警，沿用库里现有表）', '登录 SFTP 下载备件原始数据，并留一份未过滤的 *_source.xlsx 原始快照', '剔除名单 → 状态过滤 → Canceled/Terminated 过滤（Operation Result Status） → **Material Name 按主数据归一**（五份明细 + 五份快照，只改名不动行）', '生成 Comsumables & SpareParts Inbound&Outbound&Inventory 报表（含 Summary-Current 补库建议）', '落盘 data/sp_email 供 09:45/09:50 两个邮件任务与 07:05 明细邮件使用'],
       maintain: ['是 3 个 SP 邮件任务的上游，失败会导致当天备件邮件整体缺报'],
     },
     en: {
       name: 'SP Report Generate',
       desc: 'Refresh the sp_material master from eFlow first, then download spare-part data from SFTP and generate Comsumables & SpareParts Inbound&Outbound&Inventory reports into data/sp_email; Material Name in details and raw snapshots is resolved by Material No. from the master (latest name)',
-      flow: ['Step 0: call sp_material_sync to pull the full material master from eFlow into sp_material (on failure only warn and keep the existing table)', 'Log into SFTP, download raw spare data and keep an unfiltered *_source.xlsx snapshot', 'Exclude list → status filter → Canceled filter → **Material Name resolved from the master** (5 details + 5 snapshots, names only, no row changes)', 'Generate the Comsumables & SpareParts Inbound&Outbound&Inventory reports (incl. Summary-Current replenishment)', 'Save to data/sp_email for the 09:45/09:50 email tasks and the 07:05 details email'],
+      flow: ['Step 0: call sp_material_sync to pull the full material master from eFlow into sp_material (on failure only warn and keep the existing table)', 'Log into SFTP, download raw spare data and keep an unfiltered *_source.xlsx snapshot', 'Exclude list → status filter → Canceled/Terminated filter (Operation Result Status) → **Material Name resolved from the master** (5 details + 5 snapshots, names only, no row changes)', 'Generate the Comsumables & SpareParts Inbound&Outbound&Inventory reports (incl. Summary-Current replenishment)', 'Save to data/sp_email for the 09:45/09:50 email tasks and the 07:05 details email'],
       maintain: ['Upstream of 3 SP email tasks — its failure blanks all spare-part emails for the day'],
     },
   },

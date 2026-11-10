@@ -36,6 +36,7 @@ import {
 } from './vmaxWindow'
 import { VmaxWindowContext } from './vmaxWindowContext'
 import { CCA_NS, useVmaxDiagnosis } from './useVmaxDiagnosis'
+import { analyzeRateCeiling, analyzeTerminal } from './vmaxDiagnosisRules'
 import { buildWorkspaceCorrelation } from '../lib/vmaxWorkspaceRules'
 import { buildCellCrossCheck } from '../lib/vmaxCellCrossCheck'
 import {
@@ -43,6 +44,7 @@ import {
 } from '../lib/vmaxWorkspaceExport'
 import VmaxWorkspaceAnalysis from '../components/vmax/VmaxWorkspaceAnalysis'
 import VmaxWorkspaceVerdict from '../components/vmax/VmaxWorkspaceVerdict'
+import { VmaxRateCard, VmaxTerminalCard } from '../components/vmax/VmaxTerminalRateCards'
 import VmaxEvidenceDrawer from '../components/vmax/VmaxEvidenceDrawer'
 import type { EvidenceKind } from '../lib/vmaxWorkspaceRules'
 import VmaxDiagnosisCard from '../components/VmaxDiagnosisCard'
@@ -73,6 +75,12 @@ export default function VmaxUserCca() {
     cca: d.result,
     complaint: d.complaint,
   }), [d.diag, d.sources, d.scores, d.voice, d.ott, d.game, d.radio, d.timeline, d.result, d.complaint])
+
+  /* 终端画像 + 限速推断（2026-11-08）：同一批 sources 纯前端算，不重取 */
+  const terminal = useMemo(
+    () => (d.sources.length ? analyzeTerminal(d.sources) : null), [d.sources])
+  const rate = useMemo(
+    () => (d.sources.length ? analyzeRateCeiling(d.sources) : null), [d.sources])
 
   const rangePickerProps = disabledRangeProps(PAGE_RETENTION_HOURS)
   const ctxValue = {
@@ -162,6 +170,10 @@ export default function VmaxUserCca() {
         />
       )}
 
+      {/* 终端画像 + 限速推断（2026-11-08，用户要求放最上面：先看对象，再看结论） */}
+      {d.searched && <VmaxTerminalCard profile={terminal} />}
+      {d.searched && <VmaxRateCard rate={rate} />}
+
       {/* ---------- 区域 1 · 故障概览（VmaxDiagnosisCard 整卡：结论 + 覆写 +
                      四维评分悬浮说明 + 数据源/截断 + 导出） ---------- */}
       <VmaxDiagnosisCard
@@ -208,6 +220,7 @@ export default function VmaxUserCca() {
         diagLoaded={d.loadedKeys.length}
         diagTotal={d.diagTotal}
         hypotheses={d.verdict?.hypotheses}
+        missingEvidence={d.verdict?.missingEvidence}
         onOpenEvidence={openDrawer}
       />
 

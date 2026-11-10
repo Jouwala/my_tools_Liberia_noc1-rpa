@@ -176,6 +176,8 @@ def run_5g_assign() -> Dict[str, Any]:
         "correlation_undetermined": 0, "correlation_undetermined_samples": [],
         # eFlow 侧 ttstatus 非 0（ME 未关联站点）—— 不阻断，只收缩重试预算
         "suspect_ttstatus": 0, "suspect_ttstatus_samples": [],
+        # 已知派不出 + 已通报人工 + ttstatus 仍可疑 → 本轮缓派（2026-11-08，与 Fiber 同口径）
+        "pending_manual": 0, "pending_manual_samples": [],
         # 自动派不了 → 群里通报「需人工处理」的计数
         "manual_notified": 0,
         # 一站多小区合并：被组长的 TT 覆盖、未单独建单的告警条数
@@ -198,10 +200,12 @@ def run_5g_assign() -> Dict[str, Any]:
     def _finish() -> Dict[str, Any]:
         out["elapsed_seconds"] = round(time.time() - started, 2)
         logger.info("[5G] 完成 dry_run=%s fetched=%s target=%s due=%s waiting=%s expired=%s "
-                    "assigned=%s skipped=%s failed=%s notified=%s merged=%s groups=%s 用时%.2fs",
+                    "assigned=%s skipped=%s failed=%s notified=%s pending_manual=%s "
+                    "merged=%s groups=%s 用时%.2fs",
                     CTX.dry_run, out["fetched"], out["target_alarms"], out["due"],
                     out["waiting"], out["expired"], out["assigned"], out["skipped"],
-                    out["failed"], out["notified"], out.get("merged", 0),
+                    out["failed"], out["notified"], out.get("pending_manual", 0),
+                    out.get("merged", 0),
                     out.get("groups", 0), out["elapsed_seconds"])
         return out
 
@@ -298,6 +302,12 @@ def run_5g_assign() -> Dict[str, Any]:
                     out["expired_samples"].append(
                         {"alarm_key": akey, "age_minutes": res.get("age_minutes"),
                          "reason": res.get("reason")})
+            elif res.get("action") == dispatch_mod.ACTION_PENDING_MANUAL:
+                # 缓派待人工修 ME 绑定（有意不派，不计 due/failed；2026-11-08）
+                out["pending_manual"] += 1
+                if len(out["pending_manual_samples"]) < SAMPLE_LIMIT:
+                    out["pending_manual_samples"].append(
+                        {"alarm_key": akey, "ttstatus": res.get("ttstatus")})
             elif res.get("action") == dispatch_mod.ACTION_MERGED:
                 merged += 1
             elif res.get("action") == dispatch_mod.ACTION_DRY_RUN:
@@ -419,7 +429,8 @@ def run_5g_assign() -> Dict[str, Any]:
 
         out["success"] = not out["errors"]
         out["message"] = (f"演练" if CTX.dry_run else f"派单 {out['assigned']} 单") + \
-                         f"，跳过 {out['skipped']}，失败 {out['failed']}"
+                         f"，跳过 {out['skipped']}，失败 {out['failed']}" + \
+                         (f"，缓派待人工 {out['pending_manual']}" if out["pending_manual"] else "")
         return _finish()
     finally:
         try:

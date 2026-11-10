@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>OLBR 离线副本 · 服务导航</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin:0; min-height:100vh; background:#0b0f17; color:#e6edf6;
+         font:15px/1.7 system-ui,-apple-system,"Segoe UI","Microsoft YaHei",sans-serif; }
+  .wrap { max-width:1080px; margin:0 auto; padding:48px 24px 64px; }
+  h1 { font-size:24px; margin:0 0 6px; font-weight:600; }
+  .sub { color:#9fb0c8; margin:0 0 32px; font-size:14px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(300px,1fr)); gap:16px; }
+  a.card { display:block; padding:20px 22px; border-radius:12px; background:#131a26;
+           border:1px solid #26314a; text-decoration:none; color:inherit;
+           transition:border-color .15s, background .15s; }
+  a.card:hover { border-color:#4a6fa5; background:#182130; }
+  a.card:focus-visible { outline:2px solid #6ea8fe; outline-offset:2px; }
+  .card h2 { font-size:16px; margin:0 0 6px; font-weight:600; }
+  .card p { margin:0; color:#9fb0c8; font-size:13px; }
+  .path { display:inline-block; margin-top:10px; font:12px/1.4 ui-monospace,Consolas,monospace;
+          color:#6ea8fe; background:#0e1420; padding:3px 8px; border-radius:6px; }
+  .note { margin-top:36px; padding:16px 20px; border-radius:10px; background:#101725;
+          border:1px solid #22304a; color:#9fb0c8; font-size:13px; }
+  .note b { color:#e6edf6; font-weight:600; }
+  .note ul { margin:8px 0 0; padding-left:20px; }
+  .note li { margin:4px 0; }
+  code { font:12px/1.5 ui-monospace,Consolas,monospace; background:#0e1420;
+         padding:1px 5px; border-radius:4px; color:#c8d6ea; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>OLBR 离线副本</h1>
+  <p class="sub">自带运行时的可换机部署包 · 三个页面入口：my_app / 统一门户 / OLBR 看板</p>
+
+  <div class="grid">
+    <a class="card" href="/myapp/">
+      <h2>my_app 数据平台</h2>
+      <p>Data Insight MVP：网络运维数据看板、任务调度与报表。副本默认关闭调度器。</p>
+      <span class="path">/myapp/</span>
+    </a>
+    <a class="card" href="/uniplam/">
+      <h2>统一门户</h2>
+      <p>Liberia NOC/SOC 数据看板统一门户：看板目录、团队与权限管理。</p>
+      <span class="path">/uniplam/</span>
+    </a>
+    <a class="card" href="/v3/olbrportal/">
+      <h2>OLBR 门户看板</h2>
+      <p>当前版看板页，右下角「问答助手」挂件即在此页。登录后按团队自动跳转。</p>
+      <span class="path">/v3/olbrportal/</span>
+    </a>
+  </div>
+
+  <div class="note">
+    <b>离线副本说明</b>
+    <ul>
+      <li>数据是<b>打包时的快照</b>，不会自动更新；副本默认 <code>MY_APP_DISABLE_SCHEDULER=1</code>，不跑采集任务、不发 WhatsApp/邮件告警。</li>
+      <li>问答助手依赖外部大模型服务。地址在 <code>Task\whatsapp-kb-bot\.env</code> 里配（<code>CHAT_BASE_URL</code> / <code>OLLAMA_URL</code>）；连不上时会明确报「模型服务不可达」，不会静默编造回答。</li>
+      <li>WhatsApp bot 默认<b>不启动</b>登录态进程，避免用打包时的会话在别的机器上重复投递消息。需要时按 <code>部署说明.md</code> 单独启动并重新扫码登录。</li>
+      <li>首页只列这三张卡，但 nginx 路由仍保留团队门户与历史版本（如 <code>/v3/fo_portal/</code>），需要时直接输 URL 即可。<code>MsPortal</code> 静态资产也随包提供，供 OLBR 看板页加载，不再单列入口。</li>
+      <li>全部服务只绑回环，对外由本机 nginx 统一反代。停止请跑根目录 <code>stop.bat</code>。</li>
+    </ul>
+  </div>
+</div>
+</body>
+</html>

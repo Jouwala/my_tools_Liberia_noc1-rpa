@@ -1022,6 +1022,180 @@ export function analyzeOttText(sources: SourceResult[]): OttTextResult {
 }
 
 /* ---------------------------------------------------------------------------
+ * 八半二、终端画像（2026-11-08）
+ * ---------------------------------------------------------------------------
+ * 回答「这是什么终端、在什么网络」：IMEI/机型/制式/APN/QCI。
+ * 边界（用户 2026-11-08 明确）：身份 ≠ 能力——IMEI/机型/RAT 不能证明
+ * 载波聚合/MIMO 层数；UE 能力要 UE-EUTRA-Capability，XDR 里没有。
+ * IMEI 仅作画像展示，不参与任何结论。
+ * ------------------------------------------------------------------------ */
+
+export type TerminalProfile = {
+  imei: string
+  model: string
+  brand: string
+  rat: string
+  apn: string
+  /** 主 QCI（出现最多的取值） */
+  qciMain: string
+  /** 终端字段填充行数（0 = 无画像） */
+  samples: number
+}
+
+/** 终端画像：1300/1100 的 imei/ue_model/rat_name/apn + 1300 的 qci 主值 */
+export function analyzeTerminal(sources: SourceResult[]): TerminalProfile {
+  const pick = (key: string, field: string): string => {
+    const rows = rowsOf(sources, key)
+    for (const r of rows) {
+      const v = str(r[field])
+      if (v && v !== '-' && v !== '--') return v
+    }
+    return ''
+  }
+  const qciRows = rowsOf(sources, '1300')
+  const qciCount = new Map<string, number>()
+  for (const r of qciRows) {
+    const q = str(r.qci)
+    if (q) qciCount.set(q, (qciCount.get(q) || 0) + 1)
+  }
+  let qciMain = ''
+  let best = 0
+  for (const [q, n] of qciCount) {
+    if (n > best) { best = n; qciMain = q }
+  }
+  return {
+    imei: pick('1300', 'imei') || pick('1100', 'imei'),
+    model: pick('1300', 'ue_model') || pick('1100', 'ue_model'),
+    brand: pick('1300', 'ue_brand') || pick('1100', 'ue_brand'),
+    rat: pick('1300', 'rat_name') || pick('1100', 'rat_name'),
+    apn: pick('1300', 'apn') || pick('1100', 'apn'),
+    qciMain,
+    samples: qciRows.length,
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * 八半三、限速推断（2026-11-08，间接证据）
+ * ---------------------------------------------------------------------------
+ * Gx 的授权带宽 AVP（Max-Requested-Bandwidth / APN-Aggregate / GBR）在本部署
+ * Talon 未采（见 README「Gy/Gx 可用性」），这里用 1300 的
+ * `dl/ul_throughput_max` 分布**间接推断有效天花板**：
+ *  - 样本 < 30 条或总流量 < 10MB：样本不足，显式说无法推断；
+ *  - 否则以 P90 为天花板估计（峰值易受单流抖动污染），并明确标注
+ *    「观测天花板 ≠ 授权上限」。
+ * ------------------------------------------------------------------------ */
+
+export type RateCeiling = {
+  qci: string
+  samples: number
+  /** 下行天花板估计（Kbps，P90） */
+  dlP90Kbps: number
+  /** 下行峰值（Kbps） */
+  dlPeakKbps: number
+  ulP90Kbps: number
+  ulPeakKbps: number
+  /** 是否可推断（样本与流量双门槛） */
+  inferable: boolean
+}
+
+export type RateCeilingResult = {
+  rows: RateCeiling[]
+  evidence: I18nText[]
+}
+
+/** 限速推断：每 QCI 的下/上行观测天花板（间接证据，非授权值） */
+export function analyzeRateCeiling(sources: SourceResult[]): RateCeilingResult {
+  const rows = rowsOf(sources, '1300')
+  const byQci = new Map<string, { dl: number[]; ul: number[]; traffic: number }>()
+  for (const r of rows) {
+    const q = str(r.qci) || '?'
+    let b = byQci.get(q)
+    if (!b) { b = { dl: [], ul: [], traffic: 0 }; byQci.set(q, b) }
+    const dl = num(r.dl_throughput_max)
+    const ul = num(r.ul_throughput_max)
+    if (dl > 0) b.dl.push(dl)
+    if (ul > 0) b.ul.push(ul)
+    b.traffic += num(r.ul_traffic) + num(r.dl_traffic)
+  }
+  const out: RateCeiling[] = [...byQci.entries()].map(([qci, b]) => ({
+    qci,
+    samples: b.dl.length,
+    dlP90Kbps: Math.round(percentile(b.dl, 0.9)),
+    dlPeakKbps: Math.round(b.dl.length ? Math.max(...b.dl) : 0),
+    ulP90Kbps: Math.round(percentile(b.ul, 0.9)),
+    ulPeakKbps: Math.round(b.ul.length ? Math.max(...b.ul) : 0),
+    // 双门槛：样本 >=30 且该 QCI 总流量 >= 10MB（10240KB）
+    inferable: b.dl.length >= 30 && b.traffic >= 10240,
+  })).sort((a, b) => b.samples - a.samples)
+
+  const evidence: I18nText[] = []
+  if (!out.length) {
+    evidence.push(tx('vmaxq.vd.ev.rateNoData'))
+  } else if (!out.some((r) => r.inferable)) {
+    evidence.push(tx('vmaxq.vd.ev.rateInsufficient', { n: out[0].samples }))
+  } else {
+    const best = out.find((r) => r.inferable)!
+    evidence.push(tx('vmaxq.vd.ev.rateCeiling', {
+      qci: best.qci, dl: best.dlP90Kbps, ul: best.ulP90Kbps, n: best.samples,
+    }))
+  }
+  evidence.push(tx('vmaxq.vd.ev.rateBoundary'))
+  return { rows: out, evidence }
+}
+
+/* ---------------------------------------------------------------------------
+ * 八半四、数据阻断嫌疑（2026-11-09：欠费的间接证据）
+ * ---------------------------------------------------------------------------
+ * Gy 未采、S6a 未采时，欠费/配额耗尽的**直接**证据拿不到。但有一组可
+ * 观测的组合指纹：附着成功（人在网）+ 有访问尝试（1300 里有小流量/慢首包
+ * 的行）+ 流量几乎为零（尝试没走通）。三者同时成立时，
+ * 「PGW 侧阻断数据业务」（配额耗尽/停机是其常见原因）嫌疑成立——
+ * 但这只是**嫌疑**：DNS/防火墙/应用本身也可能表现为同样指纹，
+ * 所以置信度封顶 60，且待补证据里显式列出 Gy 未查与基线未比。
+ * 反证：总流量 ≥1MB 即数据在走，不成立。
+ * ------------------------------------------------------------------------ */
+
+export type DataBlockResult = {
+  attachSuccess: number
+  totalTrafficKb: number
+  attemptedBlocked: number
+  voiceOk: boolean
+  suspect: boolean
+  evidence: I18nText[]
+}
+
+/** 数据阻断嫌疑：附着成功 + 有尝试无流量（欠费间接指纹） */
+export function analyzeDataBlock(sources: SourceResult[]): DataBlockResult {
+  const r1100 = rowsOf(sources, '1100')
+  const r1300 = rowsOf(sources, '1300')
+  let attachSuccess = 0
+  for (const r of r1100) {
+    if (strU(r.procedure_status) === 'SUCCESS') attachSuccess += 1
+  }
+  let totalTrafficKb = 0
+  let attemptedBlocked = 0
+  let voiceOk = false
+  for (const r of r1300) {
+    const kb = num(r.ul_traffic) + num(r.dl_traffic)
+    totalTrafficKb += kb
+    if (str(r.qci) === '1') voiceOk = true
+    const fr = num(r.$first_resp_delay)
+    const tcp = num(r.$tcp_resp_delay) || num(r.tcp_resp_delay)
+    // 有尝试无流量：流量极小但首包/握手很慢（请求发出、响应没回来）
+    if (kb < 1 && (fr > THRESHOLDS.firstRespP90 || tcp > THRESHOLDS.tcpResp)) {
+      attemptedBlocked += 1
+    }
+  }
+  const suspect = attachSuccess >= 5 && totalTrafficKb < 50 && attemptedBlocked >= 3
+  const evidence: I18nText[] = []
+  if (attachSuccess) evidence.push(tx('vmaxq.vd.ev.datablockAttach', { n: attachSuccess }))
+  if (attemptedBlocked) evidence.push(tx('vmaxq.vd.ev.datablockAttempt', { n: attemptedBlocked }))
+  if (voiceOk) evidence.push(tx('vmaxq.vd.ev.datablockVoice'))
+  if (suspect) evidence.push(tx('vmaxq.vd.ev.datablockSuspect'))
+  return { attachSuccess, totalTrafficKb: Math.round(totalTrafficKb), attemptedBlocked, voiceOk, suspect, evidence }
+}
+
+/* ---------------------------------------------------------------------------
  * 九、游戏识别（方案 §4.3）—— 三档规则，关键词外置
  * ------------------------------------------------------------------------ */
 
@@ -1210,6 +1384,21 @@ export type RadioAnalysis = {
   neighborGapDb: number
   /** 是否阶跃消失（前段正常、后段突降且不恢复）—— 断站嫌疑的形态证据 */
   abruptDrop: boolean
+  /** ---- 2026-11-09 位置/距离分型（新增字段） ---- */
+  /** TA 中位数（米）：到服务小区的距离 */
+  taMedianM: number
+  /** 用户位置中位数（MR 经纬度）；无有效经纬度时为 0 */
+  posLat: number
+  posLon: number
+  /** 位置离散程度（米）：小 = 固定点位，大 = 移动中 */
+  posSpreadM: number
+  /** 邻区数中位数（neighbor_cell_number）；无采样时为 -1 */
+  neighborCountMedian: number
+  /** 到服务站点的距离（km，后端 eflow_site 富化）；未匹配时为 -1 */
+  servingSiteKm: number
+  /** 到最近站点的距离（km）；未知时为 -1 */
+  nearestSiteKm: number
+  nearestSiteName: string
 }
 
 /**
@@ -1231,6 +1420,8 @@ export function analyzeRadio(sources: SourceResult[]): RadioAnalysis | null {
     rats: [], buckets: [], cells: [], worstCell: '',
     headline, basis, level: 'warn',
     mode: 'unknown', neighborRsrpP10: 0, neighborSamples: 0, neighborGapDb: 0, abruptDrop: false,
+    taMedianM: 0, posLat: 0, posLon: 0, posSpreadM: 0, neighborCountMedian: -1,
+    servingSiteKm: -1, nearestSiteKm: -1, nearestSiteName: '',
   })
 
   if (!rows.length) {
@@ -1346,6 +1537,33 @@ export function analyzeRadio(sources: SourceResult[]): RadioAnalysis | null {
       }
     }
   }
+
+  // ---- 2026-11-09 位置/距离：TA（到服务小区距离）+ MR 经纬度 + 站点距离 ----
+  const taAll = rows.map((r) => num(r.ta_ts)).filter((v) => v > 0)
+  const taMedianM = taAll.length ? Math.round(percentile(taAll, 0.5)) : 0
+  const posAll: Array<{ lat: number; lon: number }> = []
+  for (const r of rows) {
+    const la = num(r.mrlat)
+    const lo = num(r.mrlon)
+    // 哨兵值 -90/-180（上游未定位占位，2026-11-09 实测）与 0 都不算有效位置
+    if (la && lo && Math.abs(la) < 90 && Math.abs(lo) < 180) posAll.push({ lat: la, lon: lo })
+  }
+  const posLat = posAll.length ? percentile(posAll.map((p) => p.lat), 0.5) : 0
+  const posLon = posAll.length ? percentile(posAll.map((p) => p.lon), 0.5) : 0
+  let posSpreadM = 0
+  if (posAll.length > 1) {
+    const dLat = Math.max(...posAll.map((p) => p.lat)) - Math.min(...posAll.map((p) => p.lat))
+    const dLon = Math.max(...posAll.map((p) => p.lon)) - Math.min(...posAll.map((p) => p.lon))
+    posSpreadM = Math.round(Math.sqrt((dLat * 111000) ** 2 + (dLon * 111000 * Math.cos((posLat * Math.PI) / 180)) ** 2))
+  }
+  const nbCount = rows.map((r) => num(r.neighbor_cell_number)).filter((v) => v >= 0)
+  const neighborCountMedian = nbCount.length ? Math.round(percentile(nbCount, 0.5)) : -1
+  // 站点距离（后端 _enrich_site_dist 富化；-1 = 未匹配/未知，不猜）
+  const svKm = rows.map((r) => num(r._site_km_serving)).filter((v) => v >= 0)
+  const nrKm = rows.map((r) => num(r._site_km_nearest)).filter((v) => v >= 0)
+  const servingSiteKm = svKm.length ? Math.round(percentile(svKm, 0.5) * 100) / 100 : -1
+  const nearestSiteKm = nrKm.length ? Math.round(percentile(nrKm, 0.5) * 100) / 100 : -1
+  const nearestSiteName = str(rows.find((r) => str(r._site_nearest))?._site_nearest) || ''
   const neighborRsrpP10 = neighborAll.length ? percentile(neighborAll, 0.1) : 0
   const neighborGapDb = neighborAll.length && rsrpAll.length
     ? Math.round((neighborRsrpP10 - rsrpP10) * 10) / 10 : 0
@@ -1399,6 +1617,34 @@ export function analyzeRadio(sources: SourceResult[]): RadioAnalysis | null {
     basis.push(tx('vmaxq.radio.basis.abrupt'))
     if (level === 'ok') level = 'warn'
   }
+  // ---- 2026-11-09 距离/位置细化（只加证据，不改 mode 枚举） ----
+  if (taAll.length) {
+    basis.push(tx('vmaxq.radio.basis.ta', { v: taMedianM }))
+    if (weak && taMedianM > 3000 && !hasGoodNeighbor) {
+      basis.push(tx('vmaxq.radio.basis.farWeak'))
+    }
+    if (weak && taMedianM <= 1000) {
+      basis.push(tx('vmaxq.radio.basis.nearWeak'))
+    }
+  }
+  if (posAll.length) {
+    basis.push(tx('vmaxq.radio.basis.pos', {
+      lat: posLat.toFixed(4), lon: posLon.toFixed(4), spread: posSpreadM,
+    }))
+    if (nearestSiteKm >= 0) {
+      basis.push(tx('vmaxq.radio.basis.nearestSite', {
+        km: nearestSiteKm, name: nearestSiteName || '—',
+        sv: servingSiteKm >= 0 ? servingSiteKm : '—',
+      }))
+      // 用户在站点旁边（<500m）却驻留弱 serving 且邻区更好 → 切换/站点侧问题
+      if (weak && nearestSiteKm < 0.5 && hasGoodNeighbor) {
+        basis.push(tx('vmaxq.radio.basis.atSite'))
+      }
+    }
+  }
+  if (neighborCountMedian === 0 && weak) {
+    basis.push(tx('vmaxq.radio.basis.isolated'))
+  }
 
   // 只在"确实存在明显更差的小区"时才点名，避免大窗口里正常波动也报小区
   const worst = cells.find((c) => c.level === 'bad') || cells.find((c) => c.level === 'warn')
@@ -1427,6 +1673,8 @@ export function analyzeRadio(sources: SourceResult[]): RadioAnalysis | null {
     worstCell: worst?.cell || '',
     headline, basis, level,
     mode, neighborRsrpP10, neighborSamples: neighborAll.length, neighborGapDb, abruptDrop,
+    taMedianM, posLat, posLon, posSpreadM, neighborCountMedian,
+    servingSiteKm, nearestSiteKm, nearestSiteName,
   }
 }
 
@@ -1606,9 +1854,10 @@ export function buildHypotheses(input: {
   ottText: OttTextResult
   radio: RadioAnalysis | null
   scores: DimensionScore[]
+  dataBlock?: DataBlockResult | null
 }): Hypothesis[] {
   const out: Hypothesis[] = []
-  const { access, ottText, radio, scores } = input
+  const { access, ottText, radio, scores, dataBlock } = input
   const scoreOf = (k: ScoreKey) => scores.find((s) => s.key === k)?.score ?? null
   const bad = (k: ScoreKey) => {
     const s = scoreOf(k)
@@ -1672,6 +1921,18 @@ export function buildHypotheses(input: {
       id: 'h-latency', labelKey: 'vmaxq.vd.hyp.latency', confidence: 50,
       support: scores.find((s) => s.key === 'latency')?.evidence || [],
       refute: [], missing: [tx('vmaxq.vd.hyp.missing.dns')], owner: 'app',
+    })
+  }
+
+  // 数据阻断嫌疑（欠费间接指纹）：附着成功 + 有尝试无流量。
+  // 只在「流量几乎为零且有阻断尝试」时挂假设；流量在走（≥1MB）直接反证。
+  if (dataBlock && dataBlock.suspect) {
+    out.push({
+      id: 'h-datablock', labelKey: 'vmaxq.vd.hyp.datablock', confidence: 60,
+      support: dataBlock.evidence,
+      refute: [],
+      missing: [tx('vmaxq.vd.hyp.missing.billing'), tx('vmaxq.vd.hyp.missing.baseline')],
+      owner: 'billing',
     })
   }
 
@@ -2058,6 +2319,7 @@ export function buildVerdict(
     ottText: analyzeOttText(sources),
     radio: analyzeRadio(sources),
     scores,
+    dataBlock: analyzeDataBlock(sources),
   })
   const seen = new Set<string>()
   const missingEvidence: I18nText[] = []
@@ -2065,6 +2327,12 @@ export function buildVerdict(
     for (const m of h.missing) {
       if (!seen.has(m.key)) { seen.add(m.key); missingEvidence.push(m) }
     }
+  }
+  // 2026-11-08：账务状态 XDR 里没有源（Gy 未采、S6a 未采），**无论有没有假设
+  // 都要显式提示「账务未查」**——否则用户会把「没看到欠费」误读成「已排除欠费」。
+  // 已命中账务（h-billing）的结论本身就是账务答案，不再重复提示。
+  if (!hypotheses.some((h) => h.id === 'h-billing') && !seen.has('vmaxq.vd.hyp.missing.billing')) {
+    missingEvidence.unshift(tx('vmaxq.vd.hyp.missing.billing'))
   }
   return { ...core, hypotheses, missingEvidence }
 }

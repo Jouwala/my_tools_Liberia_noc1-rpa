@@ -1,0 +1,109 @@
+# =============================================================================
+# env_template.txt —— 离线副本的唯一配置入口
+# -----------------------------------------------------------------------------
+# 用法：把本文件复制成副本根目录的 .env（start_all.ps1 会自动做），按需改值。
+#       start_all.ps1 逐行读入并设为进程环境变量；**已在系统/会话里存在的同名
+#       变量优先**，所以也可以临时用 $env:XXX 覆盖而不改文件。
+#
+# 格式：KEY=VALUE，一行一个；# 开头是注释；值不要加引号（会被当成值的一部分）。
+#
+# ⚠ 本文件**不得写入任何真实口令/Token/密钥**。需要密钥的项留空，由使用者
+#   在目标机器上自己填进副本的 .env（.env 不进版本库、不随包分发给第三方）。
+# =============================================================================
+
+# ---- 端口 -------------------------------------------------------------------
+# 默认值与生产一致，方便对照。在**生产机器本机**试跑副本时必须整体改到别的端口，
+# 否则会抢生产的 7038/7090/9267/80/5432。改端口只需改这里，nginx 配置会自动跟着变。
+NGINX_HTTP_PORT=80
+# 副本同时监听 443，保留 https://localhost/ 入口（自签证书，浏览器会提示不信任，属预期）
+NGINX_HTTPS_PORT=443
+MY_APP_BE_PORT=7038
+MY_APP_FE_PORT=7090
+PORTAL_PORT=9267
+# 副本自带的便携 PostgreSQL，刻意不用 5432，避免与本机已装的 PG 服务冲突
+PGPORT=55432
+# WhatsApp bot 的 HTTP 问答服务（只绑回环，由 my_app 后端按需拉起）
+BOT_HTTP_PORT=9269
+# my_app「WhatsApp 分析」页依赖的独立服务（scripts/whatsapp_analysis）
+WA_ANALYSIS_PORT=9268
+
+# ---- my_app -----------------------------------------------------------------
+# pg = 用副本自带的便携 PostgreSQL（推荐，快照就是按它做的）
+# sqlite = 回退到 db/app.db；⚠ 副本**不带** app.db（2.58G），且部分路由硬编码了
+#          d:\01_RPA\... 的 sqlite 路径，换机会失效。除非另行准备数据，否则别改。
+MY_APP_DB_MODE=pg
+MY_APP_BACKEND_PORT=7038
+# 1 = 不启动 APScheduler。副本必须保持 1：否则采集任务会去连生产上游、
+#     并可能重复投递 WhatsApp/邮件告警（这是分发副本最大的副作用风险）。
+MY_APP_DISABLE_SCHEDULER=1
+# 前端构建产物目录（vite.config.ts:84 读它）。留空则由 start_all.ps1 填成
+# <副本根>\Task\_fe_dist —— 不填会写死到 D:/01_RPA/Task/_fe_dist，换机即白屏。
+FE_DIST_OUT=
+
+# ---- 便携 PostgreSQL --------------------------------------------------------
+# 数据目录由 start_all.ps1 填成 <副本根>\runtime\pgdata（首次启动自动 initdb）
+PGDATA=
+# 只绑回环：副本的库不对局域网开放
+PGHOSTADDR=127.0.0.1
+# initdb 用 trust 认证（仅回环可连），所以连接串不需要口令。
+# 这是刻意的：避免把生产 .env 里的明文口令带进分发包。
+MY_APP_DB_USER=myapp
+MY_APP_DB_NAME=myapp
+
+# ---- 门户 -------------------------------------------------------------------
+PORTAL_HOST=127.0.0.1
+# 鉴权数据目录（含加盐密码哈希）。留空则用 <副本根>\runtime\portal-auth-data，
+# 与源码目录分开，便于单独决定是否随包分发登录数据。
+PORTAL_AUTH_DATA_DIR=
+PORTAL_DEFAULT_FILE=
+
+# ---- 问答助手 / WhatsApp bot 的模型服务 -------------------------------------
+# ⚠ 挂件真正用的是 QA_OWU_BASE，**不是** CHAT_BASE_URL ——
+#   http-server.js:113-125 的 pinOwu() 会覆写 RUNTIME_CONFIG.chatBaseUrl，
+#   所以设 CHAT_BASE_URL 对挂件无效（只影响 WhatsApp 群链路）。
+#
+# 下面两个默认值是**回环占位**：本机没有模型服务时会立刻 ECONNREFUSED 并明确
+# 报错，而不是对着一个不可达的内网地址白等 180 秒。接入真实服务时改这两行：
+#   QA_OWU_BASE 需是 OpenAI 兼容基址（会拼 /chat/completions）
+#   OLLAMA_URL  需是 Ollama 原生基址（会拼 /api/embed、/api/tags）
+QA_OWU_BASE=http://127.0.0.1:8443/api/v1
+OLLAMA_URL=http://127.0.0.1:11434
+# 模型名：按你接入的服务实际有的模型填
+QA_CHAT_MODEL=
+QA_FALLBACK_MODEL=
+EMBED_MODEL=bge-m3:latest
+# 默认 180000（3 分钟）在离线时会一直白等到 my_app 侧 300s 超时，必须调小
+QA_CHAT_TIMEOUT_MS=10000
+QA_OWU_COOLDOWN_MS=30000
+# 密钥留空，由使用者在目标机器自行填写；**不要**把真实值写进本模板或提交进库
+OPENWEBUI_API_KEY=
+CHAT_API_KEY=
+
+QA_HTTP_HOST=127.0.0.1
+QA_HTTP_PORT=9269
+
+# ---- my_app 侧的问答接线 ----------------------------------------------------
+PORTAL_QA_PORT=9269
+# node 解释器绝对路径。留空则由 start_all.ps1 填成 <副本根>\runtime\node\node.exe
+PORTAL_QA_NODE=
+# bot 目录由 portal_qa_ctl.py:39 推导为 my_app 的同级目录 whatsapp-kb-bot，
+# 无环境变量可覆盖 —— 所以副本必须保持 Task\my_app 与 Task\whatsapp-kb-bot 同级。
+MY_APP_API_BASE=http://127.0.0.1:7038
+
+# ---- WhatsApp 发图服务（my_app 任务用，副本默认不跑）------------------------
+# 留空则用源码默认值。⚠ CHROME_PATH 默认指向 D:\01_RPA\chrome-win\...，
+# 副本不带 Chrome（779MB），需要发图时自行指向目标机器上的 Chrome。
+CHROME_PATH=
+WHATSAPP_HEADLESS=true
+# 会话目录留空则用相对路径 Task\whatsapp_session（副本不带打包时的登录态）
+WHATSAPP_SESSION=
+
+# ---- 启动开关 ---------------------------------------------------------------
+# 1 = 启动 WhatsApp bot 的 Baileys 主进程（src/index.js）。
+# ⚠ 默认 0：主进程会连 WhatsApp 并按群消息自动回复/投递，用打包时的登录态
+#   在别的机器上起它等于接管别人的会话。需要时改 1 并**重新扫码登录**。
+START_WA_BOT=0
+# 1 = 启动 my_app 的 WhatsApp 分析服务（9268）。默认 0，按需开。
+START_WA_ANALYSIS=0
+# 1 = 启动 nginx 反代。默认 1；只想单独调某个服务时可设 0。
+START_NGINX=1

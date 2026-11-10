@@ -632,7 +632,7 @@ def _merge_sp_details_workbook(out_path: Path) -> tuple:
     """把 data/sp_email/data 下的明细 xlsx 合并为**一个**工作簿（每个明细一个 sheet）。
 
     优先读 `*_details_source.xlsx` —— sp_report_generate（05:15）Step 1.5 在任何过滤
-    之前原样留的**未过滤**快照（含 Canceled / WaitingForUpdate / 手工剔除名单行），
+    之前原样留的**未过滤**快照（含 Canceled/Terminated / WaitingForUpdate / 手工剔除名单行），
     与 SFTP 上游一致；`*_details.xlsx` 是处理过的，只服务 SpareParts/Comsumables 报表。
     快照缺失（首次上线、或 05:15 那次没跑）时回退读过滤后的明细，并把回退说明带回结果。
 
@@ -844,7 +844,7 @@ def run_sp_details_files_email(to: str = None, cc: str = None) -> dict:
     收件人/附件形态都不同，故独立成任务而不是加开关。
 
     取数口径：优先 sp_report_generate（05:15）留的 ``*_source.xlsx`` 未过滤原始快照
-    （含 Canceled / WaitingForUpdate / 手工剔除名单行，与 SFTP 上游一致），缺失时
+    （含 Canceled/Terminated / WaitingForUpdate / 手工剔除名单行，与 SFTP 上游一致），缺失时
     逐份回退过滤后的 ``*_details.xlsx``，回退情况写进结果与日志。
 
     失败语义：**6 份文件任一缺失即整体失败、一封都不发**（用户口径：宁可一封不发

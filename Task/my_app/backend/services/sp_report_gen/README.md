@@ -24,7 +24,7 @@ SFTP 10.100.20.11 /home/ubuntu/sp（备件原始数据，上游每小时产一�
 my_app\data\sp_email\data\          ← 原始数据（本地统一叫 *_details.xlsx）
    │  Step 1.5 snapshot_raw_details()：原样复制一份 *_details_source.xlsx（未过滤）
    │    → 供 sp_email_details 合并 SP Details Report（2026-09-22 起）
-   │  明细预处理（剔除单据 → 出库状态 → Canceled → Material Name/Type 按主数据归一，均写回同一批 xlsx）
+   │  明细预处理（剔除单据 → 出库状态 → Canceled/Terminated → Material Name/Type 按主数据归一，均写回同一批 xlsx）
    ▼
 my_app\data\sp_email\data\          ← 处理后明细（下游 sp_online / sp_email_details 同口径）
    │  generate_report()（再按仓库 / Material Type 过滤）
@@ -69,15 +69,15 @@ EWS 发送邮件（owa_mail_report.py）
 | Step 1.5 | `snapshot_raw_details()` | 下载后、任何过滤之前把 5 份明细原样复制成 `*_details_source.xlsx`（固定名，每次覆盖）；复制失败只告警，下游回退读过滤后的明细 | ➕ 新文件 |
 | Step 2.1 | `apply_exclude_to_details()` | 按 `data\sp_email\data\in&out_exclude.xlsx`（sheet `3_剔除单据Serial明细`）剔除指定单据行，分入库/出库两组 | ✅ |
 | Step 2.2 | `apply_status_filters()` | 入库 **与** 出库明细剔除 `Status='WaitingForUpdate'`（`DETAIL_DROP_STATUS`；入库侧 2026-10-31 加，此前只剔除出库）。⚠️ 这是**共享明细**过滤，影响 SpareParts/Consumables 报表、`com_report` / `sp_report` / `warehouse_summary` 页面与 `sp_online` 的 Inbound 支路；SP Online 报表的 Outbound 支路已于 2026-09-30 改读库表，**不再受它影响**，故不必改动此处 | ✅ |
-| Step 2.3 | `apply_operation_result_filter()` | 入库/出库明细剔除 `Operation Result Status='Canceled'`（`OP_RESULT_DROP_STATUS`） | ✅ |
-| Step 2.4 | `apply_operation_result_filter_to_file()` | 转仓明细（transfer / transfer_return）剔除 `Operation Result Status='Canceled'` | ✅ |
+| Step 2.3 | `apply_operation_result_filter()` | 入库/出库明细剔除 `Operation Result Status='Canceled'/'Terminated'`（`OP_RESULT_DROP_STATUS`，2026-11-09 起加 `Terminated`） | ✅ |
+| Step 2.4 | `apply_operation_result_filter_to_file()` | 转仓明细（transfer / transfer_return）剔除 `Operation Result Status='Canceled'/'Terminated'` | ✅ |
 | Step 2.5 | `apply_material_master_fields()` | **五份**明细（inbound / outbound / inventory / transfer / transfer_return）**加**对应的 5 份 `*_source.xlsx` 快照，Material Name 一律按 `Material No.` 取 `sp_material` 的最新名（主数据不可用时回退 inventory），Material Type 仍取 inventory。快照**只改名不动行** | ✅ |
 | Step 4 | `preprocess()` | 排除仓库 `Liberia Monrovia material warehouse` | ❌ 仅报表 |
 | 生成时 | `generate_report()` | 仅保留 `Material Type='SpareParts'`（或 `Consumables`） | ❌ 仅报表 |
 
 `Operation Result Status` 只有 inbound / outbound / wh_transfer 有；`inventory_management`
-没有该列，不受影响。已作废单据（Canceled）在 SpareParts/Comsumables 报表里不出现，
-但在 SP Details Report 里**保留**（它读 Step 1.5 的原始快照，见下）。
+没有该列，不受影响。已作废/已终止单据（Canceled / Terminated）在 SpareParts/Comsumables 报表里不出现，
+但在 SP Details Report 里**保留**（它读 Step 1.5 的原始快照，见下）。outbound 的 `WaitingForReturn` 仍保留。
 
 剔除匹配口径（命中任一即删）：
 - `full` = (单据号, Material No., Serial No., Qty) 四字段全等
@@ -126,7 +126,7 @@ EWS 发送邮件（owa_mail_report.py）
 
 `sp_email_details`（05:55）合并 **5 份** `*_details_source.xlsx` 原始快照
 （inventory / inband / outband / transfer / transfer_return），**行不经过任何过滤** ——
-含 `Operation Result Status=Canceled`、入库/出库 `Status=WaitingForUpdate` 与
+含 `Operation Result Status=Canceled/Terminated`、入库/出库 `Status=WaitingForUpdate` 与
 `in&out_exclude.xlsx` 手工剔除名单里的行，行数与 SFTP 上游逐行一致。
 唯一例外是 `Material Name` 这一列：Step 2.5 会把快照里这一列也按物料主数据改名
 （只改值、不动行），所以本页与总表、与 `?page=sp_details`、与 10:05 的分文件邮件附件
@@ -141,6 +141,9 @@ SpareParts/Comsumables 报表走的是**另一条**：过滤后的 `*_details.xl
 （Canceled 301，其中 299 条正是剔除名单里的行）；Outbound 2258 → 2187
 （WaitingForUpdate 45 + Canceled 26，名单 6 条含在 Canceled 内）。
 Inventory / Transfer 两份行数不变（原始即无 Canceled）。
+（历史口径：当时只剔除 Canceled；2026-11-09 起同时剔除 Terminated。当天实测
+inbound Terminated 83 行、outbound Terminated 14 行，含在过滤前版本生成的
+`SpareParts Inbound&Outbound&Inventory 2026-11-09 05-18-17.xlsx` 等合并总表里。）
 
 > 2026-10-31 起入库侧也剔除 `WaitingForUpdate`。当天实测：入库原始 4659 行里有
 > **81 行 WaitingForUpdate**，全部属于同一张单 `SPIB202610300002`（`New Inbound`、
@@ -258,7 +261,7 @@ Inventory / Transfer 两份行数不变（原始即无 Canceled）。
 
 | sheet | 说明行内容 |
 |-------|-----------|
-| Inbound | `Material Type = <类型>` + `Warehouse Name ≠ 'Liberia Monrovia material warehouse'` + `Excluded orders: in&out_exclude.xlsx [sheet 3: excluded order serial details]` + `Operation Result Status ≠ 'Canceled'` + `Status ≠ 'WaitingForUpdate'` + `Material Name = latest name from the material master (sp_material) resolved by Material No.` |
+| Inbound | `Material Type = <类型>` + `Warehouse Name ≠ 'Liberia Monrovia material warehouse'` + `Excluded orders: in&out_exclude.xlsx [sheet 3: excluded order serial details]` + `Operation Result Status ≠ 'Canceled', 'Terminated'`（2026-11-09 起） + `Status ≠ 'WaitingForUpdate'` + `Material Name = latest name from the material master (sp_material) resolved by Material No.` |
 | Outbound | 同 Inbound（两支说明行逐字一致，2026-10-31 起入库侧也剔除 `Status ≠ 'WaitingForUpdate'`） |
 | Inventory | `Material Type = <类型>` + `Warehouse Name ≠ 'Liberia Monrovia material warehouse'` + 同一条 `Material Name = ...` |
 | Summary-Current / Summary-Changed | `Material Type = <类型>` + 排除仓库 + `same exclusions as the Inbound / Outbound / Inventory sheets` + `Status ≠ 'WaitingForUpdate'`（后一条 2026-10-31 起显式写出：页面的「口径说明」面板取的就是 Summary-Current 这几行说明，只写「same exclusions」页面上看不到入库/出库剔除条件）+ 同一条 `Material Name = ...` |

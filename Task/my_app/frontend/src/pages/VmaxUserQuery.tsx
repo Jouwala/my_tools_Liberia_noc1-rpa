@@ -67,10 +67,12 @@ import {
 } from './vmaxWindow'
 import { VmaxWindowContext, type VmaxQuerySnapshot } from './vmaxWindowContext'
 import {
-  analyzeGame, analyzeOtt, analyzeRadio, analyzeVoice, buildTimeline, buildVerdict,
+  analyzeGame, analyzeOtt, analyzeRadio, analyzeRateCeiling, analyzeTerminal,
+  analyzeVoice, buildTimeline, buildVerdict,
   isComplaintKey, isDiagViewKey, scoreAll, sourceLabel, type ComplaintKey,
   type DiagnosisPayload, type DiagViewKey,
 } from './vmaxDiagnosisRules'
+import { VmaxRateCard, VmaxTerminalCard } from '../components/vmax/VmaxTerminalRateCards'
 
 const { Text } = Typography
 const { RangePicker } = DatePicker
@@ -263,6 +265,9 @@ export default function VmaxUserQuery() {
   const timeline = useMemo(() => (sources.length ? buildTimeline(sources) : []), [sources])
   /* 无线专项：Radio 页签用。与 scoreRadio 同一批采样，保证页签解释得了评分卡 */
   const radio = useMemo(() => (sources.length ? analyzeRadio(sources) : null), [sources])
+  /* 终端画像 + 限速推断（2026-11-08，与工作台同源纯前端算） */
+  const terminal = useMemo(() => (sources.length ? analyzeTerminal(sources) : null), [sources])
+  const rate = useMemo(() => (sources.length ? analyzeRateCeiling(sources) : null), [sources])
   const verdict = useMemo(() => (
     sources.length && voice && ott && game
       ? buildVerdict(complaint, scores, voice, ott, game, sources)
@@ -487,6 +492,10 @@ export default function VmaxUserQuery() {
             </div>
           </CardBase>
         )}
+
+        {/* 终端画像 + 限速推断（2026-11-08，用户要求放最上面：先看对象，再看结论） */}
+        {searched && <VmaxTerminalCard profile={terminal} />}
+        {searched && <VmaxRateCard rate={rate} />}
 
         <VmaxDiagnosisCard
           payload={diag}

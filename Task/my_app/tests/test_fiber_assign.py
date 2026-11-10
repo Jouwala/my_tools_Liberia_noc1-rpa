@@ -568,6 +568,29 @@ def test_ttstatus_does_not_block_assignment():
     assert svc.is_already_handled("S", False) is False
 
 
+def test_manual_pending_defers_known_unassignable():
+    """「已知派不出 + 已通报人工 + ttstatus 仍可疑」→ 缓派（2026-11-08 根治）。
+
+    背景：ttstatus 可疑（ME 未绑定站点）的告警派单接口回 succeed 却永远建不出
+    TT。旧实现每 5 分钟空试一遍，本轮 due 全是它们时整轮判 failed ——
+    2026-11-08 实测 118 次任务失败。三个条件缺一不可：
+      * 首次见到的告警必须试（2026-10-27 业务要求不能被挡住）；
+      * 没通报过人工的不能缓（否则静默漏派）；
+      * ttstatus 转干净（eFlow 修好绑定）必须自动恢复派单。
+    """
+    svc = _reload_service()
+    # 三条件齐备 → 缓派
+    assert svc.is_manual_pending("N", "Y", True) is True
+    # 缺任一条件 → 不缓派
+    assert svc.is_manual_pending("N", "", True) is False    # 尚未通报 → 本轮重试，失败后通报
+    assert svc.is_manual_pending("N", "N", True) is False   # 通报未确认送达 → 仍要重试
+    assert svc.is_manual_pending("N", "Y", False) is False  # ttstatus 转干净 → 自动恢复派单
+    assert svc.is_manual_pending("", "Y", True) is False    # 首次见到 → 必须先试一次
+    assert svc.is_manual_pending("Y", "Y", True) is False   # 已成功 → 走 is_already_handled
+    assert svc.is_manual_pending("S", "Y", True) is False   # 跳过记录 → 每轮重新判定
+    assert svc.is_manual_pending("D", "Y", True) is False   # 演练记录 → 不缓派
+
+
 def test_existing_upstream_tt_is_skipped():
     """告警上游已带 TT 时不得重复派单（2026-10-26 生产自查发现的回归点）。
 
@@ -850,3 +873,21 @@ def test_outcome_fail_reasons_are_capped():
     # 计数用的是全部 failed，但拼进 error 的明细被截断
     assert r["failed"] == 20
     assert r["error"].count("站点解析失败") == svc.FAIL_REASON_CAP
+
+
+def test_outcome_all_pending_manual_is_not_failure():
+    """全部在等人工修 ME 绑定（缓派，due=0）→ 不是失败（2026-11-08）。
+
+    复现当日实况：5~7 条 fiber 告警的 ME 未在 eFlow 绑定站点，派单永远建不出
+    TT 且已通报人工。修复后它们归 pending_manual（有意不派，不计 due/failed），
+    任务不再每 5 分钟被误报一次失败（当日因此累计 118 次）。
+    """
+    r = _outcome(pending_manual=6)
+    assert r["status"] == "ok" and r["success"] is True
+
+
+def test_outcome_pending_manual_does_not_mask_real_failures():
+    """缓派桶不能掩盖真实失败：该派的派不出去，照样判 failed。"""
+    r = _outcome(due=2, failed=2, pending_manual=5,
+                 fail_reasons=["A1: 建单失败"])
+    assert r["status"] == "failed" and r["success"] is False

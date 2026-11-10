@@ -378,14 +378,23 @@ neighbor_rsrp / neighbor_rsrq`（单值=最佳邻区）；另有 `serving_rsrq`�
 - `fact_pscp_s6a`（39 列，HSS）：`$cause/cause_name`、`$hss_id/$hss_address`、
   `origin_host/destination_host` —— **无余额/配额列**（OCS/Gy 不在 XDR 清单）
 - `fact_pscp_sgs`（41 列）：`$sgs_cause/sgs_cause_name` + 过程名/状态列
-- `fact_pscp_s11`（38 列）：`$request_cause/$failure_cause` + `apn`
+- `fact_pscp_s11`（38 列，S10/S11 共表）：`$request_cause/$failure_cause` + `apn`
+- `fact_pscp_gn`（42 列）：`$cause/cause_name/$causetype` + `apn` + 过程名/状态列
 
 ⚠️ **旧 `COLS_1100` 写的 `procedure_status/fail_cause/request_cause/interface`
 在列头里不存在**，`query_table` 交集（`vmax_xdr_client.py:477-480`）静默丢掉，
 实查 1100 只返回 `[start_time, cell, imsi]` 3 列：可用性评分恒 100、语音
 CSFB 恒 `none`、账务分型永不触发。已修复：`COLS_1100` 改真实列名，
 `vmax_diagnosis.py::_norm_1100_row` 做别名归一（前端契约不变），
-`_src_1100` 另合并 S6a 失败行与 SGs 行（单表失败不阻断）。
+`_src_1100` 合并控制面五表（S1-MME 全行；S6a/S11/Gn 失败行；SGs 全行，
+单表失败不阻断）。控制面口径（用户 2026-11-08）：S1MME/S11/S10/S6a/SGs/Gn。
+
+⚠️ **本部署 Talon 实际只采了 S1-MME**（2026-11-08 双号 72h 实测：S1-MME
+12406 / 1483 条，S6a/S11/SGs/Gn 全部 0 条）。**表结构在库里、列头可取，但无数据**。
+单号 24h 零记录不能下结论（S6a 只在附着/位置更新时打 HSS，挂机可整天零条），
+故用 72h + 双号 + S11（承载频繁、必有量）交叉验证后才定性。
+S11 曾有一次 3725 的计数抖动，复跑为 0，上游 records 总数本身不稳定。
+探查注意：窗口 `end` 必须 +1 分钟避分区边界，否则整段假空。
 
 ## 3. 账务信号在 XDR 信令里的边界
 

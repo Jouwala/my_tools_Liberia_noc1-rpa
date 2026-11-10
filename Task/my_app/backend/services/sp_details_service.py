@@ -14,7 +14,7 @@
       sheet Transfer Return <- transfer_return_details_source.xlsx（可选，通常为空）
 
 ``_source`` 是 sp_report_generate（05:15）Step 1.5 在**任何过滤之前**原样复制的
-SFTP 快照，所以本页与邮件附件**含** ``Operation Result Status=Canceled``、
+SFTP 快照，所以本页与邮件附件**含** ``Operation Result Status=Canceled/Terminated``、
 出库 ``Status=WaitingForUpdate`` 以及 ``in&out_exclude.xlsx`` 手工剔除名单里的行
 （2026-09-22 起改为这个口径；此前读的是处理过的 ``*_details.xlsx``）。
 过滤后的 ``*_details.xlsx`` 仍服务 SpareParts/Comsumables 报表与 sp_online 等下游。
@@ -157,7 +157,7 @@ TIME_COLUMNS: Dict[str, Tuple[str, ...]] = {
 TOP_N = 12
 
 #: 判定「未关闭」的关键字（大小写不敏感，含即视为已关闭）。
-#: 2026-10-18：本页是**原始快照原样呈现**（含 Canceled / WaitingForUpdate），
+#: 2026-10-18：本页是**原始快照原样呈现**（含 Canceled/Terminated / WaitingForUpdate），
 #: 故其「未关闭行数」口径与 portal_qc / sp_report 不同 —— 那两处剔除在途态
 #: 且按单号去重，本页按行、不剔除。保留本常量只为页面内部现状展示，
 #: **不要**把它当作与 portal_qc 对齐的判据；两页数字不同是预期的，
@@ -407,7 +407,7 @@ def _read_individual() -> _Data:
     if filtered_fallback:
         warnings.append(
             f"{'、'.join(filtered_fallback)} 缺 *_source.xlsx 原始快照，"
-            "读的是过滤后的明细（不含 Canceled / WaitingForUpdate / 剔除名单行）"
+            "读的是过滤后的明细（不含 Canceled/Terminated / WaitingForUpdate / 剔除名单行）"
         )
     source = {
         "mode": "individual",

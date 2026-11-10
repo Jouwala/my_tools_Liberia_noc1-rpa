@@ -36,12 +36,14 @@ const HYP_OWNER_KEY: Record<HypothesisOwner, string> = {
 
 export default function VmaxWorkspaceVerdict({
   rankedCauses, recommendations, ccaError, ccaLoading,
-  diagLoading, diagLoaded, diagTotal, onOpenEvidence, hypotheses,
+  diagLoading, diagLoaded, diagTotal, onOpenEvidence, hypotheses, missingEvidence,
 }: {
   rankedCauses: RankedCause[]
   recommendations: Recommendation[]
   /** P0-4 假设排序（来自 verdict.hypotheses；为空时只显示 CCA 排行） */
   hypotheses?: Hypothesis[]
+  /** 待补证据（来自 verdict.missingEvidence；「算不全」→ 常驻，AGENTS.md 第 10 条） */
+  missingEvidence?: import('../../pages/vmaxDiagnosisRules').I18nText[]
   /** CCA 根因查询失败原因（空 = 成功）。失败时常驻红条，区别于「无根因」 */
   ccaError?: string
   /** CCA 根因查询进行中 */
@@ -100,6 +102,16 @@ export default function VmaxWorkspaceVerdict({
   ]
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--wh-space-md)' }}>
+      {/* 待补证据常驻（账务未查等「算不全」信息，AGENTS.md 第 10 条例外口） */}
+      {!diagLoading && missingEvidence && missingEvidence.length > 0 && (
+        <Alert
+          type="warning" showIcon
+          message={t('vmaxq.ws.hyp.missing')}
+          description={missingEvidence.map((e, i) => (
+            <div key={i}>· {renderI18n(t, e)}</div>
+          ))}
+        />
+      )}
       {/* P0-4 假设排序：规则引擎的根因假设（与 CCA 排行并列，不互相篡改） */}
       {hypotheses && hypotheses.length > 0 && (
         <CardBase title={t('vmaxq.ws.hyp.title')}>

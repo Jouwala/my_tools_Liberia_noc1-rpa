@@ -171,6 +171,8 @@ class VmaxDiagnosis:
         "$first_req_delay",
         "ul_avg_rtt", "dl_avg_rtt",
         "ul_throughput_max", "dl_throughput_max", "qci",
+        # 2026-11-08 终端画像卡：身份/制式/APN（限速推断走 throughput_max）
+        "imei", "ue_model", "ue_brand", "rat_name", "apn",
     ]
     # ⚠ 2026-11-08 列头探查（get_xdrheader_info 实测）：
     # 分表真实列名带 $ 前缀（如 $procedure_status / $causetype），旧 COLS_1100
@@ -180,7 +182,7 @@ class VmaxDiagnosis:
     # 评分/语音 CSFB/账务分型此前全部在空字段上运行（评分恒 100、语音恒 none）。
     # 现改为真实列名，_src_1100 再做别名归一（前端契约不变）。
     COLS_1100 = [
-        "imsi", "start_time", "apn",
+        "imsi", "start_time", "apn", "imei", "ue_model", "ue_brand", "rat_name",
         "$interface", "interface_name",
         "$procedure_type", "procedure_type_name",
         "$procedure_status", "procedure_status_name",
@@ -209,6 +211,25 @@ class VmaxDiagnosis:
         "$sgs_cause", "sgs_cause_name",
         "cell", "cell_id",
     ]
+    # S11（S10/S11 共用 S10S11_XDR 一张表，MME-SGW 承载）与 Gn（SGSN-GGSN，
+    # 2G/3G）：2026-11-08 列头探查确证。本部署实测这两表对样本号 72h 零记录
+    # （采集未开通），合并进来是为采集开通后免改代码。
+    COLS_1100_S11 = [
+        "imsi", "start_time", "apn",
+        "$interface", "interface_name",
+        "$procedure_type", "procedure_type_name",
+        "$procedure_status", "procedure_status_name",
+        "$request_cause", "request_cause_name",
+        "$failure_cause", "failure_cause_name",
+    ]
+    COLS_1100_GN = [
+        "imsi", "start_time", "msisdn", "apn",
+        "$interface", "interface_name",
+        "$procedure_type", "procedure_type_name",
+        "$procedure_status", "procedure_status_name",
+        "$cause", "cause_name", "$causetype",
+        "cell", "cell_id",
+    ]
     COLS_1301 = ["start_time", "vmos", "resolution", "result"]
     COLS_RAN = [
         "btime", "serving_rsrp", "serving_rsrq", "ulsinr", "cqi",
@@ -218,6 +239,8 @@ class VmaxDiagnosis:
         "neighbor_rsrp", "neighbor_rsrq", "neighbor_cell_number",
         "neighbor_cell_pci", "neighbor_freq",
         "enbid", "pci", "measid",
+        # 2026-11-09 弱覆盖分型：用户位置 + TA（到服务小区距离，单位 m）
+        "mrlat", "mrlon", "ta_ts",
     ]
 
     def _src_1300(self, msisdn: str, start: str, end: str) -> Dict[str, Any]:
@@ -251,43 +274,43 @@ class VmaxDiagnosis:
         out["procedure_status"] = pick("procedure_status_name", "$procedure_status")
         out["procedure_type"] = pick("procedure_type_name", "$procedure_type")
         out["request_cause"] = pick("request_cause_specific_name",
-                                     "$request_cause_specific", "sgs_cause_name", "$sgs_cause")
+                                     "$request_cause_specific", "sgs_cause_name", "$sgs_cause",
+                                     "request_cause_name", "$request_cause")
         out["fail_cause"] = pick("failure_cause_specific_name",
                                   "$failure_cause_specific", "$causetype",
-                                  "cause_name", "$cause")
+                                  "cause_name", "$cause",
+                                  "failure_cause_name", "$failure_cause")
         out["interface"] = pick("interface_name", "$interface")
         out["cellname"] = pick("cellname", "cell")
         out["cellid"] = pick("cell_id", "cellid")
         return out
 
     def _src_1100(self, msisdn: str, start: str, end: str) -> Dict[str, Any]:
-        """1100 = S1-MME 主表 + S6a 失败行 + SGs 行（2026-11-08）。
+        """1100 = 控制面五表全采集（2026-11-08，用户口径 S1MME/S11/S10/S6a/SGs/Gn；
+        S10 与 S11 共用 S10S11_XDR 一张表）。
 
-        - 主表 fact_pscp_s1mme：接入过程与 EMM/ESM 拒绝原因；
-        - S6a fact_pscp_s6a：**只合并失败行**（HSS Diameter 拒绝是订阅/账务类
-          信号；成功行不进，避免改动可用性分母口径）；
-        - SGs fact_pscp_sgs：语音回落（analyzeVoice 的 SGs 分支挂在这张表，
-          只查主表时恒为 0）；
-        三表各自独立取数，单表失败只记日志不阻断（与其它源同纪律）。
+        - 主表 fact_pscp_s1mme：接入过程与 EMM/ESM 拒绝原因（4 页）；
+        - 辅表 S6a/SGs/S11/Gn：**全量合并**（成功行也进：可用性分母、语音回落链、
+          承载序列都需要完整过程；各限 2 页，忙号截断只影响辅表）；
+        各表独立取数，单表失败只记日志不阻断（与其它源同纪律）。
+        本部署实测后四表零记录（采集未开通），合并是为开通后免改代码。
         """
         rows, truncated = self._page_through(
             msisdn, "1100", "fact_pscp_s1mme", start, end, MAX_PAGES_1100,
             columns=self.COLS_1100)
         merged = [self._norm_1100_row(r) for r in rows]
-        for table, cols, only_fail in (
-                ("fact_pscp_s6a", self.COLS_1100_S6A, True),
-                ("fact_pscp_sgs", self.COLS_1100_SGS, False)):
+        for table, cols in (
+                ("fact_pscp_s6a", self.COLS_1100_S6A),
+                ("fact_pscp_sgs", self.COLS_1100_SGS),
+                ("fact_pscp_s11", self.COLS_1100_S11),
+                ("fact_pscp_gn", self.COLS_1100_GN)):
             try:
                 extra, _ = self._page_through(
                     msisdn, "1100", table, start, end, 2, columns=cols)
             except Exception as exc:  # noqa: BLE001 - 单表失败不阻断主源
                 logger.warning("[vmax_diag] 1100 辅表 %s 取数失败（忽略）: %s", table, exc)
                 continue
-            for r in extra:
-                n = self._norm_1100_row(r)
-                if only_fail and str(n.get("procedure_status", "")).upper() == "SUCCESS":
-                    continue
-                merged.append(n)
+            merged.extend(self._norm_1100_row(r) for r in extra)
         return {"key": "1100", "label_key": "vmaxq.diag.src.1100",
                 "label": "会话/信令面 (1100)", "rows": merged,
                 "truncated": truncated}
@@ -322,9 +345,112 @@ class VmaxDiagnosis:
         rows, truncated = self._page_through(
             msisdn, "32", "fact_lte_uemr", start, end, MAX_PAGES_RAN, imsi=imsi,
             columns=self.COLS_RAN)
+        # 2026-11-09：小区→站点坐标关联，算「用户到服务站点/最近站点距离」。
+        # best-effort：本地库查不到/匹配不上时不阻断（前端按缺失处理）。
+        try:
+            self._enrich_site_dist(rows)
+        except Exception as exc:  # noqa: BLE001 - 富化失败不阻断主源
+            logger.warning("[vmax_diag] 站点距离富化失败（忽略）: %s", exc)
         return {"key": "32", "label_key": "vmaxq.diag.src.32",
                 "label": "无线质量 (32 RAN)", "rows": rows,
                 "truncated": truncated}
+
+    @staticmethod
+    def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+        import math
+        r = 6371.0
+        dlat = math.radians(lat2 - lat1)
+        dlon = math.radians(lon2 - lon1)
+        a = math.sin(dlat / 2) ** 2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon / 2) ** 2
+        return 2 * r * math.asin(math.sqrt(a))
+
+    @staticmethod
+    def _norm_name(s: str) -> str:
+        import re
+        return re.sub(r"[^a-z0-9]", "", str(s or "").lower())
+
+    def _enrich_site_dist(self, rows: List[Dict[str, Any]]) -> None:
+        """给每行 UEMR 补 `_site_km_serving` / `_site_km_nearest` / `_site_nearest`。
+
+        本地 `eflow_site`（站点主数据，含 latitude/longitude）按名匹配：
+        UEMR 小区名形如 "Methodist Compound-X1"，站点名取 "-X<n>/-L<n>" 后缀
+        之前的部分；先精确、后归一（去非字母数字小写）。匹配不上（实测约 9%）
+        时该行不写字段，前端按「站点距离未知」处理，绝不猜。
+        """
+        if not rows:
+            return
+        cells = {str(r.get("cell") or r.get("cellname") or "").strip()
+                 for r in rows}
+        cells.discard("")
+        if not cells:
+            return
+        import re
+        from backend.database import get_raw_connection
+
+        sites: List[tuple] = []  # (norm_name, name, lat, lon)
+        with get_raw_connection() as conn:
+            # 列名探测：eflow_site 在 PG/SQLite 下命名有带空格与小写两套
+            cols = set()
+            try:
+                cols = {str(r[0]) for r in conn.execute(
+                    "SELECT column_name FROM information_schema.columns WHERE table_name='eflow_site'").fetchall()}
+            except Exception:  # noqa: BLE001 - SQLite 回退
+                cols = {str(r[1]) for r in conn.execute("PRAGMA table_info(eflow_site)").fetchall()}
+            low = {c.lower().replace(" ", ""): c for c in cols}
+            name_col = low.get("sitename") or low.get("site_name")
+            lat_col = low.get("latitude") or low.get("lat")
+            lon_col = low.get("longitude") or low.get("lng") or low.get("lon")
+            if not (name_col and lat_col and lon_col):
+                return
+            q = (f'SELECT "{name_col}", "{lat_col}", "{lon_col}" FROM eflow_site '
+                 f'WHERE "{lat_col}" IS NOT NULL AND "{lon_col}" IS NOT NULL')
+            for name, lat, lon in conn.execute(q).fetchall():
+                try:
+                    la, lo = float(lat), float(lon)
+                except (TypeError, ValueError):
+                    continue
+                if la == 0 and lo == 0:
+                    continue
+                sites.append((self._norm_name(name), str(name), la, lo))
+        if not sites:
+            return
+        by_norm = {}
+        for norm, name, la, lo in sites:
+            by_norm.setdefault(norm, (name, la, lo))
+
+        def resolve(cell: str):
+            cands = [cell]
+            m = re.match(r"^(.*?)[-_](?:X|L)\d+$", cell.strip(), re.I)
+            if m:
+                cands.append(m.group(1))
+            for c in cands:
+                hit = by_norm.get(self._norm_name(c))
+                if hit:
+                    return hit
+            return None
+
+        serving = {c: resolve(c) for c in cells}
+        for r in rows:
+            try:
+                la = float(r.get("mrlat") or 0)
+                lo = float(r.get("mrlon") or 0)
+            except (TypeError, ValueError):
+                continue
+            # 哨兵值 -90/-180（上游未定位占位）与 0 都不算有效位置
+            if not la or not lo or abs(la) >= 90 or abs(lo) >= 180:
+                continue
+            cell = str(r.get("cell") or r.get("cellname") or "").strip()
+            sv = serving.get(cell)
+            if sv:
+                r["_site_km_serving"] = round(self._haversine_km(la, lo, sv[1], sv[2]), 2)
+            best_km, best_name = None, ""
+            for _norm, name, sla, slo in sites:
+                km = self._haversine_km(la, lo, sla, slo)
+                if best_km is None or km < best_km:
+                    best_km, best_name = km, name
+            if best_km is not None:
+                r["_site_km_nearest"] = round(best_km, 2)
+                r["_site_nearest"] = best_name
 
     # ------------------------------------------------------------------
     # 解析 IMSI（RAN 查询的前置条件）
