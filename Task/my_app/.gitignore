@@ -56,6 +56,11 @@
 
 # 带时间戳的库备份与运行时整目录备份
 *.bak_*
+# 同上，但用「点号 + bak_」命名的那一类（页面改版的本地备份）。
+# 2026-11-10：frontend/public 下的 cxo_dashboard.html.bak_* 与
+# alarm-management.html.bak_* 内嵌了**抓包快照里的 VMAX 会话 Cookie**
+# （JSESSIONID=...），虽未被代码读取，但入库即公开 —— 必须挡住。
+*.html.bak_*
 /backend/services/cn_ems/jab_setup/backup_*/
 
 # 实时代理的上游会话文件（FMS 8787 / VMAX 8790）。
@@ -205,3 +210,10 @@ _probe_file.txt
 # url.txt 含明文口令与有效 Bearer JWT，按 AGENTS.md 四.2 禁止入库；
 # 后续该目录写正式取数代码（.py）不受影响，仅拦抓包转储。
 /backend/services/ipt_data/url*.txt
+
+# IP RAN / DWDM / IP 骨干 / Metro Ring 拓扑取数抓包 —— 2026-11-10。
+# 4 份 url_*.txt 是 UME（ZTE NetNumen）拓扑接口的 curl 导出，含**有效会话 cookie**
+# （Z-AUTH-CODE-28001 / x-dexmesh-user-28001 / forgerydefense-28001），按
+# AGENTS.md 四.2「绝不写敏感值」禁止入库；它们是取数方法的留档（哪个接口、什么参数），
+# 留在磁盘上供复刻，不上版本库。忽略跟踪 ≠ 可以删除。
+/backend/services/ipran_topo/url_*.txt
