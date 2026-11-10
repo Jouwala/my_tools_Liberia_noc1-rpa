@@ -13037,15 +13037,22 @@ Top-N 的小时明细（SQL-B）——Web 类目全天 1810 个 APP，全存不�
 <p><a id="ch-11-s235"></a></p>
 <h4>41.2 页面结构</h4>
 <ul>
-<li><strong>左 3/5 站点地图</strong>：Leaflet 地图 + 全站圆点（绿=在线正常，橙=有活动告警，红=离线；关注站圆点稍大）。<strong>单击圆点直接从右侧滑出「电源详情」抽屉</strong>；原先叠加的 Leaflet 小 Popup 已移除（两层浮层互相遮挡），其站点身份信息挪到抽屉顶部信息条。</li>
-<li><strong>右 2/5 站点清单表</strong>：站点名（⚡=关注站）/ 参考号 / 连接状态 / SOC / 负载 kW / 太阳能 kW / 柴油 L / 告警数（悬停看告警名）/ 快照时间 / 操作；「只看关注」开关过滤。点行内「详情」与点地图圆点走同一个抽屉。</li>
-<li><strong>县底色图层（2026-11-06 新增，用户：「地图能不能按照州添加背景颜色」）</strong>：15 个县按<strong>该县有 SOC 快照站点的算术平均 SOC</strong> 分五档着色 —— ≥80% 绿 <code>#52c41a</code> / 70<del>80% 黄 <code>#f6cf00</code> / 60</del>70% 橙 <code>#ff922b</code> / &lt;60% 红 <code>#ff4d4f</code> / 参与平均不足 <strong>3 站</strong>归灰不分档。色值沿用 GIS 页 <code>COUNTY_BAND_COLORS</code> 同一组（跨页观感一致），透明度 <code>COUNTY_FILL_OPACITY = {dark:0.24, light:0.18}</code>（比 GIS 的 0.13/0.09 高一档，因为这里要读的是颜色本身而不是只看有没有）。阈值不是拍的：2026-11-06 实测 15 县均值落在 59.3%（Grand Kru）~84.5%（Grand Bassa），站级 SOC p25=61% / p50=82%，80/70/60 三刀把 15 县切成 7/6/1/1。
+<li><strong>左 3/5 站点地图</strong>：Leaflet 地图 + 全站圆点（绿=在线正常，橙=有活动告警，红=离线；关注站圆点稍大）。<strong>单击圆点直接从右侧滑出「电源详情」抽屉</strong>；原先叠加的 Leaflet 小 Popup 已移除（两层浮层互相遮挡），其站点身份信息挪到抽屉顶部信息条。
 <ul>
-<li>实现在 <code>pages/iptPower/countySoc.ts</code>（纯计算：organization 归一化 + 分档）与 <code>pages/iptPower/CountySocLayer.tsx</code>（图层，自己取 <code>/gis/county-boundaries</code>）。拆文件是因为 <code>IptPowerQuery.tsx</code> 已 690+ 行，AGENTS.md 三.2 的 500 行纪律下改它只能收不能胀。</li>
-<li><strong>平均在前端算、不加后端接口</strong>：与 <code>GISMap.tsx:1089</code>（2026-10-21 起县告警数不再用后端静态值）同一个理由 —— 底色必须与<strong>地图上此刻画出来的那批点</strong>同源，搜索词一改底色跟着改；「只看关注」只过滤表格，不动地图也不动底色。吃的就是 <code>/api/ipt-power/sites</code> 已返回的 501 行，零额外请求。</li>
+<li><strong>首次点圆点没反应的修复（2026-11-09）</strong>：<code>leaflet-src.js:14009</code> 的 Keyboard._focus 在 mousedown 时 <code>container.focus()</code>，浏览器把地图容器滚进视口；本页滚动容器是内层 <code>#main-content</code> 而非 window，Leaflet 的 <code>window.scrollTo</code> 补偿落空，实测 <code>scrollTop 0→35</code>，圆点从光标下跑掉 → mousedown/mouseup 落在不同元素，浏览器不产生 click。第二个点起正常（容器已聚焦），故极易误判成「县底色挡住了点击」。<code>iptPower/IptMapFocusGuard.tsx</code> 只摘掉容器的 <code>tabindex</code>（<code>focus()</code> 变空操作），不 <code>preventDefault()</code> mousedown —— 本页圆点是 SVG path，不像人员页的自定义 Marker 会重建出新的 tabindex。验收口径：加载后立刻点第一个圆点，抽屉直接打开且 <code>#main-content.scrollTop</code> 全程 0。</li>
+</ul>
+</li>
+<li><strong>右 2/5 站点清单表</strong>：站点名（⚡=关注站）/ 参考号 / 连接状态 / SOC / 负载 kW / 太阳能 kW / 柴油 L / 告警数（悬停看告警名）/ 快照时间 / 操作；「只看关注」开关过滤。点行内「详情」与点地图圆点走同一个抽屉。</li>
+<li><strong>县底色 + 县名标签（2026-11-06 首版「地图能不能按照州添加背景颜色」；2026-11-09 按用户「按照州添加颜色，参考 ?page=person」改成默认按县分色）</strong>：地图卡标题右侧的「县底色」下拉三档：
+<ul>
+<li><strong>按县分色（默认）</strong>：15 个县各一种类别色、<strong>80% 实心填充</strong>，并标县名 + 当前筛选下的站点数。色表与人员页 <code>?page=person</code> <strong>共用同一份</strong> <code>pages/gismap/countyPalette.ts</code>（2026-11-09 从 <code>personmap/useCountyTags.ts</code> 抽出，不要再抄第二份），按县名字典序稳定映射；颜色只表达「这是哪个县」，<strong>不带数值含义</strong>。县名标签复用 <code>gismap/countyLabelLayout.ts::placeCountyLabels</code> 的避让算法，优先级用 GeoJSON 静态 <code>site_count</code>（避免搜索时标签重排跳动），显示数字用当前筛选后的动态站点数。</li>
+<li><strong>平均 SOC</strong>（2026-11-06 口径，2026-11-08 合并中间两档）：按该县「有 SOC 快照的站点」的算术平均 SOC 分三档 —— ≥80% 绿 <code>#52c41a</code> / 60~80% 黄 <code>#f6cf00</code> / &lt;60% 红 <code>#ff4d4f</code> / 参与平均不足 <strong>3 站</strong>归灰 <code>#9aa5b5</code>；透明度 <code>countySoc.ts::COUNTY_FILL_OPACITY = {dark:0.24, light:0.18}</code>。当前筛选下一个站都没有的县只描边不填充（与灰档区分）。</li>
+<li><strong>不填充</strong>：整层不挂载，回到素底图。</li>
+<li>实现：<code>pages/iptPower/countySoc.ts</code>（纯计算：organization 归一化 + 分档）与 <code>pages/iptPower/IptCountyLayer.tsx</code>（<strong>一个组件同时画多边形与县名标签、两种模式只换 <code>pathOptions</code></strong>）。拆文件是因为 <code>IptPowerQuery.tsx</code> 已 690+ 行，AGENTS.md 三.2 的 500 行纪律下改它只能收不能胀。原 <code>CountySocLayer.tsx</code> 已删除（删除优于兼容）。</li>
+<li><strong>平均在前端算、不加后端接口</strong>：与 <code>GISMap.tsx:1089</code>（2026-10-21 起县告警数不再用后端静态值）同一个理由 —— 底色必须与<strong>地图上此刻画出来的那批点</strong>同源，搜索词一改标签数字与 SOC 档位跟着改；「只看关注」只过滤表格，不动地图也不动底色。吃的就是 <code>/api/ipt-power/sites</code> 已返回的 501 行，零额外请求。</li>
 <li><strong>organization → 县名要归一化</strong>：IPT 上游 16 种写法里 13 种与 GeoJSON 县名逐字相同，另 3 种是 <code>Grand bassa</code>→Grand Bassa、<code>River cess</code>→Rivercess（GeoJSON 的 <code>name</code> 连写，<code>db_name</code> 才分开）、<code>Bopolu</code>→Gbarpolu（Bopolu 是 Gbarpolu 县首府，不是县）。漏了这三条就会有 66 站不进任何县。</li>
-<li><strong>圆点必须点得到</strong>：县块是可 hover 的整面多边形，默认和圆点同在 <code>overlayPane(400)</code>，命中只靠 DOM 顺序不保证 → 圆点抬到 <code>iptSitePane(650)</code>（同 <code>GISMap.tsx:2808</code> 的做法）。</li>
-<li>开关与五档图例在地图卡标题右侧（<code>Switch</code> + 方角色块），<strong>默认开</strong>；图层状态刻意不写进 URL（与 GIS 页「图层开关不持久化」同一约定）。鼠标停在县块上出 tooltip：县名、平均 SOC、<code>参与平均/该县站点数</code>、档位名；当前筛选下一个站都没有的县只描边不填充。口径全文在页面「数据口径说明」第 4 段（默认收起）。</li>
+<li><strong>圆点必须点得到</strong>：县块是可 hover 的整面多边形，默认和圆点同在 <code>overlayPane(400)</code>，命中只靠 DOM 顺序不保证 → 圆点抬到 <code>iptSitePane(650)</code>（同 <code>GISMap.tsx:2808</code>）；县名标签在 <code>iptCountyLabelPane(670)</code>，但 <code>Marker interactive={false}</code> + <code>.gis-county-label</code> 的 <code>pointer-events:none</code> 保证它不拦点击。</li>
+<li>图层状态刻意不写进 URL（与 GIS 页「图层开关不持久化」同一约定），刷新回「按县分色」。<strong>SOC 分档图例浮在地图右上角</strong>（只在 SOC 模式出现，<code>pointerEvents:none</code> 不拦圆点点击）：四档色块若塞进卡片头，实测 <code>extra</code> 宽 898px、标题被挤到 <strong>4px</strong>（旧版开关形态也已有同类截断），故照 GIS / 人员页「图例在地图上」的惯例挪走。鼠标停在县块上出 tooltip；口径全文在页面「数据口径说明」第 4 段（默认收起）。</li>
 </ul>
 </li>
 <li><strong>电源详情抽屉（2026-11-06 由弹窗改来）</strong>：形态照 <code>?page=mwRealTime</code> 点链路的右侧抽屉与 <code>?page=gis</code> 的 <code>SiteDrilldownDrawer</code>——<strong>antd <code>Drawer</code> <code>placement=&quot;right&quot;</code>、宽 <code>min(95vw, 45rem)</code>、通高、带遮罩</strong>，标题栏左侧站点名、右侧「立即刷新」+ ×；遮罩点击 / × / Esc 均可关闭。抽屉壳走全局「浮层玻璃」样式（<code>index.css</code> 的 <code>.ant-drawer-content</code>），不再单独指定 body 背景。
@@ -19722,13 +19729,13 @@ shared <code>auth_cache</code> 里 admin 的 token 明明还有 14.6 小时有�
 <ul>
 <li>页面布局：左侧 <strong>3/5 站点地图</strong>（Leaflet + 自托管 PMTiles 底图，与 GIS 地图同源），<strong>点击站点圆点从右侧滑出「电源详情」抽屉</strong>；右侧 <strong>2/5 站点清单表</strong>，点行内「详情」打开同一个抽屉。抽屉只压住表格那一列，地图与刚点中的站点仍在眼前</li>
 <li>地图圆点颜色：绿=在线正常，橙=有活动告警（悬停表格「告警」列可看告警名），红=离线</li>
-<li>地图可按<strong>县</strong>铺底色（默认开，卡片头「县底色」开关可关）：颜色 = 该县「有 SOC 快照的站点」的平均 SOC，≥80% 绿 / 70<del>80% 黄 / 60</del>70% 橙 / &lt;60% 红，参与平均不足 3 站归灰不分档；鼠标停在县块上看该县平均 SOC 与样本数，完整口径见「数据口径说明」第 4 段</li>
+<li>地图卡标题右侧的「县底色」下拉有三档：<strong>按县分色（默认）</strong> = 15 个县各一种类别色 + 县名与站点数标签，色表与人员地图页（?page=person）共用同一份，颜色只表示「这是哪个县」、不带数值含义；<strong>平均 SOC</strong> = 该县「有 SOC 快照的站点」的平均 SOC，≥80% 绿 / 60~80% 黄 / &lt;60% 红，参与平均不足 3 站归灰；<strong>不填充</strong> = 素底图。鼠标停在县块上看该县站点数与平均 SOC，完整口径见「数据口径说明」第 4 段</li>
 <li>主表 = 全站清单 + 每站<strong>最新一条</strong>电源快照；「连接状态」来自平台的 filter-map（每 5 分钟刷新一次），online/offline 直接反映站点网关的可达性</li>
 <li>⚡ 图标 = 关注站点：watch_sites.json 的 sites 内站点每轮必采 diagram 完整明细；其余站点的明细由 full_shard 分片轮采覆盖（约 20 分钟一轮），KPI 快照（SOC/负载/太阳能/柴油/告警）每轮全站尽力采集，上游承压时由 kpi_cursor 环形续采（等效每站 5~15 分钟）。配置在 backend/services/ipt_data/watch_sites.json，<strong>不要在 sites 里配 &quot;*&quot;</strong></li>
 <li>单站详情是<strong>右侧通高抽屉</strong>（形态同 MW 微波实时点链路、GIS 地图点站点：贴右滑入 + 遮罩 + 与 GIS 抽屉同宽、桌面约 810px + 内容区自己滚动），标题栏带「立即刷新」与 ×，Esc / 点遮罩 / × 均可关闭；抽屉顶部有站点属性条（参考号/区域/Cluster/优先级/供电配置/连接状态/快照时间/连接状态更新），下面依次是六张数字卡（一行 3 张）+ <strong>设备明细卡</strong>（一行 2 张：发电机 R/S/T 相电压相电流与运行模式 / 电池组容量与今日电压 / 油箱油位 / 主源状态）+ 活动告警列表 + 近 N 小时趋势曲线，时间范围 6h/24h/72h/7d 可切</li>
 <li><strong>「立即刷新」是实时直查平台</strong>（绕开 5 分钟节拍与分片轮次），查完自动补一条快照与明细——任何站点都能用它立即取数</li>
 <li>太阳能口径：无太阳能设备的站显示「-」；有设备的站<strong>夜间（当地约 18:30~06:30）为 0 W 属正常</strong>，白天常见 6~14 kW</li>
-<li>采集异常（任务未运行/上一轮失败）会在页面顶部出黄色横幅；快照默认保留 2 天，超期自动清理</li>
+<li>采集异常（任务未运行/上一轮失败）会在页面顶部出黄色横幅；快照默认保留 7 天，超期自动清理</li>
 <li>「导出 Excel」出主表全列（含 SOC/负载/太阳能/柴油/告警数/快照时间）</li>
 <li>搜索词、时间范围、选中站点都写进 URL（iptKw / iptHrs / iptSite），刷新或把链接发给同事后条件还在</li>
 </ul>

@@ -849,6 +849,23 @@ html {
   text-shadow: none;
 }
 
+/* IPT 电源页（?page=ipt_power）的县名标签（2026-11-09 随「按县上色」一起加）。
+   与人员页同一取舍：县块是 80% 实心饱和色，深蓝文字压在上面本身有对比，
+   白描边/白晕反而把小字糊成一团。两条选择器都必须写：浅色主题那条
+   `:root[data-theme='light'] .gis-county-label.leaflet-tooltip` 特异性 (0,4,0)，
+   只写低特异性的单条会被它压掉（2026-10-29 人员页实测的静默失效）。
+   字号比人员页收一档：本页地图只有左 3/5 宽（实测约 570px），15px 的
+   "GRAND CAPE MOUNT" 会溢出小县，11px/10px 更贴县域；避让包围盒仍按
+   countyLabelLayout.ts 的 200×22 估（估大只是多让位，不会漏判重叠）。 */
+.gis-county-label.ipt-county-label.leaflet-tooltip,
+:root[data-theme='light'] .gis-county-label.ipt-county-label.leaflet-tooltip {
+  color: #0b2447;
+  text-shadow: none;
+}
+.ipt-county-tag { gap: 3px; }
+.ipt-county-tag .gis-county-tag__name { font-size: 11px; letter-spacing: 0.02em; }
+.ipt-county-tag .gis-county-tag__num { font-size: 10px; }
+
 /* 地图文字层统一 Inter（2026-10-29 用户指定，并明确不要 Orbitron 这类装饰性科技字体
    —— 小字号下可读性差）。范围只圈地图容器与图例浮层，不动全站正文：
    全站字体栈是另一套既有约定（见上面的 body 规则），改了会波及 60+ 个页面。

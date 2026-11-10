@@ -11,9 +11,12 @@
  *        覆盖全站）→ ipt_power_snapshots 明细列 + ipt_power_site_detail 每站最新明细。
  *   2. 页面布局（2026-11-04）：左侧 3/5 为站点地图（Leaflet + 自托管 PMTiles 底图，
  *      与 GISMap 同一套组件）；右侧 2/5 为站点清单表。
- *      2026-11-06 地图加**县底色**图层（按该县有 SOC 快照站点的平均 SOC 分档，
- *      开关在地图卡标题右侧，2026-11-08 起**默认关**）：计算在 ./iptPower/countySoc.ts，
- *      绘制在 ./iptPower/CountySocLayer.tsx，圆点抬到 iptSitePane(650) 保证仍可点。
+ *      2026-11-09 起地图**默认按县上色**（用户：「按照州添加颜色，参考 ?page=person」）：
+ *      15 个县各一种类别色 + 县名标签，色表与人员页共用 gismap/countyPalette.ts。
+ *      地图卡标题右侧的下拉可切三档：按县分色（默认）/ 平均 SOC 分档 / 不填充。
+ *      SOC 分档是 2026-11-06 那版口径（计算在 ./iptPower/countySoc.ts），
+ *      绘制与县名标签统一在 ./iptPower/IptCountyLayer.tsx；
+ *      圆点抬到 iptSitePane(650) 保证点圆点开抽屉不被整面县块截走。
  *   3. 详情/曲线（2026-11-05 改为居中弹窗；2026-11-06 按用户要求改成**右侧通高抽屉**，
  *      形态对齐 ?page=mwRealTime 点链路的链路详情抽屉与 ?page=gis 的 SiteDrilldownDrawer）：
  *      点地图圆点或行内「详情」→ 从右侧滑入的抽屉（宽 min(95vw, 45rem) + 遮罩 +
@@ -26,7 +29,7 @@
  * ========================================================================== */
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Alert, Button, Col, Drawer, Empty, Input, Row, Select, Space, Spin, Switch, Table, Tag, Typography } from 'antd'
+import { Alert, Button, Col, Drawer, Empty, Input, Row, Select, Space, Spin, Table, Tag, Typography } from 'antd'
 import { DownloadOutlined, ReloadOutlined, ThunderboltOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import ReactECharts from 'echarts-for-react'
@@ -38,7 +41,8 @@ import {
 } from '../theme'
 import { CardBase, StatCard } from '../components/cards'
 import CalcChainNote from '../components/CalcChainNote'
-import { CountySocLayer } from './iptPower/CountySocLayer'
+import { IptCountyLayer, type IptCountyMode } from './iptPower/IptCountyLayer'
+import { IptMapFocusGuard } from './iptPower/IptMapFocusGuard'
 import {
   SOC_BAND_COLOR, SOC_BAND_ORDER, aggregateCountySoc, bandLabelKey,
 } from './iptPower/countySoc'
@@ -105,8 +109,16 @@ type StatusInfo = {
 }
 
 const HOURS_OPTIONS = [6, 24, 72, 168]
-/** 利比里亚国土中心（与 GISMap 的 LB_CENTER 同源：bbox 3.9,-11.7 ~ 8.75,-7.3） */
+/** 利比里亚国土中心（与 GISMap 的 LB_CENTER 同源：bbox 3.9,-11.7 ~ 8.75,-7.3）。
+ *  县名标签的避让投影也吃这两个常量，故 zoom 必须提为模块级常量（引用相等性），
+ *  不能只写在 JSX 的 `zoom={8}` 里另给图层传一份字面量 —— 两处漂移会让标签错位。 */
 const LB_CENTER: [number, number] = [6.325, -9.5]
+const IPT_MAP_ZOOM = 8
+
+/** 县底色三档。默认 `category` = 按县分色（2026-11-09 用户要求，参考 ?page=person）。
+ *  `soc` 是 2026-11-06 那版「平均 SOC 分档」，`none` 回到素底图。
+ *  刻意不写进 URL —— 与 GIS 页「图层开关不持久化」同一约定，刷新回默认。 */
+type CountyMode = IptCountyMode | 'none'
 
 /**
  * 详情抽屉宽度：`min(95vw, 45rem)`，与 GIS 下钻抽屉 `SiteDrilldownDrawer.tsx:265`
@@ -156,9 +168,10 @@ export default function IptPowerQuery() {
     return HOURS_OPTIONS.includes(v) ? v : 24
   })
   const [watchOnly, setWatchOnly] = useState(false)
-  /* 县底色图层开关：**默认关**（2026-11-08 如意要求；首版 2026-11-06 是默认开）。
-     刻意不写进 URL —— 与 GIS 页同一约定：图层状态不持久化，刷新回默认。 */
-  const [showCountyBg, setShowCountyBg] = useState(false)
+  /* 县底色口径：**默认按县分色**（2026-11-09 如意要求「按照州添加颜色，参考 person」）。
+     首版 2026-11-06 只有 SOC 分档且默认开，2026-11-08 改默认关；现改成三档下拉，
+     默认档换成人员页那种逐县类别色，SOC 分档保留为可选项。 */
+  const [countyMode, setCountyMode] = useState<CountyMode>('category')
   const [siteId, setSiteId] = useState(() => readParam('iptSite'))
 
   useEffect(() => { writeParams({ iptKw: keyword, iptSite: siteId, iptHrs: String(hours) }) },
@@ -494,36 +507,62 @@ export default function IptPowerQuery() {
                 <Space size={4}><span style={{ width: 8, height: 8, borderRadius: '50%',
                   background: markerColor({ connectivity: 'offline', alarm_count: 0 } as SiteRow),
                   display: 'inline-block' }} /><Text type="secondary">{t('ipt.map.legend.offline')}</Text></Space>
-                {/* 县底色：开关 + 四档图例（方角色块，和圆点图例区分开）。
-                    默认关，关掉时只留开关，避免卡片头被撑到三行。 */}
+                {/* 县底色三档下拉。⚠ 选项文案必须写成**字面量键**：
+                    `t('ipt.county.mode.' + v)` 会被 check:i18n 读成键名
+                    `ipt.county.mode.` 而报字典缺失（同 AGENTS.md 三.1b）。
+                    SOC 分档图例刻意**不放在这里**：四档色块一进卡片头就把标题挤到
+                    4px 宽（实测 extra 898px / title 4px），改到地图右上角浮层，
+                    与 GIS / 人员页「图例在地图上」的惯例一致。 */}
                 <Space size={6} wrap>
-                  <Switch size="small" checked={showCountyBg} onChange={setShowCountyBg}
-                    aria-label={t('ipt.county.layer')} />
-                  <Text type="secondary">{t('ipt.county.layer')}</Text>
-                  {showCountyBg && SOC_BAND_ORDER.map(b => (
-                    <Space key={b} size={4}>
-                      <span style={{ width: 10, height: 10, borderRadius: 2,
-                        background: SOC_BAND_COLOR[b], display: 'inline-block' }} />
-                      <Text type="secondary">{t(bandLabelKey(b))}</Text>
-                    </Space>
-                  ))}
+                  {/* 不再放「县底色」静态标签：下拉当前值本身就是「按县分色 / 平均 SOC /
+                      不填充」，再挂一行标签会把卡片头挤到截断（实测 SOC 档只显示
+                      「County fil」）。可访问性由 Select 的 aria-label 承担。 */}
+                  <Select<CountyMode>
+                    size="small"
+                    value={countyMode}
+                    onChange={setCountyMode}
+                    style={{ width: 116 }}
+                    aria-label={t('ipt.county.layer')}
+                    options={[
+                      { value: 'category', label: t('ipt.county.mode.category') },
+                      { value: 'soc', label: t('ipt.county.mode.soc') },
+                      { value: 'none', label: t('ipt.county.mode.none') },
+                    ]}
+                  />
                 </Space>
               </Space>
             }
           >
+            {/* 包一层 relative：SOC 分档图例要浮在地图右上角，而不是塞进卡片头。
+                它只是说明性浮层，pointerEvents:'none' 保证不拦圆点点击。 */}
+            <div style={{ position: 'relative' }}>
             <MapContainer
               center={LB_CENTER}
-              zoom={8}
+              zoom={IPT_MAP_ZOOM}
               style={{ height: mapCardHeight, width: '100%', background: 'var(--wh-page-bg)' }}
             >
               <PmtilesLayer url={BASEMAP_PMTILES_URL} isDark={isDark} maxZoom={BASEMAP_MAX_ZOOM} />
+              {/* 摘掉地图容器的 tabindex：否则首次点圆点会被 focus 滚动带跑、抽屉打不开。
+                  不是县底色引入的（不填充模式同样复现），细节见 IptMapFocusGuard.tsx。 */}
+              <IptMapFocusGuard />
               {/* 站点圆点专用 pane（照 GISMap.tsx:2808 同一做法）：县底色是**可 hover 的
                   整面多边形**，和圆点同在默认 overlayPane(400) 时，命中只靠「谁后加入谁在上」
                   —— 那是 DOM 顺序，不保证。抬到 650 后，圆点在县块之上是层级决定的，
                   点圆点开抽屉不会被县块截走。（取 650 = 与 Leaflet tooltipPane 同档、
                   低于 popupPane 700，与 GIS 页同一档。） */}
               <Pane name="iptSitePane" style={{ zIndex: 650 }} />
-              {showCountyBg && <CountySocLayer stats={countySoc} isDark={isDark} />}
+              {/* 县底色 + 县名标签（默认按县分色；none 时整层不挂载，连县界都不取）。
+                  必须画在圆点**之前**：两者已在各自 pane 里，顺序只影响默认 pane 内部叠放，
+                  命中由 z-index 决定，见 IptCountyLayer.tsx 文件头的层级链。 */}
+              {countyMode !== 'none' && (
+                <IptCountyLayer
+                  stats={countySoc}
+                  mode={countyMode}
+                  isDark={isDark}
+                  center={LB_CENTER}
+                  zoom={IPT_MAP_ZOOM}
+                />
+              )}
               {mapSites.map(r => (
                 /* 单击圆点直接开「电源详情」抽屉（与 mwRealTime 点链路开右侧抽屉一致）——
                    抽屉贴右通高，左列地图不被挡，刚点中的那个圆点仍看得见。
@@ -543,6 +582,29 @@ export default function IptPowerQuery() {
                 />
               ))}
             </MapContainer>
+            {countyMode === 'soc' && (
+              <div style={{
+                position: 'absolute', right: 10, top: 10, zIndex: 1000,
+                display: 'flex', flexDirection: 'column', gap: 4,
+                padding: '8px 10px', borderRadius: 6, fontSize: 11,
+                pointerEvents: 'none',
+                background: isDark ? 'rgba(12,22,40,.72)' : 'rgba(255,255,255,.86)',
+                border: `1px solid ${isDark ? 'rgba(255,255,255,.12)' : 'rgba(0,0,0,.08)'}`,
+                boxShadow: isDark ? 'none' : '0 2px 8px rgba(0,0,0,.08)',
+              }}>
+                <span style={{ fontWeight: 600, color: WH.textDim }}>
+                  {t('ipt.county.mode.soc')}
+                </span>
+                {SOC_BAND_ORDER.map(b => (
+                  <div key={b} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ width: 10, height: 10, borderRadius: 2,
+                      background: SOC_BAND_COLOR[b], display: 'inline-block' }} />
+                    <span style={{ color: WH.text }}>{t(bandLabelKey(b))}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            </div>
           </CardBase>
         </Col>
         <Col xs={24} xl={10} style={{ minWidth: 0 }}>
