@@ -27,6 +27,7 @@
 - `/api/` 全量强制会话（`main.py::require_session_middleware`），放行 `_PUBLIC_API`；本机回环 `client_is_local` 放行（本机 curl/Playwright 免登录）。生产会话存 **PG** 的 `portal_sessions`（`db/app.db` 同名表是遗留）。
 - 前端鉴权引导必须在 React 渲染前完成（`api.ts::bootstrapAuth` + `main.tsx` 先 await 再 render；`App.tsx` 用 `bootDone` 卡页面）。**别在页面里抢跑数据请求初始化。**
 - ⚠️ **门户反代 `location /api/` 靠 Referer 区分上游，对 WebSocket 天然失效** → 带 WS 的门户 API 必须按 URI 开 `^~` 专用 location，别指望 Referer。
+- ⚠️ **独立端口门户反代 8081-8086/8088 是 HTTPS-only**（2026-11-09 起，`conf/portal_ports.conf` 的 `listen 808x ssl` 共用 443 自签证书）。主站 80→301→443 恒为 https，前端 `location.protocol` / 协议相对 `//{HOST}:808x` 都会拼出 `https://<host>:808x`；端口若说 HTTP 就回 `ERR_SSL_PROTOCOL_ERROR`（Chrome 显示「localhost sent an invalid response」）。**不能改回 http://** —— https 页嵌 http iframe 会被混合内容拦（仅 localhost/127.0.0.1 例外）。口径四处要同步：nginx 端口协议 + `proxy_redirect` 的 https、`ImonitorScreen.tsx::portalBase()`（固定 https）、`PortalLogin.tsx`（给 `//` 前缀补 https）、`PROXY_PREFIXES`。`http://host:808x` 的书签/脚本一律改成 https。排查用 Playwright 遍历 `page.frames` + `requestfailed`，别只看顶层 200。详见 `memory/2026-11-09.md`。
 - 免登录总开关 `D:\01_RPA\auth-switch.json` 的 `authEnabled`；临时种会话用 `GET /api/auth/kiosk?key=<MYAPP_KIOSK_KEY>`（用完从 PG 删）。
 
 ## 4. 关键业务模块（细节 → `memory/MODULES.md`）
