@@ -40,13 +40,12 @@ import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { CONFIG, ROOT } from './config.js';
+import { resolvePython } from './pythonPath.js';
 
 const SCRIPT = resolve(ROOT, 'scripts', 'site-attr.py');
 
 /** 与 src/ttsource.js / src/sitealarms.js 同一套解释器约定（可用 TT_PYTHON 覆盖）。 */
-const PYTHON =
-  process.env.TT_PYTHON ||
-  'C:/Users/ZTEEMS/AppData/Local/Programs/Python/Python312/python.exe';
+const PYTHON = resolvePython();
 
 /** HTTP 超时。这个接口只做点查 + 模糊匹配，很快；超时即降级。 */
 const HTTP_TIMEOUT_MS = Number(process.env.SITE_ATTR_TIMEOUT_MS || 8000);

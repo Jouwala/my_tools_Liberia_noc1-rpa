@@ -30,13 +30,12 @@ import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { CONFIG, ROOT } from './config.js';
+import { resolvePython } from './pythonPath.js';
 
 const FALLBACK_SCRIPT = resolve(ROOT, 'scripts', 'tt-query.py');
 
-/** 与 src/tt.js:44 同一个解释器（可用 TT_PYTHON 覆盖）。 */
-const PYTHON =
-  process.env.TT_PYTHON ||
-  'C:/Users/ZTEEMS/AppData/Local/Programs/Python/Python312/python.exe';
+/** 与 src/tt.js 同一个解释器（可用 TT_PYTHON 覆盖）。 */
+const PYTHON = resolvePython();
 
 /** HTTP 超时。聚合接口要出全量统计，比单票查询慢；超时即降级，不重试。 */
 const HTTP_TIMEOUT_MS = Number(process.env.TT_STATS_TIMEOUT_MS || CONFIG.ttStatsTimeoutMs || 15000);

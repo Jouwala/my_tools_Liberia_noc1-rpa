@@ -26,6 +26,7 @@ import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { CONFIG, ROOT } from './config.js';
 import { pickText } from './lang.js';
+import { resolvePython } from './pythonPath.js';
 // 复用聚合通道已验证的 HTTP 取数原语（超时 / 基址 / 错误语义），
 // 避免在本文件再抄第三份超时与降级逻辑。
 import { fetchJson, apiBase } from './ttsource.js';
@@ -106,9 +107,9 @@ async function fetchRowsHttp(ttNo) {
 }
 
 // my_app 的后端运行环境（含 sqlite3 + openpyxl）
-const PYTHON =
-  process.env.TT_PYTHON ||
-  'C:/Users/ZTEEMS/AppData/Local/Programs/Python/Python312/python.exe';
+// 解释器解析收在 src/pythonPath.js —— 便携副本会优先用它自带的
+// runtime/python312，不再绑死系统 Python 安装路径。
+const PYTHON = resolvePython();
 
 // 超时按**最坏情况**给，不是按常规查询。
 // 常规查询走本地索引约 1.3 秒；但索引失效时（工单库被整体重排）要整表重建，

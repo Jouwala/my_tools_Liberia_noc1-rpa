@@ -10,18 +10,18 @@
  *   npm run tt -- TT202609150073
  *   npm run export-kb
  *
- * 解释器可用环境变量 TT_PYTHON 覆盖。
+ * 解释器可用环境变量 TT_PYTHON 覆盖；默认解析规则见 src/pythonPath.js
+ * （便携副本优先用它自带的 runtime/python312，不依赖本机 Python 安装）。
  */
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { resolvePython } from '../src/pythonPath.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
-const PYTHON =
-  process.env.TT_PYTHON ||
-  'C:/Users/ZTEEMS/AppData/Local/Programs/Python/Python312/python.exe';
+const PYTHON = resolvePython();
 
 const [script, ...rest] = process.argv.slice(2);
 if (!script) {

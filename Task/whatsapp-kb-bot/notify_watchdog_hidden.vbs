@@ -13,10 +13,10 @@
 '   值班群收不到任何 P1 告警，而任务日志可能仍显示成功。故不能只靠开机自启，
 '   必须有周期巡检把它拉回来。
 '
-' 相关：
-'   - 巡检脚本：D:\01_RPA\Task\whatsapp-kb-bot\autostart-notify.ps1
-'   - 推送进程：D:\01_RPA\Task\whatsapp-kb-bot\src\notify.js
-'   - 心跳文件：D:\01_RPA\Task\whatsapp-kb-bot\data\notify_heartbeat.json
+' 相关（路径均由本脚本位置推导，见下方 dir）：
+'   - 巡检脚本：<bot>\autostart-notify.ps1
+'   - 推送进程：<bot>\src\notify.js
+'   - 心跳文件：<bot>\data\notify_heartbeat.json
 '     （my_app 侧 wa_notify_service.is_online() 读同一个文件判在线）
 
 Set ws = CreateObject("WScript.Shell")

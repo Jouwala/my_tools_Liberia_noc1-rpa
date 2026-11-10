@@ -35,6 +35,7 @@ import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { CONFIG, ROOT } from './config.js';
+import { resolvePython } from './pythonPath.js';
 
 const SCRIPT = resolve(ROOT, 'scripts', 'eflow-live-alarms.py');
 
@@ -49,9 +50,8 @@ function enabled() {
 }
 
 // my_app 的后端运行环境（含 pandas + sqlalchemy）。与 tt.js 用同一常量约定。
-const PYTHON =
-  process.env.TT_PYTHON ||
-  'C:/Users/ZTEEMS/AppData/Local/Programs/Python/Python312/python.exe';
+// 解释器解析收在 src/pythonPath.js（便携副本优先用它自带的 runtime）。
+const PYTHON = resolvePython();
 
 // 活动告警拉全量（几十条）+ eFlow 登录，实测几秒量级；给宽一点防登录慢。
 const TIMEOUT_MS = Number(process.env.TT_SITE_ALARM_TIMEOUT_MS || CONFIG.ttSiteAlarmTimeoutMs || 180000);
