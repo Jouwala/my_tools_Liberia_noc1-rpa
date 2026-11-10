@@ -35,6 +35,13 @@ data/*.sqlite-shm
 .env.local
 *.log
 
+# TT 桥接服务的访问令牌（scripts/tt-bridge-hidden.vbs 读取）
+# 2026-11-10：脚本里原来硬编码了一个 token，而本仓库是 **PUBLIC** 仓库，
+# 硬编码等于公开。已改为「环境变量 TT_BRIDGE_TOKEN → 同目录 .tt_bridge_token
+# 文件」两级查找（文件路径见 scripts/tt-bridge-hidden.vbs 注释）。
+# 这个文件就是第二级的落点，**必须挡住**。
+.tt_bridge_token
+
 # 系统
 .DS_Store
 Thumbs.db
