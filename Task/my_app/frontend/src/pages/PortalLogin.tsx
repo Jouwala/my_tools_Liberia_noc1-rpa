@@ -221,9 +221,17 @@ export default function PortalLogin() {
         })
       return
     }
+    // 2026-11-09：PROXY_PREFIXES 给独立端口的是协议相对地址 `//{HOST}:808x`。
+    // 这些端口已在 nginx 侧统一开启 TLS（portal_ports.conf 的 `listen 808x ssl`），
+    // 在 https 页面上协议相对写法恰好解析成 https、能通；但端口协议由 nginx 决定、
+    // 与宿主页协议无关 —— 若哪天 myapp 以 http 打开（dev server / 关掉 80→443
+    // 跳转），它会拼出 http://<host>:808x，TLS 端口回明文 -> ERR_SSL_PROTOCOL_ERROR
+    // （Chrome 显示「…sent an invalid response」，与 iMonitor 大屏同一个坑）。
+    // 故显式补 https:，不跟随 location.protocol。空前缀（eFlow，同源 443）保持原样。
+    const rawPrefix = (p.proxy_prefix || '').replace('{HOST}', window.location.hostname)
     const base = direct
       ? `https://${p.host}:${p.port}`
-      : (p.proxy_prefix || '').replace('{HOST}', window.location.hostname)
+      : (rawPrefix.startsWith('//') ? `https:${rawPrefix}` : rawPrefix)
     const url = `${base}${p.login_uri || ''}`
     // UME 系门户（反代到 808x）历史上出现过 3329008 跨站拒绝，保留 noreferrer 兜底；
     // eFlow 直连上游，同样用 noreferrer 避免门户跨站校验。

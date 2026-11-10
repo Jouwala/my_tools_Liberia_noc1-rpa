@@ -312,8 +312,14 @@
   function embedSrc(it) {
     var u = parseUrl(it.url);
     if (!u) return null;
+    /* 2026-11-10 语言贯通：把门户 LANG 传给内嵌的 /myapp/。
+       my_app 的 i18n.tsx::detectLocale 本来就认 ?lang=，但本查看器原先只拼
+       pathname + 目录里的原 search —— 中文 Windows 上「门户选英文、iframe 里
+       满屏中文」就是这么来的（实测 frame1 的 <html lang="zh-CN">）。
+       用 searchParams.set 而非字符串拼接：目录里已有 ?page=xxx，也可能已带 lang。 */
+    u.searchParams.set('lang', LANG === 'en' ? 'en' : 'zh');
     // 用当前 origin 拼同源地址：无论门户从 localhost 还是 192.168.100.20 访问都自适应
-    return location.origin + u.pathname + (u.search || '');
+    return location.origin + u.pathname + (u.search || '') + (u.hash || '');
   }
 
   /* ---- 主题同步：让内嵌的 my_app 跟着门户的深浅色走（2026-09-18 补） ----
@@ -690,7 +696,11 @@
     else if (current) { openExternal(current.url); }
   });
   document.getElementById('openBtn').addEventListener('click', function () {
-    if (current) openExternal(current.url);
+    if (!current) return;
+    /* 2026-11-10：可内嵌的 my_app 深链改用 embedSrc() —— 同源自适应 + 带 ?lang=，
+       新窗口打开的语言与 iframe 内一致；外部系统保持原 URL，别给第三方塞参数。 */
+    if (isEmbeddable(current)) openExternal(embedSrc(current));
+    else openExternal(current.url);
   });
 
   /* 门户在**另一个标签页**切了主题 → 本页外壳和内嵌看板一起跟着切。
