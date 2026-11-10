@@ -27,7 +27,12 @@ import sys
 DEFAULT_HOST = "192.168.100.20"
 DEFAULT_PORT = 5432
 DEFAULT_USER = "myapp"
-DEFAULT_PASSWORD = "Jlt-hjPBXkkX9g0Rfa8QZbKP"
+# PG 口令不再写在代码里（2026-11-10）—— 本仓库是 **PUBLIC** 仓库
+# (github.com/Jouwala/my_tools_Liberia_noc1-rpa)，硬编码口令等于公开。
+# 提供方式（优先级从高到低）：命令行 --password > 环境变量 PG_ALERT_LOG_PASSWORD。
+# 两者都没有时口令为空，PG 会拒绝认证 —— 这是刻意的：宁可不连，也不静默用弱口令。
+# ⚠ 该口令已在历史中公开，仍需在 PG 侧轮换（改代码不能消除历史泄露）。
+DEFAULT_PASSWORD = os.environ.get("PG_ALERT_LOG_PASSWORD", "")
 DEFAULT_DB = "myapp"
 SCHEMA = "app"
 TABLE = "eflow_tt_whatsapp_alert_log"
@@ -242,6 +247,11 @@ def main(argv=None) -> int:
     ap.add_argument("--schema", default=SCHEMA)
     ap.add_argument("--table", default=TABLE)
     args = ap.parse_args(argv)
+
+    if not args.password:
+        print("未提供 PG 口令。请用 --password 传入，或设置环境变量 PG_ALERT_LOG_PASSWORD。",
+              file=sys.stderr)
+        return 2
 
     print(f"== 连接 {args.user}@{args.host}:{args.port}/{args.dbname} ...")
     pg = PgWire(args.host, args.port, args.user, args.password, args.dbname)
