@@ -190,9 +190,16 @@ _probe_file.txt
 # VMAX / Talon 浏览器抓包（curl 导出，含 JSESSIONID 会话 cookie）——
 # 2026-10-26：url2.txt 是 Talon XDR 协议复刻的一手依据，但内容含有效会话凭据，
 # 按 AGENTS.md 四.2「绝不写敏感值」禁止入库；后续新抓包同样按此规则。
-# ⚠ 同目录 url.txt（已入库）是历史遗留，待另行清理，不在本规则覆盖范围内。
+# 2026-11-10：删掉 `!/backend/services/vmax_cca/url.txt` 这条放行。原先 url.txt
+#   是「历史遗留已入库」，所以补了 `!` 让规则不误伤它 —— 但这等于把含有效
+#   JSESSIONID 的 1.2 MB 抓包继续留在版本库里。
+#   更要命的是这条 `!` 会被 build_olbr_portable.ps1 同步进便携副本
+#   D:\01_olbr_portal 的 Task/my_app/.gitignore，而**子目录 .gitignore 优先级
+#   高于根目录** —— 副本根 .gitignore 里更严的 `**/*url*.txt` 会被这条 `!` 打穿，
+#   副本是 **PUBLIC 仓库**，等于把带会话 cookie 的抓包推向公开互联网。
+#   现在改为整目录通配挡住，且 url.txt 已用 `git rm --cached` 停止跟踪。
+#   ⚠ 忽略跟踪 ≠ 可以删除：抓包文件留在磁盘上，不入库即可。
 /backend/services/vmax_cca/url*.txt
-!/backend/services/vmax_cca/url.txt
 
 # IPT 数仓平台（portal.iptdigitalplatform.com）抓包 —— 2026-11-02。
 # url.txt 含明文口令与有效 Bearer JWT，按 AGENTS.md 四.2 禁止入库；
