@@ -35,7 +35,9 @@ if hasattr(sys.stdout, "reconfigure"):
     except Exception:
         pass
 
-DEFAULT_DB = r"D:\01_RPA\Task\my_app\db\app.db"
+_TOOLS_DIR = os.path.dirname(os.path.abspath(__file__))
+_MY_APP = os.path.join(os.path.dirname(os.path.dirname(_TOOLS_DIR)), "my_app")
+DEFAULT_DB = os.environ.get("EFLOW_QA_APP_DB") or os.path.join(_MY_APP, "db", "app.db")
 
 # 报告要展示的关键字段（按业务阅读顺序）
 FIELDS = [

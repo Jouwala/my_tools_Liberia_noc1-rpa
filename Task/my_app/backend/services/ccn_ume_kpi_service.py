@@ -63,7 +63,7 @@ def _runtime_credentials():
     return get_credential("ccn_ume")
 
 # 数据目录（my_app 自包含）
-CNN_UME_DATA_DIR = Path(r"d:\01_RPA\Task\my_app\data\cnn_ume")
+CNN_UME_DATA_DIR = Path(__file__).resolve().parents[2] / "data" / "cnn_ume"
 CNN_UME_DATA_DIR.mkdir(parents=True, exist_ok=True)
 OUTPUT_DIR = str(CNN_UME_DATA_DIR / "exports")
 os.makedirs(OUTPUT_DIR, exist_ok=True)

@@ -34,7 +34,8 @@ from urllib.request import Request, HTTPRedirectHandler, HTTPCookieProcessor, HT
 from urllib.error import URLError, HTTPError
 
 # ---- editable config -------------------------------------------------------
-PORT = 8790
+# 端口可由环境变量覆盖：副本用 MY_APP_PROXY_VMAX_PORT=8890 与生产 8790 隔离。
+PORT = int(os.environ.get("MY_APP_PROXY_VMAX_PORT", "8790"))
 TARGET_HOST = "https://10.123.255.12:26180"
 
 
@@ -514,6 +515,9 @@ class Handler(BaseHTTPRequestHandler):
                         "auth": ok,
                         "csrf": bool(CSRF),
                         "user": USER,
+                        "root": os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                        "script": os.path.basename(__file__),
+                        "pid": os.getpid(),
                     }
                 ).encode()
             )

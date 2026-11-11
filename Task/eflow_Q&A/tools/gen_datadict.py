@@ -34,7 +34,7 @@ KB_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT_DIR = os.path.join(
     KB_ROOT, "10_集成篇_Integration", "13_数据字典_DataDictionary"
 )
-DB_PATH = r"D:\01_RPA\Task\my_app\data\eflow\eflow.sqlite3"
+DB_PATH = os.path.join(os.path.dirname(KB_ROOT), "my_app", "data", "eflow", "eflow.sqlite3")
 
 # 表 → 中文名
 TABLE_CN = {

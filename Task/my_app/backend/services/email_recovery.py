@@ -64,7 +64,8 @@ RECOVERY_STATE_FILE = MY_APP_DIR / "TMP" / "email_recovery_state.json"
 
 # 邮件脚本解释器：项目 venv（已装 exchangelib），不受外部工具重建影响。
 # 由 workbuddy 托管 venv 迁来（2026-10-13，该环境被外部 uv 重建清空依赖）。
-_MANAGED_VENV_PY = r"D:\01_RPA\Task\my_app\Scripts\python.exe"
+# 便携：默认用当前后端解释器（生产即项目 venv，副本即自带 runtime Python）；可用 MY_APP_REPORT_PY 覆盖。
+_MANAGED_VENV_PY = os.environ.get("MY_APP_REPORT_PY") or sys.executable
 _SCRIPT_DIR = MY_APP_DIR / "email_reports"
 
 # 所有邮件类任务

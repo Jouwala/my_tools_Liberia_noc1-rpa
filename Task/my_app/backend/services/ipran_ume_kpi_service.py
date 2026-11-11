@@ -68,7 +68,7 @@ def _runtime_credentials():
     return get_credential("ipran_ume")
 
 # 数据目录
-IPRAN_DATA_DIR = Path(r"d:\01_RPA\Task\my_app\data\ipran_ume")
+IPRAN_DATA_DIR = Path(__file__).resolve().parents[2] / "data" / "ipran_ume"
 IPRAN_DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 MONTHS_BACK = int(os.environ.get("IPRAN_KPI_MONTHS_BACK", "1"))

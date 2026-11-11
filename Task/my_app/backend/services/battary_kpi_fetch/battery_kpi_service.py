@@ -63,7 +63,7 @@ from matplotlib.patches import Rectangle  # noqa: E402
 
 # ========== 路径与阈值配置 ==========
 BATT_DATA_DIR = Path(
-    os.environ.get("BATT_DATA_DIR", r"d:\01_RPA\Task\my_app\data\battery")
+    os.environ.get("BATT_DATA_DIR", Path(__file__).resolve().parents[3] / "data" / "battery")
 )
 BATT_DB_PATH = BATT_DATA_DIR / "battery_kpi.sqlite3"
 
@@ -427,7 +427,7 @@ BATT_OUTPUT_DIR = Path(__file__).resolve().parent / "output_socket"
 # 远程 FTP 收件人名单目录（内含 ss_email.txt 主送 / cc_email.txt 抄送）
 BATT_EMAIL_REMOTE = "/01_RPA/LBR_Tools/KPI/Battary/battary_email"
 # Excel 备份目录：Battery KPI Email 任务把生成的 Excel 复制到这里作为备份数据（目录不存在自动创建）
-BATT_BACKUP_DIR = Path(os.environ.get("BATT_BACKUP_DIR", r"d:\01_RPA\LBR_Tools\KPI\Battary\data_bak"))
+BATT_BACKUP_DIR = Path(os.environ.get("BATT_BACKUP_DIR", BATT_DATA_DIR / "backups"))
 
 SEV_ORDER = {"Critical": 0, "Major": 1, "Minor": 2, "OK": 3}
 

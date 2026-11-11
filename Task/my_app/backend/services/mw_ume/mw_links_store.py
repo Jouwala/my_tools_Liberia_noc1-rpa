@@ -376,7 +376,7 @@ def export_geojson_files():
     root = Path(__file__).resolve().parents[3]
     targets = [
         root / "frontend" / "public" / "mw_ume_orange_links.geojson",
-        Path("D:/01_RPA/Task/_fe_dist/mw_ume_orange_links.geojson"),
+        Path(os.environ.get("FE_DIST_OUT") or root.parent / "_fe_dist") / "mw_ume_orange_links.geojson",
     ]
     written = []
     for t in targets:
