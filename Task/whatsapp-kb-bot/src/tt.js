@@ -224,7 +224,7 @@ export function ttAvailable() {
  * 脚本不可用 / 超时 → { ok:false, unavailable:true }，调用方回退到静态候选列表。
  *
  * @param {string} code    告警码
- * @param {object} attrs   { asset, vip, sub, domain, down }
+ * @param {object} attrs   { asset, vip, sub, domain, down, hub, downstream }
  * @param {object} [opts]  { lang }
  */
 export function lookupLevelByRule(code, attrs = {}, { lang = 'zh' } = {}) {
@@ -234,6 +234,13 @@ export function lookupLevelByRule(code, attrs = {}, { lang = 'zh' } = {}) {
   if (attrs.sub) args.push('--sub', String(attrs.sub));
   if (attrs.domain) args.push('--domain', String(attrs.domain));
   if (attrs.down) args.push('--down', String(attrs.down));
+  // hubSite / downstreamSites（2026-11-10 补）：
+  // HUB 站的三条级别规则（#266/#268/#277）都引用了它们，不传就等于没给属性，
+  // 那几条规则永远判不出来 —— 2026-11-10 群内实测「9995 HUB 站」就是这么答错的。
+  if (attrs.hub !== undefined && attrs.hub !== '') args.push('--hub', String(attrs.hub));
+  if (attrs.downstream !== undefined && attrs.downstream !== '') {
+    args.push('--downstream', String(attrs.downstream));
+  }
 
   return new Promise((resolvePromise) => {
     execFile(
@@ -261,6 +268,12 @@ export function lookupLevelByRule(code, attrs = {}, { lang = 'zh' } = {}) {
               ruleName: res.matched_rule_name || '',
               missingFields: res.missing_rule_fields || [],
               details: res.match_details || '',
+              // 命中规则的逐条条件（结构化，2026-11-10）：用于渲染
+              // 「已满足：hubSite=1、downSiteCount 7 ≥ 5」，不再丢裸判定串。
+              matchedConds: res.matched_conds || [],
+              // 条件式结论的数据（2026-11-10）：判不了时给出「哪条规则 → 补什么字段
+              // → 会是什么级别」，而不是只丢一句「无法判定」。
+              undecidable: res.undecidable || [],
             });
             return;
           } catch {

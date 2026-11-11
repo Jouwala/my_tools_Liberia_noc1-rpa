@@ -8,6 +8,9 @@
 产出（写入 whatsapp-kb-bot/knowledge/）：
     TT单-告警压缩规则.md     由 eflow_alarm_rules.xlsx  导出
     TT单-级别判定规则.md     由 eflow_TT_rules.xlsx     导出
+    03_TT级别规则.md         由 eflow_TT_rules.xlsx     导出（表格排版；
+                             src/lookups.js 的 parseLevelRules 解析它的管道表格，
+                             是 data/lookups.json 里 levelRules 的来源）
     TT单-推单与指派规则.md   由 eflow_push_rules.xlsx   导出
     TT单-告警码字典.md       由 eflow_tt_alarm_code_distinct.xlsx 导出
 
@@ -19,6 +22,7 @@
 from __future__ import annotations
 
 import os
+import re
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -239,6 +243,119 @@ def export_alarm_rules() -> str:
 # ------------------------------------------------------------------ #
 # 2. TT 级别判定规则
 # ------------------------------------------------------------------ #
+
+def humanize_rule_cond(cond: str) -> str:
+    r"""把 eFlow 原始条件文本压成**可读化**的一行（用于管道表格那一列）。
+
+    例：`AND | eflow_ticket_ticket_asset.vipSite in '0, 1' (enums)` → `AND vipSite in 0, 1`
+
+    ⚠️ 为什么不能直接放原文：
+    `src/lookups.js` 的 `filterLevelRulesByAttrs` 用正则在这列上判属性冲突，
+    形如 `assetType\s*=\s*NORMAL\b` —— 原文里的引号（`assetType = 'NORMAL'`）
+    会让 `\s*` 之后对不上，导致过滤失效。所以这一列必须去引号。
+    """
+    out = []
+    for part in str(cond or '').split(';'):
+        part = part.strip()
+        if not part:
+            continue
+        part = re.sub(r'^(AND|OR)\s*\|\s*', r'\1 ', part, flags=re.I)
+        part = re.sub(r'eflow_ticket_ticket_(asset|wo)\.', '', part)
+        part = re.sub(r'\s*\((string|enums|number)\)', '', part)
+        part = part.replace("'", '')
+        out.append(part.strip())
+    return '; '.join(out)
+
+
+def export_tt_rules_table() -> str:
+    """生成 knowledge/03_TT级别规则.md（管道表格排版）。
+
+    为什么要有这一份：它被 `src/lookups.js` 的 `parseLevelRules` 解析成
+    `data/lookups.json` 的 levelRules —— 那是**静态查表**通道的数据源
+    （Python 规则引擎不可用时的兜底，以及「P1 规则有哪些」这类问题的答案）。
+
+    ⚠️ 2026-11-10：这份文件此前是**手工维护**的，记的还是旧规则集
+    （199/225/227/233…），而线上规则表早已换成 266~277 ——
+    静态查表因此一直给旧规则（#225/#233 早已 STOP），HUB 站三条则压根查不到。
+    改为从同一张 xlsx 生成，两个真相源合并成一个。
+    """
+    src = os.path.join(RULES_DIR, 'eflow_TT_rules.xlsx')
+    header, rows = read_rows(src)
+
+    entries = []
+    for r in rows:
+        rid = cell(r, header, 'ID')
+        if not rid:
+            continue
+        status = cell(r, header, '状态')
+        if status and status.upper() == 'STOP':
+            continue  # 停用规则不在 eFlow 生效，不进查表
+        entries.append({
+            'id': rid,
+            'name': cell(r, header, '规则名称'),
+            'sev': cell(r, header, '严重级别'),
+            'pri': cell(r, header, '优先级'),
+            'cond': cell(r, header, '条件'),
+        })
+
+    def _num(v):
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return float('inf')
+
+    entries.sort(key=lambda e: (_num(e['pri']), e['id']))
+
+    lines = [
+        '# TT 级别规则（ttLevelRule，autoCreateTT 步骤）',
+        '',
+        '> ⚠️ **本文件由 `scripts/export-tt-knowledge.py` 从 `eflow_TT_rules.xlsx` 自动生成，'
+        '请勿手改。**',
+        '> 规则表更新后重跑该脚本 + `npm run ingest`。同一张规则表的章节排版见 '
+        '`TT单-级别判定规则.md`（两者同源）。',
+        '',
+        'TT 自动创建时按序匹配：**先按优先级(rulePriority)升序，同优先级按条件数多者'
+        '（更特异）先匹配**，命中即定级 P1~P4。以下按优先级排列。',
+        '',
+        '| 优先级 | ID | 规则名称 | 级别 | 条件（可读化） |',
+        '|---|---|---|---|---|',
+    ]
+    for e in entries:
+        lines.append(
+            f'| {e["pri"]} | {e["id"]} | {e["name"]} | {e["sev"]} | '
+            f'{humanize_rule_cond(e["cond"])} |'
+        )
+
+    lines += [
+        '',
+        '## 关键字段口径（别把这两个字段搞混）',
+        '',
+        '- `hubSite` — 是否枢纽站（DB 列 `hub_site`，取值 Yes/No → 归一为 1/0）。',
+        '- `downstreamSites` — 站点拓扑上的**下属站点总数**'
+        '（来源 `master_site_db.victims`，仅 `hub_site=Y` 的行）。',
+        '- `downSiteCount` — 当前故障下挂的**断站数**（来源 `eflow_tt.down_site_count`）。',
+        '- ⚠️ **上面两个是不同的字段**：规则 266 要求 `downstreamSites>=5` **且** '
+        '`downSiteCount>=5`，两个都要。实测 2315 张 9995 的 HUB 单里，'
+        '两者**只有 614 张相等** —— 拿一个当另一个用会判错级别。',
+        '',
+        '## 匹配验证结果',
+        '',
+        '见 my_app 的 `backend/services/eflow_rules/MATCHING_REPORT.md`'
+        '（随规则采集每日重新生成）。',
+        '',
+        '## 完整条件原文',
+        '',
+    ]
+    for e in entries:
+        lines.append(f'**ID {e["id"]} {e["name"]} → {e["sev"]}**')
+        lines.append('')
+        lines.append('```')
+        lines.append(e['cond'])
+        lines.append('```')
+        lines.append('')
+
+    return write_doc('03_TT级别规则.md', lines)
+
 
 def export_tt_rules() -> str:
     src = os.path.join(RULES_DIR, 'eflow_TT_rules.xlsx')
@@ -507,6 +624,7 @@ def main() -> int:
     jobs = [
         ('告警压缩规则', export_alarm_rules),
         ('TT 级别判定规则', export_tt_rules),
+        ('TT 级别规则表（查表数据源）', export_tt_rules_table),
         ('推单与指派规则', export_push_rules),
         ('告警码字典', export_alarm_codes),
     ]

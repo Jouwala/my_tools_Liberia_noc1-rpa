@@ -314,6 +314,25 @@ def build_value_frame(row: dict) -> dict:
         'assetType': norm_site_type(g('site_type')),               # NORMAL / COOL
         'netWorkType': str(g('domain') or '').strip().upper(),
         'downSiteCount': str(g('down_site_count') or '').strip(),
+        # ↓↓↓ 2026-11-10 补：以下三个字段是**与 my_app 对齐**时补齐的，
+        # 此前本文件漏了，导致规则 266/268/277（HUB 站 9995）永远判不出来。
+        #
+        # 根因与 my_app 2026-10-23 的 hubSite 事故**完全同型**：
+        # 规则引用了某个字段，而 `eval_one` 发现字段不在 vf 里就 `return False` ——
+        # 于是「HUB 站 9995 该定几级」在群里永远得到一句「级别无法判定，缺 hubSite」。
+        # my_app 侧当时补齐了，本文件（纯 Python 重写版）没跟上，就成了**抄写漂移**。
+        #
+        # `hubSite` — DB 列 `hub_site`，取值 Yes/No（**不是** 1/0），必须与
+        # vipSite 走同一套归一化，否则即便列加上了也匹配不上规则里的 '1'。
+        'hubSite': norm_vip(g('hub_site')),
+        # `downstreamSites` — 站点拓扑上的**下属站点总数**。
+        # ⚠️ 与 `downSiteCount`（当前故障下挂的断站数）**是两个不同的字段**，
+        #    不能互相替代：规则 266 要求 downstreamSites>=5 **且** downSiteCount>=5。
+        #    来源是 `master_site_db.victims`（仅 hub_site='Y' 的行），见 my_app
+        #    `eflow_rules_matcher.load_site_attrs` 的口径说明。
+        'downstreamSites': str(g('downstream_sites') or '').strip(),
+        # `alarmDescription` — 规则 272（High Temperature P4）按告警描述精确匹配。
+        'alarmDescription': str(g('alarm_description') or '').strip(),
     }
 
 
@@ -353,13 +372,29 @@ def eval_one(vf: dict, cond: dict) -> bool:
 
 
 def build_rule_match(vf: dict, conds: list[dict]) -> bool:
-    """左折叠 OR/AND。首行 orAnd 忽略。空条件列表 → 不匹配。
+    """左折叠 OR/AND。首行 orAnd 忽略。**空条件列表 → True（兜底规则）**。
 
     必须左折叠而非先分组：my_app 实测过 Rule 206/207/208/209/234
     属于「首条 AND + 后续 OR」类型，先分组会漏配。
+
+    ## 空条件 = 兜底命中（2026-11-10 补，对齐 my_app 2026-10-23 修复）
+
+    此前这里写的是 `if not conds: return False` —— 与 my_app 当时的**旧**实现一致，
+    但 my_app 2026-10-23 已经改成 `return True` 并**没有**同步到这里，
+    于是形成一处抄写漂移，后果与 my_app 当时那次的症状完全相同：
+
+      · 规则 275 `other ticket P4`（ACTIVE / 优先级 5 / 级别 P4 / 条件为空）
+        在 bot 侧**一张单都命中不了**；
+      · 查表问「告警码 X 是几级」时，凡是落不到具体规则的，bot 回答
+        「没有命中的级别规则」，而 eFlow 实际会落兜底 P4。
+
+    依据：eFlow 配置中心里条件留空 = 不设筛选 = 全部命中；规则名 `other ticket`
+    加上「最低优先级 + 最低级别」也印证它是兜底。它排在最后（优先级 5），
+    前面任何一条命中都会先被取走，所以改成 True **不会抢走任何具体规则的命中**，
+    唯一效果是「原本无人认领的单子归到兜底规则名下」—— 与 my_app 当初的判断一致。
     """
     if not conds:
-        return False
+        return True
     mask = eval_one(vf, conds[0])
     for c in conds[1:]:
         m = eval_one(vf, c)
@@ -469,6 +504,261 @@ def conds_all_evaluable(vf: dict, conds: list[dict]) -> bool:
     return all(str(vf.get(c['field']) or '').strip() for c in conds)
 
 
+# ------------------------------------------------------------------ #
+# 三值求值：True / False / None（UNKNOWN —— 字段缺失，判不了）
+# ------------------------------------------------------------------ #
+#
+# 为什么需要三值：
+#
+# `eval_one` 只有两值，字段缺失一律当 False。问「按告警码 + 站点属性定级」时，
+# 我们**本来就没有**工单单据上的全部字段 —— 用户在群里给的通常只有三五个。
+# 两值语义会把「不知道」和「不是」混成一团，于是：
+#
+#   · 规则 266「HUB site P1」条件是 hubSite=1 ∧ downstreamSites>=5 ∧ downSiteCount>=5，
+#     用户没给 downstreamSites → 两值语义下这条规则**确定不匹配**；
+#   · 接着兜底规则 #275 判 P4 → 机器人答「P4」。
+#
+# 但 eFlow 实际会拿票上的真值去判，downstreamSites>=5 成立就是 P1。
+# 所以两值语义给出的「P4」是**假结论** —— 这正是 2026-11-10 群内实测到的
+# 「9995 明明该 P1，机器人说定不了级别」的根因之一。
+#
+# 三值语义下：字段缺失 → UNKNOWN，规则判为「无法判定」，
+# 由 `lookup_level` 给出**条件式结论**（缺什么、补上会是什么级别），
+# 而不是伪装成一个确定的级别。
+
+_T, _F, _U = True, False, None
+
+
+def eval_one_3val(vf: dict, cond: dict):
+    """单条件三值求值。字段缺失（vf 里没有或为空串）→ None（UNKNOWN）。"""
+    field = cond.get('field')
+    if field not in vf:
+        return _U
+    if str(vf.get(field) or '').strip() == '':
+        return _U
+    return _T if eval_one(vf, cond) else _F
+
+
+def eval_rule_3val(vf: dict, conds: list[dict]):
+    """整条规则三值求值 → True / False / None（UNKNOWN）。
+
+    左折叠 OR/AND，顺序与 `build_rule_match` 完全一致：
+
+      · AND：有一项 False 即 **False**（其余条件再未知也不影响「不成立」）；
+              全为 True 才是 True；否则（有未知、无 False）为 UNKNOWN。
+      · OR ：有一项 True 即 **True**；全为 False 才是 False；否则为 UNKNOWN。
+
+    空条件 → True（兜底规则，与 `build_rule_match` 对齐）。
+    """
+    if not conds:
+        return _T
+    mask = eval_one_3val(vf, conds[0])
+    for c in conds[1:]:
+        m = eval_one_3val(vf, c)
+        if c.get('or_and') == 'OR':
+            if mask is _T or m is _T:
+                mask = _T
+            elif mask is _U or m is _U:
+                mask = _U
+            else:
+                mask = _F
+        else:  # AND 及未知连接器都按 AND 兜底
+            if mask is _F or m is _F:
+                mask = _F
+            elif mask is _U or m is _U:
+                mask = _U
+            else:
+                mask = _T
+    return mask
+
+
+def rule_missing_fields(vf: dict, conds: list[dict]) -> list[str]:
+    """这条规则里**取值缺失**的字段（去重保序）。"""
+    out = []
+    for c in conds:
+        f = c.get('field')
+        if not f:
+            continue
+        if str(vf.get(f) or '').strip() == '' and f not in out:
+            out.append(f)
+    return out
+
+
+def rule_applies_to_code(rule: dict, code: str) -> bool:
+    """这条规则**可能**适用于该告警码吗？
+
+    判据只看规则里的 `alarmCode` 条件：
+
+      · 没有 alarmCode 条件 → 可能（兜底规则 #275，或按别的字段匹配的 #272）；
+      · `alarmCode = 'X'`      → 只有 code == X 才可能；
+      · `alarmCode in 'A, B'`  → code 在列表里才可能；
+      · `alarmCode notin ...`  → code **不在**列表里才可能。
+
+    为什么必须收窄：`missing_rule_fields` 扫全表时，会把 `alarmDescription`
+    （规则 272 高温专用）、`netWorkType` 这类**与本码毫无关系**的字段
+    混进「缺失字段」清单。2026-11-10 实测：问 9995 时回复说缺
+    「alarmDescription、netWorkType」—— 用户完全看不懂这两个东西跟 HUB 站有何关系，
+    反而把真正缺的 `downstreamSites` 淹没了。
+    """
+    code = str(code or '').strip()
+    for c in rule.get('conds', []):
+        if c.get('field') != 'alarmCode':
+            continue
+        vals = [str(v).strip() for v in c.get('values', [])]
+        sym = c.get('symbol')
+        if sym in ('=', 'in'):
+            if code not in vals:
+                return False
+        elif sym == 'notin':
+            if code in vals:
+                return False
+        else:
+            # 未知运算符：保守认为「可能适用」
+            return True
+    return True
+
+
+def candidate_rules(rules: list[dict], code: str) -> list[dict]:
+    """与该告警码相关的候选规则（保持传入的优先级顺序）。
+
+    = 「alarmCode 条件接受该码」∪「没有 alarmCode 条件的规则」。
+    """
+    return [r for r in (rules or []) if rule_applies_to_code(r, code)]
+
+
+def describe_conds(vf: dict, conds: list[dict]) -> list[dict]:
+    """把每条条件拆成**结构化**结果，供各语言渲染。
+
+    每项：{field, symbol, values, value, state}
+      · state = 'ok'      条件成立
+      · state = 'no'      条件不成立（字段有值，但值对不上）
+      · state = 'unknown' 字段缺失，**判不了**（≠ 不成立）
+
+    为什么给结构化而不是直接拼字符串：同一份判定结果要分别渲染成中文与英文
+    （群里中英文混用），字段名与比较符是**数据**、措辞才是**文案** ——
+    分开才不会把一处「（缺）」硬编码漏到另一种语言里（2026-11-10 实测踩过）。
+    """
+    out = []
+    for c in conds:
+        f = c.get('field')
+        raw = str(vf.get(f) or '').strip()
+        if raw == '':
+            state = 'unknown'
+        else:
+            state = 'ok' if eval_one(vf, c) else 'no'
+        out.append({
+            'field': f,
+            'symbol': c.get('symbol'),
+            'values': [str(x) for x in c.get('values', [])],
+            'value': raw,
+            'state': state,
+        })
+    return out
+
+
+def evaluate_rules(vf: dict, rules: list[dict], code: str = '') -> dict:
+    """按优先级评估规则，得出「命中 / 无法判定 / 未命中」。
+
+    ## 两条调用路径共用这一个核心（2026-11-10）
+
+    · `analyze()` —— 分析一张工单（报告里的级别判定）；
+    · `lookup_level()` —— 按「告警码 + 站点属性」直接问级别。
+
+    之前两条路径各写一份判定，兜底规则语义一改就立刻分叉
+    （一个说「判不了」、一个说「P4」）—— 同一张单两种口径，
+    正是最难排查的那类不一致。现在只留这一份。
+
+    ## 判定规则
+
+    · 三值语义：字段缺失 → UNKNOWN，**不是**「不成立」；
+    · 候选规则 = 「alarmCode 条件接受该码」∪「没有 alarmCode 条件的规则」
+      （见 `candidate_rules`）；
+    · 按优先级顺序扫描，第一条**确定命中**的规则即结果；
+    · 但在它之前若有**无法判定、且级别与命中规则不同**的规则 → 结论是
+      `incomplete`：那条规则补上字段就可能改写级别，不能当没这回事。
+      级别**相同**的（例如高温 #272 与兜底 #275 都是 P4）不改变结论，
+      不算「卡住判定」，否则会满屏噪音。
+
+    返回 {matched, verdict, absent, candidates, undecidable}。
+    """
+    cands = candidate_rules(rules or [], code)
+    matched = None
+    pending_unknown = []
+    candidates = []
+
+    for r in cands:
+        conds = r.get('conds') or []
+        v = eval_rule_3val(vf, conds)
+        if v is _T:
+            matched = r
+            candidates.append({
+                'id': r['id'], 'name': r['name'], 'severity': r['severity'],
+                'priority': r.get('priority'), 'status': 'match',
+                'detail': fmt_detail_3val(vf, conds), 'missing': [],
+            })
+            break
+        if v is _U:
+            miss = rule_missing_fields(vf, conds)
+            pending_unknown.append((r, miss))
+            candidates.append({
+                'id': r['id'], 'name': r['name'], 'severity': r['severity'],
+                'priority': r.get('priority'), 'status': 'undecidable',
+                'detail': fmt_detail_3val(vf, conds), 'missing': miss,
+            })
+        else:
+            candidates.append({
+                'id': r['id'], 'name': r['name'], 'severity': r['severity'],
+                'priority': r.get('priority'), 'status': 'nomatch',
+                'detail': fmt_detail_3val(vf, conds), 'missing': [],
+            })
+
+    fallback_sev = matched['severity'] if matched else None
+    contending = [
+        (r, m) for r, m in pending_unknown
+        if not (fallback_sev is not None and r.get('severity') == fallback_sev)
+    ]
+    absent = []
+    for _r, miss in contending:
+        for f in miss:
+            if f not in absent:
+                absent.append(f)
+
+    if matched and not contending:
+        verdict = 'ok'
+    elif contending:
+        verdict = 'incomplete'
+    else:
+        verdict = 'unknown'
+
+    return {
+        'matched': matched,
+        'verdict': verdict,
+        'absent': absent,
+        'candidates': candidates,
+        'undecidable': [
+            {'id': r['id'], 'name': r['name'], 'severity': r['severity'],
+             'missing': miss, 'detail': fmt_detail_3val(vf, r.get('conds') or []),
+             'conds': describe_conds(vf, r.get('conds') or [])}
+            for r, miss in contending
+        ],
+    }
+
+
+def fmt_detail_3val(vf: dict, conds: list[dict]) -> str:
+    """生成逐条条件的求值串；字段缺失的标 `?`（未知），与真值区分开。
+
+    ⚠ 这串是**语言中性**的（只含字段名/比较符/值），因为它会经 `--json`
+    交给 Node 侧按提问语言渲染。中文/英文措辞由渲染方决定，脚本不写死。
+    """
+    parts = []
+    for c in describe_conds(vf, conds):
+        exp = ','.join(c['values'])
+        if c['state'] == 'unknown':
+            parts.append(f'{c["field"]}=? {c["symbol"]} {exp} ?')
+        else:
+            mark = '✓' if c['state'] == 'ok' else '✗'
+            parts.append(f'{c["field"]}={c["value"]} {c["symbol"]} {exp} {mark}')
+    return '; '.join(parts)
 # ------------------------------------------------------------------ #
 # 派单 / 推单规则（回答「这单排给谁、依据哪条规则」）
 # ------------------------------------------------------------------ #
@@ -1439,7 +1729,10 @@ def analyze(tt_no: str, rules: list[dict], lang: str = DEFAULT_LANG,
         wo = fetch_wo(row.get('wo_no'), lang)
 
     vf = build_value_frame(row)
-    rule = match_rules(vf, rules)
+    # 级别判定走**共用核心**（与「按码查级别」同一条代码路径）：
+    # 三值语义 + 候选规则收敛 + 兜底规则。
+    ev = evaluate_rules(vf, rules, str(row.get('alarm_code') or ''))
+    rule = ev['matched']
 
     # 派单依据（「这单排给谁、依据哪条规则」）。推单规则表读不到时返回 {} —— 可选增强，
     # 缺了它照样出级别判定与处理链路，只是没有「派单依据」这一段。
@@ -1453,21 +1746,30 @@ def analyze(tt_no: str, rules: list[dict], lang: str = DEFAULT_LANG,
     # 站点波及范围（master_site_db.victims）。同样是**可选增强**：查不到就是 {}。
     victims = fetch_victims(row.get('site_id') or row.get('ne_id'))
 
-    # 「没命中」分两种，必须区别对待（见 missing_rule_fields 的说明）：
+    # 「没命中」分两种，必须区别对待（见 evaluate_rules 的说明）：
     #   · 真没命中：字段都有值，规则就是不匹配 → 可信的「需人工确认」；
     #   · 判不了  ：有字段是空的（实时行只有 24 个紧凑字段）→ 规则**根本没被真正评估**，
     #               此时说「未命中」等于把「数据不全」包装成「已核实不匹配」。
-    absent = missing_rule_fields(vf, rules) if not rule else []
+    #
+    # ⚠️ 缺失字段现在**只**来自「无法判定且可能改变结论」的规则 ——
+    # 兜底规则 #275 恒命中，若按「规则表里用到但本行没有的字段」来报，
+    # 实时行会报出一堆与本单无关的字段（高温专用 alarmDescription 等）。
+    absent = ev['absent']
 
     cur_sev = str(row.get('ticket_severity') or '').strip().upper()
-    if rule:
+    if ev['verdict'] == 'incomplete':
+        # 判不了 → **不给**建议级别（给了就是猜），只如实说「没能核对规则」。
+        new_sev = ''
+        changed = False
+        verdict = 'incomplete'
+    elif rule:
         new_sev = rule['severity']
         changed = cur_sev != new_sev
         verdict = 'adjust' if changed else 'ok'
     else:
         new_sev = ''
         changed = False
-        verdict = 'incomplete' if absent else 'unknown'
+        verdict = 'unknown'
 
     return {
         'found': True,
@@ -1576,46 +1878,69 @@ _DETAIL_COLS = (
 def lookup_level(code: str, asset: str = '', vip: str = '', sub: str = '',
                  domain: str = '', down: str = '',
                  rules: list[dict] | None = None,
-                 lang: str = DEFAULT_LANG) -> dict:
+                 lang: str = DEFAULT_LANG,
+                 hub: str = '', downstream: str = '') -> dict:
     """按「告警码 + 站点属性」直接问级别（不经工单库）。
 
     构造一个最小的 `row`，走与工单分析**完全相同**的 value frame 与匹配：
       · 用户给了属性 → 参与匹配；
       · 用户没给的属性 → 空串（与「DB 里该列为空」同义）。
 
+    ## 判定用三值语义（2026-11-10）
+
+    群里问「9995 + 这些站点属性会建什么 TT」时，用户给的字段通常只有三五个，
+    而级别规则（尤其 HUB 站 9995 的 266/268/277）要用到
+    `hubSite` / `downstreamSites` / `downSiteCount` 三个字段。
+    两值语义下，缺字段的规则会被判成「确定不匹配」，于是兜底规则 #275 给出 P4 ——
+    一个**看起来有依据、实际没查过**的结论。
+
+    所以这里改用三值（True / False / UNKNOWN）：
+      · 条件字段齐全 → 正常判定；
+      · 缺字段 → 该规则「无法判定」，**不**当成不匹配；
+      · 若无法判定的规则**排在命中规则之前**（优先级更高），结论就是
+        `incomplete`，并给出**条件式结论**：缺哪个字段、补上会是什么级别。
+
     返回：
       · matched  : 命中的规则（id/name/severity/priority）或 None
-      · verdict  : 'ok'（命中）/ 'incomplete'（字段缺失、规则未被真正评估）/ 'unknown'（都不匹配）
-      · missing  : 缺的字段名（incomplete 时非空）
+      · verdict  : 'ok'（定级）/ 'incomplete'（字段缺失、规则未被真正评估）/ 'unknown'（都不匹配）
+      · missing  : **真正卡住判定**的字段名（incomplete 时非空）
       · details  : 命中规则的逐条条件求值（便于解释）
+      · candidates: 候选规则的逐条求值明细（供渲染条件式结论）
     """
     row = {
         'alarm_code': code,
-        'site_type': asset,          # assetType: NORMAL / COOL
-        'vip_site': vip,             # vipSite: 0 / 1
-        'site_information': sub,     # siteSubType: REGULAR / ERA
-        'domain': domain,            # netWorkType
-        'down_site_count': down,     # downSiteCount
+        'site_type': asset,           # assetType: NORMAL / COOL
+        'vip_site': vip,              # vipSite: 0 / 1
+        'site_information': sub,      # siteSubType: REGULAR / ERA
+        'domain': domain,             # netWorkType
+        'down_site_count': down,      # downSiteCount（当前故障下挂的断站数）
+        'hub_site': hub,              # hubSite: 1 / 0（是不是枢纽站）
+        'downstream_sites': downstream,  # downstreamSites（站点拓扑上的下属站点总数）
     }
     vf = build_value_frame(row)
-    rule = match_rules(vf, rules or [])
-    absent = missing_rule_fields(vf, rules or []) if not rule else []
-    if rule:
-        verdict = 'ok'
-    elif absent:
-        verdict = 'incomplete'
-    else:
-        verdict = 'unknown'
+    ev = evaluate_rules(vf, rules or [], code)
+    matched = ev['matched']
+    absent = ev['absent']
+    verdict = ev['verdict']
+
     return {
         'found': True,
         'mode': 'lookup_level',
         'verdict': verdict,
         'missing_rule_fields': absent,
-        'matched_rule_id': rule['id'] if rule else None,
-        'matched_rule_name': rule['name'] if rule else '',
-        'suggested_severity': rule['severity'] if rule else '',
-        'match_details': fmt_detail(vf, rule['conds']) if rule else '',
+        'matched_rule_id': matched['id'] if matched else None,
+        'matched_rule_name': matched['name'] if matched else '',
+        'suggested_severity': matched['severity'] if matched else '',
+        'match_details': fmt_detail(vf, matched['conds']) if matched else '',
+        # 命中规则的逐条条件（**结构化**，与下面 undecidable[].conds 同一形状）：
+        # 渲染方要能写「已满足：hubSite=1、downSiteCount 7 ≥ 5」这种人话，
+        # 而不是把 fmt_detail 的 `hubSite=1 = 1 ✓` 直接丢给值班员
+        # （2026-11-10 实测：那串机器味判定依据正是「答得不好」的主因之一）。
+        'matched_conds': describe_conds(vf, matched['conds']) if matched else [],
         'fields': vf,
+        'candidates': ev['candidates'],
+        # 无法判定但**可能**改变结论的规则（供渲染条件式结论）
+        'undecidable': ev['undecidable'],
     }
 
 
@@ -1629,9 +1954,14 @@ def render_level_lookup(res: dict, code: str, attrs: dict, lang: str = DEFAULT_L
         attr_bits.append(f"siteSubType={attrs['sub']}")
     if attrs.get('vip') not in (None, ''):
         attr_bits.append(f"vipSite={attrs['vip']}")
+    if attrs.get('hub') not in (None, ''):
+        attr_bits.append(f"hubSite={attrs['hub']}")
     if attrs.get('down'):
         attr_bits.append(f"downSiteCount={attrs['down']}")
-    attr_str = '，'.join(attr_bits) if attr_bits else ''
+    if attrs.get('downstream'):
+        attr_bits.append(f"downstreamSites={attrs['downstream']}")
+    # 分隔符跟着语言走：英文回复里混一个中文逗号就是中英混排（实测踩过）。
+    attr_str = (', '.join(attr_bits) if lang == 'en' else '，'.join(attr_bits)) if attr_bits else ''
 
     v = res['verdict']
     if v == 'ok':
@@ -1649,13 +1979,32 @@ def render_level_lookup(res: dict, code: str, attrs: dict, lang: str = DEFAULT_L
                else f"Basis: {res['match_details']}")
         return f"{head}\n{line}\n{det}"
     if v == 'incomplete':
+        # 「判不了」不等于「答不了」—— 给出**条件式结论**：
+        # 哪些规则在争、补上哪个字段会定成哪一级。这样值班员不用去翻规则表。
         miss = '、'.join(res['missing_rule_fields'])
+        und = res.get('undecidable') or []
+        lines = []
         if lang == 'en':
-            return (f"Alarm code {code} ({attr_str}) — cannot determine severity: "
-                    f"missing fields {miss}. Rules were not fully evaluated. "
-                    f"Provide more site attributes (assetType / vipSite / siteSubType) to match.")
-        return (f"告警码 {code}（{attr_str}）—— 级别无法判定：缺少字段 {miss}，"
-                f"规则未被真正评估。请补充站点属性（assetType / vipSite / siteSubType）再匹配。")
+            lines.append(
+                f"Alarm code {code} ({attr_str}) — severity depends on {len(res['missing_rule_fields'])} "
+                f"missing field(s): {miss}. The rules below could not be fully evaluated."
+            )
+            for u in und:
+                lines.append(
+                    f"  · #{u['id']} {u['name']} → {u['severity']}: {u['detail']}"
+                )
+            lines.append(
+                "Provide the missing field(s) to pin the severity down; I won't guess it."
+            )
+            return '\n'.join(lines)
+        lines.append(
+            f"告警码 {code}（{attr_str}）—— 级别取决于缺字段 {miss}，"
+            f"下列规则未能完全评估（不是「未命中」）："
+        )
+        for u in und:
+            lines.append(f"  · #{u['id']} {u['name']} → {u['severity']}：{u['detail']}")
+        lines.append(f"补上 {miss} 即可定级；在此之前我不猜级别。")
+        return '\n'.join(lines)
     # unknown
     if lang == 'en':
         return (f"Alarm code {code} ({attr_str}) — no enabled severity rule matched. "
@@ -3341,7 +3690,10 @@ def main() -> int:
     ap.add_argument('--vip', default='', help='vipSite（0 / 1）')
     ap.add_argument('--sub', default='', help='siteSubType（REGULAR / ERA）')
     ap.add_argument('--domain', default='', help='netWorkType（如 OCS）')
-    ap.add_argument('--down', default='', help='downSiteCount')
+    ap.add_argument('--down', default='', help='downSiteCount（当前故障下挂的断站数）')
+    ap.add_argument('--hub', default='', help='hubSite（1=枢纽站 / 0=非枢纽站）')
+    ap.add_argument('--downstream', default='',
+                    help='downstreamSites（站点拓扑上的下属站点总数，与 --down 不是一回事）')
     args = ap.parse_args()
 
     if args.rebuild_index:
@@ -3356,14 +3708,15 @@ def main() -> int:
             return 2
         res = lookup_level(
             args.lookup_level, args.asset, args.vip, args.sub, args.domain, args.down,
-            rules=rules, lang=args.lang,
+            rules=rules, lang=args.lang, hub=args.hub, downstream=args.downstream,
         )
         if args.json:
             print(json.dumps(res, ensure_ascii=False, indent=2))
         else:
             print(render_level_lookup(
                 res, args.lookup_level,
-                {'asset': args.asset, 'vip': args.vip, 'sub': args.sub, 'down': args.down},
+                {'asset': args.asset, 'vip': args.vip, 'sub': args.sub, 'down': args.down,
+                 'hub': args.hub, 'downstream': args.downstream},
                 args.lang,
             ))
         # 退出码：命中 0；incomplete 4（能判但字段缺）；unknown 1（不匹配）

@@ -110,7 +110,12 @@ conds = [
 ]
 check(not tt.build_rule_match(vf, conds), 'AND 链：一项不满足即假')
 
-check(not tt.build_rule_match(vf, []), '空条件 → 不匹配')
+# 空条件 = **兜底命中**（my_app 2026-10-23 修复，2026-11-10 同步到本文件）。
+# 依据：eFlow 配置中心里条件留空 = 不设筛选 = 全部命中；规则表里的 #275
+# `other ticket P4`（最低优先级 + 最低级别）就是这条兜底。
+# 此前本文件写的是「空条件 → 不匹配」，于是兜底规则一张单都命中不了，
+# 查表问「这个码是几级」时凡落不到具体规则的就答「没有命中的级别规则」。
+check(tt.build_rule_match(vf, []), '空条件 → 兜底命中（与 my_app 一致）')
 
 # ------------------------------------------------------------------ #
 print('\n[4] 字段归一化 build_value_frame')
@@ -162,7 +167,18 @@ else:
     try:
         rules = tt.load_rules()
         check(len(rules) > 0, f'加载到 {len(rules)} 条规则')
-        check(all(r['conds'] for r in rules), '每条规则都解析出了条件')
+        # 2026-11-10：规则表里已出现**无条件兜底规则** #275 `other ticket P4`
+        # （条件为空 = eFlow 侧的「不设筛选 = 全部命中」）。
+        # 旧的「每条规则都解析出了条件」编码的是「规则表里没有无条件规则」这个
+        # **已经不成立**的前提，在这里失效。改成分别断言：
+        #   · 有条件的规则必须都解析出了条件；
+        #   · 无条件规则至多一条（就是那条兜底）。
+        _with_conds = [r for r in rules if r['conds']]
+        _no_conds = [r for r in rules if not r['conds']]
+        check(len(_with_conds) > 0 and all(r['conds'] for r in _with_conds),
+              '有条件的规则都解析出了条件')
+        check(len(_no_conds) <= 1,
+              f'无条件规则至多一条（兜底），实为 {len(_no_conds)} 条')
         pr = [tt._num(r['priority']) for r in rules]
         check(pr == sorted(pr), '已按优先级升序排序')
         # 同优先级内条件数应降序（更具体的优先）
@@ -381,8 +397,108 @@ _txt = tt.render_level_lookup(tt.lookup_level('9990', asset='NORMAL', vip='0', r
 check('P2' in _txt and '227' in _txt, '渲染含级别与规则 ID', _txt)
 _txt2 = tt.render_level_lookup(tt.lookup_level('9990', asset='NORMAL', rules=_MK),
                                '9990', {'asset': 'NORMAL'}, 'zh')
-check('无法判定' in _txt2 and '未被真正评估' in _txt2,
-      'incomplete 渲染点明「规则未被真正评估」（≠未命中）', _txt2)
+# 2026-11-10：incomplete 的措辞从「级别无法判定…未被真正评估」改成
+# 「级别取决于缺字段 X，下列规则未能完全评估（不是「未命中」）」——
+# 它同时给出**条件式结论**（哪条规则、补上会是什么级别），值班员不用翻规则表。
+check('未能完全评估' in _txt2 and '未命中' in _txt2 and 'vipSite' in _txt2,
+      'incomplete 渲染点明「规则未能完全评估」（≠未命中）并列出缺字段', _txt2)
+
+# ------------------------------------------------------------------ #
+# [10] HUB 站 9995：三值求值 + 候选规则收敛 + 条件式结论
+#
+# 背景（2026-11-10 群内实测）：
+#   问「9995 + HUB 站 + 下属站点数 7，会建什么 TT」，机器人答
+#   「级别无法判定：缺少 hubSite、downstreamSites、downSiteCount、assetType、
+#     netWorkType、alarmDescription」—— 一堆字段全缺，而用户其实给了一部分。
+#   三个根因：
+#     ① value frame 里**没有** hubSite / downstreamSites 这两个字段
+#        （规则 266/268/277 引用了它们）→ 那几条规则永远判不出来；
+#     ② 缺失字段清单扫的是**全表**所有规则 → 混进 alarmDescription（高温专用）
+#        等与本码无关的字段，把真正缺的那一个淹没了；
+#     ③ 两值语义把「不知道」当「不成立」→ 缺字段的规则被判成「确定不匹配」。
+#   现在改成三值 + 候选收敛 + 条件式结论。
+# ------------------------------------------------------------------ #
+print('\n[10] HUB 站 9995（三值求值 / 候选收敛 / 条件式结论）')
+
+_HUB = [
+    _rule(266, 'HUB site P1', 2, 'P1',
+          [_c('hubSite', '=', ['1']), _c('alarmCode', '=', ['9995']),
+           _c('downstreamSites', '>=', ['5']), _c('downSiteCount', '>=', ['5'])]),
+    _rule(268, 'HUB site P2', 3, 'P2',
+          [_c('hubSite', '=', ['1']), _c('downstreamSites', '<=', ['4']),
+           _c('downstreamSites', '>=', ['2']), _c('alarmCode', '=', ['9995'])]),
+    _rule(277, 'HUB site P2-less than 5', 3, 'P2',
+          [_c('hubSite', '=', ['1']), _c('alarmCode', '=', ['9995']),
+           _c('downstreamSites', '>=', ['5']), _c('downSiteCount', '<=', ['4'])]),
+    _rule(269, 'Regular Nornal Site P2', 3, 'P2',
+          [_c('assetType', '=', ['NORMAL']),
+           _c('alarmCode', 'in', ['9910', '9920', '9970', '9980', '9990', '99933'])]),
+    _rule(275, 'other ticket P4', 5, 'P4', []),
+]
+
+# ① value frame 必须提供 hubSite / downstreamSites
+_vf = tt.build_value_frame({'alarm_code': '9995', 'hub_site': 'Yes',
+                            'downstream_sites': 7, 'down_site_count': 3})
+check(_vf['hubSite'] == '1', f'hub_site Yes → 1（{_vf["hubSite"]}）')
+check(_vf['downstreamSites'] == '7', f'downstream_sites → 7（{_vf["downstreamSites"]}）')
+
+# ② 候选规则收敛：与 9995 无关的 #269（alarmCode 不含 9995）不该进候选
+_cands = tt.candidate_rules(_HUB, '9995')
+check(all(c['id'] != 269 for c in _cands), '候选规则排除了 alarmCode 不含本码的规则')
+
+# ③ 三值求值：字段缺失 → UNKNOWN（不是「不成立」）
+#    注意要用一个**真缺** downstreamSites 的 vf —— 上面那个 _vf 里带了
+#    downstream_sites=7，字段是有值的，测不出 UNKNOWN。
+_vf_nod = tt.build_value_frame({'alarm_code': '9995', 'hub_site': 'Yes',
+                                'down_site_count': 3})
+check(tt.eval_one_3val(_vf_nod, {'field': 'downstreamSites', 'symbol': '>=',
+                                 'values': ['5']}) is None,
+      '字段缺失 → UNKNOWN（≠ False）')
+check(tt.eval_one_3val(_vf, {'field': 'hubSite', 'symbol': '=', 'values': ['1']}) is True,
+      '字段有值且满足 → True')
+
+# ④ 缺 downstreamSites → incomplete，且**只**报真正卡住判定的字段
+_r = tt.lookup_level('9995', vip='1', sub='REGULAR', down='7', hub='1', rules=_HUB)
+check(_r['verdict'] == 'incomplete', '缺 downstreamSites → incomplete', str(_r))
+check(_r['missing_rule_fields'] == ['downstreamSites'],
+      f'缺失清单只含真正卡住判定的字段（{_r["missing_rule_fields"]}）')
+check(any(u['id'] == 266 for u in _r['undecidable']) and any(u['id'] == 268 for u in _r['undecidable']),
+      '条件式结论列出在争的规则 #266 / #268')
+
+# ⑤ 补上下游站点数 → 可定级（≥5 → P1 #266；2~4 → P2 #268）
+_r = tt.lookup_level('9995', vip='1', sub='REGULAR', down='7', hub='1',
+                     downstream='7', rules=_HUB)
+check(_r['verdict'] == 'ok' and _r['suggested_severity'] == 'P1' and _r['matched_rule_id'] == 266,
+      '下游站点数=7 + 断站数=7 → P1（#266）', str(_r))
+_r = tt.lookup_level('9995', vip='1', sub='REGULAR', down='7', hub='1',
+                     downstream='3', rules=_HUB)
+check(_r['verdict'] == 'ok' and _r['suggested_severity'] == 'P2' and _r['matched_rule_id'] == 268,
+      '下游站点数=3 → P2（#268）', str(_r))
+_r = tt.lookup_level('9995', vip='1', sub='REGULAR', down='2', hub='1',
+                     downstream='7', rules=_HUB)
+check(_r['verdict'] == 'ok' and _r['matched_rule_id'] == 277,
+      '下游站点数=7 + 断站数=2 → P2（#277）', str(_r))
+
+# ⑥ 非枢纽站 → 落兜底 P4（不是「无法判定」）
+_r = tt.lookup_level('9995', vip='1', sub='REGULAR', down='7', hub='0',
+                     downstream='7', rules=_HUB)
+check(_r['verdict'] == 'ok' and _r['suggested_severity'] == 'P4',
+      '非枢纽站 → 兜底 P4（#275）', str(_r))
+
+# ⑦ 渲染：incomplete 要给出条件式结论（含规则号与级别）
+_txt3 = tt.render_level_lookup(
+    tt.lookup_level('9995', vip='1', sub='REGULAR', down='7', hub='1', rules=_HUB),
+    '9995', {'vip': '1', 'sub': 'REGULAR', 'down': '7', 'hub': '1'}, 'zh')
+check('#266' in _txt3 and 'P1' in _txt3 and '#268' in _txt3 and 'P2' in _txt3,
+      'incomplete 渲染给出条件式结论（哪条规则 → 哪一级）', _txt3)
+
+# ⑧ 同级别的未判定规则不该让结论变成「无法判定」
+#    #269 是 P2、兜底 #275 是 P4 —— 但 9995 下 #269 的 alarmCode 不匹配，
+#    真正在争的是 #266/#268。这里钉的是「缺失清单为空时不该出现空话」。
+_r = tt.lookup_level('9995', vip='1', sub='REGULAR', down='7', hub='0',
+                     downstream='7', rules=_HUB)
+check(_r['verdict'] == 'ok' and not _r['missing_rule_fields'],
+      '无在争规则时结论确定（不报空缺字段）', str(_r))
 
 # ------------------------------------------------------------------ #
 print('\n' + '=' * 50)
