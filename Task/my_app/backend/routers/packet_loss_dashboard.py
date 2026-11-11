@@ -304,3 +304,107 @@ def pl_drilldown(status: str = Query(""), search: str = Query(""), limit: int = 
     rows = rows[:limit]
     title = status if status and status != "all" else "All Sites"
     return {"title": title, "total": total, "data": rows}
+
+
+@router.get("/site-detail")
+def pl_site_detail(site_code: str = Query(""), site_name: str = Query("")):
+    """单站点下钻（地图圆点点击）：汇总 + 近7完整日逐日聚合 + 最近完整日逐小时明细。
+
+    窗口与 overview 完全一致：只取完整自然日（剔除当天），起点 = MAX(Begin Time)-7天。
+    站点身份与 overview 的 _resolve_median 同口径：优先按 Managed Element 末尾 (CODE)
+    匹配，无 code 时退回按名称精确匹配。只读 SELECT，参数化查询防注入。
+    逐日/逐小时中位取「全部读数（含 0）」——站点级口径，与 top_sites 一致（见 overview 注释）。
+    """
+    key = f"site_detail:{site_code}|{site_name}"
+    cached = _cache_get(key)
+    if cached is not None:
+        return cached
+
+    rows = _load_summary_rows()
+    summary = None
+    if site_code:
+        summary = next((r for r in rows if str(r.get("Site_Code") or "") == site_code), None)
+    if summary is None and site_name:
+        summary = next((r for r in rows if r.get("Site_Name") == site_name), None)
+
+    empty = {"site": None, "daily": [], "hourly": [], "hourly_day": "", "total": 0}
+    if summary is None or not PL_DB_PATH.exists():
+        return _cache_set(key, empty)
+
+    code = str(summary.get("Site_Code") or "")
+    name = summary.get("Site_Name") or ""
+    today_str = datetime.now().strftime("%Y-%m-%d")
+    conn = _conn()
+    try:
+        if not _table_exists(conn, "packet_loss_data"):
+            return _cache_set(key, empty)
+        max_row = _rows_as_dicts(conn.execute('SELECT MAX("Begin Time") AS mt FROM packet_loss_data'))
+        cutoff7 = ""
+        if max_row and max_row[0].get("mt"):
+            try:
+                max_dt = datetime.strptime(str(max_row[0]["mt"])[:19], "%Y-%m-%d %H:%M:%S")
+                cutoff7 = (max_dt - timedelta(days=7)).strftime("%Y-%m-%d %H:%M:%S")
+            except (TypeError, ValueError):
+                cutoff7 = ""
+        if not cutoff7:
+            return _cache_set(key, empty)
+        # 参数化：code 优先（末尾 (CODE)），否则名称精确匹配
+        if code:
+            cond, param = '"Managed Element" LIKE ?', f"%({code})"
+        else:
+            cond, param = '"Managed Element" = ?', name
+        raw = _rows_as_dicts(conn.execute(
+            'SELECT substr("Begin Time",1,10) AS day, substr("Begin Time",12,2) AS hour, '
+            '"Packet Loss Rate(%)" AS pl '
+            f'FROM packet_loss_data WHERE {cond} '
+            'AND "Begin Time" >= ? AND substr("Begin Time",1,10) < ? '
+            'ORDER BY day, hour', (param, cutoff7, today_str)))
+    finally:
+        conn.close()
+
+    by_day: dict = {}
+    for r in raw:
+        try:
+            pl_val = float(r["pl"] or 0)
+        except (TypeError, ValueError):
+            pl_val = 0.0
+        d = by_day.setdefault(r["day"], {})
+        d.setdefault(r["hour"], []).append(pl_val)
+
+    daily = []
+    for day in sorted(by_day.keys()):
+        hours = by_day[day]
+        all_vals = [v for vs in hours.values() for v in vs]
+        daily.append({
+            "day": day,
+            "max_pl": round(max(all_vals), 2) if all_vals else 0.0,
+            "median_pl": _median(all_vals),
+            "affected_hours": sum(1 for vs in hours.values() if max(vs) > 0.1),
+            "readings": len(all_vals),
+        })
+
+    hourly = []
+    hourly_day = ""
+    if daily:
+        hourly_day = daily[-1]["day"]
+        for hour in sorted(by_day[hourly_day].keys()):
+            vs = by_day[hourly_day][hour]
+            hourly.append({
+                "hour": f"{hour}:00",
+                "max_pl": round(max(vs), 2),
+                "median_pl": _median(vs),
+                "readings": len(vs),
+                "affected": 1 if max(vs) > 0.1 else 0,
+            })
+
+    site = {
+        "site_name": name, "site_code": code,
+        "status": summary.get("FinalStatus") or "No Packet loss[<0.1]",
+        "region": summary.get("region") or "", "province_county": summary.get("province_county") or "",
+        "gateway": summary.get("gateway") or "", "network_type": summary.get("network_type") or "",
+        "last_day_max_pl": round(summary.get("LastDayMaxPL") or 0, 2),
+        "total_pl": round(summary.get("TotalPL") or 0, 2),
+        "affected_hours": summary.get("AffectedHours") or 0,
+    }
+    return _cache_set(key, {"site": site, "daily": daily, "hourly": hourly,
+                            "hourly_day": hourly_day, "total": len(hourly)})

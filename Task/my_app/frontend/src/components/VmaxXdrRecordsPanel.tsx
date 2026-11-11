@@ -34,6 +34,7 @@ import dayjs from 'dayjs'
 import { useI18n } from '../i18n'
 import { exportAoaReport } from '../utils/excelReport'
 import DraggableClickModal from './DraggableClickModal'
+import { ExplainIcon } from './MetricExplain'
 import {
   vmaxXdrDeleteSaved, vmaxXdrQueryHistory, vmaxXdrRecords, vmaxXdrSaveRecord,
   vmaxXdrSavedRecord, vmaxXdrSavedRecords, vmaxXdrServices, vmaxXdrTables,
@@ -451,9 +452,7 @@ export default function VmaxXdrRecordsPanel({ msisdn }: { msisdn: string }) {
         <Button icon={<BookOutlined />} onClick={onOpenSaved}>
           {t('vmaxxdr.savedBtn')}
         </Button>
-        <Text type="secondary" style={{ fontSize: 12 }}>
-          {t('vmaxxdr.hintRetention', { h: retentionHours })}
-        </Text>
+        <ExplainIcon text={t('vmaxxdr.hintRetention', { h: retentionHours })} placement="bottomLeft" icon="question" />
       </Space>
 
       {noMsisdn && <Alert type="info" showIcon message={t('vmaxxdr.needMsisdn')} />}
@@ -483,7 +482,7 @@ export default function VmaxXdrRecordsPanel({ msisdn }: { msisdn: string }) {
               <Text type="secondary" style={{ fontSize: 12 }}>
                 {result.window.starttime} ~ {result.window.endtime}
               </Text>
-              <Text type="secondary" style={{ fontSize: 12 }}>{t('vmaxxdr.clickRowHint')}</Text>
+              <ExplainIcon text={t('vmaxxdr.clickRowHint')} placement="bottomLeft" icon="question" />
             </Space>
             <Table
               rowKey={(_, i) => String((result.page - 1) * result.page_size + (i || 0))}
@@ -526,7 +525,7 @@ export default function VmaxXdrRecordsPanel({ msisdn }: { msisdn: string }) {
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10, minWidth: 480 }}>
           <Space wrap>
-            <Text type="secondary" style={{ fontSize: 12 }}>{t('vmaxxdr.detailHint')}</Text>
+            <ExplainIcon text={t('vmaxxdr.detailHint')} placement="bottomLeft" icon="question" />
             <Button
               size="small"
               icon={<CopyOutlined />}

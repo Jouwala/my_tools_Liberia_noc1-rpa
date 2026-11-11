@@ -127,41 +127,18 @@
              原图格式为 RGBA 方图，与 .mp-zte-mark 的 1:1 尺寸正好吻合，无需改版式。 -->
         <img src="assets/logo-olr-ms-116.png"
              srcset="assets/logo-olr-ms-116.png 2x, assets/logo-olr-ms-174.png 3x"
-             alt="ZTE" decoding="async">
+             alt="OLR MS" decoding="async">
       </span>
-      <!-- ⚠️ 2026-09-28（用户要求「用这张图里的 ZTE 替换 Header 里的 ZTE」）：
-           原来是文字 <span class="mp-zte-word">ZTE</span>（1.75rem/800，靠系统字体渲染），
-           现在换成用户提供的那张 ZTE 字标图抠出来的位图。
-           资产放在**本目录自己的 assets 下**（与 logo-olr-ms-116/174 同一处），
-           不跨目录引用 /MsPortal/：这张图是给本门户的，挂在别人目录里等于由别人决定去留。
-           按顶栏实际字面高（1.75rem × 0.72 ≈ 20px）出 2x/3x（40/60px）两档。
-           源图与处理脚本都在 TMP/_zte_logo/，将来换尺寸/换色/换图改那一个脚本重跑即可。
-
-           ── 关于源图的两次更换（2026-09-28，用户先后给了两张图）──
-           第一张是**实景照片**（331x194，斜拍弧面手写字）。那张图不是平面平行投影：
-           六条横笔斜率从 +4.45° 跨到 +13.44°，且同一字母内部就不平行（Z 两条差 5.84°、
-           E 三条差 3.58°）。仿射保持平行性所以无解；投影变换虽能消锥度，却会把字母宽高比
-           改掉（实测 Z −41%、T +12%、E +14%）。最终只能逐字母按自己最长那条横笔摆平，
-           残余集中在短笔画上取不掉。那段推理与脚本存档在 TMP/_zte_logo/_build_photo_legacy.py。
-           第二张（**当前产物**）是 logo.png：干净的**数字字标**（326x188，纯白底，前景纯色
-           #3589D0）。实测三个字母精确同高（都占 y20..165）、左右列 y 范围一致、横笔斜率
-           ≤0.92° —— **图本来就是正的，不需要任何几何校正**，硬套上面那套摆正逻辑反而会引入误差。
-           所以现用脚本 TMP/_zte_logo/_build_word.py 只做「去白底 + 按倍数降采样」两件事。
-
-           ── 去白底为什么不会留白边 ──
-           实测边缘像素到「主色 → 白」直线的距离 95 分位仅 1.03，说明图像就是
-           「纯色前景 + 抗锯齿」的线性混合，于是可解 P = α·C + (1−α)·白 反推每个像素的 α
-           （重建误差仅 2/255）。这样边缘像素保留的 RGB 就是纯主色，只有透明度不同。
-           验收：半透明像素 RGB 与主色偏差均值 1.77；叠到顶栏最暗端 #051C42 后，
-           没有任何像素亮过主色本身 → 无光晕。对照试验：若改用「离白距离 > 阈值」硬抠，
-           会有 96 个像素亮于主色 —— 那正是白边光晕的来源，本脚本避免了它。
-           span 上的 .mp-zte-word 类**保留**：它是排版钩子（与 Logo 居中对齐 + 三档断点缩放），
-           olbr.js 从未引用过这个类，改名或删掉只会白白多一处 diff。 -->
-      <span class="mp-zte-word">
-        <img src="assets/logo-zte-word-40.png"
-             srcset="assets/logo-zte-word-40.png 2x, assets/logo-zte-word-60.png 3x"
-             alt="ZTE" decoding="async">
-      </span>
+      <!-- 2026-11-11（用户要求「去掉 header 的 ZTE，剩下的空间给标题与标语并向左移动」）：
+           原这里是 .mp-zte-word 包着的 ZTE 字标位图（logo-zte-word-40/60.png），
+           连同整段源图处理说明一并删除；历史原文在 git，处理脚本仍留在 TMP/_zte_logo/。
+           腾出的横向空间归 .mp-brand-text 的「OLR MS Intelligent O&M Platform」
+           与「Intelligent Operations · Infinite Visibility」：品牌区是 flex，
+           少一个 flex item 后分隔线与文本块自然左移；masthead.css 里再把
+           .mp-brand 的 gap 与分隔线 margin 各收一档，让两块文字整体更贴左。
+           ⚠️ 只删可见的 ZTE 字标：左侧 .mp-zte-mark（OLR MS 徽标）与 .mp-brand-sep 保留。
+           ⚠️ 本文件与另一份 index.html 是两份独立文档，必须同改
+              （scripts/sync_team_assets.py 刻意不自动同步 index.html）。 -->
       <span class="mp-brand-sep" aria-hidden="true"></span>
       <div class="mp-brand-text">
         <!-- 2026-09-25 改名：原「OLR MS Management Platform」→「ZTE OLR MS O&M Tools Platform」。
@@ -398,18 +375,14 @@
 
 <footer class="foot">
   <div class="wrap foot-in">
-    <!-- ⚠️ 2026-09-28（用户要求）：版权行由
-           原「© 2026 ZTE Corporation · Liberia Office · Network Operation Center (OLR MS)」
-           改为「© 2026 ZTE Corporation ·ZTE LIBERIA· INC」。
-         用户给的写法里 `·ZTE LIBERIA·` 两侧没有空格（`·ZTE`、`LIBERIA·`），
-         保留原样不改 —— 这是法律实体名，排版习惯不该由前端擅自"修正好看"。
-         原来后半段走 i18n 的 foot.branch（zh 是「利比里亚办事处网络运营中心 (OLR MS)」），
-         现在改成公司法律实体名，中英两种语言下都是同一串（不需要翻译），
-         所以这里直接写死在 HTML，并把 foot.branch 从两份字典里一并删除 ——
-         留着没人消费的键，下次翻译时会被误当成"漏翻的文案"再翻一遍。
-         注：separator 用 `·` 时左右各留一个半角空格是原实现的视觉习惯，
-         但用户点名要的字符串优先，故此处以用户给的写法为准。 -->
-    <span>© 2026 ZTE Corporation ·ZTE LIBERIA· INC</span>
+    <!-- ⚠️ 2026-11-11（用户要求）：版权行改为「© 2026 OLR MS Project」。
+         历史：2026-09-28 曾由「© 2026 ZTE Corporation · Liberia Office ·
+         Network Operation Center (OLR MS)」改为「© 2026 ZTE Corporation
+         ·ZTE LIBERIA· INC」—— 当时按用户给的法律实体名原样保留（含
+         `·ZTE LIBERIA·` 两侧无空格的写法），并删掉了 i18n 的 foot.branch 键。
+         本次去掉公司实体名、收敛成项目名；仍是中英同形，继续直接写死在 HTML，
+         不回填 foot.branch（原因见 assets/olbr-data.js 的说明）。 -->
+    <span>© 2026 OLR MS Project</span>
     <span class="foot-r">
       <span class="ok"><i class="ph ph-shield-check" aria-hidden="true"></i> <span data-i18n="foot.ok">安全合规模式运行</span></span>
       <span id="footSrc">—</span>

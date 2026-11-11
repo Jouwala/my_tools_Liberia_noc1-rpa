@@ -200,8 +200,15 @@ REAL_LIVE_ROW = {
 }
 
 print('\n[7] 真实 eFlow 字段集：级别判不了时必须说「没核对成」，不能说「未命中」')
+# 用 9920：VIP 站 P1 规则 #267 要 `vip_site`，而实时行（24 个紧凑字段）没有这一列
+# → 级别可能是 P1（#267）也可能是 P2（#269），**真判不出来** → 必须说「没核对成」。
+#
+# ⚠️ 这里原本用的是 9981。2026-11-10 级别判定改成三值语义后，9981 **不再**是
+# 「判不了」的场景：它的候选规则（#272/#273/#274/#275）级别**全都是 P4**，
+# 所以「几级」是定得出来的（判不出的是「命中哪一条」）。报 incomplete 反而是错的。
+LIVE_ROW_9920 = dict(REAL_LIVE_ROW, alarm_code='9920')
 r7 = tt.analyze('TT202609290052', tt.load_rules(lang='zh'), 'zh', [],
-                live_row=REAL_LIVE_ROW)
+                live_row=LIVE_ROW_9920)
 check(r7.get('verdict') == 'incomplete',
       'verdict=incomplete（不是 unknown）', str(r7.get('verdict')))
 check(bool(r7.get('missing_rule_fields')),
@@ -216,6 +223,16 @@ check('缺失字段' in t7, '中文列出缺哪些字段')
 t7en = tt.render_text(r7, 'en')
 check('not evaluated' in t7en, '英文说「rules not evaluated」', t7en[:200])
 check('no rule matched' not in t7en, '英文不说 no rule matched')
+
+# 反向：候选规则级别一致时，级别是**定得出来的** → 不该报 incomplete。
+# 9981 的候选规则全是 P4，缺 siteSubType 只影响「命中哪一条」，不影响「几级」。
+print('\n[7b] 候选规则级别一致 → 级别定得出来，不报 incomplete')
+r7b = tt.analyze('TT202609290052', tt.load_rules(lang='zh'), 'zh', [],
+                 live_row=REAL_LIVE_ROW)
+check(r7b.get('verdict') == 'ok',
+      '9981（候选规则全 P4）→ ok 而不是 incomplete', str(r7b.get('verdict')))
+check(not r7b.get('missing_rule_fields'),
+      '  缺失列表为空（缺字段不影响结论就不报）', str(r7b.get('missing_rule_fields')))
 
 # 字段齐全时，判定必须照旧——修复不能把正常路径也变成「判不了」
 print('\n[8] 字段齐全 → 判定不受影响（防止修复矫枉过正）')

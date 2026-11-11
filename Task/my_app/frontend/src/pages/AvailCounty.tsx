@@ -390,9 +390,7 @@ export default function AvailCounty() {
       <CardBase
         title={t('availCounty.tableTitle')}
         extra={(
-          <Text type="secondary" style={{ fontSize: 12 }}>
-            {t('availCounty.clickHint')}
-          </Text>
+          <ExplainIcon text={t('availCounty.clickHint')} placement="bottomLeft" icon="question" />
         )}
       >
         {/* 选项级警告（如 KPI 表缺失）与矩阵级警告合并展示 */}

@@ -277,25 +277,261 @@ export function findLevelBySeverity(lookups, severity) {
 }
 
 /**
- * 从提问里抽站点属性（A4.1：用户给了 VIP/NORMAL/ERA 时**只过滤**表格里写明该条件的行）。
+ * eFlow 表单/告警列表的**字段标签** → 规则引擎里的字段名。
  *
- * 只认**明确写出来**的属性，抽不到就是 null（不过滤）。**不做完整规则引擎匹配**——
- * 那会与 `scripts/tt-analyze.py` 的 eFlow 口径漂移（手册明令 P0 不许）。
+ * ## 这张表为什么必须有
  *
- * @returns {{assetType?:'NORMAL'|'COOL', siteSubType?:'ERA'|'REGULAR', vipSite?:'0'|'1'}}
+ * 2026-11-10 群内实测：问「RAN Site Type：REGULAR；Site VIP Level：YES；
+ * Hub Site Flag：YES；Downstream Site Count：7，alarm code:9995」，机器人答
+ * 「级别无法判定：缺少 hubSite、downstreamSites、downSiteCount、assetType…」。
+ *
+ * 用户**明明白白给了**四个字段，却被判成一个都没给 —— 因为旧版
+ * `parseSiteAttrs` 只认**裸值**（`\bVIP\b` / `\bREGULAR\b` 这种），
+ * 认不出「标签：值」这种**从 eFlow 界面上照抄**的写法。
+ * 值班员在 eFlow 告警列表里看到的就是这些列名，提问自然照抄。
+ *
+ * 标签取自 my_app `backend/routers/bot_data.py` 的字段字典（eFlow 真实列名）：
+ *   `down_site_count` → "Downstream Site Count"
+ *   `hub_site`        → "Hub Site Flag"
+ *   `vip_level`       → "Site Vip Level"
+ *
+ * ⚠️ **最要紧的一条**：eFlow 界面上的 "Downstream Site Count" 指的是
+ * **`downSiteCount`（当前故障下挂的断站数）**，而级别规则里的
+ * `downstreamSites` 是**站点拓扑上的下属站点总数** —— 两个**不同的**字段
+ * （my_app `eflow_rules_matcher.load_site_attrs` 的注释里专门讲过这件事）。
+ * 规则 266 要求 `downstreamSites>=5` **且** `downSiteCount>=5`，两个都要。
+ * 所以标签表里把 "Downstream Site Count" 归给 `downSiteCount`，
+ * `downstreamSites` 只认中文的「下属站点数/下游站点总数」与 `downstreamSites` 本名 ——
+ * 宁可少认，也不能把一个字段的数当成另一个字段的数去判级。
+ */
+const LABEL_FIELDS = new Map([
+  // —— 枢纽站 ——
+  ['hubsiteflag', 'hubSite'],
+  ['hubsite', 'hubSite'],
+  ['枢纽站标志', 'hubSite'],
+  ['枢纽站', 'hubSite'],
+  ['枢纽站点', 'hubSite'],
+  // —— 当前故障下挂的断站数（eFlow 列名 "Downstream Site Count"）——
+  ['downstreamsitecount', 'downSiteCount'],
+  ['downsitecount', 'downSiteCount'],
+  ['断站数', 'downSiteCount'],
+  // —— 站点拓扑上的下属站点总数（**不是** downSiteCount）——
+  ['downstreamsites', 'downstreamSites'],
+  ['下游站点数', 'downstreamSites'],
+  ['下属站点数', 'downstreamSites'],
+  ['下游站点数量', 'downstreamSites'],
+  ['下属站点数量', 'downstreamSites'],
+  ['下游站点总数', 'downstreamSites'],
+  ['下属站点总数', 'downstreamSites'],
+  // —— 站点子类型 / 资产类型（两个字段取值域不重叠，按**取值**再分派）——
+  ['ransitetype', 'siteSubType'],
+  ['站点子类型', 'siteSubType'],
+  ['sitetype', 'siteSubType'],
+  ['站点类型', 'siteSubType'],
+  ['ran站点类型', 'siteSubType'],
+  ['assettype', 'assetType'],
+  ['资产类型', 'assetType'],
+  // —— VIP ——
+  ['siteviplevel', 'vipSite'],
+  ['viplevel', 'vipSite'],
+  ['站点vip等级', 'vipSite'],
+  ['vip等级', 'vipSite'],
+  ['站点vip', 'vipSite'],
+  ['vip站点', 'vipSite'],
+  ['vip站', 'vipSite'],
+  ['vip', 'vipSite'],
+  // —— 其它规则字段 ——
+  ['networktype', 'netWorkType'],
+  ['专业域', 'netWorkType'],
+  ['alarmdescription', 'alarmDescription'],
+  ['告警描述', 'alarmDescription'],
+]);
+
+/** 标签归一：去空格/下划线/连字符/括号，全小写。 */
+function normLabel(s) {
+  return String(s || '')
+    .toLowerCase()
+    .replace(/[\s_\-()（）]/g, '');
+}
+
+/**
+ * 标签 → 字段名。**查不到时剥掉疑问前缀再试一次**。
+ *
+ * ## 为什么需要（2026-11-10 线上验证时踩到）
+ *
+ * 值班员口述时常用疑问写法：「是否枢纽站：是」「是否VIP站：是」
+ * 「是否下游站点总数：7」。标签表里存的是**字段名**（枢纽站 / VIP站 /
+ * 下游站点总数），前面多出来的「是否」让整串对不上，字段就被漏掉 ——
+ * 而漏掉 `hubSite` 会让规则 #266/#268/#277 **全部**判不出级别。
+ *
+ * 更糟的是漏掉 VIP 标签时，裸值兜底会把「是否VIP站：否」判成 **VIP=1**
+ * （裸值正则只认「非VIP / 不是VIP / vip=0」，认不出「是否…：否」），
+ * 直接把级别算高。这是**答错而不报错**，比漏字段严重。
+ *
+ * ## 为什么只剥疑问前缀，不做模糊包含
+ *
+ * 包含匹配会把「不是枢纽站」也当成枢纽站标签（虽然取值会兜住），
+ * 但「非VIP站点」这类写法一旦判成 `vipSite=0` 再被裸值兜底覆盖成 1，
+ * 边界就说不清了。疑问前缀是**有限、可枚举**的一小撮，剥它没有歧义。
+ */
+function resolveLabelField(label) {
+  const key = normLabel(label);
+  if (LABEL_FIELDS.has(key)) return LABEL_FIELDS.get(key);
+  let k = key;
+  for (;;) {
+    // 顺序有意义：先剥长的（是不是），再剥短的（是否 / 为 / 是）
+    const next = k.replace(/^(是不是|是否|为|是)/, '');
+    if (next === k) break;
+    k = next;
+    if (LABEL_FIELDS.has(k)) return LABEL_FIELDS.get(k);
+  }
+  return null;
+}
+
+/**
+ * 从「标签：值」里抽一个字段的取值，并按字段语义归一。
+ *
+ * @returns {string} 归一后的取值；认不出返回 ''（**不是** null —— 空串即「没给」）
+ */
+function normalizeAttrValue(field, raw) {
+  const v = String(raw || '').trim().replace(/^["'“”]+|["'“”]+$/g, '');
+  if (!v) return '';
+  switch (field) {
+    case 'hubSite':
+    case 'vipSite': {
+      const k = v.toLowerCase();
+      if (['yes', 'y', 'true', '1', '是', '有'].includes(k)) return '1';
+      if (['no', 'n', 'false', '0', '否', '无'].includes(k)) return '0';
+      return '';
+    }
+    case 'downSiteCount':
+    case 'downstreamSites': {
+      const m = v.match(/-?\d+/);
+      return m ? String(parseInt(m[0], 10)) : '';
+    }
+    case 'siteSubType':
+    case 'assetType': {
+      const k = v.toUpperCase();
+      // 两个字段取值域不重叠（REGULAR/ERA vs NORMAL/COOL）——
+      // 标签说是「站点类型」但值是 NORMAL/COOL 时，应归 assetType（见调用方）。
+      if (k === 'REGULAR' || k === 'ERA') return k;
+      if (k === 'NORMAL' || k === 'COOL') return k;
+      return '';
+    }
+    default:
+      return v;
+  }
+}
+
+/**
+ * 扫一遍「标签：值」形式的成对字段。
+ *
+ * @param {string} s 提问原文
+ * @returns {object} 字段名 → 取值
+ */
+function parseLabeledAttrs(s) {
+  const out = {};
+  for (const m of attrPairs(s)) {
+    const field = resolveLabelField(m.label);
+    if (!field) continue;
+    const val = normalizeAttrValue(field, m.value);
+    if (!val) continue;
+    // 「站点类型」这类标签下，值域决定它到底是哪个字段：
+    //   REGULAR/ERA → siteSubType；NORMAL/COOL → assetType。
+    if (field === 'siteSubType' && (val === 'NORMAL' || val === 'COOL')) {
+      out.assetType = val;
+      continue;
+    }
+    if (field === 'assetType' && (val === 'REGULAR' || val === 'ERA')) {
+      out.siteSubType = val;
+      continue;
+    }
+    // 先出现的先算（同名字段重复出现时以第一处为准，避免被后半句覆盖）
+    if (!(field in out)) out[field] = val;
+  }
+  return out;
+}
+
+/**
+ * 找出所有「标签：值」成对出现的地方。
+ *
+ * @param {string} s 提问原文
+ * @returns {Array<{label:string, value:string}>}
+ */
+function attrPairs(s) {
+  const out = [];
+  // 标签：中文/英文词 + 可选空格；取值：到下一个分隔符为止。
+  const re = /([A-Za-z一-鿿][A-Za-z0-9一-鿿\s_\-]{0,30}?)\s*[:：=＝]\s*([^;；,，。\n\r]{1,40})/g;
+  let m;
+  while ((m = re.exec(String(s || ''))) !== null) {
+    out.push({ label: m[1], value: m[2] });
+  }
+  return out;
+}
+
+/**
+ * 把**已知的 eFlow 字段标签**从提问里剥掉（连同它的取值）。
+ *
+ * ## 为什么需要（2026-11-10 实测）
+ *
+ * 值班员提问时会直接把 eFlow 告警列表的**列名**贴过来：
+ *   「…；Downstream Site Count：7，alarm code:9995. which kind of TT will be creadted?」
+ *
+ * 而统计意图的正则里有 `count` 这个词 —— "Downstream Site Count" **本身含 Count**，
+ * 于是这条问题被当成「在问数量」，统计通道把查表通道整条抢走，
+ * 最后落到模型层自由发挥（2026-11-10 实测：机器人答成「级别无法判定，缺 hubSite…」）。
+ *
+ * 列名是**用户粘贴的上下文**，不是问题的一部分。所以判意图前先把它剥掉，
+ * 剩下的才是用户真正在问什么。
+ *
+ * 只剥**已知**标签 —— 未知标签原样保留，免得把真问题也削掉
+ * （例如 "alarm code:9995" 的 "alarm code" 不在表里，会保留）。
+ */
+export function stripKnownAttrLabels(s) {
+  const text = String(s || '');
+  const re = /([A-Za-z一-鿿][A-Za-z0-9一-鿿\s_\-]{0,30}?)\s*[:：=＝]\s*([^;；,，。\n\r]{1,40})/g;
+  return text.replace(re, (m, label) => (resolveLabelField(label) ? ' ' : m));
+}
+
+/**
+ * 从提问里抽站点属性。
+ *
+ * 两层：
+ *  ① **标签式**（"Hub Site Flag：YES"）—— 值班员从 eFlow 界面照抄列名时用；
+ *     2026-11-10 新增。这一层优先。
+ *  ② **裸值式**（"NORMAL 非 VIP"）—— 旧行为，保持不变。
+ *     只在①**没抽到**该字段时才生效，避免两者打架
+ *     （例："Site VIP Level：NO" 里含 "VIP"，裸值式会误判成 1）。
+ *
+ * 抽不到就是**不设该键**（不过滤、不参与匹配）—— 与旧语义一致。
+ *
+ * @returns {{assetType?:string, siteSubType?:string, vipSite?:'0'|'1',
+ *            hubSite?:'0'|'1', downSiteCount?:string, downstreamSites?:string,
+ *            netWorkType?:string, alarmDescription?:string}}
  */
 export function parseSiteAttrs(q) {
   const s = String(q || '');
   const out = {};
+
+  // ① 标签式（优先）
+  Object.assign(out, parseLabeledAttrs(s));
+
+  // ② 裸值式（仅补①没抽到的字段）
   // 资产类型
-  if (/\bNORMAL\b/i.test(s)) out.assetType = 'NORMAL';
-  else if (/\bCOOL\b/i.test(s)) out.assetType = 'COOL';
+  if (!out.assetType) {
+    if (/\bNORMAL\b/i.test(s)) out.assetType = 'NORMAL';
+    else if (/\bCOOL\b/i.test(s)) out.assetType = 'COOL';
+  }
   // 站点子类型
-  if (/\bERA\b/i.test(s)) out.siteSubType = 'ERA';
-  else if (/\bREGULAR\b/i.test(s)) out.siteSubType = 'REGULAR';
+  if (!out.siteSubType) {
+    if (/\bERA\b/i.test(s)) out.siteSubType = 'ERA';
+    else if (/\bREGULAR\b/i.test(s)) out.siteSubType = 'REGULAR';
+  }
   // VIP：显式说「非 VIP / VIP=0 / 不是VIP」→ 0；「VIP / VIP=1 / 是VIP」→ 1
-  if (/(非\s*VIP|不是\s*VIP|vip\s*[:=]\s*0|vipSite\s*[:=]\s*0)/i.test(s)) out.vipSite = '0';
-  else if (/(\bVIP\b|vip\s*[:=]\s*1|vipSite\s*[:=]\s*1)/i.test(s)) out.vipSite = '1';
+  if (out.vipSite === undefined) {
+    if (/(非\s*VIP|不是\s*VIP|vip\s*[:=]\s*0|vipSite\s*[:=]\s*0)/i.test(s)) out.vipSite = '0';
+    else if (/(\bVIP\b|vip\s*[:=]\s*1|vipSite\s*[:=]\s*1)/i.test(s)) out.vipSite = '1';
+  }
   return out;
 }
 

@@ -193,14 +193,23 @@ if (!hasRules) {
   const b = await lookupEflowRules('9970');
   if (b.ok) {
     const parents = b.data.compression.asChild.filter((h) => h.status === 'ENABLED').map((h) => h.parentCode);
-    check(parents.includes('99933'), '9970 → 会压进 99933（电源断站）', parents.join(','));
+    // 规则表 2026-11-07 刷新后，9970 的 ENABLED 父告警是 9995（MW LINK DOWN）；
+    // 旧的 99933（电源断站，mpf-outage）那条规则**已 DISABLED** —— 停用即当前不生效，
+    // 不能算进「会压进哪个父告警」的结论。
+    check(parents.includes('9995'), '9970 → 会压进 9995（MW LINK DOWN）', parents.join(','));
+    check(!parents.includes('99933'),
+      '9970 → 已停用的 99933 不进 ENABLED 结论（mpf-outage 已 DISABLED）', parents.join(','));
     check(b.data.compression.asParent.some((h) => h.status === 'ENABLED'), '9970 → 同时识别为父告警');
   }
 
   const c = await lookupEflowRules('199087342');
   if (c.ok) {
     const lv = c.data.tt.levelRules.map((r) => `${r.id}/${r.severity}`);
-    check(lv.some((x) => x.startsWith('199/')), '199087342 → 定级规则 #199 命中', lv.join(','));
+    // 规则表 2026-11-10 换成现行规则集后，199087342（小区退服）命中
+    // #273（ERA Cell Down P4）/ #274（Regular Cell Down P4）；
+    // 旧的 #198/#199 已 STOP —— 停用规则不算命中。
+    check(lv.some((x) => x.startsWith('273/')) || lv.some((x) => x.startsWith('274/')),
+      '199087342 → 定级规则 #273/#274 命中', lv.join(','));
     check(!c.data.tt.stopped.some((r) => r.status === 'ACTIVE'), '停用规则不会混进 ACTIVE 结论');
   }
 }

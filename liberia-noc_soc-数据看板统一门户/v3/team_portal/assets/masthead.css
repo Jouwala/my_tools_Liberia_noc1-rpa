@@ -319,7 +319,9 @@ html.dark .mp-mast-bg {
 .mp-brand {
   display: flex;
   align-items: flex-start;
-  gap: 16px;
+  /* 2026-11-11：ZTE 字标移除后品牌区只剩「徽标 + 分隔线 + 文本」三个 item，
+     gap 由 16px 收到 12px，标题与标语整体再向左靠一档（见 .mp-brand-sep）。 */
+  gap: 12px;
   min-width: 0;
 }
 .mp-zte-mark {
@@ -331,27 +333,11 @@ html.dark .mp-mast-bg {
 }
 .mp-zte-mark svg,
 .mp-zte-mark img { display: block; width: 100%; height: 100%; }
-.mp-zte-word {
-  /* ⚠️ 2026-09-28：由文字改成图片字标（见 index.html 顶栏品牌区的说明）。
-     本块原来管的是「字体排版」——font-size / font-weight / letter-spacing / color /
-     text-shadow，全部删掉：字形与颜色现在由 assets/logo-zte-word-*.png 自带
-     （浅蓝渐变 ≈#43A4F9、上下微差，逐行取色自照片；抠成透明底，深底顶栏上直接可用）。
-     留下的只有两条与图片无关的排版约束：
-       · align-self: center —— 品牌区是 align-items: flex-start，而本项要与 Logo 瓦片
-         垂直居中（量参考图：瓦片 y 14..80 中心 47、字标 y 36..62 中心 49）。 */
-  align-self: center;
-  /* 字面高按原字号折算：原 1.75rem/800 的「ZTE」实测字面高 ≈ 字号 × 0.72，
-     所以这里写 calc(1.75rem * .72) ≈ 20px。改字号口径时就改这一个算式，
-     三个断点各自沿用原来那档字号（见文件末尾的响应式块）。 */
-  height: calc(1.75rem * .72);
-  flex: 0 0 auto;
-}
-/* 高度定死、宽度 auto —— 保持 PNG 自身宽高比，不拉伸 */
-.mp-zte-word img {
-  display: block;
-  height: 100%;
-  width: auto;
-}
+/* 2026-11-11：ZTE 字标（.mp-zte-word + assets/logo-zte-word-*.png）已从两份
+   index.html 整块移除 —— 这里对应的排版规则、以及文件末尾三档断点里的
+   height / display:none 一并删除，避免留下死代码。
+   腾出的横向空间归 .mp-brand-text 的「OLR MS Intelligent O&M Platform」与标语：
+   .mp-brand 的 gap 与 .mp-brand-sep 的 margin 同时收窄，文字整体向左。 */
 /* 品牌区与标题区之间的细青蓝竖线。
    2026-09-21 按新稿对齐：色值 #47ADEF（参考图实测），高度收到品牌区的 85%
    （≈ Header 高的 63%，与参考图一致），并改为垂直居中 —— 原来是满高、
@@ -359,7 +345,8 @@ html.dark .mp-mast-bg {
 .mp-brand-sep {
   width: 1px;
   height: calc(var(--mp-brand-h) * .85);
-  margin: 0 6px;
+  /* 2026-11-11：ZTE 字标没了，两侧各留 6px 显得空，收到 2px 让标题贴左 */
+  margin: 0 2px;
   flex: 0 0 auto;
   align-self: center;
   background: linear-gradient(180deg,
@@ -781,29 +768,27 @@ html body > header.mp-mast .mp-user-panel .mp-user-logout:hover { color: #fff; b
   .mp-clock,
   .mp-tools-sep { display: none; }
   .mp-title { font-size: 1.375rem; }
-  /* 字标是图片，缩放改的是高度（原 font-size，比例与上面默认档一致：字号 × .72） */
-  .mp-zte-word { height: calc(1.5rem * .72); }
   /* 副标题收起来后品牌区只剩标题一行，顶栏高度自动跟着降 */
   html { --mp-brand-h: calc(1.375rem * 1.15); }
-  .mp-brand { gap: 13px; }
+  /* 2026-11-11：ZTE 字标移除，gap 同步收窄（原 13px） */
+  .mp-brand { gap: 10px; }
 }
 
 /* 1024 以下：登录用户名收起（退出登录按钮还在），控件整体小一档 */
 @media (max-width: 1023px) {
   .mp-mast-inner { padding: 0 18px; gap: 16px; }
-  .mp-brand { gap: 11px; }
+  .mp-brand { gap: 9px; }
   html body > header.mp-mast .auth-user-badge { display: none; }
   .mp-title { font-size: 1.25rem; }
-  .mp-zte-word { height: calc(1.375rem * .72); }
   html { --mp-brand-h: calc(1.25rem * 1.15); }
 }
 
-/* 768 以下：ZTE 字标与分隔线收起，只留标 + 「OLR MS」；站点入口收成纯图标
+/* 768 以下：分隔线收起，只留标 + 「OLR MS」；站点入口收成纯图标
+   （2026-11-11：ZTE 字标已整块移除，这里不再需要 display:none）
    （图标仍是链接，/uniplam/ 在手机上也到得了） */
 @media (max-width: 767px) {
   .mp-mast-inner { padding: 0 12px; gap: 10px; }
-  .mp-brand { gap: 9px; }
-  .mp-zte-word { display: none; }
+  .mp-brand { gap: 8px; }
   .mp-brand-sep { display: none; }
   .mp-title { font-size: 1.0625rem; }
   html { --mp-brand-h: calc(1.0625rem * 1.15); }

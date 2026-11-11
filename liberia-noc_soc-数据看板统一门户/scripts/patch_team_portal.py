@@ -587,10 +587,10 @@ H(
        ⚠️ 服务端库矩阵里可能仍残留 qa/vmax（合并逻辑只补不删），
          qaItems() 已不消费它，qaTabs() 多返回一项也无副作用。
        ⚠️ 2026-11-08：上游新增第三个页签 master_site（Master Site，站点主数据表）。
-         用户只要求主门户 /v3/olbrportal/ 加，团队门户按矩阵走 —— 矩阵的 qa 域
-         目前没有 master_site 这一项，故这里默认把它置 null，五个团队门户
-         仍是原来的两个页签。将来若要把这个页签开放给某些团队，在矩阵里
-         勾 qa/master_site 即可，本判据会自动放行，无需再改代码。 */
+         用户最初只要求主门户 /v3/olbrportal/ 加，团队门户按矩阵走；
+         2026-11-11 起矩阵 qa/master_site 勾了 fo / bo / flm，本判据自动放行，
+         这三个团队门户也显示该页签，smc / cxo 未勾、置 null 保持两个页签。
+         以后要增删团队只改 scope-map.json 的矩阵即可，无需再动代码。 */
     if (SCOPE) {
       var qaAllow = SCOPE.qaTabs();
       if (qaAllow.indexOf('eflow') === -1) eflow = null;

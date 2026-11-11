@@ -3226,11 +3226,7 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
         }
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--wh-space-sm)' }}>
-          <Alert
-            type="info"
-            showIcon
-            message={<span style={{ fontSize: 12 }}>{t('gis.rca.aiHint')}</span>}
-          />
+          <ExplainIcon text={t('gis.rca.aiHint')} placement="bottomLeft" icon="question" />
           <div style={{ display: 'flex', gap: 'var(--wh-space-sm)', flexWrap: 'wrap' }}>
             <Select
               size="small"

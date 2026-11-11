@@ -34,6 +34,7 @@ import {
   hhmm, type TimelineCell, type TimelineRow, type XdrRow,
 } from '../pages/vmaxDiagnosisRules'
 import { CardBase } from './cards'
+import { ExplainIcon } from './MetricExplain'
 
 const { Text } = Typography
 
@@ -203,7 +204,7 @@ export default function VmaxEvidenceTimeline({
       title={t('vmaxq.tl.card')}
       extra={(
         <Space size={4}>
-          <Text type="secondary" style={{ fontSize: 11 }}>{t('vmaxq.tl.hint')}</Text>
+          <ExplainIcon text={t('vmaxq.tl.hint')} placement="bottomLeft" icon="question" />
         </Space>
       )}
     >

@@ -114,6 +114,112 @@ Baileys 客户端（Node.js，扫码登录，作为「已关联的设备」）
 > - **站点属性过滤 + 真规则匹配**（`告警码 9990 NORMAL 非 VIP 是几级`）→ 现在会
 >   **调用 `scripts/tt-analyze.py --lookup-level`**（与「分析 TT 单」**同一套规则引擎**），
 >   直接给出命中级别与逐条判定依据。口径与工单分析完全一致，避免「查表说 P2、分析工单说 P3」。
+>
+> **③e 是 2026-11-10 新增的通道能力**（HUB 站 / 条件式结论）。
+> 起因是群里这句被答成了一句**看起来很专业、实际没查过**的话：
+>
+> ```
+> RAN Site Type：REGULAR；Site VIP Level：YES；Hub Site Flag：YES；
+> Downstream Site Count：7，alarm code:9995. which kind of TT will be creadted?
+> → 旧答：Alarm code 9995 (siteSubType=REGULAR，vipSite=1) — cannot determine severity:
+>   missing hubSite、downstreamSites、downSiteCount、assetType、netWorkType、alarmDescription.
+> ```
+>
+> 旧答有三处错，**每一处都是独立缺陷**：
+>
+> 1. **用户给的字段被丢弃了**。`Hub Site Flag：YES`、`Downstream Site Count：7`、
+>    `Site VIP Level：YES` 全是 eFlow 界面上的**列名**（见 my_app
+>    `backend/routers/bot_data.py` 的字段字典），值班员直接照抄。
+>    旧的 `parseSiteAttrs` 只认**裸值**（`\bVIP\b` / `\bREGULAR\b`），
+>    认不出「标签：值」，于是四个字段只抽到两个。现在支持标签式抽取
+>    （中英文列名 + YES/NO → 1/0 + 数字），裸值写法保持不变。
+> 2. **规则引擎缺字段**。级别规则 266/268/277（HUB 站 9995）引用了
+>    `hubSite` / `downstreamSites`，而 `scripts/tt-analyze.py` 的 value frame
+>    里**根本没有这两个键** —— `eval_one` 遇到不在表里的字段直接 `return False`，
+>    于是那几条规则**永远**判不出来。my_app 侧 2026-10-23 已经补齐，
+>    bot 侧（纯 Python 重写版）没跟上，成了抄写漂移。现在对齐。
+> 3. **缺失字段清单扫的是全表**。`missing_rule_fields` 遍历**所有**规则，
+>    于是 `alarmDescription`（规则 272 高温专用）、`netWorkType` 这些
+>    **与 9995 毫无关系**的字段被混进「缺字段」清单，把真正缺的那一个淹没了。
+>    现在只算**该告警码的候选规则**，且只报**可能改变结论**的字段。
+>
+> 另外两处是同一个根因的连带问题：
+>
+> - **兜底规则 #275 永不命中**。`build_rule_match` 对空条件返回 `False`，
+>   而 my_app 2026-10-23 已改成 `True`（eFlow 里条件留空 = 不设筛选 = 全部命中）。
+>   于是「落不到具体规则就该是 P4」的单子，bot 反而说「没有命中的级别规则」。
+> - **规则层弃权**。「which kind of TT will be creadted」既不匹配 `TICKET_INTENT`
+>   （要 "ticket" 或中文「建单」）也不匹配 `LEVEL_INTENT`（没有「几级/severity」），
+>   于是落到模型层自由发挥。更巧的是 eFlow 列名 **"Downstream Site Count" 本身含
+>   "Count"** → `COUNT_INTENT` 命中 → 统计通道把查表通道整条抢走。
+>   现在判意图前先剥掉已知的 eFlow 字段标签，并新增 `TT_BUILD_INTENT`
+>   （「建什么 TT / 哪种 TT / 哪一级 / 派给谁」）。
+>
+> 现在的行为：
+> - 级别判定改用**三值语义**（True / False / **UNKNOWN**）：字段缺失不再当「不成立」，
+>   缺字段的规则判为「无法判定」，**不**被兜底规则盖过去；
+> - 判不了时给**条件式结论** —— 哪几条规则在争、每条差哪个字段、补上会是什么级别，
+>   而不是只丢一句「级别无法判定」；
+> - 问「会建什么 TT」时，同一条回复里附上 eFlow 的**建单与派单链路**
+>   （`lookup_eflow_rule` 的建单/推单部分）；
+> - 标签式抽取对**中文疑问写法**也认：「是否枢纽站：是」「是否VIP站：是」
+>   这类口述写法与 eFlow 列名一样能落到 `hubSite` / `vipSite`
+>   （先剥掉「是否 / 是不是 / 为 / 是」前缀再查标签表）。
+>   这一步不补会**漏字段**（`hubSite` 漏了 → #266/#268/#277 全判不出级别）；
+>   更糟的是「是否VIP站：否」会被裸值兜底翻成 **VIP=1**（直接把级别算高），
+>   现在按标签取值为 0。
+>
+> 第一版当天上线后，用户又反馈「回答的不好」—— 判定是对的，但**给值班员看的东西不成样子**：
+> 机器串 `hubSite=1 = 1 ✓; downstreamSites=? >= 5 ?` 原样抛出、结论埋在中间、
+> REGULAR 站还列着 ERA 专用的 #203。当天下午重写了渲染（`src/tools.js` 的
+> `renderTtBuildAnswer`），一条回复改成四段：
+>
+> 1. **先给结论**：会建 TT，进 FO 线还是 BO 线（`autoDispatch` 兜底 #164 / #165 分线）；
+> 2. **级别**：条件式结论，每条在争的规则写成「若 <条件> → P?」，用户给过的条件
+>    标成「已满足」——让他看见自己的字段真的被采纳了，而不是被一句「缺字段」打发；
+> 3. **口径提醒**：`Downstream Site Count：7` 是 `downSiteCount`，**不是**规则要的
+>    `downstreamSites`；直接说「你这 7 不能用来定级、补哪个字段能定」；
+> 4. **派单**：按用户给的站点属性**过滤**推单规则（REGULAR 站排除 ERA 专用 #203，
+>    并写明排除原因），剩下的写成「若 reasonType = POWER → #200 → 3rd_Power」。
+>
+> 过滤纪律与 `src/lookups.js` 的 `filterLevelRulesByAttrs` 一致：只排除**条件里写明
+> 冲突取值**的规则（`src/eflowRules.js` 的 `filterRulesByAttrs`），条件没提的一律保留。
+> ⚠️ eFlow 条件文本里写的是 `not in`（**有空格**）——首版只认 `notin`，于是 #201 的
+> `reasonType not in 'POWER'` 被整条漏掉，答案里 #200/#201 都成了「只要 assetType 对就适用」，
+> 恰好把「按 reasonType 二选一」这个关键结论丢了。
+>
+> ```
+> → 新答：告警码 9995（MW LINK DOWN）：会建 TT，autoDispatch 兜底 #164 收进 FO 线；
+>   netWorkType ∈ {CS/OCS/PS/VAS} 时改走 BO 线。
+>
+>   级别：还定不了 —— 缺 downstreamSites（站点拓扑上的下属站点总数）：
+>     · 若 downstreamSites ≥ 5 → P1（#266 HUB site P1）（已满足：hubSite=1、downSiteCount 7 ≥ 5）
+>     · 若 2 ≤ downstreamSites ≤ 4 → P2（#268 HUB site P2）（已满足：hubSite=1）
+>     · 其余情况 → P4（#275 other ticket P4）
+>
+>   注：你给的「Downstream Site Count：7」是 downSiteCount（当前故障下挂的断站数），
+>   已用上；它不是 downstreamSites（站点拓扑上的下属站点总数），两个字段不能互换 ——
+>   把 downstreamSites 补上即可定级。
+>
+>   派单（按你给的 siteSubType=REGULAR）：
+>     · 若 assetType ∈ {NORMAL, COOL} 且 reasonType ∈ {POWER} → #200 … → 3rd_Power(group)
+>     · 若 assetType ∈ {NORMAL, COOL} 且 reasonType ∉ {POWER} → #201 … → ZTE_FE_FE / ZTE_NOC_FO
+>   （#203 ERA断站推单到ZTE WO 已排除：它要求 siteSubType = ERA，你给的是 REGULAR）
+> ```
+>
+> 缺字段名后面一律带**中文释义**（`downstreamSites` = 站点拓扑上的下属站点总数）——
+> 只下一个字段名对值班员**不可执行**（他不知道去哪里查这个数）。
+> 字段名是**数据**（不翻译），释义是**文案**（中英分语言）。
+> 回归测试见 `scripts/test-lookups.mjs` 的 `[9]`：过滤方向（REGULAR/ERA）、`not in` 语义、
+> 原句路由、区间方向（`2 ≤ downstreamSites ≤ 4` 不许写成 `2 ≥ …`）、口径提示、排除原因。
+>
+> ⚠️ **`downstreamSites` 与 `downSiteCount` 是两个不同的字段**，别搞混：
+> 前者是站点拓扑上的**下属站点总数**（`master_site_db.victims`），
+> 后者是**当前故障下挂的断站数**（`eflow_tt.down_site_count`）。
+> 规则 266 要求两者**同时**满足（`downstreamSites>=5` 且 `downSiteCount>=5`）。
+> 实测 2315 张 9995 的 HUB 单里，两者**只有 614 张相等** —— 拿一个当另一个会判错级别。
+> 界面上 eFlow 把 `down_site_count` 的列名就叫 "Downstream Site Count"，
+> 抽取时必须按这个口径归到 `downSiteCount`（见 `src/lookups.js` 的 `LABEL_FIELDS`）。
 
 > **③d 是 2026-10-28 新增的通道**（`src/eflowRules.js` + `scripts/eflow-rule-lookup.py`）。
 > 起因是群里这句被答成了一句「我不知道」：
@@ -146,7 +252,8 @@ Baileys 客户端（Node.js，扫码登录，作为「已关联的设备」）
 > - **规则表读不到时绝不说「没配」**，只说「查不了、分不清是没配还是没查到」——
 >   把超时说成「不支持」比不回答更糟。
 >   脚本不可用（没装 Python / 规则表不在）时自动回退到静态候选列表（只过滤写明冲突条件的行）。
->   判不了时输出 `incomplete`（缺字段，措辞「未能核对规则」），与「未命中」分开。
+>   判不了时输出 `incomplete`，与「未命中」分开；措辞与内容见上面 ③e 一节
+>   （给**条件式结论**：哪条规则、补什么字段、会是什么级别）。
 
 只有「你的问题 + 命中的片段」会离开本机（且仅在你选择云端对话模型时）。
 
@@ -1733,6 +1840,20 @@ eFlow 的 `base/list` 只返回 **24 个紧凑字段**（见 my_app `_TT_LIVE_CO
 | 字段缺失、规则没被真正评估 | `incomplete` | `级别：P4（实时数据不含级别判定所需字段，未能核对规则）`<br>`缺失字段：downSiteCount、vipSite、netWorkType、siteSubType` |
 
 `--json` 调用方可以读 `verdict` 与 `missing_rule_fields`。
+
+> **2026-11-10 更新**：上表的 `incomplete` 口径已扩到**按码查级别**这条通道
+> （`--lookup-level`），并从两值改为**三值**：
+>
+> | 情形 | verdict | 输出 |
+> |---|---|---|
+> | 字段齐全，规则命中 | `ok` | `告警码 9995（…）→ P1` + 命中规则 + 逐条判定依据 |
+> | 字段缺失，但**候选规则**已能判出唯一级别 | `ok` | 同上（缺字段的规则只在**可能改变结论**时才拦下判定） |
+> | 字段缺失，有规则**无法判定**且可能改变结论 | `incomplete` | 条件式结论：每条在争的规则 → 差哪个字段 → 补上是什么级别 |
+> | 字段齐全，所有候选规则都不匹配 | `unknown` | `没有命中的级别规则。我不会按通用知识猜。` |
+>
+> `missing_rule_fields` 现在**只列该告警码候选规则里真正卡住判定的字段**
+> （不再扫全表），且字段名带**中文释义**（如 `downstreamSites（站点拓扑上的下属站点总数）`），
+> 值班员不用再去查「这个数去哪找」。
 
 > 实时报告**仍然有用**：站点、告警码、状态、时间线、派单依据都是真的。
 > 只有「级别判定」这一段在实时通道下不可靠 —— 现在它会如实承认，

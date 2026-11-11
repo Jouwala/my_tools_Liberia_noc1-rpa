@@ -24,6 +24,7 @@ import { useI18n } from '../i18n'
 import { CardBase } from '../components/cards'
 import { WH } from '../theme'
 import { exportAoaReport } from '../utils/excelReport'
+import { ExplainIcon } from './MetricExplain'
 
 const { TextArea } = Input
 
@@ -193,11 +194,7 @@ export default function DataAgentBar() {
   return (
     <CardBase
       title={t('dataAgent.title')}
-      extra={
-        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-          {t('dataAgent.readonlyHint')}
-        </Typography.Text>
-      }
+      extra={<ExplainIcon text={t('dataAgent.readonlyHint')} placement="bottomLeft" icon="question" />}
     >
       <Space direction="vertical" style={{ width: '100%' }} size="small">
         {/* 模式切换：手动模式不碰 AI，故 provider/key/模型整组在手动模式下隐藏 ——
@@ -271,9 +268,7 @@ export default function DataAgentBar() {
                   size="small"
                   allowClear
                 />
-                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                  {t('dataAgent.baseUrlHint')}
-                </Typography.Text>
+                <ExplainIcon text={t('dataAgent.baseUrlHint')} placement="bottomLeft" icon="question" />
               </Space>
             )}
 
@@ -320,7 +315,7 @@ export default function DataAgentBar() {
 
         {mode === 'manual' && (
           <>
-            <Alert type="info" showIcon message={t('dataAgent.manualHint')} />
+            <ExplainIcon text={t('dataAgent.manualHint')} placement="bottomLeft" icon="question" />
             <TextArea
               value={sql}
               onChange={(e) => setSql(e.target.value)}
@@ -421,9 +416,7 @@ export default function DataAgentBar() {
           />
         )}
 
-        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-          {mode === 'ai' ? t('dataAgent.disclaimer') : t('dataAgent.manualHint')}
-        </Typography.Text>
+        <ExplainIcon text={mode === 'ai' ? t('dataAgent.disclaimer') : t('dataAgent.manualHint')} placement="bottomLeft" icon="question" />
       </Space>
     </CardBase>
   )

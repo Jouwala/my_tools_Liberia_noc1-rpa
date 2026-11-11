@@ -5,7 +5,7 @@
 // ExplainIcon / ExplainCorner / ExplainLabel 是它的三种摆放方式。
 import { useState, useCallback, type ReactNode } from 'react'
 import { Popover, Button } from 'antd'
-import { InfoCircleOutlined, CopyOutlined } from '@ant-design/icons'
+import { InfoCircleOutlined, QuestionCircleOutlined, CopyOutlined } from '@ant-design/icons'
 import { WH } from '../theme'
 import { useI18n } from '../i18n'
 import { renderRich, stripBold } from '../utils/richText'
@@ -18,6 +18,8 @@ interface ExplainIconProps {
   text: string
   size?: number | string
   placement?: Placement
+  /** 图标形状：默认 info（ⓘ，全站既有观感）；question = 圆圈问号（用户明确要「问号」时用） */
+  icon?: 'info' | 'question'
 }
 
 interface ExplainPopoverProps {
@@ -70,7 +72,7 @@ export const ExplainPopover = ({ text, placement = 'top', children }: ExplainPop
 // 核心：? 图标 + 悬停气泡（含复制）。不依赖外部 t，内部自行取 i18n。
 // 图标本身吃掉 click：挂在可下钻的卡片标题上时，点 ⓘ 不该顺带打开下钻弹窗
 // （与下方 ExplainCorner 的 stopPropagation 同一取向）。
-export const ExplainIcon = ({ text, size = '0.8125rem', placement = 'top' }: ExplainIconProps) => {
+export const ExplainIcon = ({ text, size = '0.8125rem', placement = 'top', icon = 'info' }: ExplainIconProps) => {
   if (!text) return null
   return (
     <ExplainPopover text={text} placement={placement}>
@@ -78,7 +80,7 @@ export const ExplainIcon = ({ text, size = '0.8125rem', placement = 'top' }: Exp
         style={{ cursor: 'help', color: WH.textDim, fontSize: size, lineHeight: 1 }}
         onClick={e => e.stopPropagation()}
       >
-        <InfoCircleOutlined />
+        {icon === 'question' ? <QuestionCircleOutlined /> : <InfoCircleOutlined />}
       </span>
     </ExplainPopover>
   )

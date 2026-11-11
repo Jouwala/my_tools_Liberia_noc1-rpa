@@ -17,6 +17,7 @@ import { SearchOutlined } from '@ant-design/icons'
 
 import { useI18n } from '../i18n'
 import { WH } from '../theme'
+import { ExplainIcon } from './MetricExplain'
 
 const { Text } = Typography
 
@@ -142,7 +143,7 @@ export default function ColumnPicker({
       </div>
 
       <Divider style={{ margin: 'var(--wh-space-sm) 0' }} />
-      <Text type="secondary" style={{ fontSize: 12 }}>{t('spRep.cols.hint')}</Text>
+      <ExplainIcon text={t('spRep.cols.hint')} placement="bottomLeft" icon="question" />
     </Modal>
   )
 }

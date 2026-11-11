@@ -31,6 +31,55 @@
 | `LBR_Tools\`、`Unified_Tools\`、`openclaw_api_selector\`、`ticket_export_rpa\` | 工具与 RPA 脚本集 | Python / 混合 | 各自目录 |
 | `chrome-win\`、`whatsapp*\`、`scheduler_logs\`、`report\` | 运行时依赖与产出 | — | 一般不直接改。nginx 也在运行时依赖之列：本机 (.20) 生效目录是 `D:\01_RPA\nginx-1.28.0\`（2026-10-01 从 Y: 网络映射盘搬回本地，已加入 `.gitignore`）；`Y:\01_RPA\nginx-1.28.0\` 是 **.19 那台**在用的，不要动（见第四节第 6b 条） |
 
+### ⭐ 编辑区 ≠ 运行副本（2026-11-11 用户确认，全工作区最易踩的坑）
+
+| | 路径 | 角色 |
+| --- | --- | --- |
+| **编辑区** | `D:\01_RPA` | **改代码的地方**。git 仓库、文档、手册、守卫脚本都在这里。 |
+| **运行副本** | `D:\01_olbr_portal` | **实际跑起来的地方**。2026-11-11 起接管 80/443/7038/7090/9267/5432。 |
+
+**工作流：在 `D:\01_RPA` 改完 → 同步到 `D:\01_olbr_portal` → 那里才是线上。**
+
+一条命令收口（**同步 + 重建前端 + 校验一致性**）。双击运行副本根目录的 `sync-now.bat` 就是这一条，不必再选：
+
+```text
+D:\01_olbr_portal\sync-now.bat
+```
+
+它调用的就是下面这个脚本（在编辑区里直接跑也一样）：
+
+```powershell
+cd D:\01_RPA
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\deploy_to_copy.ps1
+```
+
+**为什么必须用这个脚本，不能只「同步源码」**（2026-11-11 实测事故）：
+
+- 同步只搬**源码**；前端是**构建产物**（`Task\_fe_dist`）、后端是**常驻进程**，两者都不吃源码变更。
+- 只同步不重建 → 副本前端仍是旧界面；只重建不重启 → 后端仍是旧接口。
+- **实测 split-brain**：前端 chunk 已含 `col_filters`（列头筛选），而 live 后端的 `/api/tables/{t}/data` OpenAPI 参数里**没有** `col_filters`、也没有 `/column-values` 路由 → 用户看到「列头筛选点了没反应」「选值模式永远显示没有可选值」，是**完全坏掉的新功能**而不是报错。
+- 脚本第 3 步用 live OpenAPI 实测判定，命中不一致直接**非零退出**并点名 `SPLIT-BRAIN`，不会让「我明明同步了」变成排查一小时的谜题。
+
+**脚本不自动重启服务** —— 重启会打断正在看数据的人（第四节第 6 条）。需要重启时由人显式执行，脚本会提示该重启什么。
+
+> `sync-now.bat` 从 2026-11-11 起就是 `deploy_to_copy.ps1` 的双击入口（同步引擎仍是副本里的 `sync-engine.mjs`，源只读、冲突 fail-closed）。只搬源码、不重建前端：`sync-now.bat -SkipBuild`。
+
+> ⚠️ **迁移/换目录时还有一类东西同步器不会搬：`Task\my_app\db\app.db` 里的三张「本地权威表」**
+> —— `credentials`（设置页凭据）、`task_schedule_config`（任务启停/cron）、
+> `email_recipients`（邮件收件人）。它们由应用**固定写 SQLite**（不走 PG），
+> 同步器按策略不搬 `db/`，`sync_pg_to_sqlite.py` 又为避免 DROP 本地数据把它们列进
+> `SKIP_TABLES`，所以「从 PG 重建 app.db」的路径天生带不出它们、也不会报错。
+> **2026-11-11 实测**：漏搬后 16 个任务同时报「拒绝以空密码登录」、任务管理页的
+> 4 个手动停用任务全变回启用。检查/迁移命令：
+>
+> ```powershell
+> python scripts\local_authority_tools.py check   --source <旧app.db> --target <新app.db>
+> python scripts\local_authority_tools.py migrate --source <旧app.db> --target <新app.db>
+> ```
+>
+> `deploy_to_copy.ps1` 的 **Step 1.5** 已自动跑 `check`：缺失即非零退出并打印上面的
+> migrate 命令，不让它再静默落到线上。细节见 `scripts\portable\部署说明.md` 第八节。
+
 ### 环境拓扑（速查）
 
 ```
@@ -103,6 +152,15 @@
    - **存活监控**：计划任务 `Nginx_EnsureRunning`（每 5 分钟）调 `Task\my_app\monitor_fixes\nginx_monitor.ps1` 巡检本机 80 端口，挂了自动拉起；日志在 `Task\nginx_monitor.log`。脚本的 `NginxExe`/`NginxDir` 已同步改为 `D:\01_RPA\nginx-1.28.0`（Version 4）。**日志轮转 `门户\rotate_nginx_logs.ps1` 的 `-Prefix` 默认值必须与之一致**，否则会去轮转 Y: 上的旧目录。
    - **已隔离的历史副本**：早期 `D:\01_RPA\nginx-1.28.0\` 曾是另一份**配置分叉**的发行包（缺 `/v2/olbrportal/`），已于 2026-09-29 移入 `_quarantine_20260929_nginx_dup\`。**注意：它与现在这份新的 D 盘目录同名但无关** —— 那份是历史遗留，这份是 2026-10-01 从 Y: 复制来的现役副本。
    - **`D:\01_RPA\nginx-1.28.0\` 已加入根 `.gitignore`**（第三方发行包，非源码）。**忽略跟踪 ≠ 可以删除**：它是本机线上服务目录，`nginx.exe` 与 `conf\` 必须留在磁盘上。
+   - **⚠️ 2026-11-11 起本机有两套 nginx 进程并存**，这是「编辑区 ≠ 运行副本」带来的副作用：
+     - `D:\01_RPA\nginx-1.28.0\nginx.exe` —— **持有 80/443 的那一份**（本节上文说的生效目录，配置仍改这里）；
+     - `D:\01_olbr_portal\nginx-1.28.0\nginx.exe` —— 运行副本自带的副本（副本的 `start_all.ps1` 会拉起它）。
+     - **两份配置会互相覆盖对方的 `conf\nginx.conf`**（副本 `write_nginx_conf.ps1` 按 `.env` 重新生成），且 `logs\nginx.pid` 各读各的。**改配置前先确认 80/443 的归属**：
+       ```powershell
+       netstat -ano | Select-String ':80 .*LISTENING'   # 拿到 pid
+       Get-CimInstance Win32_Process -Filter "ProcessId=<pid>" | Select ExecutablePath
+       ```
+     - 2026-11-11 实测：80/443 的归属在排查期间**来回变过两次**（`D:\01_olbr_portal` → `D:\01_RPA`），排查期间看到「nginx 突然 502 / 后端连不上」时，**先查归属再查后端**。
 
 
 7. **一次性探针与转储只能落 `TMP\`，并且任务结束前自清。** 这条约定已经失效过三次，每次都有记录：`7b1d33b`（根目录 98 个探针脚本随提交入库）、`_myapp_trash_20260918\`、以及 2026-09-24 的审计（门户 506 个被跟踪文件里 347 个是探针/转储/手工快照/日志，`Task\_fe_dist` 有 5240 个构建产物入库）。所以拆成可执行的四条：
@@ -262,7 +320,7 @@ Claude Code 侧已接 **Stop 钩子**：本轮改过文件但自检未通过时�
 
 ## 七、规则细则（`_agents\rules\` 的展开）
 
-> 下面四份是**细则原文**，通过 `@` 导入内联到本文件 —— 目的是让所有读 `AGENTS.md` 的工具
+> 下面五份是**细则原文**，通过 `@` 导入内联到本文件 —— 目的是让所有读 `AGENTS.md` 的工具
 > （Claude Code / Qoder / Cursor / Trae…）拿到**同一份**规则，而不是只有 Qoder 通过
 > `.qoder\rules\` junction 看得到。**不要在这里重复内容**，改规则请改 `_agents\rules\` 下的源文件。
 >
@@ -280,6 +338,8 @@ Claude Code 侧已接 **Stop 钩子**：本轮改过文件但自检未通过时�
 @_agents/rules/code_rules.md
 
 @_agents/rules/my_app.md
+
+@_agents/rules/modern_web_guidance.md
 
 ## 八、本工作区的 8 份体系文档
 

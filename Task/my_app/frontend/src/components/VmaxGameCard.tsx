@@ -50,7 +50,7 @@ export default function VmaxGameCard({ game }: { game: GameResult }) {
         ),
         children: (
           <Space direction="vertical" size={4} style={{ width: '100%' }}>
-            <Text type="secondary" style={{ fontSize: 11 }}>{t('vmaxq.game.keywordsHint')}</Text>
+            <ExplainIcon text={t('vmaxq.game.keywordsHint')} placement="bottomLeft" icon="question" />
             <Space size={4} wrap>
               {GAME_KEYWORDS.map((k) => (
                 <Tag key={k} style={{ marginInlineEnd: 0, fontSize: 11 }}>{k}</Tag>

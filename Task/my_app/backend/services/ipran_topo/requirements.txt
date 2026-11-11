@@ -1,0 +1,11 @@
+# IP RAN 光纤拓扑服务 —— 依赖
+
+本目录无新增第三方依赖，全部复用项目根 `requirements.txt` 已声明的包：
+
+| 包 | 用途 | 根 requirements 版本 |
+| --- | --- | --- |
+| `requests` | 调 UME REST（经 `UmeSessionClient`） | `requests>=2.28.0` |
+| `cryptography` | UME 登录的 RSA 加密 | `cryptography>=41.0.0` |
+| `psycopg2-binary` | 读 `kml_mw_links` 站点坐标（PG 模式） | `psycopg2-binary==2.9.12` |
+
+安装：在 `Task/my_app` 下执行 `pip install -r requirements.txt`，不要单独装本目录。

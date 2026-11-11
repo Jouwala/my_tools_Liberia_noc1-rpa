@@ -178,6 +178,15 @@ export const USERNAME_PATTERN = /^[a-z0-9_.-]{2,32}$/;
 /** 请求体上限：64KB（登录/改密等小载荷足够；超限直接断连） */
 export const MAX_BODY_BYTES = 64 * 1024;
 
+// —— 自助找回密码（邮件重置）策略常量 ——
+/** 重置链接有效期：30 分钟。一次性 token，过期或用过即失效 */
+export const RESET_TOKEN_TTL_MS = 30 * 60 * 1000;
+/** 同一 IP 在窗口内最多发起 5 次找回请求（含不存在的账号，防枚举刷量） */
+export const RESET_MAX_PER_IP = 5;
+export const RESET_IP_WINDOW_MS = 15 * 60 * 1000;
+/** 同一账号两次找回邮件的最小间隔：60 秒，防邮件轰炸（静默跳过，响应仍统一） */
+export const RESET_ACCOUNT_COOLDOWN_MS = 60 * 1000;
+
 /** 白名单数组清洗：丢弃空值、去重、限长，防止脏数据把账号锁成空目录 */
 export function sanitizeNames(input: unknown): string[] {
   if (!Array.isArray(input)) return [];

@@ -45,6 +45,7 @@ import { renderI18n } from '../renderI18n'
 import { exportVmaxDiagnosisExcel, exportVmaxPrintPdf } from '../lib/vmaxWorkspaceExport'
 import { useI18n } from '../i18n'
 import { CardBase } from '../components/cards'
+import { ExplainIcon } from '../components/MetricExplain'
 import DraggableClickModal from '../components/DraggableClickModal'
 import VmaxXdrPanel from '../components/VmaxXdrPanel'
 import VmaxRadioPanel from '../components/VmaxRadioPanel'
@@ -436,7 +437,8 @@ export default function VmaxUserQuery() {
           >
             {t('vmaxq.search')}
           </Button>
-          <Text type="secondary" style={{ fontSize: 12 }}>{t('vmaxq.hint')}</Text>
+          {/* 2026-11-11：长说明收成「? 」悬浮气泡，查询条不再被一整行小字撑开 */}
+          <ExplainIcon text={t('vmaxq.hint')} size="0.9375rem" placement="bottomLeft" icon="question" />
         </Space>
       </CardBase>
 
@@ -446,6 +448,7 @@ export default function VmaxUserQuery() {
           value={complaint}
           onChange={setComplaint}
           disabled={!anyData}
+          compactHint
         />
       </CardBase>
 
@@ -464,9 +467,8 @@ export default function VmaxUserQuery() {
             onChange={(v) => setView(v as DiagViewKey)}
             style={{ background: 'var(--wh-seg-bg)' }}
           />
-          <Text type="secondary" style={{ fontSize: 12 }}>
-            {t(`vmaxq.tab.${view}Hint`)}
-          </Text>
+          {/* 页签用途说明同样改成悬浮，避免每个页签旁常驻一行小字 */}
+          <ExplainIcon text={t(`vmaxq.tab.${view}Hint`)} placement="bottomLeft" icon="question" />
         </Space>
       </CardBase>
 

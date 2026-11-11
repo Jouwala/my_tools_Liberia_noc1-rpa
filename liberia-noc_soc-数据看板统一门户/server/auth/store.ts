@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import { createAuthPersistence, type AuthPersistence, type StorageInfo } from '../authDb';
-import { hashPassword, verifyPassword, newId, newSessionToken } from './password';
+import { hashPassword, verifyPassword, newId, newSessionToken, newResetToken, hashResetToken } from './password';
 import {
   LOGIN_LOCK_MS,
   LOGIN_MAX_FAILURES,
@@ -10,6 +10,10 @@ import {
   MIN_PASSWORD_LENGTH,
   SESSION_TTL_MS,
   USERNAME_PATTERN,
+  RESET_TOKEN_TTL_MS,
+  RESET_MAX_PER_IP,
+  RESET_IP_WINDOW_MS,
+  RESET_ACCOUNT_COOLDOWN_MS,
   toPublic,
   toPublicRequest,
   sanitizeLanding,
@@ -46,6 +50,10 @@ export class AuthStore {
   private requests: RegistrationRequest[] = [];
   private sessions = new Map<string, Session>();
   private failures = new Map<string, { count: number; lockedUntil: number }>();
+  // 自助找回密码：token 只存哈希（键=sha256(token)），与 sessions 同为内存态
+  private resetTokens = new Map<string, { userId: string; expiresAt: number }>();
+  private resetIpStamps = new Map<string, number[]>();
+  private resetLastByUser = new Map<string, number>();
   private persistence: AuthPersistence | null = null;
   private loaded = false;
 
@@ -459,6 +467,63 @@ setProfile(id: string, patch: PageProfilePatch): PublicUser | null {
 
   clearFailures(ip: string): void {
     this.failures.delete(ip);
+  }
+
+  // —— 自助找回密码（内存，与 sessions 同寿命：服务重启后链接失效，需重新发起）——
+
+  private purgeExpiredResets(): void {
+    const now = Date.now();
+    for (const [key, rec] of this.resetTokens) {
+      if (rec.expiresAt < now) this.resetTokens.delete(key);
+    }
+  }
+
+  /**
+   * IP 配额：每次找回请求都计数（含不存在的账号，防枚举刷量）。
+   * 返回 false = 超配额（调用方回 429）；窗口外的旧计数顺手清掉。
+   */
+  resetRequestAllowed(ip: string): boolean {
+    const now = Date.now();
+    const stamps = (this.resetIpStamps.get(ip) || []).filter((t) => now - t < RESET_IP_WINDOW_MS);
+    if (stamps.length >= RESET_MAX_PER_IP) {
+      this.resetIpStamps.set(ip, stamps);
+      return false;
+    }
+    stamps.push(now);
+    this.resetIpStamps.set(ip, stamps);
+    return true;
+  }
+
+  /**
+   * 生成一次性重置 token；返回原始 token（仅供发邮件），内部只存哈希。
+   * 同一账号处于冷却期则返回 null（静默跳过，调用方仍回统一响应，不泄露账号是否存在）。
+   * 发起新 token 时作废该账号此前的旧 token（只保留最新一个）。
+   */
+  createPasswordReset(userId: string): string | null {
+    const now = Date.now();
+    const last = this.resetLastByUser.get(userId) || 0;
+    if (now - last < RESET_ACCOUNT_COOLDOWN_MS) return null;
+    this.purgeExpiredResets();
+    for (const [key, rec] of this.resetTokens) {
+      if (rec.userId === userId) this.resetTokens.delete(key);
+    }
+    const token = newResetToken();
+    this.resetTokens.set(hashResetToken(token), { userId, expiresAt: now + RESET_TOKEN_TTL_MS });
+    this.resetLastByUser.set(userId, now);
+    return token;
+  }
+
+  /**
+   * 校验并消费重置 token（一次性）：有效且未过期返回 userId 并立即删除，否则 null。
+   * 先删再回 —— 无论后续设密码成败，这个 token 都不能再用第二次。
+   */
+  consumePasswordReset(token: string): string | null {
+    const key = hashResetToken(token);
+    const rec = this.resetTokens.get(key);
+    if (!rec) return null;
+    this.resetTokens.delete(key);
+    if (rec.expiresAt < Date.now()) return null;
+    return rec.userId;
   }
 }
 

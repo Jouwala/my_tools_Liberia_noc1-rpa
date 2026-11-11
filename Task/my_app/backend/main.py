@@ -154,6 +154,8 @@ from backend.routers import (
     # CMDB 站点同步比对（Email Reports →「站点同步」页签）：只读摘要 + 文件下载，
     # 执行走 /api/tasks/eflow_site_update/run
     cmdb_site_update,
+    # IP RAN 光纤拓扑图：UME 8 次调用聚合成一次响应（见 services/ipran_topo/）
+    ipran_topo,
 )
 # 任务配置文件注册表（Settings「任务配置」页签 → 配置文件管理）
 from backend.services import task_configs_registry  # noqa: F401  (注册副作用)
@@ -404,6 +406,10 @@ app.include_router(data_agent.router)
 # 任务本体见 services/eflow_site_update_task.py（只生成文件，绝不写库）。
 app.include_router(cmdb_site_update.router)
 
+# IP RAN 光纤拓扑（?page=ipran_topo）：UME lid=1293626099480711168 的网元 + 链路 + 活动告警，
+# 8 次上游调用在服务层聚合成一次响应并缓存 120s（见 services/ipran_topo/ipran_topo_service.py）
+app.include_router(ipran_topo.router)
+
 
 # ========== 统一门户鉴权中间件 ==========
 # 适配 uniplam 门户用户鉴权：远程访问数据接口需登录（会话 Cookie 或门户深链换的
@@ -413,6 +419,11 @@ _PUBLIC_API = (
     "/api/auth/",          # 登录/注销/会话查询（引导流程必须全开）
     "/api/health",         # 健康检查
     "/api/ui/menu-layout", # 侧栏菜单结构只读（首屏渲染依赖，且 PUT/DELETE 另有 require_protected）
+    # eFlow Q&A 工具块：顺序与显示/隐藏都是「全局默认、人人读同一份」，首屏渲染依赖。
+    # 不进白名单时，未登录的局域网访客 GET 会 401 → 前端静默回落各人本机值，
+    # 表现为「本机隐藏了、其他电脑还是全部」。PUT/DELETE 仍有 require_protected 兜底。
+    "/api/ui/tool-order",
+    "/api/ui/tool-visibility",
     # 浏览器扩展消费由已登录网页签发的 45 秒一次性票据；接口本身不接受 Cookie 以外的
     # 身份替代物，票据随机且单次失效，故只能放行此精确子路径。
     "/api/portals/client-login/consume",
@@ -774,6 +785,15 @@ if (frontend_dist / "assets").is_dir():
 
     @app.get("/{full_path:path}")
     async def serve_frontend(full_path: str):
+        # /api/* 未匹配任何已注册路由时必须返回 404 JSON，不能落进 SPA 兜底。
+        # 2026-11-11 Tables 页「选值」筛选事故：前端 column-values 接口没部署，
+        # 这里返回 200 + index.html，前端把「接口不存在」当成「没有可选值」静默吞掉。
+        # 只拒绝兜底层面的未知 /api/ 路径；已注册的 API 路由优先匹配，不受影响。
+        if full_path.startswith("api/") or full_path.startswith("myapp/api/"):
+            return JSONResponse(
+                status_code=404,
+                content={"detail": f"API 路由不存在: /{full_path}"},
+            )
         file_path = frontend_dist / full_path
         if full_path.startswith("myapp/assets/"):
             # 已被 /myapp/assets 挂载处理，这里只兜底（理论上不会命中）

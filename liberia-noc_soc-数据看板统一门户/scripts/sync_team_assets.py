@@ -454,6 +454,77 @@ CSS_TEAM_SUFFIX = """
 .qarow:has(> .email-slot:not([hidden]):not([data-tl-off]):not(:empty)):has(> .qarow-col > .cch-slot:not([hidden]):not([data-tl-off]):not(:empty)):has(> .qarow-col > .oss-slot:not([hidden]):not([data-tl-off]):not(:empty)) > .qarow-col { display: contents; }
 .qarow:has(> .email-slot:not([hidden]):not([data-tl-off]):not(:empty)):has(> .qarow-col > .cch-slot:not([hidden]):not([data-tl-off]):not(:empty)):has(> .qarow-col > .oss-slot:not([hidden]):not([data-tl-off]):not(:empty)) > .qarow-col > .cch-slot .canvas { min-height: var(--qarow-h); }
 .qarow:has(> .email-slot:not([hidden]):not([data-tl-off]):not(:empty)):has(> .qarow-col > .cch-slot:not([hidden]):not([data-tl-off]):not(:empty)):has(> .qarow-col > .oss-slot:not([hidden]):not([data-tl-off]):not(:empty)) > .qarow-col > .oss-slot { grid-column: 1 / -1; height: auto; min-height: 0; }
+
+/* ============================================================================
+   Domain Dashboard 的 RAN / IP / MW / CN / OCS 域短名改黑色（2026-11-11 用户要求）
+   ----------------------------------------------------------------------------
+   用户原话：「/v3/bo_portal/ 页面下面的 Domain Dashboard，RAN/IP... 等字体
+   使用黑色」。实测（1600px 视口、浅色主题）两处文字都是灰蓝、偏淡：
+     · BO View 卡头的域胶囊 .v6-sub        → --t2 #526b7d
+     · 「全部」视图里的分段标题 .v6-seg-h  → --t3 #596f85
+   两者压成纯黑提高辨识度；分段计数 .v6-seg-n 自带 --t3，要单独覆盖
+   （.v6-sub small 与 .v6-seg-t 没有自己的 color，继承父色即可，不必写规则）。
+
+   ⚠️ 只写在团队门户专有后缀里：主门户 /v3/olbrportal/ 保持原样（用户只点了
+      bo_portal）。五个团队门户共用这份 CSS，但 BO View 的子分组只有 bo 勾了，
+      实际只有 bo 会看到变化。
+   ⚠️ 选择器刻意保持与上游同特异性（不加 #views6）：
+      .v6-sub[aria-pressed="true"]（青绿实底 + 白字，2026-11-08 用户拍板）仍然赢，
+      选中态不跟着变黑 —— 本次只改「没被选中的那几个灰字」。hover 规则用
+      :not([aria-pressed="true"]) 排除选中态，免得鼠标一悬停白字就变黑。
+   ⚠️ 深色主题下纯黑字会消失，故 html.dark 里回落到 --t1（#f5f7ff）。
+   ⚠️ 空桶 .v6-sub[disabled] 的 opacity:.45 保留：那是「点不动」的语义，
+      不为了变黑而去掉压暗。
+   ========================================================================== */
+.v6-sub, .v6-seg-h, .v6-seg-n { color: #000; }
+.v6-sub:not([aria-pressed="true"]):hover,
+.v6-sub[disabled]:hover,
+.v6-seg-h:hover { color: #000; }
+html.dark .v6-sub:not([aria-pressed="true"]),
+html.dark .v6-seg-h,
+html.dark .v6-seg-n { color: var(--t1); }
+html.dark .v6-sub:not([aria-pressed="true"]):hover,
+html.dark .v6-sub[disabled]:hover,
+html.dark .v6-seg-h:hover { color: var(--t1); }
+
+/* ============================================================================
+   bo：Auto Report 高度减半、腾出的下半给 OSS（OSS 宽度减半），CCH 高度不变
+   （2026-11-11 用户要求；同日第一版理解错了，按用户澄清重做）
+   ----------------------------------------------------------------------------
+   用户原话：「Auto Report 高度减少一半，剩下的高度给 OSS Portal Login 使用」
+   + 澄清：「剩下的高度给 OSS Portal Login 使用，OSS Portal Login 宽度减少一半。
+     Customer Complaint Query 的高度不变」。
+
+   x 第一版（已废弃）：Auto / CCH 一起降到 430、OSS 仍跨满整行钉 430。
+     错在把「剩下的高度」理解成独立第二行的一半，还把 CCH 一起改矮了。
+   ✔ 正确版面是**左列上下切开、右列不动**：
+            列 1              列 2
+     行 1   Auto Report       CCH（grid-row:1/3，跨两行 → 仍是 951px）
+     行 2   OSS Portal Login
+     Auto 原占左列整个 951px，现在只占上半 ≈467px（正好减半）；
+     腾出的下半给 OSS → OSS 从「跨满整行 1518px 宽 / 285px 高」变成
+     「半宽 751px / ≈467px 高」，内部 .oss-grid（flex:1）自动吃掉新空间。
+
+   实现：.qarow-col 仍是 11-08 的 display:contents，故 cch / oss 是 grid item；
+   用显式 grid-column / grid-row 重排，两行 1fr 等分。**行高不硬编码** ——
+   右列 CCH 的 .canvas 下限 var(--qarow-h)=860 撑起整个容器约 951px，
+   两行 fr 自动各分一半。Auto 的 .canvas 下限必须从 --qarow-h 撤到 0，
+   否则它会把第一行撑到 521px、把 OSS 挤矮（表体内容多时走自己的滚动）。
+   CCH 的 .canvas 下限保持 --qarow-h（11-08 规则原值），高度一像素不变。
+
+   ⚠️ 只命中 bo：team-scope.js 写的 <html data-team="bo"> + 11-08 那条连续
+      :has() 三块判据（:has() 之间**不能换行**）。fo 是同形态，实测不受影响。
+   ⚠️ <1200px 上游把 .qarow 改成单列，grid-column:2 会指向不存在的列 ——
+      整组规则包在 min-width:1201px 里，窄屏自动退回 11-08 的既有版面。
+   ========================================================================== */
+@media (min-width: 1201px) {
+html[data-team="bo"] .qarow:has(> .email-slot:not([hidden]):not([data-tl-off]):not(:empty)):has(> .qarow-col > .cch-slot:not([hidden]):not([data-tl-off]):not(:empty)):has(> .qarow-col > .oss-slot:not([hidden]):not([data-tl-off]):not(:empty)) { grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); }
+html[data-team="bo"] .qarow:has(> .email-slot:not([hidden]):not([data-tl-off]):not(:empty)):has(> .qarow-col > .cch-slot:not([hidden]):not([data-tl-off]):not(:empty)):has(> .qarow-col > .oss-slot:not([hidden]):not([data-tl-off]):not(:empty)) > .email-slot { grid-column: 1; grid-row: 1; }
+html[data-team="bo"] .qarow:has(> .email-slot:not([hidden]):not([data-tl-off]):not(:empty)):has(> .qarow-col > .cch-slot:not([hidden]):not([data-tl-off]):not(:empty)):has(> .qarow-col > .oss-slot:not([hidden]):not([data-tl-off]):not(:empty)) > .email-slot .canvas { min-height: 0; }
+html[data-team="bo"] .qarow:has(> .email-slot:not([hidden]):not([data-tl-off]):not(:empty)):has(> .qarow-col > .cch-slot:not([hidden]):not([data-tl-off]):not(:empty)):has(> .qarow-col > .oss-slot:not([hidden]):not([data-tl-off]):not(:empty)) > .qarow-col > .cch-slot { grid-column: 2; grid-row: 1 / 3; }
+html[data-team="bo"] .qarow:has(> .email-slot:not([hidden]):not([data-tl-off]):not(:empty)):has(> .qarow-col > .cch-slot:not([hidden]):not([data-tl-off]):not(:empty)):has(> .qarow-col > .oss-slot:not([hidden]):not([data-tl-off]):not(:empty)) > .qarow-col > .cch-slot .canvas { min-height: var(--qarow-h); }
+html[data-team="bo"] .qarow:has(> .email-slot:not([hidden]):not([data-tl-off]):not(:empty)):has(> .qarow-col > .cch-slot:not([hidden]):not([data-tl-off]):not(:empty)):has(> .qarow-col > .oss-slot:not([hidden]):not([data-tl-off]):not(:empty)) > .qarow-col > .oss-slot { grid-column: 1; grid-row: 2; height: auto; min-height: 0; }
+}
 """
 
 

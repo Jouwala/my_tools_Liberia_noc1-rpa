@@ -10,6 +10,7 @@
 | `rules\shell_safe.md` | Shell 命令安全规范（PowerShell/bat）：禁止内联复杂命令、临时脚本规范、编码陷阱等 | `AGENTS.md` 第七节 `@` 导入 + Qoder junction |
 | `rules\code_rules.md` | Python 文件生成规范（requirements/MD 伴随、运行计时、向量化查询） | 同上 |
 | `rules\my_app.md` | my_app 项目引用不外移的约定 | 同上 |
+| `rules\modern_web_guidance.md` | modern-web-guidance 技能的调用约定（运行器选型、环境障碍、与本工作区规范的优先级） | 同上 |
 | `rules\jcodemunch_first.md` | 代码探索优先用 jcodemunch MCP 的工具约定 | **仅 Qoder**（见下「为什么不导入」） |
 | `_backup\<日期>\` | 历史快照（`AGENTS.md`、`.gitignore`、`.qoder\rules\*` 的改前完整备份），**不入库**（`.gitignore` 已忽略） | — |
 

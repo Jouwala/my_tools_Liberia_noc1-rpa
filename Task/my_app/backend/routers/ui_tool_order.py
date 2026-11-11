@@ -15,6 +15,9 @@
 - PUT    /api/ui/tool-order   仅本机可写（require_protected）；整体替换
 - DELETE /api/ui/tool-order   仅本机可写；删除配置（前端回落代码内置默认）
 
+同一 router 还挂载工具块「显示/隐藏」的全局配置（2026-11-11）：
+- GET/PUT/DELETE /api/ui/tool-visibility —— 独立配置文件，详见文件末尾一节
+
 注意：`VALID_TOOL_KEYS` 必须与前端 `frontend/src/pages/EflowQa.tsx` 的
       `DEFAULT_TOOL_BLOCKS` 保持一致（两处注释互指，是本功能的唯一改动点）。
       代码日后新增第 7 个工具块时，服务端存的旧顺序会缺该键，前端
@@ -147,3 +150,110 @@ def delete_tool_order():
         raise HTTPException(status_code=500, detail=f"删除失败: {e}")
     logger.info("[ui-config] 工具块顺序已重置为默认")
     return {"keys": None, "updated_at": None, "editable": True}
+
+
+# ==================== 工具块「显示/隐藏」全局配置（2026-11-11） ====================
+# 背景：隐藏状态原先只存浏览器 localStorage（eflowqa.toolBlocks.hidden.v1），
+#      于是「本机隐藏了几个块，其他电脑打开还是全部」。顺序已经有服务端全局默认，
+#      隐藏必须同构：配置存服务端、人人读同一份、仅本机（或持令牌）可改。
+# 刻意与 tool-order 分开存：避免「保存为默认顺序」时把个人顺序写成全局默认，
+#      也避免写隐藏时反向覆盖全局顺序。两个配置互不影响。
+# 持久化：backend/data/ui_tool_visibility.json（原子替换写）。
+# - GET    /api/ui/tool-visibility   任意人可读；{hidden, updated_at, editable}
+#          hidden=null 表示服务端尚未配置（前端按「全部显示」处理）
+# - PUT    /api/ui/tool-visibility   仅本机可写（require_protected）；整体替换
+# - DELETE /api/ui/tool-visibility   仅本机可写；删除配置（前端回落全部显示）
+VISIBILITY_PATH = os.path.join(BACKEND_DIR, "data", "ui_tool_visibility.json")
+
+
+def _read_visibility() -> Optional[dict]:
+    """读取全局隐藏配置；文件不存在/损坏返回 None（前端回落「全部显示」）。"""
+    if not os.path.exists(VISIBILITY_PATH):
+        return None
+    try:
+        with open(VISIBILITY_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else None
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"[ui-config] 读取工具块隐藏配置失败（按未配置处理）: {e}")
+        return None
+
+
+def _write_visibility(cfg: dict) -> None:
+    """原子替换写入（与 _write_order 同构，避免半个文件）。"""
+    os.makedirs(os.path.dirname(VISIBILITY_PATH), exist_ok=True)
+    fd, tmp = tempfile.mkstemp(prefix="ui_tool_visibility_", suffix=".tmp",
+                               dir=os.path.dirname(VISIBILITY_PATH))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, ensure_ascii=False, indent=2)
+        atomic_replace_file(tmp, VISIBILITY_PATH)
+    except Exception:
+        try:
+            if os.path.exists(tmp):
+                os.remove(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def _normalize_hidden(raw: Any) -> dict:
+    """校验隐藏 key 列表；允许空数组（=全部显示），非法结构直接 400。"""
+    if not isinstance(raw, list):
+        raise HTTPException(status_code=400, detail="hidden 必须是数组")
+    if len(raw) > TOOL_COUNT:
+        raise HTTPException(status_code=400, detail=f"hidden 最多 {TOOL_COUNT} 项")
+    hidden: list = []
+    seen: set = set()
+    for k in raw:
+        if not isinstance(k, str) or k.strip() not in VALID_TOOL_KEYS:
+            raise HTTPException(status_code=400, detail=f"未知工具块 key: {k}")
+        s = k.strip()
+        if s not in seen:
+            seen.add(s)
+            hidden.append(s)
+    return {"v": 1, "hidden": hidden}
+
+
+def _file_mtime(path: str) -> Optional[str]:
+    try:
+        return datetime.fromtimestamp(os.path.getmtime(path)).isoformat(timespec="seconds")
+    except OSError:
+        return None
+
+
+@router.get("/tool-visibility")
+def get_tool_visibility(request: Request):
+    """读取全局隐藏配置。任何访问者都能读（隐藏状态必须人人一致）。"""
+    cfg = _read_visibility()
+    return {
+        "hidden": cfg.get("hidden") if cfg else None,
+        "updated_at": _file_mtime(VISIBILITY_PATH) if cfg else None,
+        "editable": is_privileged(request),
+    }
+
+
+@router.put("/tool-visibility", dependencies=[Depends(require_protected)])
+def put_tool_visibility(payload: dict):
+    """保存全局隐藏配置（仅本机 / 持令牌），整体替换。"""
+    cfg = _normalize_hidden((payload or {}).get("hidden"))
+    _write_visibility(cfg)
+    logger.info("[ui-config] 工具块隐藏配置已更新: %s",
+                ",".join(cfg["hidden"]) or "(全部显示)")
+    return {
+        "hidden": cfg["hidden"],
+        "updated_at": datetime.now().isoformat(timespec="seconds"),
+        "editable": True,
+    }
+
+
+@router.delete("/tool-visibility", dependencies=[Depends(require_protected)])
+def delete_tool_visibility():
+    """删除全局隐藏配置（仅本机 / 持令牌），前端回落「全部显示」。"""
+    try:
+        if os.path.exists(VISIBILITY_PATH):
+            os.remove(VISIBILITY_PATH)
+    except OSError as e:
+        raise HTTPException(status_code=500, detail=f"删除失败: {e}")
+    logger.info("[ui-config] 工具块隐藏配置已重置为全部显示")
+    return {"hidden": None, "updated_at": None, "editable": True}

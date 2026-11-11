@@ -44,6 +44,24 @@ import { useI18n } from '../i18n'
  */
 const FILL_PARENT = '100%'
 
+/** 把门户外层 URL 里内层页真的要读的参数传进去。
+ *  原先 src 只带 `?_=<时间戳>`，mwembed / theme 被丢掉。
+ *  mw_real_time.html 因此不知道自己在门户里，工具栏、KPI、右栏全露出来，
+ *  跟 GIS Map 其它「只留地图」的页签不一样。postMessage 仍是兜底，不能只靠它。 */
+function legacyFrameSrc(file: string, cacheBust: number): string {
+  const parent = new URLSearchParams(window.location.search)
+  const q = new URLSearchParams()
+  q.set('_', String(cacheBust))
+  if (parent.get('mwembed') === '1') q.set('mwembed', '1')
+  const theme = parent.get('theme')
+  if (theme === 'dark' || theme === 'light') q.set('theme', theme)
+  return `${import.meta.env.BASE_URL}${file}?${q.toString()}`
+}
+
+function parentIsEmbed(): boolean {
+  try { return new URLSearchParams(window.location.search).get('embed') === '1' } catch { return false }
+}
+
 interface Props {
   /** public/ 下的 HTML 文件名，例如 'ip-trace.html' */
   file: string
@@ -109,9 +127,9 @@ export default function LegacyToolFrame({ file, title }: Props) {
         // 而塌成 HTML 默认的 150px（地图整块消失）。flex 分配不依赖百分比，两种模式都对。
         display: 'flex',
         flexDirection: 'column',
-        borderRadius: 'var(--wh-radius-md)',
+        borderRadius: parentIsEmbed() ? 0 : 'var(--wh-radius-md)',
         overflow: 'hidden',
-        background: 'var(--wh-page-bg)',
+        background: parentIsEmbed() ? 'transparent' : 'var(--wh-page-bg)',
       }}
     >
       {loading && (
@@ -135,7 +153,7 @@ export default function LegacyToolFrame({ file, title }: Props) {
         // iframe 内的相对请求（favicon.ico、lr-all.geo.json）会自动落到同一 base 下。
         // allowFullScreen：允许内嵌 legacy 页面（如 mw_ume_topology.html）调用
         // requestFullscreen() 进入浏览器全屏（NOC 看板的全屏按钮依赖此许可）。
-        src={`${import.meta.env.BASE_URL}${file}?_=${cacheBust}`}
+        src={legacyFrameSrc(file, cacheBust)}
         title={title}
         onLoad={handleIframeLoad}
         allowFullScreen

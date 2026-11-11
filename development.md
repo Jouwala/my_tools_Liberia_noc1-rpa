@@ -310,12 +310,82 @@ foreach ($r in $roots) {
 
 ### D. 部署相关
 
+> ⭐ **编辑区 ≠ 运行副本（2026-11-11 用户确认）**
+>
+> | | 路径 | 角色 |
+> | --- | --- | --- |
+> | 编辑区 | `D:\01_RPA` | 改代码的地方（git 仓库 / 文档 / 守卫） |
+> | 运行副本 | `D:\01_olbr_portal` | **实际跑起来的地方**（80/443/7038/7090/9267/5432） |
+>
+> **改完在 `D:\01_RPA` 做完，一定要同步到 `D:\01_olbr_portal`，那里才是线上。**
+
+#### D0. 一条龙部署（推荐，别手搓三步）
+
+双击 `D:\01_olbr_portal\sync-now.bat`。它就是下面这条，不必记两个入口：
+
+```powershell
+cd D:\01_RPA
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\deploy_to_copy.ps1
+```
+
+三步收口，**每步都校验**：
+
+| 步 | 做什么 | 校验点 |
+| --- | --- | --- |
+| 1 | 同步源码（事务式、源只读、冲突 fail-closed） | 副本本地改过源文件 → **整体停止**，不写任何文件 |
+| 2 | 在副本里重建前端产物（my_app + 统一门户） | `tsc` 与 `vite build` 的**退出码**（不看 stderr —— vite 的进度条走 stderr，PS 5.1 会把它当成错误） |
+| 3 | 校验「副本真的在跑新代码」 | 读 live `/openapi.json`，与副本源码的路由/参数对照；不一致直接**非零退出**并点名 `SPLIT-BRAIN` |
+
+常用开关：
+
+```powershell
+# 只看会发生什么，不落地
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\deploy_to_copy.ps1 -DryRun
+# 只同步源码、不重建前端（会警告副本仍在 serve 旧产物）
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\deploy_to_copy.ps1 -SkipBuild
+# 副本本地改过源文件时，显式接受源版本（会先备份，可回滚）
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\deploy_to_copy.ps1 -AcceptSource
+```
+
+> **脚本不自动重启服务** —— 重启会打断正在看数据的人（根 `AGENTS.md` 第四节第 6 条）。
+> 第 3 步会明确告诉你「后端需要重启才生效」，那时再由人显式重启。
+
+#### D0.1. 手工三步（脚本不可用时的等价流程）
+
+1. **同步源码**：`cd D:\01_olbr_portal` → `powershell -NoProfile -File scripts\sync_from_main.ps1`（或加 `-DryRun` 先看）。不要用 `sync-now.bat` 代替这一步——它现在会连着重建前端。
+2. **重建前端**：在副本里 `cd Task\my_app\frontend` → `npm run build`（产物落 `Task\_fe_dist`）
+3. **重启后端**：后端是常驻进程，源码换了不会自动生效
+
+> ⚠ **第 3 步最容易被忘**。2026-11-11 实测 split-brain：前端 chunk 已含 `col_filters`，
+> 而 live 后端的 `/api/tables/{t}/data` OpenAPI 参数里**没有** `col_filters`、也没有
+> `/column-values` 路由 → 用户看到「列头筛选点了没反应」「选值模式永远显示没有可选值」，
+> 是**完全坏掉的新功能**而不是报错。
+
+#### D0.2. 排查线上问题前：先确认「跑的是哪棵树的代码」
+
+```powershell
+# 后端跑的是哪棵树：看日志目录谁在被写
+Get-ChildItem 'D:\01_RPA\Task\my_app\log\backend_runtime_*.log','D:\01_olbr_portal\Task\my_app\log\backend_runtime_*.log' |
+  Sort-Object LastWriteTime -Descending | Select-Object -First 2 FullName,LastWriteTime
+# nginx 生效的是哪份：看监听 80/443 的进程 ExecutablePath
+netstat -ano | Select-String ':80 .*LISTENING'
+Get-CimInstance Win32_Process -Filter "ProcessId=<上一步的pid>" | Select-Object ExecutablePath
+# 前端 serve 的是哪份产物：看 index.html 的入口 chunk 在哪棵树下
+```
+
+**最省事的判据是接口本身**：读 live `/openapi.json`，与源码里的路由/参数对照 —— 不一致就是 split-brain。
+
+> 2026-11-11 实测：本机**同时**跑着两套 nginx（`D:\01_RPA\nginx-1.28.0` 与
+> `D:\01_olbr_portal\nginx-1.28.0`），80/443 的归属在排查期间来回变过两次。
+> 看到「nginx 突然 502 / 后端连不上」时，**先查归属再查后端**。
+
 - [ ] nginx 配置改动后 `nginx -t` 通过
 - [ ] **改了 `nginx-1.28.0\conf\` 下任一份配置后，已同步回 `docs\nginx-reference\`**（否则副本立刻变成新的分叉源，见 `docs\新机器部署清单.md` §2）
 - [ ] 子路径部署时 `vite.config.ts` 的 `base` 已同步并**重新构建**
 - [ ] 日志轮转任务正常（`install_nginx_log_rotate_task.bat`、`rotate_nginx_logs.ps1`）
 - [ ] 不在值班高峰期重启生产服务（7038/7090/9267）
 - [ ] **换机器 / 新克隆后跑过 `python Task\my_app\tools\clone_doctor.py`**（期望 0 FAIL）
+- [ ] **改动已同步到运行副本 `D:\01_olbr_portal`**（改了后端/前端就跑一次 `scripts\deploy_to_copy.ps1`）
 
 > **新机器搭建全流程**见 `docs\新机器部署清单.md`：哪些必须上传、哪些必须重建、哪些只能手工拷贝。
 > **换机器 / 排查环境缺失时，先跑这一条**（只读，列出全部缺失项与补法）：
@@ -338,6 +408,9 @@ foreach ($r in $roots) {
 | 陷阱 | 后果 | 正确做法 |
 | --- | --- | --- |
 | 门户 API 用 `/api` | 命中 my_app，POST 回 405 | 用 `PORTAL_API`（`/uniplam/api`） |
+| **在 `D:\01_RPA` 改完代码就以为线上生效了** | **改了没上线**。2026-11-11 用户确认：实际运行的是 `D:\01_olbr_portal`，`D:\01_RPA` 只是编辑区。实测 split-brain：前端 chunk 已含 `col_filters`，live 后端 OpenAPI 里**没有** `col_filters` 参数、也没有 `/column-values` 路由 → 「列头筛选点了没反应」「选值模式永远显示没有可选值」，是**完全坏掉的新功能**而不是报错 | 改完跑 `scripts\deploy_to_copy.ps1`（同步 + 重建 + 校验）；后端是常驻进程，**源码换了不会自动生效**，该重启时由人显式重启 |
+| 只同步源码、不重建前端 | 副本 serve 的是旧产物，界面看起来「没改」 | 同步只搬源码；前端是构建产物。跑 `deploy_to_copy.ps1`（含重建），或手工在副本里 `npm run build` |
+| 同步了、不重启后端 | 前端是新功能，后端是旧接口 → 功能静默失效 | 后端常驻进程，吃不到源码变更。第 3 步校验会点名 `SPLIT-BRAIN` |
 | 只加中文 i18n 键 | 英文界面显示 key 原文 | `zh` 与 `en` 两份都加 |
 | my_app 前端产物目录改名 | 后端找不到静态文件，白屏 | 保持 `_fe_dist` |
 | 改了初始看板数据就以为生效 | 被 localStorage 覆盖，看不到 | 清缓存 / 「恢复初始默认看板」 |

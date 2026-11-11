@@ -1,4 +1,4 @@
-﻿<#
+<#
   build_olbr_portable.ps1 —— 把 D:\01_RPA 打包成可换机离线运行的 D:\01_olbr_portal
   =============================================================================
   只保留四样：统一门户 / WhatsApp bot / 门户问答助手挂件 / my_app，及其运行时。
@@ -370,7 +370,7 @@ function Invoke-Config {
     if (-not $DryRun) {
         if (-not (Test-Path -LiteralPath $scriptsDst)) { New-Item -ItemType Directory -Path $scriptsDst -Force | Out-Null }
     }
-    foreach ($f in @('start_all.ps1', 'stop_all.ps1', 'bundle_data.ps1', 'env_template.txt', 'post_sync_fix_paths.ps1')) {
+    foreach ($f in @('start_all.ps1', 'stop_all.ps1', 'bundle_data.ps1', 'env_template.txt', 'post_sync_fix_paths.ps1', 'local_authority_tools.py')) {
         $s = Join-Path $tpl $f
         if (-not (Test-Path -LiteralPath $s)) { Write-Log "  [待写] 脚本缺失: scripts\$f" 'DarkYellow'; continue }
         if (-not $DryRun) { Copy-Item -LiteralPath $s -Destination (Join-Path $scriptsDst $f) -Force }

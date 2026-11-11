@@ -4,6 +4,7 @@ import { SaveOutlined, ReloadOutlined, UndoOutlined, EditOutlined, CloseOutlined
 import api from '../api'
 import { useI18n } from '../i18n'
 import { WH, cardStyle } from '../theme'
+import { ExplainIcon } from '../components/MetricExplain'
 
 interface RecipientGroup {
   key: string
@@ -131,7 +132,7 @@ export default function EmailRecipientsSettings() {
       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--wh-space-sm)', marginBottom: '0.75rem' }}>
         <div>
           {/* 页面标题由 App 全局 Header（菜单「系统设置」）+ Tab 标签给出，页内不再重复 */}
-          <div style={{ color: WH.textMuted, fontSize: '0.75rem' }}>{t('settings.emailSubtitle')}</div>
+          <ExplainIcon text={t('settings.emailSubtitle')} placement="bottomLeft" icon="question" />
         </div>
         <Button icon={<ReloadOutlined />} onClick={load}>{t('settings.refresh')}</Button>
       </div>

@@ -866,6 +866,34 @@ html {
 .ipt-county-tag .gis-county-tag__name { font-size: 11px; letter-spacing: 0.02em; }
 .ipt-county-tag .gis-county-tag__num { font-size: 10px; }
 
+/* 丢包页（?page=packet_loss）的县名标签（2026-11-11 随「州颜色透明度 80%」一起加）。
+   与人员 / ipt 页的取舍**正好相反**：那两页县块是 80% 实心饱和色，深蓝无描边字压在
+   上面本身有对比；本页填充被用户要求降到 **0.2 不透明度**（= 透明度 80%，见
+   PacketLossDashboard 的 CountyLayer fillOpacity），县色几乎透明，标签实际压在**底图
+   瓦片**上 —— 深色主题底图是深色，若沿用 ipt 的深蓝无描边字会直接隐身。故回到 GIS 页
+   那套「按主题分档 + hairline 描边托字」：深色主题白字暗描边、浅色主题深蓝字白描边。
+   ⚠ **必须写两条选择器且放在 ipt 块之后**：本标签同时挂 ipt-county-label（compact 字号）
+     与 pl-county-label，两组选择器特异性相同（裸 (0,3,0)、带 :root 前缀 (0,5,0)），
+     同特异性后来者胜 —— 放在 ipt 之后才能压掉它的「深蓝无描边」。浅色主题那条
+     `:root[data-theme='light']` 前缀不可省（基础浅色规则 (0,4,0)，裸 (0,3,0) 压不住，
+     2026-10-29 人员页实测的静默失效）。字号仍走 ipt 族（11px/10px），这里只改字色/描边。 */
+.gis-county-label.pl-county-label.leaflet-tooltip {
+  color: #ffffff;
+  text-shadow:
+    1px 0 0 rgba(0, 0, 0, 0.85),
+   -1px 0 0 rgba(0, 0, 0, 0.85),
+    0 1px 0 rgba(0, 0, 0, 0.85),
+    0 -1px 0 rgba(0, 0, 0, 0.85);
+}
+:root[data-theme='light'] .gis-county-label.pl-county-label.leaflet-tooltip {
+  color: #0b2447;
+  text-shadow:
+    1px 0 0 rgba(255, 255, 255, 0.95),
+   -1px 0 0 rgba(255, 255, 255, 0.95),
+    0 1px 0 rgba(255, 255, 255, 0.95),
+    0 -1px 0 rgba(255, 255, 255, 0.95);
+}
+
 /* 地图文字层统一 Inter（2026-10-29 用户指定，并明确不要 Orbitron 这类装饰性科技字体
    —— 小字号下可读性差）。范围只圈地图容器与图例浮层，不动全站正文：
    全站字体栈是另一套既有约定（见上面的 body 规则），改了会波及 60+ 个页面。

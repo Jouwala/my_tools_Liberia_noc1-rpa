@@ -31,7 +31,7 @@ import { WH, useTheme } from '../theme'
 import { CardBase, StatCard } from '../components/cards'
 // 数字悬浮口径说明（AGENTS.md 三.3c）。桶判据在后端（cr_analysis_service.py / cr_caliber.py），
 // 卡片取值是「当前所选类别的后端分类计数相加」—— 这点必须写在气泡里，否则会被当成接口 summary。
-import { ExplainLabel, ExplainPopover } from '../components/MetricExplain'
+import { ExplainLabel, ExplainPopover, ExplainIcon } from '../components/MetricExplain'
 import { exportAoaReport } from '../utils/excelReport'
 import { fmtWarnings } from '../utils/warnCodes'
 import { getCrAnalysisFilters, getCrAnalysisOverview, getCrAnalysisWorkflow } from '../api'
@@ -325,7 +325,7 @@ export default function CrChangeAnalysis() {
                   {fmtRate(c.rate)}
                 </div>
               </ExplainPopover>
-              <Text type="secondary" style={{ fontSize: 12 }}>{c.hint}</Text>
+              <ExplainIcon text={c.hint} placement="bottomLeft" icon="question" />
             </CardBase>
           </Col>
         ))}
@@ -336,7 +336,7 @@ export default function CrChangeAnalysis() {
         <Col xs={24} xl={14}>
           <CardBase
             title={t('cr.chart.plan.title')}
-            extra={<Text type="secondary" style={{ fontSize: 12 }}>{t('cr.chart.plan.hint')}</Text>}
+            extra={<ExplainIcon text={t('cr.chart.plan.hint')} placement="bottomLeft" icon="question" />}
           >
             {rows.length
               ? <ReactECharts
@@ -370,7 +370,7 @@ export default function CrChangeAnalysis() {
         <Col xs={24} sm={12} xl={5}>
           <CardBase
             title={t('cr.chart.status.title')}
-            extra={<Text type="secondary" style={{ fontSize: 11 }}>{t('cr.chart.status.hint')}</Text>}
+            extra={<ExplainIcon text={t('cr.chart.status.hint')} placement="bottomLeft" icon="question" />}
           >
             {ov?.status_rows?.length
               ? <ReactECharts
@@ -402,7 +402,7 @@ export default function CrChangeAnalysis() {
       {/* ⑦ 月度趋势（编号见文件头） */}
       <CardBase
         title={t('cr.chart.month.title')}
-        extra={<Text type="secondary" style={{ fontSize: 12 }}>{t('cr.chart.month.hint')}</Text>}
+        extra={<ExplainIcon text={t('cr.chart.month.hint')} placement="bottomLeft" icon="question" />}
       >
         {ov?.months?.length
           ? <ReactECharts
@@ -441,7 +441,7 @@ export default function CrChangeAnalysis() {
                 {t('cr.filter.clear')}
               </Button>
             )}
-            <Text type="secondary" style={{ fontSize: 12 }}>{t('cr.table.hint')}</Text>
+            <ExplainIcon text={t('cr.table.hint')} placement="bottomLeft" icon="question" />
           </Space>
         }
       >
@@ -473,7 +473,7 @@ export default function CrChangeAnalysis() {
       {/* ⑨ 子类别（设备类型）第二层维度 */}
       <CardBase
         title={t('cr.sub.title')}
-        extra={<Text type="secondary" style={{ fontSize: 12 }}>{t('cr.sub.hint')}</Text>}
+        extra={<ExplainIcon text={t('cr.sub.hint')} placement="bottomLeft" icon="question" />}
       >
         <Table
           rowKey={r => `${r.category}||${r.sub_category}`}

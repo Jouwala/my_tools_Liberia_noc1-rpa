@@ -37,7 +37,7 @@ import { useTheme, axisLabel, axisLine, darkTooltip, splitLine, cardStyle, WH } 
 import { CardBase, StatCard } from '../components/cards'
 // 数字悬浮口径说明（AGENTS.md 三.3c）。整页口径此前已有 CalcChainNote 与常驻⑧口径卡，
 // 这里只补「数字本身问不到」那一层；数字全部取接口下发字段，前端不重算。
-import { ExplainLabel, ExplainPopover } from '../components/MetricExplain'
+import { ExplainIcon, ExplainLabel, ExplainPopover } from '../components/MetricExplain'
 import CalcChainNote from '../components/CalcChainNote'
 import DraggableClickModal from '../components/DraggableClickModal'
 import { exportAoaReport } from '../utils/excelReport'
@@ -893,7 +893,7 @@ export default function BpReport() {
 
       {/* ⑤ 趋势图：柱子可点 → 该期 BP 明细（与数字卡、表格同一 WHERE） */}
       <CardBase title={t('bp.chart.title')}
-        extra={<Text type="secondary" style={{ fontSize: 12 }}>{t('bp.chart.hint')}</Text>}>
+        extra={<ExplainIcon text={t('bp.chart.hint')} placement="bottomLeft" icon="question" />}>
         {trend.length
           ? <ReactECharts option={chartOption} style={{ height: 340 }} notMerge
               onEvents={{ click: onTrendClick }} />
@@ -961,39 +961,33 @@ export default function BpReport() {
         </div>
       </CardBase>
 
-      {/* ⑧ 口径与数据质量：把「为什么数字是这样」讲清楚 */}
-      <CardBase title={t('bp.caliber.title')}>
-        <Space direction="vertical" size={4} style={{ width: '100%' }}>
-          {(meta.caliber as any)?.notes
-            ? ((meta.caliber as any).notes as string[]).map((n, i) => (
-                <Text key={i} type="secondary" style={{ fontSize: 12 }}>· {n}</Text>
-              ))
-            : null}
-          <Text type="secondary" style={{ fontSize: 12 }}>
-            {t('bp.caliber.daily')}
-          </Text>
-          <Text type="secondary" style={{ fontSize: 12 }}>
-            {t('bp.caliber.weekly')}
-          </Text>
-          <Text type="secondary" style={{ fontSize: 12 }}>
-            {t('bp.caliber.monthly')}
-          </Text>
-          {meta.dirty?.rows_unknown_cluster ? (
+      {/* ⑧ 口径与数据质量：多段完整口径说明收进 CalcChainNote（默认收起、点击展开）；
+          dirty 数据质量告警走 warning 口常驻，不随收起隐藏。 */}
+      <CalcChainNote
+        title={t('bp.caliber.title')}
+        warning={meta.dirty?.rows_unknown_cluster ? (
+          <div style={{ marginBottom: 8 }}>
             <Text type="warning" style={{ fontSize: 12 }}>
               {t('bp.caliber.dirty', { n: meta.dirty.rows_unknown_cluster })}
             </Text>
-          ) : null}
-          <Text type="secondary" style={{ fontSize: 12 }}>
-            {t('bp.caliber.verdictRule')}
-          </Text>
-          <Text type="secondary" style={{ fontSize: 12 }}>
-            {t('bp.caliber.drillRule')}
-          </Text>
-          <Text type="secondary" style={{ fontSize: 12 }}>
-            {t('bp.caliber.importAt', { v: fmt(meta.last_import_at) })}
-          </Text>
-        </Space>
-      </CardBase>
+          </div>
+        ) : null}
+        sections={[
+          ...((meta.caliber as any)?.notes
+            ? [{ lines: ((meta.caliber as any).notes as string[]).map(n => `· ${n}`) }]
+            : []),
+          {
+            lines: [
+              t('bp.caliber.daily'),
+              t('bp.caliber.weekly'),
+              t('bp.caliber.monthly'),
+              t('bp.caliber.verdictRule'),
+              t('bp.caliber.drillRule'),
+              t('bp.caliber.importAt', { v: fmt(meta.last_import_at) }),
+            ],
+          },
+        ]}
+      />
 
       {/* ⑨ 下钻弹窗 */}
       <DraggableClickModal

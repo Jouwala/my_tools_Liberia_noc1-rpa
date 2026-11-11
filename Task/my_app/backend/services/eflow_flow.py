@@ -826,7 +826,8 @@ def query_flow(keyword: str, lang: str = "zh") -> Dict[str, Any]:
       "tt": {...}, "wo": {...}, "alarms": [...],
       "reached_ids": [...], "actual_edges": [...], "current": "FOProcess",
       "wo_path": {...},
-      "rule_hits": [...命中该单的规则（挂在实际所在节点）...],
+      "rule_hits": [...条件对本单求值 True 的规则（含空条件兜底，按节点去重）...],
+      "rule_match_meta": {...}  # 条件匹配可用性 / 本单取值帧字段值（eflow_flow_rules）
       "candidates": [...若未唯一命中，给出候选单号...],
       "message": "..."
     }
@@ -886,32 +887,12 @@ def query_flow(keyword: str, lang: str = "zh") -> Dict[str, Any]:
     path = _actual_path(state, lang)
     wo_path = _wo_path(state)
 
-    # 命中该单的规则：按当前所在节点与告警码/定级给出
+    # 命中该单的规则：把每条挂载规则的条件对本单取值帧求值（与 TT 规则检查同引擎），
+    # 条件 True（含空条件兜底）才算命中；同时给图上规则打 match 标注，
+    # 供页面「仅相关规则」过滤与规则详情展示。详见 eflow_flow_rules.py。
     t = state["tt"]
-    cur = path["current"]
-    rule_hits: List[Dict[str, Any]] = []
-    for n in graph["nodes"]:
-        if n["id"] == cur:
-            for r in n["rules"]:
-                rule_hits.append({**r, "node": n["id"], "reason_zh": "当前步骤由该规则接管",
-                                  "reason_en": "Rule governing the current step"})
-    # 定级规则（决定 P1~P4）始终相关
-    for n in graph["nodes"]:
-        if n["id"] == "create":
-            for r in n["rules"]:
-                if r["rule_type"] == "ttLevelRule":
-                    rule_hits.append({**r, "node": "create",
-                                      "reason_zh": "建单定级规则",
-                                      "reason_en": "Severity rule applied at creation"})
-
-    seen_r: set = set()
-    uniq_hits: List[Dict[str, Any]] = []
-    for r in rule_hits:
-        k = (r["name"], r["node"])
-        if k in seen_r:
-            continue
-        seen_r.add(k)
-        uniq_hits.append(r)
+    from backend.services.eflow_flow_rules import annotate_graph
+    graph, uniq_hits, match_meta = annotate_graph(graph, tt_no)
 
     tt_out = {
         "tt_no": _s(t.get("tt_no")),
@@ -965,7 +946,39 @@ def query_flow(keyword: str, lang: str = "zh") -> Dict[str, Any]:
         "current": path["current"],
         "wo_path": wo_path,
         "rule_hits": uniq_hits,
+        "rule_match_meta": match_meta,
         "candidates": candidates,
+        "message": "",
+        "message_en": "",
+    }
+
+
+def simulate_flow(conditions: Dict[str, Any], lang: str = "zh") -> Dict[str, Any]:
+    """多条件模拟：不给具体单子，直接给一组取值帧字段值，评估全部规则会怎么判。
+
+    与 query_flow 的规则标注**共用同一套引擎**（eflow_flow_rules 的求值循环），
+    区别只是取值帧来自用户输入而非数据库里的真实 TT —— 用于「这类告警会怎么
+    派单/定级」的推演。条件归一化（YES→1、大小写等）全部在 build_value_frame
+    内完成，与真实单子逐字段同口径。
+
+    返回结构与 query_flow 一致，但不带 tt / wo / alarms / reached（模拟没有单据）：
+      query_type = "simulate"，query 为非空条件的原文回显（供界面与导出标题）。
+    """
+    graph = build_flow_graph(lang=lang)
+    from backend.services.eflow_flow_rules import annotate_graph_with_frame, build_sim_frame
+
+    conds = {k: v for k, v in (conditions or {}).items() if _s(v)}
+    label = ", ".join(f"{k}={v}" for k, v in conds.items()) if conds else "(no condition)"
+    vf, _fields = build_sim_frame(conds)
+    graph, uniq_hits, match_meta = annotate_graph_with_frame(graph, vf)
+
+    return {
+        "found": True,
+        "query": label,
+        "query_type": "simulate",
+        "graph": graph,
+        "rule_hits": uniq_hits,
+        "rule_match_meta": match_meta,
         "message": "",
         "message_en": "",
     }
