@@ -58,7 +58,8 @@ _ROOT = Path(__file__).resolve().parent.parent.parent  # my_app/
 DATA_DIR = _ROOT / "data" / "vmax_cxo_daily"
 DAILY_FILE = DATA_DIR / "daily.json"
 
-PROXY_BASE = "http://127.0.0.1:8790/proxy?url="
+_VMAX_PROXY_PORT = os.environ.get("MY_APP_PROXY_VMAX_PORT", "8790")
+PROXY_BASE = f"http://127.0.0.1:{_VMAX_PROXY_PORT}/proxy?url="
 VMAX_HOST = "https://10.123.255.12:26180"
 HISTORY_ENDPOINT = "/query/v2/history"
 
@@ -347,7 +348,7 @@ def _encrypt_param(text: str) -> str:
 # ---------- 8790 代理：只读健康检查，绝不做重启/杀进程 ----------
 def _proxy_health() -> dict:
     try:
-        r = requests.get("http://127.0.0.1:8790/health", timeout=5)
+        r = requests.get(f"http://127.0.0.1:{_VMAX_PROXY_PORT}/health", timeout=5)
         r.raise_for_status()
         j = r.json()
         if isinstance(j, dict) and j.get("status") == "ok" and j.get("proxy") == "ready":

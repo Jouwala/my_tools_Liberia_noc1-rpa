@@ -20,6 +20,14 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["realtime-proxy"])
 
 
+def _proxy_port(label: str) -> int:
+    """从 ctl.PROXIES 取配置端口（副本经 MY_APP_PROXY_*_PORT 隔离，生产默认 8787/8790）。"""
+    for c in ctl.PROXIES:
+        if c["label"] == label:
+            return c["port"]
+    return 8787 if label == "FMS" else 8790
+
+
 @router.post("/api/realtime-proxy/start")
 def start_proxy():
     """按需拉起实时代理（8787 FMS / 8790 VMAX）。已运行则复用。"""
@@ -56,7 +64,7 @@ async def cxo_proxy(request: Request):
     改为让浏览器打同源的 /api 路径，由后端再转发到服务器本机 127.0.0.1:8790，
     无论访问者从哪台机器打开页面都能拿到实时数据。
     """
-    return await _forward_local_proxy(8790, request)
+    return await _forward_local_proxy(_proxy_port("VMAX"), request)
 
 
 @router.api_route(
@@ -72,7 +80,7 @@ async def fms_proxy(request: Request):
     连不上服务器上的 FMS 代理，于是轮询永远失败并提示 Proxy not running。
     改为让浏览器打同源的 /api 路径，由后端再转发到服务器本机 127.0.0.1:8787。
     """
-    return await _forward_local_proxy(8787, request)
+    return await _forward_local_proxy(_proxy_port("FMS"), request)
 
 
 async def _forward_local_proxy(port: int, request: Request) -> Response:

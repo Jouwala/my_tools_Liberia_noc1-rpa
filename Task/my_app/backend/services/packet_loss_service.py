@@ -57,11 +57,11 @@ from backend.dialect_helpers import upsert
 logger = logging.getLogger("packet_loss_service")
 
 # ========== 路径配置 ==========
-PL_DATA_DIR = Path(r"d:\01_RPA\Task\my_app\data\packet_lost")
+PL_DATA_DIR = Path(__file__).resolve().parents[2] / "data" / "packet_lost"
 PL_DB_PATH = PL_DATA_DIR / "lte_pl.sqlite3"
 PL_REPORT_PATH = PL_DATA_DIR / "Packet_Loss_Status_Report.xlsx"
 PL_TEMPLATE_PATH = PL_DATA_DIR / "Packet_Loss_Status_Output Automation.xlsx"
-EFLOW_DB_PATH = Path(r"d:\01_RPA\Task\my_app\data\eflow\eflow.sqlite3")
+EFLOW_DB_PATH = Path(__file__).resolve().parents[2] / "data" / "eflow" / "eflow.sqlite3"
 
 # 查询窗口：8 天到现在（可用环境变量调整）。
 # 取 8 天是为了在剔除当天（未过完的整天数据不展示）后仍能凑齐完整 7 个自然日。

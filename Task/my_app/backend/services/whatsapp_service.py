@@ -6,6 +6,7 @@ import os
 import sys
 import time
 import glob
+import shutil
 import subprocess
 import logging
 from pathlib import Path
@@ -37,7 +38,7 @@ SESSION_BLOCKED_KEYS = (
 
 # ========== 配置（环境变量优先，便于 Windows 部署） ==========
 # 图片/数据文件所在目录
-DEFAULT_DIR = r"D:\01_RPA\Task\my_app\backend\services\data\site_outage"
+DEFAULT_DIR = str(Path(__file__).resolve().parent / "data" / "site_outage")
 SITE_OUTAGE_DIR = Path(os.environ.get("SITE_OUTAGE_DIR", DEFAULT_DIR))
 
 # 群组：逗号分隔，例如 "test123,Test234"
@@ -89,10 +90,27 @@ DEBUG_DIR = os.environ.get(
 )
 WHATSAPP_URL = "https://web.whatsapp.com"
 
-CHROME_PATH = os.environ.get(
-    "CHROME_PATH",
-    r"D:\01_RPA\chrome-win\chrome-win\chrome.exe",
-)
+def _default_chrome() -> str:
+    """便携默认 Chrome：优先随仓库的 chrome-win（生产命中原件），副本回退系统安装。
+
+    不再写死 D:\\01_RPA 绝对路径；CHROME_PATH 环境变量仍可显式覆盖。
+    """
+    local = Path(__file__).resolve().parents[4] / "chrome-win" / "chrome-win" / "chrome.exe"
+    if local.exists():
+        return str(local)
+    candidates = [
+        shutil.which("chrome"), shutil.which("google-chrome"),
+        str(Path(os.environ.get("PROGRAMFILES", "")) / "Google" / "Chrome" / "Application" / "chrome.exe"),
+        str(Path(os.environ.get("PROGRAMFILES(X86)", "")) / "Google" / "Chrome" / "Application" / "chrome.exe"),
+        str(Path(os.environ.get("LOCALAPPDATA", "")) / "Google" / "Chrome" / "Application" / "chrome.exe"),
+    ]
+    for c in candidates:
+        if c and Path(c).exists():
+            return c
+    return str(local)
+
+
+CHROME_PATH = os.environ.get("CHROME_PATH") or _default_chrome()
 
 # 完整的 选择器 字典，保留了 ATTACH Key
 SELECTORS = {

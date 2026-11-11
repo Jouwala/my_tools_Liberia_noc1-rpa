@@ -47,7 +47,8 @@ DATA_DIR = _ROOT / "data" / "cxo_dashboard"
 CACHE_FILE = DATA_DIR / "last_known_good.json"
 HISTORY_FILE = DATA_DIR / "history.jsonl"
 
-PROXY_BASE = "http://127.0.0.1:8790/proxy?url="
+_VMAX_PORT = next((c["port"] for c in PROXIES if c["label"] == "VMAX"), 8790)
+PROXY_BASE = f"http://127.0.0.1:{_VMAX_PORT}/proxy?url="
 VMAX_BASE = ("https://10.123.255.12:26180/rdk/service/app/insight/"
              "realtimeguarantee/ds_dashboard_Overseas/server")
 

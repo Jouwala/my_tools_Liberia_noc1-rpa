@@ -57,7 +57,9 @@ EMAIL_REPORTS_DIR = MY_APP_DIR / "email_reports"
 
 # 邮件脚本解释器：项目 venv（已装 exchangelib），不受外部工具重建影响。
 # 由 workbuddy 托管 venv 迁来（2026-10-13，该环境被外部 uv 重建清空依赖）。
-_MANAGED_VENV_PY = r"D:\01_RPA\Task\my_app\Scripts\python.exe"
+# 便携：默认用当前后端解释器（生产即项目 venv，副本即自带 runtime Python，均已装 exchangelib）；
+# 可用 MY_APP_REPORT_PY 显式指定。不再写死 D:\01_RPA 绝对路径，避免副本依赖源目录。
+_MANAGED_VENV_PY = os.environ.get("MY_APP_REPORT_PY") or sys.executable
 
 # ---- 数据 / 名单目录（远程用 FTP 路径字符串；本地用 Path）----
 _MS_SLA_DATA = MY_APP_DIR / "data" / "ms_sla"                       # 本地

@@ -49,7 +49,8 @@ from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives.serialization import load_pem_public_key
 
 # ---- editable config -------------------------------------------------------
-PORT = 8787
+# 端口可由环境变量覆盖：副本用 MY_APP_PROXY_FMS_PORT=8887 与生产 8787 隔离。
+PORT = int(os.environ.get("MY_APP_PROXY_FMS_PORT", "8787"))
 TARGET_HOST = "https://10.100.20.8:28001"
 
 
@@ -965,6 +966,9 @@ class Handler(BaseHTTPRequestHandler):
                     "target": TARGET_HOST,
                     "auth": bool(_SESSION.get("cookie")),
                     "user": USER,
+                    "root": os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                    "script": os.path.basename(__file__),
+                    "pid": os.getpid(),
                 }
             )
         if path == "/proxy":

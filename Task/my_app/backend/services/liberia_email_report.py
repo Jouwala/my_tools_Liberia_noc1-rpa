@@ -15,6 +15,7 @@ Liberia 站点宕报告邮件任务
 - 测试（传 to="dong.xinmin@zte.com.cn", cc=""）：只发给测试地址，不抄送。
 """
 import logging
+import os
 import subprocess
 import sys
 import time
@@ -36,7 +37,8 @@ CC_EMAIL_FILE = EMAIL_REPORTS_DIR / "cc_email.txt"
 # 2026-10-13 前用 workbuddy 托管 venv（~\.workbuddy\...\envs\default），当日该环境
 # 被外部工具（uv 重建）清空 exchangelib/urllib3，liberia_email_1h 连续 3 次失败，
 # 故改用项目自带 venv —— 随项目走、不受外部工具重建影响。
-_MANAGED_VENV_PY = r"D:\01_RPA\Task\my_app\Scripts\python.exe"
+# 便携：默认用当前后端解释器（生产即项目 venv，副本即自带 runtime Python）；可用 MY_APP_REPORT_PY 覆盖。
+_MANAGED_VENV_PY = os.environ.get("MY_APP_REPORT_PY") or sys.executable
 
 # 可重试的瞬时错误关键字（Orange EWS 偶发连接重置 / CAS 抖动）
 _TRANSIENT_KEYS = (

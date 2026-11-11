@@ -64,7 +64,7 @@ from backend.services.remote_db_reader import get_remote_reader
 logger = logging.getLogger("site_availability")
 
 REMOTE_DB = "db.sqlite3"
-LOCAL_AVAIL_DB = Path(r"d:\01_RPA\Task\my_app\data\ran_kpi_avalability_1day.sqlite3")
+LOCAL_AVAIL_DB = Path(__file__).resolve().parents[2] / "data" / "ran_kpi_avalability_1day.sqlite3"
 
 TECHS = ["G", "U", "L", "Tdd"]
 
