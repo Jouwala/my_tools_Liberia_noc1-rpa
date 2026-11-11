@@ -324,7 +324,7 @@ export default function VmaxRadioPanel({
       {buckets.length > 0 && (
         <CardBase
           title={t('vmaxq.radio.trend')}
-          extra={<Text type="secondary" style={{ fontSize: 11 }}>{t('vmaxq.radio.trendHint')}</Text>}
+          extra={<ExplainIcon text={t('vmaxq.radio.trendHint')} placement="bottomLeft" icon="question" />}
         >
           <ReactECharts option={trendOption} style={{ height: 300 }} notMerge />
         </CardBase>
@@ -333,7 +333,7 @@ export default function VmaxRadioPanel({
       {/* ④ 逐小区：回答"哪个小区差" */}
       <CardBase
         title={t('vmaxq.radio.cells')}
-        extra={<Text type="secondary" style={{ fontSize: 11 }}>{t('vmaxq.radio.cellsHint')}</Text>}
+        extra={<ExplainIcon text={t('vmaxq.radio.cellsHint')} placement="bottomLeft" icon="question" />}
       >
         {cells.length ? (
           <Table

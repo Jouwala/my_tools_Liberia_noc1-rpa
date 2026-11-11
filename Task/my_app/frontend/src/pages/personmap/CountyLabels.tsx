@@ -27,6 +27,13 @@
  * countOf 取 site_count：站点多的县先占最正的质心位（GIS 页按告警数，
  * 本页没有那个口径）；包围盒用 countyLabelLayout 的默认 LABEL_W/LABEL_H
  * （本页已改单行，与 GIS 页同档）。
+ *
+ * 2026-11-11 第二个消费方（?page=packet_loss，丢包地图只有 1/3 列宽）：
+ * 三个可选参数 —— compact（ipt 族小字号 + pointer-events:none，窄图不溢出
+ * 小县、也不抢站点圆点的点击）、displayCount（数字改显「该县当前可见的
+ * PL 站点数」；避让优先级仍走静态 site_count，筛选不引起跳位，与
+ * IptCountyLayer 同一取舍）、tipKey（aria 文案随页语义）。人员页三者都
+ * 不传，行为逐像素不变。
  */
 import { useEffect, useState } from 'react'
 import {
@@ -34,12 +41,12 @@ import {
 } from '../../components/LeafletMap'
 import { useI18n } from '../../i18n'
 import {
-  placeCountyLabels, makeProjector, type PlacedLabel,
+  placeCountyLabels, makeProjector, COMPACT_LABEL_SIZE, type PlacedLabel,
 } from '../gismap/countyLabelLayout'
 import type { CountyBoundary } from '../gismap/types'
 
 export function CountyLabels({
-  counties, typeLines, center, zoom,
+  counties, typeLines, center, zoom, displayCount, compact, tipKey, labelClass,
 }: {
   counties: CountyBoundary[]
   /** 县名 → 两行统计文本（useCountyTags 的产出） */
@@ -48,6 +55,21 @@ export function CountyLabels({
    *  理由见 PersonMapView 的 LB_CENTER 处注释。 */
   center: [number, number]
   zoom: number
+  /** 显示数字的覆盖源：县名 → 当前地图上显示的站点数（丢包页用「该县可见
+   *  PL 站点数」）。避让优先级仍用静态 site_count —— 优先级若跟着筛选走，
+   *  每改一次过滤标签就重排一次、画面跳（IptCountyLayer 避让 effect 同注）。 */
+  displayCount?: Map<string, number>
+  /** 紧凑样式（ipt 族：11px/10px 字号、pointer-events:none），给窄地图用：
+   *  大字号会溢出小县，pointer-events:auto 会抢走下方站点圆点的点击。 */
+  compact?: boolean
+  /** aria-label 文案键，默认人员页的 countyTagTip；紧凑模式没有悬停展开，
+   *  文案应与页面语义一致（丢包页传 pl.countyTagTip）。 */
+  tipKey?: string
+  /** 追加到 tooltip 的额外类名（2026-11-11 丢包页「透明度 80%」配套）。
+   *  县块填充降到 0.2 后不再是 80% 实心，深蓝无描边字在**深色主题**会压不住
+   *  深色底图 —— 丢包页传 `pl-county-label`，由 index.css 按主题分档改字色/描边。
+   *  人员 / ipt 页不传，类名与行为逐像素不变。 */
+  labelClass?: string
 }) {
   const { t } = useI18n()
   const map = useMap()
@@ -59,9 +81,12 @@ export function CountyLabels({
     const size = map.getSize()
     const proj = makeProjector(zoom, size.x, center[0], size.y, 0)
     /* 不传 size → 用模块默认的 LABEL_W/LABEL_H：2026-10-29 起本页也是**单行**标签
-       （统计收进悬停），尺寸档与 GIS 页一致，没必要再维护第二套包围盒。 */
-    setLabels(placeCountyLabels(counties, c => c.site_count || 0, proj))
-  }, [map, counties, center, zoom])
+       （统计收进悬停），尺寸档与 GIS 页一致。compact（丢包页窄图）字号收一档，
+       包围盒必须跟着换 COMPACT_LABEL_SIZE —— 共用大盒子会把冲突判得过宽，
+       小县避让失败兜底原位 → 实测真重叠（见 countyLabelLayout 该常量注释）。 */
+    setLabels(placeCountyLabels(counties, c => c.site_count || 0, proj,
+      compact ? COMPACT_LABEL_SIZE : undefined))
+  }, [map, counties, center, zoom, compact])
 
   return (
     <>
@@ -75,6 +100,9 @@ export function CountyLabels({
       {labels.map(lb => {
         const lines = typeLines.get(lb.name)
         const hasDetail = !!(lines?.trm || lines?.cat)
+        /* 数字：默认 lb.count（静态 site_count）；displayCount 给的是「当前画面
+           上的站点数」（丢包页随图例过滤联动），取不到该县按 0 —— 与画面一致。 */
+        const num = displayCount ? (displayCount.get(lb.name) ?? 0) : lb.count
         return (
           <Marker
             key={`county-lb-${lb.name}`}
@@ -84,19 +112,22 @@ export function CountyLabels({
             {/* `person-county-label`（2026-10-29 用户指定「深蓝文字」，并二次反馈
                 「不要白色阴影」）：本页县块是 80% 实心填充，标签恒压在饱和县色上，
                 故深蓝可深浅主题同一套、且无描边无阴影。GIS 页填充仍 0.13、底图随主题
-                反相，那边保留描边分档。取舍与**必须写两条选择器**的特异性坑见 index.css。 */}
-            <MapTooltip permanent direction="center" className="gis-county-label person-county-label"
+                反相，那边保留描边分档。取舍与**必须写两条选择器**的特异性坑见 index.css。
+                compact 改挂 ipt 族（同一深蓝无描边，字号收一档、pointer-events 保持
+                none）—— 两族的 CSS 都已在 index.css，这里只换类名不新增样式。 */}
+            <MapTooltip permanent direction="center"
+                        className={`${compact ? 'gis-county-label ipt-county-label' : 'gis-county-label person-county-label'}${labelClass ? ` ${labelClass}` : ''}`}
                         pane="countyLabelPane">
               {/* 常驻**只有单行**「县名 + 总数」（2026-10-29 用户在重叠实测数据前选定）。
                   两行统计收进悬停才展开的 `.person-county-tag__detail`：常驻三行时
                   包围盒 190×51，西海岸三县实测 8 对重叠（最严重 113×51 = 整块压住）；
                   单行 190×22 与 GIS 页同档，那边同字号实测 0 重叠。
                   aria-label 保留可访问性说明（不用 title —— 会与原生气泡打架）。 */}
-              <span className="gis-county-tag person-county-tag"
-                    aria-label={t('person.countyTagTip', { name: lb.name, total: lb.count })}>
+              <span className={compact ? 'gis-county-tag ipt-county-tag' : 'gis-county-tag person-county-tag'}
+                    aria-label={t(tipKey || 'person.countyTagTip', { name: lb.name, total: num })}>
                 <span className="person-county-tag__head">
                   <span className="gis-county-tag__name">{lb.name.toUpperCase()}</span>
-                  <span className="gis-county-tag__num">{lb.count}</span>
+                  <span className="gis-county-tag__num">{num}</span>
                 </span>
                 {hasDetail && (
                   <span className="person-county-tag__detail">

@@ -12,12 +12,17 @@ import { COUNTY_FILL_OPACITY } from './useCountyTags'
 import type { CountyBoundary } from '../gismap/types'
 
 export function CountyLayer({
-  counties, countyColor, isDark,
+  counties, countyColor, isDark, fillOpacity,
 }: {
   counties: CountyBoundary[]
   /** 县名 → 十六进制类别色（SVG 不认 CSS 变量，故由调用方给实值） */
   countyColor: Map<string, string>
   isDark: boolean
+  /** 按页覆盖填充**不透明度**（2026-11-11 packet_loss「透明度 80%」= 0.2）。
+   *  不传走共用 COUNTY_FILL_OPACITY（person 页 0.8）；传了则深浅主题同值 ——
+   *  语义由调用方负责，本组件不再做主题分档。不改共用常量本身：person 页
+   *  的 0.8 是 2026-10-29 用户定的，两页诉求不同，各传各的。 */
+  fillOpacity?: number
 }) {
   return (
     <>
@@ -28,7 +33,7 @@ export function CountyLayer({
           pathOptions={{
             color: countyColor.get(c.name) || '#9aa5b5',
             fillColor: countyColor.get(c.name) || '#9aa5b5',
-            fillOpacity: isDark ? COUNTY_FILL_OPACITY.dark : COUNTY_FILL_OPACITY.light,
+            fillOpacity: fillOpacity ?? (isDark ? COUNTY_FILL_OPACITY.dark : COUNTY_FILL_OPACITY.light),
             weight: 1.5,
             opacity: 0.85,
             dashArray: '4 3',

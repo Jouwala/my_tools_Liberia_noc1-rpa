@@ -26,6 +26,7 @@ import api from '../api'
 import { useI18n } from '../i18n'
 import { useTheme } from '../theme'
 import { exportAoaReport, exportReport } from '../utils/excelReport'
+import { ExplainIcon } from './MetricExplain'
 
 const { Text } = Typography
 
@@ -351,7 +352,7 @@ export default function WoClosePanel({ isMobile }: Props) {
             </Button>
           </Tooltip>
           {file && <Tag color="red">{file}</Tag>}
-          <Text type="secondary" style={{ fontSize: 12 }}>{t('qa.woClose.uploadHint')}</Text>
+          <ExplainIcon text={t('qa.woClose.uploadHint')} placement="bottomLeft" icon="question" />
         </div>
         <Input.TextArea
           rows={4}
