@@ -40,8 +40,10 @@
   },
   "map": {
     "gis": {},
+    "ipranTopo": {},
     "ipt_power": {},
     "mwRealTime": {},
+    "packet_loss": {},
     "person": {}
   },
   "oss": {
@@ -102,6 +104,7 @@
   "qa": {
     "assistant": {},
     "eflow": {},
+    "master_site": {},
     "rag": {}
   },
   "qc": {

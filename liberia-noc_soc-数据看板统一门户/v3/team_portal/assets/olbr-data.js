@@ -144,8 +144,19 @@ window.OLBR_DATA = (function () {
          用户给的页签名就是英文 "Person"，中英两份**照写同一串**（同 map.gis 的约定）。 */
       'map.person': 'Person',
       /* 2026-11-06 加：内嵌 my_app 的 ?page=ipt_power（IPT 站点电源查询）。
-         与 Person / Alarm / MW 同一约定：英文短名，中英两份照写同一串。 */
-      'map.iptPower': 'IPT Power',
+         与 Person / Alarm / MW 同一约定：英文短名，中英两份照写同一串。
+         2026-11-11：用户要求页签名由 "IPT Power" 缩短为 "Power"。
+         ⚠️ 只改显示值 —— page（ipt_power）与键（map.iptPower）都不动，
+            服务端已存过的 catalog.tabLabels 改名记录不会因此失配。 */
+      'map.iptPower': 'Power',
+       /* 2026-11-10 加：内嵌 my_app 的 ?page=ipranTopo&layer=ipran。页签名是用户点名的 IP，中英两份照写同一串，不翻译。 */
+       'map.ip': 'IP',
+      /* 2026-11-11 加：内嵌 my_app 的 ?page=packet_loss（Packet Loss Map）。
+         用户点名的短名 "PL"，中英两份照写同一串，不翻译。
+         ⚠️ 目录里本来就有 page=packet_loss 的看板（Packet Loss Dashboard…），
+            但页签按钮的显示名走 tabLabelOf(page, key) → t(key)，**不取目录标题**；
+            目录标题只落进 m.title，用作按钮的 title 提示。故这里才是显示名的唯一来源。 */
+      'map.pl': 'PL',
       /* 2026-09-28 按用户要求把按钮文案改成 "Open Link"（原来中英分别是
          「新窗口打开」/ "Open in new tab"）。用户给的是英文串，
          两份字典都照写（与 qc.sub.* 那次改名同一条约定：用户点名的写法不翻译）。
@@ -176,6 +187,8 @@ window.OLBR_DATA = (function () {
       'esc.now': '当前值班', 'esc.copy': '复制本级号码', 'esc.copied': '已复制',
       'esc.lv': '职级', 'esc.pos': '岗位', 'esc.name': '姓名', 'esc.mail': '邮箱',
       'esc.count': '{n} 条 · {lv} 级', 'esc.src': '数据源：升级机制.xlsx',
+      /* 2026-11-11：接口 /api/ap/org 取数成功时脚注改标「实时」，见 olbr.js 的 loadEscOrg()。 */
+      'esc.srcLive': '数据源：AP 组织库（实时）',
       /* v1：默认只显示前 4 行，必须明说还有多少条没显示 —— 否则会被当成表就这么多行 */
       'esc.moreRows': '仅显示前 4 行，另有 {n} 条 · 点右上「展开全部」查看',
       'v.open': '查看全部', 'v.empty': '该分组暂无看板',
@@ -640,6 +653,7 @@ window.OLBR_DATA = (function () {
       'aux.more': '展开其余 {n} 项', 'aux.less': '收起',
       /* 2026-09-28：foot.branch 已删除 —— 版权行的后半段改成公司法律实体名
          「ZTE LIBERIA· INC」，中英同形、不需要翻译，已直接写死在 index.html。
+         2026-11-11 起整行改为「© 2026 OLR MS Project」，同样不翻译、不回填本键。
          原值：'利比里亚办事处网络运营中心 (OLR MS)'。 */
       'foot.ok': '安全合规模式运行',
       'foot.src': '目录：{n} 个看板 · 生成于 {d}',
@@ -889,8 +903,13 @@ window.OLBR_DATA = (function () {
       'map.gis': 'Alarm', 'map.mw': 'MW', 'map.alarm': 'Live alarms', 'map.loss': 'Packet loss',
       /* 2026-10-19 加，与中文那份同值（用户点名的英文串，不翻译）。 */
       'map.person': 'Person',
-      /* 2026-11-06 加，与中文那份同值（IPT Power 页签）。 */
-      'map.iptPower': 'IPT Power',
+      /* 2026-11-06 加，与中文那份同值（原 "IPT Power"）。
+         2026-11-11 起按用户要求缩短为 "Power"，中文那份同步。 */
+      'map.iptPower': 'Power',
+       /* 2026-11-10 加：内嵌 my_app 的 ?page=ipranTopo&layer=ipran。页签名是用户点名的 IP，中英两份照写同一串，不翻译。 */
+       'map.ip': 'IP',
+      /* 2026-11-11 加，与中文那份同值（用户点名的 "PL"）。 */
+      'map.pl': 'PL',
       /* 2026-09-28：改为用户点名的 "Open Link"（原为 "Open in new tab"）。
          中文那份同值 —— 用户要的就是这一串英文。 */
       'map.open': 'Open Link', 'map.reload': 'Reload', 'map.load': 'Loading…',
@@ -914,6 +933,7 @@ window.OLBR_DATA = (function () {
       'esc.now': 'On duty', 'esc.copy': 'Copy this level', 'esc.copied': 'Copied',
       'esc.lv': 'Level', 'esc.pos': 'Position', 'esc.name': 'Name', 'esc.mail': 'E-mail',
       'esc.count': '{n} rows · {lv} levels', 'esc.src': 'Source: escalation matrix',
+      'esc.srcLive': 'Source: AP org DB (live)',
       /* v1: only the first 4 rows are shown by default; say so explicitly */
       'esc.moreRows': 'Showing the first 4 rows only — {n} more. Use “Expand all” (top right) to see them.',
       'v.open': 'Full list', 'v.empty': 'No dashboard in this group',
@@ -1455,6 +1475,8 @@ window.OLBR_DATA = (function () {
     'chart-polar': 'ph-chart-polar', gauge: 'ph-gauge', bell: 'ph-bell', map: 'ph-map-trifold',
     ticket: 'ph-ticket', siren: 'ph-siren', clock: 'ph-clock', 'chart-line': 'ph-chart-line',
     link: 'ph-link', cpu: 'ph-cpu', broadcast: 'ph-broadcast', battery: 'ph-battery-charging',
+     /* 2026-11-10：GIS Map 的 IP 页签。类名在 phosphor.css 里核实过（.ph-share-network）。 */
+     'share-network': 'ph-share-network',
     package: 'ph-package', wrench: 'ph-wrench', upload: 'ph-cloud-arrow-up', table: 'ph-table',
     archive: 'ph-archive', chat: 'ph-chat-circle-dots', book: 'ph-book-open-text', gear: 'ph-gear',
     dashboard: 'ph-squares-four', key: 'ph-lock-key', warning: 'ph-warning', briefcase: 'ph-briefcase',
@@ -1537,11 +1559,29 @@ window.OLBR_DATA = (function () {
      ⚠️ 该页在 my_app 里是「筛选条 + 4 张数字卡 + 左地图 / 右站点清单」的完整业务页。
         但门户里只展示地图（2026-11-06 用户原话：「能只显示 Site map 吗，不要上面的
         统计卡片」），故走 MAP_TAB_CSS 给它一份定制剥离样式，而不是照搬纯画布那份。 */
-  var MAP_TABS = [
+  /* 2026-11-10：IP 页签内嵌 ?page=ipranTopo，qs 固定 layer=ipran（IP RAN 光纤层）。
+      page 必须与 my_app PageKey 一致。这页是自绘 SVG，不是 Leaflet，
+      门户再带 maponly=1，页面只留网络拓扑画布（跟 Person 页签同一约定）。MAP_TAB_CSS 仍是空串：这页没有 Leaflet，套剥离样式会把 SVG 藏掉。
+      ⚠️ 2026-11-11 起团队门户矩阵（scope-map.json 的 map 域）已登记 ipranTopo，
+        勾了 fo / bo / flm —— 这三个团队门户现在也显示 IP 页签；smc / cxo 未勾、仍过滤掉。
+        上游 /v3/olbrportal/ 不读矩阵，页签恒在。子键必须与这里的 page 值逐字一致。
+      编辑态改名还要后端 TAB_PAGES 白名单带上 ipranTopo，否则改名被静默丢弃。 */
+  /* 2026-11-11：再加 ?page=packet_loss（Packet Loss Map），页签名 "PL"。
+     page 必须与 my_app 的 PageKey 一致；后端 TAB_PAGES 白名单里 packet_loss
+     **早已存在**（2026-09-25 下线该页签时特意保留），故这次不用改后端。
+     ⚠️ 该页在 my_app 里是「横幅 + KPI 卡 + 三张图表 + 左地图 / 右指标」的完整看板，
+        门户里只留 Packet Loss Map 地图卡：MAP_TAB_CSS 给它一份自包含的剥离样式。
+     ⚠️ 2026-11-11 起团队门户 scope-map.json 的 map 域已登记 packet_loss，
+        与 ipranTopo 同口径：勾了 fo / bo / flm，smc / cxo 未勾、按矩阵过滤掉这一页。
+        ⚠️ 子键就是这里的 page 值；改 page 必须同步改矩阵，否则页签静默消失。
+        运行时矩阵以 SQLite 为准，新键还要同步写进 team_scope 行（见 docs/architecture.md 九之十七）。 */
+   var MAP_TABS = [
     { page: 'gis', key: 'map.gis', icon: 'map' },
     { page: 'person', key: 'map.person', icon: 'users' },
     { page: 'mwRealTime', key: 'map.mw', icon: 'broadcast' },
-    { page: 'ipt_power', key: 'map.iptPower', icon: 'battery' }
+    { page: 'ipt_power', key: 'map.iptPower', icon: 'battery' },
+     { page: 'ipranTopo', key: 'map.ip', icon: 'share-network', qs: 'layer=ipran' },
+     { page: 'packet_loss', key: 'map.pl', icon: 'link' }
   ];
   /* 保留伪页签 key：本栏标题/副标题不是地图页签，但与页签共用同一份
      catalog.tabLabels 存储和改名浮层（2026-09-23 加）。__ 前缀与上面的 OTHER 同一约定，
@@ -1741,9 +1781,52 @@ window.OLBR_DATA = (function () {
     'main#main-content .ant-card-body:has(.leaflet-container) > .leaflet-container{position:absolute!important;inset:0!important;height:100%!important;width:100%!important}'
   ].join('');
 
+  /* ---------------------------------------------------------------------
+     packet_loss（"PL" 页签）专用剥离样式（2026-11-11 加）
+     ---------------------------------------------------------------------
+     ⚠️ 这一份**刻意不叠加 MAP_STRIP_CSS**，与 ipt_power 的做法不同：
+        MAP_STRIP_CSS 后半段有一批 GIS / Alarm 页专属规则 —— 把 .ant-card-body
+        里「非 .leaflet-container 的直接子元素」全改成贴底绝对定位浮层、
+        .gis-rank-overlay / .gis-legend-overlay 的位移修正等。而 packet_loss 的
+        地图卡 body 里与地图同级的，是**状态图例**（开启拓扑时还有链路图例），
+        它们是正常流式内容，套上那批规则会互相重叠并盖掉地图下缘。
+        故这里自包含一份最小样式，不与那批 GIS 专属规则耦合。
+     ⚠️ 只注入门户的 iframe document；直开 /myapp/?page=packet_loss 仍是完整看板。
+     ⚠️ 下钻弹窗 portal 到 body，不在 main#main-content 下，点圆点仍可下钻。 */
+  var PL_MAP_ONLY_CSS = [
+    'html,body{margin:0!important;padding:0!important;height:100%!important;overflow:hidden!important;background:#ffffff!important}',
+    '#root,.ant-layout,.ant-layout-content{height:100%!important;min-height:0!important;margin:0!important;padding:0!important;background:#ffffff!important}',
+    'main#main-content{height:100%!important;padding:0!important;margin:0!important;overflow:hidden!important}',
+    /* 页面根 div 原本是 display:flex 的两列（左 1/3 地图 / 右 2/3 指标图表）。
+       改成 block 后子项的 flex 宽度不再生效，只留含地图那一列并拉满。 */
+    'main#main-content > div{display:block!important;height:100%!important;min-height:0!important;padding:0!important;margin:0!important;gap:0!important}',
+    'main#main-content > div > *:not(:has(.leaflet-container)):not(:has(iframe)):not(iframe){display:none!important}',
+    'main#main-content > div > *:has(.leaflet-container){width:100%!important;max-width:100%!important;height:100%!important;min-height:0!important;flex:1 1 auto!important;position:static!important;top:auto!important;align-self:stretch!important;margin:0!important}',
+    /* 地图卡：列式 flex，卡头保留（Packet Loss Map 标题 + 拓扑开关 + 正常站点开关）。 */
+    'main#main-content .ant-card:has(.leaflet-container){display:flex!important;flex-direction:column!important;height:100%!important;min-height:0!important;margin:0!important;border:0!important;border-radius:0!important;box-shadow:none!important;background:#ffffff!important}',
+    'main#main-content .ant-card:has(.leaflet-container) > .ant-card-head{display:flex!important;flex:0 0 auto!important;min-height:0!important;padding:6px 12px!important}',
+    'main#main-content .ant-card:has(.leaflet-container) > .ant-card-body{display:flex!important;flex-direction:column!important;flex:1 1 auto!important;height:auto!important;min-height:0!important;max-height:none!important;overflow:hidden!important;padding:8px 8px 0!important;position:relative!important}',
+    /* ⚠️ 线上预编译产物里 MapContainer 外面还包了一层无 class 的 div
+       （CDP 实测 lcParent: DIV/display:block，.leaflet-container 是它的子元素），
+       所以不能写 `> .leaflet-container` —— 那样一条都不命中，地图会退回
+       inline height，卡片下半部留一大块空白（2026-11-11 实测 466 / 858）。
+       改成两级：先让「含地图的那层 wrapper」在 body 的 flex 列里伸展，
+       再让它内部的 leaflet 容器跟着伸展，不依赖具体层级深度。 */
+    'main#main-content .ant-card-body:has(.leaflet-container) > *:has(.leaflet-container){flex:1 1 auto!important;min-height:0!important;height:auto!important;max-height:none!important;display:flex!important;flex-direction:column!important;margin:0!important;padding:0!important;position:relative!important}',
+    'main#main-content .ant-card-body:has(.leaflet-container) .leaflet-container{flex:1 1 auto!important;height:auto!important;min-height:0!important;max-height:none!important;width:100%!important;position:relative!important;inset:auto!important;border-radius:0!important;background:#ffffff!important}',
+    /* 两个图例行保持流式、贴在地图下方，不做绝对定位浮层；
+       :not(:has(.leaflet-container)) 把上面那层 wrapper 排除掉，别把它压回固定高度。 */
+    'main#main-content .ant-card-body:has(.leaflet-container) > div:not(:has(.leaflet-container)){position:static!important;flex:0 0 auto!important;margin:4px 0 0!important;padding:0 4px 6px!important;background:transparent!important;z-index:auto!important}'
+  ].join('');
+
   /** page → 该页 iframe 应注入的完整 CSS。缺省（未登记）用 MAP_STRIP_CSS。 */
   var MAP_TAB_CSS = {
-    'ipt_power': MAP_STRIP_CSS + IPT_MAP_ONLY_EXTRA_CSS
+    'ipt_power': MAP_STRIP_CSS + IPT_MAP_ONLY_EXTRA_CSS,
+     /* 空串 = 不注入剥离样式。ipranTopo 是自绘 SVG，没有 Leaflet；
+        套默认 MAP_STRIP_CSS 会藏掉所有不含 .leaflet-container 的节点，iframe 变空白。 */
+     'ipranTopo': '',
+     /* 2026-11-11：packet_loss 用自包含的那一份，见上方 PL_MAP_ONLY_CSS 说明。 */
+     'packet_loss': PL_MAP_ONLY_CSS
   };
 
   /* ----------------------------------------------------- qc thresholds -- */

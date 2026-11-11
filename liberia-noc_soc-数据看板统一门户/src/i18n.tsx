@@ -407,6 +407,23 @@ const zh: Record<string, string> = {
   'auth.noPermission': '无权访问此页面',
   'auth.noPermissionHint': '当前账号权限不足，请联系管理员开通。',
 
+  // 自助找回密码（fp.*）与邮件重置确认页（rp.*）
+  'fp.link': '忘记密码？',
+  'fp.subtitle': '输入用户名，向该账号登记的邮箱发送重置链接',
+  'fp.submit': '发送重置链接',
+  'fp.submitting': '发送中...',
+  'fp.okConfigured': '若该账号已登记邮箱，重置链接已发送，请查收邮件（30 分钟内有效）',
+  'fp.okNotConfigured': '邮件找回尚未开通，请联系管理员重置密码',
+  'fp.tooMany': '请求过于频繁，请稍后再试',
+  'rp.title': '设置新密码',
+  'rp.subtitle': '请输入新密码，重置链接一次性有效',
+  'rp.newPassword': '新密码',
+  'rp.newPasswordPh': '设置新密码（至少 8 位）',
+  'rp.submit': '重置密码',
+  'rp.submitting': '重置中...',
+  'rp.ok': '密码已重置，请用新密码登录',
+  'rp.invalidToken': '链接无效或已过期，请重新发起找回密码',
+
   // 新页面模板（src/pages/_TemplatePage.tsx）演示用的通用文案
   'tpl.title': '示例页面',
   'tpl.refresh': '刷新',
@@ -996,6 +1013,23 @@ const en: Record<string, string> = {
   'auth.footer': 'Internal system · Authorized personnel only',
   'auth.noPermission': 'No access to this page',
   'auth.noPermissionHint': 'Your account lacks the required permission. Contact an administrator.',
+
+  // Self-service password recovery (fp.*) and email reset confirmation (rp.*)
+  'fp.link': 'Forgot password?',
+  'fp.subtitle': 'Enter your username to email a reset link to the address on file',
+  'fp.submit': 'Send reset link',
+  'fp.submitting': 'Sending...',
+  'fp.okConfigured': 'If that account has an email on file, a reset link has been sent. Check your inbox (valid for 30 minutes).',
+  'fp.okNotConfigured': 'Email recovery is not enabled yet. Please contact an administrator to reset your password.',
+  'fp.tooMany': 'Too many requests, please try again later',
+  'rp.title': 'Set a new password',
+  'rp.subtitle': 'Enter a new password. The reset link is single-use.',
+  'rp.newPassword': 'New password',
+  'rp.newPasswordPh': 'New password (min 8 chars)',
+  'rp.submit': 'Reset password',
+  'rp.submitting': 'Resetting...',
+  'rp.ok': 'Password reset. Please sign in with your new password.',
+  'rp.invalidToken': 'This link is invalid or expired. Please request a new one.',
 
   // Strings used by the new-page template (src/pages/_TemplatePage.tsx)
   'tpl.title': 'Example page',

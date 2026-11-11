@@ -2543,12 +2543,19 @@ html:not(.dark) .qc-spark .sp-bar.sp-warn { stroke-width: 1; }
 /* 缩放锁的两态（2026-10-22 加）。
    · 锁定（默认）= 普通 .gb：中性色，和刷新 / Open Link 同一档，不抢眼 ——
      它是常态，不该看起来像"有什么需要注意的"；
-   · 解锁（.unlocked）= 描边与文字转成 accent：滚轮已经交给地图了，
+   · 解锁（.unlocked）= 描边与图标转成 accent（2026-11-11 起按钮已无文字）：滚轮已经交给地图了，
      这是一个**偏离默认**的状态，值得让用户一眼看见。
    ⚠️ 刻意复用 .gb 的 .on 那条 warn 配色吗？不 —— .on 是**编辑态**的语义色
       （olbr.css:2177，标"正在改全站共享目录"），此处复用会把"危险"稀释。
       aria-pressed 同时写上，给读屏与将来可能的样式钩子。 */
 .gb--t.unlocked { border-color: var(--b-line); color: var(--b-ink); background: var(--b-tint); }
+/* 2026-11-11：GIS Map 工具条的「缩放锁 / Reload」按用户要求改成纯图标，
+   文字已从 mapToolsHtml() 的 DOM 去掉（不是用 CSS 藏字，宽窄屏口径统一）。
+   .gb 的 padding:0 10px 是给「图标 + 文字」那一套配的，纯图标下左右偏松；
+   收成 8px，与窄屏那条 `.gb--t { padding-inline:8px }` 一致，宽窄屏不再跳。
+   ⚠️ 只点名这两颗：Open Link 仍带文字，其它面板的 Reload 也不在这里，别扩大选择器。 */
+#l0Map .map-tools [data-act="map-zoomlock"],
+#l0Map .map-tools [data-act="map-reload"] { padding-inline: 8px; justify-content: center; }
 .tabs { display: inline-flex; gap: 2px; padding: 2px; border: 1px solid var(--line); border-radius: var(--r1); background: var(--surface-3); }
 .tab { height: 26px; padding: 0 10px; border-radius: 4px; font-size: var(--fs-sm); font-weight: 600; color: var(--t2); display: inline-flex; align-items: center; gap: 6px; }
 .tab i { font-size: 14px; }   /* 图标字号：单独一档，与 --icon-* 都不等，仅此处使用 */

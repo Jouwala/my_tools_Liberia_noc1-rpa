@@ -64,6 +64,16 @@
   }
 
   var TEAM_ID = detectTeam();
+  /* 2026-11-11：把当前团队写到 <html data-team="bo|fo|flm|smc|cxo">。
+     五个团队门户共用 v3/team_portal/ 这一份静态壳，CSS 读不到 URL，
+     于是「只对某一个团队生效」的版式覆盖没有选择器可用 —— 这里补一个
+     **只读标记**，由 team_portal 专有 CSS 段（sync_team_assets.py 的
+     CSS_TEAM_SUFFIX）用 html[data-team="bo"] 命中。
+     ⚠️ 它只是版式选择器，不参与任何权限判定：可见性仍只由 MATRIX 决定。
+     首个用例：bo 的 Auto Report 高度减半、另一半给 OSS Portal Login。 */
+  if (TEAM_ID) {
+    try { document.documentElement.setAttribute('data-team', TEAM_ID); } catch (e) {}
+  }
   var MATRIX = window.OLBR_TEAM_MATRIX || {};
 
   /* ---------------------------------------------------------- 鉴权接口地址 --
@@ -253,18 +263,22 @@
   }
 
   /* ============================================================ 地图页签 ==
-     Excel 的 GIS MAP 域 → DATA.MAP_TABS 的 page
-     （gis / person / mwRealTime / ipt_power，2026-11-06 加最后一项）。 */
+     scope-map.json 的 map 域 → DATA.MAP_TABS 的 page。
+     2026-11-11 起六个页签全部登记：gis / person / mwRealTime / ipt_power /
+     ipranTopo（IP）/ packet_loss（PL），后两个只勾 fo / bo / flm。
+     ⚠️ 子键就是 page 值 —— 改上游 MAP_TABS 的 page 必须同步改矩阵子键，
+        否则 mapItems() 的过滤钩子拿不到匹配项，页签会静默消失。 */
   function mapPages() {
     return subs('map');
   }
 
   /* ========================================================== 问答页签 ==
      2026-11-04 改：CCH（原 vmax / VMAX 用户查询）已从页签拆成独立面板 #cchSlot，
-     改由 cch 域控制（见下面 hasCch）。这里只剩三项：
+     改由 cch 域控制（见下面 hasCch）。
        · eflow  = 「TT/Alarm Analysis」（eFlow 知识库）
        · rag    = 「Knowledge O&A」（本地知识问答）
-       · assistant = 「Quick Q&A」（右下角悬浮问答助手）
+       · assistant = 「Quick Q&A」（右下角悬浮问答助手，**不是页签**）
+       · master_site = 「Master Site」（站点主数据，2026-11-11 起勾 fo / bo / flm）
      ⚠️ 服务端库矩阵里可能还残留旧的 qa/vmax 键（合并逻辑只补不删），
         qaItems() 已不再消费它，多返回一项也无副作用。 */
   function qaTabs() {

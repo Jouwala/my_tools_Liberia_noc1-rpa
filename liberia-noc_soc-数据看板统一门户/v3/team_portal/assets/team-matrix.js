@@ -72,6 +72,11 @@
       "smc",
       "cxo"
     ],
+    "ipranTopo": [
+      "fo",
+      "bo",
+      "flm"
+    ],
     "ipt_power": [
       "fo",
       "flm",
@@ -84,6 +89,11 @@
       "flm",
       "smc",
       "cxo"
+    ],
+    "packet_loss": [
+      "fo",
+      "bo",
+      "flm"
     ],
     "person": [
       "fo",
@@ -167,6 +177,11 @@
       "bo",
       "flm",
       "smc"
+    ],
+    "master_site": [
+      "fo",
+      "bo",
+      "flm"
     ],
     "rag": [
       "fo",

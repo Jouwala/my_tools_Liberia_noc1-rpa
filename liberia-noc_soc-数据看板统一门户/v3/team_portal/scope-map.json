@@ -97,11 +97,14 @@
       "en": "GIS MAP",
       "excelDomain": "GIS MAP",
       "portalAnchor": "l0Map",
+      "_comment_new_tabs": "2026-11-11 加（用户要求 fo/bo/flm 三个团队门户也要 IP/PL 页签）：上游 DATA.MAP_TABS 里的 ipranTopo（IP 页签）与 packet_loss（PL 页签）在此登记。⚠️ 子键必须与 MAP_TABS 的 page 值逐字一致 —— mapItems() 的团队版钩子拿 SCOPE.mapPages() 返回的子键直接和 m.page 比对，错一个字符页签就静默消失。⚠️ Excel《新看板设计.xlsx》里没有这两行，excel 留空占位、不参与 --check-excel 对账；只勾 fo/bo/flm，smc/cxo 不开放。",
       "items": [
         { "key": "gis",        "zh": "告警地图", "en": "Alarm Map",   "excel": "Alarm MAP" },
         { "key": "person",     "zh": "人员地图", "en": "Person Map",  "excel": "Person MAP" },
         { "key": "mwRealTime", "zh": "微波实时", "en": "MW Map",      "excel": "MW MAP" },
-        { "key": "ipt_power",  "zh": "IPT 电源", "en": "IPT Power",   "excel": "IPT Power" }
+        { "key": "ipt_power",  "zh": "IPT 电源", "en": "IPT Power",   "excel": "IPT Power" },
+        { "key": "ipranTopo",  "zh": "IP（IPRAN 拓扑）", "en": "IP (IPRAN Topology)", "excel": "" },
+        { "key": "packet_loss", "zh": "PL（Packet Loss 地图）", "en": "PL (Packet Loss Map)", "excel": "" }
       ]
     },
     {
@@ -110,10 +113,12 @@
       "en": "Knowledge Q&A",
       "excelDomain": "Knowledge Q&A",
       "portalAnchor": "qaSlot",
+      "_comment_master_site": "2026-11-11 加（用户要求 fo/bo/flm 三个团队门户也要 Master Site 页签）：上游 qaItems() 的第三页签 master_site 在此登记。⚠️ patch_team_portal.py 的 qa-filter 钩子一直按 qa/master_site 判据放行，故代码侧无需改动，勾上即生效。⚠️ Excel 里没有这一行，excel 留空、不参与对账；assistant 不是页签（右下角悬浮助手），只是同域的一个开关。",
       "items": [
         { "key": "eflow",     "zh": "TT/Alarm 分析", "en": "TT/Alarm Analysis", "excel": "TT/Alarm Analysis" },
         { "key": "rag",       "zh": "知识问答",       "en": "Knowledge O&A",     "excel": "Knowledge O&A" },
-        { "key": "assistant", "zh": "快速问答",       "en": "Quick Q&A",         "excel": "Quick Q&A" }
+        { "key": "assistant", "zh": "快速问答",       "en": "Quick Q&A",         "excel": "Quick Q&A" },
+        { "key": "master_site", "zh": "Master Site（站点主数据）", "en": "Master Site (Site Master Data)", "excel": "" }
       ]
     },
     {
@@ -206,6 +211,7 @@
 
   "_comment_matrix": "当前生效的可见性矩阵：{ 域键: { 子键: [有勾的团队 id, ...] } }。矩阵缺项 = 不显示（没有「默认全显」兜底）。可用 `python scripts/gen_team_matrix.py --import-excel` 从 Excel 重新导入本段。",
   "_comment_matrix_flm": "2026-11-06（用户要求「flm 的 Auto Report 宽度减半，剩下空间放 OSS Portal Login」）：OSS 十个入口对 flm 全开，与 fo/bo/smc 一致。OSS 一旦可见，.qarow 右列就不再是「全空」——今天早上加的「右列全空 → Auto Report 满宽 + 高度随内容」CSS 判据自动不再匹配 flm，.qarow 回归两列栅格（左 Auto Report 半宽 / 右 OSS 独占整列高度），布局规则一行不用改。⚠️ 注释键只能放在 matrix 段**外**，放进去会被 validate_matrix 当成子键（字符串被逐字符遍历、报未知团队）。",
+  "_comment_matrix_20261111": "2026-11-11：map.ipranTopo / map.packet_loss / qa.master_site 三个新子键只勾 fo/bo/flm（smc/cxo 不开放）。⚠️ 运行时矩阵以 SQLite 的 team_scope 为准：teamScopeDb.load() 只会补「库里缺失的键」，而 getTemplate() 把本文件缓存一次、要重启 dev 才重读。故本次同时改写 .20 的 auth-data/portal-auth.db；发布到 .19 时那一份库要单独改（两份实例各自独立）。",
   "matrix": {
     "qc": {
       "alarm": ["fo", "bo", "flm", "smc"],
@@ -236,12 +242,15 @@
       "gis":        ["fo", "flm", "smc", "cxo"],
       "person":     ["fo", "flm", "smc", "cxo"],
       "mwRealTime": ["fo", "bo", "flm", "smc", "cxo"],
-      "ipt_power":  ["fo", "flm", "smc", "cxo"]
+      "ipt_power":  ["fo", "flm", "smc", "cxo"],
+      "ipranTopo":  ["fo", "bo", "flm"],
+      "packet_loss": ["fo", "bo", "flm"]
     },
     "qa": {
       "eflow":     ["fo", "bo", "flm", "smc"],
       "rag":       ["fo", "bo", "flm", "smc", "cxo"],
-      "assistant": ["fo", "bo", "flm", "smc", "cxo"]
+      "assistant": ["fo", "bo", "flm", "smc", "cxo"],
+      "master_site": ["fo", "bo", "flm"]
     },
     "cch": {
       "cch": ["fo", "bo", "smc"]

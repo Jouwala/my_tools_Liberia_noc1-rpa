@@ -2317,6 +2317,57 @@ my_app 侧 `tsc --noEmit` / `check:i18n` / vite build 全绿。`check:team-scope
 `users` 与 `registration_requests` 各自动补 3 列、写入带资料账号回读一致 ——
 「保存后刷新又变回去」这个老坑已排除。
 
+## 九之十六、2026-11-10 `/v3/olbrportal/` GIS Map 增加「IP」页签
+
+**起因。** 用户要求把 `https://localhost/myapp/?page=ipranTopo&layer=ipran` 加到
+`/v3/olbrportal/` 的 GIS Map，页签名字「IP」。
+
+**做法。** 页签仍只加在 `v3/olbrportal/assets/olbr-data.js` 的 `MAP_TABS`
+（`page: 'ipranTopo'`，`qs: 'layer=ipran'`，文案键 `map.ip` = `IP`，中英同值）。
+iframe 地址沿用既有的相对路径 `/myapp/?page=…&mwembed=1&embed=1`，再拼上 `qs`。
+不写死 `localhost`：用 IP 打开门户时必须同源，剥离与滚轮锁才能读到内层 document。
+
+这页是自绘 SVG，不是 Leaflet。门户给它再带 `maponly=1`（与 Person 页签同一约定）：
+my_app 的 `IpranTopo` 自己只渲染网络拓扑画布，工具条 / KPI / 告警榜不画。
+Open Link 会剥掉 `maponly`，新窗口仍是完整页，并保留 `layer=ipran`。
+`MAP_TAB_CSS.ipranTopo` 仍是空串 —— 默认剥离样式会把没有 Leaflet 的节点藏掉，
+SVG 会变成空白。缩放锁跟其它地图页签一样：默认锁住滚轮，画布右上角有 +/- / 适应。
+
+**团队门户。** 2026-11-11 起 `scope-map.json` 的 map 域已登记 `ipranTopo`，
+勾了 fo / bo / flm 三个团队（详见下一节）。上游不读矩阵，页签恒在；
+smc / cxo 仍按矩阵过滤掉这一页。改 `MAP_TABS` 的 `page` 值必须同步改矩阵子键。
+
+**改名。** `Task/my_app/backend/routers/portal_catalog.py` 的 `TAB_PAGES` 加了
+`ipranTopo`。后端进程要重启后，编辑态改这个页签的名字才会落盘；不重启只影响改名，
+页签本身不依赖它。
+
+## 九之十七、2026-11-11 FO / BO / FLM 三个团队门户开放 IP / PL / Master Site 页签
+
+**起因。** 用户要求 `/v3/fo_portal/`、`/v3/bo_portal/`、`/v3/flm_portal/` 的
+GIS Map 也要 IP / PL 页签，Knowledge Q&A 也要 Master Site 页签，参考
+`/v3/olbrportal/`。
+
+**根因。** 三个页签的代码在团队门户里**早就齐了**：上游 `MAP_TABS` 与
+`qaItems()` 由 `patch_team_portal.py` / `sync_team_assets.py` 同步到
+`v3/team_portal/`，i18n 键 `map.ip` / `map.pl` / `qa.tabMasterSite` 也在。
+缺的只是矩阵放行 —— `map-filter` 钩子按 `SCOPE.mapPages()` 过滤，
+`qa-filter` 钩子按 `qa/master_site` 把 `masterSite` 置 `null`，
+而 `scope-map.json` 里根本没登记这三个子键。
+
+**做法（渲染代码零改动）。** 只改唯一真相源 `v3/team_portal/scope-map.json`：
+
+1. `domains.map.items` 登记 `ipranTopo` / `packet_loss`（子键 = `MAP_TABS.page`），
+   `domains.qa.items` 登记 `master_site`。三项在《新看板设计.xlsx》里都没有对应行，
+   `excel` 留空、不参与 `--check-excel` 对账；
+2. `matrix` 里三个子键各勾 `["fo","bo","flm"]`，smc / cxo 不放开；
+3. 重跑 `gen_team_matrix.py` / `patch_team_portal.py` / `sync_team_assets.py`。
+
+⚠️ **运行时矩阵以 SQLite 为准**：`teamScopeDb.load()` 只补库里缺失的键，
+且 `getTemplate()` 把 scope-map.json 缓存一次、要重启 dev(9267) 才重读。
+故本次直接把三个新键写进 `.20` 的 `auth-data/portal-auth.db` 的 `team_scope`
+行，不重启也立即生效；`.19` 生产实例的库是独立副本，发布时**必须单独改**
+（同步代码时照例排除 `auth-data/`）。
+
 ## 十、相关文档
 
 | 内容 | 去哪里 |

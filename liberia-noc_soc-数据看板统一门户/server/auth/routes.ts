@@ -3,6 +3,7 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 import type { Plugin } from 'vite';
 import { getAuthSwitch, setAuthEnabled } from '../authSwitch';
+import { isMailConfigured, buildResetUrl, sendPasswordResetEmail } from '../mailer';
 import { AuthStore } from './store';
 import { resolveCaller, isRealAdmin, DEV_ADMIN, DEV_TOKEN } from './guard';
 import { TeamScopeStore, sanitizeMatrix, sanitizeLayout, type TeamScopeMatrix, type TeamLayout } from '../teamScopeDb';
@@ -332,6 +333,87 @@ async function handleAuthRoute(store: AuthStore, req: IncomingMessage, res: Serv
       }
       // 无团队归属 / 未登录 → 200 → nginx 正常放行主门户
       sendJson(res, 200, { team: null, landing: null });
+      return;
+    }
+
+    /* --------------------------------------------------- 自助找回密码 --
+     * 两个端点都必须在 `if (!caller)` 闸门**之前**：忘记密码的人本就未登录。
+     *   POST /forgot-password —— 提交用户名，向该账号登记的邮箱发重置链接
+     *   POST /reset-password  —— 凭邮件里的一次性 token 设新密码
+     *
+     * 防枚举（关键）：无论账号是否存在、是否有邮箱、是否真发了信，/forgot-password
+     *   一律回 200 + 同一形状响应。只有「账号存在 + 有邮箱 + SMTP 已配 + 未限流」
+     *   才真的发信，但这些差异**不体现在响应里**。攻击者无法据此判断某用户名是否注册。
+     *   限流只按 IP（429），与账号无关，故也不泄露存在性。
+     *   mailConfigured 是**全局**开关状态（与具体账号无关），前端据此决定显示
+     *   「查收邮件」还是「联系管理员」，不构成枚举侧信道。 */
+    if (method === 'POST' && url === '/forgot-password') {
+      const ip = clientIp(req);
+      let body: Record<string, unknown>;
+      try {
+        body = await readJsonBody(req);
+      } catch {
+        sendJson(res, 400, { detail: 'invalid JSON payload' });
+        return;
+      }
+      const username = String(body.username || '').trim().toLowerCase();
+      // IP 配额：每次都计数（含不存在的账号，防枚举刷量）；超限回 429
+      if (!store.resetRequestAllowed(ip)) {
+        sendJson(res, 429, { detail: 'too_many_requests' });
+        return;
+      }
+      const user = username ? store.findByName(username) : undefined;
+      if (user && user.email && isMailConfigured()) {
+        // 冷却期内 createPasswordReset 返回 null（静默跳过，响应仍统一）
+        const resetToken = store.createPasswordReset(user.id);
+        if (resetToken) {
+          const resetUrl = buildResetUrl(req, resetToken);
+          try {
+            await sendPasswordResetEmail(user.email, resetUrl, user.username);
+            console.warn(`[auth] 已发送找回密码邮件：${user.username}（来自 ${ip}）`);
+          } catch (e) {
+            // ⚠️ 绝不把 resetUrl/token 写进日志，只记通用失败原因
+            console.error(
+              `[auth] 找回密码邮件发送失败：${user.username}（来自 ${ip}）：${String((e as Error)?.message || e)}`
+            );
+          }
+        }
+      }
+      sendJson(res, 200, { ok: true, mailConfigured: isMailConfigured() });
+      return;
+    }
+
+    if (method === 'POST' && url === '/reset-password') {
+      let body: Record<string, unknown>;
+      try {
+        body = await readJsonBody(req);
+      } catch {
+        sendJson(res, 400, { detail: 'invalid JSON payload' });
+        return;
+      }
+      const resetToken = String(body.token || '');
+      const newPassword = String(body.newPassword || '');
+      // 先校验长度再消费 token：密码不合规时不浪费一次性 token，用户可原地重试
+      if (newPassword.length < MIN_PASSWORD_LENGTH) {
+        sendJson(res, 400, { detail: `password must be at least ${MIN_PASSWORD_LENGTH} characters` });
+        return;
+      }
+      // 一次性消费：校验通过即删除，无论后续成败都不能再用第二次
+      const userId = store.consumePasswordReset(resetToken);
+      if (!userId) {
+        sendJson(res, 400, { detail: 'invalid_or_expired_token' });
+        return;
+      }
+      // 用户自设新密码，无需强制下次改密（mustChange=false，区别于管理员重置）
+      const updated = store.setPassword(userId, newPassword, false);
+      if (!updated) {
+        sendJson(res, 404, { detail: 'user not found' });
+        return;
+      }
+      // 重置后销毁该账号所有会话：旧 token 立即失效，用户用新密码重新登录
+      store.destroySessionsForUser(userId);
+      console.warn(`[auth] 账号已通过邮件重置密码：${updated.username}`);
+      sendJson(res, 200, { ok: true });
       return;
     }
 
