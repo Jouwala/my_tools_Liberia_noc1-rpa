@@ -396,7 +396,7 @@ export default function AvailMs() {
                   <span style={{ marginLeft: 4 }}><ExplainIcon text={t(SUM_RATIO_COL_KEY)} /></span>
                 </span>
               )}
-              extra={<Text type="secondary" style={{ fontSize: 12 }}>{t('availMs.clickHint')}</Text>}
+              extra={<ExplainIcon text={t('availMs.clickHint')} placement="bottomLeft" icon="question" />}
             >
               {hasChart && (
                 <div style={{ marginBottom: 'var(--wh-space-sm)' }}>

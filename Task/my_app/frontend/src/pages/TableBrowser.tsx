@@ -1,6 +1,7 @@
-import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
-import { Card, Table, Select, Input, Tag, Spin, Tabs, Row, Col, Statistic, Progress, Descriptions, Badge, Button, Dropdown, message, Modal, Checkbox, Divider, Upload, Space, AutoComplete, Alert } from 'antd'
-import { DownloadOutlined, SettingOutlined, SearchOutlined, UploadOutlined } from '@ant-design/icons'
+import { useEffect, useState, useRef, useCallback, useMemo, cloneElement, isValidElement } from 'react'
+import type { ReactElement } from 'react'
+import { Card, Table, Select, Input, Tag, Spin, Tabs, Row, Col, Statistic, Progress, Descriptions, Badge, Button, Dropdown, message, Modal, Checkbox, Divider, Upload, Space, AutoComplete, Alert, Popover, Tooltip, Segmented } from 'antd'
+import { DownloadOutlined, SettingOutlined, SearchOutlined, UploadOutlined, FilterOutlined, FilterFilled, EyeInvisibleOutlined } from '@ant-design/icons'
 import ReactECharts from 'echarts-for-react'
 import * as XLSX from 'xlsx'
 import api from '../api'
@@ -81,6 +82,17 @@ interface ViewTemplate {
   updated_at: string
 }
 
+/** 列头筛选条件（与 backend/routers/tables.py::_build_column_filter_clause 同契约）。
+ *
+ *  服务端分页，所以**不能**用 antd 的本地 onFilter —— 筛选必须随请求发给
+ *  /data 与 /export，否则「第一页筛了、翻页又冒出不符合条件的行」。 */
+type ColFilterOp = 'contains' | 'equals' | 'in' | 'empty'
+interface ColFilter {
+  op: ColFilterOp
+  value?: string
+  values?: string[]
+}
+
 export default function TableBrowser() {
   const [tables, setTables] = useState<TableInfo[]>([])
   const [selectedTable, setSelectedTable] = useState<string>('')
@@ -103,6 +115,10 @@ export default function TableBrowser() {
   const [templates, setTemplates] = useState<ViewTemplate[]>([])
   const [tplName, setTplName] = useState('')
   const [colFilter, setColFilter] = useState('')
+  /* 列头筛选：colFilters 用于渲染，colFiltersRef 供 loadTableData 的闭包读最新值
+     （loadTableData 只依赖 selectedTable，不能把筛选条件挂进依赖里，否则每次
+     输入都会重建请求函数、把正在输入的面板状态冲掉）。 */
+  const [colFilters, setColFilters] = useState<Record<string, ColFilter>>({})
   const { t, locale } = useI18n()
 
   const searchTextRef = useRef('')
@@ -111,6 +127,8 @@ export default function TableBrowser() {
   const abortRef = useRef<AbortController | null>(null)
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const lastSearchValueRef = useRef('')
+  const lastFiltersKeyRef = useRef('')
+  const colFiltersRef = useRef<Record<string, ColFilter>>({})
   const hasLoadedOnceRef = useRef(false)
 
   useEffect(() => { searchTextRef.current = searchText }, [searchText])
@@ -152,6 +170,11 @@ export default function TableBrowser() {
     setSearchText('')
     searchTextRef.current = ''
     lastSearchValueRef.current = ''
+    // 换表必须清列筛选：上一张表的列名/候选值对这张表毫无意义，
+    // 带着走会让新表直接查出 0 行还看不出原因。
+    colFiltersRef.current = {}
+    lastFiltersKeyRef.current = ''
+    setColFilters({})
     hasLoadedOnceRef.current = false
     loadTableData(1, '')
     loadTemplates()
@@ -331,11 +354,17 @@ export default function TableBrowser() {
       .finally(() => setMwImporting(false))
   }
 
-  const loadTableData = useCallback((page: number, search?: string) => {
+  const loadTableData = useCallback((page: number, search?: string, filters?: Record<string, ColFilter>) => {
     if (!selectedTable) return
     const effectiveSearch = search ?? searchTextRef.current
+    const effectiveFilters = filters ?? colFiltersRef.current
+    // 列筛选参与请求去重：只改筛选不改搜索时也是一次全新的查询，不能被误判为重复请求。
+    const filtersKey = JSON.stringify(effectiveFilters)
 
-    const isDuplicate = page === 1 && effectiveSearch === lastSearchValueRef.current && hasLoadedOnceRef.current
+    const isDuplicate = page === 1
+      && effectiveSearch === lastSearchValueRef.current
+      && filtersKey === lastFiltersKeyRef.current
+      && hasLoadedOnceRef.current
     if (isDuplicate) return
 
     if (loadingRef.current) {
@@ -352,6 +381,7 @@ export default function TableBrowser() {
 
     const params: any = { page, page_size: 20 }
     if (effectiveSearch) params.search = effectiveSearch
+    if (Object.keys(effectiveFilters).length) params.col_filters = filtersKey
 
     const controller = new AbortController()
     abortRef.current = controller
@@ -362,6 +392,7 @@ export default function TableBrowser() {
         const newData = res.data.data.map((r: any, i: number) => ({ ...r, __row_index: `${page}-${i}` }))
         setTableData(newData)
         lastSearchValueRef.current = effectiveSearch
+        lastFiltersKeyRef.current = filtersKey
         hasLoadedOnceRef.current = true
 
         const newCols = res.data.columns
@@ -431,10 +462,35 @@ export default function TableBrowser() {
     if (!selectedTable) return
     const params = new URLSearchParams({ format })
     if (searchText) params.set('search', searchText)
+    // 导出必须与表格当前所见一致：列筛选也要带上去（与 data 端点同一套 WHERE）。
+    const cf = colFiltersRef.current
+    if (Object.keys(cf).length) params.set('col_filters', JSON.stringify(cf))
     if (visibleCols && visibleCols.length) params.set('columns', visibleCols.join(','))
     message.info(t('table.exportStart'))
     window.open(`/api/tables/${encodeURIComponent(selectedTable)}/export?${params.toString()}`, '_blank')
   }
+
+  /** 应用 / 清除某一列的筛选。传 null = 清掉该列条件。 */
+  const applyColFilter = useCallback((col: string, f: ColFilter | null) => {
+    const next = { ...colFiltersRef.current }
+    if (f) next[col] = f
+    else delete next[col]
+    colFiltersRef.current = next
+    setColFilters(next)
+    loadTableData(1, searchTextRef.current, next)
+  }, [loadTableData])
+
+  const clearAllColFilters = useCallback(() => {
+    const empty: Record<string, ColFilter> = {}
+    colFiltersRef.current = empty
+    setColFilters(empty)
+    loadTableData(1, searchTextRef.current, empty)
+  }, [loadTableData])
+
+  /** 列头面板里的「隐藏此列」：把该列从显示列里摘掉（可随时在「自定义列」恢复）。 */
+  const hideColumn = useCallback((col: string) => {
+    setVisibleCols((visibleCols ?? [...tableColumns]).filter(c => c !== col))
+  }, [visibleCols, tableColumns])
 
   const openColModal = () => {
     setDraftCols(visibleCols ?? [...tableColumns])
@@ -497,13 +553,24 @@ export default function TableBrowser() {
   }, [visibleCols, tableColumns])
 
   const dataColumns = useMemo(() => shownCols.map((col: string) => ({
-    title: col,
+    /* 每个列名右侧挂一个漏斗：按该列的值过滤行（服务端执行，翻页/导出都跟随）。
+       这是数据过滤，与「自定义列」里的列名搜索（挑哪些列显示）是两回事。 */
+    title: (
+      <ColumnFilterHeader
+        col={col}
+        table={selectedTable}
+        active={colFilters[col] || null}
+        onApply={(f: ColFilter | null) => applyColFilter(col, f)}
+        onClear={() => applyColFilter(col, null)}
+        onHide={() => hideColumn(col)}
+      />
+    ),
     dataIndex: col,
     key: col,
     minWidth: 120,
     ellipsis: true,
     render: (v: any) => v === null || v === undefined ? <Tag>NULL</Tag> : String(v),
-  })), [shownCols])
+  })), [shownCols, colFilters, selectedTable, applyColFilter, hideColumn])
 
   const stableRowKey = useMemo(() => (record: any) => {
     if (record.__row_index) return record.__row_index
@@ -511,6 +578,8 @@ export default function TableBrowser() {
     const joined = parts.join('|')
     return `rec-${joined.length}-${parts.slice(0, 3).join('-').replace(/[^a-zA-Z0-9-]/g, '_')}`
   }, [shownCols])
+
+  const filterEntries = Object.entries(colFilters)
 
   return (
     <div>
@@ -539,7 +608,16 @@ export default function TableBrowser() {
               }}
               style={{ width: '100%' }}
               allowClear
-              enterButton
+              // antd 默认 enterButton 是纯图标按钮、没有可访问名称（读屏只报「button」）。
+              // 传自定义 Button 节点，cloneElement 分支会保留 aria-label 与 onClick。
+              enterButton={
+                <Button
+                  aria-label={t('table.searchBtnAria')}
+                  color="primary"
+                  variant="solid"
+                  icon={<SearchOutlined />}
+                />
+              }
             />
           </Col>
           {tableInfo && (
@@ -831,6 +909,21 @@ export default function TableBrowser() {
             label: t('table.browseTab'),
             children: (
               <Card style={cardStyle}>
+                {/* 已启用的列筛选常驻可见：漏斗图标藏在表头里，光看数字会以为
+                    全表就这么几行。每个标签可单独关掉，也可一键清空。 */}
+                {filterEntries.length > 0 && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 'var(--wh-space-xs)', marginBottom: 'var(--wh-space-sm)' }}>
+                    <span style={{ color: 'var(--wh-text-dim)', fontSize: '0.8125rem' }}>{t('table.colFilterActive')}:</span>
+                    {filterEntries.map(([col, f]) => (
+                      <Tag key={col} color="blue" closable onClose={() => applyColFilter(col, null)}>
+                        {col} · {modeLabel(t, f.op)}
+                        {(f.op === 'contains' || f.op === 'equals') ? ` ${f.value ?? ''}` : ''}
+                        {f.op === 'in' ? ` ${(f.values ?? []).length}` : ''}
+                      </Tag>
+                    ))}
+                    <Button type="link" size="small" onClick={clearAllColFilters}>{t('table.colFilterClearAll')}</Button>
+                  </div>
+                )}
                 <div className="wh-table-responsive">
                   <Table
                     dataSource={tableData}
@@ -849,7 +942,9 @@ export default function TableBrowser() {
                         ? t('common.loading')
                         : searchText
                           ? t('table.emptyTableFiltered', { kw: searchText })
-                          : t('table.emptyTable'),
+                          : filterEntries.length
+                            ? t('table.emptyTableColFiltered')
+                            : t('table.emptyTable'),
                     }}
                     pagination={{
                       ...pagination,
@@ -860,6 +955,16 @@ export default function TableBrowser() {
                         </ExplainPopover>
                       ),
                       onChange: (p) => loadTableData(p),
+                      // antd 的 prevIcon/nextIcon 是无名 button（title 只挂在 li 上），
+                      // 读屏聚焦到按钮时读不出用途。只给上一页/下一页补名称，其余原样。
+                      itemRender: (_page, type, originalElement) => {
+                        if ((type === 'prev' || type === 'next') && isValidElement(originalElement)) {
+                          return cloneElement(originalElement as ReactElement<{ 'aria-label'?: string }>, {
+                            'aria-label': t(type === 'prev' ? 'table.prevPageAria' : 'table.nextPageAria'),
+                          })
+                        }
+                        return originalElement
+                      },
                     }}
                   />
                 </div>
@@ -890,6 +995,214 @@ export default function TableBrowser() {
         ]}
       />
     </div>
+  )
+}
+
+/** 列筛选标签上的模式名。
+ *  ⚠️ 必须用 switch 返回字面量键：动态拼 t('table.colFilterMode.' + op) 会被
+ *     check:i18n 当成键名 `table.colFilterMode.` 而误报字典缺失。 */
+function modeLabel(t: (key: string) => string, op: ColFilterOp): string {
+  switch (op) {
+    case 'contains': return t('table.colFilterMode.contains')
+    case 'equals': return t('table.colFilterMode.equals')
+    case 'in': return t('table.colFilterMode.in')
+    case 'empty': return t('table.colFilterMode.empty')
+    default: return String(op)
+  }
+}
+
+/** 列名右侧的漏斗 + 筛选面板。
+ *
+ *  服务端分页，筛选条件必须提交给 /data（翻页、导出都带上），因此这里**不用**
+ *  antd Table 的 `filters/onFilter`（那只过滤当前页 20 行，翻页就漏）。
+ *  面板里全部用内联组件（Segmented / Input / Checkbox）：antd Select 的下拉
+ *  会 portal 到 body，点它会触发 Popover 的 click-outside 把整个面板关掉。 */
+function ColumnFilterHeader({ col, table, active, onApply, onClear, onHide }: {
+  col: string
+  table: string
+  active: ColFilter | null
+  onApply: (f: ColFilter | null) => void
+  onClear: () => void
+  onHide: () => void
+}) {
+  const { t } = useI18n()
+  const [open, setOpen] = useState(false)
+  const [mode, setMode] = useState<ColFilterOp>(active?.op ?? 'contains')
+  const [text, setText] = useState(active?.value ?? '')
+  const [values, setValues] = useState<string[]>(active?.values ?? [])
+  const [optKw, setOptKw] = useState('')
+  const [options, setOptions] = useState<{ value: string; count: number }[]>([])
+  const [optLoading, setOptLoading] = useState(false)
+  const [optLoaded, setOptLoaded] = useState(false)
+  /* 候选值加载失败要显式报错 + 给重试入口（2026-11-11 QA）：
+     SPA 兜底曾把「接口没部署」返回成 200 + index.html，旧实现 .catch 静默成
+     「没有可选值」，用户无法区分「真的没数据」和「接口挂了」。 */
+  const [optError, setOptError] = useState(false)
+  const [optRetry, setOptRetry] = useState(0)
+  const activeKey = active ? JSON.stringify(active) : ''
+
+  // 外部（标签 × / 一键清空）改了筛选时同步面板草稿；面板正开着不打断输入。
+  useEffect(() => {
+    if (open) return
+    const a: ColFilter | null = activeKey ? JSON.parse(activeKey) : null
+    setMode(a?.op ?? 'contains')
+    setText(a?.value ?? '')
+    setValues(a?.values ?? [])
+  }, [activeKey, open])
+
+  // 候选值按需加载一次（全表去重、按出现次数取前 200，口径在面板里注明）。
+  // ⚠️ 必须校验响应结构：后端 SPA 兜底会把「接口不存在」返回成 200 + index.html，
+  //    只写 .catch 是抓不到的（它根本不是失败请求）。非预期响应一律判为加载失败。
+  // ⚠️ 成败都要置 optLoaded：effect 依赖里有 optLoading，若失败时不置位，
+  //    finally 把 optLoading 复位后会立即重跑，形成无限请求风暴。
+  useEffect(() => {
+    if (!open || mode !== 'in' || optLoaded || optLoading || !table) return
+    setOptLoading(true)
+    setOptError(false)
+    api.get(`/tables/${encodeURIComponent(table)}/column-values`, { params: { column: col, limit: 200 } })
+      .then(res => {
+        const vals = res?.data?.values
+        if (!Array.isArray(vals)) {
+          setOptions([])
+          setOptError(true)
+        } else {
+          setOptions(vals)
+        }
+        setOptLoaded(true)
+      })
+      .catch(() => {
+        setOptions([])
+        setOptError(true)
+        setOptLoaded(true)
+      })
+      .finally(() => setOptLoading(false))
+  }, [open, mode, optLoaded, optLoading, table, col, optRetry])
+
+  const retryOptions = () => {
+    setOptLoaded(false)
+    setOptError(false)
+    setOptRetry(n => n + 1)
+  }
+
+  const kw = optKw.trim().toLowerCase()
+  const optionList = kw ? options.filter(o => o.value.toLowerCase().includes(kw)) : options
+
+  const apply = () => {
+    if (mode === 'empty') { onApply({ op: 'empty' }); setOpen(false); return }
+    if (mode === 'in') {
+      if (!values.length) { message.warning(t('table.colFilterNeedValue')); return }
+      onApply({ op: 'in', values })
+      setOpen(false)
+      return
+    }
+    const v = text.trim()
+    if (!v) { message.warning(t('table.colFilterNeedValue')); return }
+    onApply({ op: mode, value: v })
+    setOpen(false)
+  }
+
+  const panel = (
+    <div style={{ width: 'min(19rem, 80vw)' }}>
+      <div style={{ fontWeight: 600, marginBottom: 8, wordBreak: 'break-all' }}>
+        {t('table.colFilterPanelTitle', { col })}
+      </div>
+      <Segmented
+        size="small"
+        block
+        value={mode}
+        onChange={(v) => setMode(v as ColFilterOp)}
+        style={{ width: '100%', marginBottom: 8 }}
+        options={[
+          { value: 'contains', label: t('table.colFilterMode.contains') },
+          { value: 'equals', label: t('table.colFilterMode.equals') },
+          { value: 'in', label: t('table.colFilterMode.in') },
+          { value: 'empty', label: t('table.colFilterMode.empty') },
+        ]}
+      />
+      {(mode === 'contains' || mode === 'equals') && (
+        <Input
+          size="small"
+          value={text}
+          onChange={e => setText(e.target.value)}
+          onPressEnter={apply}
+          placeholder={t('table.colFilterValuePh')}
+          allowClear
+        />
+      )}
+      {mode === 'in' && (
+        <>
+          <Input
+            size="small"
+            prefix={<SearchOutlined style={{ color: '#bbb' }} />}
+            value={optKw}
+            onChange={e => setOptKw(e.target.value)}
+            placeholder={t('table.colFilterSearchValues')}
+            allowClear
+          />
+          <div style={{ maxHeight: '11rem', overflow: 'auto', marginTop: 6, border: '1px solid var(--wh-subtle-border)', borderRadius: 'var(--wh-radius-sm)', padding: 'var(--wh-space-xs)' }}>
+            {optError ? (
+              <div role="alert" style={{ color: 'var(--wh-text-dim)', textAlign: 'center', padding: 'var(--wh-space-xs)', fontSize: '0.8125rem' }}>
+                <div style={{ marginBottom: 6 }}>{t('table.colFilterLoadFailed')}</div>
+                <Button size="small" onClick={retryOptions}>{t('table.colFilterRetry')}</Button>
+              </div>
+            ) : optLoading ? (
+              <Spin size="small" style={{ display: 'block', margin: '0.75rem auto' }} />
+            ) : optionList.length === 0 ? (
+              <div style={{ color: 'var(--wh-text-dim)', textAlign: 'center', padding: 'var(--wh-space-xs)', fontSize: '0.8125rem' }}>
+                {t('table.colFilterNoValues')}
+              </div>
+            ) : (
+              <Checkbox.Group value={values} onChange={v => setValues(v as string[])} style={{ width: '100%' }}>
+                {optionList.map(o => (
+                  <div key={o.value} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <Checkbox value={o.value} style={{ flex: 1, minWidth: 0 }}>
+                      <span style={{ display: 'inline-block', maxWidth: '13rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', verticalAlign: 'bottom' }}>
+                        {o.value}
+                      </span>
+                    </Checkbox>
+                    <span style={{ color: 'var(--wh-text-dim)', fontSize: '0.75rem' }}>{o.count}</span>
+                  </div>
+                ))}
+              </Checkbox.Group>
+            )}
+          </div>
+          <div style={{ color: 'var(--wh-text-dim)', fontSize: '0.75rem', marginTop: 4 }}>
+            {t('table.colFilterValuesHint')}
+          </div>
+        </>
+      )}
+      {mode === 'empty' && (
+        <div style={{ color: 'var(--wh-text-dim)', fontSize: '0.8125rem' }}>
+          {t('table.colFilterEmptyHint')}
+        </div>
+      )}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10 }}>
+        <Button size="small" type="primary" onClick={apply}>{t('table.apply')}</Button>
+        <Button size="small" disabled={!active} onClick={() => { onClear(); setOpen(false) }}>
+          {t('table.colFilterClear')}
+        </Button>
+        <Button size="small" type="text" icon={<EyeInvisibleOutlined />} onClick={() => { onHide(); setOpen(false) }}>
+          {t('table.colFilterHideCol')}
+        </Button>
+      </div>
+    </div>
+  )
+
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{col}</span>
+      <Popover content={panel} trigger="click" open={open} onOpenChange={setOpen} placement="bottomLeft">
+        <Tooltip title={t('table.colFilterTitle')}>
+          <Button
+            type="text"
+            size="small"
+            aria-label={t('table.colFilterTitle')}
+            icon={active ? <FilterFilled style={{ color: 'var(--wh-blue)' }} /> : <FilterOutlined />}
+            onClick={(e) => e.stopPropagation()}
+          />
+        </Tooltip>
+      </Popover>
+    </span>
   )
 }
 

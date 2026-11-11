@@ -120,8 +120,10 @@ def _column_metadata(conn, table_name):
     但不在 PG 分支出现 sqlite 方言字面量）；PG 用 information_schema.columns。
     """
     if isinstance(conn, sqlite3.Connection):
+        # ⚠️ SQLite 3.49 起 `notnull` 在表值函数里被当成保留字，裸写会报
+        #    `near "notnull": syntax error`，必须加引号（双模下 PG 分支不受影响）。
         rows = conn.execute(
-            "SELECT name, type, notnull, pk FROM pragma_table_info(?)", (table_name,)
+            'SELECT name, type, "notnull", pk FROM pragma_table_info(?)', (table_name,)
         ).fetchall()
         return [
             {"name": r[0], "type": r[1], "notnull": r[2], "pk": r[3]}
@@ -163,39 +165,140 @@ def _safe_ident(name: str) -> bool:
     return isinstance(name, str) and bool(_IDENT_RE.match(name))
 
 
-def _build_search_clause(conn, table_name, search):
-    """构建全文搜索 WHERE 子句与参数（分页/导出共用）。
+def _qi(name: str) -> str:
+    """列 / 表标识符加双引号并转义内部双引号（sqlite / PG 通用）。"""
+    return '"' + str(name).replace('"', '""') + '"'
 
-    对表中所有列（含非 text 类型）执行 LIKE 模糊搜索：
-    - text/varchar 等文本列：直接 "col" LIKE ?
-    - bigint/integer/double precision/timestamp 等非文本列：
-      用 CAST("col" AS TEXT) LIKE ? 转换后再匹配
 
-    双模兼容：PG 与 SQLite 均支持 CAST(... AS TEXT)。
-    上限 200 列防止极端宽表导致 OR 链过长。
-    返回 (where_clause, params)。
+# LIKE 的转义字符：用 `!` 而不是反斜杠 —— 反斜杠在 PG 的字符串字面量里
+# 受 standard_conforming_strings 开关影响，`ESCAPE '!'` 双模行为完全一致。
+_LIKE_ESCAPE_SQL = "ESCAPE '!'"
+
+
+def _escape_like(s: str) -> str:
+    """把用户输入里的 LIKE 通配符当**字面量**处理。
+
+    旧实现直接拼 `%{search}%`，用户输入 `100%` / `a_b` 会被当成通配符，
+    匹配出表里所有行。转义后搜索词里的 %、_ 只代表它们自己。
     """
-    if not search:
+    return str(s).replace("!", "!!").replace("%", "!%").replace("_", "!_")
+
+
+def _like_lhs(col_name: str, type_str: str) -> str:
+    """大小写不敏感的 LIKE 左值（关键修复）。
+
+    PG 的 LIKE **大小写敏感**、SQLite 的 LIKE 默认只对 ASCII 不敏感，
+    两边行为不一致正是「搜 Totota 有结果、搜 totota 没有结果」的根因
+    （生产 DB_MODE=pg）。统一先转文本再 LOWER，参数也一并 lower，
+    双模行为一致。SQLite 的 LOWER 只折叠 ASCII，但中文没有大小写概念、
+    本项目搜索词以英文/数字为主，不受影响。
+    """
+    qi = _qi(col_name)
+    if _is_text_type(type_str):
+        return f"LOWER({qi})"
+    # bigint / timestamp / numeric 等非文本列必须 CAST 后才能 LOWER / LIKE
+    return f"LOWER(CAST({qi} AS TEXT))"
+
+
+def _build_search_clause(conn, table_name, search):
+    """构建全列关键字搜索的**条件表达式**（不含 WHERE，带括号）与参数。
+
+    带括号是必须的：列头筛选会以 AND 叠加，若写成
+    `WHERE a LIKE ? OR b LIKE ? AND c = ?`，OR/AND 优先级会让全局搜索
+    绕过列筛选。上限 200 列防止极端宽表导致 OR 链过长。
+    返回 (condition_sql, params)；无搜索时 ('', [])。
+    """
+    if not search or not str(search).strip():
         return "", []
     col_info = _column_metadata(conn, table_name)
     if not col_info:
         return "", []
 
     MAX_COLS = 200
-    conditions = []
-    for c in col_info[:MAX_COLS]:
-        name = c["name"]
-        if _is_text_type(c["type"]):
-            conditions.append(f'"{name}" LIKE ?')
-        else:
-            # 非文本类型列需 CAST 才能 LIKE（PG 严格，SQLite 也兼容）
-            conditions.append(f'CAST("{name}" AS TEXT) LIKE ?')
-
+    conditions = [
+        f"{_like_lhs(c['name'], c['type'])} LIKE ? {_LIKE_ESCAPE_SQL}"
+        for c in col_info[:MAX_COLS]
+    ]
     if not conditions:
         return "", []
 
-    like_val = f"%{search}%"
-    return " WHERE " + " OR ".join(conditions), [like_val] * len(conditions)
+    like_val = f"%{_escape_like(str(search).strip().lower())}%"
+    return "(" + " OR ".join(conditions) + ")", [like_val] * len(conditions)
+
+
+def _parse_col_filters(raw):
+    """解析前端的 col_filters（JSON 字符串）→ dict。非法 JSON 报 400。"""
+    if not raw:
+        return {}
+    try:
+        obj = json.loads(raw)
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="col_filters 必须是合法 JSON")
+    if not isinstance(obj, dict):
+        raise HTTPException(status_code=400, detail="col_filters 必须是 {列名: 条件} 对象")
+    return obj
+
+
+def _build_column_filter_clause(conn, table_name, col_filters):
+    """列头筛选 → (AND 条件列表, 参数列表)，data / export 共用。
+
+    结构：``{列名: {op, value|values}}``，op 白名单：
+      contains  该列包含文本（大小写不敏感，LIKE 通配符已转义）
+      equals    该列等于文本（大小写不敏感）
+      in        该列等于任一所选候选值（CAST AS TEXT 精确 IN）
+      empty     该列为 NULL 或空字符串
+
+    安全性：**列名必须出现在表结构元数据里**（不是靠正则过滤），因此
+    带空格 / 中文 / 括号的列名也能筛，同时杜绝拼进 SQL 的注入；所有
+    值一律走 `?` 参数化。未知 op 与不存在的列直接忽略，保证旧前端或
+    手工拼的请求不会把整页打挂。最多 20 列、in 最多 200 个值。
+    """
+    if not col_filters:
+        return [], []
+    valid = {c["name"] for c in _column_metadata(conn, table_name)}
+    conditions, params = [], []
+    for col, spec in list(col_filters.items())[:20]:
+        if col not in valid or not isinstance(spec, dict):
+            continue
+        op = spec.get("op")
+        qi = _qi(col)
+        cast = f"CAST({qi} AS TEXT)"
+        ci = f"LOWER({cast})"
+        if op == "contains":
+            v = str(spec.get("value") or "").strip().lower()
+            if not v:
+                continue
+            conditions.append(f"{ci} LIKE ? {_LIKE_ESCAPE_SQL}")
+            params.append(f"%{_escape_like(v)}%")
+        elif op == "equals":
+            v = str(spec.get("value") or "").strip().lower()
+            if not v:
+                continue
+            conditions.append(f"{ci} = ?")
+            params.append(v)
+        elif op == "in":
+            vals = [str(x) for x in (spec.get("values") or [])
+                    if x is not None and str(x) != ""][:200]
+            if not vals:
+                continue
+            conditions.append(f"{cast} IN ({', '.join(['?'] * len(vals))})")
+            params.extend(vals)
+        elif op == "empty":
+            conditions.append(f"({qi} IS NULL OR {cast} = '')")
+    return conditions, params
+
+
+def _build_where(conn, table_name, search, col_filters_raw):
+    """组装完整 WHERE：全局关键字搜索 OR 全列，AND 叠加各列筛选。"""
+    parts, params = [], []
+    cond, ps = _build_search_clause(conn, table_name, search)
+    if cond:
+        parts.append(cond)
+        params.extend(ps)
+    conds, ps = _build_column_filter_clause(conn, table_name, _parse_col_filters(col_filters_raw))
+    parts.extend(conds)
+    params.extend(ps)
+    return (" WHERE " + " AND ".join(parts) if parts else ""), params
 
 
 @router.get("")
@@ -234,8 +337,12 @@ def get_table_data(
     sort_by: str = Query(None),
     sort_order: str = Query("asc"),
     search: str = Query(None),
+    col_filters: str = Query(None),
 ):
-    """分页读取表数据"""
+    """分页读取表数据。
+
+    col_filters: 列头筛选的 JSON 字符串，结构见 _build_column_filter_clause。
+    """
     with get_raw_connection() as conn:
 
         # 验证表名存在
@@ -244,8 +351,8 @@ def get_table_data(
             conn.close()
             raise HTTPException(status_code=404, detail=f"表 {table_name} 不存在")
 
-        # 构建查询
-        where_clause, params = _build_search_clause(conn, table_name, search)
+        # 构建查询（全局搜索 AND 列头筛选，分页与导出走同一套条件）
+        where_clause, params = _build_where(conn, table_name, search, col_filters)
 
         order_clause = ""
         if sort_by:
@@ -283,10 +390,12 @@ def export_table_data(
     search: str = Query(None),
     columns: str = Query(None),
     limit: int = Query(200000, ge=1, le=500000),
+    col_filters: str = Query(None),
 ):
-    """导出整表为文件（xlsx/csv），支持与分页浏览相同的 search 过滤。
+    """导出整表为文件（xlsx/csv），支持与分页浏览相同的 search + 列筛选。
 
     columns: 逗号分隔列名，仅导出所选列（缺省全部列）。
+    col_filters: 与 data 端点同款 JSON —— 导出必须与表格当前所见一致。
     服务端生成，大表不压前端内存；limit 默认 20 万行防内存溢出。
     """
     if format not in ("xlsx", "csv"):
@@ -309,8 +418,8 @@ def export_table_data(
             if not sel:
                 conn.close()
                 raise HTTPException(status_code=400, detail="所选列在表中均不存在")
-            select_clause = ", ".join(f'"{c}"' for c in sel)
-        where_clause, params = _build_search_clause(conn, table_name, search)
+            select_clause = ", ".join(_qi(c) for c in sel)
+        where_clause, params = _build_where(conn, table_name, search, col_filters)
         # 向量化整表读取（与 profile 接口同款 read_sql_query，双模兼容）
         df = pd.read_sql_query(
             f'SELECT {select_clause} FROM "{table_name}"{where_clause} LIMIT {limit}',
@@ -336,6 +445,44 @@ def export_table_data(
         media_type=media_type,
         headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}"},
     )
+
+
+@router.get("/{table_name}/column-values")
+def get_column_values(
+    table_name: str,
+    column: str = Query(...),
+    limit: int = Query(200, ge=1, le=500),
+):
+    """列头「选择值」筛选的候选值：全表去重，按出现次数降序，最多 limit 个。
+
+    ⚠️ 候选值来自**全表**，不受页内关键字搜索 / 其它列筛选影响（面板里已
+       如实注明）；勾选后由 col_filters 的 op=in 做精确匹配。
+       空值不进候选（NULL / 空串请用「仅空值」模式），因为 IN 匹配不到 NULL。
+    列名同样走「必须存在于表结构元数据」的白名单，杜绝 SQL 注入。
+    """
+    with get_raw_connection() as conn:
+        tables = list_tables()
+        if table_name not in tables:
+            conn.close()
+            raise HTTPException(status_code=404, detail=f"表 {table_name} 不存在")
+        valid = {c["name"] for c in _column_metadata(conn, table_name)}
+        if column not in valid:
+            conn.close()
+            raise HTTPException(status_code=400, detail=f"非法列名: {column}")
+        qi = _qi(column)
+        cast = f"CAST({qi} AS TEXT)"
+        sql = (
+            f"SELECT {cast} AS v, COUNT(*) AS n FROM {_qi(table_name)} "
+            f"WHERE {qi} IS NOT NULL AND {cast} <> '' "
+            f"GROUP BY {cast} ORDER BY n DESC, v ASC LIMIT ?"
+        )
+        rows = conn.execute(sql, (limit,)).fetchall()
+        conn.close()
+    return {
+        "column": column,
+        "values": [{"value": str(r[0]), "count": int(r[1])} for r in rows],
+        "limit": limit,
+    }
 
 
 # ---------------- 自定义导入：Excel/CSV → 用户命名的新表（写入当前数据库） ----------------

@@ -1,6 +1,6 @@
 # my_app User Help & Guide
 
-> User-facing platform features & operations guide. Generated from the same source as the in-app Help page (frontend/src/helpMarkdown.ts), compiled from docs/manual/ and backend/task_registry.py. Generated on 2026-11-09.
+> User-facing platform features & operations guide. Generated from the same source as the in-app Help page (frontend/src/helpMarkdown.ts), compiled from docs/manual/ and backend/task_registry.py. Generated on 2026-11-11.
 
 > In-app entry: the "Help" sidebar item, or `http://<host>/myapp/?page=help` directly.
 
@@ -1728,7 +1728,7 @@ Workflow & maintenance notes per task:
 1. The popup KPI pool runs in the foreground: GET /popup for every site (8 threads, rotated via the kpi_cursor ring cursor so sites dropped at the hard deadline resume next round) concurrently with the diagram pool; both pools are bounded by the 240s round hard deadline (raised from 100s on 2026-11-06 to use the 200s freed by the */5 cadence; 300s period leaves 60s, no extra request pressure)
 1. Resilience (11-05 review): pooled requests use a 20s per-request timeout (12s killed slow-but-valid requests and caused a timeout storm) + one bounded retry pass for failed popups; a round with <25% popup success is treated as an overloaded upstream and counts toward the circuit breaker; backoff is exponential (5/10/20 min, capped 30 min) and silently skips whole rounds without failure notifications, auto-clearing on the first successful round
 1. Write one snapshot row per site per round (popup KPI as the base, sites with a diagram get the detail columns; source marks popup/diagram; popup rows store no raw JSON to control volume, diagram detail is kept per site in ipt_power_site_detail with device credentials stripped)
-1. Prune snapshots older than 2 days; write the run result to ipt_power_meta.last_run and the next start position to ipt_power_meta.shard_cursor
+1. Prune snapshots older than 7 days (widened from 2 days on 2026-11-08; pruned history cannot be recovered); write the run result to ipt_power_meta.last_run and the next start position to ipt_power_meta.shard_cursor
 
 **Maintenance**:
 
@@ -1737,7 +1737,7 @@ Workflow & maintenance notes per task:
 - Credentials: env IPT_USERNAME / IPT_PASSWORD take priority, otherwise the “user/password” header lines of the local url.txt; url.txt contains a plaintext password — already gitignored via the url*.txt rule
 - The password grant is rejected upstream (unauthorized_client); only rubix-web allows code/implicit flows -> login is a form simulation; if the login page changes, the task reports a structure error
 - A single-site failure only increments counters and never aborts the round (popup retries next round naturally, diagram sites are retried by the cursor); restart the m-group worker after collector code changes, watch_sites.json changes need no restart
-- Snapshots are kept 2 days (RETENTION_DAYS); PK (site_id, snap_time) dedupes re-runs; solar caliber: solarSets and rectifiers solarPower are the same mirrored value (max is taken), sites without solar have solar_available=0 and show "-", 0 W at night is normal
+- Snapshots are kept 7 days (RETENTION_DAYS, widened from 2 days on 2026-11-08 so the 72h/7d time windows actually show 7-day curves); PK (site_id, snap_time) dedupes re-runs; solar caliber: solarSets and rectifiers solarPower are the same mirrored value (max is taken), sites without solar have solar_available=0 and show "-", 0 W at night is normal
 - Consumer: ?page=ipt_power (map on the left 3/5, site table on the right 2/5); its "Refresh now" button goes through routers/ipt_power.py /refresh (live query) and shares the login cache
 
 #### RAN Element Management Sync（`ran_element_management_sync`）
@@ -1846,6 +1846,7 @@ Table Browser: browse any table without SQL, view column profiles, import & expo
 - Pick a table → paginate & search (debounced); export xlsx / CSV
 - Column visibility can be saved as view templates — save one when you always look at the same columns
 - The "Profile" tab shows per-column statistics; Excel/CSV import supported
+- **The funnel next to every column header filters rows** (2026-11-11): contains / equals / pick values (top 200 distinct values by frequency) / empty only. Filters run server-side and follow pagination and export; active ones stay visible as tags above the table and can be removed individually or all at once. Search, contains and equals are all **case-insensitive** (PostgreSQL LIKE is case-sensitive, so "totota" used to miss "Totota"); `%` and `_` in a search term are treated literally. The panel can also hide a column — that is display-layer, unlike filtering rows
 - **The header row/column tags, the pagination total and the four Profile cards all explain themselves on hover** (2026-11-05): the header row count is a whole-table `SELECT COUNT(*)` unaffected by the search box below; the pagination total is COUNT(*) **with the search applied**, and search runs a LIKE over every column but **only the first 200 columns** (wider tables are cut off), so "0 rows found" does not mean the data is missing; the whole Profile tab is a **sample** — the backend SQL is hard-coded to `LIMIT 10000` with no ORDER BY (not random), a banner stays visible when the cap is hit, and quality score = 100 − (issues ÷ columns×5) × 100, which floors at 20 because a column can trigger at most 4 checks
 
 #### Overview（`overview`）
@@ -2019,6 +2020,24 @@ ZXMW microwave network topology & bandwidth utilization NOC board (daily granula
 
 - Data is written daily at 05:15 by mw_ume_kpi_sync into mw_ume_bw_ultilazation — the page changes once a day
 - Risk ranking, drawer and trend chart are all interactive
+
+#### ipranTopo（`ipranTopo`）
+
+UME topology in four layers (IP RAN Fiber / IP Core / Metro Ring / DWDM): all four share the same UME endpoints and differ only by layer lid and caliber; switching tabs changes the data source while the canvas, stat cards, drill-downs and export are reused. The IP RAN Fiber layer measured 93 NEs and 167 physical links folded into 141 edges; the other three layers have per-device-model caliber that awaits field verification (all concrete figures below refer to the IP RAN Fiber layer).
+
+- The "Topology layer" tabs hold 4 graphs: IP RAN Fiber (measured caliber) / IP Core / Metro Ring / DWDM. Switching clears the previous layer data and focus, then refetches; each layer caches independently for 120s and auto refresh only hits the current layer. Append &layer=ipcore to the URL to open a single layer directly
+- Labels avoid collisions automatically: they are placed by importance (focused node / tier / degree / fault), trying alternating above/below slots; when space runs out they are hidden and the count is shown at the canvas top right — hidden is preferred over overlapping text. Names are shortened by tier; hover for the full name
+- The three layouts answer different questions: **force (default)** shows rings and clusters and pulls access nodes toward their primary parent; **geographic** shows which city an outage hits; **tiered** shows the hierarchy and is the better export view. Layouts are deterministic. The older force scan of 42 crossings on the real graph is kept as layoutForceClassic
+- Three color modes: tier (default) / online state / highest alarm severity. **Alarms are deliberately not a fill color**: 74/93 NEs (80%) carry critical alarms, so filling by severity would paint the whole map red; alarms are a small corner dot instead
+- Bandwidth is shown by **line width** only (100G / 25G / 10G / others); down links are red dashed and links with alarms turn orange. The "Fold parallel links" switch expands ×N into a fan
+- The right rail (about 25%) puts the stat cards in one row above "NEs with most critical alarms"; both are the same width. The breakdown under each number stays hidden until the number is clicked; the card title still drills. The topology canvas takes the left 75% and all height left under the toolbar. Click a node or a name in that list to focus: other nodes dim and only one-hop neighbors stay lit, and the detail drawer slides in from the right (Overview / Interfaces / Alarms / Impact). Click again, click empty space, click the mask, or press Esc to close. Use the wheel to zoom and drag empty space to pan
+- Impact analysis lists **root-cause candidates**, not a confirmed root cause: only a down device with no failed device further upstream is listed, and the API has no alarm timestamp. Utilization stays N/A when traffic is absent; port speed is never used as a substitute
+- Geographic layout also opens a site map on the same PMTiles basemap as GIS. Exact and approximate coordinates are drawn differently; devices without coordinates are not plotted
+- All four stat cards (NEs / folded links / down NEs / NEs with critical alarms) **open a drill table** built from the same arrays as the card numbers
+- The 7 external upstream devices (e.g. 89MW01/89MW02, HQ-RAN-SW5960) are referenced by links; their names come from the UME attribute API. They act as endpoints only, are excluded from the NE count, and have no online state
+- Geographic coordinates come from local PG table kml_mw_links: 74 exact, 3 approximate (a banner at the bottom of the page asks for confirmation) and 16 missing — **positions are never guessed**; they sit in the "no coordinates" band at the bottom. Missing coordinates, fuzzy matches, alarm saturation and the caliber note all sit at the bottom of the page, not between the toolbar and the canvas
+- The backend merges each layer's 8 UME calls into one response cached **per layer** for 120 seconds; "Refetch" bypasses only the current layer cache. Header auto-refresh is off by default and suggests 300s here; when on it refreshes in place (canvas not rebuilt, focus kept). On upstream failure the last successful snapshot is shown with a persistent banner
+- "Export Excel" writes two sheets (NEs and links) including alarm counts, coordinate source and port names
 
 #### MW Realtime（`mwRealTime`, iframe page）
 
@@ -2251,6 +2270,8 @@ LTE packet loss board (RAN UME SDR / IPRAN IPPD): last 7 complete calendar days 
 
 - Criteria match the Packet_Loss automation Excel report exactly; the Popover explains them
 - The switch controls whether OK sites are included; supports drill-down and topology overlay
+- Desktop layout (re-laid-out 2026-11-11 per wireframe): the map card takes the left 2/3, the right 1/3 stacks the status pie / daily trend / region charts, and a full-width Top sites table sits at the bottom; narrow screens stack vertically
+- The map carries county fills (opacity 0.2, i.e. 80% transparent) and county name labels (wide screens only); roads and place labels are off by default. **Click a site dot to drill down**: the unified modal shows that site's daily Max / median PL over the last 7 complete days plus an hourly table for the last complete day, with search and Excel export
 - **Every number explains itself on hover** (2026-11-04): the six status cards share one text between the ⓘ and the number bubble (the verdict is written in the collection layer as FinalStatus: STATUS≠OK with Last 1 day Max PL ≥5 / [1,5) / [0.5,1) / [0.1,0.5) = Critical/Major/Minor/Warning, and STATUS=OK is forced into No Packet loss); the header Affected Sites and granularity tags carry bubbles too
 - The three easiest misreadings are stated in the bubbles: **the status pie includes sites without coordinates, the region bars count non-OK sites only (Minor and Warning included), and the header Affected Sites is Critical + Major only** — three different sets that were never meant to reconcile
 - The daily-trend median **uses only readings above 0 for that day** (about 59% of hourly readings are 0, so a full median collapses to zero and stops being meaningful), while Top sites use a **per-site median that includes zeros** (otherwise "half a day fully down" and "fully down all day" both become 100 and the ranking loses its point) — the same word "median" for two calibers, each stated where it is used
@@ -2446,7 +2467,9 @@ eFlow process flow: enter an alarm (alarm ID / alarm code) or a TT number to dra
 - Three input types: TT number (TT202609230060), alarm ID (the alarm table id/aid), or alarm code (e.g. 99933); querying by alarm code lists the most recent TTs carrying it so you can switch
 - The base diagram is the rule-driven state machine: Alarm Raised → TT Created → Auto Dispatch → FO/BO Accept → FO/BO Process → 3rd Party Accept/Process → Confirm → Closed; the active/total count under each node is how many rules bind to that step
 - Green node = a step the ticket actually traversed, amber node = the current step (taken from the operation_type field), grey = not involved; thick cyan edges = the actual path
-- Click any node to switch the "Rule details" table below to the rules bound to that step (rule name / type / trigger step / status / priority / target handler / push path); "Show all" reveals every rule
+- Click any node to switch the "Rule details" table below to the rules bound to that step; **by default only rules related to this ticket are shown** (conditions evaluate true for it, including empty-condition fallback rules); the "Related only / All" toggle reveals the full attached set, and "All nodes" lists every node's rules at once
+- **Click a rule name to open its detail** (2026-11-10): the dialog shows the rule basics (ID / severity / owner / updater), the raw condition text, per-condition ✓/✗ evidence, and this ticket's value frame (alarm code / VIP / HUB / site type / down-site count…); the verdict comes from the same engine as the eFlow knowledge base and assignment attribution — no second judgment source; rules whose conditions reference locally unavailable fields are marked Undecidable rather than unrelated
+- **Multi-condition simulation** (2026-11-10): switch the query card to "Multi-condition sim" to skip the concrete ticket and give a set of conditions (alarm code / severity / VIP / HUB / site sub type / site type / network type / current down sites / downstream sites / root cause / alarm description), then see how every rule would judge — same engine and normalization as the ticket query (YES→1/0); **empty fields join as "no value"** so conditions referencing them fail; e.g. "HUB site P1" also requires current down sites ≥ 5, so leaving that blank keeps it unmatched — the evidence column in the rule detail states exactly which condition failed. A simulation has no ticket, so the TT info / actual path / related-alarms blocks are hidden
 - The "Actual path" table lists the milestones the ticket really went through, with operator and note; "TT ticket information" gives severity, current handler, SLA and root cause
 - If the TT spawned a field work order, a "WO field sub-process" block shows the WO's own Accept → Process → Confirm → Closed pipeline plus per-step handling detail (from the eflow_wo *Detail columns)
 - The "Related alarms" table lists the alarms that raised this TT (linked via realtime_alarm / history_alarm tt_id or alarm_id), with alarm code, site, network element, severity and raised time
@@ -2454,7 +2477,7 @@ eFlow process flow: enter an alarm (alarm ID / alarm code) or a TT number to dra
 - The rule tables are collected by the eflow_push_rules_collect / eflow_alarm_rules_collect jobs (every 3 days at 23:59); the diagram reflects rule updates automatically
 - **Every number answers how it was computed on hover** (2026-11-03): the "Steps taken" and "Process rules" cards, the "N active / N total" tags on the node rule header, and the diagram's own node tooltip all expand into the rule; the page-level caliber now sits in a collapsed "How the eFlow graph is computed" note
 - Three things these counts require you to know: ① "Process rules" = **all rows of ocrule_details** with no WHERE and no time filter — it is today's snapshot, not the rules this ticket met; ② a node's "total" is the **deduped attachment count** by (name + type + trigger step), and one rule can attach to several nodes, so summing the nodes exceeds the table rows; ③ "active" requires status **exactly ACTIVE** (case sensitive), so an upstream value of Active counts in the total but not in the active figure
-- "Steps taken" only counts **TT main-flow nodes** (Alarm Raised and TT Created are marked unconditionally, so it starts at 2); the WO field sub-flow is a separate lane and is excluded. "Matched this ticket" covers only the rules on the **current node** plus the create-stage severity rules — it is not a journey total, and it moves as the ticket advances
+- "Steps taken" only counts **TT main-flow nodes** (Alarm Raised and TT Created are marked unconditionally, so it starts at 2); the WO field sub-flow is a separate lane and is excluded. "Matched this ticket" counts rules across **all nodes** whose conditions evaluate true for this ticket (including empty-condition fallbacks), deduped by (rule name, node) — the same scope as "Related only", and it does not move as the ticket advances
 - The rule table is a **current snapshot**: for a ticket that has been in flow for months, the diagram shows **today's** rules, which may not be the ones that actually routed it — keep that in mind when using it to explain a historical ticket
 
 #### Dashboard（`dashboard`）

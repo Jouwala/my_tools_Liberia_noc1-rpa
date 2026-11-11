@@ -16,7 +16,7 @@ import {
 import { useI18n, numLocale } from '../i18n'
 import DraggableClickModal from '../components/DraggableClickModal'
 import { CardBase } from '../components/cards'
-import { ExplainCorner, ExplainLabel, ExplainPopover } from '../components/MetricExplain'
+import { ExplainCorner, ExplainIcon, ExplainLabel, ExplainPopover } from '../components/MetricExplain'
 import { useTheme, WH, darkTooltip, axisLabel, axisLine, splitLine, cardStyle, pageWrap } from '../theme'
 
 const { Text } = Typography
@@ -864,9 +864,9 @@ export default function FmeRanking() {
         <Col xs={24} xl={12}>
           <CardBase
             title={t('fme.chartTopTitle')}
-            extra={<Text type="secondary" style={{ fontSize: '0.6875rem' }}>{t('fme.chartHint')}</Text>}
+            extra={<ExplainIcon text={t('fme.chartHint')} placement="bottomLeft" icon="question" />}
           >
-            <Text type="secondary" style={{ fontSize: '0.6875rem', display: 'block', marginBottom: 'var(--wh-space-xs)' }}>{t('fme.chartTopSub')}</Text>
+            <ExplainIcon text={t('fme.chartTopSub')} placement="bottomLeft" icon="question" />
             {topChartRows.length
               ? <ReactECharts
                   option={topChart}
@@ -880,9 +880,9 @@ export default function FmeRanking() {
         <Col xs={24} xl={12}>
           <CardBase
             title={t('fme.chartBottomTitle')}
-            extra={<Text type="secondary" style={{ fontSize: '0.6875rem' }}>{t('fme.chartHint')}</Text>}
+            extra={<ExplainIcon text={t('fme.chartHint')} placement="bottomLeft" icon="question" />}
           >
-            <Text type="secondary" style={{ fontSize: '0.6875rem', display: 'block', marginBottom: 'var(--wh-space-xs)' }}>{t('fme.chartBottomSub')}</Text>
+            <ExplainIcon text={t('fme.chartBottomSub')} placement="bottomLeft" icon="question" />
             {bottomChartRows.length
               ? <ReactECharts
                   option={bottomChart}

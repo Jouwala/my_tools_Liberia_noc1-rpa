@@ -7,6 +7,7 @@ import { formatDateTime } from '../datetime'
 import { cardStyle, pageWrap } from '../theme'
 import { exportReport, type ReportSheetSpec } from '../utils/excelReport'
 import DraggableClickModal from '../components/DraggableClickModal'
+import { ExplainIcon } from '../components/MetricExplain'
 
 const { Text } = Typography
 
@@ -1950,7 +1951,7 @@ export default function EmailReports() {
                   <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', gap: 'var(--wh-space-sm)', marginBottom: '0.75rem' }}>
                     {/* 提示语在门户 v2 精简模式下不渲染：外层面板已有标题，这句「列出各邮件发送
                         任务生成的最新报告文件…」对只看附件的人没有信息量。独立打开 / 其它门户照常。 */}
-                    {!portalFiles && <Text type="secondary">{t('emailReports.hint')}</Text>}
+                    {!portalFiles && <ExplainIcon text={t('emailReports.hint')} placement="bottomLeft" icon="question" />}
                     <Space>
                       <Select
                         size="small"
@@ -1988,7 +1989,7 @@ export default function EmailReports() {
               children: (
                 <>
                   <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', gap: 'var(--wh-space-sm)', marginBottom: '0.75rem' }}>
-                    <Text type="secondary">{t('emailReports.finebiHint')}</Text>
+                    <ExplainIcon text={t('emailReports.finebiHint')} placement="bottomLeft" icon="question" />
                     <Button size="small" icon={<ReloadOutlined />} onClick={loadFinebi} loading={finebiLoading}>
                       {t('emailReports.refresh')}
                     </Button>
@@ -2017,7 +2018,7 @@ export default function EmailReports() {
               children: (
                 <>
                   <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', gap: 'var(--wh-space-sm)', marginBottom: '0.75rem' }}>
-                    <Text type="secondary" style={{ maxWidth: '60rem' }}>{t('emailReports.eflowHint')}</Text>
+                    <ExplainIcon text={t('emailReports.eflowHint')} placement="bottomLeft" icon="question" />
                     <Space wrap>
                       <Button
                         size="small"
@@ -2335,7 +2336,7 @@ export default function EmailReports() {
               children: (
                 <>
                   <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', gap: 'var(--wh-space-sm)', marginBottom: '0.75rem' }}>
-                    <Text type="secondary" style={{ maxWidth: '60rem' }}>{t('emailReports.pushHint')}</Text>
+                    <ExplainIcon text={t('emailReports.pushHint')} placement="bottomLeft" icon="question" />
                     <Space wrap>
                       <Button
                         size="small"
@@ -2606,7 +2607,7 @@ export default function EmailReports() {
               children: (
                 <>
                   <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', gap: 'var(--wh-space-sm)', marginBottom: '0.75rem' }}>
-                    <Text type="secondary" style={{ maxWidth: '60rem' }}>{t('emailReports.mttrHint')}</Text>
+                    <ExplainIcon text={t('emailReports.mttrHint')} placement="bottomLeft" icon="question" />
                     <Space wrap>
                       <Button
                         size="small"
@@ -2651,7 +2652,7 @@ export default function EmailReports() {
               children: (
                 <>
                   <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', gap: 'var(--wh-space-sm)', marginBottom: '0.75rem' }}>
-                    <Text type="secondary" style={{ maxWidth: '60rem' }}>{t('emailReports.siteUpdateHint')}</Text>
+                    <ExplainIcon text={t('emailReports.siteUpdateHint')} placement="bottomLeft" icon="question" />
                     <Space wrap>
                       <Button
                         size="small"
@@ -2814,7 +2815,7 @@ export default function EmailReports() {
                     />
                   </div>
                   <div style={{ marginTop: '0.5rem' }}>
-                    <Text type="secondary">{t('emailReports.siteUpdateNote')}</Text>
+                    <ExplainIcon text={t('emailReports.siteUpdateNote')} placement="bottomLeft" icon="question" />
                   </div>
                 </>
               ),

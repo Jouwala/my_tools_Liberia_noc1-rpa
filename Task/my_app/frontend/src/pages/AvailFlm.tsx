@@ -533,7 +533,7 @@ export default function AvailFlm() {
                 <span style={{ marginLeft: 4 }}><ExplainIcon text={t(SUM_RATIO_COL_KEY)} /></span>
               </span>
             )}
-              extra={<Text type="secondary" style={{ fontSize: 12 }}>{t('availFlm.clickHint')}</Text>}>
+              extra={<ExplainIcon text={t('availFlm.clickHint')} placement="bottomLeft" icon="question" />}>
               {hasChart && (
                 <div style={{ marginBottom: 'var(--wh-space-sm)' }}>
                   <Text type="secondary" style={{ fontSize: 12 }}>
@@ -579,7 +579,7 @@ export default function AvailFlm() {
             </Space>
           )}
         >
-          <Text type="secondary" style={{ fontSize: 12 }}>{t('availFlm.ttNote')}</Text>
+          <ExplainIcon text={t('availFlm.ttNote')} placement="bottomLeft" icon="question" />
           {tt?.meta.warnings?.length ? (
             <div style={{ marginTop: 6 }}>{warnAlerts(tt.meta.warnings, tt.meta.error)}</div>
           ) : null}

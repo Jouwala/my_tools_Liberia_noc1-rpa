@@ -439,7 +439,7 @@ function TtRuleEvidence({ ev, t, isDark, isMobile, border, onOpenRule }: {
               </a>
             )}
             <Text type="secondary">
-              {t('qa.tt.pushRuleHint')}
+              <ExplainIcon text={t('qa.tt.pushRuleHint')} placement="bottomLeft" icon="question" />
               {prFile.rules_count != null ? ` · ${t('qa.tt.ruleCount', { n: prFile.rules_count })}` : ''}
               {prFile.mtime_text ? ` · ${t('qa.tt.ruleUpdatedAt')} ${prFile.mtime_text}` : ''}
             </Text>
@@ -872,9 +872,11 @@ function UmeAlarmView({ t, isDark, isMobile, border, umeKey, loading, error, dat
  * 放模块级以获得稳定引用（组件内定义会导致每次渲染生成新数组）。 */
 const TOOL_BLOCKS_VERSION = 1
 const TOOL_BLOCKS_KEY = `eflowqa.toolBlocks.v${TOOL_BLOCKS_VERSION}`
-// 显示/隐藏是**个人本机偏好**，单独存一份 key 列表，不塞进 toolOrder：
-// 顺序数组必须始终是 6 个键（服务端 /api/ui/tool-order 的 _normalize_order 校验
-// 「恰好 6 项」），混进隐藏状态会让「保存为默认顺序」直接 400。
+// 显示/隐藏（2026-11-11 起）以服务端 /api/ui/tool-visibility 为真相源，
+// 这里只留一份本机镜像：首屏不闪 + 后端不可用时的兜底。
+// 单独存一份 key 列表、不塞进 toolOrder：顺序数组必须始终是 6 个键
+// （服务端 _normalize_order 校验「恰好 6 项」），混进隐藏状态会让
+// 「保存为默认顺序」直接 400。
 const TOOL_BLOCKS_HIDDEN_KEY = `eflowqa.toolBlocks.hidden.v${TOOL_BLOCKS_VERSION}`
 const DEFAULT_TOOL_BLOCKS: string[] = [
   'knowledge-search',       // 知识库检索
@@ -884,6 +886,29 @@ const DEFAULT_TOOL_BLOCKS: string[] = [
   'tt-postmortem',          // TT 复盘
   'ran-ume-alarm-analysis', // RAN UME 告警分析
 ]
+/** 过滤未知/重复块：代码日后增删工具块时，旧配置不会把页面搞坏。 */
+function normalizeHiddenBlocks(raw: unknown): string[] | null {
+  if (!Array.isArray(raw)) return null
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const k of raw) {
+    if (typeof k === 'string' && DEFAULT_TOOL_BLOCKS.includes(k) && !seen.has(k)) {
+      seen.add(k)
+      out.push(k)
+    }
+  }
+  return out
+}
+/** 本机镜像：只用于首屏不闪 + 后端不可用时兜底，不是真相源。 */
+function readLocalHiddenBlocks(): string[] {
+  try {
+    const raw = localStorage.getItem(TOOL_BLOCKS_HIDDEN_KEY)
+    return normalizeHiddenBlocks(raw ? JSON.parse(raw) : null) || []
+  } catch { return [] }
+}
+function writeLocalHiddenBlocks(keys: string[]) {
+  try { localStorage.setItem(TOOL_BLOCKS_HIDDEN_KEY, JSON.stringify(keys)) } catch { /* noop */ }
+}
 /** 顺序编辑面板里各块显示名（复用既有文案键，避免再造一套翻译）。 */
 const TOOL_BLOCK_LABEL_KEYS: Record<string, string> = {
   'knowledge-search': 'qa.search',
@@ -1330,24 +1355,49 @@ export default function EflowQa() {
   // 窄屏没有左栏，改为弹出顺序面板；两种入口共用同一份 toolOrder / 持久化。
   const [orderEditMode, setOrderEditMode] = useState(false)
   const [mobileOrderOpen, setMobileOrderOpen] = useState(false)
-  // 显示/隐藏（2026-11-08）：编辑态里每个条目的眼睛按钮切换，只存本机 localStorage。
+  // 显示/隐藏（2026-11-11）：服务端全局配置为准，localStorage 只是首屏镜像。
   // 隐藏的块在编辑态仍以半透明显示（否则找不回来），退出编辑态才真正不渲染。
-  const [hiddenBlocks, setHiddenBlocks] = useState<string[]>(() => {
-    try {
-      const raw = localStorage.getItem(TOOL_BLOCKS_HIDDEN_KEY)
-      const arr = raw ? JSON.parse(raw) : null
-      if (Array.isArray(arr)) return arr.filter((k: unknown): k is string =>
-        typeof k === 'string' && DEFAULT_TOOL_BLOCKS.includes(k))
-    } catch { /* noop */ }
-    return []
-  })
-  const toggleBlockVisible = useCallback((key: string) => {
-    setHiddenBlocks(prev => {
-      const next = prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]
-      try { localStorage.setItem(TOOL_BLOCKS_HIDDEN_KEY, JSON.stringify(next)) } catch { /* noop */ }
-      return next
-    })
+  const [hiddenBlocks, setHiddenBlocks] = useState<string[]>(() => readLocalHiddenBlocks())
+  // 非本机只读：不给出可改的眼睛按钮，避免「点了只改自己、刷新又被服务端覆盖」。
+  const [visibilityEditable, setVisibilityEditable] = useState(false)
+  useEffect(() => {
+    let alive = true
+    api.get('/ui/tool-visibility').then(res => {
+      if (!alive) return
+      const editable = !!res.data?.editable
+      setVisibilityEditable(editable)
+      const server = normalizeHiddenBlocks(res.data?.hidden)
+      if (server) {
+        // 服务端有配置：无条件覆盖本机镜像，所有电脑读同一份
+        setHiddenBlocks(server)
+        writeLocalHiddenBlocks(server)
+      } else if (editable) {
+        // 服务端无配置 + 本机在旧版本里隐藏过 → 一次性升为全局默认，设置不丢
+        const local = readLocalHiddenBlocks()
+        if (local.length) {
+          api.put('/ui/tool-visibility', { hidden: local }).catch(() => { /* 迁移失败保留本机值 */ })
+          setHiddenBlocks(local)
+        }
+      } else {
+        // 服务端明确「全部显示」且非本机：清掉本地残留的旧隐藏
+        setHiddenBlocks([])
+        writeLocalHiddenBlocks([])
+      }
+    }).catch(() => { /* 后端不可用：保留本机镜像，静默降级为只读 */ })
+    return () => { alive = false }
   }, [])
+  const toggleBlockVisible = useCallback((key: string) => {
+    const next = hiddenBlocks.includes(key)
+      ? hiddenBlocks.filter(k => k !== key)
+      : [...hiddenBlocks, key]
+    setHiddenBlocks(next)
+    writeLocalHiddenBlocks(next)
+    if (visibilityEditable) {
+      // 低频操作不做防抖：一次点击一次 PUT，避免关页面时丢掉最后一次改动
+      api.put('/ui/tool-visibility', { hidden: next })
+        .catch(() => { message.error(t('qa.toolOrder.saveFail')) })
+    }
+  }, [hiddenBlocks, visibilityEditable, t])
   // 编辑态显示全部（含已隐藏，便于恢复）；非编辑态只渲染可见块。
   const visibleToolKeys = orderEditMode
     ? toolOrder
@@ -1539,6 +1589,7 @@ export default function EflowQa() {
           type="text" size="small"
           icon={isHidden ? <EyeInvisibleOutlined /> : <EyeOutlined />}
           title={isHidden ? t('qa.toolOrder.show') : t('qa.toolOrder.hide')}
+          disabled={!visibilityEditable}
           onClick={() => toggleBlockVisible(key)}
           style={{ width: 22, height: 22, minWidth: 22, padding: 0, fontSize: 11 }}
         />
@@ -1731,8 +1782,11 @@ export default function EflowQa() {
       </div>
       {orderEditMode && (
         <div style={{ fontSize: 11, lineHeight: 1.5, marginBottom: 8, color: isDark ? '#aebbd4' : '#64748b' }}>
-          <div>{t('qa.toolOrder.editTip')}</div>
-          <div>{t('qa.toolOrder.hiddenHint')}</div>
+          <ExplainIcon
+            text={`${t('qa.toolOrder.editTip')}\n${t('qa.toolOrder.hiddenHint')}`}
+            placement="bottomLeft"
+            icon="question"
+          />
         </div>
       )}
       {/* 第二版去装饰：不在工具区顶部画横幅、不改整体 cursor、不在被拖
@@ -1750,7 +1804,8 @@ export default function EflowQa() {
           </div>
         ))}
       </div>
-      {!orderEditMode && hiddenBlocks.length > 0 && (
+      {/* 非本机是只读，眼睛按钮已禁用，别再提示「点编辑顺序可恢复」误导人。 */}
+      {!orderEditMode && visibilityEditable && hiddenBlocks.length > 0 && (
         <div style={{ fontSize: 11, color: isDark ? '#aebbd4' : '#64748b', marginTop: 6 }}>
           {t('qa.toolOrder.hiddenCount', { n: hiddenBlocks.length })}
         </div>
@@ -2215,7 +2270,7 @@ export default function EflowQa() {
               </Space>
             </div>
             <div style={{ fontSize: 12, color: isDark ? '#aebbd4' : '#64748b', marginBottom: 10 }}>
-              {t('qa.ttBatch.subtitle')}
+              <ExplainIcon text={t('qa.ttBatch.subtitle')} placement="bottomLeft" icon="question" />
             </div>
 
             {/* 输入区：上传清单文件 / 粘贴单号列表 */}
@@ -2233,7 +2288,7 @@ export default function EflowQa() {
                   </Button>
                 </Tooltip>
                 {batchFile && <Tag color="purple">{batchFile}</Tag>}
-                <Text type="secondary" style={{ fontSize: 12 }}>{t('qa.ttBatch.uploadHint')}</Text>
+                <ExplainIcon text={t('qa.ttBatch.uploadHint')} placement="bottomLeft" icon="question" />
               </div>
               <Input.TextArea
                 rows={4}
@@ -2541,8 +2596,11 @@ export default function EflowQa() {
         }
       >
         <div style={{ fontSize: 12, lineHeight: 1.6, marginBottom: 10, color: isDark ? '#aebbd4' : '#64748b' }}>
-          <div>{t('qa.toolOrder.mobileHint')}</div>
-          <div>{t('qa.toolOrder.hiddenHint')}</div>
+          <ExplainIcon
+            text={`${t('qa.toolOrder.mobileHint')}\n${t('qa.toolOrder.hiddenHint')}`}
+            placement="bottomLeft"
+            icon="question"
+          />
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           {toolOrder.map((key, i) => {
@@ -2557,6 +2615,7 @@ export default function EflowQa() {
                   type="text" size="small"
                   icon={isHidden ? <EyeInvisibleOutlined /> : <EyeOutlined />}
                   title={isHidden ? t('qa.toolOrder.show') : t('qa.toolOrder.hide')}
+                  disabled={!visibilityEditable}
                   onClick={() => toggleBlockVisible(key)}
                 />
                 <span style={{

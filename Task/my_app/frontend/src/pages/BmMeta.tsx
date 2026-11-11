@@ -35,7 +35,7 @@ import { useI18n } from '../i18n'
 import { WH, useTheme, cardStyle, axisLabel, axisLine, darkTooltip, splitLine } from '../theme'
 import { CardBase, StatCard } from '../components/cards'
 // 数字悬浮说明（AGENTS.md 三.3c）：ⓘ 讲这一项的算法，气泡讲这一格的构成（一律取接口既有字段）
-import { ExplainLabel, ExplainPopover } from '../components/MetricExplain'
+import { ExplainIcon, ExplainLabel, ExplainPopover } from '../components/MetricExplain'
 import CalcChainNote from '../components/CalcChainNote'
 import DraggableClickModal from '../components/DraggableClickModal'
 import { exportReport } from '../utils/excelReport'
@@ -889,7 +889,7 @@ export default function BmMeta() {
 
       {/* ③ 网络侧 KPI 汇总卡（不属于任何一家，单独一组） */}
       <CardBase title={t('bmm.sec.network')} extra={
-        <Text type="secondary" style={{ fontSize: 12 }}>{t('bmm.sec.networkHint')}</Text>
+        <ExplainIcon text={t('bmm.sec.networkHint')} placement="bottomLeft" icon="question" />
       } style={{ marginBottom: 12 }}>
         <Row gutter={[12, 12]} align="stretch">
           {NETWORK_KEYS.map(k => {
@@ -957,9 +957,7 @@ export default function BmMeta() {
           </Space>
         }
       >
-        <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 6 }}>
-          {t(metricHintKey(metric))}
-        </Text>
+        <ExplainIcon text={t(metricHintKey(metric))} placement="bottomLeft" icon="question" />
         {trend.length === 0 ? (
           <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={trendLoading ? t('bmm.loading') : t('bmm.empty')} />
         ) : (
@@ -995,9 +993,7 @@ export default function BmMeta() {
                 {t('bmm.truncated', { n: String(data.meta.daily_returned), t: String(data.meta.daily_total) })}
               </Tag>
             )}
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              {t('bmm.card.dailyHint')}
-            </Text>
+            <ExplainIcon text={t('bmm.card.dailyHint')} placement="bottomLeft" icon="question" />
           </Space>
         }
       >
