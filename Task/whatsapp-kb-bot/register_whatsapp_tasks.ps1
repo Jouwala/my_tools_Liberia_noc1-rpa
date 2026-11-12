@@ -1,4 +1,4 @@
-# 注册 WhatsApp 两个常驻进程的「开机自启 + 看门狗」计划任务。
+﻿# 注册 WhatsApp 两个常驻进程的「开机自启 + 看门狗」计划任务。
 #
 # 为什么要有这个脚本（而不是手工敲 Register-ScheduledTask）：
 #   本仓库已有 MyApp_AutoStart / MyApp_EnsureRunning / Nginx_EnsureRunning 三个任务，
