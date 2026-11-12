@@ -77,6 +77,10 @@
 /backend/services/cn_ems/kpi_result.json
 /backend/services/cn_ems/kpi_result_raw.json
 /backend/services/cn_ems/pm_query_template.bin
+# 鉴权健康巡检每日报告（2026-11-12 挂为每日 07:00 任务后每天新增 md+json 各 1 份）。
+# 只挡该子目录：outputs/ 下另有已入库源码，整目录忽略会误伤。
+# 注意：忽略规则对已跟踪文件无效，已入库的 4 份历史报告仍留在库里。
+/outputs/auth_health/
 /backend/services/eflow_rules/eflow_tt_rules_check_latest.json
 /backend/services/ai_model_config.json
 _probe_file.txt
