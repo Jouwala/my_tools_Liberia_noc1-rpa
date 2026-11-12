@@ -105,7 +105,6 @@ from backend.routers import (
     task_configs,
     ai_model_settings,
     email_reports,
-    finebi_reports,
     mw_ume,
     mw_links,
     portals,
@@ -292,8 +291,6 @@ app.include_router(task_configs.router)
 app.include_router(ai_model_settings.router)
 # 邮件报告文件（EmailReports 页面：email 类任务生成的最新报告文件列表/下载）
 app.include_router(email_reports.router)
-# FineBI 报表文件（Task Report Files → FINEBI report 页签：FTP 同步的最新 Excel 列表/下载）
-app.include_router(finebi_reports.router)
 app.include_router(mw_ume.router)
 app.include_router(mw_links.router)
 # 一键门户登录（用默认浏览器打开 ZTE/CCN/iPRAN UME、eFlow、FW(UMC)、VMAX 并自动登录）

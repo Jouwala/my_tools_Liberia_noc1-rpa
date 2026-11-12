@@ -1,6 +1,6 @@
 # my_app 使用帮助
 
-> 面向使用者的平台功能与操作指南。本文件由「使用帮助」页面同源生成（frontend/src/helpMarkdown.ts），内容依据 docs/manual/ 各章与 backend/task_registry.py 整理。生成日期：2026-11-11。
+> 面向使用者的平台功能与操作指南。本文件由「使用帮助」页面同源生成（frontend/src/helpMarkdown.ts），内容依据 docs/manual/ 各章与 backend/task_registry.py 整理。生成日期：2026-11-12。
 
 > 站内入口：侧边栏「使用帮助」，或直链 `http://<host>/myapp/?page=help`。
 
@@ -136,8 +136,8 @@
 | 电池 KPI 邮件 | `battery_email` | `10 7,19 * * *` | m | `services/battary_kpi_fetch/battery_kpi_service.py → run_battery_email` |
 | 邮箱空间清理 | `mailbox_cleanup` | `0 * * * *` | m | `services/mailbox_cleanup.py → run_mailbox_cleanup` |
 | Incident Overview 数据同步 | `incident_overview_sync` | `20 * * * *` | m | `services/incident_overview_sync.py → run_incident_overview_sync` |
-| FineBI 报表文件同步 | `finebi_report_sync` | `10 * * * *` | m | `services/finebi_report_sync.py → run_finebi_report_sync` |
 | 数据库数据新鲜度巡检 | `db_freshness_check` | `15 * * * *` | m | `services/db_freshness_check.py → run_db_freshness_check` |
+| 鉴权健康巡检 | `auth_health_check` | `0 7 * * *` | m | `scripts/auth_health_check.py → run_auth_health_check` |
 | MTTR/TT 宽表重建 | `mttr_tt_sync` | `40 7 * * *` | m | `services/mttr_tt_sync.py → run_mttr_tt_sync` |
 | Progress 宽表重建 | `progress_sync` | `50 7 * * *` | m | `services/progress_sync.py → run_progress_sync` |
 | 失败任务自动重试 | `auto_retry_failed` | `*/10 * * * *` | m | `services/auto_retry.py → run_auto_retry_task` |
@@ -1097,25 +1097,6 @@
 - 版本化设计使上游 Excel 被打开占用时也不会取数失败——这是历史踩坑后的修复，勿改回直接覆盖
 - 调度必须留在 :20，不要改回整点——FineBI 每小时 :53 会先删掉上一轮输出目录，新副本约 :02–:05 才落盘，整点取数正好撞空档（2026-09 曾因此每小时误报「未找到 incident_overview.xlsx」）；撞上空档时只要本地副本不超过 90 分钟就沿用上、不判失败
 
-#### FineBI 报表文件同步（`finebi_report_sync`）
-
-- 默认 cron: `10 * * * *`　|　worker 组: **m**
-- 工作流脚本: `services/finebi_report_sync.py → run_finebi_report_sync`
-
-**功能**: 每小时从 FineBI FTP /webroot/WEB-INF/schedule 的每个子文件夹取最新一份 Excel，下载到本地 data/finebi_reports 供任务报告文件页下载；某个目录本轮没有 Excel 只记缺失，不把整任务判失败
-
-**工作流与数据流**:
-
-1. 每小时 :10 遍历 schedule 下每个子文件夹
-1. 各取最新一份 Excel 下载到 data/finebi_reports
-1. 目录本轮无文件且本机有历史副本 → 记入 missing 继续跑下一个
-1. 「任务报告文件 → FINEBI report」页签展示与下载
-
-**维护要点**:
-
-- 2026-08-25 分组模式启用时曾因未归组而 pending 卡死断档，后补入 m 组——新增任务务必登记 GROUP_TASK_MAP
-- FineBI 每小时 :53 会先删掉上一轮输出目录、新副本约 :02–:05 才落盘，单个目录取不到文件是常态：只有本机连历史副本都没有才算 error，否则一个目录的空档会把其余已同步成功的报表一起拖红
-
 #### 数据库数据新鲜度巡检（`db_freshness_check`）
 
 - 默认 cron: `15 * * * *`　|　worker 组: **m**
@@ -1133,6 +1114,24 @@
 
 - 怀疑「某类数据停更」时先看它的执行历史，按给出的调用链排查，比翻任务列表快
 - 取数任务"成功/失败"和数据"几小时没更新"是两件事：2026-09-30 事件总览滞后 2 小时却只表现为任务告警，因此文件年龄单独进巡检（FILE_CHECKS），新增文件型看板数据源时在这里补一条
+
+#### 鉴权健康巡检（`auth_health_check`）
+
+- 默认 cron: `0 7 * * *`　|　worker 组: **m**
+- 工作流脚本: `scripts/auth_health_check.py → run_auth_health_check`
+
+**功能**: 每日 07:00 只读扫描锁定熔断标记、近 1 天日志里的验证码/锁定/密码错误、会话缓存新鲜度；md 报告 + JSON 明细留档到 outputs/auth_health/；仅 CRITICAL（验证码/锁定）推微信
+
+**工作流与数据流**:
+
+1. 每日 07:00 扫描 auth_cache/.locked_* 锁定标记、近 1 天日志鉴权错误、会话缓存年龄
+1. md 报告 + JSON 明细存到 outputs/auth_health/
+1. CRITICAL（验证码/锁定）时推微信，WARN（密码错误/空密码）只记结果不判失败
+
+**维护要点**:
+
+- 验证码/锁定出现时按报告第 4 节处置，不要反复重试登录（连续 3 次密码错误会锁 1440 分钟）
+- 报告每天一份在 outputs/auth_health/，排查先看最新一份
 
 #### MTTR/TT 宽表重建（`mttr_tt_sync`）
 

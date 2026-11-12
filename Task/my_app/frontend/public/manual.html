@@ -89,7 +89,7 @@ footer.colophon { text-align: center; color: var(--muted); font-size: 12px; marg
     <div class="logo">📘</div>
     <h1>my_app 项目手册</h1>
     <div class="sub">网络运维数据平台 · 设计手册 + 使用手册</div>
-    <div class="meta">基准日期 2026-08-27　|　适用版本 master 当前代码　|　HTML 合成生成 2026-11-11<br>含 13 章 · 141 个小节　|　打印本页（Ctrl+P）即可导出 PDF<br>英文版使用帮助另见仓库 docs/manual/15-user-help-en.md</div>
+    <div class="meta">基准日期 2026-08-27　|　适用版本 master 当前代码　|　HTML 合成生成 2026-11-12<br>含 13 章 · 141 个小节　|　打印本页（Ctrl+P）即可导出 PDF<br>英文版使用帮助另见仓库 docs/manual/15-user-help-en.md</div>
     <ul class="parts"><li><a href="#ch-00">前言 · 关于本手册</a></li><li><a href="#ch-01">设计篇 · 01 项目总览</a></li><li><a href="#ch-02">设计篇 · 02 架构设计</a></li><li><a href="#ch-03">设计篇 · 03 数据层设计</a></li><li><a href="#ch-04">设计篇 · 04 任务与调度系统</a></li><li><a href="#ch-05">设计篇 · 05 访问控制与凭据</a></li><li><a href="#ch-10">使用篇 · 10 快速上手</a></li><li><a href="#ch-11">使用篇 · 11 功能页使用手册</a></li><li><a href="#ch-12">使用篇 · 12 配置项与开关</a></li><li><a href="#ch-13">使用篇 · 13 运维手册</a></li><li><a href="#ch-14">使用篇 · 14 外部系统与数据流</a></li><li><a href="#ch-15">使用篇 · 使用帮助（一站式指南）</a></li><li><a href="#ch-90">附录 · 90 附录</a></li></ul>
   </section>
   <section class="toc-section">
@@ -308,7 +308,7 @@ Exchange/OWA 邮箱  ─┘                                                  │
 </tr>
 <tr>
 <td><strong>FineBI</strong></td>
-<td>报表平台。my_app 从它的 FTP 调度目录定时抓取最新 Excel（<code>finebi_report_sync</code>）</td>
+<td>报表平台。<code>incident_overview_sync</code> 仍从它的 FTP 调度目录定时抓取 <code>incident_overview.xlsx</code>；报表文件同步（<code>finebi_report_sync</code>）已于 2026-11-12 删除。</td>
 </tr>
 <tr>
 <td><strong>SP</strong></td>
@@ -375,7 +375,7 @@ Exchange/OWA 邮箱  ─┘                                                  │
 <td>nginx</td>
 <td><code>:80</code></td>
 <td>人工/系统服务</td>
-<td>生产入口，把 <code>/myapp/</code> 反代到 vite preview</td>
+<td>生产入口。<code>/myapp/</code> 的 HTML 反代到 vite preview；<code>/myapp/assets/</code> 里带 hash 的 js/css/字体/图片从 2026-11-12 起由 nginx 直接读 <code>Task\_fe_dist\assets</code>（不再经 vite 现读现压）</td>
 </tr>
 <tr>
 <td>vite preview</td>
@@ -787,7 +787,7 @@ WHERE n.nspname = '&lt;schema&gt;' AND cl.relname = '&lt;表&gt;' AND c.contype 
 </tr>
 <tr>
 <td><code>data/&lt;任务名&gt;/</code></td>
-<td>各任务落盘产物（battery、eflow、ms_sla、ip_trace、incident_overview、finebi_reports…）</td>
+<td>各任务落盘产物（battery、eflow、ms_sla、ip_trace、incident_overview…）</td>
 <td>报表文件的&quot;最新版&quot;来源页是任务报告文件页</td>
 </tr>
 <tr>
@@ -898,7 +898,7 @@ SQLite 下缺约束不报错，只有 PG 会拦，别让 SQLite 测试给你假�
 <td><code>m</code></td>
 <td>41</td>
 <td>内务轻任务：EWS 邮件会话 + 截图/WhatsApp 文件依赖 + VMAX 数仓 GBase 直连取数</td>
-<td><code>site_outage_screenshot</code>, <code>whatsapp_send</code>, <code>whatsapp_send_ext</code>, <code>liberia_email_1h</code>, <code>liberia_email_8h</code>, <code>kpi_ms_contract</code>, <code>kpi_ms_wo_sla</code>, <code>kpi_sp_spareparts</code>, <code>kpi_sp_consumables</code>, <code>kpi_ran_availability</code>, <code>email_recovery</code>, <code>ipran_m6k_chart_email</code>, <code>ccn_free_rating_chart_email</code>, <code>battery_email</code>, <code>mailbox_cleanup</code>, <code>incident_overview_sync</code>, <code>auto_retry_failed</code>, <code>db_freshness_check</code>, <code>sp_report_generate</code>, <code>sp_email_details</code>, <code>sp_online_report_generate</code>, <code>sp_online_report_send</code>, <code>sp_weekly_report</code>, <code>mttr_tt_sync</code>, <code>progress_sync</code>, <code>sp_whatsapp_report</code>, <code>sp_material_report</code>, <code>finebi_report_sync</code>, <code>log_cleanup</code>, <code>tmp_cleanup</code>, <code>olib_soc_kpi_daily_sync</code>, <code>olib_soc_vmax_report</code>, <code>tt_alarm_whatsapp_alert</code>, <code>ume_alarm_whatsapp_alert</code>, <code>sp_details_files_email</code>, <code>tt_mttr_report_generate</code>, <code>whatsapp_send_baileys</code>, <code>eflow_fiber_assign</code>, <code>eflow_5g_assign</code>, <code>ipt_power_collect</code>, <code>eflow_site_update</code></td>
+<td><code>site_outage_screenshot</code>, <code>whatsapp_send</code>, <code>whatsapp_send_ext</code>, <code>liberia_email_1h</code>, <code>liberia_email_8h</code>, <code>kpi_ms_contract</code>, <code>kpi_ms_wo_sla</code>, <code>kpi_sp_spareparts</code>, <code>kpi_sp_consumables</code>, <code>kpi_ran_availability</code>, <code>email_recovery</code>, <code>ipran_m6k_chart_email</code>, <code>ccn_free_rating_chart_email</code>, <code>battery_email</code>, <code>mailbox_cleanup</code>, <code>incident_overview_sync</code>, <code>auto_retry_failed</code>, <code>db_freshness_check</code>, <code>auth_health_check</code>, <code>sp_report_generate</code>, <code>sp_email_details</code>, <code>sp_online_report_generate</code>, <code>sp_online_report_send</code>, <code>sp_weekly_report</code>, <code>mttr_tt_sync</code>, <code>progress_sync</code>, <code>sp_whatsapp_report</code>, <code>sp_material_report</code>, <code>log_cleanup</code>, <code>tmp_cleanup</code>, <code>olib_soc_kpi_daily_sync</code>, <code>olib_soc_vmax_report</code>, <code>tt_alarm_whatsapp_alert</code>, <code>ume_alarm_whatsapp_alert</code>, <code>sp_details_files_email</code>, <code>tt_mttr_report_generate</code>, <code>whatsapp_send_baileys</code>, <code>eflow_fiber_assign</code>, <code>eflow_5g_assign</code>, <code>ipt_power_collect</code>, <code>eflow_site_update</code></td>
 </tr>
 <tr>
 <td><code>c</code></td>
@@ -971,7 +971,7 @@ SQLite 下缺约束不报错，只有 PG 会拦，别让 SQLite 测试给你假�
 上一条 22 小时的 <code>DELETE</code> 把 <code>DROP INDEX</code> 和后续 8 个读全堵在锁队列里，
 连带 <code>pg_to_sqlite_sync</code> 卡 1h49m、<code>eflow_sync</code> 跑满 7265s。</p>
 </blockquote>
-<p><code>m</code> 组末尾几条有注释记录：<code>finebi_report_sync</code>/<code>pg_to_sqlite_sync</code>（2026-08-25）、<code>whatsapp_send_ext</code>（08-31）、<code>sp_email_details</code>（09-01）、<code>cells_kpi_sync</code>/<code>sp_material_sync</code>（09-09~11）在启用分组模式后都因<strong>未归入任何组而无人认领，队列 pending 卡死断档</strong>才补进来（<code>worker_watchdog.py</code> 内的补录注释）。其中 <code>pg_to_sqlite_sync</code> 已于 2026-10-28 拆到独立的 <code>p</code> 组（见上文拆组依据），<code>m</code> 组现为 38 项。</p>
+<p><code>m</code> 组末尾几条有注释记录：<code>finebi_report_sync</code>/<code>pg_to_sqlite_sync</code>（2026-08-25）、<code>whatsapp_send_ext</code>（08-31）、<code>sp_email_details</code>（09-01）、<code>cells_kpi_sync</code>/<code>sp_material_sync</code>（09-09~11）在启用分组模式后都因<strong>未归入任何组而无人认领，队列 pending 卡死断档</strong>才补进来（<code>worker_watchdog.py</code> 内的补录注释）。其中 <code>pg_to_sqlite_sync</code> 已于 2026-10-28 拆到独立的 <code>p</code> 组（见上文拆组依据），<code>m</code> 组现为 41 项（2026-11-12 新增 <code>auth_health_check</code>；同日删除 <code>finebi_report_sync</code> 后曾为 40）。</p>
 <blockquote>
 <p><strong>新增任务必须同时登记进 <code>GROUP_TASK_MAP</code>；新增/调整「组」必须同步五处</strong>（2026-10-15 补全：原文档只写了 2 处，拆 <code>x</code> 组时守卫当场抓出 <code>start.bat</code> 与帮助文档两处遗漏）：<code>worker_watchdog.py::GROUP_TASK_MAP</code> 的键、<code>start_hidden.ps1</code> 的 <code>$env:MY_APP_WORKER_GROUPS</code> <strong>与</strong> <code>$groups</code> 等待清单（两处）、<code>restart_workers.py::ALL_GROUPS</code> 兜底值、<code>start.bat</code> 的 worker pid 计数与 <code>%WCOUNT% / N</code> 分母、<code>frontend/src/pages/helpTaskDocs.ts</code> 的 <code>group</code> 字段与 <code>WORKER_GROUP_INFO</code>。只加分组表不改启动脚本 = 该组 worker 从不被拉起，症状与漏登记完全一样；漏改 <code>start.bat</code> 则「该组 worker 死了仍报全绿」。<code>restart_workers.py::ALL_GROUPS</code> 已改为从 <code>GROUP_TASK_MAP</code> 取键，其字面值只是 import 失败时的兜底。</p>
 <p>只写进 <code>TASK_SPECS</code> 而不分组 = 任务入队后永远 pending，且不报任何错。这是本项目已发生<strong>四次</strong>的事故模式，2026-09-18 第四次（<code>olib_soc_kpi_daily_sync</code>、<code>olib_soc_vmax_report</code>、<code>vmax_multi_data_sync</code> 上线后一次也没跑过，90 天经营看板停在 09-16）之后上了三道防线：
@@ -1455,15 +1455,15 @@ python tests/test_doc_consistency.py
 <td>m</td>
 </tr>
 <tr>
-<td><code>finebi_report_sync</code></td>
-<td>FineBI 报表文件同步</td>
-<td><code>10 * * * *</code></td>
-<td>m</td>
-</tr>
-<tr>
 <td><code>db_freshness_check</code></td>
 <td>数据库数据新鲜度巡检</td>
 <td><code>15 * * * *</code></td>
+<td>m</td>
+</tr>
+<tr>
+<td><code>auth_health_check</code></td>
+<td>鉴权健康巡检</td>
+<td><code>0 7 * * *</code></td>
 <td>m</td>
 </tr>
 <tr>
@@ -2114,7 +2114,7 @@ import，与本文件下方 <code>sp_data_sync</code> 一节「改动需重启 <
 </ol>
 <p><strong>新增读 <code>/webroot/WEB-INF/schedule/</code> 的任务时</strong>：cron 分钟 <strong>≥ 06</strong>；「未找到文件」默认按上游常态处理；
 若该文件是某个页面的真相源，同步在 <code>FILE_CHECKS</code> 里加一条。<strong>别再加第二条链路拉同一个文件</strong>
-（TT_WO 这份目前被 <code>incident_overview_sync</code> 与 <code>finebi_report_sync</code> 各拉一次到两个目录，属待合并的重复来源）。</p>
+（TT_WO 这份此前被 <code>incident_overview_sync</code> 与 <code>finebi_report_sync</code> 各拉一次到两个目录；2026-11-12 删除 <code>finebi_report_sync</code> 后只剩 <code>incident_overview_sync</code> 一条链路，重复来源已消除）。</p>
 <p><a id="ch-04-s13"></a></p>
 <h4><code>sp_data_sync</code> 的镜像问题（2026-09-30 已根治 + 一次 worker 挂死事故）</h4>
 <p>排查「<code>n</code> 组为什么总是堵」时定位到两个独立问题。<strong>缺陷一的根因已在 2026-09-30 查清并
@@ -4895,10 +4895,10 @@ stop.bat all    # 连 PostgreSQL 一起停
 <p>⚠️ 常见误判：任务列表里长期 <code>pending</code> 不动，多半是该任务<strong>没被归入任何 worker 组</strong>（<code>04-task-system.md</code> 有事故先例），不是&quot;还没到点&quot;。</p>
 <p><a id="ch-11-s2"></a></p>
 <h3>2. 任务报告文件（<code>?page=email_reports</code>）</h3>
-<p>取回五类产物并下载：<strong>邮件附件</strong>、<strong>FineBI 报表</strong>、<strong>eFlow TT 规则检查结果</strong>、<strong>eFlow 推单规则检查结果</strong>、<strong>TTs and MTTR 月粒度报表</strong>。</p>
+<p>取回四类产物并下载：<strong>邮件附件</strong>、<strong>eFlow TT 规则检查结果</strong>、<strong>eFlow 推单规则检查结果</strong>、<strong>TTs and MTTR 月粒度报表</strong>。</p>
 <ul>
 <li>
-<p>五页签切换（<code>EmailReports.tsx</code> 的 <code>Tabs items</code>，key 依次为 <code>email</code> / <code>finebi</code> / <code>eflow_tt_rules_check</code> / <code>eflow_push_rules_check</code> / <code>tt_mttr</code>）；可设「保留最近 N 份」。</p>
+<p>五页签切换（<code>EmailReports.tsx</code> 的 <code>Tabs items</code>，key 依次为 <code>email</code> / <code>eflow_tt_rules_check</code> / <code>eflow_push_rules_check</code> / <code>tt_mttr</code> / <code>site_update</code>）；可设「保留最近 N 份」。</p>
 </li>
 <li>
 <p>各页独立刷新按钮（:350 / :377 / :407）；行内下载（:231 / :277 / 表格内「下载」列）。</p>
@@ -5125,14 +5125,13 @@ float NaN，直接递进去整个任务 <code>AttributeError</code> 崩掉（202
 </ul>
 </li>
 <li>
-<p>接口：<code>GET /api/email-reports/latest</code>、<code>GET /api/finebi-reports/latest</code>、<code>GET /api/email-reports/eflow_tt_rules_check</code>、下钻 <code>GET /api/email-reports/eflow_tt_rules_check/drill</code>、未匹配分布 <code>GET /api/email-reports/eflow_tt_rules_check/unmatched_dist</code>、下载 <code>GET /api/.../download/{source}/{file}</code>。</p>
+<p>接口：<code>GET /api/email-reports/latest</code>、<code>GET /api/email-reports/eflow_tt_rules_check</code>、下钻 <code>GET /api/email-reports/eflow_tt_rules_check/drill</code>、未匹配分布 <code>GET /api/email-reports/eflow_tt_rules_check/unmatched_dist</code>、下载 <code>GET /api/.../download/{source}/{file}</code>。</p>
 </li>
 <li>
 <p><strong>导出 Excel</strong>（2026-09-27 新增）：<strong>每个页签各一个导出按钮</strong>，导的是该页签表格当前的全量行
 （这些表 <code>pagination={false}</code>，无分页截断）——</p>
 <ul>
 <li>邮件报表 <code>exportEmail</code> → <code>EmailReports_*.xlsx</code>（任务/类型/文件/大小/时间，不含「下载」操作列）；</li>
-<li>FineBI 报表 <code>exportFinebi</code> → <code>finebi_reports_*.xlsx</code>（文件夹/文件/大小/时间）；</li>
 <li>eFlow 规则检查 <code>exportEflowCheck</code> → <code>eflow_tt_rules_check_*.xlsx</code>，多 sheet：<code>Summary</code>（统计卡 + 变更方向）、
 <code>Rules</code>（规则明细，变更列走数值着色）、<code>Files</code>（可下载产物清单）；</li>
 <li>推单规则检查 <code>exportPushCheck</code> → <code>eflow_push_rules_check_*.xlsx</code>，多 sheet：<code>Summary</code>（分类计数 + 规则 vs 实际）、
@@ -16505,10 +16504,10 @@ shared <code>auth_cache</code> 里 admin 的 token 明明还有 14.6 小时有�
 </tr>
 <tr>
 <td><strong>FineBI</strong></td>
-<td>FTP 读 <code>/webroot/WEB-INF/schedule</code> 各子目录最新 Excel</td>
-<td><code>finebi_report_sync</code>、<code>incident_overview_sync</code></td>
+<td>FTP 读 <code>/webroot/WEB-INF/schedule/TT_WO/</code> 最新 <code>incident_overview.xlsx</code>（报表文件同步 <code>finebi_report_sync</code> 已于 2026-11-12 删除）</td>
+<td><code>incident_overview_sync</code></td>
 <td><code>sftp_sp</code> 体系/FTP 变量</td>
-<td>任务报告文件、事件总览、丢包/仓库</td>
+<td>事件总览</td>
 </tr>
 <tr>
 <td><strong>远程主机（文件与 DB 写入服务）</strong></td>
@@ -16640,7 +16639,7 @@ shared <code>auth_cache</code> 里 admin 的 token 明明还有 14.6 小时有�
     <h2>使用帮助（一站式指南）</h2>
   </header>
   <blockquote>
-<p>面向使用者的平台功能与操作指南。本文件由「使用帮助」页面同源生成（frontend/src/helpMarkdown.ts），内容依据 docs/manual/ 各章与 backend/task_registry.py 整理。生成日期：2026-11-11。</p>
+<p>面向使用者的平台功能与操作指南。本文件由「使用帮助」页面同源生成（frontend/src/helpMarkdown.ts），内容依据 docs/manual/ 各章与 backend/task_registry.py 整理。生成日期：2026-11-12。</p>
 </blockquote>
 <blockquote>
 <p>站内入口：侧边栏「使用帮助」，或直链 <code>http://&lt;host&gt;/myapp/?page=help</code>。</p>
@@ -17134,18 +17133,18 @@ shared <code>auth_cache</code> 里 admin 的 token 明明还有 14.6 小时有�
 <td><code>services/incident_overview_sync.py → run_incident_overview_sync</code></td>
 </tr>
 <tr>
-<td>FineBI 报表文件同步</td>
-<td><code>finebi_report_sync</code></td>
-<td><code>10 * * * *</code></td>
-<td>m</td>
-<td><code>services/finebi_report_sync.py → run_finebi_report_sync</code></td>
-</tr>
-<tr>
 <td>数据库数据新鲜度巡检</td>
 <td><code>db_freshness_check</code></td>
 <td><code>15 * * * *</code></td>
 <td>m</td>
 <td><code>services/db_freshness_check.py → run_db_freshness_check</code></td>
+</tr>
+<tr>
+<td>鉴权健康巡检</td>
+<td><code>auth_health_check</code></td>
+<td><code>0 7 * * *</code></td>
+<td>m</td>
+<td><code>scripts/auth_health_check.py → run_auth_health_check</code></td>
 </tr>
 <tr>
 <td>MTTR/TT 宽表重建</td>
@@ -18305,25 +18304,6 @@ shared <code>auth_cache</code> 里 admin 的 token 明明还有 14.6 小时有�
 <li>调度必须留在 :20，不要改回整点——FineBI 每小时 :53 会先删掉上一轮输出目录，新副本约 :02–:05 才落盘，整点取数正好撞空档（2026-09 曾因此每小时误报「未找到 incident_overview.xlsx」）；撞上空档时只要本地副本不超过 90 分钟就沿用上、不判失败</li>
 </ul>
 <p><a id="ch-15-s56"></a></p>
-<h5>FineBI 报表文件同步（<code>finebi_report_sync</code>）</h5>
-<ul>
-<li>默认 cron: <code>10 * * * *</code>　|　worker 组: <strong>m</strong></li>
-<li>工作流脚本: <code>services/finebi_report_sync.py → run_finebi_report_sync</code></li>
-</ul>
-<p><strong>功能</strong>: 每小时从 FineBI FTP /webroot/WEB-INF/schedule 的每个子文件夹取最新一份 Excel，下载到本地 data/finebi_reports 供任务报告文件页下载；某个目录本轮没有 Excel 只记缺失，不把整任务判失败</p>
-<p><strong>工作流与数据流</strong>:</p>
-<ol>
-<li>每小时 :10 遍历 schedule 下每个子文件夹</li>
-<li>各取最新一份 Excel 下载到 data/finebi_reports</li>
-<li>目录本轮无文件且本机有历史副本 → 记入 missing 继续跑下一个</li>
-<li>「任务报告文件 → FINEBI report」页签展示与下载</li>
-</ol>
-<p><strong>维护要点</strong>:</p>
-<ul>
-<li>2026-08-25 分组模式启用时曾因未归组而 pending 卡死断档，后补入 m 组——新增任务务必登记 GROUP_TASK_MAP</li>
-<li>FineBI 每小时 :53 会先删掉上一轮输出目录、新副本约 :02–:05 才落盘，单个目录取不到文件是常态：只有本机连历史副本都没有才算 error，否则一个目录的空档会把其余已同步成功的报表一起拖红</li>
-</ul>
-<p><a id="ch-15-s57"></a></p>
 <h5>数据库数据新鲜度巡检（<code>db_freshness_check</code>）</h5>
 <ul>
 <li>默认 cron: <code>15 * * * *</code>　|　worker 组: <strong>m</strong></li>
@@ -18340,6 +18320,24 @@ shared <code>auth_cache</code> 里 admin 的 token 明明还有 14.6 小时有�
 <ul>
 <li>怀疑「某类数据停更」时先看它的执行历史，按给出的调用链排查，比翻任务列表快</li>
 <li>取数任务&quot;成功/失败&quot;和数据&quot;几小时没更新&quot;是两件事：2026-09-30 事件总览滞后 2 小时却只表现为任务告警，因此文件年龄单独进巡检（FILE_CHECKS），新增文件型看板数据源时在这里补一条</li>
+</ul>
+<p><a id="ch-15-s57"></a></p>
+<h5>鉴权健康巡检（<code>auth_health_check</code>）</h5>
+<ul>
+<li>默认 cron: <code>0 7 * * *</code>　|　worker 组: <strong>m</strong></li>
+<li>工作流脚本: <code>scripts/auth_health_check.py → run_auth_health_check</code></li>
+</ul>
+<p><strong>功能</strong>: 每日 07:00 只读扫描锁定熔断标记、近 1 天日志里的验证码/锁定/密码错误、会话缓存新鲜度；md 报告 + JSON 明细留档到 outputs/auth_health/；仅 CRITICAL（验证码/锁定）推微信</p>
+<p><strong>工作流与数据流</strong>:</p>
+<ol>
+<li>每日 07:00 扫描 auth_cache/.locked_* 锁定标记、近 1 天日志鉴权错误、会话缓存年龄</li>
+<li>md 报告 + JSON 明细存到 outputs/auth_health/</li>
+<li>CRITICAL（验证码/锁定）时推微信，WARN（密码错误/空密码）只记结果不判失败</li>
+</ol>
+<p><strong>维护要点</strong>:</p>
+<ul>
+<li>验证码/锁定出现时按报告第 4 节处置，不要反复重试登录（连续 3 次密码错误会锁 1440 分钟）</li>
+<li>报告每天一份在 outputs/auth_health/，排查先看最新一份</li>
 </ul>
 <p><a id="ch-15-s58"></a></p>
 <h5>MTTR/TT 宽表重建（<code>mttr_tt_sync</code>）</h5>
@@ -20025,7 +20023,7 @@ shared <code>auth_cache</code> 里 admin 的 token 明明还有 14.6 小时有�
   </header>
   <p><a id="ch-90-s0"></a></p>
 <h3>A. 后端接口前缀速查</h3>
-<p>注册在 <code>backend/main.py</code>（实测 81 处 <code>include_router</code>）。前端 <code>baseURL</code> 是 <code>/api</code>（<code>frontend/src/api.ts:4</code>）。</p>
+<p>注册在 <code>backend/main.py</code>（实测 80 处 <code>include_router</code>）。前端 <code>baseURL</code> 是 <code>/api</code>（<code>frontend/src/api.ts:4</code>）。</p>
 <p><strong>带 prefix 的 router</strong></p>
 <table>
 <thead>
@@ -20135,10 +20133,6 @@ shared <code>auth_cache</code> 里 admin 的 token 明明还有 14.6 小时有�
 <td><code>/api/email-reports/latest</code>、<code>/api/email-reports/eflow_tt_rules_check</code>、下载</td>
 </tr>
 <tr>
-<td><code>routers/finebi_reports.py:26-48</code></td>
-<td><code>/api/finebi-reports/latest</code>、下载</td>
-</tr>
-<tr>
 <td><code>routers/sp_dashboard.py:25-55</code></td>
 <td>仓库看板 iframe 用：<code>/api/data</code>、<code>/api/warehouses</code>、<code>/api/details</code></td>
 </tr>
@@ -20235,7 +20229,7 @@ shared <code>auth_cache</code> 里 admin 的 token 明明还有 14.6 小时有�
 </tr>
 <tr>
 <td>任务报告文件</td>
-<td><code>GET /api/email-reports/latest</code>、<code>/finebi-reports/latest</code>、<code>/email-reports/eflow_tt_rules_check</code>、<code>POST /api/tasks/eflow_tt_rules_check/run</code></td>
+<td><code>GET /api/email-reports/latest</code>、<code>/email-reports/eflow_tt_rules_check</code>、<code>POST /api/tasks/eflow_tt_rules_check/run</code></td>
 </tr>
 <tr>
 <td>实时告警看板</td>
@@ -20384,7 +20378,7 @@ shared <code>auth_cache</code> 里 admin 的 token 明明还有 14.6 小时有�
 <p><strong>保留在 PROJECT_DOCS.md 不动</strong>（属于历史决策与复盘，不是&quot;现状描述&quot;）：§2 迁移计划、§3 架构评估与 Django 论证、§4 FastAPI 架构优化方案、§5–§6 i18n 审计与复查、§8 IP Trace 集成方案、§10 迁移失败复盘、§11 优化建议。</p>
 
 </section>
-  <footer class="colophon">my_app 项目手册 · 由 frontend/scripts/generate-manual-html.mjs 从 docs/manual/*.md 同源生成于 2026-11-11 · 改 MD 后重跑该脚本并重新构建前端即可更新</footer>
+  <footer class="colophon">my_app 项目手册 · 由 frontend/scripts/generate-manual-html.mjs 从 docs/manual/*.md 同源生成于 2026-11-12 · 改 MD 后重跑该脚本并重新构建前端即可更新</footer>
 </div>
 </body>
 </html>

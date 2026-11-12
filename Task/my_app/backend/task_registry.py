@@ -757,19 +757,19 @@ TASK_SPECS = [
          description_en="Hourly at minute 20: pull the latest incident_overview.xlsx from remote FineBI FTP /webroot/WEB-INF/schedule/TT_WO/ across all subfolders, store as versioned file + current.json pointer (immune to Excel lock), best-effort refresh snapshot; while upstream is regenerating it reuses a local copy younger than 90 minutes instead of failing",
          default_cron="20 * * * *", category="incident_overview"),
 
-    # 28b. FineBI 报表文件同步（每小时第 10 分钟）：schedule 下每个文件夹取最新 Excel 供下载
-    dict(task_id="finebi_report_sync", name="FineBI 报表文件同步", name_en="FineBI Report Files Sync",
-         loader=("backend.services.finebi_report_sync", "run_finebi_report_sync"),
-         description="每小时从 FineBI FTP /webroot/WEB-INF/schedule 的每个子文件夹取最新一份 Excel，下载到本地 data/finebi_reports 供 Task Report Files 页面下载；某目录本轮没有 Excel 而本机已有历史副本时只记 missing 不判失败（FineBI :53 重算空档是常态）",
-         description_en="Hourly: pull the latest Excel from each subfolder of FineBI FTP /webroot/WEB-INF/schedule into local data/finebi_reports for the Task Report Files page; a folder empty this cycle is recorded as missing instead of failing the task when a local copy already exists (FineBI deletes the previous output folder at :53)",
-         default_cron="10 * * * *", category="general"),
-
     # 29. 数据新鲜度巡检（每小时第 15 分钟）：远程库 + 本地回退库 + 本机文件型源
     dict(task_id="db_freshness_check", name="数据库数据新鲜度巡检", name_en="DB Data Freshness Check",
          loader=("backend.services.db_freshness_check", "run_db_freshness_check"),
          description="每小时巡检远程 DB（db_writer_api）、本地回退库各表最新数据日期，以及本机文件型数据源（FTP 落盘的 Excel）的落盘年龄，滞后时输出调用链路与检查方向",
          description_en="Hourly freshness audit of remote DBs (via db_writer_api), local fallback DBs, and local file-based sources (FTP-pulled Excel) by on-disk age; outputs call chain and troubleshooting guidance when stale",
          default_cron="15 * * * *", category="general"),
+
+    # 29b. 鉴权健康巡检（每天 07:00）：锁定标记 + 近 1 天日志鉴权错误 + 会话缓存新鲜度
+    dict(task_id="auth_health_check", name="鉴权健康巡检", name_en="Auth Health Check",
+         loader=("backend.scripts.auth_health_check", "run_auth_health_check"),
+         description="每日 07:00 只读扫描 auth_cache 锁定熔断标记、近 1 天日志里的验证码/锁定/密码错误、会话缓存新鲜度；md 报告 + JSON 明细 --save 留档到 outputs/auth_health/；仅 CRITICAL（验证码/锁定）推微信，WARN 只记结果不判失败",
+         description_en="Daily 07:00 read-only scan of auth lock markers, captcha/lock/wrong-password errors in the last 1 day of logs, and session-cache freshness; saves md report + JSON detail to outputs/auth_health/; pushes WeChat only on CRITICAL (captcha/lock), WARN is recorded without failing the task",
+         default_cron="0 7 * * *", category="general"),
 
     # 30. 失败任务自动重试 + 漏跑补投（每 10 分钟扫描）
     dict(task_id="auto_retry_failed", name="失败任务自动重试", name_en="Failed Task Auto Retry",

@@ -2,7 +2,7 @@
 
 ## A. 后端接口前缀速查
 
-注册在 `backend/main.py`（实测 81 处 `include_router`）。前端 `baseURL` 是 `/api`（`frontend/src/api.ts:4`）。
+注册在 `backend/main.py`（实测 80 处 `include_router`）。前端 `baseURL` 是 `/api`（`frontend/src/api.ts:4`）。
 
 **带 prefix 的 router**
 
@@ -35,7 +35,6 @@
 | `routers/tasks.py:30-195` | `/api/tasks`、`/api/tasks/{id}`、`/api/tasks/{id}/run|stop|toggle|schedule|status|history|stats`、`/api/tasks/failures`、`/api/tasks/toggle-all`、`/api/eflow/sync|status` |
 | `routers/system.py:21-96` | `/health`、`/data-source/timestamps`、`/db/info` |
 | `routers/email_reports.py:92-152` | `/api/email-reports/latest`、`/api/email-reports/eflow_tt_rules_check`、下载 |
-| `routers/finebi_reports.py:26-48` | `/api/finebi-reports/latest`、下载 |
 | `routers/sp_dashboard.py:25-55` | 仓库看板 iframe 用：`/api/data`、`/api/warehouses`、`/api/details` |
 | `routers/realtime_proxy.py:23-39` | 实时代理入口（实际代理端口 8787/8790 只绑回环） |
 | `routers/portal_qa.py` | 门户问答挂件：`/api/portal-qa/ask`、`/api/portal-qa/session/clear`、`/api/portal-qa/health`（转发到本机 9269，见 `13-operations.md`） |
@@ -63,7 +62,7 @@
 | 页面 | 关键接口 |
 | --- | --- |
 | 任务管理 | `GET /api/tasks`、`POST /api/tasks/{id}/run|stop|toggle|schedule`、`GET /api/tasks/failures` |
-| 任务报告文件 | `GET /api/email-reports/latest`、`/finebi-reports/latest`、`/email-reports/eflow_tt_rules_check`、`POST /api/tasks/eflow_tt_rules_check/run` |
+| 任务报告文件 | `GET /api/email-reports/latest`、`/email-reports/eflow_tt_rules_check`、`POST /api/tasks/eflow_tt_rules_check/run` |
 | 实时告警看板 | `/api/alarm-dashboard/overview`、`/history-drilldown`、`/realtime-drilldown` |
 | TT&WO | `/api/tt-wo-dashboard/overview`、`/drilldown`；`/workflow`（eFlow 流程定义，`Workflow` 里程碑的阶段顺序来源） |
 | WO（`page=wo`） | `/api/wo-dashboard/overview`、`/drilldown`（数据源 `eflow_wo`，口径函数与 TT&WO 共用；不接 `owner` 参数） |

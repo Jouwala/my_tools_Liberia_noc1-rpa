@@ -4,9 +4,7 @@
 5, | myapp   | spms   | http://192.168.100.20/myapp/?page=gis&t=b8120a4265a6e8569c6ccc27d1c7af6a2a87e568598fced2464dcdfb4bf072d5
 6, | myapp   | spms   | http://192.168.100.20/myapp/?page=site_avail&t=b8120a4265a6e8569c6ccc27d1c7af6a2a87e568598fced2464dcdfb4bf072d5
 7, | finebi  | spms   | http://192.168.100.20/myapp/?page=vmaxCxoDashboard
-8, | finebi  | spms   | http://192.168.100.19/webroot/decision/link/qXUp
 9, | finebi  | spms   | http://192.168.100.19/webroot/decision/link/NGk1
-10, | myapp   | spms   | http://192.168.100.19/webroot/decision/link/B7E3
 11, | myapp   | spms   | http://192.168.100.20/myapp/?page=alarm&t=b8120a4265a6e8569c6ccc27d1c7af6a2a87e568598fced2464dcdfb4bf072d5
 12, | external | spms   | http://192.168.100.20/myapp/?page=realtime_alarm&t=b8120a4265a6e8569c6ccc27d1c7af6a2a87e568598fced2464dcdfb4bf072d5
 13, | myapp   | spms   | http://192.168.100.20/myapp/?page=alarmManagement

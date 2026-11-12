@@ -987,22 +987,7 @@ export const TASK_DOCS: TaskDoc[] = [
       maintain: ['The versioned design survives the upstream Excel being locked open — a hard-won fix, do not revert to direct overwrite', 'Keep the schedule at minute 20 — FineBI deletes the previous output folder at :53 and the new copy lands around :02–:05, so an on-the-hour run hits that gap and reports a false "incident_overview.xlsx not found" (seen in 2026-09); inside the gap it reuses a local copy younger than 90 minutes instead of failing'],
     },
   },
-  {
-    id: 'finebi_report_sync', group: 'm', cron: '10 * * * *',
-    script: 'services/finebi_report_sync.py → run_finebi_report_sync',
-    zh: {
-      name: 'FineBI 报表文件同步',
-      desc: '每小时从 FineBI FTP /webroot/WEB-INF/schedule 的每个子文件夹取最新一份 Excel，下载到本地 data/finebi_reports 供任务报告文件页下载；某个目录本轮没有 Excel 只记缺失，不把整任务判失败',
-      flow: ['每小时 :10 遍历 schedule 下每个子文件夹', '各取最新一份 Excel 下载到 data/finebi_reports', '目录本轮无文件且本机有历史副本 → 记入 missing 继续跑下一个', '「任务报告文件 → FINEBI report」页签展示与下载'],
-      maintain: ['2026-08-25 分组模式启用时曾因未归组而 pending 卡死断档，后补入 m 组——新增任务务必登记 GROUP_TASK_MAP', 'FineBI 每小时 :53 会先删掉上一轮输出目录、新副本约 :02–:05 才落盘，单个目录取不到文件是常态：只有本机连历史副本都没有才算 error，否则一个目录的空档会把其余已同步成功的报表一起拖红'],
-    },
-    en: {
-      name: 'FineBI Report Files Sync',
-      desc: 'Hourly: pull the latest Excel from each subfolder of FineBI FTP /webroot/WEB-INF/schedule into data/finebi_reports for the Task Report Files page; a folder with no file this cycle is only recorded as missing instead of failing the whole task',
-      flow: ['Hourly :10 walk every subfolder under schedule', 'Download the latest Excel per folder into data/finebi_reports', 'Folder empty this cycle but a local copy exists → record as missing and continue', 'Listed & downloadable under Task Report Files → FINEBI report tab'],
-      maintain: ['Stuck pending and broke the chain when group mode enabled on 2026-08-25 (ungrouped); now in group m — always register new tasks in GROUP_TASK_MAP', 'FineBI deletes the previous output folder at :53 and the new copy lands around :02–:05, so one empty folder is normal: only a folder with no local copy at all counts as an error, otherwise that gap reddens every other report that synced fine'],
-    },
-  },
+
   {
     id: 'db_freshness_check', group: 'm', cron: '15 * * * *',
     script: 'services/db_freshness_check.py → run_db_freshness_check',
@@ -1017,6 +1002,22 @@ export const TASK_DOCS: TaskDoc[] = [
       desc: 'Hourly freshness audit of remote DBs (via db_writer_api), local fallback DBs, and local file-based sources (FTP-pulled Excel files) by their on-disk age; outputs call chain and guidance when stale',
       flow: ['Hourly :15 check the latest data date per table in remote & local fallback DBs', 'Also judge local file-based sources by the age of their newest file (e.g. incident_overview.xlsx for the incident overview page)', 'When stale, log the call chain and troubleshooting direction in the execution history'],
       maintain: ['Suspect stalled data? Check this task\'s history first and follow its call chain — faster than browsing the task list', 'A sync job succeeding and its data being hours old are two different facts: on 2026-09-30 the incident overview page sat 2h stale while only task alerts fired, so file age is now checked separately (FILE_CHECKS) — add an entry whenever a new page reads a file instead of a table'],
+    },
+  },
+  {
+    id: 'auth_health_check', group: 'm', cron: '0 7 * * *',
+    script: 'scripts/auth_health_check.py → run_auth_health_check',
+    zh: {
+      name: '鉴权健康巡检',
+      desc: '每日 07:00 只读扫描锁定熔断标记、近 1 天日志里的验证码/锁定/密码错误、会话缓存新鲜度；md 报告 + JSON 明细留档到 outputs/auth_health/；仅 CRITICAL（验证码/锁定）推微信',
+      flow: ['每日 07:00 扫描 auth_cache/.locked_* 锁定标记、近 1 天日志鉴权错误、会话缓存年龄', 'md 报告 + JSON 明细存到 outputs/auth_health/', 'CRITICAL（验证码/锁定）时推微信，WARN（密码错误/空密码）只记结果不判失败'],
+      maintain: ['验证码/锁定出现时按报告第 4 节处置，不要反复重试登录（连续 3 次密码错误会锁 1440 分钟）', '报告每天一份在 outputs/auth_health/，排查先看最新一份'],
+    },
+    en: {
+      name: 'Auth Health Check',
+      desc: 'Daily 07:00 read-only scan of lock markers, auth errors (captcha/lock/wrong password) in the last 1 day of logs, and session-cache freshness; saves md report + JSON detail to outputs/auth_health/; pushes WeChat only on CRITICAL (captcha/lock)',
+      flow: ['Daily 07:00 scan auth_cache/.locked_* markers, auth errors in the last 1 day of logs, and session-cache age', 'Save the md report + JSON detail to outputs/auth_health/', 'Push WeChat on CRITICAL (captcha/lock); WARN (wrong password/empty password) is recorded only'],
+      maintain: ['On captcha/lock follow section 4 of the report — do not retry logins repeatedly (3 consecutive wrong passwords lock the account for 1440 minutes)', 'One report per day under outputs/auth_health/ — check the latest one first when troubleshooting'],
     },
   },
   {

@@ -52,7 +52,7 @@ Exchange/OWA 邮箱  ─┘                                                  │
 | **NUR** | 网络不可用率。全网口径 `Σ(小区数×MTTR)×60 / (小区数×GR)`；站点级达标阈值 `NUR×100000 < 350`（`backend/services/nur_calc.py:367-373`）。有效 MTTR 限定 `>0 且 <43200 分钟`，未清除故障不计入（`nur_calc.py:304`） |
 | **UME** | 网管系统统称（RAN UME / iPRAN UME / CNN UME / MW UME / FMS Portal），凭据按制式分组存储 |
 | **eFlow** | ZTE 工单/告警平台，提供 TT/WO/CR/PM/Site/Person 接口与 FM Active/FM History 告警接口 |
-| **FineBI** | 报表平台。my_app 从它的 FTP 调度目录定时抓取最新 Excel（`finebi_report_sync`） |
+| **FineBI** | 报表平台。`incident_overview_sync` 仍从它的 FTP 调度目录定时抓取 `incident_overview.xlsx`；报表文件同步（`finebi_report_sync`）已于 2026-11-12 删除。 |
 | **SP** | Spare Parts，备件/耗材。`sp_data_sync` / `sp_report_generate` / 仓库看板 |
 | **CN EMS** | 华为/中兴之外的中文 EMS 采集源，原始 PM 文件服务器仅保留约 1 天，故需 15 分钟增量缓存（`task_registry.py:346-350`） |
 | **MW UME** | ZXMW 微波网管，KPI 每日 05:15 入库，拓扑看板读 `mw_ume_bw_ultilazation` |

@@ -202,11 +202,10 @@ my_app 处于**稳定运行**阶段（后端 7038 + 多组 worker + 双看门狗
       需要决策：周/月概览页是否要显式标注"此值为 Excel 口径，与下钻行数不可比"，
       避免用户把它当成 bug。相关背景见 `11-feature-guide.md` §30 的两总体说明。
 
-- [ ] **TT_WO 的 `incident_overview.xlsx` 被两条链路各拉一次，待合并。**
-      `incident_overview_sync`（落 `data\incident_overview\`，版本化文件 + `current.json`）与
-      `finebi_report_sync`（落 `data\finebi_reports\TT_WO\`）**每小时各从 FTP 拉同一个文件**，
-      同一份源在两个目录各存一份，且只有前者带新鲜度巡检。前置条件：事件总览页的读取路径
-      （`incident_overview_service.py::resolve_excel_path`）要先改成能接受统一目录，否则合并会把页面打挂。
+- [x] **TT_WO 的 `incident_overview.xlsx` 被两条链路各拉一次，待合并。**（2026-11-12 已解决：删除 `finebi_report_sync` 及其 `data\finebi_reports\TT_WO\` 落盘，只剩 `incident_overview_sync` 一条链路。）
+      此前 `incident_overview_sync`（落 `data\incident_overview\`，版本化文件 + `current.json`）与
+      `finebi_report_sync`（落 `data\finebi_reports\TT_WO\`）每小时各从 FTP 拉同一个文件，
+      同一份源在两个目录各存一份，且只有前者带新鲜度巡检。
       根因与口径见 `docs\manual\04-task-system.md` 的「FineBI `schedule/` 的重算空档」一节（2026-09-30）。
 
 - [ ] **`pyjab`（GPLv2）的分发边界认定。** `backend\services\cn_ems\cs_ems_jab.py:27` 依赖 GPLv2 的 `pyjab`，属**强传染**许可。前置条件：确认 `cn_ems\`（U31 EMS 桌面客户端 GUI 自动化）**是否随产品交付客户**——仅内网自用则 GPL「分发」未触发、风险可控；随产品交付则该脚本须 GPL 开源，与闭源定位冲突，需替换或隔离。该目录当前**无 router / `task_registry.py` 入口 import**，传染面有限。核查记录见 `docs\THIRD-PARTY-NOTICES.md` 第二节。

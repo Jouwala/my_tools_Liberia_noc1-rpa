@@ -40,9 +40,7 @@
     vmaxCxoDashboard_90Days: 'custom-vmax-cxo-dashboard-90days', ume_in_kpi: 'custom-ume-in-kpi'
   };
   var FINEBI_ACCESS_IDS = {
-    '/webroot/decision/link/qXUp': 'finebi-ms-contract-operation-kpis',
     '/webroot/decision/link/NGk1': 'finebi-ms-mttr-monthly-weekly',
-    '/webroot/decision/link/B7E3': 'finebi-ms-nur-monthly-weekly',
     '/webroot/decision/link/AIfA': 'finebi-fo-availability-daily',
     '/webroot/decision/link/435X': 'finebi-fo-availability-tt-related',
     '/webroot/decision/link/3GnT': 'finebi-flm-cm-dashboard',

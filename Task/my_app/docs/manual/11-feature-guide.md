@@ -141,9 +141,9 @@
 
 ## 2. 任务报告文件（`?page=email_reports`）
 
-取回五类产物并下载：**邮件附件**、**FineBI 报表**、**eFlow TT 规则检查结果**、**eFlow 推单规则检查结果**、**TTs and MTTR 月粒度报表**。
+取回四类产物并下载：**邮件附件**、**eFlow TT 规则检查结果**、**eFlow 推单规则检查结果**、**TTs and MTTR 月粒度报表**。
 
-- 五页签切换（`EmailReports.tsx` 的 `Tabs items`，key 依次为 `email` / `finebi` / `eflow_tt_rules_check` / `eflow_push_rules_check` / `tt_mttr`）；可设「保留最近 N 份」。
+- 五页签切换（`EmailReports.tsx` 的 `Tabs items`，key 依次为 `email` / `eflow_tt_rules_check` / `eflow_push_rules_check` / `tt_mttr` / `site_update`）；可设「保留最近 N 份」。
 - 各页独立刷新按钮（:350 / :377 / :407）；行内下载（:231 / :277 / 表格内「下载」列）。
 - eFlow 规则页有**三个手动触发按钮**（:463/:471/:479），点击后 3 秒做一次刷新（:157，**不是轮询**，任务慢时得手动再点刷新）：
   | 按钮 | 触发任务 | 端点 |
@@ -274,11 +274,10 @@
     （`_SOURCES` 注册见 `backend/routers/email_reports.py:44`），下载同样走通用 `/download/{source}/{file}`；
     页签表格只留 文件/大小/生成时间/下载（任务名与类型在该目录内恒定，没有信息量）。
   - 口径、公式写法与验证步骤见 `backend/services/tt_mttr_report.md`。
-- 接口：`GET /api/email-reports/latest`、`GET /api/finebi-reports/latest`、`GET /api/email-reports/eflow_tt_rules_check`、下钻 `GET /api/email-reports/eflow_tt_rules_check/drill`、未匹配分布 `GET /api/email-reports/eflow_tt_rules_check/unmatched_dist`、下载 `GET /api/.../download/{source}/{file}`。
+- 接口：`GET /api/email-reports/latest`、`GET /api/email-reports/eflow_tt_rules_check`、下钻 `GET /api/email-reports/eflow_tt_rules_check/drill`、未匹配分布 `GET /api/email-reports/eflow_tt_rules_check/unmatched_dist`、下载 `GET /api/.../download/{source}/{file}`。
 - **导出 Excel**（2026-09-27 新增）：**每个页签各一个导出按钮**，导的是该页签表格当前的全量行
   （这些表 `pagination={false}`，无分页截断）——
   - 邮件报表 `exportEmail` → `EmailReports_*.xlsx`（任务/类型/文件/大小/时间，不含「下载」操作列）；
-  - FineBI 报表 `exportFinebi` → `finebi_reports_*.xlsx`（文件夹/文件/大小/时间）；
   - eFlow 规则检查 `exportEflowCheck` → `eflow_tt_rules_check_*.xlsx`，多 sheet：`Summary`（统计卡 + 变更方向）、
     `Rules`（规则明细，变更列走数值着色）、`Files`（可下载产物清单）；
   - 推单规则检查 `exportPushCheck` → `eflow_push_rules_check_*.xlsx`，多 sheet：`Summary`（分类计数 + 规则 vs 实际）、

@@ -225,7 +225,7 @@ WHERE n.nspname = '<schema>' AND cl.relname = '<表>' AND c.contype IN ('p','u')
 | 目录 | 内容 | 备注 |
 | --- | --- | --- |
 | `db/` | `app.db`、`instance.lock`、`uploads/` | `instance.lock` 是单实例锁，异常退出残留时按 `13-operations.md` 处理 |
-| `data/<任务名>/` | 各任务落盘产物（battery、eflow、ms_sla、ip_trace、incident_overview、finebi_reports…） | 报表文件的"最新版"来源页是任务报告文件页 |
+| `data/<任务名>/` | 各任务落盘产物（battery、eflow、ms_sla、ip_trace、incident_overview…） | 报表文件的"最新版"来源页是任务报告文件页 |
 | `backend/data/` | `settings.json`（目前仅 `remote_host`）、`sp/*.xlsx` 中间产物 | |
 | `backend/services/auth_cache/` | 上游站点会话 cookie 缓存 | 由 `services/auth_manager.py:81` 维护，含有效凭据，**不得外发** |
 | `data/app.db`、`data/my_app.db` | 0 字节的**历史路径遗留**（已实测根目录下没有同名文件） | 已不使用，可清理 |
