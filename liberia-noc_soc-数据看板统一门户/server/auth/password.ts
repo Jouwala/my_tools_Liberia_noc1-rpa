@@ -41,3 +41,18 @@ export function newId(): string {
 export function newSessionToken(): string {
   return crypto.randomBytes(32).toString('hex');
 }
+
+/** 生成找回密码重置 token（32 字节随机 hex，强度与会话 token 一致） */
+export function newResetToken(): string {
+  return crypto.randomBytes(32).toString('hex');
+}
+
+/**
+ * 重置 token 的存储哈希。
+ * token 本身是 32 字节高熵随机值，无需 scrypt 那种抗暴力慢哈希 —— 用 SHA-256 即可。
+ * 服务端只存这份哈希，原始 token 仅出现在发给用户的邮件链接里（且走 URL fragment，
+ * 不进 nginx/服务端日志）。即便内存/存储泄露，拿到的也只是哈希，无法反推链接。
+ */
+export function hashResetToken(token: string): string {
+  return crypto.createHash('sha256').update(token).digest('hex');
+}

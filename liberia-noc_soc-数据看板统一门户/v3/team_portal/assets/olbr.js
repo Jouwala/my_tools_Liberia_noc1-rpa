@@ -3101,13 +3101,18 @@
 
   /* ⚠️ 2026-09-29（用户要求「GIS Map 添加并只显示 /myapp/?page=mwRealTime 的地图组件，
      reload 和 openlink 放到最右边」，随后澄清「GIS Map 和 mwRealTime 都要显示」）：
-     本栏**内嵌** my_app 的地图页（iframe），当前**四个页签**：
+     本栏**内嵌** my_app 的地图页（iframe），当前**六个页签**
+     （2026-11-10 多一个 IP / ipranTopo，2026-11-11 多一个 PL / packet_loss）：
        · gis         —— 「Alarm」（GIS 页）
        · person      —— 「Person」（人员位置地图，2026-10-19 按用户要求加在 Alarm 之后）
        · mwRealTime  —— 「MW」（微波实时）
-       · ipt_power   —— 「IPT Power」（2026-11-06 加）：只显示 Site map 地图卡，
-                         筛选条 / KPI 数字卡 / 右侧站点清单由剥离样式隐藏
-                         （见 olbr-data.js 的 MAP_TAB_CSS；直开 /myapp/ 仍是完整业务页）
+       · ipt_power   —— 「Power」（2026-11-06 加，原名 IPT Power，2026-11-11 改名）：
+                         只显示 Site map 地图卡，筛选条 / KPI 数字卡 / 右侧站点清单
+                         由剥离样式隐藏（见 olbr-data.js 的 MAP_TAB_CSS）
+       · ipranTopo   —— 「IP」（2026-11-10 加）：自绘拓扑 SVG，不注入剥离样式
+       · packet_loss —— 「PL」（2026-11-11 加）：只显示 Packet Loss Map 地图卡，
+                         横幅 / KPI 卡 / 图表 / 右侧指标列由 PL_MAP_ONLY_CSS 隐藏
+                         （直开 /myapp/ 仍是完整业务页）
      概念上分两层，读代码时别搞混：
        · 屏幕上方那行标题叫 **GIS Map** —— 那是**栏标题**，来自 map.title
          （headTitleText()，可改名，也可被 catalog.tabLabels.__head 覆盖）；
@@ -3196,9 +3201,9 @@
            只显示地图」—— 该页默认是完整看板（筛选条/KPI/图表/人员表），
            由 my_app 侧按这个参数切成"只有 Leaflet 画布"的形态（见 PersonMap.tsx
            的 readMapOnlyMode 注释：为什么不让门户用 MAP_STRIP_CSS 去剥）。 */
-        src: '/myapp/?page=' + m.page + '&mwembed=1&embed=1'
+        src: '/myapp/?page=' + m.page + '&mwembed=1&embed=1' + (m.qs ? '&' + m.qs : '')
           + (m.page === 'gis' ? '&gisShift=1' : '')
-          + (m.page === 'person' ? '&maponly=1' : '')
+          + (m.page === 'person' || m.page === 'ipranTopo' ? '&maponly=1' : '')
           + (state.theme === 'dark' ? '&theme=dark' : '') + langQs()
       };
     });
@@ -5011,8 +5016,9 @@
      ⚠️ url 用**同源相对路径**：qaSrc 的 my_app 分支会统一补 embed=1 / lang / theme，
         与 emailSrc / mapSrc 同一理由 —— 换机房、换域名都不用跟着改。
      ⚠️ 团队门户：scripts/patch_team_portal.py 的 qa-filter 钩子按矩阵
-        qa/master_site 判据决定要不要显示。矩阵目前没有这一项，故五个团队门户
-        仍是原来的两个页签，主门户（SCOPE 为 null）恒显示本页签。 */
+        qa/master_site 判据决定要不要显示。2026-11-11 起该项勾了 fo / bo / flm，
+        这三个团队门户也显示本页签；smc / cxo 未勾、仍是原来的两个页签。
+        主门户（SCOPE 为 null）恒显示本页签。 */
   var QA_MASTER_SITE_TABLE = 'master_site_db';
   function masterSiteItem() {
     return {
@@ -5053,10 +5059,10 @@
        ⚠️ 服务端库矩阵里可能仍残留 qa/vmax（合并逻辑只补不删），
          qaItems() 已不消费它，qaTabs() 多返回一项也无副作用。
        ⚠️ 2026-11-08：上游新增第三个页签 master_site（Master Site，站点主数据表）。
-         用户只要求主门户 /v3/olbrportal/ 加，团队门户按矩阵走 —— 矩阵的 qa 域
-         目前没有 master_site 这一项，故这里默认把它置 null，五个团队门户
-         仍是原来的两个页签。将来若要把这个页签开放给某些团队，在矩阵里
-         勾 qa/master_site 即可，本判据会自动放行，无需再改代码。 */
+         用户最初只要求主门户 /v3/olbrportal/ 加，团队门户按矩阵走；
+         2026-11-11 起矩阵 qa/master_site 勾了 fo / bo / flm，本判据自动放行，
+         这三个团队门户也显示该页签，smc / cxo 未勾、置 null 保持两个页签。
+         以后要增删团队只改 scope-map.json 的矩阵即可，无需再动代码。 */
     if (SCOPE) {
       var qaAllow = SCOPE.qaTabs();
       if (qaAllow.indexOf('eflow') === -1) eflow = null;
@@ -5461,6 +5467,63 @@
 
      ⚠️ state.escLv 已随之删除，不要再加回来：它是档位按钮的专属状态，
      留着只会是一个永远为空、却让人以为"还有按档筛选"的悬空字段。 */
+  /* ------------------------------------------------------------------------
+     Escalation Matrix：运行时从 AP 组织库取数（2026-11-11 · B 治本）
+     ------------------------------------------------------------------------
+     背景：这张表原先是 `MsPortal/assets/data.js` 里的 21 行硬编码，与 my_app 的
+     `ap_org_people` 是两份各自维护的副本 —— 改库不改门户。2026-11-10 有人把
+     `ap_org_people.xlsx` 导入 PG 后（Goni Mustapha 补了 Orange 号），页面纹丝不动，
+     根因就在这里。现在把**库**定为唯一真相源，静态 21 行退化为兜底。
+
+     口径：
+       · 首屏仍先画静态表（不空白、不抖动）；接口回来后**只重画 #esc 这一块**，
+         绝不调 render() —— 那会把 4 个地图 iframe 全重建（见 renderCatalog 注释）。
+       · 接口失败 / 返回空 / 未登录 → 静默保留静态表，不弹错、不改写 D。
+       · 只覆盖 rows，不覆盖 levels：levels 是 zh/en 对照的档位说明，库里没有。
+       · `escOrgLive` 只用来给脚注标数据源，方便一眼确认当前走的是库还是兜底；
+         copyEsc() 同样读 D.escalation.rows，「复制」与屏幕自动一致，无需另改。
+
+     为什么复用 api() 而不另写 fetch：团队门户的 patch 钩子给 api() 包了 401 自愈
+     （window.OLBR_SESSION.retryOn401），上游 SCOPE 为 null 时行为不变；自己裸 fetch
+     会绕开那层，局域网访客首屏可能还没拿到 myapp_session 就直接 401。
+     ⚠️ state.signedOut 只在团队版由钩子注入；上游恒为 undefined，判断天然为假，
+        但团队版登出后迟到的回调必须靠它挡住，否则 #esc 会被重新解隐。
+     ------------------------------------------------------------------------ */
+  var ESC_ORG_API = '/api/ap/org';
+  var escOrgBusy = false, escOrgLive = false;
+
+  function loadEscOrg() {
+    if (escOrgBusy || state.signedOut) return;
+    escOrgBusy = true;
+    api(ESC_ORG_API).then(function (d) {
+      var people = (d && d.people) || [];
+      if (!Array.isArray(people) || !people.length) return;
+      var rows = [];
+      for (var i = 0; i < people.length; i++) {
+        var p = people[i] || {};
+        /* 后端 list_org() 已用 WHERE active = 1 过滤停用人员，这里不再判 active；
+           只要既无档位又无人名的脏行跳过，其余逐格照抄（含空号、空格、大小写）。 */
+        if (!p.level && !p.name) continue;
+        rows.push({
+          level: String(p.level || ''), position: String(p.position || ''),
+          name: String(p.name || ''), orange: String(p.orange || ''),
+          lonestar: String(p.lonestar || ''), email: String(p.email || '')
+        });
+      }
+      if (!rows.length) return;
+      var E = D.escalation || (D.escalation = { levels: [], rows: [] });
+      E.rows = rows;
+      escOrgLive = true;
+      if (state.signedOut) return;
+      renderEsc();
+    }).catch(function (e) {
+      /* 静默回落：静态表已经在屏上，弹错只会让人以为页面坏了。控制台留痕便于排障。 */
+      if (window.console && console.warn) {
+        console.warn('[esc] org API unavailable, using static matrix:', e && e.message);
+      }
+    }).then(function () { escOrgBusy = false; });
+  }
+
   var ESC_DEFAULT_ROWS = 4;
   function renderEsc() {
     var box = $('#esc'), E = D.escalation || {}, rows = E.rows || [], lv = E.levels || [];
@@ -5514,7 +5577,10 @@
           esc(tf('esc.moreRows', { n: hidden })) + '</p>' : '') +
         /* 脚注原来还跟着「当前档位的说明文字」（按档筛选时才非空）。
            档位按钮删掉后它恒为空，留着就是一句永远拼不出来的尾巴，故整段去掉。 */
-        '<p class="esc-note">' + esc(t('esc.src')) + ' · ' +
+        /* 2026-11-11：库取数成功时脚注标「实时」，失败仍是原来的静态源说明。
+           这一处刻意放在 renderEsc() 内部而不是 loadEscOrg() 里塞 DOM —— 切语言、
+           展开/收起、目录重绘都会重跑本函数，脚注必须跟着当前状态走。 */
+        '<p class="esc-note">' + esc(t(escOrgLive ? 'esc.srcLive' : 'esc.src')) + ' · ' +
         '<button type="button" class="gb" data-act="esc-copy" style="margin-left:8px"><i class="ph ph-copy"></i>' + esc(t('esc.copy')) + '</button></p></div>';
     }
     box.innerHTML = html;
@@ -7744,10 +7810,11 @@
        该页不暴露 fitAllSites，走 zoomOnce 那条路 —— 本项为 false 时 zoomOnce
        对它早退，即"打开即所见"。 */
     person: false,
-    /* 2026-11-06 加 ipt_power（"IPT Power" 页签）：纯地图形态后仍沿用内层页
-       自己的 zoom 8 取景，门户不做任何自动放大（同 Alarm / MW / Person）。
-       未登记的页默认也是不放大，这里显式列出便于对照。 */
-    ipt_power: false
+    /* 2026-11-06 加 ipt_power（现名 "Power" 页签，原名 IPT Power）：纯地图形态后
+       仍沿用内层页自己的 zoom 8 取景，门户不做任何自动放大（同 Alarm / MW / Person）。
+       未登记的页默认也是不放大，这里显式列出便于对照。
+       2026-11-11 加 packet_loss（"PL" 页签）：同样用内层页自己的 zoom 8。 */
+    ipt_power: false, ipranTopo: false, packet_loss: false
   };
   /* 打开后自动**缩小一级**的页（2026-10-12 加，2026-10-13 清空）。
      与 MAP_ZOOM_IN_BY_PAGE 是两个方向、互斥使用：同一页不会既放大又缩小。
@@ -8045,7 +8112,8 @@
   }
   /** 锁定（true）/ 解锁（false）地图滚轮缩放。lock 省略时以 state.mapWheelLock 为准。 */
   function applyMapWheelLock(f, lock) {
-    var on = lock == null ? state.mapWheelLock : !!lock;
+    
+     var on = lock == null ? state.mapWheelLock : !!lock;
     var d = null;
     try { d = f && f.contentDocument; } catch (e) { /* 跨域静默 */ }
     if (!d || !d.documentElement) return;
@@ -8199,12 +8267,22 @@
      renderL0 与快速路径共用 —— 抽出来才能两处都只写一份。 */
   function mapToolsHtml() {
     var on = state.mapWheelLock;
-    return '<div class="map-tools">' +
-      '<button type="button" class="gb gb--t' + (on ? '' : ' unlocked') + '" data-act="map-zoomlock" aria-pressed="' +
-      (on ? 'true' : 'false') + '" title="' + esc(t(on ? 'map.zoomlockOn' : 'map.zoomlockOff')) + '">' +
-      '<i class="ph ' + (on ? DATA.PH.lock : DATA.PH['lock-open']) + '" aria-hidden="true"></i>' +
-      '<span>' + esc(t('map.zoomlock')) + '</span></button>' +
-      '<button type="button" class="gb gb--t" data-act="map-reload" title="' + esc(t('map.reload')) + '"><i class="ph ph-arrow-clockwise"></i><span>' + esc(t('map.reload')) + '</span></button>' +
+    /* 2026-11-11：用户要求「zoom lock 和 reload 只显示图标，不再显示文字」。
+       文字直接从 DOM 去掉（不是用 CSS 藏）—— 宽屏/窄屏、上游/团队门户口径统一，
+       也省下标题条的水平空间（本栏刚加到 6 个页签）。
+       ⚠️ aria-label 必须留：纯图标按钮没有可访问名称，读屏软件会只剩「按钮」；
+          同时 map.zoomlock 这个 i18n 键也靠它继续被引用（title 用的是 zoomlockOn/Off）。
+       ⚠️ title 是「点了会发生什么」的状态说明，与按钮上的恒定文字是两回事，
+          别把两者并成一个（见 olbr-data.js 里 zoomlock 那段历史注释）。 */
+    var lockBtn = '<button type="button" class="gb gb--t' + (on ? '' : ' unlocked') + '" data-act="map-zoomlock" aria-pressed="' + (on ? 'true' : 'false') + '" aria-label="' + esc(t('map.zoomlock')) + '" title="' + esc(t(on ? 'map.zoomlockOn' : 'map.zoomlockOff')) + '"><i class="ph ' + (on ? DATA.PH.lock : DATA.PH['lock-open']) + '" aria-hidden="true"></i></button>';
+     return '<div class="map-tools">' + lockBtn +
+
+
+
+
+      /* 2026-11-11：同缩放锁，改为纯图标；title + aria-label 保留可访问名称。
+         ⚠️ Open Link 那一颗仍带文字 —— 用户只点名了 zoom lock 与 reload 两颗。 */
+      '<button type="button" class="gb gb--t" data-act="map-reload" aria-label="' + esc(t('map.reload')) + '" title="' + esc(t('map.reload')) + '"><i class="ph ph-arrow-clockwise"></i></button>' +
       /* href 用 mapOpenSrc() 而不是 mapSrc()：新窗口要给完整页面，见上方注释。 */
       '<a class="gb gb--t" id="mapOpen" href="' + esc(mapOpenSrc()) + '" target="_blank" rel="noopener noreferrer" title="' + esc(t('map.open')) + '"><i class="ph ph-arrow-square-out"></i><span>' + esc(t('map.open')) + '</span></a>' +
       '</div>';
@@ -8787,7 +8865,9 @@
     (function qcLoopFull() {
       /* v1：CXO 指标带搭这一档的便车（同一小时刻度）。它是日粒度数据，
          一小时刷一次已经远快于上游变化，不值得为它单开一个定时器。 */
-      window.setTimeout(function () { loadQc(); loadKpi(); qcLoopFull(); },
+      /* 2026-11-11：Escalation Matrix 的组织名单搭这一档便车，每小时跟一次库。
+         它变化频率远低于 KPI，不值得单开定时器；页面刷新时 start() 也会立刻拉一次。 */
+      window.setTimeout(function () { loadQc(); loadKpi(); loadEscOrg(); qcLoopFull(); },
         qcNextDelay(DATA.QC_FULL_MIN, DATA.QC_FULL_OFFSET));
     })();
     (function qcLoopAlarm() {
@@ -8812,6 +8892,8 @@
     loadKpi();
     startQcLoops();
     loadCatalog();
+    /* 组织名单与 QC/KPI 并行发，不串在后面 —— 互不相干，串起来只会让表格晚一拍上屏。 */
+    loadEscOrg();
   }
   function loadCatalog() {
     api('/api/portal-catalog').then(function (d) {
