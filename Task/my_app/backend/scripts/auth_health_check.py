@@ -352,6 +352,89 @@ def notify_weixin(overall, cats, active_locks, report_path):
         logging.getLogger("auth_health").warning("微信通知异常: %s", e)
 
 
+def _save_report(report, overall, days, cats, active_locks, stale_locks,
+                 cache_rows, with_json=False):
+    """把巡检报告写盘（md + 可选 JSON 明细），返回 (md_path, json_path)。
+    与 main() 的 --save 行为一致：目标被占用时短重试 + 降级另存。"""
+    REPORT_DIR.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    md_path = REPORT_DIR / f"auth_health_{stamp}.md"
+    # 容忍目标被占用：短重试 + 降级另存
+    for attempt in range(3):
+        try:
+            md_path.write_text(report, encoding="utf-8")
+            break
+        except OSError:
+            if attempt == 2:
+                md_path = REPORT_DIR / f"auth_health_{stamp}_alt{attempt}.md"
+                md_path.write_text(report, encoding="utf-8")
+            else:
+                time.sleep(1)
+    json_path = None
+    if with_json:
+        data = {"overall": overall, "days": days,
+                "generated_at": datetime.now().isoformat(),
+                "categories": cats, "active_locks": active_locks,
+                "stale_locks": stale_locks, "cache": cache_rows}
+        json_path = md_path.with_suffix(".json")
+        json_path.write_text(json.dumps(data, ensure_ascii=False, indent=2),
+                             encoding="utf-8")
+    return md_path, json_path
+
+
+def run_auth_health_check() -> dict:
+    """任务入口：每日 07:00 只读巡检鉴权健康（days=1，--save 留档）。
+    与 main() 等价的一次巡检，但不调 sys.exit、不往 stdout 打印报告。
+    返回约定照 db_freshness_check：success + error（task_runner 的失败通知
+    取 error 字段）；CRITICAL 判失败，WARN 只记详情不判失败。"""
+    logger = logging.getLogger("auth_health")
+    t_start = time.time()
+    days = 1
+
+    cats, files_scanned = scan_logs(days)
+    active_locks, stale_locks = scan_lock_markers()
+    cache_rows = scan_cache_freshness()
+    overall, report = build_report(days, cats, files_scanned,
+                                   active_locks, stale_locks, cache_rows)
+    md_path, json_path = _save_report(report, overall, days, cats,
+                                      active_locks, stale_locks, cache_rows,
+                                      with_json=True)
+    logger.info("[AuthHealth] 巡检完成: overall=%s 日志文件=%d 报告=%s",
+                overall, files_scanned, md_path)
+
+    if overall == "CRITICAL":
+        try:
+            notify_weixin(overall, cats, active_locks, md_path)
+        except Exception as e:  # noqa: BLE001 - 通知故障不改变巡检结果
+            logger.warning("[AuthHealth] CRITICAL 微信通知异常: %s", e)
+
+    crit = {k: v for k, v in cats.items() if v["severity"] == "CRITICAL"}
+    warn = {k: v for k, v in cats.items() if v["severity"] == "WARN"}
+    error_text = None
+    if overall == "CRITICAL":
+        parts = [f"{v['desc']}{v['count']}条" for v in crit.values()]
+        if active_locks:
+            parts.append(f"锁定冷却中 {len(active_locks)} 个")
+        error_text = "鉴权健康 CRITICAL：" + "；".join(parts)
+
+    return {
+        "success": overall != "CRITICAL",
+        "error": error_text,
+        "overall": overall,
+        "days": days,
+        "files_scanned": files_scanned,
+        "critical": {k: {"desc": v["desc"], "count": v["count"]}
+                     for k, v in crit.items()},
+        "warn": {k: {"desc": v["desc"], "count": v["count"]}
+                 for k, v in warn.items()},
+        "active_locks": active_locks,
+        "stale_locks": stale_locks,
+        "report_path": str(md_path),
+        "json_path": str(json_path) if json_path else "",
+        "elapsed_seconds": round(time.time() - t_start, 2),
+    }
+
+
 def main():
     ap = argparse.ArgumentParser(description="鉴权健康小巡检（只读）")
     ap.add_argument("--days", type=int, default=1, help="扫描近 N 天日志（默认 1）")
@@ -380,32 +463,14 @@ def main():
     # 控制台输出（stdout 已在 main 开头 reconfigure 为 UTF-8/replace，无需再兜底）
     print(report)
 
-    md_path = None
+    md_path, json_path = (None, None)
     if args.save:
-        REPORT_DIR.mkdir(parents=True, exist_ok=True)
-        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        md_path = REPORT_DIR / f"auth_health_{stamp}.md"
-        # 容忍目标被占用：短重试 + 降级另存
-        for attempt in range(3):
-            try:
-                md_path.write_text(report, encoding="utf-8")
-                break
-            except OSError:
-                if attempt == 2:
-                    md_path = REPORT_DIR / f"auth_health_{stamp}_alt{attempt}.md"
-                    md_path.write_text(report, encoding="utf-8")
-                else:
-                    time.sleep(1)
+        md_path, json_path = _save_report(report, overall, days, cats,
+                                          active_locks, stale_locks, cache_rows,
+                                          with_json=args.json)
         print(f"\n[已保存] {md_path}")
-        if args.json:
-            data = {"overall": overall, "days": days,
-                    "generated_at": datetime.now().isoformat(),
-                    "categories": cats, "active_locks": active_locks,
-                    "stale_locks": stale_locks, "cache": cache_rows}
-            jp = md_path.with_suffix(".json")
-            jp.write_text(json.dumps(data, ensure_ascii=False, indent=2),
-                          encoding="utf-8")
-            print(f"[已保存] {jp}")
+        if json_path:
+            print(f"[已保存] {json_path}")
 
     if args.notify:
         logging.basicConfig(level=logging.INFO,

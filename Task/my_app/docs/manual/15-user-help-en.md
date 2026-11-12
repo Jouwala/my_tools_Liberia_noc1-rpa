@@ -10,7 +10,7 @@
 
 - [1. Platform Overview](#1-platform-overview)
 - [2. General Usage](#2-general-usage)
-- [3. Task Manager Deep Dive (83 tasks)](#3-task-manager-deep-dive)
+- [3. Task Manager Deep Dive (84 tasks)](#3-task-manager-deep-dive)
 - [4. Pages Guide](#4-pages-guide)
 - [5. Ops & Troubleshooting](#5-ops-troubleshooting)
 - [6. FAQ](#6-faq)
@@ -83,7 +83,7 @@ Built for the NOC scenario "boards every day, reports must go out": 41+ schedule
 
 > ⚠️ **New tasks MUST also be registered in `GROUP_TASK_MAP` in worker_watchdog.py** — declaring them only in TASK_SPECS leaves them pending forever. This accident happened four times (finebi_report_sync / whatsapp_send_ext / sp_email_details / the olib_soc and vmax_multi_data_sync tasks found on 2026-09-18).
 
-### 3.3 Full task catalog (83 tasks)
+### 3.3 Full task catalog (84 tasks)
 
 | Task | task_id | Default cron | Group | Workflow script |
 | --- | --- | --- | --- | --- |
@@ -137,6 +137,7 @@ Built for the NOC scenario "boards every day, reports must go out": 41+ schedule
 | Mailbox Storage Guard | `mailbox_cleanup` | `0 * * * *` | m | `services/mailbox_cleanup.py → run_mailbox_cleanup` |
 | Incident Overview Data Sync | `incident_overview_sync` | `20 * * * *` | m | `services/incident_overview_sync.py → run_incident_overview_sync` |
 | DB Data Freshness Check | `db_freshness_check` | `15 * * * *` | m | `services/db_freshness_check.py → run_db_freshness_check` |
+| Auth Health Check | `auth_health_check` | `0 7 * * *` | m | `scripts/auth_health_check.py → run_auth_health_check` |
 | MTTR/TT Wide Table Rebuild | `mttr_tt_sync` | `40 7 * * *` | m | `services/mttr_tt_sync.py → run_mttr_tt_sync` |
 | Progress Wide Table Rebuild | `progress_sync` | `50 7 * * *` | m | `services/progress_sync.py → run_progress_sync` |
 | Failed Task Auto Retry | `auto_retry_failed` | `*/10 * * * *` | m | `services/auto_retry.py → run_auto_retry_task` |
@@ -1113,6 +1114,24 @@ Workflow & maintenance notes per task:
 
 - Suspect stalled data? Check this task's history first and follow its call chain — faster than browsing the task list
 - A sync job succeeding and its data being hours old are two different facts: on 2026-09-30 the incident overview page sat 2h stale while only task alerts fired, so file age is now checked separately (FILE_CHECKS) — add an entry whenever a new page reads a file instead of a table
+
+#### Auth Health Check（`auth_health_check`）
+
+- Default cron: `0 7 * * *`　|　worker group: **m**
+- Workflow script: `scripts/auth_health_check.py → run_auth_health_check`
+
+**What it does**: Daily 07:00 read-only scan of lock markers, auth errors (captcha/lock/wrong password) in the last 1 day of logs, and session-cache freshness; saves md report + JSON detail to outputs/auth_health/; pushes WeChat only on CRITICAL (captcha/lock)
+
+**Workflow & data flow**:
+
+1. Daily 07:00 scan auth_cache/.locked_* markers, auth errors in the last 1 day of logs, and session-cache age
+1. Save the md report + JSON detail to outputs/auth_health/
+1. Push WeChat on CRITICAL (captcha/lock); WARN (wrong password/empty password) is recorded only
+
+**Maintenance**:
+
+- On captcha/lock follow section 4 of the report — do not retry logins repeatedly (3 consecutive wrong passwords lock the account for 1440 minutes)
+- One report per day under outputs/auth_health/ — check the latest one first when troubleshooting
 
 #### MTTR/TT Wide Table Rebuild（`mttr_tt_sync`）
 

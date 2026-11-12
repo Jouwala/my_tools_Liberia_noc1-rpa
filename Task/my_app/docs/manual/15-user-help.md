@@ -10,7 +10,7 @@
 
 - [1. 平台简介](#1-平台简介)
 - [2. 通用操作](#2-通用操作)
-- [3. 任务管理详解（83 个任务）](#3-任务管理详解)
+- [3. 任务管理详解（84 个任务）](#3-任务管理详解)
 - [4. 页面指南](#4-页面指南)
 - [5. 运维与排障](#5-运维与排障)
 - [6. 常见问题](#6-常见问题)
@@ -83,7 +83,7 @@
 
 > ⚠️ **新增任务必须同时登记进 `worker_watchdog.py` 的 `GROUP_TASK_MAP`** —— 只写 `TASK_SPECS` 不分组 = 任务入队后永远 pending。这是本项目已发生过四次的事故模式（finebi_report_sync / whatsapp_send_ext / sp_email_details / 2026-09-18 的 olib_soc 与 vmax_multi_data_sync）。
 
-### 3.3 全量任务清单（83 个）
+### 3.3 全量任务清单（84 个）
 
 | 任务 | task_id | 默认 cron | 组 | 工作流脚本 |
 | --- | --- | --- | --- | --- |
@@ -137,6 +137,7 @@
 | 邮箱空间清理 | `mailbox_cleanup` | `0 * * * *` | m | `services/mailbox_cleanup.py → run_mailbox_cleanup` |
 | Incident Overview 数据同步 | `incident_overview_sync` | `20 * * * *` | m | `services/incident_overview_sync.py → run_incident_overview_sync` |
 | 数据库数据新鲜度巡检 | `db_freshness_check` | `15 * * * *` | m | `services/db_freshness_check.py → run_db_freshness_check` |
+| 鉴权健康巡检 | `auth_health_check` | `0 7 * * *` | m | `scripts/auth_health_check.py → run_auth_health_check` |
 | MTTR/TT 宽表重建 | `mttr_tt_sync` | `40 7 * * *` | m | `services/mttr_tt_sync.py → run_mttr_tt_sync` |
 | Progress 宽表重建 | `progress_sync` | `50 7 * * *` | m | `services/progress_sync.py → run_progress_sync` |
 | 失败任务自动重试 | `auto_retry_failed` | `*/10 * * * *` | m | `services/auto_retry.py → run_auto_retry_task` |
@@ -1113,6 +1114,24 @@
 
 - 怀疑「某类数据停更」时先看它的执行历史，按给出的调用链排查，比翻任务列表快
 - 取数任务"成功/失败"和数据"几小时没更新"是两件事：2026-09-30 事件总览滞后 2 小时却只表现为任务告警，因此文件年龄单独进巡检（FILE_CHECKS），新增文件型看板数据源时在这里补一条
+
+#### 鉴权健康巡检（`auth_health_check`）
+
+- 默认 cron: `0 7 * * *`　|　worker 组: **m**
+- 工作流脚本: `scripts/auth_health_check.py → run_auth_health_check`
+
+**功能**: 每日 07:00 只读扫描锁定熔断标记、近 1 天日志里的验证码/锁定/密码错误、会话缓存新鲜度；md 报告 + JSON 明细留档到 outputs/auth_health/；仅 CRITICAL（验证码/锁定）推微信
+
+**工作流与数据流**:
+
+1. 每日 07:00 扫描 auth_cache/.locked_* 锁定标记、近 1 天日志鉴权错误、会话缓存年龄
+1. md 报告 + JSON 明细存到 outputs/auth_health/
+1. CRITICAL（验证码/锁定）时推微信，WARN（密码错误/空密码）只记结果不判失败
+
+**维护要点**:
+
+- 验证码/锁定出现时按报告第 4 节处置，不要反复重试登录（连续 3 次密码错误会锁 1440 分钟）
+- 报告每天一份在 outputs/auth_health/，排查先看最新一份
 
 #### MTTR/TT 宽表重建（`mttr_tt_sync`）
 

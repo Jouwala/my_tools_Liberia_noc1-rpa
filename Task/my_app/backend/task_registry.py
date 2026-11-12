@@ -764,6 +764,13 @@ TASK_SPECS = [
          description_en="Hourly freshness audit of remote DBs (via db_writer_api), local fallback DBs, and local file-based sources (FTP-pulled Excel) by on-disk age; outputs call chain and troubleshooting guidance when stale",
          default_cron="15 * * * *", category="general"),
 
+    # 29b. 鉴权健康巡检（每天 07:00）：锁定标记 + 近 1 天日志鉴权错误 + 会话缓存新鲜度
+    dict(task_id="auth_health_check", name="鉴权健康巡检", name_en="Auth Health Check",
+         loader=("backend.scripts.auth_health_check", "run_auth_health_check"),
+         description="每日 07:00 只读扫描 auth_cache 锁定熔断标记、近 1 天日志里的验证码/锁定/密码错误、会话缓存新鲜度；md 报告 + JSON 明细 --save 留档到 outputs/auth_health/；仅 CRITICAL（验证码/锁定）推微信，WARN 只记结果不判失败",
+         description_en="Daily 07:00 read-only scan of auth lock markers, captcha/lock/wrong-password errors in the last 1 day of logs, and session-cache freshness; saves md report + JSON detail to outputs/auth_health/; pushes WeChat only on CRITICAL (captcha/lock), WARN is recorded without failing the task",
+         default_cron="0 7 * * *", category="general"),
+
     # 30. 失败任务自动重试 + 漏跑补投（每 10 分钟扫描）
     dict(task_id="auto_retry_failed", name="失败任务自动重试", name_en="Failed Task Auto Retry",
          loader=("backend.services.auto_retry", "run_auto_retry_task"),

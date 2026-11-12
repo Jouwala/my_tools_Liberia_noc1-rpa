@@ -415,6 +415,11 @@ GROUP_TASK_MAP = {
         "kpi_ran_availability,email_recovery,ipran_m6k_chart_email,"
         "ccn_free_rating_chart_email,battery_email,mailbox_cleanup,"
         "incident_overview_sync,auto_retry_failed,db_freshness_check,sp_report_generate,"
+        # auth_health_check 2026-11-12 注册：鉴权健康巡检（每天 07:00，只读扫
+        # 锁定标记/近 1 天日志鉴权错误/会话缓存新鲜度，报告落 outputs/auth_health/）。
+        # 归 m 组：与 db_freshness_check 同属内务轻量巡检，不占任何上游会话，
+        # 不写业务库；只在 CRITICAL 时推微信。
+        "auth_health_check,"
         # sp_email_details 2026-09-01 补录：新注册时漏分组，无 worker 认领，
         # 任务管理页手动执行一直「队列中等待」直到 300s 超时（同 whatsapp_send_ext 教训）
         "sp_email_details,"
