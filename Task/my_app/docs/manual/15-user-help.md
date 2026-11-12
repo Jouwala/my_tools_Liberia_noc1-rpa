@@ -10,7 +10,7 @@
 
 - [1. 平台简介](#1-平台简介)
 - [2. 通用操作](#2-通用操作)
-- [3. 任务管理详解（84 个任务）](#3-任务管理详解)
+- [3. 任务管理详解（85 个任务）](#3-任务管理详解)
 - [4. 页面指南](#4-页面指南)
 - [5. 运维与排障](#5-运维与排障)
 - [6. 常见问题](#6-常见问题)
@@ -83,7 +83,7 @@
 
 > ⚠️ **新增任务必须同时登记进 `worker_watchdog.py` 的 `GROUP_TASK_MAP`** —— 只写 `TASK_SPECS` 不分组 = 任务入队后永远 pending。这是本项目已发生过四次的事故模式（finebi_report_sync / whatsapp_send_ext / sp_email_details / 2026-09-18 的 olib_soc 与 vmax_multi_data_sync）。
 
-### 3.3 全量任务清单（84 个）
+### 3.3 全量任务清单（85 个）
 
 | 任务 | task_id | 默认 cron | 组 | 工作流脚本 |
 | --- | --- | --- | --- | --- |
@@ -131,6 +131,7 @@
 | Packet Loss 丢包日报邮件 | `packet_loss_email` | `45 6 * * *` | u | `services/kpi_email_report.py → run_packet_loss_email` |
 | IP RAN M6K-FW 图表邮件 | `ipran_m6k_chart_email` | `45 6 * * *` | m | `services/ipran_chart_service.py → run_ipran_m6k_chart_email` |
 | CNN Free Rating 图表邮件 | `ccn_free_rating_chart_email` | `45 7 * * *` | m | `services/ccn_free_rating_chart_service.py → run_ccn_free_rating_chart_email` |
+| MTN MOU 日报图表邮件 | `mtn_mou_daily_email` | `0 7 * * *` | m | `services/mtn_mou_chart_service.py → run_mtn_mou_chart_email` |
 | FW 吞吐 KPI 同步+图表邮件 | `fw_kpi_sync` | `15 7 * * *` | n | `services/fw_kpi/fw_kpi_services.py → run_fw_kpi_sync` |
 | 电池 KPI 同步 | `battery_kpi_sync` | `5 * * * *` | u | `services/battary_kpi_fetch/battery_kpi_service.py → run_battery_kpi_sync` |
 | 电池 KPI 邮件 | `battery_email` | `10 7,19 * * *` | m | `services/battary_kpi_fetch/battery_kpi_service.py → run_battery_email` |
@@ -1011,6 +1012,24 @@
 **维护要点**:
 
 - 数据来自 cnn_kpi_sync（n 组，每天 06:00）写入的 DB CNN
+
+#### MTN MOU 日报图表邮件（`mtn_mou_daily_email`）
+
+- 默认 cron: `0 7 * * *`　|　worker 组: **m**
+- 工作流脚本: `services/mtn_mou_chart_service.py → run_mtn_mou_chart_email`
+
+**功能**: 从 db_ps_cs_cn.sqlite3 的 MTN_Outgoing_MOU_OSS_EMS 读取按日 MOU，生成 Outgoing / Incoming 两张折线图，主题 MTN MOU Daily Traffic 发送
+
+**工作流与数据流**:
+
+1. 读取 MTN_Outgoing_MOU_OSS_EMS（PS_CS_CORE 按天汇总入库）
+1. 剔除运行当天未过完的数据
+1. 生成 Outgoing / Incoming 两张折线图并发送
+
+**维护要点**:
+
+- 数据由 PS_CS_CORE 脚本（ps_cs_core.py / ps_cs_core_1month.py）写入远程 db_ps_cs_cn；脚本不跑则日报会缺天
+- 收件人在「设置 → 邮件收件人 → MTN MOU 日报图表邮件」修改
 
 #### FW 吞吐 KPI 同步+图表邮件（`fw_kpi_sync`）
 

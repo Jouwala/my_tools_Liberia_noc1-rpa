@@ -6,6 +6,8 @@ PS_CS_CORE 自动化脚本
   2. 解析 CSV（直接读取）和 ZIP（内含 xlsx，内存直读不落盘）
   3. 通过 API 写入远程数据库 db_ps_cs_cn.sqlite3
   4. API 失败时回退到本地 SQLite + FTP 上传
+  5. 应答率两张表原样入库；MOU / 呼叫时长按天求和，时长表另算 CHT
+  6. 运行当天（不完整的一天）的数据一律不入库
 """
 
 import os
@@ -20,7 +22,8 @@ import sqlite3
 import zipfile
 import urllib.request
 import urllib.error
-from datetime import datetime
+from datetime import datetime, timedelta
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from ftplib import FTP, error_perm
 from openpyxl import load_workbook
 
@@ -77,6 +80,21 @@ ZIP_TEMPLATES = [
     "xGW_CPU_USAGE_TEMPLATE_OSS_UME",
 ]
 
+# 新增的 4 个 OSS CSV（文件名带空格，和上面的模板不是同一套关键字）。
+# raw：原样入库，各自一张表。应答率已经是日粒度，百分比不能求和。
+# daily_sum：数值指标按自然日求和（同一天的小时、不同 MO Location 加总成一行）。
+# daily_cht：同样按天求和，再追加 CHT = 应答时长 / 应答次数。
+CSV_EXTRA = [
+    ("Incoming Call Answer Ratio OSS", "raw"),
+    ("Outgoing Call Answer Ratio OSS", "raw"),
+    ("MTN Outgoing MOU OSS", "daily_sum"),
+    ("MTN Outgoing Call Holding Time OSS", "daily_cht"),
+]
+# 不参与求和的结构列。Index 虽是数字，但是行号，不能加总。
+_NON_METRIC_COLS = {"Index", "Start Time", "End Time", "Query Granularity"}
+_CHT_DURATION = "Outgoing Call Answer Duration(s)"
+_CHT_TIMES = "Times of Answered Outgoing Call"
+
 
 # ============================================================
 # 工具函数
@@ -109,6 +127,11 @@ def _iter_candidate_files(directory, max_depth=SEARCH_MAX_DEPTH):
                 continue
 
 
+def _fold_name(text):
+    """比较文件名时把连续空白收成一个空格。OSS 导出偶发双空格，关键字仍能命中。"""
+    return re.sub(r"\s+", " ", text).strip().lower()
+
+
 def find_latest_files(directory, keywords, extension):
     """
     单次遍历目录，为每个 keyword 各找出文件名含该 keyword 且后缀为 extension 的最新文件。
@@ -116,9 +139,9 @@ def find_latest_files(directory, keywords, extension):
     """
     best = {}
     suffix = extension.lower()
-    pairs = [(kw.lower(), kw) for kw in keywords]
+    pairs = [(_fold_name(kw), kw) for kw in keywords]
     for path, mtime in _iter_candidate_files(directory):
-        name = os.path.basename(path).lower()
+        name = _fold_name(os.path.basename(path))
         if not name.endswith(suffix):
             continue
         for kw_l, kw in pairs:
@@ -139,11 +162,12 @@ def parse_csv_file(filepath):
     """
     解析 OSS 导出的 CSV 文件。
     格式：前5行是元数据，第6行是表头，之后是数据行。
+    用 csv 模块而不是按逗号硬切：新报表的局向、千分位数字带引号，里面本身有逗号。
     返回 (headers: list, rows: list of tuples, metadata: dict)
     """
     metadata = {}
-    with open(filepath, "r", encoding="utf-8", errors="replace") as f:
-        lines = f.readlines()
+    with open(filepath, "r", encoding="utf-8-sig", errors="replace", newline="") as f:
+        lines = f.read().splitlines()
 
     # 解析元数据（前5行）
     for line in lines[:5]:
@@ -163,16 +187,161 @@ def parse_csv_file(filepath):
         print(f"  [WARNING] 未找到表头: {filepath}")
         return None, [], metadata
 
-    headers = [h.strip() for h in lines[header_idx].split(",")]
+    reader = csv.reader(lines[header_idx:])
+    try:
+        headers = [h.strip() for h in next(reader)]
+    except StopIteration:
+        print(f"  [WARNING] 未找到表头: {filepath}")
+        return None, [], metadata
+
+    width = len(headers)
     rows = []
-    for line in lines[header_idx + 1:]:
-        line = line.strip()
-        if not line:
+    for parts in reader:
+        if not any(p.strip() for p in parts):
             continue
-        parts = [v.strip() for v in line.split(",")]
-        rows.append(tuple(parts))
+        vals = [p.strip() for p in parts]
+        if len(vals) < width:
+            vals.extend([""] * (width - len(vals)))
+        elif len(vals) > width:
+            vals = vals[:width]
+        rows.append(tuple(vals))
 
     return headers, rows, metadata
+
+
+def _parse_decimal(text):
+    """把报表里的数字（可带千分位逗号）转成 Decimal。空值或非数字返回 None。"""
+    if text is None:
+        return None
+    s = str(text).strip().replace(",", "")
+    if not s:
+        return None
+    try:
+        return Decimal(s)
+    except InvalidOperation:
+        return None
+
+
+def _format_decimal(value):
+    """求和结果写成普通十进制，去掉末尾无意义的 0，不用科学计数法。"""
+    if value is None:
+        return ""
+    text = format(value, "f")
+    if "." in text:
+        text = text.rstrip("0").rstrip(".")
+    return text
+
+
+def aggregate_by_day(headers, rows, add_cht=False):
+    """
+    按 Start Time 的自然日汇总。
+
+    数值指标相加；同一天里不唯一的文本维度（这两个报表里的 MO Location）丢掉，
+    因为口径是 MTN 去话合计，不是按中继组分列。唯一的维度（如 NE Location）保留。
+    add_cht 时在求和之后追加 CHT = 应答时长 / 应答次数（先加总再相除，不是各行比率的平均）。
+    返回 (headers, rows)。
+    """
+    idx = {name: i for i, name in enumerate(headers)}
+    if "Start Time" not in idx:
+        print("  [WARNING] 无 Start Time，无法按天求和，改为原样入库")
+        return headers, rows
+
+    start_i = idx["Start Time"]
+    metric_idx = []
+    dim_idx = []
+    for i, name in enumerate(headers):
+        if name in _NON_METRIC_COLS:
+            continue
+        values = [row[i] for row in rows if i < len(row) and str(row[i]).strip()]
+        if values and all(_parse_decimal(v) is not None for v in values):
+            metric_idx.append(i)
+        else:
+            dim_idx.append(i)
+
+    groups = {}
+    for row in rows:
+        start = row[start_i].strip() if start_i < len(row) else ""
+        day = start[:10]
+        if len(day) != 10 or not day[0:4].isdigit():
+            print(f"  [WARNING] 跳过无法识别日期的行: {start!r}")
+            continue
+        groups.setdefault(day, []).append(row)
+
+    kept_dims = []
+    dropped = []
+    for i in dim_idx:
+        unique_ok = True
+        for day_rows in groups.values():
+            vals = {r[i].strip() for r in day_rows if i < len(r) and r[i].strip()}
+            if len(vals) > 1:
+                unique_ok = False
+                break
+        if unique_ok:
+            kept_dims.append(i)
+        else:
+            dropped.append(headers[i])
+
+    out_headers = ["Index", "Start Time", "End Time", "Query Granularity"]
+    out_headers += [headers[i] for i in kept_dims]
+    out_headers += [headers[i] for i in metric_idx]
+    if add_cht:
+        out_headers.append("CHT")
+        missing = [n for n in (_CHT_DURATION, _CHT_TIMES) if n not in idx]
+        if missing:
+            print(f"  [WARNING] 缺少 CHT 所需列 {missing}，CHT 将留空")
+
+    out_rows = []
+    for n, day in enumerate(sorted(groups), start=1):
+        day_rows = groups[day]
+        end_day = (datetime.strptime(day, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d 00:00:00")
+        rec = {
+            "Index": str(n),
+            "Start Time": f"{day} 00:00:00",
+            "End Time": end_day,
+            "Query Granularity": "1Day(s)",
+        }
+        for i in kept_dims:
+            vals = [r[i].strip() for r in day_rows if i < len(r) and r[i].strip()]
+            rec[headers[i]] = vals[0] if vals else ""
+        sums = {}
+        for i in metric_idx:
+            total = None
+            for r in day_rows:
+                num = _parse_decimal(r[i] if i < len(r) else "")
+                if num is None:
+                    continue
+                total = num if total is None else total + num
+            sums[headers[i]] = total
+            rec[headers[i]] = _format_decimal(total)
+        if add_cht:
+            duration = sums.get(_CHT_DURATION)
+            times = sums.get(_CHT_TIMES)
+            if duration is None or times is None or times == 0:
+                rec["CHT"] = ""
+            else:
+                cht = (duration / times).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
+                rec["CHT"] = f"{cht:.4f}"
+        out_rows.append(tuple(rec.get(h, "") for h in out_headers))
+
+    if dropped:
+        print(f"  [AGG] 按天求和时合并掉的非唯一维度: {', '.join(dropped)}")
+    return out_headers, out_rows
+
+
+def drop_incomplete_today(headers, rows):
+    """
+    丢弃属于「今天」的行：运行当天还没过完，这一天的数据不完整，不入库。
+    判定看 Start Time 的日期部分；没有 Start Time 列时原样返回。
+    """
+    if not headers or "Start Time" not in headers:
+        return headers, rows
+    i = headers.index("Start Time")
+    today = datetime.now().strftime("%Y-%m-%d")
+    kept = [r for r in rows if not (i < len(r) and r[i].strip()[:10] == today)]
+    dropped = len(rows) - len(kept)
+    if dropped:
+        print(f"  [SKIP-TODAY] 丢弃 {dropped} 行 {today} 未完整数据")
+    return headers, kept
 
 
 def write_csv_to_db(conn, table_name, headers, rows):
@@ -363,11 +532,12 @@ def main():
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     api_failed_tables = []  # 记录 API 写入失败的表，最后回退本地+FTP
 
-    # ---- 处理列表1：CSV 文件 ----
+    # ---- 处理列表1：CSV 文件（含新增的 4 个带空格关键字）----
     print("\n--- 处理 CSV 文件（列表1）搜索目录: " + CSV_SEARCH_DIR + " ---")
     csv_count = 0
-    csv_hits = find_latest_files(CSV_SEARCH_DIR, CSV_TEMPLATES, ".csv")
-    for template in CSV_TEMPLATES:
+    csv_jobs = [(t, "raw") for t in CSV_TEMPLATES] + list(CSV_EXTRA)
+    csv_hits = find_latest_files(CSV_SEARCH_DIR, [k for k, _ in csv_jobs], ".csv")
+    for template, mode in csv_jobs:
         print(f"\n[{template}]")
         filepath = csv_hits.get(template, (None, 0))[0]
         if not filepath:
@@ -397,6 +567,15 @@ def main():
 
         headers, rows, meta = parse_csv_file(filepath)
         if headers and rows:
+            if mode in ("daily_sum", "daily_cht"):
+                src_n = len(rows)
+                headers, rows = aggregate_by_day(headers, rows, add_cht=(mode == "daily_cht"))
+                print(f"  [AGG] {src_n} 行 -> {len(rows)} 行（按天）")
+            headers, rows = drop_incomplete_today(headers, rows)
+            if not rows:
+                print("  [SKIP] 没有可入库的完整数据行")
+                continue
+
             # API 优先写入
             ok, rows_written = write_via_api(table_name, headers, rows)
             if ok:
@@ -420,7 +599,7 @@ def main():
             conn.commit()
             csv_count += 1
 
-    print(f"\nCSV 处理完成: {csv_count}/{len(CSV_TEMPLATES)} 个模板")
+    print(f"\nCSV 处理完成: {csv_count}/{len(csv_jobs)} 个模板")
 
     # ---- 处理列表2：ZIP 文件（含 xlsx）----
     print("\n--- 处理 ZIP/XLSX 文件（列表2）搜索目录: " + ZIP_SEARCH_DIR + " ---")
@@ -438,6 +617,10 @@ def main():
 
         headers, rows = parse_zip_xlsx(filepath, template)
         if headers and rows:
+            headers, rows = drop_incomplete_today(headers, rows)
+            if not rows:
+                print("  [SKIP] 没有可入库的完整数据行")
+                continue
             table_name = sanitize_table_name(template) + "_UME"
 
             # API 优先写入

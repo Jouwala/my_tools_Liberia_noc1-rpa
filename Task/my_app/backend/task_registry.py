@@ -718,6 +718,16 @@ TASK_SPECS = [
          description_en="Query FREE_RATING by MO, generate 4 bar charts and email",
          default_cron="45 7 * * *", category="email"),
 
+    # 24b. MTN MOU 日报图表邮件（每天 07:00）
+    #      数据源：远程 db_ps_cs_cn.sqlite3 的 MTN_Outgoing_MOU_OSS_EMS（PS_CS_CORE 按天汇总出的表）。
+    #      只发完整自然日：运行当天未过完的数据读取时就剔除。
+    #      收件人：Settings → 邮件收件人 → mtn_mou_daily_email。
+    dict(task_id="mtn_mou_daily_email", name="MTN MOU 日报图表邮件", name_en="MTN MOU Daily Traffic Email",
+         loader=("backend.services.mtn_mou_chart_service", "run_mtn_mou_chart_email"),
+         description="从 db_ps_cs_cn.sqlite3 的 MTN_Outgoing_MOU_OSS_EMS 取按日 MOU，生成 Outgoing/Incoming 两张折线图，主题 MTN MOU Daily Traffic 发送；运行当天数据不完整故剔除",
+         description_en="Read daily MOU from MTN_Outgoing_MOU_OSS_EMS in db_ps_cs_cn.sqlite3, plot Outgoing/Incoming line charts and email them with subject 'MTN MOU Daily Traffic'; the unfinished current day is excluded",
+         default_cron="0 7 * * *", category="email"),
+
     # 25. FW 整机吞吐 KPI 同步 + 图表邮件 - 每天 7:15
     dict(task_id="fw_kpi_sync", name="FW 吞吐 KPI 同步+图表邮件", name_en="FW Throughput KPI Sync + Chart Email",
          loader=("backend.services.fw_kpi.fw_kpi_services", "run_fw_kpi_sync"),

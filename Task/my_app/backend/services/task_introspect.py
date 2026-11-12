@@ -331,6 +331,8 @@ TASK_IO: dict[str, list[str]] = {
     "ipran_m6k_chart_email": ["远程DB: ipran_ume_kpi.sqlite3 (via remote API, 本地为降级)", "本地文件: TMP/ipran_charts/*.png (图表)", "邮件发送"],
     # 24. CNN Free Rating 图表邮件
     "ccn_free_rating_chart_email": ["远程DB: db_ps_cs_cn.sqlite3 (via API)", "本地文件: TMP/ccn_free_rating_charts/*.png (图表)", "邮件发送"],
+    # 24b. MTN MOU 日报图表邮件（2026-11-12）
+    "mtn_mou_daily_email": ["远程DB: db_ps_cs_cn.sqlite3 → MTN_Outgoing_MOU_OSS_EMS (via API)", "本地文件: TMP/mtn_mou_charts/*.png (图表)", "邮件发送"],
     # 25. FW 吞吐 KPI
     "fw_kpi_sync": ["远程DB: fw_db.sqlite (via API)", "本地文件: TMP/fw_charts + email_reports", "邮件发送"],
     # 26. 电池 KPI（全程内存不落盘：无 Excel/CSV/JSON 导出，无 FTP 上传）
