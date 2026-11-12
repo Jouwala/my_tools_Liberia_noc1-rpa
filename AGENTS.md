@@ -320,7 +320,7 @@ Claude Code 侧已接 **Stop 钩子**：本轮改过文件但自检未通过时�
 
 ## 七、规则细则（`_agents\rules\` 的展开）
 
-> 下面五份是**细则原文**，通过 `@` 导入内联到本文件 —— 目的是让所有读 `AGENTS.md` 的工具
+> 下面六份是**细则原文**，除 `jcodemunch_first.md`（故意不导入，见下）外通过 `@` 导入内联到本文件 —— 目的是让所有读 `AGENTS.md` 的工具
 > （Claude Code / Qoder / Cursor / Trae…）拿到**同一份**规则，而不是只有 Qoder 通过
 > `.qoder\rules\` junction 看得到。**不要在这里重复内容**，改规则请改 `_agents\rules\` 下的源文件。
 >
@@ -340,6 +340,8 @@ Claude Code 侧已接 **Stop 钩子**：本轮改过文件但自检未通过时�
 @_agents/rules/my_app.md
 
 @_agents/rules/modern_web_guidance.md
+
+@_agents/rules/execution_efficiency.md
 
 ## 八、本工作区的 8 份体系文档
 
