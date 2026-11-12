@@ -3,7 +3,7 @@ import { Alert, Button, Card, Col, DatePicker, Empty, Row, Space, Spin, Statisti
 import { DownloadOutlined, InfoCircleOutlined, ReloadOutlined } from '@ant-design/icons'
 import dayjs, { Dayjs } from 'dayjs'
 import { exportReport, type ReportSheetSpec } from '../utils/excelReport'
-import ReactECharts from 'echarts-for-react'
+import ReactECharts from '../components/ECharts'
 import { getCnKpiOverview } from '../api'
 import { useI18n } from '../i18n'
 import { formatDateTime } from '../datetime'

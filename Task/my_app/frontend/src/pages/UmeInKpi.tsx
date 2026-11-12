@@ -7,7 +7,7 @@ import type { ColumnsType } from 'antd/es/table'
 import {
   ReloadOutlined, DownloadOutlined, SyncOutlined, WarningOutlined, InfoCircleOutlined,
 } from '@ant-design/icons'
-import ReactECharts from 'echarts-for-react'
+import ReactECharts from '../components/ECharts'
 import { getUmeInOverview, syncUmeIn } from '../api'
 import { useI18n } from '../i18n'
 import { useTheme, WH, darkTooltip, axisLabel, axisLine, splitLine, cardStyle } from '../theme'

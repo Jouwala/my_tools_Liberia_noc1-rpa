@@ -6,7 +6,7 @@ import {
 import {
   DownloadOutlined, InfoCircleOutlined, ReloadOutlined,
 } from '@ant-design/icons'
-import ReactECharts from 'echarts-for-react'
+import ReactECharts from '../components/ECharts'
 import type { ColumnsType } from 'antd/es/table'
 import dayjs, { type Dayjs } from 'dayjs'
 import { exportNativeBoard, getNativeBoard } from '../api'

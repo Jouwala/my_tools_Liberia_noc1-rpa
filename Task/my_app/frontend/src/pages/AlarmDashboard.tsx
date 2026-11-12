@@ -9,7 +9,7 @@ import {
   HistoryOutlined, SendOutlined, FieldTimeOutlined, HourglassOutlined,
   DownloadOutlined, SearchOutlined, RightOutlined,
 } from '@ant-design/icons'
-import ReactECharts from 'echarts-for-react'
+import ReactECharts from '../components/ECharts'
 import { exportAoaReport, exportReport, type ReportSheetSpec } from '../utils/excelReport'
 import dayjs from 'dayjs'
 import api from '../api'

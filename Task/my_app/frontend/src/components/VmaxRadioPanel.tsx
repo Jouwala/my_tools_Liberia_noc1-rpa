@@ -31,7 +31,7 @@ import { useMemo, useState } from 'react'
 import {
   Collapse, Empty, Space, Table, Tag, Tooltip, Typography,
 } from 'antd'
-import ReactECharts from 'echarts-for-react'
+import ReactECharts from './ECharts'
 
 import { useI18n } from '../i18n'
 import { renderI18n } from '../renderI18n'

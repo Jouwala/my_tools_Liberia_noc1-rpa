@@ -17,7 +17,7 @@
  * ========================================================================== */
 import { useMemo } from 'react'
 import { Empty } from 'antd'
-import ReactECharts from 'echarts-for-react'
+import ReactECharts from '../components/ECharts'
 
 import { useI18n } from '../i18n'
 import { axisLabel, axisLine, darkTooltip, splitLine, useTheme } from '../theme'

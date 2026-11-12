@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { Card, Row, Col, Select, Spin, Button, Input, message, Tag, Space, Tooltip } from 'antd'
 import { FilterOutlined, FilterFilled } from '@ant-design/icons'
-import ReactECharts from 'echarts-for-react'
+import ReactECharts from '../components/ECharts'
 import api from '../api'
 import { useI18n, numLocale } from '../i18n'
 import { ExplainIcon } from '../components/MetricExplain'

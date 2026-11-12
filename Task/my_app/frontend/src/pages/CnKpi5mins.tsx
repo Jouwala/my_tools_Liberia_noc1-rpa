@@ -26,7 +26,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Alert, Button, Col, Empty, Row, Space, Spin, Tag, Tooltip, Typography } from 'antd'
 import { DownloadOutlined, InfoCircleOutlined, ReloadOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
-import ReactECharts from 'echarts-for-react'
+import ReactECharts from '../components/ECharts'
 import { CardBase } from '../components/cards'
 import CalcChainNote from '../components/CalcChainNote'
 // 数字悬浮口径说明（AGENTS.md 三.3c）：本页此前只有整页级 CalcChainNote，

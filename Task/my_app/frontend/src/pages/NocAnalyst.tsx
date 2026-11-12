@@ -62,7 +62,7 @@ import {
   PieChartOutlined,
 } from '@ant-design/icons'
 import dayjs from 'dayjs'
-import ReactECharts from 'echarts-for-react'
+import ReactECharts from '../components/ECharts'
 
 import {
   getNocAnalystReport, getNocTtDrilldown, getNocSiteDrilldown, getNocTtDetail,

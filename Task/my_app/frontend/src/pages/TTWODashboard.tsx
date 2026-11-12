@@ -13,8 +13,8 @@ import {
   RetweetOutlined, InboxOutlined, ToolOutlined, ExportOutlined,
   CheckCircleOutlined, CheckOutlined, QuestionCircleOutlined,
 } from '@ant-design/icons'
-import ReactECharts from 'echarts-for-react'
-import * as echarts from 'echarts'
+import ReactECharts from '../components/ECharts'
+import echarts from '../utils/echarts'
 import { exportAoaReport, exportReport, type ReportSheetSpec } from '../utils/excelReport'
 import dayjs from 'dayjs'
 import api from '../api'

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Card, Row, Col, Table, Spin, Tag, Button, Space } from 'antd'
 import { DatabaseOutlined, TableOutlined, FieldNumberOutlined, CheckCircleOutlined, DownloadOutlined } from '@ant-design/icons'
-import ReactECharts from 'echarts-for-react'
+import ReactECharts from '../components/ECharts'
 import api from '../api'
 import { useI18n } from '../i18n'
 import { ExplainIcon } from '../components/MetricExplain'

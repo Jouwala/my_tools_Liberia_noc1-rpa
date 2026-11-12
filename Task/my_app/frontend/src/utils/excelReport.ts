@@ -41,6 +41,17 @@
  *     [{ text: 'Spare Part (Good)' }, { text: 'Consumables' }, ...],
  *   ]
  */
+/**
+ * exceljs 仍用静态 import（2026-11-12 首屏瘦身实测结论）：
+ * 曾尝试改成动态 import()，但两点原因导致它反而更差，已回退：
+ *  ① vite.config.ts 的 manualChunks 把 node_modules 全收进 vendor，
+ *     动态 import 拆不出独立 chunk，exceljs 照样在首屏 vendor 里；
+ *  ② 动态 import 的 CJS 模块无法 tree-shake，整包 exceljs 被打进来，
+ *     实测 vendor 反而 +130KB（裸）/+39KB（gzip）。
+ * 要真拆出去，需在 manualChunks 里给动态导入的库开口子（见下），
+ * 那是 vite.config.ts 的改动，本轮按任务要求不动它。
+ * 调用方（exportReport / exportAoaReport / buildReportWorkbook）用法不变。
+ */
 import ExcelJS from 'exceljs'
 
 /** 便于在构建产物里 grep 的版本标记 */

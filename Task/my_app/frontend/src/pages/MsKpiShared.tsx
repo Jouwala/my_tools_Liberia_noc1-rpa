@@ -8,7 +8,7 @@
  * ========================================================================== */
 import { useMemo, useState } from 'react'
 import { Empty, Segmented, Space, Tag, Typography } from 'antd'
-import ReactECharts from 'echarts-for-react'
+import ReactECharts from '../components/ECharts'
 import { useTheme, WH, darkTooltip, axisLabel, axisLine, splitLine } from '../theme'
 import DraggableClickModal from '../components/DraggableClickModal'
 // 数字悬浮口径说明（AGENTS.md 三.3c）。ms_wo_sla 与 ms_contract_kpi 共用本文件，

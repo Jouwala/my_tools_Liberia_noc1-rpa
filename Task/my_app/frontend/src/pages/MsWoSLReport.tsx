@@ -11,7 +11,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Alert, Button, Card, Col, Row, Space, Spin, Tag, Typography, message } from 'antd'
 import { ReloadOutlined, DownloadOutlined, InfoCircleOutlined, WarningOutlined } from '@ant-design/icons'
-import ReactECharts from 'echarts-for-react'
+import ReactECharts from '../components/ECharts'
 import { getMsKpiReportSummary } from '../api'
 import { useI18n, numLocale } from '../i18n'
 import { useTheme, WH, WH_COLORS, LIGHT_COLORS, darkTooltip, axisLabel, axisLine, splitLine } from '../theme'

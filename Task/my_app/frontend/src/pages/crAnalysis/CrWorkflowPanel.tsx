@@ -15,7 +15,7 @@
  * ========================================================================== */
 
 import { Col, Empty, Row, Table, Typography } from 'antd'
-import ReactECharts from 'echarts-for-react'
+import ReactECharts from '../../components/ECharts'
 
 import { CardBase } from '../../components/cards'
 import { useI18n } from '../../i18n'
