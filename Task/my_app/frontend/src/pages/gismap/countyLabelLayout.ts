@@ -48,6 +48,17 @@ import type { CountyBoundary } from './types'
 const LABEL_W = 200
 const LABEL_H = 22
 
+/** 紧凑档（ipt 族 11px/10px 字号）标签的包围盒上界，2026-11-11 随丢包页
+ *  （?page=packet_loss，1/3 列宽窄图）接入恢复 size 参数时实测：
+ *  渲染后 tooltip 实测最大 138×20（"GRAND CAPE MOUNT 29" 一行），取 140×20
+ *  （宽留 ~2px 余量、高贴合实测上界；沿用「宁可估大」：估大只是多让位，
+ *  估小会漏判重叠）。
+ *  ⚠ 为什么不能继续用默认 200×22：窄图上 200 宽的盒子把「冲突」判得过宽，
+ *  小县里找不到既在县内又不冲突的候选位 → 走兜底原位 → 实测真重叠
+ *  （MONTSERRADO×MARGIBI 62×19）。盒子贴近真实尺寸后，纵向挪 ~20px
+ *  就能让开，小县也装得下这个位移。改 .ipt-county-tag 字号必须重新实测这里。 */
+export const COMPACT_LABEL_SIZE = { w: 140, h: 20 }
+
 /** 人员页三行标签的包围盒 `PERSON_LABEL_SIZE` **已删除**（2026-10-29）：
  *  用户按实测重叠数据选定「常驻只留单行、两行统计收进悬停」，本页标签尺寸
  *  回到与 GIS 页同一档 → 直接用上面的 LABEL_W/LABEL_H 默认值。
@@ -164,17 +175,20 @@ function pointInPolygons(lat: number, lng: number, polygons: [number, number][][
  * @param counties 全部县（含几何与告警数）
  * @param countOf  取告警数的函数（与地图填充、排名条同源）
  * @param proj     投影器（经纬度 ↔ 像素），由调用方按**真实画布**当前 zoom 构造
- *   （曾经还有第 4 个 `size` 参数，是给人员页三行标签用的 —— 该页 2026-10-29 改回
- *    单行后两个调用方都走默认 LABEL_W/LABEL_H，参数成死重量，按 AGENTS.md 三.10 删除）
+ * @param labelSize 包围盒上界（可选）。默认 LABEL_W/LABEL_H（15px/12px 档）；
+ *   紧凑档（11px/10px）传 COMPACT_LABEL_SIZE。该参数 2026-10-29 曾因「两个调用方
+ *   都走默认值」被删（死重量），2026-11-11 丢包页窄图接入时恢复：字号档不同
+ *   而共用大盒子会把冲突判得过宽，小县避让失败兜底原位 → 实测真重叠。
  * @returns 每个县一个标签，已错位且锚点在本县多边形内
  */
 export function placeCountyLabels(
   counties: CountyBoundary[],
   countOf: (c: CountyBoundary) => number,
   proj: Projector,
+  labelSize?: { w: number; h: number },
 ): PlacedLabel[] {
-  const labelW = LABEL_W
-  const labelH = LABEL_H
+  const labelW = labelSize?.w ?? LABEL_W
+  const labelH = labelSize?.h ?? LABEL_H
   // 全部县都排标签（2026-10-23 用户要求「标签默认显示县名」）：无告警的县
   // 也要有「只有名字」的标签位，数字是否拼接由渲染端按 count>0 决定。
   // 排序仍按告警数降序 —— 最痛的县先占最正的质心位，无告警的县最后落位、

@@ -353,6 +353,13 @@
   html.mw-embed #topo-head,
   html.mw-embed #bottom,
   html.mw-embed #right{ display:none !important; }
+   /* 2026-11-10：藏掉控件后地图仍停在 75% 宽，右边留空，跟其它铺满的地图页签不一样。
+      直开不带 mwembed 时本段不生效。!important 用来压过门户注入的剥离样式。 */
+   html.mw-embed,
+   html.mw-embed body{ background:transparent !important; }
+   html.mw-embed #main{ padding:0 !important; gap:0 !important; margin:0 !important; height:100% !important; }
+   html.mw-embed #left{ flex:1 1 auto !important; width:100% !important; max-width:none !important; }
+   html.mw-embed #topo-wrap{ border:0 !important; border-radius:0 !important; box-shadow:none !important; }
   /* 级别多选下拉 */
   .msel{position:relative; display:inline-block}
   .msel .btn{padding:0.25rem 0.625rem; font-size:0.75rem}
@@ -2883,7 +2890,7 @@ syncRightToggle();
      MsPortal ─(1)─> /myapp/?page=mwRealTime   ← React 外壳，认 URL 参数
                         └─(2)─> /myapp/mw_real_time.html?_=<ts>  ← 本页
    第 (2) 层的 src 由 LegacyToolFrame.tsx 写死为 `${BASE_URL}${file}?_=${cacheBust}`，
-   **会把门户给的 query 全部丢掉** —— 所以只靠 URL 参数（?mwembed=1）在门户里
+   2026-11-10 起会把外层的 mwembed 与 theme 带进这一层（见 LegacyToolFrame.legacyFrameSrc）。此前 query 被丢掉，只靠 URL 参数在门户里
    根本不生效（直开本页则正常）。外壳那条路能做的就是「收父页面的 postMessage
    再转发给内层」，与本文件已有的 myapp-theme / myapp-locale 协议同一套做法。
    因此：

@@ -14,7 +14,7 @@ import { Button, Descriptions, Table, Tag, Typography } from 'antd'
 
 import { useI18n } from '../i18n'
 import { CardBase } from '../components/cards'
-import { ExplainPopover } from './MetricExplain'
+import { ExplainPopover, ExplainIcon } from './MetricExplain'
 
 const { Text } = Typography
 
@@ -198,7 +198,7 @@ export default function VmaxCcaCards({
                 <ExplainPopover text={t('vmaxq.explain.ccaCells', { n: result.cells.cells.length })}>
                   <Tag color="blue">{t('vmaxq.cellCount', { n: result.cells.cells.length })}</Tag>
                 </ExplainPopover>
-                <Text type="secondary" style={{ fontSize: 12 }}>{t('vmaxq.cellsHint')}</Text>
+                <ExplainIcon text={t('vmaxq.cellsHint')} placement="bottomLeft" icon="question" />
               </div>
               <Table
                 rowKey={r => String(r.cell ?? r.cellkey ?? r.cellname)}
@@ -221,7 +221,7 @@ export default function VmaxCcaCards({
                 <ExplainPopover text={t('vmaxq.explain.ccaCauses', { n: causes.length })}>
                   <Tag color="red">{t('vmaxq.causeCount', { n: causes.length })}</Tag>
                 </ExplainPopover>
-                <Text type="secondary" style={{ fontSize: 12 }}>{t('vmaxq.causesHint')}</Text>
+                <ExplainIcon text={t('vmaxq.causesHint')} placement="bottomLeft" icon="question" />
               </div>
               <Table
                 rowKey={r => `${r.kqicode}-${r.objectinfo}-${r.poortime}`}

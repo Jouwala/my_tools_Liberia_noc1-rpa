@@ -32,6 +32,7 @@ import { vmaxXdrQuery, vmaxXdrServices } from '../api'
 import { readParam, writeParams } from '../urlState'
 import { useVmaxWindow } from '../pages/vmaxWindowContext'
 import { rangeToParams } from '../pages/vmaxWindow'
+import { ExplainIcon } from './MetricExplain'
 
 const { Text } = Typography
 
@@ -293,9 +294,7 @@ export default function VmaxXdrPanel({ msisdn }: { msisdn: string }) {
         >
           {t('vmaxxdr.export')}
         </Button>
-        <Text type="secondary" style={{ fontSize: 12 }}>
-          {t('vmaxxdr.hintRetention', { h: retentionHours })}
-        </Text>
+        <ExplainIcon text={t('vmaxxdr.hintRetention', { h: retentionHours })} placement="bottomLeft" icon="question" />
       </Space>
 
       {noMsisdn && (

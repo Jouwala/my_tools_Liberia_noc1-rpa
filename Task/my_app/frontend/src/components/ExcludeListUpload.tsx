@@ -15,6 +15,7 @@ import { Alert, Button, Descriptions, Modal, Upload, message } from 'antd'
 import { UploadOutlined } from '@ant-design/icons'
 import api from '../api'
 import { useI18n } from '../i18n'
+import { ExplainIcon } from './MetricExplain'
 
 export default function ExcludeListUpload({ open, onClose }: {
   open: boolean
@@ -76,8 +77,7 @@ export default function ExcludeListUpload({ open, onClose }: {
         </Button>,
       ]}
     >
-      <Alert type="info" showIcon style={{ marginBottom: 'var(--wh-space-md)' }}
-        message={t('table.exIntro')} description={t('table.exIntroDesc')} />
+      <ExplainIcon text={`${t('table.exIntro')}\n${t('table.exIntroDesc')}`} placement="bottomLeft" icon="question" />
 
       {/* 显示「内容时间」而非拉取时间 —— 后者会让人误以为名单很新（真实踩坑） */}
       <Descriptions size="small" column={1} style={{ marginBottom: 'var(--wh-space-md)' }}

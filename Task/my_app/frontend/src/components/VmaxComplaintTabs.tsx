@@ -17,11 +17,15 @@
  *
  * 页签下面那行说明不是装饰：它告诉排障的人「这次我按哪条链在判」，
  * 避免看完结论才发现判据不是自己想的那条。
+ *
+ * 2026-11-11：新增 `compactHint` —— 说明收进统一的 ? 悬浮气泡，页签栏只占一行。
+ * 信息不丢，只是按需显示；默认仍是常驻一行（vmax_user_cca 保持原样）。
  * ========================================================================== */
 
 import { Segmented, Space, Typography } from 'antd'
 
 import { useI18n } from '../i18n'
+import { ExplainIcon } from './MetricExplain'
 import { COMPLAINT_KEYS, type ComplaintKey } from '../pages/vmaxDiagnosisRules'
 
 const { Text } = Typography
@@ -30,13 +34,17 @@ export default function VmaxComplaintTabs({
   value,
   onChange,
   disabled,
+  compactHint = false,
 }: {
   value: ComplaintKey
   onChange: (v: ComplaintKey) => void
   /** 没查过号码时置灰（判据栏在没有数据时点它没有意义） */
   disabled?: boolean
+  /** 判据说明收进 ? 悬浮气泡，页签栏只占一行 */
+  compactHint?: boolean
 }) {
   const { t } = useI18n()
+  const hint = t(`vmaxq.complaint.${value}Hint`)
 
   return (
     <Space direction="vertical" size={4} style={{ width: '100%' }}>
@@ -53,10 +61,11 @@ export default function VmaxComplaintTabs({
           onChange={(v) => onChange(v as ComplaintKey)}
           style={{ background: 'var(--wh-seg-bg)' }}
         />
+        {compactHint && <ExplainIcon text={hint} placement="bottomLeft" icon="question" />}
       </Space>
-      <Text type="secondary" style={{ fontSize: 12 }}>
-        {t(`vmaxq.complaint.${value}Hint`)}
-      </Text>
+      {!compactHint && (
+        <Text type="secondary" style={{ fontSize: 12 }}>{hint}</Text>
+      )}
     </Space>
   )
 }
