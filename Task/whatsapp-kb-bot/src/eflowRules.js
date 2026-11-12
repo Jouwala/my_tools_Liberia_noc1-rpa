@@ -365,6 +365,81 @@ export function renderEflowRuleAnswer(data, lang = 'zh', parts = 'both') {
   return lines.filter(Boolean).join('\n');
 }
 
+/* -------------------- 按已知站点属性过滤规则 -------------------- */
+
+/**
+ * 规则条件里**取值域固定**的站点字段。只有这几个参与「冲突即排除」。
+ *
+ * 数值字段（`downSiteCount` / `downstreamSites`）写的是 `>=` / `<=` 这类区间条件，
+ * 拿一个具体数值去排除只会误伤，而且这两个字段本身**不是一回事**
+ * （一个是最新故障下挂的断站数、一个是站点拓扑上的下属站点总数），
+ * 所以数值条件一律不参与排除 —— 宁可多列一条，不可错删一条。
+ */
+const ENUM_FIELDS = ['siteSubType', 'assetType', 'vipSite', 'hubSite'];
+
+/**
+ * 规则条件与用户给的站点属性**是否明确冲突**。
+ *
+ * 只在「条件里写了该字段的取值约束」且「用户给的取值不在允许集合内」时判冲突：
+ *   · `condition` 含 `siteSubType = 'ERA'`，而用户说 REGULAR → 冲突；
+ *   · `condition` 含 `assetType in 'NORMAL, COOL'`，用户给了 NORMAL → 不冲突；
+ *   · 条件里没提该字段 → 不冲突（吃不准就不排除）。
+ *
+ * 为什么需要（2026-11-10 群内实测）：
+ *   问「REGULAR 站 9995 会建什么 TT」，旧答把三条推单规则全列上，
+ *   其中 #203「ERA断站推单到ZTE WO」**只适用于 ERA 站** ——
+ *   与用户给的 REGULAR 直接矛盾。值班员看到 #203 会以为「ERA 也要走」，
+ *   或者干脆不信整段结论。用户已经给了的属性，就该拿来排除不适用的规则。
+ */
+function attrConflicts(condition, attrs) {
+  const cond = String(condition || '');
+  for (const f of ENUM_FIELDS) {
+    const want = attrs?.[f];
+    if (want === undefined || want === null || want === '') continue;
+    // eFlow 的条件文本里是 `not in`（有空格），不是 `notin` —— 两种都要认。
+    const re = new RegExp(`\\b${f}\\s*(not\\s+in|in|=)\\s*'([^']*)'`, 'g');
+    let m;
+    while ((m = re.exec(cond)) !== null) {
+      const negated = /not/i.test(m[1]);
+      const vals = m[2]
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+      const hit = vals.some((v) => v.toLowerCase() === String(want).toLowerCase());
+      // `= ERA` / `in 'ERA'`：用户给的不是 ERA → 冲突；
+      // `not in 'ERA'`：用户给的就是 ERA → 冲突。
+      if (negated ? hit : !hit) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * 用户给了站点属性时，把 eFlow 规则里**条件明确冲突**的那些剔掉。
+ *
+ * 与 `src/lookups.js` 的 `filterLevelRulesByAttrs` 同一纪律：
+ * 只丢「条件里写明冲突取值」的行，条件没提该字段的一律保留。
+ * 只用于**渲染时**收窄候选，不改变任何判定逻辑。
+ *
+ * @param {Array<object>} rules 规则对象数组（带 `condition` 文本）
+ * @param {object} attrs `parseSiteAttrs()` 的结果
+ * @returns {{kept: Array<object>, dropped: Array<object>}}
+ */
+export function filterRulesByAttrs(rules, attrs = {}) {
+  const list = Array.isArray(rules) ? rules : [];
+  const hasAttrs = Object.keys(attrs || {}).some(
+    (k) => attrs[k] !== undefined && attrs[k] !== null && attrs[k] !== ''
+  );
+  if (!hasAttrs) return { kept: list, dropped: [] };
+  const kept = [];
+  const dropped = [];
+  for (const r of list) {
+    if (attrConflicts(r?.condition, attrs)) dropped.push(r);
+    else kept.push(r);
+  }
+  return { kept, dropped };
+}
+
 /** 通道不可用时给用户的一句话（绝不能当成「没配」）。 */
 export function renderEflowRuleUnavailable(lang = 'zh', reason = '') {
   const t = T[lang] || T.zh;

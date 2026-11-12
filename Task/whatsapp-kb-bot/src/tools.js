@@ -59,6 +59,7 @@ import {
   findLevelBySeverity,
   resolveCodeByName,
   parseSiteAttrs,
+  stripKnownAttrLabels,
   filterLevelRulesByAttrs,
   renderAlarmCode,
   renderCompress,
@@ -69,6 +70,7 @@ import {
   lookupEflowRules,
   renderEflowRuleAnswer,
   renderEflowRuleUnavailable,
+  filterRulesByAttrs,
 } from './eflowRules.js';
 
 /* ------------------------------ 查找表（查表工具） ------------------------------ */
@@ -610,6 +612,40 @@ const TICKET_INTENT =
   /(建单|建\s*TT|自动.{0,4}(建单|创建|生成|派单|开工单)|生成.{0,4}工单|service\s*ticket|trouble\s*ticket|auto.{0,6}ticket|ticket.{0,20}(automatic|auto|created|generated)|raise\s+a\s+ticket)/i;
 /** 级别类问法 → lookup_level_rule。 */
 const LEVEL_INTENT = /(级[别位]|定级|几级|什么级别|怎么判定|如何判定|severity|priority|P\s*[1-4]\s*(级别|是什么|怎么|规则)?|P\s*[1-4]\s*规则)/i;
+/**
+ * 「会建**什么** TT」类问法（2026-11-10 新增）→ lookup_level_rule + 建单链路。
+ *
+ * ## 为什么单列
+ *
+ * 2026-11-10 群内实测的问法：
+ *   「RAN Site Type：REGULAR；Site VIP Level：YES；Hub Site Flag：YES；
+ *     Downstream Site Count：7，alarm code:9995. which kind of TT will be creadted?」
+ *
+ * 这句话**既不匹配 TICKET_INTENT**（「会不会自动建单」要 "ticket" 或中文「建单」），
+ * **也不匹配 LEVEL_INTENT**（「哪一级」的中英文说法一个都没有）——
+ * 于是规则层**弃权**，落到模型层自由发挥；模型挑了 lookup_level_rule，
+ * 再叠加「属性抽不出来」，最终回了一句
+ * 「级别无法判定，缺 hubSite、downstreamSites、downSiteCount、assetType…」。
+ *
+ * 现在补上这个意图：问「建什么 TT / 哪种 TT / 派给谁」时，
+ * 走**级别规则真算**（用户给了站点属性就能算），并在同一条回复里附上
+ * eFlow 的建单/推单链路 —— 回答的正是「会建什么 TT」这个完整问题。
+ *
+ * 与 TICKET_INTENT 的区别（两者都涉及建单，别混）：
+ *   · TICKET_INTENT  = 「**会不会**建单 / 支不支持自动派单」→ 查 eFlow 规则配置；
+ *   · TT_BUILD_INTENT = 「建**什么** TT / **哪一级** / **派给谁**」→ 级别真算（+ 链路见下）。
+ *
+ * ⚠️ 工具选择用 `TT_BUILD_INTENT`（宽：含「几级」，它们都该进级别规则通道），
+ * 但**回复里要不要附建单/派单链路**只看 `TT_CHAIN_INTENT`（窄：真在问「会建什么 TT」）。
+ * 2026-11-10 实测踩过：两处共用一个宽正则，于是「9995 是几级」这种单一问题
+ * 也被塞进整段派单链路 —— 回答没变错，但变长、变吵，与用户抱怨的「回答的不好」同类。
+ */
+const TT_CHAIN_INTENT =
+  /(建什么\s*TT|会建什么\s*TT|什么\s*TT|哪种\s*TT|哪一\s*(个|种|类)?\s*TT|派给谁|推给谁|派单|推单|which\s+(kind|type)\s+of\s+(tt|ticket)|what\s+(kind|type)\s+of\s+(tt|ticket)|(tt|ticket)\s+(kind|type)\s+(will|is))/i;
+const TT_BUILD_INTENT = new RegExp(
+  `(${TT_CHAIN_INTENT.source}|建\\s*几\\s*级|定\\s*级|几\\s*级|什么级别|what\\s+(severity|level)|which\\s+(severity|level)|what\\s+level\\s+will|which\\s+level\\s+will)`,
+  'i'
+);
 
 /**
  * 去掉日期/时间片段，避免把年份、时钟数字当成告警码。
@@ -670,6 +706,8 @@ export function parseLookupIntent(q, lookups) {
     if (COMPRESS_INTENT.test(q)) return { tool: 'lookup_compress', args: { code } };
     // 只问建单（没问压缩）→ 直接查 eFlow 规则；旧实现会当成「含义」回一句码表解释，答非所问
     if (TICKET_INTENT.test(q)) return { tool: 'lookup_eflow_rule', args: { code, parts: 'tt' } };
+    // 「会建什么 TT」→ 级别规则（用户给了站点属性时可真算）+ 建单链路
+    if (TT_BUILD_INTENT.test(q)) return { tool: 'lookup_level_rule', args: { code } };
     if (LEVEL_INTENT.test(q)) return { tool: 'lookup_level_rule', args: { code } };
     if (MEANING_INTENT.test(q)) return { tool: 'lookup_alarm_code', args: { code } };
     // 有码但没明确问法：默认当「含义」（最常见的「这个码是什么」意图）
@@ -901,6 +939,12 @@ const SITE_STOPWORDS = new Set([
   'vip', 'hub', 'type', 'attribute', 'attributes', 'priority', 'victims',
   'user', 'users', 'subscriber', 'subscribers', 'region', 'county', 'province',
   'affected', 'impact',
+  // 站点属性的**取值**同样不是站名 —— 2026-11-10 补：
+  // 「告警码 9995，站点子类型 REGULAR，…会建什么 TT？」里 extractSiteName
+  // 把 "REGULAR" 当成了站名（纯英文大写词，命中「纯英文专名」规则），
+  // 于是整题被答成「【REGULAR】当前没有活动告警」—— 与问题毫无关系。
+  // 这些是**属性的取值**（assetType=NORMAL/COOL、siteSubType=REGULAR/ERA）。
+  'regular', 'normal', 'cool', 'era',
   // 疑问词/助动词不是站名 —— 2026-10-28 实测：「How will Alarm Code 200201001 be
   // compressed…」被抽成站名「How」，整题拐进站点告警通道，答了一句「How 现在没有告警」。
   'how', 'will', 'would', 'be', 'was', 'were', 'are', 'do', 'does', 'did', 'can',
@@ -1123,7 +1167,13 @@ export function parseByRule(question, now = new Date()) {
 
   // 查表意图**提前算一次**：下面站点告警通道要靠它区分「名称→码的查表题」
   // 与「某站现在有没有告警」。①.5 复用同一结果，不重复解析（名称反查要扫码表）。
-  const hasCountWordEarly = COUNT_INTENT.test(q);
+  // ⚠️ 判数量意图前必须先**剥掉已知的 eFlow 字段标签**（2026-11-10 实测）。
+  // 值班员提问会直接贴 eFlow 告警列表的列名，其中
+  // 「Downstream Site Count」**本身含 Count** → COUNT_INTENT 命中 →
+  // 查表通道被整条跳过 → 这类问题永远到不了规则层，只能落到模型层自由发挥。
+  // 列名是用户粘贴的**上下文**，不是问题的一部分，所以判意图前先剥掉。
+  const qNoLabels = stripKnownAttrLabels(q);
+  const hasCountWordEarly = COUNT_INTENT.test(qNoLabels);
   const lookupIntentEarly = hasCountWordEarly ? null : parseLookupIntent(q);
 
   // ①.1 站点**属性**意图：问「这个站是不是 VIP / 什么类型 / 是不是枢纽站」。
@@ -1276,7 +1326,16 @@ export function parseByRule(question, now = new Date()) {
     // 判据：句子里**没有数字码**且能按名称解析出告警码 → 那是查表题，让给 ①.5。
     // 有数字码的混合问法（site name X, Alarm: 9920）不受影响，仍是站点通道。
     const nameToCode = lookupIntentEarly && !/\d{3,}/.test(q);
-    if (site && !nameToCode && !(codeContext && !explicitSite)) {
+    // 2026-11-10：「级别/建单**规则题**」不该被站点告警通道抢走。
+    // 「告警码 9995 + 站点子类型/枢纽站/断站数，会建什么 TT」问的是**规则**，
+    // 不是「某个站现在有什么告警」—— 站点通道会把「枢纽」「REGULAR」当站名去查，
+    // 答成「【REGULAR】当前没有活动告警」，与问题毫无关系。
+    // 判据两条都要满足才让位：① 走的是级别规则 ② 提问里带了站点属性
+    // （否则「Wood camp 的 9920 是几级」这种仍可两查）。
+    const isRuleQuestion =
+      lookupIntentEarly?.tool === 'lookup_level_rule' &&
+      Object.keys(parseSiteAttrs(q)).length > 0;
+    if (site && !nameToCode && !isRuleQuestion && !(codeContext && !explicitSite)) {
       return { tool: 'query_site_alarms', args: { site } };
     }
   }
@@ -1294,7 +1353,7 @@ export function parseByRule(question, now = new Date()) {
   const date = parseDateRange(q, now);
   const sev = parseSeverity(q);
   const kw = parseKeyword(q);
-  const hasCountWord = COUNT_INTENT.test(q);
+  const hasCountWord = COUNT_INTENT.test(qNoLabels);
   const isKnowledge = KNOWLEDGE_INTENT.test(q);
   const isStats = (hasCountWord || date) && !isKnowledge;
 
@@ -1802,39 +1861,479 @@ function lookupFail(lang, kind, code, opts = {}) {
 }
 
 /**
- * B5：渲染「真规则匹配」的结果（来自 tt-analyze.py --lookup-level）。
- * 数据字段（规则名）保持原文，与 TT 通道「数据行不翻译」一致。
+ * 级别规则用到的字段 → 人话释义。
+ *
+ * ## 为什么需要
+ *
+ * 只丢一个字段名（"missing downstreamSites"）对值班员**不可执行** ——
+ * 他不知道该去哪里查这个数。补一句释义，答案才真正能落地：
+ *   downstreamSites（站点拓扑上的下属站点总数）
+ *
+ * ⚠️ `downstreamSites` 与 `downSiteCount` 是**两个不同的字段**，释义里必须写清，
+ * 否则用户会把「断站数 7」当成「下属站点数 7」填进去，得出错的级别。
  */
-function renderLevelMatch(r, code, attrs, lang) {
+const FIELD_HINT = {
+  zh: {
+    downstreamSites: '站点拓扑上的下属站点总数',
+    downSiteCount: '当前故障下挂的断站数',
+    hubSite: '是否枢纽站（1=是）',
+    vipSite: '是否 VIP 站（1=是）',
+    assetType: '资产类型（NORMAL / COOL）',
+    siteSubType: '站点子类型（REGULAR / ERA）',
+    netWorkType: '专业域',
+    alarmDescription: '告警描述',
+  },
+  en: {
+    downstreamSites: 'total downstream sites in the site topology',
+    downSiteCount: 'sites down under the current fault',
+    hubSite: 'whether the site is a hub site (1=yes)',
+    vipSite: 'whether the site is a VIP site (1=yes)',
+    assetType: 'asset type (NORMAL / COOL)',
+    siteSubType: 'site sub-type (REGULAR / ERA)',
+    netWorkType: 'network domain',
+    alarmDescription: 'alarm description',
+  },
+};
+
+/** 字段名 + 释义（按语言）。没有释义就只给字段名。 */
+function fieldHint(field, lang) {
+  const t = (FIELD_HINT[lang] || FIELD_HINT.zh)[field];
+  if (!t) return field;
+  return lang === 'en' ? `${field} (${t})` : `${field}（${t}）`;
+}
+
+/* ---------------- 人话渲染的小零件（2026-11-10 重写「答得不好」） ---------------- */
+
+/**
+ * 为什么要有这一段
+ * ----------------
+ * 旧答案把 python 的机器串原样丢给值班员：
+ *
+ *   · #266 HUB site P1 → P1：hubSite=1 = 1 ✓; alarmCode=9995 = 9995 ✓;
+ *     downstreamSites=? >= 5 ?; downSiteCount=7 >= 5 ✓
+ *   · #268 HUB site P2 → P2：downstreamSites=? <= 4 ?; downstreamSites=? >= 2 ?
+ *
+ * 三个问题：`= 1 = 1` 这种重复比较看不出在读什么；`? >= 5 ?` 不知道是「没给」
+ * 还是「不满足」；结论散在句子中间。2026-11-10 用户直接反馈「回答的不好」。
+ *
+ * 现在改成：级别先给结论 → 每条在争的规则写成「若 <条件> → P?」→ 已满足的条件
+ * 单独列（用户给过的字段要能看见自己被采纳了）→ 缺的字段带中文释义。
+ */
+
+/** 比较符 → 人话符号（与 eFlow 条件里的符号一一对应）。 */
+const OP_TEXT = {
+  '>=': '≥',
+  '<=': '≤',
+  '>': '>',
+  '<': '<',
+  '=': '=',
+  '!=': '≠',
+  in: '∈',
+  notin: '∉',
+};
+
+/** 单条条件 → `downstreamSites ≥ 5` / `reasonType ∉ {POWER}`。 */
+function condPhrase(c) {
+  const op = OP_TEXT[c.symbol] || c.symbol || '=';
+  const vals = (c.values || []).join(' / ');
+  if (op === '∈' || op === '∉') return `${c.field} ${op} {${vals}}`;
+  return `${c.field} ${op} ${vals}`;
+}
+
+/**
+ * 一条「无法判定」的规则还差什么条件（人话）。
+ *
+ * 同一字段的上下界合并成区间，避免 `downstreamSites ≤ 4 且 ≥ 2` 这种机器写法：
+ *   → `2 ≤ downstreamSites ≤ 4`
+ */
+function unknownCondPhrase(u, lang) {
+  const unknown = (u.conds || []).filter((c) => c.state === 'unknown');
+  if (!unknown.length) return '';
+  const fields = [...new Set(unknown.map((c) => c.field))];
+  if (fields.length === 1) {
+    const ups = unknown.filter((c) => c.symbol === '<=' || c.symbol === '<');
+    const lows = unknown.filter((c) => c.symbol === '>=' || c.symbol === '>');
+    if (ups.length === 1 && lows.length === 1) {
+      // `downstreamSites <= 4` + `downstreamSites >= 2` → `2 ≤ downstreamSites ≤ 4`
+      // ⚠️ 下界要**翻转**比较符（字段 ≥ 2 读作 2 ≤ 字段）。2026-11-10 首版写成
+      // `2 ≥ downstreamSites ≤ 4`，正好把区间写反了。
+      const lowSym = lows[0].symbol === '>=' ? '≤' : '<';
+      const upSym = ups[0].symbol === '<=' ? '≤' : '<';
+      return `${(lows[0].values || []).join('/')} ${lowSym} ${fields[0]} ${upSym} ${(ups[0].values || []).join('/')}`;
+    }
+  }
+  return unknown.map(condPhrase).join(lang === 'en' ? ' and ' : ' 且 ');
+}
+
+/** 已满足的条件 → `hubSite=1` / `downSiteCount 7 ≥ 5`。 */
+function satisfiedPhrase(c) {
+  if (c.symbol === '=') return `${c.field}=${c.value}`;
+  const op = OP_TEXT[c.symbol] || c.symbol || '=';
+  return `${c.field} ${c.value} ${op} ${(c.values || []).join('/')}`;
+}
+
+/** 用户给了哪些站点属性（答案开头点名，证明「你给的字段被用上了」）。 */
+function attrSummary(attrs, lang) {
   const bits = [];
   if (attrs.assetType) bits.push(`assetType=${attrs.assetType}`);
   if (attrs.siteSubType) bits.push(`siteSubType=${attrs.siteSubType}`);
   if (attrs.vipSite) bits.push(`vipSite=${attrs.vipSite}`);
-  const attrStr = bits.join('，');
+  if (attrs.hubSite) bits.push(`hubSite=${attrs.hubSite}`);
+  if (attrs.downSiteCount) bits.push(`downSiteCount=${attrs.downSiteCount}`);
+  if (attrs.downstreamSites) bits.push(`downstreamSites=${attrs.downstreamSites}`);
+  return bits.join(lang === 'en' ? ', ' : '，');
+}
+
+/**
+ * 「你给的 Downstream Site Count 是 downSiteCount，不是 downstreamSites」的提示。
+ *
+ * 为什么必须说：eFlow 告警列表把 `down_site_count` 的列名就叫
+ * "Downstream Site Count"，而级别规则 #266/#268 要的是另一个字段
+ * `downstreamSites`（站点拓扑上的下属站点总数，来源 master_site_db.victims）。
+ * 值班员照抄界面列名来问，得到的回复却是「缺 downstreamSites」——
+ * 他只会觉得「我明明给了，这机器人在瞎说」。实测 2315 张 9995 的 HUB 单里
+ * 两个字段只有 614 张相等，所以**不能**拿一个顶另一个。
+ */
+function downSiteCountNote(attrs, missingFields, lang) {
+  if (!attrs.downSiteCount) return '';
+  if (!(missingFields || []).includes('downstreamSites')) return '';
+  const n = attrs.downSiteCount;
+  return lang === 'en'
+    ? `Note: your "Downstream Site Count: ${n}" is downSiteCount (sites down under this fault), already used above; ` +
+        `it is not downstreamSites (the total number of sites below this one in the site topology) — ` +
+        `the two are not interchangeable. Supply downstreamSites to pin the level.`
+    : `注：你给的「Downstream Site Count：${n}」是 downSiteCount（当前故障下挂的断站数），已用上；` +
+        `它不是 downstreamSites（站点拓扑上的下属站点总数），两个字段不能互换 —— ` +
+        `把 downstreamSites 补上即可定级。`;
+}
+
+/** 来源一份（eFlow TT 规则表）。 */
+function eflowSourceLine(data, lang) {
+  const p = data?.sources?.pushRules;
+  if (!p) return '';
+  return lang === 'en'
+    ? `Source: ${p.file} (exported ${p.mtime}) — severity and push rules both come from this table.`
+    : `来源：${p.file}（导出于 ${p.mtime}）—— 级别规则与推单规则都取自这张表。`;
+}
+
+/**
+ * 级别结论（人话）—— 「几级」与「会建什么 TT」两条问法共用。
+ *
+ * @param {object|null} r lookupLevelByRule() 的返回值；null = 规则引擎不可用
+ * @returns {string[]} 行数组（不含「告警码 X」抬头与来源，由调用方拼）
+ */
+function renderLevelVerdict(r, lang) {
+  const zh = lang !== 'en';
+  const lines = [];
+
+  if (!r) {
+    lines.push(
+      zh
+        ? '级别：规则引擎暂时不可用，判不了（这不等于「没有规则」）。'
+        : 'Severity: the rule engine is unavailable right now, so this is undecided (not "no rule").'
+    );
+    return lines;
+  }
 
   if (r.verdict === 'ok') {
-    return lang === 'en'
-      ? `Alarm code ${code} (${attrStr}) → ${r.severity}\n` +
-          `Matched rule: #${r.ruleId} ${r.ruleName}\n` +
-          `Basis: ${r.details}\n` +
-          `Source: eflow_TT_rules.xlsx（与工单分析同一套规则引擎）`
-      : `告警码 ${code}（${attrStr}）→ ${r.severity}\n` +
-          `命中规则：#${r.ruleId} ${r.ruleName}\n` +
-          `判定依据：${r.details}\n` +
-          `来源：eflow_TT_rules.xlsx（与工单分析同一套规则引擎）`;
+    const sat = (r.matchedConds || [])
+      .filter((c) => c.state === 'ok' && c.field !== 'alarmCode')
+      .map(satisfiedPhrase);
+    lines.push(
+      zh
+        ? `级别：${r.severity} —— 命中规则 #${r.ruleId} ${String(r.ruleName || '').trim()}` +
+            (sat.length ? `（条件全部满足：${sat.join('、')}）` : '')
+        : `Severity: ${r.severity} — matched rule #${r.ruleId} ${String(r.ruleName || '').trim()}` +
+            (sat.length ? ` (all conditions met: ${sat.join(', ')})` : '')
+    );
+    return lines;
   }
+
   if (r.verdict === 'incomplete') {
-    const miss = (r.missingFields || []).join('、');
-    return lang === 'en'
-      ? `Alarm code ${code} (${attrStr}) — cannot determine severity: missing ${miss}. ` +
-          `Rules were not fully evaluated (need more site attributes). Not a "no match".`
-      : `告警码 ${code}（${attrStr}）—— 级别无法判定：缺少字段 ${miss}，` +
-          `规则未被真正评估（需补充站点属性）。这**不是**「未命中规则」。`;
+    const miss = r.missingFields || [];
+    const missHint = miss.map((f) => fieldHint(f, lang)).join(zh ? '、' : ', ');
+    lines.push(
+      zh ? `级别：还定不了 —— 缺 ${missHint}：` : `Severity: not decidable yet — missing ${missHint}:`
+    );
+    for (const u of r.undecidable || []) {
+      const when = unknownCondPhrase(u, lang);
+      if (!when) continue; // 没有未知条件的规则不该出现在这里（防御）
+      const sat = (u.conds || [])
+        .filter((c) => c.state === 'ok' && c.field !== 'alarmCode')
+        .map(satisfiedPhrase);
+      const tail = sat.length ? (zh ? `（已满足：${sat.join('、')}）` : ` (already met: ${sat.join(', ')})`) : '';
+      lines.push(
+        zh
+          ? `  · 若 ${when} → ${u.severity}（#${u.id} ${String(u.name || '').trim()}）${tail}`
+          : `  · if ${when} → ${u.severity} (#${u.id} ${String(u.name || '').trim()})${tail}`
+      );
+    }
+    if (r.ruleId != null) {
+      const nm = String(r.ruleName || '').trim();
+      lines.push(
+        zh
+          ? `  · 其余情况 → ${r.severity}（#${r.ruleId} ${nm}）`
+          : `  · otherwise → ${r.severity} (#${r.ruleId} ${nm})`
+      );
+    }
+    return lines;
   }
+
   // unknown：字段齐全但确实没有规则命中
-  return lang === 'en'
-    ? `Alarm code ${code} (${attrStr}) — no enabled severity rule matched. I won't guess.`
-    : `告警码 ${code}（${attrStr}）—— 没有命中的级别规则。我不会按通用知识猜。`;
+  lines.push(
+    zh
+      ? '级别：按你给的站点属性没有级别规则命中。我不会按通用知识猜。'
+      : 'Severity: no enabled rule matches the attributes you gave. I won\'t guess.'
+  );
+  return lines;
+}
+
+/**
+ * B5：渲染「真规则匹配」的结果（来自 tt-analyze.py --lookup-level）。
+ * 数据字段（规则名）保持原文，与 TT 通道「数据行不翻译」一致。
+ *
+ * 2026-11-10 重写：旧版把 python 的机器串（`hubSite=1 = 1 ✓`、
+ * `downstreamSites=? >= 5 ?`）原样丢给值班员，用户直接反馈「回答的不好」。
+ * 现在把「判定依据」拆成「若 <条件> → P? / 已满足 / 缺什么（带释义）」。
+ */
+function renderLevelMatch(r, code, attrs, lang) {
+  const zh = lang !== 'en';
+  const attrStr = attrSummary(attrs, lang);
+  const lines = [zh ? `告警码 ${code}（${attrStr}）` : `Alarm code ${code} (${attrStr})`];
+  lines.push(...renderLevelVerdict(r, lang));
+  const note = downSiteCountNote(attrs, r.missingFields, lang);
+  if (note) {
+    lines.push('');
+    lines.push(note);
+  }
+  lines.push(
+    zh ? '来源：eflow_TT_rules.xlsx（与工单分析同一套规则引擎）' : 'Source: eflow_TT_rules.xlsx (same rule engine as ticket analysis)'
+  );
+  return lines.join('\n');
+}
+
+/* ------------------- 「会建什么 TT」的专属渲染（2026-11-10） ------------------- */
+
+/** 单条推单规则 → `#201 Regular断站故障手动到FO → ZTE_FE_FE / ZTE_NOC_FO`。 */
+function pushRuleText(r) {
+  const nm = String(r.name || '').trim();
+  const targets = String(r.target || '')
+    .split(';')
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .join(' / ');
+  return `#${r.id} ${nm}` + (targets ? ` → ${targets}` : '');
+}
+
+/**
+ * 从推单规则的条件文本里，挑出**用户没给**的那几个字段条件（人话）。
+ *
+ * 用户已经给了的属性写进「若…」里是噪音：`if siteSubType = REGULAR` 对
+ * REGULAR 站恒真。只保留需要值班员自己判断的字段（如 reasonType），
+ * 这样「#200 与 #201 到底走哪条」才说得清楚。
+ */
+function ruleCondText(condition, attrs = {}) {
+  const parts = [];
+  // ⚠️ eFlow 的条件文本里写的是 `not in`（有空格），不是 `notin`。
+  // 2026-11-10 首版只认 `notin`，于是 #201 的 `reasonType not in 'POWER'`
+  // 被整条漏掉 —— 答案里 #200/#201 都成了「只要 assetType 对就适用」，
+  // 恰好把「按 reasonType 二选一」这个关键结论丢了。`not\s+in` 必须排在 `in` 前面。
+  const re = /eflow_ticket_ticket_\w+\.(\w+)\s*(not\s+in|in|=)\s*'([^']*)'/g;
+  let m;
+  while ((m = re.exec(String(condition || ''))) !== null) {
+    const field = m[1];
+    const op = /not/i.test(m[2]) ? 'notin' : m[2].trim();
+    if (field === 'alarmCode') continue; // 码由提问给出，不用再写
+    if (attrs[field] !== undefined && attrs[field] !== '') continue; // 用户已给，不重复
+    const vals = m[3]
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (!vals.length) continue;
+    if (op === '=') parts.push(`${field} = ${vals[0]}`);
+    else if (op === 'in') parts.push(`${field} ∈ {${vals.join(', ')}}`);
+    else if (op === 'notin') parts.push(`${field} ∉ {${vals.join(', ')}}`);
+  }
+  return parts;
+}
+
+const ENUM_ATTR_FIELDS = ['siteSubType', 'assetType', 'vipSite', 'hubSite'];
+
+/**
+ * 一条被排除的规则**为什么**被排除（例：`siteSubType = ERA（你给的是 REGULAR）`）。
+ * 只写数据与取值，措辞由调用方拼。
+ */
+function conflictText(condition, attrs = {}, lang = 'zh') {
+  const cond = String(condition || '');
+  for (const f of ENUM_ATTR_FIELDS) {
+    const want = attrs[f];
+    if (!want) continue;
+    const m = cond.match(new RegExp(`\\b${f}\\s*(not\\s+in|in|=)\\s*'([^']*)'`));
+    if (!m) continue;
+    const negated = /not/i.test(m[1]);
+    const vals = m[2]
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const hit = vals.some((v) => v.toLowerCase() === String(want).toLowerCase());
+    // `= ERA` / `in 'ERA'`：给的不是 ERA → 冲突；`not in 'ERA'`：给的是 ERA → 冲突
+    if (negated ? !hit : hit) continue;
+    const shown = negated ? `${f} ∉ {${vals.join(' / ')}}` : `${f} = ${vals.join(' / ')}`;
+    return lang === 'en' ? `${shown}, while you gave ${want}` : `${shown}，你给的是 ${want}`;
+  }
+  return '';
+}
+
+/**
+ * 派单段只列**与该规则有关**的属性：
+ * 用户给了 downSiteCount=7 对推单没有意义，写进抬头只是噪音。
+ */
+function pushAttrSummary(push, attrs, lang) {
+  const fields = new Set();
+  const re = /eflow_ticket_ticket_\w+\.(\w+)\s*(?:not\s+in|in|=)\s*'/g;
+  for (const r of push) {
+    let m;
+    while ((m = re.exec(String(r.condition || ''))) !== null) fields.add(m[1]);
+  }
+  return ENUM_ATTR_FIELDS.filter((f) => fields.has(f) && attrs[f])
+    .map((f) => `${f}=${attrs[f]}`)
+    .join(lang === 'en' ? ', ' : '，');
+}
+
+/**
+ * 派单段：按用户给的站点属性过滤后，逐条给「若 <条件> → #规则 → 目标组」。
+ *
+ * 过滤纪律见 `src/eflowRules.js` 的 `filterRulesByAttrs`：只排除条件里写明
+ * 冲突取值的规则（例：REGULAR 站排除 ERA 专用的 #203），条件没提的一律保留。
+ */
+function renderPushSection(eflow, attrs, lang) {
+  const zh = lang !== 'en';
+  if (!eflow) {
+    return [zh ? '派单：eFlow 规则配置暂时读不到，无法确认。' : 'Routing: the eFlow rule config is unreadable right now.'];
+  }
+  const tt = eflow.tt || {};
+  const cad = tt.catchAllDispatch || null;
+  const cadName = cad ? String(cad.name || '').trim() : '';
+  const push = tt.pushRules || [];
+  if (!push.length) {
+    return [
+      cad
+        ? zh
+          ? `派单：没有专门引用该码的推单规则；TT 由 autoDispatch 兜底 #${cad.id} ${cadName} 接进 FO 线。`
+          : `Routing: no dedicated push rule references this code; autoDispatch fallback #${cad.id} ${cadName} takes it into the FO line.`
+        : zh
+          ? '派单：没有专门引用该码的推单规则。'
+          : 'Routing: no dedicated push rule references this code.',
+    ];
+  }
+
+  const { kept, dropped } = filterRulesByAttrs(push, attrs);
+  const attrStr = pushAttrSummary(push, attrs, lang);
+  const lines = [
+    zh
+      ? `派单${attrStr ? `（按你给的 ${attrStr}）` : ''}：`
+      : `Routing${attrStr ? ` (using ${attrStr})` : ''}:`,
+  ];
+
+  if (!kept.length) {
+    lines.push(
+      zh
+        ? `  · 没有与这些属性匹配的推单规则${cad ? `；TT 仍由 autoDispatch 兜底 #${cad.id} 接进 FO 线` : ''}。`
+        : `  · no push rule matches these attributes${cad ? `; the TT still goes through autoDispatch fallback #${cad.id} into the FO line` : ''}.`
+    );
+  } else {
+    for (const r of kept) {
+      const conds = ruleCondText(r.condition, attrs);
+      const lead = conds.length
+        ? zh
+          ? `若 ${conds.join(' 且 ')} → `
+          : `if ${conds.join(' and ')} → `
+        : '';
+      lines.push(`  · ${lead}${pushRuleText(r)}`);
+    }
+  }
+
+  for (const r of dropped) {
+    const why = conflictText(r.condition, attrs, lang);
+    lines.push(
+      zh
+        ? `（#${r.id} ${String(r.name || '').trim()} 已排除${why ? `：它要求 ${why}` : '：条件与你给的属性冲突'}）`
+        : `(#${r.id} ${String(r.name || '').trim()} excluded${why ? `: it requires ${why}` : ': its conditions conflict with the attributes you gave'})`
+    );
+  }
+  return lines;
+}
+
+/**
+ * 渲染「会建什么 TT」的完整答案（2026-11-10 重写）。
+ *
+ * ## 为什么单写一个渲染器
+ *
+ * 旧实现在级别渲染后面**直接拼** `renderEflowRuleAnswer(..., 'tt')`：
+ *   ① 同一件事说两遍（级别一段、建单链路又一段）；
+ *   ② 推单规则不按用户给的站点属性过滤 —— REGULAR 站也列 ERA 专用的 #203；
+ *   ③ 结尾 `结论：配置存在，按上面这条链路走。` 对值班员毫无信息量；
+ *   ④ 满屏 eFlow 内部规则名与判定串，却没有一句「所以这单会是什么 TT」。
+ *
+ * 2026-11-10 用户反馈「回答的不好」后改成四段：
+ *   ① 结论：会建 TT、进 FO 还是 BO 线；
+ *   ② 级别：条件式结论（若…→ P?，含已满足条件）；
+ *   ③ 口径提醒：Downstream Site Count ≠ downstreamSites；
+ *   ④ 派单：过滤后适用的规则 + 被排除的规则及原因。
+ */
+function renderTtBuildAnswer({ code, alarmName, attrs, level, eflow, lang }) {
+  const zh = lang !== 'en';
+  const out = [];
+  const name = alarmName ? (zh ? `（${alarmName}）` : ` (${alarmName})`) : '';
+
+  // ① 会建 TT + 走哪条线
+  const head = zh ? `告警码 ${code}${name}：会建 TT` : `Alarm ${code}${name}: a TT is created`;
+  if (!eflow) {
+    out.push(
+      zh
+        ? `${head}（eFlow 规则配置暂时读不到，建单/派单链路无法确认）。`
+        : `${head} (the eFlow rule config is unreadable right now, so the ticket/routing chain is unconfirmed).`
+    );
+  } else {
+    const cad = eflow.tt?.catchAllDispatch || null;
+    const bo = [];
+    for (const r of eflow.tt?.dispatchByField || []) {
+      for (const v of Object.values(r.fields || {})) bo.push(...v);
+    }
+    const bits = [];
+    if (cad) {
+      bits.push(zh ? `autoDispatch 兜底 #${cad.id} 收进 FO 线` : `autoDispatch fallback #${cad.id} routes it into the FO line`);
+    }
+    if (bo.length) {
+      bits.push(
+        zh ? `netWorkType ∈ {${bo.join('/')}} 时改走 BO 线` : `it goes to the BO line when netWorkType ∈ {${bo.join('/')}}`
+      );
+    }
+    out.push(zh ? `${head}${bits.length ? `，${bits.join('；')}` : ''}。` : `${head}${bits.length ? ` — ${bits.join('; ')}` : ''}.`);
+  }
+
+  // ② 级别
+  out.push('');
+  out.push(...renderLevelVerdict(level, lang));
+
+  // ③ 口径提醒（Downstream Site Count ≠ downstreamSites）
+  const note = level ? downSiteCountNote(attrs, level.missingFields, lang) : '';
+  if (note) {
+    out.push('');
+    out.push(note);
+  }
+
+  // ④ 派单
+  out.push('');
+  out.push(...renderPushSection(eflow, attrs, lang));
+
+  // ⑤ 来源
+  const src = eflowSourceLine(eflow, lang);
+  if (src) {
+    out.push('');
+    out.push(src);
+  }
+  return out.join('\n');
 }
 
 /**
@@ -1946,14 +2445,43 @@ export async function runLookup(call, lang, opts = {}) {
     if (!opts.staticOnly && code && Object.keys(attrs).length) {
       const r = await lookupLevelByRule(
         code,
-        { asset: attrs.assetType, vip: attrs.vipSite, sub: attrs.siteSubType },
+        {
+          asset: attrs.assetType,
+          vip: attrs.vipSite,
+          sub: attrs.siteSubType,
+          down: attrs.downSiteCount,
+          // hubSite / downstreamSites（2026-11-10 补）：HUB 站的三条级别规则
+          // （#266/#268/#277）都引用了它们 —— 不传等于没给属性，那几条规则永远判不出来。
+          hub: attrs.hubSite,
+          downstream: attrs.downstreamSites,
+          domain: attrs.netWorkType,
+        },
         { lang }
       );
       if (!r.unavailable) {
+        let text;
+        if (TT_CHAIN_INTENT.test(opts.question || '')) {
+          // 「会建什么 TT / 派给谁」→ 一个**完整答案**：级别（条件式）+ 会建单/派单链路，
+          // 且推单规则按用户给的站点属性过滤（REGULAR 站不列 ERA 专用规则）。
+          // 规则表读不到时如实说「无法确认」，**不能**说成「没配」——
+          // 与 src/eflowRules.js 的同一条纪律。
+          const ef = await lookupEflowRules(code);
+          const ac = findAlarmCode(lookups, code);
+          text = renderTtBuildAnswer({
+            code,
+            alarmName: (ac && ac.name) || '',
+            attrs,
+            level: r,
+            eflow: ef.ok ? ef.data : null,
+            lang,
+          });
+        } else {
+          text = renderLevelMatch(r, code, attrs, lang);
+        }
         return {
           answered: r.ok,
           channel: 'lookup',
-          text: renderLevelMatch(r, code, attrs, lang),
+          text,
           stats: { totalMs: Date.now() - t0 },
           routeArgs: { code, ...attrs },
         };

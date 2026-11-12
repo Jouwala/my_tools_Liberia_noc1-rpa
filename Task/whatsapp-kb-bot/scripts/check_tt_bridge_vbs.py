@@ -125,6 +125,18 @@ def check_paths(text: str) -> list[str]:
 
 
 def main() -> int:
+    # stdout 显式改成 utf-8（2026-11-10 修）。
+    #
+    # 为什么：stdout 重定向到管道（npm test 的 `&&` 链）时，Python 在 Windows 上
+    # 用**系统代码页**（本机 cp1252）写 stdout，一 print 中文就 UnicodeEncodeError
+    # —— 检查其实已经跑完并打印了大半，脚本却以异常退出，
+    # 让 `npm test` 整体变红。与 scripts/export-tt-knowledge.py 2026-10-23 的
+    # 修法同源（那边也是同一句注释、同一处坑）。
+    try:
+        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+    except AttributeError:  # pragma: no cover - Python < 3.7
+        pass
+
     if not VBS.is_file():
         print(f'FAIL: 找不到 {VBS}')
         return 1

@@ -190,24 +190,24 @@ const NOW = new Date('2026-10-07');
 {
   const c1 = parseLookupIntent('告警码 9990 NORMAL 非 VIP 是几级', L);
   const r1 = await runLookup(c1, 'zh', { lookups: L, question: '告警码 9990 NORMAL 非 VIP 是几级', staticOnly: true });
-  check('sa-9990-normal-novip-227', r1.text.includes('227'),
+  check('sa-9990-normal-novip-269', r1.text.includes('269'),
     `实得：${r1.text.slice(0, 200)}`);
-  check('sa-9990-normal-novip-no-228', !r1.text.includes('#228'),
+  check('sa-9990-normal-novip-no-270', !r1.text.includes('#270'),
     `实得：含 #228`);
 
   const c2 = parseLookupIntent('告警码 9990 COOL 非VIP 是几级', L);
   const r2 = await runLookup(c2, 'zh', { lookups: L, question: '告警码 9990 COOL 非VIP 是几级', staticOnly: true });
-  check('sa-9990-cool-novip-228', r2.text.includes('228'),
+  check('sa-9990-cool-novip-270', r2.text.includes('270'),
     `实得：${r2.text.slice(0, 200)}`);
 
   const c3 = parseLookupIntent('告警码 9990 ERA 是几级', L);
   const r3 = await runLookup(c3, 'zh', { lookups: L, question: '告警码 9990 ERA 是几级', staticOnly: true });
-  check('sa-9990-era-229', r3.text.includes('229'),
+  check('sa-9990-era-271', r3.text.includes('271'),
     `实得：${r3.text.slice(0, 200)}`);
 
   const c4 = parseLookupIntent('9920 VIP 站点是几级', L);
   const r4 = await runLookup(c4, 'zh', { lookups: L, question: '9920 VIP 站点是几级', staticOnly: true });
-  check('sa-9920-vip-226', r4.text.includes('226'),
+  check('sa-9920-vip-267', r4.text.includes('267'),
     `实得：${r4.text.slice(0, 200)}`);
 }
 
@@ -454,17 +454,17 @@ const NOW = new Date('2026-10-07');
   // 9990 + ERA → 229，排除 227
   const c1 = parseLookupIntent('告警码 9990 ERA 站是几级', L);
   const r1 = await runLookup(c1, 'zh', { lookups: L, question: '告警码 9990 ERA 站是几级', staticOnly: true });
-  check('silent-era-229', r1.text.includes('229'),
+  check('silent-era-271', r1.text.includes('271'),
     `实得：${r1.text.slice(0, 200)}`);
-  // 这里有个细节：#227 条件里没显式提 ERA（"assetType=NORMAL" + "vipSite=0"），
-  // 所以按 filter 逻辑不应该被排除 → 候选里仍含 #227。
-  // 期望：列出 #229 + 提到「满足 vipSite=0 的可考虑 #227」或「建议用真规则匹配」
-  // 实际：直接列候选，#227 和 #229 都在 → 这是设计选择，不是 bug
-  if (r1.text.includes('#227')) {
+  // 这里有个细节：#269 条件里没显式提 ERA（"assetType=NORMAL"），
+  // 所以按 filter 逻辑不应该被排除 → 候选里仍含 #269。
+  // 期望：列出 #271 + 提到「满足 vipSite=0 的可考虑 #269」或「建议用真规则匹配」
+  // 实际：直接列候选，#269 和 #271 都在 → 这是设计选择，不是 bug
+  if (r1.text.includes('#269')) {
     // 接受（设计选择）
-    check('silent-era-shows-229', true);
+    check('silent-era-shows-269', true);
   } else {
-    check('silent-era-shows-229', false, `实得不含 #227`);
+    check('silent-era-shows-269', false, `实得不含 #269`);
   }
 
   // 「P2 规则有哪些」 → lookup_level_rule，severity=P2
