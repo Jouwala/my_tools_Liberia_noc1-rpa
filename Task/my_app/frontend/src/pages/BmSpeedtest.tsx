@@ -29,7 +29,7 @@ import { useI18n } from '../i18n'
 import { WH, useTheme, cardStyle, axisLabel, axisLine, darkTooltip, splitLine } from '../theme'
 import { CardBase, StatCard } from '../components/cards'
 // 数字悬浮说明（AGENTS.md 三.3c）：ⓘ 讲这一项的算法，气泡讲这一格的构成（全部取接口既有字段）
-import { ExplainLabel, ExplainPopover } from '../components/MetricExplain'
+import { ExplainIcon, ExplainLabel, ExplainPopover } from '../components/MetricExplain'
 import OoklaLogo from '../components/OoklaLogo'
 import DraggableClickModal from '../components/DraggableClickModal'
 import { exportAoaReport } from '../utils/excelReport'
@@ -721,7 +721,7 @@ export default function BmSpeedtest() {
       {/* ② 综合竞争力评分 —— 全页结论 */}
       {scores && (
         <CardBase title={<ExplainLabel label={t('bms.score.title')} text={t('bms.explain.score')} />} extra={
-          <Text type="secondary" style={{ fontSize: 12 }}>{t('bms.score.hint')}</Text>
+          <ExplainIcon text={t('bms.score.hint')} placement="bottomLeft" icon="question" />
         }>
           <Row gutter={[12, 12]}>
             {(['ORANGE', 'MTN'] as BrandKey[]).map(b => {

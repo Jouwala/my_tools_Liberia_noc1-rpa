@@ -9,6 +9,7 @@ import {
 import api from '../api'
 import { useI18n } from '../i18n'
 import { WH } from '../theme'
+import { ExplainIcon } from '../components/MetricExplain'
 
 const { Text, Paragraph } = Typography
 const { TextArea } = Input
@@ -256,7 +257,7 @@ export default function AIModelSettings() {
 
   return (
     <div style={{ maxWidth: 'min(100%, 60rem)' }}>
-      <Text style={{ color: WH.textMuted, fontSize: '0.8125rem' }}>{L.subtitle}</Text>
+      <ExplainIcon text={L.subtitle} placement="bottomLeft" icon="question" />
 
       {error && (
         <Alert type="error" message={error} showIcon style={{ marginTop: '0.75rem' }} />

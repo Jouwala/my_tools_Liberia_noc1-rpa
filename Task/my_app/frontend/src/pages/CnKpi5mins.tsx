@@ -22,7 +22,7 @@
  * 约定（AGENTS.md 第三节第 3 条）：卡片走 components/cards，导出走 utils/excelReport，
  * ECharts 用 DARK/LIGHT 实值（canvas 解析不了 WH.* CSS 变量），文案走 t()。
  * ========================================================================== */
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Alert, Button, Col, Empty, Row, Space, Spin, Tag, Tooltip, Typography } from 'antd'
 import { DownloadOutlined, InfoCircleOutlined, ReloadOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
@@ -31,7 +31,7 @@ import { CardBase } from '../components/cards'
 import CalcChainNote from '../components/CalcChainNote'
 // 数字悬浮口径说明（AGENTS.md 三.3c）：本页此前只有整页级 CalcChainNote，
 // 组件卡与页头统计的数字问不到。口径对过 services/cn_kpi_5mins_service.py 的 WIDGETS 与 _agg_sql。
-import { ExplainLabel, ExplainPopover } from '../components/MetricExplain'
+import { ExplainIcon, ExplainLabel, ExplainPopover } from '../components/MetricExplain'
 import { exportReport, type ReportSheetSpec } from '../utils/excelReport'
 import { getCnKpi5minsOverview } from '../api'
 import { useI18n } from '../i18n'
@@ -379,21 +379,55 @@ export default function CnKpi5mins() {
   const [data, setData] = useState<OverviewResp5 | null>(null)
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState('')
+  // 只认最后一次请求：刷新间隔短于远端取数时，先发出的响应不许盖掉后发出的。
+  const reqSeq = useRef(0)
+  const inflight = useRef(false)
+  // load 不能依赖 data state，否则每次 setData 都换函数、把监听器拆了重挂。
+  const dataRef = useRef<OverviewResp5 | null>(null)
 
-  const load = useCallback(async (force = false) => {
-    setLoading(true)
-    setErr('')
+  /**
+   * silent=true 供原地自动刷新（App.tsx 的 AR_INPLACE_REFRESH_PAGES → myapp-refresh）。
+   * 三条缺一就会把「静默」做成空白页：
+   *   · 不 setLoading(true) —— 本页 `loading && !data` 会卸掉全部图表、只留一个 Spin；
+   *   · 失败不清 data、也不新开错误条 —— 拿不到新数就继续显示上一帧；
+   *   · 还没有上一帧、且已有请求在飞时直接跳过，避免把首次加载的响应序号挤掉。
+   * 手动刷新走非静默（按钮要转圈），但已有 data 时同样不卸图。
+   * ⚠ 按钮必须 `onClick={() => load({ force: true })}`，写成 `onClick={load}` 会把
+   * MouseEvent 当成 opts（事件对象恒真）。
+   */
+  const load = useCallback(async (opts?: { silent?: boolean; force?: boolean }) => {
+    const silent = !!opts?.silent
+    if (silent && !dataRef.current && inflight.current) return
+    const seq = ++reqSeq.current
+    inflight.current = true
+    if (!silent) {
+      setLoading(true)
+      setErr('')
+    }
     try {
-      const res = await getCnKpi5minsOverview({ force })
+      const res = await getCnKpi5minsOverview({ force: !!opts?.force })
+      if (seq !== reqSeq.current) return
+      dataRef.current = res.data
       setData(res.data)
+      setErr('')
     } catch (e: unknown) {
-      setErr(e instanceof Error ? e.message : String(e))
+      if (seq !== reqSeq.current) return
+      if (!silent) setErr(e instanceof Error ? e.message : String(e))
     } finally {
-      setLoading(false)
+      if (seq === reqSeq.current) {
+        inflight.current = false
+        setLoading(false)
+      }
     }
   }, [])
 
-  useEffect(() => { load() }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { void load() }, [load])
+  // 顶栏自动刷新：不重挂载本页（重挂载会把 data 清成 null，画面回到转圈空白）。
+  useEffect(() => {
+    const onInplaceRefresh = () => { void load({ silent: true }) }
+    document.addEventListener('myapp-refresh', onInplaceRefresh)
+    return () => document.removeEventListener('myapp-refresh', onInplaceRefresh)
+  }, [load])
 
   const widgets = data?.widgets ?? []
   const chartWidgets = widgets.filter((w) => w.chart !== 'kpi' && w.chart !== 'text')
@@ -482,7 +516,7 @@ export default function CnKpi5mins() {
                   {t('cnkpi5.summary', { ok: withData, total: widgets.length })}
                 </Tag>
               </ExplainPopover>
-              <Text type="secondary" style={{ fontSize: 12 }}>{t('cnkpi5.barHint')}</Text>
+              <ExplainIcon text={t('cnkpi5.barHint')} placement="bottomLeft" icon="question" />
               {data?.meta && (
                 <ExplainPopover placement="bottom" text={t('cnkpi5.tip.elapsed', { ms: data.meta.elapsed_ms, cached: data.meta.cached ? t('cnkpi5.tip.cachedYes') : t('cnkpi5.tip.cachedNo') })}>
                   <Tag style={{ cursor: 'help' }}>{data.meta.elapsed_ms}ms{data.meta.cached ? ` · ${t('cnkpi.cached')}` : ''}</Tag>
@@ -510,7 +544,7 @@ export default function CnKpi5mins() {
           </Col>
           <Col>
             <Space wrap>
-              <Button icon={<ReloadOutlined />} onClick={() => load(true)} loading={loading} size="small">
+              <Button icon={<ReloadOutlined />} onClick={() => load({ force: true })} loading={loading} size="small">
                 {t('cnkpi.refresh')}
               </Button>
               <Button icon={<DownloadOutlined />} onClick={exportExcel} disabled={!data || loading} size="small">

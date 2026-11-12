@@ -160,6 +160,7 @@ export default function VmaxUserCca() {
           value={d.complaint}
           onChange={d.setComplaint}
           disabled={!d.anyData}
+          compactHint
         />
       </CardBase>
 

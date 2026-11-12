@@ -798,16 +798,12 @@ export default function MsSlaDashboard({ only }: { only?: 'nur' | 'sla' } = {}) 
       </Card>
 
       {/* 当前档位的时间范围说明（切档会重置区间，这里讲清楚默认窗口，避免误解为丢数据） */}
-      <Alert
-        type="info" showIcon banner
-        message={t('msSla.tabHint', {
-          tab: granLong,
-          range: range && range[0] && range[1]
-            ? `${range[0].format('YYYY-MM-DD')} ~ ${range[1].format('YYYY-MM-DD')}`
-            : t('msSla.exportRangeAll'),
-        })}
-        style={{ marginBottom: 'var(--wh-space-md)' }}
-      />
+      <ExplainIcon text={t('msSla.tabHint', {
+        tab: granLong,
+        range: range && range[0] && range[1]
+          ? `${range[0].format('YYYY-MM-DD')} ~ ${range[1].format('YYYY-MM-DD')}`
+          : t('msSla.exportRangeAll'),
+      })} placement="bottomLeft" icon="question" />
 
       {error && <Alert type="error" showIcon message={`${t('msSla.loadFailed')}: ${error}`} style={{ marginBottom: 'var(--wh-space-md)' }} />}
       {data && !lastSync && (

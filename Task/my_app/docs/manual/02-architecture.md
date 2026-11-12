@@ -62,10 +62,11 @@ schemas/   预留，实际为空
 - **所有页面一视同仁**（2026-11-04 改造）：~~白名单制~~ 已删除（原 `AR_BOARD_PAGES`）。此前配置 / 操作 / 工具类页面（`settings` / `upload` / `tables` / `ip_trace` / `eflow_*` 等）的生效间隔恒为 0 且顶栏控件禁用，用户想刷也刷不了，与「由用户决定是否刷新」自相矛盾；现在这些页同样能按页开启，建议间隔给最松的 1800 秒。副作用防护不靠禁用，靠 `arInteractionInProgress()`（正在输入 / 弹层打开 / 标签页后台时跳过硬重挂载那一轮）。
 - **三条刷新路径**（2026-10-29 由两条拆成三条）：
   1. **iframe / legacy 页软刷新**（`AR_SOFT_REFRESH_PAGES`）：外壳广播 `postMessage({__type:'myapp-refresh'})`，文档内原地重拉；
-  2. **同文档 React 页原地刷新**（`AR_INPLACE_REFRESH_PAGES`，目前只有 `person`）：外壳 `document.dispatchEvent(new CustomEvent('myapp-refresh'))`，页面自己静默重拉数据；
+  2. **同文档 React 页原地刷新**（`AR_INPLACE_REFRESH_PAGES`，目前是 `person`、`cn_kpi_5mins`）：外壳 `document.dispatchEvent(new CustomEvent('myapp-refresh'))`，页面自己静默重拉数据；
   3. **硬重挂载**（其余页面）：`key={refreshTick}` 变化 → 整页重挂载。
   前两条无副作用，**在 `arInteractionInProgress()` 拦截之前发出**，故全屏 / 后台 / 弹层打开时照刷；只有第 3 条受「用户正忙」与 `document.fullscreenElement` 拦截。三条路径都只在**用户已开启本页自动刷新**时才会发生。
   ⚠ `person` 走第 2 条的原因：它的建议间隔是 300s，用户当年反馈「刷新太快」实际指的是**每 5 分钟一次的整页重建** —— Leaflet 地图销毁重建、flyTo 回全国视角、图层与县名标签全部重画，在门户 iframe 里就是一下闪白。页面侧的 `load(silent)` 因此**不清 loading、不清 error、失败时保留旧数据**（详见 `PersonMap.tsx` 取数处注释）。新页加入 `AR_INPLACE_REFRESH_PAGES` 前必须确认它的取数能在不清 loading 的前提下重跑。
+  ⚠ `cn_kpi_5mins` 走第 2 条的原因（2026-11-10）：硬重挂载会把 `data` 清成 null，而页面在 `loading && !data` 时只画一个 Spin。overview 要打远端 11 个组件（每个还先探一次列名），取数期间整页就是页头加转圈；刷新间隔短于取数耗时时，下一轮重挂载会把还没落地的 `setState` 一起丢掉，页面可以一直空白。改为 `CnKpi5mins.tsx` 的 `load({ silent: true })`：不清 loading、失败保留上一帧。后端 `get_overview` 同时单飞（后来的请求等进行中的那一轮）并把列名缓存 10 分钟，避免刷新叠在慢查询上把远端打满。
 - **生效间隔**通过 `localStorage['myapp_auto_refresh_effective']` 公开给 legacy 页（未开启=0）。旧版同时公开的「本页是否看板」标记 `myapp_auto_refresh_is_board` 随白名单一起删除，外壳挂载时清掉残留值（缓存了旧协议脚本的直开页会读它，残留 `'0'` 会让本页拒绝自刷）。
 - **legacy 页自刷新安全网**：7 个 iframe 看板页 + 2 个 React 内嵌页统一引入 `public/myapp-refresh-protocol.js`（`MyAppRefresh.install`）—— 父外壳广播即「提前触发」原地重拉，广播被挡时按生效间隔自调度兜底。2026-11-03 起随默认关闭改造：协议**不再有 defaultSec 兜底、不再「全屏忽略关闭」**，未开启（含全屏挂机）一律不刷；2026-11-04 起**不再区分看板与非看板**，只看用户是否为本页开启了刷新。`alarm-management.html` 有自身 live 模式，仅补广播入口。
 

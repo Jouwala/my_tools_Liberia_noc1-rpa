@@ -23,12 +23,12 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
-  Alert, Button, Col, Descriptions, Empty, Form, Input, Row, Space, Spin,
-  Table, Tag, Tooltip, Typography,
+  Alert, Button, Col, Descriptions, Empty, Form, Input, Row, Segmented, Select,
+  Space, Spin, Table, Tag, Tooltip, Typography,
 } from 'antd'
 import {
-  ApartmentOutlined, CheckCircleFilled, ClockCircleOutlined,
-  DownloadOutlined, ReloadOutlined, SearchOutlined,
+  ApartmentOutlined, CheckCircleFilled, ClearOutlined, ClockCircleOutlined,
+  DownloadOutlined, ExperimentOutlined, ReloadOutlined, SearchOutlined,
 } from '@ant-design/icons'
 import ReactECharts from 'echarts-for-react'
 
@@ -38,7 +38,9 @@ import { CardBase, StatCard } from '../components/cards'
 // 数字悬浮口径说明（AGENTS.md 三.3c）：ⓘ 讲这一项怎么算，气泡讲这个数怎么来。
 // 本页此前只有 ECharts 节点 tooltip，卡片数字与规则计数问不到。
 import CalcChainNote from '../components/CalcChainNote'
-import { ExplainLabel, ExplainPopover } from '../components/MetricExplain'
+import { ExplainIcon, ExplainLabel, ExplainPopover } from '../components/MetricExplain'
+import { renderRich } from '../utils/richText'
+import DraggableClickModal from '../components/DraggableClickModal'
 import api from '../api'
 import { formatDateTime as fmtDateTime } from '../datetime'
 import { exportReport, type ReportSheetSpec } from '../utils/excelReport'
@@ -60,6 +62,17 @@ type FlowRule = {
   description: string
   update_time: string
   push_path: string
+  /* 以下由 backend/services/eflow_flow_rules.py 按本单条件求值后附加 */
+  match?: boolean | null
+  match_state?: 'matched' | 'fallback' | 'not_matched' | 'undecidable' | 'no_data' | ''
+  match_details?: string
+  conditions_text?: string
+  unknown_fields?: string[]
+  rule_id?: string
+  severity?: string
+  create_by?: string
+  update_by?: string
+  create_time?: string
 }
 
 type FlowNode = {
@@ -69,6 +82,7 @@ type FlowNode = {
   rules: FlowRule[]
   rule_count: number
   active_rule_count: number
+  related_rule_count?: number
 }
 
 type FlowEdge = { from: string; to: string; kind: string; rule_names: string[] }
@@ -110,6 +124,16 @@ type QueryResult = {
     steps?: { key: string; ts: string; detail: string }[]
   }
   rule_hits?: (FlowRule & { node: string; reason_zh: string; reason_en: string })[]
+  rule_match_meta?: {
+    available: boolean
+    error: string
+    tt_no: string
+    fields: Record<string, string>
+    evaluated: number
+    undecidable: number
+    rules_file_mtime?: string
+    elapsed_sec?: number
+  }
   candidates?: Record<string, string>[]
   message?: string
   message_en?: string
@@ -117,6 +141,27 @@ type QueryResult = {
 
 /** 统一空值展示 */
 const fmt = (v: unknown) => (v == null || v === '' ? '-' : String(v))
+
+/** 多条件模拟的输入：字段与规则取值帧一一对应（后端 build_sim_frame 负责归一化） */
+type SimConditions = {
+  alarmCode: string
+  vipSite: string
+  hubSite: string
+  siteSubType: string
+  assetType: string
+  netWorkType: string
+  downSiteCount: string
+  downstreamSites: string
+  alarmDescription: string
+  reasonType: string
+  ticketSeverity: string
+}
+
+const EMPTY_SIM: SimConditions = {
+  alarmCode: '', vipSite: '', hubSite: '', siteSubType: '', assetType: '',
+  netWorkType: '', downSiteCount: '', downstreamSites: '',
+  alarmDescription: '', reasonType: '', ticketSeverity: '',
+}
 
 /**
  * 步骤/节点 key → i18n 键。
@@ -151,8 +196,30 @@ function queryTypeKey(qt: string): string {
     case 'tt': return 'eflowFlow.type.tt'
     case 'alarm': return 'eflowFlow.type.alarm'
     case 'alarm_code': return 'eflowFlow.type.alarmCode'
+    case 'simulate': return 'eflowFlow.type.simulate'
     default: return 'eflowFlow.type.unknown'
   }
+}
+
+/** 规则与本单的匹配状态 → i18n 键（显式 switch，避免动态拼键被 check:i18n 拦下） */
+function matchStateKey(s: string): string {
+  switch (s) {
+    case 'matched': return 'eflowFlow.match.matched'
+    case 'fallback': return 'eflowFlow.match.fallback'
+    case 'not_matched': return 'eflowFlow.match.notMatched'
+    case 'undecidable': return 'eflowFlow.match.undecidable'
+    default: return 'eflowFlow.match.noData'
+  }
+}
+
+/** 匹配状态标签：颜色区分「命中 / 兜底 / 未命中 / 无法判定 / 无原文」。
+ *  文案由调用处传 t(matchStateKey(state))（组件外拿不到 i18n hook）。 */
+function MatchTag({ state, label }: { state?: string; label: string }) {
+  const color = state === 'matched' ? 'green'
+    : state === 'fallback' ? 'cyan'
+      : state === 'undecidable' ? 'orange'
+        : 'default'
+  return <Tag color={color} style={{ marginInlineEnd: 0 }}>{label}</Tag>
 }
 
 /** 节点泳道 → 横坐标（决定流程图的分层从左到右） */
@@ -172,6 +239,22 @@ export default function EflowFlow() {
   const [searched, setSearched] = useState(false)
   /** 当前选中的节点（点击图中节点 → 右侧规则明细） */
   const [activeNode, setActiveNode] = useState<string>('')
+  /** 规则明细范围：related = 只显示与本单条件匹配（含兜底）；all = 全部挂载规则。
+   *  默认 related —— 用户查某个告警时只想看与它相关的规则。 */
+  const [ruleScope, setRuleScope] = useState<'related' | 'all'>('related')
+  /** 规则详情弹窗（点击规则名打开）与点击锚点 */
+  const [detailRule, setDetailRule] = useState<FlowRule | null>(null)
+  const [detailAnchor, setDetailAnchor] = useState<{ x: number; y: number } | null>(null)
+  /** 输入模式：query = 按单号/告警查询；simulate = 多条件模拟（不给具体单子，直接给条件） */
+  const [mode, setMode] = useState<'query' | 'simulate'>('query')
+  /** 多条件模拟的输入值（全部可选，留空 = 不设置） */
+  const [sim, setSim] = useState<SimConditions>(EMPTY_SIM)
+  /** 最近一次提交的模拟条件 —— 语言切换后按同条件重查 */
+  const [simSubmitted, setSimSubmitted] = useState<SimConditions | null>(null)
+  const simHasAny = useMemo(
+    () => Object.values(sim).some((v) => String(v ?? '').trim() !== ''),
+    [sim],
+  )
 
   /* ---- 查询 ---- */
   const runQuery = useCallback(async (kw: string) => {
@@ -192,9 +275,38 @@ export default function EflowFlow() {
     }
   }, [isZh])
 
+  /* ---- 多条件模拟：条件原文交给后端归一化（与真实单子同一套 build_value_frame） ---- */
+  const setSimField = (k: keyof SimConditions) => (v: unknown) =>
+    setSim((s) => ({ ...s, [k]: v && typeof v === 'object' && 'target' in (v as object)
+      ? (v as { target: { value: string } }).target.value
+      : String(v ?? '') }))
+
+  const runSimulate = useCallback(async (conds: SimConditions) => {
+    const payload = Object.fromEntries(
+      Object.entries(conds).map(([k, v]) => [k, String(v ?? '').trim()]),
+    ) as SimConditions
+    if (!Object.values(payload).some(Boolean)) return
+    setLoading(true)
+    setError('')
+    setSearched(true)
+    setSimSubmitted(payload)
+    try {
+      const res = await api.post('/eflow-flow/simulate', payload, { params: { lang: isZh ? 'zh' : 'en' } })
+      setData(res.data as QueryResult)
+      setActiveNode('')
+    } catch (e: any) {
+      setError(e?.response?.data?.detail || e?.message || String(e))
+      setData(null)
+    } finally {
+      setLoading(false)
+    }
+  }, [isZh])
+
   useEffect(() => {
     // 语言切换后若已有结果，按新语言重查（后端返回的节点标签/注释分语言）
-    if (searched && data?.query) void runQuery(data.query)
+    if (!searched) return
+    if (data?.query_type === 'simulate' && simSubmitted) void runSimulate(simSubmitted)
+    else if (data?.query) void runQuery(data.query)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isZh])
 
@@ -214,6 +326,35 @@ export default function EflowFlow() {
   const activeNodeObj = useMemo(
     () => graph?.nodes.find((n) => n.id === activeNode) || null,
     [graph, activeNode],
+  )
+
+  /* ---- 规则相关性（后端 eflow_flow_rules 标注） ---- */
+  const matchMeta = data?.rule_match_meta
+  const matchAvailable = matchMeta?.available === true
+  // 匹配不可用时降级为「全部」，避免空表误导
+  const effectiveScope: 'related' | 'all' = matchAvailable ? ruleScope : 'all'
+  const isRelated = (r: FlowRule) => r.match === true
+  const filterRules = useCallback(
+    (rules: FlowRule[]) => (effectiveScope === 'related' ? rules.filter(isRelated) : rules),
+    [effectiveScope],
+  )
+  /** 当前视图的规则总数（related 口径 = 条件 True 含兜底） */
+  const relatedTotal = useMemo(
+    () => (graph?.nodes || []).reduce((s, n) => s + (n.related_rule_count ?? 0), 0),
+    [graph],
+  )
+  const scopeRelatedCount = activeNodeObj ? (activeNodeObj.related_rule_count ?? 0) : relatedTotal
+  const scopeTotalCount = activeNodeObj
+    ? activeNodeObj.rule_count
+    : (graph?.nodes || []).reduce((s, n) => s + n.rule_count, 0)
+  /** 未选中节点时铺全部节点规则，附 node_id 供「步骤」列与 rowKey 用 */
+  const allRulesWithNode = useMemo(
+    () => (graph?.nodes || []).flatMap((n) => n.rules.map((r) => ({ ...r, node_id: n.id }))),
+    [graph],
+  )
+  const tableRules = useMemo(
+    () => filterRules(activeNodeObj ? activeNodeObj.rules : allRulesWithNode),
+    [filterRules, activeNodeObj, allRulesWithNode],
   )
 
   /** 图上的规则命中节点集合 */
@@ -304,6 +445,7 @@ export default function EflowFlow() {
         _current: isCurrent,
         _ruleCount: n.rule_count,
         _activeCount: n.active_rule_count,
+        _relatedCount: n.related_rule_count ?? 0,
       }
     })
 
@@ -341,6 +483,9 @@ export default function EflowFlow() {
               : t('eflowFlow.nodeStatusNotReached')
           return `<b>${d.name}</b><br/>${status}<br/>${t('eflowFlow.ruleCountShort')}: `
             + `${d._activeCount} / ${d._ruleCount}<br/>`
+            + (matchAvailable
+              ? `${t('eflowFlow.relatedShort', { n: d._relatedCount })}<br/>`
+              : '')
             + `<span style="color:${isDark ? '#9aa6c8' : '#5b6478'};font-size:11px">`
             + `${t('eflowFlow.explain.nodeRulesTooltip')}</span>`
         },
@@ -357,11 +502,35 @@ export default function EflowFlow() {
         edgeSymbolSize: 8,
       }],
     }
-  }, [graph, isDark, t, reachedIds, actualEdgeKeys, currentNode, hitNodeIds])
+  }, [graph, isDark, t, reachedIds, actualEdgeKeys, currentNode, hitNodeIds, matchAvailable])
 
   /* ---- 规则明细表（当前选中节点） ---- */
+  /** 点击规则名 → 以点击位置为锚点打开详情弹窗 */
+  const openDetail = useCallback(
+    (r: FlowRule, e: { clientX: number; clientY: number; stopPropagation(): void }) => {
+      e.stopPropagation()
+      setDetailRule(r)
+      setDetailAnchor({ x: e.clientX, y: e.clientY })
+    },
+    [],
+  )
   const ruleColumns = useMemo(() => [
-    { title: t('eflowFlow.col.ruleName'), dataIndex: 'name', render: fmt, width: 220 },
+    // 未选中节点（全部规则视图）时补一列「步骤」，标明每条规则挂在哪个节点
+    ...(!activeNode ? [{
+      title: t('eflowFlow.col.step'), dataIndex: 'node_id', width: 120,
+      render: (v: string) => t(nodeLabelKey(v)),
+    }] : []),
+    {
+      title: t('eflowFlow.col.ruleName'), dataIndex: 'name', width: 220,
+      render: (v: string, r: FlowRule) => (
+        <Link onClick={(e) => openDetail(r, e)}>{fmt(v)}</Link>
+      ),
+    },
+    // 与本单的匹配状态（仅条件匹配可用时显示）
+    ...(matchAvailable ? [{
+      title: t('eflowFlow.col.matchState'), dataIndex: 'match_state', width: 110,
+      render: (v: string) => <MatchTag state={v} label={t(matchStateKey(v))} />,
+    }] : []),
     {
       title: t('eflowFlow.col.ruleType'), dataIndex: 'rule_type', width: 170,
       render: (v: string, r: FlowRule) => (
@@ -386,7 +555,7 @@ export default function EflowFlow() {
       title: t('eflowFlow.col.pushPath'), dataIndex: 'push_path', width: 200,
       render: (v: string) => <span style={{ fontSize: 12 }}>{fmt(v)}</span>,
     },
-  ], [t, isZh])
+  ], [t, isZh, activeNode, matchAvailable, openDetail])
 
   /** 实际路径时间轴表 */
   const stepColumns = useMemo(() => [
@@ -428,6 +597,8 @@ export default function EflowFlow() {
 
   const t6 = data?.tt || {}
   const isAlarmQuery = data?.query_type === 'alarm' || data?.query_type === 'alarm_code'
+  /** 多条件模拟结果：单据专属区块（TT 信息 / 实际路径 / 关联告警）不渲染 */
+  const isSim = data?.query_type === 'simulate'
 
   // ========== 导出 ==========
   /* 口径与页面完全一致：导出当前查询结果的**全部**节点规则 + 实际经过步骤 + 关联告警，
@@ -461,33 +632,36 @@ export default function EflowFlow() {
       })
     }
 
-    // ② 规则明细（当前选中节点的规则；未选中时退化为全部节点的规则并加一列节点名）
-    const selectedRules = activeNode
-      ? (nodes.find(n => n.id === activeNode)?.rules || [])
+    // ② 规则明细（与页面同一过滤口径：当前范围 related/all；选中节点无规则时退化为全部节点并加节点列）
+    const selNode = activeNode ? nodes.find(n => n.id === activeNode) : undefined
+    const selectedRules = selNode ? filterRules(selNode.rules || []) : []
+    const useAll = selectedRules.length === 0
+    const matchCols = matchAvailable
+      ? [t('eflowFlow.col.matchState'), t('eflowFlow.col.evidence')]
       : []
-    const ruleRows = selectedRules.length
-      ? selectedRules.map(r => [
-          r.name, r.rule_type, isZh ? r.role_zh : r.role_en, r.wo_type,
-          r.trigger_step, r.status, r.priority, r.handler, r.push_path, r.update_time,
-        ])
-      : nodes.flatMap(n => (n.rules || []).map(r => [
-          nodeName(n.id), r.name, r.rule_type, isZh ? r.role_zh : r.role_en, r.wo_type,
-          r.trigger_step, r.status, r.priority, r.handler, r.push_path, r.update_time,
-        ]))
+    const baseRow = (r: FlowRule) => [
+      r.name, r.rule_type, isZh ? r.role_zh : r.role_en, r.wo_type,
+      r.trigger_step, r.status, r.priority, r.handler, r.push_path, r.update_time,
+      ...(matchAvailable ? [t(matchStateKey(r.match_state || '')), r.match_details || ''] : []),
+    ]
+    const ruleRows = useAll
+      ? nodes.flatMap(n => filterRules(n.rules || []).map(r => [nodeName(n.id), ...baseRow(r)]))
+      : selectedRules.map(baseRow)
     if (ruleRows.length) {
-      const withNode = selectedRules.length === 0
+      const withNode = useAll
+      const scopeTag = effectiveScope === 'related' ? ` · ${t('eflowFlow.scope.related')}` : ''
       sheets.push({
         name: 'Rules',
-        title: `${t('eflowFlow.rulesTitle')}${selectedRules.length ? ` · ${nodeName(activeNode)}` : ''}`,
+        title: `${t('eflowFlow.rulesTitle')}${selectedRules.length ? ` · ${nodeName(activeNode)}` : ''}${scopeTag}`,
         header: withNode
           ? [t('eflowFlow.col.step'), t('eflowFlow.col.ruleName'), t('eflowFlow.col.ruleType'),
              t('eflowFlow.col.role'), t('eflowFlow.col.woType'), t('eflowFlow.col.triggerStep'),
              t('eflowFlow.col.status'), t('eflowFlow.col.priority'), t('eflowFlow.col.handler'),
-             t('eflowFlow.col.pushPath'), t('eflowFlow.col.updateTime')]
+             t('eflowFlow.col.pushPath'), t('eflowFlow.col.updateTime'), ...matchCols]
           : [t('eflowFlow.col.ruleName'), t('eflowFlow.col.ruleType'), t('eflowFlow.col.role'),
              t('eflowFlow.col.woType'), t('eflowFlow.col.triggerStep'), t('eflowFlow.col.status'),
              t('eflowFlow.col.priority'), t('eflowFlow.col.handler'), t('eflowFlow.col.pushPath'),
-             t('eflowFlow.col.updateTime')],
+             t('eflowFlow.col.updateTime'), ...matchCols],
         rows: ruleRows,
         tabColor: '#548235',
       })
@@ -536,62 +710,172 @@ export default function EflowFlow() {
     if (!sheets.length) return
     const stamp = fmtDateTime(new Date()).replace(/[: ]/g, '-')
     await exportReport(sheets, `eflow_flow_${String(data.query).replace(/[^\w]+/g, '_')}_${stamp}.xlsx`)
-  }, [data, activeNode, reachedIds, isZh, t])
+  }, [data, activeNode, reachedIds, isZh, t, filterRules, matchAvailable, effectiveScope])
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--wh-space-md)' }}>
 
-      {/* ① 查询条 */}
+      {/* ① 查询条：按单查询 / 多条件模拟 */}
       <CardBase bodyStyle={{ padding: 'var(--wh-space-sm) var(--wh-space-md)' }}>
-        <Form
-          layout="inline"
-          onFinish={() => void runQuery(keyword)}
-          style={{ rowGap: 8 }}
-        >
-          <Form.Item style={{ marginBottom: 0, flex: 1, minWidth: 280 }}>
-            <Input
-              allowClear
-              size="large"
-              prefix={<SearchOutlined />}
-              placeholder={t('eflowFlow.searchPlaceholder')}
-              value={keyword}
-              onChange={(e) => setKeyword(e.target.value)}
-              onPressEnter={() => void runQuery(keyword)}
-            />
-          </Form.Item>
-          <Form.Item style={{ marginBottom: 0 }}>
-            <Space>
-              <Button
-                type="primary"
-                size="large"
-                icon={<ApartmentOutlined />}
-                htmlType="submit"
-                loading={loading}
-              >
-                {t('eflowFlow.query')}
+        <Segmented
+          value={mode}
+          onChange={(v) => setMode(v as 'query' | 'simulate')}
+          options={[
+            { label: t('eflowFlow.mode.query'), value: 'query' },
+            { label: t('eflowFlow.mode.simulate'), value: 'simulate' },
+          ]}
+          style={{ marginBottom: 10 }}
+        />
+        {mode === 'query' ? (
+          <>
+            <Form
+              layout="inline"
+              onFinish={() => void runQuery(keyword)}
+              style={{ rowGap: 8 }}
+            >
+              <Form.Item style={{ marginBottom: 0, flex: 1, minWidth: 280 }}>
+                <Input
+                  allowClear
+                  size="large"
+                  prefix={<SearchOutlined />}
+                  placeholder={t('eflowFlow.searchPlaceholder')}
+                  value={keyword}
+                  onChange={(e) => setKeyword(e.target.value)}
+                  onPressEnter={() => void runQuery(keyword)}
+                />
+              </Form.Item>
+              <Form.Item style={{ marginBottom: 0 }}>
+                <Space>
+                  <Button
+                    type="primary"
+                    size="large"
+                    icon={<ApartmentOutlined />}
+                    htmlType="submit"
+                    loading={loading}
+                  >
+                    {t('eflowFlow.query')}
+                  </Button>
+                  <Button
+                    size="large"
+                    icon={<ReloadOutlined />}
+                    onClick={() => void runQuery(keyword)}
+                    disabled={!keyword.trim()}
+                  >
+                    {t('eflowFlow.refresh')}
+                  </Button>
+                  <Button
+                    size="large"
+                    icon={<DownloadOutlined />}
+                    onClick={() => void exportFlow()}
+                    disabled={!data?.found}
+                  >
+                    {t('common.exportExcel')}
+                  </Button>
+                </Space>
+              </Form.Item>
+            </Form>
+            <div style={{ marginTop: 8 }}>
+              <ExplainIcon text={t('eflowFlow.searchHint')} placement="bottomLeft" icon="question" />
+            </div>
+          </>
+        ) : (
+          <Form
+            layout="vertical"
+            onFinish={() => void runSimulate(sim)}
+            style={{ marginTop: 2 }}
+          >
+            <Row gutter={[10, 0]}>
+              <Col xs={12} md={8} xl={6}>
+                <Form.Item label={t('eflowFlow.sim.f.alarmCode')} style={{ marginBottom: 8 }}>
+                  <Input allowClear placeholder={t('eflowFlow.sim.p.alarmCode')}
+                    value={sim.alarmCode} onChange={(e) => setSimField('alarmCode')(e)} />
+                </Form.Item>
+              </Col>
+              <Col xs={12} md={8} xl={6}>
+                <Form.Item label={t('eflowFlow.sim.f.ticketSeverity')} style={{ marginBottom: 8 }}>
+                  <Select allowClear placeholder="P1–P4" value={sim.ticketSeverity || undefined}
+                    onChange={(v) => setSimField('ticketSeverity')(v)}
+                    options={['P1', 'P2', 'P3', 'P4'].map((s) => ({ value: s, label: s }))} />
+                </Form.Item>
+              </Col>
+              <Col xs={12} md={8} xl={6}>
+                <Form.Item label={t('eflowFlow.sim.f.vipSite')} style={{ marginBottom: 8 }}>
+                  <Select allowClear placeholder="YES / NO" value={sim.vipSite || undefined}
+                    onChange={(v) => setSimField('vipSite')(v)}
+                    options={['YES', 'NO'].map((s) => ({ value: s, label: s }))} />
+                </Form.Item>
+              </Col>
+              <Col xs={12} md={8} xl={6}>
+                <Form.Item label={t('eflowFlow.sim.f.hubSite')} style={{ marginBottom: 8 }}>
+                  <Select allowClear placeholder="YES / NO" value={sim.hubSite || undefined}
+                    onChange={(v) => setSimField('hubSite')(v)}
+                    options={['YES', 'NO'].map((s) => ({ value: s, label: s }))} />
+                </Form.Item>
+              </Col>
+              <Col xs={12} md={8} xl={6}>
+                <Form.Item label={t('eflowFlow.sim.f.siteSubType')} style={{ marginBottom: 8 }}>
+                  <Select allowClear placeholder="REGULAR / ERA" value={sim.siteSubType || undefined}
+                    onChange={(v) => setSimField('siteSubType')(v)}
+                    options={['REGULAR', 'ERA'].map((s) => ({ value: s, label: s }))} />
+                </Form.Item>
+              </Col>
+              <Col xs={12} md={8} xl={6}>
+                <Form.Item label={t('eflowFlow.sim.f.assetType')} style={{ marginBottom: 8 }}>
+                  <Select allowClear placeholder="NORMAL / COOL" value={sim.assetType || undefined}
+                    onChange={(v) => setSimField('assetType')(v)}
+                    options={['NORMAL', 'COOL'].map((s) => ({ value: s, label: s }))} />
+                </Form.Item>
+              </Col>
+              <Col xs={12} md={8} xl={6}>
+                <Form.Item label={t('eflowFlow.sim.f.netWorkType')} style={{ marginBottom: 8 }}>
+                  <Input allowClear placeholder={t('eflowFlow.sim.p.netWorkType')}
+                    value={sim.netWorkType} onChange={(e) => setSimField('netWorkType')(e)} />
+                </Form.Item>
+              </Col>
+              <Col xs={12} md={8} xl={6}>
+                <Form.Item label={t('eflowFlow.sim.f.downSiteCount')} style={{ marginBottom: 8 }}>
+                  <Input allowClear value={sim.downSiteCount}
+                    onChange={(e) => setSimField('downSiteCount')(e)} />
+                </Form.Item>
+              </Col>
+              <Col xs={12} md={8} xl={6}>
+                <Form.Item label={t('eflowFlow.sim.f.downstreamSites')} style={{ marginBottom: 8 }}>
+                  <Input allowClear placeholder={t('eflowFlow.sim.p.downstreamSites')}
+                    value={sim.downstreamSites} onChange={(e) => setSimField('downstreamSites')(e)} />
+                </Form.Item>
+              </Col>
+              <Col xs={12} md={8} xl={6}>
+                <Form.Item label={t('eflowFlow.sim.f.reasonType')} style={{ marginBottom: 8 }}>
+                  <Input allowClear placeholder={t('eflowFlow.sim.p.reasonType')}
+                    value={sim.reasonType} onChange={(e) => setSimField('reasonType')(e)} />
+                </Form.Item>
+              </Col>
+              <Col xs={12} md={8} xl={6}>
+                <Form.Item label={t('eflowFlow.sim.f.alarmDescription')} style={{ marginBottom: 8 }}>
+                  <Input allowClear value={sim.alarmDescription}
+                    onChange={(e) => setSimField('alarmDescription')(e)} />
+                </Form.Item>
+              </Col>
+            </Row>
+            <Space wrap>
+              <Button type="primary" icon={<ExperimentOutlined />} htmlType="submit"
+                disabled={!simHasAny} loading={loading}>
+                {t('eflowFlow.sim.submit')}
               </Button>
-              <Button
-                size="large"
-                icon={<ReloadOutlined />}
-                onClick={() => void runQuery(keyword)}
-                disabled={!keyword.trim()}
-              >
-                {t('eflowFlow.refresh')}
-              </Button>
-              <Button
-                size="large"
-                icon={<DownloadOutlined />}
-                onClick={() => void exportFlow()}
-                disabled={!data?.found}
-              >
+              <Button icon={<DownloadOutlined />} onClick={() => void exportFlow()}
+                disabled={!data?.found}>
                 {t('common.exportExcel')}
               </Button>
+              <Button icon={<ClearOutlined />} disabled={!simHasAny}
+                onClick={() => setSim(EMPTY_SIM)}>
+                {t('eflowFlow.sim.reset')}
+              </Button>
             </Space>
-          </Form.Item>
-        </Form>
-        <div style={{ marginTop: 8 }}>
-          <Text type="secondary" style={{ fontSize: 12 }}>{t('eflowFlow.searchHint')}</Text>
-        </div>
+            <div style={{ marginTop: 8 }}>
+              <ExplainIcon text={t('eflowFlow.sim.hint')} placement="bottomLeft" icon="question" />
+            </div>
+          </Form>
+        )}
       </CardBase>
 
       {/* ② 错误 */}
@@ -609,8 +893,10 @@ export default function EflowFlow() {
             image={Empty.PRESENTED_IMAGE_SIMPLE}
             description={
               <Space direction="vertical" size={4}>
-                <Text>{t('eflowFlow.emptyHint')}</Text>
-                <Text type="secondary" style={{ fontSize: 12 }}>{t('eflowFlow.emptyExample')}</Text>
+                <Text>{mode === 'simulate' ? t('eflowFlow.sim.emptyHint') : t('eflowFlow.emptyHint')}</Text>
+                {mode !== 'simulate' && (
+                  <Text type="secondary" style={{ fontSize: 12 }}>{t('eflowFlow.emptyExample')}</Text>
+                )}
               </Space>
             }
           />
@@ -653,49 +939,58 @@ export default function EflowFlow() {
       {/* ⑥ 结果 */}
       {searched && !loading && data?.found && (
         <>
-          {/* 概览数字卡：每个数字都可点（点 → 切到对应节点） */}
+          {/* 概览数字卡：每个数字都可点（点 → 切到对应节点）。
+              多条件模拟没有单据，只保留「流程规则」一张卡。 */}
           <Row gutter={[12, 12]}>
-            <Col xs={12} sm={8} lg={4}>
-              <StatCard title={t('eflowFlow.kpi.ttNo')} value={fmt(t6.tt_no)} />
-            </Col>
-            <Col xs={12} sm={8} lg={4}>
-              <CardBase
-                level={data.current === 'Closed' ? 'ok' : 'warn'}
-                title={t('eflowFlow.kpi.status')}
-                as="div"
-                interactive
-                onClick={() => setActiveNode(data.current || '')}
-              >
-                <Text strong style={{ fontSize: 15 }}>
-                  {data.current ? t(nodeLabelKey(data.current)) : fmt(t6.status)}
-                </Text>
-                <div style={{ fontSize: 11, color: WH.textDim, marginTop: 2 }}>
-                  {fmt(t6.operation_type)}
-                </div>
-              </CardBase>
-            </Col>
-            <Col xs={12} sm={8} lg={4}>
-              <StatCard title={t('eflowFlow.kpi.severity')} value={fmt(t6.ticket_severity)} />
-            </Col>
-            <Col xs={12} sm={8} lg={4}>
-              <CardBase
-                title={<ExplainLabel label={t('eflowFlow.kpi.steps')} text={t('eflowFlow.explain.steps', { n: ttNodeCount })} />}
-                as="div"
-                interactive
-                onClick={() => setActiveNode('')}
-              >
-                <ExplainPopover placement="bottom" text={t('eflowFlow.tip.steps', {
-                  reached: data.reached_ids?.length || 0,
-                  total: ttNodeCount,
-                  wo: data.wo_path?.reached_ids?.length || 0,
-                })}>
-                  <Text strong style={{ fontSize: 22 }}>{data.reached_ids?.length || 0}</Text>
-                </ExplainPopover>
-                <div style={{ fontSize: 11, color: WH.textDim, marginTop: 2 }}>
-                  {t('eflowFlow.kpi.stepsHint', { n: ttNodeCount })}
-                </div>
-              </CardBase>
-            </Col>
+            {!isSim && (
+              <Col xs={12} sm={8} lg={4}>
+                <StatCard title={t('eflowFlow.kpi.ttNo')} value={fmt(t6.tt_no)} />
+              </Col>
+            )}
+            {!isSim && (
+              <Col xs={12} sm={8} lg={4}>
+                <CardBase
+                  level={data.current === 'Closed' ? 'ok' : 'warn'}
+                  title={t('eflowFlow.kpi.status')}
+                  as="div"
+                  interactive
+                  onClick={() => setActiveNode(data.current || '')}
+                >
+                  <Text strong style={{ fontSize: 15 }}>
+                    {data.current ? t(nodeLabelKey(data.current)) : fmt(t6.status)}
+                  </Text>
+                  <div style={{ fontSize: 11, color: WH.textDim, marginTop: 2 }}>
+                    {fmt(t6.operation_type)}
+                  </div>
+                </CardBase>
+              </Col>
+            )}
+            {!isSim && (
+              <Col xs={12} sm={8} lg={4}>
+                <StatCard title={t('eflowFlow.kpi.severity')} value={fmt(t6.ticket_severity)} />
+              </Col>
+            )}
+            {!isSim && (
+              <Col xs={12} sm={8} lg={4}>
+                <CardBase
+                  title={<ExplainLabel label={t('eflowFlow.kpi.steps')} text={t('eflowFlow.explain.steps', { n: ttNodeCount })} />}
+                  as="div"
+                  interactive
+                  onClick={() => setActiveNode('')}
+                >
+                  <ExplainPopover placement="bottom" text={t('eflowFlow.tip.steps', {
+                    reached: data.reached_ids?.length || 0,
+                    total: ttNodeCount,
+                    wo: data.wo_path?.reached_ids?.length || 0,
+                  })}>
+                    <Text strong style={{ fontSize: 22 }}>{data.reached_ids?.length || 0}</Text>
+                  </ExplainPopover>
+                  <div style={{ fontSize: 11, color: WH.textDim, marginTop: 2 }}>
+                    {t('eflowFlow.kpi.stepsHint', { n: ttNodeCount })}
+                  </div>
+                </CardBase>
+              </Col>
+            )}
             <Col xs={12} sm={8} lg={4}>
               <CardBase title={<ExplainLabel label={t('eflowFlow.kpi.rulesTotal')} text={t('eflowFlow.explain.rulesTotal', { nodes: nodesWithRules, total: graph?.nodes?.length || 0 })} />} as="div" interactive
                 onClick={() => setActiveNode(data.current || '')}>
@@ -710,30 +1005,39 @@ export default function EflowFlow() {
                 </div>
               </CardBase>
             </Col>
-            <Col xs={12} sm={8} lg={4}>
-              <CardBase title={t('eflowFlow.kpi.wo')} as="div" interactive
-                onClick={() => setActiveNode(data.wo_path?.current || '')}>
-                <Text strong style={{ fontSize: 15 }}>{fmt(data.wo_path?.wo_no || t6.wo_no)}</Text>
-                <div style={{ fontSize: 11, color: WH.textDim, marginTop: 2 }}>
-                  {data.wo_path?.present
-                    ? t('eflowFlow.woCurrent', { s: data.wo_path?.operation_step || '-' })
-                    : t('eflowFlow.noWo')}
-                </div>
-              </CardBase>
-            </Col>
+            {!isSim && (
+              <Col xs={12} sm={8} lg={4}>
+                <CardBase title={t('eflowFlow.kpi.wo')} as="div" interactive
+                  onClick={() => setActiveNode(data.wo_path?.current || '')}>
+                  <Text strong style={{ fontSize: 15 }}>{fmt(data.wo_path?.wo_no || t6.wo_no)}</Text>
+                  <div style={{ fontSize: 11, color: WH.textDim, marginTop: 2 }}>
+                    {data.wo_path?.present
+                      ? t('eflowFlow.woCurrent', { s: data.wo_path?.operation_step || '-' })
+                      : t('eflowFlow.noWo')}
+                  </div>
+                </CardBase>
+              </Col>
+            )}
           </Row>
 
-          {/* 查询命中提示 */}
+          {/* 查询命中提示（多条件模拟显示条件回显与命中数） */}
           <Alert
             type="info"
             showIcon
             message={
-              <Space wrap size={8}>
-                <Tag color="blue">{t(queryTypeKey(data.query_type))}</Tag>
-                <Text>{t('eflowFlow.hitTt', { tt: fmt(t6.tt_no) })}</Text>
-                {data.via && <Text type="secondary" style={{ fontSize: 12 }}>{t('eflowFlow.via', { via: data.via })}</Text>}
-                {t6.site_name && <Text type="secondary" style={{ fontSize: 12 }}>{t('eflowFlow.site', { site: t6.site_name })}</Text>}
-              </Space>
+              isSim ? (
+                <Space wrap size={8}>
+                  <Tag color="purple">{t('eflowFlow.type.simulate')}</Tag>
+                  <Text>{t('eflowFlow.sim.hitNote', { n: data.rule_hits?.length || 0 })}</Text>
+                </Space>
+              ) : (
+                <Space wrap size={8}>
+                  <Tag color="blue">{t(queryTypeKey(data.query_type))}</Tag>
+                  <Text>{t('eflowFlow.hitTt', { tt: fmt(t6.tt_no) })}</Text>
+                  {data.via && <Text type="secondary" style={{ fontSize: 12 }}>{t('eflowFlow.via', { via: data.via })}</Text>}
+                  {t6.site_name && <Text type="secondary" style={{ fontSize: 12 }}>{t('eflowFlow.site', { site: t6.site_name })}</Text>}
+                </Space>
+              )
             }
           />
 
@@ -743,6 +1047,7 @@ export default function EflowFlow() {
             sections={[
               { title: t('eflowFlow.calcNote.secGraph'), lines: [t('eflowFlow.calcNote.graph1'), t('eflowFlow.calcNote.graph2')] },
               { title: t('eflowFlow.calcNote.secAttach'), lines: [t('eflowFlow.calcNote.attach1'), t('eflowFlow.calcNote.attach2'), t('eflowFlow.calcNote.attach3')] },
+              { title: t('eflowFlow.calcNote.secRelated'), lines: [t('eflowFlow.calcNote.related1'), t('eflowFlow.calcNote.related2'), t('eflowFlow.calcNote.related3'), t('eflowFlow.calcNote.related4')] },
               { title: t('eflowFlow.calcNote.secReached'), lines: [t('eflowFlow.calcNote.reached1'), t('eflowFlow.calcNote.reached2'), t('eflowFlow.calcNote.reached3')] },
               { title: t('eflowFlow.calcNote.secCaveat'), lines: [t('eflowFlow.calcNote.caveat1'), t('eflowFlow.calcNote.caveat2')] },
             ]}
@@ -757,7 +1062,7 @@ export default function EflowFlow() {
                 <Text type="secondary" style={{ fontSize: 12 }}>
                   <ClockCircleOutlined style={{ color: WH.warn, marginRight: 4 }} />{t('eflowFlow.legend.current')}
                 </Text>
-                <Text type="secondary" style={{ fontSize: 12 }}>{t('eflowFlow.legend.hint')}</Text>
+                <ExplainIcon text={t('eflowFlow.legend.hint')} placement="bottomLeft" icon="question" />
               </Space>
             }
           >
@@ -777,51 +1082,86 @@ export default function EflowFlow() {
               : <Empty description={t('eflowFlow.graph.empty')} />}
           </CardBase>
 
-          {/* ⑧ 节点的规则明细（点击图中节点切换） */}
+          {/* ⑧ 节点的规则明细（点击图中节点切换；默认只显示与本单相关的规则） */}
           <CardBase
             title={
-              activeNode
-                ? t('eflowFlow.nodeRules.title', { node: t(nodeLabelKey(activeNode)) })
-                : t('eflowFlow.nodeRules.titleAll')
+              <ExplainLabel
+                label={activeNode
+                  ? t('eflowFlow.nodeRules.title', { node: t(nodeLabelKey(activeNode)) })
+                  : t('eflowFlow.nodeRules.titleAll')}
+                text={t('eflowFlow.explain.nodeRules')}
+              />
             }
             extra={
-              activeNodeObj && (
-                <Space size={8}>
-                  <ExplainPopover placement="left" text={t('eflowFlow.tip.nodeActive', {
-                    active: activeNodeObj.active_rule_count,
-                    total: activeNodeObj.rule_count,
-                  })}>
-                    <Tag color="green">{t('eflowFlow.nodeRules.active', { n: activeNodeObj.active_rule_count })}</Tag>
-                  </ExplainPopover>
-                  <ExplainPopover placement="left" text={t('eflowFlow.tip.nodeTotal', {
-                    total: activeNodeObj.rule_count,
-                    rules: graph?.rules_total || 0,
-                  })}>
-                    <Tag>{t('eflowFlow.nodeRules.total', { n: activeNodeObj.rule_count })}</Tag>
-                  </ExplainPopover>
-                  <Button size="small" type="link" onClick={() => setActiveNode('')}>
-                    {t('eflowFlow.nodeRules.showAll')}
-                  </Button>
-                </Space>
-              )
+              <Space size={8} wrap>
+                {matchAvailable && (
+                  <Segmented
+                    size="small"
+                    value={effectiveScope}
+                    onChange={(v) => setRuleScope(v as 'related' | 'all')}
+                    options={[
+                      { label: `${t('eflowFlow.scope.related')} (${scopeRelatedCount})`, value: 'related' },
+                      { label: `${t('eflowFlow.scope.all')} (${scopeTotalCount})`, value: 'all' },
+                    ]}
+                  />
+                )}
+                {activeNodeObj && (
+                  <>
+                    <ExplainPopover placement="left" text={t('eflowFlow.tip.nodeActive', {
+                      active: activeNodeObj.active_rule_count,
+                      total: activeNodeObj.rule_count,
+                    })}>
+                      <Tag color="green">{t('eflowFlow.nodeRules.active', { n: activeNodeObj.active_rule_count })}</Tag>
+                    </ExplainPopover>
+                    <ExplainPopover placement="left" text={t('eflowFlow.tip.nodeTotal', {
+                      total: activeNodeObj.rule_count,
+                      rules: graph?.rules_total || 0,
+                    })}>
+                      <Tag>{t('eflowFlow.nodeRules.total', { n: activeNodeObj.rule_count })}</Tag>
+                    </ExplainPopover>
+                    <Button size="small" type="link" onClick={() => setActiveNode('')}>
+                      {t('eflowFlow.nodeRules.showAll')}
+                    </Button>
+                  </>
+                )}
+              </Space>
             }
           >
+            {matchMeta && !matchAvailable && (
+              <Alert
+                type="warning"
+                showIcon
+                style={{ marginBottom: 'var(--wh-space-sm)' }}
+                message={t('eflowFlow.matchUnavailable')}
+                description={matchMeta.error || undefined}
+              />
+            )}
             <Table
-              rowKey={(r: FlowRule) => `${r.name}-${r.trigger_step}-${r.rule_type}`}
+              rowKey={(r: FlowRule & { node_id?: string }) =>
+                `${r.node_id || activeNode}-${r.name}-${r.trigger_step}-${r.rule_type}`}
               columns={ruleColumns as any}
-              dataSource={
-                activeNodeObj
-                  ? activeNodeObj.rules
-                  : (graph?.nodes || []).flatMap((n) => n.rules)
-              }
+              dataSource={tableRules}
               size="small"
               pagination={{ pageSize: 10, showSizeChanger: true }}
-              scroll={{ x: 1180 }}
-              locale={{ emptyText: <Empty description={t('eflowFlow.nodeRules.empty')} image={Empty.PRESENTED_IMAGE_SIMPLE} /> }}
+              scroll={{ x: 1400 }}
+              locale={{
+                emptyText: (
+                  <Empty
+                    description={effectiveScope === 'related'
+                      ? t('eflowFlow.nodeRules.emptyRelated')
+                      : t('eflowFlow.nodeRules.empty')}
+                    image={Empty.PRESENTED_IMAGE_SIMPLE}
+                  />
+                ),
+              }}
             />
+            <div style={{ marginTop: 6 }}>
+              <ExplainIcon text={t('eflowFlow.nodeRules.clickHint')} placement="bottomLeft" icon="question" />
+            </div>
           </CardBase>
 
-          {/* ⑨ 实际路径时间轴 + TT 基本信息 */}
+          {/* ⑨ 实际路径时间轴 + TT 基本信息（多条件模拟没有单据，不渲染） */}
+          {!isSim && (
           <Row gutter={[12, 12]}>
             <Col xs={24} lg={12}>
               <CardBase title={t('eflowFlow.steps.title')}>
@@ -858,6 +1198,7 @@ export default function EflowFlow() {
               </CardBase>
             </Col>
           </Row>
+          )}
 
           {/* ⑩ WO 子流程 */}
           {data.wo_path?.present && (
@@ -911,10 +1252,11 @@ export default function EflowFlow() {
             </CardBase>
           )}
 
-          {/* ⑪ 关联告警 */}
+          {/* ⑪ 关联告警（多条件模拟不渲染） */}
+          {!isSim && (
           <CardBase
             title={t('eflowFlow.alarms.title')}
-            extra={<Text type="secondary" style={{ fontSize: 12 }}>{t('eflowFlow.alarms.hint')}</Text>}
+            extra={<ExplainIcon text={t('eflowFlow.alarms.hint')} placement="bottomLeft" icon="question" />}
           >
             <Table
               rowKey={(r: any) => `${r.table}-${r.id}`}
@@ -926,6 +1268,7 @@ export default function EflowFlow() {
               locale={{ emptyText: <Empty description={t('eflowFlow.alarms.empty')} image={Empty.PRESENTED_IMAGE_SIMPLE} /> }}
             />
           </CardBase>
+          )}
 
           {/* ⑫ 其他候选（按告警码查时会命中多单） */}
           {!!data.candidates?.length && (
@@ -951,6 +1294,101 @@ export default function EflowFlow() {
           )}
         </>
       )}
+
+      {/* 规则详情弹窗：点击规则名打开，展示条件原文 / 逐条件证据 / 本单取值帧 */}
+      <DraggableClickModal
+        open={!!detailRule}
+        title={detailRule?.name || ''}
+        anchor={detailAnchor}
+        onClose={() => setDetailRule(null)}
+        width={780}
+        maxWidth="95vw"
+        headerExtra={detailRule && (
+          <Space size={6}>
+            {matchAvailable && (
+              <MatchTag state={detailRule.match_state} label={t(matchStateKey(detailRule.match_state || ''))} />
+            )}
+            <Tag color={detailRule.status === 'ACTIVE' ? 'green' : 'default'}>{fmt(detailRule.status)}</Tag>
+          </Space>
+        )}
+      >
+        {detailRule && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--wh-space-md)' }}>
+            <div>
+              <Text strong>{t('eflowFlow.detail.secBase')}</Text>
+              <Descriptions column={2} size="small" bordered style={{ marginTop: 8 }}
+                labelStyle={{ width: 130, fontSize: 12 }} contentStyle={{ fontSize: 12 }}>
+                <Descriptions.Item label={t('eflowFlow.detail.ruleId')}>{fmt(detailRule.rule_id)}</Descriptions.Item>
+                <Descriptions.Item label={t('eflowFlow.col.ruleType')}>
+                  <Tooltip title={isZh ? detailRule.role_zh : detailRule.role_en}>{fmt(detailRule.rule_type)}</Tooltip>
+                </Descriptions.Item>
+                <Descriptions.Item label={t('eflowFlow.col.triggerStep')}>{fmt(detailRule.trigger_step)}</Descriptions.Item>
+                <Descriptions.Item label={t('eflowFlow.col.priority')}>{fmt(detailRule.priority)}</Descriptions.Item>
+                <Descriptions.Item label={t('eflowFlow.detail.newSeverity')}>{fmt(detailRule.severity)}</Descriptions.Item>
+                <Descriptions.Item label={t('eflowFlow.col.woType')}>{fmt(detailRule.wo_type)}</Descriptions.Item>
+                <Descriptions.Item label={t('eflowFlow.col.handler')} span={2}>{fmt(detailRule.handler)}</Descriptions.Item>
+                <Descriptions.Item label={t('eflowFlow.col.pushPath')} span={2}>{fmt(detailRule.push_path)}</Descriptions.Item>
+                <Descriptions.Item label={t('eflowFlow.detail.description')} span={2}>{fmt(detailRule.description)}</Descriptions.Item>
+                <Descriptions.Item label={t('eflowFlow.detail.createBy')}>{fmt(detailRule.create_by)}</Descriptions.Item>
+                <Descriptions.Item label={t('eflowFlow.detail.updateBy')}>{fmt(detailRule.update_by)}</Descriptions.Item>
+                <Descriptions.Item label={t('eflowFlow.detail.createTime')}>{fmt(detailRule.create_time)}</Descriptions.Item>
+                <Descriptions.Item label={t('eflowFlow.col.updateTime')}>{fmt(detailRule.update_time)}</Descriptions.Item>
+              </Descriptions>
+            </div>
+
+            <div>
+              <Text strong>{t('eflowFlow.detail.secConditions')}</Text>
+              <div style={{
+                marginTop: 8, padding: '8px 10px', fontSize: 12, lineHeight: 1.7,
+                whiteSpace: 'pre-wrap', wordBreak: 'break-all',
+                background: isDark ? 'rgba(8,18,44,0.6)' : 'rgba(15,23,42,0.04)',
+                border: `1px solid ${isDark ? 'rgba(111,140,180,0.3)' : 'rgba(148,163,184,0.4)'}`,
+                borderRadius: 6, color: WH.textMuted,
+              }}>
+                {detailRule.conditions_text || t('eflowFlow.detail.noConditions')}
+              </div>
+            </div>
+
+            <div>
+              <Text strong>{t('eflowFlow.detail.secEvidence')}</Text>
+              {detailRule.match_state === 'undecidable' && !!detailRule.unknown_fields?.length && (
+                <Alert type="warning" showIcon style={{ marginTop: 8 }}
+                  message={t('eflowFlow.detail.unknownFields', { fields: detailRule.unknown_fields.join(', ') })} />
+              )}
+              {detailRule.match_details ? (
+                <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  {detailRule.match_details.split(/;\s*/).filter(Boolean).map((line, i) => (
+                    <div key={i} style={{
+                      fontSize: 12, padding: '3px 8px', borderRadius: 4,
+                      borderLeft: `3px solid ${line.includes('✓') ? WH.ok : WH.danger}`,
+                      background: isDark ? 'rgba(8,18,44,0.5)' : 'rgba(15,23,42,0.03)',
+                      color: WH.textMuted, wordBreak: 'break-all',
+                    }}>
+                      {line}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div style={{ marginTop: 8, fontSize: 12, color: WH.textDim }}>
+                  {t('eflowFlow.detail.noEvidence')}
+                </div>
+              )}
+            </div>
+
+            {!!Object.keys(matchMeta?.fields || {}).length && (
+              <div>
+                <Text strong>{t('eflowFlow.detail.secFields')}</Text>
+                <Descriptions column={2} size="small" bordered style={{ marginTop: 8 }}
+                  labelStyle={{ width: 160, fontSize: 12 }} contentStyle={{ fontSize: 12 }}>
+                  {Object.entries(matchMeta?.fields || {}).map(([k, v]) => (
+                    <Descriptions.Item key={k} label={k}>{v === '' ? '-' : v}</Descriptions.Item>
+                  ))}
+                </Descriptions>
+              </div>
+            )}
+          </div>
+        )}
+      </DraggableClickModal>
     </div>
   )
 }

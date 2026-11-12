@@ -4,6 +4,7 @@ import { SaveOutlined, ApiOutlined, ReloadOutlined, ThunderboltOutlined } from '
 import api from '../api'
 import { useI18n } from '../i18n'
 import { WH, cardStyle } from '../theme'
+import { ExplainIcon } from '../components/MetricExplain'
 
 export default function RemoteHostSettings() {
   const { t } = useI18n()
@@ -217,12 +218,7 @@ export default function RemoteHostSettings() {
               </div>
             </div>
           )}
-          <Alert
-            style={{ marginTop: 'var(--wh-space-md)' }}
-            type="info"
-            showIcon
-            message={t('settings.remoteHostNote')}
-          />
+          <ExplainIcon text={t('settings.remoteHostNote')} placement="bottomLeft" icon="question" />
         </Spin>
       </Card>
     </div>
