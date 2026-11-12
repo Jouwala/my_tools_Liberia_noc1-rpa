@@ -19,23 +19,44 @@ interface DbInfo {
 export default function Overview() {
   const [info, setInfo] = useState<DbInfo | null>(null)
   const [loading, setLoading] = useState(true)
+  const [failed, setFailed] = useState(false)
+  /* 2026-11-11 全站 QA：/api/db/info 首次要逐表 COUNT(*) 约 30 秒（后端已加
+     10 分钟缓存，但冷启动/缓存过期仍慢）。旧版整页只转圈、零说明，用户会以为
+     页面坏了。这里补：4 秒后显示「首次统计较慢」提示 + 90 秒超时 + 失败重试。 */
+  const [slow, setSlow] = useState(false)
+  const [reloadKey, setReloadKey] = useState(0)
   const { t } = useI18n()
   const { isDark } = useTheme()
 
   useEffect(() => {
-    api.get('/db/info')
-      .then(res => setInfo(res.data))
-      .catch(console.error)
-      .finally(() => setLoading(false))
-  }, [])
+    let cancelled = false
+    setLoading(true)
+    setFailed(false)
+    setSlow(false)
+    const slowTimer = window.setTimeout(() => { if (!cancelled) setSlow(true) }, 4000)
+    api.get('/db/info', { timeout: 90000 })
+      .then(res => { if (!cancelled) setInfo(res.data) })
+      .catch((err: any) => { if (!cancelled) { console.error('[overview] db/info', err); setFailed(true) } })
+      .finally(() => {
+        if (!cancelled) { setLoading(false); window.clearTimeout(slowTimer) }
+      })
+    return () => { cancelled = true; window.clearTimeout(slowTimer) }
+  }, [reloadKey])
 
   if (loading) return (
     <div style={{ ...pageWrap, textAlign: 'center', padding: '6.25rem' }}>
       <Spin size="large" />
+      <div style={{ marginTop: 'var(--wh-space-md)', color: WH.textMuted }}>{t('overview.loading')}</div>
+      {slow && <div style={{ marginTop: 'var(--wh-space-xs)', color: WH.textMuted, fontSize: '0.8125rem' }}>{t('overview.loadingSlow')}</div>}
     </div>
   )
 
-  if (!info) return <div style={{ ...pageWrap, color: WH.textMuted }}>{t('overview.loadError')}</div>
+  if (!info || failed) return (
+    <div style={{ ...pageWrap, textAlign: 'center', padding: '6.25rem' }}>
+      <div style={{ color: WH.textMuted, marginBottom: 'var(--wh-space-md)' }}>{t('overview.loadError')}</div>
+      <Button onClick={() => setReloadKey(n => n + 1)}>{t('overview.retry')}</Button>
+    </div>
+  )
 
   const topTables = info.tables
     .filter(t => !t.name.startsWith('_') && t.name !== 'analysis_archive' && t.name !== 'uploaded_files')

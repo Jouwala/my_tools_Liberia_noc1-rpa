@@ -391,11 +391,13 @@ def export_table_data(
     columns: str = Query(None),
     limit: int = Query(200000, ge=1, le=500000),
     col_filters: str = Query(None),
+    sort_by: str = Query(None),
+    sort_order: str = Query("asc"),
 ):
-    """导出整表为文件（xlsx/csv），支持与分页浏览相同的 search + 列筛选。
+    """导出整表为文件（xlsx/csv），支持与分页浏览相同的 search + 列筛选 + 排序。
 
     columns: 逗号分隔列名，仅导出所选列（缺省全部列）。
-    col_filters: 与 data 端点同款 JSON —— 导出必须与表格当前所见一致。
+    col_filters / sort_by: 与 data 端点同款 —— 导出必须与表格当前所见一致。
     服务端生成，大表不压前端内存；limit 默认 20 万行防内存溢出。
     """
     if format not in ("xlsx", "csv"):
@@ -420,9 +422,17 @@ def export_table_data(
                 raise HTTPException(status_code=400, detail="所选列在表中均不存在")
             select_clause = ", ".join(_qi(c) for c in sel)
         where_clause, params = _build_where(conn, table_name, search, col_filters)
+        # 排序与 /data 端点同口径（列名白名单 + 方向白名单），导出顺序跟随表格所见
+        order_clause = ""
+        if sort_by:
+            if not _safe_ident(sort_by):
+                conn.close()
+                raise HTTPException(status_code=400, detail=f"非法排序列名: {sort_by}")
+            direction = "ASC" if sort_order == "asc" else "DESC"
+            order_clause = f' ORDER BY "{sort_by}" {direction}'
         # 向量化整表读取（与 profile 接口同款 read_sql_query，双模兼容）
         df = pd.read_sql_query(
-            f'SELECT {select_clause} FROM "{table_name}"{where_clause} LIMIT {limit}',
+            f'SELECT {select_clause} FROM "{table_name}"{where_clause}{order_clause} LIMIT {limit}',
             conn, params=params)
         conn.close()
     if df.empty:

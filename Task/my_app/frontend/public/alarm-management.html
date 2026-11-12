@@ -1851,8 +1851,15 @@ async function waitProxyReady(timeoutMs=22000){
   while(Date.now()<deadline){ if(await proxyAlive()) return true; await new Promise(r=>setTimeout(r,1000)); }
   return await proxyAlive();
 }
+/* 2026-11-11 全站 QA：上游（10.100.20.8 FMS）不可达时，旧逻辑每轮对每个源
+   都重新请求并 console.error，一轮就能刷出几十条 502 日志，还会反复触发
+   ensureProxy。这里做「连续失败 3 次 → 该源静默退避 60 秒」，期间保留
+   上一轮/快照数据并显示显式错误；60 秒后自动再试，成功即清零。 */
+const FMS_FAIL_THRESHOLD=2, FMS_SKIP_MS=60000;
+const srcFailCount={}, srcSkipUntil={};
 async function fetchOne(src){
-  if(!src.url) return;
+  if(!src.url) return false;
+  if(Date.now() < (srcSkipUntil[src.name]||0)) return false;  // 退避中：不发请求、不打日志
   // 注入 RAN Site Type → sitetype 参数（门户实际请求带 &sitetype=ALL/REGULAR/COOL/ERA；缺此参数接口返回的是默认/错误的聚合值，导致"数据不刷新/对不上"）
   let target=src.url;
   if(/levelregion/.test(target) && !/[?&]sitetype=/.test(target)){
@@ -1877,21 +1884,46 @@ async function fetchOne(src){
     console.log('[FMS Live] ok', src.name, 'mapped', n);
     document.getElementById('drawerBody').textContent=JSON.stringify(j,null,2).slice(0,4000);
     document.getElementById('metaTime').textContent=lastOkAt.toLocaleString();
+    srcFailCount[src.name]=0;                 // 成功即清零，恢复常规轮询
+    delete srcSkipUntil[src.name];
+    return true;
   }catch(e){
-    console.error('[FMS Live] fail', src.name, e.message);
-    const alive=await proxyAlive();
-    if(!alive){
-      // 代理未运行：通过后端按需拉起（不再要求手动运行 start_proxy.bat）
-      await ensureProxy();
-      setStatus('err', T('代理未运行 · 正在尝试启动（稍候自动刷新；可在「设置/系统」查看状态）','Proxy not running · attempting to start (auto-refresh shortly; check status in Settings/System)'));
+    const fails=(srcFailCount[src.name]||0)+1;
+    srcFailCount[src.name]=fails;
+    // 每个源只打一次 error，之后统一由 refreshAll 聚合告警，避免 30 个源刷屏
+    if(fails===1) console.error('[FMS Live] fail', src.name, e.message);
+    if(fails>=FMS_FAIL_THRESHOLD){
+      srcSkipUntil[src.name]=Date.now()+FMS_SKIP_MS;
+      setStatus('err', T('实时数据暂不可用 · 已暂停该源 60 秒（保留上一轮/快照数据）','Live data unavailable · source paused for 60s (keeping last/snapshot data)'));
+    } else {
+      const alive=await proxyAlive();
+      if(!alive){
+        // 代理未运行：通过后端按需拉起（不再要求手动运行 start_proxy.bat）
+        await ensureProxy();
+        setStatus('err', T('代理未运行 · 正在尝试启动（稍候自动刷新；可在「设置/系统」查看状态）','Proxy not running · attempting to start (auto-refresh shortly; check status in Settings/System)'));
+      }
+      else { setStatus('err', T('源 ','Source ')+src.name+T(' 暂不可用（保留上一轮/快照数据，其余源正常）',' temporarily unavailable (kept previous/snapshot data; other sources normal)')); }
     }
-    else { setStatus('', T('源 ','Source ')+src.name+T(' 暂不可用（保留上一轮/快照数据，其余源正常）',' temporarily unavailable (kept previous/snapshot data; other sources normal)')); }
+    return false;
   }
 }
 let nextRefreshAt=0, lastTotal=null, fetchLog=[];
 async function refreshAll(){
   nextRefreshAt=Date.now()+Math.max(5,liveCfg.interval)*1000;
-  for(const s of liveCfg.sources) await fetchOne(s);
+  let okCount=0, consecutiveFail=0;
+  /* 2026-11-11 全站 QA：上游整体不可用时，30 个源会在同一轮里逐个失败，
+     单轮就打出 30+ 次 502 和 30 条错误日志。前 3 个源全失败且尚无成功，
+     即可判定是上游故障而非个别源问题 —— 立即熔断本轮剩余请求，
+     保留上一轮/快照数据并显示显式错误。下一轮由 srcSkipUntil 退避继续收敛。 */
+  for(const s of liveCfg.sources){
+    const ok=await fetchOne(s);
+    if(ok){ okCount++; consecutiveFail=0; }
+    else if(++consecutiveFail>=3 && okCount===0){
+      console.warn('[FMS Live] 上游整体不可用，跳过本轮剩余源');
+      setStatus('err', T('实时数据暂不可用 · 已跳过本轮剩余请求（保留上一轮/快照数据）','Live data unavailable · skipped remaining requests (keeping last/snapshot data)'));
+      break;
+    }
+  }
   // 采集记录：时间·当前宕站数（proof 每轮都在拉、值变了就是真变了）
   const t=new Date(), p=n=>String(n).padStart(2,'0');
   const stamp=p(t.getHours())+':'+p(t.getMinutes())+':'+p(t.getSeconds());
@@ -1899,8 +1931,8 @@ async function refreshAll(){
   if(fetchLog.length>10) fetchLog.shift();
   const el=document.getElementById('fetchLog');
   if(el) el.textContent=fetchLog.join('  ');
-  // 与上一轮对比
-  if(lastTotal!==null){
+  // 与上一轮对比；本轮全失败时不要覆盖 fetchOne 写的「暂不可用」错误态
+  if(lastTotal!==null && okCount>0){
     const d=D.kpis.down-lastTotal;
     setStatus('on', T('已连接 · 当前宕站 ','Connected · current down sites ')+D.kpis.down+(d===0?T('（与上轮相同）','(same as last round)'):T('（较上轮 ','(vs last round ')+(d>0?'+':'')+d+T('）',')')));
   }

@@ -4218,6 +4218,9 @@ const translations: Record<Locale, Record<string, string>> = {
     'overview.tableName': '表名',
     'overview.rowCount': '行数',
     'overview.loadError': '无法加载数据库信息',
+    'overview.loading': '正在加载数据库概览…',
+    'overview.loadingSlow': '首次需统计全库表行数，可能要 30 秒左右；已启用缓存，之后会很快',
+    'overview.retry': '重试',
 
     // TableBrowser
     'table.selectTable': '选择数据表',
@@ -10776,6 +10779,9 @@ const translations: Record<Locale, Record<string, string>> = {
     'overview.tableName': 'Table Name',
     'overview.rowCount': 'Row Count',
     'overview.loadError': 'Failed to load database info',
+    'overview.loading': 'Loading database overview…',
+    'overview.loadingSlow': 'First load counts rows across all tables and may take ~30s; caching makes later loads fast',
+    'overview.retry': 'Retry',
 
     // TableBrowser
     'table.selectTable': 'Select Table',
