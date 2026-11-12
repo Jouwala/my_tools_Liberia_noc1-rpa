@@ -4885,6 +4885,7 @@ Respond in English.`;
     // Add assistant log
     function addAssistantLog(message, type = 'info') {
         const logContent = document.getElementById('assistant-log-content');
+        if (!logContent) return;
         const time = new Date().toLocaleTimeString();
         const colors = {
             info: 'text-[var(--ioc-slate-400)]',
@@ -4898,7 +4899,11 @@ Respond in English.`;
         logEntry.className = color;
         logEntry.textContent = `[${time}] ${message}`;
         
-        logContent.insertBefore(logEntry, logContent.firstChild);
+        // 2026-11-11 全站 QA：旧写法 insertBefore(logEntry, logContent.firstChild)
+        // 与另一侧 innerHTML 重置日志区并发时，firstChild 引用会失效并抛
+        // "The node before which the new node is to be inserted is not a child"。
+        // prepend 不依赖引用节点，语义相同且天然抗竞态。
+        logContent.prepend(logEntry);
         
         // 限制日志数量
         while (logContent.children.length > 20) {
@@ -5054,6 +5059,10 @@ Respond in English.`;
     // 解锁语音功能（通过用户交互）
     function unlockSpeech() {
         if (speechUnlocked) return;
+        // 只由用户的 click / keydown 监听器调用，因此走到这里就代表已有用户手势。
+        // 用 window 标志而非 let 变量：playBrowserNotification 可能在声明之前被
+        // 异步调用，访问 TDZ 里的 let 会抛 ReferenceError。
+        window.__speechUnlockedByUser = true;
         
         if ('speechSynthesis' in window) {
             try {
@@ -5106,6 +5115,13 @@ Respond in English.`;
     
     function playBrowserNotification(message) {
         if (!('speechSynthesis' in window)) {
+            return;
+        }
+        // 浏览器要求用户手势才允许播报；页面自动检测（如 checkAndNotify3rdPower）
+        // 会在加载即调本函数，无手势时 speechSynthesis.speak() 抛
+        // "Speech error: not-allowed" 污染 Console。此时只保留视觉/日志提示，
+        // 用户首次点击或按键后 unlockSpeech() 置位，语音才启用。
+        if (!window.__speechUnlockedByUser) {
             return;
         }
         
@@ -6452,8 +6468,22 @@ Respond in English.`;
             }
         });
 
-        // 插入分隔条到Severity容器之后
-        severityContainer.parentElement.insertBefore(divider, slaContainer);
+        // 插入分隔条到Severity容器之后。
+        // 2026-11-11 全站 QA：旧写法硬假设 slaContainer 是 severityContainer
+        // 的兄弟节点；DOM 结构变化后 insertBefore 抛 "not a child of this node"
+        // 并中断后续拖拽初始化。改为先校验层级，不满足就降级到 after()，
+        // 再用 try/catch 兜底，保证分隔条失败也不影响页面其余功能。
+        try {
+            const host = severityContainer.parentElement;
+            if (host && slaContainer.parentElement === host) {
+                host.insertBefore(divider, slaContainer);
+            } else {
+                severityContainer.after(divider);
+            }
+        } catch (e) {
+            console.warn('[incident-overview] 分隔条插入失败，跳过拖拽调整', e);
+            return;
+        }
 
         let isResizing = false;
         let startX = 0;

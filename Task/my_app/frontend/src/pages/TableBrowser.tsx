@@ -130,6 +130,12 @@ export default function TableBrowser() {
   const lastFiltersKeyRef = useRef('')
   const colFiltersRef = useRef<Record<string, ColFilter>>({})
   const hasLoadedOnceRef = useRef(false)
+  /* 2026-11-12 S1/S2：排序与每页条数都参与服务端查询，用 ref 保存最新值，
+     与 loadTableData 只依赖 selectedTable 的闭包约定保持一致（同 searchTextRef）。 */
+  const pageSizeRef = useRef(20)
+  const sortRef = useRef<{ field?: string; order?: string }>({})
+  const lastPageSizeRef = useRef(20)
+  const lastSortKeyRef = useRef('')
 
   useEffect(() => { searchTextRef.current = searchText }, [searchText])
 
@@ -175,6 +181,11 @@ export default function TableBrowser() {
     colFiltersRef.current = {}
     lastFiltersKeyRef.current = ''
     setColFilters({})
+    // 换表必须重置排序/页大小：上一张表的列名与翻页口径对这张表无意义。
+    pageSizeRef.current = 20
+    sortRef.current = {}
+    lastPageSizeRef.current = 20
+    lastSortKeyRef.current = ''
     hasLoadedOnceRef.current = false
     loadTableData(1, '')
     loadTemplates()
@@ -360,10 +371,16 @@ export default function TableBrowser() {
     const effectiveFilters = filters ?? colFiltersRef.current
     // 列筛选参与请求去重：只改筛选不改搜索时也是一次全新的查询，不能被误判为重复请求。
     const filtersKey = JSON.stringify(effectiveFilters)
+    // 排序与页大小同样参与去重：只点排序/只改每页条数也必须是新请求。
+    const sort = sortRef.current
+    const sortKey = `${sort.field || ''}:${sort.order || ''}`
+    const sizeNow = pageSizeRef.current
 
     const isDuplicate = page === 1
       && effectiveSearch === lastSearchValueRef.current
       && filtersKey === lastFiltersKeyRef.current
+      && sortKey === lastSortKeyRef.current
+      && sizeNow === lastPageSizeRef.current
       && hasLoadedOnceRef.current
     if (isDuplicate) return
 
@@ -379,9 +396,13 @@ export default function TableBrowser() {
       setLoading(true)
     }
 
-    const params: any = { page, page_size: 20 }
+    const params: any = { page, page_size: sizeNow }
     if (effectiveSearch) params.search = effectiveSearch
     if (Object.keys(effectiveFilters).length) params.col_filters = filtersKey
+    if (sort.field && sort.order) {
+      params.sort_by = sort.field
+      params.sort_order = sort.order === 'descend' ? 'desc' : 'asc'
+    }
 
     const controller = new AbortController()
     abortRef.current = controller
@@ -393,6 +414,8 @@ export default function TableBrowser() {
         setTableData(newData)
         lastSearchValueRef.current = effectiveSearch
         lastFiltersKeyRef.current = filtersKey
+        lastSortKeyRef.current = sortKey
+        lastPageSizeRef.current = sizeNow
         hasLoadedOnceRef.current = true
 
         const newCols = res.data.columns
@@ -465,6 +488,12 @@ export default function TableBrowser() {
     // 导出必须与表格当前所见一致：列筛选也要带上去（与 data 端点同一套 WHERE）。
     const cf = colFiltersRef.current
     if (Object.keys(cf).length) params.set('col_filters', JSON.stringify(cf))
+    // 导出顺序与表格当前所见一致（后端 export 已支持 sort_by/sort_order）
+    const sort = sortRef.current
+    if (sort.field && sort.order) {
+      params.set('sort_by', sort.field)
+      params.set('sort_order', sort.order === 'descend' ? 'desc' : 'asc')
+    }
     if (visibleCols && visibleCols.length) params.set('columns', visibleCols.join(','))
     message.info(t('table.exportStart'))
     window.open(`/api/tables/${encodeURIComponent(selectedTable)}/export?${params.toString()}`, '_blank')
@@ -569,6 +598,8 @@ export default function TableBrowser() {
     key: col,
     minWidth: 120,
     ellipsis: true,
+    // S1：服务端排序。列头漏斗按钮已有 stopPropagation，不会误触排序。
+    sorter: true,
     render: (v: any) => v === null || v === undefined ? <Tag>NULL</Tag> : String(v),
   })), [shownCols, colFilters, selectedTable, applyColFilter, hideColumn])
 
@@ -926,12 +957,26 @@ export default function TableBrowser() {
                 )}
                 <div className="wh-table-responsive">
                   <Table
+                    /* 换表重挂载，清掉 antd 内部非受控的排序图标状态 */
+                    key={selectedTable}
                     dataSource={tableData}
                     columns={dataColumns}
                     loading={loading}
                     scroll={{ x: 'max-content' }}
                     size="small"
                     rowKey={stableRowKey}
+                    /* S1：只在排序动作时重查；翻页/改页大小由 pagination.onChange 处理，
+                       否则 antd 的 onChange 与 pagination.onChange 会各发一次请求。 */
+                    onChange={(_pag, _filters, sorter: any, extra: any) => {
+                      if (extra?.action !== 'sort') return
+                      const s = Array.isArray(sorter) ? sorter[0] : sorter
+                      const next = s?.order
+                        ? { field: String(s.field), order: String(s.order) }
+                        : {}
+                      const changed = next.field !== sortRef.current.field || next.order !== sortRef.current.order
+                      sortRef.current = next
+                      if (changed) loadTableData(1)
+                    }}
                     /* 空表必须说清楚「是空的」而不是留一片白（2026-10-23 用户报
                        「credentials 是空的」，实际是表体空白 + 分页条「共 0 条」，
                        分不清加载失败与确实无数据）。locale.emptyText 会按当前语言取文案。
@@ -948,13 +993,22 @@ export default function TableBrowser() {
                     }}
                     pagination={{
                       ...pagination,
-                      showSizeChanger: false,
+                      showSizeChanger: true,
+                      pageSizeOptions: [20, 50, 100],
                       showTotal: (total) => (
                         <ExplainPopover text={t('table.explain.pageTotal', { n: total })}>
                           <span>{t('table.totalRecords', { n: total })}</span>
                         </ExplainPopover>
                       ),
-                      onChange: (p) => loadTableData(p),
+                      onChange: (p, ps) => {
+                        // S2：改每页条数后回到第 1 页，避免停在不存在的页码
+                        if (ps !== pageSizeRef.current) {
+                          pageSizeRef.current = ps
+                          loadTableData(1)
+                        } else {
+                          loadTableData(p)
+                        }
+                      },
                       // antd 的 prevIcon/nextIcon 是无名 button（title 只挂在 li 上），
                       // 读屏聚焦到按钮时读不出用途。只给上一页/下一页补名称，其余原样。
                       itemRender: (_page, type, originalElement) => {
