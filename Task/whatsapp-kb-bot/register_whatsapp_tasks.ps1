@@ -1,4 +1,4 @@
-﻿# 注册 WhatsApp 两个常驻进程的「开机自启 + 看门狗」计划任务。
+# 注册 WhatsApp 两个常驻进程的「开机自启 + 看门狗」计划任务。
 #
 # 为什么要有这个脚本（而不是手工敲 Register-ScheduledTask）：
 #   本仓库已有 MyApp_AutoStart / MyApp_EnsureRunning / Nginx_EnsureRunning 三个任务，
@@ -38,6 +38,18 @@
 $ErrorActionPreference = 'Stop'
 
 $dir = Split-Path -Parent $MyInvocation.MyCommand.Path
+
+# 2026-11-12：编辑区 D:\01_RPA 与运行副本 D:\01_olbr_portal 分家之后，
+# 计划任务若仍指向编辑区，运行中的 my_app 会把作业和心跳判据写到
+# 副本旁边的 whatsapp-kb-bot，看门狗却在拉编辑区那份进程。
+# 信箱和心跳不是同一份，告警任务会一直超时失败。
+# 本机存在运行副本时，任务必须注册到运行副本，而不是脚本自己所在的目录。
+$runtimeDir = 'D:\01_olbr_portal\Task\whatsapp-kb-bot'
+if ((Test-Path (Join-Path $runtimeDir 'autostart-notify.ps1')) -and ($dir -ne $runtimeDir)) {
+  Write-Host "runtime tree detected; registering against $runtimeDir"
+  Write-Host "script dir was $dir"
+  $dir = $runtimeDir
+}
 
 # 两个包装器：分别拉起 autostart.ps1（机器人）与 autostart-notify.ps1（推送）。
 $wrappers = @(
