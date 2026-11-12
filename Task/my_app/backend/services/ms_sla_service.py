@@ -72,7 +72,7 @@ logger = logging.getLogger("ms_sla_service")
 # ============================================================
 # 路径配置
 # ============================================================
-DATA_DIR = Path(r"d:\01_RPA\Task\my_app\data\ms_sla")
+DATA_DIR = Path(__file__).resolve().parents[2] / "data" / "ms_sla"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 DB_NAME = "lbr_ms_sla_kpi.sqlite3"

@@ -23,10 +23,14 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-# 代理清单（与 tools/start-app.mjs 的 PROXIES 对齐）
+# 代理清单（与 tools/start-app.mjs 的 PROXIES 对齐）。
+# 端口可由环境变量覆盖：副本设 MY_APP_PROXY_FMS_PORT=8887 / MY_APP_PROXY_VMAX_PORT=8890，
+# 与生产 8787/8790 隔离；env 键同时透传给子进程，保证脚本绑定到同一端口。
 PROXIES = [
-    {"port": 8787, "script": "realtime_proxy.py", "label": "FMS"},
-    {"port": 8790, "script": "realtime_proxy_vmax.py", "label": "VMAX"},
+    {"port": int(os.environ.get("MY_APP_PROXY_FMS_PORT", "8787")),
+     "script": "realtime_proxy.py", "label": "FMS", "env": "MY_APP_PROXY_FMS_PORT"},
+    {"port": int(os.environ.get("MY_APP_PROXY_VMAX_PORT", "8790")),
+     "script": "realtime_proxy_vmax.py", "label": "VMAX", "env": "MY_APP_PROXY_VMAX_PORT"},
 ]
 
 # my_app 仓库根（backend/services/ -> 上溯两级到 my_app）
@@ -61,12 +65,17 @@ _PY_CHOSEN = None
 
 
 def _proxy_python_candidates():
-    """按优先级给出代理解释器候选：显式环境变量 > 系统 Python312 > 仓库 venv > PATH。"""
+    """按优先级给出代理解释器候选：显式环境变量 > 当前后端解释器 > 仓库 venv > PATH。
+
+    便携：不再写死某台机器的系统 Python 绝对路径。副本由启动器设 MY_APP_PROXY_PY
+    指向自带 runtime Python；生产 sys.executable 即项目 venv，行为不变。
+    """
     cands = []
     env = (os.environ.get("MY_APP_PROXY_PY") or "").strip()
     if env:
         cands.append(env)
-    cands.append(r"C:\Users\ZTEEMS\AppData\Local\Programs\Python\Python312\python.exe")
+    if sys.executable:
+        cands.append(sys.executable)
     cands.append(str(_RUNTIME / "python.exe"))
     cands.append("python.exe")
     return cands
@@ -150,47 +159,86 @@ def _ensure_lock_for(port: int) -> "threading.Lock":
         return lock
 
 
-def _proxy_healthy(port: int) -> bool:
+def _health_json(port: int):
+    """取代理 /health 的 JSON（含 root/script/pid 身份字段）；失败返回 None。"""
     try:
         import urllib.request
         import json
         with urllib.request.urlopen(f"http://127.0.0.1:{port}/health", timeout=2) as r:
-            j = json.loads(r.read().decode())
-        return bool(j.get("status") == "ok" and j.get("proxy") == "ready")
+            return json.loads(r.read().decode())
     except Exception:
-        return False
+        return None
 
 
-def _kill_port(port: int):
-    """按端口杀掉占用进程（清理僵死旧代理）。"""
+def _proxy_healthy(port: int) -> bool:
+    j = _health_json(port)
+    return bool(j and j.get("status") == "ok" and j.get("proxy") == "ready")
+
+
+def _is_our_healthy(port: int, cfg: dict) -> bool:
+    """健康且身份属于本实例（root + script 完全一致）才算「我们的」代理。"""
+    j = _health_json(port)
+    return bool(
+        j and j.get("status") == "ok" and j.get("proxy") == "ready"
+        and j.get("root") == str(_ROOT) and j.get("script") == cfg["script"]
+    )
+
+
+def _listener_pids(port: int) -> set:
+    """解析 netstat 找出监听该端口的 PID 集合（只读，不动进程）。"""
     flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if sys.platform == "win32" else 0
-    if sys.platform != "win32":
-        try:
-            out = subprocess.run(["lsof", "-ti", f":{port}"], capture_output=True, text=True).stdout
-            for pid in out.split():
-                subprocess.run(["kill", "-9", pid], capture_output=True)
-        except Exception:
-            pass
-        return
+    pids = set()
     try:
-        out = subprocess.run(
-            ["netstat", "-ano"], capture_output=True, text=True,
-            creationflags=flags,
-        ).stdout
-        pids = set()
+        if sys.platform != "win32":
+            out = subprocess.run(["lsof", "-ti", f":{port}"], capture_output=True, text=True).stdout
+            return {p for p in out.split() if p.isdigit()}
+        out = subprocess.run(["netstat", "-ano"], capture_output=True, text=True, creationflags=flags).stdout
         for line in out.splitlines():
             if f":{port}" in line and "LISTENING" in line:
                 m = re.search(r"LISTENING\s+(\d+)", line, re.I)
                 if m:
                     pids.add(m.group(1))
-        for pid in pids:
-            subprocess.run(
-                ["taskkill", "/PID", pid, "/F", "/T"],
-                capture_output=True,
-                creationflags=flags,
-            )
     except Exception as e:
-        logger.warning("[realtime_proxy_ctl] kill_port(%s) failed: %s", port, e)
+        logger.warning("[realtime_proxy_ctl] listener_pids(%s) failed: %s", port, e)
+    return pids
+
+
+def _process_cmdline(pid: str) -> str:
+    """取进程命令行（Windows 用 Get-CimInstance；只读）。失败返回空串。"""
+    try:
+        if sys.platform == "win32":
+            ps = f'(Get-CimInstance Win32_Process -Filter "ProcessId={int(pid)}").CommandLine'
+            p = subprocess.run(
+                ["powershell", "-NoProfile", "-Command", ps],
+                capture_output=True, text=True, timeout=15,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+            return (p.stdout or "").strip()
+        with open(f"/proc/{int(pid)}/cmdline", "rb") as f:
+            return f.read().replace(b"\x00", b" ").decode("utf-8", "replace").strip()
+    except Exception:
+        return ""
+
+
+def _is_our_proxy(pid: str, cfg: dict) -> bool:
+    """命令行包含本实例代理脚本的完整路径，才认定是我们拉起的进程。
+
+    生产与副本的脚本绝对路径不同（各自仓库根），据此天然区分；绝不凭端口认亲。
+    """
+    target = str(_TOOLS / cfg["script"])
+    return target in _process_cmdline(pid)
+
+
+def _kill_pid(pid: str):
+    """杀单个已确认归属的 PID（调用方必须先通过 _is_our_proxy 校验）。"""
+    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if sys.platform == "win32" else 0
+    try:
+        if sys.platform == "win32":
+            subprocess.run(["taskkill", "/PID", pid, "/F", "/T"], capture_output=True, creationflags=flags)
+        else:
+            subprocess.run(["kill", "-9", pid], capture_output=True)
+    except Exception as e:
+        logger.warning("[realtime_proxy_ctl] kill_pid(%s) failed: %s", pid, e)
 
 
 def ensure_proxy(cfg: dict, timeout: int = 25) -> dict:
@@ -216,12 +264,21 @@ def ensure_proxy(cfg: dict, timeout: int = 25) -> dict:
 def _ensure_proxy_locked(cfg: dict, timeout: int) -> dict:
     port = cfg["port"]
     label = cfg["label"]
-    if _port_alive(port) and _proxy_healthy(port):
-        return {"port": port, "label": label, "status": "running", "action": "reuse"}
-
     if _port_alive(port):
-        # 端口在听但不健康 -> 清掉僵死实例再拉
-        _kill_port(port)
+        # 只有「健康且身份属于本实例」才复用；否则一律先验归属，绝不抢占/盲杀外部进程。
+        if _is_our_healthy(port, cfg):
+            return {"port": port, "label": label, "status": "running", "action": "reuse"}
+        pids = _listener_pids(port)
+        if not pids:
+            return {"port": port, "label": label, "status": "error",
+                    "error": f"端口 {port} 在听但无法确认归属，拒绝操作（请用隔离端口）"}
+        foreign = [p for p in pids if not _is_our_proxy(p, cfg)]
+        if foreign:
+            return {"port": port, "label": label, "status": "error",
+                    "error": f"端口 {port} 被外部进程占用（pid {','.join(foreign)}），拒绝抢占/击杀；请改用隔离端口"}
+        # 确认全是本实例的僵死/不健康进程，才清理后重拉
+        for p in pids:
+            _kill_pid(p)
         time.sleep(0.8)
 
     script = _TOOLS / cfg["script"]
@@ -254,17 +311,17 @@ def _ensure_proxy_locked(cfg: dict, timeout: int) -> dict:
     # 让子进程无视控制台/文件编码用 UTF-8 输出。
     env = dict(os.environ)
     env["PYTHONUTF8"] = "1"
+    # 透传端口环境变量，保证代理脚本绑定到与本控制器一致的端口（副本隔离的关键）。
+    env[cfg["env"]] = str(port)
 
     try:
         with open(log_path, "ab") as logf:
             subprocess.Popen(
                 [py, str(script)],
-                # cwd 固定为 scripts/（venv launcher 目录），仅保证运行目录确定；
-                # 会话文件不依赖 cwd —— 两个代理都用
-                # SESSION_FILE = dirname(abspath(__file__)) 定位，即随脚本落在
-                # tools\（fms_session.json / vmax_session.json，已确认不被忽略，
-                # 但属运行时状态、无需入库）。
-                cwd=str(_RUNTIME),
+                # cwd 优先 scripts/（生产 venv launcher 目录）；副本无该目录时回退
+                # tools/（脚本所在，必然存在）。会话文件不依赖 cwd —— 两个代理都用
+                # SESSION_FILE = dirname(abspath(__file__)) 定位，即随脚本落在 tools\。
+                cwd=str(_RUNTIME if _RUNTIME.exists() else _TOOLS),
                 stdout=logf,
                 stderr=subprocess.STDOUT,
                 close_fds=True,
@@ -289,7 +346,13 @@ def kill_proxy(cfg: dict) -> dict:
     port = cfg["port"]
     if not _port_alive(port):
         return {"port": port, "label": cfg["label"], "status": "stopped", "action": "none"}
-    _kill_port(port)
+    pids = _listener_pids(port)
+    foreign = [p for p in pids if not _is_our_proxy(p, cfg)]
+    if foreign:
+        return {"port": port, "label": cfg["label"], "status": "error",
+                "error": f"端口 {port} 被外部进程占用（pid {','.join(foreign)}），拒绝击杀"}
+    for p in pids:
+        _kill_pid(p)
     time.sleep(0.5)
     if _port_alive(port):
         return {"port": port, "label": cfg["label"], "status": "still_alive", "action": "kill_failed"}

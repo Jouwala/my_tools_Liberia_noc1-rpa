@@ -17,9 +17,10 @@ import numpy as np
 from PIL import Image, ImageGrab
 import pyautogui
 
-# Configuration
-TEMPLATES_DIR = r"d:\01_RPA\Task\my_app\backend\services\cn_ems\templates"
-OUTPUT_DIR = r"d:\01_RPA\Task\my_app\backend\services\cn_ems\csv_out"
+# Configuration（便携：相对本文件定位，副本不依赖源目录）
+_HERE = os.path.dirname(os.path.abspath(__file__))
+TEMPLATES_DIR = os.path.join(_HERE, "templates")
+OUTPUT_DIR = os.path.join(_HERE, "csv_out")
 EMSWAIT_TIMEOUT = 30
 
 # ===== ROI (Region of Interest) Configuration =====

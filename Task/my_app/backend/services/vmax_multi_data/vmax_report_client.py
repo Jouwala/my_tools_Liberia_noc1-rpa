@@ -78,7 +78,9 @@ logger = logging.getLogger("vmax_multi_data.client")
 
 # ---------- 地址 / 传输 ----------
 VMAX_HOST = os.environ.get("VMAX_HOST_URL", "https://10.123.255.12:26180").rstrip("/")
-PROXY_BASE = os.environ.get("VMAX_PROXY_BASE", "http://127.0.0.1:8790/proxy?url=")
+PROXY_BASE = os.environ.get(
+    "VMAX_PROXY_BASE",
+    f"http://127.0.0.1:{os.environ.get('MY_APP_PROXY_VMAX_PORT', '8790')}/proxy?url=")
 VREPORT_WEB = "/rdk/app/vreport/web"
 VREPORT_SERVICE = "/rdk/service/app/vreport"
 REPORT_QUERY_TPL = VREPORT_SERVICE + "/web/rpt_home/%s/server/report_query"

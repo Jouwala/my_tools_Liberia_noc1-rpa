@@ -34,7 +34,7 @@ if hasattr(sys.stdout, "reconfigure"):
         pass
 
 KB_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-MY_APP = r"D:\01_RPA\Task\my_app"
+MY_APP = os.path.join(os.path.dirname(KB_ROOT), "my_app")
 if MY_APP not in sys.path:
     sys.path.insert(0, MY_APP)
 

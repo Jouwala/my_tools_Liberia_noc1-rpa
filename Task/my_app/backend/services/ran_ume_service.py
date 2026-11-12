@@ -112,7 +112,7 @@ def _runtime_credentials():
     return get_credential("zte_ume", USERNAME, PASSWORD,
                           env_user="RAN_UME_USER", env_secret="RAN_UME_PASS")
 
-RAN_UME_DATA_DIR = Path(r"d:\01_RPA\Task\my_app\data\ran_ume")
+RAN_UME_DATA_DIR = Path(__file__).resolve().parents[2] / "data" / "ran_ume"
 RAN_UME_DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 OUTPUT_DIR = str(RAN_UME_DATA_DIR / "exports")

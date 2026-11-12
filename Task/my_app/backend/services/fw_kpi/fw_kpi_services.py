@@ -140,7 +140,8 @@ CC_EMAIL_FILE = os.path.join(EMAIL_LIST_DIR, "cc_email.txt")
 # 邮件脚本解释器：项目 venv（已装 exchangelib），不受外部工具重建影响。
 # 由 workbuddy 托管 venv 迁来（2026-10-13，该环境被外部 uv 重建清空依赖）；
 # 画图（matplotlib）在后端 Python 内完成，venv 只负责 owa 发送脚本。
-_MANAGED_VENV_PY = r"D:\01_RPA\Task\my_app\Scripts\python.exe"
+# 便携：默认用当前后端解释器（生产即项目 venv，副本即自带 runtime Python）；可用 MY_APP_REPORT_PY 覆盖。
+_MANAGED_VENV_PY = os.environ.get("MY_APP_REPORT_PY") or sys.executable
 
 # 图表回看天数（默认 14 天，可用环境变量 FW_CHART_DAYS_BACK 或配置文件 chart_days_back 覆盖）
 CHART_DAYS_BACK = int(os.environ.get("FW_CHART_DAYS_BACK") or ((_FW_CONF or {}).get("chart_days_back", 14)))
