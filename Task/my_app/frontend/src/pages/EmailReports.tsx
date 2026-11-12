@@ -39,7 +39,7 @@ function isShellLessEmbed(): boolean {
  * 为什么单独一个参数：门户 v2 的 Auto Report Files 面板只想要「最新邮件附件」这一件事，
  * 于是它把 iframe 的 src 写成 `/myapp/?page=email_reports&lang=…&portalFiles=1`
  * （见 v2/olbrportal/assets/olbr.js 的 emailSrc()）。本页据此：
- *   · 只渲染 Latest Email 一个页签（隐藏 FINEBI report / eFlow TT Rules Check / TTs and MTTR）；
+ *   · 只渲染 Latest Email 一个页签（隐藏 eFlow TT Rules Check / eFlow 推单规则检查 / TTs and MTTR / CMDB 站点同步）；
  *   · 前三列表头改用 emailReports.portalCol* 那三条文案。
  * ⚠️ 只有 v2 那块面板带此参数 —— MsPortal / 根 olbrportal / v1 的内嵌 src 都不带，
  *    用户直接打开 /myapp/?page=email_reports&lang=en 也不带，故它们一律保持原样
@@ -74,14 +74,6 @@ interface Row {
   label: string
   dir: string
   source_id: string
-  name: string
-  size: number
-  mtime: number
-}
-// 后端 /api/finebi-reports/latest 的返回结构（每个 FineBI 文件夹最新一份 Excel）
-interface FinebiRow {
-  key: string
-  folder: string
   name: string
   size: number
   mtime: number
@@ -758,8 +750,6 @@ export default function EmailReports() {
   const [loading, setLoading] = useState(false)
   // 每个报告类型保留最近几份（默认 1 = 只要最新一份）
   const [limit, setLimit] = useState(1)
-  const [finebiRows, setFinebiRows] = useState<FinebiRow[]>([])
-  const [finebiLoading, setFinebiLoading] = useState(false)
   // eflow_check 页签：最新一次规则匹配检查摘要 + 可下载文件
   const [eflowSummary, setEflowSummary] = useState<EflowSummary | null>(null)
   const [eflowFiles, setEflowFiles] = useState<EflowFile[]>([])
@@ -814,19 +804,6 @@ export default function EmailReports() {
       setLoading(false)
     }
   }, [limit, t])
-
-  const loadFinebi = useCallback(async () => {
-    setFinebiLoading(true)
-    try {
-      const res = await api.get('/finebi-reports/latest')
-      const reports = (res.data?.reports || []) as Omit<FinebiRow, 'key'>[]
-      setFinebiRows(reports.map(r => ({ ...r, key: r.folder })))
-    } catch (e) {
-      message.error(t('emailReports.finebiLoadFailed'))
-    } finally {
-      setFinebiLoading(false)
-    }
-  }, [t])
 
   // ===== CMDB 站点同步页签的状态（2026-11-03 新增）=====
   // 后端只做两件事：读 last_run_summary.json + 列 modify 目录文件；执行走统一任务接口。
@@ -1146,7 +1123,6 @@ export default function EmailReports() {
   }, [loadEflowCheck])
 
   useEffect(() => { load() }, [load])
-  useEffect(() => { loadFinebi() }, [loadFinebi])
   useEffect(() => { loadEflowCheck() }, [loadEflowCheck])
   useEffect(() => { loadPushCheck() }, [loadPushCheck])
   useEffect(() => { loadSiteUpdate() }, [loadSiteUpdate])
@@ -1163,9 +1139,6 @@ export default function EmailReports() {
 
   const downloadUrl = (row: Row) =>
     `/api/email-reports/download/${row.source_id}/${encodeURIComponent(row.name)}`
-
-  const finebiDownloadUrl = (row: FinebiRow) =>
-    `/api/finebi-reports/download/${encodeURIComponent(row.folder)}/${encodeURIComponent(row.name)}`
 
   const eflowDownloadUrl = (f: EflowFile) =>
     `/api/email-reports/download/eflow_tt_rules_check/${encodeURIComponent(f.name)}`
@@ -1284,52 +1257,6 @@ export default function EmailReports() {
       minWidth: 110,
       render: (_: unknown, row: Row) => (
         <Button size="small" icon={<DownloadOutlined />} href={downloadUrl(row)} download={row.name}>
-          {t('emailReports.download')}
-        </Button>
-      ),
-    },
-  ]
-
-  const finebiColumns = [
-    {
-      title: t('emailReports.finebiColFolder'),
-      dataIndex: 'folder',
-      key: 'folder',
-      minWidth: 280,
-      render: (v: string) => <Tag color="blue">{v}</Tag>,
-    },
-    {
-      title: t('emailReports.colFile'),
-      dataIndex: 'name',
-      key: 'name',
-      render: (v: string, row: FinebiRow) => (
-        <a href={finebiDownloadUrl(row)} download={row.name}>
-          <FileExcelOutlined style={{ marginRight: '0.375rem', color: '#1d6f42' }} />
-          {v}
-        </a>
-      ),
-    },
-    {
-      title: t('emailReports.colSize'),
-      dataIndex: 'size',
-      key: 'size',
-      minWidth: 110,
-      align: 'right' as const,
-      render: (v: number) => formatSize(v),
-    },
-    {
-      title: t('emailReports.colTime'),
-      dataIndex: 'mtime',
-      key: 'mtime',
-      minWidth: 180,
-      render: (v: number) => formatDateTime(v),
-    },
-    {
-      title: t('emailReports.colAction'),
-      key: 'action',
-      minWidth: 110,
-      render: (_: unknown, row: FinebiRow) => (
-        <Button size="small" icon={<DownloadOutlined />} href={finebiDownloadUrl(row)} download={row.name}>
           {t('emailReports.download')}
         </Button>
       ),
@@ -1516,21 +1443,6 @@ export default function EmailReports() {
       tabColor: '#2F5496',
     }], `email_reports_${stamp()}.xlsx`)
   }, [rows, t])
-
-  const exportFinebi = useCallback(async () => {
-    if (!finebiRows.length) return
-    await exportReport([{
-      name: 'FineBI Reports',
-      title: t('emailReports.tabFinebi'),
-      header: [
-        t('emailReports.finebiColFolder'), t('emailReports.colFile'),
-        t('emailReports.colSize'), t('emailReports.colTime'),
-      ],
-      rows: finebiRows.map(r => [r.folder, r.name, formatSize(r.size), formatDateTime(r.mtime)]),
-      columnWidths: [34, 44, 12, 20],
-      tabColor: '#548235',
-    }], `finebi_reports_${stamp()}.xlsx`)
-  }, [finebiRows, t])
 
   const exportEflowCheck = useCallback(async () => {
     const breakdown = eflowSummary?.rule_breakdown || []
@@ -1941,7 +1853,7 @@ export default function EmailReports() {
              「Auto Report Files」语义重复、视觉上也是白占一行。其余场景（独立打开、
              MsPortal / olbrportal / v1 内嵌）portalFiles 为 false，页签条照常渲染。 */
           renderTabBar={portalFiles ? () => <></> : undefined}
-          /* finebi / eflow_tt_rules_check / tt_mttr 三项在精简模式下滤掉，只留 email。 */
+          /* eflow_tt_rules_check / eflow_push_rules_check / tt_mttr / site_update 四项在精简模式下滤掉，只留 email。 */
           items={[
             {
               key: 'email',
@@ -1983,35 +1895,7 @@ export default function EmailReports() {
                 </>
               ),
             },
-            {
-              key: 'finebi',
-              label: t('emailReports.tabFinebi'),
-              children: (
-                <>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', gap: 'var(--wh-space-sm)', marginBottom: '0.75rem' }}>
-                    <ExplainIcon text={t('emailReports.finebiHint')} placement="bottomLeft" icon="question" />
-                    <Button size="small" icon={<ReloadOutlined />} onClick={loadFinebi} loading={finebiLoading}>
-                      {t('emailReports.refresh')}
-                    </Button>
-                    <Button size="small" icon={<DownloadOutlined />} onClick={() => void exportFinebi()} disabled={!finebiRows.length}>
-                      {t('common.exportExcel')}
-                    </Button>
-                  </div>
-                  <div className="wh-table-responsive">
-                    <Table
-                      size="small"
-                      rowKey="key"
-                      loading={finebiLoading}
-                      columns={finebiColumns as any}
-                      dataSource={finebiRows}
-                      pagination={false}
-                      scroll={{ x: 'max-content' }}
-                      locale={{ emptyText: <Empty description={t('emailReports.finebiEmpty')} image={Empty.PRESENTED_IMAGE_SIMPLE} /> }}
-                    />
-                  </div>
-                </>
-              ),
-            },
+
             {
               key: 'eflow_tt_rules_check',
               label: t('emailReports.tabEflowCheck'),

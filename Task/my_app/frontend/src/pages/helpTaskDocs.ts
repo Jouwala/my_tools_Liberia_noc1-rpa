@@ -987,22 +987,7 @@ export const TASK_DOCS: TaskDoc[] = [
       maintain: ['The versioned design survives the upstream Excel being locked open — a hard-won fix, do not revert to direct overwrite', 'Keep the schedule at minute 20 — FineBI deletes the previous output folder at :53 and the new copy lands around :02–:05, so an on-the-hour run hits that gap and reports a false "incident_overview.xlsx not found" (seen in 2026-09); inside the gap it reuses a local copy younger than 90 minutes instead of failing'],
     },
   },
-  {
-    id: 'finebi_report_sync', group: 'm', cron: '10 * * * *',
-    script: 'services/finebi_report_sync.py → run_finebi_report_sync',
-    zh: {
-      name: 'FineBI 报表文件同步',
-      desc: '每小时从 FineBI FTP /webroot/WEB-INF/schedule 的每个子文件夹取最新一份 Excel，下载到本地 data/finebi_reports 供任务报告文件页下载；某个目录本轮没有 Excel 只记缺失，不把整任务判失败',
-      flow: ['每小时 :10 遍历 schedule 下每个子文件夹', '各取最新一份 Excel 下载到 data/finebi_reports', '目录本轮无文件且本机有历史副本 → 记入 missing 继续跑下一个', '「任务报告文件 → FINEBI report」页签展示与下载'],
-      maintain: ['2026-08-25 分组模式启用时曾因未归组而 pending 卡死断档，后补入 m 组——新增任务务必登记 GROUP_TASK_MAP', 'FineBI 每小时 :53 会先删掉上一轮输出目录、新副本约 :02–:05 才落盘，单个目录取不到文件是常态：只有本机连历史副本都没有才算 error，否则一个目录的空档会把其余已同步成功的报表一起拖红'],
-    },
-    en: {
-      name: 'FineBI Report Files Sync',
-      desc: 'Hourly: pull the latest Excel from each subfolder of FineBI FTP /webroot/WEB-INF/schedule into data/finebi_reports for the Task Report Files page; a folder with no file this cycle is only recorded as missing instead of failing the whole task',
-      flow: ['Hourly :10 walk every subfolder under schedule', 'Download the latest Excel per folder into data/finebi_reports', 'Folder empty this cycle but a local copy exists → record as missing and continue', 'Listed & downloadable under Task Report Files → FINEBI report tab'],
-      maintain: ['Stuck pending and broke the chain when group mode enabled on 2026-08-25 (ungrouped); now in group m — always register new tasks in GROUP_TASK_MAP', 'FineBI deletes the previous output folder at :53 and the new copy lands around :02–:05, so one empty folder is normal: only a folder with no local copy at all counts as an error, otherwise that gap reddens every other report that synced fine'],
-    },
-  },
+
   {
     id: 'db_freshness_check', group: 'm', cron: '15 * * * *',
     script: 'services/db_freshness_check.py → run_db_freshness_check',

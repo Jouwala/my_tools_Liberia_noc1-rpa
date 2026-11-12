@@ -6,14 +6,14 @@ window.MS_PORTAL_DATA = {
     "generated": "2026-09-16"
   },
   "stats": {
-    "total":56,
+    "total":54,
     "online":54,
-    "beta": 2,
+    "beta": 0,
     "myapp":52,
-    "finebi": 2,
+    "finebi": 0,
     "external": 2,
     "groups": 9,
-    "totalClicks": 24409,
+    "totalClicks": 22599,
     "maxClicks": 1652
   },
   "groups": [
@@ -340,38 +340,7 @@ window.MS_PORTAL_DATA = {
       "boSub": "",
       "isNew": false
     },
-    {
-      "no": 7,
-      "groups": [
-        "MS View"
-      ],
-      "titleZh": "Contract Operation KPIs (合同运营关键绩效指标)",
-      "titleEn": "Contract Operation KPIs",
-      "descZh": "【MS 目录】电信运营服务合同考核指标、SLA 达标情况及月度客户 KPI 交付达成率分析。",
-      "descEn": "[MS Directory] Telecom operation service contract assessment indicators, SLA compliance and monthly customer KPI delivery achievement analysis.",
-      "platform": "finebi",
-      "platformZh": "FineBI 报表",
-      "url": "http://192.168.100.19/webroot/decision/link/qXUp",
-      "tags": [
-        "MS",
-        "FineBI",
-        "Contract KPI",
-        "SLA Achievement",
-        "Link to be updated"
-      ],
-      "owner": "项目总经理",
-      "ownerEn": "Project General Manager",
-      "dept": "MS 运营管理部",
-      "deptEn": "MS Operation Management Dept",
-      "status": "beta",
-      "freq": "月度汇总",
-      "clicks": 890,
-      "lastVisited": "2026-08-14 10:20",
-      "icon": "chart-line",
-      "qc": [],
-      "boSub": "",
-      "isNew": false
-    },
+
     {
       "no": 8,
       "groups": [
@@ -388,8 +357,7 @@ window.MS_PORTAL_DATA = {
         "MTTR",
         "FineBI",
         "Mean Repair Time",
-        "Weekly/Monthly Report",
-        "Link to be updated"
+        "Weekly/Monthly Report"
       ],
       "owner": "质量主管",
       "ownerEn": "Quality Manager",
@@ -406,38 +374,7 @@ window.MS_PORTAL_DATA = {
       "boSub": "",
       "isNew": false
     },
-    {
-      "no": 9,
-      "groups": [
-        "MS View"
-      ],
-      "titleZh": "NUR Dashboard Monthly&Weekly (网络不可用率周/月报)",
-      "titleEn": "NUR Dashboard Monthly&Weekly (Network Unavailability Rate Weekly/Monthly Report)",
-      "descZh": "【MS 目录】全网基站与核心网络不可用率（NUR）周/月报表，拆解停电、传输中断与硬件故障占比。",
-      "descEn": "[MS Directory] Network-wide base station and core network unavailability rate (NUR) weekly/monthly report, breaking down power outage, transmission interruption and hardware fault proportions.",
-      "platform": "finebi",
-      "platformZh": "FineBI 报表",
-      "url": "http://192.168.100.19/webroot/decision/link/B7E3",
-      "tags": [
-        "NUR",
-        "FineBI",
-        "Network Unavailability Rate",
-        "Monthly Summary",
-        "Link to be updated"
-      ],
-      "owner": "NUR 分析师",
-      "ownerEn": "NUR Analyst",
-      "dept": "MS 性能统计组",
-      "deptEn": "MS Performance Statistics Team",
-      "status": "beta",
-      "freq": "周度更新",
-      "clicks": 920,
-      "lastVisited": "2026-08-14 13:45",
-      "icon": "gauge",
-      "qc": [],
-      "boSub": "",
-      "isNew": false
-    },
+
     {
       "no": 10,
       "groups": [
@@ -622,8 +559,7 @@ window.MS_PORTAL_DATA = {
         "FO",
         "Availability",
         "Daily",
-        "Front-line Monitoring",
-        "Link to be updated"
+        "Front-line Monitoring"
       ],
       "owner": "FO 运营主管",
       "ownerEn": "FO Operation Manager",
@@ -654,8 +590,7 @@ window.MS_PORTAL_DATA = {
         "FO",
         "TT Correlation",
         "Fault Ticket",
-        "Availability Tracing",
-        "Link to be updated"
+        "Availability Tracing"
       ],
       "owner": "工单分析师",
       "ownerEn": "Ticket Analyst",
@@ -688,8 +623,7 @@ window.MS_PORTAL_DATA = {
         "FLM",
         "CM Repair",
         "Field Operation",
-        "Defect Elimination Deadline",
-        "Link to be updated"
+        "Defect Elimination Deadline"
       ],
       "owner": "FLM 总监",
       "ownerEn": "FLM Director",
@@ -723,8 +657,7 @@ window.MS_PORTAL_DATA = {
       "tags": [
         "可用性",
         "Top Worst Cells",
-        "NE Availability",
-        "Link to be updated"
+        "NE Availability"
       ],
       "owner": "性能分析师",
       "ownerEn": "Performance Analyst",
@@ -787,8 +720,7 @@ window.MS_PORTAL_DATA = {
         "2G",
         "GSM",
         "Call Drop Rate",
-        "Traffic Volume",
-        "Link to be updated"
+        "Traffic Volume"
       ],
       "owner": "2G 网优专家",
       "ownerEn": "2G Network Optimization Expert",
@@ -819,8 +751,7 @@ window.MS_PORTAL_DATA = {
         "3G",
         "UMTS",
         "Throughput",
-        "Call Drop Rate",
-        "Link to be updated"
+        "Call Drop Rate"
       ],
       "owner": "3G 网优专家",
       "ownerEn": "3G Network Optimization Expert",
@@ -851,8 +782,7 @@ window.MS_PORTAL_DATA = {
         "4G",
         "LTE",
         "VoLTE",
-        "Downlink Speed",
-        "Link to be updated"
+        "Downlink Speed"
       ],
       "owner": "LTE 网优专家",
       "ownerEn": "LTE Network Optimization Expert",
@@ -883,8 +813,7 @@ window.MS_PORTAL_DATA = {
         "Firewall",
         "Security Protection",
         "Egress Traffic",
-        "Concurrent Sessions",
-        "Link to be updated"
+        "Concurrent Sessions"
       ],
       "owner": "网络安全官",
       "ownerEn": "Network Security Officer",
@@ -915,8 +844,7 @@ window.MS_PORTAL_DATA = {
         "Core Network",
         "CN",
         "MME",
-        "Attach Rate",
-        "Link to be updated"
+        "Attach Rate"
       ],
       "owner": "核心网主管",
       "ownerEn": "Core Network Manager",
@@ -946,8 +874,7 @@ window.MS_PORTAL_DATA = {
       "tags": [
         "CN Monthly Report",
         "Capacity Planning",
-        "CDR Billing",
-        "Link to be updated"
+        "CDR Billing"
       ],
       "owner": "核心网规划师",
       "ownerEn": "Core Network Planner",
@@ -1103,8 +1030,7 @@ window.MS_PORTAL_DATA = {
         "IP RAN",
         "Regional Report",
         "MPLS",
-        "Port Utilization",
-        "Link to be updated"
+        "Port Utilization"
       ],
       "owner": "承载网主管",
       "ownerEn": "Bearer Network Manager",
@@ -1135,8 +1061,7 @@ window.MS_PORTAL_DATA = {
         "IPCORE",
         "HQ-ODC",
         "Banjor",
-        "ELWA",
-        "Link to be updated"
+        "ELWA"
       ],
       "owner": "传输骨干工程师",
       "ownerEn": "Backbone Transmission Engineer",
@@ -1166,8 +1091,7 @@ window.MS_PORTAL_DATA = {
       "tags": [
         "Metro Ring",
         "Ring Load",
-        "Protection Switching",
-        "Link to be updated"
+        "Protection Switching"
       ],
       "owner": "城域网工程师",
       "ownerEn": "Metro Network Engineer",
@@ -1265,8 +1189,7 @@ window.MS_PORTAL_DATA = {
         "FO",
         "Spare Audit",
         "Inventory Check",
-        "Material Allocation",
-        "Link to be updated"
+        "Material Allocation"
       ],
       "owner": "审计主管",
       "ownerEn": "Audit Manager",
@@ -1917,7 +1840,6 @@ window.MS_PORTAL_DATA = {
       "boSub": "",
       "isNew": true
     }
-
 
   ],
 

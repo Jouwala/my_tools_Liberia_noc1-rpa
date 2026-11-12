@@ -1,13 +1,12 @@
 import { DashboardItem } from '../types/dashboard';
-import { getFinebiHost, getMyappHost, buildRel } from '../config';
+import { getMyappHost, buildRel } from '../config';
 
 // ============================================================================
 // 看板目录数据（真实环境填充）
 //  - custom 平台：Task\my_app (Data Insight MVP) 前端页面，
 //    直链格式 http://<myappHost>/myapp/?page=<PageKey>
-//  - finebi 平台：仅剩 2 个看板（qXUp / B7E3）在 my_app 侧没有原生页，仍走
-//    FineBI「公共链接」（匿名、免登录直达），地址形如
-//    http://<finebiHost>/webroot/decision/link/<code>
+//  - 2026-11-12 已移除最后两个 FineBI 直链看板（qXUp / B7E3）：门户内不再有
+//    finebi 平台条目，全部看板均为 my_app 原生页或外部链接。
 // 说明：主机（192.168.100.19 / .20）统一收口到 src/config.ts，此处仅描述相对路径；
 // 完整 URL 在导出时由 withRel 计算，运行时再由配置 + rel 拼出，改 IP 只需改配置一处。
 // 默认配置由「门户 UI 导出 JSON」重新生成（2026-08-15 08:34 版本，37 条），
@@ -20,9 +19,8 @@ import { getFinebiHost, getMyappHost, buildRel } from '../config';
 // ============================================================================
 
 const MYAPP_BASE = `http://${getMyappHost()}/myapp/?page=`;
-const FINEBI_BASE = `http://${getFinebiHost()}/webroot/decision`;
 
-/** 为每条 finebi/custom 看板补算 rel（相对路径），使其跟随全局主机配置 */
+/** 为每条看板补算 rel（相对路径），使其跟随全局主机配置 */
 function withRel(items: DashboardItem[]): DashboardItem[] {
   return items.map((it) => (it.rel ? it : { ...it, rel: buildRel(it.platform, it.url) }));
 }
@@ -699,25 +697,6 @@ const RAW_DASHBOARDS: DashboardItem[] = [
       status: 'online'
     },
 
-    {
-      id: 'finebi-ms-contract-operation-kpis',
-      title: 'Contract Operation KPIs (合同运营关键绩效指标)',
-      description: '【MS 目录】电信运营服务合同考核指标、SLA 达标情况及月度客户 KPI 交付达成率分析。',
-      platform: 'finebi',
-      url: `${FINEBI_BASE}/link/qXUp`,
-      category: 'MS 综合运维管理',
-      tags: ['MS', 'FineBI', 'Contract KPI', 'SLA Achievement', 'Link to be updated'],
-      iconName: 'BarChart3',
-      updateFrequency: '月度汇总',
-      department: 'MS 运营管理部',
-      owner: '项目总经理',
-      isFavorite: true,
-      isPinned: false,
-      clickCount: 890,
-      lastVisited: '2026-08-14 10:20',
-      themeColor: 'indigo',
-      status: 'beta'
-    },
         {
       id: 'custom-ms-nur-only',
       title: 'MS NUR Only (MS 网络不可用率专页)',
@@ -761,7 +740,7 @@ const RAW_DASHBOARDS: DashboardItem[] = [
       platform: 'custom',
       url: `${MYAPP_BASE}finebi_mttr`,
       category: 'MS 综合运维管理',
-      tags: ['MTTR', 'FineBI', 'Mean Repair Time', 'Weekly/Monthly Report', 'Link to be updated'],
+      tags: ['MTTR', 'FineBI', 'Mean Repair Time', 'Weekly/Monthly Report'],
       iconName: 'Clock',
       updateFrequency: '周度更新',
       department: 'MS 质量管理组',
@@ -773,25 +752,7 @@ const RAW_DASHBOARDS: DashboardItem[] = [
       themeColor: 'indigo',
       status: 'online'
     },
-    {
-      id: 'finebi-ms-nur-monthly-weekly',
-      title: 'NUR Dashboard Monthly&Weekly (网络不可用率周/月报)',
-      description: '【MS 目录】全网基站与核心网络不可用率（NUR）周/月报表，拆解停电、传输中断与硬件故障占比。',
-      platform: 'finebi',
-      url: `${FINEBI_BASE}/link/B7E3`,
-      category: '网络性能与无线/核心网',
-      tags: ['NUR', 'FineBI', 'Network Unavailability Rate', 'Monthly Summary', 'Link to be updated'],
-      iconName: 'Gauge',
-      updateFrequency: '周度更新',
-      department: 'MS 性能统计组',
-      owner: 'NUR 分析师',
-      isFavorite: true,
-      isPinned: false,
-      clickCount: 920,
-      lastVisited: '2026-08-14 13:45',
-      themeColor: 'indigo',
-      status: 'beta'
-    },
+
     {
       id: 'finebi-fo-availability-daily',
       title: 'Availability Daily Dashboard (全网可用率日度看板)',
@@ -799,7 +760,7 @@ const RAW_DASHBOARDS: DashboardItem[] = [
       platform: 'custom',
       url: `${MYAPP_BASE}finebi_availability_daily`,
       category: '网络性能与无线/核心网',
-      tags: ['FO', 'Availability', 'Daily', 'Front-line Monitoring', 'Link to be updated'],
+      tags: ['FO', 'Availability', 'Daily', 'Front-line Monitoring'],
       iconName: 'TrendingUp',
       updateFrequency: '每日0点',
       department: 'FO 一线值班室',
@@ -818,7 +779,7 @@ const RAW_DASHBOARDS: DashboardItem[] = [
       platform: 'custom',
       url: `${MYAPP_BASE}finebi_spare`,
       category: '现场动力与备件仓储',
-      tags: ['FO', 'Spare Audit', 'Inventory Check', 'Material Allocation', 'Link to be updated'],
+      tags: ['FO', 'Spare Audit', 'Inventory Check', 'Material Allocation'],
       iconName: 'Boxes',
       updateFrequency: '周度更新',
       department: 'FO 备件管理组',
@@ -837,7 +798,7 @@ const RAW_DASHBOARDS: DashboardItem[] = [
       platform: 'custom',
       url: `${MYAPP_BASE}finebi_availability_tt`,
       category: '告警与工单故障',
-      tags: ['FO', 'TT Correlation', 'Fault Ticket', 'Availability Tracing', 'Link to be updated'],
+      tags: ['FO', 'TT Correlation', 'Fault Ticket', 'Availability Tracing'],
       iconName: 'ShieldCheck',
       updateFrequency: '每日0点',
       department: 'FO 一线值班室',
@@ -856,7 +817,7 @@ const RAW_DASHBOARDS: DashboardItem[] = [
       platform: 'custom',
       url: `${MYAPP_BASE}finebi_cm_dashboard`,
       category: '现场动力与备件仓储',
-      tags: ['FLM', 'CM Repair', 'Field Operation', 'Defect Elimination Deadline', 'Link to be updated'],
+      tags: ['FLM', 'CM Repair', 'Field Operation', 'Defect Elimination Deadline'],
       iconName: 'Factory',
       updateFrequency: '每日0点',
       department: 'FLM 现场抢修部',
@@ -875,7 +836,7 @@ const RAW_DASHBOARDS: DashboardItem[] = [
       platform: 'custom',
       url: `${MYAPP_BASE}finebi_kpi_2g`,
       category: '网络性能与无线/核心网',
-      tags: ['2G', 'GSM', 'Call Drop Rate', 'Traffic Volume', 'Link to be updated'],
+      tags: ['2G', 'GSM', 'Call Drop Rate', 'Traffic Volume'],
       iconName: 'TrendingUp',
       updateFrequency: '每日0点',
       department: 'BO 二线无线优化部',
@@ -894,7 +855,7 @@ const RAW_DASHBOARDS: DashboardItem[] = [
       platform: 'custom',
       url: `${MYAPP_BASE}finebi_kpi_3g`,
       category: '网络性能与无线/核心网',
-      tags: ['3G', 'UMTS', 'Throughput', 'Call Drop Rate', 'Link to be updated'],
+      tags: ['3G', 'UMTS', 'Throughput', 'Call Drop Rate'],
       iconName: 'TrendingUp',
       updateFrequency: '每日0点',
       department: 'BO 二线无线优化部',
@@ -913,7 +874,7 @@ const RAW_DASHBOARDS: DashboardItem[] = [
       platform: 'custom',
       url: `${MYAPP_BASE}finebi_kpi_4g`,
       category: '网络性能与无线/核心网',
-      tags: ['4G', 'LTE', 'VoLTE', 'Downlink Speed', 'Link to be updated'],
+      tags: ['4G', 'LTE', 'VoLTE', 'Downlink Speed'],
       iconName: 'Zap',
       updateFrequency: '每日0点',
       department: 'BO 二线无线优化部',
@@ -932,7 +893,7 @@ const RAW_DASHBOARDS: DashboardItem[] = [
       platform: 'custom',
       url: `${MYAPP_BASE}finebi_daily_availability`,
       category: '网络性能与无线/核心网',
-      tags: ['可用性', 'Top Worst Cells', 'NE Availability', 'Link to be updated'],
+      tags: ['可用性', 'Top Worst Cells', 'NE Availability'],
       iconName: 'Gauge',
       updateFrequency: '每日0点',
       department: 'BO 综合分析部',
@@ -951,7 +912,7 @@ const RAW_DASHBOARDS: DashboardItem[] = [
       platform: 'custom',
       url: `${MYAPP_BASE}cn_kpi`,
       category: '网络性能与无线/核心网',
-      tags: ['Core Network', 'CN', 'MME', 'Attach Rate', 'Link to be updated'],
+      tags: ['Core Network', 'CN', 'MME', 'Attach Rate'],
       iconName: 'Cpu',
       updateFrequency: '每日0点',
       department: 'BO 核心网专家组',
@@ -970,7 +931,7 @@ const RAW_DASHBOARDS: DashboardItem[] = [
       platform: 'custom',
       url: `${MYAPP_BASE}finebi_ipran_4region`,
       category: '传输承载与业务时延',
-      tags: ['IP RAN', 'Regional Report', 'MPLS', 'Port Utilization', 'Link to be updated'],
+      tags: ['IP RAN', 'Regional Report', 'MPLS', 'Port Utilization'],
       iconName: 'Activity',
       updateFrequency: '每小时',
       department: 'BO 传输专家组',
@@ -989,7 +950,7 @@ const RAW_DASHBOARDS: DashboardItem[] = [
       platform: 'custom',
       url: `${MYAPP_BASE}finebi_ipran_hq`,
       category: '传输承载与业务时延',
-      tags: ['IPCORE', 'HQ-ODC', 'Banjor', 'ELWA', 'Link to be updated'],
+      tags: ['IPCORE', 'HQ-ODC', 'Banjor', 'ELWA'],
       iconName: 'Globe',
       updateFrequency: '实时流式',
       department: 'BO 骨干传输组',
@@ -1008,7 +969,7 @@ const RAW_DASHBOARDS: DashboardItem[] = [
       platform: 'custom',
       url: `${MYAPP_BASE}finebi_metro_ring`,
       category: '传输承载与业务时延',
-      tags: ['Metro Ring', 'Ring Load', 'Protection Switching', 'Link to be updated'],
+      tags: ['Metro Ring', 'Ring Load', 'Protection Switching'],
       iconName: 'Globe',
       updateFrequency: '每小时',
       department: 'BO 传输专家组',
@@ -1027,7 +988,7 @@ const RAW_DASHBOARDS: DashboardItem[] = [
       platform: 'custom',
       url: `${MYAPP_BASE}finebi_fw_daily`,
       category: '网络性能与无线/核心网',
-      tags: ['Firewall', 'Security Protection', 'Egress Traffic', 'Concurrent Sessions', 'Link to be updated'],
+      tags: ['Firewall', 'Security Protection', 'Egress Traffic', 'Concurrent Sessions'],
       iconName: 'ShieldCheck',
       updateFrequency: '每日0点',
       department: 'BO 网络安全组',
@@ -1046,7 +1007,7 @@ const RAW_DASHBOARDS: DashboardItem[] = [
       platform: 'custom',
       url: `${MYAPP_BASE}finebi_cn_kpi_monthly`,
       category: '网络性能与无线/核心网',
-      tags: ['CN Monthly Report', 'Capacity Planning', 'CDR Billing', 'Link to be updated'],
+      tags: ['CN Monthly Report', 'Capacity Planning', 'CDR Billing'],
       iconName: 'PieChart',
       updateFrequency: '月度汇总',
       department: 'BO 核心网专家组',

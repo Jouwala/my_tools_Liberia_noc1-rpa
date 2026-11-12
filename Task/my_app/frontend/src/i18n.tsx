@@ -3359,7 +3359,6 @@ const translations: Record<Locale, Record<string, string>> = {
     // Task Report Files 页面（Latest Email / FINEBI report 两个页签）
     'emailReports.title': '任务报告文件',
     'emailReports.tabEmail': 'Latest Email',
-    'emailReports.tabFinebi': 'FINEBI report',
     'emailReports.tabSiteUpdate': '站点同步',
     // 站点同步页签（CMDB 主数据 → eflow / master_site_db 差异）
     'emailReports.siteUpdateHint': '以 CMDB 主数据（ZTE OLR MS Master Site Database）为唯一准绳，比对公司 eflow 现网与 master_site_db 基线，生成带 A/M/D 标记与着色的差异文件。只生成文件供人工审查，不写入任何数据库。',
@@ -3402,10 +3401,6 @@ const translations: Record<Locale, Record<string, string>> = {
     'emailReports.download': '下载',
     'emailReports.empty': '暂无报告文件（任务尚未生成或目录为空）',
     'emailReports.loadFailed': '加载报告文件列表失败',
-    'emailReports.finebiHint': '每小时从 FineBI FTP（192.168.100.19 /webroot/WEB-INF/schedule）各文件夹同步最新一份 Excel，点击文件名或「下载」即可保存。',
-    'emailReports.finebiColFolder': '报表文件夹',
-    'emailReports.finebiEmpty': '暂无 FineBI 报表（同步任务尚未运行或 FTP 无文件）',
-    'emailReports.finebiLoadFailed': '加载 FineBI 报表列表失败',
     'emailReports.tabEflowCheck': 'eFlow TT 规则检查',
     'emailReports.eflowHint': '每天 04:20 从 eFlow 拉取最新 TT Update Severity Rule（eflow_TT_rules.xlsx），再对建单时间（created_time）最新的 1000 条 eflow_tt 记录做匹配与级别矫正（site_type 为空时回退 site_information）。下方为最新一次检查摘要；底部列出从 eFlow 收集到的全部规则表（TT 级别矫正规则、告警关联规则、推单/配置规则）与本次检查产物（矫正表 / 报告），均可下载。三个「立即…」按钮分别手动触发对应任务：TT 检查每日跑，告警 / 推单规则原本每 3 天 23:59 才刷新，需要最新规则时点这里。',
     'emailReports.eflowEmpty': '暂无检查结果（任务尚未运行）',
@@ -9936,7 +9931,6 @@ const translations: Record<Locale, Record<string, string>> = {
     // Task Report Files page (Latest Email / FINEBI report tabs)
     'emailReports.title': 'Task Report Files',
     'emailReports.tabEmail': 'Latest Email',
-    'emailReports.tabFinebi': 'FINEBI report',
     'emailReports.tabSiteUpdate': 'Site Sync',
     // Site Sync tab (CMDB master data -> eflow / master_site_db diff)
     'emailReports.siteUpdateHint': 'Diffs the CMDB master data (ZTE OLR MS Master Site Database) against the eflow baseline and the master_site_db baseline, producing colour-coded A/M/D workbooks. Files only - nothing is written to any database.',
@@ -9980,10 +9974,6 @@ const translations: Record<Locale, Record<string, string>> = {
     'emailReports.download': 'Download',
     'emailReports.empty': 'No report files yet (task has not generated any)',
     'emailReports.loadFailed': 'Failed to load report files',
-    'emailReports.finebiHint': 'Latest Excel from each folder of the FineBI FTP (192.168.100.19 /webroot/WEB-INF/schedule), synced hourly. Click the file name or "Download" to save.',
-    'emailReports.finebiColFolder': 'Report Folder',
-    'emailReports.finebiEmpty': 'No FineBI reports yet (sync task has not run or FTP is empty)',
-    'emailReports.finebiLoadFailed': 'Failed to load FineBI reports',
     'emailReports.tabEflowCheck': 'eFlow TT Rules Check',
     'emailReports.eflowHint': 'Daily 04:20: collects the latest TT Update Severity Rules from eFlow (eflow_TT_rules.xlsx), then matches the 1000 eflow_tt records with the newest created_time and reports severity corrections (site_type falls back to site_information when empty). Latest check summary below; the table at the bottom lists every rule sheet collected from eFlow (TT severity rules, alarm correlation rules, push/config rules) plus this run\'s outputs (correction sheet / report), all downloadable. The three "Run / Collect" buttons trigger the matching task manually: the TT check runs daily, while the alarm & push rule sheets normally refresh only every 3 days at 23:59.',
     'emailReports.eflowEmpty': 'No check result yet (task has not run)',

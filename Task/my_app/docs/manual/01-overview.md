@@ -10,7 +10,7 @@ my_app 是一个**单机的网络运维数据平台**：把 eFlow、各制式网
 
 **它做什么**
 
-- **84 个定时任务**驱动数据采集与报表投递（`backend/task_registry.py:179` 起的 `TASK_SPECS`）。
+- **83 个定时任务**驱动数据采集与报表投递（`backend/task_registry.py:179` 起的 `TASK_SPECS`）。
 - **83 个功能页**在一个 SPA 里，中英文可切换（真相源：`frontend/src/App.tsx` 的 `PAGE_META`（67 个，含 `help` 自身）+ `FINEBI_BOARDS`（16 个原生看板）；帮助页的 `frontend/src/pages/helpContent.ts` 的 `PAGE_LIST`（67 个，不含 `help` 自身）与之一一对应）。
 - 数据可**下钻**：看板上点指标弹出明细（TT&WO / 告警 / 丢包 / NUR / MS SLA / GIS 均为该模式）。
 - 提供**通用表能力**：任意表浏览、字段画像、Excel/CSV 导入导出、视图模板（TableBrowser）。
@@ -52,7 +52,7 @@ Exchange/OWA 邮箱  ─┘                                                  │
 | **NUR** | 网络不可用率。全网口径 `Σ(小区数×MTTR)×60 / (小区数×GR)`；站点级达标阈值 `NUR×100000 < 350`（`backend/services/nur_calc.py:367-373`）。有效 MTTR 限定 `>0 且 <43200 分钟`，未清除故障不计入（`nur_calc.py:304`） |
 | **UME** | 网管系统统称（RAN UME / iPRAN UME / CNN UME / MW UME / FMS Portal），凭据按制式分组存储 |
 | **eFlow** | ZTE 工单/告警平台，提供 TT/WO/CR/PM/Site/Person 接口与 FM Active/FM History 告警接口 |
-| **FineBI** | 报表平台。my_app 从它的 FTP 调度目录定时抓取最新 Excel（`finebi_report_sync`） |
+| **FineBI** | 报表平台。`incident_overview_sync` 仍从它的 FTP 调度目录定时抓取 `incident_overview.xlsx`；报表文件同步（`finebi_report_sync`）已于 2026-11-12 删除。 |
 | **SP** | Spare Parts，备件/耗材。`sp_data_sync` / `sp_report_generate` / 仓库看板 |
 | **CN EMS** | 华为/中兴之外的中文 EMS 采集源，原始 PM 文件服务器仅保留约 1 天，故需 15 分钟增量缓存（`task_registry.py:346-350`） |
 | **MW UME** | ZXMW 微波网管，KPI 每日 05:15 入库，拓扑看板读 `mw_ume_bw_ultilazation` |

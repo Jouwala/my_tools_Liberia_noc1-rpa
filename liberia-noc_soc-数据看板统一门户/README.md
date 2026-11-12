@@ -26,7 +26,7 @@
 
 - my_app 页面直链格式：`http://192.168.100.19/myapp/?page=<PageKey>`（query 参数，**非** hash 路由），PageKey 含 `sync / alarm / ttwo / nur / ms_sla / cxoDashboard / gis / realtime_alarm / alarmManagement / packet_loss / battery / ip_trace / incident_overview / warehouse / overview / tables / upload / archive / dashboard / settings`。
 - FineBI 入口：`http://192.168.100.19/webroot/decision#/directory?activeTab=dec-tabs-homepage`。
-- **FineBI 具体报表链接为目录占位（标签含"链接待更新"，状态 beta），请在门户内"编辑看板配置"逐条替换为实际报表 URL。**
+- FineBI 直链看板已于 2026-11-12 全部移除（最后两个 qXUp / B7E3），门户内不再有 finebi 平台条目。
 
 ## 新机器启动（干净 clone 后）
 

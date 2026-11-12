@@ -440,10 +440,6 @@ GROUP_TASK_MAP = {
         # 只读本地/PG 数据 + EWS 发信，内务轻任务，归 m 组。
         # 新任务必须显式分组，否则无 worker 认领 → 队列 pending 卡死直到 300s 超时
         "sp_material_report,"
-        # finebi_report_sync：注册表中存在但此前未分组，
-        # 2026-08-25 分组模式启用后无任何 worker 认领，队列 pending 卡死断档
-        # （同批补录的 pg_to_sqlite_sync 已于 2026-10-28 拆到独立 p 组，见本表末尾）
-        "finebi_report_sync,"
         # log_cleanup 2026-09-11 补录：日志文件清理（每天 03:17），内务轻任务。
         # 新任务必须显式分组，否则无 worker 认领 → 队列 pending 卡死直到 300s 超时
         "log_cleanup,"
