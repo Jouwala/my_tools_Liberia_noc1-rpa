@@ -210,8 +210,29 @@ def get_scheduler() -> BackgroundScheduler:
 QUEUE_ENABLED = os.environ.get("MY_APP_TASK_QUEUE", "0") == "1"
 
 
+# DDL 每个进程只做一次。worker 每 2 秒认领、页面每 2–8 秒轮询
+# /api/tasks/running，若每次都 CREATE INDEX IF NOT EXISTS，PostgreSQL 仍会对
+# task_queue 取锁；11 个 worker 叠在一起，只读轮询会被堵到 1–2 秒
+# （2026-11-12 从 D:\01_olbr_portal 换目录后的页面变慢，nginx access 里
+# /api/tasks/running 高峰 2.5s）。表和索引在库里已经存在，后续调用直接返回。
+_queue_table_ready = False
+_queue_table_ready_lock = threading.Lock()
+
+
 def _ensure_queue_table(conn):
-    """确保 task_queue 表存在（含状态 / task_id 索引，供 worker 轮询认领）"""
+    """确保 task_queue 表存在（含状态 / task_id 索引，供 worker 轮询认领）。"""
+    global _queue_table_ready
+    if _queue_table_ready:
+        return
+    with _queue_table_ready_lock:
+        if _queue_table_ready:
+            return
+        _ensure_queue_table_ddl(conn)
+        _queue_table_ready = True
+
+
+def _ensure_queue_table_ddl(conn):
+    """真正执行建表 / 补列 / 建索引。只应由 _ensure_queue_table 调用一次。"""
     if isinstance(conn, sqlite3.Connection):
         conn.execute("""
             CREATE TABLE IF NOT EXISTS task_queue (
