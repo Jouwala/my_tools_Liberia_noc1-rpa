@@ -6,7 +6,7 @@
 
 | 进程 | 监听 | 由谁拉起 | 职责 |
 | --- | --- | --- | --- |
-| nginx | `:80` | 人工/系统服务 | 生产入口，把 `/myapp/` 反代到 vite preview |
+| nginx | `:80` | 人工/系统服务 | 生产入口。`/myapp/` 的 HTML 反代到 vite preview；`/myapp/assets/` 里带 hash 的 js/css/字体/图片从 2026-11-12 起由 nginx 直接读 `Task\_fe_dist\assets`（不再经 vite 现读现压） |
 | vite preview | `:7090`（`0.0.0.0`） | `start_hidden.ps1:244` | 托管前端构建产物 + `/api` 反代到 7038 |
 | uvicorn (backend) | `:7038`（`0.0.0.0`） | `backend_watchdog.py:147-150` | FastAPI，提供 `/api/*` 与 SPA 兜底 |
 | worker × 5 组 | 无端口 | `worker_watchdog.py:36-66` | 消费 `task_queue`，执行采集/报表任务 |
