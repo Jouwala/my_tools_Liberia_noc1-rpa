@@ -42,6 +42,10 @@ xGW_LICENSE / xGW_CPU_USAGE / 3G_FDD_DATA_TRAFFIC 上游恒无 5 分钟数据
 
 整页结果 TTL 30s。任务每 15 分钟才写一次，30s 已能挡住翻页/重刷的重复查询，
 又不会让刚跑完的任务结果被缓存挡太久。
+
+同一时刻只允许一轮计算（单飞）：自动刷新间隔若短于远端取数耗时，后来的请求
+等待进行中的那一轮，而不是再并发打 11 个组件。列名探测结果另缓存 10 分钟
+（失败只缓存 30 秒），避免每轮 overview 都多打 11 次 ``SELECT * LIMIT 0``。
 """
 from __future__ import annotations
 
@@ -242,15 +246,34 @@ WIDGETS: List[Dict[str, Any]] = [
 _QUOTED_IDENT_RE = re.compile(r'"([^"]+)"')
 
 
+# 列名几乎不变。成功缓存 10 分钟；失败只缓存 30 秒，远端抖动时不至于每轮都空打，
+# 也不至于把「表还没建出来」记死一整段。
+_COL_TTL_OK = 600
+_COL_TTL_MISS = 30
+_col_lock = threading.Lock()
+_col_cache: Dict[str, tuple] = {}  # table -> (at, cols | None)
+
+
 def _known_columns(table: str) -> Optional[set]:
     """取远端表的真实列名；取不到返回 None（守卫静默跳过，不影响正常出图）。"""
+    now = time.time()
+    with _col_lock:
+        hit = _col_cache.get(table)
+        if hit is not None:
+            at, cols = hit
+            ttl = _COL_TTL_OK if cols is not None else _COL_TTL_MISS
+            if (now - at) < ttl:
+                return cols
+    cols: Optional[set]
     try:
         res = query_remote(f'SELECT * FROM "{table}" LIMIT 0', db=REMOTE_DB, limit=1)
     except Exception:  # noqa: BLE001 — 表不存在/服务不可达都不该拖垮整页
-        return None
-    if not res.get("success", True):
-        return None
-    return set(res.get("columns") or [])
+        cols = None
+    else:
+        cols = set(res.get("columns") or []) if res.get("success", True) else None
+    with _col_lock:
+        _col_cache[table] = (time.time(), cols)
+    return cols
 
 
 def _verify_columns(w: Dict[str, Any]) -> str:
@@ -343,18 +366,15 @@ def _fetch_widget(w: Dict[str, Any]) -> Dict[str, Any]:
 _cache_lock = threading.Lock()
 _cache: Dict[str, Any] = {}
 
+# 单飞：刷新间隔短于远端取数时，后来的请求等待这一轮，不再各开 11 路查询。
+# 11 个组件、每个远端超时 60s、并发 6，单轮最坏大约两分钟出头。
+_flight_lock = threading.Lock()
+_flight: Optional[tuple] = None  # (Event, box)；box 结束时写入 data 或 error
+_FLIGHT_WAIT = 180
 
-def get_overview(force: bool = False) -> Dict[str, Any]:
-    """整页数据：8 个组件并发取数 + TTL 缓存。"""
-    now = time.time()
-    if not force:
-        with _cache_lock:
-            hit = _cache.get("all")
-            if hit is not None and (now - hit["at"]) < CACHE_TTL:
-                data = hit["data"]
-                data["meta"] = {**data["meta"], "cached": True}
-                return data
 
+def _compute_overview() -> Dict[str, Any]:
+    """打远端，组装整页并写入 TTL 缓存。调用方负责单飞。"""
     t0 = time.time()
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
         widgets = list(pool.map(_fetch_widget, WIDGETS))
@@ -376,6 +396,56 @@ def get_overview(force: bool = False) -> Dict[str, Any]:
     with _cache_lock:
         _cache["all"] = {"at": time.time(), "data": data}
     return data
+
+
+def get_overview(force: bool = False) -> Dict[str, Any]:
+    """整页数据：11 个组件并发取数 + TTL 缓存 + 单飞。
+
+    force=True 跳过缓存读取，但若已有一轮正在算，仍然等待那一轮 ——
+    进行中的结果本来就是一次新计算，再开一轮只会把远端 SQL API 打满。
+    """
+    now = time.time()
+    if not force:
+        with _cache_lock:
+            hit = _cache.get("all")
+            if hit is not None and (now - hit["at"]) < CACHE_TTL:
+                data = hit["data"]
+                data["meta"] = {**data["meta"], "cached": True}
+                return data
+
+    global _flight
+    with _flight_lock:
+        if _flight is not None:
+            ev, box = _flight
+            leader = False
+        else:
+            ev = threading.Event()
+            box = {}
+            _flight = (ev, box)
+            leader = True
+
+    if not leader:
+        if not ev.wait(timeout=_FLIGHT_WAIT):
+            raise RuntimeError("CN KPI 5mins 仍在取数，请稍后重试")
+        if "error" in box:
+            raise box["error"]
+        data = box.get("data")
+        if data is None:
+            raise RuntimeError("CN KPI 5mins 取数未完成")
+        return data
+
+    try:
+        data = _compute_overview()
+        box["data"] = data
+        return data
+    except Exception as e:
+        box["error"] = e
+        raise
+    finally:
+        ev.set()
+        with _flight_lock:
+            if _flight is not None and _flight[0] is ev:
+                _flight = None
 
 
 def health() -> Dict[str, Any]:

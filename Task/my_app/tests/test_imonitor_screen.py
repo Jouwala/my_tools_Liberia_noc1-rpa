@@ -82,7 +82,8 @@ def test_port_matches_backend_proxy_prefix():
 def test_port_matches_nginx_conf():
     port = _page_port()
     conf = NGINX_CONF.read_text(encoding="utf-8")
-    assert f"listen       {port};" in conf
+    # 2026-11-10 起 808x 统一走 TLS：同一端口可能写 `listen 8088;` 或 `listen 8088 ssl;`
+    assert re.search(rf"listen\s+{port}(?:\s+ssl)?;", conf)
     assert f"proxy_pass          https://172.17.208.1:28808;" in conf
 
 
@@ -135,8 +136,11 @@ def test_nginx_conf_strips_framing_headers_and_injects_autologin():
     assert "proxy_hide_header   Strict-Transport-Security;" in conf
     # ② 中和登录页内联 frame-bust
     assert "sub_filter 'top.location = self.location;'" in conf
-    # ③ 注入自动填表脚本
-    assert 'sub_filter \'</head>\' \'<script src="/api/portals/inject.js?system=ume_in"></script></head>\'' in conf
+    # ③ 注入自动填表脚本（2026-11-10 起同一 sub_filter 还追加了 language 贯通脚本，
+    #    所以只校验注入片段与 `</head>` 结尾，不锁死整行）
+    assert ('sub_filter \'</head>\' \'<script src="/api/portals/inject.js?system=ume_in"></script>'
+            in conf)
+    assert "</head>';" in conf
     # sub_filter 要看到明文 HTML，必须关掉上游压缩
     assert 'proxy_set_header Accept-Encoding   "";' in conf
     # Cookie 要落到访问者主机上（门户 Cookie 名带端口后缀，不能跨门户共用）
