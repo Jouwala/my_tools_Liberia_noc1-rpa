@@ -64,8 +64,8 @@ export const DashboardCard: React.FC<DashboardCardProps> = ({
       case 'custom':
         return {
           label: t('card.customBadge'),
-          bg: 'bg-cyan-500/10 text-cyan-700 dark:text-cyan-300 border-cyan-200 dark:border-cyan-800/80',
-          dot: 'bg-cyan-500',
+          bg: 'bg-brand-500/10 text-brand-700 dark:text-brand-300 border-brand-200 dark:border-brand-800/80',
+          dot: 'bg-brand-600',
         };
       default:
         return {
@@ -79,63 +79,33 @@ export const DashboardCard: React.FC<DashboardCardProps> = ({
   const badge = getPlatformBadge();
 
   // Accent color map
-  const colorStyles: Record<
-    DashboardItem['themeColor'],
-    { border: string; iconBg: string; text: string; lightBg: string }
-  > = {
+  const colorStyles: Record<DashboardItem['themeColor'], { iconBg: string }> = {
     indigo: {
-      border: 'hover:border-indigo-400 dark:hover:border-indigo-600',
       iconBg: 'bg-indigo-50 dark:bg-indigo-950/70 text-indigo-600 dark:text-indigo-400',
-      text: 'text-indigo-600 dark:text-indigo-400',
-      lightBg: 'from-indigo-500/5 to-transparent',
     },
     teal: {
-      border: 'hover:border-teal-400 dark:hover:border-teal-500',
-      iconBg: 'bg-teal-50 dark:bg-teal-950/70 text-teal-600 dark:text-teal-300',
-      text: 'text-teal-600 dark:text-teal-300',
-      lightBg: 'from-teal-500/5 to-transparent',
+      iconBg: 'bg-brand-50 dark:bg-brand-900 text-brand-600 dark:text-brand-300',
     },
     cyan: {
-      border: 'hover:border-cyan-400 dark:hover:border-cyan-600',
-      iconBg: 'bg-cyan-50 dark:bg-cyan-950/70 text-cyan-600 dark:text-cyan-400',
-      text: 'text-cyan-600 dark:text-cyan-400',
-      lightBg: 'from-cyan-500/5 to-transparent',
+      iconBg: 'bg-brand-50 dark:bg-brand-900 text-brand-600 dark:text-brand-300',
     },
     emerald: {
-      border: 'hover:border-emerald-400 dark:hover:border-emerald-600',
       iconBg: 'bg-emerald-50 dark:bg-emerald-950/70 text-emerald-600 dark:text-emerald-400',
-      text: 'text-emerald-600 dark:text-emerald-400',
-      lightBg: 'from-emerald-500/5 to-transparent',
     },
     purple: {
-      border: 'hover:border-purple-400 dark:hover:border-purple-600',
       iconBg: 'bg-purple-50 dark:bg-purple-950/70 text-purple-600 dark:text-purple-400',
-      text: 'text-purple-600 dark:text-purple-400',
-      lightBg: 'from-purple-500/5 to-transparent',
     },
     amber: {
-      border: 'hover:border-amber-400 dark:hover:border-amber-600',
       iconBg: 'bg-amber-50 dark:bg-amber-950/70 text-amber-600 dark:text-amber-400',
-      text: 'text-amber-600 dark:text-amber-400',
-      lightBg: 'from-amber-500/5 to-transparent',
     },
     rose: {
-      border: 'hover:border-rose-400 dark:hover:border-rose-600',
       iconBg: 'bg-rose-50 dark:bg-rose-950/70 text-rose-600 dark:text-rose-400',
-      text: 'text-rose-600 dark:text-rose-400',
-      lightBg: 'from-rose-500/5 to-transparent',
     },
     blue: {
-      border: 'hover:border-blue-400 dark:hover:border-blue-600',
       iconBg: 'bg-blue-50 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400',
-      text: 'text-blue-600 dark:text-blue-400',
-      lightBg: 'from-blue-500/5 to-transparent',
     },
     green: {
-      border: 'hover:border-[#008B00] dark:hover:border-[#008B00]',
       iconBg: 'bg-[#008B00]/10 dark:bg-[#008B00]/20 text-[#008B00] dark:text-[#008B00]',
-      text: 'text-[#008B00] dark:text-[#008B00]',
-      lightBg: 'from-[#008B00]/5 to-transparent',
     },
   };
 
@@ -143,7 +113,7 @@ export const DashboardCard: React.FC<DashboardCardProps> = ({
 
   return (
     <div
-      className={`dashboard-glass-card group relative rounded-2xl p-4 sm:p-5 transition-all duration-300 flex flex-col justify-between overflow-hidden bg-gradient-to-b ${theme.lightBg} ${theme.border} ${
+      className={`dashboard-glass-card group relative rounded-lg p-4 transition-colors flex flex-col justify-between overflow-hidden ${
         dashboard.hidden ? 'opacity-60 saturate-[0.65]' : ''
       } ${isLayoutEditing ? 'layout-editing-card' : ''}`}
     >
@@ -211,7 +181,7 @@ export const DashboardCard: React.FC<DashboardCardProps> = ({
               onClick={() => onToggleHidden(dashboard.id)}
               className={`p-1.5 rounded-lg transition-all ${
                 dashboard.hidden
-                  ? 'opacity-100 text-teal-600 dark:text-teal-400 hover:bg-teal-50 dark:hover:bg-teal-950/40'
+                  ? 'opacity-100 text-brand-600 dark:text-brand-300 hover:bg-brand-50 dark:hover:bg-brand-900/40'
                   : 'opacity-100 md:opacity-0 md:group-hover:opacity-100 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
               }`}
               title={dashboard.hidden ? t('card.unhide') : t('card.hide')}
@@ -228,7 +198,7 @@ export const DashboardCard: React.FC<DashboardCardProps> = ({
         {/* Title & Icon */}
         <div className="flex items-start gap-2 sm:gap-3 mb-2 sm:mb-2.5">
           <div
-            className={`p-2 sm:p-3 rounded-xl ${theme.iconBg} shrink-0 transition-transform group-hover:scale-105 shadow-inner`}
+            className={`p-2 rounded-lg ${theme.iconBg} shrink-0`}
           >
             <DynamicIcon name={dashboard.iconName} className="w-4 h-4 sm:w-5 sm:h-5" />
           </div>
@@ -236,7 +206,7 @@ export const DashboardCard: React.FC<DashboardCardProps> = ({
           <div className="min-w-0 flex-1">
             <h3
               onClick={() => onOpen(dashboard)}
-              className="font-bold text-slate-900 dark:text-slate-100 text-sm sm:text-base leading-snug truncate hover:text-teal-600 dark:hover:text-teal-300 cursor-pointer transition-colors"
+              className="font-bold text-slate-900 dark:text-slate-100 text-sm sm:text-base leading-snug truncate hover:text-brand-600 dark:hover:text-brand-300 cursor-pointer transition-colors"
               title={dashboard.title}
             >
               {dashboard.title}
@@ -302,7 +272,7 @@ export const DashboardCard: React.FC<DashboardCardProps> = ({
         <div className="flex items-center gap-1 sm:gap-2">
           <button
             onClick={() => onShowQR(dashboard)}
-            className="p-2 sm:p-2 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 transition-colors"
+            className="p-2 sm:p-2 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 transition-colors"
             title={t('card.qr')}
           >
             <QrCode className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
@@ -310,7 +280,7 @@ export const DashboardCard: React.FC<DashboardCardProps> = ({
 
           <button
             onClick={() => onPreview(dashboard)}
-            className="p-2 sm:p-2 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 transition-colors"
+            className="p-2 sm:p-2 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 transition-colors"
             title={t('card.preview')}
           >
             <Eye className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
@@ -318,7 +288,7 @@ export const DashboardCard: React.FC<DashboardCardProps> = ({
 
           <button
             onClick={() => onOpen(dashboard)}
-            className="flex-1 px-2 sm:px-4 py-1.5 sm:py-2 rounded-xl bg-gradient-to-r from-teal-600 to-cyan-600 hover:from-teal-500 hover:to-cyan-500 active:scale-[0.98] text-white font-medium text-[11px] sm:text-xs flex items-center justify-center gap-1 sm:gap-1.5 shadow-sm shadow-teal-600/20 transition-all"
+            className="flex-1 px-2 sm:px-4 py-1.5 sm:py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white font-medium text-[11px] sm:text-xs flex items-center justify-center gap-1 sm:gap-1.5 transition-colors"
           >
             <span>{t('card.enter')}</span>
             <ExternalLink className="w-3 h-3 sm:w-3.5 sm:h-3.5" />

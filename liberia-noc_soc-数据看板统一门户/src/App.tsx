@@ -746,8 +746,8 @@ export default function App() {
   // <RequireAuth> 的用途是**新页面**接入（见 src/pages/_TemplatePage.tsx）。
   if (status === 'loading') {
     return (
-      <div className="min-h-screen bg-slate-100/60 dark:bg-navy-950 text-slate-500 dark:text-slate-400 flex flex-col items-center justify-center gap-3 font-sans">
-        <Loader2 className="w-6 h-6 animate-spin text-teal-500" />
+      <div className="min-h-screen bg-slate-100 dark:bg-navy-950 text-slate-500 dark:text-slate-400 flex flex-col items-center justify-center gap-3 font-sans">
+        <Loader2 className="w-6 h-6 animate-spin text-brand-500" />
         <span className="text-xs">{t('app.loading')}</span>
       </div>
     );
@@ -757,7 +757,7 @@ export default function App() {
   }
 
   return (
-    <div className="app-spatial-root min-h-screen bg-slate-100/60 dark:bg-navy-950 text-slate-900 dark:text-slate-100 flex flex-col font-sans transition-colors duration-200">
+    <div className="min-h-screen bg-slate-100 dark:bg-navy-950 text-slate-900 dark:text-slate-100 flex flex-col font-sans transition-colors duration-200">
       {/* 跳转链接（可访问性）：键盘用户第一个 Tab 就能跳过顶栏直达主内容。
           平时视觉隐藏，获得焦点时浮出（见 index.css 的 .skip-link）。 */}
       <a href="#main-content" className="skip-link">
@@ -889,8 +889,8 @@ export default function App() {
         {viewMode === 'tasks' ? (
           <WhatsAppTasksView />
         ) : translatedDashboards.length === 0 ? (
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-8 sm:p-12 text-center shadow-sm my-6 sm:my-8">
-            <div className="w-12 h-12 sm:w-14 sm:h-14 mx-auto rounded-2xl bg-teal-50 dark:bg-teal-950/60 text-teal-600 dark:text-teal-400 flex items-center justify-center mb-3 sm:mb-4">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-8 sm:p-12 text-center my-6 sm:my-8">
+            <div className="w-12 h-12 sm:w-14 sm:h-14 mx-auto rounded-lg bg-brand-50 dark:bg-brand-900 text-brand-600 dark:text-brand-300 flex items-center justify-center mb-3 sm:mb-4">
               <Layers className="w-6 h-6 sm:w-7 sm:h-7" />
             </div>
             <h3 className="text-base sm:text-lg font-bold text-slate-800 dark:text-slate-200 mb-1">
@@ -907,7 +907,7 @@ export default function App() {
                   setOnlyFavorites(false);
                   setSearchQuery('');
                 }}
-                className="w-full sm:w-auto px-4 py-2 text-xs sm:text-sm font-medium rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+                className="w-full sm:w-auto px-4 py-2 text-xs sm:text-sm font-medium rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
               >
                 {t('app.emptyReset')}
               </button>
@@ -916,14 +916,14 @@ export default function App() {
                   setDashboardToEdit(null);
                   setIsModalOpen(true);
                 }}
-                className="w-full sm:w-auto px-4 py-2 text-xs sm:text-sm font-semibold rounded-xl bg-gradient-to-r from-teal-600 to-cyan-600 hover:from-teal-500 hover:to-cyan-500 text-white shadow-sm transition-all"
+                className="w-full sm:w-auto px-4 py-2 text-xs sm:text-sm font-semibold rounded-lg bg-brand-600 hover:bg-brand-700 text-white transition-colors"
               >
                 {t('app.emptyAdd')}
               </button>
             </div>
           </div>
         ) : viewMode === 'grid' ? (
-          <section className="dashboard-layout-shell">
+          <section>
             <div className={`dashboard-grid ${isLayoutEditing ? 'is-editing' : ''}`}>
             {translatedDashboards.map((dashboard) => (
               <div
@@ -936,7 +936,7 @@ export default function App() {
                 onDragEnd={() => setDraggedDashboardId(null)}
                 className={`dashboard-grid-item ${draggedDashboardId === dashboard.id ? 'is-dragging' : ''} ${
                   highlightedId === dashboard.id
-                    ? 'rounded-3xl ring-2 ring-teal-500/70 ring-offset-2 ring-offset-transparent'
+                    ? 'rounded-lg ring-2 ring-brand-500/70 ring-offset-2 ring-offset-transparent'
                     : ''
                 }`}
               >
@@ -991,7 +991,7 @@ export default function App() {
       </main>
 
       {/* Bottom Sticky Quick Footer */}
-      <footer className="border-t border-slate-200/90 dark:border-slate-800/90 bg-white/70 dark:bg-slate-900/70 backdrop-blur-md py-3 sm:py-4 mt-8 sm:mt-12 text-xs text-slate-500 dark:text-slate-400">
+      <footer className="border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 py-3 sm:py-4 mt-8 sm:mt-12 text-xs text-slate-500 dark:text-slate-400">
         <div className="w-full mx-auto px-3 sm:px-6 lg:px-8 xl:px-10 flex flex-col sm:flex-row items-center justify-between gap-2 sm:gap-3">
           <div className="flex items-center gap-2">
             <span className="font-semibold text-slate-700 dark:text-slate-300">
@@ -1004,7 +1004,7 @@ export default function App() {
           <div className="flex items-center gap-3 sm:gap-4">
             <button
               onClick={() => setIsDesignGuideModalOpen(true)}
-              className="text-teal-600 dark:text-teal-400 hover:underline flex items-center gap-1 font-medium"
+              className="text-brand-600 dark:text-brand-300 hover:underline flex items-center gap-1 font-medium"
             >
               <Lightbulb className="w-3.5 h-3.5" />
               {t('app.footerGuide')}
@@ -1012,7 +1012,7 @@ export default function App() {
             <span>·</span>
             <button
               onClick={() => setIsDocsIndexModalOpen(true)}
-              className="text-teal-600 dark:text-teal-400 hover:underline flex items-center gap-1 font-medium"
+              className="text-brand-600 dark:text-brand-300 hover:underline flex items-center gap-1 font-medium"
             >
               <BookOpen className="w-3.5 h-3.5" />
               {t('nav.docsIndex')}

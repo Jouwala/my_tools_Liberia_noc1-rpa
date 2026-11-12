@@ -37,9 +37,9 @@ export const QuickStatsBar: React.FC<QuickStatsBarProps> = ({
       {/* 1. Total Dashboards */}
       <div
         onClick={() => onQuickFilterPlatform('all')}
-        className={`spatial-stat-card p-3 sm:p-4 rounded-2xl bg-white dark:bg-navy-900 border transition-all cursor-pointer shadow-xs hover:shadow-md ${
+        className={`spatial-stat-card p-3 rounded-lg bg-white dark:bg-navy-900 border transition-colors cursor-pointer ${
           activePlatform === 'all'
-            ? 'border-teal-500 ring-2 ring-teal-500/20 bg-teal-50/20 dark:bg-teal-950/20'
+            ? 'border-brand-600 ring-2 ring-brand-600/25 bg-brand-50 dark:bg-brand-900/40'
             : 'border-slate-200/90 dark:border-slate-800/90 hover:border-slate-300 dark:hover:border-slate-700'
         }`}
       >
@@ -47,7 +47,7 @@ export const QuickStatsBar: React.FC<QuickStatsBarProps> = ({
           <span className="text-[10px] sm:text-xs font-semibold text-slate-500 dark:text-slate-400">
             {t('stats.total')}
           </span>
-          <div className="p-1.5 sm:p-2 rounded-xl bg-teal-50 dark:bg-teal-950/60 text-teal-600 dark:text-teal-300">
+          <div className="p-1.5 sm:p-2 rounded-lg bg-brand-50 dark:bg-brand-900 text-brand-600 dark:text-brand-300">
             <Layers className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
           </div>
         </div>
@@ -62,9 +62,9 @@ export const QuickStatsBar: React.FC<QuickStatsBarProps> = ({
       {/* 2. FineBI Portals */}
       <div
         onClick={() => onQuickFilterPlatform('finebi')}
-        className={`spatial-stat-card p-3 sm:p-4 rounded-2xl bg-white dark:bg-navy-900 border transition-all cursor-pointer shadow-xs hover:shadow-md ${
+        className={`spatial-stat-card p-3 rounded-lg bg-white dark:bg-navy-900 border transition-colors cursor-pointer ${
           activePlatform === 'finebi'
-            ? 'border-indigo-500 ring-2 ring-indigo-500/20 bg-indigo-50/20 dark:bg-indigo-950/20'
+            ? 'border-brand-600 ring-2 ring-brand-600/25 bg-brand-50 dark:bg-brand-900/40'
             : 'border-slate-200/90 dark:border-slate-800/90 hover:border-slate-300 dark:hover:border-slate-700'
         }`}
       >
@@ -73,12 +73,12 @@ export const QuickStatsBar: React.FC<QuickStatsBarProps> = ({
             <span className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
             {t('stats.finebi')}
           </span>
-          <div className="p-1.5 sm:p-2 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400">
+          <div className="p-1.5 sm:p-2 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400">
             <Sparkles className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
           </div>
         </div>
         <div className="mt-1.5 sm:mt-2 flex items-baseline gap-1 sm:gap-2">
-          <span className="text-xl sm:text-2xl font-black text-indigo-600 dark:text-indigo-400 font-mono">
+          <span className="text-xl sm:text-2xl font-black text-slate-900 dark:text-slate-100 font-mono">
             {finebiCount}
           </span>
           <span className="text-[10px] sm:text-xs text-slate-400">{t('stats.finebiUnit')}</span>
@@ -88,23 +88,23 @@ export const QuickStatsBar: React.FC<QuickStatsBarProps> = ({
       {/* 3. Custom MyApp */}
       <div
         onClick={() => onQuickFilterPlatform('custom')}
-        className={`spatial-stat-card p-3 sm:p-4 rounded-2xl bg-white dark:bg-navy-900 border transition-all cursor-pointer shadow-xs hover:shadow-md ${
+        className={`spatial-stat-card p-3 rounded-lg bg-white dark:bg-navy-900 border transition-colors cursor-pointer ${
           activePlatform === 'custom'
-            ? 'border-cyan-500 ring-2 ring-cyan-500/20 bg-cyan-50/20 dark:bg-cyan-950/20'
+            ? 'border-brand-600 ring-2 ring-brand-600/25 bg-brand-50 dark:bg-brand-900/40'
             : 'border-slate-200/90 dark:border-slate-800/90 hover:border-slate-300 dark:hover:border-slate-700'
         }`}
       >
         <div className="flex items-center justify-between">
           <span className="text-[10px] sm:text-xs font-semibold text-slate-500 dark:text-slate-400 flex items-center gap-1 sm:gap-1.5">
-            <span className="w-1.5 h-1.5 rounded-full bg-cyan-500" />
+            <span className="w-1.5 h-1.5 rounded-full bg-brand-600" />
             {t('stats.custom')}
           </span>
-          <div className="p-1.5 sm:p-2 rounded-xl bg-cyan-50 dark:bg-cyan-950/60 text-cyan-600 dark:text-cyan-400">
+          <div className="p-1.5 sm:p-2 rounded-lg bg-brand-50 dark:bg-brand-900 text-brand-600 dark:text-brand-300">
             <Cpu className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
           </div>
         </div>
         <div className="mt-1.5 sm:mt-2 flex items-baseline gap-1 sm:gap-2">
-          <span className="text-xl sm:text-2xl font-black text-cyan-600 dark:text-cyan-400 font-mono">
+          <span className="text-xl sm:text-2xl font-black text-slate-900 dark:text-slate-100 font-mono">
             {customCount}
           </span>
           <span className="text-[10px] sm:text-xs text-slate-400">{t('stats.customUnit')}</span>
@@ -114,9 +114,9 @@ export const QuickStatsBar: React.FC<QuickStatsBarProps> = ({
       {/* 4. External Big Screen */}
       <div
         onClick={() => onQuickFilterPlatform('external')}
-        className={`spatial-stat-card p-3 sm:p-4 rounded-2xl bg-white dark:bg-navy-900 border transition-all cursor-pointer shadow-xs hover:shadow-md ${
+        className={`spatial-stat-card p-3 rounded-lg bg-white dark:bg-navy-900 border transition-colors cursor-pointer ${
           activePlatform === 'external'
-            ? 'border-[#008B00] ring-2 ring-[#008B00]/20 bg-[#008B00]/10 dark:bg-[#008B00]/10'
+            ? 'border-brand-600 ring-2 ring-brand-600/25 bg-brand-50 dark:bg-brand-900/40'
             : 'border-slate-200/90 dark:border-slate-800/90 hover:border-slate-300 dark:hover:border-slate-700'
         }`}
       >
@@ -125,12 +125,12 @@ export const QuickStatsBar: React.FC<QuickStatsBarProps> = ({
             <span className="w-1.5 h-1.5 rounded-full bg-[#008B00]" />
             {t('stats.external')}
           </span>
-          <div className="p-1.5 sm:p-2 rounded-xl bg-[#008B00]/10 dark:bg-[#008B00]/20 text-[#008B00] dark:text-[#008B00]">
+          <div className="p-1.5 sm:p-2 rounded-lg bg-[#008B00]/10 dark:bg-[#008B00]/20 text-[#008B00] dark:text-[#008B00]">
             <ExternalLink className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
           </div>
         </div>
         <div className="mt-1.5 sm:mt-2 flex items-baseline gap-1 sm:gap-2">
-          <span className="text-xl sm:text-2xl font-black text-[#008B00] dark:text-[#008B00] font-mono">
+          <span className="text-xl sm:text-2xl font-black text-slate-900 dark:text-slate-100 font-mono">
             {externalCount}
           </span>
           <span className="text-[10px] sm:text-xs text-slate-400">{t('stats.externalUnit')}</span>
@@ -140,14 +140,14 @@ export const QuickStatsBar: React.FC<QuickStatsBarProps> = ({
       {/* 5. Host Status & Total Clicks */}
       <div
         onClick={onOpenEnvironment}
-        className="p-3 sm:p-4 rounded-2xl bg-white dark:bg-navy-900 border border-slate-200/90 dark:border-slate-800/90 hover:border-emerald-400 dark:hover:border-emerald-600 transition-all cursor-pointer shadow-xs hover:shadow-md group col-span-2 sm:col-span-1"
+        className="p-3 rounded-lg bg-white dark:bg-navy-900 border border-slate-200/90 dark:border-slate-800/90 hover:border-brand-600 dark:hover:border-brand-500 transition-colors cursor-pointer group col-span-2 sm:col-span-1"
       >
         <div className="flex items-center justify-between">
           <span className="text-[10px] sm:text-xs font-semibold text-slate-500 dark:text-slate-400 flex items-center gap-1 sm:gap-1.5">
             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
             {t('stats.host')}
           </span>
-          <div className="p-1.5 sm:p-2 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 group-hover:scale-105 transition-transform">
+          <div className="p-1.5 sm:p-2 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 ">
             <Shield className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
           </div>
         </div>
@@ -160,7 +160,7 @@ export const QuickStatsBar: React.FC<QuickStatsBarProps> = ({
               <CheckCircle2 className="w-3 h-3" /> {t('stats.hostOk')}
             </div>
           </div>
-          <span className="text-[10px] sm:text-[11px] text-slate-400 group-hover:text-teal-600 transition-colors">
+          <span className="text-[10px] sm:text-[11px] text-slate-400 group-hover:text-brand-600 transition-colors">
             {t('stats.config')} &rarr;
           </span>
         </div>

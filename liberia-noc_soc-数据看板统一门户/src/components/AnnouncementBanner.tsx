@@ -9,13 +9,13 @@ export const AnnouncementBanner: React.FC = () => {
   if (!isVisible) return null;
 
   return (
-    <div className="spatial-banner bg-gradient-to-r from-teal-600 via-cyan-700 to-navy-900 text-white dark:bg-gradient-to-r dark:from-navy-950 dark:via-navy-900 dark:to-teal-900 px-3 sm:px-4 py-1.5 sm:py-2 text-[11px] sm:text-xs font-medium shadow-sm transition-all">
+    <div className="spatial-banner text-white px-3 sm:px-4 py-1.5 sm:py-2 text-[11px] sm:text-xs font-medium">
       <div className="w-full mx-auto flex items-center justify-between gap-2 sm:gap-3">
         <div className="flex items-center gap-1.5 sm:gap-2 overflow-hidden min-w-0">
-          <span className="flex items-center gap-1 bg-teal-400/15 border border-teal-400/30 px-1.5 sm:px-2 py-0.5 rounded-full text-[9px] sm:text-[10px] font-semibold tracking-wide shrink-0">
-            <Radio className="w-3 h-3 animate-pulse text-teal-300" /> {t('banner.liveBadge')}
+          <span className="flex items-center gap-1 bg-white/15 border border-white/30 px-1.5 sm:px-2 py-0.5 rounded-full text-[9px] sm:text-[10px] font-semibold tracking-wide shrink-0">
+            <Radio className="w-3 h-3 animate-pulse text-white" /> {t('banner.liveBadge')}
           </span>
-          <p className="truncate text-teal-50/90">
+          <p className="truncate text-white/90">
             {t('banner.text')}
           </p>
         </div>
@@ -23,7 +23,7 @@ export const AnnouncementBanner: React.FC = () => {
         <div className="flex items-center gap-2 shrink-0">
           <button
             onClick={() => setIsVisible(false)}
-            className="p-1 hover:bg-white/10 rounded-md text-teal-200 hover:text-white transition-colors"
+            className="p-1 hover:bg-white/10 rounded-md text-white/80 hover:text-white transition-colors"
             title={t('banner.close')}
           >
             <X className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
