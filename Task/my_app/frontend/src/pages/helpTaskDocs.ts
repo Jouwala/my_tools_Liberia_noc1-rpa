@@ -908,6 +908,22 @@ export const TASK_DOCS: TaskDoc[] = [
     },
   },
   {
+    id: 'mtn_mou_daily_email', group: 'm', cron: '0 7 * * *',
+    script: 'services/mtn_mou_chart_service.py → run_mtn_mou_chart_email',
+    zh: {
+      name: 'MTN MOU 日报图表邮件',
+      desc: '从 db_ps_cs_cn.sqlite3 的 MTN_Outgoing_MOU_OSS_EMS 读取按日 MOU，生成 Outgoing / Incoming 两张折线图，主题 MTN MOU Daily Traffic 发送',
+      flow: ['读取 MTN_Outgoing_MOU_OSS_EMS（PS_CS_CORE 按天汇总入库）', '剔除运行当天未过完的数据', '生成 Outgoing / Incoming 两张折线图并发送'],
+      maintain: ['数据由 PS_CS_CORE 脚本（ps_cs_core.py / ps_cs_core_1month.py）写入远程 db_ps_cs_cn；脚本不跑则日报会缺天', '收件人在「设置 → 邮件收件人 → MTN MOU 日报图表邮件」修改'],
+    },
+    en: {
+      name: 'MTN MOU Daily Traffic Email',
+      desc: 'Read daily MOU from MTN_Outgoing_MOU_OSS_EMS in db_ps_cs_cn.sqlite3, plot Outgoing / Incoming line charts and email them with subject MTN MOU Daily Traffic',
+      flow: ['Read MTN_Outgoing_MOU_OSS_EMS (daily-aggregated by PS_CS_CORE)', 'Drop the unfinished current day', 'Plot and send the Outgoing / Incoming charts'],
+      maintain: ['Data is written into remote db_ps_cs_cn by the PS_CS_CORE scripts (ps_cs_core.py / ps_cs_core_1month.py); if they stop, days go missing', 'Recipients are edited under Settings → Email Recipients → MTN MOU Daily Traffic Email'],
+    },
+  },
+  {
     id: 'fw_kpi_sync', group: 'n', cron: '15 7 * * *',
     script: 'services/fw_kpi/fw_kpi_services.py → run_fw_kpi_sync',
     zh: {

@@ -10,7 +10,7 @@
 
 - [1. Platform Overview](#1-platform-overview)
 - [2. General Usage](#2-general-usage)
-- [3. Task Manager Deep Dive (84 tasks)](#3-task-manager-deep-dive)
+- [3. Task Manager Deep Dive (85 tasks)](#3-task-manager-deep-dive)
 - [4. Pages Guide](#4-pages-guide)
 - [5. Ops & Troubleshooting](#5-ops-troubleshooting)
 - [6. FAQ](#6-faq)
@@ -83,7 +83,7 @@ Built for the NOC scenario "boards every day, reports must go out": 41+ schedule
 
 > ⚠️ **New tasks MUST also be registered in `GROUP_TASK_MAP` in worker_watchdog.py** — declaring them only in TASK_SPECS leaves them pending forever. This accident happened four times (finebi_report_sync / whatsapp_send_ext / sp_email_details / the olib_soc and vmax_multi_data_sync tasks found on 2026-09-18).
 
-### 3.3 Full task catalog (84 tasks)
+### 3.3 Full task catalog (85 tasks)
 
 | Task | task_id | Default cron | Group | Workflow script |
 | --- | --- | --- | --- | --- |
@@ -131,6 +131,7 @@ Built for the NOC scenario "boards every day, reports must go out": 41+ schedule
 | Packet Loss Daily Report Email | `packet_loss_email` | `45 6 * * *` | u | `services/kpi_email_report.py → run_packet_loss_email` |
 | IP RAN M6K-FW Chart Email | `ipran_m6k_chart_email` | `45 6 * * *` | m | `services/ipran_chart_service.py → run_ipran_m6k_chart_email` |
 | CNN Free Rating Chart Email | `ccn_free_rating_chart_email` | `45 7 * * *` | m | `services/ccn_free_rating_chart_service.py → run_ccn_free_rating_chart_email` |
+| MTN MOU Daily Traffic Email | `mtn_mou_daily_email` | `0 7 * * *` | m | `services/mtn_mou_chart_service.py → run_mtn_mou_chart_email` |
 | FW Throughput KPI Sync + Chart Email | `fw_kpi_sync` | `15 7 * * *` | n | `services/fw_kpi/fw_kpi_services.py → run_fw_kpi_sync` |
 | Battery KPI Sync | `battery_kpi_sync` | `5 * * * *` | u | `services/battary_kpi_fetch/battery_kpi_service.py → run_battery_kpi_sync` |
 | Battery KPI Email | `battery_email` | `10 7,19 * * *` | m | `services/battary_kpi_fetch/battery_kpi_service.py → run_battery_email` |
@@ -1011,6 +1012,24 @@ Workflow & maintenance notes per task:
 **Maintenance**:
 
 - Data comes from cnn_kpi_sync (group n, daily 06:00) writing into DB CNN
+
+#### MTN MOU Daily Traffic Email（`mtn_mou_daily_email`）
+
+- Default cron: `0 7 * * *`　|　worker group: **m**
+- Workflow script: `services/mtn_mou_chart_service.py → run_mtn_mou_chart_email`
+
+**What it does**: Read daily MOU from MTN_Outgoing_MOU_OSS_EMS in db_ps_cs_cn.sqlite3, plot Outgoing / Incoming line charts and email them with subject MTN MOU Daily Traffic
+
+**Workflow & data flow**:
+
+1. Read MTN_Outgoing_MOU_OSS_EMS (daily-aggregated by PS_CS_CORE)
+1. Drop the unfinished current day
+1. Plot and send the Outgoing / Incoming charts
+
+**Maintenance**:
+
+- Data is written into remote db_ps_cs_cn by the PS_CS_CORE scripts (ps_cs_core.py / ps_cs_core_1month.py); if they stop, days go missing
+- Recipients are edited under Settings → Email Recipients → MTN MOU Daily Traffic Email
 
 #### FW Throughput KPI Sync + Chart Email（`fw_kpi_sync`）
 
