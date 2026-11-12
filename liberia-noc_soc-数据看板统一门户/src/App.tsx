@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback, lazy, Suspense } from 'react';
 import {
   CATEGORY_ALL,
   CategoryType,
@@ -29,21 +29,51 @@ import { QuickStatsBar } from './components/QuickStatsBar';
 import { TaskSyncWidget } from './components/TaskSyncWidget';
 import { FilterBar } from './components/FilterBar';
 import { DashboardCard } from './components/DashboardCard';
-import { DashboardListView } from './components/DashboardListView';
-import { DashboardMatrixView } from './components/DashboardMatrixView';
-import WhatsAppTasksView from './components/WhatsAppTasksView';
-import { DashboardModal } from './components/DashboardModal';
-import { EndpointSettingsModal } from './components/EndpointSettingsModal';
-import { PreviewDrawer } from './components/PreviewDrawer';
-import { QRCodeModal } from './components/QRCodeModal';
-import { DesignGuideModal } from './components/DesignGuideModal';
-import { DocsIndexModal } from './components/DocsIndexModal';
 import { LoginView } from './components/LoginView';
-import { ChangePasswordModal } from './components/ChangePasswordModal';
-import { UserManagementModal } from './components/UserManagementModal';
-import { TeamScopeModal } from './components/TeamScopeModal';
-import { AuthSwitchModal } from './components/AuthSwitchModal';
-import { GroupManagerModal, type GroupOpFeedback } from './components/GroupManagerModal';
+import type { GroupOpFeedback } from './components/GroupManagerModal';
+// 首屏分包（2026-11-12 性能轮）：弹窗与次要视图只在用到时才加载，不进首屏主 chunk。
+// 调用处须配合条件渲染（打开/切到该视图时才挂载），否则 lazy 组件在首屏首次
+// 渲染即触发 import，达不到延迟加载的效果。命名导出用 .then 包一层 default。
+const WhatsAppTasksView = lazy(() => import('./components/WhatsAppTasksView'));
+const DashboardListView = lazy(() =>
+  import('./components/DashboardListView').then((m) => ({ default: m.DashboardListView }))
+);
+const DashboardMatrixView = lazy(() =>
+  import('./components/DashboardMatrixView').then((m) => ({ default: m.DashboardMatrixView }))
+);
+const DashboardModal = lazy(() =>
+  import('./components/DashboardModal').then((m) => ({ default: m.DashboardModal }))
+);
+const EndpointSettingsModal = lazy(() =>
+  import('./components/EndpointSettingsModal').then((m) => ({ default: m.EndpointSettingsModal }))
+);
+const PreviewDrawer = lazy(() =>
+  import('./components/PreviewDrawer').then((m) => ({ default: m.PreviewDrawer }))
+);
+const QRCodeModal = lazy(() =>
+  import('./components/QRCodeModal').then((m) => ({ default: m.QRCodeModal }))
+);
+const DesignGuideModal = lazy(() =>
+  import('./components/DesignGuideModal').then((m) => ({ default: m.DesignGuideModal }))
+);
+const DocsIndexModal = lazy(() =>
+  import('./components/DocsIndexModal').then((m) => ({ default: m.DocsIndexModal }))
+);
+const ChangePasswordModal = lazy(() =>
+  import('./components/ChangePasswordModal').then((m) => ({ default: m.ChangePasswordModal }))
+);
+const UserManagementModal = lazy(() =>
+  import('./components/UserManagementModal').then((m) => ({ default: m.UserManagementModal }))
+);
+const TeamScopeModal = lazy(() =>
+  import('./components/TeamScopeModal').then((m) => ({ default: m.TeamScopeModal }))
+);
+const AuthSwitchModal = lazy(() =>
+  import('./components/AuthSwitchModal').then((m) => ({ default: m.AuthSwitchModal }))
+);
+const GroupManagerModal = lazy(() =>
+  import('./components/GroupManagerModal').then((m) => ({ default: m.GroupManagerModal }))
+);
 import { PORTAL_API, saveEnvConfig, resolveUrl, buildRel, getMyappHost, type EnvConfig } from './config';
 import { useI18n, translateDashboard, translateCategory } from './i18n';
 import { useAuth } from './auth/AuthContext';
@@ -188,6 +218,38 @@ async function fetchServerDefault(token: string | null): Promise<ServerCatalog |
   } catch {
     return null;
   }
+}
+
+/** 懒加载弹窗的加载态：居中浮层转圈，文案走 i18n（不写中文字面量）。 */
+function ModalLoadingFallback() {
+  const { t } = useI18n();
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+      role="status"
+      aria-live="polite"
+    >
+      <div className="flex items-center gap-2 rounded-xl bg-white px-4 py-3 text-sm text-slate-600 shadow-lg dark:bg-slate-900 dark:text-slate-300">
+        <Loader2 className="h-4 w-4 animate-spin text-teal-500" />
+        {t('app.loading')}
+      </div>
+    </div>
+  );
+}
+
+/** 懒加载次要视图（任务/列表/矩阵）的加载态：行内居中转圈。 */
+function ViewLoadingFallback() {
+  const { t } = useI18n();
+  return (
+    <div
+      className="flex items-center justify-center gap-2 py-16 text-sm text-slate-500 dark:text-slate-400"
+      role="status"
+      aria-live="polite"
+    >
+      <Loader2 className="h-5 w-5 animate-spin text-teal-500" />
+      {t('app.loading')}
+    </div>
+  );
 }
 
 export default function App() {
@@ -887,7 +949,9 @@ export default function App() {
 
         {/* Main Content Body: Grid, List, Matrix or WhatsApp Tasks */}
         {viewMode === 'tasks' ? (
-          <WhatsAppTasksView />
+          <Suspense fallback={<ViewLoadingFallback />}>
+            <WhatsAppTasksView />
+          </Suspense>
         ) : translatedDashboards.length === 0 ? (
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-8 sm:p-12 text-center shadow-sm my-6 sm:my-8">
             <div className="w-12 h-12 sm:w-14 sm:h-14 mx-auto rounded-2xl bg-teal-50 dark:bg-teal-950/60 text-teal-600 dark:text-teal-400 flex items-center justify-center mb-3 sm:mb-4">
@@ -962,31 +1026,35 @@ export default function App() {
             </div>
           </section>
         ) : viewMode === 'list' ? (
-          <DashboardListView
-            dashboards={translatedDashboards}
-            onOpen={handleOpenDashboard}
-            onPreview={(d) => setPreviewDashboard(d)}
-            onShowQR={(d) => setQrDashboard(d)}
-            onToggleFavorite={handleToggleFavorite}
-            onToggleHidden={handleToggleHidden}
-            onEdit={(d) => {
-              const original = dashboards.find((orig) => orig.id === d.id);
-              if (original) {
-                setDashboardToEdit(original);
-                setIsModalOpen(true);
-              }
-            }}
-            onDelete={handleDeleteDashboard}
-          />
+          <Suspense fallback={<ViewLoadingFallback />}>
+            <DashboardListView
+              dashboards={translatedDashboards}
+              onOpen={handleOpenDashboard}
+              onPreview={(d) => setPreviewDashboard(d)}
+              onShowQR={(d) => setQrDashboard(d)}
+              onToggleFavorite={handleToggleFavorite}
+              onToggleHidden={handleToggleHidden}
+              onEdit={(d) => {
+                const original = dashboards.find((orig) => orig.id === d.id);
+                if (original) {
+                  setDashboardToEdit(original);
+                  setIsModalOpen(true);
+                }
+              }}
+              onDelete={handleDeleteDashboard}
+            />
+          </Suspense>
         ) : (
-          <DashboardMatrixView
-            dashboards={translatedDashboards}
-            groups={translatedGroups}
-            onOpen={handleOpenDashboard}
-            onPreview={(d) => setPreviewDashboard(d)}
-            onShowQR={(d) => setQrDashboard(d)}
-            onToggleFavorite={handleToggleFavorite}
-          />
+          <Suspense fallback={<ViewLoadingFallback />}>
+            <DashboardMatrixView
+              dashboards={translatedDashboards}
+              groups={translatedGroups}
+              onOpen={handleOpenDashboard}
+              onPreview={(d) => setPreviewDashboard(d)}
+              onShowQR={(d) => setQrDashboard(d)}
+              onToggleFavorite={handleToggleFavorite}
+            />
+          </Suspense>
         )}
       </main>
 
@@ -1025,88 +1093,135 @@ export default function App() {
         </div>
       </footer>
 
-      {/* Modals & Drawers */}
-      <DashboardModal
-        isOpen={isModalOpen}
-        onClose={() => {
-          setIsModalOpen(false);
-          setDashboardToEdit(null);
-        }}
-        dashboardToEdit={dashboardToEdit}
-        onSave={handleSaveDashboard}
-        groups={groups}
-        labelOf={labelOf}
-      />
+      {/* Modals & Drawers：懒加载弹窗只在打开时才挂载（条件渲染），
+          否则 lazy 组件首屏首次渲染即触发 import，起不到延迟加载作用 */}
+      {isModalOpen && (
+        <Suspense fallback={<ModalLoadingFallback />}>
+          <DashboardModal
+            isOpen={isModalOpen}
+            onClose={() => {
+              setIsModalOpen(false);
+              setDashboardToEdit(null);
+            }}
+            dashboardToEdit={dashboardToEdit}
+            onSave={handleSaveDashboard}
+            groups={groups}
+            labelOf={labelOf}
+          />
+        </Suspense>
+      )}
 
-      <GroupManagerModal
-        isOpen={isGroupManagerOpen}
-        onClose={() => setIsGroupManagerOpen(false)}
-        groups={groups}
-        dashboards={dashboards}
-        onAdd={handleAddGroup}
-        onRename={handleRenameGroup}
-        onDelete={handleDeleteGroup}
-        onReorder={handleReorderGroup}
-        labelOfEn={labelOfEn}
-        canSaveDefault={canSaveDefault}
-        onSaveDefault={() => void handleSaveDefault()}
-      />
+      {isGroupManagerOpen && (
+        <Suspense fallback={<ModalLoadingFallback />}>
+          <GroupManagerModal
+            isOpen={isGroupManagerOpen}
+            onClose={() => setIsGroupManagerOpen(false)}
+            groups={groups}
+            dashboards={dashboards}
+            onAdd={handleAddGroup}
+            onRename={handleRenameGroup}
+            onDelete={handleDeleteGroup}
+            onReorder={handleReorderGroup}
+            labelOfEn={labelOfEn}
+            canSaveDefault={canSaveDefault}
+            onSaveDefault={() => void handleSaveDefault()}
+          />
+        </Suspense>
+      )}
 
-      <EndpointSettingsModal
-        isOpen={isEndpointModalOpen}
-        onClose={() => setIsEndpointModalOpen(false)}
-        onSave={handleSaveEnv}
-      />
+      {isEndpointModalOpen && (
+        <Suspense fallback={<ModalLoadingFallback />}>
+          <EndpointSettingsModal
+            isOpen={isEndpointModalOpen}
+            onClose={() => setIsEndpointModalOpen(false)}
+            onSave={handleSaveEnv}
+          />
+        </Suspense>
+      )}
 
-      <DesignGuideModal
-        isOpen={isDesignGuideModalOpen}
-        onClose={() => setIsDesignGuideModalOpen(false)}
-      />
+      {isDesignGuideModalOpen && (
+        <Suspense fallback={<ModalLoadingFallback />}>
+          <DesignGuideModal
+            isOpen={isDesignGuideModalOpen}
+            onClose={() => setIsDesignGuideModalOpen(false)}
+          />
+        </Suspense>
+      )}
 
-      <DocsIndexModal
-        isOpen={isDocsIndexModalOpen}
-        onClose={() => setIsDocsIndexModalOpen(false)}
-      />
+      {isDocsIndexModalOpen && (
+        <Suspense fallback={<ModalLoadingFallback />}>
+          <DocsIndexModal
+            isOpen={isDocsIndexModalOpen}
+            onClose={() => setIsDocsIndexModalOpen(false)}
+          />
+        </Suspense>
+      )}
 
-      <PreviewDrawer
-        dashboard={previewDashboard}
-        onClose={() => setPreviewDashboard(null)}
-        onOpenExternal={handleOpenDashboard}
-      />
+      {previewDashboard && (
+        <Suspense fallback={<ModalLoadingFallback />}>
+          <PreviewDrawer
+            dashboard={previewDashboard}
+            onClose={() => setPreviewDashboard(null)}
+            onOpenExternal={handleOpenDashboard}
+          />
+        </Suspense>
+      )}
 
-      <QRCodeModal dashboard={qrDashboard} onClose={() => setQrDashboard(null)} />
+      {qrDashboard && (
+        <Suspense fallback={<ModalLoadingFallback />}>
+          <QRCodeModal dashboard={qrDashboard} onClose={() => setQrDashboard(null)} />
+        </Suspense>
+      )}
 
       {/* Auth: forced password change gate (initial/reset password) */}
       {user.mustChangePassword && (
-        <ChangePasswordModal isOpen onClose={() => {}} forced />
+        <Suspense fallback={<ModalLoadingFallback />}>
+          <ChangePasswordModal isOpen onClose={() => {}} forced />
+        </Suspense>
       )}
 
-      <ChangePasswordModal
-        isOpen={isChangePasswordOpen && !user.mustChangePassword}
-        onClose={() => setIsChangePasswordOpen(false)}
-      />
+      {isChangePasswordOpen && !user.mustChangePassword && (
+        <Suspense fallback={<ModalLoadingFallback />}>
+          <ChangePasswordModal
+            isOpen={isChangePasswordOpen && !user.mustChangePassword}
+            onClose={() => setIsChangePasswordOpen(false)}
+          />
+        </Suspense>
+      )}
 
-      <UserManagementModal
-        isOpen={isUserManagementOpen && user.role === 'admin'}
-        onClose={() => setIsUserManagementOpen(false)}
-        groups={groups}
-        dashboards={dashboards}
-        labelOf={labelOf}
-      />
+      {isUserManagementOpen && user.role === 'admin' && (
+        <Suspense fallback={<ModalLoadingFallback />}>
+          <UserManagementModal
+            isOpen={isUserManagementOpen && user.role === 'admin'}
+            onClose={() => setIsUserManagementOpen(false)}
+            groups={groups}
+            dashboards={dashboards}
+            labelOf={labelOf}
+          />
+        </Suspense>
+      )}
 
       {/* 团队可见性矩阵（仅管理员）：勾选哪个团队能看到哪些内容。
           结果落进服务端数据库（portal-auth.db 的 team_scope 表），
           团队门户运行时按它过滤。 */}
-      <TeamScopeModal
-        isOpen={isTeamScopeOpen && user.role === 'admin'}
-        onClose={() => setIsTeamScopeOpen(false)}
-      />
+      {isTeamScopeOpen && user.role === 'admin' && (
+        <Suspense fallback={<ModalLoadingFallback />}>
+          <TeamScopeModal
+            isOpen={isTeamScopeOpen && user.role === 'admin'}
+            onClose={() => setIsTeamScopeOpen(false)}
+          />
+        </Suspense>
+      )}
 
       {/* 鉴权总开关（仅管理员）：切换 /uniplam/ 与 /myapp/ 是否需要登录 */}
-      <AuthSwitchModal
-        isOpen={isAuthSwitchOpen && user.role === 'admin'}
-        onClose={() => setIsAuthSwitchOpen(false)}
-      />
+      {isAuthSwitchOpen && user.role === 'admin' && (
+        <Suspense fallback={<ModalLoadingFallback />}>
+          <AuthSwitchModal
+            isOpen={isAuthSwitchOpen && user.role === 'admin'}
+            onClose={() => setIsAuthSwitchOpen(false)}
+          />
+        </Suspense>
+      )}
     </div>
   );
 }

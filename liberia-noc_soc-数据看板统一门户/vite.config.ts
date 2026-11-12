@@ -76,6 +76,24 @@ export default defineConfig(() => {
         '@': path.resolve(__dirname, '.'),
       },
     },
+    build: {
+      // 首屏分包（2026-11-12 性能轮）：react/react-dom 与 lucide-react 图标库
+      // 从主 chunk 拆成独立 chunk；业务代码另由 App.tsx 的 React.lazy 切分。
+      // motion 未被任何源码 import，不在产物里，故不单列。
+      rollupOptions: {
+        output: {
+          manualChunks: (id: string) => {
+            if (/[\\/]node_modules[\\/](react|react-dom|scheduler)[\\/]/.test(id)) {
+              return 'react-vendor';
+            }
+            if (/[\\/]node_modules[\\/]lucide-react[\\/]/.test(id)) {
+              return 'lucide-icons';
+            }
+            return undefined;
+          },
+        },
+      },
+    },
     server: {
       // HMR is disabled in AI Studio via DISABLE_HMR env var.
       // Do not modify - file watching is disabled to prevent flickering during agent edits.
