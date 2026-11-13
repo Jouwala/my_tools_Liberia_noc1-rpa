@@ -196,6 +196,20 @@ def test_grace_respects_slow_cooldown():
     assert info["next_retry_at"] is not None
 
 
+def test_captcha_failure_is_non_retryable():
+    """2026-11-12：验证码与巡检误报都含「图形验证码」，重试只会把回声越滚越多。"""
+    probes = (
+        "鉴权健康 CRITICAL：上游启用图形验证码，脚本登录无法通过4条",
+        "登录失败 Image verification code is invalid or expired (code=1300112)",
+        "上游已启用图形验证码，脚本登录（含 RSA 接口）无法通过",
+    )
+    for probe in probes:
+        assert any(k in probe for k in ar.NON_RETRYABLE_KEYS), probe
+        info = _eval_with_attempts(probe, ar.MAX_ATTEMPTS)
+        assert info["will_retry"] is False, probe
+        assert "永久性错误" in info["reason"]
+
+
 def test_locked_account_never_gets_grace():
     """锁定类永久错误不配宽限：解锁前重投只会空跑 + 刷告警。"""
     info = _eval_with_attempts(

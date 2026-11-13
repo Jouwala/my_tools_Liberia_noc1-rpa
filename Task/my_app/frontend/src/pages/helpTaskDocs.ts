@@ -1027,13 +1027,13 @@ export const TASK_DOCS: TaskDoc[] = [
       name: '鉴权健康巡检',
       desc: '每日 07:00 只读扫描锁定熔断标记、近 1 天日志里的验证码/锁定/密码错误、会话缓存新鲜度；md 报告 + JSON 明细留档到 outputs/auth_health/；仅 CRITICAL（验证码/锁定）推微信',
       flow: ['每日 07:00 扫描 auth_cache/.locked_* 锁定标记、近 1 天日志鉴权错误、会话缓存年龄', 'md 报告 + JSON 明细存到 outputs/auth_health/', 'CRITICAL（验证码/锁定）时推微信，WARN（密码错误/空密码）只记结果不判失败'],
-      maintain: ['验证码/锁定出现时按报告第 4 节处置，不要反复重试登录（连续 3 次密码错误会锁 1440 分钟）', '报告每天一份在 outputs/auth_health/，排查先看最新一份'],
+      maintain: ['验证码/锁定出现时按报告第 4 节处置，不要反复重试登录（连续 3 次密码错误会锁 1440 分钟）', '报告每天一份在 outputs/auth_health/，排查先看最新一份', '结论里的「未发现验证码」和本任务失败回声不算登录失败（2026-11-12 曾因此自激误报）；真失败要看到上游原文，如 Image verification code'],
     },
     en: {
       name: 'Auth Health Check',
       desc: 'Daily 07:00 read-only scan of lock markers, auth errors (captcha/lock/wrong password) in the last 1 day of logs, and session-cache freshness; saves md report + JSON detail to outputs/auth_health/; pushes WeChat only on CRITICAL (captcha/lock)',
       flow: ['Daily 07:00 scan auth_cache/.locked_* markers, auth errors in the last 1 day of logs, and session-cache age', 'Save the md report + JSON detail to outputs/auth_health/', 'Push WeChat on CRITICAL (captcha/lock); WARN (wrong password/empty password) is recorded only'],
-      maintain: ['On captcha/lock follow section 4 of the report — do not retry logins repeatedly (3 consecutive wrong passwords lock the account for 1440 minutes)', 'One report per day under outputs/auth_health/ — check the latest one first when troubleshooting'],
+      maintain: ['On captcha/lock follow section 4 of the report — do not retry logins repeatedly (3 consecutive wrong passwords lock the account for 1440 minutes)', 'One report per day under outputs/auth_health/ — check the latest one first when troubleshooting', 'An OK line that merely says no captcha was found, or this task\'s own failure echo, is not a login failure (that self-trigger false-alarmed on 2026-11-12). A real hit quotes the upstream text, e.g. Image verification code'],
     },
   },
   {

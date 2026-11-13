@@ -1,6 +1,6 @@
 # my_app 使用帮助
 
-> 面向使用者的平台功能与操作指南。本文件由「使用帮助」页面同源生成（frontend/src/helpMarkdown.ts），内容依据 docs/manual/ 各章与 backend/task_registry.py 整理。生成日期：2026-11-12。
+> 面向使用者的平台功能与操作指南。本文件由「使用帮助」页面同源生成（frontend/src/helpMarkdown.ts），内容依据 docs/manual/ 各章与 backend/task_registry.py 整理。生成日期：2026-11-13。
 
 > 站内入口：侧边栏「使用帮助」，或直链 `http://<host>/myapp/?page=help`。
 
@@ -1151,6 +1151,7 @@
 
 - 验证码/锁定出现时按报告第 4 节处置，不要反复重试登录（连续 3 次密码错误会锁 1440 分钟）
 - 报告每天一份在 outputs/auth_health/，排查先看最新一份
+- 结论里的「未发现验证码」和本任务失败回声不算登录失败（2026-11-12 曾因此自激误报）；真失败要看到上游原文，如 Image verification code
 
 #### MTTR/TT 宽表重建（`mttr_tt_sync`）
 

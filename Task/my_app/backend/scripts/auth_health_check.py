@@ -14,6 +14,9 @@ auth_health_check.py - 鉴权健康小巡检（只读，dry-run）
   - 分类逻辑与 auth_manager._describe_login_failure 保持一致，
     特别是「密码错误文案里带 may be locked 属将来时警告，不是已锁定」，
     避免重蹈 2026-10-14 把密码错误报成账号被锁的误判。
+  - 不扫描 log/auth_health_check_YYYYMMDD.log（计划任务把自己的 stdout
+    重定向到这里）。「未发现验证码」和 auto_retry 回写的
+    「鉴权健康 CRITICAL」都不是上游拒登（2026-11-12 自激误报）。
 
 用法：
   python backend/scripts/auth_health_check.py                 # 近 1 天，只打印
@@ -47,9 +50,36 @@ REPORT_DIR = PROJECT_ROOT / "outputs" / "auth_health"
 LINE_TS_RE = re.compile(r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})")
 # 按文件名里的日期快速过滤（backend_runtime_20261111.log / daily_20260825.log）
 FILE_DATE_RE = re.compile(r"(\d{8})")
+# 计划任务 auth_health_check_daily.bat 把本脚本 stdout 重定向到
+# log/auth_health_check_YYYYMMDD.log。那份文件就是报告本身，不是登录日志。
+OWN_REPORT_LOG_RE = re.compile(r"^auth_health_check_\d{8}(?:_alt\d+)?\.log$", re.I)
 
 MAX_FILE_BYTES = 64 * 1024 * 1024   # 单文件超过 64MB 只读尾部，防止撑爆内存
 MAX_HITS_PER_CAT = 50               # 每类最多留 50 条样例，计数仍全量
+
+
+def _captcha_mention_is_not_a_failure(line: str) -> bool:
+    """行里出现验证码字样，但不是上游拒登。
+
+    2026-11-12 实测：08:30 巡检结论「未发现验证码」被写进
+    log/auth_health_check_*.log，下一次扫描把它判成 CRITICAL；
+    auto_retry 再把「鉴权健康 CRITICAL：…图形验证码…」写进 worker 日志，
+    条数 2 → 3 → 4 自己滚上去。这些行必须排除，真登录失败不能误伤。
+    """
+    # authorize 页面含验证码关键字只是提示，仍会尝试 RSA 登录
+    if "仅提示" in line:
+        return True
+    # 本巡检的 OK 结论（否定句）
+    if ("未发现验证码" in line or "无验证码" in line
+            or "没有验证码" in line or "不含验证码" in line):
+        return True
+    # 任务失败文案 / auto_retry 回声：引用的是上一次巡检结论
+    if "鉴权健康 CRITICAL" in line or "鉴权健康巡检" in line:
+        return True
+    # 门户登录预填提示（RAIS 等人工补码），不是采集账号的脚本登录终态
+    if "只预填" in line or "不自动提交" in line:
+        return True
+    return False
 
 
 def classify(line: str):
@@ -59,8 +89,7 @@ def classify(line: str):
 
     # 验证码（Battery 192.168.170.2 实测 code=1300112）
     if "verification code" in low or "captcha" in low or "验证码" in line:
-        # authorize 页面含验证码关键字只是提示，仍会尝试 RSA 登录 —— 不算失败
-        if "仅提示" in line:
+        if _captcha_mention_is_not_a_failure(line):
             return None
         return ("CRITICAL", "captcha", "上游启用图形验证码，脚本登录无法通过")
 
@@ -102,6 +131,9 @@ def iter_log_files(days: int):
             if p in seen:
                 continue
             seen.add(p)
+            # 不扫自己的 stdout 报告，避免「未发现验证码」被当成验证码失败
+            if OWN_REPORT_LOG_RE.match(p.name):
+                continue
             try:
                 st = p.stat()
             except OSError:
