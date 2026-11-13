@@ -9,7 +9,7 @@
 | 端 | 位置 | 规模 |
 | --- | --- | --- |
 | **前端页面** | `frontend\src\pages\` | 75 个 `.tsx`（不含 `_` 前缀的模板与 `*_bak_*` 备份） |
-| **前端通用组件** | `frontend\src\components\` | 27 个 `.tsx` + `cards\` 子目录（卡片统一入口） |
+| **前端通用组件** | `frontend\src\components\` | 28 个 `.tsx` + `cards\` 子目录（卡片统一入口） |
 | **前端基础设施** | `frontend\src\*.ts(x)` | `api.ts`、`theme.ts`、`i18n.tsx`、`TaskStatusContext.tsx`、`cache.ts`、`datetime.ts`、`useDataTimestamps.ts`、`helpMarkdown.ts` |
 | **后端服务** | `backend\services\` | 业务服务层（各数据源采集与计算） |
 | **后端路由** | `backend\routers\` | API 端点 |
@@ -69,6 +69,7 @@ import { CardBase, StatCard } from '../components/cards'
 | --- | --- |
 | `CalcChainNote.tsx` | **口径说明条（默认收起，点标题展开）**。`title` + `sections[{title, lines}]` + `warning`（异常类信息常驻，不进收起区）。全站口径说明的统一载体 —— **禁止**再用常驻展开的 `Alert` 堆小字（AGENTS.md 三.3b） |
 | `DraggableClickModal.tsx` | 可拖拽的点击弹窗（7KB）。**注意**：门户也有同名问题的 QC 弹窗拖拽需求，两端可互相参照 |
+| `ECharts.tsx` | **全站统一 ECharts 包装（2026-11-12 新增）**：`echarts-for-react/lib/core` + `utils/echarts` 的按需实例，props 与默认入口一致（option / notMerge / opts / onEvents / onChartReady / ref 全部透传）。页面一律从这里 import，**不要**直接 `from 'echarts-for-react'`（默认入口整包引入 echarts）。新增图/组件去 `utils/echarts.ts` 登记 |
 | `LegacyToolFrame.tsx` | 遗留工具页容器框架（iframe 包装旧工具） |
 | `MapWheelZoomOnClick.tsx` | 「点击后才启用地图滚轮缩放」的行为包装 —— 解决地图嵌在长页面里时滚轮被地图吃掉的问题 |
 | `MetricExplain.tsx` | 指标口径解释（悬浮 ⓘ 气泡，带复制按钮）。四个导出：`ExplainPopover`（**底层**，把任意节点包成悬浮气泡，数字本身要用它）、`ExplainIcon`（ⓘ 图标，自带 `stopPropagation`，挂在可下钻的卡片标题上不会顺带开弹窗）、`ExplainCorner`（卡片右上角绝对定位）、`ExplainLabel`（文字 + 内联 ⓘ）。一句话级别的本指标说明用它；多段全局口径仍走 `CalcChainNote`（AGENTS.md 三.3b） |

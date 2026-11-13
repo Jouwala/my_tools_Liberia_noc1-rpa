@@ -26,7 +26,7 @@ import {
   DownloadOutlined, EnvironmentOutlined, ReloadOutlined, SearchOutlined,
   TeamOutlined, WarningOutlined, CloseCircleOutlined, FileDoneOutlined,
 } from '@ant-design/icons'
-import ReactECharts from 'echarts-for-react'
+import ReactECharts from '../components/ECharts'
 import dayjs from 'dayjs'
 
 import api from '../api'

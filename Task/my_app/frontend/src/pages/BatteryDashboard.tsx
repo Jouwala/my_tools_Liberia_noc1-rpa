@@ -20,7 +20,7 @@ import {
   AlertOutlined, PoweroffOutlined, ApartmentOutlined, LineChartOutlined,
   FilterOutlined, DashboardOutlined, DatabaseOutlined,
 } from '@ant-design/icons'
-import ReactECharts from 'echarts-for-react'
+import ReactECharts from '../components/ECharts'
 import { exportAoaReport } from '../utils/excelReport'
 import dayjs from 'dayjs'
 import api from '../api'

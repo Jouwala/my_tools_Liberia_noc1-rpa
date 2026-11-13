@@ -2,7 +2,7 @@ import { useEffect, useState, useRef, useCallback, useMemo, cloneElement, isVali
 import type { ReactElement } from 'react'
 import { Card, Table, Select, Input, Tag, Spin, Tabs, Row, Col, Statistic, Progress, Descriptions, Badge, Button, Dropdown, message, Modal, Checkbox, Divider, Upload, Space, AutoComplete, Alert, Popover, Tooltip, Segmented } from 'antd'
 import { DownloadOutlined, SettingOutlined, SearchOutlined, UploadOutlined, FilterOutlined, FilterFilled, EyeInvisibleOutlined } from '@ant-design/icons'
-import ReactECharts from 'echarts-for-react'
+import ReactECharts from '../components/ECharts'
 import * as XLSX from 'xlsx'
 import api from '../api'
 import { useI18n, numLocale } from '../i18n'

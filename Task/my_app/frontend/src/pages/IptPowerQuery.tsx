@@ -32,7 +32,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Alert, Button, Col, Drawer, Empty, Input, Row, Select, Space, Spin, Table, Tag, Typography } from 'antd'
 import { DownloadOutlined, ReloadOutlined, ThunderboltOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
-import ReactECharts from 'echarts-for-react'
+import ReactECharts from '../components/ECharts'
 
 import { useI18n } from '../i18n'
 import {

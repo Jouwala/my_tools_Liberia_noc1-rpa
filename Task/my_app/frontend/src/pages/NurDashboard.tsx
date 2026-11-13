@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, useCallback } from 'react'
 import {
   Card, Table, Select, DatePicker, Button, Space, Spin, Alert, Tag, Tooltip, Typography, Input,
 } from 'antd'
-import ReactECharts from 'echarts-for-react'
+import ReactECharts from '../components/ECharts'
 import { ReloadOutlined, SearchOutlined, DownloadOutlined } from '@ant-design/icons'
 import { exportAoaReport, exportReport, type ReportSheetSpec } from '../utils/excelReport'
 import dayjs, { Dayjs } from 'dayjs'

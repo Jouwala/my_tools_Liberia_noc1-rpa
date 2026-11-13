@@ -3,7 +3,7 @@ import { Alert, Button, Col, DatePicker, Empty, Input, Row, Select, Space, Table
 import { DownloadOutlined, ReloadOutlined } from '@ant-design/icons'
 import dayjs, { Dayjs } from 'dayjs'
 import { exportAoaReport } from '../utils/excelReport'
-import ReactECharts from 'echarts-for-react'
+import ReactECharts from '../components/ECharts'
 import { getRepeatSiteDownDayDrilldown, getRepeatSiteDownEventDetail, getRepeatSiteDownFilters, getRepeatSiteDownOverview, getRepeatSiteDownSiteDrilldown } from '../api'
 import { useI18n } from '../i18n'
 import DraggableClickModal from '../components/DraggableClickModal'

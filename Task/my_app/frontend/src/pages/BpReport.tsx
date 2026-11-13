@@ -30,7 +30,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Alert, Button, Col, DatePicker, Empty, Row, Segmented, Select, Space, Table, Tag, Tooltip, Typography } from 'antd'
 import { DownloadOutlined, ReloadOutlined } from '@ant-design/icons'
 import dayjs, { Dayjs } from 'dayjs'
-import ReactECharts from 'echarts-for-react'
+import ReactECharts from '../components/ECharts'
 
 import { useI18n } from '../i18n'
 import { useTheme, axisLabel, axisLine, darkTooltip, splitLine, cardStyle, WH } from '../theme'

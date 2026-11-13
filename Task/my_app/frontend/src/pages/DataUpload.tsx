@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Card, Upload, Button, message, Table, Tag, List, Spin, Result, Descriptions, Collapse } from 'antd'
 import { InboxOutlined, FileExcelOutlined, CheckCircleOutlined, WarningOutlined } from '@ant-design/icons'
-import ReactECharts from 'echarts-for-react'
+import ReactECharts from '../components/ECharts'
 import api from '../api'
 import { useI18n, numLocale } from '../i18n'
 import { ExplainIcon, ExplainPopover } from '../components/MetricExplain'

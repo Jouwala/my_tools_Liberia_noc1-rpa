@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Card, Table, Input, Button, Tag, Modal, Descriptions, Space, Popconfirm, message, List, Collapse } from 'antd'
 import { SearchOutlined, EyeOutlined, DeleteOutlined, DownloadOutlined } from '@ant-design/icons'
-import ReactECharts from 'echarts-for-react'
+import ReactECharts from '../components/ECharts'
 import api from '../api'
 import { formatDateTime } from '../datetime'
 import { useI18n } from '../i18n'

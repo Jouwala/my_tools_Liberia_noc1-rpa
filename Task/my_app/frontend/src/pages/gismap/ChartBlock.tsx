@@ -32,7 +32,7 @@ interface ChartBlockProps {
 
 /* echarts 只在「真的要画图」时被拉取（见文件头注释）。
    包了 Suspense + 等高占位块：加载中不会把下方内容顶动。 */
-const ReactECharts = lazy(() => import('echarts-for-react'))
+const ReactECharts = lazy(() => import('../../components/ECharts'))
 
 export function ChartBlock({ title, option, height = 240, fullScope, explain, extra }: ChartBlockProps) {
   const { t } = useI18n()

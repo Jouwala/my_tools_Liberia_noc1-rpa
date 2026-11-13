@@ -8,7 +8,7 @@ import {
 import dayjs from 'dayjs'
 import { exportAoaReport, exportReport, type ReportSheetSpec } from '../utils/excelReport'
 import { fmtWarning } from '../utils/warnCodes'
-import ReactECharts from 'echarts-for-react'
+import ReactECharts from '../components/ECharts'
 import {
   getFmeRankingFilters, getFmeRankingOverview,
   getFmeRankingWoDrilldown, getFmeRankingSiteDrilldown,

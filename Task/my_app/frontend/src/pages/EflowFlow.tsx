@@ -30,7 +30,7 @@ import {
   ApartmentOutlined, CheckCircleFilled, ClearOutlined, ClockCircleOutlined,
   DownloadOutlined, ExperimentOutlined, ReloadOutlined, SearchOutlined,
 } from '@ant-design/icons'
-import ReactECharts from 'echarts-for-react'
+import ReactECharts from '../components/ECharts'
 
 import { useI18n } from '../i18n'
 import { WH, useTheme, darkTooltip } from '../theme'

@@ -10,7 +10,7 @@ import {
 import { exportAoaReport, exportReport, type ReportSheetSpec } from '../utils/excelReport'
 import { fmtWarnings } from '../utils/warnCodes'
 import dayjs from 'dayjs'
-import ReactECharts from 'echarts-for-react'
+import ReactECharts from '../components/ECharts'
 import { getSiteAvailabilityFilters, getSiteAvailabilityOverview, getSiteAvailabilityTickets } from '../api'
 import { useI18n } from '../i18n'
 import { useTheme, WH, darkTooltip } from '../theme'

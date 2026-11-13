@@ -60,8 +60,7 @@ import {
   MobileOutlined,
   RadarChartOutlined,
 } from '@ant-design/icons'
-import zhCN from 'antd/locale/zh_CN'
-import enUS from 'antd/locale/en_US'
+import type { Locale as AntdLocale } from 'antd/es/locale'
 
 import { I18nProvider, useI18n } from './i18n'
 import { TaskStatusProvider } from './TaskStatusContext'
@@ -972,6 +971,28 @@ function AppContent() {
     window.history.pushState({ page }, '', url)
   }, [])
   const { t, locale, toggleLocale } = useI18n()
+  /**
+   * antd 语言包只加载当前语言（2026-11-12 首屏瘦身）：
+   * 之前 zhCN + enUS 两个静态 import 都被 manualChunks 收进预加载的
+   * antd chunk（实测 zhCN 的 '请选择时间' 在 antd chunk 内）。现在按
+   * i18n 的语言检测结果（useI18n 的 locale）动态 import()，另一个语言包
+   * 只在用户切换语言时才加载。ConfigProvider 行为不变：locale 切换仍生效。
+   * 实测说明：当前 vite.config.ts 的 manualChunks 会把 antd/locale 的
+   * 动态 import 也收进预加载的 antd chunk，所以本轮改动后 antd chunk
+   * 体积不变（字节级一致），语言包仍随首屏下发；要真拆出去，需在
+   * manualChunks 里给动态导入的库开口子，那是 vite.config.ts 的改动，
+   * 本轮按任务要求不动它。这里先把调用形态改成动态 import，到时
+   * 配置一松即自动拆分。首帧 antdLocale 为 undefined 时 ConfigProvider
+   * 用 antd 默认（英文）语言包，但语言包所在 chunk 已预加载，import
+   * 在挂载时即从缓存解析，不会闪烁。
+   */
+  const [antdLocale, setAntdLocale] = useState<AntdLocale | undefined>(undefined)
+  useEffect(() => {
+    let cancelled = false
+    const load = locale === 'zh' ? import('antd/locale/zh_CN') : import('antd/locale/en_US')
+    void load.then((m) => { if (!cancelled) setAntdLocale(m.default as AntdLocale) })
+    return () => { cancelled = true }
+  }, [locale])
   const { isDark, toggle } = useTheme()
   const isMobile = useIsMobile()
 
@@ -1718,7 +1739,7 @@ function AppContent() {
 
   return (
     <ConfigProvider
-      locale={locale === 'zh' ? zhCN : enUS}
+      locale={antdLocale}
       theme={{
         algorithm: isDark ? theme.darkAlgorithm : theme.defaultAlgorithm,
         token: isDark
