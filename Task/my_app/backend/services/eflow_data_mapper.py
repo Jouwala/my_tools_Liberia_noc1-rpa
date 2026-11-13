@@ -277,6 +277,15 @@ def _fetch_tt_pipeline(start_ms, end_ms, tmp_dir):
     # List path for TT
     tt_list_path = "/api/eflow-ticket/v1/export/list/eflow-tt"
     ftp_file_path, _ = _wait_export_ready(tt_list_path, TT_REFERER, file_name, "TT")
+    if not ftp_file_path:
+        # 2026-11-13：导出记录停在 255 条后，创建接口仍回 200 空体，但文件不再入库，
+        # 接着用空路径下载必 500。列表接口同一过滤条件可用，改走直查。
+        logger.warning("TT 异步导出未被上游登记（轮询结束仍无文件），改走 base/list 直查")
+        try:
+            from backend.services.eflow_order_list import fetch_tt_via_list
+        except ImportError:
+            from services.eflow_order_list import fetch_tt_via_list
+        return fetch_tt_via_list(start_ms, end_ms)
     zip_path = _download_export_zip(TT_DOWNLOAD_PATH, TT_REFERER, file_name, ftp_file_path, "eflow-tt", "TT", tmp_dir)
     rows = _read_export_zip(zip_path, "TT")
     return ("eFlow TT", rows)
@@ -473,6 +482,13 @@ def _fetch_wo_pipeline(start_ms, end_ms, tmp_dir):
 
     wo_list_path = "/api/eflow-wo/v1/export/list/eflow-wo"
     ftp_file_path, _ = _wait_export_ready(wo_list_path, WO_REFERER, file_name, "WO")
+    if not ftp_file_path:
+        logger.warning("WO 异步导出未被上游登记（轮询结束仍无文件），改走 base/list 直查")
+        try:
+            from backend.services.eflow_order_list import fetch_wo_via_list
+        except ImportError:
+            from services.eflow_order_list import fetch_wo_via_list
+        return fetch_wo_via_list(start_ms, end_ms)
     zip_path = _download_export_zip(WO_DOWNLOAD_PATH, WO_REFERER, file_name, ftp_file_path, "eflow-wo", "WO", tmp_dir)
     rows = _read_export_zip(zip_path, "WO")
     return ("eFlow WO", rows)
