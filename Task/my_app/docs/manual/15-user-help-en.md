@@ -1,6 +1,6 @@
 # my_app User Help & Guide
 
-> User-facing platform features & operations guide. Generated from the same source as the in-app Help page (frontend/src/helpMarkdown.ts), compiled from docs/manual/ and backend/task_registry.py. Generated on 2026-11-12.
+> User-facing platform features & operations guide. Generated from the same source as the in-app Help page (frontend/src/helpMarkdown.ts), compiled from docs/manual/ and backend/task_registry.py. Generated on 2026-11-13.
 
 > In-app entry: the "Help" sidebar item, or `http://<host>/myapp/?page=help` directly.
 
@@ -1151,6 +1151,7 @@ Workflow & maintenance notes per task:
 
 - On captcha/lock follow section 4 of the report — do not retry logins repeatedly (3 consecutive wrong passwords lock the account for 1440 minutes)
 - One report per day under outputs/auth_health/ — check the latest one first when troubleshooting
+- An OK line that merely says no captcha was found, or this task's own failure echo, is not a login failure (that self-trigger false-alarmed on 2026-11-12). A real hit quotes the upstream text, e.g. Image verification code
 
 #### MTTR/TT Wide Table Rebuild（`mttr_tt_sync`）
 

@@ -25,6 +25,9 @@ if not exist "%LOGDIR%" mkdir "%LOGDIR%"
 
 rem --- build YYYYMMDD stamp via PowerShell (locale independent) ---
 for /f %%i in ('powershell -NoProfile -Command "Get-Date -Format yyyyMMdd"') do set "STAMP=%%i"
+rem stdout lands in log\ and is named auth_health_check_YYYYMMDD.log.
+rem The scanner skips that filename: the report itself says "yan zheng ma"
+rem (captcha) even when the result is OK, and re-scanning it is a false CRITICAL.
 set "OUT=%LOGDIR%\auth_health_check_%STAMP%.log"
 
 cd /d "%ROOT%"

@@ -89,7 +89,7 @@ footer.colophon { text-align: center; color: var(--muted); font-size: 12px; marg
     <div class="logo">📘</div>
     <h1>my_app 项目手册</h1>
     <div class="sub">网络运维数据平台 · 设计手册 + 使用手册</div>
-    <div class="meta">基准日期 2026-08-27　|　适用版本 master 当前代码　|　HTML 合成生成 2026-11-12<br>含 13 章 · 141 个小节　|　打印本页（Ctrl+P）即可导出 PDF<br>英文版使用帮助另见仓库 docs/manual/15-user-help-en.md</div>
+    <div class="meta">基准日期 2026-08-27　|　适用版本 master 当前代码　|　HTML 合成生成 2026-11-13<br>含 13 章 · 141 个小节　|　打印本页（Ctrl+P）即可导出 PDF<br>英文版使用帮助另见仓库 docs/manual/15-user-help-en.md</div>
     <ul class="parts"><li><a href="#ch-00">前言 · 关于本手册</a></li><li><a href="#ch-01">设计篇 · 01 项目总览</a></li><li><a href="#ch-02">设计篇 · 02 架构设计</a></li><li><a href="#ch-03">设计篇 · 03 数据层设计</a></li><li><a href="#ch-04">设计篇 · 04 任务与调度系统</a></li><li><a href="#ch-05">设计篇 · 05 访问控制与凭据</a></li><li><a href="#ch-10">使用篇 · 10 快速上手</a></li><li><a href="#ch-11">使用篇 · 11 功能页使用手册</a></li><li><a href="#ch-12">使用篇 · 12 配置项与开关</a></li><li><a href="#ch-13">使用篇 · 13 运维手册</a></li><li><a href="#ch-14">使用篇 · 14 外部系统与数据流</a></li><li><a href="#ch-15">使用篇 · 使用帮助（一站式指南）</a></li><li><a href="#ch-90">附录 · 90 附录</a></li></ul>
   </section>
   <section class="toc-section">
@@ -2923,6 +2923,11 @@ RAN UME 是 <code>10.100.28.27:28001</code>），账号<strong>不通用</strong
 <td>失败自动重试</td>
 <td><code>AUTO_RETRY_ENABLED=1</code>、<code>MAX_ATTEMPTS=2</code>、<code>COOLDOWN_MIN=15</code>、<code>SCAN_WINDOW_HOURS=24</code>、<code>MAX_PER_RUN=3</code></td>
 <td><code>services/auto_retry.py:75-82</code></td>
+</tr>
+<tr>
+<td>验证码不重试</td>
+<td>错误文本含 <code>图形验证码</code> / <code>verification code</code> 视为永久失败（与锁定、密码到期同级），不进鉴权宽限。2026-11-12：<code>auth_health_check</code> 把计划任务 stdout（<code>log/auth_health_check_*.log</code> 里的「未发现验证码」）和 auto_retry 回声扫成 CRITICAL，2 次重试 + 1 次宽限把条数从 2 滚到 4</td>
+<td><code>scripts/auth_health_check.py</code>（<code>classify</code> / <code>OWN_REPORT_LOG_RE</code>）、<code>services/auto_retry.py</code>（<code>NON_RETRYABLE_KEYS</code>）</td>
 </tr>
 <tr>
 <td>漏跑补投</td>
@@ -16645,7 +16650,7 @@ shared <code>auth_cache</code> 里 admin 的 token 明明还有 14.6 小时有�
     <h2>使用帮助（一站式指南）</h2>
   </header>
   <blockquote>
-<p>面向使用者的平台功能与操作指南。本文件由「使用帮助」页面同源生成（frontend/src/helpMarkdown.ts），内容依据 docs/manual/ 各章与 backend/task_registry.py 整理。生成日期：2026-11-12。</p>
+<p>面向使用者的平台功能与操作指南。本文件由「使用帮助」页面同源生成（frontend/src/helpMarkdown.ts），内容依据 docs/manual/ 各章与 backend/task_registry.py 整理。生成日期：2026-11-13。</p>
 </blockquote>
 <blockquote>
 <p>站内入口：侧边栏「使用帮助」，或直链 <code>http://&lt;host&gt;/myapp/?page=help</code>。</p>
@@ -18369,6 +18374,7 @@ shared <code>auth_cache</code> 里 admin 的 token 明明还有 14.6 小时有�
 <ul>
 <li>验证码/锁定出现时按报告第 4 节处置，不要反复重试登录（连续 3 次密码错误会锁 1440 分钟）</li>
 <li>报告每天一份在 outputs/auth_health/，排查先看最新一份</li>
+<li>结论里的「未发现验证码」和本任务失败回声不算登录失败（2026-11-12 曾因此自激误报）；真失败要看到上游原文，如 Image verification code</li>
 </ul>
 <p><a id="ch-15-s59"></a></p>
 <h5>MTTR/TT 宽表重建（<code>mttr_tt_sync</code>）</h5>
@@ -20409,7 +20415,7 @@ shared <code>auth_cache</code> 里 admin 的 token 明明还有 14.6 小时有�
 <p><strong>保留在 PROJECT_DOCS.md 不动</strong>（属于历史决策与复盘，不是&quot;现状描述&quot;）：§2 迁移计划、§3 架构评估与 Django 论证、§4 FastAPI 架构优化方案、§5–§6 i18n 审计与复查、§8 IP Trace 集成方案、§10 迁移失败复盘、§11 优化建议。</p>
 
 </section>
-  <footer class="colophon">my_app 项目手册 · 由 frontend/scripts/generate-manual-html.mjs 从 docs/manual/*.md 同源生成于 2026-11-12 · 改 MD 后重跑该脚本并重新构建前端即可更新</footer>
+  <footer class="colophon">my_app 项目手册 · 由 frontend/scripts/generate-manual-html.mjs 从 docs/manual/*.md 同源生成于 2026-11-13 · 改 MD 后重跑该脚本并重新构建前端即可更新</footer>
 </div>
 </body>
 </html>
