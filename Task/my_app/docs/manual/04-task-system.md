@@ -231,7 +231,7 @@ APScheduler 到点 (backend 进程内)
 
 | task_id | 名称 | 默认 cron | 组 |
 | --- | --- | --- | --- |
-| `eflow_sync` | eFlow 数据同步 | `22 * * * *` | n |
+| `eflow_sync` | eFlow 数据同步（TT/WO 异步导出若未被上游登记，改走 base/list 直查，不再拿空路径下载 500） | `22 * * * *` | n |
 | `eflow_sync_full` | eFlow 每日全量同步（大窗口下 TT/WO **分段拉取**，默认 30 天/段，避免单次大导出超过 120s 轮询窗口而 500 失败；TT/WO 缺失即判失败，不再静默成功） | `0 1 * * *` | n |
 | `ran_ume_daily` | RAN UME 日报 | `0 2 * * *` | u |
 | `site_outage_screenshot` | Site Outage 截图 | `0 1 * * *` | m |
