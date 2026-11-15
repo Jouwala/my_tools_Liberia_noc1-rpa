@@ -1,6 +1,6 @@
 # my_app 使用帮助
 
-> 面向使用者的平台功能与操作指南。本文件由「使用帮助」页面同源生成（frontend/src/helpMarkdown.ts），内容依据 docs/manual/ 各章与 backend/task_registry.py 整理。生成日期：2026-11-13。
+> 面向使用者的平台功能与操作指南。本文件由「使用帮助」页面同源生成（frontend/src/helpMarkdown.ts），内容依据 docs/manual/ 各章与 backend/task_registry.py 整理。生成日期：2026-11-15。
 
 > 站内入口：侧边栏「使用帮助」，或直链 `http://<host>/myapp/?page=help`。
 
@@ -634,19 +634,19 @@
 - 默认 cron: `*/15 * * * *`　|　worker 组: **n**
 - 工作流脚本: `services/cnn_ume_kpi_5mins_service.py → run_cnn_kpi_sync_5mins`
 
-**功能**: 与「CNN UME KPI 同步」同源同账号，但取细粒度（5 个模板 5 分钟、3 个模板 15 分钟）、窗口为昨天 00:00 至现在，API 写入 DB CNN 的 5mins_* 新表，供「CN KPI 5分钟」看板做 Day0/Day1/Day7 叠画；日/月粒度表不受影响
+**功能**: 与「CNN UME KPI 同步」同源同账号，但取细粒度（5 个模板 5 分钟、3 个模板 15 分钟）、查询窗口默认增量（最近 120 分钟，上一轮失败自动回退全窗口补缺口），API 写入 DB CNN 的 5mins_* 新表，供「CN KPI 5分钟」看板做 Day0/Day1/Day7 叠画；日/月粒度表不受影响
 
 **工作流与数据流**:
 
 1. 登录 CNN UME（与 cnn_kpi_sync 共用会话缓存）
-1. 按 8 个模板并发查询 5 分钟粒度数据（昨天 00:00 至现在）
+1. 按 8 个模板并发查询 5 分钟粒度数据（增量窗口：最近 120 分钟）
 1. 写入 db_ps_cs_cn 的 5mins_<原表名> 表（upsert）
 
 **维护要点**:
 
 - ⚠ 混合粒度：Voice/VLR/Data/4G FDD/Free Rating 用 5 分钟档（gr=300）；xGW License、xGW CPU、3G FDD 的原模板没有 5 分钟档，改走上游 2026-10-19 补建的 15 分钟档模板（gr=900，见 FIFTEEN_MIN_TEMPLATES）
 - ⚠ 本任务保留「0 行 → 跳过该表且不计失败」的兜底（原 cnn_kpi_sync 的逻辑是 0 行即报错，本任务刻意不同），上游再调整档位时不会让任务每 15 分钟失败一次
-- ⚠ 实测单轮约 105 秒（Free Rating 一天就有 1.4 万行）；若耗时逼近 15 分钟，需降低并发或放宽节拍
+- ⚠ 全窗口时代实测单轮约 105 秒（Free Rating 一天就有 1.4 万行）；2026-11-15 起窗口默认增量（最近 120 分钟），每轮写入降到百行级 —— 这同时解掉了远端 SQLite 写锁卡 cn-kpi-5mins 页面读的问题（当天实测读被卡 120s+）
 - 与 cnn_kpi_sync 同在 n 组串行，避免两个任务各自登录同一账号互踢
 - 页面为本任务的唯一消费方：?page=cn_kpi_5mins（services/cn_kpi_5mins_service.py 读 5mins_* 表）
 

@@ -120,6 +120,30 @@ function Get-NginxProcess {
         Where-Object { $_.ExecutablePath -like "$NginxDir*" }
 }
 
+# ---- nginx.pid 自愈（2026-11-15 新增）----
+# 为什么需要：conf 里没有显式 pid 指令，nginx 默认写 logs\nginx.pid；但 2026-11-15
+# 实测该文件缺失（成因不明，疑为某次目录级清理误删）。没有它，-s reload /
+# -s reopen / -s quit 全部失效 —— 2026-09-28 的 reload 事故里 nginx 就是读不到
+# pid 才没收到信号。这里只「补写文件」，不动正在运行的进程。
+function Ensure-NginxPidFile {
+    $pidFile = Join-Path $NginxDir 'logs\nginx.pid'
+    if (Test-Path -LiteralPath $pidFile) { return }
+    $procs = @(Get-NginxProcess)
+    if ($procs.Count -eq 0) { return }
+    # master 的特征：它是本目录内另一个 nginx 进程的父进程；兜底取最早启动的那个
+    $master = $null
+    foreach ($p in $procs) {
+        if ($procs | Where-Object { $_.ParentProcessId -eq $p.ProcessId }) { $master = $p; break }
+    }
+    if (-not $master) { $master = $procs | Sort-Object CreationDate | Select-Object -First 1 }
+    try {
+        Set-Content -Path $pidFile -Value $master.ProcessId -Encoding ASCII -ErrorAction Stop
+        Write-Log "已补写 nginx.pid (master PID=$($master.ProcessId))" "WARN"
+    } catch {
+        Write-Log "补写 nginx.pid 失败: $($_.Exception.Message)" "WARN"
+    }
+}
+
 # Y 盘（网络映射）是否可达 —— 不可达时一切重启尝试都没有意义
 function Test-NginxTreeAvailable {
     if (Test-Path -LiteralPath $NginxExe) { return $true }
@@ -171,6 +195,7 @@ function Restart-Nginx {
         Start-Sleep -Seconds 3
         if ((Test-Port -TargetHost $HostName -TargetPort $NginxPort -TimeoutMs 3000).Ok) {
             Write-Log "nginx 重启后已恢复服务" "INFO"
+            Ensure-NginxPidFile
             return $true
         }
     }
@@ -193,6 +218,7 @@ if ($alive.Ok) {
         Write-Log "端口 ${NginxPort} 已恢复（此前连续失败 $prev 轮）" "INFO"
     }
     Write-Log "OK port=$NginxPort host=$HostName ($($alive.ElapsedMs)ms)"
+    Ensure-NginxPidFile
     exit 0
 }
 

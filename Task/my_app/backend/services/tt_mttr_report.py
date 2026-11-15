@@ -126,6 +126,23 @@ def _load_and_filter(src: Path):
     flt["MTTR (Hour)"] = flt["_mttr"].round(4)
     flt["SLA Target (Hour)"] = flt["Ticket Severity"].map(TARGETS)
 
+    # ZTE 页口径只有 P1~P4 + 空(N/A)。上游偶发回填非标准等级值
+    # （2026-11-14 实测 '1'，工单 WO202601290224；同一批 5 条告警中仅它有 WO），
+    # 这类值既不 isna() 也不等于 P1~P4，五个块都接不住 → _monthly_stats 断言失败，
+    # 且 Summary 的 COUNTIFS 也不会统计它。统一按 N/A 处理：不动 P1~P4 的
+    # TTs/MTTR，原值保留在 Raw Data 页，明细随结果摘要报出便于回查上游。
+    sev = flt["Ticket Severity"]
+    unknown = sev.notna() & ~sev.isin(SEVERITIES)
+    unknown_severity = {
+        "count": int(unknown.sum()),
+        "values": {str(k): int(v) for k, v in sev[unknown].value_counts().items()},
+        "wo_samples": flt.loc[unknown, "WO No."].astype(str).head(5).tolist(),
+    }
+    if unknown.any():
+        logger.warning("[TT_MTTR] %d 条无法识别的 Ticket Severity 按 N/A 统计：%s",
+                       unknown_severity["count"], unknown_severity["values"])
+        flt.loc[unknown, "Ticket Severity"] = None
+
     dropped = {
         "uncleared": int(raw["_mttr"].isna().sum()),
         "negative": int((raw["_mttr"] < 0).sum()),
@@ -137,7 +154,7 @@ def _load_and_filter(src: Path):
     # 派生列插在 Alarm Clear Time 之后，让 MTTR 与它的两个输入列相邻
     cut = cols.index("Alarm Clear Time") + 1
     flt_cols = cols[:cut] + ["MTTR (Hour)", "Month", "SLA Target (Hour)"] + cols[cut:]
-    return df, raw, flt, cols, flt_cols, dropped
+    return df, raw, flt, cols, flt_cols, dropped, unknown_severity
 
 
 def _monthly_stats(flt, months):
@@ -156,7 +173,13 @@ def _monthly_stats(flt, months):
             truth[(sev, m)] = (int(len(s)), round(float(s.mean()), 2) if len(s) else None)
     total = sum(cnt for cnt, _ in truth.values())
     if total != len(flt):
-        raise AssertionError(f"等级分块未覆盖全部过滤后工单：分块合计 {total} != ZTE {len(flt)}")
+        sev = flt["Ticket Severity"]
+        bad = flt.loc[~flt["Month"].isin(months) |
+                      (sev.notna() & ~sev.isin(SEVERITIES))]
+        sample = sev[bad.index].astype(str).value_counts().head(5).to_dict()
+        raise AssertionError(
+            f"等级分块未覆盖全部过滤后工单：分块合计 {total} != ZTE {len(flt)}；"
+            f"未覆盖 {len(bad)} 条，等级取值 {sample}")
     return truth
 
 
@@ -346,7 +369,7 @@ def run_tt_mttr_report() -> dict:
     src = _latest_source()
     logger.info("[TT_MTTR] 源文件 %s (%.1f MB)", src.name, src.stat().st_size / 1048576)
 
-    df, raw, flt, raw_cols, flt_cols, dropped = _load_and_filter(src)
+    df, raw, flt, raw_cols, flt_cols, dropped, unknown_severity = _load_and_filter(src)
     months = sorted(m for m in flt["Month"].dropna().unique())
     if not months:
         raise ValueError(f"过滤后无数据（ZTE 0 行），源文件 {src.name}，剔除明细 {dropped}")
@@ -365,6 +388,7 @@ def run_tt_mttr_report() -> dict:
         "output_size_mb": round(out.stat().st_size / 1048576, 2),
         "tickets": {"total": int(len(df)), "with_wo": int(len(raw)), "in_report": int(len(flt))},
         "dropped": dropped,
+        "unknown_severity": unknown_severity,
         "months": [f"{m} 合计 {sum(truth[(s, m)][0] for s in BLOCKS)} 单" for m in months],
         "cleaned": removed,
         "elapsed_seconds": elapsed,

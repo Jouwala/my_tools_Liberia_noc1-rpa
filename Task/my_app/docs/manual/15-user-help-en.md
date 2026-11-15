@@ -1,6 +1,6 @@
 # my_app User Help & Guide
 
-> User-facing platform features & operations guide. Generated from the same source as the in-app Help page (frontend/src/helpMarkdown.ts), compiled from docs/manual/ and backend/task_registry.py. Generated on 2026-11-13.
+> User-facing platform features & operations guide. Generated from the same source as the in-app Help page (frontend/src/helpMarkdown.ts), compiled from docs/manual/ and backend/task_registry.py. Generated on 2026-11-15.
 
 > In-app entry: the "Help" sidebar item, or `http://<host>/myapp/?page=help` directly.
 
@@ -634,19 +634,19 @@ Workflow & maintenance notes per task:
 - Default cron: `*/15 * * * *`　|　worker group: **n**
 - Workflow script: `services/cnn_ume_kpi_5mins_service.py → run_cnn_kpi_sync_5mins`
 
-**What it does**: Same source and account as "CNN UME KPI Sync", but at fine granularity (5-minute for 5 templates, 15-minute for 3) with a yesterday-00:00-to-now window; writes into new 5mins_* tables in DB CNN for the Day0/Day1/Day7 overlay on the CN KPI 5-minute board. Daily/monthly tables are untouched
+**What it does**: Same source and account as "CNN UME KPI Sync", but at fine granularity (5-minute for 5 templates, 15-minute for 3) with an incremental window of the last 120 minutes by default (falls back to the full yesterday-00:00-to-now window after a failed run); writes into new 5mins_* tables in DB CNN for the Day0/Day1/Day7 overlay on the CN KPI 5-minute board. Daily/monthly tables are untouched
 
 **Workflow & data flow**:
 
 1. Log into CNN UME (shares the session cache with cnn_kpi_sync)
-1. Query all 8 templates in parallel at 5-minute granularity (yesterday 00:00 to now)
+1. Query all 8 templates in parallel at 5-minute granularity (incremental window: last 120 minutes)
 1. Upsert into db_ps_cs_cn tables named 5mins_<original table>
 
 **Maintenance**:
 
 - WARNING: mixed granularity — Voice / VLR / Data / 4G FDD / Free Rating use the 5-minute tier (gr=300); xGW License, xGW CPU and 3G FDD had no 5-minute tier and now use the upstream 15-minute templates created 2026-10-19 (gr=900, see FIFTEEN_MIN_TEMPLATES)
 - WARNING: the task keeps a "0 rows → skip this table and do not fail" fallback (the original cnn_kpi_sync raises on 0 rows — this task deliberately differs) so an upstream tier change cannot make it fail every 15 minutes
-- WARNING: one run takes about 105 s (Free Rating alone has 14k rows/day); if it approaches 15 minutes, lower the concurrency or widen the schedule
+- WARNING: one run used to take about 105 s with the full 1.5-day window (Free Rating alone has 14k rows/day); since 2026-11-15 the default window is incremental (last 120 minutes), so writes per round are a few hundred rows — this also unblocks the page reads that the remote SQLite write lock used to stall
 - Runs in group n alongside cnn_kpi_sync so the two never log into the same account and kick each other off
 - The only consumer is ?page=cn_kpi_5mins (services/cn_kpi_5mins_service.py reads the 5mins_* tables)
 

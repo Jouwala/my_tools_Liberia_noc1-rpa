@@ -89,7 +89,7 @@ footer.colophon { text-align: center; color: var(--muted); font-size: 12px; marg
     <div class="logo">📘</div>
     <h1>my_app 项目手册</h1>
     <div class="sub">网络运维数据平台 · 设计手册 + 使用手册</div>
-    <div class="meta">基准日期 2026-08-27　|　适用版本 master 当前代码　|　HTML 合成生成 2026-11-13<br>含 13 章 · 141 个小节　|　打印本页（Ctrl+P）即可导出 PDF<br>英文版使用帮助另见仓库 docs/manual/15-user-help-en.md</div>
+    <div class="meta">基准日期 2026-08-27　|　适用版本 master 当前代码　|　HTML 合成生成 2026-11-15<br>含 13 章 · 141 个小节　|　打印本页（Ctrl+P）即可导出 PDF<br>英文版使用帮助另见仓库 docs/manual/15-user-help-en.md</div>
     <ul class="parts"><li><a href="#ch-00">前言 · 关于本手册</a></li><li><a href="#ch-01">设计篇 · 01 项目总览</a></li><li><a href="#ch-02">设计篇 · 02 架构设计</a></li><li><a href="#ch-03">设计篇 · 03 数据层设计</a></li><li><a href="#ch-04">设计篇 · 04 任务与调度系统</a></li><li><a href="#ch-05">设计篇 · 05 访问控制与凭据</a></li><li><a href="#ch-10">使用篇 · 10 快速上手</a></li><li><a href="#ch-11">使用篇 · 11 功能页使用手册</a></li><li><a href="#ch-12">使用篇 · 12 配置项与开关</a></li><li><a href="#ch-13">使用篇 · 13 运维手册</a></li><li><a href="#ch-14">使用篇 · 14 外部系统与数据流</a></li><li><a href="#ch-15">使用篇 · 使用帮助（一站式指南）</a></li><li><a href="#ch-90">附录 · 90 附录</a></li></ul>
   </section>
   <section class="toc-section">
@@ -1246,7 +1246,7 @@ python tests/test_doc_consistency.py
 <tbody>
 <tr>
 <td><code>eflow_sync</code></td>
-<td>eFlow 数据同步</td>
+<td>eFlow 数据同步（TT/WO 异步导出若未被上游登记，改走 base/list 直查，不再拿空路径下载 500）</td>
 <td><code>22 * * * *</code></td>
 <td>n</td>
 </tr>
@@ -1330,7 +1330,7 @@ python tests/test_doc_consistency.py
 </tr>
 <tr>
 <td><code>cnn_kpi_sync_5mins</code></td>
-<td>CNN UME KPI 5分钟同步（窗口昨天 00:00→现在，写 <code>5mins_*</code> 新表；<strong>混合粒度</strong>：5 个模板 5 分钟 + 3 个模板走上游 15 分钟档模板；0 行跳过不计失败）</td>
+<td>CNN UME KPI 5分钟同步（<strong>增量窗口</strong>默认最近 120 分钟，上一轮失败自动回退全窗口「昨天 00:00→现在」补缺口，<code>CNN5M_WINDOW_MODE=full</code> 回滚旧行为；写 <code>5mins_*</code> 新表；<strong>混合粒度</strong>：5 个模板 5 分钟 + 3 个模板走上游 15 分钟档模板；0 行跳过不计失败）</td>
 <td><code>*/15 * * * *</code></td>
 <td>n</td>
 </tr>
@@ -11808,7 +11808,7 @@ VLR / Voice / Data Subscribers / 4G·3G·RG 系列是 <code>SUM</code>（RG 系�
 </tr>
 <tr>
 <td>窗口</td>
-<td>昨天 00:00 UTC → 现在</td>
+<td><strong>增量</strong>：默认最近 120 分钟 → 现在（2026-11-15 起；上一轮失败自动回退全窗口「昨天 00:00 UTC → 现在」补缺口，<code>CNN5M_WINDOW_MODE=full</code> 回滚旧行为）</td>
 </tr>
 <tr>
 <td>落库表</td>
@@ -11911,7 +11911,8 @@ ELSE 变成 <code>day=NULL</code>，而 <code>GROUP BY t, day</code> 把它们�
 按「day 为空」丢弃，但那些行既无意义又白占 <code>limit=5000</code>。2026-10-21 实测三个日子齐全时
 单组件 583 行（5 分钟档）/ 194 行（15 分钟档）。</p>
 <p><strong>Day7 画不画得出来，取决于库里攒了几天</strong>（这是采集侧的事实，与本页无关）：
-<code>cnn_kpi_sync_5mins</code> 的窗口只有「昨天 00:00 → 现在」，但写库是 <code>upsert</code> 且<strong>没有任何清理</strong>，
+<code>cnn_kpi_sync_5mins</code> 的查询窗口是<strong>增量</strong>的（默认最近 120 分钟，2026-11-15 起；
+上一轮失败自动回退全窗口「昨天 00:00 → 现在」补缺口），但写库是 <code>upsert</code> 且<strong>没有任何清理</strong>，
 所以每个日子在它的次日被采到之后就永久留在表里 —— 攒够 8 天，Day7 自然出现。
 2026-10-21 之前 5 分钟档最早只有 10-16、15 分钟档只有 10-18（本任务 2026-10-17 上线，首轮窗口
 把「昨天」10-16 拉了进来；3 个 15 分钟档模板 2026-10-19 才切换，同理最早只有 10-18），
@@ -16650,7 +16651,7 @@ shared <code>auth_cache</code> 里 admin 的 token 明明还有 14.6 小时有�
     <h2>使用帮助（一站式指南）</h2>
   </header>
   <blockquote>
-<p>面向使用者的平台功能与操作指南。本文件由「使用帮助」页面同源生成（frontend/src/helpMarkdown.ts），内容依据 docs/manual/ 各章与 backend/task_registry.py 整理。生成日期：2026-11-13。</p>
+<p>面向使用者的平台功能与操作指南。本文件由「使用帮助」页面同源生成（frontend/src/helpMarkdown.ts），内容依据 docs/manual/ 各章与 backend/task_registry.py 整理。生成日期：2026-11-15。</p>
 </blockquote>
 <blockquote>
 <p>站内入口：侧边栏「使用帮助」，或直链 <code>http://&lt;host&gt;/myapp/?page=help</code>。</p>
@@ -17858,18 +17859,18 @@ shared <code>auth_cache</code> 里 admin 的 token 明明还有 14.6 小时有�
 <li>默认 cron: <code>*/15 * * * *</code>　|　worker 组: <strong>n</strong></li>
 <li>工作流脚本: <code>services/cnn_ume_kpi_5mins_service.py → run_cnn_kpi_sync_5mins</code></li>
 </ul>
-<p><strong>功能</strong>: 与「CNN UME KPI 同步」同源同账号，但取细粒度（5 个模板 5 分钟、3 个模板 15 分钟）、窗口为昨天 00:00 至现在，API 写入 DB CNN 的 5mins_* 新表，供「CN KPI 5分钟」看板做 Day0/Day1/Day7 叠画；日/月粒度表不受影响</p>
+<p><strong>功能</strong>: 与「CNN UME KPI 同步」同源同账号，但取细粒度（5 个模板 5 分钟、3 个模板 15 分钟）、查询窗口默认增量（最近 120 分钟，上一轮失败自动回退全窗口补缺口），API 写入 DB CNN 的 5mins_* 新表，供「CN KPI 5分钟」看板做 Day0/Day1/Day7 叠画；日/月粒度表不受影响</p>
 <p><strong>工作流与数据流</strong>:</p>
 <ol>
 <li>登录 CNN UME（与 cnn_kpi_sync 共用会话缓存）</li>
-<li>按 8 个模板并发查询 5 分钟粒度数据（昨天 00:00 至现在）</li>
+<li>按 8 个模板并发查询 5 分钟粒度数据（增量窗口：最近 120 分钟）</li>
 <li>写入 db_ps_cs_cn 的 5mins_&lt;原表名&gt; 表（upsert）</li>
 </ol>
 <p><strong>维护要点</strong>:</p>
 <ul>
 <li>⚠ 混合粒度：Voice/VLR/Data/4G FDD/Free Rating 用 5 分钟档（gr=300）；xGW License、xGW CPU、3G FDD 的原模板没有 5 分钟档，改走上游 2026-10-19 补建的 15 分钟档模板（gr=900，见 FIFTEEN_MIN_TEMPLATES）</li>
 <li>⚠ 本任务保留「0 行 → 跳过该表且不计失败」的兜底（原 cnn_kpi_sync 的逻辑是 0 行即报错，本任务刻意不同），上游再调整档位时不会让任务每 15 分钟失败一次</li>
-<li>⚠ 实测单轮约 105 秒（Free Rating 一天就有 1.4 万行）；若耗时逼近 15 分钟，需降低并发或放宽节拍</li>
+<li>⚠ 全窗口时代实测单轮约 105 秒（Free Rating 一天就有 1.4 万行）；2026-11-15 起窗口默认增量（最近 120 分钟），每轮写入降到百行级 —— 这同时解掉了远端 SQLite 写锁卡 cn-kpi-5mins 页面读的问题（当天实测读被卡 120s+）</li>
 <li>与 cnn_kpi_sync 同在 n 组串行，避免两个任务各自登录同一账号互踢</li>
 <li>页面为本任务的唯一消费方：?page=cn_kpi_5mins（services/cn_kpi_5mins_service.py 读 5mins_* 表）</li>
 </ul>
@@ -20415,7 +20416,7 @@ shared <code>auth_cache</code> 里 admin 的 token 明明还有 14.6 小时有�
 <p><strong>保留在 PROJECT_DOCS.md 不动</strong>（属于历史决策与复盘，不是&quot;现状描述&quot;）：§2 迁移计划、§3 架构评估与 Django 论证、§4 FastAPI 架构优化方案、§5–§6 i18n 审计与复查、§8 IP Trace 集成方案、§10 迁移失败复盘、§11 优化建议。</p>
 
 </section>
-  <footer class="colophon">my_app 项目手册 · 由 frontend/scripts/generate-manual-html.mjs 从 docs/manual/*.md 同源生成于 2026-11-13 · 改 MD 后重跑该脚本并重新构建前端即可更新</footer>
+  <footer class="colophon">my_app 项目手册 · 由 frontend/scripts/generate-manual-html.mjs 从 docs/manual/*.md 同源生成于 2026-11-15 · 改 MD 后重跑该脚本并重新构建前端即可更新</footer>
 </div>
 </body>
 </html>
