@@ -468,7 +468,7 @@ export function getCnKpiHealth() {
 // CN KPI 5 分钟看板（?page=cn_kpi_5mins）
 // 数据源：任务 cnn_kpi_sync_5mins 每 15 分钟写入的 5mins_* 表（db_ps_cs_cn.sqlite3）。
 // 窗口固定为「今天 + 昨天 + 7 天前」（Day0/Day1/Day7 叠画），故不接收日期参数。
-// params: force=true 跳过后端 30s 缓存
+// params: force=true 跳过后端 5 分钟缓存（2026-11-15 由 30s 放宽，见 cn_kpi_5mins_service）
 export function getCnKpi5minsOverview(params?: { force?: boolean }) {
   const q: Record<string, string | number> = {}
   if (params?.force) q.force = 1

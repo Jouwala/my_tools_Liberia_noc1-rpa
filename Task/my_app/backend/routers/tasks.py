@@ -100,9 +100,11 @@ def list_all_tasks(request: Request, response: Response):
 def tasks_running():
     """轻量运行状态：{task_id: bool}。
 
-    应用顶层 TaskStatusContext 每 8s（有任务运行时 2s）轮询一次，只关心
-    running 一个布尔值。走 /api/tasks 的话每次要传 ~75KB 并现算最新执行记录、
-    重试预测、中英文名等（实测 150~490ms）；这里约 1KB、几毫秒。
+    应用顶层 TaskStatusContext 每 15s（有任务运行时 5s，均 ±15% 抖动）轮询一次，
+    只关心 running 一个布尔值。2026-11-15 由「忙 2s / 闲 8s」降频 —— 每个 SPA
+    页（含大量 embed 大屏）都挂着它，旧频率让本端点占到全站请求量的 95%
+    （当天 nginx 日志实测 8 次/秒）。走 /api/tasks 的话每次要传 ~75KB 并现算
+    最新执行记录、重试预测、中英文名等（实测 150~490ms）；这里约 1KB、几毫秒。
     """
     return {"running": task_runner.get_running_map()}
 

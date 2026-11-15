@@ -4,7 +4,7 @@
 数据源与统计口径见 backend/services/cn_kpi_5mins_service.py 顶部说明。
 
 GET /api/cn-kpi-5mins/overview
-    ?force=1    跳过 30s 缓存，强制重新取数
+    ?force=1    跳过 5 分钟缓存，强制重新取数
     -> {meta:{db,count,failed,empty,elapsed_ms,cached},
         title,
         widgets:[{id,title,chart,pivot,pct,sql,columns,rows,error,empty,empty_reason}]}

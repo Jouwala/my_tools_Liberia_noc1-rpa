@@ -13,8 +13,10 @@
      `5mins_VOICE_TRAFFIC_TEMPLATE_OSS_UME`。
      写的是**新表**，日/月粒度表一行都不动 → `cn_kpi` 看板完全不受影响。
 
-查询窗口为「**昨天 00:00 → 现在**」：页面要把 Day0（今天）与 Day1（昨天）
-两条曲线叠画，窗口必须同时覆盖两天。
+查询窗口为「**增量：最近 120 分钟 → 现在**」（2026-11-15 起，写库治理，见
+`WINDOW_MODE` 配置注释）：页面要把 Day0（今天）与 Day1（昨天）两条曲线叠画，
+历史行靠 upsert 逐轮累积，不必每轮重拉。上一轮失败时本轮自动回退全窗口
+「昨天 00:00 → 现在」把缺口补齐。
 
 页面还有第三条 **Day7（7 天前）**曲线，它**不是靠加宽本窗口**取得的：写库是 upsert
 且从不清理，所以每个日子在它的次日被采到之后就永久留在表里，攒够 8 天 Day7 自然出现。
@@ -103,6 +105,27 @@ DB_WRITE_CONNECT_RETRIES = int(os.environ.get("CNN5M_DB_CONNECT_RETRIES", "3"))
 # 详见模块头「Day7 不是靠加宽本窗口取得的」。
 WINDOW_DAYS_BACK = 1
 
+# ============================================================
+# 增量窗口（2026-11-15 写锁治理）
+# ============================================================
+# 起因（2026-11-15 实测）：全窗口每 15 分钟把「昨天 00:00 → 现在」的 1.5 天
+# 全量 upsert 一次（Free Rating 一天就有 1.4 万行，1.5 天 ≈ 2 万+行），远端
+# db_ps_cs_cn 的 SQLite 写锁期间，cn-kpi-5mins 页面对同一批 5mins_* 表的读
+# 被卡到 120s+（nginx 日志 rt=120s / 74.9s 两条实证）。改增量后每轮只拉
+# 最近 INCREMENTAL_MINUTES 分钟（默认 120 = 8 倍节拍，容忍连续数轮失败不缺档），
+# 每轮写入量从 2 万+行降到百行级，写锁毫秒级释放。
+#
+# 安全性论证：
+#   · 上游测量行是 append-only 的（同一 5 分钟档一旦落库不会被改），
+#     已同步过的历史行无需重复拉取，upsert 幂等，重叠窗口只是去重；
+#   · 若上一轮**失败**，本轮自动回退全窗口「昨天 00:00 → 现在」把缺口补齐
+#     （_last_run_failed() 查本机 task_queue 最新记录）；
+#   · 首次部署 / 查不到执行记录 → 按全窗口处理，行为与旧版一致；
+#   · 回滚开关：设 CNN5M_WINDOW_MODE=full 恢复旧的「每轮全窗口」行为，
+#     无需改代码。
+WINDOW_MODE = os.environ.get("CNN5M_WINDOW_MODE", "incremental")
+INCREMENTAL_MINUTES = int(os.environ.get("CNN5M_INCREMENTAL_MINUTES", "120"))
+
 # 单个模板导出的等待上限（秒）。5 分钟粒度行数远大于日粒度（FREE_RATING_GROUP
 # 实测 1 天就有 10206 行 ≈ 3 倍于小时粒度），故轮询超时放宽到 600s。
 EXPORT_TIMEOUT = int(os.environ.get("CNN_KPI_5MINS_EXPORT_TIMEOUT", "600"))
@@ -171,7 +194,7 @@ CNN_KPI_5MINS_TASKS = [{"key": k} for k in CNN_KPI_5MINS_QUERY_CONFIGS]
 # Payload（带窗口）
 # ============================================================
 def _window_iso(now: datetime | None = None) -> tuple[str, str]:
-    """返回 5 分钟任务的查询窗口：昨天 00:00 UTC → 现在（UTC）。
+    """返回**全窗口**：昨天 00:00 UTC → 现在（UTC）。增量回退与 full 模式共用。
 
     为什么是 UTC 00:00：原模块的所有时间 ISO 都是 UTC（`datetime.now(timezone.utc)`），
     且 UME 的 `clienttimezone` 固定 Atlantic/Reykjavik；沿用同一基准，避免
@@ -204,14 +227,62 @@ def _build_payload_5mins(cfg: dict, start_iso: str, end_iso: str) -> dict:
     return p
 
 
+def _last_run_failed() -> bool:
+    """本任务最近一条已完成的执行记录是否失败（task_queue 最新 done/failed）。
+
+    查不到 / 出错一律返回 False（按「上轮成功」走增量）—— 误判的代价只是
+    最近两小时档可能有缺口，下轮 full 回退会兜住；反过来「查不到就当失败」
+    会让每次全量 upsert 的写锁风险常驻，方向不对。
+    """
+    try:
+        from backend.database import get_raw_connection
+
+        conn = get_raw_connection()
+        try:
+            cur = conn.cursor()
+            # 不用占位符：SQLite/PG 两种方言都能跑同一句字面量 SQL
+            cur.execute(
+                "SELECT status FROM task_queue "
+                "WHERE task_id = 'cnn_kpi_sync_5mins' "
+                "AND status IN ('done','failed') ORDER BY id DESC LIMIT 1")
+            row = cur.fetchone()
+            cur.close()
+        finally:
+            conn.close()
+        return bool(row) and row[0] == "failed"
+    except Exception as e:  # noqa: BLE001 — 本地库不可达时不应让同步任务直接失败
+        logger.warning("[CNN5M] 查询上一轮执行状态失败（%s），按增量窗口处理", e)
+        return False
+
+
+def _decide_window(now: datetime | None = None) -> tuple[str, str, str]:
+    """决定本轮查询窗口，返回 (start_iso, end_iso, 模式说明)。
+
+    · CNN5M_WINDOW_MODE != incremental  → 全窗口（旧行为，回滚开关）；
+    · 上一轮执行失败                    → 全窗口回退补缺口；
+    · 其余                              → 增量：最近 INCREMENTAL_MINUTES 分钟。
+    """
+    now = now or datetime.now(timezone.utc)
+    if WINDOW_MODE != "incremental":
+        s, e = _window_iso(now)
+        return s, e, "full"
+    if _last_run_failed():
+        s, e = _window_iso(now)
+        return s, e, "full(上一轮失败，回退补缺口)"
+    start = now - timedelta(minutes=INCREMENTAL_MINUTES)
+    return (start.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+            now.strftime("%Y-%m-%dT%H:%M:%S.000Z"), "incremental")
+
+
 # ============================================================
 # 单模板查询（create → poll → export，全程内存）
 # ============================================================
-def _run_one_5mins(auth: dict, task: dict, start_index: int = 0) -> tuple:
+def _run_one_5mins(auth: dict, task: dict, start_index: int = 0,
+                   window: tuple[str, str] | None = None) -> tuple:
     """执行单个模板的 5 分钟查询 + 导出，返回 (file_prefix, xlsx_bytes)。
 
     与原模块 `_run_single_kpi_query` 的差异：
-      · 用本模块的 5 分钟配置与窗口；
+      · 用本模块的 5 分钟配置与窗口（window=None 时回落全窗口 _window_iso）；
       · 额外用 `EXPORT_TIMEOUT` 覆盖轮询超时。
     401 恢复策略保持一致（有限重试一次，见 `_refresh_auth_on_401`）。
     """
@@ -223,7 +294,7 @@ def _run_one_5mins(auth: dict, task: dict, start_index: int = 0) -> tuple:
     if delay > 0:
         time.sleep(delay)
 
-    start_iso, end_iso = _window_iso()
+    start_iso, end_iso = window if window is not None else _window_iso()
     logger.info("[CNN5M] 开始 %s (gr=%s) 窗口 %s → %s",
                 cfg["templatename"], cfg["gr"], start_iso, end_iso)
     payload = _build_payload_5mins(cfg, start_iso, end_iso)
@@ -372,11 +443,18 @@ def run_cnn_kpi_sync_5mins() -> dict:
     try:
         auth = base._login()
 
+        # 本轮窗口只决策一次，8 个模板共用同一窗口（各自调用 _window_iso 会
+        # 因时间推进产生细微不一致，且 _decide_window 里的 task_queue 查询
+        # 不该跑 8 遍）。
+        w_start, w_end, w_mode = _decide_window()
+        logger.info("[CNN5M] 本轮窗口 mode=%s：%s → %s", w_mode, w_start, w_end)
+
         export_data: dict[str, bytes] = {}
         errors: list[str] = []
         with ThreadPoolExecutor(max_workers=MAX_PARALLEL_WORKERS) as executor:
             futures = {
-                executor.submit(base._run_with_cleanup, _run_one_5mins, auth, task, idx): task
+                executor.submit(base._run_with_cleanup, _run_one_5mins, auth,
+                                task, idx, (w_start, w_end)): task
                 for idx, task in enumerate(CNN_KPI_5MINS_TASKS)
             }
             for fut in as_completed(futures):
