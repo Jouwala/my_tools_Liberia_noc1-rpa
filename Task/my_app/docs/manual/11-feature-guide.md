@@ -2672,6 +2672,9 @@ TT 复盘抽屉（`TtPostmortemPanel.tsx:693-710`）的红字
 - **列显隐 + 视图模板**：保存/套用/删除（:415,312,324 → `/api/tables/view-templates`）。同一张表经常只看固定几列时，存个模板比每次勾选快。
 - **导入**（:412 → `POST /api/tables/import`，:149，`multipart/form-data`）。
 - **画像页签**：字段级统计（:572 → `GET /api/tables/{t}/profile`，:273），与"数据"页签并列（:548）。
+- **门户内嵌版只留搜索栏**（2026-11-16，用户要求）：统一门户 `/v3/olbrportal/` 的 Knowledge Q&A →「Master Site」页签用 `?embed=1` 打开本页，此时**整块工具栏不渲染**（表名下拉、行/列徽章、导出/导入/排除名单/MW Links/自定义列一并不渲染，`TableBrowser.tsx:687`），页头只剩搜索栏（:638），也不再套 `Card`——卡片本身就是那个占满首屏的空面板。独立页 `?page=tables` 的工具栏**照旧**（导入/导出/自定义列是那边的正经功能）。
+  判据与 `App.tsx::readEmbedMode` 一致（`?embed=1` / `?embed=true` / `?layout=bare`），但**刻意不含 `?page=`**（`TableBrowser.tsx:139`）：本页独立访问时地址栏也永远带 `?page=tables`，把它算作内嵌会把工具栏一起砍掉。门户 iframe 的 `&embed=1` 由 `olbr.js::qaSrc` 补（`v3/olbrportal/assets/olbr.js`）。
+  「本地权威表 0 行」提示条不受影响，内嵌版照样显示（它讲的是"这次读数为什么是 0"，属异常告知而非口径解释，见 AGENTS.md 三.3b 的例外）。
 
 ## 20. 数据上传（`?page=upload`）
 
