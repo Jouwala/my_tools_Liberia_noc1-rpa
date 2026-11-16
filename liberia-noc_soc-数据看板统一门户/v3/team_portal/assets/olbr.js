@@ -527,11 +527,18 @@
     var n = Number(v), a = DATA.QC_LEVEL_ABS;
     return n >= a.crit ? 'crit' : (n >= a.warn ? 'warn' : 'ok');
   }
+  /* 卡片 id → 后端接口的 metric 名（2026-11-16 加）。
+     默认同名；只有 PMT 卡在 v3 改了口径（见 olbr-data.js 的 QC_CARD_METRIC）。
+     凡是要拿「后端数据」的地方（卡片大数字 / 存量趋势 / 下钻明细）都过这一层，
+     而卡片 id 本身仍用于文案与「打开完整看板」的映射 —— 两者刻意分开。 */
+  function qcMetricOf(id) {
+    return (DATA.QC_CARD_METRIC && DATA.QC_CARD_METRIC[id]) || id;
+  }
   /* 告警优先用 5 分钟那一档：它比全量新，且失败时会被置成 error 态，
      不会把一小时前的旧数字留在屏幕上冒充实时值。 */
   function qcMetric(id) {
     if (id === 'alarm' && state.qcAlarm) return state.qcAlarm;
-    return (state.qc.m && state.qc.m[id]) || null;
+    return (state.qc.m && state.qc.m[qcMetricOf(id)]) || null;
   }
   /* 后端 generated_at 写死 +08:00，页面时钟用浏览器本地时区：直接切字符串会出现
      「时钟 18:07 / 更新于 02:07」，看着像 8 小时前的旧数据（MsPortal 踩过这个坑）。 */
@@ -779,7 +786,9 @@
      为什么必须连续轴：按点数等距排开，会把「中间断了 20 小时」画成
      「连续 20 小时」—— 等于在横轴上撒谎（本文件 qcTrendSeries 已有同样教训）。 */
   function qcStockSeries(id) {
-    var all = state.qcHistory && state.qcHistory[id];
+    /* 2026-11-16：序列名走 qcMetricOf —— PMT 卡的存量现在由 `pmt_wait` 那一列
+       （等待 PM Manager Approve 的小时快照）供数，与卡片大数字同一口径。 */
+    var all = state.qcHistory && state.qcHistory[qcMetricOf(id)];
     if (!all || !all.length) return null;
     var pts = all.filter(function (p) {
       /* ⚠️ 必须先挡 null / '' 再 Number()：Number(null) === 0 是**有限数**，
@@ -834,7 +843,7 @@
     if (!s) {
       /* 有数据但点不够：给一句说明，别让卡片空着像坏了；
          完全没有数据：不占位（此时卡片本来就没有这一行，挂说明反而是噪音）。 */
-      var raw = state.qcHistory && state.qcHistory[id];
+      var raw = state.qcHistory && state.qcHistory[qcMetricOf(id)];
       if (raw && raw.length) {
         return '<span class="qc-spark-empty">' + esc(t('qc.stock.starving')) + '</span>';
       }
@@ -934,6 +943,8 @@
        v1 摘掉阈值行的理由是「等级分档整个不显示了，再把阈值挂在悬浮里，
        等于让用户按一个屏幕上不存在的规则去读数字」—— 前提已经不成立了。 */
     var tips = [def];
+    /* PMT 卡（v3）：数字口径与其余五张不同，hover 时说清它到底是什么 */
+    if (d.id === 'pmt') tips.push(t('qc.pmtWait.tip'));
     /* 阈值提示挂的是**统一刻度**（5 / 20），不是各指标自己的 QC_TARGETS：
        屏幕上数字与柱子就是按这把尺子染的色，提示也必须是同一把，
        否则 hover 看到 10/30、屏幕上却是按 5/20 上的色 —— 那就又成了黑盒。 */
@@ -7379,7 +7390,10 @@
     var d = state.drill; if (!d.metric) return;
     var seq = ++drillSeq;
     d.loading = true; d.err = ''; renderDrill();
-    api('/api/portal-qc/detail?metric=' + encodeURIComponent(d.metric) +
+    /* 2026-11-16：下钻走 qcMetricOf —— PMT 卡的明细是「等待 PM Manager Approve」
+       那一批（后端 metric=pmt_wait），与卡片大数字同一口径，行数必然相等。
+       标题 / 「打开完整看板」仍用卡片 id（state.drill.metric）去查，故不改那两处。 */
+    api('/api/portal-qc/detail?metric=' + encodeURIComponent(qcMetricOf(d.metric)) +
         '&page=' + d.page + '&size=' + d.size +
         (d.q ? '&q=' + encodeURIComponent(d.q) : '') +
         /* 排序下发到服务端（不是只排当前页）。后端会拿 sort 去撞该 metric 的
@@ -7512,6 +7526,8 @@
     var btn = $('#qcExport'); if (btn) btn.disabled = true;
 
     var metric = d.metric;
+    /* 导出的取数口径必须与屏幕上那张明细表一致（PMT 卡 = pmt_wait） */
+    var apiMetric = qcMetricOf(metric);
     var keyword = d.q || '';
     var label = qcMetricLabel(metric);
 
@@ -7523,7 +7539,7 @@
        而不是整单作废 —— 导出一半也好过什么都拿不到（失败原因最后一起 toast）。 */
     var page = 1, total = null, failed = null;
     function nextPage() {
-      return api('/api/portal-qc/detail?metric=' + encodeURIComponent(metric) +
+      return api('/api/portal-qc/detail?metric=' + encodeURIComponent(apiMetric) +
                  '&page=' + page + '&size=' + DRILL_EXPORT_SIZE +
                  (keyword ? '&q=' + encodeURIComponent(keyword) : ''))
         .then(function (data) {

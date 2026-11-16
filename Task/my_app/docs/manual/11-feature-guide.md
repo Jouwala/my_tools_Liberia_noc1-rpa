@@ -3697,6 +3697,12 @@ created_time → last_create_time → last_schedule_time → last_accept_time
 - 后端：`backend/services/pm_workflow_service.py`
   （`build_workflow()` / `drill_workflow()`），路由 `GET /api/pm-analysis/workflow`
   与 `GET /api/pm-analysis/workflow-drilldown`；
+- **门户 QC 面板也读这个模块**（2026-11-16 加）：`waiting_snapshot(key, with_window=False)`
+  返回某个节点的「当前滞留」数量 + 明细，用的是与 `_milestones()` 相同的
+  `_current_milestone()` 判定，所以「门户卡数字 == 本页里程碑的 `waiting` == 下钻行数」
+  三者在构造上相等。`/v3/olbrportal/` 的 PMT 卡就是用它取「等待 PM Manager Approve」
+  （`pm_approved`）的那批工单（实测 822）。门户侧没有第二份状态词表；
+  改口径/改状态映射仍然只改本模块这一处；
 - 前端：`pmAnalysis/PmMilestones.tsx`（里程碑条，每格两个大字号数字）+
   `pmAnalysis/PmMilestoneDrillModal.tsx`（明细弹窗，可导出）；
 - 每格显示 **已完成 `done`**（走过该节点）与 **当前滞留 `waiting`**（等下一环节），

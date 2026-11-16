@@ -2429,6 +2429,65 @@ GIS Map 也要 IP / PL 页签，Knowledge Q&A 也要 Master Site 页签，参考
 行，不重启也立即生效；`.19` 生产实例的库是独立副本，发布时**必须单独改**
 （同步代码时照例排除 `auth-data/`）。
 
+## 九之二十、2026-11-16 `/v3/olbrportal/` 的 PMT 卡改看「等待 PM Manager Approve」
+
+**需求原话。**「页面 https://localhost/v3/olbrportal/ 的 PMT 的统计数据换成
+https://localhost/myapp/?page=pm_analysis&lang=en 页面的等待 PM Manager Approve 的数字，
+下钻也是。」
+
+**口径。**「等待 PM Manager Approve」= PM 执行分析页里程碑条第 5 个节点
+（`pm_approved`，显示名 **PM Manager Approve**）的 **Waiting** 数，也就是
+**当前停留在该节点、等下一环节（FLM Leader Approve）** 的工单数。
+实测 2026-11-16：**822**。它与原有的「未关闭 PMT」（`status <> 'Closed'`，**1,576**）
+是**两个不同口径**，不是同一批数的两种看法 —— 所以卡片副标题、tooltip、趋势图必须一起改，
+否则会把 822 读成「未关闭 PMT」。
+
+**口径唯一真相源。** `Task\my_app\backend\services\pm_workflow_service.py` 的
+`waiting_snapshot()`（本次新增）。它用与 `_milestones()` 相同的 `_current_milestone()`
+判定，因此「门户卡数字 == 页面里程碑数字 == 下钻行数」三者在**构造上**相等
+（AGENTS.md 第三节 1b 铁律），不靠测试事后对齐。`portal_qc.py` 里**没有**第二份状态词表。
+
+**做法。**
+
+1. **后端**：`backend/routers/portal_qc.py` 新增 metric id **`pmt_wait`**
+   （`PMT_WAIT_METRIC`），三处配套：
+   - `/api/portal-qc/summary` → `metrics.pmt_wait = {value: 822}`（失败只让这一项为
+     `None + error`，与其余指标同一条纪律）；
+   - `/api/portal-qc/detail?metric=pmt_wait` → 那 822 行的明细，列 =
+     PMT No. / Status / Days Waiting / PM Approved At / Site Name / Overdue，
+     搜索 / 排序 / 分页在内存里做（822 行量级；`days` 由「现在 − 进入时间」算出，
+     放 SQL 里要按 sqlite/PG 各写一遍日期函数）；
+   - `/api/portal-qc/history` → 新增 `pmt_wait` 小时快照序列
+     （`portal_qc_snapshot.pmt_wait` 列，沿用 `sla_x10` 那次「建表 + ALTER 补列」的做法）。
+   门户这一排六张卡历来是**全表当前值**（不带时间筛选），所以后端走
+   `waiting_snapshot(..., with_window=False)`；PM 分析页仍按它自己的日期窗口出数，
+   该页默认起点就是全表最早一张单，故两处数字相同。
+2. **前端（只改 v3 这一份）**：`v3/olbrportal/assets/olbr-data.js` 加
+   `QC_CARD_METRIC = { pmt: 'pmt_wait' }`，`olbr.js` 用 `qcMetricOf()` 在
+   **大数字 / 存量趋势 / 下钻明细 / 导出**四处统一过这一层映射；卡片 id 仍是 `pmt`
+   （六张卡的 id 与中英文名来自共享的 `MsPortal/assets/data.js`，不为本页去改它）。
+   副标题改 `Waiting PM Manager Approve`，tooltip 补一句口径，柱子换成同一口径的
+   小时快照（`qc.stock.tipPmt` 与 `qc.pmtWait.tip` 中英两份都改）。
+3. **生成物**：`patch_team_portal.py` + `sync_team_assets.py` 重跑，
+   `check:team-scope` 四条全绿。
+
+**影响面（有意为之）。** `pmt`（未关闭 PMT 总数）**一行未改** —— MsPortal、
+`/olbrportal/`、`/v1/olbrportal/`、`/v2/olbrportal/` 的 PMT 卡仍是「Unclosed PMTs」。
+理由与既有「v1 独有、别处刻意不改」同一条取舍：用户点名的页面是 `/v3/olbrportal/`。
+要拉齐就把另外四份的副标题与 drill 的 metric 一起改，别只改一半。
+
+**注意。** `portal_qc_snapshot.pmt_wait` 在 2026-11-16 之前的小时是 **NULL**，
+前端按「断档」画、**不补 0**（补 0 会画出「积压突然清零」的假谷底）；
+所以 PMT 卡的柱子会先空一段，累积几个小时后才有形状 —— 这是口径切换的正常表现。
+
+**回归。** `node --check`（olbr.js / olbr-data.js）、门户六道守卫
+（`check:i18n` / `check:v3-i18n` / `check:docs` / `check:team-scope` / `lint` /
+`python tests/test_doc_consistency.py`）、实测
+`summary.metrics.pmt_wait.value == detail.total == 822`。
+⚠️ `npx tsc -p v3/olbrportal/tsconfig.json` 报的
+`window.OLBR_SCOPE`（TS2339）是**改动前就存在**的基线错误
+（HEAD 版本同样报，`globals.d.ts` 上游刻意没声明它），与本次改动无关。
+
 ## 十、相关文档
 
 | 内容 | 去哪里 |
