@@ -628,13 +628,13 @@ IP RAN 光纤层的网元—链路关系图（React + 自绘 SVG 画布），数
     3. **地图本身**：`height: '100%'`。
   - **⚠️ `rootStyle` 里的 `flex:1` 是最容易漏掉的一条**，漏了会表现为「地图确实变高了，但底部仍恒留 114px（且**所有分辨率都一样**）」。原因：根节点的父级 `<main class="ant-layout-content dashboard-layout-shell">` 是 **flex 列容器**，根节点作为其子项默认 `flex-grow:0`，于是只按自己的 `minHeight`（`--wh-page-min-height` = `842px` @950 视口，见 `index.css:122`）占高而非撑满。**「留白是个恒定值」基本就是这个信号** —— 差的是「视口高 − 令牌算出的最小高」那部分没人认领的空间。
   - **`minHeight:0` 也不能省**：flex 子项默认 `min-height:auto`，会按内容撑开、既压不下去也撑不满。
-  - **上面的兄弟卡片要 `flexShrink:0`**，否则会被 flex 压扁（`theme.ts:132-138` 记录了同类故障：筛选条曾被压成 1591×2px）。工具栏卡片用的 `controlCardStyle` 已自带；OSS 统计卡（仅实时模式）是单独加的。
+  - **上面的兄弟卡片要 `flexShrink:0`**，否则会被 flex 压扁（`theme.ts:132-138` 记录了同类故障：筛选条曾被压成 1591×2px）。工具栏卡片用的 `controlCardStyle` 已自带；左列各统计卡（Site Stats / TT 优先级 / RCA，均仅实时模式）是逐张单独加的。
   - **实测**（覆盖 5 种分辨率×模式）：底部间隙 **198px → 6px**，且各分辨率**恒为 6px**（就是页面内边距 `--wh-space-xs`）。地图占视口比 75%~91%，无纵向滚动条、无 pageerror。
 
 - **图层合并（2026-09-28，用户要求）**：`?page=gis` 全量模式的 Layers 由 `RT Alarm / His Alarm / TT / WO` 四项**改为 RealTime / History 两项**。
   - **History 一档涵盖 历史告警 + TT工单 + WO工单**：判定 `hisAnyHit()`（`GISMap.tsx`）＝ `his_alarm_count > 0 || open_tt > 0 || wo_count > 0`，**任一命中即算 History**。着色优先级 `RT > History`（同一站点两者都有时红色压过灰色——实时才是当前要处置的）。
   - 图例同步收敛：全量模式隐藏 `tt` / `wo` 两个图例项（它们已被并入 History，留着会让同一批站点被数两遍），`gis.legend.hisAlarm` 文案直接是 **`History`**（中英同值，与 `RealTime` 配对）。
-  - **实时页（`?page=realtime_alarm`）刻意保持 `RealTime / TT / WO` 三项不变**：那里的 TT/WO 是「当前告警所带工单」（由告警 `tt_id` 派生），是告警关联关系的直观体现，不属于「历史记录」，合并进 History 会丢语义。**即：图层键 `tt`/`wo` 在两种模式下语义不同**，改这片逻辑前先分清模式。
+  - **实时页（`?page=realtime_alarm`）的图层口径仍是 `RealTime / TT / WO` 三项不变**：那里的 TT/WO 是「当前告警所带工单」（由告警 `tt_id` 派生），是告警关联关系的直观体现，不属于「历史记录」，合并进 History 会丢语义。**即：图层键 `tt`/`wo` 在两种模式下语义不同**，改这片逻辑前先分清模式。2026-11-16 起该页**不再渲染这三个图层开关**（用户要求隐藏，见 10 节末尾），但绘制口径与 `activeLayers` 默认值不变。
   - **下钻抽屉刻意不合并**：`SiteDrilldownDrawer.tsx` 仍按「历史告警 / TT / WO」分页签、导出文件名仍是 `His_Alarm_*`。明细视图里这三个**要分开看**（告警条数与工单数是不同口径，合并后无法核对），与地图图层「一眼看哪些站点出过事」的诉求不同。
   - **图例计数随时间窗口变化**：默认窗口是「近7天」，故 History 图例在默认视图下只有 200+ —— 切到「全部时间」后才是全量口径（实测 **History 758 + RT 38 = 796**，与后端任意命中数一致）。**验收时务必先切「全部时间」再对数**，否则会以为合并口径算错了（本次排查踩过）。另外 `site_type_stats`（ERA/COOL/NORMAL）是**窗口无关**的资产属性统计，两个数字天然对不上，这是预期。
   - 站点配色随之简化为「现在有告警(RT) / 历史上出过事(History) / VIP / 普通」。
@@ -654,9 +654,9 @@ IP RAN 光纤层的网元—链路关系图（React + 自绘 SVG 画布），数
 - **筛选开始时自动解除 normal 隐藏（2026-11-03 修复「筛选站点后地图上看不到」）**：用户按站名/高级筛选缩小范围后，「normal 太多会淹没告警站」的前提不再成立 —— 筛选本身已完成缩小。实测筛选 `lofa bridge`：命中 1 站（`Total Sites: 1/874`），该站 `rt_alarm_count=0` 归类 normal → `On Map: 0/1`，一个点都不画，用户以为筛选坏了（还误以为是被人员图层抢了显示）。修法：`activeFilterCount` 从 0 → 正的**那一刻**自动把 `normal` 从 `hiddenLegends` 移除（`GISMap.tsx` 的 `hadAnyFilterRef` effect，只在「从无到有」转换时触发 —— 筛选 1→2 不反复推翻用户手动重新隐藏的操作；清除筛选后**不**自动恢复隐藏，保持「用户最后一次选择」语义）。回归实测（Playwright）：默认视图仍只画 91 个告警+VIP 站（2026-09-25 约定不回归）；筛选后 `On Map: 1/1`；清除筛选后 874 站全画（normal 保持显示）。
 - **视野中心跟随筛选范围（同日配套）**：`center` 由「恒为全量 sites 重心」改为「跟随 `criteriaSites`（筛选无命中时回落全量重心）」。原先筛选后即使站点画出来也可能贴边难辨 —— Lofa Bridge 在西北角 Grand Cape Mount，全量重心视野下贴边。刻意跟 `criteriaSites`（数据范围筛选）而非 `filteredSites`（还受图层/图例影响），与统计卡口径原则一致：关图层/图例不该让视野跳走，只有「关心哪些站」变了才重新定视野。
 - **默认实际绘制 88 站**（38 实时告警 + 50 VIP）＋ 844 条链路，而非全量 827 站。
-- 两套控制机制并存，别混淆：**图层 Tag** 控 `activeLayers`（全量模式：RealTime / History；实时模式：RealTime / TT / WO），**图例点击**控 `hiddenLegends`（normal/VIP）。`normal` 走的是后者，初值 `new Set(['normal'])`，所以图例上它以删除线+「已隐藏」呈现，用户**点一下即可恢复**——这是刻意的，比完全移除该项更好发现。图例已移入地图左下角浮层（见 10a），但这个能力没变。
+- 两套控制机制并存，别混淆：**图层 Tag** 控 `activeLayers`（全量模式：RealTime / History；实时页 2026-11-16 起不渲染图层 Tag，三层按默认全开绘制），**图例点击**控 `hiddenLegends`（normal/VIP）。`normal` 走的是后者，初值 `new Set(['normal'])`，所以图例上它以删除线+「已隐藏」呈现，用户**点一下即可恢复**——这是刻意的，比完全移除该项更好发现。图例已移入地图左下角浮层（见 10a），但这个能力没变。
 - **⚠️ 图层开关不只是配色**：`getSiteCategory` + `filteredSites` 会据 `activeLayers` 与 `hiddenLegends` 把该类别站点从地图上**过滤掉**。地图站点变少是「只显示实时告警」的预期效果，不是漏画。
-- 实时告警地图（`?page=realtime_alarm`）仍是 `rt_alarm + tt + wo`（**2026-09-28 的图层合并不适用于它**，原因见上方「图层合并」小节）：那里的 TT/WO 由告警的 `tt_id` 派生，属于告警的关联信息，不算「用户额外打开的图层」。`normal` 的隐藏初值也**不影响它** —— 该页的 `filteredSites` 分支只认 `rt_alarm_overdue`/`rt_alarm_ontime`/`tt`/`wo`/`vip`，不含 `normal`。
+- 实时告警地图（`?page=realtime_alarm`）仍是 `rt_alarm + tt + wo`（**2026-09-28 的图层合并不适用于它**，原因见上方「图层合并」小节）：那里的 TT/WO 由告警的 `tt_id` 派生，属于告警的关联信息，不算「用户额外打开的图层」。2026-11-16 起该页隐藏了这三个图层开关（连同 `Zoom:` 档位与「Utilization Legend」按钮），但**绘制口径未变**。`normal` 的隐藏初值也**不影响它** —— 该页的 `filteredSites` 分支只认 `rt_alarm_overdue`/`rt_alarm_ontime`/`tt`/`wo`/`vip`，不含 `normal`。
 - 图层开关状态不做持久化（存在组件 `activeLayers` / `hiddenLegends` 里），刷新页面即回到上述默认值。
 - **点站点 → 右侧抽屉**（组件 `pages/gismap/SiteDrilldownDrawer.tsx`）四个页签，可搜索、可导 Excel。
 - **抽屉 Basic Info 含 IPT 电源状态**（2026-11-03 新增）：`/api/gis/drilldown/{site_id}` 与 `/api/gis/realtime/drilldown/{site_id}` 返回体新增 `power` 字段（`gis.py::_lookup_site_power`），按**站点名**关联 `ipt_power_sites` + 最新 `ipt_power_snapshots`，与 `?page=ipt_power` 完全同源。站名归一化匹配（忽略大小写 / 多余空格 / `\xa0` 不可见空格；实测 874 个 GIS 站中 419 站能对上；拼写不同的**不做**模糊匹配，宁可显示 `—` 也不接错站）。前端在 Basic Info 里占一整行（`SiteDrilldownDrawer.tsx`，`span=2`）：连接状态 Tag + SOC/电压/负载/太阳能/发电机/快照时间，口径说明挂标签 ⓘ（`gis.drilldown.powerExplain`）。未匹配 / IPT 表未建 / 旧后端无该字段时显示 `—`；快照只有 watch 清单（`backend/services/ipt_data/watch_sites.json`）内的站点才有，缺失字段显示 `—` 不显示 0。
@@ -1270,12 +1270,12 @@ PMT 取不到时显示 `—` 而不是 0（AGENTS.md 三.6），所以 `pmt_open
 - `GET /api/gis/realtime/rca?region=…&trm_type=…&site_name=…` —— 10 个筛选参数与 `/realtime/sites` 逐字相同 + `site_name`（站名子串，`LIKE ? ESCAPE '\'` 且通配符放**参数值**里—— psycopg2 对带参 SQL 里的字面量 `%` 会当占位符解析报 IndexError；`%`/`_`/`\` 做了 ESCAPE 转义）。返回 `clusters[]`（按 `member_count` 降序，>100 截断置 `meta.truncated=true`）+ `meta`（口径计数：`covered_sites`/`uncovered_sites`/`satellite_sites`/`orphan_alarm_rows`/`eflow_root_unmatched` 等，卡片脚注显式给出未归因站数，防静默漏站；`meta.uncovered_site_ids` 供路由层挑明细行）+ `uncovered_alarm_rows`（未归因站的**告警明细行**，见下）+ `uncovered_truncated`（明细超 500 条显式截断，`gis.py::UNCOVERED_ALARM_LIMIT`）。
 - `POST /api/gis/realtime/rca-narrative` —— LLM 自然语言解读（用户决策：一并实现）。body = 同样的筛选参数 + `provider/api_key/model/base_url/lang`；服务端**重算**确定性聚类再喂给 LLM（不信任客户端回传，`routers/gis.py::RcaNarrativeIn`）。降级约定与 `alarm_attribution_service.attribute` 一致：`provider=='local'` / 无 key / 调用异常 → `local_summary` + `note`，永不抛错误页。api_key 只随请求体进出、不落盘不写日志；前端与 `DataAgentBar` 共用 localStorage 键（`myapp-data-agent-key-{provider}` 等）。
 
-**前端**（`GISMap.tsx`）：实时模式统计列第 4 张卡（TT 优先级卡之后），标题右侧「AI 解读」按钮（第二个 `DraggableClickModal`：provider/key/model/base_url 配置 + 结果段落，`provider==='local'` 显示金色「本地规则模式」Tag、降级 note 原样展示）；簇条目 = 根因站名 + 类型 Tag + 受影响站数 + 置信度%；点条目开成员明细弹窗（上方证据块：根因站告警/链路路径/时间窗/eFlow 影响面；成员站名可点 → 复用 `handleSiteClick` 开下钻抽屉；导出走 `exportAoaReport`）。取数：`useEffect` deps `[mode, selectedRegion, selectedFilters, siteNameQuery]` + 300ms 防抖，**不走 cachedGet**（实时数据须与地图同代）。簇/类型标签用显式 switch 返回字面量 i18n 键（`rcaKindLabelKey`/`rcaCauseLabelKey`，防 `check:i18n` 拦动态拼接）。
+**前端**（`GISMap.tsx`）：实时模式统计列第 3 张卡（TT 优先级卡之后；Alarm Stats 卡已于 2026-11-16 删除，故从第 4 张前移），标题右侧「AI 解读」按钮（第二个 `DraggableClickModal`：provider/key/model/base_url 配置 + 结果段落，`provider==='local'` 显示金色「本地规则模式」Tag、降级 note 原样展示）；簇条目 = 根因站名 + 类型 Tag + 受影响站数 + 置信度%；点条目开成员明细弹窗（上方证据块：根因站告警/链路路径/时间窗/eFlow 影响面；成员站名可点 → 复用 `handleSiteClick` 开下钻抽屉；导出走 `exportAoaReport`）。取数：`useEffect` deps `[mode, selectedRegion, selectedFilters, siteNameQuery]` + 300ms 防抖，**不走 cachedGet**（实时数据须与地图同代）。簇/类型标签用显式 switch 返回字面量 i18n 键（`rcaKindLabelKey`/`rcaCauseLabelKey`，防 `check:i18n` 拦动态拼接）。
 
 **口径自洽（2026-10-21 用户质疑「Site Stats (31) vs RCA (3) 对不上」后的修正）**：
 - 原标题括号里的数字是**簇数**，与 Site Stats 的**站数**不同单位，必然看着"不自洽"。已改为 `已归因站数/告警站总数`（如 `(6/31)`），与 Site Stats 同单位可直接对拍；hover 提示（`gis.rca.titleHint`）给出簇数与口径解释。
 - **未归因 = 31 − 6 = 25 个站是孤立故障**：上游没告警、下挂没人跟着断、也没有同窗口同问题的同伴 —— 它们的根因就是自己，不进任何"共享根因"簇（这正是 RCA 的定义：只找**相同原因**）。卡片脚注（`gis.rca.metaLine`）**可点击**，打开"未归因告警明细（孤立故障）"弹窗，用户可对地图逐点核验"剩下的站都去哪了"。
-- **未归因弹窗 = 项目默认告警明细列（2026-10-21b 用户要求，明细参考点击 Alarm Stats 条目的弹窗）**：不再用自造的 4 列精简站点表，改为一行一条**告警**、与 `/realtime/oss-alarms` 下钻**同键同形**的明细行（站点/站名/区域/省县/TT/告警标题/告警码/优先级/告警时间/时长/是否超时，前端直接复用默认 `drillColumns`，导出也落同一个 11 列通用分支）。实现：`gis.py::_realtime_rca_payload` 在连接内先跑 `compute_rca`，按 `meta.uncovered_site_ids` 从**同一次扫描**的 `rca_rows` 里挑出未归因行（`rca_rows` 已在扫描时补上 `servertime/duration/overdue` 三列），再用同一个连接走 `_resolve_tt_priorities`（镜像优先+实时补漏）解析优先级 —— 弹窗行所属站点与脚注"未归因 N 站"出自同一次响应，数字必然一致；截断超 500 条显式暴露（`uncovered_truncated` + 弹窗红色 Tag）。
+- **未归因弹窗 = 项目默认告警明细列（2026-10-21b 用户要求，明细参考点击 Site Stats 条目的弹窗）**：不再用自造的 4 列精简站点表，改为一行一条**告警**、与 `/realtime/oss-alarms` 下钻**同键同形**的明细行（站点/站名/区域/省县/TT/告警标题/告警码/优先级/告警时间/时长/是否超时，前端直接复用默认 `drillColumns`，导出也落同一个 11 列通用分支）。实现：`gis.py::_realtime_rca_payload` 在连接内先跑 `compute_rca`，按 `meta.uncovered_site_ids` 从**同一次扫描**的 `rca_rows` 里挑出未归因行（`rca_rows` 已在扫描时补上 `servertime/duration/overdue` 三列），再用同一个连接走 `_resolve_tt_priorities`（镜像优先+实时补漏）解析优先级 —— 弹窗行所属站点与脚注"未归因 N 站"出自同一次响应，数字必然一致；截断超 500 条显式暴露（`uncovered_truncated` + 弹窗红色 Tag）。
 
 **边界**：78 量级的卫星站无 `link_path`，只走同因聚集或计入 `meta.uncovered_sites`，不会误挂到拓扑簇；脏 site_id 复用扫描内 `_build_site_id_resolver` 归位，孤儿计 `orphan_alarm_rows`；`raised_ms` 缺失的行不参与 B 簇时间窗但仍计数；缺列部署（旧库）由 `rt_cols` 存在性探测兜底（`NULL AS <col>`），RCA 退化为「无拓扑簇」而非 500。
 
@@ -4189,9 +4189,9 @@ Excel `BP Cells List` 的 `Cluster`/`Layer` 列有脏值（如数字 ID `'4593'`
 
 | 项 | 值 |
 | --- | --- |
-| 表 | `speedtest_data`（由 `Speedtest.xlsx` 导入） |
-| 行数 | 854 行，日期 2025-07-16 ~ 2026-09-24 |
-| 运营商取值 | 只有 `Orange`（434 行）与 `Lonestar Cell MTN`（420 行） |
+| 表 | `speedtest_data`（由 `Speedtest.xlsx` 导入，可被「数据上传」页整表重导） |
+| 行数 | 950 行，日期 2025-07-16 ~ 2026-11-12（2026-11-16 那次重导后的实测值；重导会变） |
+| 运营商取值 | 只有 `Orange`（483 行）与 `Lonestar Cell MTN`（467 行） |
 | 品牌归一 | `provider ILIKE '%orange%'` → ORANGE；`%mtn%` 或 `%lonestar%` → MTN；其余 OTHER（当前为 0 行） |
 | 展示名 | ORANGE 显示 `Orange`、MTN 显示 `MTN`。**`Lonestar Cell MTN` 只是 MTN 在利比里亚的注册全称**，页面上过长的名字会挤变形表格列宽与图表图例，故一律用简称；改名只动 `BRAND_LABELS`，**匹配 pattern 仍必须保留 `%lonestar%`**，否则 MTN 的 420 行会全部落到 OTHER |
 | 四个指标列 | 下载 `download_speed_mbps`、上传 `upload_speed_mbps`、时延 `multi_server_latency`、抖动 `multi_server_jitter` |
@@ -4201,6 +4201,18 @@ Excel `BP Cells List` 的 `Cluster`/`Layer` 列有脏值（如数字 ID `'4593'`
 **口径唯一真相源**：`backend/services/bm_speedtest_caliber.py`。页面与接口都不含业务口径，
 改口径只改这一处。数据访问在 `backend/services/bm_speedtest_service.py`，
 路由在 `backend/routers/bm_speedtest.py`（前缀 `/api/bm-speedtest`）。
+
+> **⚠️ 表可整表重导，列集会变 —— `device` 是唯一的可缺列（2026-11-16 事故）**
+> 用户可以在「数据上传」页用 `POST /api/tables/import` 覆盖 `speedtest_data`。2026-11-16 15:55
+> 重导的新版导出（950 行）**没有 `device` 列**，而 `base_sql()` 当时把该列写死在 SELECT 里，
+> 于是三个接口全部报 `字段 "device" 不存在`（HTTP 仍 200，错误塞在 `meta.warnings`），
+> 整页卡片/曲线全空 —— 用户看到的就是「页面是空的」。
+> 现在：`cal.base_sql(columns=...)` 按**实际列名**投影，缺 `device` 时用字面量 `'all'` 顶替
+> （该列实测恒为 `all`/空串，不携带信息，两者在下游等价）；`bm_speedtest_service._table_columns()`
+> **每次请求现取列名、不缓存**（表可能被热重导，缓存会让故障复现到进程重启为止）。
+> 其它列仍属必需：`provider` / `aggregate_date` / 四个指标列 / `test_count` / `sample_count` /
+> `device_count` 缺任何一个都该报错，不要加进「可缺」名单。
+> 回归用例：`tests/test_bm_speedtest_missing_device.py`（只校验 SQL 生成，不连库）。
 
 **几个刻意的设计决定，改之前请先读理由**：
 
