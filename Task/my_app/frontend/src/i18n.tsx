@@ -99,6 +99,10 @@ const translations: Record<Locale, Record<string, string>> = {
     // uniplam 门户鉴权引导
     'auth.required': '需要登录',
     'auth.requiredTip': '请使用门户账号密码登录，或前往统一门户登录后再访问看板数据。',
+    // 页面级错误边界（PageErrorBoundary）：把「整屏空白」换成可读的报错与重试入口
+    'pageError.title': '页面加载失败',
+    'pageError.desc': '页面渲染时出错，已拦截，避免整屏空白。请点「刷新页面」重试；若反复出现，把下方报错发给管理员。',
+    'pageError.reload': '刷新页面',
     'auth.goLogin': '前往门户登录',
     'auth.retry': '重试',
     'auth.username': '用户名',
@@ -6721,6 +6725,10 @@ const translations: Record<Locale, Record<string, string>> = {
     // uniplam 门户鉴权引导
     'auth.required': 'Sign in required',
     'auth.requiredTip': 'Sign in with your portal account, or go to the unified portal to access dashboard data.',
+    // Page-level error boundary (PageErrorBoundary): turn a fully blank screen into a readable error + retry entry
+    'pageError.title': 'This page failed to load',
+    'pageError.desc': 'A rendering error occurred and was intercepted so the screen would not go blank. Click "Reload page" to retry; if it keeps happening, send the message below to your administrator.',
+    'pageError.reload': 'Reload page',
     'auth.goLogin': 'Go to portal',
     'auth.retry': 'Retry',
     'auth.username': 'Username',
