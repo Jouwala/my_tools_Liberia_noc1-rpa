@@ -245,11 +245,12 @@ class TestDbWriterFailureRecovery:
         class Remote:
             @staticmethod
             def query(db, sql, limit=500):
-                assert db == svc.DB_NAME and 'GROUP BY "ME"' in sql
-                return {"columns": ["ME", "mx"], "rows": [
-                    ["LEAD_ME", "2026-11-16 22:00:00"],
-                    ["LAG_ME", "2026-11-16 14:00:00"],
-                ]}
+                assert db == svc.DB_NAME and 'WHERE "ME" =' in sql
+                if "LEAD_ME" in sql:
+                    return {"rows": [["LEAD_ME", "2026-11-16 22:00:00"]]}
+                if "LAG_ME" in sql:
+                    return {"rows": [["LAG_ME", "2026-11-16 14:00:00"]]}
+                return {"rows": []}
 
         monkeypatch.setattr(svc, "_db_writer", Remote())
         headers = ["Begin Time", "ME"]

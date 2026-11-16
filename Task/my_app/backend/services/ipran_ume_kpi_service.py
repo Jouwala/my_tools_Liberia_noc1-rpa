@@ -1039,28 +1039,42 @@ def _watermarks_mark(watermarks: dict) -> str:
     return f"per-ME watermark {len(vals)} 个 (min={vals[0]}, max={vals[-1]})"
 
 
-def _remote_watermarks_by_me(table_name: str) -> dict:
-    """远端权威库按 ME 的 MAX(Begin Time)；失败返回 {} 由调用方退回表级水位。"""
+def _sql_str(value) -> str:
+    """把值安全地嵌进单引号 SQL 字面量（ME 名来自上游，仍按不可信处理）。"""
+    return str(value).replace("'", "''")
+
+
+def _remote_watermarks_by_me(table_name: str, mes) -> dict:
+    """远端权威库按 ME 的 MAX(Begin Time)；失败的 ME 跳过（其行全部保留）。
+
+    ⚠ **不要写成一条 `GROUP BY "ME"`**：2026-11-16 实测该表 45 万行时
+    `SELECT "ME", MAX(...) ... GROUP BY "ME"` 要 23~60s（远端子查询/全表扫描），
+    每张表每轮跑一次会拖住写服务。逐个 ME 查 `MAX(...) WHERE "ME"=...` 走
+    (Begin Time, ME, ...) 唯一索引反向扫描，实测 **0.03s/个**；ME 清单直接取自
+    本轮已拉到的行，天然只有「最近有数据」的 ME，不会去扫停更很久的对象。
+    """
     if _db_writer is None:
         return {}
-    try:
-        res = _db_writer.query(
-            DB_NAME,
-            f'SELECT "ME", MAX("Begin Time") AS "mx" FROM "{table_name}" '
-            f'GROUP BY "ME"',
-            limit=500,
-        )
-        rows = res.get("rows") or []
-        out = {}
-        for r in rows:
-            if len(r) >= 2 and r[0]:
-                t = _norm_begin_time(r[1])
+    out = {}
+    for me in mes:
+        if not me:
+            continue
+        try:
+            res = _db_writer.query(
+                DB_NAME,
+                f'SELECT "ME", MAX("Begin Time") AS "mx" FROM "{table_name}" '
+                f'WHERE "ME" = \'{_sql_str(me)}\'',
+                limit=1,
+            )
+            rows = res.get("rows") or []
+            if rows and len(rows[0]) >= 2 and rows[0][0]:
+                t = _norm_begin_time(rows[0][1])
                 if t:
-                    out[str(r[0])] = t
-        return out
-    except Exception as e:  # noqa: BLE001 - 取不到就退回表级/全量
-        logger.warning("[DB][API] %s 按 ME 取远端水位失败: %s", table_name, e)
-        return {}
+                    out[str(rows[0][0])] = t
+        except Exception as e:  # noqa: BLE001 - 单 ME 失败只是少一条水位，不阻断
+            logger.warning("[DB][API] %s 取 ME=%s 的远端水位失败: %s",
+                           table_name, me, e)
+    return out
 
 
 def _rows_since_watermark(table_name: str, headers: list, rows: list,
@@ -1070,7 +1084,7 @@ def _rows_since_watermark(table_name: str, headers: list, rows: list,
     不能复用本机 PG 水位：远端失败后的本地兜底也会推进本机水位，若据此裁剪，
     下一轮会跳过远端真正缺失的行。
 
-    水位按 ME 分别取（见本函数上方的 2026-11-16 事故说明）；按 ME 取不到时
+    水位按 ME 分别取（见本文件上方 2026-11-16 事故说明）；按 ME 取不到时
     才退回旧的表级水位。
     """
     if overlap_hours is None:
@@ -1078,7 +1092,13 @@ def _rows_since_watermark(table_name: str, headers: list, rows: list,
     if "Begin Time" not in headers:
         return rows, "no Begin Time column"
 
-    marks = _remote_watermarks_by_me(table_name)
+    mes = []
+    if "ME" in headers:
+        mi = headers.index("ME")
+        mes = list(dict.fromkeys(
+            str(r[mi]) for r in rows if mi < len(r) and r[mi] not in (None, "")))
+
+    marks = _remote_watermarks_by_me(table_name, mes) if mes else {}
     if marks:
         return (_crop_rows_by_me(headers, rows, marks, overlap_hours),
                 _watermarks_mark(marks))
@@ -1100,22 +1120,33 @@ def _rows_since_watermark(table_name: str, headers: list, rows: list,
         return rows, f"remote watermark unavailable ({e}) -> full send"
 
 
-def _local_watermarks_by_me(conn, table_name: str) -> dict:
-    """本机镜像表按 ME 的 MAX(Begin Time)；表不存在/为空/查询失败返回 {}。"""
+def _local_watermarks_by_me(conn, table_name: str, mes) -> dict:
+    """本机镜像表按 ME 的 MAX(Begin Time)；表不存在/为空/单 ME 失败都跳过。
+
+    与远端同理：逐个 ME 走 `WHERE "ME" = ?`，避免对百万行表做 GROUP BY
+    （本机 PG 的 ``ipran_ume`` 大表实测 580 万行）。
+    """
+    out = {}
     try:
         cur = conn.cursor()
-        cur.execute(
-            f'SELECT "ME", MAX("Begin Time") FROM "{table_name}" GROUP BY "ME"')
-        out = {}
-        for me, mx in cur.fetchall():
-            if me:
-                t = _norm_begin_time(mx)
-                if t:
-                    out[str(me)] = t
-        return out
-    except Exception as e:  # noqa: BLE001 - 取不到就全量镜像，不阻断
-        logger.warning("[MIRROR] %s 按 ME 取本机水位失败: %s", table_name, e)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[MIRROR] %s 取游标失败: %s", table_name, e)
         return {}
+    for me in mes:
+        if not me:
+            continue
+        try:
+            cur.execute(
+                f'SELECT MAX("Begin Time") FROM "{table_name}" WHERE "ME" = ?',
+                (me,))
+            row = cur.fetchone()
+            t = _norm_begin_time(row[0] if row else None)
+            if t:
+                out[str(me)] = t
+        except Exception as e:  # noqa: BLE001 - 单 ME 失败不阻断整批镜像
+            logger.warning("[MIRROR] %s 取 ME=%s 的本机水位失败: %s",
+                           table_name, me, e)
+    return out
 
 
 
@@ -1178,7 +1209,11 @@ def mirror_rows_to_local(table_name: str, headers: list, rows: list,
         # 用全表 MAX 会把另外 3 个 ME 整批裁掉；见 _crop_rows_by_me 上方说明）。
         picked = rows
         if apply_watermark and "Begin Time" in headers:
-            marks = _local_watermarks_by_me(conn, table_name)
+            mi = headers.index("ME") if "ME" in headers else -1
+            mes = list(dict.fromkeys(
+                str(r[mi]) for r in rows
+                if mi >= 0 and mi < len(r) and r[mi] not in (None, "")))
+            marks = _local_watermarks_by_me(conn, table_name, mes) if mes else {}
             if marks:
                 picked = _crop_rows_by_me(headers, rows, marks, overlap_hours)
                 logger.info("[MIRROR] %s: %s", table_name, _watermarks_mark(marks))
