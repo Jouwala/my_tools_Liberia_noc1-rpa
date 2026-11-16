@@ -5580,6 +5580,10 @@ const translations: Record<Locale, Record<string, string>> = {
     'pl.copyExplain': '复制说明',
     'pl.showOnMap': '点击在地图上显示',
     'pl.hideOnMap': '点击在地图上隐藏',
+    /* 地图左下角图例的口径说明（2026-11-16 图例从控制行移入地图浮层时新增）：
+       挂在地图图例标题旁的 ⓘ 上，讲清「数字不是圆点数」与「OK 行受开关控制」这两件
+       最容易被当成 bug 的事。**强调** 由 ExplainIcon 的 renderRich 渲染。 */
+    'pl.legendNote': '每一行的数字 = 按「近 1 天最大丢包率」五级分类统计的**站点数**，与顶部状态卡、Loss Distribution 饼图同一份口径（含无坐标站点）；地图圆点只画有坐标的站点，两者常差几个，**不要拿图例数字去数圆点**。点击某一行可在地图上隐藏 / 显示该状态，县名后的数字随之变化。OK 一行还受「显示正常站点」开关控制：开关关掉时后端不返回 OK 站点，该行会置灰 —— 点本行即可把开关重新打开。',
     'pl.searchPlaceholder': '搜索站点 / 编码 / 区域...',
     'pl.exportExcel': '导出 Excel',
     'pl.records': '{n} 条记录',
@@ -12098,6 +12102,9 @@ const translations: Record<Locale, Record<string, string>> = {
     'pl.copyExplain': 'Copy explanation',
     'pl.showOnMap': 'Click to show on map',
     'pl.hideOnMap': 'Click to hide on map',
+    /* Legend note for the map's bottom-left legend (added 2026-11-16 when the legend
+       moved out of the control row). Same wording as the zh dictionary. */
+    'pl.legendNote': 'The number on each row is the **site count** for one of the five Last-1-day Max PL bands — the same figures as the status cards on top and the Loss Distribution pie (sites without coordinates included); the map dots only draw sites that have coordinates, so do **not** count dots to check the legend. Click a row to hide / show that status on the map; the numbers after county names follow. The OK row is also driven by the "Show OK sites" switch: when that switch is off the backend returns no OK sites and this row is greyed out — click the row to turn the switch back on.',
     'pl.searchPlaceholder': 'Search site / code / region...',
     'pl.exportExcel': 'Export Excel',
     'pl.records': '{n} records',
