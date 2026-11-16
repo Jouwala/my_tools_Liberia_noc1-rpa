@@ -89,8 +89,20 @@ export function collectChanges() {
   const files = []
   for (const entry of r.stdout.split('\0')) {
     if (!entry || entry.length < 4) continue
-    const code = entry.slice(0, 2)
-    const path = entry.slice(3)
+    // porcelain v1 格式是定长 "XY<空格>路径"。但 run() 会 trim stdout，
+    // 若首条记录的 X 是空格（如未暂存的修改 " M"），开头的空格会被 trim 吃掉，
+    // 变成 "M 路径"，按 slice(3) 取路径会丢掉首字母（实测 "AGENTS.md" 变成 "GENTS.md"）。
+    // 判定：正常记录的第 3 个字符必为空格；不是空格即说明被 trim 过，
+    // 此时 code 应补回前导空格，路径从第 3 个字符起取。
+    let code
+    let path
+    if (entry[2] === ' ') {
+      code = entry.slice(0, 2)
+      path = entry.slice(3)
+    } else {
+      code = ` ${entry[0]}`
+      path = entry.slice(2)
+    }
     if (!path) continue
     files.push({ code, path: path.replace(/\\/g, '/') })
   }
