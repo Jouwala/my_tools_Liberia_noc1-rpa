@@ -1471,6 +1471,40 @@ SELECT "ME", MAX("Begin Time") FROM ipran_ume."Gbarnga_Buchanna_RIA_Kakata_me_15
 > 若将来要统一时基，先在 UME 侧核对设备时钟，再决定是改采集还是改展示，
 > **不要**在 SQL 里悄悄 `datetime(..., '-8 hours')`。
 
+### 看板组件的自动改名与已移除的空组件（2026-11-16）
+
+**ME / 端口改名自动适配**：`native_catalog.py` 里的 SQL 是生成时按 FineBI 配置写死的
+`"ME"='旧设备名'`。UME 改名后（实测 `9000-3EA_LBS_UPE59` → `M6K_2s16_LBS_UPE59`，
+对象 id `dfe167e4-...` 不变）曲线会永远为空。现由
+`backend/services/ipran_me_alias.py` 在**查询时**自动替换：
+
+- ME：从各 IP RAN 配置的 `chartsetting.charts[].mos/mosNames` 解析「旧名 → 对象 id」，
+  再向 UME 查当前 `displayName`（id 稳定，改名不影响）。
+- 端口：设备换代后端口名也变（`P90E-2CGT-Q28[...]-100GE:1` →
+  `RPN-02CG-H-VIRTUAL[0-0-7-0]-100GE:1`）。对每个旧端口，取旧 ME 在该端口的历史
+  均值，在新 ME 的**同速率后缀**端口里选均值最接近者；找不到同后缀就不猜（保持空，
+  不出一条错曲线）。
+- 结果缓存 `data/ipran_me_aliases.json`（12h），刷新失败沿用旧缓存；只在
+  `LOCAL_IPRAN_PG` 数据源上生效，远端/历史镜像不动。
+- 回归：`tests/test_ipran_me_alias.py`。
+
+**已移除的 6 个组件**（`_gen_native_catalog.py` 的 `WIDGET_DROP`，重新生成也会删）：
+
+| 看板 | 组件 | 原因 |
+| --- | --- | --- |
+| Daily Availability KPI | Availability-Montserrado / North-East / South-West | `avail_recon.availability_daily.FME_Region` 只有 `North`/`South`（Master_Site_Database 的 `Region` 列），三个旧区域名永远匹配不到行 |
+| Availability Dashboard (TT Related) | NW-Daily North East / South West / Montserrado | 同上 |
+
+**月度未完成行**：`1month_*` 表有「当月未完成」一行（Begin=11-01、End=12-01，数值
+只有半个月），`cn_kpi_monthly` 的 Time 卡原来会显示成 12-01。现 Time 卡 SQL 加
+`End Time < date('now')`（`_gen_native_catalog.WIDGET_SQL_OVERRIDES[8]`），趋势图在
+`dashboard_service._drop_future_month_rows()` 里丢弃首列月份大于当前月的行。
+
+**只跑副本一套栈**：`start.bat` / `start_ensure.bat` 在**编辑区**执行时会转发到
+`D:\01_olbr_portal`（`%~dp0` 守卫防止副本递归），配合 `MyApp_AutoStart` 已有的
+转发，避免编辑区再起第二套 backend/worker 把 5432/7038 抢走、并让两边 `data/`
+目录各自停更（2026-11-16 实测新鲜度巡检 14:15 全绿、15:16 报 5 条假停更、16:15 又全绿）。
+
 ### 后端静默停摆：连崩 10 次永久退出（2026-10-05 事故，2026-10-06 修复）
 
 **现象**：`https://localhost/myapp/` 打得开（SPA 外壳 200、2866B），但页面全是空数据；

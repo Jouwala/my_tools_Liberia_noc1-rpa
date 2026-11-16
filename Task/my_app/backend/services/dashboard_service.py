@@ -721,14 +721,39 @@ def resolve_db(db: str) -> str:
 # ----------------------------------------------------------------------
 # 取组件数据
 # ----------------------------------------------------------------------
+_MONTH_KEY_RE = re.compile(r"^\d{4}-\d{2}$")
+
+
+def _drop_future_month_rows(rows: List[list]) -> List[list]:
+    """丢掉「未来月份」的行。
+
+    月度表（``1month_*``）会有**未完成的当月**一行：Begin=11-01、End=12-01、
+    数值只有半个月。原样画出来会被误读成「12 月当月暴跌」，因此按首列的
+    ``YYYY-MM`` 与当前月份比较，比当前月大的行整行丢弃；当月（等于当前月）
+    保留，它不是未来。
+    """
+    cur = datetime.now().strftime("%Y-%m")
+    out = []
+    for r in rows:
+        key = str(r[0] or "")[:7]
+        if _MONTH_KEY_RE.match(key) and key > cur:
+            continue
+        out.append(r)
+    return out
+
+
 def _fetch_widget(w: Dict[str, Any],
                   start: str = "", end: str = "") -> Dict[str, Any]:
     """取单个组件数据；失败只标记该组件，不拖垮整页。"""
     raw_db = w.get("db", "")
     db = resolve_db(raw_db)
+    from backend.services import ipran_me_alias as _me_alias
+    title = w["title"]
+    if db == LOCAL_IPRAN_PG:
+        title = _me_alias.apply_text(title)
     out: Dict[str, Any] = {
         "id": w["id"],
-        "title": w["title"],
+        "title": title,
         "chart": w["chart"],
         "pivot": bool(w.get("pivot")),
         "pct": bool(w.get("pct")),
@@ -751,7 +776,12 @@ def _fetch_widget(w: Dict[str, Any],
         return out
 
     limit = w.get("limit") or DEFAULT_LIMIT
-    sql, pushed = _pushdown_time_window(w["sql"], start, end)
+    # IP RAN 看板：ME/端口可能在 UME 侧改过名（对象 id 不变），查询前把生成时
+    # 留下的旧字面量替换成当前名字；详见 backend/services/ipran_me_alias.py。
+    src_sql = w["sql"]
+    if db == LOCAL_IPRAN_PG:
+        src_sql = _me_alias.apply_sql(src_sql)
+    sql, pushed = _pushdown_time_window(src_sql, start, end)
     out["pushed"] = pushed
 
     # 只在本机 PG 模式下、用户显式选了区间、且 PG 该表该区间确实没数据时，
@@ -803,6 +833,16 @@ def _fetch_widget(w: Dict[str, Any],
             out["windowed"] = True
             out["grain"] = "month" if month_grain else "day"
             # 包装后首列仍是原列名，保持前端取数约定不变
+
+        # 月度看板：丢弃未完成的当月行（见 _drop_future_month_rows 注释）
+        if (w["chart"] in _WINDOWABLE_CHARTS
+                and 'FROM "1month_' in (w.get("sql") or "")):
+            rows2 = _drop_future_month_rows(rows)
+            dropped = len(rows) - len(rows2)
+            if dropped:
+                logger.info("组件 %s(%s): 丢弃 %d 行未完成月份",
+                            w["id"], w["title"], dropped)
+            rows = rows2
 
         out["columns"] = cols
         out["rows"] = rows
