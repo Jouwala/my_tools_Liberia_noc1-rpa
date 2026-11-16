@@ -1847,6 +1847,15 @@
       return n == null ? null : (n - lo) / span;
     });
   }
+  /* 卡头上的「谁领先」胶囊。奖杯是装饰（文案已经点名品牌）。
+     颜色类跟领先方走：Orange → bf-lead--o，其余（MTN）→ bf-lead--m。
+     不在这里写死色值，色在 olbr.css 的令牌里。 */
+  function bfLeadBadge(leadKey, label) {
+    var kind = leadKey === 'ORANGE' ? 'o' : 'm';
+    return '<span class="bf-lead bf-lead--' + kind + '">' +
+      '<i class="ph ph-trophy" aria-hidden="true"></i>' +
+      '<span class="bf-lead-t">' + esc(label) + '</span></span>';
+  }
   /* ==================================================================== v1 ==
      Benchmark 行：Network Benchmark View（2026-10-01 加）
      ----------------------------------------------------------------------------
@@ -1918,7 +1927,7 @@
         rowTip.push(tf('kpi.bf.winTip', { m: name, n: bl, d: win, w: w, r: kpiNum(rate, 1) }));
       }
       rowTip.push(tf('kpi.bf.tipTests', { n: bl, t: kpiNum(s.tests, 0), dev: kpiNum(s.devices, 0) }));
-      return '<div class="bf-row' + (isLead ? ' is-lead' : '') + '" title="' + esc(rowTip.join('\n')) + '">' +
+      return '<div class="bf-row' + (isLead ? (' is-lead is-' + (p.key === 'ORANGE' ? 'o' : 'm')) : '') + '" title="' + esc(rowTip.join('\n')) + '">' +
         '<span class="bf-brand"><i>' + esc(bl) + '</i>' +
           '<span class="bf-val">' + esc(fmt(p.v)) + '</span></span>' +
         '<span class="bf-meta">' +
@@ -1944,8 +1953,8 @@
        rel="noopener nofollow" 与同页其它外跳一致。 */
     return '<a class="qc-card qc-card--bf qc-card--open' + (na ? ' is-na' : '') + '" href="' +
         esc(href) + '" target="_blank" rel="noopener nofollow" title="' + esc(tip.join('\n')) + '">' +
-      '<div class="bf-hd"><b>' + esc(name) + '</b><i>' + esc(spec.unit) + '</i>' +
-        (lead ? '<span class="bf-lead">' + esc(tf('kpi.bf.lead', { n: (rows[lead] && rows[lead].label) || lead })) + '</span>' : '') +
+      '<div class="bf-hd"><span class="bf-name"><b>' + esc(name) + '</b><i>' + esc(spec.unit) + '</i></span>' +
+        (lead ? bfLeadBadge(lead, tf('kpi.bf.lead', { n: (rows[lead] && rows[lead].label) || lead })) : '') +
       '</div>' +
       '<div class="bf-rows">' + body + '</div>' +
       /* 走势图（2026-10-01 加）：插在「两家两行数」与页脚之间 ——
@@ -2047,8 +2056,8 @@
     var lead = null;
     /* 一行 = 左「名字 + 数值」、右「补充说明」，与 Ookla 卡同一套 .bf-row 结构。
        tip 是这一行自己的 tooltip（行数少，读屏/悬停要能单独解释一行）。 */
-    var bfRow = function (label, value, metaTxt, tip, isLead) {
-      return '<div class="bf-row' + (isLead ? ' is-lead' : '') + '" title="' + esc(tip) + '">' +
+    var bfRow = function (label, value, metaTxt, tip, isLead, brandKey) {
+      return '<div class="bf-row' + (isLead ? (' is-lead is-' + (brandKey === 'ORANGE' ? 'o' : 'm')) : '') + '" title="' + esc(tip) + '">' +
         '<span class="bf-brand"><i>' + esc(label) + '</i>' +
           '<span class="bf-val">' + esc(value) + '</span></span>' +
         '<span class="bf-meta"><span class="bf-pct">' + esc(metaTxt) + '</span></span>' +
@@ -2106,7 +2115,7 @@
           ? DATA.BENCH_BRANDS[0] : DATA.BENCH_BRANDS[1];
       }
       body = rowsOfBrands.map(function (r, i) {
-        return bfRow(r.label, fmt(r.v), r.metaTxt, r.tip, lead === DATA.BENCH_BRANDS[i]);
+        return bfRow(r.label, fmt(r.v), r.metaTxt, r.tip, lead === DATA.BENCH_BRANDS[i], DATA.BENCH_BRANDS[i]);
       }).join('');
     }
     /* 页脚三格与 Ookla 卡**同结构**（左窗口、中覆盖、右来源标识），但内容不同：
@@ -2163,11 +2172,11 @@
     return '<a class="qc-card qc-card--bf qc-card--open has-foot' + (na ? ' is-na' : '') +
         '" href="' + esc(href) + '" target="_blank" rel="noopener nofollow" title="' +
         esc(tip.join('\n')) + '">' +
-      '<div class="bf-hd"><b>' + esc(name) + '</b><i>' + esc(unit) + '</i>' +
+      '<div class="bf-hd"><span class="bf-name"><b>' + esc(name) + '</b><i>' + esc(unit) + '</i></span>' +
         (lead
-          ? '<span class="bf-lead">' + esc(tf('kpi.mm.lead', {
+          ? bfLeadBadge(lead, tf('kpi.mm.lead', {
               n: (sum && sum[lead] && sum[lead].label) || lead
-            })) + '</span>'
+            }))
           : '') +
       '</div>' +
       '<div class="bf-rows">' + body + '</div>' +
@@ -7507,16 +7516,21 @@
        拍板的（见下方 MAP_ZOOM_* 段落的长注释）；容器矮了 2/3 之后，同样 zoom 8
        会让地图内容相对容器显得更大、裁得更多。用户 2026-10-12 要求"地图小一号"，
        故降回内层页自己的 zoom 7 —— 与 Alarm 页一致，两页统一。
-       ⚠️ 改回 true 之前先读下方那段历史注释：zoom 8 的取舍是"高度 860px"为前提的，
+       ⚠️ 历史：2026-10-12~11-16 期间本项为 false（当时容器高度 573px，zoom 8 裁边更多）；
           换高度就要重新拍板，不要单凭"裁边了/太小了"来回翻。 */
-    mwRealTime: false,
+    /* 2026-11-16：用户要求「GIS Map 里面的 MW 页签，默认地图放大一号」→ 恢复 true。
+       2026-10-12 改成 false 的前提（--maprow-h 从 860px 砍到 573px）已消失：
+       olbr.css 的 .maprow 现为 860px，zoom 8 正是 2026-10-02 在 860px 下
+       由用户拍板的档位（「7 有点太小，放大一级正好」）。
+       ⚠️ 若将来 --maprow-h 再被调矮，先重新评估取景，不要直接沿用本行。 */
+    mwRealTime: true,
     /* 2026-10-19 加 person（"Person" 页签，?page=person）：与 Alarm 同理，
        内层页自己落在 zoom 7.5 装下全境，门户不再自动放大。
        该页不暴露 fitAllSites，走 zoomOnce 那条路 —— 本项为 false 时 zoomOnce
        对它早退，即"打开即所见"。 */
     person: false,
     /* 2026-11-06 加 ipt_power（现名 "Power" 页签，原名 IPT Power）：纯地图形态后
-       仍沿用内层页自己的 zoom 8 取景，门户不做任何自动放大（同 Alarm / MW / Person）。
+       仍沿用内层页自己的 zoom 8 取景，门户不做任何自动放大（同 Alarm / Person）。
        未登记的页默认也是不放大，这里显式列出便于对照。
        2026-11-11 加 packet_loss（"PL" 页签）：同样用内层页自己的 zoom 8。 */
     ipt_power: false, ipranTopo: false, packet_loss: false
@@ -7711,15 +7725,23 @@
     var w = d.defaultView;
     if (!w || typeof w.fitAllSites !== 'function') return false;
     if (d.__olbrRefitState) return false;
-    var st = d.__olbrRefitState = { lastH: -1, tries: 0, timer: null };
+    var st = d.__olbrRefitState = { lastH: -1, tries: 0, timer: null, zoomTimer: null, gen: 0 };
     var apply = function () {
       st.timer = null;
       var lc = d.querySelector('.leaflet-container');
       if (!lc) return;
       var h = Math.round(lc.getBoundingClientRect().height);
       if (h <= 0 || h !== st.lastH) return;
+      /* ⚠️ 2026-11-16：每次 apply 都会先 fit 回 7、短延迟后再 +1。如果上一轮
+         apply 的 +1 定时器还没触发，本轮又 fit 了一次，两个定时器会先后各点一次
+         「+」，最终落到 9 而不是 8（实测偶发）。重新 fit 前取消上一轮定时器，
+         并用 gen 让已进入执行栈的旧回调作废 —— 每轮 fit 只允许对应一次 +1。 */
+      if (st.zoomTimer) { clearTimeout(st.zoomTimer); st.zoomTimer = null; }
+      var gen = ++st.gen;
       try { w.fitAllSites(); } catch (e) { /* 内层页自己会兜底 */ }
-      /* fit 之后才加一级（fit 会重置视野）；再晚一点：fit 带动画时立刻 setZoom 会被忽略。
+      /* fit 之后才加一级（fit 会重置视野）；80ms 是让 fitBounds 先落定、又不让用户
+         看到中间态 7 的折中 —— fitAllSites 内部是 animate:false，下一帧足够；
+         原来的 700ms 在重复 refit 时会让「7 → 8」的跳动被看见。
          这里不去重是刻意的 —— 每轮都是「重新 fit + 一级」，不会累加：
          fitAllSites() 内部是 fitBounds(全国, animate:false)，**每次都会把 zoom 重新压回 7**，
          所以每轮「fit → +1」都收敛到同一个 8，而不是 8→9→10。
@@ -7731,7 +7753,11 @@
          故查 'mwRealTime' 那一项，当前仍为 true —— **MW 页行为不变**。
          同一轮里 gis（"Alarm" 页签）那一项被置为 false，由 zoomOnce 提前早退实现。 */
       if (shouldZoomIn('mwRealTime')) {
-        window.setTimeout(function () { zoomInLeaflet(d); }, 700);
+        st.zoomTimer = window.setTimeout(function () {
+          st.zoomTimer = null;
+          if (gen !== st.gen) return;      // 已被新一轮 fit 取代，作废
+          zoomInLeaflet(d);
+        }, 80);
       }
     };
     (function tick() {

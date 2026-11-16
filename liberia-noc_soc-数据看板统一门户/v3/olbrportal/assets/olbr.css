@@ -209,6 +209,14 @@
          这是用户要求里唯一需要"按主题翻译"的地方，不是擅自改他的色。 */
   --bf-orange: #f97316;
   --bf-mtn: #1a1a1a;
+  /* 领先徽章的字色 / 浅底（2026-11-16）。
+     线色 --bf-orange 不能直接当 11.5px 的字：卡底 #f2fbfd 上 #f97316 约 2.6:1。
+     --bf-orange-ink 是同色相压暗到 #c2410c，叠在 8% 品牌浅底上约 4.6:1，过 AA 正文。
+     边框仍用 --bf-orange 本身，所以徽章的色相和走势线是同一支橙，不是标题橙 --title。
+     深色档的字色见 html.dark：深底上提亮后的线色已经够读，不必再压暗。 */
+  --bf-orange-ink: #c2410c;
+  --bf-orange-tint: rgba(249, 115, 22, .08);
+  --bf-mtn-tint: rgba(26, 26, 26, .08);
 
   /* ---- Escalation Matrix 四级配色（2026-09-28 加）----
      用户要求「表格按照 Level 显示不同的颜色，注意深浅两种主题背景」。
@@ -381,6 +389,10 @@ html.dark {
      它比正文色更亮，但深色主题下"白色数据线"是常规画法，不抢橙线的主角位。 */
   --bf-orange: #fb923c;
   --bf-mtn: #e8eaf0;
+  /* 领先徽章深色档。字色直接用提亮后的线色：深卡底上约 6.5:1 以上，不必再找一支更亮的橙。 */
+  --bf-orange-ink: #fb923c;
+  --bf-orange-tint: rgba(251, 146, 60, .16);
+  --bf-mtn-tint: rgba(232, 234, 240, .12);
 
   /* ---- Escalation Matrix 四级配色 · 深色档（2026-09-28 加）----
      与浅色档**同一组色相、不同的明度**（见浅色档处的完整说明）：
@@ -1647,9 +1659,24 @@ html:not(.dark) .qc-spark .sp-bar.sp-warn { stroke-width: 1; }
    （实测卡名 51px 塞进 45px、徽章 72px 塞进 65px，都只能靠 ellipsis 显示不全）。
    折行后徽章落到第二行，卡名与单位保住完整 —— 窄屏多占一行高度是可接受的代价，
    而"卡名显示不全"不是。 */
+/* 2026-11-16：标题与领先标记垂直居中。
+   原先 align-items:baseline，胶囊的字盒和标题的字盒不在同一条中线上，
+   看起来一边偏高、一边贴得紧。
+   左边「卡名 + 单位」收成 .bf-name 再 justify-content:space-between，
+   否则三个子项会被拆开，单位会漂到中间。
+   min-height:24px 只保证单行时有一个居中盒。折行后的 42px 下限仍在
+   下面 .qc-card--bf .bf-hd，那是为了六张卡的图顶对齐，不能拿 24px 换掉。
+   align-content:flex-start：多出来的那截高度留在行下面，不要把标题
+   在 42px 里垂直居中，否则没折行的卡会比折行的卡往下沉一截。 */
 .bf-hd {
-  display: flex; align-items: baseline; flex-wrap: wrap; gap: 2px 5px;
-  width: 100%; min-width: 0;
+  display: flex; align-items: center; align-content: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap; gap: 2px 8px;
+  width: 100%; min-width: 0; min-height: 24px;
+}
+.bf-name {
+  display: inline-flex; align-items: center; gap: 5px;
+  flex: 1 1 auto; min-width: 0;
 }
 .bf-hd b {
   /* ⚠️ min-width:0 不能省：flex 子项的默认 min-width 是 auto，
@@ -1670,18 +1697,40 @@ html:not(.dark) .qc-spark .sp-bar.sp-warn { stroke-width: 1; }
   white-space: normal; overflow: hidden;
 }
 .bf-hd i { font-style: normal; flex: none; font-size: var(--fs-2xs); color: var(--t3); }
-/* 领先方徽章。用 --ok 绿色而不是品牌色：它表达的是"这家在这项上更强"，
-   不是"这是 Orange"—— 品牌归属已经由每行左边的品牌名说了。
-   绿色与 .qc-ext .hi 同色系，于是"好的一端是绿的"在整页是同一条规则。
-   折行时（窄断点）徽章落到卡名下一行、贴左显示：margin-left:auto 只在
-   与卡名同一行时才有意义，所以用 .bf-hd > * + .bf-lead 之外无法判断 ——
-   这里改成 `margin-left:auto` 保留（同行时顶右），折行后它自己占一行、
-   auto 左边距把徽章推到最右，视觉上仍是"右侧的补充信息"。 */
+/* 领先方徽章（2026-11-16 改）。
+   原先用 --ok 绿：表达「这项谁更强」，不是「这是 Orange」。
+   用户要求改成奖杯 + 胶囊，颜色走运营商自己的品牌色（与走势线同一套
+   --bf-orange / --bf-mtn），不要再借「达标绿」。
+   ⚠️ 颜色跟**领先的那一家**走，不把两家都涂成橙：MTN 领先时若仍是橙，
+   徽章就在说「这是 Orange」。Orange → --bf-orange-ink，MTN → --bf-mtn。
+   字色用 ink 而不是线色本身，原因见令牌处：11.5px 的 #f97316 在浅色卡上读不清。
+   外形见下一条：无边框浅底，避免和组头的 Open link 描边胶囊长得一样。 */
+/* 无边框、小圆角、浅底：和组头 .qc-group-go（描边胶囊「Open link ↗」）拉开。
+   那个链接是可点的，领先标记只是展示。圆角用 --r1，不跟链接的 999px 药丸抢样子。
+   margin-left:auto 留着：窄屏折到下一行时，space-between 推不动单独一项，
+   auto 仍把它顶到右边。 */
 .bf-lead {
-  flex: none; margin-left: auto; font-size: var(--fs-2xs); line-height: var(--lh-base);
-  border-radius: 11px; padding: 1px 8px; white-space: nowrap;
-  border: 1px solid color-mix(in srgb, var(--ok) 55%, transparent);
-  color: var(--ok); background: var(--ok-tint);
+  display: inline-flex; align-items: center; gap: 4px;
+  flex: none; margin-left: auto;
+  font-size: var(--fs-2xs); font-weight: 600; line-height: 1;
+  letter-spacing: .04em; text-transform: uppercase; white-space: nowrap;
+  border: 0; border-radius: var(--r1); padding: 3px 7px 3px 5px;
+}
+/* 奖杯是装饰：文案已经说了谁领先。字号压过 .bf-hd i 的灰色单位样式，
+   颜色跟徽章走，不要变成 --t3。 */
+.bf-lead .ph {
+  flex: none; font-size: 13px; line-height: 1; color: currentColor;
+}
+/* 裁掉字面上下的多余行距，让大写字母和奖杯在胶囊里垂直居中。
+   Firefox 尚不支持 text-box，会忽略这条，胶囊仍可用，只是没那么贴。 */
+/* 标题和徽章文字都裁掉字面行距，flex 的 center 才是对字母，不是对空白。 */
+.bf-hd b,
+.bf-lead-t { text-box: trim-both cap alphabetic; }
+.bf-lead--o {
+  color: var(--bf-orange-ink); background: var(--bf-orange-tint);
+}
+.bf-lead--m {
+  color: var(--bf-mtn); background: var(--bf-mtn-tint);
 }
 
 /* 两个品牌各一行。两列：左「品牌 + 数值」，右「P50/P90 + 胜率」。
@@ -1717,9 +1766,10 @@ html:not(.dark) .qc-spark .sp-bar.sp-warn { stroke-width: 1; }
   font: 600 15px/var(--lh-tight) var(--mono); color: var(--t1);
   font-variant-numeric: tabular-nums;
 }
-/* 领先方的数字转绿加粗，与徽章呼应；落后的保持常态 ——
-   两家都加粗就等于都没加粗。 */
-.bf-row.is-lead .bf-val { color: var(--ok); }
+/* 领先方的数字跟徽章同一支品牌色，落后的保持常态。
+   两家都上色就等于都没上色。字色用 ink：15px 的 #f97316 在浅色卡上同样不够。 */
+.bf-row.is-lead.is-o .bf-val { color: var(--bf-orange-ink); }
+.bf-row.is-lead.is-m .bf-val { color: var(--bf-mtn); }
 /* 右列：P50/P90 与胜率上下两行，统一右对齐，两行之间能对齐 */
 .bf-meta {
   display: flex; flex-direction: column; align-items: flex-end;

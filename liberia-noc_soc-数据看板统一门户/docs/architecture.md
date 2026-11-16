@@ -1151,7 +1151,68 @@ MW 仍 `zoom 8` 且点一次 `-` 回到 7；Alarm 打开态跨度 **752**，与�
    判据已改为按**像素**直接量平移量。
 
 
+## 九之十附、2026-11-16 v3/olbrportal 的 MW 页签：恢复默认放大一级 + 地图图例
+
+**需求原话。**「`https://localhost/v3/olbrportal/` 页面的 GIS Map 里面的 MW 页签，
+默认地图放大一号，并且添加图例。」
+
+### 1. 默认放大一级
+
+- 改动：`v3\olbrportal\assets\olbr.js` 的 `MAP_ZOOM_IN_BY_PAGE.mwRealTime`
+  由 `false` 改回 `true`。
+- 为什么现在可以改回：2026-10-12 改成 `false` 的前提是 `.maprow --maprow-h`
+  从 860px 砍到 573px（矮容器里 zoom 8 裁得更多）；`olbr.css` 现已回到
+  860px，而 zoom 8 正是 2026-10-02 用户在 860px 下拍板的档位。
+- 实现没变：仍由 `refitLeaflet()` 在每次 `fitAllSites()` 之后点内层页的
+  `.leaflet-control-zoom-in`，落点 **zoom 8**（内层全国档 7 + 1）。
+- **本次补了一个竞态保护**：`apply()` 每次先 fit 回 7，80ms 后 +1；
+  如果上一轮的 +1 定时器还没触发、本轮又 fit 了一次，两个定时器会各点一次
+  `+`，偶发落到 zoom 9。现在重新 fit 前 `clearTimeout` 上一轮的 `zoomTimer`，
+  并用 `gen` 让已进入执行栈的旧回调作废。延迟同时从 700ms 收到 80ms
+  （`fitAllSites` 内部是 `animate:false`，下一帧足够），避免用户先看到 7 再跳到 8。
+- 实测（Playwright，无头 Chromium，1680×1050，连续 8 轮）：MW 打开后最终
+  **zoom 8**，逐 250ms 采样最大值为 8、无 9；持久化 `olbr.maptab=mwRealTime`
+  首屏直开也是 8；Alarm → MW → Alarm → MW 来回切换，MW 每次都回到 8。
+- 版本范围：`v3/olbrportal` 与由其生成的 `v3/team_portal` 都改为 `true`
+  （团队门户资产跟上游走，提交前 `check-team-scope` 已通过对齐）。
+  `v1` 本来就是 `true`；`v2` 仍是 `false`，本次未动。
+
+### 2. 地图图例
+
+图例做在 **`Task\my_app\frontend\public\mw_real_time.html`** 里，不是门户壳里：
+
+- 用 Leaflet 自定义控件（`L.control({position:'bottomleft'})`），挂在
+  `.leaflet-container` 内部。**不能**做成 `#topo-wrap` 的兄弟浮层 —— 门户内嵌时
+  `keepOnlyMap()` 会把 `#topo-wrap` 的兄弟节点整块刷成 `display:none`，
+  放外面会被一起剥掉（本次实测已确认控件在剥离后仍可见）。
+- 行目：Healthy `<60%` / Minor `60-70%` / Major `70-80%` / Critical `>80%` /
+  Unknown `(no KPI)`，加一条「县界」。颜色直接取 `--vmax-lvl-*` 令牌，
+  与链路、站点、KPI 卡、分布图同源；Unknown 画虚线，对应
+  `renderTopoLeaflet()` 的 `dashArray:'4 6'`。
+- i18n：新增 `legend.title` / `legend.county` / `legend.note`，中英双字典；
+  语言切换时 `applyLocale()` 会一并刷新图例文本与 `aria-label`。
+- 位置：左下角；门户 `.canvas-note`（约 26px，盖在 iframe 底部）会压住贴底图例，
+  故 `.leaflet-bottom .mw-legend` 抬高 28px。图例纯展示，`pointer-events:none`，
+  不挡地图拖拽/滚轮。
+- 窄屏：媒体查询量的是 **iframe 自己的宽度**，阈值取 **560px** 而不是 768px ——
+  1366 宽笔记本上地图栏只有约 617px，写 768 会让图例整块消失（本次实测踩到）。
+- 因为图例在共享的 `mw_real_time.html` 里，**直开本页、MsPortal、v3 门户**
+  都会看到同一份图例；门户自动放大只发生在 v3 的 MW 页签。
+
+### 3. 验收留档
+
+本次用无头 Chromium（Playwright）实测，临时探针随任务清理，结论如下：
+
+- 门户 MW 页签：`leafMap.getZoom()===8`、`.mw-legend` 存在、中英文本正确、
+  控制台 0 error；截图见本次交互记录。
+- 8 轮逐 250ms 采样：每轮 min 7（fit 瞬间）/ max 8 / final 8，未再出现 9。
+- 1920 / 1366 / 1024 / 800 / 768 宽（浏览器视口）下 .mw-legend 均可见；
+  iframe 宽 ≤560px 时隐藏（375 手机实测 `display:none`）。
+- 直开 `mw_real_time.html` 浅/深两主题：图例背景与文字均跟随主题，0 pageerror。
+
+
 ## 九之十一、2026-10-07 `#kpi` 两排卡改为「连体卡组 + 组头链接」
+
 
 **背景（用户原话）。** 「`Network Benchmark View` 组件前 3 个卡片下钻都是打开相同的页面，
 容易让人误解是 3 个不同的页面，有没有办法弄一个组之类的，从感观告诉人们点击会打开同一个页面」。
