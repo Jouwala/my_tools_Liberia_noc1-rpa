@@ -12,7 +12,7 @@
  *   ① 缺文件 → ok=false 且 missingInIndex 点名该文件；
  *   ② 过期**不抛异常**（索引过期是质量问题，不该让进程起不来 / ping 挂掉）。
  */
-import { scanKnowledge, diffIndex, freshnessWarning } from '../src/indexFreshness.js';
+import { scanKnowledge, diffIndex, freshnessWarning, hashKnowledge } from '../src/indexFreshness.js';
 import { existsSync, mkdirSync, writeFileSync, rmSync, utimesSync } from 'node:fs';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -177,6 +177,56 @@ console.log('\n[5] scanKnowledge 用临时目录（真实 stat）');
   check(d.ok === false && d.newerOnDisk.includes('a.md'), '改 mtime 后 diff 能发现', JSON.stringify(d));
 
   cleanup(TMP);
+}
+
+console.log('\n[6] hashKnowledge：正文指纹（2026-11-16 起 sync-kb 的判据）');
+{
+  const DIR = join(ROOT, 'TMP', '_test_kb_hash');
+  const cleanup = (dir) => {
+    try {
+      rmSync(dir, { recursive: true, force: true });
+    } catch {
+      /* 网络盘上偶发 EPERM */
+    }
+  };
+  cleanup(DIR);
+  mkdirSync(DIR, { recursive: true });
+  writeFileSync(join(DIR, 'a.md'), '# A\nhello', 'utf8');
+  writeFileSync(join(DIR, 'b.md'), '# B\nworld', 'utf8');
+
+  const h1 = hashKnowledge(scanKnowledge(DIR, DIR), DIR);
+  check(/^[0-9a-f]{64}$/.test(h1), '返回 sha256 十六进制');
+
+  // 只改 mtime：正文没变 → 指纹必须不变（这是「不白重建索引」的核心）
+  const later = Math.floor(Date.now() / 1000) + 100;
+  utimesSync(join(DIR, 'a.md'), later, later);
+  const h2 = hashKnowledge(scanKnowledge(DIR, DIR), DIR);
+  check(h1 === h2, '只改 mtime → 指纹不变', `${h1} vs ${h2}`);
+
+  // 改正文 → 指纹必须变
+  writeFileSync(join(DIR, 'a.md'), '# A\nhello!', 'utf8');
+  const h3 = hashKnowledge(scanKnowledge(DIR, DIR), DIR);
+  check(h3 !== h1, '改正文 → 指纹变');
+
+  // 加文件 → 指纹必须变
+  writeFileSync(join(DIR, 'c.md'), '# C', 'utf8');
+  const h4 = hashKnowledge(scanKnowledge(DIR, DIR), DIR);
+  check(h4 !== h3, '新增文件 → 指纹变');
+
+  // 文件顺序不影响结果（内部按 rel 排序）
+  const files = scanKnowledge(DIR, DIR);
+  check(hashKnowledge([...files].reverse(), DIR) === h4, '文件顺序不影响指纹');
+
+  // 读不到文件必须抛（拿不到完整正文就不能断言「没变化」）
+  let threw = false;
+  try {
+    hashKnowledge([{ rel: 'no-such.md' }], DIR);
+  } catch {
+    threw = true;
+  }
+  check(threw, '文件读不到时抛异常（不静默断言"没变化"）');
+
+  cleanup(DIR);
 }
 
 console.log(`\n${'='.repeat(50)}`);

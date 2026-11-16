@@ -187,3 +187,89 @@ def test_prune_removes_only_old_temp_files(tmp_path, monkeypatch):
     assert not old.exists(), "上一轮的旧临时文件没被清掉"
     assert fresh.exists(), "本轮刚创建的临时文件不能被误删"
     assert unrelated.exists(), "不是本模块的文件不能动"
+
+
+# --------------------------------------------------------------------------- #
+# 2026-11-16：失败原因必须可读，且带目标地址（自愈链路依赖它）
+# --------------------------------------------------------------------------- #
+
+def test_failure_headline_takes_last_cross_line():
+    """多条 ✗ 时取**最后**一条：ingest 的 ✗ 在前，同步脚本汇总的 ✗ 才是结论。"""
+    stdout = "[1/4] 预检…\n✗ Ollama /api/tags 超时（10000ms）\n✗ 索引重建失败（exit=1）\n"
+    assert wks._failure_headline(stdout, "") == "索引重建失败（exit=1）"
+
+
+def test_failure_headline_falls_back_to_failure_line():
+    assert wks._failure_headline("", "npm ERR! 构建失败\n") == "npm ERR! 构建失败"
+    assert wks._failure_headline("", "") == ""
+
+
+def test_compose_error_keeps_url_from_tail():
+    """error 里没有地址、但输出里有 → 补上「目标 …」。
+
+    没有这条，auto_retry 的探测门控就提不到 host:port，只能按冷却烧额度
+    （2026-11-16 就是这样在 1 小时内烧光 2 次重试的）。
+    """
+    stdout = (
+        "✗ 规则源文件缺失：eflow_TT_rules.xlsx\n"
+        "  请确认 http://192.168.100.27:11434 可达\n"
+    )
+    error = wks._compose_error(stdout, "", 1)
+    assert error.startswith("规则源文件缺失")
+    assert "目标 http://192.168.100.27:11434" in error
+
+
+def test_compose_error_does_not_duplicate_url():
+    line = "✗ 索引重建失败（exit=1）：Ollama 嵌入服务 http://192.168.100.27:11434 不可用或超时"
+    error = wks._compose_error(line + "\n", "", 1)
+    assert error.count("http://192.168.100.27:11434") == 1
+
+
+def test_compose_error_falls_back_to_exit_code():
+    assert wks._compose_error("", "", 7) == "exit=7"
+
+
+def test_compose_error_is_capped():
+    long_line = "✗ " + "很长的原因" * 100
+    assert len(wks._compose_error(long_line, "", 1)) <= wks._HEADLINE_MAX
+
+
+def test_task_result_error_is_not_bare_exit_code(tmp_path, monkeypatch):
+    """端到端形状：子进程退出 1 时，任务结果里的 error 要能直接看懂。"""
+    script = (
+        "console.log('[1/4] 检查 Ollama…');\n"
+        "console.error('✗ 索引重建失败（exit=1）：Ollama 嵌入服务 "
+        "http://192.168.100.27:11434 不可用或超时');\n"
+        "process.exit(1);\n"
+    )
+    bot = _write_fake_bot(tmp_path, script)
+    monkeypatch.setenv("WHATSAPP_KB_DIR", str(bot))
+
+    result = wks.sync_knowledge_base()
+
+    assert result["success"] is False
+    assert result["error"] != "exit=1", "Run History 上不能只显示裸 exit=1"
+    assert "索引重建失败" in result["error"]
+    assert "http://192.168.100.27:11434" in result["error"]
+    assert result["exit_code"] == 1
+
+
+def test_error_is_probe_gated_by_auto_retry():
+    """拼出来的 error 必须落进 auto_retry 的「网络类 + 可提取目标」分支。
+
+    这是「嵌入机凌晨不在线 → 知识库陈旧一整天」的自愈契约：
+    网络类才会走 TCP 探测门控，探测到目标不可达时**跳过重试且不消耗额度**；
+    提不到 host:port 就只能按冷却烧额度（2026-11-16 就是这样烧光的）。
+    改 `NETWORK_ERROR_KEYS` 或改报错文案都可能悄悄破坏它，所以钉成测试。
+    """
+    from backend.services import auto_retry as ar
+
+    line = "✗ 索引重建失败（exit=1）：Ollama 嵌入服务 http://192.168.100.27:11434 不可用或超时"
+    error = wks._compose_error(line + "\n", "", 1)
+
+    assert ar._classify_error(error) == "network"
+    assert ("192.168.100.27", 11434) in ar._extract_targets(error)
+    # 命中永久性错误会让 auto_retry 直接放弃重试
+    assert not any(k in error for k in ar.NON_RETRYABLE_KEYS)
+
+

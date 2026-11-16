@@ -140,6 +140,16 @@ NETWORK_ERROR_KEYS = (
     "Connection refused", "ConnectionRefused", "Name or service not known",
     "Temporary failure in name resolution", "Network is unreachable",
     "10060", "10054", "timed out", "Timeout",
+    # 中文表述（2026-11-16 新增）：子进程类的网络失败常常只有中文文案。
+    # 最直接的受害者是 whatsapp_kb_sync_* —— sync-kb.mjs 打的是
+    # 「Ollama /api/tags 超时（10000ms）」，不含上面的英文关键字，于是被归成
+    # unknown 走冷却路径：11-16 04:35 那次失败后 2 次自动重试在 1 小时内
+    # 烧光额度，等嵌入机恢复时已经不再重试，知识库陈旧了一整天（bot 一直按
+    # 旧规则回答）。归到 network 后由探测门控接管：目标不可达时不动额度，
+    # 恢复后立刻重投。
+    # 探测门控仍要求错误文本里能提取到 host:port（_extract_targets），
+    # 提不到就照旧走冷却，行为不变。
+    "超时", "不可达", "连不上",
 )
 # 应用层失败特征（端口通但鉴权/业务失败）→ TCP 探测无意义，直接走冷却
 APP_ERROR_KEYS = (

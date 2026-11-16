@@ -23,10 +23,11 @@
  * 目标是发现「加了文件 / 重导出了规则」，size+mtime 足够且廉价
  * （816 块语料的正文哈希没必要每次都算）。
  *
- * 本模块是纯函数（不读 CONFIG、不写盘），便于离线单测。
+ * 本模块不读 CONFIG、不写盘（只读文件系统），便于离线单测。
  */
-import { readdirSync, statSync, existsSync } from 'node:fs';
+import { readdirSync, statSync, existsSync, readFileSync } from 'node:fs';
 import { join, extname, relative } from 'node:path';
+import { createHash } from 'node:crypto';
 
 /** 与 ingest.js 保持一致的扩展名白名单。 */
 const EXTS = new Set(['.md', '.markdown', '.txt', '.text']);
@@ -107,6 +108,35 @@ export function diffIndex(meta, scan) {
 
   const ok = missingInIndex.length === 0 && extraInIndex.length === 0 && newerOnDisk.length === 0;
   return { ok, missingInIndex, extraInIndex, newerOnDisk, unknownMtime };
+}
+
+/**
+ * 知识库**正文**指纹：按相对路径排序后，把每个文件的 sha256 串起来再哈希。
+ *
+ * 用途与「size+mtime」的区别（2026-11-16 复盘）：
+ * `sync-kb.mjs` 过去把「四份规则 xlsx 的 size+mtime」当指纹，可规则采集**每天
+ * 04:20 都会重写** `eflow_TT_rules.xlsx`，mtime 必变 —— 于是每天都被判成
+ * 「规则更新了」，白算 6001 条向量（约 4 分钟）并重启一次 bot。实测
+ * 2026-11-15→11-16 的 5 份导出文档里有 4 份 size 完全相同、正文也没变。
+ * 正文哈希只认内容：mtime 变了但正文没变 → 指纹不变 → 跳过重建。
+ *
+ * 目录里有文件读不了时**抛异常**（不静默跳过）：拿不到完整正文就不能断言
+ * 「没变化」，宁可让调用方报错、下一轮重试。
+ *
+ * @param {Array<{rel:string}>} files scanKnowledge() 的结果
+ * @param {string} root 读取文件用的根目录
+ * @returns {string} 64 位十六进制摘要
+ */
+export function hashKnowledge(files, root) {
+  const h = createHash('sha256');
+  for (const f of [...(files || [])].sort((a, b) => a.rel.localeCompare(b.rel))) {
+    const buf = readFileSync(join(root, f.rel));
+    h.update(f.rel);
+    h.update('\0');
+    h.update(createHash('sha256').update(buf).digest('hex'));
+    h.update('\0');
+  }
+  return h.digest('hex');
 }
 
 /**
