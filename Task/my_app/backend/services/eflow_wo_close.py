@@ -4,9 +4,10 @@
 
 把 TMP 探针验证过的三步链路固化为服务层，供 eflow_qa 页面「WO 清理」功能调用：
 
-  ① POST {WO_API}/base/detail?woId={id}   → flowEntity 快照 + opEntities（找待办 Confirm 的 id）
-  ② POST {WO_API}/base/process            → flowEntity 子集 + opEntity{id, operationResult:"7"}
-  ③ 复核：重查 detail，该 op 的 operationResult 应变为 "7" / status 变 Closed
+  ① POST {WO_API}/base/detail?woId={id}   → flowEntity 快照 + opEntities（找待办 Confirm 的 id + 任务 id）
+  ② 前置闸门：flowEntity.taskId 为空 → 直接判不可关（见下方 2026-11-16 实测）
+  ③ POST {WO_API}/base/process            → flowEntity 子集 + opEntity{id, operationResult:"7"}
+  ④ 复核：重查 detail，该 op 的 operationResult 应变为 "7" / status 变 Closed
 
 关键实测事实（2026-10-01，TMP 探针验证）：
   * opEntity.id 不是 woId，是 detail 里待办操作记录的主键（如 106037），
@@ -16,6 +17,21 @@
     必须是字符串。
   * base/list 的 filter 复合表达式可用：
     ((status eq "A") or ...) and (lastModifiedTime ge n) and (woNum contains "xx")
+
+2026-11-16 追加实测（重要：别再来回试 payload 形态）：
+  * 当前 eFlow 版本 + 当前凭据账号下，base/detail 的 flowEntity.taskId 恒为 null、
+    pendingEntities 恒为空；base/process 一律
+    500 {"message":"TaskId not exist","code":48990049}。
+  * 已排除「payload 形态」这一层：去掉 null 键、补 verifyKey、最小 flowEntity、
+    needStartProcess=false、批量 woIdNumList+flowRequest —— 全是同一个 48990049；
+    另取 3 张不同单用无效 opEntity.id 试探也是 48990049。说明服务端在解析 op 之前
+    就先查「任务」，而该任务对当前账号不存在。
+  * 对照 TT：同账号查 TT detail 也拿不到 taskId。所以 taskId 是**账号视角**字段
+    （待办任务只回给候选处理人），不是 WO 独有的缺陷。
+  * 结论：没有 taskId 就关不了单，payload 层面无解。必须换成
+    「ZTE_NOC_FO 组内、在 eFlow 界面能看到该单 Confirm 待办」的账号
+    （设置页 → 凭据管理 → eflow 组）。在那之前，本模块预检与提交都先用 taskId 兜底
+    拦截，不再发出注定 500 的写请求。
 
 安全约束：
   * 只允许 opName=Confirm 且 status=WaitConfirm 的单提交；其它状态一律拒绝。
@@ -54,6 +70,18 @@ FLOW_KEYS = (
 
 # Confirm 步骤的「确认关闭」操作码（字符串）
 OPERATION_RESULT_CLOSE = "7"
+
+# eFlow 错误码：服务端找不到本次操作对应的待办任务（detail.flowEntity.taskId 为空时必现）
+ERR_CODE_TASK_MISSING = 48990049
+
+# 没有待办任务时的统一说明。2026-11-16 实测：payload 怎么改都过不去，
+# 缺的是「账号视角的任务」，只能换账号解决（详见模块头注释）。
+TASK_MISSING_REASON = (
+    "eFlow 未给当前登录账号下发这条单的待办任务（detail.flowEntity.taskId 为空），"
+    "服务端会以 48990049「TaskId not exist」拒绝。请换用 ZTE_NOC_FO 组内、"
+    "在 eFlow 界面能看到该单 Confirm 待办的账号（设置页 → 凭据管理 → eflow 组）；"
+    "接口无法代关。"
+)
 
 # 批量上限 / 逐单间隔
 MAX_BATCH = 200
@@ -102,6 +130,14 @@ def _post_empty(path: str) -> Any:
         except json.JSONDecodeError:
             raise RuntimeError(f"{st} {txt[:120]}")
     return json.loads(txt)
+
+
+def _error_code_of(body: str) -> Optional[int]:
+    """从 eFlow 的错误体里取 code（取不到返回 None，绝不影响主流程）。"""
+    try:
+        return int(json.loads(body).get("code"))
+    except (ValueError, TypeError, AttributeError):
+        return None
 
 
 def _wo_id_from_num(wo_num: str) -> Optional[int]:
@@ -211,17 +247,33 @@ def close_one(wo_num: str, wo_id: Optional[int] = None) -> Dict[str, Any]:
             r["message"] = "detail 里没有待办的 Confirm 操作记录"
             return r
         r["op_id"] = op.get("id")
+        r["task_id"] = fe.get("taskId")
 
-        # ③ 提交
+        # ③ 前置闸门：没有待办任务就不发写请求（2026-11-16）。
+        # 这一步不是「保守」而是实测必然：taskId 为空时 base/process 必回 48990049，
+        # 任何 payload 形态都改不了，见模块头注释。
+        if not fe.get("taskId"):
+            r["action"] = "failed"
+            r["error_code"] = ERR_CODE_TASK_MISSING
+            r["message"] = TASK_MISSING_REASON
+            return r
+
+        # ④ 提交
         payload = build_payload(d, op)
         st, body = _process(payload)
         r["http_status"] = st[:20]
         if "200" not in st:
             r["action"] = "failed"
-            r["message"] = f"提交失败: {body[:160]}"
+            code = _error_code_of(body)
+            if code is not None:
+                r["error_code"] = code
+            if code == ERR_CODE_TASK_MISSING:
+                r["message"] = f"{TASK_MISSING_REASON}（eFlow 原始返回：{body[:100]}）"
+            else:
+                r["message"] = f"提交失败: {body[:160]}"
             return r
 
-        # ④ 复核：重查 detail，op 应已填 7 / 状态 Closed
+        # ⑤ 复核：重查 detail，op 应已填 7 / 状态 Closed
         time.sleep(0.8)
         d2 = get_detail(wid)
         fe2 = d2.get("flowEntity") or {}
@@ -256,6 +308,8 @@ def check_one(wo_num: str, wo_id: Optional[int] = None) -> Dict[str, Any]:
             "site": fe.get("neName") or fe.get("assetName") or "",
             "create_time": fe.get("createTime"),
             "sla_status": fe.get("slaStatus"),
+            # 待办任务归属（G: 组池 / P: 个人）。没有 taskId 时，靠这个提示找谁去处理。
+            "candidate": fe.get("candidateOperator") or fe.get("currentHandler") or "",
         })
         if fe.get("status") != "WaitConfirm" or fe.get("opName") != "Confirm":
             r["reason"] = f"状态为 {fe.get('status')}/{fe.get('opName')}，只有 WaitConfirm/Confirm 可关"
@@ -265,6 +319,13 @@ def check_one(wo_num: str, wo_id: Optional[int] = None) -> Dict[str, Any]:
             r["reason"] = "没有待办的 Confirm 操作记录"
             return r
         r["op_id"] = op.get("id")
+        r["task_id"] = fe.get("taskId")
+        # 预检就要判死：taskId 为空时提交必回 48990049（2026-11-16 实测），
+        # 不能让它装成「可关」再在提交环节失败。
+        if not fe.get("taskId"):
+            r["task_missing"] = True
+            r["reason"] = TASK_MISSING_REASON
+            return r
         r["closable"] = True
         return r
     except Exception as e:  # noqa: BLE001
@@ -285,6 +346,9 @@ def batch_check(wos: List[str], limit: int = MAX_BATCH) -> Dict[str, Any]:
             "total": len(rows),
             "closable": closable,
             "not_closable": len(rows) - closable,
+            # 其中有多少是「eFlow 没下发待办任务」——换账号才能解决，单独计数，
+            # 免得和「状态不对」混在一起看不出症结。
+            "task_missing": sum(1 for r in rows if r.get("task_missing")),
         },
     }
 

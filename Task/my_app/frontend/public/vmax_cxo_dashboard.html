@@ -33,6 +33,38 @@ html[data-theme="light"] .metric{color:#405e72}html[data-theme="light"] .status{
 html[data-theme="light"] .status.ok{color:#08775a}html[data-theme="light"] .status.bad{color:#b42332}
 html[data-theme="light"] .op-table th,html[data-theme="light"] .op-table td{border-bottom-color:rgba(14,116,144,.14)}html[data-theme="light"] .op-empty{color:#637c8e}
 @media(max-width:1200px){.dashboard{grid-template-columns:1fr}.op-grid{grid-template-columns:1fr}.op-map{height:500px}.op-map .liberia{height:420px;margin-top:16px}.left,.right{display:grid;grid-template-columns:repeat(2,1fr)}.left .panel,.right .panel{height:270px}.center-main{height:auto}.bottom-center{height:300px}}@media(max-width:720px){.left,.right{grid-template-columns:1fr}.kpis{grid-template-columns:repeat(2,1fr);height:auto;gap:8px}.kpi{min-height:70px}.overview,.bottom-center{grid-template-columns:1fr;height:auto}.center-main{height:auto}.apps{padding:12px}.mast h1{font-size:14px}.logo{font-size:22px}.op-map{height:430px}.op-map .liberia{width:100%;height:350px;margin-top:10px}.op-analysis,.op-table{height:auto;min-height:300px}}
+
+/* ---- 2026-11-16：Summary 视图改为「按视口高度铺满」，消除高屏底部的大片空白 ----
+   问题（实测）：上面所有面板都是写死的像素高度 —— mast 70 + nav 50 + 面板
+   282×3 / 560+302 = 整页内容恒为 988px。1920×1080 下内嵌 iframe 高 972，正好
+   差 24px 出滚动条；而 1920×1400 下 iframe 高 1292，内容只有 988 → **底部空出
+   304px**（屏越高空得越多，2560×1440 / 4K 上更明显）。看板不是「一页文档」，
+   空出来的就是浪费。
+
+   修法：桌面断点（>1200px）内把 .dashboard 的高度改成 calc(100vh - 128px)
+   （128 = mast 70 + nav 50 + .screen 底部 8px 内边距），列内各面板从写死高度
+   改为 flex 分配，图表 div 从固定高度改为撑满面板剩余高度。比例沿用原设计：
+   左/右三块等分，中间两块按 560:302 分配。
+   · 保留 min-height：视口太矮（<828px）时 .dashboard 停在 700px，页面照旧可滚动，
+     不会把图表压成一条缝；
+   · 只在 >1200px 生效：<=1200px 时既有断点已改成单列/两列堆叠，高度必须由内容
+     撑开，不能压缩；
+   · 图表会自动适配 —— 脚本里本来就有 window resize 与 activate() 时的 resize()，
+     这里只是让面板/图表的盒子随视口变高，ECharts 会重新量测。 */
+@media(min-width:1201px){
+  .dashboard{height:calc(100vh - 128px);min-height:700px;grid-template-rows:minmax(0,1fr)}
+  .left .panel,.right .panel{flex:1 1 0;height:auto;min-height:0;display:flex;flex-direction:column}
+  .left .chart,.right .chart{flex:1 1 auto;height:auto;min-height:0}
+  .center-main{flex:560 1 0;height:auto;min-height:0;display:flex;flex-direction:column}
+  .kpis{flex:0 0 98px}
+  .overview{flex:1 1 auto;height:auto;min-height:0}
+  .map-wrap{display:flex;flex-direction:column;min-height:0}
+  .liberia{flex:1 1 auto;height:auto;min-height:0}
+  .bottom-center{flex:302 1 0;height:auto;min-height:0}
+  .bottom-center>div{display:flex;flex-direction:column;min-height:0}
+  /* #facebook 的 270px 高度写在 HTML 的 style 属性里，只有 !important 能盖住 */
+  .bottom-center .chart{flex:1 1 auto;height:auto!important;min-height:0}
+}
 </style>
 </head>
 <body>

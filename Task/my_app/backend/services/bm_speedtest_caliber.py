@@ -10,7 +10,7 @@
 | --- | --- |
 | `provider` | 运营商原始名。实测只有 `Orange` 与 `Lonestar Cell MTN` 两个取值 |
 | `location` | 实测**恒为 `Liberia`**（全国汇总，无城市维度） |
-| `device` | 实测为 `all` 或空串两种写法，**表达的是同一件事**，不可当维度 |
+| `device` | 实测为 `all` 或空串两种写法，**表达的是同一件事**，不可当维度。⚠️ **可缺列**，见下方「可缺列」一节 |
 | `aggregate_date` | 统计日，**时间部分恒为 00:00:00**，按 `::date` 处理 |
 | `technology_type` | 实测**恒为 `cellular`** |
 | `metric_type` | 实测**恒为 `median`**（聚合方式，不是可筛维度） |
@@ -23,6 +23,22 @@
 它们各只有一个有效取值，做成下拉框只会让用户以为「筛选没生效」。
 `device` 的两种写法（`all` 与空串）在数据里成对出现，差集为 0，属上游导出写法差异，
 已在口径层显式合并，**不是**缺失数据。
+
+## ⚠️ 可缺列：`device`（2026-11-16 实测事故）
+
+`speedtest_data` 是**用户可重导**的表（数据上传页 `POST /api/tables/import`，覆盖已有表）。
+2026-11-16 15:55 用户导入了一份新版 Speedtest 导出（950 行、更新到 11-12），
+**该文件没有 `device` 列** → 表被整表替换后列集变了，而 `base_sql()` 把 `device`
+写死在 SELECT 里 → 整页 `字段 "device" 不存在`，所有卡片/曲线空白（后端 200 + warnings）。
+
+因此 `base_sql(columns=...)` 接受**实际列名集合**：缺 `device` 时投影字面量 `'all'`。
+这与 `COALESCE(NULLIF(device,''),'all')` 的既有语义完全一致 —— 该列实测恒为
+`all`/空串、不携带信息，所以「没有这一列」和「这一列等于 all」在下游是同一件事。
+`speedtest_service._table_columns()` 每次请求现取列名（不缓存，表可能被热重导）。
+
+**不要**把其它列也做成可选：`provider` / `aggregate_date` / 四个指标列 /
+`test_count` / `sample_count` / `device_count` 缺任何一个都意味着数据不可用，
+应当报错而不是静默出一张空图表。
 
 ## 品牌归一
 
@@ -54,6 +70,8 @@ MTN 的 420 行会全部落进 `OTHER`，页面直接变成只有一家有数据
   （`unpaired_days` 单独计数并暴露给前端，避免把「没测」当成「输了」）。
 """
 from __future__ import annotations
+
+from collections.abc import Collection
 
 # 数据表（表名只此一处，改名时改这里即可）
 TABLE = "speedtest_data"
@@ -109,7 +127,7 @@ def brand_case_sql() -> str:
         ELSE 'OTHER' END"""
 
 
-def base_sql() -> str:
+def base_sql(columns: Collection[str] | None = None) -> str:
     """统一的取数子查询：一行 = 一天 × 一个品牌。
 
     列名刻意用业务名（`dl` / `ul` / `lat` / `jit`），与 `METRICS` 的 key 对应，
@@ -119,9 +137,15 @@ def base_sql() -> str:
     来源文件 / 导入时间），供下钻明细直接取用 —— 下钻必须能回答
     「这行数据哪来的」，所以来源列不能丢。
 
+    `columns`：表的**实际列名集合**（调用方用 `speedtest_service._table_columns()` 现取）。
+    缺 `device` 时用字面量 `'all'` 顶替（原因见模块 docstring「可缺列」一节）；
+    传 `None` 表示按完整表结构处理（只给测试/一次性脚本用，线上路径必须传）。
+
     ⚠️ 时间列只有 `day`（`aggregate_date::date`）。
     **外层 WHERE 一律过滤 `day`，不要写 `aggregate_date`**（子查询里已无此列名）。
     """
+    has_device = True if columns is None else "device" in {c.lower() for c in columns}
+    device_expr = "COALESCE(NULLIF(device, ''), 'all')" if has_device else "'all'"
     return f"""SELECT
         {brand_case_sql()} AS brand,
         aggregate_date::date AS day,
@@ -134,7 +158,7 @@ def base_sql() -> str:
         device_count AS devices,
         provider,
         location,
-        COALESCE(NULLIF(device, ''), 'all') AS device,
+        {device_expr} AS device,
         technology_type,
         metric_type,
         _source_file,

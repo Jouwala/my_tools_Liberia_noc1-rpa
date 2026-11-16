@@ -1322,8 +1322,9 @@ def wo_close_check(payload: WoCloseIn):
     limit = int(payload.limit or MAX_BATCH)
     res = batch_check(valid, limit=limit)
     res["invalid"] = invalid
-    logger.info("WO 清理预检：输入 %s 条，可关 %s，忽略 %s",
-                res["input"]["valid"], res["summary"]["closable"], len(invalid))
+    logger.info("WO 清理预检：输入 %s 条，可关 %s，缺待办任务 %s，忽略 %s",
+                res["input"]["valid"], res["summary"]["closable"],
+                res["summary"].get("task_missing", 0), len(invalid))
     return res
 
 

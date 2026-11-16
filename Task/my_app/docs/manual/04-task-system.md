@@ -232,7 +232,7 @@ APScheduler 到点 (backend 进程内)
 | task_id | 名称 | 默认 cron | 组 |
 | --- | --- | --- | --- |
 | `eflow_sync` | eFlow 数据同步（TT/WO 异步导出若未被上游登记，改走 base/list 直查，不再拿空路径下载 500） | `22 * * * *` | n |
-| `eflow_sync_full` | eFlow 每日全量同步（大窗口下 TT/WO **分段拉取**，默认 30 天/段，避免单次大导出超过 120s 轮询窗口而 500 失败；TT/WO 缺失即判失败，不再静默成功） | `0 1 * * *` | n |
+| `eflow_sync_full` | eFlow 每日全量同步（大窗口下 TT/WO **分段拉取**，默认 30 天/段，避免单次大导出超过 120s 轮询窗口而 500 失败；TT/WO 缺失即判失败，不再静默成功）。**2026-11-16 起另做「对账删除」**：删掉 eFlow 已删除、本地仍残留的 TT/WO/CR（权威源走 base/list 直查，不用全量导出 —— 实测导出比直查少约 43/27 行正常单，用导出会误删）。四道闸门见 `03-data-layer.md`「eFlow 工单表的语义」；`EFLOW_RECONCILE_DELETE=0` 可零改码关闭 | `0 1 * * *` | n |
 | `ran_ume_daily` | RAN UME 日报 | `0 2 * * *` | u |
 | `site_outage_screenshot` | Site Outage 截图 | `0 1 * * *` | m |
 | `whatsapp_send` | WhatsApp 消息发送 | `0 3 * * *` | m |
@@ -247,7 +247,7 @@ APScheduler 到点 (backend 进程内)
 | `cnn_kpi_sync` | CNN UME KPI 同步 | `0 6 * * *` | n |
 | `cnn_kpi_sync_5mins` | CNN UME KPI 5分钟同步（**增量窗口**默认最近 120 分钟，上一轮失败自动回退全窗口「昨天 00:00→现在」补缺口，`CNN5M_WINDOW_MODE=full` 回滚旧行为；写 `5mins_*` 新表；**混合粒度**：5 个模板 5 分钟 + 3 个模板走上游 15 分钟档模板；0 行跳过不计失败） | `*/15 * * * *` | n |
 | `sp_data_sync` | SP 备件数据同步 | `10 * * * *` | s |
-| `ipran_kpi_sync` | iPRAN UME KPI 同步（**每小时全量拉取 3 天窗口是本意**，2026-11-06 与用户确认；写入侧按远端水位增量裁剪） | `0 * * * *` | u |
+| `ipran_kpi_sync` | iPRAN UME KPI 同步（**每小时全量拉取 3 天窗口是本意**，2026-11-06 与用户确认；写入侧按**每个 ME 各自的**远端水位增量裁剪 —— 同表 BU 的 Begin Time 比另外 3 个 ME 快 8 小时，用全表水位会把它们整批裁掉，2026-11-16 已修） | `0 * * * *` | u |
 | `liberia_email_1h` | Liberia 宕站 1小时报告邮件 | `15 * * * *` | m |
 | `liberia_email_8h` | Liberia 宕站 8小时报告邮件 | `20 */8 * * *` | m |
 | `kpi_ms_contract` | MS Contract KPIs 日报邮件 | `30 5 * * *` | m |

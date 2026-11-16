@@ -2,6 +2,17 @@
 chcp 65001 >nul 2>&1
 cd /d "%~dp0"
 
+:: ===== 2026-11-16: only one live stack =====
+:: Production is the run copy D:\01_olbr_portal. The 5-minute ensure task points
+:: at the copy, but forward here too so nobody can revive the edit tree by
+:: mistake. The %~dp0 guard keeps the copy's own bat from recursing.
+if /i not "%~dp0"=="D:\01_olbr_portal\Task\my_app\" (
+    if exist "D:\01_olbr_portal\Task\my_app\start_ensure.bat" (
+        call "D:\01_olbr_portal\Task\my_app\start_ensure.bat" %*
+        exit /b %ERRORLEVEL%
+    )
+)
+
 REM ============================================================
 REM  start_ensure.bat - "MyApp_EnsureRunning" scheduled task entry
 REM  Runs every 5 minutes (see install_ensure_task.bat).

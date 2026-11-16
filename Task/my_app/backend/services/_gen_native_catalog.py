@@ -103,6 +103,16 @@ WIDGET_DB_OVERRIDES: Dict[int, Dict[str, str]] = {
 # 修正口径与 cn_kpi_service.py 保持一致：EMS/UME 是**同一个量的两次测量，不可相加**；
 # 同日取 EMS、缺日取 UME（避免 FULL OUTER JOIN，它要求 SQLite ≥ 3.39）。
 WIDGET_SQL_OVERRIDES: Dict[int, Dict[str, str]] = {
+    # CN KPI 月度（id=8）：Time 卡原口径取 MAX(End Time)，而 1month 表里有
+    # **未完成的当月**一行（Begin=11-01、End=12-01），会显示成 12-01，误读成
+    # 「已经到 12 月」。加 `End Time < date('now')` 只取已完成月份（2026-11-16）。
+    8: {
+        "k_date": (
+            'SELECT MAX(substr("End Time",1,10)) AS "Date" '
+            'FROM "1month_VOICE_TRAFFIC_TEMPLATE_OSS_EMS" '
+            'WHERE "End Time" < date(\'now\')'
+        ),
+    },
     # CN KPI（原生重建）—— c1 VLR / c2 MSC / c4 Voice
     # ⚠ 这三条字符串必须与 native_catalog.py 里的**逐字节一致**（含 \n 位置），
     #   否则重新生成会产出一份「语义相同但 diff 很大」的文件。
@@ -149,6 +159,15 @@ WIDGET_SQL_OVERRIDES: Dict[int, Dict[str, str]] = {
             "ORDER BY t"
         ),
     },
+}
+
+# 整组件删除：FineBI 原看板有些分组在重建后的数据里**根本不存在**，保留只会
+# 让用户看到一片空白并以为「数据没更新」。2026-11-16 审计：可用率宽表的
+# FME_Region 只有 North/South（Master_Site_Database 的 Region 列），
+# Montserrado / North East / South West 三个旧区域名永远匹配不到任何行。
+WIDGET_DROP: Dict[int, set] = {
+    9: {"av_mts", "av_ne", "av_sw"},   # Daily Availability KPI
+    11: {"nw_ne", "nw_sw", "nw_mts"},  # Availability Dashboard (TT Related)
 }
 
 # 手写 slug：URL 友好、稳定、可读（不用 name 的哈希，方便用户手输）
@@ -210,6 +229,8 @@ def main() -> int:
         # 本页按组件做的 SQL 整体替换（见 WIDGET_SQL_OVERRIDES 说明）
         sql_map = WIDGET_SQL_OVERRIDES.get(did, {})
         for w in d["widgets"]:
+            if w["id"] in WIDGET_DROP.get(did, set()):
+                continue
             chart = w["chart"]
             src_db = w.get("db") or ""
             item = {

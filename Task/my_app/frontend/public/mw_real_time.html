@@ -273,6 +273,51 @@
   #topo-leaflet .leaflet-container{ background:var(--bg); }
   #topo-leaflet .leaflet-control-attribution{ font-size:0.625rem; background:var(--vmax-scrim); color:var(--vmax-text-muted); }
   #topo-leaflet .leaflet-control-attribution a{ color:var(--vmax-cyan); }
+  /* ---------- 地图图例（2026-11-16 用户要求「MW 页签添加图例」） ----------
+     做成 Leaflet 自定义控件（右下角 Leaflet 版权、左上角 ± 都不占），
+     而不是 #topo-wrap 里的普通浮层：门户内嵌时 keepOnlyMap() 会把
+     #topo-wrap 的兄弟节点整块刷成 display:none（见 olbr.js），
+     而 Leaflet 控件挂在 .leaflet-container 内部，不会被那套剥离逻辑误伤。
+     颜色直接取 --vmax-lvl-* 令牌，与链路/站点、KPI 卡、分布图同源，
+     主题切换时无需重建图例。 */
+  .mw-legend{
+    min-width:150px; padding:8px 10px;
+    background:var(--panel); border:1px solid var(--line); border-radius:8px;
+    box-shadow:0 4px 14px rgba(0,0,0,.28);
+    color:var(--text); font-size:11px; line-height:1.45;
+    pointer-events:none;   /* 纯展示，不挡地图拖拽与滚轮 */
+  }
+  .mw-legend-title{
+    margin-bottom:6px; color:var(--muted);
+    font-size:10px; font-weight:700; letter-spacing:.8px; text-transform:uppercase;
+  }
+  .mw-legend-row{display:flex; align-items:center; gap:7px; white-space:nowrap}
+  .mw-legend-row + .mw-legend-row{margin-top:2px}
+  .mw-legend-swatch{position:relative; flex:0 0 22px; width:22px; height:8px}
+  .mw-legend-swatch::before{
+    content:''; position:absolute; left:0; right:0; top:50%; height:2px; margin-top:-1px;
+    border-radius:2px; background:var(--lg-c, var(--muted));
+  }
+  .mw-legend-swatch.is-dashed::before{
+    background:repeating-linear-gradient(90deg, var(--lg-c, var(--muted)) 0 4px, transparent 4px 7px);
+  }
+  .mw-legend-dot{
+    position:absolute; left:50%; top:50%; width:5px; height:5px; margin:-2.5px 0 0 -2.5px;
+    border-radius:50%; background:var(--lg-c, var(--muted));
+    box-shadow:0 0 4px var(--lg-c, transparent);
+  }
+  .mw-legend-sep{height:1px; margin:6px 0; background:var(--line-soft)}
+  .mw-legend-note{margin-top:4px; color:var(--muted); font-size:10px}
+  /* 门户画布底部有一条 .canvas-note（约 26px）盖在 iframe 上，
+     图例默认贴底时最后两行会被它压住；抬高 28px（含 Leaflet 自带 5px）。 */
+  .leaflet-bottom .mw-legend{margin-bottom:28px!important}
+  @media (max-width:560px){
+    /* 窄屏地图本身已压到 320px 高，图例再占一块会遮住链路。
+       ⚠️ 这个媒体查询量的是**iframe 自己的宽度**，不是浏览器窗口：
+       门户在 1366 宽时地图栏只有约 617px，所以阈值不能写成 768，
+       否则常见笔记本宽度下图例会整块消失（2026-11-16 实测踩到）。 */
+    .mw-legend{display:none}
+  }
   /* KPI 卡可点击 */
   .kpi{cursor:pointer; transition:transform .12s ease, box-shadow .12s ease; position:relative}
   .kpi:hover{transform:translateY(-1px); box-shadow:var(--surface-shadow), 0 4px 14px rgba(0,0,0,.25)}
@@ -620,6 +665,8 @@ const I18N = {
     'topo.lvlMajor':'Major 70-80%', 'topo.lvlMinor':'Minor 60-70%',
     'topo.lvlOk':'Healthy <60%',
     'topo.lvlUnknown':'Unknown (no KPI)',
+    'legend.title':'图例', 'legend.county':'县界',
+    'legend.note':'颜色 = 链路 / 站点健康度',
     'topo.label':'TX/RX 标签', 'topo.search':'搜索站点 / IP…', 'topo.refresh':'刷新',
     'topo.title':'网络拓扑', 'topo.hint':'滚轮缩放 · 拖拽平移 · 悬停查看 · 点击链路看详情',
     'topo.cNodes':'节点', 'topo.cLinks':'链路',
@@ -676,6 +723,8 @@ const I18N = {
     'topo.lvlMajor':'Major 70-80%', 'topo.lvlMinor':'Minor 60-70%',
     'topo.lvlOk':'Healthy <60%',
     'topo.lvlUnknown':'Unknown (no KPI)',
+    'legend.title':'Legend', 'legend.county':'County boundary',
+    'legend.note':'Color = link / site health',
     'topo.label':'TX/RX Label', 'topo.search':'Search site / IP…', 'topo.refresh':'Refresh',
     'topo.title':'Network Topology', 'topo.hint':'Scroll to zoom · Drag to pan · Hover to inspect · Click a link for details',
     'topo.cNodes':'nodes', 'topo.cLinks':'links',
@@ -744,6 +793,8 @@ function applyLocale(locale){
   document.querySelectorAll('[data-i18n]').forEach(function(n){ n.textContent = t(n.getAttribute('data-i18n')); });
   document.querySelectorAll('[data-i18n-ph]').forEach(function(n){ n.setAttribute('placeholder', t(n.getAttribute('data-i18n-ph'))); });
   document.querySelectorAll('[data-i18n-title]').forEach(function(n){ n.setAttribute('title', t(n.getAttribute('data-i18n-title'))); });
+  var lg = document.querySelector('.mw-legend');
+  if(lg) lg.setAttribute('aria-label', t('legend.title'));
   updateStatus();
   if(DATA){ renderRisks(); renderTopo(); renderTrend(); renderDist(); }
   if(el('drawer').classList.contains('open') && selEdge) openDrawerFor(selEdge);
@@ -1644,6 +1695,48 @@ function hideLeaflet(){
   el('topo').style.display = 'block';
   if(chart) setTimeout(function(){ try{ chart.resize(); }catch(e){} }, 40);
 }
+/* ---------- 地图图例（2026-11-16 用户要求「MW 页签添加图例」） ----------
+   层级与颜色口径必须与 renderTopoLeaflet() 一致：链路颜色取 LVL_COLOR[e.status]，
+   站点点色取 LVL_COLOR[n.status]，两者共用同一套 --vmax-lvl-* 令牌；
+   Unknown 链路在 renderTopoLeaflet() 里用 dashArray '4 6'，图例也画成虚线，
+   否则用户会以为灰色实线是另一种状态。
+   ⚠️ 图例是 Leaflet 控件，不是 #topo-wrap 里的兄弟浮层 —— 门户内嵌时
+   olbr.js 的 keepOnlyMap() 会藏掉 #topo-wrap 的兄弟节点，放外面会被一起剥掉。 */
+function legendRow(lvl, key, dashed){
+  return '<div class="mw-legend-row">' +
+    '<span class="mw-legend-swatch' + (dashed ? ' is-dashed' : '') + '" style="--lg-c:var(--vmax-lvl-' + lvl + ')">' +
+      '<i class="mw-legend-dot"></i>' +
+    '</span>' +
+    '<span data-i18n="' + key + '">' + t(key) + '</span>' +
+  '</div>';
+}
+function buildLegendHtml(){
+  return '<div class="mw-legend-title" data-i18n="legend.title">' + t('legend.title') + '</div>' +
+    legendRow('healthy',  'topo.lvlOk',      false) +
+    legendRow('minor',    'topo.lvlMinor',   false) +
+    legendRow('major',    'topo.lvlMajor',   false) +
+    legendRow('critical', 'topo.lvlCrit',    false) +
+    legendRow('unknown',  'topo.lvlUnknown', true)  +
+    '<div class="mw-legend-sep"></div>' +
+    '<div class="mw-legend-row"><span class="mw-legend-swatch is-dashed" style="--lg-c:var(--muted)"></span>' +
+      '<span data-i18n="legend.county">' + t('legend.county') + '</span></div>' +
+    '<div class="mw-legend-note" data-i18n="legend.note">' + t('legend.note') + '</div>';
+}
+function ensureMapLegend(){
+  if(!leafMap || leafMap.__mwLegend) return;
+  var ctl = L.control({ position:'bottomleft' });
+  ctl.onAdd = function(){
+    var div = L.DomUtil.create('div', 'mw-legend');
+    div.setAttribute('role', 'note');
+    div.setAttribute('aria-label', t('legend.title'));
+    div.innerHTML = buildLegendHtml();
+    L.DomEvent.disableClickPropagation(div);
+    L.DomEvent.disableScrollPropagation(div);
+    return div;
+  };
+  ctl.addTo(leafMap);
+  leafMap.__mwLegend = ctl;
+}
 function ensureLeafletMap(){
   if(leafMap) return;
   /* maxZoom 取 PMTILES_MAX_ZOOM（14），与瓦片数据上限一致 —— 原来是 19，那是 OSM
@@ -1663,6 +1756,7 @@ function ensureLeafletMap(){
   applyMapTheme();
   leafMap.on('zoomend', onGeoViewChange);
   leafMap.on('moveend', onGeoViewChange);
+  ensureMapLegend();
   /* 这里原来调 applyEmbedWheelMode()（内嵌时关掉滚轮缩放）。
      2026-09-29 起改为"直接滚轮缩放"，Leaflet 默认就是开的，
      所以不再需要任何调用 —— 详见下方那段说明。 */
