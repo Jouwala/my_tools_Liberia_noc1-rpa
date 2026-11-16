@@ -190,7 +190,7 @@ Workflow & maintenance notes per task:
 
 **Maintenance**:
 
-- Delta mode only fetches changes; gaps are backfilled next night by eflow_sync_full
+- Delta mode only fetches changes and **never deletes** (the 3-day window is inherently incomplete); gaps are backfilled next night by eflow_sync_full, which is also where tickets removed in eFlow get reconciled away
 - Credential group eflow; kicked sessions cause consecutive failures, auto-retried by auto_retry_failed
 
 #### eFlow Daily Full Sync（`eflow_sync_full`）
@@ -198,13 +198,14 @@ Workflow & maintenance notes per task:
 - Default cron: `0 1 * * *`　|　worker group: **n**
 - Workflow script: `services/sync_from_eflow_api.py → sync_from_eflow_api(mode="full")`
 
-**What it does**: Full-window backfill (default since 2026-01-01) to cover delta gaps and refresh reports. Wide windows fetch TT/WO in segments; a missing TT/WO now fails the task
+**What it does**: Full-window backfill (default since 2026-01-01) to cover delta gaps, **delete tickets already removed in eFlow**, and refresh reports. Wide windows fetch TT/WO in segments; a missing TT/WO now fails the task
 
 **Workflow & data flow**:
 
 1. Daily 01:00 pull the full window
 1. For wide windows TT/WO are fetched in **segments** (default 30 days each) then merged/deduped, avoiding a single huge export exceeding the 120s poll window and failing with 500
 1. Write into the same dynamic tables with dedup
+1. **Reconcile delete**: compare against the upstream authoritative ticket set and drop TT/WO/CR rows that eFlow has already removed
 1. Refresh related report artifacts afterwards
 
 **Maintenance**:
@@ -212,6 +213,7 @@ Workflow & maintenance notes per task:
 - First remedy when eFlow data is missing mid-day — run it manually from Task Manager
 - The window start is configurable; mind the fetch duration. Segment length via EFLOW_FULL_SEGMENT_DAYS (default 30d)
 - Fixed 2026-10-09: the TT/WO full export had been failing with 500 for days while the task still reported success=True (the missing key was silently skipped). Now a missing TT/WO writes an error → success=False
+- Reconcile delete added 2026-11-16: it previously only upserted and never deleted, so tickets removed in eFlow stayed forever (measured 11 extra TT / 54 extra WO rows). **The authoritative source is base/list lookup, not the full export** — the export was measured to miss ~43/27 live rows, which would cause false deletions. Four gates (full mode only / authoritative set must be complete / empty set skips that table / over-threshold skips that table) are documented in 03-data-layer.md; EFLOW_RECONCILE_DELETE=0 turns it off without a code change
 
 #### RAN UME Daily Report（`ran_ume_daily`）
 

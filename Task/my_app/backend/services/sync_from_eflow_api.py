@@ -58,6 +58,43 @@ _STALE_GUARD_TABLES = ("eflow_tt", "eflow_wo", "eflow_cr", "eflow_pm", "eflow_si
 _STALE_GUARD_HOURS_DEFAULT = 6.0
 
 
+# ========== 全量对账删除（2026-11-16 新增） ==========
+# 用户诉求：eFlow 已删除的数据不该继续出现在本地库和页面上。
+# 根因：TT/WO/CR/PM 一直是**只 upsert、从不删除** —— 全量兜底任务拉了全窗口，
+# 但只把上游现有的单再写一遍，**上游删掉的单永久留在本地**。
+# 实测：本地比上游多出 TT 11 行 / WO 54 行（这些单号上游 base/list 里已不存在）。
+#
+# ⚠ 删除是**破坏性操作**，故设三重闸门，任一不满足即整轮放弃删除：
+#   ① 只在 full 模式做 —— delta 的 3 天窗口天然不完整，删了就是事故；
+#   ② 权威集合必须**扫全**（上游声明的 total 与实拉条数一致），否则拒绝；
+#   ③ 单表删除量超过阈值（默认 200 行 / 相对本地表的 5%）即中止并报错 ——
+#      上游异常返回空/半截数据时，这道闸门是最后一道防线。
+#
+# 权威源用 **base/list 直查**而非全量导出：2026-11-16 实测导出比直查少
+# 约 43 / 27 行正常单（异步生成的 xlsx 会漏变动中的行），拿导出做对账会误删。
+# 详见 `eflow_reconcile.py` 模块注释。
+_RECONCILE_DELETE_TABLES = {
+    "eflow_tt": "tt_no",
+    "eflow_wo": "wo_no",
+    "eflow_cr": "change_request_id",
+}
+#: 单表删除量绝对上限（超过即中止整轮删除）。
+_RECONCILE_MAX_DELETE_ROWS = 200
+#: 单表删除量相对本地表行数的比例上限（超过即中止整轮删除）。
+_RECONCILE_MAX_DELETE_RATIO = 0.05
+#: 对账删除总开关（环境变量）。设 0 可临时关掉，不必改代码回滚。
+_RECONCILE_ENABLED_DEFAULT = True
+
+
+def _reconcile_enabled() -> bool:
+    """对账删除开关：EFLOW_RECONCILE_DELETE=0 可临时关闭。"""
+    raw = os.environ.get("EFLOW_RECONCILE_DELETE")
+    if raw is None or raw == "":
+        return _RECONCILE_ENABLED_DEFAULT
+    return str(raw).strip().lower() not in ("0", "false", "no", "off")
+
+
+
 def _stale_guard_hours() -> float:
     try:
         return float(os.environ.get("EFLOW_STALE_GUARD_HOURS", "") or _STALE_GUARD_HOURS_DEFAULT)
@@ -718,6 +755,13 @@ def sync_from_eflow_api(mode: str = "delta") -> dict:
                     logger.error(err_msg)
                     result["errors"].append(err_msg)
 
+            # 全量对账删除（2026-11-16 新增）：只在 full 模式做，删掉上游已删的单。
+            # 必须在所有表同步完成**之后**做 —— 删除依据是「上游权威集合 vs 本地现有」，
+            # 与本轮 upsert 无关，但放在同步后能让日志顺序符合直觉（先写后删）。
+            # 闸门细节见 _reconcile_delete 的文档字符串。
+            if mode == "full":
+                _reconcile_delete(dst_conn, result)
+
             # 清理旧表
             _cleanup_old_tables(dst_conn)
 
@@ -838,6 +882,159 @@ def sync_from_eflow_api(mode: str = "delta") -> dict:
     logger.info(f"eFlow API 同步完成: {total_rows} 行, {elapsed:.2f}s, success={result['success']}")
 
     return result
+
+
+def _reconcile_delete(dst_conn, result: dict) -> None:
+    """全量模式的对账删除：删掉「上游已不存在」的本地行。
+
+    只在 full 模式调用（delta 的窗口天然不完整，删了就是事故）。
+
+    四道闸门：
+      ① 本函数只在 mode == "full" 时被调用；
+      ② 上游权威集合必须**扫全**（`eflow_reconcile` 内部校验 total == 实拉条数），
+         否则抛 `UpstreamVerifyError` → **整轮放弃删除**（一张表都不删）；
+      ③ 单张表的上游集合为空 → **跳过该表**（空集合≠全被删，绝不清表）；
+      ④ 单张表待删量超过阈值（绝对 200 行 / 相对 5% 取大）→ **跳过该表**。
+
+    ② 是唯一会整轮中止的闸门（其余按表隔离）。按表隔离的理由：一张表
+    异常不该让另外两张表也删不掉 —— 用户要的就是「上游删了就别显示」。
+
+    ⚠ 删除是破坏性操作，故每个闸门触发都会写进 `result["errors"]`，
+    使任务**不会**以 success=True 静默通过（否则「删了但没删干净」无从察觉）。
+    """
+    if not _reconcile_enabled():
+        logger.info("[对账] 已被 EFLOW_RECONCILE_DELETE 关闭，本轮不做删除")
+        return
+
+    try:
+        from backend.services.eflow_reconcile import (
+            UpstreamVerifyError,
+            fetch_authoritative_keys,
+        )
+    except ImportError:
+        logging.getLogger(__name__).warning("[SILENT-EXCEPT] reconcile import failed", exc_info=True)
+        from services.eflow_reconcile import (
+            UpstreamVerifyError,
+            fetch_authoritative_keys,
+        )
+
+    try:
+        upstream = fetch_authoritative_keys(dst_conn)
+    except UpstreamVerifyError as exc:
+        msg = f"[对账] 上游权威集合扫描失败，本轮放弃删除：{exc}"
+        logger.error(msg)
+        result["errors"].append(msg)
+        result["reconcile_skipped"] = str(exc)
+        return
+    except Exception as e:  # noqa: BLE001
+        msg = f"[对账] 上游权威集合扫描异常，本轮放弃删除：{e}"
+        logger.exception(msg)
+        result["errors"].append(msg)
+        result["reconcile_skipped"] = str(e)
+        return
+
+    # ---- 第一步：只算待删清单，不动库 ----
+    plan: dict[str, tuple[str, set[str]]] = {}   # table -> (key_col, 待删键集合)
+    local_keys_of: dict[str, set[str]] = {}      # table -> 本地现有单号
+    skipped: list[str] = []                      # 本轮跳过删除的表
+    for label, table, key_col in (
+        ("TT", "eflow_tt", "tt_no"),
+        ("WO", "eflow_wo", "wo_no"),
+        ("CR", "eflow_cr", "change_request_id"),
+    ):
+        up_keys = upstream.get(label)
+        if not up_keys:
+            # 该表的上游集合为空 → **只跳过这一张表**，不拖累其他表。
+            # 空集合绝不能当成「全被删」—— 那会把整张表清空。
+            msg = (f"[对账] {table} 的上游权威集合为空，跳过该表的删除"
+                   f"（不把空集合当成'全被删'）")
+            logger.error(msg)
+            result["errors"].append(msg)
+            skipped.append(table)
+            continue
+
+        try:
+            cur = dst_conn.cursor()
+            rows = cur.execute(f'SELECT "{key_col}" FROM "{table}"').fetchall()
+            cur.close()
+        except Exception as e:  # noqa: BLE001
+            msg = f"[对账] 读取 {table}.{key_col} 失败，跳过该表的删除：{e}"
+            logger.error(msg)
+            result["errors"].append(msg)
+            skipped.append(table)
+            continue
+
+        local_keys = {str(r[0]).strip() for r in rows if r[0] is not None and str(r[0]).strip()}
+        local_keys_of[table] = local_keys
+        missing = local_keys - up_keys
+        if missing:
+            plan[table] = (key_col, missing)
+        logger.info("[对账] %s: 本地 %d / 上游 %d → 待删 %d",
+                    table, len(local_keys), len(up_keys), len(missing))
+
+    if not plan:
+        logger.info("[对账] 本地与上游完全一致，无需删除")
+        result["reconcile_deleted"] = {}
+        if skipped:
+            result["reconcile_skipped"] = skipped
+        return
+
+    # ---- 第二步：闸门 ③ —— 超阈值即跳过该表 ----
+    for table in list(plan.keys()):
+        _key_col, missing = plan[table]
+        cur = dst_conn.cursor()
+        total = int(cur.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0])
+        cur.close()
+        limit = max(_RECONCILE_MAX_DELETE_ROWS, int(total * _RECONCILE_MAX_DELETE_RATIO))
+        if len(missing) > limit:
+            msg = (f"[对账] {table} 待删 {len(missing)} 行，超过安全上限 {limit} 行"
+                   f"（本地共 {total} 行）—— 判定上游异常，跳过该表的删除")
+            logger.error(msg)
+            result["errors"].append(msg)
+            skipped.append(table)
+            del plan[table]
+
+    if not plan:
+        logger.info("[对账] 所有表都因闸门被跳过，本轮未删除任何行")
+        result["reconcile_deleted"] = {}
+        result["reconcile_skipped"] = skipped
+        return
+
+    # ---- 第三步：统一执行删除 ----
+    # ⚠ `delete_not_in_keys` 的语义是「删掉**不在**集合里的行」，传进去的必须是
+    #   **保留集**（上游仍然存在的单号），不是待删集合。传反了会正好删错方向。
+    #   保留集 = 上游权威集合 ∩ 本地现有单号：
+    #   · 用「交集」而非「上游全集」—— 交集里不含本地没有的单，传全集也不会多删，
+    #     但交集能让集合非空、绕开 reconcile_helper 的「空集合拒绝删除」保护。
+    #   · 差集 = 本地现有 - 上游权威 = 正是要删的那些行。
+    deleted_all: dict[str, int] = {}
+    for table, (key_col, missing) in plan.items():
+        keep = local_keys_of[table] - missing
+        if not keep:
+            # 本地这一张表的单号**全部**不在上游 → 极端情况，放弃该表
+            msg = (f"[对账] {table} 的本地单号没有任何一个能在上游找到，"
+                   f"放弃删除该表（疑似键口径不一致）")
+            logger.error(msg)
+            result["errors"].append(msg)
+            continue
+        try:
+            cur = dst_conn.cursor()
+            is_pg = not isinstance(dst_conn, sqlite3.Connection)
+            deleted = delete_not_in_keys(cur, table, key_col, sorted(keep), is_pg=is_pg)
+            dst_conn.commit()
+            cur.close()
+        except Exception as e:  # noqa: BLE001
+            msg = f"[对账] 删除 {table} 失败：{e}"
+            logger.exception(msg)
+            result["errors"].append(msg)
+            continue
+        deleted_all[table] = deleted
+        logger.info("[对账] %s: 删除 %d 行（上游已无）", table, deleted)
+
+    result["reconcile_deleted"] = deleted_all
+    if skipped:
+        result["reconcile_skipped"] = skipped
+    logger.info("[对账] 对账删除完成: %s（跳过: %s）", deleted_all, skipped or "无")
 
 
 def _cleanup_old_tables(conn: sqlite3.Connection):

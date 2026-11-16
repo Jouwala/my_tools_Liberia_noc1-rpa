@@ -25,6 +25,18 @@
 
 ### P1 —— 数据正确性与稳定性
 
+- [ ] **eFlow 对账删除需在 `n` 组 worker 重启后才自动生效（2026-11-16 立）。**
+      代码与文档已落地并通过回归（`backend/services/eflow_reconcile.py` + `sync_from_eflow_api.py::_reconcile_delete`，
+      四道闸门见 `docs/manual/03-data-layer.md`「eFlow 工单表的语义」）；**一次性数据清理已完成并核对**：
+      删除 TT 11 / WO 53 / CR 32 行（上游 base/list 已无这些单号），PG `app` 与本地 SQLite 快照均为 **0 残留**，
+      物理行数与上游权威集合一致（TT 41952 / WO 16499 / CR 307）。审计与回滚数据留在
+      `Task/my_app/TMP/_eflow_reconcile_deleted_20261116.csv`、`_eflow_deleted_{tt,wo,cr}_full_20261116.csv`（TMP 已 gitignore）。
+      **待办**：运行中的 `n` 组 worker 仍持有旧模块，需在该组空闲时重启一次，每日 08:00 的 `eflow_sync_full` 才会带对账删除：
+      ```
+      cd D:\01_RPA\Task\my_app
+      python restart_workers.py --groups n --reason "使 eFlow 对账删除生效"
+      ```
+      回滚手段：`EFLOW_RECONCILE_DELETE=0`（零改码关闭）、或 revert 本次提交。
 - [ ] **站点可用率取数改走本地 PG（2026-10-15，已定性、待观察上游）。** 站点可用率已从远端 UME HTTP（`192.168.100.19:8765`）改为**本地 PG 优先、远端回退**，代码在 `Task\my_app\backend\services\site_availability_service.py`（`PG_SPEC` / `_load_pg_tech` / `_load_tech`，快照 `..._bak_20261015_PG双模前`）。
   - **2G / 3G 两源等价**：重叠键 100% 一致、零值差异；且 PG 严格超集（另有 47 个站点在 `master_site_db` 里但远端查不到 —— 切换后这些站从"空白"变为有数据）。同时去掉对 .19 HTTP API 的运行时依赖。
   - **4G 已定性（2026-10-15 实测 UME 直查）**：用 MS SLA 的 FDD 模板对 2026-10 整月直查 UME 自身（`10.100.28.27:28001`）当裁判，5342 条：
