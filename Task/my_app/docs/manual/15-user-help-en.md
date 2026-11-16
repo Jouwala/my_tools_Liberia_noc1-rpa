@@ -2362,6 +2362,7 @@ UME iMonitor screen (guard-imonitor-iui, screen_id=1): embeds the original UME m
 Site map: alarm/ticket distribution, topology lines, region polygons and multi-dimension filters (history/ticket view).
 
 - Region dropdown + layer tags to filter; click a legend item to hide that layer; time supports segments and custom range
+- The top-left "Layers" panel has three checkboxes — Place labels / Roads / Personnel — all **off by default**: place labels (17k names in the tiles) would bury the sites, and personnel are registered positions (not live GPS), so turn them on only when needed
 - The first cell of the "Advanced Filter" panel is a "Site Name" input: fuzzy match on a name fragment (case-insensitive); the rest are dropdowns for region/grade/form/FME etc.
 - Statistics follow the filter: site total and the ERA/COOL/NORMAL grades, the map legend, the county block colors and county labels, and the "MAINTENANCE ALERTS" county ranking panel are all recomputed from the filtered sites instead of showing the full-set numbers;
 - Click a site to open the right drawer: four tabs, searchable, exportable to Excel

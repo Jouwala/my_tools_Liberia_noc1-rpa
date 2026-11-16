@@ -4573,7 +4573,9 @@ const translations: Record<Locale, Record<string, string>> = {
     'gis.layerRoadsHint': '显示底图上的公路与铁路。关闭后地图更简洁，只剩水体、建筑与站点',
     // 人员图层（2026-10-16）。仅 gis 页可用。三处已知限制的文案必须保留，
     // 否则用户会把「只有 26 人」「非实时」「姓名匹配」当成 bug。
-    'gis.person.toggle': '显示人员',
+    // 2026-11-16 起开关在 LAYERS 浮层（label 用 gis.layerPersonnel），
+    // 原工具栏按钮的 'gis.person.toggle' 已随按钮一并删除。
+    'gis.layerPersonnel': '人员',
     'gis.person.toggleHint': '在地图上显示现场人员位置（仅展示已登记坐标的人员）；悬停人员可看其未关闭告警站点连线，点击该人员即清除',
     'gis.person.loading': '加载人员…',
     'gis.person.loadFailed': '人员数据加载失败',
@@ -11125,7 +11127,7 @@ const translations: Record<Locale, Record<string, string>> = {
     'gis.layerRoads': 'Roads',
     'gis.layerRoadsHint': 'Show roads and railways on the basemap. Turn off for a cleaner map with only water, buildings and sites',
     // Personnel layer (2026-10-16), gis page only.
-    'gis.person.toggle': 'Show Personnel',
+    'gis.layerPersonnel': 'Personnel',
     'gis.person.toggleHint': 'Show field personnel locations on the map (only those with registered coordinates). Hover a person to see lines to his unclosed alarm sites; click the person to clear them',
     'gis.person.loading': 'Loading personnel…',
     'gis.person.loadFailed': 'Failed to load personnel data',

@@ -389,6 +389,7 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
       desc: '站点地图：告警/工单在地图上的分布、拓扑线、区域面与多维筛选（历史/工单口径）。',
       usage: [
         '区域下拉 + 图层 Tag 开关筛选；图例点击可隐藏该类图层；时间支持分段切换与自定义区间',
+        '地图左上角「Layers」浮层里有地名注记 / 道路 / 人员三个勾选框，**默认全关**：地名（瓦片自带 1.7 万个）会糊住站点；人员是现场登记位置（非实时定位），需要时再勾',
         '「高级筛选」面板第一格是「站点名称」输入框：按名称片段模糊匹配（不区分大小写），其余是区域/等级/站型/FME 等下拉；',
         '筛选后统计同步变化：站点总数与 ERA/COOL/NORMAL 分档、地图图例、县块颜色与县名标注、右上角「MAINTENANCE ALERTS」区域排名条都按筛选后的站点重新统计，不再显示全量数字；',
         '点站点打开右侧抽屉，四个页签明细可搜索、可导出 Excel',
@@ -1072,6 +1073,7 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
       desc: 'Site map: alarm/ticket distribution, topology lines, region polygons and multi-dimension filters (history/ticket view).',
       usage: [
         'Region dropdown + layer tags to filter; click a legend item to hide that layer; time supports segments and custom range',
+        'The top-left "Layers" panel has three checkboxes — Place labels / Roads / Personnel — all **off by default**: place labels (17k names in the tiles) would bury the sites, and personnel are registered positions (not live GPS), so turn them on only when needed',
         'The first cell of the "Advanced Filter" panel is a "Site Name" input: fuzzy match on a name fragment (case-insensitive); the rest are dropdowns for region/grade/form/FME etc.',
         'Statistics follow the filter: site total and the ERA/COOL/NORMAL grades, the map legend, the county block colors and county labels, and the "MAINTENANCE ALERTS" county ranking panel are all recomputed from the filtered sites instead of showing the full-set numbers;',
         'Click a site to open the right drawer: four tabs, searchable, exportable to Excel',

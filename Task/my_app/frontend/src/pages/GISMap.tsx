@@ -34,7 +34,7 @@ import { PmtilesLayer } from './gismap/PmtilesLayer'
 import { TopologyLayer } from './gismap/TopologyLayer'
 import { LayerToggleControl } from './gismap/LayerToggleControl'
 import { MapOverlayToggle } from './gismap/MapOverlayToggle'
-import { PersonnelLayer, PersonnelToggleButton } from './gismap/PersonnelLayer'
+import { PersonnelLayer } from './gismap/PersonnelLayer'
 import { exportAoaReport } from '../utils/excelReport'
 import { stripBold } from '../utils/richText'
 import DraggableClickModal from '../components/DraggableClickModal'
@@ -349,10 +349,12 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
   const [showUtil] = useState(true)
   /* 人员图层开关（2026-10-16）。只在 mode==='all'（gis 页）可用 ——
      realtime_alarm 页不挂该图层（用户明确要求「只在 gis 页」）。
-     **默认开启**（2026-10-16 用户要求「默认显示」）。
-     状态放在这里（而非 PersonnelLayer 内部）是因为开关按钮在工具栏、
+     2026-11-16 用户要求：开关从工具栏的「显示人员」按钮**移进地图左上角的
+     LAYERS 浮层**，并**默认关闭**（此前 2026-10-16 曾要求默认显示）。理由：
+     人员针与站点圆点叠在一起时地图偏乱，默认只留站点，要看人再勾。
+     状态放在这里（而非 PersonnelLayer 内部）是因为开关在 LAYERS 浮层、
      小人在地图里，两处 DOM 位置不同，需要共同的父级持有状态。 */
-  const [showPersonnel, setShowPersonnel] = useState(true)
+  const [showPersonnel, setShowPersonnel] = useState(false)
   const [topologyLinks, setTopologyLinks] = useState<TopologyLink[]>([])
   const [utilMeta, setUtilMeta] = useState<UtilMeta | null>(null)
   const [regionBoundaries, setRegionBoundaries] = useState<{ region: string; polygon: [number, number][]; color: string; site_count: number }[]>([])
@@ -2130,8 +2132,11 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
             <Space wrap style={{ gap: 'var(--wh-space-sm)' }}>
               <span style={{ fontSize: '0.8125rem', fontWeight: 500, color: WH.text }}>{t('gis.layerFilter')}</span>
               {layerOptions.map(lo => (
-                <Fragment key={lo.key}>
+                /* 人员图层开关 2026-11-16 起**不在这里** —— 用户要求移进地图左上角
+                   的 LAYERS 浮层（见下方 LayerToggleControl 的 items）。别再把
+                   PersonnelToggleButton 加回来：同一个状态有两个入口会互相打架。 */
                 <Tag
+                  key={lo.key}
                   color={activeLayers.has(lo.key) ? lo.color : undefined}
                   role="switch"
                   aria-checked={activeLayers.has(lo.key)}
@@ -2149,16 +2154,6 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
                 >
                   {lo.label}
                 </Tag>
-                {/* 人员图层开关：紧跟「Realtime」右侧（2026-10-16 用户要求）。
-                    随图层开关一并在实时页隐藏（这里已只剩 'all' 模式）。 */}
-                {lo.key === 'rt_alarm' && (
-                  <PersonnelToggleButton
-                    enabled={showPersonnel}
-                    loading={false}
-                    onToggle={() => setShowPersonnel(v => !v)}
-                  />
-                )}
-                </Fragment>
               ))}
             </Space>
           </Col>
@@ -2750,6 +2745,19 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
                   checked: showRoads,
                   onChange: setShowRoads,
                 },
+                /* 人员图层开关（2026-11-16 用户要求）：从工具栏「显示人员」按钮
+                   移进 LAYERS 浮层，**默认关闭**（showPersonnel 初值 false）。
+                   ⚠ 只在 ?page=gis（mode==='all'）出现 —— 实时页不挂 PersonnelLayer
+                   （见下方 2848 行附近），放一个勾了也不起作用的开关会误导用户。 */
+                ...(mode === 'all'
+                  ? [{
+                      key: 'personnel',
+                      label: t('gis.layerPersonnel'),
+                      hint: t('gis.person.toggleHint'),
+                      checked: showPersonnel,
+                      onChange: setShowPersonnel,
+                    }]
+                  : []),
               ]}
             />
             <MapController center={center} zoom={zoomLevel}
