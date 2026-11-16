@@ -3808,7 +3808,7 @@ const translations: Record<Locale, Record<string, string>> = {
     // 生命周期从左到右排列，参照 page=incident_overview 的里程碑样式。数字仍在节点里，
     // 与取值的对应关系不变（下钻维度仍是 status，值仍是 eflow_wo.status 原值）。
     'ttwo.statusMilestone': 'Workflow',
-    'ttwo.statusMilestoneExplain': '按工单生命周期从左到右排列，节点里的数字由该阶段下的原始状态名逐条匹配得出（精确匹配，不做模糊归类），进度条与占比的分母是本卡片各阶段单数合计，点任意节点下钻该阶段的全部明细。未识别的状态单列在末尾「其他」，不会被吞掉。TT 页与 WO 页的阶段链不同：TT 为「派单 → 受理 → 处理中 → 现场确认 → 待确认 → 关闭」6 个；WO 为「派单 → 受理 → 等待出发 → 等待到达现场 → 处理中 → 离场 → 待确认 → 关闭」8 个（到场按业务流程拆成出发与到达两步）。',
+    'ttwo.statusMilestoneExplain': '按工单生命周期从左到右排列，节点里的数字由该阶段下的原始状态名逐条匹配得出（精确匹配，不做模糊归类），进度条与占比的分母是本卡片各阶段单数合计，点任意节点下钻该阶段的全部明细。未识别的状态单列在末尾「其他」，不会被吞掉。TT 页与 WO 页的阶段链不同：TT 为「派单 → 受理 → 处理中 → 现场确认 → 待确认 → 关闭」6 个；WO 为「派单 → 受理 → 等待出发 → 等待到达现场 → 处理中 → 现场确认 → 待确认 → 离场 → 关闭」9 个（到场按业务流程拆成出发与到达两步，离场排在待确认之后）。',
     // 里程碑阶段名。键名与 TTWODashboard 的 STATUS_MILESTONES[].labelKey 一一对应，
     // 每个阶段汇总的原始状态名见那里的 match 列表。
     'ttwo.milestone.reassign': '派单',
@@ -3841,7 +3841,7 @@ const translations: Record<Locale, Record<string, string>> = {
     //  - Workflow 卡片顶部副标题 + 阶段数
     'ttwo.workflowSubtitle': '工单生命周期 · 派单 → 受理 → 处理 → 现场确认 → 待确认 → 关闭',
     // WO 侧阶段链不同（到场拆成出发与到达两步），副标题单独一条
-    'ttwo.workflowSubtitleWo': '工单生命周期 · 派单 → 受理 → 等待出发 → 等待到达现场 → 处理 → 离场 → 现场确认 → 待确认 → 关闭',
+    'ttwo.workflowSubtitleWo': '工单生命周期 · 派单 → 受理 → 等待出发 → 等待到达现场 → 处理 → 现场确认 → 待确认 → 离场 → 关闭',
     'ttwo.workflowLive': '实时数据',
     // 2026-10-19 移除卡片内标题：外层 StatDimTitle 已显示「Workflow」，
     // 卡片里再显示「TICKET WORKFLOW」属于重复，故 workflowTitle* 两个键一并删除。
@@ -10376,7 +10376,7 @@ const translations: Record<Locale, Record<string, string>> = {
     // lifecycle instead of by count, mirroring page=incident_overview. Numbers stay inside
     // the nodes; the drilldown dimension/value are unchanged (status / raw eflow_wo.status).
     'ttwo.statusMilestone': 'Workflow',
-    'ttwo.statusMilestoneExplain': 'Laid out along the work-order lifecycle, left to right. Each node sums the raw status values listed in its match list (exact match, no fuzzy grouping); progress bars and shares use this card’s stage totals as the denominator. Click any node to drill into that stage. Statuses that match nothing are listed as a trailing “Other” node and are never dropped. The stage chain differs by page: TT has 6 stages (Dispatch → Accept → Processing → Field Confirm → Wait Confirm → Closed); WO has 8 (Dispatch → Accept → Waiting for Departure → Waiting for Arrive Site → Processing → Leave Site → Wait Confirm → Closed), with arrival split into departure and on-site legs.',
+    'ttwo.statusMilestoneExplain': 'Laid out along the work-order lifecycle, left to right. Each node sums the raw status values listed in its match list (exact match, no fuzzy grouping); progress bars and shares use this card’s stage totals as the denominator. Click any node to drill into that stage. Statuses that match nothing are listed as a trailing “Other” node and are never dropped. The stage chain differs by page: TT has 6 stages (Dispatch → Accept → Processing → Field Confirm → Wait Confirm → Closed); WO has 9 (Dispatch → Accept → Waiting for Departure → Waiting for Arrive Site → Processing → Field Confirm → Wait Confirm → Leave Site → Closed), with arrival split into departure and on-site legs and Leave Site placed after Wait Confirm.',
     // Milestone stage names; key names line up 1:1 with STATUS_MILESTONES[].labelKey
     // in TTWODashboard. The raw statuses rolled into each stage are listed there.
     'ttwo.milestone.reassign': 'Dispatch',
@@ -10400,7 +10400,7 @@ const translations: Record<Locale, Record<string, string>> = {
     'ttwo.milestoneIcon.waitConfirm': 'clock-circle',
     'ttwo.milestoneIcon.closed': 'check',
     'ttwo.workflowSubtitle': 'Ticket lifecycle · Dispatch → Accept → Process → Field Confirm → Wait Confirm → Closed',
-    'ttwo.workflowSubtitleWo': 'Work-order lifecycle · Dispatch → Accept → Waiting for Departure → Waiting for Arrive Site → Process → Leave Site → Field Confirm → Wait Confirm → Closed',
+    'ttwo.workflowSubtitleWo': 'Work-order lifecycle · Dispatch → Accept → Waiting for Departure → Waiting for Arrive Site → Process → Field Confirm → Wait Confirm → Leave Site → Closed',
     'ttwo.workflowLive': 'Live Data',
     // Card title removed 2026-10-19: duplicates the outer StatDimTitle "Workflow".
     // Removed 2026-10-19 with the Waiting Status / Order Flow Direction panels.
