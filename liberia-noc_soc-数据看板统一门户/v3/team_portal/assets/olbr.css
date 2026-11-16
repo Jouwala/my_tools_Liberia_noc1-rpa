@@ -1723,8 +1723,21 @@ html:not(.dark) .qc-spark .sp-bar.sp-warn { stroke-width: 1; }
 }
 /* 裁掉字面上下的多余行距，让大写字母和奖杯在胶囊里垂直居中。
    Firefox 尚不支持 text-box，会忽略这条，胶囊仍可用，只是没那么贴。 */
-/* 标题和徽章文字都裁掉字面行距，flex 的 center 才是对字母，不是对空白。 */
-.bf-hd b,
+/* ⚠️ 2026-11-16 修正：这条**只给徽章文字**，不再套在卡名上。
+   当天为了让「卡名 + 徽章」的 flex 居中对着字母而不是行距，曾把 .bf-hd b
+   一起裁掉字面行距；但 .bf-hd b 本身带 overflow:hidden（见上面卡名那段），
+   两者叠加后卡名的**行盒被裁到 cap 顶 → 基线**，只剩 8.75px，
+   而字形墨迹实高 16px：中文被切掉上下笔画，英文的 p/g/y 尾巴与 d/l 升部
+   也一起被切 —— 用户 2026-11-16 报「Download 等字被遮挡」。
+   实测（1582px 视口、六张基准卡，探针 TMP/_probe_bf_title.py）：
+     卡名行盒 8.75px / scrollHeight 19px / 字形墨迹 16px，墨迹整段在盒外；
+   徽章文字同样被裁到 8.05px，但外层 .bf-lead 胶囊没有 overflow:hidden，
+   墨迹 15px 仍完整落在 19px 胶囊里，所以只把卡名从这条选择器里摘出来。
+   卡名的垂直居中改由 .bf-hd 的 align-items:center 对**整条行盒**做 ——
+   行高 1.5（18.75px）的上下空白是对称的，行盒中心就是字母中心，
+   而且行盒高度足够包住全部墨迹，不会再被 overflow:hidden 切到。
+   ⚠️ 以后别再给 .bf-hd b 加 text-box（或任何把行盒压到字形之下的裁切）：
+   它带 overflow:hidden，压小行盒就等于切字。 */
 .bf-lead-t { text-box: trim-both cap alphabetic; }
 .bf-lead--o {
   color: var(--bf-orange-ink); background: var(--bf-orange-tint);
