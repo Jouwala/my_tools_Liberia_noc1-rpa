@@ -696,7 +696,15 @@ export default function PacketLossDashboard() {
   })
 
   return (
-    <div style={{ ...pageWrap, display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+    /* ⚠️ flexShrink: 0 是修「Top Sites 只剩一行」的关键（2026-11-16 用户反馈）：
+       `?embed=1`（门户 iframe 与直开内嵌地址都是）时 App 的 Content 被钉成
+       height:100%，本页根节点是它的 flex 子项、默认 flex-shrink:1 —— 内容高于视口时
+       整页被**压进一屏**而不是溢出滚动：头部横幅被压到 5px、Top Sites 卡片只剩 31px
+       （卡片 overflow:hidden 把 380px 的画布裁掉），看起来就是「Top Sites 只有一行」。
+       固定为不可收缩后，页面按内容自然高度排版、由 main 滚动，与不带 embed 的直开完全一致
+       （实测 1600×1200：地图卡 918、Top Sites 443、main 可滚）；门户里那套
+       PL_MAP_ONLY_CSS 用 !important 把高度改回 100%，不受本行影响。 */
+    <div style={{ ...pageWrap, display: 'flex', flexDirection: 'column', gap: '0.75rem', flexShrink: 0 }}>
       {/* 1. 头部横幅（全宽） */}
       <Card size="small" style={{
         ...cardStyle,
