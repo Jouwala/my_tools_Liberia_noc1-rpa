@@ -1424,6 +1424,53 @@ python -m backend.services.olib_soc_report.olib_soc_report_service --sync-kpi --
 > ⚠️ **例外**：缓存占比那张卡的「本地占」与卡片「缓存占比」**不是同一个指标**
 > （前者按服务器所在国家、覆盖两套缓存集群，实测高约 8 个百分点），不要拿它俩互相对账。
 
+### IP RAN 看板某个 ME 的数据整段停更（2026-11-16 事故）
+
+**现象**：`?page=finebi_ipran_4region`（门户 `MsPortal/viewer.html?gid=BO%20View&no=30`）
+同一张图里 `BU_UL` / `BU_DL` 一直在更新，`RIA_UL` / `RIA_DL` / `Gb_*` / `Kakata_*`
+六条曲线停在 **2026-11-05 09:45**；顶上的 `TIme` 卡片显示最新日期（它读的是
+`IPCORE_HQ_ODC_bnctp_15mins`，**不是**这几条曲线用的表，不能当新鲜度证据）。
+
+**根因**：`Gbarnga_Buchanna_RIA_Kakata_me_15mins` 里 4 个 ME 的 `Begin Time`
+**不在同一时基** —— `M6k_2s16_Buchanan2_UPE77` 比另外 3 个快 **8 小时**
+（同一时刻 RIA 最新 13:45、BU 最新 21:45；BU 平移 -8h 后两者小时级相关性
+-0.26 → 0.77，确认是 BU 侧 +8h，不是数据错位）。
+
+2026-11-05 写入侧改成「按水位增量裁剪」后，水位取的是**全表** `MAX("Begin Time")`
+（= BU 的 21:30），`cutoff = 水位 - 2h = 19:30` 恒大于另外 3 个 ME 的 13:45，
+它们每轮的新行全被当成「已写过」丢掉。远端 SQLite 与本机 PG 同时停，所以
+`backfill_ipran_pg.py`（从远端往 PG 补）也补不回来 —— 两边都缺。
+
+**修复**：
+1. 代码：`ipran_ume_kpi_service._rows_since_watermark()` / `mirror_rows_to_local()`
+   改为**按 ME 分别取水位**（`_crop_rows_by_me()`，见该函数上方注释）；某个 ME
+   查不到水位时保留该 ME 全部行。**不要改回全表 MAX。**
+2. 数据：从 UME 重新拉一个更大的窗口补两库（远端确无数据时才用；远端有数据
+   仍优先 `backfill_ipran_pg.py`）：
+
+```bash
+cd D:\01_RPA\Task\my_app
+# 先干跑，确认各 ME 的 min/max 与行数
+python -m backend.scripts.backfill_ipran_from_ume --key Gbarnga_Buchanna_RIA_Kakata --days 14 --dry-run
+# 分批写入远端 + 本机镜像（按 ME/日期分批，只补水位之后的行）
+python -m backend.scripts.backfill_ipran_from_ume --key Gbarnga_Buchanna_RIA_Kakata --days 14
+```
+
+**验证**（两个库都要看，缺一不可）：
+
+```sql
+-- 远端：POST http://192.168.100.19:8765/api/query
+SELECT "ME", MAX("Begin Time") FROM "Gbarnga_Buchanna_RIA_Kakata_me_15mins" GROUP BY "ME";
+-- 本机：psql -h 192.168.100.20 -U myapp myapp
+SELECT "ME", MAX("Begin Time") FROM ipran_ume."Gbarnga_Buchanna_RIA_Kakata_me_15mins" GROUP BY "ME";
+-- 页面：4 个 ME 都要到「当前时刻附近」，且每个 ME 每天 96 个点（缺失日会明显少）
+```
+
+> **BU 的 +8h 是上游数据本身**（设备时钟/时区），本次**没有**改写入的时间戳：
+> 页面按同一 x 轴画出来时 BU 会比另外 3 个 ME 向右偏 8 小时，属于已知上游缺陷。
+> 若将来要统一时基，先在 UME 侧核对设备时钟，再决定是改采集还是改展示，
+> **不要**在 SQL 里悄悄 `datetime(..., '-8 hours')`。
+
 ### 后端静默停摆：连崩 10 次永久退出（2026-10-05 事故，2026-10-06 修复）
 
 **现象**：`https://localhost/myapp/` 打得开（SPA 外壳 200、2866B），但页面全是空数据；

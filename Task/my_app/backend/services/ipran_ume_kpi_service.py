@@ -975,17 +975,114 @@ def _norm_begin_time(v) -> str:
     return s[:19].replace("T", " ") if len(s) >= 19 else s
 
 
+# ---------------------------------------------------------------------------
+# 增量水位必须按 ME 取，不能用全表 MAX（2026-11-16 事故，勿改回）
+#
+# `Gbarnga_Buchanna_RIA_Kakata_me_15mins` 同一张表里 4 个 ME 的 Begin Time
+# **不在同一时基**：`M6k_2s16_Buchanan2_UPE77` 比另外 3 个（RIA / Kakata /
+# Gbarnga）快 8 小时。实测同一时刻 RIA 最新 13:45、BU 最新 21:45；把 BU 序列
+# 平移 -8h 后它与 RIA 的小时级相关性从 -0.26 升到 0.77，可确认是 BU 侧 +8h
+# （设备时钟/时区），不是数据错位。
+#
+# 2026-11-05 远端写入与本机镜像改成「按水位增量」后，水位取的是**全表**
+# MAX(Begin Time)（= BU 的 21:30），cutoff = 水位 - 2h = 19:30 恒大于另外
+# 三个 ME 的 13:45，它们每轮的行全被判成「水位之前」整批丢弃。用户看到的
+# 就是 BU_UL/BU_DL 一直最新、RIA_UL 等 6 条曲线停在 2026-11-05 09:45
+# （正是改增量的那一天）。
+#
+# 修复方式：按 ME 分别取水位、分别裁行；批次里某个 ME 查不到水位（新上线
+# 的 ME、远端不可用、解析失败）时**保留该 ME 的全部行**，宁可多写也不漏数，
+# upsert 幂等。
+# ---------------------------------------------------------------------------
+def _crop_rows_by_me(headers: list, rows: list, watermarks: dict,
+                     overlap_hours: int) -> list:
+    """按「每个 ME 各自的水位 - overlap」裁行。
+
+    ``watermarks`` 形如 ``{ME: 'YYYY-MM-DD HH:MM:SS'}``；某 ME 没有水位、
+    或该行取不到 ME/时间时一律保留（漏水比多写代价高，写入是 upsert 幂等）。
+    """
+    try:
+        mi = headers.index("ME")
+        bi = headers.index("Begin Time")
+    except ValueError:
+        return list(rows)
+    if not watermarks:
+        return list(rows)
+
+    cutoffs = {}
+    for me, water in watermarks.items():
+        try:
+            dt = datetime.strptime(_norm_begin_time(water)[:19], "%Y-%m-%d %H:%M:%S")
+        except (TypeError, ValueError):
+            continue
+        cutoffs[str(me)] = (dt - timedelta(hours=overlap_hours)).strftime(
+            "%Y-%m-%d %H:%M:%S")
+
+    picked = []
+    for row in rows:
+        me = str(row[mi]) if mi < len(row) else ""
+        cutoff = cutoffs.get(me)
+        if cutoff is None:
+            picked.append(row)
+            continue
+        t = _norm_begin_time(row[bi] if bi < len(row) else "")
+        if t >= cutoff:
+            picked.append(row)
+    return picked
+
+
+def _watermarks_mark(watermarks: dict) -> str:
+    """日志用的水位摘要：ME 个数 + 最新/最旧水位（时间跨度一眼可见）。"""
+    vals = sorted(v for v in watermarks.values() if v)
+    if not vals:
+        return "per-ME watermark 0 个"
+    return f"per-ME watermark {len(vals)} 个 (min={vals[0]}, max={vals[-1]})"
+
+
+def _remote_watermarks_by_me(table_name: str) -> dict:
+    """远端权威库按 ME 的 MAX(Begin Time)；失败返回 {} 由调用方退回表级水位。"""
+    if _db_writer is None:
+        return {}
+    try:
+        res = _db_writer.query(
+            DB_NAME,
+            f'SELECT "ME", MAX("Begin Time") AS "mx" FROM "{table_name}" '
+            f'GROUP BY "ME"',
+            limit=500,
+        )
+        rows = res.get("rows") or []
+        out = {}
+        for r in rows:
+            if len(r) >= 2 and r[0]:
+                t = _norm_begin_time(r[1])
+                if t:
+                    out[str(r[0])] = t
+        return out
+    except Exception as e:  # noqa: BLE001 - 取不到就退回表级/全量
+        logger.warning("[DB][API] %s 按 ME 取远端水位失败: %s", table_name, e)
+        return {}
+
+
 def _rows_since_watermark(table_name: str, headers: list, rows: list,
                           overlap_hours: int = None) -> tuple[list, str]:
     """按**远端权威库**水位裁剪待写行；读取失败一律全量，upsert 保证幂等。
 
     不能复用本机 PG 水位：远端失败后的本地兜底也会推进本机水位，若据此裁剪，
     下一轮会跳过远端真正缺失的行。
+
+    水位按 ME 分别取（见本函数上方的 2026-11-16 事故说明）；按 ME 取不到时
+    才退回旧的表级水位。
     """
     if overlap_hours is None:
         overlap_hours = MIRROR_OVERLAP_HOURS
     if "Begin Time" not in headers:
         return rows, "no Begin Time column"
+
+    marks = _remote_watermarks_by_me(table_name)
+    if marks:
+        return (_crop_rows_by_me(headers, rows, marks, overlap_hours),
+                _watermarks_mark(marks))
+
     try:
         water = _norm_begin_time(
             _db_writer.get_latest_value(DB_NAME, table_name, "Begin Time"))
@@ -996,11 +1093,30 @@ def _rows_since_watermark(table_name: str, headers: list, rows: list,
         bi = headers.index("Begin Time")
         picked = [r for r in rows
                   if _norm_begin_time(r[bi] if bi < len(r) else "") >= cutoff]
-        return picked, f"remote watermark={water} cutoff={cutoff}"
+        return picked, f"remote watermark={water} cutoff={cutoff} (table-level)"
     except Exception as e:  # noqa: BLE001 - 水位不可用就全量，绝不因优化漏数
         logger.warning("[DB][API] %s 远端水位不可用，退化为全量写入: %s",
                        table_name, e)
         return rows, f"remote watermark unavailable ({e}) -> full send"
+
+
+def _local_watermarks_by_me(conn, table_name: str) -> dict:
+    """本机镜像表按 ME 的 MAX(Begin Time)；表不存在/为空/查询失败返回 {}。"""
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            f'SELECT "ME", MAX("Begin Time") FROM "{table_name}" GROUP BY "ME"')
+        out = {}
+        for me, mx in cur.fetchall():
+            if me:
+                t = _norm_begin_time(mx)
+                if t:
+                    out[str(me)] = t
+        return out
+    except Exception as e:  # noqa: BLE001 - 取不到就全量镜像，不阻断
+        logger.warning("[MIRROR] %s 按 ME 取本机水位失败: %s", table_name, e)
+        return {}
+
 
 
 def mirror_rows_to_local(table_name: str, headers: list, rows: list,
@@ -1013,9 +1129,13 @@ def mirror_rows_to_local(table_name: str, headers: list, rows: list,
     采集每轮给的是 3 天全量窗口（单表 30~40 万行），而本机大表已有 195 万行。
     全量 upsert 代价高，且历史事故里「每轮 DROP + CREATE UNIQUE INDEX +
     dedupe_rows」曾在 195 万行表上跑 25.9 小时（见 dialect_helpers.py 注释）。
-    这里先取本机 ``MAX("Begin Time")`` 作水位（唯一索引首列，毫秒级），只写
-    「水位 - overlap_hours」之后的行：每轮通常几千行，且 upsert 幂等，重叠
-    窗口里的重复行不会产生重复数据。
+    这里先按 **ME** 取本机 ``MAX("Begin Time")`` 作水位（每张表几个 ME，一次
+    GROUP BY 即得），只写「该 ME 水位 - overlap_hours」之后的行：每轮通常几千行，
+    且 upsert 幂等，重叠窗口里的重复行不会产生重复数据。
+
+    **不能改成全表 MAX**：Gbarnga/Buchanna/RIA/Kakata 表里 BU 的 Begin Time
+    比另外 3 个 ME 快 8 小时，全表水位会把它们的新行全部裁掉（2026-11-16 事故，
+    详见 ``_crop_rows_by_me`` 上方的完整说明）。
 
     表 / 唯一索引只用 IF NOT EXISTS 创建，**绝不 DROP 重建、绝不 dedupe**。
     ``apply_watermark=False`` 用于一次性回填：调用方给的 rows 本来就是「缺口
@@ -1054,28 +1174,14 @@ def mirror_rows_to_local(table_name: str, headers: list, rows: list,
                 f'ON "{table_name}" ({pk_q})'
             )
 
-        # 水位：MAX 走唯一索引的反向扫描，不做全表聚合
-        cutoff = ""
-        if apply_watermark and "Begin Time" in headers:
-            try:
-                cur.execute(f'SELECT MAX("Begin Time") FROM "{table_name}"')
-                row = cur.fetchone()
-                water = _norm_begin_time(row[0] if row else None)
-                if water:
-                    dt = datetime.strptime(water[:19], "%Y-%m-%d %H:%M:%S")
-                    cutoff = (dt - timedelta(hours=overlap_hours)).strftime(
-                        "%Y-%m-%d %H:%M:%S")
-            except Exception as e:  # noqa: BLE001 - 水位取不到就退化为全量，不阻断镜像
-                logger.warning("[MIRROR] %s 取本机水位失败，退化为全量: %s",
-                               table_name, e)
-                cutoff = ""
-
-        bt_idx = headers.index("Begin Time") if "Begin Time" in headers else -1
+        # 水位：按 ME 分别取（Gbarnga/Buchanna/RIA/Kakata 表内 BU 快 8 小时，
+        # 用全表 MAX 会把另外 3 个 ME 整批裁掉；见 _crop_rows_by_me 上方说明）。
         picked = rows
-        if cutoff and bt_idx >= 0:
-            picked = [r for r in rows
-                      if _norm_begin_time(r[bt_idx] if bt_idx < len(r) else "")
-                      >= cutoff]
+        if apply_watermark and "Begin Time" in headers:
+            marks = _local_watermarks_by_me(conn, table_name)
+            if marks:
+                picked = _crop_rows_by_me(headers, rows, marks, overlap_hours)
+                logger.info("[MIRROR] %s: %s", table_name, _watermarks_mark(marks))
         if not picked:
             return 0
 

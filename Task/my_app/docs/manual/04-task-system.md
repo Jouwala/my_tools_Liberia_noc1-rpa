@@ -247,7 +247,7 @@ APScheduler 到点 (backend 进程内)
 | `cnn_kpi_sync` | CNN UME KPI 同步 | `0 6 * * *` | n |
 | `cnn_kpi_sync_5mins` | CNN UME KPI 5分钟同步（**增量窗口**默认最近 120 分钟，上一轮失败自动回退全窗口「昨天 00:00→现在」补缺口，`CNN5M_WINDOW_MODE=full` 回滚旧行为；写 `5mins_*` 新表；**混合粒度**：5 个模板 5 分钟 + 3 个模板走上游 15 分钟档模板；0 行跳过不计失败） | `*/15 * * * *` | n |
 | `sp_data_sync` | SP 备件数据同步 | `10 * * * *` | s |
-| `ipran_kpi_sync` | iPRAN UME KPI 同步（**每小时全量拉取 3 天窗口是本意**，2026-11-06 与用户确认；写入侧按远端水位增量裁剪） | `0 * * * *` | u |
+| `ipran_kpi_sync` | iPRAN UME KPI 同步（**每小时全量拉取 3 天窗口是本意**，2026-11-06 与用户确认；写入侧按**每个 ME 各自的**远端水位增量裁剪 —— 同表 BU 的 Begin Time 比另外 3 个 ME 快 8 小时，用全表水位会把它们整批裁掉，2026-11-16 已修） | `0 * * * *` | u |
 | `liberia_email_1h` | Liberia 宕站 1小时报告邮件 | `15 * * * *` | m |
 | `liberia_email_8h` | Liberia 宕站 8小时报告邮件 | `20 */8 * * *` | m |
 | `kpi_ms_contract` | MS Contract KPIs 日报邮件 | `30 5 * * *` | m |
