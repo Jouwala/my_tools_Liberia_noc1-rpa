@@ -12474,7 +12474,10 @@ const translations: Record<Locale, Record<string, string>> = {
     'bmm.sec.pk': 'Head-to-head',
     'bmm.sec.network': 'Network-side KPIs',
     'bmm.sec.networkHint': 'Belongs to neither operator; excluded from the head-to-head',
-    'bmm.card.verdict': 'Composite competitiveness verdict',
+    // 2026-11-16：结论卡与其余四张并成一行后只有 1/5 栏（~230px），
+    // 原英文标题 "Composite competitiveness verdict" 在 1280 宽会被卡头截成
+    // "…competitiveness verd"，去掉 Composite 后整行放得下，语义不变。
+    'bmm.card.verdict': 'Competitiveness verdict',
     'bmm.card.scores': 'Composite score and wins',
     'bmm.card.leaderTag': 'Leading',
     'bmm.card.winDaysFmt': 'Leads {w} of {d} days',
