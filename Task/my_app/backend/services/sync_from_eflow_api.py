@@ -889,15 +889,14 @@ def _reconcile_delete(dst_conn, result: dict) -> None:
 
     只在 full 模式调用（delta 的窗口天然不完整，删了就是事故）。
 
-    四道闸门：
+    四道闸门（**全部按表隔离**，一张表出问题不连累其他表，2026-11-17 改）：
       ① 本函数只在 mode == "full" 时被调用；
-      ② 上游权威集合必须**扫全**（`eflow_reconcile` 内部校验 total == 实拉条数），
-         否则抛 `UpstreamVerifyError` → **整轮放弃删除**（一张表都不删）；
+      ② 上游权威集合必须**扫全**：实拉条数比上游 total 少得过多
+         （超过 `_shortfall_tolerance`）才跳过该表；少几行属计数抖动，照常删；
       ③ 单张表的上游集合为空 → **跳过该表**（空集合≠全被删，绝不清表）；
       ④ 单张表待删量超过阈值（绝对 200 行 / 相对 5% 取大）→ **跳过该表**。
 
-    ② 是唯一会整轮中止的闸门（其余按表隔离）。按表隔离的理由：一张表
-    异常不该让另外两张表也删不掉 —— 用户要的就是「上游删了就别显示」。
+    只有「扫描器整体崩掉」才整轮放弃；否则按表跳过，让能对账的表先对账。
 
     ⚠ 删除是破坏性操作，故每个闸门触发都会写进 `result["errors"]`，
     使任务**不会**以 success=True 静默通过（否则「删了但没删干净」无从察觉）。
@@ -907,31 +906,26 @@ def _reconcile_delete(dst_conn, result: dict) -> None:
         return
 
     try:
-        from backend.services.eflow_reconcile import (
-            UpstreamVerifyError,
-            fetch_authoritative_keys,
-        )
+        from backend.services.eflow_reconcile import fetch_authoritative_keys
     except ImportError:
         logging.getLogger(__name__).warning("[SILENT-EXCEPT] reconcile import failed", exc_info=True)
-        from services.eflow_reconcile import (
-            UpstreamVerifyError,
-            fetch_authoritative_keys,
-        )
+        from services.eflow_reconcile import fetch_authoritative_keys
 
     try:
-        upstream = fetch_authoritative_keys(dst_conn)
-    except UpstreamVerifyError as exc:
-        msg = f"[对账] 上游权威集合扫描失败，本轮放弃删除：{exc}"
-        logger.error(msg)
-        result["errors"].append(msg)
-        result["reconcile_skipped"] = str(exc)
-        return
+        upstream, scan_errors = fetch_authoritative_keys(dst_conn)
     except Exception as e:  # noqa: BLE001
-        msg = f"[对账] 上游权威集合扫描异常，本轮放弃删除：{e}"
+        # 扫描器整体崩了（连一张表都没扫）才走这里；单表失败已由扫描器按表隔离。
+        msg = f"[对账] 上游权威集合扫描整体失败，本轮放弃删除：{e}"
         logger.exception(msg)
         result["errors"].append(msg)
         result["reconcile_skipped"] = str(e)
         return
+
+    # 单表扫描失败/不完整 → 只跳过该表（2026-11-17 改：此前会整轮放弃，
+    # 实测 TT 差 1 行导致 WO、CR 当轮也全不删，并连发告警）。
+    for label in scan_errors:
+        msg = f"[对账] {label} 权威集合扫描不完整，本轮跳过该表的删除：{scan_errors[label]}"
+        result["errors"].append(msg)
 
     # ---- 第一步：只算待删清单，不动库 ----
     plan: dict[str, tuple[str, set[str]]] = {}   # table -> (key_col, 待删键集合)
@@ -942,6 +936,10 @@ def _reconcile_delete(dst_conn, result: dict) -> None:
         ("WO", "eflow_wo", "wo_no"),
         ("CR", "eflow_cr", "change_request_id"),
     ):
+        if label in scan_errors:
+            # 扫描失败的表已在上面记过 error，这里只标记跳过，不重复报错
+            skipped.append(table)
+            continue
         up_keys = upstream.get(label)
         if not up_keys:
             # 该表的上游集合为空 → **只跳过这一张表**，不拖累其他表。

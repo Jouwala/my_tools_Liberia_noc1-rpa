@@ -81,6 +81,25 @@ _PAGE_SIZE = 2000
 #: 留足余量是为了覆盖「上游 lastModifiedTime 比本地记录的更早」这种反常情况。
 _WINDOW_MARGIN_DAYS = 30
 
+#: 「扫全」闸门的容差 —— **不能用精确相等**（2026-11-17 事故）。
+#:
+#: 上游的 `total` 是**首页返回时**的计数，而一次全窗口扫描要跑几分钟；
+#: 这期间有单新建 / 被删 / 修改时间跨过窗口边界，计数必然轻微漂移。
+#: 实测：08:01 那轮 TT 拉到 42054/42055（**差 1 行**）、08:50 重试 WO
+#: 16578/16582（**差 4 行**），两次都被判"窗口不完整"→ 整轮放弃删除 →
+#: 任务 success=False → 连发微信与邮件告警，而数据其实完全够用。
+#:
+#: 故改为**允许小幅缺口**：缺口 ≤ max(绝对下限, total × 比例) 视为计数抖动，
+#: 记 warning 后照常删除；只有缺口真正大（页被截断 / 接口提前收尾）才拒绝。
+#: 取值依据：一页 _PAGE_SIZE=2000，真正的截断至少缺几百行，远大于此容差。
+_SCAN_SHORTFALL_MIN = 10          # 绝对容忍下限（行）
+_SCAN_SHORTFALL_RATIO = 0.005     # 相对容忍比例（0.5%）
+
+
+def _shortfall_tolerance(total: int) -> int:
+    """「实拉条数」允许比上游 total 少多少行（超过即判定扫描不完整）。"""
+    return max(_SCAN_SHORTFALL_MIN, int(total * _SCAN_SHORTFALL_RATIO))
+
 
 def _ms(dt: datetime) -> int:
     return int(dt.timestamp() * 1000)
@@ -90,8 +109,9 @@ def _scan_upstream_keys(api_path: str, referer: str, payload_base: dict,
                         label: str) -> set[str]:
     """扫上游列表，返回该窗口内的**全部**单号集合。
 
-    ⚠ 返回不完整（上游 total 声明的条数没拉全）时抛 `UpstreamVerifyError`，
-    绝不返回残缺集合冒充全集 —— 那会让调用方误删大量真实单据。
+    ⚠ 实拉条数比上游 `total` 少得过多（超过 `_shortfall_tolerance`）时抛
+    `UpstreamVerifyError`，绝不返回残缺集合冒充全集 —— 那会让调用方误删真实单据。
+    少几行属扫描期间上游计数抖动，只记 warning，不阻断（见容差常量注释）。
     """
     headers = _headers_extra(referer)
     keys: set[str] = set()
@@ -143,8 +163,15 @@ def _scan_upstream_keys(api_path: str, referer: str, payload_base: dict,
             break
 
     if total and fetched < total:
-        raise UpstreamVerifyError(
-            f"{label} 上游只拉到 {fetched}/{total} 行，窗口不完整 —— 拒绝据此删除")
+        shortfall = total - fetched
+        tolerance = _shortfall_tolerance(total)
+        if shortfall > tolerance:
+            raise UpstreamVerifyError(
+                f"{label} 上游只拉到 {fetched}/{total} 行（缺 {shortfall}，"
+                f"超过容忍 {tolerance}）—— 窗口不完整，拒绝据此删除")
+        logger.warning(
+            "%s 上游 total=%s 但实拉 %s 行（缺 %s，在容忍 %s 内）："
+            "属扫描期间上游计数抖动，照常继续", label, total, fetched, shortfall, tolerance)
 
     logger.info("%s 上游权威集合 %d 个单号（total=%s）", label, len(keys), total)
     return keys
@@ -163,17 +190,26 @@ def _local_min_lmt(conn, table: str, key_col: str) -> str | None:
         return None
 
 
-def fetch_authoritative_keys(conn) -> dict[str, set[str]]:
+def fetch_authoritative_keys(conn) -> tuple[dict[str, set[str]], dict[str, str]]:
     """扫出 TT / WO / CR 的上游权威单号集合。
 
     时间窗由**本地数据**推导：起点 = 本地最早 last_modified_time 往前 30 天，
     终点 = 现在。这样「本地有的单，上游一定在窗口内查得到」，不会把
     「上游还活着但很久没动」的单误判成已删除。
 
-    ⚠ 任一表扫描失败/不完整 → 抛 `UpstreamVerifyError`，调用方必须整轮放弃删除。
+    Returns:
+        (keys_by_label, errors_by_label)
+        · `keys_by_label`：`{"TT": {...}, "WO": {...}, "CR": {...}}`，只含扫描成功的表；
+        · `errors_by_label`：`{"TT": "失败原因"}`，扫描失败/不完整的表不出现于 keys。
+
+    ⚠ **单表失败只隔离该表，不再抛异常整轮放弃**（2026-11-17 改）。
+    此前任一张表扫描异常就整轮放弃，实测 TT 差 1 行导致 WO、CR 当轮也全都不删，
+    任务还 success=False 连发告警。调用方按表跳过即可 —— 一张表查不准，
+    不该连累另外两张本来能对账的表。
     """
     end_dt = datetime.now(timezone.utc)
     results: dict[str, set[str]] = {}
+    errors: dict[str, str] = {}
 
     specs = [
         ("TT", "eflow_tt", "tt_no", TT_API_PATH, TT_REFERER, TT_FIELDS,
@@ -218,6 +254,14 @@ def fetch_authoritative_keys(conn) -> dict[str, set[str]]:
             }
 
         logger.info("%s 对账扫描窗口: %s ~ %s", label, start_dt, end_dt)
-        results[label] = _scan_upstream_keys(api_path, referer, payload, label)
+        try:
+            results[label] = _scan_upstream_keys(api_path, referer, payload, label)
+        except UpstreamVerifyError as exc:
+            # 只隔离这张表：不放进 results，调用方会对它跳过删除
+            logger.error("%s 权威集合扫描不完整，本轮跳过该表的对账删除：%s", label, exc)
+            errors[label] = str(exc)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("%s 权威集合扫描异常，本轮跳过该表的对账删除", label)
+            errors[label] = f"{type(exc).__name__}: {exc}"
 
-    return results
+    return results, errors

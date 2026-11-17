@@ -43,18 +43,24 @@ def _rows(conn, table, key_col):
 
 
 class _FakeUpstream:
-    """替换 fetch_authoritative_keys：返回预设的权威集合，或抛错。"""
+    """替换 fetch_authoritative_keys。
 
-    def __init__(self, keys=None, exc=None):
-        self.keys = keys
+    真实签名返回 `(keys_by_label, errors_by_label)`：单表扫描失败只隔离该表，
+    不再抛异常整轮放弃（2026-11-17 改）。
+    """
+
+    def __init__(self, keys=None, exc=None, scan_errors=None):
+        self.keys = keys if keys is not None else {}
         self.exc = exc
+        self.scan_errors = scan_errors or {}
         self.calls = 0
 
     def __call__(self, conn):
         self.calls += 1
         if self.exc is not None:
             raise self.exc
-        return self.keys
+        keys = {k: v for k, v in self.keys.items() if k not in self.scan_errors}
+        return keys, dict(self.scan_errors)
 
 
 def _patch(monkeypatch, fake):
@@ -105,10 +111,14 @@ def test_empty_upstream_set_refuses_to_delete(monkeypatch):
     assert "eflow_tt" in result["reconcile_skipped"]
 
 
-# ---------------- 闸门 ③：扫描异常 → 拒绝 ----------------
+# ---------------- 扫描器整体崩了 → 整轮放弃 ----------------
 
-def test_upstream_exception_refuses_to_delete(monkeypatch):
-    """上游扫描异常 → 整轮放弃删除，并把异常写进 errors。"""
+def test_scanner_crash_refuses_to_delete(monkeypatch):
+    """扫描器本身抛异常（连一张表都没扫出来）→ 整轮放弃删除。
+
+    注意：单表扫描失败**不再**走这条路径（见下一条用例），
+    只有扫描器整体崩掉才整轮放弃。
+    """
     conn = _make_db()
     _fill(conn, "eflow_tt", "tt_no", ["TT202601010001"])
     _patch(monkeypatch, _FakeUpstream(exc=UpstreamVerifyError("上游 500")))
@@ -119,6 +129,35 @@ def test_upstream_exception_refuses_to_delete(monkeypatch):
     assert _rows(conn, "eflow_tt", "tt_no") == {"TT202601010001"}
     assert result["errors"]
     assert "上游 500" in result["reconcile_skipped"]
+
+
+# ---------------- 单表扫描失败 → 只隔离该表（2026-11-17） ----------------
+
+def test_single_table_scan_error_isolates_only_that_table(monkeypatch):
+    """单表扫描不完整 → 只跳过该表，其他表照常对账删除。
+
+    背景（2026-11-17 实测）：TT 扫描差 1 行（42054/42055）曾导致整轮放弃，
+    WO 与 CR 当轮也全都不删，任务还 success=False 连发告警。
+    """
+    conn = _make_db()
+    _fill(conn, "eflow_tt", "tt_no", ["TT001", "TT002"])
+    _fill(conn, "eflow_wo", "wo_no", ["WO001", "WO002"])
+    _fill(conn, "eflow_cr", "change_request_id", ["CR001", "CR002"])
+
+    _patch(monkeypatch, _FakeUpstream(
+        keys={"TT": {"TT001"}, "WO": {"WO001"}, "CR": {"CR001"}},
+        scan_errors={"TT": "TT 上游只拉到 42054/42055 行"},
+    ))
+
+    result = {"errors": []}
+    sync_mod._reconcile_delete(conn, result)
+
+    assert _rows(conn, "eflow_tt", "tt_no") == {"TT001", "TT002"}, \
+        "TT 扫描不完整 → 一张都不能删"
+    assert _rows(conn, "eflow_wo", "wo_no") == {"WO001"}, "WO 不受牵连，照常删"
+    assert _rows(conn, "eflow_cr", "change_request_id") == {"CR001"}, "CR 不受牵连，照常删"
+    assert any("TT" in e and "扫描不完整" in e for e in result["errors"])
+    assert "eflow_tt" in result["reconcile_skipped"]
 
 # ---------------- 闸门 ④：待删量超上限 → 拒绝 ----------------
 
@@ -189,6 +228,43 @@ def test_incomplete_scan_raises_upstream_error():
             eflow_reconcile._scan_upstream_keys("/api/x", "ref", {}, "TT")
     finally:
         monkey.undo()
+
+
+def test_small_shortfall_is_tolerated():
+    """缺口在容差内（count 抖动）→ 不抛错，正常返回键集合。
+
+    背景：上游 total 是首页读到的计数，扫描要跑几分钟，期间有单增减，
+    精确相等不可能满足。2026-11-17 实测差 1 行与 4 行就整轮失败。
+    """
+    from backend.services import eflow_reconcile
+    import json as _json
+
+    calls = {"n": 0}
+
+    def fake_http(method, path, headers_extra=None, body=None, max_retries=None, **kw):
+        calls["n"] += 1
+        # 声明 total=500，实拉 497（缺 3，远小于容差 max(10, 2)）→ 应被容忍
+        payload = {"code": 0, "total": 500,
+                   "result": [{"woNum": f"TT{i:06d}"} for i in range(497)]}
+        return "200 OK", {}, {}, _json.dumps(payload).encode("utf-8")
+
+    monkey = pytest.MonkeyPatch()
+    monkey.setattr(eflow_reconcile, "_http_request", fake_http)
+    try:
+        keys = eflow_reconcile._scan_upstream_keys("/api/x", "ref", {}, "TT")
+    finally:
+        monkey.undo()
+
+    assert len(keys) == 497
+
+
+def test_shortfall_tolerance_scales_with_table_size():
+    """容差 = max(绝对下限 10, total × 0.5%)。"""
+    from backend.services.eflow_reconcile import _shortfall_tolerance
+
+    assert _shortfall_tolerance(300) == 10        # 小表走绝对下限
+    assert _shortfall_tolerance(42000) == 210     # 大表按 0.5%
+    assert _shortfall_tolerance(0) == 10
 
 
 # ---------------- 正常路径：只删上游已无的 ----------------
