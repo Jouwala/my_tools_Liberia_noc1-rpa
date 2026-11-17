@@ -207,6 +207,8 @@ from site_outage_session import (  # noqa: E402
     load_state as _load_state,
     save_state as _save_state,
     clear_state as _clear_state,
+    install_csrf_header as _install_csrf_header,
+    sync_csrf_storage as _sync_csrf_storage,
 )
 
 
@@ -454,9 +456,42 @@ def _get_dashboard_frame(page, max_attempts=3):
 
     # 严格模式：不再 fallback 到 page，直接报错
     save_debug_snapshot(page, DEBUG_DIR, "iframe_not_found")
+    if _cross_site_blocked(page):
+        raise FatalError(
+            "Dashboard iframe 未创建：门户返回「该请求因跨站点访问被禁止」"
+            "（防伪令牌与当前会话不一致）"
+        )
     raise FatalError(
         "Dashboard iframe 定位失败：可能页面未加载完成或登录态已失效"
     )
+
+
+def _cross_site_blocked(page) -> bool:
+    """门户是否已经弹出「跨站点访问被禁止」。
+
+    这是网管 403（防伪令牌与 Cookie 不一致）的页面文案，不是登录页。
+    """
+    try:
+        text = page.locator("body").inner_text(timeout=2000) or ""
+    except Exception:
+        logging.getLogger(__name__).warning(
+            "[SILENT-EXCEPT] _cross_site_blocked: exception swallowed",
+            exc_info=True,
+        )
+        return False
+    return ("跨站点" in text) or ("cross-site" in text.lower())
+
+
+def _open_dashboard(page):
+    """打开看板地址，并在 hash 被门户丢掉时补一次。"""
+    safe_goto(page, DASHBOARD_URL, timeout=WAIT_TIMEOUT)
+    _wait_for_network_idle(page, timeout=15000)
+
+    if "_fms-sitedown-dashboard" not in page.url:
+        page.evaluate("window.location.hash = '#/_fms-sitedown-dashboard'")
+        page.wait_for_timeout(1000)
+        page.reload(wait_until="domcontentloaded", timeout=WAIT_TIMEOUT)
+        _wait_for_network_idle(page, timeout=15000)
 
 
 def _navigate_to_dashboard(page):
@@ -466,15 +501,15 @@ def _navigate_to_dashboard(page):
     - iframe 定位失败抛 FatalError 后由调用方处理，不再返回错误上下文
     - 等待核心元素可见后返回，确保后续选项点击可执行
     - 进入 dashboard 后先折叠左侧导航菜单，避免截图被遮挡
+    - 若门户以跨站 403 拒绝创建 iframe，先按当前 Cookie 对齐防伪令牌再开一次
     """
-    safe_goto(page, DASHBOARD_URL, timeout=WAIT_TIMEOUT)
-    _wait_for_network_idle(page, timeout=15000)
-
-    if "_fms-sitedown-dashboard" not in page.url:
-        page.evaluate("window.location.hash = '#/_fms-sitedown-dashboard'")
-        page.wait_for_timeout(1000)
-        page.reload(wait_until="domcontentloaded", timeout=WAIT_TIMEOUT)
-        _wait_for_network_idle(page, timeout=15000)
+    _open_dashboard(page)
+    if _cross_site_blocked(page):
+        logger.warning(
+            "[SiteOutage] 门户拒绝跨站访问，对齐防伪令牌后重开看板"
+        )
+        _sync_csrf_storage(page)
+        _open_dashboard(page)
 
     # 最大化窗口
     _maximize_and_fullscreen(page)
@@ -1162,6 +1197,10 @@ def _run_site_outage_once() -> dict:
                 f"浏览器启动失败，已尝试所有模式 {modes_to_try}: {last_launch_err}"
             )
 
+        # 必须在任何导航之前挂上：重新登录换了 Cookie 之后，门户仍可能
+        # 用 localStorage 里的旧 csrftoken 填 forgerydefense 头。
+        _install_csrf_header(browser)
+
         # 回灌上次会话（cookie + localStorage），让本轮无需重新登录。
         # 见 STATE_FILE 处注释：eFlow 的会话 cookie 是 session cookie，
         # 随 browser.close() 消失，必须靠这份磁盘副本跨轮传递。
@@ -1174,6 +1213,8 @@ def _run_site_outage_once() -> dict:
 
         # Login（瞬时失败会抛 TransientError，由顶层重试）
         _login(page)
+        # 登录（或复用会话）落地后再写一次，避免下一跳仍带着旧 csrftoken。
+        _sync_csrf_storage(page)
 
         # Navigate（iframe 找不到会抛 FatalError，不重试）
         frame = _navigate_to_dashboard(page)

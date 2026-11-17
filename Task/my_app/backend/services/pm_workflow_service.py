@@ -91,7 +91,11 @@ _CLOSED_STATUS = "CLOSED"
 _NON_PENDING_STATUS = {"CLOSED", "TRANSFER", "CANCELED", "CANCELLED"}
 
 # 到达量统计要扫的列（与 _MILESTONE_DEFS 的 enter 一致，另加 created）
-_COLUMNS = ("pmt_no", "status", *{d[1] for d in _MILESTONE_DEFS})
+# `site_name` / `pmt_overdue` 只给「门户 QC 面板的 PMT 卡下钻」用（2026-11-16）：
+# 那张表要显示站点与超期标记，而里程碑条本身不需要这两个字段 —— 放进同一条
+# SELECT 不增加往返次数，也让 waiting_snapshot() 不必再查一次库。
+_COLUMNS = ("pmt_no", "status", "site_name", "pmt_overdue",
+            *{d[1] for d in _MILESTONE_DEFS})
 
 
 def _parse_time(raw) -> datetime | None:
@@ -108,13 +112,26 @@ def _is_closed(status: str) -> bool:
     return status.strip().upper() == _CLOSED_STATUS
 
 
-def _load_rows(start: str, end: str, pmp_no: str = "") -> tuple[list[dict], list[str]]:
+def _load_rows(start: str, end: str, pmp_no: str = "",
+               *, with_window: bool = True) -> tuple[list[dict], list[str]]:
     """读取窗口内全部 PMT 的解析后时间线。返回 (rows, warnings)。
 
     ⚠️ `COALESCE(..., '')` 让 NULL 与空串在后续判定里统一处理（导出链路两种都见过）。
+
+    `with_window=False` = **不按 `created_time` 过滤**（全表）。门户 QC 面板的六项
+    指标历来都是「全表当前值」（不带时间筛选），PMT 卡也不能例外 —— 否则同一排
+    卡片里会有一张是「近 N 天新建的单」而其余是「全部」，读者无从比较。
+    PM 执行分析页始终走 `with_window=True`（默认），行为不变。
     """
     start_ts, end_ts = cal.normalize_window(start, end)
-    where, params = cal.base_where(start_ts, end_ts, pmp_no)
+    if with_window:
+        where, params = cal.base_where(start_ts, end_ts, pmp_no)
+    else:
+        # 全表：只保留计划号过滤（门户不传，但保持与 base_where 同一套写法）
+        where, params = "1 = 1", []
+        if pmp_no:
+            where = f"TRIM(COALESCE({cal.PMP_COL},'')) = ?"
+            params = [pmp_no]
     cols = ", ".join(_COLUMNS)
     sql = f"SELECT {cols} FROM {cal.TABLE} WHERE {where}"
 
@@ -145,6 +162,9 @@ def _load_rows(start: str, end: str, pmp_no: str = "") -> tuple[list[dict], list
             "pmt_no": (row.get("pmt_no") or "").strip(),
             "status": status,
             "status_key": status.upper(),
+            # 门户 QC 面板下钻要显示的两列（见 _COLUMNS 的注释）；里程碑计算不读它们
+            "site_name": (row.get("site_name") or "").strip(),
+            "overdue": (row.get("pmt_overdue") or "").strip(),
             "times": {key: _parse_time(row.get(field)) for key, field, _, _ in _MILESTONE_DEFS},
             # created 的「离开」是排期时间；Process 的离开是 PM 经理审批时间。
             # 单独取出来，见 _leave_time()。
@@ -407,4 +427,74 @@ def _row_out(row: dict, key: str, kind: str, entered: datetime | None,
         "days": round(days, 2) if days is not None else None,
         "current": is_current and kind != "done",
         "closed": kind == "done" and key == CLOSED_MILESTONE_KEY,
+    }
+
+
+# ========== 门户 QC 面板的「某里程碑当前滞留」快照（2026-11-16 加）==========
+#
+# ## 为什么在这里，而不是在 portal_qc.py 里另写一份
+#
+# 门户 `/v3/olbrportal/` 的 PMT 卡改成显示「等待 PM Manager Approve」的工单数，
+# 而这个数字在 PM 执行分析页上就是里程碑条 `pm_approved` 节点的 `Waiting`。
+# 口径一旦各写一份就必然漂移（门户写 `status='Wait FLM Leader Approve'`、
+# 页面写 `_STATUS_TO_MILESTONE`，今天相等、改一处就错位），所以两边都走本模块。
+#
+# 返回的 `total` **严格等于** `_milestones()` 里该节点的 `waiting`：两者用的是
+# 同一个 `_current_milestone()` 判定（只差「closed 的不算」这一步，而 waiting 里
+# 也本来就没有 closed 的单）。于是「门户卡数字 == 页面里程碑数字 == 下钻行数」
+# 三者在构造上就相等，不需要靠测试事后对齐（AGENTS.md 第三节 1b 铁律）。
+#
+# ⚠️ 与 `drill_workflow(kind='current')` 的**有意差别**：那边还要过
+# `_passed_milestone()`，会把「状态停在该节点、但没有进入时间」的导出不全单
+# 剔出明细；而 `_milestones()` 的 `waiting` **不剔**（见该函数的注释）。
+# 本函数按 `waiting` 的定义出数，所以明细行数与里程碑数字严格一致。
+# 实测 2026-11-16：822 == 822，且「状态=Wait FLM Leader Approve 但
+# last_pm_manager_approve_time 为空」为 0 行 —— 两者今天完全重合。
+def waiting_snapshot(milestone_key: str, start: str = "", end: str = "",
+                     limit: int = cal.MAX_DETAIL_ROWS,
+                     *, with_window: bool = True) -> dict:
+    """某个里程碑「当前滞留」的数量 + 明细（数量与明细行同一份判定）。
+
+    参数
+    ----
+    milestone_key : 里程碑 key（如 `pm_approved` = PM Manager Approve 节点）
+    start / end   : 时间窗（`created_time`）。空串 = `pm_caliber.default_window()`
+                    的滚动窗口；门户侧要「全表」请传 `with_window=False`。
+    limit         : 明细行上限（默认与 PM 分析页一致）
+    with_window   : False = 全表（不按 created_time 过滤），门户 QC 面板用
+
+    返回结构与 `drill_workflow` 同形，另在每行补 `site_name` / `overdue`
+    （门户下钻表要显示站点与超期标记，页面里程碑弹窗不读这两个字段）。
+    """
+    rows, warnings = _load_rows(start, end, with_window=with_window)
+    now = datetime.now()
+    out = []
+    for r in rows:
+        if _is_closed(r["status"]):
+            continue
+        if _current_milestone(r["status_key"]) != milestone_key:
+            continue
+        entered = r["times"].get(milestone_key)
+        days = None
+        if entered is not None:
+            days = max(0.0, (now - entered).total_seconds() / 86400.0)
+        item = _row_out(r, milestone_key, "current", entered, None, True, days)
+        item["site_name"] = r.get("site_name") or ""
+        item["overdue"] = r.get("overdue") or ""
+        out.append(item)
+
+    # 等得最久的在前 —— 与页面上点「Waiting」看到的顺序一致
+    out.sort(key=lambda x: (-(x["days"] or 0), x["pmt_no"]))
+
+    truncated = len(out) > limit
+    if truncated:
+        warnings.append(
+            f"结果共 {len(out)} 条，仅返回最前面的 {limit} 条，请缩小时间范围后重试。")
+
+    start_ts, end_ts = (cal.normalize_window(start, end) if with_window else ("", ""))
+    return {
+        "meta": {"start": start_ts, "end": end_ts, "key": milestone_key,
+                 "kind": "current", "warnings": warnings},
+        "key": milestone_key, "kind": "current",
+        "total": len(out), "truncated": truncated, "rows": out[:limit],
     }

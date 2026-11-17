@@ -38,6 +38,27 @@ def _fetch(conn, sql: str, params: tuple) -> list[dict]:
     return [dict(zip(cols, r)) for r in cur.fetchall()]
 
 
+def _table_columns(conn) -> set[str]:
+    """`speedtest_data` 的**实际**列名（小写）。用于容忍可缺列（见 caliber 的「可缺列」一节）。
+
+    为什么不缓存（2026-11-16 实测）：这张表用户随时可以在数据上传页整表重导，
+    新导出的列集可能和旧版不同。任何长驻缓存都会让代码继续按旧列名拼 SQL，
+    报「字段 device 不存在」直到进程重启 —— 那正是本次页面全空的表现。
+    `SELECT * ... LIMIT 0` 只取游标描述、不读数据，每次请求多一条可忽略的往返。
+
+    取不到列（表不存在 / 权限异常）时直接抛出：由路由层兜成空壳 + warnings，
+    **不**静默当「全部列都在」继续拼 SQL。
+    """
+    cur = conn.cursor()
+    cur.execute(f"SELECT * FROM {cal.TABLE} LIMIT 0")
+    return {str(d[0]).lower() for d in (cur.description or [])}
+
+
+def _base(conn) -> str:
+    """当前表结构下的 `cal.base_sql()`（缺 device 时自动用 'all' 顶替）。"""
+    return cal.base_sql(_table_columns(conn))
+
+
 def _where(start: str, end: str) -> tuple[str, tuple]:
     """统一 WHERE 片段 + 其参数（品牌 pattern 在前，区间在后，顺序不可换）。
 
@@ -124,9 +145,11 @@ SELECT brand, metric, p50, p90 FROM (
 def _summary(conn, start: str, end: str) -> dict[str, Any]:
     """两家在窗口内的指标汇总 + 分位数。"""
     where, params = _where(start, end)
-    rows = _fetch(conn, _AGG_SQL.format(base=cal.base_sql(), where=where), params)
+    # 子查询按**当前实际列**生成（缺 device 时用 'all' 顶替），见 _table_columns
+    base = _base(conn)
+    rows = _fetch(conn, _AGG_SQL.format(base=base, where=where), params)
     # _PCT_SQL 含 4 个并列子查询，每个各需一份完整参数（同一份 where 重复 4 次）
-    pcts = _fetch(conn, _PCT_SQL.format(base=cal.base_sql(), where=where), params * 4)
+    pcts = _fetch(conn, _PCT_SQL.format(base=base, where=where), params * 4)
 
     pct_map: dict[str, dict] = {}
     for r in pcts:
@@ -192,7 +215,7 @@ def _daily(conn, start: str, end: str) -> list[dict]:
     前端画双折线与渲染表格都不用再转换。
     """
     where, params = _where(start, end)
-    rows = _fetch(conn, _PAIR_DAILY_SQL.format(base=cal.base_sql(), where=where), params)
+    rows = _fetch(conn, _PAIR_DAILY_SQL.format(base=_base(conn), where=where), params)
     out = []
     for r in rows:
         item: dict[str, Any] = {"day": str(r["day"])}
@@ -378,7 +401,7 @@ def build_trend(start: str, end: str, metric: str, window: int = 7) -> dict[str,
     where, params = _where(start, end)
     conn = get_raw_connection()
     try:
-        rows = _fetch(conn, _TREND_SQL.format(base=cal.base_sql(), where=where, col=col), params)
+        rows = _fetch(conn, _TREND_SQL.format(base=_base(conn), where=where, col=col), params)
     finally:
         conn.close()
 
@@ -461,11 +484,11 @@ def build_drilldown(start: str, end: str, metric: str = "", day: str = "",
     # 多取一行用于判断是否真的被截断：仅当"取满 limit 且还有更多"才算截断。
     # 只按 len(out) >= limit 判断会把「正好等于 limit」误报为截断。
     probe_limit = limit + 1
-    sql = _DETAIL_SQL.format(base=cal.base_sql(), where=where, extra=extra_sql, limit=probe_limit)
     all_params = (*params, *extra_params)
 
     conn = get_raw_connection()
     try:
+        sql = _DETAIL_SQL.format(base=_base(conn), where=where, extra=extra_sql, limit=probe_limit)
         rows = _fetch(conn, sql, all_params)
     finally:
         conn.close()

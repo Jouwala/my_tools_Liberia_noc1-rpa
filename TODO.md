@@ -25,6 +25,18 @@
 
 ### P1 —— 数据正确性与稳定性
 
+- [x] **eFlow 对账删除已上线并跑通（2026-11-16 立，11-17 收口）。**
+      代码与文档已落地并通过回归（`backend/services/eflow_reconcile.py` + `sync_from_eflow_api.py::_reconcile_delete`，
+      四道闸门见 `docs/manual/03-data-layer.md`「eFlow 工单表的语义」）。
+      **一次性数据清理已完成并核对**：删除 TT 11 / WO 53 / CR 32 行（上游 base/list 已无这些单号），
+      PG `app` 与本地 SQLite 快照均为 **0 残留**。审计与回滚数据留在
+      `Task/my_app/TMP/_eflow_reconcile_deleted_20261116.csv`、`_eflow_deleted_{tt,wo,cr}_full_20261116.csv`（TMP 已 gitignore）。
+      **11-17 首跑实证**：`n` 组 worker 已重启、新代码生效，当日 09:55 那轮成功删除 **WO 7 行**。
+      **同日修掉两个首跑暴露的缺陷**（均已加回归用例）：
+      ① "扫全"闸门原要求 total 与实拉条数**精确相等**，08:01 / 08:50 两轮因差 **1 行 / 4 行**被判不完整 →
+      整轮放弃 + 任务失败 + 连发微信/邮件告警；改为容差 `max(10, total×0.5%)`（一页 2000 行，真截断至少缺几百行）。
+      ② 原为"任一张表扫描失败即整轮放弃"，导致 TT 差 1 行时 WO/CR 也全不删；改为**按表隔离**，只跳过出问题的表。
+      回滚手段：`EFLOW_RECONCILE_DELETE=0`（零改码关闭）、或 revert 提交。
 - [ ] **站点可用率取数改走本地 PG（2026-10-15，已定性、待观察上游）。** 站点可用率已从远端 UME HTTP（`192.168.100.19:8765`）改为**本地 PG 优先、远端回退**，代码在 `Task\my_app\backend\services\site_availability_service.py`（`PG_SPEC` / `_load_pg_tech` / `_load_tech`，快照 `..._bak_20261015_PG双模前`）。
   - **2G / 3G 两源等价**：重叠键 100% 一致、零值差异；且 PG 严格超集（另有 47 个站点在 `master_site_db` 里但远端查不到 —— 切换后这些站从"空白"变为有数据）。同时去掉对 .19 HTTP API 的运行时依赖。
   - **4G 已定性（2026-10-15 实测 UME 直查）**：用 MS SLA 的 FDD 模板对 2026-10 整月直查 UME 自身（`10.100.28.27:28001`）当裁判，5342 条：
@@ -36,6 +48,27 @@
 - [ ] **数据层裸连接治理（前置调研，非立即改造）。** 运行期已知存在绕过 `get_raw_connection` 的裸 `sqlite3.connect`（如 `ipran_chart_service.py:233`、`fw_kpi_services.py:488`），是**图表数据源**，改造会静默坏图。当前动作：**不再新增**裸连接，并把已有点位登记成清单。
 - [ ] **`eflow_tt` 双库归属固化。** 明确"同步只写 `app.db`、`eflow.sqlite3` 副本仅作只读快照"，避免后续有人读错库。结论已在 `PROJECT_DOCS.md` §2 Phase 0.5 闭环，待落到代码注释与手册。
 - [ ] **五个关键进程的巡检常态化。** 确认 worker 分组 + 双看门狗在异常退出后确实自愈（步骤见 `docs\manual\13-operations.md`）。
+- [ ] **`?page=cn_kpi` 冷缓存 504 治理（2026-11-16 立，独立老问题，与本轮 UI 修复无关）。**
+      **现象**：缓存冷时 `GET /api/cn-kpi/overview` 要跑 5 分钟以上，nginx `/api/` 块的 `proxy_read_timeout 300s`
+      （`nginx-1.28.0\conf\nginx.conf` 的 `/api/` 段，编辑区 :405 / 副本生成后 :399）先到点 → 浏览器 504，
+      `?page=cn_kpi` 只剩空壳；等后台算完、缓存转热后同一请求 0.02s 返回（用户实操复现，非偶发）。
+      **根因链（已核到代码与日志）**：`backend\services\cn_kpi_service.py` 冷路径把 18 个组件交给 6 线程池
+      并发打远端只读 SQL API（`.19:8765` 的 `db_ps_cs_cn.sqlite3`，`:547 query_remote`），单条 `QUERY_TIMEOUT=60s`（`:89`）、
+      整页 TTL 只有 60s（`:92`）。**2026-11-16 16:44~16:48 后端日志实测**：c6(TDD Traffic)/c9(xGW CPU)/c10(xGW Session)/
+      c11(USPP)/c12(USSD) 连续 `timed out`，且每个组件按「EMS → UME 回退表 → 月表」三级重试（`:710-732`），
+      单组件最坏 3×60s；按日志推算，5 个慢组件叠加 6 并发 I/O 争抢，整页越过 300s 是必然结果。
+      **高度疑似与 11-15 同源**：`af7e62a9`（cn_kpi_5mins 读慢治理）的根因是 `cnn_kpi_sync_5mins` 每 15 分钟对
+      **同一个** `db_ps_cs_cn.sqlite3` 做全量 upsert，SQLite 写锁把同库读卡到 120s+。本次慢的 c6/c9/c10/c11/c12 读的是日表，
+      但**库是同一个**，仍可能被每 15 分钟的写事务挡住 —— 所以**先别假设「只是聚合查询本身慢」**。
+      **待办（先量后改）**：① 给 18 条 SQL 逐条打耗时 + 远端 `elapsed_ms`，区分「查询真慢」与「等写锁」，并与 `*/15`
+      的 `cnn_kpi_sync_5mins` 时间窗对齐（错开窗口再跑一遍对照）；② 确认远端 SQLite 的 journal mode 与
+      `database is locked` 出现频率（远端只读，**不得在 .19 建索引/改表/改 PRAGMA**）；③ 按量测结果二选一：
+      查询侧把 `substr("End Time",1,10)` 改成范围条件、或把日结果按组件预聚合；读侧改为**本机预聚合**
+      （定时把日结果物化到本机 PG，页面只读本地，避免每次冷启动打远端）；④ 冷路径**不再同步等**：先返回 stale/202 +
+      前端明确「正在计算，几秒后自动刷新」，后台算完再热缓存（可配定时预热，保证线上不出现冷缓存）；
+      ⑤ 前端 504/超时必须给显式失败态与重试入口，不能只留空壳。
+      **验收**：清空缓存后打开 `?page=cn_kpi`，首屏 3s 内出现明确状态并最终出数；`/api/cn-kpi/overview` 冷路径不再触发 nginx 504；
+      nginx 日志无该端点 504。**边界**：只读链路，不改远端库；改动集中在 `cn_kpi_service.py`（+ 可选一个预热/预聚合任务）与前端错误态。
 
 ### P2 —— 体验与工程规范
 
@@ -268,11 +301,13 @@
      堵住 `manual.html` 这类生成产物的盲区）。但**进过历史的口令只能轮换才算消除**，
      需拉运维在 UME / 各凭据后台改密，属仓库外的动作。
      （仓库为**私有**，外部暴露风险有限；但私有库同样不该存明文口令。）
-  2. **`MASTER_SWITCH_EXEMPT_IDS` 与 `manually_stopped` 的语义分层**：`whatsapp_send_ext`
-     已于 2026-10-21 移出豁免名单（改由「用户手动关 + 主开关不覆盖」保证单通道）。
-     若日后仍需「按业务长期钉死关闭」这一类，应新增独立的 `master_switch_pinned_off`
-     概念，而不是把 ID 塞回豁免名单 —— 豁免（不参与主开关）与「参与但被用户手动关住」
-     是两种意图，混用会再次出现 2026-10-20「关不掉 / 又自己跑起来」那类症状。
+  2. ~~**`MASTER_SWITCH_EXEMPT_IDS` 与 `manually_stopped` 的语义分层**~~ → **已随任务下线关闭（2026-11-16）**：
+     `whatsapp_send_ext` 于 2026-10-21 移出豁免名单（改由「用户手动关 + 主开关不覆盖」保证单通道），
+     又于 2026-11-16 按用户要求整条任务下线，这个歧义不再存在。豁免名单现有语义仅剩
+     `whatsapp_send_baileys` 一条（Baileys 违反 ToS、必须人工启用）。若日后仍需「按业务长期钉死关闭」
+     这一类，应新增独立的 `master_switch_pinned_off` 概念，而不是把 ID 塞回豁免名单 ——
+     豁免（不参与主开关）与「参与但被用户手动关住」是两种意图，混用会再次出现 2026-10-20
+     「关不掉 / 又自己跑起来」那类症状。
   3. **`task_schedule_config` 双库无自动同步**：本表靠约定人工保持 SQLite 与 PG 一致
      （`tools/sync_manual_stop_to_pg.py` 补 `manually_stopped`）。是否要加自动同步或
      干脆二选一，待定。

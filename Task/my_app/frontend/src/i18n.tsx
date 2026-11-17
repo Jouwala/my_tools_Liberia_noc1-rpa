@@ -99,6 +99,10 @@ const translations: Record<Locale, Record<string, string>> = {
     // uniplam 门户鉴权引导
     'auth.required': '需要登录',
     'auth.requiredTip': '请使用门户账号密码登录，或前往统一门户登录后再访问看板数据。',
+    // 页面级错误边界（PageErrorBoundary）：把「整屏空白」换成可读的报错与重试入口
+    'pageError.title': '页面加载失败',
+    'pageError.desc': '页面渲染时出错，已拦截，避免整屏空白。请点「刷新页面」重试；若反复出现，把下方报错发给管理员。',
+    'pageError.reload': '刷新页面',
     'auth.goLogin': '前往门户登录',
     'auth.retry': '重试',
     'auth.username': '用户名',
@@ -3808,7 +3812,7 @@ const translations: Record<Locale, Record<string, string>> = {
     // 生命周期从左到右排列，参照 page=incident_overview 的里程碑样式。数字仍在节点里，
     // 与取值的对应关系不变（下钻维度仍是 status，值仍是 eflow_wo.status 原值）。
     'ttwo.statusMilestone': 'Workflow',
-    'ttwo.statusMilestoneExplain': '按工单生命周期从左到右排列，节点里的数字由该阶段下的原始状态名逐条匹配得出（精确匹配，不做模糊归类），进度条与占比的分母是本卡片各阶段单数合计，点任意节点下钻该阶段的全部明细。未识别的状态单列在末尾「其他」，不会被吞掉。TT 页与 WO 页的阶段链不同：TT 为「派单 → 受理 → 处理中 → 现场确认 → 待确认 → 关闭」6 个；WO 为「派单 → 受理 → 等待出发 → 等待到达现场 → 处理中 → 离场 → 待确认 → 关闭」8 个（到场按业务流程拆成出发与到达两步）。',
+    'ttwo.statusMilestoneExplain': '按工单生命周期从左到右排列，节点里的数字由该阶段下的原始状态名逐条匹配得出（精确匹配，不做模糊归类），进度条与占比的分母是本卡片各阶段单数合计，点任意节点下钻该阶段的全部明细。未识别的状态单列在末尾「其他」，不会被吞掉。TT 页与 WO 页的阶段链不同：TT 为「派单 → 受理 → 处理中 → 现场确认 → 待确认 → 关闭」6 个；WO 为「派单 → 受理 → 等待出发 → 等待到达现场 → 处理中 → 现场确认 → 待确认 → 离场 → 关闭」9 个（到场按业务流程拆成出发与到达两步，离场排在待确认之后）。',
     // 里程碑阶段名。键名与 TTWODashboard 的 STATUS_MILESTONES[].labelKey 一一对应，
     // 每个阶段汇总的原始状态名见那里的 match 列表。
     'ttwo.milestone.reassign': '派单',
@@ -3841,7 +3845,7 @@ const translations: Record<Locale, Record<string, string>> = {
     //  - Workflow 卡片顶部副标题 + 阶段数
     'ttwo.workflowSubtitle': '工单生命周期 · 派单 → 受理 → 处理 → 现场确认 → 待确认 → 关闭',
     // WO 侧阶段链不同（到场拆成出发与到达两步），副标题单独一条
-    'ttwo.workflowSubtitleWo': '工单生命周期 · 派单 → 受理 → 等待出发 → 等待到达现场 → 处理 → 离场 → 现场确认 → 待确认 → 关闭',
+    'ttwo.workflowSubtitleWo': '工单生命周期 · 派单 → 受理 → 等待出发 → 等待到达现场 → 处理 → 现场确认 → 待确认 → 离场 → 关闭',
     'ttwo.workflowLive': '实时数据',
     // 2026-10-19 移除卡片内标题：外层 StatDimTitle 已显示「Workflow」，
     // 卡片里再显示「TICKET WORKFLOW」属于重复，故 workflowTitle* 两个键一并删除。
@@ -4569,7 +4573,9 @@ const translations: Record<Locale, Record<string, string>> = {
     'gis.layerRoadsHint': '显示底图上的公路与铁路。关闭后地图更简洁，只剩水体、建筑与站点',
     // 人员图层（2026-10-16）。仅 gis 页可用。三处已知限制的文案必须保留，
     // 否则用户会把「只有 26 人」「非实时」「姓名匹配」当成 bug。
-    'gis.person.toggle': '显示人员',
+    // 2026-11-16 起开关在 LAYERS 浮层（label 用 gis.layerPersonnel），
+    // 原工具栏按钮的 'gis.person.toggle' 已随按钮一并删除。
+    'gis.layerPersonnel': '人员',
     'gis.person.toggleHint': '在地图上显示现场人员位置（仅展示已登记坐标的人员）；悬停人员可看其未关闭告警站点连线，点击该人员即清除',
     'gis.person.loading': '加载人员…',
     'gis.person.loadFailed': '人员数据加载失败',
@@ -5574,6 +5580,10 @@ const translations: Record<Locale, Record<string, string>> = {
     'pl.copyExplain': '复制说明',
     'pl.showOnMap': '点击在地图上显示',
     'pl.hideOnMap': '点击在地图上隐藏',
+    /* 地图左下角图例的口径说明（2026-11-16 图例从控制行移入地图浮层时新增）：
+       挂在地图图例标题旁的 ⓘ 上，讲清「数字不是圆点数」与「OK 行受开关控制」这两件
+       最容易被当成 bug 的事。**强调** 由 ExplainIcon 的 renderRich 渲染。 */
+    'pl.legendNote': '每一行的数字 = 按「近 1 天最大丢包率」五级分类统计的**站点数**，与顶部状态卡、Loss Distribution 饼图同一份口径（含无坐标站点）；地图圆点只画有坐标的站点，两者常差几个，**不要拿图例数字去数圆点**。点击某一行可在地图上隐藏 / 显示该状态，县名后的数字随之变化。OK 一行还受「显示正常站点」开关控制：开关关掉时后端不返回 OK 站点，该行会置灰 —— 点本行即可把开关重新打开。',
     'pl.searchPlaceholder': '搜索站点 / 编码 / 区域...',
     'pl.exportExcel': '导出 Excel',
     'pl.records': '{n} 条记录',
@@ -6721,6 +6731,10 @@ const translations: Record<Locale, Record<string, string>> = {
     // uniplam 门户鉴权引导
     'auth.required': 'Sign in required',
     'auth.requiredTip': 'Sign in with your portal account, or go to the unified portal to access dashboard data.',
+    // Page-level error boundary (PageErrorBoundary): turn a fully blank screen into a readable error + retry entry
+    'pageError.title': 'This page failed to load',
+    'pageError.desc': 'A rendering error occurred and was intercepted so the screen would not go blank. Click "Reload page" to retry; if it keeps happening, send the message below to your administrator.',
+    'pageError.reload': 'Reload page',
     'auth.goLogin': 'Go to portal',
     'auth.retry': 'Retry',
     'auth.username': 'Username',
@@ -10376,7 +10390,7 @@ const translations: Record<Locale, Record<string, string>> = {
     // lifecycle instead of by count, mirroring page=incident_overview. Numbers stay inside
     // the nodes; the drilldown dimension/value are unchanged (status / raw eflow_wo.status).
     'ttwo.statusMilestone': 'Workflow',
-    'ttwo.statusMilestoneExplain': 'Laid out along the work-order lifecycle, left to right. Each node sums the raw status values listed in its match list (exact match, no fuzzy grouping); progress bars and shares use this card’s stage totals as the denominator. Click any node to drill into that stage. Statuses that match nothing are listed as a trailing “Other” node and are never dropped. The stage chain differs by page: TT has 6 stages (Dispatch → Accept → Processing → Field Confirm → Wait Confirm → Closed); WO has 8 (Dispatch → Accept → Waiting for Departure → Waiting for Arrive Site → Processing → Leave Site → Wait Confirm → Closed), with arrival split into departure and on-site legs.',
+    'ttwo.statusMilestoneExplain': 'Laid out along the work-order lifecycle, left to right. Each node sums the raw status values listed in its match list (exact match, no fuzzy grouping); progress bars and shares use this card’s stage totals as the denominator. Click any node to drill into that stage. Statuses that match nothing are listed as a trailing “Other” node and are never dropped. The stage chain differs by page: TT has 6 stages (Dispatch → Accept → Processing → Field Confirm → Wait Confirm → Closed); WO has 9 (Dispatch → Accept → Waiting for Departure → Waiting for Arrive Site → Processing → Field Confirm → Wait Confirm → Leave Site → Closed), with arrival split into departure and on-site legs and Leave Site placed after Wait Confirm.',
     // Milestone stage names; key names line up 1:1 with STATUS_MILESTONES[].labelKey
     // in TTWODashboard. The raw statuses rolled into each stage are listed there.
     'ttwo.milestone.reassign': 'Dispatch',
@@ -10400,7 +10414,7 @@ const translations: Record<Locale, Record<string, string>> = {
     'ttwo.milestoneIcon.waitConfirm': 'clock-circle',
     'ttwo.milestoneIcon.closed': 'check',
     'ttwo.workflowSubtitle': 'Ticket lifecycle · Dispatch → Accept → Process → Field Confirm → Wait Confirm → Closed',
-    'ttwo.workflowSubtitleWo': 'Work-order lifecycle · Dispatch → Accept → Waiting for Departure → Waiting for Arrive Site → Process → Leave Site → Field Confirm → Wait Confirm → Closed',
+    'ttwo.workflowSubtitleWo': 'Work-order lifecycle · Dispatch → Accept → Waiting for Departure → Waiting for Arrive Site → Process → Field Confirm → Wait Confirm → Leave Site → Closed',
     'ttwo.workflowLive': 'Live Data',
     // Card title removed 2026-10-19: duplicates the outer StatDimTitle "Workflow".
     // Removed 2026-10-19 with the Waiting Status / Order Flow Direction panels.
@@ -11117,7 +11131,7 @@ const translations: Record<Locale, Record<string, string>> = {
     'gis.layerRoads': 'Roads',
     'gis.layerRoadsHint': 'Show roads and railways on the basemap. Turn off for a cleaner map with only water, buildings and sites',
     // Personnel layer (2026-10-16), gis page only.
-    'gis.person.toggle': 'Show Personnel',
+    'gis.layerPersonnel': 'Personnel',
     'gis.person.toggleHint': 'Show field personnel locations on the map (only those with registered coordinates). Hover a person to see lines to his unclosed alarm sites; click the person to clear them',
     'gis.person.loading': 'Loading personnel…',
     'gis.person.loadFailed': 'Failed to load personnel data',
@@ -12088,6 +12102,9 @@ const translations: Record<Locale, Record<string, string>> = {
     'pl.copyExplain': 'Copy explanation',
     'pl.showOnMap': 'Click to show on map',
     'pl.hideOnMap': 'Click to hide on map',
+    /* Legend note for the map's bottom-left legend (added 2026-11-16 when the legend
+       moved out of the control row). Same wording as the zh dictionary. */
+    'pl.legendNote': 'The number on each row is the **site count** for one of the five Last-1-day Max PL bands — the same figures as the status cards on top and the Loss Distribution pie (sites without coordinates included); the map dots only draw sites that have coordinates, so do **not** count dots to check the legend. Click a row to hide / show that status on the map; the numbers after county names follow. The OK row is also driven by the "Show OK sites" switch: when that switch is off the backend returns no OK sites and this row is greyed out — click the row to turn the switch back on.',
     'pl.searchPlaceholder': 'Search site / code / region...',
     'pl.exportExcel': 'Export Excel',
     'pl.records': '{n} records',
@@ -12464,7 +12481,10 @@ const translations: Record<Locale, Record<string, string>> = {
     'bmm.sec.pk': 'Head-to-head',
     'bmm.sec.network': 'Network-side KPIs',
     'bmm.sec.networkHint': 'Belongs to neither operator; excluded from the head-to-head',
-    'bmm.card.verdict': 'Composite competitiveness verdict',
+    // 2026-11-16：结论卡与其余四张并成一行后只有 1/5 栏（~230px），
+    // 原英文标题 "Composite competitiveness verdict" 在 1280 宽会被卡头截成
+    // "…competitiveness verd"，去掉 Composite 后整行放得下，语义不变。
+    'bmm.card.verdict': 'Competitiveness verdict',
     'bmm.card.scores': 'Composite score and wins',
     'bmm.card.leaderTag': 'Leading',
     'bmm.card.winDaysFmt': 'Leads {w} of {d} days',

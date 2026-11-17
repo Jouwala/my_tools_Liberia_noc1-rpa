@@ -64,10 +64,31 @@ def cell(row: tuple, header: list[str], name: str, default=''):
 
 
 def write_doc(filename: str, lines: list[str]) -> str:
+    """把生成的文档落盘；**正文一字未变时不重写**（保留原 mtime）。
+
+    为什么必须这样（2026-11-16 复盘，Run History 40% 成功率那次）：
+    规则采集每天 04:20 重写 `eflow_TT_rules.xlsx`，导出脚本因此每天跑一遍。
+    无条件重写会让 5 份 md 的 mtime 每天都变、正文却往往一字未改 ——
+      · `src/indexFreshness.js` 按 size+mtime 判「磁盘知识是否比索引新」，
+        于是每天误报「内容比索引新」，bot 的 ping 长期挂着假告警；
+      · `scripts/sync-kb.mjs` 以前按 xlsx 的 size+mtime 判要不要重建索引，
+        结果每天白算 6001 条向量并重启一次 bot（实测 11-15→11-16 这 5 份
+        文档里有 4 份 size 完全相同，正文也没变）。
+    改成「变了才写」之后，mtime 才重新代表「正文真的变过」。
+    """
     os.makedirs(OUT_DIR, exist_ok=True)
     path = os.path.join(OUT_DIR, filename)
+    text = '\n'.join(lines).rstrip() + '\n'
+    try:
+        # 文本模式读取会做换行归一（CRLF→LF），与本函数写出的 text 可比；
+        # 不要改成二进制比对 —— 那会把换行差异当成内容变化。
+        with open(path, 'r', encoding='utf-8') as f:
+            if f.read() == text:
+                return path
+    except OSError:
+        pass  # 文件不存在 / 读不了 → 直接写
     with open(path, 'w', encoding='utf-8') as f:
-        f.write('\n'.join(lines).rstrip() + '\n')
+        f.write(text)
     return path
 
 

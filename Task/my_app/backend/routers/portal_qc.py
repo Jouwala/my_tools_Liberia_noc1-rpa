@@ -46,12 +46,29 @@ from fastapi import APIRouter, HTTPException, Query
 from backend.database import get_raw_connection
 from backend.dialect_helpers import list_table_names, table_columns, upsert
 from backend.services.eflow_alarm_service import ALARM_CODE_CONDS
+# PM 里程碑口径（2026-11-16）：PMT 卡的「等待 PM Manager Approve」数必须与
+# my_app ?page=pm_analysis 里程碑条上的同名节点逐条相等，所以口径不在这里
+# 另写一份，而是复用 pm_workflow_service（那边是里程碑语义的唯一真相源）。
+from backend.services import pm_workflow_service as pms
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["portal-qc"])
 
-METRICS = ("alarm", "tt", "wo", "cr", "pmt", "spms")
+# PMT 卡的**里程碑口径**（2026-11-16 加）：当前停留在「PM Manager Approve」节点、
+# 等下一环节（FLM Leader Approve）的工单数 + 明细。
+#
+# 为什么不直接改 `pmt`：`pmt` = 未关闭 PMT 总数，是 MsPortal / /olbrportal/ / v1 / v2
+# 与 v3 共用的一个口径；本次只改 v3 那一页（用户点名的是 /v3/olbrportal/），
+# 故新增一个指标 id，由 v3 的 PMT 卡显式选用，其它门户的 `pmt` 一行不动。
+#
+# 口径唯一真相源：`pm_workflow_service.waiting_snapshot()`（与页面的里程碑
+# `waiting` 同源）。本文件**不再**自己写状态词表或里程碑映射。
+PMT_WAIT_METRIC = "pmt_wait"
+# 「PM Manager Approve」节点的里程碑 key（见 pm_workflow_service._MILESTONE_DEFS）
+PMT_WAIT_MILESTONE = "pm_approved"
+
+METRICS = ("alarm", "tt", "wo", "cr", "pmt", "spms", PMT_WAIT_METRIC)
 
 # 「有明细可下钻」的 metric 集合。与 METRICS 刻意分成两个常量（2026-09-25）——
 # 它们的含义本来就不是一回事，早先共用一个常量只是恰好相等：
@@ -65,6 +82,11 @@ METRICS = ("alarm", "tt", "wo", "cr", "pmt", "spms")
 #    「每天新增多少」这种趋势口径（_TREND_SPEC 里没有它，也确实不该有）。
 #    它现在落进 else 分支回 'unknown_metric'，前端会当成「趋势接口不认识这个指标」
 #    而静默不画线（不至于报错），但那个说法是错的：指标是认识的，只是它没有趋势。
+#
+# 2026-11-16：`pmt_wait`（等待 PM Manager Approve）加进来。它**在 METRICS 里**
+# （面板上确实有这一项统计，见 _collect_summary 的 guard(PMT_WAIT_METRIC, ...)），
+# 所以 /trend 对它会回 'no_trend' —— 这个说法是对的：它是**存量**（当前滞留），
+# 没有「每天新增多少」的口径，趋势走 /history 的小时快照（系列名同为 pmt_wait）。
 METRICS_DRILLABLE = METRICS + ("sla",)
 
 _SUMMARY_TTL_SEC = 60
@@ -204,15 +226,16 @@ def _ensure_snapshot_table(conn) -> None:
         " hour_key TEXT PRIMARY KEY,"
         " alarm INTEGER, tt INTEGER, wo INTEGER, cr INTEGER,"
         " pmt INTEGER, pmt_overdue INTEGER, spms INTEGER,"
-        " sla_x10 INTEGER,"
+        " sla_x10 INTEGER, pmt_wait INTEGER,"
         " captured_at TEXT)"
     )
     # 已存在的库补列。PG 支持 ADD COLUMN IF NOT EXISTS，SQLite 不支持 ——
     # 靠 try/except 兜底（重复添加时报的错就是「已存在」，可以安全忽略）。
-    try:
-        conn.execute("ALTER TABLE " + _SNAPSHOT_TABLE + " ADD COLUMN sla_x10 INTEGER")
-    except Exception:  # noqa: BLE001
-        pass
+    for _col, _type in (("sla_x10", "INTEGER"), ("pmt_wait", "INTEGER")):
+        try:
+            conn.execute(f"ALTER TABLE {_SNAPSHOT_TABLE} ADD COLUMN {_col} {_type}")
+        except Exception:  # noqa: BLE001
+            pass
     conn.commit()
 
 
@@ -243,6 +266,10 @@ def _record_snapshot(metrics: dict) -> None:
             "pmt_overdue": num("pmt", "overdue"),
             "spms": num("spms"),
             "sla_x10": None if sla_v is None else int(round(sla_v * 10)),
+            # 2026-11-16 加：v3 门户 PMT 卡的新口径（等待 PM Manager Approve）的
+            # 小时快照。旧行这一列是 NULL —— 前端按「断档」处理、不补 0，
+            # 所以这条趋势线从上线那一刻才开始有点（理由同 sla_x10）。
+            "pmt_wait": num(PMT_WAIT_METRIC),
             "captured_at": now.isoformat(timespec="seconds"),
         }
         with get_raw_connection() as conn:
@@ -448,6 +475,11 @@ def _collect_summary() -> dict:
         guard("spms", spms)
         guard("sla", sla)
 
+    # PM 里程碑口径（2026-11-16）：走 pm_workflow_service，它自己开连接读全表，
+    # 所以放在 with **之外** —— 不在一条统计连接里再套一条连接。
+    # 失败只让这一项 value=None + error，与其它指标同一条纪律。
+    metrics[PMT_WAIT_METRIC] = _pm_wait_summary()
+
     # 快照只在**真正跑完一次统计**时写（缓存命中不会走到这里），且失败不影响返回。
     # 放在 with 之外：快照用自己的短连接，不占用/不延长这次统计的事务。
     _record_snapshot(metrics)
@@ -455,6 +487,79 @@ def _collect_summary() -> dict:
     return {
         "generated_at": datetime.now(timezone(timedelta(hours=8))).isoformat(timespec="seconds"),
         "metrics": metrics,
+    }
+
+
+def _pm_wait_summary() -> dict:
+    """PMT 卡的新口径：**当前停留在「PM Manager Approve」节点**的工单数。
+
+    数字来自 `pm_workflow_service.waiting_snapshot()` —— 与 my_app
+    `?page=pm_analysis` 里程碑条上「PM Manager Approve / Waiting」是**同一个定义**
+    （不是另写一份 SQL 去凑一个相同的结果）。
+
+    为什么 `with_window=False`（全表）：门户这一排六张卡历来都是「全表当前值」
+    （`status <> 'Closed'` 之类都不带时间条件）。PMT 这一张若按「近 N 天新建」
+    过滤，同排卡片的量纲就不一致了，读者也没法比较。实测全表与 PM 分析页默认
+    窗口（该页默认起点就是全表最早一张单）给出的是同一个数。
+    """
+    try:
+        snap = pms.waiting_snapshot(PMT_WAIT_MILESTONE, with_window=False)
+        return {"value": int(snap["total"]), "error": None}
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[portal-qc] %s 统计失败: %s", PMT_WAIT_METRIC, exc, exc_info=True)
+        return {"value": None, "error": f"{type(exc).__name__}: {exc}"[:200]}
+
+
+# PMT 里程碑下钻的列（2026-11-16）。与 PM 分析页的「里程碑明细」同义：
+# 单号 / 状态 / 已等待天数 / 进入本节点时间，另补站点与超期标记（NOC 排在前面看）。
+_PM_WAIT_COLUMNS = (
+    ("pmt_no", "pmt_no", "PMT No."),
+    ("status", "status", "Status"),
+    ("days", "days", "Days Waiting"),
+    ("entered_at", "entered_at", "PM Approved At"),
+    ("site_name", "site_name", "Site Name"),
+    ("overdue", "overdue", "Overdue"),
+)
+
+
+def _pm_wait_detail(page: int, size: int, q: str, sort: str, dir_: str) -> dict:
+    """`/api/portal-qc/detail?metric=pmt_wait` 的实现（搜索 / 排序 / 分页在内存里做）。
+
+    ⚠️ 为什么这一项不走 `_detail_source` 的 SQL 路径：它的行来自
+    `pm_workflow_service` 的解析结果（已等待天数 `days` 是「现在 − 进入时间」算出来的，
+    在 SQL 里做要按 sqlite/PG 两套日期函数各写一遍）。822 行量级，内存里筛排足够。
+    """
+    rows = pms.waiting_snapshot(PMT_WAIT_MILESTONE, with_window=False)["rows"]
+
+    keyword = (q or "").strip().lower()
+    if keyword:
+        keys = [k for _, k, _ in _PM_WAIT_COLUMNS]
+        rows = [r for r in rows if any(
+            keyword in str(r.get(k) if r.get(k) is not None else "").lower() for k in keys)]
+
+    sort_key = sort if sort in {k for _, k, _ in _PM_WAIT_COLUMNS} else "days"
+    numeric = sort_key in ("days",)
+    reverse = (dir_ or "").strip().lower() != "asc"
+    if numeric:
+        # 缺值（导出不全、没有进入时间）一律排在最后，与升降序无关
+        have = [r for r in rows if r.get(sort_key) is not None]
+        miss = [r for r in rows if r.get(sort_key) is None]
+        have.sort(key=lambda r: r.get(sort_key), reverse=reverse)
+        rows = have + miss
+    else:
+        rows.sort(key=lambda r: str(r.get(sort_key) or ""), reverse=reverse)
+
+    total = len(rows)
+    offset = (page - 1) * size
+    return {
+        "metric": PMT_WAIT_METRIC,
+        "total": total,
+        "page": page,
+        "size": size,
+        "sort": sort_key,
+        "dir": "asc" if (dir_ or "").strip().lower() == "asc" else "desc",
+        "columns": [{"key": k, "label": label} for _, k, label in _PM_WAIT_COLUMNS],
+        "rows": rows[offset:offset + size],
     }
 
 
@@ -557,7 +662,7 @@ def portal_qc_history(hours: int = Query(_HISTORY_DEFAULT_HOURS, ge=2, le=_HISTO
         with get_raw_connection() as conn:
             if _SNAPSHOT_TABLE in set(list_table_names(conn)):
                 rows = _rows_as_dicts(conn.execute(
-                    "SELECT hour_key, alarm, tt, wo, cr, pmt, pmt_overdue, spms, sla_x10 "
+                    "SELECT hour_key, alarm, tt, wo, cr, pmt, pmt_overdue, spms, sla_x10, pmt_wait "
                     "FROM " + _SNAPSHOT_TABLE + " "
                     "WHERE hour_key < ? AND hour_key >= ? ORDER BY hour_key",
                     [cur_hour, since],
@@ -567,9 +672,11 @@ def portal_qc_history(hours: int = Query(_HISTORY_DEFAULT_HOURS, ge=2, le=_HISTO
 
     # PMT 的趋势线用**超期数**而不是总数：总数常年几百上千、变化平缓，看不出问题；
     # 超期数才是要催的那部分。键名沿用前端卡片 id（pmt），故这里单独映射。
+    # `pmt_wait`（2026-11-16 加）是 v3 门户 PMT 卡的新口径（等待 PM Manager Approve），
+    # 单独一条序列，好让那张卡的大数字与柱子描述的是**同一件事**。
     field_of = {
         "alarm": "alarm", "tt": "tt", "wo": "wo", "cr": "cr",
-        "pmt": "pmt_overdue", "spms": "spms",
+        "pmt": "pmt_overdue", "spms": "spms", "pmt_wait": "pmt_wait",
     }
     series = {}
     for metric, field in field_of.items():
@@ -1007,7 +1114,7 @@ def _detail_source(conn, metric: str):
 
 @router.get("/api/portal-qc/detail")
 def portal_qc_detail(
-    metric: str = Query(..., description="alarm/tt/wo/cr/pmt/spms/sla"),
+    metric: str = Query(..., description="alarm/tt/wo/cr/pmt/spms/sla/pmt_wait"),
     page: int = Query(1, ge=1),
     size: int = Query(50, ge=1, le=_MAX_PAGE_SIZE),
     q: str = Query("", description="跨列模糊搜索"),
@@ -1026,6 +1133,11 @@ def portal_qc_detail(
     metric = (metric or "").strip().lower()
     if metric not in METRICS_DRILLABLE:
         raise HTTPException(status_code=400, detail=f"未知 metric: {metric}")
+
+    # `pmt_wait`（2026-11-16）走 pm_workflow_service 的里程碑解析结果，
+    # 不进下面那张 SQL 列定义表 —— 理由见 _pm_wait_detail 的 docstring。
+    if metric == PMT_WAIT_METRIC:
+        return _pm_wait_detail(page, size, q, sort, dir)
 
     spec = _COLUMNS[metric]
     order_by = _ORDER[metric]

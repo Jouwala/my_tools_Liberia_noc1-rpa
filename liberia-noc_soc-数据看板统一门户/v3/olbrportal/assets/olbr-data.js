@@ -87,7 +87,7 @@ window.OLBR_DATA = (function () {
          六张卡现在一律是纯文案，断站数由卡片中央的大数字呈现。 */
       'qc.sub.alarm': 'Cells/ Sites Outage', 'qc.sub.tt': 'Ongoing TTs',
       'qc.sub.wo': 'Ongoing WOs', 'qc.sub.cr': 'Unclosed CRs',
-      'qc.sub.pmt': 'Unclosed PMTs',
+      'qc.sub.pmt': 'Waiting PM Manager Approve',
       'qc.sub.spms': 'Unclosed SPMS',
       'qc.targetTip.up': '分级阈值：关注 ≥ {warn} · 严重 ≥ {crit}（数值越大越差）',
       'qc.targetTip.down': '分级阈值：关注 < {crit} · 严重 < {warn}（数值越大越好）',
@@ -115,10 +115,17 @@ window.OLBR_DATA = (function () {
                     + '注意：快照只在门户被打开过的小时才有，断档处折线会断开，**不补 0**\n'
                     + '（补 0 会画出一个「积压突然清零」的假谷底）。',
       'qc.stock.capPmt': '近 {n} 小时超期数',
-      'qc.stock.tipPmt': '按每小时快照取样的「超期未完成 PMT 数」（近 {n} 小时，每格 1 小时）。\n'
-                       + '与卡片大数字（未完成 PMT 总数）是同一批数据的不同侧面：\n'
-                       + '总数看积压有多大，这条线看超期那部分是在堆积还是在消化。\n'
-                       + '注意：快照只在门户被打开过的小时才有，断档处折线会断开，**不补 0**。',
+      /* 2026-11-16：PMT 卡改用「等待 PM Manager Approve」口径，柱子也跟着换成
+         同一批工单的存量快照 —— 大数字与柱子必须是同一件事，否则读者没法互相印证。
+         历史小时没有这个数（口径当日才上线），断档不补 0。 */
+      'qc.stock.tipPmt': '按每小时快照取样的「等待 PM Manager Approve 的 PMT 数」（近 {n} 小时，每格 1 小时）。\n'
+                       + '与卡片大数字是**同一个口径**（同一批工单），柱子的高低就是这条积压的涨落。\n'
+                       + '注意：快照只从本口径上线那一刻起才有，更早的小时没有这个数，断档处断开、**不补 0**。',
+      /* PMT 卡口径说明（挂在卡片 title 上，hover 才看得到 —— 与其余五张卡同一套做法） */
+      'qc.pmtWait.tip': '等待 PM Manager Approve：当前停留在「PM Manager Approve」节点、等下一环节'
+                      + '（FLM Leader Approve）的 PMT 数。\n'
+                      + '与 my_app「PM 执行分析」页（?page=pm_analysis）里程碑条上同名节点的 Waiting '
+                      + '是**同一个定义**，不是另算一份。',
       'qc.stock.starving': '存量样本不足',
       'qc.cadenceTip': '本面板分两档刷新：断站告警每 5 分钟（源 eflow_active_alarm 每 5 分钟同步，最近 {a}）；'
                      + 'TT/WO/CR/PMT/SPMS 与达标率每小时 :06（源 eflow_sync 每小时 :00 起跑、实测约 :06 跑完，'
@@ -866,7 +873,7 @@ window.OLBR_DATA = (function () {
          2026-10-08：alarm 前面的断站数字前缀已按要求去掉，与其余五条同为纯文案。 */
       'qc.sub.alarm': 'Cells/ Sites Outage', 'qc.sub.tt': 'Ongoing TTs',
       'qc.sub.wo': 'Ongoing WOs', 'qc.sub.cr': 'Unclosed CRs',
-      'qc.sub.pmt': 'Unclosed PMTs',
+      'qc.sub.pmt': 'Waiting PM Manager Approve',
       'qc.sub.spms': 'Unclosed SPMS',
       'qc.targetTip.up': 'Thresholds: watch ≥ {warn} · critical ≥ {crit} (higher is worse)',
       'qc.targetTip.down': 'Thresholds: watch < {crit} · critical < {warn} (higher is better)',
@@ -889,10 +896,18 @@ window.OLBR_DATA = (function () {
                     + 'Snapshots only exist for hours the portal was open, so gaps break the line\n'
                     + 'and are NEVER filled with 0 (that would fake a "backlog suddenly cleared" dip).',
       'qc.stock.capPmt': 'Overdue, last {n} h',
-      'qc.stock.tipPmt': 'Sampled hourly snapshots of overdue (unfinished) PMT count (last {n} hours, 1 h per slot).\n'
-                       + 'Same data as the card\'s big number, seen from a different side: the total shows\n'
-                       + 'how large the backlog is, this line shows whether the overdue part is piling up or draining.\n'
-                       + 'Snapshots only exist for hours the portal was open, so gaps break the line and are NEVER filled with 0.',
+      /* 2026-11-16: the PMT card switched to "Waiting PM Manager Approve", so the bars
+         now plot the SAME cohort's hourly stock. Big number and bars must describe one
+         thing or readers cannot cross-check them. Hours before the cut have no sample. */
+      'qc.stock.tipPmt': 'Sampled hourly snapshots of PMTs waiting at "PM Manager Approve" (last {n} hours, 1 h per slot).\n'
+                       + 'This is the SAME measure as the card\'s big number (same cohort of work orders).\n'
+                       + 'Note: snapshots start when this caliber went live; earlier hours have no sample, '
+                       + 'so gaps break the line and are NEVER filled with 0.',
+      /* PMT card caliber note (hover on the card title; same pattern as the other cards) */
+      'qc.pmtWait.tip': 'Waiting PM Manager Approve: PMTs currently sitting at the "PM Manager Approve" node, '
+                      + 'waiting for the next step (FLM Leader Approve).\n'
+                      + 'Same definition as the "Waiting" figure at that node on the my_app PM Execution '
+                      + 'Analysis page (?page=pm_analysis) — not a separately derived number.',
       'qc.stock.starving': 'Not enough samples',
       'qc.cadenceTip': 'Two refresh cadences: site-outage alarms every 5 min (source eflow_active_alarm syncs every '
                      + '5 min, latest {a}); TT/WO/CR/PMT/SPMS and the SLA rate hourly at :06 (eflow_sync starts at '
@@ -1856,6 +1871,18 @@ window.OLBR_DATA = (function () {
      六张等宽同排后「主/次」靠字号表达，不再各占一行分组小标题。 */
   var QC_PRIMARY_ORDER = ['alarm', 'tt', 'wo'];
   var QC_SECONDARY_ORDER = ['cr', 'pmt', 'spms'];
+  /* v3 独有（2026-11-16 用户要求）：卡片 id → 后端接口的 metric 名。
+     PMT 卡的大数字与下钻改用「等待 PM Manager Approve」的口径（后端 `pmt_wait`），
+     而卡片 id 仍是 `pmt` —— 六张卡的 id / 中英文名来自共享的
+     `MsPortal/assets/data.js`，不能为了本页去改那份（会把 MsPortal / v1 / v2 一起改掉）。
+     没有条目的卡片 = 卡片 id 就是 metric 名。
+     ⚠️ 本次**只改 v3 这一份**：`/olbrportal/`、`/v1/olbrportal/`、`/v2/olbrportal/`、
+     MsPortal 的 PMT 卡仍是「Unclosed PMTs」——用户点名的页面是 `/v3/olbrportal/`，
+     与既有「v1 独有、别处刻意不改」的先例同一条取舍。要拉齐就把这四份的
+     `qc.sub.pmt` 文案与 drill 的 metric 一起改，别只改一半。
+     口径真相源在 my_app `pm_workflow_service.waiting_snapshot()`，与
+     `?page=pm_analysis` 里程碑条同名节点的 Waiting 同一个定义。 */
+  var QC_CARD_METRIC = { pmt: 'pmt_wait' };
   /* 只有这四项后端提供「新增量」趋势（cr / pmt 明确回 no_trend）：不发请求、也不画线。 */
   var QC_TREND_METRICS = ['alarm', 'tt', 'wo', 'spms'];
   var QC_SUB_KEY = { alarm: 'qc.sub.alarm', tt: 'qc.sub.tt', wo: 'qc.sub.wo',
@@ -2250,6 +2277,7 @@ window.OLBR_DATA = (function () {
     QC_TARGETS: QC_TARGETS, QC_LEVEL_ABS: QC_LEVEL_ABS,
     QC_PRIMARY_ORDER: QC_PRIMARY_ORDER, QC_SECONDARY_ORDER: QC_SECONDARY_ORDER,
     QC_TREND_METRICS: QC_TREND_METRICS, QC_SUB_KEY: QC_SUB_KEY, QC_LV_KEY: QC_LV_KEY,
+    QC_CARD_METRIC: QC_CARD_METRIC,
     QC_FULL_MIN: QC_FULL_MIN, QC_FULL_OFFSET: QC_FULL_OFFSET,
     QC_ALARM_MIN: QC_ALARM_MIN, QC_ALARM_OFFSET: QC_ALARM_OFFSET,
     KPI_RICH: KPI_RICH, KPI_RICH_BY_ID: KPI_RICH_BY_ID,

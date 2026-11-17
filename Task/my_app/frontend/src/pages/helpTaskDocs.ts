@@ -81,13 +81,13 @@ export const TASK_DOCS: TaskDoc[] = [
       name: 'eFlow 数据同步',
       desc: '从 ZTE eFlow API 增量同步 TT/WO/CR/PM/Site/Person 六类数据',
       flow: ['每小时 :22 调 eFlow API 增量拉取 TT/WO/CR/PM/Site/Person', '清洗后写主库动态 eFlow 表（运行时按上游字段建表，不进 Alembic）', '为 TT&WO / 告警 / GIS / eFlow 知识库等页面供数'],
-      maintain: ['增量只拉新变更；发现漏数据靠次日 eflow_sync_full 全量兜底', '凭据分组 eflow；会话被踢会连续 failed，由 auto_retry_failed 自动重试'],
+      maintain: ['增量只拉新变更且**从不删除**（3 天窗口天然不完整，删了就是事故）；发现漏数据靠次日 eflow_sync_full 全量兜底，**删除 eFlow 已删的单也由该任务做对账**', '凭据分组 eflow；会话被踢会连续 failed，由 auto_retry_failed 自动重试'],
     },
     en: {
       name: 'eFlow Data Sync',
       desc: 'Incrementally sync TT/WO/CR/PM/Site/Person from the ZTE eFlow API',
       flow: ['Hourly :22 pull delta TT/WO/CR/PM/Site/Person from eFlow API', 'Clean and write into dynamic eFlow tables in the main DB (runtime-created, not in Alembic)', 'Feeds TT&WO / alarms / GIS / eFlow knowledge base pages'],
-      maintain: ['Delta mode only fetches changes; gaps are backfilled next night by eflow_sync_full', 'Credential group eflow; kicked sessions cause consecutive failures, auto-retried by auto_retry_failed'],
+      maintain: ['Delta mode only fetches changes and **never deletes** (the 3-day window is inherently incomplete); gaps are backfilled next night by eflow_sync_full, which is also where tickets removed in eFlow get reconciled away', 'Credential group eflow; kicked sessions cause consecutive failures, auto-retried by auto_retry_failed'],
     },
   },
   {
@@ -95,15 +95,15 @@ export const TASK_DOCS: TaskDoc[] = [
     script: 'services/sync_from_eflow_api.py → sync_from_eflow_api(mode="full")',
     zh: {
       name: 'eFlow 每日全量同步',
-      desc: 'eFlow 全量兜底：拉全量窗口（默认自 2026-01-01），补齐增量遗漏并刷新报告。大窗口下 TT/WO 分段拉取，避免单次大导出失败；TT/WO 缺失即判任务失败',
-      flow: ['每天 01:00 按全量窗口拉取全部记录', '窗口跨度大时 TT/WO **分段拉取**（默认 30 天/段）后合并去重，避免单次大导出超过 120s 轮询窗口而 500 失败', '与增量写同一批主库表，去重覆盖', '完成后刷新相关报告产物'],
-      maintain: ['白天发现 eFlow 缺数的首要修复手段，可在任务管理页手动执行一次', '全量窗口起点可配置，调整时注意拉取时长；段长由 EFLOW_FULL_SEGMENT_DAYS 控制（默认 30 天）', '2026-10-09 修复：此前 TT/WO 全量导出连续多日 500 失败，而任务仍报 success=True（缺失键被静默 continue）。现 TT/WO 缺失即写 errors → success=False'],
+      desc: 'eFlow 全量兜底：拉全量窗口（默认自 2026-01-01），补齐增量遗漏、**删除 eFlow 已删除的单**并刷新报告。大窗口下 TT/WO 分段拉取，避免单次大导出失败；TT/WO 缺失即判任务失败',
+      flow: ['每天 01:00 按全量窗口拉取全部记录', '窗口跨度大时 TT/WO **分段拉取**（默认 30 天/段）后合并去重，避免单次大导出超过 120s 轮询窗口而 500 失败', '与增量写同一批主库表，去重覆盖', '**对账删除**：比对上游权威单号集合，删掉 eFlow 已删除、本地仍残留的 TT/WO/CR', '完成后刷新相关报告产物'],
+      maintain: ['白天发现 eFlow 缺数的首要修复手段，可在任务管理页手动执行一次', '全量窗口起点可配置，调整时注意拉取时长；段长由 EFLOW_FULL_SEGMENT_DAYS 控制（默认 30 天）', '2026-10-09 修复：此前 TT/WO 全量导出连续多日 500 失败，而任务仍报 success=True（缺失键被静默 continue）。现 TT/WO 缺失即写 errors → success=False', '2026-11-16 新增对账删除：此前只 upsert 从不删除，eFlow 删掉的单永久残留（实测本地多出 TT 11 行 / WO 54 行）。**权威源走 base/list 直查而非全量导出** —— 实测导出比直查少约 43/27 行正常单，用导出会误删。四道闸门（只在 full 模式做 / 权威集合必须扫全 / 空集合跳过该表 / 超阈值跳过该表）见 03-data-layer.md；EFLOW_RECONCILE_DELETE=0 可零改码关闭'],
     },
     en: {
       name: 'eFlow Daily Full Sync',
-      desc: 'Full-window backfill (default since 2026-01-01) to cover delta gaps and refresh reports. Wide windows fetch TT/WO in segments; a missing TT/WO now fails the task',
-      flow: ['Daily 01:00 pull the full window', 'For wide windows TT/WO are fetched in **segments** (default 30 days each) then merged/deduped, avoiding a single huge export exceeding the 120s poll window and failing with 500', 'Write into the same dynamic tables with dedup', 'Refresh related report artifacts afterwards'],
-      maintain: ['First remedy when eFlow data is missing mid-day — run it manually from Task Manager', 'The window start is configurable; mind the fetch duration. Segment length via EFLOW_FULL_SEGMENT_DAYS (default 30d)', 'Fixed 2026-10-09: the TT/WO full export had been failing with 500 for days while the task still reported success=True (the missing key was silently skipped). Now a missing TT/WO writes an error → success=False'],
+      desc: 'Full-window backfill (default since 2026-01-01) to cover delta gaps, **delete tickets already removed in eFlow**, and refresh reports. Wide windows fetch TT/WO in segments; a missing TT/WO now fails the task',
+      flow: ['Daily 01:00 pull the full window', 'For wide windows TT/WO are fetched in **segments** (default 30 days each) then merged/deduped, avoiding a single huge export exceeding the 120s poll window and failing with 500', 'Write into the same dynamic tables with dedup', '**Reconcile delete**: compare against the upstream authoritative ticket set and drop TT/WO/CR rows that eFlow has already removed', 'Refresh related report artifacts afterwards'],
+      maintain: ['First remedy when eFlow data is missing mid-day — run it manually from Task Manager', 'The window start is configurable; mind the fetch duration. Segment length via EFLOW_FULL_SEGMENT_DAYS (default 30d)', 'Fixed 2026-10-09: the TT/WO full export had been failing with 500 for days while the task still reported success=True (the missing key was silently skipped). Now a missing TT/WO writes an error → success=False', 'Reconcile delete added 2026-11-16: it previously only upserted and never deleted, so tickets removed in eFlow stayed forever (measured 11 extra TT / 54 extra WO rows). **The authoritative source is base/list lookup, not the full export** — the export was measured to miss ~43/27 live rows, which would cause false deletions. Four gates (full mode only / authoritative set must be complete / empty set skips that table / over-threshold skips that table) are documented in 03-data-layer.md; EFLOW_RECONCILE_DELETE=0 turns it off without a code change'],
     },
   },
   {

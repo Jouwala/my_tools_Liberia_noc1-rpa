@@ -211,6 +211,21 @@ class DbWriterClient:
         rows = result.get("rows") or []
         return rows[0][0] if rows and rows[0] else None
 
+    def query(self, db: str, sql: str, limit: int = 5000) -> dict:
+        """执行只读 SELECT，返回 ``{"columns": [...], "rows": [[...]]}``。
+
+        与 ``/api/read``（按表 + 列 + where 拼 SQL）不同，这里直接把整条 SQL 交给
+        远端 ``/api/query``：需要 GROUP BY / MAX 等聚合时只能走这条。
+        用途见 ``ipran_ume_kpi_service._remote_watermarks_by_me()`` —— 增量写入
+        必须按 ME 分别取水位，一条 ``GROUP BY "ME"`` 比逐 ME 调 /api/read 省
+        N 次跨机请求。
+
+        远端对 SQL 有只读守卫（只放行 SELECT/WITH），失败时抛异常，调用方自行兜底。
+        """
+        payload = {"db": db, "sql": sql, "limit": int(limit)}
+        data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        return self._request("POST", "/api/query", data=data, max_retries=1)
+
     def upload_excel(self, db: str, table: str, excel_path: str,
                      table_type: str = "Group",
                      add_group_column: bool = False,

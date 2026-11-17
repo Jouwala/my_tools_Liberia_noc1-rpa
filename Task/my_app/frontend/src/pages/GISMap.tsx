@@ -34,7 +34,7 @@ import { PmtilesLayer } from './gismap/PmtilesLayer'
 import { TopologyLayer } from './gismap/TopologyLayer'
 import { LayerToggleControl } from './gismap/LayerToggleControl'
 import { MapOverlayToggle } from './gismap/MapOverlayToggle'
-import { PersonnelLayer, PersonnelToggleButton } from './gismap/PersonnelLayer'
+import { PersonnelLayer } from './gismap/PersonnelLayer'
 import { exportAoaReport } from '../utils/excelReport'
 import { stripBold } from '../utils/richText'
 import DraggableClickModal from '../components/DraggableClickModal'
@@ -349,10 +349,12 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
   const [showUtil] = useState(true)
   /* 人员图层开关（2026-10-16）。只在 mode==='all'（gis 页）可用 ——
      realtime_alarm 页不挂该图层（用户明确要求「只在 gis 页」）。
-     **默认开启**（2026-10-16 用户要求「默认显示」）。
-     状态放在这里（而非 PersonnelLayer 内部）是因为开关按钮在工具栏、
+     2026-11-16 用户要求：开关从工具栏的「显示人员」按钮**移进地图左上角的
+     LAYERS 浮层**，并**默认关闭**（此前 2026-10-16 曾要求默认显示）。理由：
+     人员针与站点圆点叠在一起时地图偏乱，默认只留站点，要看人再勾。
+     状态放在这里（而非 PersonnelLayer 内部）是因为开关在 LAYERS 浮层、
      小人在地图里，两处 DOM 位置不同，需要共同的父级持有状态。 */
-  const [showPersonnel, setShowPersonnel] = useState(true)
+  const [showPersonnel, setShowPersonnel] = useState(false)
   const [topologyLinks, setTopologyLinks] = useState<TopologyLink[]>([])
   const [utilMeta, setUtilMeta] = useState<UtilMeta | null>(null)
   const [regionBoundaries, setRegionBoundaries] = useState<{ region: string; polygon: [number, number][]; color: string; site_count: number }[]>([])
@@ -1818,21 +1820,14 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
   /* 图层开关（2026-09-28 用户要求）：
        全量模式 —— 只剩 **RealTime / History** 两项。原先的 His Alarm / TT / WO
                    合并成一个 History（数据口径见 hisAnyHit：历史告警 / TT / WO 任一命中）。
-       实时模式 —— **保持原样**（RealTime / TT / WO）。实时页的 TT/WO 是「当前告警
-                   所带工单」（由告警 tt_id 派生），是告警关联关系的直观体现，
-                   不属于「历史记录」，合并进 History 会丢失这层语义。 */
-  const layerOptions: { key: LayerKey; label: string; color: string }[] = (
-    mode === 'realtime'
-      ? [
-        { key: 'rt_alarm', label: t('gis.layer.rtAlarm'), color: SITE_COLORS.rt_alarm },
-        { key: 'tt', label: t('gis.layer.tt'), color: SITE_COLORS.tt },
-        { key: 'wo', label: t('gis.layer.wo'), color: SITE_COLORS.wo },
-      ]
-      : [
-        { key: 'rt_alarm', label: t('gis.layer.rtAlarm'), color: SITE_COLORS.rt_alarm },
-        { key: 'his_alarm', label: t('gis.layer.hisAlarm'), color: SITE_COLORS.his_alarm },
-      ]
-  ) as { key: LayerKey; label: string; color: string }[]
+       实时模式 —— 2026-11-16 起**不再渲染图层开关**（用户要求隐藏 RealTime / TT / WO
+                   三个 Tag），故这里只保留 'all' 的两项；再挂一个永远走不到的实时分支
+                   就是死代码。实时页的图层状态仍由 activeLayers 的默认值决定
+                   （rt_alarm + tt + wo 全开，见其 state 注释），地图照常画三层。 */
+  const layerOptions: { key: LayerKey; label: string; color: string }[] = [
+    { key: 'rt_alarm', label: t('gis.layer.rtAlarm'), color: SITE_COLORS.rt_alarm },
+    { key: 'his_alarm', label: t('gis.layer.hisAlarm'), color: SITE_COLORS.his_alarm },
+  ]
 
   const labelStyle = { color: WH.textMuted, fontSize: '0.8125rem', fontWeight: 500 }
 
@@ -2126,18 +2121,22 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
               <ExplainIcon text={t('gis.explain.note')} size={14} />
             </Space>
           </Col>
+          {/* 图层开关（实时页是 RealTime / TT / WO，GIS 页是 RealTime / History）：
+              **只在 ?page=gis（mode==='all'）显示**。
+              2026-11-16 用户要求实时告警页隐藏这一组 Tag —— 实时页的阅读主体是地图，
+              三个图层开关留在工具栏里只会把左边的统计 Tag 挤散。
+              图层状态本身不受影响：实时页的 activeLayers 默认就含这三层
+              （见其 state 注释），地图仍按默认全开绘制，只是不再提供手动显隐入口。 */}
+          {mode !== 'realtime' && (
           <Col>
             <Space wrap style={{ gap: 'var(--wh-space-sm)' }}>
-              {/* 图层组标题在实时模式下**隐藏**（2026-10-16 用户要求「统计卡片竖着排列」）。
-                  原因：实时模式的统计 Tag 已改到地图右侧竖排，而这一组（Realtime/TT/WO）
-                  留在工具栏里，两者居中对齐后标题在这里反而成了多余的锚点。
-                  'all' 模式不受影响，仍是原来的「图层：」+ 三个 Tag。 */}
-              {mode !== 'realtime' && (
-                <span style={{ fontSize: '0.8125rem', fontWeight: 500, color: WH.text }}>{t('gis.layerFilter')}</span>
-              )}
+              <span style={{ fontSize: '0.8125rem', fontWeight: 500, color: WH.text }}>{t('gis.layerFilter')}</span>
               {layerOptions.map(lo => (
-                <Fragment key={lo.key}>
+                /* 人员图层开关 2026-11-16 起**不在这里** —— 用户要求移进地图左上角
+                   的 LAYERS 浮层（见下方 LayerToggleControl 的 items）。别再把
+                   PersonnelToggleButton 加回来：同一个状态有两个入口会互相打架。 */
                 <Tag
+                  key={lo.key}
                   color={activeLayers.has(lo.key) ? lo.color : undefined}
                   role="switch"
                   aria-checked={activeLayers.has(lo.key)}
@@ -2155,19 +2154,10 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
                 >
                   {lo.label}
                 </Tag>
-                {/* 人员图层开关：紧跟「Realtime」右侧（2026-10-16 用户要求）。
-                    仅 gis 页（mode==='all'）提供；realtime_alarm 页不显示。 */}
-                {lo.key === 'rt_alarm' && mode === 'all' && (
-                  <PersonnelToggleButton
-                    enabled={showPersonnel}
-                    loading={false}
-                    onToggle={() => setShowPersonnel(v => !v)}
-                  />
-                )}
-                </Fragment>
               ))}
             </Space>
           </Col>
+          )}
           {/* 取景档位（2026-10-14 用户要求「能添加 7.5、8、8.5」）。
               用 Segmented 而不是 Select：只有三档，全部铺开比藏进下拉少一次点击，
               也让「当前在哪一档」始终可见 —— 排障时不用先点开才知道。
@@ -2175,6 +2165,14 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
               档位数组是唯一真相源，将来加减档位不必再改 JSX 与两份字典。
               ⚠️ 每档的 label 里拼的是数字 + t() 取的后缀，不是 `t('gis.zoom.7.5')`
               这类动态键 —— 动态拼 key 会被 check:i18n 判为漏键并中断构建。 */}
+          {/* 取景档位 + 「利用率图例」按钮：**同样只在 ?page=gis 显示**。
+              2026-11-16 用户要求实时告警页把「Zoom: 7.5× 8× 8.5×」与
+              「Utilization Legend」一起隐藏。
+              隐藏的是**控件**，不是行为：地图仍按 zoomLevel 的默认档
+              （ZOOM_LEVELS[1]，实时页无下拉可改）渲染，滚轮缩放照旧可用；
+              MW 链路利用率仍按 showUtil 恒真绘制，只是不再提供那组图例的显隐开关
+              （showUtilLegend 默认 false，本来就不显示）。 */}
+          {mode !== 'realtime' && (
           <Col>
             <Space wrap style={{ gap: 'var(--wh-space-sm)' }}>
               <span style={labelStyle} title={t('gis.zoomLevelHint')}>{t('gis.zoomLevel')}</span>
@@ -2201,6 +2199,7 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
               />
             </Space>
           </Col>
+          )}
           {mode !== 'realtime' && (
             <Col>
               <Space wrap style={{ gap: 'var(--wh-space-sm)' }}>
@@ -2359,83 +2358,31 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
              这也解释了下方「这里不关闭 statsColStyle」的注释为何存在。 */}
       <div style={isRealtime ? rowStyle : inertStyle}>
       <div style={isRealtime ? statsColStyle : inertStyle}>
-      {/* OSS 统计卡（仅实时模式）。
-          · flexShrink:0 —— 统计卡不参与纵向压缩，保持内容高度。
-          · rowGap：本卡在行内层（statsColStyle，flex column）里，它与下方「无内容」
-            之间的间距由卡片自己的 marginBottom 决定；横向布局下地图卡片在**旁边**
-            而不是下方，所以这里不需要下边距，改成 0 让统计列顶部与地图卡片顶部齐平。
-            （'all' 模式走不到本卡，故无需对两种布局分别取值。） */}
-      {mode === 'realtime' && scopedOssStats.length > 0 && (
-        <Card size="small" style={{ ...cardStyle, marginBottom: 0, flexShrink: 0 }}>
-          <div style={{ fontSize: '0.8125rem', fontWeight: 600, color: WH.text, marginBottom: 'var(--wh-space-sm)' }}>
-            {t('gis.ossStatsTitle')} ({scopedOssStats.reduce((s, i) => s + i.count, 0)})
-          </div>
-          {/* 竖排（2026-10-16）：原先横排自动换行，搬到右侧统计列后列宽只剩 320px，
-              横排会把每条压得极窄；改为纵向 flex + 每条占满列宽。
-              'all' 模式走不到这里（本卡片只在实时模式渲染），故无需按模式分支。
+      {/* Alarm Stats 卡（带 TT 的告警数 / 告警总数）**已按用户要求删除**（2026-11-16）：
+          实时告警页只保留「按站点口径」的 Site Stats，告警口径那张卡在屏幕上占了左列
+          首屏却与 Site Stats 讲同一批类别，属于重复信息。
+          ⚠️ 两个口径的差别（供将来恢复时参考）：
+            · Alarm Stats：`带 TT 的告警数 / 告警总数`  —— 告警口径
+            · Site Stats ：该类别涉及的**去重站点数**    —— 站点口径
+          下钻不受影响：Site Stats 条目点击走的仍是同一个 openDrill('oss', …)，
+          打开的仍是项目默认告警明细表。恢复请从 git 历史取回本卡，不要凭空重写
+          （AGENTS.md 原则 10：删除优于兼容，不留 deprecated 分支）。 */}
 
-              每条**可点击**下钻（同日用户要求）：整行是一个按钮语义的 div，
-              点击打开该类别的告警明细弹窗。进度条宽度仍按告警总数归一（视觉排序用）。 */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.625rem' }}>
-            {scopedOssStats.map(item => {
-              const max = scopedOssStats[0]?.count || 1
-              const pct = Math.max(4, Math.round((item.count / max) * 100))
-              return (
-                <div
-                  key={item.oss_specific_problem}
-                  role="button"
-                  tabIndex={0}
-                  aria-label={t('gis.ossDrillHint', { name: item.oss_specific_problem })}
-                  style={{
-                    minWidth: 0, cursor: 'pointer', borderRadius: 'var(--wh-radius-sm)',
-                    padding: '2px var(--wh-space-xs)', margin: '0 -var(--wh-space-xs)',
-                    transition: 'background 0.15s',
-                  }}
-                  onClick={e => openDrill('oss', item.oss_specific_problem, e)}
-                  onKeyDown={e => {
-                    // 键盘可达（a11y）：Enter / Space 等效于点击
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault()
-                      openDrill('oss', item.oss_specific_problem, e as any)
-                    }
-                  }}
-                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'var(--wh-subtle-bg)' }}
-                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent' }}
-                >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.375rem', fontSize: '0.75rem', color: WH.text }}>
-                    <span title={item.oss_specific_problem} style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{item.oss_specific_problem}</span>
-                    {/* 读数（2026-10-16 用户要求改口径）：由「告警数 / 站点数」改为
-                        「带 TT 的告警数 / 告警总数」。两个数同为**告警**单位，
-                        相除即「TT 覆盖率」，比原来两个不同单位的量更有意义。 */}
-                    <span style={{ color: WH.textMuted, whiteSpace: 'nowrap' }}>
-                      {item.with_tt ?? 0} / {item.count}
-                    </span>
-                  </div>
-                  <div style={{ height: 6, background: 'var(--wh-subtle-bg)', borderRadius: 3, marginTop: 3 }}>
-                    <div style={{ width: `${pct}%`, height: '100%', background: WH.teal, borderRadius: 3 }} />
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        </Card>
-      )}
-
-      {/* ===== Site Stats（2026-10-17 用户要求）=====
+      {/* ===== Site Stats（2026-10-17 用户要求；2026-11-16 起是左列第一张卡）=====
           用户原话：「OSS Problem Stats 名字改成 Alarm Stats，并在组件下面添加 Site Stats，
           内容是一样的，只是按照站点来统计每类告警的站点数」。
+          原「Alarm Stats」那张告警口径的卡已于 2026-11-16 按用户要求删除，
+          所以 Site Stats 现在是统计列的首张卡片 —— marginTop 从 0.75rem 改回 0，
+          否则列顶会多出一段无主的空隙（见下方注释）。
 
-          与上方 Alarm Stats 的**唯一区别**是读数：
-            · Alarm Stats：`带 TT 的告警数 / 告警总数`   —— 告警口径
-            · Site Stats ：该类别涉及的**去重站点数**     —— 站点口径
-          两者的类别集合、排序、可点击下钻都完全相同（同一份 ossStats），
-          所以这里复用同一个数组，只换读数字段，不另发请求。
+          读数是「该类别涉及的**去重站点数**」；类别集合、排序、可点击下钻沿用
+          同一份 ossStats，与地图上画出的站点同源，不另发请求。
 
           ⚠️ 为什么站点数之和可能大于站点总数：一个站点可同时有多种告警类别
              （例如既 SITE OUTAGE 又 Fiber Break），各档会重复计它。
              这与图例里「同站点可计入多档」是同一条口径说明。 */}
       {mode === 'realtime' && scopedOssStats.length > 0 && (
-        <Card size="small" style={{ ...cardStyle, marginTop: '0.75rem', marginBottom: 0, flexShrink: 0 }}>
+        <Card size="small" style={{ ...cardStyle, marginTop: 0, marginBottom: 0, flexShrink: 0 }}>
           <div style={{ fontSize: '0.8125rem', fontWeight: 600, color: WH.text, marginBottom: 'var(--wh-space-sm)' }}>
             {t('gis.siteStatsTitle')} ({scopedOssStats.reduce((s, i) => s + (i.sites || 0), 0)})
           </div>
@@ -2798,6 +2745,19 @@ export default function GISMap({ mode = 'all' }: { mode?: 'all' | 'realtime' }) 
                   checked: showRoads,
                   onChange: setShowRoads,
                 },
+                /* 人员图层开关（2026-11-16 用户要求）：从工具栏「显示人员」按钮
+                   移进 LAYERS 浮层，**默认关闭**（showPersonnel 初值 false）。
+                   ⚠ 只在 ?page=gis（mode==='all'）出现 —— 实时页不挂 PersonnelLayer
+                   （见下方 2848 行附近），放一个勾了也不起作用的开关会误导用户。 */
+                ...(mode === 'all'
+                  ? [{
+                      key: 'personnel',
+                      label: t('gis.layerPersonnel'),
+                      hint: t('gis.person.toggleHint'),
+                      checked: showPersonnel,
+                      onChange: setShowPersonnel,
+                    }]
+                  : []),
               ]}
             />
             <MapController center={center} zoom={zoomLevel}

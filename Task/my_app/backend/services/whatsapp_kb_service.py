@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import subprocess
 import tempfile
 import time
@@ -39,6 +40,11 @@ _SYNC_TIMEOUT_SEC = int(os.environ.get("WHATSAPP_KB_SYNC_TIMEOUT", "420"))
 # 临时输出文件的前缀与保留时长（见 _prune_stale_temp）。
 _TEMP_PREFIX = "whatsapp_kb_sync_"
 _TEMP_KEEP_SEC = 3600
+
+# 失败摘要写进 task_execution_log.error（任务管理页直接显示），别让它长到撑爆列表。
+_HEADLINE_MAX = 200
+# 报错里的「目标地址」：auto_retry 用它做 TCP 探测门控（见 _compose_error）。
+_URL_RE = re.compile(r"https?://[0-9A-Za-z_.\-]+:\d+")
 
 
 def _prune_stale_temp() -> None:
@@ -157,10 +163,15 @@ def sync_knowledge_base(force: bool = False) -> Dict[str, Any]:
 
     tail = _tail(stdout_text, stderr_text)
     if proc.returncode != 0:
-        logger.error("whatsapp 知识库同步失败（exit=%s）：%s", proc.returncode, tail)
+        error = _compose_error(stdout_text, stderr_text, proc.returncode)
+        logger.error("whatsapp 知识库同步失败（%s）：%s", error, tail)
         return {
             "success": False,
-            "error": f"exit={proc.returncode}",
+            # 2026-11-16：以前固定写 `exit=1`，Run History 上只有「❌ Error exit=1」，
+            # 看不出是 Ollama 不在线、规则导出坏了还是 bot 重启失败。现在把子进程
+            # 自己打的那句失败原因提上来，并保证带上目标地址（auto_retry 靠它探测）。
+            "error": error,
+            "exit_code": proc.returncode,
             "output_tail": tail,
             "elapsed_sec": elapsed,
         }
@@ -173,6 +184,44 @@ def sync_knowledge_base(force: bool = False) -> Dict[str, Any]:
         "output_tail": tail,
         "elapsed_sec": elapsed,
     }
+
+
+def _failure_headline(stdout_text: str, stderr_text: str) -> str:
+    """从子进程输出里挑一句能代表失败的话。
+
+    `scripts/sync-kb.mjs` 的失败行以 `✗` 开头且自带原因（如
+    「索引重建失败（exit=1）：Ollama 嵌入服务 http://... 不可用或超时」）；
+    取**最后**一条，因为后出现的才是最终结论（ingest 的 ✗ 在前、
+    同步脚本汇总的 ✗ 在后）。都没有时退回最后一条含「失败」的行。
+    """
+    merged = "\n".join(x for x in (stdout_text or "", stderr_text or "") if x)
+    lines = [ln.strip() for ln in merged.splitlines()]
+    cross = [ln for ln in lines if ln.startswith("✗")]
+    if cross:
+        return cross[-1].lstrip("✗✘× ").strip()
+    fallback = [ln for ln in lines if "失败" in ln]
+    return fallback[-1].strip() if fallback else ""
+
+
+def _compose_error(stdout_text: str, stderr_text: str, returncode: int) -> str:
+    """拼出写进 task_execution_log.error 的一句话。
+
+    两条硬要求：
+    1. **带原因**：让人在 Run History 上直接看懂，而不是只看到 `exit=1`。
+    2. **带目标地址**：`auto_retry._classify_error` 命中网络类关键字后会用
+       `_extract_targets` 从错误文本里提 host:port 做 TCP 探测 —— 嵌入机不可达时
+       跳过重试且不消耗重试额度，恢复后立即重投。少了地址，这条自愈路径就断了
+       （2026-11-16 的 2 次自动重试在 1 小时内烧光，知识库陈旧一整天）。
+    """
+    merged = "\n".join(x for x in (stdout_text or "", stderr_text or "") if x)
+    headline = _failure_headline(stdout_text, stderr_text)
+    if not headline:
+        return f"exit={returncode}"
+    if not _URL_RE.search(headline):
+        urls = _URL_RE.findall(merged)
+        if urls:
+            headline = f"{headline}（目标 {urls[-1]}）"
+    return headline[:_HEADLINE_MAX]
 
 
 def _read_text(path: str) -> str:

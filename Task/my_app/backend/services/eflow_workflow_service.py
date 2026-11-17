@@ -88,9 +88,12 @@ CANONICAL_STAGE_ORDER = [
     "waitAccept",
     "arriveSite",
     "waitProcess",
-    "leaveSite",
     "waitConfirmFO",
     "waitConfirm",
+    # 2026-11-16 用户要求把「离场」排在「待确认」之后、「关闭」之前。
+    # 本常量只给 TT 侧排序用（WO 页读本地 WO_MILESTONES，见 TTWODashboard.tsx），
+    # 这里跟着改是为了两端的阶段链不再各说一套。
+    "leaveSite",
     "closed",
 ]
 

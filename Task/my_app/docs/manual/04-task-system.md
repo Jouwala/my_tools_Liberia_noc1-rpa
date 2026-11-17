@@ -1,6 +1,6 @@
 # 04 任务与调度系统
 
-my_app 的"心脏"。85 个定时任务负责全部数据采集与报表投递，页面上看到的数据新鲜度、失败告警、补跑行为都在这里定义。
+my_app 的"心脏"。84 个定时任务负责全部数据采集与报表投递，页面上看到的数据新鲜度、失败告警、补跑行为都在这里定义。
 
 > 另有两个**模块级说明文件**更贴近代码：`backend/WORKER.md`（worker 进程架构、容错、启停、环境变量）与 `backend/task_registry.md`（注册表字段与对外接口）。本章是归口叙述，改动这两处代码时请同步更新三份文档。
 
@@ -35,7 +35,7 @@ APScheduler 到点 (backend 进程内)
 | `s` | 1 | SP 备件 SFTP（独立 SFTP 服务器 + UNC 镜像库）。2026-09-27 从 `n` 拆出：它是 `n` 组最大单体负载（实测 347min/天）且是已知挂死源（SFTP channel 读挂死 5.5h 曾拖停整组） | `sp_data_sync` |
 | `w` | 2 | MW UME 微波网管（凭证分组 `mw_ume`），独立会话。2026-09-27 从 `n` 拆出：`mw_ume_kpi_sync_rt` 为 `*/15` 高频任务，此前每次排在 `sp_data_sync` 后，实测队列等待 964s（全场最久） | `mw_ume_kpi_sync`, `mw_ume_kpi_sync_rt` |
 | `v` | 4 | VMAX 门户（本机 8790 单会话代理）：四个任务共用同一个 VMAX 会话，必须彼此串行；2026-09-18 从 `n` 组拆出（原先排在 `sp_data_sync` 这类 1.5~2h 长任务后面，小时级采集滞后一个多小时）；2026-10-31 新增 `soc_trend_sync`（直连 VMAX 数仓 GBase，与门户会话无交集但同属 VMAX 数据域，故同组串行） | `cxo_dashboard_cache_sync`, `vmax_cxo_daily_sync`, `vmax_multi_data_sync`, `soc_trend_sync` |
-| `m` | 42 | 内务轻任务：EWS 邮件会话 + 截图/WhatsApp 文件依赖 + VMAX 数仓 GBase 直连取数 | `site_outage_screenshot`, `whatsapp_send`, `whatsapp_send_ext`, `liberia_email_1h`, `liberia_email_8h`, `kpi_ms_contract`, `kpi_ms_wo_sla`, `kpi_sp_spareparts`, `kpi_sp_consumables`, `kpi_ran_availability`, `email_recovery`, `ipran_m6k_chart_email`, `ccn_free_rating_chart_email`, `mtn_mou_daily_email`, `battery_email`, `mailbox_cleanup`, `incident_overview_sync`, `auto_retry_failed`, `db_freshness_check`, `auth_health_check`, `sp_report_generate`, `sp_email_details`, `sp_online_report_generate`, `sp_online_report_send`, `sp_weekly_report`, `mttr_tt_sync`, `progress_sync`, `sp_whatsapp_report`, `sp_material_report`, `log_cleanup`, `tmp_cleanup`, `olib_soc_kpi_daily_sync`, `olib_soc_vmax_report`, `tt_alarm_whatsapp_alert`, `ume_alarm_whatsapp_alert`, `sp_details_files_email`, `tt_mttr_report_generate`, `whatsapp_send_baileys`, `eflow_fiber_assign`, `eflow_5g_assign`, `ipt_power_collect`, `eflow_site_update` |
+| `m` | 41 | 内务轻任务：EWS 邮件会话 + 截图/WhatsApp 文件依赖 + VMAX 数仓 GBase 直连取数 | `site_outage_screenshot`, `whatsapp_send`, `liberia_email_1h`, `liberia_email_8h`, `kpi_ms_contract`, `kpi_ms_wo_sla`, `kpi_sp_spareparts`, `kpi_sp_consumables`, `kpi_ran_availability`, `email_recovery`, `ipran_m6k_chart_email`, `ccn_free_rating_chart_email`, `mtn_mou_daily_email`, `battery_email`, `mailbox_cleanup`, `incident_overview_sync`, `auto_retry_failed`, `db_freshness_check`, `auth_health_check`, `sp_report_generate`, `sp_email_details`, `sp_online_report_generate`, `sp_online_report_send`, `sp_weekly_report`, `mttr_tt_sync`, `progress_sync`, `sp_whatsapp_report`, `sp_material_report`, `log_cleanup`, `tmp_cleanup`, `olib_soc_kpi_daily_sync`, `olib_soc_vmax_report`, `tt_alarm_whatsapp_alert`, `ume_alarm_whatsapp_alert`, `sp_details_files_email`, `tt_mttr_report_generate`, `whatsapp_send_baileys`, `eflow_fiber_assign`, `eflow_5g_assign`, `ipt_power_collect`, `eflow_site_update` |
 | `c` | 2 | CN EMS 独立会话，两个任务共享 `_pmcache`/`daily_raw.json`，同组保证互斥 | `ems_kpi_cache_sync`, `ems_kpi_daily` |
 | `x` | 1 | 实时告警专属组（2026-10-15 从 `n` 拆出）。要求告警滞后 ≤1 分钟，而 `n` 组是一条串行道，cron 改 `*/1` 也会被 `eflow_sync`（实测平均 192.5s）/`ms_sla_full`（最久 600.1s）挡住 —— 实测 856 次采样中 5.3% 等待 >60s、最差 853.9s | `eflow_active_alarm` |
 | `g` | 1 | RAN Greenplum 取数（2026-10-19 新增）：经 control1 两跳 SSH 到 193.168.0.6，与 eFlow/UME/VMAX GBase/SFTP 无任何会话与写库交集。独立成组的理由是**故障域**：SSH 通道挂死的风险与当年 s 组 sp_data_sync 同型（worker.py:83-93 记载其 channel 读挂死 5.5h 拖停整组）；实测单轮 72.6s（10.4 亿行明细靠 12h 分区裁剪 + 列存），虽短于 m 组每分钟的告警推送周期，但不愿让它去挤那条道 | `gp_ran_user_sync` |
@@ -90,7 +90,7 @@ APScheduler 到点 (backend 进程内)
 > 上一条 22 小时的 `DELETE` 把 `DROP INDEX` 和后续 8 个读全堵在锁队列里，
 > 连带 `pg_to_sqlite_sync` 卡 1h49m、`eflow_sync` 跑满 7265s。
 
-`m` 组末尾几条有注释记录：`finebi_report_sync`/`pg_to_sqlite_sync`（2026-08-25）、`whatsapp_send_ext`（08-31）、`sp_email_details`（09-01）、`cells_kpi_sync`/`sp_material_sync`（09-09~11）在启用分组模式后都因**未归入任何组而无人认领，队列 pending 卡死断档**才补进来（`worker_watchdog.py` 内的补录注释）。其中 `pg_to_sqlite_sync` 已于 2026-10-28 拆到独立的 `p` 组（见上文拆组依据），`m` 组现为 42 项（2026-11-12 新增 `auth_health_check` 与 `mtn_mou_daily_email`；同日删除 `finebi_report_sync` 后曾为 40）。
+`m` 组末尾几条有注释记录：`finebi_report_sync`/`pg_to_sqlite_sync`（2026-08-25）、`whatsapp_send_ext`（08-31）、`sp_email_details`（09-01）、`cells_kpi_sync`/`sp_material_sync`（09-09~11）在启用分组模式后都因**未归入任何组而无人认领，队列 pending 卡死断档**才补进来（`worker_watchdog.py` 内的补录注释）。其中 `pg_to_sqlite_sync` 已于 2026-10-28 拆到独立的 `p` 组（见上文拆组依据），`m` 组现为 41 项（2026-11-12 新增 `auth_health_check` 与 `mtn_mou_daily_email`，同日删除 `finebi_report_sync` 后曾为 40；**2026-11-16 再删除 `whatsapp_send_ext`，由 42 减为 41**）。
 
 > **新增任务必须同时登记进 `GROUP_TASK_MAP`；新增/调整「组」必须同步五处**（2026-10-15 补全：原文档只写了 2 处，拆 `x` 组时守卫当场抓出 `start.bat` 与帮助文档两处遗漏）：`worker_watchdog.py::GROUP_TASK_MAP` 的键、`start_hidden.ps1` 的 `$env:MY_APP_WORKER_GROUPS` **与** `$groups` 等待清单（两处）、`restart_workers.py::ALL_GROUPS` 兜底值、`start.bat` 的 worker pid 计数与 `%WCOUNT% / N` 分母、`frontend/src/pages/helpTaskDocs.ts` 的 `group` 字段与 `WORKER_GROUP_INFO`。只加分组表不改启动脚本 = 该组 worker 从不被拉起，症状与漏登记完全一样；漏改 `start.bat` 则「该组 worker 死了仍报全绿」。`restart_workers.py::ALL_GROUPS` 已改为从 `GROUP_TASK_MAP` 取键，其字面值只是 import 失败时的兜底。
 >
@@ -232,7 +232,7 @@ APScheduler 到点 (backend 进程内)
 | task_id | 名称 | 默认 cron | 组 |
 | --- | --- | --- | --- |
 | `eflow_sync` | eFlow 数据同步（TT/WO 异步导出若未被上游登记，改走 base/list 直查，不再拿空路径下载 500） | `22 * * * *` | n |
-| `eflow_sync_full` | eFlow 每日全量同步（大窗口下 TT/WO **分段拉取**，默认 30 天/段，避免单次大导出超过 120s 轮询窗口而 500 失败；TT/WO 缺失即判失败，不再静默成功） | `0 1 * * *` | n |
+| `eflow_sync_full` | eFlow 每日全量同步（大窗口下 TT/WO **分段拉取**，默认 30 天/段，避免单次大导出超过 120s 轮询窗口而 500 失败；TT/WO 缺失即判失败，不再静默成功）。**2026-11-16 起另做「对账删除」**：删掉 eFlow 已删除、本地仍残留的 TT/WO/CR（权威源走 base/list 直查，不用全量导出 —— 实测导出比直查少约 43/27 行正常单，用导出会误删）。四道闸门见 `03-data-layer.md`「eFlow 工单表的语义」；`EFLOW_RECONCILE_DELETE=0` 可零改码关闭 | `0 1 * * *` | n |
 | `ran_ume_daily` | RAN UME 日报 | `0 2 * * *` | u |
 | `site_outage_screenshot` | Site Outage 截图 | `0 1 * * *` | m |
 | `whatsapp_send` | WhatsApp 消息发送 | `0 3 * * *` | m |
@@ -247,7 +247,7 @@ APScheduler 到点 (backend 进程内)
 | `cnn_kpi_sync` | CNN UME KPI 同步 | `0 6 * * *` | n |
 | `cnn_kpi_sync_5mins` | CNN UME KPI 5分钟同步（**增量窗口**默认最近 120 分钟，上一轮失败自动回退全窗口「昨天 00:00→现在」补缺口，`CNN5M_WINDOW_MODE=full` 回滚旧行为；写 `5mins_*` 新表；**混合粒度**：5 个模板 5 分钟 + 3 个模板走上游 15 分钟档模板；0 行跳过不计失败） | `*/15 * * * *` | n |
 | `sp_data_sync` | SP 备件数据同步 | `10 * * * *` | s |
-| `ipran_kpi_sync` | iPRAN UME KPI 同步（**每小时全量拉取 3 天窗口是本意**，2026-11-06 与用户确认；写入侧按远端水位增量裁剪） | `0 * * * *` | u |
+| `ipran_kpi_sync` | iPRAN UME KPI 同步（**每小时全量拉取 3 天窗口是本意**，2026-11-06 与用户确认；写入侧按**每个 ME 各自的**远端水位增量裁剪 —— 同表 BU 的 Begin Time 比另外 3 个 ME 快 8 小时，用全表水位会把它们整批裁掉，2026-11-16 已修） | `0 * * * *` | u |
 | `liberia_email_1h` | Liberia 宕站 1小时报告邮件 | `15 * * * *` | m |
 | `liberia_email_8h` | Liberia 宕站 8小时报告邮件 | `20 */8 * * *` | m |
 | `kpi_ms_contract` | MS Contract KPIs 日报邮件 | `30 5 * * *` | m |
@@ -279,7 +279,6 @@ APScheduler 到点 (backend 进程内)
 | `vmax_multi_data_sync` | VMAX 多报表指标采集 | `45 * * * *` | v |
 | `olib_soc_vmax_report` | OLIB SOC VMAX 例行报表 | `30 7 1 * *` | m |
 | `olib_soc_kpi_daily_sync` | OLIB SOC 看板 KPI 增量 | `20 6 * * *` | m |
-| `whatsapp_send_ext` | WhatsApp 消息发送（扩展） | `0 3 * * *` | m |
 | `whatsapp_send_baileys` | WhatsApp 消息发送（Baileys；**默认禁用**，需在「任务管理」页手动启用） | `0 4 * * *` | m |
 | `tt_alarm_whatsapp_alert` | eFlow P1 告警 WhatsApp 推送（**可在「任务配置」页调级别/告警码/触发窗口/重报间隔/群组**） | `2-59/5 * * * *` | m |
 | `ume_alarm_whatsapp_alert` | DC server  alarm WhatsApp push（**可在「任务配置」页调告警码:级别对/群组/催报间隔**） | `* * * * *` | m |
@@ -317,6 +316,24 @@ APScheduler 到点 (backend 进程内)
 | `soc_trend_sync` | SOC 多维趋势同步（**直连 VMAX 数仓 GBase 只读**，拉流量/TCP/分业务类目的小时与天粒度聚合，落 `data/soc_trend/soc_trend.sqlite3`；**只允许 SELECT/SHOW/DESC，禁止在数仓建对象或回写**） | `40 * * * *` | v |
 | `ran_element_management_sync` | RAN 网元管理表同步（RNM `/api/res/v1/ranmes` 全量 934 行 / 15 字段 → PG `app.ran_element_management` 当前全量 + `app.ran_element_management_daily` 每日快照 + `app.ran_element_management_sync_log`；行数 <100 视为上游残片判失败，不覆盖已有数据） | `0 23 * * *` | u |
 
+> **`whatsapp_kb_sync_*` 的判据是「导出的知识正文」，不是「源 xlsx 的 mtime」（2026-11-16 改）**
+>
+> 规则采集每天 04:20 都会重写 `eflow_TT_rules.xlsx`。旧的 size+mtime 指纹因此每天都被判成
+> 「规则变了」：白算 6001 条向量（约 4 分钟）、每天重启一次 bot，还把「那一刻 Ollama 必须
+> 在线」变成每日固定赌注 —— 2026-11-11 / 11-12 / 11-16 三次失败都是这么来的（那几天规则正文
+> 其实只有一份文档真的变了）。现在 `whatsapp-kb-bot/scripts/sync-kb.mjs` 的顺序是：
+> **导出（正文没变不落盘）→ 对 `knowledge/` 全部文档算正文哈希 → 与上次成功同步比对**；
+> 一致就 1~2 秒退出、完全不碰 Ollama，不一致才 `预检 Ollama → ingest → 重启 bot`。
+> 导出脚本也改成「正文没变不重写」，避免 mtime 每天变、让 bot 的 `ping` 天天误报
+> 「磁盘知识比索引新」。
+>
+> 失败时 `task_execution_log.error` 会带原因与目标地址，例如
+> `索引重建失败（exit=1）：Ollama 嵌入服务 http://192.168.100.27:11434 不可用或超时`，
+> 不再只有裸 `exit=1`（Run History 上直接可读）。**这个地址是自愈链路的一部分**：
+> `services/auto_retry.py` 把「超时/不可达」归为网络类失败后，会用该 host:port 做 TCP 探测 ——
+> 不可达时**跳过重试且不消耗重试额度**，目标恢复后立即重投。2026-11-16 04:35 那次失败后
+> 2 次自动重试在 1 小时内烧光额度、知识库陈旧一整天，缺的就是这条链路。
+
 ### WhatsApp 发送通道矩阵（2026-10-08）
 
 目前 `site_outage` 截图与文档的发送有**三种并行实现**，共享同一份图片目录
@@ -326,8 +343,12 @@ APScheduler 到点 (backend 进程内)
 | 任务 | 通道 | 确认送达 | 依赖 | 默认 | 用途 |
 |---|---|---|---|---|---|
 | `whatsapp_send` | Playwright 自启 Chrome + WhatsApp Web DOM | 数 DOM 气泡（**假成功风险**——2026-09-15 SP Details Report 1.5MB 静默漏发） | 浏览器、Playwright、Node session 持久化 | `0 3 * * *` | 原版主通道 |
-| `whatsapp_send_ext` | 浏览器扩展 + 已登录的 WhatsApp Web 标签页 | 数 DOM 气泡 + 双信号 | 浏览器开着 + WhatsApp Web 已登录 | `0 3 * * *`；**2026-10-21 起由用户手动关闭**（`manually_stopped=1`），主开关不再覆盖它 | 兜底 + 侧栏手动 |
 | `whatsapp_send_baileys` | Baileys 协议直发（不走 Web） | **服务端 message id**（真实回执） | `whatsapp-kb-bot/src/notify.js` 常驻 + `auth-notify/` 凭据 | `0 4 * * *`，但**默认禁用**（`enabled=False`） | 治本通道（取代扩展、补充 Playwright） |
+
+> **2026-11-16 删除「扩展版」定时任务。** 原 `whatsapp_send_ext`（WhatsApp 消息发送（扩展））已按用户要求下线：
+> 后端不再投递发图作业，任务管理页也不再出现该任务。**浏览器扩展本身没有删除**
+> （`Task/my_app/whatsapp_sender_extension`）：它仍可从 `/api/whatsapp/outbox` 拉图手动/定时直发，
+> 并继续承接 eFlow P1 告警的 ext 兜底文本作业（`/api/whatsapp/ext/job`，见 13-operations）。
 
 **为什么保留三条**：每条都有不同故障域——Playwright 任务会随 WhatsApp Web 改版失效；
 扩展依赖浏览器开着 + 人工扫码登录；Baileys 走非官方库违反 ToS 有封号风险。
