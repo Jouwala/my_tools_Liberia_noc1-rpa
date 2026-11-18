@@ -159,6 +159,8 @@ def test_dependency_source_splits_dbwriter_ews_network():
         ("[API写入失败] Metro_ring: [DbWriter] 请求失败: 8765/api/write", "db_writer"),
         ("RateLimitError: Max timeout reached", "ews"),
         ("Unable to connect to the remote server", "ews"),
+        # 2026-11-18：通道降级时的主动延后记录（detail 为空也要判成 EWS 依赖类）
+        ("EWS_DEFERRED: 邮箱通道未恢复（server_down，最后探测 2026-11-18T14:40:00）", "ews"),
         ("HTTPSConnectionPool(...): Read timed out.", "network"),
         ("10061 Connection refused", "network"),
     ]

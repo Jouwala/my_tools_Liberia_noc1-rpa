@@ -123,6 +123,20 @@ def test_deferred_record_is_not_auto_retried(monkeypatch, deferrable_task):
     assert ar._is_excluded_from_retry("mailbox_cleanup", res["error"]) is True
 
 
+def test_deferred_record_is_classified_as_ews_dependency():
+    """db_freshness 必须把延后记录归为「EWS 依赖类」，否则会按「任务真停摆」逐条告警。
+
+    与 2026-09-18 的教训同源：一次 EWS 故障让 14 个报表任务各自「逾期」刷屏。
+    """
+    from backend.services.db_freshness_check import (
+        _dependency_source, _is_dependency_failure,
+    )
+
+    err = "EWS_DEFERRED: 邮箱通道未恢复（server_down，最后探测 2026-11-18T14:40:00）"
+    assert _dependency_source(err) == "ews"
+    assert _is_dependency_failure(err) is True
+
+
 # ------------------------------------------------- 注册表标注范围（防误标）
 
 def test_registry_marks_only_pure_senders():
