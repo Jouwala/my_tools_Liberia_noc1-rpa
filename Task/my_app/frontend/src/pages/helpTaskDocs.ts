@@ -832,15 +832,23 @@ export const TASK_DOCS: TaskDoc[] = [
     script: 'services/email_recovery.py → run_email_recovery_task',
     zh: {
       name: 'EWS 恢复后邮件补发',
-      desc: '每 10 分钟探测 EWS 是否恢复；恢复后自动补发近 3 小时内因 EWS 超时失败的邮件任务',
-      flow: ['探测 Exchange（EWS）连通性', '扫描近 3 小时内因 EWS 超时失败的邮件任务', '恢复后逐个补发'],
-      maintain: ['邮件没收到先查它的执行历史，而不是手动重跑原邮件任务'],
+      desc: '每 10 分钟真实探测 EWS；通道不可用时纯发信任务在到点执行前就被延后（不空跑、不告警），恢复后按各任务时效窗口补发（小时报=本小时、8 小时报=本 8 小时块、日报=24 小时），过期丢弃',
+      flow: ['探测 Exchange（EWS）连通性并落盘状态', '扫描近 24 小时内因 EWS 失败或被延后的邮件任务', '恢复后按时效窗口逐个补发，越过窗口的不再发送'],
+      maintain: [
+        '邮件没收到先查它的执行历史，而不是手动重跑原邮件任务',
+        '执行历史里 trigger=「已延后」表示通道未恢复、本轮没执行；它不算任务故障，恢复后会自动补发',
+        '带数据同步或 WhatsApp 副通道的邮件任务不参与延后（延后会把同步/群发一起停掉）',
+      ],
     },
     en: {
       name: 'Email Recovery after EWS Restored',
-      desc: 'Probes EWS every 10 minutes; once restored, re-sends email tasks that failed due to EWS timeouts in the last 3 hours',
-      flow: ['Probe Exchange (EWS) reachability', 'Scan email tasks failed by EWS timeout within the last 3h', 'Re-send them one by once EWS is back'],
-      maintain: ['For missing emails check this task\'s history first instead of manually re-running the original email task'],
+      desc: 'Really probes EWS every 10 minutes; while the channel is down, send-only tasks are deferred before they run (no wasted attempts, no alerts), and once restored they are re-sent within each task\'s own time window (hourly = same hour, 8-hour = same 8h block, daily = 24h); expired ones are dropped',
+      flow: ['Probe Exchange (EWS) reachability and persist the state', 'Scan email tasks that failed or were deferred within the last 24h', 'Once restored, re-send them within their time windows; expired ones are not sent'],
+      maintain: [
+        'For missing emails check this task\'s history first instead of manually re-running the original email task',
+        'In run history trigger=Deferred means the channel was down and the run did not execute; it is not a task failure and is re-sent automatically after recovery',
+        'Email tasks with a data sync or a WhatsApp side channel are excluded from deferral (deferring would stop the sync / group send too)',
+      ],
     },
   },
   {

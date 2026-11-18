@@ -119,7 +119,7 @@ Select-String -Path log\backend_runtime_*.log -Pattern '任务开始执行|任�
 | 任务反复 failed | `worker_runtime*.log` 找该 task_id 堆栈（分组日志，可按任务所属组直接定位） | 上游不可达→先跑"系统设置→凭据→测试连接"；口令变了→更新凭据 |
 | 任务失败了但**没收到**失败告警 | `worker_runtime*.log` 搜 `failure_alert_deferred`；`task_execution_log` 里该任务自上次成功以来是不是首次失败 | 2026-11-07 起这是**设计行为**：可被 auto_retry 重投的任务首次失败只记日志，5 分钟后重投成功就完全不告警；连续 2 次失败（`FAILURE_ALERT_DEFER_STREAK`）、不可重投任务（邮件类等）、或失败记录落库异常时才立即告警。真停摆另有 `task_health_alert` 巡检兜底。要恢复旧的「失败即告警」设 `FAILURE_ALERT_DEFER=0`。背景：`.19` DbWriter watchdog 强杀重启窗口内（约 40s~2min）写库任务必失败但 auto_retry 均能自愈，旧逻辑每天为此发 1~3 封无效告警 |
 | 任务卡在"执行中"很久 | 是否真在跑：看 worker 进程 PID 是否存活 | 无需手工干预：`STALE_RUNNING_SECONDS=30min` + PID 核对会自动回收僵尸（`worker.py:78,82,302`） |
-| 邮件没发出去 | `email_recovery`（每 20 分钟）日志 | EWS 恢复后会自动补发；确认收件人配置未被重置 |
+| 邮件没发出去 | `email_recovery`（每 10 分钟）日志；该任务执行历史里 `trigger=deferred` 表示通道未恢复、本轮**没执行** | 通道恢复后按各任务时效窗口自动补发（过期丢弃）；`deferred` 不是任务故障，无需手动重跑。确认收件人配置未被重置 |
 | PG 连不上 / 启动 WARN | `start_hidden.ps1:137` 的 PG 探活结果 | 管理员运行 `stop.bat all` 再 `start.bat`；仍不行手工 `pg_ctl start` |
 | 只有某个看板数字不对 | 该看板的数据源任务与新鲜度开关 | 例：电池看板默认只统计 ≤24h 新鲜数据（`11-feature-guide.md` 第 13 节），不是 bug |
 | 反复被重启 | `backend_watchdog.log` 连崩计数 | 2026-10-06 起连崩 10 次**降级为每 5 分钟慢速重试、不再放弃**（`backend_watchdog.py:55-57`、`_enter_slow_retry()` `:212-240`）；改之前是"连崩 10 次永久退出"，即下方专节「后端静默停摆」。无论如何都要看崩溃原因，重启不解决问题 |

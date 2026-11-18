@@ -1115,12 +1115,26 @@ worker 分组重启才生效（`backend/routers/task_configs.py`）。
 | 验证码不重试 | 错误文本含 `图形验证码` / `verification code` 视为永久失败（与锁定、密码到期同级），不进鉴权宽限。2026-11-12：`auth_health_check` 把计划任务 stdout（`log/auth_health_check_*.log` 里的「未发现验证码」）和 auto_retry 回声扫成 CRITICAL，2 次重试 + 1 次宽限把条数从 2 滚到 4 | `scripts/auth_health_check.py`（`classify` / `OWN_REPORT_LOG_RE`）、`services/auto_retry.py`（`NON_RETRYABLE_KEYS`） |
 | 漏跑补投 | `MISS_GRACE_MIN=15`、`MISS_MIN_INTERVAL_MIN=30`（时效窗口内完全没有执行记录才补投） | 同上 |
 | 邮件类不参与补投 | 由 EWS 恢复补发机制 `email_recovery` 负责，默认排除 | `task_registry.py:320` |
+| 邮箱通道降级时延后执行 | 纯发信任务定时到点时，若 EWS 探测状态为 `down` 且探测不超过 **30 分钟**，**不执行**（不生成、不连 EWS、不告警），写一条 `trigger=deferred` + `EWS_DEFERRED` 记录；恢复后由 `email_recovery` 按 hourly / eight_hour / daily 时效窗口补发，过期丢弃。手动触发不受影响；`EWS_DEFER_ON_DOWN=0` 可整体关闭 | `services/ews_deferral.py`、`task_registry.EWS_DEFERRABLE_IDS`、`services/task_runner.py`（`run_task` 执行前） |
 | 失败通知 | 微信 + 邮件双通道；**2026-11-07 起加延迟语义（C）**：能被 auto_retry 重投的任务，自上次成功以来的连续失败次数 < `FAILURE_ALERT_DEFER_STREAK`（默认 2）时只记日志不发通知（等 5 分钟重投自愈），达阈值 / 不可重投任务 / 失败记录落库异常才立即告警；开关 `FAILURE_ALERT_DEFER=0` 恢复旧「失败即告警」。取证：`outputs/cnn_kpi_sync_5mins_失败复盘_2026-11-07.md`（远端 watchdog 强杀窗口内 auto_retry 均自愈成功，旧逻辑却每天发 1~3 封失败告警） | `task_runner.py`（`_should_defer_failure_alert` / `_consecutive_failures`） |
 | 漏跑/停摆通知 | 每小时巡检后按 `kind:task_id` 翻转去重推送（24h 重提） | `services/task_health_alert.py` |
 | 保留期 | 队列与执行日志保留 **7 天**（`TASK_LOG_RETENTION_DAYS` 可调，默认 7；2026-09-11 由 3 天放宽） | `task_runner.py:880-893`、`worker.py:479-484` |
 | 低频任务「最近运行」兜底 | 月/周级任务的执行记录会被上面 7 天保留期清掉，任务列表因而显示 **No Record / 未记录**（`sync.statUnknown`）。修法：在 `TASK_SPECS` 给该任务加 `recent_runs_provider=(模块路径, 函数名)`，`task_stats._fetch_latest_runs()` 在**日志表无该任务记录时**才调用提供者，从任务自己的产物库补回最近几次运行（唯一主源仍是 `task_execution_log`）。参考 `olib_soc_vmax_report` → `olib_soc_report_service.recent_runs_for_task` | `services/task_stats.py`（`register_recent_runs_provider`）、`task_registry.py`（`register_all_tasks`）、`backend/services/olib_soc_report/README.md` §12 |
 
 重试的判定不是"失败就重跑"，而是**先看数据缺口是否已被后续成功执行补上**；超过 24h 硬上限直接放弃（`task_registry.py:320`）。
+
+### 邮箱通道降级：延后执行，恢复后按时效补发（2026-11-18）
+
+用户要求：**邮箱通道没恢复时，邮箱相关任务不必再跑一遍；等通道恢复、且时效未过再执行。**
+
+- **判定**：`backend/services/ews_deferral.py` 读 `email_recovery` 落盘的探测状态（每 10 分钟一次真实 SOAP 探测，**唯一直相源，不另做探测**）。仅当 `status=down`（`server_down` / `auth_error` / `cred_mismatch` 都算）且 `last_probe_at` 不超过 30 分钟（`EWS_DEFER_MAX_PROBE_AGE_MIN`）时延后；状态缺失或过期一律 **fail-open**（照常执行）。
+- **范围**：只对 `TASK_SPECS` 里标注 `EWS_DEFERRABLE_IDS` 的任务生效，且只对**定时触发**生效。手动触发照常跑（人可能刚改完密码要立刻验证）。
+  - 收：纯发信任务（`liberia_email_*`、`kpi_ms_*`、`kpi_sp_*`、`sp_material_report`、`sp_details_files_email`、`sp_weekly_report`、`packet_loss_email`、`battery_email`、`ipran_m6k_chart_email`、`ccn_free_rating_chart_email`、`mtn_mou_daily_email`、`kpi_ran_availability`、`mailbox_cleanup`）。
+  - **不收**：带数据同步的 `fw_kpi_sync` / `ume_in_osg_report`（延后会让同步一起停），带 WhatsApp 副通道的 `sp_email_details` / `sp_online_report_send`（邮件失败时它们仍照发群，整轮延后等于把还能用的群发停掉）。
+- **记录与补发**：延后写成一条 `trigger_type=deferred`、`error` 含 `EWS_DEFERRED` 的失败记录。`email_recovery` 把它当失败链成员 —— 恢复后立即补发，后续失败按 `RETRY_POLICIES` 重试；越过各任务时效窗口（小时报=本小时、8 小时报=本 8 小时块、日报=24h）的照旧丢弃。
+- **不告警**：通道不可用属「依赖不可用」，不是任务故障；延后记录跳过失败告警，通道状态由 `email_recovery` 的「翻转通知 + 持续故障升级」统一负责。
+- **回滚**：`EWS_DEFER_ON_DOWN=0`（环境变量）即恢复旧行为，无需改代码。
+- **维护**：新增邮件任务若带同步/群发/远端写库，**不要**加进 `EWS_DEFERRABLE_IDS`；纯发信任务可加。延后只影响 `run_task` 的调度路径，`email_recovery` 的补发调用（直接调 service 函数）不受门禁影响。
 
 ## 看门狗与自愈
 
