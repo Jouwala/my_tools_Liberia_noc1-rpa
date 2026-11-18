@@ -52,6 +52,7 @@ export const PAGE_LIST: { key: string; iframe?: boolean }[] = [
   { key: 'ume_in_kpi' },
   { key: 'cn_kpi' },
   { key: 'cn_kpi_5mins' },
+  { key: 'cn_hourly_kpi' },
   { key: 'imonitor', iframe: true },
   { key: 'ip_trace', iframe: true },
   { key: 'vmax_user_query' },
@@ -124,6 +125,7 @@ export const NAV_KEY_MAP: Record<string, string> = {
   ume_in_kpi: 'nav.umeInKpi',
   cn_kpi: 'nav.cnKpi',
   cn_kpi_5mins: 'nav.cnKpi5mins',
+  cn_hourly_kpi: 'nav.cnHourlyKpi',
   imonitor: 'nav.imonitor',
   ip_trace: 'nav.ipTrace',
   vmax_user_query: 'nav.vmaxUserQuery',
@@ -150,7 +152,7 @@ export const CATEGORIES: { id: string; pages: string[] }[] = [
   { id: 'tasks', pages: ['sync', 'email_reports', 'upload', 'tables', 'overview'] },
   {
     id: 'boards',
-    pages: ['alarm', 'ttwo', 'v1_ttwo', 'tt', 'wo', 'nur', 'ms_nur_only', 'ms_sla', 'ms_sla_only', 'ms_wo_sla', 'ms_contract_kpi', 'cxoDashboard', 'vmaxCxoDashboard', 'vmaxCxoDashboard_Daily', 'vmaxCxoDashboard_90Days', 'socTrendDashboard', 'mwUmeTopology', 'ipranTopo', 'mwRealTime', 'alarmManagement', 'fme_ranking', 'site_avail', 'avail_ms', 'avail_flm', 'avail_county', 'bm_speedtest', 'bm_meta', 'noc_analyst', 'repeat_site_down', 'cr_analysis', 'pm_analysis', 'bp_report', 'ran_cells_kpi', 'packet_loss', 'battery', 'ume_in_kpi', 'cn_kpi', 'cn_kpi_5mins', 'imonitor', 'gis', 'realtime_alarm', 'person', 'incident_overview', 'warehouse', 'sp_material', 'sp_details', 'sp_report', 'com_report', 'warehouse_summary'],
+    pages: ['alarm', 'ttwo', 'v1_ttwo', 'tt', 'wo', 'nur', 'ms_nur_only', 'ms_sla', 'ms_sla_only', 'ms_wo_sla', 'ms_contract_kpi', 'cxoDashboard', 'vmaxCxoDashboard', 'vmaxCxoDashboard_Daily', 'vmaxCxoDashboard_90Days', 'socTrendDashboard', 'mwUmeTopology', 'ipranTopo', 'mwRealTime', 'alarmManagement', 'fme_ranking', 'site_avail', 'avail_ms', 'avail_flm', 'avail_county', 'bm_speedtest', 'bm_meta', 'noc_analyst', 'repeat_site_down', 'cr_analysis', 'pm_analysis', 'bp_report', 'ran_cells_kpi', 'packet_loss', 'battery', 'ume_in_kpi', 'cn_kpi', 'cn_kpi_5mins', 'cn_hourly_kpi', 'imonitor', 'gis', 'realtime_alarm', 'person', 'incident_overview', 'warehouse', 'sp_material', 'sp_details', 'sp_report', 'com_report', 'warehouse_summary'],
   },
   { id: 'analysis', pages: ['eflow_qa', 'eflow_flow', 'dashboard', 'archive', 'ip_trace', 'vmax_user_query', 'vmax_user_cca', 'ipt_power'] },
   { id: 'workflow', pages: ['ap_center', 'feedback'] },
@@ -389,6 +391,7 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
       desc: '站点地图：告警/工单在地图上的分布、拓扑线、区域面与多维筛选（历史/工单口径）。',
       usage: [
         '区域下拉 + 图层 Tag 开关筛选；图例点击可隐藏该类图层；时间支持分段切换与自定义区间',
+        '地图左上角「Layers」浮层里有地名注记 / 道路 / 人员三个勾选框，**默认全关**：地名（瓦片自带 1.7 万个）会糊住站点；人员是现场登记位置（非实时定位），需要时再勾',
         '「高级筛选」面板第一格是「站点名称」输入框：按名称片段模糊匹配（不区分大小写），其余是区域/等级/站型/FME 等下拉；',
         '筛选后统计同步变化：站点总数与 ERA/COOL/NORMAL 分档、地图图例、县块颜色与县名标注、右上角「MAINTENANCE ALERTS」区域排名条都按筛选后的站点重新统计，不再显示全量数字；',
         '点站点打开右侧抽屉，四个页签明细可搜索、可导出 Excel',
@@ -407,7 +410,7 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
         '操作与 GIS 地图页一致',
         '数据来自 eFlow 活动告警（eflow_active_alarm），每分钟同步一次',
         '「根因聚合分析」卡片：把当前高级筛选范围内的断站聚成簇 —— 拓扑根因（上游站断，其传输链下挂站跟着断）/ 同因聚集（无链路站按告警问题 + 10 分钟时间窗聚集），并给出根因类型、受影响站数与置信度；点条目可看成员明细与证据（链路路径、时间窗、eFlow 影响面），成员站名可点开下钻抽屉',
-        '标题括号里的「已归因/总」与 Site Stats 同为**站数**单位：已归因 = 进入共享根因簇的站数；其余是孤立故障（上游没告警、没有同窗同伴，根因就是它自己）—— 点脚注可打开未归因**告警明细**（与点击 Alarm Stats 条目打开的是同一张项目默认明细表：站点/TT/优先级/告警时间/时长/超时），对地图逐点核验',
+        '标题括号里的「已归因/总」与 Site Stats 同为**站数**单位：已归因 = 进入共享根因簇的站数；其余是孤立故障（上游没告警、没有同窗同伴，根因就是它自己）—— 点脚注可打开未归因**告警明细**（与点击 Site Stats 条目打开的是同一张项目默认明细表：站点/TT/优先级/告警时间/时长/超时），对地图逐点核验',
         '根因站可能落在高级筛选范围之外（标「范围外」）—— 断站原因往往在当前视野之外，属正常且有价值的输出',
         '「AI 解读」按钮：用自备 LLM Key 生成自然语言结论（Key 仅存本机浏览器）；AI 不可用时自动降级为本地规则结论并标注，不影响簇列表本身',
       ],
@@ -437,7 +440,9 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
         '**每个数字都能悬浮看算法**（2026-11-04）：六张状态卡的 ⓘ 与数字气泡同源（判据在采集层落的 FinalStatus：STATUS≠OK 且 Last 1 day Max PL ≥5 / [1,5) / [0.5,1) / [0.1,0.5) 分别是 Critical/Major/Minor/Warning，STATUS=OK 强制归一为 No Packet loss），页头 Affected Sites / 粒度标签也挂了气泡',
         '三处最容易核对不上的地方直接写进气泡：**状态饼图含无坐标站点、区域柱图只统计非 OK（含 Minor/Warning）、顶部 Affected Sites 只是 Critical + Major** —— 三个集合不同，数字不该互相对账',
         '每日趋势的中位数**只取当天 >0 的读数**（逐小时丢包约 59% 是 0，全量取中位会被压成 0 失去意义）；而 Top 站点用的是**含 0 的每站点中位**（否则「半天全断」与「整天全断」同为 100，失去区分度）—— 同名「中位数」两种口径，气泡各写各的',
-        '本页原先有两份自写气泡（复制按钮、主题色、强调渲染各自一套），已删除并统一走 `components/MetricExplain`；下钻「共 N 行」气泡写明它是搜索框筛过的行数、接口按上限截断'],
+        '本页原先有两份自写气泡（复制按钮、主题色、强调渲染各自一套），已删除并统一走 `components/MetricExplain`；下钻「共 N 行」气泡写明它是搜索框筛过的行数、接口按上限截断',
+        '**站点类型过滤（2026-11-17）**：Packet Loss Status 横幅右侧的下拉按主数据站点类型（ERA / COOL / NORMAL，取 `eflow_site.site_type`；口述的 `COOLI` 在库里就是 `COOL`）筛选，**整页数字一起变** —— 站点总数、Affected Sites、六张状态卡、饼图、区域分布、每日趋势、Top 站点、地图圆点与图例、点击下钻的明细全部换成选中档位。**默认档位是 NORMAL**（用户口径），需要看全网时切到 `All`；下拉里的两个数是「被丢包监控的站点数 / 主数据站点总数」，恒为全量分布（切档不变），实测 ERA `197/216`、NORMAL `520/600`、COOL `0/64`。**COOLI 的分子是 0 不是漏做**：64 个 COOL 站在 UME 网元清单里都在，但丢包数据只来自 `SDR_IPPD` / `ITRAN_IPPD` 两个 IP 承载模板，这些站在源表 `packet_loss_data` 里一条读数都没有（按编码、按站名模糊查均为 0），下拉里因此置灰；在 eflow_site 里按编码和名称都找不到的站点归入「未匹配主数据」（4 个），保证 197 + 0 + 520 + 4 = 721 与「全部」对得上',
+      ],
     },
     battery: {
       desc: '站点电池健康度 / SOC / 充放电状态与告警明细。',
@@ -484,6 +489,18 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
         '「vs 昨日 ±%」点开后先说明它是**前端**算的（接口不下发 pct）：今天 00:00→此刻的均值 对比 昨天截到同一时刻的均值，±10% 以内为灰、超出标橙；今天或昨天在该时段没有点、或昨天均值为 0 时直接不显示',
         '页头的「N/N 个组件有数据」「耗时 / 缓存」「失败 N」三枚标签也都能悬浮：空态与失败都**不计入**「有数据」，失败只算查询报错的组件',
         '「导出 Excel」每个组件一张表，按时刻展开 Day0 / Day1 / Day7 列（只出该组件实际有数据的日子），便于对账',
+      ],
+    },
+    cn_hourly_kpi: {
+      desc: 'CN 小时 KPI 看板：xGW 会话/吞吐容量与 MGW/MRFP 资源利用率的**小时粒度**视图，可按日期区间（默认最近 7 天、上限 31 天）回看。数据源是 UME 网管「KPI 模板管理」导出件 KPI Template.xlsx（2026-11-17 新建模板批）解析出的 3 个模板，由任务 cn_hourly_kpi_sync 每天 06:20 以 gr=3600 增量拉取，写入 db_ps_cs_cn 的 <模板名>_UME 三张表。口径（2026-11-18 定）：Resource_Utilization 与 Resource_Capacity 两族模板重复，只保留 Utilization 一族；Object Scope=ALL，数据覆盖全部网元。',
+      usage: [
+        '页面 7 张组件卡：xGW PFCP 会话用量、xGW 会话占用率(%)、xGW 吞吐用量(Mbps)、xGW 吞吐占用率(%)、MGW/MRFP 的 TONE/TC/RTP 利用率(%)；前四张的线是 xGWU22/xGWU122 两个网元（占用率为全 NE 合并的 ALL 线），后三张的线是 MGW_91/MGW_92/MRFP_96 三个网元',
+        '日期区间用右上角区间选择器改（含端点），改完立即重新取数；上限 31 天（与回补窗口同档）',
+        '**每张组件卡的标题都能悬浮看这一格怎么算**：ⓘ 按组件写清聚合式 —— 会话/吞吐用量是按网元小时的 SUM，占用率是 SUM(已用)×100÷SUM(授权) 的全网元加权，资源利用率是上游复合 KPI 直接返回的原值（公式如 100*C408230024/(Gr*C408230021)，Gr=3600 秒），页面不做二次换算',
+        '首次上线的一个月历史由回补命令生成：python -m backend.services.cn_kpl.cn_hourly_kpi_service --days 31；此后每天 06:20 增量（默认 2 天窗口）自动补新',
+        '页头标签「N/N 个组件有数据」「日期区间」「失败 N」都可悬浮：空态与失败不计入「有数据」',
+        '「数据口径说明」默认收起（点标题展开）：模板来源、Utilization/Capacity 取舍、Object Scope=ALL 与利用率公式都在里面',
+        '「导出 Excel」每个组件一张表，按小时展开各网元列，便于对账',
       ],
     },
     imonitor: {
@@ -683,9 +700,9 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
       ],
     },
     bm_meta: {
-      desc: 'Meta 基准报告：基于 meta_data（Meta_20260923.xlsx 导入，612 行，2025-01-18 ~ 2026-09-23）回答两件事——①「Orange 与 MTN 谁的速率更高、领先多少、优势在扩大还是缩小」；②「同时段网络侧的 BP / FDD 下行吞吐 / 上下行 PRB 利用率 / 流量 / RRC 用户数是什么水平」。这两件事**刻意分开**：只有「速率」是两家的直接对比，其余 6 项是网络侧 KPI，不属于任何一家。页面分两大层：两家 PK 层（综合评分 → 速率汇总卡 → 双线趋势 → 逐日胜负 → 月度对比与逐日明细）+ 网络侧 KPI 层（汇总卡 + 单线趋势）。',
+      desc: 'Meta 基准报告：基于 meta_data（meta_data.xlsx 导入，661 行，2025-01-18 ~ 2026-11-11）回答两件事——①「Orange 与 MTN 谁的速率更高、领先多少、优势在扩大还是缩小」；②「同时段网络侧的 BP / FDD 下行吞吐 / 上下行 PRB 利用率 / 流量 / RRC 用户数是什么水平」。这两件事**刻意分开**：只有「速率」是两家的直接对比，其余 6 项是网络侧 KPI，不属于任何一家。页面分两大层：两家 PK 层（综合评分 → 速率汇总卡 → 双线趋势 → 逐日胜负 → 月度对比与逐日明细）+ 网络侧 KPI 层（汇总卡 + 单线趋势）。',
       usage: [
-        '顶部快捷区间（近 90 / 180 / 365 天 / 全部）配合日期选择器；时间窗是**左闭右开**，界面显示的是闭区间。默认窗口是近 365 天而不是 90 天——本表跨度 612 天，短窗口会把长期趋势结论切掉',
+        '顶部快捷区间（近 30 / 90 / 180 / 365 天 / 全部）配合日期选择器；时间窗是**左闭右开**，界面显示的是闭区间。打开时默认看**近 30 天**（右端对齐数据实际最大日，与点「近 30 天」得到的区间完全一致，2026-11-16 由 365 天收窄）；要看季节性/长期趋势再切 90 / 180 / 365 天或全部',
         '「综合竞争力评分」是**两家的相对分**：领先方 100 分、另一方按比例得分。它只回答「这两家谁更强、强多少」，不评价绝对水平好不好',
         '**为什么网络侧 KPI 不参与评分**：把「Orange 比 MTN 快多少」和「全网 PRB 利用率多高」混进同一个评分，等于把两件不同的事算成同一件事的两个选手，结论是假的。所以网络侧 6 项只做趋势与汇总，没有胜负、没有评分',
         '「速率」是两家的下载速率对比值（库中 orange_liberia / mtn_liberia 两个固定列），每天一行；两家相同时记为「持平」，**不计入任何一方胜场**（页面顶部有提示条说明有几天）',
@@ -1072,6 +1089,7 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
       desc: 'Site map: alarm/ticket distribution, topology lines, region polygons and multi-dimension filters (history/ticket view).',
       usage: [
         'Region dropdown + layer tags to filter; click a legend item to hide that layer; time supports segments and custom range',
+        'The top-left "Layers" panel has three checkboxes — Place labels / Roads / Personnel — all **off by default**: place labels (17k names in the tiles) would bury the sites, and personnel are registered positions (not live GPS), so turn them on only when needed',
         'The first cell of the "Advanced Filter" panel is a "Site Name" input: fuzzy match on a name fragment (case-insensitive); the rest are dropdowns for region/grade/form/FME etc.',
         'Statistics follow the filter: site total and the ERA/COOL/NORMAL grades, the map legend, the county block colors and county labels, and the "MAINTENANCE ALERTS" county ranking panel are all recomputed from the filtered sites instead of showing the full-set numbers;',
         'Click a site to open the right drawer: four tabs, searchable, exportable to Excel',
@@ -1090,7 +1108,7 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
         'Interactions are identical to the GIS Map page',
         'Data comes from eFlow active alarms (eflow_active_alarm) synced every minute',
         'The "Root Cause Aggregation" card clusters the down sites within your current advanced-filter scope — topology roots (an upstream site is down, so the sites hanging off its link path go down with it) and same-cause clusters (sites without a link path grouped by alarm problem + a 10-minute time window), each with cause type, affected-site count and a confidence score; click an entry to see member details and evidence (link paths, time window, eFlow impact list); member site names open the site drill-down drawer',
-        'The "attributed/total" counter in the title uses the same **site** unit as Site Stats: attributed = sites that share a root cause with peers; the rest are isolated failures (upstream healthy, no same-window peers — the site itself is its own cause) — click the footnote to open the unattributed **alarm details**, the same project-standard detail table as clicking an entry in Alarm Stats (site / TT / priority / alarm time / duration / overdue), and verify against the map',
+        'The "attributed/total" counter in the title uses the same **site** unit as Site Stats: attributed = sites that share a root cause with peers; the rest are isolated failures (upstream healthy, no same-window peers — the site itself is its own cause) — click the footnote to open the unattributed **alarm details**, the same project-standard detail table as clicking an entry in Site Stats (site / TT / priority / alarm time / duration / overdue), and verify against the map',
         'A root site may fall outside your filter scope (flagged "Out of scope") — outage causes often sit outside your current view; this is expected and is exactly the value of the analysis',
         'The "AI Insights" button generates a natural-language conclusion using your own LLM key (stored only in your browser); when AI is unavailable it degrades to a local rule-based summary and is clearly marked — the cluster list itself is unaffected',
       ],
@@ -1120,7 +1138,9 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
         '**Every number explains itself on hover** (2026-11-04): the six status cards share one text between the ⓘ and the number bubble (the verdict is written in the collection layer as FinalStatus: STATUS≠OK with Last 1 day Max PL ≥5 / [1,5) / [0.5,1) / [0.1,0.5) = Critical/Major/Minor/Warning, and STATUS=OK is forced into No Packet loss); the header Affected Sites and granularity tags carry bubbles too',
         'The three easiest misreadings are stated in the bubbles: **the status pie includes sites without coordinates, the region bars count non-OK sites only (Minor and Warning included), and the header Affected Sites is Critical + Major only** — three different sets that were never meant to reconcile',
         'The daily-trend median **uses only readings above 0 for that day** (about 59% of hourly readings are 0, so a full median collapses to zero and stops being meaningful), while Top sites use a **per-site median that includes zeros** (otherwise "half a day fully down" and "fully down all day" both become 100 and the ranking loses its point) — the same word "median" for two calibers, each stated where it is used',
-        'This page used to carry two hand-written popovers (their own copy button, theme colours and emphasis rendering); both were deleted in favour of `components/MetricExplain`. The drill "N rows" bubble now states that it is the count after the search-box filter and that the API truncates at a cap'],
+        'This page used to carry two hand-written popovers (their own copy button, theme colours and emphasis rendering); both were deleted in favour of `components/MetricExplain`. The drill "N rows" bubble now states that it is the count after the search-box filter and that the API truncates at a cap',
+        '**Site-type filter (2026-11-17)**: the dropdown on the right of the Packet Loss Status bar filters by the master-data site type (ERA / COOL / NORMAL, from `eflow_site.site_type`; what you call `COOLI` is stored as `COOL`) and **every number on the page follows** — total sites, Affected Sites, the six status cards, the pie, region bars, daily trend, Top sites, map dots and legend, and the drill-down detail all switch to the selected grade. **It opens on NORMAL** (the user caliber); pick `All` for the whole network. The two numbers in brackets are "sites covered by packet-loss monitoring / sites in the master data", always the full distribution (unchanged when you switch): ERA `197/216`, NORMAL `520/600`, COOL `0/64` as measured. **COOLI being 0 is not a missing feature**: all 64 COOL sites are in the UME inventory, but packet loss comes only from the `SDR_IPPD` / `ITRAN_IPPD` IP-transport templates and those sites have no reading at all in the source table `packet_loss_data` (0 hits by code and by fuzzy name), so the grade is greyed out. Sites that cannot be matched in eflow_site by code or name fall under "Unmapped site" (4), keeping 197 + 0 + 520 + 4 = 721 consistent with "All"',
+      ],
     },
     battery: {
       desc: 'Site battery health / SOC / charge-discharge status and alarm details.',
@@ -1167,6 +1187,18 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
         'The "vs yesterday ±%" tag opens with the admission that it is computed **by the frontend** (the API sends no pct): today\'s mean from 00:00 to now against yesterday\'s mean truncated to the same clock time, ±10% grey and beyond orange. It disappears entirely when either day has no point in that span, or yesterday\'s mean is 0',
         'The header tags "N/N widgets with data", "elapsed / cache" and "N failed" are hover-explainable too: empty and failed widgets are both **excluded** from "with data", and the failure count covers query errors only',
         '"Export Excel" writes one sheet per widget, expanded as Day0 / Day1 / Day7 columns by time of day (only the days that widget actually has)',
+      ],
+    },
+    cn_hourly_kpi: {
+      desc: 'CN Hourly KPI board: an HOURLY-granularity view of xGW session/throughput capacity and MGW/MRFP resource utilization, with a selectable date range (last 7 days by default, up to 31 days). The data comes from 3 templates parsed out of the UME "KPI Template" export file KPI Template.xlsx (templates created 2026-11-17); task cn_hourly_kpi_sync pulls them at gr=3600 every day at 06:20 into the <template>_UME tables in db_ps_cs_cn. Caliber (set 2026-11-18): the Resource_Utilization and Resource_Capacity template families duplicate each other, so only Utilization is kept; Object Scope=ALL, covering every network element.',
+      usage: [
+        'Seven widget cards: xGW PFCP sessions used, xGW session occupancy(%), xGW throughput used(Mbps), xGW throughput occupancy(%), and MGW/MRFP TONE/TC/RTP utilization(%). The first four plot xGWU22/xGWU122 (occupancy is a single merged ALL line), the last three plot MGW_91/MGW_92/MRFP_96',
+        'Change the date range with the range picker (inclusive endpoints); the board refetches immediately and is capped at 31 days (same tier as the backfill window)',
+        '**Every widget title explains its value on hover**: the ⓘ spells out the aggregate per card — session/throughput usage is a SUM over NE-hours, occupancy is SUM(Used)×100÷SUM(Authorized) weighted across NEs, and resource utilization is the upstream composite-KPI value as-is (e.g. 100*C408230024/(Gr*C408230021), Gr=3600s) with no recomputation on the page',
+        'The first month of history comes from the backfill command: python -m backend.services.cn_kpl.cn_hourly_kpi_service --days 31; afterwards the daily 06:20 run appends new hours automatically (2-day window by default)',
+        'The header tags "N/N widgets with data", "date range" and "N failed" are hover-explainable too: empty and failed widgets are both excluded from "with data"',
+        '"Data caliber notes" is collapsed by default (click the title to expand): template origin, the Utilization/Capacity choice, Object Scope=ALL and the utilization formulas are all in there',
+        '"Export Excel" writes one sheet per widget, expanded per NE column by hour, for reconciliation',
       ],
     },
     imonitor: {
@@ -1364,9 +1396,9 @@ export const PAGE_DOCS: Record<Locale, Record<string, PageDoc>> = {
       ],
     },
     bm_meta: {
-      desc: 'Meta Benchmark Report: based on meta_data (imported from Meta_20260923.xlsx, 612 rows, 2025-01-18 ~ 2026-09-23) it answers two questions — (1) "between Orange and MTN, who has the higher speed, by how much, and is the gap widening or narrowing"; (2) "what level are the network-side KPIs (BP / FDD DL IP throughput / DL and UL PRB utilization / traffic volume / RRC users) at over the same period". These two are **deliberately kept apart**: only "speed" is a head-to-head between the two operators, while the other six are network-side KPIs belonging to neither. The page has two layers: a head-to-head layer (composite score -> speed cards -> dual-line trend -> daily win/loss -> monthly and daily tables) and a network-KPI layer (summary cards + single-line trend).',
+      desc: 'Meta Benchmark Report: based on meta_data (imported from meta_data.xlsx, 661 rows, 2025-01-18 ~ 2026-11-11) it answers two questions — (1) "between Orange and MTN, who has the higher speed, by how much, and is the gap widening or narrowing"; (2) "what level are the network-side KPIs (BP / FDD DL IP throughput / DL and UL PRB utilization / traffic volume / RRC users) at over the same period". These two are **deliberately kept apart**: only "speed" is a head-to-head between the two operators, while the other six are network-side KPIs belonging to neither. The page has two layers: a head-to-head layer (composite score -> speed cards -> dual-line trend -> daily win/loss -> monthly and daily tables) and a network-KPI layer (summary cards + single-line trend).',
       usage: [
-        'Quick ranges at the top (90 / 180 / 365 days / all time) plus date pickers; the window is **half-open** internally while the UI shows a closed range. The default is 365 days rather than 90 because this table spans 612 days and a short window would cut off the long-term trend',
+        'Quick ranges at the top (30 / 90 / 180 / 365 days / all time) plus date pickers; the window is **half-open** internally while the UI shows a closed range. The page opens on the **last 30 days**, with the right edge anchored to the latest day that actually has data (identical to what clicking "last 30 days" gives; narrowed from 365 days on 2026-11-16); switch to 90 / 180 / 365 days or all time when you need the seasonal or long-term picture',
         'The competitiveness score is **relative between the two operators**: the leader scores 100 and the other scales proportionally. It answers "who is stronger and by how much", not whether the absolute level is good',
         '**Why the network KPIs are excluded from scoring**: mixing "how much faster Orange is than MTN" with "how high network-wide PRB utilization is" into one score would treat two different things as two contestants in the same contest, producing a false conclusion. So the six network KPIs only get trends and averages — no wins, no score',
         '"Speed" is the download-speed comparison between the two operators (the fixed columns orange_liberia / mtn_liberia in the database), one row per day; when the two are equal it counts as a "tie" and is **not credited as a win to either side** (a note at the top states how many such days there are)',

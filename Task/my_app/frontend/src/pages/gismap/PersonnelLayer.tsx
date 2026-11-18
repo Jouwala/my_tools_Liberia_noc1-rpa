@@ -3,8 +3,10 @@
  * 需求（用户原话）：「页面可以添加个按钮来显示人员位置，使用小人的图标，
  * 点击人员可以看到属于该人员的 WO 信息；点击 WO 地图可以显示人员和站点的路线规划。」
  *
- * 本组件**自包含**：工具栏开关按钮 + 人员小人标记 + WO 弹窗 + 路线连线，
- * 全部收在这一个文件里，GISMap.tsx 只负责把 <PersonnelLayer> 挂进地图。
+ * 本组件**自包含**：人员小人标记 + WO 弹窗 + 路线连线，全部收在这一个文件里，
+ * GISMap.tsx 只负责把 <PersonnelLayer> 挂进地图。
+ * 开关 2026-11-16 起在**地图左上角的 LAYERS 浮层**里（此前是工具栏的
+ * 「显示人员」按钮，已删除），由 GISMap 的 showPersonnel 状态驱动，默认关闭。
  * 这样做的理由：GISMap.tsx 已 1600+ 行，把人员逻辑再塞进去会让它继续膨胀
  * （AGENTS.md 第三节 2 要求单个文件不超 500 行、接近上限先拆边界）。
  *
@@ -16,8 +18,8 @@
  * ⚠ 只在 mode==='all'（gis 页）渲染 —— realtime_alarm 页不挂本组件。
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Alert, Badge, Button, Empty, Spin, Table, Tag, Tooltip } from 'antd'
-import { EnvironmentOutlined, UserOutlined } from '@ant-design/icons'
+import { Alert, Badge, Button, Empty, Spin, Table, Tag } from 'antd'
+import { EnvironmentOutlined } from '@ant-design/icons'
 import api from '../../api'
 import { useI18n } from '../../i18n'
 import DraggableClickModal from '../../components/DraggableClickModal'
@@ -89,37 +91,11 @@ interface AlertSite {
   open_wo: number
 }
 
-/** 工具栏开关按钮。与图层主体分开导出 —— 按钮在工具栏（控制卡片里），
- *  而小人/路线/弹窗必须挂在地图容器内，两者 DOM 位置不同，故拆成两个组件，
- *  由调用方（GISMap）持有 `enabled` 状态统一控制。 */
-export function PersonnelToggleButton({
-  enabled, loading, onToggle,
-}: {
-  enabled: boolean
-  loading: boolean
-  onToggle: () => void
-}) {
-  const { t } = useI18n()
-  return (
-    <Tooltip title={t('gis.person.toggleHint')}>
-      <Button
-        size="small"
-        type={enabled ? 'primary' : 'default'}
-        icon={<UserOutlined />}
-        onClick={onToggle}
-        loading={loading && enabled}
-      >
-        {t('gis.person.toggle')}
-      </Button>
-    </Tooltip>
-  )
-}
-
 export function PersonnelLayer({
   isDark, enabled, timeRange, visibleNames,
 }: {
   isDark: boolean
-  /** 是否显示人员图层。状态由 GISMap 持有（工具栏按钮在那边）。 */
+  /** 是否显示人员图层。状态由 GISMap 持有（LAYERS 浮层里的开关在那边）。 */
   enabled: boolean
   /** 页面「时间窗口」筛选（与地图站点统计同口径）。null = 全部时间，不过滤。
       2026-10-16 修：原先人员标签数字未跟随该筛选，用户指出后补上。 */

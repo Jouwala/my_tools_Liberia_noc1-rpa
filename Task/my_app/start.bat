@@ -4,6 +4,18 @@ title Data Insight MVP
 :: Use the directory of this bat file (can be run from anywhere)
 cd /d "%~dp0"
 
+:: ===== 2026-11-16: only one live stack =====
+:: Production is the run copy D:\01_olbr_portal. If this bat is started from the
+:: edit tree (D:\01_RPA), forward to the copy instead of starting a second stack
+:: on 5432/7038. The %~dp0 guard keeps the copy's own bat from recursing.
+if /i not "%~dp0"=="D:\01_olbr_portal\Task\my_app\" (
+    if exist "D:\01_olbr_portal\Task\my_app\start.bat" (
+        echo [*] Live stack is D:\01_olbr_portal - forwarding start.bat there...
+        call "D:\01_olbr_portal\Task\my_app\start.bat" %*
+        exit /b %ERRORLEVEL%
+    )
+)
+
 echo ============================================
 echo   Data Insight MVP - Starting...
 echo ============================================

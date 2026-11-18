@@ -194,12 +194,15 @@ const visibleStats = (stats: Record<string, number> | undefined): Record<string,
  * TT（6 阶段）：派单 → 受理 → 处理中 → 现场确认 → 待确认 → 关闭
  *   —— TT 侧没有「到场/离场」概念，字段到不了那个粒度。
  *
- * WO（9 阶段）：派单 → 受理 → 等待出发 → 等待到达现场 → 处理中 → 离场
- *   → 现场确认 → 待确认 → 关闭
+ * WO（9 阶段）：派单 → 受理 → 等待出发 → 等待到达现场 → 处理中
+ *   → 现场确认 → 待确认 → 离场 → 关闭
  *   —— 按用户要求把「到场」拆成「等待出发」「等待到达现场」两个独立节点，
  *      分别对应 Waiting for Departure 与 Waiting for Arrive Site。
  *      注意：WO 表实测 11 种状态里没有「现场确认」对应的取值，该节点当前恒为 0，
  *      属于流程定义保留节点，不是漏配。
+ *   —— 2026-11-16 用户要求把「离场」(Waiting for Leave Site) 移到「待确认」之后、
+ *      「关闭」之前。阶段链的顺序就是下面 WO_MILESTONES 的声明顺序（WO 页不读
+ *      上游 stage_order，见 statusMilestones 里的注释），改动只动数组位置即可。
  */
 type MilestoneDef = {
   key: string
@@ -253,8 +256,6 @@ const WO_MILESTONES: MilestoneDef[] = [
     'Waiting for Process', 'Waiting for Process(Suspended)',
     'Waiting for BONPO Process',
   ] },
-  // 离场：现场作业完成、准备离站
-  { key: 'leaveSite', labelKey: 'ttwo.milestone.leaveSite', match: ['Waiting for Leave Site'] },
   // 现场确认：按用户给定的 9 阶段保留此节点。注意 WO 表当前**没有**对应原始状态，
   // 该节点会恒显示 0 —— 这是「流程定义完整」与「当前无此类单」的正常区别，
   // 与 TT 侧有真实数据（RCA/驳回/现场处置）的 waitConfirmFO 不是同一回事。
@@ -267,6 +268,9 @@ const WO_MILESTONES: MilestoneDef[] = [
   { key: 'waitConfirm', labelKey: 'ttwo.milestone.waitConfirm', match: [
     'Wait For Confirm', 'Waiting for Customer Confirm', 'WaitingConfirm', 'Phased Reply',
   ] },
+  // 离场：现场作业完成、准备离站。
+  // 2026-11-16 用户要求排在「待确认」之后、「关闭」之前（原先是跟「处理中」相邻）。
+  { key: 'leaveSite', labelKey: 'ttwo.milestone.leaveSite', match: ['Waiting for Leave Site'] },
   { key: 'closed', labelKey: 'ttwo.milestone.closed', match: ['Closed'] },
 ]
 

@@ -328,6 +328,10 @@ GROUP_TASK_MAP = {
         # （10.121.1.2:28808，凭据组 ccn_ume），共用一个共享会话；同组串行可避免
         # 两个任务各自登录同一账号而互踢。实测单轮约 105s，15 分钟节拍余量充足。
         "cnn_kpi_sync_5mins,"
+        # cn_hourly_kpi_sync 2026-11-18 注册：KPI Template.xlsx 的 3 个新模板（gr=3600），
+        # 登同一台 CNN UME（10.121.1.2:28808，凭据组 ccn_ume）共用共享会话，
+        # 必须与 cnn_kpi_sync / cnn_kpi_sync_5mins 同组串行避免互踢。
+        "cn_hourly_kpi_sync,"
         # sp_online_sync 2026-09-02 补录：SP 在线工单走 eFlow API 同源会话，归入 eFlow 组
         "sp_online_sync,"
         # sp_material_sync 2026-09-09 补录：SP 物料主数据同样走 eFlow API 同源会话，
@@ -410,7 +414,9 @@ GROUP_TASK_MAP = {
     "m": (  # 内务轻任务：EWS 邮件会话 + 截图/WhatsApp 文件依赖
         # whatsapp_send_ext 2026-08-31 补录：新注册时漏分组，无 worker 认领，
         # 任务管理页手动执行一直「队列中等待」直到 300s 超时（同下方 finebi 教训）
-        "site_outage_screenshot,whatsapp_send,whatsapp_send_ext,liberia_email_1h,liberia_email_8h,"
+        # ⚠️ 该任务已于 2026-11-16 下线（见 task_registry.py 的 5b 注释），故从本表移除；
+        # 这是一次**有意的删除**，不是漏登记，别当成「新任务忘了分组」加回去。
+        "site_outage_screenshot,whatsapp_send,liberia_email_1h,liberia_email_8h,"
         "kpi_ms_contract,kpi_ms_wo_sla,kpi_sp_spareparts,kpi_sp_consumables,"
         "kpi_ran_availability,email_recovery,ipran_m6k_chart_email,"
         "ccn_free_rating_chart_email,"

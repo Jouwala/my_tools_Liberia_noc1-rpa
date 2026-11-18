@@ -67,6 +67,12 @@ TEXT_COLOR = "#333333"
 # 展示窗口（完整自然日）
 DISPLAY_DAYS = 31
 
+# 正文里的内嵌图片插入点。owa_mail_report.py 按这个占位符把 --images 的图片插进正文；
+# 正文里没有占位符时图片会**追加到正文末尾**，签名 "Best regards" 就会被挤到图片中间
+# （2026-11-17 用户反馈：MTN MOU Daily Traffic 的图落在 "Best regards, ZTENOC OLR" 下面）。
+# 常量必须与 email_reports/owa_mail_report.py 的 _INLINE_PLACEHOLDER 完全一致。
+INLINE_IMAGES_PLACEHOLDER = "<!-- inline images inserted here -->"
+
 
 def _fetch_mou_data() -> Optional[pd.DataFrame]:
     """从远程 API 读取按日 MOU 数据；先剔除运行当天（不完整）。"""
@@ -314,13 +320,15 @@ def run_mtn_mou_daily_email(to_override: Optional[str] = None,
 
     last = df.iloc[-1]
     # 图片由 owa_mail_report.py 按 --images 自动内嵌（每张图上方带文件名作说明），
-    # 正文里不要自己再写 <img>，否则会出现重复/断图。
+    # 正文里不要自己再写 <img>，否则会出现重复/断图；但必须留占位符，
+    # 否则图片被追加到末尾、签名跑到图片中间。
     body = (
         "<p>Dear Team,</p>"
         f"<p>Please find the MTN MOU traffic for the last {len(df)} complete days "
         f"(latest: <b>{last['Start Time'].strftime('%Y-%m-%d')}</b>).</p>"
         "<p>Last 7 days:</p>"
         + _summary_table(df)
+        + INLINE_IMAGES_PLACEHOLDER
         + "<br><p>Best regards,<br>ZTENOC OLR</p>"
     )
 

@@ -7,6 +7,7 @@
 
 | 函数 | 作用 | 对应端点 |
 | --- | --- | --- |
+| `build_filters` | 全表可用范围（最小/最大日期、行数、两家标签、可下钻指标） | `/api/bm-meta/filters` |
 | `build_overview` | 汇总卡 + 逐日 PK 曲线 + 网络侧 KPI 序列 + 月度 + 胜负 + 评分 | `/api/bm-meta/overview` |
 | `build_trend` | 指定指标的单指标趋势（含滚动均值） | `/api/bm-meta/trend` |
 | `build_drilldown` | 某指标 / 某日 / 某胜者 的原始行明细 | `/api/bm-meta/drilldown` |
@@ -253,6 +254,38 @@ def _monthly(daily: list[dict]) -> list[dict]:
 
 # ---------------- 对外能力 ----------------
 
+def _filters_payload(dmin, dmax, total_rows: int) -> dict[str, Any]:
+    """把「全表实际范围」拼成 `filters` / `/filters` 共用的形状（两处必须是同一份）。"""
+    return {
+        "min_date": str(dmin) if dmin else None,
+        "max_date": str(dmax) if dmax else None,
+        "row_count": total_rows,
+        "brands": [{"key": b, "label": cal.BRAND_LABELS[b]} for b in cal.BRANDS],
+        "metrics": [
+            {"key": k, "kind": v["kind"], "unit": v["unit"], "group": "brand"}
+            for k, v in cal.BRAND_METRICS.items()
+        ] + [
+            {"key": k, "kind": v["kind"], "unit": v["unit"], "group": "network"}
+            for k, v in cal.NETWORK_METRICS.items()
+        ],
+    }
+
+
+def build_filters() -> dict[str, Any]:
+    """数据可用范围（不受时间窗限制）：最小/最大日期 + 总行数 + 两家标签 + 可下钻指标。
+
+    单条 `MIN/MAX/COUNT` 查询就能回答，**不要为了拿「数据最大日」去跑一次全量概览**
+    （2026-11-16：默认时间窗要以数据最大日为右边界，路由层每次请求都会先问一次这里）。
+    """
+    with get_raw_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            f"SELECT MIN({cal.TIME_COL})::date, MAX({cal.TIME_COL})::date, COUNT(*) FROM {cal.TABLE}"
+        )
+        dmin, dmax, total_rows = cur.fetchone()
+    return _filters_payload(dmin, dmax, total_rows)
+
+
 def build_overview(start: str, end: str) -> dict[str, Any]:
     """概览：汇总卡 + 逐日 PK + 网络侧 KPI 序列 + 月度 + 胜负 + 综合评分。"""
     with get_raw_connection() as conn:
@@ -302,19 +335,7 @@ def build_overview(start: str, end: str) -> dict[str, Any]:
             "daily_truncated": False,
             "warnings": warnings,
         },
-        "filters": {
-            "min_date": str(dmin) if dmin else None,
-            "max_date": str(dmax) if dmax else None,
-            "row_count": total_rows,
-            "brands": [{"key": b, "label": cal.BRAND_LABELS[b]} for b in cal.BRANDS],
-            "metrics": [
-                {"key": k, "kind": v["kind"], "unit": v["unit"], "group": "brand"}
-                for k, v in cal.BRAND_METRICS.items()
-            ] + [
-                {"key": k, "kind": v["kind"], "unit": v["unit"], "group": "network"}
-                for k, v in cal.NETWORK_METRICS.items()
-            ],
-        },
+        "filters": _filters_payload(dmin, dmax, total_rows),
         "summary": summary,
         "scores": scores,
         "score_weights": cal.SCORE_WEIGHTS,

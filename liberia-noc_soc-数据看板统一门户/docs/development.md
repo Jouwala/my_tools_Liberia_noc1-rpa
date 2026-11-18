@@ -370,6 +370,8 @@ var seq = ++qcDrillSeq;
 | `_probe_bf_shot.cjs` | **起一个本地预览服务**（18099 端口，静态发 `/v1/olbrportal/` + 反代 `/api/` 到 7038）。上面 5 个 `_probe_bf_*` 里的 4 个都要先跑它。后台起、用完 kill | 不写 |
 | `_probe_bf_vert.cjs` | **Network Benchmark 行六张卡的走势图对齐**（2026-10-01 那次修复的主探针）。量每张卡「图相对卡顶的偏移」并按**栅格行分组**判定（窄断点 `.qc-grid` 折成 3/2 列，跨行比较无意义）。支持 `PROBE_WIN` / `PROBE_LANG` 环境变量遍历视口与语言。✅ 2026-10-07 `#kpi` 两排改成连体卡组（`.qc-group` > `.qc-group-b` > `.qc-card`）后**本探针仍然可用**：它按 `.qc-card--bf` 选卡、按卡片自身 `top` 分行（不是按 DOM 父子关系取行），分组不改变这两件事。同批 `_probe_bf_css / _shot / color / render / spark / line / api` 也都是按 `.qc-card--bf` 或类名选元素的，同样不受影响 | 不写 |
 | `_probe_bf_css.cjs` | 上一条的**结构版**：打印每张卡的「卡头 / 数据区 / 图 / 页脚」四段实测高度与卡片 padding。三个 `min-height`（42 / 74 / 82.5px）就是照它填的 —— **改了字号或内边距后必须重跑它重取这三个值** | 不写 |
+| `_probe_bf_title.py` | **Network Benchmark 卡片标题 / 领先徽章的裁切体检**（2026-11-16 用户报「Download 等字被遮挡」的主探针）。逐卡量 `.bf-hd b`（卡名）与 `.bf-lead-t`（徽章字）的元素盒高、`scrollHeight` 与 `Range` 墨迹盒，判定字形是否落在盒外；`PROBE_LANG=en` 用英文（Download / Upload / Latency）复测。⚠️ 判定口径是**墨迹盒完全落在元素盒内** —— 只比 `scrollHeight` 会漏：`text-box: trim-both` 把行盒压到字形之下时，`scrollHeight` 仍是行高 19px，而盒高只有 8.75px、墨迹 16px 整段在盒外 | 不写 |
+| `_probe_bf_sweep.py` | 上一条的**多断点版**：1582 / 1200 / 1024 / 768 / 560 / 420 / 375 逐个宽度复量标题墨迹、徽章是否压住卡名、卡片 `scrollHeight` 是否超出 `clientHeight`；`PROBE_LANG=en` 切英文。改 `.bf-hd` / `.bf-lead` / 卡头 `min-height` 后跑一次，比逐屏截图快 | 不写 |
 | `_probe_bf_render.cjs` | 从 `olbr.js` 里 eval 出 `benchSpark` / `metaSpark`，喂真实接口数据，断言双线层数 / 图例 / tooltip 文案 / 降级行为（数据不足返回空串） | 不写（只读接口） |
 | `_probe_bf_color.cjs` | Orange 橙线 / MTN 黑线的令牌与 WCAG 对比度（浅色 `#f97316`/`#1a1a1a`、深色 `#fb923c`/`#e8eaf0`），断言无 `--b`、无旧紫 `#7c3aed` 残留 | 不写 |
 | `_probe_bf_spark.cjs` | 折线几何：缺测处线**断开**不补 0、两条线共用同一横轴、`viewBox` 与起止点 | 不写 |
@@ -435,6 +437,7 @@ var seq = ++qcDrillSeq;
 | 把**编辑**表单的字段名当成**新增**表单的 | 两处键名不同：编辑是 `zh` / `en` / `itemUrl`，新增是 `itemZh` / `itemEn` / `itemUrl`。写错拿到 `null`，报 `Cannot set properties of null (setting 'value')` | 先读 `FORMS` 定义确认键名；断言里把读到的 `fields` 打出来 |
 | **探针用局域网 IP 打页面，然后断言"数据没了"** | 已验证可用的探针都走 `localhost`（`_verify_v1_itemadddel.cjs:33`）。我改用 `192.168.100.20` 后 6 秒只拿到 2 个空 `.v6-row`，`is-edit=false`、卡片名为空 —— 看着像目录被清空，其实是**壳子根本没加载完** | 照抄既有探针的 `URL_PAGE`（`localhost`）与等待时长；断言"某元素不存在"之前，先确认**页面本身**渲染好了 |
 | CDP 的 `Runtime.evaluate` 偶发**永不返回**，整个探针挂死 | 有一版核对脚本因此跑了 5 分钟没动静，进程还活着但没进展 | 每次 `send` 都套硬超时（`Promise.race`），再加一个全局兜底超时强杀 Chrome；宁可报错也别挂住 |
+| 用 `text-box` 裁字面行距来「垂直居中」，而同一元素带 `overflow:hidden` | 行盒被压到 **cap 顶 → 基线**（12.5px 字只剩 8.75px），中文字上下笔画与英文 `p/g/y` 尾巴、`d/l` 升部全被切；`scrollHeight` 不涨，只看它发现不了（2026-11-16 用户报「Download 等字被遮挡」） | 别对带 `overflow:hidden` 的文字裁字面行距；要居中就让 flex 对**整条行盒**居中（行高上下空白对称）。见 `v3/olbrportal/assets/olbr.css` 的 `.bf-hd b` 注记 |
 
 ## 七、相关文档
 
