@@ -23,6 +23,8 @@ const PAGE_SIZE = 20
 function triggerLabel(trigger: string | undefined, locale: 'zh' | 'en'): { icon: string; text: string } {
   if (trigger === 'manual') return { icon: '🔧', text: locale === 'zh' ? '手动' : 'Manual' }
   if (trigger === 'scheduled') return { icon: '⏰', text: locale === 'zh' ? '定时' : 'Scheduled' }
+  // 2026-11-18：邮箱通道未恢复时被主动延后（未执行，恢复后由 email_recovery 补发）
+  if (trigger === 'deferred') return { icon: '⏸', text: locale === 'zh' ? '已延后' : 'Deferred' }
   if (trigger === 'manual_stop') return { icon: '✋', text: locale === 'zh' ? '手动停止' : 'Stopped' }
   return { icon: '⏰', text: trigger || (locale === 'zh' ? '定时' : 'Scheduled') }
 }

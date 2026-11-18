@@ -11,6 +11,12 @@ EWS 恢复后自动补发失败的邮件任务
   3. 自动重新执行这些邮件任务（复用既有 service 函数），并将补发结果记入
      task_execution_log（task_id = "email_recovery:<原任务>"）。
 
+  通道降级期间**不再空跑**（2026-11-18 起）：纯发信任务到点时由
+  ``services/ews_deferral.py`` 在执行前直接写一条 ``EWS_DEFERRED`` 延后记录
+  （不生成、不连 EWS、不告警），本模块把它视为失败链成员 —— 恢复后照常按
+  hourly / eight_hour / daily 档位补发，越过时效窗口的照旧丢弃。这样降级期间
+  既不会每十分钟刷失败告警，也不会让必然超时的发送占满 Worker m 组。
+
 **探测与补发不受告警静默影响**：每一轮都照常发起真实 SOAP 探测；一旦探测成功，
 本轮立即对时效内的未闭合失败链补发（见 _due_attempt 的"立即首发"分支），
 不存在"因为静默而跳过补发"的代码路径。
@@ -55,6 +61,8 @@ from datetime import datetime, timedelta
 _SUBPROCESS_FLAGS = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 from pathlib import Path
 from backend.database import get_raw_connection
+# 延后标记与门禁共用一份常量，避免「生成方 / 识别方」字符串漂移。
+from backend.services.ews_deferral import DEFERRED_MARKER
 
 logger = logging.getLogger("email_recovery")
 
@@ -171,6 +179,11 @@ EWS_FAIL_KEYS = (
     "Unable to connect to the remote server",
     "NameResolutionError",                  # exchangelib/urllib3 DNS 失败路径
     "getaddrinfo failed",
+    # 2026-11-18：ews_deferral 在通道已确认不可用时写的「延后」记录。
+    # 它不是真实发送失败，而是「本轮根本没执行」—— 语义上同样属于
+    # 「通道恢复后要补」的失败链，故与 EWS 失败同档处理；时效窗口仍按
+    # 记录的定时时刻锚定，过期照旧丢弃。
+    DEFERRED_MARKER,
 )
 
 
@@ -185,10 +198,16 @@ def is_ews_resendable(error: str) -> bool:
       空档，而历史上正是 auto_retry 把它救回来的（09:00 失败 → 10:07 trig=auto_retry 成功）。
     * **互相争抢**：补发通道本来会补发，auto_retry 又重跑一遍 → 重复发送。
 
-    `NOT_RESENDABLE_KEYS` 优先判定：`BUDGET_EXCEEDED`（后台仍在发）与子进程超时
+    `NOT_RESENDABLE_KEYS` 次优先判定：`BUDGET_EXCEEDED`（后台仍在发）与子进程超时
     （`"timed out after N seconds"`）补发会造成重复发送，这两类应留给 auto_retry 重试。
+    ``EWS_DEFERRED``（通道降级时由 ews_deferral 写的主动延后）则是最优先的一类：
+    它没有真正尝试发送，恢复后必须补发，不能被上面两类关键字误伤。
     """
     err = error or ""
+    # 延后记录优先判定：它是「本轮根本没执行」，与「子进程超时 / 后台续传」不同，
+    # 不能因为探测详情里恰好带 "timed out after" 之类字样就被判成不可补发。
+    if DEFERRED_MARKER in err:
+        return True
     if any(k in err for k in NOT_RESENDABLE_KEYS):
         return False
     return any(k in err for k in EWS_FAIL_KEYS)

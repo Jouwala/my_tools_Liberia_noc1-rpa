@@ -1,6 +1,6 @@
 # my_app User Help & Guide
 
-> User-facing platform features & operations guide. Generated from the same source as the in-app Help page (frontend/src/helpMarkdown.ts), compiled from docs/manual/ and backend/task_registry.py. Generated on 2026-11-15.
+> User-facing platform features & operations guide. Generated from the same source as the in-app Help page (frontend/src/helpMarkdown.ts), compiled from docs/manual/ and backend/task_registry.py. Generated on 2026-11-18.
 
 > In-app entry: the "Help" sidebar item, or `http://<host>/myapp/?page=help` directly.
 
@@ -934,17 +934,19 @@ Workflow & maintenance notes per task:
 - Default cron: `*/10 * * * *`　|　worker group: **m**
 - Workflow script: `services/email_recovery.py → run_email_recovery_task`
 
-**What it does**: Probes EWS every 10 minutes; once restored, re-sends email tasks that failed due to EWS timeouts in the last 3 hours
+**What it does**: Really probes EWS every 10 minutes; while the channel is down, send-only tasks are deferred before they run (no wasted attempts, no alerts), and once restored they are re-sent within each task's own time window (hourly = same hour, 8-hour = same 8h block, daily = 24h); expired ones are dropped
 
 **Workflow & data flow**:
 
-1. Probe Exchange (EWS) reachability
-1. Scan email tasks failed by EWS timeout within the last 3h
-1. Re-send them one by once EWS is back
+1. Probe Exchange (EWS) reachability and persist the state
+1. Scan email tasks that failed or were deferred within the last 24h
+1. Once restored, re-send them within their time windows; expired ones are not sent
 
 **Maintenance**:
 
 - For missing emails check this task's history first instead of manually re-running the original email task
+- In run history trigger=Deferred means the channel was down and the run did not execute; it is not a task failure and is re-sent automatically after recovery
+- Email tasks with a data sync or a WhatsApp side channel are excluded from deferral (deferring would stop the sync / group send too)
 
 #### Packet Loss Sync（`packet_loss_sync`）
 
@@ -1818,7 +1820,7 @@ Workflow & maintenance notes per task:
 | Upstream issue | Symptom | Self-healing |
 | --- | --- | --- |
 | eFlow / UME session kicked | Consecutive failures in the group | auto_retry_failed retries every 10 min; verify account via "Test Connection" |
-| Exchange (EWS) down | Email tasks fail, reports missing | email_recovery re-sends last-3h failures automatically once restored |
+| Exchange (EWS) down | Email tasks deferred, reports missing | email_recovery probes every 10 min and re-sends within the per-task time window once restored (expired ones dropped) |
 | Remote host unreachable | DB writes/uploads fail, freshness alerts | db_freshness_check prints the call chain; check Settings → Remote Host connectivity |
 | FineBI file locked open | (historical) fetch failures | Fixed with versioned files + current.json pointer — locked files no longer break ingestion |
 | CN EMS server cleans raw files | Daily KPIs missing | ems_kpi_cache_sync caches incrementally every 15 min before server cleanup |
@@ -2723,7 +2725,7 @@ The scheduler has no per-task timeout (known design gap). Zombie running states 
 
 **An email was not delivered?**
 
-When the EWS mailbox is down, email tasks fail; email_recovery (every 20 min) re-sends those from the last 3 hours once EWS is back — check its history first instead of re-running the original task. Mailbox full is guarded by mailbox_cleanup (hourly).
+While EWS is down, send-only email tasks are deferred at their scheduled time (not executed, no wasted attempts, no alerts); email_recovery probes every 10 min and, once the channel is back, re-sends them within each task's time window (hourly = same hour, 8-hour = same 8h block, daily = 24h) — expired ones are dropped. Check its history first instead of re-running the original task. Mailbox full is guarded by mailbox_cleanup (hourly).
 
 **How to open a board on a wall screen / another tab?**
 

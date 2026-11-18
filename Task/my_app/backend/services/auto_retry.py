@@ -82,6 +82,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from backend.database import get_raw_connection
+# 延后标记与门禁/补发通道共用一份常量，避免字符串漂移。
+from backend.services.ews_deferral import DEFERRED_MARKER
 
 logger = logging.getLogger("auto_retry")
 
@@ -241,6 +243,12 @@ def _is_excluded_from_retry(task_id: str, error=None) -> bool:
     （09:00 失败 → 10:07 trig=auto_retry 成功）。
     """
     if task_id == SELF_TASK_ID:
+        return True
+    # 2026-11-18：邮箱通道降级时的**主动延后**（EWS_DEFERRED）不是可重试的失败。
+    # 它覆盖的不只是邮件任务（如 mailbox_cleanup 不在 EMAIL_TASK_IDS 内），
+    # 所以这条判定必须先于下面的「邮件任务」分支，否则后者会把延后记录当普通失败
+    # 重投一次 —— 通道没恢复，重投只会再失败一次，白白占住 Worker m 组。
+    if DEFERRED_MARKER in (error or ""):
         return True
     extra = {t.strip() for t in os.environ.get("AUTO_RETRY_EXTRA_EXCLUDE", "").split(",") if t.strip()}
     if task_id in extra:
