@@ -40,6 +40,7 @@
 | 25 | RAN 小区 KPI | `ran_cells_kpi` | React |
 | 26 | CN KPI | `cn_kpi` | React |
 | 27 | CN KPI 5分钟 | `cn_kpi_5mins` | React |
+| 27b | CN 小时KPI | `cn_hourly_kpi` | React |
 | 28 | 客户业务 KPI | `ume_in_kpi` | React |
 | 29 | CXO 经营看板 | `cxoDashboard` | **iframe** |
 | 30 | VMAX CXO 原版看板 | `vmaxCxoDashboard` | **iframe** |
@@ -1315,6 +1316,11 @@ LTE 丢包（RAN UME SDR/IPRAN IPPD），最近 **7 个完整自然日、小时�
   用图例隐掉一档后与后端 `status_pie.pct`（分母恒为全量站点）不再相等 —— 这句也写进 ⓘ，避免用户拿两边对账。
 
 - **地图图例移到左下角（2026-11-16 用户要求）**：状态图例原先挤在地图下方控制行的 Layers / Show OK sites 那一带，现**移进地图、贴左下角**，直接复用 `pages/gismap/MapLegendOverlay.tsx`（与 GIS / 人员地图同一份浮层；位置、置灰删除线、点击隐藏都在那边，本页只喂行数据，`PacketLossDashboard.tsx` 只多一个 `MapLegendOverlay` 引用与 `legendRows`）。为了让浮层有定位父级，地图外面包了一层 `position:relative` 的 flex 容器（`:777-800`，画布高度与改造前一致）。三处口径必须记住：① 行数字取 `status_counts`，与顶部状态卡 / 饼图同源，**含无坐标站点**，地图圆点只画有坐标站点（实测 Critical 230 vs 红点 228），这句写进 `pl.legendNote` 的 ⓘ；② 点某行 = 客户端 `hiddenStatuses` 显隐（即刻生效，县名数字联动），不触发取数；③ OK 行同时受 `include_ok` 开关控制 —— 开关关闭时后端不返回 OK 站点（`toggleLegendStatus` 会先把它重新打开），图例据此置灰，避免「图例显示 438、地图一个绿点都没有、点了还没反应」。控制行因此只剩 Layers（地名 / 道路）· Topology · Show OK sites · Map Controls。另：页面根节点加了 `flexShrink: 0` —— `?embed=1`（门户 iframe 与直开内嵌地址）时 App 的 Content 被钉成 `height:100%`，根节点默认 `flex-shrink:1`，内容高于视口时整页被**压进一屏**而不是滚动：头部横幅压到 5px、Top Sites 卡只剩 31px（卡片 `overflow:hidden` 裁掉 380px 画布），看起来就是「Top Sites 只有一行数据」（2026-11-16 用户反馈）。固定为不可收缩后按内容高度排版、由 `main` 滚动；门户的 PL_MAP_ONLY_CSS 用 `!important` 把高度改回 100%，不受影响。
+- **站点类型过滤（2026-11-17 用户要求「在 Packet Loss Status 添加站点类型过滤，如 ERA / NORMAL / COOL」；同日按用户追问两度改版：① COOLI 必须在列表里可见 ② 默认档位改成 NORMAL）**：Packet Loss Status 横幅右侧新增 `Select`，档位取主数据 `eflow_site.site_type`（**ERA / COOL / NORMAL**，与 GIS / 人员页的「站点等级」同一列同一口径；用户口述的 `COOLI` 在库里就是 `COOL`）。选项由 `overview` 的 `site_type_counts` + `site_type_totals` 下发，显示成 `档位 (被丢包监控数 / 主数据总数)`，实测 `All (721/880)`、`ERA (197/216)`、`COOL (0/64)`、`NORMAL (520/600)`、`Unmapped site (4/4)`；分子为 0 的档位 `disabled` 置灰（`0/64` 本身就是答案：这类站点存在、但没被丢包模板采集到）。
+  **默认档位 = `NORMAL`**（2026-11-17 用户明确要求「默认要显示 Normal」），常量 `DEFAULT_SITE_TYPE`；若 NORMAL 某天真的变成 0 个被监控站点（主数据改名、上游停采），`useEffect` 会自动退回「全部」并在控制台留一行原因 —— 默认值跟着数据静默漂移比空页更难排查。
+  **为什么 COOLI 是 0（2026-11-17 实查，不是筛选 bug）**：主数据 64 个 COOL 站在 UME 网元清单 `app.ran_element_management` 里**全部存在**（`moc=SDR`、`nbi_id` 即站点编码），丢包数据来自 `SDR_IPPD` / `ITRAN_IPPD` 两个 IP 承载模板，而这 64 站在源表 `lte_pl.packet_loss_data`（143 万行、724 个 ME）里**按编码、按站名全文模糊查都是 0 条**。也就是说：站点存在 → 只是没有 IP PD 承载的 PM 读数。若业务上认为 COOLI 该有丢包，需在 UME 侧确认这些站是否配了 IP PD 承载，本仓库侧没有可改的关联逻辑。
+  **一参到底**：同一个 `site_type` 同时过滤状态卡 / 饼图 / 区域分布 / 每日趋势 / Top 站点 / 地图圆点，`/overview`、`/map-sites`、`/drilldown` 三个端点都吃这个参数，下钻弹窗透传同一档位并在标题里写明档位 —— **不做「只筛状态卡」**，否则同一页一半数字筛过、一半没筛，用户对不上账只会当成 bug（与「下钻 WHERE 必须与概览一致」同一条纪律）。
+  **实现约束（都踩过）**：① 站点类型取主库实时表（`packet_loss_dashboard.py::_site_type_index`，TTL 600s）而不是 `site_pl_summary` —— 那张表每天 06:30 才整表重写，靠同步落库要等到次日早上才有值；② 「全部」的哨兵值是 **`'all'` 而不是空串**：空串会被 antd Select 当成「没有值」，下拉显示**空白**（2026-11-17 用户反馈「默认显示 Normal 站点的统计」第一版实为此：空白框 + 最大的那组数字），换成 `'all'` 后正常回显 `All (721/880)`，而后端 `_site_type_want()` 本来就认 `'all'` 为不过滤；③ 每日趋势与 Top 站点按 `Managed Element` 末尾 `(CODE)` / 站点名回连到选中档位后再聚合（`_me_in_site_type`），不是只筛站点汇总表，否则趋势里的「受影响站点」会比顶部站点数还大；④ 缓存键必须带档位（`overview:{档位}`），否则切档会命中全量缓存、表现为「下拉变了、数字没变」；⑤ `warmup()` 调 `pl_overview()` 必须显式传 `site_type=""` —— 直接调用省略参数拿到的是 FastAPI 的 `Query` 默认对象，会被当成一个真实（不存在）的档位。
 - 口径与 Excel 报告 `Packet_Loss_Status_Output Automation` **完全一致**：`STATUS` 是 0~23 的标志块，最近 3 天同整点丢包均 >0.5% 记 1，全 0 为 OK；`FINAL_STATUS` 在 OK 时强制 `No Packet loss[<0.1]`，否则按 Last 1 day Max PL 五级分类（:3-5）。
 - 操作：`Switch` 控制是否包含 OK 站点（`include_ok`，:249）、Popover 显示口径说明、下钻 `GET /api/packet-loss-dashboard/drilldown?status=&limit=800`（:273）、拓扑叠加复用 `GET /api/gis/topology`（:224，该端点 2026-09-25 起读 `kml_mw_links`；本页线宽加粗按 KML 线色判定，见 10c）。
 - **站点点击下钻（2026-11-11）**：地图圆点 `CircleMarker onClick` → 统一 `DraggableClickModal`（`placement="top"`，`PacketLossDashboard.tsx:909`；异步内容长高后仍留在视口内），**不再用 Leaflet Popup**。数据走新增只读端点 `GET /api/packet-loss-dashboard/site-detail?site_code=&site_name=`（`packet_loss_dashboard.py:309`）：按 code→name 关联 `site_pl_summary`，原始读数用参数化 `Managed Element LIKE '%(code)'` 查询，窗口与概览同口径（最近 7 个完整自然日、剔除当天），返回 `daily`（逐日 max / 中位 / 受影响小时 / 读数数）与 `hourly`（最后一个完整日 24 小时）。弹窗内：统计条（`ExplainPopover`）+ 每日柱线图 + 逐小时表（搜索 / 排序 / 筛选 / `exportAoaReport` 导出）。
@@ -1464,7 +1470,13 @@ UME 侧 KPI 的采集结果：业务量、成功率、失败分因（系统侧 /
   **不要**改成 `AVG(Cell_Availability)` —— 那会把大区与小区权重拉平，`avail_recon_sync.py`
   顶部记录了 v1 因口径错误返工的经过。日/周/月三档直接复用表里重建任务算好的
   `Begin_Time` / `WK` / `Month` 列，页面与后端**都不自己推周号**。
-- **数字悬浮说明（2026-11-03，`AGENTS.md` 三.3c）**：三张矩阵的卡标题、四张 KPI 卡标题各挂
+- **顶部汇总卡（2026-11-17 改版，用户要求）**：只有**三张**制式卡（2G / 3G / 4G），
+  卡标题就写制式本身、**居中加粗**，数字与「Period」副行一并居中（`StatCard` 的 `align="center"`），
+  三张用 `md={8}` 铺满一行。原先第四张「未匹配主数据占比」卡已**去掉** —— 该桶的数据没消失：
+  区域表末行 `UNMATCHED` 照旧单列，Excel 的 `Summary` 页也仍导出占比（`i18n.tsx` 的
+  `availMs.unmatchedShare` 保留就是给导出用的；`availMs.kpiTech` / `availMs.unmatchedTip`
+  两个键随卡片一起删除）。
+- **数字悬浮说明（2026-11-03，`AGENTS.md` 三.3c）**：三张矩阵的卡标题、三张 KPI 卡标题各挂
   `MetricExplain::ExplainIcon`（讲这一列怎么算），矩阵每个可用率数字本身挂 `ExplainPopover`
   （讲这一格：`分子 681 / 分母 717` + 分母是**站点-日**观测数、分子是这些观测的可用率累加、
   因此是站点-日加权、环比、点击下钻）。此前这里只有一个 `Tooltip title=` 原生提示，
@@ -4969,6 +4981,60 @@ FROM "5mins_3G_FDD_DATA_TRAFFIC_TEMPLATE_OSS_UME"
 
 > 运行前记得 `$env:PYTHONIOENCODING='utf-8'`，否则中文日志在 GBK 控制台会抛
 > `UnicodeEncodeError`。
+
+## 33c. CN 小时 KPI 看板（`?page=cn_hourly_kpi`）—— KPI Template.xlsx 的小时粒度数据（2026-11-18 新增）
+
+xGW 会话/吞吐容量与 MGW/MRFP 资源利用率的**小时粒度**（gr=3600）看板，可按日期区间
+（默认最近 7 天、上限 31 天）回看。数据源是 UME 网管「KPI 模板管理」导出件
+`backend\services\cn_kpl\KPI Template.xlsx`（2026-11-17 新建的 8 个模板批），
+由 `cn_kpl\cn_hourly_kpi_service.py` 解析 `template` sheet 后**复用既有 CNN 查询管线**
+组包（`build_cnn_kpi_payload` → create/poll/export → `read_xlsx_bytes`），
+写库走 `DbWriterClient` upsert 进 `db_ps_cs_cn` 的 `<模板名>_UME` 三张新表。
+
+### 33c.1 口径决定（用户 2026-11-18 定）
+
+1. **Resource_Utilization 与 Resource_Capacity 两族模板重复，只保留 Utilization 一族**
+   —— 三个 MGW/MRFP Utilization 模板（items/motid/grouplayer 完全一致）取
+   `CS_MRFP96_Resource_Utilization_OSS` 一个即可，实测导出自动包含全部网元
+   （MGW_91/MGW_92/MRFP_96）；Capacity 族为 6 个原始 counter，弃用。
+2. **Object Scope = ALL**：payload 的 `filterlayer="all"` 即对应此选择。
+3. 参与模板共 3 个：`PS_xGW_Session_Capacity_OSS` / `PS_xGW_Throughput_Capacity_OSS` /
+   `CS_MRFP96_Resource_Utilization_OSS`，全部 gr=3600（一小时档）。
+4. **首次回补一个月**（31 天）：`python -m backend.services.cn_kpl.cn_hourly_kpi_service --days 31`；
+   日常由任务 `cn_hourly_kpi_sync` 每天 06:20 增量（默认 2 天窗口）。
+
+### 33c.2 解析坑（实测踩过，改代码前必读）
+
+- xlsx 布尔列是**字符串** `"false"`/`"true"`，`bool("false")` 是 True —— 必须显式判
+  （`_cell_bool`）；motid/templateid/gr 保持字符串；items/itemsposition 是 JSON
+  字符串且两数组长度必须一致。
+- 登录链路（auth_manager → cryptography）只能用 my_app 实际运行环境（系统 Python312）；
+  DSH 内置 python 缺 `cryptography` 会登录失败。
+- 导出 0 行视为空态跳过（与 5 分钟任务同约定），不算失败。
+- 任务必须登记 `worker_watchdog.py` 的 `GROUP_TASK_MAP["n"]`（与 `cnn_kpi_sync` /
+  `cnn_kpi_sync_5mins` 同登 CNN UME 共享会话，同组串行避免互踢）——漏了队列 pending 卡死。
+
+### 33c.3 页面与 API
+
+- `GET /api/cn-hourly-kpi/overview?start=&end=&force=`：7 个组件，每个一条
+  `[Hour, Series(NE 或 ALL), Value]` 三列 SQL，前端按第 2 列 pivot 成线；
+  列名守卫复用 `cn_kpi_5mins_service` 的实现（SQLite 未知双引号标识符不报错恒为 0 的防线）。
+- 组件清单：xGW PFCP 会话用量/占用率、xGW 吞吐用量/占用率、MGW/MRFP TONE/TC/RTP 利用率。
+  占用率 = Σ已用×100÷Σ授权（全网元加权）；资源利用率是上游复合 KPI 直接返回的原值
+  （公式见 xlsx `index` sheet，如 `100*C408230024/(Gr*C408230021)`），页面不二次换算。
+- 卡头 ⓘ 口径文案在 `i18n.tsx` 的 `cnhourly.explain.*`（中英双份），**与
+  `cn_hourly_kpi_service._widgets` 的 SQL 逐条对应**，改 SQL 必须同步改。
+
+### 33c.4 相关文件
+
+| 文件 | 作用 |
+| --- | --- |
+| `backend\services\cn_kpl\KPI Template.xlsx` | UME 模板导出件（模板真相源，上游改模板后重新导出即可） |
+| `backend\services\cn_kpl\cn_hourly_kpi_service.py` | xlsx 解析 + 同步（写库）+ 页面读取侧 |
+| `backend\routers\cn_hourly_kpi.py` | `/api/cn-hourly-kpi/*` |
+| `frontend\src\pages\CnHourlyKpi.tsx` | 页面（日期区间 + 7 组件 pivot 线图） |
+| `backend\task_registry.py` | `TASK_SPECS` 登记 `cn_hourly_kpi_sync` |
+| `backend\worker_watchdog.py` | `GROUP_TASK_MAP["n"]` 加入该任务 |
 
 ## 34. WO 清理 —— 批量关闭待确认工单（`?page=eflow_qa` 左栏，2026-10-01 新增）
 

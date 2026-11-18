@@ -212,13 +212,15 @@ TASK_SPECS = [
          description_en="Send Site Outage screenshots and files to WhatsApp groups",
          default_cron="0 3 * * *", category="whatsapp"),
 
-    # 5b. WhatsApp 发送（扩展版）：投递作业并等待浏览器扩展在已登录的 WhatsApp Web 标签页中发送。
-    #     与上面的 Playwright 版并存，互不影响；扩展见 Task/my_app/whatsapp_sender_extension。
-    dict(task_id="whatsapp_send_ext", name="WhatsApp 消息发送（扩展）", name_en="WhatsApp Message Send (Extension)",
-         loader=("backend.services.whatsapp_ext_service", "run_whatsapp_send_ext"),
-         description="投递发送作业，由浏览器扩展在已登录的 WhatsApp Web 中发送 Site Outage 截图",
-         description_en="Dispatch a send job; a browser extension sends Site Outage screenshots in the logged-in WhatsApp Web",
-         default_cron="0 3 * * *", category="whatsapp"),
+    # 5b. （已下线 2026-11-16）WhatsApp 消息发送（扩展）—— 原 task_id `whatsapp_send_ext`。
+    #     下线原因：用户确认不再需要这条「后端投递作业 → 浏览器扩展认领发送」的定时通道，
+    #     只保留 Playwright 版（whatsapp_send）与 Baileys 版（whatsapp_send_baileys）。
+    #     ⚠️ 浏览器扩展本身（Task/my_app/whatsapp_sender_extension）与它共用的接口
+    #     （/api/whatsapp/outbox、/api/whatsapp/ext/job）**仍然存在**：扩展侧栏手动发送、
+    #     扩展自身的定时直发、以及 eFlow P1 告警的 ext 兜底通道都走它们，
+    #     所以 `backend/services/whatsapp_ext_service.py` 没有跟着删。
+    #     回滚方式：把上面那段 spec 原样加回，并在 worker_watchdog 的 m 组补回
+    #     `whatsapp_send_ext`；DB 里的 task_schedule_config 行按需重建。
 
     # 5d. WhatsApp 发送（Baileys 通道）—— 第三种实现，与 Playwright / 扩展版**并行**。
     #     走 whatsapp-kb-bot/src/notify.js 进程（Baileys 协议直发，与聊天机器人/P1告警
@@ -501,6 +503,21 @@ TASK_SPECS = [
          description="CNN UME 核心网 KPI 5 分钟粒度同步（同 8 个模板，增量窗口默认最近 120 分钟，上轮失败自动回退全窗口补缺口），API 写入 DB CNN 的 5mins_* 新表，供 5 分钟看板 Day0/Day1/Day7 对比",
          description_en="CNN UME core-network KPI sync at 5-minute granularity (same 8 templates, incremental window of the last 120 minutes by default; falls back to the full yesterday-00:00-to-now window after a failed run), API write to DB CNN 5mins_* tables for the 5-minute Day0/Day1/Day7 board",
          default_cron="*/15 * * * *", category="cnn_kpi"),
+
+    # 11c. CN 小时粒度 KPI 同步（每天 06:20，与 11 的 06:00 错开 20 分钟）
+    #      模板来自 UME「KPI 模板管理」导出件 KPI Template.xlsx（2026-11-17 新建一批），
+    #      由 cn_kpl/cn_hourly_kpi_service.py 解析后交给既有 CNN 查询管线组包。
+    #      用户 2026-11-18 定的口径：Utilization/Capacity 两族重复只留 Utilization；
+    #      Object Scope=ALL（payload filterlayer="all"，实测覆盖全部 NE）；
+    #      gr=3600（1 小时）；首次回补 31 天（python -m ... --days 31）。
+    #      写入 <模板名>_UME 三张新表，供 ?page=cn_hourly_kpi 按日期区间出图。
+    #      排 06:20：cnn_kpi_sync（06:00）与 5 分钟任务都在用同一 UME 会话体系，
+    #      错开高峰；小时行 append-only，2 天窗口足够补齐跨天档。
+    dict(task_id="cn_hourly_kpi_sync", name="CN 小时KPI同步", name_en="CN Hourly KPI Sync",
+         loader=("backend.services.cn_kpl.cn_hourly_kpi_service", "run_cn_hourly_kpi_sync"),
+         description="CN UME 小时粒度 KPI 同步（KPI Template.xlsx 模板：xGW 会话/吞吐容量 + MGW/MRFP 资源利用率，gr=3600，默认 2 天增量窗口），API 写入 DB CNN 的 <模板名>_UME 表，供小时 KPI 看板按日期区间出图",
+         description_en="CN UME hourly KPI sync (templates from KPI Template.xlsx: xGW session/throughput capacity + MGW/MRFP resource utilization, gr=3600, 2-day incremental window by default), API write to DB CNN <template>_UME tables for the hourly KPI board",
+         default_cron="20 6 * * *", category="cnn_kpi"),
 
     # 12. SP 备件数据同步（2026-09-20 起改为每小时 :10，原为每天 07:00）
     #     为什么改小时级：上游 SFTP（sp/inbound、sp/outbound）本来就是**每小时 :00:03
