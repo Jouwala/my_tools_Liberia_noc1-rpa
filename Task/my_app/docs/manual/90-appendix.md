@@ -1,8 +1,8 @@
-# 90 附录
+﻿# 90 附录
 
 ## A. 后端接口前缀速查
 
-注册在 `backend/main.py`（实测 80 处 `include_router`）。前端 `baseURL` 是 `/api`（`frontend/src/api.ts:4`）。
+注册在 `backend/main.py`（实测 81 处 `include_router`）。前端 `baseURL` 是 `/api`（`frontend/src/api.ts:4`）。
 
 **带 prefix 的 router**
 

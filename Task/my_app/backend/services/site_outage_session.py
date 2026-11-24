@@ -23,6 +23,20 @@ Chrome 丢弃 session cookie 是**浏览器行为**，改 profile 没用，必�
 把会话序列化到磁盘。Playwright 的 `storage_state()`（含 cookie + localStorage）
 正是为此设计的，配合 `add_cookies()` + `add_init_script()` 回灌。
 
+## 防伪令牌不能随 localStorage 一起回灌（2026-11-17）
+
+`forgerydefense-28001` 是 **HttpOnly** Cookie，门户页面脚本读不到，只能把
+`localStorage.csrftoken`（JSON 串）填进请求头 `forgerydefense`。网管核对
+「头 == 当前 Cookie」，不一致就 403，页面文案是「该请求因跨站点访问被禁止」，
+看板 iframe 不会被创建。
+
+会话被服务端作废后，任务会重新登录并换新 Cookie，但本模块的 init script
+会在**每一次**后续页面加载时把旧 `csrftoken` 写回去。2026-11-17 18:01 起
+因此连续失败：登录日志是成功的，截图任务却报 iframe 定位失败。
+
+所以回灌时跳过 `csrftoken` / `forgerydefense` 这两个键，并在请求离开浏览器前
+用**这一次请求自己带的 Cookie** 覆盖 `forgerydefense` 头。
+
 ## 用法
 
     from site_outage_session import (
@@ -56,6 +70,112 @@ STATE_FILE = os.path.abspath(os.path.join(USER_DATA_DIR, "..", "session_state.js
 # 会话最多复用多久。会话本身寿命由服务端决定，这里只是本地安全阀，
 # 避免上游已失效而我们仍反复用坏凭据去撞。
 STATE_MAX_AGE_SEC = int(os.environ.get("SITE_OUTAGE_STATE_MAX_AGE", str(20 * 3600)))
+
+# 防伪令牌在 localStorage 里的副本。回灌它们会把新登录的 Cookie 配上旧令牌。
+_CSRF_STORAGE_KEYS = frozenset({"csrftoken", "forgerydefense"})
+
+
+def csrf_token_from_cookie_header(cookie_header: str) -> str:
+    """从请求的 Cookie 头取出防伪令牌。优先带端口后缀的名字。
+
+    不记录、不返回以外的字段。空串表示这次请求没有该 Cookie。
+    """
+    found_bare = ""
+    found_ported = ""
+    for part in (cookie_header or "").split(";"):
+        piece = part.strip()
+        if "=" not in piece:
+            continue
+        name, value = piece.split("=", 1)
+        name = name.strip()
+        value = value.strip()
+        if not value:
+            continue
+        if name == "forgerydefense":
+            found_bare = value
+        elif name.startswith("forgerydefense-"):
+            found_ported = value
+    return found_ported or found_bare
+
+
+def storage_items_for_restore(items):
+    """丢掉防伪令牌副本，其余 localStorage 原样回灌。"""
+    kept = []
+    for item in items or []:
+        if not isinstance(item, dict):
+            continue
+        name = item.get("name")
+        if not name or name in _CSRF_STORAGE_KEYS:
+            continue
+        kept.append(item)
+    return kept
+
+
+def install_csrf_header(context) -> None:
+    """让每个请求的 forgerydefense 头等于它自己携带的防伪 Cookie。"""
+
+    def _handler(route):
+        try:
+            headers = dict(route.request.headers)
+            token = csrf_token_from_cookie_header(headers.get("cookie", ""))
+            if token:
+                headers["forgerydefense"] = token
+                route.continue_(headers=headers)
+            else:
+                route.continue_()
+        except Exception:
+            logger.warning(
+                "[SiteOutage] 补写 forgerydefense 头失败，按原请求继续",
+                exc_info=True,
+            )
+            try:
+                route.continue_()
+            except Exception:
+                logger.warning("[SiteOutage] 原请求继续失败", exc_info=True)
+
+    try:
+        context.route("**/*", _handler)
+        logger.info("[SiteOutage] 已挂上 forgerydefense 请求改写（与当前 Cookie 对齐）")
+    except Exception as e:
+        logger.warning(f"[SiteOutage] 未能挂上 forgerydefense 请求改写: {e}")
+
+
+def sync_csrf_storage(page) -> bool:
+    """把当前 Cookie 中的防伪令牌写回 localStorage，供门户前端自己填请求头。
+
+    csrftoken 必须是 JSON 字符串（门户会 JSON.parse），forgerydefense 是裸值。
+    """
+    token = ""
+    try:
+        for cookie in page.context.cookies():
+            name = cookie.get("name") or ""
+            value = cookie.get("value") or ""
+            if not value:
+                continue
+            if name.startswith("forgerydefense-"):
+                token = value
+                break
+            if name == "forgerydefense":
+                token = value
+    except Exception as e:
+        logger.warning(f"[SiteOutage] 读取防伪 Cookie 失败: {e}")
+        return False
+    if not token:
+        logger.info("[SiteOutage] 当前上下文没有防伪 Cookie，跳过 localStorage 对齐")
+        return False
+    try:
+        page.evaluate(
+            """(token) => {
+                localStorage.setItem('csrftoken', JSON.stringify(token));
+                localStorage.setItem('forgerydefense', token);
+            }""",
+            token,
+        )
+    except Exception as e:
+        logger.warning(f"[SiteOutage] 回写防伪令牌到 localStorage 失败: {e}")
+        return False
+    logger.info("[SiteOutage] 已按当前 Cookie 对齐 localStorage 防伪令牌")
+    return True
 
 
 def state_is_fresh():
@@ -107,8 +227,14 @@ def load_state(context):
     #    add_init_script 在该 origin 的**下一个**页面加载前注入 ——
     #    这样不依赖"先开一次页面"，也就不会多打一次上游。
     origins = state.get("origins") or []
+    skipped_csrf = 0
     for origin in origins:
-        items = origin.get("localStorage") or []
+        raw_items = origin.get("localStorage") or []
+        items = storage_items_for_restore(raw_items)
+        skipped_csrf += sum(
+            1 for it in raw_items
+            if isinstance(it, dict) and it.get("name") in _CSRF_STORAGE_KEYS
+        )
         if not items:
             continue
         pairs = json.dumps(
@@ -139,6 +265,11 @@ def load_state(context):
         except Exception as e:
             logger.warning(f"[SiteOutage] 注入 sessionStorage 失败: {e}")
 
+    if skipped_csrf:
+        logger.info(
+            "[SiteOutage] 回灌 localStorage 时跳过防伪令牌副本"
+            "（改由当前 Cookie 对齐）"
+        )
     logger.info(
         f"[SiteOutage] 已回灌上次会话（cookies={len(cookies)}, "
         f"origins={len(origins)}），尝试复用，避免重复登录"

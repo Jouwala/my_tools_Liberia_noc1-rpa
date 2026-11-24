@@ -233,6 +233,39 @@ class TestDbWriterFailureRecovery:
         assert [row[1] for row in picked] == ["edge", "new"]
         assert "remote watermark" in why
 
+    def test_per_me_watermark_keeps_lagging_me_rows(self, monkeypatch):
+        """同表 ME 时基不同（BU 比另外 3 个快 8h）时，不能用全表水位裁掉落后的 ME。
+
+        2026-11-16 事故：`Gbarnga_Buchanna_RIA_Kakata_me_15mins` 的全表 MAX 取自
+        BU（21:30），cutoff=19:30 把 RIA/Kakata/Gbarnga 的 13:45 整批丢掉，
+        6 条曲线停更 11 天。本用例锁住「按 ME 各自水位裁」。
+        """
+        from backend.services import ipran_ume_kpi_service as svc
+
+        class Remote:
+            @staticmethod
+            def query(db, sql, limit=500):
+                assert db == svc.DB_NAME and 'WHERE "ME" =' in sql
+                if "LEAD_ME" in sql:
+                    return {"rows": [["LEAD_ME", "2026-11-16 22:00:00"]]}
+                if "LAG_ME" in sql:
+                    return {"rows": [["LAG_ME", "2026-11-16 14:00:00"]]}
+                return {"rows": []}
+
+        monkeypatch.setattr(svc, "_db_writer", Remote())
+        headers = ["Begin Time", "ME"]
+        rows = [
+            ["2026-11-16 14:00:00", "LAG_ME"],
+            ["2026-11-16 13:45:00", "LAG_ME"],
+            ["2026-11-16 22:00:00", "LEAD_ME"],
+            ["2026-11-16 19:00:00", "LEAD_ME"],   # 早于 LEAD 水位-2h，应被裁
+            ["2026-11-16 14:00:00", "NEW_ME"],    # 无水位 → 全保留
+        ]
+        picked, why = svc._rows_since_watermark(
+            "sample", headers, rows, overlap_hours=2)
+        assert [row[1] for row in picked] == ["LAG_ME", "LAG_ME", "LEAD_ME", "NEW_ME"]
+        assert "per-ME watermark 2" in why
+
 
 class TestFwLocalMirrorFailureVisibility:
     def test_integer_columns_are_upgraded_only_when_needed(self):

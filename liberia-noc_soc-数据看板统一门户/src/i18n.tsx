@@ -1,4 +1,4 @@
-import React, {
+﻿import React, {
   createContext,
   useCallback,
   useContext,
@@ -1298,7 +1298,7 @@ const zhDashboard: Record<string, string> = {
   // 看板描述
   'dash.finebi-liberia-portal-main.desc': '帆软 FineBI 决策报表平台，含 MS、FO、FLM、BO、SOC 五大目录与日常/周度/月度 KPI 分析，是 NOC/SOC 报表的统一出口。',
   'dash.custom-datainsight-mvp-main.desc': '自研通信网络运维与自动化任务调度系统（Task\\my_app），集成告警、工单、NUR、MS SLA、电池、丢包、GIS 与 eFlow 任务总控，共 20 个功能页面。',
-  'dash.custom-task-manager.desc': '调度全部 84 个自动化任务：ZTE eFlow API 同步、RAN/iPRAN/CNN UME KPI、电池、丢包、邮件日报与 WhatsApp 推送，支持手动触发、失败自动重试与 Cron 修改。',
+  'dash.custom-task-manager.desc': '调度全部 85 个自动化任务：ZTE eFlow API 同步、RAN/iPRAN/CNN UME KPI、电池、丢包、邮件日报与 WhatsApp 推送，支持手动触发、失败自动重试与 Cron 修改。',
   'dash.custom-alarm-dashboard.desc': '基于 eFlow FM 数据呈现全网实时发生与未消除的关键网元故障，支持告警分级（Critical/Major/Warning/Info）、分类统计与下钻明细。',
   'dash.custom-tt-wo-dashboard.desc': 'Trouble Ticket (TT) 与 Work Order (WO) 工单生命周期闭环追踪、SLA 处理时效与分区完成率，全部组件支持下钻表格、列筛选排序与 Excel 导出。',
   'dash.custom-nur-dashboard.desc': 'Network Unavailability Rate 深度分析，基于 RAN UME 数据按站点、区域与故障根因统计停机损失时长，与 MS SLA 看板口径对齐。',

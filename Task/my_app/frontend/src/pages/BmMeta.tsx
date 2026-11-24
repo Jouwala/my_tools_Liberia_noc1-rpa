@@ -1,7 +1,7 @@
 /* ============================================================================
  * Meta 基准报告（ORANGE vs MTN 速率 PK + FDD 网络侧 KPI）—— `?page=bm_meta`
  * ----------------------------------------------------------------------------
- * 数据源：`meta_data`（Meta_20260923.xlsx 导入，612 行，2025-01-18 ~ 2026-09-23）。
+ * 数据源：`meta_data`（meta_data.xlsx 导入，661 行，2025-01-18 ~ 2026-11-11）。
  * 口径的唯一真相源是 `backend/services/bm_meta_caliber.py`，本页**不含任何业务口径**。
  *
  * ⚠️ 与 `bm_speedtest` 是**两张不同的表、两套口径**，不要合并：
@@ -26,7 +26,8 @@
  * ========================================================================== */
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Alert, Button, Col, DatePicker, Empty, Row, Segmented, Select, Space, Table, Tag, Typography } from 'antd'
+import { Alert, Button, Col, DatePicker, Empty, Grid, Row, Segmented, Select, Space, Table, Tag, Typography } from 'antd'
+import type { ColProps } from 'antd'
 import { DownloadOutlined, ReloadOutlined, TrophyFilled } from '@ant-design/icons'
 import dayjs, { Dayjs } from 'dayjs'
 import ReactECharts from '../components/ECharts'
@@ -41,7 +42,7 @@ import DraggableClickModal from '../components/DraggableClickModal'
 import { exportReport } from '../utils/excelReport'
 import type { CellValue } from '../utils/excelReport'
 import { fmtWarnings } from '../utils/warnCodes'
-import { getBmMetaOverview, getBmMetaTrend, getBmMetaDrilldown } from '../api'
+import { getBmMetaFilters, getBmMetaOverview, getBmMetaTrend, getBmMetaDrilldown } from '../api'
 
 const { Text } = Typography
 
@@ -206,11 +207,26 @@ const NETWORK_KEYS: NetworkKey[] = ['bp', 'dl_throughput', 'dl_prb', 'ul_prb', '
 export default function BmMeta() {
   const { t } = useI18n()
   const { isDark } = useTheme()
+  const screens = Grid.useBreakpoint()
+
+  /* 两家 PK 那一行（结论 / 评分 / 两家速率均值 / 区间）的列属性。
+   *
+   * 2026-11-16 用户要求：这一行必须是**一行等宽等高卡**。
+   *   · 原先 6 张卡用 span 8+4+4+4+4+4 = 28 > 24，第六张（Observed range (MTN)）被迫
+   *     换到第二行，于是「第一行 5 张 + 第二行 1 张 217px」，高度还从 159 掉到 102；
+   *   · 两张「区间范围」本就只有数字没有别的信息，合并成一张（卡内两家各一行）后
+   *     正好 5 张 —— 用 flex 均分（各 1/5）而不是 span，才能做到**宽度严格一致**。
+   *   · ≥1200px（xl）才用 5 等分：更窄时每张卡不足 190px，结论卡的奖杯/品牌/胜场
+   *     会被挤成多行；不足 xl 时退回「平板 2 张、手机 1 张」，与全站其它卡片行一致。
+   */
+  const pkCol: ColProps = screens.xl
+    ? { flex: '1 1 0', style: { display: 'flex', minWidth: 0 } }
+    : { xs: 24, sm: 12, style: { display: 'flex' } }
 
   /* ---- 筛选条件：只有时间维度（本表没有运营商/区域等可取值的维度列） ---- */
   const [start, setStart] = useState<Dayjs | null>(null)
   const [end, setEnd] = useState<Dayjs | null>(null)
-  const [quick, setQuick] = useState<string>('365')
+  const [quick, setQuick] = useState<string>('30')
 
   /* ---- 数据与状态 ---- */
   const [data, setData] = useState<Overview | null>(null)
@@ -233,20 +249,35 @@ export default function BmMeta() {
   const [drillMeta, setDrillMeta] = useState<Record<string, unknown> | null>(null)
   const [drillLoading, setDrillLoading] = useState(false)
 
-  /* ---- 首次加载：先用后端给的默认窗口（近 365 天）对齐日期选择器 ---- */
+  /* ---- 首次加载：确定默认窗（近 30 天，右端＝数据实际最大日） ----
+   *
+   * 2026-11-16（用户要求默认看最近 30 天）。这里**只取「数据可用范围」**（`/filters`，
+   * 单条 MIN/MAX 查询），不拿整页概览，两条理由都是踩过的：
+   * ① 右边界必须是数据实际最大日 —— 本表快照日常落后几天（今天 2026-11-16、数据到
+   *    2026-11-11），用「今天」会让窗口最后几天是空的，而且与点「近 30 天」的区间
+   *    差 5 天（快捷档一直按数据最大日锚定），高亮同一档却区间不同，用户会当成 bug；
+   * ② **不能**再把概览响应先塞进 `data` —— 默认窗一旦与后端默认窗不同（旧后端仍是
+   *    365 天），首屏会先闪一个错窗口的数字再跳（2026-11-16 实测闪了 0.9 秒：
+   *    「MTN」→「Orange」）。概览交给下面依赖 start/end 的 `load()`，首屏宁可短暂
+   *    显示「—」，也不显示错的数。
+   */
   useEffect(() => {
     let alive = true
     void (async () => {
       try {
-        const r = await getBmMetaOverview({})
+        const r = await getBmMetaFilters()
         if (!alive) return
-        const m = r.data?.meta
-        if (m?.start) setStart(dayjs(m.start))
-        // 后端 end 是"次日"（左闭右开），界面展示成闭区间要减一天
-        if (m?.end) setEnd(dayjs(m.end).subtract(1, 'day'))
-        setData(r.data)
+        const maxD = r.data?.max_date
+        const anchor = maxD ? dayjs(maxD) : dayjs()
+        setStart(anchor.subtract(29, 'day'))
+        setEnd(anchor)
       } catch (e: any) {
-        if (alive) setError(e?.message || String(e))
+        if (!alive) return
+        setError(e?.message || String(e))
+        // 范围都取不到时也放一个今天口径的窗口，让 load() 去暴露真正的错误
+        const anchor = dayjs()
+        setStart(anchor.subtract(29, 'day'))
+        setEnd(anchor)
       }
     })()
     return () => { alive = false }
@@ -307,9 +338,11 @@ export default function BmMeta() {
   /* ---- 快捷时间窗 ----
    *
    * ⚠️ 右边界取**数据实际最大日期**，不是 `dayjs()`（今天）。
-   * 本表最新只到 2026-09-23，若用今天做右边界，三种快捷窗的右端会完全相同、
-   * 只有左端在动，用户会觉得「点了 90 天和 180 天没区别」。
+   * 本表最新只到 2026-11-11（页面运行日在 2026-11-16），若用今天做右边界，
+   * 30/90/180/365 四档的右端会完全相同、只有左端在动，用户会觉得
+   * 「点了 90 天和 180 天没区别」。
    * 快照日与数据日之间只要有一天滞后，这个偏差就会一直存在。
+   * 首次加载的默认窗（近 30 天）也走这个锚点，见上面的 useEffect。
    */
   const applyQuick = useCallback((v: string) => {
     setQuick(v)
@@ -328,7 +361,7 @@ export default function BmMeta() {
   }, [data])
 
   /* ---- 手动改日期时清掉快捷窗高亮 ----
-   * 否则用户手改了日期，分段控件仍高亮「近 365 天」，与实际窗口不一致。
+   * 否则用户手改了日期，分段控件仍高亮「近 30 天」，与实际窗口不一致。
    * 传 null 是「改为自定义」；只有真正与某个快捷窗重合时才由 applyQuick 设值。
    */
   const onPickStart = useCallback((v: Dayjs | null) => {
@@ -704,79 +737,70 @@ export default function BmMeta() {
         </Space>
       </CardBase>
 
-      {/* ①② 两家 PK：结论 / 评分 / 速率均值 / 速率区间 —— 合并成**一行 6 张卡**。
-          此前是两行（结论+评分一行、四张速率卡一行），每张卡只有一两个数字，
-          纵向叠起来后整块很高、卡内大片留白，所以并成一行。
-          列宽：结论卡内容最多（含奖杯与三行文字）给 xl=8，其余五张各 xl=4（8+4×4=24）。
-          align="stretch" + Col 撑高 + 卡片 width:100%：三者缺一不可，否则同排不等高。 */}
+      {/* ①② 两家 PK：结论 / 评分 / 速率均值 / 速率区间 —— **一行 5 张等宽等高卡**。
+          2026-11-16 用户要求把两张「区间范围」并成一张、整行放齐：合并后 5 张正好铺满
+          一行（列宽由 pkCol 用 flex 均分，见上面的注释），不再出现「第 6 张换行、
+          高度只有 102」的参差。
+          等高仍靠三件事缺一不可：align="stretch" + Col 撑高 + 卡片 width:100%。 */}
       <Row gutter={[12, 12]} align="stretch" style={{ marginBottom: 12 }}>
-        <Col xs={24} lg={12} xl={8} style={{ display: 'flex' }}>
+        <Col {...pkCol}>
           <CardBase title={<ExplainLabel label={t('bmm.card.verdict')} text={t('bmm.explain.verdict')} />}
             level={verdict?.brand ? 'ok' : 'default'}
             style={{ width: '100%' }}>
             {verdict?.brand ? (
-              /* 结论卡：奖杯徽章 + 领先方 + 分差 + 胜场胜率（可下钻），
-                 用真实数据填满纵向空间，避免只有一行文字时显得空旷。 */
-              <Row align="middle" gutter={16} style={{ height: '100%' }}>
-                <Col flex="none">
-                  <div
-                    style={{
-                      width: 64, height: 64, borderRadius: 16,
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      fontSize: 34, lineHeight: 1,
-                      color: brandColor(verdict.brand, isDark),
-                      background: `color-mix(in srgb, ${brandColor(verdict.brand, isDark)} 16%, transparent)`,
-                      boxShadow: `inset 0 0 18px color-mix(in srgb, ${brandColor(verdict.brand, isDark)} 22%, transparent)`,
-                    }}
-                  >
-                    <TrophyFilled />
-                  </div>
-                </Col>
-                <Col flex="auto" style={{ minWidth: 0 }}>
-                  <Text type="secondary" style={{ fontSize: 12 }}>
-                    {t('bmm.verdict.winnerLabel')}
-                  </Text>
-                  <div style={{
-                    fontSize: 24, fontWeight: 700, lineHeight: 1.2,
+              /* 结论卡：宽 1/5（约 200px）后，原先「64px 圆角徽章 + 右侧三行」的横排会
+                 把品牌名挤到换行，改成竖排 —— 奖杯与品牌同一行，下面是分差与胜场。
+                 两处说明仍挂气泡，胜场仍可点下钻。 */
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                  <span style={{
+                    flex: '0 0 auto', fontSize: 20, lineHeight: 1,
                     color: brandColor(verdict.brand, isDark),
                   }}>
+                    <TrophyFilled />
+                  </span>
+                  <span style={{
+                    fontSize: 22, fontWeight: 700, lineHeight: 1.15, minWidth: 0,
+                    color: brandColor(verdict.brand, isDark),
+                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                  }}>
                     {t(brandLabelKey(verdict.brand))}
-                  </div>
-                  <ExplainPopover placement="bottom" text={t('bmm.tip.lead', {
-                    n: num(verdict.diff, 1),
-                    o: num(scores?.ORANGE?.score, 1), m: num(scores?.MTN?.score, 1),
+                  </span>
+                </div>
+                <ExplainPopover placement="bottom" text={t('bmm.tip.lead', {
+                  n: num(verdict.diff, 1),
+                  o: num(scores?.ORANGE?.score, 1), m: num(scores?.MTN?.score, 1),
+                })}>
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    {t('bmm.verdict.lead', { n: num(verdict.diff, 1) })}
+                  </Text>
+                </ExplainPopover>
+                {/* 赢在哪：胜场对比，数字可点下钻，与其它区块口径一致 */}
+                <div style={{ fontSize: 12 }}>
+                  <ExplainPopover placement="bottom" text={t('bmm.tip.verdictWins', {
+                    brand: t(brandLabelKey(verdict.brand)),
+                    w: bmmCount(verdict.brand === 'ORANGE' ? wins?.orange_wins : wins?.mtn_wins),
+                    d: bmmCount(wins?.paired_days),
+                    r: num(verdict.brand === 'ORANGE' ? wins?.orange_win_rate : wins?.mtn_win_rate, 1),
+                    ties: bmmCount(wins?.ties),
+                    total: bmmCount(wins?.total_days),
                   })}>
-                    <Text type="secondary" style={{ fontSize: 12 }}>
-                      {t('bmm.verdict.lead', { n: num(verdict.diff, 1) })}
-                    </Text>
+                    <a
+                      onClick={(e) => void openDrill(
+                        { metric: 'speed', winner: verdict.brand as BrandKey },
+                        `${t(brandLabelKey(verdict.brand as BrandKey))} · ${t('bmm.drill.winDays')}`,
+                        e,
+                      )}
+                    >
+                      {t('bmm.verdict.winDays', {
+                        w: bmmCount(verdict.brand === 'ORANGE' ? wins?.orange_wins : wins?.mtn_wins),
+                        d: bmmCount(wins?.paired_days),
+                        r: num(verdict.brand === 'ORANGE' ? wins?.orange_win_rate : wins?.mtn_win_rate, 1),
+                      })}
+                    </a>
                   </ExplainPopover>
-                  {/* 赢在哪：胜场对比，数字可点下钻，与其它区块口径一致 */}
-                  <div style={{ marginTop: 4, fontSize: 12 }}>
-                    <ExplainPopover placement="bottom" text={t('bmm.tip.verdictWins', {
-                      brand: t(brandLabelKey(verdict.brand)),
-                      w: bmmCount(verdict.brand === 'ORANGE' ? wins?.orange_wins : wins?.mtn_wins),
-                      d: bmmCount(wins?.paired_days),
-                      r: num(verdict.brand === 'ORANGE' ? wins?.orange_win_rate : wins?.mtn_win_rate, 1),
-                      ties: bmmCount(wins?.ties),
-                      total: bmmCount(wins?.total_days),
-                    })}>
-                      <a
-                        onClick={(e) => void openDrill(
-                          { metric: 'speed', winner: verdict.brand as BrandKey },
-                          `${t(brandLabelKey(verdict.brand as BrandKey))} · ${t('bmm.drill.winDays')}`,
-                          e,
-                        )}
-                      >
-                        {t('bmm.verdict.winDays', {
-                          w: bmmCount(verdict.brand === 'ORANGE' ? wins?.orange_wins : wins?.mtn_wins),
-                          d: bmmCount(wins?.paired_days),
-                          r: num(verdict.brand === 'ORANGE' ? wins?.orange_win_rate : wins?.mtn_win_rate, 1),
-                        })}
-                      </a>
-                    </ExplainPopover>
-                  </div>
-                </Col>
-              </Row>
+                </div>
+              </div>
             ) : (
               <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('bmm.empty')} />
             )}
@@ -784,7 +808,7 @@ export default function BmMeta() {
         </Col>
 
         {/* 综合评分（两家并排），窄列下由上下双栏改为紧凑纵排以免挤压 */}
-        <Col xs={24} lg={12} xl={4} style={{ display: 'flex' }}>
+        <Col {...pkCol}>
           <CardBase title={<ExplainLabel label={t('bmm.card.scores')} text={t('bmm.explain.scores')} />} style={{ width: '100%' }}>
             <Row gutter={8} align="stretch" style={{ height: '100%' }}>
               {(['ORANGE', 'MTN'] as BrandKey[]).map(b => (
@@ -827,13 +851,13 @@ export default function BmMeta() {
           </CardBase>
         </Col>
 
-        {/* 速率均值 + 区间：四张卡并排 */}
+        {/* 速率均值：两张 */}
         {(['ORANGE', 'MTN'] as BrandKey[]).map(b => {
           const s = summary?.[b]
           const isLeader = speedLeader === b
           const winCount = b === 'ORANGE' ? wins?.orange_wins : wins?.mtn_wins
           return (
-            <Col xs={24} sm={12} md={12} xl={4} key={`avg-${b}`} style={{ display: 'flex' }}>
+            <Col {...pkCol} key={`avg-${b}`}>
               <StatCard
                 title={<ExplainLabel
                   label={`${t(brandLabelKey(b))} · ${t('bmm.metric.speed')}`}
@@ -863,28 +887,47 @@ export default function BmMeta() {
             </Col>
           )
         })}
-        {(['ORANGE', 'MTN'] as BrandKey[]).map(b => (
-          <Col xs={24} sm={12} md={12} xl={4} key={`range-${b}`} style={{ display: 'flex' }}>
-            <StatCard
-              title={<ExplainLabel
-                label={`${t('bmm.card.rangeLabel')} (${t(brandLabelKey(b))})`}
-                text={t('bmm.explain.range')}
-              />}
-              value={`${num(summary?.[b]?.speed_min, 1)} ~ ${num(summary?.[b]?.speed_max, 1)}`}
-              explainText={t('bmm.tip.range', {
-                brand: t(brandLabelKey(b)),
-                min: num(summary?.[b]?.speed_min, 1),
-                max: num(summary?.[b]?.speed_max, 1),
-                avg: fmtByUnit(summary?.[b]?.speed, 'Mbps'),
-                days: bmmCount(summary?.[b]?.days),
-              })}
-              accentColor={brandColor(b, isDark)}
-              iconBg={brandColor(b, isDark)}
-              style={{ width: '100%' }}
-              onClick={(e) => void openDrill({ metric: 'speed' }, `${t(brandLabelKey(b))} · ${t('bmm.metric.speed')}`, e)}
-            />
-          </Col>
-        ))}
+
+        {/* 速率区间：两家**合并成一张卡**（2026-11-16 用户要求）。
+            原先 ORANGE / MTN 各一张，一行为原来 6 张卡，加起来超过 24 栏，
+            第二张区间卡被挤到下一行、高度还不同；合并后卡内两家各占一行，
+            两行仍是各自可点下钻、可悬浮看口径，宽度与其他四张卡严格一致。 */}
+        <Col {...pkCol} key="range">
+          <CardBase
+            title={<ExplainLabel label={t('bmm.card.rangeLabel')} text={t('bmm.explain.range')} />}
+            style={{ width: '100%' }}
+          >
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {(['ORANGE', 'MTN'] as BrandKey[]).map(b => (
+                <div
+                  key={b}
+                  onClick={(e) => void openDrill({ metric: 'speed' }, `${t(brandLabelKey(b))} · ${t('bmm.metric.speed')}`, e)}
+                  style={{
+                    cursor: 'pointer', display: 'flex', alignItems: 'baseline', gap: 8, minWidth: 0,
+                  }}
+                >
+                  <span style={{
+                    flex: '0 0 auto', width: 46, fontSize: 12, fontWeight: 600,
+                    color: brandColor(b, isDark),
+                  }}>
+                    {t(brandLabelKey(b))}
+                  </span>
+                  <ExplainPopover placement="bottom" text={t('bmm.tip.range', {
+                    brand: t(brandLabelKey(b)),
+                    min: num(summary?.[b]?.speed_min, 1),
+                    max: num(summary?.[b]?.speed_max, 1),
+                    avg: fmtByUnit(summary?.[b]?.speed, 'Mbps'),
+                    days: bmmCount(summary?.[b]?.days),
+                  })}>
+                    <span style={{ fontSize: 18, fontWeight: 700, lineHeight: 1.2, whiteSpace: 'nowrap' }}>
+                      {num(summary?.[b]?.speed_min, 1)} ~ {num(summary?.[b]?.speed_max, 1)}
+                    </span>
+                  </ExplainPopover>
+                </div>
+              ))}
+            </div>
+          </CardBase>
+        </Col>
       </Row>
 
       {/* ③ 网络侧 KPI 汇总卡（不属于任何一家，单独一组） */}

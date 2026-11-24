@@ -1,11 +1,11 @@
-# 01 AGENTS.md —— AI 进入本项目首先需要知道的信息
+﻿# 01 AGENTS.md —— AI 进入本项目首先需要知道的信息
 
 > 基准日期：2026-09-22　|　项目根：`D:\01_RPA\Task\my_app`
 > 上级总纲：`D:\01_RPA\AGENTS.md`（工作区级约束，**先读那个**）
 
 ## 一、这个项目是什么
 
-**my_app / Data Insight MVP** —— 利比里亚电信网络运维的**自研数据平台**，是整个工作区的数据底座。它负责把上游系统（UME、eFlow、CCN、PM、邮件、WhatsApp 等）的数据采集、入库、计算、展示，并提供 83 个功能页与 84 个定时任务。
+**my_app / Data Insight MVP** —— 利比里亚电信网络运维的**自研数据平台**，是整个工作区的数据底座。它负责把上游系统（UME、eFlow、CCN、PM、邮件、WhatsApp 等）的数据采集、入库、计算、展示，并提供 84 个功能页与 85 个定时任务。
 
 **技术栈**：后端 FastAPI + SQLAlchemy（SQLite / PostgreSQL 双模）+ Alembic + APScheduler；前端 React + Vite；任务由多组 worker 进程执行 + 看门狗守护。
 

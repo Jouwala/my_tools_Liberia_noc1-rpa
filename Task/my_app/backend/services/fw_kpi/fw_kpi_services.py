@@ -137,6 +137,10 @@ EMAIL_LIST_DIR = r"Y:\01_RPA\LBR_Tools\KPI\FW\fw_email"
 SS_EMAIL_FILE = os.path.join(EMAIL_LIST_DIR, "ss_email.txt")
 CC_EMAIL_FILE = os.path.join(EMAIL_LIST_DIR, "cc_email.txt")
 
+# 正文里的内嵌图片插入点，必须与 email_reports/owa_mail_report.py 的
+# _INLINE_PLACEHOLDER 完全一致；缺了它图片会被追加到正文末尾，签名跑到图片中间。
+INLINE_IMAGES_PLACEHOLDER = "<!-- inline images inserted here -->"
+
 # 邮件脚本解释器：项目 venv（已装 exchangelib），不受外部工具重建影响。
 # 由 workbuddy 托管 venv 迁来（2026-10-13，该环境被外部 uv 重建清空依赖）；
 # 画图（matplotlib）在后端 Python 内完成，venv 只负责 owa 发送脚本。
@@ -804,6 +808,8 @@ def generate_chart_and_send_email(device_rows):
         "<p>Please find the FW Whole Throughput charts attached (one per device).</p>"
         f"<p>Devices: {device_txt}</p>"
         f"<p>Charts cover the last {CHART_DAYS_BACK} days of 1-minute granularity data.</p>"
+        # 占位符之后才是签名，保证图片插在正文与签名之间
+        f"{INLINE_IMAGES_PLACEHOLDER}"
         "<br><p>Best regards,<br>ZTENOC OLR</p>"
     )
 

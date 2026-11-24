@@ -475,6 +475,18 @@ export function getCnKpi5minsOverview(params?: { force?: boolean }) {
   return api.get('/cn-kpi-5mins/overview', { params: Object.keys(q).length ? q : undefined })
 }
 
+// CN 小时 KPI 看板（?page=cn_hourly_kpi）
+// 数据源：任务 cn_hourly_kpi_sync 写入的 <模板名>_UME 表（gr=3600，db_ps_cs_cn.sqlite3），
+// 模板来自 UME「KPI 模板管理」导出件 KPI Template.xlsx（见 services/cn_kpl/cn_hourly_kpi_service.py）。
+// params: start/end=YYYY-MM-DD 含端点（默认最近 7 天，上限 31 天）；force=true 跳过后端 300s 缓存
+export function getCnHourlyKpiOverview(params?: { start?: string; end?: string; force?: boolean }) {
+  const q: Record<string, string | number> = {}
+  if (params?.start) q.start = params.start
+  if (params?.end) q.end = params.end
+  if (params?.force) q.force = 1
+  return api.get('/cn-hourly-kpi/overview', { params: Object.keys(q).length ? q : undefined })
+}
+
 // ===== 原生看板（my-finebi 其余看板泛化迁移） =====
 // 一套端点驱动 17 个看板（IP RAN Metro Ring / 可用率 / 2G-3G-4G KPI / MTTR /
 // CM / 备件 / Progress 等），slug 见 backend/services/native_catalog.py。

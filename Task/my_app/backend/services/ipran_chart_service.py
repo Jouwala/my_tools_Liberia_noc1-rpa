@@ -57,6 +57,10 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 EMAIL_REPORTS_DIR = MY_APP_DIR / "email_reports"
 EMAIL_LIST_DIR = Path(r"Y:\01_RPA\LBR_Tools\KPI\IPRAN\ip_ran_email")
 SS_EMAIL_FILE = EMAIL_LIST_DIR / "ss_email.txt"
+
+# 正文里的内嵌图片插入点，必须与 email_reports/owa_mail_report.py 的
+# _INLINE_PLACEHOLDER 完全一致；缺了它图片会被追加到正文末尾，签名跑到图片中间。
+INLINE_IMAGES_PLACEHOLDER = "<!-- inline images inserted here -->"
 CC_EMAIL_FILE = EMAIL_LIST_DIR / "cc_email.txt"
 
 # 邮件脚本解释器：项目 venv（已装 exchangelib），不受外部工具重建影响。
@@ -535,6 +539,8 @@ def run_chart_and_send(to_override: Optional[str] = None,
         "<h3>Dear Team,</h3>"
         "<p>Please find the IP RAN M6K-FW Port Utilization charts attached.</p>"
         "<p>Charts cover the last 3 days of 15-minute granularity data.</p>"
+        # 占位符之后才是签名，保证图片插在正文与签名之间
+        f"{INLINE_IMAGES_PLACEHOLDER}"
         "<br><p>Best regards,<br>ZTENOC OLR</p>"
     )
     

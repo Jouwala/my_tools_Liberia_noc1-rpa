@@ -113,16 +113,37 @@ def metric_meta(key: str) -> dict:
     return m
 
 
-def default_window(days: int = 365) -> tuple[str, str]:
-    """默认时间窗（半开区间 [start, end)）。
+def default_window(days: int = 30) -> tuple[str, str]:
+    """默认时间窗（半开区间 [start, end)）——**按「今天」推**的那一份。
 
-    取 365 天而不是 90 天：本表跨度 2025-01-18 ~ 2026-09-23（612 天），
-    速率类指标的季节性/长期趋势需要更长的窗才看得出，90 天会把
-    「Orange 长期领先但近期收窄」这类结论切掉。
+    2026-11-16 起默认 **30 天**（由 365 收窄，用户要求页面默认看最近一个月）：
+    页面首屏回答的是「这个月两家谁快、差多少」，30 天刚好一个月度对比的尺度；
+    需要看季节性/长期趋势时，页面上的 `90 / 180 / 365 天 / 全部` 四档随时可切，
+    不必把默认窗开得很大（那会让首屏数字变成「一年平均」，掩盖近期变化）。
+
+    ⚠️ **接口与页面的默认窗不直接调用本函数推导右边界**：本表快照日通常落后几天
+    （2026-11-16 时数据只到 2026-11-11），用今天做右边界会让窗口最后几天是空的。
+    `routers/bm_meta.py::_default_window()` 会先取数据实际最大日再往前推 30 天，
+    本函数只在「取不到任何数据」时兜底（空库 / 查询异常）。
     """
     from datetime import date, timedelta
 
     end = date.today() + timedelta(days=1)
+    return (end - timedelta(days=days)).isoformat(), end.isoformat()
+
+
+def window_ending_at(max_date: str, days: int = 30) -> tuple[str, str]:
+    """以**数据实际最大日**为右边界往前推 `days` 天的半开区间 `[start, end)`。
+
+    `max_date` 是闭区间的最后一天（`YYYY-MM-DD`），返回的 `end` 是它的次日 ——
+    与全表所有查询的「左闭右开」口径一致。这是页面默认窗与「近 N 天」快捷档
+    共用的锚点规则：两边必须是同一个窗口，否则用户会看到「高亮近 30 天、
+    区间却差几天」。非法/空日期抛 `ValueError`，由调用方兜底。
+    """
+    from datetime import date, timedelta
+
+    last = date.fromisoformat(max_date)
+    end = last + timedelta(days=1)
     return (end - timedelta(days=days)).isoformat(), end.isoformat()
 
 

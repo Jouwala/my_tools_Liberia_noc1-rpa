@@ -1,6 +1,6 @@
 # my_app User Help & Guide
 
-> User-facing platform features & operations guide. Generated from the same source as the in-app Help page (frontend/src/helpMarkdown.ts), compiled from docs/manual/ and backend/task_registry.py. Generated on 2026-11-15.
+> User-facing platform features & operations guide. Generated from the same source as the in-app Help page (frontend/src/helpMarkdown.ts), compiled from docs/manual/ and backend/task_registry.py. Generated on 2026-11-18.
 
 > In-app entry: the "Help" sidebar item, or `http://<host>/myapp/?page=help` directly.
 
@@ -92,7 +92,6 @@ Built for the NOC scenario "boards every day, reports must go out": 41+ schedule
 | RAN UME Daily Report | `ran_ume_daily` | `0 2 * * *` | u | `services/ran_ume_service.py → run_ran_ume_full_task` |
 | Site Outage Screenshot | `site_outage_screenshot` | `0 1 * * *` | m | `services/site_outage_service.py → run_site_outage_screenshot` |
 | WhatsApp Message Send | `whatsapp_send` | `0 3 * * *` | m | `services/whatsapp_service.py → run_whatsapp_send` |
-| WhatsApp Message Send (Extension) | `whatsapp_send_ext` | `0 3 * * *` | m | `services/whatsapp_ext_service.py → run_whatsapp_send_ext` |
 | WhatsApp Message Send (Baileys) | `whatsapp_send_baileys` | `0 4 * * *` | m | `services/whatsapp_send_baileys_service.py → run_whatsapp_send_baileys` |
 | eFlow P1 Alarm WhatsApp Push | `tt_alarm_whatsapp_alert` | `2-59/5 * * * *` | m | `services/tt_alarm_whatsapp_service.py → run_tt_alarm_whatsapp_alert` |
 | MS SLA Full Sync | `ms_sla_full` | `0 5 * * *` | n | `services/ms_sla_service.py → run_full_sync` |
@@ -111,6 +110,7 @@ Built for the NOC scenario "boards every day, reports must go out": 41+ schedule
 | BP Cells Report Sync | `bp_report_sync` | `20 6 * * *` | u | `services/bp_report_sync.py → run_bp_report_sync` |
 | CNN UME KPI Sync | `cnn_kpi_sync` | `0 6 * * *` | n | `services/ccn_ume_kpi_service.py → run_cnn_kpi_sync` |
 | CNN UME KPI 5-Min Sync | `cnn_kpi_sync_5mins` | `*/15 * * * *` | n | `services/cnn_ume_kpi_5mins_service.py → run_cnn_kpi_sync_5mins` |
+| CN Hourly KPI Sync | `cn_hourly_kpi_sync` | `20 6 * * *` | n | `services/cn_kpl/cn_hourly_kpi_service.py → run_cn_hourly_kpi_sync` |
 | SP Spare Data Sync | `sp_data_sync` | `10 * * * *` | s | `services/get_sp_table.py → run_sp_data_sync` |
 | iPRAN UME KPI Sync | `ipran_kpi_sync` | `0 * * * *` | u | `services/ipran_ume_kpi_service.py → run_ipran_kpi_sync` |
 | Liberia Site-Down 1H Report Email | `liberia_email_1h` | `15 * * * *` | m | `services/liberia_email_report.py → run_1h_report` |
@@ -190,7 +190,7 @@ Workflow & maintenance notes per task:
 
 **Maintenance**:
 
-- Delta mode only fetches changes; gaps are backfilled next night by eflow_sync_full
+- Delta mode only fetches changes and **never deletes** (the 3-day window is inherently incomplete); gaps are backfilled next night by eflow_sync_full, which is also where tickets removed in eFlow get reconciled away
 - Credential group eflow; kicked sessions cause consecutive failures, auto-retried by auto_retry_failed
 
 #### eFlow Daily Full Sync（`eflow_sync_full`）
@@ -198,13 +198,14 @@ Workflow & maintenance notes per task:
 - Default cron: `0 1 * * *`　|　worker group: **n**
 - Workflow script: `services/sync_from_eflow_api.py → sync_from_eflow_api(mode="full")`
 
-**What it does**: Full-window backfill (default since 2026-01-01) to cover delta gaps and refresh reports. Wide windows fetch TT/WO in segments; a missing TT/WO now fails the task
+**What it does**: Full-window backfill (default since 2026-01-01) to cover delta gaps, **delete tickets already removed in eFlow**, and refresh reports. Wide windows fetch TT/WO in segments; a missing TT/WO now fails the task
 
 **Workflow & data flow**:
 
 1. Daily 01:00 pull the full window
 1. For wide windows TT/WO are fetched in **segments** (default 30 days each) then merged/deduped, avoiding a single huge export exceeding the 120s poll window and failing with 500
 1. Write into the same dynamic tables with dedup
+1. **Reconcile delete**: compare against the upstream authoritative ticket set and drop TT/WO/CR rows that eFlow has already removed
 1. Refresh related report artifacts afterwards
 
 **Maintenance**:
@@ -212,6 +213,7 @@ Workflow & maintenance notes per task:
 - First remedy when eFlow data is missing mid-day — run it manually from Task Manager
 - The window start is configurable; mind the fetch duration. Segment length via EFLOW_FULL_SEGMENT_DAYS (default 30d)
 - Fixed 2026-10-09: the TT/WO full export had been failing with 500 for days while the task still reported success=True (the missing key was silently skipped). Now a missing TT/WO writes an error → success=False
+- Reconcile delete added 2026-11-16: it previously only upserted and never deleted, so tickets removed in eFlow stayed forever (measured 11 extra TT / 54 extra WO rows). **The authoritative source is base/list lookup, not the full export** — the export was measured to miss ~43/27 live rows, which would cause false deletions. Four gates (full mode only / authoritative set must be complete / empty set skips that table / over-threshold skips that table) are documented in 03-data-layer.md; EFLOW_RECONCILE_DELETE=0 turns it off without a code change
 
 #### RAN UME Daily Report（`ran_ume_daily`）
 
@@ -265,22 +267,6 @@ Workflow & maintenance notes per task:
 
 - Depends on the screenshot task finishing first; re-scan QR manually when the WhatsApp Web session expires
 
-#### WhatsApp Message Send (Extension)（`whatsapp_send_ext`）
-
-- Default cron: `0 3 * * *`　|　worker group: **m**
-- Workflow script: `services/whatsapp_ext_service.py → run_whatsapp_send_ext`
-
-**What it does**: Extension-based WhatsApp sending: dispatches a send job; a browser extension sends it in the logged-in WhatsApp Web (coexists with the Playwright version)
-
-**Workflow & data flow**:
-
-1. Dispatch a send job to the queue
-1. The browser extension (whatsapp_sender_extension) actually sends it in the logged-in WhatsApp Web tab
-
-**Maintenance**:
-
-- Missed its worker-group registration on 2026-08-31 and stuck pending; now in group m — always register new tasks in GROUP_TASK_MAP
-
 #### WhatsApp Message Send (Baileys)（`whatsapp_send_baileys`）
 
 - Default cron: `0 4 * * *`　|　worker group: **m**
@@ -290,7 +276,7 @@ Workflow & maintenance notes per task:
 
 **Workflow & data flow**:
 
-1. This task scans SITE_OUTAGE_DIR (shared with whatsapp_send / whatsapp_send_ext) and writes items (with absolute disk paths) into the job file data/whatsapp_send_baileys_job.json
+1. This task scans SITE_OUTAGE_DIR (shared with whatsapp_send) and writes items (with absolute disk paths) into the job file data/whatsapp_send_baileys_job.json
 1. The whatsapp-kb-bot/src/notify.js process polls and claims the job (sets running on claim + atomic write-back), then calls sock.sendMessage({ image|document, ... }) for each (group × file) pair
 1. The server-acknowledged message id (res.key.id) is the only success criterion; a single failed send is not retried into the group (prevents duplicates); auto_retry_failed decides on retries
 1. notify.js writes the result back to the job file; this task returns once it sees done/failed (task_runner records the run history)
@@ -382,6 +368,7 @@ Workflow & maintenance notes per task:
 - Dry-run (dry_run) by default: match + record only, no real assign; turn it off on the Task Config page once verified
 - When the 99933 correlation cannot be determined (fiber only has an ME-derived site name that differs from cmdb, e.g. luogan/luogon) the alarm is treated as "no correlation" and still assigned, with the count logged under correlation_undetermined — never let a name mismatch silently block assignment indefinitely
 - When site resolution fails (site absent from cmdb, e.g. Tokadeh) the TT cannot be created automatically: record N and post a "manual handling required in eFlow" notice to the group, once per alarm (suppressed via send_status) so nothing is silently dropped
+- A site resolution failure means the site is missing from cmdb (the ME / site name is not found there), which is a cmdb gap, NOT a task error (2026-11-17): when every failure in a round is of this kind AND the cmdb index itself loaded fine, the result is recorded as pending_cmdb (success=true, the notice stays in message) and Run History shows an amber "Needs cmdb" notice instead of a red Error; fixing the site/ME mapping in cmdb restores assignment on the next round. An empty cmdb index (fetch failed) or any assign failure still counts as a real failure
 - Fiber assign must carry the numeric site ID + site name; passing only the ME name makes the API return success without creating a TT (measured lesson)
 - Fiber assign is intermittent, so it retries and only treats success as confirmed when ttid is found (never trusts status:true)
 - Skip alarms whose upstream ttid is already set: eFlow's own assign rule may have created the TT first, otherwise duplicate TTs are created (measured: two Zardun alarms)
@@ -649,6 +636,27 @@ Workflow & maintenance notes per task:
 - WARNING: one run used to take about 105 s with the full 1.5-day window (Free Rating alone has 14k rows/day); since 2026-11-15 the default window is incremental (last 120 minutes), so writes per round are a few hundred rows — this also unblocks the page reads that the remote SQLite write lock used to stall
 - Runs in group n alongside cnn_kpi_sync so the two never log into the same account and kick each other off
 - The only consumer is ?page=cn_kpi_5mins (services/cn_kpi_5mins_service.py reads the 5mins_* tables)
+
+#### CN Hourly KPI Sync（`cn_hourly_kpi_sync`）
+
+- Default cron: `20 6 * * *`　|　worker group: **n**
+- Workflow script: `services/cn_kpl/cn_hourly_kpi_service.py → run_cn_hourly_kpi_sync`
+
+**What it does**: Parses 3 templates from the UME "KPI Template" export file KPI Template.xlsx (PS_xGW_Session_Capacity_OSS / PS_xGW_Throughput_Capacity_OSS / CS_MRFP96_Resource_Utilization_OSS), queries them at hourly granularity (gr=3600) and writes the <template>_UME tables in DB CNN for the date-rangeable CN Hourly KPI board; Object Scope=ALL covers every NE, and only the Utilization family is kept because Utilization/Capacity duplicate each other (user decision 2026-11-18)
+
+**Workflow & data flow**:
+
+1. Parse KPI Template.xlsx (falls back to embedded configs with a warning if the file is missing)
+1. Log into CNN UME (shares the session cache with cnn_kpi_sync)
+1. Query each template at hourly granularity (2-day incremental window by default; first backfill via python -m ... --days 31)
+1. Upsert into db_ps_cs_cn tables named <template>_UME (PK Begin Time+NE(+SERVICE))
+
+**Maintenance**:
+
+- WARNING: a 0-row export is treated as an empty state and skipped, not a failure (same as the 5-minute task)
+- Runs in group n alongside cnn_kpi_sync / cnn_kpi_sync_5mins so the shared CNN UME session never gets kicked
+- Consumer: ?page=cn_hourly_kpi (routers/cn_hourly_kpi.py + the read side of cn_kpl/cn_hourly_kpi_service.py)
+- When the upstream changes templates, re-export the xlsx over cn_kpl/KPI Template.xlsx — no code change needed
 
 #### SP Spare Data Sync（`sp_data_sync`）
 
@@ -2163,9 +2171,9 @@ Speedtest Benchmark Report: puts the two operators (Orange and MTN) side by side
 
 #### bm_meta（`bm_meta`）
 
-Meta Benchmark Report: based on meta_data (imported from Meta_20260923.xlsx, 612 rows, 2025-01-18 ~ 2026-09-23) it answers two questions — (1) "between Orange and MTN, who has the higher speed, by how much, and is the gap widening or narrowing"; (2) "what level are the network-side KPIs (BP / FDD DL IP throughput / DL and UL PRB utilization / traffic volume / RRC users) at over the same period". These two are **deliberately kept apart**: only "speed" is a head-to-head between the two operators, while the other six are network-side KPIs belonging to neither. The page has two layers: a head-to-head layer (composite score -> speed cards -> dual-line trend -> daily win/loss -> monthly and daily tables) and a network-KPI layer (summary cards + single-line trend).
+Meta Benchmark Report: based on meta_data (imported from meta_data.xlsx, 661 rows, 2025-01-18 ~ 2026-11-11) it answers two questions — (1) "between Orange and MTN, who has the higher speed, by how much, and is the gap widening or narrowing"; (2) "what level are the network-side KPIs (BP / FDD DL IP throughput / DL and UL PRB utilization / traffic volume / RRC users) at over the same period". These two are **deliberately kept apart**: only "speed" is a head-to-head between the two operators, while the other six are network-side KPIs belonging to neither. The page has two layers: a head-to-head layer (composite score -> speed cards -> dual-line trend -> daily win/loss -> monthly and daily tables) and a network-KPI layer (summary cards + single-line trend).
 
-- Quick ranges at the top (90 / 180 / 365 days / all time) plus date pickers; the window is **half-open** internally while the UI shows a closed range. The default is 365 days rather than 90 because this table spans 612 days and a short window would cut off the long-term trend
+- Quick ranges at the top (30 / 90 / 180 / 365 days / all time) plus date pickers; the window is **half-open** internally while the UI shows a closed range. The page opens on the **last 30 days**, with the right edge anchored to the latest day that actually has data (identical to what clicking "last 30 days" gives; narrowed from 365 days on 2026-11-16); switch to 90 / 180 / 365 days or all time when you need the seasonal or long-term picture
 - The competitiveness score is **relative between the two operators**: the leader scores 100 and the other scales proportionally. It answers "who is stronger and by how much", not whether the absolute level is good
 - **Why the network KPIs are excluded from scoring**: mixing "how much faster Orange is than MTN" with "how high network-wide PRB utilization is" into one score would treat two different things as two contestants in the same contest, producing a false conclusion. So the six network KPIs only get trends and averages — no wins, no score
 - "Speed" is the download-speed comparison between the two operators (the fixed columns orange_liberia / mtn_liberia in the database), one row per day; when the two are equal it counts as a "tie" and is **not credited as a win to either side** (a note at the top states how many such days there are)
@@ -2295,6 +2303,7 @@ LTE packet loss board (RAN UME SDR / IPRAN IPPD): last 7 complete calendar days 
 - The three easiest misreadings are stated in the bubbles: **the status pie includes sites without coordinates, the region bars count non-OK sites only (Minor and Warning included), and the header Affected Sites is Critical + Major only** — three different sets that were never meant to reconcile
 - The daily-trend median **uses only readings above 0 for that day** (about 59% of hourly readings are 0, so a full median collapses to zero and stops being meaningful), while Top sites use a **per-site median that includes zeros** (otherwise "half a day fully down" and "fully down all day" both become 100 and the ranking loses its point) — the same word "median" for two calibers, each stated where it is used
 - This page used to carry two hand-written popovers (their own copy button, theme colours and emphasis rendering); both were deleted in favour of `components/MetricExplain`. The drill "N rows" bubble now states that it is the count after the search-box filter and that the API truncates at a cap
+- **Site-type filter (2026-11-17)**: the dropdown on the right of the Packet Loss Status bar filters by the master-data site type (ERA / COOL / NORMAL, from `eflow_site.site_type`; what you call `COOLI` is stored as `COOL`) and **every number on the page follows** — total sites, Affected Sites, the six status cards, the pie, region bars, daily trend, Top sites, map dots and legend, and the drill-down detail all switch to the selected grade. **It opens on NORMAL** (the user caliber); pick `All` for the whole network. The two numbers in brackets are "sites covered by packet-loss monitoring / sites in the master data", always the full distribution (unchanged when you switch): ERA `197/216`, NORMAL `520/600`, COOL `0/64` as measured. **COOLI being 0 is not a missing feature**: all 64 COOL sites are in the UME inventory, but packet loss comes only from the `SDR_IPPD` / `ITRAN_IPPD` IP-transport templates and those sites have no reading at all in the source table `packet_loss_data` (0 hits by code and by fuzzy name), so the grade is greyed out. Sites that cannot be matched in eflow_site by code or name fall under "Unmapped site" (4), keeping 197 + 0 + 520 + 4 = 721 consistent with "All"
 
 #### Battery Dashboard（`battery`）
 
@@ -2346,6 +2355,18 @@ CN KPI 5-minute dashboard: overlays today (Day0), yesterday (Day1) and 7 days ag
 - The header tags "N/N widgets with data", "elapsed / cache" and "N failed" are hover-explainable too: empty and failed widgets are both **excluded** from "with data", and the failure count covers query errors only
 - "Export Excel" writes one sheet per widget, expanded as Day0 / Day1 / Day7 columns by time of day (only the days that widget actually has)
 
+#### cn_hourly_kpi（`cn_hourly_kpi`）
+
+CN Hourly KPI board: an HOURLY-granularity view of xGW session/throughput capacity and MGW/MRFP resource utilization, with a selectable date range (last 7 days by default, up to 31 days). The data comes from 3 templates parsed out of the UME "KPI Template" export file KPI Template.xlsx (templates created 2026-11-17); task cn_hourly_kpi_sync pulls them at gr=3600 every day at 06:20 into the <template>_UME tables in db_ps_cs_cn. Caliber (set 2026-11-18): the Resource_Utilization and Resource_Capacity template families duplicate each other, so only Utilization is kept; Object Scope=ALL, covering every network element.
+
+- Seven widget cards: xGW PFCP sessions used, xGW session occupancy(%), xGW throughput used(Mbps), xGW throughput occupancy(%), and MGW/MRFP TONE/TC/RTP utilization(%). The first four plot xGWU22/xGWU122 (occupancy is a single merged ALL line), the last three plot MGW_91/MGW_92/MRFP_96
+- Change the date range with the range picker (inclusive endpoints); the board refetches immediately and is capped at 31 days (same tier as the backfill window)
+- **Every widget title explains its value on hover**: the ⓘ spells out the aggregate per card — session/throughput usage is a SUM over NE-hours, occupancy is SUM(Used)×100÷SUM(Authorized) weighted across NEs, and resource utilization is the upstream composite-KPI value as-is (e.g. 100*C408230024/(Gr*C408230021), Gr=3600s) with no recomputation on the page
+- The first month of history comes from the backfill command: python -m backend.services.cn_kpl.cn_hourly_kpi_service --days 31; afterwards the daily 06:20 run appends new hours automatically (2-day window by default)
+- The header tags "N/N widgets with data", "date range" and "N failed" are hover-explainable too: empty and failed widgets are both excluded from "with data"
+- "Data caliber notes" is collapsed by default (click the title to expand): template origin, the Utilization/Capacity choice, Object Scope=ALL and the utilization formulas are all in there
+- "Export Excel" writes one sheet per widget, expanded per NE column by hour, for reconciliation
+
 #### UME iMonitor Screen（`imonitor`, iframe page）
 
 UME iMonitor screen (guard-imonitor-iui, screen_id=1): embeds the original UME monitoring screen from the UME portal (172.17.208.1:28808) inside myapp, keeping all of its charts and interactions. The page is reverse-proxied to the upstream through nginx port 8088 (the portal dedicated-port scheme); on first visit an injected script signs in to em-portal automatically using the credentials from Settings → Credentials ("UME Customer Service KPI Portal", key ume_in). The login page frame-bust is neutralised in the proxy and the iframe additionally carries a sandbox, so the sign-in flow can never replace the myapp shell.
@@ -2362,6 +2383,7 @@ UME iMonitor screen (guard-imonitor-iui, screen_id=1): embeds the original UME m
 Site map: alarm/ticket distribution, topology lines, region polygons and multi-dimension filters (history/ticket view).
 
 - Region dropdown + layer tags to filter; click a legend item to hide that layer; time supports segments and custom range
+- The top-left "Layers" panel has three checkboxes — Place labels / Roads / Personnel — all **off by default**: place labels (17k names in the tiles) would bury the sites, and personnel are registered positions (not live GPS), so turn them on only when needed
 - The first cell of the "Advanced Filter" panel is a "Site Name" input: fuzzy match on a name fragment (case-insensitive); the rest are dropdowns for region/grade/form/FME etc.
 - Statistics follow the filter: site total and the ERA/COOL/NORMAL grades, the map legend, the county block colors and county labels, and the "MAINTENANCE ALERTS" county ranking panel are all recomputed from the filtered sites instead of showing the full-set numbers;
 - Click a site to open the right drawer: four tabs, searchable, exportable to Excel
@@ -2380,7 +2402,7 @@ Realtime mode of the GIS map: current active-alarm sites on the map (red "realti
 - Interactions are identical to the GIS Map page
 - Data comes from eFlow active alarms (eflow_active_alarm) synced every minute
 - The "Root Cause Aggregation" card clusters the down sites within your current advanced-filter scope — topology roots (an upstream site is down, so the sites hanging off its link path go down with it) and same-cause clusters (sites without a link path grouped by alarm problem + a 10-minute time window), each with cause type, affected-site count and a confidence score; click an entry to see member details and evidence (link paths, time window, eFlow impact list); member site names open the site drill-down drawer
-- The "attributed/total" counter in the title uses the same **site** unit as Site Stats: attributed = sites that share a root cause with peers; the rest are isolated failures (upstream healthy, no same-window peers — the site itself is its own cause) — click the footnote to open the unattributed **alarm details**, the same project-standard detail table as clicking an entry in Alarm Stats (site / TT / priority / alarm time / duration / overdue), and verify against the map
+- The "attributed/total" counter in the title uses the same **site** unit as Site Stats: attributed = sites that share a root cause with peers; the rest are isolated failures (upstream healthy, no same-window peers — the site itself is its own cause) — click the footnote to open the unattributed **alarm details**, the same project-standard detail table as clicking an entry in Site Stats (site / TT / priority / alarm time / duration / overdue), and verify against the map
 - A root site may fall outside your filter scope (flagged "Out of scope") — outage causes often sit outside your current view; this is expected and is exactly the value of the analysis
 - The "AI Insights" button generates a natural-language conclusion using your own LLM key (stored only in your browser); when AI is unavailable it degrades to a local rule-based summary and is clearly marked — the cluster list itself is unaffected
 

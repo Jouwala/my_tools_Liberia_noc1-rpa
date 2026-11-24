@@ -1,4 +1,4 @@
-# Liberia NOC/SOC 数据看板统一门户
+﻿# Liberia NOC/SOC 数据看板统一门户
 
 聚合 **FineBI 决策报表中心（Liberia Data Portal）** 与 **Data Insight MVP 自研系统（my_app）** 全部看板的统一入口门户。React + Vite + Tailwind CSS v4 实现，默认深色 NOC 值班主题，配色对齐 my_app（深海军蓝底 + teal/cyan 点缀）。
 

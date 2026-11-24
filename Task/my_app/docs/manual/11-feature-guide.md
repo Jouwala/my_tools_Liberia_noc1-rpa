@@ -40,6 +40,7 @@
 | 25 | RAN 小区 KPI | `ran_cells_kpi` | React |
 | 26 | CN KPI | `cn_kpi` | React |
 | 27 | CN KPI 5分钟 | `cn_kpi_5mins` | React |
+| 27b | CN 小时KPI | `cn_hourly_kpi` | React |
 | 28 | 客户业务 KPI | `ume_in_kpi` | React |
 | 29 | CXO 经营看板 | `cxoDashboard` | **iframe** |
 | 30 | VMAX CXO 原版看板 | `vmaxCxoDashboard` | **iframe** |
@@ -314,7 +315,7 @@
 - **TT 统计不含 Alarm Severity**（2026-09-26 按业务要求移除）：该维度与 Ticket Severity 高度重复。`tt_stats.alarm_severity` / `category` 后端仍返回（其他页面与下钻维度在用），只是本页不再渲染。
 - **汇总数字挂在「TT Statistics」标题旁**（2026-10-17 改）：原先 TT 总数 / WO 总数 / WO 编号(唯一) 各占一排大卡，首屏只放一个大数字、上下都是留白。现改为 `SectionTitle` 的 `summaries` 行内徽标（`TTWODashboard.tsx` 的 `SectionTitle` 组件），**有条件下发的规则不变**（`showTtTotalCard` / `showWoSummaryCards` / `showWoNoCard`），徽标本身仍可点击下钻，Excel 导出的 `Summary` sheet 与页面保持同一套显示条件。
 - **Ticket Severity 按 P1 → P2 → P3 → P4 固定序**（2026-10-17）：`renderStatCards()` 的第五个参数 `fixedOrder` 显式传入 `['P1','P2','P3','P4']`；不在列表内的脏取值排末尾、仍按数量降序。导出侧由 `sortBySeverityOrder()`（`SEVERITY_ORDER`）保证同序，界面与导出上下对得上。
-- **Status 维度改为生命周期里程碑**（2026-10-17，参照 `?page=incident_overview` 的 `status-line` 版式）：`renderStatusMilestones()` 把 `eflow_wo.status` / `eflow_tt.status` 的**原始状态名**按 `STATUS_MILESTONES` 的精确 `match` 列表归并成「派单 → 受理 → 到场 → 处理中 → 离场 → 待确认 → 关闭」七个圆点节点，圆点内为该阶段合计、节点下方为该阶段各原始状态及其单数。
+- **Status 维度改为生命周期里程碑**（2026-10-17，参照 `?page=incident_overview` 的 `status-line` 版式）：`renderStatusMilestones()` 把 `eflow_wo.status` / `eflow_tt.status` 的**原始状态名**按 `STATUS_MILESTONES` 的精确 `match` 列表归并成里程碑节点 —— WO 侧为「派单 → 受理 → 等待出发 → 等待到达现场 → 处理中 → 现场确认 → 待确认 → 离场 → 关闭」九个节点（2026-10-19 起改为卡片式步骤条；2026-11-16 起「离场」由「处理中」之后移到「待确认」之后、「关闭」之前），节点内为该阶段合计与各原始状态明细。
   - **阶段顺序依据 2026-10-17 用户提供的 `POST /api/eflow-wo/v1/flow/runtime/queryAllSteps` 真实步骤链**：`Create → Accept → Accepted → Arrive Site → Start Processing → Process → Confirm → Closed`。里程碑按这条链从左到右排，不按单数多少排。
   - **`eflow_wo` 实测 11 种状态已全部命中阶段**（2026-10-17 核对：`Closed` / `Wait For Confirm` / `Waiting for Accept` / `Waiting for Process(Suspended)` / `Waiting for Leave Site` / `Waiting for Departure` / `Waiting for Arrive Site` / `Waiting for Departure(Suspended)` / `Waiting for BONPO Process` / `Phased Reply`），因此「其他」节点在 WO 页正常情况下不出现。新增状态后再核对一遍；仍未命中的会被单列到「其他」，**不允许**改成模糊匹配来「消灭」它。
   - **归并必须精确匹配，不能模糊匹配**：`Waiting for FO Process(WO RCA to FO Confirm)` 这类串若按关键词归组会串到别的阶段；新增状态未命中任何 `match` 时落到「其他」节点单列，**宁可多一个点也不静默吞数**。
@@ -385,7 +386,7 @@
 - **出什么**：统计（严重度 / SLA 状态 / 工单状态流转）→ MTTR 趋势（P1/P2/P3/P4 × 日/周/月 双轴图）。默认时间窗近 30 天。数据源 `eflow_tt`。
 - **汇总数字不再独占一排（2026-10-17）**：「TT 总数」从独立汇总卡改为「TT Statistics」分区标题旁的徽标（`SectionTitle` 的 `summaries`），点击仍下钻 `all_tt`，省掉首屏一整排只有一个大数字的高度。`page=wo` 同理只保留「WO 总数」徽标。
 - **Ticket Severity 固定 P1→P4 序（2026-10-17）**：该维度按级别排，不按数量降序 —— 否则 P3 单多的月份会显示成 P3 在 P2 前面，看起来像级别顺序变了。固定序由 `renderStatCards` 的 `fixedOrder` 参数给出，未识别的取值排在末尾。
-- **Workflow 里程碑（2026-10-17）**：区块名中英统一为 **`Workflow`**（key `ttwo.statusMilestone`）。状态原值有 12 种（`Waiting for FO Process(WO RCA to FO Confirm)` 等），平铺成卡片无法扫读。现在按业务生命周期归并为里程碑 —— 派单 → 受理 → 到场 → 处理 → 离场 → 现场确认 → 客户确认 → 关闭 —— 版式参照 `page=incident_overview` 的「圆点 + 连接线」（`renderStatusMilestones`）。归类表 `STATUS_MILESTONES` **按原始状态名精确匹配**（含 `Wait For Confirm` 大小写变体与 `(Suspended)` 变体）；只影响展示，下钻仍是 `dimension=status` + 原值。一个阶段含多个原值时，圆点显示合计但不可点，下方逐条列出并各自可点，保证「数字 = 下钻行数」。未识别的状态落到「其他」，不静默吞数。各阶段圆点与文字同色、同字重（需求：字体颜色一样）。
+- **Workflow 里程碑（2026-10-17）**：区块名中英统一为 **`Workflow`**（key `ttwo.statusMilestone`）。状态原值有 12 种（`Waiting for FO Process(WO RCA to FO Confirm)` 等），平铺成卡片无法扫读。现在按业务生命周期归并为里程碑 —— WO 侧为派单 → 受理 → 等待出发 → 等待到达现场 → 处理中 → 现场确认 → 待确认 → 离场 → 关闭（2026-11-16 起「离场」排在「待确认」之后，「关闭」仍是终态；WO 页的顺序取前端 `WO_MILESTONES` 的声明顺序，不读上游 `stage_order`）—— 版式参照 `page=incident_overview` 的里程碑样式（`renderStatusMilestones`）。归类表 `STATUS_MILESTONES` **按原始状态名精确匹配**（含 `Wait For Confirm` 大小写变体与 `(Suspended)` 变体）；只影响展示，下钻仍是 `dimension=status` + 原值。一个阶段含多个原值时，圆点显示合计但不可点，下方逐条列出并各自可点，保证「数字 = 下钻行数」。未识别的状态落到「其他」，不静默吞数。各阶段圆点与文字同色、同字重（需求：字体颜色一样）。
 - **阶段顺序以 eFlow 流程图为权威（2026-10-17）**：新增 `GET /api/tt-wo-dashboard/workflow`（服务层 `backend/services/eflow_workflow_service.py`），向前端下发 `stage_order` / `main_path` / `node_to_stage`。前端用它给里程碑排序，取不到时**静默回落**到 `STATUS_MILESTONES` 的本地声明顺序（里程碑数字来自本地库，只有顺序依赖该端点，故不会空态）。
   - ⚠ **上游调用契约（实测确认，勿凭直觉改）**：`POST /api/eflow-ticket/v1/flow/runtime/queryAllSteps`，`Content-Type: text/plain`，body 是**裸字符串 `eflow-tt`** —— 不是 JSON，也不是单号。按 JSON 传 `{"ttNo": ...}` 等键名一律 `500 {"code":48990002,"message":"Failed to send request!"}`，那个 500 是 **body 解析失败**，不是「单号不存在」。
   - **该端点返回的是流程定义**（8 个节点 + 节点间连边 + 出口条件），**不是某张单的步骤历史**。实测主干：`Create → FOAccept → FOProcess → BOAccept → BOProcess → ThirdAccept → ThirdProcess → Confirm → Closed`。图是有环的（`Confirm` 可驳回回 `FOProcess` / `ThirdProcess`），服务层用 DFS 取最长路径作主干，不画环。
@@ -576,6 +577,7 @@ IP RAN 光纤层的网元—链路关系图（React + 自绘 SVG 画布），数
 - 数据来自 `GET /api/mw-ume/realtime`，底层表 `mw_ume_bw_ultilazation_rt` 由 `mw_ume_kpi_sync_rt` **每 15 分钟**（`*/15 * * * *`）写入：取最近 2 小时、`gr=900` 的 FINBI 数据，看板默认只展示**最新一个 15 分钟槽位**，滑杆可回看窗口内的历史槽位。
 - 与日粒度页的区别仅此而已：拓扑骨架、风险榜、抽屉、趋势图逻辑完全一致。
 - **门户 GIS Map 的 MW 页签**（2026-11-10）：外层带 `mwembed=1`，`LegacyToolFrame` 把它和 `theme` 传进内层 `mw_real_time.html`。内层因此藏掉标题栏、KPI、右栏和底栏，地图铺满，跟 Alarm / Person / IP 一样只留地图；点链路的抽屉仍在。直开不带 `mwembed` 时仍是完整看板。
+- **默认取景与图例**（2026-11-16）：`/v3/olbrportal/` 的 MW 页签打开后由门户自动再放大一级（内层 `fitAllSites()` 落 zoom 7 → 8，见门户 `MAP_ZOOM_IN_BY_PAGE.mwRealTime`）；地图左下角新增健康度图例（Healthy / Minor / Major / Critical / Unknown + 县界，颜色取同一套 `--vmax-lvl-*` 令牌，Unknown 与县界为虚线）。图例做在 `mw_real_time.html` 的 Leaflet 控件里，所以直开本页也能看到；地图容器窄于 560px 时隐藏，避免遮挡链路。门户自动放大只发生在 v3 的 MW 页签，直开本页不套门户逻辑。
 
 ## 10 / 11. GIS 地图 与 实时告警地图（`?page=gis` / `?page=realtime_alarm`）
 
@@ -628,13 +630,13 @@ IP RAN 光纤层的网元—链路关系图（React + 自绘 SVG 画布），数
     3. **地图本身**：`height: '100%'`。
   - **⚠️ `rootStyle` 里的 `flex:1` 是最容易漏掉的一条**，漏了会表现为「地图确实变高了，但底部仍恒留 114px（且**所有分辨率都一样**）」。原因：根节点的父级 `<main class="ant-layout-content dashboard-layout-shell">` 是 **flex 列容器**，根节点作为其子项默认 `flex-grow:0`，于是只按自己的 `minHeight`（`--wh-page-min-height` = `842px` @950 视口，见 `index.css:122`）占高而非撑满。**「留白是个恒定值」基本就是这个信号** —— 差的是「视口高 − 令牌算出的最小高」那部分没人认领的空间。
   - **`minHeight:0` 也不能省**：flex 子项默认 `min-height:auto`，会按内容撑开、既压不下去也撑不满。
-  - **上面的兄弟卡片要 `flexShrink:0`**，否则会被 flex 压扁（`theme.ts:132-138` 记录了同类故障：筛选条曾被压成 1591×2px）。工具栏卡片用的 `controlCardStyle` 已自带；OSS 统计卡（仅实时模式）是单独加的。
+  - **上面的兄弟卡片要 `flexShrink:0`**，否则会被 flex 压扁（`theme.ts:132-138` 记录了同类故障：筛选条曾被压成 1591×2px）。工具栏卡片用的 `controlCardStyle` 已自带；左列各统计卡（Site Stats / TT 优先级 / RCA，均仅实时模式）是逐张单独加的。
   - **实测**（覆盖 5 种分辨率×模式）：底部间隙 **198px → 6px**，且各分辨率**恒为 6px**（就是页面内边距 `--wh-space-xs`）。地图占视口比 75%~91%，无纵向滚动条、无 pageerror。
 
 - **图层合并（2026-09-28，用户要求）**：`?page=gis` 全量模式的 Layers 由 `RT Alarm / His Alarm / TT / WO` 四项**改为 RealTime / History 两项**。
   - **History 一档涵盖 历史告警 + TT工单 + WO工单**：判定 `hisAnyHit()`（`GISMap.tsx`）＝ `his_alarm_count > 0 || open_tt > 0 || wo_count > 0`，**任一命中即算 History**。着色优先级 `RT > History`（同一站点两者都有时红色压过灰色——实时才是当前要处置的）。
   - 图例同步收敛：全量模式隐藏 `tt` / `wo` 两个图例项（它们已被并入 History，留着会让同一批站点被数两遍），`gis.legend.hisAlarm` 文案直接是 **`History`**（中英同值，与 `RealTime` 配对）。
-  - **实时页（`?page=realtime_alarm`）刻意保持 `RealTime / TT / WO` 三项不变**：那里的 TT/WO 是「当前告警所带工单」（由告警 `tt_id` 派生），是告警关联关系的直观体现，不属于「历史记录」，合并进 History 会丢语义。**即：图层键 `tt`/`wo` 在两种模式下语义不同**，改这片逻辑前先分清模式。
+  - **实时页（`?page=realtime_alarm`）的图层口径仍是 `RealTime / TT / WO` 三项不变**：那里的 TT/WO 是「当前告警所带工单」（由告警 `tt_id` 派生），是告警关联关系的直观体现，不属于「历史记录」，合并进 History 会丢语义。**即：图层键 `tt`/`wo` 在两种模式下语义不同**，改这片逻辑前先分清模式。2026-11-16 起该页**不再渲染这三个图层开关**（用户要求隐藏，见 10 节末尾），但绘制口径与 `activeLayers` 默认值不变。
   - **下钻抽屉刻意不合并**：`SiteDrilldownDrawer.tsx` 仍按「历史告警 / TT / WO」分页签、导出文件名仍是 `His_Alarm_*`。明细视图里这三个**要分开看**（告警条数与工单数是不同口径，合并后无法核对），与地图图层「一眼看哪些站点出过事」的诉求不同。
   - **图例计数随时间窗口变化**：默认窗口是「近7天」，故 History 图例在默认视图下只有 200+ —— 切到「全部时间」后才是全量口径（实测 **History 758 + RT 38 = 796**，与后端任意命中数一致）。**验收时务必先切「全部时间」再对数**，否则会以为合并口径算错了（本次排查踩过）。另外 `site_type_stats`（ERA/COOL/NORMAL）是**窗口无关**的资产属性统计，两个数字天然对不上，这是预期。
   - 站点配色随之简化为「现在有告警(RT) / 历史上出过事(History) / VIP / 普通」。
@@ -654,9 +656,9 @@ IP RAN 光纤层的网元—链路关系图（React + 自绘 SVG 画布），数
 - **筛选开始时自动解除 normal 隐藏（2026-11-03 修复「筛选站点后地图上看不到」）**：用户按站名/高级筛选缩小范围后，「normal 太多会淹没告警站」的前提不再成立 —— 筛选本身已完成缩小。实测筛选 `lofa bridge`：命中 1 站（`Total Sites: 1/874`），该站 `rt_alarm_count=0` 归类 normal → `On Map: 0/1`，一个点都不画，用户以为筛选坏了（还误以为是被人员图层抢了显示）。修法：`activeFilterCount` 从 0 → 正的**那一刻**自动把 `normal` 从 `hiddenLegends` 移除（`GISMap.tsx` 的 `hadAnyFilterRef` effect，只在「从无到有」转换时触发 —— 筛选 1→2 不反复推翻用户手动重新隐藏的操作；清除筛选后**不**自动恢复隐藏，保持「用户最后一次选择」语义）。回归实测（Playwright）：默认视图仍只画 91 个告警+VIP 站（2026-09-25 约定不回归）；筛选后 `On Map: 1/1`；清除筛选后 874 站全画（normal 保持显示）。
 - **视野中心跟随筛选范围（同日配套）**：`center` 由「恒为全量 sites 重心」改为「跟随 `criteriaSites`（筛选无命中时回落全量重心）」。原先筛选后即使站点画出来也可能贴边难辨 —— Lofa Bridge 在西北角 Grand Cape Mount，全量重心视野下贴边。刻意跟 `criteriaSites`（数据范围筛选）而非 `filteredSites`（还受图层/图例影响），与统计卡口径原则一致：关图层/图例不该让视野跳走，只有「关心哪些站」变了才重新定视野。
 - **默认实际绘制 88 站**（38 实时告警 + 50 VIP）＋ 844 条链路，而非全量 827 站。
-- 两套控制机制并存，别混淆：**图层 Tag** 控 `activeLayers`（全量模式：RealTime / History；实时模式：RealTime / TT / WO），**图例点击**控 `hiddenLegends`（normal/VIP）。`normal` 走的是后者，初值 `new Set(['normal'])`，所以图例上它以删除线+「已隐藏」呈现，用户**点一下即可恢复**——这是刻意的，比完全移除该项更好发现。图例已移入地图左下角浮层（见 10a），但这个能力没变。
+- 两套控制机制并存，别混淆：**图层 Tag** 控 `activeLayers`（全量模式：RealTime / History；实时页 2026-11-16 起不渲染图层 Tag，三层按默认全开绘制），**图例点击**控 `hiddenLegends`（normal/VIP）。`normal` 走的是后者，初值 `new Set(['normal'])`，所以图例上它以删除线+「已隐藏」呈现，用户**点一下即可恢复**——这是刻意的，比完全移除该项更好发现。图例已移入地图左下角浮层（见 10a），但这个能力没变。
 - **⚠️ 图层开关不只是配色**：`getSiteCategory` + `filteredSites` 会据 `activeLayers` 与 `hiddenLegends` 把该类别站点从地图上**过滤掉**。地图站点变少是「只显示实时告警」的预期效果，不是漏画。
-- 实时告警地图（`?page=realtime_alarm`）仍是 `rt_alarm + tt + wo`（**2026-09-28 的图层合并不适用于它**，原因见上方「图层合并」小节）：那里的 TT/WO 由告警的 `tt_id` 派生，属于告警的关联信息，不算「用户额外打开的图层」。`normal` 的隐藏初值也**不影响它** —— 该页的 `filteredSites` 分支只认 `rt_alarm_overdue`/`rt_alarm_ontime`/`tt`/`wo`/`vip`，不含 `normal`。
+- 实时告警地图（`?page=realtime_alarm`）仍是 `rt_alarm + tt + wo`（**2026-09-28 的图层合并不适用于它**，原因见上方「图层合并」小节）：那里的 TT/WO 由告警的 `tt_id` 派生，属于告警的关联信息，不算「用户额外打开的图层」。2026-11-16 起该页隐藏了这三个图层开关（连同 `Zoom:` 档位与「Utilization Legend」按钮），但**绘制口径未变**。`normal` 的隐藏初值也**不影响它** —— 该页的 `filteredSites` 分支只认 `rt_alarm_overdue`/`rt_alarm_ontime`/`tt`/`wo`/`vip`，不含 `normal`。
 - 图层开关状态不做持久化（存在组件 `activeLayers` / `hiddenLegends` 里），刷新页面即回到上述默认值。
 - **点站点 → 右侧抽屉**（组件 `pages/gismap/SiteDrilldownDrawer.tsx`）四个页签，可搜索、可导 Excel。
 - **抽屉 Basic Info 含 IPT 电源状态**（2026-11-03 新增）：`/api/gis/drilldown/{site_id}` 与 `/api/gis/realtime/drilldown/{site_id}` 返回体新增 `power` 字段（`gis.py::_lookup_site_power`），按**站点名**关联 `ipt_power_sites` + 最新 `ipt_power_snapshots`，与 `?page=ipt_power` 完全同源。站名归一化匹配（忽略大小写 / 多余空格 / `\xa0` 不可见空格；实测 874 个 GIS 站中 419 站能对上；拼写不同的**不做**模糊匹配，宁可显示 `—` 也不接错站）。前端在 Basic Info 里占一整行（`SiteDrilldownDrawer.tsx`，`span=2`）：连接状态 Tag + SOC/电压/负载/太阳能/发电机/快照时间，口径说明挂标签 ⓘ（`gis.drilldown.powerExplain`）。未匹配 / IPT 表未建 / 旧后端无该字段时显示 `—`；快照只有 watch 清单（`backend/services/ipt_data/watch_sites.json`）内的站点才有，缺失字段显示 `—` 不显示 0。
@@ -829,8 +831,9 @@ IP RAN 光纤层的网元—链路关系图（React + 自绘 SVG 画布），数
 
 ### 10d. 人员图层：人员位置 + 其 WO + 人员→站点路线（2026-10-16 新增，**仅 `?page=gis`**）
 
-工具栏 **Layers 组里「Realtime」右侧的「显示人员」按钮**（2026-10-16 从工具栏尾部
-移入 Layers 组、且**默认开启**）开启后：地图上按 `person` 表的登记坐标画**水滴形地图针**
+地图**左上角 LAYERS 浮层里的「人员」勾选框**（2026-11-16 由工具栏「显示人员」按钮移入，
+且**默认关闭** —— 人员针与站点圆点叠在一起时地图偏乱，默认只留站点，要看人再勾）勾上后：
+地图上按 `person` 表的登记坐标画**水滴形地图针**
 （针内白色圆底 + 人形剪影，造型 2026-10-16 按用户参考图重做）；每个针旁**常驻标签
 显示 `未清除:未清除告警数/未关闭数`**（如 `未清除:27/62`，2026-10-16 改口径，
 原为 `WO:未关闭/总数`；分子 > 0 时红色、否则灰色，并带 `title` 提示完整含义）；
@@ -1270,12 +1273,12 @@ PMT 取不到时显示 `—` 而不是 0（AGENTS.md 三.6），所以 `pmt_open
 - `GET /api/gis/realtime/rca?region=…&trm_type=…&site_name=…` —— 10 个筛选参数与 `/realtime/sites` 逐字相同 + `site_name`（站名子串，`LIKE ? ESCAPE '\'` 且通配符放**参数值**里—— psycopg2 对带参 SQL 里的字面量 `%` 会当占位符解析报 IndexError；`%`/`_`/`\` 做了 ESCAPE 转义）。返回 `clusters[]`（按 `member_count` 降序，>100 截断置 `meta.truncated=true`）+ `meta`（口径计数：`covered_sites`/`uncovered_sites`/`satellite_sites`/`orphan_alarm_rows`/`eflow_root_unmatched` 等，卡片脚注显式给出未归因站数，防静默漏站；`meta.uncovered_site_ids` 供路由层挑明细行）+ `uncovered_alarm_rows`（未归因站的**告警明细行**，见下）+ `uncovered_truncated`（明细超 500 条显式截断，`gis.py::UNCOVERED_ALARM_LIMIT`）。
 - `POST /api/gis/realtime/rca-narrative` —— LLM 自然语言解读（用户决策：一并实现）。body = 同样的筛选参数 + `provider/api_key/model/base_url/lang`；服务端**重算**确定性聚类再喂给 LLM（不信任客户端回传，`routers/gis.py::RcaNarrativeIn`）。降级约定与 `alarm_attribution_service.attribute` 一致：`provider=='local'` / 无 key / 调用异常 → `local_summary` + `note`，永不抛错误页。api_key 只随请求体进出、不落盘不写日志；前端与 `DataAgentBar` 共用 localStorage 键（`myapp-data-agent-key-{provider}` 等）。
 
-**前端**（`GISMap.tsx`）：实时模式统计列第 4 张卡（TT 优先级卡之后），标题右侧「AI 解读」按钮（第二个 `DraggableClickModal`：provider/key/model/base_url 配置 + 结果段落，`provider==='local'` 显示金色「本地规则模式」Tag、降级 note 原样展示）；簇条目 = 根因站名 + 类型 Tag + 受影响站数 + 置信度%；点条目开成员明细弹窗（上方证据块：根因站告警/链路路径/时间窗/eFlow 影响面；成员站名可点 → 复用 `handleSiteClick` 开下钻抽屉；导出走 `exportAoaReport`）。取数：`useEffect` deps `[mode, selectedRegion, selectedFilters, siteNameQuery]` + 300ms 防抖，**不走 cachedGet**（实时数据须与地图同代）。簇/类型标签用显式 switch 返回字面量 i18n 键（`rcaKindLabelKey`/`rcaCauseLabelKey`，防 `check:i18n` 拦动态拼接）。
+**前端**（`GISMap.tsx`）：实时模式统计列第 3 张卡（TT 优先级卡之后；Alarm Stats 卡已于 2026-11-16 删除，故从第 4 张前移），标题右侧「AI 解读」按钮（第二个 `DraggableClickModal`：provider/key/model/base_url 配置 + 结果段落，`provider==='local'` 显示金色「本地规则模式」Tag、降级 note 原样展示）；簇条目 = 根因站名 + 类型 Tag + 受影响站数 + 置信度%；点条目开成员明细弹窗（上方证据块：根因站告警/链路路径/时间窗/eFlow 影响面；成员站名可点 → 复用 `handleSiteClick` 开下钻抽屉；导出走 `exportAoaReport`）。取数：`useEffect` deps `[mode, selectedRegion, selectedFilters, siteNameQuery]` + 300ms 防抖，**不走 cachedGet**（实时数据须与地图同代）。簇/类型标签用显式 switch 返回字面量 i18n 键（`rcaKindLabelKey`/`rcaCauseLabelKey`，防 `check:i18n` 拦动态拼接）。
 
 **口径自洽（2026-10-21 用户质疑「Site Stats (31) vs RCA (3) 对不上」后的修正）**：
 - 原标题括号里的数字是**簇数**，与 Site Stats 的**站数**不同单位，必然看着"不自洽"。已改为 `已归因站数/告警站总数`（如 `(6/31)`），与 Site Stats 同单位可直接对拍；hover 提示（`gis.rca.titleHint`）给出簇数与口径解释。
 - **未归因 = 31 − 6 = 25 个站是孤立故障**：上游没告警、下挂没人跟着断、也没有同窗口同问题的同伴 —— 它们的根因就是自己，不进任何"共享根因"簇（这正是 RCA 的定义：只找**相同原因**）。卡片脚注（`gis.rca.metaLine`）**可点击**，打开"未归因告警明细（孤立故障）"弹窗，用户可对地图逐点核验"剩下的站都去哪了"。
-- **未归因弹窗 = 项目默认告警明细列（2026-10-21b 用户要求，明细参考点击 Alarm Stats 条目的弹窗）**：不再用自造的 4 列精简站点表，改为一行一条**告警**、与 `/realtime/oss-alarms` 下钻**同键同形**的明细行（站点/站名/区域/省县/TT/告警标题/告警码/优先级/告警时间/时长/是否超时，前端直接复用默认 `drillColumns`，导出也落同一个 11 列通用分支）。实现：`gis.py::_realtime_rca_payload` 在连接内先跑 `compute_rca`，按 `meta.uncovered_site_ids` 从**同一次扫描**的 `rca_rows` 里挑出未归因行（`rca_rows` 已在扫描时补上 `servertime/duration/overdue` 三列），再用同一个连接走 `_resolve_tt_priorities`（镜像优先+实时补漏）解析优先级 —— 弹窗行所属站点与脚注"未归因 N 站"出自同一次响应，数字必然一致；截断超 500 条显式暴露（`uncovered_truncated` + 弹窗红色 Tag）。
+- **未归因弹窗 = 项目默认告警明细列（2026-10-21b 用户要求，明细参考点击 Site Stats 条目的弹窗）**：不再用自造的 4 列精简站点表，改为一行一条**告警**、与 `/realtime/oss-alarms` 下钻**同键同形**的明细行（站点/站名/区域/省县/TT/告警标题/告警码/优先级/告警时间/时长/是否超时，前端直接复用默认 `drillColumns`，导出也落同一个 11 列通用分支）。实现：`gis.py::_realtime_rca_payload` 在连接内先跑 `compute_rca`，按 `meta.uncovered_site_ids` 从**同一次扫描**的 `rca_rows` 里挑出未归因行（`rca_rows` 已在扫描时补上 `servertime/duration/overdue` 三列），再用同一个连接走 `_resolve_tt_priorities`（镜像优先+实时补漏）解析优先级 —— 弹窗行所属站点与脚注"未归因 N 站"出自同一次响应，数字必然一致；截断超 500 条显式暴露（`uncovered_truncated` + 弹窗红色 Tag）。
 
 **边界**：78 量级的卫星站无 `link_path`，只走同因聚集或计入 `meta.uncovered_sites`，不会误挂到拓扑簇；脏 site_id 复用扫描内 `_build_site_id_resolver` 归位，孤儿计 `orphan_alarm_rows`；`raised_ms` 缺失的行不参与 B 簇时间窗但仍计数；缺列部署（旧库）由 `rt_cols` 存在性探测兜底（`NULL AS <col>`），RCA 退化为「无拓扑簇」而非 500。
 
@@ -1312,6 +1315,12 @@ LTE 丢包（RAN UME SDR/IPRAN IPPD），最近 **7 个完整自然日、小时�
   下钻「共 N 行」气泡写明它是**搜索框筛过**的行数且接口按上限截断；饼图百分比由 ECharts 按当前显示扇区算，
   用图例隐掉一档后与后端 `status_pie.pct`（分母恒为全量站点）不再相等 —— 这句也写进 ⓘ，避免用户拿两边对账。
 
+- **地图图例移到左下角（2026-11-16 用户要求）**：状态图例原先挤在地图下方控制行的 Layers / Show OK sites 那一带，现**移进地图、贴左下角**，直接复用 `pages/gismap/MapLegendOverlay.tsx`（与 GIS / 人员地图同一份浮层；位置、置灰删除线、点击隐藏都在那边，本页只喂行数据，`PacketLossDashboard.tsx` 只多一个 `MapLegendOverlay` 引用与 `legendRows`）。为了让浮层有定位父级，地图外面包了一层 `position:relative` 的 flex 容器（`:777-800`，画布高度与改造前一致）。三处口径必须记住：① 行数字取 `status_counts`，与顶部状态卡 / 饼图同源，**含无坐标站点**，地图圆点只画有坐标站点（实测 Critical 230 vs 红点 228），这句写进 `pl.legendNote` 的 ⓘ；② 点某行 = 客户端 `hiddenStatuses` 显隐（即刻生效，县名数字联动），不触发取数；③ OK 行同时受 `include_ok` 开关控制 —— 开关关闭时后端不返回 OK 站点（`toggleLegendStatus` 会先把它重新打开），图例据此置灰，避免「图例显示 438、地图一个绿点都没有、点了还没反应」。控制行因此只剩 Layers（地名 / 道路）· Topology · Show OK sites · Map Controls。另：页面根节点加了 `flexShrink: 0` —— `?embed=1`（门户 iframe 与直开内嵌地址）时 App 的 Content 被钉成 `height:100%`，根节点默认 `flex-shrink:1`，内容高于视口时整页被**压进一屏**而不是滚动：头部横幅压到 5px、Top Sites 卡只剩 31px（卡片 `overflow:hidden` 裁掉 380px 画布），看起来就是「Top Sites 只有一行数据」（2026-11-16 用户反馈）。固定为不可收缩后按内容高度排版、由 `main` 滚动；门户的 PL_MAP_ONLY_CSS 用 `!important` 把高度改回 100%，不受影响。
+- **站点类型过滤（2026-11-17 用户要求「在 Packet Loss Status 添加站点类型过滤，如 ERA / NORMAL / COOL」；同日按用户追问两度改版：① COOLI 必须在列表里可见 ② 默认档位改成 NORMAL）**：Packet Loss Status 横幅右侧新增 `Select`，档位取主数据 `eflow_site.site_type`（**ERA / COOL / NORMAL**，与 GIS / 人员页的「站点等级」同一列同一口径；用户口述的 `COOLI` 在库里就是 `COOL`）。选项由 `overview` 的 `site_type_counts` + `site_type_totals` 下发，显示成 `档位 (被丢包监控数 / 主数据总数)`，实测 `All (721/880)`、`ERA (197/216)`、`COOL (0/64)`、`NORMAL (520/600)`、`Unmapped site (4/4)`；分子为 0 的档位 `disabled` 置灰（`0/64` 本身就是答案：这类站点存在、但没被丢包模板采集到）。
+  **默认档位 = `NORMAL`**（2026-11-17 用户明确要求「默认要显示 Normal」），常量 `DEFAULT_SITE_TYPE`；若 NORMAL 某天真的变成 0 个被监控站点（主数据改名、上游停采），`useEffect` 会自动退回「全部」并在控制台留一行原因 —— 默认值跟着数据静默漂移比空页更难排查。
+  **为什么 COOLI 是 0（2026-11-17 实查，不是筛选 bug）**：主数据 64 个 COOL 站在 UME 网元清单 `app.ran_element_management` 里**全部存在**（`moc=SDR`、`nbi_id` 即站点编码），丢包数据来自 `SDR_IPPD` / `ITRAN_IPPD` 两个 IP 承载模板，而这 64 站在源表 `lte_pl.packet_loss_data`（143 万行、724 个 ME）里**按编码、按站名全文模糊查都是 0 条**。也就是说：站点存在 → 只是没有 IP PD 承载的 PM 读数。若业务上认为 COOLI 该有丢包，需在 UME 侧确认这些站是否配了 IP PD 承载，本仓库侧没有可改的关联逻辑。
+  **一参到底**：同一个 `site_type` 同时过滤状态卡 / 饼图 / 区域分布 / 每日趋势 / Top 站点 / 地图圆点，`/overview`、`/map-sites`、`/drilldown` 三个端点都吃这个参数，下钻弹窗透传同一档位并在标题里写明档位 —— **不做「只筛状态卡」**，否则同一页一半数字筛过、一半没筛，用户对不上账只会当成 bug（与「下钻 WHERE 必须与概览一致」同一条纪律）。
+  **实现约束（都踩过）**：① 站点类型取主库实时表（`packet_loss_dashboard.py::_site_type_index`，TTL 600s）而不是 `site_pl_summary` —— 那张表每天 06:30 才整表重写，靠同步落库要等到次日早上才有值；② 「全部」的哨兵值是 **`'all'` 而不是空串**：空串会被 antd Select 当成「没有值」，下拉显示**空白**（2026-11-17 用户反馈「默认显示 Normal 站点的统计」第一版实为此：空白框 + 最大的那组数字），换成 `'all'` 后正常回显 `All (721/880)`，而后端 `_site_type_want()` 本来就认 `'all'` 为不过滤；③ 每日趋势与 Top 站点按 `Managed Element` 末尾 `(CODE)` / 站点名回连到选中档位后再聚合（`_me_in_site_type`），不是只筛站点汇总表，否则趋势里的「受影响站点」会比顶部站点数还大；④ 缓存键必须带档位（`overview:{档位}`），否则切档会命中全量缓存、表现为「下拉变了、数字没变」；⑤ `warmup()` 调 `pl_overview()` 必须显式传 `site_type=""` —— 直接调用省略参数拿到的是 FastAPI 的 `Query` 默认对象，会被当成一个真实（不存在）的档位。
 - 口径与 Excel 报告 `Packet_Loss_Status_Output Automation` **完全一致**：`STATUS` 是 0~23 的标志块，最近 3 天同整点丢包均 >0.5% 记 1，全 0 为 OK；`FINAL_STATUS` 在 OK 时强制 `No Packet loss[<0.1]`，否则按 Last 1 day Max PL 五级分类（:3-5）。
 - 操作：`Switch` 控制是否包含 OK 站点（`include_ok`，:249）、Popover 显示口径说明、下钻 `GET /api/packet-loss-dashboard/drilldown?status=&limit=800`（:273）、拓扑叠加复用 `GET /api/gis/topology`（:224，该端点 2026-09-25 起读 `kml_mw_links`；本页线宽加粗按 KML 线色判定，见 10c）。
 - **站点点击下钻（2026-11-11）**：地图圆点 `CircleMarker onClick` → 统一 `DraggableClickModal`（`placement="top"`，`PacketLossDashboard.tsx:909`；异步内容长高后仍留在视口内），**不再用 Leaflet Popup**。数据走新增只读端点 `GET /api/packet-loss-dashboard/site-detail?site_code=&site_name=`（`packet_loss_dashboard.py:309`）：按 code→name 关联 `site_pl_summary`，原始读数用参数化 `Managed Element LIKE '%(code)'` 查询，窗口与概览同口径（最近 7 个完整自然日、剔除当天），返回 `daily`（逐日 max / 中位 / 受影响小时 / 读数数）与 `hourly`（最后一个完整日 24 小时）。弹窗内：统计条（`ExplainPopover`）+ 每日柱线图 + 逐小时表（搜索 / 排序 / 筛选 / `exportAoaReport` 导出）。
@@ -1461,7 +1470,13 @@ UME 侧 KPI 的采集结果：业务量、成功率、失败分因（系统侧 /
   **不要**改成 `AVG(Cell_Availability)` —— 那会把大区与小区权重拉平，`avail_recon_sync.py`
   顶部记录了 v1 因口径错误返工的经过。日/周/月三档直接复用表里重建任务算好的
   `Begin_Time` / `WK` / `Month` 列，页面与后端**都不自己推周号**。
-- **数字悬浮说明（2026-11-03，`AGENTS.md` 三.3c）**：三张矩阵的卡标题、四张 KPI 卡标题各挂
+- **顶部汇总卡（2026-11-17 改版，用户要求）**：只有**三张**制式卡（2G / 3G / 4G），
+  卡标题就写制式本身、**居中加粗**，数字与「Period」副行一并居中（`StatCard` 的 `align="center"`），
+  三张用 `md={8}` 铺满一行。原先第四张「未匹配主数据占比」卡已**去掉** —— 该桶的数据没消失：
+  区域表末行 `UNMATCHED` 照旧单列，Excel 的 `Summary` 页也仍导出占比（`i18n.tsx` 的
+  `availMs.unmatchedShare` 保留就是给导出用的；`availMs.kpiTech` / `availMs.unmatchedTip`
+  两个键随卡片一起删除）。
+- **数字悬浮说明（2026-11-03，`AGENTS.md` 三.3c）**：三张矩阵的卡标题、三张 KPI 卡标题各挂
   `MetricExplain::ExplainIcon`（讲这一列怎么算），矩阵每个可用率数字本身挂 `ExplainPopover`
   （讲这一格：`分子 681 / 分母 717` + 分母是**站点-日**观测数、分子是这些观测的可用率累加、
   因此是站点-日加权、环比、点击下钻）。此前这里只有一个 `Tooltip title=` 原生提示，
@@ -2672,6 +2687,9 @@ TT 复盘抽屉（`TtPostmortemPanel.tsx:693-710`）的红字
 - **列显隐 + 视图模板**：保存/套用/删除（:415,312,324 → `/api/tables/view-templates`）。同一张表经常只看固定几列时，存个模板比每次勾选快。
 - **导入**（:412 → `POST /api/tables/import`，:149，`multipart/form-data`）。
 - **画像页签**：字段级统计（:572 → `GET /api/tables/{t}/profile`，:273），与"数据"页签并列（:548）。
+- **门户内嵌版只留搜索栏**（2026-11-16，用户要求）：统一门户 `/v3/olbrportal/` 的 Knowledge Q&A →「Master Site」页签用 `?embed=1` 打开本页，此时**整块工具栏不渲染**（表名下拉、行/列徽章、导出/导入/排除名单/MW Links/自定义列一并不渲染，`TableBrowser.tsx:687`），页头只剩搜索栏（:638），也不再套 `Card`——卡片本身就是那个占满首屏的空面板。独立页 `?page=tables` 的工具栏**照旧**（导入/导出/自定义列是那边的正经功能）。
+  判据与 `App.tsx::readEmbedMode` 一致（`?embed=1` / `?embed=true` / `?layout=bare`），但**刻意不含 `?page=`**（`TableBrowser.tsx:139`）：本页独立访问时地址栏也永远带 `?page=tables`，把它算作内嵌会把工具栏一起砍掉。门户 iframe 的 `&embed=1` 由 `olbr.js::qaSrc` 补（`v3/olbrportal/assets/olbr.js`）。
+  「本地权威表 0 行」提示条不受影响，内嵌版照样显示（它讲的是"这次读数为什么是 0"，属异常告知而非口径解释，见 AGENTS.md 三.3b 的例外）。
 
 ## 20. 数据上传（`?page=upload`）
 
@@ -3692,6 +3710,12 @@ created_time → last_create_time → last_schedule_time → last_accept_time
 - 后端：`backend/services/pm_workflow_service.py`
   （`build_workflow()` / `drill_workflow()`），路由 `GET /api/pm-analysis/workflow`
   与 `GET /api/pm-analysis/workflow-drilldown`；
+- **门户 QC 面板也读这个模块**（2026-11-16 加）：`waiting_snapshot(key, with_window=False)`
+  返回某个节点的「当前滞留」数量 + 明细，用的是与 `_milestones()` 相同的
+  `_current_milestone()` 判定，所以「门户卡数字 == 本页里程碑的 `waiting` == 下钻行数」
+  三者在构造上相等。`/v3/olbrportal/` 的 PMT 卡就是用它取「等待 PM Manager Approve」
+  （`pm_approved`）的那批工单（实测 822）。门户侧没有第二份状态词表；
+  改口径/改状态映射仍然只改本模块这一处；
 - 前端：`pmAnalysis/PmMilestones.tsx`（里程碑条，每格两个大字号数字）+
   `pmAnalysis/PmMilestoneDrillModal.tsx`（明细弹窗，可导出）；
 - 每格显示 **已完成 `done`**（走过该节点）与 **当前滞留 `waiting`**（等下一环节），
@@ -4189,9 +4213,9 @@ Excel `BP Cells List` 的 `Cluster`/`Layer` 列有脏值（如数字 ID `'4593'`
 
 | 项 | 值 |
 | --- | --- |
-| 表 | `speedtest_data`（由 `Speedtest.xlsx` 导入） |
-| 行数 | 854 行，日期 2025-07-16 ~ 2026-09-24 |
-| 运营商取值 | 只有 `Orange`（434 行）与 `Lonestar Cell MTN`（420 行） |
+| 表 | `speedtest_data`（由 `Speedtest.xlsx` 导入，可被「数据上传」页整表重导） |
+| 行数 | 950 行，日期 2025-07-16 ~ 2026-11-12（2026-11-16 那次重导后的实测值；重导会变） |
+| 运营商取值 | 只有 `Orange`（483 行）与 `Lonestar Cell MTN`（467 行） |
 | 品牌归一 | `provider ILIKE '%orange%'` → ORANGE；`%mtn%` 或 `%lonestar%` → MTN；其余 OTHER（当前为 0 行） |
 | 展示名 | ORANGE 显示 `Orange`、MTN 显示 `MTN`。**`Lonestar Cell MTN` 只是 MTN 在利比里亚的注册全称**，页面上过长的名字会挤变形表格列宽与图表图例，故一律用简称；改名只动 `BRAND_LABELS`，**匹配 pattern 仍必须保留 `%lonestar%`**，否则 MTN 的 420 行会全部落到 OTHER |
 | 四个指标列 | 下载 `download_speed_mbps`、上传 `upload_speed_mbps`、时延 `multi_server_latency`、抖动 `multi_server_jitter` |
@@ -4201,6 +4225,18 @@ Excel `BP Cells List` 的 `Cluster`/`Layer` 列有脏值（如数字 ID `'4593'`
 **口径唯一真相源**：`backend/services/bm_speedtest_caliber.py`。页面与接口都不含业务口径，
 改口径只改这一处。数据访问在 `backend/services/bm_speedtest_service.py`，
 路由在 `backend/routers/bm_speedtest.py`（前缀 `/api/bm-speedtest`）。
+
+> **⚠️ 表可整表重导，列集会变 —— `device` 是唯一的可缺列（2026-11-16 事故）**
+> 用户可以在「数据上传」页用 `POST /api/tables/import` 覆盖 `speedtest_data`。2026-11-16 15:55
+> 重导的新版导出（950 行）**没有 `device` 列**，而 `base_sql()` 当时把该列写死在 SELECT 里，
+> 于是三个接口全部报 `字段 "device" 不存在`（HTTP 仍 200，错误塞在 `meta.warnings`），
+> 整页卡片/曲线全空 —— 用户看到的就是「页面是空的」。
+> 现在：`cal.base_sql(columns=...)` 按**实际列名**投影，缺 `device` 时用字面量 `'all'` 顶替
+> （该列实测恒为 `all`/空串，不携带信息，两者在下游等价）；`bm_speedtest_service._table_columns()`
+> **每次请求现取列名、不缓存**（表可能被热重导，缓存会让故障复现到进程重启为止）。
+> 其它列仍属必需：`provider` / `aggregate_date` / 四个指标列 / `test_count` / `sample_count` /
+> `device_count` 缺任何一个都该报错，不要加进「可缺」名单。
+> 回归用例：`tests/test_bm_speedtest_missing_device.py`（只校验 SQL 生成，不连库）。
 
 **几个刻意的设计决定，改之前请先读理由**：
 
@@ -4351,8 +4387,16 @@ MTN 胜 206 天；上传 ORANGE 194 / MTN 224；时延 ORANGE 胜 299 天。
 4. **`day` 只能用在 SELECT 别名，不能在 WHERE 里引用。** 本表与 §31 不同 ——
    `time::date AS day` 只是投影别名，WHERE 阶段尚不存在。**实测报
    `字段 "day" 不存在`**，必须写 `time::date = ?`（见 `bm_meta_service.build_drilldown`）。
-5. **默认时间窗是 365 天而不是 §31 的 90 天。** 本表跨度 612 天，
-   短窗口会把「Orange 长期落后但近期收窄」这类长期结论切掉。
+5. **默认时间窗是 30 天。** 2026-11-16 由 365 天收窄（用户要求页面默认看最近一个月）：
+   首屏要回答的是「这个月两家谁快、差多少」，用 365 天会把近期变化摊平成「一年平均」；
+   要看长期趋势时，页面上的 `90 / 180 / 365 天 / 全部` 四档随时可切（§32.5a）。
+   「30 天」出现在两处、含义不同，**改一处要想着另一处**：
+   - **页面默认窗**（`BmMeta.tsx` 首个 effect）：`quick` 初值 `'30'`，右端取
+     `filters.max_date`（数据实际最大日）—— 与点「近 30 天」拿到的是同一个窗口；
+   - **接口默认窗**（`routers/bm_meta.py::_default_window()` = `cal.window_ending_at(max_date, 30)`）：
+     不传日期调用 `/overview`、`/trend`、`/drilldown` 时用的窗口，右端同样是数据最大日，
+     取不到数据才回落 `cal.default_window(30)`（按今天推）。
+   两者规则相同、实现分开：页面**不依赖**后端默认窗（它永远显式传 start/end）。
 6. **没有运营商/区域筛选器。** 本表没有第三列可归一的运营商维度，
    两家就是两个固定列，不存在匹配歧义，故 `_where()` 只过滤时间。
 
@@ -4370,9 +4414,9 @@ MTN 胜 206 天；上传 ORANGE 194 / MTN 224；时延 ORANGE 胜 299 天。
 
 **网络侧 KPI 层**（无胜负、无评分）：6 张汇总卡（均值 + 极值）+ 单线趋势。
 
-> **PK 层的 6 张卡排在同一行**（2026-10-01 调整，见 §32.5c）。
-> 此前是「结论 + 评分」一行、四张速率卡另一行，共两行；合并后为
-> `结论(xl=8) + 评分(xl=4) + 均速×2(xl=4) + 区间×2(xl=4)` = 24 栏一行 6 张。
+> **PK 层的 5 张卡排在同一行**（2026-11-16 调整，见 §32.5c）：结论 + 评分 + 均速×2 + 区间×1。
+> 「区间范围」原先 Orange / MTN 各一张，一行为 6 张卡时 24 栏装不下、第二张被挤到
+> 下一行（且高度不同），现已**合并成一张卡**（卡内两家各一行），整行 5 张用 flex 均分。
 > 窄列下卡片配的是**短文案键** `bmm.card.winDaysShort`（「领先 17 天」），
 > 而表格/下钻仍用长文案 `bmm.card.winDaysFmt`（「领先 17 / 29 天」）—— 两者并存是刻意的，
 > 窄卡塞不下长句。**改文案时两个键都要看**。
@@ -4407,16 +4451,23 @@ MTN 胜 206 天；上传 ORANGE 194 / MTN 224；时延 ORANGE 胜 299 天。
   所以只要它被触发，每个区块都会同步换数。
   **不要另建「局部刷新」的旁路** —— 那必然造成「改了日期但部分区块没变」。
 - **快捷窗的右边界必须取数据实际最大日**（`filters.max_date`），**不是 `dayjs()`（今天）**。
-  本表快照日 2026-09-23、页面运行日 2026-09-30，两者差 7 天；若用今天做右边界，
+  本表快照日 2026-11-11、页面运行日 2026-11-16，两者差 5 天；若用今天做右边界，
   「近 30 / 90 / 180 / 365 天」四档的右端会**完全相同**，只有左端在动，
-  用户会认为「点了没反应」。实测现在是
-  30 天 → 逐日 30 行、90 天 → 90 行、180 天 → 180 行、365 天 → 365 行、全部 → 612 行，各不相同。
+  用户会认为「点了没反应」。实测（2026-11-16，全表 661 天）：
+  30 天 → 逐日 30 行、90 天 → 90 行、180 天 → 180 行、365 天 → 365 行、全部 → 661 行，各不相同。
+- **首次加载的默认窗（近 30 天）与快捷档同一窗口**：右端取 `filters.max_date`，
+  `start = max_date - 29`、`end = max_date`（`BmMeta.tsx` 首个 effect，只调 `/filters`
+  拿范围，**不拿整页概览**）。两个坑都踩过：
+  - 若改用后端返回的 `meta.start/end` 而旧后端默认窗仍是 365 天，页面会开在 365 天上；
+  - 若把「概览响应先塞进 data」再按新窗口重新取，**首屏会先闪一个错窗口的数字**
+    （2026-11-16 实测闪 0.9 秒：「MTN」→「Orange」）。所以概览一律交给依赖 `start/end`
+    的 `load()`，首屏宁可短暂显示「—」。
 - **手动改日期后清掉快捷窗高亮**（落到 `custom` 档），否则会出现
-  「日期已经是自定义，分段控件仍高亮『近 365 天』」的错位显示。
+  「日期已经是自定义，分段控件仍高亮『近 30 天』」的错位显示。
 
-### 32.5b 同一行卡片等高（2026-10-01 修复）
+### 32.5b 同一行卡片等高（2026-10-01 修复，2026-11-16 改为 5 等分）
 
-四组卡片行（结论+评分 / 四张速率卡 / 六张网络侧 KPI 卡）都做等高。
+两组卡片行（PK 行 = 结论 + 评分 + 均速×2 + 区间×1；网络侧 6 张 KPI 卡）都做等高。
 **三个条件缺一不可**，少一个就会出现「有副标题的卡比没副标题的卡高一行」：
 
 1. `<Row align="stretch">` —— 让 Col 在同一行内被拉伸到最高者；
@@ -4443,24 +4494,36 @@ MTN 胜 206 天；上传 ORANGE 194 / MTN 224；时延 ORANGE 胜 299 天。
 > `*_win_rate`），没有为了填满而引入新指标 —— 这类「看起来空」的卡片要优先用
 > 真实的、可下钻的数字填充，否则就只是无意义的装饰。
 
-**进一步：把两行并成一行。** 只补内容仍不够 —— 每张卡本来就只有一两个数字，
-拆成两行之后整块很高、卡内依旧留白。所以把 PK 层的 6 张卡并到**同一行**：
+**进一步：把六张并成一行、再并成五张。** 只补内容仍不够 —— 每张卡本来就只有一两个数字，
+拆成两行之后整块很高、卡内依旧留白。所以先把 PK 层的 6 张卡并到同一行，
+2026-11-16 又把两张「区间范围」合并成一张、整行改为 flex 均分：
 
 | 卡 | 列宽 | 说明 |
 | --- | --- | --- |
-| 结论（奖杯） | `xl=8` | 内容最多，含徽章 + 三行文字 |
-| 综合评分 | `xl=4` | 两家并排，窄列下改成**纵排居中**，字号下调 |
-| 均速 ×2 | `xl=4` | Orange / MTN |
-| 区间 ×2 | `xl=4` | Orange / MTN |
+| 结论（奖杯） | `flex: 1 1 0`（1/5） | 竖排：奖杯 + 品牌名一行，下面分差与胜场 |
+| 综合评分 | `flex: 1 1 0` | 两家并排，窄列下改成**纵排居中**，字号下调 |
+| 均速 ×2 | `flex: 1 1 0` | Orange / MTN（`StatCard`） |
+| 区间 ×1 | `flex: 1 1 0` | 卡内两家各一行：`Orange 7.5 ~ 16.8` / `MTN 11.1 ~ 16.4`，行仍可点下钻 |
 
-合计 8 + 4×5 = 24 栏，`xl` 及以上正好一行；`lg` 及以下退化为两列/单列堆叠。
+**为什么用 flex 而不是 span**：5 张卡在 24 栏里没有整数解（24/5 = 4.8），
+用 span 只能 8+4×5=28（换行）或 8+4×4=24（宽窄不一）。改成 `Col flex="1 1 0"` +
+`minWidth:0` 后五张严格等宽，`Row align="stretch"` 保证等高。
+`≥1200px`（`screens.xl`）才 5 等分；更窄时（结论卡不足 190px 会被挤爆）
+退回 `xs=24 / sm=12` 的两列、单列，与全站其它卡片行一致。
+**合并带来的文案变化**：卡头不再带品牌名（`bmm.card.rangeLabel` 保持「区间范围 /
+Observed range」），品牌名改到卡内每行前面；英文结论卡标题同时由
+`Composite competitiveness verdict` 缩短为 `Competitiveness verdict`，
+否则 1280 宽会被卡头截成 `…verd`。
+
 **代价与取舍**：窄列放不下长句，所以新增了短文案键 `bmm.card.winDaysShort`
 （「领先 17 天」）用于卡片，表格与下钻仍用 `bmm.card.winDaysFmt`（「领先 17 / 29 天」）——
 **这不是重复定义，是两处信息容量不同**，改文案时两个键都要改。
 
 ### 32.6 实测基线（可用于回归比对）
 
-默认 365 天窗口（2025-10-01 ~ 2026-10-01，358 天）：
+> 下面这组数是在 **365 天窗口**（2025-10-01 ~ 2026-10-01，358 天）下实测的，
+> 留作回归比对用；**默认窗口 2026-11-16 起已改为 30 天**，打开页面看到的是近 30 天
+> （2026-10-13 ~ 2026-11-11，30 行，ORANGE 胜 30 / MTN 胜 0）。要看长窗口结论请手动切档。
 
 - 速率：ORANGE 均值 12.13（7.90~15.18），MTN 均值 14.04（11.09~16.38）；
 - 评分：**MTN 100.0 / ORANGE 86.4**；
@@ -4919,6 +4982,60 @@ FROM "5mins_3G_FDD_DATA_TRAFFIC_TEMPLATE_OSS_UME"
 > 运行前记得 `$env:PYTHONIOENCODING='utf-8'`，否则中文日志在 GBK 控制台会抛
 > `UnicodeEncodeError`。
 
+## 33c. CN 小时 KPI 看板（`?page=cn_hourly_kpi`）—— KPI Template.xlsx 的小时粒度数据（2026-11-18 新增）
+
+xGW 会话/吞吐容量与 MGW/MRFP 资源利用率的**小时粒度**（gr=3600）看板，可按日期区间
+（默认最近 7 天、上限 31 天）回看。数据源是 UME 网管「KPI 模板管理」导出件
+`backend\services\cn_kpl\KPI Template.xlsx`（2026-11-17 新建的 8 个模板批），
+由 `cn_kpl\cn_hourly_kpi_service.py` 解析 `template` sheet 后**复用既有 CNN 查询管线**
+组包（`build_cnn_kpi_payload` → create/poll/export → `read_xlsx_bytes`），
+写库走 `DbWriterClient` upsert 进 `db_ps_cs_cn` 的 `<模板名>_UME` 三张新表。
+
+### 33c.1 口径决定（用户 2026-11-18 定）
+
+1. **Resource_Utilization 与 Resource_Capacity 两族模板重复，只保留 Utilization 一族**
+   —— 三个 MGW/MRFP Utilization 模板（items/motid/grouplayer 完全一致）取
+   `CS_MRFP96_Resource_Utilization_OSS` 一个即可，实测导出自动包含全部网元
+   （MGW_91/MGW_92/MRFP_96）；Capacity 族为 6 个原始 counter，弃用。
+2. **Object Scope = ALL**：payload 的 `filterlayer="all"` 即对应此选择。
+3. 参与模板共 3 个：`PS_xGW_Session_Capacity_OSS` / `PS_xGW_Throughput_Capacity_OSS` /
+   `CS_MRFP96_Resource_Utilization_OSS`，全部 gr=3600（一小时档）。
+4. **首次回补一个月**（31 天）：`python -m backend.services.cn_kpl.cn_hourly_kpi_service --days 31`；
+   日常由任务 `cn_hourly_kpi_sync` 每天 06:20 增量（默认 2 天窗口）。
+
+### 33c.2 解析坑（实测踩过，改代码前必读）
+
+- xlsx 布尔列是**字符串** `"false"`/`"true"`，`bool("false")` 是 True —— 必须显式判
+  （`_cell_bool`）；motid/templateid/gr 保持字符串；items/itemsposition 是 JSON
+  字符串且两数组长度必须一致。
+- 登录链路（auth_manager → cryptography）只能用 my_app 实际运行环境（系统 Python312）；
+  DSH 内置 python 缺 `cryptography` 会登录失败。
+- 导出 0 行视为空态跳过（与 5 分钟任务同约定），不算失败。
+- 任务必须登记 `worker_watchdog.py` 的 `GROUP_TASK_MAP["n"]`（与 `cnn_kpi_sync` /
+  `cnn_kpi_sync_5mins` 同登 CNN UME 共享会话，同组串行避免互踢）——漏了队列 pending 卡死。
+
+### 33c.3 页面与 API
+
+- `GET /api/cn-hourly-kpi/overview?start=&end=&force=`：7 个组件，每个一条
+  `[Hour, Series(NE 或 ALL), Value]` 三列 SQL，前端按第 2 列 pivot 成线；
+  列名守卫复用 `cn_kpi_5mins_service` 的实现（SQLite 未知双引号标识符不报错恒为 0 的防线）。
+- 组件清单：xGW PFCP 会话用量/占用率、xGW 吞吐用量/占用率、MGW/MRFP TONE/TC/RTP 利用率。
+  占用率 = Σ已用×100÷Σ授权（全网元加权）；资源利用率是上游复合 KPI 直接返回的原值
+  （公式见 xlsx `index` sheet，如 `100*C408230024/(Gr*C408230021)`），页面不二次换算。
+- 卡头 ⓘ 口径文案在 `i18n.tsx` 的 `cnhourly.explain.*`（中英双份），**与
+  `cn_hourly_kpi_service._widgets` 的 SQL 逐条对应**，改 SQL 必须同步改。
+
+### 33c.4 相关文件
+
+| 文件 | 作用 |
+| --- | --- |
+| `backend\services\cn_kpl\KPI Template.xlsx` | UME 模板导出件（模板真相源，上游改模板后重新导出即可） |
+| `backend\services\cn_kpl\cn_hourly_kpi_service.py` | xlsx 解析 + 同步（写库）+ 页面读取侧 |
+| `backend\routers\cn_hourly_kpi.py` | `/api/cn-hourly-kpi/*` |
+| `frontend\src\pages\CnHourlyKpi.tsx` | 页面（日期区间 + 7 组件 pivot 线图） |
+| `backend\task_registry.py` | `TASK_SPECS` 登记 `cn_hourly_kpi_sync` |
+| `backend\worker_watchdog.py` | `GROUP_TASK_MAP["n"]` 加入该任务 |
+
 ## 34. WO 清理 —— 批量关闭待确认工单（`?page=eflow_qa` 左栏，2026-10-01 新增）
 
 eFlow 里 FE 处理完后大量 WO 停在 `WaitConfirm`（待 NOC 确认关闭），
@@ -4946,10 +5063,43 @@ eFlow 里 FE 处理完后大量 WO 停在 `WaitConfirm`（待 NOC 确认关闭�
    的 `filter` 支持 `((status eq "A") or ...) and (lastModifiedTime ge n) and (woNum contains "xx")`
    复合表达式，但单测 `status eq` 看不出效果。
 
+### 34.2b ⚠ 2026-11-16 实测：没有待办任务（`taskId`）时接口一律关不掉
+
+线上单 `WO202611090037` 提交返回
+`HTTP 500 {"message":"TaskId not exist","code":48990049}`，逐项排查后确认**不是 payload 问题**：
+
+| 排查动作 | 结果 |
+| --- | --- |
+| 原实现（18 键 flowEntity，`taskId=null`） | 48990049 |
+| 去掉值为 null 的键（对齐前端 `if(null!=value)` 行为） | 48990049 |
+| 加 `verifyKey`（`FlowEntity`/`OpEntity`） | 48990049 |
+| 最小 flowEntity / 空 flowEntity | 48990049 / `48990005 Illegal Parameter!` |
+| `needStartProcess=false` | 48990049 |
+| 批量形态 `woIdNumList + flowRequest` | 48990049（`/base/batchProcess` 未配置，403） |
+| 换 3 张不同的 WaitConfirm 单、故意传无效 `opEntity.id` | **全部 48990049** |
+
+关键事实：
+
+- 当前 eFlow 版本下，`base/detail` 的 `flowEntity` **没有 `taskId` 字段**（60 张单抽样 0 命中），
+  `pendingEntities` 也恒为空；`base/list` 全字段返回同样没有 `taskId`。
+- 同账号查 **TT** 的 detail 也拿不到 `taskId` —— 说明它是**账号视角**字段：
+  待办任务只回给该任务的候选处理人，而当前凭据账号（`candidateOperator` 里出现的
+  `G:ZTE_NOC_FO` 之外）不是这些单的候选人。
+- 服务端在解析 `opEntity` 之前就先查任务，所以无论 op id 对不对都是同一个错。
+
+**结论与动作**：接口层无法代关。要用「`ZTE_NOC_FO` 组内、在 eFlow 界面能看到该单
+Confirm 待办」的账号（设置页 → 凭据管理 → `eflow` 组）才能关闭。在那之前：
+
+- 预检把 `taskId` 为空判为**不可关**，`reason` 写明 48990049 与换账号的处置，
+  `summary.task_missing` 单独计数（`/wo-close/check` 的日志也会打印）；
+- 提交在发写请求**之前**就拦下并返回同一条原因，不再发出注定 500 的请求；
+- 若 `taskId` 有值但服务端仍返回 48990049，`message` 会带上原始返回，便于判断是任务过期。
+
 ### 34.3 安全边界（不要放松）
 
-- 服务层只对 `status=WaitConfirm 且 opName=Confirm 且存在待办 Confirm op` 的单提交；
-  其它状态一律 `skipped` 并写明原因，**已 Closed 的单重跑安全（幂等）**。
+- 服务层只对 `status=WaitConfirm 且 opName=Confirm 且存在待办 Confirm op
+  且 flowEntity.taskId 非空` 的单提交；其它状态一律拒绝并写明原因，
+  **已 Closed 的单重跑安全（幂等）**。
 - 只做关闭，不做 Reject / 重开 / 删除；`MAX_BATCH=200`、逐单串行 + 1s 间隔。
 - 前端强制「预检只读 → 勾选 → Modal 二次确认」才提交，预检与提交是**两个独立接口**。
 - 提交后逐单**回读 detail 复核**是否真的 Closed（HTTP 200 不代表成功）。
@@ -4957,6 +5107,8 @@ eFlow 里 FE 处理完后大量 WO 停在 `WaitConfirm`（待 NOC 确认关闭�
 ### 34.4 已知行为
 
 - 单号格式严格 `WO + 12 位数字`，其它内容进 `invalid` 列表提示但不阻断合法部分。
+- 预检显示**不可关**、原因里带 `48990049 / TaskId not exist` 时，别当工具坏了：
+  先读 34.2b —— 是当前 eFlow 账号没有该单的 `Confirm` 待办任务，需要换组内账号。
 - `not_found` = eFlow 活跃集合没有这单（通常是**已被别人关闭**或单号写错；
   本地库 `eflow_wo.status` 是同步快照，不能作为是否需要关闭的依据）。
 - 关闭后本地 `eflow_wo` 表要等下一次 eflow 同步任务才会变 `Closed`。
