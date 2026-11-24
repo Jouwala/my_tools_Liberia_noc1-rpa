@@ -354,6 +354,10 @@ _DEP_EWS_KEYS = (
     "RateLimitError", "UnauthorizedError", "Invalid credentials", "HTTP 401",
     "back off", "ServerBusy", "ErrorServerBusy", "exchmail",
     "Unable to connect to the remote server",
+    # 2026-11-18：通道降级时 ews_deferral 写的主动延后记录（trigger=deferred）。
+    # 不加这条，探测 detail 为空时会被判成「任务真停摆」而逐条告警 —— 明明是同一次
+    # EWS 故障，却又退回 2026-09-18 那种「14 个报表任务各自逾期」的刷屏。
+    "EWS_DEFERRED",
 )
 _DEPENDENCY_FAIL_KEYS = (
     # EWS / 邮件网关

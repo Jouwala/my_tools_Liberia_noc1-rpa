@@ -1242,6 +1242,42 @@ def is_master_switch_exempt(task_id: str) -> bool:
     return task_id in MASTER_SWITCH_EXEMPT_IDS
 
 
+# EWS 邮件通道**已确认不可用**时，可以整轮延后（不执行）的任务。
+#
+# 2026-11-18 用户要求：通道没恢复时邮箱任务不必再跑一遍，等恢复且时效未过再执行。
+# 门禁在 task_runner.run_task 执行前判定（见 services/ews_deferral.py）：只对定时
+# 触发生效；延后记录带 EWS_DEFERRED 标记，恢复后由 email_recovery 按 hourly /
+# eight_hour / daily 既有档位补发，过期丢弃。
+#
+# ⚠️ 只收**纯发信**任务（生成报表 → 发邮件，没有别的副作用）：
+#   - 带数据同步的 fw_kpi_sync / ume_in_osg_report **不收**：延后会让同步一起停；
+#   - 带 WhatsApp 副通道的 sp_email_details / sp_online_report_send **不收**：
+#     邮件失败时它们仍会照发群（kpi_email_report.py 里明确「互不阻塞」），
+#     整轮延后等于把还能用的群发也停掉。
+# 新增邮件任务若同时带同步/群发/远端写库，**不要**加进来；纯发信任务可加。
+EWS_DEFERRABLE_IDS = frozenset({
+    "liberia_email_1h",
+    "liberia_email_8h",
+    "kpi_ms_contract",
+    "kpi_ms_wo_sla",
+    "kpi_sp_spareparts",
+    "kpi_sp_consumables",
+    "kpi_ran_availability",
+    "sp_details_files_email",
+    "sp_weekly_report",
+    "sp_material_report",
+    "packet_loss_email",
+    "ccn_free_rating_chart_email",
+    "mtn_mou_daily_email",
+    "battery_email",
+    "ipran_m6k_chart_email",
+    # 不是报表发信任务，但整条链路都依赖 EWS：通道不可用时探测/清理都无意义，
+    # 同样延后；它不在 email_recovery.EMAIL_TASK_IDS 内，恢复后不需要补发，
+    # 下一轮整点定时自然恢复。
+    "mailbox_cleanup",
+})
+
+
 def register_all_tasks(task_runner) -> int:
     """将 TASK_SPECS 中的全部任务注册到 task_runner，返回注册数量"""
     # 局部导入：task_stats 只依赖 database/dialect_helpers，无环；放函数内与本章
@@ -1273,6 +1309,8 @@ def register_all_tasks(task_runner) -> int:
             call_chain=call_chain,
             # 主开关豁免随注册一并注入，供 task_runner 的批量切换与 /api/tasks 回传使用
             master_switch_exempt=is_master_switch_exempt(spec["task_id"]),
+            # 邮箱通道降级时可否整轮延后（纯发信任务，见 EWS_DEFERRABLE_IDS）
+            defer_on_ews_down=spec["task_id"] in EWS_DEFERRABLE_IDS,
         )
         # 低频任务（如月报）在 7 天保留期外没有任何执行记录，登记产物库兜底提供者，
         # 让任务列表仍能显示「最近一次运行」而不是 No Record（详见 task_stats 注释）。

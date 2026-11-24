@@ -4,6 +4,7 @@ import { Button, Collapse, List, Modal, Space, Tag, Typography, message } from '
 import {
   CheckCircleFilled,
   CloseCircleFilled,
+  ClockCircleFilled,
   HistoryOutlined,
   DownloadOutlined,
 } from '@ant-design/icons'
@@ -144,24 +145,35 @@ export function TaskHistoryModal({
           dataSource={runs.slice(0, visible)}
           renderItem={(run: RunRecord) => (
             <List.Item style={{
-              background: run.success ? 'rgba(82, 196, 26, 0.05)' : 'rgba(255, 77, 79, 0.05)',
+              // 延后不是失败：用琥珀色，避免“邮箱通道降级”看起来像任务本身坏了
+              background: run.success
+                ? 'rgba(82, 196, 26, 0.05)'
+                : run.trigger === 'deferred' ? 'rgba(250, 173, 20, 0.06)' : 'rgba(255, 77, 79, 0.05)',
               borderRadius: 'var(--wh-radius-md)',
               padding: 'var(--wh-space-sm) var(--wh-space-md)',
               marginBottom: 'var(--wh-space-xs)',
-              border: `1px solid ${run.success ? 'rgba(82, 196, 26, 0.2)' : 'rgba(255, 77, 79, 0.2)'}`,
+              border: `1px solid ${run.success
+                ? 'rgba(82, 196, 26, 0.2)'
+                : run.trigger === 'deferred' ? 'rgba(250, 173, 20, 0.25)' : 'rgba(255, 77, 79, 0.2)'}`,
             }}>
               <List.Item.Meta
                 avatar={run.success
                   ? <CheckCircleFilled style={{ color: '#52c41a', fontSize: '1.125rem' }} />
-                  : <CloseCircleFilled style={{ color: '#ff4d4f', fontSize: '1.125rem' }} />
+                  : run.trigger === 'deferred'
+                    ? <ClockCircleFilled style={{ color: '#faad14', fontSize: '1.125rem' }} />
+                    : <CloseCircleFilled style={{ color: '#ff4d4f', fontSize: '1.125rem' }} />
                 }
                 title={
                   <Space>
-                    <Tag color={run.success ? 'green' : 'red'}>
-                      {run.success ? (locale === 'zh' ? '成功' : 'Success') : (locale === 'zh' ? '失败' : 'Failed')}
+                    <Tag color={run.success ? 'green' : run.trigger === 'deferred' ? 'gold' : 'red'}>
+                      {run.success
+                        ? (locale === 'zh' ? '成功' : 'Success')
+                        : run.trigger === 'deferred'
+                          ? (locale === 'zh' ? '已延后' : 'Deferred')
+                          : (locale === 'zh' ? '失败' : 'Failed')}
                     </Tag>
                     <Text style={{ fontSize: '0.75rem', color: WH.textMuted }}>
-                      {run.trigger === 'manual' ? '🔧' : '⏰'} {formatDateTime(run.started_at, { zone: true })}
+                      {run.trigger === 'manual' ? '🔧' : run.trigger === 'deferred' ? '⏸' : '⏰'} {formatDateTime(run.started_at, { zone: true })}
                     </Text>
                   </Space>
                 }

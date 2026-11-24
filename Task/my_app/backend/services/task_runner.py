@@ -621,6 +621,7 @@ def register_task(
     call_chain: list | None = None,
     master_switch_exempt: bool = False,
     is_test: bool | None = None,
+    defer_on_ews_down: bool = False,
 ):
     """
     注册一个可调度的任务。
@@ -643,6 +644,10 @@ def register_task(
             断言 task_execution_log），但**跳过失败通知**（微信/邮件），避免单元
             测试刻意构造的失败把告警推给运维。测试记录对运维视图的隔离由
             task_stats 的 TEST_TASK_PREFIX（`__t_`）过滤负责，那里不依赖本开关。
+        defer_on_ews_down: 邮箱通道（EWS）已确认不可用时，定时触发直接延后、不执行。
+            只应给**纯发信**任务置位（见 task_registry.EWS_DEFERRABLE_IDS 与
+            services/ews_deferral.py）：带数据同步 / WhatsApp 副通道的任务置位会把
+            那些副作用一起停掉。手动触发不受影响。
     """
     if is_test is None:
         is_test = False
@@ -688,6 +693,8 @@ def register_task(
         # 回落 False（= 现有行为，主开关照旧覆盖），见 toggle_all_tasks。
         "manually_stopped": bool(saved_manual),
         "is_test": bool(is_test),
+        # 邮箱通道降级时是否延后（见 services/ews_deferral.py）
+        "defer_on_ews_down": bool(defer_on_ews_down),
         "registered_at": datetime.now().isoformat(),
         "call_chain": _annotate_call_chain(_chain_raw, task_id),
         "call_chain_en": _annotate_call_chain(_chain_raw, task_id, lang="en"),
@@ -817,11 +824,26 @@ def run_task(task_id: str, trigger: str = "manual") -> dict:
         "error_trace": None,
     }
 
+    # 邮箱通道已确认不可用时，纯发信任务在**执行前**延后：不生成、不连 EWS、不告警。
+    # 判定复用 email_recovery 落盘的探测状态（见 services/ews_deferral.py）。
+    # 门禁自身异常一律 fail-open：按原样执行，绝不让判定逻辑把任务卡死。
+    deferred_result = None
     try:
-        func_result = task["func"]()
+        from backend.services import ews_deferral
+        deferred_result = ews_deferral.maybe_defer(task, trigger)
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"[{task_id}] EWS 延后判定异常，按原样执行: {e}")
+
+    try:
+        func_result = deferred_result if deferred_result is not None else task["func"]()
         if isinstance(func_result, dict):
             result["success"] = func_result.get("success", True)
             result["result"] = func_result
+            # 延后不是任务故障：记录上标 deferred，且跳过下面的失败告警
+            # （通道状态由 email_recovery 的翻转/升级通知负责）。
+            if func_result.get("deferred"):
+                result["deferred"] = True
+                result["trigger"] = "deferred"
             # 业务失败：任务函数返回 {"success": False, ...} 但未抛异常时，
             # 把其中的 error/message 摘出来，否则页面只显示“失败”却无任何错误信息。
             if not result["success"] and not result.get("error"):
@@ -874,6 +896,16 @@ def run_task(task_id: str, trigger: str = "manual") -> dict:
 
     # 持久化到数据库（测试任务同样落库，便于测试断言；不落库会破坏既有用例）
     _save_task_result(result)
+
+    # 邮箱通道降级导致的延后：不执行、不告警。记录已落库（trigger=deferred、
+    # error 带 EWS_DEFERRED 标记），email_recovery 的失败链会在通道恢复后按时效
+    # 窗口补发；告警由 email_recovery 的「故障翻转 / 持续故障升级」统一负责。
+    if result.get("deferred"):
+        logger.info(
+            "任务已延后（邮箱通道未恢复，未执行）",
+            extra={"task_id": task_id, "event": "task_deferred", "trigger": trigger},
+        )
+        return result
 
     # 测试任务到此为止：不发失败/降级通知，避免单测刻意构造的失败骚扰运维渠道。
     # 测试记录在运维视图里的隔离由 task_stats 的 `__t_` 前缀过滤保证。
