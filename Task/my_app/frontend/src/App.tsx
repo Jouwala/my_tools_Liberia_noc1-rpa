@@ -1,4 +1,4 @@
-import { useState, lazy, Suspense, useEffect, useCallback, useMemo, useRef, Fragment } from 'react'
+import { useState, lazy, Suspense, useEffect, useCallback, useMemo, useRef } from 'react'
 import type { ReactNode } from 'react'
 import { ConfigProvider, Layout, Menu, theme, Button, Spin, Tooltip, Select, Modal, Input, Popconfirm } from 'antd'
 import {
@@ -80,6 +80,7 @@ import {
   type MenuLayoutPayload,
 } from './api'
 import PortalUserMenu from './components/PortalUserMenu'
+import PageErrorBoundary from './components/PageErrorBoundary'
 
 // 路由级代码分割：每个页面独立成 chunk，按需加载，首屏不再一次性下载全部页面
 const TableBrowser = lazy(() => import('./pages/TableBrowser'))
@@ -2301,13 +2302,18 @@ function AppContent() {
               {/* key=refreshTick：自动刷新到点后重挂载当前页面（见文件顶部说明）
                   bootDone 之前 / 未登录（authGate）时不挂载页面：避免页面在会话 Cookie
                   落地前抢跑数据接口拿到 401（首屏「Failed to load data」的根因） */}
-              <Fragment key={refreshTick}>
+              <PageErrorBoundary
+                key={`${currentPage}-${refreshTick}`}
+                title={t('pageError.title')}
+                desc={t('pageError.desc')}
+                reloadLabel={t('pageError.reload')}
+              >
                 {!bootDone || authGate ? (
                   <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '60vh' }}>
                     <Spin size="large" />
                   </div>
                 ) : renderPage()}
-              </Fragment>
+              </PageErrorBoundary>
             </Suspense>
           </Content>
         </Layout>

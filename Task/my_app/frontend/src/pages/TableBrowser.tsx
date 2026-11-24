@@ -121,6 +121,28 @@ export default function TableBrowser() {
   const [colFilters, setColFilters] = useState<Record<string, ColFilter>>({})
   const { t, locale } = useI18n()
 
+  /* 门户内嵌（?embed=1 / ?embed=true / ?layout=bare）判定：内嵌版只留搜索栏。
+   *
+   *  背景（2026-11-16 用户要求，统一门户 /v3/olbrportal/ 的 Knowledge Q&A →
+   *  Master Site 页签）：「去掉工具栏那一块，只保留搜索栏」。
+   *  被去掉的是表名下拉、行/列徽章和导出/导入/排除名单/MW Links/自定义列这一排
+   *  管理动作 —— 在门户那个页签里它们用不到，只是把首屏占满。
+   *
+   *  ⚠️ **独立页不受影响**：侧栏「表格浏览器」（?page=tables）仍渲染完整工具栏，
+   *     导入/导出/自定义列是那边的正经功能，不能一起砍。
+   *  ⚠️ 判据与 App.tsx::readEmbedMode 一致，但**刻意不含 `?page=`**：
+   *     本页独立访问时地址栏也永远带 `?page=tables`，把它算作内嵌会把工具栏砍掉。
+   *     （EmailReports.tsx::isShellLessEmbed 那份含 `?page=`，它判的是「有没有外层
+   *     标题」，与这里的判据目的不同，不要照搬。）
+   *  ⚠️ 门户 iframe 的 src 由 olbr.js::qaSrc 统一补 `&embed=1`，这条判断才有依据；
+   *     改门户侧那行前先看 olbr.js 里 qaSrc 的注释。 */
+  const [embedMode] = useState(() => {
+    try {
+      const sp = new URLSearchParams(window.location.search)
+      return sp.get('embed') === '1' || sp.get('embed') === 'true' || sp.get('layout') === 'bare'
+    } catch { return false }
+  })
+
   const searchTextRef = useRef('')
   const loadingRef = useRef(false)
   const requestIdRef = useRef(0)
@@ -612,109 +634,129 @@ export default function TableBrowser() {
 
   const filterEntries = Object.entries(colFilters)
 
+  /* 搜索栏：独立页与门户内嵌版共用同一份 JSX（占位符、防抖、可访问名只有一处）。 */
+  const searchBar = (
+    <Input.Search
+      placeholder={t('table.searchPlaceholder')}
+      value={searchText}
+      onSearch={handleSearch}
+      onChange={(e) => {
+        const v = e.target.value
+        setSearchText(v)
+        searchTextRef.current = v
+        debouncedSearch(v)
+      }}
+      style={{ width: '100%' }}
+      allowClear
+      // antd 默认 enterButton 是纯图标按钮、没有可访问名称（读屏只报「button」）。
+      // 传自定义 Button 节点，cloneElement 分支会保留 aria-label 与 onClick。
+      enterButton={
+        <Button
+          aria-label={t('table.searchBtnAria')}
+          color="primary"
+          variant="solid"
+          icon={<SearchOutlined />}
+        />
+      }
+    />
+  )
+
+  /* 本地权威表说明（2026-10-23）：
+      这三张表的真实数据只写本地 SQLite，而本页读当前主库（pg 模式下是 PG）。
+      PG 里的同名表是 SQLAlchemy 建的空壳，恒 0 行 —— 不解释的话，
+      用户在设置页存了 19 条凭据、来这里看到 0 行，只会当成「没存上」。
+      只有表确实是空的才提示：将来若某次迁移把数据真灌进了 PG，这里自然不再出现。
+      ⚠️ 它讲的是「这次读数为什么是 0」——属于异常告知，不是口径解释，
+         所以内嵌精简版也要保留（AGENTS.md 三.3b 的例外条款）。 */
+  const localAuthoritativeAlert = isLocalAuthoritative && tableInfo?.row_count === 0 ? (
+    <Alert
+      type="info"
+      showIcon
+      style={{ marginTop: 'var(--wh-space-sm)' }}
+      message={<span style={{ fontSize: 12 }}>{t('table.localAuthoritative')}</span>}
+      action={
+        <Button size="small" onClick={() => window.open(`${window.location.pathname}?page=${LOCAL_AUTHORITATIVE_TABLES[selectedTable]}`, '_self')}>
+          {t('table.localAuthoritativeEdit')}
+        </Button>
+      }
+    />
+  ) : null
+
   return (
     <div>
-      <Card style={controlCardStyle}>
-        <Row gutter={[16, 16]} align="middle">
-          <Col xs={24} sm={12} lg={6}>
-            <Select
-              value={selectedTable}
-              onChange={setSelectedTable}
-              style={{ width: '100%' }}
-              showSearch
-              placeholder={t('table.selectTable')}
-              options={tables.map(tbl => ({ value: tbl.name, label: `${tbl.name} (${tbl.row_count} ${t('common.rows')})` }))}
-            />
-          </Col>
-          <Col xs={24} sm={12} lg={6}>
-            <Input.Search
-              placeholder={t('table.searchPlaceholder')}
-              value={searchText}
-              onSearch={handleSearch}
-              onChange={(e) => {
-                const v = e.target.value
-                setSearchText(v)
-                searchTextRef.current = v
-                debouncedSearch(v)
-              }}
-              style={{ width: '100%' }}
-              allowClear
-              // antd 默认 enterButton 是纯图标按钮、没有可访问名称（读屏只报「button」）。
-              // 传自定义 Button 节点，cloneElement 分支会保留 aria-label 与 onClick。
-              enterButton={
-                <Button
-                  aria-label={t('table.searchBtnAria')}
-                  color="primary"
-                  variant="solid"
-                  icon={<SearchOutlined />}
-                />
-              }
-            />
-          </Col>
-          {tableInfo && (
-            <Col xs={24} lg={6}>
-              <ExplainPopover text={t('table.explain.rowCount')}>
-                <Tag color="blue">{tableInfo.row_count.toLocaleString(numLocale(locale))} {t('common.rows')}</Tag>
-              </ExplainPopover>
-              <ExplainPopover text={t('table.explain.colCount')}>
-                <Tag color="green">{tableInfo.col_count} {t('common.cols')}</Tag>
-              </ExplainPopover>
+      {embedMode ? (
+        /* 门户内嵌版（?embed=1）：只剩搜索栏，见组件顶部 embedMode 的注释。
+           不套 Card —— 卡片本身就是那个「红框」，只装一个输入框会留一大块空面板。
+           宽度按搜索框的常见尺寸收住（22rem），不要让它铺满 1200px 的 iframe。 */
+        <div style={{ maxWidth: '22rem', marginBottom: 'var(--wh-space-md)' }}>
+          {searchBar}
+        </div>
+      ) : (
+        <Card style={controlCardStyle}>
+          <Row gutter={[16, 16]} align="middle">
+            <Col xs={24} sm={12} lg={6}>
+              <Select
+                value={selectedTable}
+                onChange={setSelectedTable}
+                style={{ width: '100%' }}
+                showSearch
+                placeholder={t('table.selectTable')}
+                options={tables.map(tbl => ({ value: tbl.name, label: `${tbl.name} (${tbl.row_count} ${t('common.rows')})` }))}
+              />
             </Col>
-          )}
-          <Col xs={24} lg={tableInfo ? 6 : 12}>
-            <Space wrap style={{ width: '100%' }}>
-              <Dropdown
-                menu={{
-                  items: [
-                    { key: 'xlsx', label: 'Excel (.xlsx)' },
-                    { key: 'csv', label: 'CSV (.csv)' },
-                  ],
-                  onClick: ({ key }) => exportTable(key as 'xlsx' | 'csv'),
-                }}
-              >
-                <Button icon={<DownloadOutlined />} disabled={!selectedTable}>
-                  {t('table.export')}
-                </Button>
-              </Dropdown>
-              <Button icon={<UploadOutlined />} onClick={openImport}>
-                {t('table.import')}
-              </Button>
-              <Button icon={<UploadOutlined />} onClick={() => setExOpen(true)}>
-                {t('table.exBtn')}
-              </Button>
-              <Button icon={<UploadOutlined />} onClick={openMwImport}>
-                {t('table.mwImport')}
-              </Button>
-              <Button icon={<SettingOutlined />} disabled={!selectedTable} onClick={openColModal}>
-                {t('table.customizeCols')}
-              </Button>
-              {visibleCols && (
-                <ExplainPopover text={t('table.explain.visibleCols', { n: shownCols.length, m: tableColumns.length })}>
-                  <Tag color="orange">{t('table.visibleColsTag', { n: shownCols.length, m: tableColumns.length })}</Tag>
+            <Col xs={24} sm={12} lg={6}>
+              {searchBar}
+            </Col>
+            {tableInfo && (
+              <Col xs={24} lg={6}>
+                <ExplainPopover text={t('table.explain.rowCount')}>
+                  <Tag color="blue">{tableInfo.row_count.toLocaleString(numLocale(locale))} {t('common.rows')}</Tag>
                 </ExplainPopover>
-              )}
-            </Space>
-          </Col>
-        </Row>
-        {/* 本地权威表说明（2026-10-23）：
-            这三张表的真实数据只写本地 SQLite，而本页读当前主库（pg 模式下是 PG）。
-            PG 里的同名表是 SQLAlchemy 建的空壳，恒 0 行 —— 不解释的话，
-            用户在设置页存了 19 条凭据、来这里看到 0 行，只会当成「没存上」。
-            只有表确实是空的才提示：将来若某次迁移把数据真灌进了 PG，这里自然不再出现。 */}
-        {isLocalAuthoritative && tableInfo?.row_count === 0 && (
-          <Alert
-            type="info"
-            showIcon
-            style={{ marginTop: 'var(--wh-space-sm)' }}
-            message={<span style={{ fontSize: 12 }}>{t('table.localAuthoritative')}</span>}
-            action={
-              <Button size="small" onClick={() => window.open(`${window.location.pathname}?page=${LOCAL_AUTHORITATIVE_TABLES[selectedTable]}`, '_self')}>
-                {t('table.localAuthoritativeEdit')}
-              </Button>
-            }
-          />
-        )}
-      </Card>
+                <ExplainPopover text={t('table.explain.colCount')}>
+                  <Tag color="green">{tableInfo.col_count} {t('common.cols')}</Tag>
+                </ExplainPopover>
+              </Col>
+            )}
+            <Col xs={24} lg={tableInfo ? 6 : 12}>
+              <Space wrap style={{ width: '100%' }}>
+                <Dropdown
+                  menu={{
+                    items: [
+                      { key: 'xlsx', label: 'Excel (.xlsx)' },
+                      { key: 'csv', label: 'CSV (.csv)' },
+                    ],
+                    onClick: ({ key }) => exportTable(key as 'xlsx' | 'csv'),
+                  }}
+                >
+                  <Button icon={<DownloadOutlined />} disabled={!selectedTable}>
+                    {t('table.export')}
+                  </Button>
+                </Dropdown>
+                <Button icon={<UploadOutlined />} onClick={openImport}>
+                  {t('table.import')}
+                </Button>
+                <Button icon={<UploadOutlined />} onClick={() => setExOpen(true)}>
+                  {t('table.exBtn')}
+                </Button>
+                <Button icon={<UploadOutlined />} onClick={openMwImport}>
+                  {t('table.mwImport')}
+                </Button>
+                <Button icon={<SettingOutlined />} disabled={!selectedTable} onClick={openColModal}>
+                  {t('table.customizeCols')}
+                </Button>
+                {visibleCols && (
+                  <ExplainPopover text={t('table.explain.visibleCols', { n: shownCols.length, m: tableColumns.length })}>
+                    <Tag color="orange">{t('table.visibleColsTag', { n: shownCols.length, m: tableColumns.length })}</Tag>
+                  </ExplainPopover>
+                )}
+              </Space>
+            </Col>
+          </Row>
+          {localAuthoritativeAlert}
+        </Card>
+      )}
+      {/* 内嵌版没有卡片可挂，说明条跟在搜索栏下面（独立版已在卡片里渲染，不要重复） */}
+      {embedMode && localAuthoritativeAlert}
 
       {/* NUR 排除名单上传：固定表名 + 全量替换 + dry-run 预览 */}
       <ExcludeListUpload open={exOpen} onClose={() => setExOpen(false)} />

@@ -31,13 +31,28 @@ def _valid_date(v: str, fallback: str) -> str:
     return v
 
 
-def _window(start: str, end: str) -> tuple[str, str]:
-    """归一化时间窗：默认最近 365 天；start >= end 时回落默认窗口。
+def _default_window() -> tuple[str, str]:
+    """默认时间窗：以**数据实际最大日**为右边界往前 30 天（半开区间）。
 
-    默认 365 天而非 90 天 —— 理由见 `cal.default_window` 的 docstring：
-    本表跨度 612 天，短期窗口会把长期趋势结论切掉。
+    2026-11-16 起默认 30 天（由 365 收窄，用户要求页面默认看最近一个月），
+    且右边界不再用「今天」—— 本表快照日常落后几天（今天 2026-11-16、数据到
+    2026-11-11），用今天会让窗口最后几天是空的，还会与页面上「近 30 天」快捷档
+    差几天（快捷档一直按数据最大日锚定），高亮同一档而区间不同，用户会当成 bug。
+    取不到数据（空库 / 查询异常）时回落到 `cal.default_window(30)` 的今天口径。
     """
-    d_start, d_end = cal.default_window(365)
+    days = 30
+    try:
+        f = svc.build_filters()
+        if f.get("max_date"):
+            return cal.window_ending_at(str(f["max_date"]), days)
+    except Exception as exc:  # 范围查询失败不该让整个接口 500
+        logger.warning("[bm-meta] default window fallback to today: %s", exc)
+    return cal.default_window(days)
+
+
+def _window(start: str, end: str) -> tuple[str, str]:
+    """归一化时间窗：默认最近 30 天（数据最大日锚定）；start >= end 时回落默认窗口。"""
+    d_start, d_end = _default_window()
     s = _valid_date(start, d_start)
     e = _valid_date(end, d_end)
     if s >= e:
@@ -74,15 +89,19 @@ def _empty_overview(start: str, end: str, msg: str) -> dict:
 
 @router.get("/filters")
 def filters():
-    """数据可用范围（时间跨度、两家标签、可下钻指标）。"""
+    """数据可用范围（时间跨度、两家标签、可下钻指标）+ 默认时间窗。
+
+    `default_start/end` 与 `/overview` 的默认窗**必须是同一个函数算的**
+    （`_default_window()`），否则「默认范围」与「不传日期拿到的数据」会对不上。
+    """
     try:
-        d_start, d_end = cal.default_window(365)
-        data = svc.build_overview(*_window("", ""))["filters"]
+        data = svc.build_filters()
+        d_start, d_end = _default_window()
         return {**data, "default_start": d_start, "default_end": d_end,
                 "score_weights": cal.SCORE_WEIGHTS}
     except Exception as exc:
         logger.exception("[bm-meta/filters] failed: %s", exc)
-        d_start, d_end = cal.default_window(365)
+        d_start, d_end = cal.default_window(30)
         return {"min_date": None, "max_date": None, "row_count": 0, "brands": [], "metrics": [],
                 "default_start": d_start, "default_end": d_end,
                 "score_weights": cal.SCORE_WEIGHTS, "error": str(exc)}
